@@ -104,7 +104,14 @@
 <!-- תוצאות הניתוח -->
 <div id="analysis-results" style="display:none; gap: 1rem;">
   <div class="glass-card" style="flex: 1; margin-bottom: 1rem;">
-    <h2 class="section-title">📊 Explain Plan</h2>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap;">
+      <h2 class="section-title" style="margin:0;">📊 Explain Plan</h2>
+      <button class="btn btn-secondary btn-icon" type="button" onclick="copyAnalysisReport(this)"
+              title="מעתיק דוח מסודר בפורמט Markdown, מוכן להדבקה ל-AI">
+        <i class="fas fa-copy"></i>
+        העתק דוח ל-AI
+      </button>
+    </div>
     <div id="explain-plan-visual"></div>
     <div id="explain-stats" style="margin-top: 1rem;"></div>
   </div>
@@ -115,6 +122,30 @@
 </div>
 
 <style>
+  /* Toast להעתקה — אותו דפוס בדיוק כמו ב-admin_config_inspector.html */
+  .copy-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: rgba(18, 24, 38, 0.95);
+    backdrop-filter: blur(10px);
+    color: #64ffda;
+    padding: 0.6rem 1.2rem;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(100, 255, 218, 0.2);
+    z-index: 9999;
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .copy-toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .copy-toast i { font-size: 0.85rem; }
+
   /* Explain (find) */
   .stage-node { padding: 10px 15px; border-radius: 8px; margin: 6px 0; }
   .stage-collscan { background-color: rgba(220, 53, 69, 0.12); border: 2px solid rgba(220, 53, 69, 0.7); }
@@ -300,6 +331,155 @@
     analyzeQuery();
   }
 
+  //: מה שהניתוח האחרון החזיר, יחד עם מה שביקשנו. ``null`` עד לניתוח הראשון.
+  let lastAnalysis = null;
+
+  //: ה-toast — אותו דפוס כמו ב-admin_config_inspector.html
+  const copyToast = document.createElement('div');
+  copyToast.className = 'copy-toast';
+  copyToast.innerHTML = '<i class="fas fa-check"></i> <span>הועתק ללוח!</span>';
+  document.body.appendChild(copyToast);
+  let copyToastTimeout = null;
+
+  function showCopyToast(message = 'הועתק ללוח!') {
+    copyToast.querySelector('span').textContent = message;
+    copyToast.classList.add('show');
+    if (copyToastTimeout) clearTimeout(copyToastTimeout);
+    copyToastTimeout = setTimeout(() => copyToast.classList.remove('show'), 2000);
+  }
+
+  function describeStage(stage, depth) {
+    // תוכנית הביצוע היא עץ (input_stage + children). משטחים אותו לרשימה
+    // עם הזחה, כי זה מה שקריא בטקסט שמודבק לצ'אט.
+    if (!stage) return [];
+    const pad = '  '.repeat(depth);
+    const bits = [stage.stage];
+    if (stage.index_name) bits.push(`index=${stage.index_name}`);
+    if (stage.direction) bits.push(`direction=${stage.direction}`);
+    let lines = [`${pad}- ${bits.join(' · ')}`];
+    lines = lines.concat(describeStage(stage.input_stage, depth + 1));
+    (stage.children || []).forEach(child => {
+      lines = lines.concat(describeStage(child, depth + 1));
+    });
+    return lines;
+  }
+
+  function buildAnalysisReport(snapshot) {
+    const payload = snapshot.payload || {};
+    const data = snapshot.data || {};
+    const isAggregate = Boolean(data.aggregation_explain);
+    const explain = isAggregate ? data.aggregation_explain : (data.explain || {});
+    const recommendations = data.recommendations || [];
+    const lines = [];
+
+    lines.push('# ניתוח שאילתה איטית — CodeKeeper Query Profiler');
+    lines.push('');
+    lines.push(`- **Collection:** \`${explain.collection || payload.collection || 'לא ידוע'}\``);
+    lines.push(`- **סוג פעולה:** ${isAggregate ? 'aggregate' : 'find'}`);
+    lines.push(`- **Explain verbosity:** \`${payload.verbosity || 'queryPlanner'}\``);
+    lines.push(`- **זמן הניתוח:** ${snapshot.at}`);
+    lines.push('');
+    lines.push('> ערכי השאילתה מנורמלים ל-`<value>` בצד השרת לפני שהם מגיעים לכאן, ולכן אין בדוח נתונים אישיים.');
+    lines.push('');
+
+    lines.push(isAggregate ? '## הפייפליין' : '## צורת השאילתה');
+    lines.push('```json');
+    lines.push(JSON.stringify(isAggregate ? (explain.pipeline_shape || []) : (explain.query_shape || {}), null, 2));
+    lines.push('```');
+    lines.push('');
+
+    lines.push('## תוכנית הביצוע');
+    if (isAggregate) {
+      const stages = explain.stages || [];
+      if (!stages.length) {
+        lines.push('_מונגו לא החזירה שלבים עבור הפייפליין הזה._');
+      } else {
+        stages.forEach(st => {
+          const bits = [st.stage_name];
+          if (st.index_used) bits.push(`index=${st.index_used}`);
+          if (st.lookup_collection) bits.push(`lookup=${st.lookup_collection}`);
+          if (st.lookup_strategy) bits.push(`strategy=${st.lookup_strategy}`);
+          if (st.uses_disk) bits.push('⚠️ uses_disk');
+          lines.push(`- ${bits.join(' · ')}`);
+        });
+      }
+    } else {
+      const planLines = describeStage(explain.winning_plan, 0);
+      lines.push(planLines.length ? planLines.join('\n') : '_אין תוכנית ביצוע בתשובה._');
+    }
+    lines.push('');
+
+    lines.push('## סטטיסטיקות ביצוע');
+    const stats = explain.stats;
+    if (isAggregate) {
+      const total = Number(explain.total_execution_time_ms || 0);
+      lines.push(total > 0
+        ? `- זמן כולל: ${total.toFixed(2)} ms`
+        : '- **אין זמני ביצוע.** הניתוח רץ ב-`queryPlanner`, שאינו מריץ את הפייפליין. אין להסיק מכך שהשאילתה מהירה.');
+    } else if (stats) {
+      lines.push(`- זמן ביצוע: ${stats.execution_time_ms} ms`);
+      lines.push(`- מסמכים שנסרקו: ${stats.docs_examined}`);
+      lines.push(`- מסמכים שהוחזרו: ${stats.docs_returned}`);
+      lines.push(`- מפתחות שנסרקו: ${stats.keys_examined}`);
+      lines.push(`- אינדקס בשימוש: ${stats.index_used || 'אין'}`);
+      lines.push(`- Covered query: ${stats.is_covered_query ? 'כן' : 'לא'}`);
+      lines.push(`- יחס יעילות: ${(Number(stats.efficiency_ratio || 0) * 100).toFixed(1)}%`);
+    } else {
+      lines.push('- **אין executionStats.** הניתוח רץ ב-`queryPlanner`, שאינו מריץ את השאילתה.');
+      lines.push('  אין להסיק מהיעדר המספרים שהשאילתה מהירה — פשוט לא נמדדה.');
+    }
+    lines.push('');
+
+    lines.push('## המלצות');
+    if (!recommendations.length) {
+      lines.push('_לא נמצאו המלצות._');
+    } else {
+      recommendations.forEach(rec => {
+        lines.push(`### ${rec.title} (${rec.severity})`);
+        if (rec.description) lines.push(rec.description);
+        if (rec.suggested_action) lines.push(`- **פעולה מוצעת:** ${rec.suggested_action}`);
+        if (rec.estimated_improvement) lines.push(`- **שיפור צפוי:** ${rec.estimated_improvement}`);
+        if (rec.code_example) {
+          lines.push('```javascript');
+          lines.push(rec.code_example);
+          lines.push('```');
+        }
+        lines.push('');
+      });
+    }
+
+    return lines.join('\n');
+  }
+
+  async function copyAnalysisReport(button) {
+    if (!lastAnalysis) {
+      showCopyToast('אין עדיין תוצאות להעתקה');
+      return;
+    }
+    const text = buildAnalysisReport(lastAnalysis);
+    const icon = button ? button.querySelector('i') : null;
+    try {
+      // מגן ל-context לא מאובטח (HTTP), כמו ב-static/js/collections.js:
+      // ב-HTTP רגיל ``navigator.clipboard`` פשוט אינו קיים.
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        throw new Error('clipboard_unavailable');
+      }
+      await navigator.clipboard.writeText(text);
+      if (icon) {
+        button.classList.add('copied');
+        icon.className = 'fas fa-check';
+        setTimeout(() => { button.classList.remove('copied'); icon.className = 'fas fa-copy'; }, 1500);
+      }
+      showCopyToast();
+    } catch (err) {
+      console.error('Copy failed:', err);
+      // נפילה אחורה: מציגים את הטקסט כדי שאפשר יהיה להעתיק ידנית,
+      // במקום להשאיר את המשתמש בלי כלום.
+      window.prompt('העתק את הדוח:', text);
+      showCopyToast('העתקה אוטומטית נכשלה');
+    }
+  }
+
   async function analyzeQuery() {
     const collection = document.getElementById('analyze-collection').value;
     const operation = document.getElementById('analyze-operation').value;
@@ -348,6 +528,9 @@
       if (result.status === 'success') {
         document.getElementById('analysis-results').style.display = 'flex';
         const data = result.data || {};
+        // שומרים את הקלט יחד עם התוצאה: בלי זה אי אפשר לבנות דוח, כי הדוח
+        // חייב לכלול את מה שביקשנו (collection, verbosity) ולא רק מה שחזר.
+        lastAnalysis = { payload: payload, data: data, at: new Date().toISOString() };
         if (data.aggregation_explain) {
           renderAggregationPipeline(data.aggregation_explain);
           renderAggregationStats(data.aggregation_explain);
