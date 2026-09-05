@@ -1324,9 +1324,12 @@ def create_app() -> web.Application:
                 PersistentQueryProfilerService as _ProfilerSvc,
             )
 
-            # מקור אמת יחיד ל-retention של slow_queries_log — אותו ערך שבו משתמש
-            # DatabaseManager._create_profiler_indexes. אם השניים יתפצלו, כל הרצת
-            # תחזוקה תפיל ותיצור מחדש את אינדקס ה-TTL.
+            # מקור אמת יחיד לשם האוסף ול-retention שלו — אותם ערכים שבהם משתמש
+            # DatabaseManager._create_profiler_indexes. שם האוסף היה קשיח כאן
+            # קודם, כך ששינוי של COLLECTION_NAME היה מותיר את התחזוקה מנקה את
+            # האוסף הישן; וה-TTL, אם יתפצל, יגרום לכל הרצה להפיל ולייצר מחדש
+            # את האינדקס.
+            profiler_collection = str(_ProfilerSvc.COLLECTION_NAME)
             profiler_ttl_seconds = int(_ProfilerSvc.TTL_SECONDS)
 
             preview = str(request.query.get("preview", "") or "").lower() in {"1", "true", "yes", "on"}
@@ -1334,7 +1337,7 @@ def create_app() -> web.Application:
 
             # --- collections to purge ---
             try:
-                slow_queries_coll = db.slow_queries_log
+                slow_queries_coll = db[profiler_collection]
             except Exception:
                 slow_queries_coll = None
             try:
@@ -1434,7 +1437,7 @@ def create_app() -> web.Application:
                 service_metrics_pre_drop = {"dropped": dropped_pre}
 
             ttl_results: dict[str, Any] = {
-                "slow_queries_log": _ensure_ttl_index(
+                profiler_collection: _ensure_ttl_index(
                     slow_queries_coll,
                     field="timestamp",
                     expire_seconds=profiler_ttl_seconds,
@@ -1558,7 +1561,7 @@ def create_app() -> web.Application:
                 "ok": True,
                 "preview": preview,
                 "deleted_documents": {
-                    "slow_queries_log": deleted_slow,
+                    profiler_collection: deleted_slow,
                     "service_metrics": deleted_metrics,
                     "total": deleted_slow + deleted_metrics,
                 },

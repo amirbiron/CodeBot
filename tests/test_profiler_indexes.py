@@ -11,8 +11,7 @@
 
 from __future__ import annotations
 
-import pathlib
-import re
+import types
 
 
 def _import_manager(monkeypatch):
@@ -93,33 +92,12 @@ class TestProfilerIndexDefinitions:
         assert duration_keys == [("execution_time_ms", -1)]
         assert compound_keys == [("collection", 1), ("execution_time_ms", -1)]
 
-    def test_ttl_matches_the_maintenance_endpoint(self):
-        """מקור אמת יחיד ל-retention — נבדק במקום שבו הוא באמת יכול להתפצל.
-
-        שני endpointים של ``/api/debug/maintenance_cleanup`` (ב-``webapp/app.py``
-        וב-``services/webserver.py``) יוצרים אינדקס בשם ``ttl_cleanup`` על
-        ``timestamp``. קודם הם החזיקו ``604800`` כמספר קשיח משלהם; אם ``TTL_SECONDS``
-        היה משתנה, כל הרצת תחזוקה הייתה מפילה ויוצרת מחדש את האינדקס — בלי שאף
-        טסט יבחין. הבדיקה עוברת על הקוד עצמו, כי זה המקום שבו הפיצול מתרחש.
-        """
+    def test_the_constants_exist_on_the_service(self):
+        """שני הערכים שכל שאר הקוד קורא משם."""
         from services.query_profiler_service import PersistentQueryProfilerService
 
         assert PersistentQueryProfilerService.TTL_SECONDS == 604800
         assert PersistentQueryProfilerService.COLLECTION_NAME == "slow_queries_log"
-
-        for path in ("webapp/app.py", "services/webserver.py"):
-            source = pathlib.Path(path).read_text(encoding="utf-8")
-            block = re.search(
-                r"slow_queries_log\"?\]?:?\s*_ensure_ttl_index\((?:[^()]|\([^()]*\))*?\)",
-                source,
-                re.DOTALL,
-            )
-            assert block, f"לא נמצאה יצירת ה-TTL של slow_queries_log ב-{path}"
-            expire = re.search(r"expire_seconds=([^,\n]+)", block.group(0))
-            assert expire, f"לא נמצא expire_seconds ב-{path}"
-            assert not expire.group(1).strip().isdigit(), (
-                f"{path} מחזיק שוב מספר קשיח ל-retention במקום את TTL_SECONDS"
-            )
 
 
 class TestSafeCreateIndexTTL:
@@ -239,35 +217,136 @@ class TestRegisteredJobPointsAtRealCode:
         )
 
 
-class TestDestructiveEndpointsFailFast:
-    """שני endpointים של ``maintenance_cleanup`` מוחקים מסמכים ומפילים אינדקסים.
+class _RecordingCollection:
+    """דמה של אוסף מונגו שרושם כל פעולה, כדי שאפשר יהיה לשאול "האם נגעת ב-DB?"."""
 
-    כל מה שיכול להיכשל בלי לגעת ב-DB — כאן זה ייבוא של ``PersistentQueryProfilerService``
-    ושליפת ``TTL_SECONDS`` — חייב לקרות **לפני** הפעולה ההרסנית. אחרת כשל בייבוא
-    מחזיר 500 אחרי שהנתונים נמחקו והאינדקס הישן הופל, ובלי שנוצר TTL חדש במקומו.
-    הבדיקה עוברת על סדר השורות בקוד, כי שם הפגם חי.
+    def __init__(self) -> None:
+        self.delete_calls = 0
+        self.dropped: list[str] = []
+        self.created: list[dict] = []
+        self._info: dict = {}
+
+    def delete_many(self, _query):
+        self.delete_calls += 1
+        return types.SimpleNamespace(deleted_count=0)
+
+    def index_information(self):
+        return dict(self._info)
+
+    def drop_index(self, name):
+        self.dropped.append(str(name))
+        self._info.pop(str(name), None)
+
+    def create_index(self, keys, **kwargs):
+        self.created.append({"keys": list(keys), **kwargs})
+        name = str(kwargs.get("name") or "idx")
+        self._info[name] = {"key": list(keys)}
+        return name
+
+
+class _RecordingDB:
+    """דמה של ``Database``. תומכת גם ב-``db["name"]`` וגם ב-``db.name``.
+
+    ב-pymongo 4.15.3 ``Database.__getitem__`` ו-``Database.__getattr__`` מחזירים
+    שניהם ``Collection(self, name)`` — אומת מול קוד המקור המותקן. דמויות קודמות
+    בריפו תמכו רק בגישת תכונה, ולכן נשברו כשהקוד עבר לשם אוסף דינמי.
     """
 
-    #: הסימנים ההרסניים שאסור שיקדימו את שליפת ה-TTL.
-    _DESTRUCTIVE = ("delete_many(", "drop_index(")
+    def __init__(self) -> None:
+        object.__setattr__(self, "collections", {})
 
-    def _cleanup_body(self, path: str, marker: str) -> str:
-        source = pathlib.Path(path).read_text(encoding="utf-8")
-        start = source.index(marker)
-        return source[start:start + 12000]
+    def __getitem__(self, name):
+        return self.collections.setdefault(str(name), _RecordingCollection())
 
-    def test_webapp_resolves_ttl_before_deleting(self):
-        body = self._cleanup_body("webapp/app.py", "def api_debug_maintenance_cleanup(")
-        ttl_at = body.index("profiler_ttl_seconds = ")
-        for token in self._DESTRUCTIVE:
-            assert ttl_at < body.index(token), (
-                f"{token} מופיע לפני שליפת ה-TTL — כשל בייבוא ישאיר את ה-DB חצי מנוקה"
-            )
+    def __getattr__(self, name):
+        if str(name).startswith("_") or name == "collections":
+            raise AttributeError(name)
+        return self[name]
 
-    def test_webserver_resolves_ttl_before_deleting(self):
-        body = self._cleanup_body("services/webserver.py", "def _run_cleanup()")
-        ttl_at = body.index("profiler_ttl_seconds = ")
-        for token in self._DESTRUCTIVE:
-            assert ttl_at < body.index(token), (
-                f"{token} מופיע לפני שליפת ה-TTL — כשל בייבוא ישאיר את ה-DB חצי מנוקה"
-            )
+    def touched(self) -> dict:
+        """האם מישהו מחק או הפיל אינדקס, ובאיזה אוסף."""
+        return {
+            name: (coll.delete_calls, list(coll.dropped))
+            for name, coll in self.collections.items()
+            if coll.delete_calls or coll.dropped
+        }
+
+
+class TestMaintenanceEndpointBehaviour:
+    """בדיקות התנהגות ל-``/api/debug/maintenance_cleanup`` ב-WebApp.
+
+    גרסה קודמת של הבדיקות האלה קראה את קובץ המקור וחיפשה סדר של מחרוזות. זה
+    נשבר מהוצאת קוד לפונקציית עזר, מהוספת הערה, או מהרצה שאינה משורש הריפו —
+    כלומר אזעקות שווא על קוד תקין. כאן נבדקת ההתנהגות: מריצים את ה-endpoint
+    ושואלים את הדמה מה קרה לה.
+    """
+
+    TOKEN = "test-maintenance-token"
+
+    def _client(self, monkeypatch):
+        import webapp.app as webapp_app
+
+        monkeypatch.setenv("DB_HEALTH_TOKEN", self.TOKEN)
+        db = _RecordingDB()
+        monkeypatch.setattr(webapp_app, "get_db", lambda: db, raising=True)
+        return webapp_app, db
+
+    def test_a_failure_before_the_db_returns_json_and_touches_nothing(self, monkeypatch):
+        """כשל בשליפת הגדרות הפרופיילר חייב לעצור לפני כל פעולה הרסנית.
+
+        ושתי דרישות, לא אחת: גם שה-DB לא ייגע, וגם שהתשובה תישאר JSON. כשהשליפה
+        ישבה מחוץ ל-``try`` של הראוט, Flask החזיר דף HTML גנרי — וכל לקוח שמצפה
+        לחוזה ה-JSON של ה-endpoint נשבר בלי הסבר.
+        """
+        webapp_app, db = self._client(monkeypatch)
+
+        def _boom():
+            raise ImportError("services.query_profiler_service is unavailable")
+
+        monkeypatch.setattr(webapp_app, "_profiler_persistence", _boom, raising=True)
+
+        with webapp_app.app.test_client() as client:
+            resp = client.get(f"/api/debug/maintenance_cleanup?token={self.TOKEN}")
+
+        assert resp.status_code == 500
+        payload = resp.get_json()
+        assert payload is not None, "התשובה אינה JSON — חוזה ה-endpoint נשבר"
+        assert payload.get("ok") is False
+        assert db.touched() == {}, f"ה-DB נגע למרות הכשל: {db.touched()}"
+
+    def test_the_ttl_it_installs_is_the_services_own(self, monkeypatch):
+        """ה-retention שנכתב למונגו הוא זה של השירות, לא מספר קשיח מקומי."""
+        from services.query_profiler_service import PersistentQueryProfilerService
+
+        webapp_app, db = self._client(monkeypatch)
+
+        with webapp_app.app.test_client() as client:
+            resp = client.get(f"/api/debug/maintenance_cleanup?token={self.TOKEN}")
+
+        assert resp.status_code == 200, resp.get_data(as_text=True)[:400]
+        coll = db.collections[PersistentQueryProfilerService.COLLECTION_NAME]
+        ttl_indexes = [i for i in coll.created if i.get("name") == "ttl_cleanup"]
+        assert ttl_indexes, f"לא נוצר אינדקס ttl_cleanup. נוצרו: {coll.created}"
+        assert ttl_indexes[-1]["expireAfterSeconds"] == PersistentQueryProfilerService.TTL_SECONDS
+
+    def test_it_cleans_the_collection_the_service_names(self, monkeypatch):
+        """הוכחה שהבטחת ה-Single Source of Truth אמיתית ולא רק כתובה בתיעוד.
+
+        שם האוסף היה קשיח כאן (``db.slow_queries_log``). שינוי של ``COLLECTION_NAME``
+        היה מותיר את התחזוקה מנקה את האוסף הישן, בזמן שהחדש מתנפח בלי בקרה.
+        """
+        from services.query_profiler_service import PersistentQueryProfilerService
+
+        monkeypatch.setattr(
+            PersistentQueryProfilerService, "COLLECTION_NAME", "renamed_profiler_log", raising=True
+        )
+        webapp_app, db = self._client(monkeypatch)
+
+        with webapp_app.app.test_client() as client:
+            resp = client.get(f"/api/debug/maintenance_cleanup?token={self.TOKEN}")
+
+        assert resp.status_code == 200, resp.get_data(as_text=True)[:400]
+        assert db.collections["renamed_profiler_log"].delete_calls == 1
+        assert "slow_queries_log" not in db.collections, (
+            "התחזוקה ניקתה את האוסף הישן — שם האוסף עדיין קשיח איפשהו"
+        )

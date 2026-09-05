@@ -925,6 +925,30 @@ class DatabaseManager:
                         except Exception:
                             return 0.0
 
+                    def _profiler_guard_collections() -> frozenset:
+                        """אוספים שאסור להקליט — אחרת הכתיבה של הפרופיילר מקליטה את עצמה.
+
+                        שם האוסף נקרא מ-``PersistentQueryProfilerService.COLLECTION_NAME``
+                        ולא קשיח: אם הוא היה קשיח ומישהו היה משנה את הקבוע, המגן היה
+                        מפספס והכתיבה הייתה מפעילה את ה-listener על עצמה. מוטמן על
+                        ``outer_self`` כי זה רץ על כל פקודה איטית.
+
+                        כשהייבוא נכשל אין פרופיילר בכלל (``_get_profiler_service``
+                        מחזירה ``None`` מיד אחר כך), ולכן אין צורך בשם חלופי.
+                        """
+                        cached = getattr(outer_self, "_profiler_guard_collections", None)
+                        if cached is not None:
+                            return cached
+                        names = {"system.profile"}
+                        try:
+                            from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
+                            names.add(str(PersistentQueryProfilerService.COLLECTION_NAME))
+                        except Exception:
+                            pass
+                        guard = frozenset(names)
+                        setattr(outer_self, "_profiler_guard_collections", guard)
+                        return guard
+
                     def _get_profiler_service():
                         # Lazy import to avoid hard dependency / circular imports at startup
                         try:
@@ -1053,7 +1077,7 @@ class DatabaseManager:
 
                                     coll = req_data["coll"]
                                     # מניעת רקורסיה
-                                    if coll in {"slow_queries_log", "system.profile"}:
+                                    if coll in _profiler_guard_collections():
                                         return
 
                                     profiler = _get_profiler_service()

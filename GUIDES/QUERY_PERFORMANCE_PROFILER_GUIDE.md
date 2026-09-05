@@ -2330,7 +2330,7 @@ safe_create_index(
 
 - **כל המתודות סינכרוניות.** אין בה `async` ואין `await`. היא נצרכת מ-Flask על WSGI, ושם פתיחת event loop מפילה גרינלטים אחרים באותו worker. הסבר מלא: `docs/observability/asyncio-loop-safety.rst`.
 - **צרכן אסינכרוני מתאים את עצמו אליה**, לא להפך — `handlers/profiler_handler.py` עוטף כל קריאה ב-`asyncio.to_thread(...)`, כי שם באמת רצה לולאה.
-- `COLLECTION_NAME` ו-`TTL_SECONDS` הם המקור היחיד לשם האוסף ולזמן השמירה. גם `database/manager.py` וגם שני ה-endpointים של `maintenance_cleanup` קוראים אותם משם.
+- `COLLECTION_NAME` ו-`TTL_SECONDS` הם המקור היחיד לשם האוסף ולזמן השמירה. קוראים אותם משם: `DatabaseManager._create_profiler_indexes`, מגן הרקורסיה ב-`_SlowMongoListener`, ושני ה-endpointים של `maintenance_cleanup` (`webapp/app.py` ו-`services/webserver.py`). **הטענה הזו נבדקת:** `tests/test_profiler_indexes.py` משנה את `COLLECTION_NAME` ומוודא שהתחזוקה מנקה את האוסף החדש ולא את הישן.
 - הכתיבה מגיעה מ-`CommandListener` של pymongo, שהוא סינכרוני, ולכן `record_slow_query_sync` נקראת ישירות מתוכו.
 
 ### טבלת השוואה: זיכרון vs MongoDB

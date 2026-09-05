@@ -5280,11 +5280,20 @@ def api_db_health():
         return jsonify({"error": "failed", "message": "internal_error"}), 500
 
 
-def _profiler_ttl_seconds() -> int:
-    """זמן השמירה של ``slow_queries_log``, מהמקור היחיד שמגדיר אותו."""
+def _profiler_persistence() -> tuple[str, int]:
+    """שם האוסף וזמן השמירה של הפרופיילר, מהמקור היחיד שמגדיר אותם.
+
+    שניהם מוגדרים על ``PersistentQueryProfilerService`` ונקראים משם גם ב-
+    ``DatabaseManager._create_profiler_indexes``. שם האוסף היה קשיח כאן קודם
+    (``db.slow_queries_log``), כך ששינוי של ``COLLECTION_NAME`` היה מותיר את
+    התחזוקה מנקה את האוסף הישן בזמן שהחדש מתנפח בלי בקרה.
+    """
     from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
 
-    return int(PersistentQueryProfilerService.TTL_SECONDS)
+    return (
+        str(PersistentQueryProfilerService.COLLECTION_NAME),
+        int(PersistentQueryProfilerService.TTL_SECONDS),
+    )
 
 
 @app.route("/api/debug/maintenance_cleanup", methods=["GET"])
@@ -5307,12 +5316,6 @@ def api_debug_maintenance_cleanup():
         return jsonify({"error": "disabled"}), 403
     if not _maintenance_cleanup_is_authorized():
         return jsonify({"error": "unauthorized"}), 401
-
-    # ⚠️ מוקדם בכוונה: ה-endpoint הזה מוחק מסמכים ומפיל אינדקסים. כל מה שיכול
-    # להיכשל בלי לגעת ב-DB חייב להיכשל **לפני** הפעולות ההרסניות — אחרת כשל
-    # בייבוא היה מחזיר 500 אחרי שהנתונים כבר נמחקו והאינדקס הישן הופל, בלי
-    # שנוצר אינדקס TTL חדש במקומו.
-    profiler_ttl_seconds = _profiler_ttl_seconds()
 
     preview = str(request.args.get("preview") or "").lower() in {"1", "true", "yes", "on"}
 
@@ -5404,13 +5407,21 @@ def api_debug_maintenance_cleanup():
         return False
 
     try:
+        # ⚠️ מוקדם בכוונה, ובתוך ה-try: ה-endpoint הזה מוחק מסמכים ומפיל
+        # אינדקסים. כל מה שיכול להיכשל בלי לגעת ב-DB חייב להיכשל **לפני**
+        # הפעולות ההרסניות, אחרת כשל בייבוא מחזיר 500 אחרי שהנתונים כבר נמחקו
+        # והאינדקס הישן הופל. ובתוך ה-try כדי שהכשל יחזור כ-JSON ולא כדף HTML
+        # של Flask — זה ה-endpoint שלקוחות מצפים ממנו לחוזה JSON קבוע.
+        profiler_collection, profiler_ttl_seconds = _profiler_persistence()
+
         db = get_db()
+        slow_queries_coll = db[profiler_collection]
 
         # Purge logs
         deleted_slow = 0
         deleted_metrics = 0
         if not preview:
-            slow_res = db.slow_queries_log.delete_many({})
+            slow_res = slow_queries_coll.delete_many({})
             metrics_res = db.service_metrics.delete_many({})
             deleted_slow = int(getattr(slow_res, "deleted_count", 0) or 0)
             deleted_metrics = int(getattr(metrics_res, "deleted_count", 0) or 0)
@@ -5430,8 +5441,8 @@ def api_debug_maintenance_cleanup():
 
         # TTL indexes
         ttl_results = {
-            "slow_queries_log": _ensure_ttl_index(
-                db.slow_queries_log,
+            profiler_collection: _ensure_ttl_index(
+                slow_queries_coll,
                 field="timestamp",
                 # מקור אמת יחיד. אותו אינדקס נוצר גם ב-DatabaseManager._create_profiler_indexes;
                 # אם שני המקומות יתפצלו, כל הרצת תחזוקה תפיל ותיצור אותו מחדש.
@@ -5518,7 +5529,7 @@ def api_debug_maintenance_cleanup():
                 "ok": True,
                 "preview": preview,
                 "deleted_documents": {
-                    "slow_queries_log": deleted_slow,
+                    profiler_collection: deleted_slow,
                     "service_metrics": deleted_metrics,
                     "total": deleted_slow + deleted_metrics,
                 },
