@@ -1,5 +1,18 @@
 import types
+
 import pytest
+
+
+class _StubDBBase:
+    """גישת ``db["name"]`` בנוסף ל-``db.name``.
+
+    ב-pymongo 4.15.3 גם ``Database.__getitem__`` וגם ``Database.__getattr__``
+    מחזירות ``Collection(self, name)`` — אומת מול קוד המקור המותקן. דמה שתומכת
+    רק בגישת תכונה נשברת ברגע שקוד הייצור קורא את שם האוסף ממשתנה.
+    """
+
+    def __getitem__(self, name):
+        return getattr(self, str(name))
 
 
 @pytest.mark.asyncio
@@ -97,7 +110,7 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
             self._idx[name] = {"key": list(keys)}
             return name
 
-    class _StubDB:
+    class _StubDB(_StubDBBase):
         def __init__(self):
             self.slow_queries_log = _StubDeleteColl(3, has_legacy_metrics_ttl=False)
             self.service_metrics = _StubDeleteColl(5, has_legacy_metrics_ttl=True)
@@ -197,7 +210,7 @@ async def test_maintenance_cleanup_preview_does_not_mutate(monkeypatch):
         def drop_index(self, _name: str):
             raise AssertionError("drop_index should not be called in preview")
 
-    class _StubDB:
+    class _StubDB(_StubDBBase):
         slow_queries_log = _StubDeleteColl()
         service_metrics = _StubDeleteColl()
         code_snippets = _StubCodeSnippetsColl()
@@ -260,7 +273,7 @@ async def test_maintenance_cleanup_allows_token_via_query_param(monkeypatch):
         def drop_index(self, _name: str):
             return None
 
-    class _StubDB:
+    class _StubDB(_StubDBBase):
         slow_queries_log = _StubDeleteColl()
         service_metrics = _StubDeleteColl()
         code_snippets = _StubCodeSnippetsColl()
@@ -304,4 +317,3 @@ async def test_maintenance_cleanup_allows_token_via_query_param(monkeypatch):
                 assert payload2.get("error") == "unauthorized"
     finally:
         await runner.cleanup()
-

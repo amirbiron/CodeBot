@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
 from datetime import datetime, timedelta
@@ -7,6 +8,12 @@ from functools import wraps
 from typing import Any, Dict, List, Optional, Union
 
 from aiohttp import web
+
+# הערה: השירות (``QueryProfilerService``) סינכרוני לגמרי — קריאות pymongo רגילות.
+# ה-handlers כאן הם aiohttp ורצים בתוך event loop אמיתי, ולכן הם עוטפים ב-``asyncio.to_thread``
+# כדי לא לחסום אותו. זה ההפך מהדפוס שהוסר מה-WebApp: שם קוד *סינכרוני* ניסה להריץ לולאה.
+# מכאן, מלולאה אמיתית, ``to_thread`` הוא הכיוון הנכון — אותו מבנה כמו
+# ``ThreadPoolDatabaseHealthService`` ב-services/db_health_service.py.
 
 from services.query_profiler_service import (
     AggregationExplainPlan,
@@ -88,7 +95,8 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
             except Exception:
                 min_time_ms = None
 
-        queries = await profiler_service.get_slow_queries(
+        queries = await asyncio.to_thread(
+            profiler_service.get_slow_queries,
             limit=limit,
             collection_filter=collection,
             min_execution_time_ms=min_time_ms,
@@ -115,12 +123,15 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
         try:
             # תומך גם ב-aggregation pipelines
             if isinstance(pipeline, list):
-                explain = await profiler_service.get_aggregation_explain(
+                explain = await asyncio.to_thread(
+                    profiler_service.get_aggregation_explain,
                     collection=collection, pipeline=pipeline, verbosity=verbosity
                 )
                 return web.json_response({"status": "success", "data": _serialize_aggregation_explain(explain)})
 
-            explain = await profiler_service.get_explain_plan(collection=collection, query=query, verbosity=verbosity)
+            explain = await asyncio.to_thread(
+                profiler_service.get_explain_plan, collection=collection, query=query, verbosity=verbosity
+            )
             return web.json_response({"status": "success", "data": _serialize_explain_plan(explain)})
         except ValueError as e:
             # בדיקת query_shape שבור מגרסה ישנה
@@ -146,8 +157,10 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
 
         try:
             if isinstance(pipeline, list):
-                explain = await profiler_service.get_aggregation_explain(collection=collection, pipeline=pipeline)
-                recommendations = await profiler_service.analyze_aggregation_and_recommend(explain)
+                explain = await asyncio.to_thread(
+                    profiler_service.get_aggregation_explain, collection=collection, pipeline=pipeline
+                )
+                recommendations = profiler_service.analyze_aggregation_and_recommend(explain)
                 return web.json_response(
                     {
                         "status": "success",
@@ -158,8 +171,10 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
                     }
                 )
 
-            explain = await profiler_service.get_explain_plan(collection=collection, query=query)
-            recommendations = await profiler_service.generate_recommendations(explain)
+            explain = await asyncio.to_thread(
+                profiler_service.get_explain_plan, collection=collection, query=query
+            )
+            recommendations = profiler_service.generate_recommendations(explain)
 
             return web.json_response(
                 {
@@ -183,14 +198,14 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
     @require_profiler_auth
     async def get_summary(request: web.Request) -> web.Response:
         """GET /api/profiler/summary"""
-        summary = await profiler_service.get_summary_async()
+        summary = await asyncio.to_thread(profiler_service.get_summary)
         return web.json_response({"status": "success", "data": summary})
 
     @require_profiler_auth
     async def get_collection_stats(request: web.Request) -> web.Response:
         """GET /api/profiler/collection/{name}/stats"""
         collection = request.match_info["name"]
-        stats = await profiler_service.get_collection_stats(collection)
+        stats = await asyncio.to_thread(profiler_service.get_collection_stats, collection)
         return web.json_response({"status": "success", "data": stats})
 
     # רישום routes

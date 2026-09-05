@@ -346,6 +346,10 @@ Collection
 
 שם: ``slow_queries_log``
 
+שלושת האינדקסים שלהלן נוצרים על ידי ``DatabaseManager._create_profiler_indexes``,
+שרצה כחלק מיצירת האינדקסים בעליית התהליך. הכתיבה עצמה נעשית סינכרונית
+מתוך ה-``CommandListener`` של pymongo — ראו :doc:`asyncio-loop-safety`.
+
 TTL Index
 ~~~~~~~~~
 
@@ -361,19 +365,30 @@ TTL Index
 אינדקסים נוספים
 ~~~~~~~~~~~~~~~~
 
+שני אלה משרתים את ``get_slow_queries``, שממיינת **תמיד** לפי ``execution_time_ms``
+יורד — עם סינון אופציונלי לפי ``collection``. בלעדיהם מונגו ממיין בזיכרון את כל
+חלון ה-TTL בכל טעינה של הדשבורד.
+
 .. code-block:: javascript
 
-   // חיפוש מהיר לפי collection + זמן
+   // ברירת המחדל של הדשבורד: בלי סינון, ממוין לפי משך יורד
    db.slow_queries_log.createIndex(
-     {"collection": 1, "timestamp": -1},
-     {name: "collection_timestamp"}
+     {"execution_time_ms": -1},
+     {name: "slow_queries_duration"}
    )
 
-   // חיפוש לפי דפוס שאילתה
+   // סינון לפי collection עם אותו מיון (Equality ← Sort)
    db.slow_queries_log.createIndex(
-     {"query_id": 1},
-     {name: "query_pattern"}
+     {"collection": 1, "execution_time_ms": -1},
+     {name: "slow_queries_coll_dur"}
    )
+
+.. note::
+
+   גרסאות קודמות של העמוד הבטיחו ``collection_timestamp`` ו-``query_pattern``.
+   שניהם **אינם נוצרים**, כי אין להם קורא: שום שאילתה אינה ממיינת לפי ``timestamp``,
+   ו-``query_id`` רק נכתב ומוצג (``get_pattern_statistics`` מקבצת לפיו ב-``$group``,
+   וזה לא משתמש באינדקס). אינדקס בלי קורא עולה בכל כתיבה ולא מחזיר דבר.
 
 Metrics (Prometheus)
 --------------------
