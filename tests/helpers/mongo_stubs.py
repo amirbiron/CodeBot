@@ -46,10 +46,16 @@ class RecordingCollection:
     def create_index(self, keys, **kwargs):
         self.created.append({"keys": list(keys), **kwargs})
         name = str(kwargs.get("name") or "idx")
-        self._info[name] = {"key": list(keys)}
+    def create_index(self, keys, **kwargs):
+        self.created.append({"keys": list(keys), **kwargs})
+        name = str(kwargs.get("name") or "idx")
+        info = {"key": list(keys)}
+        if "expireAfterSeconds" in kwargs:
+            info["expireAfterSeconds"] = kwargs["expireAfterSeconds"]
+        if kwargs.get("unique"):
+            info["unique"] = True
+        self._info[name] = info
         return name
-
-
 class RecordingDB:
     """דמה של ``Database`` שיוצרת אוספים לפי דרישה ורושמת מה נעשה בהם.
 
