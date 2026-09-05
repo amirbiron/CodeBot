@@ -1,7 +1,5 @@
 import types
 
-from tests.helpers.mongo_stubs import StubDBItemAccess
-
 
 def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monkeypatch):
     # Import the Flask webapp module
@@ -59,11 +57,16 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
             self._idx[name] = {"key": list(keys)}
             return name
 
-    class _StubDB(StubDBItemAccess):
+    class _StubDB:
         def __init__(self):
             self.slow_queries_log = _StubDeleteColl(has_legacy_metrics_ttl=False)
             self.service_metrics = _StubDeleteColl(has_legacy_metrics_ttl=True)
             self.code_snippets = _StubCodeSnippetsColl()
+
+        def __getitem__(self, name):
+            # pymongo מאפשרת גם ``db["name"]`` וגם ``db.name`` (4.15.3: שתי
+            # המתודות מחזירות ``Collection(self, name)``, אומת מול המקור).
+            return getattr(self, str(name))
 
     shared_db = _StubDB()
     monkeypatch.setattr(webapp_app, "get_db", lambda: shared_db, raising=True)

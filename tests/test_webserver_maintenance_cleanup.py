@@ -2,7 +2,17 @@ import types
 
 import pytest
 
-from tests.helpers.mongo_stubs import RecordingDB, StubDBItemAccess
+
+class _StubDBBase:
+    """גישת ``db["name"]`` בנוסף ל-``db.name``.
+
+    ב-pymongo 4.15.3 גם ``Database.__getitem__`` וגם ``Database.__getattr__``
+    מחזירות ``Collection(self, name)`` — אומת מול קוד המקור המותקן. דמה שתומכת
+    רק בגישת תכונה נשברת ברגע שקוד הייצור קורא את שם האוסף ממשתנה.
+    """
+
+    def __getitem__(self, name):
+        return getattr(self, str(name))
 
 
 @pytest.mark.asyncio
@@ -100,7 +110,7 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
             self._idx[name] = {"key": list(keys)}
             return name
 
-    class _StubDB(StubDBItemAccess):
+    class _StubDB(_StubDBBase):
         def __init__(self):
             self.slow_queries_log = _StubDeleteColl(3, has_legacy_metrics_ttl=False)
             self.service_metrics = _StubDeleteColl(5, has_legacy_metrics_ttl=True)
@@ -200,7 +210,7 @@ async def test_maintenance_cleanup_preview_does_not_mutate(monkeypatch):
         def drop_index(self, _name: str):
             raise AssertionError("drop_index should not be called in preview")
 
-    class _StubDB(StubDBItemAccess):
+    class _StubDB(_StubDBBase):
         slow_queries_log = _StubDeleteColl()
         service_metrics = _StubDeleteColl()
         code_snippets = _StubCodeSnippetsColl()
@@ -263,7 +273,7 @@ async def test_maintenance_cleanup_allows_token_via_query_param(monkeypatch):
         def drop_index(self, _name: str):
             return None
 
-    class _StubDB(StubDBItemAccess):
+    class _StubDB(_StubDBBase):
         slow_queries_log = _StubDeleteColl()
         service_metrics = _StubDeleteColl()
         code_snippets = _StubCodeSnippetsColl()
@@ -307,70 +317,3 @@ async def test_maintenance_cleanup_allows_token_via_query_param(monkeypatch):
                 assert payload2.get("error") == "unauthorized"
     finally:
         await runner.cleanup()
-
-
-async def _call_webserver_cleanup(ws, monkeypatch, db):
-    """מריצה את ``/api/debug/maintenance_cleanup`` של שרת ה-aiohttp ומחזירה (status, payload)."""
-    import aiohttp
-    from aiohttp import web
-
-    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-db-health-token", raising=True)
-    import services.db_provider as dbp
-
-    monkeypatch.setattr(dbp, "get_db", lambda: db, raising=True)
-
-    runner = web.AppRunner(ws.create_app())
-    await runner.setup()
-    site = web.TCPSite(runner, host="127.0.0.1", port=0)
-    await site.start()
-    try:
-        port = list(site._server.sockets)[0].getsockname()[1]
-        headers = {"Authorization": "Bearer test-db-health-token"}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"http://127.0.0.1:{port}/api/debug/maintenance_cleanup", headers=headers
-            ) as resp:
-                return resp.status, await resp.json()
-    finally:
-        await runner.cleanup()
-
-
-class TestWebserverCleanupReadsTheProfilerConstants:
-    """כיסוי התנהגותי למסלול התחזוקה השני.
-
-    ``webapp/app.py`` ו-``services/webserver.py`` מממשים את אותו endpoint פעמיים.
-    הבדיקות המקבילות ב-``tests/test_profiler_indexes.py`` מכסות רק את הראשון,
-    ולכן ``TTL_SECONDS`` או ``COLLECTION_NAME`` שיתפצלו כאן — התחזוקה תפיל ותיצור
-    מחדש את האינדקס, או תנקה אוסף ישן — ואף טסט לא יבחין.
-    """
-
-    @pytest.mark.asyncio
-    async def test_the_ttl_it_installs_is_the_services_own(self, monkeypatch):
-        import services.webserver as ws
-        from services.query_profiler_service import PersistentQueryProfilerService
-
-        db = RecordingDB()
-        status, payload = await _call_webserver_cleanup(ws, monkeypatch, db)
-
-        assert status == 200, payload
-        coll = db.collections[PersistentQueryProfilerService.COLLECTION_NAME]
-        ttl_indexes = [i for i in coll.created if i.get("name") == "ttl_cleanup"]
-        assert ttl_indexes, f"לא נוצר אינדקס ttl_cleanup. נוצרו: {coll.created}"
-        assert ttl_indexes[-1]["expireAfterSeconds"] == PersistentQueryProfilerService.TTL_SECONDS
-
-    @pytest.mark.asyncio
-    async def test_it_cleans_the_collection_the_service_names(self, monkeypatch):
-        import services.webserver as ws
-        from services.query_profiler_service import PersistentQueryProfilerService
-
-        monkeypatch.setattr(
-            PersistentQueryProfilerService, "COLLECTION_NAME", "renamed_profiler_log", raising=True
-        )
-        db = RecordingDB()
-        status, payload = await _call_webserver_cleanup(ws, monkeypatch, db)
-
-        assert status == 200, payload
-        assert db.collections["renamed_profiler_log"].delete_calls == 1
-        assert "slow_queries_log" not in db.collections, (
-            "התחזוקה ניקתה את האוסף הישן — שם האוסף עדיין קשיח איפשהו"
-        )

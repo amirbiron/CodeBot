@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import types
 
-from tests.helpers.mongo_stubs import RecordingDB
+import pytest
 
 
 def _import_manager(monkeypatch):
@@ -219,6 +219,70 @@ class TestRegisteredJobPointsAtRealCode:
         )
 
 
+class _RecordingCollection:
+    """אוסף שרושם כל פעולה, כדי שאפשר יהיה לשאול "האם נגעת ב-DB?"."""
+
+    def __init__(self) -> None:
+        self.delete_calls = 0
+        self.dropped: list = []
+        self.created: list = []
+        self._info: dict = {}
+
+    def delete_many(self, _query):
+        self.delete_calls += 1
+        return types.SimpleNamespace(deleted_count=0)
+
+    def index_information(self):
+        return dict(self._info)
+
+    def drop_index(self, name):
+        self.dropped.append(str(name))
+        self._info.pop(str(name), None)
+
+    def create_index(self, keys, **kwargs):
+        self.created.append({"keys": list(keys), **kwargs})
+        name = str(kwargs.get("name") or "idx")
+        # ``index_information`` של pymongo מחזירה גם את האפשרויות, לא רק את
+        # המפתחות. בלי זה הדמה מדווחת על אינדקס TTL כאילו אין לו retention,
+        # וקוד שמשווה מול הקיים היה מפיל ויוצר אותו מחדש בלי סוף.
+        info = {"key": list(keys)}
+        if "expireAfterSeconds" in kwargs:
+            info["expireAfterSeconds"] = kwargs["expireAfterSeconds"]
+        if kwargs.get("unique"):
+            info["unique"] = True
+        self._info[name] = info
+        return name
+
+
+class _RecordingDB:
+    """דמה של ``Database`` שיוצרת אוספים לפי דרישה ורושמת מה נעשה בהם.
+
+    יוצרת אוסף בכל שם שמבקשים — וזה מה שמאפשר לבדוק שקוד התחזוקה ניגש לאוסף
+    ששמו נקבע ב-``COLLECTION_NAME`` ולא לשם קשיח. תומכת בשתי צורות הגישה,
+    כי ב-pymongo 4.15.3 ``__getitem__`` ו-``__getattr__`` שקולות (אומת מול
+    קוד המקור המותקן).
+    """
+
+    def __init__(self) -> None:
+        object.__setattr__(self, "collections", {})
+
+    def __getitem__(self, name):
+        return self.collections.setdefault(str(name), _RecordingCollection())
+
+    def __getattr__(self, name):
+        if str(name).startswith("_") or name == "collections":
+            raise AttributeError(name)
+        return self[name]
+
+    def touched(self) -> dict:
+        """אילו אוספים נמחקו או הופל בהם אינדקס."""
+        return {
+            name: (coll.delete_calls, list(coll.dropped))
+            for name, coll in self.collections.items()
+            if coll.delete_calls or coll.dropped
+        }
+
+
 class TestMaintenanceEndpointBehaviour:
     """בדיקות התנהגות ל-``/api/debug/maintenance_cleanup`` ב-WebApp.
 
@@ -234,7 +298,7 @@ class TestMaintenanceEndpointBehaviour:
         import webapp.app as webapp_app
 
         monkeypatch.setenv("DB_HEALTH_TOKEN", self.TOKEN)
-        db = RecordingDB()
+        db = _RecordingDB()
         monkeypatch.setattr(webapp_app, "get_db", lambda: db, raising=True)
         return webapp_app, db
 
@@ -361,3 +425,71 @@ class TestRecursionGuard:
         first = dm.DatabaseManager.profiler_guard_collections(manager)
         assert getattr(manager, "_profiler_guard_cache", None) == first
         assert dm.DatabaseManager.profiler_guard_collections(manager) is first
+
+
+async def _call_webserver_cleanup(ws, monkeypatch, db):
+    """מריצה את ``/api/debug/maintenance_cleanup`` של שרת ה-aiohttp ומחזירה (status, payload)."""
+    import aiohttp
+    from aiohttp import web
+
+    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-db-health-token", raising=True)
+    import services.db_provider as dbp
+
+    monkeypatch.setattr(dbp, "get_db", lambda: db, raising=True)
+
+    runner = web.AppRunner(ws.create_app())
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        headers = {"Authorization": "Bearer test-db-health-token"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/debug/maintenance_cleanup", headers=headers
+            ) as resp:
+                return resp.status, await resp.json()
+    finally:
+        await runner.cleanup()
+
+
+class TestWebserverMaintenanceEndpointBehaviour:
+    """אותן בדיקות בדיוק, על מסלול התחזוקה השני.
+
+    ``webapp/app.py`` ו-``services/webserver.py`` מממשים את אותו endpoint פעמיים.
+    שני המימושים חייבים לקרוא את ``TTL_SECONDS`` ואת ``COLLECTION_NAME`` מאותו
+    מקום; אם אחד מהם יתפצל — התחזוקה תפיל ותיצור מחדש את האינדקס, או תנקה אוסף
+    ישן — ובלי הבדיקות האלה אף אחד לא יבחין. שתי המחלקות יושבות באותו קובץ
+    בכוונה: הן בודקות את אותה הבטחה.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_ttl_it_installs_is_the_services_own(self, monkeypatch):
+        import services.webserver as ws
+        from services.query_profiler_service import PersistentQueryProfilerService
+
+        db = _RecordingDB()
+        status, payload = await _call_webserver_cleanup(ws, monkeypatch, db)
+
+        assert status == 200, payload
+        coll = db.collections[PersistentQueryProfilerService.COLLECTION_NAME]
+        ttl_indexes = [i for i in coll.created if i.get("name") == "ttl_cleanup"]
+        assert ttl_indexes, f"לא נוצר אינדקס ttl_cleanup. נוצרו: {coll.created}"
+        assert ttl_indexes[-1]["expireAfterSeconds"] == PersistentQueryProfilerService.TTL_SECONDS
+
+    @pytest.mark.asyncio
+    async def test_it_cleans_the_collection_the_service_names(self, monkeypatch):
+        import services.webserver as ws
+        from services.query_profiler_service import PersistentQueryProfilerService
+
+        monkeypatch.setattr(
+            PersistentQueryProfilerService, "COLLECTION_NAME", "renamed_profiler_log", raising=True
+        )
+        db = _RecordingDB()
+        status, payload = await _call_webserver_cleanup(ws, monkeypatch, db)
+
+        assert status == 200, payload
+        assert db.collections["renamed_profiler_log"].delete_calls == 1
+        assert "slow_queries_log" not in db.collections, (
+            "התחזוקה ניקתה את האוסף הישן — שם האוסף עדיין קשיח איפשהו"
+        )
