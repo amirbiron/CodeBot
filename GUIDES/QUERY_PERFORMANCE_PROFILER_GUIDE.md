@@ -399,6 +399,12 @@ class QueryProfilerService:
         Returns:
             ExplainPlan עם כל פרטי תוכנית הביצוע
         """
+        # ⚠️ הקטע הבא שגוי פעמיים, והוא נשמר כאן רק כדי שיהיה מזוהה:
+        #    (1) ל-Cursor.explain אין ומעולם לא היה פרמטר verbosity — לא כ-kwarg
+        #        ולא כארגומנט מיקומי. הוא מריץ תמיד allPlansExecution.
+        #    (2) ה-async/await הוסר מהקוד (ראו הבאנר בראש המדריך).
+        # המימוש בפועל: services/query_profiler_service.py, _run_explain_command,
+        # שקורא db.command("explain", {...}, verbosity=...) עם pymongo.timeout.
         def _run_explain():
             db = self.db_manager.db
             coll = db[collection]

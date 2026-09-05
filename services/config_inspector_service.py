@@ -1766,6 +1766,16 @@ class ConfigService:
             description="סף זמן לשאילתה איטית בפרופיילר (מילישניות)",
             category="profiler",
         ),
+        "PROFILER_EXPLAIN_MAX_TIME_MS": ConfigDefinition(
+            key="PROFILER_EXPLAIN_MAX_TIME_MS",
+            services=("webapp", "bot", "mcp", "webserver"),
+            default="5000",
+            description=(
+                "תקרת זמן ל-explain בפרופיילר (מילישניות). רלוונטי בעיקר ל-executionStats "
+                "ו-allPlansExecution, שמריצים את השאילתה בפועל"
+            ),
+            category="profiler",
+        ),
         "PROFILER_MAX_BUFFER_SIZE": ConfigDefinition(
             key="PROFILER_MAX_BUFFER_SIZE",
             services=("webapp", "bot", "mcp", "webserver"),

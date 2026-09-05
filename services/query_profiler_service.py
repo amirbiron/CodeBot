@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Deque, Dict, List, Optional
 
+import pymongo
+
 try:
     # Structured logging events (fail-open)
     from observability import emit_event  # type: ignore
@@ -221,6 +223,16 @@ class QueryProfilerService:
 
     # סף ברירת מחדל לשאילתה איטית (במילישניות)
     DEFAULT_SLOW_THRESHOLD_MS = 1000
+
+    #: רמות הפירוט שפקודת ``explain`` של MongoDB מקבלת.
+    #: מקור: https://www.mongodb.com/docs/manual/reference/command/explain/
+    #: הערך מגיע מגוף בקשת HTTP ונשלח למסד, ולכן חייב ולידציה.
+    EXPLAIN_VERBOSITIES = frozenset({"queryPlanner", "executionStats", "allPlansExecution"})
+
+    #: תקרת זמן ל-explain, במילישניות. ברירת מחדל שמרנית: ``executionStats``
+    #: ו-``allPlansExecution`` מריצים את השאילתה בפועל, ומדובר בשאילתות
+    #: שכבר ידוע עליהן שהן איטיות. ניתן לשינוי ב-``PROFILER_EXPLAIN_MAX_TIME_MS``.
+    DEFAULT_EXPLAIN_MAX_TIME_MS = 5000
 
     # מספר מקסימלי של שאילתות איטיות לשמור בזיכרון
     MAX_SLOW_QUERIES_BUFFER = 1000
@@ -462,11 +474,48 @@ class QueryProfilerService:
 
         return queries[: max(1, int(limit))]
 
+    def _explain_max_time_ms(self) -> int:
+        """תקרת הזמן ל-explain, במילישניות."""
+        return _env_int("PROFILER_EXPLAIN_MAX_TIME_MS", self.DEFAULT_EXPLAIN_MAX_TIME_MS)
+
+    def _run_explain_command(self, inner_command: Dict[str, Any], verbosity: str) -> Dict[str, Any]:
+        """מריצה את פקודת ``explain`` של MongoDB עם רמת פירוט מפורשת.
+
+        **למה פקודה ולא ``cursor.explain()``.** ל-``Cursor.explain`` אין ולא היה
+        פרמטר ``verbosity`` — החתימה היא ``def explain(self)`` (pymongo 4.15.3,
+        ``pymongo/synchronous/cursor.py``), והדוקסטרינג שלה אומר במפורש:
+
+            "This method uses the default verbosity mode of the explain command,
+            ``allPlansExecution``. To use a different verbosity use
+            :meth:`~pymongo.database.Database.command` to run the explain
+            command directly."
+
+        כלומר הקוד הקודם, שקרא ``cursor.explain(verbosity=...)`` ונפל ל-``except
+        TypeError``, הריץ תמיד ``allPlansExecution`` — המצב שמריץ את **כל**
+        תוכניות המועמדות — בזמן שהוא הצהיר על ``queryPlanner`` כברירת מחדל בטוחה.
+        אל תחזירו את זה.
+
+        ``maxTimeMS`` אינו שדה של פקודת ``explain`` (ראו התיעוד של MongoDB), ולכן
+        התקרה נאכפת ב-``pymongo.timeout`` — המנגנון שהדוקסטרינג של ``explain``
+        עצמה מפנה אליו.
+        """
+        if verbosity not in self.EXPLAIN_VERBOSITIES:
+            allowed = ", ".join(sorted(self.EXPLAIN_VERBOSITIES))
+            raise ValueError(f"Unsupported explain verbosity {verbosity!r}. Allowed values: {allowed}")
+
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            raise RuntimeError("No MongoDB database available")
+
+        timeout_seconds = max(1, int(self._explain_max_time_ms())) / 1000.0
+        with pymongo.timeout(timeout_seconds):
+            return db.command("explain", inner_command, verbosity=verbosity)
+
     def get_explain_plan(
         self,
         collection: str,
         query: Dict[str, Any],
-        verbosity: str = "queryPlanner",  # ⚠️ ברירת מחדל בטוחה - לא מריצה את השאילתה!
+        verbosity: str = "queryPlanner",  # ברירת מחדל בטוחה: לא מריצה את השאילתה בפועל
     ) -> ExplainPlan:
         """
         קבלת explain plan מפורט לשאילתה.
@@ -481,27 +530,8 @@ class QueryProfilerService:
                 "Please use the original query or re-record this slow query."
             )
 
-        def _run_explain() -> Dict[str, Any]:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                raise RuntimeError("No MongoDB database available")
-            coll = db[collection]
-
-            cursor = coll.find(query)
-            try:
-                # נסיון להריץ עם רמת הפירוט המבוקשת
-                return cursor.explain(verbosity=verbosity)
-            except TypeError:
-                # Fallback לגרסאות ישנות של pymongo שלא מקבלות ארגומנטים
-                logger.warning(
-                    "Profiler: PyMongo Cursor.explain() does not support verbosity=%r; "
-                    "falling back to default explain() without execution stats.",
-                    verbosity,
-                    exc_info=True,
-                )
-                return cursor.explain()
-
-        explain_result = _run_explain()
+        # שקול ל-``coll.find(query)`` שהיה כאן: אין sort/limit/projection.
+        explain_result = self._run_explain_command({"find": collection, "filter": query}, verbosity)
         return self._parse_explain_result(collection, query, explain_result)
 
     def _parse_explain_result(self, collection: str, query: Dict[str, Any], explain_result: Dict[str, Any]) -> ExplainPlan:
@@ -832,7 +862,7 @@ class QueryProfilerService:
         self,
         collection: str,
         pipeline: List[Dict[str, Any]],
-        verbosity: str = "queryPlanner",  # ברירת מחדל בטוחה!
+        verbosity: str = "queryPlanner",  # ברירת מחדל בטוחה: לא מריצה את הפייפליין בפועל
     ) -> AggregationExplainPlan:
         """
         קבלת explain plan לאגרגציה.
@@ -849,20 +879,11 @@ class QueryProfilerService:
         # תיקון ערכי placeholder לפני שליחה ל-MongoDB
         fixed_pipeline = self._fix_pipeline_for_explain(pipeline)
 
-        def _run_explain() -> Dict[str, Any]:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                raise RuntimeError("No MongoDB database available")
-            # MongoDB command API ל-aggregate explain
-            return db.command(
-                "aggregate",
-                collection,
-                pipeline=fixed_pipeline,
-                explain=True,
-                cursor={},
-            )
-
-        explain_result = _run_explain()
+        # ``aggregate`` עם ``explain: true`` אינה מקבלת ``verbosity`` כלל — רק עטיפת
+        # פקודת ``explain`` מאפשרת אותו. קודם הפרמטר התקבל כאן ונזרק בשקט.
+        explain_result = self._run_explain_command(
+            {"aggregate": collection, "pipeline": fixed_pipeline, "cursor": {}}, verbosity
+        )
         return self._parse_aggregation_explain(collection, pipeline, explain_result)
 
     def _parse_aggregation_explain(
