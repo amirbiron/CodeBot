@@ -103,6 +103,13 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
             self.service_metrics = _StubDeleteColl(5, has_legacy_metrics_ttl=True)
             self.code_snippets = _StubCodeSnippetsColl()
 
+        def __getitem__(self, name):
+            # ``Database`` של pymongo תומכת גם ב-``db["name"]`` וגם ב-``db.name``:
+            # ב-4.15.3 שתי המתודות מחזירות ``Collection(self, name)`` — אומת מול
+            # קוד המקור המותקן. הדמה תמכה רק בגישת תכונה, ולכן נשברה כשהקוד עבר
+            # לקרוא את שם האוסף מ-``PersistentQueryProfilerService.COLLECTION_NAME``.
+            return getattr(self, str(name))
+
     stub_db = _StubDB()
 
     import services.db_provider as dbp
@@ -202,6 +209,13 @@ async def test_maintenance_cleanup_preview_does_not_mutate(monkeypatch):
         service_metrics = _StubDeleteColl()
         code_snippets = _StubCodeSnippetsColl()
 
+        def __getitem__(self, name):
+            # ``Database`` של pymongo תומכת גם ב-``db["name"]`` וגם ב-``db.name``:
+            # ב-4.15.3 שתי המתודות מחזירות ``Collection(self, name)`` — אומת מול
+            # קוד המקור המותקן. הדמה תמכה רק בגישת תכונה, ולכן נשברה כשהקוד עבר
+            # לקרוא את שם האוסף מ-``PersistentQueryProfilerService.COLLECTION_NAME``.
+            return getattr(self, str(name))
+
     import services.db_provider as dbp
     monkeypatch.setattr(dbp, "get_db", lambda: _StubDB(), raising=True)
 
@@ -264,6 +278,13 @@ async def test_maintenance_cleanup_allows_token_via_query_param(monkeypatch):
         slow_queries_log = _StubDeleteColl()
         service_metrics = _StubDeleteColl()
         code_snippets = _StubCodeSnippetsColl()
+
+        def __getitem__(self, name):
+            # ``Database`` של pymongo תומכת גם ב-``db["name"]`` וגם ב-``db.name``:
+            # ב-4.15.3 שתי המתודות מחזירות ``Collection(self, name)`` — אומת מול
+            # קוד המקור המותקן. הדמה תמכה רק בגישת תכונה, ולכן נשברה כשהקוד עבר
+            # לקרוא את שם האוסף מ-``PersistentQueryProfilerService.COLLECTION_NAME``.
+            return getattr(self, str(name))
 
     import services.db_provider as dbp
 

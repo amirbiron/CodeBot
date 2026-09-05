@@ -140,7 +140,7 @@ def register_all_jobs():
         job_type=JobType.ON_DEMAND,
         env_toggle="PROFILER_ENABLED",
         env_toggle_default=True,
-        callback_name="_profiler_indexes_job",
+        callback_name="_create_profiler_indexes",
         source_file="database/manager.py",
     )
 

@@ -1,3 +1,5 @@
+import inspect
+
 import pytest
 from datetime import datetime
 from unittest.mock import MagicMock
@@ -31,10 +33,9 @@ def profiler_service(mock_db_manager):
 class TestQueryProfilerService:
     """בדיקות לשירות הפרופיילר"""
 
-    @pytest.mark.asyncio
-    async def test_record_slow_query(self, profiler_service):
+    def test_record_slow_query(self, profiler_service):
         """בדיקת רישום שאילתה איטית"""
-        record = await profiler_service.record_slow_query(
+        record = profiler_service.record_slow_query_sync(
             collection="test_collection",
             operation="find",
             query={"user_id": "123"},
@@ -46,39 +47,39 @@ class TestQueryProfilerService:
         assert record.execution_time_ms == 250.5
         assert record.query_id is not None
 
-    @pytest.mark.asyncio
-    async def test_get_slow_queries_with_filter(self, profiler_service):
+    def test_get_slow_queries_with_filter(self, profiler_service):
         """בדיקת קבלת שאילתות עם סינון"""
-        await profiler_service.record_slow_query(
+        profiler_service.record_slow_query_sync(
             collection="users",
             operation="find",
             query={"name": "test"},
             execution_time_ms=200,
         )
-        await profiler_service.record_slow_query(
+        profiler_service.record_slow_query_sync(
             collection="snippets",
             operation="find",
             query={"code": "test"},
             execution_time_ms=300,
         )
 
-        queries = await profiler_service.get_slow_queries(collection_filter="users")
+        queries = profiler_service.get_slow_queries(collection_filter="users")
 
         assert len(queries) == 1
         assert queries[0].collection == "users"
 
-    @pytest.mark.asyncio
-    async def test_get_summary_async_matches_get_summary(self, profiler_service):
-        """בדיקה ש-get_summary_async קיים ומחזיר את אותו סיכום כמו get_summary."""
-        await profiler_service.record_slow_query(
+    def test_get_summary_is_sync_and_stable(self, profiler_service):
+        """get_summary סינכרוני ומחזיר את אותו סיכום בקריאות חוזרות.
+
+        בעבר היו שתי מתודות (get_summary + get_summary_async); הן אוחדו לאחת סינכרונית.
+        """
+        profiler_service.record_slow_query_sync(
             collection="users",
             operation="find",
             query={"name": "test"},
             execution_time_ms=200,
         )
-        sync_summary = profiler_service.get_summary()
-        async_summary = await profiler_service.get_summary_async()
-        assert async_summary == sync_summary
+        assert not inspect.iscoroutinefunction(profiler_service.get_summary)
+        assert profiler_service.get_summary() == profiler_service.get_summary()
 
     @pytest.mark.asyncio
     async def test_normalize_query_shape(self, profiler_service):
@@ -173,12 +174,11 @@ class TestQueryProfilerService:
         broken_large = {"status": {"$in": ["<100 items>"]}}
         assert profiler_service._is_broken_query_shape(broken_large) is True
 
-    @pytest.mark.asyncio
-    async def test_get_explain_plan_rejects_broken_query_shape(self, profiler_service):
+    def test_get_explain_plan_rejects_broken_query_shape(self, profiler_service):
         """בדיקה שget_explain_plan דוחה query_shapes שבורים."""
         broken_query = {"$expr": {"$eq": ["<2 items>"]}}
         with pytest.raises(ValueError, match="broken array normalization"):
-            await profiler_service.get_explain_plan(
+            profiler_service.get_explain_plan(
                 collection="test",
                 query=broken_query,
             )
@@ -246,7 +246,7 @@ class TestOptimizationRecommendations:
             ),
         )
 
-        recommendations = await profiler_service.analyze_and_recommend(explain_plan)
+        recommendations = profiler_service.analyze_and_recommend(explain_plan)
         collscan_rec = next((r for r in recommendations if "COLLSCAN" in r.title), None)
         assert collscan_rec is not None
         assert collscan_rec.severity == SeverityLevel.CRITICAL
@@ -267,7 +267,7 @@ class TestOptimizationRecommendations:
             ),
         )
 
-        recommendations = await profiler_service.analyze_and_recommend(explain_plan)
+        recommendations = profiler_service.analyze_and_recommend(explain_plan)
         efficiency_rec = next((r for r in recommendations if "יעילות" in r.title), None)
         assert efficiency_rec is not None
 
@@ -310,10 +310,9 @@ class TestRateLimiting:
         assert limiter.is_allowed("client2") is True
 
 
-class TestPersistentQueryProfilerServiceSummaryAsync:
-    @pytest.mark.asyncio
-    async def test_get_summary_async_uses_cache(self, mock_db_manager, monkeypatch):
-        """ודא ש-Persistent get_summary_async עושה caching כדי לא להעמיס על DB."""
+class TestPersistentQueryProfilerServiceSummary:
+    def test_get_summary_uses_cache(self, mock_db_manager, monkeypatch):
+        """ודא ש-Persistent get_summary עושה caching כדי לא להעמיס על DB."""
         svc = PersistentQueryProfilerService(db_manager=mock_db_manager, slow_threshold_ms=100)
         calls = {"n": 0}
 
@@ -323,8 +322,73 @@ class TestPersistentQueryProfilerServiceSummaryAsync:
             lambda: {"total_slow_queries": calls.__setitem__("n", calls["n"] + 1) or calls["n"]},
         )
 
-        r1 = await svc.get_summary_async()
-        r2 = await svc.get_summary_async()
+        r1 = svc.get_summary()
+        r2 = svc.get_summary()
         assert calls["n"] == 1
         assert r1 == r2
+
+    def test_a_new_record_invalidates_the_cache_even_without_a_db(self, monkeypatch):
+        """ביטול ה-cache חייב לכסות גם את המסלול שאין בו DB.
+
+        כשאין DB, ``_persist_record`` יוצאת מוקדם ואין כתיבה — אבל הרשומה כן
+        נוספה לזיכרון, והסיכום במסלול הזה נבנה בדיוק מהזיכרון. אם הביטול יושב
+        בסוף ``_persist_record``, הוא מדולג, והדשבורד מציג מספר ישן עד 60 שניות.
+        """
+        manager = MagicMock()
+        manager.db = None  # אין DB — מסלול ה-fallback לזיכרון
+        svc = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+
+        calls = {"n": 0}
+
+        def _calc():
+            calls["n"] += 1
+            return {"total_slow_queries": calls["n"]}
+
+        monkeypatch.setattr(svc, "_calculate_summary_sync", _calc)
+
+        assert svc.get_summary()["total_slow_queries"] == 1
+        assert svc.get_summary()["total_slow_queries"] == 1, "ה-cache אמור לתפוס"
+
+        svc.record_slow_query_sync(
+            collection="code_snippets",
+            operation="find",
+            query={"user_id": 1},
+            execution_time_ms=1500.0,
+        )
+
+        assert svc.get_summary()["total_slow_queries"] == 2, (
+            "רשומה חדשה בזיכרון לא ביטלה את ה-cache"
+        )
+
+    def test_a_failed_db_write_still_invalidates_the_cache(self, monkeypatch):
+        """גם כתיבה שנכשלה השאירה רשומה בזיכרון, אז ה-cache חייב להתבטל."""
+        manager = MagicMock()
+        svc = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+
+        calls = {"n": 0}
+
+        def _calc():
+            calls["n"] += 1
+            return {"total_slow_queries": calls["n"]}
+
+        monkeypatch.setattr(svc, "_calculate_summary_sync", _calc)
+        monkeypatch.setattr(
+            svc,
+            "_persist_record",
+            lambda record: (_ for _ in ()).throw(RuntimeError("mongo down")),
+        )
+
+        assert svc.get_summary()["total_slow_queries"] == 1
+
+        with pytest.raises(RuntimeError):
+            svc.record_slow_query_sync(
+                collection="code_snippets",
+                operation="find",
+                query={"user_id": 1},
+                execution_time_ms=1500.0,
+            )
+
+        assert svc.get_summary()["total_slow_queries"] == 2, (
+            "כתיבה שנכשלה השאירה רשומה בזיכרון אבל ה-cache נשאר ישן"
+        )
 

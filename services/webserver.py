@@ -1316,12 +1316,28 @@ def create_app() -> web.Application:
         from services.db_provider import get_db
 
         def _run_cleanup() -> dict:
+            # ⚠️ מוקדם בכוונה: הפונקציה הזו מוחקת מסמכים ומפילה אינדקסים. כל מה
+            # שיכול להיכשל בלי לגעת ב-DB חייב להיכשל **לפני** הפעולות ההרסניות,
+            # אחרת ImportError היה מחזיר 500 אחרי שהנתונים כבר נמחקו והאינדקס
+            # הישן הופל — ובלי שנוצר אינדקס TTL חדש במקומו.
+            from services.query_profiler_service import (  # type: ignore
+                PersistentQueryProfilerService as _ProfilerSvc,
+            )
+
+            # מקור אמת יחיד לשם האוסף ול-retention שלו — אותם ערכים שבהם משתמש
+            # DatabaseManager._create_profiler_indexes. שם האוסף היה קשיח כאן
+            # קודם, כך ששינוי של COLLECTION_NAME היה מותיר את התחזוקה מנקה את
+            # האוסף הישן; וה-TTL, אם יתפצל, יגרום לכל הרצה להפיל ולייצר מחדש
+            # את האינדקס.
+            profiler_collection = str(_ProfilerSvc.COLLECTION_NAME)
+            profiler_ttl_seconds = int(_ProfilerSvc.TTL_SECONDS)
+
             preview = str(request.query.get("preview", "") or "").lower() in {"1", "true", "yes", "on"}
             db = get_db()
 
             # --- collections to purge ---
             try:
-                slow_queries_coll = db.slow_queries_log
+                slow_queries_coll = db[profiler_collection]
             except Exception:
                 slow_queries_coll = None
             try:
@@ -1421,10 +1437,10 @@ def create_app() -> web.Application:
                 service_metrics_pre_drop = {"dropped": dropped_pre}
 
             ttl_results: dict[str, Any] = {
-                "slow_queries_log": _ensure_ttl_index(
+                profiler_collection: _ensure_ttl_index(
                     slow_queries_coll,
                     field="timestamp",
-                    expire_seconds=604800,  # 7 days
+                    expire_seconds=profiler_ttl_seconds,
                     index_name="ttl_cleanup",
                 ),
                 # service_metrics uses "ts" in code, but we'll also create a "timestamp" TTL for safety/backward-compat
@@ -1545,7 +1561,7 @@ def create_app() -> web.Application:
                 "ok": True,
                 "preview": preview,
                 "deleted_documents": {
-                    "slow_queries_log": deleted_slow,
+                    profiler_collection: deleted_slow,
                     "service_metrics": deleted_metrics,
                     "total": deleted_slow + deleted_metrics,
                 },
