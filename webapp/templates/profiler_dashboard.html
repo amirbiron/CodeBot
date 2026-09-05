@@ -356,7 +356,9 @@
         }
         renderRecommendations(data.recommendations || []);
       } else {
-        alert(result.message || 'שגיאה בניתוח');
+        // ה-error_code מוצג לצד ההודעה: כשהודעה גנרית מוחזרת (קוד שאין לו ערך
+        // במפת ההודעות), בלעדיו הפופאפ חסר משמעות ואי אפשר לפעול לפיו.
+        alert([result.message || 'שגיאה בניתוח', result.error_code].filter(Boolean).join(' — '));
       }
     } catch (error) {
       console.error('Error analyzing query:', error);

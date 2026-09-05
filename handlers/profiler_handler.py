@@ -74,19 +74,34 @@ def require_profiler_auth(handler):
 
 #: הודעות למשתמש לפי ``error_code``. ההודעה של ``BROKEN_QUERY_SHAPE`` נשמרת
 #: מילה במילה מהגרסה הקודמת, כדי לא לשנות התנהגות קיימת.
+#: ⚠️ חייבת להישאר זהה לזו שב-``webapp/app.py``, ולכסות כל ``error_code``
+#: שהשירות מגדיר. שני הדברים נאכפים בטסטים.
 _PROFILER_INPUT_MESSAGES = {
+    "PROFILER_INPUT_ERROR": "הבקשה לפרופיילר אינה תקינה.",
     "BROKEN_QUERY_SHAPE": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
     "INVALID_VERBOSITY": "רמת פירוט לא נתמכת ל-explain. בחר queryPlanner, executionStats או allPlansExecution.",
 }
 
+#: ראו ההסבר המקביל ב-``webapp/app.py``: לא ``str(exc)``.
+_PROFILER_INPUT_FALLBACK_MESSAGE = "הבקשה לפרופיילר אינה תקינה."
+
+#: מדיניות ה-timeout, זהה ל-``webapp/app.py``.
+_PROFILER_TIMEOUT_MESSAGE = (
+    "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS."
+)
+_PROFILER_TIMEOUT_STATUS = 504
+
 
 def _profiler_input_error_payload(exc) -> dict:
     code = str(getattr(exc, "error_code", "") or "PROFILER_INPUT_ERROR")
-    return {
-        "status": "error",
-        "message": _PROFILER_INPUT_MESSAGES.get(code) or str(exc),
-        "error_code": code,
-    }
+    message = _PROFILER_INPUT_MESSAGES.get(code)
+    if message is None:
+        logger.warning(
+            "profiler_input_error_without_message",
+            extra={"error_code": code, "error": str(exc)},
+        )
+        message = _PROFILER_INPUT_FALLBACK_MESSAGE
+    return {"status": "error", "message": message, "error_code": code}
 
 
 def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerService):
@@ -159,9 +174,9 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
             logger.warning("profiler_explain_timeout", extra={"error": str(e)})
             return web.json_response({
                 "status": "error",
-                "message": "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS.",
+                "message": _PROFILER_TIMEOUT_MESSAGE,
                 "error_code": "EXPLAIN_TIMEOUT"
-            }, status=504)
+            }, status=_PROFILER_TIMEOUT_STATUS)
         except _ProfilerInputError as e:
             # לפי טיפוס ולא לפי טקסט ההודעה: קודם רק "broken array normalization"
             # זוהה כשגיאת קלט, וכל ולידציה חדשה נפלה ל-raise ומשם ל-500.
@@ -213,9 +228,9 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
             logger.warning("profiler_explain_timeout", extra={"error": str(e)})
             return web.json_response({
                 "status": "error",
-                "message": "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS.",
+                "message": _PROFILER_TIMEOUT_MESSAGE,
                 "error_code": "EXPLAIN_TIMEOUT"
-            }, status=504)
+            }, status=_PROFILER_TIMEOUT_STATUS)
         except _ProfilerInputError as e:
             # לפי טיפוס ולא לפי טקסט ההודעה: קודם רק "broken array normalization"
             # זוהה כשגיאת קלט, וכל ולידציה חדשה נפלה ל-raise ומשם ל-500.

@@ -4888,10 +4888,26 @@ def api_profiler_summary():
 
 #: הודעות למשתמש לפי ``error_code`` של ``ProfilerInputError``.
 #: ההודעה של ``BROKEN_QUERY_SHAPE`` נשמרת מילה במילה מהגרסה הקודמת.
+#: ⚠️ המפה הזו חייבת להישאר זהה לזו שב-``handlers/profiler_handler.py``,
+#: ולכסות כל ``error_code`` שהשירות מגדיר. שני הדברים נאכפים בטסטים.
 _PROFILER_INPUT_MESSAGES = {
+    "PROFILER_INPUT_ERROR": "הבקשה לפרופיילר אינה תקינה.",
     "BROKEN_QUERY_SHAPE": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
     "INVALID_VERBOSITY": "רמת פירוט לא נתמכת ל-explain. בחר queryPlanner, executionStats או allPlansExecution.",
 }
+
+#: הודעה לקוד שאין לו ערך במפה. **לא** ``str(exc)``: טקסט חריגה באנגלית בפופאפ
+#: עברי אינו הודעה למשתמש, וחשוב מכך — ``or str(exc)`` הפך את המפה מחוזה לרשות,
+#: כך שקוד חדש בלי הודעה לא היה נכשל בשום מקום. הפער נאכף עכשיו בטסט.
+_PROFILER_INPUT_FALLBACK_MESSAGE = "הבקשה לפרופיילר אינה תקינה."
+
+#: מדיניות ה-timeout. משוכפלת ב-``handlers/profiler_handler.py``, והטסטים משווים
+#: את **התגובות בפועל** של שתי המסגרות ולא את הקבועים — קבועים זהים אינם מוכיחים
+#: שהתגובה משתמשת בהם.
+_PROFILER_TIMEOUT_MESSAGE = (
+    "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS."
+)
+_PROFILER_TIMEOUT_STATUS = 504
 
 
 def _profiler_input_error_response(exc):
@@ -4901,7 +4917,14 @@ def _profiler_input_error_response(exc):
     ולידציה חדשה נפלה אוטומטית ל-500 עם stack trace.
     """
     code = str(getattr(exc, "error_code", "") or "PROFILER_INPUT_ERROR")
-    message = _PROFILER_INPUT_MESSAGES.get(code) or str(exc)
+    message = _PROFILER_INPUT_MESSAGES.get(code)
+    if message is None:
+        # פער במפה. ההודעה המקורית לא נשלחת ללקוח, אבל גם לא נעלמת.
+        logger.warning(
+            "profiler_input_error_without_message",
+            extra={"error_code": code, "error": str(exc)},
+        )
+        message = _PROFILER_INPUT_FALLBACK_MESSAGE
     return jsonify({"status": "error", "message": message, "error_code": code}), 400
 
 
@@ -4934,9 +4957,9 @@ def api_profiler_explain():
         logger.warning("api_profiler_explain_explain_timeout", extra={"error": str(e)})
         return jsonify({
             "status": "error",
-            "message": "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS.",
+            "message": _PROFILER_TIMEOUT_MESSAGE,
             "error_code": "EXPLAIN_TIMEOUT"
-        }), 504
+        }), _PROFILER_TIMEOUT_STATUS
     except _ProfilerInputError as e:
         # כל שגיאת קלט של הפרופיילר, לפי טיפוס ולא לפי טקסט ההודעה.
         return _profiler_input_error_response(e)
@@ -4995,9 +5018,9 @@ def api_profiler_recommendations():
         logger.warning("api_profiler_recommendations_explain_timeout", extra={"error": str(e)})
         return jsonify({
             "status": "error",
-            "message": "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS.",
+            "message": _PROFILER_TIMEOUT_MESSAGE,
             "error_code": "EXPLAIN_TIMEOUT"
-        }), 504
+        }), _PROFILER_TIMEOUT_STATUS
     except _ProfilerInputError as e:
         # כל שגיאת קלט של הפרופיילר, לפי טיפוס ולא לפי טקסט ההודעה.
         return _profiler_input_error_response(e)

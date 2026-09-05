@@ -350,3 +350,207 @@ class TestTheModuleLoadsWithoutPymongo:
         source = pathlib.Path("services/query_profiler_service.py").read_text(encoding="utf-8")
         header = source.split("class ProfilerInputError")[0]
         assert "\nimport pymongo" not in header, "pymongo חזר לרמת המודול"
+
+
+# ---------------------------------------------------------------------------
+# מדיניות השגיאות: אותה תגובה בשתי המסגרות
+#
+# ``webapp/app.py`` (Flask) ו-``handlers/profiler_handler.py`` (aiohttp) מממשים
+# את אותה מדיניות פעמיים. הבדיקות כאן **מריצות את שני ה-handlers ומשוות תגובות
+# בפועל** — סטטוס וגוף — ולא משוות קבועים: קבועים זהים אינם מוכיחים שהתגובה
+# משתמשת בהם, ואפשר להשאיר קבוע במקומו ולכתוב מחרוזת קשיחה בענף.
+#
+# על הרלוונטיות של ה-handler: הוא אינו רץ בפרודקשן היום, אבל לא בגלל שנזנח —
+# התנאי ב-``main.py:6066`` הוא ``enable_internal_web and PUBLIC_BASE_URL``,
+# ו-``ENABLE_INTERNAL_SHARE_WEB=true`` כבר מוגדר. חסר רק ``PUBLIC_BASE_URL``,
+# כלומר הוא משתנה סביבה אחד מלהתעורר — ולכן הסטייה כן מסוכנת.
+# ---------------------------------------------------------------------------
+
+
+class _RaisingProfilerService:
+    """שירות דמה שמרים חריגה נתונה מכל מסלול explain."""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    def get_explain_plan(self, **kwargs):
+        raise self._exc
+
+    def get_aggregation_explain(self, **kwargs):
+        raise self._exc
+
+
+def _flask_explain_response(monkeypatch, exc):
+    """מריץ את ``POST /api/profiler/explain`` של ה-WebApp ומחזיר (status, json)."""
+    import webapp.app as webapp_app
+
+    monkeypatch.setattr(webapp_app, "_get_webapp_profiler_service", lambda: _RaisingProfilerService(exc))
+    monkeypatch.setattr(webapp_app, "_profiler_is_authorized", lambda: True)
+    monkeypatch.setattr(webapp_app, "_profiler_rate_limit_ok", lambda: True)
+
+    with webapp_app.app.test_client() as client:
+        resp = client.post("/api/profiler/explain", json={"collection": "c", "query": {}})
+        return resp.status_code, resp.get_json()
+
+
+async def _aiohttp_explain_response(monkeypatch, exc):
+    """מריץ את אותו ראוט ב-aiohttp ומחזיר (status, json)."""
+    import aiohttp
+    from aiohttp import web
+
+    from handlers.profiler_handler import setup_profiler_routes
+
+    # בלי טוקן מוגדר, ``require_profiler_auth`` מדלג על בדיקת ה-token.
+    monkeypatch.delenv("PROFILER_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("PROFILER_ALLOWED_IPS", raising=False)
+
+    app = web.Application()
+    setup_profiler_routes(app, _RaisingProfilerService(exc))
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"http://127.0.0.1:{port}/api/profiler/explain",
+                json={"collection": "c", "query": {}},
+            ) as resp:
+                return resp.status, await resp.json()
+    finally:
+        await runner.cleanup()
+
+
+class TestBothFrameworksAnswerTheSame:
+    @pytest.mark.asyncio
+    async def test_a_timeout_gets_the_same_response_everywhere(self, monkeypatch):
+        """זה מה שסוגר את הממצא על מדיניות ה-504 שמועתקת."""
+        from services.query_profiler_service import ExplainTimeoutError
+
+        flask_status, flask_body = _flask_explain_response(monkeypatch, ExplainTimeoutError("explain exceeded"))
+        aio_status, aio_body = await _aiohttp_explain_response(monkeypatch, ExplainTimeoutError("explain exceeded"))
+
+        assert flask_status == aio_status == 504
+        assert flask_body == aio_body
+        assert flask_body["error_code"] == "EXPLAIN_TIMEOUT"
+
+    @pytest.mark.asyncio
+    async def test_an_input_error_gets_the_same_response_everywhere(self, monkeypatch):
+        from services.query_profiler_service import BrokenQueryShapeError
+
+        exc_text = "Query shape contains broken array normalization from old version."
+        flask_status, flask_body = _flask_explain_response(monkeypatch, BrokenQueryShapeError(exc_text))
+        aio_status, aio_body = await _aiohttp_explain_response(monkeypatch, BrokenQueryShapeError(exc_text))
+
+        assert flask_status == aio_status == 400
+        assert flask_body == aio_body
+        assert flask_body["error_code"] == "BROKEN_QUERY_SHAPE"
+        # ההודעה הוותיקה נשמרת מילה במילה
+        assert flask_body["message"] == (
+            "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש."
+        )
+
+    @pytest.mark.asyncio
+    async def test_an_unmapped_code_never_leaks_the_exception_text(self, monkeypatch):
+        """``or str(exc)`` הפך את מפת ההודעות לרשות.
+
+        קוד בלי ערך במפה קיבל בשקט את טקסט החריגה — אנגלית, בפופאפ עברי — ושום
+        דבר לא נכשל. עכשיו חוזרת הודעה גנרית, ה-``error_code`` כן חוזר כדי
+        שאפשר יהיה לפעול לפיו, והטקסט המקורי נרשם ללוג בלבד.
+        """
+        from services.query_profiler_service import ProfilerInputError
+
+        class _UnmappedError(ProfilerInputError):
+            error_code = "SOME_FUTURE_CODE"
+
+        secret = "internal detail that must not reach the client"
+        flask_status, flask_body = _flask_explain_response(monkeypatch, _UnmappedError(secret))
+        aio_status, aio_body = await _aiohttp_explain_response(monkeypatch, _UnmappedError(secret))
+
+        assert flask_status == aio_status == 400
+        assert flask_body == aio_body
+        assert secret not in flask_body["message"]
+        assert flask_body["error_code"] == "SOME_FUTURE_CODE"
+
+
+def _all_profiler_input_error_codes() -> dict:
+    """כל ה-``error_code`` שמוגדרים בקוד הייצור, בשתי שיטות משלימות.
+
+    ⚠️ ``ProfilerInputError.__subclasses__()`` לבדו **אינו** מספיק: הוא מחזיר רק
+    תת-מחלקות **ישירות**, ורק כאלה שכבר יובאו. מחלקה בעומק שני, או כזו שהוגדרה
+    במודול אחר, לא הייתה מופיעה — והטסט היה עובר בשקט. לכן:
+
+    1. **סריקת מרחב השמות** של המודול שמגדיר את החריגות — דטרמיניסטית ובלתי
+       תלויה בעומק, ומצהירה איפה החריגות אמורות לגור.
+    2. **מעבר רקורסיבי** על ``__subclasses__`` — תופס מחלקות מחוץ למודול שכן יובאו.
+
+    **מגבלה שנשארת:** מחלקה במודול שאיש אינו מייבא אינה ניתנת לגילוי בזמן ריצה
+    בשום שיטה. זה גבול אמיתי, לא פער במימוש.
+    """
+    import inspect
+    import pathlib
+
+    import services.query_profiler_service as qps
+
+    found: dict = {}
+    tests_dir = pathlib.Path(__file__).resolve().parent
+
+    def _defined_in_tests(cls) -> bool:
+        """האם המחלקה הוגדרה בתוך קובץ טסט.
+
+        סינון לפי **נתיב** ולא לפי ``__module__``: ל-``tests/`` אין ``__init__.py``,
+        ולכן pytest מייבא את הקבצים בשם ``test_x`` בלי הקידומת ``tests.`` — אותה
+        תכונת אריזה שכבר שברה כאן ייבוא בעבר. הנתיב חסין לזה.
+        """
+        try:
+            return tests_dir in pathlib.Path(inspect.getfile(cls)).resolve().parents
+        except (TypeError, OSError):
+            # מחלקה שנוצרה דינמית ואין לה קובץ — לא ניתן לשייך, לא נספרת.
+            return True
+
+    def _record(cls) -> None:
+        # מחלקות שהוגדרו בתוך טסטים דולפות לרישום הגלובלי של ``__subclasses__``.
+        # האכיפה היא על קודים שהקוד הייצורי מגדיר, לא על דמויות חד-פעמיות.
+        if _defined_in_tests(cls):
+            return
+        code = getattr(cls, "error_code", None)
+        if code:
+            found[str(code)] = cls.__name__
+
+    for _, obj in inspect.getmembers(qps, inspect.isclass):
+        if issubclass(obj, qps.ProfilerInputError):
+            _record(obj)
+
+    def _walk(cls) -> None:
+        for sub in cls.__subclasses__():
+            _record(sub)
+            _walk(sub)
+
+    _walk(qps.ProfilerInputError)
+    return found
+
+
+class TestEveryErrorCodeHasAMessage:
+    def test_both_maps_cover_every_defined_code(self):
+        """קוד בלי הודעה = הודעה גנרית למשתמש. הפער נאכף כאן ולא בפרודקשן."""
+        import handlers.profiler_handler as handler_mod
+        import webapp.app as webapp_app
+
+        codes = set(_all_profiler_input_error_codes())
+        assert codes, "לא נמצא אף error_code — הסריקה שבורה"
+
+        for name, mapping in (
+            ("webapp/app.py", webapp_app._PROFILER_INPUT_MESSAGES),
+            ("handlers/profiler_handler.py", handler_mod._PROFILER_INPUT_MESSAGES),
+        ):
+            missing = codes - set(mapping)
+            assert not missing, f"{name} חסרות הודעות ל: {sorted(missing)}"
+
+    def test_the_two_maps_are_identical(self):
+        """אותה שגיאה חייבת להיקרא אותו דבר בדשבורד ובבוט."""
+        import handlers.profiler_handler as handler_mod
+        import webapp.app as webapp_app
+
+        assert webapp_app._PROFILER_INPUT_MESSAGES == handler_mod._PROFILER_INPUT_MESSAGES
