@@ -1,5 +1,7 @@
 import types
 
+from tests.helpers.mongo_stubs import StubDBItemAccess
+
 
 def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monkeypatch):
     # Import the Flask webapp module
@@ -57,18 +59,11 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
             self._idx[name] = {"key": list(keys)}
             return name
 
-    class _StubDB:
+    class _StubDB(StubDBItemAccess):
         def __init__(self):
             self.slow_queries_log = _StubDeleteColl(has_legacy_metrics_ttl=False)
             self.service_metrics = _StubDeleteColl(has_legacy_metrics_ttl=True)
             self.code_snippets = _StubCodeSnippetsColl()
-
-        def __getitem__(self, name):
-            # ``Database`` של pymongo תומכת גם ב-``db["name"]`` וגם ב-``db.name``:
-            # ב-4.15.3 שתי המתודות מחזירות ``Collection(self, name)`` — אומת מול
-            # קוד המקור המותקן. הדמה תמכה רק בגישת תכונה, ולכן נשברה כשהקוד עבר
-            # לקרוא את שם האוסף מ-``PersistentQueryProfilerService.COLLECTION_NAME``.
-            return getattr(self, str(name))
 
     shared_db = _StubDB()
     monkeypatch.setattr(webapp_app, "get_db", lambda: shared_db, raising=True)

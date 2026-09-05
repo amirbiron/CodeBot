@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import types
 
+from tests.helpers.mongo_stubs import RecordingDB
+
 
 def _import_manager(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "x")
@@ -217,61 +219,6 @@ class TestRegisteredJobPointsAtRealCode:
         )
 
 
-class _RecordingCollection:
-    """דמה של אוסף מונגו שרושם כל פעולה, כדי שאפשר יהיה לשאול "האם נגעת ב-DB?"."""
-
-    def __init__(self) -> None:
-        self.delete_calls = 0
-        self.dropped: list[str] = []
-        self.created: list[dict] = []
-        self._info: dict = {}
-
-    def delete_many(self, _query):
-        self.delete_calls += 1
-        return types.SimpleNamespace(deleted_count=0)
-
-    def index_information(self):
-        return dict(self._info)
-
-    def drop_index(self, name):
-        self.dropped.append(str(name))
-        self._info.pop(str(name), None)
-
-    def create_index(self, keys, **kwargs):
-        self.created.append({"keys": list(keys), **kwargs})
-        name = str(kwargs.get("name") or "idx")
-        self._info[name] = {"key": list(keys)}
-        return name
-
-
-class _RecordingDB:
-    """דמה של ``Database``. תומכת גם ב-``db["name"]`` וגם ב-``db.name``.
-
-    ב-pymongo 4.15.3 ``Database.__getitem__`` ו-``Database.__getattr__`` מחזירים
-    שניהם ``Collection(self, name)`` — אומת מול קוד המקור המותקן. דמויות קודמות
-    בריפו תמכו רק בגישת תכונה, ולכן נשברו כשהקוד עבר לשם אוסף דינמי.
-    """
-
-    def __init__(self) -> None:
-        object.__setattr__(self, "collections", {})
-
-    def __getitem__(self, name):
-        return self.collections.setdefault(str(name), _RecordingCollection())
-
-    def __getattr__(self, name):
-        if str(name).startswith("_") or name == "collections":
-            raise AttributeError(name)
-        return self[name]
-
-    def touched(self) -> dict:
-        """האם מישהו מחק או הפיל אינדקס, ובאיזה אוסף."""
-        return {
-            name: (coll.delete_calls, list(coll.dropped))
-            for name, coll in self.collections.items()
-            if coll.delete_calls or coll.dropped
-        }
-
-
 class TestMaintenanceEndpointBehaviour:
     """בדיקות התנהגות ל-``/api/debug/maintenance_cleanup`` ב-WebApp.
 
@@ -287,7 +234,7 @@ class TestMaintenanceEndpointBehaviour:
         import webapp.app as webapp_app
 
         monkeypatch.setenv("DB_HEALTH_TOKEN", self.TOKEN)
-        db = _RecordingDB()
+        db = RecordingDB()
         monkeypatch.setattr(webapp_app, "get_db", lambda: db, raising=True)
         return webapp_app, db
 
@@ -350,3 +297,67 @@ class TestMaintenanceEndpointBehaviour:
         assert "slow_queries_log" not in db.collections, (
             "התחזוקה ניקתה את האוסף הישן — שם האוסף עדיין קשיח איפשהו"
         )
+
+
+class TestRecursionGuard:
+    """המגן שמונע מהפרופיילר להקליט את הכתיבה של עצמו.
+
+    בלעדיו: הכתיבה ל-``slow_queries_log`` היא פקודת מונגו, שמפעילה את
+    ה-``CommandListener``, שכותב שוב. רקורסיה.
+    """
+
+    def test_it_names_the_collection_the_service_names(self, monkeypatch):
+        dm = _import_manager(monkeypatch)
+        from services.query_profiler_service import PersistentQueryProfilerService
+
+        monkeypatch.setattr(
+            PersistentQueryProfilerService, "COLLECTION_NAME", "renamed_profiler_log", raising=True
+        )
+        guard = dm.DatabaseManager.profiler_guard_collections(types.SimpleNamespace())
+        assert "renamed_profiler_log" in guard
+        assert "system.profile" in guard
+
+    def test_a_failed_import_is_not_cached(self, monkeypatch):
+        """הכשל השקט: קבוצה חלקית שנשמרת לתמיד.
+
+        ``_get_profiler_service`` מנסה לייבא מחדש בכל קריאה, אז כשל חולף בעליית
+        התהליך (ייבוא מעגלי, למשל) מייצר מאוחר יותר פרופיילר **חי**. אם המגן
+        הטמין את הקבוצה החלקית מהניסיון הראשון, הוא לא יכיר את האוסף של
+        הפרופיילר — וזו בדיוק הרקורסיה שהוא קיים כדי למנוע.
+        """
+        dm = _import_manager(monkeypatch)
+        import builtins
+
+        manager = types.SimpleNamespace()
+        real_import = builtins.__import__
+        failing = {"on": True}
+
+        def _maybe_fail(name, *args, **kwargs):
+            if failing["on"] and name == "services.query_profiler_service":
+                raise ImportError("circular import during startup")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _maybe_fail)
+
+        during_failure = dm.DatabaseManager.profiler_guard_collections(manager)
+        assert during_failure == frozenset({"system.profile"})
+        assert not hasattr(manager, "_profiler_guard_cache"), (
+            "קבוצה חלקית הוטמנה — הקריאה הבאה לא תנסה שוב"
+        )
+
+        failing["on"] = False
+        after_recovery = dm.DatabaseManager.profiler_guard_collections(manager)
+        from services.query_profiler_service import PersistentQueryProfilerService
+
+        assert PersistentQueryProfilerService.COLLECTION_NAME in after_recovery, (
+            "אחרי שהייבוא הסתדר המגן עדיין לא מכיר את האוסף של הפרופיילר"
+        )
+
+    def test_a_successful_result_is_cached(self, monkeypatch):
+        """רץ על כל פקודה איטית, אז ייבוא חוזר בכל קריאה אינו מקובל."""
+        dm = _import_manager(monkeypatch)
+        manager = types.SimpleNamespace()
+
+        first = dm.DatabaseManager.profiler_guard_collections(manager)
+        assert getattr(manager, "_profiler_guard_cache", None) == first
+        assert dm.DatabaseManager.profiler_guard_collections(manager) is first

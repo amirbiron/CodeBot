@@ -925,30 +925,6 @@ class DatabaseManager:
                         except Exception:
                             return 0.0
 
-                    def _profiler_guard_collections() -> frozenset:
-                        """אוספים שאסור להקליט — אחרת הכתיבה של הפרופיילר מקליטה את עצמה.
-
-                        שם האוסף נקרא מ-``PersistentQueryProfilerService.COLLECTION_NAME``
-                        ולא קשיח: אם הוא היה קשיח ומישהו היה משנה את הקבוע, המגן היה
-                        מפספס והכתיבה הייתה מפעילה את ה-listener על עצמה. מוטמן על
-                        ``outer_self`` כי זה רץ על כל פקודה איטית.
-
-                        כשהייבוא נכשל אין פרופיילר בכלל (``_get_profiler_service``
-                        מחזירה ``None`` מיד אחר כך), ולכן אין צורך בשם חלופי.
-                        """
-                        cached = getattr(outer_self, "_profiler_guard_collections", None)
-                        if cached is not None:
-                            return cached
-                        names = {"system.profile"}
-                        try:
-                            from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
-                            names.add(str(PersistentQueryProfilerService.COLLECTION_NAME))
-                        except Exception:
-                            pass
-                        guard = frozenset(names)
-                        setattr(outer_self, "_profiler_guard_collections", guard)
-                        return guard
-
                     def _get_profiler_service():
                         # Lazy import to avoid hard dependency / circular imports at startup
                         try:
@@ -1077,7 +1053,7 @@ class DatabaseManager:
 
                                     coll = req_data["coll"]
                                     # מניעת רקורסיה
-                                    if coll in _profiler_guard_collections():
+                                    if coll in outer_self.profiler_guard_collections():
                                         return
 
                                     profiler = _get_profiler_service()
@@ -1574,6 +1550,37 @@ class DatabaseManager:
                 index_name=name or "",
                 error=msg,
             )
+
+    def profiler_guard_collections(self) -> frozenset:
+        """אוספים שה-``CommandListener`` לא רשאי להקליט.
+
+        בלי המגן הזה, הכתיבה של הפרופיילר עצמו היא פקודת מונגו שמפעילה את
+        ה-listener, שכותב שוב — רקורסיה. שם האוסף נלקח מ-
+        ``PersistentQueryProfilerService.COLLECTION_NAME`` ולא קשיח, כדי ששינוי
+        של הקבוע לא ישאיר את המגן מאחור.
+
+        ⚠️ **מוטמן רק כשהייבוא הצליח.** הטמנה של קבוצה חלקית הייתה תקלה שקטה:
+        ``_get_profiler_service`` מנסה לייבא מחדש בכל קריאה, ולכן כשל חולף
+        בעליית התהליך (למשל ייבוא מעגלי) היה מייצר מאוחר יותר פרופיילר חי עם
+        מגן שאינו מכיר את האוסף שלו — כלומר בדיוק הרקורסיה שהמגן קיים כדי למנוע.
+
+        המתודה יושבת כאן ולא כפונקציה פנימית ב-``connect`` כדי שאפשר יהיה
+        לבדוק אותה; הכשל הזה שרד בדיוק כי היא לא הייתה נגישה לבדיקה.
+        """
+        cached = getattr(self, "_profiler_guard_cache", None)
+        if cached is not None:
+            return cached
+
+        try:
+            from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
+        except Exception:
+            # בלי השירות אין למי להקליט; מחזירים מגן חלקי בלי להטמין אותו,
+            # כדי שהקריאה הבאה תנסה שוב.
+            return frozenset({"system.profile"})
+
+        guard = frozenset({"system.profile", str(PersistentQueryProfilerService.COLLECTION_NAME)})
+        setattr(self, "_profiler_guard_cache", guard)
+        return guard
 
     def _create_profiler_indexes(self, safe_create_index) -> None:
         """אינדקסים לאוסף ``slow_queries_log`` שהפרופיילר כותב אליו.
