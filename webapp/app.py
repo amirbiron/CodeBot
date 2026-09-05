@@ -190,6 +190,12 @@ from services.db_health_service import (  # noqa: E402
     MAX_SKIP,
     clean_db_health_filter_value,
 )
+from services.query_profiler_service import (  # noqa: E402
+    # ייבוא ברמת המודול ולא בתוך הפונקציה: שם מחלקה ב-``except`` מוערך רק כשחריגה
+    # מגיעה לשם, ולכן שם שאינו קיים היה מתגלה כ-NameError רק בזמן כשל אמיתי.
+    ExplainTimeoutError as _ProfilerExplainTimeout,
+    ProfilerInputError as _ProfilerInputError,
+)
 from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
     COPY_CODE_SCRIPT_CSP_HASH,
@@ -4880,6 +4886,48 @@ def api_profiler_summary():
         return jsonify({"status": "error", "message": "internal_error"}), 500
 
 
+#: הודעות למשתמש לפי ``error_code`` של ``ProfilerInputError``.
+#: ההודעה של ``BROKEN_QUERY_SHAPE`` נשמרת מילה במילה מהגרסה הקודמת.
+#: ⚠️ המפה הזו חייבת להישאר זהה לזו שב-``handlers/profiler_handler.py``,
+#: ולכסות כל ``error_code`` שהשירות מגדיר. שני הדברים נאכפים בטסטים.
+_PROFILER_INPUT_MESSAGES = {
+    "PROFILER_INPUT_ERROR": "הבקשה לפרופיילר אינה תקינה.",
+    "BROKEN_QUERY_SHAPE": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
+    "INVALID_VERBOSITY": "רמת פירוט לא נתמכת ל-explain. בחר queryPlanner, executionStats או allPlansExecution.",
+}
+
+#: הודעה לקוד שאין לו ערך במפה. **לא** ``str(exc)``: טקסט חריגה באנגלית בפופאפ
+#: עברי אינו הודעה למשתמש, וחשוב מכך — ``or str(exc)`` הפך את המפה מחוזה לרשות,
+#: כך שקוד חדש בלי הודעה לא היה נכשל בשום מקום. הפער נאכף עכשיו בטסט.
+_PROFILER_INPUT_FALLBACK_MESSAGE = "הבקשה לפרופיילר אינה תקינה."
+
+#: מדיניות ה-timeout. משוכפלת ב-``handlers/profiler_handler.py``, והטסטים משווים
+#: את **התגובות בפועל** של שתי המסגרות ולא את הקבועים — קבועים זהים אינם מוכיחים
+#: שהתגובה משתמשת בהם.
+_PROFILER_TIMEOUT_MESSAGE = (
+    "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS."
+)
+_PROFILER_TIMEOUT_STATUS = 504
+
+
+def _profiler_input_error_response(exc):
+    """מתרגם שגיאת קלט של הפרופיילר ל-400 עם ``error_code``.
+
+    קודם הראוטים זיהו את סוג השגיאה בחיפוש מחרוזת בתוך הודעת החריגה, ולכן כל
+    ולידציה חדשה נפלה אוטומטית ל-500 עם stack trace.
+    """
+    code = str(getattr(exc, "error_code", "") or "PROFILER_INPUT_ERROR")
+    message = _PROFILER_INPUT_MESSAGES.get(code)
+    if message is None:
+        # פער במפה. ההודעה המקורית לא נשלחת ללקוח, אבל גם לא נעלמת.
+        logger.warning(
+            "profiler_input_error_without_message",
+            extra={"error_code": code, "error": str(exc)},
+        )
+        message = _PROFILER_INPUT_FALLBACK_MESSAGE
+    return jsonify({"status": "error", "message": message, "error_code": code}), 400
+
+
 @app.route("/api/profiler/explain", methods=["POST"])
 def api_profiler_explain():
     if not _profiler_is_authorized():
@@ -4903,13 +4951,19 @@ def api_profiler_explain():
             return jsonify({"status": "success", "data": _serialize_aggregation_explain(explain)})
         explain = svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity)
         return jsonify({"status": "success", "data": _serialize_explain_plan(explain)})
-    except ValueError as e:
-        if "broken array normalization" in str(e):
-            return jsonify({
-                "status": "error",
-                "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                "error_code": "BROKEN_QUERY_SHAPE"
-            }), 400
+    except _ProfilerExplainTimeout as e:
+        # תקרת הזמן של ה-explain. בלי הענף הזה זו הייתה תשובת 500 גנרית, שאי אפשר
+        # להבחין בינה לבין קריסה — והמשתמש לא היה יודע שהפתרון הוא queryPlanner.
+        logger.warning("api_profiler_explain_explain_timeout", extra={"error": str(e)})
+        return jsonify({
+            "status": "error",
+            "message": _PROFILER_TIMEOUT_MESSAGE,
+            "error_code": "EXPLAIN_TIMEOUT"
+        }), _PROFILER_TIMEOUT_STATUS
+    except _ProfilerInputError as e:
+        # כל שגיאת קלט של הפרופיילר, לפי טיפוס ולא לפי טקסט ההודעה.
+        return _profiler_input_error_response(e)
+    except ValueError:
         logger.exception("api_profiler_explain_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
     except Exception:
@@ -4958,13 +5012,19 @@ def api_profiler_recommendations():
                 },
             }
         )
-    except ValueError as e:
-        if "broken array normalization" in str(e):
-            return jsonify({
-                "status": "error",
-                "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                "error_code": "BROKEN_QUERY_SHAPE"
-            }), 400
+    except _ProfilerExplainTimeout as e:
+        # תקרת הזמן של ה-explain. בלי הענף הזה זו הייתה תשובת 500 גנרית, שאי אפשר
+        # להבחין בינה לבין קריסה — והמשתמש לא היה יודע שהפתרון הוא queryPlanner.
+        logger.warning("api_profiler_recommendations_explain_timeout", extra={"error": str(e)})
+        return jsonify({
+            "status": "error",
+            "message": _PROFILER_TIMEOUT_MESSAGE,
+            "error_code": "EXPLAIN_TIMEOUT"
+        }), _PROFILER_TIMEOUT_STATUS
+    except _ProfilerInputError as e:
+        # כל שגיאת קלט של הפרופיילר, לפי טיפוס ולא לפי טקסט ההודעה.
+        return _profiler_input_error_response(e)
+    except ValueError:
         logger.exception("api_profiler_recommendations_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
     except Exception:

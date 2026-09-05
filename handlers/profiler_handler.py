@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import logging
 import os
 from datetime import datetime, timedelta
 from functools import wraps
@@ -21,6 +22,10 @@ from services.query_profiler_service import (
     QueryProfilerService,
     RateLimiter,
 )
+from services.query_profiler_service import ExplainTimeoutError as _ProfilerExplainTimeout
+from services.query_profiler_service import ProfilerInputError as _ProfilerInputError
+
+logger = logging.getLogger(__name__)
 
 
 def require_profiler_auth(handler):
@@ -65,6 +70,38 @@ def require_profiler_auth(handler):
         return await handler(request)
 
     return wrapper
+
+
+#: הודעות למשתמש לפי ``error_code``. ההודעה של ``BROKEN_QUERY_SHAPE`` נשמרת
+#: מילה במילה מהגרסה הקודמת, כדי לא לשנות התנהגות קיימת.
+#: ⚠️ חייבת להישאר זהה לזו שב-``webapp/app.py``, ולכסות כל ``error_code``
+#: שהשירות מגדיר. שני הדברים נאכפים בטסטים.
+_PROFILER_INPUT_MESSAGES = {
+    "PROFILER_INPUT_ERROR": "הבקשה לפרופיילר אינה תקינה.",
+    "BROKEN_QUERY_SHAPE": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
+    "INVALID_VERBOSITY": "רמת פירוט לא נתמכת ל-explain. בחר queryPlanner, executionStats או allPlansExecution.",
+}
+
+#: ראו ההסבר המקביל ב-``webapp/app.py``: לא ``str(exc)``.
+_PROFILER_INPUT_FALLBACK_MESSAGE = "הבקשה לפרופיילר אינה תקינה."
+
+#: מדיניות ה-timeout, זהה ל-``webapp/app.py``.
+_PROFILER_TIMEOUT_MESSAGE = (
+    "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS."
+)
+_PROFILER_TIMEOUT_STATUS = 504
+
+
+def _profiler_input_error_payload(exc) -> dict:
+    code = str(getattr(exc, "error_code", "") or "PROFILER_INPUT_ERROR")
+    message = _PROFILER_INPUT_MESSAGES.get(code)
+    if message is None:
+        logger.warning(
+            "profiler_input_error_without_message",
+            extra={"error_code": code, "error": str(exc)},
+        )
+        message = _PROFILER_INPUT_FALLBACK_MESSAGE
+    return {"status": "error", "message": message, "error_code": code}
 
 
 def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerService):
@@ -133,15 +170,17 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
                 profiler_service.get_explain_plan, collection=collection, query=query, verbosity=verbosity
             )
             return web.json_response({"status": "success", "data": _serialize_explain_plan(explain)})
-        except ValueError as e:
-            # בדיקת query_shape שבור מגרסה ישנה
-            if "broken array normalization" in str(e):
-                return web.json_response({
-                    "status": "error",
-                    "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                    "error_code": "BROKEN_QUERY_SHAPE"
-                }, status=400)
-            raise
+        except _ProfilerExplainTimeout as e:
+            logger.warning("profiler_explain_timeout", extra={"error": str(e)})
+            return web.json_response({
+                "status": "error",
+                "message": _PROFILER_TIMEOUT_MESSAGE,
+                "error_code": "EXPLAIN_TIMEOUT"
+            }, status=_PROFILER_TIMEOUT_STATUS)
+        except _ProfilerInputError as e:
+            # לפי טיפוס ולא לפי טקסט ההודעה: קודם רק "broken array normalization"
+            # זוהה כשגיאת קלט, וכל ולידציה חדשה נפלה ל-raise ומשם ל-500.
+            return web.json_response(_profiler_input_error_payload(e), status=400)
 
     @require_profiler_auth
     async def get_recommendations(request: web.Request) -> web.Response:
@@ -185,15 +224,17 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
                     },
                 }
             )
-        except ValueError as e:
-            # בדיקת query_shape שבור מגרסה ישנה
-            if "broken array normalization" in str(e):
-                return web.json_response({
-                    "status": "error",
-                    "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                    "error_code": "BROKEN_QUERY_SHAPE"
-                }, status=400)
-            raise
+        except _ProfilerExplainTimeout as e:
+            logger.warning("profiler_explain_timeout", extra={"error": str(e)})
+            return web.json_response({
+                "status": "error",
+                "message": _PROFILER_TIMEOUT_MESSAGE,
+                "error_code": "EXPLAIN_TIMEOUT"
+            }, status=_PROFILER_TIMEOUT_STATUS)
+        except _ProfilerInputError as e:
+            # לפי טיפוס ולא לפי טקסט ההודעה: קודם רק "broken array normalization"
+            # זוהה כשגיאת קלט, וכל ולידציה חדשה נפלה ל-raise ומשם ל-500.
+            return web.json_response(_profiler_input_error_payload(e), status=400)
 
     @require_profiler_auth
     async def get_summary(request: web.Request) -> web.Response:

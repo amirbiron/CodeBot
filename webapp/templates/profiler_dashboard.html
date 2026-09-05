@@ -356,7 +356,9 @@
         }
         renderRecommendations(data.recommendations || []);
       } else {
-        alert(result.message || 'שגיאה בניתוח');
+        // ה-error_code מוצג לצד ההודעה: כשהודעה גנרית מוחזרת (קוד שאין לו ערך
+        // במפת ההודעות), בלעדיו הפופאפ חסר משמעות ואי אפשר לפעול לפיו.
+        alert([result.message || 'שגיאה בניתוח', result.error_code].filter(Boolean).join(' — '));
       }
     } catch (error) {
       console.error('Error analyzing query:', error);
@@ -445,10 +447,17 @@
 
   function renderAggregationStats(explain) {
     const statsContainer = document.getElementById('explain-stats');
+    const stageCount = (explain.stages || []).length;
+    const totalMs = Number(explain.total_execution_time_ms || 0);
+    // ב-queryPlanner מונגו לא מריצה את הפייפליין, ולכן אין זמן ביצוע. "0.00 ms"
+    // נקרא כמדידה ולא כהיעדר, אז אומרים את זה במפורש — כמו בפאנל של find.
+    const timeLine = totalMs > 0
+      ? `<div><strong>זמן כולל:</strong> ${totalMs.toFixed(2)} ms</div>`
+      : `<div style="opacity:.75;">אין זמני ביצוע (כנראה רצת עם queryPlanner)</div>`;
     statsContainer.innerHTML = `
       <div style="opacity:.9;">
-        <div><strong>זמן כולל:</strong> ${Number(explain.total_execution_time_ms || 0).toFixed(2)} ms</div>
-        <div><strong>מספר שלבים:</strong> ${(explain.stages || []).length}</div>
+        ${timeLine}
+        <div><strong>מספר שלבים:</strong> ${stageCount}</div>
       </div>
     `;
   }

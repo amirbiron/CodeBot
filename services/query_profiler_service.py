@@ -209,6 +209,47 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+class ProfilerInputError(ValueError):
+    """קלט שהמשתמש שלח ואינו תקין — הראוטים מתרגמים אותו ל-400.
+
+    **למה מחלקה ולא ``ValueError`` עירום.** קודם השירות סימן כל שגיאת קלט
+    כ-``ValueError``, וארבעה קוראים הבדילו ביניהן כך::
+
+        if "broken array normalization" in str(e):
+
+    זיהוי סוג שגיאה לפי טקסט ההודעה נשבר בכל שינוי ניסוח, ובעיקר: כל שגיאת
+    קלט **חדשה** נופלת אוטומטית ל-``else`` ומדווחת כ-500 עם stack trace, כאילו
+    השרת קרס. בדיוק זה קרה ל-``ExplainVerbosityError``.
+
+    יורשת מ-``ValueError`` כדי שצרכנים קיימים ימשיכו לתפוס אותה.
+    """
+
+    error_code = "PROFILER_INPUT_ERROR"
+
+
+class BrokenQueryShapeError(ProfilerInputError):
+    """``query_shape`` מגרסה ישנה, עם מערכים שנורמלו ל-``"<N items>"``."""
+
+    error_code = "BROKEN_QUERY_SHAPE"
+
+
+class ExplainVerbosityError(ProfilerInputError):
+    """רמת פירוט שאינה אחת משלוש אלה ש-MongoDB מגדירה."""
+
+    error_code = "INVALID_VERBOSITY"
+
+
+class ExplainTimeoutError(RuntimeError):
+    """ה-explain חרג מהתקרה.
+
+    ``executionStats`` ו-``allPlansExecution`` מריצים את השאילתה בפועל — ועל
+    שאילתות איטיות זה בדיוק מה שקורה. בלי הטיפוס הזה החריגה הייתה מגיעה
+    למשתמש כ-500 גנרי, שלא ניתן להבחין בינו לבין קריסה.
+    """
+
+    error_code = "EXPLAIN_TIMEOUT"
+
+
 class QueryProfilerService:
     """
     שירות לניתוח ביצועי שאילתות MongoDB.
@@ -221,6 +262,16 @@ class QueryProfilerService:
 
     # סף ברירת מחדל לשאילתה איטית (במילישניות)
     DEFAULT_SLOW_THRESHOLD_MS = 1000
+
+    #: רמות הפירוט שפקודת ``explain`` של MongoDB מקבלת.
+    #: מקור: https://www.mongodb.com/docs/manual/reference/command/explain/
+    #: הערך מגיע מגוף בקשת HTTP ונשלח למסד, ולכן חייב ולידציה.
+    EXPLAIN_VERBOSITIES = frozenset({"queryPlanner", "executionStats", "allPlansExecution"})
+
+    #: תקרת זמן ל-explain, במילישניות. ברירת מחדל שמרנית: ``executionStats``
+    #: ו-``allPlansExecution`` מריצים את השאילתה בפועל, ומדובר בשאילתות
+    #: שכבר ידוע עליהן שהן איטיות. ניתן לשינוי ב-``PROFILER_EXPLAIN_MAX_TIME_MS``.
+    DEFAULT_EXPLAIN_MAX_TIME_MS = 5000
 
     # מספר מקסימלי של שאילתות איטיות לשמור בזיכרון
     MAX_SLOW_QUERIES_BUFFER = 1000
@@ -462,11 +513,70 @@ class QueryProfilerService:
 
         return queries[: max(1, int(limit))]
 
+    def _explain_max_time_ms(self) -> int:
+        """תקרת הזמן ל-explain, במילישניות."""
+        return _env_int("PROFILER_EXPLAIN_MAX_TIME_MS", self.DEFAULT_EXPLAIN_MAX_TIME_MS)
+
+    def _run_explain_command(self, inner_command: Dict[str, Any], verbosity: str) -> Dict[str, Any]:
+        """מריצה את פקודת ``explain`` של MongoDB עם רמת פירוט מפורשת.
+
+        **למה פקודה ולא ``cursor.explain()``.** ל-``Cursor.explain`` אין ולא היה
+        פרמטר ``verbosity`` — החתימה היא ``def explain(self)`` (pymongo 4.15.3,
+        ``pymongo/synchronous/cursor.py``), והדוקסטרינג שלה אומר במפורש:
+
+            "This method uses the default verbosity mode of the explain command,
+            ``allPlansExecution``. To use a different verbosity use
+            :meth:`~pymongo.database.Database.command` to run the explain
+            command directly."
+
+        כלומר הקוד הקודם, שקרא ``cursor.explain(verbosity=...)`` ונפל ל-``except
+        TypeError``, הריץ תמיד ``allPlansExecution`` — המצב שמריץ את **כל**
+        תוכניות המועמדות — בזמן שהוא הצהיר על ``queryPlanner`` כברירת מחדל בטוחה.
+        אל תחזירו את זה.
+
+        ``maxTimeMS`` אינו שדה של פקודת ``explain`` (ראו התיעוד של MongoDB), ולכן
+        התקרה נאכפת ב-``pymongo.timeout`` — המנגנון שהדוקסטרינג של ``explain``
+        עצמה מפנה אליו.
+        """
+        # בדיקת טיפוס לפני בדיקת חברות: הערך מגיע מגוף JSON, ורשימה או אובייקט
+        # אינם hashable — ``x not in frozenset`` היה זורק ``TypeError`` לפני
+        # שהוולידציה מספיקה לומר משהו, והמשתמש היה מקבל 500 במקום 400.
+        if not isinstance(verbosity, str) or verbosity not in self.EXPLAIN_VERBOSITIES:
+            allowed = ", ".join(sorted(self.EXPLAIN_VERBOSITIES))
+            raise ExplainVerbosityError(
+                f"Unsupported explain verbosity {verbosity!r}. Allowed values: {allowed}"
+            )
+
+        # ייבוא עצל: ``requirements/minimal.txt`` אינו כולל pymongo, והקובץ הזה
+        # נטען גם בסביבות שאין בהן DB. שאר שכבת השירותים עוברת דרך ``db_manager``
+        # ולא נוגעת בדרייבר; כאן אין ברירה, כי ``pymongo.timeout`` הוא המנגנון
+        # היחיד לאכוף דדליין על הפקודה — ולכן התלות יורדת לרמת הקריאה.
+        import pymongo  # noqa: PLC0415
+
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            raise RuntimeError("No MongoDB database available")
+
+        max_time_ms = max(1, int(self._explain_max_time_ms()))
+        try:
+            with pymongo.timeout(max_time_ms / 1000.0):
+                return db.command("explain", inner_command, verbosity=verbosity)
+        except pymongo.errors.PyMongoError as exc:
+            # ``exc.timeout`` הוא הסיווג של pymongo עצמה, ולא ניחוש לפי סוג החריגה:
+            # חריגה מהדדליין יכולה להגיע כ-ExecutionTimeout, NetworkTimeout או
+            # ServerSelectionTimeoutError, ולכולן הדגל הזה. מקור: הדוקסטרינג של
+            # ``pymongo.timeout``.
+            if getattr(exc, "timeout", False):
+                raise ExplainTimeoutError(
+                    f"explain exceeded {max_time_ms}ms with verbosity={verbosity!r}"
+                ) from exc
+            raise
+
     def get_explain_plan(
         self,
         collection: str,
         query: Dict[str, Any],
-        verbosity: str = "queryPlanner",  # ⚠️ ברירת מחדל בטוחה - לא מריצה את השאילתה!
+        verbosity: str = "queryPlanner",  # ברירת מחדל בטוחה: לא מריצה את השאילתה בפועל
     ) -> ExplainPlan:
         """
         קבלת explain plan מפורט לשאילתה.
@@ -475,33 +585,14 @@ class QueryProfilerService:
         """
         # בדיקה אם ה-query הוא query_shape שבור מגרסה ישנה
         if self._is_broken_query_shape(query):
-            raise ValueError(
+            raise BrokenQueryShapeError(
                 "Query shape contains broken array normalization from old version. "
                 "Arrays like '<N items>' cannot be used with explain(). "
                 "Please use the original query or re-record this slow query."
             )
 
-        def _run_explain() -> Dict[str, Any]:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                raise RuntimeError("No MongoDB database available")
-            coll = db[collection]
-
-            cursor = coll.find(query)
-            try:
-                # נסיון להריץ עם רמת הפירוט המבוקשת
-                return cursor.explain(verbosity=verbosity)
-            except TypeError:
-                # Fallback לגרסאות ישנות של pymongo שלא מקבלות ארגומנטים
-                logger.warning(
-                    "Profiler: PyMongo Cursor.explain() does not support verbosity=%r; "
-                    "falling back to default explain() without execution stats.",
-                    verbosity,
-                    exc_info=True,
-                )
-                return cursor.explain()
-
-        explain_result = _run_explain()
+        # שקול ל-``coll.find(query)`` שהיה כאן: אין sort/limit/projection.
+        explain_result = self._run_explain_command({"find": collection, "filter": query}, verbosity)
         return self._parse_explain_result(collection, query, explain_result)
 
     def _parse_explain_result(self, collection: str, query: Dict[str, Any], explain_result: Dict[str, Any]) -> ExplainPlan:
@@ -832,7 +923,7 @@ class QueryProfilerService:
         self,
         collection: str,
         pipeline: List[Dict[str, Any]],
-        verbosity: str = "queryPlanner",  # ברירת מחדל בטוחה!
+        verbosity: str = "queryPlanner",  # ברירת מחדל בטוחה: לא מריצה את הפייפליין בפועל
     ) -> AggregationExplainPlan:
         """
         קבלת explain plan לאגרגציה.
@@ -840,7 +931,7 @@ class QueryProfilerService:
         # בדיקה אם ה-pipeline מכיל query_shape שבור מגרסה ישנה
         for stage in (pipeline or []):
             if self._is_broken_query_shape(stage):
-                raise ValueError(
+                raise BrokenQueryShapeError(
                     "Pipeline contains broken array normalization from old version. "
                     "Arrays like '<N items>' cannot be used with explain(). "
                     "Please use the original pipeline or re-record this slow query."
@@ -849,20 +940,11 @@ class QueryProfilerService:
         # תיקון ערכי placeholder לפני שליחה ל-MongoDB
         fixed_pipeline = self._fix_pipeline_for_explain(pipeline)
 
-        def _run_explain() -> Dict[str, Any]:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                raise RuntimeError("No MongoDB database available")
-            # MongoDB command API ל-aggregate explain
-            return db.command(
-                "aggregate",
-                collection,
-                pipeline=fixed_pipeline,
-                explain=True,
-                cursor={},
-            )
-
-        explain_result = _run_explain()
+        # ``aggregate`` עם ``explain: true`` אינה מקבלת ``verbosity`` כלל — רק עטיפת
+        # פקודת ``explain`` מאפשרת אותו. קודם הפרמטר התקבל כאן ונזרק בשקט.
+        explain_result = self._run_explain_command(
+            {"aggregate": collection, "pipeline": fixed_pipeline, "cursor": {}}, verbosity
+        )
         return self._parse_aggregation_explain(collection, pipeline, explain_result)
 
     def _parse_aggregation_explain(

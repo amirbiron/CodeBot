@@ -1002,16 +1002,21 @@
      - Bot/WebApp
    * - ``PROFILER_ENABLED``
      - הפעלת Query Performance Profiler (ניטור שאילתות MongoDB איטיות + דשבורד). ראו :doc:`observability/query-performance-profiler`.
-       **שימו לב:** כרגע יש נטרול קשיח ברמת הקוד (``DatabaseManager.ENABLE_PROFILING = False``), ולכן גם אם הערך כאן ``true`` – הפרופיילר לא ירוץ ולא יירשם ל‑API.
      - לא
      - ``true``
      - ``false``
      - Bot/WebApp
    * - ``PROFILER_SLOW_THRESHOLD_MS``
-     - סף זמן (מילישניות) להגדרת "שאילתה איטית" עבור הפרופיילר
+     - סף זמן (מילישניות) להגדרת "שאילתה איטית" עבור הפרופיילר. בהיעדרו נעשה שימוש ב-``DB_SLOW_MS``, ואם גם הוא חסר – בברירת המחדל.
      - לא
-     - ``100``
+     - ``1000``
      - ``250``
+     - Bot/WebApp
+   * - ``PROFILER_EXPLAIN_MAX_TIME_MS``
+     - תקרת זמן (מילישניות) להרצת ``explain`` מהפרופיילר. רלוונטי בעיקר ל-``executionStats`` ול-``allPlansExecution``, שמריצים את השאילתה בפועל.
+     - לא
+     - ``5000``
+     - ``2000``
      - Bot/WebApp
    * - ``PROFILER_MAX_BUFFER_SIZE``
      - מספר מקסימלי של רשומות slow queries שנשמרות בזיכרון (Deque) לצורכי UI מהיר
@@ -1020,7 +1025,7 @@
      - ``2000``
      - Bot/WebApp
    * - ``PROFILER_AUTH_TOKEN``
-     - טוקן גישה ל-API של הפרופיילר (נשלח כ-Header ``X-Profiler-Token``). אם ריק, ההגנה מתבססת על הרשאת Admin ב-WebApp.
+     - טוקן ל-API של הפרופיילר (נשלח כ-Header ``X-Profiler-Token``). **מסנן ולא מאשר:** ``_profiler_is_authorized`` דורשת בכל מקרה session של אדמין, כך שטוקן שגוי חוסם אך טוקן תקין לבדו אינו מעניק גישה.
      - לא
      - "" (ריק)
      - ``replace_me``
