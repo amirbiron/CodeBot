@@ -133,6 +133,13 @@ class TestConcurrentRequestsUnderGevent:
         payload = json.loads(completed.stdout.strip().splitlines()[-1])
         statuses = payload["statuses"]
 
+        # הפרוב בונה את הסטאב לפי החוזה של השירות בעץ שהוא רץ עליו. אם מישהו
+        # יחזיר ``async def`` לשירות, הסטאב יהפוך לאסינכרוני והראוט ייפול שוב —
+        # אבל עדיף שהטסט יגיד את זה במפורש מאשר דרך 500 מבלבל.
+        assert payload["service_is_async"] is False, (
+            "השירות חזר להיות אסינכרוני — זה בדיוק הדפוס שהוסר."
+        )
+
         assert statuses == [200] * 5, (
             "בקשות חופפות באותו worker של gevent חייבות כולן להצליח. "
             f"התקבל: {statuses}\nstderr: {completed.stderr[-2000:]}"

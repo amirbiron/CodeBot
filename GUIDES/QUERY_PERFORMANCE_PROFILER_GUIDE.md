@@ -2278,31 +2278,32 @@ async def record_slow_query(self, ...):
 
 #### יצירת Collection עם TTL
 
-```python
-# database/manager.py - הוספה ל-_create_indexes
+> ✅ **מומש.** הקטע שהיה כאן קודם היה הצעה בלבד — `async def` עם `await` על pymongo סינכרוני, ושני אינדקסים שאין להם קורא. אישיו [#3312](https://github.com/amirbiron/CodeBot/issues/3312) קרא אותו כאילו הוא כבר בקוד, והוא לא היה. זה מה שנמצא היום ב-`database/manager.py`:
 
-async def _create_profiler_indexes(self):
-    """יצירת אינדקסים ל-collection של הפרופיילר"""
-    
-    # TTL Index - מחיקה אוטומטית אחרי 7 ימים
-    await self.db.slow_queries_log.create_index(
-        "timestamp",
-        expireAfterSeconds=7 * 24 * 60 * 60,  # 7 days
-        name="ttl_cleanup"
-    )
-    
-    # אינדקס לחיפוש מהיר
-    await self.db.slow_queries_log.create_index(
-        [("collection", 1), ("timestamp", -1)],
-        name="collection_timestamp"
-    )
-    
-    # אינדקס לדפוסי שאילתות
-    await self.db.slow_queries_log.create_index(
-        "query_id",
-        name="query_pattern"
-    )
+```python
+# database/manager.py — _create_profiler_indexes, נקראת מתוך _create_indexes
+
+safe_create_index(
+    collection_name,
+    [("timestamp", ASCENDING)],
+    name="ttl_cleanup",
+    expire_after_seconds=ttl_seconds,   # PersistentQueryProfilerService.TTL_SECONDS
+    enforce=True,                       # בלי זה, שינוי retention לא יוחל על אינדקס קיים
+)
+# get_slow_queries ממיינת תמיד לפי execution_time_ms יורד:
+safe_create_index(
+    collection_name,
+    [("execution_time_ms", DESCENDING)],
+    name="slow_queries_duration",
+)
+safe_create_index(
+    collection_name,
+    [("collection", ASCENDING), ("execution_time_ms", DESCENDING)],
+    name="slow_queries_coll_dur",
+)
 ```
+
+`collection_timestamp` ו-`query_pattern` **לא נוצרים** — אין שאילתה שממיינת לפי `timestamp` ואין שאילתה שמסננת לפי `query_id`.
 
 #### אלטרנטיבה: Capped Collection
 

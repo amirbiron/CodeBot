@@ -1554,14 +1554,26 @@ class DatabaseManager:
     def _create_profiler_indexes(self, safe_create_index) -> None:
         """אינדקסים לאוסף ``slow_queries_log`` שהפרופיילר כותב אליו.
 
-        שלושה אינדקסים, בדיוק כפי שמתועד ב-``docs/observability/query-performance-profiler.rst``:
+        **האינדקסים נגזרים מהשאילתות שקיימות בקוד, לא מהתיעוד.** אלה השאילתות:
 
-        1. ``ttl_cleanup`` על ``timestamp`` — מחיקה אוטומטית אחרי 7 ימים.
-        2. ``collection_timestamp`` — משרת סינון לפי collection עם מיון לפי זמן.
-        3. ``query_pattern`` — משרת חיפוש לפי ``query_id``.
+        =============================================  ==========================  ==========================
+        שאילתה                                          איפה                        מה משרת אותה
+        =============================================  ==========================  ==========================
+        ``find({}, sort=execution_time_ms desc)``       ``get_slow_queries``        ``slow_queries_duration``
+        ``find({collection}, sort=execution_time_ms)``  ``get_slow_queries``        ``slow_queries_coll_dur``
+        ``count/aggregate({timestamp: {$gte}})``        ``_calculate_summary_sync``  ``ttl_cleanup``
+        ``aggregate($match timestamp >= since)``        ``get_pattern_statistics``   ``ttl_cleanup``
+        =============================================  ==========================  ==========================
 
-        שם השדה ``timestamp`` נגזר מהכותב עצמו (``PersistentQueryProfilerService._persist_record``)
-        ומהקוראים (``get_slow_queries``, ``_calculate_summary_sync``) — לא מנוחש.
+        שם השדה ``timestamp`` נלקח מהכותב עצמו (``_persist_record``) ומהקוראים — לא מנוחש.
+
+        שני אינדקסים שהתיעוד הבטיח בעבר **אינם נוצרים**, כי אין להם קורא:
+
+        - ``collection_timestamp`` — שום שאילתה אינה ממיינת לפי ``timestamp``. המיון תמיד
+          לפי ``execution_time_ms``, ולכן אינדקס כזה לא היה מונע מיון בזיכרון.
+        - ``query_pattern`` על ``query_id`` — ``query_id`` רק נכתב ומוצג; אף שאילתה אינה
+          מסננת לפיו (``get_pattern_statistics`` מקבצת לפיו ב-``$group``, וזה לא משתמש
+          באינדקס). אינדקס בלי קורא עולה בכתיבה ולא מחזיר דבר.
 
         ⚠️ ``ttl_cleanup`` הוא אינדקס TTL: ברגע שהוא נוצר, MongoDB תמחק כל רשומה ישנה
         מ-7 ימים בסבב הניקוי הבא (עד דקה). זו מחיקת נתונים בפועל, במכוון.
@@ -1574,21 +1586,28 @@ class DatabaseManager:
             # השירות אינו זמין (סביבה מינימלית) — אין טעם ליצור אינדקסים לאוסף שאיש לא כותב אליו.
             return
 
+        # ``enforce=True``: אינדקס TTL קיים עם ``expireAfterSeconds`` אחר אינו מתעדכן
+        # בקריאה חוזרת ל-``create_index`` — מונגו מחזיר IndexOptionsConflict וה-retention
+        # הישן נשאר. בלי אכיפה, שינוי של TTL_SECONDS היה מזוהה ולא מוחל.
+        # (החלופה העדינה יותר היא ``collMod``, שאינה נתמכת ב-safe_create_index.)
         safe_create_index(
             collection_name,
             [("timestamp", ASCENDING)],
             name="ttl_cleanup",
             expire_after_seconds=ttl_seconds,
+            enforce=True,
         )
+        # ברירת המחדל של הדשבורד: בלי סינון, ממוין לפי משך יורד.
         safe_create_index(
             collection_name,
-            [("collection", ASCENDING), ("timestamp", DESCENDING)],
-            name="collection_timestamp",
+            [("execution_time_ms", DESCENDING)],
+            name="slow_queries_duration",
         )
+        # סינון לפי collection עם אותו מיון (Equality ← Sort).
         safe_create_index(
             collection_name,
-            [("query_id", ASCENDING)],
-            name="query_pattern",
+            [("collection", ASCENDING), ("execution_time_ms", DESCENDING)],
+            name="slow_queries_coll_dur",
         )
 
     def _create_indexes(self):

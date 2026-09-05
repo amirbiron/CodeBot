@@ -11,7 +11,8 @@
 
 from __future__ import annotations
 
-import pytest
+import pathlib
+import re
 
 
 def _import_manager(monkeypatch):
@@ -62,7 +63,7 @@ class _Manager:
 
 
 class TestProfilerIndexDefinitions:
-    def test_creates_exactly_the_three_documented_indexes(self, monkeypatch):
+    def test_creates_exactly_the_three_indexes_the_queries_need(self, monkeypatch):
         dm = _import_manager(monkeypatch)
         requested: list[tuple] = []
 
@@ -72,27 +73,53 @@ class TestProfilerIndexDefinitions:
 
         assert [kwargs["name"] for _, _, kwargs in requested] == [
             "ttl_cleanup",
-            "collection_timestamp",
-            "query_pattern",
+            "slow_queries_duration",
+            "slow_queries_coll_dur",
         ]
         assert {collection for collection, _, _ in requested} == {"slow_queries_log"}
 
-        ttl_collection, ttl_keys, ttl_kwargs = requested[0]
+        _, ttl_keys, ttl_kwargs = requested[0]
         # שדה הזמן חייב להיות זה שהכותב באמת כותב (_persist_record)
         assert ttl_keys == [("timestamp", 1)]
         assert ttl_kwargs["expire_after_seconds"] == 7 * 24 * 60 * 60
+        # בלי enforce, שינוי עתידי של TTL_SECONDS לא יוחל על אינדקס קיים —
+        # מונגו יחזיר IndexOptionsConflict וה-retention הישן יישאר בשקט.
+        assert ttl_kwargs["enforce"] is True
 
-    def test_ttl_matches_the_maintenance_endpoint(self, monkeypatch):
-        """מקור אמת יחיד ל-retention.
+        # שני האינדקסים האחרים משרתים את המיון של get_slow_queries, שהוא תמיד
+        # לפי execution_time_ms יורד. בלעדיהם מונגו ממיין בזיכרון את כל חלון ה-TTL.
+        _, duration_keys, _ = requested[1]
+        _, compound_keys, _ = requested[2]
+        assert duration_keys == [("execution_time_ms", -1)]
+        assert compound_keys == [("collection", 1), ("execution_time_ms", -1)]
 
-        ``/api/debug/maintenance_cleanup`` יוצר אינדקס בשם ``ttl_cleanup`` על
-        ``timestamp`` עם 604800 שניות. אם הערכים יתפצלו, כל הרצת תחזוקה תפיל
-        ותיצור מחדש את האינדקס.
+    def test_ttl_matches_the_maintenance_endpoint(self):
+        """מקור אמת יחיד ל-retention — נבדק במקום שבו הוא באמת יכול להתפצל.
+
+        שני endpointים של ``/api/debug/maintenance_cleanup`` (ב-``webapp/app.py``
+        וב-``services/webserver.py``) יוצרים אינדקס בשם ``ttl_cleanup`` על
+        ``timestamp``. קודם הם החזיקו ``604800`` כמספר קשיח משלהם; אם ``TTL_SECONDS``
+        היה משתנה, כל הרצת תחזוקה הייתה מפילה ויוצרת מחדש את האינדקס — בלי שאף
+        טסט יבחין. הבדיקה עוברת על הקוד עצמו, כי זה המקום שבו הפיצול מתרחש.
         """
         from services.query_profiler_service import PersistentQueryProfilerService
 
         assert PersistentQueryProfilerService.TTL_SECONDS == 604800
         assert PersistentQueryProfilerService.COLLECTION_NAME == "slow_queries_log"
+
+        for path in ("webapp/app.py", "services/webserver.py"):
+            source = pathlib.Path(path).read_text(encoding="utf-8")
+            block = re.search(
+                r"slow_queries_log\"?\]?:?\s*_ensure_ttl_index\((?:[^()]|\([^()]*\))*?\)",
+                source,
+                re.DOTALL,
+            )
+            assert block, f"לא נמצאה יצירת ה-TTL של slow_queries_log ב-{path}"
+            expire = re.search(r"expire_seconds=([^,\n]+)", block.group(0))
+            assert expire, f"לא נמצא expire_seconds ב-{path}"
+            assert not expire.group(1).strip().isdigit(), (
+                f"{path} מחזיק שוב מספר קשיח ל-retention במקום את TTL_SECONDS"
+            )
 
 
 class TestSafeCreateIndexTTL:

@@ -61,7 +61,7 @@ summary: 'עקרונות הביצועים של המערכת אחרי הרפקט�
 - **Backend**: ה-Route מחזיר HTML ריק תוך פחות מ-200ms.
 - **Frontend**: שימוש ב-Skeleton Loaders בזמן שנתונים נמשכים ב-API נפרד ברקע.
 - **Concurrency**: תלוי בשרת, ולא אותו כלל לשני הצדדים:
-  - **ב-WebApp (Flask על WSGI עם worker של gevent) — אין להשתמש ב-`asyncio` בכלל.** ה-monkey patching של gevent כבר הופך את ה-I/O לקואופרטיבי, ולכן `asyncio.to_thread` לא קונה דבר; מה שהוא כן עושה זה לפתוח לולאה שדולפת לכל שאר הבקשות באותו worker ומפילה אותן. שירות שנצרך מה-WebApp נכתב סינכרוני. ראו `docs/observability/asyncio-loop-safety.rst`.
+  - **ב-WebApp (Flask על WSGI עם worker של gevent) — אין להשתמש ב-`asyncio` בכלל.** ה-monkey patching של gevent כבר הופך את ה-I/O לקואופרטיבי, ולכן `asyncio.to_thread` לא קונה כאן דבר. `to_thread` עצמו אינו פותח לולאה — הוא קורוטינה שדורשת לולאה שכבר רצה, ומעבירה את הפונקציה החוסמת ל-thread נפרד. הבעיה היא שכדי להמתין לו מקוד סינכרוני מישהו חייב **לפתוח** לולאה (`asyncio.run` או `loop.run_until_complete`) — והלולאה הזו נראית "רצה" לכל גרינלט אחר באותו worker ומפילה אותו. שירות שנצרך מה-WebApp נכתב סינכרוני. ראו `docs/observability/asyncio-loop-safety.rst`.
   - **בקוד שרץ בתוך event loop אמיתי** (הבוט, שרתי aiohttp/ASGI) — `asyncio.to_thread` הוא הכלי הנכון לעטוף קריאה סינכרונית כבדה.
 
 ## 6. הגדרות סביבה (The Production Sweet Spot)

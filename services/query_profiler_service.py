@@ -1104,14 +1104,21 @@ class PersistentQueryProfilerService(QueryProfilerService):
             "client_info": record.client_info,
         }
 
-        def _insert() -> None:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                return None
-            db[self.COLLECTION_NAME].insert_one(doc)
-            return None
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            return
 
-        _insert()
+        db[self.COLLECTION_NAME].insert_one(doc)
+
+        # ה-cache של get_summary נבנה מהאוסף הזה. בלי ביטול, שאילתה איטית חדשה
+        # לא הייתה מופיעה בסיכום עד 60 שניות — כלומר הדשבורד היה מציג מספר
+        # שהמשתמש כבר יודע שאינו נכון.
+        self._invalidate_summary_cache()
+
+    def _invalidate_summary_cache(self) -> None:
+        with self._summary_lock:
+            self._summary_cache = None
+            self._summary_cache_expires_at = None
 
     def get_slow_queries(
         self,
@@ -1217,51 +1224,55 @@ class PersistentQueryProfilerService(QueryProfilerService):
             return result
 
     def _calculate_summary_sync(self) -> Dict[str, Any]:
-        """חישוב הסיכום מול ה-DB – כולל כל הלוגיקה המלאה. נקרא מתוך get_summary עם cache."""
-        try:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                return super().get_summary()
-            # חישוב lightweight על חלון קצר (24h) כדי להימנע מעומס
-            since = datetime.utcnow() - timedelta(hours=24)
-            query = {"timestamp": {"$gte": since}}
-            total = int(db[self.COLLECTION_NAME].count_documents(query))
-            if total <= 0:
-                return {
-                    "total_slow_queries": 0,
-                    "collections_affected": [],
-                    "avg_execution_time_ms": 0,
-                    "max_execution_time_ms": 0,
-                    "unique_patterns": 0,
-                    "threshold_ms": self.slow_threshold_ms,
-                }
-            agg = list(
-                db[self.COLLECTION_NAME].aggregate(
-                    [
-                        {"$match": query},
-                        {
-                            "$group": {
-                                "_id": None,
-                                "avg_ms": {"$avg": "$execution_time_ms"},
-                                "max_ms": {"$max": "$execution_time_ms"},
-                                "collections": {"$addToSet": "$collection"},
-                                "unique_patterns": {"$addToSet": "$query_id"},
-                            }
-                        },
-                    ]
-                )
-            )
-            doc = agg[0] if agg else {}
-            collections = doc.get("collections") if isinstance(doc.get("collections"), list) else []
-            patterns = doc.get("unique_patterns") if isinstance(doc.get("unique_patterns"), list) else []
+        """חישוב הסיכום מול ה-DB – כולל כל הלוגיקה המלאה. נקרא מתוך get_summary עם cache.
+
+        חריגות DB **עולות למעלה בכוונה**. ``get_summary`` תופסת אותן, כותבת
+        ``logger.error`` ואז נופלת חזרה לסיכום ה-in-memory. קודם לכן ה-try/except כאן
+        בלע את החריגה והחזיר את הפולבאק בשקט — כך שנפילת DB נראתה בדיוק כמו אוסף ריק,
+        ואף שורת לוג לא נכתבה. הפולבאק היחיד שנשאר כאן הוא ``db is None``, שאינו תקלה.
+        """
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            return super().get_summary()
+
+        # חישוב lightweight על חלון קצר (24h) כדי להימנע מעומס
+        since = datetime.utcnow() - timedelta(hours=24)
+        query = {"timestamp": {"$gte": since}}
+        total = int(db[self.COLLECTION_NAME].count_documents(query))
+        if total <= 0:
             return {
-                "total_slow_queries": total,
-                "collections_affected": collections,
-                "avg_execution_time_ms": round(float(doc.get("avg_ms", 0) or 0), 2),
-                "max_execution_time_ms": round(float(doc.get("max_ms", 0) or 0), 2),
-                "unique_patterns": len(patterns),
+                "total_slow_queries": 0,
+                "collections_affected": [],
+                "avg_execution_time_ms": 0,
+                "max_execution_time_ms": 0,
+                "unique_patterns": 0,
                 "threshold_ms": self.slow_threshold_ms,
             }
-        except Exception:
-            return super().get_summary()
+        agg = list(
+            db[self.COLLECTION_NAME].aggregate(
+                [
+                    {"$match": query},
+                    {
+                        "$group": {
+                            "_id": None,
+                            "avg_ms": {"$avg": "$execution_time_ms"},
+                            "max_ms": {"$max": "$execution_time_ms"},
+                            "collections": {"$addToSet": "$collection"},
+                            "unique_patterns": {"$addToSet": "$query_id"},
+                        }
+                    },
+                ]
+            )
+        )
+        doc = agg[0] if agg else {}
+        collections = doc.get("collections") if isinstance(doc.get("collections"), list) else []
+        patterns = doc.get("unique_patterns") if isinstance(doc.get("unique_patterns"), list) else []
+        return {
+            "total_slow_queries": total,
+            "collections_affected": collections,
+            "avg_execution_time_ms": round(float(doc.get("avg_ms", 0) or 0), 2),
+            "max_execution_time_ms": round(float(doc.get("max_ms", 0) or 0), 2),
+            "unique_patterns": len(patterns),
+            "threshold_ms": self.slow_threshold_ms,
+        }
 

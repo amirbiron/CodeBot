@@ -5280,6 +5280,13 @@ def api_db_health():
         return jsonify({"error": "failed", "message": "internal_error"}), 500
 
 
+def _profiler_ttl_seconds() -> int:
+    """זמן השמירה של ``slow_queries_log``, מהמקור היחיד שמגדיר אותו."""
+    from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
+
+    return int(PersistentQueryProfilerService.TTL_SECONDS)
+
+
 @app.route("/api/debug/maintenance_cleanup", methods=["GET"])
 def api_debug_maintenance_cleanup():
     """GET /api/debug/maintenance_cleanup
@@ -5420,7 +5427,9 @@ def api_debug_maintenance_cleanup():
             "slow_queries_log": _ensure_ttl_index(
                 db.slow_queries_log,
                 field="timestamp",
-                expire_seconds=604800,
+                # מקור אמת יחיד. אותו אינדקס נוצר גם ב-DatabaseManager._create_profiler_indexes;
+                # אם שני המקומות יתפצלו, כל הרצת תחזוקה תפיל ותיצור אותו מחדש.
+                expire_seconds=_profiler_ttl_seconds(),
                 index_name="ttl_cleanup",
             ),
             "service_metrics_ts": _ensure_ttl_index(
