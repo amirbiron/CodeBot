@@ -11,8 +11,6 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Deque, Dict, List, Optional
 
-import pymongo
-
 try:
     # Structured logging events (fail-open)
     from observability import emit_event  # type: ignore
@@ -211,12 +209,34 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-class ExplainVerbosityError(ValueError):
-    """רמת פירוט שאינה אחת מאלה ש-MongoDB מגדירה.
+class ProfilerInputError(ValueError):
+    """קלט שהמשתמש שלח ואינו תקין — הראוטים מתרגמים אותו ל-400.
 
-    יורשת מ-``ValueError`` כדי שצרכנים קיימים שתופסים ``ValueError`` ימשיכו
-    לעבוד; מי שרוצה להבדיל בין "קלט לא חוקי" ל"שאילתה שבורה" בודק את הטיפוס.
+    **למה מחלקה ולא ``ValueError`` עירום.** קודם השירות סימן כל שגיאת קלט
+    כ-``ValueError``, וארבעה קוראים הבדילו ביניהן כך::
+
+        if "broken array normalization" in str(e):
+
+    זיהוי סוג שגיאה לפי טקסט ההודעה נשבר בכל שינוי ניסוח, ובעיקר: כל שגיאת
+    קלט **חדשה** נופלת אוטומטית ל-``else`` ומדווחת כ-500 עם stack trace, כאילו
+    השרת קרס. בדיוק זה קרה ל-``ExplainVerbosityError``.
+
+    יורשת מ-``ValueError`` כדי שצרכנים קיימים ימשיכו לתפוס אותה.
     """
+
+    error_code = "PROFILER_INPUT_ERROR"
+
+
+class BrokenQueryShapeError(ProfilerInputError):
+    """``query_shape`` מגרסה ישנה, עם מערכים שנורמלו ל-``"<N items>"``."""
+
+    error_code = "BROKEN_QUERY_SHAPE"
+
+
+class ExplainVerbosityError(ProfilerInputError):
+    """רמת פירוט שאינה אחת משלוש אלה ש-MongoDB מגדירה."""
+
+    error_code = "INVALID_VERBOSITY"
 
 
 class ExplainTimeoutError(RuntimeError):
@@ -226,6 +246,8 @@ class ExplainTimeoutError(RuntimeError):
     שאילתות איטיות זה בדיוק מה שקורה. בלי הטיפוס הזה החריגה הייתה מגיעה
     למשתמש כ-500 גנרי, שלא ניתן להבחין בינו לבין קריסה.
     """
+
+    error_code = "EXPLAIN_TIMEOUT"
 
 
 class QueryProfilerService:
@@ -516,11 +538,20 @@ class QueryProfilerService:
         התקרה נאכפת ב-``pymongo.timeout`` — המנגנון שהדוקסטרינג של ``explain``
         עצמה מפנה אליו.
         """
-        if verbosity not in self.EXPLAIN_VERBOSITIES:
+        # בדיקת טיפוס לפני בדיקת חברות: הערך מגיע מגוף JSON, ורשימה או אובייקט
+        # אינם hashable — ``x not in frozenset`` היה זורק ``TypeError`` לפני
+        # שהוולידציה מספיקה לומר משהו, והמשתמש היה מקבל 500 במקום 400.
+        if not isinstance(verbosity, str) or verbosity not in self.EXPLAIN_VERBOSITIES:
             allowed = ", ".join(sorted(self.EXPLAIN_VERBOSITIES))
             raise ExplainVerbosityError(
                 f"Unsupported explain verbosity {verbosity!r}. Allowed values: {allowed}"
             )
+
+        # ייבוא עצל: ``requirements/minimal.txt`` אינו כולל pymongo, והקובץ הזה
+        # נטען גם בסביבות שאין בהן DB. שאר שכבת השירותים עוברת דרך ``db_manager``
+        # ולא נוגעת בדרייבר; כאן אין ברירה, כי ``pymongo.timeout`` הוא המנגנון
+        # היחיד לאכוף דדליין על הפקודה — ולכן התלות יורדת לרמת הקריאה.
+        import pymongo  # noqa: PLC0415
 
         db = getattr(self.db_manager, "db", None)
         if db is None:
@@ -554,7 +585,7 @@ class QueryProfilerService:
         """
         # בדיקה אם ה-query הוא query_shape שבור מגרסה ישנה
         if self._is_broken_query_shape(query):
-            raise ValueError(
+            raise BrokenQueryShapeError(
                 "Query shape contains broken array normalization from old version. "
                 "Arrays like '<N items>' cannot be used with explain(). "
                 "Please use the original query or re-record this slow query."
@@ -900,7 +931,7 @@ class QueryProfilerService:
         # בדיקה אם ה-pipeline מכיל query_shape שבור מגרסה ישנה
         for stage in (pipeline or []):
             if self._is_broken_query_shape(stage):
-                raise ValueError(
+                raise BrokenQueryShapeError(
                     "Pipeline contains broken array normalization from old version. "
                     "Arrays like '<N items>' cannot be used with explain(). "
                     "Please use the original pipeline or re-record this slow query."

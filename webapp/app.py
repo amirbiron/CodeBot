@@ -191,11 +191,10 @@ from services.db_health_service import (  # noqa: E402
     clean_db_health_filter_value,
 )
 from services.query_profiler_service import (  # noqa: E402
-    # ממופים לשמות פרטיים כי הם משמשים רק בענפי ה-except של ראוטי הפרופיילר.
     # ייבוא ברמת המודול ולא בתוך הפונקציה: שם מחלקה ב-``except`` מוערך רק כשחריגה
     # מגיעה לשם, ולכן שם שאינו קיים היה מתגלה כ-NameError רק בזמן כשל אמיתי.
     ExplainTimeoutError as _ProfilerExplainTimeout,
-    ExplainVerbosityError as _ProfilerVerbosityError,
+    ProfilerInputError as _ProfilerInputError,
 )
 from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
@@ -4887,6 +4886,25 @@ def api_profiler_summary():
         return jsonify({"status": "error", "message": "internal_error"}), 500
 
 
+#: הודעות למשתמש לפי ``error_code`` של ``ProfilerInputError``.
+#: ההודעה של ``BROKEN_QUERY_SHAPE`` נשמרת מילה במילה מהגרסה הקודמת.
+_PROFILER_INPUT_MESSAGES = {
+    "BROKEN_QUERY_SHAPE": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
+    "INVALID_VERBOSITY": "רמת פירוט לא נתמכת ל-explain. בחר queryPlanner, executionStats או allPlansExecution.",
+}
+
+
+def _profiler_input_error_response(exc):
+    """מתרגם שגיאת קלט של הפרופיילר ל-400 עם ``error_code``.
+
+    קודם הראוטים זיהו את סוג השגיאה בחיפוש מחרוזת בתוך הודעת החריגה, ולכן כל
+    ולידציה חדשה נפלה אוטומטית ל-500 עם stack trace.
+    """
+    code = str(getattr(exc, "error_code", "") or "PROFILER_INPUT_ERROR")
+    message = _PROFILER_INPUT_MESSAGES.get(code) or str(exc)
+    return jsonify({"status": "error", "message": message, "error_code": code}), 400
+
+
 @app.route("/api/profiler/explain", methods=["POST"])
 def api_profiler_explain():
     if not _profiler_is_authorized():
@@ -4919,19 +4937,10 @@ def api_profiler_explain():
             "message": "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS.",
             "error_code": "EXPLAIN_TIMEOUT"
         }), 504
-    except _ProfilerVerbosityError as e:
-        return jsonify({
-            "status": "error",
-            "message": f"רמת פירוט לא נתמכת ל-explain. {e}",
-            "error_code": "INVALID_VERBOSITY"
-        }), 400
-    except ValueError as e:
-        if "broken array normalization" in str(e):
-            return jsonify({
-                "status": "error",
-                "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                "error_code": "BROKEN_QUERY_SHAPE"
-            }), 400
+    except _ProfilerInputError as e:
+        # כל שגיאת קלט של הפרופיילר, לפי טיפוס ולא לפי טקסט ההודעה.
+        return _profiler_input_error_response(e)
+    except ValueError:
         logger.exception("api_profiler_explain_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
     except Exception:
@@ -4989,19 +4998,10 @@ def api_profiler_recommendations():
             "message": "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS.",
             "error_code": "EXPLAIN_TIMEOUT"
         }), 504
-    except _ProfilerVerbosityError as e:
-        return jsonify({
-            "status": "error",
-            "message": f"רמת פירוט לא נתמכת ל-explain. {e}",
-            "error_code": "INVALID_VERBOSITY"
-        }), 400
-    except ValueError as e:
-        if "broken array normalization" in str(e):
-            return jsonify({
-                "status": "error",
-                "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                "error_code": "BROKEN_QUERY_SHAPE"
-            }), 400
+    except _ProfilerInputError as e:
+        # כל שגיאת קלט של הפרופיילר, לפי טיפוס ולא לפי טקסט ההודעה.
+        return _profiler_input_error_response(e)
+    except ValueError:
         logger.exception("api_profiler_recommendations_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
     except Exception:

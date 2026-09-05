@@ -106,15 +106,15 @@ class TestExplainTimeout:
     def test_a_deadline_is_applied(self, service, monkeypatch):
         seen: list = []
 
-        import services.query_profiler_service as qps
+        import pymongo
 
-        real_timeout = qps.pymongo.timeout
+        real_timeout = pymongo.timeout
 
         def _spy(seconds):
             seen.append(seconds)
             return real_timeout(seconds)
 
-        monkeypatch.setattr(qps.pymongo, "timeout", _spy)
+        monkeypatch.setattr(pymongo, "timeout", _spy)
         service.get_explain_plan(collection="code_snippets", query={})
 
         assert seen == [5.0], "ברירת המחדל היא 5000ms"
@@ -125,8 +125,10 @@ class TestExplainTimeout:
 
         svc = qps.QueryProfilerService(db_manager=_ManagerStub(), slow_threshold_ms=100)
         seen: list = []
-        real_timeout = qps.pymongo.timeout
-        monkeypatch.setattr(qps.pymongo, "timeout", lambda s: (seen.append(s), real_timeout(s))[1])
+        import pymongo
+
+        real_timeout = pymongo.timeout
+        monkeypatch.setattr(pymongo, "timeout", lambda s: (seen.append(s), real_timeout(s))[1])
 
         svc.get_explain_plan(collection="code_snippets", query={})
         assert seen == [1.2]
@@ -249,13 +251,17 @@ class TestTheRoutesTellTheUserWhatHappened:
         assert resp.get_json()["error_code"] == "INVALID_VERBOSITY"
 
     def test_a_broken_query_shape_still_reports_as_before(self, monkeypatch):
-        """``ExplainVerbosityError`` יורשת מ-``ValueError``, ולכן סדר ה-except משנה.
+        """המקרה הוותיק שומר על אותה תשובה בדיוק — 400 עם BROKEN_QUERY_SHAPE.
 
-        אם היא הייתה נתפסת לפני הבדיקה של "broken array normalization", המקרה
-        הוותיק היה מקבל פתאום INVALID_VERBOSITY.
+        שתי שגיאות הקלט יורשות מאותו בסיס, ולכן ענף אחד מטפל בשתיהן ומבדיל
+        ביניהן ב-``error_code``. אם המיפוי היה מתבלבל, המקרה הוותיק היה מקבל
+        פתאום קוד אחר.
         """
+        from services.query_profiler_service import BrokenQueryShapeError
+
         webapp_app = self._client(
-            monkeypatch, ValueError("Query shape contains broken array normalization from old version.")
+            monkeypatch,
+            BrokenQueryShapeError("Query shape contains broken array normalization from old version."),
         )
 
         with webapp_app.app.test_client() as client:
@@ -263,3 +269,84 @@ class TestTheRoutesTellTheUserWhatHappened:
 
         assert resp.status_code == 400
         assert resp.get_json()["error_code"] == "BROKEN_QUERY_SHAPE"
+
+
+class TestInputErrorsAreTypedNotStringMatched:
+    """זיהוי סוג שגיאה לפי טקסט ההודעה הוא מלכודת שחוזרת.
+
+    ארבעה קוראים (שני ראוטים ב-``webapp/app.py`` ושניים ב-``handlers/profiler_handler.py``)
+    זיהו שגיאת קלט ב-``"broken array normalization" in str(e)``. המשמעות: כל
+    ולידציה **חדשה** נופלת אוטומטית ל-``else`` ומדווחת כ-500 עם stack trace,
+    כאילו השרת קרס. בדיוק זה קרה לוולידציה של ה-verbosity.
+    """
+
+    def test_every_input_error_carries_a_code(self):
+        from services.query_profiler_service import (
+            BrokenQueryShapeError,
+            ExplainVerbosityError,
+            ProfilerInputError,
+        )
+
+        assert issubclass(BrokenQueryShapeError, ProfilerInputError)
+        assert issubclass(ExplainVerbosityError, ProfilerInputError)
+        assert issubclass(ProfilerInputError, ValueError), "צרכנים קיימים תופסים ValueError"
+        assert BrokenQueryShapeError.error_code == "BROKEN_QUERY_SHAPE"
+        assert ExplainVerbosityError.error_code == "INVALID_VERBOSITY"
+
+    def test_a_broken_shape_raises_the_typed_error(self, service):
+        from services.query_profiler_service import BrokenQueryShapeError
+
+        with pytest.raises(BrokenQueryShapeError):
+            service.get_explain_plan(collection="c", query={"$expr": {"$eq": ["<2 items>"]}})
+
+        with pytest.raises(BrokenQueryShapeError):
+            service.get_aggregation_explain(collection="c", pipeline=[{"$match": {"a": {"$in": ["<3 items>"]}}}])
+
+    def test_no_caller_identifies_the_error_by_its_message(self):
+        """הגדר בסגנון lint שמונעת חזרה של הדפוס.
+
+        זו בדיקה על טקסט הקוד ולא על התנהגות, ולכן היא מכוונת לדפוס עצמו
+        (``... in str(e)``) ולא לביטוי — ניסוח ראשון שחיפש רק את הביטוי הפיל
+        את הטסט על ההערות שמסבירות את התיקון.
+        """
+        import pathlib
+        import re
+
+        pattern = re.compile(r'"broken array normalization"\s+in\s+str\(')
+        for path in ("webapp/app.py", "handlers/profiler_handler.py"):
+            source = pathlib.Path(path).read_text(encoding="utf-8")
+            assert not pattern.search(source), (
+                f"{path} מזהה שגיאת קלט לפי טקסט ההודעה במקום לפי טיפוס"
+            )
+
+
+class TestVerbosityTypeIsCheckedFirst:
+    @pytest.mark.parametrize("bad", [[], {}, None, 5, True], ids=["list", "dict", "none", "int", "bool"])
+    def test_a_non_string_verbosity_is_a_clean_input_error(self, service, bad):
+        """רשימה ואובייקט אינם hashable.
+
+        ``bad not in frozenset`` היה זורק ``TypeError: unhashable type`` לפני
+        שהוולידציה מספיקה לרוץ — כלומר 500 במקום 400, על קלט שהמשתמש שלח.
+        """
+        from services.query_profiler_service import ExplainVerbosityError
+
+        with pytest.raises(ExplainVerbosityError):
+            service.get_explain_plan(collection="c", query={}, verbosity=bad)
+
+        assert service.db_manager.db.calls == []
+
+
+class TestTheModuleLoadsWithoutPymongo:
+    def test_pymongo_is_not_a_module_level_import(self):
+        """``requirements/minimal.txt`` אינו כולל pymongo.
+
+        שאר שכבת השירותים עוברת דרך ``db_manager`` ולא נוגעת בדרייבר, וגם
+        הייבוא היחיד שאינו stdlib בראש הקובץ (``observability``) עטוף fail-open.
+        ``pymongo.timeout`` באמת נחוץ, ולכן התלות יורדת לרמת הקריאה במקום
+        להפיל את טעינת המודול.
+        """
+        import pathlib
+
+        source = pathlib.Path("services/query_profiler_service.py").read_text(encoding="utf-8")
+        header = source.split("class ProfilerInputError")[0]
+        assert "\nimport pymongo" not in header, "pymongo חזר לרמת המודול"
