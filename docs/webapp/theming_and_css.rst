@@ -307,6 +307,7 @@ Component Tokens ו‑Theme Builder
 - בדיקת Live Preview / Sticky Notes / Smooth Scroll Debug / Login alert / RTL.
 - בדיקת Collections, Bookmarks, אוספים משותפים וה‑Glass badges.
 - בדיקת נגישות ב‑High Contrast (יחס ניגודיות 4.5:1, focus outline, קישורים).
+- עוגנים לטסטי דפדפן: אלמנט שטסט צריך לזהות מקבל ``data-testid`` שמתאר את **המצב שרונדר** (למשל ``agg-time-not-measured``), לא את הניסוח. הטסט נתלה בו ולא במחרוזת UI בעברית — שינוי ניסוח לא מפיל טסט, רינדור של הענף הלא נכון כן. ``data-testid`` אינו hook ל‑CSS ואין לעצב לפיו. כשלאלמנט כבר יש חוזה סמנטי יציב (``href``, ``id``, ``name``) — משתמשים בו ולא מוסיפים ``data-testid``. תקדים: ``webapp/templates/profiler_dashboard.html``.
 - בדיקת שאין HEX קשיחים בקבצים שנגעתם בהם (`rg "#[0-9a-fA-F]{3,6}" webapp/static/css/<file>.css`).
 - בדיקת WCAG ל‑Markdown Viewer (``bg-sepia`` ועוד) + ווידוא ש‑`--md-surface` לא הוחלף בטעות.
 - מעבר בין Themes בזמן Live Preview כדי לוודא שאין FOUC (שימרו על setAttribute מוקדם).
