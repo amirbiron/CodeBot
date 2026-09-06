@@ -162,11 +162,16 @@ def test_a_saved_preference_cannot_turn_it_back_on(open_page):
     "כבוי כברירת מחדל" שנכון רק למשתמש חדש אינו כבוי: ההעדפה הישנה הייתה
     מחיה את הבאג בדיוק אצל מי שכבר נתקל בו.
     """
+    # ``duration: 250`` ולא 400: 400 היא ברירת המחדל, ואיתה הטסט לא היה
+    # מבחין אם ערכי הכוונון נזרקו יחד עם ``enabled``. 250 בתוך הטווח
+    # ש-``normalizeConfig`` מקבל (0–2000).
     page, _ = open_page(
         "/admin/profiler",
-        init_script="localStorage.setItem('smoothScrollPrefs', JSON.stringify({enabled: true, duration: 400}))",
+        init_script="localStorage.setItem('smoothScrollPrefs', JSON.stringify({enabled: true, duration: 250}))",
     )
     assert _smooth_scroll_enabled(page) is False, "העדפה שמורה הדליקה את הגלילה החלקה"
+    duration = page.evaluate("() => window.smoothScroll.config.duration")
+    assert duration == 250, f"ערכי הכוונון השמורים נזרקו יחד עם enabled: duration={duration!r}"
 
 
 def test_an_anchor_link_updates_the_url_again(open_page):
