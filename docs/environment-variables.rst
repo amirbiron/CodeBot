@@ -1644,6 +1644,90 @@
      - ``600``
      - ``900``
      - WebApp/Observability
+   * - ``AI_EXPLAIN_URL``
+     - שם חלופי ל-``OBS_AI_EXPLAIN_URL``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``http://127.0.0.1:11000/api/ai/explain``
+     - WebApp/Observability
+   * - ``AI_EXPLAIN_TOKEN``
+     - שם חלופי ל-``OBS_AI_EXPLAIN_TOKEN``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``bearer-token``
+     - WebApp/Webserver
+   * - ``ANTHROPIC_API_KEY``
+     - מפתח Anthropic לשירות "הסבר AI" של ההתראות. בלעדיו הבקשה נכשלת ב-``anthropic_api_key_missing``. שם חלופי נתמך: ``CLAUDE_API_KEY``
+     - לא
+     - ריק
+     - ``sk-ant-...``
+     - Webserver
+   * - ``ANTHROPIC_API_URL``
+     - כתובת ה-API שאליה נשלחת בקשת ההסבר
+     - לא
+     - ``https://api.anthropic.com/v1/messages``
+     - ``https://api.anthropic.com/v1/messages``
+     - Webserver
+   * - ``OBS_AI_EXPLAIN_MODEL``
+     - מזהה המודל להסבר ההתראות. ריק = ``CLAUDE_MODEL``, ואם גם הוא ריק — ברירת המחדל שבקוד. שם חלופי נתמך: ``CLAUDE_MODEL``
+     - לא
+     - ריק
+     - ``claude-sonnet-4-5-20250929``
+     - Webserver
+   * - ``OBS_AI_EXPLAIN_MODEL_FALLBACKS``
+     - רשימת מודלים חלופיים (מופרדת בפסיקים) שינוסו לפי הסדר כשהמודל הראשי נכשל. ריק = הרשימה שבקוד
+     - לא
+     - ריק
+     - ``claude-opus-4-5-20251101``
+     - Webserver
+   * - ``OBS_AI_EXPLAIN_MAX_TOKENS``
+     - תקרת הטוקנים לתשובת ההסבר
+     - לא
+     - ``800``
+     - ``1200``
+     - Webserver
+   * - ``OBS_AI_EXPLAIN_TEMPERATURE``
+     - טמפרטורת הדגימה של ההסבר; נמוך = תשובות עקביות יותר
+     - לא
+     - ``0.2``
+     - ``0``
+     - Webserver
+   * - ``OBS_AI_PROVIDER_LABEL``
+     - התווית שמוצגת בדשבורד כמקור ההסבר
+     - לא
+     - ``claude-sonnet-4.5``
+     - ``claude-opus``
+     - Webserver
+   * - ``INCIDENT_STORY_DB_ENABLED``
+     - שמירת סיפורי אירוע במונגו. ריק = יורש מ-``ALERTS_DB_ENABLED``, ואם גם הוא כבוי — הסיפורים נשמרים לקובץ
+     - לא
+     - ריק (יורש)
+     - ``true``
+     - WebApp/Observability
+   * - ``INCIDENT_STORIES_COLLECTION``
+     - שם האוסף שבו נשמרים סיפורי האירוע
+     - לא
+     - ``incident_stories``
+     - ``incidents``
+     - WebApp/Observability
+   * - ``INCIDENT_STORY_FILE``
+     - קובץ הגיבוי לסיפורי אירוע כשהשמירה למונגו כבויה
+     - לא
+     - ``tmp/incident_stories.json``
+     - ``/var/data/incident_stories.json``
+     - WebApp/Observability
+   * - ``OBSERVABILITY_THREADPOOL_WORKERS``
+     - מספר הת'רדים להרצת שאילתות Observability כבדות מחוץ ל-request. נאכף לטווח 2–16
+     - לא
+     - ``6``
+     - ``10``
+     - WebApp
+   * - ``LOG_ALERTS_CONFIG_PATH``
+     - שם חלופי ל-``ALERTS_CONFIG_PATH``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``/etc/codebot/alerts.yml``
+     - Bot/WebApp/Webserver
    * - ``SILENCE_MAX_DAYS``
      - מגבלת ימים לסיילנס יחיד שנוצר דרך ChatOps.
      - לא
