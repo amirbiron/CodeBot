@@ -730,6 +730,54 @@
      - ``209715200`` (200MB)
      - ``314572800`` (300MB)
      - Bot
+   * - ``WEBAPP_BACKUPS_DIR``
+     - תיקיית גיבויי הדיסק של הוובאפ (Persistent Disk); ממנה נבנית גם רשימת ההורדה בהגדרות
+     - לא
+     - ``/var/data/repos/backups``
+     - ``/var/data/backups``
+     - WebApp
+   * - ``DISK_BACKUP_RETENTION_DAYS``
+     - גיל (בימים) שממנו גיבוי דיסק נחשב ישן. נמחק רק אם הוא **גם** מעבר ל-``DISK_BACKUP_MAX_PER_USER``
+     - לא
+     - ``30``
+     - ``14``
+     - WebApp
+   * - ``DISK_BACKUP_MAX_PER_USER``
+     - כמה גיבויי דיסק אחרונים נשמרים תמיד לכל משתמש; מעבר לזה נמחקים רק אלו שעברו את ``DISK_BACKUP_RETENTION_DAYS``
+     - לא
+     - ``10``
+     - ``5``
+     - WebApp
+   * - ``BACKUP_SCAN_INTERVAL``
+     - כל כמה שניות סורק ה-scheduler של הוובאפ משתמשים שהגיע זמן הגיבוי שלהם
+     - לא
+     - ``300``
+     - ``600``
+     - WebApp
+   * - ``MAX_BACKUPS_PER_SCAN``
+     - מקסימום גיבויים לכל סוג (Drive, דיסק) בסריקה אחת — מונע מגיבויי Drive תקועים להרעיב את גיבויי הדיסק
+     - לא
+     - ``10``
+     - ``5``
+     - WebApp
+   * - ``BACKUP_SENTINEL_TTL``
+     - תוקף (בשניות) של תפיסת גיבוי מתוזמן; אחריו הגיבוי נתפס מחדש גם אם התהליך שתפס אותו קרס
+     - לא
+     - ``1800``
+     - ``900``
+     - WebApp
+   * - ``DISABLE_BACKUP_SCHEDULER``
+     - ``1``/``true`` מכבה את ה-scheduler של גיבויי הוובאפ (Drive ודיסק). נקרא בעליית ``webapp/app.py``
+     - לא
+     - ריק (פעיל)
+     - ``true``
+     - WebApp
+   * - ``FORCE_BACKUP_SCHEDULER``
+     - ``1``/``true`` מפעיל את ה-scheduler גם כשזיהוי תהליך הוובאפ נכשל (סביבות לא סטנדרטיות)
+     - לא
+     - ריק
+     - ``true``
+     - WebApp
    * - ``DISABLE_CACHE_MAINTENANCE``
      - דילוג על פעולות ניקוי קאש (לוג בלבד)
      - לא
