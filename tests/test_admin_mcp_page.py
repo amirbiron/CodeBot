@@ -601,15 +601,24 @@ def test_technical_text_is_forced_ltr_inside_the_rtl_page(admin, monkeypatch):
     assert "direction: ltr" in styles[0]
 
 
-def test_the_intent_modal_exists_and_starts_closed(admin, monkeypatch):
+def test_the_intent_modal_is_a_native_dialog_and_starts_closed(admin, monkeypatch):
+    """``<dialog>`` ולא ``div``: נעילת הפוקוס, Escape והחזרת הפוקוס לכפתור
+    שפתח מגיעות מהדפדפן, ולא מקוד שאפשר לשבור בלי לשים לב.
+
+    ``role`` ו-``aria-modal`` **אינם** נכתבים ידנית — הדפדפן נותן אותם
+    ל-``<dialog>`` שנפתח ב-``showModal()``, וכתיבה כפולה יכולה לסתור אותו.
+    """
     _install(monkeypatch)
     soup = _soup(admin.get("/admin/mcp"))
     modal = soup.select_one("#mcpIntentModal")
 
     assert modal is not None
-    assert modal.has_attr("hidden")
-    assert modal["role"] == "dialog"
-    assert modal["aria-modal"] == "true"
+    assert modal.name == "dialog"
+    # ``open`` הוא מה שמסמן דיאלוג פתוח, והוא אינו אמור להיות שם בטעינה.
+    assert not modal.has_attr("open")
+    assert not modal.has_attr("role")
+    assert not modal.has_attr("aria-modal")
+    assert modal["aria-labelledby"] == "mcpIntentModalTitle"
     # הטקסט **אינו** מרונדר בשרת — הוא נכתב ב-JS מהכפתור שנלחץ.
     assert soup.select_one("#mcpIntentModalText").get_text(strip=True) == ""
 

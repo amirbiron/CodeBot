@@ -231,29 +231,23 @@
     .mcp-clip:hover,
     .mcp-clip:focus-visible { border-bottom-color: var(--primary); }
 
-    /* --- מודאל הכוונה המלאה --- */
-    .mcp-modal[hidden] { display: none; }
+    /* --- מודאל הכוונה המלאה ---
+       ``<dialog>`` נייטיב ולא ``div``. ``showModal()`` נותן מהדפדפן שלושה
+       דברים שהיינו צריכים לכתוב ביד: הפוקוס **נעול** בתוך הדיאלוג (נמדד:
+       Shift+Tab מכפתור הסגירה אינו מגיע לתוכן שמאחור), Escape סוגר, והפוקוס
+       חוזר לבד לכפתור שפתח. הרקע המעומעם הוא ``::backdrop`` של הדפדפן. */
     .mcp-modal {
-      position: fixed;
-      inset: 0;
-      z-index: 1000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1rem;
-      background: rgba(0, 0, 0, 0.55);
-    }
-    .mcp-modal-box {
       background: var(--card-bg, var(--glass));
       border: 1px solid var(--card-border, var(--glass-border));
       color: var(--text-primary, inherit);
       border-radius: 16px;
       padding: 1.25rem;
       max-width: 720px;
-      width: 100%;
+      width: calc(100% - 2rem);
       max-height: 80vh;
       overflow-y: auto;
     }
+    .mcp-modal::backdrop { background: rgba(0, 0, 0, 0.55); }
     .mcp-modal-head {
       display: flex;
       align-items: baseline;
@@ -540,8 +534,16 @@
             ולכן המספר הכולל יכול לרדת משבוע לשבוע גם כשנוספו שגיאות חדשות —
             מה שהופך אותו לחסר תועלת כאיתות. הבאנר משווה מול חותמת הזמן של
             השגיאה החדשה ביותר שכבר נראתה, ולכן הוא חסין לחלון שמחליק.
-            המספר נכתב ב-JS מתוך ``data-at`` שעל השורות. -#}
-        <div class="mcp-fresh" id="mcpFreshBanner" role="status" hidden>
+            המספר נכתב ב-JS מתוך ``data-at`` שעל השורות.
+
+            ``data-has-more`` הוא מה שמונע הצהרה שאי אפשר לגבות: השאילתה
+            מוגבלת ל-``failures_limit`` שורות, ולכן כשכל השורות שהוצגו חדשות
+            **וידוע שיש עוד** — המספר האמיתי גדול או שווה למה שנספר, והבאנר
+            אומר "לפחות". ספירה אמיתית הייתה דורשת לשלוח לשרת את חותמת הזמן
+            השמורה בדפדפן ולקבל ספירה בחזרה; הבאנר הוא עזר תצוגה, והוא לא
+            שווה בקשה נוספת. -#}
+        <div class="mcp-fresh" id="mcpFreshBanner" role="status"
+             data-has-more="{{ '1' if tool_failures.has_more else '0' }}" hidden>
           <i class="fas fa-bell" aria-hidden="true"></i>
           <span id="mcpFreshText"></span>
         </div>
@@ -724,17 +726,18 @@
 
   {#- מודאל הכוונה המלאה. הטקסט **אינו** מרונדר לכאן בשרת — הוא נשלף מהכפתור
       שנלחץ ונכתב עם ``textContent``. אין ``innerHTML`` בשום מקום בעמוד הזה,
-      וזו ההגנה היחידה שמפרידה בין "טקסט שסוכן כתב" לבין קוד שרץ. -#}
-  <div class="mcp-modal" id="mcpIntentModal" role="dialog" aria-modal="true"
-       aria-labelledby="mcpIntentModalTitle" hidden>
-    <div class="mcp-modal-box">
-      <div class="mcp-modal-head">
-        <h2 id="mcpIntentModalTitle">מה הסוכן ניסה לעשות</h2>
-        <button type="button" class="mcp-modal-close" id="mcpIntentModalClose">סגירה</button>
-      </div>
-      <p class="mcp-modal-text mcp-ltr" id="mcpIntentModalText"></p>
+      וזו ההגנה היחידה שמפרידה בין "טקסט שסוכן כתב" לבין קוד שרץ.
+
+      ``role`` ו-``aria-modal`` **אינם** נכתבים כאן: ל-``<dialog>`` שנפתח
+      ב-``showModal()`` הדפדפן כבר נותן את שניהם, וכתיבה ידנית שלהם היא
+      כפילות שיכולה לסתור את מה שהדפדפן מדווח. -#}
+  <dialog class="mcp-modal" id="mcpIntentModal" aria-labelledby="mcpIntentModalTitle">
+    <div class="mcp-modal-head">
+      <h2 id="mcpIntentModalTitle">מה הסוכן ניסה לעשות</h2>
+      <button type="button" class="mcp-modal-close" id="mcpIntentModalClose">סגירה</button>
     </div>
-  </div>
+    <p class="mcp-modal-text mcp-ltr" id="mcpIntentModalText"></p>
+  </dialog>
 
 </div>
 
@@ -767,34 +770,35 @@
     // ---- מודאל הכוונה המלאה ----
     // הטקסט נשלף מה-``title`` של הכפתור ונכתב ב-``textContent``. לא
     // ``innerHTML``: זה טקסט שסוכן חיצוני כתב, ו"רק אדמינים רואים" אינו הגנה.
+    //
+    // ``showModal()`` ולא הצגה ידנית: נעילת הפוקוס בתוך הדיאלוג, סגירה
+    // ב-Escape והחזרת הפוקוס לכפתור שפתח מגיעות מהדפדפן. כל שורה שהייתה
+    // עושה את זה ביד היא שורה שאפשר לשבור בלי לשים לב.
     var modal = document.getElementById('mcpIntentModal');
     var modalText = document.getElementById('mcpIntentModalText');
     var modalClose = document.getElementById('mcpIntentModalClose');
-    var lastFocused = null;
-
-    function closeModal() {
-      modal.hidden = true;
-      // מחזירים את הפוקוס לכפתור שפתח — אחרת הוא נופל לתחילת העמוד ומי
-      // שמנווט במקלדת מאבד את מקומו בטבלה.
-      if (lastFocused) { lastFocused.focus(); lastFocused = null; }
-    }
 
     function openModal(button) {
       modalText.textContent = button.getAttribute('title') || button.textContent;
-      lastFocused = button;
-      modal.hidden = false;
+      modal.showModal();
       modalClose.focus();
     }
 
     document.addEventListener('click', function (event) {
       var trigger = event.target.closest ? event.target.closest('.mcp-clip') : null;
-      if (trigger) { openModal(trigger); return; }
-      // לחיצה על הרקע סוגרת; לחיצה בתוך הקופסה לא.
-      if (event.target === modal) { closeModal(); }
+      if (trigger) { openModal(trigger); }
     });
-    modalClose.addEventListener('click', closeModal);
-    document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape' && !modal.hidden) { closeModal(); }
+    modalClose.addEventListener('click', function () { modal.close(); });
+
+    // סגירה בלחיצה על הרקע. ב-``<dialog>`` הרקע הוא ``::backdrop``, שאינו
+    // אלמנט שאפשר לתפוס עליו אירוע — הקליק מגיע לדיאלוג עצמו. לכן בודקים
+    // אם הנקודה שנלחצה נמצאת מחוץ למלבן שלו.
+    modal.addEventListener('click', function (event) {
+      if (event.target !== modal) { return; }
+      var box = modal.getBoundingClientRect();
+      var inside = event.clientX >= box.left && event.clientX <= box.right
+        && event.clientY >= box.top && event.clientY <= box.bottom;
+      if (!inside) { modal.close(); }
     });
 
     // ---- "כמה שגיאות נוספו מאז הביקור האחרון" ----
@@ -832,12 +836,20 @@
       if (!isNaN(previous)) {
         var fresh = stamps.filter(function (ms) { return ms > previous; }).length;
         if (fresh > 0) {
+          // כל השורות שהוצגו חדשות **ויש עוד מעבר לתקרה** — אז ``fresh`` הוא
+          // רצפה ולא ספירה. אומרים "לפחות" במקום להצהיר מספר שאין לו כיסוי.
+          var partial = fresh === stamps.length && banner.dataset.hasMore === '1';
           // חושפים לפני הכתיבה: ``role="status"`` מכריז על **שינוי** באזור
           // שכבר נמצא בעץ הנגישות, ולא בהכרח על אזור שהופיע עם טקסט מוכן.
           banner.hidden = false;
-          text.textContent = fresh === 1
-            ? 'שגיאה אחת חדשה מאז הביקור האחרון שלך כאן.'
-            : fresh + ' שגיאות חדשות מאז הביקור האחרון שלך כאן.';
+          if (partial) {
+            text.textContent = 'לפחות ' + fresh
+              + ' שגיאות חדשות מאז הביקור האחרון שלך כאן — הטבלה מציגה רק את האחרונות.';
+          } else {
+            text.textContent = fresh === 1
+              ? 'שגיאה אחת חדשה מאז הביקור האחרון שלך כאן.'
+              : fresh + ' שגיאות חדשות מאז הביקור האחרון שלך כאן.';
+          }
         }
       }
 

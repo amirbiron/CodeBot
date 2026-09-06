@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import os
 import socket
+import sys
 import threading
 import types
 
@@ -88,6 +89,27 @@ def _nav_rows():
     return list(_NAV_ROWS_OVERRIDE if _NAV_ROWS_OVERRIDE is not None else NAV_ROWS)
 
 
+#: ``hasMore`` מגיע מ-PostHog כשהשאילתה נחתכה בתקרה. הוא מוחלף כאן ולא
+#: ב-DOM, כי מה שנבדק הוא מה שהתבנית עושה עם הערך הזה.
+_FAILURES_HAS_MORE = False
+
+
+def _failures_result():
+    return EndpointResult(rows=list(FAILURE_ROWS), has_more=_FAILURES_HAS_MORE)
+
+
+@contextlib.contextmanager
+def _truncated_failures():
+    """מסמן שהטבלה נחתכה בתקרה, כלומר יש עוד שורות שלא הוחזרו."""
+    global _FAILURES_HAS_MORE
+    previous = _FAILURES_HAS_MORE
+    _FAILURES_HAS_MORE = True
+    try:
+        yield
+    finally:
+        _FAILURES_HAS_MORE = previous
+
+
 @contextlib.contextmanager
 def _hostile_intent(text):
     """מחליף את הכוונה בשורת הניווט לאורך הבקשה, ומשחזר בסיום."""
@@ -134,7 +156,7 @@ def live_server():
     fake = types.SimpleNamespace(
         get_dashboard=lambda: {
             mcp.ENDPOINT_TOOL_HEALTH: EndpointResult(rows=list(HEALTH_ROWS)),
-            mcp.ENDPOINT_TOOL_FAILURES: EndpointResult(rows=list(FAILURE_ROWS)),
+            mcp.ENDPOINT_TOOL_FAILURES: _failures_result(),
             # ``_nav_rows()`` ולא ``NAV_ROWS`` ישירות: כך טסט יכול להחליף את
             # השורות **בשרת** לפני הרינדור, במקום לשתול ערך ב-DOM אחרי כן.
             mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(rows=_nav_rows(), total=10),
@@ -195,11 +217,28 @@ def live_server():
         patch.undo()
 
 
-@pytest.fixture
-def page(live_server):
+DESKTOP_VIEWPORT = {"width": 1280, "height": 900}
+#: פיקסלים לוגיים של מכשירי אנדרואיד נפוצים. העמוד נצרך מטאבלט, ולכן
+#: "עובר בדסקטופ" אינו ראיה — הטבלאות רחבות והמודאל נפתח מעל מסך צר.
+PHONE_VIEWPORT = {"width": 390, "height": 844}
+
+
+@contextlib.contextmanager
+def _browser_page(live_server, local_storage=None, viewport=None):
+    """פותח את העמוד בהקשר דפדפן נקי — **המקום היחיד** שמרים דפדפן בקובץ הזה.
+
+    ``local_storage`` הוא הערך של ``mcpFailuresLastSeenAt``; ``None`` מוחק
+    אותו, כלומר "ביקור ראשון". הכתיבה עוברת ב-``add_init_script`` שרץ
+    **לפני** קוד העמוד, כי כתיבה אחרי ``goto`` מגיעה אחרי שהבאנר כבר חישב.
+
+    כל הניקוי יושב כאן ב-``finally``: כשהוא ישב אצל הקורא, כשל של ``goto``
+    היה מדליף דפדפן שלם ואת סשן ה-Playwright איתו.
+    """
     base_url, session_cookie = live_server
     executable = _find_chromium()
-    with sync_playwright() as pw:
+    pw = sync_playwright().start()
+    browser = None
+    try:
         try:
             browser = (
                 pw.chromium.launch(executable_path=executable)
@@ -208,28 +247,41 @@ def page(live_server):
             )
         except Exception as exc:  # pragma: no cover
             pytest.skip(f"אין Chromium זמין: {exc}")
-        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context = browser.new_context(viewport=viewport or DESKTOP_VIEWPORT)
         context.add_cookies([{
             "name": "session", "value": session_cookie,
             "domain": "127.0.0.1", "path": "/",
         }])
-        p = context.new_page()
+        page = context.new_page()
         # מודאל ה-onboarding של הוובאפ נפתח למשתמש חדש וחוסם קליקים
-        p.add_init_script(
+        setup = (
             "try{localStorage.setItem('welcomeModalSeen','1');"
-            "localStorage.setItem('onboarding_completed','1');}catch(e){}"
+            "localStorage.setItem('onboarding_completed','1');"
         )
-        p.goto(f"{base_url}/admin/mcp", wait_until="domcontentloaded")
-        p.wait_for_timeout(400)
-        p.evaluate(
+        if local_storage is not None:
+            setup += f"localStorage.setItem('mcpFailuresLastSeenAt','{local_storage}');"
+        else:
+            setup += "localStorage.removeItem('mcpFailuresLastSeenAt');"
+        setup += "}catch(e){}"
+        page.add_init_script(setup)
+        page.goto(f"{base_url}/admin/mcp", wait_until="domcontentloaded")
+        page.wait_for_timeout(400)
+        page.evaluate(
             "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
             ".forEach(e => e.remove())"
         )
-        try:
-            yield p
-        finally:
-            context.close()
+        yield page
+    finally:
+        if browser is not None:
             browser.close()
+        pw.stop()
+
+
+@pytest.fixture
+def page(live_server):
+    """הפיקסצ'ר הוא רק שם נוח ל-``_browser_page`` עם ברירות המחדל."""
+    with _browser_page(live_server) as p:
+        yield p
 
 
 def _state(page):
@@ -270,7 +322,7 @@ def test_each_tab_shows_its_own_content(page):
 
 
 def test_the_page_does_not_scroll_horizontally_on_a_phone(page):
-    page.set_viewport_size({"width": 390, "height": 844})
+    page.set_viewport_size(PHONE_VIEWPORT)
     page.wait_for_timeout(200)
     doc_width = page.evaluate("document.documentElement.scrollWidth")
     viewport = page.evaluate("document.documentElement.clientWidth")
@@ -300,7 +352,7 @@ def test_the_wider_navigation_table_scrolls_inside_its_own_card(page):
     page.click('button.mcp-tab[data-panel="navigation"]')
     page.wait_for_timeout(150)
     # רוחב טלפון: כאן עשר עמודות בוודאות אינן נכנסות.
-    page.set_viewport_size({"width": 390, "height": 844})
+    page.set_viewport_size(PHONE_VIEWPORT)
     page.wait_for_timeout(250)
 
     measured = page.evaluate("""() => {
@@ -466,91 +518,45 @@ def test_the_outbound_links_open_safely_in_a_new_tab(page):
         assert "noopener" in link["rel"] and "noreferrer" in link["rel"]
 
 
-def _fresh_page(live_server, local_storage=None):
-    """פותח את העמוד בהקשר דפדפן נקי, אופציונלית עם ערך ב-localStorage.
-
-    ``add_init_script`` רץ **לפני** קוד העמוד, ולכן הערך כבר שם כשהבאנר
-    מחשב. כתיבה אחרי ``goto`` הייתה מגיעה מאוחר מדי והטסט היה בודק כלום.
-    """
-    base_url, session_cookie = live_server
-    executable = _find_chromium()
-    pw = sync_playwright().start()
-    try:
-        browser = (
-            pw.chromium.launch(executable_path=executable)
-            if executable
-            else pw.chromium.launch()
-        )
-    except Exception as exc:  # pragma: no cover
-        pw.stop()
-        pytest.skip(f"אין Chromium זמין: {exc}")
-    context = browser.new_context(viewport={"width": 1280, "height": 900})
-    context.add_cookies([{
-        "name": "session", "value": session_cookie,
-        "domain": "127.0.0.1", "path": "/",
-    }])
-    page = context.new_page()
-    setup = (
-        "try{localStorage.setItem('welcomeModalSeen','1');"
-        "localStorage.setItem('onboarding_completed','1');"
-    )
-    if local_storage is not None:
-        setup += f"localStorage.setItem('mcpFailuresLastSeenAt','{local_storage}');"
-    else:
-        setup += "localStorage.removeItem('mcpFailuresLastSeenAt');"
-    setup += "}catch(e){}"
-    page.add_init_script(setup)
-    page.goto(f"{base_url}/admin/mcp", wait_until="domcontentloaded")
-    page.wait_for_timeout(400)
-    page.evaluate(
-        "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
-        ".forEach(e => e.remove())"
-    )
-    return pw, browser, context, page
-
-
 def test_clicking_a_clipped_intent_opens_a_modal_with_the_full_text(live_server):
     """הקיצוץ הוא של התצוגה; המודאל הוא איך מגיעים לטקסט המלא.
 
     נמדד בדפדפן ולא ב-DOM המרונדר, כי המודאל נבנה כולו ב-JS: השרת שולח
     אותו ריק ומוסתר.
     """
-    pw, browser, context, page = _fresh_page(live_server)
-    try:
+    with _browser_page(live_server) as page:
         page.click('button.mcp-tab[data-panel="navigation"]')
         page.wait_for_timeout(150)
-        before = page.evaluate("() => document.getElementById('mcpIntentModal').hidden")
+        # ``open`` ולא ``hidden``: זהו ``<dialog>`` נייטיב, והמצב שלו הוא
+        # מה שהדפדפן מדווח — לא מחלקה או תכונה שאנחנו מתחזקים.
+        before = page.evaluate("() => document.getElementById('mcpIntentModal').open")
         page.click(".mcp-clip")
         page.wait_for_timeout(150)
         opened = page.evaluate("""() => {
             const modal = document.getElementById('mcpIntentModal');
             const text = document.getElementById('mcpIntentModalText');
             return {
-                hidden: modal.hidden,
+                open: modal.open,
                 text: text.textContent,
                 childElements: text.children.length,
                 focusOnClose: document.activeElement.id,
             };
         }""")
-        # Escape סוגר, והפוקוס חוזר לכפתור שפתח.
-        page.keyboard.press("Escape")
+        page.click("#mcpIntentModalClose")
         page.wait_for_timeout(150)
         closed = page.evaluate("""() => ({
-            hidden: document.getElementById('mcpIntentModal').hidden,
+            open: document.getElementById('mcpIntentModal').open,
             focusIsClip: document.activeElement.classList.contains('mcp-clip'),
         })""")
-    finally:
-        context.close()
-        browser.close()
-        pw.stop()
 
-    assert before is True, "המודאל היה פתוח עוד לפני הלחיצה"
-    assert opened["hidden"] is False
+    assert before is False, "המודאל היה פתוח עוד לפני הלחיצה"
+    assert opened["open"] is True
     assert opened["text"] == NAV_ROWS[0]["intent"]
     # נכתב עם ``textContent`` — אין אלמנטים בפנים גם על טקסט שנראה כמו תגית.
     assert opened["childElements"] == 0
     assert opened["focusOnClose"] == "mcpIntentModalClose"
-    assert closed["hidden"] is True
+    assert closed["open"] is False
+    # הפוקוס חזר לכפתור שפתח — ``<dialog>`` עושה את זה לבד, בלי קוד משלנו.
     assert closed["focusIsClip"] is True
 
 
@@ -561,9 +567,7 @@ def test_a_hostile_intent_stays_text_inside_the_modal_too(live_server):
     שמגן הוא ``textContent``. שני מסלולים, שתי בדיקות.
     """
     hostile = "<img src=x onerror=window.__pwned=1>"
-    with _hostile_intent(hostile):
-        pw, browser, context, page = _fresh_page(live_server)
-    try:
+    with _hostile_intent(hostile), _browser_page(live_server) as page:
         page.click('button.mcp-tab[data-panel="navigation"]')
         page.wait_for_timeout(150)
         page.click(".mcp-clip")
@@ -577,10 +581,6 @@ def test_a_hostile_intent_stays_text_inside_the_modal_too(live_server):
                 pwned: window.__pwned === 1,
             };
         }""")
-    finally:
-        context.close()
-        browser.close()
-        pw.stop()
 
     assert measured["text"] == hostile
     assert measured["childElements"] == 0
@@ -590,17 +590,12 @@ def test_a_hostile_intent_stays_text_inside_the_modal_too(live_server):
 
 def test_the_banner_stays_quiet_on_a_first_visit(live_server):
     """בביקור ראשון הכול "חדש", ומספר כזה אינו אומר דבר."""
-    pw, browser, context, page = _fresh_page(live_server, local_storage=None)
-    try:
+    with _browser_page(live_server, local_storage=None) as page:
         page.wait_for_timeout(200)
         measured = page.evaluate("""() => ({
             hidden: document.getElementById('mcpFreshBanner').hidden,
             stored: localStorage.getItem('mcpFailuresLastSeenAt'),
         })""")
-    finally:
-        context.close()
-        browser.close()
-        pw.stop()
 
     assert measured["hidden"] is True
     # אבל הביקור כן נרשם, אחרת הבא אחריו גם הוא יהיה "ראשון".
@@ -611,18 +606,13 @@ def test_the_banner_counts_only_failures_newer_than_the_last_visit(live_server):
     """זו כל הנקודה: החלון של 30 יום מזיז שורות החוצה, ולכן המספר הכולל
     יורד מעצמו ואינו יכול לשמש איתות. ההשוואה היא מול חותמת."""
     # אחרי השורה הישנה (03.09) ולפני החדשה (05.09) — כלומר אחת חדשה.
-    pw, browser, context, page = _fresh_page(live_server, local_storage="2026-09-04T00:00:00.000Z")
-    try:
+    with _browser_page(live_server, local_storage="2026-09-04T00:00:00.000Z") as page:
         page.wait_for_timeout(200)
         measured = page.evaluate("""() => ({
             hidden: document.getElementById('mcpFreshBanner').hidden,
             text: document.getElementById('mcpFreshText').textContent,
             stored: localStorage.getItem('mcpFailuresLastSeenAt'),
         })""")
-    finally:
-        context.close()
-        browser.close()
-        pw.stop()
 
     assert measured["hidden"] is False
     assert "אחת" in measured["text"], measured["text"]
@@ -631,13 +621,89 @@ def test_the_banner_counts_only_failures_newer_than_the_last_visit(live_server):
 
 
 def test_nothing_is_new_when_the_last_visit_is_after_every_failure(live_server):
-    pw, browser, context, page = _fresh_page(live_server, local_storage="2026-09-30T00:00:00.000Z")
-    try:
+    with _browser_page(live_server, local_storage="2026-09-30T00:00:00.000Z") as page:
         page.wait_for_timeout(200)
         hidden = page.evaluate("() => document.getElementById('mcpFreshBanner').hidden")
-    finally:
-        context.close()
-        browser.close()
-        pw.stop()
 
     assert hidden is True
+
+
+def test_a_truncated_table_makes_the_banner_say_at_least(live_server):
+    """הבאנר סופר שורות ב-DOM, והטבלה חתוכה בתקרה.
+
+    כשכל השורות שהוצגו חדשות **וידוע שיש עוד** — המספר שנספר הוא רצפה
+    ולא ספירה, ולהצהיר עליו כמספר מדויק זה להמציא נתון. הניסוח משתנה,
+    ולא הספירה: אין דרך לספור מה שהשאילתה לא החזירה.
+    """
+    with _truncated_failures():
+        with _browser_page(live_server, local_storage="2026-01-01T00:00:00.000Z") as page:
+            page.wait_for_timeout(200)
+            measured = page.evaluate("""() => ({
+                hidden: document.getElementById('mcpFreshBanner').hidden,
+                text: document.getElementById('mcpFreshText').textContent,
+                hasMore: document.getElementById('mcpFreshBanner').dataset.hasMore,
+            })""")
+
+    assert measured["hasMore"] == "1", "התבנית לא העבירה את הסימון לדפדפן"
+    assert measured["hidden"] is False
+    assert measured["text"].startswith("לפחות "), measured["text"]
+    assert "2" in measured["text"], measured["text"]
+
+
+def test_a_complete_table_states_the_count_without_hedging(live_server):
+    """התמונה ההפוכה: הטבלה שלמה, ולכן המספר מדויק ואין "לפחות".
+
+    בלי הטסט הזה, ניסוח שמוסיף "לפחות" תמיד היה עובר את הטסט שמעל.
+    """
+    with _browser_page(live_server, local_storage="2026-01-01T00:00:00.000Z") as page:
+        page.wait_for_timeout(200)
+        measured = page.evaluate("""() => ({
+            text: document.getElementById('mcpFreshText').textContent,
+            hasMore: document.getElementById('mcpFreshBanner').dataset.hasMore,
+        })""")
+
+    assert measured["hasMore"] == "0"
+    assert not measured["text"].startswith("לפחות"), measured["text"]
+    assert measured["text"].startswith("2 שגיאות חדשות"), measured["text"]
+
+
+def test_a_failed_page_load_still_shuts_the_browser_down(live_server):
+    """הכשל שמנהל ההקשר נועד למנוע: נפילה **אחרי** שהדפדפן כבר עלה.
+
+    כשהניקוי ישב אצל הקורא — ב-``finally`` שאחרי הקריאה — נפילה בתוך
+    ההרמה עצמה דילגה עליו לגמרי, ודפדפן שלם וסשן Playwright נשארו תלויים
+    עד סוף התהליך. כאן ``goto`` פונה לפורט סגור, כלומר הדפדפן עולה ואז
+    הטעינה נכשלת, ונמדד שהסגירה בכל זאת רצה.
+    """
+    _, session_cookie = live_server
+    stopped = []
+    real_factory = sync_playwright
+
+    class _Recorder:
+        """עוטף את המפעל האמיתי ורושם מתי ``stop`` נקרא — בלי להחליף אותו."""
+
+        def __init__(self, inner):
+            self._inner = inner
+
+        def start(self):
+            pw = self._inner.start()
+            original = pw.stop
+
+            def stop():
+                stopped.append(True)
+                original()
+
+            pw.stop = stop
+            return pw
+
+    patch = pytest.MonkeyPatch()
+    patch.setattr(sys.modules[__name__], "sync_playwright", lambda: _Recorder(real_factory()))
+    try:
+        with pytest.raises(Exception):
+            # פורט 9 סגור, ולכן ``goto`` נכשל אחרי ``launch``.
+            with _browser_page(("http://127.0.0.1:9", session_cookie)):
+                pass  # pragma: no cover
+    finally:
+        patch.undo()
+
+    assert stopped == [True], "‏Playwright לא נסגר אחרי כשל בטעינת העמוד"

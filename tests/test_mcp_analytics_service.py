@@ -868,3 +868,78 @@ def test_the_summary_never_invents_content_that_was_not_in_the_message():
 
     for token in _re.findall(r"[\w.']+", out):
         assert token in _REAL_MESSAGE, token
+
+
+def test_line_endings_do_not_change_the_summary():
+    """אותה הודעה בדיוק, בשלוש צורות של סוף שורה, חייבת לתת אותו פלט.
+
+    ``split("\\n")`` השאיר ``\\r`` בסוף כל שורה, ואז התבנית של שורת התיעוד —
+    שנגמרת ב-``$`` — כבר לא תפסה, והקישור לתיעוד של Pydantic שרד בתא.
+    """
+    body = (
+        "1 validation error for get_repo_fileArguments{nl}"
+        "lines.1{nl}"
+        "  Input should be a valid integer "
+        "[type=int_parsing, input_value='9', input_type=str]{nl}"
+        "    For further information visit "
+        "https://errors.pydantic.dev/2.12/v/int_parsing{nl}"
+    )
+    expected = "lines.1 · Input should be a valid integer [input_value='9', input_type=str]"
+
+    for newline in ("\n", "\r\n", "\r"):
+        assert mcp.summarize_validation_message(body.format(nl=newline)) == expected, newline
+
+
+@pytest.mark.parametrize(
+    "rendered, kept",
+    [
+        ("input_value=[], input_type=list", "input_value=[]"),
+        ("input_value={}, input_type=dict", "input_value={}"),
+        ("input_value=[[]], input_type=list", "input_value=[[]]"),
+    ],
+)
+def test_brackets_inside_the_rejected_value_survive(rendered, kept):
+    """הערך שנדחה הוא חצי מהאבחון, וסוגריים ריקות הן ערך ולא רעש.
+
+    הניקוי של ``type=`` הותיר קודם ``[]`` תלושות כשזה היה השדה היחיד,
+    ומחיקה גורפת שלהן אכלה גם ``input_value=[]`` — כלומר מחקה בדיוק את
+    מה שמפריד בין "הסוכן שלח רשימה ריקה" ל"הסוכן לא שלח כלום".
+    """
+    message = (
+        "1 validation error for get_fileArguments\n"
+        "name\n"
+        f"  Input should be a valid string [type=string_type, {rendered}]\n"
+    )
+
+    assert kept in mcp.summarize_validation_message(message)
+
+
+def test_a_lone_type_field_leaves_no_empty_brackets_behind():
+    """התמונה ההפוכה: כשאין מה לשמור בסוגריים, הן נעלמות לגמרי."""
+    message = (
+        "1 validation error for get_fileArguments\n"
+        "name\n"
+        "  Field required [type=missing]\n"
+    )
+
+    assert mcp.summarize_validation_message(message) == "name · Field required"
+
+
+def test_a_type_field_inside_the_rejected_value_is_not_mistaken_for_noise():
+    """הרעש יושב בסוף השורה, ולכן רק שם מותר לגעת.
+
+    ערך שנדחה יכול להכיל בעצמו ``[type=...]`` — סוכן ששלח מחרוזת כזו.
+    תבנית לא מעוגנת הייתה מוחקת דווקא אותו ומשאירה את הרעש האמיתי, כלומר
+    מחזירה את אותו באג מכיוון הפוך.
+    """
+    message = (
+        "1 validation error for get_fileArguments\n"
+        "name\n"
+        "  Input should be a valid string "
+        "[type=string_type, input_value='[type=z]', input_type=str]\n"
+    )
+
+    summary = mcp.summarize_validation_message(message)
+
+    assert "input_value='[type=z]'" in summary, summary
+    assert "string_type" not in summary, summary

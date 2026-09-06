@@ -157,10 +157,34 @@ CIRCUIT_SERVICE = "posthog"
 # מה שאי אפשר לאבחן בלעדיו.
 _PYDANTIC_HEADER = re.compile(r"^\d+ validation errors? for \S+$")
 _PYDANTIC_DOCS_LINE = re.compile(r"^\s+For further information visit https?://\S+$")
+#: פיצול השורות עובר דרך התבנית הזו ולא דרך ``split("\n")``: הודעה שהגיעה עם
+#: ``\r\n`` הייתה משאירה ``\r`` בסוף כל שורה, ואז ``$`` בתבנית של שורת התיעוד
+#: אינו תופס — והקישור לתיעוד של Pydantic היה שורד בתא. ``splitlines()`` היה
+#: פותר גם את זה, אבל הוא מפצל גם על ``\x0b``, ``\u2028`` ותווים נוספים
+#: שיכולים לשבת בתוך ``input_value`` ולפצל שורת פירוט לשתיים.
+_LINE_BREAK = re.compile(r"\r\n|\r|\n")
 #: ``type=`` מוסר מהסוגריים — ההודעה עצמה ("Input should be a valid integer")
 #: כבר אומרת את אותו דבר במילים. ``input_value`` ו-``input_type`` נשארים: הם
 #: מה שמפריד בין "הסוכן טעה" ל"הסכימה לא ברורה".
-_PYDANTIC_ERROR_TYPE = re.compile(r"\[type=[^,\]]+(,\s*)?")
+#:
+#: **תבנית אחת, ולא שתיים.** מה שמגן כאן הוא שהתאמה נעשית שמאלית-ראשונה:
+#: קבוצת הסוגריים שמעניינת אותנו היא הראשונה בשורה, ולכן ``[type=...]``
+#: שיושב **בתוך** הערך שנדחה לעולם אינו נתפס במקומה. הניסיון הקודם פיצל את
+#: זה לשתי פעולות — הסרה של ``[type=X]`` שלם ואז ``.replace("[]", "")``
+#: לסוגריים שנשארו ריקות — ושתיהן החטיאו: הראשונה דילגה על הקבוצה האמיתית
+#: (שאחרי ``type`` יש בה פסיק) ונחתה על זו שבתוך הערך, והשנייה מחקה גם
+#: ``input_value=[]`` והפכה אותו ל-``input_value=``.
+_PYDANTIC_BRACKETS = re.compile(r"\s*\[type=[^,\]]+(?:,\s*(?P<rest>.*))?\]")
+
+
+def _strip_error_type(detail: str) -> str:
+    """מסיר את ``type=`` מקבוצת הסוגריים, ומוחק אותה כשלא נשאר בה דבר."""
+
+    def replace(match: "re.Match[str]") -> str:
+        rest = match.group("rest")
+        return f" [{rest}]" if rest else ""
+
+    return _PYDANTIC_BRACKETS.sub(replace, detail, count=1).strip()
 
 
 def summarize_validation_message(message: Any) -> Any:
@@ -174,7 +198,7 @@ def summarize_validation_message(message: Any) -> Any:
     """
     if not isinstance(message, str):
         return message
-    lines = message.split("\n")
+    lines = _LINE_BREAK.split(message)
     if not lines or not _PYDANTIC_HEADER.match(lines[0].strip()):
         return message
 
@@ -187,7 +211,7 @@ def summarize_validation_message(message: Any) -> Any:
             # שורה בלי הזחה — זה המיקום של השדה שנדחה.
             location = line.strip()
             continue
-        detail = _PYDANTIC_ERROR_TYPE.sub("[", line.strip(), count=1).replace("[]", "").strip()
+        detail = _strip_error_type(line.strip())
         out.append(f"{location} · {detail}" if location else detail)
         location = None
 
