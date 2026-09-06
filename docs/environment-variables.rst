@@ -1518,6 +1518,18 @@
      - ``config/alert_quick_fixes.json``
      - ``config/custom_fixes.json``
      - Bot/WebApp
+   * - ``ALERTS_CONFIG_PATH``
+     - נתיב ל-YAML של חוקי ההתראות מבוססות אירוע (``alerts:`` בקובץ). ריק = ``config/alerts.yml`` יחסית לשורש הריפו. שם חלופי נתמך: ``LOG_ALERTS_CONFIG_PATH``
+     - לא
+     - ריק (``config/alerts.yml``)
+     - ``/etc/codebot/alerts.yml``
+     - Bot/WebApp/Webserver
+   * - ``ALERT_GRAPH_SOURCES_PATH``
+     - נתיב ל-JSON שממפה סוג התראה לגרף שמוצג לצידה בדשבורד ה-Observability
+     - לא
+     - ``config/alert_graph_sources.json``
+     - ``config/custom_graphs.json``
+     - WebApp/Observability
    * - ``OBSERVABILITY_RUNBOOK_PATH``
      - נתיב חלופי ל-``observability_runbooks.yml`` שמזין את ה-Runbooks וה-Quick Fix הדינמי.
      - לא
