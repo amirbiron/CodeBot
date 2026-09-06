@@ -82,6 +82,36 @@
      - ``true``
      - ``true``
      - Bot/WebApp
+   * - ``MONGODB_HEARTBEAT_FREQUENCY_MS``
+     - תדירות בדיקת החיים של הדרייבר מול שרתי מונגו (heartbeatFrequencyMS)
+     - לא
+     - ``10000``
+     - ``20000``
+     - Bot/WebApp/MCP/Webserver
+   * - ``MONGODB_CONNECT_MAX_RETRIES``
+     - מספר ניסיונות ההתחברות למונגו לפני ויתור (מינימום אפקטיבי 1)
+     - לא
+     - ``4``
+     - ``6``
+     - Bot/WebApp/MCP/Webserver
+   * - ``MONGODB_CONNECT_RETRY_BASE_DELAY``
+     - השהיה בסיסית (שניות) בין ניסיונות ההתחברות; גדלה אקספוננציאלית
+     - לא
+     - ``2``
+     - ``1``
+     - Bot/WebApp/MCP/Webserver
+   * - ``MONGO_SERVERSTATUS_REFRESH_SEC``
+     - כל כמה שניות נדגם ``serverStatus`` של מונגו לצורך ספי ההתראות (מינימום אפקטיבי 1)
+     - לא
+     - ``5``
+     - ``10``
+     - Bot/WebApp/Webserver
+   * - ``GITHUB_REPO``
+     - הריפו שבו נפתחים Issues אוטומטית ממנוע החוקים, בפורמט ``owner/repo``. ברירת המחדל היא מציין מיקום ולא ריפו אמיתי
+     - לא
+     - ``owner/repo``
+     - ``amirbiron/CodeBot``
+     - Bot/WebApp
    * - ``MONGODB_RETRY_READS``
      - הפעלת Retry לקריאות (retryReads)
      - לא
