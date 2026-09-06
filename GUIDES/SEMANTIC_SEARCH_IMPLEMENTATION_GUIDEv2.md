@@ -113,7 +113,8 @@ SNIPPET_CHUNK_SCHEMA = {
       "type": "vector",
       "path": "chunkEmbedding",
       "numDimensions": 768,
-      "similarity": "cosine"
+      "similarity": "cosine",
+      "quantization": "scalar"
     },
     {
       "type": "filter",
@@ -128,6 +129,42 @@ SNIPPET_CHUNK_SCHEMA = {
 ```
 
 > **הערה חשובה**: יש ליצור את ה-indexes דרך ממשק MongoDB Atlas UI או Atlas CLI, לא דרך PyMongo.
+
+##### `quantization: "scalar"` — מתי להדליק (אישו #3332)
+
+`quantization` אינו נוגע לגודל שעל הדיסק אלא לאינדקס שבזיכרון: הוא ממיר את
+הווקטורים המאונדקסים ל-8 ביט, כלומר פי 4 פחות RAM, בפגיעה קטנה ברקול. בקנה
+המידה של היום (3,483 צ'אנקים) זה לא קריטי; אחרי מעבר לצ'אנקים של 2,000 בייט
+מספר הצ'אנקים גדל פי 4-5, ואז כן.
+
+**סדר הפעולות חשוב:**
+
+1. לפרוס את הקוד ולתת ל-`EmbeddingWorker` לסיים את ה-re-index (הוא מזהה לבד
+   מה צריך לחתוך מחדש לפי `chunkerVersion`; מעקב:
+   `python scripts/migrate_semantic_search.py status`).
+2. רק אז לשנות את האינדקס ב-Atlas UI — כדי שהוא ייבנה פעם אחת על הנתונים
+   החדשים ולא פעמיים.
+3. ורק אחרי זה לכייל את `SEMANTIC_MIN_VECTOR_SCORE` ואת `SEMANTIC_NUM_CANDIDATES`.
+   קוונטיזציה מזיזה מעט את ציוני ה-ANN, ולכן רף שכויל לפניה אינו תקף אחריה.
+
+**הערה על פורמט הווקטור:** מאז אישו #3332 הווקטורים נכתבים כ-BSON BinData
+subtype 9 (float32) ולא כמערך doubles. **אין צורך באינדקס חדש** — נבדק מול
+`ClusterFrankfurt` לפני המימוש: מסמך BinData נכנס ל-`vector_index` הקיים,
+`$vectorSearch` עם `queryVector` כמערך רגיל החזיר אותו בציון 1.0 מדויק,
+ובאותה שאילתה חזרו גם מסמכים עם וקטורי מערך. שתי הצורות חיות יחד תחת אותו
+`path`, וזה מה שמאפשר ל-re-index לרוץ בהדרגה בלי חלון השבתה.
+
+##### כלל החיתוך (מאישו #3332)
+
+הטבלה בסעיף "תיקוני באגים" למטה מתעדת את הגרסה הישנה. מה שקובע היום:
+
+| כלל | ערך | למה |
+|---|---|---|
+| `CHUNK_MAX_BYTES` | 2,000 | ל-`gemini-embedding-001` תקרת קלט של 2,048 טוקנים, והוא חותך בשקט מעליה. עברית עולה ~2 בייט לתו, ולכן התקציב שמרני בכוונה. |
+| חפיפה | המחמיר מבין השלושה | 15% מהתקציב, **וגם** חצי מהצ'אנק בפועל (אחרת החלון היה מתקדם שורה אחת בכל סיבוב כשתקרת השורות בולמת), **וגם** `CHUNK_OVERLAP_LINES` שורות. |
+| `CHUNK_SIZE_LINES` | 220 | תקרה משנית בלבד. |
+| `CHUNK_OVERLAP_LINES` | 40 | תקרה משנית על החפיפה, בשורות. `0` מבטל חפיפה לגמרי. |
+| `CHUNKER_VERSION` | 2 | שינוי הכלל = העלאת המספר. ה-worker מזהה לבד ומעבד מחדש. |
 
 ---
 
@@ -336,6 +373,14 @@ SEMANTIC_SEARCH_ENABLED: bool = Field(
     default=True,
     description="Enable/disable semantic search feature"
 )
+CHUNK_MAX_BYTES: int = Field(
+    default=2000,
+    ge=200,
+    description=(
+        "Hard byte budget per code chunk (UTF-8). gemini-embedding-001 accepts "
+        "2,048 input tokens and silently truncates beyond that."
+    ),
+)
 CHUNK_SIZE_LINES: int = Field(
     default=220,
     ge=10,  # תיקון: מינימום 10 שורות למניעת לולאה אינסופית ב-chunking
@@ -343,15 +388,24 @@ CHUNK_SIZE_LINES: int = Field(
 )
 CHUNK_OVERLAP_LINES: int = Field(
     default=40,
-    description="Overlap between consecutive chunks"
+    ge=0,
+    description=(
+        "Max overlap between consecutive chunks, in lines (secondary ceiling). "
+        "The effective overlap is the strictest of: 15% of CHUNK_MAX_BYTES, "
+        "half the actual chunk, and this value. 0 disables overlap."
+    ),
 )
 ```
+
+> `CHUNK_MAX_BYTES` הוא המגבלה האמיתית; `CHUNK_SIZE_LINES` ו-`CHUNK_OVERLAP_LINES` הן תקרות משניות בלבד. ראו את טבלת "כלל החיתוך" בראש המסמך.
 
 ---
 
 ## שלב 3: שירות Chunking
 
 ### 3.1 יצירת קובץ השירות
+
+> ⚠️ **הקוד בסעיף הזה הוא הגרסה המקורית, לא הגרסה שרצה היום.** ה-chunker נכתב מחדש (`CHUNKER_VERSION = 2`): החיתוך הוא לפי **תקציב בייטים** ולא לפי מספר שורות, אין השמטת זנב, ושורה ארוכה מהתקציב נחתכת בעצמה. אל תעתיקו את הבלוק הזה לפרויקט — **המקור היחיד הוא `services/chunking_service.py`**, והכלל התקף מסוכם בטבלת "כלל החיתוך" בראש המסמך. הבלוק נשאר כאן כתיעוד היסטורי של איך זה נראה בהתחלה ולמה זה השתנה.
 
 ```python
 # services/chunking_service.py
@@ -1563,6 +1617,7 @@ GEMINI_EMBEDDING_MODEL=text-embedding-004
 # Semantic Search Config
 SEMANTIC_SEARCH_ENABLED=true
 EMBEDDING_DIMENSIONS=768
+CHUNK_MAX_BYTES=2000
 CHUNK_SIZE_LINES=220
 CHUNK_OVERLAP_LINES=40
 ```

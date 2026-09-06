@@ -165,6 +165,36 @@ def _get_files_collection(raw_db):
         return getattr(raw_db, "code_snippets", getattr(raw_db, "files", None))
 
 
+def _to_binary_vector(values: Any) -> Any:
+    """ממיר וקטור embedding ל-BSON BinData subtype 9 (float32).
+
+    למה: מערך BSON שומר כל מספר כ-double (8 בייט), ובנוסף שם מפתח ("0",
+    "1", ... "767") ובייט טיפוס לכל איבר — כ-9.9KB לווקטור של 768 מימדים.
+    אותו וקטור כ-BinData float32 הוא 768×4 + 2 בייט תקורה = 3,074 בייט.
+
+    מקור: ``Binary.from_vector`` / ``BinaryVectorDtype`` ב-pymongo (נוספו
+    ב-4.10; הריפו מצמיד 4.15.3). Atlas Vector Search קורא את שתי הצורות
+    תחת אותו ``path``, כך שהמעבר אינו דורש אינדקס חדש ואינו שובר את
+    המסמכים הישנים בזמן ה-re-index.
+
+    בכשל — מחזיר את הערך כמו שהוא. מסמך עם מערך עדיין נקרא על ידי Atlas,
+    ולכן פולבק כאן עולה מקום ולא נכונות.
+    """
+    if values is None:
+        return None
+    try:
+        from bson.binary import Binary, BinaryVectorDtype
+    except Exception:  # pragma: no cover - סביבה בלי bson
+        return values
+    if isinstance(values, Binary):
+        return values
+    try:
+        return Binary.from_vector([float(v) for v in values], BinaryVectorDtype.FLOAT32)
+    except Exception as exc:
+        emit_event("embedding_vector_encode_failed", severity="warn", error=str(exc))
+        return values
+
+
 def _get_snippet_chunks_collection(raw_db):
     try:
         return raw_db.snippet_chunks
@@ -205,6 +235,14 @@ async def mark_snippet_for_reprocessing(user_id: int, file_name: str) -> bool:
 async def get_snippets_needing_processing(limit: int = 50) -> List[Dict[str, Any]]:
     """
     Fetch snippets that require embedding/chunking processing.
+
+    שתי שאילתות ולא ``$or`` אחד, **בכוונה**: קודם קבצים עם דגל מפורש (קובץ
+    שנשמר עכשיו, או קובץ ששוחזר מסל המיחזור), ורק אם נשאר מקום בבאץ' —
+    ה-backlog של קבצים שנחתכו בגרסת chunker ישנה. בלי התעדוף הזה, re-index
+    מלא של הקורפוס (שעות) היה חוסם קובץ שנשמר לפני רגע.
+
+    אין ``sort``: ה-projection כולל את ``code`` המלא, ומיון בזיכרון על קורפוס
+    של עשרות מגה-בייט מתקרב לתקרת ה-32MB של מונגו.
     """
     raw_db = _get_raw_db()
     if raw_db is None:
@@ -213,8 +251,47 @@ async def get_snippets_needing_processing(limit: int = 50) -> List[Dict[str, Any
     if files_collection is None:
         return []
 
+    try:
+        from services.chunking_service import CHUNKER_VERSION
+    except Exception:  # pragma: no cover - סביבה בלי שכבת ה-chunking
+        CHUNKER_VERSION = None
+
     def _fetch() -> List[Dict[str, Any]]:
-        cursor = files_collection.find(
+        projection = {
+            "_id": 1,
+            "user_id": 1,
+            "file_name": 1,
+            "code": 1,
+            "content": 1,
+            "description": 1,
+            "tags": 1,
+            "programming_language": 1,
+            # חשוב: בלי זה ה-EmbeddingWorker לא יראה את הדגלים ולא יבצע reindex אחרי שדרוג מודל
+            "needs_embedding": 1,
+            "needs_chunking": 1,
+            "contentHash": 1,
+            "chunkCount": 1,
+            "chunkerVersion": 1,
+            "version": 1,
+        }
+
+        out: List[Dict[str, Any]] = []
+        seen: set = set()
+
+        def _collect(query: Dict[str, Any], remaining: int) -> None:
+            if remaining <= 0:
+                return
+            cursor = files_collection.find(query, projection).limit(remaining)
+            for doc in cursor:
+                if not isinstance(doc, dict):
+                    continue
+                doc_id = doc.get("_id")
+                if doc_id in seen:
+                    continue
+                seen.add(doc_id)
+                out.append(doc)
+
+        _collect(
             {
                 "is_active": True,
                 "$or": [
@@ -223,23 +300,18 @@ async def get_snippets_needing_processing(limit: int = 50) -> List[Dict[str, Any
                     {"contentHash": {"$exists": False}},
                 ],
             },
-            {
-                "_id": 1,
-                "user_id": 1,
-                "file_name": 1,
-                "code": 1,
-                "content": 1,
-                "description": 1,
-                "tags": 1,
-                "programming_language": 1,
-                # חשוב: בלי זה ה-EmbeddingWorker לא יראה את הדגלים ולא יבצע reindex אחרי שדרוג מודל
-                "needs_embedding": 1,
-                "needs_chunking": 1,
-                "contentHash": 1,
-                "chunkCount": 1,
-            },
-        ).limit(limit)
-        return list(cursor)
+            limit,
+        )
+
+        if CHUNKER_VERSION is not None:
+            # ``$ne`` תופס גם מסמכים שאין בהם את השדה בכלל — כלומר כל מה
+            # שנחתך לפני שהגרסה הוצגה.
+            _collect(
+                {"is_active": True, "chunkerVersion": {"$ne": CHUNKER_VERSION}},
+                limit - len(out),
+            )
+
+        return out
 
     return await asyncio.to_thread(_fetch)
 
@@ -293,7 +365,7 @@ async def save_snippet_chunks(
                     "codeChunk": chunk["codeChunk"],
                     "startLine": chunk["startLine"],
                     "endLine": chunk["endLine"],
-                    "chunkEmbedding": chunk["chunkEmbedding"],
+                    "chunkEmbedding": _to_binary_vector(chunk["chunkEmbedding"]),
                     **embedding_meta,
                     "createdAt": now,
                     "updatedAt": now,
@@ -308,6 +380,206 @@ async def save_snippet_chunks(
     return await asyncio.to_thread(_save)
 
 
+# גודל באץ' לשאילתות ``$in``. שומר על מסמכי בקשה קטנים בהרבה מתקרת
+# ה-16MB של מונגו, גם במחיקה מרובה של אלפי שמות.
+_CHUNK_ID_BATCH = 500
+
+
+def delete_snippet_chunks(
+    user_id: int,
+    *,
+    snippet_ids: Optional[List[Any]] = None,
+    file_name: Optional[str] = None,
+    file_names: Optional[List[str]] = None,
+    exclude_snippet_id: Optional[Any] = None,
+    older_than_version: Optional[int] = None,
+) -> int:
+    """מוחק צ'אנקים סמנטיים של סניפטים, ומחזיר כמה נמחקו.
+
+    למה סינכרוני: כל הקוראים (``database/repository.py`` ו-``webapp/app.py``)
+    הם סינכרוניים. ``save_snippet_chunks`` הוא async כי ה-worker אסינכרוני.
+
+    אפשר להעביר ``snippet_ids`` ישירות, או ``file_name``/``file_names`` — ואז
+    נאספים כאן ה-``_id``-ים של אותם שמות קובץ, כי ``delete_file`` וההעברה לסל
+    פועלים לפי שם ולא לפי מזהה. ריבוי שמות נאסף בשאילתת ``$in`` אחת ולא
+    בלולאה: מחיקה מרובה של 1,000 קבצים הייתה מייצרת 2,000 פעולות סדרתיות.
+
+    ``older_than_version`` הוא **תנאי המחיקה**, ולא רק אופטימיזציה. בנתיב
+    שמירת גרסה חדשה, "מחק הכל חוץ ממני" הוא TOCTOU: כששתי שמירות של אותו
+    קובץ חופפות, הניקוי של הגרסה הישנה יכול לרוץ **אחרי** שהגרסה החדשה כבר
+    נשמרה, ולמחוק את הצ'אנקים שלה. הגרסה החדשה כבר סומנה ``chunkerVersion``
+    נוכחי, ולכן היא לא תיבחר שוב לעולם — הקובץ נעלם מהחיפוש הסמנטי לצמיתות,
+    וג'וב הניקוי אינו עוזר כי הוא מוחק ואינו בונה. הפתרון: התנאי נכנס
+    לשאילתה עצמה (``version < N``) במקום להסתמך על סדר ההרצה.
+    ראו ``CORE-PATTERNS.md`` U1 ו-``bugbot-rules/race-toctou.md``.
+
+    ערוץ הכשל: הפונקציה **לא זורקת**. היא מחזירה ``0`` גם כשאין DB וגם
+    כשלא נמחק דבר. זו מחיקה אופורטוניסטית — קובץ בלי צ'אנקים הוא מצב תקין
+    לגמרי (למשל קובץ שה-worker עדיין לא הגיע אליו) — ולכן ``0`` אינו כשל
+    ואין לגזור ממנו הודעת שגיאה. כשלים אמיתיים נרשמים כאירוע.
+    """
+    raw_db = _get_raw_db()
+    if raw_db is None:
+        return 0
+    chunks_collection = _get_snippet_chunks_collection(raw_db)
+    if chunks_collection is None:
+        return 0
+
+    ids: List[Any] = list(snippet_ids or [])
+
+    names: List[str] = [str(n) for n in (file_names or []) if n]
+    if file_name:
+        names.append(str(file_name))
+    names = list(dict.fromkeys(names))  # dedup, סדר נשמר
+
+    if names:
+        files_collection = _get_files_collection(raw_db)
+        if files_collection is not None:
+            query: Dict[str, Any] = {"user_id": user_id, "file_name": {"$in": names}}
+            if older_than_version is not None:
+                # מסמך בלי ``version`` אינו נתפס כאן, וזה הכיוון הבטוח:
+                # עדיף להשאיר צ'אנק יתום (הג'וב היומי ינקה אותו) מאשר למחוק
+                # את הצ'אנקים של הגרסה הפעילה.
+                query["version"] = {"$lt": int(older_than_version)}
+            try:
+                for doc in files_collection.find(query, {"_id": 1}):
+                    if isinstance(doc, dict) and doc.get("_id") is not None:
+                        ids.append(doc["_id"])
+            except Exception as exc:
+                emit_event(
+                    "snippet_chunks_delete_error",
+                    severity="warn",
+                    stage="collect_ids",
+                    error=str(exc),
+                )
+                return 0
+
+    if exclude_snippet_id is not None:
+        ids = [i for i in ids if i != exclude_snippet_id]
+
+    # dedup תוך שמירת סדר (ObjectId ניתן ל-hash)
+    seen: set = set()
+    unique_ids: List[Any] = []
+    for i in ids:
+        try:
+            if i in seen:
+                continue
+            seen.add(i)
+        except TypeError:  # מזהה לא-hashable — נכלול אותו כמו שהוא
+            pass
+        unique_ids.append(i)
+
+    if not unique_ids:
+        return 0
+
+    deleted = 0
+    for start in range(0, len(unique_ids), _CHUNK_ID_BATCH):
+        batch = unique_ids[start:start + _CHUNK_ID_BATCH]
+        try:
+            result = chunks_collection.delete_many(
+                {"userId": user_id, "snippetId": {"$in": batch}}
+            )
+        except Exception as exc:
+            emit_event(
+                "snippet_chunks_delete_error",
+                severity="warn",
+                stage="delete",
+                snippets=len(batch),
+                error=str(exc),
+            )
+            return deleted
+        deleted += int(getattr(result, "deleted_count", 0) or 0)
+
+    if deleted:
+        emit_event(
+            "snippet_chunks_deleted",
+            snippets=len(unique_ids),
+            chunks=deleted,
+        )
+    return deleted
+
+
+def mark_snippets_for_reindex(snippet_ids: List[Any]) -> int:
+    """מסמן סניפטים לעיבוד סמנטי מחדש, ומחזיר כמה מסמכים עודכנו.
+
+    משמש בשחזור מסל המיחזור: הצ'אנקים נמחקו בזמן המחיקה, ולכן הקובץ
+    המשוחזר צריך לעבור chunking ו-embedding מחדש כדי לחזור לחיפוש הסמנטי.
+    לא זורקת; מחזירה ``0`` כשאין DB או כשלא עודכן דבר.
+    """
+    ids = [i for i in (snippet_ids or []) if i is not None]
+    if not ids:
+        return 0
+
+    raw_db = _get_raw_db()
+    if raw_db is None:
+        return 0
+    files_collection = _get_files_collection(raw_db)
+    if files_collection is None:
+        return 0
+
+    try:
+        result = files_collection.update_many(
+            {"_id": {"$in": ids}},
+            {"$set": {"needs_embedding": True, "needs_chunking": True}},
+        )
+    except Exception as exc:
+        emit_event(
+            "snippet_chunks_reindex_mark_error",
+            severity="warn",
+            snippets=len(ids),
+            error=str(exc),
+        )
+        return 0
+
+    modified = int(getattr(result, "modified_count", 0) or 0)
+    if modified:
+        emit_event("snippet_chunks_marked_for_reindex", snippets=modified)
+    return modified
+
+
+async def is_latest_active_snippet(
+    user_id: int,
+    file_name: str,
+    snippet_id: Any,
+) -> bool:
+    """האם המסמך הזה הוא הגרסה הפעילה האחרונה של הקובץ.
+
+    למה זה נחוץ: שמירת גרסה חדשה אינה מכבה את הקודמת — ``is_active`` שלה
+    נשאר ``True`` — ולכן ``get_snippets_needing_processing`` רואה גם גרסאות
+    היסטוריות. בלי הבדיקה הזו כל גרסה הייתה עוברת chunking ו-embedding מלאים
+    (קריאות רשת בתשלום), רק כדי שהצינור בחיפוש יזרוק אותה בשלב מאוחר.
+
+    סדר ההשוואה זהה לזה שבצינור החיפוש ובג'וב הניקוי: ``version`` יורד, ואז
+    ``updated_at``, ואז ``_id``. שלושת המקומות חייבים להסכים.
+
+    בספק — מחזירה ``True``. עדיף לעבד קובץ מיותר מאשר לדלג על קובץ אמיתי.
+    """
+    if not file_name or snippet_id is None:
+        return True
+
+    raw_db = _get_raw_db()
+    if raw_db is None:
+        return True
+    files_collection = _get_files_collection(raw_db)
+    if files_collection is None:
+        return True
+
+    def _check() -> bool:
+        try:
+            doc = files_collection.find_one(
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
+                {"_id": 1},
+                sort=[("version", -1), ("updated_at", -1), ("_id", -1)],
+            )
+        except Exception:
+            return True
+        if not isinstance(doc, dict) or doc.get("_id") is None:
+            return True
+        return doc.get("_id") == snippet_id
+
+    return await asyncio.to_thread(_check)
+
+
 async def update_snippet_embedding_status(
     snippet_id: ObjectId,
     content_hash: str,
@@ -320,9 +592,15 @@ async def update_snippet_embedding_status(
     embedding_model: Optional[str] = None,
     embedding_api_version: Optional[str] = None,
     embedding_dim: Optional[int] = None,
+    chunker_version: Optional[int] = None,
 ) -> bool:
     """
     Update embedding status for a snippet.
+
+    ``chunker_version`` נכתב **רק** כשהוא מועבר, וה-worker מעביר אותו רק
+    בנתיבים שבהם הטיפול במסמך באמת הסתיים. זו הנקודה שמונעת "רשומה שמתארת
+    מצב שלא קרה": אם היינו כותבים אותו בכל עדכון, קובץ שנכשל היה נראה
+    כאילו נחתך בגרסה החדשה ולא היה נבחר שוב לעולם.
     """
     raw_db = _get_raw_db()
     if raw_db is None:
@@ -344,7 +622,7 @@ async def update_snippet_embedding_status(
             }
         }
         if snippet_embedding:
-            update_doc["$set"]["snippetEmbedding"] = snippet_embedding
+            update_doc["$set"]["snippetEmbedding"] = _to_binary_vector(snippet_embedding)
         # Optional semantic metadata
         if embedding_model_key:
             update_doc["$set"]["embeddingModelKey"] = str(embedding_model_key)
@@ -356,6 +634,11 @@ async def update_snippet_embedding_status(
             try:
                 update_doc["$set"]["embeddingDim"] = int(embedding_dim)
             except Exception:
+                pass
+        if chunker_version is not None:
+            try:
+                update_doc["$set"]["chunkerVersion"] = int(chunker_version)
+            except (TypeError, ValueError):
                 pass
         result = files_collection.update_one({"_id": snippet_id}, update_doc)
         try:
@@ -739,6 +1022,82 @@ def reorder_pinned(self, user_id: int, file_name: str, new_order: int) -> bool:
         return False
 
 
+# --- שכבת ה-no-op ---------------------------------------------------------
+#
+# ברמת המודול ולא בתוך ``connect()``: כשהמחלקות האלה היו מוגדרות בתוך
+# closure הן נבנו מחדש בכל קריאה, ולא היה שום מקום שממנו טסט יכול היה
+# להגיע אליהן — כלומר שכבת ה-no-op לא הייתה ניתנת לבדיקה כלל.
+class NoOpCursor(list):
+    """קורסור ריק שתומך בשרשור כמו של PyMongo.
+
+    ``find()`` שהחזיר ``[]`` נראה תמים, אבל כל קורא שכותב
+    ``find(...).limit(n)`` — הצורה הרגילה מול PyMongo — קיבל
+    ``AttributeError`` על ``list``. במצב no-op הקוד אמור לקבל
+    "אין נתונים", לא לקרוס.
+    """
+
+    def limit(self, *_args, **_kwargs):
+        return self
+
+    def skip(self, *_args, **_kwargs):
+        return self
+
+    def sort(self, *_args, **_kwargs):
+        return self
+
+    def batch_size(self, *_args, **_kwargs):
+        return self
+
+
+class NoOpCollection:
+    def insert_one(self, *args, **kwargs):
+        return SimpleNamespace(inserted_id=None)
+    def update_one(self, *args, **kwargs):
+        return SimpleNamespace(acknowledged=True, modified_count=0)
+    def update_many(self, *args, **kwargs):
+        return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
+    def delete_one(self, *args, **kwargs):
+        return SimpleNamespace(deleted_count=0)
+    def delete_many(self, *args, **kwargs):
+        return SimpleNamespace(deleted_count=0)
+    def find_one(self, *args, **kwargs):
+        return None
+    def find_one_and_update(self, *args, **kwargs):
+        return None
+    def aggregate(self, *args, **kwargs):
+        return []
+    def count_documents(self, *args, **kwargs):
+        # Mimic PyMongo API; in no-op mode we report zero
+        return 0
+    def create_index(self, *args, **kwargs):
+        return None
+    def create_indexes(self, *args, **kwargs):
+        return None
+    def list_indexes(self, *args, **kwargs):
+        return []
+    def drop_index(self, *args, **kwargs):
+        return None
+    def find(self, *args, **kwargs):
+        return NoOpCursor()
+
+
+class NoOpDB:
+    def __init__(self):
+        self._collections: Dict[str, NoOpCollection] = {}
+    def __getitem__(self, name: str) -> NoOpCollection:
+        if name not in self._collections:
+            self._collections[name] = NoOpCollection()
+        return self._collections[name]
+    def __getattr__(self, name: str) -> NoOpCollection:
+        # מאפשר גישה בסגנון נקודה: db.users, db.large_files, וכו'
+        if name.startswith('_'):
+            raise AttributeError(name)
+        return self.__getitem__(name)
+    @property
+    def name(self) -> str:
+        return "noop_db"
+
+
 class DatabaseManager:
     """אחראי על חיבור MongoDB והגדרת אינדקסים."""
 
@@ -797,52 +1156,6 @@ class DatabaseManager:
                      str(os.getenv("SPHINX_MOCK_IMPORTS", "")).lower() in {"1", "true", "yes"}
 
         def _init_noop_collections():
-            class NoOpCollection:
-                def insert_one(self, *args, **kwargs):
-                    return SimpleNamespace(inserted_id=None)
-                def update_one(self, *args, **kwargs):
-                    return SimpleNamespace(acknowledged=True, modified_count=0)
-                def update_many(self, *args, **kwargs):
-                    return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
-                def delete_one(self, *args, **kwargs):
-                    return SimpleNamespace(deleted_count=0)
-                def delete_many(self, *args, **kwargs):
-                    return SimpleNamespace(deleted_count=0)
-                def find_one(self, *args, **kwargs):
-                    return None
-                def find_one_and_update(self, *args, **kwargs):
-                    return None
-                def aggregate(self, *args, **kwargs):
-                    return []
-                def count_documents(self, *args, **kwargs):
-                    # Mimic PyMongo API; in no-op mode we report zero
-                    return 0
-                def create_index(self, *args, **kwargs):
-                    return None
-                def create_indexes(self, *args, **kwargs):
-                    return None
-                def list_indexes(self, *args, **kwargs):
-                    return []
-                def drop_index(self, *args, **kwargs):
-                    return None
-                def find(self, *args, **kwargs):
-                    return []
-            class NoOpDB:
-                def __init__(self):
-                    self._collections: Dict[str, NoOpCollection] = {}
-                def __getitem__(self, name: str) -> NoOpCollection:
-                    if name not in self._collections:
-                        self._collections[name] = NoOpCollection()
-                    return self._collections[name]
-                def __getattr__(self, name: str) -> NoOpCollection:
-                    # מאפשר גישה בסגנון נקודה: db.users, db.large_files, וכו'
-                    if name.startswith('_'):
-                        raise AttributeError(name)
-                    return self.__getitem__(name)
-                @property
-                def name(self) -> str:
-                    return "noop_db"
-
             self.client = None
             self.db = NoOpDB()
             try:
@@ -1853,6 +2166,20 @@ class DatabaseManager:
         # NOTE:
         # אינדקס נעוצים `user_pinned_pin_order_idx` נוצר ומטופל ב-webapp (ensure_code_snippets_indexes)
         # כדי למנוע כפילות והסטה של "מקור אמת" בין שני מנגנוני אתחול שונים.
+
+        # snippet_chunks - הקולקציה של החיפוש הסמנטי.
+        # עד כה האינדקס נוצר רק ב-``scripts/migrate_semantic_search.py`` (סקריפט חד-פעמי),
+        # ובקלאסטר הנוכחי הוא לא קיים בפועל — נותר רק ``_id_``. לכן כל מחיקת צ'אנקים
+        # סורקת את כל הקולקציה. כאן זה הופך לחלק מהאתחול הרגיל.
+        # כל השאילתות שלנו על הקולקציה הזו נושאות **גם** ``userId`` וגם ``snippetId``
+        # (``save_snippet_chunks``, ``delete_snippet_chunks``, וג'וב ניקוי היתומים),
+        # ולכן אינדקס אחד בסדר הזה מספיק. סינון לפי ``language`` נעשה בתוך אינדקסי
+        # Atlas Search/Vector Search ולא ב-B-tree, ולכן אין אינדקס נפרד עבורו.
+        safe_create_index(
+            "snippet_chunks",
+            [("userId", ASCENDING), ("snippetId", ASCENDING)],
+            name="snippet_chunks_user_snippet_idx",
+        )
 
         # code_snippets - אינדקס TEXT לחיפוש גלובלי ($text)
         # חשוב: זה אינדקס "כבד" כי הוא כולל גם code, אבל הוא קריטי כדי ש-$text יעבוד מהר

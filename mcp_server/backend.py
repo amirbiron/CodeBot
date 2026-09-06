@@ -70,6 +70,7 @@ _SEMANTIC_FIELDS = (
     "embeddingApiVersion",
     "embeddingDim",
     "chunkCount",
+    "chunkerVersion",
 )
 
 # שדות הפתק שנחשפים ל-MCP — רזה במכוון (בלי מיקום/גודל פיקסלים, שהם עניין ויזואלי)
