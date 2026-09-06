@@ -1,5 +1,11 @@
 // Global search client-side logic
 (function(){
+  // מספר התוצאות שנשלח כשאין בחירה מפורשת. שלושה מקומות חייבים להסכים
+  // על הערך הזה: ה-``selected`` שב-``webapp/templates/files.html``, הקבוע
+  // הזה, וברירת המחדל של ``/api/search/global`` ב-``webapp/app.py``.
+  // הם בשלוש שפות ואי אפשר לחלוק ביניהם קבוע, ולכן ההערה הזו היא הקישור.
+  const DEFAULT_RESULTS_PER_PAGE = '10';
+
   let currentSearchQuery = '';
   let currentSearchPage = 1;
   let suggestionsTimeout = null;
@@ -117,9 +123,11 @@
       if (suggestions) { suggestions.style.display = 'none'; suggestions.innerHTML = ''; }
       if (clearBtn) { clearBtn.style.display = 'none'; }
 
-      // אפס סלקטים לערכי ברירת המחדל (תוכן / 20 / רלוונטיות)
+      // אפס סלקטים לערכי ברירת המחדל (תוכן / 10 / רלוונטיות).
+      // ``DEFAULT_RESULTS_PER_PAGE`` חייב להישאר תואם ל-``selected`` שב-
+      // ``files.html`` ולברירת המחדל של ``/api/search/global`` ב-``app.py``.
       try { const el = document.getElementById('searchType'); if (el) el.value = 'content'; } catch(_){}
-      try { const el = document.getElementById('resultsPerPage'); if (el) el.value = '20'; } catch(_){}
+      try { const el = document.getElementById('resultsPerPage'); if (el) el.value = DEFAULT_RESULTS_PER_PAGE; } catch(_){}
       try { const el = document.getElementById('sortOrder'); if (el) el.value = 'relevance'; } catch(_){}
 
       // נקה פילטרי שפה (UI חדש עם צ'קבוקסים + badge)
@@ -187,7 +195,7 @@
         query: q,
         search_type: ($('searchType')?.value || 'content'),
         page: page,
-        limit: parseInt($('resultsPerPage')?.value || '20', 10),
+        limit: parseInt($('resultsPerPage')?.value || DEFAULT_RESULTS_PER_PAGE, 10),
         sort: ($('sortOrder')?.value || 'relevance'),
         filters: { languages: getSelectedLanguages() }
       };
