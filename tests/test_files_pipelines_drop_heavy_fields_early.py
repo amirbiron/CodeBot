@@ -150,6 +150,93 @@ def assert_heavy_fields_drop_early(pipeline: List[Dict[str, Any]], label: str) -
 # ------------------------------------------------------- הסטאב שמקליט
 
 
+#: השדות היחידים שמותר לשלב חוסם לראות. כל מה שמעבר להם הוא זיכרון
+#: שהשרת סופר — וגם היטלת החרגה לא מורידה אותו (נמדד: 33.8KB למסמך עם
+#: החרגה מול 1.2KB עם הכללה, על אותם מסמכים).
+SORT_KEYS = frozenset({"_id", "file_name", "version"})
+
+
+def _inclusion_fields(stage: Any) -> Optional[set]:
+    """קבוצת השדות של היטלת **הכללה**; ``None`` אם זו החרגה או לא היטלה."""
+    if _stage_name(stage) != "$project":
+        return None
+    spec = stage["$project"] or {}
+    if not isinstance(spec, dict) or not spec:
+        return None
+    for field, value in spec.items():
+        if field == "_id":
+            continue
+        if not value:
+            return None  # החרגה
+    return {f for f, v in spec.items() if v} | ({"_id"} if spec.get("_id", 1) else set())
+
+
+def assert_blocking_stages_see_only_sort_keys(pipeline: List[Dict[str, Any]], label: str) -> None:
+    """השלב הראשון שמחזיק מסמכים בזיכרון מקבל **רק** את מפתחות המיון.
+
+    זו התכונה שסוגרת את 292 בלי תלות באינדקס שהמתכנן בוחר: ב-Flex
+    המיון החוסם מוגבל ל-32MB, והחרגה של השדות הכבדים אינה מקטינה את מה
+    שנספר. הכללה של שלושה שדות כן — ~420 בייט למסמך, נמדד.
+    """
+    stages = list(pipeline or [])
+    buffering = [i for i, st in enumerate(stages) if _buffers_documents(st)]
+    if not buffering:
+        return
+    first_buffer = buffering[0]
+    shape = " ← ".join(_stage_name(st) or "?" for st in stages)
+
+    projections = [(i, st) for i, st in enumerate(stages[:first_buffer]) if _stage_name(st) == "$project"]
+    assert projections, (
+        f"[{label}] אין היטלה לפני {_stage_name(stages[first_buffer])} — השלב "
+        f"החוסם מקבל מסמכים שלמים.\n   {shape}"
+    )
+    index, stage = projections[-1]
+    fields = _inclusion_fields(stage)
+    assert fields is not None, (
+        f"[{label}] ההיטלה שלפני {_stage_name(stages[first_buffer])} היא החרגה, "
+        f"והחרגה אינה מקטינה את זיכרון השלב החוסם (נמדד). נדרשת הכללה של "
+        f"{sorted(SORT_KEYS)}.\n   {shape}"
+    )
+    extra = fields - SORT_KEYS
+    assert not extra, (
+        f"[{label}] השלב החוסם רואה שדות מעבר למפתחות המיון: {sorted(extra)}.\n   {shape}"
+    )
+
+
+def assert_full_document_is_restored_with_size_fields(pipeline: List[Dict[str, Any]], label: str) -> None:
+    """אחרי הקיבוץ המסמך המלא חוזר ב-``$lookup``, **ועם** חישוב הגודל בפנים.
+
+    ``file_size``/``lines_count`` מחושבים מ-``$code`` למסמכים ישנים שחסרים
+    אותם. בעיצוב הרזה החישוב שלפני ההיטלה נזרק איתה, ולכן הוא חייב לרוץ
+    שוב בתוך ה-``$lookup`` — לפני ההחרגה של ``code``. בלי זה מסמך ישן חוזר
+    בלי גודל, והרשימה מציגה 0.
+    """
+    stages = list(pipeline or [])
+    if not any(_buffers_documents(st) for st in stages):
+        return
+    lookups = [st for st in stages if _stage_name(st) == "$lookup"]
+    assert lookups, f"[{label}] אין $lookup — המסמך המלא אינו חוזר אחרי הקיבוץ"
+    for st in lookups:
+        inner = list((st["$lookup"] or {}).get("pipeline") or [])
+        names = [_stage_name(x) for x in inner]
+        adds = [i for i, x in enumerate(inner) if names[i] == "$addFields" and "file_size" in repr(x)]
+        assert adds, f"[{label}] ה-$lookup אינו מחשב file_size למסמכים ישנים: {names}"
+        projects = [i for i, n in enumerate(names) if n == "$project"]
+        assert projects and adds[0] < projects[0], (
+            f"[{label}] חישוב הגודל בתוך ה-$lookup חייב לרוץ לפני ההחרגה של code: {names}"
+        )
+        for heavy_field in HEAVY_FIELDS:
+            assert any(_removes(x, heavy_field) for x in inner), (
+                f"[{label}] ה-$lookup מחזיר את `{heavy_field}` — השדה הכבד חוזר לפלט"
+            )
+
+
+def assert_pipeline_is_memory_safe(pipeline: List[Dict[str, Any]], label: str) -> None:
+    assert_heavy_fields_drop_early(pipeline, label)
+    assert_blocking_stages_see_only_sort_keys(pipeline, label)
+    assert_full_document_is_restored_with_size_fields(pipeline, label)
+
+
 class _RecordingCodeSnippets:
     """אוסף מזויף שרושם כל צינור שנשלח אליו, ומחזיר מסמך אחד."""
 
@@ -239,7 +326,7 @@ def test_files_page_never_sorts_or_groups_full_documents(recorder, url, label):
     assert recorder.pipelines, f"{url} לא הריץ שום aggregate — הטסט לא בדק כלום"
 
     for index, pipeline in enumerate(recorder.pipelines):
-        assert_heavy_fields_drop_early(pipeline, f"{label} · צינור {index}")
+        assert_pipeline_is_memory_safe(pipeline, f"{label} · צינור {index}")
 
 
 def test_files_need_attention_never_sorts_or_groups_full_documents(recorder):
@@ -250,7 +337,7 @@ def test_files_need_attention_never_sorts_or_groups_full_documents(recorder):
 
     assert recorder.pipelines, "לא הורץ שום aggregate — הטסט לא בדק כלום"
     for index, pipeline in enumerate(recorder.pipelines):
-        assert_heavy_fields_drop_early(pipeline, f"files_need_attention · צינור {index}")
+        assert_pipeline_is_memory_safe(pipeline, f"files_need_attention · צינור {index}")
 
 
 # ------------------------------------------ אפס אינו "לא ידוע"

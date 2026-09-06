@@ -273,44 +273,76 @@ def _latest_version_per_file_stages(
     *,
     with_size_fields: bool = True,
 ) -> List[Dict[str, Any]]:
-    """שלבי "הגרסה האחרונה לכל שם קובץ", עם השדות הכבדים יורדים מוקדם.
+    """שלבי "הגרסה האחרונה לכל שם קובץ" — השלבים החוסמים רואים רק מפתחות מיון.
 
     כל עריכה יוצרת מסמך חדש ב-``code_snippets``, ולכן מסך רשימה חייב לקבץ
-    לפי ``file_name`` ולקחת את ה-``version`` הגבוה. הקיבוץ נעשה עם
-    ``$$ROOT`` כדי לשמור את המסמך כולו.
+    לפי ``file_name`` ולקחת את ה-``version`` הגבוה. ``$sort`` ו-``$group``
+    הם שלבים **חוסמים**: הם מחזיקים בזיכרון את כל מה שנכנס אליהם, והזיכרון
+    הזה מוגבל.
 
-    **סדר השלבים כאן הוא כל העניין.** ``$sort`` מאגר את מה שהוא ממיין,
-    ו-``$group`` צובר את מה שהוא שומר — ואם ``code`` עדיין במסמך באותו
-    רגע, גוף הקובץ נכנס לזיכרון. בפרודקשן זה חרג מתקציב ה-100MB של מונגו
-    והחזיר שגיאה 292, שגררה נפילה למסלול ``find`` איטי: 3.1 עד 3.4 שניות
-    לטעינת ``/files``.
+    **המגבלה, ולמה ``allowDiskUse`` לא עוזר.** באטלס Flex המיון החוסם מוגבל
+    ל-**32MB** (השרת מדווח ``internalQueryMaxBlockingSortMemoryUsageBytes:
+    33554432``) ו-``$group`` ל-100MB. תיעוד Atlas, מילה במילה: *"Flex
+    clusters limits sort in-memory to 32 MB."* ו-*"Flex clusters don't
+    support the allowDiskUse option for the aggregation command"*. אין דלת
+    מילוט לדיסק; חריגה מחזירה שגיאה 292
+    (``QueryExceededMemoryLimitNoDiskUseAllowed``) ו-``/files`` נופל למסלול
+    ``find`` איטי של ~3 שניות.
 
-    ``allowDiskUse`` **אינו** מציל כאן. התיעוד של Atlas מפורש: *"Atlas
-    Free clusters and Flex clusters don't support writing temporary files
-    to disk. Atlas ignores the ``allowDiskUse`` option and the
-    corresponding commands behave as if the ``allowDiskUse`` option is set
-    to ``false``."* אין דלת מילוט לדיסק, ולכן הדרך היחידה היא לא להכניס
-    את השדות הכבדים לשלבים האלה מלכתחילה.
+    **למה החרגה של השדות הכבדים לא הספיקה (נמדד, לא הוסק).** הגרסה הקודמת
+    הורידה את ``code`` ב-``$project`` של החרגה לפני המיון — ועדיין חרגה.
+    ב-``explain`` על אותם מסמכים, אותו ``$group`` דיווח 24,812,928 בייט עם
+    היטלת החרגה מול 886,426 בייט עם היטלת **הכללה** של שדות ספורים: ~33.8KB
+    למסמך מול ~1.2KB. היטלת החרגה משאירה את המסמך "כבד" בחשבון הזיכרון של
+    השלבים החוסמים גם כשהשדה כבר לא בפלט.
 
-    **החרגה ולא רשימת שדות מותרים.** ``LIST_EXCLUDE_HEAVY_PROJECTION``
-    מוריד את הכבדים ומשאיר את השאר, ולכן התוצאה זהה למה שהצינורות החזירו
-    קודם. רשימת מותרים הייתה נקייה יותר למראה, אבל תנאי סינון שיתווסף מחר
-    על שדה שאינו ברשימה היה מחזיר בשקט תוצאה ריקה.
+    **העיצוב.** מה שממלא את הזיכרון הוא המסמך שהשלב מחזיק, לא סדר השלבים
+    ולא האינדקס שהמתכנן בוחר (``$sort`` מיד אחרי ``$match`` נמדד גם הוא:
+    עוזר רק כשהמתכנן בוחר את ``idx_snippets_latest_version``, ומחמיר עם
+    ``programming_language`` ועם ``$text``). לכן:
 
-    ``with_size_fields`` — האם לחשב ``file_size``/``lines_count`` ולסנן
-    קבצים ריקים. **חייב להישאר כבוי אצל מי שלא עשה זאת קודם:** הוספת
-    ``$match`` על ``file_size`` משנה את קבוצת התוצאות, ואצל מונה זה משנה
-    את המספר שהמשתמש רואה. שלב החישוב רץ **לפני** ההחרגה, כי הוא נגזר
-    מ-``$code``.
+    1. ``$project`` **הכללה** של ``_id``/``file_name``/``version`` בלבד —
+       ~420 בייט למסמך במיון, בכל צורת ``$match``. 32MB מספיקים ל-~79,000
+       גרסאות למשתמש.
+    2. ``$sort`` + ``$group`` על המסמך הרזה; הקיבוץ שומר רק ``latest_id``.
+    3. ``$lookup`` לאותו אוסף לפי ``_id`` (חיפוש אחד באינדקס ``_id_`` לכל
+       שם קובץ) מחזיר את המסמך המלא **פחות השדות הכבדים** — אותו פלט שכל
+       הקוראים קיבלו קודם, בלי רשימת שדות מותרים: תנאי או מיון שקורא מוסיף
+       אחרי הבנאי (``tags``, ``updated_at``, ``_id $nin``) רואה את המסמך
+       המלא.
+
+    ``file_size``/``lines_count`` מחושבים מ-``$code`` למסמכים ישנים שחסרים
+    אותם. החישוב חייב לרוץ **בתוך** ה-``$lookup``, לפני ההחרגה של ``code``
+    — החישוב שלפני ההיטלה נזרק איתה, ובלעדיו מסמך ישן היה חוזר בלי גודל.
+
+    ``with_size_fields`` — האם גם לסנן קבצים ריקים (``file_size > 0``).
+    **חייב להישאר כבוי אצל מי שלא עשה זאת קודם:** ה-``$match`` משנה את
+    קבוצת התוצאות, ואצל מונה זה משנה את המספר שהמשתמש רואה.
+
+    התחביר ``localField``/``foreignField`` יחד עם ``pipeline`` באותו
+    ``$lookup`` דורש MongoDB 5.0 ומעלה (תיעוד MongoDB: *"Starting in
+    MongoDB 5.0, you can use a concise syntax for a correlated subquery"*).
     """
     stages: List[Dict[str, Any]] = [{'$match': match}]
     if with_size_fields:
         stages.append(_MONGO_ADD_SIZE_LINES_STAGE)
         stages.append({'$match': {'file_size': {'$gt': 0}}})
-    stages.append({'$project': dict(LIST_EXCLUDE_HEAVY_PROJECTION)})
+    stages.append({'$project': {'_id': 1, 'file_name': 1, 'version': 1}})
     stages.append({'$sort': {'file_name': 1, 'version': -1}})
-    stages.append({'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}})
-    stages.append({'$replaceRoot': {'newRoot': '$latest'}})
+    stages.append({'$group': {'_id': '$file_name', 'latest_id': {'$first': '$_id'}}})
+    stages.append({
+        '$lookup': {
+            'from': 'code_snippets',
+            'localField': 'latest_id',
+            'foreignField': '_id',
+            'pipeline': [
+                _MONGO_ADD_SIZE_LINES_STAGE,
+                {'$project': dict(LIST_EXCLUDE_HEAVY_PROJECTION)},
+            ],
+            'as': 'doc',
+        }
+    })
+    stages.append({'$replaceRoot': {'newRoot': {'$first': '$doc'}}})
     return stages
 
 
