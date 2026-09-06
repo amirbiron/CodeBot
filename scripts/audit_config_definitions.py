@@ -313,8 +313,12 @@ def service_closures() -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]:
 # 4. הרכבת הדוח
 # --------------------------------------------------------------------------
 
-def _documented() -> Tuple[Set[str], Set[str]]:
-    """(מוזכר בתיעוד, יש לו שורה בטבלה) — שתי רמות שונות של "כבר כתוב"."""
+def documented_keys() -> Tuple[Set[str], Set[str]]:
+    """(מוזכר בתיעוד, מתועד בטבלה) — שתי רמות שונות של "כבר כתוב".
+
+    "מתועד בטבלה" כולל גם שם שמופיע בשורה משולבת (``A`` / ``B``) וגם שם חלופי
+    שנרשם בתוך תיאור המשתנה הראשי — שתי המוסכמות שבהן הרפרנס משתמש בפועל.
+    """
     try:
         text = ENV_DOC_FILE.read_text(encoding="utf-8")
     except OSError:
@@ -330,7 +334,7 @@ def build_report() -> Dict[str, Any]:
     declared = collect_declared()
     consumed = collect_consumed()
     certain, loose = service_closures()
-    mentioned, tabled = _documented()
+    mentioned, tabled = documented_keys()
 
     rows: List[Dict[str, Any]] = []
     for key in sorted(set(consumed) - declared):

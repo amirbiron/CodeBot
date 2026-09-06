@@ -102,7 +102,7 @@ def test_declared_vars_appear_in_the_env_reference():
     """
     audit = _load_audit_module()
     declared = audit.collect_declared()
-    _, tabled = audit._documented()
+    _, tabled = audit.documented_keys()
 
     missing = sorted(declared - tabled)
     assert not missing, (
