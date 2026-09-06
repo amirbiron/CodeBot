@@ -198,3 +198,95 @@ def wired_mongo(request):
             wa.app.config.pop("TESTING", None)
         else:
             wa.app.config["TESTING"] = _prev_testing
+
+
+# ---------------------------------------------------------------------------
+# תשתית משותפת לבדיקות דפדפן (Playwright)
+#
+# הפיקסצ'רים כאן יושבים ב-``conftest.py`` ולא בקבצי הטסט, כי pytest מוצא אותם
+# לבד — **בלי ייבוא בין קבצי טסט**, שהוא הדבר שכבר הפיל כאן CI פעם אחת.
+# קודם כל קובץ דפדפן החזיק עותק משלו של אותן ~60 שורות (הרמת שרת, עוגיית
+# אדמין, המתנה לבריאות, איתור Chromium), וכל תיקון היה צריך להשתכפל.
+#
+# ``tests/test_admin_mcp_tabs_browser.py`` **אינו** משתמש בהם, במכוון: הוא
+# מזייף את ``get_mcp_analytics_service`` לפני שהשרת מתחיל להגיש, ולכן הוא
+# צריך שליטה על סדר ההקמה. הוא מחזיק עותק משלו, וזה מתועד שם.
+# ---------------------------------------------------------------------------
+
+
+def _locate_chromium():
+    """נתיב ל-Chromium מותקן, או ``None`` — ואז בדיקת הדפדפן מדולגת בשקט."""
+    root_env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+    root = Path(root_env) if root_env else None
+    if root and root.is_dir():
+        for candidate in sorted(root.glob("chromium*/chrome-linux/chrome")):
+            if candidate.exists():
+                return str(candidate)
+    return None
+
+
+@pytest.fixture(scope="session")
+def chromium_executable():
+    """נתיב ל-Chromium, או ``None``. ``None`` פירושו "תן ל-Playwright לחפש"."""
+    return _locate_chromium()
+
+
+@pytest.fixture(scope="module")
+def admin_live_server():
+    """מריץ את הוובאפ האמיתי עם session של אדמין, בלי לגעת ב-DB או ברשת.
+
+    מחזיר ``(base_url, session_cookie)``.
+
+    ``MonkeyPatch.context`` ולא ``MonkeyPatch()`` ידני: הוא מבטל את עצמו
+    ביציאה מהבלוק **גם כשההקמה נופלת באמצע**. עם ``patch.undo()`` שיושב רק
+    אחרי ה-yield, חריגה בהקמה הייתה מותירה ``ADMIN_USER_IDS`` ו-``SECRET_KEY``
+    דרוכים לכל שאר הסוויטה — כשל שמתגלה בטסט אחר לגמרי.
+    """
+    import threading
+    import time
+    import urllib.request
+
+    import webapp.app as app_mod
+    from werkzeug.serving import make_server
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("ADMIN_USER_IDS", "1")
+
+        app = app_mod.app
+        patch.setitem(app.config, "SECRET_KEY", "browser-tests-admin-session")
+
+        # ה-session נבנה דרך ``test_client``, לא דרך route עזר: Flask אוסר
+        # ``@app.route`` אחרי הבקשה הראשונה, ובסוויטה מלאה טסט קודם כבר עשה זאת.
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess["user_id"] = 1
+                sess["user_data"] = {"id": 1, "is_admin": True, "is_premium": False}
+            cookie = client.get_cookie("session")
+            assert cookie is not None, "לא נוצר session cookie"
+            session_cookie = cookie.value
+
+        # פורט 0: הליבה בוחרת פורט פנוי ומקצה אותו באותה פעולה. בחירת פורט
+        # מראש ואז bind נפרד היא חלון מירוץ — מישהו אחר יכול לתפוס אותו בין
+        # שתי הפעולות.
+        httpd = make_server("127.0.0.1", 0, app, threaded=True)
+        port = httpd.server_port
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            for _ in range(60):
+                try:
+                    urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=1)
+                    break
+                except Exception as exc:
+                    if "HTTP Error" in str(exc):  # השרת עונה, גם אם 404
+                        break
+                    time.sleep(0.25)
+            else:  # pragma: no cover
+                pytest.skip("שרת הבדיקה לא עלה")
+
+            yield f"http://127.0.0.1:{port}", session_cookie
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=5)

@@ -232,8 +232,10 @@ def _env_int(name: str, default: int) -> int:
 # מפתח לגיטימי חדש היה מכבה את הפיצ'ר בלי שאיש ידע.
 #
 # 1. בעלות: השאילתה חייבת **להצהיר** על בעלים — ``user_id`` ברמה העליונה או
-#    בתוך ``$and`` — וכל ``user_id`` שמופיע בה, בכל עומק, חייב להיות ברשימה.
-#    ``$or`` שמכיל אותך ואחרים נדחה; ``$or`` לבדו אינו מגביל, ולכן אינו מצהיר.
+#    בתוך ``$and``, כשוויון או כ-``$in`` — וכל ``user_id`` שמופיע בשאילתה,
+#    **בכל שלב ובכל עומק**, חייב להיות ברשימה. ``$or`` שמכיל אותך ואחרים
+#    נדחה; ``$or`` לבדו אינו מגביל ולכן אינו מצהיר; ``$ne``/``$nin`` הם
+#    "כל השאר" — ההפך מהגבלה — ולעולם אינם מצהירים.
 # 2. רשימת שדות ואופרטורים מוכרים: כל מפתח אחר נדחה, והסיבה נוקבת בשמו.
 #    הרשימה נגזרה ממה שבאמת נרשם ב-``slow_queries_log`` בפרודקשן ומהסכימה
 #    של ``code_snippets``, לא ממה שנראה סביר.
@@ -241,9 +243,18 @@ def _env_int(name: str, default: int) -> int:
 #    לא עוזרים לניתוח, ומנפחים אוסף עם TTL. ותקרת גודל על ה-JSON, כי גם
 #    ``$in`` עם מאות מזהים הוא רשומה גדולה.
 #
-# הערכים חיים ב-DB בלבד. שורת הלוג (``slow_query_detected``) ממשיכה לשאת את
-# השלד — הלוג עוזב לספק, ה-DB לא. והקונפיג הוא הסמכות **הנוכחית**: גם רשומה
-# שנכתבה עם ערכים מוסתרת בקריאה אם המשתמש כבר אינו ברשימה.
+# **מה נשמר עם ערכים אמיתיים: תנאי סינון בלבד.** באגרגציה זה אומר שלבי
+# ``$match`` (בכל עומק), ובשאילתת ``find`` זה כל השאילתה — שם היא כולה סינון.
+# כל שאר השלבים נשארים בשלד המנורמל, כי גוף של ``$addFields``/``$group`` הוא
+# ביטוי שאין מולו רשימה שאפשר לאמת מולה. כך כל ערך שנשמר עבר ולידציה מלאה,
+# וזו תכונה של המבנה ולא הבטחה בהערה. ראו ``_raw_pipeline``.
+#
+# **איפה הערכים חיים.** ברשומה ב-``slow_queries_log`` (TTL של שבעה ימים),
+# ובנוסף ב-buffer שבזיכרון התהליך, החסום ב-``PROFILER_MAX_BUFFER_SIZE`` ומת
+# עם התהליך. **לא** בלוגים: שורת ``slow_query_detected`` ממשיכה לשאת את השלד,
+# כי הלוג עוזב לספק וה-DB לא. שני מסלולי הקריאה — מה-DB ומהזיכרון — מחילים
+# את ``_apply_raw_read_policy``, ולכן הקונפיג הוא הסמכות **הנוכחית** בשניהם:
+# רשומה שנכתבה עם ערכים מוסתרת ברגע שהמשתמש יורד מהרשימה.
 # ---------------------------------------------------------------------------
 
 #: המפתח שמזהה את בעל השאילתה.
@@ -271,9 +282,15 @@ RAW_QUERY_ALLOWED_STAGES: FrozenSet[str] = frozenset({
     "$unset", "$replaceRoot", "$replaceWith", "$count", "$unwind", "$lookup",
     "$unionWith", "$facet", "$setWindowFields", "$sample", "$sortByCount",
 })
-#: ``$search`` (Atlas Search) אינו ברשימה בכוונה: אין לו מופע ב-``slow_queries_log``,
-#: והבעלות בתחביר שלו (``path``/``value``) אינה ניתנת לאימות עם הכלים שכאן.
-#: מופע אמיתי יגיע עם הסיבה ``unknown_stage:$search``, ואז מרחיבים בידיעה.
+#: ``$search`` (Atlas Search) אינו ברשימה בכוונה. הוא **כן** קיים בריפו —
+#: ב-``search_engine._build_hybrid_search_pipeline``, בתוך ``$unionWith`` —
+#: אבל הבעלות שם נכתבת כ-``{"equals": {"path": "userId", "value": ...}}``,
+#: תחביר שסריקת הבעלות כאן אינה יודעת לקרוא, ועל שדה בשם אחר (``userId``).
+#: הפייפליין ההיברידי נדחה ממילא כ-``vector_query`` (הוא פותח ב-``$vectorSearch``),
+#: ופייפליין שיפתח ב-``$search`` לבדו יידחה כ-``owner_missing`` — שניהם
+#: נכשלים סגור. הרחבה תהיה אפשרית אם וכאשר יהיה מופע אמיתי לאמת מולו.
+#: (חמשת המופעים האחרים של ``$search`` בריפו הם **האופציה** ``$search`` שבתוך
+#: אופרטור ``$text``, דבר אחר לגמרי, והיא מטופלת ב-``RAW_QUERY_TEXT_OPTIONS``.)
 RAW_QUERY_VECTOR_STAGES: FrozenSet[str] = frozenset({"$vectorSearch"})
 
 #: תקרת גודל ל-``query_raw`` בבייטים (JSON). שיקול דעת, לא ערך נגזר: גדול
@@ -309,19 +326,64 @@ def _owner_token(value: Any) -> Optional[str]:
     return None
 
 
-def _json_safe(value: Any) -> Any:
-    """מחזיר עותק שניתן להעביר כ-JSON: ObjectId/Decimal128 למחרוזת, datetime ל-ISO."""
+def _ensure_replayable(value: Any) -> Any:
+    """עותק של הערך, או דחייה אם הוא לא ישרוד את המסע חזרה.
+
+    ``query_raw`` קיים כדי שאפשר יהיה **להריץ אותו שוב** דרך כפתור הניתוח:
+    הדשבורד מקבל אותו כ-JSON ומחזיר אותו לשרת, שמעביר אותו ל-``explain``.
+    טיפוס שאינו JSON נייטיבי — ``ObjectId``, ``datetime``, ``Decimal128``,
+    ``bytes`` — היה נשמר כמחרוזת, וההרצה החוזרת הייתה מחפשת **מחרוזת**
+    במקום ObjectId ומחזירה אפס תוצאות בלי שאיש יידע.
+
+    ערך שנראה אמיתי ואינו ניתן להרצה גרוע מהיעדר ערך, ולכן כאן נכשלים סגור
+    ובקול: הרשומה נשמרת בלי ערכים, והסיבה נוקבת בשם הטיפוס.
+    """
     if isinstance(value, dict):
-        return {str(k): _json_safe(v) for k, v in value.items()}
+        return {str(k): _ensure_replayable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_json_safe(v) for v in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
+        return [_ensure_replayable(v) for v in value]
+    if value is None or isinstance(value, (str, bool)):
         return value
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, bytes):
-        return "<bytes>"
-    return str(value)
+    if isinstance(value, int) or (isinstance(value, float) and value == value):
+        return value
+    raise _RawQueryWithheld(f"unsupported_type:{type(value).__name__}")
+
+
+def _raw_pipeline(pipeline: Any, shape: Any) -> List[Any]:
+    """הפייפליין שיישמר: ערכים אמיתיים ב-``$match``, שלד בכל שאר השלבים.
+
+    **למה רק ``$match``.** מה שנשמר עם ערכים חייב להיות מה שעבר ולידציה מלאה,
+    ו-``_check_condition`` יודעת לאמת תנאי סינון — שדות מוכרים, אופרטורים
+    מוכרים. גוף של ``$addFields``/``$group``/``$project`` הוא **ביטוי**: הוא
+    ממציא שמות פלט ונושא קבועים חופשיים, ואין מולו רשימה שאפשר לאמת מולה בלי
+    לנחש. לכן הוא נשאר בשלד המנורמל.
+
+    ה-explain לא מפסיד מזה כלום: מה שקובע אילו מסמכים נסרקים ואיזה אינדקס
+    נבחר הוא הסינון, וה-placeholders שנשארים בשאר השלבים כבר מטופלים
+    ב-``_fix_pipeline_for_explain``.
+    """
+    out: List[Any] = []
+    for original, normalized in zip(pipeline, shape):
+        if not isinstance(original, dict) or len(original) != 1 or not isinstance(normalized, dict):
+            out.append(normalized)
+            continue
+        (name, body), = original.items()
+        name = str(name)
+        if name == "$match":
+            out.append({name: _ensure_replayable(body)})
+        elif name in {"$lookup", "$unionWith"} and isinstance(body, dict) and isinstance(body.get("pipeline"), list):
+            merged = dict(normalized.get(name) or {})
+            merged["pipeline"] = _raw_pipeline(body["pipeline"], merged.get("pipeline") or [])
+            out.append({name: merged})
+        elif name == "$facet" and isinstance(body, dict):
+            merged = dict(normalized.get(name) or {})
+            for key, sub in body.items():
+                if isinstance(sub, list) and isinstance(merged.get(str(key)), list):
+                    merged[str(key)] = _raw_pipeline(sub, merged[str(key)])
+            out.append({name: merged})
+        else:
+            out.append(normalized)
+    return out
 
 
 class _RawQueryWithheld(Exception):
@@ -365,10 +427,20 @@ def _asserted_owners(condition: Any) -> FrozenSet[str]:
     for key, value in condition.items():
         key = str(key)
         if key == RAW_QUERY_OWNER_KEY:
-            candidate = value.get("$eq") if isinstance(value, dict) else value
-            token = _owner_token(candidate)
-            if token is not None:
-                owners.add(token)
+            # ``$eq`` ו-``$in`` **מגבילים** לבעלים ולכן מצהירים עליו.
+            # ``$ne``/``$nin`` הם "כל השאר" — ההפך המדויק — ולעולם לא ייספרו כאן.
+            candidates: List[Any] = []
+            if isinstance(value, dict):
+                if "$eq" in value:
+                    candidates.append(value["$eq"])
+                if isinstance(value.get("$in"), (list, tuple)):
+                    candidates.extend(value["$in"])
+            else:
+                candidates.append(value)
+            for candidate in candidates:
+                token = _owner_token(candidate)
+                if token is not None:
+                    owners.add(token)
         elif key == "$and" and isinstance(value, (list, tuple)):
             for item in value:
                 owners |= _asserted_owners(item)
@@ -738,16 +810,18 @@ class QueryProfilerService:
                 entries = _stage_entries(pipeline)
                 if any(name in RAW_QUERY_VECTOR_STAGES for name, _ in entries):
                     raise _RawQueryWithheld(RAW_WITHHELD_VECTOR)
-                match_bodies = [body for name, body in entries if name == "$match"]
                 first = pipeline[0]
                 first_match = first.get("$match") if isinstance(first, dict) else None
                 # באגרגציה הבעלות מוצהרת בשלב ה-``$match`` **הראשון**: הוא היחיד שמגביל
                 # את כל מה שאחריו. ``$match`` מאוחר מסנן תוצאה שכבר נבנתה על כולם.
                 asserted = _asserted_owners(first_match) if isinstance(first_match, dict) else frozenset()
-                everywhere = [v for body in match_bodies for v in _owner_values_in(body)]
             else:
                 asserted = _asserted_owners(query)
-                everywhere = _owner_values_in(query)
+
+            # הסריקה עוברת על **כל** השאילתה ולא רק על גופי ``$match``: מזהה של
+            # משתמש אחר יכול לשבת בכל שלב — ``$set``, ``$addFields``,
+            # ``$lookup.let`` — ושם הוא נכנס לרשומה בדיוק כמו בסינון.
+            everywhere = _owner_values_in(query)
 
             for value in everywhere:
                 token = _owner_token(value)
@@ -765,10 +839,14 @@ class QueryProfilerService:
                         raise _RawQueryWithheld(f"unknown_stage:{name}")
                     if name == "$match":
                         _check_condition(body)
+                safe: Dict[str, Any] = {
+                    "pipeline": _raw_pipeline(
+                        query["pipeline"], self._normalize_pipeline_shape(query["pipeline"])
+                    )
+                }
             else:
                 _check_condition(query)
-
-            safe = _json_safe(query)
+                safe = _ensure_replayable(query)
             max_bytes = _env_int("PROFILER_UNREDACTED_MAX_BYTES", DEFAULT_UNREDACTED_MAX_BYTES)
             if len(json.dumps(safe, ensure_ascii=False).encode("utf-8")) > max(1, int(max_bytes)):
                 raise _RawQueryWithheld(RAW_WITHHELD_TOO_LARGE)

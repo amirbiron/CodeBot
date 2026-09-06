@@ -5,15 +5,14 @@
 ל-``/api/profiler/recommendations`` מורכב ב-JS בדפדפן, ולכן זה נבדק
 בדפדפן אמיתי: מיירטים את הבקשה ובודקים את הגוף שלה.
 
-הפיקסצ'רים משוכפלים מ-``test_profiler_copy_report_browser.py`` ולא
-מיובאים — ייבוא בין קבצי טסט כבר הפיל כאן CI. מדולג בשקט בלי Chromium.
+הרמת השרת ואיתור Chromium מגיעים מ-``admin_live_server`` ו-``chromium_executable``
+שב-``tests/conftest.py``; pytest מוצא אותם לבד, בלי ייבוא בין קבצי טסט.
+מדולג בשקט כשאין Chromium.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import threading
 
 import pytest
 
@@ -67,66 +66,11 @@ ANALYSIS = {
 }
 
 
-def _find_chromium():
-    from pathlib import Path
-
-    root_env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
-    root = Path(root_env) if root_env else None
-    if root and root.is_dir():
-        for candidate in sorted(root.glob("chromium*/chrome-linux/chrome")):
-            if candidate.exists():
-                return str(candidate)
-    return None
-
-
-@pytest.fixture(scope="module")
-def live_server():
-    import time
-    import urllib.request
-
-    import webapp.app as app_mod
-    from werkzeug.serving import make_server
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setenv("ADMIN_USER_IDS", "1")
-        app = app_mod.app
-        patch.setitem(app.config, "SECRET_KEY", "profiler-raw-values-test")
-
-        with app.test_client() as client:
-            with client.session_transaction() as sess:
-                sess["user_id"] = 1
-                sess["user_data"] = {"id": 1, "is_admin": True, "is_premium": False}
-            cookie = client.get_cookie("session")
-            assert cookie is not None, "לא נוצר session cookie"
-            session_cookie = cookie.value
-
-        httpd = make_server("127.0.0.1", 0, app, threaded=True)
-        port = httpd.server_port
-        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-        thread.start()
-        try:
-            for _ in range(60):
-                try:
-                    urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=1)
-                    break
-                except Exception as exc:
-                    if "HTTP Error" in str(exc):
-                        break
-                    time.sleep(0.25)
-            else:  # pragma: no cover
-                pytest.skip("שרת הבדיקה לא עלה")
-            yield f"http://127.0.0.1:{port}", session_cookie
-        finally:
-            httpd.shutdown()
-            httpd.server_close()
-            thread.join(timeout=5)
-
-
 @pytest.fixture
-def dashboard(live_server):
+def dashboard(admin_live_server, chromium_executable):
     """הדשבורד עם רשימת השאילתות המזויפת, ורשימת גופי הבקשות שהכפתור שלח."""
-    base_url, session_cookie = live_server
-    executable = _find_chromium()
+    base_url, session_cookie = admin_live_server
+    executable = chromium_executable
     with sync_playwright() as pw:
         try:
             browser = (

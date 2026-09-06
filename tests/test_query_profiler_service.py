@@ -1,4 +1,5 @@
 import inspect
+import json
 
 import pytest
 from datetime import datetime
@@ -544,8 +545,11 @@ class TestUnredactedQueryValues:
         ]
         row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
 
-        assert row.query_raw == {"pipeline": pipeline}
         assert row.raw_withheld_reason is None
+        # ערכים אמיתיים ב-``$match`` — זה מה שקובע את ה-explain
+        assert row.query_raw["pipeline"][0]["$match"] == pipeline[0]["$match"]
+        # ושאר השלבים בשלד, כי אין מולם ולידציה שאפשר לאמת מולה
+        assert row.query_raw["pipeline"][3] == {"$limit": "<value>"}
 
     def test_vector_search_is_never_kept(self, raw_values_service):
         pipeline = [
@@ -655,3 +659,149 @@ class TestUnredactedQueryValues:
         assert "python" not in repr(plan.query_shape)
         assert agg.pipeline_shape[0]["$match"]["programming_language"] == "<value>"
         assert "python" not in repr(agg.pipeline_shape)
+
+
+class TestUnredactedQueryValuesReviewRound:
+    """סבב הריוויו על ההחרגה: ארבעה ממצאים שאומתו מול הקוד ומול פרודקשן."""
+
+    def test_a_foreign_owner_outside_a_match_stage_is_rejected(self, raw_values_service):
+        """``user_id`` של מישהו אחר ב-``$set`` — סריקת הבעלות חייבת לראות אותו.
+
+        הסריקה עברה קודם רק על גופי ``$match``. שלב שאינו ``$match`` יכול לשאת
+        מזהה כערך (``$set``, ``$addFields``, ``$lookup.let``), והוא לא נבדק.
+        """
+        pipeline = [
+            {"$match": {"user_id": ME, "is_active": True}},
+            {"$set": {"shared_from": {"user_id": SOMEONE_ELSE}}},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_mismatch"
+
+    def test_a_foreign_id_under_another_key_never_reaches_the_record(self, raw_values_service):
+        """הגנה שנייה: ערך בשלב שאינו ``$match`` נשמר בשלד, לא כפי שהוא.
+
+        סריקת הבעלות מחפשת את המפתח ``user_id``; ערך שיושב תחת מפתח אחר לא
+        ייתפס שם — ולכן הוא גם לא נשמר: שלב שאינו ``$match`` מנורמל תמיד.
+        """
+        pipeline = [
+            {"$match": {"user_id": ME, "is_active": True}},
+            {"$set": {"foreign": SOMEONE_ELSE}},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is not None
+        assert str(SOMEONE_ELSE) not in json.dumps(row.query_raw, ensure_ascii=False)
+
+    def test_a_foreign_owner_inside_lookup_let_is_rejected(self, raw_values_service):
+        pipeline = [
+            {"$match": {"user_id": ME, "is_active": True}},
+            {"$lookup": {"from": "users", "let": {"uid": {"user_id": SOMEONE_ELSE}},
+                         "pipeline": [{"$match": {"is_active": True}}], "as": "u"}},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_mismatch"
+
+    def test_only_match_values_are_real_and_every_other_stage_stays_a_skeleton(self, raw_values_service):
+        """מה שנשמר עבר ולידציה מלאה — ולכן רק ``$match``.
+
+        ``$addFields`` נושא ביטויים וקבועים שאיש לא אימת מולם רשימת שדות. לכן
+        הערכים האמיתיים נשמרים רק בשלבי ה-``$match``, ושאר השלבים נשארים
+        בשלד המנורמל. ה-explain עדיין אמיתי, כי מה שקובע אותו הוא הסינון.
+        """
+        pipeline = [
+            {"$match": {"user_id": ME, "programming_language": "python"}},
+            {"$addFields": {"note": "טקסט חופשי שלא עבר ולידציה"}},
+            {"$limit": 21},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is not None, "השאילתה חוקית — הערכים אמורים להישמר"
+        stages = row.query_raw["pipeline"]
+        assert stages[0]["$match"] == {"user_id": ME, "programming_language": "python"}
+        assert stages[1]["$addFields"]["note"] == "<value>", (
+            "ערך שלא עבר ולידציה נשמר כפי שהוא"
+        )
+        assert "טקסט חופשי" not in json.dumps(row.query_raw, ensure_ascii=False)
+
+    def test_a_nested_match_inside_lookup_keeps_its_real_values(self, raw_values_service):
+        pipeline = [
+            {"$match": {"user_id": ME}},
+            {"$lookup": {"from": "code_snippets", "as": "doc", "pipeline": [
+                {"$match": {"file_name": "app.py"}},
+            ]}},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is not None
+        inner = row.query_raw["pipeline"][1]["$lookup"]["pipeline"][0]["$match"]
+        assert inner == {"file_name": "app.py"}
+
+    def test_a_value_that_cannot_survive_json_is_withheld_and_says_which_type(self, raw_values_service):
+        """``ObjectId`` שהומר למחרוזת נראה אמיתי אבל מריץ שאילתה אחרת.
+
+        קודם ``_json_safe`` המיר אותו ל-``str`` — ה-explain היה רץ על מחרוזת
+        במקום על ``ObjectId``, מחזיר אפס תוצאות, ואיש לא היה יודע. עדיף לא
+        לשמור, ולומר למה.
+        """
+        from bson import ObjectId
+
+        row = _record_and_read_back(
+            raw_values_service, {"user_id": ME, "_id": {"$gt": ObjectId("6a8e6c04cfb3849504b6e210")}}
+        )
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "unsupported_type:ObjectId"
+
+    def test_a_datetime_is_withheld_too(self, raw_values_service):
+        row = _record_and_read_back(
+            raw_values_service, {"user_id": ME, "created_at": {"$lt": datetime(2026, 9, 6, 12, 0, 0)}}
+        )
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "unsupported_type:datetime"
+
+    def test_in_with_a_single_allowed_owner_asserts_ownership(self, raw_values_service):
+        """``{"user_id": {"$in": [ME]}}`` מגביל לבעלים בדיוק כמו שוויון."""
+        row = _record_and_read_back(raw_values_service, {"user_id": {"$in": [ME]}, "is_active": True})
+
+        assert row.query_raw == {"user_id": {"$in": [ME]}, "is_active": True}
+        assert row.raw_withheld_reason is None
+
+    def test_ne_never_asserts_ownership(self, raw_values_service):
+        """``$ne`` הוא "כל השאר" — ההפך מהגבלה לבעלים. חייב להישאר לא-מצהיר."""
+        row = _record_and_read_back(raw_values_service, {"user_id": {"$ne": ME}, "is_active": True})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_missing"
+
+    def test_nin_never_asserts_ownership(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, {"user_id": {"$nin": [ME]}, "is_active": True})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_missing"
+
+    def test_the_memory_buffer_also_obeys_the_current_allowlist(self, monkeypatch):
+        """הרשומה חיה גם ב-buffer שבזיכרון, ולכן גם שם הקונפיג הוא הסמכות.
+
+        זו התכונה שהופכת את "הסרה מהרשימה מסתירה מיד" לנכונה בכל מסלול קריאה,
+        גם כשאין DB בכלל.
+        """
+        monkeypatch.setenv("PROFILER_UNREDACTED_USER_IDS", str(ME))
+        # ``QueryProfilerService`` הוא המסלול שקורא מה-buffer שבזיכרון.
+        # (``PersistentQueryProfilerService.get_slow_queries`` קוראת תמיד מה-DB.)
+        svc = QueryProfilerService(db_manager=MagicMock(), slow_threshold_ms=100)
+        svc.record_slow_query_sync(
+            collection="code_snippets", operation="find", query=MY_QUERY, execution_time_ms=1500.0
+        )
+
+        assert svc.get_slow_queries()[0].query_raw == MY_QUERY
+
+        monkeypatch.setenv("PROFILER_UNREDACTED_USER_IDS", "")
+        hidden = svc.get_slow_queries()[0]
+
+        assert hidden.query_raw is None
+        assert hidden.raw_withheld_reason == "owner_not_allowed_now"
