@@ -331,9 +331,14 @@ def _env_flag(name: str, default: bool = False) -> bool:
     """קורא דגל בוליאני מהסביבה, עם אותה קבוצת ערכים בכל אתר קריאה.
 
     הקובץ הזה החזיק שלושה עותקים של הביטוי עבור ``DISABLE_BACKGROUND_CLEANUP``
-    עם ``{"1", "true", "yes"}``, בעוד ש-``file_manager.py`` מכיר לאותו דגל גם
-    ``"on"`` ועושה ``strip``. כלומר ``DISABLE_BACKGROUND_CLEANUP=on`` השבית
-    את ניקוי הגיבויים אבל **לא** את ג'ובי הניקוי — אותו דגל, שתי התנהגויות.
+    עם ``{"1", "true", "yes"}``, בעוד ש-``file_manager.py:203`` מכיר לאותו דגל
+    גם ``"on"``. כלומר ``DISABLE_BACKGROUND_CLEANUP=on`` השבית את ניקוי
+    הגיבויים אבל **לא** את ג'ובי הניקוי — אותו דגל, שתי התנהגויות.
+
+    ``strip`` נוסף כאן ואינו קיים ב-``file_manager.py``, שם ``" on "`` עדיין
+    לא ייתפס. הדפוס הזה משוכפל בעשרות מקומות בריפו (``monitoring/*``,
+    ``services/drill_service.py``, ``refactoring_engine.py`` ועוד), ואיחוד
+    כולם הוא ריפקטור רוחבי שאינו שייך ל-PR הזה.
     """
     raw = os.getenv(name)
     if raw is None:

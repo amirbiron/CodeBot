@@ -150,6 +150,12 @@ async def check_migration_status():
         {"is_active": True, "chunkerVersion": {"$ne": CHUNKER_VERSION}}
     )
     chunks = await db.snippet_chunks.count_documents({})
+    # מסמך בלי השדה ``is_active`` **אינו** נספר כאן, וגם ``get_snippets_needing_processing``
+    # לא ישלוף אותו (הוא מסנן ``is_active: True`` בדיוק). כלומר קובץ כזה שקוף
+    # לשני הצדדים, והסטטוס היה יכול להציג 100% בזמן שהוא מעולם לא עובד.
+    # נמדד בפרודקשן: 0 מסמכים כאלה מתוך 1,157 — ולכן זו לא נורמליזציה של
+    # נתונים אלא מונה שמונע מהפער להסתתר אם הוא כן ייווצר.
+    invisible = await files_collection.count_documents({"is_active": {"$exists": False}})
 
     logger.info("Migration Status:")
     logger.info("  Active snippets: %s", total)
@@ -158,8 +164,17 @@ async def check_migration_status():
     logger.info("  Awaiting re-chunking: %s", stale_chunker)
     logger.info("  Total chunks: %s", chunks)
 
+    if invisible:
+        logger.warning(
+            "  Snippets with no is_active field (invisible to the worker): %s", invisible
+        )
+
     if total:
         logger.info("  Progress: %.1f%% (active snippets)", (processed / total) * 100)
+        if invisible:
+            logger.warning(
+                "  Progress above EXCLUDES the %s snippets with no is_active field", invisible
+            )
 
     # ספירת יתומים — אותה הגדרה בדיוק שהג'וב משתמש בה, בלי למחוק דבר.
     try:

@@ -171,3 +171,128 @@ def test_pipeline_still_filters_to_the_latest_active_version():
     text = repr(pipeline)
     assert "latestSnippetId" in text
     assert "is_active" in text
+
+
+# --- בידוד בין משתמשים ב-``$lookup`` --------------------------------------
+#
+# הצינור לא נבדק כאן במחרוזות אלא **מורץ**: מנוע זעיר מעריך את ה-``$expr``
+# שהקוד באמת בנה, מול מסמכים לדוגמה. אם התנאי על ``user_id`` יוסר, אם ``$and``
+# יתחלף, או אם שם משתנה ה-``let`` ישתנה — התוצאה תשתנה והטסטים ייפלו. בדיקת
+# מחרוזות לא הייתה תופסת אף אחד מהשלושה.
+
+
+def _eval_expr(expr, doc, let_vars):
+    """מעריך את תת-הקבוצה של שפת ה-``$expr`` שהצינור הזה משתמש בה."""
+    if isinstance(expr, dict):
+        if len(expr) != 1:
+            raise AssertionError(f"unexpected expr shape: {expr}")
+        op, args = next(iter(expr.items()))
+        if op == "$and":
+            return all(_eval_expr(a, doc, let_vars) for a in args)
+        if op == "$or":
+            return any(_eval_expr(a, doc, let_vars) for a in args)
+        if op == "$eq":
+            left, right = (_eval_expr(a, doc, let_vars) for a in args)
+            return left == right
+        raise AssertionError(f"unsupported operator {op}")
+    if isinstance(expr, str) and expr.startswith("$$"):
+        name = expr[2:]
+        assert name in let_vars, f"expr uses undeclared let var {name}; let={let_vars}"
+        return let_vars[name]
+    if isinstance(expr, str) and expr.startswith("$"):
+        cur = doc
+        for part in expr[1:].split("."):
+            cur = (cur or {}).get(part) if isinstance(cur, dict) else None
+        return cur
+    return expr
+
+
+def _snippet_lookup(pipeline):
+    """שלב ה-``$lookup`` הראשון: מהצ'אנק אל מסמך הסניפט שלו."""
+    stages = [s["$lookup"] for s in pipeline if "$lookup" in s]
+    assert stages, "the pipeline no longer joins the snippet document"
+    return stages[0]
+
+
+def _joins(lookup, chunk, snippet_doc):
+    """האם ``snippet_doc`` היה מצטרף ל-``chunk``, לפי הצינור כפי שנבנה."""
+    let_vars = {
+        name: _eval_expr(expr, chunk, {})
+        for name, expr in lookup["let"].items()
+    }
+    match = lookup["pipeline"][0]["$match"]
+    for key, cond in match.items():
+        if key == "$expr":
+            if not _eval_expr(cond, snippet_doc, let_vars):
+                return False
+        elif snippet_doc.get(key) != cond:
+            return False
+    return True
+
+
+class TestTenantIsolationInTheLookup:
+    """הפילטר של ``$vectorSearch`` הוא על ה-``userId`` של **הצ'אנק**.
+
+    הצטרפות לפי ``_id`` בלבד הייתה מחזירה את מסמך הסניפט של בעליו האמיתי —
+    כלומר צ'אנק עם שיוך שגוי היה מציג למשתמש אחד שם קובץ, תיאור ותגיות של
+    משתמש אחר. ``CRITICAL-PATTERNS.md`` K12.
+    """
+
+    CHUNK = {"snippetId": "snip-1", "userId": 7}
+
+    def _lookup(self):
+        return _snippet_lookup(_pipeline(user_id=7))
+
+    def test_the_owners_own_snippet_joins(self):
+        """המסלול התקין חייב להמשיך לעבוד — ``$expr`` שגוי היה מוחק תוצאות."""
+        doc = {"_id": "snip-1", "user_id": 7, "is_active": True, "file_name": "a.py"}
+        assert _joins(self._lookup(), self.CHUNK, doc) is True
+
+    def test_another_users_snippet_never_joins(self):
+        """אותו ``_id``, בעלים אחר. זו הדליפה."""
+        doc = {"_id": "snip-1", "user_id": 9, "is_active": True, "file_name": "secret.py"}
+        assert _joins(self._lookup(), self.CHUNK, doc) is False
+
+    def test_a_different_snippet_of_the_same_user_never_joins(self):
+        doc = {"_id": "snip-2", "user_id": 7, "is_active": True, "file_name": "b.py"}
+        assert _joins(self._lookup(), self.CHUNK, doc) is False
+
+    def test_a_trashed_snippet_never_joins(self):
+        doc = {"_id": "snip-1", "user_id": 7, "is_active": False, "file_name": "a.py"}
+        assert _joins(self._lookup(), self.CHUNK, doc) is False
+
+    @pytest.mark.parametrize("owner", [9, "7", None, 0, -7])
+    def test_no_owner_value_sneaks_through(self, owner):
+        """כולל המקרים הדקים: מזהה כמחרוזת, ``None``, אפס, שלילי."""
+        doc = {"_id": "snip-1", "user_id": owner, "is_active": True}
+        assert _joins(self._lookup(), self.CHUNK, doc) is False
+
+    def test_the_join_reads_the_chunks_own_owner_not_the_query_argument(self):
+        """``$$owner_id`` נגזר מ-``$userId`` של הצ'אנק.
+
+        אם היה נגזר מהארגומנט של השאילתה, צ'אנק עם שיוך שגוי היה עובר —
+        בדיוק המקרה שהתנאי נועד לחסום.
+        """
+        lookup = self._lookup()
+        assert lookup["let"]["owner_id"] == "$userId"
+        foreign_chunk = {"snippetId": "snip-1", "userId": 9}
+        doc = {"_id": "snip-1", "user_id": 7, "is_active": True}
+        assert _joins(lookup, foreign_chunk, doc) is False
+
+    def test_the_evaluator_can_actually_fail(self):
+        """בקרה: מנוע שמחזיר תמיד ``False`` היה מפיל את הטסט הראשון.
+
+        כאן מוכיחים את ההפך — הסרת התנאי על ``user_id`` מהצינור **כן** פותחת
+        את הדליפה, כלומר הטסטים למעלה בודקים משהו.
+        """
+        lookup = self._lookup()
+        stripped = {
+            **lookup,
+            "pipeline": [
+                {"$match": {"$expr": {"$eq": ["$_id", "$$snippet_id"]}, "is_active": True}},
+                *lookup["pipeline"][1:],
+            ],
+        }
+        foreign = {"_id": "snip-1", "user_id": 9, "is_active": True}
+        assert _joins(stripped, self.CHUNK, foreign) is True, "the evaluator is inert"
+        assert _joins(lookup, self.CHUNK, foreign) is False

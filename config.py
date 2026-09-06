@@ -217,7 +217,13 @@ class BotConfig(BaseSettings):
         description="Number of lines per code chunk",
     )
     CHUNK_OVERLAP_LINES: int = Field(
-        default=40, description="Overlap between consecutive chunks"
+        default=40,
+        ge=0,
+        description=(
+            "Max overlap between consecutive chunks, in lines (secondary ceiling). "
+            "The effective overlap is the strictest of: 15% of CHUNK_MAX_BYTES, "
+            "half the actual chunk, and this value. 0 disables overlap."
+        ),
     )
     CHUNK_MAX_BYTES: int = Field(
         default=2000,

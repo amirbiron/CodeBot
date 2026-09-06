@@ -54,8 +54,19 @@ def test_cleanup_is_bounded_to_older_versions(cleanup_calls):
     assert call["user_id"] == 7
 
 
-def test_a_late_cleanup_cannot_reach_a_newer_version(cleanup_calls):
-    """סדר הפוך: גרסה 9 נשמרה, ואז הניקוי של גרסה 4 רץ."""
+def test_each_call_passes_its_own_version_as_the_bound(cleanup_calls):
+    """כל קריאה נושאת את הגבול של **עצמה**, גם כשהן מגיעות בסדר הפוך.
+
+    מה הטסט הזה כן מוכיח ומה לא: ``_delete_snippet_chunks`` ממוקה כאן, ולכן
+    שתי הקריאות הן הקלטות בלתי תלויות — הן לא נוגעות במירוץ עצמו. ההגנה
+    האמיתית מפני המירוץ היא תנאי ה-``$lt`` **בתוך** הפונקציה הממוקה, והיא
+    נבדקת ב-``tests/test_repository_delete_cleans_chunks.py``
+    (``TestOverlappingSaves``) מול השאילתה שנבנית בפועל.
+
+    מה שכן נבדק כאן: ש-``_clear_superseded_chunks`` אינו שומר מצב בין
+    קריאות ואינו לוקח את הגבול ממקום גלובלי — כלומר גרסה 4 שמנקה אחרי
+    גרסה 9 שולחת 4, לא 9.
+    """
     webapp_app._clear_superseded_chunks(_doc(version=9), "id-9")
     webapp_app._clear_superseded_chunks(_doc(version=4), "id-4")
 

@@ -57,7 +57,13 @@ def _resolve_target() -> tuple:
     היה בונה ``.../models/models/gemini-embedding-001:embedContent``, וכל
     שלושת הפרובים היו נכשלים ב-404 במקום לבדוק את מגבלת הקלט.
     """
+    # הנרמול נלקח מ-``semantic_embedding_settings`` ולא נכתב כאן מחדש: עותק
+    # שני היה יכול להסכים היום ולהיפרד מחר, והפרוב היה בודק endpoint אחר
+    # מזה שה-worker פונה אליו — כלומר תשובה שאינה רלוונטית להחלטה שהוא אמור
+    # להכריע. ``_normalize_api_version`` היא אותה פונקציה ש-``EmbeddingSettings``
+    # משתמשת בה.
     from services.semantic_embedding_settings import (  # noqa: E402
+        _normalize_api_version,
         get_embedding_settings_cached,
         normalize_model_name,
     )
@@ -74,14 +80,9 @@ def _resolve_target() -> tuple:
         or "gemini-embedding-001"
     )
 
-    api_version = str(
-        (getattr(settings, "api_version", "") or "")
-        or os.getenv("GEMINI_API_VERSION", "")
-        or "v1beta"
-    ).strip().strip("/")
-    if api_version not in {"v1", "v1beta"}:
-        # אותו כלל כמו ב-``EmbeddingService._base_url``.
-        api_version = "v1beta"
+    api_version = _normalize_api_version(
+        (getattr(settings, "api_version", "") or "") or os.getenv("GEMINI_API_VERSION", "")
+    )
 
     try:
         dimensions = int(getattr(settings, "dimensions", 0) or 0) or int(

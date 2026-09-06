@@ -389,3 +389,76 @@ class TestSupersededWhileEmbedding:
         await w._process_snippet(_snippet(code="print(1)\n" * 40))
 
         assert saved[-1]["chunks"], "the happy path stopped writing chunks"
+
+
+class TestModelMissingIsOneMapping:
+    """404 = "המודל שבקונפיג לא קיים", ולכן self-heal ולא retry.
+
+    הרקע: אותו נתיב (ניסיון חוזר בלי מימד קבוע, אחרי 422) נשבר **פעמיים
+    ברצף** בשתי דרכים שונות — קודם הסטטוס השני נזרק לגמרי, ואז הוא נשמר
+    אבל 404 בו סווג ככשל זמני. שתי התקלות אפשריות רק כשמיפוי הסטטוס חי
+    בשני מקומות. הטסטים כאן נועלים את המיפוי לנקודה אחת.
+    """
+
+    DIM_MISMATCH = (None, 422, '{"error":{"message":"dimension_mismatch"}}')
+    GONE = (None, 404, '{"error":{"message":"model not found"}}')
+
+    def test_the_mapping_knows_about_404(self):
+        assert worker_mod._classify_status(404) == worker_mod.FAILURE_MODEL_MISSING
+
+    @pytest.mark.parametrize(
+        "status,expected",
+        [
+            (404, "FAILURE_MODEL_MISSING"),
+            (429, "FAILURE_QUOTA"),
+            (400, "FAILURE_PERMANENT"),
+            (413, "FAILURE_PERMANENT"),
+            (0, "FAILURE_TRANSIENT"),
+            (500, "FAILURE_TRANSIENT"),
+        ],
+    )
+    def test_every_status_has_exactly_one_meaning(self, status, expected):
+        assert worker_mod._classify_status(status) == getattr(worker_mod, expected)
+
+    @pytest.mark.asyncio
+    async def test_404_on_the_first_attempt_triggers_self_heal(self, harness, monkeypatch):
+        """התנהגות קיימת — הגנה מפני רגרסיה בזמן האיחוד."""
+        _saved, _updates = harness
+        w, svc = _make_worker(monkeypatch, [self.GONE])
+
+        await w._process_snippet(_snippet())
+
+        assert svc.heal_calls == 1, "a missing model must self-heal, not retry"
+
+    @pytest.mark.asyncio
+    async def test_404_on_the_dimension_retry_also_triggers_self_heal(
+        self, harness, monkeypatch
+    ):
+        """זה הבאג: המודל נעלם **בין** שתי הקריאות.
+
+        קודם 422 (אי-התאמת מימדים), ואז הניסיון בלי מימד קבוע מקבל 404. עד
+        התיקון זה סווג ככשל זמני — הקובץ חזר לתור כל 300 שניות לנצח, בזמן
+        שהתיקון האמיתי (רענון ההגדרה) לא הופעל אף פעם.
+        """
+        _saved, _updates = harness
+        w, svc = _make_worker(monkeypatch, [self.DIM_MISMATCH, self.GONE])
+
+        await w._process_snippet(_snippet())
+
+        assert svc.heal_calls == 1, (
+            "404 on the second call was swallowed as transient; self-heal never ran"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_snippet_completes_after_the_model_comes_back(
+        self, harness, monkeypatch
+    ):
+        """מסלול ההחלמה המלא: 422 ← 404 ← restart ← הצלחה."""
+        saved, updates = harness
+        w, svc = _make_worker(monkeypatch, [self.DIM_MISMATCH, self.GONE])
+
+        await w._process_snippet(_snippet())
+
+        assert svc.heal_calls == 1
+        assert saved and saved[-1]["chunks"], "the retry never produced chunks"
+        assert updates[-1]["needs_embedding"] is False

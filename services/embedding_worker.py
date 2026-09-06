@@ -52,18 +52,28 @@ QUOTA_PAUSE_SECONDS = int(os.getenv("EMBEDDING_QUOTA_PAUSE_SECONDS", "900") or 9
 FAILURE_TRANSIENT = "transient"   # timeout / רשת / 5xx — כדאי לנסות שוב
 FAILURE_PERMANENT = "permanent"   # 400 / קלט ארוך מדי — ניסיון חוזר לא יעזור
 FAILURE_QUOTA = "quota"           # 429 אחרי מיצוי ה-retries
+FAILURE_MODEL_MISSING = "model_missing"   # 404 — המודל נעלם, צריך self-heal
 
 
 def _classify_status(status: int) -> str:
-    """ממפה קוד סטטוס לסוג כשל. מקום אחד, כדי ששני אתרי הקריאה לא ייסחפו.
+    """ממפה קוד סטטוס לסוג כשל. **נקודת המיפוי היחידה בקובץ.**
 
+    * ``404`` — המודל שבקונפיג לא קיים. לא כשל של הצ'אנק אלא של ההגדרה,
+      והתגובה הנכונה היא self-heal ולא retry.
     * ``400`` — הבקשה עצמה פסולה; ``413`` — הקלט חרג מהתקרה שלנו
       (``EMBEDDING_STATUS_INPUT_TOO_LONG``). בשני המקרים ניסיון חוזר יחזיר
       בדיוק את אותה תשובה.
     * ``429`` — מכסה. עוצר את הבאץ' כולו.
     * ``0`` (timeout/רשת), ``401``/``403`` (קונפיג שאפשר לתקן), ``5xx`` —
       כולם זמניים, ולכן הקובץ חוזר לתור.
+
+    למה הכול כאן ולא מפוזר: אותו נתיב (ניסיון חוזר אחרי 422) נשבר **פעמיים
+    ברצף** בשתי דרכים שונות — קודם הסטטוס השני נזרק לגמרי, ואז הוא נשמר אבל
+    404 בו טופל כזמני. שתי התקלות אפשריות רק כשהמיפוי חי בשני מקומות. כאן
+    יש מקום אחד, ו-``_act_on_status`` הוא הפעולה היחידה שנגזרת ממנו.
     """
+    if status == 404:
+        return FAILURE_MODEL_MISSING
     if status == 429:
         return FAILURE_QUOTA
     if status in (400, 413):
@@ -218,16 +228,24 @@ class EmbeddingWorker:
 
             status = int(status or 0)
 
-            # Model missing mid-processing: do not self-heal in-place (would mix vectors within snippet).
-            # Signal outer loop to restart snippet processing after self-heal updates config.
-            if status == 404:
-                logger.warning(
-                    "Snippet %s: model returned 404 mid-processing, signalling restart",
-                    snippet_id,
-                )
-                raise _RestartSnippetProcessing()
+            def _act_on_status(code: int) -> str:
+                """מסווג, ומטפל ב-404 באותו אופן בכל אתר קריאה.
 
-            if status == 429:
+                Model missing mid-processing: לא עושים self-heal במקום (זה היה
+                מערבב וקטורים משתי הגדרות בתוך אותו סניפט), אלא מסמנים ללולאה
+                החיצונית להתחיל את הסניפט מחדש אחרי שה-self-heal עדכן קונפיג.
+                """
+                failure = _classify_status(int(code or 0))
+                if failure == FAILURE_MODEL_MISSING:
+                    logger.warning(
+                        "Snippet %s: model returned 404 (status=%s), signalling restart",
+                        snippet_id, code,
+                    )
+                    raise _RestartSnippetProcessing()
+                return failure
+
+            failure = _act_on_status(status)
+            if failure == FAILURE_QUOTA:
                 return None, FAILURE_QUOTA
 
             # Dimension mismatch (best-effort): retry without fixed dimensionality.
@@ -254,13 +272,13 @@ class EmbeddingWorker:
                     except Exception:
                         pass
                     return emb2, None
-                # הסטטוס של הניסיון השני נשקל בדיוק כמו של הראשון. אחרת
-                # timeout או 429 בקריאה הזו היו מסווגים ככשל **קבוע**, והצ'אנק
-                # היה נדחה לצמיתות ונעלם מהחיפוש — בדיוק מה שההפרדה
-                # התלת-מצבית נועדה למנוע.
-                return None, _classify_status(int(status2 or 0))
+                # הסטטוס של הניסיון השני עובר **בדיוק** את אותו טיפול כמו של
+                # הראשון — כולל 404, שמפעיל self-heal ולא retry. מודל שנעלם בין
+                # שתי הקריאות היה שולח את הקובץ לרטריי אינסופי במקום לתקן את
+                # ההגדרה.
+                return None, _act_on_status(int(status2 or 0))
 
-            return None, _classify_status(status)
+            return None, failure
 
         async def _finish(
             *,

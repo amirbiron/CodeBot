@@ -388,7 +388,12 @@ CHUNK_SIZE_LINES: int = Field(
 )
 CHUNK_OVERLAP_LINES: int = Field(
     default=40,
-    description="Max overlap between consecutive chunks, in lines (secondary ceiling)"
+    ge=0,
+    description=(
+        "Max overlap between consecutive chunks, in lines (secondary ceiling). "
+        "The effective overlap is the strictest of: 15% of CHUNK_MAX_BYTES, "
+        "half the actual chunk, and this value. 0 disables overlap."
+    ),
 )
 ```
 

@@ -224,13 +224,22 @@ class TestOverlapContract:
         _assert_invariants(chunks, source)
         assert max(self._overlaps(chunks)) <= overlap
 
-    def test_the_byte_budget_still_wins_when_it_is_stricter(self):
-        """``overlap`` הוא תקרה, לא דרישה: 15% מהתקציב עדיין גובר."""
+    def test_the_byte_caps_still_win_when_they_are_stricter(self):
+        """``overlap`` הוא תקרה, לא דרישה: תקרה מופרכת אינה מייצרת חפיפה ענקית.
+
+        איזו תקרה גוברת כאן — נמדד, לא הונח. תקרת השורות (50) בולמת לפני
+        התקציב, ולכן הצ'אנק יוצא ~390 בייט:
+
+        * 15% מ-``CHUNK_MAX_BYTES``  = 300 בייט
+        * חצי מהצ'אנק בפועל          = ~194 בייט  ← **זו שגוברת**
+
+        התוצאה בפועל היא 23-24 שורות חפיפה. חשוב לא לתאר כאן את מנגנון ה-15%,
+        כי קורא שיסיק מכאן על עיצוב תקרת החפיפה יסיק לא נכון.
+        """
         source = "\n".join(f"line {i}" for i in range(300))
         chunks = split_code_to_chunks(source, chunk_size=50, overlap=10_000)
 
         _assert_invariants(chunks, source)
-        # 15% מ-2,000 = 300 בייט, ושורה כאן היא ~9 בייט.
         assert max(self._overlaps(chunks)) < 100
 
     def test_no_overlap_still_covers_every_line(self):

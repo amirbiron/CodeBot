@@ -38,12 +38,22 @@ EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))  # fallback
 # sequence length" (https://ai.google.dev/api/embeddings). כלומר ברירת המחדל של
 # הספק היא בדיוק החיתוך השקט שגרם לבעיה — וקטור שמתאר רק את תחילת הקלט.
 #
-# למה זה מאחורי דגל ולא פשוט נשלח: לא אימתנו מול ה-API החי מה קורה כשהשדה
-# נשלח ל-Gemini Developer API (התיעוד של Vertex אומר שבקשה ארוכה מדי נכשלת;
-# לתיעוד של Gemini API אין משפט מקביל). אם השדה יידחה, *כל* קריאה תיכשל
-# ב-400 והחיפוש הסמנטי כולו ייפול לחיפוש טקסט. ההגנה האמיתית היא תקציב
-# הבייטים ב-``services/chunking_service.py``; זו רשת ביטחון בלבד.
-# ראו ``scripts/probe_embedding_limits.py`` לאימות מול ה-API החי.
+# **נמדד מול ה-API החי, ואינו עובד.** ``scripts/probe_embedding_limits.py``
+# מריץ את המדידה; מה שהיא הראתה:
+#
+# 1. השדה **תקף**. מפתח מומצא בתוך ``embedContentConfig`` מוחזר עם
+#    ``400 Unknown name "..." at 'embed_content_config'``, ואילו
+#    ``autoTruncate`` עובר. כלומר ה-API מכיר אותו ואינו דוחה אותו.
+# 2. השדה **לא משנה דבר**. שני טקסטים בני 28,000 תווים עם תחילית זהה של
+#    14,400 תווים וזנבות שונים לחלוטין החזירו וקטורים עם קוסינוס
+#    **1.000000** — עם הדגל כבוי. אותם זנבות לבדם נותנים 0.68, כלומר הם
+#    באמת שונים. ובקרה נוספת: הווקטור של הטקסט הארוך זהה לחלוטין לווקטור
+#    של התחילית שלו בלבד.
+#
+# המסקנה: החיתוך השקט מתרחש בכל מקרה, ו-``EMBEDDING_AUTO_TRUNCATE=false``
+# **אינו רשת ביטחון**. ההגנה היחידה היא תקציב הבייטים ב-
+# ``services/chunking_service.py``. הדגל נשאר ברירת מחדל ``true`` (בלי שינוי
+# התנהגות) כי השדה תקף וייתכן שגוגל תממש אותו בעתיד — אבל אין להסתמך עליו.
 EMBEDDING_AUTO_TRUNCATE = str(
     os.getenv("EMBEDDING_AUTO_TRUNCATE", "true") or "true"
 ).strip().lower() in {"1", "true", "yes", "on"}
@@ -119,7 +129,17 @@ class EmbeddingService:
     """Async embedding generation service."""
 
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or GEMINI_API_KEY
+        # ``None`` = "לא סופק, קח מהסביבה". מחרוזת ריקה = "אין מפתח", והיא
+        # **לא** נופלת חזרה לקבוע.
+        #
+        # קודם זה היה ``api_key or GEMINI_API_KEY``, ואז ``api_key=""`` היה
+        # מקבל בשקט את מפתח הסביבה — כלומר אי אפשר היה בכלל לבטא "בלי מפתח".
+        # המחיר היה שקט אבל אמיתי: ``test_no_api_key_returns_none`` עבר רק
+        # כל עוד לא היה מפתח בסביבה, וברגע שהיה — הוא יצא לקריאת רשת אמיתית
+        # מול Gemini במקום לבדוק את מסלול ה"אין מפתח".
+        # ``test_gemini_key_not_in_url.py`` כבר עקף את זה ב-``monkeypatch``
+        # על הקבוע; זה השורש שהעקיפה הזו כיסתה.
+        self.api_key = GEMINI_API_KEY if api_key is None else api_key
         if not self.api_key:
             logger.warning("GEMINI_API_KEY not configured - semantic search disabled")
         self._client: Optional[httpx.AsyncClient] = None
