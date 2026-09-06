@@ -2456,6 +2456,24 @@
      - "" (ריק)
      - ``cafe123``
      - Bot/WebApp
+   * - ``ALERT_TELEGRAM_SUPPRESS_ALERTS``
+     - שמות התראות (מופרדים בפסיקים) שלא יישלחו לטלגרם. ריק = כולן נשלחות
+     - לא
+     - ``AppLatencyEWMARegression``
+     - ``AppLatencyEWMARegression,HighErrorRate``
+     - Bot/WebApp/MCP/Webserver
+   * - ``FEATURE_COLLECTIONS_TAGS``
+     - הפעלת תגיות באוספים
+     - לא
+     - ``true``
+     - ``false``
+     - Bot/WebApp
+   * - ``WEBAPP_GUNICORN_GRACEFUL_TIMEOUT``
+     - כמה שניות Gunicorn ממתין ל-worker לסיים בקשה לפני שהוא נהרג (``--graceful-timeout``). ריק = ``GUNICORN_GRACEFUL_TIMEOUT``, ואז ``GUNICORN_TIMEOUT``
+     - לא
+     - ``180``
+     - ``60``
+     - WebApp
    * - ``HOSTNAME``
      - שם המכונה המדווח בלוגים / ב-claim של push (לרוב מוזן ע"י התשתית, אבל ניתן לעקוף).
      - לא
@@ -2546,6 +2564,180 @@
      - "" (העמוד מציג שהמדידה אינה מוגדרת)
      - ``567754``
      - WebApp
+   * - ``SUPPORTED_LANGUAGES``
+     - רשימת שפות התכנות הנתמכות. ריק = הרשימה שבקוד (python, javascript, html ועוד)
+     - לא
+     - ריק (רשימת ברירת המחדל)
+     - ``python,javascript``
+     - Bot/WebApp/Webserver
+   * - ``CHUNK_SIZE_LINES``
+     - מספר השורות בכל צ'אנק קוד לחיפוש הסמנטי
+     - לא
+     - ``220``
+     - ``150``
+     - Bot/WebApp/Webserver
+   * - ``FEATURE_MY_COLLECTIONS``
+     - הפעלת פיצ'ר האוספים (My Collections)
+     - לא
+     - ``true``
+     - ``false``
+     - Bot/WebApp/Webserver
+   * - ``COMMUNITY_LIBRARY_ENABLED``
+     - הפעלת ספריית הקהילה (סניפטים משותפים)
+     - לא
+     - ``true``
+     - ``false``
+     - Bot/WebApp/Webserver
+   * - ``RATE_LIMIT_ENABLED``
+     - הפעלת הגבלת קצב גלובלית
+     - לא
+     - ``true``
+     - ``false``
+     - Bot/WebApp/Webserver
+   * - ``RATE_LIMIT_STRATEGY``
+     - אסטרטגיית הגבלת הקצב
+     - לא
+     - ``moving-window``
+     - ``fixed-window``
+     - Bot/WebApp/Webserver
+   * - ``SENTRY_TEST_BUTTON_ENABLED``
+     - הצגת כפתור האדמין ששולח אירוע בדיקה ל-Sentry
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp/Webserver
+   * - ``TELEGRAM_BOT_TOKEN``
+     - שם חלופי ל-``BOT_TOKEN``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``123456:ABC-DEF...``
+     - Bot
+   * - ``REQUEST_CONTEXT_WINDOW_SECONDS``
+     - חלון הזמן (שניות) שממנו נאסף הקשר הבקשות שמצורף להתראה (מינימום אפקטיבי 60)
+     - לא
+     - ``900``
+     - ``600``
+     - Bot/WebApp/Webserver
+   * - ``RULES_VERBOSE_LOGGING``
+     - מרחיב את הלוגים של מנוע החוקים (כל התאמה וכל דילוג)
+     - לא
+     - ריק (כבוי)
+     - ``true``
+     - WebApp
+   * - ``PROM_RATE_WINDOW``
+     - שם חלופי ל-``PROMETHEUS_RATE_WINDOW``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``5m``
+     - WebApp
+   * - ``OTEL_SERVICE_NAME``
+     - שם השירות ב-OpenTelemetry. ריק = שם קבוע לכל שירות (למשל ``codebot-webapp``)
+     - לא
+     - ריק
+     - ``codebot-bot``
+     - Bot/WebApp/Webserver
+   * - ``SERVICE_VERSION``
+     - גרסת השירות לטלמטריה. ריק = ``RENDER_GIT_COMMIT``
+     - לא
+     - ריק
+     - ``2026.09.06``
+     - Bot/WebApp/Webserver
+   * - ``PUSH_LEGACY_SCAN_ENABLED``
+     - מחזיר את סריקת המנויים הישנים ב-Web Push. יקר, ולכן כבוי כברירת מחדל
+     - לא
+     - ריק (כבוי)
+     - ``true``
+     - WebApp
+   * - ``PUSH_LEGACY_SCAN_CHECK_TTL_SECONDS``
+     - כמה שניות נשמרת תוצאת בדיקת הסריקה הישנה לפני בדיקה חוזרת
+     - לא
+     - ``600``
+     - ``300``
+     - WebApp
+   * - ``PUSH_SENDER_LOCK_FILE``
+     - קובץ הנעילה שמונע משני תהליכים לשלוח את אותה התראת Push
+     - לא
+     - ``/tmp/codebot-push-sender.lock``
+     - ``/var/data/push.lock``
+     - WebApp
+   * - ``WORKER_VAPID_PUBLIC_KEY``
+     - מפתח VAPID ציבורי של ה-worker החיצוני לשליחת Push
+     - לא
+     - ריק
+     - ``BEl...``
+     - WebApp
+   * - ``WORKER_VAPID_PRIVATE_KEY``
+     - מפתח VAPID פרטי של ה-worker החיצוני לשליחת Push
+     - לא
+     - ריק
+     - ``k9...``
+     - WebApp
+   * - ``LOCAL_CACHE_MAX_ENTRIES``
+     - מספר הרשומות המקסימלי במטמון המקומי שבתוך התהליך (לא Redis)
+     - לא
+     - ``2000``
+     - ``5000``
+     - Bot/WebApp
+   * - ``COLLECTIONS_GET_ITEMS_SLOW_MS``
+     - סף (מילישניות) שמעליו שליפת פריטי אוסף נרשמת כשאילתה איטית. ריק = אין רישום
+     - לא
+     - ריק
+     - ``300``
+     - Bot/WebApp
+   * - ``WEBHOOK_SECRET``
+     - שם חלופי ל-``SENTRY_WEBHOOK_SECRET``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``s3cr3t``
+     - Webserver
+   * - ``WEB_HOST``
+     - כתובת ההאזנה בהרצה ישירה של ``services/webserver.py``. ריק = ``HOST`` ואז ``0.0.0.0``. אינו נקרא בייבוא רגיל
+     - לא
+     - ריק (``0.0.0.0``)
+     - ``127.0.0.1``
+     - Webserver
+   * - ``HOST``
+     - שם חלופי ל-``WEB_HOST``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``127.0.0.1``
+     - Webserver
+   * - ``WEB_PORT``
+     - פורט ההאזנה בהרצה ישירה של ``services/webserver.py``. נקרא רק כאשר ``PORT`` אינו מוגדר; בהיעדר שניהם ``10000``
+     - לא
+     - ריק (``10000``)
+     - ``8080``
+     - Webserver
+   * - ``CLAUDE_API_KEY``
+     - שם חלופי ל-``ANTHROPIC_API_KEY``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``sk-ant-...``
+     - Webserver
+   * - ``CLAUDE_MODEL``
+     - שם חלופי ל-``OBS_AI_EXPLAIN_MODEL``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``claude-sonnet-4-5-20250929``
+     - Webserver
+   * - ``GEMINI_MODEL_EMBEDDING``
+     - שם חלופי ל-``GEMINI_EMBEDDING_MODEL``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``text-embedding-004``
+     - Bot/WebApp
+   * - ``GEMINI_EMBEDDING_API_VERSION``
+     - שם חלופי ל-``GEMINI_API_VERSION``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``v1beta``
+     - Bot/WebApp
+   * - ``SEMANTIC_EMBEDDING_MODEL_ALLOWLIST``
+     - שם חלופי ל-``GEMINI_EMBEDDING_MODEL_ALLOWLIST``; נקרא רק כשהראשון אינו מוגדר
+     - לא
+     - ריק
+     - ``text-embedding-006``
+     - Bot/WebApp
 
 .. note::
 
@@ -2604,6 +2796,30 @@
      - "" (ריק)
      - ``1``
      - Tooling
+   * - ``FLASK_DEBUG``
+     - מדליק מצב דיבוג של Flask. **אין להפעיל בפרודקשן**
+     - לא
+     - ריק (כבוי)
+     - ``1``
+     - WebApp
+   * - ``FLASK_ENV``
+     - סביבת Flask (``development``/``production``); משפיע יחד עם ``FLASK_DEBUG``
+     - לא
+     - ריק
+     - ``development``
+     - WebApp
+   * - ``MONGO_URI``
+     - חיבור מונגו לסקריפט ההתקנה של הסימניות (``setup_bookmarks.py``) בלבד
+     - לא
+     - ריק
+     - ``mongodb://localhost:27017``
+     - Scripts
+   * - ``MONGO_DB_NAME``
+     - שם מסד הנתונים לסקריפט ההתקנה של הסימניות (``setup_bookmarks.py``) בלבד
+     - לא
+     - ריק
+     - ``code_keeper_bot``
+     - Scripts
 
 דוגמאות קונפיגורציה
 --------------------

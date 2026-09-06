@@ -71,8 +71,12 @@ ENV_NAME_RE = re.compile(r"[A-Z][A-Z0-9_]{2,}")
 #: מופע ``VAR`` בתוך התיעוד — כך מזוהה משתנה שכבר יש לו תיאור כתוב.
 DOC_MENTION_RE = re.compile(r"``([A-Z][A-Z0-9_]{2,})``")
 
-#: שורה בטבלת התיעוד המרכזית (``* - ``VAR``` בתחילת רשומה).
-DOC_ROW_RE = re.compile(r"^\s*\*\s+-\s+``([A-Z][A-Z0-9_]{2,})``\s*$", re.MULTILINE)
+#: שורת פתיחה של רשומה בטבלת התיעוד. התיעוד מתעד לעיתים כמה שמות באותה שורה
+#: (``A`` / ``B``), ולכן נאספים כל השמות שבשורה ולא רק הראשון.
+DOC_ROW_RE = re.compile(r"^\s*\*\s+-\s+((?:``[A-Z][A-Z0-9_]{2,}``[\s/,]*)+)$", re.MULTILINE)
+
+#: שם חלופי שמתועד בתוך התיאור של המשתנה הראשי, במקום בשורה משלו.
+DOC_ALIAS_RE = re.compile(r"(?:Alias נתמך|שם חלופי נתמך)[^\n]*?``([A-Z][A-Z0-9_]{2,})``")
 
 
 def iter_python_files() -> Iterable[Path]:
@@ -315,7 +319,11 @@ def _documented() -> Tuple[Set[str], Set[str]]:
         text = ENV_DOC_FILE.read_text(encoding="utf-8")
     except OSError:
         return set(), set()
-    return set(DOC_MENTION_RE.findall(text)), set(DOC_ROW_RE.findall(text))
+    tabled: Set[str] = set()
+    for row in DOC_ROW_RE.findall(text):
+        tabled.update(DOC_MENTION_RE.findall(row))
+    tabled.update(DOC_ALIAS_RE.findall(text))
+    return set(DOC_MENTION_RE.findall(text)), tabled
 
 
 def build_report() -> Dict[str, Any]:
