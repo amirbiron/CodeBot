@@ -137,6 +137,88 @@ ALLOWED_SCHEMES = ("https",)
 CIRCUIT_SERVICE = "posthog"
 
 
+# --- ניקוי הודעת ולידציה של Pydantic ---
+#
+# ההודעה הגולמית בנויה כך (**נמדד** על ``pydantic 2.12.3``, לא נזכר — הרינדור
+# עצמו הוא ב-Rust ב-``pydantic_core`` ואין קוד פייתון לקרוא):
+#
+#   1 validation error for get_fileArguments      ← כותרת
+#   lines.1                                       ← מיקום השדה
+#     Input should be a valid integer [type=int_type, input_value='9', ...]
+#       For further information visit https://errors.pydantic.dev/2.12/v/int_type
+#
+# בטבלה שלוש מתוך ארבע השורות האלה הן רעש: הכותרת נושאת את שם הכלי, שכבר יש
+# לו עמודה משלו; ושורת ה-``For further information`` היא קישור לתיעוד של
+# Pydantic, זהה בכל שגיאה מאותו סוג.
+#
+# **הפירסור פייל-סייף.** מה שאינו נראה כמו הודעת Pydantic מוחזר **כפי שהוא**,
+# בלי לגעת. זה חשוב יותר מהניקוי עצמו: מאז שהשער נפתח לכל סוגי השגיאות,
+# ההודעה כאן יכולה להיות של כל ספרייה — וקיצור שמנחש פורמט היה מוחק דווקא את
+# מה שאי אפשר לאבחן בלעדיו.
+_PYDANTIC_HEADER = re.compile(r"^\d+ validation errors? for \S+$")
+_PYDANTIC_DOCS_LINE = re.compile(r"^\s+For further information visit https?://\S+$")
+#: פיצול השורות עובר דרך התבנית הזו ולא דרך ``split("\n")``: הודעה שהגיעה עם
+#: ``\r\n`` הייתה משאירה ``\r`` בסוף כל שורה, ואז ``$`` בתבנית של שורת התיעוד
+#: אינו תופס — והקישור לתיעוד של Pydantic היה שורד בתא. ``splitlines()`` היה
+#: פותר גם את זה, אבל הוא מפצל גם על ``\x0b``, ``\u2028`` ותווים נוספים
+#: שיכולים לשבת בתוך ``input_value`` ולפצל שורת פירוט לשתיים.
+_LINE_BREAK = re.compile(r"\r\n|\r|\n")
+#: ``type=`` מוסר מהסוגריים — ההודעה עצמה ("Input should be a valid integer")
+#: כבר אומרת את אותו דבר במילים. ``input_value`` ו-``input_type`` נשארים: הם
+#: מה שמפריד בין "הסוכן טעה" ל"הסכימה לא ברורה".
+#:
+#: **תבנית אחת, ולא שתיים.** מה שמגן כאן הוא שהתאמה נעשית שמאלית-ראשונה:
+#: קבוצת הסוגריים שמעניינת אותנו היא הראשונה בשורה, ולכן ``[type=...]``
+#: שיושב **בתוך** הערך שנדחה לעולם אינו נתפס במקומה. הניסיון הקודם פיצל את
+#: זה לשתי פעולות — הסרה של ``[type=X]`` שלם ואז ``.replace("[]", "")``
+#: לסוגריים שנשארו ריקות — ושתיהן החטיאו: הראשונה דילגה על הקבוצה האמיתית
+#: (שאחרי ``type`` יש בה פסיק) ונחתה על זו שבתוך הערך, והשנייה מחקה גם
+#: ``input_value=[]`` והפכה אותו ל-``input_value=``.
+_PYDANTIC_BRACKETS = re.compile(r"\s*\[type=[^,\]]+(?:,\s*(?P<rest>.*))?\]")
+
+
+def _strip_error_type(detail: str) -> str:
+    """מסיר את ``type=`` מקבוצת הסוגריים, ומוחק אותה כשלא נשאר בה דבר."""
+
+    def replace(match: "re.Match[str]") -> str:
+        rest = match.group("rest")
+        return f" [{rest}]" if rest else ""
+
+    return _PYDANTIC_BRACKETS.sub(replace, detail, count=1).strip()
+
+
+def summarize_validation_message(message: Any) -> Any:
+    """מקצר הודעת ולידציה של Pydantic לשורה אחת לכל שגיאה.
+
+    ``lines.1 · Input should be a valid integer [input_value='9', input_type=str]``
+
+    **מחזיר את הקלט כפי שהוא** כשהוא אינו מחרוזת, כשאין לו כותרת של Pydantic,
+    או כשהמבנה אינו כצפוי. הכלל הזה הוא העיקר: הפונקציה מסירה רעש מוכר ואינה
+    מנחשת. הודעה של ספרייה אחרת — pymongo, שגיאת מערכת — עוברת שלמה.
+    """
+    if not isinstance(message, str):
+        return message
+    lines = _LINE_BREAK.split(message)
+    if not lines or not _PYDANTIC_HEADER.match(lines[0].strip()):
+        return message
+
+    out: list[str] = []
+    location: str | None = None
+    for line in lines[1:]:
+        if not line.strip() or _PYDANTIC_DOCS_LINE.match(line):
+            continue
+        if line[:1].strip():
+            # שורה בלי הזחה — זה המיקום של השדה שנדחה.
+            location = line.strip()
+            continue
+        detail = _strip_error_type(line.strip())
+        out.append(f"{location} · {detail}" if location else detail)
+        location = None
+
+    # לא הצלחנו לחלץ ולו שורה אחת — עדיף המקור המלא מאשר תא ריק.
+    return "\n".join(out) if out else message
+
+
 @dataclass
 class EndpointResult:
     """תוצאה של קריאה אחת לאנדפוינט PostHog.

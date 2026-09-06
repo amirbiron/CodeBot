@@ -781,3 +781,165 @@ def test_a_clean_host_is_still_accepted(monkeypatch, configured):
 
     assert not isinstance(config, EndpointResult)
     assert config.host == "https://us.posthog.com"
+
+
+# --------------------------------------------------------------------------
+# ניקוי הודעת הוולידציה
+#
+# המבנה של ההודעה נמדד על ``pydantic 2.12.3`` (הרינדור הוא ב-Rust, אין קוד
+# פייתון לקרוא). המחרוזות כאן הן פלט אמיתי שנוצר מהרצה, לא נוסח מהזיכרון.
+# --------------------------------------------------------------------------
+
+_REAL_MESSAGE = (
+    "1 validation error for get_fileArguments\n"
+    "lines.1\n"
+    "  Input should be a valid integer [type=int_type, input_value='9', input_type=str]\n"
+    "    For further information visit https://errors.pydantic.dev/2.12/v/int_type"
+)
+
+
+def test_a_validation_message_becomes_one_readable_line():
+    out = mcp.summarize_validation_message(_REAL_MESSAGE)
+
+    assert out == "lines.1 · Input should be a valid integer [input_value='9', input_type=str]"
+    # שלושת מקורות הרעש נעלמו: הכותרת, ההזחה, והקישור לתיעוד של Pydantic.
+    assert "validation error for" not in out
+    assert "errors.pydantic.dev" not in out
+    assert "type=int_type" not in out
+    # ומה שמאבחן נשאר: איזה שדה, ומה הוא קיבל.
+    assert "lines.1" in out
+    assert "input_value='9'" in out
+
+
+def test_several_errors_become_one_line_each():
+    message = (
+        "2 validation errors for Args\n"
+        "repo\n"
+        "  Field required [type=missing, input_value={}, input_type=dict]\n"
+        "    For further information visit https://errors.pydantic.dev/2.12/v/missing\n"
+        "path\n"
+        "  Field required [type=missing, input_value={}, input_type=dict]\n"
+        "    For further information visit https://errors.pydantic.dev/2.12/v/missing"
+    )
+
+    out = mcp.summarize_validation_message(message)
+
+    assert out.split("\n") == [
+        "repo · Field required [input_value={}, input_type=dict]",
+        "path · Field required [input_value={}, input_type=dict]",
+    ]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        # הודעה של ספרייה אחרת. מאז שהשער נפתח לכל סוגי השגיאות זה המקרה
+        # השכיח, ודווקא כאן קיצור שמנחש פורמט היה מוחק את מה שמאבחן.
+        "mongo query failed for notes.py",
+        "unauthenticated",
+        # כותרת בלי גוף, וכותרת עם שורה לא צפויה — שתיהן חוזרות שלמות.
+        "1 validation error for Args",
+        "1 validation error for Args\n???",
+        "",
+    ],
+)
+def test_anything_that_is_not_a_pydantic_message_comes_back_untouched(message):
+    """**הכלל שחשוב יותר מהניקוי עצמו.** הפונקציה מסירה רעש מוכר ואינה מנחשת."""
+    assert mcp.summarize_validation_message(message) == message
+
+
+@pytest.mark.parametrize("value", [None, 42, {"a": 1}, ["x"]])
+def test_a_non_string_passes_through_without_raising(value):
+    """התא בטבלה יכול להיות ריק (``None``) — הפילטר רץ לפני ``nv()``."""
+    assert mcp.summarize_validation_message(value) == value
+
+
+def test_the_summary_never_invents_content_that_was_not_in_the_message():
+    """הפונקציה **מסירה** בלבד; היא לא כותבת טקסט משלה.
+
+    הבדיקה על אסימוני תוכן (אותיות/ספרות) ולא על "מילים" מופרדות ברווח, כי
+    הפונקציה כן מרכיבה מחדש סימן פיסוק אחד: כשהיא מוחקת ``type=int_type,``
+    היא סוגרת את הסוגר המרובע בחזרה. גרסה מוקדמת של הטסט הזה נכשלה בדיוק על
+    כך — היא בדקה ברזולוציה שאינה מתארת את מה שהפונקציה מבטיחה.
+    """
+    import re as _re
+
+    out = mcp.summarize_validation_message(_REAL_MESSAGE)
+
+    for token in _re.findall(r"[\w.']+", out):
+        assert token in _REAL_MESSAGE, token
+
+
+def test_line_endings_do_not_change_the_summary():
+    """אותה הודעה בדיוק, בשלוש צורות של סוף שורה, חייבת לתת אותו פלט.
+
+    ``split("\\n")`` השאיר ``\\r`` בסוף כל שורה, ואז התבנית של שורת התיעוד —
+    שנגמרת ב-``$`` — כבר לא תפסה, והקישור לתיעוד של Pydantic שרד בתא.
+    """
+    body = (
+        "1 validation error for get_repo_fileArguments{nl}"
+        "lines.1{nl}"
+        "  Input should be a valid integer "
+        "[type=int_parsing, input_value='9', input_type=str]{nl}"
+        "    For further information visit "
+        "https://errors.pydantic.dev/2.12/v/int_parsing{nl}"
+    )
+    expected = "lines.1 · Input should be a valid integer [input_value='9', input_type=str]"
+
+    for newline in ("\n", "\r\n", "\r"):
+        assert mcp.summarize_validation_message(body.format(nl=newline)) == expected, newline
+
+
+@pytest.mark.parametrize(
+    "rendered, kept",
+    [
+        ("input_value=[], input_type=list", "input_value=[]"),
+        ("input_value={}, input_type=dict", "input_value={}"),
+        ("input_value=[[]], input_type=list", "input_value=[[]]"),
+    ],
+)
+def test_brackets_inside_the_rejected_value_survive(rendered, kept):
+    """הערך שנדחה הוא חצי מהאבחון, וסוגריים ריקות הן ערך ולא רעש.
+
+    הניקוי של ``type=`` הותיר קודם ``[]`` תלושות כשזה היה השדה היחיד,
+    ומחיקה גורפת שלהן אכלה גם ``input_value=[]`` — כלומר מחקה בדיוק את
+    מה שמפריד בין "הסוכן שלח רשימה ריקה" ל"הסוכן לא שלח כלום".
+    """
+    message = (
+        "1 validation error for get_fileArguments\n"
+        "name\n"
+        f"  Input should be a valid string [type=string_type, {rendered}]\n"
+    )
+
+    assert kept in mcp.summarize_validation_message(message)
+
+
+def test_a_lone_type_field_leaves_no_empty_brackets_behind():
+    """התמונה ההפוכה: כשאין מה לשמור בסוגריים, הן נעלמות לגמרי."""
+    message = (
+        "1 validation error for get_fileArguments\n"
+        "name\n"
+        "  Field required [type=missing]\n"
+    )
+
+    assert mcp.summarize_validation_message(message) == "name · Field required"
+
+
+def test_a_type_field_inside_the_rejected_value_is_not_mistaken_for_noise():
+    """הרעש יושב בסוף השורה, ולכן רק שם מותר לגעת.
+
+    ערך שנדחה יכול להכיל בעצמו ``[type=...]`` — סוכן ששלח מחרוזת כזו.
+    תבנית לא מעוגנת הייתה מוחקת דווקא אותו ומשאירה את הרעש האמיתי, כלומר
+    מחזירה את אותו באג מכיוון הפוך.
+    """
+    message = (
+        "1 validation error for get_fileArguments\n"
+        "name\n"
+        "  Input should be a valid string "
+        "[type=string_type, input_value='[type=z]', input_type=str]\n"
+    )
+
+    summary = mcp.summarize_validation_message(message)
+
+    assert "input_value='[type=z]'" in summary, summary
+    assert "string_type" not in summary, summary
