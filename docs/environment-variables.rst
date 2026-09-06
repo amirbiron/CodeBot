@@ -1994,6 +1994,30 @@
      - ``false``
      - ``true``
      - Bot
+   * - ``DISABLE_ALERTS_READS``
+     - עוצר גם את קריאת ההתראות מהמונגו. בלעדיו הקריאה נשארת פעילה גם כשהכתיבה מושבתת, כדי שדשבורד ה-Observability יציג היסטוריה
+     - לא
+     - ריק (קריאה פעילה)
+     - ``true``
+     - Bot/WebApp/Webserver
+   * - ``DISABLE_METRICS_WRITES``
+     - עוצר מיידית כתיבת מדדים למונגו, גם כאשר ``METRICS_DB_ENABLED`` דלוק
+     - לא
+     - ריק (לא חוסם)
+     - ``true``
+     - Bot/WebApp/Webserver
+   * - ``DISABLE_METRICS_READS``
+     - עוצר קריאת מדדים מהמונגו
+     - לא
+     - ריק (לא חוסם)
+     - ``true``
+     - Bot/WebApp/Webserver
+   * - ``DISABLE_STARTUP_WARMUP``
+     - מכבה את חימום ה-Observability בעליית הוובאפ, כדי להוריד עומס מה-DB. **כבוי כברירת מחדל** — ``false`` מפעיל את החימום
+     - לא
+     - ``true``
+     - ``false``
+     - WebApp
    * - ``DUMMY_BOT_TOKEN``
      - טוקן בדיקה שמשמש סביבות שבהן אין צורך להתחבר לטלגרם (למשל docs build).
      - לא
