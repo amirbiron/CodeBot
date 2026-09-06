@@ -2,7 +2,16 @@
 
 {% block title %}Query Performance Profiler{% endblock %}
 
+{% block extra_css %}
+{# הטוסט המשותף. אותה טעינה בדיוק כמו ב-settings.html:7 — ה-CSS הזה הוא
+   התלות של ``window.ckToast``, ובלעדיו הצומת נוצר אבל אינו נראה. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}?v={{ static_version }}">
+{% endblock %}
+
 {% block content %}
+{# מגדיר ``window.ckToast``. defer מספיק: הקריאה קורית רק בלחיצה של המשתמש,
+   הרבה אחרי ש-defer סיים. #}
+<script defer src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
 <h1 class="page-title">🐢 Query Performance Profiler</h1>
 
 <!-- סיכום מצב -->
@@ -104,7 +113,14 @@
 <!-- תוצאות הניתוח -->
 <div id="analysis-results" style="display:none; gap: 1rem;">
   <div class="glass-card" style="flex: 1; margin-bottom: 1rem;">
-    <h2 class="section-title">📊 Explain Plan</h2>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap;">
+      <h2 class="section-title" style="margin:0;">📊 Explain Plan</h2>
+      <button class="btn btn-secondary btn-icon" type="button" onclick="copyAnalysisReport(this)"
+              title="מעתיק דוח מסודר בפורמט Markdown, מוכן להדבקה ל-AI">
+        <i class="fas fa-copy"></i>
+        העתק דוח ל-AI
+      </button>
+    </div>
     <div id="explain-plan-visual"></div>
     <div id="explain-stats" style="margin-top: 1rem;"></div>
   </div>
@@ -300,6 +316,234 @@
     analyzeQuery();
   }
 
+  //: מה שהניתוח האחרון החזיר, יחד עם מה שביקשנו. ``null`` עד לניתוח הראשון.
+  let lastAnalysis = null;
+
+  /**
+   * חיווי למשתמש דרך הטוסט המשותף (``static/js/toast.js``).
+   *
+   * **בודקים את ערך ההחזרה, כמו שהמודול דורש במפורש:** ``ckToast`` מחזיר
+   * ``false`` כשהוא לא הצליח להיכנס ל-DOM. טוסט הוא ערוץ הדיווח היחיד
+   * כאן, ואם הוא לא הוצג — צריך ליפול למשהו שכן ייראה. ``typeof`` נבדק
+   * בנפרד כי הקובץ נטען ב-``defer`` ועלול לא להיטען כלל.
+   */
+  function showCopyToast(message = 'הועתק ללוח!', type = 'success') {
+    if (typeof window.ckToast === 'function'
+        && window.ckToast(message, type, { key: 'profiler-copy' })) {
+      return;
+    }
+    alert(message);
+  }
+
+  function describeStage(stage, depth) {
+    // תוכנית הביצוע היא עץ (input_stage + children). משטחים אותו לרשימה
+    // עם הזחה, כי זה מה שקריא בטקסט שמודבק לצ'אט.
+    if (!stage) return [];
+    const pad = '  '.repeat(depth);
+    const bits = [stage.stage];
+    if (stage.index_name) bits.push(`index=${stage.index_name}`);
+    if (stage.direction) bits.push(`direction=${stage.direction}`);
+    let lines = [`${pad}- ${bits.join(' · ')}`];
+    lines = lines.concat(describeStage(stage.input_stage, depth + 1));
+    (stage.children || []).forEach(child => {
+      lines = lines.concat(describeStage(child, depth + 1));
+    });
+    return lines;
+  }
+
+  /**
+   * גדר קוד שארוכה מכל רצף גרשיים אחוריים שקיים בתוכן.
+   *
+   * **CommonMark 0.31.2:** גדר פותחת היא "a sequence of at least three
+   * consecutive backtick characters", והסוגרת "must be at least as long as
+   * the opening fence". לכן תוכן שמכיל ``` שובר בלוק שנפתח ב-```, והבלוקים
+   * כאן נושאים שם collection ושמות שדות **שהמשתמש הקליד בטופס**.
+   *
+   * הפתרון שהתקן עצמו נותן הוא גדר ארוכה יותר — לא בריחה מתווים ולא סינון.
+   * התוכן נשאר בדיוק כפי שהוא, וזה חשוב: זה קוד שמדביקים ומריצים.
+   */
+  function codeFence(content) {
+    let longest = 0;
+    (String(content).match(/`+/g) || []).forEach(run => {
+      if (run.length > longest) longest = run.length;
+    });
+    return '`'.repeat(Math.max(3, longest + 1));
+  }
+
+  /**
+   * קוד בשורה שעמיד לגרשיים אחוריים בתוכן.
+   *
+   * אותו כלל בגרסת code span: התוחם הוא רצף גרשיים, והסוגר חייב להיות באותו
+   * אורך — ולכן תוחם ארוך מכל רצף פנימי סוגר נכון. תוכן שמתחיל או מסתיים
+   * בגרש אחורי מקבל רווח מרפד, כי התקן מסיר רווח אחד מכל צד כשיש בשניהם.
+   *
+   * רווחים לבנים מקופלים לרווח יחיד: code span אינו יכול להכיל שורה חדשה,
+   * וזה השינוי היחיד שנעשה בתוכן.
+   */
+  function inlineCode(value) {
+    const text = String(value == null ? '' : value).replace(/\s+/g, ' ');
+    let longest = 0;
+    (text.match(/`+/g) || []).forEach(run => {
+      if (run.length > longest) longest = run.length;
+    });
+    const delim = '`'.repeat(longest + 1);
+    const pad = (text.startsWith('`') || text.endsWith('`')) ? ' ' : '';
+    return delim + pad + text + pad + delim;
+  }
+
+  /** מקפל שורות חדשות לרווח, כדי ששדה טקסט לא ישבור תבליט או כותרת. */
+  function oneLine(value) {
+    return String(value == null ? '' : value).replace(/\s*\r?\n\s*/g, ' ').trim();
+  }
+
+  function buildAnalysisReport(snapshot) {
+    const payload = snapshot.payload || {};
+    const data = snapshot.data || {};
+    const isAggregate = Boolean(data.aggregation_explain);
+    const explain = isAggregate ? data.aggregation_explain : (data.explain || {});
+    const recommendations = data.recommendations || [];
+    const lines = [];
+
+    // רמת הפירוט **שנשלחה בבקשה**. השרת אינו מחזיר אותה (ל-``ExplainPlan``
+    // אין שדה כזה), והוא גם לא מחליף אותה בשקט: verbosity לא חוקי זורק
+    // ``ExplainVerbosityError`` ולא נופל לברירת מחדל. לכן זה מה שבאמת רץ.
+    const verbosity = payload.verbosity || 'queryPlanner';
+
+    /**
+     * המשפט שמסביר למה אין מספרים — **נגזר מה-verbosity, לא מהיעדר המספרים.**
+     *
+     * ``queryPlanner`` באמת אינה מריצה כלום, ולכן "לא נמדד" נכון שם. אבל
+     * ``executionStats`` שהחזירה אפס כן מדדה, וקריאת ההיעדר כ"רץ
+     * ב-queryPlanner" הייתה טענה שקרית — בדוח שכל מטרתו לומר מה נמדד.
+     */
+    function notMeasuredNote(what) {
+      return [
+        `- **אין מדידה.** הניתוח רץ ב-${inlineCode('queryPlanner')}, שאינו מריץ את ${what}.`,
+        '  אין להסיק מהיעדר המספרים שהשאילתה מהירה — פשוט לא נמדדה.',
+      ];
+    }
+
+    lines.push('# ניתוח שאילתה איטית — CodeKeeper Query Profiler');
+    lines.push('');
+    lines.push(`- **Collection:** ${inlineCode(explain.collection || payload.collection || 'לא ידוע')}`);
+    lines.push(`- **סוג פעולה:** ${isAggregate ? 'aggregate' : 'find'}`);
+    lines.push(`- **Explain verbosity:** ${inlineCode(verbosity)}`);
+    lines.push(`- **זמן הניתוח:** ${snapshot.at}`);
+    lines.push('');
+    lines.push('> ערכי השאילתה מנורמלים ל-`<value>` בצד השרת לפני שהם מגיעים לכאן, ולכן אין בדוח נתונים אישיים.');
+    lines.push('');
+
+    lines.push(isAggregate ? '## הפייפליין' : '## צורת השאילתה');
+    const shapeJson = JSON.stringify(
+      isAggregate ? (explain.pipeline_shape || []) : (explain.query_shape || {}), null, 2);
+    const shapeFence = codeFence(shapeJson);
+    lines.push(shapeFence + 'json');
+    lines.push(shapeJson);
+    lines.push(shapeFence);
+    lines.push('');
+
+    lines.push('## תוכנית הביצוע');
+    if (isAggregate) {
+      const stages = explain.stages || [];
+      if (!stages.length) {
+        lines.push('_מונגו לא החזירה שלבים עבור הפייפליין הזה._');
+      } else {
+        stages.forEach(st => {
+          const bits = [st.stage_name];
+          if (st.index_used) bits.push(`index=${st.index_used}`);
+          if (st.lookup_collection) bits.push(`lookup=${st.lookup_collection}`);
+          if (st.lookup_strategy) bits.push(`strategy=${st.lookup_strategy}`);
+          if (st.uses_disk) bits.push('⚠️ uses_disk');
+          lines.push(`- ${bits.join(' · ')}`);
+        });
+      }
+    } else {
+      const planLines = describeStage(explain.winning_plan, 0);
+      lines.push(planLines.length ? planLines.join('\n') : '_אין תוכנית ביצוע בתשובה._');
+    }
+    lines.push('');
+
+    lines.push('## סטטיסטיקות ביצוע');
+    const stats = explain.stats;
+    if (isAggregate) {
+      const total = Number(explain.total_execution_time_ms || 0);
+      if (verbosity === 'queryPlanner') {
+        lines.push(...notMeasuredNote('הפייפליין'));
+      } else if (total > 0) {
+        lines.push(`- זמן כולל: ${total.toFixed(2)} ms`);
+      } else {
+        // ``total_execution_time_ms`` הוא סכום זמני השלבים
+        // (``query_profiler_service.py:975``). ברמה שמודדת, סכום 0 הוא
+        // תוצאה ולא היעדר תוצאה — ושתי הקריאות שלו לגיטימיות.
+        lines.push(`- זמן כולל: 0.00 ms (רץ ב-\`${verbosity}\`)`);
+        lines.push('  סכום זמני השלבים הוא אפס: או שהפייפליין מהיר מפחות ממילישנייה, או שמונגו לא החזירה זמנים לשלבים. **זו מדידה, לא היעדר מדידה.**');
+      }
+    } else if (stats) {
+      lines.push(`- זמן ביצוע: ${stats.execution_time_ms} ms`);
+      lines.push(`- מסמכים שנסרקו: ${stats.docs_examined}`);
+      lines.push(`- מסמכים שהוחזרו: ${stats.docs_returned}`);
+      lines.push(`- מפתחות שנסרקו: ${stats.keys_examined}`);
+      lines.push(`- אינדקס בשימוש: ${stats.index_used || 'אין'}`);
+      lines.push(`- Covered query: ${stats.is_covered_query ? 'כן' : 'לא'}`);
+      lines.push(`- יחס יעילות: ${(Number(stats.efficiency_ratio || 0) * 100).toFixed(1)}%`);
+    } else {
+      lines.push(...notMeasuredNote('השאילתה'));
+    }
+    lines.push('');
+
+    lines.push('## המלצות');
+    if (!recommendations.length) {
+      lines.push('_לא נמצאו המלצות._');
+    } else {
+      recommendations.forEach(rec => {
+        lines.push(`### ${oneLine(rec.title)} (${oneLine(rec.severity)})`);
+        if (rec.description) lines.push(oneLine(rec.description));
+        if (rec.suggested_action) lines.push(`- **פעולה מוצעת:** ${oneLine(rec.suggested_action)}`);
+        if (rec.estimated_improvement) lines.push(`- **שיפור צפוי:** ${oneLine(rec.estimated_improvement)}`);
+        if (rec.code_example) {
+          // דוגמת הקוד נבנית בשרת משמות השדות שהמשתמש הקליד
+          // (``_create_collscan_recommendation``), ולכן היא יכולה לשאת גרש אחורי.
+          const exampleFence = codeFence(rec.code_example);
+          lines.push(exampleFence + 'javascript');
+          lines.push(String(rec.code_example));
+          lines.push(exampleFence);
+        }
+        lines.push('');
+      });
+    }
+
+    return lines.join('\n');
+  }
+
+  async function copyAnalysisReport(button) {
+    if (!lastAnalysis) {
+      showCopyToast('אין עדיין תוצאות להעתקה', 'warning');
+      return;
+    }
+    const text = buildAnalysisReport(lastAnalysis);
+    const icon = button ? button.querySelector('i') : null;
+    try {
+      // מגן ל-context לא מאובטח (HTTP), כמו ב-static/js/collections.js:
+      // ב-HTTP רגיל ``navigator.clipboard`` פשוט אינו קיים.
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        throw new Error('clipboard_unavailable');
+      }
+      await navigator.clipboard.writeText(text);
+      if (icon) {
+        button.classList.add('copied');
+        icon.className = 'fas fa-check';
+        setTimeout(() => { button.classList.remove('copied'); icon.className = 'fas fa-copy'; }, 1500);
+      }
+      showCopyToast();
+    } catch (err) {
+      console.error('Copy failed:', err);
+      // נפילה אחורה: מציגים את הטקסט כדי שאפשר יהיה להעתיק ידנית,
+      // במקום להשאיר את המשתמש בלי כלום.
+      window.prompt('העתק את הדוח:', text);
+      showCopyToast('העתקה אוטומטית נכשלה', 'error');
+    }
+  }
+
   async function analyzeQuery() {
     const collection = document.getElementById('analyze-collection').value;
     const operation = document.getElementById('analyze-operation').value;
@@ -348,6 +592,9 @@
       if (result.status === 'success') {
         document.getElementById('analysis-results').style.display = 'flex';
         const data = result.data || {};
+        // שומרים את הקלט יחד עם התוצאה: בלי זה אי אפשר לבנות דוח, כי הדוח
+        // חייב לכלול את מה שביקשנו (collection, verbosity) ולא רק מה שחזר.
+        lastAnalysis = { payload: payload, data: data, at: new Date().toISOString() };
         if (data.aggregation_explain) {
           renderAggregationPipeline(data.aggregation_explain);
           renderAggregationStats(data.aggregation_explain);
