@@ -9596,9 +9596,14 @@ def api_search_global():
         except Exception:
             page = 1
         try:
-            limit = min(100, max(1, int(payload.get('limit') or 20)))
+            # 10 ולא 20: תואם ל-``DEFAULT_RESULTS_PER_PAGE`` ב-
+            # ``webapp/static/js/global_search.js`` ול-``selected`` שב-
+            # ``files.html``. הלקוח תמיד שולח ``limit``, ולכן זו נפילה-לאחור
+            # בלבד — אבל ברירת מחדל שאינה תואמת הייתה מחזירה 20 למי שקורא
+            # ל-API ישירות בזמן שהמסך מבטיח 10.
+            limit = min(100, max(1, int(payload.get('limit') or 10)))
         except Exception:
-            limit = 20
+            limit = 10
 
         # Redis-backed dynamic cache key
         should_cache = getattr(cache, 'is_enabled', False)
