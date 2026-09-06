@@ -243,6 +243,7 @@
 
     queries.forEach(query => {
       const row = document.createElement('tr');
+      row.dataset.queryId = String(query.query_id || '');
       const shape = JSON.stringify(query.query_shape || {});
       const timeMs = Number(query.execution_time_ms || 0);
       const timeStyle = timeMs > 1000 ? 'color:#dc3545; font-weight:700;' : '';
@@ -261,27 +262,78 @@
       const actionsTd = document.createElement('td');
       actionsTd.style.padding = '.6rem';
 
+      // ``query_raw`` קיים רק לשאילתות שזוהו בוודאות כשל משתמש מורשה
+      // (``PROFILER_UNREDACTED_USER_IDS``). איתו הניתוח רץ על הערכים
+      // האמיתיים ומחזיר תוצאות; על השלד ``<value>`` הוא מחזיר אפס.
+      const hasRaw = Boolean(query.query_raw) && typeof query.query_raw === 'object';
+
       // מציגים כפתור רק אם הפעולה רלוונטית לניתוח
       if (['find', 'aggregate', 'count'].includes(query.operation)) {
           const btn = document.createElement('button');
           btn.className = 'btn btn-secondary';
           btn.type = 'button';
-          btn.textContent = '🔍 נתח';
-          
+          btn.textContent = hasRaw ? '🔍 נתח (ערכים אמיתיים)' : '🔍 נתח';
+          btn.dataset.analyzeWith = hasRaw ? 'raw' : 'shape';
+
           // כאן אנחנו מעבירים את האובייקט ישירות לפונקציה, בלי לעבור דרך HTML String
           btn.onclick = function() {
-              analyzeQueryFromRow(query.collection, query.operation, query.query_shape || {});
+              analyzeQueryFromRow(
+                query.collection, query.operation,
+                hasRaw ? query.query_raw : (query.query_shape || {})
+              );
           };
-          
+
           actionsTd.appendChild(btn);
       } else {
-          // עבור insert/update וכו'
+          // עבור insert/update וכו' — ה-explain אינו מנתח אותן, ולכן אין כפתור.
           actionsTd.innerHTML = '<span style="opacity:0.5">-</span>';
+      }
+
+      // ברירה בטוחה חייבת להיות גלויה **בכל שורה**, גם בשורה בלי כפתור.
+      // הסיבה עונה על "למה אין כאן ערכים אמיתיים", והיא נכונה באותה מידה
+      // ל-``update``/``delete`` — גם הם עוברים את אותה החלטה, כי מה שנקלט
+      // מהם הוא הפילטר (``database/manager.py``). קודם הבלוק הזה ישב בתוך
+      // תנאי הכפתור, ולכן נעלם דווקא בשורות שאין בהן שום רמז אחר.
+      if (!hasRaw && query.raw_withheld_reason) {
+        const note = document.createElement('div');
+        note.dataset.testid = 'raw-withheld';
+        note.style.cssText = 'font-size:.8rem; opacity:.75; margin-top:.25rem;';
+        note.textContent = describeWithheldReason(query.raw_withheld_reason);
+        actionsTd.appendChild(note);
       }
 
       row.appendChild(actionsTd);
       tbody.appendChild(row);
     });
+  }
+
+  //: הסיבות ש-``raw_withheld_reason`` יכול לשאת (``services/query_profiler_service.py``).
+  //: שלוש הסיבות של ``unknown_*`` נושאות גם שם אחרי נקודתיים, והוא מוצג כפי שהוא.
+  const RAW_WITHHELD_TEXT = {
+    owner_missing: 'ערכים לא נשמרו: השאילתה לא מצהירה על בעלים',
+    owner_mismatch: 'ערכים לא נשמרו: השאילתה נוגעת במשתמש אחר',
+    vector_query: 'ערכים לא נשמרו: שאילתת וקטור',
+    too_large: 'ערכים לא נשמרו: חריגה מהגודל',
+    malformed: 'ערכים לא נשמרו: מבנה לא צפוי',
+    unsupported_number: 'ערכים לא נשמרו: מספר שאינו סופי (inf/NaN)',
+    owner_not_allowed_now: 'ערכים מוסתרים: המשתמש כבר אינו ברשימת ההחרגה',
+  };
+  const RAW_WITHHELD_NAMED = {
+    unknown_field: 'שדה לא מוכר',
+    unknown_operator: 'אופרטור לא מוכר',
+    unknown_stage: 'שלב לא מוכר',
+    unsupported_type: 'טיפוס שאינו ניתן להרצה חוזרת',
+    malformed_stage: 'ערך מבני לא תקין בשלב',
+  };
+
+  function describeWithheldReason(reason) {
+    const text = String(reason || '');
+    if (RAW_WITHHELD_TEXT[text]) return RAW_WITHHELD_TEXT[text];
+    const colon = text.indexOf(':');
+    if (colon > 0 && RAW_WITHHELD_NAMED[text.slice(0, colon)]) {
+      return `ערכים לא נשמרו: ${RAW_WITHHELD_NAMED[text.slice(0, colon)]} ${text.slice(colon + 1)}`;
+    }
+    return `ערכים לא נשמרו: ${text}`;
   }
 
   function analyzeQueryById(collection, queryShapeJson, operation) {
