@@ -122,6 +122,11 @@ def _hostile_intent(text):
         _NAV_ROWS_OVERRIDE = previous
 
 
+# ``_find_chromium`` ו-``live_server`` שלהלן מחזיקים כאן עותק משלהם, בניגוד
+# לשאר קבצי הדפדפן שמשתמשים ב-``chromium_executable``/``admin_live_server``
+# מ-``tests/conftest.py``. הסיבה: הפיקסצ'ר כאן מזייף את
+# ``get_mcp_analytics_service`` **לפני** שהשרת מתחיל להגיש בקשות, ולכן הוא
+# צריך שליטה על סדר ההקמה שהפיקסצ'ר המשותף אינו נותן.
 def _find_chromium():
     """מאתר Chromium מותקן. מחזיר ``None`` אם אין — הטסט ידולג."""
     from pathlib import Path

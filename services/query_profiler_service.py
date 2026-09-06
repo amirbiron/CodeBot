@@ -9,7 +9,8 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Deque, Dict, List, Optional
+from dataclasses import replace as _dc_replace
+from typing import Any, Deque, Dict, FrozenSet, List, Optional, Tuple
 
 try:
     # Structured logging events (fail-open)
@@ -119,6 +120,13 @@ class SlowQueryRecord:
     client_info: Optional[Dict[str, Any]] = None
     explain_plan: Optional[ExplainPlan] = None
     recommendations: List[OptimizationRecommendation] = field(default_factory=list)
+    #: הערכים האמיתיים — רק כשהשאילתה זוהתה בוודאות כשל משתמש מורשה. ראו
+    #: ``RAW_QUERY_OWNER_KEY`` והמסננים לידו.
+    query_raw: Optional[Dict[str, Any]] = None
+    #: בעל הערכים, כמחרוזת. נשמר כדי שהקריאה תוכל לבדוק מול הקונפיג **הנוכחי**.
+    raw_owner_id: Optional[str] = None
+    #: למה אין ערכים. ``None`` כשיש ערכים, וגם כשהפיצ'ר כבוי (רשימה ריקה).
+    raw_withheld_reason: Optional[str] = None
 
 
 class AggregationStage(Enum):
@@ -207,6 +215,348 @@ def _env_int(name: str, default: int) -> int:
         return int(float(raw))
     except Exception:
         return default
+
+
+# ---------------------------------------------------------------------------
+# החרגה מהצנזור: ``query_raw``
+#
+# כל שאילתה איטית נשמרת כ"שלד" — ``query_shape`` — שבו כל ערך הוחלף
+# ב-``<value>``. השלד הוא המזהה (``query_id``), הקיבוץ, התצוגה, והדוח שמודבק
+# ל-AI. ההגנה נכונה, אבל היא מעוורת גם את הצרכן היחיד שלא צריך אותה: האדמין
+# שמנתח את השאילתות של **עצמו** בדשבורד. לכן רשומה יכולה לשאת גם ``query_raw``
+# — הערכים האמיתיים — אבל רק כשהשאילתה זוהתה בוודאות כשל משתמש מורשה
+# (``PROFILER_UNREDACTED_USER_IDS``), וכשהיא קריאה מספיק כדי להועיל.
+#
+# שלושה מסננים, וכולם נכשלים **סגור** ו**בקול**: כל דחייה נרשמת
+# ב-``raw_withheld_reason`` והדשבורד מציג אותה. ברירה בטוחה שקטה היא באג —
+# מפתח לגיטימי חדש היה מכבה את הפיצ'ר בלי שאיש ידע.
+#
+# 1. בעלות: השאילתה חייבת **להצהיר** על בעלים — ``user_id`` ברמה העליונה או
+#    בתוך ``$and``, כשוויון או כ-``$in`` — וכל ``user_id`` שמופיע בשאילתה,
+#    **בכל שלב ובכל עומק**, חייב להיות ברשימה. ``$or`` שמכיל אותך ואחרים
+#    נדחה; ``$or`` לבדו אינו מגביל ולכן אינו מצהיר; ``$ne``/``$nin`` הם
+#    "כל השאר" — ההפך מהגבלה — ולעולם אינם מצהירים.
+# 2. רשימת שדות ואופרטורים מוכרים: כל מפתח אחר נדחה, והסיבה נוקבת בשמו.
+#    הרשימה נגזרה ממה שבאמת נרשם ב-``slow_queries_log`` בפרודקשן ומהסכימה
+#    של ``code_snippets``, לא ממה שנראה סביר.
+# 3. תועלת וגודל: ``$vectorSearch`` נדחה מלכתחילה — מאות מספרים אינם קריאים,
+#    לא עוזרים לניתוח, ומנפחים אוסף עם TTL. ותקרת גודל על ה-JSON, כי גם
+#    ``$in`` עם מאות מזהים הוא רשומה גדולה.
+#
+# **מה נשמר עם ערכים אמיתיים: תנאי סינון בלבד.** באגרגציה זה אומר שלבי
+# ``$match`` (בכל עומק), ובשאילתת ``find`` זה כל השאילתה — שם היא כולה סינון.
+# כל שאר השלבים נשארים בשלד המנורמל, כי גוף של ``$addFields``/``$group`` הוא
+# ביטוי שאין מולו רשימה שאפשר לאמת מולה. כך כל ערך שנשמר עבר ולידציה מלאה,
+# וזו תכונה של המבנה ולא הבטחה בהערה. ראו ``_raw_pipeline``.
+#
+# **איפה הערכים חיים.** ברשומה ב-``slow_queries_log`` (TTL של שבעה ימים),
+# ובנוסף ב-buffer שבזיכרון התהליך, החסום ב-``PROFILER_MAX_BUFFER_SIZE`` ומת
+# עם התהליך. **לא** בלוגים: שורת ``slow_query_detected`` ממשיכה לשאת את השלד,
+# כי הלוג עוזב לספק וה-DB לא. שני מסלולי הקריאה — מה-DB ומהזיכרון — מחילים
+# את ``_apply_raw_read_policy``, ולכן הקונפיג הוא הסמכות **הנוכחית** בשניהם:
+# רשומה שנכתבה עם ערכים מוסתרת ברגע שהמשתמש יורד מהרשימה.
+# ---------------------------------------------------------------------------
+
+#: המפתח שמזהה את בעל השאילתה.
+RAW_QUERY_OWNER_KEY = "user_id"
+
+#: שדות שמותר להם להופיע בשאילתה שנשמרת עם ערכים. נגזר מהשדות של
+#: ``code_snippets`` בפרודקשן וממה שנרשם ב-``slow_queries_log``.
+RAW_QUERY_ALLOWED_FIELDS: FrozenSet[str] = frozenset({
+    "user_id", "_id", "is_active", "file_name", "programming_language", "tags",
+    "description", "version", "created_at", "updated_at", "deleted_at",
+    "deleted_expires_at", "file_size", "lines_count", "is_favorite", "favorited_at",
+    "is_pinned", "pinned_at", "pin_order",
+})
+
+RAW_QUERY_LOGICAL_OPERATORS: FrozenSet[str] = frozenset({"$and", "$or", "$nor"})
+RAW_QUERY_TEXT_OPTIONS: FrozenSet[str] = frozenset(
+    {"$search", "$language", "$caseSensitive", "$diacriticSensitive"}
+)
+RAW_QUERY_ALLOWED_OPERATORS: FrozenSet[str] = frozenset({
+    "$eq", "$ne", "$gt", "$gte", "$lt", "$lte", "$in", "$nin", "$exists", "$regex",
+    "$options", "$elemMatch", "$size", "$all", "$not", "$type",
+})
+RAW_QUERY_ALLOWED_STAGES: FrozenSet[str] = frozenset({
+    "$match", "$sort", "$project", "$group", "$limit", "$skip", "$addFields", "$set",
+    "$unset", "$replaceRoot", "$replaceWith", "$count", "$unwind", "$lookup",
+    "$unionWith", "$facet", "$setWindowFields", "$sample", "$sortByCount",
+})
+#: ``$search`` (Atlas Search) אינו ברשימה בכוונה. הוא **כן** קיים בריפו —
+#: ב-``search_engine._build_hybrid_search_pipeline``, בתוך ``$unionWith`` —
+#: אבל הבעלות שם נכתבת כ-``{"equals": {"path": "userId", "value": ...}}``,
+#: תחביר שסריקת הבעלות כאן אינה יודעת לקרוא, ועל שדה בשם אחר (``userId``).
+#: הפייפליין ההיברידי נדחה ממילא כ-``vector_query`` (הוא פותח ב-``$vectorSearch``),
+#: ופייפליין שיפתח ב-``$search`` לבדו יידחה כ-``owner_missing`` — שניהם
+#: נכשלים סגור. הרחבה תהיה אפשרית אם וכאשר יהיה מופע אמיתי לאמת מולו.
+#: (חמשת המופעים האחרים של ``$search`` בריפו הם **האופציה** ``$search`` שבתוך
+#: אופרטור ``$text``, דבר אחר לגמרי, והיא מטופלת ב-``RAW_QUERY_TEXT_OPTIONS``.)
+RAW_QUERY_VECTOR_STAGES: FrozenSet[str] = frozenset({"$vectorSearch"})
+
+#: תקרת גודל ל-``query_raw`` בבייטים (JSON). שיקול דעת, לא ערך נגזר: גדול
+#: מספיק לכל שאילתת רשימה עם ``$in`` של עשרות שמות, קטן מספיק שלא לנפח אוסף
+#: עם TTL של שבוע. ניתן לשינוי ב-``PROFILER_UNREDACTED_MAX_BYTES``.
+DEFAULT_UNREDACTED_MAX_BYTES = 8192
+
+#: סיבות הדחייה. שלוש הראשונות של ``unknown_*`` נושאות גם את השם: ``unknown_field:owner_id``.
+RAW_WITHHELD_OWNER_MISSING = "owner_missing"
+RAW_WITHHELD_OWNER_MISMATCH = "owner_mismatch"
+RAW_WITHHELD_VECTOR = "vector_query"
+RAW_WITHHELD_TOO_LARGE = "too_large"
+RAW_WITHHELD_MALFORMED = "malformed"
+RAW_WITHHELD_UNSUPPORTED_NUMBER = "unsupported_number"
+RAW_WITHHELD_OWNER_NOT_ALLOWED_NOW = "owner_not_allowed_now"
+
+
+def _unredacted_user_ids() -> FrozenSet[str]:
+    """המזהים המורשים, מ-``PROFILER_UNREDACTED_USER_IDS`` (CSV). ריק = הפיצ'ר כבוי.
+
+    נקרא בכל קריאה ולא פעם אחת באתחול: הקונפיג הוא הסמכות הנוכחית גם בקריאה
+    של רשומות ישנות, וטסט יכול להחליף אותו בלי לבנות שירות מחדש.
+    """
+    raw = os.getenv("PROFILER_UNREDACTED_USER_IDS", "") or ""
+    return frozenset(tok.strip() for tok in raw.split(",") if tok.strip())
+
+
+def _owner_token(value: Any) -> Optional[str]:
+    """מזהה משתמש כמחרוזת להשוואה. ``int`` ו-``str`` בלבד — ``bool`` אינו מזהה."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, str)):
+        return str(value).strip()
+    return None
+
+
+def _reject_unserializable(obj: Any) -> Any:
+    """``default`` של ``json.dumps``: כל טיפוס שהוא אינו מכיר נדחה בשמו."""
+    raise _RawQueryWithheld(f"unsupported_type:{type(obj).__name__}")
+
+
+def _ensure_replayable(value: Any) -> Any:
+    """הערך אחרי סיבוב JSON, או דחייה אם הוא לא שורד אותו.
+
+    ``query_raw`` קיים כדי שאפשר יהיה **להריץ אותו שוב** דרך כפתור הניתוח,
+    והמסע שלו הוא: מונגו ← השרת ← JSON ← הדשבורד ← JSON ← השרת ← ``explain``.
+    לכן **ההגדרה של "ניתן להרצה חוזרת" היא הסיבוב עצמו, לא רשימת טיפוסים.**
+
+    בדיקה לפי ``isinstance`` נכשלה בשני הכיוונים: ``float('inf')`` הוא
+    ``float`` ועבר, אבל ``json.dumps`` פולט עליו ``Infinity`` — שאינו JSON
+    תקני, ו-``JSON.parse`` בדפדפן זורק עליו. הסיבוב האמיתי תופס את שניהם:
+    ``allow_nan=False`` דוחה ``inf``/``NaN``, ו-``default`` דוחה כל טיפוס
+    שאינו JSON נייטיבי (``ObjectId``, ``datetime``, ``Decimal128``, ``bytes``)
+    **בשמו**.
+
+    ערך שנראה אמיתי ואינו ניתן להרצה גרוע מהיעדר ערך — הוא היה מריץ שאילתה
+    אחרת ומחזיר אפס תוצאות בלי שאיש יידע — ולכן כאן נכשלים סגור ובקול.
+    """
+    try:
+        return json.loads(json.dumps(value, allow_nan=False, default=_reject_unserializable))
+    except ValueError as exc:  # ``allow_nan=False`` על inf/-inf/NaN
+        raise _RawQueryWithheld(RAW_WITHHELD_UNSUPPORTED_NUMBER) from exc
+    except TypeError as exc:  # מפתח שאינו מחרוזת/מספר — לא עובר דרך ``default``
+        raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED) from exc
+
+
+#: סמן פנימי: השלב אינו שלב מבנה. ``None`` אינו מתאים — ``$skip: 0`` חוקי.
+_NOT_STRUCTURAL = object()
+
+
+def _structural_stage_value(name: str, body: Any) -> Any:
+    """ערכו האמיתי של שלב **מבנה**, או ``_NOT_STRUCTURAL`` אם אינו כזה.
+
+    ``$limit``, ``$skip`` וכיווני ``$sort`` אינם נתוני משתמש אלא מבנה, ולכן
+    הם נשמרים אמיתיים. הוולידציה כאן צרה עד הסוף — שלם חיובי, שלם אי-שלילי,
+    או מילון של שדה ← ``1``/``-1``/``$meta`` — ולכן היא **מגבילה** במובן
+    שמזהה משתמש אינו יכול להתחפש לאף אחת מהצורות האלה. זו הסיבה שהם אינם
+    נסרקים בסריקת הבעלות, וההיתר נובע מצרוּת הוולידציה ולא מכיסוי הסריקה.
+
+    למה זה חשוב ולא קוסמטי: ``$limit`` הוא מה שהופך מיון חוסם ל-top-k. ניתוח
+    שרץ עם ``$limit: 10`` (הערך ש-``_fix_pipeline_for_explain`` מציב במקום
+    placeholder) במקום 21 הוא ניתוח של שאילתה אחרת — נמדד בסבב 292: 24.7MB
+    בלי ה-``$limit`` מול 337KB איתו.
+    """
+    if name in {"$limit", "$skip"}:
+        if isinstance(body, bool) or not isinstance(body, int):
+            raise _RawQueryWithheld(f"malformed_stage:{name}")
+        if body < 0 or (name == "$limit" and body <= 0):
+            raise _RawQueryWithheld(f"malformed_stage:{name}")
+        return body
+    if name == "$sort":
+        if not isinstance(body, dict) or not body:
+            raise _RawQueryWithheld("malformed_stage:$sort")
+        out: Dict[str, Any] = {}
+        for sort_key, direction in body.items():
+            if isinstance(direction, dict):
+                if set(direction) != {"$meta"} or not isinstance(direction["$meta"], str):
+                    raise _RawQueryWithheld("malformed_stage:$sort")
+                out[str(sort_key)] = {"$meta": direction["$meta"]}
+                continue
+            if isinstance(direction, bool) or direction not in (1, -1):
+                raise _RawQueryWithheld("malformed_stage:$sort")
+            out[str(sort_key)] = int(direction)
+        return out
+    return _NOT_STRUCTURAL
+
+
+def _raw_pipeline(pipeline: Any, shape: Any) -> List[Any]:
+    """הפייפליין שיישמר: ערכים אמיתיים בסינון ובמבנה, שלד בכל השאר.
+
+    **מה נשמר אמיתי.** תנאי סינון (``$match``, בכל עומק) — כי
+    ``_check_condition`` אימתה אותם מול רשימת שדות ואופרטורים. וערכי מבנה
+    (``$limit``/``$skip``/``$sort``) — כי ``_structural_stage_value`` אימתה
+    אותם מול צורה צרה. **מה שנשאר בשלד:** גוף של ``$addFields``/``$group``/
+    ``$project`` הוא ביטוי — הוא ממציא שמות פלט ונושא קבועים חופשיים, ואין
+    מולו רשימה שאפשר לאמת מולה בלי לנחש.
+
+    כך "כל מה שנשמר עם ערכים עבר ולידציה" הוא תכונה של המבנה ולא הבטחה
+    בהערה.
+    """
+    out: List[Any] = []
+    for original, normalized in zip(pipeline, shape):
+        if not isinstance(original, dict) or len(original) != 1 or not isinstance(normalized, dict):
+            out.append(normalized)
+            continue
+        (name, body), = original.items()
+        name = str(name)
+        structural = _structural_stage_value(name, body)
+        if structural is not _NOT_STRUCTURAL:
+            out.append({name: structural})
+        elif name == "$match":
+            out.append({name: _ensure_replayable(body)})
+        elif name in {"$lookup", "$unionWith"} and isinstance(body, dict) and isinstance(body.get("pipeline"), list):
+            merged = dict(normalized.get(name) or {})
+            merged["pipeline"] = _raw_pipeline(body["pipeline"], merged.get("pipeline") or [])
+            out.append({name: merged})
+        elif name == "$facet" and isinstance(body, dict):
+            merged = dict(normalized.get(name) or {})
+            for key, sub in body.items():
+                if isinstance(sub, list) and isinstance(merged.get(str(key)), list):
+                    merged[str(key)] = _raw_pipeline(sub, merged[str(key)])
+            out.append({name: merged})
+        else:
+            out.append(normalized)
+    return out
+
+
+class _RawQueryWithheld(Exception):
+    """סימון פנימי: השאילתה לא תישמר עם ערכים, ולמה."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _owner_values_in(condition: Any) -> List[Any]:
+    """כל הערכים שמופיעים תחת ``user_id`` — בכל עומק, כולל בתוך ``$or`` ו-``$in``."""
+    found: List[Any] = []
+    if isinstance(condition, dict):
+        for key, value in condition.items():
+            if str(key) == RAW_QUERY_OWNER_KEY:
+                if isinstance(value, dict):
+                    for op, inner in value.items():
+                        if str(op) in {"$in", "$nin"} and isinstance(inner, (list, tuple)):
+                            found.extend(inner)
+                        else:
+                            found.append(inner)
+                else:
+                    found.append(value)
+            else:
+                found.extend(_owner_values_in(value))
+    elif isinstance(condition, (list, tuple)):
+        for item in condition:
+            found.extend(_owner_values_in(item))
+    return found
+
+
+def _asserted_owners(condition: Any) -> FrozenSet[str]:
+    """הבעלים שהשאילתה **מצהירה** עליהם: ``user_id`` ברמה העליונה או בתוך ``$and``.
+
+    ``$or`` אינו מגביל את התוצאה לבעלים ולכן אינו נספר כאן.
+    """
+    owners: set = set()
+    if not isinstance(condition, dict):
+        return frozenset()
+    for key, value in condition.items():
+        key = str(key)
+        if key == RAW_QUERY_OWNER_KEY:
+            # ``$eq`` ו-``$in`` **מגבילים** לבעלים ולכן מצהירים עליו.
+            # ``$ne``/``$nin`` הם "כל השאר" — ההפך המדויק — ולעולם לא ייספרו כאן.
+            candidates: List[Any] = []
+            if isinstance(value, dict):
+                if "$eq" in value:
+                    candidates.append(value["$eq"])
+                if isinstance(value.get("$in"), (list, tuple)):
+                    candidates.extend(value["$in"])
+            else:
+                candidates.append(value)
+            for candidate in candidates:
+                token = _owner_token(candidate)
+                if token is not None:
+                    owners.add(token)
+        elif key == "$and" and isinstance(value, (list, tuple)):
+            for item in value:
+                owners |= _asserted_owners(item)
+    return frozenset(owners)
+
+
+def _check_field_value(value: Any) -> None:
+    if not isinstance(value, dict):
+        return
+    for op, inner in value.items():
+        op = str(op)
+        if op not in RAW_QUERY_ALLOWED_OPERATORS:
+            raise _RawQueryWithheld(f"unknown_operator:{op}")
+        if op == "$elemMatch" and isinstance(inner, dict):
+            if all(str(k).startswith("$") for k in inner):
+                _check_field_value(inner)
+            else:
+                _check_condition(inner)
+        elif op == "$not":
+            _check_field_value(inner)
+
+
+def _check_condition(condition: Any) -> None:
+    """כל מפתח בתנאי חייב להיות שדה מוכר, אופרטור לוגי, או ``$text``."""
+    if not isinstance(condition, dict):
+        raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED)
+    for key, value in condition.items():
+        key = str(key)
+        if key in RAW_QUERY_LOGICAL_OPERATORS:
+            if not isinstance(value, (list, tuple)):
+                raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED)
+            for item in value:
+                _check_condition(item)
+        elif key == "$text":
+            if not isinstance(value, dict):
+                raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED)
+            for option in value:
+                if str(option) not in RAW_QUERY_TEXT_OPTIONS:
+                    raise _RawQueryWithheld(f"unknown_operator:{option}")
+        elif key.startswith("$"):
+            raise _RawQueryWithheld(f"unknown_operator:{key}")
+        else:
+            if key not in RAW_QUERY_ALLOWED_FIELDS:
+                raise _RawQueryWithheld(f"unknown_field:{key}")
+            _check_field_value(value)
+
+
+def _stage_entries(pipeline: Any) -> List[Tuple[str, Any]]:
+    """כל השלבים, כולל בתוך ``$lookup``/``$unionWith``/``$facet``, כזוגות (שם, גוף)."""
+    if not isinstance(pipeline, (list, tuple)):
+        raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED)
+    entries: List[Tuple[str, Any]] = []
+    for stage in pipeline:
+        if not isinstance(stage, dict) or len(stage) != 1:
+            raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED)
+        (name, body), = stage.items()
+        name = str(name)
+        entries.append((name, body))
+        if name in {"$lookup", "$unionWith"} and isinstance(body, dict) and isinstance(body.get("pipeline"), list):
+            entries.extend(_stage_entries(body["pipeline"]))
+        elif name == "$facet" and isinstance(body, dict):
+            for sub in body.values():
+                entries.extend(_stage_entries(sub))
+    return entries
 
 
 class ProfilerInputError(ValueError):
@@ -435,7 +785,10 @@ class QueryProfilerService:
     ) -> SlowQueryRecord:
         """רישום שאילתה איטית (סינכרוני) - נוח לשימוש מאזין PyMongo."""
         query_shape = self._normalize_query_shape(query or {})
+        # ``query_id`` נגזר מהשלד בלבד — הערכים האמיתיים לעולם לא נכנסים לגיבוב,
+        # אחרת כל ערך היה הופך לדפוס "ייחודי" חדש ומונה הדפוסים היה מתפוצץ.
         query_id = self._generate_query_id(collection, query_shape)
+        query_raw, raw_owner_id, raw_withheld_reason = self._decide_raw_query(operation, query or {})
 
         record = SlowQueryRecord(
             query_id=query_id,
@@ -445,9 +798,19 @@ class QueryProfilerService:
             execution_time_ms=float(execution_time_ms),
             timestamp=datetime.utcnow(),
             client_info=client_info,
+            query_raw=query_raw,
+            raw_owner_id=raw_owner_id,
+            raw_withheld_reason=raw_withheld_reason,
         )
 
-        self._slow_queries.append(record)
+        # **הבאפר לא מחזיק ערכים אמיתיים.** הוא חסום בגודל ולא בגיל, ואילו
+        # ה-TTL של שבעה ימים מכסה רק את הרשומה ב-DB — כלומר ערך שנשאר כאן
+        # אין לו פקיעה. ואין לו גם צרכן: ``QueryProfilerService`` הבסיסי אינו
+        # מופע בייצור, ו-``PersistentQueryProfilerService.get_slow_queries``
+        # קוראת מה-DB בלבד. ``raw_withheld_reason`` **כן** נשאר — הוא אינו ערך
+        # רגיש אלא ההסבר שהדשבורד מציג. הרשומה המלאה מוחזרת לקורא, ולכן
+        # ``_persist_record`` עדיין כותב את הערכים ל-DB.
+        self._slow_queries.append(_dc_replace(record, query_raw=None, raw_owner_id=None))
 
         # עדכון מונה דפוסי שאילתות
         pattern_key = f"{collection}:{operation}:{json.dumps(query_shape, sort_keys=True)}"
@@ -486,6 +849,95 @@ class QueryProfilerService:
 
         return record
 
+    def _decide_raw_query(
+        self, operation: str, query: Dict[str, Any]
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
+        """האם לשמור את הערכים האמיתיים. מחזיר ``(query_raw, owner, reason)``.
+
+        רשימה ריקה בקונפיג ← ``(None, None, None)``: שום דבר לא משתנה מול היום,
+        וגם לא נרשמת סיבה — אין מה להסביר כשהפיצ'ר כבוי. כל דחייה אחרת חוזרת
+        עם סיבה, כי ברירה בטוחה חייבת להיות גלויה.
+        """
+        allowed = _unredacted_user_ids()
+        if not allowed:
+            return None, None, None
+        try:
+            if operation == "aggregate":
+                pipeline = query.get("pipeline") if isinstance(query, dict) else None
+                if not isinstance(pipeline, list) or not pipeline:
+                    raise _RawQueryWithheld(RAW_WITHHELD_OWNER_MISSING)
+                entries = _stage_entries(pipeline)
+                if any(name in RAW_QUERY_VECTOR_STAGES for name, _ in entries):
+                    raise _RawQueryWithheld(RAW_WITHHELD_VECTOR)
+                first = pipeline[0]
+                first_match = first.get("$match") if isinstance(first, dict) else None
+                # באגרגציה הבעלות מוצהרת בשלב ה-``$match`` **הראשון**: הוא היחיד שמגביל
+                # את כל מה שאחריו. ``$match`` מאוחר מסנן תוצאה שכבר נבנתה על כולם.
+                asserted = _asserted_owners(first_match) if isinstance(first_match, dict) else frozenset()
+            else:
+                asserted = _asserted_owners(query)
+
+            # **הסריקה עוברת על מיקומי סינון בלבד**, והאינווריאנט המדויק הוא:
+            # סורקים כל מה שנשמר ולא עבר ולידציה מבנית מגבילה. באגרגציה אלה
+            # גופי ה-``$match`` בכל עומק — הם היחידים שנשמרים עם ערכים חופשיים.
+            # ``$limit``/``$skip``/``$sort`` נשמרים אף הם, אבל עברו ולידציה צרה
+            # (``_structural_stage_value``) שמזהה משתמש אינו יכול לעבור, ולכן
+            # אינם נסרקים. כל שאר השלבים מנורמלים ולעולם אינם נושאים ערך.
+            #
+            # למה לא לסרוק את הכול: ``$sort: {user_id: 1}`` היה נדחה, כי ה-``1``
+            # של כיוון המיון נקרא כמזהה זר. זה נכשל סגור — עולה בפיצ'ר ולא
+            # בבטיחות — אבל זו דחייה שקרית של שאילתה לגיטימית.
+            if operation == "aggregate":
+                everywhere = [
+                    value
+                    for stage_name, stage_body in _stage_entries(query["pipeline"])
+                    if stage_name == "$match"
+                    for value in _owner_values_in(stage_body)
+                ]
+            else:
+                everywhere = _owner_values_in(query)
+
+            for value in everywhere:
+                token = _owner_token(value)
+                if token is None or token not in allowed:
+                    raise _RawQueryWithheld(RAW_WITHHELD_OWNER_MISMATCH)
+            if not asserted:
+                raise _RawQueryWithheld(RAW_WITHHELD_OWNER_MISSING)
+            if len(asserted) != 1:
+                raise _RawQueryWithheld(RAW_WITHHELD_OWNER_MISMATCH)
+            owner = next(iter(asserted))
+
+            if operation == "aggregate":
+                for name, body in _stage_entries(query["pipeline"]):
+                    if name not in RAW_QUERY_ALLOWED_STAGES:
+                        raise _RawQueryWithheld(f"unknown_stage:{name}")
+                    if name == "$match":
+                        _check_condition(body)
+                safe: Dict[str, Any] = {
+                    "pipeline": _raw_pipeline(
+                        query["pipeline"], self._normalize_pipeline_shape(query["pipeline"])
+                    )
+                }
+            else:
+                _check_condition(query)
+                safe = _ensure_replayable(query)
+            max_bytes = _env_int("PROFILER_UNREDACTED_MAX_BYTES", DEFAULT_UNREDACTED_MAX_BYTES)
+            if len(json.dumps(safe, ensure_ascii=False).encode("utf-8")) > max(1, int(max_bytes)):
+                raise _RawQueryWithheld(RAW_WITHHELD_TOO_LARGE)
+            return safe, owner, None
+        except _RawQueryWithheld as exc:
+            return None, None, exc.reason
+
+    def _apply_raw_read_policy(self, record: SlowQueryRecord) -> SlowQueryRecord:
+        """הקונפיג הוא הסמכות הנוכחית: רשומה עם ערכים מוסתרת אם הבעלים כבר לא ברשימה."""
+        if record.query_raw is None:
+            return record
+        if record.raw_owner_id is None or record.raw_owner_id not in _unredacted_user_ids():
+            return _dc_replace(
+                record, query_raw=None, raw_withheld_reason=RAW_WITHHELD_OWNER_NOT_ALLOWED_NOW
+            )
+        return record
+
     def get_slow_queries(
         self,
         limit: int = 50,
@@ -511,7 +963,7 @@ class QueryProfilerService:
         # מיון לפי זמן ביצוע (הכי איטיות קודם)
         queries.sort(key=lambda q: q.execution_time_ms, reverse=True)
 
-        return queries[: max(1, int(limit))]
+        return [self._apply_raw_read_policy(q) for q in queries[: max(1, int(limit))]]
 
     def _explain_max_time_ms(self) -> int:
         """תקרת הזמן ל-explain, במילישניות."""
@@ -1209,6 +1661,9 @@ class PersistentQueryProfilerService(QueryProfilerService):
             "execution_time_ms": record.execution_time_ms,
             "timestamp": record.timestamp,
             "client_info": record.client_info,
+            "query_raw": record.query_raw,
+            "raw_owner_id": record.raw_owner_id,
+            "raw_withheld_reason": record.raw_withheld_reason,
         }
 
         db = getattr(self.db_manager, "db", None)
@@ -1261,9 +1716,14 @@ class PersistentQueryProfilerService(QueryProfilerService):
                     execution_time_ms=float(doc.get("execution_time_ms", 0) or 0),
                     timestamp=doc.get("timestamp") if isinstance(doc.get("timestamp"), datetime) else datetime.utcnow(),
                     client_info=doc.get("client_info") if isinstance(doc.get("client_info"), dict) else None,
+                    query_raw=doc.get("query_raw") if isinstance(doc.get("query_raw"), dict) else None,
+                    raw_owner_id=str(doc["raw_owner_id"]) if doc.get("raw_owner_id") is not None else None,
+                    raw_withheld_reason=(
+                        str(doc["raw_withheld_reason"]) if doc.get("raw_withheld_reason") is not None else None
+                    ),
                 )
             )
-        return out
+        return [self._apply_raw_read_policy(r) for r in out]
 
     def get_pattern_statistics(self, days: int = 7) -> List[Dict[str, Any]]:
         since = datetime.utcnow() - timedelta(days=max(1, int(days)))
@@ -1377,4 +1837,3 @@ class PersistentQueryProfilerService(QueryProfilerService):
             "unique_patterns": len(patterns),
             "threshold_ms": self.slow_threshold_ms,
         }
-
