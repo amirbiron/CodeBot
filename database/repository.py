@@ -48,7 +48,11 @@ except Exception:  # pragma: no cover - דקורטור no-op במקרה שחסר
             return func
         return _decorator
 
-from .manager import DatabaseManager
+from .manager import (
+    DatabaseManager,
+    delete_snippet_chunks,
+    mark_snippets_for_reindex,
+)
 from utils import normalize_code
 # תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
 from file_dates import inherited_created_at
@@ -72,6 +76,11 @@ _HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = {
     "content": 0,     # LargeFile
     "raw_data": 0,    # future-proof / backward-compat (אם קיים בפריטים מסוימים)
     "raw_content": 0, # future-proof
+    # וקטור המטא-דאטה של החיפוש הסמנטי: ~3KB למסמך (float32) ואף מסך אינו
+    # קורא אותו. הוא נשמר כ-``bson.binary.Binary``, ולכן מסלול שיעשה עליו
+    # ``jsonify`` יזרוק ``TypeError`` — כמערך הוא היה עובר בשקט ורק מנפח
+    # את התשובה.
+    "snippetEmbedding": 0,
 }
 
 # Alias ציבורי לשימוש בשכבות אחרות (למשל Webapp) בלי להסתמך על שם פרטי עם _.
@@ -280,6 +289,22 @@ class Repository:
 
             result = self.manager.collection.insert_one(doc)
             if result.inserted_id:
+                # גרסה חדשה מייתרת את הצ'אנקים הסמנטיים של הגרסאות הקודמות.
+                # שמירה כאן *אינה* מכבה את הגרסה הקודמת (``is_active`` שלה נשאר
+                # True), ולכן בלי המחיקה הזו כל גרסה היסטורית נשארת מאונדקסת,
+                # מתחרה על מקומות ה-ANN, ונזרקת רק בשלב מאוחר בצינור החיפוש.
+                #
+                # ``older_than_version`` ולא "הכל חוץ ממני": כששתי שמירות של
+                # אותו קובץ חופפות, הניקוי של הגרסה הישנה יכול לרוץ **אחרי**
+                # שהחדשה כבר נשמרה ולמחוק דווקא את הצ'אנקים שלה — והיא לא
+                # תיבחר שוב, כי ה-worker כבר סימן אותה. ראו את ה-docstring של
+                # ``delete_snippet_chunks``.
+                delete_snippet_chunks(
+                    snippet.user_id,
+                    file_name=snippet.file_name,
+                    exclude_snippet_id=result.inserted_id,
+                    older_than_version=getattr(snippet, "version", None),
+                )
                 # אם הקובץ נעוץ, ודא שרק הגרסה החדשה נשארת נעוצה
                 if bool(doc.get("is_pinned", False)):
                     try:
@@ -1198,6 +1223,12 @@ class Repository:
                 }},
             )
             if result.modified_count > 0:
+                # הצ'אנקים הסמנטיים של הקובץ יורדים יחד איתו. הם אינם מוצגים
+                # בתוצאות ממילא (``$lookup`` בצינור החיפוש מסנן ``is_active``),
+                # אבל בלי המחיקה הזו הם נשארים לנצח: פקיעת סל המיחזור נעשית
+                # ב-TTL index בצד השרת, שאף קוד אפליקציה לא רואה.
+                # השחזור מסמן את הקובץ לעיבוד מחדש (ראו ``restore_file_by_id``).
+                delete_snippet_chunks(user_id, file_name=file_name)
                 cache.invalidate_user_cache(user_id)
                 try:
                     cache.invalidate_file_related(file_id=str(file_name), user_id=user_id)
@@ -1231,6 +1262,10 @@ class Repository:
                     "deleted_expires_at": expires,
                 }},
             )
+            if int(getattr(result, "modified_count", 0) or 0) > 0:
+                # שאילתה אחת ל-``$in``, לא לולאה: מחיקה מרובה של 1,000 קבצים
+                # הייתה מייצרת 2,000 פעולות סדרתיות מול מונגו.
+                delete_snippet_chunks(user_id, file_names=list(set(file_names)))
             cache.invalidate_user_cache(user_id)
             try:
                 for fn in list(set(file_names)):
@@ -1270,6 +1305,12 @@ class Repository:
             )
             modified = int(getattr(result, 'modified_count', 0) or 0)
             if modified > 0 and user_id_for_invalidation is not None:
+                # ``user_id`` נדרש כדי לתחום את המחיקה למשתמש הנכון. אם השליפה
+                # המקדימה נכשלה ואין לנו אותו — מדלגים, וג'וב ניקוי היתומים
+                # יטפל בצ'אנקים האלה. לעולם לא מוחקים בלי תיחום למשתמש.
+                delete_snippet_chunks(
+                    int(user_id_for_invalidation), snippet_ids=[ObjectId(file_id)]
+                )
                 try:
                     cache.invalidate_user_cache(int(user_id_for_invalidation))
                 except Exception:
@@ -1571,6 +1612,11 @@ class Repository:
                 )
                 modified += int(res2.modified_count or 0)
             if modified > 0:
+                # הצ'אנקים נמחקו כשהקובץ הועבר לסל, ולכן קובץ משוחזר חוזר
+                # לחיפוש הסמנטי רק אחרי ש-``EmbeddingWorker`` יבנה אותם מחדש.
+                # השאילתה שמזינה את ה-worker מתעדפת דגלים מפורשים על פני
+                # ה-backlog, כך שקובץ משוחזר לא נתקע מאחורי re-index מלא.
+                mark_snippets_for_reindex([ObjectId(file_id)])
                 cache.invalidate_user_cache(user_id)
                 try:
                     uid = str(user_id)
@@ -1592,6 +1638,9 @@ class Repository:
                 deleted += int(res2.deleted_count or 0)
             ok = bool(deleted and deleted > 0)
             if ok:
+                # גם אם המחיקה נעשתה מ-``large_files`` (שאינו נחתך לצ'אנקים)
+                # הקריאה בטוחה: אין צ'אנקים עם ה-``snippetId`` הזה ולא יימחק דבר.
+                delete_snippet_chunks(int(user_id), snippet_ids=[ObjectId(file_id)])
                 try:
                     cache.invalidate_user_cache(int(user_id))
                 except Exception:

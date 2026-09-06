@@ -24,6 +24,22 @@ def register_all_jobs():
         source_file="main.py",
     )
 
+    register_job(
+        job_id="snippet_chunks_cleanup",
+        name="ניקוי צ'אנקים סמנטיים יתומים",
+        description=(
+            "מחיקת צ'אנקים ב-snippet_chunks שאין להם קובץ פעיל ועדכני "
+            "(קבצים שפקעו בסל המיחזור, וגרסאות שהוחלפו)"
+        ),
+        category=JobCategory.CLEANUP,
+        job_type=JobType.REPEATING,
+        interval_seconds=86400,
+        env_toggle="SNIPPET_CHUNKS_CLEANUP_ENABLED",
+        env_toggle_default=True,
+        callback_name="_snippet_chunks_cleanup_job",
+        source_file="main.py",
+    )
+
     # === Cache Jobs ===
     register_job(
         job_id="cache_maintenance",

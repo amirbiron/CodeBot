@@ -677,6 +677,14 @@ def sync_probe_and_upgrade() -> None:
             }
             if dim and int(dim) > 0:
                 payload["outputDimensionality"] = int(dim)
+            # אותו payload כמו ב-``EmbeddingService`` — אחרת ה-probe היה מאשר
+            # מודל בצורת בקשה שהמסלול האמיתי אינו משתמש בה.
+            try:
+                from services.embedding_service import EMBEDDING_AUTO_TRUNCATE
+            except Exception:
+                EMBEDDING_AUTO_TRUNCATE = True
+            if not EMBEDDING_AUTO_TRUNCATE:
+                payload["embedContentConfig"] = {"autoTruncate": False}
             r = client.post(url, json=payload)
             if r.status_code == 200:
                 try:
