@@ -1253,6 +1253,66 @@
      - ``600``
      - ``60``
      - Bot
+   * - ``SEMANTIC_SEARCH_ENABLED``
+     - הפעלת החיפוש הסמנטי (embeddings). כבוי = חיפוש טקסטואלי בלבד
+     - לא
+     - ``true``
+     - ``false``
+     - Bot/WebApp
+   * - ``GEMINI_API_KEY``
+     - מפתח Gemini ליצירת embeddings. בלעדיו החיפוש הסמנטי ובדיקת התקינות שלו אינם רצים
+     - לא
+     - ריק
+     - ``AIza...``
+     - Bot/WebApp
+   * - ``GEMINI_EMBEDDING_MODEL``
+     - מודל ה-embedding. המודל הפעיל נשמר במונגו (``system_config``), וה-ENV הוא ברירת המחדל שממנה מתחילים. שם חלופי נתמך: ``GEMINI_MODEL_EMBEDDING``
+     - לא
+     - ``text-embedding-004``
+     - ``text-embedding-006``
+     - Bot/WebApp
+   * - ``GEMINI_API_VERSION``
+     - גרסת ה-API של Gemini לקריאות ה-embedding. שם חלופי נתמך: ``GEMINI_EMBEDDING_API_VERSION``
+     - לא
+     - ``v1beta``
+     - ``v1``
+     - Bot/WebApp
+   * - ``GEMINI_EMBEDDING_MODEL_ALLOWLIST``
+     - רשימת מודלים מותרים למעבר אוטומטי, מופרדת בפסיקים. ריק = ``text-embedding-006,text-embedding-005,text-embedding-004``. שם חלופי נתמך: ``SEMANTIC_EMBEDDING_MODEL_ALLOWLIST``
+     - לא
+     - ריק
+     - ``text-embedding-006,text-embedding-004``
+     - Bot/WebApp
+   * - ``EMBEDDING_DIMENSIONS``
+     - מספר המימדים של וקטור ה-embedding. שינוי פוסל את הווקטורים הקיימים, ולכן נעשה דרך שדרוג מבוקר
+     - לא
+     - ``768``
+     - ``1536``
+     - Bot/WebApp
+   * - ``EMBEDDING_AUTO_DIMENSION_UPGRADE``
+     - מתיר מעבר אוטומטי למודל שמחזיר מספר מימדים אחר. ריק = המעבר מדולג ונרשמת אזהרה
+     - לא
+     - ריק (כבוי)
+     - ``1``
+     - Bot/WebApp
+   * - ``EMBEDDING_MODEL_UPGRADE_LOCK_LEASE_SECONDS``
+     - תוקף הנעילה (שניות) שמונעת משני תהליכים לשדרג את מודל ה-embedding במקביל
+     - לא
+     - ``90``
+     - ``120``
+     - Bot/WebApp
+   * - ``EMBEDDING_SELF_HEAL_COOLDOWN_SECONDS``
+     - קירור (שניות) בין ניסיונות התאוששות אוטומטית אחרי כשל מול Gemini
+     - לא
+     - ``60``
+     - ``120``
+     - Bot/WebApp
+   * - ``EMBEDDING_SETTINGS_CACHE_TTL_SECONDS``
+     - כמה שניות נשמרות הגדרות ה-embedding בזיכרון לפני קריאה מחודשת מהמונגו
+     - לא
+     - ``30``
+     - ``60``
+     - Bot/WebApp
 
 התראות וניטור (הרחבה)
 ----------------------
