@@ -304,7 +304,7 @@ Component Tokens ו‑Theme Builder
 
 - מעבר ידני על כל 8 הערכות דרך Theme Wizard + בדיקה מהירה של `localStorage`.
 - בדיקת Split View + Markdown Preview (כולל לחצן "רקע לבן", מצבי Reader).
-- בדיקת Live Preview / Sticky Notes / Smooth Scroll Debug / Login alert / RTL.
+- בדיקת Live Preview / Sticky Notes / Login alert / RTL. הגלילה החלקה כבויה כברירת מחדל (ראו :doc:`smooth-scrolling`); לבדיקה נקודתית שלה מוסיפים ``?smooth_debug=1`` לכתובת.
 - בדיקת Collections, Bookmarks, אוספים משותפים וה‑Glass badges.
 - בדיקת נגישות ב‑High Contrast (יחס ניגודיות 4.5:1, focus outline, קישורים).
 - בדיקת שאין HEX קשיחים בקבצים שנגעתם בהם (`rg "#[0-9a-fA-F]{3,6}" webapp/static/css/<file>.css`).
