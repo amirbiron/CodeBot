@@ -617,11 +617,11 @@
      - ``365``
      - WebApp
    * - ``PORT``
-     - פורט להרצת ה-WebApp
+     - פורט ההאזנה. ברירת המחדל שונה בין השירותים: ``5000`` בוובאפ, ``10000`` בבוט וב-webserver (שם ``WEB_PORT`` משמש כגיבוי). ברנדר הפורט מוזרק אוטומטית
      - לא
-     - ``5000``
+     - ``5000`` (WebApp) / ``10000`` (Bot, Webserver)
      - ``8080``
-     - WebApp
+     - Bot/WebApp/MCP/Webserver
    * - ``DEBUG``
      - מצב דיבאג ל-WebApp
      - לא
@@ -1000,12 +1000,6 @@
      - ``false``
      - ``true``
      - Bot
-   * - ``PORT``
-     - פורט להרצת שירותים פנימיים/בדיקות
-     - לא
-     - ``10000`` (ב-main), ``5000`` (ב-WebApp)
-     - ``8080``
-     - Bot/WebApp
    * - ``AIOHTTP_POOL_LIMIT``
      - גודל בריכת חיבורים ל‑aiohttp
      - לא
@@ -1358,18 +1352,6 @@
      - רכיב
    * - ``DRILL_MODE_ENABLED``
      - מפעיל Drill Mode (תרגולים) ב-WebApp/API. כאשר כבוי, ``/api/observability/drills/run`` יחזיר ``drill_disabled``.
-     - לא
-     - ``false``
-     - ``true``
-     - WebApp/Observability
-   * - ``ALERT_TAGS_COLLECTION``
-     - שם ה-Collection לתגיות התראות (Manual Alert Tagging) ב-Observability.
-     - לא
-     - ``alert_tags``
-     - ``alert_tags``
-     - WebApp/Observability
-   * - ``ALERT_TAGS_DB_DISABLED``
-     - אם ``true`` מכבה שמירה/שליפה של תגיות להתראות (Manual Alert Tagging) מה-DB.
      - לא
      - ``false``
      - ``true``
@@ -2660,18 +2642,6 @@
      - ``/tmp/codebot-push-sender.lock``
      - ``/var/data/push.lock``
      - WebApp
-   * - ``WORKER_VAPID_PUBLIC_KEY``
-     - מפתח VAPID ציבורי של ה-worker החיצוני לשליחת Push
-     - לא
-     - ריק
-     - ``BEl...``
-     - WebApp
-   * - ``WORKER_VAPID_PRIVATE_KEY``
-     - מפתח VAPID פרטי של ה-worker החיצוני לשליחת Push
-     - לא
-     - ריק
-     - ``k9...``
-     - WebApp
    * - ``LOCAL_CACHE_MAX_ENTRIES``
      - מספר הרשומות המקסימלי במטמון המקומי שבתוך התהליך (לא Redis)
      - לא
@@ -2778,6 +2748,12 @@
      - "" (ריק)
      - ``1``
      - Bot/WebApp
+   * - ``CODEBOT_DISABLE_GEVENT_PATCH``
+     - מכבה את ה-monkey patch של gevent בעליית הבוט. נקרא בשורה הראשונה של ``main.py``, לפני כל ייבוא אחר. לבדיקות בלבד — בפרודקשן כיבוי שלו משבש סגירת סוקטים
+     - לא
+     - ריק (ה-patch פעיל)
+     - ``1``
+     - Bot
    * - ``SPHINX_MOCK_IMPORTS``
      - 1/``true`` גורם ל-build של התיעוד למקם מודולים בעזרת mocks במקום לייבא בפועל.
      - לא
@@ -2808,18 +2784,6 @@
      - ריק
      - ``development``
      - WebApp
-   * - ``MONGO_URI``
-     - חיבור מונגו לסקריפט ההתקנה של הסימניות (``setup_bookmarks.py``) בלבד
-     - לא
-     - ריק
-     - ``mongodb://localhost:27017``
-     - Scripts
-   * - ``MONGO_DB_NAME``
-     - שם מסד הנתונים לסקריפט ההתקנה של הסימניות (``setup_bookmarks.py``) בלבד
-     - לא
-     - ריק
-     - ``code_keeper_bot``
-     - Scripts
 
 דוגמאות קונפיגורציה
 --------------------

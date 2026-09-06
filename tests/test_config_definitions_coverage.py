@@ -93,6 +93,29 @@ def test_allowlist_has_no_stale_entries(report):
     )
 
 
+def test_no_variable_is_documented_twice():
+    """אין שני שורות באותו רפרנס לאותו משתנה.
+
+    שתי שורות לאותו משתנה סותרות זו את זו בלי שאיש ישים לב: הן נכתבות בזמנים
+    שונים, ולכן הן נבדלות בדיפולט, ברכיב ובניסוח — והקורא מאמין לזו שמצא ראשונה.
+    שם חלופי מתועד בשורה משולבת (``A`` / ``B``) או כ-"שם חלופי נתמך" בתוך תיאור,
+    ולא בשורה משלו.
+    """
+    audit = _load_audit_module()
+    text = audit.ENV_DOC_FILE.read_text(encoding="utf-8")
+
+    seen: dict[str, int] = {}
+    for row in audit.DOC_ROW_RE.findall(text):
+        for key in audit.DOC_MENTION_RE.findall(row):
+            seen[key] = seen.get(key, 0) + 1
+
+    duplicated = sorted(key for key, count in seen.items() if count > 1)
+    assert not duplicated, (
+        "משתנים שמתועדים ביותר משורה אחת ב-docs/environment-variables.rst: "
+        f"{duplicated}"
+    )
+
+
 def test_declared_vars_appear_in_the_env_reference():
     """כל משתנה מוצהר מופיע גם ברפרנס — שני מקורות האמת לא נפרדים.
 

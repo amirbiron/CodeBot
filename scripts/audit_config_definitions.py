@@ -58,12 +58,20 @@ EXCLUDED_DIRS = {
 }
 
 #: נקודות הכניסה של שירותי Render, ומהן נגזר סגור ה-import.
-ENTRY_POINTS: Dict[str, str] = {
-    "bot": "main.py",
-    "webapp": "webapp/app.py",
-    "mcp": "mcp_server/app.py",
-    "webserver": "services/webserver.py",
+#: לכל שירות רשימת שורשים, כי ל-``scripts`` יש הרבה נקודות כניסה ולא אחת.
+ENTRY_POINTS: Dict[str, Tuple[str, ...]] = {
+    "bot": ("main.py",),
+    "webapp": ("webapp/app.py",),
+    "mcp": ("mcp_server/app.py",),
+    "webserver": ("services/webserver.py",),
 }
+
+#: תיקיית הסקריפטים — כל קובץ בה הוא נקודת כניסה בפני עצמה.
+SCRIPTS_DIR = "scripts"
+
+#: סקריפטים עצמאיים שאינם יושבים תחת ``scripts/``. רשימה מפורשת ולא היוריסטיקה,
+#: כי "יש בו ``if __name__``" תופס גם קובצי בדיקה בשורש וגם קוד צד-שלישי.
+EXTRA_SCRIPT_ROOTS: Tuple[str, ...] = ("setup_bookmarks.py",)
 
 #: שם משתנה סביבה סביר. מסנן מחרוזות אקראיות שנשלחות ל-``os.getenv``.
 ENV_NAME_RE = re.compile(r"[A-Z][A-Z0-9_]{2,}")
@@ -123,15 +131,53 @@ def collect_declared() -> Set[str]:
 # 2. מה נצרך
 # --------------------------------------------------------------------------
 
-def _env_read_from_call(node: ast.Call) -> Tuple[str | None, Any, bool]:
+def _os_binding_names(tree: ast.Module) -> Tuple[Set[str], Set[str]]:
+    """השמות שאליהם נקשרו ``os`` ו-``os.environ`` בקובץ הזה.
+
+    ``import os as _os`` הוא דפוס אמיתי בריפו (``main.py`` עושה זאת לפני ה-monkey
+    patch של gevent), ובלי לאסוף את הכינוי הזה כל קריאה דרכו נעלמת מהניתוח.
+    """
+    os_names: Set[str] = set()
+    environ_names: Set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                # סמנטיקת הייבוא של פייתון (אומתה בהרצה):
+                #   import os            → נקשר השם "os"
+                #   import os.path       → נקשר "os" (החבילה העליונה), לא "os.path"
+                #   import os as _os     → נקשר "_os" בלבד
+                #   import os.path as p  → נקשר "p" למודול os.path, ו-"os" אינו נקשר
+                if alias.asname:
+                    if alias.name == "os":
+                        os_names.add(alias.asname)
+                elif alias.name == "os" or alias.name.startswith("os."):
+                    os_names.add("os")
+        elif isinstance(node, ast.ImportFrom) and node.module == "os" and not node.level:
+            for alias in node.names:
+                if alias.name == "environ":
+                    environ_names.add(alias.asname or "environ")
+
+    return os_names, environ_names
+
+
+def _env_read_from_call(
+    node: ast.Call, os_names: Set[str], environ_names: Set[str]
+) -> Tuple[str | None, Any, bool]:
     """מזהה ``os.getenv("X"[, default])`` ו-``os.environ.get("X"[, default])``."""
     func = node.func
     if not isinstance(func, ast.Attribute) or func.attr not in {"getenv", "get"}:
         return None, None, False
 
     base = func.value
-    is_os_env = (isinstance(base, ast.Name) and base.id == "os") or (
-        isinstance(base, ast.Attribute) and base.attr == "environ"
+    is_os_env = (
+        # os.getenv(...) — כולל ייבוא בכינוי
+        (isinstance(base, ast.Name) and base.id in os_names)
+        # os.environ.get(...) — כולל ייבוא בכינוי
+        or (isinstance(base, ast.Attribute) and base.attr == "environ"
+            and isinstance(base.value, ast.Name) and base.value.id in os_names)
+        # environ.get(...) אחרי from os import environ
+        or (isinstance(base, ast.Name) and base.id in environ_names)
     )
     if not is_os_env or not node.args:
         return None, None, False
@@ -148,10 +194,18 @@ def _env_read_from_call(node: ast.Call) -> Tuple[str | None, Any, bool]:
     return first.value, default, True
 
 
-def _env_read_from_subscript(node: ast.Subscript) -> str | None:
-    """מזהה ``os.environ["X"]``."""
+def _env_read_from_subscript(
+    node: ast.Subscript, os_names: Set[str], environ_names: Set[str]
+) -> str | None:
+    """מזהה ``os.environ["X"]`` ו-``environ["X"]``."""
     value = node.value
-    if not (isinstance(value, ast.Attribute) and value.attr == "environ"):
+    is_environ = (
+        isinstance(value, ast.Attribute)
+        and value.attr == "environ"
+        and isinstance(value.value, ast.Name)
+        and value.value.id in os_names
+    ) or (isinstance(value, ast.Name) and value.id in environ_names)
+    if not is_environ:
         return None
     key = node.slice
     if isinstance(key, ast.Constant) and isinstance(key.value, str):
@@ -188,6 +242,7 @@ def collect_consumed() -> Dict[str, Dict[str, Set[str]]]:
         if tree is None:
             continue
         rel = path.relative_to(REPO_ROOT).as_posix()
+        os_names, environ_names = _os_binding_names(tree)
 
         for node in ast.walk(tree):
             name: str | None = None
@@ -195,9 +250,9 @@ def collect_consumed() -> Dict[str, Dict[str, Set[str]]]:
             has_default = False
 
             if isinstance(node, ast.Call):
-                name, default, has_default = _env_read_from_call(node)
+                name, default, has_default = _env_read_from_call(node, os_names, environ_names)
             elif isinstance(node, ast.Subscript):
-                name = _env_read_from_subscript(node)
+                name = _env_read_from_subscript(node, os_names, environ_names)
 
             if not name or not ENV_NAME_RE.fullmatch(name):
                 continue
@@ -224,6 +279,29 @@ def _module_name(path: Path) -> str:
     return ".".join(parts)
 
 
+def resolve_relative_import(
+    module_name: str, *, is_package: bool, level: int, imported: str | None
+) -> str:
+    """שם המודול המוחלט של ייבוא יחסי (``from . import x`` / ``from ..y import z``).
+
+    ``__init__.py`` **הוא** החבילה: ``_module_name`` כבר הסיר ממנו את ``__init__``,
+    ולכן נקודת המוצא לרמה אחת היא השם עצמו. במודול רגיל נקודת המוצא היא ההורה.
+    בלי ההבחנה הזו ``from .manager import ...`` שב-``database/__init__.py`` מחושב
+    כ-``.manager`` ואינו נפתר, והבוט נראה כאילו אינו טוען את ``database.manager``.
+    """
+    if is_package:
+        prefix = module_name
+    else:
+        prefix = module_name.rsplit(".", 1)[0] if "." in module_name else ""
+
+    for _ in range(max(0, level - 1)):
+        prefix = prefix.rsplit(".", 1)[0] if "." in prefix else ""
+
+    if not imported:
+        return prefix
+    return f"{prefix}.{imported}" if prefix else imported
+
+
 def _resolve(module: str, known: Set[str]) -> str | None:
     """ממפה שם מודול לשם קובץ בריפו, כולל ייבוא של סימבול מתוך חבילה."""
     if module in known:
@@ -238,6 +316,10 @@ def build_import_graph() -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]:
     """שני גרפים: ייבוא ברמת המודול בלבד, וייבוא כולל (גם בתוך פונקציות)."""
     files = {_module_name(p): p for p in iter_python_files()}
     known = set(files)
+    # ``__init__.py`` **הוא** החבילה, ולכן ייבוא יחסי בתוכו נמדד מהחבילה עצמה
+    # ולא מההורה שלה. בלי ההבחנה הזו ``from .manager import ...`` שב-
+    # ``database/__init__.py`` נופל, והבוט נראה כאילו אינו טוען את database.manager.
+    packages = {name for name, path in files.items() if path.name == "__init__.py"}
 
     top_level: Dict[str, Set[str]] = {name: set() for name in files}
     all_level: Dict[str, Set[str]] = {name: set() for name in files}
@@ -261,11 +343,12 @@ def build_import_graph() -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]:
                 targets = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom):
                 if node.level:  # ייבוא יחסי
-                    base = name.rsplit(".", 1)[0] if "." in name else ""
-                    prefix = base
-                    for _ in range(node.level - 1):
-                        prefix = prefix.rsplit(".", 1)[0] if "." in prefix else ""
-                    module = f"{prefix}.{node.module}" if node.module else prefix
+                    module = resolve_relative_import(
+                        name,
+                        is_package=name in packages,
+                        level=node.level,
+                        imported=node.module,
+                    )
                 else:
                     module = node.module or ""
                 targets = [module] + [
@@ -297,15 +380,40 @@ def _closure(graph: Dict[str, Set[str]], start: str) -> Set[str]:
     return seen
 
 
+def service_entry_modules() -> Dict[str, Set[str]]:
+    """לכל שירות: שמות המודולים שהם נקודת כניסה שלו.
+
+    ``scripts`` אינו שירות Render אלא הרצה ידנית, ולכן אין לו קובץ יחיד: כל
+    קובץ תחת ``scripts/`` הוא נקודת כניסה, ואליהם מצטרפים סקריפטים עצמאיים
+    בודדים שיושבים בשורש. בלי זה משתנה שנצרך רק בסקריפט מקבל רשימת שירותים
+    ריקה, ולא ניתן לגזור ממנה ``services=("scripts",)``.
+    """
+    entries: Dict[str, Set[str]] = {
+        service: {_module_name(REPO_ROOT / entry) for entry in roots}
+        for service, roots in ENTRY_POINTS.items()
+    }
+
+    script_roots: Set[str] = set()
+    for path in iter_python_files():
+        rel = path.relative_to(REPO_ROOT)
+        if rel.parts[0] == SCRIPTS_DIR or rel.as_posix() in EXTRA_SCRIPT_ROOTS:
+            script_roots.add(_module_name(path))
+    entries["scripts"] = script_roots
+    return entries
+
+
 def service_closures() -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]:
     """לכל שירות: קבוצת המודולים בסגור הוודאי ובסגור הרופף."""
     top_level, all_level = build_import_graph()
     certain: Dict[str, Set[str]] = {}
     loose: Dict[str, Set[str]] = {}
-    for service, entry in ENTRY_POINTS.items():
-        entry_module = _module_name(REPO_ROOT / entry)
-        certain[service] = _closure(top_level, entry_module)
-        loose[service] = _closure(all_level, entry_module)
+    for service, entry_modules in service_entry_modules().items():
+        certain[service] = set().union(
+            *(_closure(top_level, module) for module in entry_modules)
+        ) if entry_modules else set()
+        loose[service] = set().union(
+            *(_closure(all_level, module) for module in entry_modules)
+        ) if entry_modules else set()
     return certain, loose
 
 
