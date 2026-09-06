@@ -597,7 +597,7 @@
         lastAnalysis = { payload: payload, data: data, at: new Date().toISOString() };
         if (data.aggregation_explain) {
           renderAggregationPipeline(data.aggregation_explain);
-          renderAggregationStats(data.aggregation_explain);
+          renderAggregationStats(data.aggregation_explain, verbosity);
         } else {
           renderExplainPlan(data.explain);
         }
@@ -692,15 +692,38 @@
     container.innerHTML = html || '<div style="opacity:.75;">אין נתוני stages ב-explain</div>';
   }
 
-  function renderAggregationStats(explain) {
+  /**
+   * פאנל הסטטיסטיקות של aggregate.
+   *
+   * ``verbosity`` הוא **מה שנבחר בטופס**, ולא מה שאפשר לנחש מהמספרים.
+   * הגרסה הקודמת גזרה את ההסבר מ-``totalMs > 0`` והכריזה "כנראה רצת עם
+   * queryPlanner" — טענה שקורסת בדיוק כשבוחרים ``executionStats`` ומונגו
+   * מסכמת אפס. ``total_execution_time_ms`` הוא סכום זמני השלבים, ופייפליין
+   * קטן מסתכם לאפס גם כשהוא באמת נמדד.
+   *
+   * זה אותו תיקון שכבר נעשה ב-``buildAnalysisReport``, והניסוח כאן תואם לו
+   * בכוונה: המסך והטקסט המועתק חייבים לומר את אותו דבר.
+   */
+  function renderAggregationStats(explain, verbosity) {
     const statsContainer = document.getElementById('explain-stats');
     const stageCount = (explain.stages || []).length;
     const totalMs = Number(explain.total_execution_time_ms || 0);
-    // ב-queryPlanner מונגו לא מריצה את הפייפליין, ולכן אין זמן ביצוע. "0.00 ms"
-    // נקרא כמדידה ולא כהיעדר, אז אומרים את זה במפורש — כמו בפאנל של find.
-    const timeLine = totalMs > 0
-      ? `<div><strong>זמן כולל:</strong> ${totalMs.toFixed(2)} ms</div>`
-      : `<div style="opacity:.75;">אין זמני ביצוע (כנראה רצת עם queryPlanner)</div>`;
+
+    let timeLine;
+    if (verbosity === 'queryPlanner') {
+      timeLine = `<div data-testid="agg-time-not-measured" style="opacity:.75;"><strong>אין מדידה.</strong> `
+        + `הניתוח רץ ב-<code>queryPlanner</code>, שאינו מריץ את הפייפליין. `
+        + `אין להסיק מהיעדר המספרים שהשאילתה מהירה — פשוט לא נמדדה.</div>`;
+    } else if (totalMs > 0) {
+      timeLine = `<div data-testid="agg-time-measured"><strong>זמן כולל:</strong> ${totalMs.toFixed(2)} ms</div>`;
+    } else {
+      timeLine = `<div data-testid="agg-time-measured-zero"><strong>זמן כולל:</strong> 0.00 ms `
+        + `(רץ ב-<code>${escapeHtml(String(verbosity || ''))}</code>)</div>`
+        + `<div style="opacity:.75;">סכום זמני השלבים הוא אפס: או שהפייפליין `
+        + `מהיר מפחות ממילישנייה, או שמונגו לא החזירה זמנים לשלבים. `
+        + `<strong>זו מדידה, לא היעדר מדידה.</strong></div>`;
+    }
+
     statsContainer.innerHTML = `
       <div style="opacity:.9;">
         ${timeLine}
