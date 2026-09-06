@@ -262,12 +262,13 @@
       const actionsTd = document.createElement('td');
       actionsTd.style.padding = '.6rem';
 
+      // ``query_raw`` קיים רק לשאילתות שזוהו בוודאות כשל משתמש מורשה
+      // (``PROFILER_UNREDACTED_USER_IDS``). איתו הניתוח רץ על הערכים
+      // האמיתיים ומחזיר תוצאות; על השלד ``<value>`` הוא מחזיר אפס.
+      const hasRaw = Boolean(query.query_raw) && typeof query.query_raw === 'object';
+
       // מציגים כפתור רק אם הפעולה רלוונטית לניתוח
       if (['find', 'aggregate', 'count'].includes(query.operation)) {
-          // ``query_raw`` קיים רק לשאילתות שזוהו בוודאות כשל משתמש מורשה
-          // (``PROFILER_UNREDACTED_USER_IDS``). איתו הניתוח רץ על הערכים
-          // האמיתיים ומחזיר תוצאות; על השלד ``<value>`` הוא מחזיר אפס.
-          const hasRaw = Boolean(query.query_raw) && typeof query.query_raw === 'object';
           const btn = document.createElement('button');
           btn.className = 'btn btn-secondary';
           btn.type = 'button';
@@ -283,18 +284,22 @@
           };
 
           actionsTd.appendChild(btn);
-
-          // ברירה בטוחה חייבת להיות גלויה: אם הערכים נמנעו, אומרים למה.
-          if (!hasRaw && query.raw_withheld_reason) {
-            const note = document.createElement('div');
-            note.dataset.testid = 'raw-withheld';
-            note.style.cssText = 'font-size:.8rem; opacity:.75; margin-top:.25rem;';
-            note.textContent = describeWithheldReason(query.raw_withheld_reason);
-            actionsTd.appendChild(note);
-          }
       } else {
-          // עבור insert/update וכו'
+          // עבור insert/update וכו' — ה-explain אינו מנתח אותן, ולכן אין כפתור.
           actionsTd.innerHTML = '<span style="opacity:0.5">-</span>';
+      }
+
+      // ברירה בטוחה חייבת להיות גלויה **בכל שורה**, גם בשורה בלי כפתור.
+      // הסיבה עונה על "למה אין כאן ערכים אמיתיים", והיא נכונה באותה מידה
+      // ל-``update``/``delete`` — גם הם עוברים את אותה החלטה, כי מה שנקלט
+      // מהם הוא הפילטר (``database/manager.py``). קודם הבלוק הזה ישב בתוך
+      // תנאי הכפתור, ולכן נעלם דווקא בשורות שאין בהן שום רמז אחר.
+      if (!hasRaw && query.raw_withheld_reason) {
+        const note = document.createElement('div');
+        note.dataset.testid = 'raw-withheld';
+        note.style.cssText = 'font-size:.8rem; opacity:.75; margin-top:.25rem;';
+        note.textContent = describeWithheldReason(query.raw_withheld_reason);
+        actionsTd.appendChild(note);
       }
 
       row.appendChild(actionsTd);
@@ -310,6 +315,7 @@
     vector_query: 'ערכים לא נשמרו: שאילתת וקטור',
     too_large: 'ערכים לא נשמרו: חריגה מהגודל',
     malformed: 'ערכים לא נשמרו: מבנה לא צפוי',
+    unsupported_number: 'ערכים לא נשמרו: מספר שאינו סופי (inf/NaN)',
     owner_not_allowed_now: 'ערכים מוסתרים: המשתמש כבר אינו ברשימת ההחרגה',
   };
   const RAW_WITHHELD_NAMED = {
@@ -317,6 +323,7 @@
     unknown_operator: 'אופרטור לא מוכר',
     unknown_stage: 'שלב לא מוכר',
     unsupported_type: 'טיפוס שאינו ניתן להרצה חוזרת',
+    malformed_stage: 'ערך מבני לא תקין בשלב',
   };
 
   function describeWithheldReason(reason) {

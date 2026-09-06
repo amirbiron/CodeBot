@@ -49,7 +49,8 @@ def open_page(browser, admin_live_server):
     ``init_script`` רץ **לפני** כל סקריפט של העמוד — כך זורעים
     ``localStorage`` כפי שמשתמש ותיק היה מגיע עם ההעדפה כבר שמורה.
     """
-    base_url, session_cookie = admin_live_server
+    base_url = admin_live_server.base_url
+    session_cookie = admin_live_server.session_cookie
     opened = []
 
     def _open(path, *, init_script=None):

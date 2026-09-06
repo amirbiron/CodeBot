@@ -5,6 +5,9 @@ import pytest
 from datetime import datetime
 from unittest.mock import MagicMock
 
+from bson import ObjectId
+
+import services.query_profiler_service as mod
 from services.query_profiler_service import (
     QueryProfilerService,
     PersistentQueryProfilerService,
@@ -548,8 +551,9 @@ class TestUnredactedQueryValues:
         assert row.raw_withheld_reason is None
         # ערכים אמיתיים ב-``$match`` — זה מה שקובע את ה-explain
         assert row.query_raw["pipeline"][0]["$match"] == pipeline[0]["$match"]
-        # ושאר השלבים בשלד, כי אין מולם ולידציה שאפשר לאמת מולה
-        assert row.query_raw["pipeline"][3] == {"$limit": "<value>"}
+        # ``$sort``/``$limit`` הם מבנה — נשמרים אמיתיים אחרי ולידציה צרה
+        assert row.query_raw["pipeline"][1] == {"$sort": {"file_name": 1, "version": -1}}
+        assert row.query_raw["pipeline"][3] == {"$limit": 21}
 
     def test_vector_search_is_never_kept(self, raw_values_service):
         pipeline = [
@@ -664,46 +668,26 @@ class TestUnredactedQueryValues:
 class TestUnredactedQueryValuesReviewRound:
     """סבב הריוויו על ההחרגה: ארבעה ממצאים שאומתו מול הקוד ומול פרודקשן."""
 
-    def test_a_foreign_owner_outside_a_match_stage_is_rejected(self, raw_values_service):
-        """``user_id`` של מישהו אחר ב-``$set`` — סריקת הבעלות חייבת לראות אותו.
+    @pytest.mark.parametrize("foreign_stage", [
+        {"$set": {"shared_from": {"user_id": SOMEONE_ELSE}}},
+        {"$addFields": {"other": SOMEONE_ELSE}},
+        {"$lookup": {"from": "users", "let": {"uid": {"user_id": SOMEONE_ELSE}},
+                     "pipeline": [{"$match": {"is_active": True}}], "as": "u"}},
+    ])
+    def test_a_foreign_id_outside_a_filter_never_reaches_the_record(
+        self, raw_values_service, foreign_stage
+    ):
+        """מזהה זר בשלב שאינו סינון לא נשמר — כי השלב מנורמל, לא כי נסרק.
 
-        הסריקה עברה קודם רק על גופי ``$match``. שלב שאינו ``$match`` יכול לשאת
-        מזהה כערך (``$set``, ``$addFields``, ``$lookup.let``), והוא לא נבדק.
+        הסריקה עוברת על מיקומי סינון בלבד (ראו ``_decide_raw_query``), ומה
+        שמחזיק כאן הוא שכל שלב שאינו ``$match`` נשמר בשלד המנורמל. זו ההגנה
+        האמיתית: היא מבנית, ולא תלויה בכך שהסורק יזכור להסתכל בעוד מקום.
         """
-        pipeline = [
-            {"$match": {"user_id": ME, "is_active": True}},
-            {"$set": {"shared_from": {"user_id": SOMEONE_ELSE}}},
-        ]
+        pipeline = [{"$match": {"user_id": ME, "is_active": True}}, foreign_stage]
         row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
 
-        assert row.query_raw is None
-        assert row.raw_withheld_reason == "owner_mismatch"
-
-    def test_a_foreign_id_under_another_key_never_reaches_the_record(self, raw_values_service):
-        """הגנה שנייה: ערך בשלב שאינו ``$match`` נשמר בשלד, לא כפי שהוא.
-
-        סריקת הבעלות מחפשת את המפתח ``user_id``; ערך שיושב תחת מפתח אחר לא
-        ייתפס שם — ולכן הוא גם לא נשמר: שלב שאינו ``$match`` מנורמל תמיד.
-        """
-        pipeline = [
-            {"$match": {"user_id": ME, "is_active": True}},
-            {"$set": {"foreign": SOMEONE_ELSE}},
-        ]
-        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
-
-        assert row.query_raw is not None
+        assert row.query_raw is not None, "שאילתה חוקית — אין סיבה לדחות"
         assert str(SOMEONE_ELSE) not in json.dumps(row.query_raw, ensure_ascii=False)
-
-    def test_a_foreign_owner_inside_lookup_let_is_rejected(self, raw_values_service):
-        pipeline = [
-            {"$match": {"user_id": ME, "is_active": True}},
-            {"$lookup": {"from": "users", "let": {"uid": {"user_id": SOMEONE_ELSE}},
-                         "pipeline": [{"$match": {"is_active": True}}], "as": "u"}},
-        ]
-        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
-
-        assert row.query_raw is None
-        assert row.raw_withheld_reason == "owner_mismatch"
 
     def test_only_match_values_are_real_and_every_other_stage_stays_a_skeleton(self, raw_values_service):
         """מה שנשמר עבר ולידציה מלאה — ולכן רק ``$match``.
@@ -723,7 +707,7 @@ class TestUnredactedQueryValuesReviewRound:
         stages = row.query_raw["pipeline"]
         assert stages[0]["$match"] == {"user_id": ME, "programming_language": "python"}
         assert stages[1]["$addFields"]["note"] == "<value>", (
-            "ערך שלא עבר ולידציה נשמר כפי שהוא"
+            "ערך שלא עבר ולידציה חייב להישאר מנורמל בשלד"
         )
         assert "טקסט חופשי" not in json.dumps(row.query_raw, ensure_ascii=False)
 
@@ -784,24 +768,209 @@ class TestUnredactedQueryValuesReviewRound:
         assert row.query_raw is None
         assert row.raw_withheld_reason == "owner_missing"
 
-    def test_the_memory_buffer_also_obeys_the_current_allowlist(self, monkeypatch):
-        """הרשומה חיה גם ב-buffer שבזיכרון, ולכן גם שם הקונפיג הוא הסמכות.
 
-        זו התכונה שהופכת את "הסרה מהרשימה מסתירה מיד" לנכונה בכל מסלול קריאה,
-        גם כשאין DB בכלל.
+# --- סבב ריוויו שני: הגדרה לפי סיבוב JSON, ערכי מבנה, מיקומי סינון, והבאפר ---
+
+#: ערך מייצג לכל שדה ב-``RAW_QUERY_ALLOWED_FIELDS``, והתוצאה שהוא מקבל בפועל.
+#:
+#: הרשימה מבטיחה "שדות מוכרים", אבל שער אחר — ``_ensure_replayable`` — דוחה
+#: טיפוסים שאינם שורדים סיבוב JSON. בלי הטבלה הזו הרשימה מבטיחה שדות ששער
+#: אחר תמיד דוחה, ואיש לא יודע. ``None`` בעמודה השנייה = הערך נשמר.
+ALLOWED_FIELD_SAMPLES = {
+    "user_id": (ME, None),
+    "_id": (ObjectId("6a8e6c04cfb3849504b6e210"), "unsupported_type:ObjectId"),
+    "is_active": (True, None),
+    "file_name": ("app.py", None),
+    "programming_language": ("python", None),
+    "tags": (["repo:amirbiron/CodeBot"], None),
+    "description": ("קובץ ראשי", None),
+    "version": (3, None),
+    "created_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
+    "updated_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
+    "deleted_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
+    "deleted_expires_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
+    "file_size": (6656, None),
+    "lines_count": (100, None),
+    "is_favorite": (True, None),
+    "favorited_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
+    "is_pinned": (False, None),
+    "pinned_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
+    "pin_order": (1, None),
+}
+
+
+class TestReplayableIsDefinedByTheJsonRoundTrip:
+    """"ניתן להרצה חוזרת" נמדד בסיבוב JSON, לא בטיפוס."""
+
+    def test_the_sample_table_covers_every_allowed_field(self):
+        """הטבלה חייבת לכסות את הרשימה במלואה, אחרת שדה חדש נכנס בלי שנדע."""
+        assert set(ALLOWED_FIELD_SAMPLES) == set(mod.RAW_QUERY_ALLOWED_FIELDS)
+
+    @pytest.mark.parametrize("field", sorted(ALLOWED_FIELD_SAMPLES))
+    def test_each_allowed_field_behaves_as_the_table_says(self, raw_values_service, field):
+        sample, expected_reason = ALLOWED_FIELD_SAMPLES[field]
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, field: sample})
+
+        assert row.raw_withheld_reason == expected_reason, (
+            f"השדה {field!r} אינו מתנהג כפי שהטבלה מתעדת"
+        )
+        if expected_reason is None:
+            assert row.query_raw == {"user_id": ME, field: sample}
+
+    @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+    def test_a_number_that_is_not_valid_json_is_withheld(self, raw_values_service, bad):
+        """``json.dumps`` פולט ``Infinity``/``NaN``, ו-``JSON.parse`` בדפדפן זורק עליהם.
+
+        הבדיקה הקודמת הייתה ``value == value`` — היא חסמה NaN בלבד, ואינסוף
+        עבר. זה בדיוק אותו כשל כמו ``ObjectId``: ערך שנשמר, נראה תקין בשרת,
+        ושובר את המסע חזרה לדפדפן.
         """
-        monkeypatch.setenv("PROFILER_UNREDACTED_USER_IDS", str(ME))
-        # ``QueryProfilerService`` הוא המסלול שקורא מה-buffer שבזיכרון.
-        # (``PersistentQueryProfilerService.get_slow_queries`` קוראת תמיד מה-DB.)
-        svc = QueryProfilerService(db_manager=MagicMock(), slow_threshold_ms=100)
-        svc.record_slow_query_sync(
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, "file_size": {"$gt": bad}})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "unsupported_number"
+
+    def test_whatever_is_stored_survives_a_json_round_trip_unchanged(self, raw_values_service):
+        """התכונה עצמה, ולא רשימת הטיפוסים: מה שנשמר חוזר זהה מ-JSON."""
+        row = _record_and_read_back(raw_values_service, MY_QUERY)
+
+        assert row.query_raw is not None
+        assert json.loads(json.dumps(row.query_raw, allow_nan=False)) == row.query_raw
+
+
+class TestStructuralValuesStayReal:
+    """``$limit``/``$skip``/``$sort`` הם מבנה, לא נתוני משתמש."""
+
+    def test_limit_and_skip_and_sort_keep_their_real_values(self, raw_values_service):
+        """``$limit`` הוא מה שהופך מיון חוסם ל-top-k — ניתוח עם 10 במקום 21 הוא ניתוח אחר."""
+        pipeline = [
+            {"$match": {"user_id": ME}},
+            {"$sort": {"file_name": 1, "version": -1}},
+            {"$skip": 40},
+            {"$limit": 21},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.raw_withheld_reason is None
+        stages = row.query_raw["pipeline"]
+        assert stages[1] == {"$sort": {"file_name": 1, "version": -1}}
+        assert stages[2] == {"$skip": 40}
+        assert stages[3] == {"$limit": 21}
+
+    def test_a_structural_value_that_is_not_structural_is_withheld(self, raw_values_service):
+        """``$limit`` שאינו שלם חיובי אינו "מבנה" — הוולידציה הצרה חייבת לתפוס אותו."""
+        pipeline = [{"$match": {"user_id": ME}}, {"$limit": "21"}]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "malformed_stage:$limit"
+
+
+class TestOwnerScanReadsFilterPositions:
+    """הסורק קורא מיקומי סינון; ``1`` של כיוון מיון אינו מזהה משתמש."""
+
+    def test_sorting_by_user_id_is_not_a_foreign_owner(self, raw_values_service):
+        pipeline = [{"$match": {"user_id": ME}}, {"$sort": {"user_id": 1}}]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.raw_withheld_reason is None, "כיוון המיון נקרא כמזהה זר"
+        assert row.query_raw["pipeline"][1] == {"$sort": {"user_id": 1}}
+
+    def test_projecting_user_id_is_not_a_foreign_owner(self, raw_values_service):
+        pipeline = [{"$match": {"user_id": ME}}, {"$project": {"user_id": 1, "file_name": 1}}]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.raw_withheld_reason is None, "מפרט ההיטלה נקרא כמזהה זר"
+
+    def test_a_foreign_owner_in_a_later_match_is_still_caught(self, raw_values_service):
+        """``$match`` מאוחר **כן** נשמר עם ערכים, ולכן חייב להיסרק."""
+        pipeline = [{"$match": {"user_id": ME}}, {"$match": {"user_id": SOMEONE_ELSE}}]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_mismatch"
+
+    def test_a_foreign_owner_inside_a_lookup_match_is_still_caught(self, raw_values_service):
+        pipeline = [
+            {"$match": {"user_id": ME}},
+            {"$lookup": {"from": "code_snippets", "as": "d", "pipeline": [
+                {"$match": {"user_id": SOMEONE_ELSE}},
+            ]}},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_mismatch"
+
+    @pytest.mark.parametrize("pipeline", [
+        [{"$match": {"user_id": ME}}, {"$set": {"foreign": {"user_id": SOMEONE_ELSE}}}],
+        [{"$match": {"user_id": ME}}, {"$sort": {"user_id": -1}}, {"$limit": 5}],
+        [{"$match": {"user_id": ME}}, {"$match": {"tags": {"$in": ["a", "b"]}}}],
+        [{"$match": {"user_id": ME}}, {"$lookup": {"from": "code_snippets", "as": "d",
+                                                   "pipeline": [{"$match": {"file_name": "a.py"}}]}}],
+    ])
+    def test_the_invariant_holds_on_what_was_actually_stored(self, raw_values_service, pipeline):
+        """האינווריאנט נבדק על **הפלט**, לא על הקלט.
+
+        הניסוח המדויק: *סורקים כל מה שנשמר ולא עבר ולידציה מבנית מגבילה.*
+        לכן שתי אסרשנות, וכל אחת מכסה חצי אחר:
+
+        1. **בשום מקום בפלט** אין את המזהה הזר. זו הבדיקה שלא תלויה בשום
+           הנחה על מבנה — אם ערך זר הצליח להיכנס בדרך כלשהי, היא תיפול.
+        2. **בכל גוף ``$match`` בפלט** — המקומות היחידים שנושאים ערכים
+           חופשיים — כל ערך בעלות הוא ברשימה המורשית.
+
+        ``$limit``/``$skip``/``$sort`` נשמרים אף הם אך אינם נסרקים כאן, וזה
+        מכוון: הוולידציה שלהם צרה (שלם חיובי / אי-שלילי / ``±1``/``$meta``),
+        ומזהה משתמש אינו יכול להתחפש לאף אחת מהצורות. סריקה נאיבית עליהם
+        הייתה קוראת את ה-``-1`` של כיוון המיון כמזהה זר — בדיוק הבאג שהסבב
+        הזה תיקן.
+        """
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+        stored = row.query_raw or {}
+
+        assert str(SOMEONE_ELSE) not in json.dumps(stored, ensure_ascii=False)
+
+        for name, body in mod._stage_entries(stored.get("pipeline") or []):
+            if name != "$match":
+                continue
+            for value in mod._owner_values_in(body):
+                token = mod._owner_token(value)
+                assert token in mod._unredacted_user_ids(), (
+                    f"מזהה בעלות לא מורשה נשמר ב-$match: {value!r}"
+                )
+
+
+class TestTheMemoryBufferNeverHoldsRawValues:
+    """הערכים חיים ברשומה ב-DB תחת ה-TTL — ולא בזיכרון, שאין לו פקיעה."""
+
+    def test_the_buffer_holds_no_raw_values(self, raw_values_service):
+        """הדק חסום בגודל ולא בגיל, והשירות הבסיסי אינו מופע בייצור בכלל."""
+        returned = raw_values_service.record_slow_query_sync(
             collection="code_snippets", operation="find", query=MY_QUERY, execution_time_ms=1500.0
         )
 
-        assert svc.get_slow_queries()[0].query_raw == MY_QUERY
+        assert returned.query_raw == MY_QUERY, "הרשומה המוחזרת היא זו שנכתבת ל-DB"
+        buffered = list(raw_values_service._slow_queries)[-1]
+        assert buffered.query_raw is None
+        assert buffered.raw_owner_id is None
 
-        monkeypatch.setenv("PROFILER_UNREDACTED_USER_IDS", "")
-        hidden = svc.get_slow_queries()[0]
+    def test_the_withheld_reason_survives_in_the_buffer(self, raw_values_service):
+        """הסיבה אינה ערך רגיש — היא ההסבר שהדשבורד מציג, ואסור שהניקוי ייקח אותה."""
+        raw_values_service.record_slow_query_sync(
+            collection="code_snippets", operation="find",
+            query={"user_id": ME, "owner_id": SOMEONE_ELSE}, execution_time_ms=1500.0,
+        )
 
-        assert hidden.query_raw is None
-        assert hidden.raw_withheld_reason == "owner_not_allowed_now"
+        buffered = list(raw_values_service._slow_queries)[-1]
+        assert buffered.query_raw is None
+        assert buffered.raw_withheld_reason == "unknown_field:owner_id"
+
+    def test_the_db_row_still_carries_the_values(self, raw_values_service):
+        """הניקוי הוא של הזיכרון בלבד — מה שנכתב ל-DB לא נגרע."""
+        raw_values_service.record_slow_query_sync(
+            collection="code_snippets", operation="find", query=MY_QUERY, execution_time_ms=1500.0
+        )
+
+        stored = raw_values_service.db_manager.db["slow_queries_log"].docs[-1]
+        assert stored["query_raw"] == MY_QUERY

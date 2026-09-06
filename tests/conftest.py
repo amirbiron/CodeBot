@@ -11,10 +11,13 @@ first, then prefer the local `tests` directory on sys.path, and finally fall
 back to loading the stub module directly from its file path.
 """
 
+import json
 import os
 import sys
 from pathlib import Path
+from typing import List, NamedTuple
 import importlib.util
+from urllib.parse import urlsplit
 
 import pytest
 try:
@@ -225,17 +228,78 @@ def _locate_chromium():
     return None
 
 
+#: תשובות ברירת מחדל שפירות ל-endpoints של הפרופיילר, בצורה המינימלית
+#: שה-JS של הדשבורד צורך (``loadSummary`` קורא ``total_slow_queries``,
+#: ``avg_execution_time_ms``, ``collections_affected``, ``unique_patterns``;
+#: ``renderSlowQueriesTable`` עושה ``forEach`` על ``data``).
+_PROFILER_STUB_RESPONSES = {
+    "/api/profiler/summary": {
+        "status": "success",
+        "data": {
+            "total_slow_queries": 0,
+            "avg_execution_time_ms": 0,
+            "collections_affected": [],
+            "unique_patterns": 0,
+        },
+    },
+    "/api/profiler/slow-queries": {"status": "success", "data": [], "count": 0},
+}
+
+
+@pytest.fixture
+def stub_profiler_api():
+    """מחזיר פונקציה שמתקינה יירוט **כללי** לכל ``/api/profiler/`` על עמוד.
+
+    למה כללי ולא ראוט לכל endpoint: הדשבורד יורה ב-``DOMContentLoaded`` גם
+    ``loadSummary()`` וגם ``refreshSlowQueries()``, ובנוסף מחזיק
+    ``setInterval(loadSummary, 30000)``. יירוט לפי רשימה נשבר בשקט ברגע
+    שהעמוד יוסיף fetch נוסף, והבקשה יוצאת לשרת האמיתי ומגיעה למסד הנתונים —
+    שם היא נבלעת ב-``catch`` של ה-JS ואיש לא רואה.
+
+    **סדר הרישום:** יש לקרוא לזה **לפני** רישום ראוטים ספציפיים. אומת במקור
+    של playwright 1.62.0 (``_impl/_page.py``): ``route`` עושה
+    ``self._routes.insert(0, ...)`` ו-``_on_route`` לוקח את ההתאמה הראשונה,
+    כלומר **הראוט שנרשם אחרון מנצח**.
+    """
+    def _install(page):
+        def _handle(route):
+            path = urlsplit(route.request.url).path
+            body = _PROFILER_STUB_RESPONSES.get(path, {"status": "success", "data": {}})
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+        page.route("**/api/profiler/**", _handle)
+
+    return _install
+
+
 @pytest.fixture(scope="session")
 def chromium_executable():
     """נתיב ל-Chromium, או ``None``. ``None`` פירושו "תן ל-Playwright לחפש"."""
     return _locate_chromium()
 
 
+class AdminLiveServer(NamedTuple):
+    """מה ש-``admin_live_server`` מחזיר.
+
+    ``profiler_hits`` הוא רשימת הנתיבים תחת ``/api/profiler/`` שבאמת הגיעו
+    לשרת. טסט בידוד בודק שהיא ריקה — כלומר סופר בצד השרת במקום להסיק
+    מהיעדר שגיאה בדפדפן, ששם כל כשל רשת נבלע ב-``catch`` של ה-JS.
+    """
+
+    base_url: str
+    session_cookie: str
+    profiler_hits: List[str]
+
+
 @pytest.fixture(scope="module")
 def admin_live_server():
-    """מריץ את הוובאפ האמיתי עם session של אדמין, בלי לגעת ב-DB או ברשת.
+    """מריץ את הוובאפ האמיתי עם session של אדמין, בלי לגעת ב-DB או ברשת חיצונית.
 
-    מחזיר ``(base_url, session_cookie)``.
+    מרים שרת ``loopback`` מקומי על ``127.0.0.1`` בפורט אקראי — זו הרשת
+    היחידה שנוגעים בה, ובדיקת הבריאות פונה אליו דרך ``urllib``. אין חיבור
+    למסד נתונים ואין יציאה החוצה.
+
+    מחזיר ``AdminLiveServer(base_url, session_cookie, profiler_hits)``.
 
     ``MonkeyPatch.context`` ולא ``MonkeyPatch()`` ידני: הוא מבטל את עצמו
     ביציאה מהבלוק **גם כשההקמה נופלת באמצע**. עם ``patch.undo()`` שיושב רק
@@ -268,7 +332,17 @@ def admin_live_server():
         # פורט 0: הליבה בוחרת פורט פנוי ומקצה אותו באותה פעולה. בחירת פורט
         # מראש ואז bind נפרד היא חלון מירוץ — מישהו אחר יכול לתפוס אותו בין
         # שתי הפעולות.
-        httpd = make_server("127.0.0.1", 0, app, threaded=True)
+        # עטיפת WSGI שסופרת בקשות לפרופיילר שהגיעו לשרת האמיתי. היא כאן ולא
+        # ב-``before_request`` של האפליקציה כדי לא לשנות קוד ייצור בשביל טסט.
+        profiler_hits: List[str] = []
+
+        def counting_app(environ, start_response):
+            path = environ.get("PATH_INFO", "") or ""
+            if path.startswith("/api/profiler/"):
+                profiler_hits.append(path)
+            return app(environ, start_response)
+
+        httpd = make_server("127.0.0.1", 0, counting_app, threaded=True)
         port = httpd.server_port
         thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         thread.start()
@@ -285,7 +359,7 @@ def admin_live_server():
             else:  # pragma: no cover
                 pytest.skip("שרת הבדיקה לא עלה")
 
-            yield f"http://127.0.0.1:{port}", session_cookie
+            yield AdminLiveServer(f"http://127.0.0.1:{port}", session_cookie, profiler_hits)
         finally:
             httpd.shutdown()
             httpd.server_close()

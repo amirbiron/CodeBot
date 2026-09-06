@@ -165,8 +165,9 @@ def code_span(line: str) -> str:
 
 
 @pytest.fixture
-def page(admin_live_server, chromium_executable):
-    base_url, session_cookie = admin_live_server
+def page(admin_live_server, chromium_executable, stub_profiler_api):
+    base_url = admin_live_server.base_url
+    session_cookie = admin_live_server.session_cookie
     executable = chromium_executable
     with sync_playwright() as pw:
         try:
@@ -192,6 +193,10 @@ def page(admin_live_server, chromium_executable):
                 "domain": "127.0.0.1", "path": "/",
             }])
             p = context.new_page()
+            # יירוט כללי לכל ה-API של הפרופיילר, לפני כל ראוט ספציפי:
+            # ``DOMContentLoaded`` יורה summary ו-slow-queries, ובלעדיו הם
+            # יוצאים לשרת האמיתי ומגיעים למסד הנתונים.
+            stub_profiler_api(p)
             # מודאל ה-onboarding נפתח למשתמש חדש וחוסם קליקים בעמוד.
             p.add_init_script(
                 "try{localStorage.setItem('welcomeModalSeen','1');"

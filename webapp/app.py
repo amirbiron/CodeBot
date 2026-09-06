@@ -4775,11 +4775,18 @@ def _profiler_allowed_ips() -> List[str]:
 
 
 def _profiler_is_authorized() -> bool:
-    """אימות X-Profiler-Token + allowlist IP (best-effort).
+    """גישה לפרופיילר. **סשן אדמין נדרש בכל מסלול.**
 
-    - אם token מוגדר: חייבים לספק X-Profiler-Token תואם
-    - allowlist IP (אופציונלי): אם מוגדר, חייבים להיות בתוך הרשימה
-    - בנוסף: מאפשר אדמין מחובר (session) גם אם token לא הוגדר
+    מה שקורה בפועל, ולא מה שהשמות מרמזים:
+
+    - אדמין מחובר ← מאושר, בלי שהטוקן נבדק בכלל. ``PROFILER_ALLOWED_IPS``,
+      אם הוגדר, חל גם עליו.
+    - אין סשן אדמין ← נדחה, גם עם ``X-Profiler-Token`` תקין: כל המסלולים
+      מסתיימים בבדיקת האדמין שלמטה.
+
+    כלומר ``PROFILER_AUTH_TOKEN`` אינו פותח גישה ואינו חוסם אותה. זו סתירה
+    בין הכוונה המקורית להתנהגות, והיא מתועדת כאן ולא "מתוקנת" בשקט —
+    שינוי היה מרפה בדיקת הרשאות, וזו החלטת מוצר.
     """
     # Admin override (משאיר UI נוח לסביבה פנימית)
     try:
@@ -4809,7 +4816,8 @@ def _profiler_is_authorized() -> bool:
         if client_ip not in allowed_ips:
             return False
 
-    # אם אין token ואין allowlist — נדרוש אדמין (למנוע דליפה בסביבה פתוחה)
+    # בדיקת האדמין אינה מותנית בדבר: כל מי שהגיע לכאן — עם טוקן תקין או בלעדיו —
+    # נדחה אם אינו אדמין. זה המקום שהופך את הטוקן לחסר השפעה (ראו ה-docstring).
     try:
         uid = session.get("user_id")
         return bool(uid is not None and is_admin(int(uid)))

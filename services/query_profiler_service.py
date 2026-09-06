@@ -304,6 +304,7 @@ RAW_WITHHELD_OWNER_MISMATCH = "owner_mismatch"
 RAW_WITHHELD_VECTOR = "vector_query"
 RAW_WITHHELD_TOO_LARGE = "too_large"
 RAW_WITHHELD_MALFORMED = "malformed"
+RAW_WITHHELD_UNSUPPORTED_NUMBER = "unsupported_number"
 RAW_WITHHELD_OWNER_NOT_ALLOWED_NOW = "owner_not_allowed_now"
 
 
@@ -326,41 +327,89 @@ def _owner_token(value: Any) -> Optional[str]:
     return None
 
 
+def _reject_unserializable(obj: Any) -> Any:
+    """``default`` של ``json.dumps``: כל טיפוס שהוא אינו מכיר נדחה בשמו."""
+    raise _RawQueryWithheld(f"unsupported_type:{type(obj).__name__}")
+
+
 def _ensure_replayable(value: Any) -> Any:
-    """עותק של הערך, או דחייה אם הוא לא ישרוד את המסע חזרה.
+    """הערך אחרי סיבוב JSON, או דחייה אם הוא לא שורד אותו.
 
-    ``query_raw`` קיים כדי שאפשר יהיה **להריץ אותו שוב** דרך כפתור הניתוח:
-    הדשבורד מקבל אותו כ-JSON ומחזיר אותו לשרת, שמעביר אותו ל-``explain``.
-    טיפוס שאינו JSON נייטיבי — ``ObjectId``, ``datetime``, ``Decimal128``,
-    ``bytes`` — היה נשמר כמחרוזת, וההרצה החוזרת הייתה מחפשת **מחרוזת**
-    במקום ObjectId ומחזירה אפס תוצאות בלי שאיש יידע.
+    ``query_raw`` קיים כדי שאפשר יהיה **להריץ אותו שוב** דרך כפתור הניתוח,
+    והמסע שלו הוא: מונגו ← השרת ← JSON ← הדשבורד ← JSON ← השרת ← ``explain``.
+    לכן **ההגדרה של "ניתן להרצה חוזרת" היא הסיבוב עצמו, לא רשימת טיפוסים.**
 
-    ערך שנראה אמיתי ואינו ניתן להרצה גרוע מהיעדר ערך, ולכן כאן נכשלים סגור
-    ובקול: הרשומה נשמרת בלי ערכים, והסיבה נוקבת בשם הטיפוס.
+    בדיקה לפי ``isinstance`` נכשלה בשני הכיוונים: ``float('inf')`` הוא
+    ``float`` ועבר, אבל ``json.dumps`` פולט עליו ``Infinity`` — שאינו JSON
+    תקני, ו-``JSON.parse`` בדפדפן זורק עליו. הסיבוב האמיתי תופס את שניהם:
+    ``allow_nan=False`` דוחה ``inf``/``NaN``, ו-``default`` דוחה כל טיפוס
+    שאינו JSON נייטיבי (``ObjectId``, ``datetime``, ``Decimal128``, ``bytes``)
+    **בשמו**.
+
+    ערך שנראה אמיתי ואינו ניתן להרצה גרוע מהיעדר ערך — הוא היה מריץ שאילתה
+    אחרת ומחזיר אפס תוצאות בלי שאיש יידע — ולכן כאן נכשלים סגור ובקול.
     """
-    if isinstance(value, dict):
-        return {str(k): _ensure_replayable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_ensure_replayable(v) for v in value]
-    if value is None or isinstance(value, (str, bool)):
-        return value
-    if isinstance(value, int) or (isinstance(value, float) and value == value):
-        return value
-    raise _RawQueryWithheld(f"unsupported_type:{type(value).__name__}")
+    try:
+        return json.loads(json.dumps(value, allow_nan=False, default=_reject_unserializable))
+    except ValueError as exc:  # ``allow_nan=False`` על inf/-inf/NaN
+        raise _RawQueryWithheld(RAW_WITHHELD_UNSUPPORTED_NUMBER) from exc
+    except TypeError as exc:  # מפתח שאינו מחרוזת/מספר — לא עובר דרך ``default``
+        raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED) from exc
+
+
+#: סמן פנימי: השלב אינו שלב מבנה. ``None`` אינו מתאים — ``$skip: 0`` חוקי.
+_NOT_STRUCTURAL = object()
+
+
+def _structural_stage_value(name: str, body: Any) -> Any:
+    """ערכו האמיתי של שלב **מבנה**, או ``_NOT_STRUCTURAL`` אם אינו כזה.
+
+    ``$limit``, ``$skip`` וכיווני ``$sort`` אינם נתוני משתמש אלא מבנה, ולכן
+    הם נשמרים אמיתיים. הוולידציה כאן צרה עד הסוף — שלם חיובי, שלם אי-שלילי,
+    או מילון של שדה ← ``1``/``-1``/``$meta`` — ולכן היא **מגבילה** במובן
+    שמזהה משתמש אינו יכול להתחפש לאף אחת מהצורות האלה. זו הסיבה שהם אינם
+    נסרקים בסריקת הבעלות, וההיתר נובע מצרוּת הוולידציה ולא מכיסוי הסריקה.
+
+    למה זה חשוב ולא קוסמטי: ``$limit`` הוא מה שהופך מיון חוסם ל-top-k. ניתוח
+    שרץ עם ``$limit: 10`` (הערך ש-``_fix_pipeline_for_explain`` מציב במקום
+    placeholder) במקום 21 הוא ניתוח של שאילתה אחרת — נמדד בסבב 292: 24.7MB
+    בלי ה-``$limit`` מול 337KB איתו.
+    """
+    if name in {"$limit", "$skip"}:
+        if isinstance(body, bool) or not isinstance(body, int):
+            raise _RawQueryWithheld(f"malformed_stage:{name}")
+        if body < 0 or (name == "$limit" and body <= 0):
+            raise _RawQueryWithheld(f"malformed_stage:{name}")
+        return body
+    if name == "$sort":
+        if not isinstance(body, dict) or not body:
+            raise _RawQueryWithheld("malformed_stage:$sort")
+        out: Dict[str, Any] = {}
+        for sort_key, direction in body.items():
+            if isinstance(direction, dict):
+                if set(direction) != {"$meta"} or not isinstance(direction["$meta"], str):
+                    raise _RawQueryWithheld("malformed_stage:$sort")
+                out[str(sort_key)] = {"$meta": direction["$meta"]}
+                continue
+            if isinstance(direction, bool) or direction not in (1, -1):
+                raise _RawQueryWithheld("malformed_stage:$sort")
+            out[str(sort_key)] = int(direction)
+        return out
+    return _NOT_STRUCTURAL
 
 
 def _raw_pipeline(pipeline: Any, shape: Any) -> List[Any]:
-    """הפייפליין שיישמר: ערכים אמיתיים ב-``$match``, שלד בכל שאר השלבים.
+    """הפייפליין שיישמר: ערכים אמיתיים בסינון ובמבנה, שלד בכל השאר.
 
-    **למה רק ``$match``.** מה שנשמר עם ערכים חייב להיות מה שעבר ולידציה מלאה,
-    ו-``_check_condition`` יודעת לאמת תנאי סינון — שדות מוכרים, אופרטורים
-    מוכרים. גוף של ``$addFields``/``$group``/``$project`` הוא **ביטוי**: הוא
-    ממציא שמות פלט ונושא קבועים חופשיים, ואין מולו רשימה שאפשר לאמת מולה בלי
-    לנחש. לכן הוא נשאר בשלד המנורמל.
+    **מה נשמר אמיתי.** תנאי סינון (``$match``, בכל עומק) — כי
+    ``_check_condition`` אימתה אותם מול רשימת שדות ואופרטורים. וערכי מבנה
+    (``$limit``/``$skip``/``$sort``) — כי ``_structural_stage_value`` אימתה
+    אותם מול צורה צרה. **מה שנשאר בשלד:** גוף של ``$addFields``/``$group``/
+    ``$project`` הוא ביטוי — הוא ממציא שמות פלט ונושא קבועים חופשיים, ואין
+    מולו רשימה שאפשר לאמת מולה בלי לנחש.
 
-    ה-explain לא מפסיד מזה כלום: מה שקובע אילו מסמכים נסרקים ואיזה אינדקס
-    נבחר הוא הסינון, וה-placeholders שנשארים בשאר השלבים כבר מטופלים
-    ב-``_fix_pipeline_for_explain``.
+    כך "כל מה שנשמר עם ערכים עבר ולידציה" הוא תכונה של המבנה ולא הבטחה
+    בהערה.
     """
     out: List[Any] = []
     for original, normalized in zip(pipeline, shape):
@@ -369,7 +418,10 @@ def _raw_pipeline(pipeline: Any, shape: Any) -> List[Any]:
             continue
         (name, body), = original.items()
         name = str(name)
-        if name == "$match":
+        structural = _structural_stage_value(name, body)
+        if structural is not _NOT_STRUCTURAL:
+            out.append({name: structural})
+        elif name == "$match":
             out.append({name: _ensure_replayable(body)})
         elif name in {"$lookup", "$unionWith"} and isinstance(body, dict) and isinstance(body.get("pipeline"), list):
             merged = dict(normalized.get(name) or {})
@@ -751,7 +803,14 @@ class QueryProfilerService:
             raw_withheld_reason=raw_withheld_reason,
         )
 
-        self._slow_queries.append(record)
+        # **הבאפר לא מחזיק ערכים אמיתיים.** הוא חסום בגודל ולא בגיל, ואילו
+        # ה-TTL של שבעה ימים מכסה רק את הרשומה ב-DB — כלומר ערך שנשאר כאן
+        # אין לו פקיעה. ואין לו גם צרכן: ``QueryProfilerService`` הבסיסי אינו
+        # מופע בייצור, ו-``PersistentQueryProfilerService.get_slow_queries``
+        # קוראת מה-DB בלבד. ``raw_withheld_reason`` **כן** נשאר — הוא אינו ערך
+        # רגיש אלא ההסבר שהדשבורד מציג. הרשומה המלאה מוחזרת לקורא, ולכן
+        # ``_persist_record`` עדיין כותב את הערכים ל-DB.
+        self._slow_queries.append(_dc_replace(record, query_raw=None, raw_owner_id=None))
 
         # עדכון מונה דפוסי שאילתות
         pattern_key = f"{collection}:{operation}:{json.dumps(query_shape, sort_keys=True)}"
@@ -818,10 +877,25 @@ class QueryProfilerService:
             else:
                 asserted = _asserted_owners(query)
 
-            # הסריקה עוברת על **כל** השאילתה ולא רק על גופי ``$match``: מזהה של
-            # משתמש אחר יכול לשבת בכל שלב — ``$set``, ``$addFields``,
-            # ``$lookup.let`` — ושם הוא נכנס לרשומה בדיוק כמו בסינון.
-            everywhere = _owner_values_in(query)
+            # **הסריקה עוברת על מיקומי סינון בלבד**, והאינווריאנט המדויק הוא:
+            # סורקים כל מה שנשמר ולא עבר ולידציה מבנית מגבילה. באגרגציה אלה
+            # גופי ה-``$match`` בכל עומק — הם היחידים שנשמרים עם ערכים חופשיים.
+            # ``$limit``/``$skip``/``$sort`` נשמרים אף הם, אבל עברו ולידציה צרה
+            # (``_structural_stage_value``) שמזהה משתמש אינו יכול לעבור, ולכן
+            # אינם נסרקים. כל שאר השלבים מנורמלים ולעולם אינם נושאים ערך.
+            #
+            # למה לא לסרוק את הכול: ``$sort: {user_id: 1}`` היה נדחה, כי ה-``1``
+            # של כיוון המיון נקרא כמזהה זר. זה נכשל סגור — עולה בפיצ'ר ולא
+            # בבטיחות — אבל זו דחייה שקרית של שאילתה לגיטימית.
+            if operation == "aggregate":
+                everywhere = [
+                    value
+                    for stage_name, stage_body in _stage_entries(query["pipeline"])
+                    if stage_name == "$match"
+                    for value in _owner_values_in(stage_body)
+                ]
+            else:
+                everywhere = _owner_values_in(query)
 
             for value in everywhere:
                 token = _owner_token(value)

@@ -23,10 +23,10 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 ME = 6865105071
 RAW_QUERY = {"user_id": ME, "programming_language": "python"}
 
-#: שתי רשומות: אחת עם ערכים אמיתיים, אחת שנמנעה בגלל שדה לא מוכר.
+#: שלוש רשומות: אחת עם ערכים אמיתיים, אחת שנמנעה בגלל שדה לא מוכר,
+#: ואחת ``update`` שנמנעה — כדי שהשורה בלי כפתור ניתוח תיבדק גם היא.
 SLOW_QUERIES = {
     "status": "success",
-    "count": 2,
     "data": [
         {
             "query_id": "with-values",
@@ -48,8 +48,19 @@ SLOW_QUERIES = {
             "execution_time_ms": 1200.0,
             "timestamp": "2026-09-06T00:00:00",
         },
+        {
+            "query_id": "withheld-update",
+            "collection": "code_snippets",
+            "operation": "update",
+            "query_shape": {"user_id": "<value>", "owner_id": "<value>"},
+            "query_raw": None,
+            "raw_withheld_reason": "unknown_field:owner_id",
+            "execution_time_ms": 1100.0,
+            "timestamp": "2026-09-06T00:00:00",
+        },
     ],
 }
+SLOW_QUERIES["count"] = len(SLOW_QUERIES["data"])
 
 #: תשובת ניתוח מינימלית — הטסט בודק את הבקשה, לא את הרינדור.
 ANALYSIS = {
@@ -67,9 +78,10 @@ ANALYSIS = {
 
 
 @pytest.fixture
-def dashboard(admin_live_server, chromium_executable):
+def dashboard(admin_live_server, chromium_executable, stub_profiler_api):
     """הדשבורד עם רשימת השאילתות המזויפת, ורשימת גופי הבקשות שהכפתור שלח."""
-    base_url, session_cookie = admin_live_server
+    base_url = admin_live_server.base_url
+    session_cookie = admin_live_server.session_cookie
     executable = chromium_executable
     with sync_playwright() as pw:
         try:
@@ -88,6 +100,10 @@ def dashboard(admin_live_server, chromium_executable):
                 "try{localStorage.setItem('welcomeModalSeen','1');"
                 "localStorage.setItem('onboarding_completed','1');}catch(e){}"
             )
+            # היירוט הכללי **ראשון**; הראוטים הספציפיים שאחריו מנצחים אותו
+            # (playwright מכניס כל ראוט חדש לראש הרשימה).
+            stub_profiler_api(page)
+
             sent = []
             page.route(
                 "**/api/profiler/slow-queries*",
@@ -118,6 +134,26 @@ def _row(page, query_id):
     raise AssertionError(f"אין שורה עם data-query-id={query_id!r}; יש {len(rows)} שורות")
 
 
+def test_no_profiler_request_ever_reaches_the_real_server(dashboard, admin_live_server):
+    """בידוד נבדק בספירה בצד השרת, לא בהיעדר שגיאה בדפדפן.
+
+    כל כשל רשת ב-JS של הדשבורד נבלע ב-``catch``, ולכן "הטסט לא נפל" אינו
+    ראיה לכלום. כאן סופרים בעטיפת ה-WSGI מה באמת הגיע.
+
+    **הטסט נשען על הטעינה הראשונית ולא על ה-``setInterval``.** הדשבורד מרענן
+    את הסיכום כל 30 שניות, וטסט קצר לא היה מגיע לזה — כלומר היה עובר גם בלי
+    היירוט, מהסיבה הלא נכונה. ``DOMContentLoaded`` לבדו יורה גם
+    ``loadSummary()`` וגם ``refreshSlowQueries()``, ולכן זה מספיק כדי שהסרת
+    היירוט הכללי תפיל את הטסט.
+    """
+    page, _ = dashboard
+    page.wait_for_selector("#slow-queries-table tbody tr", timeout=10000)
+
+    assert admin_live_server.profiler_hits == [], (
+        f"בקשות פרופיילר הגיעו לשרת האמיתי: {admin_live_server.profiler_hits}"
+    )
+
+
 def test_the_button_sends_the_real_values_when_the_record_carries_them(dashboard):
     page, sent = dashboard
     button = _row(page, "with-values").query_selector("button[data-analyze-with='raw']")
@@ -143,3 +179,20 @@ def test_a_withheld_record_says_why_and_analyzes_the_skeleton(dashboard):
     page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
 
     assert sent[-1]["query"] == {"user_id": "<value>", "owner_id": "<value>"}
+
+
+def test_a_row_without_an_analyze_button_still_says_why_the_values_are_missing(dashboard):
+    """``update``/``delete`` נשמרים גם הם, עוברים את אותה החלטת ערכים, ואין להם כפתור.
+
+    ה-explain אינו מנתח אותם, ולכן אין בשורה שום רמז אחר — אם הסיבה לא מוצגת
+    שם, האדמין רואה מקף ותו לא, ולא יודע שהערכים נמנעו ולמה. הסיבה עצמה אינה
+    ערך רגיש; היא ההסבר לכך שאין ערך.
+    """
+    page, _sent = dashboard
+    row = _row(page, "withheld-update")
+
+    assert row.query_selector("button[data-analyze-with]") is None, "ל-update אין מה לנתח"
+
+    note = row.query_selector("[data-testid='raw-withheld']")
+    assert note is not None, "שורה בלי כפתור עדיין חייבת להסביר למה אין ערכים אמיתיים"
+    assert "owner_id" in (note.text_content() or ""), "הסיבה חייבת לנקוב בשם השדה"
