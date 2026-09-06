@@ -304,7 +304,7 @@ Component Tokens ו‑Theme Builder
 
 - מעבר ידני על כל 8 הערכות דרך Theme Wizard + בדיקה מהירה של `localStorage`.
 - בדיקת Split View + Markdown Preview (כולל לחצן "רקע לבן", מצבי Reader).
-- בדיקת Live Preview / Sticky Notes / Smooth Scroll Debug / Login alert / RTL.
+- בדיקת Live Preview / Sticky Notes / Login alert / RTL. הגלילה החלקה כבויה כברירת מחדל (ראו :doc:`smooth-scrolling`); לבדיקה נקודתית שלה מוסיפים ``?smooth_debug=1`` לכתובת.
 - בדיקת Collections, Bookmarks, אוספים משותפים וה‑Glass badges.
 - בדיקת נגישות ב‑High Contrast (יחס ניגודיות 4.5:1, focus outline, קישורים).
 - עוגנים לטסטי דפדפן: אלמנט שטסט צריך לזהות מקבל ``data-testid`` שמתאר את **המצב שרונדר** (למשל ``agg-time-not-measured``), לא את הניסוח. הטסט נתלה בו ולא במחרוזת UI בעברית — שינוי ניסוח לא מפיל טסט, רינדור של הענף הלא נכון כן. ``data-testid`` אינו hook ל‑CSS ואין לעצב לפיו. כשלאלמנט כבר יש חוזה סמנטי יציב (``href``, ``id``, ``name``) — משתמשים בו ולא מוסיפים ``data-testid``. תקדים: ``webapp/templates/profiler_dashboard.html``.

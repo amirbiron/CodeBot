@@ -65,11 +65,18 @@
           return false;
         }
       })();
+      // כבוי כברירת מחדל, בכוונה. כשהמנגנון פעיל ``onAnchorClick`` מבטל את
+      // ניווט הדפדפן לעוגן וגולל בעצמו — בלי לכתוב את העוגן לכתובת — ולכן
+      // אף קישור עוגן לא עדכן ``location.hash`` (אין Back, אין :target, אין
+      // hashchange). המכשירים של היום לא צריכים את זה; ``smooth-scroll.css``
+      // נותן גלילה חלקה נייטיבית. הדלקה — לניפוי בלבד, לסשן הנוכחי:
+      // ``?smooth_debug=1`` או ``window.smoothScroll.enable()``.
+      // ראו docs/webapp/smooth-scrolling.rst.
       this.defaultConfig = {
         duration: reduce ? 0 : 400,
         easing: "ease-in-out",
         offset: 0,
-        enabled: !reduce,
+        enabled: false,
         wheelSensitivity: 1,
         keyboardSensitivity: 1.5,
         androidMomentumAmplifier: this.isAndroid ? 26 : 22,
@@ -696,7 +703,6 @@
     async savePreferences() {
       try {
         const prefs = {
-          enabled: !!this.config.enabled,
           duration: Number(this.config.duration) || 0,
           easing: String(this.config.easing || "ease-in-out"),
           wheelSensitivity: Number(this.config.wheelSensitivity) || 1,
@@ -728,7 +734,11 @@
         if (!raw) return;
         const obj = JSON.parse(raw);
         if (obj && typeof obj === "object") {
-          Object.assign(this.config, obj);
+          // רק ערכי כוונון. ``enabled`` שנשמר בעבר (מהכרטיס שהוסר מההגדרות)
+          // אינו מדליק את המנגנון — אחרת "כבוי כברירת מחדל" היה נכון רק
+          // למשתמש חדש.
+          const { enabled: _savedEnabled, ...tuning } = obj;
+          Object.assign(this.config, tuning);
           this.normalizeConfig();
         }
       } catch (_) {}
@@ -953,7 +963,7 @@
           'מערכת ההפעלה מסמנת להסיר אנימציות. בטל/י את "הסר אנימציות" בנגישות כדי לאפשר גלילה חלקה.';
       } else {
         this.debugRefs.noteEl.textContent =
-          "ניתן להדליק או לכבות כאן, או למחוק העדפה (נשמר ב-localStorage).";
+          "ההדלקה תקפה לעמוד הזה בלבד ואינה נשמרת. מחיקת ההעדפה מאפסת את ערכי הכוונון.";
       }
       this.debugRefs.toggleBtn.textContent = this.config.enabled
         ? "כבה גלילה חלקה"
