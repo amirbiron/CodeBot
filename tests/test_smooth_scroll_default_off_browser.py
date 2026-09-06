@@ -10,13 +10,12 @@
 אמיתיים, ואת הרביעי — שקישור עוגן חזר לעבוד כמו קישור עוגן.
 
 הטסט מדולג בשקט כשאין Chromium. הדפוס לקוח מ-``test_profiler_copy_report_browser.py``;
-הפיקסצ'רים משוכפלים ולא מיובאים, כי ייבוא בין קבצי טסט כבר הפיל CI בריפו הזה.
+הרמת השרת ואיתור Chromium מגיעים מהפיקסצ'רים המשותפים ב-``tests/conftest.py``;
+pytest מוצא אותם לבד, בלי ייבוא בין קבצי טסט.
 """
 
 from __future__ import annotations
 
-import os
-import threading
 
 import pytest
 
@@ -25,69 +24,9 @@ pytest.importorskip("playwright", reason="playwright אינו מותקן")
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 
-def _find_chromium():
-    """מאתר Chromium מותקן. מחזיר ``None`` אם אין — הטסט ידולג."""
-    from pathlib import Path
-
-    root_env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
-    root = Path(root_env) if root_env else None
-    if root and root.is_dir():
-        for candidate in sorted(root.glob("chromium*/chrome-linux/chrome")):
-            if candidate.exists():
-                return str(candidate)
-    return None
-
-
 @pytest.fixture(scope="module")
-def live_server():
-    """מריץ את הוובאפ האמיתי עם session של אדמין, בלי לגעת ב-DB או ברשת."""
-    import time
-    import urllib.request
-
-    import webapp.app as app_mod
-    from werkzeug.serving import make_server
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setenv("ADMIN_USER_IDS", "1")
-
-        app = app_mod.app
-        patch.setitem(app.config, "SECRET_KEY", "smooth-scroll-test")
-
-        with app.test_client() as client:
-            with client.session_transaction() as sess:
-                sess["user_id"] = 1
-                sess["user_data"] = {"id": 1, "is_admin": True, "is_premium": False}
-            cookie = client.get_cookie("session")
-            assert cookie is not None, "לא נוצר session cookie"
-            session_cookie = cookie.value
-
-        httpd = make_server("127.0.0.1", 0, app, threaded=True)
-        port = httpd.server_port
-        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-        thread.start()
-
-        try:
-            for _ in range(60):
-                try:
-                    urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=1)
-                    break
-                except Exception as exc:
-                    if "HTTP Error" in str(exc):  # השרת עונה, גם אם 404
-                        break
-                    time.sleep(0.25)
-            else:  # pragma: no cover
-                pytest.skip("שרת הבדיקה לא עלה")
-
-            yield f"http://127.0.0.1:{port}", session_cookie
-        finally:
-            httpd.shutdown()
-            httpd.server_close()
-            thread.join(timeout=5)
-
-
-@pytest.fixture(scope="module")
-def browser():
-    executable = _find_chromium()
+def browser(chromium_executable):
+    executable = chromium_executable
     with sync_playwright() as pw:
         try:
             b = (
@@ -102,7 +41,7 @@ def browser():
 
 
 @pytest.fixture
-def open_page(browser, live_server):
+def open_page(browser, admin_live_server):
     """פותח עמוד בקונטקסט **חדש** לכל טסט, עם ה-session של האדמין.
 
     קונטקסט חדש = ``localStorage`` ריק. זה מהותי: טסט אחד זורע העדפה
@@ -110,7 +49,8 @@ def open_page(browser, live_server):
     ``init_script`` רץ **לפני** כל סקריפט של העמוד — כך זורעים
     ``localStorage`` כפי שמשתמש ותיק היה מגיע עם ההעדפה כבר שמורה.
     """
-    base_url, session_cookie = live_server
+    base_url = admin_live_server.base_url
+    session_cookie = admin_live_server.session_cookie
     opened = []
 
     def _open(path, *, init_script=None):

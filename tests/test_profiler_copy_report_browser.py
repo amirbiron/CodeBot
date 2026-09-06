@@ -18,8 +18,6 @@
 from __future__ import annotations
 
 import json
-import os
-import threading
 
 import pytest
 
@@ -118,19 +116,6 @@ FIND_WITH_HOSTILE_RECOMMENDATION["data"]["recommendations"] = [{
 }]
 
 
-def _find_chromium():
-    """מאתר Chromium מותקן. מחזיר ``None`` אם אין — הטסט ידולג."""
-    from pathlib import Path
-
-    root_env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
-    root = Path(root_env) if root_env else None
-    if root and root.is_dir():
-        for candidate in sorted(root.glob("chromium*/chrome-linux/chrome")):
-            if candidate.exists():
-                return str(candidate)
-    return None
-
-
 def fenced_block(report: str, info: str) -> str:
     """מחלץ את תוכן בלוק הקוד לפי כללי CommonMark, כמו כל קורא Markdown.
 
@@ -179,66 +164,11 @@ def code_span(line: str) -> str:
     return content
 
 
-@pytest.fixture(scope="module")
-def live_server():
-    """מריץ את הוובאפ האמיתי עם session של אדמין, בלי לגעת ב-DB או ברשת."""
-    import time
-    import urllib.request
-
-    import webapp.app as app_mod
-    from werkzeug.serving import make_server
-
-    # ``MonkeyPatch.context`` ולא ``MonkeyPatch()`` ידני: הוא מבטל את עצמו
-    # ביציאה מהבלוק **גם כשההקמה נופלת באמצע**. עם ``patch.undo()`` שיושב רק
-    # אחרי ה-yield, חריגה בהקמה הייתה מותירה ``ADMIN_USER_IDS`` ו-``SECRET_KEY``
-    # דרוכים לכל שאר הסוויטה — כשל שמתגלה בטסט אחר לגמרי.
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setenv("ADMIN_USER_IDS", "1")
-
-        app = app_mod.app
-        patch.setitem(app.config, "SECRET_KEY", "profiler-copy-test")
-
-        # ה-session נבנה דרך ``test_client``, לא דרך route עזר: Flask אוסר
-        # ``@app.route`` אחרי הבקשה הראשונה, ובסוויטה מלאה טסט קודם כבר עשה זאת.
-        with app.test_client() as client:
-            with client.session_transaction() as sess:
-                sess["user_id"] = 1
-                sess["user_data"] = {"id": 1, "is_admin": True, "is_premium": False}
-            cookie = client.get_cookie("session")
-            assert cookie is not None, "לא נוצר session cookie"
-            session_cookie = cookie.value
-
-        # פורט 0: הליבה בוחרת פורט פנוי ומקצה אותו באותה פעולה. בחירת פורט
-        # מראש ואז bind נפרד היא חלון מירוץ — מישהו אחר יכול לתפוס אותו בין
-        # שתי הפעולות.
-        httpd = make_server("127.0.0.1", 0, app, threaded=True)
-        port = httpd.server_port
-        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-        thread.start()
-
-        try:
-            for _ in range(60):
-                try:
-                    urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=1)
-                    break
-                except Exception as exc:
-                    if "HTTP Error" in str(exc):  # השרת עונה, גם אם 404
-                        break
-                    time.sleep(0.25)
-            else:  # pragma: no cover
-                pytest.skip("שרת הבדיקה לא עלה")
-
-            yield f"http://127.0.0.1:{port}", session_cookie
-        finally:
-            httpd.shutdown()
-            httpd.server_close()
-            thread.join(timeout=5)
-
-
 @pytest.fixture
-def page(live_server):
-    base_url, session_cookie = live_server
-    executable = _find_chromium()
+def page(admin_live_server, chromium_executable, stub_profiler_api):
+    base_url = admin_live_server.base_url
+    session_cookie = admin_live_server.session_cookie
+    executable = chromium_executable
     with sync_playwright() as pw:
         try:
             browser = (
@@ -263,6 +193,10 @@ def page(live_server):
                 "domain": "127.0.0.1", "path": "/",
             }])
             p = context.new_page()
+            # יירוט כללי לכל ה-API של הפרופיילר, לפני כל ראוט ספציפי:
+            # ``DOMContentLoaded`` יורה summary ו-slow-queries, ובלעדיו הם
+            # יוצאים לשרת האמיתי ומגיעים למסד הנתונים.
+            stub_profiler_api(p)
             # מודאל ה-onboarding נפתח למשתמש חדש וחוסם קליקים בעמוד.
             p.add_init_script(
                 "try{localStorage.setItem('welcomeModalSeen','1');"
