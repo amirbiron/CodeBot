@@ -711,13 +711,13 @@
 
     let timeLine;
     if (verbosity === 'queryPlanner') {
-      timeLine = `<div style="opacity:.75;"><strong>אין מדידה.</strong> `
+      timeLine = `<div data-testid="agg-time-not-measured" style="opacity:.75;"><strong>אין מדידה.</strong> `
         + `הניתוח רץ ב-<code>queryPlanner</code>, שאינו מריץ את הפייפליין. `
         + `אין להסיק מהיעדר המספרים שהשאילתה מהירה — פשוט לא נמדדה.</div>`;
     } else if (totalMs > 0) {
-      timeLine = `<div><strong>זמן כולל:</strong> ${totalMs.toFixed(2)} ms</div>`;
+      timeLine = `<div data-testid="agg-time-measured"><strong>זמן כולל:</strong> ${totalMs.toFixed(2)} ms</div>`;
     } else {
-      timeLine = `<div><strong>זמן כולל:</strong> 0.00 ms `
+      timeLine = `<div data-testid="agg-time-measured-zero"><strong>זמן כולל:</strong> 0.00 ms `
         + `(רץ ב-<code>${escapeHtml(String(verbosity || ''))}</code>)</div>`
         + `<div style="opacity:.75;">סכום זמני השלבים הוא אפס: או שהפייפליין `
         + `מהיר מפחות ממילישנייה, או שמונגו לא החזירה זמנים לשלבים. `

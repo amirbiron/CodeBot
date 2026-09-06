@@ -80,6 +80,16 @@ AGGREGATE_ZERO_TIME = {
     },
 }
 
+#: אותו ``aggregate``, אבל עם זמן חיובי — הענף האמצעי של ``renderAggregationStats``.
+#:
+#: **חייב להיות payload של ``aggregate`` ולא של ``find``.** התבנית מפצלת לפי
+#: קיום ``aggregation_explain`` (``profiler_dashboard.html``): בלעדיו נקראת
+#: ``renderExplainPlan``, שכותבת ל-``#explain-stats`` בעצמה ואינה נוגעת
+#: בפונקציה שנבדקת כאן — טסט כזה היה עובר בלי קשר לקוד שהוא אמור לכסות.
+AGGREGATE_WITH_TIME = json.loads(json.dumps(AGGREGATE_ZERO_TIME))
+AGGREGATE_WITH_TIME["data"]["aggregation_explain"]["total_execution_time_ms"] = 147.25
+AGGREGATE_WITH_TIME["data"]["aggregation_explain"]["stages"][0]["execution_time_ms"] = 147.25
+
 #: שם collection שמכיל גרש אחורי. הוא נכנס לדוח כקוד-בשורה, ותוחם של גרש
 #: אחד נסגר על הגרש הראשון שבתוכן — כלומר השם נקטע.
 HOSTILE_COLLECTION = "code`snippets"
@@ -267,8 +277,13 @@ def page(live_server):
             yield p
 
 
-def copy_report(page, payload, *, verbosity, aggregate=False, collection=COLLECTION):
-    """מנתח ומעתיק, ומחזיר את **תוכן הלוח בפועל**."""
+def run_analysis(page, payload, *, verbosity, aggregate=False, collection=COLLECTION):
+    """ממלא את טופס הניתוח ומריץ אותו, עד שהתוצאות על המסך.
+
+    זה הרצף שכל טסט בקובץ עובר לפני שהוא בודק משהו. הוא מרוכז כאן כי הוא
+    נשען על מזהי DOM של התבנית (``#analyze-collection``, כפתור הניתוח):
+    שינוי מזהה שם צריך להישבר בנקודה אחת, לא בשתיים שתתגלינה בנפרד.
+    """
     page.route(
         "**/api/profiler/recommendations",
         lambda route: route.fulfill(
@@ -285,6 +300,13 @@ def copy_report(page, payload, *, verbosity, aggregate=False, collection=COLLECT
 
     page.click('button[onclick="analyzeQuery()"]')
     page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+
+
+def copy_report(page, payload, *, verbosity, aggregate=False, collection=COLLECTION):
+    """מנתח ומעתיק, ומחזיר את **תוכן הלוח בפועל**."""
+    run_analysis(
+        page, payload, verbosity=verbosity, aggregate=aggregate, collection=collection
+    )
     page.click("button:has-text('העתק דוח ל-AI')")
     page.wait_for_timeout(400)
     return page.evaluate("navigator.clipboard.readText()")
@@ -383,24 +405,20 @@ def test_the_shared_toast_is_actually_visible_on_this_page(page):
 
 
 def analyze_and_read_stats(page, payload, *, verbosity, aggregate=False):
-    """מנתח ומחזיר את **הטקסט שעל המסך** בפאנל הסטטיסטיקות."""
-    page.route(
-        "**/api/profiler/recommendations",
-        lambda route: route.fulfill(
-            status=200, content_type="application/json", body=json.dumps(payload)
-        ),
-    )
-    page.fill("#analyze-collection", COLLECTION)
-    page.select_option("#analyze-verbosity", verbosity)
-    if aggregate:
-        page.select_option("#analyze-operation", "aggregate")
-        page.fill("#analyze-pipeline", '[{"$match": {"user_id": "1"}}]')
-    else:
-        page.fill("#analyze-query", '{"user_id": "1"}')
+    """מנתח ומחזיר את מצב פאנל הסטטיסטיקות: איזה ענף רונדר, ומה הוא אמר.
 
-    page.click('button[onclick="analyzeQuery()"]')
-    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
-    return page.inner_text("#explain-stats")
+    ``branch`` הוא ה-``data-testid`` של שורת הזמן. הוא העוגן: שינוי ניסוח
+    בעברית לא מפיל טסט, אבל רינדור של הענף הלא נכון כן. ``text`` לבדו לא
+    מספיק, כי אסרשן שלילי ("לא כתוב queryPlanner") עובר גם על פאנל ריק.
+    """
+    run_analysis(page, payload, verbosity=verbosity, aggregate=aggregate)
+    # ``query_selector`` ולא ``get_attribute``: אם העוגן נמחק אנחנו רוצים
+    # ``None`` מיידי ואסרשן קריא, ולא timeout של Playwright.
+    branch = page.evaluate(
+        "() => { const el = document.querySelector('#explain-stats [data-testid]');"
+        " return el ? el.getAttribute('data-testid') : null; }"
+    )
+    return {"branch": branch, "text": page.inner_text("#explain-stats")}
 
 
 def test_the_panel_does_not_blame_queryplanner_for_a_measured_zero(page):
@@ -414,15 +432,18 @@ def test_the_panel_does_not_blame_queryplanner_for_a_measured_zero(page):
 
     זה בדיוק הבאג שתוקן ב-``buildAnalysisReport``. תוקן ההעתק, לא המקור.
     """
-    stats_text = analyze_and_read_stats(
+    panel = analyze_and_read_stats(
         page, AGGREGATE_ZERO_TIME, verbosity="executionStats", aggregate=True
     )
 
-    assert "queryPlanner" not in stats_text, (
-        f"הפאנל מייחס לניתוח רמת פירוט שלא נבחרה: {stats_text!r}"
+    assert panel["branch"] == "agg-time-measured-zero", (
+        f"רונדר הענף הלא נכון עבור אפס שנמדד תחת executionStats: {panel!r}"
     )
-    assert "0.00" in stats_text, (
-        f"האפס עצמו חייב להופיע — הוא התוצאה שנמדדה: {stats_text!r}"
+    assert "0.00" in panel["text"], (
+        f"האפס עצמו חייב להופיע — הוא התוצאה שנמדדה: {panel!r}"
+    )
+    assert "queryPlanner" not in panel["text"], (
+        f"הפאנל מייחס לניתוח רמת פירוט שלא נבחרה: {panel!r}"
     )
 
 
@@ -432,10 +453,36 @@ def test_the_panel_still_says_when_nothing_was_measured(page):
     שומר מפני "תיקון" שפשוט מוחק את המשפט: אז המשתמש היה רואה ``0.00 ms``
     על ניתוח שלא הריץ כלום, וזו טעות הפוכה ולא פחות גרועה.
     """
-    stats_text = analyze_and_read_stats(
+    panel = analyze_and_read_stats(
         page, AGGREGATE_ZERO_TIME, verbosity="queryPlanner", aggregate=True
     )
 
-    assert "queryPlanner" in stats_text, (
-        f"לא נאמר שהניתוח לא מדד כלום: {stats_text!r}"
+    assert panel["branch"] == "agg-time-not-measured", (
+        f"רונדר הענף הלא נכון עבור queryPlanner: {panel!r}"
+    )
+    assert "queryPlanner" in panel["text"], (
+        f"לא נאמר שהניתוח לא מדד כלום: {panel!r}"
+    )
+    assert "0.00" not in panel["text"], (
+        f"הוצג מספר על ניתוח שלא הריץ את הפייפליין: {panel!r}"
+    )
+
+
+def test_the_panel_shows_the_measurement_when_there_is_one(page):
+    """הענף האמצעי: יש זמן, והפאנל מציג אותו.
+
+    **זה טסט כיסוי ולא טסט רגרסיה, ואני אומר את זה במפורש.** הענף הזה לא
+    השתנה ב-#3337, ולכן הטסט עובר גם על הקוד שלפניו. מה שהוא כן עושה: מקבע
+    את השלישייה. בלעדיו שני האחרים מתארים רק מה הפאנל *לא* אומר, ו"פישוט"
+    עתידי שמאחד ענפים היה עובר בלי שאיש ישים לב.
+    """
+    panel = analyze_and_read_stats(
+        page, AGGREGATE_WITH_TIME, verbosity="executionStats", aggregate=True
+    )
+
+    assert panel["branch"] == "agg-time-measured", (
+        f"רונדר הענף הלא נכון עבור זמן חיובי: {panel!r}"
+    )
+    assert "147.25" in panel["text"], (
+        f"הזמן שנמדד לא הגיע למסך: {panel!r}"
     )
