@@ -133,6 +133,51 @@ VECTOR_WEIGHT = 1.2
 MIN_RRF_SCORE = 0.005
 
 
+def _semantic_min_vector_score() -> float:
+    """רף על ציון הווקטור **הגולמי**, לפני ה-fusion.
+
+    חיפוש וקטורי לא עונה על "מה מתאים" אלא על "מה הכי קרוב", והוא תמיד ממלא
+    את ה-``limit``. בלי רף, שאילתה עם שלוש תוצאות טובות מחזירה עוד שבע שנכנסו
+    רק כי היה מקום.
+
+    הרף חייב לשבת כאן ולא על ``rrfScore``: ציון ה-RRF הוא בסקאלה אחרת לגמרי
+    (מקסימום ~0.036), וסף שנבחר בטעות על הסקאלה הלא נכונה כבר סינן פעם אחת
+    את כל התוצאות. הציון של ``$vectorSearch`` הוא בטווח קבוע 0..1 (ול-cosine
+    הוא ``(1 + cos) / 2``, שזו ה-``similarity`` שמוגדרת ב-``vector_index``).
+
+    ברירת המחדל 0.0 = כבוי, עד שהערך יכויל על נתונים אמיתיים.
+    """
+    try:
+        value = float(getattr(config, "SEMANTIC_MIN_VECTOR_SCORE", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    if value <= 0.0:
+        return 0.0
+    return min(value, 1.0)
+
+
+def _semantic_num_candidates(limit: int) -> int:
+    """כמה וקטורים ה-ANN באמת בוחן לפני שהוא מחזיר את ה-``limit`` הראשונים.
+
+    ``limit * 20`` לבדו הוא מספר קבוע שאינו תלוי בגודל הקורפוס: עם ``limit=10``
+    הוא 200 מועמדים, שהיו 5.7% מ-3,483 צ'אנקים — ואחרי הקטנת הצ'אנקים יהיו
+    1.2% מ-17,000. כלומר אותו מספר בדיוק פוגע ברקול ככל שהקורפוס גדל, וזה
+    היה נראה כאילו הצ'אנקים הקטנים הרעו את החיפוש.
+
+    ה-20:1 של התיעוד נשמר כרצפה יחסית, ומעליו רצפה מוחלטת מהקונפיג.
+    """
+    try:
+        floor = int(getattr(config, "SEMANTIC_NUM_CANDIDATES", 1000) or 1000)
+    except (TypeError, ValueError):
+        floor = 1000
+    try:
+        ceiling = int(getattr(config, "SEMANTIC_NUM_CANDIDATES_MAX", 10000) or 10000)
+    except (TypeError, ValueError):
+        ceiling = 10000
+    value = max(int(limit) * 20, floor)
+    return max(1, min(value, ceiling))
+
+
 def _get_semantic_raw_db():
     try:
         raw_db = getattr(db, "db", None)
@@ -225,7 +270,8 @@ def _build_hybrid_search_pipeline(
     """
     Build MongoDB aggregation pipeline for hybrid search.
     """
-    num_candidates = limit * 20
+    num_candidates = _semantic_num_candidates(limit)
+    min_vector_score = _semantic_min_vector_score()
     base_filter: Dict[str, Any] = {"userId": user_id}
     if language_filter:
         base_filter["language"] = language_filter
@@ -247,6 +293,13 @@ def _build_hybrid_search_pipeline(
                 "searchType": "vector",
             }
         },
+        # רף על הציון הגולמי של הווקטור. חל רק על הענף הווקטורי: בענף
+        # הטקסטואלי שב-``$unionWith`` התאמה לקסיקלית היא כבר ראיה בפני עצמה.
+        *(
+            [{"$match": {"vectorScore": {"$gte": min_vector_score}}}]
+            if min_vector_score > 0
+            else []
+        ),
         # Gate vector results by embedding model key to avoid mixing versions.
         # We cannot add embeddingModelKey to $vectorSearch.filter without updating Atlas index definition,
         # so we filter immediately after vectorSearch.

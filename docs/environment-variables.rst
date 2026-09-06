@@ -1126,6 +1126,70 @@
      - ``30``
      - ``10``
      - Bot
+   * - ``EMBEDDING_QUOTA_PAUSE_SECONDS``
+     - כמה זמן ה‑worker ממתין אחרי ש‑Gemini החזיר 429 גם אחרי מיצוי ה‑retries
+     - לא
+     - ``900``
+     - ``1800``
+     - Bot
+   * - ``EMBEDDING_AUTO_TRUNCATE``
+     - כשהערך ``false``, נשלח ``embedContentConfig.autoTruncate=false`` ו‑Gemini
+       מחזיר שגיאה במקום לחתוך קלט ארוך בשקט. ראו ``scripts/probe_embedding_limits.py``
+     - לא
+     - ``true``
+     - ``false``
+     - Bot/WebApp
+   * - ``EMBEDDING_MAX_INPUT_BYTES``
+     - תקרת בטיחות על גודל הטקסט שנשלח להטמעה. חריגה מדווחת ככשל ואינה נחתכת
+     - לא
+     - ``30000``
+     - ``20000``
+     - Bot/WebApp
+   * - ``CHUNK_MAX_BYTES``
+     - תקציב בייטים (UTF‑8) לכל צ'אנק קוד. חייב להישאר הרבה מתחת לתקרת הקלט של
+       מודל ההטמעה (2,048 טוקנים ב‑``gemini-embedding-001``)
+     - לא
+     - ``2000``
+     - ``1500``
+     - Bot
+   * - ``SEMANTIC_MIN_VECTOR_SCORE``
+     - רף מינימלי על ציון ``$vectorSearch`` הגולמי (0..1). ``0`` = כבוי.
+       **לא** על ציון ה‑RRF, שהוא בסקאלה אחרת לגמרי (מקסימום ~0.036)
+     - לא
+     - ``0.0``
+     - ``0.62``
+     - WebApp
+   * - ``SEMANTIC_NUM_CANDIDATES``
+     - רצפה למספר המועמדים שה‑ANN בוחן. הערך האפקטיבי הוא
+       ``min(max(limit*20, זה), SEMANTIC_NUM_CANDIDATES_MAX)``
+     - לא
+     - ``1000``
+     - ``2000``
+     - WebApp
+   * - ``SEMANTIC_NUM_CANDIDATES_MAX``
+     - תקרה למספר המועמדים שה‑ANN בוחן
+     - לא
+     - ``10000``
+     - ``5000``
+     - WebApp
+   * - ``SNIPPET_CHUNKS_CLEANUP_ENABLED``
+     - הפעלת ג'וב ניקוי הצ'אנקים הסמנטיים היתומים
+     - לא
+     - ``true``
+     - ``false``
+     - Bot
+   * - ``SNIPPET_CHUNKS_CLEANUP_INTERVAL_SECS``
+     - תדירות ג'וב הניקוי (מינימום נאכף: 3600)
+     - לא
+     - ``86400``
+     - ``43200``
+     - Bot
+   * - ``SNIPPET_CHUNKS_CLEANUP_FIRST_SECS``
+     - השהיה מעליית הבוט ועד הריצה הראשונה של ג'וב הניקוי
+     - לא
+     - ``600``
+     - ``60``
+     - Bot
 
 התראות וניטור (הרחבה)
 ----------------------

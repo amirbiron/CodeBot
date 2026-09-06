@@ -74,8 +74,12 @@ async def migrate_snippets():
         await db.create_collection("snippet_chunks")
         logger.info("Created snippet_chunks collection")
 
-    await db.snippet_chunks.create_index([("userId", 1), ("snippetId", 1)])
-    await db.snippet_chunks.create_index([("userId", 1), ("language", 1)])
+    # אותו אינדקס ובאותו שם כמו ב-``DatabaseManager._create_indexes`` — כדי שלא
+    # יהיו שני "מקורות אמת" שנסחפים זה מזה. אינדקס על ``language`` אינו נוצר:
+    # אף שאילתה ב-B-tree לא מסננת לפיו (הסינון לפי שפה קורה בתוך אינדקסי Atlas).
+    await db.snippet_chunks.create_index(
+        [("userId", 1), ("snippetId", 1)], name="snippet_chunks_user_snippet_idx"
+    )
 
     logger.info("Created basic indexes on snippet_chunks")
     logger.info("Migration complete!")
@@ -92,21 +96,47 @@ async def check_migration_status():
     db = _get_db()
     files_collection = await _get_files_collection(db)
 
+    from services.chunking_service import CHUNKER_VERSION  # noqa: E402
+
     total = await files_collection.count_documents({})
     pending = await files_collection.count_documents({"needs_embedding": True})
+    # "עובד" נמדד לפי ``chunkerVersion`` ולא לפי ``chunkCount > 0``: קובץ
+    # שכל הצ'אנקים שלו סוננו כחסרי משמעות (dump של מספרים) מסתיים עם 0
+    # צ'אנקים והוא מטופל לגמרי — לפי המדד הישן הוא היה נראה "ממתין" לנצח.
     processed = await files_collection.count_documents(
-        {"needs_embedding": False, "chunkCount": {"$gt": 0}}
+        {"is_active": True, "chunkerVersion": CHUNKER_VERSION}
+    )
+    stale_chunker = await files_collection.count_documents(
+        {"is_active": True, "chunkerVersion": {"$ne": CHUNKER_VERSION}}
     )
     chunks = await db.snippet_chunks.count_documents({})
 
     logger.info("Migration Status:")
     logger.info("  Total snippets: %s", total)
     logger.info("  Pending processing: %s", pending)
-    logger.info("  Processed: %s", processed)
+    logger.info("  Processed (chunker v%s): %s", CHUNKER_VERSION, processed)
+    logger.info("  Awaiting re-chunking: %s", stale_chunker)
     logger.info("  Total chunks: %s", chunks)
 
     if total and pending > 0:
         logger.info("  Progress: %.1f%%", (processed / total) * 100)
+
+    # ספירת יתומים — אותה הגדרה בדיוק שהג'וב משתמש בה, בלי למחוק דבר.
+    try:
+        from services.snippet_chunks_janitor import cleanup_orphan_snippet_chunks
+
+        report = await asyncio.to_thread(cleanup_orphan_snippet_chunks, dry_run=True)
+        if report.get("ok"):
+            logger.info("  Orphan snippets with chunks: %s", report.get("orphan_snippets", 0))
+            if report.get("skipped_non_objectid"):
+                logger.warning(
+                    "  Chunk groups with a non-ObjectId snippetId (skipped): %s",
+                    report.get("skipped_non_objectid"),
+                )
+        else:
+            logger.warning("  Orphan scan did not complete: %s", report.get("reason"))
+    except Exception as exc:  # pragma: no cover - כלי תחזוקה, לא מסלול ריצה
+        logger.warning("  Orphan scan failed: %s", exc)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,29 @@ GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004
 GEMINI_API_VERSION = os.getenv("GEMINI_API_VERSION", "v1beta")  # fallback only
 EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))  # fallback only
 
+# ``autoTruncate`` הוא שדה ב-``EmbedContentConfig`` של Gemini, ותיאורו:
+# "Whether to silently truncate the input content if it's longer than the maximum
+# sequence length" (https://ai.google.dev/api/embeddings). כלומר ברירת המחדל של
+# הספק היא בדיוק החיתוך השקט שגרם לבעיה — וקטור שמתאר רק את תחילת הקלט.
+#
+# למה זה מאחורי דגל ולא פשוט נשלח: לא אימתנו מול ה-API החי מה קורה כשהשדה
+# נשלח ל-Gemini Developer API (התיעוד של Vertex אומר שבקשה ארוכה מדי נכשלת;
+# לתיעוד של Gemini API אין משפט מקביל). אם השדה יידחה, *כל* קריאה תיכשל
+# ב-400 והחיפוש הסמנטי כולו ייפול לחיפוש טקסט. ההגנה האמיתית היא תקציב
+# הבייטים ב-``services/chunking_service.py``; זו רשת ביטחון בלבד.
+# ראו ``scripts/probe_embedding_limits.py`` לאימות מול ה-API החי.
+EMBEDDING_AUTO_TRUNCATE = str(
+    os.getenv("EMBEDDING_AUTO_TRUNCATE", "true") or "true"
+).strip().lower() in {"1", "true", "yes", "on"}
+
+# תקרת בטיחות על הטקסט שנשלח. ה-chunker אחראי לגודל, ולכן טקסט שחורג כאן
+# הוא באג במעלה הזרם — ומדווח ככשל **קבוע**, לא נחתך בשקט.
+EMBEDDING_MAX_INPUT_BYTES = int(os.getenv("EMBEDDING_MAX_INPUT_BYTES", "30000") or 30000)
+
+# קוד סטטוס פנימי לקלט ארוך מדי. אינו קוד HTTP — הוא נבדל מ-400 של הספק
+# כדי שהקורא יוכל להבחין בין "אנחנו שלחנו יותר מדי" ל"הספק דחה".
+EMBEDDING_STATUS_INPUT_TOO_LONG = 413
+
 # Best-effort dynamic config (DB-backed). Fail-open.
 try:
     from services.semantic_embedding_settings import get_embedding_settings_cached, normalize_model_name  # type: ignore
@@ -162,8 +185,22 @@ class EmbeddingService:
         if not text or not text.strip():
             return None, 0, "empty_text"
 
-        # Trim overly long text (Gemini limit ~10K tokens)
-        text = text[:30000]
+        # אין חיתוך שקט. עד כה השורה כאן הייתה ``text = text[:30000]``, כלומר
+        # הקוד עשה בדיוק את מה שהאישו מתלונן עליו — רק במקום אחר. מעכשיו
+        # ה-chunker אחראי לגודל, וחריגה היא כשל גלוי.
+        text_bytes = len(text.encode("utf-8"))
+        if text_bytes > EMBEDDING_MAX_INPUT_BYTES:
+            logger.error(
+                "Embedding input too long: %s bytes (max %s) model=%s",
+                text_bytes,
+                EMBEDDING_MAX_INPUT_BYTES,
+                model,
+            )
+            return (
+                None,
+                EMBEDDING_STATUS_INPUT_TOO_LONG,
+                f"input_too_long bytes={text_bytes} max={EMBEDDING_MAX_INPUT_BYTES}",
+            )
 
         model_n = normalize_model_name(model)
         try:
@@ -180,6 +217,14 @@ class EmbeddingService:
         # outputDimensionality optional. If <=0, omit and accept provider default dimension.
         if int(dim or 0) > 0:
             payload["outputDimensionality"] = int(dim)
+        if not EMBEDDING_AUTO_TRUNCATE:
+            # מקור: https://ai.google.dev/api/embeddings — ``EmbedContentConfig``
+            # מכיל ``autoTruncate`` (boolean). השדות ברמה העליונה
+            # (``taskType``/``title``/``outputDimensionality``) מסומנים שם
+            # deprecated לטובת ``EmbedContentConfig``, אבל ``outputDimensionality``
+            # ברמה העליונה עובד היום ולכן לא מוזז — שינוי מיקומו הוא שינוי
+            # התנהגות שלא נדרש כאן.
+            payload["embedContentConfig"] = {"autoTruncate": False}
 
         last_body = ""
         for attempt in range(MAX_RETRIES):
@@ -220,6 +265,12 @@ class EmbeddingService:
                     wait_time = RETRY_DELAY_SECONDS * (2**attempt)
                     logger.warning("Rate limited, waiting %ss...", wait_time)
                     await _extend_cooldown_after_429()
+                    if attempt >= MAX_RETRIES - 1:
+                        # מיצינו את ה-retries. עד כה נפלנו מכאן לשורת
+                        # ה-``return None, 0`` שבסוף, ומכסה יומית שנגמרה
+                        # נראתה בדיוק כמו timeout — ולכן ה-worker המשיך
+                        # לקובץ הבא ושרף עליו עוד שלוש קריאות.
+                        return None, 429, last_body
                     await asyncio.sleep(wait_time)
                     continue
 

@@ -232,9 +232,51 @@ try:  # prefer the canonical list projection from repository layer
 except Exception:  # pragma: no cover - fallback for minimal environments
     # חייב להישאר זהה לקבוע הקנוני ב-database/repository.py. חסר כאן בעבר raw_data,
     # כלומר בסביבה מינימלית שדה כבד היה נמשך בשאילתות רשימה בלי שאיש ישים לב.
-    _HEAVY_FIELDS_EXCLUDE_PROJECTION = {"code": 0, "content": 0, "raw_data": 0, "raw_content": 0}
+    _HEAVY_FIELDS_EXCLUDE_PROJECTION = {
+        "code": 0, "content": 0, "raw_data": 0, "raw_content": 0, "snippetEmbedding": 0,
+    }
 
 LIST_EXCLUDE_HEAVY_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
+
+# --- Semantic chunk cleanup ---
+# מסלולי סל המיחזור כאן כותבים ישירות ל-``db.code_snippets`` ואינם עוברים דרך
+# ``database/repository.py``, ולכן הם צריכים את אותם helpers בעצמם. בסביבה
+# מינימלית (בלי שכבת ה-DB) נופלים ל-no-op כדי לא להפיל את טעינת המודול.
+try:
+    from database.manager import (  # type: ignore
+        delete_snippet_chunks as _delete_snippet_chunks,
+        mark_snippets_for_reindex as _mark_snippets_for_reindex,
+    )
+except Exception:  # pragma: no cover - fallback for minimal environments
+    def _delete_snippet_chunks(*_args: Any, **_kwargs: Any) -> int:
+        return 0
+
+    def _mark_snippets_for_reindex(*_args: Any, **_kwargs: Any) -> int:
+        return 0
+
+
+def _clear_superseded_chunks(doc: Dict[str, Any], inserted_id: Any) -> None:
+    """מוחק את הצ'אנקים הסמנטיים של הגרסאות הקודמות של אותו קובץ.
+
+    שמירת גרסה חדשה ב-WebApp אינה מכבה את הגרסה הקודמת (``is_active`` שלה
+    נשאר True), ולכן בלי הקריאה הזו כל גרסה היסטורית נשארת מאונדקסת ומתחרה
+    על מקומות ה-ANN. הקריאה נעשית **אחרי** הכנסה מוצלחת בלבד: מחיקה לפני
+    ההכנסה הייתה מוציאה את הגרסה הנוכחית מהחיפוש הסמנטי אם ההכנסה תיכשל,
+    ושום דבר לא היה מחזיר אותה.
+
+    ``user_id``/``file_name`` נקראים מהמסמך עצמו כדי שאותה קריאה תתאים לכל
+    מסלולי השמירה ב-WebApp, שלכל אחד מהם שמות משתנים משלו.
+    """
+    if not inserted_id:
+        return
+    try:
+        user_id = int(doc.get('user_id'))
+        file_name = str(doc.get('file_name') or '')
+    except Exception:
+        return
+    if not file_name:
+        return
+    _delete_snippet_chunks(user_id, file_name=file_name, exclude_snippet_id=inserted_id)
 
 # --- Smart Projection helpers ---
 # מסמכים חדשים יכולים להכיל file_size/lines_count (נשמרים בזמן שמירה).
@@ -13881,6 +13923,8 @@ def api_restore_file_version(file_id):
     except Exception:
         return jsonify({'ok': False, 'error': 'שמירת הגרסה נכשלה'}), 500
 
+    _clear_superseded_chunks(new_doc, getattr(res, 'inserted_id', None))
+
     inserted_id = str(getattr(res, 'inserted_id', '') or '')
     try:
         cache.invalidate_user_cache(int(user_id))
@@ -13944,6 +13988,10 @@ def api_file_move_to_trash(file_id):
     if not modified_count:
         return jsonify({'ok': False, 'error': 'לא נמצאה גרסה פעילה'}), 409
 
+    # ראו ``Repository.delete_file``: הצ'אנקים הסמנטיים יורדים עם הקובץ,
+    # והשחזור מסמן אותו לבנייה מחדש.
+    _delete_snippet_chunks(int(user_id), file_name=file_name)
+
     try:
         cache.invalidate_user_cache(int(user_id))
         cache.delete_pattern(f"collections_*:{int(user_id)}:*")
@@ -13998,6 +14046,9 @@ def api_recycle_bin_restore(file_id: str):
     if modified == 0:
         return jsonify({'ok': False, 'error': 'not_found'}), 404
 
+    # הצ'אנקים נמחקו בהעברה לסל; ה-worker יבנה אותם מחדש.
+    _mark_snippets_for_reindex([oid])
+
     try:
         cache.invalidate_user_cache(int(user_id))
         cache.delete_pattern(f"collections_*:{int(user_id)}:*")
@@ -14037,6 +14088,8 @@ def api_recycle_bin_purge(file_id: str):
 
     if deleted == 0:
         return jsonify({'ok': False, 'error': 'not_found'}), 404
+
+    _delete_snippet_chunks(int(user_id), snippet_ids=[oid])
 
     try:
         cache.invalidate_user_cache(int(user_id))
@@ -14735,6 +14788,7 @@ def edit_file_page(file_id):
                     try:
                         res = db.code_snippets.insert_one(new_doc)
                         if res and getattr(res, 'inserted_id', None):
+                            _clear_superseded_chunks(new_doc, res.inserted_id)
                             if new_doc.get('is_pinned'):
                                 unpin_errors: List[Dict[str, Any]] = []
                                 try:
@@ -15934,6 +15988,8 @@ def api_save_shared_file():
             logger.exception("Failed to save shared guide", extra={'share_id': share_id, 'user_id': user_id, 'error': str(exc)})
             return jsonify({'ok': False, 'error': 'שמירת המדריך נכשלה'}), 500
 
+        _clear_superseded_chunks(snippet_doc, getattr(res, 'inserted_id', None))
+
         inserted_id = str(getattr(res, 'inserted_id', '') or '')
 
         try:
@@ -16646,6 +16702,7 @@ def upload_file_web():
                     except Exception as _e:
                         res = None
                     if res and getattr(res, 'inserted_id', None):
+                        _clear_superseded_chunks(doc, res.inserted_id)
                         if markdown_image_payloads:
                             try:
                                 _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
@@ -17161,6 +17218,8 @@ def api_files_bulk_delete():
                 }
             })
             modified_count = int(getattr(res, 'modified_count', 0))
+            if modified_count:
+                _delete_snippet_chunks(int(user_id), snippet_ids=list(active_ids))
         return jsonify({
             'success': True,
             'deleted': modified_count,
@@ -19138,6 +19197,7 @@ def _persist_story_markdown_file(
     inserted_id = getattr(res, 'inserted_id', None)
     if not inserted_id:
         raise RuntimeError("file_insert_failed")
+    _clear_superseded_chunks(doc, inserted_id)
     try:
         cache.invalidate_user_cache(user_id)
     except Exception:

@@ -6656,6 +6656,87 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # Fail-open: אל תכשיל את עליית הבוט אם התזמון נכשל
         pass
 
+    # --- ניקוי צ'אנקים סמנטיים יתומים ---
+    # למה ג'וב ולא רק ניקוי בזמן מחיקה: פקיעת סל המיחזור נעשית ב-TTL index
+    # בצד השרת, בלי שאף קוד שלנו רץ, ולכן אין למי לנקות את הצ'אנקים.
+    # ראו services/snippet_chunks_janitor.py.
+    try:
+        if getattr(config, "SEMANTIC_SEARCH_ENABLED", True):
+            async def _snippet_chunks_cleanup_job(context: ContextTypes.DEFAULT_TYPE):
+                from services.job_tracker import get_job_tracker, JobAlreadyRunningError
+
+                tracker = get_job_tracker()
+                try:
+                    trigger = (
+                        str(((getattr(getattr(context, "job", None), "data", None) or {}) or {}).get("trigger") or "scheduled")
+                        .strip()
+                        .lower()
+                    )
+                except Exception:
+                    trigger = "scheduled"
+
+                try:
+                    with tracker.track("snippet_chunks_cleanup", trigger=trigger) as run:
+                        if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                            tracker.skip_run(run.run_id, "disabled_by_env")
+                            return
+                        from services.snippet_chunks_janitor import (
+                            cleanup_orphan_snippet_chunks,
+                        )
+
+                        summary = await asyncio.to_thread(cleanup_orphan_snippet_chunks)
+                        # ``cleanup_orphan_snippet_chunks`` אינה זורקת: היא מדווחת
+                        # כשל בערך ההחזרה. בלי הבדיקה הזו כל ריצה הייתה נרשמת
+                        # כהצלחה, גם כשה-DB לא היה זמין בכלל.
+                        if not summary.get("ok"):
+                            raise RuntimeError(
+                                f"snippet_chunks cleanup did not complete: {summary.get('reason') or 'unknown'}"
+                            )
+                        tracker.add_log(
+                            run.run_id,
+                            "info",
+                            "Deleted {} chunks from {} orphan snippets ({} groups scanned)".format(
+                                summary.get("deleted_chunks", 0),
+                                summary.get("orphan_snippets", 0),
+                                summary.get("chunk_groups", 0),
+                            ),
+                        )
+                except JobAlreadyRunningError:
+                    try:
+                        tracker.record_skipped(
+                            job_id="snippet_chunks_cleanup",
+                            trigger=trigger,
+                            reason="already_running",
+                        )
+                    except Exception:
+                        pass
+                    return
+
+            enabled = str(
+                os.getenv("SNIPPET_CHUNKS_CLEANUP_ENABLED", "true")
+            ).lower() in {"1", "true", "yes", "on"}
+            if enabled:
+                interval_secs = int(
+                    os.getenv("SNIPPET_CHUNKS_CLEANUP_INTERVAL_SECS", "86400") or 86400
+                )
+                first_secs = int(
+                    os.getenv("SNIPPET_CHUNKS_CLEANUP_FIRST_SECS", "600") or 600
+                )
+                try:
+                    application.job_queue.run_repeating(
+                        _snippet_chunks_cleanup_job,
+                        interval=max(3600, interval_secs),
+                        first=max(0, first_secs),
+                        name="snippet_chunks_cleanup",
+                    )
+                except Exception:
+                    # בסביבות מוגבלות (טסטים) התזמון עשוי להיכשל — זה לא קריטי,
+                    # והג'וב יעלה בהרצה הבאה.
+                    pass
+    except Exception:
+        # Fail-open: אל תכשיל את עליית הבוט
+        pass
+
     # Predictive Health sampler: scrape webapp /metrics and feed predictive engine
     try:
         async def _predictive_sampler_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
