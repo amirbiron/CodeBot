@@ -34,7 +34,7 @@
 - `docs/environment-variables.rst` — **משתני סביבה - רפרנס**: רפרנס משתני הסביבה: הטבלה המרכזית, משתני התראות וניטור, מדדים ו-OTEL, תפעול ואינטגרציות, דגלי בדיקות, ודוגמאות קונפיגורציה כולל טבלת ה-Scopes של GitHub.
 - `docs/performance-bible.md` — **🚀 The Performance Bible: CodeKeeper Optimization Guide**: עקרונות הביצועים של המערכת אחרי הרפקטור שהוריד את ה-p95 מ-1.8 שניות ל-200ms: Cache First, Projection, חישוב ב-DB, אינדקסים מורכבים, ו-Lazy Loading.
 - `docs/performance-scaling.rst` — **ביצועים והרחבה (Performance & Scaling)**: עימוד, Projection, כוונון Connection Pooling ו-Timeouts, לוגי איטיות לאיתור צווארי בקבוק, והנחיות לפי סביבה.
-- `docs/performance-sticky-notes.rst` — **Sticky Notes Warmup – פתרון ביצועים משולב**: העלאת timeout שכבר הוכחה בשטח, וחימום אינדקסים לפני שהתהליך מקבל תעבורה — נדבך שעדיין נבחן. כולל מה לאמת לפני rollout מלא.
+- `docs/performance-sticky-notes.rst` — **Sticky Notes Warmup – פתרון ביצועים משולב**: מה מחזיק היום את המסלול של הפתקים הדביקים אחרי תקלת נעילת האינדקסים — דגלי מוכנוּת שחוסמים את בניית האינדקסים מהמסלול החם, חימום עלייה שכבוי כברירת מחדל, ומה ה-timeout של Gunicorn עושה (ולא עושה) מאז המעבר ל-gevent.
 - `docs/large-files-runbook.rst` — **טיפול בקבצים גדולים (Large Files)**: ראנבוק לטיפול בקבצים גדולים: המגבלות והפולבקים, הנחיות ההפעלה, ומה לנטר.
 
 ## API Reference
