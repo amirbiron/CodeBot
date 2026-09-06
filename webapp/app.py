@@ -236,6 +236,84 @@ except Exception:  # pragma: no cover - fallback for minimal environments
 
 LIST_EXCLUDE_HEAVY_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
+# --- Smart Projection helpers ---
+# מסמכים חדשים יכולים להכיל file_size/lines_count (נשמרים בזמן שמירה).
+# למסמכים ישנים: נחשב ב-DB (בלי להחזיר את `code`) באמצעות $strLenBytes/$split.
+_MONGO_FILE_SIZE_FROM_CODE = {
+    '$cond': {
+        'if': {'$and': [
+            {'$ne': ['$code', None]},
+            {'$eq': [{'$type': '$code'}, 'string']},
+        ]},
+        'then': {'$strLenBytes': '$code'},
+        'else': 0,
+    }
+}
+_MONGO_LINES_COUNT_FROM_CODE = {
+    '$cond': {
+        'if': {'$and': [
+            {'$ne': ['$code', None]},
+            {'$eq': [{'$type': '$code'}, 'string']},
+        ]},
+        # הערה: $split שומר תאימות טובה מספיק למסך רשימה (לא מושלם לעומת splitlines()).
+        'then': {'$size': {'$split': ['$code', '\n']}},
+        'else': 0,
+    }
+}
+_MONGO_ADD_SIZE_LINES_STAGE = {
+    '$addFields': {
+        'file_size': {'$ifNull': ['$file_size', _MONGO_FILE_SIZE_FROM_CODE]},
+        'lines_count': {'$ifNull': ['$lines_count', _MONGO_LINES_COUNT_FROM_CODE]},
+    }
+}
+
+
+def _latest_version_per_file_stages(
+    match: Dict[str, Any],
+    *,
+    with_size_fields: bool = True,
+) -> List[Dict[str, Any]]:
+    """שלבי "הגרסה האחרונה לכל שם קובץ", עם השדות הכבדים יורדים מוקדם.
+
+    כל עריכה יוצרת מסמך חדש ב-``code_snippets``, ולכן מסך רשימה חייב לקבץ
+    לפי ``file_name`` ולקחת את ה-``version`` הגבוה. הקיבוץ נעשה עם
+    ``$$ROOT`` כדי לשמור את המסמך כולו.
+
+    **סדר השלבים כאן הוא כל העניין.** ``$sort`` מאגר את מה שהוא ממיין,
+    ו-``$group`` צובר את מה שהוא שומר — ואם ``code`` עדיין במסמך באותו
+    רגע, גוף הקובץ נכנס לזיכרון. בפרודקשן זה חרג מתקציב ה-100MB של מונגו
+    והחזיר שגיאה 292, שגררה נפילה למסלול ``find`` איטי: 3.1 עד 3.4 שניות
+    לטעינת ``/files``.
+
+    ``allowDiskUse`` **אינו** מציל כאן. התיעוד של Atlas מפורש: *"Atlas
+    Free clusters and Flex clusters don't support writing temporary files
+    to disk. Atlas ignores the ``allowDiskUse`` option and the
+    corresponding commands behave as if the ``allowDiskUse`` option is set
+    to ``false``."* אין דלת מילוט לדיסק, ולכן הדרך היחידה היא לא להכניס
+    את השדות הכבדים לשלבים האלה מלכתחילה.
+
+    **החרגה ולא רשימת שדות מותרים.** ``LIST_EXCLUDE_HEAVY_PROJECTION``
+    מוריד את הכבדים ומשאיר את השאר, ולכן התוצאה זהה למה שהצינורות החזירו
+    קודם. רשימת מותרים הייתה נקייה יותר למראה, אבל תנאי סינון שיתווסף מחר
+    על שדה שאינו ברשימה היה מחזיר בשקט תוצאה ריקה.
+
+    ``with_size_fields`` — האם לחשב ``file_size``/``lines_count`` ולסנן
+    קבצים ריקים. **חייב להישאר כבוי אצל מי שלא עשה זאת קודם:** הוספת
+    ``$match`` על ``file_size`` משנה את קבוצת התוצאות, ואצל מונה זה משנה
+    את המספר שהמשתמש רואה. שלב החישוב רץ **לפני** ההחרגה, כי הוא נגזר
+    מ-``$code``.
+    """
+    stages: List[Dict[str, Any]] = [{'$match': match}]
+    if with_size_fields:
+        stages.append(_MONGO_ADD_SIZE_LINES_STAGE)
+        stages.append({'$match': {'file_size': {'$gt': 0}}})
+    stages.append({'$project': dict(LIST_EXCLUDE_HEAVY_PROJECTION)})
+    stages.append({'$sort': {'file_name': 1, 'version': -1}})
+    stages.append({'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}})
+    stages.append({'$replaceRoot': {'newRoot': '$latest'}})
+    return stages
+
+
 def _attach_file_size_and_lines(doc: Dict[str, Any], code_value: Any) -> None:
     """מוסיף file_size/lines_count למסמכי CodeSnippet שנכתבים ישירות ל-DB."""
     try:
@@ -10941,27 +11019,24 @@ def _build_files_need_attention(
     projection = dict(HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
     def _latest_files_pipeline(match_extra: Optional[Dict[str, Any]], sort_after: Dict[str, int]) -> List[Dict[str, Any]]:
-        pipeline: List[Dict[str, Any]] = [
-            {'$match': base_query},
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-        ]
+        pipeline = _latest_version_per_file_stages(base_query, with_size_fields=False)
         if dismissed_oids:
             pipeline.append({'$match': {'_id': {'$nin': dismissed_oids}}})
         if match_extra:
             pipeline.append({'$match': match_extra})
         pipeline.append({'$sort': sort_after})
+        # ``projection`` נשאר גם אחרי שהבנאי כבר החריג את הכבדים: הוא זול
+        # (המסמכים כאן כבר קלים) והוא החוזה של הפונקציה כלפי הקורא.
         pipeline.append({'$project': projection})
         return pipeline
 
-    def _count_latest(match_extra: Optional[Dict[str, Any]]) -> int:
-        pipeline: List[Dict[str, Any]] = [
-            {'$match': base_query},
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-        ]
+    def _count_latest(match_extra: Optional[Dict[str, Any]]) -> Optional[int]:
+        # רק סופר — אבל עדיין צריך את מסמך הגרסה האחרונה, כי הסינונים
+        # שאחרי הקיבוץ (``dismissed_oids`` על ``_id``, ו-``match_extra`` על
+        # ``description``/``tags``/``updated_at``) חלים עליו ולא על כל גרסה.
+        # ``$project {file_name: 1}`` היה מוחק בדיוק את השדות האלה, והספירה
+        # הייתה יוצאת אפס.
+        pipeline = _latest_version_per_file_stages(base_query, with_size_fields=False)
         if dismissed_oids:
             pipeline.append({'$match': {'_id': {'$nin': dismissed_oids}}})
         if match_extra:
@@ -10969,10 +11044,15 @@ def _build_files_need_attention(
         pipeline.append({'$count': 'count'})
         try:
             docs = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
-            if docs and isinstance(docs[0], dict):
-                return int(docs[0].get('count') or 0)
         except Exception:
-            return 0
+            # **אפס ו"לא ידוע" הם לא אותו דבר.** קודם הוחזר כאן ``0``, והמשתמש
+            # ראה "0 קבצים דורשים תשומת לב" — תשובה שנראית לגיטימית לגמרי אחרי
+            # שהשאילתה נכשלה. ``None`` אומר "לא הצלחנו לספור", והתבנית מציגה
+            # זאת במקום להציג נתון שגוי כעובדה.
+            logger.warning("files_need_attention.count_failed", exc_info=True)
+            return None
+        if docs and isinstance(docs[0], dict):
+            return int(docs[0].get('count') or 0)
         return 0
     
     # =====================================================
@@ -11646,36 +11726,6 @@ def files():
     cursor_token = (request.args.get('cursor') or '').strip()
     per_page = 20
 
-    # --- Smart Projection helpers ---
-    # מסמכים חדשים יכולים להכיל file_size/lines_count (נשמרים בזמן שמירה).
-    # למסמכים ישנים: נחשב ב-DB (בלי להחזיר את `code`) באמצעות $strLenBytes/$split.
-    _mongo_file_size_from_code = {
-        '$cond': {
-            'if': {'$and': [
-                {'$ne': ['$code', None]},
-                {'$eq': [{'$type': '$code'}, 'string']},
-            ]},
-            'then': {'$strLenBytes': '$code'},
-            'else': 0,
-        }
-    }
-    _mongo_lines_count_from_code = {
-        '$cond': {
-            'if': {'$and': [
-                {'$ne': ['$code', None]},
-                {'$eq': [{'$type': '$code'}, 'string']},
-            ]},
-            # הערה: $split שומר תאימות טובה מספיק למסך רשימה (לא מושלם לעומת splitlines()).
-            'then': {'$size': {'$split': ['$code', '\n']}},
-            'else': 0,
-        }
-    }
-    _mongo_add_size_lines_stage = {
-        '$addFields': {
-            'file_size': {'$ifNull': ['$file_size', _mongo_file_size_from_code]},
-            'lines_count': {'$ifNull': ['$lines_count', _mongo_lines_count_from_code]},
-        }
-    }
 
     # החלת ברירות מחדל למיון לפני בניית מפתח הקאש
     try:
@@ -11834,7 +11884,7 @@ def files():
                     if needs_ids:
                         meta_pipeline = [
                             {'$match': {'_id': {'$in': needs_ids}}},
-                            _mongo_add_size_lines_stage,
+                            _MONGO_ADD_SIZE_LINES_STAGE,
                             {'$project': {'_id': 1, 'file_size': 1, 'lines_count': 1}},
                         ]
                         meta_docs = list(_aggregate_code_snippets(meta_pipeline))
@@ -11908,11 +11958,11 @@ def files():
                     'is_active': True,
                 }
                 # מיישר ללוגיקה של הבוט: קבוצה לפי file_name (הגרסה האחרונה בלבד), ואז חילוץ תגית repo: אחת
-                repo_pipeline = [
-                    {'$match': base_active_query},
-                    {'$sort': {'file_name': 1, 'version': -1}},
-                    {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-                    {'$replaceRoot': {'newRoot': '$latest'}},
+                # אין כאן ``with_size_fields``: הצינור הזה מעולם לא סינן לפי
+                # ``file_size``, והוספת הסינון הייתה משנה את רשימת הריפואים.
+                repo_pipeline = _latest_version_per_file_stages(
+                    base_active_query, with_size_fields=False,
+                ) + [
                     {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
                     {'$project': {
                         'repo_tag': {
@@ -12021,7 +12071,7 @@ def files():
                 # fallback היסטורי: סינון לפי 100KB מתוך code_snippets
                 pipeline = [
                     {'$match': query},
-                    _mongo_add_size_lines_stage,
+                    _MONGO_ADD_SIZE_LINES_STAGE,
                     {'$match': {'file_size': {'$gte': 102400}}}  # 100KB
                 ]
                 files_cursor = _aggregate_code_snippets(pipeline + [
@@ -12055,7 +12105,7 @@ def files():
         # "כל הקבצים": ספירה distinct לפי שם קובץ לאחר סינון (תוכן >0)
         count_pipeline = [
             {'$match': query},
-            _mongo_add_size_lines_stage,
+            _MONGO_ADD_SIZE_LINES_STAGE,
             {'$match': {'file_size': {'$gt': 0}}},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
@@ -12074,7 +12124,7 @@ def files():
         # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (תוכן >0), עם עקביות ל-query הכללי
         count_pipeline = [
             {'$match': query},
-            _mongo_add_size_lines_stage,
+            _MONGO_ADD_SIZE_LINES_STAGE,
             {'$match': {'file_size': {'$gt': 0}}},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
@@ -12182,30 +12232,26 @@ def files():
         sort_field_local = sort_by.lstrip('-') if sort_by else 'last_opened_at'
         sort_dir = -1 if (sort_by or '').startswith('-') else 1
 
-        pipeline = [
-            {'$match': recent_query},
-            # חשוב: סינון "לא ריק" חייב להתבצע לפני group כדי לבחור את הגרסה האחרונה *הלא-ריקה*
-            # ולא לפסול קובץ רק בגלל שהגרסה האחרונה ריקה.
-            _mongo_add_size_lines_stage,
-            {'$match': {'file_size': {'$gt': 0}}},
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
-        ]
-
-        # מיון: אם מיון לפי last_opened_at – נטפל בפייתון; אחרת נמיין ב-DB
-        if sort_field_local in {'file_name', 'created_at', 'updated_at'}:
-            pipeline.append({'$sort': {sort_field_local: sort_dir}})
+        # סינון "לא ריק" חייב להתבצע לפני ה-group כדי לבחור את הגרסה האחרונה
+        # *הלא-ריקה*, ולא לפסול קובץ רק בגלל שהגרסה האחרונה ריקה. הבנאי שומר
+        # על הסדר הזה, ובנוסף מוריד את השדות הכבדים לפני המיון והקיבוץ.
+        def _recent_pipeline(match: Dict[str, Any]) -> List[Dict[str, Any]]:
+            # בונים מחדש עם ה-match החלופי במקום להחליף את השלב הראשון לפי
+            # אינדקס. הצבה ל-``pipeline[0]`` מניחה שהשלב הראשון הוא ``$match``
+            # — הנחה שנכונה היום ותישבר בשקט ברגע שהבנאי יוסיף שלב לפניו.
+            stages = _latest_version_per_file_stages(match)
+            # מיון: אם מיון לפי last_opened_at – נטפל בפייתון; אחרת נמיין ב-DB
+            if sort_field_local in {'file_name', 'created_at', 'updated_at'}:
+                stages.append({'$sort': {sort_field_local: sort_dir}})
+            return stages
 
         try:
-            latest_items = list(_aggregate_code_snippets(pipeline))
+            latest_items = list(_aggregate_code_snippets(_recent_pipeline(recent_query)))
         except Exception:
             # fallback אם $text נכשל
             try:
                 recent_query_fallback = _with_regex_fallback(recent_query)
-                pipeline[0] = {'$match': recent_query_fallback}
-                latest_items = list(_aggregate_code_snippets(pipeline))
+                latest_items = list(_aggregate_code_snippets(_recent_pipeline(recent_query_fallback)))
             except Exception:
                 latest_items = []
 
@@ -12283,17 +12329,9 @@ def files():
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
         # בסיס הפייפליין: גרסה אחרונה לכל file_name ותוכן לא ריק
-        base_pipeline = [
-            {'$match': query},
-            # חשוב: סינון "לא ריק" חייב להתבצע לפני group כדי לבחור את הגרסה האחרונה *הלא-ריקה*.
-            # אחרת, אם הגרסה האחרונה ריקה נקבל mismatch בין total_count לבין הרשימה בפועל.
-            _mongo_add_size_lines_stage,
-            {'$match': {'file_size': {'$gt': 0}}},
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
-        ]
+        # סינון "לא ריק" לפני ה-group: אחרת, אם הגרסה האחרונה ריקה, נקבל
+        # אי-התאמה בין ``total_count`` לבין הרשימה בפועל.
+        base_pipeline = _latest_version_per_file_stages(query)
         next_cursor_token = None
         use_cursor = (sort_field_local == 'created_at')
         if use_cursor:
@@ -12358,7 +12396,7 @@ def files():
         # אבל עם Smart Projection כדי לא להחזיר `code` למסך רשימה.
         files_cursor = _aggregate_code_snippets([
             {'$match': query},
-            _mongo_add_size_lines_stage,
+            _MONGO_ADD_SIZE_LINES_STAGE,
             {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
             {'$sort': {sort_field: sort_order}},
             {'$skip': (page - 1) * per_page},
@@ -12368,16 +12406,7 @@ def files():
         # "שאר קבצים": בעלי תוכן (>0 בתים), מציגים גרסה אחרונה לכל file_name; עקבי עם ה-query הכללי
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
-        base_pipeline = [
-            {'$match': query},
-            _mongo_add_size_lines_stage,
-            {'$match': {'file_size': {'$gt': 0}}},
-        ]
-        pipeline = base_pipeline + [
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
+        pipeline = _latest_version_per_file_stages(query) + [
             {'$sort': {sort_field_local: sort_dir}},
             {'$skip': (page - 1) * per_page},
             {'$limit': per_page},
