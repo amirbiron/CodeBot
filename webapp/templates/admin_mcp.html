@@ -188,9 +188,9 @@
       overflow-wrap: anywhere;
     }
 
-    /* הודעת שגיאה של Pydantic: רב-שורתית, ובעלת שורות ארוכות בלי רווחים
-       (``input_value=...``). מוצגת כפי שהיא ובלי עיבוד — כל ניסיון לתמצת
-       אותה היה קושר את התבנית לפורמט של ספרייה חיצונית. */
+    /* הודעת שגיאה. עוברת דרך ``validation_summary``, שמסיר את הרעש המוכר של
+       Pydantic (כותרת, הזחות, קישור לתיעוד) ומחזיר כל דבר אחר כפי שהוא.
+       ``pre-wrap`` נשאר: שגיאת ולידציה עם כמה שדות מוצגת שורה לכל שדה. */
     .mcp-errmsg {
       max-width: 62ch;
       white-space: pre-wrap;
@@ -201,13 +201,97 @@
       color: var(--code-text, inherit);
     }
 
-    /* טקסט שסוכן כתב, מקוצץ בתצוגה. הטקסט המלא יושב ב-``title`` ולא נמחק:
-       הקיצוץ הוא החלטה של התצוגה בלבד. */
+    /* תוכן טכני באנגלית בתוך עמוד RTL. בלי כפיית כיווניות הדפדפן מיישם
+       דו-כיווניות על המחרוזת ומזיז סוגריים, נקודות וסימני שוויון לקצה הלא
+       נכון — ``[input_value='9']`` מופיע כ-``['9'=input_value]``. זו תכונה
+       של הטקסט ולא של העימוד, ולכן היא יושבת על התא. */
+    .mcp-ltr {
+      direction: ltr;
+      text-align: left;
+      unicode-bidi: isolate;
+    }
+
+    /* טקסט שסוכן כתב, מקוצץ בתצוגה. כפתור ולא ``span``: לוחצים עליו כדי
+       לפתוח את הטקסט המלא, ולכן הוא צריך את הסמנטיקה והמקלדת של כפתור
+       בחינם — Enter ו-Space עובדים בלי JS משלנו. */
     .mcp-clip {
       display: inline-block;
       max-width: 40ch;
       overflow-wrap: anywhere;
-      cursor: help;
+      background: none;
+      border: none;
+      padding: 0;
+      margin: 0;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      text-align: inherit;
+      border-bottom: 1px dashed var(--card-border, var(--glass-border));
+    }
+    .mcp-clip:hover,
+    .mcp-clip:focus-visible { border-bottom-color: var(--primary); }
+
+    /* --- מודאל הכוונה המלאה --- */
+    .mcp-modal[hidden] { display: none; }
+    .mcp-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      background: rgba(0, 0, 0, 0.55);
+    }
+    .mcp-modal-box {
+      background: var(--card-bg, var(--glass));
+      border: 1px solid var(--card-border, var(--glass-border));
+      color: var(--text-primary, inherit);
+      border-radius: 16px;
+      padding: 1.25rem;
+      max-width: 720px;
+      width: 100%;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .mcp-modal-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 0.8rem;
+    }
+    .mcp-modal-head h2 { margin: 0; font-size: 1.05rem; }
+    .mcp-modal-close {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      color: inherit;
+      border-radius: 8px;
+      padding: 0.3rem 0.7rem;
+      cursor: pointer;
+      font: inherit;
+    }
+    .mcp-modal-close:hover { background: var(--glass-hover); }
+    .mcp-modal-text {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* --- באנר "מאז הביקור האחרון" --- */
+    .mcp-fresh[hidden] { display: none; }
+    .mcp-fresh {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.7rem 1rem;
+      border-radius: 12px;
+      background: var(--glass);
+      border: 1px solid var(--primary);
+      font-size: 0.9rem;
+      margin-bottom: 0.9rem;
     }
 
     /* קישור יוצא ל-PostHog. משתמש ב-``--primary`` שקיים בכל הערכות, כולל
@@ -302,7 +386,7 @@
     בריפו הזה, ולכן הוא מוזכר עם שם הריפו ולא כנתיב מקומי. -#}
 {% macro clipped(value, limit=64) -%}
   {%- if value -%}
-    <span class="mcp-clip" tabindex="0" role="note" aria-label="{{ value }}" title="{{ value }}">{{ value | truncate(limit, True, '…') }}</span>
+    <button type="button" class="mcp-clip mcp-ltr" aria-label="{{ value }}" title="{{ value }}">{{ value | truncate(limit, True, '…') }}</button>
   {%- else -%}
     <span class="mcp-empty" aria-hidden="true">—</span><span class="sr-only">אין ערך</span>
   {%- endif -%}
@@ -451,6 +535,16 @@
           <h2><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> הקריאות שנכשלו</h2>
           {{ meta_line(tool_failures) }}
         </div>
+
+        {#- כמה שגיאות נוספו מאז הביקור הקודם. הטבלה מציגה חלון של 30 יום,
+            ולכן המספר הכולל יכול לרדת משבוע לשבוע גם כשנוספו שגיאות חדשות —
+            מה שהופך אותו לחסר תועלת כאיתות. הבאנר משווה מול חותמת הזמן של
+            השגיאה החדשה ביותר שכבר נראתה, ולכן הוא חסין לחלון שמחליק.
+            המספר נכתב ב-JS מתוך ``data-at`` שעל השורות. -#}
+        <div class="mcp-fresh" id="mcpFreshBanner" role="status" hidden>
+          <i class="fas fa-bell" aria-hidden="true"></i>
+          <span id="mcpFreshText"></span>
+        </div>
         {% if not tool_failures.ok %}
           {{ panel_error(tool_failures) }}
         {% elif tool_failures.rows %}
@@ -466,12 +560,14 @@
             </thead>
             <tbody>
               {% for row in tool_failures.rows %}
-                <tr>
+                {#- ``data-at`` נושא את הערך הגולמי מ-PostHog ולא את המחרוזת
+                    המוצגת: התצוגה מעוגלת לדקה ומקומית, ואי אפשר להשוות לפיה. -#}
+                <tr data-at="{{ row.failed_at }}">
                   <td class="mcp-num">{{ when(row.failed_at) }}</td>
                   <td class="mcp-mono">{{ nv(row.tool) }}</td>
                   <td>{{ nv(row.client) }}</td>
                   <td class="mcp-mono">{{ nv(row.error_type) }}</td>
-                  <td class="mcp-errmsg">{{ nv(row.error_message) }}</td>
+                  <td class="mcp-errmsg mcp-ltr">{{ nv(row.error_message | validation_summary) }}</td>
                 </tr>
               {% endfor %}
             </tbody>
@@ -626,6 +722,20 @@
     {% endif %}
   </div>
 
+  {#- מודאל הכוונה המלאה. הטקסט **אינו** מרונדר לכאן בשרת — הוא נשלף מהכפתור
+      שנלחץ ונכתב עם ``textContent``. אין ``innerHTML`` בשום מקום בעמוד הזה,
+      וזו ההגנה היחידה שמפרידה בין "טקסט שסוכן כתב" לבין קוד שרץ. -#}
+  <div class="mcp-modal" id="mcpIntentModal" role="dialog" aria-modal="true"
+       aria-labelledby="mcpIntentModalTitle" hidden>
+    <div class="mcp-modal-box">
+      <div class="mcp-modal-head">
+        <h2 id="mcpIntentModalTitle">מה הסוכן ניסה לעשות</h2>
+        <button type="button" class="mcp-modal-close" id="mcpIntentModalClose">סגירה</button>
+      </div>
+      <p class="mcp-modal-text mcp-ltr" id="mcpIntentModalText"></p>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -653,6 +763,87 @@
         activate(tab.dataset.panel);
       });
     });
+
+    // ---- מודאל הכוונה המלאה ----
+    // הטקסט נשלף מה-``title`` של הכפתור ונכתב ב-``textContent``. לא
+    // ``innerHTML``: זה טקסט שסוכן חיצוני כתב, ו"רק אדמינים רואים" אינו הגנה.
+    var modal = document.getElementById('mcpIntentModal');
+    var modalText = document.getElementById('mcpIntentModalText');
+    var modalClose = document.getElementById('mcpIntentModalClose');
+    var lastFocused = null;
+
+    function closeModal() {
+      modal.hidden = true;
+      // מחזירים את הפוקוס לכפתור שפתח — אחרת הוא נופל לתחילת העמוד ומי
+      // שמנווט במקלדת מאבד את מקומו בטבלה.
+      if (lastFocused) { lastFocused.focus(); lastFocused = null; }
+    }
+
+    function openModal(button) {
+      modalText.textContent = button.getAttribute('title') || button.textContent;
+      lastFocused = button;
+      modal.hidden = false;
+      modalClose.focus();
+    }
+
+    document.addEventListener('click', function (event) {
+      var trigger = event.target.closest ? event.target.closest('.mcp-clip') : null;
+      if (trigger) { openModal(trigger); return; }
+      // לחיצה על הרקע סוגרת; לחיצה בתוך הקופסה לא.
+      if (event.target === modal) { closeModal(); }
+    });
+    modalClose.addEventListener('click', closeModal);
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && !modal.hidden) { closeModal(); }
+    });
+
+    // ---- "כמה שגיאות נוספו מאז הביקור האחרון" ----
+    // הטבלה מציגה חלון נע של 30 יום, ולכן המספר הכולל יורד מעצמו כששגיאות
+    // ישנות נושרות. מה שכן יציב הוא **חותמת הזמן של החדשה ביותר שנראתה**:
+    // סופרים כמה שורות חדשות ממנה. ראייה ראשונה אינה מציגה כלום — הכול היה
+    // "חדש" והמספר לא היה אומר דבר.
+    var STORAGE_KEY = 'mcpFailuresLastSeenAt';
+
+    function readLastSeen() {
+      // localStorage זורק בגלישה פרטית ובהגדרות שחוסמות אחסון. באנר הוא
+      // נוחות, ולכן כשל שלו לא יפיל שום דבר אחר בעמוד.
+      try { return window.localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
+    }
+
+    function writeLastSeen(value) {
+      try { window.localStorage.setItem(STORAGE_KEY, value); } catch (e) { /* לא קריטי */ }
+    }
+
+    (function initFreshBanner() {
+      var banner = document.getElementById('mcpFreshBanner');
+      var text = document.getElementById('mcpFreshText');
+      if (!banner || !text) { return; }
+
+      var stamps = Array.prototype.slice
+        .call(document.querySelectorAll('tr[data-at]'))
+        .map(function (row) { return Date.parse(row.dataset.at); })
+        .filter(function (ms) { return !isNaN(ms); });
+      if (!stamps.length) { return; }
+
+      var newest = Math.max.apply(null, stamps);
+      var previousRaw = readLastSeen();
+      var previous = previousRaw === null ? NaN : Date.parse(previousRaw);
+
+      if (!isNaN(previous)) {
+        var fresh = stamps.filter(function (ms) { return ms > previous; }).length;
+        if (fresh > 0) {
+          // חושפים לפני הכתיבה: ``role="status"`` מכריז על **שינוי** באזור
+          // שכבר נמצא בעץ הנגישות, ולא בהכרח על אזור שהופיע עם טקסט מוכן.
+          banner.hidden = false;
+          text.textContent = fresh === 1
+            ? 'שגיאה אחת חדשה מאז הביקור האחרון שלך כאן.'
+            : fresh + ' שגיאות חדשות מאז הביקור האחרון שלך כאן.';
+        }
+      }
+
+      // נכתב **אחרי** הספירה, אחרת הביקור הנוכחי היה מאפס את עצמו.
+      writeLastSeen(new Date(newest).toISOString());
+    })();
   })();
 </script>
 {% endblock %}

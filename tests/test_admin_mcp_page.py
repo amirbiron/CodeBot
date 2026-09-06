@@ -533,15 +533,21 @@ def test_the_outbound_links_survive_an_empty_navigation_table(admin, monkeypatch
     assert len(nav.select("a.mcp-outlink")) == 2
 
 
-def test_a_clipped_intent_is_reachable_without_a_mouse(admin, monkeypatch):
-    """``title`` נחשף רק ב-hover. מי שמנווט במקלדת או במגע לא רואה אותו כלל,
-    ולכן הטקסט המלא יושב גם ב-``aria-label`` והתא ממוקד-אפשרי."""
-    _install(monkeypatch)
-    span = _soup(admin.get("/admin/mcp")).select_one(".mcp-clip")
+def test_a_clipped_intent_is_a_real_button_and_not_a_faked_one(admin, monkeypatch):
+    """``title`` נחשף רק ב-hover, ולחיצה פותחת מודאל — כלומר זה כפתור.
 
-    assert span["tabindex"] == "0"
-    assert span["aria-label"] == NAV_ROWS[0]["intent"]
-    assert span["title"] == NAV_ROWS[0]["intent"]
+    ``<button>`` ולא ``<span tabindex="0">``: כך Enter ו-Space עובדים בלי
+    JS משלנו, וקורא מסך מכריז "כפתור" במקום להשמיע טקסט שלא ברור שאפשר
+    ללחוץ עליו. הטקסט המלא נשאר גם ב-``aria-label``, כי ``title`` אינו
+    נגיש במגע ובמקלדת.
+    """
+    _install(monkeypatch)
+    clip = _soup(admin.get("/admin/mcp")).select_one(".mcp-clip")
+
+    assert clip.name == "button"
+    assert clip["type"] == "button"
+    assert clip["aria-label"] == NAV_ROWS[0]["intent"]
+    assert clip["title"] == NAV_ROWS[0]["intent"]
 
 
 def test_the_template_does_not_point_at_a_file_that_is_not_in_this_repo(admin, monkeypatch):
@@ -557,3 +563,93 @@ def test_the_template_does_not_point_at_a_file_that_is_not_in_this_repo(admin, m
     assert "bugbot-rules/xss-innerhtml.md" in template
     assert "amir-bug-patterns" in template
     assert not pathlib.Path("bugbot-rules/xss-innerhtml.md").exists()
+
+
+# --------------------------------------------------------------------------
+# ניקוי ההודעה, כיווניות, מודאל ובאנר
+# --------------------------------------------------------------------------
+
+
+def test_the_error_message_cell_shows_the_cleaned_line(admin, monkeypatch):
+    """הרעש של Pydantic לא מגיע לטבלה: כותרת, הזחה וקישור לתיעוד."""
+    _install(monkeypatch)
+    cell = _soup(admin.get("/admin/mcp")).select_one("td.mcp-errmsg")
+    text = cell.get_text(" ", strip=True)
+
+    assert "lines.1" in text
+    assert "Input should be a valid integer" in text
+    assert "validation error for" not in text
+    assert "errors.pydantic.dev" not in text
+
+
+def test_technical_text_is_forced_ltr_inside_the_rtl_page(admin, monkeypatch):
+    """העמוד כולו RTL, וההודעה והכוונה הן טקסט טכני באנגלית.
+
+    בלי בידוד כיווניות הדפדפן מזיז סוגריים וסימני שוויון לקצה הלא נכון —
+    ``[input_value='9']`` נראה שבור. זו תכונה של הטקסט, ולכן היא על התא.
+    """
+    _install(monkeypatch)
+    soup = _soup(admin.get("/admin/mcp"))
+
+    assert "mcp-ltr" in soup.select_one("td.mcp-errmsg")["class"]
+    assert "mcp-ltr" in soup.select_one(".mcp-clip")["class"]
+    # והכלל עצמו קיים ב-CSS, אחרת המחלקה היא קישוט.
+    # מחפשים את הבלוק **של העמוד הזה**: ``base.html`` מזריק ``<style>`` משלו,
+    # ו-``select_one("style")`` היה בוחר אותו ומכשיל את הטסט על הקובץ הלא נכון.
+    styles = [tag.get_text() for tag in soup.select("style") if ".mcp-ltr" in tag.get_text()]
+    assert styles, "כלל ה-LTR לא נמצא באף בלוק סגנון בעמוד"
+    assert "direction: ltr" in styles[0]
+
+
+def test_the_intent_modal_exists_and_starts_closed(admin, monkeypatch):
+    _install(monkeypatch)
+    soup = _soup(admin.get("/admin/mcp"))
+    modal = soup.select_one("#mcpIntentModal")
+
+    assert modal is not None
+    assert modal.has_attr("hidden")
+    assert modal["role"] == "dialog"
+    assert modal["aria-modal"] == "true"
+    # הטקסט **אינו** מרונדר בשרת — הוא נכתב ב-JS מהכפתור שנלחץ.
+    assert soup.select_one("#mcpIntentModalText").get_text(strip=True) == ""
+
+
+def test_the_mcp_script_never_assigns_to_innerhtml(admin, monkeypatch):
+    """ההגנה היחידה שמפרידה בין טקסט שסוכן כתב לבין קוד שרץ.
+
+    מוגבל ל-``<script>`` **של העמוד הזה**, שמזוהה לפי ``.mcp-tab``. גרסה
+    קודמת של הטסט סרקה את כל הסקריפטים ונפלה על מודאל הפתיחה של
+    ``base.html``, שמשתמש ב-``innerHTML`` על טקסט משלו — כלומר היא בדקה קוד
+    שאינה אחראית עליו, והייתה מכריחה לשנות קובץ אחר כדי לעבור.
+    """
+    _install(monkeypatch)
+    scripts = [
+        script.string or ""
+        for script in _soup(admin.get("/admin/mcp")).select("script")
+        if ".mcp-tab" in (script.string or "")
+    ]
+
+    assert scripts, "הסקריפט של העמוד לא נמצא — הטסט לא בדק דבר"
+    for code in scripts:
+        assert ".innerHTML" not in code
+        assert "insertAdjacentHTML" not in code
+        assert "document.write" not in code
+
+
+def test_failure_rows_carry_a_raw_timestamp_for_the_new_since_last_visit_count(admin, monkeypatch):
+    """הבאנר סופר מול חותמת גולמית ולא מול המחרוזת המוצגת.
+
+    התצוגה מעוגלת לדקה ומנוסחת בעברית; אי אפשר להשוות לפיה. וזו גם הסיבה
+    שהספירה עמידה לחלון ה-30 יום שמחליק: היא מול "החדשה ביותר שנראתה",
+    לא מול המספר הכולל, שיורד מעצמו כששגיאות ישנות נושרות.
+    """
+    _install(monkeypatch)
+    soup = _soup(admin.get("/admin/mcp"))
+    rows = soup.select("tr[data-at]")
+
+    assert len(rows) == len(FAILURE_ROWS)
+    assert [row["data-at"] for row in rows] == [r["failed_at"] for r in FAILURE_ROWS]
+    banner = soup.select_one("#mcpFreshBanner")
+    assert banner is not None
+    # מתחיל סגור: השרת אינו יודע מתי הביקור הקודם היה.
+    assert banner.has_attr("hidden")

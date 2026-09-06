@@ -10156,6 +10156,18 @@ def format_time_hhmm(value) -> str:
 def jinja_datetime_display(value) -> str:
     return format_datetime_display(value)
 
+
+@app.template_filter('validation_summary')
+def jinja_validation_summary(value):
+    """מקצר הודעת ולידציה של Pydantic לשורה קריאה — ראו ``mcp_analytics_service``.
+
+    עטיפה דקה בכוונה: הלוגיקה והבדיקות חיות במודול השירות, ולא בקובץ הזה.
+    ``import`` מקומי כדי לא לגרור את השירות לכל טעינה של האפליקציה.
+    """
+    from services.mcp_analytics_service import summarize_validation_message
+
+    return summarize_validation_message(value)
+
 # מסנן Jinja לתאימות למדריכים/תבניות: alias ל-datetime_display
 @app.template_filter('format_datetime')
 def jinja_format_datetime(value) -> str:

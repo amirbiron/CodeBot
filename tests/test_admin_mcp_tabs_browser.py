@@ -50,7 +50,7 @@ NAV_ROWS = [{
 }]
 FAILURE_ROWS = [
     {
-        "failed_at": "2026-09-02T00:43:14.487000Z",
+        "failed_at": "2026-09-05T00:43:14.487000Z",
         "tool": "codekeeper_get_file", "client": "claude-code",
         "error_type": "ValidationError",
         "error_message": (
@@ -61,7 +61,7 @@ FAILURE_ROWS = [
         "session": "ses_x",
     },
     {
-        "failed_at": "2026-09-01T21:01:34.441000Z",
+        "failed_at": "2026-09-03T21:01:34.441000Z",
         "tool": "codekeeper_get_repo_file", "client": None,
         "error_type": "ValidationError", "error_message": None,
         "session": "ses_y",
@@ -464,3 +464,180 @@ def test_the_outbound_links_open_safely_in_a_new_tab(page):
         assert link["href"] in POSTHOG_LINKS.values()
         assert link["target"] == "_blank"
         assert "noopener" in link["rel"] and "noreferrer" in link["rel"]
+
+
+def _fresh_page(live_server, local_storage=None):
+    """פותח את העמוד בהקשר דפדפן נקי, אופציונלית עם ערך ב-localStorage.
+
+    ``add_init_script`` רץ **לפני** קוד העמוד, ולכן הערך כבר שם כשהבאנר
+    מחשב. כתיבה אחרי ``goto`` הייתה מגיעה מאוחר מדי והטסט היה בודק כלום.
+    """
+    base_url, session_cookie = live_server
+    executable = _find_chromium()
+    pw = sync_playwright().start()
+    try:
+        browser = (
+            pw.chromium.launch(executable_path=executable)
+            if executable
+            else pw.chromium.launch()
+        )
+    except Exception as exc:  # pragma: no cover
+        pw.stop()
+        pytest.skip(f"אין Chromium זמין: {exc}")
+    context = browser.new_context(viewport={"width": 1280, "height": 900})
+    context.add_cookies([{
+        "name": "session", "value": session_cookie,
+        "domain": "127.0.0.1", "path": "/",
+    }])
+    page = context.new_page()
+    setup = (
+        "try{localStorage.setItem('welcomeModalSeen','1');"
+        "localStorage.setItem('onboarding_completed','1');"
+    )
+    if local_storage is not None:
+        setup += f"localStorage.setItem('mcpFailuresLastSeenAt','{local_storage}');"
+    else:
+        setup += "localStorage.removeItem('mcpFailuresLastSeenAt');"
+    setup += "}catch(e){}"
+    page.add_init_script(setup)
+    page.goto(f"{base_url}/admin/mcp", wait_until="domcontentloaded")
+    page.wait_for_timeout(400)
+    page.evaluate(
+        "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
+        ".forEach(e => e.remove())"
+    )
+    return pw, browser, context, page
+
+
+def test_clicking_a_clipped_intent_opens_a_modal_with_the_full_text(live_server):
+    """הקיצוץ הוא של התצוגה; המודאל הוא איך מגיעים לטקסט המלא.
+
+    נמדד בדפדפן ולא ב-DOM המרונדר, כי המודאל נבנה כולו ב-JS: השרת שולח
+    אותו ריק ומוסתר.
+    """
+    pw, browser, context, page = _fresh_page(live_server)
+    try:
+        page.click('button.mcp-tab[data-panel="navigation"]')
+        page.wait_for_timeout(150)
+        before = page.evaluate("() => document.getElementById('mcpIntentModal').hidden")
+        page.click(".mcp-clip")
+        page.wait_for_timeout(150)
+        opened = page.evaluate("""() => {
+            const modal = document.getElementById('mcpIntentModal');
+            const text = document.getElementById('mcpIntentModalText');
+            return {
+                hidden: modal.hidden,
+                text: text.textContent,
+                childElements: text.children.length,
+                focusOnClose: document.activeElement.id,
+            };
+        }""")
+        # Escape סוגר, והפוקוס חוזר לכפתור שפתח.
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
+        closed = page.evaluate("""() => ({
+            hidden: document.getElementById('mcpIntentModal').hidden,
+            focusIsClip: document.activeElement.classList.contains('mcp-clip'),
+        })""")
+    finally:
+        context.close()
+        browser.close()
+        pw.stop()
+
+    assert before is True, "המודאל היה פתוח עוד לפני הלחיצה"
+    assert opened["hidden"] is False
+    assert opened["text"] == NAV_ROWS[0]["intent"]
+    # נכתב עם ``textContent`` — אין אלמנטים בפנים גם על טקסט שנראה כמו תגית.
+    assert opened["childElements"] == 0
+    assert opened["focusOnClose"] == "mcpIntentModalClose"
+    assert closed["hidden"] is True
+    assert closed["focusIsClip"] is True
+
+
+def test_a_hostile_intent_stays_text_inside_the_modal_too(live_server):
+    """המודאל הוא מסלול שני לאותו טקסט, ולכן הוא צריך את אותה הוכחה.
+
+    ה-escape של Jinja שומר על **הטבלה**; המודאל נבנה ב-JS, ולכן שם מה
+    שמגן הוא ``textContent``. שני מסלולים, שתי בדיקות.
+    """
+    hostile = "<img src=x onerror=window.__pwned=1>"
+    with _hostile_intent(hostile):
+        pw, browser, context, page = _fresh_page(live_server)
+    try:
+        page.click('button.mcp-tab[data-panel="navigation"]')
+        page.wait_for_timeout(150)
+        page.click(".mcp-clip")
+        page.wait_for_timeout(200)
+        measured = page.evaluate("""() => {
+            const text = document.getElementById('mcpIntentModalText');
+            return {
+                text: text.textContent,
+                childElements: text.children.length,
+                images: document.querySelectorAll('#mcpIntentModal img').length,
+                pwned: window.__pwned === 1,
+            };
+        }""")
+    finally:
+        context.close()
+        browser.close()
+        pw.stop()
+
+    assert measured["text"] == hostile
+    assert measured["childElements"] == 0
+    assert measured["images"] == 0
+    assert measured["pwned"] is False
+
+
+def test_the_banner_stays_quiet_on_a_first_visit(live_server):
+    """בביקור ראשון הכול "חדש", ומספר כזה אינו אומר דבר."""
+    pw, browser, context, page = _fresh_page(live_server, local_storage=None)
+    try:
+        page.wait_for_timeout(200)
+        measured = page.evaluate("""() => ({
+            hidden: document.getElementById('mcpFreshBanner').hidden,
+            stored: localStorage.getItem('mcpFailuresLastSeenAt'),
+        })""")
+    finally:
+        context.close()
+        browser.close()
+        pw.stop()
+
+    assert measured["hidden"] is True
+    # אבל הביקור כן נרשם, אחרת הבא אחריו גם הוא יהיה "ראשון".
+    assert measured["stored"] is not None
+
+
+def test_the_banner_counts_only_failures_newer_than_the_last_visit(live_server):
+    """זו כל הנקודה: החלון של 30 יום מזיז שורות החוצה, ולכן המספר הכולל
+    יורד מעצמו ואינו יכול לשמש איתות. ההשוואה היא מול חותמת."""
+    # אחרי השורה הישנה (03.09) ולפני החדשה (05.09) — כלומר אחת חדשה.
+    pw, browser, context, page = _fresh_page(live_server, local_storage="2026-09-04T00:00:00.000Z")
+    try:
+        page.wait_for_timeout(200)
+        measured = page.evaluate("""() => ({
+            hidden: document.getElementById('mcpFreshBanner').hidden,
+            text: document.getElementById('mcpFreshText').textContent,
+            stored: localStorage.getItem('mcpFailuresLastSeenAt'),
+        })""")
+    finally:
+        context.close()
+        browser.close()
+        pw.stop()
+
+    assert measured["hidden"] is False
+    assert "אחת" in measured["text"], measured["text"]
+    # נשמרה החדשה ביותר, ולכן רענון מיידי כבר לא יציג את הבאנר.
+    assert measured["stored"].startswith("2026-09-05")
+
+
+def test_nothing_is_new_when_the_last_visit_is_after_every_failure(live_server):
+    pw, browser, context, page = _fresh_page(live_server, local_storage="2026-09-30T00:00:00.000Z")
+    try:
+        page.wait_for_timeout(200)
+        hidden = page.evaluate("() => document.getElementById('mcpFreshBanner').hidden")
+    finally:
+        context.close()
+        browser.close()
+        pw.stop()
+
+    assert hidden is True
