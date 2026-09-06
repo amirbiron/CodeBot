@@ -486,3 +486,83 @@ def test_the_panel_shows_the_measurement_when_there_is_one(page):
     assert "147.25" in panel["text"], (
         f"הזמן שנמדד לא הגיע למסך: {panel!r}"
     )
+
+
+# ------------------- כרטיס "שאילתות איטיות" — קישור עוגן, לא מספר מת
+
+
+#: ה-``href`` הוא החוזה הנבדק, ולכן הוא גם הסלקטור: ``data-testid`` נוסף
+#: היה כפילות של אותו עוגן.
+SLOW_QUERIES_CARD = '#summary-section a[href="#slow-queries"]'
+
+
+def _reset_anchor(page):
+    """מחזיר את הכתובת והגלילה למצב לפני הלחיצה.
+
+    הפיקסצ'ר ``page`` הוא עמוד אחד לכל המודול, ולכן ``#slow-queries`` שנשאר
+    ב-URL מטסט קודם היה מאשר את הטסט הבא בלי שלחץ על כלום.
+    """
+    page.evaluate("() => { history.replaceState(null, '', location.pathname); window.scrollTo(0, 0); }")
+
+
+def _target_top_in_viewport(page):
+    """גובה ראש היעד ביחס לחלון: ``None`` אם היעד לא קיים בכלל."""
+    return page.evaluate(
+        "() => { const el = document.getElementById('slow-queries');"
+        " if (!el) return null;"
+        " const r = el.getBoundingClientRect();"
+        " return {top: r.top, inView: r.top >= 0 && r.top < window.innerHeight}; }"
+    )
+
+
+def test_the_slow_queries_card_is_a_real_link_to_the_list(page):
+    """הכרטיס הוא ``<a>`` שמצביע על כרטיס הרשימה — לא ``div`` עם מאזין.
+
+    קישור אמיתי נותן מקלדת, קורא מסך שמכריז "קישור", וגלילה של הדפדפן —
+    בלי JavaScript. והיעד חייב להיות **הרשימה עצמה**: ``id`` על אלמנט אחר
+    היה מייצר URL נכון ומסך לא נכון.
+    """
+    _reset_anchor(page)
+    assert page.query_selector(SLOW_QUERIES_CARD) is not None, (
+        "כרטיס 'שאילתות איטיות' אינו קישור ל-#slow-queries"
+    )
+    assert page.query_selector("#slow-queries #slow-queries-table") is not None, (
+        "#slow-queries אינו הכרטיס שמכיל את טבלת השאילתות האיטיות"
+    )
+
+
+def test_clicking_the_card_brings_the_list_into_view(page):
+    """קליק ← ה-URL מקבל את העוגן **וגם** הרשימה נכנסת לחלון.
+
+    ה-URL לבדו לא מוכיח שהמשתמש רואה את הרשימה, ולכן החלון מוקטן כדי
+    שהרשימה תהיה מחוץ לו **לפני** הלחיצה — אחרת האסרשן היה עובר גם בלי
+    גלילה, ולא היה יכול ליפול.
+    """
+    original = page.viewport_size
+    try:
+        page.set_viewport_size({"width": 1280, "height": 360})
+        _reset_anchor(page)
+        before = _target_top_in_viewport(page)
+        assert before is not None and not before["inView"], (
+            f"הרשימה כבר בחלון לפני הלחיצה — הטסט לא יכול להוכיח גלילה: {before!r}"
+        )
+
+        page.click(SLOW_QUERIES_CARD)
+
+        assert page.url.endswith("#slow-queries"), f"העוגן לא הגיע ל-URL: {page.url}"
+        after = _target_top_in_viewport(page)
+        assert after is not None and after["inView"], (
+            f"ה-URL נכון אבל הרשימה לא בחלון: {after!r}"
+        )
+    finally:
+        page.set_viewport_size(original)
+
+
+def test_the_card_works_from_the_keyboard(page):
+    """Tab + Enter מגיעים לאותו מקום — זה מה שקישור אמיתי נותן בחינם."""
+    _reset_anchor(page)
+    # נופל מיד עם הודעה קריאה כשהכרטיס אינו קישור, במקום timeout של Playwright על focus.
+    assert page.query_selector(SLOW_QUERIES_CARD) is not None, "אין קישור לפוקס עליו"
+    page.focus(SLOW_QUERIES_CARD)
+    page.keyboard.press("Enter")
+    assert page.url.endswith("#slow-queries"), f"Enter על הכרטיס לא ניווט: {page.url}"

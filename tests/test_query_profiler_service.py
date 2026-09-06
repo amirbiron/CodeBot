@@ -272,6 +272,50 @@ class TestOptimizationRecommendations:
         assert efficiency_rec is not None
 
 
+    def _indexed_fetch_plan(self, *, docs_returned: int, docs_examined: int) -> ExplainPlan:
+        """שאילתה שעברה דרך אינדקס ואז FETCH — המועמדת הקלאסית ל-Covered Query."""
+        return ExplainPlan(
+            query_id="test789",
+            collection="test_collection",
+            query_shape={"user_id": "<value>"},
+            winning_plan=ExplainStage(stage=QueryStage.FETCH, input_stage=ExplainStage(stage=QueryStage.IXSCAN)),
+            stats=QueryStats(
+                execution_time_ms=3,
+                docs_examined=docs_examined,
+                docs_returned=docs_returned,
+                keys_examined=docs_examined,
+                index_used="user_id_1",
+            ),
+        )
+
+    def test_no_covered_query_recommendation_when_nothing_was_returned(self, profiler_service):
+        """אפס תוצאות אינו "אפשרות ל-Covered Query".
+
+        ההמלצה אומרת "הוסף את שדות ה-projection לאינדקס" — וזה עוזר רק
+        למסמכים שמוחזרים. שאילתה שלא החזירה כלום (השלד ``<value>`` של
+        כפתור הניתוח, למשל) אינה יכולה להרוויח מזה, וההמלצה עליה שגויה.
+        ``_is_covered_query`` דורשת ``n_returned > 0`` כדי להכריז covered,
+        ולכן בלי התנאי המקביל כאן כל תוצאה ריקה עם אינדקס נורית.
+        """
+        recommendations = profiler_service.analyze_and_recommend(
+            self._indexed_fetch_plan(docs_returned=0, docs_examined=0)
+        )
+        covered = [r for r in recommendations if "Covered" in r.title]
+        assert covered == [], f"המלצת Covered Query על תוצאה ריקה: {covered!r}"
+
+    def test_covered_query_recommendation_still_fires_when_documents_were_fetched(self, profiler_service):
+        """המקרה האמיתי — אינדקס, FETCH, ותוצאות — עדיין מקבל את ההמלצה.
+
+        שומר שהתיקון לא מחק את ההמלצה לגמרי.
+        """
+        recommendations = profiler_service.analyze_and_recommend(
+            self._indexed_fetch_plan(docs_returned=5, docs_examined=5)
+        )
+        covered = next((r for r in recommendations if "Covered" in r.title), None)
+        assert covered is not None, "ההמלצה נעלמה גם כשיש מסמכים שהוחזרו"
+        assert covered.severity == SeverityLevel.INFO
+
+
 class TestExplainPlanParsing:
     """בדיקות לפרסור Explain Plans"""
 

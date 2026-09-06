@@ -738,8 +738,21 @@ class QueryProfilerService:
         return False
 
     def _could_be_covered_query(self, explain_plan: ExplainPlan) -> bool:
-        """בדיקה האם השאילתה יכולה להיות covered query"""
-        return explain_plan.stats is not None and explain_plan.stats.index_used is not None
+        """האם יש טעם להמליץ על Covered Query.
+
+        ההמלצה אומרת "הוסף את שדות ה-projection לאינדקס", וזה עוזר רק
+        למסמכים **שמוחזרים**. לכן נדרשים גם אינדקס וגם ``docs_returned > 0``:
+        שאילתה שהחזירה אפס — כי לא נמצא כלום, או כי הכל סונן אחרי FETCH —
+        אינה מרוויחה מזה, וההמלצה עליה מטעה. ``_is_covered_query`` דורשת
+        ``n_returned > 0`` כדי להכריז covered, ובלי התנאי המקביל כאן כל
+        תוצאה ריקה עם אינדקס הייתה נורית (זה מה שקרה עם השלד ``<value>``
+        של כפתור הניתוח).
+
+        ``stats`` הוא ``None`` בריצת ``queryPlanner``; הבדיקה כאן נשארת גם
+        כשהקורא כבר בדק, כי הפונקציה נקראת גם לבדה.
+        """
+        stats = explain_plan.stats
+        return stats is not None and stats.index_used is not None and stats.docs_returned > 0
 
     def _get_pattern_frequency(self, explain_plan: ExplainPlan) -> int:
         """קבלת תדירות דפוס השאילתה"""
