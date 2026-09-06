@@ -798,7 +798,7 @@ class ConfigService:
             key="DISABLE_STARTUP_WARMUP",
             services=("webapp",),
             default="true",
-            description="מכבה את חימום ה-Observability בעליית הוובאפ כדי להוריד עומס מה-DB. שימו לב: כבוי כברירת מחדל — false מפעיל את החימום",
+            description="מכבה בעליית הוובאפ את חימום ה-Observability וגם את חימום אינדקסי הפתקים הדביקים. שימו לב: דלוק כברירת מחדל, כלומר החימומים כבויים; false מפעיל אותם",
             category="warmup",
         ),
         "DISABLE_ALERTS_READS": ConfigDefinition(
