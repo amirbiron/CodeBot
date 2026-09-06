@@ -377,3 +377,65 @@ def test_the_shared_toast_is_actually_visible_on_this_page(page):
     )
     assert state["visible"], "הטוסט נוצר אך אין לו רוחב על המסך"
     assert "הועתק ללוח" in state["text"]
+
+
+# ------------------- הפאנל שעל המסך, לא רק הטקסט המועתק
+
+
+def analyze_and_read_stats(page, payload, *, verbosity, aggregate=False):
+    """מנתח ומחזיר את **הטקסט שעל המסך** בפאנל הסטטיסטיקות."""
+    page.route(
+        "**/api/profiler/recommendations",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json", body=json.dumps(payload)
+        ),
+    )
+    page.fill("#analyze-collection", COLLECTION)
+    page.select_option("#analyze-verbosity", verbosity)
+    if aggregate:
+        page.select_option("#analyze-operation", "aggregate")
+        page.fill("#analyze-pipeline", '[{"$match": {"user_id": "1"}}]')
+    else:
+        page.fill("#analyze-query", '{"user_id": "1"}')
+
+    page.click('button[onclick="analyzeQuery()"]')
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+    return page.inner_text("#explain-stats")
+
+
+def test_the_panel_does_not_blame_queryplanner_for_a_measured_zero(page):
+    """אפס תחת ``executionStats`` הוא מדידה, והפאנל לא יטען אחרת.
+
+    **זו רגרסיה שנכנסה ב-#3333, ולא באג ותיק.** לפני אותו PR הפאנל הציג
+    ``זמן כולל: 0.00 ms`` — מספר יבש, ניטרלי ונכון. הוא הוחלף במשפט שמסביר
+    *למה* אין מספרים, וההסבר נגזר מהמספר עצמו במקום מרמת הפירוט שנבחרה.
+    כשבוחרים ``executionStats`` ומונגו מסכמת אפס — הפאנל מייחס לניתוח רמת
+    פירוט שלא רצה.
+
+    זה בדיוק הבאג שתוקן ב-``buildAnalysisReport``. תוקן ההעתק, לא המקור.
+    """
+    stats_text = analyze_and_read_stats(
+        page, AGGREGATE_ZERO_TIME, verbosity="executionStats", aggregate=True
+    )
+
+    assert "queryPlanner" not in stats_text, (
+        f"הפאנל מייחס לניתוח רמת פירוט שלא נבחרה: {stats_text!r}"
+    )
+    assert "0.00" in stats_text, (
+        f"האפס עצמו חייב להופיע — הוא התוצאה שנמדדה: {stats_text!r}"
+    )
+
+
+def test_the_panel_still_says_when_nothing_was_measured(page):
+    """``queryPlanner`` באמת לא מודד, והפאנל חייב להמשיך לומר את זה.
+
+    שומר מפני "תיקון" שפשוט מוחק את המשפט: אז המשתמש היה רואה ``0.00 ms``
+    על ניתוח שלא הריץ כלום, וזו טעות הפוכה ולא פחות גרועה.
+    """
+    stats_text = analyze_and_read_stats(
+        page, AGGREGATE_ZERO_TIME, verbosity="queryPlanner", aggregate=True
+    )
+
+    assert "queryPlanner" in stats_text, (
+        f"לא נאמר שהניתוח לא מדד כלום: {stats_text!r}"
+    )
