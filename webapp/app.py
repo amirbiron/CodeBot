@@ -266,17 +266,28 @@ def _clear_superseded_chunks(doc: Dict[str, Any], inserted_id: Any) -> None:
 
     ``user_id``/``file_name`` נקראים מהמסמך עצמו כדי שאותה קריאה תתאים לכל
     מסלולי השמירה ב-WebApp, שלכל אחד מהם שמות משתנים משלו.
+
+    המחיקה מוגבלת ל-``version`` נמוך מזה של המסמך שנכתב, ולא ל"הכל חוץ
+    ממני": כששתי שמירות של אותו קובץ חופפות, ניקוי של הישנה יכול לרוץ אחרי
+    שהחדשה כבר נשמרה ולמחוק דווקא את הצ'אנקים שלה. בלי ``version`` במסמך
+    לא מוחקים כלום — הג'וב היומי ינקה את הגרסאות הישנות.
     """
     if not inserted_id:
         return
     try:
         user_id = int(doc.get('user_id'))
         file_name = str(doc.get('file_name') or '')
-    except Exception:
+        version = int(doc.get('version'))
+    except (TypeError, ValueError):
         return
     if not file_name:
         return
-    _delete_snippet_chunks(user_id, file_name=file_name, exclude_snippet_id=inserted_id)
+    _delete_snippet_chunks(
+        user_id,
+        file_name=file_name,
+        exclude_snippet_id=inserted_id,
+        older_than_version=version,
+    )
 
 # --- Smart Projection helpers ---
 # מסמכים חדשים יכולים להכיל file_size/lines_count (נשמרים בזמן שמירה).

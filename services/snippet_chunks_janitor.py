@@ -68,7 +68,11 @@ def _is_object_id(value: Any) -> bool:
     try:
         from bson import ObjectId
     except Exception:
-        return True  # בלי bson אין לנו איך להבחין; לא ננקוט יוזמה
+        # בלי bson אי אפשר להבחין — ולכן **שום דבר** אינו נחשב מזהה תקין,
+        # והג'וב לא ימחק כלום. החזרת ``True`` כאן הייתה הופכת את הכשל
+        # לפתוח: כל מזהה היה נכנס למסלול המחיקה בדיוק כשאין לנו יכולת
+        # לאמת אותו.
+        return False
     return isinstance(value, ObjectId)
 
 
@@ -91,6 +95,8 @@ def cleanup_orphan_snippet_chunks(
         "orphan_snippets": 0,
         "deleted_chunks": 0,
         "skipped_non_objectid": 0,
+        "ownership_mismatch": 0,
+        "quarantined_no_file_name": 0,
         "dry_run": bool(dry_run),
     }
 
@@ -106,15 +112,21 @@ def cleanup_orphan_snippet_chunks(
         return summary
 
     # --- 1. אילו (userId, snippetId) מיוצגים בכלל בצ'אנקים ------------------
+    group_pipeline = [
+        {"$group": {
+            "_id": {"userId": "$userId", "snippetId": "$snippetId"},
+            "chunks": {"$sum": 1},
+        }},
+    ]
     try:
-        groups = list(
-            chunks.aggregate([
-                {"$group": {
-                    "_id": {"userId": "$userId", "snippetId": "$snippetId"},
-                    "chunks": {"$sum": 1},
-                }},
-            ])
-        )
+        # ``allowDiskUse`` כדי שהשלב הזה לא ייפול על תקרת ה-100MB של
+        # ``$group`` כשהקולקציה גדלה — הוא רץ **לפני** כל ה-batching, ולכן
+        # כשלון בו עוצר את הניקוי כולו. סטאבים בטסטים לא בהכרח מקבלים את
+        # הפרמטר, ולכן יש נפילה חזרה לקריאה בלעדיו.
+        try:
+            groups = list(chunks.aggregate(group_pipeline, allowDiskUse=True))
+        except TypeError:
+            groups = list(chunks.aggregate(group_pipeline))
     except Exception as exc:
         logger.warning("snippet_chunks janitor: group failed: %s", exc)
         emit_event("snippet_chunks_cleanup_error", severity="warn", stage="group", error=str(exc))
@@ -208,13 +220,34 @@ def cleanup_orphan_snippet_chunks(
     for user_id, snippet_id in pairs:
         doc = existing.get(snippet_id)
         if doc is None:
-            reason_ok = False  # הקובץ נמחק סופית / פקע ב-TTL
+            keep = False  # הקובץ נמחק סופית / פקע ב-TTL
         elif not bool(doc.get("is_active", False)):
-            reason_ok = False  # הקובץ בסל המיחזור
+            keep = False  # הקובץ בסל המיחזור
+        elif doc.get("user_id") != user_id:
+            # הצ'אנק מתויג למשתמש אחד והסניפט שייך לאחר. זה לא יכול להיווצר
+            # מהכתיבות שלנו (``save_snippet_chunks`` לוקח את שניהם מאותו
+            # מסמך), אבל אם זה קורה — **חייבים** למחוק: הפילטר של
+            # ``$vectorSearch`` הוא על ``userId`` של הצ'אנק, ולכן צ'אנק כזה
+            # היה צף בתוצאות של המשתמש הלא נכון. ראו ``CRITICAL-PATTERNS.md``
+            # K12. השארתו היא הסיכון, לא מחיקתו.
+            keep = False
+            summary["ownership_mismatch"] += 1
+            emit_event(
+                "snippet_chunks_ownership_mismatch",
+                severity="anomaly",
+                chunk_user_id=user_id,
+                snippet_user_id=doc.get("user_id"),
+            )
+        elif not str(doc.get("file_name") or "").strip():
+            # מסמך פעיל בלי שם קובץ אינו נכנס לשלב "הגרסה האחרונה", ולכן
+            # ``latest`` לעולם לא יכיל אותו — והיעדר המפתח **אינו** ראיה
+            # שהצ'אנקים שלו יתומים. רשומה פגומה נשמרת ומדווחת; לא נמחקת.
+            keep = True
+            summary["quarantined_no_file_name"] += 1
         else:
-            key = (doc.get("user_id"), str(doc.get("file_name") or ""))
-            reason_ok = latest.get(key) == snippet_id
-        if not reason_ok:
+            key = (doc.get("user_id"), str(doc.get("file_name")))
+            keep = latest.get(key) == snippet_id
+        if not keep:
             orphans_by_user.setdefault(user_id, []).append(snippet_id)
 
     summary["orphan_snippets"] = sum(len(v) for v in orphans_by_user.values())
@@ -252,6 +285,8 @@ def cleanup_orphan_snippet_chunks(
         orphan_snippets=summary["orphan_snippets"],
         deleted_chunks=deleted,
         skipped_non_objectid=summary["skipped_non_objectid"],
+        ownership_mismatch=summary["ownership_mismatch"],
+        quarantined_no_file_name=summary["quarantined_no_file_name"],
     )
     if summary["skipped_non_objectid"]:
         # לא מוחקים אותם, אבל גם לא בולעים: מישהו צריך להסתכל.

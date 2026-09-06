@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import string
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 from config import config
@@ -78,10 +78,13 @@ class _Unit:
     text: str
     line_no: int
     is_continuation: bool  # True = ממשיכה את השורה הקודמת, בלי newline לפניה
+    # הגודל מחושב פעם אחת ביצירה ולא בכל גישה: הלולאה הראשית ניגשת ל-``size``
+    # של אותה יחידה כמה פעמים (סריקה קדימה, ואז סריקת החפיפה אחורה), ו-property
+    # שמקודד מחדש בכל פעם הפך את החיתוך ל-O(n·bytes) על קבצים גדולים.
+    size: int = field(init=False)
 
-    @property
-    def size(self) -> int:
-        return len(self.text.encode("utf-8"))
+    def __post_init__(self) -> None:
+        self.size = len(self.text.encode("utf-8"))
 
 
 def _byte_len(text: str) -> int:
@@ -95,19 +98,27 @@ def _split_oversized_line(line: str, line_no: int, budget: int) -> List[_Unit]:
     לבדו לא היה מפצל אותה בכלל, והוקטור היה מכיר בערך 10% ממנה.
     החיתוך הוא לפי תווים, כי אין כאן גבול תחבירי להישען עליו.
     """
+    data = line.encode("utf-8")
+    if len(data) <= budget:
+        return [_Unit(line, line_no, False)]
+
     units: List[_Unit] = []
-    current = ""
-    current_size = 0
-    for ch in line:
-        ch_size = len(ch.encode("utf-8"))
-        if current and current_size + ch_size > budget:
-            units.append(_Unit(current, line_no, bool(units)))
-            current = ""
-            current_size = 0
-        current += ch
-        current_size += ch_size
-    if current or not units:
-        units.append(_Unit(current, line_no, bool(units)))
+    pos = 0
+    total = len(data)
+    while pos < total:
+        end = min(pos + budget, total)
+        # ``end`` חייב לנחות על תחילת תו ולא באמצע רצף UTF-8. בייט המשך
+        # מזוהה לפי שני הביטים העליונים ``10``; נסוגים אחורה עד תחילת התו.
+        while end > pos and end < total and (data[end] & 0xC0) == 0x80:
+            end -= 1
+        if end == pos:
+            # תקציב קטן מתו בודד (אפשרי רק דרך ``max_bytes`` בטסטים): קדימה
+            # עד סוף התו, כדי שהלולאה תתקדם ולא תיתקע.
+            end = pos + 1
+            while end < total and (data[end] & 0xC0) == 0x80:
+                end += 1
+        units.append(_Unit(data[pos:end].decode("utf-8"), line_no, bool(units)))
+        pos = end
     return units
 
 
@@ -149,8 +160,9 @@ def split_code_to_chunks(
     - שורה ארוכה מהתקציב נחתכת לחתיכות; לכולן אותו מספר שורה
     - אין השמטת זנב: איחוד טווחי השורות מכסה את כל שורות הקובץ
 
-    ``overlap`` נשמר בחתימה לתאימות לאחור עם קוראים קיימים, אך החפיפה נגזרת
-    מתקציב הבייטים ולא ממספר שורות קבוע.
+    ``overlap`` הוא תקרה **שנייה** על החפיפה, במספר שורות: החפיפה בפועל היא
+    המחמיר מבין תקציב הבייטים (15%), חצי מהצ'אנק בפועל, ו-``overlap`` שורות.
+    ``overlap=0`` אכן מבטל את החפיפה לגמרי.
     """
     if not code or not code.strip():
         return []
@@ -167,6 +179,12 @@ def split_code_to_chunks(
         line_ceiling = CHUNK_SIZE
 
     overlap_budget = int(budget * CHUNK_OVERLAP_RATIO)
+
+    try:
+        overlap_lines = int(overlap)
+    except (TypeError, ValueError):
+        overlap_lines = CHUNK_OVERLAP
+    overlap_lines = max(0, overlap_lines)
 
     lines = code.splitlines()
     if not lines:
@@ -209,6 +227,13 @@ def split_code_to_chunks(
 
         # החפיפה: כמה יחידות מהסוף של הצ'אנק הנוכחי נכנסות גם לבא אחריו.
         #
+        # מגבלה ידועה ומקובלת: בקובץ **חד-שורתי** (SVG, JS ממוזער) כל יחידה
+        # היא בדיוק בגודל התקציב, ולכן היא לעולם לא נכנסת ל-15% של החפיפה —
+        # הצ'אנקים יוצאים ללא חפיפה כלל. זה מכוון: אין ערך סמנטי בהמשכיות בין
+        # שני חצאים של נתיב SVG, וקבצים כאלה ממילא נעצרים ב-
+        # ``is_low_information_chunk``. לפצל את היחידות קטן יותר רק כדי לייצר
+        # חפיפה היה מקטין כל צ'אנק בקבצים האלה בלי תמורה.
+        #
         # התקציב מוגבל גם לחצי מהצ'אנק בפועל, ולא רק ל-15% מתקציב הבייטים.
         # בלי הגבול הזה, כשתקרת השורות היא שבולמת (צ'אנק קטן בהרבה מהתקציב),
         # תקציב החפיפה גדול מהצ'אנק כולו — והחלון היה מתקדם שורה אחת בכל
@@ -216,10 +241,15 @@ def split_code_to_chunks(
         effective_overlap = min(overlap_budget, size // 2)
         next_start = end
         carried = 0
+        last_line = units[end - 1].line_no
         while next_start - 1 > start:
             candidate = units[next_start - 1]
             candidate_size = candidate.size + 1
             if carried + candidate_size > effective_overlap:
+                break
+            # תקרת השורות של ``overlap``. יחידות של אותה שורה ארוכה נספרות
+            # כשורה אחת, ולכן ``overlap=0`` עוצר כאן מיד.
+            if last_line - candidate.line_no + 1 > overlap_lines:
                 break
             carried += candidate_size
             next_start -= 1
@@ -267,6 +297,18 @@ def create_embedding_text(
     המטא-דאטה נקצצת ל-``EMBEDDING_METADATA_MAX_BYTES``: בלי זה תיאור ארוך היה
     יכול להוציא את הטקסט מהתקציב שה-chunker חישב, ולהחזיר בדיוק את החיתוך
     השקט שהתקציב נועד למנוע.
+
+    **התקרה האפקטיבית של הקלט אינה ``CHUNK_MAX_BYTES``.** המחרוזת המקסימלית
+    כאן היא 500 (מטא-דאטה) + 8 (``\n\nCode:\n``) + 2,000 (צ'אנק) = **2,508
+    בייט**, וזה המספר שצריך להשוות לתקרת ה-2,048 טוקנים של
+    ``gemini-embedding-001``. זו החלטה מודעת ולא פספוס: התקציב נבחר 2,000
+    דווקא כדי שהתוספת הקבועה הזו תישאר בתוך המרווח.
+
+    מה שלא נמדד: כמה טוקנים 2,508 בייט הם בפועל. אין בריפו מונה טוקנים
+    למודל הזה, ו-``countTokens`` דורש מפתח API. עבור ASCII זה ~2,508 תווים
+    (בערך 600-700 טוקנים), ועבור עברית ~1,254 תווים. אם בכל זאת תהיה חריגה,
+    ``EMBEDDING_AUTO_TRUNCATE=false`` הוא מה שהופך אותה משקטה לגלויה — ראו
+    ``scripts/probe_embedding_limits.py``.
     """
     parts: List[str] = []
 

@@ -327,6 +327,23 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    """קורא דגל בוליאני מהסביבה, עם אותה קבוצת ערכים בכל אתר קריאה.
+
+    הקובץ הזה החזיק שלושה עותקים של הביטוי עבור ``DISABLE_BACKGROUND_CLEANUP``
+    עם ``{"1", "true", "yes"}``, בעוד ש-``file_manager.py`` מכיר לאותו דגל גם
+    ``"on"`` ועושה ``strip``. כלומר ``DISABLE_BACKGROUND_CLEANUP=on`` השבית
+    את ניקוי הגיבויים אבל **לא** את ג'ובי הניקוי — אותו דגל, שתי התנהגויות.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return bool(default)
+    value = str(raw).strip().lower()
+    if not value:
+        return bool(default)
+    return value in {"1", "true", "yes", "y", "on"}
+
+
 def _command_label_from_handler(handler) -> str:
     """הפקת שם פקודה ידידותי למדדים מתוך CommandHandler."""
     try:
@@ -6459,7 +6476,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 with tracker.track("cache_maintenance", trigger=trigger) as run:
                     try:
                         # כיבוי גלובלי דרך ENV
-                        if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                        if _env_flag("DISABLE_BACKGROUND_CLEANUP"):
                             tracker.skip_run(run.run_id, "disabled_by_env")
                             return
                         # ניקוי עדין של קאש (respect SAFE_MODE/DISABLE_CACHE_MAINTENANCE internally)
@@ -6530,7 +6547,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 with tracker.track("backups_cleanup", trigger=trigger) as run:
                     try:
                         # כיבוי גלובלי דרך ENV
-                        if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                        if _env_flag("DISABLE_BACKGROUND_CLEANUP"):
                             tracker.skip_run(run.run_id, "disabled_by_env")
                             return
                         from file_manager import backup_manager  # lazy import
@@ -6677,7 +6694,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
                 try:
                     with tracker.track("snippet_chunks_cleanup", trigger=trigger) as run:
-                        if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                        if _env_flag("DISABLE_BACKGROUND_CLEANUP"):
                             tracker.skip_run(run.run_id, "disabled_by_env")
                             return
                         from services.snippet_chunks_janitor import (
@@ -6712,9 +6729,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         pass
                     return
 
-            enabled = str(
-                os.getenv("SNIPPET_CHUNKS_CLEANUP_ENABLED", "true")
-            ).lower() in {"1", "true", "yes", "on"}
+            enabled = _env_flag("SNIPPET_CHUNKS_CLEANUP_ENABLED", default=True)
             if enabled:
                 interval_secs = int(
                     os.getenv("SNIPPET_CHUNKS_CLEANUP_INTERVAL_SECS", "86400") or 86400

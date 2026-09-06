@@ -117,6 +117,52 @@ class TestNumCandidates:
 
         assert _vector_stage(_pipeline(limit=10))["numCandidates"] >= 200
 
+    @pytest.mark.parametrize("ceiling", [10001, 50000, 10**9])
+    def test_ceiling_never_exceeds_the_atlas_hard_limit(self, monkeypatch, ceiling):
+        """נמדד מול ``ClusterFrankfurt``: ``numCandidates: 10001`` מוחזר עם
+        ``"numCandidates" must be within bounds [1..10000]``, ו-10000 עובר.
+
+        זה לא כשל תמים. השגיאה היא ``PlanExecutor error``, וה-``except`` של
+        ``semantic_search`` היה בולע אותה ונופל בשקט לחיפוש טקסט בלבד — כלומר
+        משתנה סביבה שהוגדר גבוה מדי היה מכבה את החיפוש הסמנטי בלי שאף אחד
+        יידע.
+        """
+        monkeypatch.setattr(config, "SEMANTIC_NUM_CANDIDATES", 1000, raising=False)
+        monkeypatch.setattr(config, "SEMANTIC_NUM_CANDIDATES_MAX", ceiling, raising=False)
+
+        # ``limit=1000`` נותן ``limit * 20 = 20,000`` — מעל התקרה משני הכיוונים,
+        # ולכן זה הערך היחיד שבאמת בוחן את הכליאה ולא את ה-20:1.
+        assert _vector_stage(_pipeline(limit=1000))["numCandidates"] == 10000
+        # וגם הרצפה של ``limit * 2`` (2,000) אינה גוברת על מגבלת Atlas.
+        assert _vector_stage(_pipeline(limit=9000))["numCandidates"] == 10000
+
+    def test_floor_above_the_ceiling_cannot_break_the_query(self, monkeypatch):
+        """קונפיג הפוך (רצפה מעל תקרה) הוא שגיאת הפעלה, לא חיפוש מושבת."""
+        monkeypatch.setattr(config, "SEMANTIC_NUM_CANDIDATES", 99999, raising=False)
+        monkeypatch.setattr(config, "SEMANTIC_NUM_CANDIDATES_MAX", 50, raising=False)
+
+        value = _vector_stage(_pipeline(limit=10))["numCandidates"]
+        assert 1 <= value <= 10000
+
+    @pytest.mark.parametrize("limit", [10, 50, 400])
+    def test_candidates_are_never_fewer_than_the_results_requested(
+        self, monkeypatch, limit
+    ):
+        """``$vectorSearch`` מבקש ``limit * 2`` תוצאות.
+
+        פחות מועמדים ממספר התוצאות המבוקש היא בקשה חסרת משמעות: ``MAX=20``
+        עם ``limit=50`` היה מבקש 20 מועמדים ו-100 תוצאות.
+        """
+        monkeypatch.setattr(config, "SEMANTIC_NUM_CANDIDATES", 20, raising=False)
+        monkeypatch.setattr(config, "SEMANTIC_NUM_CANDIDATES_MAX", 20, raising=False)
+
+        stage = _vector_stage(_pipeline(limit=limit))
+        assert stage["numCandidates"] >= stage["limit"]
+
+    def test_the_hard_limit_matches_what_atlas_actually_accepts(self):
+        """הקבוע אינו מספר מהזיכרון — הוא נמדד מול הקלאסטר."""
+        assert search_engine.SEMANTIC_NUM_CANDIDATES_HARD_MAX == 10000
+
 
 def test_pipeline_still_filters_to_the_latest_active_version():
     """הגנה על ההתנהגות הקיימת: צ'אנקים של גרסה ישנה או של קובץ מחוק

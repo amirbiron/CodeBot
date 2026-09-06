@@ -14,6 +14,7 @@ from services.chunking_service import (
     CHUNK_MAX_BYTES,
     CHUNKER_VERSION,
     EMBEDDING_METADATA_MAX_BYTES,
+    _split_oversized_line,
     create_embedding_text,
     is_low_information_chunk,
     split_code_to_chunks,
@@ -191,3 +192,100 @@ class TestEmbeddingText:
 def test_budget_is_respected_for_any_configured_value(budget):
     source = "\n".join(f"const value{i} = fetchSomething({i});" for i in range(500))
     _assert_invariants(split_code_to_chunks(source, max_bytes=budget), source, budget=budget)
+
+
+class TestOverlapContract:
+    """``overlap`` היה פרמטר שקיים בחתימה ולא משפיע על כלום.
+
+    זה חוזה מטעה: קורא שמעביר ``overlap=0`` קיבל בכל זאת חפיפה של 15%,
+    ו-``CHUNK_OVERLAP_LINES`` היה משתנה סביבה מתועד שלא ניתן להשפיע דרכו.
+    היום ``overlap`` הוא תקרה **שנייה** אמיתית, בשורות.
+    """
+
+    @staticmethod
+    def _overlaps(chunks):
+        return [
+            chunks[i].end_line - chunks[i + 1].start_line + 1
+            for i in range(len(chunks) - 1)
+        ]
+
+    def test_zero_overlap_really_means_no_overlap(self):
+        source = "\n".join(f"line {i}" for i in range(300))
+        chunks = split_code_to_chunks(source, chunk_size=50, overlap=0)
+
+        _assert_invariants(chunks, source)
+        assert self._overlaps(chunks) == [0] * (len(chunks) - 1)
+
+    @pytest.mark.parametrize("overlap", [1, 3, 8, 20])
+    def test_overlap_never_exceeds_the_requested_number_of_lines(self, overlap):
+        source = "\n".join(f"line {i}" for i in range(300))
+        chunks = split_code_to_chunks(source, chunk_size=50, overlap=overlap)
+
+        _assert_invariants(chunks, source)
+        assert max(self._overlaps(chunks)) <= overlap
+
+    def test_the_byte_budget_still_wins_when_it_is_stricter(self):
+        """``overlap`` הוא תקרה, לא דרישה: 15% מהתקציב עדיין גובר."""
+        source = "\n".join(f"line {i}" for i in range(300))
+        chunks = split_code_to_chunks(source, chunk_size=50, overlap=10_000)
+
+        _assert_invariants(chunks, source)
+        # 15% מ-2,000 = 300 בייט, ושורה כאן היא ~9 בייט.
+        assert max(self._overlaps(chunks)) < 100
+
+    def test_no_overlap_still_covers_every_line(self):
+        """הסכנה בביטול חפיפה היא דילוג, לא חוסר הקשר."""
+        source = "\n".join(f"def f{i}(): return {i}" for i in range(500))
+        _assert_invariants(split_code_to_chunks(source, overlap=0), source)
+
+
+class TestOversizedLineSplitting:
+    """שורה ארוכה מהתקציב נחתכת לפי בייטים — ושם קל לשבור תווים.
+
+    החיתוך חייב לנחות על גבול תו: חצי מ-``א`` (2 בייט) או משליש אימוג'י
+    (4 בייט) אינו טקסט, והוא היה מפיל את ``decode`` או שולח ל-Gemini
+    ``\\ufffd``.
+    """
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "abcdefghij" * 500,
+            "שלום עולם זהו טקסט בעברית לבדיקה. " * 200,
+            "🎉🚀💫 mixed אבג abc " * 300,
+            "a🚀b" * 700,
+        ],
+        ids=["ascii", "hebrew", "emoji-mixed", "emoji-dense"],
+    )
+    @pytest.mark.parametrize("budget", [7, 13, 100, 2000])
+    def test_pieces_rejoin_into_the_exact_original(self, line, budget):
+        units = _split_oversized_line(line, 42, budget)
+
+        assert "".join(u.text for u in units) == line
+        assert all(len(u.text.encode("utf-8")) <= budget for u in units)
+        assert all(u.text for u in units), "empty piece would waste a Gemini call"
+
+    def test_every_piece_keeps_the_original_line_number(self):
+        units = _split_oversized_line("x" * 9000, 17, 2000)
+        assert {u.line_no for u in units} == {17}
+
+    def test_only_the_first_piece_starts_a_new_line(self):
+        """``is_continuation`` הוא מה שמונע ``\\n`` מזויף באמצע השורה."""
+        units = _split_oversized_line("x" * 9000, 1, 2000)
+        assert units[0].is_continuation is False
+        assert all(u.is_continuation for u in units[1:])
+
+    def test_budget_smaller_than_a_single_codepoint_terminates(self):
+        """תקציב 2 מול אימוג'י של 4 בייט: עדיף לחרוג מהתקציב מלהיתקע."""
+        units = _split_oversized_line("🚀🚀🚀", 1, 2)
+        assert "".join(u.text for u in units) == "🚀🚀🚀"
+        assert len(units) == 3
+
+    def test_a_minified_file_splits_without_mangling_utf8(self):
+        """המקרה שבגללו כל זה קיים: קובץ חד-שורתי גדול עם תווים רב-בייטיים."""
+        source = "/*תגובה בעברית*/" + ("a🚀" * 20000)
+        chunks = split_code_to_chunks(source)
+
+        _assert_invariants(chunks, source)
+        assert "".join(c.content for c in chunks) == source
+        assert "�" not in "".join(c.content for c in chunks)

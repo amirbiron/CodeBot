@@ -380,22 +380,38 @@ async def save_snippet_chunks(
     return await asyncio.to_thread(_save)
 
 
+# גודל באץ' לשאילתות ``$in``. שומר על מסמכי בקשה קטנים בהרבה מתקרת
+# ה-16MB של מונגו, גם במחיקה מרובה של אלפי שמות.
+_CHUNK_ID_BATCH = 500
+
+
 def delete_snippet_chunks(
     user_id: int,
     *,
     snippet_ids: Optional[List[Any]] = None,
     file_name: Optional[str] = None,
+    file_names: Optional[List[str]] = None,
     exclude_snippet_id: Optional[Any] = None,
+    older_than_version: Optional[int] = None,
 ) -> int:
     """מוחק צ'אנקים סמנטיים של סניפטים, ומחזיר כמה נמחקו.
 
     למה סינכרוני: כל הקוראים (``database/repository.py`` ו-``webapp/app.py``)
     הם סינכרוניים. ``save_snippet_chunks`` הוא async כי ה-worker אסינכרוני.
 
-    אפשר להעביר ``snippet_ids`` ישירות, או ``file_name`` — ואז נאספים כאן
-    כל ה-``_id``-ים של אותו שם קובץ (כל הגרסאות), כי ``delete_file`` וההעברה
-    לסל פועלים לפי שם ולא לפי מזהה. ``exclude_snippet_id`` נועד לנתיב שמירת
-    גרסה חדשה: מנקים את הגרסאות הקודמות ומשאירים את החדשה.
+    אפשר להעביר ``snippet_ids`` ישירות, או ``file_name``/``file_names`` — ואז
+    נאספים כאן ה-``_id``-ים של אותם שמות קובץ, כי ``delete_file`` וההעברה לסל
+    פועלים לפי שם ולא לפי מזהה. ריבוי שמות נאסף בשאילתת ``$in`` אחת ולא
+    בלולאה: מחיקה מרובה של 1,000 קבצים הייתה מייצרת 2,000 פעולות סדרתיות.
+
+    ``older_than_version`` הוא **תנאי המחיקה**, ולא רק אופטימיזציה. בנתיב
+    שמירת גרסה חדשה, "מחק הכל חוץ ממני" הוא TOCTOU: כששתי שמירות של אותו
+    קובץ חופפות, הניקוי של הגרסה הישנה יכול לרוץ **אחרי** שהגרסה החדשה כבר
+    נשמרה, ולמחוק את הצ'אנקים שלה. הגרסה החדשה כבר סומנה ``chunkerVersion``
+    נוכחי, ולכן היא לא תיבחר שוב לעולם — הקובץ נעלם מהחיפוש הסמנטי לצמיתות,
+    וג'וב הניקוי אינו עוזר כי הוא מוחק ואינו בונה. הפתרון: התנאי נכנס
+    לשאילתה עצמה (``version < N``) במקום להסתמך על סדר ההרצה.
+    ראו ``CORE-PATTERNS.md`` U1 ו-``bugbot-rules/race-toctou.md``.
 
     ערוץ הכשל: הפונקציה **לא זורקת**. היא מחזירה ``0`` גם כשאין DB וגם
     כשלא נמחק דבר. זו מחיקה אופורטוניסטית — קובץ בלי צ'אנקים הוא מצב תקין
@@ -411,14 +427,22 @@ def delete_snippet_chunks(
 
     ids: List[Any] = list(snippet_ids or [])
 
+    names: List[str] = [str(n) for n in (file_names or []) if n]
     if file_name:
+        names.append(str(file_name))
+    names = list(dict.fromkeys(names))  # dedup, סדר נשמר
+
+    if names:
         files_collection = _get_files_collection(raw_db)
         if files_collection is not None:
+            query: Dict[str, Any] = {"user_id": user_id, "file_name": {"$in": names}}
+            if older_than_version is not None:
+                # מסמך בלי ``version`` אינו נתפס כאן, וזה הכיוון הבטוח:
+                # עדיף להשאיר צ'אנק יתום (הג'וב היומי ינקה אותו) מאשר למחוק
+                # את הצ'אנקים של הגרסה הפעילה.
+                query["version"] = {"$lt": int(older_than_version)}
             try:
-                cursor = files_collection.find(
-                    {"user_id": user_id, "file_name": file_name}, {"_id": 1}
-                )
-                for doc in cursor:
+                for doc in files_collection.find(query, {"_id": 1}):
                     if isinstance(doc, dict) and doc.get("_id") is not None:
                         ids.append(doc["_id"])
             except Exception as exc:
@@ -448,21 +472,24 @@ def delete_snippet_chunks(
     if not unique_ids:
         return 0
 
-    try:
-        result = chunks_collection.delete_many(
-            {"userId": user_id, "snippetId": {"$in": unique_ids}}
-        )
-    except Exception as exc:
-        emit_event(
-            "snippet_chunks_delete_error",
-            severity="warn",
-            stage="delete",
-            snippets=len(unique_ids),
-            error=str(exc),
-        )
-        return 0
+    deleted = 0
+    for start in range(0, len(unique_ids), _CHUNK_ID_BATCH):
+        batch = unique_ids[start:start + _CHUNK_ID_BATCH]
+        try:
+            result = chunks_collection.delete_many(
+                {"userId": user_id, "snippetId": {"$in": batch}}
+            )
+        except Exception as exc:
+            emit_event(
+                "snippet_chunks_delete_error",
+                severity="warn",
+                stage="delete",
+                snippets=len(batch),
+                error=str(exc),
+            )
+            return deleted
+        deleted += int(getattr(result, "deleted_count", 0) or 0)
 
-    deleted = int(getattr(result, "deleted_count", 0) or 0)
     if deleted:
         emit_event(
             "snippet_chunks_deleted",
@@ -995,6 +1022,82 @@ def reorder_pinned(self, user_id: int, file_name: str, new_order: int) -> bool:
         return False
 
 
+# --- שכבת ה-no-op ---------------------------------------------------------
+#
+# ברמת המודול ולא בתוך ``connect()``: כשהמחלקות האלה היו מוגדרות בתוך
+# closure הן נבנו מחדש בכל קריאה, ולא היה שום מקום שממנו טסט יכול היה
+# להגיע אליהן — כלומר שכבת ה-no-op לא הייתה ניתנת לבדיקה כלל.
+class NoOpCursor(list):
+    """קורסור ריק שתומך בשרשור כמו של PyMongo.
+
+    ``find()`` שהחזיר ``[]`` נראה תמים, אבל כל קורא שכותב
+    ``find(...).limit(n)`` — הצורה הרגילה מול PyMongo — קיבל
+    ``AttributeError`` על ``list``. במצב no-op הקוד אמור לקבל
+    "אין נתונים", לא לקרוס.
+    """
+
+    def limit(self, *_args, **_kwargs):
+        return self
+
+    def skip(self, *_args, **_kwargs):
+        return self
+
+    def sort(self, *_args, **_kwargs):
+        return self
+
+    def batch_size(self, *_args, **_kwargs):
+        return self
+
+
+class NoOpCollection:
+    def insert_one(self, *args, **kwargs):
+        return SimpleNamespace(inserted_id=None)
+    def update_one(self, *args, **kwargs):
+        return SimpleNamespace(acknowledged=True, modified_count=0)
+    def update_many(self, *args, **kwargs):
+        return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
+    def delete_one(self, *args, **kwargs):
+        return SimpleNamespace(deleted_count=0)
+    def delete_many(self, *args, **kwargs):
+        return SimpleNamespace(deleted_count=0)
+    def find_one(self, *args, **kwargs):
+        return None
+    def find_one_and_update(self, *args, **kwargs):
+        return None
+    def aggregate(self, *args, **kwargs):
+        return []
+    def count_documents(self, *args, **kwargs):
+        # Mimic PyMongo API; in no-op mode we report zero
+        return 0
+    def create_index(self, *args, **kwargs):
+        return None
+    def create_indexes(self, *args, **kwargs):
+        return None
+    def list_indexes(self, *args, **kwargs):
+        return []
+    def drop_index(self, *args, **kwargs):
+        return None
+    def find(self, *args, **kwargs):
+        return NoOpCursor()
+
+
+class NoOpDB:
+    def __init__(self):
+        self._collections: Dict[str, NoOpCollection] = {}
+    def __getitem__(self, name: str) -> NoOpCollection:
+        if name not in self._collections:
+            self._collections[name] = NoOpCollection()
+        return self._collections[name]
+    def __getattr__(self, name: str) -> NoOpCollection:
+        # מאפשר גישה בסגנון נקודה: db.users, db.large_files, וכו'
+        if name.startswith('_'):
+            raise AttributeError(name)
+        return self.__getitem__(name)
+    @property
+    def name(self) -> str:
+        return "noop_db"
+
+
 class DatabaseManager:
     """אחראי על חיבור MongoDB והגדרת אינדקסים."""
 
@@ -1053,52 +1156,6 @@ class DatabaseManager:
                      str(os.getenv("SPHINX_MOCK_IMPORTS", "")).lower() in {"1", "true", "yes"}
 
         def _init_noop_collections():
-            class NoOpCollection:
-                def insert_one(self, *args, **kwargs):
-                    return SimpleNamespace(inserted_id=None)
-                def update_one(self, *args, **kwargs):
-                    return SimpleNamespace(acknowledged=True, modified_count=0)
-                def update_many(self, *args, **kwargs):
-                    return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
-                def delete_one(self, *args, **kwargs):
-                    return SimpleNamespace(deleted_count=0)
-                def delete_many(self, *args, **kwargs):
-                    return SimpleNamespace(deleted_count=0)
-                def find_one(self, *args, **kwargs):
-                    return None
-                def find_one_and_update(self, *args, **kwargs):
-                    return None
-                def aggregate(self, *args, **kwargs):
-                    return []
-                def count_documents(self, *args, **kwargs):
-                    # Mimic PyMongo API; in no-op mode we report zero
-                    return 0
-                def create_index(self, *args, **kwargs):
-                    return None
-                def create_indexes(self, *args, **kwargs):
-                    return None
-                def list_indexes(self, *args, **kwargs):
-                    return []
-                def drop_index(self, *args, **kwargs):
-                    return None
-                def find(self, *args, **kwargs):
-                    return []
-            class NoOpDB:
-                def __init__(self):
-                    self._collections: Dict[str, NoOpCollection] = {}
-                def __getitem__(self, name: str) -> NoOpCollection:
-                    if name not in self._collections:
-                        self._collections[name] = NoOpCollection()
-                    return self._collections[name]
-                def __getattr__(self, name: str) -> NoOpCollection:
-                    # מאפשר גישה בסגנון נקודה: db.users, db.large_files, וכו'
-                    if name.startswith('_'):
-                        raise AttributeError(name)
-                    return self.__getitem__(name)
-                @property
-                def name(self) -> str:
-                    return "noop_db"
-
             self.client = None
             self.db = NoOpDB()
             try:

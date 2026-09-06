@@ -45,9 +45,55 @@ ROOT_DIR = str(Path(__file__).resolve().parents[1])
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-DEFAULT_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
-DEFAULT_API_VERSION = os.getenv("GEMINI_API_VERSION", "v1beta")
-DEFAULT_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "768") or 768)
+
+def _resolve_target() -> tuple:
+    """מודל, גרסת API ומימדים — **מאותו מקור שממנו ה-worker לוקח אותם**.
+
+    פרוב שבודק ``gemini-embedding-001`` בזמן שהקונפיג ב-DB מצביע על מודל אחר
+    היה יכול לעבור בזמן שהמסלול האמיתי נכשל. ``get_embedding_settings_cached``
+    קורא את ``system_config`` ונופל ל-ENV כשאין DB — בדיוק כמו בייצור.
+
+    הנרמול אינו קוסמטי: ``GEMINI_EMBEDDING_MODEL=models/gemini-embedding-001``
+    היה בונה ``.../models/models/gemini-embedding-001:embedContent``, וכל
+    שלושת הפרובים היו נכשלים ב-404 במקום לבדוק את מגבלת הקלט.
+    """
+    from services.semantic_embedding_settings import (  # noqa: E402
+        get_embedding_settings_cached,
+        normalize_model_name,
+    )
+
+    settings = None
+    try:
+        settings = get_embedding_settings_cached(allow_db=True)
+    except Exception:
+        settings = None
+
+    model = normalize_model_name(
+        (getattr(settings, "model", "") or "")
+        or os.getenv("GEMINI_EMBEDDING_MODEL", "")
+        or "gemini-embedding-001"
+    )
+
+    api_version = str(
+        (getattr(settings, "api_version", "") or "")
+        or os.getenv("GEMINI_API_VERSION", "")
+        or "v1beta"
+    ).strip().strip("/")
+    if api_version not in {"v1", "v1beta"}:
+        # אותו כלל כמו ב-``EmbeddingService._base_url``.
+        api_version = "v1beta"
+
+    try:
+        dimensions = int(getattr(settings, "dimensions", 0) or 0) or int(
+            os.getenv("EMBEDDING_DIMENSIONS", "768") or 768
+        )
+    except (TypeError, ValueError):
+        dimensions = 768
+
+    return model, api_version, dimensions
+
+
+DEFAULT_MODEL, DEFAULT_API_VERSION, DEFAULT_DIMENSIONS = _resolve_target()
 
 # ~2,048 טוקנים הם בערך 7,000-8,000 בייט באנגלית. 40,000 תווים חורגים
 # בבירור, בלי להיות כה גדולים שהבקשה תידחה מסיבה אחרת.
@@ -55,7 +101,8 @@ LONG_TEXT = "def handle_request(payload):\n    return payload\n" * 850
 SHORT_TEXT = "def handle_request(payload):\n    return payload\n"
 
 
-def _probe(client: httpx.Client, *, text: str, auto_truncate: bool, label: str) -> None:
+def _probe(client: httpx.Client, *, text: str, auto_truncate: bool, label: str) -> int:
+    """מריץ פרוב אחד ומחזיר את קוד הסטטוס (``0`` = לא הגיע לשרת)."""
     url = (
         f"https://generativelanguage.googleapis.com/{DEFAULT_API_VERSION}"
         f"/models/{DEFAULT_MODEL}:embedContent"
@@ -68,7 +115,11 @@ def _probe(client: httpx.Client, *, text: str, auto_truncate: bool, label: str) 
     if not auto_truncate:
         payload["embedContentConfig"] = {"autoTruncate": False}
 
-    response = client.post(url, json=payload)
+    try:
+        response = client.post(url, json=payload)
+    except Exception as exc:
+        print(f"{label:34s} -> transport error: {exc}")
+        return 0
     body = response.text or ""
     dims = ""
     if response.status_code == 200:
@@ -85,6 +136,7 @@ def _probe(client: httpx.Client, *, text: str, auto_truncate: bool, label: str) 
         except Exception:
             message = body[:400]
         print(f"    error: {message[:400]}")
+    return int(response.status_code)
 
 
 def main() -> int:
@@ -99,10 +151,35 @@ def main() -> int:
     print(f"model={DEFAULT_MODEL} api={DEFAULT_API_VERSION} dims={DEFAULT_DIMENSIONS}\n")
 
     with httpx.Client(timeout=60.0, headers=headers) as client:
-        _probe(client, text=SHORT_TEXT, auto_truncate=False, label="short + autoTruncate:false")
-        _probe(client, text=LONG_TEXT, auto_truncate=False, label="long  + autoTruncate:false")
-        _probe(client, text=LONG_TEXT, auto_truncate=True, label="long  + autoTruncate:true")
+        short_off = _probe(
+            client, text=SHORT_TEXT, auto_truncate=False, label="short + autoTruncate:false"
+        )
+        long_off = _probe(
+            client, text=LONG_TEXT, auto_truncate=False, label="long  + autoTruncate:false"
+        )
+        long_on = _probe(
+            client, text=LONG_TEXT, auto_truncate=True, label="long  + autoTruncate:true"
+        )
 
+    print()
+    if short_off != 200:
+        print(
+            "VERDICT: the API rejected embedContentConfig.autoTruncate itself. "
+            "Do NOT set EMBEDDING_AUTO_TRUNCATE=false - every call would fail."
+        )
+        return 1
+    if long_off == 200:
+        print(
+            "VERDICT: autoTruncate:false did NOT stop the silent truncation "
+            f"(oversized input still returned 200; autoTruncate:true returned {long_on}). "
+            "The byte budget in services/chunking_service.py remains the only real guard."
+        )
+        return 1
+    print(
+        f"VERDICT: autoTruncate:false turns oversized input into HTTP {long_off} "
+        f"(with autoTruncate:true it returned {long_on}). "
+        "EMBEDDING_AUTO_TRUNCATE=false is safe to enable."
+    )
     return 0
 
 

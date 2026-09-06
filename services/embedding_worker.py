@@ -54,6 +54,23 @@ FAILURE_PERMANENT = "permanent"   # 400 / קלט ארוך מדי — ניסיו�
 FAILURE_QUOTA = "quota"           # 429 אחרי מיצוי ה-retries
 
 
+def _classify_status(status: int) -> str:
+    """ממפה קוד סטטוס לסוג כשל. מקום אחד, כדי ששני אתרי הקריאה לא ייסחפו.
+
+    * ``400`` — הבקשה עצמה פסולה; ``413`` — הקלט חרג מהתקרה שלנו
+      (``EMBEDDING_STATUS_INPUT_TOO_LONG``). בשני המקרים ניסיון חוזר יחזיר
+      בדיוק את אותה תשובה.
+    * ``429`` — מכסה. עוצר את הבאץ' כולו.
+    * ``0`` (timeout/רשת), ``401``/``403`` (קונפיג שאפשר לתקן), ``5xx`` —
+      כולם זמניים, ולכן הקובץ חוזר לתור.
+    """
+    if status == 429:
+        return FAILURE_QUOTA
+    if status in (400, 413):
+        return FAILURE_PERMANENT
+    return FAILURE_TRANSIENT
+
+
 class EmbeddingQuotaExhausted(Exception):
     """Gemini החזיר 429 גם אחרי מיצוי ה-retries. עוצרים את הבאץ'."""
 
@@ -216,14 +233,14 @@ class EmbeddingWorker:
             # Dimension mismatch (best-effort): retry without fixed dimensionality.
             if status == 422 and "dimension_mismatch" in str(body or ""):
                 try:
-                    emb2, _st2, _b2 = await self.embedding_service.generate_embedding_with_status(
+                    emb2, status2, _b2 = await self.embedding_service.generate_embedding_with_status(
                         text,
                         model=model,
                         api_version=api_version,
                         dimensions=0,
                     )
                 except Exception:
-                    emb2 = None
+                    emb2, status2 = None, 0
                 if emb2:
                     try:
                         effective_model = model
@@ -237,15 +254,13 @@ class EmbeddingWorker:
                     except Exception:
                         pass
                     return emb2, None
-                return None, FAILURE_PERMANENT
+                # הסטטוס של הניסיון השני נשקל בדיוק כמו של הראשון. אחרת
+                # timeout או 429 בקריאה הזו היו מסווגים ככשל **קבוע**, והצ'אנק
+                # היה נדחה לצמיתות ונעלם מהחיפוש — בדיוק מה שההפרדה
+                # התלת-מצבית נועדה למנוע.
+                return None, _classify_status(int(status2 or 0))
 
-            # 400 = הבקשה עצמה פסולה, ו-413 = הקלט חרג מהתקרה שלנו.
-            # בשני המקרים ניסיון חוזר יחזיר בדיוק את אותה תשובה.
-            if status in (400, 413):
-                return None, FAILURE_PERMANENT
-
-            # 0 (timeout/רשת), 401/403 (קונפיג שאפשר לתקן), 5xx — כולם זמניים.
-            return None, FAILURE_TRANSIENT
+            return None, _classify_status(status)
 
         async def _finish(
             *,
@@ -429,6 +444,22 @@ class EmbeddingWorker:
                 )
                 return
 
+            # בדיקה חוזרת ממש לפני הכתיבה. החלון בין הבדיקה הראשונה לכאן
+            # הוא כל משך ההטמעה — דקות, בקצב של 1.2 שניות לצ'אנק. בזמן הזה
+            # יכולה להישמר גרסה חדשה, והניקוי שלה כבר רץ ומחק את הצ'אנקים
+            # של הישנה. בלי הבדיקה הזו היינו כותבים אותם מיד אחרי, וגרסה
+            # שהוחלפה הייתה חוזרת ל-``$vectorSearch``.
+            if not await is_latest_active_snippet(
+                user_id, str(snippet.get("file_name") or ""), snippet_id
+            ):
+                await save_snippet_chunks(user_id=user_id, snippet_id=snippet_id, chunks=[])
+                await _finish(content_hash=current_hash, chunk_count=0)
+                logger.info(
+                    "Snippet %s was superseded while embedding; chunks discarded",
+                    snippet_id,
+                )
+                return
+
             await save_snippet_chunks(user_id=user_id, snippet_id=snippet_id, chunks=chunk_docs)
 
             metadata_text = create_embedding_text(
@@ -457,6 +488,16 @@ class EmbeddingWorker:
                     raise EmbeddingQuotaExhausted()
             # מטא-דאטה ריקה (קובץ בלי שם/תיאור/תגיות/שפה) אינה כשל: אין מה
             # להטמיע. עד כה היא נספרה ככשל והחזירה את הקובץ לתור בלי סוף.
+            #
+            # וגם 404 מתמשך על המטא-דאטה (אחרי ה-restart) אינו מחזיר את הקובץ
+            # לתור, בכוונה. ``snippetEmbedding`` הוא **write-only**: הוא נכתב
+            # ב-``update_snippet_embedding_status``, מוחרג מכל היטלה
+            # (``_HEAVY_FIELDS_EXCLUDE_PROJECTION``, ``webapp/app.py``), ומנופה
+            # ב-``mcp_server/backend.py`` — ואין בריפו אף קורא שלו. ה-
+            # ``$vectorSearch`` היחיד רץ על ``chunkEmbedding``. לכן 404 כאן
+            # (בפועל: שם מודל שגוי בקונפיג) לא פוגע בשום תוצאת חיפוש, ואילו
+            # החזרה לתור הייתה יוצרת לולאה אינסופית על משהו חסר השפעה. הכשל
+            # מדווח בלוג ובאירוע, ושם הוא נראה.
 
             # רק כשל **זמני** מחזיר את הקובץ לתור. צ'אנק שנדחה לצמיתות כבר
             # דווח באירוע משלו, וקובץ שלם לא ייתקע בגללו.

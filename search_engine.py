@@ -156,6 +156,19 @@ def _semantic_min_vector_score() -> float:
     return min(value, 1.0)
 
 
+# התקרה הקשיחה של ``$vectorSearch.numCandidates``.
+#
+# התיעוד של ``$vectorSearch`` אינו נוקב במספר, ולכן הוא נמדד מול הקלאסטר:
+# ``numCandidates: 10001`` מוחזר עם
+# ``PlanExecutor error during aggregation :: caused by :: "numCandidates"
+# must be within bounds [1..10000]``, ואילו ``10000`` עובר את הוולידציה הזו.
+#
+# למה זה משנה: ``semantic_search`` עוטף את ה-aggregation ב-``except`` שנופל
+# לחיפוש טקסט. כלומר משתנה סביבה שגוי לא היה מחזיר שגיאה למשתמש — הוא היה
+# מכבה את החיפוש הסמנטי **בשקט**, וזה בדיוק סוג הכשל שאין לו איתות.
+SEMANTIC_NUM_CANDIDATES_HARD_MAX = 10000
+
+
 def _semantic_num_candidates(limit: int) -> int:
     """כמה וקטורים ה-ANN באמת בוחן לפני שהוא מחזיר את ה-``limit`` הראשונים.
 
@@ -165,6 +178,16 @@ def _semantic_num_candidates(limit: int) -> int:
     היה נראה כאילו הצ'אנקים הקטנים הרעו את החיפוש.
 
     ה-20:1 של התיעוד נשמר כרצפה יחסית, ומעליו רצפה מוחלטת מהקונפיג.
+
+    הערך הסופי נכלא בטווח ``[limit * 2, 10000]``:
+
+    * **הרצפה** — שלב ה-``$vectorSearch`` מבקש ``limit * 2`` תוצאות; פחות
+      מועמדים ממספר התוצאות המבוקש הוא בקשה חסרת משמעות.
+    * **התקרה** — מגבלת Atlas. קונפיג גבוה מדי היה מפיל כל שאילתה, וה-``except``
+      היה מסתיר את זה כנפילה שקטה לחיפוש טקסט.
+
+    הכליאה גם מנטרלת קונפיג שבו הרצפה גבוהה מהתקרה: אין נתיב שבו ערך שגוי
+    מכבה את החיפוש.
     """
     try:
         floor = int(getattr(config, "SEMANTIC_NUM_CANDIDATES", 1000) or 1000)
@@ -174,8 +197,12 @@ def _semantic_num_candidates(limit: int) -> int:
         ceiling = int(getattr(config, "SEMANTIC_NUM_CANDIDATES_MAX", 10000) or 10000)
     except (TypeError, ValueError):
         ceiling = 10000
-    value = max(int(limit) * 20, floor)
-    return max(1, min(value, ceiling))
+
+    ceiling = max(1, min(ceiling, SEMANTIC_NUM_CANDIDATES_HARD_MAX))
+    value = min(max(int(limit) * 20, floor), ceiling)
+    # הרצפה של ``limit * 2`` גוברת על תקרה שהוגדרה נמוך מדי, אבל שום דבר
+    # אינו גובר על המגבלה של Atlas עצמה.
+    return max(1, min(max(value, int(limit) * 2), SEMANTIC_NUM_CANDIDATES_HARD_MAX))
 
 
 def _get_semantic_raw_db():
@@ -427,12 +454,23 @@ def _build_hybrid_search_pipeline(
         {"$limit": limit},
         {
             "$lookup": {
+                # ``user_id`` בתנאי ההצטרפות, ולא רק ``_id``: הפילטר של
+                # ``$vectorSearch`` הוא על ה-``userId`` של **הצ'אנק**, וההצטרפות
+                # לפי מזהה בלבד הייתה מחזירה את המסמך של בעליו האמיתי — כלומר
+                # צ'אנק עם שיוך שגוי היה מציג שם קובץ ותיאור של משתמש אחר.
+                # מהכתיבות שלנו זה לא יכול להיווצר, אבל תיחוט לדייר הוא תנאי
+                # בכל שאילתה ולא רק בזו שנראית מסוכנת (``CRITICAL-PATTERNS.md`` K12).
                 "from": "code_snippets",
-                "let": {"snippet_id": "$snippetId"},
+                "let": {"snippet_id": "$snippetId", "owner_id": "$userId"},
                 "pipeline": [
                     {
                         "$match": {
-                            "$expr": {"$eq": ["$_id", "$$snippet_id"]},
+                            "$expr": {
+                                "$and": [
+                                    {"$eq": ["$_id", "$$snippet_id"]},
+                                    {"$eq": ["$user_id", "$$owner_id"]},
+                                ]
+                            },
                             "is_active": True,
                         }
                     },

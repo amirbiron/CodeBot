@@ -1133,8 +1133,13 @@
      - ``1800``
      - Bot
    * - ``EMBEDDING_AUTO_TRUNCATE``
-     - כשהערך ``false``, נשלח ``embedContentConfig.autoTruncate=false`` ו‑Gemini
-       מחזיר שגיאה במקום לחתוך קלט ארוך בשקט. ראו ``scripts/probe_embedding_limits.py``
+     - כשהערך ``false``, נשלח ``embedContentConfig.autoTruncate=false``. **מה
+       Gemini Developer API מחזיר בפועל על קלט ארוך מדי עם הדגל הזה — טרם אומת**
+       (התיעוד של Vertex אומר שהבקשה נכשלת; לתיעוד של Gemini API אין משפט מקביל).
+       ההגנה בפועל היא תקציב הבייטים ב‑``CHUNK_MAX_BYTES``, והדגל הזה הוא רשת
+       ביטחון מאחוריו. לפני שמשנים ל‑``false`` — הריצו את
+       ``scripts/probe_embedding_limits.py`` בסביבה שיש בה ``GEMINI_API_KEY``;
+       הוא מדפיס verdict מפורש ויוצא עם קוד שגיאה כשהתוצאה אינה כמצופה
      - לא
      - ``true``
      - ``false``
@@ -1151,6 +1156,14 @@
      - לא
      - ``2000``
      - ``1500``
+     - Bot
+   * - ``CHUNK_OVERLAP_LINES``
+     - תקרה **משנית** על החפיפה בין צ'אנקים עוקבים, בשורות. החפיפה בפועל היא
+       המחמיר מבין שלושה: 15% מ‑``CHUNK_MAX_BYTES``, חצי מהצ'אנק בפועל, והערך
+       הזה. ``0`` מבטל חפיפה לגמרי
+     - לא
+     - ``40``
+     - ``20``
      - Bot
    * - ``SEMANTIC_MIN_VECTOR_SCORE``
      - רף מינימלי על ציון ``$vectorSearch`` הגולמי (0..1). ``0`` = כבוי.

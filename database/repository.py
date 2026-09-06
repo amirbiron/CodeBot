@@ -293,12 +293,17 @@ class Repository:
                 # שמירה כאן *אינה* מכבה את הגרסה הקודמת (``is_active`` שלה נשאר
                 # True), ולכן בלי המחיקה הזו כל גרסה היסטורית נשארת מאונדקסת,
                 # מתחרה על מקומות ה-ANN, ונזרקת רק בשלב מאוחר בצינור החיפוש.
-                # ``exclude_snippet_id`` שומר על הגרסה שזה עתה נכתבה — היא זו
-                # שה-worker יחתוך, כי אין לה עדיין ``contentHash``.
+                #
+                # ``older_than_version`` ולא "הכל חוץ ממני": כששתי שמירות של
+                # אותו קובץ חופפות, הניקוי של הגרסה הישנה יכול לרוץ **אחרי**
+                # שהחדשה כבר נשמרה ולמחוק דווקא את הצ'אנקים שלה — והיא לא
+                # תיבחר שוב, כי ה-worker כבר סימן אותה. ראו את ה-docstring של
+                # ``delete_snippet_chunks``.
                 delete_snippet_chunks(
                     snippet.user_id,
                     file_name=snippet.file_name,
                     exclude_snippet_id=result.inserted_id,
+                    older_than_version=getattr(snippet, "version", None),
                 )
                 # אם הקובץ נעוץ, ודא שרק הגרסה החדשה נשארת נעוצה
                 if bool(doc.get("is_pinned", False)):
@@ -1258,8 +1263,9 @@ class Repository:
                 }},
             )
             if int(getattr(result, "modified_count", 0) or 0) > 0:
-                for fn in list(set(file_names)):
-                    delete_snippet_chunks(user_id, file_name=fn)
+                # שאילתה אחת ל-``$in``, לא לולאה: מחיקה מרובה של 1,000 קבצים
+                # הייתה מייצרת 2,000 פעולות סדרתיות מול מונגו.
+                delete_snippet_chunks(user_id, file_names=list(set(file_names)))
             cache.invalidate_user_cache(user_id)
             try:
                 for fn in list(set(file_names)):

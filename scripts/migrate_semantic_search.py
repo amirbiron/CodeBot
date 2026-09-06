@@ -38,6 +38,44 @@ def _get_db():
     return client[db_name]
 
 
+def _create_chunk_index() -> None:
+    """יוצר את האינדקס על ``snippet_chunks`` דרך ``safe_create_index``.
+
+    למה לא ``create_index`` ישיר: ההרצה הראשונה של הסקריפט (לפני האישו הזה)
+    יצרה את אותם מפתחות בשם ברירת המחדל ``userId_1_snippetId_1``. יצירה חוזרת
+    בשם החדש הייתה נופלת על ``IndexOptionsConflict`` ועוצרת את המיגרציה —
+    ``safe_create_index`` מזהה אינדקס **זהה** בשם אחר ומדלג.
+
+    זו גם אותה נקודת אמת שבה ``DatabaseManager._create_indexes`` משתמש, כדי
+    ששני מסלולי האתחול לא ייסחפו זה מזה.
+
+    הסקריפט אסינכרוני (motor), ו-``safe_create_index`` סינכרוני (pymongo),
+    ולכן נפתח כאן לקוח סינכרוני קצר-חיים רק לצעד הזה. ה-shim מספק את
+    ``self.db`` היחיד שהמתודה נוגעת בו — אותה תבנית שכבר קיימת ב-
+    ``_create_indexes`` לתאימות טסטים.
+    """
+    from types import SimpleNamespace
+
+    from pymongo import ASCENDING, MongoClient
+
+    from database.manager import DatabaseManager
+
+    mongo_url = getattr(config, "MONGODB_URL", None) or os.getenv("MONGODB_URL")
+    db_name = getattr(config, "DATABASE_NAME", None) or os.getenv(
+        "DATABASE_NAME", "code_keeper_bot"
+    )
+    client = MongoClient(mongo_url)
+    try:
+        DatabaseManager.safe_create_index(
+            SimpleNamespace(db=client[db_name]),
+            "snippet_chunks",
+            [("userId", ASCENDING), ("snippetId", ASCENDING)],
+            name="snippet_chunks_user_snippet_idx",
+        )
+    finally:
+        client.close()
+
+
 async def _get_files_collection(db):
     collections = await db.list_collection_names()
     if "code_snippets" in collections:
@@ -74,12 +112,9 @@ async def migrate_snippets():
         await db.create_collection("snippet_chunks")
         logger.info("Created snippet_chunks collection")
 
-    # אותו אינדקס ובאותו שם כמו ב-``DatabaseManager._create_indexes`` — כדי שלא
-    # יהיו שני "מקורות אמת" שנסחפים זה מזה. אינדקס על ``language`` אינו נוצר:
-    # אף שאילתה ב-B-tree לא מסננת לפיו (הסינון לפי שפה קורה בתוך אינדקסי Atlas).
-    await db.snippet_chunks.create_index(
-        [("userId", 1), ("snippetId", 1)], name="snippet_chunks_user_snippet_idx"
-    )
+    # אינדקס על ``language`` אינו נוצר: אף שאילתה ב-B-tree לא מסננת לפיו
+    # (הסינון לפי שפה קורה בתוך אינדקסי Atlas Search/Vector Search).
+    await asyncio.to_thread(_create_chunk_index)
 
     logger.info("Created basic indexes on snippet_chunks")
     logger.info("Migration complete!")
@@ -98,8 +133,13 @@ async def check_migration_status():
 
     from services.chunking_service import CHUNKER_VERSION  # noqa: E402
 
-    total = await files_collection.count_documents({})
-    pending = await files_collection.count_documents({"needs_embedding": True})
+    # כל המונים על אותה אוכלוסייה — קבצים פעילים. ``total`` על כל המסמכים
+    # (כולל סל המיחזור) מול ``processed`` על הפעילים בלבד היה מציג התקדמות
+    # שלעולם אינה מגיעה ל-100%.
+    total = await files_collection.count_documents({"is_active": True})
+    pending = await files_collection.count_documents(
+        {"is_active": True, "needs_embedding": True}
+    )
     # "עובד" נמדד לפי ``chunkerVersion`` ולא לפי ``chunkCount > 0``: קובץ
     # שכל הצ'אנקים שלו סוננו כחסרי משמעות (dump של מספרים) מסתיים עם 0
     # צ'אנקים והוא מטופל לגמרי — לפי המדד הישן הוא היה נראה "ממתין" לנצח.
@@ -112,14 +152,14 @@ async def check_migration_status():
     chunks = await db.snippet_chunks.count_documents({})
 
     logger.info("Migration Status:")
-    logger.info("  Total snippets: %s", total)
+    logger.info("  Active snippets: %s", total)
     logger.info("  Pending processing: %s", pending)
     logger.info("  Processed (chunker v%s): %s", CHUNKER_VERSION, processed)
     logger.info("  Awaiting re-chunking: %s", stale_chunker)
     logger.info("  Total chunks: %s", chunks)
 
-    if total and pending > 0:
-        logger.info("  Progress: %.1f%%", (processed / total) * 100)
+    if total:
+        logger.info("  Progress: %.1f%% (active snippets)", (processed / total) * 100)
 
     # ספירת יתומים — אותה הגדרה בדיוק שהג'וב משתמש בה, בלי למחוק דבר.
     try:

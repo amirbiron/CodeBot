@@ -161,8 +161,9 @@ subtype 9 (float32) ולא כמערך doubles. **אין צורך באינדקס 
 | כלל | ערך | למה |
 |---|---|---|
 | `CHUNK_MAX_BYTES` | 2,000 | ל-`gemini-embedding-001` תקרת קלט של 2,048 טוקנים, והוא חותך בשקט מעליה. עברית עולה ~2 בייט לתו, ולכן התקציב שמרני בכוונה. |
-| חפיפה | 15% מהתקציב | מוגבלת גם לחצי מהצ'אנק בפועל, אחרת החלון היה מתקדם שורה אחת בכל סיבוב כשתקרת השורות בולמת. |
+| חפיפה | המחמיר מבין השלושה | 15% מהתקציב, **וגם** חצי מהצ'אנק בפועל (אחרת החלון היה מתקדם שורה אחת בכל סיבוב כשתקרת השורות בולמת), **וגם** `CHUNK_OVERLAP_LINES` שורות. |
 | `CHUNK_SIZE_LINES` | 220 | תקרה משנית בלבד. |
+| `CHUNK_OVERLAP_LINES` | 40 | תקרה משנית על החפיפה, בשורות. `0` מבטל חפיפה לגמרי. |
 | `CHUNKER_VERSION` | 2 | שינוי הכלל = העלאת המספר. ה-worker מזהה לבד ומעבד מחדש. |
 
 ---
@@ -372,6 +373,14 @@ SEMANTIC_SEARCH_ENABLED: bool = Field(
     default=True,
     description="Enable/disable semantic search feature"
 )
+CHUNK_MAX_BYTES: int = Field(
+    default=2000,
+    ge=200,
+    description=(
+        "Hard byte budget per code chunk (UTF-8). gemini-embedding-001 accepts "
+        "2,048 input tokens and silently truncates beyond that."
+    ),
+)
 CHUNK_SIZE_LINES: int = Field(
     default=220,
     ge=10,  # תיקון: מינימום 10 שורות למניעת לולאה אינסופית ב-chunking
@@ -379,15 +388,19 @@ CHUNK_SIZE_LINES: int = Field(
 )
 CHUNK_OVERLAP_LINES: int = Field(
     default=40,
-    description="Overlap between consecutive chunks"
+    description="Max overlap between consecutive chunks, in lines (secondary ceiling)"
 )
 ```
+
+> `CHUNK_MAX_BYTES` הוא המגבלה האמיתית; `CHUNK_SIZE_LINES` ו-`CHUNK_OVERLAP_LINES` הן תקרות משניות בלבד. ראו את טבלת "כלל החיתוך" בראש המסמך.
 
 ---
 
 ## שלב 3: שירות Chunking
 
 ### 3.1 יצירת קובץ השירות
+
+> ⚠️ **הקוד בסעיף הזה הוא הגרסה המקורית, לא הגרסה שרצה היום.** ה-chunker נכתב מחדש (`CHUNKER_VERSION = 2`): החיתוך הוא לפי **תקציב בייטים** ולא לפי מספר שורות, אין השמטת זנב, ושורה ארוכה מהתקציב נחתכת בעצמה. אל תעתיקו את הבלוק הזה לפרויקט — **המקור היחיד הוא `services/chunking_service.py`**, והכלל התקף מסוכם בטבלת "כלל החיתוך" בראש המסמך. הבלוק נשאר כאן כתיעוד היסטורי של איך זה נראה בהתחלה ולמה זה השתנה.
 
 ```python
 # services/chunking_service.py
@@ -1599,6 +1612,7 @@ GEMINI_EMBEDDING_MODEL=text-embedding-004
 # Semantic Search Config
 SEMANTIC_SEARCH_ENABLED=true
 EMBEDDING_DIMENSIONS=768
+CHUNK_MAX_BYTES=2000
 CHUNK_SIZE_LINES=220
 CHUNK_OVERLAP_LINES=40
 ```

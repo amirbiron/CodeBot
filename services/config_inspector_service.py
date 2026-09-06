@@ -2073,6 +2073,13 @@ class ConfigService:
             description="תקציב בייטים (UTF-8) לכל צ'אנק קוד בחיפוש הסמנטי",
             category="ai",
         ),
+        "CHUNK_OVERLAP_LINES": ConfigDefinition(
+            key="CHUNK_OVERLAP_LINES",
+            services=("bot",),
+            default="40",
+            description="תקרה משנית על החפיפה בין צ'אנקים, בשורות; 0 = בלי חפיפה",
+            category="ai",
+        ),
         "SEMANTIC_MIN_VECTOR_SCORE": ConfigDefinition(
             key="SEMANTIC_MIN_VECTOR_SCORE",
             services=("webapp",),

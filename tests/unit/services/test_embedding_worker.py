@@ -279,3 +279,113 @@ class TestMetadataEmbedding:
         await w._process_snippet(snippet)
 
         assert updates[-1]["needs_embedding"] is False
+
+
+class TestDimensionFallbackClassification:
+    """הנתיב שנשבר: ניסיון חוזר בלי מימד קבוע אחרי 422.
+
+    הקוד הקודם קרא לניסיון השני וזרק את הסטטוס שלו (``_st2``). כל כשל שם —
+    429, timeout, 500 — סווג כ**קבוע**, והצ'אנק נדחה לצמיתות ונעלם מהחיפוש.
+    זה בדיוק המנגנון התלת-מצבי שנבנה בסעיף 4ג, שנשבר על מסלול אחד.
+    """
+
+    DIM_MISMATCH = (None, 422, '{"error":{"message":"dimension_mismatch"}}')
+
+    @pytest.mark.asyncio
+    async def test_quota_on_the_retry_stops_the_batch(self, harness, monkeypatch):
+        """429 בניסיון השני = מכסה שנגמרה, לא צ'אנק פגום."""
+        _saved, _updates = harness
+        w, _svc = _make_worker(monkeypatch, [self.DIM_MISMATCH, (None, 429, "rate limit")])
+
+        with pytest.raises(worker_mod.EmbeddingQuotaExhausted):
+            await w._process_snippet(_snippet())
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", [0, 500, 503])
+    async def test_transient_failure_on_the_retry_requeues_the_file(
+        self, harness, monkeypatch, status
+    ):
+        """timeout או 5xx בניסיון השני מחזירים את הקובץ לתור.
+
+        הקוד הקודם היה מוחק את הצ'אנק מהחיפוש בגלל תקלת רשת חולפת.
+        """
+        _saved, updates = harness
+        w, _svc = _make_worker(monkeypatch, [self.DIM_MISMATCH, (None, status, "boom")])
+
+        await w._process_snippet(_snippet())
+
+        assert updates, "the worker never reported a status"
+        assert updates[-1]["needs_embedding"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_genuinely_bad_request_on_the_retry_stays_permanent(
+        self, harness, monkeypatch
+    ):
+        """400 בניסיון השני באמת קבוע — התיקון לא הפך הכול לזמני."""
+        _saved, updates = harness
+        w, _svc = _make_worker(monkeypatch, [self.DIM_MISMATCH, (None, 400, "bad request")])
+
+        await w._process_snippet(_snippet())
+
+        assert updates[-1]["needs_embedding"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_successful_retry_still_yields_a_chunk(self, harness, monkeypatch):
+        """ההצלחה במסלול הזה נשמרה כמו שהייתה."""
+        saved, updates = harness
+        w, _svc = _make_worker(monkeypatch, [self.DIM_MISMATCH, ([0.2] * 768, 200, "")])
+
+        await w._process_snippet(_snippet())
+
+        assert saved and saved[-1]["chunks"]
+        assert updates[-1]["needs_embedding"] is False
+
+    def test_classification_is_one_function_for_both_call_sites(self):
+        """שני אתרי הקריאה חולקים מיפוי אחד, אחרת הם נסחפים שוב."""
+        assert worker_mod._classify_status(429) == worker_mod.FAILURE_QUOTA
+        assert worker_mod._classify_status(400) == worker_mod.FAILURE_PERMANENT
+        assert worker_mod._classify_status(413) == worker_mod.FAILURE_PERMANENT
+        for status in (0, 401, 403, 500, 502, 503):
+            assert worker_mod._classify_status(status) == worker_mod.FAILURE_TRANSIENT
+
+
+class TestSupersededWhileEmbedding:
+    """המירוץ שהריוויו תפס ב-``webapp/app.py``.
+
+    ההטמעה של קובץ אורכת דקות (1.2 שניות לצ'אנק בשער הגלובלי). בזמן הזה
+    המשתמש יכול לשמור גרסה חדשה; הניקוי שלה רץ מיד ומוחק את הצ'אנקים של
+    הישנה. בלי בדיקה חוזרת ממש לפני הכתיבה, ה-worker היה כותב אותם בחזרה
+    שנייה אחרי — וגרסה שהוחלפה הייתה חוזרת לתוצאות החיפוש.
+    """
+
+    @pytest.mark.asyncio
+    async def test_chunks_are_discarded_when_a_newer_version_arrives_mid_run(
+        self, harness, monkeypatch
+    ):
+        saved, updates = harness
+
+        calls = {"n": 0}
+
+        async def _is_latest(user_id, file_name, snippet_id):
+            calls["n"] += 1
+            return calls["n"] == 1  # אמת בכניסה, שקר רגע לפני הכתיבה
+
+        monkeypatch.setattr(worker_mod, "is_latest_active_snippet", _is_latest)
+        w, _svc = _make_worker(monkeypatch, [])
+
+        await w._process_snippet(_snippet(code="print(1)\n" * 40))
+
+        assert calls["n"] == 2, "the worker checked only once"
+        assert saved, "nothing was written at all"
+        assert saved[-1]["chunks"] == [], "stale chunks were written back to the index"
+        assert updates[-1]["chunk_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_the_normal_path_still_writes_its_chunks(self, harness, monkeypatch):
+        """הבדיקה הכפולה לא שוברת את המסלול הרגיל."""
+        saved, _updates = harness
+        w, _svc = _make_worker(monkeypatch, [])
+
+        await w._process_snippet(_snippet(code="print(1)\n" * 40))
+
+        assert saved[-1]["chunks"], "the happy path stopped writing chunks"

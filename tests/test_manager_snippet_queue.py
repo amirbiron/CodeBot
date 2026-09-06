@@ -162,3 +162,59 @@ class TestLatestVersion:
     def test_missing_file_name_defaults_to_processing(self, files):
         files([])
         assert asyncio.run(manager_mod.is_latest_active_snippet(7, "", ObjectId())) is True
+
+
+class TestNoOpMode:
+    """מצב no-op: ``DISABLE_DB=1``, או pymongo שאינו מותקן (סביבת docs/CI).
+
+    ``_get_raw_db`` מחזיר את ``NoOpDB`` של המנהל — לא ``None`` — ולכן הקוד
+    ממשיך אל ``find(...).limit(...)``. ``NoOpCollection.find`` החזירה רשימה
+    ריקה, ול-``list`` אין ``limit``: ``AttributeError`` לפני שה-worker הספיק
+    לקבל באץ' ריק. אימות: הורץ ב-``DISABLE_DB=1`` מול הקוד שלפני התיקון.
+    """
+
+    @staticmethod
+    def _noop_collection():
+        return manager_mod.NoOpDB().code_snippets
+
+    def test_find_returns_a_chainable_cursor(self):
+        cursor = self._noop_collection().find({}, {})
+
+        # השרשור הוא מה שהקוד באמת עושה; ``list`` ריק לא היה שורד אותו.
+        assert list(cursor.limit(5)) == []
+        assert list(cursor.skip(3).limit(5)) == []
+        assert list(cursor.sort("x", 1).limit(5)) == []
+        assert list(cursor.batch_size(10)) == []
+
+    def test_the_queue_returns_an_empty_batch_instead_of_raising(self, monkeypatch):
+        collection = self._noop_collection()
+
+        class _NoOpDB:
+            code_snippets = collection
+
+        monkeypatch.setattr(manager_mod, "_get_raw_db", lambda: _NoOpDB())
+
+        assert asyncio.run(manager_mod.get_snippets_needing_processing(5)) == []
+
+    def test_a_noop_cursor_is_still_a_list(self):
+        """קוראים אחרים עושים ``list(...)`` או ``for``; אסור לשבור אותם."""
+        cursor = self._noop_collection().find({})
+        assert isinstance(cursor, list) and len(cursor) == 0
+
+    def test_the_real_disabled_manager_serves_the_queue(self):
+        """המסלול המלא, בלי לגעת בשום דמה.
+
+        ``tests/conftest.py`` מגדיר ``DISABLE_DB=1``, ולכן ``database.db``
+        בסוויטה **הוא** המנהל במצב no-op. זה הטסט שמריץ בדיוק את מה שקורה
+        בבניית ה-docs וב-CI: ``_get_raw_db`` ← ``NoOpDB`` ← ``find`` ←
+        ``limit``.
+        """
+        raw_db = manager_mod._get_raw_db()
+        assert raw_db is not None, "no-op mode must not look like 'no database'"
+
+        collection = manager_mod._get_files_collection(raw_db)
+        assert collection is not None
+
+        # זו השורה שקרסה: ``find`` שהחזיר ``list`` ריק ואז ``.limit``.
+        assert list(collection.find({}, {}).limit(5)) == []
+        assert asyncio.run(manager_mod.get_snippets_needing_processing(5)) == []
