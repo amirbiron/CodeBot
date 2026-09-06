@@ -449,8 +449,14 @@
                     <i class="fas fa-exclamation-triangle"></i>
                     קבצים שדורשים טיפול
                 </h2>
+                {# ``None`` פירושו שהספירה נכשלה, לא שאין קבצים. סכום על None
+                   היה זורק, והצגת 0 הייתה משקרת — לכן מקף. #}
                 <span class="badge badge-warning" data-attention-total-badge>
+                    {% if files_need_attention.total_missing is none or files_need_attention.total_stale is none %}
+                    <span title="הספירה לא זמינה כרגע">—</span>
+                    {% else %}
                     {{ files_need_attention.total_missing + files_need_attention.total_stale }}
+                    {% endif %}
                 </span>
             </header>
 
@@ -461,7 +467,7 @@
                     <span class="attention-group__icon">📝</span>
                     חסר תיאור או תגיות
                     <span class="attention-group__count" data-group-count="missing">
-                        ({{ files_need_attention.shown_missing }}{% if files_need_attention.total_missing > files_need_attention.shown_missing %}/{{ files_need_attention.total_missing }}{% endif %})
+                        ({{ files_need_attention.shown_missing }}{% if files_need_attention.total_missing is not none and files_need_attention.total_missing > files_need_attention.shown_missing %}/{{ files_need_attention.total_missing }}{% endif %})
                     </span>
                 </h3>
                 <ul class="attention-list" data-attention-list="missing">
@@ -496,7 +502,7 @@
                     </li>
                     {% endfor %}
                 </ul>
-                {% if files_need_attention.total_missing > files_need_attention.shown_missing %}
+                {% if files_need_attention.total_missing is not none and files_need_attention.total_missing > files_need_attention.shown_missing %}
                 <p class="attention-more">
                     ועוד {{ files_need_attention.total_missing - files_need_attention.shown_missing }} קבצים נוספים...
                     <a href="/files?filter=missing_metadata" class="attention-more-link">הצג הכל</a>
@@ -512,7 +518,7 @@
                     <span class="attention-group__icon">⏰</span>
                     לא עודכן זמן רב
                     <span class="attention-group__count" data-group-count="stale">
-                        ({{ files_need_attention.shown_stale }}{% if files_need_attention.total_stale > files_need_attention.shown_stale %}/{{ files_need_attention.total_stale }}{% endif %})
+                        ({{ files_need_attention.shown_stale }}{% if files_need_attention.total_stale is not none and files_need_attention.total_stale > files_need_attention.shown_stale %}/{{ files_need_attention.total_stale }}{% endif %})
                     </span>
                 </h3>
                 <ul class="attention-list" data-attention-list="stale">
@@ -542,7 +548,7 @@
                     </li>
                     {% endfor %}
                 </ul>
-                {% if files_need_attention.total_stale > files_need_attention.shown_stale %}
+                {% if files_need_attention.total_stale is not none and files_need_attention.total_stale > files_need_attention.shown_stale %}
                 <p class="attention-more">
                     ועוד {{ files_need_attention.total_stale - files_need_attention.shown_stale }} קבצים נוספים...
                     <a href="/files?filter=stale&days={{ files_need_attention.settings.stale_days }}" class="attention-more-link">הצג הכל</a>
