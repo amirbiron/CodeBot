@@ -436,3 +436,222 @@ class TestPersistentQueryProfilerServiceSummary:
             "כתיבה שנכשלה השאירה רשומה בזיכרון אבל ה-cache נשאר ישן"
         )
 
+
+# ---------------------------------------------------------------------------
+# החרגה מהצנזור: שאילתות שזוהו בוודאות כשל משתמש מורשה נשמרות עם הערכים
+# האמיתיים (``query_raw``) לצד השלד המנורמל (``query_shape``).
+#
+# כל טסט כאן עובר דרך הדלת של הצרכן: ``record_slow_query_sync`` ואז
+# ``get_slow_queries`` — כלומר מה שנכתב נבדק בקריאה חוזרת, לא בערך ההחזרה.
+# ---------------------------------------------------------------------------
+
+ME = 6865105071
+SOMEONE_ELSE = 424242
+
+
+class _FakeCollection:
+    """אוסף מונגו מקרטון: זוכר מה הוכנס, ומחזיר אותו ב-``find``."""
+
+    def __init__(self):
+        self.docs = []
+
+    def insert_one(self, doc):
+        self.docs.append(dict(doc))
+        return MagicMock(inserted_id=len(self.docs))
+
+    def find(self, query=None, sort=None, limit=None):
+        docs = list(self.docs)
+        return docs[: limit] if limit else docs
+
+
+class _FakeDB:
+    def __init__(self):
+        self.collections = {}
+
+    def __getitem__(self, name):
+        return self.collections.setdefault(name, _FakeCollection())
+
+
+@pytest.fixture
+def raw_values_service(monkeypatch):
+    monkeypatch.setenv("PROFILER_UNREDACTED_USER_IDS", str(ME))
+    monkeypatch.delenv("PROFILER_UNREDACTED_MAX_BYTES", raising=False)
+    manager = MagicMock()
+    manager.db = _FakeDB()
+    return PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+
+
+MY_QUERY = {"user_id": ME, "$and": [{"is_active": True}], "programming_language": "python"}
+
+
+def _record_and_read_back(svc, query, operation="find", collection="code_snippets"):
+    svc.record_slow_query_sync(collection=collection, operation=operation, query=query, execution_time_ms=1500.0)
+    rows = svc.get_slow_queries()
+    assert len(rows) == 1
+    return rows[0]
+
+
+class TestUnredactedQueryValues:
+    def test_own_query_with_known_keys_keeps_real_values_and_a_normalized_shape(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, MY_QUERY)
+
+        assert row.query_raw == MY_QUERY
+        assert row.raw_withheld_reason is None
+        assert row.query_shape == {
+            "user_id": "<value>",
+            "$and": [{"is_active": "<value>"}],
+            "programming_language": "<value>",
+        }, "השלד חייב להישאר מנורמל גם כשהערכים נשמרים — הוא מזהה הדפוס"
+
+    def test_another_users_query_never_keeps_values(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, {"user_id": SOMEONE_ELSE, "is_active": True})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_mismatch"
+
+    def test_an_or_that_mixes_me_and_someone_else_is_rejected(self, raw_values_service):
+        row = _record_and_read_back(
+            raw_values_service, {"$or": [{"user_id": ME}, {"user_id": SOMEONE_ELSE}], "is_active": True}
+        )
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_mismatch"
+
+    def test_a_query_that_asserts_no_owner_is_rejected(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, {"$or": [{"user_id": ME}, {"is_active": True}]})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_missing", "$or אינו מגביל את השאילתה לבעלים"
+
+    def test_an_unknown_key_withholds_values_and_names_the_key(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, "owner_id": SOMEONE_ELSE})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "unknown_field:owner_id"
+
+    def test_an_unknown_operator_withholds_values_and_names_it(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, "tags": {"$where": "this.x"}})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "unknown_operator:$where"
+
+    def test_own_aggregate_pipeline_keeps_values(self, raw_values_service):
+        pipeline = [
+            {"$match": {"user_id": ME, "$and": [{"is_active": True}], "file_name": {"$in": ["a.py", "b.py"]}}},
+            {"$sort": {"file_name": 1, "version": -1}},
+            {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+            {"$limit": 21},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw == {"pipeline": pipeline}
+        assert row.raw_withheld_reason is None
+
+    def test_vector_search_is_never_kept(self, raw_values_service):
+        pipeline = [
+            {"$vectorSearch": {"index": "idx", "path": "snippetEmbedding", "queryVector": [0.1] * 768,
+                               "filter": {"user_id": ME}, "limit": 10, "numCandidates": 100}},
+            {"$match": {"user_id": ME}},
+        ]
+        row = _record_and_read_back(
+            raw_values_service, {"pipeline": pipeline}, operation="aggregate", collection="snippet_chunks"
+        )
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "vector_query"
+
+    def test_a_query_over_the_size_cap_is_withheld(self, raw_values_service, monkeypatch):
+        monkeypatch.setenv("PROFILER_UNREDACTED_MAX_BYTES", "64")
+        row = _record_and_read_back(
+            raw_values_service, {"user_id": ME, "file_name": {"$in": [f"file-{i}.py" for i in range(40)]}}
+        )
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "too_large"
+
+    def test_query_id_is_unchanged_by_the_exemption(self, monkeypatch):
+        manager = MagicMock()
+        manager.db = _FakeDB()
+        monkeypatch.delenv("PROFILER_UNREDACTED_USER_IDS", raising=False)
+        without = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+        before = _record_and_read_back(without, MY_QUERY)
+
+        monkeypatch.setenv("PROFILER_UNREDACTED_USER_IDS", str(ME))
+        manager.db = _FakeDB()
+        with_exemption = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+        after = _record_and_read_back(with_exemption, MY_QUERY)
+
+        assert before.query_raw is None and after.query_raw == MY_QUERY
+        assert before.query_id == after.query_id, "קיבוץ הדפוסים נשען על query_id — הוא לא יכול לזוז"
+
+    def test_query_id_is_identical_on_a_withheld_record(self, raw_values_service):
+        query = {"user_id": ME, "owner_id": SOMEONE_ELSE}
+        row = _record_and_read_back(raw_values_service, query)
+
+        assert row.raw_withheld_reason is not None
+        expected = raw_values_service._generate_query_id(
+            "code_snippets", raw_values_service._normalize_query_shape(query)
+        )
+        assert row.query_id == expected
+
+    def test_an_empty_allowlist_changes_nothing(self, monkeypatch):
+        monkeypatch.delenv("PROFILER_UNREDACTED_USER_IDS", raising=False)
+        manager = MagicMock()
+        manager.db = _FakeDB()
+        svc = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+
+        row = _record_and_read_back(svc, MY_QUERY)
+        stored = manager.db["slow_queries_log"].docs[0]
+
+        assert row.query_raw is None and row.raw_withheld_reason is None
+        assert stored["query_shape"] == row.query_shape
+        assert "python" not in repr(stored), "בלי רשימה — שום ערך אמיתי לא נכתב"
+
+    def test_values_recorded_earlier_are_hidden_once_the_user_leaves_the_allowlist(
+        self, raw_values_service, monkeypatch
+    ):
+        raw_values_service.record_slow_query_sync(
+            collection="code_snippets", operation="find", query=MY_QUERY, execution_time_ms=1500.0
+        )
+        assert raw_values_service.get_slow_queries()[0].query_raw == MY_QUERY
+
+        monkeypatch.setenv("PROFILER_UNREDACTED_USER_IDS", "")
+        row = raw_values_service.get_slow_queries()[0]
+
+        assert row.query_raw is None, "הקונפיג הוא הסמכות הנוכחית, גם על רשומות שכבר נכתבו"
+        assert row.raw_withheld_reason == "owner_not_allowed_now"
+
+    def test_the_log_event_carries_only_the_shape(self, raw_values_service, monkeypatch):
+        import services.query_profiler_service as mod
+
+        captured = []
+        monkeypatch.setattr(mod, "emit_event", lambda *a, **kw: captured.append((a, kw)))
+
+        raw_values_service.record_slow_query_sync(
+            collection="code_snippets", operation="find", query=MY_QUERY, execution_time_ms=1500.0
+        )
+
+        events = [kw for a, kw in captured if a and a[0] == "slow_query_detected"]
+        assert len(events) == 1
+        assert events[0]["query_shape"] == {
+            "user_id": "<value>", "$and": [{"is_active": "<value>"}], "programming_language": "<value>",
+        }
+        assert "query_raw" not in events[0]
+        assert "python" not in repr(events[0]), "הערכים האמיתיים נשארים ב-DB; הלוג עוזב לספק"
+
+    def test_explain_built_from_real_values_reports_the_skeleton(self, raw_values_service, monkeypatch):
+        """הצרכן של הדוח: ``query_shape`` בתשובת ה-explain מנורמל, גם כשהקלט גולמי."""
+        monkeypatch.setattr(
+            raw_values_service, "_run_explain_command",
+            lambda cmd, verbosity: {"queryPlanner": {"winningPlan": {"stage": "COLLSCAN"}}},
+        )
+
+        plan = raw_values_service.get_explain_plan("code_snippets", MY_QUERY)
+        agg = raw_values_service.get_aggregation_explain(
+            "code_snippets", [{"$match": MY_QUERY}, {"$limit": 5}]
+        )
+
+        assert plan.query_shape["programming_language"] == "<value>"
+        assert "python" not in repr(plan.query_shape)
+        assert agg.pipeline_shape[0]["$match"]["programming_language"] == "<value>"
+        assert "python" not in repr(agg.pipeline_shape)

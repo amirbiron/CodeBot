@@ -4840,6 +4840,10 @@ def _serialize_slow_query(q) -> Dict[str, Any]:
         "collection": q.collection,
         "operation": q.operation,
         "query_shape": q.query_shape,
+        # הערכים האמיתיים — רק לשאילתות שזוהו כשל משתמש מורשה, ורק כשהוא עדיין
+        # ברשימה (השירות מסנן בקריאה). ``raw_withheld_reason`` אומר למה אין.
+        "query_raw": getattr(q, "query_raw", None),
+        "raw_withheld_reason": getattr(q, "raw_withheld_reason", None),
         "execution_time_ms": q.execution_time_ms,
         "timestamp": q.timestamp.isoformat() if getattr(q, "timestamp", None) else None,
     }

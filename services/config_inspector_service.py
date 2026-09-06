@@ -1783,6 +1783,25 @@ class ConfigService:
             description="מספר מקסימלי של רשומות slow queries שנשמרות בזיכרון",
             category="profiler",
         ),
+        "PROFILER_UNREDACTED_USER_IDS": ConfigDefinition(
+            key="PROFILER_UNREDACTED_USER_IDS",
+            services=("webapp", "bot", "mcp", "webserver"),
+            default="",
+            description=(
+                "מזהי משתמשים (CSV) שהשאילתות האיטיות שלהם נשמרות ב-slow_queries_log גם עם "
+                "הערכים האמיתיים (query_raw), לצד השלד המנורמל. ריק = כבוי. חל רק על שאילתה "
+                "שמצהירה על user_id יחיד מהרשימה ומכילה שדות מוכרים בלבד; כל דחייה נרשמת "
+                "ב-raw_withheld_reason"
+            ),
+            category="profiler",
+        ),
+        "PROFILER_UNREDACTED_MAX_BYTES": ConfigDefinition(
+            key="PROFILER_UNREDACTED_MAX_BYTES",
+            services=("webapp", "bot", "mcp", "webserver"),
+            default="8192",
+            description="תקרת גודל (בייטים, JSON) לשאילתה שנשמרת עם ערכים אמיתיים; מעבר לה נשמר רק השלד",
+            category="profiler",
+        ),
         "PROFILER_AUTH_TOKEN": ConfigDefinition(
             key="PROFILER_AUTH_TOKEN",
             services=("webapp", "bot", "webserver"),
