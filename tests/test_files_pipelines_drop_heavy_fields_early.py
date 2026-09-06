@@ -17,9 +17,13 @@ Atlas מתעלם ממנו בקלאסטרים חינמיים ו-Flex.
 ל-``aggregate``, ומאמת עליהם את התכונה. זו אותה דלת שהמשתמש עובר בה.
 
 **התכונה:** אם צינור מכיל ``$sort``, או ``$group`` שצובר מסמכים שלמים
-(``$$ROOT``), אז ``code`` חייב לרדת ממנו **לפני** אותו שלב. שני השלבים
-האלה הם שמחזיקים מסמכים בזיכרון — ``$sort`` מאגר את מה שהוא ממיין,
+(``$$ROOT``), אז **כל** שדה כבד חייב לרדת ממנו **לפני** אותו שלב. שני
+השלבים האלה הם שמחזיקים מסמכים בזיכרון — ``$sort`` מאגר את מה שהוא ממיין,
 ו-``$group`` צובר את מה שהוא שומר.
+
+רשימת השדות הכבדים נגזרת מהקבוע שהייצור משתמש בו ולא נכתבת כאן, כי צינור
+שמחריג את ``code`` בלבד היה עובר את כל הבדיקות בזמן שה-292 חוזר דרך
+``content``.
 """
 
 from __future__ import annotations
@@ -31,7 +35,22 @@ import pytest
 
 from webapp import app as webapp_app
 
-HEAVY_FIELD = "code"
+#: השדות הכבדים **נגזרים מהקבוע שהייצור משתמש בו**, לא מרשימה שנכתבה כאן.
+#:
+#: רשימה קשיחה בטסט הייתה מקור אמת שלישי לצד ``database/repository.py``
+#: ולצד ה-fallback ב-``webapp/app.py`` — והשדה הכבד הבא שיתווסף לקבוע לא
+#: היה נבדק, בזמן שהטסט ממשיך להיות ירוק. זו גם המוסכמה שכבר קיימת בריפו,
+#: ב-``tests/test_version_numbering_across_trash.py``: "הרשימה הכבדה נלקחת
+#: מהריפו עצמו ולא ממחרוזת קשיחה".
+HEAVY_FIELDS = tuple(webapp_app.LIST_EXCLUDE_HEAVY_PROJECTION)
+
+#: רצפת בטיחות. בלי זה, מי שיצמצם את הקבוע יצמצם איתו את הטסט **בשקט** —
+#: הכיסוי היה נעלם והסוויטה הייתה נשארת ירוקה.
+assert HEAVY_FIELDS, "LIST_EXCLUDE_HEAVY_PROJECTION ריק — אין מה לבדוק"
+assert "code" in HEAVY_FIELDS, (
+    f"``code`` נעלם מ-LIST_EXCLUDE_HEAVY_PROJECTION: {HEAVY_FIELDS}. "
+    "הוא השדה שבגללו ה-PR הזה קיים."
+)
 
 NOW = datetime(2026, 9, 5, tzinfo=timezone.utc)
 
@@ -60,33 +79,37 @@ def _stage_name(stage: Any) -> Optional[str]:
     return None
 
 
-def _removes_heavy_field(stage: Any) -> bool:
-    """האם השלב הזה מוציא את ``code`` מהמסמך.
+def _removes(stage: Any, heavy_field: str) -> bool:
+    """האם השלב הזה מוציא את ``heavy_field`` מהמסמך.
 
-    שתי הצורות נחשבות: החרגה (``{'code': 0}``) והכללה שאינה מזכירה את
-    ``code`` — בהיטלת הכללה כל מה שלא נרשם נופל ממילא. ``$unset`` נתמך גם
-    הוא, כי הוא הדרך השנייה של מונגו לומר את אותו דבר.
+    שלוש הצורות נחשבות: החרגה (``{'code': 0}``), הכללה שאינה מזכירה את
+    השדה (בהיטלת הכללה כל מה שלא נרשם נופל ממילא), ו-``$unset`` — הדרך
+    השנייה של מונגו לומר את אותו דבר.
+
+    **הבדיקה היא פר-שדה ולא "יש כאן היטלה".** צינור שמחריג את ``code``
+    בלבד עדיין גורר את ``content`` דרך המיון והקיבוץ, וזה אותו כשל זיכרון
+    בדיוק — רק דרך שדה אחר.
     """
     name = _stage_name(stage)
     if name == "$unset":
         value = stage["$unset"]
         fields = [value] if isinstance(value, str) else list(value or [])
-        return HEAVY_FIELD in fields
+        return heavy_field in fields
     if name != "$project":
         return False
 
     spec = stage["$project"] or {}
     if not isinstance(spec, dict):
         return False
-    if HEAVY_FIELD in spec:
-        return not spec[HEAVY_FIELD]
+    if heavy_field in spec:
+        return not spec[heavy_field]
 
     # היטלה מעורבת אינה חוקית במונגו (למעט ``_id``), ולכן די לבדוק שדה אחד
     # שאינו ``_id`` כדי לדעת אם זו הכללה או החרגה.
     for field, value in spec.items():
         if field == "_id":
             continue
-        return bool(value)  # הכללה ← ``code`` שלא נרשם יורד ממילא
+        return bool(value)  # הכללה ← שדה שלא נרשם יורד ממילא
     return False
 
 
@@ -100,25 +123,28 @@ def _buffers_documents(stage: Any) -> bool:
     return "$$ROOT" in repr(stage["$group"])
 
 
-def assert_heavy_field_drops_early(pipeline: List[Dict[str, Any]], label: str) -> None:
+def assert_heavy_fields_drop_early(pipeline: List[Dict[str, Any]], label: str) -> None:
+    """**כל** שדה כבד חייב לרדת לפני השלב הראשון שמחזיק מסמכים בזיכרון."""
     stages = list(pipeline or [])
     buffering = [i for i, st in enumerate(stages) if _buffers_documents(st)]
     if not buffering:
         return
 
-    drops = [i for i, st in enumerate(stages) if _removes_heavy_field(st)]
     first_buffer = buffering[0]
     shape = " ← ".join(_stage_name(st) or "?" for st in stages)
 
-    assert drops, (
-        f"[{label}] הצינור ממיין או צובר מסמכים שלמים ואף פעם לא מוריד "
-        f"את `{HEAVY_FIELD}`.\n   {shape}"
-    )
-    assert drops[0] < first_buffer, (
-        f"[{label}] `{HEAVY_FIELD}` יורד בשלב {drops[0]}, אחרי שלב שמחזיק "
-        f"מסמכים בזיכרון בשלב {first_buffer}. גוף הקובץ נגרר לתוך "
-        f"{_stage_name(stages[first_buffer])}.\n   {shape}"
-    )
+    for heavy_field in HEAVY_FIELDS:
+        drops = [i for i, st in enumerate(stages) if _removes(st, heavy_field)]
+
+        assert drops, (
+            f"[{label}] הצינור ממיין או צובר מסמכים שלמים ואף פעם לא מוריד "
+            f"את `{heavy_field}`.\n   {shape}"
+        )
+        assert drops[0] < first_buffer, (
+            f"[{label}] `{heavy_field}` יורד בשלב {drops[0]}, אחרי שלב שמחזיק "
+            f"מסמכים בזיכרון בשלב {first_buffer}. השדה נגרר לתוך "
+            f"{_stage_name(stages[first_buffer])}.\n   {shape}"
+        )
 
 
 # ------------------------------------------------------- הסטאב שמקליט
@@ -213,7 +239,7 @@ def test_files_page_never_sorts_or_groups_full_documents(recorder, url, label):
     assert recorder.pipelines, f"{url} לא הריץ שום aggregate — הטסט לא בדק כלום"
 
     for index, pipeline in enumerate(recorder.pipelines):
-        assert_heavy_field_drops_early(pipeline, f"{label} · צינור {index}")
+        assert_heavy_fields_drop_early(pipeline, f"{label} · צינור {index}")
 
 
 def test_files_need_attention_never_sorts_or_groups_full_documents(recorder):
@@ -224,7 +250,7 @@ def test_files_need_attention_never_sorts_or_groups_full_documents(recorder):
 
     assert recorder.pipelines, "לא הורץ שום aggregate — הטסט לא בדק כלום"
     for index, pipeline in enumerate(recorder.pipelines):
-        assert_heavy_field_drops_early(pipeline, f"files_need_attention · צינור {index}")
+        assert_heavy_fields_drop_early(pipeline, f"files_need_attention · צינור {index}")
 
 
 # ------------------------------------------ אפס אינו "לא ידוע"
@@ -300,3 +326,48 @@ def test_the_dashboard_renders_a_dash_instead_of_a_wrong_number():
 
     rendered = template.render(files_need_attention=_Known())
     assert "5" in rendered, f"סכום תקין לא רונדר: {rendered!r}"
+
+
+# --------------------------------------------- הבודק עצמו
+
+
+def test_the_checker_rejects_a_pipeline_that_only_drops_code():
+    """צינור שמוריד ``code`` בלבד חייב להיפסל.
+
+    **זה הטסט על הבודק, לא על הקוד.** קוד הייצור כרגע מוריד את כל השדות
+    הכבדים, ולכן הבדיקה המורחבת עוברת גם לפניה וגם אחריה — וטסט שעובר
+    בשני המצבים אינו ראיה לכלום. הבודק הוא הדבר שאסור לו להיתמם, ולכן
+    הוא נבדק כאן ישירות: על הבודק שמסתכל רק על ``code`` הטסט הזה נופל.
+
+    התרחיש אינו תיאורטי. מישהו שיחליף את ``LIST_EXCLUDE_HEAVY_PROJECTION``
+    בהחרגה ידנית של ``code`` יגרור את ``content`` דרך המיון והקיבוץ, ושגיאת
+    ה-292 תחזור — דרך שדה אחר, באותה דרך בדיוק.
+    """
+    other_heavy = [f for f in HEAVY_FIELDS if f != "code"]
+    assert other_heavy, "בקבוע יש רק `code` — אין מה לבדוק כאן"
+
+    only_code = [
+        {"$match": {"user_id": 1}},
+        {"$project": {"code": 0}},
+        {"$sort": {"file_name": 1, "version": -1}},
+        {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+    ]
+
+    with pytest.raises(AssertionError) as caught:
+        assert_heavy_fields_drop_early(only_code, "החרגת code בלבד")
+
+    assert other_heavy[0] in str(caught.value), (
+        "הבודק לא הצביע על השדה הכבד שנגרר: " + str(caught.value)
+    )
+
+
+def test_the_checker_accepts_the_full_exclusion():
+    """אותו צינור עם ההחרגה המלאה — עובר. שומר מפני בודק שפוסל הכל."""
+    full = [
+        {"$match": {"user_id": 1}},
+        {"$project": dict(webapp_app.LIST_EXCLUDE_HEAVY_PROJECTION)},
+        {"$sort": {"file_name": 1, "version": -1}},
+        {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+    ]
+
+    assert_heavy_fields_drop_early(full, "החרגה מלאה")
