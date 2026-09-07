@@ -196,6 +196,8 @@ from services.query_profiler_service import (  # noqa: E402
     # מגיעה לשם, ולכן שם שאינו קיים היה מתגלה כ-NameError רק בזמן כשל אמיתי.
     ExplainTimeoutError as _ProfilerExplainTimeout,
     ProfilerInputError as _ProfilerInputError,
+    ProfilerPagingError,
+    PROFILER_WINDOW_HOURS,
 )
 from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
@@ -5002,6 +5004,40 @@ def _serialize_recommendation(rec) -> Dict[str, Any]:
     }
 
 
+def _profiler_window_hours_arg() -> int:
+    """חלון הזמן מה-query string, או ברירת המחדל המשותפת.
+
+    **אותו חלון בדיוק לשלושת האנדפוינטים** — הסיכום, טבלת השאילתות וטבלת
+    הדפוסים. קודם כל אחד הכריע לעצמו (הכרטיס 24 שעות, הטבלה בלי חלון,
+    הדפוסים שבעה ימים), ולכן "מוצגות X מתוך Y" ספר שתי אוכלוסיות שונות.
+    ``PROFILER_WINDOW_HOURS`` הוא המקור היחיד, וה-``_window_hours`` בשירות
+    מגביל את הערך; כאן רק ממירים ונופלים בחזרה לברירת המחדל על קלט לא-מספרי.
+    """
+    raw = request.args.get("hours")
+    if not raw:
+        return PROFILER_WINDOW_HOURS
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return PROFILER_WINDOW_HOURS
+
+
+def _serialize_query_pattern(pattern: Dict[str, Any]) -> Dict[str, Any]:
+    """שורת דפוס לתצוגה. ה-``_id`` של ה-``$group`` מקונן, ומשוטח כאן."""
+    key = pattern.get("_id") if isinstance(pattern.get("_id"), dict) else {}
+    last_seen = pattern.get("last_seen")
+    return {
+        "query_id": str(key.get("query_id") or ""),
+        "collection": str(key.get("collection") or ""),
+        "operation": str(key.get("operation") or ""),
+        "count": int(pattern.get("count") or 0),
+        "avg_time_ms": round(float(pattern.get("avg_time_ms") or 0), 2),
+        "max_time_ms": round(float(pattern.get("max_time_ms") or 0), 2),
+        "query_shape": pattern.get("query_shape") if isinstance(pattern.get("query_shape"), dict) else {},
+        "last_seen": last_seen.isoformat() if isinstance(last_seen, datetime) else None,
+    }
+
+
 @app.route("/api/profiler/slow-queries", methods=["GET"])
 def api_profiler_slow_queries():
     if not _profiler_is_authorized():
@@ -5013,26 +5049,62 @@ def api_profiler_slow_queries():
     except Exception:
         limit = 50
     collection = request.args.get("collection")
-    min_time = request.args.get("min_time")
-    hours = request.args.get("hours")
-    since = None
-    if hours:
-        try:
-            since = datetime.utcnow() - timedelta(hours=int(hours))
-        except Exception:
-            since = None
     try:
         svc = _get_webapp_profiler_service()
-        queries = svc.get_slow_queries(
+        page = svc.get_slow_queries_page(
             limit=limit,
             collection_filter=collection,
-            min_execution_time_ms=float(min_time) if min_time else None,
-            since=since,
+            hours=_profiler_window_hours_arg(),
+            sort_field=request.args.get("sort", "execution_time_ms"),
+            sort_direction=request.args.get("dir", "desc"),
+            cursor=request.args.get("cursor"),
         )
-        return jsonify({"status": "success", "data": [_serialize_slow_query(q) for q in queries], "count": len(queries)})
+    except ProfilerPagingError as exc:
+        # מיון או קורסור פסולים הם **קלט משתמש**, ולכן 400 ולא 500. הקורסור
+        # מגיע מה-URL ואפשר לערוך אותו ביד; ``ProfilerPagingError`` היא הערוץ
+        # היחיד שדרכו הוא נדחה, וכל צורת פגם אחרת שם הופכת אליה בשירות.
+        return jsonify({"status": "error", "message": "invalid_paging", "detail": str(exc)}), 400
     except Exception:
         logger.exception("api_profiler_slow_queries_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
+
+    records = page["records"]
+    return jsonify({
+        "status": "success",
+        "data": [_serialize_slow_query(q) for q in records],
+        "count": len(records),
+        # ``total`` נספר על חלון הזמן בלבד ולא על פילטר הדף — אחרת הוא היה
+        # קטן בכל לחיצה על "טען עוד", והכותרת "מוצגות X מתוך Y" הייתה מייצרת
+        # בדיוק את הפער שהיא נועדה לסגור.
+        "total": page["total"],
+        "next_cursor": page["next_cursor"],
+    })
+
+
+@app.route("/api/profiler/patterns", methods=["GET"])
+def api_profiler_patterns():
+    """דפוסי השאילתות שחוזרים בחלון — הנתונים שכרטיס "דפוסים ייחודיים" סופר."""
+    if not _profiler_is_authorized():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if not _profiler_rate_limit_ok():
+        return jsonify({"status": "error", "message": "rate_limited"}), 429
+    try:
+        limit = int(request.args.get("limit", "50"))
+    except Exception:
+        limit = 50
+    try:
+        svc = _get_webapp_profiler_service()
+        result = svc.get_pattern_statistics(hours=_profiler_window_hours_arg(), limit=limit)
+    except Exception:
+        logger.exception("api_profiler_patterns_failed")
+        return jsonify({"status": "error", "message": "internal_error"}), 500
+
+    return jsonify({
+        "status": "success",
+        "data": [_serialize_query_pattern(p) for p in result["patterns"]],
+        "count": len(result["patterns"]),
+        "total": result["total"],
+    })
 
 
 @app.route("/api/profiler/summary", methods=["GET"])
@@ -5043,7 +5115,7 @@ def api_profiler_summary():
         return jsonify({"status": "error", "message": "rate_limited"}), 429
     try:
         svc = _get_webapp_profiler_service()
-        summary = svc.get_summary()
+        summary = svc.get_summary(hours=_profiler_window_hours_arg())
         return jsonify({"status": "success", "data": summary})
     except Exception:
         logger.exception("api_profiler_summary_failed")

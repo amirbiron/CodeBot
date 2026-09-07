@@ -71,8 +71,8 @@ def seen(monkeypatch, app_module):
     captured = {}
 
     class _Svc:
-        def get_slow_queries(self, **kwargs):
-            return [_Record()]
+        def get_slow_queries_page(self, **kwargs):
+            return {"records": [_Record()], "total": 1, "next_cursor": None}
 
         def get_explain_plan(self, *, collection, query, verbosity):
             captured["query"] = query
@@ -170,8 +170,8 @@ def test_a_record_without_raw_values_still_serializes(app_module, monkeypatch):
         raw_withheld_reason = "owner_missing"
 
     class _Svc:
-        def get_slow_queries(self, **kwargs):
-            return [_Empty()]
+        def get_slow_queries_page(self, **kwargs):
+            return {"records": [_Empty()], "total": 1, "next_cursor": None}
 
     monkeypatch.setattr(app_module, "_get_webapp_profiler_service", lambda: _Svc(), raising=True)
 

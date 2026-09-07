@@ -367,7 +367,7 @@ class TestPersistentQueryProfilerServiceSummary:
         monkeypatch.setattr(
             svc,
             "_calculate_summary_sync",
-            lambda: {"total_slow_queries": calls.__setitem__("n", calls["n"] + 1) or calls["n"]},
+            lambda hours=None: {"total_slow_queries": calls.__setitem__("n", calls["n"] + 1) or calls["n"]},
         )
 
         r1 = svc.get_summary()
@@ -388,7 +388,7 @@ class TestPersistentQueryProfilerServiceSummary:
 
         calls = {"n": 0}
 
-        def _calc():
+        def _calc(hours=None):
             calls["n"] += 1
             return {"total_slow_queries": calls["n"]}
 
@@ -415,7 +415,7 @@ class TestPersistentQueryProfilerServiceSummary:
 
         calls = {"n": 0}
 
-        def _calc():
+        def _calc(hours=None):
             calls["n"] += 1
             return {"total_slow_queries": calls["n"]}
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
@@ -316,6 +317,86 @@ RAW_WITHHELD_OWNER_NOT_ALLOWED_NOW = "owner_not_allowed_now"
 #: כשל בלתי צפוי בהחלטה עצמה. הוא לא אמור לקרות, ולכן הוא נרשם ללוג —
 #: אבל הוא לעולם לא עולה ברשומה עצמה (ראו ``_decide_raw_query``).
 RAW_WITHHELD_INTERNAL_ERROR = "internal_error"
+
+#: חלון הזמן שכל צרכני הדשבורד עובדים עליו — כרטיס הסיכום, טבלת השאילתות
+#: וטבלת הדפוסים. **מקור אחד ולא ברירת מחדל בכל אתר קריאה.** קודם כל אחד
+#: הכריע לעצמו: הכרטיס 24 שעות, הטבלה בלי חלון בכלל, והדפוסים שבעה ימים —
+#: ולכן "מוצגות X מתוך Y" היה משפט שיכול לשקר, כי X ו-Y נספרו על אוכלוסיות
+#: שונות.
+PROFILER_WINDOW_HOURS = 24
+
+#: השדות שמותר למיין לפיהם. **רשימה סגורה**: שם שדה מקלט משתמש לעולם אינו
+#: נכנס ל-``sort`` בלי לעבור כאן. ערך אחר נדחה, ולא מנוקה או מנוחש.
+SLOW_QUERY_SORT_FIELDS: FrozenSet[str] = frozenset({
+    "execution_time_ms", "timestamp", "collection", "operation",
+})
+
+
+class ProfilerPagingError(ValueError):
+    """קלט עימוד/מיון פסול. הקורא ב-HTTP הופך אותה ל-400 ולא ל-500."""
+
+
+def _window_hours(hours: Any) -> int:
+    """חלון בשעות מקלט חיצוני, מגובל לטווח שפוי.
+
+    ``isinstance`` לפני כל חשבון — ``CORE-PATTERNS`` U3. התקרה היא ה-TTL
+    עצמו: אין טעם לבקש חלון ארוך מהזמן שהרשומות בכלל שורדות בו.
+    """
+    if isinstance(hours, bool) or not isinstance(hours, int):
+        return PROFILER_WINDOW_HOURS
+    return max(1, min(int(hours), PersistentQueryProfilerService.TTL_SECONDS // 3600))
+
+
+def _sort_spec(field: Any, direction: Any) -> Tuple[str, int]:
+    """שדה מיון וכיוון, מאומתים מול הרשימה הסגורה.
+
+    מחזיר ``(field, 1|-1)`` או זורק. **הכיוון אינו ברירת מחדל שקטה על קלט
+    פסול**: מיון שגוי שנראה תקין גרוע ממיון שנדחה בקול.
+    """
+    if not isinstance(field, str) or field not in SLOW_QUERY_SORT_FIELDS:
+        raise ProfilerPagingError(f"unknown_sort_field:{field!r}")
+    if not isinstance(direction, str) or direction not in {"asc", "desc"}:
+        raise ProfilerPagingError(f"unknown_sort_direction:{direction!r}")
+    return field, (1 if direction == "asc" else -1)
+
+
+def encode_slow_query_cursor(record: Dict[str, Any], field: str, direction: str) -> str:
+    """קורסור לשורה האחרונה שנראתה: ``{f, d, v, id}`` ב-base64 של Extended JSON.
+
+    **למה Extended JSON ולא JSON רגיל:** ``v`` הוא ערך העמודה שממיינים לפיה,
+    והוא יכול להיות ``float`` (משך), ``datetime`` (זמן) או מחרוזת (collection).
+    ל-JSON רגיל אין טיפוס תאריך, ותאריך שהיה חוזר כמחרוזת היה משווה מחרוזת
+    לשדה תאריך במונגו — כלומר אפס תוצאות, ודף שני ריק בשקט. זה בדיוק המנגנון
+    שנבנה עבור ``query_raw``, וכאן הוא חוזר בחינם.
+
+    **למה ``f`` ו-``d`` בתוך הקורסור:** קורסור שנטבע למיון אחד ונשלח עם מיון
+    אחר הוא חסר משמעות — והתנאי ``$lt`` על השדה החדש היה מחזיר תוצאות
+    שרירותיות. הם נבדקים בפענוח, ולכן שינוי מיון באמצע דפדוף נדחה ולא מנוחש.
+    """
+    payload = {"f": field, "d": direction, "v": record.get(field), "id": record.get("_id")}
+    raw = json_util.dumps(payload).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def decode_slow_query_cursor(token: Any, field: str, direction: str) -> Tuple[Any, Any]:
+    """מפענח קורסור ומאמת שהוא נטבע לאותו מיון. מחזיר ``(value, _id)``.
+
+    כל צורת פגם — base64 שבור, JSON שבור, שדה חסר, מיון שאינו תואם — היא
+    ``ProfilerPagingError`` ולא חריגה אחרת: זה קלט חיצוני, והוא חייב לצאת
+    כ-400 ולא כ-500 (``CORE-PATTERNS`` U3).
+    """
+    if not isinstance(token, str) or not token:
+        raise ProfilerPagingError("malformed_cursor")
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        payload = json_util.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    except Exception as exc:
+        raise ProfilerPagingError("malformed_cursor") from exc
+    if not isinstance(payload, dict) or "v" not in payload or "id" not in payload:
+        raise ProfilerPagingError("malformed_cursor")
+    if payload.get("f") != field or payload.get("d") != direction:
+        raise ProfilerPagingError("cursor_sort_mismatch")
+    return payload["v"], payload["id"]
 
 
 def _unredacted_user_ids() -> FrozenSet[str]:
@@ -1687,8 +1768,12 @@ class PersistentQueryProfilerService(QueryProfilerService):
         # היה כאן בעבר cache מבודד פר-event-loop (WeakKeyDictionary + asyncio.Lock), כי
         # asyncio.Lock אינו ניתן לשיתוף בין לופים. השירות סינכרוני לגמרי, אין כאן לופים,
         # ולכן נעילת threading פשוטה מספיקה ונכונה גם תחת gevent (שממנקי-פאטץ' אותה).
-        self._summary_cache: Optional[Dict[str, Any]] = None
-        self._summary_cache_expires_at: Optional[datetime] = None
+        #
+        # **הקאש ממופתח לפי ``hours``.** קודם הוא היה ערך יחיד, וזה היה נכון
+        # כל עוד היה חלון אחד קשיח. מרגע ש-``hours`` הוא פרמטר, קאש בלי מפתח
+        # היה מחזיר לבקשה על 24 שעות תוצאה שחושבה עבור שבוע — תשובה של פרמטר
+        # אחר, בשקט מוחלט. מפתח הקאש חייב לכלול כל מה שהערך תלוי בו.
+        self._summary_cache: Dict[int, Tuple[Dict[str, Any], datetime]] = {}
         self._summary_lock = threading.Lock()
         self._CACHE_TTL_SECONDS = 60
 
@@ -1738,9 +1823,13 @@ class PersistentQueryProfilerService(QueryProfilerService):
         db[self.COLLECTION_NAME].insert_one(doc)
 
     def _invalidate_summary_cache(self) -> None:
+        """מנקה את **כל** החלונות, לא רק את הנוכחי.
+
+        רשומה חדשה משנה את הסיכום של כל חלון שמכיל אותה — וזה כל חלון, כי
+        היא נכתבת עכשיו. ניקוי מפתח אחד היה משאיר את השאר מיושנים.
+        """
         with self._summary_lock:
-            self._summary_cache = None
-            self._summary_cache_expires_at = None
+            self._summary_cache.clear()
 
     def get_slow_queries(
         self,
@@ -1767,31 +1856,110 @@ class PersistentQueryProfilerService(QueryProfilerService):
             return list(cursor)
 
         docs = _fetch()
+        return [self._apply_raw_read_policy(self._doc_to_record(d)) for d in docs if isinstance(d, dict)]
 
-        out: List[SlowQueryRecord] = []
-        for doc in docs:
-            if not isinstance(doc, dict):
-                continue
-            out.append(
-                SlowQueryRecord(
-                    query_id=str(doc.get("query_id") or ""),
-                    collection=str(doc.get("collection") or ""),
-                    operation=str(doc.get("operation") or ""),
-                    query_shape=doc.get("query_shape") if isinstance(doc.get("query_shape"), dict) else {},
-                    execution_time_ms=float(doc.get("execution_time_ms", 0) or 0),
-                    timestamp=doc.get("timestamp") if isinstance(doc.get("timestamp"), datetime) else datetime.utcnow(),
-                    client_info=doc.get("client_info") if isinstance(doc.get("client_info"), dict) else None,
-                    query_raw=doc.get("query_raw") if isinstance(doc.get("query_raw"), dict) else None,
-                    raw_owner_id=str(doc["raw_owner_id"]) if doc.get("raw_owner_id") is not None else None,
-                    raw_withheld_reason=(
-                        str(doc["raw_withheld_reason"]) if doc.get("raw_withheld_reason") is not None else None
-                    ),
-                )
+    @staticmethod
+    def _doc_to_record(doc: Dict[str, Any]) -> SlowQueryRecord:
+        """מסמך מונגו ← ``SlowQueryRecord``. חולץ כי גם דף וגם רשימה צריכים אותו."""
+        return SlowQueryRecord(
+            query_id=str(doc.get("query_id") or ""),
+            collection=str(doc.get("collection") or ""),
+            operation=str(doc.get("operation") or ""),
+            query_shape=doc.get("query_shape") if isinstance(doc.get("query_shape"), dict) else {},
+            execution_time_ms=float(doc.get("execution_time_ms", 0) or 0),
+            timestamp=doc.get("timestamp") if isinstance(doc.get("timestamp"), datetime) else datetime.utcnow(),
+            client_info=doc.get("client_info") if isinstance(doc.get("client_info"), dict) else None,
+            query_raw=doc.get("query_raw") if isinstance(doc.get("query_raw"), dict) else None,
+            raw_owner_id=str(doc["raw_owner_id"]) if doc.get("raw_owner_id") is not None else None,
+            raw_withheld_reason=(
+                str(doc["raw_withheld_reason"]) if doc.get("raw_withheld_reason") is not None else None
+            ),
+        )
+
+    def get_slow_queries_page(
+        self,
+        *,
+        limit: int = 50,
+        collection_filter: Optional[str] = None,
+        hours: int = PROFILER_WINDOW_HOURS,
+        sort_field: str = "execution_time_ms",
+        sort_direction: str = "desc",
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """דף אחד מהטבלה, עם הסך הכולל והקורסור לדף הבא.
+
+        מחזיר ``{"records": [...], "total": int, "next_cursor": str | None}``.
+
+        **``total`` נספר על חלון הזמן ומסנן ה-collection בלבד — בלי תנאי
+        הקורסור.** זו הנקודה שכל הסעיף קיים בשבילה: הפילטר של דף שני מכיל
+        ``field < v``, ולכן ספירה על "אותו פילטר" הייתה מחזירה מספר שקטן בכל
+        לחיצה — "50 מתוך 225", ואז "100 מתוך 175". הכותרת שנועדה לסגור פער
+        הייתה מייצרת פער חדש, ומטעה יותר כי הוא נראה כמו התקדמות. הספירה
+        נעשית מחדש בכל בקשה ולא נשמרת בלקוח: רשומה שנכתבת תוך כדי הדפדוף
+        אמורה להגדיל את הסך, וערך מוטמן היה מציג מספר שכבר אינו נכון.
+
+        **המיון תמיד ``(field, _id)``.** ל-``execution_time_ms`` אין אילוץ
+        ייחודיות, ועמודת מיון בלי tiebreaker בעימוד מייצרת שורות כפולות בדף
+        אחד וחסרות בבא (``bugbot-rules/pagination-tiebreaker.md``). אין היום
+        אף תיקו באוסף — נמדד — אבל זה נתון, לא הבטחה.
+        """
+        field, direction = _sort_spec(sort_field, sort_direction)
+        window = _window_hours(hours)
+        limit_n = max(1, min(int(limit) if isinstance(limit, int) and not isinstance(limit, bool) else 50, 500))
+
+        # הפילטר של החלון — הבסיס לספירה, **ואליו לא מצטרף תנאי הקורסור**.
+        window_filter: Dict[str, Any] = {"timestamp": {"$gte": datetime.utcnow() - timedelta(hours=window)}}
+        if collection_filter:
+            window_filter["collection"] = collection_filter
+
+        page_filter: Dict[str, Any] = dict(window_filter)
+        if cursor:
+            last_value, last_id = decode_slow_query_cursor(cursor, field, sort_direction)
+            op = "$gt" if direction == 1 else "$lt"
+            page_filter["$and"] = [{
+                "$or": [
+                    {field: {op: last_value}},
+                    {"$and": [{field: {"$eq": last_value}}, {"_id": {op: last_id}}]},
+                ]
+            }]
+
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            return {"records": [], "total": 0, "next_cursor": None}
+
+        total = int(db[self.COLLECTION_NAME].count_documents(window_filter))
+        docs = list(
+            db[self.COLLECTION_NAME].find(
+                page_filter, sort=[(field, direction), ("_id", direction)], limit=limit_n
             )
-        return [self._apply_raw_read_policy(r) for r in out]
+        )
+        records = [self._apply_raw_read_policy(self._doc_to_record(d)) for d in docs if isinstance(d, dict)]
 
-    def get_pattern_statistics(self, days: int = 7) -> List[Dict[str, Any]]:
-        since = datetime.utcnow() - timedelta(days=max(1, int(days)))
+        next_cursor = None
+        if len(docs) == limit_n and isinstance(docs[-1], dict):
+            next_cursor = encode_slow_query_cursor(docs[-1], field, sort_direction)
+
+        return {"records": records, "total": total, "next_cursor": next_cursor}
+
+    def get_pattern_statistics(
+        self, hours: int = PROFILER_WINDOW_HOURS, limit: int = 50
+    ) -> Dict[str, Any]:
+        """סטטיסטיקת דפוסים על אותו חלון זמן שהכרטיס והטבלה עובדים עליו.
+
+        מחזיר ``{"patterns": [...], "total": int}``.
+
+        **למה ``$facet`` ולא ``$limit`` לבדו.** הפייפליין הקודם הסתיים ב-
+        ``$limit: 50`` בלי שום ספירה, ולכן הקוד קיבל 50 שורות ו**לא ידע כמה
+        דפוסים באמת יש** — כלומר "מוצגות 50 מתוך N" לא היה ניתן לכתיבה, וכל
+        חיתוך היה נעלם בשקט. ה-``$facet`` מחזיר את שני הדברים בסיבוב אחד,
+        ולכן אותה הבטחה בדיוק תקפה כאן וגם בטבלת השאילתות.
+
+        **החלון בשעות ולא בימים.** קודם ברירת המחדל כאן הייתה שבעה ימים בזמן
+        שהכרטיס סופר 24 שעות — שני מספרים על שתי אוכלוסיות, על אותו מסך.
+        """
+        window = _window_hours(hours)
+        limit_n = max(1, min(int(limit) if isinstance(limit, int) and not isinstance(limit, bool) else 50, 200))
+        since = datetime.utcnow() - timedelta(hours=window)
         pipeline = [
             {"$match": {"timestamp": {"$gte": since}}},
             {
@@ -1805,52 +1973,61 @@ class PersistentQueryProfilerService(QueryProfilerService):
                     "query_shape": {"$first": "$query_shape"},
                 }
             },
-            {"$sort": {"count": -1}},
-            {"$limit": 50},
+            {
+                "$facet": {
+                    "patterns": [{"$sort": {"count": -1, "_id": -1}}, {"$limit": limit_n}],
+                    "total": [{"$count": "n"}],
+                }
+            },
         ]
 
-        def _aggregate() -> List[Dict[str, Any]]:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                return []
-            return list(db[self.COLLECTION_NAME].aggregate(pipeline))
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            return {"patterns": [], "total": 0}
 
-        return _aggregate()
+        result = list(db[self.COLLECTION_NAME].aggregate(pipeline))
+        doc = result[0] if result and isinstance(result[0], dict) else {}
+        patterns = doc.get("patterns") if isinstance(doc.get("patterns"), list) else []
+        total_branch = doc.get("total") if isinstance(doc.get("total"), list) else []
+        total = int(total_branch[0].get("n", 0)) if total_branch and isinstance(total_branch[0], dict) else 0
+        return {"patterns": patterns, "total": total}
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self, hours: int = PROFILER_WINDOW_HOURS) -> Dict[str, Any]:
         """
-        סיכום מצב הפרופיילר, עם Cache קצר (TTL) כדי לא להעמיס על ה-DB.
+        סיכום מצב הפרופיילר על חלון של ``hours`` שעות, עם Cache קצר (TTL).
+
+        **הקאש ממופתח לפי ``hours``.** קודם הוא היה ערך יחיד, מה שהיה נכון כל
+        עוד החלון היה קשיח; עכשיו בקשה על חלון אחד לעולם אינה מקבלת תוצאה
+        שחושבה עבור אחר.
 
         שינוי התנהגות מכוון (PR של הסרת שכבת ה-asyncio): בעבר ``get_summary`` היה
         ללא cache ורק ``get_summary_async`` היה ממוטמן. שתי המתודות אוחדו לאחת
         ממוטמנת — זו ההתנהגות שכל הקוראים בפועל כבר קיבלו.
         """
+        window = _window_hours(hours)
         now = datetime.utcnow()
 
-        cached = self._summary_cache
-        expires_at = self._summary_cache_expires_at
-        if cached is not None and expires_at is not None and expires_at > now:
-            return cached
+        entry = self._summary_cache.get(window)
+        if entry is not None and entry[1] > now:
+            return entry[0]
 
         with self._summary_lock:
             # Double-check בתוך הנעילה כדי למנוע cache stampede
             now = datetime.utcnow()
-            cached = self._summary_cache
-            expires_at = self._summary_cache_expires_at
-            if cached is not None and expires_at is not None and expires_at > now:
-                return cached
+            entry = self._summary_cache.get(window)
+            if entry is not None and entry[1] > now:
+                return entry[0]
 
             try:
-                result = self._calculate_summary_sync()
+                result = self._calculate_summary_sync(window)
             except Exception as e:
                 logger.error("Error calculating profiler summary", exc_info=True, extra={"error": str(e)})
                 return super().get_summary()
 
-            self._summary_cache = result
-            self._summary_cache_expires_at = now + timedelta(seconds=self._CACHE_TTL_SECONDS)
+            self._summary_cache[window] = (result, now + timedelta(seconds=self._CACHE_TTL_SECONDS))
             return result
 
-    def _calculate_summary_sync(self) -> Dict[str, Any]:
+    def _calculate_summary_sync(self, hours: int = PROFILER_WINDOW_HOURS) -> Dict[str, Any]:
         """חישוב הסיכום מול ה-DB – כולל כל הלוגיקה המלאה. נקרא מתוך get_summary עם cache.
 
         חריגות DB **עולות למעלה בכוונה**. ``get_summary`` תופסת אותן, כותבת
@@ -1862,8 +2039,10 @@ class PersistentQueryProfilerService(QueryProfilerService):
         if db is None:
             return super().get_summary()
 
-        # חישוב lightweight על חלון קצר (24h) כדי להימנע מעומס
-        since = datetime.utcnow() - timedelta(hours=24)
+        # חישוב lightweight על חלון קצר כדי להימנע מעומס. החלון מגיע מהקורא
+        # ולא נקבע כאן, כי אותו חלון בדיוק משרת גם את הטבלה וגם את הדפוסים —
+        # אחרת "מוצגות X מתוך Y" סופר שתי אוכלוסיות שונות.
+        since = datetime.utcnow() - timedelta(hours=_window_hours(hours))
         query = {"timestamp": {"$gte": since}}
         total = int(db[self.COLLECTION_NAME].count_documents(query))
         if total <= 0:
