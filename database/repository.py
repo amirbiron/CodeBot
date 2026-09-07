@@ -3,7 +3,7 @@ import hashlib
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Tuple, Protocol, runtime_checkable, Callable, TypeVar, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Protocol, runtime_checkable, Callable, TypeVar, cast
 
 # יצירת טיפוס ObjectId שמתאים גם לריצה ללא חבילת bson
 try:
@@ -56,6 +56,12 @@ from .manager import (
 from utils import normalize_code
 # תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
 from file_dates import inherited_created_at
+# מחיקה רכה — מודול שורש טהור, אותה שאילתה שהוובאפ מריץ על חיבור משלו.
+from file_deletion import (
+    SoftDeleteResult,
+    resolve_owned_file_names,
+    soft_delete_files_by_names as _shared_soft_delete_by_names,
+)
 from config import config
 try:
     from observability import emit_event
@@ -1209,121 +1215,114 @@ class Repository:
             emit_event("db_get_regular_files_paginated_error", severity="error", error=str(e))
             return [], 0
 
-    def delete_file(self, user_id: int, file_name: str) -> bool:
+    def _invalidate_after_soft_delete(self, user_id: int, file_names: List[str]) -> None:
+        """אינוולידציית הקאש אחרי מחיקה רכה — במקום אחד, לשלושת המסלולים.
+
+        שלושתם חיסלו את אותם שלושה מפתחות בשלושה עותקים שכבר הספיקו לסטות
+        זה מזה. הכשלים נבלעים בכוונה: זו מחיקה אופורטוניסטית, ומפתח שאינו
+        קיים אינו כשל (ראו ``return-value-failure-unchecked`` §4 — שם
+        ההבחנה בין 0 שהוא כשל ל-0 שהוא תקין).
+        """
         try:
-            now = datetime.now(timezone.utc)
-            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
-            expires = now + timedelta(days=max(1, ttl_days))
-            result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": file_name, "is_active": True},
-                {"$set": {
-                    "is_active": False,
-                    "deleted_at": now,
-                    "deleted_expires_at": expires,
-                }},
-            )
-            if result.modified_count > 0:
-                # הצ'אנקים הסמנטיים של הקובץ יורדים יחד איתו. הם אינם מוצגים
-                # בתוצאות ממילא (``$lookup`` בצינור החיפוש מסנן ``is_active``),
-                # אבל בלי המחיקה הזו הם נשארים לנצח: פקיעת סל המיחזור נעשית
-                # ב-TTL index בצד השרת, שאף קוד אפליקציה לא רואה.
-                # השחזור מסמן את הקובץ לעיבוד מחדש (ראו ``restore_file_by_id``).
-                delete_snippet_chunks(user_id, file_name=file_name)
-                cache.invalidate_user_cache(user_id)
-                try:
-                    cache.invalidate_file_related(file_id=str(file_name), user_id=user_id)
-                except Exception:
-                    pass
-                # מחיקת קאש ספציפי של אוספים עבור המשתמש (השפעה על אוספים חכמים)
-                try:
-                    uid = str(user_id)
-                    cache.delete_pattern(f"collections_*:{uid}:*")
-                except Exception:
-                    pass
-                return True
-            return False
+            cache.invalidate_user_cache(user_id)
+        except Exception:
+            pass
+        for name in file_names:
+            try:
+                cache.invalidate_file_related(file_id=str(name), user_id=user_id)
+            except Exception:
+                pass
+        try:
+            cache.delete_pattern(f"collections_*:{str(user_id)}:*")
+        except Exception:
+            pass
+
+    def _soft_delete(self, user_id: int, file_names: List[str]) -> SoftDeleteResult:
+        """המחיקה עצמה — שאילתה, צ'אנקים סמנטיים, קאש.
+
+        השאילתה עצמה יושבת ב-``file_deletion`` שבשורש, כי הוובאפ מריץ
+        אותה על חיבור אחר ואינו יכול לעבור דרך ה-repository. ראו את
+        ה-docstring שם.
+        """
+        outcome = _shared_soft_delete_by_names(
+            self.manager.collection,
+            user_id,
+            file_names,
+            ttl_days=int(getattr(config, "RECYCLE_TTL_DAYS", 30)),
+        )
+        if not outcome.versions:
+            return outcome
+        # הצ'אנקים הסמנטיים של הקובץ יורדים יחד איתו. הם אינם מוצגים
+        # בתוצאות ממילא (``$lookup`` בצינור החיפוש מסנן ``is_active``),
+        # אבל בלי המחיקה הזו הם נשארים לנצח: פקיעת סל המיחזור נעשית
+        # ב-TTL index בצד השרת, שאף קוד אפליקציה לא רואה.
+        # השחזור מסמן את הקובץ לעיבוד מחדש (ראו ``restore_file_by_id``).
+        # שאילתה אחת ל-``$in``, לא לולאה: מחיקה מרובה של 1,000 קבצים
+        # הייתה מייצרת 2,000 פעולות סדרתיות מול מונגו.
+        delete_snippet_chunks(user_id, file_names=list(outcome.file_names))
+        self._invalidate_after_soft_delete(user_id, list(outcome.file_names))
+        return outcome
+
+    def delete_file(self, user_id: int, file_name: str) -> bool:
+        """מעביר לסל את כל הגרסאות הפעילות של הקובץ."""
+        try:
+            return bool(self._soft_delete(user_id, [file_name]))
         except Exception as e:
             emit_event("db_delete_file_error", severity="error", error=str(e))
             return False
 
     def soft_delete_files_by_names(self, user_id: int, file_names: List[str]) -> int:
-        """מחיקה רכה (is_active=false) למספר קבצים לפי שמות."""
+        """מחיקה רכה למספר קבצים לפי שמות; מחזיר את מספר **מסמכי הגרסה**.
+
+        המונה הוא מסמכים ולא קבצים, כי כך הוא נקרא היום
+        (``delete_all_user_snippets``). מי שצריך ספירת קבצים משתמש
+        ב-``soft_delete_files_by_ids`` שמחזיר את שניהם בנפרד.
+        """
         if not file_names:
             return 0
         try:
-            now = datetime.now(timezone.utc)
-            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
-            expires = now + timedelta(days=max(1, ttl_days))
-            result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": {"$in": list(set(file_names))}, "is_active": True},
-                {"$set": {
-                    "is_active": False,
-                    "deleted_at": now,
-                    "deleted_expires_at": expires,
-                }},
-            )
-            if int(getattr(result, "modified_count", 0) or 0) > 0:
-                # שאילתה אחת ל-``$in``, לא לולאה: מחיקה מרובה של 1,000 קבצים
-                # הייתה מייצרת 2,000 פעולות סדרתיות מול מונגו.
-                delete_snippet_chunks(user_id, file_names=list(set(file_names)))
-            cache.invalidate_user_cache(user_id)
-            try:
-                for fn in list(set(file_names)):
-                    cache.invalidate_file_related(file_id=str(fn), user_id=user_id)
-            except Exception:
-                pass
-            try:
-                uid = str(user_id)
-                cache.delete_pattern(f"collections_*:{uid}:*")
-            except Exception:
-                pass
-            return int(result.modified_count or 0)
+            return int(self._soft_delete(user_id, list(file_names)).versions)
         except Exception as e:
             emit_event("db_soft_delete_files_by_names_error", severity="error", error=str(e))
             return 0
 
-    def delete_file_by_id(self, file_id: str) -> bool:
+    def soft_delete_files_by_ids(
+        self, user_id: int, file_ids: Sequence[Any]
+    ) -> Optional[Dict[str, Any]]:
+        """מעביר לסל את הקבצים שהמזהים שייכים להם — **כל** הגרסאות.
+
+        המזהה מזהה **גרסה**, והקובץ הוא ``(user_id, file_name)``: מסכי
+        הרשימה מקבצים לפי שם ומוסרים את ה-``_id`` של הגרסה האחרונה בלבד.
+        קודמתה, ``delete_file_by_id``, סיננה לפי המזהה הזה — ולכן מחקה
+        גרסה אחת והשאירה את הקובץ חי ברשימה, גרסה אחת אחורה. היא גם לא
+        תחמה למשתמש כלל; כאן הבעלות נאכפת בשאילתה.
+
+        מחזיר ``{"files": int, "versions": int, "missing": int}``, או
+        ``None`` אם הפעולה נכשלה. ``None`` הוא "לא ידוע" ולא "לא נמחק
+        דבר" — כדי שהקורא לא ידווח ✅ על כשל (``CRITICAL-PATTERNS.md`` K11).
+        """
         try:
-            now = datetime.now(timezone.utc)
-            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
-            expires = now + timedelta(days=max(1, ttl_days))
-            # נאתר user_id לפני העדכון לצורך אינוולידציית cache אמינה
-            user_id_for_invalidation: Optional[int] = None
-            try:
-                pre_doc = self.manager.collection.find_one({"_id": ObjectId(file_id), "is_active": True}, {"user_id": 1})
-                if isinstance(pre_doc, dict):
-                    user_id_for_invalidation = pre_doc.get("user_id")
-            except Exception:
-                pass
-            result = self.manager.collection.update_many(
-                {"_id": ObjectId(file_id), "is_active": True},
-                {"$set": {
-                    "is_active": False,
-                    "deleted_at": now,
-                    "deleted_expires_at": expires,
-                }}
-            )
-            modified = int(getattr(result, 'modified_count', 0) or 0)
-            if modified > 0 and user_id_for_invalidation is not None:
-                # ``user_id`` נדרש כדי לתחום את המחיקה למשתמש הנכון. אם השליפה
-                # המקדימה נכשלה ואין לנו אותו — מדלגים, וג'וב ניקוי היתומים
-                # יטפל בצ'אנקים האלה. לעולם לא מוחקים בלי תיחום למשתמש.
-                delete_snippet_chunks(
-                    int(user_id_for_invalidation), snippet_ids=[ObjectId(file_id)]
-                )
+            oids: List[Any] = []
+            for fid in file_ids or []:
                 try:
-                    cache.invalidate_user_cache(int(user_id_for_invalidation))
+                    oids.append(ObjectId(str(fid)))
                 except Exception:
-                    pass
-                try:
-                    uid = str(user_id_for_invalidation)
-                    cache.delete_pattern(f"collections_*:{uid}:*")
-                except Exception:
-                    pass
-            return bool(modified and modified > 0)
+                    # מזהה לא חוקי אינו קובץ חסר של המשתמש — הוא קלט פגום.
+                    # נספר כ-missing ולא נכשיל את שאר הקבוצה.
+                    continue
+            unique = list(dict.fromkeys(oids))
+            names, found = resolve_owned_file_names(
+                self.manager.collection, user_id, unique)
+            missing = len(list(dict.fromkeys(file_ids or []))) - len(found)
+            outcome = self._soft_delete(user_id, names)
+            return {
+                "files": outcome.files,
+                "versions": outcome.versions,
+                "missing": max(0, missing),
+            }
         except Exception as e:
-            emit_event("db_delete_file_by_id_error", severity="error", error=str(e))
-            return False
+            emit_event("db_soft_delete_files_by_ids_error", severity="error", error=str(e))
+            return None
 
     def get_file_by_id(self, file_id: str) -> Optional[Dict]:
         try:
@@ -1487,7 +1486,7 @@ class Repository:
     def delete_large_file(self, user_id: int, file_name: str) -> bool:
         try:
             now = datetime.now(timezone.utc)
-            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 30))
             expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.large_files_collection.update_many(
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
@@ -1505,7 +1504,7 @@ class Repository:
     def delete_large_file_by_id(self, file_id: str) -> bool:
         try:
             now = datetime.now(timezone.utc)
-            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 30))
             expires = now + timedelta(days=max(1, ttl_days))
             # נאתר user_id לפני העדכון לצורך אינוולידציית cache
             user_id_for_invalidation: Optional[int] = None

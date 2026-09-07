@@ -44,6 +44,19 @@ class _FakeCollection:
     def find(self, query, projection=None):
         return list(self.docs)
 
+    def distinct(self, key, filter=None, *a, **k):
+        """‏``Collection.distinct(key, filter=None, ...)`` — כמו pymongo.
+
+        מסלול המחיקה שואל אילו שמות פעילים **לפני** שהוא מכבה אותם, כי
+        אחרי העדכון אי אפשר לספור אותם. דמה בלי המתודה הזו זורקת
+        ``AttributeError`` שנבלע ב-``except`` של ``delete_file``, והמחיקה
+        מדווחת ``False`` בלי שום רמז למה.
+        """
+        wanted = ((filter or {}).get("file_name") or {}).get("$in")
+        if wanted is not None:
+            return list(dict.fromkeys(wanted))
+        return [d[key] for d in self.docs if key in d]
+
     def find_one(self, query, projection=None, **kwargs):
         return self.docs[0] if self.docs else None
 
@@ -95,7 +108,10 @@ class TestSoftDelete:
 
         assert calls["delete"], "delete_file left the semantic chunks behind"
         assert calls["delete"][-1]["user_id"] == 7
-        assert calls["delete"][-1]["file_name"] == "a.py"
+        # ‏``file_names`` גם לשם יחיד: מחיקה בודדת ומחיקה מרובה עוברות
+        # באותו קוד, וזה מה שמונע מהן להיפרד שוב.
+        assert calls["delete"][-1]["file_names"] == ["a.py"]
+        assert calls["delete"][-1]["file_name"] is None
 
     def test_delete_file_skips_cleanup_when_nothing_was_trashed(self, repo):
         repository, calls = repo
@@ -122,27 +138,39 @@ class TestSoftDelete:
         assert call["file_name"] is None, "the batched path must not also pass a single name"
         assert call["user_id"] == 7
 
-    def test_delete_by_id_cleans_that_version_only(self, repo):
+    def test_delete_by_id_cleans_the_whole_file_and_not_one_version(self, repo):
+        """הטענה הזו הפוכה מקודמתה, במכוון.
+
+        קודם הניקוי נעשה לפי ``snippet_ids`` — כלומר לפי מזהה הגרסה
+        היחידה שהמסך מסר. כך הצ'אנקים של הגרסאות שמתחתיה נשארו מאונדקסים
+        בזמן שהקובץ כולו יושב בסל. הניקוי הוא לפי **שם**, כמו המחיקה
+        עצמה, ובקריאה אחת.
+        """
         repository, calls = repo
-        repository.manager.collection.docs = [{"_id": "f1", "user_id": 7}]
+        repository.manager.collection.docs = [
+            {"_id": "f1", "user_id": 7, "file_name": "a.py"}]
 
-        repository.delete_file_by_id("507f1f77bcf86cd799439011")
+        out = repository.soft_delete_files_by_ids(7, ["507f1f77bcf86cd799439011"])
 
-        assert calls["delete"], "delete_file_by_id left the semantic chunks behind"
+        assert out == {"files": 1, "versions": 1, "missing": 0}, out
+        assert calls["delete"], "soft_delete_files_by_ids left the semantic chunks behind"
         assert calls["delete"][-1]["user_id"] == 7
-        assert len(calls["delete"][-1]["snippet_ids"]) == 1
+        assert calls["delete"][-1]["file_names"] == ["a.py"]
+        assert calls["delete"][-1]["snippet_ids"] is None, (
+            "ניקוי לפי מזהה גרסה משאיר את הצ'אנקים של הגרסאות שמתחת")
 
-    def test_delete_by_id_skips_cleanup_without_a_known_user(self, repo):
+    def test_an_id_that_belongs_to_nobody_cleans_nothing(self, repo):
         """לעולם לא מוחקים צ'אנקים בלי תיחום למשתמש.
 
-        אם השליפה המקדימה נכשלה, ג'וב הניקוי יטפל בהם — עדיף להשאיר יתום
-        מאשר לגעת בנתונים של משתמש אחר.
+        מזהה שלא נמצא בבעלות המשתמש אינו מייצר שם קובץ, ולכן אין מה
+        לנקות — עדיף להשאיר יתום מאשר לגעת בנתונים של משתמש אחר.
         """
         repository, calls = repo
         repository.manager.collection.docs = []
 
-        repository.delete_file_by_id("507f1f77bcf86cd799439011")
+        out = repository.soft_delete_files_by_ids(7, ["507f1f77bcf86cd799439011"])
 
+        assert out == {"files": 0, "versions": 0, "missing": 1}, out
         assert calls["delete"] == []
 
 

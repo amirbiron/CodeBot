@@ -178,6 +178,11 @@ from utils import normalize_code, TimeUtils, detect_language_from_filename  # no
 # כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
 # שלמעלה, ראו tests/test_webapp_import_paths.py.
 from file_dates import inherited_created_at, file_was_edited  # noqa: E402
+# מחיקה רכה — מודול שורש טהור, אותה שאילתה שהבוט מריץ. ראו file_deletion.py
+from file_deletion import (  # noqa: E402
+    resolve_owned_file_names,
+    soft_delete_files_by_names as _soft_delete_files_by_names,
+)
 from user_stats import user_stats  # noqa: E402
 from webapp.size_format import format_file_size as _format_file_size_shared
 from webapp.activity_tracker import log_user_event  # noqa: E402
@@ -1870,14 +1875,20 @@ try:
 except Exception:
     PUBLIC_SHARE_TTL_DAYS = 7
 
-# ברירת מחדל לימי שהות בסל מחזור עבור מחיקה רכה בווב
+# ימי השהות בסל המחזור — ערך אחד לכל מסלולי המחיקה, בבוט ובווב.
+#
+# היו כאן שניים: עמוד הקובץ הבטיח 30 יום ומחיקה מרובה נתנה 7, כי כל אחד
+# קרא מקור אחר — הקבוע הזה מול ``config.RECYCLE_TTL_DAYS``. אותה פעולה
+# בדיוק, שני מספרים. הקריאה עוברת דרך ``config`` ולא דרך ``os.getenv``
+# בנפרד, כדי שלא ייווצר שוב מסלול קריאה שני שיכול לסטות.
 try:
-    RECYCLE_TTL_DAYS_DEFAULT = max(1, int(os.getenv('RECYCLE_TTL_DAYS', '7') or '7'))
+    RECYCLE_TTL_DAYS = max(1, int(getattr(cfg, 'RECYCLE_TTL_DAYS', 30)))
 except Exception:
-    RECYCLE_TTL_DAYS_DEFAULT = 7
+    RECYCLE_TTL_DAYS = 30
 
-# עמוד הקובץ מציג שהות של 30 יום בסל המחזור (issue #1937)
-WEBAPP_SINGLE_DELETE_TTL_DAYS = 30
+#: התקרה שהראוט מקבל מהלקוח. חייבת להיות לפחות ברירת המחדל, אחרת היא
+#: הייתה חותכת אותה בשקט.
+RECYCLE_TTL_DAYS_MAX = max(30, RECYCLE_TTL_DAYS)
 FILE_HISTORY_MAX_VERSIONS = 25
 
 # הגדרת חיבור קבוע (Remember Me)
@@ -2238,6 +2249,9 @@ def inject_globals():
         # תקרת אורך פתק — מגיעה ל-JS מכאן ולא מוקלדת שם. בלי זה היו שני
         # מספרים שמסונכרנים בתקווה, ופער ביניהם נראה למשתמש כחיתוך בלי הסבר.
         'max_note_chars': MAX_NOTE_CHARS_FOR_TEMPLATES,
+        # ימי השהות בסל — מאותה סיבה בדיוק: המודאל בעמוד הקובץ הבטיח "30
+        # יום" כמספר מוקלד, ולכן שינוי בקונפיג לא היה מגיע אליו.
+        'recycle_ttl_days': RECYCLE_TTL_DAYS,
         # External uptime config for templates (non-sensitive only)
         'uptime_provider': UPTIME_PROVIDER,
         'uptime_status_url': UPTIME_STATUS_URL,
@@ -12986,7 +13000,7 @@ def trash_page():
         total_pages=total_pages,
         has_prev=page > 1,
         has_next=page < total_pages,
-        recycle_ttl_days=RECYCLE_TTL_DAYS_DEFAULT,
+        recycle_ttl_days=RECYCLE_TTL_DAYS,
     )
 
 @app.route('/file/<file_id>')
@@ -14311,28 +14325,15 @@ def api_file_move_to_trash(file_id):
         return jsonify({'ok': False, 'error': 'הקובץ כבר הועבר לסל'}), 409
 
     now = datetime.now(timezone.utc)
-    ttl_days = WEBAPP_SINGLE_DELETE_TTL_DAYS
-    expires_at = now + timedelta(days=ttl_days)
+    ttl_days = RECYCLE_TTL_DAYS
 
     try:
-        res = db.code_snippets.update_many(
-            {
-                'user_id': user_id,
-                'file_name': file_name,
-'is_active': True,
-            },
-            {'$set': {
-                # ``deleted_at`` מתעד את המחיקה, וסל המיחזור ממיין לפיו.
-                # ``updated_at`` נשאר על העריכה האחרונה בפועל.
-                'is_active': False,
-                'deleted_at': now,
-                'deleted_expires_at': expires_at,
-            }},
-        )
+        outcome = _soft_delete_files_by_names(
+            db.code_snippets, user_id, [file_name], ttl_days=ttl_days, now=now)
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה בהעברה לסל'}), 500
 
-    modified_count = int(getattr(res, 'modified_count', 0) or 0)
+    modified_count = outcome.versions
     if not modified_count:
         return jsonify({'ok': False, 'error': 'לא נמצאה גרסה פעילה'}), 409
 
@@ -17518,24 +17519,24 @@ def api_files_bulk_delete():
 
     קלט JSON:
     - file_ids: List[str]
-    - ttl_days: Optional[int] – אם לא סופק, יילקח מ־RECYCLE_TTL_DAYS (ברירת מחדל 7)
+    - ttl_days: Optional[int] – אם לא סופק, יילקח מ־``RECYCLE_TTL_DAYS`` (ברירת מחדל 30)
     """
     try:
         data = request.get_json(silent=True) or {}
         file_ids = list(data.get('file_ids') or [])
-        # ברירת מחדל מ-ENV (RECYCLE_TTL_DAYS); אם התקבל ערך לא חוקי – השתמש בברירת המחדל
+        # ברירת מחדל אחת (RECYCLE_TTL_DAYS); ערך לא חוקי חוזר אליה
         raw_ttl = data.get('ttl_days')
         if raw_ttl is None or str(raw_ttl).strip() == '':
-            ttl_days = RECYCLE_TTL_DAYS_DEFAULT
+            ttl_days = RECYCLE_TTL_DAYS
         else:
             try:
                 ttl_days = int(raw_ttl)
             except Exception:
-                ttl_days = RECYCLE_TTL_DAYS_DEFAULT
+                ttl_days = RECYCLE_TTL_DAYS
         if ttl_days < 1:
-            ttl_days = RECYCLE_TTL_DAYS_DEFAULT
-        if ttl_days > 30:
-            ttl_days = 30
+            ttl_days = RECYCLE_TTL_DAYS
+        if ttl_days > RECYCLE_TTL_DAYS_MAX:
+            ttl_days = RECYCLE_TTL_DAYS_MAX
 
         if not file_ids:
             return jsonify({'success': False, 'error': 'No files selected'}), 400
@@ -17552,41 +17553,33 @@ def api_files_bulk_delete():
         db = get_db()
         user_id = session['user_id']
         now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(days=ttl_days)
 
-        # אימות בעלות ואיסוף סטטוס is_active לכל קובץ; תוצאה אחת לכל ID ייחודי
-        docs = list(db.code_snippets.find(
-            {'_id': {'$in': unique_object_ids}, 'user_id': user_id},
-            {'_id': 1, 'is_active': 1}
-        ))
-        found_ids = {doc['_id'] for doc in docs}
+        # המזהים מזהים **גרסה**, והמחיקה היא של **קובץ**: העמוד מוסר את
+        # ה-``_id`` של הגרסה האחרונה בלבד (הפייפליין מקבץ לפי ``file_name``),
+        # ולכן המרה לשמות היא מה שמונע השארת הגרסאות שמתחת פעילות.
+        # הבעלות נאכפת בתוך השאילתה, ולא בבדיקה נפרדת.
+        file_names, found_ids = resolve_owned_file_names(
+            db.code_snippets, user_id, unique_object_ids)
         if len(found_ids) != len(unique_object_ids):
             return jsonify({'success': False, 'error': 'Some files not found'}), 404
-        # קבצים פעילים למחיקה (מוגדר כ-True או לא קיים)
-        active_ids = [doc['_id'] for doc in docs if bool(doc.get('is_active', True))]
-        skipped_already_deleted = len(unique_object_ids) - len(active_ids)
 
-        modified_count = 0
-        if active_ids:
-            q = {
-                '_id': {'$in': active_ids},
-                'user_id': user_id,
-                'is_active': True
-            }
-            res = db.code_snippets.update_many(q, {
-                '$set': {
-                    # ראו ההערה ב-``api_file_move_to_trash``.
-                    'is_active': False,
-                    'deleted_at': now,
-                    'deleted_expires_at': expires_at,
-                }
-            })
-            modified_count = int(getattr(res, 'modified_count', 0))
-            if modified_count:
-                _delete_snippet_chunks(int(user_id), snippet_ids=list(active_ids))
+        outcome = _soft_delete_files_by_names(
+            db.code_snippets, user_id, file_names, ttl_days=ttl_days, now=now)
+
+        # ``skipped`` נספר בקבצים, כמו ``deleted``: קובץ שכל גרסאותיו כבר
+        # בסל אינו מוחזר על ידי המחיקה, ולכן הוא ההפרש.
+        skipped_already_deleted = len(file_names) - outcome.files
+
+        if outcome.files:
+            # לפי שם ולא לפי ``snippet_ids``: הצ'אנקים של הגרסאות הישנות
+            # היו נשארים באינדקס הסמנטי בזמן שהקובץ יושב בסל.
+            _delete_snippet_chunks(int(user_id), file_names=list(outcome.file_names))
         return jsonify({
             'success': True,
-            'deleted': modified_count,
+            # ``deleted`` נספר בקבצים ולא במסמכים: ``multi-select.js`` מדפיס
+            # אותו כ-"N קבצים הועברו לסל", וקובץ בן שש גרסאות אינו שישה קבצים.
+            'deleted': outcome.files,
+            'versions': outcome.versions,
             'skipped_already_deleted': skipped_already_deleted,
             'requested': len(unique_object_ids),
             'message': f'הקבצים הועברו לסל המחזור ל-{ttl_days} ימים'

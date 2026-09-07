@@ -95,6 +95,13 @@ def test_repository_delete_by_id_and_large_files(monkeypatch):
             return 1
         def aggregate(self, *a, **k):
             return [{"_id": "z", "file_name": "z.py"}]
+        def find(self, query, projection=None, *a, **k):
+            # מזהי הגרסה ← שם הקובץ שלהן. חתימה כמו של pymongo:
+            # ההיטלה היא הארגומנט הפוזיציוני השני.
+            ids = (query.get("_id") or {}).get("$in") or []
+            return [{"_id": oid, "file_name": "z.py"} for oid in ids]
+        def distinct(self, key, filter=None, *a, **k):
+            return ["z.py"]
 
     class DummyManager:
         def __init__(self):
@@ -103,13 +110,14 @@ def test_repository_delete_by_id_and_large_files(monkeypatch):
 
     repo = Repository(DummyManager())
 
-    # delete_file_by_id with a valid ObjectId
+    # מחיקה לפי מזהה — המסנן שיוצא הוא **לפי שם**, כי המזהה מסמן גרסה
+    # אחת בלבד והמחיקה היא של הקובץ כולו.
     valid_id = str(ObjectId())
-    rc = repo.delete_file_by_id(valid_id)
-    # repository now returns bool for delete_file_by_id
-    assert rc is True
+    rc = repo.soft_delete_files_by_ids(1, [valid_id])
+    assert rc == {"files": 1, "versions": 1, "missing": 0}, rc
     _flt, _upd = repo.manager.collection.updated
-    assert _flt["_id"] is not None
+    assert "_id" not in _flt, _flt
+    assert _flt["file_name"]["$in"] == ["z.py"], _flt
     assert _upd["$set"]["is_active"] is False
     assert isinstance(_upd["$set"]["deleted_at"], datetime)
     assert isinstance(_upd["$set"]["deleted_expires_at"], datetime)

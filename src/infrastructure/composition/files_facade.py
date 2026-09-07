@@ -503,12 +503,19 @@ class FilesFacade:
         except Exception:
             return False
 
-    def delete_file_by_id(self, file_id: str) -> bool:
+    def soft_delete_files_by_ids(self, user_id: int, file_ids) -> Optional[Dict[str, Any]]:
+        """מעביר לסל את הקבצים שהמזהים שייכים להם — כל הגרסאות שלהם.
+
+        מחזיר ``None`` כשהפעולה נכשלה, ולא ``{"files": 0}``: הקורא חייב
+        להבדיל בין "לא היה מה למחוק" לבין "לא ידוע אם נמחק", אחרת הוא
+        ידווח למשתמש שהכול עבר (``CRITICAL-PATTERNS.md`` K11).
+        """
         try:
             db = self._get_db()
-            return bool(db.delete_file_by_id(file_id))
+            result = db.soft_delete_files_by_ids(user_id, file_ids)
         except Exception:
-            return False
+            return None
+        return result if isinstance(result, dict) else None
 
     def get_user_files_by_repo(
         self,
