@@ -120,7 +120,7 @@
       const pagination = document.getElementById('searchPagination');
 
       if (input) { input.value = ''; input.focus(); }
-      if (suggestions) { suggestions.style.display = 'none'; suggestions.innerHTML = ''; }
+      if (suggestions) { suggestions.hidden = true; suggestions.innerHTML = ''; }
       if (clearBtn) { clearBtn.style.display = 'none'; }
 
       // אפס סלקטים לערכי ברירת המחדל (תוכן / 10 / רלוונטיות).
@@ -405,7 +405,10 @@
     items.forEach(function(s){
       const a = document.createElement('a');
       a.href = '#';
-      a.className = 'list-group-item list-group-item-action';
+      // מחלקה של הפרויקט, לא של Bootstrap: הוובאפ אינו טוען את ה-CSS של
+      // Bootstrap, ולכן list-group-item לא עיצב כאן דבר וההצעות נדבקו זו לזו.
+      a.className = 'search-suggestion';
+      a.setAttribute('role', 'option');
       a.textContent = String(s || '');
       a.addEventListener('click', function(e){
         e.preventDefault();
@@ -415,9 +418,9 @@
       });
       box.appendChild(a);
     });
-    box.style.display = 'block';
+    box.hidden = false;
   }
-  function hideSuggestions(){ const box = $('searchSuggestions'); if (box) box.style.display='none'; }
+  function hideSuggestions(){ const box = $('searchSuggestions'); if (box) box.hidden = true; }
 
   // אייקון השפה מגיע מ-window.langIcon (base.html) — מקור אמת אחד לכל האפליקציה
   function fileIcon(lang){

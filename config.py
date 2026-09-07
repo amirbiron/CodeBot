@@ -412,6 +412,16 @@ class BotConfig(BaseSettings):
         ),
     )
 
+    SEARCH_MEMORY_INDEX_EAGER_BUILD: bool = Field(
+        default=False,
+        description=(
+            "Build the in-process SearchIndex on every search, including types that "
+            "never read it (CONTENT/REGEX/FUZZY). Restores the pre-#3351 behaviour, "
+            "which kept the index warm for suggest_completions at the cost of a full "
+            "scan of the user's files on the default WebApp search."
+        ),
+    )
+
     # Pagination defaults
     SEARCH_PAGE_SIZE: int = Field(
         default=200,

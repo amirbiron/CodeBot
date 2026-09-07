@@ -2672,6 +2672,17 @@ class ConfigService:
             ),
             category="features",
         ),
+        "SEARCH_MEMORY_INDEX_EAGER_BUILD": ConfigDefinition(
+            key="SEARCH_MEMORY_INDEX_EAGER_BUILD",
+            services=("webapp",),
+            default="false",
+            description=(
+                "בניית אינדקס החיפוש בזיכרון גם בחיפושים שאינם קוראים ממנו "
+                "(תוכן/Regex/מטושטש). דלוק = ההתנהגות שלפני PR #3351, ששמרה את "
+                "האינדקס חם עבור ההשלמה האוטומטית במחיר סריקה מלאה בכל חיפוש"
+            ),
+            category="features",
+        ),
         "SEARCH_PAGE_SIZE": ConfigDefinition(
             key="SEARCH_PAGE_SIZE",
             services=("webapp", "bot", "webserver"),

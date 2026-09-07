@@ -657,6 +657,21 @@ def _memory_index_enabled() -> bool:
     return bool(getattr(config, "SEARCH_MEMORY_INDEX_ENABLED", True))
 
 
+def _memory_index_eager_build() -> bool:
+    """האם לבנות את האינדקס גם בחיפושים שאינם קוראים ממנו.
+
+    ברירת המחדל ``False``: ``CONTENT``, ``REGEX`` ו-``FUZZY`` אינם משלמים על
+    בנייה שאיש לא יקרא את תוצאתה.
+
+    ``True`` מחזיר את ההתנהגות הקודמת. היא לא הייתה חסרת ערך: ``suggest_completions``
+    קורא את האינדקס דרך ``_get_ready_index``, שבמכוון **אינו** בונה אותו בעצמו —
+    ולכן ההשלמה נהנתה מאינדקס שחיפוש ``CONTENT`` בנה כתופעת לוואי. עם ``False``
+    ההשלמה מאבדת מילים מתוך תוכן הקבצים ושמות פונקציות; שמות קבצים, תגיות ושפות
+    מגיעים ממקור אחר וממשיכים לעבוד.
+    """
+    return bool(getattr(config, "SEARCH_MEMORY_INDEX_EAGER_BUILD", False))
+
+
 class SearchIndex:
     """אינדקס חיפוש לביצועים טובים יותר"""
     
@@ -877,6 +892,12 @@ class AdvancedSearchEngine:
                     pass
                 return []
             
+            # חימום מקדים של האינדקס, גם עבור סוגים שאינם קוראים ממנו.
+            # כבוי כברירת מחדל; מודלק רק כדי להשאיר אותו חם עבור
+            # suggest_completions (ראו _memory_index_eager_build).
+            if _memory_index_eager_build():
+                self._get_index_for_search(user_id)
+
             # ביצוע החיפוש לפי סוג.
             #
             # האינדקס בזיכרון נבנה רק בענפים שקוראים ממנו: TEXT ו-FUNCTION.
@@ -954,7 +975,10 @@ class AdvancedSearchEngine:
         file_scores: Dict[str, float] = defaultdict(float)
         
         for word in query_words:
-            matching_files = index.word_index.get(word, set())
+            # עותק, לא הקבוצה השמורה: ``get`` מחזיר את הקבוצה עצמה כשהמילה קיימת,
+            # וה-``update`` שלמטה היה מזליג את התאמות ה-prefix לתוך האינדקס לצמיתות —
+            # ומאותו רגע הן נספרות כהתאמות מדויקות ומקבלות 2.0 במקום 1.0.
+            matching_files = set(index.word_index.get(word, ()))
             
             # חיפוש חלקי (prefix matching)
             for indexed_word, files in index.word_index.items():

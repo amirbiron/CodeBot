@@ -1,14 +1,59 @@
+/* --- הצעות השלמה לחיפוש --- */
+/* טוקני רכיב (Level 3) עם נפילה-לאחור לטוקנים הסמנטיים, לפי
+   docs/webapp/theming_and_css.rst. אין כאן HEX: הרקע חייב להיות אטום בכל
+   ערכת נושא, כי התיבה מרחפת מעל תוכן. */
 #searchSuggestions{
+  /* משפחת --solid-surface-* היא משטח האטום של הפרויקט לתפריטים צפים, ובה
+     משתמש גם תפריט השפות באותו עמוד. נמדדה על כל שבע ערכות הנושא: ניגודיות
+     17.7 בכולן, וגם ב-custom — שבו --bg-secondary אינו מוגדר כלל והתיבה
+     הייתה יוצאת שקופה. */
+  --suggestions-bg: var(--solid-surface-bg);
+  --suggestions-text: var(--solid-surface-text);
+  --suggestions-border: var(--solid-surface-border);
+  /* גוון ההדגשה נגזר מהמשטח עצמו, ולכן נשאר נראה על משטח בהיר או כהה כאחד */
+  --suggestions-hover: color-mix(in srgb, var(--suggestions-text) 8%, var(--suggestions-bg));
+
   max-height:300px;
   overflow-y:auto;
-  position:absolute; /* עיגון לתיבת הקלט כדי שלא "יברח" שמאלה */
+  overscroll-behavior: contain; /* גלילה בתוך הרשימה לא תגלגל את העמוד */
+  position:absolute; /* נצמד ל-.search-box-wrapper, כלומר לתיבת הקלט עצמה */
   top:calc(100% + 6px);
-  left:0; right:0;
+  inset-inline:0; /* לוגי: עובד ב-RTL וב-LTR כאחד */
   z-index:1000;
-  background:#fff;
-  border:1px solid rgba(0,0,0,0.1);
+  background: var(--suggestions-bg);
+  color: var(--suggestions-text);
+  border:1px solid var(--suggestions-border);
   border-radius:8px;
-  box-shadow:0 4px 12px rgba(0,0,0,0.15);
+  box-shadow: var(--solid-surface-shadow);
+  padding-block: 0.25rem;
+}
+
+#searchSuggestions[hidden]{ display:none; }
+
+/* הוובאפ אינו טוען את ה-CSS של Bootstrap, ולכן list-group-item לא עיצב כאן
+   דבר: ההצעות היו אלמנטים inline בלי ריפוד, וחמש מהן נדחסו לשורה אחת. */
+.search-suggestion{
+  display:block;
+  padding:0.55rem 0.85rem;
+  color: var(--suggestions-text);
+  text-decoration:none;
+  line-height:1.4;
+  overflow-wrap:anywhere; /* הצעה ארוכה נשברת ולא מרחיבה את התיבה */
+  border-block-end:1px solid var(--suggestions-border);
+  transition: background .15s ease;
+}
+
+.search-suggestion:last-child{ border-block-end:none; }
+
+.search-suggestion:hover,
+.search-suggestion:focus-visible{
+  background: var(--suggestions-hover);
+  color: var(--suggestions-text);
+  text-decoration:none;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .search-suggestion{ transition:none; }
 }
 
 /* --- תיבות חיפוש מעוצבות בסגנון "אוסף הקהילה" --- */
@@ -258,14 +303,19 @@
   flex-wrap:wrap;
   gap:1rem;
   width:100%;
-  /* בלימה של גלילה אופקית במקרי קצה */
+  /* בלימה של גלילה אופקית במקרי קצה.
+     overflow-x:hidden אסור כאן: הדפדפן מחשב אז overflow-y ל-auto, השורה
+     הופכת למיכל גלילה אנכי, והדרופדאון של ההצעות נחתך בתוכה. clip בולם
+     בדיוק אותו דבר בלי להפוך את הציר האנכי. ההצהרה הראשונה היא נפילה-לאחור
+     לדפדפנים שאינם מכירים clip. */
   overflow-x: hidden;
+  overflow-x: clip;
 }
 
-/* עיגון הסוגסטיות לאיזור תיבת החיפוש */
+/* עמודת החיפוש */
 .search-and-filters .col-lg-8,
 .search-and-filters .col-md-8{
-  position:relative; /* כדי שה-#searchSuggestions יתמקם ביחס לעמודה */
+  position:relative;
   flex:1 1 65%;
   min-width:300px;
   max-width:100%;

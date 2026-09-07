@@ -142,10 +142,49 @@ def test_the_log_line_the_user_sees_is_gone_for_a_content_search(stub_db, caplog
     engine = se.AdvancedSearchEngine()
 
     with caplog.at_level("INFO", logger="search_engine"):
-        engine.search(user_id=6865105071, query="needle", search_type=se.SearchType.CONTENT)
+        engine.search(user_id=1, query="needle", search_type=se.SearchType.CONTENT)
     assert "בונה אינדקס חיפוש" not in caplog.text
 
     caplog.clear()
     with caplog.at_level("INFO", logger="search_engine"):
-        engine.search(user_id=6865105071, query="needle", search_type=se.SearchType.TEXT)
+        engine.search(user_id=1, query="needle", search_type=se.SearchType.TEXT)
     assert "בונה אינדקס חיפוש" in caplog.text
+
+
+def test_eager_build_restores_the_warm_index_for_suggestions(stub_db, monkeypatch):
+    """``SEARCH_MEMORY_INDEX_EAGER_BUILD=true`` מחזיר את ההתנהגות שלפני השינוי.
+
+    זו הסיבה שהמתג קיים: ``suggest_completions`` קורא את האינדקס דרך
+    ``_get_ready_index``, שבמכוון אינו בונה אותו. לפני השינוי חיפוש ``CONTENT``
+    בנה אותו כתופעת לוואי, וההשלמה נהנתה מזה. הטסט נועל את שני הכיוונים.
+    """
+    engine = se.AdvancedSearchEngine()
+
+    # ברירת מחדל: אין חימום, ולכן אין ממה להציע
+    engine.search(user_id=1, query="needle", search_type=se.SearchType.CONTENT)
+    assert engine.indexes == {}
+    assert engine.suggest_completions(1, "need", limit=10) == []
+
+    # מתג דלוק: האינדקס חם, וההשלמה מוצאת מילים מתוך תוכן הקובץ
+    monkeypatch.setattr(se.config, "SEARCH_MEMORY_INDEX_EAGER_BUILD", True, raising=False)
+    warm = se.AdvancedSearchEngine()
+    warm.search(user_id=1, query="needle", search_type=se.SearchType.CONTENT)
+    assert list(warm.indexes) == [1]
+    assert "needle" in warm.suggest_completions(1, "need", limit=10)
+
+
+def test_the_master_switch_wins_over_eager_build(rebuild_spy, stub_db, monkeypatch):
+    """כיבוי מלא גובר על חימום מקדים — אין נתיב שבו השילוב בונה אינדקס."""
+    monkeypatch.setattr(se.config, "SEARCH_MEMORY_INDEX_ENABLED", False, raising=False)
+    monkeypatch.setattr(se.config, "SEARCH_MEMORY_INDEX_EAGER_BUILD", True, raising=False)
+    engine = se.AdvancedSearchEngine()
+
+    engine.search(user_id=1, query="needle", search_type=se.SearchType.CONTENT)
+
+    assert rebuild_spy == []
+    assert engine.indexes == {}
+
+
+def test_eager_build_is_off_when_the_config_does_not_carry_it():
+    assert not hasattr(se.config, "SEARCH_MEMORY_INDEX_EAGER_BUILD")
+    assert se._memory_index_eager_build() is False
