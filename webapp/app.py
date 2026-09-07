@@ -5049,11 +5049,28 @@ def api_profiler_slow_queries():
     except Exception:
         limit = 50
     collection = request.args.get("collection")
+
+    # ``min_time`` **מסנן אילו שורות מוצגות**, ולכן ערך פסול בו הוא 400 ולא
+    # התעלמות שקטה: טבלה שמתעלמת מהסינון שביקשו מחזירה 200 עם שורות שגויות.
+    # ``nan`` נדחה במפורש — ``{"$gte": nan}`` מתאים לאפס מסמכים במונגו, כלומר
+    # "טבלה ריקה בלי סיבה". ``limit`` לעומתו נשאר סלחני כפי שהיה: ערך פסול שם
+    # מחזיר 50 שורות במקום 20, ולא שורות אחרות.
+    min_time_raw = request.args.get("min_time")
+    min_time = None
+    if min_time_raw:
+        try:
+            min_time = float(min_time_raw)
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "invalid_min_time"}), 400
+        if not math.isfinite(min_time):
+            return jsonify({"status": "error", "message": "invalid_min_time"}), 400
+
     try:
         svc = _get_webapp_profiler_service()
         page = svc.get_slow_queries_page(
             limit=limit,
             collection_filter=collection,
+            min_execution_time_ms=min_time,
             hours=_profiler_window_hours_arg(),
             sort_field=request.args.get("sort", "execution_time_ms"),
             sort_direction=request.args.get("dir", "desc"),

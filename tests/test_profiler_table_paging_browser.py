@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import time
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -116,6 +117,87 @@ def dashboard(admin_live_server, chromium_executable, stub_profiler_api):
                 ".forEach(e => e.remove())"
             )
             yield page, asked
+
+
+class _Gate:
+    """שולט מתי כל בקשת ``slow-queries`` נענית — כך המרוץ הופך דטרמיניסטי.
+
+    בלי זה אי אפשר לבדוק תנאי מרוץ בדפדפן: הבקשות מסתיימות בסדר שרירותי,
+    והטסט או עובר תמיד או נכשל אקראית. כאן הבקשה **מוחזקת פתוחה** (לא
+    ``fulfill``), מבצעים את הפעולה השנייה, ורק אז משחררים — כלומר התגובה
+    הישנה מגיעה אחרונה, בדיוק המקרה שהמזהה דור אמור לזרוק.
+    """
+
+    def __init__(self):
+        self.asked = []
+        self.held = []
+        self.auto = True  # טעינת העמוד נענית מיד; אחריה עוברים לשליטה ידנית
+
+    def handle(self, route):
+        query = parse_qs(urlsplit(route.request.url).query)
+        self.asked.append(query)
+        if self.auto:
+            self.release(route, tag="load")
+        else:
+            self.held.append(route)
+
+    @staticmethod
+    def release(route, *, tag, next_cursor="CURSOR-1", status=200):
+        if status != 200:
+            route.fulfill(status=status, content_type="application/json",
+                          body=json.dumps({"status": "error", "message": "internal_error"}))
+            return
+        body = {
+            "status": "success",
+            # ``query_id`` נושא את התג, כך שאפשר לראות **איזו** תגובה ניצחה.
+            "data": [dict(_row(i, cursor_page=False), query_id=f"{tag}-{i}") for i in range(3)],
+            "count": 3,
+            "total": 6,
+            "next_cursor": next_cursor,
+        }
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+
+@pytest.fixture
+def racing_dashboard(admin_live_server, chromium_executable, stub_profiler_api):
+    """אותו דשבורד, אבל עם ``_Gate`` שמחזיק את הבקשות."""
+    base_url = admin_live_server.base_url
+    gate = _Gate()
+    with sync_playwright() as pw:
+        try:
+            browser = (
+                pw.chromium.launch(executable_path=chromium_executable)
+                if chromium_executable else pw.chromium.launch()
+            )
+        except Exception as exc:  # pragma: no cover
+            pytest.skip(f"אין Chromium זמין: {exc}")
+
+        with browser, browser.new_context(viewport={"width": 1280, "height": 900}) as context:
+            context.add_cookies([{
+                "name": "session", "value": admin_live_server.session_cookie,
+                "domain": "127.0.0.1", "path": "/",
+            }])
+            page = context.new_page()
+            page.add_init_script(
+                "try{localStorage.setItem('welcomeModalSeen','1');"
+                "localStorage.setItem('onboarding_completed','1');}catch(e){}"
+            )
+            stub_profiler_api(page)
+
+            page.route("**/api/profiler/summary*", lambda r: r.fulfill(
+                status=200, content_type="application/json", body=json.dumps(SUMMARY)))
+            page.route("**/api/profiler/patterns*", lambda r: r.fulfill(
+                status=200, content_type="application/json", body=json.dumps(PATTERNS)))
+            page.route("**/api/profiler/slow-queries*", gate.handle)
+
+            page.goto(f"{base_url}/admin/profiler", wait_until="domcontentloaded")
+            page.wait_for_selector("#slow-queries-table tbody tr", timeout=10000)
+            page.evaluate(
+                "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
+                ".forEach(e => e.remove())"
+            )
+            gate.auto = False
+            yield page, gate
 
 
 def _body_rows(page, table_id):
@@ -240,3 +322,88 @@ def test_the_patterns_card_is_a_real_link_to_the_section(dashboard):
 
     assert card is not None, "הכרטיס אינו קישור, ולכן מקלדת וקורא מסך לא מגיעים אליו"
     assert page.query_selector("#query-patterns") is not None, "יעד העוגן אינו קיים"
+
+
+def _wait_for(condition, *, timeout=10.0, what=""):
+    """המתנה על תנאי בצד פייתון. ``wait_for_function`` חסום כאן — ה-CSP של
+    העמוד אוסר ``unsafe-eval``, ופרדיקט כמחרוזת נחסם שם."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if condition():
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"פג הזמן בהמתנה ל: {what}")
+
+
+class TestConcurrentRequestsDoNotOverwriteEachOther:
+    """שתי בקשות במקביל — התגובה האיטית לא מנצחת."""
+
+    def test_a_stale_response_does_not_overwrite_a_newer_one(self, racing_dashboard):
+        """לחיצה על מיון אחד, ואז על אחר, והראשונה חוזרת **אחרי** השנייה.
+
+        בלי מזהה דור, התגובה שמגיעה אחרונה כותבת גם את הטבלה וגם את
+        ``slowQueryCursor`` — כלומר המסך מציג מיון שהמשתמש כבר עזב, והקורסור
+        שנשמר שייך למיון ההוא. הלחיצה הבאה על "טען עוד" הייתה נדחית ב-400
+        (``cursor_sort_mismatch``) או מחזירה שורות של מיון אחר.
+        """
+        page, gate = racing_dashboard
+
+        page.click("[data-testid='sort-timestamp']")
+        _wait_for(lambda: len(gate.held) == 1, what="הבקשה הראשונה יצאה")
+        page.click("[data-testid='sort-collection']")
+        _wait_for(lambda: len(gate.held) == 2, what="הבקשה השנייה יצאה")
+
+        # ``query_id`` יושב ב-``data-query-id`` ולא בטקסט הנראה, ולכן הבדיקה
+        # היא על התכונה. (הגרסה הראשונה של הטסט חיפשה אותו ב-``inner_text``
+        # ונכשלה — כשל של הטסט, לא של הקוד.)
+        def _shown():
+            return page.eval_on_selector_all(
+                "#slow-queries-table tbody tr", "els => els.map(e => e.dataset.queryId)"
+            )
+
+        # השנייה חוזרת ראשונה, והראשונה — הישנה — חוזרת אחריה.
+        gate.release(gate.held[1], tag="newer")
+        _wait_for(lambda: any(q.startswith("newer-") for q in _shown()),
+                  what="התגובה החדשה הוצגה")
+        gate.release(gate.held[0], tag="stale")
+
+        # שהות קצרה כדי לתת לתגובה המיושנת הזדמנות אמיתית לכתוב על המסך.
+        page.wait_for_timeout(400)
+        shown = _shown()
+        assert not any(q.startswith("stale-") for q in shown), f"התגובה המיושנת דרסה את החדשה: {shown}"
+        assert all(q.startswith("newer-") for q in shown), shown
+
+    def test_the_button_is_disabled_while_a_request_is_in_flight(self, racing_dashboard):
+        """כפתור פעיל בזמן בקשה = אותו קורסור נשלח פעמיים, והשורות מוכפלות.
+
+        הנטרול הוא מה שמונע את זה בשורש — כפתור מנוטרל אינו מפעיל את המאזין
+        שלו כלל, ולכן אין צורך בשמירה נוספת ב-JS.
+        """
+        page, gate = racing_dashboard
+
+        page.click("#load-more-slow-queries")
+        _wait_for(lambda: len(gate.held) == 1, what="בקשת 'טען עוד' יצאה")
+
+        assert page.query_selector("#load-more-slow-queries").is_disabled(), (
+            "הכפתור פעיל בזמן שהבקשה באוויר — לחיצה נוספת תשלח את אותו קורסור שוב"
+        )
+
+        gate.release(gate.held[0], tag="page2")
+        _wait_for(lambda: not page.query_selector("#load-more-slow-queries").is_disabled(),
+                  what="הכפתור חזר לפעילות")
+
+    def test_a_failed_request_gives_the_button_back(self, racing_dashboard):
+        """**הכשל שגרוע מהמרוץ.**
+
+        אם ההחזרה יושבת בסוף מסלול ההצלחה במקום ב-``finally``, בקשה שנכשלה
+        משאירה את הכפתור מנוטרל לצמיתות — בלי שום דבר על המסך שמסביר למה,
+        ובלי יציאה חוץ מרענון העמוד.
+        """
+        page, gate = racing_dashboard
+
+        page.click("#load-more-slow-queries")
+        _wait_for(lambda: len(gate.held) == 1, what="בקשת 'טען עוד' יצאה")
+        gate.release(gate.held[0], tag="boom", status=500)
+
+        _wait_for(lambda: not page.query_selector("#load-more-slow-queries").is_disabled(),
+                  what="הכפתור חזר לפעילות אחרי כשל")

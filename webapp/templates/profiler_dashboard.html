@@ -210,6 +210,11 @@
      ``display:flex``), והכלל כאן הוא אותו כלל, מוגבל לעמוד הזה. */
   [hidden] { display: none !important; }
 
+  /* כפתור בזמן בקשה. בלי סימן חזותי, המשתמש לוחץ שוב ומניח שכלום לא קרה.
+     ‏``opacity`` ו-``cursor`` בלבד, בלי צבע — התבנית שכבר בריפו
+     (``static/css/codemirror-custom.css``), ובלי HEX מחוץ לבלוק הטוקנים. */
+  .btn:disabled { opacity: .6; cursor: not-allowed; }
+
   /* Explain (find) */
   .stage-node { padding: 10px 15px; border-radius: 8px; margin: 6px 0; }
   .stage-collscan { background-color: rgba(220, 53, 69, 0.12); border: 2px solid rgba(220, 53, 69, 0.7); }
@@ -324,10 +329,22 @@
     el.textContent = (total > shown) ? `— מוצגות ${shown} מתוך ${total}` : `— ${shown}`;
   }
 
+  // מזהה דור. שתי בקשות במקביל — לחיצה על מיון ואז על "טען עוד", או שתי
+  // לחיצות מיון — והתגובה שמגיעה אחרונה כותבת את הטבלה **ואת הקורסור**. וזה
+  // חמור כאן במיוחד: הקורסור נטבע למיון מסוים, אז תגובה מאוחרת יכולה להשאיר
+  // קורסור של מיון ישן, והלחיצה הבאה תידחה ב-400 או תחזיר את מה שלא ביקשו.
+  let slowQueryRequestId = 0;
+
   async function fetchSlowQueries(cursor, { append }) {
+    const requestId = ++slowQueryRequestId;
+    const more = document.getElementById('load-more-slow-queries');
+    // נטרול בזמן בקשה — אחרת לחיצה כפולה שולחת את **אותו** קורסור פעמיים
+    // ומכפילה את השורות.
+    if (more) more.disabled = true;
     try {
       const response = await profilerFetch(slowQueriesUrl(cursor));
       const result = await response.json();
+      if (requestId !== slowQueryRequestId) return;  // בקשה שכבר הוחלפה
       if (result.status !== 'success') return;
 
       renderSlowQueriesTable(result.data, { append });
@@ -336,10 +353,15 @@
       const tbody = document.querySelector('#slow-queries-table tbody');
       updateShownCount(tbody ? tbody.children.length : 0, Number(result.total || 0));
 
-      const more = document.getElementById('load-more-slow-queries');
       if (more) more.hidden = !slowQueryCursor;
     } catch (error) {
       console.error('Error loading slow queries:', error);
+    } finally {
+      // ‏**ב-``finally`` ולא בסוף מסלול ההצלחה.** בקשה אחרונה שנכשלה חייבת
+      // להחזיר את הכפתור, אחרת המשתמש נשאר עם כפתור מנוטרל לצמיתות ובלי שום
+      // דבר על המסך שמסביר למה — כשל גרוע יותר מהמרוץ עצמו, כי אין ממנו
+      // יציאה חוץ מרענון. תנאי הדור נשאר גם כאן: רק הבקשה האחרונה מחזירה.
+      if (more && requestId === slowQueryRequestId) more.disabled = false;
     }
   }
 

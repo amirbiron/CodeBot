@@ -347,6 +347,22 @@ def _window_hours(hours: Any) -> int:
     return max(1, min(int(hours), PersistentQueryProfilerService.TTL_SECONDS // 3600))
 
 
+def _page_limit(value: Any, cap: int) -> int:
+    """גודל דף מקלט חיצוני, מגובל ל-``[1, cap]``.
+
+    ``isinstance`` לפני כל חשבון — ``CORE-PATTERNS`` U3: ``int()`` על מחרוזת
+    או ``None`` מגוף בקשה זורק, כלומר 500 על קלט משתמש.
+
+    **``cap`` הוא פרמטר חובה ובלי ברירת מחדל, במכוון.** התקרה שונה בין
+    הקוראים (500 לשורות, 200 לדפוסים), וברירת מחדל כאן פירושה שקורא שלישי
+    יקבל בשקט את התקרה של אחד מהשניים. תקרה היא החלטה של אתר הקריאה, ולכן
+    היא נאמרת שם.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        value = 50
+    return max(1, min(int(value), cap))
+
+
 def _sort_spec(field: Any, direction: Any) -> Tuple[str, int]:
     """שדה מיון וכיוון, מאומתים מול הרשימה הסגורה.
 
@@ -1881,6 +1897,7 @@ class PersistentQueryProfilerService(QueryProfilerService):
         *,
         limit: int = 50,
         collection_filter: Optional[str] = None,
+        min_execution_time_ms: Optional[float] = None,
         hours: int = PROFILER_WINDOW_HOURS,
         sort_field: str = "execution_time_ms",
         sort_direction: str = "desc",
@@ -1902,15 +1919,22 @@ class PersistentQueryProfilerService(QueryProfilerService):
         ייחודיות, ועמודת מיון בלי tiebreaker בעימוד מייצרת שורות כפולות בדף
         אחד וחסרות בבא (``bugbot-rules/pagination-tiebreaker.md``). אין היום
         אף תיקו באוסף — נמדד — אבל זה נתון, לא הבטחה.
+
+        **``min_execution_time_ms`` מצטרף ל-``window_filter`` ולא ל-דף.** הוא
+        מצמצם את **האוכלוסייה**, בדיוק כמו ``collection_filter``, ולכן הוא
+        חייב להיספר גם ב-``total`` — אחרת "מוצגות 12 מתוך 225" חוזר לשקר, רק
+        מכיוון אחר.
         """
         field, direction = _sort_spec(sort_field, sort_direction)
         window = _window_hours(hours)
-        limit_n = max(1, min(int(limit) if isinstance(limit, int) and not isinstance(limit, bool) else 50, 500))
+        limit_n = _page_limit(limit, 500)
 
         # הפילטר של החלון — הבסיס לספירה, **ואליו לא מצטרף תנאי הקורסור**.
         window_filter: Dict[str, Any] = {"timestamp": {"$gte": datetime.utcnow() - timedelta(hours=window)}}
         if collection_filter:
             window_filter["collection"] = collection_filter
+        if min_execution_time_ms is not None:
+            window_filter["execution_time_ms"] = {"$gte": float(min_execution_time_ms)}
 
         page_filter: Dict[str, Any] = dict(window_filter)
         if cursor:
@@ -1928,15 +1952,21 @@ class PersistentQueryProfilerService(QueryProfilerService):
             return {"records": [], "total": 0, "next_cursor": None}
 
         total = int(db[self.COLLECTION_NAME].count_documents(window_filter))
-        docs = list(
+        # ‏**‏``limit_n + 1`` ולא ``limit_n``.** "יש דף נוסף" נגזר מרשומה עודפת
+        # שנראתה בפועל, ולא מהניחוש "הדף מלא ולכן כנראה יש עוד". בסך שמתחלק
+        # בדיוק בגודל הדף, הניחוש היה משאיר את "טען עוד" גלוי לצד כותרת
+        # שאומרת "מוצגות 12 מתוך 12", והלחיצה הייתה מחזירה אפס שורות.
+        fetched = list(
             db[self.COLLECTION_NAME].find(
-                page_filter, sort=[(field, direction), ("_id", direction)], limit=limit_n
+                page_filter, sort=[(field, direction), ("_id", direction)], limit=limit_n + 1
             )
         )
+        has_more = len(fetched) > limit_n
+        docs = fetched[:limit_n]
         records = [self._apply_raw_read_policy(self._doc_to_record(d)) for d in docs if isinstance(d, dict)]
 
         next_cursor = None
-        if len(docs) == limit_n and isinstance(docs[-1], dict):
+        if has_more and docs and isinstance(docs[-1], dict):
             next_cursor = encode_slow_query_cursor(docs[-1], field, sort_direction)
 
         return {"records": records, "total": total, "next_cursor": next_cursor}
@@ -1958,7 +1988,7 @@ class PersistentQueryProfilerService(QueryProfilerService):
         שהכרטיס סופר 24 שעות — שני מספרים על שתי אוכלוסיות, על אותו מסך.
         """
         window = _window_hours(hours)
-        limit_n = max(1, min(int(limit) if isinstance(limit, int) and not isinstance(limit, bool) else 50, 200))
+        limit_n = _page_limit(limit, 200)
         since = datetime.utcnow() - timedelta(hours=window)
         pipeline = [
             {"$match": {"timestamp": {"$gte": since}}},
@@ -1992,6 +2022,46 @@ class PersistentQueryProfilerService(QueryProfilerService):
         total = int(total_branch[0].get("n", 0)) if total_branch and isinstance(total_branch[0], dict) else 0
         return {"patterns": patterns, "total": total}
 
+    def _summary_from_buffer(self, hours: Any) -> Dict[str, Any]:
+        """סיכום מהזיכרון — **על אותו חלון** שהטבלה והדפוסים עובדים עליו.
+
+        זהו הפולבאק של שני מסלולים: ``db is None`` (אין מונגו מוגדר בכלל)
+        ונפילת DB תוך כדי חישוב. שניהם קראו קודם ל-``super().get_summary()``,
+        שסופר את **כל** ה-buffer בלי חלון ומחזיר ``unique_patterns`` של כל
+        הדפוסים מאז עליית התהליך.
+
+        למה זה חשוב דווקא כאן: כל הסעיף של החלון המשותף נבנה כדי ששלושת
+        המספרים על המסך יספרו את אותה אוכלוסייה. פולבאק בלי חלון מחזיר בדיוק
+        את הפער שנסגר — ועושה זאת ברגע שבו קשה לשים לב, כי ה-DB נפל.
+
+        ``unique_patterns`` נספר כמספר ה-``query_id`` הייחודיים **ברשומות
+        שבחלון**, כלומר אותה סמנטיקה בדיוק של ``$addToSet: "$query_id"``
+        ב-``_calculate_summary_sync``. שני המסלולים סופרים את אותו דבר.
+        """
+        since = datetime.utcnow() - timedelta(hours=_window_hours(hours))
+        queries = [
+            q for q in list(self._slow_queries)
+            if isinstance(getattr(q, "timestamp", None), datetime) and q.timestamp >= since
+        ]
+        if not queries:
+            return {
+                "total_slow_queries": 0,
+                "collections_affected": [],
+                "avg_execution_time_ms": 0,
+                "max_execution_time_ms": 0,
+                "unique_patterns": 0,
+                "threshold_ms": self.slow_threshold_ms,
+            }
+
+        return {
+            "total_slow_queries": len(queries),
+            "collections_affected": list({q.collection for q in queries}),
+            "avg_execution_time_ms": round(sum(q.execution_time_ms for q in queries) / len(queries), 2),
+            "max_execution_time_ms": round(max(q.execution_time_ms for q in queries), 2),
+            "unique_patterns": len({q.query_id for q in queries}),
+            "threshold_ms": self.slow_threshold_ms,
+        }
+
     def get_summary(self, hours: int = PROFILER_WINDOW_HOURS) -> Dict[str, Any]:
         """
         סיכום מצב הפרופיילר על חלון של ``hours`` שעות, עם Cache קצר (TTL).
@@ -2022,7 +2092,7 @@ class PersistentQueryProfilerService(QueryProfilerService):
                 result = self._calculate_summary_sync(window)
             except Exception as e:
                 logger.error("Error calculating profiler summary", exc_info=True, extra={"error": str(e)})
-                return super().get_summary()
+                return self._summary_from_buffer(window)
 
             self._summary_cache[window] = (result, now + timedelta(seconds=self._CACHE_TTL_SECONDS))
             return result
@@ -2037,7 +2107,7 @@ class PersistentQueryProfilerService(QueryProfilerService):
         """
         db = getattr(self.db_manager, "db", None)
         if db is None:
-            return super().get_summary()
+            return self._summary_from_buffer(hours)
 
         # חישוב lightweight על חלון קצר כדי להימנע מעומס. החלון מגיע מהקורא
         # ולא נקבע כאן, כי אותו חלון בדיוק משרת גם את הטבלה וגם את הדפוסים —
