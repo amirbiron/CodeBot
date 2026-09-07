@@ -647,6 +647,31 @@ async def _fallback_text_search(
 
     return await asyncio.to_thread(_run)
 
+def _memory_index_enabled() -> bool:
+    """האם האינדקס בזיכרון (``SearchIndex``) פעיל.
+
+    ברירת המחדל היא ``True``. הכיבוי נועד למי שמעדיף לוותר על החיפושים שנשענים
+    על האינדקס במקום לשלם על בנייתו — סריקה מלאה של כל קבצי המשתמש, כולל
+    ``code``, אחת ל-30 דקות לכל תהליך.
+    """
+    return bool(getattr(config, "SEARCH_MEMORY_INDEX_ENABLED", True))
+
+
+def _memory_index_eager_build() -> bool:
+    """האם לבנות את האינדקס גם בחיפושים שאינם קוראים ממנו.
+
+    ברירת המחדל ``False``: ``CONTENT``, ``REGEX`` ו-``FUZZY`` אינם משלמים על
+    בנייה שאיש לא יקרא את תוצאתה.
+
+    ``True`` מחזיר את ההתנהגות הקודמת. היא לא הייתה חסרת ערך: ``suggest_completions``
+    קורא את האינדקס דרך ``_get_ready_index``, שבמכוון **אינו** בונה אותו בעצמו —
+    ולכן ההשלמה נהנתה מאינדקס שחיפוש ``CONTENT`` בנה כתופעת לוואי. עם ``False``
+    ההשלמה מאבדת מילים מתוך תוכן הקבצים ושמות פונקציות; שמות קבצים, תגיות ושפות
+    מגיעים ממקור אחר וממשיכים לעבוד.
+    """
+    return bool(getattr(config, "SEARCH_MEMORY_INDEX_EAGER_BUILD", False))
+
+
 class SearchIndex:
     """אינדקס חיפוש לביצועים טובים יותר"""
     
@@ -800,8 +825,19 @@ class AdvancedSearchEngine:
         }
     
     def get_index(self, user_id: int) -> SearchIndex:
-        """קבלת אינדקס למשתמש"""
-        
+        """קבלת אינדקס למשתמש (בונה אותו אם אינו קיים או התיישן).
+
+        כאשר ``SEARCH_MEMORY_INDEX_ENABLED`` כבוי מוחזר אינדקס ריק **בלי** בנייה
+        ובלי לשמור אותו ב-``self.indexes``: החיפושים שנשענים עליו (TEXT ו-FUNCTION)
+        יחזירו רשימה ריקה, וה-caller ב-WebApp (``_safe_search``) נופל משם לחיפוש
+        ``$text`` ישירות ב-MongoDB. מה שנעלם עם הכיבוי הוא ``function_index``,
+        שמונגו אינו יודע לייצר, וההתאמה החלקית (prefix/substring) של ``_text_search``,
+        ש-``$text`` אינו תומך בה.
+        """
+
+        if not _memory_index_enabled():
+            return SearchIndex()
+
         if user_id not in self.indexes:
             self.indexes[user_id] = SearchIndex()
         
@@ -810,6 +846,12 @@ class AdvancedSearchEngine:
             index.rebuild_index(user_id)
         
         return index
+
+    def _get_index_for_search(self, user_id: int) -> SearchIndex:
+        """עטיפה מדודה סביב ``get_index`` עבור ענפי החיפוש שצורכים את האינדקס."""
+
+        with track_performance("search_index_get", labels={"repo": ""}):
+            return self.get_index(user_id)
     
     @traced("search_engine.search")
     def search(self, user_id: int, query: str, search_type: SearchType = SearchType.TEXT,
@@ -850,23 +892,33 @@ class AdvancedSearchEngine:
                     pass
                 return []
             
-            # קבלת האינדקס
-            with track_performance("search_index_get", labels={"repo": ""}):
-                index = self.get_index(user_id)
-            
-            # ביצוע החיפוש לפי סוג
+            # חימום מקדים של האינדקס, גם עבור סוגים שאינם קוראים ממנו.
+            # כבוי כברירת מחדל; מודלק רק כדי להשאיר אותו חם עבור
+            # suggest_completions (ראו _memory_index_eager_build).
+            if _memory_index_eager_build():
+                self._get_index_for_search(user_id)
+
+            # ביצוע החיפוש לפי סוג.
+            #
+            # האינדקס בזיכרון נבנה רק בענפים שקוראים ממנו: TEXT ו-FUNCTION.
+            # CONTENT, REGEX ו-FUZZY סורקים את ה-DB בעצמם ואינם נוגעים בו, ולכן
+            # בנייה עבורם הייתה סריקה מלאה נוספת של כל קבצי המשתמש (כולל code)
+            # שאיש אינו קורא — ו-CONTENT הוא ברירת המחדל של החיפוש ב-WebApp.
             with track_performance("search_execute", labels={"repo": ""}):
                 if search_type == SearchType.TEXT:
+                    index = self._get_index_for_search(user_id)
                     candidates = self._text_search(query, index, user_id)
                 elif search_type == SearchType.REGEX:
                     candidates = self._regex_search(query, user_id)
                 elif search_type == SearchType.FUZZY:
-                    candidates = self._fuzzy_search(query, index, user_id)
+                    candidates = self._fuzzy_search(query, user_id)
                 elif search_type == SearchType.FUNCTION:
+                    index = self._get_index_for_search(user_id)
                     candidates = self._function_search(query, index, user_id)
                 elif search_type == SearchType.CONTENT:
                     candidates = self._content_search(query, user_id)
                 else:
+                    index = self._get_index_for_search(user_id)
                     candidates = self._text_search(query, index, user_id)
             
             # החלת מסננים
@@ -923,7 +975,10 @@ class AdvancedSearchEngine:
         file_scores: Dict[str, float] = defaultdict(float)
         
         for word in query_words:
-            matching_files = index.word_index.get(word, set())
+            # עותק, לא הקבוצה השמורה: ``get`` מחזיר את הקבוצה עצמה כשהמילה קיימת,
+            # וה-``update`` שלמטה היה מזליג את התאמות ה-prefix לתוך האינדקס לצמיתות —
+            # ומאותו רגע הן נספרות כהתאמות מדויקות ומקבלות 2.0 במקום 1.0.
+            matching_files = set(index.word_index.get(word, ()))
             
             # חיפוש חלקי (prefix matching)
             for indexed_word, files in index.word_index.items():
@@ -1009,8 +1064,8 @@ class AdvancedSearchEngine:
         
         return results
     
-    def _fuzzy_search(self, query: str, index: SearchIndex, user_id: int) -> List[SearchResult]:
-        """חיפוש מטושטש (fuzzy)"""
+    def _fuzzy_search(self, query: str, user_id: int) -> List[SearchResult]:
+        """חיפוש מטושטש (fuzzy) — סורק את ה-DB ואינו נשען על האינדקס בזיכרון."""
         
         PAGE_SIZE = int(getattr(config, "SEARCH_PAGE_SIZE", 200))
         offset = 0
