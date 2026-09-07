@@ -91,7 +91,12 @@ def dashboard(admin_live_server, chromium_executable, stub_profiler_api):
         except Exception as exc:  # pragma: no cover
             pytest.skip(f"אין Chromium זמין: {exc}")
 
-        with browser, browser.new_context(viewport={"width": 1280, "height": 900}) as context:
+        with browser, browser.new_context(
+            viewport={"width": 1280, "height": 900},
+            # בלי ההרשאות האלה ``clipboard.readText`` נחסם, וטסט הדוח היה
+            # בודק מחרוזת ריקה במקום את מה שבאמת הודבק.
+            permissions=["clipboard-read", "clipboard-write"],
+        ) as context:
             context.add_cookies([{
                 "name": "session", "value": session_cookie, "domain": "127.0.0.1", "path": "/",
             }])
@@ -196,3 +201,58 @@ def test_a_row_without_an_analyze_button_still_says_why_the_values_are_missing(d
     note = row.query_selector("[data-testid='raw-withheld']")
     assert note is not None, "שורה בלי כפתור עדיין חייבת להסביר למה אין ערכים אמיתיים"
     assert "owner_id" in (note.text_content() or ""), "הסיבה חייבת לנקוב בשם השדה"
+
+
+def _copy_report(page):
+    """מנתח את השורה שכבר נלחצה, מעתיק, ומחזיר את **תוכן הלוח בפועל**."""
+    page.click("button:has-text('העתק דוח ל-AI')")
+    page.wait_for_timeout(400)
+    return page.evaluate("navigator.clipboard.readText()")
+
+
+def test_the_request_declares_the_encoding_of_what_it_carries(dashboard):
+    """הניב מוצהר בבקשה. בלי זה השרת מפרש ``{"$date": …}`` כמילון ולא כתאריך."""
+    page, sent = dashboard
+    _row(page, "with-values").query_selector("button[data-analyze-with='raw']").click()
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+
+    assert sent[-1]["encoding"] == "extended_json"
+
+    _row(page, "withheld").query_selector("button[data-analyze-with='shape']").click()
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+
+    assert sent[-1]["encoding"] == "json", (
+        "השלד חייב להישאר בניב הרגיל: תחת Extended JSON ה-``<value>`` שבתוך "
+        "``$options`` הופך ל-Regex עם דגלים אקראיים במקום לשגיאה רועשת"
+    )
+
+
+def test_the_report_does_not_claim_there_are_no_real_values_when_there_are(dashboard):
+    """הצהרת הפרטיות בראש הדוח נגזרת מהעובדה, לא מהנחה.
+
+    הדוח מודבק לכלי חיצוני. עד כה נכתבה בו ללא תנאי השורה "הערכים מנורמלים
+    ... ולכן אין בדוח נתונים אישיים" — ומרגע שהניתוח רץ על ``query_raw``, היא
+    הצהירה בדיוק את ההפך ממה שהדוח מכיל.
+    """
+    page, _sent = dashboard
+    _row(page, "with-values").query_selector("button[data-analyze-with='raw']").click()
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+    report = _copy_report(page)
+
+    assert "אין בדוח נתונים אישיים" not in report, "הדוח מצהיר את ההפך ממה שיש בו"
+    assert "הערכים האמיתיים" in report, "מי שמדביק את זה חייב לדעת מה הוא מדביק"
+
+
+def test_the_report_still_says_normalized_when_it_really_is(dashboard):
+    """הכיוון השני: על השלד ההצהרה המקורית נכונה וחייבת להישאר.
+
+    בלי הטסט הזה "תיקון" שפשוט מוחק את השורה היה עובר — ואז דוח מנורמל היה
+    יוצא בלי שום הצהרה, וזו טעות הפוכה ולא פחות גרועה.
+    """
+    page, _sent = dashboard
+    _row(page, "withheld").query_selector("button[data-analyze-with='shape']").click()
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+    report = _copy_report(page)
+
+    assert "אין בדוח נתונים אישיים" in report
+    assert "הערכים האמיתיים" not in report

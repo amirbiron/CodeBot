@@ -279,7 +279,8 @@
           btn.onclick = function() {
               analyzeQueryFromRow(
                 query.collection, query.operation,
-                hasRaw ? query.query_raw : (query.query_shape || {})
+                hasRaw ? query.query_raw : (query.query_shape || {}),
+                hasRaw
               );
           };
 
@@ -317,6 +318,7 @@
     malformed: 'ערכים לא נשמרו: מבנה לא צפוי',
     unsupported_number: 'ערכים לא נשמרו: מספר שאינו סופי (inf/NaN)',
     owner_not_allowed_now: 'ערכים מוסתרים: המשתמש כבר אינו ברשימת ההחרגה',
+    internal_error: 'ערכים לא נשמרו: תקלה בהחלטה (נרשם ללוג)',
   };
   const RAW_WITHHELD_NAMED = {
     unknown_field: 'שדה לא מוכר',
@@ -362,7 +364,8 @@
     analyzeQuery();
   }
 
-  function analyzeQueryFromRow(collection, operation, queryShape) {
+  function analyzeQueryFromRow(collection, operation, queryShape, isRaw) {
+    analyzeEncoding = isRaw ? 'extended_json' : 'json';
     document.getElementById('analyze-collection').value = collection;
     const op = (operation || '').toLowerCase() === 'aggregate' ? 'aggregate' : 'find';
     document.getElementById('analyze-operation').value = op;
@@ -379,6 +382,16 @@
 
   //: מה שהניתוח האחרון החזיר, יחד עם מה שביקשנו. ``null`` עד לניתוח הראשון.
   let lastAnalysis = null;
+
+  //: הניב של מה שיושב בטופס הניתוח כרגע. ``extended_json`` פירושו שהתוכן
+  //: נושא סמני טיפוס (``{"$date": …}``) שהשרת צריך לפענח בחזרה לטיפוסים.
+  //: **מוצהר ולא מוסק**: זיהוי אוטומטי היה מפעיל את הפענוח גם על השלד
+  //: המנורמל, ושם ``{"$options": "<value>"}`` הופך בשקט ל-Regex עם דגלים
+  //: אקראיים במקום לייצר שגיאה רועשת.
+  //:
+  //: הוא נקבע לפי מה שמילא את הטופס לאחרונה — זו התכונה היחידה שמוגדרת
+  //: היטב. עריכה ידנית של הטקסט אינה משנה את סמני הטיפוס שכבר בתוכו.
+  let analyzeEncoding = 'json';
 
   /**
    * חיווי למשתמש דרך הטוסט המשותף (``static/js/toast.js``).
@@ -491,7 +504,15 @@
     lines.push(`- **Explain verbosity:** ${inlineCode(verbosity)}`);
     lines.push(`- **זמן הניתוח:** ${snapshot.at}`);
     lines.push('');
-    lines.push('> ערכי השאילתה מנורמלים ל-`<value>` בצד השרת לפני שהם מגיעים לכאן, ולכן אין בדוח נתונים אישיים.');
+    // הצהרת פרטיות שמוצמדת לטקסט שמודבק לכלי חיצוני — ולכן היא חייבת להיגזר
+    // מהעובדה ולא מהנחה. עד כה היא נכתבה **ללא תנאי**, וברגע שהניתוח רץ על
+    // ``query_raw`` (ערכים אמיתיים של שאילתות המשתמש) היא הצהירה בדיוק את ההפך
+    // ממה שהדוח מכיל. אותה תקלה בדיוק כמו ה-``verbosity`` שלמעלה: משפט שנגזר
+    // מניחוש. ``payload.encoding`` הוא העובדה — הוא ``extended_json`` רק כשמה
+    // שנשלח בא מ-``query_raw``.
+    lines.push(payload.encoding === 'extended_json'
+      ? '> ⚠️ הדוח מכיל את **הערכים האמיתיים** של השאילתה, ולא שלד מנורמל — כך שהניתוח ירוץ על מה שבאמת רץ בפרודקשן. הערכים הם של שאילתות שלך בלבד (`PROFILER_UNREDACTED_USER_IDS`).'
+      : '> ערכי השאילתה מנורמלים ל-`<value>` בצד השרת לפני שהם מגיעים לכאן, ולכן אין בדוח נתונים אישיים.');
     lines.push('');
 
     lines.push(isAggregate ? '## הפייפליין' : '## צורת השאילתה');
@@ -615,7 +636,7 @@
       return;
     }
 
-    let payload = { collection, verbosity };
+    let payload = { collection, verbosity, encoding: analyzeEncoding };
 
     if (operation === 'aggregate') {
       const pipelineText = document.getElementById('analyze-pipeline').value;

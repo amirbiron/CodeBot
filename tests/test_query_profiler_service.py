@@ -5,7 +5,7 @@ import pytest
 from datetime import datetime
 from unittest.mock import MagicMock
 
-from bson import ObjectId
+from bson import ObjectId, json_util
 
 import services.query_profiler_service as mod
 from services.query_profiler_service import (
@@ -724,29 +724,58 @@ class TestUnredactedQueryValuesReviewRound:
         inner = row.query_raw["pipeline"][1]["$lookup"]["pipeline"][0]["$match"]
         assert inner == {"file_name": "app.py"}
 
-    def test_a_value_that_cannot_survive_json_is_withheld_and_says_which_type(self, raw_values_service):
-        """``ObjectId`` שהומר למחרוזת נראה אמיתי אבל מריץ שאילתה אחרת.
+    def test_an_object_id_is_kept_as_an_object_id(self, raw_values_service):
+        """``ObjectId`` נשמר כטיפוס שלו — לא כמחרוזת, ולא כדחייה.
 
-        קודם ``_json_safe`` המיר אותו ל-``str`` — ה-explain היה רץ על מחרוזת
-        במקום על ``ObjectId``, מחזיר אפס תוצאות, ואיש לא היה יודע. עדיף לא
-        לשמור, ולומר למה.
+        ההיסטוריה של השורה הזו היא כל הסיפור: קודם ``_json_safe`` המיר אותו
+        ל-``str``, וה-explain רץ על מחרוזת, החזיר אפס תוצאות, ואיש לא ידע.
+        אחר כך הוא נדחה בכנות (``unsupported_type:ObjectId``), כי ל-JSON רגיל
+        אין איך לשאת אותו. עכשיו הקודק הוא Extended JSON, שנושא את הטיפוס
+        בתוך ה-JSON עצמו — ולכן אין צורך לא לזייף ולא לוותר.
         """
-        from bson import ObjectId
+        oid = ObjectId("6a8e6c04cfb3849504b6e210")
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, "_id": {"$gt": oid}})
 
-        row = _record_and_read_back(
-            raw_values_service, {"user_id": ME, "_id": {"$gt": ObjectId("6a8e6c04cfb3849504b6e210")}}
-        )
+        assert row.raw_withheld_reason is None
+        assert row.query_raw == {"user_id": ME, "_id": {"$gt": oid}}
+        assert isinstance(row.query_raw["_id"]["$gt"], ObjectId), "נשמר כמחרוזת — זו שאילתה אחרת"
 
-        assert row.query_raw is None
-        assert row.raw_withheld_reason == "unsupported_type:ObjectId"
+    def test_a_datetime_is_kept_as_a_datetime(self, raw_values_service):
+        """התאריך הוא הסיבה שהסבב הזה קיים.
 
-    def test_a_datetime_is_withheld_too(self, raw_values_service):
-        row = _record_and_read_back(
-            raw_values_service, {"user_id": ME, "created_at": {"$lt": datetime(2026, 9, 6, 12, 0, 0)}}
-        )
+        נמדד מול הקלאסטר על ``code_snippets``: ``created_at < <תאריך>`` מתאים
+        ל-1,157 מסמכים, ואותו תאריך כמחרוזת ל-0. כלומר תאריך ששורד כמחרוזת
+        מייצר ``explain`` מהיר עם אפס סריקה — דוח שנראה מצוין ומסקנתו הפוכה.
+        """
+        when = datetime(2026, 9, 6, 12, 0, 0)
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, "created_at": {"$lt": when}})
 
-        assert row.query_raw is None
-        assert row.raw_withheld_reason == "unsupported_type:datetime"
+        assert row.raw_withheld_reason is None
+        assert row.query_raw == {"user_id": ME, "created_at": {"$lt": when}}
+        assert isinstance(row.query_raw["created_at"]["$lt"], datetime), "כמחרוזת: 0 מסמכים במקום 1,157"
+
+    def test_the_files_cursor_query_from_production_is_kept(self, raw_values_service):
+        """הצורה האמיתית שהובילה לכל סבב 292 — תאריך ו-``ObjectId`` באותה שאילתה.
+
+        זו השאילתה שבגללה הפיצ'ר נבנה, והיא בדיוק זו שנדחתה. אם היא נופלת
+        שוב, הפיצ'ר אינו עושה את מה שהוא נועד לעשות — ולכן היא טסט משלה,
+        מועתקת מהצורה שנרשמה ב-``slow_queries_log`` בפרודקשן.
+        """
+        when, oid = datetime(2026, 9, 6, 12, 0, 0), ObjectId("6a8e6c04cfb3849504b6e210")
+        query = {
+            "user_id": ME,
+            "$and": [
+                {"is_active": True},
+                {"$or": [
+                    {"created_at": {"$lt": when}},
+                    {"$and": [{"created_at": {"$eq": when}}, {"_id": {"$lt": oid}}]},
+                ]},
+            ],
+        }
+        row = _record_and_read_back(raw_values_service, query)
+
+        assert row.raw_withheld_reason is None
+        assert row.query_raw == query
 
     def test_in_with_a_single_allowed_owner_asserts_ownership(self, raw_values_service):
         """``{"user_id": {"$in": [ME]}}`` מגביל לבעלים בדיוק כמו שוויון."""
@@ -774,33 +803,38 @@ class TestUnredactedQueryValuesReviewRound:
 #: ערך מייצג לכל שדה ב-``RAW_QUERY_ALLOWED_FIELDS``, והתוצאה שהוא מקבל בפועל.
 #:
 #: הרשימה מבטיחה "שדות מוכרים", אבל שער אחר — ``_ensure_replayable`` — דוחה
-#: טיפוסים שאינם שורדים סיבוב JSON. בלי הטבלה הזו הרשימה מבטיחה שדות ששער
-#: אחר תמיד דוחה, ואיש לא יודע. ``None`` בעמודה השנייה = הערך נשמר.
+#: ערכים שאינם שורדים את הסיבוב. בלי הטבלה הזו הרשימה מבטיחה שדות ששער אחר
+#: תמיד דוחה, ואיש לא יודע. ``None`` בעמודה השנייה = הערך נשמר.
+#:
+#: מאז שהקודק הוא Extended JSON **כל** השדות ברשימה נשמרים — ``datetime``
+#: ו-``ObjectId`` נושאים את הטיפוס בתוך ה-JSON וחוזרים שווים למקור. הטבלה
+#: נשארת כי היא מה שיתפוס את היום שבו ייכנס לרשימה שדה עם טיפוס שאינו שורד;
+#: היא פשוט כבר לא אמורה להיות מלאה בדחיות.
 ALLOWED_FIELD_SAMPLES = {
     "user_id": (ME, None),
-    "_id": (ObjectId("6a8e6c04cfb3849504b6e210"), "unsupported_type:ObjectId"),
+    "_id": (ObjectId("6a8e6c04cfb3849504b6e210"), None),
     "is_active": (True, None),
     "file_name": ("app.py", None),
     "programming_language": ("python", None),
     "tags": (["repo:amirbiron/CodeBot"], None),
     "description": ("קובץ ראשי", None),
     "version": (3, None),
-    "created_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
-    "updated_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
-    "deleted_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
-    "deleted_expires_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
+    "created_at": (datetime(2026, 9, 6), None),
+    "updated_at": (datetime(2026, 9, 6), None),
+    "deleted_at": (datetime(2026, 9, 6), None),
+    "deleted_expires_at": (datetime(2026, 9, 6), None),
     "file_size": (6656, None),
     "lines_count": (100, None),
     "is_favorite": (True, None),
-    "favorited_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
+    "favorited_at": (datetime(2026, 9, 6), None),
     "is_pinned": (False, None),
-    "pinned_at": (datetime(2026, 9, 6), "unsupported_type:datetime"),
+    "pinned_at": (datetime(2026, 9, 6), None),
     "pin_order": (1, None),
 }
 
 
 class TestReplayableIsDefinedByTheJsonRoundTrip:
-    """"ניתן להרצה חוזרת" נמדד בסיבוב JSON, לא בטיפוס."""
+    """"ניתן להרצה חוזרת" נמדד בסיבוב ולא בטיפוס — עכשיו בסיבוב Extended JSON."""
 
     def test_the_sample_table_covers_every_allowed_field(self):
         """הטבלה חייבת לכסות את הרשימה במלואה, אחרת שדה חדש נכנס בלי שנדע."""
@@ -819,23 +853,60 @@ class TestReplayableIsDefinedByTheJsonRoundTrip:
 
     @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
     def test_a_number_that_is_not_valid_json_is_withheld(self, raw_values_service, bad):
-        """``json.dumps`` פולט ``Infinity``/``NaN``, ו-``JSON.parse`` בדפדפן זורק עליהם.
+        """ערך לא-סופי נדחה — וזו בדיקה מפורשת, לא תוצר לוואי של הקודק.
 
-        הבדיקה הקודמת הייתה ``value == value`` — היא חסמה NaN בלבד, ואינסוף
-        עבר. זה בדיוק אותו כשל כמו ``ObjectId``: ערך שנשמר, נראה תקין בשרת,
-        ושובר את המסע חזרה לדפדפן.
+        ``json.dumps`` היה דוחה אותם לבד עם ``allow_nan=False``. ``json_util``
+        **מתעלם** מהדגל הזה ופולט ``{"$numberDouble": "Infinity"}`` בכל מקרה —
+        נמדד. כלומר מעבר לקודק החדש היה מבטל את הגדר בשקט, וזו הסיבה
+        ל-``_reject_non_finite``.
+
+        ולמה עדיין לדחות: ``NaN`` אינו מתאים לאף מסמך במונגו, ולכן היה מייצר
+        את אותו ``explain`` מטעה שכל המנגנון קיים למנוע. ו-``inf`` בטוח רק
+        בקידוד Extended JSON — וההכרעה כאן נעשית בכתיבה, לפני שידוע איך
+        הרשומה תוגש; יש כבר סריאלייזר שני (``handlers/profiler_handler.py``)
+        שקורא את אותן רשומות דרך ``json`` רגיל.
         """
         row = _record_and_read_back(raw_values_service, {"user_id": ME, "file_size": {"$gt": bad}})
 
         assert row.query_raw is None
         assert row.raw_withheld_reason == "unsupported_number"
 
-    def test_whatever_is_stored_survives_a_json_round_trip_unchanged(self, raw_values_service):
-        """התכונה עצמה, ולא רשימת הטיפוסים: מה שנשמר חוזר זהה מ-JSON."""
+    def test_whatever_is_stored_survives_the_round_trip_unchanged(self, raw_values_service):
+        """התכונה עצמה ולא רשימת הטיפוסים: מה שנשמר חוזר זהה מהניב שבו הוא נשלח."""
         row = _record_and_read_back(raw_values_service, MY_QUERY)
 
         assert row.query_raw is not None
-        assert json.loads(json.dumps(row.query_raw, allow_nan=False)) == row.query_raw
+        assert json_util.loads(json_util.dumps(row.query_raw)) == row.query_raw
+
+
+class TestTheRecordSurvivesAFailureInTheRawDecision:
+    """``query_raw`` הוא העשרה; הרשומה היא המוצר. כשל בהעשרה לא יעלה במוצר."""
+
+    def test_an_unexpected_failure_costs_the_values_and_not_the_record(self, raw_values_service, monkeypatch):
+        """עד כה נתפסה רק ``_RawQueryWithheld``, וכל חריגה אחרת הפילה את הרשומה.
+
+        המסלול היה: חריגה בורחת מ-``_decide_raw_query`` ← עוברת דרך
+        ``record_slow_query_sync`` שאין בה מעטפת ← נבלעת ב-``except Exception``
+        של המאזין ב-``database/manager.py``. התוצאה: השאילתה האיטית **לא
+        נרשמת בכלל**, ונשארת רק שורת ``Profiler Error`` שלא אומרת איזו.
+
+        הטסט מזריק חריגה שאינה ``_RawQueryWithheld`` — בדיוק מה שיקרה אם שינוי
+        עתידי בטיפול בטיפוסים יפגוש ערך שלא נצפה — ודורש ששלושת הדברים
+        יתקיימו: הרשומה קיימת, אין בה ערכים, והסיבה גלויה.
+        """
+        def _boom(_value):
+            raise RuntimeError("טיפוס שלא נצפה")
+
+        monkeypatch.setattr(mod, "_ensure_replayable", _boom)
+        row = _record_and_read_back(raw_values_service, MY_QUERY)
+
+        assert row.query_shape == {
+            "user_id": "<value>",
+            "$and": [{"is_active": "<value>"}],
+            "programming_language": "<value>",
+        }, "הרשומה עצמה חייבת לשרוד — היא המוצר"
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "internal_error", "כשל שקט הוא באג, לא ברירה בטוחה"
 
 
 class TestStructuralValuesStayReal:
