@@ -54,20 +54,34 @@ _MONGO_URL = os.environ.get("MONGODB_URL", "").strip()
 ME = 6865105071
 
 
-def _server_is_reachable(url: str) -> bool:
-    try:
-        client = pymongo.MongoClient(url, serverSelectionTimeoutMS=2000, tz_aware=True, tzinfo=timezone.utc)
-        client.admin.command("ping")
-        client.close()
-        return True
-    except (ServerSelectionTimeoutError, Exception):
-        return False
-
-
+#: ⚠️ **הדילוג ברמת המודול נשען על ה-ENV בלבד, ואינו נוגע ברשת.** בדיקת
+#: נגישות כאן הייתה פותחת חיבור בכל **איסוף** של pytest, גם בהרצה שאינה
+#: כוללת את הקובץ הזה. הנגישות נבדקת ב-fixture, כשהבדיקה באמת עומדת לרוץ.
 pytestmark = pytest.mark.skipif(
-    not _MONGO_URL or not _server_is_reachable(_MONGO_URL),
-    reason="דורש MONGODB_URL עם שרת מונגו נגיש",
+    not _MONGO_URL,
+    reason="דורש MONGODB_URL",
 )
+
+
+def _connect_or_skip():
+    """לקוח מחובר, או דילוג — **רק** כששרת אינו נגיש.
+
+    ⚠️ ``except Exception`` גורף כאן היה הופך כל תקלת קונפיגורציה לדילוג עם
+    סיבה שקרית: ``mongodb+srv://`` בלי ``dnspython`` זורק ``ConfigurationError``,
+    ואימות שגוי זורק ``OperationFailure`` — שניהם היו מדווחים "שרת לא נגיש",
+    ושתי הבדיקות כאן, שהן ההוכחה **היחידה** מקצה לקצה לתיקון, היו נעלמות
+    בשקט. לכן נתפסת רק אי-נגישות אמיתית, וכל השאר עולה בקול.
+    """
+    client = pymongo.MongoClient(_MONGO_URL, serverSelectionTimeoutMS=2000, tz_aware=True, tzinfo=timezone.utc)
+    try:
+        client.admin.command("ping")
+    except ServerSelectionTimeoutError as exc:
+        client.close()
+        pytest.skip(f"שרת מונגו אינו נגיש ב-MONGODB_URL: {exc}")
+    except Exception:
+        client.close()
+        raise
+    return client
 
 #: הפייפליין שנשמר בפועל ב-``slow_queries_log``, על כל 15 הרשומות.
 PRODUCTION_FILE_LIST = [
@@ -94,7 +108,7 @@ _COLLECTION = "code_snippets"
 @pytest.fixture
 def test_db():
     name = f"{_TEST_DB_PREFIX}{uuid.uuid4().hex[:12]}"
-    client = pymongo.MongoClient(_MONGO_URL, tz_aware=True, tzinfo=timezone.utc)
+    client = _connect_or_skip()
     try:
         yield client[name]
     finally:
