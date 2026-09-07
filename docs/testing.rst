@@ -169,7 +169,14 @@ Mocking HTTP ב‑github_menu_handler
 - **צינורות aggregation** — סטאב שנכתב ביד מבין רק את הצורה שנכתבה בו, ולכן שגיאת תחביר אמיתית עוברת אצלו.
 - **בייטים מול תווים** — ``$substrBytes`` ו-``$strLenBytes`` מודדים בבייטים, ``$substrCP`` ו-``$strLenCP`` בתווים, ו-``$regexFind`` מחזיר ``idx`` **בתווים**. על טקסט עברי ערבוב היחידות חותך באמצע אות ומונגו זורקת. אף סטאב בריפו אינו מדגמן את זה — ``tests/_fake_mongo.py`` אפילו אין בו ``aggregate``.
 
-הבדיקות האלה חיות ב-``tests/test_note_boards_mongo.py`` וב-``tests/test_snippet_hebrew_offsets_mongo.py``. הן **מדלגות** כשאין ``MONGODB_URL`` או כשהשרת אינו נגיש, כך שהרצה מקומית רגילה נשארת מהירה. אותו דילוג-על-שרת-לא-נגיש קיים גם בפיקסצ'ר ``wired_mongo`` שב-``tests/conftest.py``, ומשרת את הבדיקות שמריצות את הראוטים של הוובאפ מול מסד אמיתי.
+הבדיקות האלה חיות בשני קבצים, וכל אחד מהם נשען על **משתנה סביבה אחר**:
+
+- ``tests/test_note_boards_mongo.py`` — ``MONGODB_URL``, דרך ``pytestmark`` שנבדק פעם אחת בטעינת המודול.
+- ``tests/test_snippet_hebrew_offsets_mongo.py`` — ``NOTE_FONTS_TEST_MONGO_URI``, דרך הפיקסצ'ר ``wired_mongo`` שב-``tests/conftest.py``. אותו פיקסצ'ר משרת גם את שאר הבדיקות שמריצות את הראוטים של הוובאפ מול מסד אמיתי.
+
+**המשתנה הנפרד אינו כפילות מיותרת.** ``tests/conftest.py`` עושה ``os.environ.setdefault('MONGODB_URL', …)`` בטעינה, כלומר המשתנה הזה **תמיד** מוגדר בבדיקות — לערך דמה. פיקסצ'ר שהיה נופל אליו היה מחכה 30 שניות לכתובת שאין מאחוריה שרת, בכל בדיקה, ואז נכשל — ו-``--maxfail=1`` היה עוצר את כל החבילה.
+
+שניהם **מדלגים** כשהמשתנה שלהם ריק או כשהשרת אינו נגיש, כך שהרצה מקומית רגילה נשארת מהירה.
 
 .. warning::
    **הן אינן רצות ב-CI כרגע.** הג'וב ``Unit Tests`` אמנם מרים ``mongo:6.0`` כשירות, אבל הוא ``runs-on: ubuntu-latest`` **בלי** ``container:``, והשירות מוגדר **בלי** ``ports:``. לפי `תיעוד GitHub Actions <https://docs.github.com/en/actions/using-containerized-services/about-service-containers>`_, גישה לפי שם השירות עובדת רק כשהג'וב עצמו רץ בקונטיינר; אחרת צריך למפות פורטים ולפנות ל-``127.0.0.1:<port>``. בלי זה המארח ``mongodb`` אינו נפתר כלל (``[Errno -3] Temporary failure in name resolution``), והבדיקות מדלגות בשקט.
@@ -182,8 +189,11 @@ Mocking HTTP ב‑github_menu_handler
 
    MONGODB_URL='mongodb://127.0.0.1:27017' pytest tests/test_note_boards_mongo.py -v
 
+   NOTE_FONTS_TEST_MONGO_URI='mongodb://127.0.0.1:27017' \
+       pytest tests/test_snippet_hebrew_offsets_mongo.py -v
+
 .. warning::
-   כל הרצה יוצרת מסד עם שם ייחודי משלה (תחילית ``codebot_notes_it_``), וה-teardown מוודא שהשם תואם לתחילית **לפני** ``drop_database``. אל תכוונו את ``MONGODB_URL`` למסד שיש בו נתונים אמיתיים.
+   שני הקבצים יוצרים מסד ייעודי משלהם ואינם נוגעים במסד ברירת המחדל: ``test_note_boards_mongo.py`` מגריל שם עם התחילית ``codebot_notes_it_``, ו-``wired_mongo`` בונה ``cktest_<שם קובץ הבדיקה>``. ה-teardown של הראשון מוודא שהשם תואם לתחילית **לפני** ``drop_database``. עם זאת — אל תכוונו את אף אחד משני המשתנים למסד שיש בו נתונים אמיתיים.
 
 כיסוי בדיקות (pytest-cov)
 --------------------------
