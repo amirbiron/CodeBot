@@ -243,4 +243,4 @@ def test_files_page_memory_limit_fallback_enriches_legacy_size_and_lines(monkeyp
         assert "old_doc.py" in html
         # Legacy docs missing file_size/lines_count should still show computed values in fallback mode
         assert "2 שורות" in html
-        assert "3.0 B" in html
+        assert "3 B" in html
