@@ -9540,8 +9540,32 @@ def _safe_search(user_id: int, query: str, **kwargs):
             ))
         return results
     except Exception:
-        # אם $text נכשל (למשל אין אינדקס טקסט), ננסה fallback ל-$regex על code בלבד
-        # כדי לשמור על התנהגות חיפוש בסיסית.
+        # ⚠️ **הכשל הזה נרשם, ולא נבלע.**
+        #
+        # ⚠️ ואל תבלבלו בין שני הפולבאקים: ל-**פונקציה הזו** מגיעים גם כשאין
+        # שגיאה בכלל — ``_safe_search`` נופל לכאן כשמנוע החיפוש החזיר **אפס
+        # תוצאות**, וזה מסלול תקין. ה-``except`` כאן הוא משהו אחר לגמרי:
+        # שאילתת ה-``$text`` עצמה נזרקה. אין כאן שום פולבאק על תוצאות ריקות.
+        #
+        # עד כאן ה-``except`` היה שקט לחלוטין, ולכן כשהמסלול המהיר נכשל
+        # המערכת עברה בשקט לשאילתה **אחרת** — ``$regex`` על ``code``, סריקה
+        # מלאה בלי אינדקס — ואיש לא ידע. בפרודקשן זו הייתה השאילתה האיטית
+        # ביותר שנרשמה (3,730ms), והיא רצה רק מפני שהמסלול המהיר נפל.
+        #
+        # ההערה שהייתה כאן ניחשה "למשל אין אינדקס טקסט", והניחוש הזה **נבדק
+        # ונפסל**: ‏``search_text_idx`` קיים, ואותה שאילתת ``$text`` בדיוק רצה
+        # מול הקלאסטר ומחזירה תוצאות. הסיבה האמיתית הייתה בלתי נראית, וזה מה
+        # שהשורה הבאה מתקנת.
+        #
+        # ⚠️ ההודעה **אינה** מצהירה מה יקרה הלאה. מסלול ה-``$regex`` שמתחתיה
+        # מותנה ב-``not is_regex``, ולכן בחיפוש REGEX שנכשל הודעה כזו הייתה
+        # אומרת שני דברים שלא קרו. שורת לוג ששקרית באותה מידה שהיא מועילה
+        # היא בדיוק מה שהחלפנו כאן.
+        logger.warning(
+            "search fallback: primary aggregation pipeline failed",
+            exc_info=True,
+            extra={"event": "search_primary_pipeline_failed", "is_regex": is_regex},
+        )
         try:
             if (not is_regex) and isinstance(match_stage, dict) and ('$text' in match_stage):
                 match_stage2 = dict(match_stage)
@@ -9575,8 +9599,22 @@ def _safe_search(user_id: int, query: str, **kwargs):
                         lines_count=int(doc.get('lines_count') or 0),
                     ))
                 return results2
+            # ⚠️ הגענו לכאן בלי חריגה, כלומר תנאי ה-``if`` היה שקר: או שזה
+            # חיפוש REGEX (ואז אין ``$text`` להחליף), או שהפייפליין לא נבנה
+            # כצפוי. בלי השורה הזו זו הייתה ירידה **שקטה** לפולבאק השלישי —
+            # בדיוק סוג הנפילה שהשינוי הזה בא לחסל, רק במסלול אחר.
+            logger.warning(
+                "search fallback: $regex path not applicable, going to the legacy pipeline",
+                extra={"event": "search_regex_path_skipped", "is_regex": is_regex},
+            )
         except Exception:
-            pass
+            # אותו נימוק בדיוק: כשל כאן מוביל לפולבאק **שלישי**, ובלי שורה
+            # אחת בלוג אין שום דרך לדעת שירדנו עוד מדרגה.
+            logger.warning(
+                "search fallback: $regex pipeline failed, falling back to the legacy pipeline",
+                exc_info=True,
+                extra={"event": "search_regex_pipeline_failed"},
+            )
 
         # fallback אחרון: שמירה על פונקציונליות גם אם Mongo לא תומך ב-$regexFind וכו'.
         try:
@@ -9590,6 +9628,14 @@ def _safe_search(user_id: int, query: str, **kwargs):
             ]
             docs = list(db.code_snippets.aggregate(old_pipeline, allowDiskUse=True))
         except Exception:
+            # ‏**זה המסלול שמחזיר "לא נמצאו תוצאות" על כשל.** בלי לוג, חיפוש
+            # שנשבר נראה בדיוק כמו חיפוש שלא מצא כלום — וזה ההבדל היחיד
+            # שחשוב למשתמש.
+            logger.warning(
+                "search fallback: legacy pipeline failed too, returning no results",
+                exc_info=True,
+                extra={"event": "search_legacy_pipeline_failed"},
+            )
             return []
         from types import SimpleNamespace
         results: list = []

@@ -830,6 +830,12 @@ ALLOWED_FIELD_SAMPLES = {
     "is_pinned": (False, None),
     "pinned_at": (datetime(2026, 9, 6), None),
     "pin_order": (1, None),
+    # ``code`` הוא היחיד ברשימה שיש לו הגבלת אופרטורים משלו
+    # (``RAW_QUERY_FIELD_OPERATORS``): הוא מותר **רק** כדפוס חיפוש. ערך
+    # שוויון עליו נושא את תוכן הקובץ, ולכן הוא נדחה — וזו ההתנהגות שהשורה
+    # הזו מתעדת. צורת ה-``$regex`` שכן עוברת נבדקת ב-
+    # ``test_profiler_raw_query_families.py`` על השאילתה האמיתית.
+    "code": ("סטיקי", "unsupported_field_value:code"),
 }
 
 
