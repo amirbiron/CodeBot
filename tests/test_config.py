@@ -68,3 +68,17 @@ def test_mongodb_url_validation(monkeypatch):
     with pytest.raises(ValueError):
         _import_fresh_config()
 
+
+
+def test_search_memory_index_switch_defaults_on_and_reads_the_env(monkeypatch):
+    """``SEARCH_MEMORY_INDEX_ENABLED`` — ברירת מחדל דלוקה, וניתן לכבות מה-ENV."""
+    monkeypatch.setenv("BOT_TOKEN", "123:TEST")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test_db")
+
+    cfg = _import_fresh_config()
+
+    monkeypatch.delenv("SEARCH_MEMORY_INDEX_ENABLED", raising=False)
+    assert cfg.load_config().SEARCH_MEMORY_INDEX_ENABLED is True
+
+    monkeypatch.setenv("SEARCH_MEMORY_INDEX_ENABLED", "false")
+    assert cfg.load_config().SEARCH_MEMORY_INDEX_ENABLED is False

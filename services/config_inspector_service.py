@@ -2662,6 +2662,16 @@ class ConfigService:
             description="ימים לשמירת התחברות קבועה",
             category="limits",
         ),
+        "SEARCH_MEMORY_INDEX_ENABLED": ConfigDefinition(
+            key="SEARCH_MEMORY_INDEX_ENABLED",
+            services=("webapp",),
+            default="true",
+            description=(
+                "אינדקס החיפוש בזיכרון (SearchIndex). כבוי = חיפושי 'טקסט' ו'פונקציות' "
+                "נופלים ל-$text של מונגו, ואין בניית אינדקס בבקשה"
+            ),
+            category="features",
+        ),
         "SEARCH_PAGE_SIZE": ConfigDefinition(
             key="SEARCH_PAGE_SIZE",
             services=("webapp", "bot", "webserver"),

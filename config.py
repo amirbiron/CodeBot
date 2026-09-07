@@ -403,6 +403,15 @@ class BotConfig(BaseSettings):
         description="Enable Community Library (public catalog, bot submit/approve, API/UI)"
     )
 
+    # Search engine
+    SEARCH_MEMORY_INDEX_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Enable the in-process SearchIndex (word/function/language/tag maps). "
+            "When disabled, TEXT and FUNCTION searches fall back to MongoDB $text."
+        ),
+    )
+
     # Pagination defaults
     SEARCH_PAGE_SIZE: int = Field(
         default=200,

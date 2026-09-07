@@ -1144,6 +1144,12 @@
      - ``500``
      - ``300``
      - WebApp
+   * - ``SEARCH_MEMORY_INDEX_ENABLED``
+     - הפעלת אינדקס החיפוש בזיכרון התהליך (``SearchIndex``). ``false`` מכבה את בנייתו, וחיפושי ``text`` ו-``function`` נופלים ל-``$text`` של מונגו במקום להישען עליו
+     - לא
+     - ``true``
+     - ``false``
+     - WebApp
    * - ``SEARCH_PAGE_SIZE``
      - גודל דף חיפוש בצד ה‑DB
      - לא
