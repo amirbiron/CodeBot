@@ -377,19 +377,19 @@ def _sort_spec(field: Any, direction: Any) -> Tuple[str, int]:
 
 
 def slow_query_population_key(
-    collection_filter: Optional[str], min_execution_time_ms: Optional[float]
+    collection_filter: Optional[str], min_execution_time_ms: Optional[float], window_hours: int
 ) -> str:
     """טביעת אצבע של **מסנני האוכלוסייה** — מה שקובע אילו שורות קיימות בכלל.
 
-    חלון הזמן אינו נכנס לכאן במכוון: הוא זז בכל שנייה מעצם היותו יחסי
-    ל-``utcnow``, וקשירה אליו הייתה פוסלת כל קורסור אחרי רגע.
+    משך החלון המנורמל נכנס לטביעה, אבל רגע ההתחלה היחסי ל-``utcnow`` לא:
+    כך החלפת חלון פוסלת קורסור, בלי לפסול אותו רק מפני שעברה שנייה.
     """
     coll = collection_filter if isinstance(collection_filter, str) and collection_filter else ""
     if min_execution_time_ms is None:
         low = ""
     else:
         low = repr(float(min_execution_time_ms))
-    return f"{coll}|{low}"
+    return f"{coll}|{low}|{window_hours}"
 
 
 def encode_slow_query_cursor(
@@ -446,7 +446,16 @@ def decode_slow_query_cursor(
         raise ProfilerPagingError("cursor_sort_mismatch")
     if payload.get("p", "") != population:
         raise ProfilerPagingError("cursor_filter_mismatch")
-    return payload["v"], payload["id"]
+    value = payload["v"]
+    if field == "execution_time_ms":
+        valid_value = isinstance(value, (int, float)) and not isinstance(value, bool)
+    elif field == "timestamp":
+        valid_value = isinstance(value, datetime)
+    else:
+        valid_value = field in {"collection", "operation"} and isinstance(value, str)
+    if not valid_value:
+        raise ProfilerPagingError("malformed_cursor")
+    return value, payload["id"]
 
 
 def _unredacted_user_ids() -> FrozenSet[str]:
@@ -1971,7 +1980,7 @@ class PersistentQueryProfilerService(QueryProfilerService):
             window_filter["execution_time_ms"] = {"$gte": float(min_execution_time_ms)}
 
         # הקורסור נטבע עבור **השאילתה הזו** — המיון ומסנני האוכלוסייה כאחד.
-        population = slow_query_population_key(collection_filter, min_execution_time_ms)
+        population = slow_query_population_key(collection_filter, min_execution_time_ms, window)
 
         page_filter: Dict[str, Any] = dict(window_filter)
         if cursor:

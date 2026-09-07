@@ -349,6 +349,21 @@ class TestTheCursorBelongsToOnePopulation:
                 limit=2, min_execution_time_ms=1200.0, cursor=first["next_cursor"]
             )
 
+    def test_a_cursor_from_a_different_time_window_is_rejected(self, svc, now):
+        self._seed_two_collections(svc, now)
+        first = svc.get_slow_queries_page(limit=2, hours=24)
+
+        with pytest.raises(ProfilerPagingError, match="^cursor_filter_mismatch$"):
+            svc.get_slow_queries_page(limit=2, hours=48, cursor=first["next_cursor"])
+
+    def test_equivalent_normalized_time_windows_accept_the_same_cursor(self, svc, now):
+        self._seed_two_collections(svc, now)
+        first = svc.get_slow_queries_page(limit=2, hours=0)
+
+        second = svc.get_slow_queries_page(limit=2, hours=1, cursor=first["next_cursor"])
+
+        assert len(second["records"]) == 2
+
     def test_the_same_filters_are_accepted(self, svc, now):
         """**מה שהקשירה לא אמורה לדחות.**
 
@@ -559,6 +574,43 @@ class TestTheCursorIsExternalInput:
 
         with pytest.raises(ProfilerPagingError):
             svc.get_slow_queries_page(limit=3, sort_direction="asc", cursor=down["next_cursor"])
+
+    @pytest.mark.parametrize(
+        ("field", "bad_value"),
+        [
+            ("execution_time_ms", "1000.0"),
+            ("execution_time_ms", True),
+            ("timestamp", "2026-09-07T12:00:00"),
+            ("collection", 7),
+            ("operation", None),
+        ],
+    )
+    def test_a_cursor_sort_value_must_have_the_fields_type(self, field, bad_value):
+        token = encode_slow_query_cursor(
+            {field: bad_value, "_id": ObjectId()}, field, "desc"
+        )
+
+        with pytest.raises(ProfilerPagingError, match="^malformed_cursor$"):
+            decode_slow_query_cursor(token, field, "desc")
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("execution_time_ms", 1000),
+            ("execution_time_ms", 1000.5),
+            ("timestamp", datetime(2026, 9, 7, 12, 0, 0)),
+            ("collection", "code_snippets"),
+            ("operation", "find"),
+        ],
+    )
+    def test_a_cursor_sort_value_with_the_fields_type_is_accepted(self, field, value):
+        oid = ObjectId()
+        token = encode_slow_query_cursor({field: value, "_id": oid}, field, "desc")
+
+        decoded_value, decoded_id = decode_slow_query_cursor(token, field, "desc")
+
+        assert decoded_value == value
+        assert decoded_id == oid
 
     def test_a_datetime_survives_the_cursor_round_trip_as_a_datetime(self):
         """הקורסור מקודד ב-Extended JSON, ולכן ערך העמודה חוזר כטיפוס שלו.
