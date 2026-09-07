@@ -32,6 +32,13 @@
                       aria-label="נקה חיפוש">
                 <i class="fas fa-times"></i>
               </button>
+              <!-- ההצעות יושבות בתוך העוטף של תיבת הקלט: כך הן נצמדות לתיבה
+                   עצמה (רוחב וקצה זהים) ולא לעמודה כולה. -->
+              <div id="searchSuggestions"
+                   role="listbox"
+                   aria-label="הצעות להשלמה"
+                   hidden>
+              </div>
             </div>
             <div class="input-group-append">
               <button class="btn btn-primary btn-icon"
@@ -41,10 +48,6 @@
                 <i class="fas fa-search"></i> חפש
               </button>
             </div>
-          </div>
-          <div id="searchSuggestions"
-               class="list-group"
-               style="display: none;">
           </div>
         </div>
 
