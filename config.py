@@ -295,8 +295,11 @@ class BotConfig(BaseSettings):
     )
 
     # סל מיחזור
+    # 30 ולא 7: עמוד הקובץ הבטיח למשתמש 30 יום בעוד המחיקה המרובה נתנה 7,
+    # כי כל מסלול קרא מקור אחר. אחרי האיחוד יש ערך אחד, והוא הגבוה — כי
+    # מחיקה בטעות היא אובדן, והמתנה בסל אינה.
     RECYCLE_TTL_DAYS: int = Field(
-        default=7, ge=1, description="Days to keep items in recycle bin"
+        default=30, ge=1, description="Days to keep items in recycle bin"
     )
 
     # URL-ים

@@ -3,13 +3,17 @@ import pytest
 from bson import ObjectId
 
 
-def test_delete_file_by_id_invalidate_raises_but_returns_true(monkeypatch):
+def test_soft_delete_reports_the_deletion_even_if_invalidation_raises(monkeypatch):
+    """הקאש הוא ניקוי אופורטוניסטי — כשל בו אינו הופך מחיקה שקרתה לכשל."""
     from database.repository import Repository as RepoMod
     import database.repository as repo_mod
 
     class Coll:
-        def find_one(self, *_a, **_k):
-            return {"user_id": 7}
+        def find(self, *_a, **_k):
+            return [{"_id": ObjectId("507f1f77bcf86cd799439011"),
+                     "user_id": 7, "file_name": "a.py"}]
+        def distinct(self, key, filter=None, *_a, **_k):
+            return ["a.py"]
         def update_many(self, *_a, **_k):
             return types.SimpleNamespace(modified_count=1)
     class Mgr:
@@ -18,9 +22,9 @@ def test_delete_file_by_id_invalidate_raises_but_returns_true(monkeypatch):
             self.large_files_collection = types.SimpleNamespace()
     repo = RepoMod(Mgr())
 
-    # invalidate_user_cache raises, but method should still return True
     monkeypatch.setattr(repo_mod.cache, "invalidate_user_cache", lambda *_: (_ for _ in ()).throw(RuntimeError("boom")))
-    assert repo.delete_file_by_id("507f1f77bcf86cd799439011") is True
+    assert repo.soft_delete_files_by_ids(7, ["507f1f77bcf86cd799439011"]) == {
+        "files": 1, "versions": 1, "missing": 0}
 
 
 def test_delete_large_file_by_id_invalidate_exception(monkeypatch):

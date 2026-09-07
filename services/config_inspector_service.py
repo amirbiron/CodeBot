@@ -2644,7 +2644,7 @@ class ConfigService:
         "RECYCLE_TTL_DAYS": ConfigDefinition(
             key="RECYCLE_TTL_DAYS",
             services=("webapp", "bot", "mcp", "webserver"),
-            default="7",
+            default="30",
             description="ימים לשמירת פריטים בסל המיחזור",
             category="limits",
         ),

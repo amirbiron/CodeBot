@@ -90,6 +90,14 @@ def test_repository_soft_delete_and_ttl(monkeypatch):
     class DummyCollection:
         def __init__(self):
             self.updated = None
+        def distinct(self, key, filter=None, *a, **k):
+            """‏``Collection.distinct(key, filter=None, ...)`` — כמו pymongo.
+
+            מסלול המחיקה שואל אילו שמות פעילים **לפני** שהוא מכבה אותם.
+            דמה בלי המתודה הזו זורקת ``AttributeError`` שנבלע ב-``except``
+            של ``delete_file``, והמחיקה מדווחת ``False`` בלי שום רמז.
+            """
+            return ["a.py"]
         def update_many(self, filter, update):
             self.updated = (filter, update)
             return types.SimpleNamespace(modified_count=1)
@@ -107,7 +115,9 @@ def test_repository_soft_delete_and_ttl(monkeypatch):
     ok = repo.delete_file(user_id=1, file_name="a.py")
     assert ok is True
     f, upd = repo.manager.collection.updated
-    assert f["user_id"] == 1 and f["file_name"] == "a.py"
+    # ‏``$in`` גם לשם יחיד: מחיקה בודדת ומחיקה מרובה עוברות באותה שאילתה,
+    # וזה מה שמונע מהן להיפרד שוב. ראו ``file_deletion.py``.
+    assert f["user_id"] == 1 and f["file_name"] == {"$in": ["a.py"]}
     sets = upd["$set"]
     assert sets["is_active"] is False
     assert isinstance(sets["deleted_at"], datetime)

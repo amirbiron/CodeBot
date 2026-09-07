@@ -14,6 +14,10 @@ def test_toggle_and_delete_invalidate_properly(monkeypatch):
                 if d.get('user_id') == q.get('user_id') and d.get('file_name') == q.get('file_name'):
                     return d
             return None
+        def distinct(self, key, filter=None, *a, **k):  # noqa: ARG002
+            # ‏``Collection.distinct(key, filter=None, ...)`` — כמו pymongo.
+            # מסלול המחיקה שואל אילו שמות פעילים לפני שהוא מכבה אותם.
+            return [d[key] for d in self.docs if key in d]
         def update_many(self, q, u):  # noqa: ARG002
             return type('R', (), {'matched_count': 1, 'modified_count': 1})
     class _Mgr:
