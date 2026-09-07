@@ -139,14 +139,9 @@
     updateOutputStats();
   }
 
+  // הכלל ב-``utils/size-format.js``, שנטען מ-base.html.
   function formatBytes(bytes) {
-    const b = typeof bytes === 'number' && Number.isFinite(bytes) ? bytes : 0;
-    if (b <= 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(b) / Math.log(k));
-    const idx = Math.max(0, Math.min(i, sizes.length - 1));
-    return `${parseFloat((b / Math.pow(k, idx)).toFixed(1))} ${sizes[idx]}`;
+    return window.SizeFormat.formatFileSize(bytes);
   }
 
   function updateInputStats() {
