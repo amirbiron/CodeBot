@@ -66,10 +66,15 @@ MEASURE_JS = """
 
 @pytest.fixture(scope="module")
 def measured(chromium_executable, tmp_path_factory):
-    """טוען את העמוד פעם אחת ומחזיר את המדידה של שלושת המקרים."""
-    if chromium_executable is None:
-        pytest.skip("Chromium אינו מותקן")
+    """טוען את העמוד פעם אחת ומחזיר את המדידה של שלושת המקרים.
 
+    ``chromium_executable`` הוא ``None`` כשאין דפדפן תחת
+    ``PLAYWRIGHT_BROWSERS_PATH``, ו-``None`` פירושו "תן ל-Playwright לחפש
+    בעצמו" ולא "אין דפדפן". דילוג במקרה הזה היה מבטל את הבדיקה בשקט בכל
+    סביבה שהתקינה ``playwright install chromium`` כרגיל — וההגנה על ה-bidi
+    הייתה נעלמת בלי שאיש ישים לב. מדלגים רק אם ההשקה עצמה נכשלת, כמו בשאר
+    קובצי הדפדפן בריפו.
+    """
     page_file = tmp_path_factory.mktemp("bidi") / "page.html"
     page_file.write_text(
         PAGE_TEMPLATE.format(
@@ -80,7 +85,14 @@ def measured(chromium_executable, tmp_path_factory):
     )
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=chromium_executable)
+        try:
+            browser = (
+                p.chromium.launch(executable_path=chromium_executable)
+                if chromium_executable
+                else p.chromium.launch()
+            )
+        except Exception as exc:  # noqa: BLE001 — כל כשל השקה פירושו אין דפדפן
+            pytest.skip(f"אין Chromium זמין: {exc}")
         try:
             page = browser.new_page()
             page.goto(page_file.as_uri())

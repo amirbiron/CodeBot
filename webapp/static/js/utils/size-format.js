@@ -16,8 +16,13 @@
 (function () {
   'use strict';
 
-  /** סדר היחידות. האחרונה היא גם התקרה: מעליה הערך פשוט גדל. */
-  var UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+  /** סדר היחידות. האחרונה היא גם התקרה: מעליה הערך פשוט גדל.
+   *
+   * מוקפא כי הוא מיוצא: בלי הקפאה כל סקריפט בעמוד היה יכול לעשות
+   * ``SizeFormat.UNITS.push(...)`` או ``UNITS[1] = 'kb'`` ולשנות בכך **כל**
+   * תוצאה של ``formatFileSize``, כי זו אותה מערך בדיוק שהפונקציה קוראת ממנו.
+   * בפייתון המקביל הוא ``tuple`` ולכן חסין ממילא, וההקפאה משווה ביניהם. */
+  var UNITS = Object.freeze(['B', 'KB', 'MB', 'GB', 'TB']);
 
   /** LRI פותח קטע שנקרא שמאל-לימין, PDI סוגר אותו. */
   var LRI = '⁦';
@@ -92,12 +97,14 @@
   }
 
   if (typeof window !== 'undefined') {
-    window.SizeFormat = {
+    // מוקפא גם הוא: החלפת ``formatFileSize`` בעמוד הייתה משנה את התצוגה בכל
+    // ששת הצרכנים בבת אחת, וזו בדיוק הסחיפה שהמודול הזה בא למנוע.
+    window.SizeFormat = Object.freeze({
       UNITS: UNITS,
       LRI: LRI,
       PDI: PDI,
       formatSizeNumber: formatSizeNumber,
       formatFileSize: formatFileSize,
-    };
+    });
   }
 })();
