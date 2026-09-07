@@ -2908,7 +2908,7 @@ def _safe_dt_from_doc(value) -> datetime:
 def _file_last_modified(doc: Dict[str, Any]) -> datetime:
     """מתי הייצוג שהעמוד מגיש השתנה לאחרונה.
 
-    ‏``updated_at`` לבדו אינו מספיק: הוא מציין מתי **התוכן** נערך, ואילו
+    ``updated_at`` לבדו אינו מספיק: הוא מציין מתי **התוכן** נערך, ואילו
     העמוד מרנדר גם את מצב המועדף והנעיצה. פעולות המטא-דאטה האלה אינן
     נוגעות ב-``updated_at`` (ראו ``docs/database/detailed-schema.rst``),
     ולכן בלי השדות שלהן דפדפן ששולח רק ``If-Modified-Since`` היה מקבל 304
@@ -5127,7 +5127,7 @@ def api_profiler_slow_queries():
     # "טבלה ריקה בלי סיבה". ``limit`` לעומתו נשאר סלחני כפי שהיה: ערך פסול שם
     # מחזיר 50 שורות במקום 20, ולא שורות אחרות.
     #
-    # ‏**‏``?min_time=`` ריק פירושו "לא נשלח", ולא "ערך פסול".** מחרוזת ריקה
+    # **``?min_time=`` ריק פירושו "לא נשלח", ולא "ערך פסול".** מחרוזת ריקה
     # אינה מספר שגוי — היא היעדר ערך, וממשק שבונה query string משדה ריק שולח
     # בדיוק את זה. זו גם המוסכמת בשני המקומות האחרים שמטפלים בפרמטר: ב-``main``
     # (``float(min_time) if min_time else None``) ובראוט של הבוט
@@ -9465,9 +9465,18 @@ def _safe_search(user_id: int, query: str, **kwargs):
             '_m': {'$regexFind': {'input': '$code', 'regex': pattern, 'options': 'i'}},
         }},
         {'$addFields': {
-            '_has_code_match': {'$gt': [{'$strLenBytes': {'$ifNull': ['$_m.match', '']}}, 0]},
+            # $strLenCP ולא $strLenBytes: כל המדידות כאן הן על טקסט.
+            # $regexFind מחזיר את idx כאינדקס **תווים** (code point index,
+            # מפורש בתיעוד של מונגו), ולכן כל מה שנגזר ממנו חייב להישאר
+            # במרחב התווים. ערבוב היחידות הוא #3353.
+            '_has_code_match': {'$gt': [{'$strLenCP': {'$ifNull': ['$_m.match', '']}}, 0]},
             '_match_idx': {'$ifNull': ['$_m.idx', 0]},
-            '_match_len': {'$strLenBytes': {'$ifNull': ['$_m.match', '']}},
+            # _match_len נכנס ל-highlight_ranges יחד עם _match_idx שהוא תווים.
+            # הצרכן הוא highlightSnippet ב-webapp/static/js/global_search.js,
+            # שחותך ב-text.slice() — יחידות UTF-16. בעברית זה שקול ל-code
+            # points כי כל האותיות בטווח ה-BMP; ⚠️ אמוג'י בקוד ישבור את
+            # השקילות הזו (תו אחד = שתי יחידות UTF-16).
+            '_match_len': {'$strLenCP': {'$ifNull': ['$_m.match', '']}},
         }},
         {'$addFields': {
             # אם אין התאמה בקוד (למשל התאמה הייתה בשם קובץ/תיאור/תגיות דרך $text),
@@ -9481,8 +9490,12 @@ def _safe_search(user_id: int, query: str, **kwargs):
             },
         }},
         {'$addFields': {
-            'snippet_preview': {'$substrBytes': ['$code', '$_snippet_start', 200]},
+            # $substrCP ולא $substrBytes: _snippet_start הוא אינדקס תווים.
+            # $substrBytes קיבל אותו כאילו היה בייטים, ובעברית הגבול נחת
+            # באמצע אות — מונגו זרקה והפילה את כל האגרגציה (#3353).
+            'snippet_preview': {'$substrCP': ['$code', '$_snippet_start', 200]},
             # מטא-דאטה קל (למסמכים חדשים נשמר כבר; למסמכים ישנים מחשבים בריצה)
+            # ⚠️ file_size נשאר בבייטים במכוון — זה גודל אחסון, לא אורך טקסט.
             'file_size': {'$ifNull': ['$file_size', {'$strLenBytes': '$code'}]},
             'lines_count': {'$ifNull': ['$lines_count', {'$size': {'$split': ['$code', '\n']}}]},
             # highlight range יחיד (יחסי ל-snippet) עבור התאמה הראשונה, רק אם באמת נמצאה התאמה בקוד
@@ -9553,7 +9566,7 @@ def _safe_search(user_id: int, query: str, **kwargs):
         # ביותר שנרשמה (3,730ms), והיא רצה רק מפני שהמסלול המהיר נפל.
         #
         # ההערה שהייתה כאן ניחשה "למשל אין אינדקס טקסט", והניחוש הזה **נבדק
-        # ונפסל**: ‏``search_text_idx`` קיים, ואותה שאילתת ``$text`` בדיוק רצה
+        # ונפסל**: ``search_text_idx`` קיים, ואותה שאילתת ``$text`` בדיוק רצה
         # מול הקלאסטר ומחזירה תוצאות. הסיבה האמיתית הייתה בלתי נראית, וזה מה
         # שהשורה הבאה מתקנת.
         #
@@ -9628,7 +9641,7 @@ def _safe_search(user_id: int, query: str, **kwargs):
             ]
             docs = list(db.code_snippets.aggregate(old_pipeline, allowDiskUse=True))
         except Exception:
-            # ‏**זה המסלול שמחזיר "לא נמצאו תוצאות" על כשל.** בלי לוג, חיפוש
+            # **זה המסלול שמחזיר "לא נמצאו תוצאות" על כשל.** בלי לוג, חיפוש
             # שנשבר נראה בדיוק כמו חיפוש שלא מצא כלום — וזה ההבדל היחיד
             # שחשוב למשתמש.
             logger.warning(
@@ -11042,7 +11055,7 @@ def _timeline_recent_files_query(user_id: int, recent_cutoff: datetime,
 
 
 def _aggregate_snippets(db, pipeline: List[Dict[str, Any]]):
-    """‏``aggregate`` על ``code_snippets`` עם ``allowDiskUse``, ועם נפילה לאחור.
+    """``aggregate`` על ``code_snippets`` עם ``allowDiskUse``, ועם נפילה לאחור.
 
     ``allowDiskUse`` מיותר בשרת בתצורת ברירת מחדל (``allowDiskUseByDefault``
     הוא ``true``) אבל מגן על שרת שהוקשח עם ``false``. הנפילה לאחור על
@@ -12106,7 +12119,7 @@ def files():
 
     # הכנת מפתח Cache ייחודי לפרמטרים
     #
-    # ‏**הדגל בתחילית ולא בתוך** ``_params``\\ **, וזה לא סגנון.** העמוד הזה
+    # **הדגל בתחילית ולא בתוך** ``_params``\\ **, וזה לא סגנון.** העמוד הזה
     # שומר את ה-HTML המרונדר, ושתי התצוגות מייצרות HTML שונה. אילו הדגל היה
     # רק בתוך ``_params``, ענף ה-``except`` שמתחתיו — שנופל למפתח קבוע אחד —
     # היה מגיש לשתיהן את אותו HTML. בתחילית שני המסלולים מבדילים.
@@ -13055,7 +13068,7 @@ def view_file(file_id):
         resp.headers['ETag'] = etag
         resp.headers['Last-Modified'] = last_modified_str
         return resp
-    # ‏``If-Modified-Since`` לבדו אינו משמש כאן לוולידציה, ובכוונה.
+    # ``If-Modified-Since`` לבדו אינו משמש כאן לוולידציה, ובכוונה.
     # העמוד מרנדר את מצב המועדף והנעיצה לתוך ה-HTML, ואין שדה שמתעד
     # **מתי המצב הזה השתנה**: ``favorited_at`` אומר מתי סומן, ולכן אחרי
     # הסרת סימון הוא מתאפס — וה-``Last-Modified`` הנגזר ממנו נסוג אחורה.
@@ -16161,9 +16174,14 @@ def create_public_share(file_id):
                 agg = list(db.code_snippets.aggregate([
                     {'$match': {'_id': ObjectId(file_id), 'user_id': user_id}},
                     {'$addFields': {
+                        # ⚠️ file_size נשאר בבייטים במכוון — גודל אחסון.
                         'file_size': {'$ifNull': ['$file_size', {'$strLenBytes': '$code'}]},
                         'lines_count': {'$ifNull': ['$lines_count', {'$size': {'$split': ['$code', '\n']}}]},
-                        'snippet_preview': {'$substrBytes': ['$code', 0, 2000]},
+                        # $substrCP: התקרה היא 2000 **תווים**, כמו במסלול
+                        # ה-download שחותך code[:2000] בפייתון. עם $substrBytes
+                        # קובץ עברי חזר בשני שלישים מאורכו, וכשגבול 2000
+                        # הבייטים נחת באמצע אות — נזרקה חריגה (#3353).
+                        'snippet_preview': {'$substrCP': ['$code', 0, 2000]},
                     }},
                     {'$project': {
                         'file_name': 1,
@@ -16177,6 +16195,17 @@ def create_public_share(file_id):
                 ]))
                 meta = agg[0] if agg and isinstance(agg[0], dict) else {}
             except Exception:
+                # ⚠️ הכשל הזה נרשם, ולא נבלע.
+                #
+                # meta = {} מוביל ישירות ל-404 "קובץ לא נמצא" שתי שורות
+                # מכאן — תשובה שנראית בדיוק כמו קובץ שאינו קיים, בזמן
+                # שהקובץ קיים והשאילתה היא שנשברה. בלי השורה הזו אין שום
+                # דרך להבחין בין השניים, וזה מה שהחזיק את #3353 מוסתר.
+                logger.warning(
+                    "share preview: metadata aggregation failed, returning 404",
+                    exc_info=True,
+                    extra={"event": "share_preview_pipeline_failed", "file_id": str(file_id)},
+                )
                 meta = {}
             if not meta:
                 return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404

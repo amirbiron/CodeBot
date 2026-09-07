@@ -167,8 +167,9 @@ Mocking HTTP ב‑github_menu_handler
 - **האם אינדקס בשימוש** — רק ``explain`` עונה. סטאב מחזיר תוצאה נכונה גם כששאילתה סורקת את כל האוסף.
 - **סמנטיקה של BSON** — ``datetime`` נקטם למילישניות, ובלי ``tz_aware=True`` הוא חוזר נאיבי. השוואה בין נאיבי ל-aware זורקת ``TypeError``, ואם היא עטופה ב-``except`` — הבדיקה שנשענת עליה מפסיקה לרוץ בשקט.
 - **צינורות aggregation** — סטאב שנכתב ביד מבין רק את הצורה שנכתבה בו, ולכן שגיאת תחביר אמיתית עוברת אצלו.
+- **בייטים מול תווים** — ``$substrBytes`` ו-``$strLenBytes`` מודדים בבייטים, ``$substrCP`` ו-``$strLenCP`` בתווים, ו-``$regexFind`` מחזיר ``idx`` **בתווים**. על טקסט עברי ערבוב היחידות חותך באמצע אות ומונגו זורקת. אף סטאב בריפו אינו מדגמן את זה — ``tests/_fake_mongo.py`` אפילו אין בו ``aggregate``.
 
-הבדיקות האלה חיות ב-``tests/test_note_boards_mongo.py``. הן **מדלגות** כשאין ``MONGODB_URL`` או כשהשרת אינו נגיש, כך שהרצה מקומית רגילה נשארת מהירה. אותו דילוג-על-שרת-לא-נגיש קיים גם בפיקסצ'ר ``wired_mongo`` שב-``tests/conftest.py``, ומשרת את הבדיקות שמריצות את הראוטים של הוובאפ מול מסד אמיתי.
+הבדיקות האלה חיות ב-``tests/test_note_boards_mongo.py`` וב-``tests/test_snippet_hebrew_offsets_mongo.py``. הן **מדלגות** כשאין ``MONGODB_URL`` או כשהשרת אינו נגיש, כך שהרצה מקומית רגילה נשארת מהירה. אותו דילוג-על-שרת-לא-נגיש קיים גם בפיקסצ'ר ``wired_mongo`` שב-``tests/conftest.py``, ומשרת את הבדיקות שמריצות את הראוטים של הוובאפ מול מסד אמיתי.
 
 .. warning::
    **הן אינן רצות ב-CI כרגע.** הג'וב ``Unit Tests`` אמנם מרים ``mongo:6.0`` כשירות, אבל הוא ``runs-on: ubuntu-latest`` **בלי** ``container:``, והשירות מוגדר **בלי** ``ports:``. לפי `תיעוד GitHub Actions <https://docs.github.com/en/actions/using-containerized-services/about-service-containers>`_, גישה לפי שם השירות עובדת רק כשהג'וב עצמו רץ בקונטיינר; אחרת צריך למפות פורטים ולפנות ל-``127.0.0.1:<port>``. בלי זה המארח ``mongodb`` אינו נפתר כלל (``[Errno -3] Temporary failure in name resolution``), והבדיקות מדלגות בשקט.
