@@ -4896,6 +4896,20 @@ def admin_profiler_page():
     return render_template("profiler_dashboard.html", profiler_token=_profiler_token())
 
 
+def _profiler_raw_to_extended_json(raw):
+    """``query_raw`` בקידוד Extended JSON, מוכן ל-``jsonify``.
+
+    ``json.loads(json_util.dumps(x))`` מחזיר dict רגיל שבו הטיפוסים מיוצגים
+    כאובייקטים (``{"$date": …}``), ולכן ``jsonify`` פולט אותם כמו שהם.
+    ``None`` נשאר ``None`` — אין ערכים, אין מה לקודד.
+    """
+    if raw is None:
+        return None
+    from bson import json_util
+
+    return json.loads(json_util.dumps(raw))
+
+
 def _serialize_slow_query(q) -> Dict[str, Any]:
     return {
         "query_id": q.query_id,
@@ -4904,7 +4918,13 @@ def _serialize_slow_query(q) -> Dict[str, Any]:
         "query_shape": q.query_shape,
         # הערכים האמיתיים — רק לשאילתות שזוהו כשל משתמש מורשה, ורק כשהוא עדיין
         # ברשימה (השירות מסנן בקריאה). ``raw_withheld_reason`` אומר למה אין.
-        "query_raw": getattr(q, "query_raw", None),
+        #
+        # **Extended JSON ולא JSON רגיל.** ``jsonify`` היה הופך ``datetime``
+        # למחרוזת HTTP-date, ומונגו שמשווה מחרוזת לשדה תאריך אינו מתאים לאף
+        # מסמך — נמדד: 1,157 מסמכים מול 0. הניתוח היה רץ על שאילתה אחרת
+        # ומחזיר דוח שנראה מצוין ומסקנתו הפוכה. ``{"$date": …}`` נושא את
+        # הטיפוס ושורד את המסע חזרה. האידיום זהה ל-``/admin/db-*`` בקובץ הזה.
+        "query_raw": _profiler_raw_to_extended_json(getattr(q, "query_raw", None)),
         "raw_withheld_reason": getattr(q, "raw_withheld_reason", None),
         "execution_time_ms": q.execution_time_ms,
         "timestamp": q.timestamp.isoformat() if getattr(q, "timestamp", None) else None,
@@ -5072,6 +5092,36 @@ def _profiler_input_error_response(exc):
     return jsonify({"status": "error", "message": message, "error_code": code}), 400
 
 
+#: הניב שבו גוף השאילתה נשלח. **מוצהר בבקשה ולא מוסק** — ראו ``_profiler_decode``.
+PROFILER_ENCODING_JSON = "json"
+PROFILER_ENCODING_EJSON = "extended_json"
+PROFILER_ENCODINGS = frozenset({PROFILER_ENCODING_JSON, PROFILER_ENCODING_EJSON})
+
+
+def _profiler_decode(value, encoding: str):
+    """מפענח גוף שאילתה לפי הניב שהבקשה הצהירה עליו.
+
+    **למה לא Extended JSON תמיד, על כל בקשה.** נמדד ש-``json_util.loads``
+    בולע תווי דגל שאינו מכיר: השלד המנורמל
+    ``{"$regex": "<value>", "$options": "<value>"}`` הופך אצלו ל-
+    ``Regex('<value>', re.LOCALE|re.UNICODE)`` — כלומר רץ, ומחזיר אפס תוצאות.
+    היום אותו קלט מייצר שגיאה **רועשת** ממונגו
+    (``invalid flag in regex options: <``). החלפה גורפת הייתה הופכת שגיאה
+    שרואים לתשובה שגויה בשקט, וזה בדיוק מה שהמנגנון הזה קיים כדי למנוע.
+
+    לכן ברירת המחדל היא ``json``, זהה להתנהגות הקודמת עבור שאילתה שמוקלדת
+    ביד ועבור ניתוח על השלד; רק מי שיודע שהוא נושא Extended JSON מצהיר על כך.
+    """
+    if encoding != PROFILER_ENCODING_EJSON:
+        return value
+    from bson import json_util
+
+    try:
+        return json_util.loads(json.dumps(value))
+    except Exception as exc:
+        raise ValueError("extended_json_decode_failed") from exc
+
+
 @app.route("/api/profiler/explain", methods=["POST"])
 def api_profiler_explain():
     if not _profiler_is_authorized():
@@ -5086,8 +5136,21 @@ def api_profiler_explain():
     query = body.get("query", {}) or {}
     pipeline = body.get("pipeline")
     verbosity = body.get("verbosity", "queryPlanner")
+    encoding = body.get("encoding", PROFILER_ENCODING_JSON)
     if not collection:
         return jsonify({"status": "error", "message": "collection is required"}), 400
+    # ``isinstance`` **לפני** בדיקת החברות, ולא רק בגלל קפדנות: ``x in frozenset``
+    # קורא ל-``hash(x)``, ורשימה או מילון מגוף JSON זורקים שם ``TypeError`` —
+    # נמדד — כלומר 500 במקום 400 על קלט לא תקין. זה מופע של ``CORE-PATTERNS``
+    # U3: פעולה שמניחה טיפוס על ערך שהגיע מחוץ לתהליך.
+    if not isinstance(encoding, str) or encoding not in PROFILER_ENCODINGS:
+        return jsonify({"status": "error", "message": "invalid_encoding"}), 400
+    try:
+        query = _profiler_decode(query, encoding)
+        if isinstance(pipeline, list):
+            pipeline = _profiler_decode(pipeline, encoding)
+    except ValueError:
+        return jsonify({"status": "error", "message": "invalid_encoding"}), 400
     try:
         svc = _get_webapp_profiler_service()
         if isinstance(pipeline, list):
@@ -5129,8 +5192,21 @@ def api_profiler_recommendations():
     query = body.get("query", {}) or {}
     pipeline = body.get("pipeline")
     verbosity = body.get("verbosity", "queryPlanner")
+    encoding = body.get("encoding", PROFILER_ENCODING_JSON)
     if not collection:
         return jsonify({"status": "error", "message": "collection is required"}), 400
+    # ``isinstance`` **לפני** בדיקת החברות, ולא רק בגלל קפדנות: ``x in frozenset``
+    # קורא ל-``hash(x)``, ורשימה או מילון מגוף JSON זורקים שם ``TypeError`` —
+    # נמדד — כלומר 500 במקום 400 על קלט לא תקין. זה מופע של ``CORE-PATTERNS``
+    # U3: פעולה שמניחה טיפוס על ערך שהגיע מחוץ לתהליך.
+    if not isinstance(encoding, str) or encoding not in PROFILER_ENCODINGS:
+        return jsonify({"status": "error", "message": "invalid_encoding"}), 400
+    try:
+        query = _profiler_decode(query, encoding)
+        if isinstance(pipeline, list):
+            pipeline = _profiler_decode(pipeline, encoding)
+    except ValueError:
+        return jsonify({"status": "error", "message": "invalid_encoding"}), 400
     try:
         svc = _get_webapp_profiler_service()
         if isinstance(pipeline, list):

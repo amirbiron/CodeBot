@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -91,7 +92,12 @@ def dashboard(admin_live_server, chromium_executable, stub_profiler_api):
         except Exception as exc:  # pragma: no cover
             pytest.skip(f"אין Chromium זמין: {exc}")
 
-        with browser, browser.new_context(viewport={"width": 1280, "height": 900}) as context:
+        with browser, browser.new_context(
+            viewport={"width": 1280, "height": 900},
+            # בלי ההרשאות האלה ``clipboard.readText`` נחסם, וטסט הדוח היה
+            # בודק מחרוזת ריקה במקום את מה שבאמת הודבק.
+            permissions=["clipboard-read", "clipboard-write"],
+        ) as context:
             context.add_cookies([{
                 "name": "session", "value": session_cookie, "domain": "127.0.0.1", "path": "/",
             }])
@@ -196,3 +202,98 @@ def test_a_row_without_an_analyze_button_still_says_why_the_values_are_missing(d
     note = row.query_selector("[data-testid='raw-withheld']")
     assert note is not None, "שורה בלי כפתור עדיין חייבת להסביר למה אין ערכים אמיתיים"
     assert "owner_id" in (note.text_content() or ""), "הסיבה חייבת לנקוב בשם השדה"
+
+
+def _copy_report(page, timeout_ms=5000):
+    """מעתיק את הדוח ומחזיר את **תוכן הלוח בפועל**.
+
+    ``navigator.clipboard.writeText()`` אסינכרוני, ולכן המתנה קבועה היא טסט
+    שנופל מהסיבה הלא נכונה: על מכונה עמוסה הכתיבה עוד לא נחתה, ``readText``
+    מחזיר ריק, והכישלון נראה כאילו הדוח שגוי. פולינג עד שיש תוכן.
+    """
+    page.click("button:has-text('העתק דוח ל-AI')")
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        text = page.evaluate("navigator.clipboard.readText()")
+        if text:
+            return text
+        page.wait_for_timeout(50)
+    raise AssertionError("הלוח נשאר ריק — ההעתקה לא קרתה כלל")
+
+
+def test_the_request_declares_the_encoding_of_what_it_carries(dashboard):
+    """הניב מוצהר בבקשה. בלי זה השרת מפרש ``{"$date": …}`` כמילון ולא כתאריך."""
+    page, sent = dashboard
+    _row(page, "with-values").query_selector("button[data-analyze-with='raw']").click()
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+
+    assert sent[-1]["encoding"] == "extended_json"
+
+    _row(page, "withheld").query_selector("button[data-analyze-with='shape']").click()
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+
+    assert sent[-1]["encoding"] == "json", (
+        "השלד חייב להישאר בניב הרגיל: תחת Extended JSON ה-``<value>`` שבתוך "
+        "``$options`` הופך ל-Regex עם דגלים אקראיים במקום לשגיאה רועשת"
+    )
+
+
+def test_the_report_says_the_analysis_ran_on_real_values(dashboard):
+    """שתי עובדות נפרדות, ושתיהן חייבות להיאמר.
+
+    **הדוח עצמו מנורמל תמיד** — נבדק בקוד בשלושת חלקיו: צורת השאילתה נלקחת
+    מ-``explain.query_shape`` שהשרת מנרמל, תוכנית הביצוע עוברת ב-``describeStage``
+    שמדפיס ``stage``/``index_name``/``direction`` בלבד ולעולם לא ``filter_condition``,
+    והסטטיסטיקות הן מספרים. לכן ההצהרה על פרטיות נכונה גם כאן.
+
+    **מה שכן שונה הוא על מה ה-explain רץ.** בלי לומר את זה, מי שקורא "הערכים
+    מנורמלים" עלול להסיק שגם המדידה נעשתה על ``<value>`` ולפסול מספרים תקפים.
+    """
+    page, _sent = dashboard
+    _row(page, "with-values").query_selector("button[data-analyze-with='raw']").click()
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+    report = _copy_report(page)
+
+    assert "אין בדוח נתונים אישיים" in report, "הדוח באמת מנורמל — ההצהרה נכונה גם כאן"
+    assert "הניתוח עצמו רץ על הערכים האמיתיים" in report, (
+        "בלי זה המספרים ייקראו כאילו נמדדו על שלד שאינו מתאים לאף מסמך"
+    )
+
+
+def test_the_report_does_not_claim_a_real_run_when_it_was_the_skeleton(dashboard):
+    """הכיוון השני: על השלד אסור להבטיח מדידה על ערכים אמיתיים.
+
+    בלי הטסט הזה "תיקון" שפשוט מוסיף את המשפט תמיד היה עובר — ואז דוח על
+    שלד היה מבטיח מספרים אמיתיים, טעות הפוכה ולא פחות גרועה.
+    """
+    page, _sent = dashboard
+    _row(page, "withheld").query_selector("button[data-analyze-with='shape']").click()
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+    report = _copy_report(page)
+
+    assert "אין בדוח נתונים אישיים" in report
+    assert "הניתוח עצמו רץ על הערכים האמיתיים" not in report
+
+
+def test_the_encoding_does_not_leak_into_the_next_analysis(dashboard):
+    """הניב אינו מצב גלובלי — הוא נאמר על ידי מי שיודע, ולא נותר מהפעם הקודמת.
+
+    כמשתנה ברמת המודול, רק ``analyzeQueryFromRow`` כתב אליו — ולכן ניתוח של
+    שורה גולמית הדליק ``extended_json``, ואז הכפתור הידני (או לחיצה על המלצה,
+    דרך ``analyzeQueryById``) שלח את מה שבטופס עם אותו דגל.
+
+    זה לא היה תיאורטי אלא בדיוק התשובה השגויה השקטה שהמנגנון קיים למנוע:
+    ``json_util.loads`` על ``{"$options": "<value>"}`` מחזיר ``Regex`` עם דגלים
+    אקראיים — רץ, ומחזיר אפס תוצאות — במקום השגיאה הרועשת שמונגו נותנת.
+    """
+    page, sent = dashboard
+    _row(page, "with-values").query_selector("button[data-analyze-with='raw']").click()
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+    assert sent[-1]["encoding"] == "extended_json", "המסלול שכן יודע חייב להצהיר"
+
+    page.click('button[onclick="analyzeQuery()"]')
+    page.wait_for_selector("#analysis-results", state="visible", timeout=10000)
+
+    assert sent[-1]["encoding"] == "json", (
+        "הניב דלף מהניתוח הקודם — מסלול שלא הצהיר חייב לקבל את ברירת המחדל הבטוחה"
+    )

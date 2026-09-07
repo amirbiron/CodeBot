@@ -260,7 +260,14 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
 
 
 def _serialize_slow_query(query) -> Dict[str, Any]:
-    """המרת SlowQueryRecord ל-dict"""
+    """המרת SlowQueryRecord ל-dict.
+
+    **``query_raw`` אינו מוגש כאן במכוון.** הצרכן היחיד של הערכים האמיתיים
+    הוא כפתור הניתוח בדשבורד, והוא מדבר עם ``webapp/app.py`` — שם הם יוצאים
+    ב-Extended JSON, כי ל-JSON רגיל אין טיפוס תאריך והוא היה הופך אותם
+    למחרוזות. ``web.json_response`` כאן משתמש ב-``json.dumps`` רגיל, ולכן
+    הוספת השדה בלי להחליף גם את הקידוד תחזיר בדיוק את הבאג הזה.
+    """
     return {
         "query_id": query.query_id,
         "collection": query.collection,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import threading
 from collections import defaultdict, deque
@@ -11,6 +12,12 @@ from datetime import datetime, timedelta
 from enum import Enum
 from dataclasses import replace as _dc_replace
 from typing import Any, Deque, Dict, FrozenSet, List, Optional, Tuple
+
+#: ``bson`` מגיע עם pymongo, שהוא תלות קיימת. ``json_util`` הוא ניב JSON
+#: שנושא את הטיפוס בתוך ה-JSON עצמו (``{"$date": …}``), ולכן ערך חוזר
+#: ממנו **כטיפוס שלו** ולא כמחרוזת. אותו אידיום כבר בשימוש בריפו —
+#: ``webapp/app.py`` ו-``scripts/check_indexes.py``.
+from bson import json_util
 
 try:
     # Structured logging events (fail-open)
@@ -306,6 +313,9 @@ RAW_WITHHELD_TOO_LARGE = "too_large"
 RAW_WITHHELD_MALFORMED = "malformed"
 RAW_WITHHELD_UNSUPPORTED_NUMBER = "unsupported_number"
 RAW_WITHHELD_OWNER_NOT_ALLOWED_NOW = "owner_not_allowed_now"
+#: כשל בלתי צפוי בהחלטה עצמה. הוא לא אמור לקרות, ולכן הוא נרשם ללוג —
+#: אבל הוא לעולם לא עולה ברשומה עצמה (ראו ``_decide_raw_query``).
+RAW_WITHHELD_INTERNAL_ERROR = "internal_error"
 
 
 def _unredacted_user_ids() -> FrozenSet[str]:
@@ -328,33 +338,76 @@ def _owner_token(value: Any) -> Optional[str]:
 
 
 def _reject_unserializable(obj: Any) -> Any:
-    """``default`` של ``json.dumps``: כל טיפוס שהוא אינו מכיר נדחה בשמו."""
+    """``default`` של ``json_util.dumps``: טיפוס שגם הוא אינו מכיר נדחה בשמו."""
     raise _RawQueryWithheld(f"unsupported_type:{type(obj).__name__}")
 
 
+def _reject_non_finite(value: Any) -> None:
+    """דוחה ``inf``/``-inf``/``NaN`` בכל עומק, **לפני** הסיבוב.
+
+    למה בדיקה מפורשת ולא דגל של הקודק: ``json_util.dumps`` **מתעלם**
+    מ-``allow_nan=False`` ופולט ``{"$numberDouble": "Infinity"}`` בכל מקרה —
+    נמדד. כלומר הגדר הזה, שהיה מגיע בחינם מ-``json.dumps``, נעלם עם החלפת
+    הקודק. בלי השורות האלה ``unsupported_number`` היה מפסיק לתפוס בשקט.
+
+    ולמה לדחות בכלל, אחרי ש-Extended JSON הפך אותם לתקינים תחבירית:
+
+    * ``NaN`` אינו מתאים לאף מסמך במונגו. שמירתו הייתה מייצרת ``explain``
+      על שאילתה שמחזירה אפס — בדיוק הדוח המטעה שכל הגדר הזה קיים למנוע.
+    * ``±inf`` בטוח **רק** בקידוד Extended JSON, וההכרעה כאן נעשית בזמן
+      **הכתיבה** — לפני שידוע איך הרשומה תוגש. ההגשה של ``query_raw`` היא
+      Extended JSON היום, אבל יש כבר ``_serialize_slow_query`` שני
+      (``handlers/profiler_handler.py``) שקורא את אותן רשומות דרך ``json``
+      רגיל; הוא אינו מגיש את השדה, ולכן שום דבר אינו שבור — אבל אי אפשר
+      להבטיח את התכונה לצרכן שטרם נכתב. מה שנשמר חייב להיות בטוח בלי תלות בו.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        raise _RawQueryWithheld(RAW_WITHHELD_UNSUPPORTED_NUMBER)
+    if isinstance(value, dict):
+        for item in value.values():
+            _reject_non_finite(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _reject_non_finite(item)
+
+
 def _ensure_replayable(value: Any) -> Any:
-    """הערך אחרי סיבוב JSON, או דחייה אם הוא לא שורד אותו.
+    """הערך אחרי סיבוב Extended JSON, או דחייה אם הוא לא שורד אותו.
 
     ``query_raw`` קיים כדי שאפשר יהיה **להריץ אותו שוב** דרך כפתור הניתוח,
     והמסע שלו הוא: מונגו ← השרת ← JSON ← הדשבורד ← JSON ← השרת ← ``explain``.
     לכן **ההגדרה של "ניתן להרצה חוזרת" היא הסיבוב עצמו, לא רשימת טיפוסים.**
 
-    בדיקה לפי ``isinstance`` נכשלה בשני הכיוונים: ``float('inf')`` הוא
-    ``float`` ועבר, אבל ``json.dumps`` פולט עליו ``Infinity`` — שאינו JSON
-    תקני, ו-``JSON.parse`` בדפדפן זורק עליו. הסיבוב האמיתי תופס את שניהם:
-    ``allow_nan=False`` דוחה ``inf``/``NaN``, ו-``default`` דוחה כל טיפוס
-    שאינו JSON נייטיבי (``ObjectId``, ``datetime``, ``Decimal128``, ``bytes``)
-    **בשמו**.
+    הקודק הוא ``json_util`` ולא ``json``, וזה מה שהופך את התאריכים לאפשריים.
+    ל-JSON רגיל אין טיפוס תאריך, ולכן ``datetime`` היה יוצא מחרוזת וחוזר
+    מחרוזת — ומונגו שמשווה מחרוזת לשדה תאריך אינו מתאים לאף מסמך. נמדד על
+    ``code_snippets`` בפרודקשן: התאריך האמיתי מתאים ל-1,157 מסמכים, המחרוזת
+    ל-0. כלומר ``explain`` שנראה מצוין — מהיר, אפס סריקה — ומסקנתו הפוכה.
+    Extended JSON נושא את הטיפוס בתוך ה-JSON (``{"$date": …}``), ולכן
+    ``datetime``, ``ObjectId``, ``Decimal128`` ו-``bytes`` חוזרים **שווים
+    למקור**.
+
+    מה שעדיין נדחה: ערכים לא-סופיים (``_reject_non_finite``, שרץ לפני), וכל
+    טיפוס שגם ``json_util`` אינו מכיר — בשמו, דרך ``default``.
 
     ערך שנראה אמיתי ואינו ניתן להרצה גרוע מהיעדר ערך — הוא היה מריץ שאילתה
     אחרת ומחזיר אפס תוצאות בלי שאיש יידע — ולכן כאן נכשלים סגור ובקול.
     """
+    _reject_non_finite(value)
     try:
-        return json.loads(json.dumps(value, allow_nan=False, default=_reject_unserializable))
-    except ValueError as exc:  # ``allow_nan=False`` על inf/-inf/NaN
-        raise _RawQueryWithheld(RAW_WITHHELD_UNSUPPORTED_NUMBER) from exc
+        return json_util.loads(json_util.dumps(value, default=_reject_unserializable))
     except TypeError as exc:  # מפתח שאינו מחרוזת/מספר — לא עובר דרך ``default``
         raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED) from exc
+
+
+def _replayable_size_bytes(value: Any) -> int:
+    """גודל הערך **בקידוד שבו הוא באמת נשלח**.
+
+    ``json.dumps`` היה זורק ``TypeError`` על ``datetime`` — וזו חריגה
+    ש-``_decide_raw_query`` אינה תופסת. היא לא יכלה לקרות קודם, כי תאריך
+    נחסם ב-``_ensure_replayable`` לפני שהגיע לכאן; משאושרו תאריכים, היא כן.
+    """
+    return len(json_util.dumps(value).encode("utf-8"))
 
 
 #: סמן פנימי: השלב אינו שלב מבנה. ``None`` אינו מתאים — ``$skip: 0`` חוקי.
@@ -922,11 +975,23 @@ class QueryProfilerService:
                 _check_condition(query)
                 safe = _ensure_replayable(query)
             max_bytes = _env_int("PROFILER_UNREDACTED_MAX_BYTES", DEFAULT_UNREDACTED_MAX_BYTES)
-            if len(json.dumps(safe, ensure_ascii=False).encode("utf-8")) > max(1, int(max_bytes)):
+            if _replayable_size_bytes(safe) > max(1, int(max_bytes)):
                 raise _RawQueryWithheld(RAW_WITHHELD_TOO_LARGE)
             return safe, owner, None
         except _RawQueryWithheld as exc:
             return None, None, exc.reason
+        except Exception:
+            # ``query_raw`` הוא **העשרה**; הרשומה עצמה היא המוצר. עד כאן נתפסה
+            # רק ``_RawQueryWithheld``, ולכן כל חריגה אחרת הייתה בורחת עד
+            # ה-``except Exception`` של המאזין ב-``database/manager.py`` —
+            # ושם **הרשומה כולה אובדת**, ונשארת רק שורת ``Profiler Error``.
+            # כלומר כשל בהחלטה על ההעשרה היה עולה במוצר.
+            #
+            # הגבול הזה אינו בליעה שקטה ואינו הרחבת ``except`` קיים כדי לעבור
+            # טסט: הוא רושם ללוג, ומחזיר סיבה **גלויה** שהדשבורד מציג. התכונה
+            # שהוא קונה: אף שינוי עתידי בטיפול בטיפוסים לא יוכל לעלות ברשומות.
+            logger.exception("profiler_raw_decision_failed")
+            return None, None, RAW_WITHHELD_INTERNAL_ERROR
 
     def _apply_raw_read_policy(self, record: SlowQueryRecord) -> SlowQueryRecord:
         """הקונפיג הוא הסמכות הנוכחית: רשומה עם ערכים מוסתרת אם הבעלים כבר לא ברשימה."""
