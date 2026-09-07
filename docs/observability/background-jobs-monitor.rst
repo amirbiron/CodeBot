@@ -331,7 +331,7 @@ Alerts
        event_pattern: "job_missed"
        severity: error
        cooldown_seconds: 3600
-       message: "🔕 Job {job_id} לא רץ בהצלחה כבר {hours} שעות"
+       message: "🔕 Job {job_id} — לא נרשמה לו ריצה כבר {hours} שעות"
 
 Flow של Alerts
 ~~~~~~~~~~~~~~
@@ -350,7 +350,9 @@ Flow של Alerts
 Job שמצהיר ב-``metadata`` על ``missed_after_hours`` נבדק באותו background loop
 של ה-stuck monitor: שאילתה מצרפית אחת על ``job_runs`` מחזירה מי כן רץ בחלון
 (``completed`` או ``failed`` — כשל כבר מכוסה, השאלה כאן היא אי-התחלה), והחסרים
-מפיקים ``job_missed``. ההתראה נשלחת פעם אחת ליום לכל Job.
+מפיקים ``job_missed``. ההתראה נשלחת פעם אחת ליום לכל Job — השער הוא upsert מותנה על ``admin_reports``, ו"היום כבר נתפס" מגיע ממנו כהתנגשות מפתח ייחודי (``DuplicateKeyError``) ולא כ-``modified_count=0``, כי אופרטור ה-``$ne`` שבשאילתה אינו נכנס למסמך שנוצר ב-upsert.
+
+מה שנבדק הוא היעדר **רשומה** ב-``job_runs``, לא היעדר ריצה: ``JobTracker._persist_run`` רושם כשל כתיבה ללוג ואינו מפיל את ההרצה, ולכן ריצה שקרתה ורשומתה לא נשמרה תיראה כאן כהיעדר. שתי הבדיקות — ה-stuck וה-missed — רצות באותו loop אבל ב-``try`` נפרד: כשל של אחת אינו משתיק את השנייה.
 
 **זיהוי Jobs תקועים:**
 

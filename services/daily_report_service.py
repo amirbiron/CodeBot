@@ -955,8 +955,12 @@ def render_report(diff: ReportDiff, *, max_chars: int = MAX_MESSAGE_CHARS) -> Op
     body: List[str] = [header]
     if not diff.has_baseline:
         body.append("ℹ️ אין בסיס להשוואה (יום ראשון של הדוח) — מוצגים אירועים בלבד")
-    body.extend(diff.lines)
+    # אזהרות לפני שורות התוכן, ובכוונה. החיתוך למטה מוריד מהסוף, ולכן סדר
+    # הפוך היה מפיל קודם כול את "⚠️ מקור X: אין נתון" — כלומר הודעה חתוכה
+    # הייתה נראית כמו יום שבו כל המקורות נקראו בהצלחה. לאבד שורת תוכן זה
+    # חיסרון; לאבד את הידיעה שהדוח חלקי זה להטעות.
     body.extend(diff.warnings)
+    body.extend(diff.lines)
 
     text = "\n".join(body)
     if len(text) <= max_chars:

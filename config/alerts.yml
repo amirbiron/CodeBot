@@ -26,4 +26,4 @@ alerts:
     event_pattern: "job_missed"
     severity: error
     cooldown_seconds: 3600
-    message: "🔕 Job {job_id} לא רץ בהצלחה כבר {hours} שעות"
+    message: "🔕 Job {job_id} — לא נרשמה לו ריצה כבר {hours} שעות"

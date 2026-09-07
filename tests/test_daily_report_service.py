@@ -569,6 +569,34 @@ def test_long_report_is_trimmed_on_a_line_boundary():
     assert text.endswith("…")
 
 
+def test_warnings_survive_the_trim_because_they_come_first():
+    """אזהרת "אין נתון" חייבת לשרוד חיתוך של הודעה ארוכה.
+
+    החיתוך מוריד מהסוף. כשהאזהרות ישבו אחרי השורות, הדבר הראשון שנפל היה
+    בדיוק המידע שאומר שהדוח **חלקי** — כלומר הודעה חתוכה נראתה כמו יום שבו
+    כל המקורות נקראו בהצלחה. זו טעות מסוכנת יותר מאשר לאבד שורת תוכן אחת.
+    """
+    diff = drs.ReportDiff(
+        day_label="07/09",
+        lines=[f"שורה מספר {i} " + "x" * 80 for i in range(200)],
+        warnings=["⚠️ מקור slow_queries: אין נתון"],
+    )
+    text = drs.render_report(diff)
+    assert len(text) <= drs.MAX_MESSAGE_CHARS
+    assert "⚠️ מקור slow_queries: אין נתון" in text
+
+
+def test_warnings_stay_close_to_the_header_in_a_short_report():
+    """גם בלי חיתוך: האזהרה מופיעה לפני שורות התוכן, לא בזנב ההודעה."""
+    diff = drs.ReportDiff(
+        day_label="07/09",
+        lines=["🚨 התראות: 2 CRITICAL"],
+        warnings=["⚠️ מקור cache: אין נתון"],
+    )
+    lines = drs.render_report(diff).split("\n")
+    assert lines.index("⚠️ מקור cache: אין נתון") < lines.index("🚨 התראות: 2 CRITICAL")
+
+
 # --------------------------------------------------------------------------
 # זיכרון מתגלגל
 # --------------------------------------------------------------------------

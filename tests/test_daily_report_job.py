@@ -243,17 +243,43 @@ class _AsyncJobRuns:
 
 
 class _AsyncAdminReports:
-    def __init__(self):
+    """דמה של ``admin_reports`` שמתנהגת כמו מונגו, לא כמו שנוח לנו.
+
+    זו הנקודה החשובה בקובץ הזה. ה-upsert המותנה
+    (``{"_id": ..., "day_key": {"$ne": today}}`` עם ``upsert=True``) **לא**
+    מחזיר "0 מסמכים עודכנו" כשהמסמך כבר קיים עם ה-``day_key`` של היום.
+    תיעוד MongoDB, בסעיף Upsert Behavior, אומר שהמסמך החדש נבנה *מסעיפי
+    השוויון בלבד* ושאופרטורי השוואה (``$ne``) אינם נכנסים אליו — ולכן מונגו
+    מנסה ליצור מסמך עם אותו ``_id`` שכבר קיים, ונכשל בהתנגשות מפתח ייחודי.
+
+    הדמה הקודמת החזירה ``modified_count=0``, כלומר הייתה **סלחנית מהמציאות**,
+    וזו הייתה הסיבה היחידה שהבדיקה "לא מדווח פעמיים" עברה. עכשיו היא זורקת,
+    כמו השרת.
+    """
+
+    def __init__(self, raises=None):
         self.docs = {}
+        self.calls = 0
+        self._raises = raises
 
     async def update_one(self, query, update, upsert=False):  # noqa: ARG002
+        self.calls += 1
+        if self._raises is not None:
+            raise self._raises
         key = query["_id"]
         blocked = query.get("day_key", {}).get("$ne")
         existing = self.docs.get(key)
         if existing is not None and existing.get("day_key") == blocked:
-            return type("R", (), {"modified_count": 0, "upserted_id": None})()
+            raise _duplicate_key_error()
         self.docs[key] = dict(existing or {}, **update.get("$set", {}))
         return type("R", (), {"modified_count": 1, "upserted_id": None})()
+
+
+def _duplicate_key_error():
+    """אותה חריגה שהקוד תופס — מיובאת מאותו מקום שממנו ``main`` מייבא אותה."""
+    import main
+
+    return main.DuplicateKeyError("E11000 duplicate key error")
 
 
 class _AsyncDB:
@@ -312,14 +338,20 @@ def test_a_failed_run_still_counts_as_having_run(main_mod, registered_daily_job)
 
 
 def test_missed_job_is_not_reported_twice_in_the_same_day(main_mod, registered_daily_job):
-    """התראה אחת ליום — אחרת המנגנון מייצר רעש כל 60 שניות."""
+    """התראה אחת ליום — אחרת המנגנון מייצר רעש כל 60 שניות.
+
+    מול הדמה המתוקנת, שזורקת ``DuplicateKeyError`` בהתנגשות כמו השרת, הבדיקה
+    הזו מבדילה בין "השער עובד" לבין "השער נכשל וה-``except`` הרחב בלע אותו".
+    """
     now = datetime(2026, 9, 7, 8, 0, tzinfo=UTC)
     db = _AsyncDB(_AsyncJobRuns([]))
     loop = asyncio.get_event_loop()
     first = loop.run_until_complete(main_mod._check_missed_scheduled_jobs(db, now))
     second = loop.run_until_complete(main_mod._check_missed_scheduled_jobs(db, now))
+    third = loop.run_until_complete(main_mod._check_missed_scheduled_jobs(db, now))
     assert first == ["daily_morning_report"]
-    assert second == []
+    assert second == [], "התנגשות מפתח ייחודי היא 'כבר דיווחנו', לא 'לא הצלחנו לבדוק'"
+    assert third == []
 
 
 def test_missed_check_uses_a_single_aggregate_not_a_loop(main_mod, registered_daily_job):
@@ -347,8 +379,13 @@ def test_clock_skew_does_not_hide_a_real_run(main_mod, registered_daily_job):
     ) == []
 
 
-def test_missed_check_is_silent_when_nothing_declares_the_metadata(main_mod):
-    """המנגנון כללי ונשען על ``metadata``, ולא קשיח ל-job אחד."""
+def test_missed_check_is_silent_when_nothing_declares_the_metadata(main_mod, registered_daily_job):
+    """המנגנון כללי ונשען על ``metadata``, ולא קשיח ל-job אחד.
+
+    הפיקסצ'ר ``registered_daily_job`` חיוני כאן ולא קישוט: הוא זה שרושם את
+    ה-jobs. בלעדיו, כשהקובץ רץ לבדו, הרגיסטרי ריק — הלולאה שמנקה
+    ``missed_after_hours`` לא מוחקת כלום, והבדיקה עוברת בלי שבדקה דבר.
+    """
     from services.job_registry import JobRegistry
 
     registry = JobRegistry()
@@ -368,3 +405,291 @@ def test_missed_check_is_silent_when_nothing_declares_the_metadata(main_mod):
     finally:
         for job_id, meta in saved.items():
             registry.get(job_id).metadata = meta
+
+
+def test_missed_job_is_reported_again_on_a_new_day(main_mod, registered_daily_job):
+    """הצד השני: השער חוסם יום, לא לתמיד.
+
+    בלי הטענה הזו, קוד שפשוט מפסיק לדווח לעד היה עובר את הבדיקה שמעל.
+    """
+    db = _AsyncDB(_AsyncJobRuns([]))
+    loop = asyncio.get_event_loop()
+    day_one = datetime(2026, 9, 7, 8, 0, tzinfo=UTC)
+    day_two = datetime(2026, 9, 8, 8, 0, tzinfo=UTC)
+    assert loop.run_until_complete(main_mod._check_missed_scheduled_jobs(db, day_one)) == [
+        "daily_morning_report"
+    ]
+    assert loop.run_until_complete(main_mod._check_missed_scheduled_jobs(db, day_two)) == [
+        "daily_morning_report"
+    ]
+
+
+def test_a_broken_gate_still_lets_the_alert_through(main_mod, registered_daily_job):
+    """כשל אחר בשער — fail-open, בכוונה.
+
+    התראה שנעלמת גרועה מהתראה כפולה. זו המדיניות ההפוכה מזו של הדוח היומי,
+    ולכן היא נבדקת בנפרד: מי שיהפוך את ה-``except`` הרחב ל-``continue``
+    יראה את הבדיקה הזו נופלת.
+    """
+    now = datetime(2026, 9, 7, 8, 0, tzinfo=UTC)
+    reports = _AsyncAdminReports(raises=RuntimeError("mongo down"))
+    db = _AsyncDB(_AsyncJobRuns([]), admin_reports=reports)
+    result = asyncio.get_event_loop().run_until_complete(
+        main_mod._check_missed_scheduled_jobs(db, now)
+    )
+    assert result == ["daily_morning_report"]
+    assert reports.calls == 1
+
+
+# --------------------------------------------------------------------------
+# שער האידמפוטנטיות של הדוח היומי
+# --------------------------------------------------------------------------
+
+
+class _SyncAdminReports:
+    """דמה סינכרונית (pymongo), כי הדוח היומי רץ מול לקוח האפליקציה."""
+
+    def __init__(self, raises=None):
+        self.docs = {}
+        self.calls = 0
+        self._raises = raises
+
+    def update_one(self, query, update, upsert=False):  # noqa: ARG002
+        self.calls += 1
+        if self._raises is not None:
+            raise self._raises
+        key = query["_id"]
+        blocked = query.get("day_key", {}).get("$ne")
+        existing = self.docs.get(key)
+        if existing is not None and existing.get("day_key") == blocked:
+            raise _duplicate_key_error()
+        self.docs[key] = dict(existing or {}, **update.get("$set", {}))
+        return type("R", (), {"modified_count": 0, "upserted_id": key})()
+
+
+class _SyncDB:
+    def __init__(self, reports):
+        self._reports = reports
+
+    def __getitem__(self, name):
+        assert name == "admin_reports"
+        return self._reports
+
+
+def test_daily_report_claims_the_day_once(main_mod):
+    """התביעה הראשונה מצליחה, השנייה מזהה שהיום כבר נתפס."""
+    now = datetime(2026, 9, 7, 8, 0, tzinfo=UTC)
+    db = _SyncDB(_SyncAdminReports())
+    assert main_mod._claim_daily_report_day(db, "2026-09-07", now) == "claimed"
+    assert main_mod._claim_daily_report_day(db, "2026-09-07", now) == "already"
+    # יום חדש נתפס מחדש — אחרת הדוח היה נשלח פעם אחת ודי.
+    assert main_mod._claim_daily_report_day(db, "2026-09-08", now) == "claimed"
+
+
+def test_daily_report_claim_fails_closed(main_mod):
+    """כשל בתביעה אינו 'claimed'.
+
+    זו המדיניות ההפוכה מ-``job_missed``, ובכוונה: דוח כפול גרוע מדוח חסר.
+    """
+    db = _SyncDB(_SyncAdminReports(raises=RuntimeError("mongo down")))
+    assert main_mod._claim_daily_report_day(db, "2026-09-07", datetime(2026, 9, 7, tzinfo=UTC)) == "error"
+
+
+def test_claim_outcome_reads_both_shapes_of_a_successful_write(main_mod):
+    """‏upsert מחזיר ``upserted_id``, עדכון מחזיר ``modified_count`` — שניהם תפיסה."""
+
+    def _res(modified=0, upserted=None):
+        return type("R", (), {"modified_count": modified, "upserted_id": upserted})()
+
+    assert main_mod._claim_outcome(_res(upserted="x")) == "claimed"
+    assert main_mod._claim_outcome(_res(modified=1)) == "claimed"
+    assert main_mod._claim_outcome(_res()) == "already"
+
+
+# --------------------------------------------------------------------------
+# שתי בדיקות המוניטור — עצמאיות
+# --------------------------------------------------------------------------
+
+
+class _BrokenJobRuns(_AsyncJobRuns):
+    """‏``find`` נופל, ``aggregate`` תקין — בדיוק תרחיש הכשל החלקי."""
+
+    def find(self, *_a, **_k):
+        raise RuntimeError("find exploded")
+
+
+def test_a_broken_stuck_check_does_not_silence_the_missed_check(main_mod, registered_daily_job, monkeypatch):
+    """הממצא: שתי הבדיקות חלקו גורל.
+
+    ‏``job_stuck`` משתמש ב-``find`` ו-``job_missed`` ב-``aggregate``. עד
+    התיקון, יציאה מוקדמת או חריגה במסלול הראשון דילגה על השני לגמרי.
+    """
+    import observability
+
+    emitted = []
+    monkeypatch.setattr(observability, "emit_event", lambda name, **kw: emitted.append((name, kw)))
+
+    db = _AsyncDB(_BrokenJobRuns([]))
+    asyncio.get_event_loop().run_until_complete(
+        main_mod._jobs_monitor_tick(db, datetime(2026, 9, 7, 8, 0, tzinfo=UTC))
+    )
+    assert [name for name, _ in emitted] == ["job_missed"]
+
+
+def test_a_collection_without_find_does_not_silence_the_missed_check(main_mod, registered_daily_job, monkeypatch):
+    """המסלול השני של אותו באג: יציאה מוקדמת, לא חריגה."""
+    import observability
+
+    emitted = []
+    monkeypatch.setattr(observability, "emit_event", lambda name, **kw: emitted.append((name, kw)))
+
+    class _NoFind(_AsyncJobRuns):
+        find = None
+
+    db = _AsyncDB(_NoFind([]))
+    asyncio.get_event_loop().run_until_complete(
+        main_mod._jobs_monitor_tick(db, datetime(2026, 9, 7, 8, 0, tzinfo=UTC))
+    )
+    assert [name for name, _ in emitted] == ["job_missed"]
+
+
+def test_the_missed_event_carries_the_declared_hours(main_mod, registered_daily_job, monkeypatch):
+    """האירוע נושא את ``missed_after_hours`` מה-metadata ולא מספר קשיח."""
+    import observability
+
+    emitted = []
+    monkeypatch.setattr(observability, "emit_event", lambda name, **kw: emitted.append((name, kw)))
+
+    db = _AsyncDB(_AsyncJobRuns([]))
+    asyncio.get_event_loop().run_until_complete(
+        main_mod._jobs_monitor_tick(db, datetime(2026, 9, 7, 8, 0, tzinfo=UTC))
+    )
+    assert emitted and emitted[0][0] == "job_missed"
+    assert emitted[0][1]["job_id"] == "daily_morning_report"
+    assert emitted[0][1]["hours"] == 26
+
+
+# --------------------------------------------------------------------------
+# מסלול השליחה המלא — שהשערים באמת נקראים, ולא רק קיימים
+# --------------------------------------------------------------------------
+
+
+class _TrackerSpy:
+    def __init__(self):
+        self.logs = []
+        self.skipped = None
+        self.failed = None
+
+    def add_log(self, _run_id, level, message):
+        self.logs.append((level, message))
+
+    def skip_run(self, _run_id, reason):
+        self.skipped = reason
+
+    def fail_run(self, _run_id, reason):
+        self.failed = reason
+
+
+class _RunStub:
+    run_id = "r1"
+
+
+@pytest.fixture()
+def sending_report(main_mod, monkeypatch, deliverable_env):
+    """מרכיב מסלול שליחה מלא שבו רק שער היום עוד לא הוכרע.
+
+    המקורות עצמם מוחלפים: מה שנבדק כאן הוא **החיווט** — האם הגוף באמת
+    קורא לשער לפני ``emit_internal_alert`` — ולא הלוגיקה של האיסוף, שיש לה
+    בדיקות משלה ב-``test_daily_report_service.py``.
+    """
+    import internal_alerts
+    import services.daily_report_service as drs
+
+    reports = _SyncAdminReports()
+
+    class _DB:
+        def __getitem__(self, name):
+            if name == "admin_reports":
+                return reports
+            return object()
+
+    sent = []
+    monkeypatch.setattr(main_mod, "_daily_report_db", lambda: _DB())
+    monkeypatch.setattr(main_mod, "_build_daily_report_deps", lambda _db: None)
+    monkeypatch.setattr(main_mod, "get_admin_ids", lambda: [1])
+    monkeypatch.setattr(drs, "load_snapshot", lambda *_a, **_k: None)
+    monkeypatch.setattr(drs, "collect_snapshot", lambda **_k: {"_id": "d"})
+    monkeypatch.setattr(drs, "save_snapshot", lambda *_a, **_k: {"_id": "d"})
+    monkeypatch.setattr(drs, "compare", lambda *_a, **_k: drs.ReportDiff(day_label="07/09", sections=["alerts"]))
+    monkeypatch.setattr(drs, "render_report", lambda *_a, **_k: "📋 דוח")
+    monkeypatch.setattr(internal_alerts, "emit_internal_alert", lambda *a, **k: sent.append(k or a))
+    monkeypatch.delenv("DISABLE_DAILY_REPORT", raising=False)
+    return sent, reports
+
+
+def test_the_report_is_sent_once_a_day_even_across_restarts(main_mod, sending_report):
+    """הטענה שהריוויו לא כיסה, וזו שנשברה בפרודקשן בדוח השבועי.
+
+    שתי הרצות באותו יום — כמו שקורה בכל עלייה מחדש של הבוט — שולחות פעם
+    אחת. מי שיסיר את השער מגוף ה-job יראה את הבדיקה הזו נופלת, ולא רק את
+    הבדיקה של הפונקציה העצמאית.
+    """
+    sent, reports = sending_report
+    tracker_one, tracker_two = _TrackerSpy(), _TrackerSpy()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main_mod._daily_morning_report_body(tracker_one, _RunStub()))
+    loop.run_until_complete(main_mod._daily_morning_report_body(tracker_two, _RunStub()))
+
+    assert len(sent) == 1, "הדוח נשלח פעמיים באותו יום — זה בדיוק מה שקרה לדוח השבועי"
+    assert tracker_one.skipped is None
+    assert tracker_two.skipped == "already_sent_today"
+    assert reports.calls == 2, "השער חייב להיקרא בשתי ההרצות, אחרת הוא לא באמת שער"
+
+
+def test_a_failed_claim_blocks_the_send(main_mod, sending_report, monkeypatch):
+    """fail-closed לאורך כל המסלול, לא רק בפונקציה העצמאית."""
+    sent, _reports = sending_report
+    monkeypatch.setattr(main_mod, "_claim_daily_report_day", lambda *_a: "error")
+    tracker = _TrackerSpy()
+    asyncio.get_event_loop().run_until_complete(
+        main_mod._daily_morning_report_body(tracker, _RunStub())
+    )
+    assert sent == []
+    assert tracker.failed == "day_claim_failed"
+
+
+def test_a_blocked_delivery_gate_never_reaches_the_day_claim(main_mod, sending_report, monkeypatch):
+    """סדר השערים: מסירה קודם, תפיסת היום אחריה.
+
+    אילו התפיסה הייתה קודמת, יום שנחסם על סף החומרה היה "נשרף" — והרצה
+    חוזרת אחרי תיקון ההגדרות לא הייתה שולחת דבר.
+    """
+    sent, reports = sending_report
+    monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "critical")
+    tracker = _TrackerSpy()
+    asyncio.get_event_loop().run_until_complete(
+        main_mod._daily_morning_report_body(tracker, _RunStub())
+    )
+    assert sent == []
+    assert tracker.failed == "telegram_gate:below_min_severity"
+    assert reports.calls == 0, "היום לא נתפס, ולכן הרצה חוזרת אחרי תיקון ההגדרות עדיין תוכל לשלוח"
+
+
+def test_a_quiet_day_does_not_burn_the_day(main_mod, sending_report, monkeypatch):
+    """יום שקט אינו הודעה, ואינו תופס את היום.
+
+    זו הסיבה שהשער יושב אחרי הרינדור: טריגר ידני מאוחר יותר, אחרי שכן קרה
+    משהו, חייב להיות מסוגל לשלוח.
+    """
+    sent, reports = sending_report
+    import services.daily_report_service as drs
+
+    monkeypatch.setattr(drs, "render_report", lambda *_a, **_k: None)
+    tracker = _TrackerSpy()
+    asyncio.get_event_loop().run_until_complete(
+        main_mod._daily_morning_report_body(tracker, _RunStub())
+    )
+    assert sent == []
+    assert reports.calls == 0
+    assert ("info", "nothing_to_report") in tracker.logs
+    assert tracker.skipped is None, "יום שקט הוא ריצה מוצלחת — הרשומה הזו היא מדד החיות של ה-job"

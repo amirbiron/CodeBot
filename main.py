@@ -800,6 +800,60 @@ async def _send_direct_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> 
         return False
 
 
+def _claim_outcome(res) -> str:
+    """מתרגם תוצאת upsert מותנה ל-``claimed`` או ל-``already``.
+
+    התבנית עצמה — ``update_one({"_id": X, "day_key": {"$ne": today}}, ...,
+    upsert=True)`` — היא "תפוס את היום, אבל רק אם עוד לא נתפס". שתי צורות
+    שונות מעידות על תפיסה מוצלחת: ``upserted_id`` כשלא היה מסמך קודם,
+    ו-``modified_count`` כשהיה מסמך מיום אחר. אפס בשניהם = מישהו כבר תפס.
+
+    **חשוב:** זו רק אחת משתי הדרכים שבהן "כבר נתפס" מגיע. הדרך השנייה היא
+    חריגה, ואותה כל אתר קריאה תופס בעצמו — ראו ההערה ב-
+    ``_claim_daily_report_day``.
+    """
+    if int(getattr(res, "modified_count", 0) or 0) or getattr(res, "upserted_id", None):
+        return "claimed"
+    return "already"
+
+
+def _claim_daily_report_day(db_obj, day_key: str, now) -> str:
+    """תובע את היום עבור דוח הבוקר. ``claimed`` / ``already`` / ``error``.
+
+    **למה זה קיים.** ה-job יכול לרוץ יותר מפעם אחת ביום: עלייה מחדש של
+    הבוט עם ``misfire_grace_time`` פתוח, נפילה חזרה ל-``run_repeating``,
+    או טריגר ידני מהדשבורד. ``tracker.track`` מונע רק ריצות **חופפות**
+    באותו תהליך, ולכן הוא לא עוזר כאן. המצב הזה כבר קרה בפרודקשן בדוח
+    השבועי, שנשלח כמה פעמים ביום.
+
+    **למה ``DuplicateKeyError`` הוא "כבר נשלח" ולא "כשל".** תיעוד MongoDB,
+    בסעיף Upsert Behavior, אומר שכאשר אין התאמה המסמך החדש נבנה *מסעיפי
+    השוויון שבשאילתה בלבד*, ושאופרטורי השוואה (``$ne``) אינם נכנסים אליו.
+    כלומר כשכבר קיים מסמך עם אותו ``_id`` וה-``day_key`` של היום, השאילתה
+    לא מוצאת התאמה, מונגו מנסה ליצור מסמך עם ``_id`` שכבר תפוס, ונכשל
+    בהתנגשות מפתח ייחודי. זה בדיוק המקרה שהשער נבנה בשבילו.
+
+    **fail-closed בכוונה.** כשל אחר מחזיר ``error``, והדוח לא נשלח. זו
+    מדיניות הפוכה מזו של ``job_missed``: התראה שנעלמת גרועה מהתראה כפולה,
+    אבל דוח כפול גרוע מדוח חסר — עדיף להפסיד יום מאשר להציף.
+    """
+    try:
+        coll = db_obj["admin_reports"]
+    except Exception:
+        return "error"
+    try:
+        res = coll.update_one(
+            {"_id": "daily_morning_report", "day_key": {"$ne": day_key}},
+            {"$set": {"day_key": day_key, "last_sent_at": now}},
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        return "already"
+    except Exception:
+        return "error"
+    return _claim_outcome(res)
+
+
 async def _check_missed_scheduled_jobs(db_obj, now=None) -> list:
     """מזהה job מתוזמן שלא רץ בכלל, ומחזיר את רשימת מי שדווח עליו.
 
@@ -865,6 +919,13 @@ async def _check_missed_scheduled_jobs(db_obj, now=None) -> list:
         if job_id and ts is not None:
             last_seen[job_id] = ts
 
+    # האוסף נלקח פעם אחת ולא לכל job: הוא אינו משתנה בין איטרציות, וכשל
+    # בהשגתו משאיר ``None`` — כלומר fail-open, כמו כל כשל אחר בשער הזה.
+    try:
+        reports = getattr(db_obj, "admin_reports", None)
+    except Exception:
+        reports = None
+
     reported = []
     for job_id, hours in sorted(expected.items()):
         ts = last_seen.get(job_id)
@@ -875,25 +936,149 @@ async def _check_missed_scheduled_jobs(db_obj, now=None) -> list:
             if max(_td(0), now - ts) < _td(hours=hours):
                 continue
 
-        # התראה אחת ליום לכל job — upsert מותנה, אותו דפוס אטומי שהדוח
-        # השבועי משתמש בו כדי לא לשלוח פעמיים.
+        # התראה אחת ליום לכל job — upsert מותנה, "תפוס את היום אם עוד לא נתפס".
         day_key = now.date().isoformat()
-        try:
-            reports = getattr(db_obj, "admin_reports", None)
-            if reports is not None:
+        if reports is not None:
+            try:
                 res = await reports.update_one(
                     {"_id": f"job_missed:{job_id}", "day_key": {"$ne": day_key}},
                     {"$set": {"day_key": day_key, "last_reported_at": now}},
                     upsert=True,
                 )
-                if not (int(getattr(res, "modified_count", 0) or 0) or getattr(res, "upserted_id", None)):
+                if _claim_outcome(res) == "already":
                     continue
-        except Exception:
-            # שער שנכשל לא ישתיק את ההתראה: עדיף כפילות מאשר שקט.
-            pass
+            except DuplicateKeyError:
+                # ה-``$ne`` אינו נכנס למסמך שנוצר ב-upsert (ראו ההסבר
+                # ב-``_claim_daily_report_day``), ולכן "כבר דיווחנו היום"
+                # מגיע לכאן כהתנגשות מפתח ולא כ-``modified_count=0``.
+                # ה-``except`` הרחב שהיה כאן בלע אותה, והתוצאה הייתה התראה
+                # חוזרת כל 60 שניות במקום אחת ליום.
+                continue
+            except Exception:
+                # כשל אחר: fail-open. התראה שנעלמת גרועה מהתראה כפולה — זו
+                # המדיניות ההפוכה מזו של הדוח היומי, ובכוונה.
+                pass
 
         reported.append(job_id)
     return reported
+
+
+async def _emit_stuck_job_events(db_obj, now) -> None:
+    """פולט ``job_stuck`` על הרצות שהתחילו ולא הסתיימו.
+
+    הופרד מהמוניטור כדי שלא יחלוק גורל עם בדיקת ``job_missed``: הן נשענות
+    על שאילתות שונות (``find`` מול ``aggregate``), ואין סיבה שכשל של אחת
+    ישתיק את השנייה.
+    """
+    from datetime import timedelta as _td
+
+    from observability import emit_event as _emit  # type: ignore
+
+    try:
+        threshold_min = int(os.getenv("JOBS_STUCK_THRESHOLD_MINUTES", "20") or 20)
+    except Exception:
+        threshold_min = 20
+    threshold_min = max(1, threshold_min)
+    cutoff = now - _td(minutes=threshold_min)
+
+    coll = getattr(db_obj, "job_runs", None)
+    if coll is None or not callable(getattr(coll, "find", None)):
+        return
+
+    # ‏stuck_reported_at הוא השער שמונע פליטה חוזרת על אותה הרצה.
+    cursor = coll.find(
+        {
+            "status": "running",
+            "started_at": {"$lt": cutoff},
+            "stuck_reported_at": {"$exists": False},
+        },
+        {"run_id": 1, "job_id": 1, "started_at": 1},
+    ).sort("started_at", 1).limit(50)
+
+    try:
+        docs = await cursor.to_list(length=50)
+    except Exception:
+        docs = []
+
+    for doc in list(docs or []):
+        run_id = str(doc.get("run_id") or "").strip()
+        job_id = str(doc.get("job_id") or "").strip()
+        started_at = doc.get("started_at")
+        minutes = None
+        try:
+            if started_at:
+                minutes = int(max(1, (now - started_at).total_seconds() // 60))
+        except Exception:
+            minutes = None
+
+        if not run_id or not job_id:
+            continue
+
+        # סימון + שורת לוג (שומרים 50 אחרונות)
+        try:
+            await coll.update_one(
+                {"run_id": run_id, "stuck_reported_at": {"$exists": False}},
+                {
+                    "$set": {"stuck_reported_at": now},
+                    "$push": {
+                        "logs": {
+                            "$each": [
+                                {
+                                    "timestamp": now,
+                                    "level": "error",
+                                    "message": "Job stuck detected",
+                                    "details": {"minutes": minutes} if minutes is not None else None,
+                                }
+                            ],
+                            "$slice": -50,
+                        }
+                    },
+                },
+                upsert=False,
+            )
+        except Exception:
+            pass
+
+        _emit(
+            "job_stuck",
+            severity="error",
+            job_id=job_id,
+            run_id=run_id,
+            minutes=int(minutes or threshold_min),
+        )
+
+
+async def _emit_missed_job_events(db_obj, now) -> None:
+    """פולט ``job_missed`` על job מתוזמן שלא נרשמה לו ריצה בחלון שלו."""
+    from observability import emit_event as _emit  # type: ignore
+    from services.job_registry import JobRegistry as _JobRegistry  # type: ignore
+
+    for missed_id in await _check_missed_scheduled_jobs(db_obj, now):
+        meta = getattr(_JobRegistry().get(missed_id), "metadata", None) or {}
+        _emit(
+            "job_missed",
+            severity="error",
+            job_id=missed_id,
+            hours=int(meta.get("missed_after_hours") or 26),
+        )
+
+
+async def _jobs_monitor_tick(db_obj, now=None) -> None:
+    """סבב אחד של מוניטור ה-jobs: שתי בדיקות **עצמאיות**.
+
+    הפרדת ה-``try`` היא כל העניין. בגרסה הקודמת שתי הבדיקות ישבו בבלוק
+    אחד, ולכן שלושה מסלולי יציאה של בדיקת ה-stuck — אוסף בלי ``find``,
+    חריגה, ו-``return`` מוקדם — דילגו על בדיקת ה-missed לגמרי. דווקא
+    ה-missed היא זו שתופסת את המקרה החמור יותר: job שלא רץ בכלל.
+    """
+    if db_obj is None:
+        return
+    now = now or datetime.now(timezone.utc)
+    for check in (_emit_stuck_job_events, _emit_missed_job_events):
+        try:
+            await check(db_obj, now)
+        except Exception:
+            logger.debug("jobs_monitor_check_failed: %s", getattr(check, "__name__", "?"), exc_info=True)
 
 
 # ===== עזרי דוח הבוקר היומי =====
@@ -1057,6 +1242,107 @@ def _daily_report_gate_ok(run, tracker) -> bool:
         return True
     tracker.fail_run(run.run_id, f"telegram_gate:{reason}")
     return False
+
+
+async def _daily_morning_report_body(tracker, run) -> None:
+    """גוף דוח הבוקר: אוסף סנאפשוט, משווה מול אתמול, ושולח רק אם יש מה לדווח.
+
+    סדר הפעולות כאן אינו שרירותי:
+
+    1. **הסנאפשוט נשמר תמיד, ולפני ההחלטה אם לשלוח.** יום שקט שלא משאיר
+       סנאפשוט הופך את הדוח של מחר לשקר — אין לו מול מה להשוות. השמירה היא
+       ``$setOnInsert``, ולכן הריצה הראשונה מנצחת ואין דריסה.
+    2. **שער המסירה נבדק לפני השליחה.** ``emit_internal_alert`` מחזיר
+       ``None`` תמיד ואינו מדווח כשל, ולכן בלי בדיקה מוקדמת הדוח היה מסתיים
+       ב-``completed`` גם כשההודעה נחסמה על סף החומרה — "✅" על משהו שלא קרה.
+    3. **שער האידמפוטנטיות בא אחרון, ממש לפני השליחה.** אילו ישב מוקדם
+       יותר, יום שקט היה "שורף" את היום וטריגר ידני מאוחר יותר לא היה יכול
+       לשלוח דבר גם אם בינתיים קרה משהו.
+    """
+    import asyncio as _asyncio
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    import services.daily_report_service as drs
+
+    if str(os.getenv("DISABLE_DAILY_REPORT", "")).lower() in {"1", "true", "yes"}:
+        tracker.skip_run(run.run_id, "disabled_by_env")
+        return
+
+    tz = _daily_report_tz()
+    now_utc = _dt.now(_tz.utc)
+    day_key = drs.day_key_for(now_utc.astimezone(tz))
+    day_start, day_end = drs.window_for(now_utc)
+    window = _td(minutes=_daily_report_window_minutes())
+    # ‏tz שנבחר בפועל נרשם בהיסטוריית ההרצה: אם מסד אזורי הזמן חסר, utils
+    # נופל ל-UTC והשעה זזה בשעתיים — וזה חייב להיות נראה כאן ולא רק בלוג.
+    tracker.add_log(run.run_id, "info", f"day={day_key} tz={tz} window_min={window.seconds // 60}")
+
+    db_obj = _daily_report_db()
+    if db_obj is None:
+        tracker.skip_run(run.run_id, "no_database")
+        return
+
+    deps = _build_daily_report_deps(db_obj)
+    snapshots = db_obj[drs.COLLECTION_NAME]
+    previous = drs.load_snapshot(snapshots, drs.previous_day_key(day_key))
+
+    snapshot = await _asyncio.to_thread(
+        drs.collect_snapshot,
+        day_key=day_key,
+        day_start_utc=day_start,
+        day_end_utc=day_end,
+        deps=deps,
+        previous=previous,
+        correlation_window=window,
+        now=now_utc,
+    )
+    # כשל שמירה מפיל את ההרצה בכוונה: ראה נימוק (1) למעלה.
+    stored = await _asyncio.to_thread(drs.save_snapshot, snapshots, snapshot)
+
+    diff = drs.compare(stored, previous, correlation_window=window)
+    text = drs.render_report(diff)
+    if text is None:
+        # ריצה מוצלחת בלי הודעה. **לא** skip: זו בדיוק הרשומה שממנה נמדדת
+        # החיות של ה-job.
+        tracker.add_log(run.run_id, "info", "nothing_to_report")
+        return
+
+    if not _daily_report_gate_ok(run, tracker):
+        return
+
+    claim = await _asyncio.to_thread(_claim_daily_report_day, db_obj, day_key, now_utc)
+    if claim == "already":
+        tracker.skip_run(run.run_id, "already_sent_today")
+        return
+    if claim != "claimed":
+        # fail-closed: לא ידוע אם נשלח, ולכן לא שולחים.
+        tracker.fail_run(run.run_id, "day_claim_failed")
+        return
+
+    from internal_alerts import emit_internal_alert  # type: ignore
+
+    emit_internal_alert(
+        drs.REPORT_ALERT_NAME,
+        severity=drs.REPORT_SEVERITY,
+        summary=text,
+        source="main.daily_morning_report",
+        admin_ids=get_admin_ids(),
+    )
+    tracker.add_log(run.run_id, "info", f"sections={','.join(diff.sections) or 'none'}")
+    try:
+        try:
+            from observability import emit_event as _emit
+        except Exception:  # pragma: no cover
+            _emit = lambda *a, **k: None  # noqa: E731
+        _emit(
+            "daily_report_sent",
+            severity="info",
+            day=day_key,
+            sections=",".join(diff.sections),
+            has_baseline=bool(diff.has_baseline),
+        )
+    except Exception:
+        pass
 
 
 def _schedule_daily_morning_report(application, callback) -> None:
@@ -6063,109 +6349,18 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         except Exception:
             return None
 
-    # Jobs Monitor: זיהוי הרצות "תקועות" (job_stuck)
+    # Jobs Monitor: הרצות "תקועות" (job_stuck) ו-job מתוזמן שלא רץ (job_missed)
     try:
-        from datetime import timedelta as _td
-        from observability import emit_event as _emit  # type: ignore
-
         async def _jobs_stuck_monitor(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
+            """קליפה דקה: משיג את המסד ומעביר ל-``_jobs_monitor_tick``.
+
+            כל הלוגיקה יושבת ברמת המודול כדי שתהיה ניתנת לבדיקה בלי להרים
+            את הבוט — וכדי ששתי הבדיקות יהיו באמת נפרדות זו מזו.
+            """
             try:
-                db_obj = await _get_scheduler_motor_db(_context.application)
-                if db_obj is None:
-                    return
-
-                try:
-                    threshold_min = int(os.getenv("JOBS_STUCK_THRESHOLD_MINUTES", "20") or 20)
-                except Exception:
-                    threshold_min = 20
-                threshold_min = max(1, threshold_min)
-
-                now = datetime.now(timezone.utc)
-                cutoff = now - _td(minutes=threshold_min)
-
-                coll = getattr(db_obj, "job_runs", None)
-                if coll is None or not hasattr(coll, "find"):
-                    return
-
-                # emit only once per run (stuck_reported_at gate)
-                cursor = coll.find(
-                    {
-                        "status": "running",
-                        "started_at": {"$lt": cutoff},
-                        "stuck_reported_at": {"$exists": False},
-                    },
-                    {"run_id": 1, "job_id": 1, "started_at": 1},
-                ).sort("started_at", 1).limit(50)
-
-                try:
-                    docs = await cursor.to_list(length=50)
-                except Exception:
-                    docs = []
-
-                for doc in list(docs or []):
-                    run_id = str(doc.get("run_id") or "").strip()
-                    job_id = str(doc.get("job_id") or "").strip()
-                    started_at = doc.get("started_at")
-                    minutes = None
-                    try:
-                        if started_at:
-                            minutes = int(max(1, (now - started_at).total_seconds() // 60))
-                    except Exception:
-                        minutes = None
-
-                    if not run_id or not job_id:
-                        continue
-
-                    # mark + append log (keep last 50)
-                    try:
-                        await coll.update_one(
-                            {"run_id": run_id, "stuck_reported_at": {"$exists": False}},
-                            {
-                                "$set": {"stuck_reported_at": now},
-                                "$push": {
-                                    "logs": {
-                                        "$each": [
-                                            {
-                                                "timestamp": now,
-                                                "level": "error",
-                                                "message": "Job stuck detected",
-                                                "details": {"minutes": minutes} if minutes is not None else None,
-                                            }
-                                        ],
-                                        "$slice": -50,
-                                    }
-                                },
-                            },
-                            upsert=False,
-                        )
-                    except Exception:
-                        pass
-
-                    _emit(
-                        "job_stuck",
-                        severity="error",
-                        job_id=job_id,
-                        run_id=run_id,
-                        minutes=int(minutes or threshold_min),
-                    )
+                await _jobs_monitor_tick(await _get_scheduler_motor_db(_context.application))
             except Exception:
-                return
-
-            # job מתוזמן שלא רץ בכלל — בלוק נפרד בכוונה, כדי שכשל של בדיקה
-            # אחת לא ישתיק את השנייה.
-            try:
-                from services.job_registry import JobRegistry as _JobRegistry  # type: ignore
-
-                for missed_id in await _check_missed_scheduled_jobs(db_obj, now):
-                    meta = getattr(_JobRegistry().get(missed_id), "metadata", None) or {}
-                    _emit(
-                        "job_missed",
-                        severity="error",
-                        job_id=missed_id,
-                        hours=int(meta.get("missed_after_hours") or 26),
-                    )
-            except Exception:
-                pass
+                logger.debug("jobs_monitor_tick_failed", exc_info=True)
 
         try:
             interval = int(os.getenv("JOBS_STUCK_MONITOR_INTERVAL_SECS", "60") or 60)
@@ -6791,25 +6986,14 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Daily morning report — מצליב בין הדשבורדים ושולח סיכום פעם ביום
     try:
         async def _daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
-            """דוח בוקר יומי: אוסף סנאפשוט, משווה מול אתמול, ושולח רק אם יש מה לדווח.
+            """קליפה דקה: פותחת רשומת הרצה ומעבירה ל-``_daily_morning_report_body``.
 
-            סדר הפעולות כאן אינו שרירותי:
-
-            1. **הסנאפשוט נשמר תמיד, ולפני ההחלטה אם לשלוח.** יום שקט שלא
-               משאיר סנאפשוט הופך את הדוח של מחר לשקר — אין לו מול מה להשוות.
-            2. **שער האידמפוטנטיות בא אחרי השמירה**, כדי שריצה שנייה באותו יום
-               לא תמנע סנאפשוט תקין; והשמירה עצמה היא ``$setOnInsert``, ולכן
-               הריצה הראשונה מנצחת ואין דריסה.
-            3. **שער המסירה נבדק לפני השליחה.** ``emit_internal_alert`` מחזיר
-               ``None`` תמיד ואינו מדווח כשל, ולכן בלי בדיקה מוקדמת הדוח היה
-               מסתיים ב-``completed`` גם כשההודעה נחסמה על סף החומרה — כלומר
-               "✅" על משהו שלא קרה.
+            כל הלוגיקה יושבת ברמת המודול כדי שסדר הפעולות — ובעיקר **ששני
+            השערים באמת נקראים לפני השליחה** — יהיה ניתן לבדיקה. שער שקיים
+            בקוד ואיש אינו מוודא שקוראים לו הוא בדיוק אותו כשל של אינדקס
+            שמוצהר ולא נוצר.
             """
-            import asyncio as _asyncio
-            from datetime import datetime as _dt, timedelta as _td, timezone as _tz
-
             from services.job_tracker import get_job_tracker, JobAlreadyRunningError
-            import services.daily_report_service as drs
 
             tracker = get_job_tracker()
             try:
@@ -6823,77 +7007,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
             try:
                 with tracker.track("daily_morning_report", trigger=trigger) as run:
-                    if str(os.getenv("DISABLE_DAILY_REPORT", "")).lower() in {"1", "true", "yes"}:
-                        tracker.skip_run(run.run_id, "disabled_by_env")
-                        return
-
-                    tz = _daily_report_tz()
-                    now_utc = _dt.now(_tz.utc)
-                    day_key = drs.day_key_for(now_utc.astimezone(tz))
-                    day_start, day_end = drs.window_for(now_utc)
-                    window = _td(minutes=_daily_report_window_minutes())
-                    # ‏tz שנבחר בפועל נרשם בהיסטוריית ההרצה: אם מסד אזורי הזמן
-                    # חסר, utils נופל ל-UTC והשעה זזה בשעתיים — וזה חייב להיות
-                    # נראה כאן ולא רק בלוג האפליקציה.
-                    tracker.add_log(run.run_id, "info", f"day={day_key} tz={tz} window_min={window.seconds // 60}")
-
-                    db_obj = _daily_report_db()
-                    if db_obj is None:
-                        tracker.skip_run(run.run_id, "no_database")
-                        return
-
-                    deps = _build_daily_report_deps(db_obj)
-                    snapshots = db_obj[drs.COLLECTION_NAME]
-                    previous = drs.load_snapshot(snapshots, drs.previous_day_key(day_key))
-
-                    snapshot = await _asyncio.to_thread(
-                        drs.collect_snapshot,
-                        day_key=day_key,
-                        day_start_utc=day_start,
-                        day_end_utc=day_end,
-                        deps=deps,
-                        previous=previous,
-                        correlation_window=window,
-                        now=now_utc,
-                    )
-                    # כשל שמירה מפיל את ההרצה בכוונה: ראה נימוק (1) למעלה.
-                    stored = await _asyncio.to_thread(drs.save_snapshot, snapshots, snapshot)
-
-                    diff = drs.compare(stored, previous, correlation_window=window)
-                    text = drs.render_report(diff)
-                    if text is None:
-                        # ריצה מוצלחת בלי הודעה. **לא** skip: זו בדיוק הרשומה
-                        # שממנה נמדדת החיות של ה-job.
-                        tracker.add_log(run.run_id, "info", "nothing_to_report")
-                        return
-
-                    if not _daily_report_gate_ok(run, tracker):
-                        return
-
-                    from internal_alerts import emit_internal_alert  # type: ignore
-
-                    emit_internal_alert(
-                        drs.REPORT_ALERT_NAME,
-                        severity=drs.REPORT_SEVERITY,
-                        summary=text,
-                        source="main.daily_morning_report",
-                        admin_ids=get_admin_ids(),
-                    )
-                    tracker.add_log(run.run_id, "info", f"sections={','.join(diff.sections) or 'none'}")
-                    try:
-                        try:
-                            from observability import emit_event as _emit
-                        except Exception:  # pragma: no cover
-                            _emit = lambda *a, **k: None
-                        _emit(
-                            "daily_report_sent",
-                            severity="info",
-                            day=day_key,
-                            sections=",".join(diff.sections),
-                            has_baseline=bool(diff.has_baseline),
-                        )
-                    except Exception:
-                        pass
+                    await _daily_morning_report_body(tracker, run)
             except JobAlreadyRunningError:
                 try:
                     tracker.record_skipped(job_id="daily_morning_report", trigger=trigger, reason="already_running")
