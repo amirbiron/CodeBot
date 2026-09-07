@@ -58,6 +58,16 @@ FILE_DOC = {
 # ---------------------------------------------------------------------------
 
 class _Snippets:
+    """דמה שמחזירה מסמך אחד קבוע, בלי קשר לתוכן ה-pipeline.
+
+    **מה זה אומר על הכיסוי, במפורש:** בדיקות הרינדור למטה מוכיחות את שכבת
+    התבנית בלבד — מה שהראוט עושה עם הדגל. הן **אינן** מכסות את הסינון,
+    המיון, העימוד או צינור ה-aggregation של ``/files``, כי הדמה מתעלמת
+    מהם. שבירה שם לא תיתפס כאן, ובכוונה: הפיצ'ר הזה אינו נוגע בשאילתה.
+    זו אותה דמה שבה משתמשת ``tests/test_webapp_files_aggregate_allow_disk_use.py``,
+    שהיא זו שכן בודקת את ה-pipeline.
+    """
+
     def aggregate(self, pipeline, **_kwargs):
         if any(isinstance(stage, dict) and "$count" in stage for stage in pipeline):
             return [{"total": 1}]
@@ -234,6 +244,53 @@ def test_the_two_views_do_not_share_a_cache_entry(monkeypatch):
     )
 
 
+class _FlippingUsers(_Users):
+    """מחזיר ערך שונה בכל קריאה — מדמה שינוי העדפה באמצע הבקשה.
+
+    זה החלון האמיתי: הראוט בונה את מפתח הקאש לפני הרינדור, וה-context
+    processor מזין את התבנית. שתי קריאות נפרדות למסד באותה בקשה.
+    """
+
+    def __init__(self):
+        super().__init__({})
+        self.reads = 0
+
+    def find_one(self, _query, _projection=None):
+        self.reads += 1
+        return {"user_id": 123, "ui_prefs": {"files_compact_view": self.reads > 1}}
+
+
+def test_the_key_and_the_rendered_html_cannot_disagree(monkeypatch):
+    """הכרעה אחת לכל בקשה, גם כשההעדפה משתנה באמצעה.
+
+    בלי זיכרון פר-בקשה: המפתח נבנה מהקריאה הראשונה (מלאה) והתבנית מהשנייה
+    (מצומצמת), וה-HTML המצומצם נשמר תחת התגית של המלאה. מאותו רגע כל מי
+    שמבקש את התצוגה המלאה מקבל את המצומצמת, עד שה-TTL פוקע.
+
+    הבדיקה נופלת בדיוק על זה: היא משווה את מה שנשמר לתגית שתחתיה נשמר.
+    """
+    users = _FlippingUsers()
+    cache = _CacheSpy()
+    monkeypatch.setattr(webapp_app, "get_db", lambda: _DB(users), raising=True)
+    monkeypatch.setattr(webapp_app, "cache", cache, raising=True)
+
+    with webapp_app.app.test_client() as client:
+        _login(client)
+        html = client.get("/files").get_data(as_text=True)
+
+    assert users.reads >= 2, "התרחיש לא נבדק — המסד נקרא פעם אחת בלבד"
+
+    key = cache.keys_written[-1]
+    # התגית במפתח היא ``c`` למצומצם ו-``f`` למלא. מה שנשמר חייב להתאים לה.
+    tag = key.split(":")[4]
+    is_compact_html = CARD_LANG_ICON not in html
+    assert (tag == "c") is is_compact_html, (
+        f"נשמר HTML של תצוגה {'מצומצמת' if is_compact_html else 'מלאה'} "
+        f"תחת התגית {tag!r}"
+    )
+    assert html == cache.store[key], "מה שנשמר אינו מה שהוגש"
+
+
 def test_the_cached_entry_is_actually_reused(monkeypatch):
     """ההפרדה לא הושגה בכך שהקאש הפסיק לעבוד.
 
@@ -389,13 +446,21 @@ def test_the_toggle_is_wired_exactly_once(monkeypatch):
     זו התנהגות קיימת שנוגעת בכל המתגים בעמוד — ``persistentToggle``,
     ``fontMinus`` ו-``themeSelect`` מופיעים שם באותה כפילות בדיוק — ואינה
     מתוקנת כאן. מה שכן: המאזין של המתג הזה מסומן על האלמנט, ולכן העותק
-    השני אינו מוסיף מאזין נוסף. הבדיקה נופלת אם הסימון יוסר.
+    השני אינו מוסיף מאזין נוסף.
+
+    **הבדיקה אינה מקבעת את מספר העותקים.** אילו הייתה דורשת "בדיוק שניים",
+    היא הייתה נכשלת ביום שבו מישהו יתקן את כפילות הרינדור — כלומר חוסמת
+    את התיקון הנכון. מה שנדרש כאן הוא רק שהחיווט מוגן, ושהוא נשאר נכון
+    בשני המצבים. **ההוכחה ההתנהגותית** — שהרצה כפולה של הסקריפט אכן רושמת
+    מאזין אחד — יושבת ב-``tests/files-compact-toggle.test.js``, שמריץ את
+    הבלוק פעמיים ב-``vm`` וסופר מאזינים.
     """
     html = _render_settings(monkeypatch, compact=False)
 
-    # אלמנט אחד בדף, ושני עותקים של הקוד שמחווט אותו — זו התמונה שנמדדה.
+    # אלמנט אחד בדף — זה מה שחייב להישאר נכון בכל מצב.
     assert html.count('id="filesCompactToggle"') == 1
-    assert html.count("getElementById('filesCompactToggle')") == 2
+    # והחיווט מוגן, בין אם הסקריפט מרונדר פעם אחת ובין אם פעמיים.
     assert "compactToggle.dataset.wired" in html, (
-        "הסימון שמונע חיווט כפול הוסר — לחיצה אחת תשלח שתי בקשות"
+        "הסימון שמונע חיווט כפול הוסר — כל עוד הבלוק מרונדר פעמיים, "
+        "לחיצה אחת תשלח שתי בקשות"
     )

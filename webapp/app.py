@@ -2396,9 +2396,14 @@ def _resolve_files_compact_view(
 ) -> bool:
     """האם עמוד הקבצים מוצג במצב מצומצם. ברירת המחדל היא ``False``.
 
-    **מקור אחד לערך.** גם ההזרקה לתבנית וגם מפתח הקאש של ``/files`` קוראים
-    דרך כאן. שתי הכרעות נפרדות היו יכולות להיפרד, ואז הקאש היה מגיש את ה-HTML
-    של המצב ההפוך.
+    **הכרעה אחת לכל בקשה, ולא רק פונקציה אחת.** ``/files`` בונה את מפתח
+    הקאש לפני הרינדור, ו-``inject_globals`` מזין את התבנית — שתי קריאות
+    נפרדות באותה בקשה. אילו כל אחת הייתה קוראת את המסד בנפרד, שינוי העדפה
+    שנוחת בין השתיים היה גורם ל-HTML של מצב אחד להישמר תחת התגית של המצב
+    השני, והמשתמש היה רואה בדיוק את ההפך ממה שביקש עד שה-TTL פוקע. לכן
+    התוצאה נשמרת על ``g`` — ההיקף היחיד שמובטח שהוא בדיוק בקשה אחת.
+
+    מחוץ להקשר בקשה (בדיקות יחידה) אין ``g``, והפונקציה פשוט אינה זוכרת.
 
     **בלי בורר תחולה global/device ובלי cookie**, בשונה מגופן הפתקים: אין כאן
     צורך אמיתי בהעדפה שונה פר-מכשיר, וכל cookie חדש היה נכנס לרשימת
@@ -2409,22 +2414,34 @@ def _resolve_files_compact_view(
     שנערך ביד או שנכתב לפני שהוולידציה נוספה היה מדליק את המצב דווקא כשהערך
     אומר את ההפך. אותו שיקול בדיוק כמו ב-``_resolve_note_fonts``.
     """
-    if not user_id:
-        return False
+    cache_attr = '_files_compact_view'
+    try:
+        cached = getattr(g, cache_attr)
+    except (RuntimeError, AttributeError):
+        # ``RuntimeError`` — אין הקשר בקשה; ``AttributeError`` — יש, וטרם נקבע.
+        cached = None
+    if cached is not None:
+        return cached
 
-    # שליפה מוקרנת ועצלה, כמו ב-``_resolve_note_fonts``: הקורא שכבר מחזיק
-    # את מסמך המשתמש (``inject_globals``) אינו משלם על קריאה שנייה.
-    if user_doc is None:
-        try:
-            user_doc = get_db().users.find_one(
-                {'user_id': int(user_id)}, {f'ui_prefs.{FILES_COMPACT_VIEW_PREF}': 1}
-            ) or {}
-        except Exception:
-            return False
+    resolved = False
+    if user_id:
+        # שליפה מוקרנת ועצלה, כמו ב-``_resolve_note_fonts``: הקורא שכבר מחזיק
+        # את מסמך המשתמש (``inject_globals``) אינו משלם על קריאה שנייה.
+        if user_doc is None:
+            try:
+                user_doc = get_db().users.find_one(
+                    {'user_id': int(user_id)}, {f'ui_prefs.{FILES_COMPACT_VIEW_PREF}': 1}
+                ) or {}
+            except Exception:
+                user_doc = None
+        if isinstance(user_doc, dict):
+            resolved = (user_doc.get('ui_prefs') or {}).get(FILES_COMPACT_VIEW_PREF) is True
 
-    if not isinstance(user_doc, dict):
-        return False
-    return (user_doc.get('ui_prefs') or {}).get(FILES_COMPACT_VIEW_PREF) is True
+    try:
+        setattr(g, cache_attr, resolved)
+    except RuntimeError:
+        pass  # מחוץ להקשר בקשה — אין מה לזכור
+    return resolved
 
 
 def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
