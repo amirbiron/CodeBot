@@ -48,6 +48,21 @@ Alerts
 
 - ``alert_received`` — התקבלה התראה מה-Alertmanager.
 - ``alerts_parse_error`` — כשל בפענוח ההתראה.
+- ``alert_telegram_below_min_severity`` — התראה לא נשלחה לטלגרם כי חומרתה נמוכה מ-``ALERT_TELEGRAM_MIN_SEVERITY``.
+- ``alert_telegram_suppressed`` — התראה לא נשלחה לטלגרם כי שמה מופיע ב-``ALERT_TELEGRAM_SUPPRESS_ALERTS``.
+
+Jobs
+----
+
+- ``job_started`` / ``job_completed`` / ``job_failed`` / ``job_skipped`` — מחזור החיים של הרצת Job.
+- ``job_stuck`` — הרצה נשארה ב-``running`` מעבר לסף.
+- ``job_missed`` — Job מתוזמן לא רץ בהצלחה בחלון שהוגדר לו. משלים את השניים
+  שמעליו, שמכסים רק הרצות שכבר התחילו.
+- ``daily_report_sent`` — דוח הבוקר היומי נשלח.
+
+.. code-block:: json
+
+   {"event":"job_missed","severity":"error","job_id":"daily_morning_report","hours":26}
 
 Repo Analyzer
 -------------

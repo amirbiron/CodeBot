@@ -1001,7 +1001,23 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
                 continue
             _post_to_slack(text_slack)
             # Send to Telegram only if severity >= configured minimum
-            if _severity_rank(severity) >= min_tg_rank:
+            if _severity_rank(severity) < min_tg_rank:
+                # שער החומרה היה עד כה המקום היחיד בצינור שבו הודעה נעלמת
+                # בלי שום עקבה — בזמן שהחסימה מרשימת ה-suppress שמתחתיו כן
+                # פולטת אירוע. הפער הזה הופך תקלת קונפיגורציה (למשל
+                # ALERT_TELEGRAM_MIN_SEVERITY שהועלה ושכחו ממנו) לשקט שנראה
+                # בדיוק כמו מערכת בריאה.
+                try:
+                    emit_event(
+                        "alert_telegram_below_min_severity",
+                        severity="info",
+                        alertname=alert_name,
+                        severity_label=str(severity),
+                        min_severity=str(os.getenv("ALERT_TELEGRAM_MIN_SEVERITY", "info")),
+                    )
+                except Exception:
+                    pass
+            else:
                 if _is_telegram_suppressed(alert_name):
                     try:
                         emit_event(

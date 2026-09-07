@@ -1972,6 +1972,39 @@ class DatabaseManager:
             name="slow_queries_coll_dur",
         )
 
+    def _create_daily_report_indexes(self, safe_create_index) -> None:
+        """אינדקס TTL לאוסף שדוח הבוקר היומי שומר בו סנאפשוט אחד ליום.
+
+        שם האוסף ומשך השמירה נקראים מהשירות עצמו ולא נכתבים כאן, בדיוק כמו
+        ב-``_create_profiler_indexes`` — שני מקורות לאותו קבוע היו נסחפים.
+
+        **למה 45 יום ולא 7 כמו המקורות:** הסנאפשוט הוא מספרים בלבד והוא
+        זעיר, אבל הוא צריך לשרוד מעבר לחלון של 30 הימים שבו נשמרים הדפוסים
+        וסוגי השגיאות המוכרים. TTL זהה למקורות היה מוחק את הבסיס להשוואה
+        לפני שהוא מספיק לשמש.
+
+        ``enforce=True`` מאותה סיבה שהוא קיים אצל הפרופיילר: מונגו אינו
+        מעדכן ``expireAfterSeconds`` של אינדקס קיים בקריאה חוזרת ל-
+        ``create_index`` — הוא מחזיר ``IndexOptionsConflict`` וה-retention
+        הישן שורד בשקט.
+
+        ⚠️ זהו אינדקס TTL: הוא מוחק נתונים בפועל, במכוון.
+        """
+        try:
+            from services.daily_report_service import COLLECTION_NAME, TTL_SECONDS  # type: ignore
+        except Exception:
+            # השירות אינו זמין (סביבה מינימלית) — אין טעם ליצור אינדקס לאוסף
+            # שאיש לא כותב אליו.
+            return
+
+        safe_create_index(
+            COLLECTION_NAME,
+            [("created_at", ASCENDING)],
+            name="ttl_cleanup",
+            expire_after_seconds=int(TTL_SECONDS),
+            enforce=True,
+        )
+
     def _create_indexes(self):
         """צור *רק* את האינדקסים הקריטיים (ברקע) למניעת COLLSCAN.
 
@@ -2046,11 +2079,24 @@ class DatabaseManager:
             name="idx_job_runs_id",
             unique=True,
         )
+        # job_runs — שאילתות לפי job_id עם מיון לפי זמן.
+        # משרת את get_job_history, את "/jobs failed" ב-ChatOps, ואת בדיקת
+        # "job מתוזמן שלא רץ" ב-_jobs_stuck_monitor. האינדקס הזה כבר מוצהר
+        # ב-database/job_runs_collection.py, אבל אותו קובץ אינו מיובא בשום
+        # מקום ולכן אף אינדקס שבו לא נוצר בפועל.
+        safe_create_index(
+            "job_runs",
+            [("job_id", ASCENDING), ("started_at", DESCENDING)],
+            name="idx_job_runs_job_started",
+        )
 
         # slow_queries_log - האוסף שהפרופיילר כותב אליו.
         # קריאה לא-קשורה (unbound) כמו שאר הקובץ, כדי לתמוך גם ב-self דמה מטסטים
         # שאין עליו את המתודה (ראה שים התאימות למעלה).
         DatabaseManager._create_profiler_indexes(self, safe_create_index)
+
+        # daily_report_snapshots - סנאפשוט יומי של דוח הבוקר (קריאה לא-קשורה, כמו למעלה)
+        DatabaseManager._create_daily_report_indexes(self, safe_create_index)
 
         # scheduler_jobs - אינדקס לשאילתות polling לפי next_run_time (רץ בתדירות גבוהה)
         safe_create_index(

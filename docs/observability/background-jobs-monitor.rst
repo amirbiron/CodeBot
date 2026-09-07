@@ -37,6 +37,8 @@ Background Jobs Monitor
      - תבנית הדשבורד
    * - ``chatops/jobs_commands.py``
      - פקודת ``/jobs`` בטלגרם
+   * - ``services/daily_report_service.py``
+     - דוח הבוקר היומי: קריאת המקורות, השוואה מול אתמול ורינדור
    * - ``config/alerts.yml``
      - הגדרות Alerts ל-Jobs
 
@@ -78,6 +80,22 @@ Background Jobs Monitor
        {"keys": [("started_at", -1)], "expireAfterSeconds": 604800},  # TTL 7 ימים
        {"keys": [("user_id", 1), ("job_id", 1)], "sparse": True},
    ]
+
+קולקציה: ``daily_report_snapshots``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+דוח הבוקר היומי שומר שורה אחת ליום — מספרים בלבד, בלי טקסט ההודעה — כדי
+שיהיה לו מול מה להשוות מחר. ``_id`` הוא התאריך המקומי שהיום מתאר
+(``YYYY-MM-DD``), ולכן ההשוואה יכולה לדרוש את D-1 במפורש במקום ליפול על
+"השורה האחרונה שיש".
+
+הכתיבה היא ``$setOnInsert``: הכתיבה הראשונה ליום מנצחת, ולכן טריגר ידני
+שרץ במקביל לריצה המתוזמנת אינו דורס סנאפשוט תקין.
+
+ה-TTL כאן **ארוך מזה של המקורות** (``slow_queries_log`` — שבעה ימים), כי
+הסנאפשוט מחזיק גם זיכרון של דפוסי שאילתה וסוגי שגיאות מוכרים לחלון של 30
+יום. שמו של האוסף ומשך השמירה נקראים מ-``services/daily_report_service.py``
+ואינם כתובים שוב ב-``database/manager.py``.
 
 UI / WebApp
 -----------
@@ -309,6 +327,12 @@ Alerts
        cooldown_seconds: 600
        message: "⚠️ Job {job_id} תקוע כבר {minutes} דקות"
 
+     - name: job_missed_alert
+       event_pattern: "job_missed"
+       severity: error
+       cooldown_seconds: 3600
+       message: "🔕 Job {job_id} לא רץ בהצלחה כבר {hours} שעות"
+
 Flow של Alerts
 ~~~~~~~~~~~~~~
 
@@ -316,6 +340,17 @@ Flow של Alerts
 2. מערכת ה-Observability קולטת את האירוע
 3. בדיקה מול ``alerts.yml`` ו-cooldown
 4. שליחת התראה לערוץ המוגדר (Telegram/Slack)
+
+**זיהוי Job שלא רץ בכלל:**
+
+``job_failed`` ו-``job_stuck`` מכסים רק הרצות ש**התחילו**. Job שהתזמון שלו
+נעלם — משתנה סביבה שנמחק, חריגה בעלייה, restart שבלע את התזמון — היה שקט
+מוחלט, וזה נראה בדיוק כמו מערכת בריאה.
+
+Job שמצהיר ב-``metadata`` על ``missed_after_hours`` נבדק באותו background loop
+של ה-stuck monitor: שאילתה מצרפית אחת על ``job_runs`` מחזירה מי כן רץ בחלון
+(``completed`` או ``failed`` — כשל כבר מכוסה, השאלה כאן היא אי-התחלה), והחסרים
+מפיקים ``job_missed``. ההתראה נשלחת פעם אחת ליום לכל Job.
 
 **זיהוי Jobs תקועים:**
 
