@@ -1005,6 +1005,51 @@
         align-items: center;
         justify-content: space-between;
         gap: 1rem;
+      "
+    >
+      <div style="display: flex; align-items: center; gap: 1rem">
+        <i class="fas fa-compress-alt" style="font-size: 1.5rem"></i>
+        <div>
+          <div style="font-weight: 600">תצוגה מצומצמת בעמוד הקבצים</div>
+          <div style="opacity: 0.8; font-size: 0.95rem">
+            כרטיס הקובץ מציג את השם, השפה והתגיות בלבד. מספר השורות, הגודל,
+            התיאור, התאריכים וכפתור ההורדה מוסתרים.
+          </div>
+        </div>
+      </div>
+      {# ``aria-label`` ולא הסתמכות על ה-``<label>`` העוטף: הוא מכיל רק את
+         הקלט ואת ה-``<span class="slider">`` הריק, ולכן השם הנגיש שלו ריק
+         וקורא מסך מכריז "תיבת סימון" בלי לומר מה היא מפעילה. #}
+      <label class="switch">
+        <input
+          id="filesCompactToggle"
+          type="checkbox"
+          aria-label="תצוגה מצומצמת בעמוד הקבצים"
+          aria-describedby="filesCompactMsg"
+          {% if files_compact_view %}checked{% endif %}
+        />
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+  <p
+    id="filesCompactMsg"
+    style="opacity: 0.7; margin-top: 0.75rem; font-size: 0.9rem"
+  >
+    ההגדרה נשמרת לחשבון ותקפה בכל המכשירים. היא נכנסת לתוקף בטעינה הבאה של
+    עמוד הקבצים.
+  </p>
+
+  <div
+    class="glass-card"
+    style="background: rgba(255, 255, 255, 0.05); margin-top: 1rem"
+  >
+    <div
+      style="
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
         flex-wrap: wrap;
       "
     >
@@ -1805,6 +1850,60 @@
           }
         });
       }
+
+      // תצוגה מצומצמת בעמוד הקבצים
+      //
+      // ``snapshot`` לפני השליחה, והחזרה אליו בכשל: בלעדיו המתג היה נשאר
+      // במצב החדש בזמן שהשרת עדיין מחזיק את הישן, והמשתמש היה רואה הגדרה
+      // שאינה קיימת. אותה תבנית כמו במתג החיבור הקבוע שמעליו.
+      //
+      // ``inFlight`` חוסם בקשה מקבילה: שתי הקלקות מהירות היו יכולות לחזור
+      // בסדר הפוך, והאחרונה שנחתה הייתה קובעת — לא האחרונה שנלחצה.
+      // ── תצוגה מצומצמת בעמוד הקבצים ──────────────────────────────────
+      // IIFE משלו, כמו בלוק גופן הפתקים: כך המשתנים אינם דולפים לשאר
+      // הסקריפט, והבדיקה ב-``tests/files-compact-toggle.test.js`` יכולה
+      // לחלץ אותו לפי העוגנים ולהריץ אותו מול DOM ו-fetch מדומים.
+      (function () {
+        // ``dataset.wired`` ולא סתם ``if (compactToggle)``: הבלוק ``extra_js``
+        // של העמוד הזה מוצהר **בתוך** ``block content``, ולכן Jinja מרנדר
+        // אותו פעמיים — פעם במקומו בתוך התוכן ופעם ב-``base.html``. נמדד
+        // בדפדפן: לחיצה אחת, אירוע ``change`` אחד, ושתי בקשות משתי שורות
+        // שונות באותו עמוד. הסימון על האלמנט עצמו מבטיח מאזין אחד בלבד,
+        // כי שני העותקים מקבלים את אותו אלמנט מ-``getElementById``.
+        const compactToggle = document.getElementById('filesCompactToggle');
+        const compactMsg = document.getElementById('filesCompactMsg');
+        if (compactToggle && !compactToggle.dataset.wired) {
+          compactToggle.dataset.wired = '1';
+          let inFlight = false;
+          compactToggle.addEventListener('change', async function(){
+            if (inFlight) { compactToggle.checked = !compactToggle.checked; return; }
+            const snapshot = !compactToggle.checked;
+            inFlight = true;
+            try {
+              const res = await fetch('/api/ui_prefs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ files_compact_view: compactToggle.checked })
+              });
+              const data = await res.json();
+              // ``data.ok`` ולא רק ``res.ok``: האנדפוינט מחזיר 200 עם ``ok:false``
+              // בחלק ממסלולי הכשל, ודיווח הצלחה לפי הסטטוס בלבד היה מאשר
+              // שמירה שלא קרתה.
+              if (!data || data.ok === false) throw new Error((data && data.error) || 'Failed');
+              if (compactMsg) {
+                compactMsg.textContent = compactToggle.checked
+                  ? 'התצוגה המצומצמת פעילה. רענן את עמוד הקבצים כדי לראות אותה.'
+                  : 'התצוגה המלאה פעילה. רענן את עמוד הקבצים כדי לראות אותה.';
+              }
+            } catch (e) {
+              compactToggle.checked = snapshot;
+              if (compactMsg) { compactMsg.textContent = 'השמירה נכשלה. ההגדרה לא השתנתה.'; }
+            } finally {
+              inFlight = false;
+            }
+          });
+        }
+      })();
 
       // Font size controls
       const vEl = document.getElementById('fontValue');
