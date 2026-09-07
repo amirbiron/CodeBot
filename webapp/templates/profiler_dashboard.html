@@ -365,7 +365,6 @@
   }
 
   function analyzeQueryFromRow(collection, operation, queryShape, isRaw) {
-    analyzeEncoding = isRaw ? 'extended_json' : 'json';
     document.getElementById('analyze-collection').value = collection;
     const op = (operation || '').toLowerCase() === 'aggregate' ? 'aggregate' : 'find';
     document.getElementById('analyze-operation').value = op;
@@ -377,21 +376,12 @@
       document.getElementById('analyze-query').value = JSON.stringify(queryShape || {}, null, 2);
     }
 
-    analyzeQuery();
+    // המסלול היחיד שיודע שהתוכן נושא סמני טיפוס, ולכן היחיד שמצהיר על כך.
+    analyzeQuery(isRaw ? 'extended_json' : 'json');
   }
 
   //: מה שהניתוח האחרון החזיר, יחד עם מה שביקשנו. ``null`` עד לניתוח הראשון.
   let lastAnalysis = null;
-
-  //: הניב של מה שיושב בטופס הניתוח כרגע. ``extended_json`` פירושו שהתוכן
-  //: נושא סמני טיפוס (``{"$date": …}``) שהשרת צריך לפענח בחזרה לטיפוסים.
-  //: **מוצהר ולא מוסק**: זיהוי אוטומטי היה מפעיל את הפענוח גם על השלד
-  //: המנורמל, ושם ``{"$options": "<value>"}`` הופך בשקט ל-Regex עם דגלים
-  //: אקראיים במקום לייצר שגיאה רועשת.
-  //:
-  //: הוא נקבע לפי מה שמילא את הטופס לאחרונה — זו התכונה היחידה שמוגדרת
-  //: היטב. עריכה ידנית של הטקסט אינה משנה את סמני הטיפוס שכבר בתוכו.
-  let analyzeEncoding = 'json';
 
   /**
    * חיווי למשתמש דרך הטוסט המשותף (``static/js/toast.js``).
@@ -504,15 +494,27 @@
     lines.push(`- **Explain verbosity:** ${inlineCode(verbosity)}`);
     lines.push(`- **זמן הניתוח:** ${snapshot.at}`);
     lines.push('');
-    // הצהרת פרטיות שמוצמדת לטקסט שמודבק לכלי חיצוני — ולכן היא חייבת להיגזר
-    // מהעובדה ולא מהנחה. עד כה היא נכתבה **ללא תנאי**, וברגע שהניתוח רץ על
-    // ``query_raw`` (ערכים אמיתיים של שאילתות המשתמש) היא הצהירה בדיוק את ההפך
-    // ממה שהדוח מכיל. אותה תקלה בדיוק כמו ה-``verbosity`` שלמעלה: משפט שנגזר
-    // מניחוש. ``payload.encoding`` הוא העובדה — הוא ``extended_json`` רק כשמה
-    // שנשלח בא מ-``query_raw``.
-    lines.push(payload.encoding === 'extended_json'
-      ? '> ⚠️ הדוח מכיל את **הערכים האמיתיים** של השאילתה, ולא שלד מנורמל — כך שהניתוח ירוץ על מה שבאמת רץ בפרודקשן. הערכים הם של שאילתות שלך בלבד (`PROFILER_UNREDACTED_USER_IDS`).'
-      : '> ערכי השאילתה מנורמלים ל-`<value>` בצד השרת לפני שהם מגיעים לכאן, ולכן אין בדוח נתונים אישיים.');
+    // שתי עובדות נפרדות, וקל לבלבל ביניהן — אז שתיהן נאמרות במפורש.
+    //
+    // **מה שבדוח מנורמל תמיד**, ולכן ההצהרה על פרטיות נכונה בשני הענפים.
+    // שלושת חלקי הדוח נבדקו: ``## צורת השאילתה`` נלקח מ-``explain.query_shape``
+    // שהשרת מנרמל; ``## תוכנית הביצוע`` עובר ב-``describeStage`` שמדפיס
+    // ``stage``/``index_name``/``direction`` בלבד ו**לעולם לא**
+    // ``filter_condition``; והסטטיסטיקות הן מספרים.
+    //
+    // **מה שכן משתנה הוא על מה ה-explain רץ.** בענף הגולמי הוא רץ על הערכים
+    // האמיתיים, ולכן המספרים מתארים את השאילתה שבאמת רצה. בלי לומר את זה, מי
+    // שקורא "הערכים מנורמלים" עלול להסיק שגם המדידה נעשתה על ``<value>``
+    // ולפסול מספרים תקפים — היפוך של המצב.
+    //
+    // גרסה קודמת של השורה הזו טענה שהדוח *מכיל* את הערכים האמיתיים. זה לא
+    // נכון, ולא במקרה: היא נגזרה מהנחה על תוכן הדוח במקום ממה שבאמת נכתב
+    // לתוכו — אותה תקלה בדיוק כמו ה-``verbosity`` שלמעלה, בכיוון ההפוך.
+    lines.push('> ערכי השאילתה מנורמלים ל-`<value>` בצד השרת לפני שהם מגיעים לכאן, ולכן אין בדוח נתונים אישיים.');
+    if (payload.encoding === 'extended_json') {
+      lines.push('>');
+      lines.push('> **הניתוח עצמו רץ על הערכים האמיתיים** של השאילתה (החרגה לפי `PROFILER_UNREDACTED_USER_IDS`), ולכן המספרים למטה מתארים את מה שבאמת רץ בפרודקשן — ולא שלד שאינו מתאים לאף מסמך.');
+    }
     lines.push('');
 
     lines.push(isAggregate ? '## הפייפליין' : '## צורת השאילתה');
@@ -626,7 +628,21 @@
     }
   }
 
-  async function analyzeQuery() {
+  /**
+   * מריץ את הניתוח על מה שבטופס.
+   *
+   * ``encoding`` הוא הניב של התוכן: ``extended_json`` פירושו שהוא נושא סמני
+   * טיפוס (``{"$date": …}``) שהשרת יפענח בחזרה לטיפוסים. **מוצהר ולא מוסק** —
+   * זיהוי אוטומטי היה מופעל גם על השלד המנורמל, ושם ``{"$options": "<value>"}``
+   * הופך בשקט ל-``Regex`` עם דגלים אקראיים במקום לייצר שגיאה רועשת ממונגו.
+   *
+   * **ברירת המחדל היא הבטוחה, וזה העיקר.** קודם זה היה משתנה ברמת המודול
+   * שרק ``analyzeQueryFromRow`` כתב אליו — ושני המסלולים האחרים
+   * (``analyzeQueryById`` והכפתור הידני) ירשו את הערך של הניתוח הקודם ושלחו
+   * שלד מנורמל מסומן כ-Extended JSON. כפרמטר, מי שיודע אומר, ומי ששוכח
+   * מקבל את הבטוח — וזה מחזיק גם למסלול רביעי שייכתב מחר.
+   */
+  async function analyzeQuery(encoding = 'json') {
     const collection = document.getElementById('analyze-collection').value;
     const operation = document.getElementById('analyze-operation').value;
     const verbosity = document.getElementById('analyze-verbosity').value;
@@ -636,7 +652,7 @@
       return;
     }
 
-    let payload = { collection, verbosity, encoding: analyzeEncoding };
+    let payload = { collection, verbosity, encoding };
 
     if (operation === 'aggregate') {
       const pipelineText = document.getElementById('analyze-pipeline').value;

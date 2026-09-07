@@ -5,7 +5,7 @@ import pytest
 from datetime import datetime
 from unittest.mock import MagicMock
 
-from bson import ObjectId, json_util
+from bson import ObjectId
 
 import services.query_profiler_service as mod
 from services.query_profiler_service import (
@@ -871,12 +871,18 @@ class TestReplayableIsDefinedByTheJsonRoundTrip:
         assert row.query_raw is None
         assert row.raw_withheld_reason == "unsupported_number"
 
-    def test_whatever_is_stored_survives_the_round_trip_unchanged(self, raw_values_service):
-        """התכונה עצמה ולא רשימת הטיפוסים: מה שנשמר חוזר זהה מהניב שבו הוא נשלח."""
-        row = _record_and_read_back(raw_values_service, MY_QUERY)
-
-        assert row.query_raw is not None
-        assert json_util.loads(json_util.dumps(row.query_raw)) == row.query_raw
+    # הוסר: ``test_whatever_is_stored_survives_the_round_trip_unchanged``.
+    #
+    # הוא טען ``json_util.loads(json_util.dumps(x)) == x`` — וזו תכונה של
+    # ``json_util`` עצמו, לא של הקוד כאן. היא מתקיימת לכל ערך שעבר את
+    # ``_ensure_replayable`` ממילא, ולכן **הטסט לא היה מסוגל ליפול על הבאג
+    # שהוא נשא את שמו**: רגרסיה ששומרת הכול כמחרוזות הייתה עוברת אותו.
+    # וגם הדמה של ה-DB כאן (``_FakeCollection.insert_one`` עושה ``dict(doc)``)
+    # אינה מסדרת דבר, אז גבול הגלגול לא נבדק שם בכלל.
+    #
+    # הגבול האמיתי נבדק ב-``tests/test_profiler_raw_query_round_trip.py``,
+    # שעובר דרך שני הראוטים ומאשר את **הטיפוס** של מה שהשירות באמת קיבל.
+    # כפילות חלשה שאינה מסוגלת ליפול גרועה מהיעדרה — היא מוכרת ביטחון שאין.
 
 
 class TestTheRecordSurvivesAFailureInTheRawDecision:

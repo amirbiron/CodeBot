@@ -141,6 +141,27 @@ def test_an_unknown_encoding_is_rejected_and_not_guessed(app_module, seen):
     assert "query" not in seen, "הבקשה לא הייתה אמורה להגיע לשירות בכלל"
 
 
+@pytest.mark.parametrize("bad", [["json"], {"a": 1}, 5, None])
+def test_a_non_string_encoding_is_a_400_and_not_a_crash(app_module, seen, bad):
+    """קלט לא תקין הוא 400, גם כשהוא מהטיפוס הלא נכון.
+
+    ``encoding not in frozenset`` קורא ל-``hash()``, ורשימה או מילון מגוף
+    ה-JSON זורקים שם ``TypeError`` — כלומר 500 על קלט משתמש. זה מופע של
+    ``CORE-PATTERNS`` U3: פעולה שמניחה טיפוס על ערך שהגיע מחוץ לתהליך.
+    הפרמטרים מכסים את שני הצדדים — ``list``/``dict`` שזרקו, ו-``int``/``None``
+    שנדחו נכון גם קודם.
+    """
+    with app_module.app.test_client() as client:
+        resp = client.post(
+            "/api/profiler/recommendations",
+            json={"collection": "code_snippets", "query": {}, "encoding": bad},
+        )
+
+    assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
+    assert resp.get_json()["message"] == "invalid_encoding"
+    assert "query" not in seen
+
+
 def test_a_record_without_raw_values_still_serializes(app_module, monkeypatch):
     """``None`` נשאר ``None`` — אין ערכים, אין מה לקודד."""
 

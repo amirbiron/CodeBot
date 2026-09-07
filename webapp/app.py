@@ -5138,7 +5138,11 @@ def api_profiler_explain():
     encoding = body.get("encoding", PROFILER_ENCODING_JSON)
     if not collection:
         return jsonify({"status": "error", "message": "collection is required"}), 400
-    if encoding not in PROFILER_ENCODINGS:
+    # ``isinstance`` **לפני** בדיקת החברות, ולא רק בגלל קפדנות: ``x in frozenset``
+    # קורא ל-``hash(x)``, ורשימה או מילון מגוף JSON זורקים שם ``TypeError`` —
+    # נמדד — כלומר 500 במקום 400 על קלט לא תקין. זה מופע של ``CORE-PATTERNS``
+    # U3: פעולה שמניחה טיפוס על ערך שהגיע מחוץ לתהליך.
+    if not isinstance(encoding, str) or encoding not in PROFILER_ENCODINGS:
         return jsonify({"status": "error", "message": "invalid_encoding"}), 400
     try:
         query = _profiler_decode(query, encoding)
@@ -5190,7 +5194,11 @@ def api_profiler_recommendations():
     encoding = body.get("encoding", PROFILER_ENCODING_JSON)
     if not collection:
         return jsonify({"status": "error", "message": "collection is required"}), 400
-    if encoding not in PROFILER_ENCODINGS:
+    # ``isinstance`` **לפני** בדיקת החברות, ולא רק בגלל קפדנות: ``x in frozenset``
+    # קורא ל-``hash(x)``, ורשימה או מילון מגוף JSON זורקים שם ``TypeError`` —
+    # נמדד — כלומר 500 במקום 400 על קלט לא תקין. זה מופע של ``CORE-PATTERNS``
+    # U3: פעולה שמניחה טיפוס על ערך שהגיע מחוץ לתהליך.
+    if not isinstance(encoding, str) or encoding not in PROFILER_ENCODINGS:
         return jsonify({"status": "error", "message": "invalid_encoding"}), 400
     try:
         query = _profiler_decode(query, encoding)
