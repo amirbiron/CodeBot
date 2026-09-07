@@ -172,6 +172,25 @@ def _walk(service, **kwargs):
     return seen
 
 
+def _seed_ancient_into_buffer(service, now):
+    """רשומה אחת טרייה ואחת בת שלושה ימים, ישירות ב-buffer שבזיכרון.
+
+    ``record_slow_query_sync`` חותמת "עכשיו" ואין דרך לבקש ממנה חותמת אחרת,
+    ולכן הרשומה הישנה נבנית ממנה ב-``_dc_replace``. החותמת נגזרת מ-``now``
+    ולא מקריאת שעון נפרדת — מקור זמן אחד לכל הקובץ.
+
+    שלושת טסטי הפולבאק חלקו את הזנב הזה מילה במילה. חוזה ה-buffer וביטול
+    הקאש הם בדיוק הדברים שסוחפים בין עותקים.
+    """
+    service.record_slow_query_sync(
+        collection="code_snippets", operation="find", query={"a": 1}, execution_time_ms=500.0
+    )
+    service._slow_queries.append(_dc_replace(
+        service._slow_queries[0], query_id="ancient", timestamp=now - timedelta(days=3)
+    ))
+    service._invalidate_summary_cache()
+
+
 class TestTheTotalIsNotAffectedByThePage:
     def test_total_stays_the_same_across_pages(self, svc, now):
         """``total`` נספר על החלון בלבד — **בלי** תנאי הקורסור.
@@ -261,6 +280,94 @@ class TestTheMinimumTimeFilterNarrowsThePopulation:
         assert [r.query_id for r in second["records"]] == ["m1"]
         assert first["total"] == second["total"] == 2
         assert second["next_cursor"] is None, "אין דף שלישי — הדף השני הוא האחרון"
+
+
+class TestTheCursorBelongsToOnePopulation:
+    """קורסור אומר "אחרי הנקודה הזו" — וזו טענה על **אוסף שורות מסוים**.
+
+    זה לא תרחיש תיאורטי: ל-``<select id="collection-filter">`` בדשבורד לא היה
+    שום מאזין שינוי (אומת גם ב-``main``), ולכן בחירת collection ואז לחיצה על
+    "טען עוד" שלחה את המסנן החדש עם הקורסור הישן.
+    """
+
+    @staticmethod
+    def _seed_two_collections(service, now):
+        """‏``other`` חדש יותר מכל שורות ``code_snippets``.
+
+        זה מה שהופך את הבדיקה למשמעותית: במיון יורד לפי זמן הוא יושב **לפני**
+        נקודת הקורסור שנטבעה בלעדיו, כלומר בדיוק במקום שממנו שורות נעלמות.
+        """
+        coll = service.db_manager.db[service.COLLECTION_NAME]
+        for i in range(4):
+            coll.insert_one({
+                "query_id": f"c{i}", "collection": "code_snippets", "operation": "find",
+                "query_shape": {}, "execution_time_ms": 1000.0 + i,
+                "timestamp": now - timedelta(minutes=10 + i),
+            })
+        coll.insert_one({
+            "query_id": "newest_other", "collection": "other", "operation": "find",
+            "query_shape": {}, "execution_time_ms": 1500.0, "timestamp": now,
+        })
+
+    def test_a_cursor_from_a_different_collection_filter_is_rejected(self, svc, now):
+        """**קודם מה שנשבר, ואחר כך הדחייה.**
+
+        הטסט מראה תחילה שהשורה שהייתה נעלמת קיימת ונגישה כשמדפדפים נכון,
+        ורק אז שהקורסור הזר נדחה. בדיקה שמאמתת רק "נזרקה חריגה" הייתה עוברת
+        גם על מימוש שדוחה יותר מדי.
+        """
+        self._seed_two_collections(svc, now)
+
+        # דף ראשון בלי מסנן, מיון יורד לפי זמן: ``newest_other`` הוא הראשון.
+        first = svc.get_slow_queries_page(
+            limit=1, sort_field="timestamp", sort_direction="desc"
+        )
+        assert [r.query_id for r in first["records"]] == ["newest_other"]
+
+        # ובדפדוף תקין עם המסנן, השורה הזו היא כל האוכלוסייה.
+        filtered = svc.get_slow_queries_page(
+            limit=5, sort_field="timestamp", sort_direction="desc", collection_filter="other"
+        )
+        assert [r.query_id for r in filtered["records"]] == ["newest_other"]
+
+        # אבל הקורסור של הדף הראשון נטבע לאוכלוסייה אחרת. בלי הקשירה הוא היה
+        # מבקש "זמן < הזמן של newest_other" בתוך ``other`` — כלומר אפס שורות,
+        # וטבלה ריקה בלי שום סימן שמשהו לא בסדר.
+        with pytest.raises(ProfilerPagingError) as exc:
+            svc.get_slow_queries_page(
+                limit=5, sort_field="timestamp", sort_direction="desc",
+                collection_filter="other", cursor=first["next_cursor"],
+            )
+        assert "filter" in str(exc.value)
+
+    def test_a_cursor_from_a_different_min_time_is_rejected(self, svc, now):
+        self._seed_two_collections(svc, now)
+        first = svc.get_slow_queries_page(limit=2)
+
+        with pytest.raises(ProfilerPagingError):
+            svc.get_slow_queries_page(
+                limit=2, min_execution_time_ms=1200.0, cursor=first["next_cursor"]
+            )
+
+    def test_the_same_filters_are_accepted(self, svc, now):
+        """**מה שהקשירה לא אמורה לדחות.**
+
+        בלי הטסט הזה, מימוש שמחזיר "תמיד 400" היה עובר את כל האחרים.
+        """
+        self._seed_two_collections(svc, now)
+
+        first = svc.get_slow_queries_page(limit=2, collection_filter="code_snippets")
+        second = svc.get_slow_queries_page(
+            limit=2, collection_filter="code_snippets", cursor=first["next_cursor"]
+        )
+
+        assert [r.query_id for r in second["records"]] == ["c1", "c0"]
+
+    def test_paging_without_any_filter_still_works(self, svc, now):
+        """המסלול הנפוץ — בלי מסננים בכלל — אינו נפגע מהקשירה."""
+        _seed(svc, 6, now=now)
+
+        assert len(_walk(svc, limit=2)) == 6
 
 
 class TestTheNextPageIsSeenAndNotGuessed:
@@ -460,10 +567,14 @@ class TestTheCursorIsExternalInput:
         אינה מתאימה לאף מסמך — כלומר דף שני ריק, בשקט. זה בדיוק המנגנון
         שנבנה עבור ``query_raw``, וכאן הוא חוזר בחינם.
 
-        **החריג היחיד לפיקסצ'ר ``now``, במכוון.** הטסט הזה אינו נוגע בשום
-        חלון ובשום שעון — התאריך כאן הוא **ערך** שמקודדים ומפענחים, לא רגע
-        שמשווים אליו. תאריך קבוע הוא דווקא הבחירה הנכונה: הוא הופך את
-        הבדיקה לדטרמיניסטית לחלוטין.
+        **החריג היחיד לפיקסצ'ר ``now``, במכוון** — וזו טענה שנבדקה: אין בקובץ
+        הזה שום קריאה אחרת ל-``datetime.utcnow()`` מלבד הפיקסצ'ר עצמו.
+        (בגרסה קודמת הטענה **לא** הייתה נכונה: שלושת טסטי הפולבאק קראו לשעון
+        ישירות. הם עברו לעוזר ``_seed_ancient_into_buffer`` שגוזר מ-``now``.)
+
+        הטסט הזה אינו נוגע בשום חלון ובשום שעון — התאריך כאן הוא **ערך**
+        שמקודדים ומפענחים, לא רגע שמשווים אליו. תאריך קבוע הוא דווקא הבחירה
+        הנכונה: הוא הופך את הבדיקה לדטרמיניסטית לחלוטין.
         """
         when = datetime(2026, 9, 7, 12, 0, 0)
         oid = ObjectId()
@@ -516,7 +627,7 @@ class TestTheWindowComesFromOnePlace:
         assert svc.get_summary(hours=24)["total_slow_queries"] == 24
         assert seen == [24, 168], "כל חלון מחושב פעם אחת ונשמר בנפרד"
 
-    def test_the_in_memory_fallback_respects_the_window_when_there_is_no_db(self):
+    def test_the_in_memory_fallback_respects_the_window_when_there_is_no_db(self, now):
         """כשאין DB, הסיכום נבנה מהזיכרון — **וגם הוא חייב לכבד את החלון**.
 
         קודם המסלול הזה קרא ל-``super().get_summary()``, שסופר את כל ה-buffer
@@ -529,22 +640,12 @@ class TestTheWindowComesFromOnePlace:
         manager.db = None  # מסלול הפולבאק לזיכרון
         service = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
 
-        service.record_slow_query_sync(
-            collection="code_snippets", operation="find", query={"a": 1}, execution_time_ms=500.0
-        )
-        # רשומה ישנה נדחפת ישירות ל-buffer — ``record_slow_query_sync`` חותמת "עכשיו".
-        old = _dc_replace(
-            service._slow_queries[0],
-            query_id="ancient",
-            timestamp=datetime.utcnow() - timedelta(days=3),
-        )
-        service._slow_queries.append(old)
-        service._invalidate_summary_cache()
+        _seed_ancient_into_buffer(service, now)
 
         assert service.get_summary(hours=24)["total_slow_queries"] == 1
         assert service.get_summary(hours=24 * 7)["total_slow_queries"] == 2
 
-    def test_the_fallback_after_a_db_failure_also_respects_the_window(self, svc, monkeypatch):
+    def test_the_fallback_after_a_db_failure_also_respects_the_window(self, svc, now, monkeypatch):
         """אתר הפולבאק השני — חריגת DB — הוא מסלול נפרד בקוד, ולכן נבדק בנפרד.
 
         תיקון של אחד מהם אינו נוגע בשני, ובדיקה של אחד אינה ראיה על השני.
@@ -554,19 +655,38 @@ class TestTheWindowComesFromOnePlace:
 
         monkeypatch.setattr(svc, "_calculate_summary_sync", _boom)
 
-        svc.record_slow_query_sync(
-            collection="code_snippets", operation="find", query={"a": 1}, execution_time_ms=500.0
-        )
-        old = _dc_replace(
-            svc._slow_queries[0], query_id="ancient", timestamp=datetime.utcnow() - timedelta(days=3)
-        )
-        svc._slow_queries.append(old)
-        svc._invalidate_summary_cache()
+        _seed_ancient_into_buffer(svc, now)
 
         assert svc.get_summary(hours=24)["total_slow_queries"] == 1
         assert svc.get_summary(hours=24 * 7)["total_slow_queries"] == 2
 
-    def test_the_fallback_counts_unique_patterns_within_the_window_only(self, svc, monkeypatch):
+    def test_both_empty_paths_return_the_same_contract(self, svc, monkeypatch):
+        """מסלול ה-DB ומסלול הזיכרון מחזירים את **אותם שדות** כשאין מה לסכם.
+
+        זו התכונה שהחילוץ ל-``_empty_summary`` קונה, וכאן היא נאכפת. בלי
+        הטסט הזה החילוץ היה שיפור מבני בלי ראיה: הרצתי מוטציה שמשנה את החוזה
+        ולא נפל שום טסט — כי שני המסלולים השתנו יחד. מה שצריך להיאכף הוא
+        שהם **מסכימים**, ולכן המוטציה הנכונה כאן היא להחזיר עותק inline
+        לאחד מהם.
+
+        למה זה חשוב דווקא כאן: מסלול הזיכרון רץ כשה-DB נפל. שדה חסר שם הוא
+        שדה חסר בדיוק ברגע שבו אף אחד לא מסתכל.
+        """
+        from_db = svc.get_summary(hours=24)  # אוסף ריק — הענף של ``total <= 0``
+
+        monkeypatch.setattr(
+            svc, "_calculate_summary_sync",
+            lambda hours=PROFILER_WINDOW_HOURS: (_ for _ in ()).throw(RuntimeError("down")),
+        )
+        svc._invalidate_summary_cache()
+        from_buffer = svc.get_summary(hours=24)
+
+        assert set(from_db) == set(from_buffer), (
+            f"חוזה שונה בין המסלולים: {set(from_db) ^ set(from_buffer)}"
+        )
+        assert from_db == from_buffer, "אותם שדות אבל ערכים שונים כששניהם ריקים"
+
+    def test_the_fallback_counts_unique_patterns_within_the_window_only(self, svc, now, monkeypatch):
         """‏``unique_patterns`` נספר על הרשומות שבחלון, כמו ``$addToSet`` במסלול ה-DB.
 
         קודם הוא היה ``len(self._query_patterns)`` — כל הדפוסים מאז עליית
@@ -577,15 +697,10 @@ class TestTheWindowComesFromOnePlace:
             lambda hours=PROFILER_WINDOW_HOURS: (_ for _ in ()).throw(RuntimeError("down")),
         )
 
-        for collection in ("a", "b"):
-            svc.record_slow_query_sync(
-                collection=collection, operation="find", query={"x": 1}, execution_time_ms=500.0
-            )
-        old = _dc_replace(
-            svc._slow_queries[0], query_id="ancient", timestamp=datetime.utcnow() - timedelta(days=3)
+        svc.record_slow_query_sync(
+            collection="b", operation="find", query={"x": 1}, execution_time_ms=500.0
         )
-        svc._slow_queries.append(old)
-        svc._invalidate_summary_cache()
+        _seed_ancient_into_buffer(svc, now)
 
         assert svc.get_summary(hours=24)["unique_patterns"] == 2
         assert svc.get_summary(hours=24 * 7)["unique_patterns"] == 3

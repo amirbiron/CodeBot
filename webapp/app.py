@@ -2202,6 +2202,13 @@ def inject_globals():
     except Exception:
         note_fonts, note_fonts_scope = _note_fonts_default(), THEME_SCOPE_GLOBAL
 
+    # התצוגה המצומצמת בעמוד הקבצים. ``user_doc`` כבר נשלף למעלה, ולכן אין
+    # כאן קריאה נוספת למסד. fail-soft כמו שכניו: תקלה מחזירה את התצוגה המלאה.
+    try:
+        files_compact_view = _resolve_files_compact_view(user_id, user_doc)
+    except Exception:
+        files_compact_view = False
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
@@ -2209,6 +2216,7 @@ def inject_globals():
         'ui_theme_scope': theme_scope,
         'note_fonts': note_fonts,
         'note_fonts_scope': note_fonts_scope,
+        'files_compact_view': files_compact_view,
         'ui_theme_custom_id': ui_theme_custom_id,
         'custom_theme': custom_theme,
         'shared_theme': shared_theme,
@@ -2373,6 +2381,69 @@ def _note_fonts_etag_key(
         return "nf:" + _encode_note_fonts(fonts)
     except Exception:
         return "nf:" + _encode_note_fonts(None)
+
+
+#: מפתח ההעדפה של התצוגה המצומצמת בעמוד הקבצים, תחת ``ui_prefs``.
+#: השם צר בכוונה. ``webapp/FEATURE_SUGGESTIONS/DISPLAY_MODES_SPECIFICATION.md``
+#: מציע ``display_mode`` עם ``focus``/``classic``/``power``, אבל זו טיוטה
+#: שלא מומשה ושני המצבים שלה שונים לגמרי — ``focus`` מסתיר גם את כל
+#: הכפתורים ומוסיף רקע מטושטש, ו-``power`` הופך את הרשימה לטבלה ו**מוסיף**
+#: מידע. שם רחב היה מצהיר על מימוש שלא קרה, ומתנגש ביום שהאפיון ההוא ייבנה.
+FILES_COMPACT_VIEW_PREF = "files_compact_view"
+
+
+def _resolve_files_compact_view(
+    user_id: Optional[int],
+    user_doc: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """האם עמוד הקבצים מוצג במצב מצומצם. ברירת המחדל היא ``False``.
+
+    **הכרעה אחת לכל בקשה, ולא רק פונקציה אחת.** ``/files`` בונה את מפתח
+    הקאש לפני הרינדור, ו-``inject_globals`` מזין את התבנית — שתי קריאות
+    נפרדות באותה בקשה. אילו כל אחת הייתה קוראת את המסד בנפרד, שינוי העדפה
+    שנוחת בין השתיים היה גורם ל-HTML של מצב אחד להישמר תחת התגית של המצב
+    השני, והמשתמש היה רואה בדיוק את ההפך ממה שביקש עד שה-TTL פוקע. לכן
+    התוצאה נשמרת על ``g`` — ההיקף היחיד שמובטח שהוא בדיוק בקשה אחת.
+
+    מחוץ להקשר בקשה (בדיקות יחידה) אין ``g``, והפונקציה פשוט אינה זוכרת.
+
+    **בלי בורר תחולה global/device ובלי cookie**, בשונה מגופן הפתקים: אין כאן
+    צורך אמיתי בהעדפה שונה פר-מכשיר, וכל cookie חדש היה נכנס לרשימת
+    ``needs_cookie_update`` שב-``/api/ui_prefs`` — שומר שכבר בלע בשקט את
+    ``ui_note_fonts`` כשהוא נשכח.
+
+    ``is True`` ולא ``bool()``: ``bool("false")`` הוא ``True``, ולכן מסמך
+    שנערך ביד או שנכתב לפני שהוולידציה נוספה היה מדליק את המצב דווקא כשהערך
+    אומר את ההפך. אותו שיקול בדיוק כמו ב-``_resolve_note_fonts``.
+    """
+    cache_attr = '_files_compact_view'
+    try:
+        cached = getattr(g, cache_attr)
+    except (RuntimeError, AttributeError):
+        # ``RuntimeError`` — אין הקשר בקשה; ``AttributeError`` — יש, וטרם נקבע.
+        cached = None
+    if cached is not None:
+        return cached
+
+    resolved = False
+    if user_id:
+        # שליפה מוקרנת ועצלה, כמו ב-``_resolve_note_fonts``: הקורא שכבר מחזיק
+        # את מסמך המשתמש (``inject_globals``) אינו משלם על קריאה שנייה.
+        if user_doc is None:
+            try:
+                user_doc = get_db().users.find_one(
+                    {'user_id': int(user_id)}, {f'ui_prefs.{FILES_COMPACT_VIEW_PREF}': 1}
+                ) or {}
+            except Exception:
+                user_doc = None
+        if isinstance(user_doc, dict):
+            resolved = (user_doc.get('ui_prefs') or {}).get(FILES_COMPACT_VIEW_PREF) is True
+
+    try:
+        setattr(g, cache_attr, resolved)
+    except RuntimeError:
+        pass  # מחוץ להקשר בקשה — אין מה לזכור
+    return resolved
 
 
 def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
@@ -5055,6 +5126,13 @@ def api_profiler_slow_queries():
     # ``nan`` נדחה במפורש — ``{"$gte": nan}`` מתאים לאפס מסמכים במונגו, כלומר
     # "טבלה ריקה בלי סיבה". ``limit`` לעומתו נשאר סלחני כפי שהיה: ערך פסול שם
     # מחזיר 50 שורות במקום 20, ולא שורות אחרות.
+    #
+    # ‏**‏``?min_time=`` ריק פירושו "לא נשלח", ולא "ערך פסול".** מחרוזת ריקה
+    # אינה מספר שגוי — היא היעדר ערך, וממשק שבונה query string משדה ריק שולח
+    # בדיוק את זה. זו גם המוסכמת בשני המקומות האחרים שמטפלים בפרמטר: ב-``main``
+    # (``float(min_time) if min_time else None``) ובראוט של הבוט
+    # (``handlers/profiler_handler.py``). ההחלטה כתובה כאן כדי שלא תיראה מקרית,
+    # והיא מכוסה בטסט.
     min_time_raw = request.args.get("min_time")
     min_time = None
     if min_time_raw:
@@ -11977,7 +12055,23 @@ def files():
             sort_by = '-favorited_at'
     except Exception:
         pass
+    # התצוגה המצומצמת נקראת **לפני** בדיקת הקאש, כי היא חלק מהמפתח שלו.
+    files_compact_view = _resolve_files_compact_view(user_id)
+
     # הכנת מפתח Cache ייחודי לפרמטרים
+    #
+    # ‏**הדגל בתחילית ולא בתוך** ``_params``\\ **, וזה לא סגנון.** העמוד הזה
+    # שומר את ה-HTML המרונדר, ושתי התצוגות מייצרות HTML שונה. אילו הדגל היה
+    # רק בתוך ``_params``, ענף ה-``except`` שמתחתיו — שנופל למפתח קבוע אחד —
+    # היה מגיש לשתיהן את אותו HTML. בתחילית שני המסלולים מבדילים.
+    #
+    # ולמה בכלל במפתח ולא בביטול קאש בעת שינוי ההעדפה: מפתח שמתאר את התוכן
+    # אינו צריך פעולה שיכולה להיכשל. ``delete_pattern`` שמחזיר 0 בלי בדיקה
+    # הוא דפוס שכבר עלה בריפו הזה (ראו K11 ב-``CLAUDE.md``), ואין היום שום
+    # קוד שמבטל את ``web:files:user:*`` — הוא TTL בלבד. התקדים לצורה הזו הוא
+    # ``_note_fonts_etag_key``, שנוצר בדיוק כדי שהעדפה שמרונדרת לתוך ה-HTML
+    # תיכנס לוולידטור ולמפתח.
+    _compact_tag = 'c' if files_compact_view else 'f'
     try:
         _params = {
             'q': search_query,
@@ -11990,9 +12084,9 @@ def files():
         }
         _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
         _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:24]
-        files_cache_key = f"web:files:user:{user_id}:{_hash}"
+        files_cache_key = f"web:files:user:{user_id}:{_compact_tag}:{_hash}"
     except Exception:
-        files_cache_key = f"web:files:user:{user_id}:fallback"
+        files_cache_key = f"web:files:user:{user_id}:{_compact_tag}:fallback"
 
     if should_cache:
         try:
@@ -18204,8 +18298,13 @@ def api_ui_prefs():
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
     - theme: אחד מ-{"classic","ocean","high-contrast","dark","dim","rose-pine-dawn","nebula","custom"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
+    - files_compact_view: bool — תצוגה מצומצמת בעמוד הקבצים (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
     - onboarding: אובייקט flags (walkthrough_v1_seen, theme_wizard_seen)
+
+    **מפתח שאינו מטופל כאן במפורש מוחזר 200 ואינו נשמר.** זה אינו רעיוני:
+    ``smooth_scroll`` נשלח מהלקוח עד היום ומעולם לא הגיע למסד, כמתועד ב-
+    ``docs/webapp/smooth-scrolling.rst``. מפתח חדש דורש בלוק משלו כאן.
     """
     try:
         payload = request.get_json(silent=True) or {}
@@ -18354,6 +18453,28 @@ def api_ui_prefs():
                 update_fields['ui_prefs.editor'] = editor_type
                 session['preferred_editor'] = editor_type
                 resp_payload['editor'] = editor_type
+
+        # התצוגה המצומצמת בעמוד הקבצים.
+        #
+        # **מפתח שאינו מטופל כאן במפורש מקבל 200 ואינו נשמר.** זה כבר קרה:
+        # ``docs/webapp/smooth-scrolling.rst`` מתעד ש-``smooth_scroll`` נשלח
+        # מהלקוח עד היום, האנדפוינט הזה מתעלם ממנו, והשרת מעולם לא שמר אותו.
+        # לכן הבלוק הזה קיים, ולכן ערך פגום נדחה ולא מומר.
+        if FILES_COMPACT_VIEW_PREF in payload:
+            compact_value = payload.get(FILES_COMPACT_VIEW_PREF)
+            # ``isinstance(..., bool)`` ולא ``int``: ב-Python ``True`` **הוא**
+            # ``int``, ולכן בדיקת ``int`` הייתה מקבלת ``1``. וגם לא המרה
+            # שקטה — ``bool("false")`` הוא ``True``, כלומר הערך היה מדליק את
+            # המצב דווקא כשהוא אומר את ההפך.
+            if not isinstance(compact_value, bool):
+                return jsonify({
+                    'ok': False,
+                    'error': f'{FILES_COMPACT_VIEW_PREF} must be a boolean',
+                }), 400
+            # ``$set`` בנתיב מנוקד ולא על ``ui_prefs`` כולו, כדי לא לדרוס
+            # העדפות שכנות שנכתבו בבקשה חופפת.
+            update_fields[f'ui_prefs.{FILES_COMPACT_VIEW_PREF}'] = compact_value
+            resp_payload[FILES_COMPACT_VIEW_PREF] = compact_value
 
         # עדכון work_state (שחזור מצב עבודה חוצה סשנים)
         if 'work_state' in payload:

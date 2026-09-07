@@ -256,6 +256,7 @@
   document.addEventListener('DOMContentLoaded', function() {
     toggleAnalyzeInputs();
     attachSortHandlers();
+    attachCollectionFilter();
     loadSummary();
     refreshSlowQueries();
     loadPatterns();
@@ -383,6 +384,19 @@
         th.removeAttribute('aria-sort');
       }
     });
+  }
+
+  function attachCollectionFilter() {
+    // ל-select **לא היה שום מאזין**. עד שנוסף העימוד זה היה פגם חוויה בלבד:
+    // בחירת collection לא עשתה כלום עד לחיצה על "רענן". מרגע שיש קורסור זה
+    // הפך לבאג נכונות — בחירת collection ואז "טען עוד" שלחה את המסנן החדש
+    // עם הקורסור הישן, שנטבע עבור אוכלוסייה אחרת, ושורות פשוט נעלמו.
+    //
+    // ``refreshSlowQueries`` מאפסת את הקורסור, ולכן היא התשובה הנכונה כאן.
+    // השרת דוחה קורסור כזה גם בלי המאזין (``cursor_filter_mismatch``), אבל
+    // 400 בממשק הוא עדיין שבור — שתי השכבות נחוצות.
+    const select = document.getElementById('collection-filter');
+    if (select) select.addEventListener('change', refreshSlowQueries);
   }
 
   function attachSortHandlers() {

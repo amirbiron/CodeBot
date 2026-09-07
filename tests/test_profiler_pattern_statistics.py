@@ -91,15 +91,19 @@ class TestThePipelineThatIsSent:
     """מה שנשלח למונגו, ולא רק מה שחוזר ממנה."""
 
     def test_the_window_comes_from_the_hours_argument(self):
+        """חסם **דו-צדדי**, ובכוונה.
+
+        הגרסה הראשונה כאן החזיקה שתי טענות שנראו שונות והיו אותה אי-שוויון
+        מסודרת אחרת — שתיהן ``Δ ≥ 48h − 5s``. כלומר לא היה גבול עליון,
+        והטסט היה עובר גם אם ``_window_hours`` היה מחזיר 144 שעות.
+        """
         svc = _service([{"patterns": [], "total": []}])
         before = datetime.utcnow()
 
         svc.get_pattern_statistics(hours=48)
 
         since = _stage(svc.db_manager.db.collection.pipelines[0], "$match")["timestamp"]["$gte"]
-        # חלון של 48 שעות אחורה, עם מרווח שפוי לזמן הריצה.
-        assert timedelta(hours=48) <= before - since + timedelta(seconds=5)
-        assert before - since >= timedelta(hours=48) - timedelta(seconds=5)
+        assert abs((before - since) - timedelta(hours=48)) < timedelta(seconds=5)
 
     def test_the_default_window_is_the_shared_constant(self):
         """הדפוסים חייבים לספור את אותה אוכלוסייה כמו הכרטיס והטבלה.

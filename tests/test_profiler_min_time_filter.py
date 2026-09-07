@@ -55,6 +55,22 @@ class TestTheRouteHonoursIt:
 
         assert captured["min_execution_time_ms"] is None
 
+    def test_an_empty_value_means_not_sent_and_not_invalid(self, seen):
+        """‏``?min_time=`` ריק ← 200 בלי סינון, **במכוון**.
+
+        מחרוזת ריקה אינה מספר שגוי — היא היעדר ערך, וממשק שבונה query string
+        משדה ריק שולח בדיוק את זה. 400 שם היה עוין למי שלא ביקש שום סינון.
+        זו גם המוסכמת בשני המקומות האחרים שמטפלים בפרמטר: ``main`` והראוט של
+        הבוט, שניהם ``if min_time:``. שלוש התנהגויות שונות לאותו פרמטר בשני
+        שירותים היו גרועות מכל אחת מהן לחוד.
+        """
+        client, captured = seen
+
+        response = client.get("/api/profiler/slow-queries?min_time=")
+
+        assert response.status_code == 200
+        assert captured["min_execution_time_ms"] is None
+
     @pytest.mark.parametrize("bad", ["abc", "1,200", "--5", "1e"])
     def test_a_value_that_is_not_a_number_is_a_400_and_not_a_silent_skip(self, seen, bad):
         """ערך פסול ב-**מסנן** אינו מתעלמים ממנו.

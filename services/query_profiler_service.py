@@ -376,8 +376,26 @@ def _sort_spec(field: Any, direction: Any) -> Tuple[str, int]:
     return field, (1 if direction == "asc" else -1)
 
 
-def encode_slow_query_cursor(record: Dict[str, Any], field: str, direction: str) -> str:
-    """קורסור לשורה האחרונה שנראתה: ``{f, d, v, id}`` ב-base64 של Extended JSON.
+def slow_query_population_key(
+    collection_filter: Optional[str], min_execution_time_ms: Optional[float]
+) -> str:
+    """טביעת אצבע של **מסנני האוכלוסייה** — מה שקובע אילו שורות קיימות בכלל.
+
+    חלון הזמן אינו נכנס לכאן במכוון: הוא זז בכל שנייה מעצם היותו יחסי
+    ל-``utcnow``, וקשירה אליו הייתה פוסלת כל קורסור אחרי רגע.
+    """
+    coll = collection_filter if isinstance(collection_filter, str) and collection_filter else ""
+    if min_execution_time_ms is None:
+        low = ""
+    else:
+        low = repr(float(min_execution_time_ms))
+    return f"{coll}|{low}"
+
+
+def encode_slow_query_cursor(
+    record: Dict[str, Any], field: str, direction: str, population: str = ""
+) -> str:
+    """קורסור לשורה האחרונה שנראתה: ``{f, d, p, v, id}`` ב-base64 של Extended JSON.
 
     **למה Extended JSON ולא JSON רגיל:** ``v`` הוא ערך העמודה שממיינים לפיה,
     והוא יכול להיות ``float`` (משך), ``datetime`` (זמן) או מחרוזת (collection).
@@ -388,18 +406,32 @@ def encode_slow_query_cursor(record: Dict[str, Any], field: str, direction: str)
     **למה ``f`` ו-``d`` בתוך הקורסור:** קורסור שנטבע למיון אחד ונשלח עם מיון
     אחר הוא חסר משמעות — והתנאי ``$lt`` על השדה החדש היה מחזיר תוצאות
     שרירותיות. הם נבדקים בפענוח, ולכן שינוי מיון באמצע דפדוף נדחה ולא מנוחש.
+
+    **ו-``p`` — מסנני האוכלוסייה — מאותו נימוק בדיוק.** קורסור אומר "אחרי
+    הנקודה הזו בסדר המיון", וזו טענה על **אוסף שורות מסוים**. אם המסנן משתנה
+    בין הדפים, שורות שהיו נדחקות מהדף הראשון על ידי שורות שהמסנן החדש מסלק
+    יושבות עכשיו **לפני** נקודת הקורסור — ולכן לא יופיעו לעולם, בלי שום סימן.
+    הכלל הוא אחד: **הקורסור תקף רק לשאילתה שהוא נטבע עבורה.**
     """
-    payload = {"f": field, "d": direction, "v": record.get(field), "id": record.get("_id")}
+    payload = {
+        "f": field, "d": direction, "p": population,
+        "v": record.get(field), "id": record.get("_id"),
+    }
     raw = json_util.dumps(payload).encode("utf-8")
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
-def decode_slow_query_cursor(token: Any, field: str, direction: str) -> Tuple[Any, Any]:
-    """מפענח קורסור ומאמת שהוא נטבע לאותו מיון. מחזיר ``(value, _id)``.
+def decode_slow_query_cursor(
+    token: Any, field: str, direction: str, population: str = ""
+) -> Tuple[Any, Any]:
+    """מפענח קורסור ומאמת שהוא נטבע **לאותה שאילתה**. מחזיר ``(value, _id)``.
 
-    כל צורת פגם — base64 שבור, JSON שבור, שדה חסר, מיון שאינו תואם — היא
-    ``ProfilerPagingError`` ולא חריגה אחרת: זה קלט חיצוני, והוא חייב לצאת
-    כ-400 ולא כ-500 (``CORE-PATTERNS`` U3).
+    "אותה שאילתה" פירושה גם אותו מיון וגם אותם מסנני אוכלוסייה — ראו
+    ``encode_slow_query_cursor``.
+
+    כל צורת פגם — base64 שבור, JSON שבור, שדה חסר, מיון או אוכלוסייה שאינם
+    תואמים — היא ``ProfilerPagingError`` ולא חריגה אחרת: זה קלט חיצוני, והוא
+    חייב לצאת כ-400 ולא כ-500 (``CORE-PATTERNS`` U3).
     """
     if not isinstance(token, str) or not token:
         raise ProfilerPagingError("malformed_cursor")
@@ -412,6 +444,8 @@ def decode_slow_query_cursor(token: Any, field: str, direction: str) -> Tuple[An
         raise ProfilerPagingError("malformed_cursor")
     if payload.get("f") != field or payload.get("d") != direction:
         raise ProfilerPagingError("cursor_sort_mismatch")
+    if payload.get("p", "") != population:
+        raise ProfilerPagingError("cursor_filter_mismatch")
     return payload["v"], payload["id"]
 
 
@@ -1936,9 +1970,12 @@ class PersistentQueryProfilerService(QueryProfilerService):
         if min_execution_time_ms is not None:
             window_filter["execution_time_ms"] = {"$gte": float(min_execution_time_ms)}
 
+        # הקורסור נטבע עבור **השאילתה הזו** — המיון ומסנני האוכלוסייה כאחד.
+        population = slow_query_population_key(collection_filter, min_execution_time_ms)
+
         page_filter: Dict[str, Any] = dict(window_filter)
         if cursor:
-            last_value, last_id = decode_slow_query_cursor(cursor, field, sort_direction)
+            last_value, last_id = decode_slow_query_cursor(cursor, field, sort_direction, population)
             op = "$gt" if direction == 1 else "$lt"
             page_filter["$and"] = [{
                 "$or": [
@@ -1967,7 +2004,7 @@ class PersistentQueryProfilerService(QueryProfilerService):
 
         next_cursor = None
         if has_more and docs and isinstance(docs[-1], dict):
-            next_cursor = encode_slow_query_cursor(docs[-1], field, sort_direction)
+            next_cursor = encode_slow_query_cursor(docs[-1], field, sort_direction, population)
 
         return {"records": records, "total": total, "next_cursor": next_cursor}
 
@@ -2022,6 +2059,23 @@ class PersistentQueryProfilerService(QueryProfilerService):
         total = int(total_branch[0].get("n", 0)) if total_branch and isinstance(total_branch[0], dict) else 0
         return {"patterns": patterns, "total": total}
 
+    def _empty_summary(self) -> Dict[str, Any]:
+        """הסיכום כשאין מה לסכם — **חוזה אחד לשני המסלולים**.
+
+        ``_calculate_summary_sync`` (מול ה-DB) ו-``_summary_from_buffer``
+        (מהזיכרון) חייבים להחזיר את אותה צורה, אחרת הדשבורד מקבל שדה חסר
+        בדיוק במסלול הנדיר — כלומר בכשל שקורה כשה-DB נפל. שני עותקים של
+        אותו מילון הם בדיוק המקום שבו סחיפה כזו נולדת.
+        """
+        return {
+            "total_slow_queries": 0,
+            "collections_affected": [],
+            "avg_execution_time_ms": 0,
+            "max_execution_time_ms": 0,
+            "unique_patterns": 0,
+            "threshold_ms": self.slow_threshold_ms,
+        }
+
     def _summary_from_buffer(self, hours: Any) -> Dict[str, Any]:
         """סיכום מהזיכרון — **על אותו חלון** שהטבלה והדפוסים עובדים עליו.
 
@@ -2044,14 +2098,7 @@ class PersistentQueryProfilerService(QueryProfilerService):
             if isinstance(getattr(q, "timestamp", None), datetime) and q.timestamp >= since
         ]
         if not queries:
-            return {
-                "total_slow_queries": 0,
-                "collections_affected": [],
-                "avg_execution_time_ms": 0,
-                "max_execution_time_ms": 0,
-                "unique_patterns": 0,
-                "threshold_ms": self.slow_threshold_ms,
-            }
+            return self._empty_summary()
 
         return {
             "total_slow_queries": len(queries),
@@ -2116,14 +2163,7 @@ class PersistentQueryProfilerService(QueryProfilerService):
         query = {"timestamp": {"$gte": since}}
         total = int(db[self.COLLECTION_NAME].count_documents(query))
         if total <= 0:
-            return {
-                "total_slow_queries": 0,
-                "collections_affected": [],
-                "avg_execution_time_ms": 0,
-                "max_execution_time_ms": 0,
-                "unique_patterns": 0,
-                "threshold_ms": self.slow_threshold_ms,
-            }
+            return self._empty_summary()
         agg = list(
             db[self.COLLECTION_NAME].aggregate(
                 [
