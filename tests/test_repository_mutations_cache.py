@@ -14,7 +14,9 @@ def _repo_with_mutation_stubs():
         def delete_many(self, *_a, **_k):
             return types.SimpleNamespace(deleted_count=1)
         def find(self, *_a, **_k):
-            return []
+            return [{"_id": "507f1f77bcf86cd799439011", "file_name": "a.py"}]
+        def distinct(self, *_a, **_k):
+            return ["a.py"]
         def aggregate(self, *_a, **_k):
             return []
     class DummyManager:
@@ -27,7 +29,7 @@ def _repo_with_mutation_stubs():
 
 
 @pytest.mark.parametrize("method,args,expect_modified", [
-    ("delete_file_by_id", ("507f1f77bcf86cd799439011",), 1),
+    ("soft_delete_files_by_ids", (7, ["507f1f77bcf86cd799439011"]), 1),
     ("restore_file_by_id", (7, "507f1f77bcf86cd799439011"), True),
     ("purge_file_by_id", (7, "507f1f77bcf86cd799439011"), True),
 ])
@@ -39,8 +41,9 @@ def test_mutations_invalidate_cache(monkeypatch, method, args, expect_modified):
     monkeypatch.setattr(repo_mod.cache, "invalidate_user_cache", lambda *_: calls.__setitem__("n", calls["n"] + 1))
     fn = getattr(repo, method)
     res = fn(*args)
-    assert calls["n"] >= 0  # calls may be 1 for delete/restore/purge
-    # sanity on result truthiness
+    # הטענה כאן הייתה ``>= 0``, שאינה יכולה ליפול. אינוולידציה שלא רצה
+    # אחרי מוטציה היא בדיוק הבאג שהבדיקה נקראת על שמו.
+    assert calls["n"] >= 1, method
     assert bool(res) is True
 
 

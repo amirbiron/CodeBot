@@ -3105,10 +3105,10 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         try:
-            _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+            _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 30)
             _ttl_days = max(1, int(_ttl_raw))
         except Exception:
-            _ttl_days = 7
+            _ttl_days = 30
         await query.edit_message_text(
             f"⚠️ *אישור העברה לסל*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
@@ -3148,10 +3148,10 @@ async def handle_delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
-                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 30)
                 _ttl_days = max(1, int(_ttl_raw))
             except Exception:
-                _ttl_days = 7
+                _ttl_days = 30
             await query.edit_message_text(
                 f"✅ *הקובץ הועבר לסל המיחזור!*\n\n"
                 f"📄 **קובץ:** `{file_name}`\n"
@@ -3778,10 +3778,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 return ConversationHandler.END
             last_page = context.user_data.get('files_last_page') or 1
             try:
-                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 30)
                 _ttl_days = max(1, int(_ttl_raw))
             except Exception:
-                _ttl_days = 7
+                _ttl_days = 30
             warn = (
                 f"⚠️ עומד/ת להעביר <b>{count_sel}</b> קבצים לסל המיחזור.\n"
                 f"הקבצים יהיו ניתנים לשחזור עד {_ttl_days} ימים, ולאחר מכן יימחקו אוטומטית.\n"
@@ -3797,10 +3797,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # אישור שני
             last_page = context.user_data.get('files_last_page') or 1
             try:
-                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 30)
                 _ttl_days = max(1, int(_ttl_raw))
             except Exception:
-                _ttl_days = 7
+                _ttl_days = 30
             text2 = (
                 "🧨 אישור סופי להעברה לסל\n"
                 f"הקבצים יועברו לסל המיחזור ויישארו לשחזור עד {_ttl_days} ימים.\n"
@@ -3815,14 +3815,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # מחיקה בפועל לפי מזהי קבצים
             user_id = update.effective_user.id
             selected_ids: List[str] = list(context.user_data.get('rf_selected_ids') or [])
-            deleted = 0
-            for fid in selected_ids:
-                try:
-                    res = _call_files_api("delete_file_by_id", fid)
-                    if res:
-                        deleted += 1
-                except Exception:
-                    continue
+            # קריאה אחת עם כל המזהים, ולא לולאה: המזהה מסמן **גרסה**,
+            # והרשימה מוסרת את הגרסה האחרונה בלבד. הלולאה הקודמת קראה
+            # ל-``delete_file_by_id`` שסינן לפי המזהה הזה, ולכן השאירה את
+            # שאר הגרסאות פעילות — הקובץ חזר לרשימה, גרסה אחת אחורה.
+            outcome = _call_files_api("soft_delete_files_by_ids", user_id, selected_ids)
+            # ``None`` פירושו שהמחיקה נכשלה, ולא שלא היה מה למחוק. בלי
+            # ההבחנה הזו המשתמש היה מקבל "הועברו לסל 0 קבצים" על תקלה.
+            delete_failed = not isinstance(outcome, dict)
+            deleted = 0 if delete_failed else int(outcome.get('files') or 0)
             # רענון רשימת הקבצים ושחזור מצב רגיל (דף עדכני) ישירות מה-DB
             try:
                 last_page = context.user_data.get('files_last_page') or 1
@@ -3839,14 +3840,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 last_page = total_pages or 1
             context.user_data['files_last_page'] = last_page
             try:
-                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 30)
                 _ttl_days = max(1, int(_ttl_raw))
             except Exception:
-                _ttl_days = 7
-            msg = (
-                f"✅ הועברו לסל {deleted} קבצים.\n"
-                f"♻️ ניתן לשחזר מסל המיחזור עד {_ttl_days} ימים."
-            )
+                _ttl_days = 30
+            if delete_failed:
+                msg = "❌ המחיקה נכשלה. הקבצים לא הועברו לסל — נסו שוב."
+            else:
+                msg = (
+                    f"✅ הועברו לסל {deleted} קבצים.\n"
+                    f"♻️ ניתן לשחזר מסל המיחזור עד {_ttl_days} ימים."
+                )
             kb = [
                 [InlineKeyboardButton("🔙 חזור לשאר הקבצים", callback_data=f"files_page_{last_page}")],
                 [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
@@ -4161,10 +4165,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             files = _call_files_api("search_code", user_id, query="", tags=[tag] if tag else [], limit=10000) or []
             total = len(files)
             try:
-                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 30)
                 _ttl_days = max(1, int(_ttl_raw))
             except Exception:
-                _ttl_days = 7
+                _ttl_days = 30
             warn_text = (
                 f"⚠️ עומד/ת להעביר <b>{total}</b> קבצים של <code>{tag}</code> לסל המיחזור.\n"
                 f"הקבצים יהיו ניתנים לשחזור עד {_ttl_days} ימים, ולאחר מכן יימחקו אוטומטית.\n"
@@ -4180,10 +4184,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # שלב אישור שני
             tag = data.split(":", 1)[1]
             try:
-                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 30)
                 _ttl_days = max(1, int(_ttl_raw))
             except Exception:
-                _ttl_days = 7
+                _ttl_days = 30
             text2 = (
                 "🧨 אישור סופי להעברה לסל\n"
                 f"כל הקבצים תחת <code>{tag}</code> יועברו לסל המיחזור ויישארו לשחזור עד {_ttl_days} ימים.\n"
@@ -4351,10 +4355,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     except Exception:
                         pass
             try:
-                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 30)
                 _ttl_days = max(1, int(_ttl_raw))
             except Exception:
-                _ttl_days = 7
+                _ttl_days = 30
             msg = (
                 f"✅ הועברו לסל {deleted} קבצים תחת <code>{tag}</code>.\n"
                 f"♻️ ניתן לשחזר מסל המיחזור עד {_ttl_days} ימים."

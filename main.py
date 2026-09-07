@@ -1093,9 +1093,9 @@ async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT
 
         # קביעת TTL בימים
         try:
-            ttl_days = int(context.args[0]) if context.args else int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            ttl_days = int(context.args[0]) if context.args else int(getattr(config, 'RECYCLE_TTL_DAYS', 30))
         except Exception:
-            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 30))
         ttl_days = max(1, ttl_days)
 
         now = datetime.now(timezone.utc)

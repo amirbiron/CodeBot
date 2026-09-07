@@ -6,9 +6,20 @@ def test_soft_delete_files_by_names_paths(monkeypatch):
     from database.repository import Repository
 
     class DummyCollection:
-        def __init__(self, modified_count=2):
+        def __init__(self, modified_count=2, live=("a.py", "b.py", "x")):
             self.modified_count = modified_count
             self.last = None
+            self._live = list(live)
+        def distinct(self, key, filter=None, *a, **k):
+            """אילו שמות פעילים — נשאל **לפני** העדכון.
+
+            ‏``Collection.distinct`` האמיתי הוא
+            ``distinct(key, filter=None, ...)`` — המסנן פוזיציוני שני.
+            סטאב עם חתימה צרה יותר היה מקבל אליו את המסנן במשבצת הלא
+            נכונה ונופל ב-``TypeError`` שנבלע בקוד הנקרא.
+            """
+            wanted = set(((filter or {}).get("file_name") or {}).get("$in") or [])
+            return [n for n in self._live if n in wanted]
         def update_many(self, flt, upd):
             self.last = (flt, upd)
             return types.SimpleNamespace(modified_count=self.modified_count)
@@ -37,6 +48,7 @@ def test_soft_delete_files_by_names_paths(monkeypatch):
     assert repo2.soft_delete_files_by_names(1, []) == 0
 
     # modified_count = 0 path
+    # ``modified_count = 0`` בזמן שיש שם פעיל — לא מדווחים מחיקה שלא קרתה
     coll3 = DummyCollection(modified_count=0)
     repo3 = Repository(DummyManager(coll3))
     assert repo3.soft_delete_files_by_names(2, ["x"]) == 0
