@@ -1066,11 +1066,10 @@ window.CompareView = (function() {
         return div.innerHTML;
     }
 
+    // הכלל עצמו ב-``utils/size-format.js``, שנטען מ-base.html. השם נשאר מקומי
+    // כי הוא נקרא מתוך הרינדור, ואין טעם לפזר את הגישה ל-window על פני הקובץ.
     function formatFileSize(bytes) {
-        if (!bytes || bytes === 0) return '0 B';
-        const units = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(1024));
-        return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+        return window.SizeFormat.formatFileSize(bytes);
     }
 
     function formatDate(dateStr) {
