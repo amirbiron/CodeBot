@@ -54,10 +54,12 @@ def app_module(monkeypatch):
     return webapp_app
 
 
-def _run(app_module, monkeypatch, fail_times):
+def _run(app_module, monkeypatch, fail_times, search_type=None):
     collection = _RaisingCollection(fail_times)
     monkeypatch.setattr(app_module, "get_db", lambda: _FakeDB(collection), raising=True)
-    results = app_module._safe_search(6865105071, "סטיקי", limit=50)
+    results = app_module._safe_search(
+        6865105071, "סטיקי", limit=50, search_type=search_type
+    )
     return results, collection
 
 
@@ -67,7 +69,7 @@ def test_a_failing_text_pipeline_is_logged(app_module, monkeypatch, caplog):
         _results, collection = _run(app_module, monkeypatch, fail_times=1)
 
     assert collection.calls >= 2, "הפולבאק לא רץ, אז אין מה לבדוק"
-    assert any("$text" in r.getMessage() for r in caplog.records), (
+    assert any("primary aggregation pipeline failed" in r.getMessage() for r in caplog.records), (
         f"אין שורת לוג על כשל המסלול המהיר: {[r.getMessage() for r in caplog.records]}"
     )
 
@@ -81,7 +83,7 @@ def test_the_failure_carries_the_exception_itself(app_module, monkeypatch, caplo
     with caplog.at_level(logging.WARNING):
         _run(app_module, monkeypatch, fail_times=1)
 
-    failed = [r for r in caplog.records if "$text" in r.getMessage()]
+    failed = [r for r in caplog.records if "primary aggregation" in r.getMessage()]
     assert failed and failed[0].exc_info is not None, "השורה אינה נושאת את החריגה"
 
 
@@ -97,4 +99,43 @@ def test_falling_all_the_way_down_is_logged_too(app_module, monkeypatch, caplog)
     messages = [r.getMessage() for r in caplog.records]
     assert any("no results" in m for m in messages), (
         f"חיפוש שנשבר לגמרי חזר שקט: {messages}"
+    )
+
+
+def test_the_second_fallback_failure_is_logged_too(app_module, monkeypatch, caplog):
+    """‏**הפער שריוויו תפס.**
+
+    אף אסרשן לא בדק את שורת הלוג האמצעית, ולכן מוטציה שמחזירה שם ``pass``
+    הייתה משאירה את כל הטסטים ירוקים — כלומר אחד משלושת ה-``except``
+    שהשינוי הזה מתקן היה מוגן ברשת שאינה מסוגלת ליפול.
+    """
+    with caplog.at_level(logging.WARNING):
+        _run(app_module, monkeypatch, fail_times=99)
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("$regex pipeline failed" in m for m in messages), (
+        f"הירידה מ-$regex לפייפליין הישן לא נרשמה: {messages}"
+    )
+
+
+def test_a_regex_search_does_not_claim_a_text_fallback(app_module, monkeypatch, caplog):
+    """‏**הודעה שאינה יכולה לשקר.**
+
+    מסלול ה-``$regex`` מותנה ב-``not is_regex``. הגרסה הראשונה של השורה
+    הזו הכריזה ללא תנאי "falling back to $regex on code", ולכן בחיפוש
+    REGEX שנכשל היא טענה שני דברים שלא קרו: שהייתה שאילתת ``$text``,
+    ושרץ פולבאק ``$regex``.
+
+    ובאותו מסלול בדיוק הקוד נפל ל**פולבאק השלישי בלי שום שורת לוג** — סוג
+    הנפילה השקטה שהשינוי הזה בא לחסל, רק בענף אחר.
+    """
+    with caplog.at_level(logging.WARNING):
+        _run(app_module, monkeypatch, fail_times=1, search_type="regex")
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert not any("$text" in m for m in messages), (
+        f"הלוג מזכיר $text בחיפוש שלא בנה $text: {messages}"
+    )
+    assert any("not applicable" in m for m in messages), (
+        f"הירידה לפייפליין הישן הייתה שקטה: {messages}"
     )

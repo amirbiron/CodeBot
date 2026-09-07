@@ -173,3 +173,48 @@ class TestNothingWasOpenedUp:
         _raw, _owner, reason = _decide(svc, "aggregate", {"pipeline": pipeline})
 
         assert reason == "vector_query"
+
+
+class TestCodeIsAllowedOnlyAsASearchPattern:
+    """‏``code`` נכנס לרשימה כדפוס חיפוש — ורק ככזה.
+
+    זה נתפס בריוויו: רשימת האופרטורים הכללית מתירה לכל שדה גם ``$eq``,
+    ``$in`` ו-``$all``. ההערה שכתבתי טענה ש-``code`` "תמיד בצד השמאלי של
+    ``$regex``", אבל זו הייתה טענה על הקוראים של **היום** ולא אילוץ. תנאי
+    שוויון על ``code`` הוא דבר אחר לגמרי — הוא נושא את **תוכן הקובץ**.
+    """
+
+    def test_an_equality_on_code_is_withheld(self, svc):
+        """‏``{"code": "<תוכן הקובץ>"}`` — הצורה שהייתה שומרת קוד מקור.
+
+        בלי ההגבלה, עד ``PROFILER_UNREDACTED_MAX_BYTES`` של קוד היו נשמרים
+        ב-``slow_queries_log`` לשבוע, מוצגים בדשבורד, ונכנסים לטקסט
+        "העתק דוח ל-AI".
+        """
+        pipeline = [{"$match": {"user_id": ME, "code": "def secret():\n    return 1"}}]
+
+        _raw, _owner, reason = _decide(svc, "aggregate", {"pipeline": pipeline})
+
+        assert reason == "unsupported_field_value:code"
+
+    @pytest.mark.parametrize("operator", ["$eq", "$in", "$all", "$ne"])
+    def test_other_operators_on_code_are_withheld(self, svc, operator):
+        pipeline = [{"$match": {"user_id": ME, "code": {operator: "def secret(): ..."}}}]
+
+        _raw, _owner, reason = _decide(svc, "aggregate", {"pipeline": pipeline})
+
+        assert reason == f"unsupported_field_operator:code{operator}"
+
+    def test_the_search_pattern_itself_still_passes(self, svc):
+        """ההגבלה לא סוגרת את מה שהיא נועדה לאפשר."""
+        _raw, _owner, reason = _decide(svc, "aggregate", {"pipeline": SEARCH_REGEX_PIPELINE})
+
+        assert reason is None
+
+    def test_the_restriction_applies_only_to_code(self, svc):
+        """שדה אחר ממשיך לקבל את מלוא רשימת האופרטורים."""
+        pipeline = [{"$match": {"user_id": ME, "file_name": {"$in": ["app.py", "main.py"]}}}]
+
+        _raw, _owner, reason = _decide(svc, "aggregate", {"pipeline": pipeline})
+
+        assert reason is None

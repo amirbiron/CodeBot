@@ -292,11 +292,26 @@ RAW_QUERY_ALLOWED_FIELDS: FrozenSet[str] = frozenset({
     "description", "version", "created_at", "updated_at", "deleted_at",
     "deleted_expires_at", "file_size", "lines_count", "is_favorite", "favorited_at",
     "is_pinned", "pinned_at", "pin_order",
-    # ``code`` נושא את **דפוס החיפוש שהוקלד**, לא את תוכן הקובץ: בשאילתה הזו
-    # הוא תמיד בצד השמאלי של ``$regex``. תקרת ``PROFILER_UNREDACTED_MAX_BYTES``
-    # חוסמת דפוס חריג בגודלו.
+    # ``code`` — ראו ``RAW_QUERY_FIELD_OPERATORS``: הוא מותר **רק** כדפוס
+    # חיפוש, ולא כערך שוויון.
     "code",
 })
+
+#: הגבלת אופרטורים לשדה מסוים, מעל ``RAW_QUERY_ALLOWED_OPERATORS``.
+#:
+#: **למה זה נחוץ דווקא ל-``code``.** הוא נוסף לרשימה כי בשאילתת החיפוש הוא
+#: נושא את **דפוס החיפוש שהוקלד** — כלומר קלט של המשתמש עצמו, קצר. אבל
+#: רשימת האופרטורים הכללית מתירה לכל שדה גם ``$eq``/``$in``/``$all``, ותנאי
+#: שוויון על ``code`` הוא דבר אחר לגמרי: הוא נושא את **תוכן הקובץ**. שאילתה
+#: כזו סבירה לגמרי בעתיד (בדיקת כפילות תוכן, למשל), והיא הייתה שומרת עד
+#: ``PROFILER_UNREDACTED_MAX_BYTES`` של קוד מקור ב-``slow_queries_log`` לשבוע,
+#: מציגה אותו בדשבורד, ומכניסה אותו לטקסט "העתק דוח ל-AI".
+#:
+#: ההערה הקודמת כאן טענה ש-``code`` "תמיד בצד השמאלי של ``$regex``" — וזו
+#: הייתה טענה על הקוראים של היום, לא אילוץ. כאן היא הופכת לאילוץ נאכף.
+RAW_QUERY_FIELD_OPERATORS: Dict[str, FrozenSet[str]] = {
+    "code": frozenset({"$regex", "$options"}),
+}
 
 RAW_QUERY_LOGICAL_OPERATORS: FrozenSet[str] = frozenset({"$and", "$or", "$nor"})
 RAW_QUERY_TEXT_OPTIONS: FrozenSet[str] = frozenset(
@@ -713,13 +728,24 @@ def _asserted_owners(condition: Any) -> FrozenSet[str]:
     return frozenset(owners)
 
 
-def _check_field_value(value: Any) -> None:
+def _check_field_value(value: Any, field: Optional[str] = None) -> None:
+    """אופרטורים על ערך שדה. ``field`` נמסר כשיש לו הגבלה משלו.
+
+    שדה שמופיע ב-``RAW_QUERY_FIELD_OPERATORS`` חייב להגיע כמילון של
+    אופרטורים מתוך הרשימה הצרה שלו — ולא כערך שוויון ישיר. ראו שם למה.
+    """
+    restricted = RAW_QUERY_FIELD_OPERATORS.get(field) if field else None
     if not isinstance(value, dict):
+        if restricted is not None:
+            # ``{"code": "<תוכן הקובץ>"}`` — בדיוק מה שהרשימה הצרה מונעת.
+            raise _RawQueryWithheld(f"unsupported_field_value:{field}")
         return
     for op, inner in value.items():
         op = str(op)
         if op not in RAW_QUERY_ALLOWED_OPERATORS:
             raise _RawQueryWithheld(f"unknown_operator:{op}")
+        if restricted is not None and op not in restricted:
+            raise _RawQueryWithheld(f"unsupported_field_operator:{field}{op}")
         if op == "$elemMatch" and isinstance(inner, dict):
             if all(str(k).startswith("$") for k in inner):
                 _check_field_value(inner)
@@ -751,7 +777,7 @@ def _check_condition(condition: Any) -> None:
         else:
             if key not in RAW_QUERY_ALLOWED_FIELDS:
                 raise _RawQueryWithheld(f"unknown_field:{key}")
-            _check_field_value(value)
+            _check_field_value(value, key)
 
 
 def _stage_entries(pipeline: Any) -> List[Tuple[str, Any]]:
