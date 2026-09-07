@@ -19,6 +19,7 @@ import html
 import logging
 
 from cache_manager import dynamic_cache, cache
+from webapp.size_format import format_file_size
 from webapp.activity_tracker import log_user_event
 
 # תאריכי קובץ — מודול שורש טהור, אותו כלל בדיוק כמו בשכבת ה-DB וב-app.py
@@ -254,18 +255,19 @@ _BINARY_EXTENSIONS = {
 
 
 def _format_size(size_bytes: Optional[float]) -> Optional[str]:
+    """גודל לתצוגה, או ``None`` כשאין ערך מספרי.
+
+    העיצוב עצמו ב-``webapp/size_format.py``, כדי שפריט באוסף וכרטיס קובץ יציגו
+    את אותו גודל באותה צורה. השמירה על ``None`` נשארת כאן: היא חוזה של הקוראים,
+    לא כלל תצוגה.
+    """
     if size_bytes is None:
         return None
     try:
         size = float(size_bytes)
     except Exception:
         return None
-    units = ['B', 'KB', 'MB', 'GB', 'TB']
-    for unit in units:
-        if size < 1024.0 or unit == units[-1]:
-            return f"{size:.1f} {unit}"
-        size /= 1024.0
-    return f"{size:.1f} TB"
+    return format_file_size(size)
 
 
 def _is_binary(content: str, filename: str = "") -> bool:

@@ -805,7 +805,7 @@
       if (!this.previewMeta) return;
       const language = meta.language || '';
       const duration = typeof meta.duration_ms === 'number' ? `${meta.duration_ms}ms` : '';
-      const size = typeof meta.bytes === 'number' ? `${(meta.bytes / 1024).toFixed(1)}KB` : '';
+      const size = typeof meta.bytes === 'number' ? `${parseFloat((meta.bytes / 1024).toFixed(1))}KB` : '';
       this.previewMeta.textContent = [language, size, duration].filter(Boolean).join(' • ');
     }
 

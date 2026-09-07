@@ -179,6 +179,7 @@ from utils import normalize_code, TimeUtils, detect_language_from_filename  # no
 # שלמעלה, ראו tests/test_webapp_import_paths.py.
 from file_dates import inherited_created_at, file_was_edited  # noqa: E402
 from user_stats import user_stats  # noqa: E402
+from webapp.size_format import format_file_size as _format_file_size_shared
 from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
@@ -9979,12 +9980,13 @@ def api_search_health():
 
 
 def format_file_size(size_bytes: float | int) -> str:
-    """מעצב גודל קובץ לתצוגה ידידותית"""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024.0
-    return f"{size_bytes:.1f} TB"
+    """מעצב גודל קובץ לתצוגה ידידותית.
+
+    הכלל עצמו יושב ב-``webapp/size_format.py`` — מקור אמת אחד, כדי שכרטיס קובץ
+    ופריט באוסף לא יציגו את אותו גודל בשתי צורות. השם נשאר כאן כי הוא נקרא
+    מעשרות מקומות בקובץ הזה ומהתבניות.
+    """
+    return _format_file_size_shared(size_bytes)
 
 def _is_markdown_file(language: str | None, file_name: str | None) -> bool:
     """בודק אם קובץ הוא Markdown לפי שפה או סיומת שם קובץ."""

@@ -437,7 +437,8 @@
     if (lastDot === -1) return '';
     return name.slice(lastDot + 1).toLowerCase();
   }
-  function humanSize(bytes){ if (bytes < 1024) return bytes + ' B'; if (bytes < 1024*1024) return (bytes/1024).toFixed(1)+' KB'; return (bytes/(1024*1024)).toFixed(1)+' MB'; }
+  // parseFloat מוריד ‎.0‎ מיותר: 105.0 KB ← 105 KB, ו-27.9 KB נשאר כמו שהוא
+  function humanSize(bytes){ if (bytes < 1024) return bytes + ' B'; if (bytes < 1024*1024) return parseFloat((bytes/1024).toFixed(1))+' KB'; return parseFloat((bytes/(1024*1024)).toFixed(1))+' MB'; }
   function formatDate(s){ try{ const d=new Date(s); return d.toLocaleString('he-IL'); }catch(e){ return ''; } }
   function escapeHtml(t){ const d=document.createElement('div'); d.textContent=String(t||''); return d.innerHTML; }
 
