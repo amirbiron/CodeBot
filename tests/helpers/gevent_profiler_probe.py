@@ -74,7 +74,16 @@ _SERVICE_IS_ASYNC = inspect.iscoroutinefunction(
 
 
 class _SyncStubProfilerService:
-    """מחזיר את מה שהראוט מצפה לו, אחרי השהיה שמדמה I/O של מונגו."""
+    """מחזיר את מה שהראוט מצפה לו, אחרי השהיה שמדמה I/O של מונגו.
+
+    ``get_slow_queries_page`` הוא מה שהראוט קורא לו מאז שהטבלה קיבלה עימוד
+    ומיון; ``get_slow_queries`` נשאר כי הוא עדיין החוזה של הבוט
+    (``handlers/profiler_handler.py``), ו-``_SERVICE_IS_ASYNC`` בודק אותו.
+    """
+
+    def get_slow_queries_page(self, **kwargs):
+        time.sleep(QUERY_SECONDS)
+        return {"records": [], "total": 0, "next_cursor": None}
 
     def get_slow_queries(self, **kwargs):
         time.sleep(QUERY_SECONDS)
@@ -83,6 +92,10 @@ class _SyncStubProfilerService:
 
 class _AsyncStubProfilerService:
     """אותו דבר, בחוזה האסינכרוני של הקוד שלפני התיקון."""
+
+    async def get_slow_queries_page(self, **kwargs):
+        await asyncio.sleep(QUERY_SECONDS)
+        return {"records": [], "total": 0, "next_cursor": None}
 
     async def get_slow_queries(self, **kwargs):
         await asyncio.sleep(QUERY_SECONDS)
