@@ -830,6 +830,11 @@ ALLOWED_FIELD_SAMPLES = {
     "is_pinned": (False, None),
     "pinned_at": (datetime(2026, 9, 6), None),
     "pin_order": (1, None),
+    # ``code`` מופיע בשאילתות **כדפוס חיפוש**, לא כתוכן קובץ — תמיד בצד
+    # השמאלי של ``$regex``. הדגימה כאן היא מחרוזת פשוטה בכוונה: הטסט הזה בודק
+    # את הסיבוב של הערך, וצורת ה-``$regex`` המלאה נבדקת ב-
+    # ``test_profiler_raw_query_families.py`` על השאילתה האמיתית.
+    "code": ("סטיקי", None),
 }
 
 

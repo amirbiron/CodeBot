@@ -268,13 +268,34 @@ def _env_int(name: str, default: int) -> int:
 #: המפתח שמזהה את בעל השאילתה.
 RAW_QUERY_OWNER_KEY = "user_id"
 
-#: שדות שמותר להם להופיע בשאילתה שנשמרת עם ערכים. נגזר מהשדות של
-#: ``code_snippets`` בפרודקשן וממה שנרשם ב-``slow_queries_log``.
+#: שדות שמותר להם להופיע בשאילתה שנשמרת עם ערכים.
+#:
+#: **הכלל אינו "השדות של האוסף".** הוא: *השדות שמסננים לפיהם בשאילתות
+#: שמשויכות למשתמש*. ההבדל אינו סמנטי — הוא נגזר מסדר הבדיקות ב-
+#: ``_decide_raw_query``: שער הבעלות רץ **לפני** בדיקת השדות, ולכן הרשימה
+#: רואה רק שאילתות שכבר הצהירו על משתמש מורשה יחיד. שדות ה-worker
+#: (``needs_embedding``, ``contentHash``, ``chunkerVersion`` ומשפחת
+#: ``embedding*``) נדחים כ-``owner_missing`` הרבה קודם ולכן אינם שייכים לכאן,
+#: ו-``snippetEmbedding`` לעולם לא — הוא וקטור, לא מסנן.
+#:
+#: ההערה הקודמת כאן טענה שהרשימה נגזרה מ"השדות של ``code_snippets``
+#: בפרודקשן", וזה לא היה מדויק: נמדדו 32 שדות באוסף מול 19 ברשימה, ו-``code``
+#: — שנמצא ב-400 מתוך 400 מסמכים שנדגמו — נשמט. הערה שמתארת כלל שגוי היא מה
+#: שמייצר את הפער הבא, ולכן היא תוקנה לכלל האמיתי.
+#:
+#: ⚠️ **מגבלה ידועה:** הרשימה גלובלית, אבל היא מתארת את ``code_snippets``.
+#: שאילתה משויכת-משתמש על אוסף אחר (``large_files``, ‏``markdown_images``,
+#: ‏``note_reminders``, ‏``users`` — כולם מופיעים ב-``slow_queries_log``) תיפסל
+#: על השדות הלגיטימיים של עצמה. זה סעיף נפרד ולא תוקן כאן.
 RAW_QUERY_ALLOWED_FIELDS: FrozenSet[str] = frozenset({
     "user_id", "_id", "is_active", "file_name", "programming_language", "tags",
     "description", "version", "created_at", "updated_at", "deleted_at",
     "deleted_expires_at", "file_size", "lines_count", "is_favorite", "favorited_at",
     "is_pinned", "pinned_at", "pin_order",
+    # ``code`` נושא את **דפוס החיפוש שהוקלד**, לא את תוכן הקובץ: בשאילתה הזו
+    # הוא תמיד בצד השמאלי של ``$regex``. תקרת ``PROFILER_UNREDACTED_MAX_BYTES``
+    # חוסמת דפוס חריג בגודלו.
+    "code",
 })
 
 RAW_QUERY_LOGICAL_OPERATORS: FrozenSet[str] = frozenset({"$and", "$or", "$nor"})
