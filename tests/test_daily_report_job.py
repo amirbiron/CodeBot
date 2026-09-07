@@ -693,3 +693,117 @@ def test_a_quiet_day_does_not_burn_the_day(main_mod, sending_report, monkeypatch
     assert reports.calls == 0
     assert ("info", "nothing_to_report") in tracker.logs
     assert tracker.skipped is None, "יום שקט הוא ריצה מוצלחת — הרשומה הזו היא מדד החיות של ה-job"
+
+
+# --------------------------------------------------------------------------
+# job_stuck — רק מי שתפס את הרשומה מדווח
+# --------------------------------------------------------------------------
+
+
+class _StuckCursor:
+    """מחקה את שרשרת ``find(...).sort(...).limit(...)`` של motor."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def sort(self, *_a, **_k):
+        return self
+
+    def limit(self, *_a, **_k):
+        return self
+
+    async def to_list(self, length=None):  # noqa: ARG002
+        return list(self._rows)
+
+
+class _StuckJobRuns:
+    """דמה של ``job_runs`` לבדיקת ה-stuck.
+
+    ``modified`` הוא מה שה-``update_one`` המותנה יחזיר — כך נבדק ההבדל בין
+    "אני תפסתי את הדיווח" לבין "תהליך אחר הקדים אותי".
+    """
+
+    def __init__(self, rows, modified=1, raises=None):
+        self._rows = list(rows)
+        self._modified = modified
+        self._raises = raises
+        self.update_calls = []
+
+    def find(self, query, projection=None):  # noqa: ARG002
+        return _StuckCursor(self._rows)
+
+    def aggregate(self, _pipeline):
+        return _AsyncCursor([])
+
+    async def update_one(self, query, update, upsert=False):  # noqa: ARG002
+        self.update_calls.append(query)
+        if self._raises is not None:
+            raise self._raises
+        return type("R", (), {"modified_count": self._modified, "upserted_id": None})()
+
+
+def _stuck_row(now):
+    return {
+        "run_id": "run-1",
+        "job_id": "some_job",
+        "started_at": now - timedelta(minutes=90),
+    }
+
+
+@pytest.fixture()
+def stuck_events(monkeypatch):
+    import observability
+
+    emitted = []
+    monkeypatch.setattr(observability, "emit_event", lambda name, **kw: emitted.append((name, kw)))
+    return emitted
+
+
+def test_only_the_process_that_marked_the_run_reports_it_stuck(main_mod, stuck_events):
+    """הממצא: תוצאת ה-``update_one`` המותנה נזרקה, וההתראה נפלטה בלי קשר.
+
+    ה-``find`` וה-``update_one`` הם check-then-act קלאסי: שני תהליכים
+    (או שני סבבים שרצו במקביל) רואים את אותה הרצה ב-``find``, אבל רק
+    לאחד ``stuck_reported_at`` באמת נכתב. ``modified_count=0`` אצל השני
+    פירושו "מישהו אחר כבר דיווח" — וזה בדיוק מה שהופך את הסימון משדה
+    לוואי לשער אמיתי.
+    """
+    now = datetime(2026, 9, 7, 8, 0, tzinfo=UTC)
+    coll = _StuckJobRuns([_stuck_row(now)], modified=0)
+    asyncio.get_event_loop().run_until_complete(
+        main_mod._emit_stuck_job_events(_AsyncDB(coll), now)
+    )
+    assert coll.update_calls, "השער חייב להיקרא, אחרת אין מה לבדוק"
+    assert [name for name, _ in stuck_events] == []
+
+
+def test_the_process_that_won_the_mark_does_report(main_mod, stuck_events):
+    """הצד השני: מי שכן סימן — כן מדווח.
+
+    בלי הטענה הזו, קוד שפשוט הפסיק לפלוט ``job_stuck`` לגמרי היה עובר את
+    הבדיקה שמעליה.
+    """
+    now = datetime(2026, 9, 7, 8, 0, tzinfo=UTC)
+    coll = _StuckJobRuns([_stuck_row(now)], modified=1)
+    asyncio.get_event_loop().run_until_complete(
+        main_mod._emit_stuck_job_events(_AsyncDB(coll), now)
+    )
+    assert [name for name, _ in stuck_events] == ["job_stuck"]
+    assert stuck_events[0][1]["job_id"] == "some_job"
+    assert stuck_events[0][1]["run_id"] == "run-1"
+    assert stuck_events[0][1]["minutes"] == 90
+
+
+def test_a_write_failure_does_not_silence_the_stuck_alert(main_mod, stuck_events):
+    """כשל כתיבה הוא לא "מישהו אחר דיווח".
+
+    כשה-``update_one`` נופל אנחנו לא יודעים אם סימנו, והמדיניות כאן זהה
+    לזו של ``job_missed``: התראה שנעלמת גרועה מהתראה כפולה. הרצה תקועה
+    שאיש אינו יודע עליה היא בדיוק הכשל שהמנגנון נבנה כדי לתפוס.
+    """
+    now = datetime(2026, 9, 7, 8, 0, tzinfo=UTC)
+    coll = _StuckJobRuns([_stuck_row(now)], raises=RuntimeError("write failed"))
+    asyncio.get_event_loop().run_until_complete(
+        main_mod._emit_stuck_job_events(_AsyncDB(coll), now)
+    )
+    assert [name for name, _ in stuck_events] == ["job_stuck"]

@@ -801,12 +801,17 @@ async def _send_direct_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> 
 
 
 def _claim_outcome(res) -> str:
-    """מתרגם תוצאת upsert מותנה ל-``claimed`` או ל-``already``.
+    """מתרגם תוצאת כתיבה מותנה ל-``claimed`` או ל-``already``.
 
-    התבנית עצמה — ``update_one({"_id": X, "day_key": {"$ne": today}}, ...,
-    upsert=True)`` — היא "תפוס את היום, אבל רק אם עוד לא נתפס". שתי צורות
-    שונות מעידות על תפיסה מוצלחת: ``upserted_id`` כשלא היה מסמך קודם,
-    ו-``modified_count`` כשהיה מסמך מיום אחר. אפס בשניהם = מישהו כבר תפס.
+    התבנית המשותפת לכל אתרי הקריאה היא "תפוס את X, אבל רק אם עוד לא
+    נתפס" — ``update_one`` שהתנאי לתפיסה יושב בתוך השאילתה עצמה, ולכן
+    התפיסה אטומית. **התוצאה היא התשובה, לא תופעת לוואי:** מי שמתעלם ממנה
+    קיבל שער שקיים ואינו פועל, כי שני תהליכים שעברו את הקריאה יגיעו שניהם
+    לכתיבה ורק אחד באמת ישנה מסמך.
+
+    שתי צורות מעידות על תפיסה מוצלחת: ``upserted_id`` כשלא היה מסמך קודם,
+    ו-``modified_count`` כשהיה מסמך במצב אחר. אפס בשניהם = מישהו כבר תפס.
+    (ב-``upsert=False`` רק השנייה אפשרית.)
 
     **חשוב:** זו רק אחת משתי הדרכים שבהן "כבר נתפס" מגיע. הדרך השנייה היא
     חריגה, ואותה כל אתר קריאה תופס בעצמו — ראו ההערה ב-
@@ -1014,9 +1019,14 @@ async def _emit_stuck_job_events(db_obj, now) -> None:
         if not run_id or not job_id:
             continue
 
-        # סימון + שורת לוג (שומרים 50 אחרונות)
+        # סימון + שורת לוג (שומרים 50 אחרונות). ה-``update_one`` המותנה הוא
+        # שער ולא סתם סימון: ה-``find`` למעלה וה-``update_one`` כאן הם
+        # check-then-act, ולכן שני תהליכים שראו את אותה הרצה יגיעו שניהם
+        # לכאן — ורק אצל אחד ``stuck_reported_at`` ייכתב בפועל. בדיקת
+        # ה-rowcount היא מה שהופך את זה לשער; בלעדיה השער היה קיים ולא
+        # פועל, וההתראה נפלטה פעמיים.
         try:
-            await coll.update_one(
+            res = await coll.update_one(
                 {"run_id": run_id, "stuck_reported_at": {"$exists": False}},
                 {
                     "$set": {"stuck_reported_at": now},
@@ -1037,7 +1047,13 @@ async def _emit_stuck_job_events(db_obj, now) -> None:
                 upsert=False,
             )
         except Exception:
-            pass
+            # כשל כתיבה אינו "מישהו אחר דיווח": לא ידוע אם סימנו, ולכן
+            # פולטים בכל זאת. אותה מדיניות fail-open כמו ב-``job_missed`` —
+            # הרצה תקועה שאיש אינו יודע עליה היא הכשל שהמנגנון נבנה לתפוס.
+            logger.debug("job_stuck_mark_failed run_id=%s", run_id, exc_info=True)
+        else:
+            if _claim_outcome(res) == "already":
+                continue
 
         _emit(
             "job_stuck",

@@ -360,7 +360,10 @@ Job שמצהיר ב-``metadata`` על ``missed_after_hours`` נבדק באותו
 
 1. סריקת ``job_runs`` עם ``status=running``
 2. אם ``started_at`` לפני יותר מ-``JOBS_STUCK_THRESHOLD_MINUTES`` דקות
-3. פליטת ``emit_event("job_stuck", ...)``
+3. סימון ``stuck_reported_at`` בכתיבה מותנה (``{"run_id": ..., "stuck_reported_at": {"$exists": false}}``)
+4. פליטת ``emit_event("job_stuck", ...)`` — **רק אם הסימון באמת שינה מסמך**
+
+הצעד הרביעי אינו קוסמטי. הסריקה והסימון הם check-then-act: שני תהליכים שראו את אותה הרצה בסריקה יגיעו שניהם לכתיבה, ורק אצל אחד ``stuck_reported_at`` ייכתב בפועל. ``modified_count=0`` פירושו "מישהו אחר כבר דיווח", ובלי בדיקת ה-rowcount הסימון היה שדה לוואי במקום שער — ההתראה נפלטה פעמיים. כשל **כתיבה** (חריגה) נשאר fail-open ופולט בכל זאת, כי לא ידוע אם סימנו, והרצה תקועה שאיש אינו יודע עליה גרועה מהתראה כפולה.
 
 Troubleshooting
 ---------------
