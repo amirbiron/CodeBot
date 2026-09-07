@@ -2985,6 +2985,14 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js" defer></script>
     <script src="{{ url_for('static', filename='js/fun-mode.js') }}?v={{ static_version }}" defer></script>
+    {# בכוונה בלי defer, וזה לא פיקוח: סקריפט דחוי רץ אחרי ניתוח המסמך, ולכן
+       הוא לא יכול לשמש תלות של קוד שרץ בזמן הניתוח. ``compare_files.html``
+       קורא ל-``CompareView.initFilesMode`` ב-script אינליין, ומשם — כשיש קבצים
+       נבחרים מראש — הוא מגיע ל-``formatFileSize`` מיד. עם defer זה נפל ב-
+       ``TypeError: Cannot read properties of undefined``. הקובץ שוקל ~5KB,
+       הוא ללא תלויות, והוא יושב כאן לפני ``block extra_js`` שבו יושבים כל
+       הצרכנים. אותו שיקול בדיוק חל על ``utils/rtl-code.js`` ב-repo/base_repo.html. #}
+    <script src="{{ url_for('static', filename='js/utils/size-format.js') }}?v={{ static_version }}"></script>
     <script src="{{ url_for('static', filename='js/utils/animations.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/dark-mode.js') }}?v={{ static_version }}" defer></script>

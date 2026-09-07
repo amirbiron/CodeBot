@@ -928,15 +928,11 @@
       this.closeFullscreen();
     }
 
+    // הכלל ב-``utils/size-format.js``. הערך משובץ בתוך משפט בעברית
+    // ("... גדול מדי (מקסימום 2 MB)"), ושם הבידוד שהערך נושא איתו הוא מה
+    // ששומר על "2 MB" ולא "MB 2".
     humanFileSize(bytes) {
-      const units = ['B', 'KB', 'MB'];
-      let size = Number(bytes || 0);
-      let unit = 0;
-      while (size >= 1024 && unit < units.length - 1) {
-        size /= 1024;
-        unit += 1;
-      }
-      return `${Math.round(size * 10) / 10}${units[unit]}`;
+      return window.SizeFormat.formatFileSize(bytes);
     }
   }
 

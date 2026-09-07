@@ -445,7 +445,9 @@
     if (lastDot === -1) return '';
     return name.slice(lastDot + 1).toLowerCase();
   }
-  function humanSize(bytes){ if (bytes < 1024) return bytes + ' B'; if (bytes < 1024*1024) return (bytes/1024).toFixed(1)+' KB'; return (bytes/(1024*1024)).toFixed(1)+' MB'; }
+  // הכלל ב-``utils/size-format.js``. המימוש הקודם נעצר ב-MB, ולכן קובץ של
+  // 2 ג'יגה הוצג כ-"2048 MB".
+  function humanSize(bytes){ return window.SizeFormat.formatFileSize(bytes); }
   function formatDate(s){ try{ const d=new Date(s); return d.toLocaleString('he-IL'); }catch(e){ return ''; } }
   function escapeHtml(t){ const d=document.createElement('div'); d.textContent=String(t||''); return d.innerHTML; }
 
