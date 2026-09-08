@@ -82,6 +82,25 @@
   --collections-error-border: rgba(248, 113, 113, 0.35);
 }
 
+/* וו דריסה לערכה מיובאת או משותפת: היא יכולה לקבוע לבדה את צבע שמות הקבצים
+   בכרטיס אוסף, על ידי הצהרה על --collections-link-color ב-variables שלה.
+   ברירת המחדל כאן היא var(--primary) — בדיוק הערך ש-dark-mode.css נותן היום
+   דרך [data-theme="custom"] a — ולכן ערכה שאינה מצהירה על הטוקן מרונדרת ללא
+   שינוי, ואין כאן דריסה גורפת.
+   הבורר data-theme-type="custom" מכסה גם custom וגם shared: — base.html קובע
+   אותו לשתיהן ומסיר אותו בערכות מובנות, ולכן אין התנגשות עם הבלוקים שמתחת.
+   הספציפיות (0,2,0) גוברת על (0,1,1) של dark-mode.css; ל-:hover נדרש כלל
+   נפרד כי [data-theme="custom"] a:hover הוא (0,2,1) והיה מחזיר את הצבע
+   ל---primary-dark, שהוא קבוע גלובלי ואינו נגזר מהערכה. ה-opacity של
+   dark-mode ממשיך לחול ומספק את משוב ה-hover. */
+:root[data-theme-type="custom"] {
+  --collections-link-color: var(--primary);
+}
+[data-theme-type="custom"] .collection-card__link,
+[data-theme-type="custom"] .collection-card__link:hover {
+  color: var(--collections-link-color);
+}
+
 /* Dark theme overrides */
 :root[data-theme="dark"],
 :root[data-theme="dim"],

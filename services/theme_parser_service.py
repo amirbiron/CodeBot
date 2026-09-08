@@ -74,6 +74,11 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     "--md-inline-code-bg", "--md-inline-code-border", "--md-inline-code-color",
     "--md-table-bg", "--md-table-border", "--md-table-header-bg",
     "--md-mermaid-bg",
+
+    # Level 3 - Collections
+    # מאפשר לערכה בודדת לקבוע את צבע שמות הקבצים בכרטיס אוסף, בלי שהדבר
+    # ישפיע על ערכות אחרות. ראו את וו הדריסה ב-webapp/static/css/collections.css.
+    "--collections-link-color",
 ])
 
 

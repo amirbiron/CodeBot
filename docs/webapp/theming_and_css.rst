@@ -135,6 +135,10 @@
      - Level 2
      - CodeMirror, כרטיסי קוד, Split View
      - ``webapp/templates/base.html`` (``:root[data-theme]``) + קבצי Markdown (`markdown-enhanced.css`)
+   * - ``--collections-link-color``
+     - Level 3
+     - שמות הקבצים בכרטיס אוסף. ברשימה הלבנה, ולכן ערכה בודדת יכולה לדרוס אותו לעצמה
+     - ``webapp/static/css/collections.css`` (ברירת מחדל + וו לערכות מיובאות)
 
 רשימת הטוקנים המורחבת זמינה בקובץ ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` ובטבלת הפלטות ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md``.
 
@@ -226,12 +230,14 @@ Markdown Viewer ו‑Split View
 
 .. important::
 
-   **Whitelist חיוני לפרסום ערכות ציבוריות (Shared Themes)**
-   
-   בעת פרסום ערכה אישית לציבורית, רק משתנים שנמצאים ב-``ALLOWED_VARIABLES_WHITELIST`` 
-   (ב-``services/theme_parser_service.py``) יישמרו. משתנים אחרים מסוננים מטעמי אבטחה.
-   
-   אם מוסיפים טוקן חדש שצריך להישמר בערכות ציבוריות, יש לעדכן גם את ה-whitelist.
+   **Whitelist חיוני לכל ערכה — אישית וציבורית כאחת**
+
+   ``ALLOWED_VARIABLES_WHITELIST`` (ב-``services/theme_parser_service.py``) מסנן את הטוקנים
+   בכל המסלולים: ייבוא ערכה אישית, עדכון ערכה קיימת ופרסום ערכה ציבורית. טוקן שאינו ברשימה
+   נזרק בשקט, ונרשמת אזהרה בלוג.
+
+   אם מוסיפים טוקן חדש שערכה אמורה להיות מסוגלת לקבוע — יש לעדכן גם את ה-whitelist,
+   וגם את הרשימה ב-:doc:`/webapp/custom_themes_guide`.
 
 דוגמת קוד – לא תקין לעומת תקין
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -319,7 +325,8 @@ Component Tokens ו‑Theme Builder
 
    ⚠️ **שים לב:** Sticky Notes, Reader Modes (`md_preview.html`) והקובץ ``theme_preview.html`` נשארים Hardcoded בכוונה לצורכי Preset/Brand. אין להמיר אותם ל‑``var()`` עד שתתועד חלופה רשמית, אחרת נשבור תצוגות קיימות.
 
-- Collections (`webapp/static/css/collections.css`) עדיין מכיל צבעים קשיחים ישנים – כל שינוי חייב להמיר ל‑`var()` לפי טבלת הטוקנים.  
+- Collections (`webapp/static/css/collections.css`) עדיין מכיל צבעים קשיחים ישנים – כל שינוי חייב להמיר ל‑`var()` לפי טבלת הטוקנים.
+- **וו דריסה לערכה בודדת (Collections).** שם הקובץ בכרטיס אוסף הוא ``<a>``, ולכן ``dark-mode.css`` צובע אותו ב-``var(--primary)`` דרך ``[data-theme="custom"] a`` — ספציפיות שגוברת על כלל המחלקה שב-``collections.css``. כרטיס האוסף נשאר לבן גם בערכה כהה, כך שערכה שה-``--primary`` שלה בהיר מקבלת שם קובץ בלתי קריא. הפתרון אינו דריסה גורפת אלא **וו בהצטרפות מרצון**: ``:root[data-theme-type="custom"]`` קובע ``--collections-link-color: var(--primary)`` — בדיוק הערך שנצבע גם קודם — וכלל על ``.collection-card__link`` קורא את הטוקן. ערכה שאינה מצהירה עליו אינה משתנה כלל; ערכה שמצהירה מקבלת את הצבע שלה. **ל-``:hover`` נדרש כלל נפרד**, כי ``[data-theme="custom"] a:hover`` ספציפי יותר והיה מחזיר את הצבע ל-``--primary-dark`` — קבוע גלובלי שאינו נגזר מהערכה. ראו :ref:`theme-variables-override-hook`.
 - Split View ו‑Markdown Enhanced משתמשים ב‑``--split-*`` ו‑``--md-*`` בהתאמה – הוסיפו טוקן לפני שמוסיפים Class חדש.  
 - Sticky Notes, Reader Modes (`md_preview.html`) וה‑``theme_preview.html`` הם חריגים שנשארים Hardcoded כדי לשמור על תצוגת Preset.  
 - **מלכודת ספציפיות ב-**\ ``transition``\ **, שכל רכיב חדש נתקל בה.** ``dark-mode.css`` מגדיר ``transition`` על ``[data-theme="dark"] *`` (וכן ``dim``, ``nebula``, ``custom`` ו-``shared:``). הספציפיות של ``[attr] *`` שווה לזו של מחלקה יחידה, והקובץ נטען אחרי בלוק ``extra_css`` שבתבנית — ולכן כלל ``transition`` שנכתב על מחלקה אחת בקובץ רכיב **נדרס בשקט בכל הערכות הכהות**, וההנפשה פשוט לא רצה. הכשל שקט לחלוטין: אין שגיאה, ובדיקה בערכה בהירה עוברת. הפתרון שבשימוש ב-``toast.css`` הוא חזרה על שם המחלקה (``.ck-toast.ck-toast``), שמעלה את הספציפיות בלי ``!important``. אותו טיפול נדרש גם לכלל ה-``prefers-reduced-motion`` של הרכיב, שאחרת נדרס באותה דרך.

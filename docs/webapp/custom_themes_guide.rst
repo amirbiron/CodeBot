@@ -306,6 +306,41 @@
    --md-table-bg, --md-table-border, --md-table-header-bg
    --md-mermaid-bg
 
+   # Level 3 - Collections
+   --collections-link-color
+
+.. _theme-variables-override-hook:
+
+דריסת טוקן שאין לו מקבילה ב-VS Code
+------------------------------------
+
+חלק מהטוקנים אינם נגזרים משום מפתח של VS Code, כי אין להם מקבילה שם. ``--collections-link-color`` הוא כזה: הוא צובע את שמות הקבצים בכרטיס אוסף בדף ``/collections``.
+
+בערכה מיובאת שאינה מצהירה עליו, שמות הקבצים מקבלים את ``--primary`` של הערכה. זה נכון לרוב הערכות, אבל כרטיס האוסף נשאר לבן גם בערכות כהות — ולכן ערכה שה-``--primary`` שלה בהיר מקבלת טקסט בהיר על רקע בהיר.
+
+כדי לפתור את זה בערכה בודדת, בלי להשפיע על שאר הערכות, אפשר להוסיף בלוק ``variables`` **לצד** ``colors`` באותו קובץ VS Code:
+
+.. code-block:: json
+
+   {
+     "name": "Cobalt Next",
+     "type": "dark",
+     "colors": {
+       "editor.background": "#1b2b34",
+       "focusBorder": "#ffffff"
+     },
+     "tokenColors": [],
+     "variables": {
+       "--collections-link-color": "#2e6161"
+     }
+   }
+
+הבלוק עובר את אותה ולידציה ואת אותה רשימה לבנה כמו כל שאר הטוקנים, ומתמזג **מעל** התוצאה שנגזרה מ-``colors``. ``tokenColors`` ממשיך להיות מעובד כרגיל, ולכן הדגשת התחביר אינה נפגעת.
+
+.. note::
+
+   ערכה שאינה מצהירה על הטוקן מרונדרת ללא כל שינוי — ברירת המחדל ב-``webapp/static/css/collections.css`` היא ``var(--primary)``, שהוא בדיוק הערך שהיה נצבע גם קודם. זו דריסה בהצטרפות מרצון, לא שינוי גורף.
+
 הדגשת תחביר (Syntax Highlighting)
 ----------------------------------
 
@@ -678,9 +713,10 @@ Endpoints
    Content-Type: application/json
 
    {
-     "source": "vscode",
-     "content": "{...JSON content...}"
+     "json_content": "{...JSON content...}"
    }
+
+הפורמט מזוהה מתוך התוכן עצמו ולא נמסר כפרמטר: קובץ שיש בו מפתח ``colors`` מפורסר כערכת VS Code, וכל השאר כפורמט המקומי. לחלופין אפשר להעלות ב-``multipart/form-data`` תחת השדה ``file``, בסיומת ``.json``.
 
 **עדכון ערכה:**
 
