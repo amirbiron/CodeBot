@@ -112,6 +112,54 @@
     return el;
   }
 
+  // האייקון של הכפתור הצף: שני פתקים צהובים עם תג "+" טורקיז.
+  //
+  // **למה ``createElementNS`` ולא ``innerHTML``.** ``docs/webapp/language-icons.rst``
+  // ממליץ על כך מפורשות לכל קוד שממילא בונה DOM — זו הסיבה ש-``langIconEl``
+  // קיימת שם לצד ``langIcon``. אין כאן חשיפת XSS בשני המקרים (המחרוזות
+  // כתובות בקוד), אבל אין גם סיבה לוותר על המסלול הנקי.
+  //
+  // **מה הושמט מהמקור.** לקובץ שיצא מ-Claude Design הוצמד בלוק
+  // ``<metadata><c2pa:manifest>`` — תעודת מקור. פיענוח ארבעת הבתים הראשונים
+  // שלו נותן ``00 00 16 82`` ואחריהם ``jumb``: קופסת JUMBF של 5,762 בתים,
+  // כ-7,684 תווים בבסיס-64, מול 583 בתים של ציור. ``<metadata>`` אינו מרונדר,
+  // והקובץ הזה נטען בשלושת ההקשרים — ולכן הבלוק היה נוסע לכל תצוגת מארקדאון,
+  // כל לוח וכל עמוד בדפדפן הריפו בלי לצייר דבר. הושמט.
+  //
+  // **ההוספה היחידה למקור** היא ``fill: 'none'`` על צלב ה-"+". במקור לא היה שם
+  // ``fill``, כלומר ברירת המחדל ``black`` — נטולת השפעה חזותית, כי שני
+  // התת-מסלולים הם קווים ישרים ששטחם אפס. מפורש עדיף על הסתמכות על כך.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const FAB_ICON_SHAPES = [
+    // הפתק האחורי
+    ['rect', { x: '6', y: '2.5', width: '13', height: '13', rx: '2.5', fill: '#E5DB8C' }],
+    // הפתק הקדמי, עם הפינה המקופלת
+    ['path', { d: 'M2 8a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v6a2 2 0 0 1-.59 1.41l-2 2A2 2 0 0 1 13 18H4a2 2 0 0 1-2-2z', fill: '#F7F2B8' }],
+    ['path', { d: 'M17 14.2h-2.6a1.2 1.2 0 0 0-1.2 1.2V18z', fill: '#E9B978' }],
+    // שתי שורות הטקסט
+    ['rect', { x: '5', y: '9', width: '9', height: '1.5', rx: '.75', fill: '#CFC15C' }],
+    ['rect', { x: '5', y: '12', width: '6', height: '1.5', rx: '.75', fill: '#CFC15C' }],
+    // תג ה-"+"
+    ['circle', { cx: '18.4', cy: '18.4', r: '5.1', fill: '#2DD4BF' }],
+    ['path', { d: 'M18.4 16.1v4.6M16.1 18.4h4.6', fill: 'none', stroke: '#0E2B2A', 'stroke-width': '1.7', 'stroke-linecap': 'round' }],
+  ];
+
+  function buildFabIcon(){
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    // השם הנגיש יושב על הכפתור עצמו (``aria-label``), לפי מוסכמת האייקונים
+    // בפרויקט. הקראה כפולה כאן הייתה רק מכפילה את אותו מידע.
+    svg.setAttribute('aria-hidden', 'true');
+    for (const [tag, attrs] of FAB_ICON_SHAPES){
+      const shape = document.createElementNS(SVG_NS, tag);
+      Object.keys(attrs).forEach(k => shape.setAttribute(k, attrs[k]));
+      svg.appendChild(shape);
+    }
+    return svg;
+  }
+
   function clamp(n, min, max){ return Math.min(Math.max(n, min), max); }
 
   // גבולות הגודל של פתק. אותם מספרים נאכפים גם בשרת
@@ -492,8 +540,14 @@
     }
 
     _createFab(){
-      const btn = createEl('button', 'sticky-note-fab', { title: 'הוסף פתק' });
-      btn.textContent = '+';
+      // ``aria-label`` ולא רק ``title``: עד שהאייקון הוחלף, השם הנגיש של
+      // הכפתור נגזר מהתו ``+`` שהיה תוכן הטקסט שלו. עכשיו התוכן הוא SVG
+      // מוסתר מקוראי מסך, ובלי התווית הכפתור היה נשאר תלוי ב-``title`` בלבד.
+      const btn = createEl('button', 'sticky-note-fab', {
+        title: 'הוסף פתק',
+        'aria-label': 'הוסף פתק',
+      });
+      btn.appendChild(buildFabIcon());
       btn.addEventListener('click', () => this.createNote());
       this.container.appendChild(btn);
     }

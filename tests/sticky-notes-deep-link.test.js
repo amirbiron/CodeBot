@@ -67,7 +67,11 @@ function makeSandbox(href) {
     document: {
       body: el(), documentElement: el(),
       getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-      createElement: () => el(), addEventListener() {}, removeEventListener() {},
+      createElement: () => el(),
+      // ראו ההסבר ב-``sticky-notes-size-intent.test.js``: ``_createFab``
+      // בונה את האייקון ב-``createElementNS``, וחריגה כאן נבלעת ב-``_init``.
+      createElementNS: () => el(),
+      addEventListener() {}, removeEventListener() {},
       dispatchEvent() { return true; },
     },
     localStorage: store,
