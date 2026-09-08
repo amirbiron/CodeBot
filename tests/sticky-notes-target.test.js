@@ -54,6 +54,8 @@ function makeSandbox() {
       // מחזיר אלמנט אמיתי, אחרת הבדיקה על _anchorHost לא יכולה להיכשל
       getElementById: (id) => (id === 'md-content' ? mdContent : null),
       createElement: () => el(),
+      // ראו ההסבר ב-``sticky-notes-size-intent.test.js``.
+      createElementNS: () => el(),
       ...tracking(),
       querySelectorAll: () => [],
       // ``_setTitleEditing`` מקזז ``document.activeElement === input`` לפני
@@ -318,6 +320,10 @@ class FakeEl {
 }
 
 sandbox.document.createElement = (tag) => new FakeEl(tag);
+// גם ``createElementNS``, ומאותו מפעל בדיוק: שתי מתודות שבונות אלמנטים
+// אך מחזירות דמויות שונות היו נותנות לעץ אחד שני סוגי אלמנטים, ובדיקה
+// שנוגעת באייקון של הכפתור הצף הייתה מקבלת התנהגות שאינה תואמת לשאר העץ.
+sandbox.document.createElementNS = (_ns, tag) => new FakeEl(tag);
 // ``_appendInline`` בונה טקסט עם ``createTextNode``. בלי מימוש כאן,
 // רינדור המארקדאון נכשל בשקט (עטוף ב-try/catch) והבדיקות היו עוברות
 // על התנהגות שבורה — אותה מלכודת של ``remove``/``blur`` בסבבים קודמים.
