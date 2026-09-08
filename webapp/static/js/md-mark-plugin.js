@@ -1,5 +1,5 @@
 /**
- * md-mark-plugin.js — תוסף markdown-it להדגשת "טוש": ``==טקסט==`` ← ``<mark>טקסט</mark>``
+ * md-mark-plugin.js — תוסף markdown-it להדגשת "מארקר": ``==טקסט==`` ← ``<mark>טקסט</mark>``
  *
  * **למה הקובץ הזה קיים.** התוסף הזה היה כתוב ביד, פעמיים, זהה תו-בתו: פעם אחת מוטמע
  * בתוך ``webapp/templates/md_preview.html`` ופעם שנייה בתוך ``webapp/static/js/live-preview.js``.

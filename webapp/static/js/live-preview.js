@@ -158,7 +158,7 @@
           return defaultInlineCode ? defaultInlineCode(tokens, idx, options, env, slf) : '';
         }
       };
-      // תמיכה בהדגשת "טוש" בתחביר Markdown: ==טקסט== -> <mark>טקסט</mark>
+      // תמיכה בהדגשת "מארקר" בתחביר Markdown: ==טקסט== -> <mark>טקסט</mark>
       // התוסף חי ב-webapp/static/js/md-mark-plugin.js, ומשותף עם md_preview.html.
       // **בכוונה בלי try/catch:** קודם הוא היה מוטמע כאן, עטוף ב-catch שבלע הכול,
       // ולכן תוסף שלא נטען נכשל בשקט. אם הקובץ לא נטען, עדיף שזה ייראה.
