@@ -2638,6 +2638,35 @@ def get_pygments_style(theme_name: str) -> str:
     return 'default'
 
 
+def _connect_cooldown_seconds() -> float:
+    """כמה זמן לא מנסים להתחבר שוב אחרי כשל. נקרא בכל פעם, כדי שאפשר יהיה
+    לכוון בזמן ריצה בלי לטעון מחדש את המודול."""
+    try:
+        raw = str(os.getenv("MONGODB_CONNECT_RETRY_COOLDOWN_SECONDS", "30")).strip()
+        return max(0.0, float(raw)) if raw else 30.0
+    except Exception:
+        return 30.0
+
+
+def _connect_is_cooling_down() -> bool:
+    at = globals().get("_DB_LAST_CONNECT_FAILURE_AT")
+    if at is None:
+        return False
+    cooldown = _connect_cooldown_seconds()
+    if cooldown <= 0:
+        return False
+    # שעון מונוטוני: שינוי שעון מערכת לא יאריך או יקצר את החלון.
+    return (_time.monotonic() - float(at)) < cooldown
+
+
+def _note_connect_failure() -> None:
+    globals()["_DB_LAST_CONNECT_FAILURE_AT"] = _time.monotonic()
+
+
+def _note_connect_success() -> None:
+    globals()["_DB_LAST_CONNECT_FAILURE_AT"] = None
+
+
 def get_db():
     """מחזיר חיבור למסד הנתונים.
 
@@ -2654,13 +2683,35 @@ def get_db():
        מוצב על לקוח שבור. ה-``except`` זרק הלאה, אבל כל קריאה עתידית כבר
        דילגה על האתחול והחזירה ``None`` — כלומר תקלת רשת חולפת אחת שיתקה
        את התהליך עד ריסטארט.
+
+    **חלון הצינון, ולמה הוא לא קישוט.** ההרעלה שמעל הייתה גם מפסק: אחרי
+    הכשל הראשון כל קריאה חזרה מיד, בלי לנסות להתחבר. הבעיה בה מעולם לא
+    הייתה המהירות אלא ש**היא לנצח**. הסרתה לבדה גררה את הקצה השני — כל
+    קריאה מנסה מחדש ומשלמת ``serverSelectionTimeoutMS`` שלם. נמדד מול
+    כתובת שאינה נפתרת, 20 קריאות: **5 שניות** בקוד הישן מול **111** בלעדיו.
+    בסוויטה זה חצה את ``timeout = 60`` שב-``pytest.ini``, ו-``timeout_method
+    = thread`` הרג עובד xdist שלם.
+
+    לכן הכשל נרשם עם **זמן**, ובתוך ``MONGODB_CONNECT_RETRY_COOLDOWN_SECONDS``
+    (ברירת מחדל 30) הקריאה חוזרת מיד עם ``None`` — בדיוק כמו הקוד הישן. אחרי
+    שהחלון עובר, ההתחברות מנוסה שוב באמת. מפסק עם זמן פתיחה **סופי**.
+
+    ⚠️ ערך ההחזרה ``None`` הוא חוזה קיים, לא חדש: מתוך 211 אתרי הקריאה
+    בקוד הייצור, 96 אינם עטופים ב-``try``. שינויו ל"זורק תמיד" הוא ריפקטור
+    נפרד, ואינו חלק מהתיקון הזה.
     """
     global client, db
     # Proper double-checked locking: perform initialization under the lock
     if client is None:
+        if _connect_is_cooling_down():
+            # כשל טרי: חוזרים מיד, בלי לשלם עוד timeout של בחירת שרת.
+            return None
         _db_lock = globals().setdefault("_DB_INIT_LOCK", threading.Lock())
         with _db_lock:
             if client is None:
+                if _connect_is_cooling_down():
+                    # נכשל בזמן שחיכינו לנעילה — לא מנסים שוב מיד.
+                    return None
                 if not MONGODB_URL:
                     raise Exception("MONGODB_URL is not configured")
                 _new_client = None
@@ -2688,6 +2739,7 @@ def get_db():
                     db = _new_db
                     client = _new_client
                     _new_client = None
+                    _note_connect_success()
                     try:
                         record_dependency_init("mongodb", duration)
                     except Exception:
@@ -2704,6 +2756,7 @@ def get_db():
                             _new_client.close()
                         except Exception:
                             pass
+                    _note_connect_failure()
                     logger.exception("Failed to connect to MongoDB")
                     raise
     # מחוץ לנעילה: הבטח אינדקסים פעם אחת, ללא קריאה חוזרת ל-get_db
