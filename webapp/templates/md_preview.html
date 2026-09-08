@@ -2117,6 +2117,7 @@ input.md-task-checkbox {
 
 <script src="{{ url_for('static', filename='js/admonition-icons.js') }}"></script>
 <script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}"></script>
 <script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}"></script>
 <script>
@@ -2385,66 +2386,15 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       html: false,
       // לא לבצע הדגשה בשלב ה-render של markdown-it; נבצע post-process עם hljs
       highlight: function (_str, _lang) { return ''; }
-    })
+    });
     // תמיכה בהדגשת "טוש" בתחביר Markdown: ==טקסט== -> <mark>טקסט</mark>
-    ;(function enableMarkdownMark(){
-      try {
-        function markdownItMarkPlugin(mdInstance) {
-          function isSpace(code) {
-            return code === 0x20 /* space */ || code === 0x0A /* \n */ || code === 0x09 /* \t */;
-          }
-          function isEscaped(src, pos) {
-            // pos הוא תחילת הסוגריים "==" (כלומר התו הראשון)
-            let backslashes = 0;
-            let i = pos - 1;
-            while (i >= 0 && src.charCodeAt(i) === 0x5C /* \ */) { backslashes += 1; i -= 1; }
-            return (backslashes % 2) === 1;
-          }
-          function tokenize(state, silent) {
-            const start = state.pos;
-            const max = state.posMax;
-            const src = state.src;
-
-            if (start + 4 > max) return false; // מינימום: ==a==
-            if (src.charCodeAt(start) !== 0x3D || src.charCodeAt(start + 1) !== 0x3D) return false; // "=="
-
-            const next = src.charCodeAt(start + 2);
-            if (isSpace(next)) return false; // לא פותחים הדגשה עם רווח מיד אחרי
-
-            // חיפוש סוגר תואם
-            let end = start + 2;
-            while (true) {
-              end = src.indexOf('==', end);
-              if (end < 0 || end + 2 > max) return false;
-              if (end === start + 2) { end += 2; continue; } // "====" לא שימושי
-              if (isSpace(src.charCodeAt(end - 1))) { end += 2; continue; } // לא סוגרים עם רווח לפני
-              if (isEscaped(src, end)) { end += 2; continue; } // סוגר עם escape
-              break;
-            }
-
-            if (silent) return true;
-
-            // פתיחה
-            const open = state.push('mark_open', 'mark', 1);
-            open.markup = '==';
-
-            // תוכן פנימי – נותן ל-markdown-it לפרש גם **, _, קישורים וכו'
-            const inner = src.slice(start + 2, end);
-            state.md.inline.parse(inner, state.md, state.env, state.tokens);
-
-            // סגירה
-            const close = state.push('mark_close', 'mark', -1);
-            close.markup = '==';
-
-            state.pos = end + 2;
-            return true;
-          }
-
-          mdInstance.inline.ruler.before('emphasis', 'mark', tokenize);
-        }
-        md.use(markdownItMarkPlugin);
-      } catch(_) {}
-    })();
+    // התוסף חי ב-webapp/static/js/md-mark-plugin.js, ומשותף עם live-preview.js.
+    //
+    // **הבדיקה על ``md.use`` אינה מיותרת.** כשהבאנדל של markdownit אינו נטען, ``md``
+    // הוא אובייקט הגיבוי שלמעלה — ``{render:(s)=>s}`` — ואין לו ``use``. התוסף עצמו
+    // מגיע מקובץ נפרד שכן נטען, ולכן הצירוף הזה אפשרי, ובלי הבדיקה הוא היה זורק
+    // ומחליף תצוגת טקסט גולמי קריא בהודעת שגיאה.
+    if (window.MdMarkPlugin && typeof md.use === 'function') md.use(window.MdMarkPlugin);
     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
     // עוגני כותרות – הגדרה יציבה למניעת רגרסיות בין גרסאות התוסף
