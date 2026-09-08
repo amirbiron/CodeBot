@@ -180,6 +180,13 @@ class ConfigService:
             description="טיימאאוט התחברות ל-MongoDB (מילישניות)",
             category="database",
         ),
+        "MONGODB_CONNECT_RETRY_COOLDOWN_SECONDS": ConfigDefinition(
+            key="MONGODB_CONNECT_RETRY_COOLDOWN_SECONDS",
+            services=("webapp", "bot", "scripts"),
+            default="30",
+            description="צינון לפני ניסיון התחברות חוזר ל-MongoDB אחרי כשל (שניות); 0 מכבה",
+            category="database",
+        ),
         "MONGODB_RETRY_WRITES": ConfigDefinition(
             key="MONGODB_RETRY_WRITES",
             services=("webapp", "bot", "mcp", "webserver"),

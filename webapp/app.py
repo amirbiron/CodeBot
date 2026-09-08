@@ -2638,16 +2638,83 @@ def get_pygments_style(theme_name: str) -> str:
     return 'default'
 
 
+def _connect_cooldown_seconds() -> float:
+    """כמה זמן לא מנסים להתחבר שוב אחרי כשל. נקרא בכל פעם, כדי שאפשר יהיה
+    לכוון בזמן ריצה בלי לטעון מחדש את המודול."""
+    try:
+        raw = str(os.getenv("MONGODB_CONNECT_RETRY_COOLDOWN_SECONDS", "30")).strip()
+        return max(0.0, float(raw)) if raw else 30.0
+    except Exception:
+        return 30.0
+
+
+def _connect_is_cooling_down() -> bool:
+    at = globals().get("_DB_LAST_CONNECT_FAILURE_AT")
+    if at is None:
+        return False
+    cooldown = _connect_cooldown_seconds()
+    if cooldown <= 0:
+        return False
+    # שעון מונוטוני: שינוי שעון מערכת לא יאריך או יקצר את החלון.
+    return (_time.monotonic() - float(at)) < cooldown
+
+
+def _note_connect_failure() -> None:
+    globals()["_DB_LAST_CONNECT_FAILURE_AT"] = _time.monotonic()
+
+
+def _note_connect_success() -> None:
+    globals()["_DB_LAST_CONNECT_FAILURE_AT"] = None
+
+
 def get_db():
-    """מחזיר חיבור למסד הנתונים"""
+    """מחזיר חיבור למסד הנתונים.
+
+    **סדר הפרסום של הגלובלים הוא חלק מהחוזה, לא סגנון.** ``client`` הוא
+    השומר של המסלול המהיר (``if client is None``) — מי שרואה אותו מאותחל
+    מדלג על הנעילה ומחזיר את ``db`` כמו שהוא. לכן החיבור נבנה במשתנים
+    מקומיים, ושני הגלובלים נכתבים רק כשהוא מוכן, כשהשומר אחרון.
+
+    בלי זה נפתחו שני חורים, ושניהם החזירו ``None`` במקום מסד:
+
+    1. **מרוץ.** ``server_info()`` הוא סיבוב רשת שלם. קורא מקביל שנכנס
+       באמצעו ראה ``client`` כבר מוצב ואת ``db`` עדיין ``None``.
+    2. **הרעלה קבועה.** אם ``server_info()`` נכשל, הגלובל ``client`` נשאר
+       מוצב על לקוח שבור. ה-``except`` זרק הלאה, אבל כל קריאה עתידית כבר
+       דילגה על האתחול והחזירה ``None`` — כלומר תקלת רשת חולפת אחת שיתקה
+       את התהליך עד ריסטארט.
+
+    **חלון הצינון, ולמה הוא לא קישוט.** ההרעלה שמעל הייתה גם מפסק: אחרי
+    הכשל הראשון כל קריאה חזרה מיד, בלי לנסות להתחבר. הבעיה בה מעולם לא
+    הייתה המהירות אלא ש**היא לנצח**. הסרתה לבדה גררה את הקצה השני — כל
+    קריאה מנסה מחדש ומשלמת ``serverSelectionTimeoutMS`` שלם. נמדד מול
+    כתובת שאינה נפתרת, 20 קריאות: **5 שניות** בקוד הישן מול **111** בלעדיו.
+    בסוויטה זה חצה את ``timeout = 60`` שב-``pytest.ini``, ו-``timeout_method
+    = thread`` הרג עובד xdist שלם.
+
+    לכן הכשל נרשם עם **זמן**, ובתוך ``MONGODB_CONNECT_RETRY_COOLDOWN_SECONDS``
+    (ברירת מחדל 30) הקריאה חוזרת מיד עם ``None`` — בדיוק כמו הקוד הישן. אחרי
+    שהחלון עובר, ההתחברות מנוסה שוב באמת. מפסק עם זמן פתיחה **סופי**.
+
+    ⚠️ ערך ההחזרה ``None`` הוא חוזה קיים, לא חדש: מתוך 211 אתרי הקריאה
+    בקוד הייצור, 96 אינם עטופים ב-``try``. שינויו ל"זורק תמיד" הוא ריפקטור
+    נפרד, ואינו חלק מהתיקון הזה.
+    """
     global client, db
     # Proper double-checked locking: perform initialization under the lock
     if client is None:
+        if _connect_is_cooling_down():
+            # כשל טרי: חוזרים מיד, בלי לשלם עוד timeout של בחירת שרת.
+            return None
         _db_lock = globals().setdefault("_DB_INIT_LOCK", threading.Lock())
         with _db_lock:
             if client is None:
+                if _connect_is_cooling_down():
+                    # נכשל בזמן שחיכינו לנעילה — לא מנסים שוב מיד.
+                    return None
                 if not MONGODB_URL:
                     raise Exception("MONGODB_URL is not configured")
+                _new_client = None
                 try:
                     # חשוב: ב-ENV יש MONGODB_SERVER_SELECTION_TIMEOUT_MS, אבל בעבר לא חיווטנו אותו לכאן
                     # ולכן בפועל נשאר timeout קשיח של 5 שניות.
@@ -2658,16 +2725,21 @@ def get_db():
                         _server_selection_timeout_ms = 5000
                     # החזר אובייקטי זמן tz-aware כדי למנוע השוואות naive/aware
                     _t0 = _time.perf_counter()
-                    client = MongoClient(
+                    _new_client = MongoClient(
                         MONGODB_URL,
                         serverSelectionTimeoutMS=_server_selection_timeout_ms,
                         tz_aware=True,
                         tzinfo=timezone.utc,
                     )
                     # בדיקת חיבור
-                    client.server_info()
+                    _new_client.server_info()
                     duration = max(0.0, float(_time.perf_counter() - _t0))
-                    db = client[DATABASE_NAME]
+                    _new_db = _new_client[DATABASE_NAME]
+                    # פרסום: קודם הערך, ורק אחריו השומר שמגן עליו
+                    db = _new_db
+                    client = _new_client
+                    _new_client = None
+                    _note_connect_success()
                     try:
                         record_dependency_init("mongodb", duration)
                     except Exception:
@@ -2677,6 +2749,14 @@ def get_db():
                     except Exception:
                         pass
                 except Exception:
+                    # הלקוח לא פורסם, ולכן איש לא יחזיק בו — סוגרים אותו כאן
+                    # כדי שכשל חוזר לא ידלוף חיבורים ו-monitor threads.
+                    if _new_client is not None:
+                        try:
+                            _new_client.close()
+                        except Exception:
+                            pass
+                    _note_connect_failure()
                     logger.exception("Failed to connect to MongoDB")
                     raise
     # מחוץ לנעילה: הבטח אינדקסים פעם אחת, ללא קריאה חוזרת ל-get_db
@@ -2922,7 +3002,7 @@ def _safe_dt_from_doc(value) -> datetime:
 def _file_last_modified(doc: Dict[str, Any]) -> datetime:
     """מתי הייצוג שהעמוד מגיש השתנה לאחרונה.
 
-    ‏``updated_at`` לבדו אינו מספיק: הוא מציין מתי **התוכן** נערך, ואילו
+    ``updated_at`` לבדו אינו מספיק: הוא מציין מתי **התוכן** נערך, ואילו
     העמוד מרנדר גם את מצב המועדף והנעיצה. פעולות המטא-דאטה האלה אינן
     נוגעות ב-``updated_at`` (ראו ``docs/database/detailed-schema.rst``),
     ולכן בלי השדות שלהן דפדפן ששולח רק ``If-Modified-Since`` היה מקבל 304
@@ -5141,7 +5221,7 @@ def api_profiler_slow_queries():
     # "טבלה ריקה בלי סיבה". ``limit`` לעומתו נשאר סלחני כפי שהיה: ערך פסול שם
     # מחזיר 50 שורות במקום 20, ולא שורות אחרות.
     #
-    # ‏**‏``?min_time=`` ריק פירושו "לא נשלח", ולא "ערך פסול".** מחרוזת ריקה
+    # **``?min_time=`` ריק פירושו "לא נשלח", ולא "ערך פסול".** מחרוזת ריקה
     # אינה מספר שגוי — היא היעדר ערך, וממשק שבונה query string משדה ריק שולח
     # בדיוק את זה. זו גם המוסכמת בשני המקומות האחרים שמטפלים בפרמטר: ב-``main``
     # (``float(min_time) if min_time else None``) ובראוט של הבוט
@@ -9479,9 +9559,18 @@ def _safe_search(user_id: int, query: str, **kwargs):
             '_m': {'$regexFind': {'input': '$code', 'regex': pattern, 'options': 'i'}},
         }},
         {'$addFields': {
-            '_has_code_match': {'$gt': [{'$strLenBytes': {'$ifNull': ['$_m.match', '']}}, 0]},
+            # $strLenCP ולא $strLenBytes: כל המדידות כאן הן על טקסט.
+            # $regexFind מחזיר את idx כאינדקס **תווים** (code point index,
+            # מפורש בתיעוד של מונגו), ולכן כל מה שנגזר ממנו חייב להישאר
+            # במרחב התווים. ערבוב היחידות הוא #3353.
+            '_has_code_match': {'$gt': [{'$strLenCP': {'$ifNull': ['$_m.match', '']}}, 0]},
             '_match_idx': {'$ifNull': ['$_m.idx', 0]},
-            '_match_len': {'$strLenBytes': {'$ifNull': ['$_m.match', '']}},
+            # _match_len נכנס ל-highlight_ranges יחד עם _match_idx שהוא תווים.
+            # הצרכן הוא highlightSnippet ב-webapp/static/js/global_search.js,
+            # שחותך ב-text.slice() — יחידות UTF-16. בעברית זה שקול ל-code
+            # points כי כל האותיות בטווח ה-BMP; ⚠️ אמוג'י בקוד ישבור את
+            # השקילות הזו (תו אחד = שתי יחידות UTF-16).
+            '_match_len': {'$strLenCP': {'$ifNull': ['$_m.match', '']}},
         }},
         {'$addFields': {
             # אם אין התאמה בקוד (למשל התאמה הייתה בשם קובץ/תיאור/תגיות דרך $text),
@@ -9495,8 +9584,12 @@ def _safe_search(user_id: int, query: str, **kwargs):
             },
         }},
         {'$addFields': {
-            'snippet_preview': {'$substrBytes': ['$code', '$_snippet_start', 200]},
+            # $substrCP ולא $substrBytes: _snippet_start הוא אינדקס תווים.
+            # $substrBytes קיבל אותו כאילו היה בייטים, ובעברית הגבול נחת
+            # באמצע אות — מונגו זרקה והפילה את כל האגרגציה (#3353).
+            'snippet_preview': {'$substrCP': ['$code', '$_snippet_start', 200]},
             # מטא-דאטה קל (למסמכים חדשים נשמר כבר; למסמכים ישנים מחשבים בריצה)
+            # ⚠️ file_size נשאר בבייטים במכוון — זה גודל אחסון, לא אורך טקסט.
             'file_size': {'$ifNull': ['$file_size', {'$strLenBytes': '$code'}]},
             'lines_count': {'$ifNull': ['$lines_count', {'$size': {'$split': ['$code', '\n']}}]},
             # highlight range יחיד (יחסי ל-snippet) עבור התאמה הראשונה, רק אם באמת נמצאה התאמה בקוד
@@ -9567,7 +9660,7 @@ def _safe_search(user_id: int, query: str, **kwargs):
         # ביותר שנרשמה (3,730ms), והיא רצה רק מפני שהמסלול המהיר נפל.
         #
         # ההערה שהייתה כאן ניחשה "למשל אין אינדקס טקסט", והניחוש הזה **נבדק
-        # ונפסל**: ‏``search_text_idx`` קיים, ואותה שאילתת ``$text`` בדיוק רצה
+        # ונפסל**: ``search_text_idx`` קיים, ואותה שאילתת ``$text`` בדיוק רצה
         # מול הקלאסטר ומחזירה תוצאות. הסיבה האמיתית הייתה בלתי נראית, וזה מה
         # שהשורה הבאה מתקנת.
         #
@@ -9642,7 +9735,7 @@ def _safe_search(user_id: int, query: str, **kwargs):
             ]
             docs = list(db.code_snippets.aggregate(old_pipeline, allowDiskUse=True))
         except Exception:
-            # ‏**זה המסלול שמחזיר "לא נמצאו תוצאות" על כשל.** בלי לוג, חיפוש
+            # **זה המסלול שמחזיר "לא נמצאו תוצאות" על כשל.** בלי לוג, חיפוש
             # שנשבר נראה בדיוק כמו חיפוש שלא מצא כלום — וזה ההבדל היחיד
             # שחשוב למשתמש.
             logger.warning(
@@ -11056,7 +11149,7 @@ def _timeline_recent_files_query(user_id: int, recent_cutoff: datetime,
 
 
 def _aggregate_snippets(db, pipeline: List[Dict[str, Any]]):
-    """‏``aggregate`` על ``code_snippets`` עם ``allowDiskUse``, ועם נפילה לאחור.
+    """``aggregate`` על ``code_snippets`` עם ``allowDiskUse``, ועם נפילה לאחור.
 
     ``allowDiskUse`` מיותר בשרת בתצורת ברירת מחדל (``allowDiskUseByDefault``
     הוא ``true``) אבל מגן על שרת שהוקשח עם ``false``. הנפילה לאחור על
@@ -12120,7 +12213,7 @@ def files():
 
     # הכנת מפתח Cache ייחודי לפרמטרים
     #
-    # ‏**הדגל בתחילית ולא בתוך** ``_params``\\ **, וזה לא סגנון.** העמוד הזה
+    # **הדגל בתחילית ולא בתוך** ``_params``\\ **, וזה לא סגנון.** העמוד הזה
     # שומר את ה-HTML המרונדר, ושתי התצוגות מייצרות HTML שונה. אילו הדגל היה
     # רק בתוך ``_params``, ענף ה-``except`` שמתחתיו — שנופל למפתח קבוע אחד —
     # היה מגיש לשתיהן את אותו HTML. בתחילית שני המסלולים מבדילים.
@@ -13069,7 +13162,7 @@ def view_file(file_id):
         resp.headers['ETag'] = etag
         resp.headers['Last-Modified'] = last_modified_str
         return resp
-    # ‏``If-Modified-Since`` לבדו אינו משמש כאן לוולידציה, ובכוונה.
+    # ``If-Modified-Since`` לבדו אינו משמש כאן לוולידציה, ובכוונה.
     # העמוד מרנדר את מצב המועדף והנעיצה לתוך ה-HTML, ואין שדה שמתעד
     # **מתי המצב הזה השתנה**: ``favorited_at`` אומר מתי סומן, ולכן אחרי
     # הסרת סימון הוא מתאפס — וה-``Last-Modified`` הנגזר ממנו נסוג אחורה.
@@ -16162,9 +16255,14 @@ def create_public_share(file_id):
                 agg = list(db.code_snippets.aggregate([
                     {'$match': {'_id': ObjectId(file_id), 'user_id': user_id}},
                     {'$addFields': {
+                        # ⚠️ file_size נשאר בבייטים במכוון — גודל אחסון.
                         'file_size': {'$ifNull': ['$file_size', {'$strLenBytes': '$code'}]},
                         'lines_count': {'$ifNull': ['$lines_count', {'$size': {'$split': ['$code', '\n']}}]},
-                        'snippet_preview': {'$substrBytes': ['$code', 0, 2000]},
+                        # $substrCP: התקרה היא 2000 **תווים**, כמו במסלול
+                        # ה-download שחותך code[:2000] בפייתון. עם $substrBytes
+                        # קובץ עברי חזר בשני שלישים מאורכו, וכשגבול 2000
+                        # הבייטים נחת באמצע אות — נזרקה חריגה (#3353).
+                        'snippet_preview': {'$substrCP': ['$code', 0, 2000]},
                     }},
                     {'$project': {
                         'file_name': 1,
@@ -16178,6 +16276,17 @@ def create_public_share(file_id):
                 ]))
                 meta = agg[0] if agg and isinstance(agg[0], dict) else {}
             except Exception:
+                # ⚠️ הכשל הזה נרשם, ולא נבלע.
+                #
+                # meta = {} מוביל ישירות ל-404 "קובץ לא נמצא" שתי שורות
+                # מכאן — תשובה שנראית בדיוק כמו קובץ שאינו קיים, בזמן
+                # שהקובץ קיים והשאילתה היא שנשברה. בלי השורה הזו אין שום
+                # דרך להבחין בין השניים, וזה מה שהחזיק את #3353 מוסתר.
+                logger.warning(
+                    "share preview: metadata aggregation failed, returning 404",
+                    exc_info=True,
+                    extra={"event": "share_preview_pipeline_failed", "file_id": str(file_id)},
+                )
                 meta = {}
             if not meta:
                 return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404

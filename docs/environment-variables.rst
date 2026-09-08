@@ -76,6 +76,12 @@
      - ``5000``
      - ``10000``
      - Bot/WebApp
+   * - ``MONGODB_CONNECT_RETRY_COOLDOWN_SECONDS``
+     - צינון לפני ניסיון התחברות חוזר ל-MongoDB אחרי כשל (שניות); 0 מכבה
+     - לא
+     - ``30``
+     - ``30``
+     - Bot/WebApp/Scripts
    * - ``MONGODB_RETRY_WRITES``
      - הפעלת Retry לכתיבות (retryWrites)
      - לא
