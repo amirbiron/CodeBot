@@ -28,8 +28,11 @@ def test_repository_id_operations_invalid_objectid(monkeypatch):
 
     repo = Repository(DummyManager())
 
-    # invalid ids should safely return False paths via exception handler
-    assert repo.delete_file_by_id("not_an_object_id") is False
+    # מזהה פגום אינו קובץ חסר: הוא נספר כ-``missing`` ולא מכשיל את
+    # שאר הקבוצה, ולא נשלחת שום שאילתת עדכון בגללו.
+    assert repo.soft_delete_files_by_ids(1, ["not_an_object_id"]) == {
+        "files": 0, "versions": 0, "missing": 1}
+    assert repo.manager.collection.updated is None
     assert repo.restore_file_by_id(user_id=1, file_id="bad") is False
     assert repo.purge_file_by_id(user_id=1, file_id="bad") is False
 

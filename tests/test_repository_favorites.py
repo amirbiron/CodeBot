@@ -33,6 +33,21 @@ class InMemoryCollection:
                 items.sort(key=lambda d: d.get(key, 0), reverse=(direction < 0))
         return dict(items[0]) if items else None
 
+    def distinct(self, key: str, filter: Optional[Dict[str, Any]] = None, *a, **k):
+        """‏``Collection.distinct(key, filter=None, ...)`` — כמו pymongo.
+
+        מסלול המחיקה שואל אילו שמות קובץ פעילים **לפני** שהוא מכבה אותם,
+        כי אחרי העדכון אי אפשר לספור אותם. דמה בלי המתודה הזו זורקת
+        ``AttributeError`` שנבלע ב-``except`` של ``delete_file``, והמחיקה
+        מדווחת ``False`` בלי שום רמז למה.
+        """
+        seen = []
+        for d in self._filter(filter or {}):
+            val = d.get(key)
+            if val is not None and val not in seen:
+                seen.append(val)
+        return seen
+
     def update_many(self, query: Dict[str, Any], update: Dict[str, Any]):
         items = self._filter(query)
         matched = len(items)
@@ -114,6 +129,12 @@ class InMemoryCollection:
                         if exists and k not in d:
                             return False
                         if not exists and k in d:
+                            return False
+                    # ‏``$in`` — מסלול המחיקה מסנן קבוצת שמות בשאילתה אחת.
+                    # בלי התמיכה הזו ``dv != v`` משווה ערך למילון, לעולם
+                    # אינו מתאים, והמחיקה "מצליחה" בלי לגעת בכלום.
+                    elif isinstance(v, dict) and "$in" in v:
+                        if dv not in list(v["$in"]):
                             return False
                     else:
                         if dv != v:

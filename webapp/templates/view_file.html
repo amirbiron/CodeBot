@@ -1126,7 +1126,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             <h3 id="trashModalTitle">🗑️ העבר לסל</h3>
             <button type="button" class="glass-modal__close" data-trash-close aria-label="סגור">✕</button>
         </div>
-        <p class="trash-modal__text">הקובץ זמין למשך 30 יום בסל המיחזור.</p>
+        <p class="trash-modal__text">הקובץ זמין למשך {{ recycle_ttl_days }} יום בסל המיחזור.</p>
         <div class="trash-modal__actions">
             <button type="button" class="btn btn-danger" data-trash-confirm>כן, העבר לסל</button>
             <button type="button" class="btn btn-secondary" data-trash-close>ביטול</button>

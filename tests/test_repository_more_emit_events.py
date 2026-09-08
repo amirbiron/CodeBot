@@ -94,10 +94,11 @@ def test_many_repository_errors_emit_events(monkeypatch):
     assert r.soft_delete_files_by_names(uid, ["a.py"]) == 0
     assert any(e[0] == "db_soft_delete_files_by_names_error" for e in cap["events"]) 
 
-    # 10) delete_file_by_id error
+    # 10) soft_delete_files_by_ids error — ``None`` ולא ``{"files": 0}``,
+    # כדי שהקורא יבדיל בין כשל לבין "לא היה מה למחוק"
     r = _repo_with_collections(coll=_UpdBoom())
-    assert r.delete_file_by_id("507f1f77bcf86cd799439011") is False
-    assert any(e[0] == "db_delete_file_by_id_error" for e in cap["events"]) 
+    assert r.soft_delete_files_by_ids(uid, ["507f1f77bcf86cd799439011"]) is None
+    assert any(e[0] == "db_soft_delete_files_by_ids_error" for e in cap["events"]) 
 
     # 11) get_file_by_id error
     class _FindOneBoom3:

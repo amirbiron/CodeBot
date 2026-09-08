@@ -59,8 +59,9 @@ async def test_regular_files_multi_delete_complete_flow(monkeypatch):
     mod.DatabaseManager = _DatabaseManager
     # minimal stub functions used in the flow
     class Repo:
-        def delete_file_by_id(self, fid):
-            return True
+        def soft_delete_files_by_ids(self, user_id, file_ids):
+            # מחזיר קבצים ומסמכים בנפרד: המשתמש סופר קבצים, המסד סופר גרסאות
+            return {"files": len(list(file_ids)), "versions": 0, "missing": 0}
     class DB:
         def __init__(self):
             self._repo = Repo()
