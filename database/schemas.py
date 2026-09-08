@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List
 
 from bson import ObjectId
+from bson.binary import Binary
 
 # Semantic fields for code snippets
 SNIPPET_SEMANTIC_FIELDS = {
-    # Metadata embedding (title + description + tags)
-    "snippetEmbedding": List[float],  # 768 or 1536 dimensions
+    # Metadata embedding (title + description + tags).
+    # נשמר כ-BSON BinData subtype 9 (float32) ולא כמערך doubles: מערך שומר
+    # ערך של 8 בייט לכל מספר, ועוד שם מפתח ובייט טיפוס לכל איבר — כ-9.9KB
+    # לווקטור מול ~3KB בבינארי. Atlas Vector Search קורא את שתי הצורות.
+    "snippetEmbedding": Binary,  # bson.binary.Binary, float32 vector
 
     # Background processing flags
     "needs_embedding": bool,  # whether embeddings should be recalculated
@@ -25,6 +28,11 @@ SNIPPET_SEMANTIC_FIELDS = {
 
     # Number of chunks created
     "chunkCount": int,
+
+    # גרסת ה-chunker שהקובץ נחתך לפיה. שדרוג הכלל מעלה את המספר
+    # ב-``services/chunking_service.py``, וה-worker מזהה לבד מה צריך
+    # לחתוך מחדש — בלי פקודת re-index ידנית.
+    "chunkerVersion": int,
 }
 
 # Schema for semantic chunks collection
@@ -36,12 +44,12 @@ SNIPPET_CHUNK_SCHEMA = {
 
     # Chunk content
     "chunkIndex": int,  # chunk index (0, 1, 2...)
-    "codeChunk": str,  # code content (up to ~220 lines)
+    "codeChunk": str,  # code content, capped by CHUNK_MAX_BYTES (UTF-8 bytes)
     "startLine": int,  # start line in original file
     "endLine": int,  # end line
 
-    # Embedding
-    "chunkEmbedding": List[float],  # vector 768/1536 dimensions
+    # Embedding — ראו ההערה על ``snippetEmbedding`` למעלה.
+    "chunkEmbedding": Binary,  # bson.binary.Binary, float32 vector
     # Embedding metadata
     "embeddingModelKey": str,
     "embeddingModel": str,

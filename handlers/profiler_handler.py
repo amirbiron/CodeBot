@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
+import logging
 import os
 from datetime import datetime, timedelta
 from functools import wraps
@@ -8,12 +10,22 @@ from typing import Any, Dict, List, Optional, Union
 
 from aiohttp import web
 
+# הערה: השירות (``QueryProfilerService``) סינכרוני לגמרי — קריאות pymongo רגילות.
+# ה-handlers כאן הם aiohttp ורצים בתוך event loop אמיתי, ולכן הם עוטפים ב-``asyncio.to_thread``
+# כדי לא לחסום אותו. זה ההפך מהדפוס שהוסר מה-WebApp: שם קוד *סינכרוני* ניסה להריץ לולאה.
+# מכאן, מלולאה אמיתית, ``to_thread`` הוא הכיוון הנכון — אותו מבנה כמו
+# ``ThreadPoolDatabaseHealthService`` ב-services/db_health_service.py.
+
 from services.query_profiler_service import (
     AggregationExplainPlan,
     ExplainPlan,
     QueryProfilerService,
     RateLimiter,
 )
+from services.query_profiler_service import ExplainTimeoutError as _ProfilerExplainTimeout
+from services.query_profiler_service import ProfilerInputError as _ProfilerInputError
+
+logger = logging.getLogger(__name__)
 
 
 def require_profiler_auth(handler):
@@ -60,6 +72,38 @@ def require_profiler_auth(handler):
     return wrapper
 
 
+#: הודעות למשתמש לפי ``error_code``. ההודעה של ``BROKEN_QUERY_SHAPE`` נשמרת
+#: מילה במילה מהגרסה הקודמת, כדי לא לשנות התנהגות קיימת.
+#: ⚠️ חייבת להישאר זהה לזו שב-``webapp/app.py``, ולכסות כל ``error_code``
+#: שהשירות מגדיר. שני הדברים נאכפים בטסטים.
+_PROFILER_INPUT_MESSAGES = {
+    "PROFILER_INPUT_ERROR": "הבקשה לפרופיילר אינה תקינה.",
+    "BROKEN_QUERY_SHAPE": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
+    "INVALID_VERBOSITY": "רמת פירוט לא נתמכת ל-explain. בחר queryPlanner, executionStats או allPlansExecution.",
+}
+
+#: ראו ההסבר המקביל ב-``webapp/app.py``: לא ``str(exc)``.
+_PROFILER_INPUT_FALLBACK_MESSAGE = "הבקשה לפרופיילר אינה תקינה."
+
+#: מדיניות ה-timeout, זהה ל-``webapp/app.py``.
+_PROFILER_TIMEOUT_MESSAGE = (
+    "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS."
+)
+_PROFILER_TIMEOUT_STATUS = 504
+
+
+def _profiler_input_error_payload(exc) -> dict:
+    code = str(getattr(exc, "error_code", "") or "PROFILER_INPUT_ERROR")
+    message = _PROFILER_INPUT_MESSAGES.get(code)
+    if message is None:
+        logger.warning(
+            "profiler_input_error_without_message",
+            extra={"error_code": code, "error": str(exc)},
+        )
+        message = _PROFILER_INPUT_FALLBACK_MESSAGE
+    return {"status": "error", "message": message, "error_code": code}
+
+
 def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerService):
     """הגדרת routes לפרופיילר"""
 
@@ -88,7 +132,8 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
             except Exception:
                 min_time_ms = None
 
-        queries = await profiler_service.get_slow_queries(
+        queries = await asyncio.to_thread(
+            profiler_service.get_slow_queries,
             limit=limit,
             collection_filter=collection,
             min_execution_time_ms=min_time_ms,
@@ -115,22 +160,27 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
         try:
             # תומך גם ב-aggregation pipelines
             if isinstance(pipeline, list):
-                explain = await profiler_service.get_aggregation_explain(
+                explain = await asyncio.to_thread(
+                    profiler_service.get_aggregation_explain,
                     collection=collection, pipeline=pipeline, verbosity=verbosity
                 )
                 return web.json_response({"status": "success", "data": _serialize_aggregation_explain(explain)})
 
-            explain = await profiler_service.get_explain_plan(collection=collection, query=query, verbosity=verbosity)
+            explain = await asyncio.to_thread(
+                profiler_service.get_explain_plan, collection=collection, query=query, verbosity=verbosity
+            )
             return web.json_response({"status": "success", "data": _serialize_explain_plan(explain)})
-        except ValueError as e:
-            # בדיקת query_shape שבור מגרסה ישנה
-            if "broken array normalization" in str(e):
-                return web.json_response({
-                    "status": "error",
-                    "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                    "error_code": "BROKEN_QUERY_SHAPE"
-                }, status=400)
-            raise
+        except _ProfilerExplainTimeout as e:
+            logger.warning("profiler_explain_timeout", extra={"error": str(e)})
+            return web.json_response({
+                "status": "error",
+                "message": _PROFILER_TIMEOUT_MESSAGE,
+                "error_code": "EXPLAIN_TIMEOUT"
+            }, status=_PROFILER_TIMEOUT_STATUS)
+        except _ProfilerInputError as e:
+            # לפי טיפוס ולא לפי טקסט ההודעה: קודם רק "broken array normalization"
+            # זוהה כשגיאת קלט, וכל ולידציה חדשה נפלה ל-raise ומשם ל-500.
+            return web.json_response(_profiler_input_error_payload(e), status=400)
 
     @require_profiler_auth
     async def get_recommendations(request: web.Request) -> web.Response:
@@ -146,8 +196,10 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
 
         try:
             if isinstance(pipeline, list):
-                explain = await profiler_service.get_aggregation_explain(collection=collection, pipeline=pipeline)
-                recommendations = await profiler_service.analyze_aggregation_and_recommend(explain)
+                explain = await asyncio.to_thread(
+                    profiler_service.get_aggregation_explain, collection=collection, pipeline=pipeline
+                )
+                recommendations = profiler_service.analyze_aggregation_and_recommend(explain)
                 return web.json_response(
                     {
                         "status": "success",
@@ -158,8 +210,10 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
                     }
                 )
 
-            explain = await profiler_service.get_explain_plan(collection=collection, query=query)
-            recommendations = await profiler_service.generate_recommendations(explain)
+            explain = await asyncio.to_thread(
+                profiler_service.get_explain_plan, collection=collection, query=query
+            )
+            recommendations = profiler_service.generate_recommendations(explain)
 
             return web.json_response(
                 {
@@ -170,27 +224,29 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
                     },
                 }
             )
-        except ValueError as e:
-            # בדיקת query_shape שבור מגרסה ישנה
-            if "broken array normalization" in str(e):
-                return web.json_response({
-                    "status": "error",
-                    "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                    "error_code": "BROKEN_QUERY_SHAPE"
-                }, status=400)
-            raise
+        except _ProfilerExplainTimeout as e:
+            logger.warning("profiler_explain_timeout", extra={"error": str(e)})
+            return web.json_response({
+                "status": "error",
+                "message": _PROFILER_TIMEOUT_MESSAGE,
+                "error_code": "EXPLAIN_TIMEOUT"
+            }, status=_PROFILER_TIMEOUT_STATUS)
+        except _ProfilerInputError as e:
+            # לפי טיפוס ולא לפי טקסט ההודעה: קודם רק "broken array normalization"
+            # זוהה כשגיאת קלט, וכל ולידציה חדשה נפלה ל-raise ומשם ל-500.
+            return web.json_response(_profiler_input_error_payload(e), status=400)
 
     @require_profiler_auth
     async def get_summary(request: web.Request) -> web.Response:
         """GET /api/profiler/summary"""
-        summary = await profiler_service.get_summary_async()
+        summary = await asyncio.to_thread(profiler_service.get_summary)
         return web.json_response({"status": "success", "data": summary})
 
     @require_profiler_auth
     async def get_collection_stats(request: web.Request) -> web.Response:
         """GET /api/profiler/collection/{name}/stats"""
         collection = request.match_info["name"]
-        stats = await profiler_service.get_collection_stats(collection)
+        stats = await asyncio.to_thread(profiler_service.get_collection_stats, collection)
         return web.json_response({"status": "success", "data": stats})
 
     # רישום routes
@@ -204,7 +260,14 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
 
 
 def _serialize_slow_query(query) -> Dict[str, Any]:
-    """המרת SlowQueryRecord ל-dict"""
+    """המרת SlowQueryRecord ל-dict.
+
+    **``query_raw`` אינו מוגש כאן במכוון.** הצרכן היחיד של הערכים האמיתיים
+    הוא כפתור הניתוח בדשבורד, והוא מדבר עם ``webapp/app.py`` — שם הם יוצאים
+    ב-Extended JSON, כי ל-JSON רגיל אין טיפוס תאריך והוא היה הופך אותם
+    למחרוזות. ``web.json_response`` כאן משתמש ב-``json.dumps`` רגיל, ולכן
+    הוספת השדה בלי להחליף גם את הקידוד תחזיר בדיוק את הבאג הזה.
+    """
     return {
         "query_id": query.query_id,
         "collection": query.collection,

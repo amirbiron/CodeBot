@@ -308,6 +308,25 @@
 }
 .sticky-md-li-body { flex: 1 1 auto; min-width: 0; }
 
+/* קינון — הזחה לפי עומק.
+ *
+ * המחלקה יושבת על ``.sticky-task-line``, האלמנט המשותף לשורת רשימה
+ * ולשורת צ'קבוקס כאחת, ולכן כלל אחד מכסה את שתיהן. ``- [ ] תת-משימה``
+ * מוזחת מקבלת בדיוק את ההזחה של ``- תת-פריט`` מוזח.
+ *
+ * ``padding-inline-start`` ולא ``padding-left``: הפתקים בעברית, וההזחה
+ * חייבת ללכת פנימה מהצד שבו הטקסט מתחיל. אותה צורה שבה
+ * ``.sticky-md-quote`` כבר עובד.
+ *
+ * הרמות נעצרות ב-5 (``MD_MAX_LIST_DEPTH`` ב-sticky-notes.js). הפתק צר,
+ * והזחה בלתי מוגבלת דוחקת את הטקסט לרצועה של תו-תו. */
+.sticky-note { --sticky-li-indent: 1.1em; }
+.sticky-task-line.is-depth-1 { padding-inline-start: calc(1 * var(--sticky-li-indent)); }
+.sticky-task-line.is-depth-2 { padding-inline-start: calc(2 * var(--sticky-li-indent)); }
+.sticky-task-line.is-depth-3 { padding-inline-start: calc(3 * var(--sticky-li-indent)); }
+.sticky-task-line.is-depth-4 { padding-inline-start: calc(4 * var(--sticky-li-indent)); }
+.sticky-task-line.is-depth-5 { padding-inline-start: calc(5 * var(--sticky-li-indent)); }
+
 /* בלוק קוד — כל שורה מונו, ורצף שורות מקבל רקע משותף.
    הגדר עצמה (``\`\`\``) נשארת גלויה, כי כל שורת מקור היא שורת תצוגה. */
 .sticky-md-pre {

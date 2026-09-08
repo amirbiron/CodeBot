@@ -1,16 +1,24 @@
 from __future__ import annotations
 
-import asyncio
+import base64
 import hashlib
 import json
 import logging
+import math
 import os
-import weakref
+import threading
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Deque, Dict, List, Optional
+from dataclasses import replace as _dc_replace
+from typing import Any, Deque, Dict, FrozenSet, List, Optional, Tuple
+
+#: ``bson`` מגיע עם pymongo, שהוא תלות קיימת. ``json_util`` הוא ניב JSON
+#: שנושא את הטיפוס בתוך ה-JSON עצמו (``{"$date": …}``), ולכן ערך חוזר
+#: ממנו **כטיפוס שלו** ולא כמחרוזת. אותו אידיום כבר בשימוש בריפו —
+#: ``webapp/app.py`` ו-``scripts/check_indexes.py``.
+from bson import json_util
 
 try:
     # Structured logging events (fail-open)
@@ -120,6 +128,13 @@ class SlowQueryRecord:
     client_info: Optional[Dict[str, Any]] = None
     explain_plan: Optional[ExplainPlan] = None
     recommendations: List[OptimizationRecommendation] = field(default_factory=list)
+    #: הערכים האמיתיים — רק כשהשאילתה זוהתה בוודאות כשל משתמש מורשה. ראו
+    #: ``RAW_QUERY_OWNER_KEY`` והמסננים לידו.
+    query_raw: Optional[Dict[str, Any]] = None
+    #: בעל הערכים, כמחרוזת. נשמר כדי שהקריאה תוכל לבדוק מול הקונפיג **הנוכחי**.
+    raw_owner_id: Optional[str] = None
+    #: למה אין ערכים. ``None`` כשיש ערכים, וגם כשהפיצ'ר כבוי (רשימה ריקה).
+    raw_withheld_reason: Optional[str] = None
 
 
 class AggregationStage(Enum):
@@ -210,6 +225,718 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+# ---------------------------------------------------------------------------
+# החרגה מהצנזור: ``query_raw``
+#
+# כל שאילתה איטית נשמרת כ"שלד" — ``query_shape`` — שבו כל ערך הוחלף
+# ב-``<value>``. השלד הוא המזהה (``query_id``), הקיבוץ, התצוגה, והדוח שמודבק
+# ל-AI. ההגנה נכונה, אבל היא מעוורת גם את הצרכן היחיד שלא צריך אותה: האדמין
+# שמנתח את השאילתות של **עצמו** בדשבורד. לכן רשומה יכולה לשאת גם ``query_raw``
+# — הערכים האמיתיים — אבל רק כשהשאילתה זוהתה בוודאות כשל משתמש מורשה
+# (``PROFILER_UNREDACTED_USER_IDS``), וכשהיא קריאה מספיק כדי להועיל.
+#
+# שלושה מסננים, וכולם נכשלים **סגור** ו**בקול**: כל דחייה נרשמת
+# ב-``raw_withheld_reason`` והדשבורד מציג אותה. ברירה בטוחה שקטה היא באג —
+# מפתח לגיטימי חדש היה מכבה את הפיצ'ר בלי שאיש ידע.
+#
+# 1. בעלות: השאילתה חייבת **להצהיר** על בעלים — ``user_id`` ברמה העליונה או
+#    בתוך ``$and``, כשוויון או כ-``$in`` — וכל ``user_id`` שמופיע בשאילתה,
+#    **בכל שלב ובכל עומק**, חייב להיות ברשימה. ``$or`` שמכיל אותך ואחרים
+#    נדחה; ``$or`` לבדו אינו מגביל ולכן אינו מצהיר; ``$ne``/``$nin`` הם
+#    "כל השאר" — ההפך מהגבלה — ולעולם אינם מצהירים.
+# 2. רשימת שדות ואופרטורים מוכרים: כל מפתח אחר נדחה, והסיבה נוקבת בשמו.
+#    הרשימה נגזרה ממה שבאמת נרשם ב-``slow_queries_log`` בפרודקשן ומהסכימה
+#    של ``code_snippets``, לא ממה שנראה סביר.
+# 3. תועלת וגודל: ``$vectorSearch`` נדחה מלכתחילה — מאות מספרים אינם קריאים,
+#    לא עוזרים לניתוח, ומנפחים אוסף עם TTL. ותקרת גודל על ה-JSON, כי גם
+#    ``$in`` עם מאות מזהים הוא רשומה גדולה.
+#
+# **מה נשמר עם ערכים אמיתיים — שתי משפחות, ושתיהן עברו ולידציה.**
+#
+# 1. **תנאי סינון.** באגרגציה אלה שלבי ``$match`` (בכל עומק), ובשאילתת
+#    ``find`` זו כל השאילתה — שם היא כולה סינון. הוולידציה כאן היא רשימת
+#    השדות והאופרטורים.
+# 2. **ערכי מבנה:** ``$limit``, ``$skip``, כיווני ``$sort``, ודגלי
+#    ``$project``. אלה אינם נתוני משתמש אלא צורת השאילתה, ואין מולם רשימה —
+#    הוולידציה שלהם היא **צורה צרה** (``_structural_stage_value``), צרה עד
+#    כדי כך שמזהה משתמש אינו יכול להתחפש לאף אחת מהצורות. סריקת הבעלות אינה
+#    עוברת עליהם, ולכן ההיתר נשען כולו על הצרוּת הזו ולא על כיסוי הסריקה.
+#
+# כל שאר השלבים נשארים בשלד המנורמל, כי גוף של ``$addFields``/``$group``,
+# ו-``$project`` שיש בו ולו ביטוי אחד, הם ביטוי שאין מולו רשימה שאפשר לאמת
+# מולה. כך כל ערך שנשמר עבר ולידציה מלאה, וזו תכונה של המבנה ולא הבטחה
+# בהערה. ראו ``_raw_pipeline`` ו-``_projection_structure``.
+#
+# ⚠️ **המשפחה השנייה חלה רק על ``query_raw``, ולא על השלד.** ``query_shape``
+# ממשיך להחליף דגלי ``$project`` ב-``<value>``, וכפתור הניתוח נופל עליו כשאין
+# ``query_raw`` (``profiler_dashboard.html`` — ``hasRaw ? query_raw :
+# query_shape``). כלומר בברירת המחדל, כש-``PROFILER_UNREDACTED_USER_IDS``
+# ריק, ה-explain עדיין מנתח ``{"$project": {"file_name": "<value>"}}`` —
+# שמונגו קוראת כ-``$const``. ראו ``_fix_pipeline_for_explain``.
+#
+# **איפה הערכים חיים.** ברשומה ב-``slow_queries_log`` (TTL של שבעה ימים),
+# ובנוסף ב-buffer שבזיכרון התהליך, החסום ב-``PROFILER_MAX_BUFFER_SIZE`` ומת
+# עם התהליך. **לא** בלוגים: שורת ``slow_query_detected`` ממשיכה לשאת את השלד,
+# כי הלוג עוזב לספק וה-DB לא. שני מסלולי הקריאה — מה-DB ומהזיכרון — מחילים
+# את ``_apply_raw_read_policy``, ולכן הקונפיג הוא הסמכות **הנוכחית** בשניהם:
+# רשומה שנכתבה עם ערכים מוסתרת ברגע שהמשתמש יורד מהרשימה.
+# ---------------------------------------------------------------------------
+
+#: המפתח שמזהה את בעל השאילתה.
+RAW_QUERY_OWNER_KEY = "user_id"
+
+#: שדות שמותר להם להופיע בשאילתה שנשמרת עם ערכים.
+#:
+#: **הכלל אינו "השדות של האוסף".** הוא: *השדות שמסננים לפיהם בשאילתות
+#: שמשויכות למשתמש*. ההבדל אינו סמנטי — הוא נגזר מסדר הבדיקות ב-
+#: ``_decide_raw_query``: שער הבעלות רץ **לפני** בדיקת השדות, ולכן הרשימה
+#: רואה רק שאילתות שכבר הצהירו על משתמש מורשה יחיד. שדות ה-worker
+#: (``needs_embedding``, ``contentHash``, ``chunkerVersion`` ומשפחת
+#: ``embedding*``) נדחים כ-``owner_missing`` הרבה קודם ולכן אינם שייכים לכאן,
+#: ו-``snippetEmbedding`` לעולם לא — הוא וקטור, לא מסנן.
+#:
+#: ההערה הקודמת כאן טענה שהרשימה נגזרה מ"השדות של ``code_snippets``
+#: בפרודקשן", וזה לא היה מדויק: נמדדו 32 שדות באוסף מול 19 ברשימה, ו-``code``
+#: — שנמצא ב-400 מתוך 400 מסמכים שנדגמו — נשמט. הערה שמתארת כלל שגוי היא מה
+#: שמייצר את הפער הבא, ולכן היא תוקנה לכלל האמיתי.
+#:
+#: ⚠️ **מגבלה ידועה:** הרשימה גלובלית, אבל היא מתארת את ``code_snippets``.
+#: שאילתה משויכת-משתמש על אוסף אחר (``large_files``, ‏``markdown_images``,
+#: ‏``note_reminders``, ‏``users`` — כולם מופיעים ב-``slow_queries_log``) תיפסל
+#: על השדות הלגיטימיים של עצמה. זה סעיף נפרד ולא תוקן כאן.
+RAW_QUERY_ALLOWED_FIELDS: FrozenSet[str] = frozenset({
+    "user_id", "_id", "is_active", "file_name", "programming_language", "tags",
+    "description", "version", "created_at", "updated_at", "deleted_at",
+    "deleted_expires_at", "file_size", "lines_count", "is_favorite", "favorited_at",
+    "is_pinned", "pinned_at", "pin_order",
+    # ``code`` — ראו ``RAW_QUERY_FIELD_OPERATORS``: הוא מותר **רק** כדפוס
+    # חיפוש, ולא כערך שוויון.
+    "code",
+})
+
+#: הגבלת אופרטורים לשדה מסוים, מעל ``RAW_QUERY_ALLOWED_OPERATORS``.
+#:
+#: **למה זה נחוץ דווקא ל-``code``.** הוא נוסף לרשימה כי בשאילתת החיפוש הוא
+#: נושא את **דפוס החיפוש שהוקלד** — כלומר קלט של המשתמש עצמו, קצר. אבל
+#: רשימת האופרטורים הכללית מתירה לכל שדה גם ``$eq``/``$in``/``$all``, ותנאי
+#: שוויון על ``code`` הוא דבר אחר לגמרי: הוא נושא את **תוכן הקובץ**. שאילתה
+#: כזו סבירה לגמרי בעתיד (בדיקת כפילות תוכן, למשל), והיא הייתה שומרת עד
+#: ``PROFILER_UNREDACTED_MAX_BYTES`` של קוד מקור ב-``slow_queries_log`` לשבוע,
+#: מציגה אותו בדשבורד, ומכניסה אותו לטקסט "העתק דוח ל-AI".
+#:
+#: ההערה הקודמת כאן טענה ש-``code`` "תמיד בצד השמאלי של ``$regex``" — וזו
+#: הייתה טענה על הקוראים של היום, לא אילוץ. כאן היא הופכת לאילוץ נאכף.
+RAW_QUERY_FIELD_OPERATORS: Dict[str, FrozenSet[str]] = {
+    "code": frozenset({"$regex", "$options"}),
+}
+
+RAW_QUERY_LOGICAL_OPERATORS: FrozenSet[str] = frozenset({"$and", "$or", "$nor"})
+RAW_QUERY_TEXT_OPTIONS: FrozenSet[str] = frozenset(
+    {"$search", "$language", "$caseSensitive", "$diacriticSensitive"}
+)
+RAW_QUERY_ALLOWED_OPERATORS: FrozenSet[str] = frozenset({
+    "$eq", "$ne", "$gt", "$gte", "$lt", "$lte", "$in", "$nin", "$exists", "$regex",
+    "$options", "$elemMatch", "$size", "$all", "$not", "$type",
+})
+RAW_QUERY_ALLOWED_STAGES: FrozenSet[str] = frozenset({
+    "$match", "$sort", "$project", "$group", "$limit", "$skip", "$addFields", "$set",
+    "$unset", "$replaceRoot", "$replaceWith", "$count", "$unwind", "$lookup",
+    "$unionWith", "$facet", "$setWindowFields", "$sample", "$sortByCount",
+})
+#: ``$search`` (Atlas Search) אינו ברשימה בכוונה. הוא **כן** קיים בריפו —
+#: ב-``search_engine._build_hybrid_search_pipeline``, בתוך ``$unionWith`` —
+#: אבל הבעלות שם נכתבת כ-``{"equals": {"path": "userId", "value": ...}}``,
+#: תחביר שסריקת הבעלות כאן אינה יודעת לקרוא, ועל שדה בשם אחר (``userId``).
+#: הפייפליין ההיברידי נדחה ממילא כ-``vector_query`` (הוא פותח ב-``$vectorSearch``),
+#: ופייפליין שיפתח ב-``$search`` לבדו יידחה כ-``owner_missing`` — שניהם
+#: נכשלים סגור. הרחבה תהיה אפשרית אם וכאשר יהיה מופע אמיתי לאמת מולו.
+#: (חמשת המופעים האחרים של ``$search`` בריפו הם **האופציה** ``$search`` שבתוך
+#: אופרטור ``$text``, דבר אחר לגמרי, והיא מטופלת ב-``RAW_QUERY_TEXT_OPTIONS``.)
+RAW_QUERY_VECTOR_STAGES: FrozenSet[str] = frozenset({"$vectorSearch"})
+
+#: תקרת גודל ל-``query_raw`` בבייטים (JSON). שיקול דעת, לא ערך נגזר: גדול
+#: מספיק לכל שאילתת רשימה עם ``$in`` של עשרות שמות, קטן מספיק שלא לנפח אוסף
+#: עם TTL של שבוע. ניתן לשינוי ב-``PROFILER_UNREDACTED_MAX_BYTES``.
+DEFAULT_UNREDACTED_MAX_BYTES = 8192
+
+#: סיבות הדחייה. שלוש הראשונות של ``unknown_*`` נושאות גם את השם: ``unknown_field:owner_id``.
+RAW_WITHHELD_OWNER_MISSING = "owner_missing"
+RAW_WITHHELD_OWNER_MISMATCH = "owner_mismatch"
+RAW_WITHHELD_VECTOR = "vector_query"
+RAW_WITHHELD_TOO_LARGE = "too_large"
+RAW_WITHHELD_MALFORMED = "malformed"
+RAW_WITHHELD_UNSUPPORTED_NUMBER = "unsupported_number"
+RAW_WITHHELD_OWNER_NOT_ALLOWED_NOW = "owner_not_allowed_now"
+#: כשל בלתי צפוי בהחלטה עצמה. הוא לא אמור לקרות, ולכן הוא נרשם ללוג —
+#: אבל הוא לעולם לא עולה ברשומה עצמה (ראו ``_decide_raw_query``).
+RAW_WITHHELD_INTERNAL_ERROR = "internal_error"
+
+#: חלון הזמן שכל צרכני הדשבורד עובדים עליו — כרטיס הסיכום, טבלת השאילתות
+#: וטבלת הדפוסים. **מקור אחד ולא ברירת מחדל בכל אתר קריאה.** קודם כל אחד
+#: הכריע לעצמו: הכרטיס 24 שעות, הטבלה בלי חלון בכלל, והדפוסים שבעה ימים —
+#: ולכן "מוצגות X מתוך Y" היה משפט שיכול לשקר, כי X ו-Y נספרו על אוכלוסיות
+#: שונות.
+PROFILER_WINDOW_HOURS = 24
+
+#: השדות שמותר למיין לפיהם. **רשימה סגורה**: שם שדה מקלט משתמש לעולם אינו
+#: נכנס ל-``sort`` בלי לעבור כאן. ערך אחר נדחה, ולא מנוקה או מנוחש.
+SLOW_QUERY_SORT_FIELDS: FrozenSet[str] = frozenset({
+    "execution_time_ms", "timestamp", "collection", "operation",
+})
+
+
+class ProfilerPagingError(ValueError):
+    """קלט עימוד/מיון פסול. הקורא ב-HTTP הופך אותה ל-400 ולא ל-500."""
+
+
+def _window_hours(hours: Any) -> int:
+    """חלון בשעות מקלט חיצוני, מגובל לטווח שפוי.
+
+    ``isinstance`` לפני כל חשבון — ``CORE-PATTERNS`` U3. התקרה היא ה-TTL
+    עצמו: אין טעם לבקש חלון ארוך מהזמן שהרשומות בכלל שורדות בו.
+    """
+    if isinstance(hours, bool) or not isinstance(hours, int):
+        return PROFILER_WINDOW_HOURS
+    return max(1, min(int(hours), PersistentQueryProfilerService.TTL_SECONDS // 3600))
+
+
+def _page_limit(value: Any, cap: int) -> int:
+    """גודל דף מקלט חיצוני, מגובל ל-``[1, cap]``.
+
+    ``isinstance`` לפני כל חשבון — ``CORE-PATTERNS`` U3: ``int()`` על מחרוזת
+    או ``None`` מגוף בקשה זורק, כלומר 500 על קלט משתמש.
+
+    **``cap`` הוא פרמטר חובה ובלי ברירת מחדל, במכוון.** התקרה שונה בין
+    הקוראים (500 לשורות, 200 לדפוסים), וברירת מחדל כאן פירושה שקורא שלישי
+    יקבל בשקט את התקרה של אחד מהשניים. תקרה היא החלטה של אתר הקריאה, ולכן
+    היא נאמרת שם.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        value = 50
+    return max(1, min(int(value), cap))
+
+
+def _sort_spec(field: Any, direction: Any) -> Tuple[str, int]:
+    """שדה מיון וכיוון, מאומתים מול הרשימה הסגורה.
+
+    מחזיר ``(field, 1|-1)`` או זורק. **הכיוון אינו ברירת מחדל שקטה על קלט
+    פסול**: מיון שגוי שנראה תקין גרוע ממיון שנדחה בקול.
+    """
+    if not isinstance(field, str) or field not in SLOW_QUERY_SORT_FIELDS:
+        raise ProfilerPagingError(f"unknown_sort_field:{field!r}")
+    if not isinstance(direction, str) or direction not in {"asc", "desc"}:
+        raise ProfilerPagingError(f"unknown_sort_direction:{direction!r}")
+    return field, (1 if direction == "asc" else -1)
+
+
+def slow_query_population_key(
+    collection_filter: Optional[str], min_execution_time_ms: Optional[float], window_hours: int
+) -> str:
+    """טביעת אצבע של **מסנני האוכלוסייה** — מה שקובע אילו שורות קיימות בכלל.
+
+    משך החלון המנורמל נכנס לטביעה, אבל רגע ההתחלה היחסי ל-``utcnow`` לא:
+    כך החלפת חלון פוסלת קורסור, בלי לפסול אותו רק מפני שעברה שנייה.
+    """
+    coll = collection_filter if isinstance(collection_filter, str) and collection_filter else ""
+    if min_execution_time_ms is None:
+        low = ""
+    else:
+        low = repr(float(min_execution_time_ms))
+    return f"{coll}|{low}|{window_hours}"
+
+
+def encode_slow_query_cursor(
+    record: Dict[str, Any], field: str, direction: str, population: str = ""
+) -> str:
+    """קורסור לשורה האחרונה שנראתה: ``{f, d, p, v, id}`` ב-base64 של Extended JSON.
+
+    **למה Extended JSON ולא JSON רגיל:** ``v`` הוא ערך העמודה שממיינים לפיה,
+    והוא יכול להיות ``float`` (משך), ``datetime`` (זמן) או מחרוזת (collection).
+    ל-JSON רגיל אין טיפוס תאריך, ותאריך שהיה חוזר כמחרוזת היה משווה מחרוזת
+    לשדה תאריך במונגו — כלומר אפס תוצאות, ודף שני ריק בשקט. זה בדיוק המנגנון
+    שנבנה עבור ``query_raw``, וכאן הוא חוזר בחינם.
+
+    **למה ``f`` ו-``d`` בתוך הקורסור:** קורסור שנטבע למיון אחד ונשלח עם מיון
+    אחר הוא חסר משמעות — והתנאי ``$lt`` על השדה החדש היה מחזיר תוצאות
+    שרירותיות. הם נבדקים בפענוח, ולכן שינוי מיון באמצע דפדוף נדחה ולא מנוחש.
+
+    **ו-``p`` — מסנני האוכלוסייה — מאותו נימוק בדיוק.** קורסור אומר "אחרי
+    הנקודה הזו בסדר המיון", וזו טענה על **אוסף שורות מסוים**. אם המסנן משתנה
+    בין הדפים, שורות שהיו נדחקות מהדף הראשון על ידי שורות שהמסנן החדש מסלק
+    יושבות עכשיו **לפני** נקודת הקורסור — ולכן לא יופיעו לעולם, בלי שום סימן.
+    הכלל הוא אחד: **הקורסור תקף רק לשאילתה שהוא נטבע עבורה.**
+    """
+    payload = {
+        "f": field, "d": direction, "p": population,
+        "v": record.get(field), "id": record.get("_id"),
+    }
+    raw = json_util.dumps(payload).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def decode_slow_query_cursor(
+    token: Any, field: str, direction: str, population: str = ""
+) -> Tuple[Any, Any]:
+    """מפענח קורסור ומאמת שהוא נטבע **לאותה שאילתה**. מחזיר ``(value, _id)``.
+
+    "אותה שאילתה" פירושה גם אותו מיון וגם אותם מסנני אוכלוסייה — ראו
+    ``encode_slow_query_cursor``.
+
+    כל צורת פגם — base64 שבור, JSON שבור, שדה חסר, מיון או אוכלוסייה שאינם
+    תואמים — היא ``ProfilerPagingError`` ולא חריגה אחרת: זה קלט חיצוני, והוא
+    חייב לצאת כ-400 ולא כ-500 (``CORE-PATTERNS`` U3).
+    """
+    if not isinstance(token, str) or not token:
+        raise ProfilerPagingError("malformed_cursor")
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        payload = json_util.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    except Exception as exc:
+        raise ProfilerPagingError("malformed_cursor") from exc
+    if not isinstance(payload, dict) or "v" not in payload or "id" not in payload:
+        raise ProfilerPagingError("malformed_cursor")
+    if payload.get("f") != field or payload.get("d") != direction:
+        raise ProfilerPagingError("cursor_sort_mismatch")
+    if payload.get("p", "") != population:
+        raise ProfilerPagingError("cursor_filter_mismatch")
+    value = payload["v"]
+    if field == "execution_time_ms":
+        valid_value = isinstance(value, (int, float)) and not isinstance(value, bool)
+    elif field == "timestamp":
+        valid_value = isinstance(value, datetime)
+    else:
+        valid_value = field in {"collection", "operation"} and isinstance(value, str)
+    if not valid_value:
+        raise ProfilerPagingError("malformed_cursor")
+    return value, payload["id"]
+
+
+def _unredacted_user_ids() -> FrozenSet[str]:
+    """המזהים המורשים, מ-``PROFILER_UNREDACTED_USER_IDS`` (CSV). ריק = הפיצ'ר כבוי.
+
+    נקרא בכל קריאה ולא פעם אחת באתחול: הקונפיג הוא הסמכות הנוכחית גם בקריאה
+    של רשומות ישנות, וטסט יכול להחליף אותו בלי לבנות שירות מחדש.
+    """
+    raw = os.getenv("PROFILER_UNREDACTED_USER_IDS", "") or ""
+    return frozenset(tok.strip() for tok in raw.split(",") if tok.strip())
+
+
+def _owner_token(value: Any) -> Optional[str]:
+    """מזהה משתמש כמחרוזת להשוואה. ``int`` ו-``str`` בלבד — ``bool`` אינו מזהה."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, str)):
+        return str(value).strip()
+    return None
+
+
+def _reject_unserializable(obj: Any) -> Any:
+    """``default`` של ``json_util.dumps``: טיפוס שגם הוא אינו מכיר נדחה בשמו."""
+    raise _RawQueryWithheld(f"unsupported_type:{type(obj).__name__}")
+
+
+def _reject_non_finite(value: Any) -> None:
+    """דוחה ``inf``/``-inf``/``NaN`` בכל עומק, **לפני** הסיבוב.
+
+    למה בדיקה מפורשת ולא דגל של הקודק: ``json_util.dumps`` **מתעלם**
+    מ-``allow_nan=False`` ופולט ``{"$numberDouble": "Infinity"}`` בכל מקרה —
+    נמדד. כלומר הגדר הזה, שהיה מגיע בחינם מ-``json.dumps``, נעלם עם החלפת
+    הקודק. בלי השורות האלה ``unsupported_number`` היה מפסיק לתפוס בשקט.
+
+    ולמה לדחות בכלל, אחרי ש-Extended JSON הפך אותם לתקינים תחבירית:
+
+    * ``NaN`` אינו מתאים לאף מסמך במונגו. שמירתו הייתה מייצרת ``explain``
+      על שאילתה שמחזירה אפס — בדיוק הדוח המטעה שכל הגדר הזה קיים למנוע.
+    * ``±inf`` בטוח **רק** בקידוד Extended JSON, וההכרעה כאן נעשית בזמן
+      **הכתיבה** — לפני שידוע איך הרשומה תוגש. ההגשה של ``query_raw`` היא
+      Extended JSON היום, אבל יש כבר ``_serialize_slow_query`` שני
+      (``handlers/profiler_handler.py``) שקורא את אותן רשומות דרך ``json``
+      רגיל; הוא אינו מגיש את השדה, ולכן שום דבר אינו שבור — אבל אי אפשר
+      להבטיח את התכונה לצרכן שטרם נכתב. מה שנשמר חייב להיות בטוח בלי תלות בו.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        raise _RawQueryWithheld(RAW_WITHHELD_UNSUPPORTED_NUMBER)
+    if isinstance(value, dict):
+        for item in value.values():
+            _reject_non_finite(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _reject_non_finite(item)
+
+
+def _ensure_replayable(value: Any) -> Any:
+    """הערך אחרי סיבוב Extended JSON, או דחייה אם הוא לא שורד אותו.
+
+    ``query_raw`` קיים כדי שאפשר יהיה **להריץ אותו שוב** דרך כפתור הניתוח,
+    והמסע שלו הוא: מונגו ← השרת ← JSON ← הדשבורד ← JSON ← השרת ← ``explain``.
+    לכן **ההגדרה של "ניתן להרצה חוזרת" היא הסיבוב עצמו, לא רשימת טיפוסים.**
+
+    הקודק הוא ``json_util`` ולא ``json``, וזה מה שהופך את התאריכים לאפשריים.
+    ל-JSON רגיל אין טיפוס תאריך, ולכן ``datetime`` היה יוצא מחרוזת וחוזר
+    מחרוזת — ומונגו שמשווה מחרוזת לשדה תאריך אינו מתאים לאף מסמך. נמדד על
+    ``code_snippets`` בפרודקשן: התאריך האמיתי מתאים ל-1,157 מסמכים, המחרוזת
+    ל-0. כלומר ``explain`` שנראה מצוין — מהיר, אפס סריקה — ומסקנתו הפוכה.
+    Extended JSON נושא את הטיפוס בתוך ה-JSON (``{"$date": …}``), ולכן
+    ``datetime``, ``ObjectId``, ``Decimal128`` ו-``bytes`` חוזרים **שווים
+    למקור**.
+
+    מה שעדיין נדחה: ערכים לא-סופיים (``_reject_non_finite``, שרץ לפני), וכל
+    טיפוס שגם ``json_util`` אינו מכיר — בשמו, דרך ``default``.
+
+    ערך שנראה אמיתי ואינו ניתן להרצה גרוע מהיעדר ערך — הוא היה מריץ שאילתה
+    אחרת ומחזיר אפס תוצאות בלי שאיש יידע — ולכן כאן נכשלים סגור ובקול.
+    """
+    _reject_non_finite(value)
+    try:
+        return json_util.loads(json_util.dumps(value, default=_reject_unserializable))
+    except TypeError as exc:  # מפתח שאינו מחרוזת/מספר — לא עובר דרך ``default``
+        raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED) from exc
+
+
+def _replayable_size_bytes(value: Any) -> int:
+    """גודל הערך **בקידוד שבו הוא באמת נשלח**.
+
+    ``json.dumps`` היה זורק ``TypeError`` על ``datetime`` — וזו חריגה
+    ש-``_decide_raw_query`` אינה תופסת. היא לא יכלה לקרות קודם, כי תאריך
+    נחסם ב-``_ensure_replayable`` לפני שהגיע לכאן; משאושרו תאריכים, היא כן.
+    """
+    return len(json_util.dumps(value).encode("utf-8"))
+
+
+#: סמן פנימי: השלב אינו שלב מבנה. ``None`` אינו מתאים — ``$skip: 0`` חוקי.
+_NOT_STRUCTURAL = object()
+
+
+def _projection_structure(body: Any) -> Any:
+    """גוף ``$project`` שכולו **מבנה**, או ``_NOT_STRUCTURAL`` אם ולו ערך אחד אינו.
+
+    **הכל או כלום, בכוונה.** ``$project`` מעורב — חלקו דגלים וחלקו ביטוי —
+    חוזר כשלד **שלם**, ולא כתערובת של ערכים אמיתיים ו-``<value>``. שלב שחציו
+    אמיתי הוא בדיוק הבאג שהפונקציה הזו באה לתקן, בקנה מידה קטן יותר: הוא
+    נראה שלם, ומתפרש אחרת ממה שרץ.
+
+    **מה נחשב מבנה:**
+
+    * ``0``/``1``/``False``/``True`` — דגל הכללה או החרגה.
+    * מחרוזת שמתחילה ב-``$`` — נתיב שדה או משתנה מערכת (``$$ROOT``,
+      ``$$REMOVE``). היא נושאת **שם** של שדה, לא ערך שלו, ולכן המנרמל כבר
+      משאיר אותה כפי שהיא.
+    * מילון שכל מפתחותיו אינם מתחילים ב-``$`` — היטלה של שדה מקונן. התיעוד
+      מאשר את הצורה במפורש: ``contact: { address: { country: <1 or 0> } }``.
+      מפתח שמתחיל ב-``$`` הוא **אופרטור**, כלומר ביטוי, ולכן אינו מבנה.
+
+    **ולמה הרשימה צרה עד כדי כך — זה לא קוסמטי.** התיעוד אומר על דגל
+    ההכללה: *"Non-zero integers are also treated as true"*. כלומר
+    ``{"$project": {"file_name": 6865105071}}`` הוא היטלה **חוקית לגמרי**,
+    ומזהה משתמש יושב בה בגלוי. סריקת הבעלות עוברת על גופי ``$match`` בלבד
+    ולעולם לא תראה אותו. היתר גורף למספרים שלמים היה פותח בדיוק את הדלת
+    שהגדר הזה קיים כדי לסגור; ``0`` ו-``1`` בלבד סוגרים אותה. מאותה סיבה
+    גם ``1.0`` אינו עובר — צר יותר ממה שמונגו מקבלת, וזה המצב הרצוי.
+
+    מקור: https://www.mongodb.com/docs/manual/reference/operator/aggregation/project/
+
+    ``$addFields``/``$set`` **אינם** מטופלים כאן. גם בהם ערך שהוא נתיב שדה
+    בלבד הוא מבנה זהה, אבל שם הסיכון לקבוע חופשי גבוה בהרבה, ואין להם היום
+    מופע שנחסם. ``$unset`` של אגרגציה (מחרוזת או מערך מחרוזות) אינו בשימוש
+    בריפו כלל — תשעת המופעים הם אופרטור ה-update ``{"$unset": {...}}``,
+    דבר אחר. בשני המקרים ההרחבה תהיה אפשרית כשיהיה מופע אמיתי לאמת מולו,
+    כמו העמדה שכבר ננקטת כאן לגבי ``$search``.
+    """
+    if not isinstance(body, dict) or not body:
+        return _NOT_STRUCTURAL
+    out: Dict[str, Any] = {}
+    for key, value in body.items():
+        str_key = str(key)
+        if str_key.startswith("$"):
+            return _NOT_STRUCTURAL
+        # ``bool`` נבדק **לפני** ``int``: ב-Python ``isinstance(True, int)``
+        # אמת, ו-``True == 1``. בלי ההפרדה השורה הבאה הייתה בולעת אותו.
+        if isinstance(value, bool):
+            out[str_key] = value
+        elif isinstance(value, int) and value in (0, 1):
+            out[str_key] = int(value)
+        elif isinstance(value, str) and value.startswith("$"):
+            out[str_key] = value
+        elif isinstance(value, dict):
+            nested = _projection_structure(value)
+            if nested is _NOT_STRUCTURAL:
+                return _NOT_STRUCTURAL
+            out[str_key] = nested
+        else:
+            return _NOT_STRUCTURAL
+    return out
+
+
+def _structural_stage_value(name: str, body: Any) -> Any:
+    """ערכו האמיתי של שלב **מבנה**, או ``_NOT_STRUCTURAL`` אם אינו כזה.
+
+    ``$limit``, ``$skip``, כיווני ``$sort`` ודגלי ``$project`` אינם נתוני
+    משתמש אלא מבנה, ולכן הם נשמרים אמיתיים. הוולידציה כאן צרה עד הסוף — שלם
+    חיובי, שלם אי-שלילי, מילון של שדה ← ``1``/``-1``/``$meta``, או היטלה
+    שכולה ``0``/``1``/בוליאני/נתיב שדה — ולכן היא **מגבילה** במובן שמזהה
+    משתמש אינו יכול להתחפש לאף אחת מהצורות האלה. זו הסיבה שהם אינם נסרקים
+    בסריקת הבעלות, וההיתר נובע מצרוּת הוולידציה ולא מכיסוי הסריקה.
+
+    למה זה חשוב ולא קוסמטי: ``$limit`` הוא מה שהופך מיון חוסם ל-top-k. ניתוח
+    שרץ עם ``$limit: 10`` (הערך ש-``_fix_pipeline_for_explain`` מציב במקום
+    placeholder) במקום 21 הוא ניתוח של שאילתה אחרת — נמדד בסבב 292: 24.7MB
+    בלי ה-``$limit`` מול 337KB איתו.
+    """
+    if name in {"$limit", "$skip"}:
+        if isinstance(body, bool) or not isinstance(body, int):
+            raise _RawQueryWithheld(f"malformed_stage:{name}")
+        if body < 0 or (name == "$limit" and body <= 0):
+            raise _RawQueryWithheld(f"malformed_stage:{name}")
+        return body
+    if name == "$sort":
+        if not isinstance(body, dict) or not body:
+            raise _RawQueryWithheld("malformed_stage:$sort")
+        out: Dict[str, Any] = {}
+        for sort_key, direction in body.items():
+            if isinstance(direction, dict):
+                if set(direction) != {"$meta"} or not isinstance(direction["$meta"], str):
+                    raise _RawQueryWithheld("malformed_stage:$sort")
+                out[str(sort_key)] = {"$meta": direction["$meta"]}
+                continue
+            if isinstance(direction, bool) or direction not in (1, -1):
+                raise _RawQueryWithheld("malformed_stage:$sort")
+            out[str(sort_key)] = int(direction)
+        return out
+    if name == "$project":
+        # ⚠️ הענף הזה **אינו זורק**, ובכך הוא שונה מ-``$limit``/``$skip``/``$sort``
+        # שמעליו. שם ערך פגום פוסל את **כל השאילתה** (``malformed_stage:``), כי
+        # ``$limit`` שגוי הוא שאילתה שלא ניתן לתאר. כאן ההיפך: ``$project`` שאינו
+        # דגלים טהורים הוא לגיטימי לגמרי — הוא פשוט ביטוי — ולכן הוא נופל
+        # ל**שלד לאותו שלב**, בדיוק ההתנהגות שהייתה כאן תמיד. לזרוק כאן היה
+        # מוחק רשומות תקינות מהדוח.
+        return _projection_structure(body)
+    return _NOT_STRUCTURAL
+
+
+def _raw_pipeline(pipeline: Any, shape: Any) -> List[Any]:
+    """הפייפליין שיישמר: ערכים אמיתיים בסינון ובמבנה, שלד בכל השאר.
+
+    **מה נשמר אמיתי.** תנאי סינון (``$match``, בכל עומק) — כי
+    ``_check_condition`` אימתה אותם מול רשימת שדות ואופרטורים. וערכי מבנה
+    (``$limit``/``$skip``/``$sort``, ו-``$project`` שכולו דגלי היטלה) — כי
+    ``_structural_stage_value`` אימתה אותם מול צורה צרה. **מה שנשאר בשלד:**
+    גוף של ``$addFields``/``$group``, ו-``$project`` שיש בו ולו ביטוי אחד —
+    ביטוי ממציא שמות פלט ונושא קבועים חופשיים, ואין מולו רשימה שאפשר לאמת
+    מולה בלי לנחש.
+
+    ⚠️ **ולמה ``$project`` היה חייב להיכנס.** מחרוזת שאינה מתחילה ב-``$``
+    בתוך היטלה אינה נקראת כשם שדה אלא כ**קבוע**. נמדד מול MongoDB 8.0.32:
+    ``{"$project": {"file_name": "<value>"}}`` חוזר מה-``explain`` בתור
+    ``{"file_name": {"$const": "<value>"}}``, ו-``queryShapeHash`` שונה מזה
+    של ההיטלה האמיתית — כלומר מונגו סופרת אותן כשתי שאילתות. השלד לא רק
+    הסתיר את ההיטלה, הוא **החליף אותה בפעולה אחרת**: שלב שמושך את ``code``
+    נותח כשלב שאינו קורא שום שדה. וזה נכשל בשקט, כי בניגוד ל-``$limit``
+    מחרוזת בהיטלה אינה גורמת למונגו לזרוק, ולכן גם
+    ``_fix_pipeline_for_explain`` לא נגעה בה.
+
+    כך "כל מה שנשמר עם ערכים עבר ולידציה" הוא תכונה של המבנה ולא הבטחה
+    בהערה.
+    """
+    out: List[Any] = []
+    for original, normalized in zip(pipeline, shape):
+        if not isinstance(original, dict) or len(original) != 1 or not isinstance(normalized, dict):
+            out.append(normalized)
+            continue
+        (name, body), = original.items()
+        name = str(name)
+        structural = _structural_stage_value(name, body)
+        if structural is not _NOT_STRUCTURAL:
+            out.append({name: structural})
+        elif name == "$match":
+            out.append({name: _ensure_replayable(body)})
+        elif name in {"$lookup", "$unionWith"} and isinstance(body, dict) and isinstance(body.get("pipeline"), list):
+            merged = dict(normalized.get(name) or {})
+            merged["pipeline"] = _raw_pipeline(body["pipeline"], merged.get("pipeline") or [])
+            out.append({name: merged})
+        elif name == "$facet" and isinstance(body, dict):
+            merged = dict(normalized.get(name) or {})
+            for key, sub in body.items():
+                if isinstance(sub, list) and isinstance(merged.get(str(key)), list):
+                    merged[str(key)] = _raw_pipeline(sub, merged[str(key)])
+            out.append({name: merged})
+        else:
+            out.append(normalized)
+    return out
+
+
+class _RawQueryWithheld(Exception):
+    """סימון פנימי: השאילתה לא תישמר עם ערכים, ולמה."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _owner_values_in(condition: Any) -> List[Any]:
+    """כל הערכים שמופיעים תחת ``user_id`` — בכל עומק, כולל בתוך ``$or`` ו-``$in``."""
+    found: List[Any] = []
+    if isinstance(condition, dict):
+        for key, value in condition.items():
+            if str(key) == RAW_QUERY_OWNER_KEY:
+                if isinstance(value, dict):
+                    for op, inner in value.items():
+                        if str(op) in {"$in", "$nin"} and isinstance(inner, (list, tuple)):
+                            found.extend(inner)
+                        else:
+                            found.append(inner)
+                else:
+                    found.append(value)
+            else:
+                found.extend(_owner_values_in(value))
+    elif isinstance(condition, (list, tuple)):
+        for item in condition:
+            found.extend(_owner_values_in(item))
+    return found
+
+
+def _asserted_owners(condition: Any) -> FrozenSet[str]:
+    """הבעלים שהשאילתה **מצהירה** עליהם: ``user_id`` ברמה העליונה או בתוך ``$and``.
+
+    ``$or`` אינו מגביל את התוצאה לבעלים ולכן אינו נספר כאן.
+    """
+    owners: set = set()
+    if not isinstance(condition, dict):
+        return frozenset()
+    for key, value in condition.items():
+        key = str(key)
+        if key == RAW_QUERY_OWNER_KEY:
+            # ``$eq`` ו-``$in`` **מגבילים** לבעלים ולכן מצהירים עליו.
+            # ``$ne``/``$nin`` הם "כל השאר" — ההפך המדויק — ולעולם לא ייספרו כאן.
+            candidates: List[Any] = []
+            if isinstance(value, dict):
+                if "$eq" in value:
+                    candidates.append(value["$eq"])
+                if isinstance(value.get("$in"), (list, tuple)):
+                    candidates.extend(value["$in"])
+            else:
+                candidates.append(value)
+            for candidate in candidates:
+                token = _owner_token(candidate)
+                if token is not None:
+                    owners.add(token)
+        elif key == "$and" and isinstance(value, (list, tuple)):
+            for item in value:
+                owners |= _asserted_owners(item)
+    return frozenset(owners)
+
+
+def _check_field_value(value: Any, field: Optional[str] = None) -> None:
+    """אופרטורים על ערך שדה. ``field`` נמסר כשיש לו הגבלה משלו.
+
+    שדה שמופיע ב-``RAW_QUERY_FIELD_OPERATORS`` חייב להגיע כמילון של
+    אופרטורים מתוך הרשימה הצרה שלו — ולא כערך שוויון ישיר. ראו שם למה.
+    """
+    restricted = RAW_QUERY_FIELD_OPERATORS.get(field) if field else None
+    if not isinstance(value, dict):
+        if restricted is not None:
+            # ``{"code": "<תוכן הקובץ>"}`` — בדיוק מה שהרשימה הצרה מונעת.
+            raise _RawQueryWithheld(f"unsupported_field_value:{field}")
+        return
+    for op, inner in value.items():
+        op = str(op)
+        if op not in RAW_QUERY_ALLOWED_OPERATORS:
+            raise _RawQueryWithheld(f"unknown_operator:{op}")
+        if restricted is not None and op not in restricted:
+            raise _RawQueryWithheld(f"unsupported_field_operator:{field}{op}")
+        if op == "$elemMatch" and isinstance(inner, dict):
+            if all(str(k).startswith("$") for k in inner):
+                _check_field_value(inner)
+            else:
+                _check_condition(inner)
+        elif op == "$not":
+            _check_field_value(inner)
+
+
+def _check_condition(condition: Any) -> None:
+    """כל מפתח בתנאי חייב להיות שדה מוכר, אופרטור לוגי, או ``$text``."""
+    if not isinstance(condition, dict):
+        raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED)
+    for key, value in condition.items():
+        key = str(key)
+        if key in RAW_QUERY_LOGICAL_OPERATORS:
+            if not isinstance(value, (list, tuple)):
+                raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED)
+            for item in value:
+                _check_condition(item)
+        elif key == "$text":
+            if not isinstance(value, dict):
+                raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED)
+            for option in value:
+                if str(option) not in RAW_QUERY_TEXT_OPTIONS:
+                    raise _RawQueryWithheld(f"unknown_operator:{option}")
+        elif key.startswith("$"):
+            raise _RawQueryWithheld(f"unknown_operator:{key}")
+        else:
+            if key not in RAW_QUERY_ALLOWED_FIELDS:
+                raise _RawQueryWithheld(f"unknown_field:{key}")
+            _check_field_value(value, key)
+
+
+def _stage_entries(pipeline: Any) -> List[Tuple[str, Any]]:
+    """כל השלבים, כולל בתוך ``$lookup``/``$unionWith``/``$facet``, כזוגות (שם, גוף)."""
+    if not isinstance(pipeline, (list, tuple)):
+        raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED)
+    entries: List[Tuple[str, Any]] = []
+    for stage in pipeline:
+        if not isinstance(stage, dict) or len(stage) != 1:
+            raise _RawQueryWithheld(RAW_WITHHELD_MALFORMED)
+        (name, body), = stage.items()
+        name = str(name)
+        entries.append((name, body))
+        if name in {"$lookup", "$unionWith"} and isinstance(body, dict) and isinstance(body.get("pipeline"), list):
+            entries.extend(_stage_entries(body["pipeline"]))
+        elif name == "$facet" and isinstance(body, dict):
+            for sub in body.values():
+                entries.extend(_stage_entries(sub))
+    return entries
+
+
+class ProfilerInputError(ValueError):
+    """קלט שהמשתמש שלח ואינו תקין — הראוטים מתרגמים אותו ל-400.
+
+    **למה מחלקה ולא ``ValueError`` עירום.** קודם השירות סימן כל שגיאת קלט
+    כ-``ValueError``, וארבעה קוראים הבדילו ביניהן כך::
+
+        if "broken array normalization" in str(e):
+
+    זיהוי סוג שגיאה לפי טקסט ההודעה נשבר בכל שינוי ניסוח, ובעיקר: כל שגיאת
+    קלט **חדשה** נופלת אוטומטית ל-``else`` ומדווחת כ-500 עם stack trace, כאילו
+    השרת קרס. בדיוק זה קרה ל-``ExplainVerbosityError``.
+
+    יורשת מ-``ValueError`` כדי שצרכנים קיימים ימשיכו לתפוס אותה.
+    """
+
+    error_code = "PROFILER_INPUT_ERROR"
+
+
+class BrokenQueryShapeError(ProfilerInputError):
+    """``query_shape`` מגרסה ישנה, עם מערכים שנורמלו ל-``"<N items>"``."""
+
+    error_code = "BROKEN_QUERY_SHAPE"
+
+
+class ExplainVerbosityError(ProfilerInputError):
+    """רמת פירוט שאינה אחת משלוש אלה ש-MongoDB מגדירה."""
+
+    error_code = "INVALID_VERBOSITY"
+
+
+class ExplainTimeoutError(RuntimeError):
+    """ה-explain חרג מהתקרה.
+
+    ``executionStats`` ו-``allPlansExecution`` מריצים את השאילתה בפועל — ועל
+    שאילתות איטיות זה בדיוק מה שקורה. בלי הטיפוס הזה החריגה הייתה מגיעה
+    למשתמש כ-500 גנרי, שלא ניתן להבחין בינו לבין קריסה.
+    """
+
+    error_code = "EXPLAIN_TIMEOUT"
+
+
 class QueryProfilerService:
     """
     שירות לניתוח ביצועי שאילתות MongoDB.
@@ -222,6 +949,16 @@ class QueryProfilerService:
 
     # סף ברירת מחדל לשאילתה איטית (במילישניות)
     DEFAULT_SLOW_THRESHOLD_MS = 1000
+
+    #: רמות הפירוט שפקודת ``explain`` של MongoDB מקבלת.
+    #: מקור: https://www.mongodb.com/docs/manual/reference/command/explain/
+    #: הערך מגיע מגוף בקשת HTTP ונשלח למסד, ולכן חייב ולידציה.
+    EXPLAIN_VERBOSITIES = frozenset({"queryPlanner", "executionStats", "allPlansExecution"})
+
+    #: תקרת זמן ל-explain, במילישניות. ברירת מחדל שמרנית: ``executionStats``
+    #: ו-``allPlansExecution`` מריצים את השאילתה בפועל, ומדובר בשאילתות
+    #: שכבר ידוע עליהן שהן איטיות. ניתן לשינוי ב-``PROFILER_EXPLAIN_MAX_TIME_MS``.
+    DEFAULT_EXPLAIN_MAX_TIME_MS = 5000
 
     # מספר מקסימלי של שאילתות איטיות לשמור בזיכרון
     MAX_SLOW_QUERIES_BUFFER = 1000
@@ -385,7 +1122,10 @@ class QueryProfilerService:
     ) -> SlowQueryRecord:
         """רישום שאילתה איטית (סינכרוני) - נוח לשימוש מאזין PyMongo."""
         query_shape = self._normalize_query_shape(query or {})
+        # ``query_id`` נגזר מהשלד בלבד — הערכים האמיתיים לעולם לא נכנסים לגיבוב,
+        # אחרת כל ערך היה הופך לדפוס "ייחודי" חדש ומונה הדפוסים היה מתפוצץ.
         query_id = self._generate_query_id(collection, query_shape)
+        query_raw, raw_owner_id, raw_withheld_reason = self._decide_raw_query(operation, query or {})
 
         record = SlowQueryRecord(
             query_id=query_id,
@@ -395,9 +1135,19 @@ class QueryProfilerService:
             execution_time_ms=float(execution_time_ms),
             timestamp=datetime.utcnow(),
             client_info=client_info,
+            query_raw=query_raw,
+            raw_owner_id=raw_owner_id,
+            raw_withheld_reason=raw_withheld_reason,
         )
 
-        self._slow_queries.append(record)
+        # **הבאפר לא מחזיק ערכים אמיתיים.** הוא חסום בגודל ולא בגיל, ואילו
+        # ה-TTL של שבעה ימים מכסה רק את הרשומה ב-DB — כלומר ערך שנשאר כאן
+        # אין לו פקיעה. ואין לו גם צרכן: ``QueryProfilerService`` הבסיסי אינו
+        # מופע בייצור, ו-``PersistentQueryProfilerService.get_slow_queries``
+        # קוראת מה-DB בלבד. ``raw_withheld_reason`` **כן** נשאר — הוא אינו ערך
+        # רגיש אלא ההסבר שהדשבורד מציג. הרשומה המלאה מוחזרת לקורא, ולכן
+        # ``_persist_record`` עדיין כותב את הערכים ל-DB.
+        self._slow_queries.append(_dc_replace(record, query_raw=None, raw_owner_id=None))
 
         # עדכון מונה דפוסי שאילתות
         pattern_key = f"{collection}:{operation}:{json.dumps(query_shape, sort_keys=True)}"
@@ -436,21 +1186,114 @@ class QueryProfilerService:
 
         return record
 
-    async def record_slow_query(
-        self,
-        collection: str,
-        operation: str,
-        query: Dict[str, Any],
-        execution_time_ms: float,
-        client_info: Optional[Dict[str, Any]] = None,
-    ) -> SlowQueryRecord:
-        """
-        רישום שאילתה איטית.
-        נקרא אוטומטית על ידי ה-CommandListener.
-        """
-        return self.record_slow_query_sync(collection, operation, query, execution_time_ms, client_info)
+    def _decide_raw_query(
+        self, operation: str, query: Dict[str, Any]
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
+        """האם לשמור את הערכים האמיתיים. מחזיר ``(query_raw, owner, reason)``.
 
-    async def get_slow_queries(
+        רשימה ריקה בקונפיג ← ``(None, None, None)``: שום דבר לא משתנה מול היום,
+        וגם לא נרשמת סיבה — אין מה להסביר כשהפיצ'ר כבוי. כל דחייה אחרת חוזרת
+        עם סיבה, כי ברירה בטוחה חייבת להיות גלויה.
+        """
+        allowed = _unredacted_user_ids()
+        if not allowed:
+            return None, None, None
+        try:
+            if operation == "aggregate":
+                pipeline = query.get("pipeline") if isinstance(query, dict) else None
+                if not isinstance(pipeline, list) or not pipeline:
+                    raise _RawQueryWithheld(RAW_WITHHELD_OWNER_MISSING)
+                entries = _stage_entries(pipeline)
+                if any(name in RAW_QUERY_VECTOR_STAGES for name, _ in entries):
+                    raise _RawQueryWithheld(RAW_WITHHELD_VECTOR)
+                first = pipeline[0]
+                first_match = first.get("$match") if isinstance(first, dict) else None
+                # באגרגציה הבעלות מוצהרת בשלב ה-``$match`` **הראשון**: הוא היחיד שמגביל
+                # את כל מה שאחריו. ``$match`` מאוחר מסנן תוצאה שכבר נבנתה על כולם.
+                asserted = _asserted_owners(first_match) if isinstance(first_match, dict) else frozenset()
+            else:
+                asserted = _asserted_owners(query)
+
+            # **הסריקה עוברת על מיקומי סינון בלבד**, והאינווריאנט המדויק הוא:
+            # סורקים כל מה שנשמר ולא עבר ולידציה מבנית מגבילה. באגרגציה אלה
+            # גופי ה-``$match`` בכל עומק — הם היחידים שנשמרים עם ערכים חופשיים.
+            # ``$limit``/``$skip``/``$sort``/``$project`` נשמרים אף הם, אבל עברו
+            # ולידציה צרה (``_structural_stage_value``) שמזהה משתמש אינו יכול
+            # לעבור, ולכן אינם נסרקים. כל שאר השלבים מנורמלים ולעולם אינם
+            # נושאים ערך.
+            #
+            # ⚠️ ב-``$project`` התלות הזו חדה במיוחד: התיעוד מתיר **כל** מספר
+            # שלם שאינו אפס כדגל הכללה, כלומר ``{"file_name": 6865105071}`` הוא
+            # היטלה חוקית. הסריקה כאן לא תראה אותו לעולם, ולכן מה שמונע אותו
+            # הוא **רק** צרוּת הוולידציה ב-``_projection_structure``.
+            #
+            # למה לא לסרוק את הכול: ``$sort: {user_id: 1}`` היה נדחה, כי ה-``1``
+            # של כיוון המיון נקרא כמזהה זר. זה נכשל סגור — עולה בפיצ'ר ולא
+            # בבטיחות — אבל זו דחייה שקרית של שאילתה לגיטימית.
+            if operation == "aggregate":
+                everywhere = [
+                    value
+                    for stage_name, stage_body in _stage_entries(query["pipeline"])
+                    if stage_name == "$match"
+                    for value in _owner_values_in(stage_body)
+                ]
+            else:
+                everywhere = _owner_values_in(query)
+
+            for value in everywhere:
+                token = _owner_token(value)
+                if token is None or token not in allowed:
+                    raise _RawQueryWithheld(RAW_WITHHELD_OWNER_MISMATCH)
+            if not asserted:
+                raise _RawQueryWithheld(RAW_WITHHELD_OWNER_MISSING)
+            if len(asserted) != 1:
+                raise _RawQueryWithheld(RAW_WITHHELD_OWNER_MISMATCH)
+            owner = next(iter(asserted))
+
+            if operation == "aggregate":
+                for name, body in _stage_entries(query["pipeline"]):
+                    if name not in RAW_QUERY_ALLOWED_STAGES:
+                        raise _RawQueryWithheld(f"unknown_stage:{name}")
+                    if name == "$match":
+                        _check_condition(body)
+                safe: Dict[str, Any] = {
+                    "pipeline": _raw_pipeline(
+                        query["pipeline"], self._normalize_pipeline_shape(query["pipeline"])
+                    )
+                }
+            else:
+                _check_condition(query)
+                safe = _ensure_replayable(query)
+            max_bytes = _env_int("PROFILER_UNREDACTED_MAX_BYTES", DEFAULT_UNREDACTED_MAX_BYTES)
+            if _replayable_size_bytes(safe) > max(1, int(max_bytes)):
+                raise _RawQueryWithheld(RAW_WITHHELD_TOO_LARGE)
+            return safe, owner, None
+        except _RawQueryWithheld as exc:
+            return None, None, exc.reason
+        except Exception:
+            # ``query_raw`` הוא **העשרה**; הרשומה עצמה היא המוצר. עד כאן נתפסה
+            # רק ``_RawQueryWithheld``, ולכן כל חריגה אחרת הייתה בורחת עד
+            # ה-``except Exception`` של המאזין ב-``database/manager.py`` —
+            # ושם **הרשומה כולה אובדת**, ונשארת רק שורת ``Profiler Error``.
+            # כלומר כשל בהחלטה על ההעשרה היה עולה במוצר.
+            #
+            # הגבול הזה אינו בליעה שקטה ואינו הרחבת ``except`` קיים כדי לעבור
+            # טסט: הוא רושם ללוג, ומחזיר סיבה **גלויה** שהדשבורד מציג. התכונה
+            # שהוא קונה: אף שינוי עתידי בטיפול בטיפוסים לא יוכל לעלות ברשומות.
+            logger.exception("profiler_raw_decision_failed")
+            return None, None, RAW_WITHHELD_INTERNAL_ERROR
+
+    def _apply_raw_read_policy(self, record: SlowQueryRecord) -> SlowQueryRecord:
+        """הקונפיג הוא הסמכות הנוכחית: רשומה עם ערכים מוסתרת אם הבעלים כבר לא ברשימה."""
+        if record.query_raw is None:
+            return record
+        if record.raw_owner_id is None or record.raw_owner_id not in _unredacted_user_ids():
+            return _dc_replace(
+                record, query_raw=None, raw_withheld_reason=RAW_WITHHELD_OWNER_NOT_ALLOWED_NOW
+            )
+        return record
+
+    def get_slow_queries(
         self,
         limit: int = 50,
         collection_filter: Optional[str] = None,
@@ -475,13 +1318,72 @@ class QueryProfilerService:
         # מיון לפי זמן ביצוע (הכי איטיות קודם)
         queries.sort(key=lambda q: q.execution_time_ms, reverse=True)
 
-        return queries[: max(1, int(limit))]
+        return [self._apply_raw_read_policy(q) for q in queries[: max(1, int(limit))]]
 
-    async def get_explain_plan(
+    def _explain_max_time_ms(self) -> int:
+        """תקרת הזמן ל-explain, במילישניות."""
+        return _env_int("PROFILER_EXPLAIN_MAX_TIME_MS", self.DEFAULT_EXPLAIN_MAX_TIME_MS)
+
+    def _run_explain_command(self, inner_command: Dict[str, Any], verbosity: str) -> Dict[str, Any]:
+        """מריצה את פקודת ``explain`` של MongoDB עם רמת פירוט מפורשת.
+
+        **למה פקודה ולא ``cursor.explain()``.** ל-``Cursor.explain`` אין ולא היה
+        פרמטר ``verbosity`` — החתימה היא ``def explain(self)`` (pymongo 4.15.3,
+        ``pymongo/synchronous/cursor.py``), והדוקסטרינג שלה אומר במפורש:
+
+            "This method uses the default verbosity mode of the explain command,
+            ``allPlansExecution``. To use a different verbosity use
+            :meth:`~pymongo.database.Database.command` to run the explain
+            command directly."
+
+        כלומר הקוד הקודם, שקרא ``cursor.explain(verbosity=...)`` ונפל ל-``except
+        TypeError``, הריץ תמיד ``allPlansExecution`` — המצב שמריץ את **כל**
+        תוכניות המועמדות — בזמן שהוא הצהיר על ``queryPlanner`` כברירת מחדל בטוחה.
+        אל תחזירו את זה.
+
+        ``maxTimeMS`` אינו שדה של פקודת ``explain`` (ראו התיעוד של MongoDB), ולכן
+        התקרה נאכפת ב-``pymongo.timeout`` — המנגנון שהדוקסטרינג של ``explain``
+        עצמה מפנה אליו.
+        """
+        # בדיקת טיפוס לפני בדיקת חברות: הערך מגיע מגוף JSON, ורשימה או אובייקט
+        # אינם hashable — ``x not in frozenset`` היה זורק ``TypeError`` לפני
+        # שהוולידציה מספיקה לומר משהו, והמשתמש היה מקבל 500 במקום 400.
+        if not isinstance(verbosity, str) or verbosity not in self.EXPLAIN_VERBOSITIES:
+            allowed = ", ".join(sorted(self.EXPLAIN_VERBOSITIES))
+            raise ExplainVerbosityError(
+                f"Unsupported explain verbosity {verbosity!r}. Allowed values: {allowed}"
+            )
+
+        # ייבוא עצל: ``requirements/minimal.txt`` אינו כולל pymongo, והקובץ הזה
+        # נטען גם בסביבות שאין בהן DB. שאר שכבת השירותים עוברת דרך ``db_manager``
+        # ולא נוגעת בדרייבר; כאן אין ברירה, כי ``pymongo.timeout`` הוא המנגנון
+        # היחיד לאכוף דדליין על הפקודה — ולכן התלות יורדת לרמת הקריאה.
+        import pymongo  # noqa: PLC0415
+
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            raise RuntimeError("No MongoDB database available")
+
+        max_time_ms = max(1, int(self._explain_max_time_ms()))
+        try:
+            with pymongo.timeout(max_time_ms / 1000.0):
+                return db.command("explain", inner_command, verbosity=verbosity)
+        except pymongo.errors.PyMongoError as exc:
+            # ``exc.timeout`` הוא הסיווג של pymongo עצמה, ולא ניחוש לפי סוג החריגה:
+            # חריגה מהדדליין יכולה להגיע כ-ExecutionTimeout, NetworkTimeout או
+            # ServerSelectionTimeoutError, ולכולן הדגל הזה. מקור: הדוקסטרינג של
+            # ``pymongo.timeout``.
+            if getattr(exc, "timeout", False):
+                raise ExplainTimeoutError(
+                    f"explain exceeded {max_time_ms}ms with verbosity={verbosity!r}"
+                ) from exc
+            raise
+
+    def get_explain_plan(
         self,
         collection: str,
         query: Dict[str, Any],
-        verbosity: str = "queryPlanner",  # ⚠️ ברירת מחדל בטוחה - לא מריצה את השאילתה!
+        verbosity: str = "queryPlanner",  # ברירת מחדל בטוחה: לא מריצה את השאילתה בפועל
     ) -> ExplainPlan:
         """
         קבלת explain plan מפורט לשאילתה.
@@ -490,33 +1392,14 @@ class QueryProfilerService:
         """
         # בדיקה אם ה-query הוא query_shape שבור מגרסה ישנה
         if self._is_broken_query_shape(query):
-            raise ValueError(
+            raise BrokenQueryShapeError(
                 "Query shape contains broken array normalization from old version. "
                 "Arrays like '<N items>' cannot be used with explain(). "
                 "Please use the original query or re-record this slow query."
             )
 
-        def _run_explain() -> Dict[str, Any]:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                raise RuntimeError("No MongoDB database available")
-            coll = db[collection]
-
-            cursor = coll.find(query)
-            try:
-                # נסיון להריץ עם רמת הפירוט המבוקשת
-                return cursor.explain(verbosity=verbosity)
-            except TypeError:
-                # Fallback לגרסאות ישנות של pymongo שלא מקבלות ארגומנטים
-                logger.warning(
-                    "Profiler: PyMongo Cursor.explain() does not support verbosity=%r; "
-                    "falling back to default explain() without execution stats.",
-                    verbosity,
-                    exc_info=True,
-                )
-                return cursor.explain()
-
-        explain_result = await asyncio.to_thread(_run_explain)
+        # שקול ל-``coll.find(query)`` שהיה כאן: אין sort/limit/projection.
+        explain_result = self._run_explain_command({"find": collection, "filter": query}, verbosity)
         return self._parse_explain_result(collection, query, explain_result)
 
     def _parse_explain_result(self, collection: str, query: Dict[str, Any], explain_result: Dict[str, Any]) -> ExplainPlan:
@@ -601,7 +1484,7 @@ class QueryProfilerService:
         n_returned = int(execution_stats.get("nReturned", 0) or 0)
         return docs_examined == 0 and keys_examined >= n_returned and n_returned > 0
 
-    async def analyze_and_recommend(self, explain_plan: ExplainPlan) -> List[OptimizationRecommendation]:
+    def analyze_and_recommend(self, explain_plan: ExplainPlan) -> List[OptimizationRecommendation]:
         """ניתוח explain plan ויצירת המלצות אופטימיזציה."""
         recommendations: List[OptimizationRecommendation] = []
 
@@ -629,7 +1512,7 @@ class QueryProfilerService:
 
         return recommendations
 
-    async def generate_recommendations(self, explain_plan: ExplainPlan) -> List[OptimizationRecommendation]:
+    def generate_recommendations(self, explain_plan: ExplainPlan) -> List[OptimizationRecommendation]:
         """
         אלגוריתם יצירת המלצות:
 
@@ -638,7 +1521,7 @@ class QueryProfilerService:
         3. זיהוי דפוסים בעייתיים
         4. יצירת המלצות עם עדיפויות
         """
-        recommendations = await self.analyze_and_recommend(explain_plan)
+        recommendations = self.analyze_and_recommend(explain_plan)
         severity_order = {SeverityLevel.CRITICAL: 0, SeverityLevel.WARNING: 1, SeverityLevel.INFO: 2}
         return sorted(recommendations, key=lambda r: severity_order.get(r.severity, 999))
 
@@ -662,8 +1545,21 @@ class QueryProfilerService:
         return False
 
     def _could_be_covered_query(self, explain_plan: ExplainPlan) -> bool:
-        """בדיקה האם השאילתה יכולה להיות covered query"""
-        return explain_plan.stats is not None and explain_plan.stats.index_used is not None
+        """האם יש טעם להמליץ על Covered Query.
+
+        ההמלצה אומרת "הוסף את שדות ה-projection לאינדקס", וזה עוזר רק
+        למסמכים **שמוחזרים**. לכן נדרשים גם אינדקס וגם ``docs_returned > 0``:
+        שאילתה שהחזירה אפס — כי לא נמצא כלום, או כי הכל סונן אחרי FETCH —
+        אינה מרוויחה מזה, וההמלצה עליה מטעה. ``_is_covered_query`` דורשת
+        ``n_returned > 0`` כדי להכריז covered, ובלי התנאי המקביל כאן כל
+        תוצאה ריקה עם אינדקס הייתה נורית (זה מה שקרה עם השלד ``<value>``
+        של כפתור הניתוח).
+
+        ``stats`` הוא ``None`` בריצת ``queryPlanner``; הבדיקה כאן נשארת גם
+        כשהקורא כבר בדק, כי הפונקציה נקראת גם לבדה.
+        """
+        stats = explain_plan.stats
+        return stats is not None and stats.index_used is not None and stats.docs_returned > 0
 
     def _get_pattern_frequency(self, explain_plan: ExplainPlan) -> int:
         """קבלת תדירות דפוס השאילתה"""
@@ -748,7 +1644,7 @@ class QueryProfilerService:
             estimated_improvement="הפחתת עומס על בסיס הנתונים",
         )
 
-    async def get_collection_stats(self, collection: str) -> Dict[str, Any]:
+    def get_collection_stats(self, collection: str) -> Dict[str, Any]:
         """קבלת סטטיסטיקות collection לצורך המלצות"""
 
         def _get_stats() -> Dict[str, Any]:
@@ -766,7 +1662,7 @@ class QueryProfilerService:
                 "total_index_size": stats.get("totalIndexSize", 0),
             }
 
-        return await asyncio.to_thread(_get_stats)
+        return _get_stats()
 
     def get_summary(self) -> Dict[str, Any]:
         """קבלת סיכום מצב הפרופיילר"""
@@ -792,15 +1688,6 @@ class QueryProfilerService:
             "unique_patterns": len(self._query_patterns),
             "threshold_ms": self.slow_threshold_ms,
         }
-
-    async def get_summary_async(self) -> Dict[str, Any]:
-        """
-        גרסה אסינכרונית לסיכום.
-
-        בבסיס (in-memory) אין I/O, אז אין צורך ב-to_thread.
-        מחלקות יורשות (למשל Persistent*) יכולות לדרוס כדי להימנע מחסימה על I/O סינכרוני.
-        """
-        return self.get_summary()
 
     # --- Aggregations ---
     def _fix_pipeline_for_explain(self, pipeline: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -852,11 +1739,11 @@ class QueryProfilerService:
             fixed.append(new_stage)
         return fixed
 
-    async def get_aggregation_explain(
+    def get_aggregation_explain(
         self,
         collection: str,
         pipeline: List[Dict[str, Any]],
-        verbosity: str = "queryPlanner",  # ברירת מחדל בטוחה!
+        verbosity: str = "queryPlanner",  # ברירת מחדל בטוחה: לא מריצה את הפייפליין בפועל
     ) -> AggregationExplainPlan:
         """
         קבלת explain plan לאגרגציה.
@@ -864,7 +1751,7 @@ class QueryProfilerService:
         # בדיקה אם ה-pipeline מכיל query_shape שבור מגרסה ישנה
         for stage in (pipeline or []):
             if self._is_broken_query_shape(stage):
-                raise ValueError(
+                raise BrokenQueryShapeError(
                     "Pipeline contains broken array normalization from old version. "
                     "Arrays like '<N items>' cannot be used with explain(). "
                     "Please use the original pipeline or re-record this slow query."
@@ -873,20 +1760,11 @@ class QueryProfilerService:
         # תיקון ערכי placeholder לפני שליחה ל-MongoDB
         fixed_pipeline = self._fix_pipeline_for_explain(pipeline)
 
-        def _run_explain() -> Dict[str, Any]:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                raise RuntimeError("No MongoDB database available")
-            # MongoDB command API ל-aggregate explain
-            return db.command(
-                "aggregate",
-                collection,
-                pipeline=fixed_pipeline,
-                explain=True,
-                cursor={},
-            )
-
-        explain_result = await asyncio.to_thread(_run_explain)
+        # ``aggregate`` עם ``explain: true`` אינה מקבלת ``verbosity`` כלל — רק עטיפת
+        # פקודת ``explain`` מאפשרת אותו. קודם הפרמטר התקבל כאן ונזרק בשקט.
+        explain_result = self._run_explain_command(
+            {"aggregate": collection, "pipeline": fixed_pipeline, "cursor": {}}, verbosity
+        )
         return self._parse_aggregation_explain(collection, pipeline, explain_result)
 
     def _parse_aggregation_explain(
@@ -1005,7 +1883,7 @@ class QueryProfilerService:
             normalized.append(normalized_stage)
         return normalized
 
-    async def analyze_aggregation_and_recommend(self, explain: AggregationExplainPlan) -> List[OptimizationRecommendation]:
+    def analyze_aggregation_and_recommend(self, explain: AggregationExplainPlan) -> List[OptimizationRecommendation]:
         """המלצות ספציפיות לאגרגציות"""
         recommendations: List[OptimizationRecommendation] = []
 
@@ -1086,24 +1964,29 @@ class PersistentQueryProfilerService(QueryProfilerService):
 
     COLLECTION_NAME = "slow_queries_log"
 
+    #: זמן שמירה לרשומות שאילתות איטיות, בשניות (7 ימים).
+    #: מקור אמת יחיד: ``DatabaseManager._create_profiler_indexes`` יוצר את אינדקס ה-TTL
+    #: לפי הערך הזה, ו-endpoint התחזוקה ``/api/debug/maintenance_cleanup`` משתמש באותו
+    #: ערך. אם השניים יתפצלו — כל הרצת תחזוקה תפיל ותיצור מחדש את האינדקס.
+    TTL_SECONDS = 7 * 24 * 60 * 60  # 604800
+
     def __init__(self, db_manager: Any, slow_threshold_ms: int = QueryProfilerService.DEFAULT_SLOW_THRESHOLD_MS):
         super().__init__(db_manager=db_manager, slow_threshold_ms=slow_threshold_ms)
 
-        # Cache/locks ברמת instance (לא משותף בין instances),
-        # ובנוסף מבודד פר-event-loop כדי למנוע שימוש ב-asyncio.Lock בין לופים שונים
-        # (למשל ב-Flask כשמריצים asyncio.run() שעשוי ליצור loop חדש).
-        self._summary_cache_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Dict[str, Any]]" = (
-            weakref.WeakKeyDictionary()
-        )
-        self._summary_cache_expires_at_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, datetime]" = (
-            weakref.WeakKeyDictionary()
-        )
-        self._summary_lock_by_loop: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = (
-            weakref.WeakKeyDictionary()
-        )
+        # Cache ברמת instance (לא משותף בין instances).
+        # היה כאן בעבר cache מבודד פר-event-loop (WeakKeyDictionary + asyncio.Lock), כי
+        # asyncio.Lock אינו ניתן לשיתוף בין לופים. השירות סינכרוני לגמרי, אין כאן לופים,
+        # ולכן נעילת threading פשוטה מספיקה ונכונה גם תחת gevent (שממנקי-פאטץ' אותה).
+        #
+        # **הקאש ממופתח לפי ``hours``.** קודם הוא היה ערך יחיד, וזה היה נכון
+        # כל עוד היה חלון אחד קשיח. מרגע ש-``hours`` הוא פרמטר, קאש בלי מפתח
+        # היה מחזיר לבקשה על 24 שעות תוצאה שחושבה עבור שבוע — תשובה של פרמטר
+        # אחר, בשקט מוחלט. מפתח הקאש חייב לכלול כל מה שהערך תלוי בו.
+        self._summary_cache: Dict[int, Tuple[Dict[str, Any], datetime]] = {}
+        self._summary_lock = threading.Lock()
         self._CACHE_TTL_SECONDS = 60
 
-    async def record_slow_query(
+    def record_slow_query_sync(
         self,
         collection: str,
         operation: str,
@@ -1111,11 +1994,24 @@ class PersistentQueryProfilerService(QueryProfilerService):
         execution_time_ms: float,
         client_info: Optional[Dict[str, Any]] = None,
     ) -> SlowQueryRecord:
-        record = await super().record_slow_query(collection, operation, query, execution_time_ms, client_info)
-        await self._persist_record(record)
+        """רישום שאילתה איטית, ובנוסף שמירה ב-MongoDB."""
+        record = super().record_slow_query_sync(collection, operation, query, execution_time_ms, client_info)
+        try:
+            self._persist_record(record)
+        finally:
+            # ביטול ה-cache יושב כאן, ולא בתוך ``_persist_record``, כי **שני**
+            # מסלולים משנים מצב שהסיכום נבנה ממנו: הרשומה שנוספה לזיכרון
+            # (``super()``, תמיד) והכתיבה ל-DB (רק כשיש DB). ``_persist_record``
+            # יוצאת מוקדם כשאין DB, וביטול שיושב בסופה היה מדלג בדיוק על המסלול
+            # שבו הסיכום נבנה מהזיכרון — הדשבורד היה מציג מספר ישן עד 60 שניות.
+            #
+            # ``finally`` ולא אחרי: גם כתיבה שנכשלה השאירה רשומה בזיכרון.
+            # ואחרי הכתיבה ולא לפניה: ``insert_one`` הוא נקודת yield תחת gevent,
+            # וביטול מוקדם היה מאפשר לגרינלט אחר לבנות מחדש cache בלי המסמך החדש.
+            self._invalidate_summary_cache()
         return record
 
-    async def _persist_record(self, record: SlowQueryRecord) -> None:
+    def _persist_record(self, record: SlowQueryRecord) -> None:
         doc = {
             "query_id": record.query_id,
             "collection": record.collection,
@@ -1124,18 +2020,27 @@ class PersistentQueryProfilerService(QueryProfilerService):
             "execution_time_ms": record.execution_time_ms,
             "timestamp": record.timestamp,
             "client_info": record.client_info,
+            "query_raw": record.query_raw,
+            "raw_owner_id": record.raw_owner_id,
+            "raw_withheld_reason": record.raw_withheld_reason,
         }
 
-        def _insert() -> None:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                return None
-            db[self.COLLECTION_NAME].insert_one(doc)
-            return None
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            return
 
-        await asyncio.to_thread(_insert)
+        db[self.COLLECTION_NAME].insert_one(doc)
 
-    async def get_slow_queries(
+    def _invalidate_summary_cache(self) -> None:
+        """מנקה את **כל** החלונות, לא רק את הנוכחי.
+
+        רשומה חדשה משנה את הסיכום של כל חלון שמכיל אותה — וזה כל חלון, כי
+        היא נכתבת עכשיו. ניקוי מפתח אחד היה משאיר את השאר מיושנים.
+        """
+        with self._summary_lock:
+            self._summary_cache.clear()
+
+    def get_slow_queries(
         self,
         limit: int = 50,
         collection_filter: Optional[str] = None,
@@ -1159,27 +2064,128 @@ class PersistentQueryProfilerService(QueryProfilerService):
             cursor = db[self.COLLECTION_NAME].find(query, sort=[("execution_time_ms", -1)], limit=limit_n)
             return list(cursor)
 
-        docs = await asyncio.to_thread(_fetch)
+        docs = _fetch()
+        return [self._apply_raw_read_policy(self._doc_to_record(d)) for d in docs if isinstance(d, dict)]
 
-        out: List[SlowQueryRecord] = []
-        for doc in docs:
-            if not isinstance(doc, dict):
-                continue
-            out.append(
-                SlowQueryRecord(
-                    query_id=str(doc.get("query_id") or ""),
-                    collection=str(doc.get("collection") or ""),
-                    operation=str(doc.get("operation") or ""),
-                    query_shape=doc.get("query_shape") if isinstance(doc.get("query_shape"), dict) else {},
-                    execution_time_ms=float(doc.get("execution_time_ms", 0) or 0),
-                    timestamp=doc.get("timestamp") if isinstance(doc.get("timestamp"), datetime) else datetime.utcnow(),
-                    client_info=doc.get("client_info") if isinstance(doc.get("client_info"), dict) else None,
-                )
+    @staticmethod
+    def _doc_to_record(doc: Dict[str, Any]) -> SlowQueryRecord:
+        """מסמך מונגו ← ``SlowQueryRecord``. חולץ כי גם דף וגם רשימה צריכים אותו."""
+        return SlowQueryRecord(
+            query_id=str(doc.get("query_id") or ""),
+            collection=str(doc.get("collection") or ""),
+            operation=str(doc.get("operation") or ""),
+            query_shape=doc.get("query_shape") if isinstance(doc.get("query_shape"), dict) else {},
+            execution_time_ms=float(doc.get("execution_time_ms", 0) or 0),
+            timestamp=doc.get("timestamp") if isinstance(doc.get("timestamp"), datetime) else datetime.utcnow(),
+            client_info=doc.get("client_info") if isinstance(doc.get("client_info"), dict) else None,
+            query_raw=doc.get("query_raw") if isinstance(doc.get("query_raw"), dict) else None,
+            raw_owner_id=str(doc["raw_owner_id"]) if doc.get("raw_owner_id") is not None else None,
+            raw_withheld_reason=(
+                str(doc["raw_withheld_reason"]) if doc.get("raw_withheld_reason") is not None else None
+            ),
+        )
+
+    def get_slow_queries_page(
+        self,
+        *,
+        limit: int = 50,
+        collection_filter: Optional[str] = None,
+        min_execution_time_ms: Optional[float] = None,
+        hours: int = PROFILER_WINDOW_HOURS,
+        sort_field: str = "execution_time_ms",
+        sort_direction: str = "desc",
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """דף אחד מהטבלה, עם הסך הכולל והקורסור לדף הבא.
+
+        מחזיר ``{"records": [...], "total": int, "next_cursor": str | None}``.
+
+        **``total`` נספר על חלון הזמן ומסנן ה-collection בלבד — בלי תנאי
+        הקורסור.** זו הנקודה שכל הסעיף קיים בשבילה: הפילטר של דף שני מכיל
+        ``field < v``, ולכן ספירה על "אותו פילטר" הייתה מחזירה מספר שקטן בכל
+        לחיצה — "50 מתוך 225", ואז "100 מתוך 175". הכותרת שנועדה לסגור פער
+        הייתה מייצרת פער חדש, ומטעה יותר כי הוא נראה כמו התקדמות. הספירה
+        נעשית מחדש בכל בקשה ולא נשמרת בלקוח: רשומה שנכתבת תוך כדי הדפדוף
+        אמורה להגדיל את הסך, וערך מוטמן היה מציג מספר שכבר אינו נכון.
+
+        **המיון תמיד ``(field, _id)``.** ל-``execution_time_ms`` אין אילוץ
+        ייחודיות, ועמודת מיון בלי tiebreaker בעימוד מייצרת שורות כפולות בדף
+        אחד וחסרות בבא (``bugbot-rules/pagination-tiebreaker.md``). אין היום
+        אף תיקו באוסף — נמדד — אבל זה נתון, לא הבטחה.
+
+        **``min_execution_time_ms`` מצטרף ל-``window_filter`` ולא ל-דף.** הוא
+        מצמצם את **האוכלוסייה**, בדיוק כמו ``collection_filter``, ולכן הוא
+        חייב להיספר גם ב-``total`` — אחרת "מוצגות 12 מתוך 225" חוזר לשקר, רק
+        מכיוון אחר.
+        """
+        field, direction = _sort_spec(sort_field, sort_direction)
+        window = _window_hours(hours)
+        limit_n = _page_limit(limit, 500)
+
+        # הפילטר של החלון — הבסיס לספירה, **ואליו לא מצטרף תנאי הקורסור**.
+        window_filter: Dict[str, Any] = {"timestamp": {"$gte": datetime.utcnow() - timedelta(hours=window)}}
+        if collection_filter:
+            window_filter["collection"] = collection_filter
+        if min_execution_time_ms is not None:
+            window_filter["execution_time_ms"] = {"$gte": float(min_execution_time_ms)}
+
+        # הקורסור נטבע עבור **השאילתה הזו** — המיון ומסנני האוכלוסייה כאחד.
+        population = slow_query_population_key(collection_filter, min_execution_time_ms, window)
+
+        page_filter: Dict[str, Any] = dict(window_filter)
+        if cursor:
+            last_value, last_id = decode_slow_query_cursor(cursor, field, sort_direction, population)
+            op = "$gt" if direction == 1 else "$lt"
+            page_filter["$and"] = [{
+                "$or": [
+                    {field: {op: last_value}},
+                    {"$and": [{field: {"$eq": last_value}}, {"_id": {op: last_id}}]},
+                ]
+            }]
+
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            return {"records": [], "total": 0, "next_cursor": None}
+
+        total = int(db[self.COLLECTION_NAME].count_documents(window_filter))
+        # ‏**‏``limit_n + 1`` ולא ``limit_n``.** "יש דף נוסף" נגזר מרשומה עודפת
+        # שנראתה בפועל, ולא מהניחוש "הדף מלא ולכן כנראה יש עוד". בסך שמתחלק
+        # בדיוק בגודל הדף, הניחוש היה משאיר את "טען עוד" גלוי לצד כותרת
+        # שאומרת "מוצגות 12 מתוך 12", והלחיצה הייתה מחזירה אפס שורות.
+        fetched = list(
+            db[self.COLLECTION_NAME].find(
+                page_filter, sort=[(field, direction), ("_id", direction)], limit=limit_n + 1
             )
-        return out
+        )
+        has_more = len(fetched) > limit_n
+        docs = fetched[:limit_n]
+        records = [self._apply_raw_read_policy(self._doc_to_record(d)) for d in docs if isinstance(d, dict)]
 
-    async def get_pattern_statistics(self, days: int = 7) -> List[Dict[str, Any]]:
-        since = datetime.utcnow() - timedelta(days=max(1, int(days)))
+        next_cursor = None
+        if has_more and docs and isinstance(docs[-1], dict):
+            next_cursor = encode_slow_query_cursor(docs[-1], field, sort_direction, population)
+
+        return {"records": records, "total": total, "next_cursor": next_cursor}
+
+    def get_pattern_statistics(
+        self, hours: int = PROFILER_WINDOW_HOURS, limit: int = 50
+    ) -> Dict[str, Any]:
+        """סטטיסטיקת דפוסים על אותו חלון זמן שהכרטיס והטבלה עובדים עליו.
+
+        מחזיר ``{"patterns": [...], "total": int}``.
+
+        **למה ``$facet`` ולא ``$limit`` לבדו.** הפייפליין הקודם הסתיים ב-
+        ``$limit: 50`` בלי שום ספירה, ולכן הקוד קיבל 50 שורות ו**לא ידע כמה
+        דפוסים באמת יש** — כלומר "מוצגות 50 מתוך N" לא היה ניתן לכתיבה, וכל
+        חיתוך היה נעלם בשקט. ה-``$facet`` מחזיר את שני הדברים בסיבוב אחד,
+        ולכן אותה הבטחה בדיוק תקפה כאן וגם בטבלת השאילתות.
+
+        **החלון בשעות ולא בימים.** קודם ברירת המחדל כאן הייתה שבעה ימים בזמן
+        שהכרטיס סופר 24 שעות — שני מספרים על שתי אוכלוסיות, על אותו מסך.
+        """
+        window = _window_hours(hours)
+        limit_n = _page_limit(limit, 200)
+        since = datetime.utcnow() - timedelta(hours=window)
         pipeline = [
             {"$match": {"timestamp": {"$gte": since}}},
             {
@@ -1193,109 +2199,154 @@ class PersistentQueryProfilerService(QueryProfilerService):
                     "query_shape": {"$first": "$query_shape"},
                 }
             },
-            {"$sort": {"count": -1}},
-            {"$limit": 50},
+            {
+                "$facet": {
+                    "patterns": [{"$sort": {"count": -1, "_id": -1}}, {"$limit": limit_n}],
+                    "total": [{"$count": "n"}],
+                }
+            },
         ]
 
-        def _aggregate() -> List[Dict[str, Any]]:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                return []
-            return list(db[self.COLLECTION_NAME].aggregate(pipeline))
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            return {"patterns": [], "total": 0}
 
-        return await asyncio.to_thread(_aggregate)
+        result = list(db[self.COLLECTION_NAME].aggregate(pipeline))
+        doc = result[0] if result and isinstance(result[0], dict) else {}
+        patterns = doc.get("patterns") if isinstance(doc.get("patterns"), list) else []
+        total_branch = doc.get("total") if isinstance(doc.get("total"), list) else []
+        total = int(total_branch[0].get("n", 0)) if total_branch and isinstance(total_branch[0], dict) else 0
+        return {"patterns": patterns, "total": total}
 
-    async def get_summary_async(self) -> Dict[str, Any]:
+    def _empty_summary(self) -> Dict[str, Any]:
+        """הסיכום כשאין מה לסכם — **חוזה אחד לשני המסלולים**.
+
+        ``_calculate_summary_sync`` (מול ה-DB) ו-``_summary_from_buffer``
+        (מהזיכרון) חייבים להחזיר את אותה צורה, אחרת הדשבורד מקבל שדה חסר
+        בדיוק במסלול הנדיר — כלומר בכשל שקורה כשה-DB נפל. שני עותקים של
+        אותו מילון הם בדיוק המקום שבו סחיפה כזו נולדת.
         """
-        סיכום אסינכרוני שלא חוסם את ה-Event Loop:
-        - Cache קצר (TTL) כדי לא להעמיס על ה-DB
-        - חישוב כבד ב-thread (asyncio.to_thread)
+        return {
+            "total_slow_queries": 0,
+            "collections_affected": [],
+            "avg_execution_time_ms": 0,
+            "max_execution_time_ms": 0,
+            "unique_patterns": 0,
+            "threshold_ms": self.slow_threshold_ms,
+        }
+
+    def _summary_from_buffer(self, hours: Any) -> Dict[str, Any]:
+        """סיכום מהזיכרון — **על אותו חלון** שהטבלה והדפוסים עובדים עליו.
+
+        זהו הפולבאק של שני מסלולים: ``db is None`` (אין מונגו מוגדר בכלל)
+        ונפילת DB תוך כדי חישוב. שניהם קראו קודם ל-``super().get_summary()``,
+        שסופר את **כל** ה-buffer בלי חלון ומחזיר ``unique_patterns`` של כל
+        הדפוסים מאז עליית התהליך.
+
+        למה זה חשוב דווקא כאן: כל הסעיף של החלון המשותף נבנה כדי ששלושת
+        המספרים על המסך יספרו את אותה אוכלוסייה. פולבאק בלי חלון מחזיר בדיוק
+        את הפער שנסגר — ועושה זאת ברגע שבו קשה לשים לב, כי ה-DB נפל.
+
+        ``unique_patterns`` נספר כמספר ה-``query_id`` הייחודיים **ברשומות
+        שבחלון**, כלומר אותה סמנטיקה בדיוק של ``$addToSet: "$query_id"``
+        ב-``_calculate_summary_sync``. שני המסלולים סופרים את אותו דבר.
         """
+        since = datetime.utcnow() - timedelta(hours=_window_hours(hours))
+        queries = [
+            q for q in list(self._slow_queries)
+            if isinstance(getattr(q, "timestamp", None), datetime) and q.timestamp >= since
+        ]
+        if not queries:
+            return self._empty_summary()
+
+        return {
+            "total_slow_queries": len(queries),
+            "collections_affected": list({q.collection for q in queries}),
+            "avg_execution_time_ms": round(sum(q.execution_time_ms for q in queries) / len(queries), 2),
+            "max_execution_time_ms": round(max(q.execution_time_ms for q in queries), 2),
+            "unique_patterns": len({q.query_id for q in queries}),
+            "threshold_ms": self.slow_threshold_ms,
+        }
+
+    def get_summary(self, hours: int = PROFILER_WINDOW_HOURS) -> Dict[str, Any]:
+        """
+        סיכום מצב הפרופיילר על חלון של ``hours`` שעות, עם Cache קצר (TTL).
+
+        **הקאש ממופתח לפי ``hours``.** קודם הוא היה ערך יחיד, מה שהיה נכון כל
+        עוד החלון היה קשיח; עכשיו בקשה על חלון אחד לעולם אינה מקבלת תוצאה
+        שחושבה עבור אחר.
+
+        שינוי התנהגות מכוון (PR של הסרת שכבת ה-asyncio): בעבר ``get_summary`` היה
+        ללא cache ורק ``get_summary_async`` היה ממוטמן. שתי המתודות אוחדו לאחת
+        ממוטמנת — זו ההתנהגות שכל הקוראים בפועל כבר קיבלו.
+        """
+        window = _window_hours(hours)
         now = datetime.utcnow()
-        loop = asyncio.get_running_loop()
 
-        cached = self._summary_cache_by_loop.get(loop)
-        expires_at = self._summary_cache_expires_at_by_loop.get(loop)
-        if cached is not None and expires_at is not None and expires_at > now:
-            return cached
+        entry = self._summary_cache.get(window)
+        if entry is not None and entry[1] > now:
+            return entry[0]
 
-        lock = self._summary_lock_by_loop.get(loop)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._summary_lock_by_loop[loop] = lock
-
-        async with lock:
+        with self._summary_lock:
             # Double-check בתוך הנעילה כדי למנוע cache stampede
             now = datetime.utcnow()
-            cached = self._summary_cache_by_loop.get(loop)
-            expires_at = self._summary_cache_expires_at_by_loop.get(loop)
-            if cached is not None and expires_at is not None and expires_at > now:
-                return cached
+            entry = self._summary_cache.get(window)
+            if entry is not None and entry[1] > now:
+                return entry[0]
 
             try:
-                result = await asyncio.to_thread(self._calculate_summary_sync)
+                result = self._calculate_summary_sync(window)
             except Exception as e:
                 logger.error("Error calculating profiler summary", exc_info=True, extra={"error": str(e)})
-                return super().get_summary()
+                return self._summary_from_buffer(window)
 
-            self._summary_cache_by_loop[loop] = result
-            self._summary_cache_expires_at_by_loop[loop] = now + timedelta(seconds=self._CACHE_TTL_SECONDS)
+            self._summary_cache[window] = (result, now + timedelta(seconds=self._CACHE_TTL_SECONDS))
             return result
 
-    def _calculate_summary_sync(self) -> Dict[str, Any]:
-        """חישוב סינכרוני (רץ ב-thread דרך asyncio.to_thread) – כולל כל הלוגיקה המלאה."""
-        try:
-            db = getattr(self.db_manager, "db", None)
-            if db is None:
-                return super().get_summary()
-            # חישוב lightweight על חלון קצר (24h) כדי להימנע מעומס
-            since = datetime.utcnow() - timedelta(hours=24)
-            query = {"timestamp": {"$gte": since}}
-            total = int(db[self.COLLECTION_NAME].count_documents(query))
-            if total <= 0:
-                return {
-                    "total_slow_queries": 0,
-                    "collections_affected": [],
-                    "avg_execution_time_ms": 0,
-                    "max_execution_time_ms": 0,
-                    "unique_patterns": 0,
-                    "threshold_ms": self.slow_threshold_ms,
-                }
-            agg = list(
-                db[self.COLLECTION_NAME].aggregate(
-                    [
-                        {"$match": query},
-                        {
-                            "$group": {
-                                "_id": None,
-                                "avg_ms": {"$avg": "$execution_time_ms"},
-                                "max_ms": {"$max": "$execution_time_ms"},
-                                "collections": {"$addToSet": "$collection"},
-                                "unique_patterns": {"$addToSet": "$query_id"},
-                            }
-                        },
-                    ]
-                )
+    def _calculate_summary_sync(self, hours: int = PROFILER_WINDOW_HOURS) -> Dict[str, Any]:
+        """חישוב הסיכום מול ה-DB – כולל כל הלוגיקה המלאה. נקרא מתוך get_summary עם cache.
+
+        חריגות DB **עולות למעלה בכוונה**. ``get_summary`` תופסת אותן, כותבת
+        ``logger.error`` ואז נופלת חזרה לסיכום ה-in-memory. קודם לכן ה-try/except כאן
+        בלע את החריגה והחזיר את הפולבאק בשקט — כך שנפילת DB נראתה בדיוק כמו אוסף ריק,
+        ואף שורת לוג לא נכתבה. הפולבאק היחיד שנשאר כאן הוא ``db is None``, שאינו תקלה.
+        """
+        db = getattr(self.db_manager, "db", None)
+        if db is None:
+            return self._summary_from_buffer(hours)
+
+        # חישוב lightweight על חלון קצר כדי להימנע מעומס. החלון מגיע מהקורא
+        # ולא נקבע כאן, כי אותו חלון בדיוק משרת גם את הטבלה וגם את הדפוסים —
+        # אחרת "מוצגות X מתוך Y" סופר שתי אוכלוסיות שונות.
+        since = datetime.utcnow() - timedelta(hours=_window_hours(hours))
+        query = {"timestamp": {"$gte": since}}
+        total = int(db[self.COLLECTION_NAME].count_documents(query))
+        if total <= 0:
+            return self._empty_summary()
+        agg = list(
+            db[self.COLLECTION_NAME].aggregate(
+                [
+                    {"$match": query},
+                    {
+                        "$group": {
+                            "_id": None,
+                            "avg_ms": {"$avg": "$execution_time_ms"},
+                            "max_ms": {"$max": "$execution_time_ms"},
+                            "collections": {"$addToSet": "$collection"},
+                            "unique_patterns": {"$addToSet": "$query_id"},
+                        }
+                    },
+                ]
             )
-            doc = agg[0] if agg else {}
-            collections = doc.get("collections") if isinstance(doc.get("collections"), list) else []
-            patterns = doc.get("unique_patterns") if isinstance(doc.get("unique_patterns"), list) else []
-            return {
-                "total_slow_queries": total,
-                "collections_affected": collections,
-                "avg_execution_time_ms": round(float(doc.get("avg_ms", 0) or 0), 2),
-                "max_execution_time_ms": round(float(doc.get("max_ms", 0) or 0), 2),
-                "unique_patterns": len(patterns),
-                "threshold_ms": self.slow_threshold_ms,
-            }
-        except Exception:
-            return super().get_summary()
-
-    def get_summary(self) -> Dict[str, Any]:
-        """
-        תאימות לאחור (סינכרוני).
-
-        ⚠️ חשוב: בשרת אסינכרוני, עדיף לקרוא ל-get_summary_async() כדי לא לחסום את ה-Event Loop.
-        """
-        return self._calculate_summary_sync()
-
+        )
+        doc = agg[0] if agg else {}
+        collections = doc.get("collections") if isinstance(doc.get("collections"), list) else []
+        patterns = doc.get("unique_patterns") if isinstance(doc.get("unique_patterns"), list) else []
+        return {
+            "total_slow_queries": total,
+            "collections_affected": collections,
+            "avg_execution_time_ms": round(float(doc.get("avg_ms", 0) or 0), 2),
+            "max_execution_time_ms": round(float(doc.get("max_ms", 0) or 0), 2),
+            "unique_patterns": len(patterns),
+            "threshold_ms": self.slow_threshold_ms,
+        }

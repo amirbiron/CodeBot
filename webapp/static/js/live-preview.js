@@ -805,7 +805,9 @@
       if (!this.previewMeta) return;
       const language = meta.language || '';
       const duration = typeof meta.duration_ms === 'number' ? `${meta.duration_ms}ms` : '';
-      const size = typeof meta.bytes === 'number' ? `${(meta.bytes / 1024).toFixed(1)}KB` : '';
+      // המימוש הקודם חילק ב-1024 פעם אחת והציג תמיד KB, ולכן קובץ של 582
+      // בתים הופיע כ-"0.6KB" ושל 3.5 מגה כ-"3584KB".
+      const size = typeof meta.bytes === 'number' ? window.SizeFormat.formatFileSize(meta.bytes) : '';
       this.previewMeta.textContent = [language, size, duration].filter(Boolean).join(' • ');
     }
 

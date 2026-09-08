@@ -1,7 +1,13 @@
+import inspect
+import json
+
 import pytest
 from datetime import datetime
 from unittest.mock import MagicMock
 
+from bson import ObjectId
+
+import services.query_profiler_service as mod
 from services.query_profiler_service import (
     QueryProfilerService,
     PersistentQueryProfilerService,
@@ -31,10 +37,9 @@ def profiler_service(mock_db_manager):
 class TestQueryProfilerService:
     """בדיקות לשירות הפרופיילר"""
 
-    @pytest.mark.asyncio
-    async def test_record_slow_query(self, profiler_service):
+    def test_record_slow_query(self, profiler_service):
         """בדיקת רישום שאילתה איטית"""
-        record = await profiler_service.record_slow_query(
+        record = profiler_service.record_slow_query_sync(
             collection="test_collection",
             operation="find",
             query={"user_id": "123"},
@@ -46,39 +51,39 @@ class TestQueryProfilerService:
         assert record.execution_time_ms == 250.5
         assert record.query_id is not None
 
-    @pytest.mark.asyncio
-    async def test_get_slow_queries_with_filter(self, profiler_service):
+    def test_get_slow_queries_with_filter(self, profiler_service):
         """בדיקת קבלת שאילתות עם סינון"""
-        await profiler_service.record_slow_query(
+        profiler_service.record_slow_query_sync(
             collection="users",
             operation="find",
             query={"name": "test"},
             execution_time_ms=200,
         )
-        await profiler_service.record_slow_query(
+        profiler_service.record_slow_query_sync(
             collection="snippets",
             operation="find",
             query={"code": "test"},
             execution_time_ms=300,
         )
 
-        queries = await profiler_service.get_slow_queries(collection_filter="users")
+        queries = profiler_service.get_slow_queries(collection_filter="users")
 
         assert len(queries) == 1
         assert queries[0].collection == "users"
 
-    @pytest.mark.asyncio
-    async def test_get_summary_async_matches_get_summary(self, profiler_service):
-        """בדיקה ש-get_summary_async קיים ומחזיר את אותו סיכום כמו get_summary."""
-        await profiler_service.record_slow_query(
+    def test_get_summary_is_sync_and_stable(self, profiler_service):
+        """get_summary סינכרוני ומחזיר את אותו סיכום בקריאות חוזרות.
+
+        בעבר היו שתי מתודות (get_summary + get_summary_async); הן אוחדו לאחת סינכרונית.
+        """
+        profiler_service.record_slow_query_sync(
             collection="users",
             operation="find",
             query={"name": "test"},
             execution_time_ms=200,
         )
-        sync_summary = profiler_service.get_summary()
-        async_summary = await profiler_service.get_summary_async()
-        assert async_summary == sync_summary
+        assert not inspect.iscoroutinefunction(profiler_service.get_summary)
+        assert profiler_service.get_summary() == profiler_service.get_summary()
 
     @pytest.mark.asyncio
     async def test_normalize_query_shape(self, profiler_service):
@@ -173,12 +178,11 @@ class TestQueryProfilerService:
         broken_large = {"status": {"$in": ["<100 items>"]}}
         assert profiler_service._is_broken_query_shape(broken_large) is True
 
-    @pytest.mark.asyncio
-    async def test_get_explain_plan_rejects_broken_query_shape(self, profiler_service):
+    def test_get_explain_plan_rejects_broken_query_shape(self, profiler_service):
         """בדיקה שget_explain_plan דוחה query_shapes שבורים."""
         broken_query = {"$expr": {"$eq": ["<2 items>"]}}
         with pytest.raises(ValueError, match="broken array normalization"):
-            await profiler_service.get_explain_plan(
+            profiler_service.get_explain_plan(
                 collection="test",
                 query=broken_query,
             )
@@ -246,7 +250,7 @@ class TestOptimizationRecommendations:
             ),
         )
 
-        recommendations = await profiler_service.analyze_and_recommend(explain_plan)
+        recommendations = profiler_service.analyze_and_recommend(explain_plan)
         collscan_rec = next((r for r in recommendations if "COLLSCAN" in r.title), None)
         assert collscan_rec is not None
         assert collscan_rec.severity == SeverityLevel.CRITICAL
@@ -267,9 +271,53 @@ class TestOptimizationRecommendations:
             ),
         )
 
-        recommendations = await profiler_service.analyze_and_recommend(explain_plan)
+        recommendations = profiler_service.analyze_and_recommend(explain_plan)
         efficiency_rec = next((r for r in recommendations if "יעילות" in r.title), None)
         assert efficiency_rec is not None
+
+
+    def _indexed_fetch_plan(self, *, docs_returned: int, docs_examined: int) -> ExplainPlan:
+        """שאילתה שעברה דרך אינדקס ואז FETCH — המועמדת הקלאסית ל-Covered Query."""
+        return ExplainPlan(
+            query_id="test789",
+            collection="test_collection",
+            query_shape={"user_id": "<value>"},
+            winning_plan=ExplainStage(stage=QueryStage.FETCH, input_stage=ExplainStage(stage=QueryStage.IXSCAN)),
+            stats=QueryStats(
+                execution_time_ms=3,
+                docs_examined=docs_examined,
+                docs_returned=docs_returned,
+                keys_examined=docs_examined,
+                index_used="user_id_1",
+            ),
+        )
+
+    def test_no_covered_query_recommendation_when_nothing_was_returned(self, profiler_service):
+        """אפס תוצאות אינו "אפשרות ל-Covered Query".
+
+        ההמלצה אומרת "הוסף את שדות ה-projection לאינדקס" — וזה עוזר רק
+        למסמכים שמוחזרים. שאילתה שלא החזירה כלום (השלד ``<value>`` של
+        כפתור הניתוח, למשל) אינה יכולה להרוויח מזה, וההמלצה עליה שגויה.
+        ``_is_covered_query`` דורשת ``n_returned > 0`` כדי להכריז covered,
+        ולכן בלי התנאי המקביל כאן כל תוצאה ריקה עם אינדקס נורית.
+        """
+        recommendations = profiler_service.analyze_and_recommend(
+            self._indexed_fetch_plan(docs_returned=0, docs_examined=0)
+        )
+        covered = [r for r in recommendations if "Covered" in r.title]
+        assert covered == [], f"המלצת Covered Query על תוצאה ריקה: {covered!r}"
+
+    def test_covered_query_recommendation_still_fires_when_documents_were_fetched(self, profiler_service):
+        """המקרה האמיתי — אינדקס, FETCH, ותוצאות — עדיין מקבל את ההמלצה.
+
+        שומר שהתיקון לא מחק את ההמלצה לגמרי.
+        """
+        recommendations = profiler_service.analyze_and_recommend(
+            self._indexed_fetch_plan(docs_returned=5, docs_examined=5)
+        )
+        covered = next((r for r in recommendations if "Covered" in r.title), None)
+        assert covered is not None, "ההמלצה נעלמה גם כשיש מסמכים שהוחזרו"
+        assert covered.severity == SeverityLevel.INFO
 
 
 class TestExplainPlanParsing:
@@ -310,21 +358,702 @@ class TestRateLimiting:
         assert limiter.is_allowed("client2") is True
 
 
-class TestPersistentQueryProfilerServiceSummaryAsync:
-    @pytest.mark.asyncio
-    async def test_get_summary_async_uses_cache(self, mock_db_manager, monkeypatch):
-        """ודא ש-Persistent get_summary_async עושה caching כדי לא להעמיס על DB."""
+class TestPersistentQueryProfilerServiceSummary:
+    def test_get_summary_uses_cache(self, mock_db_manager, monkeypatch):
+        """ודא ש-Persistent get_summary עושה caching כדי לא להעמיס על DB."""
         svc = PersistentQueryProfilerService(db_manager=mock_db_manager, slow_threshold_ms=100)
         calls = {"n": 0}
 
         monkeypatch.setattr(
             svc,
             "_calculate_summary_sync",
-            lambda: {"total_slow_queries": calls.__setitem__("n", calls["n"] + 1) or calls["n"]},
+            lambda hours=None: {"total_slow_queries": calls.__setitem__("n", calls["n"] + 1) or calls["n"]},
         )
 
-        r1 = await svc.get_summary_async()
-        r2 = await svc.get_summary_async()
+        r1 = svc.get_summary()
+        r2 = svc.get_summary()
         assert calls["n"] == 1
         assert r1 == r2
 
+    def test_a_new_record_invalidates_the_cache_even_without_a_db(self, monkeypatch):
+        """ביטול ה-cache חייב לכסות גם את המסלול שאין בו DB.
+
+        כשאין DB, ``_persist_record`` יוצאת מוקדם ואין כתיבה — אבל הרשומה כן
+        נוספה לזיכרון, והסיכום במסלול הזה נבנה בדיוק מהזיכרון. אם הביטול יושב
+        בסוף ``_persist_record``, הוא מדולג, והדשבורד מציג מספר ישן עד 60 שניות.
+        """
+        manager = MagicMock()
+        manager.db = None  # אין DB — מסלול ה-fallback לזיכרון
+        svc = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+
+        calls = {"n": 0}
+
+        def _calc(hours=None):
+            calls["n"] += 1
+            return {"total_slow_queries": calls["n"]}
+
+        monkeypatch.setattr(svc, "_calculate_summary_sync", _calc)
+
+        assert svc.get_summary()["total_slow_queries"] == 1
+        assert svc.get_summary()["total_slow_queries"] == 1, "ה-cache אמור לתפוס"
+
+        svc.record_slow_query_sync(
+            collection="code_snippets",
+            operation="find",
+            query={"user_id": 1},
+            execution_time_ms=1500.0,
+        )
+
+        assert svc.get_summary()["total_slow_queries"] == 2, (
+            "רשומה חדשה בזיכרון לא ביטלה את ה-cache"
+        )
+
+    def test_a_failed_db_write_still_invalidates_the_cache(self, monkeypatch):
+        """גם כתיבה שנכשלה השאירה רשומה בזיכרון, אז ה-cache חייב להתבטל."""
+        manager = MagicMock()
+        svc = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+
+        calls = {"n": 0}
+
+        def _calc(hours=None):
+            calls["n"] += 1
+            return {"total_slow_queries": calls["n"]}
+
+        monkeypatch.setattr(svc, "_calculate_summary_sync", _calc)
+        monkeypatch.setattr(
+            svc,
+            "_persist_record",
+            lambda record: (_ for _ in ()).throw(RuntimeError("mongo down")),
+        )
+
+        assert svc.get_summary()["total_slow_queries"] == 1
+
+        with pytest.raises(RuntimeError):
+            svc.record_slow_query_sync(
+                collection="code_snippets",
+                operation="find",
+                query={"user_id": 1},
+                execution_time_ms=1500.0,
+            )
+
+        assert svc.get_summary()["total_slow_queries"] == 2, (
+            "כתיבה שנכשלה השאירה רשומה בזיכרון אבל ה-cache נשאר ישן"
+        )
+
+
+# ---------------------------------------------------------------------------
+# החרגה מהצנזור: שאילתות שזוהו בוודאות כשל משתמש מורשה נשמרות עם הערכים
+# האמיתיים (``query_raw``) לצד השלד המנורמל (``query_shape``).
+#
+# כל טסט כאן עובר דרך הדלת של הצרכן: ``record_slow_query_sync`` ואז
+# ``get_slow_queries`` — כלומר מה שנכתב נבדק בקריאה חוזרת, לא בערך ההחזרה.
+# ---------------------------------------------------------------------------
+
+ME = 6865105071
+SOMEONE_ELSE = 424242
+
+
+class _FakeCollection:
+    """אוסף מונגו מקרטון: זוכר מה הוכנס, ומחזיר אותו ב-``find``."""
+
+    def __init__(self):
+        self.docs = []
+
+    def insert_one(self, doc):
+        self.docs.append(dict(doc))
+        return MagicMock(inserted_id=len(self.docs))
+
+    def find(self, query=None, sort=None, limit=None):
+        docs = list(self.docs)
+        return docs[: limit] if limit else docs
+
+
+class _FakeDB:
+    def __init__(self):
+        self.collections = {}
+
+    def __getitem__(self, name):
+        return self.collections.setdefault(name, _FakeCollection())
+
+
+@pytest.fixture
+def raw_values_service(monkeypatch):
+    monkeypatch.setenv("PROFILER_UNREDACTED_USER_IDS", str(ME))
+    monkeypatch.delenv("PROFILER_UNREDACTED_MAX_BYTES", raising=False)
+    manager = MagicMock()
+    manager.db = _FakeDB()
+    return PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+
+
+MY_QUERY = {"user_id": ME, "$and": [{"is_active": True}], "programming_language": "python"}
+
+
+def _record_and_read_back(svc, query, operation="find", collection="code_snippets"):
+    svc.record_slow_query_sync(collection=collection, operation=operation, query=query, execution_time_ms=1500.0)
+    rows = svc.get_slow_queries()
+    assert len(rows) == 1
+    return rows[0]
+
+
+class TestUnredactedQueryValues:
+    def test_own_query_with_known_keys_keeps_real_values_and_a_normalized_shape(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, MY_QUERY)
+
+        assert row.query_raw == MY_QUERY
+        assert row.raw_withheld_reason is None
+        assert row.query_shape == {
+            "user_id": "<value>",
+            "$and": [{"is_active": "<value>"}],
+            "programming_language": "<value>",
+        }, "השלד חייב להישאר מנורמל גם כשהערכים נשמרים — הוא מזהה הדפוס"
+
+    def test_another_users_query_never_keeps_values(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, {"user_id": SOMEONE_ELSE, "is_active": True})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_mismatch"
+
+    def test_an_or_that_mixes_me_and_someone_else_is_rejected(self, raw_values_service):
+        row = _record_and_read_back(
+            raw_values_service, {"$or": [{"user_id": ME}, {"user_id": SOMEONE_ELSE}], "is_active": True}
+        )
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_mismatch"
+
+    def test_a_query_that_asserts_no_owner_is_rejected(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, {"$or": [{"user_id": ME}, {"is_active": True}]})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_missing", "$or אינו מגביל את השאילתה לבעלים"
+
+    def test_an_unknown_key_withholds_values_and_names_the_key(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, "owner_id": SOMEONE_ELSE})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "unknown_field:owner_id"
+
+    def test_an_unknown_operator_withholds_values_and_names_it(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, "tags": {"$where": "this.x"}})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "unknown_operator:$where"
+
+    def test_own_aggregate_pipeline_keeps_values(self, raw_values_service):
+        pipeline = [
+            {"$match": {"user_id": ME, "$and": [{"is_active": True}], "file_name": {"$in": ["a.py", "b.py"]}}},
+            {"$sort": {"file_name": 1, "version": -1}},
+            {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+            {"$limit": 21},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.raw_withheld_reason is None
+        # ערכים אמיתיים ב-``$match`` — זה מה שקובע את ה-explain
+        assert row.query_raw["pipeline"][0]["$match"] == pipeline[0]["$match"]
+        # ``$sort``/``$limit`` הם מבנה — נשמרים אמיתיים אחרי ולידציה צרה
+        assert row.query_raw["pipeline"][1] == {"$sort": {"file_name": 1, "version": -1}}
+        assert row.query_raw["pipeline"][3] == {"$limit": 21}
+
+    def test_vector_search_is_never_kept(self, raw_values_service):
+        pipeline = [
+            {"$vectorSearch": {"index": "idx", "path": "snippetEmbedding", "queryVector": [0.1] * 768,
+                               "filter": {"user_id": ME}, "limit": 10, "numCandidates": 100}},
+            {"$match": {"user_id": ME}},
+        ]
+        row = _record_and_read_back(
+            raw_values_service, {"pipeline": pipeline}, operation="aggregate", collection="snippet_chunks"
+        )
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "vector_query"
+
+    def test_a_query_over_the_size_cap_is_withheld(self, raw_values_service, monkeypatch):
+        monkeypatch.setenv("PROFILER_UNREDACTED_MAX_BYTES", "64")
+        row = _record_and_read_back(
+            raw_values_service, {"user_id": ME, "file_name": {"$in": [f"file-{i}.py" for i in range(40)]}}
+        )
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "too_large"
+
+    def test_query_id_is_unchanged_by_the_exemption(self, monkeypatch):
+        manager = MagicMock()
+        manager.db = _FakeDB()
+        monkeypatch.delenv("PROFILER_UNREDACTED_USER_IDS", raising=False)
+        without = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+        before = _record_and_read_back(without, MY_QUERY)
+
+        monkeypatch.setenv("PROFILER_UNREDACTED_USER_IDS", str(ME))
+        manager.db = _FakeDB()
+        with_exemption = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+        after = _record_and_read_back(with_exemption, MY_QUERY)
+
+        assert before.query_raw is None and after.query_raw == MY_QUERY
+        assert before.query_id == after.query_id, "קיבוץ הדפוסים נשען על query_id — הוא לא יכול לזוז"
+
+    def test_query_id_is_identical_on_a_withheld_record(self, raw_values_service):
+        query = {"user_id": ME, "owner_id": SOMEONE_ELSE}
+        row = _record_and_read_back(raw_values_service, query)
+
+        assert row.raw_withheld_reason is not None
+        expected = raw_values_service._generate_query_id(
+            "code_snippets", raw_values_service._normalize_query_shape(query)
+        )
+        assert row.query_id == expected
+
+    def test_an_empty_allowlist_changes_nothing(self, monkeypatch):
+        monkeypatch.delenv("PROFILER_UNREDACTED_USER_IDS", raising=False)
+        manager = MagicMock()
+        manager.db = _FakeDB()
+        svc = PersistentQueryProfilerService(db_manager=manager, slow_threshold_ms=100)
+
+        row = _record_and_read_back(svc, MY_QUERY)
+        stored = manager.db["slow_queries_log"].docs[0]
+
+        assert row.query_raw is None and row.raw_withheld_reason is None
+        assert stored["query_shape"] == row.query_shape
+        assert "python" not in repr(stored), "בלי רשימה — שום ערך אמיתי לא נכתב"
+
+    def test_values_recorded_earlier_are_hidden_once_the_user_leaves_the_allowlist(
+        self, raw_values_service, monkeypatch
+    ):
+        raw_values_service.record_slow_query_sync(
+            collection="code_snippets", operation="find", query=MY_QUERY, execution_time_ms=1500.0
+        )
+        assert raw_values_service.get_slow_queries()[0].query_raw == MY_QUERY
+
+        monkeypatch.setenv("PROFILER_UNREDACTED_USER_IDS", "")
+        row = raw_values_service.get_slow_queries()[0]
+
+        assert row.query_raw is None, "הקונפיג הוא הסמכות הנוכחית, גם על רשומות שכבר נכתבו"
+        assert row.raw_withheld_reason == "owner_not_allowed_now"
+
+    def test_the_log_event_carries_only_the_shape(self, raw_values_service, monkeypatch):
+        import services.query_profiler_service as mod
+
+        captured = []
+        monkeypatch.setattr(mod, "emit_event", lambda *a, **kw: captured.append((a, kw)))
+
+        raw_values_service.record_slow_query_sync(
+            collection="code_snippets", operation="find", query=MY_QUERY, execution_time_ms=1500.0
+        )
+
+        events = [kw for a, kw in captured if a and a[0] == "slow_query_detected"]
+        assert len(events) == 1
+        assert events[0]["query_shape"] == {
+            "user_id": "<value>", "$and": [{"is_active": "<value>"}], "programming_language": "<value>",
+        }
+        assert "query_raw" not in events[0]
+        assert "python" not in repr(events[0]), "הערכים האמיתיים נשארים ב-DB; הלוג עוזב לספק"
+
+    def test_explain_built_from_real_values_reports_the_skeleton(self, raw_values_service, monkeypatch):
+        """הצרכן של הדוח: ``query_shape`` בתשובת ה-explain מנורמל, גם כשהקלט גולמי."""
+        monkeypatch.setattr(
+            raw_values_service, "_run_explain_command",
+            lambda cmd, verbosity: {"queryPlanner": {"winningPlan": {"stage": "COLLSCAN"}}},
+        )
+
+        plan = raw_values_service.get_explain_plan("code_snippets", MY_QUERY)
+        agg = raw_values_service.get_aggregation_explain(
+            "code_snippets", [{"$match": MY_QUERY}, {"$limit": 5}]
+        )
+
+        assert plan.query_shape["programming_language"] == "<value>"
+        assert "python" not in repr(plan.query_shape)
+        assert agg.pipeline_shape[0]["$match"]["programming_language"] == "<value>"
+        assert "python" not in repr(agg.pipeline_shape)
+
+
+class TestUnredactedQueryValuesReviewRound:
+    """סבב הריוויו על ההחרגה: ארבעה ממצאים שאומתו מול הקוד ומול פרודקשן."""
+
+    @pytest.mark.parametrize("foreign_stage", [
+        {"$set": {"shared_from": {"user_id": SOMEONE_ELSE}}},
+        {"$addFields": {"other": SOMEONE_ELSE}},
+        {"$lookup": {"from": "users", "let": {"uid": {"user_id": SOMEONE_ELSE}},
+                     "pipeline": [{"$match": {"is_active": True}}], "as": "u"}},
+    ])
+    def test_a_foreign_id_outside_a_filter_never_reaches_the_record(
+        self, raw_values_service, foreign_stage
+    ):
+        """מזהה זר בשלב שאינו סינון לא נשמר — כי השלב מנורמל, לא כי נסרק.
+
+        הסריקה עוברת על מיקומי סינון בלבד (ראו ``_decide_raw_query``), ומה
+        שמחזיק כאן הוא שכל שלב שאינו ``$match`` נשמר בשלד המנורמל. זו ההגנה
+        האמיתית: היא מבנית, ולא תלויה בכך שהסורק יזכור להסתכל בעוד מקום.
+        """
+        pipeline = [{"$match": {"user_id": ME, "is_active": True}}, foreign_stage]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is not None, "שאילתה חוקית — אין סיבה לדחות"
+        assert str(SOMEONE_ELSE) not in json.dumps(row.query_raw, ensure_ascii=False)
+
+    def test_only_match_values_are_real_and_every_other_stage_stays_a_skeleton(self, raw_values_service):
+        """מה שנשמר עבר ולידציה מלאה — ולכן רק ``$match``.
+
+        ``$addFields`` נושא ביטויים וקבועים שאיש לא אימת מולם רשימת שדות. לכן
+        הערכים האמיתיים נשמרים רק בשלבי ה-``$match``, ושאר השלבים נשארים
+        בשלד המנורמל. ה-explain עדיין אמיתי, כי מה שקובע אותו הוא הסינון.
+        """
+        pipeline = [
+            {"$match": {"user_id": ME, "programming_language": "python"}},
+            {"$addFields": {"note": "טקסט חופשי שלא עבר ולידציה"}},
+            {"$limit": 21},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is not None, "השאילתה חוקית — הערכים אמורים להישמר"
+        stages = row.query_raw["pipeline"]
+        assert stages[0]["$match"] == {"user_id": ME, "programming_language": "python"}
+        assert stages[1]["$addFields"]["note"] == "<value>", (
+            "ערך שלא עבר ולידציה חייב להישאר מנורמל בשלד"
+        )
+        assert "טקסט חופשי" not in json.dumps(row.query_raw, ensure_ascii=False)
+
+    def test_a_nested_match_inside_lookup_keeps_its_real_values(self, raw_values_service):
+        pipeline = [
+            {"$match": {"user_id": ME}},
+            {"$lookup": {"from": "code_snippets", "as": "doc", "pipeline": [
+                {"$match": {"file_name": "app.py"}},
+            ]}},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is not None
+        inner = row.query_raw["pipeline"][1]["$lookup"]["pipeline"][0]["$match"]
+        assert inner == {"file_name": "app.py"}
+
+    def test_an_object_id_is_kept_as_an_object_id(self, raw_values_service):
+        """``ObjectId`` נשמר כטיפוס שלו — לא כמחרוזת, ולא כדחייה.
+
+        ההיסטוריה של השורה הזו היא כל הסיפור: קודם ``_json_safe`` המיר אותו
+        ל-``str``, וה-explain רץ על מחרוזת, החזיר אפס תוצאות, ואיש לא ידע.
+        אחר כך הוא נדחה בכנות (``unsupported_type:ObjectId``), כי ל-JSON רגיל
+        אין איך לשאת אותו. עכשיו הקודק הוא Extended JSON, שנושא את הטיפוס
+        בתוך ה-JSON עצמו — ולכן אין צורך לא לזייף ולא לוותר.
+        """
+        oid = ObjectId("6a8e6c04cfb3849504b6e210")
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, "_id": {"$gt": oid}})
+
+        assert row.raw_withheld_reason is None
+        assert row.query_raw == {"user_id": ME, "_id": {"$gt": oid}}
+        assert isinstance(row.query_raw["_id"]["$gt"], ObjectId), "נשמר כמחרוזת — זו שאילתה אחרת"
+
+    def test_a_datetime_is_kept_as_a_datetime(self, raw_values_service):
+        """התאריך הוא הסיבה שהסבב הזה קיים.
+
+        נמדד מול הקלאסטר על ``code_snippets``: ``created_at < <תאריך>`` מתאים
+        ל-1,157 מסמכים, ואותו תאריך כמחרוזת ל-0. כלומר תאריך ששורד כמחרוזת
+        מייצר ``explain`` מהיר עם אפס סריקה — דוח שנראה מצוין ומסקנתו הפוכה.
+        """
+        when = datetime(2026, 9, 6, 12, 0, 0)
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, "created_at": {"$lt": when}})
+
+        assert row.raw_withheld_reason is None
+        assert row.query_raw == {"user_id": ME, "created_at": {"$lt": when}}
+        assert isinstance(row.query_raw["created_at"]["$lt"], datetime), "כמחרוזת: 0 מסמכים במקום 1,157"
+
+    def test_the_files_cursor_query_from_production_is_kept(self, raw_values_service):
+        """הצורה האמיתית שהובילה לכל סבב 292 — תאריך ו-``ObjectId`` באותה שאילתה.
+
+        זו השאילתה שבגללה הפיצ'ר נבנה, והיא בדיוק זו שנדחתה. אם היא נופלת
+        שוב, הפיצ'ר אינו עושה את מה שהוא נועד לעשות — ולכן היא טסט משלה,
+        מועתקת מהצורה שנרשמה ב-``slow_queries_log`` בפרודקשן.
+        """
+        when, oid = datetime(2026, 9, 6, 12, 0, 0), ObjectId("6a8e6c04cfb3849504b6e210")
+        query = {
+            "user_id": ME,
+            "$and": [
+                {"is_active": True},
+                {"$or": [
+                    {"created_at": {"$lt": when}},
+                    {"$and": [{"created_at": {"$eq": when}}, {"_id": {"$lt": oid}}]},
+                ]},
+            ],
+        }
+        row = _record_and_read_back(raw_values_service, query)
+
+        assert row.raw_withheld_reason is None
+        assert row.query_raw == query
+
+    def test_in_with_a_single_allowed_owner_asserts_ownership(self, raw_values_service):
+        """``{"user_id": {"$in": [ME]}}`` מגביל לבעלים בדיוק כמו שוויון."""
+        row = _record_and_read_back(raw_values_service, {"user_id": {"$in": [ME]}, "is_active": True})
+
+        assert row.query_raw == {"user_id": {"$in": [ME]}, "is_active": True}
+        assert row.raw_withheld_reason is None
+
+    def test_ne_never_asserts_ownership(self, raw_values_service):
+        """``$ne`` הוא "כל השאר" — ההפך מהגבלה לבעלים. חייב להישאר לא-מצהיר."""
+        row = _record_and_read_back(raw_values_service, {"user_id": {"$ne": ME}, "is_active": True})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_missing"
+
+    def test_nin_never_asserts_ownership(self, raw_values_service):
+        row = _record_and_read_back(raw_values_service, {"user_id": {"$nin": [ME]}, "is_active": True})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_missing"
+
+
+# --- סבב ריוויו שני: הגדרה לפי סיבוב JSON, ערכי מבנה, מיקומי סינון, והבאפר ---
+
+#: ערך מייצג לכל שדה ב-``RAW_QUERY_ALLOWED_FIELDS``, והתוצאה שהוא מקבל בפועל.
+#:
+#: הרשימה מבטיחה "שדות מוכרים", אבל שער אחר — ``_ensure_replayable`` — דוחה
+#: ערכים שאינם שורדים את הסיבוב. בלי הטבלה הזו הרשימה מבטיחה שדות ששער אחר
+#: תמיד דוחה, ואיש לא יודע. ``None`` בעמודה השנייה = הערך נשמר.
+#:
+#: מאז שהקודק הוא Extended JSON **כל** השדות ברשימה נשמרים — ``datetime``
+#: ו-``ObjectId`` נושאים את הטיפוס בתוך ה-JSON וחוזרים שווים למקור. הטבלה
+#: נשארת כי היא מה שיתפוס את היום שבו ייכנס לרשימה שדה עם טיפוס שאינו שורד;
+#: היא פשוט כבר לא אמורה להיות מלאה בדחיות.
+ALLOWED_FIELD_SAMPLES = {
+    "user_id": (ME, None),
+    "_id": (ObjectId("6a8e6c04cfb3849504b6e210"), None),
+    "is_active": (True, None),
+    "file_name": ("app.py", None),
+    "programming_language": ("python", None),
+    "tags": (["repo:amirbiron/CodeBot"], None),
+    "description": ("קובץ ראשי", None),
+    "version": (3, None),
+    "created_at": (datetime(2026, 9, 6), None),
+    "updated_at": (datetime(2026, 9, 6), None),
+    "deleted_at": (datetime(2026, 9, 6), None),
+    "deleted_expires_at": (datetime(2026, 9, 6), None),
+    "file_size": (6656, None),
+    "lines_count": (100, None),
+    "is_favorite": (True, None),
+    "favorited_at": (datetime(2026, 9, 6), None),
+    "is_pinned": (False, None),
+    "pinned_at": (datetime(2026, 9, 6), None),
+    "pin_order": (1, None),
+    # ``code`` הוא היחיד ברשימה שיש לו הגבלת אופרטורים משלו
+    # (``RAW_QUERY_FIELD_OPERATORS``): הוא מותר **רק** כדפוס חיפוש. ערך
+    # שוויון עליו נושא את תוכן הקובץ, ולכן הוא נדחה — וזו ההתנהגות שהשורה
+    # הזו מתעדת. צורת ה-``$regex`` שכן עוברת נבדקת ב-
+    # ``test_profiler_raw_query_families.py`` על השאילתה האמיתית.
+    "code": ("סטיקי", "unsupported_field_value:code"),
+}
+
+
+class TestReplayableIsDefinedByTheJsonRoundTrip:
+    """"ניתן להרצה חוזרת" נמדד בסיבוב ולא בטיפוס — עכשיו בסיבוב Extended JSON."""
+
+    def test_the_sample_table_covers_every_allowed_field(self):
+        """הטבלה חייבת לכסות את הרשימה במלואה, אחרת שדה חדש נכנס בלי שנדע."""
+        assert set(ALLOWED_FIELD_SAMPLES) == set(mod.RAW_QUERY_ALLOWED_FIELDS)
+
+    @pytest.mark.parametrize("field", sorted(ALLOWED_FIELD_SAMPLES))
+    def test_each_allowed_field_behaves_as_the_table_says(self, raw_values_service, field):
+        sample, expected_reason = ALLOWED_FIELD_SAMPLES[field]
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, field: sample})
+
+        assert row.raw_withheld_reason == expected_reason, (
+            f"השדה {field!r} אינו מתנהג כפי שהטבלה מתעדת"
+        )
+        if expected_reason is None:
+            assert row.query_raw == {"user_id": ME, field: sample}
+
+    @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+    def test_a_number_that_is_not_valid_json_is_withheld(self, raw_values_service, bad):
+        """ערך לא-סופי נדחה — וזו בדיקה מפורשת, לא תוצר לוואי של הקודק.
+
+        ``json.dumps`` היה דוחה אותם לבד עם ``allow_nan=False``. ``json_util``
+        **מתעלם** מהדגל הזה ופולט ``{"$numberDouble": "Infinity"}`` בכל מקרה —
+        נמדד. כלומר מעבר לקודק החדש היה מבטל את הגדר בשקט, וזו הסיבה
+        ל-``_reject_non_finite``.
+
+        ולמה עדיין לדחות: ``NaN`` אינו מתאים לאף מסמך במונגו, ולכן היה מייצר
+        את אותו ``explain`` מטעה שכל המנגנון קיים למנוע. ו-``inf`` בטוח רק
+        בקידוד Extended JSON — וההכרעה כאן נעשית בכתיבה, לפני שידוע איך
+        הרשומה תוגש; יש כבר סריאלייזר שני (``handlers/profiler_handler.py``)
+        שקורא את אותן רשומות דרך ``json`` רגיל.
+        """
+        row = _record_and_read_back(raw_values_service, {"user_id": ME, "file_size": {"$gt": bad}})
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "unsupported_number"
+
+    # הוסר: ``test_whatever_is_stored_survives_the_round_trip_unchanged``.
+    #
+    # הוא טען ``json_util.loads(json_util.dumps(x)) == x`` — וזו תכונה של
+    # ``json_util`` עצמו, לא של הקוד כאן. היא מתקיימת לכל ערך שעבר את
+    # ``_ensure_replayable`` ממילא, ולכן **הטסט לא היה מסוגל ליפול על הבאג
+    # שהוא נשא את שמו**: רגרסיה ששומרת הכול כמחרוזות הייתה עוברת אותו.
+    # וגם הדמה של ה-DB כאן (``_FakeCollection.insert_one`` עושה ``dict(doc)``)
+    # אינה מסדרת דבר, אז גבול הגלגול לא נבדק שם בכלל.
+    #
+    # הגבול האמיתי נבדק ב-``tests/test_profiler_raw_query_round_trip.py``,
+    # שעובר דרך שני הראוטים ומאשר את **הטיפוס** של מה שהשירות באמת קיבל.
+    # כפילות חלשה שאינה מסוגלת ליפול גרועה מהיעדרה — היא מוכרת ביטחון שאין.
+
+
+class TestTheRecordSurvivesAFailureInTheRawDecision:
+    """``query_raw`` הוא העשרה; הרשומה היא המוצר. כשל בהעשרה לא יעלה במוצר."""
+
+    def test_an_unexpected_failure_costs_the_values_and_not_the_record(self, raw_values_service, monkeypatch):
+        """עד כה נתפסה רק ``_RawQueryWithheld``, וכל חריגה אחרת הפילה את הרשומה.
+
+        המסלול היה: חריגה בורחת מ-``_decide_raw_query`` ← עוברת דרך
+        ``record_slow_query_sync`` שאין בה מעטפת ← נבלעת ב-``except Exception``
+        של המאזין ב-``database/manager.py``. התוצאה: השאילתה האיטית **לא
+        נרשמת בכלל**, ונשארת רק שורת ``Profiler Error`` שלא אומרת איזו.
+
+        הטסט מזריק חריגה שאינה ``_RawQueryWithheld`` — בדיוק מה שיקרה אם שינוי
+        עתידי בטיפול בטיפוסים יפגוש ערך שלא נצפה — ודורש ששלושת הדברים
+        יתקיימו: הרשומה קיימת, אין בה ערכים, והסיבה גלויה.
+        """
+        def _boom(_value):
+            raise RuntimeError("טיפוס שלא נצפה")
+
+        monkeypatch.setattr(mod, "_ensure_replayable", _boom)
+        row = _record_and_read_back(raw_values_service, MY_QUERY)
+
+        assert row.query_shape == {
+            "user_id": "<value>",
+            "$and": [{"is_active": "<value>"}],
+            "programming_language": "<value>",
+        }, "הרשומה עצמה חייבת לשרוד — היא המוצר"
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "internal_error", "כשל שקט הוא באג, לא ברירה בטוחה"
+
+
+class TestStructuralValuesStayReal:
+    """``$limit``/``$skip``/``$sort`` הם מבנה, לא נתוני משתמש."""
+
+    def test_limit_and_skip_and_sort_keep_their_real_values(self, raw_values_service):
+        """``$limit`` הוא מה שהופך מיון חוסם ל-top-k — ניתוח עם 10 במקום 21 הוא ניתוח אחר."""
+        pipeline = [
+            {"$match": {"user_id": ME}},
+            {"$sort": {"file_name": 1, "version": -1}},
+            {"$skip": 40},
+            {"$limit": 21},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.raw_withheld_reason is None
+        stages = row.query_raw["pipeline"]
+        assert stages[1] == {"$sort": {"file_name": 1, "version": -1}}
+        assert stages[2] == {"$skip": 40}
+        assert stages[3] == {"$limit": 21}
+
+    def test_a_structural_value_that_is_not_structural_is_withheld(self, raw_values_service):
+        """``$limit`` שאינו שלם חיובי אינו "מבנה" — הוולידציה הצרה חייבת לתפוס אותו."""
+        pipeline = [{"$match": {"user_id": ME}}, {"$limit": "21"}]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "malformed_stage:$limit"
+
+
+class TestOwnerScanReadsFilterPositions:
+    """הסורק קורא מיקומי סינון; ``1`` של כיוון מיון אינו מזהה משתמש."""
+
+    def test_sorting_by_user_id_is_not_a_foreign_owner(self, raw_values_service):
+        pipeline = [{"$match": {"user_id": ME}}, {"$sort": {"user_id": 1}}]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.raw_withheld_reason is None, "כיוון המיון נקרא כמזהה זר"
+        assert row.query_raw["pipeline"][1] == {"$sort": {"user_id": 1}}
+
+    def test_projecting_user_id_is_not_a_foreign_owner(self, raw_values_service):
+        pipeline = [{"$match": {"user_id": ME}}, {"$project": {"user_id": 1, "file_name": 1}}]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.raw_withheld_reason is None, "מפרט ההיטלה נקרא כמזהה זר"
+
+    def test_a_foreign_owner_in_a_later_match_is_still_caught(self, raw_values_service):
+        """``$match`` מאוחר **כן** נשמר עם ערכים, ולכן חייב להיסרק."""
+        pipeline = [{"$match": {"user_id": ME}}, {"$match": {"user_id": SOMEONE_ELSE}}]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_mismatch"
+
+    def test_a_foreign_owner_inside_a_lookup_match_is_still_caught(self, raw_values_service):
+        pipeline = [
+            {"$match": {"user_id": ME}},
+            {"$lookup": {"from": "code_snippets", "as": "d", "pipeline": [
+                {"$match": {"user_id": SOMEONE_ELSE}},
+            ]}},
+        ]
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+
+        assert row.query_raw is None
+        assert row.raw_withheld_reason == "owner_mismatch"
+
+    @pytest.mark.parametrize("pipeline", [
+        [{"$match": {"user_id": ME}}, {"$set": {"foreign": {"user_id": SOMEONE_ELSE}}}],
+        [{"$match": {"user_id": ME}}, {"$sort": {"user_id": -1}}, {"$limit": 5}],
+        [{"$match": {"user_id": ME}}, {"$match": {"tags": {"$in": ["a", "b"]}}}],
+        [{"$match": {"user_id": ME}}, {"$lookup": {"from": "code_snippets", "as": "d",
+                                                   "pipeline": [{"$match": {"file_name": "a.py"}}]}}],
+    ])
+    def test_the_invariant_holds_on_what_was_actually_stored(self, raw_values_service, pipeline):
+        """האינווריאנט נבדק על **הפלט**, לא על הקלט.
+
+        הניסוח המדויק: *סורקים כל מה שנשמר ולא עבר ולידציה מבנית מגבילה.*
+        לכן שתי אסרשנות, וכל אחת מכסה חצי אחר:
+
+        1. **בשום מקום בפלט** אין את המזהה הזר. זו הבדיקה שלא תלויה בשום
+           הנחה על מבנה — אם ערך זר הצליח להיכנס בדרך כלשהי, היא תיפול.
+        2. **בכל גוף ``$match`` בפלט** — המקומות היחידים שנושאים ערכים
+           חופשיים — כל ערך בעלות הוא ברשימה המורשית.
+
+        ``$limit``/``$skip``/``$sort`` נשמרים אף הם אך אינם נסרקים כאן, וזה
+        מכוון: הוולידציה שלהם צרה (שלם חיובי / אי-שלילי / ``±1``/``$meta``),
+        ומזהה משתמש אינו יכול להתחפש לאף אחת מהצורות. סריקה נאיבית עליהם
+        הייתה קוראת את ה-``-1`` של כיוון המיון כמזהה זר — בדיוק הבאג שהסבב
+        הזה תיקן.
+        """
+        row = _record_and_read_back(raw_values_service, {"pipeline": pipeline}, operation="aggregate")
+        stored = row.query_raw or {}
+
+        assert str(SOMEONE_ELSE) not in json.dumps(stored, ensure_ascii=False)
+
+        for name, body in mod._stage_entries(stored.get("pipeline") or []):
+            if name != "$match":
+                continue
+            for value in mod._owner_values_in(body):
+                token = mod._owner_token(value)
+                assert token in mod._unredacted_user_ids(), (
+                    f"מזהה בעלות לא מורשה נשמר ב-$match: {value!r}"
+                )
+
+
+class TestTheMemoryBufferNeverHoldsRawValues:
+    """הערכים חיים ברשומה ב-DB תחת ה-TTL — ולא בזיכרון, שאין לו פקיעה."""
+
+    def test_the_buffer_holds_no_raw_values(self, raw_values_service):
+        """הדק חסום בגודל ולא בגיל, והשירות הבסיסי אינו מופע בייצור בכלל."""
+        returned = raw_values_service.record_slow_query_sync(
+            collection="code_snippets", operation="find", query=MY_QUERY, execution_time_ms=1500.0
+        )
+
+        assert returned.query_raw == MY_QUERY, "הרשומה המוחזרת היא זו שנכתבת ל-DB"
+        buffered = list(raw_values_service._slow_queries)[-1]
+        assert buffered.query_raw is None
+        assert buffered.raw_owner_id is None
+
+    def test_the_withheld_reason_survives_in_the_buffer(self, raw_values_service):
+        """הסיבה אינה ערך רגיש — היא ההסבר שהדשבורד מציג, ואסור שהניקוי ייקח אותה."""
+        raw_values_service.record_slow_query_sync(
+            collection="code_snippets", operation="find",
+            query={"user_id": ME, "owner_id": SOMEONE_ELSE}, execution_time_ms=1500.0,
+        )
+
+        buffered = list(raw_values_service._slow_queries)[-1]
+        assert buffered.query_raw is None
+        assert buffered.raw_withheld_reason == "unknown_field:owner_id"
+
+    def test_the_db_row_still_carries_the_values(self, raw_values_service):
+        """הניקוי הוא של הזיכרון בלבד — מה שנכתב ל-DB לא נגרע."""
+        raw_values_service.record_slow_query_sync(
+            collection="code_snippets", operation="find", query=MY_QUERY, execution_time_ms=1500.0
+        )
+
+        stored = raw_values_service.db_manager.db["slow_queries_log"].docs[-1]
+        assert stored["query_raw"] == MY_QUERY

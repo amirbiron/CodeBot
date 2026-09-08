@@ -1,5 +1,7 @@
 """Unit tests for RepoBackend (fake mirror/search/db — repo convention)."""
 
+import logging
+
 from mcp_server.repo_backend import SYNC_RETRY_AFTER_SECONDS, RepoBackend
 
 
@@ -57,14 +59,23 @@ class _DB:
 
 
 class _Mirror:
-    def __init__(self, files=None, file_result=None):
+    def __init__(self, files=None, file_result=None, sizes=None):
         self.files = files
         self.file_result = file_result or {}
+        self.sizes = sizes or {}
         self.calls = []
 
     def list_all_files(self, repo, ref):
         self.calls.append(("list", repo, ref))
         return self.files
+
+    def list_all_files_with_sizes(self, repo, ref):
+        # אותו סדר ואותם נתיבים כמו ``list_all_files`` — זה מה שהמימוש
+        # האמיתי מבטיח (``git ls-tree -r -l`` מול ``-r --name-only``).
+        self.calls.append(("list_sizes", repo, ref))
+        if self.files is None:
+            return None
+        return [{"path": f, "size": self.sizes.get(f, len(f))} for f in self.files]
 
     def get_file_at_commit(self, repo, path, commit, **k):
         self.calls.append(("get", repo, path, commit))
@@ -90,12 +101,82 @@ def _repos_db():
     )
 
 
-def test_init_ensures_repo_metadata_index():
-    db = _repos_db()
-    RepoBackend(db=db, mirror=_Mirror(), search_service=_Search())
-    assert db["repo_metadata"].indexes  # gap #6: created as part of this phase
-    args, kwargs = db["repo_metadata"].indexes[0]
-    assert args[0] == "repo_name" and kwargs.get("unique") is True
+class _RecordingManager:
+    """דמה ל-``DatabaseManager`` עבור יצירת האינדקסים בלבד."""
+
+    def __init__(self, explode=None):
+        self.calls = []
+        self._explode = explode
+
+    def safe_create_index(self, collection_name, keys, **kwargs):
+        self.calls.append((collection_name, keys, kwargs))
+        if self._explode and collection_name == self._explode:
+            raise RuntimeError("boom")
+
+
+def test_init_delegates_both_indexes_to_the_canonical_helper():
+    """``DatabaseManager.safe_create_index`` ולא יצירה ישירה.
+
+    הוא מה שקורא את האינדקסים בפועל אחרי התנגשות ומאשר רק אם המפתחות
+    **וגם** ``unique`` תואמים. שכפול המדיניות כאן כבר יצא שגוי פעם אחת:
+    הוא החשיב קוד ``86`` ("אותו שם, מפתחות אחרים") להצלחה.
+    """
+    manager = _RecordingManager()
+
+    RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search(), db_manager=manager)
+
+    assert [(c, k) for c, k, _ in manager.calls] == [
+        ("repo_metadata", [("repo_name", 1)]),
+        ("repo_files", [("repo_name", 1), ("path", 1)]),
+    ]
+
+
+def test_both_indexes_keep_the_unique_constraint():
+    """אינדקס לא-ייחודי **חוסם** את הייחודי.
+
+    ``scripts/create_repo_indexes.py`` מצהיר על ``(repo_name, path)`` כזהות,
+    וה-upsert של האינדקסר מניח את זה. אינדקס לא-ייחודי על אותם מפתחות היה
+    גורם לסקריפט לקבל ``IndexOptionsConflict`` וליפול — כלומר מסד חדש היה
+    נשאר בלי האילוץ, לתמיד.
+    """
+    manager = _RecordingManager()
+
+    RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search(), db_manager=manager)
+
+    assert all(kwargs.get("unique") is True for _, _, kwargs in manager.calls), manager.calls
+
+
+def test_index_setup_is_skipped_without_the_canonical_helper():
+    """עדיף לא ליצור אינדקס מאשר לשכפל שוב את מדיניות ההתנגשות."""
+    backend = RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search())
+
+    assert backend._db["repo_metadata"].indexes == []
+    assert backend._db["repo_files"].indexes == []
+
+
+def test_one_failing_index_does_not_skip_the_other(caplog):
+    """כשל באחד לא מבטל את השני — **ואינו נבלע בשקט**.
+
+    שני דברים נבדקים כאן, כי כל אחד מהם כבר נשבר פעם:
+    בגרסה קודמת שתי היצירות ישבו תחת ``try`` אחד, וכשל בראשונה דילג בשקט
+    על השנייה. וההיבט השני חשוב לא פחות: אינדקס שלא נוצר משאיר את השליפות
+    בסריקת collection מלאה, וזו תקלה שנראית כמו "פשוט קצת איטי" — אם היא
+    לא מגיעה ללוג, אף אחד לא יידע לחפש אותה.
+    """
+    manager = _RecordingManager(explode="repo_metadata")
+
+    with caplog.at_level(logging.WARNING, logger="mcp_server.repo_backend"):
+        RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=_Search(), db_manager=manager)
+
+    assert [c for c, _, _ in manager.calls] == ["repo_metadata", "repo_files"]
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
+    record = warnings[0]
+    assert "repo_metadata" in record.getMessage()
+    # ה-traceback הוא מה שמסביר **למה** האינדקס לא נוצר; בלעדיו נשארת
+    # שורת לוג שאומרת שמשהו נכשל ולא מה.
+    assert record.exc_info is not None
 
 
 def test_list_repos_sorted_projected_limited():

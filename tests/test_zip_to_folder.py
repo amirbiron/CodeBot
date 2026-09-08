@@ -10,6 +10,7 @@
 """
 
 import io
+import json
 import sys
 import types
 import zipfile
@@ -1109,3 +1110,107 @@ async def test_full_flow_rejects_non_zip(zip_handler, github_stub):
 
     assert not github_stub.created_trees
     assert any("אינו ZIP תקין" in m for m in replies.messages), replies.messages
+
+
+# ---------------------------------------------------------------------------
+# ZIP של גיבוי ריפו: מניפסט בשורש לצד תיקיית ה-zipball
+# ---------------------------------------------------------------------------
+
+
+def _repo_backup_zip(root="owner-repo-6dfaac9"):
+    """משחזר את המבנה שהגיבוי מייצר בפועל.
+
+    ה-zipball של GitHub מכניס את כל התוכן תחת תיקייה אחת בשם
+    ``owner-repo-sha``, ואז הבוט מוסיף ``metadata.json`` **בשורש**.
+    """
+    manifest = {
+        "backup_id": "backup_6865105071_1788252418_256ab8d3",
+        "backup_type": "github_repo_zip",
+        "created_by": "Code Keeper Bot",
+        "repo": "owner/repo",
+    }
+    return _make_zip({
+        "metadata.json": json.dumps(manifest).encode("utf-8"),
+        f"{root}/README.md": b"hello",
+        f"{root}/src/main.py": b"code",
+    })
+
+
+@pytest.mark.asyncio
+async def test_restore_of_a_repo_backup_lands_at_the_repo_root(zip_handler, github_stub):
+    """‏**רגרסיה מ-PR #3205, דרך המסלול שהמשתמש מריץ.**
+
+    שחזור ZIP לריפו החזיק חישוב שורש משלו שסופר **תיקיות בלבד**, ולכן
+    ``metadata.json`` בשורש לא הפריע והתיקייה ``owner-repo-sha`` נחתכה.
+    ‏#3205 החליף אותו ב-``detect_zip_common_root``, שבה קובץ בשורש מבטל את
+    הזיהוי — וכל הריפו התחיל להיפרס בתוך תיקייה בשם ``owner-repo-sha``.
+
+    למסלול הזה לא הייתה בדיקה מקצה לקצה, ולכן ההחלפה עברה בשקט. זו הבדיקה
+    שהייתה חוסמת אותה.
+    """
+    update, replies = _make_update()
+    context = _context(
+        _DummyBot(_repo_backup_zip()),
+        upload_mode="github_restore_zip_to_repo",
+    )
+
+    await zip_handler.handle_document(update, context)
+
+    assert github_stub.created_trees, replies.messages
+    elements, _base_tree = github_stub.created_trees[0]
+    paths = sorted(e.path for e in elements)
+
+    # התוכן בשורש הריפו, ולא בתוך ``owner-repo-6dfaac9``.
+    # ``metadata.json`` עולה גם הוא — כך זה תמיד היה, וזו התנהגות מכוונת.
+    assert paths == ["README.md", "metadata.json", "src/main.py"], paths
+
+
+@pytest.mark.asyncio
+async def test_restore_keeps_nested_structure_when_there_is_no_single_root(
+    zip_handler, github_stub
+):
+    """הכיוון ההפוך: שתי תיקיות עליונות אינן שורש, ואין מה לחתוך.
+
+    בלי הבדיקה הזו, "תיקון" שיחתוך תמיד את התיקייה הראשונה היה נראה תקין
+    מול הבדיקה שמעליה ומוחק רובד אמיתי מהארכיון.
+    """
+    payload = _make_zip({"api/app.py": b"a", "web/index.html": b"b"})
+    update, replies = _make_update()
+    context = _context(_DummyBot(payload), upload_mode="github_restore_zip_to_repo")
+
+    await zip_handler.handle_document(update, context)
+
+    assert github_stub.created_trees, replies.messages
+    elements, _base_tree = github_stub.created_trees[0]
+    assert sorted(e.path for e in elements) == ["api/app.py", "web/index.html"]
+
+
+@pytest.mark.asyncio
+async def test_restore_flattens_a_non_backup_zip_and_the_user_is_warned(
+    zip_handler, github_stub
+):
+    """**מגבלה מכוונת, מקובעת בבדיקה כדי שלא תתגלה כהפתעה.**
+
+    זיהוי השורש כאן סופר תיקיות בלבד, ולכן ``README.md`` בשורש לצד
+    ``src/`` אינו מבטל את הזיהוי — ``src`` נחתך ו-``src/main.py`` נכתב
+    כ-``main.py``. עבור קובץ גיבוי זו בדיוק ההתנהגות הרצויה, כי הקובץ
+    בשורש הוא ``metadata.json``.
+
+    הבחירה להשאיר את ההתנהגות ולהתריע עליה — ולא לשנות אותה — היא החלטת
+    מוצר. הבדיקה מקבעת את שני חלקיה: ההתנהגות **וגם** קיום ההתראה.
+    """
+    payload = _make_zip({"README.md": b"top", "src/main.py": b"code"})
+    update, replies = _make_update()
+    context = _context(_DummyBot(payload), upload_mode="github_restore_zip_to_repo")
+
+    await zip_handler.handle_document(update, context)
+
+    assert github_stub.created_trees, replies.messages
+    elements, _base_tree = github_stub.created_trees[0]
+    assert sorted(e.path for e in elements) == ["README.md", "main.py"]
+
+    # ההתראה חייבת להתקיים, אחרת המגבלה הופכת להפתעה שקטה
+    from github_menu_handler import RESTORE_ZIP_PROMPT
+
+    assert "עלול להיפרס שטוח" in RESTORE_ZIP_PROMPT, RESTORE_ZIP_PROMPT
+    assert "קובץ גיבוי" in RESTORE_ZIP_PROMPT, RESTORE_ZIP_PROMPT

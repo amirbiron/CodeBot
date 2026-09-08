@@ -270,6 +270,12 @@ components:
         editor:
           type: string
           enum: [simple, codemirror]
+        files_compact_view:
+          type: boolean
+          description: >-
+            Compact file cards on /files. When true the card shows the file
+            name, the language badge and the tags only. Rejected with 400 if
+            the value is not a real boolean.
         work_state:
           type: object
           properties:
@@ -876,7 +882,7 @@ paths:
 
   /api/ui_prefs:
     post:
-      summary: Save UI preferences (font_scale, theme, editor, work_state)
+      summary: Save UI preferences (font_scale, theme, editor, files_compact_view, work_state)
       security:
         - cookieAuth: []
       requestBody:

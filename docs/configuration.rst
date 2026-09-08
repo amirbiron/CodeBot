@@ -165,6 +165,8 @@ Config via Pydantic Settings
 - ``AIOHTTP_POOL_LIMIT`` – גודל בריכת חיבורים ברירת מחדל ל‑aiohttp
 - ``AIOHTTP_TIMEOUT_TOTAL`` – Timeout כולל לשיחות aiohttp (שניות)
 - ``REDIS_MAX_CONNECTIONS`` / ``REDIS_CONNECT_TIMEOUT`` / ``REDIS_SOCKET_TIMEOUT`` – כוונון חיבורי Redis
+- ``SEARCH_MEMORY_INDEX_ENABLED`` – הפעלת אינדקס החיפוש בזיכרון התהליך (ראו :doc:`/workflows/search-flow`)
+- ``SEARCH_MEMORY_INDEX_EAGER_BUILD`` – בניית אותו אינדקס גם בחיפושים שאינם קוראים ממנו
 - ``SEARCH_PAGE_SIZE`` – גודל דף ברירת מחדל לעימוד חיפוש בצד ה‑DB
 - ``UI_PAGE_SIZE`` – גודל דף ברירת מחדל לרשימות ב‑UI
 

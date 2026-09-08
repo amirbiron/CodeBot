@@ -25,7 +25,7 @@
 ---
 
 > [!IMPORTANT]
-> ******חובה****** לעקוב ולמלא אחר ההוראות של `דפוסי באגים` באופן מלא, בעקביות, אין חשיבות לקידוד מהיר - רק לקידוד אחראי - בלי השערות באף חלק מהקידוד
+> *****חובה***** לעקוב ולמלא אחר ההוראות של `דפוסי באגים` באופן מלא, בעקביות, אין חשיבות לקידוד מהיר - רק לקידוד אחראי - בלי השערות באף חלק מהקידוד
 > ## דפוסי באגים — amir-bug-patterns 
 
 > **מתי להשתמש:** לפני נגיעה באחד הנושאים בטבלה, ובכל פעם שריוויוור תופס דפוס
@@ -44,11 +44,11 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 
 | כשאתה נוגע ב... | קרא |
 |---|---|
-| שמירה/מחיקה שמסתיימת בהודעת ✅ למשתמש | `CRITICAL-PATTERNS.md` K11 |
 | קאש / invalidation | `bugbot-rules/return-value-failure-unchecked.md` §4 |
 | דגל שמצהיר "מטא-דאטה בלבד" (`npm install --package-lock-only`, `django-admin migrate --fake`), או רשומה שמתעדכנת בנפרד מהעבודה שהיא מתארת | `bugbot-rules/state-record-without-state-change.md` |
 | callbacks / handlers מקביליים, מזהים מבוססי־זמן | `CORE-PATTERNS.md` U1 |
-| PyGithub / קריאות SDK חיצוני | `BY-STACK/external-sdk.md` |
+| **ערך שהגיע מחוץ לתהליך** — גוף JSON, payload, כותרת, ENV, פלט של LLM, CSV, או ערך שמשתמש הקליד | `CORE-PATTERNS.md` U3 + `bugbot-rules/external-input-isinstance.md` |
+| חיתוך או מדידת אורך של טקסט (`$substrBytes`, `$strLenBytes`, `encode()[a:b]`, תקרת אורך שנשלחת החוצה) | `BY-STACK/hebrew-source.md` H6 |
 | קבצי `docs/**/*.rst` | `bugbot-rules/line-number-coupling.md` |
 | טסטים עם סטאבים ידניים | `TESTING-PATTERNS.md` + `bugbot-rules/widened-exception-scope.md` |
 | הרכבת URL/מחרוזת שמכילה סוד, הודעות חריגה, ניקוי לוגים/Sentry | `CRITICAL-PATTERNS.md` K13 + `bugbot-rules/secret-in-derived-text.md` |
@@ -311,6 +311,18 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
   
 - מלא PR לפי התבנית שב-`.github/pull_request_template.md`
 - ציין מפורשות האם עיינת ב-CodeBot – Project Docs ובאילו קבצים.
+
+### אחרי פתיחת ה-PR — לא לעקוב
+
+- **אל תירשם למעקב אחרי ה-PR ואל תתזמן צ'ק-אין** לבדוק CI או תגובות ריוויו. פותחים את ה-PR, מדווחים את הקישור, ומסיימים.
+- **אני שולח את הממצאים.** מה שיגיע מ-CI ומהריוויוורים יגיע ממני, מרוכז — אין צורך שתאסוף אותו לבד.
+
+### לפני קומיט — לא לבנות את כל התיעוד
+
+- **אל תריץ בנייה מלאה של RTD/Sphinx כבדיקה לפני קומיט.** היא לוקחת דקות ארוכות, ומי שתופס אזהרות הוא ה-check של Read the Docs על ה-PR.
+- החריג היחיד שמצדיק בנייה מקומית: **עמוד חדש**, או נגיעה ב-`toctree`/`conf.py` — ושם בונים **עמוד בודד** ולא את האתר: `python -m sphinx -b html -W . _build/html <עמוד>.rst`.
+- פרוזה בעמוד קיים, עוגן חדש, או תיקון ניסוח — לא דורשים בנייה בכלל.
+
   ---
   
 

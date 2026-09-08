@@ -49,6 +49,7 @@ class RepoSearchService:
         language: Optional[str] = None,
         case_sensitive: bool = False,
         max_results: int = 50,
+        context_lines: int = 0,
     ) -> Dict[str, Any]:
         """
         חיפוש מאוחד בקוד
@@ -87,6 +88,7 @@ class RepoSearchService:
                 case_sensitive,
                 max_results,
                 ref=ref,  # העברת ה-ref הנכון
+                context_lines=context_lines,
             )
         elif search_type == "filename":
             return self._search_filename(repo_name, query, max_results)
@@ -105,8 +107,14 @@ class RepoSearchService:
         case_sensitive: bool,
         max_results: int,
         ref: str = "refs/heads/main",
+        context_lines: int = 0,
     ) -> Dict[str, Any]:
-        """חיפוש תוכן עם git grep"""
+        """חיפוש תוכן עם git grep.
+
+        ``context_lines`` נשלח כמות שהוא ל-``search_with_git_grep``; ``0``
+        (ברירת המחדל) משאיר את הפקודה ואת צורת התוצאה זהות לקודם, וזה מה
+        ששומר על הקוראים האחרים של השירות הזה.
+        """
 
         # המרת file pattern לפורמט git grep
         git_pattern = None
@@ -122,6 +130,7 @@ class RepoSearchService:
             file_pattern=git_pattern,
             case_sensitive=case_sensitive,
             ref=ref,  # שימוש ב-ref הנכון מה-DB
+            context_lines=context_lines,
         )
 
         if "error" in result:

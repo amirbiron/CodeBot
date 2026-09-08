@@ -2,15 +2,26 @@
 
 {% block title %}Query Performance Profiler{% endblock %}
 
+{% block extra_css %}
+{# הטוסט המשותף. אותה טעינה בדיוק כמו ב-settings.html:7 — ה-CSS הזה הוא
+   התלות של ``window.ckToast``, ובלעדיו הצומת נוצר אבל אינו נראה. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}?v={{ static_version }}">
+{% endblock %}
+
 {% block content %}
+{# מגדיר ``window.ckToast``. defer מספיק: הקריאה קורית רק בלחיצה של המשתמש,
+   הרבה אחרי ש-defer סיים. #}
+<script defer src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
 <h1 class="page-title">🐢 Query Performance Profiler</h1>
 
 <!-- סיכום מצב -->
 <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;" id="summary-section">
-  <div class="glass-card" style="border-left: 4px solid #dc3545;">
+  {# קישור עוגן אמיתי ולא div עם מאזין: מקלדת, קורא מסך וגלילה מגיעים
+     מהדפדפן, בלי JavaScript. היעד הוא כרטיס הרשימה למטה. #}
+  <a class="glass-card summary-link" href="#slow-queries" style="border-left: 4px solid #dc3545;">
     <h2 class="section-title" style="margin-bottom: .5rem;">שאילתות איטיות</h2>
     <div style="font-size: 2rem; font-weight: 700;" id="total-slow-queries">--</div>
-  </div>
+  </a>
   <div class="glass-card" style="border-left: 4px solid #f59e0b;">
     <h2 class="section-title" style="margin-bottom: .5rem;">זמן ממוצע (ms)</h2>
     <div style="font-size: 2rem; font-weight: 700;" id="avg-time">--</div>
@@ -19,16 +30,21 @@
     <h2 class="section-title" style="margin-bottom: .5rem;">Collections מושפעים</h2>
     <div style="font-size: 2rem; font-weight: 700;" id="collections-count">--</div>
   </div>
-  <div class="glass-card" style="border-left: 4px solid #64748b;">
+  {# אותו דפוס בדיוק ככרטיס "שאילתות איטיות": קישור עוגן אמיתי ולא div עם
+     מאזין, כך שמקלדת, קורא מסך וגלילה מגיעים מהדפדפן ולא מקוד שלנו. #}
+  <a class="glass-card summary-link" href="#query-patterns" style="border-left: 4px solid #64748b;">
     <h2 class="section-title" style="margin-bottom: .5rem;">דפוסים ייחודיים</h2>
     <div style="font-size: 2rem; font-weight: 700;" id="unique-patterns">--</div>
-  </div>
+  </a>
 </div>
 
 <!-- טבלת שאילתות איטיות -->
-<div class="glass-card" style="margin-bottom: 1.5rem;">
+<div class="glass-card" id="slow-queries" style="margin-bottom: 1.5rem;">
   <div style="display:flex; justify-content:space-between; align-items:center; gap: 1rem; flex-wrap: wrap;">
-    <h2 class="section-title" style="margin: 0;">📋 שאילתות איטיות אחרונות</h2>
+    <h2 class="section-title" style="margin: 0;">
+      📋 שאילתות איטיות אחרונות
+      <span id="slow-queries-shown" style="font-size:.85rem; font-weight:400; opacity:.75;"></span>
+    </h2>
     <div style="display:flex; gap:.5rem; align-items:center; flex-wrap: wrap;">
       <select id="collection-filter" class="btn btn-secondary" style="padding: .6rem .8rem;">
         <option value="">כל ה-Collections</option>
@@ -42,14 +58,56 @@
 
   <div style="margin-top: 1rem; overflow:auto;">
     <table style="width:100%; border-collapse: collapse;" id="slow-queries-table">
+      {# עמודה שאפשר למיין לפיה היא ``<button>`` אמיתי בתוך ה-``<th>``, ולא
+         ``th`` עם ``onclick``: כך Enter ו-Space עובדים בלי קוד שלנו, וקורא
+         מסך מכריז "כפתור". ``aria-sort`` על ה-``th`` הוא מה שמודיע על הכיוון. #}
+      <thead>
+        <tr style="text-align:right; opacity:.8;">
+          <th style="padding:.6rem;" data-sort-field="collection">
+            <button type="button" class="sort-header" data-testid="sort-collection">Collection</button>
+          </th>
+          <th style="padding:.6rem;" data-sort-field="operation">
+            <button type="button" class="sort-header" data-testid="sort-operation">פעולה</button>
+          </th>
+          <th style="padding:.6rem;">צורת שאילתה</th>
+          <th style="padding:.6rem;" data-sort-field="execution_time_ms">
+            <button type="button" class="sort-header" data-testid="sort-duration">זמן (ms)</button>
+          </th>
+          <th style="padding:.6rem;" data-sort-field="timestamp">
+            <button type="button" class="sort-header" data-testid="sort-timestamp">זמן</button>
+          </th>
+          <th style="padding:.6rem;">פעולות</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- ימולא דינמית -->
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top: 1rem; text-align: center;">
+    <button class="btn btn-secondary" type="button" id="load-more-slow-queries" hidden
+            onclick="loadMoreSlowQueries()">טען עוד</button>
+  </div>
+</div>
+
+<!-- דפוסי שאילתות -->
+<div class="glass-card" id="query-patterns" style="margin-bottom: 1.5rem;">
+  <h2 class="section-title" style="margin: 0;">
+    🔁 דפוסים חוזרים
+    <span id="patterns-shown" style="font-size:.85rem; font-weight:400; opacity:.75;"></span>
+  </h2>
+  <div style="margin-top: 1rem; overflow:auto;">
+    <table style="width:100%; border-collapse: collapse;" id="query-patterns-table">
       <thead>
         <tr style="text-align:right; opacity:.8;">
           <th style="padding:.6rem;">Collection</th>
           <th style="padding:.6rem;">פעולה</th>
           <th style="padding:.6rem;">צורת שאילתה</th>
-          <th style="padding:.6rem;">זמן (ms)</th>
-          <th style="padding:.6rem;">זמן</th>
-          <th style="padding:.6rem;">פעולות</th>
+          <th style="padding:.6rem;">מופעים</th>
+          <th style="padding:.6rem;">ממוצע (ms)</th>
+          <th style="padding:.6rem;">מקסימום (ms)</th>
+          <th style="padding:.6rem;">נראה לאחרונה</th>
         </tr>
       </thead>
       <tbody>
@@ -104,7 +162,14 @@
 <!-- תוצאות הניתוח -->
 <div id="analysis-results" style="display:none; gap: 1rem;">
   <div class="glass-card" style="flex: 1; margin-bottom: 1rem;">
-    <h2 class="section-title">📊 Explain Plan</h2>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap;">
+      <h2 class="section-title" style="margin:0;">📊 Explain Plan</h2>
+      <button class="btn btn-secondary btn-icon" type="button" onclick="copyAnalysisReport(this)"
+              title="מעתיק דוח מסודר בפורמט Markdown, מוכן להדבקה ל-AI">
+        <i class="fas fa-copy"></i>
+        העתק דוח ל-AI
+      </button>
+    </div>
     <div id="explain-plan-visual"></div>
     <div id="explain-stats" style="margin-top: 1rem;"></div>
   </div>
@@ -115,6 +180,41 @@
 </div>
 
 <style>
+  /* כרטיס סיכום שהוא קישור. --glass-hover קיים בכל ערכות base.html אבל לא
+     ב-High Contrast, ולכן ה-fallback ל---glass משאיר אותו ללא שינוי שם
+     במקום צבע קשיח. ל-dark/dim יש כבר .glass-card:hover ב-dark-mode.css. */
+  .summary-link { display: block; color: inherit; text-decoration: none; }
+  .summary-link:hover { background: var(--glass-hover, var(--glass)); }
+  .summary-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  /* כותרת שאפשר למיין לפיה. **בלי שום צבע משלה** — היא יורשת מה-``th``,
+     ולכן היא נכונה בכל ערכת נושא בלי override לאף אחת מהן. זה גם מה שמקיים
+     את הכלל ב-``docs/webapp/theming_and_css.rst``: אין HEX מחוץ לבלוק
+     הטוקנים ב-``base.html``. הסימון היחיד שכן משתמש בצבע הוא הפוקוס, והוא
+     דרך ``--primary`` — אותו טוקן ואותה צורה כמו ``.summary-link`` שמעליו. */
+  .sort-header {
+    background: none; border: 0; padding: 0; margin: 0;
+    color: inherit; font: inherit; cursor: pointer;
+  }
+  .sort-header::after { content: ''; }
+  th[aria-sort="ascending"] .sort-header::after { content: ' ▲'; }
+  th[aria-sort="descending"] .sort-header::after { content: ' ▼'; }
+  .sort-header:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+  /* ``hidden`` מול ``display`` של המחבר. הדפדפן מגדיר ``[hidden]{display:none}``
+     במקור ה-user-agent, וכל הכרזת ``display`` של המחבר מנצחת אותו — גם בלי
+     ספציפיות גבוהה. ``.btn`` מגדיר ``display:inline-flex``, ולכן כפתור
+     "טען עוד" נשאר **גלוי** אחרי הדף האחרון למרות ה-``hidden``, ולחיצה עליו
+     לא עשתה כלום. טסט הדפדפן תפס את זה. אותה טעות בדיוק מתועדת ב-
+     ``static/css/note-boards.css`` (שם זה היה ``.board-empty`` עם
+     ``display:flex``), והכלל כאן הוא אותו כלל, מוגבל לעמוד הזה. */
+  [hidden] { display: none !important; }
+
+  /* כפתור בזמן בקשה. בלי סימן חזותי, המשתמש לוחץ שוב ומניח שכלום לא קרה.
+     ‏``opacity`` ו-``cursor`` בלבד, בלי צבע — התבנית שכבר בריפו
+     (``static/css/codemirror-custom.css``), ובלי HEX מחוץ לבלוק הטוקנים. */
+  .btn:disabled { opacity: .6; cursor: not-allowed; }
+
   /* Explain (find) */
   .stage-node { padding: 10px 15px; border-radius: 8px; margin: 6px 0; }
   .stage-collscan { background-color: rgba(220, 53, 69, 0.12); border: 2px solid rgba(220, 53, 69, 0.7); }
@@ -155,8 +255,11 @@
 
   document.addEventListener('DOMContentLoaded', function() {
     toggleAnalyzeInputs();
+    attachSortHandlers();
+    attachCollectionFilter();
     loadSummary();
     refreshSlowQueries();
+    loadPatterns();
     // רענון אוטומטי כל 30 שניות
     setInterval(loadSummary, 30000);
   });
@@ -195,29 +298,192 @@
     }
   }
 
-  async function refreshSlowQueries() {
+  //: המיון הנוכחי של הטבלה, והקורסור לדף הבא. **המיון נעשה בשרת**: עם
+  //: "טען עוד", מיון של מה שנטען בלבד הוא מיון שקרי — הוא מסדר חלק מהנתונים
+  //: ומציג את התוצאה כאילו היא הסדר האמיתי.
+  let slowQuerySort = { field: 'execution_time_ms', dir: 'desc' };
+  let slowQueryCursor = null;
+
+  const SLOW_QUERIES_PAGE_SIZE = 50;
+
+  function slowQueriesUrl(cursor) {
+    const params = new URLSearchParams({
+      limit: String(SLOW_QUERIES_PAGE_SIZE),
+      sort: slowQuerySort.field,
+      dir: slowQuerySort.dir,
+    });
+    // ``hours`` **אינו נשלח בכוונה.** חלון הזמן מוגדר פעם אחת בשרת
+    // (``PROFILER_WINDOW_HOURS``) ומשרת את שלושת האנדפוינטים; שכפול הערך כאן
+    // היה מחזיר בדיוק את הבאג שהסעיף סוגר — שני מקומות שמכריעים לחוד.
     const collection = document.getElementById('collection-filter').value;
-    let url = '/api/profiler/slow-queries?limit=50';
-    if (collection) {
-      url += `&collection=${encodeURIComponent(collection)}`;
-    }
+    if (collection) params.set('collection', collection);
+    if (cursor) params.set('cursor', cursor);
+    return `/api/profiler/slow-queries?${params.toString()}`;
+  }
+
+  function updateShownCount(shown, total) {
+    const el = document.getElementById('slow-queries-shown');
+    if (!el) return;
+    // מה שנחתך נאמר בקול. שני המספרים סופרים את **אותו חלון** — ``total``
+    // נספר בשרת על פילטר החלון בלבד, בלי תנאי הקורסור, ולכן הוא אינו קטן
+    // בכל לחיצה על "טען עוד".
+    el.textContent = (total > shown) ? `— מוצגות ${shown} מתוך ${total}` : `— ${shown}`;
+  }
+
+  // מזהה דור. שתי בקשות במקביל — לחיצה על מיון ואז על "טען עוד", או שתי
+  // לחיצות מיון — והתגובה שמגיעה אחרונה כותבת את הטבלה **ואת הקורסור**. וזה
+  // חמור כאן במיוחד: הקורסור נטבע למיון מסוים, אז תגובה מאוחרת יכולה להשאיר
+  // קורסור של מיון ישן, והלחיצה הבאה תידחה ב-400 או תחזיר את מה שלא ביקשו.
+  let slowQueryRequestId = 0;
+
+  async function fetchSlowQueries(cursor, { append }) {
+    const requestId = ++slowQueryRequestId;
+    const more = document.getElementById('load-more-slow-queries');
+    // נטרול בזמן בקשה — אחרת לחיצה כפולה שולחת את **אותו** קורסור פעמיים
+    // ומכפילה את השורות.
+    if (more) more.disabled = true;
     try {
-      const response = await profilerFetch(url);
+      const response = await profilerFetch(slowQueriesUrl(cursor));
       const result = await response.json();
-      if (result.status === 'success') {
-        renderSlowQueriesTable(result.data);
-      }
+      if (requestId !== slowQueryRequestId) return;  // בקשה שכבר הוחלפה
+      if (result.status !== 'success') return;
+
+      renderSlowQueriesTable(result.data, { append });
+      slowQueryCursor = result.next_cursor || null;
+
+      const tbody = document.querySelector('#slow-queries-table tbody');
+      updateShownCount(tbody ? tbody.children.length : 0, Number(result.total || 0));
+
+      if (more) more.hidden = !slowQueryCursor;
     } catch (error) {
       console.error('Error loading slow queries:', error);
+    } finally {
+      // ‏**ב-``finally`` ולא בסוף מסלול ההצלחה.** בקשה אחרונה שנכשלה חייבת
+      // להחזיר את הכפתור, אחרת המשתמש נשאר עם כפתור מנוטרל לצמיתות ובלי שום
+      // דבר על המסך שמסביר למה — כשל גרוע יותר מהמרוץ עצמו, כי אין ממנו
+      // יציאה חוץ מרענון. תנאי הדור נשאר גם כאן: רק הבקשה האחרונה מחזירה.
+      if (more && requestId === slowQueryRequestId) more.disabled = false;
     }
   }
 
-  function renderSlowQueriesTable(queries) {
-    const tbody = document.querySelector('#slow-queries-table tbody');
+  async function refreshSlowQueries() {
+    slowQueryCursor = null;
+    await fetchSlowQueries(null, { append: false });
+  }
+
+  async function loadMoreSlowQueries() {
+    if (!slowQueryCursor) return;
+    await fetchSlowQueries(slowQueryCursor, { append: true });
+  }
+
+  function applySortIndicators() {
+    document.querySelectorAll('#slow-queries-table thead th[data-sort-field]').forEach(th => {
+      if (th.dataset.sortField === slowQuerySort.field) {
+        th.setAttribute('aria-sort', slowQuerySort.dir === 'asc' ? 'ascending' : 'descending');
+      } else {
+        th.removeAttribute('aria-sort');
+      }
+    });
+  }
+
+  function attachCollectionFilter() {
+    // ל-select **לא היה שום מאזין**. עד שנוסף העימוד זה היה פגם חוויה בלבד:
+    // בחירת collection לא עשתה כלום עד לחיצה על "רענן". מרגע שיש קורסור זה
+    // הפך לבאג נכונות — בחירת collection ואז "טען עוד" שלחה את המסנן החדש
+    // עם הקורסור הישן, שנטבע עבור אוכלוסייה אחרת, ושורות פשוט נעלמו.
+    //
+    // ``refreshSlowQueries`` מאפסת את הקורסור, ולכן היא התשובה הנכונה כאן.
+    // השרת דוחה קורסור כזה גם בלי המאזין (``cursor_filter_mismatch``), אבל
+    // 400 בממשק הוא עדיין שבור — שתי השכבות נחוצות.
+    const select = document.getElementById('collection-filter');
+    if (select) select.addEventListener('change', refreshSlowQueries);
+  }
+
+  function attachSortHandlers() {
+    document.querySelectorAll('#slow-queries-table thead th[data-sort-field]').forEach(th => {
+      const button = th.querySelector('.sort-header');
+      if (!button) return;
+      button.addEventListener('click', function() {
+        const field = th.dataset.sortField;
+        // לחיצה חוזרת על אותה עמודה הופכת כיוון; עמודה אחרת מתחילה מיורד,
+        // כי "הכי איטי קודם" הוא מה שמעניין ברוב המקרים.
+        slowQuerySort = (slowQuerySort.field === field)
+          ? { field, dir: slowQuerySort.dir === 'desc' ? 'asc' : 'desc' }
+          : { field, dir: 'desc' };
+        applySortIndicators();
+        refreshSlowQueries();
+      });
+    });
+    applySortIndicators();
+  }
+
+  async function loadPatterns() {
+    try {
+      const response = await profilerFetch('/api/profiler/patterns?limit=50');
+      const result = await response.json();
+      if (result.status !== 'success') return;
+      renderPatternsTable(result.data || [], Number(result.total || 0));
+    } catch (error) {
+      console.error('Error loading query patterns:', error);
+    }
+  }
+
+  function renderPatternsTable(patterns, total) {
+    const tbody = document.querySelector('#query-patterns-table tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
+
+    const shown = document.getElementById('patterns-shown');
+    if (shown) {
+      shown.textContent = (total > patterns.length)
+        ? `— מוצגים ${patterns.length} מתוך ${total}`
+        : `— ${patterns.length}`;
+    }
+
+    if (!patterns.length) {
+      const row = document.createElement('tr');
+      const cell = document.createElement('td');
+      cell.colSpan = 7;
+      cell.style.cssText = 'padding:.6rem; opacity:.7;';
+      cell.textContent = 'אין דפוסים בחלון הזמן הנוכחי.';
+      row.appendChild(cell);
+      tbody.appendChild(row);
+      return;
+    }
+
+    patterns.forEach(pattern => {
+      const row = document.createElement('tr');
+      row.style.borderTop = '1px solid var(--glass-border, rgba(255,255,255,.08))';
+      row.dataset.queryId = String(pattern.query_id || '');
+      const shape = JSON.stringify(pattern.query_shape || {});
+      [
+        pattern.collection,
+        pattern.operation,
+        shape.length > 80 ? `${shape.substring(0, 80)}…` : shape,
+        String(pattern.count),
+        Number(pattern.avg_time_ms || 0).toFixed(2),
+        Number(pattern.max_time_ms || 0).toFixed(2),
+        pattern.last_seen ? new Date(pattern.last_seen).toLocaleString('he-IL') : '—',
+      ].forEach(value => {
+        const cell = document.createElement('td');
+        cell.style.padding = '.6rem';
+        // ``textContent`` ולא ``innerHTML``: השלד נבנה מנתוני משתמש.
+        cell.textContent = value;
+        row.appendChild(cell);
+      });
+      tbody.appendChild(row);
+    });
+  }
+
+  function renderSlowQueriesTable(queries, options) {
+    const tbody = document.querySelector('#slow-queries-table tbody');
+    // ``append`` הוא מה שמבדיל בין "רענן" ל"טען עוד". בלי זה הדף השני היה
+    // מחליף את הראשון, והכפתור היה נראה כאילו הוא לא עושה כלום.
+    if (!options || !options.append) tbody.innerHTML = '';
 
     queries.forEach(query => {
       const row = document.createElement('tr');
+      row.dataset.queryId = String(query.query_id || '');
       const shape = JSON.stringify(query.query_shape || {});
       const timeMs = Number(query.execution_time_ms || 0);
       const timeStyle = timeMs > 1000 ? 'color:#dc3545; font-weight:700;' : '';
@@ -236,27 +502,82 @@
       const actionsTd = document.createElement('td');
       actionsTd.style.padding = '.6rem';
 
+      // ``query_raw`` קיים רק לשאילתות שזוהו בוודאות כשל משתמש מורשה
+      // (``PROFILER_UNREDACTED_USER_IDS``). איתו הניתוח רץ על הערכים
+      // האמיתיים ומחזיר תוצאות; על השלד ``<value>`` הוא מחזיר אפס.
+      const hasRaw = Boolean(query.query_raw) && typeof query.query_raw === 'object';
+
       // מציגים כפתור רק אם הפעולה רלוונטית לניתוח
       if (['find', 'aggregate', 'count'].includes(query.operation)) {
           const btn = document.createElement('button');
           btn.className = 'btn btn-secondary';
           btn.type = 'button';
-          btn.textContent = '🔍 נתח';
-          
+          btn.textContent = hasRaw ? '🔍 נתח (ערכים אמיתיים)' : '🔍 נתח';
+          btn.dataset.analyzeWith = hasRaw ? 'raw' : 'shape';
+
           // כאן אנחנו מעבירים את האובייקט ישירות לפונקציה, בלי לעבור דרך HTML String
           btn.onclick = function() {
-              analyzeQueryFromRow(query.collection, query.operation, query.query_shape || {});
+              analyzeQueryFromRow(
+                query.collection, query.operation,
+                hasRaw ? query.query_raw : (query.query_shape || {}),
+                hasRaw
+              );
           };
-          
+
           actionsTd.appendChild(btn);
       } else {
-          // עבור insert/update וכו'
+          // עבור insert/update וכו' — ה-explain אינו מנתח אותן, ולכן אין כפתור.
           actionsTd.innerHTML = '<span style="opacity:0.5">-</span>';
+      }
+
+      // ברירה בטוחה חייבת להיות גלויה **בכל שורה**, גם בשורה בלי כפתור.
+      // הסיבה עונה על "למה אין כאן ערכים אמיתיים", והיא נכונה באותה מידה
+      // ל-``update``/``delete`` — גם הם עוברים את אותה החלטה, כי מה שנקלט
+      // מהם הוא הפילטר (``database/manager.py``). קודם הבלוק הזה ישב בתוך
+      // תנאי הכפתור, ולכן נעלם דווקא בשורות שאין בהן שום רמז אחר.
+      if (!hasRaw && query.raw_withheld_reason) {
+        const note = document.createElement('div');
+        note.dataset.testid = 'raw-withheld';
+        note.style.cssText = 'font-size:.8rem; opacity:.75; margin-top:.25rem;';
+        note.textContent = describeWithheldReason(query.raw_withheld_reason);
+        actionsTd.appendChild(note);
       }
 
       row.appendChild(actionsTd);
       tbody.appendChild(row);
     });
+  }
+
+  //: הסיבות ש-``raw_withheld_reason`` יכול לשאת (``services/query_profiler_service.py``).
+  //: שלוש הסיבות של ``unknown_*`` נושאות גם שם אחרי נקודתיים, והוא מוצג כפי שהוא.
+  const RAW_WITHHELD_TEXT = {
+    owner_missing: 'ערכים לא נשמרו: השאילתה לא מצהירה על בעלים',
+    owner_mismatch: 'ערכים לא נשמרו: השאילתה נוגעת במשתמש אחר',
+    vector_query: 'ערכים לא נשמרו: שאילתת וקטור',
+    too_large: 'ערכים לא נשמרו: חריגה מהגודל',
+    malformed: 'ערכים לא נשמרו: מבנה לא צפוי',
+    unsupported_number: 'ערכים לא נשמרו: מספר שאינו סופי (inf/NaN)',
+    owner_not_allowed_now: 'ערכים מוסתרים: המשתמש כבר אינו ברשימת ההחרגה',
+    internal_error: 'ערכים לא נשמרו: תקלה בהחלטה (נרשם ללוג)',
+  };
+  const RAW_WITHHELD_NAMED = {
+    unknown_field: 'שדה לא מוכר',
+    unknown_operator: 'אופרטור לא מוכר',
+    unknown_stage: 'שלב לא מוכר',
+    unsupported_type: 'טיפוס שאינו ניתן להרצה חוזרת',
+    malformed_stage: 'ערך מבני לא תקין בשלב',
+    unsupported_field_value: 'שדה שמותר רק כדפוס חיפוש, והגיע כערך',
+    unsupported_field_operator: 'אופרטור שאינו מותר לשדה',
+  };
+
+  function describeWithheldReason(reason) {
+    const text = String(reason || '');
+    if (RAW_WITHHELD_TEXT[text]) return RAW_WITHHELD_TEXT[text];
+    const colon = text.indexOf(':');
+    if (colon > 0 && RAW_WITHHELD_NAMED[text.slice(0, colon)]) {
+      return `ערכים לא נשמרו: ${RAW_WITHHELD_NAMED[text.slice(0, colon)]} ${text.slice(colon + 1)}`;
+    }
+    return `ערכים לא נשמרו: ${text}`;
   }
 
   function analyzeQueryById(collection, queryShapeJson, operation) {
@@ -285,7 +606,7 @@
     analyzeQuery();
   }
 
-  function analyzeQueryFromRow(collection, operation, queryShape) {
+  function analyzeQueryFromRow(collection, operation, queryShape, isRaw) {
     document.getElementById('analyze-collection').value = collection;
     const op = (operation || '').toLowerCase() === 'aggregate' ? 'aggregate' : 'find';
     document.getElementById('analyze-operation').value = op;
@@ -297,10 +618,273 @@
       document.getElementById('analyze-query').value = JSON.stringify(queryShape || {}, null, 2);
     }
 
-    analyzeQuery();
+    // המסלול היחיד שיודע שהתוכן נושא סמני טיפוס, ולכן היחיד שמצהיר על כך.
+    analyzeQuery(isRaw ? 'extended_json' : 'json');
   }
 
-  async function analyzeQuery() {
+  //: מה שהניתוח האחרון החזיר, יחד עם מה שביקשנו. ``null`` עד לניתוח הראשון.
+  let lastAnalysis = null;
+
+  /**
+   * חיווי למשתמש דרך הטוסט המשותף (``static/js/toast.js``).
+   *
+   * **בודקים את ערך ההחזרה, כמו שהמודול דורש במפורש:** ``ckToast`` מחזיר
+   * ``false`` כשהוא לא הצליח להיכנס ל-DOM. טוסט הוא ערוץ הדיווח היחיד
+   * כאן, ואם הוא לא הוצג — צריך ליפול למשהו שכן ייראה. ``typeof`` נבדק
+   * בנפרד כי הקובץ נטען ב-``defer`` ועלול לא להיטען כלל.
+   */
+  function showCopyToast(message = 'הועתק ללוח!', type = 'success') {
+    if (typeof window.ckToast === 'function'
+        && window.ckToast(message, type, { key: 'profiler-copy' })) {
+      return;
+    }
+    alert(message);
+  }
+
+  function describeStage(stage, depth) {
+    // תוכנית הביצוע היא עץ (input_stage + children). משטחים אותו לרשימה
+    // עם הזחה, כי זה מה שקריא בטקסט שמודבק לצ'אט.
+    if (!stage) return [];
+    const pad = '  '.repeat(depth);
+    const bits = [stage.stage];
+    if (stage.index_name) bits.push(`index=${stage.index_name}`);
+    if (stage.direction) bits.push(`direction=${stage.direction}`);
+    let lines = [`${pad}- ${bits.join(' · ')}`];
+    lines = lines.concat(describeStage(stage.input_stage, depth + 1));
+    (stage.children || []).forEach(child => {
+      lines = lines.concat(describeStage(child, depth + 1));
+    });
+    return lines;
+  }
+
+  /**
+   * גדר קוד שארוכה מכל רצף גרשיים אחוריים שקיים בתוכן.
+   *
+   * **CommonMark 0.31.2:** גדר פותחת היא "a sequence of at least three
+   * consecutive backtick characters", והסוגרת "must be at least as long as
+   * the opening fence". לכן תוכן שמכיל ``` שובר בלוק שנפתח ב-```, והבלוקים
+   * כאן נושאים שם collection ושמות שדות **שהמשתמש הקליד בטופס**.
+   *
+   * הפתרון שהתקן עצמו נותן הוא גדר ארוכה יותר — לא בריחה מתווים ולא סינון.
+   * התוכן נשאר בדיוק כפי שהוא, וזה חשוב: זה קוד שמדביקים ומריצים.
+   */
+  function codeFence(content) {
+    let longest = 0;
+    (String(content).match(/`+/g) || []).forEach(run => {
+      if (run.length > longest) longest = run.length;
+    });
+    return '`'.repeat(Math.max(3, longest + 1));
+  }
+
+  /**
+   * קוד בשורה שעמיד לגרשיים אחוריים בתוכן.
+   *
+   * אותו כלל בגרסת code span: התוחם הוא רצף גרשיים, והסוגר חייב להיות באותו
+   * אורך — ולכן תוחם ארוך מכל רצף פנימי סוגר נכון. תוכן שמתחיל או מסתיים
+   * בגרש אחורי מקבל רווח מרפד, כי התקן מסיר רווח אחד מכל צד כשיש בשניהם.
+   *
+   * רווחים לבנים מקופלים לרווח יחיד: code span אינו יכול להכיל שורה חדשה,
+   * וזה השינוי היחיד שנעשה בתוכן.
+   */
+  function inlineCode(value) {
+    const text = String(value == null ? '' : value).replace(/\s+/g, ' ');
+    let longest = 0;
+    (text.match(/`+/g) || []).forEach(run => {
+      if (run.length > longest) longest = run.length;
+    });
+    const delim = '`'.repeat(longest + 1);
+    const pad = (text.startsWith('`') || text.endsWith('`')) ? ' ' : '';
+    return delim + pad + text + pad + delim;
+  }
+
+  /** מקפל שורות חדשות לרווח, כדי ששדה טקסט לא ישבור תבליט או כותרת. */
+  function oneLine(value) {
+    return String(value == null ? '' : value).replace(/\s*\r?\n\s*/g, ' ').trim();
+  }
+
+  function buildAnalysisReport(snapshot) {
+    const payload = snapshot.payload || {};
+    const data = snapshot.data || {};
+    const isAggregate = Boolean(data.aggregation_explain);
+    const explain = isAggregate ? data.aggregation_explain : (data.explain || {});
+    const recommendations = data.recommendations || [];
+    const lines = [];
+
+    // רמת הפירוט **שנשלחה בבקשה**. השרת אינו מחזיר אותה (ל-``ExplainPlan``
+    // אין שדה כזה), והוא גם לא מחליף אותה בשקט: verbosity לא חוקי זורק
+    // ``ExplainVerbosityError`` ולא נופל לברירת מחדל. לכן זה מה שבאמת רץ.
+    const verbosity = payload.verbosity || 'queryPlanner';
+
+    /**
+     * המשפט שמסביר למה אין מספרים — **נגזר מה-verbosity, לא מהיעדר המספרים.**
+     *
+     * ``queryPlanner`` באמת אינה מריצה כלום, ולכן "לא נמדד" נכון שם. אבל
+     * ``executionStats`` שהחזירה אפס כן מדדה, וקריאת ההיעדר כ"רץ
+     * ב-queryPlanner" הייתה טענה שקרית — בדוח שכל מטרתו לומר מה נמדד.
+     */
+    function notMeasuredNote(what) {
+      return [
+        `- **אין מדידה.** הניתוח רץ ב-${inlineCode('queryPlanner')}, שאינו מריץ את ${what}.`,
+        '  אין להסיק מהיעדר המספרים שהשאילתה מהירה — פשוט לא נמדדה.',
+      ];
+    }
+
+    lines.push('# ניתוח שאילתה איטית — CodeKeeper Query Profiler');
+    lines.push('');
+    lines.push(`- **Collection:** ${inlineCode(explain.collection || payload.collection || 'לא ידוע')}`);
+    lines.push(`- **סוג פעולה:** ${isAggregate ? 'aggregate' : 'find'}`);
+    lines.push(`- **Explain verbosity:** ${inlineCode(verbosity)}`);
+    lines.push(`- **זמן הניתוח:** ${snapshot.at}`);
+    lines.push('');
+    // שתי עובדות נפרדות, וקל לבלבל ביניהן — אז שתיהן נאמרות במפורש.
+    //
+    // **מה שבדוח מנורמל תמיד**, ולכן ההצהרה על פרטיות נכונה בשני הענפים.
+    // שלושת חלקי הדוח נבדקו: ``## צורת השאילתה`` נלקח מ-``explain.query_shape``
+    // שהשרת מנרמל; ``## תוכנית הביצוע`` עובר ב-``describeStage`` שמדפיס
+    // ``stage``/``index_name``/``direction`` בלבד ו**לעולם לא**
+    // ``filter_condition``; והסטטיסטיקות הן מספרים.
+    //
+    // **מה שכן משתנה הוא על מה ה-explain רץ.** בענף הגולמי הוא רץ על הערכים
+    // האמיתיים, ולכן המספרים מתארים את השאילתה שבאמת רצה. בלי לומר את זה, מי
+    // שקורא "הערכים מנורמלים" עלול להסיק שגם המדידה נעשתה על ``<value>``
+    // ולפסול מספרים תקפים — היפוך של המצב.
+    //
+    // גרסה קודמת של השורה הזו טענה שהדוח *מכיל* את הערכים האמיתיים. זה לא
+    // נכון, ולא במקרה: היא נגזרה מהנחה על תוכן הדוח במקום ממה שבאמת נכתב
+    // לתוכו — אותה תקלה בדיוק כמו ה-``verbosity`` שלמעלה, בכיוון ההפוך.
+    lines.push('> ערכי השאילתה מנורמלים ל-`<value>` בצד השרת לפני שהם מגיעים לכאן, ולכן אין בדוח נתונים אישיים.');
+    if (payload.encoding === 'extended_json') {
+      lines.push('>');
+      lines.push('> **הניתוח עצמו רץ על הערכים האמיתיים** של השאילתה (החרגה לפי `PROFILER_UNREDACTED_USER_IDS`), ולכן המספרים למטה מתארים את מה שבאמת רץ בפרודקשן — ולא שלד שאינו מתאים לאף מסמך.');
+    }
+    lines.push('');
+
+    lines.push(isAggregate ? '## הפייפליין' : '## צורת השאילתה');
+    const shapeJson = JSON.stringify(
+      isAggregate ? (explain.pipeline_shape || []) : (explain.query_shape || {}), null, 2);
+    const shapeFence = codeFence(shapeJson);
+    lines.push(shapeFence + 'json');
+    lines.push(shapeJson);
+    lines.push(shapeFence);
+    lines.push('');
+
+    lines.push('## תוכנית הביצוע');
+    if (isAggregate) {
+      const stages = explain.stages || [];
+      if (!stages.length) {
+        lines.push('_מונגו לא החזירה שלבים עבור הפייפליין הזה._');
+      } else {
+        stages.forEach(st => {
+          const bits = [st.stage_name];
+          if (st.index_used) bits.push(`index=${st.index_used}`);
+          if (st.lookup_collection) bits.push(`lookup=${st.lookup_collection}`);
+          if (st.lookup_strategy) bits.push(`strategy=${st.lookup_strategy}`);
+          if (st.uses_disk) bits.push('⚠️ uses_disk');
+          lines.push(`- ${bits.join(' · ')}`);
+        });
+      }
+    } else {
+      const planLines = describeStage(explain.winning_plan, 0);
+      lines.push(planLines.length ? planLines.join('\n') : '_אין תוכנית ביצוע בתשובה._');
+    }
+    lines.push('');
+
+    lines.push('## סטטיסטיקות ביצוע');
+    const stats = explain.stats;
+    if (isAggregate) {
+      const total = Number(explain.total_execution_time_ms || 0);
+      if (verbosity === 'queryPlanner') {
+        lines.push(...notMeasuredNote('הפייפליין'));
+      } else if (total > 0) {
+        lines.push(`- זמן כולל: ${total.toFixed(2)} ms`);
+      } else {
+        // ``total_execution_time_ms`` הוא סכום זמני השלבים
+        // (``query_profiler_service.py:975``). ברמה שמודדת, סכום 0 הוא
+        // תוצאה ולא היעדר תוצאה — ושתי הקריאות שלו לגיטימיות.
+        lines.push(`- זמן כולל: 0.00 ms (רץ ב-\`${verbosity}\`)`);
+        lines.push('  סכום זמני השלבים הוא אפס: או שהפייפליין מהיר מפחות ממילישנייה, או שמונגו לא החזירה זמנים לשלבים. **זו מדידה, לא היעדר מדידה.**');
+      }
+    } else if (stats) {
+      lines.push(`- זמן ביצוע: ${stats.execution_time_ms} ms`);
+      lines.push(`- מסמכים שנסרקו: ${stats.docs_examined}`);
+      lines.push(`- מסמכים שהוחזרו: ${stats.docs_returned}`);
+      lines.push(`- מפתחות שנסרקו: ${stats.keys_examined}`);
+      lines.push(`- אינדקס בשימוש: ${stats.index_used || 'אין'}`);
+      lines.push(`- Covered query: ${stats.is_covered_query ? 'כן' : 'לא'}`);
+      lines.push(`- יחס יעילות: ${(Number(stats.efficiency_ratio || 0) * 100).toFixed(1)}%`);
+    } else {
+      lines.push(...notMeasuredNote('השאילתה'));
+    }
+    lines.push('');
+
+    lines.push('## המלצות');
+    if (!recommendations.length) {
+      lines.push('_לא נמצאו המלצות._');
+    } else {
+      recommendations.forEach(rec => {
+        lines.push(`### ${oneLine(rec.title)} (${oneLine(rec.severity)})`);
+        if (rec.description) lines.push(oneLine(rec.description));
+        if (rec.suggested_action) lines.push(`- **פעולה מוצעת:** ${oneLine(rec.suggested_action)}`);
+        if (rec.estimated_improvement) lines.push(`- **שיפור צפוי:** ${oneLine(rec.estimated_improvement)}`);
+        if (rec.code_example) {
+          // דוגמת הקוד נבנית בשרת משמות השדות שהמשתמש הקליד
+          // (``_create_collscan_recommendation``), ולכן היא יכולה לשאת גרש אחורי.
+          const exampleFence = codeFence(rec.code_example);
+          lines.push(exampleFence + 'javascript');
+          lines.push(String(rec.code_example));
+          lines.push(exampleFence);
+        }
+        lines.push('');
+      });
+    }
+
+    return lines.join('\n');
+  }
+
+  async function copyAnalysisReport(button) {
+    if (!lastAnalysis) {
+      showCopyToast('אין עדיין תוצאות להעתקה', 'warning');
+      return;
+    }
+    const text = buildAnalysisReport(lastAnalysis);
+    const icon = button ? button.querySelector('i') : null;
+    try {
+      // מגן ל-context לא מאובטח (HTTP), כמו ב-static/js/collections.js:
+      // ב-HTTP רגיל ``navigator.clipboard`` פשוט אינו קיים.
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        throw new Error('clipboard_unavailable');
+      }
+      await navigator.clipboard.writeText(text);
+      if (icon) {
+        button.classList.add('copied');
+        icon.className = 'fas fa-check';
+        setTimeout(() => { button.classList.remove('copied'); icon.className = 'fas fa-copy'; }, 1500);
+      }
+      showCopyToast();
+    } catch (err) {
+      console.error('Copy failed:', err);
+      // נפילה אחורה: מציגים את הטקסט כדי שאפשר יהיה להעתיק ידנית,
+      // במקום להשאיר את המשתמש בלי כלום.
+      window.prompt('העתק את הדוח:', text);
+      showCopyToast('העתקה אוטומטית נכשלה', 'error');
+    }
+  }
+
+  /**
+   * מריץ את הניתוח על מה שבטופס.
+   *
+   * ``encoding`` הוא הניב של התוכן: ``extended_json`` פירושו שהוא נושא סמני
+   * טיפוס (``{"$date": …}``) שהשרת יפענח בחזרה לטיפוסים. **מוצהר ולא מוסק** —
+   * זיהוי אוטומטי היה מופעל גם על השלד המנורמל, ושם ``{"$options": "<value>"}``
+   * הופך בשקט ל-``Regex`` עם דגלים אקראיים במקום לייצר שגיאה רועשת ממונגו.
+   *
+   * **ברירת המחדל היא הבטוחה, וזה העיקר.** קודם זה היה משתנה ברמת המודול
+   * שרק ``analyzeQueryFromRow`` כתב אליו — ושני המסלולים האחרים
+   * (``analyzeQueryById`` והכפתור הידני) ירשו את הערך של הניתוח הקודם ושלחו
+   * שלד מנורמל מסומן כ-Extended JSON. כפרמטר, מי שיודע אומר, ומי ששוכח
+   * מקבל את הבטוח — וזה מחזיק גם למסלול רביעי שייכתב מחר.
+   */
+  async function analyzeQuery(encoding = 'json') {
     const collection = document.getElementById('analyze-collection').value;
     const operation = document.getElementById('analyze-operation').value;
     const verbosity = document.getElementById('analyze-verbosity').value;
@@ -310,7 +894,7 @@
       return;
     }
 
-    let payload = { collection, verbosity };
+    let payload = { collection, verbosity, encoding };
 
     if (operation === 'aggregate') {
       const pipelineText = document.getElementById('analyze-pipeline').value;
@@ -348,15 +932,20 @@
       if (result.status === 'success') {
         document.getElementById('analysis-results').style.display = 'flex';
         const data = result.data || {};
+        // שומרים את הקלט יחד עם התוצאה: בלי זה אי אפשר לבנות דוח, כי הדוח
+        // חייב לכלול את מה שביקשנו (collection, verbosity) ולא רק מה שחזר.
+        lastAnalysis = { payload: payload, data: data, at: new Date().toISOString() };
         if (data.aggregation_explain) {
           renderAggregationPipeline(data.aggregation_explain);
-          renderAggregationStats(data.aggregation_explain);
+          renderAggregationStats(data.aggregation_explain, verbosity);
         } else {
           renderExplainPlan(data.explain);
         }
         renderRecommendations(data.recommendations || []);
       } else {
-        alert(result.message || 'שגיאה בניתוח');
+        // ה-error_code מוצג לצד ההודעה: כשהודעה גנרית מוחזרת (קוד שאין לו ערך
+        // במפת ההודעות), בלעדיו הפופאפ חסר משמעות ואי אפשר לפעול לפיו.
+        alert([result.message || 'שגיאה בניתוח', result.error_code].filter(Boolean).join(' — '));
       }
     } catch (error) {
       console.error('Error analyzing query:', error);
@@ -443,12 +1032,42 @@
     container.innerHTML = html || '<div style="opacity:.75;">אין נתוני stages ב-explain</div>';
   }
 
-  function renderAggregationStats(explain) {
+  /**
+   * פאנל הסטטיסטיקות של aggregate.
+   *
+   * ``verbosity`` הוא **מה שנבחר בטופס**, ולא מה שאפשר לנחש מהמספרים.
+   * הגרסה הקודמת גזרה את ההסבר מ-``totalMs > 0`` והכריזה "כנראה רצת עם
+   * queryPlanner" — טענה שקורסת בדיוק כשבוחרים ``executionStats`` ומונגו
+   * מסכמת אפס. ``total_execution_time_ms`` הוא סכום זמני השלבים, ופייפליין
+   * קטן מסתכם לאפס גם כשהוא באמת נמדד.
+   *
+   * זה אותו תיקון שכבר נעשה ב-``buildAnalysisReport``, והניסוח כאן תואם לו
+   * בכוונה: המסך והטקסט המועתק חייבים לומר את אותו דבר.
+   */
+  function renderAggregationStats(explain, verbosity) {
     const statsContainer = document.getElementById('explain-stats');
+    const stageCount = (explain.stages || []).length;
+    const totalMs = Number(explain.total_execution_time_ms || 0);
+
+    let timeLine;
+    if (verbosity === 'queryPlanner') {
+      timeLine = `<div data-testid="agg-time-not-measured" style="opacity:.75;"><strong>אין מדידה.</strong> `
+        + `הניתוח רץ ב-<code>queryPlanner</code>, שאינו מריץ את הפייפליין. `
+        + `אין להסיק מהיעדר המספרים שהשאילתה מהירה — פשוט לא נמדדה.</div>`;
+    } else if (totalMs > 0) {
+      timeLine = `<div data-testid="agg-time-measured"><strong>זמן כולל:</strong> ${totalMs.toFixed(2)} ms</div>`;
+    } else {
+      timeLine = `<div data-testid="agg-time-measured-zero"><strong>זמן כולל:</strong> 0.00 ms `
+        + `(רץ ב-<code>${escapeHtml(String(verbosity || ''))}</code>)</div>`
+        + `<div style="opacity:.75;">סכום זמני השלבים הוא אפס: או שהפייפליין `
+        + `מהיר מפחות ממילישנייה, או שמונגו לא החזירה זמנים לשלבים. `
+        + `<strong>זו מדידה, לא היעדר מדידה.</strong></div>`;
+    }
+
     statsContainer.innerHTML = `
       <div style="opacity:.9;">
-        <div><strong>זמן כולל:</strong> ${Number(explain.total_execution_time_ms || 0).toFixed(2)} ms</div>
-        <div><strong>מספר שלבים:</strong> ${(explain.stages || []).length}</div>
+        ${timeLine}
+        <div><strong>מספר שלבים:</strong> ${stageCount}</div>
       </div>
     `;
   }

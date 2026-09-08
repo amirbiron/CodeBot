@@ -34,7 +34,7 @@
 - `docs/environment-variables.rst` — **משתני סביבה - רפרנס**: רפרנס משתני הסביבה: הטבלה המרכזית, משתני התראות וניטור, מדדים ו-OTEL, תפעול ואינטגרציות, דגלי בדיקות, ודוגמאות קונפיגורציה כולל טבלת ה-Scopes של GitHub.
 - `docs/performance-bible.md` — **🚀 The Performance Bible: CodeKeeper Optimization Guide**: עקרונות הביצועים של המערכת אחרי הרפקטור שהוריד את ה-p95 מ-1.8 שניות ל-200ms: Cache First, Projection, חישוב ב-DB, אינדקסים מורכבים, ו-Lazy Loading.
 - `docs/performance-scaling.rst` — **ביצועים והרחבה (Performance & Scaling)**: עימוד, Projection, כוונון Connection Pooling ו-Timeouts, לוגי איטיות לאיתור צווארי בקבוק, והנחיות לפי סביבה.
-- `docs/performance-sticky-notes.rst` — **Sticky Notes Warmup – פתרון ביצועים משולב**: העלאת timeout שכבר הוכחה בשטח, וחימום אינדקסים לפני שהתהליך מקבל תעבורה — נדבך שעדיין נבחן. כולל מה לאמת לפני rollout מלא.
+- `docs/performance-sticky-notes.rst` — **Sticky Notes Warmup – פתרון ביצועים משולב**: מה מחזיק היום את המסלול של הפתקים הדביקים אחרי תקלת נעילת האינדקסים — דגלי מוכנוּת שחוסמים את בניית האינדקסים מהמסלול החם, חימום עלייה שכבוי כברירת מחדל, ומה ה-timeout של Gunicorn עושה (ולא עושה) מאז המעבר ל-gevent.
 - `docs/large-files-runbook.rst` — **טיפול בקבצים גדולים (Large Files)**: ראנבוק לטיפול בקבצים גדולים: המגבלות והפולבקים, הנחיות ההפעלה, ומה לנטר.
 
 ## API Reference
@@ -73,7 +73,7 @@
 - `docs/development/scripts.rst` — **סקריפטים שימושיים**: תיקיית scripts/ מכילה כלים חד-פעמיים ותהליכי תחזוקה. לפני ההרצה ודאו שסביבת ה-DB היא סביבת ניסוי/פיתוח ושיש גיבוי עדכני.
 - `docs/development/i18n.rst` — **בינאום ותמיכה בשפות**: מודול i18n/ מספק שכבת תרגום פשוטה לבוט הטלגרם וה-WebApp. נכון לעכשיו קיימת חבילת מחרוזות בעברית (strings_he.py), אך המבנה מאפשר הוספת שפות חדשות ללא שינוי בלוגיקה העסקית.
 - `docs/integrations.rst` — **Integrations**: להפעלת פעולות שונות מול GitHub נדרש להגדיר לטוקן \(`GITHUB_TOKEN` או טוקן משתמש שנשמר במערכת\) את מרחבי ההרשאות המינימליים. הקפידו על עיקרון ההרשאות המצומצמות.
-- `docs/mcp-server.rst` — **שרת ה-MCP — חיבור Claude ל-CodeKeeper**: שרת ה-MCP שחושף את CodeKeeper ל-Claude: הכלים, האימות וההרשאות, פריימר הסוכן, עריכה מהדפדפן, והפעלה צעד אחר צעד מול Claude.ai ומול Claude Code.
+- `docs/mcp-server.rst` — **שרת ה-MCP — חיבור Claude ל-CodeKeeper**: שרת ה-MCP שחושף את CodeKeeper ל-Claude: הכלים, האימות וההרשאות, פריימר הסוכן, עריכה מהדפדפן, מדידת השימוש ושער הפרטיות שלה, וההפעלה צעד אחר צעד מול Claude.ai ומול Claude Code.
 - `docs/repository-integrations.rst` — **Repository Integrations**: מסמך זה מרכז את התמיכה בספקי מאגרי קוד. מטרתו למנוע בלבול ולהבהיר מה נתמך ומה לא.
 - `docs/security.rst` — **Security Guide**: אל תרשום סודות/PII בלוגים, השתמש ב‑ENV בלבד.
 - `docs/monitoring.md` — **Smart Observability v7 – Predictive Health & Adaptive Feedback**: חיבור Grafana לטלגרם דרך Webhook, אנוטציות, ספים דינמיים, הפרדה בין שגיאות פנימיות לחיצוניות, ו-Predictive Health.
@@ -121,6 +121,7 @@
 - `docs/webapp/advanced-caching.md` — **מערכת Caching מתקדמת עם TTL דינמי**: מסמך זה מרכז את ההמלצות והדוגמאות להטמעת מערכת caching חכמה עם TTL דינמי, כפי שגובש ב-Feature Suggestion. המטרה: שיפור מהיר של זמני תגובה, הורדת עומסים על DB, ושימור עקביות בין שרתים.
 - `docs/webapp/cache-inspector.rst` — **Cache Inspector (לוח בקרה של Redis)**: כלי אדמין לצפייה ולניהול של ה-Redis cache: סטטיסטיקות כלליות, חיפוש מפתחות, הצגת TTL וסטטוס, ומחיקה בטוחה של מפתחות.
 - `docs/webapp/config-inspector.rst` — **Config Inspector (סקירת משתני סביבה)**: כלי אדמין שמציג תמונת מצב של הקונפיגורציה ומשתני הסביבה, עם הסתרת ערכים רגישים.
+- `docs/webapp/mcp-analytics.rst` — **MCP Analytics (מדידת השימוש בכלי ה-MCP)**: מסך אדמין שמציג את נתוני השימוש בכלי ה-MCP מתוך PostHog — בריאות הכלים, עלות הניווט בריפו, ויכולות שסוכנים ביקשו — עם מצבי הכשל ומשתני הסביבה שהוא דורש.
 - `docs/webapp/static-checklist.rst` — **Static Performance & Security Checklist (gzip/br, Cache, SRI)**: להבטיח טעינה מהירה ובטוחה של נכסים סטטיים (CSS/JS/Images).
 - `docs/webapp/commands-catalog.rst` — **תחזוקת קטלוג הפקודות (``commands.json``)**: תחזוקת commands.json — הקטלוג שמזין את כרטיסי "קיצורי הדרך" בחיפוש הגלובלי. global_search.js טוען אותו רק בדפים שמכילים את globalSearchInput ואת searchBtn, ומוסיף כרטיסים לפי סוג (chatops/cli/playbook).
 - `docs/webapp/code-execution.rst` — **הרצת קוד (Code Execution Playground)**: ב‑WebApp יש כלי שמאפשר להריץ קוד Python מתוך הדפדפן, דרך API ייעודי.
@@ -129,7 +130,7 @@
 - `docs/webapp/editor.md` — **⌨️ עורך קוד (WebApp Editor)**: תוכן זה מסביר את טעינת העורך, מנגנון הגיבוי, וניהול העדפות.
 - `docs/webapp/markdown-folding.rst` — **Markdown – מצב מצומצם (קיפול כותרות ###) – אדמין בלבד**: מטרת הפיצ'ר: לאפשר לעורכים לקפל מקומית סעיפים לפי כותרות ### (H3) בתצוגת Markdown, בלי לשנות את קובץ ה־Markdown ובלי להשפיע על תצוגה ציבורית.
 - `docs/markdown_style_guide.rst` — **מדריך סגנונות וארכיטקטורת Markdown**: המסמך הזה הוא Source of Truth לעיצוב וארכיטקטורת Markdown בפרויקט. הוא מיועד למפתחים ול‑QA ויזואלי.
-- `docs/webapp/smooth-scrolling.rst` — **Smooth Scrolling (WebApp) — מדריך תמציתי לסוכני AI**: מדריך זה מסביר את יכולות הגלילה החלקה שהוטמעו ב‑WebApp, כיצד להשתמש בהן באופן בטוח, ומה הדגשים לסוכני AI כדי לשמור על נגישות וביצועים.
+- `docs/webapp/smooth-scrolling.rst` — **Smooth Scrolling (WebApp) — מדריך תמציתי לסוכני AI**: מנגנון הגלילה החלקה של ה‑WebApp כבוי כברירת מחדל ואינו מופיע בהגדרות; העמוד מסביר למה, מה נשאר פעיל דרך CSS נייטיבי, ואיך מדליקים אותו לניפוי בלבד.
 - `docs/webapp/system-modules.rst` — **מודולים פנימיים ב-WebApp**: הקבצים הבאים בתיקיית webapp/ מנהלים תשתיות שאינן מכוסות במדריכים קודמים. העמוד מסביר את ה‑API, התלויות והסיבות לכל רכיב כדי שיהיה אפשר להרחיב או לדבג במהירות.
 
 ## Frontend > Theming
@@ -145,7 +146,7 @@
 - `docs/observability/observability_dashboard.md` — **📡 Observability Dashboard & API**: מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור בזמן אמת ל-SRE ולמפתחים: כרטיסי מצב וגרפים, טבלת התראות עם סינון, ו-API מתועד למסלולי alerts, timeseries, aggregations, export, replay, runbook, quickfix ו-ai_explain.
 - `docs/observability/query-performance-profiler.rst` — **Query Performance Profiler**: כלי ניטור לשאילתות MongoDB איטיות: דשבורד ב-WebApp שמציג את השאילתות הכבדות, ה-API שמאחוריו, ומה הכלי במפורש אינו עושה.
 - `docs/observability/quick_fix_rules.md` — **🧠 Quick Fix חכם (Queue Delay + עומס/DB) – הנחיות למפתחים ולסוכני AI**: המטרה של Quick Fix היא לתת המלצה קצרה, בטוחה ושימושית על “מה לעשות עכשיו”, לפי אותות שאנחנו כבר מודדים.
-- `docs/observability/asyncio-loop-safety.rst` — **Asyncio תחת WSGI: הרצת קורוטינות בבטחה**: ב-WebApp שמורץ תחת WSGI (Flask + Gunicorn/gevent), עלולה להיות לולאת Event פעילה כבר בתוך ה-thread של הבקשה. במצב כזה קריאה ל-asyncio.run תזרוק חריגה ותפיל את הבקשה, ולעתים תשאיר קורוטינה "תלויה" ללא await.
+- `docs/observability/asyncio-loop-safety.rst` — **Asyncio תחת WSGI: הרצת קורוטינות בבטחה**: ב-WebApp שרץ כ-Flask על WSGI עם worker של gevent, קוד סינכרוני אינו יכול להריץ לולאת asyncio בבטחה — גרינלטים חולקים OS thread, ו-asyncio שומר את מצב הלולאה הרצה ברמת ה-thread. העמוד מסביר את המנגנון, את התסמינים, ואת…
 - `docs/visual-rule-engine.rst` — **Visual Rule Engine - מנוע כללים ויזואלי**: מנוע כללים ויזואלי ליצירת התראות מורכבות מהממשק בלי לכתוב קוד: זרימת ההחלטה, מסך הכללים, יצירה והפעלה, וסכמת ה-JSON של כלל.
 - `docs/observability/coverage_report.rst` — **Coverage Report (Runbooks / Quick Fixes)**: עמוד ה-Coverage נועד להיות Gap Analysis קבוע: To‑Do List לצוות שמראה אילו alert_type נצפו במערכת ועדיין חסר להם Runbook/Quick Fix, ואילו הגדרות בקונפיג הפכו ליתומות.
 - `docs/api/ai_explain.md` — **🧠 Observability AI Explain API**: שירות ה-AI שמתרגם הקשר של התראה להסבר קצר בשפה טבעית: הבקשה והתגובה של POST /api/ai/explain, האימות והבקרות, וקודי השגיאה.
@@ -192,4 +193,4 @@
 
 ---
 
-עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 228.
+עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 229.

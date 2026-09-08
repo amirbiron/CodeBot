@@ -80,6 +80,14 @@ class TestEmbeddingService:
 
     @pytest.mark.asyncio
     async def test_no_api_key_returns_none(self):
+        """``api_key=""`` הוא "אין מפתח", ולא "קח מהסביבה".
+
+        עד לתיקון בקונסטרקטור הטסט הזה עבר רק כל עוד ``GEMINI_API_KEY`` לא
+        היה מוגדר בסביבת ההרצה. ברגע שהוא כן היה — ``api_key or GEMINI_API_KEY``
+        החזיר את מפתח הסביבה, והטסט **יצא לקריאת רשת אמיתית מול Gemini**
+        במקום לבדוק את מסלול ה"אין מפתח". טסט שתלוי בהיעדר סוד אינו טסט.
+        """
         service = EmbeddingService(api_key="")
+        assert service.api_key == "", "an explicit empty key fell back to the environment"
         embedding = await service.generate_embedding("test")
         assert embedding is None

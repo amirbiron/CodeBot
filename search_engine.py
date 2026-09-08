@@ -133,6 +133,78 @@ VECTOR_WEIGHT = 1.2
 MIN_RRF_SCORE = 0.005
 
 
+def _semantic_min_vector_score() -> float:
+    """רף על ציון הווקטור **הגולמי**, לפני ה-fusion.
+
+    חיפוש וקטורי לא עונה על "מה מתאים" אלא על "מה הכי קרוב", והוא תמיד ממלא
+    את ה-``limit``. בלי רף, שאילתה עם שלוש תוצאות טובות מחזירה עוד שבע שנכנסו
+    רק כי היה מקום.
+
+    הרף חייב לשבת כאן ולא על ``rrfScore``: ציון ה-RRF הוא בסקאלה אחרת לגמרי
+    (מקסימום ~0.036), וסף שנבחר בטעות על הסקאלה הלא נכונה כבר סינן פעם אחת
+    את כל התוצאות. הציון של ``$vectorSearch`` הוא בטווח קבוע 0..1 (ול-cosine
+    הוא ``(1 + cos) / 2``, שזו ה-``similarity`` שמוגדרת ב-``vector_index``).
+
+    ברירת המחדל 0.0 = כבוי, עד שהערך יכויל על נתונים אמיתיים.
+    """
+    try:
+        value = float(getattr(config, "SEMANTIC_MIN_VECTOR_SCORE", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    if value <= 0.0:
+        return 0.0
+    return min(value, 1.0)
+
+
+# התקרה הקשיחה של ``$vectorSearch.numCandidates``.
+#
+# התיעוד של ``$vectorSearch`` אינו נוקב במספר, ולכן הוא נמדד מול הקלאסטר:
+# ``numCandidates: 10001`` מוחזר עם
+# ``PlanExecutor error during aggregation :: caused by :: "numCandidates"
+# must be within bounds [1..10000]``, ואילו ``10000`` עובר את הוולידציה הזו.
+#
+# למה זה משנה: ``semantic_search`` עוטף את ה-aggregation ב-``except`` שנופל
+# לחיפוש טקסט. כלומר משתנה סביבה שגוי לא היה מחזיר שגיאה למשתמש — הוא היה
+# מכבה את החיפוש הסמנטי **בשקט**, וזה בדיוק סוג הכשל שאין לו איתות.
+SEMANTIC_NUM_CANDIDATES_HARD_MAX = 10000
+
+
+def _semantic_num_candidates(limit: int) -> int:
+    """כמה וקטורים ה-ANN באמת בוחן לפני שהוא מחזיר את ה-``limit`` הראשונים.
+
+    ``limit * 20`` לבדו הוא מספר קבוע שאינו תלוי בגודל הקורפוס: עם ``limit=10``
+    הוא 200 מועמדים, שהיו 5.7% מ-3,483 צ'אנקים — ואחרי הקטנת הצ'אנקים יהיו
+    1.2% מ-17,000. כלומר אותו מספר בדיוק פוגע ברקול ככל שהקורפוס גדל, וזה
+    היה נראה כאילו הצ'אנקים הקטנים הרעו את החיפוש.
+
+    ה-20:1 של התיעוד נשמר כרצפה יחסית, ומעליו רצפה מוחלטת מהקונפיג.
+
+    הערך הסופי נכלא בטווח ``[limit * 2, 10000]``:
+
+    * **הרצפה** — שלב ה-``$vectorSearch`` מבקש ``limit * 2`` תוצאות; פחות
+      מועמדים ממספר התוצאות המבוקש הוא בקשה חסרת משמעות.
+    * **התקרה** — מגבלת Atlas. קונפיג גבוה מדי היה מפיל כל שאילתה, וה-``except``
+      היה מסתיר את זה כנפילה שקטה לחיפוש טקסט.
+
+    הכליאה גם מנטרלת קונפיג שבו הרצפה גבוהה מהתקרה: אין נתיב שבו ערך שגוי
+    מכבה את החיפוש.
+    """
+    try:
+        floor = int(getattr(config, "SEMANTIC_NUM_CANDIDATES", 1000) or 1000)
+    except (TypeError, ValueError):
+        floor = 1000
+    try:
+        ceiling = int(getattr(config, "SEMANTIC_NUM_CANDIDATES_MAX", 10000) or 10000)
+    except (TypeError, ValueError):
+        ceiling = 10000
+
+    ceiling = max(1, min(ceiling, SEMANTIC_NUM_CANDIDATES_HARD_MAX))
+    value = min(max(int(limit) * 20, floor), ceiling)
+    # הרצפה של ``limit * 2`` גוברת על תקרה שהוגדרה נמוך מדי, אבל שום דבר
+    # אינו גובר על המגבלה של Atlas עצמה.
+    return max(1, min(max(value, int(limit) * 2), SEMANTIC_NUM_CANDIDATES_HARD_MAX))
+
+
 def _get_semantic_raw_db():
     try:
         raw_db = getattr(db, "db", None)
@@ -225,7 +297,8 @@ def _build_hybrid_search_pipeline(
     """
     Build MongoDB aggregation pipeline for hybrid search.
     """
-    num_candidates = limit * 20
+    num_candidates = _semantic_num_candidates(limit)
+    min_vector_score = _semantic_min_vector_score()
     base_filter: Dict[str, Any] = {"userId": user_id}
     if language_filter:
         base_filter["language"] = language_filter
@@ -247,6 +320,13 @@ def _build_hybrid_search_pipeline(
                 "searchType": "vector",
             }
         },
+        # רף על הציון הגולמי של הווקטור. חל רק על הענף הווקטורי: בענף
+        # הטקסטואלי שב-``$unionWith`` התאמה לקסיקלית היא כבר ראיה בפני עצמה.
+        *(
+            [{"$match": {"vectorScore": {"$gte": min_vector_score}}}]
+            if min_vector_score > 0
+            else []
+        ),
         # Gate vector results by embedding model key to avoid mixing versions.
         # We cannot add embeddingModelKey to $vectorSearch.filter without updating Atlas index definition,
         # so we filter immediately after vectorSearch.
@@ -374,12 +454,23 @@ def _build_hybrid_search_pipeline(
         {"$limit": limit},
         {
             "$lookup": {
+                # ``user_id`` בתנאי ההצטרפות, ולא רק ``_id``: הפילטר של
+                # ``$vectorSearch`` הוא על ה-``userId`` של **הצ'אנק**, וההצטרפות
+                # לפי מזהה בלבד הייתה מחזירה את המסמך של בעליו האמיתי — כלומר
+                # צ'אנק עם שיוך שגוי היה מציג שם קובץ ותיאור של משתמש אחר.
+                # מהכתיבות שלנו זה לא יכול להיווצר, אבל תיחוט לדייר הוא תנאי
+                # בכל שאילתה ולא רק בזו שנראית מסוכנת (``CRITICAL-PATTERNS.md`` K12).
                 "from": "code_snippets",
-                "let": {"snippet_id": "$snippetId"},
+                "let": {"snippet_id": "$snippetId", "owner_id": "$userId"},
                 "pipeline": [
                     {
                         "$match": {
-                            "$expr": {"$eq": ["$_id", "$$snippet_id"]},
+                            "$expr": {
+                                "$and": [
+                                    {"$eq": ["$_id", "$$snippet_id"]},
+                                    {"$eq": ["$user_id", "$$owner_id"]},
+                                ]
+                            },
                             "is_active": True,
                         }
                     },
@@ -556,6 +647,31 @@ async def _fallback_text_search(
 
     return await asyncio.to_thread(_run)
 
+def _memory_index_enabled() -> bool:
+    """האם האינדקס בזיכרון (``SearchIndex``) פעיל.
+
+    ברירת המחדל היא ``True``. הכיבוי נועד למי שמעדיף לוותר על החיפושים שנשענים
+    על האינדקס במקום לשלם על בנייתו — סריקה מלאה של כל קבצי המשתמש, כולל
+    ``code``, אחת ל-30 דקות לכל תהליך.
+    """
+    return bool(getattr(config, "SEARCH_MEMORY_INDEX_ENABLED", True))
+
+
+def _memory_index_eager_build() -> bool:
+    """האם לבנות את האינדקס גם בחיפושים שאינם קוראים ממנו.
+
+    ברירת המחדל ``False``: ``CONTENT``, ``REGEX`` ו-``FUZZY`` אינם משלמים על
+    בנייה שאיש לא יקרא את תוצאתה.
+
+    ``True`` מחזיר את ההתנהגות הקודמת. היא לא הייתה חסרת ערך: ``suggest_completions``
+    קורא את האינדקס דרך ``_get_ready_index``, שבמכוון **אינו** בונה אותו בעצמו —
+    ולכן ההשלמה נהנתה מאינדקס שחיפוש ``CONTENT`` בנה כתופעת לוואי. עם ``False``
+    ההשלמה מאבדת מילים מתוך תוכן הקבצים ושמות פונקציות; שמות קבצים, תגיות ושפות
+    מגיעים ממקור אחר וממשיכים לעבוד.
+    """
+    return bool(getattr(config, "SEARCH_MEMORY_INDEX_EAGER_BUILD", False))
+
+
 class SearchIndex:
     """אינדקס חיפוש לביצועים טובים יותר"""
     
@@ -709,8 +825,19 @@ class AdvancedSearchEngine:
         }
     
     def get_index(self, user_id: int) -> SearchIndex:
-        """קבלת אינדקס למשתמש"""
-        
+        """קבלת אינדקס למשתמש (בונה אותו אם אינו קיים או התיישן).
+
+        כאשר ``SEARCH_MEMORY_INDEX_ENABLED`` כבוי מוחזר אינדקס ריק **בלי** בנייה
+        ובלי לשמור אותו ב-``self.indexes``: החיפושים שנשענים עליו (TEXT ו-FUNCTION)
+        יחזירו רשימה ריקה, וה-caller ב-WebApp (``_safe_search``) נופל משם לחיפוש
+        ``$text`` ישירות ב-MongoDB. מה שנעלם עם הכיבוי הוא ``function_index``,
+        שמונגו אינו יודע לייצר, וההתאמה החלקית (prefix/substring) של ``_text_search``,
+        ש-``$text`` אינו תומך בה.
+        """
+
+        if not _memory_index_enabled():
+            return SearchIndex()
+
         if user_id not in self.indexes:
             self.indexes[user_id] = SearchIndex()
         
@@ -719,6 +846,12 @@ class AdvancedSearchEngine:
             index.rebuild_index(user_id)
         
         return index
+
+    def _get_index_for_search(self, user_id: int) -> SearchIndex:
+        """עטיפה מדודה סביב ``get_index`` עבור ענפי החיפוש שצורכים את האינדקס."""
+
+        with track_performance("search_index_get", labels={"repo": ""}):
+            return self.get_index(user_id)
     
     @traced("search_engine.search")
     def search(self, user_id: int, query: str, search_type: SearchType = SearchType.TEXT,
@@ -759,23 +892,33 @@ class AdvancedSearchEngine:
                     pass
                 return []
             
-            # קבלת האינדקס
-            with track_performance("search_index_get", labels={"repo": ""}):
-                index = self.get_index(user_id)
-            
-            # ביצוע החיפוש לפי סוג
+            # חימום מקדים של האינדקס, גם עבור סוגים שאינם קוראים ממנו.
+            # כבוי כברירת מחדל; מודלק רק כדי להשאיר אותו חם עבור
+            # suggest_completions (ראו _memory_index_eager_build).
+            if _memory_index_eager_build():
+                self._get_index_for_search(user_id)
+
+            # ביצוע החיפוש לפי סוג.
+            #
+            # האינדקס בזיכרון נבנה רק בענפים שקוראים ממנו: TEXT ו-FUNCTION.
+            # CONTENT, REGEX ו-FUZZY סורקים את ה-DB בעצמם ואינם נוגעים בו, ולכן
+            # בנייה עבורם הייתה סריקה מלאה נוספת של כל קבצי המשתמש (כולל code)
+            # שאיש אינו קורא — ו-CONTENT הוא ברירת המחדל של החיפוש ב-WebApp.
             with track_performance("search_execute", labels={"repo": ""}):
                 if search_type == SearchType.TEXT:
+                    index = self._get_index_for_search(user_id)
                     candidates = self._text_search(query, index, user_id)
                 elif search_type == SearchType.REGEX:
                     candidates = self._regex_search(query, user_id)
                 elif search_type == SearchType.FUZZY:
-                    candidates = self._fuzzy_search(query, index, user_id)
+                    candidates = self._fuzzy_search(query, user_id)
                 elif search_type == SearchType.FUNCTION:
+                    index = self._get_index_for_search(user_id)
                     candidates = self._function_search(query, index, user_id)
                 elif search_type == SearchType.CONTENT:
                     candidates = self._content_search(query, user_id)
                 else:
+                    index = self._get_index_for_search(user_id)
                     candidates = self._text_search(query, index, user_id)
             
             # החלת מסננים
@@ -832,7 +975,10 @@ class AdvancedSearchEngine:
         file_scores: Dict[str, float] = defaultdict(float)
         
         for word in query_words:
-            matching_files = index.word_index.get(word, set())
+            # עותק, לא הקבוצה השמורה: ``get`` מחזיר את הקבוצה עצמה כשהמילה קיימת,
+            # וה-``update`` שלמטה היה מזליג את התאמות ה-prefix לתוך האינדקס לצמיתות —
+            # ומאותו רגע הן נספרות כהתאמות מדויקות ומקבלות 2.0 במקום 1.0.
+            matching_files = set(index.word_index.get(word, ()))
             
             # חיפוש חלקי (prefix matching)
             for indexed_word, files in index.word_index.items():
@@ -918,8 +1064,8 @@ class AdvancedSearchEngine:
         
         return results
     
-    def _fuzzy_search(self, query: str, index: SearchIndex, user_id: int) -> List[SearchResult]:
-        """חיפוש מטושטש (fuzzy)"""
+    def _fuzzy_search(self, query: str, user_id: int) -> List[SearchResult]:
+        """חיפוש מטושטש (fuzzy) — סורק את ה-DB ואינו נשען על האינדקס בזיכרון."""
         
         PAGE_SIZE = int(getattr(config, "SEARCH_PAGE_SIZE", 200))
         offset = 0

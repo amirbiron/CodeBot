@@ -13,14 +13,13 @@ import math
 import time
 import mimetypes
 import uuid
-import inspect
 import socket
 
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
 from types import SimpleNamespace
 from typing import Optional, Dict, Any, List, Tuple, Set, Union
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response, send_from_directory
 from markupsafe import Markup
@@ -52,7 +51,6 @@ import secrets
 import yaml
 import threading
 import base64
-import contextvars
 import traceback
 import asyncio
 
@@ -177,7 +175,16 @@ from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
+# כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
+# שלמעלה, ראו tests/test_webapp_import_paths.py.
+from file_dates import inherited_created_at, file_was_edited  # noqa: E402
+# מחיקה רכה — מודול שורש טהור, אותה שאילתה שהבוט מריץ. ראו file_deletion.py
+from file_deletion import (  # noqa: E402
+    resolve_owned_file_names,
+    soft_delete_files_by_names as _soft_delete_files_by_names,
+)
 from user_stats import user_stats  # noqa: E402
+from webapp.size_format import format_file_size as _format_file_size_shared
 from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
@@ -188,6 +195,14 @@ from services.db_health_service import (  # noqa: E402
     CollectionAccessDeniedError,
     MAX_SKIP,
     clean_db_health_filter_value,
+)
+from services.query_profiler_service import (  # noqa: E402
+    # ייבוא ברמת המודול ולא בתוך הפונקציה: שם מחלקה ב-``except`` מוערך רק כשחריגה
+    # מגיעה לשם, ולכן שם שאינו קיים היה מתגלה כ-NameError רק בזמן כשל אמיתי.
+    ExplainTimeoutError as _ProfilerExplainTimeout,
+    ProfilerInputError as _ProfilerInputError,
+    ProfilerPagingError,
+    PROFILER_WINDOW_HOURS,
 )
 from services.git_mirror_service import get_mirror_service  # noqa: E402
 from services.styled_export_service import (  # noqa: E402
@@ -223,9 +238,142 @@ except Exception:  # pragma: no cover
 try:  # prefer the canonical list projection from repository layer
     from database.repository import HEAVY_FIELDS_EXCLUDE_PROJECTION as _HEAVY_FIELDS_EXCLUDE_PROJECTION  # type: ignore
 except Exception:  # pragma: no cover - fallback for minimal environments
-    _HEAVY_FIELDS_EXCLUDE_PROJECTION = {"code": 0, "content": 0, "raw_content": 0}
+    # חייב להישאר זהה לקבוע הקנוני ב-database/repository.py. חסר כאן בעבר raw_data,
+    # כלומר בסביבה מינימלית שדה כבד היה נמשך בשאילתות רשימה בלי שאיש ישים לב.
+    _HEAVY_FIELDS_EXCLUDE_PROJECTION = {
+        "code": 0, "content": 0, "raw_data": 0, "raw_content": 0, "snippetEmbedding": 0,
+    }
 
 LIST_EXCLUDE_HEAVY_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
+
+# --- Semantic chunk cleanup ---
+# מסלולי סל המיחזור כאן כותבים ישירות ל-``db.code_snippets`` ואינם עוברים דרך
+# ``database/repository.py``, ולכן הם צריכים את אותם helpers בעצמם. בסביבה
+# מינימלית (בלי שכבת ה-DB) נופלים ל-no-op כדי לא להפיל את טעינת המודול.
+try:
+    from database.manager import (  # type: ignore
+        delete_snippet_chunks as _delete_snippet_chunks,
+        mark_snippets_for_reindex as _mark_snippets_for_reindex,
+    )
+except Exception:  # pragma: no cover - fallback for minimal environments
+    def _delete_snippet_chunks(*_args: Any, **_kwargs: Any) -> int:
+        return 0
+
+    def _mark_snippets_for_reindex(*_args: Any, **_kwargs: Any) -> int:
+        return 0
+
+
+def _clear_superseded_chunks(doc: Dict[str, Any], inserted_id: Any) -> None:
+    """מוחק את הצ'אנקים הסמנטיים של הגרסאות הקודמות של אותו קובץ.
+
+    שמירת גרסה חדשה ב-WebApp אינה מכבה את הגרסה הקודמת (``is_active`` שלה
+    נשאר True), ולכן בלי הקריאה הזו כל גרסה היסטורית נשארת מאונדקסת ומתחרה
+    על מקומות ה-ANN. הקריאה נעשית **אחרי** הכנסה מוצלחת בלבד: מחיקה לפני
+    ההכנסה הייתה מוציאה את הגרסה הנוכחית מהחיפוש הסמנטי אם ההכנסה תיכשל,
+    ושום דבר לא היה מחזיר אותה.
+
+    ``user_id``/``file_name`` נקראים מהמסמך עצמו כדי שאותה קריאה תתאים לכל
+    מסלולי השמירה ב-WebApp, שלכל אחד מהם שמות משתנים משלו.
+
+    המחיקה מוגבלת ל-``version`` נמוך מזה של המסמך שנכתב, ולא ל"הכל חוץ
+    ממני": כששתי שמירות של אותו קובץ חופפות, ניקוי של הישנה יכול לרוץ אחרי
+    שהחדשה כבר נשמרה ולמחוק דווקא את הצ'אנקים שלה. בלי ``version`` במסמך
+    לא מוחקים כלום — הג'וב היומי ינקה את הגרסאות הישנות.
+    """
+    if not inserted_id:
+        return
+    try:
+        user_id = int(doc.get('user_id'))
+        file_name = str(doc.get('file_name') or '')
+        version = int(doc.get('version'))
+    except (TypeError, ValueError):
+        return
+    if not file_name:
+        return
+    _delete_snippet_chunks(
+        user_id,
+        file_name=file_name,
+        exclude_snippet_id=inserted_id,
+        older_than_version=version,
+    )
+
+# --- Smart Projection helpers ---
+# מסמכים חדשים יכולים להכיל file_size/lines_count (נשמרים בזמן שמירה).
+# למסמכים ישנים: נחשב ב-DB (בלי להחזיר את `code`) באמצעות $strLenBytes/$split.
+_MONGO_FILE_SIZE_FROM_CODE = {
+    '$cond': {
+        'if': {'$and': [
+            {'$ne': ['$code', None]},
+            {'$eq': [{'$type': '$code'}, 'string']},
+        ]},
+        'then': {'$strLenBytes': '$code'},
+        'else': 0,
+    }
+}
+_MONGO_LINES_COUNT_FROM_CODE = {
+    '$cond': {
+        'if': {'$and': [
+            {'$ne': ['$code', None]},
+            {'$eq': [{'$type': '$code'}, 'string']},
+        ]},
+        # הערה: $split שומר תאימות טובה מספיק למסך רשימה (לא מושלם לעומת splitlines()).
+        'then': {'$size': {'$split': ['$code', '\n']}},
+        'else': 0,
+    }
+}
+_MONGO_ADD_SIZE_LINES_STAGE = {
+    '$addFields': {
+        'file_size': {'$ifNull': ['$file_size', _MONGO_FILE_SIZE_FROM_CODE]},
+        'lines_count': {'$ifNull': ['$lines_count', _MONGO_LINES_COUNT_FROM_CODE]},
+    }
+}
+
+
+def _latest_version_per_file_stages(
+    match: Dict[str, Any],
+    *,
+    with_size_fields: bool = True,
+) -> List[Dict[str, Any]]:
+    """שלבי "הגרסה האחרונה לכל שם קובץ", עם השדות הכבדים יורדים מוקדם.
+
+    כל עריכה יוצרת מסמך חדש ב-``code_snippets``, ולכן מסך רשימה חייב לקבץ
+    לפי ``file_name`` ולקחת את ה-``version`` הגבוה. הקיבוץ נעשה עם
+    ``$$ROOT`` כדי לשמור את המסמך כולו.
+
+    **סדר השלבים כאן הוא כל העניין.** ``$sort`` מאגר את מה שהוא ממיין,
+    ו-``$group`` צובר את מה שהוא שומר — ואם ``code`` עדיין במסמך באותו
+    רגע, גוף הקובץ נכנס לזיכרון. בפרודקשן זה חרג מתקציב ה-100MB של מונגו
+    והחזיר שגיאה 292, שגררה נפילה למסלול ``find`` איטי: 3.1 עד 3.4 שניות
+    לטעינת ``/files``.
+
+    ``allowDiskUse`` **אינו** מציל כאן. התיעוד של Atlas מפורש: *"Atlas
+    Free clusters and Flex clusters don't support writing temporary files
+    to disk. Atlas ignores the ``allowDiskUse`` option and the
+    corresponding commands behave as if the ``allowDiskUse`` option is set
+    to ``false``."* אין דלת מילוט לדיסק, ולכן הדרך היחידה היא לא להכניס
+    את השדות הכבדים לשלבים האלה מלכתחילה.
+
+    **החרגה ולא רשימת שדות מותרים.** ``LIST_EXCLUDE_HEAVY_PROJECTION``
+    מוריד את הכבדים ומשאיר את השאר, ולכן התוצאה זהה למה שהצינורות החזירו
+    קודם. רשימת מותרים הייתה נקייה יותר למראה, אבל תנאי סינון שיתווסף מחר
+    על שדה שאינו ברשימה היה מחזיר בשקט תוצאה ריקה.
+
+    ``with_size_fields`` — האם לחשב ``file_size``/``lines_count`` ולסנן
+    קבצים ריקים. **חייב להישאר כבוי אצל מי שלא עשה זאת קודם:** הוספת
+    ``$match`` על ``file_size`` משנה את קבוצת התוצאות, ואצל מונה זה משנה
+    את המספר שהמשתמש רואה. שלב החישוב רץ **לפני** ההחרגה, כי הוא נגזר
+    מ-``$code``.
+    """
+    stages: List[Dict[str, Any]] = [{'$match': match}]
+    if with_size_fields:
+        stages.append(_MONGO_ADD_SIZE_LINES_STAGE)
+        stages.append({'$match': {'file_size': {'$gt': 0}}})
+    stages.append({'$project': dict(LIST_EXCLUDE_HEAVY_PROJECTION)})
+    stages.append({'$sort': {'file_name': 1, 'version': -1}})
+    stages.append({'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}})
+    stages.append({'$replaceRoot': {'newRoot': '$latest'}})
+    return stages
+
 
 def _attach_file_size_and_lines(doc: Dict[str, Any], code_value: Any) -> None:
     """מוסיף file_size/lines_count למסמכי CodeSnippet שנכתבים ישירות ל-DB."""
@@ -1727,14 +1875,20 @@ try:
 except Exception:
     PUBLIC_SHARE_TTL_DAYS = 7
 
-# ברירת מחדל לימי שהות בסל מחזור עבור מחיקה רכה בווב
+# ימי השהות בסל המחזור — ערך אחד לכל מסלולי המחיקה, בבוט ובווב.
+#
+# היו כאן שניים: עמוד הקובץ הבטיח 30 יום ומחיקה מרובה נתנה 7, כי כל אחד
+# קרא מקור אחר — הקבוע הזה מול ``config.RECYCLE_TTL_DAYS``. אותה פעולה
+# בדיוק, שני מספרים. הקריאה עוברת דרך ``config`` ולא דרך ``os.getenv``
+# בנפרד, כדי שלא ייווצר שוב מסלול קריאה שני שיכול לסטות.
 try:
-    RECYCLE_TTL_DAYS_DEFAULT = max(1, int(os.getenv('RECYCLE_TTL_DAYS', '7') or '7'))
+    RECYCLE_TTL_DAYS = max(1, int(getattr(cfg, 'RECYCLE_TTL_DAYS', 30)))
 except Exception:
-    RECYCLE_TTL_DAYS_DEFAULT = 7
+    RECYCLE_TTL_DAYS = 30
 
-# עמוד הקובץ מציג שהות של 30 יום בסל המחזור (issue #1937)
-WEBAPP_SINGLE_DELETE_TTL_DAYS = 30
+#: התקרה שהראוט מקבל מהלקוח. חייבת להיות לפחות ברירת המחדל, אחרת היא
+#: הייתה חותכת אותה בשקט.
+RECYCLE_TTL_DAYS_MAX = max(30, RECYCLE_TTL_DAYS)
 FILE_HISTORY_MAX_VERSIONS = 25
 
 # הגדרת חיבור קבוע (Remember Me)
@@ -2059,6 +2213,13 @@ def inject_globals():
     except Exception:
         note_fonts, note_fonts_scope = _note_fonts_default(), THEME_SCOPE_GLOBAL
 
+    # התצוגה המצומצמת בעמוד הקבצים. ``user_doc`` כבר נשלף למעלה, ולכן אין
+    # כאן קריאה נוספת למסד. fail-soft כמו שכניו: תקלה מחזירה את התצוגה המלאה.
+    try:
+        files_compact_view = _resolve_files_compact_view(user_id, user_doc)
+    except Exception:
+        files_compact_view = False
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
@@ -2066,6 +2227,7 @@ def inject_globals():
         'ui_theme_scope': theme_scope,
         'note_fonts': note_fonts,
         'note_fonts_scope': note_fonts_scope,
+        'files_compact_view': files_compact_view,
         'ui_theme_custom_id': ui_theme_custom_id,
         'custom_theme': custom_theme,
         'shared_theme': shared_theme,
@@ -2087,6 +2249,9 @@ def inject_globals():
         # תקרת אורך פתק — מגיעה ל-JS מכאן ולא מוקלדת שם. בלי זה היו שני
         # מספרים שמסונכרנים בתקווה, ופער ביניהם נראה למשתמש כחיתוך בלי הסבר.
         'max_note_chars': MAX_NOTE_CHARS_FOR_TEMPLATES,
+        # ימי השהות בסל — מאותה סיבה בדיוק: המודאל בעמוד הקובץ הבטיח "30
+        # יום" כמספר מוקלד, ולכן שינוי בקונפיג לא היה מגיע אליו.
+        'recycle_ttl_days': RECYCLE_TTL_DAYS,
         # External uptime config for templates (non-sensitive only)
         'uptime_provider': UPTIME_PROVIDER,
         'uptime_status_url': UPTIME_STATUS_URL,
@@ -2230,6 +2395,69 @@ def _note_fonts_etag_key(
         return "nf:" + _encode_note_fonts(fonts)
     except Exception:
         return "nf:" + _encode_note_fonts(None)
+
+
+#: מפתח ההעדפה של התצוגה המצומצמת בעמוד הקבצים, תחת ``ui_prefs``.
+#: השם צר בכוונה. ``webapp/FEATURE_SUGGESTIONS/DISPLAY_MODES_SPECIFICATION.md``
+#: מציע ``display_mode`` עם ``focus``/``classic``/``power``, אבל זו טיוטה
+#: שלא מומשה ושני המצבים שלה שונים לגמרי — ``focus`` מסתיר גם את כל
+#: הכפתורים ומוסיף רקע מטושטש, ו-``power`` הופך את הרשימה לטבלה ו**מוסיף**
+#: מידע. שם רחב היה מצהיר על מימוש שלא קרה, ומתנגש ביום שהאפיון ההוא ייבנה.
+FILES_COMPACT_VIEW_PREF = "files_compact_view"
+
+
+def _resolve_files_compact_view(
+    user_id: Optional[int],
+    user_doc: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """האם עמוד הקבצים מוצג במצב מצומצם. ברירת המחדל היא ``False``.
+
+    **הכרעה אחת לכל בקשה, ולא רק פונקציה אחת.** ``/files`` בונה את מפתח
+    הקאש לפני הרינדור, ו-``inject_globals`` מזין את התבנית — שתי קריאות
+    נפרדות באותה בקשה. אילו כל אחת הייתה קוראת את המסד בנפרד, שינוי העדפה
+    שנוחת בין השתיים היה גורם ל-HTML של מצב אחד להישמר תחת התגית של המצב
+    השני, והמשתמש היה רואה בדיוק את ההפך ממה שביקש עד שה-TTL פוקע. לכן
+    התוצאה נשמרת על ``g`` — ההיקף היחיד שמובטח שהוא בדיוק בקשה אחת.
+
+    מחוץ להקשר בקשה (בדיקות יחידה) אין ``g``, והפונקציה פשוט אינה זוכרת.
+
+    **בלי בורר תחולה global/device ובלי cookie**, בשונה מגופן הפתקים: אין כאן
+    צורך אמיתי בהעדפה שונה פר-מכשיר, וכל cookie חדש היה נכנס לרשימת
+    ``needs_cookie_update`` שב-``/api/ui_prefs`` — שומר שכבר בלע בשקט את
+    ``ui_note_fonts`` כשהוא נשכח.
+
+    ``is True`` ולא ``bool()``: ``bool("false")`` הוא ``True``, ולכן מסמך
+    שנערך ביד או שנכתב לפני שהוולידציה נוספה היה מדליק את המצב דווקא כשהערך
+    אומר את ההפך. אותו שיקול בדיוק כמו ב-``_resolve_note_fonts``.
+    """
+    cache_attr = '_files_compact_view'
+    try:
+        cached = getattr(g, cache_attr)
+    except (RuntimeError, AttributeError):
+        # ``RuntimeError`` — אין הקשר בקשה; ``AttributeError`` — יש, וטרם נקבע.
+        cached = None
+    if cached is not None:
+        return cached
+
+    resolved = False
+    if user_id:
+        # שליפה מוקרנת ועצלה, כמו ב-``_resolve_note_fonts``: הקורא שכבר מחזיק
+        # את מסמך המשתמש (``inject_globals``) אינו משלם על קריאה שנייה.
+        if user_doc is None:
+            try:
+                user_doc = get_db().users.find_one(
+                    {'user_id': int(user_id)}, {f'ui_prefs.{FILES_COMPACT_VIEW_PREF}': 1}
+                ) or {}
+            except Exception:
+                user_doc = None
+        if isinstance(user_doc, dict):
+            resolved = (user_doc.get('ui_prefs') or {}).get(FILES_COMPACT_VIEW_PREF) is True
+
+    try:
+        setattr(g, cache_attr, resolved)
+    except RuntimeError:
+        pass  # מחוץ להקשר בקשה — אין מה לזכור
+    return resolved
 
 
 def _parse_theme_token(raw: Optional[str]) -> tuple[str, str, str]:
@@ -2691,6 +2919,23 @@ def _safe_dt_from_doc(value) -> datetime:
     return dt
 
 
+def _file_last_modified(doc: Dict[str, Any]) -> datetime:
+    """מתי הייצוג שהעמוד מגיש השתנה לאחרונה.
+
+    ‏``updated_at`` לבדו אינו מספיק: הוא מציין מתי **התוכן** נערך, ואילו
+    העמוד מרנדר גם את מצב המועדף והנעיצה. פעולות המטא-דאטה האלה אינן
+    נוגעות ב-``updated_at`` (ראו ``docs/database/detailed-schema.rst``),
+    ולכן בלי השדות שלהן דפדפן ששולח רק ``If-Modified-Since`` היה מקבל 304
+    עם מצב ישן. ``If-None-Match`` גובר לפי RFC 7232 §3.3 ולכן המסלול הזה
+    נדיר — אבל הוא קיים, ו-``curl -z`` מגיע דרכו.
+    """
+    candidates = [doc.get('updated_at'), doc.get('favorited_at'), doc.get('pinned_at')]
+    stamps = [_safe_dt_from_doc(v) for v in candidates if v is not None]
+    if not stamps:
+        return _safe_dt_from_doc(doc.get('created_at'))
+    return max(stamps)
+
+
 #: הפרויקציה שהילפרי ה-ETag צריכים. מוגדרת פעם אחת כדי שקורא שרוצה
 #: לשלוף את המסמך **בעצמו** ולחסוך שאילתה יוכל לבקש בדיוק את מה שהם
 #: קוראים — בלי לנחש ובלי שהרשימות ייסחפו זו מזו.
@@ -2848,6 +3093,14 @@ def _compute_file_etag(doc: Dict[str, Any], *, variant: str = '') -> str:
             'n': file_name,
             'v': version,
             'sha': hashlib.sha256(raw_code.encode('utf-8')).hexdigest(),
+            # מצב מועדף/נעוץ מרונדר לתוך ה-HTML (תוויות הכפתורים,
+            # ``aria-pressed``, ``data-is-pinned``), ולכן הוא חלק מהפלט ולא
+            # רק מטא-דאטה. עד כה הוא נעדר מכאן, ונכונות הקאש ניצלה רק בגלל
+            # ש-toggle_favorite/toggle_pin הזיזו את ``updated_at`` — תופעת
+            # לוואי של חותמת שמשמעותה "התוכן נערך". משנרשם כאן, הוולידטור
+            # נשען על מה שהעמוד באמת מציג.
+            'f': '1' if doc.get('is_favorite') else '0',
+            'p': '1' if doc.get('is_pinned') else '0',
             # גרסת ה-deploy: בלעדיה קובץ שלא נערך מחזיר ETag זהה בין deploys,
             # והדפדפן מקבל 304 ומציג תבנית ישנה (בלי אלמנטים חדשים).
             'sv': _STATIC_VERSION,
@@ -4610,11 +4863,18 @@ def _profiler_allowed_ips() -> List[str]:
 
 
 def _profiler_is_authorized() -> bool:
-    """אימות X-Profiler-Token + allowlist IP (best-effort).
+    """גישה לפרופיילר. **סשן אדמין נדרש בכל מסלול.**
 
-    - אם token מוגדר: חייבים לספק X-Profiler-Token תואם
-    - allowlist IP (אופציונלי): אם מוגדר, חייבים להיות בתוך הרשימה
-    - בנוסף: מאפשר אדמין מחובר (session) גם אם token לא הוגדר
+    מה שקורה בפועל, ולא מה שהשמות מרמזים:
+
+    - אדמין מחובר ← מאושר, בלי שהטוקן נבדק בכלל. ``PROFILER_ALLOWED_IPS``,
+      אם הוגדר, חל גם עליו.
+    - אין סשן אדמין ← נדחה, גם עם ``X-Profiler-Token`` תקין: כל המסלולים
+      מסתיימים בבדיקת האדמין שלמטה.
+
+    כלומר ``PROFILER_AUTH_TOKEN`` אינו פותח גישה ואינו חוסם אותה. זו סתירה
+    בין הכוונה המקורית להתנהגות, והיא מתועדת כאן ולא "מתוקנת" בשקט —
+    שינוי היה מרפה בדיקת הרשאות, וזו החלטת מוצר.
     """
     # Admin override (משאיר UI נוח לסביבה פנימית)
     try:
@@ -4644,7 +4904,8 @@ def _profiler_is_authorized() -> bool:
         if client_ip not in allowed_ips:
             return False
 
-    # אם אין token ואין allowlist — נדרוש אדמין (למנוע דליפה בסביבה פתוחה)
+    # בדיקת האדמין אינה מותנית בדבר: כל מי שהגיע לכאן — עם טוקן תקין או בלעדיו —
+    # נדחה אם אינו אדמין. זה המקום שהופך את הטוקן לחסר השפעה (ראו ה-docstring).
     try:
         uid = session.get("user_id")
         return bool(uid is not None and is_admin(int(uid)))
@@ -4714,158 +4975,6 @@ def _profiler_rate_limit_ok() -> bool:
         return True
 
 
-def _run_awaitable_blocking(awaitable, *, thread_label: str) -> Any:
-    """הרצה בטוחה של awaitable בסביבה סינכרונית (Flask/WSGI).
-
-    - אם יש event loop פעיל ב-thread הנוכחי: מריצים ב-thread נקי עם לולאה חדשה.
-    - אחרת: מריצים לולאה חדשה באותו thread.
-    """
-
-    def _get_native_thread_class():
-        try:
-            from gevent import monkey as gevent_monkey  # type: ignore
-        except Exception:
-            return threading.Thread
-        try:
-            return gevent_monkey.get_original("threading", "Thread")
-        except Exception:
-            start_fn = None
-            for module_name in ("thread", "_thread"):
-                try:
-                    start_fn = gevent_monkey.get_original(module_name, "start_new_thread")
-                    break
-                except Exception:
-                    continue
-            if start_fn is None:
-                return threading.Thread
-
-            class _NativeThread:
-                def __init__(self, *, target=None, name=None, daemon=None, args=None, kwargs=None):
-                    self._target = target
-                    self._args = tuple(args or ())
-                    self._kwargs = dict(kwargs or {})
-                    self.name = name or "native_thread"
-                    # start_new_thread לא תומך ב-daemon; נשמר לשקיפות בלבד.
-                    self.daemon = bool(daemon) if daemon is not None else False
-
-                def start(self):
-                    def _runner():
-                        # ננסה להצמיד שם לת׳רד (best-effort).
-                        try:
-                            threading.current_thread().name = self.name
-                        except Exception:
-                            pass
-                        if self._target is not None:
-                            self._target(*self._args, **self._kwargs)
-
-                    start_fn(_runner, ())
-
-            return _NativeThread
-
-    def _is_running_loop_error(exc: BaseException) -> bool:
-        msg = str(exc).lower()
-        return (
-            "event loop is already running" in msg
-            or "cannot run the event loop while another loop is running" in msg
-            or "asyncio.run() cannot be called from a running event loop" in msg
-        )
-
-    async def _runner():
-        return await awaitable
-
-    def _run_in_new_loop():
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-        run_in_clean_context = False
-        if running_loop is not None:
-            loop_thread_id = getattr(running_loop, "_thread_id", None)
-            if loop_thread_id is None or loop_thread_id != threading.get_ident():
-                # Loop context leaked from a different thread (gevent/contextvars).
-                # Run in a clean context to avoid false "loop already running".
-                run_in_clean_context = True
-                running_loop = None
-            elif running_loop.is_running():
-                raise RuntimeError("event loop is already running")
-
-        def _run_in_new_loop_inner():
-            prev_loop = None
-            loop = None
-            try:
-                try:
-                    prev_loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    prev_loop = None
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                return loop.run_until_complete(_runner())
-            finally:
-                if loop is not None:
-                    try:
-                        loop.close()
-                    finally:
-                        try:
-                            if prev_loop is None or prev_loop.is_closed():
-                                asyncio.set_event_loop(None)
-                            else:
-                                asyncio.set_event_loop(prev_loop)
-                        except Exception:
-                            pass
-
-        if run_in_clean_context:
-            return contextvars.Context().run(_run_in_new_loop_inner)
-        return _run_in_new_loop_inner()
-
-    def _run_in_fresh_thread():
-        future: Future = Future()
-
-        def _target():
-            try:
-                future.set_result(_run_in_new_loop())
-            except BaseException as exc:
-                future.set_exception(exc)
-
-        native_thread = _get_native_thread_class()
-        thread = native_thread(target=_target, name=f"{thread_label}_loop", daemon=True)
-        thread.start()
-        return future.result()
-
-    def _run_in_threadpool():
-        return _OBSERVABILITY_THREADPOOL.submit(_run_in_new_loop).result()
-
-    def _run_in_threadpool_with_fallback():
-        try:
-            return _run_in_threadpool()
-        except RuntimeError as exc:
-            if _is_running_loop_error(exc):
-                return _run_in_fresh_thread()
-            raise
-
-    # תחת gevent/asyncio: אם יש event loop פעיל, נברח ל-thread "נקי".
-    try:
-        running_loop = asyncio.get_running_loop()
-    except RuntimeError:
-        running_loop = None
-    if running_loop is not None:
-        loop_thread_id = getattr(running_loop, "_thread_id", None)
-        if loop_thread_id is not None and loop_thread_id == threading.get_ident():
-            return _run_in_threadpool_with_fallback()
-
-    # אין event loop פעיל ב-thread הנוכחי => מותר להריץ לולאה חדשה כאן.
-    try:
-        return _run_in_new_loop()
-    except RuntimeError as exc:
-        if _is_running_loop_error(exc):
-            return _run_in_threadpool_with_fallback()
-        raise
-
-
-def _run_profiler(awaitable):
-    """הרצת קורוטינה בצורה תואמת Flask תחת WSGI."""
-    return _run_awaitable_blocking(awaitable, thread_label="profiler")
-
-
 @app.route("/admin/profiler")
 @admin_required
 def admin_profiler_page():
@@ -4874,12 +4983,36 @@ def admin_profiler_page():
     return render_template("profiler_dashboard.html", profiler_token=_profiler_token())
 
 
+def _profiler_raw_to_extended_json(raw):
+    """``query_raw`` בקידוד Extended JSON, מוכן ל-``jsonify``.
+
+    ``json.loads(json_util.dumps(x))`` מחזיר dict רגיל שבו הטיפוסים מיוצגים
+    כאובייקטים (``{"$date": …}``), ולכן ``jsonify`` פולט אותם כמו שהם.
+    ``None`` נשאר ``None`` — אין ערכים, אין מה לקודד.
+    """
+    if raw is None:
+        return None
+    from bson import json_util
+
+    return json.loads(json_util.dumps(raw))
+
+
 def _serialize_slow_query(q) -> Dict[str, Any]:
     return {
         "query_id": q.query_id,
         "collection": q.collection,
         "operation": q.operation,
         "query_shape": q.query_shape,
+        # הערכים האמיתיים — רק לשאילתות שזוהו כשל משתמש מורשה, ורק כשהוא עדיין
+        # ברשימה (השירות מסנן בקריאה). ``raw_withheld_reason`` אומר למה אין.
+        #
+        # **Extended JSON ולא JSON רגיל.** ``jsonify`` היה הופך ``datetime``
+        # למחרוזת HTTP-date, ומונגו שמשווה מחרוזת לשדה תאריך אינו מתאים לאף
+        # מסמך — נמדד: 1,157 מסמכים מול 0. הניתוח היה רץ על שאילתה אחרת
+        # ומחזיר דוח שנראה מצוין ומסקנתו הפוכה. ``{"$date": …}`` נושא את
+        # הטיפוס ושורד את המסע חזרה. האידיום זהה ל-``/admin/db-*`` בקובץ הזה.
+        "query_raw": _profiler_raw_to_extended_json(getattr(q, "query_raw", None)),
+        "raw_withheld_reason": getattr(q, "raw_withheld_reason", None),
         "execution_time_ms": q.execution_time_ms,
         "timestamp": q.timestamp.isoformat() if getattr(q, "timestamp", None) else None,
     }
@@ -4956,6 +5089,40 @@ def _serialize_recommendation(rec) -> Dict[str, Any]:
     }
 
 
+def _profiler_window_hours_arg() -> int:
+    """חלון הזמן מה-query string, או ברירת המחדל המשותפת.
+
+    **אותו חלון בדיוק לשלושת האנדפוינטים** — הסיכום, טבלת השאילתות וטבלת
+    הדפוסים. קודם כל אחד הכריע לעצמו (הכרטיס 24 שעות, הטבלה בלי חלון,
+    הדפוסים שבעה ימים), ולכן "מוצגות X מתוך Y" ספר שתי אוכלוסיות שונות.
+    ``PROFILER_WINDOW_HOURS`` הוא המקור היחיד, וה-``_window_hours`` בשירות
+    מגביל את הערך; כאן רק ממירים ונופלים בחזרה לברירת המחדל על קלט לא-מספרי.
+    """
+    raw = request.args.get("hours")
+    if not raw:
+        return PROFILER_WINDOW_HOURS
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return PROFILER_WINDOW_HOURS
+
+
+def _serialize_query_pattern(pattern: Dict[str, Any]) -> Dict[str, Any]:
+    """שורת דפוס לתצוגה. ה-``_id`` של ה-``$group`` מקונן, ומשוטח כאן."""
+    key = pattern.get("_id") if isinstance(pattern.get("_id"), dict) else {}
+    last_seen = pattern.get("last_seen")
+    return {
+        "query_id": str(key.get("query_id") or ""),
+        "collection": str(key.get("collection") or ""),
+        "operation": str(key.get("operation") or ""),
+        "count": int(pattern.get("count") or 0),
+        "avg_time_ms": round(float(pattern.get("avg_time_ms") or 0), 2),
+        "max_time_ms": round(float(pattern.get("max_time_ms") or 0), 2),
+        "query_shape": pattern.get("query_shape") if isinstance(pattern.get("query_shape"), dict) else {},
+        "last_seen": last_seen.isoformat() if isinstance(last_seen, datetime) else None,
+    }
+
+
 @app.route("/api/profiler/slow-queries", methods=["GET"])
 def api_profiler_slow_queries():
     if not _profiler_is_authorized():
@@ -4967,28 +5134,86 @@ def api_profiler_slow_queries():
     except Exception:
         limit = 50
     collection = request.args.get("collection")
-    min_time = request.args.get("min_time")
-    hours = request.args.get("hours")
-    since = None
-    if hours:
+
+    # ``min_time`` **מסנן אילו שורות מוצגות**, ולכן ערך פסול בו הוא 400 ולא
+    # התעלמות שקטה: טבלה שמתעלמת מהסינון שביקשו מחזירה 200 עם שורות שגויות.
+    # ``nan`` נדחה במפורש — ``{"$gte": nan}`` מתאים לאפס מסמכים במונגו, כלומר
+    # "טבלה ריקה בלי סיבה". ``limit`` לעומתו נשאר סלחני כפי שהיה: ערך פסול שם
+    # מחזיר 50 שורות במקום 20, ולא שורות אחרות.
+    #
+    # ‏**‏``?min_time=`` ריק פירושו "לא נשלח", ולא "ערך פסול".** מחרוזת ריקה
+    # אינה מספר שגוי — היא היעדר ערך, וממשק שבונה query string משדה ריק שולח
+    # בדיוק את זה. זו גם המוסכמת בשני המקומות האחרים שמטפלים בפרמטר: ב-``main``
+    # (``float(min_time) if min_time else None``) ובראוט של הבוט
+    # (``handlers/profiler_handler.py``). ההחלטה כתובה כאן כדי שלא תיראה מקרית,
+    # והיא מכוסה בטסט.
+    min_time_raw = request.args.get("min_time")
+    min_time = None
+    if min_time_raw:
         try:
-            since = datetime.utcnow() - timedelta(hours=int(hours))
-        except Exception:
-            since = None
+            min_time = float(min_time_raw)
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "invalid_min_time"}), 400
+        if not math.isfinite(min_time):
+            return jsonify({"status": "error", "message": "invalid_min_time"}), 400
+
     try:
         svc = _get_webapp_profiler_service()
-        queries = _run_profiler(
-            svc.get_slow_queries(
-                limit=limit,
-                collection_filter=collection,
-                min_execution_time_ms=float(min_time) if min_time else None,
-                since=since,
-            )
+        page = svc.get_slow_queries_page(
+            limit=limit,
+            collection_filter=collection,
+            min_execution_time_ms=min_time,
+            hours=_profiler_window_hours_arg(),
+            sort_field=request.args.get("sort", "execution_time_ms"),
+            sort_direction=request.args.get("dir", "desc"),
+            cursor=request.args.get("cursor"),
         )
-        return jsonify({"status": "success", "data": [_serialize_slow_query(q) for q in queries], "count": len(queries)})
+    except ProfilerPagingError as exc:
+        # מיון או קורסור פסולים הם **קלט משתמש**, ולכן 400 ולא 500. הקורסור
+        # מגיע מה-URL ואפשר לערוך אותו ביד; ``ProfilerPagingError`` היא הערוץ
+        # היחיד שדרכו הוא נדחה, וכל צורת פגם אחרת שם הופכת אליה בשירות.
+        return jsonify({"status": "error", "message": "invalid_paging", "detail": str(exc)}), 400
     except Exception:
         logger.exception("api_profiler_slow_queries_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
+
+    records = page["records"]
+    return jsonify({
+        "status": "success",
+        "data": [_serialize_slow_query(q) for q in records],
+        "count": len(records),
+        # ``total`` נספר על חלון הזמן בלבד ולא על פילטר הדף — אחרת הוא היה
+        # קטן בכל לחיצה על "טען עוד", והכותרת "מוצגות X מתוך Y" הייתה מייצרת
+        # בדיוק את הפער שהיא נועדה לסגור.
+        "total": page["total"],
+        "next_cursor": page["next_cursor"],
+    })
+
+
+@app.route("/api/profiler/patterns", methods=["GET"])
+def api_profiler_patterns():
+    """דפוסי השאילתות שחוזרים בחלון — הנתונים שכרטיס "דפוסים ייחודיים" סופר."""
+    if not _profiler_is_authorized():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if not _profiler_rate_limit_ok():
+        return jsonify({"status": "error", "message": "rate_limited"}), 429
+    try:
+        limit = int(request.args.get("limit", "50"))
+    except Exception:
+        limit = 50
+    try:
+        svc = _get_webapp_profiler_service()
+        result = svc.get_pattern_statistics(hours=_profiler_window_hours_arg(), limit=limit)
+    except Exception:
+        logger.exception("api_profiler_patterns_failed")
+        return jsonify({"status": "error", "message": "internal_error"}), 500
+
+    return jsonify({
+        "status": "success",
+        "data": [_serialize_query_pattern(p) for p in result["patterns"]],
+        "count": len(result["patterns"]),
+        "total": result["total"],
+    })
 
 
 @app.route("/api/profiler/summary", methods=["GET"])
@@ -4999,11 +5224,83 @@ def api_profiler_summary():
         return jsonify({"status": "error", "message": "rate_limited"}), 429
     try:
         svc = _get_webapp_profiler_service()
-        summary = _run_profiler(svc.get_summary_async())
+        summary = svc.get_summary(hours=_profiler_window_hours_arg())
         return jsonify({"status": "success", "data": summary})
     except Exception:
         logger.exception("api_profiler_summary_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
+
+
+#: הודעות למשתמש לפי ``error_code`` של ``ProfilerInputError``.
+#: ההודעה של ``BROKEN_QUERY_SHAPE`` נשמרת מילה במילה מהגרסה הקודמת.
+#: ⚠️ המפה הזו חייבת להישאר זהה לזו שב-``handlers/profiler_handler.py``,
+#: ולכסות כל ``error_code`` שהשירות מגדיר. שני הדברים נאכפים בטסטים.
+_PROFILER_INPUT_MESSAGES = {
+    "PROFILER_INPUT_ERROR": "הבקשה לפרופיילר אינה תקינה.",
+    "BROKEN_QUERY_SHAPE": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
+    "INVALID_VERBOSITY": "רמת פירוט לא נתמכת ל-explain. בחר queryPlanner, executionStats או allPlansExecution.",
+}
+
+#: הודעה לקוד שאין לו ערך במפה. **לא** ``str(exc)``: טקסט חריגה באנגלית בפופאפ
+#: עברי אינו הודעה למשתמש, וחשוב מכך — ``or str(exc)`` הפך את המפה מחוזה לרשות,
+#: כך שקוד חדש בלי הודעה לא היה נכשל בשום מקום. הפער נאכף עכשיו בטסט.
+_PROFILER_INPUT_FALLBACK_MESSAGE = "הבקשה לפרופיילר אינה תקינה."
+
+#: מדיניות ה-timeout. משוכפלת ב-``handlers/profiler_handler.py``, והטסטים משווים
+#: את **התגובות בפועל** של שתי המסגרות ולא את הקבועים — קבועים זהים אינם מוכיחים
+#: שהתגובה משתמשת בהם.
+_PROFILER_TIMEOUT_MESSAGE = (
+    "ה-explain חרג ממגבלת הזמן. נסה שוב עם queryPlanner, או הגדל את PROFILER_EXPLAIN_MAX_TIME_MS."
+)
+_PROFILER_TIMEOUT_STATUS = 504
+
+
+def _profiler_input_error_response(exc):
+    """מתרגם שגיאת קלט של הפרופיילר ל-400 עם ``error_code``.
+
+    קודם הראוטים זיהו את סוג השגיאה בחיפוש מחרוזת בתוך הודעת החריגה, ולכן כל
+    ולידציה חדשה נפלה אוטומטית ל-500 עם stack trace.
+    """
+    code = str(getattr(exc, "error_code", "") or "PROFILER_INPUT_ERROR")
+    message = _PROFILER_INPUT_MESSAGES.get(code)
+    if message is None:
+        # פער במפה. ההודעה המקורית לא נשלחת ללקוח, אבל גם לא נעלמת.
+        logger.warning(
+            "profiler_input_error_without_message",
+            extra={"error_code": code, "error": str(exc)},
+        )
+        message = _PROFILER_INPUT_FALLBACK_MESSAGE
+    return jsonify({"status": "error", "message": message, "error_code": code}), 400
+
+
+#: הניב שבו גוף השאילתה נשלח. **מוצהר בבקשה ולא מוסק** — ראו ``_profiler_decode``.
+PROFILER_ENCODING_JSON = "json"
+PROFILER_ENCODING_EJSON = "extended_json"
+PROFILER_ENCODINGS = frozenset({PROFILER_ENCODING_JSON, PROFILER_ENCODING_EJSON})
+
+
+def _profiler_decode(value, encoding: str):
+    """מפענח גוף שאילתה לפי הניב שהבקשה הצהירה עליו.
+
+    **למה לא Extended JSON תמיד, על כל בקשה.** נמדד ש-``json_util.loads``
+    בולע תווי דגל שאינו מכיר: השלד המנורמל
+    ``{"$regex": "<value>", "$options": "<value>"}`` הופך אצלו ל-
+    ``Regex('<value>', re.LOCALE|re.UNICODE)`` — כלומר רץ, ומחזיר אפס תוצאות.
+    היום אותו קלט מייצר שגיאה **רועשת** ממונגו
+    (``invalid flag in regex options: <``). החלפה גורפת הייתה הופכת שגיאה
+    שרואים לתשובה שגויה בשקט, וזה בדיוק מה שהמנגנון הזה קיים כדי למנוע.
+
+    לכן ברירת המחדל היא ``json``, זהה להתנהגות הקודמת עבור שאילתה שמוקלדת
+    ביד ועבור ניתוח על השלד; רק מי שיודע שהוא נושא Extended JSON מצהיר על כך.
+    """
+    if encoding != PROFILER_ENCODING_EJSON:
+        return value
+    from bson import json_util
+
+    try:
+        return json_util.loads(json.dumps(value))
+    except Exception as exc:
+        raise ValueError("extended_json_decode_failed") from exc
 
 
 @app.route("/api/profiler/explain", methods=["POST"])
@@ -5020,22 +5317,41 @@ def api_profiler_explain():
     query = body.get("query", {}) or {}
     pipeline = body.get("pipeline")
     verbosity = body.get("verbosity", "queryPlanner")
+    encoding = body.get("encoding", PROFILER_ENCODING_JSON)
     if not collection:
         return jsonify({"status": "error", "message": "collection is required"}), 400
+    # ``isinstance`` **לפני** בדיקת החברות, ולא רק בגלל קפדנות: ``x in frozenset``
+    # קורא ל-``hash(x)``, ורשימה או מילון מגוף JSON זורקים שם ``TypeError`` —
+    # נמדד — כלומר 500 במקום 400 על קלט לא תקין. זה מופע של ``CORE-PATTERNS``
+    # U3: פעולה שמניחה טיפוס על ערך שהגיע מחוץ לתהליך.
+    if not isinstance(encoding, str) or encoding not in PROFILER_ENCODINGS:
+        return jsonify({"status": "error", "message": "invalid_encoding"}), 400
+    try:
+        query = _profiler_decode(query, encoding)
+        if isinstance(pipeline, list):
+            pipeline = _profiler_decode(pipeline, encoding)
+    except ValueError:
+        return jsonify({"status": "error", "message": "invalid_encoding"}), 400
     try:
         svc = _get_webapp_profiler_service()
         if isinstance(pipeline, list):
-            explain = _run_profiler(svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity))
+            explain = svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity)
             return jsonify({"status": "success", "data": _serialize_aggregation_explain(explain)})
-        explain = _run_profiler(svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity))
+        explain = svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity)
         return jsonify({"status": "success", "data": _serialize_explain_plan(explain)})
-    except ValueError as e:
-        if "broken array normalization" in str(e):
-            return jsonify({
-                "status": "error",
-                "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                "error_code": "BROKEN_QUERY_SHAPE"
-            }), 400
+    except _ProfilerExplainTimeout as e:
+        # תקרת הזמן של ה-explain. בלי הענף הזה זו הייתה תשובת 500 גנרית, שאי אפשר
+        # להבחין בינה לבין קריסה — והמשתמש לא היה יודע שהפתרון הוא queryPlanner.
+        logger.warning("api_profiler_explain_explain_timeout", extra={"error": str(e)})
+        return jsonify({
+            "status": "error",
+            "message": _PROFILER_TIMEOUT_MESSAGE,
+            "error_code": "EXPLAIN_TIMEOUT"
+        }), _PROFILER_TIMEOUT_STATUS
+    except _ProfilerInputError as e:
+        # כל שגיאת קלט של הפרופיילר, לפי טיפוס ולא לפי טקסט ההודעה.
+        return _profiler_input_error_response(e)
+    except ValueError:
         logger.exception("api_profiler_explain_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
     except Exception:
@@ -5057,13 +5373,26 @@ def api_profiler_recommendations():
     query = body.get("query", {}) or {}
     pipeline = body.get("pipeline")
     verbosity = body.get("verbosity", "queryPlanner")
+    encoding = body.get("encoding", PROFILER_ENCODING_JSON)
     if not collection:
         return jsonify({"status": "error", "message": "collection is required"}), 400
+    # ``isinstance`` **לפני** בדיקת החברות, ולא רק בגלל קפדנות: ``x in frozenset``
+    # קורא ל-``hash(x)``, ורשימה או מילון מגוף JSON זורקים שם ``TypeError`` —
+    # נמדד — כלומר 500 במקום 400 על קלט לא תקין. זה מופע של ``CORE-PATTERNS``
+    # U3: פעולה שמניחה טיפוס על ערך שהגיע מחוץ לתהליך.
+    if not isinstance(encoding, str) or encoding not in PROFILER_ENCODINGS:
+        return jsonify({"status": "error", "message": "invalid_encoding"}), 400
+    try:
+        query = _profiler_decode(query, encoding)
+        if isinstance(pipeline, list):
+            pipeline = _profiler_decode(pipeline, encoding)
+    except ValueError:
+        return jsonify({"status": "error", "message": "invalid_encoding"}), 400
     try:
         svc = _get_webapp_profiler_service()
         if isinstance(pipeline, list):
-            explain = _run_profiler(svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity))
-            recommendations = _run_profiler(svc.analyze_aggregation_and_recommend(explain))
+            explain = svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity)
+            recommendations = svc.analyze_aggregation_and_recommend(explain)
             return jsonify(
                 {
                     "status": "success",
@@ -5073,8 +5402,8 @@ def api_profiler_recommendations():
                     },
                 }
             )
-        explain = _run_profiler(svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity))
-        recommendations = _run_profiler(svc.generate_recommendations(explain))
+        explain = svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity)
+        recommendations = svc.generate_recommendations(explain)
         return jsonify(
             {
                 "status": "success",
@@ -5084,13 +5413,19 @@ def api_profiler_recommendations():
                 },
             }
         )
-    except ValueError as e:
-        if "broken array normalization" in str(e):
-            return jsonify({
-                "status": "error",
-                "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
-                "error_code": "BROKEN_QUERY_SHAPE"
-            }), 400
+    except _ProfilerExplainTimeout as e:
+        # תקרת הזמן של ה-explain. בלי הענף הזה זו הייתה תשובת 500 גנרית, שאי אפשר
+        # להבחין בינה לבין קריסה — והמשתמש לא היה יודע שהפתרון הוא queryPlanner.
+        logger.warning("api_profiler_recommendations_explain_timeout", extra={"error": str(e)})
+        return jsonify({
+            "status": "error",
+            "message": _PROFILER_TIMEOUT_MESSAGE,
+            "error_code": "EXPLAIN_TIMEOUT"
+        }), _PROFILER_TIMEOUT_STATUS
+    except _ProfilerInputError as e:
+        # כל שגיאת קלט של הפרופיילר, לפי טיפוס ולא לפי טקסט ההודעה.
+        return _profiler_input_error_response(e)
+    except ValueError:
         logger.exception("api_profiler_recommendations_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
     except Exception:
@@ -5112,7 +5447,7 @@ def api_profiler_collection_stats(name: str):
         return jsonify({"status": "error", "message": "rate_limited"}), 429
     try:
         svc = _get_webapp_profiler_service()
-        stats = _run_profiler(svc.get_collection_stats(name))
+        stats = svc.get_collection_stats(name)
         return jsonify({"status": "success", "data": stats})
     except Exception:
         logger.exception("api_profiler_collection_stats_failed")
@@ -5176,128 +5511,10 @@ def _maintenance_cleanup_is_authorized() -> bool:
 
 
 _WEBAPP_DB_HEALTH_SERVICE = None
-_DB_HEALTH_ASYNC_LOOP = None
-_DB_HEALTH_ASYNC_LOOP_THREAD = None
-_DB_HEALTH_ASYNC_LOOP_READY = threading.Event()
-_DB_HEALTH_ASYNC_LOOP_LOCK = threading.Lock()
 
 # Throttling ל-collStats (Per-process). מגן על DB מפני הרצות תכופות.
 _DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO: Optional[float] = None
 _DB_HEALTH_COLLECTIONS_COOLDOWN_LOCK = threading.Lock()
-
-
-def _get_db_health_native_thread_class():
-    try:
-        from gevent import monkey as gevent_monkey  # type: ignore
-    except Exception:
-        return threading.Thread
-    try:
-        return gevent_monkey.get_original("threading", "Thread")
-    except Exception:
-        start_fn = None
-        for module_name in ("thread", "_thread"):
-            try:
-                start_fn = gevent_monkey.get_original(module_name, "start_new_thread")
-                break
-            except Exception:
-                continue
-        if start_fn is None:
-            return threading.Thread
-
-        class _NativeThread:
-            def __init__(self, *, target=None, name=None, daemon=None, args=None, kwargs=None):
-                self._target = target
-                self._args = tuple(args or ())
-                self._kwargs = dict(kwargs or {})
-                self.name = name or "native_thread"
-                self.daemon = bool(daemon) if daemon is not None else False
-                self._start_called = threading.Event()
-                self._started = threading.Event()
-                self._finished = threading.Event()
-
-            def start(self):
-                def _runner():
-                    try:
-                        threading.current_thread().name = self.name
-                    except Exception:
-                        pass
-                    self._started.set()
-                    try:
-                        if self._target is not None:
-                            self._target(*self._args, **self._kwargs)
-                    finally:
-                        self._finished.set()
-
-                start_fn(_runner, ())
-                self._start_called.set()
-
-            def is_alive(self) -> bool:
-                return self._start_called.is_set() and not self._finished.is_set()
-
-        return _NativeThread
-
-
-def _ensure_db_health_async_loop():
-    global _DB_HEALTH_ASYNC_LOOP, _DB_HEALTH_ASYNC_LOOP_THREAD
-    loop = _DB_HEALTH_ASYNC_LOOP
-    if loop is not None and not loop.is_closed() and loop.is_running():
-        return loop
-    with _DB_HEALTH_ASYNC_LOOP_LOCK:
-        loop = _DB_HEALTH_ASYNC_LOOP
-        if loop is not None and not loop.is_closed():
-            if loop.is_running():
-                return loop
-            thread = _DB_HEALTH_ASYNC_LOOP_THREAD
-            if thread is not None and thread.is_alive():
-                _DB_HEALTH_ASYNC_LOOP_READY.wait(timeout=0.25)
-                if loop.is_running():
-                    return loop
-            try:
-                loop.close()
-            except Exception:
-                logger.warning("db_health_loop_close_failed", exc_info=True)
-        _DB_HEALTH_ASYNC_LOOP_READY.clear()
-        loop = asyncio.new_event_loop()
-
-        def _run_loop():
-            asyncio.set_event_loop(loop)
-            loop.call_soon(_DB_HEALTH_ASYNC_LOOP_READY.set)
-            loop.run_forever()
-
-        native_thread = _get_db_health_native_thread_class()
-        thread = native_thread(target=_run_loop, name="db_health_async_loop", daemon=True)
-        try:
-            thread.start()
-        except Exception:
-            try:
-                loop.close()
-            except Exception:
-                logger.warning("db_health_loop_close_failed", exc_info=True)
-            raise
-        _DB_HEALTH_ASYNC_LOOP = loop
-        _DB_HEALTH_ASYNC_LOOP_THREAD = thread
-        return loop
-
-
-def _run_db_health(awaitable):
-    """הרצת קורוטינה בצורה תואמת Flask תחת WSGI.
-
-    אם מתקבל awaitable – נריץ אותו בלולאה ייעודית ברקע.
-    """
-    if inspect.isawaitable(awaitable):
-        try:
-            loop = _ensure_db_health_async_loop()
-        except Exception:
-            logger.exception("db_health_async_loop_failed")
-            return _run_awaitable_blocking(awaitable, thread_label="db_health")
-        try:
-            async def _await_wrapper(item):
-                return await item
-            return asyncio.run_coroutine_threadsafe(_await_wrapper(awaitable), loop).result()
-        except Exception:
-            logger.exception("db_health_async_loop_failed")
-            raise
-    return awaitable
 
 
 def _get_webapp_db_health_service():
@@ -5324,9 +5541,7 @@ def _get_webapp_db_health_service():
             close_fn = getattr(current_service, "close", None)
             if callable(close_fn):
                 try:
-                    close_result = close_fn()
-                    if inspect.isawaitable(close_result):
-                        _run_awaitable_blocking(close_result, thread_label="db_health_close")
+                    close_fn()
                 except Exception:
                     logger.warning("db_health_service_close_failed", exc_info=True)
 
@@ -5356,7 +5571,7 @@ def api_db_pool():
         return jsonify({"error": "unauthorized"}), 401
     try:
         svc = _get_webapp_db_health_service()
-        pool = _run_db_health(svc.get_pool_status())
+        pool = svc.get_pool_status()
         return jsonify(pool.to_dict())
     except Exception as e:
         logger.exception("api_db_pool_failed")
@@ -5377,7 +5592,7 @@ def api_db_ops():
     include_system = str(request.args.get("include_system", "")).lower() == "true"
     try:
         svc = _get_webapp_db_health_service()
-        ops = _run_db_health(svc.get_current_operations(threshold_ms=threshold, include_system=include_system))
+        ops = svc.get_current_operations(threshold_ms=threshold, include_system=include_system)
         return jsonify(
             {
                 "count": len(ops),
@@ -5437,7 +5652,7 @@ def api_db_collections():
     collection = request.args.get("collection")
     try:
         svc = _get_webapp_db_health_service()
-        stats = _run_db_health(svc.get_collection_stats(collection_name=collection))
+        stats = svc.get_collection_stats(collection_name=collection)
         duration_ms = int((time.monotonic() - start_mono) * 1000)
         logger.info(
             "api_db_collections_loaded",
@@ -5493,14 +5708,12 @@ def api_db_collection_documents(collection: str):
 
     try:
         svc = _get_webapp_db_health_service()
-        result = _run_db_health(
-            svc.get_documents(
-                collection_name=collection,
-                skip=skip,
-                limit=limit,
-                filters=filters or None,
-                sort=sort_value,
-            )
+        result = svc.get_documents(
+            collection_name=collection,
+            skip=skip,
+            limit=limit,
+            filters=filters or None,
+            sort=sort_value,
         )
         return jsonify(result)
     except InvalidCollectionNameError as e:
@@ -5521,11 +5734,27 @@ def api_db_health():
         return jsonify({"error": "unauthorized"}), 401
     try:
         svc = _get_webapp_db_health_service()
-        summary = _run_db_health(svc.get_health_summary())
+        summary = svc.get_health_summary()
         return jsonify(summary)
     except Exception as e:
         logger.exception("api_db_health_failed")
         return jsonify({"error": "failed", "message": "internal_error"}), 500
+
+
+def _profiler_persistence() -> tuple[str, int]:
+    """שם האוסף וזמן השמירה של הפרופיילר, מהמקור היחיד שמגדיר אותם.
+
+    שניהם מוגדרים על ``PersistentQueryProfilerService`` ונקראים משם גם ב-
+    ``DatabaseManager._create_profiler_indexes``. שם האוסף היה קשיח כאן קודם
+    (``db.slow_queries_log``), כך ששינוי של ``COLLECTION_NAME`` היה מותיר את
+    התחזוקה מנקה את האוסף הישן בזמן שהחדש מתנפח בלי בקרה.
+    """
+    from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
+
+    return (
+        str(PersistentQueryProfilerService.COLLECTION_NAME),
+        int(PersistentQueryProfilerService.TTL_SECONDS),
+    )
 
 
 @app.route("/api/debug/maintenance_cleanup", methods=["GET"])
@@ -5639,13 +5868,21 @@ def api_debug_maintenance_cleanup():
         return False
 
     try:
+        # ⚠️ מוקדם בכוונה, ובתוך ה-try: ה-endpoint הזה מוחק מסמכים ומפיל
+        # אינדקסים. כל מה שיכול להיכשל בלי לגעת ב-DB חייב להיכשל **לפני**
+        # הפעולות ההרסניות, אחרת כשל בייבוא מחזיר 500 אחרי שהנתונים כבר נמחקו
+        # והאינדקס הישן הופל. ובתוך ה-try כדי שהכשל יחזור כ-JSON ולא כדף HTML
+        # של Flask — זה ה-endpoint שלקוחות מצפים ממנו לחוזה JSON קבוע.
+        profiler_collection, profiler_ttl_seconds = _profiler_persistence()
+
         db = get_db()
+        slow_queries_coll = db[profiler_collection]
 
         # Purge logs
         deleted_slow = 0
         deleted_metrics = 0
         if not preview:
-            slow_res = db.slow_queries_log.delete_many({})
+            slow_res = slow_queries_coll.delete_many({})
             metrics_res = db.service_metrics.delete_many({})
             deleted_slow = int(getattr(slow_res, "deleted_count", 0) or 0)
             deleted_metrics = int(getattr(metrics_res, "deleted_count", 0) or 0)
@@ -5665,10 +5902,12 @@ def api_debug_maintenance_cleanup():
 
         # TTL indexes
         ttl_results = {
-            "slow_queries_log": _ensure_ttl_index(
-                db.slow_queries_log,
+            profiler_collection: _ensure_ttl_index(
+                slow_queries_coll,
                 field="timestamp",
-                expire_seconds=604800,
+                # מקור אמת יחיד. אותו אינדקס נוצר גם ב-DatabaseManager._create_profiler_indexes;
+                # אם שני המקומות יתפצלו, כל הרצת תחזוקה תפיל ותיצור אותו מחדש.
+                expire_seconds=profiler_ttl_seconds,
                 index_name="ttl_cleanup",
             ),
             "service_metrics_ts": _ensure_ttl_index(
@@ -5751,7 +5990,7 @@ def api_debug_maintenance_cleanup():
                 "ok": True,
                 "preview": preview,
                 "deleted_documents": {
-                    "slow_queries_log": deleted_slow,
+                    profiler_collection: deleted_slow,
                     "service_metrics": deleted_metrics,
                     "total": deleted_slow + deleted_metrics,
                 },
@@ -5826,6 +6065,69 @@ def admin_observability_page():
 def admin_rules_page():
     """מסך אדמין למנוע כללים ויזואלי (Visual Rule Engine)."""
     return render_template('admin_rules.html')
+
+
+@app.route('/admin/mcp')
+@admin_required
+def admin_mcp_page():
+    """מסך אדמין לנתוני MCP analytics מ-PostHog.
+
+    ארבעת האנדפוינטים נקראים בצד השרת, כי המפתח של PostHog אינו יכול להגיע
+    לדפדפן. השירות לעולם אינו זורק ומדווח כשל ב-``error_code``, ולכן כל טאב
+    מקבל את המצב שלו בנפרד: אנדפוינט אחד שנכשל אינו מחשיך את האחרים.
+    """
+    from services.mcp_analytics_service import (
+        ENDPOINT_MISSING_CAPABILITIES,
+        ENDPOINT_NAVIGATION_COST,
+        ENDPOINT_TOOL_FAILURES,
+        ENDPOINT_TOOL_HEALTH,
+        NAVIGATION_COST_LIMIT,
+        TOOL_FAILURES_LIMIT,
+        EndpointResult,
+        get_mcp_analytics_service,
+    )
+
+    generated_at = format_datetime_display(datetime.now(timezone.utc))
+    service = get_mcp_analytics_service()
+    # נבנה לפני הבלוק כדי שהקישורים יופיעו גם כשהשליפה נכשלת: הם אינם תלויים
+    # בנתונים, והם בדיוק מה שאדמין צריך כשהעמוד לא הצליח להביא אותם.
+    try:
+        posthog_links = service.posthog_links()
+    except Exception:
+        logger.exception("Error building PostHog links for the MCP page")
+        posthog_links = {}
+    try:
+        results = service.get_dashboard()
+        return render_template(
+            'admin_mcp.html',
+            tool_health=results[ENDPOINT_TOOL_HEALTH],
+            tool_failures=results[ENDPOINT_TOOL_FAILURES],
+            navigation_cost=results[ENDPOINT_NAVIGATION_COST],
+            missing_capabilities=results[ENDPOINT_MISSING_CAPABILITIES],
+            navigation_limit=NAVIGATION_COST_LIMIT,
+            failures_limit=TOOL_FAILURES_LIMIT,
+            posthog_links=posthog_links,
+            generated_at=generated_at,
+        )
+    except Exception:
+        logger.exception("Error in admin MCP analytics page")
+        # השירות לא אמור להגיע לכאן; אם הגיע, העמוד עדיין נטען עם הודעה
+        # במקום 500 גנרי — כמו בשאר עמודי האדמין.
+        failed = EndpointResult(
+            error_code="unavailable",
+            error_detail="אירעה שגיאה בטעינת הנתונים. נסה שוב מאוחר יותר.",
+        )
+        return render_template(
+            'admin_mcp.html',
+            tool_health=failed,
+            tool_failures=failed,
+            navigation_cost=failed,
+            missing_capabilities=failed,
+            navigation_limit=NAVIGATION_COST_LIMIT,
+            failures_limit=TOOL_FAILURES_LIMIT,
+            posthog_links=posthog_links,
+            generated_at=generated_at,
+        ), 500
 
 
 @app.route('/admin/config-inspector')
@@ -9252,8 +9554,32 @@ def _safe_search(user_id: int, query: str, **kwargs):
             ))
         return results
     except Exception:
-        # אם $text נכשל (למשל אין אינדקס טקסט), ננסה fallback ל-$regex על code בלבד
-        # כדי לשמור על התנהגות חיפוש בסיסית.
+        # ⚠️ **הכשל הזה נרשם, ולא נבלע.**
+        #
+        # ⚠️ ואל תבלבלו בין שני הפולבאקים: ל-**פונקציה הזו** מגיעים גם כשאין
+        # שגיאה בכלל — ``_safe_search`` נופל לכאן כשמנוע החיפוש החזיר **אפס
+        # תוצאות**, וזה מסלול תקין. ה-``except`` כאן הוא משהו אחר לגמרי:
+        # שאילתת ה-``$text`` עצמה נזרקה. אין כאן שום פולבאק על תוצאות ריקות.
+        #
+        # עד כאן ה-``except`` היה שקט לחלוטין, ולכן כשהמסלול המהיר נכשל
+        # המערכת עברה בשקט לשאילתה **אחרת** — ``$regex`` על ``code``, סריקה
+        # מלאה בלי אינדקס — ואיש לא ידע. בפרודקשן זו הייתה השאילתה האיטית
+        # ביותר שנרשמה (3,730ms), והיא רצה רק מפני שהמסלול המהיר נפל.
+        #
+        # ההערה שהייתה כאן ניחשה "למשל אין אינדקס טקסט", והניחוש הזה **נבדק
+        # ונפסל**: ‏``search_text_idx`` קיים, ואותה שאילתת ``$text`` בדיוק רצה
+        # מול הקלאסטר ומחזירה תוצאות. הסיבה האמיתית הייתה בלתי נראית, וזה מה
+        # שהשורה הבאה מתקנת.
+        #
+        # ⚠️ ההודעה **אינה** מצהירה מה יקרה הלאה. מסלול ה-``$regex`` שמתחתיה
+        # מותנה ב-``not is_regex``, ולכן בחיפוש REGEX שנכשל הודעה כזו הייתה
+        # אומרת שני דברים שלא קרו. שורת לוג ששקרית באותה מידה שהיא מועילה
+        # היא בדיוק מה שהחלפנו כאן.
+        logger.warning(
+            "search fallback: primary aggregation pipeline failed",
+            exc_info=True,
+            extra={"event": "search_primary_pipeline_failed", "is_regex": is_regex},
+        )
         try:
             if (not is_regex) and isinstance(match_stage, dict) and ('$text' in match_stage):
                 match_stage2 = dict(match_stage)
@@ -9287,8 +9613,22 @@ def _safe_search(user_id: int, query: str, **kwargs):
                         lines_count=int(doc.get('lines_count') or 0),
                     ))
                 return results2
+            # ⚠️ הגענו לכאן בלי חריגה, כלומר תנאי ה-``if`` היה שקר: או שזה
+            # חיפוש REGEX (ואז אין ``$text`` להחליף), או שהפייפליין לא נבנה
+            # כצפוי. בלי השורה הזו זו הייתה ירידה **שקטה** לפולבאק השלישי —
+            # בדיוק סוג הנפילה שהשינוי הזה בא לחסל, רק במסלול אחר.
+            logger.warning(
+                "search fallback: $regex path not applicable, going to the legacy pipeline",
+                extra={"event": "search_regex_path_skipped", "is_regex": is_regex},
+            )
         except Exception:
-            pass
+            # אותו נימוק בדיוק: כשל כאן מוביל לפולבאק **שלישי**, ובלי שורה
+            # אחת בלוג אין שום דרך לדעת שירדנו עוד מדרגה.
+            logger.warning(
+                "search fallback: $regex pipeline failed, falling back to the legacy pipeline",
+                exc_info=True,
+                extra={"event": "search_regex_pipeline_failed"},
+            )
 
         # fallback אחרון: שמירה על פונקציונליות גם אם Mongo לא תומך ב-$regexFind וכו'.
         try:
@@ -9302,6 +9642,14 @@ def _safe_search(user_id: int, query: str, **kwargs):
             ]
             docs = list(db.code_snippets.aggregate(old_pipeline, allowDiskUse=True))
         except Exception:
+            # ‏**זה המסלול שמחזיר "לא נמצאו תוצאות" על כשל.** בלי לוג, חיפוש
+            # שנשבר נראה בדיוק כמו חיפוש שלא מצא כלום — וזה ההבדל היחיד
+            # שחשוב למשתמש.
+            logger.warning(
+                "search fallback: legacy pipeline failed too, returning no results",
+                exc_info=True,
+                extra={"event": "search_legacy_pipeline_failed"},
+            )
             return []
         from types import SimpleNamespace
         results: list = []
@@ -9564,9 +9912,14 @@ def api_search_global():
         except Exception:
             page = 1
         try:
-            limit = min(100, max(1, int(payload.get('limit') or 20)))
+            # 10 ולא 20: תואם ל-``DEFAULT_RESULTS_PER_PAGE`` ב-
+            # ``webapp/static/js/global_search.js`` ול-``selected`` שב-
+            # ``files.html``. הלקוח תמיד שולח ``limit``, ולכן זו נפילה-לאחור
+            # בלבד — אבל ברירת מחדל שאינה תואמת הייתה מחזירה 20 למי שקורא
+            # ל-API ישירות בזמן שהמסך מבטיח 10.
+            limit = min(100, max(1, int(payload.get('limit') or 10)))
         except Exception:
-            limit = 20
+            limit = 10
 
         # Redis-backed dynamic cache key
         should_cache = getattr(cache, 'is_enabled', False)
@@ -9935,12 +10288,13 @@ def api_search_health():
 
 
 def format_file_size(size_bytes: float | int) -> str:
-    """מעצב גודל קובץ לתצוגה ידידותית"""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024.0
-    return f"{size_bytes:.1f} TB"
+    """מעצב גודל קובץ לתצוגה ידידותית.
+
+    הכלל עצמו יושב ב-``webapp/size_format.py`` — מקור אמת אחד, כדי שכרטיס קובץ
+    ופריט באוסף לא יציגו את אותו גודל בשתי צורות. השם נשאר כאן כי הוא נקרא
+    מעשרות מקומות בקובץ הזה ומהתבניות.
+    """
+    return _format_file_size_shared(size_bytes)
 
 def _is_markdown_file(language: str | None, file_name: str | None) -> bool:
     """בודק אם קובץ הוא Markdown לפי שפה או סיומת שם קובץ."""
@@ -10254,6 +10608,18 @@ def format_time_hhmm(value) -> str:
 @app.template_filter('datetime_display')
 def jinja_datetime_display(value) -> str:
     return format_datetime_display(value)
+
+
+@app.template_filter('validation_summary')
+def jinja_validation_summary(value):
+    """מקצר הודעת ולידציה של Pydantic לשורה קריאה — ראו ``mcp_analytics_service``.
+
+    עטיפה דקה בכוונה: הלוגיקה והבדיקות חיות במודול השירות, ולא בקובץ הזה.
+    ``import`` מקומי כדי לא לגרור את השירות לכל טעינה של האפליקציה.
+    """
+    from services.mcp_analytics_service import summarize_validation_message
+
+    return summarize_validation_message(value)
 
 # מסנן Jinja לתאימות למדריכים/תבניות: alias ל-datetime_display
 @app.template_filter('format_datetime')
@@ -10660,74 +11026,208 @@ def _build_timeline_event(
     }
 
 
+#: השדות שאירוע קובץ בטיימליין קורא. ``code`` לעולם אינו נשלף לרשימה,
+#: לפי כלל ה-Smart Projection ב-``CLAUDE.md``.
+_TIMELINE_FILE_PROJECTION = {
+    'file_name': 1,
+    'programming_language': 1,
+    'updated_at': 1,
+    'created_at': 1,
+    'version': 1,
+    'description': 1,
+}
+
+
+def _timeline_recent_files_query(user_id: int, recent_cutoff: datetime,
+                                 active_query: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """שאילתת הקבצים של שבעת הימים האחרונים.
+
+    ה-``$or`` מכסה מסמכים ישנים שבהם ``updated_at`` חסר או ``None``,
+    ואז נשענים על ``created_at``.
+    """
+    base = active_query or {'user_id': user_id, 'is_active': True}
+    query = dict(base) if isinstance(base, dict) else {'user_id': user_id, 'is_active': True}
+    query['$or'] = [
+        {'updated_at': {'$gte': recent_cutoff}},
+        {'updated_at': {'$exists': False}, 'created_at': {'$gte': recent_cutoff}},
+        {'updated_at': None, 'created_at': {'$gte': recent_cutoff}},
+    ]
+    return query
+
+
+def _aggregate_snippets(db, pipeline: List[Dict[str, Any]]):
+    """‏``aggregate`` על ``code_snippets`` עם ``allowDiskUse``, ועם נפילה לאחור.
+
+    ``allowDiskUse`` מיותר בשרת בתצורת ברירת מחדל (``allowDiskUseByDefault``
+    הוא ``true``) אבל מגן על שרת שהוקשח עם ``false``. הנפילה לאחור על
+    ``TypeError`` היא לסטאבים ולמוקים ש-``aggregate`` שלהם אינו מקבל את
+    הפרמטר — אותה תאימות שכבר קיימת ב-``_aggregate_code_snippets``, וכאן
+    היא מוגדרת פעם אחת במקום להישכף.
+    """
+    try:
+        return db.code_snippets.aggregate(pipeline, allowDiskUse=True)
+    except TypeError:
+        return db.code_snippets.aggregate(pipeline)
+
+
+def _timeline_latest_files(db, match: Dict[str, Any], *, skip: int = 0, limit: int) -> List[Dict[str, Any]]:
+    """הגרסה האחרונה לכל שם קובץ, ולא מסמך גרסה לכל שורה.
+
+    כל עריכה יוצרת מסמך חדש ב-``code_snippets``, ולכן ``find`` ישיר מציף
+    את הפיד בשורה לכל גרסה. הקיבוץ הוא גם מה שהופך את ה-``skip`` לנכון:
+    ה-offset שמגיע מהלקוח סופר **אירועים שהוצגו** — כלומר קבצים — ודילוג
+    על אותו מספר מסמכי גרסה היה מחזיר את הגרסאות הישנות של אותו קובץ.
+    """
+    pipeline: List[Dict[str, Any]] = [
+        {'$match': match},
+        {'$project': dict(_TIMELINE_FILE_PROJECTION)},
+        {'$sort': {'file_name': 1, 'version': -1}},
+        {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+        {'$replaceRoot': {'newRoot': '$latest'}},
+        # מפתח מיון עם נפילה ל-``created_at``. ה-``$match`` מכליל קובץ
+        # שאין לו ``updated_at`` (שניים מענפי ה-``$or``), אבל מונגו משווה
+        # שדה חסר כאילו היה ``null``, ו-``null`` נמוך מ-``Date`` בסדר
+        # ההשוואה של BSON — כך שקובץ כזה היה שוקע מתחת לכולם במיון יורד.
+        # ``$ifNull`` מטפל בשני המקרים: הוא מתייחס לשדה חסר ול-undefined
+        # כאל null. זה גם מה שהבנאי כבר עושה כדי להציג את התאריך.
+        {'$addFields': {'_sort_at': {'$ifNull': ['$updated_at', '$created_at']}}},
+        # שובר שוויון על ``_id``: ``$sort`` אינו יציב, ומסמכים עם מפתח מיון
+        # זהה עלולים לחזור בסדר אחר בכל ריצה. עם ``$skip`` זה מתורגם
+        # לשורות כפולות בדף אחד וחסרות בבא. זו גם המוסכמה המתועדת ב-
+        # ``docs/database/cursor-pagination.rst``: מיון משני לפי ``_id``
+        # באותו כיוון.
+        {'$sort': {'_sort_at': -1, '_id': -1}},
+    ]
+    if skip:
+        pipeline.append({'$skip': int(skip)})
+    pipeline.append({'$limit': int(limit)})
+    # ``allowDiskUse`` הוא מוסכמה בקובץ הזה. בשרת בתצורת ברירת מחדל הוא
+    # מיותר — ``allowDiskUseByDefault`` הוא ``true`` — אבל הוא כן מגן על
+    # שרת שהוקשח עם ``false``, ושם ``$group`` על היסטוריית גרסאות גדולה
+    # היה נכשל.
+    return list(_aggregate_snippets(db, pipeline) or [])
+
+
+def _timeline_latest_files_page(db, match: Dict[str, Any], *, skip: int = 0,
+                                limit: int) -> Tuple[List[Dict[str, Any]], bool]:
+    """עמוד קבצים, ולצידו **עובדה** אם קיים עוד אחריו.
+
+    שולף שורה אחת מעבר לעמוד ומחזיר רק את גודל העמוד; קיומה של השורה
+    העודפת הוא התשובה. זה מחליף אומדן בעובדה: קודם הסקנו "יש עוד" מכך
+    שהעמוד התמלא, ולכן מספר קבצים שהוא כפולה מדויקת של גודל העמוד הציג
+    לחיצה נוספת שחוזרת ריקה.
+
+    השורה העודפת נשלפת תמיד ולא רק כשהספירה נכשלה, כי היא גם מכריעה
+    מרוץ: קובץ שנוסף בין הספירה לשליפה גורם לספירה לומר "אין עוד" בעוד
+    שיש. הכיוון הזה הוא המזיק — הוא **מסתיר** מהמשתמש קבצים.
+    """
+    docs = _timeline_latest_files(db, match, skip=skip, limit=int(limit) + 1)
+    return docs[: int(limit)], len(docs) > int(limit)
+
+
+def _timeline_recent_files_count(db, match: Dict[str, Any]) -> Optional[int]:
+    """כמה **קבצים** בטווח, לא כמה מסמכים.
+
+    המונה הזה מזין את כפתור "טען עוד", ולכן הוא חייב להיספר באותה יחידה
+    שבה נספרות השורות המוצגות.
+
+    **החוזה:** ``None`` פירושו *לא הצלחנו לספור* — ולא "אפס קבצים".
+    ההבחנה הזו נחוצה כי צד הלקוח מסיר את הכפתור כשהוא מקבל אפס
+    (``dashboard.html``: ``parseInt(remaining || '0')`` ואז ``rem <= 0``),
+    כך שכשל ספירה שנבלע לאפס היה מסתיר מהמשתמש קבצים שכן קיימים.
+    הקוראים מחליטים מה לעשות עם ``None`` — ראו ``_timeline_more_files``.
+    """
+    try:
+        rows = list(_aggregate_snippets(db, [
+            {'$match': match},
+            {'$group': {'_id': '$file_name'}},
+            {'$count': 'n'},
+        ]))
+    except PyMongoError:
+        # לא נבלע בשקט: הקורא צריך לדעת שהמספר אינו ידוע, ואנחנו צריכים
+        # לדעת שזה קרה.
+        logger.warning("timeline recent files count failed", exc_info=True)
+        return None
+    return int(rows[0].get('n', 0)) if rows else 0
+
+
+def _timeline_more_files(counted: Optional[int], *, shown_total: int,
+                         has_more: bool) -> int:
+    """כמה קבצים נותרו מעבר למה שכבר הוצג.
+
+    ``has_more`` מגיע מה-look-ahead ולכן הוא **עובדה** ולא אומדן: יש או
+    אין שורה נוספת אחרי העמוד. כשהספירה ידועה היא נותנת מספר לתווית
+    הכפתור, וכשאינה ידועה די בעובדה עצמה.
+
+    ה-``max`` אינו קישוט: ספירה שאומרת "אין עוד" בזמן שה-look-ahead מצא
+    שורה נוספת פירושה מרוץ (קובץ שנוסף בין שתי השאילתות), ואז עדיף
+    להראות כפתור מיותר מאשר להסתיר קבצים.
+    """
+    from_lookahead = 1 if has_more else 0
+    if counted is not None:
+        return max(max(0, int(counted) - int(shown_total)), from_lookahead)
+    return from_lookahead
+
+
+def _build_file_timeline_event(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """אירוע טיימליין אחד עבור מסמך קובץ.
+
+    מוגדר פעם אחת כי גם הטיימליין הראשי וגם ``/api/dashboard/activity/files``
+    בונים את אותה שורה בדיוק; שני עותקים נפרדים כבר גרמו לכך ששינוי באחד
+    לא הגיע לשני.
+    """
+    dt = doc.get('updated_at') or doc.get('created_at')
+    version = doc.get('version') or 1
+    action = "נוצר" if version == 1 else "עודכן"
+    file_name = doc.get('file_name') or "ללא שם"
+    language = resolve_file_language(doc.get('programming_language'), file_name)
+    details: List[str] = []
+    if doc.get('programming_language'):
+        details.append(doc['programming_language'])
+    elif language and language != 'text':
+        details.append(language)
+    if version:
+        details.append(f"גרסה {version}")
+    description = (doc.get('description') or "").strip()
+    subtitle = description if description else (" · ".join(details) if details else "ללא פרטים נוספים")
+    file_badge = doc.get('programming_language') or (language if language and language != 'text' else None)
+    return _build_timeline_event(
+        'files',
+        title=f"{action} {file_name}",
+        subtitle=subtitle,
+        dt=dt,
+        # אירוע קובץ בטיימליין מציג את שפת הקובץ, ולכן אייקון מצויר ולא
+        # אמוג'י. שאר סוגי האירועים ממשיכים עם אמוג'י.
+        icon=lang_icon(language, LANG_ICON_SIZES['timeline']),
+        icon_lang=language,
+        badge=file_badge,
+        badge_variant='code',
+        href=f"/file/{doc.get('_id')}",
+        meta={'details': " · ".join(details)},
+    )
+
+
 def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, Any]] = None, *, now: Optional[datetime] = None) -> Dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     recent_cutoff = now - timedelta(days=7)
     events: Dict[str, List[Dict[str, Any]]] = {k: [] for k in _TIMELINE_GROUP_META}
     errors: List[str] = []
-    files_recent_total = 0
+    # ``None`` = לא ידוע, ולא אפס. ראו ``_timeline_recent_files_count``.
+    files_recent_total: Optional[int] = None
+    files_has_more = False
 
     # Files activity
     try:
-        file_query = active_query or {
-            'user_id': user_id,
-            'is_active': True,
-        }
         # טווח 7 ימים: הכפתור "טען עוד" אמור להרחיב עד שבוע אחורה בלבד.
-        # נשתמש ב-$or כדי לכסות מקרים שבהם updated_at חסר/None ונשענים על created_at.
-        file_query_recent = dict(file_query) if isinstance(file_query, dict) else {'user_id': user_id, 'is_active': True}
-        file_query_recent['$or'] = [
-            {'updated_at': {'$gte': recent_cutoff}},
-            {'updated_at': {'$exists': False}, 'created_at': {'$gte': recent_cutoff}},
-            {'updated_at': None, 'created_at': {'$gte': recent_cutoff}},
-        ]
-        try:
-            files_recent_total = int(db.code_snippets.count_documents(file_query_recent))
-        except Exception:
-            files_recent_total = 0
-
-        cursor = db.code_snippets.find(
-            file_query_recent,
-            {'file_name': 1, 'programming_language': 1, 'updated_at': 1, 'created_at': 1, 'version': 1, 'description': 1},
-        ).sort('updated_at', DESCENDING).limit(_TIMELINE_LIMITS['files'])
+        file_query_recent = _timeline_recent_files_query(user_id, recent_cutoff, active_query)
+        files_recent_total = _timeline_recent_files_count(db, file_query_recent)
+        cursor, files_has_more = _timeline_latest_files_page(
+            db, file_query_recent, limit=_TIMELINE_LIMITS['files'])
     except Exception:
         cursor = []
         errors.append('files')
     for doc in cursor or []:
-        dt = doc.get('updated_at') or doc.get('created_at')
-        version = doc.get('version') or 1
-        is_new = version == 1
-        action = "נוצר" if is_new else "עודכן"
-        file_name = doc.get('file_name') or "ללא שם"
-        language = resolve_file_language(doc.get('programming_language'), file_name)
-        title = f"{action} {file_name}"
-        details: List[str] = []
-        if doc.get('programming_language'):
-            details.append(doc['programming_language'])
-        elif language and language != 'text':
-            details.append(language)
-        if version:
-            details.append(f"גרסה {version}")
-        description = (doc.get('description') or "").strip()
-        subtitle = description if description else (" · ".join(details) if details else "ללא פרטים נוספים")
-        href = f"/file/{doc.get('_id')}"
-        file_badge = doc.get('programming_language') or (language if language and language != 'text' else None)
-        events['files'].append(
-            _build_timeline_event(
-                'files',
-                title=title,
-                subtitle=subtitle,
-                dt=dt,
-                # אירוע קובץ בטיימליין מציג את שפת הקובץ, ולכן אייקון
-                # מצויר ולא אמוג'י. שאר סוגי האירועים ממשיכים עם אמוג'י.
-                icon=lang_icon(language, LANG_ICON_SIZES['timeline']),
-                icon_lang=language,
-                badge=file_badge,
-                badge_variant='code',
-                href=href,
-                meta={'details': " · ".join(details)},
-            )
-        )
+        events['files'].append(_build_file_timeline_event(doc))
 
     # Push/reminder events
     push_docs: List[Dict[str, Any]] = []
@@ -10749,6 +11249,10 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
         last_push = _normalize_dt(doc.get('last_push_success_at'))
         ack_at = _normalize_dt(doc.get('ack_at'))
         status = str(doc.get('status') or 'pending').lower()
+        # ההשמות שלמטה מערבבות ``datetime`` עם ערך אופציונלי מהמסמך, ולכן
+        # הטיפוס מוצהר. עד שלולאת הקבצים עברה לפונקציה משלה היא הייתה
+        # ההשמה הראשונה כאן, ו-mypy הסיק ``Any`` במקרה.
+        dt: Any
         if ack_at:
             badge, variant = "נסגר", "success"
             subtitle = "התזכורת טופלה"
@@ -10807,10 +11311,14 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
         }
         if group_id == 'files':
             shown = len(sorted_items)
-            total = max(0, int(files_recent_total or 0))
-            group_payload['total_recent'] = total
+            remaining = _timeline_more_files(
+                files_recent_total, shown_total=shown, has_more=files_has_more)
+            # התבנית מחשבת ``total_recent - shown`` לתווית הכפתור, ולכן
+            # היא צריכה מספר שלם. כשהספירה אינה ידועה אנחנו נותנים לה
+            # ``shown + remaining`` — כלומר את מה שאנחנו כן יודעים.
+            group_payload['total_recent'] = shown + remaining
             group_payload['shown'] = shown
-            group_payload['has_more'] = bool(total > shown)
+            group_payload['has_more'] = bool(remaining > 0)
         groups_payload.append(group_payload)
         filters.append({'id': group_id, 'label': meta['title'], 'count': len(sorted_items)})
 
@@ -10886,27 +11394,24 @@ def _build_files_need_attention(
     projection = dict(HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
     def _latest_files_pipeline(match_extra: Optional[Dict[str, Any]], sort_after: Dict[str, int]) -> List[Dict[str, Any]]:
-        pipeline: List[Dict[str, Any]] = [
-            {'$match': base_query},
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-        ]
+        pipeline = _latest_version_per_file_stages(base_query, with_size_fields=False)
         if dismissed_oids:
             pipeline.append({'$match': {'_id': {'$nin': dismissed_oids}}})
         if match_extra:
             pipeline.append({'$match': match_extra})
         pipeline.append({'$sort': sort_after})
+        # ``projection`` נשאר גם אחרי שהבנאי כבר החריג את הכבדים: הוא זול
+        # (המסמכים כאן כבר קלים) והוא החוזה של הפונקציה כלפי הקורא.
         pipeline.append({'$project': projection})
         return pipeline
 
-    def _count_latest(match_extra: Optional[Dict[str, Any]]) -> int:
-        pipeline: List[Dict[str, Any]] = [
-            {'$match': base_query},
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-        ]
+    def _count_latest(match_extra: Optional[Dict[str, Any]]) -> Optional[int]:
+        # רק סופר — אבל עדיין צריך את מסמך הגרסה האחרונה, כי הסינונים
+        # שאחרי הקיבוץ (``dismissed_oids`` על ``_id``, ו-``match_extra`` על
+        # ``description``/``tags``/``updated_at``) חלים עליו ולא על כל גרסה.
+        # ``$project {file_name: 1}`` היה מוחק בדיוק את השדות האלה, והספירה
+        # הייתה יוצאת אפס.
+        pipeline = _latest_version_per_file_stages(base_query, with_size_fields=False)
         if dismissed_oids:
             pipeline.append({'$match': {'_id': {'$nin': dismissed_oids}}})
         if match_extra:
@@ -10914,10 +11419,15 @@ def _build_files_need_attention(
         pipeline.append({'$count': 'count'})
         try:
             docs = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
-            if docs and isinstance(docs[0], dict):
-                return int(docs[0].get('count') or 0)
         except Exception:
-            return 0
+            # **אפס ו"לא ידוע" הם לא אותו דבר.** קודם הוחזר כאן ``0``, והמשתמש
+            # ראה "0 קבצים דורשים תשומת לב" — תשובה שנראית לגיטימית לגמרי אחרי
+            # שהשאילתה נכשלה. ``None`` אומר "לא הצלחנו לספור", והתבנית מציגה
+            # זאת במקום להציג נתון שגוי כעובדה.
+            logger.warning("files_need_attention.count_failed", exc_info=True)
+            return None
+        if docs and isinstance(docs[0], dict):
+            return int(docs[0].get('count') or 0)
         return 0
     
     # =====================================================
@@ -11591,36 +12101,6 @@ def files():
     cursor_token = (request.args.get('cursor') or '').strip()
     per_page = 20
 
-    # --- Smart Projection helpers ---
-    # מסמכים חדשים יכולים להכיל file_size/lines_count (נשמרים בזמן שמירה).
-    # למסמכים ישנים: נחשב ב-DB (בלי להחזיר את `code`) באמצעות $strLenBytes/$split.
-    _mongo_file_size_from_code = {
-        '$cond': {
-            'if': {'$and': [
-                {'$ne': ['$code', None]},
-                {'$eq': [{'$type': '$code'}, 'string']},
-            ]},
-            'then': {'$strLenBytes': '$code'},
-            'else': 0,
-        }
-    }
-    _mongo_lines_count_from_code = {
-        '$cond': {
-            'if': {'$and': [
-                {'$ne': ['$code', None]},
-                {'$eq': [{'$type': '$code'}, 'string']},
-            ]},
-            # הערה: $split שומר תאימות טובה מספיק למסך רשימה (לא מושלם לעומת splitlines()).
-            'then': {'$size': {'$split': ['$code', '\n']}},
-            'else': 0,
-        }
-    }
-    _mongo_add_size_lines_stage = {
-        '$addFields': {
-            'file_size': {'$ifNull': ['$file_size', _mongo_file_size_from_code]},
-            'lines_count': {'$ifNull': ['$lines_count', _mongo_lines_count_from_code]},
-        }
-    }
 
     # החלת ברירות מחדל למיון לפני בניית מפתח הקאש
     try:
@@ -11635,7 +12115,23 @@ def files():
             sort_by = '-favorited_at'
     except Exception:
         pass
+    # התצוגה המצומצמת נקראת **לפני** בדיקת הקאש, כי היא חלק מהמפתח שלו.
+    files_compact_view = _resolve_files_compact_view(user_id)
+
     # הכנת מפתח Cache ייחודי לפרמטרים
+    #
+    # ‏**הדגל בתחילית ולא בתוך** ``_params``\\ **, וזה לא סגנון.** העמוד הזה
+    # שומר את ה-HTML המרונדר, ושתי התצוגות מייצרות HTML שונה. אילו הדגל היה
+    # רק בתוך ``_params``, ענף ה-``except`` שמתחתיו — שנופל למפתח קבוע אחד —
+    # היה מגיש לשתיהן את אותו HTML. בתחילית שני המסלולים מבדילים.
+    #
+    # ולמה בכלל במפתח ולא בביטול קאש בעת שינוי ההעדפה: מפתח שמתאר את התוכן
+    # אינו צריך פעולה שיכולה להיכשל. ``delete_pattern`` שמחזיר 0 בלי בדיקה
+    # הוא דפוס שכבר עלה בריפו הזה (ראו K11 ב-``CLAUDE.md``), ואין היום שום
+    # קוד שמבטל את ``web:files:user:*`` — הוא TTL בלבד. התקדים לצורה הזו הוא
+    # ``_note_fonts_etag_key``, שנוצר בדיוק כדי שהעדפה שמרונדרת לתוך ה-HTML
+    # תיכנס לוולידטור ולמפתח.
+    _compact_tag = 'c' if files_compact_view else 'f'
     try:
         _params = {
             'q': search_query,
@@ -11648,9 +12144,9 @@ def files():
         }
         _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
         _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:24]
-        files_cache_key = f"web:files:user:{user_id}:{_hash}"
+        files_cache_key = f"web:files:user:{user_id}:{_compact_tag}:{_hash}"
     except Exception:
-        files_cache_key = f"web:files:user:{user_id}:fallback"
+        files_cache_key = f"web:files:user:{user_id}:{_compact_tag}:fallback"
 
     if should_cache:
         try:
@@ -11707,11 +12203,7 @@ def files():
 
     def _aggregate_code_snippets(curr_pipeline: List[Dict[str, Any]]):
         """הרצת aggregation עם allowDiskUse כדי למנוע חריגות זיכרון בשלב sort."""
-        try:
-            return db.code_snippets.aggregate(curr_pipeline, allowDiskUse=True)
-        except TypeError:
-            # תאימות לסטאבים/מוקים בטסטים שלא מקבלים allowDiskUse
-            return db.code_snippets.aggregate(curr_pipeline)
+        return _aggregate_snippets(db, curr_pipeline)
 
     def _fallback_files_created_at_page(
         curr_query: Dict[str, Any],
@@ -11783,7 +12275,7 @@ def files():
                     if needs_ids:
                         meta_pipeline = [
                             {'$match': {'_id': {'$in': needs_ids}}},
-                            _mongo_add_size_lines_stage,
+                            _MONGO_ADD_SIZE_LINES_STAGE,
                             {'$project': {'_id': 1, 'file_size': 1, 'lines_count': 1}},
                         ]
                         meta_docs = list(_aggregate_code_snippets(meta_pipeline))
@@ -11857,11 +12349,11 @@ def files():
                     'is_active': True,
                 }
                 # מיישר ללוגיקה של הבוט: קבוצה לפי file_name (הגרסה האחרונה בלבד), ואז חילוץ תגית repo: אחת
-                repo_pipeline = [
-                    {'$match': base_active_query},
-                    {'$sort': {'file_name': 1, 'version': -1}},
-                    {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-                    {'$replaceRoot': {'newRoot': '$latest'}},
+                # אין כאן ``with_size_fields``: הצינור הזה מעולם לא סינן לפי
+                # ``file_size``, והוספת הסינון הייתה משנה את רשימת הריפואים.
+                repo_pipeline = _latest_version_per_file_stages(
+                    base_active_query, with_size_fields=False,
+                ) + [
                     {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
                     {'$project': {
                         'repo_tag': {
@@ -11970,7 +12462,7 @@ def files():
                 # fallback היסטורי: סינון לפי 100KB מתוך code_snippets
                 pipeline = [
                     {'$match': query},
-                    _mongo_add_size_lines_stage,
+                    _MONGO_ADD_SIZE_LINES_STAGE,
                     {'$match': {'file_size': {'$gte': 102400}}}  # 100KB
                 ]
                 files_cursor = _aggregate_code_snippets(pipeline + [
@@ -12004,7 +12496,7 @@ def files():
         # "כל הקבצים": ספירה distinct לפי שם קובץ לאחר סינון (תוכן >0)
         count_pipeline = [
             {'$match': query},
-            _mongo_add_size_lines_stage,
+            _MONGO_ADD_SIZE_LINES_STAGE,
             {'$match': {'file_size': {'$gt': 0}}},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
@@ -12023,7 +12515,7 @@ def files():
         # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (תוכן >0), עם עקביות ל-query הכללי
         count_pipeline = [
             {'$match': query},
-            _mongo_add_size_lines_stage,
+            _MONGO_ADD_SIZE_LINES_STAGE,
             {'$match': {'file_size': {'$gt': 0}}},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
@@ -12131,30 +12623,26 @@ def files():
         sort_field_local = sort_by.lstrip('-') if sort_by else 'last_opened_at'
         sort_dir = -1 if (sort_by or '').startswith('-') else 1
 
-        pipeline = [
-            {'$match': recent_query},
-            # חשוב: סינון "לא ריק" חייב להתבצע לפני group כדי לבחור את הגרסה האחרונה *הלא-ריקה*
-            # ולא לפסול קובץ רק בגלל שהגרסה האחרונה ריקה.
-            _mongo_add_size_lines_stage,
-            {'$match': {'file_size': {'$gt': 0}}},
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
-        ]
-
-        # מיון: אם מיון לפי last_opened_at – נטפל בפייתון; אחרת נמיין ב-DB
-        if sort_field_local in {'file_name', 'created_at', 'updated_at'}:
-            pipeline.append({'$sort': {sort_field_local: sort_dir}})
+        # סינון "לא ריק" חייב להתבצע לפני ה-group כדי לבחור את הגרסה האחרונה
+        # *הלא-ריקה*, ולא לפסול קובץ רק בגלל שהגרסה האחרונה ריקה. הבנאי שומר
+        # על הסדר הזה, ובנוסף מוריד את השדות הכבדים לפני המיון והקיבוץ.
+        def _recent_pipeline(match: Dict[str, Any]) -> List[Dict[str, Any]]:
+            # בונים מחדש עם ה-match החלופי במקום להחליף את השלב הראשון לפי
+            # אינדקס. הצבה ל-``pipeline[0]`` מניחה שהשלב הראשון הוא ``$match``
+            # — הנחה שנכונה היום ותישבר בשקט ברגע שהבנאי יוסיף שלב לפניו.
+            stages = _latest_version_per_file_stages(match)
+            # מיון: אם מיון לפי last_opened_at – נטפל בפייתון; אחרת נמיין ב-DB
+            if sort_field_local in {'file_name', 'created_at', 'updated_at'}:
+                stages.append({'$sort': {sort_field_local: sort_dir}})
+            return stages
 
         try:
-            latest_items = list(_aggregate_code_snippets(pipeline))
+            latest_items = list(_aggregate_code_snippets(_recent_pipeline(recent_query)))
         except Exception:
             # fallback אם $text נכשל
             try:
                 recent_query_fallback = _with_regex_fallback(recent_query)
-                pipeline[0] = {'$match': recent_query_fallback}
-                latest_items = list(_aggregate_code_snippets(pipeline))
+                latest_items = list(_aggregate_code_snippets(_recent_pipeline(recent_query_fallback)))
             except Exception:
                 latest_items = []
 
@@ -12195,6 +12683,7 @@ def files():
                 'lines': lines_count,
                 'created_at': format_datetime_display(latest.get('created_at')),
                 'updated_at': format_datetime_display(latest.get('updated_at')),
+                'was_edited': file_was_edited(latest.get('created_at'), latest.get('updated_at')),
                 'last_opened_at': format_datetime_display(recent_map.get(fname)),
             })
 
@@ -12231,17 +12720,9 @@ def files():
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
         # בסיס הפייפליין: גרסה אחרונה לכל file_name ותוכן לא ריק
-        base_pipeline = [
-            {'$match': query},
-            # חשוב: סינון "לא ריק" חייב להתבצע לפני group כדי לבחור את הגרסה האחרונה *הלא-ריקה*.
-            # אחרת, אם הגרסה האחרונה ריקה נקבל mismatch בין total_count לבין הרשימה בפועל.
-            _mongo_add_size_lines_stage,
-            {'$match': {'file_size': {'$gt': 0}}},
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
-        ]
+        # סינון "לא ריק" לפני ה-group: אחרת, אם הגרסה האחרונה ריקה, נקבל
+        # אי-התאמה בין ``total_count`` לבין הרשימה בפועל.
+        base_pipeline = _latest_version_per_file_stages(query)
         next_cursor_token = None
         use_cursor = (sort_field_local == 'created_at')
         if use_cursor:
@@ -12306,7 +12787,7 @@ def files():
         # אבל עם Smart Projection כדי לא להחזיר `code` למסך רשימה.
         files_cursor = _aggregate_code_snippets([
             {'$match': query},
-            _mongo_add_size_lines_stage,
+            _MONGO_ADD_SIZE_LINES_STAGE,
             {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
             {'$sort': {sort_field: sort_order}},
             {'$skip': (page - 1) * per_page},
@@ -12316,16 +12797,7 @@ def files():
         # "שאר קבצים": בעלי תוכן (>0 בתים), מציגים גרסה אחרונה לכל file_name; עקבי עם ה-query הכללי
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
-        base_pipeline = [
-            {'$match': query},
-            _mongo_add_size_lines_stage,
-            {'$match': {'file_size': {'$gt': 0}}},
-        ]
-        pipeline = base_pipeline + [
-            {'$sort': {'file_name': 1, 'version': -1}},
-            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
-            {'$replaceRoot': {'newRoot': '$latest'}},
-            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
+        pipeline = _latest_version_per_file_stages(query) + [
             {'$sort': {sort_field_local: sort_dir}},
             {'$skip': (page - 1) * per_page},
             {'$limit': per_page},
@@ -12354,7 +12826,8 @@ def files():
             'size': format_file_size(size_bytes),
             'lines': lines_count,
             'created_at': format_datetime_display(file.get('created_at')),
-            'updated_at': format_datetime_display(file.get('updated_at'))
+            'updated_at': format_datetime_display(file.get('updated_at')),
+            'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at'))
         })
     
     # רשימת שפות לפילטר - רק מקבצים פעילים
@@ -12514,7 +12987,7 @@ def trash_page():
         total_pages=total_pages,
         has_prev=page > 1,
         has_next=page < total_pages,
-        recycle_ttl_days=RECYCLE_TTL_DAYS_DEFAULT,
+        recycle_ttl_days=RECYCLE_TTL_DAYS,
     )
 
 @app.route('/file/<file_id>')
@@ -12588,7 +13061,7 @@ def view_file(file_id):
     # HTTP cache validators (ETag / Last-Modified)
     theme_key = _get_theme_etag_key(user_id)
     etag = _compute_file_etag(file, variant=theme_key)
-    last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
+    last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
     if inm and inm == etag:
@@ -12596,18 +13069,13 @@ def view_file(file_id):
         resp.headers['ETag'] = etag
         resp.headers['Last-Modified'] = last_modified_str
         return resp
-    ims = request.headers.get('If-Modified-Since')
-    # RFC 7232 §3.3: אם קיים If-None-Match, מתעלמים מ-If-Modified-Since (אחרת 304 מיושן)
-    if ims and not inm:
-        try:
-            ims_dt = parse_date(ims)
-        except Exception:
-            ims_dt = None
-        if ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
-            resp = Response(status=304)
-            resp.headers['ETag'] = etag
-            resp.headers['Last-Modified'] = last_modified_str
-            return resp
+    # ‏``If-Modified-Since`` לבדו אינו משמש כאן לוולידציה, ובכוונה.
+    # העמוד מרנדר את מצב המועדף והנעיצה לתוך ה-HTML, ואין שדה שמתעד
+    # **מתי המצב הזה השתנה**: ``favorited_at`` אומר מתי סומן, ולכן אחרי
+    # הסרת סימון הוא מתאפס — וה-``Last-Modified`` הנגזר ממנו נסוג אחורה.
+    # לקוח שמחזיק את הערך המאוחר היה מקבל 304 עם כוכב תקוע. ה-ETag כן
+    # מכיל את המצב עצמו, ולכן הוא הוולידטור היחיד לעמוד הזה.
+    # ``Last-Modified`` ממשיך להישלח כמידע.
 
 
     # הדגשת syntax
@@ -12633,6 +13101,7 @@ def view_file(file_id):
                                  'lines': len(code.split('\n')) if code else 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
+                                 'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
                                  'can_pin': False,
@@ -12665,6 +13134,7 @@ def view_file(file_id):
                                  'lines': 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
+                                 'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at')),
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
                                  'can_pin': False,
@@ -12726,6 +13196,7 @@ def view_file(file_id):
         'lines': len(code.split('\n')) if code else 0,
         'created_at': format_datetime_display(file.get('created_at')),
         'updated_at': format_datetime_display(file.get('updated_at')),
+        'was_edited': file_was_edited(file.get('created_at'), file.get('updated_at')),
         'version': (file.get('version', 1) if not is_large else None),
         'is_large': is_large,
         'can_pin': not is_large,
@@ -13423,9 +13894,17 @@ def api_file_quick_update(file_id):
     """
     עדכון מהיר של תיאור ו/או תגיות לקובץ.
     Body: { "description": "...", "tags": ["tag1", "tag2"] }
-    
-    הערה: עדכון מוצלח גם מעדכן את updated_at, מה שיגרום לקובץ
-    לצאת מרשימת "לא עודכן זמן רב" (וזו התנהגות רצויה).
+
+    ``updated_at`` נחתם **רק כשהתיאור נכלל בעדכון**. הוא מציין מתי התוכן,
+    התיאור או השם השתנו, ותגיות הן מטא-דאטה — כמו מועדפים ונעיצה — ולכן
+    שינוי שלהן אינו "עריכה" של הקובץ. ראו ``docs/database/detailed-schema.rst``.
+
+    **מה שנגזר מזה:** מתוך שתי קבוצות "דורש טיפול", רק אחת מושפעת. קובץ
+    שנמצא שם בגלל תיאור או תגיות חסרים יוצא משם ברגע שהם נוספים, בלי קשר
+    לחותמת. קובץ שנמצא שם בגלל "לא עודכן זמן רב" (``updated_at`` ישן, ורק
+    לקבצים שכבר יש להם תיאור ותגיות) **יישאר שם** אחרי שינוי תגיות בלבד.
+    להסרה מהרשימה בלי לזייף עריכה יש מסלול ייעודי:
+    ``POST /api/file/<file_id>/dismiss-attention``.
     """
     try:
         user_id = session['user_id']
@@ -13447,7 +13926,7 @@ def api_file_quick_update(file_id):
             return jsonify({'ok': False, 'error': 'הקובץ לא נמצא'}), 404
         
         data = request.get_json() or {}
-        updates = {'updated_at': datetime.now(timezone.utc)}
+        updates = {}
         
         if 'description' in data:
             desc = (data.get('description') or '').strip()[:500]
@@ -13466,9 +13945,15 @@ def api_file_quick_update(file_id):
                     clean_tags.append(tag)
             updates['tags'] = clean_tags
         
-        if len(updates) <= 1:  # רק updated_at
+        if not updates:
             return jsonify({'ok': False, 'error': 'לא סופקו שדות לעדכון'}), 400
-        
+
+        # ``updated_at`` נחתם רק כשהתיאור השתנה. הראוט הזה מטפל בשני שדות,
+        # ורק אחד מהם נכלל בחוזה של ``updated_at`` — תגיות הן מטא-דאטה,
+        # בדיוק כמו מועדפים ונעיצה, ושינוי שלהן אינו "עריכה" של הקובץ.
+        if 'description' in updates:
+            updates['updated_at'] = datetime.now(timezone.utc)
+
         db.code_snippets.update_one({'_id': oid}, {'$set': updates})
         
         # Invalidate cache
@@ -13771,7 +14256,7 @@ def api_restore_file_version(file_id):
         'description': description,
         'tags': tags,
         'version': next_version,
-        'created_at': now,
+        'created_at': inherited_created_at(now, latest_doc, version_doc, file_doc),
         'updated_at': now,
         'is_active': True,
         'is_favorite': bool((latest_doc or {}).get('is_favorite', file_doc.get('is_favorite', False))),
@@ -13786,6 +14271,8 @@ def api_restore_file_version(file_id):
         res = db.code_snippets.insert_one(new_doc)
     except Exception:
         return jsonify({'ok': False, 'error': 'שמירת הגרסה נכשלה'}), 500
+
+    _clear_superseded_chunks(new_doc, getattr(res, 'inserted_id', None))
 
     inserted_id = str(getattr(res, 'inserted_id', '') or '')
     try:
@@ -13825,29 +14312,21 @@ def api_file_move_to_trash(file_id):
         return jsonify({'ok': False, 'error': 'הקובץ כבר הועבר לסל'}), 409
 
     now = datetime.now(timezone.utc)
-    ttl_days = WEBAPP_SINGLE_DELETE_TTL_DAYS
-    expires_at = now + timedelta(days=ttl_days)
+    ttl_days = RECYCLE_TTL_DAYS
 
     try:
-        res = db.code_snippets.update_many(
-            {
-                'user_id': user_id,
-                'file_name': file_name,
-'is_active': True,
-            },
-            {'$set': {
-                'is_active': False,
-                'updated_at': now,
-                'deleted_at': now,
-                'deleted_expires_at': expires_at,
-            }},
-        )
+        outcome = _soft_delete_files_by_names(
+            db.code_snippets, user_id, [file_name], ttl_days=ttl_days, now=now)
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה בהעברה לסל'}), 500
 
-    modified_count = int(getattr(res, 'modified_count', 0) or 0)
+    modified_count = outcome.versions
     if not modified_count:
         return jsonify({'ok': False, 'error': 'לא נמצאה גרסה פעילה'}), 409
+
+    # ראו ``Repository.delete_file``: הצ'אנקים הסמנטיים יורדים עם הקובץ,
+    # והשחזור מסמן אותו לבנייה מחדש.
+    _delete_snippet_chunks(int(user_id), file_name=file_name)
 
     try:
         cache.invalidate_user_cache(int(user_id))
@@ -13875,13 +14354,12 @@ def api_recycle_bin_restore(file_id: str):
     except Exception:
         return jsonify({'ok': False, 'error': 'Invalid file id'}), 400
 
-    now = datetime.now(timezone.utc)
     modified = 0
 
     try:
         res = db.code_snippets.update_many(
             {'_id': oid, 'user_id': user_id, 'is_active': False},
-            {'$set': {'is_active': True, 'updated_at': now},
+            {'$set': {'is_active': True},
              '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
         )
         modified += int(getattr(res, 'modified_count', 0) or 0)
@@ -13894,7 +14372,7 @@ def api_recycle_bin_restore(file_id: str):
             try:
                 res2 = large_coll.update_many(
                     {'_id': oid, 'user_id': user_id, 'is_active': False},
-                    {'$set': {'is_active': True, 'updated_at': now},
+                    {'$set': {'is_active': True},
                      '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
                 )
                 modified += int(getattr(res2, 'modified_count', 0) or 0)
@@ -13903,6 +14381,9 @@ def api_recycle_bin_restore(file_id: str):
 
     if modified == 0:
         return jsonify({'ok': False, 'error': 'not_found'}), 404
+
+    # הצ'אנקים נמחקו בהעברה לסל; ה-worker יבנה אותם מחדש.
+    _mark_snippets_for_reindex([oid])
 
     try:
         cache.invalidate_user_cache(int(user_id))
@@ -13943,6 +14424,8 @@ def api_recycle_bin_purge(file_id: str):
 
     if deleted == 0:
         return jsonify({'ok': False, 'error': 'not_found'}), 404
+
+    _delete_snippet_chunks(int(user_id), snippet_ids=[oid])
 
     try:
         cache.invalidate_user_cache(int(user_id))
@@ -14613,7 +15096,7 @@ def edit_file_page(file_id):
                         'description': description,
                         'tags': tags,
                         'version': version,
-                        'created_at': now,
+                        'created_at': inherited_created_at(now, prev, file),
                         'updated_at': now,
                         'is_active': True,
                     }
@@ -14641,6 +15124,7 @@ def edit_file_page(file_id):
                     try:
                         res = db.code_snippets.insert_one(new_doc)
                         if res and getattr(res, 'inserted_id', None):
+                            _clear_superseded_chunks(new_doc, res.inserted_id)
                             if new_doc.get('is_pinned'):
                                 unpin_errors: List[Dict[str, Any]] = []
                                 try:
@@ -14653,11 +15137,14 @@ def edit_file_page(file_id):
                                     }
                                     db.code_snippets.update_many(
                                         unpin_query,
+                                        # הגרסה החדשה כן נושאת ``updated_at``
+                                        # חדש. הגרסאות הישנות רק מאבדות את
+                                        # סימון הנעיצה — התוכן שלהן לא זז,
+                                        # ולכן החותמת שלהן נשארת.
                                         {'$set': {
                                             'is_pinned': False,
                                             'pinned_at': None,
                                             'pin_order': 0,
-                                            'updated_at': now,
                                         }},
                                     )
                                 except Exception as exc:
@@ -14672,11 +15159,13 @@ def edit_file_page(file_id):
                                                 'is_active': True,
                                                 '_id': {'$ne': res.inserted_id},
                                             },
+                                            # ראו ההערה באתר ביטול הנעיצה
+                                            # השני — התוכן של הגרסאות הישנות
+                                            # לא זז, ולכן החותמת שלהן נשארת.
                                             {'$set': {
                                                 'is_pinned': False,
                                                 'pinned_at': None,
                                                 'pin_order': 0,
-                                                'updated_at': now,
                                             }},
                                         )
                                     except Exception as exc:
@@ -15116,7 +15605,7 @@ def md_preview(file_id):
     # ובלי זה שינוי ההגדרה מחזיר את אותו ETag ← 304 ← הדגל הישן.
     note_fonts_key = _note_fonts_etag_key(user_id, user_doc=_etag_user_doc)
     etag = _compute_file_etag(file, variant=f"{theme_key}|{note_fonts_key}")
-    last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
+    last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
     if not force_no_cache and inm and inm == etag:
@@ -15270,7 +15759,7 @@ def reader_mode(filename):
 
     theme_key = _get_theme_etag_key(user_id)
     etag = _compute_file_etag(doc, variant=theme_key)
-    last_modified_dt = _safe_dt_from_doc(doc.get('updated_at') or doc.get('created_at'))
+    last_modified_dt = _file_last_modified(doc)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
     if inm and inm == etag:
@@ -15823,7 +16312,7 @@ def api_save_shared_file():
             'description': description,
             'tags': tags,
             'version': version,
-            'created_at': now_utc,
+            'created_at': inherited_created_at(now_utc, prev),
             'updated_at': now_utc,
             'is_active': True,
         }
@@ -15834,6 +16323,8 @@ def api_save_shared_file():
         except Exception as exc:
             logger.exception("Failed to save shared guide", extra={'share_id': share_id, 'user_id': user_id, 'error': str(exc)})
             return jsonify({'ok': False, 'error': 'שמירת המדריך נכשלה'}), 500
+
+        _clear_superseded_chunks(snippet_doc, getattr(res, 'inserted_id', None))
 
         inserted_id = str(getattr(res, 'inserted_id', '') or '')
 
@@ -16531,7 +17022,7 @@ def upload_file_web():
                         'description': description,
                         'tags': final_tags,
                         'version': version,
-                        'created_at': now,
+                        'created_at': inherited_created_at(now, prev),
                         'updated_at': now,
                         'is_active': True,
                     }
@@ -16547,6 +17038,7 @@ def upload_file_web():
                     except Exception as _e:
                         res = None
                     if res and getattr(res, 'inserted_id', None):
+                        _clear_superseded_chunks(doc, res.inserted_id)
                         if markdown_image_payloads:
                             try:
                                 _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
@@ -16618,9 +17110,11 @@ def api_toggle_favorite(file_id):
         try:
             db.code_snippets.update_many(q, {
                 '$set': {
+                    # ``favorited_at`` מתעד את הפעולה. ``updated_at`` מציין
+                    # מתי התוכן, התיאור או השם השתנו, וסימון מועדף אינו משנה
+                    # אף אחד מהם — ראו ``docs/database/detailed-schema.rst``.
                     'is_favorite': new_state,
                     'favorited_at': (now if new_state else None),
-                    'updated_at': now,
                 }
             })
         except Exception:
@@ -16757,9 +17251,9 @@ def api_files_bulk_favorite():
         }
         res = db.code_snippets.update_many(q, {
             '$set': {
+                # ראו ההערה ב-``api_toggle_favorite``.
                 'is_favorite': True,
                 'favorited_at': now,
-                'updated_at': now,
             }
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
@@ -16786,7 +17280,6 @@ def api_files_bulk_unfavorite():
 
         db = get_db()
         user_id = session['user_id']
-        now = datetime.now(timezone.utc)
 
         q = {
             '_id': {'$in': object_ids},
@@ -16795,9 +17288,9 @@ def api_files_bulk_unfavorite():
         }
         res = db.code_snippets.update_many(q, {
             '$set': {
+                # ראו ההערה ב-``api_toggle_favorite``.
                 'is_favorite': False,
                 'favorited_at': None,
-                'updated_at': now,
             }
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
@@ -16839,18 +17332,25 @@ def api_files_bulk_tag():
 
         db = get_db()
         user_id = session['user_id']
-        now = datetime.now(timezone.utc)
 
         q = {
             '_id': {'$in': object_ids},
             'user_id': user_id,
             'is_active': True
         }
+        # ``$addToSet`` בלבד. תיוג הוא מטא-דאטה, ו-``updated_at`` מציין מתי
+        # התוכן, התיאור או השם השתנו — ``file_was_edited`` נגזרת ממנו והפיד
+        # בדשבורד ממיין לפיו. חתימה כאן הקפיצה כל קובץ שתויג לראש "עודכן
+        # לאחרונה" וסימנה אותו כ"עודכן" בלי שנגעו בתוכן.
         res = db.code_snippets.update_many(q, {
             '$addToSet': {'tags': {'$each': norm_tags}},
-            '$set': {'updated_at': now}
         })
-        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+        # ``matched_count`` ולא ``modified_count``: הלקוח מציג את המספר הזה
+        # ומחליט לפיו אם לרענן את העמוד, והשאלה שלו היא "על כמה קבצים
+        # התגיות נמצאות עכשיו" — קובץ שכבר נשא אותן נספר. עד עכשיו ה-``$set``
+        # הפך כל התאמה למודיפיקציה, ולכן זה בדיוק המספר שהוחזר גם קודם.
+        matched = int(getattr(res, 'matched_count', 0) or 0)
+        return jsonify({'success': True, 'updated': matched})
     except Exception:
         return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
@@ -16990,24 +17490,24 @@ def api_files_bulk_delete():
 
     קלט JSON:
     - file_ids: List[str]
-    - ttl_days: Optional[int] – אם לא סופק, יילקח מ־RECYCLE_TTL_DAYS (ברירת מחדל 7)
+    - ttl_days: Optional[int] – אם לא סופק, יילקח מ־``RECYCLE_TTL_DAYS`` (ברירת מחדל 30)
     """
     try:
         data = request.get_json(silent=True) or {}
         file_ids = list(data.get('file_ids') or [])
-        # ברירת מחדל מ-ENV (RECYCLE_TTL_DAYS); אם התקבל ערך לא חוקי – השתמש בברירת המחדל
+        # ברירת מחדל אחת (RECYCLE_TTL_DAYS); ערך לא חוקי חוזר אליה
         raw_ttl = data.get('ttl_days')
         if raw_ttl is None or str(raw_ttl).strip() == '':
-            ttl_days = RECYCLE_TTL_DAYS_DEFAULT
+            ttl_days = RECYCLE_TTL_DAYS
         else:
             try:
                 ttl_days = int(raw_ttl)
             except Exception:
-                ttl_days = RECYCLE_TTL_DAYS_DEFAULT
+                ttl_days = RECYCLE_TTL_DAYS
         if ttl_days < 1:
-            ttl_days = RECYCLE_TTL_DAYS_DEFAULT
-        if ttl_days > 30:
-            ttl_days = 30
+            ttl_days = RECYCLE_TTL_DAYS
+        if ttl_days > RECYCLE_TTL_DAYS_MAX:
+            ttl_days = RECYCLE_TTL_DAYS_MAX
 
         if not file_ids:
             return jsonify({'success': False, 'error': 'No files selected'}), 400
@@ -17024,39 +17524,33 @@ def api_files_bulk_delete():
         db = get_db()
         user_id = session['user_id']
         now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(days=ttl_days)
 
-        # אימות בעלות ואיסוף סטטוס is_active לכל קובץ; תוצאה אחת לכל ID ייחודי
-        docs = list(db.code_snippets.find(
-            {'_id': {'$in': unique_object_ids}, 'user_id': user_id},
-            {'_id': 1, 'is_active': 1}
-        ))
-        found_ids = {doc['_id'] for doc in docs}
+        # המזהים מזהים **גרסה**, והמחיקה היא של **קובץ**: העמוד מוסר את
+        # ה-``_id`` של הגרסה האחרונה בלבד (הפייפליין מקבץ לפי ``file_name``),
+        # ולכן המרה לשמות היא מה שמונע השארת הגרסאות שמתחת פעילות.
+        # הבעלות נאכפת בתוך השאילתה, ולא בבדיקה נפרדת.
+        file_names, found_ids = resolve_owned_file_names(
+            db.code_snippets, user_id, unique_object_ids)
         if len(found_ids) != len(unique_object_ids):
             return jsonify({'success': False, 'error': 'Some files not found'}), 404
-        # קבצים פעילים למחיקה (מוגדר כ-True או לא קיים)
-        active_ids = [doc['_id'] for doc in docs if bool(doc.get('is_active', True))]
-        skipped_already_deleted = len(unique_object_ids) - len(active_ids)
 
-        modified_count = 0
-        if active_ids:
-            q = {
-                '_id': {'$in': active_ids},
-                'user_id': user_id,
-                'is_active': True
-            }
-            res = db.code_snippets.update_many(q, {
-                '$set': {
-                    'is_active': False,
-                    'deleted_at': now,
-                    'deleted_expires_at': expires_at,
-                    'updated_at': now,
-                }
-            })
-            modified_count = int(getattr(res, 'modified_count', 0))
+        outcome = _soft_delete_files_by_names(
+            db.code_snippets, user_id, file_names, ttl_days=ttl_days, now=now)
+
+        # ``skipped`` נספר בקבצים, כמו ``deleted``: קובץ שכל גרסאותיו כבר
+        # בסל אינו מוחזר על ידי המחיקה, ולכן הוא ההפרש.
+        skipped_already_deleted = len(file_names) - outcome.files
+
+        if outcome.files:
+            # לפי שם ולא לפי ``snippet_ids``: הצ'אנקים של הגרסאות הישנות
+            # היו נשארים באינדקס הסמנטי בזמן שהקובץ יושב בסל.
+            _delete_snippet_chunks(int(user_id), file_names=list(outcome.file_names))
         return jsonify({
             'success': True,
-            'deleted': modified_count,
+            # ``deleted`` נספר בקבצים ולא במסמכים: ``multi-select.js`` מדפיס
+            # אותו כ-"N קבצים הועברו לסל", וקובץ בן שש גרסאות אינו שישה קבצים.
+            'deleted': outcome.files,
+            'versions': outcome.versions,
             'skipped_already_deleted': skipped_already_deleted,
             'requested': len(unique_object_ids),
             'message': f'הקבצים הועברו לסל המחזור ל-{ttl_days} ימים'
@@ -17843,8 +18337,13 @@ def api_ui_prefs():
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
     - theme: אחד מ-{"classic","ocean","high-contrast","dark","dim","rose-pine-dawn","nebula","custom"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
+    - files_compact_view: bool — תצוגה מצומצמת בעמוד הקבצים (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
     - onboarding: אובייקט flags (walkthrough_v1_seen, theme_wizard_seen)
+
+    **מפתח שאינו מטופל כאן במפורש מוחזר 200 ואינו נשמר.** זה אינו רעיוני:
+    ``smooth_scroll`` נשלח מהלקוח עד היום ומעולם לא הגיע למסד, כמתועד ב-
+    ``docs/webapp/smooth-scrolling.rst``. מפתח חדש דורש בלוק משלו כאן.
     """
     try:
         payload = request.get_json(silent=True) or {}
@@ -17993,6 +18492,28 @@ def api_ui_prefs():
                 update_fields['ui_prefs.editor'] = editor_type
                 session['preferred_editor'] = editor_type
                 resp_payload['editor'] = editor_type
+
+        # התצוגה המצומצמת בעמוד הקבצים.
+        #
+        # **מפתח שאינו מטופל כאן במפורש מקבל 200 ואינו נשמר.** זה כבר קרה:
+        # ``docs/webapp/smooth-scrolling.rst`` מתעד ש-``smooth_scroll`` נשלח
+        # מהלקוח עד היום, האנדפוינט הזה מתעלם ממנו, והשרת מעולם לא שמר אותו.
+        # לכן הבלוק הזה קיים, ולכן ערך פגום נדחה ולא מומר.
+        if FILES_COMPACT_VIEW_PREF in payload:
+            compact_value = payload.get(FILES_COMPACT_VIEW_PREF)
+            # ``isinstance(..., bool)`` ולא ``int``: ב-Python ``True`` **הוא**
+            # ``int``, ולכן בדיקת ``int`` הייתה מקבלת ``1``. וגם לא המרה
+            # שקטה — ``bool("false")`` הוא ``True``, כלומר הערך היה מדליק את
+            # המצב דווקא כשהוא אומר את ההפך.
+            if not isinstance(compact_value, bool):
+                return jsonify({
+                    'ok': False,
+                    'error': f'{FILES_COMPACT_VIEW_PREF} must be a boolean',
+                }), 400
+            # ``$set`` בנתיב מנוקד ולא על ``ui_prefs`` כולו, כדי לא לדרוס
+            # העדפות שכנות שנכתבו בבקשה חופפת.
+            update_fields[f'ui_prefs.{FILES_COMPACT_VIEW_PREF}'] = compact_value
+            resp_payload[FILES_COMPACT_VIEW_PREF] = compact_value
 
         # עדכון work_state (שחזור מצב עבודה חוצה סשנים)
         if 'work_state' in payload:
@@ -19008,7 +19529,7 @@ def _persist_story_markdown_file(
         'description': description[:400],
         'tags': dedup_tags,
         'version': version,
-        'created_at': now,
+        'created_at': inherited_created_at(now, prev),
         'updated_at': now,
         'is_active': True,
     }
@@ -19031,6 +19552,7 @@ def _persist_story_markdown_file(
     inserted_id = getattr(res, 'inserted_id', None)
     if not inserted_id:
         raise RuntimeError("file_insert_failed")
+    _clear_superseded_chunks(doc, inserted_id)
     try:
         cache.invalidate_user_cache(user_id)
     except Exception:
@@ -19515,6 +20037,9 @@ def public_share(share_id):
         'lines': lines_count,
         'created_at': created_at_str,
         'updated_at': created_at_str,
+        # מסמך internal_shares נושא רק את זמן יצירת *השיתוף* ואין בו
+        # updated_at, ולכן אין ממה לגזור עריכה. שתי השורות ממילא זהות כאן.
+        'was_edited': False,
         'version': 1,
         'can_pin': False,
     }

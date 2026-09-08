@@ -81,7 +81,7 @@ mirrors), ושלושה על פתקי ריפו שקוראים/כותבים ל‑`
 |-----|-------|
 | `codekeeper_list_repos` | רשימת הריפואים המשוקפים (מטא‑דאטה) |
 | `codekeeper_list_repo_tree` | נתיבי קבצים בריפו (עימוד, סינון תיקייה/ref; בלי תוכן) |
-| `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB; בינארי ⇒ מטא‑דאטה בלבד) |
+| `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB לקובץ מלא, עד 10MB עם `lines`; בינארי ⇒ מטא‑דאטה בלבד) |
 | `codekeeper_search_repo` | חיפוש טקסט בריפו (snippet קצר, עם תקרות) |
 | `codekeeper_list_repo_note_paths` | **מפת גילוי:** אילו קבצים בריפו נושאים פתקים, וכמה על כל אחד. בלעדיה `list_repo_notes` דורש לדעת את הנתיב מראש |
 | `codekeeper_list_repo_notes` | הפתקים שעל קובץ בודד בריפו משוקף (`repo_name` + `repo_path`) — אותם פתקים שמוצגים בדפדפן הריפו בוובאפ. מחזיר `orphaned: true` כשהנתיב כבר אינו בעץ, והפתקים חוזרים בכל מקרה |
@@ -275,6 +275,16 @@ Health check:   /healthz
 
 > `MCP_ALLOWED_HOSTS` (CSV, wildcard) אופציונלי לנעילת בדיקת ה‑Host; ריק = כבוי (מתאים לשרת ציבורי מוגן‑טוקן).
 
+**מדידת שימוש (PostHog) — אופציונלי:**
+- `POSTHOG_PROJECT_TOKEN` (`phc_...`) + `POSTHOG_HOST` (`https://us.i.posthog.com` / `https://eu.i.posthog.com`).
+- חסר אחד מהם: בפרודקשן המדידה כבויה והשרת עולה רגיל; בפיתוח העלייה נכשלת ברעש. פרודקשן = `ENVIRONMENT`/`ENV` ששווה `production` או `prod`, או ששניהם לא מוגדרים.
+- `report_missing` דלוק: כלי וירטואלי `get_more_tools` שהסוכן קורא לו כדי לדווח על יכולת חסרה. תוספת לרשימת הכלים בלבד; הכלים הקיימים לא נגעו.
+- `context` דלוק: **מוסיף פרמטר `context` לסכימה המוצהרת של כל כלי**, כולל לרשימת ה-`required`. נמדד: קריאה בלי הפרמטר **אינה נדחית** והכלי רץ כרגיל. בלעדיו `$mcp_intent` אינו נוצר על קריאת כלי, וטור הכוונה ב-`/admin/mcp` נשאר ריק.
+- הארגומנטים והתוצאות של הכלים (`$mcp_parameters`, `$mcp_response`) **אינם** נשלחים בשום מסלול — `analytics.py` מחזיק רשימת היתר של מאפייני `$mcp_*`, ומחליף כל `$exception_list[*].value` בכל אירוע (כולל חריגות שנתפסות ב-`threading.excepthook`).
+- **כן** נשלחים שני שדות של טקסט חופשי, ורק כשהערך מחרוזת **ואחרי סינון סודות**: `$mcp_intent` (המשפט של הסוכן) ו-`$mcp_error_message` (הודעת החריגה, על כל סוג שגיאה). הסינון הוא `mcp_server/redaction.py` — אותה רשימת דפוסים שמסננת את הפריימר, במודול אחד ששניהם מייבאים. הוא תופס כל צורת סוד מוכרת בכל מקום במחרוזת, אבל הכלל לפי *שם* (`API_KEY=…`) מעוגן לתחילת שורה ולכן אינו יורה על הודעה חד-שורתית. הוא מצמצם חשיפה ואינו הופך את השדות לבטוחים — האזהרה המלאה והמדידה שמאחוריה: `docs/mcp-server.rst`.
+- `$mcp_intent_source` נאכף כתווית סגורה: `context_parameter` או `inferred`, ותו לא.
+- `ck_read_mode` הוא מאפיין משלנו: `outline` / `range` / `full`, נגזר מ**נוכחות** הפרמטרים ולא מערכיהם, ונאכף בשער מול קבוצה סגורה.
+
 ---
 
 ## זרימת ה‑OAuth (בקצרה)
@@ -301,6 +311,7 @@ Claude.ai → /authorize → provider יוצר txn → הפניה ל-webapp /oau
 | `oauth_routes.py` | מסך ה‑consent + הנפקת code |
 | `primer.py` | `GET /api/agent/primer` — פריימר טקסט לסוכן (24KB, cache 60ש׳, סינון סודות) |
 | `server.py` | חיווט FastMCP: כלים + OAuth + ASGI |
+| `analytics.py` | PostHog MCP analytics + שער הפרטיות (`before_send` עם רשימת היתר) |
 | `app.py` | נקודת כניסה: בוחר PAT/OAuth לפי ENV |
 
 צד הוובאפ: `webapp/routes/auth_routes.py` → `/oauth/identify` (גשר הזהות).

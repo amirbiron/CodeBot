@@ -217,7 +217,45 @@ class BotConfig(BaseSettings):
         description="Number of lines per code chunk",
     )
     CHUNK_OVERLAP_LINES: int = Field(
-        default=40, description="Overlap between consecutive chunks"
+        default=40,
+        ge=0,
+        description=(
+            "Max overlap between consecutive chunks, in lines (secondary ceiling). "
+            "The effective overlap is the strictest of: 15% of CHUNK_MAX_BYTES, "
+            "half the actual chunk, and this value. 0 disables overlap."
+        ),
+    )
+    CHUNK_MAX_BYTES: int = Field(
+        default=2000,
+        ge=200,
+        description=(
+            "Hard byte budget per code chunk (UTF-8). gemini-embedding-001 accepts "
+            "2,048 input tokens and silently truncates beyond that, so the chunker "
+            "must stay well under it - Hebrew markdown costs ~2 bytes per character."
+        ),
+    )
+    SEMANTIC_MIN_VECTOR_SCORE: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum raw $vectorSearch score (0..1) for a chunk to enter fusion. "
+            "0 disables the floor. Must be calibrated on real data - the RRF score "
+            "is on a different scale entirely (max ~0.036)."
+        ),
+    )
+    SEMANTIC_NUM_CANDIDATES: int = Field(
+        default=1000,
+        ge=20,
+        description=(
+            "Floor for $vectorSearch numCandidates. The old limit*20 was a fixed "
+            "200 for limit=10, which shrinks as a share of the corpus as it grows."
+        ),
+    )
+    SEMANTIC_NUM_CANDIDATES_MAX: int = Field(
+        default=10000,
+        ge=20,
+        description="Upper bound for $vectorSearch numCandidates.",
     )
 
     # מגבלות ושדות כלליים
@@ -257,8 +295,11 @@ class BotConfig(BaseSettings):
     )
 
     # סל מיחזור
+    # 30 ולא 7: עמוד הקובץ הבטיח למשתמש 30 יום בעוד המחיקה המרובה נתנה 7,
+    # כי כל מסלול קרא מקור אחר. אחרי האיחוד יש ערך אחד, והוא הגבוה — כי
+    # מחיקה בטעות היא אובדן, והמתנה בסל אינה.
     RECYCLE_TTL_DAYS: int = Field(
-        default=7, ge=1, description="Days to keep items in recycle bin"
+        default=30, ge=1, description="Days to keep items in recycle bin"
     )
 
     # URL-ים
@@ -363,6 +404,25 @@ class BotConfig(BaseSettings):
     COMMUNITY_LIBRARY_ENABLED: bool = Field(
         default=True,
         description="Enable Community Library (public catalog, bot submit/approve, API/UI)"
+    )
+
+    # Search engine
+    SEARCH_MEMORY_INDEX_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Enable the in-process SearchIndex (word/function/language/tag maps). "
+            "When disabled, TEXT and FUNCTION searches fall back to MongoDB $text."
+        ),
+    )
+
+    SEARCH_MEMORY_INDEX_EAGER_BUILD: bool = Field(
+        default=False,
+        description=(
+            "Build the in-process SearchIndex on every search, including types that "
+            "never read it (CONTENT/REGEX/FUZZY). Restores the pre-#3351 behaviour, "
+            "which kept the index warm for suggest_completions at the cost of a full "
+            "scan of the user's files on the default WebApp search."
+        ),
     )
 
     # Pagination defaults

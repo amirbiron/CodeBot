@@ -117,3 +117,57 @@ class TestPinToDashboard:
 
         assert result["success"] is False
         assert "לא נמצא" in result["error"]
+
+
+class TestPinDoesNotClaimAnEdit:
+    """נעיצה היא מטא-דאטה, ולא עריכה של הקובץ.
+
+    ``updated_at`` מציין מתי התוכן השתנה: ``file_was_edited`` נגזרת ממנו
+    כדי להחליט אם להציג "עודכן", והדשבורד ממיין לפיו. חתימה עליו בנעיצה
+    גרמה לקובץ שמעולם לא נערך להציג "עודכן", ולכל גרסאותיו לקפוץ לראש
+    היסטוריית הפעולות בבת אחת. ``pinned_at`` הוא השדה שמתעד את הפעולה.
+    """
+
+    @pytest.fixture
+    def mock_db(self):
+        return MagicMock()
+
+    @staticmethod
+    def _set_fields(call):
+        return (call.args[1] if len(call.args) > 1 else call.kwargs.get('update', {})).get('$set', {})
+
+    def test_pinning_does_not_touch_updated_at(self, mock_db):
+        mock_db.collection.find_one.side_effect = [
+            {"user_id": 123, "file_name": "test.py", "is_pinned": False, "is_active": True},
+            None,
+        ]
+        mock_db.collection.distinct.return_value = ["a.py"]
+        mock_db.collection.find.return_value.sort.return_value = []
+
+        assert toggle_pin(mock_db, 123, "test.py")["success"] is True
+
+        writes = list(mock_db.collection.update_many.call_args_list) + list(
+            mock_db.collection.update_one.call_args_list
+        )
+        assert writes, "לא בוצעה שום כתיבה"
+        for call in writes:
+            assert 'updated_at' not in self._set_fields(call), self._set_fields(call)
+        # ובכל זאת הפעולה תועדה
+        assert any('pinned_at' in self._set_fields(c) for c in writes)
+
+    def test_unpinning_does_not_touch_updated_at(self, mock_db):
+        mock_db.collection.find_one.side_effect = [
+            {"user_id": 123, "file_name": "test.py", "is_pinned": True, "pin_order": 2, "is_active": True},
+            {"_id": "x", "pin_order": 2},
+        ]
+        mock_db.collection.distinct.return_value = ["test.py"]
+        mock_db.collection.find.return_value.sort.return_value = []
+
+        assert toggle_pin(mock_db, 123, "test.py")["success"] is True
+
+        writes = list(mock_db.collection.update_many.call_args_list) + list(
+            mock_db.collection.update_one.call_args_list
+        )
+        assert writes, "לא בוצעה שום כתיבה"
+        for call in writes:
+            assert 'updated_at' not in self._set_fields(call), self._set_fields(call)

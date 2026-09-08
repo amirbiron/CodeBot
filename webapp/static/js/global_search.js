@@ -1,5 +1,11 @@
 // Global search client-side logic
 (function(){
+  // מספר התוצאות שנשלח כשאין בחירה מפורשת. שלושה מקומות חייבים להסכים
+  // על הערך הזה: ה-``selected`` שב-``webapp/templates/files.html``, הקבוע
+  // הזה, וברירת המחדל של ``/api/search/global`` ב-``webapp/app.py``.
+  // הם בשלוש שפות ואי אפשר לחלוק ביניהם קבוע, ולכן ההערה הזו היא הקישור.
+  const DEFAULT_RESULTS_PER_PAGE = '10';
+
   let currentSearchQuery = '';
   let currentSearchPage = 1;
   let suggestionsTimeout = null;
@@ -114,12 +120,14 @@
       const pagination = document.getElementById('searchPagination');
 
       if (input) { input.value = ''; input.focus(); }
-      if (suggestions) { suggestions.style.display = 'none'; suggestions.innerHTML = ''; }
+      if (suggestions) { suggestions.hidden = true; suggestions.innerHTML = ''; }
       if (clearBtn) { clearBtn.style.display = 'none'; }
 
-      // אפס סלקטים לערכי ברירת המחדל (תוכן / 20 / רלוונטיות)
+      // אפס סלקטים לערכי ברירת המחדל (תוכן / 10 / רלוונטיות).
+      // ``DEFAULT_RESULTS_PER_PAGE`` חייב להישאר תואם ל-``selected`` שב-
+      // ``files.html`` ולברירת המחדל של ``/api/search/global`` ב-``app.py``.
       try { const el = document.getElementById('searchType'); if (el) el.value = 'content'; } catch(_){}
-      try { const el = document.getElementById('resultsPerPage'); if (el) el.value = '20'; } catch(_){}
+      try { const el = document.getElementById('resultsPerPage'); if (el) el.value = DEFAULT_RESULTS_PER_PAGE; } catch(_){}
       try { const el = document.getElementById('sortOrder'); if (el) el.value = 'relevance'; } catch(_){}
 
       // נקה פילטרי שפה (UI חדש עם צ'קבוקסים + badge)
@@ -187,7 +195,7 @@
         query: q,
         search_type: ($('searchType')?.value || 'content'),
         page: page,
-        limit: parseInt($('resultsPerPage')?.value || '20', 10),
+        limit: parseInt($('resultsPerPage')?.value || DEFAULT_RESULTS_PER_PAGE, 10),
         sort: ($('sortOrder')?.value || 'relevance'),
         filters: { languages: getSelectedLanguages() }
       };
@@ -397,7 +405,10 @@
     items.forEach(function(s){
       const a = document.createElement('a');
       a.href = '#';
-      a.className = 'list-group-item list-group-item-action';
+      // מחלקה של הפרויקט, לא של Bootstrap: הוובאפ אינו טוען את ה-CSS של
+      // Bootstrap, ולכן list-group-item לא עיצב כאן דבר וההצעות נדבקו זו לזו.
+      a.className = 'search-suggestion';
+      a.setAttribute('role', 'option');
       a.textContent = String(s || '');
       a.addEventListener('click', function(e){
         e.preventDefault();
@@ -407,9 +418,9 @@
       });
       box.appendChild(a);
     });
-    box.style.display = 'block';
+    box.hidden = false;
   }
-  function hideSuggestions(){ const box = $('searchSuggestions'); if (box) box.style.display='none'; }
+  function hideSuggestions(){ const box = $('searchSuggestions'); if (box) box.hidden = true; }
 
   // אייקון השפה מגיע מ-window.langIcon (base.html) — מקור אמת אחד לכל האפליקציה
   function fileIcon(lang){
@@ -437,7 +448,9 @@
     if (lastDot === -1) return '';
     return name.slice(lastDot + 1).toLowerCase();
   }
-  function humanSize(bytes){ if (bytes < 1024) return bytes + ' B'; if (bytes < 1024*1024) return (bytes/1024).toFixed(1)+' KB'; return (bytes/(1024*1024)).toFixed(1)+' MB'; }
+  // הכלל ב-``utils/size-format.js``. המימוש הקודם נעצר ב-MB, ולכן קובץ של
+  // 2 ג'יגה הוצג כ-"2048 MB".
+  function humanSize(bytes){ return window.SizeFormat.formatFileSize(bytes); }
   function formatDate(s){ try{ const d=new Date(s); return d.toLocaleString('he-IL'); }catch(e){ return ''; } }
   function escapeHtml(t){ const d=document.createElement('div'); d.textContent=String(t||''); return d.innerHTML; }
 

@@ -1425,8 +1425,10 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 #### עיבוד ברקע (Embedding Worker)
 
 - Worker רקע שרץ ב-startup של הבוט (כאשר `SEMANTIC_SEARCH_ENABLED=True`).
-- מפצל קבצים ל-**chunks** (עד 220 שורות עם חפיפה של 40 שורות), מייצר embedding לכל chunk, ושומר ב-MongoDB.
-- מזהה שינויים לפי `contentHash` (SHA256) — לא מעבד מחדש קבצים שלא השתנו.
+- מפצל קבצים ל-**chunks** לפי **תקציב בייטים** (`CHUNK_MAX_BYTES`, ברירת מחדל 2,000) עם חפיפה של 15%, ותקרת שורות משנית (`CHUNK_SIZE_LINES`, 220). התקציב הוא המגבלה האמיתית: ל-`gemini-embedding-001` תקרת קלט של 2,048 טוקנים והוא חותך בשקט כל מה שמעבר, ולכן חיתוך לפי שורות בלבד ייצר צ'אנקים שהווקטור שלהם תיאר רק את ההתחלה שלהם. שורה ארוכה מהתקציב (SVG/JS ממוזער) נחתכת לחתיכות, ואין השמטת זנב.
+- צ'אנק שהוא dump של מספרים (מעל 80% ספרות ופיסוק מתוך התווים שאינם רווח) מדולג — אין לו משמעות סמנטית להצפין.
+- מזהה שינויים לפי `contentHash` (SHA256) — לא מעבד מחדש קבצים שלא השתנו — ולפי `chunkerVersion`, שמאפשר re-index אוטומטי אחרי שינוי בכלל החיתוך, בלי פקודה ידנית.
+- גרסה שאינה האחרונה של הקובץ אינה מוטמעת כלל (הצינור מסנן אותה ממילא), והצ'אנקים שלה מנוקים.
 - מחשב גם embedding למטא-דאטה (כותרת+תיאור+תגיות) לכל קובץ, מה שמאפשר חיפוש חוצה-שפות.
 
 #### חוסן ו-Fallback
@@ -1437,8 +1439,8 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 
 #### Collections ושדות ב-MongoDB
 
-- **`snippet_chunks`** — ה-chunks לחיפוש: `codeChunk`, `chunkEmbedding` (הווקטור), `userId`, `snippetId`, `startLine`/`endLine`, ומטא-דאטת מודל (`embeddingModelKey`).
-- **`code_snippets`** — כולל `snippetEmbedding` (embedding מטא-דאטה) ודגלי עיבוד (`needs_embedding`, `needs_chunking`, `contentHash`).
+- **`snippet_chunks`** — ה-chunks לחיפוש: `codeChunk`, `chunkEmbedding` (הווקטור, נשמר כ-BSON BinData subtype 9 / float32 — פי 3.2 קטן ממערך doubles), `userId`, `snippetId`, `startLine`/`endLine`, ומטא-דאטת מודל (`embeddingModelKey`). אינדקס `(userId, snippetId)` נוצר באתחול, וג'וב יומי מנקה צ'אנקים של קבצים שנמחקו או של גרסאות שהוחלפו.
+- **`code_snippets`** — כולל `snippetEmbedding` (embedding מטא-דאטה) ודגלי עיבוד (`needs_embedding`, `needs_chunking`, `contentHash`, `chunkerVersion`).
 - **`system_config`** — קונפיג המודל הדינמי.
 - **אינדקסי Atlas** נדרשים: `default` (Search) ו-`vector_index` (Vector) — נוצרים **ידנית** ב-Atlas UI.
 
@@ -1453,7 +1455,9 @@ Theme Wizard נפתח → שמירה/דילוג → סיום
 - `GEMINI_API_KEY` - מפתח Gemini (בלעדיו החיפוש הסמנטי מושבת).
 - `SEMANTIC_SEARCH_ENABLED` - הפעלה/כיבוי (ברירת מחדל: `True`).
 - `EMBEDDING_DIMENSIONS` - מימדי הווקטור (ברירת מחדל: 768).
-- `CHUNK_SIZE_LINES` / `CHUNK_OVERLAP_LINES` - גודל chunk וחפיפה (220 / 40).
+- `CHUNK_MAX_BYTES` - תקציב הבייטים לכל chunk (ברירת מחדל: 2,000). `CHUNK_SIZE_LINES` נשאר כתקרת שורות משנית (220).
+- `SEMANTIC_MIN_VECTOR_SCORE` - רף על ציון `$vectorSearch` הגולמי (0..1); `0` = כבוי.
+- `SEMANTIC_NUM_CANDIDATES` - כמה וקטורים ה-ANN בוחן (ברירת מחדל: 1,000).
 
 > **הערה**: מקור האמת למודל הפעיל בפועל הוא מסמך ה-`system_config` ב-DB (או פקודת ChatOps מתאימה), ולא הקוד — הערך `text-embedding-004` הוא ברירת מחדל בלבד.
 

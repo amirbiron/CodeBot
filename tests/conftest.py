@@ -11,10 +11,13 @@ first, then prefer the local `tests` directory on sys.path, and finally fall
 back to loading the stub module directly from its file path.
 """
 
+import json
 import os
 import sys
 from pathlib import Path
+from typing import List, NamedTuple
 import importlib.util
+from urllib.parse import urlsplit
 
 import pytest
 try:
@@ -198,3 +201,166 @@ def wired_mongo(request):
             wa.app.config.pop("TESTING", None)
         else:
             wa.app.config["TESTING"] = _prev_testing
+
+
+# ---------------------------------------------------------------------------
+# תשתית משותפת לבדיקות דפדפן (Playwright)
+#
+# הפיקסצ'רים כאן יושבים ב-``conftest.py`` ולא בקבצי הטסט, כי pytest מוצא אותם
+# לבד — **בלי ייבוא בין קבצי טסט**, שהוא הדבר שכבר הפיל כאן CI פעם אחת.
+# קודם כל קובץ דפדפן החזיק עותק משלו של אותן ~60 שורות (הרמת שרת, עוגיית
+# אדמין, המתנה לבריאות, איתור Chromium), וכל תיקון היה צריך להשתכפל.
+#
+# ``tests/test_admin_mcp_tabs_browser.py`` **אינו** משתמש בהם, במכוון: הוא
+# מזייף את ``get_mcp_analytics_service`` לפני שהשרת מתחיל להגיש, ולכן הוא
+# צריך שליטה על סדר ההקמה. הוא מחזיק עותק משלו, וזה מתועד שם.
+# ---------------------------------------------------------------------------
+
+
+def _locate_chromium():
+    """נתיב ל-Chromium מותקן, או ``None`` — ואז בדיקת הדפדפן מדולגת בשקט."""
+    root_env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+    root = Path(root_env) if root_env else None
+    if root and root.is_dir():
+        for candidate in sorted(root.glob("chromium*/chrome-linux/chrome")):
+            if candidate.exists():
+                return str(candidate)
+    return None
+
+
+#: תשובות ברירת מחדל שפירות ל-endpoints של הפרופיילר, בצורה המינימלית
+#: שה-JS של הדשבורד צורך (``loadSummary`` קורא ``total_slow_queries``,
+#: ``avg_execution_time_ms``, ``collections_affected``, ``unique_patterns``;
+#: ``renderSlowQueriesTable`` עושה ``forEach`` על ``data``).
+_PROFILER_STUB_RESPONSES = {
+    "/api/profiler/summary": {
+        "status": "success",
+        "data": {
+            "total_slow_queries": 0,
+            "avg_execution_time_ms": 0,
+            "collections_affected": [],
+            "unique_patterns": 0,
+        },
+    },
+    "/api/profiler/slow-queries": {"status": "success", "data": [], "count": 0},
+}
+
+
+@pytest.fixture
+def stub_profiler_api():
+    """מחזיר פונקציה שמתקינה יירוט **כללי** לכל ``/api/profiler/`` על עמוד.
+
+    למה כללי ולא ראוט לכל endpoint: הדשבורד יורה ב-``DOMContentLoaded`` גם
+    ``loadSummary()`` וגם ``refreshSlowQueries()``, ובנוסף מחזיק
+    ``setInterval(loadSummary, 30000)``. יירוט לפי רשימה נשבר בשקט ברגע
+    שהעמוד יוסיף fetch נוסף, והבקשה יוצאת לשרת האמיתי ומגיעה למסד הנתונים —
+    שם היא נבלעת ב-``catch`` של ה-JS ואיש לא רואה.
+
+    **סדר הרישום:** יש לקרוא לזה **לפני** רישום ראוטים ספציפיים. אומת במקור
+    של playwright 1.62.0 (``_impl/_page.py``): ``route`` עושה
+    ``self._routes.insert(0, ...)`` ו-``_on_route`` לוקח את ההתאמה הראשונה,
+    כלומר **הראוט שנרשם אחרון מנצח**.
+    """
+    def _install(page):
+        def _handle(route):
+            path = urlsplit(route.request.url).path
+            body = _PROFILER_STUB_RESPONSES.get(path, {"status": "success", "data": {}})
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+        page.route("**/api/profiler/**", _handle)
+
+    return _install
+
+
+@pytest.fixture(scope="session")
+def chromium_executable():
+    """נתיב ל-Chromium, או ``None``. ``None`` פירושו "תן ל-Playwright לחפש"."""
+    return _locate_chromium()
+
+
+class AdminLiveServer(NamedTuple):
+    """מה ש-``admin_live_server`` מחזיר.
+
+    ``profiler_hits`` הוא רשימת הנתיבים תחת ``/api/profiler/`` שבאמת הגיעו
+    לשרת. טסט בידוד בודק שהיא ריקה — כלומר סופר בצד השרת במקום להסיק
+    מהיעדר שגיאה בדפדפן, ששם כל כשל רשת נבלע ב-``catch`` של ה-JS.
+    """
+
+    base_url: str
+    session_cookie: str
+    profiler_hits: List[str]
+
+
+@pytest.fixture(scope="module")
+def admin_live_server():
+    """מריץ את הוובאפ האמיתי עם session של אדמין, בלי לגעת ב-DB או ברשת חיצונית.
+
+    מרים שרת ``loopback`` מקומי על ``127.0.0.1`` בפורט אקראי — זו הרשת
+    היחידה שנוגעים בה, ובדיקת הבריאות פונה אליו דרך ``urllib``. אין חיבור
+    למסד נתונים ואין יציאה החוצה.
+
+    מחזיר ``AdminLiveServer(base_url, session_cookie, profiler_hits)``.
+
+    ``MonkeyPatch.context`` ולא ``MonkeyPatch()`` ידני: הוא מבטל את עצמו
+    ביציאה מהבלוק **גם כשההקמה נופלת באמצע**. עם ``patch.undo()`` שיושב רק
+    אחרי ה-yield, חריגה בהקמה הייתה מותירה ``ADMIN_USER_IDS`` ו-``SECRET_KEY``
+    דרוכים לכל שאר הסוויטה — כשל שמתגלה בטסט אחר לגמרי.
+    """
+    import threading
+    import time
+    import urllib.request
+
+    import webapp.app as app_mod
+    from werkzeug.serving import make_server
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("ADMIN_USER_IDS", "1")
+
+        app = app_mod.app
+        patch.setitem(app.config, "SECRET_KEY", "browser-tests-admin-session")
+
+        # ה-session נבנה דרך ``test_client``, לא דרך route עזר: Flask אוסר
+        # ``@app.route`` אחרי הבקשה הראשונה, ובסוויטה מלאה טסט קודם כבר עשה זאת.
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess["user_id"] = 1
+                sess["user_data"] = {"id": 1, "is_admin": True, "is_premium": False}
+            cookie = client.get_cookie("session")
+            assert cookie is not None, "לא נוצר session cookie"
+            session_cookie = cookie.value
+
+        # פורט 0: הליבה בוחרת פורט פנוי ומקצה אותו באותה פעולה. בחירת פורט
+        # מראש ואז bind נפרד היא חלון מירוץ — מישהו אחר יכול לתפוס אותו בין
+        # שתי הפעולות.
+        # עטיפת WSGI שסופרת בקשות לפרופיילר שהגיעו לשרת האמיתי. היא כאן ולא
+        # ב-``before_request`` של האפליקציה כדי לא לשנות קוד ייצור בשביל טסט.
+        profiler_hits: List[str] = []
+
+        def counting_app(environ, start_response):
+            path = environ.get("PATH_INFO", "") or ""
+            if path.startswith("/api/profiler/"):
+                profiler_hits.append(path)
+            return app(environ, start_response)
+
+        httpd = make_server("127.0.0.1", 0, counting_app, threaded=True)
+        port = httpd.server_port
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            for _ in range(60):
+                try:
+                    urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=1)
+                    break
+                except Exception as exc:
+                    if "HTTP Error" in str(exc):  # השרת עונה, גם אם 404
+                        break
+                    time.sleep(0.25)
+            else:  # pragma: no cover
+                pytest.skip("שרת הבדיקה לא עלה")
+
+            yield AdminLiveServer(f"http://127.0.0.1:{port}", session_cookie, profiler_hits)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=5)

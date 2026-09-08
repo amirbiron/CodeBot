@@ -334,3 +334,53 @@ async def test_str_replace_is_not_advertised_as_idempotent():
     assert ann.destructiveHint is True
     # ``update_note`` כן אידמפוטנטי (אותו קלט פעמיים ⇒ אותו מצב סופי)
     assert by_name["codekeeper_update_note"].annotations.idempotentHint is True
+
+
+async def test_save_file_description_matches_what_the_tool_actually_does():
+    """התיאור הוא מה שהלקוח קורא כדי לבחור כלי — ולכן הוא חלק מהחוזה.
+
+    הוא הבטיח "create a new file **or update an existing one**" גם אחרי
+    שהכלי התחיל לסרב לשם תפוס, כלומר שלח את הלקוח לקריאה שתידחה. אותה
+    טעות בכיוון ההפוך של ``TESTING-PATTERNS`` T1: המפרט אינו הצרכן, אבל
+    כשהמפרט **הוא** מה שהצרכן קורא — הוא חייב להיות נכון.
+    """
+    mcp = build_mcp(_FakeBackend())
+    tool = {t.name: t for t in await mcp.list_tools()}["codekeeper_save_file"]
+    text = (tool.description or "").lower()
+
+    assert "update an existing" not in text, tool.description
+    # ומה שכן צריך להיות שם: לאן פונים כשהשם תפוס
+    assert "codekeeper_edit_file" in text
+    assert "codekeeper_append_file" in text
+
+
+async def test_the_description_names_both_size_ceilings():
+    """התיאור הוא מה שהסוכן קורא כדי להחליט איך לקרוא לכלי.
+
+    בגרסה הקודמת ``(max 500KB)`` ישב במשפט הראשון, ומיד אחריו הופיע
+    "read only that range **instead of the whole file**", ומזה השתמעה
+    מסקנה שלא הייתה נכונה אז: שהטווח עוקף את התקרה.
+
+    היום הוא **כן** עוקף — אבל לתקרה אחרת, לא לאין-תקרה. ולכן שני
+    המספרים חייבים להופיע: סוכן שקיבל ``too_large`` צריך לדעת אם ``lines``
+    יעזור לו (קובץ בין 500KB ל-10MB) או שהקובץ מעבר לגבול בכל מקרה.
+    תיאור שמזכיר רק אחד מהם מחזיר בדיוק את הניחוש שהוא נועד למנוע.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+
+    assert "500KB for a whole file" in description
+    assert "10MB with lines or outline" in description
+    assert description.index("500KB") > description.index("lines=[start, end]")
+    assert "Binary files return metadata only" in description
+
+
+async def test_the_description_tells_the_agent_the_outline_is_python_only():
+    """סוכן שיבקש מפה של ``.rst`` ויקבל ``no_outline`` צריך לדעת שזו
+    התנהגות מוצהרת ולא תקלה — אחרת הוא ינסה שוב."""
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+
+    assert "outline=true" in description
+    assert "Python only" in description
+    assert "no_outline" in description

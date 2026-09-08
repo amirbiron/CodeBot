@@ -23,6 +23,8 @@ import logging
 import uuid as _uuid
 from typing import Any, Callable
 
+from .handlers import apply_line_range, normalize_line_range
+
 # ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
 # אותה תבנית ייבוא עמיד שבה משתמש ``webapp/sticky_notes_api``: בסביבות
 # בדיקה בלי pymongo, מחלקה מקומית שלא תיזרק לעולם עדיפה על ייבוא שמפיל
@@ -37,6 +39,39 @@ except Exception:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 _HEAVY_FIELDS = ("code", "content", "raw_data", "raw_content")
+
+#: תשתית החיפוש הסמנטי, שאינה עניינו של מי שקורא קובץ.
+#:
+#: ``snippetEmbedding`` לבדו הוא 768 מספרים — כ-9KB בכל תשובה, בלי קשר לגודל
+#: הקובץ. הוא היה יוצא גם כשמבקשים שש שורות, וגדול פי כמה מהקובץ עצמו: בדיוק
+#: ההפך ממה ש-``lines`` נועד לחסוך. השאר קטנים, אבל אף אחד מהם אינו אומר דבר
+#: לצרכן — הם הנהלת חשבונות של ה-EmbeddingWorker.
+#:
+#: **אף אחד מהם לא נשלף מכאן.** הווקטור נקרא אך ורק בתוך מונגו, ב-
+#: ``$vectorSearch`` (``search_engine.py``); שום קוד פייתון לא קורא אותו חזרה
+#: ממסמך. את דגלי העיבוד (``needs_embedding``, ``contentHash``, ``chunkCount``
+#: וכו׳) שולף ``services/embedding_worker.py`` דרך projection ייעודי משלו
+#: (``database/manager.py``), ולא דרך הכלים כאן.
+#:
+#: **הרשימה משוכפלת במכוון מ-``SNIPPET_SEMANTIC_FIELDS`` שב-``database/schemas.py``.**
+#: ייבוא ישיר היה מריץ את ``database/__init__.py``, שבונה ``DatabaseManager()``
+#: בזמן טעינת המודול — בניגוד לכלל שבראש החבילה, שלפיו מודול כאן מייבא רק
+#: תלויות קלות. מה שמחזיק את שתי הרשימות צמודות הוא טסט שדורש **שוויון מלא**
+#: בשני הכיוונים, כדי ששדה שנוסף שם לא ידלוף לכאן, ושדה שהוסר שם לא יישאר
+#: כאן תלוי באוויר.
+_SEMANTIC_FIELDS = (
+    "snippetEmbedding",
+    "needs_embedding",
+    "needs_chunking",
+    "contentHash",
+    "embeddingUpdatedAt",
+    "embeddingModelKey",
+    "embeddingModel",
+    "embeddingApiVersion",
+    "embeddingDim",
+    "chunkCount",
+    "chunkerVersion",
+)
 
 # שדות הפתק שנחשפים ל-MCP — רזה במכוון (בלי מיקום/גודל פיקסלים, שהם עניין ויזואלי)
 #: פתק לוח נושא ``board_id`` ו-``mode``; בלעדיהם הפלט לא אומר איפה הוא
@@ -99,11 +134,17 @@ def _json_safe(value: Any) -> Any:
 
 
 def _clean(doc: dict[str, Any], *, include_code: bool = False) -> dict[str, Any]:
-    """Serialize a file document. Drops heavy fields unless ``include_code``."""
+    """Serialize a file document. Drops heavy fields unless ``include_code``.
+
+    שדות החיפוש הסמנטי יורדים **תמיד**, גם עם ``include_code``: הם אינם תוכן
+    הקובץ אלא תשתית שמתלווה אליו, ומי שביקש את הקוד לא ביקש אותה.
+    """
     out: dict[str, Any] = {}
     for key, val in (doc or {}).items():
         if key == "_id":
             out["id"] = str(val)
+            continue
+        if key in _SEMANTIC_FIELDS:
             continue
         if not include_code and key in _HEAVY_FIELDS:
             continue
@@ -111,6 +152,32 @@ def _clean(doc: dict[str, Any], *, include_code: bool = False) -> dict[str, Any]
     # Friendlier alias without dropping the original field.
     if "programming_language" in out:
         out.setdefault("language", out["programming_language"])
+    return out
+
+
+def _apply_range_to_file(out: dict[str, Any], lines: Any) -> dict[str, Any]:
+    """חותך את תוכן הקובץ לטווח שביקשו, בעזרת אותו עוזר משותף.
+
+    **``code`` הוא הטקסט הקנוני.** ``_full`` כבר מבטיח את זה: קטע רגיל
+    (``CodeSnippet``) נושא ``code`` בלבד, קובץ גדול (``LargeFile``) נושא
+    ``content`` בלבד ו-``_full`` מעתיק אותו ל-``code``. מסמך שנושא את שניהם
+    עם ערכים שונים אינו קיים באף אחד משני המודלים. לכן החיתוך נעשה תמיד
+    מ-``code``, ו-``content`` — אם הוא קיים — מקבל את אותו ערך חתוך, כדי
+    ששני השדות לא ייפרדו בתשובה.
+
+    שגיאת טווח מוחזרת כמעטפת ``{"ok": false, ...}``, ולכן ``get_file`` שב-
+    ``server.py`` מזהה אותה ומעביר אותה כמות שהיא במקום ``{"found": true}``.
+    """
+    bounds = normalize_line_range(lines)
+    if isinstance(bounds, str):
+        return {"ok": False, "error": bounds}
+    sliced = apply_line_range(out.get("code") or "", *bounds)
+    if isinstance(sliced, str):
+        return {"ok": False, "error": sliced}
+    out["code"] = sliced["text"]
+    if "content" in out:
+        out["content"] = sliced["text"]
+    out["range"] = sliced["range"]
     return out
 
 
@@ -264,6 +331,7 @@ class ProductionBackend:
         file_name: str | None = None,
         file_id: str | None = None,
         version: int | None = None,
+        lines: Any = None,
     ) -> dict[str, Any] | None:
         dbm = self._require_dbm()
         if file_id:
@@ -279,7 +347,57 @@ class ProductionBackend:
             doc = _latest_fresh(dbm, user_id, file_name)
         else:
             return None
-        return _full(doc) if doc else None
+        if not doc:
+            return None
+        out = _full(doc)
+        if lines is None:
+            return out
+        return _apply_range_to_file(out, lines)
+
+    def file_exists(self, user_id: int, *, file_name: str) -> bool | None:
+        """Does the user already have a file by this name?
+
+        A projected query, not ``get_file``: existence is a yes/no question and
+        loading the whole document — content included — to answer it costs the
+        full file on every save.
+
+        **The contract:** ``True``/``False`` when the answer is known, and
+        ``None`` when it could not be determined. The distinction is not
+        cosmetic. ``False`` on a failed lookup reads as "no such file", so the
+        caller writes under a name that may well be taken — burying the existing
+        content at exactly the moment the guard was meant to fire.
+
+        **Only a query this method owns can answer it.** There is deliberately
+        no ``get_file`` fallback: that path ends at
+        ``Repository._fetch_latest_version``, which catches its own failures and
+        returns ``None`` — the very conflation this contract exists to remove.
+        Reading it as "no such file" would put the ambiguity back one layer
+        down. No raw handle therefore means ``None``, not ``False``. Production
+        never reaches that branch anyway: ``mcp_server.app.create_app`` refuses
+        to start without Mongo and always passes ``mongo_db``.
+
+        ``is_active: True`` is part of the question, not an oversight: a name
+        sitting in the trash does **not** block a save. Reusing the name of a
+        discarded file is allowed, and the version numbering already spans the
+        trash so the new document cannot collide with it.
+
+        Same shape as :func:`sticky_notes_target.repo_file_exists`, down to the
+        ``{"_id": 1}`` projection and the ``None``-on-failure contract — and its
+        caller treats ``None`` the same way, refusing to write rather than
+        reading a failed lookup as permission.
+        """
+        try:
+            coll = self._raw_mongo()["code_snippets"]
+        except Exception:
+            return None
+        try:
+            doc = coll.find_one(
+                {"user_id": int(user_id), "file_name": file_name, "is_active": True},
+                {"_id": 1},
+            )
+        except Exception:
+            return None
+        return doc is not None
 
     def list_versions(self, user_id: int, *, file_name: str) -> list[dict[str, Any]]:
         return [_clean(v) for v in (self._require_dbm().get_all_versions(user_id, file_name) or [])]

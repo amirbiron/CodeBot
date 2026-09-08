@@ -97,9 +97,9 @@ class DummyDB:
         self.saved_prefs["user_info"] = (user_id, username)
         return True
 
-    def delete_file_by_id(self, file_id):
-        self.saved_prefs["last_deleted_id"] = file_id
-        return True
+    def soft_delete_files_by_ids(self, user_id, file_ids):
+        self.saved_prefs["last_deleted_ids"] = (user_id, list(file_ids))
+        return {"files": 1, "versions": 2, "missing": 0}
 
     # Drive/Repo prefs API
     def save_selected_repo(self, user_id, repo_full):
@@ -226,7 +226,8 @@ def test_files_facade_pagination_and_recycle(monkeypatch):
     assert version["version"] == 2
     assert fac.get_backup_rating(1, "backup1") == "👍"
     assert fac.save_user(7, "tester")
-    assert fac.delete_file_by_id("OID2")
+    assert fac.soft_delete_files_by_ids(7, ["OID2"]) == {
+        "files": 1, "versions": 2, "missing": 0}
 
     deleted_rows, deleted_total = fac.list_deleted_files(1, page=1, per_page=10)
     assert deleted_total == len(dummy_db.deleted_rows)

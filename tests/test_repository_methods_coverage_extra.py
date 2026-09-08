@@ -130,20 +130,24 @@ def test_github_token_encrypt_decrypt_paths(monkeypatch):
     assert sm.decrypt_secret("raw") == "raw"
 
 
-def test_delete_file_by_id_noop_and_no_cache(monkeypatch):
+def test_soft_delete_by_ids_noop_when_the_id_matches_nothing(monkeypatch):
+    """מזהה שאינו של המשתמש (או שאינו קיים) — לא נמחק דבר, ואין קריסה."""
     from database.repository import Repository
 
     class Coll:
-        def find_one(self, *_a, **_k):
-            return None  # no user id for invalidation
+        def find(self, *_a, **_k):
+            return []  # אף מסמך בבעלות המשתמש
+        def distinct(self, key, filter=None, *_a, **_k):
+            return []
         def update_many(self, *_a, **_k):
-            return types.SimpleNamespace(modified_count=0)
+            raise AssertionError("לא אמורה לרוץ שאילתת עדכון בלי שמות")
     class Mgr:
         def __init__(self):
             self.collection = Coll()
             self.large_files_collection = types.SimpleNamespace()
     repo = Repository(Mgr())
-    assert repo.delete_file_by_id("507f1f77bcf86cd799439011") is False
+    assert repo.soft_delete_files_by_ids(1, ["507f1f77bcf86cd799439011"]) == {
+        "files": 0, "versions": 0, "missing": 1}
 
 
 def test_delete_large_file_by_id_noop(monkeypatch):
@@ -193,12 +197,16 @@ def test_save_large_file_normalize_and_existing(monkeypatch):
     from dataclasses import dataclass
     from database.repository import Repository
 
-    # dataclass compatible with asdict
+    # dataclass compatible with asdict.
+    # created_at/updated_at קיימים כאן כי save_large_file מקבל LargeFile, ושם הם
+    # תמיד מאותחלים ב-__post_init__. סטאב בלעדיהם מתאר ממשק שאינו קיים בפרודקשן.
     @dataclass
     class DLF:
         user_id: int
         file_name: str
         content: str
+        created_at: object = None
+        updated_at: object = None
 
     inserted = {"n": 0}
     class LColl:

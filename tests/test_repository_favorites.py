@@ -33,6 +33,21 @@ class InMemoryCollection:
                 items.sort(key=lambda d: d.get(key, 0), reverse=(direction < 0))
         return dict(items[0]) if items else None
 
+    def distinct(self, key: str, filter: Optional[Dict[str, Any]] = None, *a, **k):
+        """‏``Collection.distinct(key, filter=None, ...)`` — כמו pymongo.
+
+        מסלול המחיקה שואל אילו שמות קובץ פעילים **לפני** שהוא מכבה אותם,
+        כי אחרי העדכון אי אפשר לספור אותם. דמה בלי המתודה הזו זורקת
+        ``AttributeError`` שנבלע ב-``except`` של ``delete_file``, והמחיקה
+        מדווחת ``False`` בלי שום רמז למה.
+        """
+        seen = []
+        for d in self._filter(filter or {}):
+            val = d.get(key)
+            if val is not None and val not in seen:
+                seen.append(val)
+        return seen
+
     def update_many(self, query: Dict[str, Any], update: Dict[str, Any]):
         items = self._filter(query)
         matched = len(items)
@@ -115,6 +130,12 @@ class InMemoryCollection:
                             return False
                         if not exists and k in d:
                             return False
+                    # ‏``$in`` — מסלול המחיקה מסנן קבוצת שמות בשאילתה אחת.
+                    # בלי התמיכה הזו ``dv != v`` משווה ערך למילון, לעולם
+                    # אינו מתאים, והמחיקה "מצליחה" בלי לגעת בכלום.
+                    elif isinstance(v, dict) and "$in" in v:
+                        if dv not in list(v["$in"]):
+                            return False
                     else:
                         if dv != v:
                             return False
@@ -193,3 +214,43 @@ def test_toggle_favorite_updates_and_counts(repo):
 
 def test_toggle_favorite_no_match_returns_none(repo):
     assert repo.toggle_favorite(999, "nope.py") is None
+
+
+def _latest(repo, user_id=1, file_name="a.py"):
+    docs = [d for d in repo.manager.collection.docs
+            if d.get("user_id") == user_id and d.get("file_name") == file_name]
+    assert docs
+    return max(docs, key=lambda d: int(d.get("version", 0) or 0))
+
+
+def test_toggle_favorite_does_not_claim_the_file_was_edited(repo):
+    """סימון מועדף אינו עריכה, ולכן אינו נוגע ב-``updated_at``.
+
+    ``file_was_edited`` נגזרת מ-``updated_at`` מול ``created_at`` כדי להחליט
+    אם להציג "עודכן". חתימה כאן גרמה לקובץ שמעולם לא נערך להציג "עודכן"
+    ולקפוץ לראש המיון "עודכן לאחרונה". ``favorited_at`` מתעד את הפעולה.
+    """
+    stamp = datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+    repo.manager.collection.insert_one(_base_doc(is_favorite=False, created_at=stamp, updated_at=stamp))
+
+    repo.toggle_favorite(1, "a.py")
+
+    doc = _latest(repo)
+    assert doc["updated_at"] == stamp, "סימון מועדף שינה את updated_at"
+    assert doc.get("favorited_at") is not None, "הפעולה עצמה לא תועדה"
+
+    from file_dates import file_was_edited
+    assert file_was_edited(doc["created_at"], doc["updated_at"]) is False
+
+
+def test_soft_delete_does_not_claim_the_file_was_edited(repo):
+    """מחיקה רכה מתועדת ב-``deleted_at``, ולא בחותמת עריכה."""
+    stamp = datetime(2019, 3, 7, 9, 15, tzinfo=timezone.utc)
+    repo.manager.collection.insert_one(_base_doc(created_at=stamp, updated_at=stamp))
+
+    repo.delete_file(1, "a.py")
+
+    doc = _latest(repo)
+    assert doc["updated_at"] == stamp, "מחיקה רכה שינתה את updated_at"
+    assert doc.get("deleted_at") is not None, "המחיקה עצמה לא תועדה"
+    assert doc.get("is_active") is False

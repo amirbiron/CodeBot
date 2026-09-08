@@ -1,140 +1,50 @@
 Smooth Scrolling (WebApp) — מדריך תמציתי לסוכני AI
 ===================================================
-:summary: מדריך זה מסביר את יכולות הגלילה החלקה שהוטמעו ב‑WebApp, כיצד להשתמש בהן באופן בטוח, ומה הדגשים לסוכני AI כדי לשמור על נגישות וביצועים.
+:summary: מנגנון הגלילה החלקה של ה‑WebApp כבוי כברירת מחדל ואינו מופיע בהגדרות; העמוד מסביר למה, מה נשאר פעיל דרך CSS נייטיבי, ואיך מדליקים אותו לניפוי בלבד.
 
-מה פעיל כבר
+המצב הנוכחי
 -----------
-- טעינה גלובלית של רכיבי הגלילה:
-  - ``webapp/static/js/smooth-scroll.js`` (מנגנון JS)
-  - ``webapp/static/css/smooth-scroll.css`` (סגנונות בסיס + נגישות)
-  - משולב אוטומטית דרך ``webapp/templates/base.html``
-- תמיכה בכניסות קלט:
-  - Wheel/Trackpad (גלגלת) עם אנימציה חלקה
-  - מקלדת: PageUp/Down, Home/End, חיצים
-  - קישורי עוגן (Anchor Links) עם גלילה חלקה
-- נגישות:
-  - כיבוד ``prefers-reduced-motion: reduce`` — אנימציות מקוצרות/מכובות
-  - Fallback של ``scroll-behavior: smooth`` כאשר JS לא זמין
-- אנדרואיד (מורחב):
-  - מאזיני ``touch`` ב‑``{passive: true}`` + דגימת מהירות בזמן אמת
-  - Momentum משופר + בוסטר אינרציה כאשר אין אינרציה נייטיבית
-  - הזרקת מחלקות ``android-optimized`` / ``android-no-bounce`` לאיפוס overscroll
-  - התאמות Samsung Internet (מניעת ``scroll-behavior`` כפול)
-  - ניטור FPS שמקצר משך אנימציה בעת עומס
-  - כרטיס "גלילה חלקה" במסך ההגדרות מאפשר לכוון משך, easing ורגישות (וקיים בכל פלטפורמה)
+- ``webapp/static/js/smooth-scroll.js`` עדיין נטען גלובלית דרך ``webapp/templates/base.html``, אבל **``enabled`` הוא ``false`` כברירת מחדל**. כשהוא כבוי המודול לא רושם שום מאזין — לא ל‑``wheel``, לא למקלדת ולא לקליקים על קישורי עוגן — ואינו מאתחל את התאמות האנדרואיד.
+- **הכרטיס "גלילה חלקה" הוסר ממסך ``/settings``.** אין עוד ממשק משתמש שמדליק את המנגנון.
+- **ההעדפה השמורה כבר לא שולטת בהפעלה.** ``loadPreferences`` קוראת מ‑``localStorage`` (``smoothScrollPrefs``) רק את ערכי הכוונון — משך, easing, רגישויות — ומתעלמת מהמפתח ``enabled``; ``savePreferences`` אינה כותבת אותו. בלי זה "כבוי כברירת מחדל" היה נכון רק למשתמש חדש: מי שהדליק את הכרטיס בעבר היה ממשיך לקבל את המנגנון מההעדפה הישנה.
+- ``POST /api/ui_prefs`` עם ``smooth_scroll`` עדיין נשלח מ‑``savePreferences`` כניסיון best‑effort, אבל ``api_ui_prefs`` ב‑``webapp/app.py`` אינו מטפל במפתח הזה ומתעלם ממנו. השרת מעולם לא שמר את ההעדפה הזו.
 
-API לשימוש קליינט
-------------------
-- הפעלה/כיבוי:
+למה כבוי
+--------
+המאזין לקישורי עוגן (``onAnchorClick``) ביטל את התנהגות הדפדפן (``preventDefault``) וגלל באנימציה משלו — **בלי לכתוב את העוגן לכתובת**. התוצאה בכל עמוד: לחיצה על ``<a href="#section">`` גללה, אבל ``location.hash`` לא השתנה. לכן Back לא חזר לנקודה הקודמת, ``:target`` ב‑CSS לא נדלק, כתובת שהועתקה לא נחתה על המקטע, ו‑``hashchange`` — ש‑``base.html`` נשען עליו כדי לשמור את הכתובת האחרונה — לא ירה. הדפדפנים והמכשירים של היום נותנים גלילה חלקה בעצמם, ולכן במקום לתקן מנגנון שאין בו צורך הוא הוצא מהדרך.
+
+מה נשאר פעיל
+------------
+- ``webapp/static/css/smooth-scroll.css`` נטען כרגיל. הוא מגדיר ``html { scroll-behavior: smooth }`` — גלילה חלקה **נייטיבית** של הדפדפן לעוגנים ול‑``scrollIntoView``, שכן מעדכנת את הכתובת ומכבדת ``prefers-reduced-motion`` דרך ה‑media query שבאותו קובץ.
+- אותו קובץ CSS מכיל גם את כללי ה‑``.modal`` ש‑``compare.html`` נשען עליהם (``jobs_monitor.html`` ו‑``theme_builder.html`` נמנעים מהמחלקה הזו בגלל זה). **אין להסיר את הקובץ.**
+
+הדלקה לניפוי בלבד
+-----------------
+ההדלקה תקפה לסשן הנוכחי של הדפדפן ואינה נשמרת:
+
+- הוסיפו ``smooth_debug=1`` לכתובת (למשל ``/?smooth_debug=1``). נפתחת חלונית שמציגה אם ``prefers-reduced-motion`` פעיל ואם המנגנון דולק, עם כפתור הפעלה/כיבוי וכפתור למחיקת ההעדפה השמורה.
+- או מהקונסול:
 
 .. code-block:: js
 
    window.smoothScroll.enable();
-   window.smoothScroll.disable();
+   window.smoothScroll.updateConfig({ duration: 300, easing: 'ease-out', offset: 80 });
+   window.smoothScroll.smoothScrollTo('#section-2', { duration: 400 });
 
-- עדכון הגדרות בזמן ריצה:
+``enable()`` מכבד ``prefers-reduced-motion`` — אם ההעדפה פעילה במערכת ההפעלה, המנגנון נשאר כבוי גם אחרי הקריאה.
 
-.. code-block:: js
-
-   window.smoothScroll.updateConfig({
-     duration: 300,              // ms
-     easing: 'ease-out',         // 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
-     offset: 80,                 // px, למשל Sticky Header
-     wheelSensitivity: 1.0,      // 0.1–3
-     keyboardSensitivity: 1.5    // 0.5–3
-   });
-
-- גלילה לאלמנט/סלקטור:
-
-.. code-block:: js
-
-   window.smoothScroll.smoothScrollTo('#section-2', {
-     offset: 80,
-     duration: 400,
-     easing: 'ease-in-out'
-   });
-
-שמירת העדפות
--------------
-- השמירה מתבצעת ל‑``localStorage`` תחת ``smoothScrollPrefs``.
-- ניסוי שליחה עדינה לשרת (אם קיים API): ``POST /api/ui_prefs`` עם ``{ smooth_scroll: {...} }``.
-- כישלון שרת אינו חוסם — אין תלות בבקשת ה‑POST.
-
-ממשק הגדרות מובנה
-------------------
-- במסך ``/settings`` קיים כרטיס **גלילה חלקה** עם הטפסים הבאים:
-  - Toggle הפעלה/כיבוי
-  - סליידר משך (150‑1200ms) + בחירת ``easing``
-  - רגישות גלגלת/מקלדת (0.5‑3x)
-  - סליידר אינרציה לאנדרואיד (10‑60x)
-  - כפתורי בדיקה/איפוס/שמירה
-- ניתן עדיין לפתוח חלונית debug באמצעות הוספת ``smooth_debug=1`` ל‑URL לצורך ניטור מהיר.
-- שליטה תכנותית קיימת דרך הקונסול באמצעות ``updateConfig``:
-
-.. code-block:: js
-
-   window.smoothScroll.updateConfig({
-       duration: 350,
-       wheelSensitivity: 1.2
-   });
+מה המודול עדיין יודע לעשות כשמדליקים אותו
+------------------------------------------
+אנימציית גלילה לגלגלת, למקלדת (PageUp/Down, Home/End, חיצים) ולקישורי עוגן; התאמות אנדרואיד (מאזיני ``touch`` פסיביים, momentum ובוסטר אינרציה, התאמות Samsung Internet, ניטור FPS שמקצר אנימציה בעומס); ו‑``updateConfig`` לכוונון משך, easing, offset ורגישויות. הכוונון נשמר ב‑``localStorage`` תחת ``smoothScrollPrefs`` — בלי ``enabled``.
 
 הנחיות לסוכני AI
 -----------------
-- זיהוי מהיר של זמינות:
-
-.. code-block:: js
-
-   const supported = Boolean(window.smoothScroll?.config?.enabled);
-
-- הימנעו מאזיני ``wheel/touch`` כפולים: המערכת מאזינה גלובלית כברירת מחדל.
-- כבדו נגישות: אם ``prefers-reduced-motion`` פעיל — אל תוסיפו אנימציות ידניות.
-- לכוונון — השתמשו ב‑``updateConfig`` ולא בכתיבה ישירה ל‑``localStorage``.
-- שמרו על ביצועים: אל תוסיפו לולאות polling/``setInterval`` כבדות; העדיפו ``requestAnimationFrame``.
-
-אנדרואיד — מה יש ומה לא
-------------------------
-הוטמעו:
-- Passive touch listeners + דגימת מהירות
-- Momentum יזום עם בוסטר אינרציה וכיול ``friction``/``threshold``
-- התאמות Samsung Internet ו‑overscroll (``android-optimized``)
-- ניטור FPS שמכוונן משך/עקומת אנימציה
-- UI מובנה לקביעת עוצמת אינרציה ומשך
-
-לא הוטמעו (ייעשה בשלבים הבאים):
-- אופטימיזציות WebView מתקדמות (lazy, IntersectionObserver מותאם)
-- A/B test לניהול פרופילי ביצועים ספציפיים לדפדפנים
-
-נגישות וביצועים
-----------------
-- נגישות:
-  - ``prefers-reduced-motion: reduce`` מבטל/מקצר אנימציה.
-  - גלילה לעוגנים מכבדת ``offset`` לכותרות ``sticky``.
-- ביצועים:
-  - Throttle ל‑``wheel`` סביב 16ms
-  - שימוש ב‑``requestAnimationFrame`` לכל האנימציות
-  - ב‑Android, קיצור משך אנימציה אם FPS ירוד
-
-פתרון תקלות
-------------
-- “גלילה עדיין קופצת ב‑Samsung”:
-  - נבדק UA לזיהוי Samsung; מוודאים ש‑``document.documentElement.style.scrollBehavior = 'auto'`` הופעל.
-- “אין השפעה לשינוי הגדרות”:
-  - ודאו שהקריאה היא דרך ``updateConfig`` / כרטיס ההגדרות ב‑``/settings`` ושקיים ``window.smoothScroll``.
-- “משתמש עם Reduced Motion עדיין רואה אנימציות”:
-  - בדקו את העדפת המערכת (DevTools > Rendering > Emulate CSS prefers-reduced-motion).
-- “אני לא בטוח אם הפיצ'ר פועל”:
-  - הוסיפו ל‑URL את הפרמטר ``smooth_debug=1`` (למשל ``/?smooth_debug=1`` או ``&smooth_debug=1``) כדי לפתוח חלונית בדיקה.
-  - החלונית מציגה אם הדפדפן מסמן ``prefers-reduced-motion``, אם המנגנון פעיל, ומאפשרת להפעיל/לכבות או למחוק את ההעדפה שנשמרה ב‑``localStorage``.
-
-תוכנית המשך (Roadmap מקוצר)
----------------------------
-- CodeMirror: גלילה חלקה בתוך העורך ו‑Jump to line
-- TOC חכם: שימוש ב‑offset, Smart Scrolling, Active item
-- ניטור מתקדם (PerformanceObserver + Analytics)
-- אופטימיזציות WebView ו‑Virtual Scrolling לרשימות ארוכות
+- אל תניחו שהמנגנון פעיל: ``Boolean(window.smoothScroll?.config?.enabled)`` הוא ``false`` בברירת המחדל.
+- קישור עוגן חדש הוא ``<a href="#id">`` רגיל. אין צורך ב‑JavaScript, ואין לעקוף את הדפדפן: הוא מנווט, כותב את הכתובת וגולל חלק בזכות ה‑CSS.
+- אם צריך גלילה תכנותית — ``element.scrollIntoView({ block: 'start' })`` מספיק; ה‑CSS הופך אותה לחלקה.
+- אל תוסיפו מאזיני ``wheel``/``touch`` גלובליים ואל תדליקו את המנגנון מקוד ייצור. ההדלקה היא כלי ניפוי.
 
 קישורים פנימיים
 ----------------
 - קוד: ``webapp/static/js/smooth-scroll.js`` | ``webapp/static/css/smooth-scroll.css`` | ``webapp/templates/base.html``
-- API: ``POST /api/ui_prefs`` (עדכון העדפות UI, Best‑effort בלבד)
-
+- מוסכמות CSS וטסטי דפדפן: :doc:`theming_and_css`

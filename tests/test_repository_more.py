@@ -6,9 +6,20 @@ def test_soft_delete_files_by_names_paths(monkeypatch):
     from database.repository import Repository
 
     class DummyCollection:
-        def __init__(self, modified_count=2):
+        def __init__(self, modified_count=2, live=("a.py", "b.py", "x")):
             self.modified_count = modified_count
             self.last = None
+            self._live = list(live)
+        def distinct(self, key, filter=None, *a, **k):
+            """אילו שמות פעילים — נשאל **לפני** העדכון.
+
+            ‏``Collection.distinct`` האמיתי הוא
+            ``distinct(key, filter=None, ...)`` — המסנן פוזיציוני שני.
+            סטאב עם חתימה צרה יותר היה מקבל אליו את המסנן במשבצת הלא
+            נכונה ונופל ב-``TypeError`` שנבלע בקוד הנקרא.
+            """
+            wanted = set(((filter or {}).get("file_name") or {}).get("$in") or [])
+            return [n for n in self._live if n in wanted]
         def update_many(self, flt, upd):
             self.last = (flt, upd)
             return types.SimpleNamespace(modified_count=self.modified_count)
@@ -24,8 +35,12 @@ def test_soft_delete_files_by_names_paths(monkeypatch):
     flt, upd = coll.last
     assert flt["user_id"] == 7 and "file_name" in flt and "$in" in flt["file_name"] and flt["is_active"] is True
     assert upd["$set"]["is_active"] is False
-    assert isinstance(upd["$set"]["updated_at"], datetime)
-    assert "deleted_at" in upd["$set"] and "deleted_expires_at" in upd["$set"]
+    # מחיקה רכה מתועדת ב-``deleted_at``, ולא בחותמת עריכה: ``updated_at``
+    # מציין מתי התוכן השתנה, ומחיקה אינה משנה אותו. הטענה כאן הפוכה מבעבר
+    # במכוון — היא קיבעה את ההתנהגות שגרמה לקובץ למחוק להיראות "נערך".
+    assert isinstance(upd["$set"]["deleted_at"], datetime)
+    assert "deleted_expires_at" in upd["$set"]
+    assert "updated_at" not in upd["$set"], upd["$set"]
 
     # empty list returns 0 and does not call update_many
     coll2 = DummyCollection(modified_count=5)
@@ -33,6 +48,7 @@ def test_soft_delete_files_by_names_paths(monkeypatch):
     assert repo2.soft_delete_files_by_names(1, []) == 0
 
     # modified_count = 0 path
+    # ``modified_count = 0`` בזמן שיש שם פעיל — לא מדווחים מחיקה שלא קרתה
     coll3 = DummyCollection(modified_count=0)
     repo3 = Repository(DummyManager(coll3))
     assert repo3.soft_delete_files_by_names(2, ["x"]) == 0

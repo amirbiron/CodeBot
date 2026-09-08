@@ -45,6 +45,15 @@ def detect_zip_common_root(names: Iterable[str]) -> Optional[str]:
     תיקיית שורש קיימת רק אם *כל* הרשומות נמצאות תחתיה. אם יש ולו קובץ אחד
     בשורש הארכיון, אין שורש משותף — אחרת ZIP כמו ``README.md`` + ``src/main.py``
     היה מזוהה בטעות עם שורש ``src``, ו-``src/main.py`` היה נחתך ל-``main.py``.
+
+    .. warning::
+
+       **אל תחילו אותה על שחזור ZIP לריפו.** ה-ZIP של גיבוי ריפו הוא ה-zipball
+       של GitHub — שכל תוכנו תחת תיקייה אחת בשם ``owner-repo-sha`` — ואליו נוסף
+       ``metadata.json`` בשורש. הקובץ הזה מפעיל כאן את הכלל שלמעלה, השורש אינו
+       מזוהה, וכל הריפו נפרס רובד אחד עמוק מדי. ‏``_handle_github_restore_zip_to_repo``
+       מחזיק בכוונה חישוב משלו שסופר תיקיות בלבד. איחוד השניים כבר נעשה פעם אחת
+       (PR #3205) והוא ששבר את השחזור.
     """
     top_levels = set()
     has_root_level_file = False
@@ -427,7 +436,20 @@ class DocumentHandler:
                         for n in all_names
                         if not (n.startswith("__MACOSX/") or n.split("/")[-1].startswith("._"))
                     ]
-                    common_root = detect_zip_common_root(zf.namelist())
+                    # **בכוונה לא** ``detect_zip_common_root`` — ראו הערת האזהרה
+                    # מעליה. כאן נספרות תיקיות בלבד: קובץ בשורש אינו מכיל "/",
+                    # ולכן אינו משתתף בספירה ואינו מבטל את הזיהוי.
+                    #
+                    # **המחיר, והוא מכוון:** ZIP שאינו גיבוי — למשל ``README.md``
+                    # בשורש לצד ``src/`` — יאבד את הרובד ו-``src/main.py`` ייכתב
+                    # כ-``main.py``. עבור קובץ גיבוי, שבו הקובץ בשורש הוא
+                    # ``metadata.json``, זו בדיוק ההתנהגות הרצויה. המשתמש מקבל
+                    # על כך התראה לפני ההעלאה (``RESTORE_ZIP_PROMPT``).
+                    top_levels = set()
+                    for name in zf.namelist():
+                        if "/" in name and not name.startswith("__MACOSX/"):
+                            top_levels.add(name.split("/", 1)[0])
+                    common_root = list(top_levels)[0] if len(top_levels) == 1 else None
 
                     def strip_root(path: str) -> str:
                         if common_root and path.startswith(common_root + "/"):

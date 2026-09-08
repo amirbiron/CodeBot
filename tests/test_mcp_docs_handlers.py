@@ -16,7 +16,7 @@ class _FsBackend:
         self._ref = ref
         self.calls = []
 
-    def get_file(self, *, repo, path, ref=None):
+    def get_file(self, *, repo, path, ref=None, lines=None):
         self.calls.append((repo, path, ref))
         f = _ROOT / path
         if not f.exists():
@@ -36,7 +36,7 @@ class _TextBackend:
     def __init__(self, text):
         self._text = text
 
-    def get_file(self, *, repo, path, ref=None):
+    def get_file(self, *, repo, path, ref=None, lines=None):
         return {"ok": True, "status": "ok",
                 "file": {"path": path, "ref": "HEAD", "resolved_commit": "c0ffee"},
                 "content": self._text}

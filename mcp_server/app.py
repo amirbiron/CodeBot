@@ -90,7 +90,7 @@ def create_app():
     # Phase D: admin-only repo-browser tools (hidden + gated for non-admins).
     from .repo_backend import RepoBackend
 
-    repo_backend = RepoBackend(db=mongo)
+    repo_backend = RepoBackend(db=mongo, db_manager=db_manager)
 
     # Keep this service's local mirrors fresh automatically (webapp-worker
     # pattern: background daemon thread; no cron/extra service). Merges to main

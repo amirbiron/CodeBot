@@ -23,6 +23,23 @@
    ``POST /api/search/semantic`` ב-WebApp. גם היא נופלת לחיפוש טקסט
    כאשר ``SEMANTIC_SEARCH_ENABLED`` כבוי או ששירות ה-embeddings לא זמין.
 
+.. note::
+
+   בצינור ההיברידי יש **שני** רפי ציון, על שתי סקאלות שונות — אל תבלבלו
+   ביניהם:
+
+   * ``SEMANTIC_MIN_VECTOR_SCORE`` חל על ציון ``$vectorSearch`` הגולמי,
+     בטווח קבוע ``0..1`` (ל-``similarity: cosine`` הוא ``(1 + cos) / 2``).
+     הוא מסנן את הענף הווקטורי בלבד, מיד אחרי שהציון מחושב.
+   * ``MIN_RRF_SCORE`` חל על ציון ה-RRF **אחרי** האיחוד, והמקסימום שלו הוא
+     בערך ``0.036``.
+
+   סף שנבחר על הסקאלה הלא נכונה כבר סינן פעם אחת את **כל** התוצאות (ראו
+   טבלת תיקוני הבאגים ב-``GUIDES/SEMANTIC_SEARCH_IMPLEMENTATION_GUIDEv2.md``).
+   ``SEMANTIC_MIN_VECTOR_SCORE`` הוא ``0`` (כבוי) עד שיכויל על נתונים
+   אמיתיים, ואת הכיול יש לעשות **אחרי** ה-re-index ואחרי הדלקת
+   ``quantization`` על האינדקס.
+
 סוגי חיפוש
 -----------
 
@@ -67,23 +84,25 @@
        H->>H: פרסור שאילתה ופילטרים
        H->>SE: search(query, search_type, filters)
        
-       SE->>IDX: בדיקת עדכניות אינדקס
-       alt אינדקס לא מעודכן
-         IDX->>DB: בניית אינדקס מחדש
-         DB-->>IDX: כל הקבצים
-         IDX->>IDX: בניית word_index, function_index, etc.
-       end
-       
        SE->>SE: ביצוע חיפוש לפי סוג
-       alt Text/Content Search
+       alt Text Search
+         SE->>IDX: בדיקת עדכניות אינדקס
+         alt אינדקס לא מעודכן
+           IDX->>DB: בניית אינדקס מחדש
+           DB-->>IDX: כל הקבצים
+           IDX->>IDX: בניית word_index, function_index, etc.
+         end
          SE->>IDX: חיפוש ב-word_index
+       else Function Search
+         SE->>IDX: בדיקת עדכניות אינדקס (ובנייה אם צריך)
+         SE->>IDX: חיפוש ב-function_index
        else Regex Search
          SE->>SE: בדיקת ReDoS protection
          SE->>SE: ביצוע regex search
        else Fuzzy Search
-         SE->>SE: rapidfuzz.fuzz.ratio()
-       else Function Search
-         SE->>IDX: חיפוש ב-function_index
+         SE->>SE: rapidfuzz.fuzz.partial_ratio()
+       else Content Search
+         SE->>DB: סריקת תוכן בעימוד
        end
        
        SE->>DB: שליפת קבצים תואמים
@@ -96,7 +115,62 @@
 מבנה SearchIndex
 -----------------
 
-האינדקס נבנה מחדש כל 24 שעות או על פי דרישה:
+‏``SearchIndex`` הוא אינדקס הפוך **בזיכרון התהליך**: מילון שממפה מילה, שם
+פונקציה, שפה או תגית אל קבוצת הקבצים שמכילים אותם. הוא נבנה מחדש כאשר הוא
+מתיישן — ראו ``should_rebuild`` — ומת עם התהליך.
+
+.. important::
+
+   האינדקס נבנה **רק** עבור ``SearchType.TEXT`` ו-``SearchType.FUNCTION``, שהם
+   הסוגים היחידים שקוראים ממנו. ‏``CONTENT``, ``REGEX`` ו-``FUZZY`` סורקים את
+   ה-DB בעצמם. עד לתיקון הזה הבנייה קדמה ל-dispatch ורצה בכל חיפוש, כולל
+   ``CONTENT`` — ברירת המחדל של ה-WebApp — כלומר סריקה מלאה של כל קבצי המשתמש
+   (עם ``code``) שאיש לא קרא את תוצאתה, ומיד אחריה עוד סריקה מלאה לחיפוש עצמו.
+
+.. note::
+
+   **מה היחס לאינדקס ה-TEXT של מונגו?** ‏``search_text_idx`` על ``code_snippets``
+   (ראו :doc:`/database/indexing`) עושה את אותה עבודה עבור ``word_index``, ואף
+   בצורה טובה יותר: הוא על הדיסק, משותף לכל התהליכים, ומתעדכן בכל כתיבה במקום
+   להשתהות עד ה-rebuild הבא. מה שיש כאן ואין שם: ``function_index``, שנבנה
+   מהרצת ``code_processor.extract_functions`` ומונגו אינו יודע לייצר, וההתאמה
+   החלקית (prefix/substring) של ``_text_search``, ש-``$text`` אינו תומך בה.
+
+   ``SEARCH_MEMORY_INDEX_ENABLED=false`` מכבה את האינדקס בזיכרון לגמרי. במצב
+   כזה ``TEXT`` ו-``FUNCTION`` מחזירים רשימה ריקה, וב-WebApp ``_safe_search``
+   נופל מהם לחיפוש ``$text`` ישירות במונגו — כלומר שני הסוגים ממשיכים להחזיר
+   תוצאות, בלי שתי היכולות שלמעלה.
+
+.. note::
+
+   **צרכן שלישי, עקיף: ההשלמה האוטומטית.** ``suggest_completions`` קורא את
+   האינדקס דרך ``_get_ready_index``, שבמכוון **אינו** בונה אותו — ההשלמה רצה
+   תוך כדי הקלדה, ובניית אינדקס שם הייתה יקרה מדי. לכן היא נהנתה מאינדקס
+   שנבנה כתופעת לוואי של חיפוש אחר. משהוסרה הבנייה מ-``CONTENT``, ההשלמה
+   מאבדת מילים מתוך תוכן הקבצים ושמות פונקציות; שמות קבצים, תגיות ושפות
+   מגיעים מ-``autocomplete_manager`` ומ-``$text`` וממשיכים לעבוד.
+
+   ``SEARCH_MEMORY_INDEX_EAGER_BUILD=true`` מחזיר את החימום ואיתו את ההשלמה
+   המלאה, במחיר הסריקה. שני המתגים מצטרפים כך:
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 30 20 50
+
+      * - ``SEARCH_MEMORY_INDEX_ENABLED``
+        - ``..._EAGER_BUILD``
+        - התנהגות
+      * - ``false``
+        - לא רלוונטי
+        - אין אינדקס בזיכרון בכלל
+      * - ``true`` (ברירת מחדל)
+        - ``false`` (ברירת מחדל)
+        - אינדקס רק ל-``TEXT``/``FUNCTION``
+      * - ``true``
+        - ``true``
+        - אינדקס בכל חיפוש; ההשלמה מקבלת אותו חם
+
+מבנה האינדקס:
 
 .. code-block:: python
 
@@ -255,8 +329,9 @@ Edge Cases
 - לוג warning
 
 **אינדקס לא קיים:**
-- נבנה אוטומטית לפני החיפוש
+- נבנה אוטומטית בענפים שצורכים אותו (``TEXT``/``FUNCTION``) לפני החיפוש
 - יכול לקחת זמן לקבצים רבים
+- ``SEARCH_MEMORY_INDEX_ENABLED=false`` ⇒ אינו נבנה כלל, והחיפוש נופל ל-``$text``
 
 **Regex לא תקין:**
 - נדחה עם הודעת שגיאה
