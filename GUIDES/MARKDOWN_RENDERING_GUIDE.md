@@ -574,7 +574,7 @@ del, s { text-decoration: line-through; opacity: .75; }
 
 ---
 
-### 2. ‎`==highlight==`‏ (טוש צהוב → ‎`<mark>`‏)
+### 2. ‎`==highlight==`‏ (מארקר צהוב → ‎`<mark>`‏)
 
 **ב־markdown-it (לקוח)** – לא בליבה. הפרויקט משתמש בפלאגין מותאם אישית בקובץ `md_preview.html` (שורות 2376–2429), אבל לפרויקט אחר עדיף להשתמש ב־npm:
 

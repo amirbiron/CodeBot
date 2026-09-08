@@ -2387,7 +2387,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       // לא לבצע הדגשה בשלב ה-render של markdown-it; נבצע post-process עם hljs
       highlight: function (_str, _lang) { return ''; }
     });
-    // תמיכה בהדגשת "טוש" בתחביר Markdown: ==טקסט== -> <mark>טקסט</mark>
+    // תמיכה בהדגשת "מארקר" בתחביר Markdown: ==טקסט== -> <mark>טקסט</mark>
     // התוסף חי ב-webapp/static/js/md-mark-plugin.js, ומשותף עם live-preview.js.
     //
     // **הבדיקה על ``md.use`` אינה מיותרת.** כשהבאנדל של markdownit אינו נטען, ``md``
