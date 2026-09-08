@@ -14,6 +14,12 @@
 
 **כל הערכים שבאסרשנים כאן נמדדו** מול MongoDB 8.0 לפני שנכתבו, ולא חושבו בראש.
 
+**גישה למסד: תמיד ``wa.get_db()``, לעולם לא ``wa.db``.** הפיקסצ'ר מאפס את
+הגלובל ``wa.db`` ל-``None`` (``tests/conftest.py``) כדי לכפות חיבור מחדש למסד
+הזמני; ``get_db()`` הוא זה שמאתחל אותו. גישה ישירה ל-``wa.db`` מקבלת ``None``
+ונופלת ב-``AttributeError`` לפני האסרשן הראשון. זה הדפוס בכל שאר הבדיקות
+שמשתמשות בפיקסצ'ר.
+
 הרצה מקומית::
 
     NOTE_FONTS_TEST_MONGO_URI='mongodb://127.0.0.1:27017' \\
@@ -24,8 +30,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-
-import pytest
 
 USER_ID = 987654321
 NEEDLE = "שלום"  # ארבעה תווים, שמונה בייטים
@@ -73,8 +77,9 @@ def test_a_hebrew_match_is_sliced_and_highlighted_in_characters(wired_mongo, mon
     כפול מאורך המילה.
     """
     wa = wired_mongo
+    db = wa.get_db()
     code = ("ש" * 100) + NEEDLE + ("ש" * 100)  # 204 תווים, 408 בייטים
-    wa.db.code_snippets.insert_one(_doc("hebrew_silent.txt", code))
+    db.code_snippets.insert_one(_doc("hebrew_silent.txt", code))
 
     with caplog.at_level(logging.WARNING):
         results = _search(wa, monkeypatch, NEEDLE)
@@ -110,8 +115,9 @@ def test_a_hebrew_match_on_an_odd_boundary_does_not_crash_the_pipeline(
     continuation byte``. הצינור המהיר מת, והקוד יורד לסריקה מלאה בלי אינדקס.
     """
     wa = wired_mongo
+    db = wa.get_db()
     code = ("ש" * 101) + NEEDLE + ("ש" * 100)
-    wa.db.code_snippets.insert_one(_doc("hebrew_crash.txt", code))
+    db.code_snippets.insert_one(_doc("hebrew_crash.txt", code))
 
     with caplog.at_level(logging.WARNING):
         results = _search(wa, monkeypatch, NEEDLE)
@@ -146,13 +152,14 @@ def test_a_hebrew_file_is_previewed_at_its_full_length(wired_mongo):
     תוכן.
     """
     wa = wired_mongo
+    db = wa.get_db()
     code = "ש" * 1500
-    inserted = wa.db.code_snippets.insert_one(_doc("hebrew_preview.txt", code))
+    inserted = db.code_snippets.insert_one(_doc("hebrew_preview.txt", code))
 
     resp = _share(wa, str(inserted.inserted_id))
     assert resp.status_code == 200, resp.get_data(as_text=True)
 
-    share = wa.db.internal_shares.find_one({"share_id": resp.get_json()["share_id"]})
+    share = db.internal_shares.find_one({"share_id": resp.get_json()["share_id"]})
     assert share is not None, "השיתוף לא נשמר"
     assert len(share["snippet_preview"]) == 1500
     assert share["file_size"] == len(code.encode("utf-8")) == 3000
@@ -166,13 +173,14 @@ def test_a_hebrew_file_is_not_reported_as_missing(wired_mongo):
     השגיאה שהופיע בלוג הפרודקשן. ה-``except`` בלע אותה והתשובה הייתה 404.
     """
     wa = wired_mongo
+    db = wa.get_db()
     code = "x" + ("ש" * 1500)
-    inserted = wa.db.code_snippets.insert_one(_doc("hebrew_404.txt", code))
+    inserted = db.code_snippets.insert_one(_doc("hebrew_404.txt", code))
 
     resp = _share(wa, str(inserted.inserted_id))
 
     assert resp.status_code == 200, (
         "קובץ קיים דווח כלא נמצא: " + resp.get_data(as_text=True)
     )
-    share = wa.db.internal_shares.find_one({"share_id": resp.get_json()["share_id"]})
+    share = db.internal_shares.find_one({"share_id": resp.get_json()["share_id"]})
     assert len(share["snippet_preview"]) == 1501
