@@ -115,16 +115,27 @@
   border-radius: 3px; cursor: nwse-resize;
 }
 
-/* Floating action button */
+/* Floating action button
+   האייקון עומד לבדו: אין עיגול, אין רקע, אין מסגרת ואין צל. הכפתור הוא
+   רק ארגז המגע שסביבו — 46×46, מעל המינימום המקובל של 44×44 לנגיעה. */
 .sticky-note-fab{
   position: fixed; bottom: 18px; left: 6px; z-index: 980;
-  width: 46px; height: 46px; border-radius: 50%;
-  border: 1px solid rgba(0,0,0,.15);
-  background: radial-gradient(ellipse at top left, #ffffff, #f5f5f5);
-  box-shadow: 0 8px 18px rgba(0,0,0,.2);
-  color: #333; font-size: 22px; cursor: pointer;
+  width: 46px; height: 46px;
+  border: none; background: none; box-shadow: none; padding: 0;
+  cursor: pointer;
+  /* ה-``+`` היה תוכן טקסט והתמרכז לבד לפי ברירת המחדל של ``button``.
+     SVG אינו טקסט, ובלי המרכוז המפורש הוא היה יושב לפי ה-baseline. */
+  display: flex; align-items: center; justify-content: center;
+  line-height: 0;
 }
+.sticky-note-fab > svg{ display: block; }
 .sticky-note-fab:hover{ transform: scale(1.05); }
+/* בלי הרקע והמסגרת אבד הרמז החזותי שסימן את הכפתור בניווט מקלדת. */
+.sticky-note-fab:focus-visible{
+  outline: 2px solid #2DD4BF;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
 
 @media (max-width: 480px){
   .sticky-note-fab{ left: 4px; bottom: 14px; }

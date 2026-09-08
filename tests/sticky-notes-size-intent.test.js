@@ -43,6 +43,11 @@ function makeSandbox() {
       body: stub(),
       getElementById: () => null,
       createElement: () => stub(),
+      // ``buildFabIcon`` בונה את אייקון הכפתור הצף ב-``createElementNS``
+      // (SVG חי ב-namespace אחר). בלי המתודה כאן ``_createFab`` זורק,
+      // ה-``try/catch`` של ``_init`` בולע את החריגה, וכל מה שבא אחריו —
+      // מאזיני resize/scroll ו-``visualViewport`` — פשוט לא נרשם.
+      createElementNS: () => stub(),
       addEventListener() {}, removeEventListener() {},
       querySelectorAll: () => [],
       get activeElement() { return null; },
