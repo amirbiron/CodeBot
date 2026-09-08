@@ -93,6 +93,51 @@ _HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = {
 # חשוב: לא לשנות את המשתנה הפנימי ישירות ממודולים חיצוניים.
 HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
+
+def _latest_version_projection_stage(projection: Optional[Dict[str, int]]) -> Dict[str, Any]:
+    """שלב ה-``$project`` לשאילתות "הגרסה האחרונה לכל קובץ".
+
+    שלוש התנהגויות, וכולן קיימות מסיבה:
+
+    1. **בלי היטלה** ⟵ ברירת המחדל היא החרגת השדות הכבדים, לא מסמך מלא.
+       השאילתות האלה מחזירות מאות מסמכים; ברירת מחדל שמושכת ``code``
+       ו-``snippetEmbedding`` סותרת את כלל ה-Smart Projection בדיוק במקום
+       שהוא הכי חשוב בו.
+    2. **היטלת include** ⟵ ``file_name`` נכפה. הקוראים בונים את התשובה
+       לפי השדה הזה, והיטלה שאינה כוללת אותו הייתה מחזירה תוצאה ריקה
+       **בלי חריגה ובלי לוג** — כשל שנראה בדיוק כמו "אין תוצאות".
+    3. **היטלת exclude** ⟵ השדות הכבדים מתמזגים פנימה, כדי שהחרגה
+       ממוקדת לא תבטל בשקט את ההחרגה הגורפת.
+
+    ``_id`` חריג במונגו ומותר לשלב אותו עם include/exclude, ולכן הוא אינו
+    נספר בזיהוי הסוג.
+
+    ההיגיון הזה חי כאן ולא בשתי המתודות שצורכות אותו: הוא נכתב במקור
+    ב-``get_user_files``, וכשנולדה ``get_latest_versions_by_names`` הוא לא
+    שוכפל אליה — מה שהחזיר בדיוק את שלוש התקלות שלמעלה.
+    """
+    if not (projection and isinstance(projection, dict)):
+        return {"$project": dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)}
+
+    proj = dict(projection)
+    try:
+        is_include = any(
+            (k != "_id") and (int(v) == 1)
+            for k, v in proj.items()
+            if v in (0, 1)
+        )
+    except Exception:
+        is_include = False
+
+    if is_include:
+        proj.setdefault("file_name", 1)
+    else:
+        try:
+            proj.update(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
+        except Exception:
+            pass
+    return {"$project": proj}
+
 # Optional performance instrumentation
 try:
     from metrics import track_performance
@@ -992,32 +1037,9 @@ class Repository:
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {"updated_at": -1}},
             ]
-            # הקרנה:
-            # - ברירת מחדל: exclude לשדות כבדים (code/content וכו') למסכי רשימות.
-            # - אם caller נתן projection מפורש: כבד אותו (משאיר יכולת include ייעודית).
-            if projection and isinstance(projection, dict) and projection:
-                proj = dict(projection)
-                # זיהוי האם זה include-projection או exclude-projection (בלי לערבב 1/0).
-                # הערה: _id חריג במונגו ומותר לשלב אותו, לכן מתעלמים ממנו בזיהוי.
-                try:
-                    is_include = any(
-                        (k != "_id") and (int(v) == 1)
-                        for k, v in proj.items()
-                        if v in (0, 1)
-                    )
-                except Exception:
-                    is_include = False
-                # רק ב-include projection נכפה file_name כדי למנוע mixed projection לא חוקי.
-                if is_include:
-                    proj.setdefault("file_name", 1)
-                if not is_include:
-                    try:
-                        proj.update(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
-                    except Exception:
-                        pass
-                pipeline.append({"$project": proj})
-            else:
-                pipeline.append({"$project": dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)})
+            # הקרנה: ראו ``_latest_version_projection_stage`` — אותו היגיון
+            # משמש גם את ``get_latest_versions_by_names``.
+            pipeline.append(_latest_version_projection_stage(projection))
             # עימוד: דילוג ואז הגבלה
             if eff_skip > 0:
                 pipeline.append({"$skip": eff_skip})
@@ -1033,6 +1055,86 @@ class Repository:
         except Exception as e:
             emit_event("db_get_user_files_error", severity="error", error=str(e))
             return []
+
+    @traced("db.get_latest_versions_by_names")
+    @_instrument_db("db.get_latest_versions_by_names")
+    def get_latest_versions_by_names(
+        self,
+        user_id: int,
+        file_names: List[str],
+        *,
+        projection: Optional[Dict[str, int]] = None,
+        chunk_size: int = 250,
+    ) -> Dict[str, Dict]:
+        """הגרסה האחרונה של **כמה** קבצים, בשליפה אחת למנה.
+
+        נולדה מחיפוש שלקח 191.7 שניות: ``search_engine`` שלף כל קובץ מתאים
+        בשאילתה נפרדת, וכל שליפה כזו היא שלוש קפיצות רשת (GET ל-Redis,
+        ``find_one`` בלי היטלה, SETEX). על 745 קבצים זה 745 סיבובים כדי
+        להחזיר עשר תוצאות, כי ``limit`` מוחל רק בסוף.
+
+        הצינור זהה בצורתו ל-``get_user_files``, פלוס ``$in``. נמדד מול
+        הקלאסטר: ``DISTINCT_SCAN`` על ``idx_snippets_latest_version``
+        (``user_id, is_active, file_name, version↓``), בלי מיון חוסם
+        ובדיוק מסמך אחד לכל שם.
+
+        **``chunk_size`` הוא בקרת סיבובי רשת, לא בקרת תוכנית.** נמדד
+        ב-``explain`` מול הקלאסטר עם **250 שמות** (לא 200): התוכנית נשארה
+        ``DISTINCT_SCAN`` ו-``maxScansToExplodeReached`` נשאר ``false``.
+        הסף שמגביל פיצוק ``$in`` לסריקות ממוינות נפרדות אינו הכובל כאן, כי
+        ``DISTINCT_SCAN`` מטפלת בגבולות ה-``$in`` ישירות. האילוץ האמיתי הוא
+        גודל פקודת ה-BSON, ו-745 שמות הם ~37KB מול תקרה של 16MB.
+
+        מכיוון שהעלות הדומיננטית היא הסיבוב עצמו ולא זמן השרת, **מנה גדולה
+        עדיפה**. 250 הוא הגודל הגדול ביותר שנמדד בפועל; מעליו לא נמדד.
+
+        **אין ``@cached`` כאן, במכוון.** מפתח שנגזר מרשימת מאות שמות אינו
+        חוזר על עצמו, והקאש הוא חלק מהעלות שהמתודה הזו נועדה להסיר.
+
+        ⚠️ **המתודה אינה בולעת חריגות**, בשונה מ-``get_user_files``. הקורא
+        היחיד הוא מסלול החיפוש, ושם נפילה-לאחור על כשל הייתה חוזרת לשליפה
+        קובץ-קובץ — כלומר מחזירה את 191 השניות ומחזיקה worker תפוס שלוש
+        דקות. כשל מהיר ומדווח עדיף; ``AdvancedSearchEngine.search`` כבר
+        עוטפת, פולטת ``search_error``, ובוובאפ ``_safe_search`` נופל משם
+        ל-``$text`` של מונגו.
+
+        :returns: מיפוי ``{file_name: doc}``. שם שאין לו גרסה פעילה פשוט
+            נעדר מהמיפוי, בדיוק כמו ``None`` מ-``get_latest_version``.
+        """
+        names = [n for n in dict.fromkeys(file_names or []) if n]
+        if not names:
+            return {}
+
+        step = max(1, int(chunk_size or 250))
+        try:
+            set_current_span_attributes({
+                "user_id_hash": _hash_identifier(user_id),
+                "names_count": len(names),
+                "chunk_size": step,
+            })
+        except Exception:
+            pass
+
+        out: Dict[str, Dict] = {}
+        with track_performance("db_get_latest_versions_by_names"):
+            for start in range(0, len(names), step):
+                chunk = names[start:start + step]
+                pipeline: List[Dict[str, Any]] = [
+                    {"$match": {
+                        "user_id": user_id,
+                        "is_active": True,
+                        "file_name": {"$in": chunk},
+                    }},
+                    {"$sort": {"file_name": 1, "version": -1}},
+                    {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                    {"$replaceRoot": {"newRoot": "$latest"}},
+                ]
+                pipeline.append(_latest_version_projection_stage(projection))
+                for doc in self.manager.collection.aggregate(pipeline, allowDiskUse=True):
+                    name = doc.get("file_name")
+                    if name:
+                        out[name] = doc
+        return out
 
     @cached(expire_seconds=300, key_prefix="search_code")
     @traced("db.search_code")

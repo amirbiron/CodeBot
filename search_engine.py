@@ -813,6 +813,27 @@ class SearchIndex:
         age = datetime.now(timezone.utc) - self.last_update
         return age.total_seconds() > (max_age_minutes * 60)
 
+#: השדות ש-``_create_search_result`` באמת קורא — לא אחד יותר.
+#:
+#: ⚠️ ``code`` נכלל **במכוון**, בניגוד לכלל ה-Smart Projection שב-CLAUDE.md
+#: (שאוסר למשוך אותו בשאילתות רשימה). זו אינה שאילתת רשימה: ``_apply_filters``
+#: נשען על ``result.content`` לשלושה מסננים — גודל, פונקציות ומחלקות —
+#: ו-``_sort_results`` על אורכו ב-``SIZE_ASC``/``SIZE_DESC``. בלי ``code``
+#: הם היו מסננים וממיינים על מחרוזת ריקה, כלומר תשובות שגויות בשקט.
+#:
+#: מה שכן נחסך: ``snippetEmbedding`` (~3KB למסמך) שאיש אינו קורא מ-``SearchResult``.
+SEARCH_RESULT_PROJECTION: Dict[str, int] = {
+    "_id": 1,
+    "file_name": 1,
+    "code": 1,
+    "programming_language": 1,
+    "tags": 1,
+    "version": 1,
+    "created_at": 1,
+    "updated_at": 1,
+}
+
+
 class AdvancedSearchEngine:
     """מנוע חיפוש מתקדם"""
     
@@ -993,17 +1014,7 @@ class AdvancedSearchEngine:
                     file_scores[file_key] += 1.0  # התאמה חלקית
         
         # יצירת תוצאות
-        results = []
-        for file_key, score in file_scores.items():
-            if score > 0:
-                user_id_str, file_name = file_key.split(':', 1)
-                if int(user_id_str) == user_id:
-                    file_data = db.get_latest_version(user_id, file_name)
-                    if file_data:
-                        result = self._create_search_result(file_data, query, score)
-                        results.append(result)
-        
-        return results
+        return self._results_from_scores(file_scores, query, user_id)
     
     def _regex_search(self, pattern: str, user_id: int) -> List[SearchResult]:
         """חיפוש עם ביטויים רגולריים"""
@@ -1133,17 +1144,7 @@ class AdvancedSearchEngine:
                     file_scores[file_key] += similarity * 2.0
         
         # יצירת תוצאות
-        results = []
-        for file_key, score in file_scores.items():
-            if score > 0:
-                user_id_str, file_name = file_key.split(':', 1)
-                if int(user_id_str) == user_id:
-                    file_data = db.get_latest_version(user_id, file_name)
-                    if file_data:
-                        result = self._create_search_result(file_data, query, score)
-                        results.append(result)
-        
-        return results
+        return self._results_from_scores(file_scores, query, user_id)
     
     def _content_search(self, query: str, user_id: int) -> List[SearchResult]:
         """חיפוש מלא בתוכן"""
@@ -1285,6 +1286,52 @@ class AdvancedSearchEngine:
         else:
             return results
     
+    def _results_from_scores(self, file_scores: Dict[str, float], query: str,
+                             user_id: int) -> List[SearchResult]:
+        """הופך ניקוד לכל קובץ לרשימת תוצאות, בשליפה מקובצת אחת למנה.
+
+        ``_text_search`` ו-``_function_search`` החזיקו את הבלוק הזה פעמיים,
+        מילה במילה, וכל אחד מהם שלף **קובץ-קובץ**. על 745 קבצים זה 745
+        סיבובי רשת כדי להחזיר עשר תוצאות — 191.7 שניות בפרודקשן.
+
+        **נפילה-לאחור רק על היעדר המתודה, לעולם לא על חריגה.** דמויות
+        בדיקה ישנות בריפו חושפות ``get_latest_version`` בלבד, וזה מצב סטטי
+        וידוע. חריגה אינה: נפילה-לאחור עליה הייתה הופכת כל תקלת מונגו
+        חולפת לשליפה סדרתית של כל הקורפוס — כלומר מחזירה את הבאג ומחזיקה
+        worker תפוס דקות. ``search`` העוטפת כבר רושמת, פולטת ``search_error``
+        ומחזירה רשימה ריקה, ובוובאפ ``_safe_search`` נופל משם ל-``$text``.
+        """
+        wanted = [
+            file_key.split(':', 1)[1]
+            for file_key, score in file_scores.items()
+            if score > 0 and file_key.split(':', 1)[0] == str(user_id)
+        ]
+        if not wanted:
+            return []
+
+        fetch_many = getattr(db, "get_latest_versions_by_names", None)
+        if fetch_many is None:
+            # דמה ישנה בלבד. החריגה, אם תהיה, עולה הלאה גם כאן.
+            docs = {}
+            for file_name in wanted:
+                file_data = db.get_latest_version(user_id, file_name)
+                if file_data:
+                    docs[file_name] = file_data
+        else:
+            docs = fetch_many(user_id, wanted, projection=SEARCH_RESULT_PROJECTION)
+
+        results = []
+        for file_key, score in file_scores.items():
+            if score <= 0:
+                continue
+            user_id_str, file_name = file_key.split(':', 1)
+            if user_id_str != str(user_id):
+                continue
+            file_data = docs.get(file_name)
+            if file_data:
+                results.append(self._create_search_result(file_data, query, score))
+        return results
+
     def _create_search_result(self, file_data: Dict, query: str, score: float) -> SearchResult:
         """יצירת אובייקט תוצאת חיפוש"""
         
