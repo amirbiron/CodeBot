@@ -2482,6 +2482,17 @@ class DatabaseManager:
     ) -> List[Dict]:
         return self._get_repo().get_user_files(user_id, limit, skip=skip, projection=projection)
 
+    def get_latest_versions_by_names(
+        self,
+        user_id: int,
+        file_names: List[str],
+        *,
+        projection: Optional[Dict[str, int]] = None,
+        chunk_size: int = 250,
+    ) -> Dict[str, Dict]:
+        return self._get_repo().get_latest_versions_by_names(
+            user_id, file_names, projection=projection, chunk_size=chunk_size)
+
     def get_user_file_names(self, user_id: int, limit: int = 1000) -> List[str]:
         """עטיפה נוחה לשמות הקבצים הייחודיים של המשתמש (גרסה אחרונה לכל קובץ).
 
