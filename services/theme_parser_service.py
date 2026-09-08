@@ -74,6 +74,11 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     "--md-inline-code-bg", "--md-inline-code-border", "--md-inline-code-color",
     "--md-table-bg", "--md-table-border", "--md-table-header-bg",
     "--md-mermaid-bg",
+
+    # Level 3 - Collections
+    # מאפשר לערכה בודדת לקבוע את צבע שמות הקבצים בכרטיס אוסף, בלי שהדבר
+    # ישפיע על ערכות אחרות. ראו את וו הדריסה ב-webapp/static/css/collections.css.
+    "--collections-link-override",
 ])
 
 
@@ -416,6 +421,27 @@ def strip_jsonc_comments(json_content: str) -> str:
     return "".join(result)
 
 
+def _validate_variables_block(variables: object) -> tuple[bool, str]:
+    """מוודא בלוק ``variables`` של ערכה — שם המשתנה וערכו.
+
+    מוחזר ``(True, "")`` כשהבלוק תקין, ואחרת ``(False, <הודעה שמציינת את המפתח>)``.
+    """
+    if not isinstance(variables, dict):
+        return False, "'variables' חייב להיות אובייקט"
+
+    for key, value in variables.items():
+        if not str(key).startswith("--"):
+            return False, f"משתנה CSS חייב להתחיל ב---: {key}"
+        if str(key) == "--glass-blur":
+            if not _is_valid_px(str(value)):
+                return False, f"ערך blur לא תקין: {key}={value}"
+        else:
+            if not is_valid_color(str(value)):
+                return False, f"ערך צבע לא תקין: {key}={value}"
+
+    return True, ""
+
+
 def validate_theme_json(json_content: str) -> tuple[bool, str]:
     """מוודא שקובץ JSON הוא ערכת נושא תקינה."""
     # הסרת הערות JSONC לפני פרסור (VS Code themes עשויים להכיל /* */ או //)
@@ -431,6 +457,14 @@ def validate_theme_json(json_content: str) -> tuple[bool, str]:
     if not isinstance(data, dict):
         return False, "הקובץ חייב להיות אובייקט JSON"
 
+    # בלוק variables נבדק בשני המסלולים. ערכת VS Code יכולה לשאת אותו כדי לדרוס
+    # טוקן שאין לו מקבילה ב-VS Code, וללא הבדיקה הזו ערך פגום בו היה נזרק בשקט
+    # אחרי שהמשתמש כבר קיבל "יובאה בהצלחה" — כשל שמדווח כהצלחה.
+    if "variables" in data:
+        ok, error = _validate_variables_block(data["variables"])
+        if not ok:
+            return False, error
+
     # בדיקה אם זו ערכת VS Code
     if "colors" in data:
         if not isinstance(data["colors"], dict):
@@ -441,19 +475,6 @@ def validate_theme_json(json_content: str) -> tuple[bool, str]:
 
     # בדיקה אם זו ערכה בפורמט שלנו
     if "variables" in data:
-        if not isinstance(data["variables"], dict):
-            return False, "'variables' חייב להיות אובייקט"
-
-        for key, value in data["variables"].items():
-            if not str(key).startswith("--"):
-                return False, f"משתנה CSS חייב להתחיל ב---: {key}"
-            if str(key) == "--glass-blur":
-                if not _is_valid_px(str(value)):
-                    return False, f"ערך blur לא תקין: {key}={value}"
-            else:
-                if not is_valid_color(str(value)):
-                    return False, f"ערך צבע לא תקין: {key}={value}"
-
         return True, ""
 
     return False, "הקובץ חייב להכיל 'colors' (VS Code) או 'variables' (פורמט מקומי)"

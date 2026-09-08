@@ -1158,6 +1158,17 @@ def import_theme():
         raw_vars = parsed.get("variables", {}) if isinstance(parsed, dict) else {}
         filtered_vars = validate_and_sanitize_theme_variables(raw_vars)
 
+        # בלוק variables אופציונלי בקובץ VS Code: parse_vscode_theme קורא רק
+        # colors ו-tokenColors, ול-VSCODE_TO_CSS_MAP אין מפתח שמוביל לטוקנים
+        # שאין להם מקבילה ב-VS Code (למשל --collections-link-color). הבלוק הזה
+        # נותן לערכה לדרוס טוקן כזה בעצמה, בלי לוותר על הדגשת התחביר שמגיעה
+        # מ-tokenColors. הוא עובר את אותה ולידציה ורשימה לבנה כמו כל השאר,
+        # ובמסלול הפורמט המקומי parse_native_theme כבר קרא אותו — ולכן רק כאן.
+        if source == "vscode" and isinstance(data, dict):
+            explicit_vars = data.get("variables")
+            if isinstance(explicit_vars, dict):
+                filtered_vars.update(validate_and_sanitize_theme_variables(explicit_vars))
+
         new_theme = {
             "id": str(uuid.uuid4()),
             "name": (parsed.get("name") if isinstance(parsed, dict) else None) or "Imported Theme",

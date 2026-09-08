@@ -82,6 +82,20 @@
   --collections-error-border: rgba(248, 113, 113, 0.35);
 }
 
+/* וו דריסה לערכה מיובאת או משותפת: היא יכולה לקבוע לבדה את צבע שמות הקבצים
+   בכרטיס אוסף, על ידי הצהרה על --collections-link-override ב-variables שלה.
+   הטוקן הזה מכוון להיות חסר ברירת מחדל בכל מקום, ולכן ה-fallback שבכל כלל הוא
+   בדיוק הערך שנצבע היום: --primary במצב רגיל ו---primary-dark ב-hover (הכללים
+   ב-dark-mode.css). ערכה שאינה מצהירה מרונדרת זהה לחלוטין בשני המצבים.
+   ל-:hover נדרש כלל נפרד כי [data-theme="custom"] a:hover הוא (0,2,1); בלעדיו
+   ערכה מצהירה הייתה חוזרת ל---primary-dark רק ב-hover. */
+[data-theme-type="custom"] .collection-card__link {
+  color: var(--collections-link-override, var(--primary));
+}
+[data-theme-type="custom"] .collection-card__link:hover {
+  color: var(--collections-link-override, var(--primary-dark));
+}
+
 /* Dark theme overrides */
 :root[data-theme="dark"],
 :root[data-theme="dim"],
