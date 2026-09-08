@@ -397,6 +397,62 @@
   padding: 0 0.85rem 0.85rem;
 }
 
+/* ============================================================
+   גובה עמודת העורך — מקור סמכות אחד לגובה
+
+   בעבר שני כללים נפרדים קבעו את הגובה, כל אחד לפי נוסחה אחרת של
+   גובה החלון: `.cm-editor { min-height:400px; max-height:60vh }`
+   מול `.split-panels { max-height: calc(100vh - 200px) }`. אף אחד
+   מהם לא הכיר את מה שיושב ביניהם בתוך `#editorContainer` — התווית
+   "קוד" ופס החלפת העורך (יחד כ‑106px) ו‑padding-bottom של הפאנל.
+   מתחת לגובה חלון של כ‑800px הסכום חרג מהתקרה, ו‑`.split-view`
+   עם `overflow: hidden` בלע את העודף בשקט: השורות האחרונות של
+   הקובץ נשארו מתחת לקצה התחתון ולא היו נגישות בשום גלילה
+   (נמדד: 2.2 שורות בחלון בגובה 680px, 5.4 שורות בגובה 600px).
+
+   התיקון מסיר את הסתירה במקום להזיז מספר:
+
+   1. כש‑Live Preview כבוי (ברירת המחדל בשני העמודים) אין בכלל צורך
+      בתקרה על `.split-panels` — ל‑`.cm-editor` יש כבר max-height
+      משלו, והעמוד עצמו גולל. זה בדיוק מה שקורה במובייל היום.
+   2. כש‑Live Preview דלוק התקרה כן נחוצה, כדי ששני הפאנלים ייכנסו
+      למסך. אז העורך *ממלא* את הגובה שנשאר לו במקום לגלוש ממנו:
+      שרשרת flex עם `min-height: 0` שמאפשרת לו להתכווץ.
+   ============================================================ */
+
+.split-view:not(.is-active) .split-panels {
+  max-height: none;
+}
+
+/* רק מ‑768px ומעלה: מתחת לזה `.split-panels` ממילא בלי תקרה
+   (ראו ה‑media query של המובייל למטה), ואז `flex: 1` על העורך
+   היה נותן לו לגדול בלי גבול לפי אורך הקובץ. */
+@media (min-width: 768px) {
+  .split-view.is-active .split-panel--editor > #editorContainer {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .split-view.is-active .split-panel--editor > #editorContainer > .codemirror-container,
+  .split-view.is-active .split-panel--editor > #editorContainer > textarea[name="code"] {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .split-view.is-active .split-panel--editor > #editorContainer > .codemirror-container {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .split-view.is-active .split-panel--editor > #editorContainer > .codemirror-container > .cm-editor {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
 .split-panel--preview {
   flex: calc(1 - var(--split-editor-ratio));
   background: var(--split-preview-panel-bg);
