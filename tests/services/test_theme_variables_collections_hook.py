@@ -106,6 +106,21 @@ def test_token_has_no_default_in_css():
     assert f"var({TOKEN}, var(--primary-dark))" in css
 
 
+def test_both_file_list_screens_are_covered():
+    """שני המסכים שמציגים שמות קבצים — כרטיס אוסף ושולחן עבודה.
+
+    שניהם מרנדרים <a> עם color:inherit, ולכן שניהם נדרסים באותה צורה על ידי
+    [data-theme="custom"] a. שולחן העבודה נשכח בסבב הראשון ונשאר שבור.
+    """
+    from pathlib import Path
+
+    css = Path("webapp/static/css/collections.css").read_text(encoding="utf-8")
+    for selector in ("collection-card__link", "workspace-card__link"):
+        assert f'[data-theme-type="custom"] .{selector} {{' in css or \
+               f'[data-theme-type="custom"] .{selector},' in css, f"{selector} אינו מכוסה"
+        assert f'[data-theme-type="custom"] .{selector}:hover' in css, f"{selector}:hover אינו מכוסה"
+
+
 def test_vscode_mapping_alone_cannot_produce_the_token():
     """אין מפתח VS Code שמוביל לטוקן — ולכן נדרש בלוק variables מפורש."""
     variables = parse_vscode_theme(_theme())["variables"]

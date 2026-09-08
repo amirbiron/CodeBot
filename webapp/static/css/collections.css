@@ -89,10 +89,12 @@
    ב-dark-mode.css). ערכה שאינה מצהירה מרונדרת זהה לחלוטין בשני המצבים.
    ל-:hover נדרש כלל נפרד כי [data-theme="custom"] a:hover הוא (0,2,1); בלעדיו
    ערכה מצהירה הייתה חוזרת ל---primary-dark רק ב-hover. */
-[data-theme-type="custom"] .collection-card__link {
+[data-theme-type="custom"] .collection-card__link,
+[data-theme-type="custom"] .workspace-card__link {
   color: var(--collections-link-override, var(--primary));
 }
-[data-theme-type="custom"] .collection-card__link:hover {
+[data-theme-type="custom"] .collection-card__link:hover,
+[data-theme-type="custom"] .workspace-card__link:hover {
   color: var(--collections-link-override, var(--primary-dark));
 }
 
