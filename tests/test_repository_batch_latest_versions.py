@@ -126,11 +126,81 @@ def test_a_missing_file_is_simply_absent_from_the_result(repo):
     assert out["a.py"]["file_name"] == "a.py"
 
 
+def _project_stage(pipeline):
+    last = pipeline[-1]
+    assert "$project" in last, f"אין שלב $project בצינור: {[next(iter(x)) for x in pipeline]}"
+    return last["$project"]
+
+
 def test_the_projection_is_passed_through_when_given(repo):
     r, collection = repo()
     r.get_latest_versions_by_names(7, ["a.py"], projection={"code": 1, "file_name": 1})
 
-    assert collection.pipelines[0][-1] == {"$project": {"code": 1, "file_name": 1}}
+    assert _project_stage(collection.pipelines[0]) == {"code": 1, "file_name": 1}
+
+
+def test_an_include_projection_always_keeps_file_name(repo):
+    """**כשל שקט אחרת: מיפוי ריק, בלי חריגה ובלי לוג.**
+
+    המתודה בונה את התשובה לפי ``doc.get("file_name")``. קורא שיבקש
+    היטלה שאינה כוללת אותו — למשל ``{"_id": 1, "code": 1}`` — היה מקבל
+    ``{}``, וחיפוש שנשבר היה נראה בדיוק כמו חיפוש בלי תוצאות.
+
+    ``get_user_files`` שלוש פונקציות משם כבר מתגוננת מזה
+    (``proj.setdefault("file_name", 1)``); זו אותה הגנה, מאותו עוזר.
+    """
+    r, collection = repo()
+    out = r.get_latest_versions_by_names(7, ["a.py"], projection={"_id": 1, "code": 1})
+
+    assert _project_stage(collection.pipelines[0]).get("file_name") == 1, (
+        "file_name לא נכפה, והמיפוי יוצא ריק בלי שאיש ידע"
+    )
+    assert set(out) == {"a.py"}, f"התשובה יצאה ריקה: {out!r}"
+
+
+def test_an_exclude_projection_still_drops_the_heavy_fields(repo):
+    """היטלת exclude חייבת לקבל את השדות הכבדים בתוכה, כמו ב-``get_user_files``."""
+    from database.repository import _HEAVY_FIELDS_EXCLUDE_PROJECTION
+
+    r, collection = repo()
+    r.get_latest_versions_by_names(7, ["a.py"], projection={"description": 0})
+
+    proj = _project_stage(collection.pipelines[0])
+    assert proj["description"] == 0
+    for field in _HEAVY_FIELDS_EXCLUDE_PROJECTION:
+        assert proj.get(field) == 0, f"{field} לא הוחרג בהיטלת exclude"
+
+
+def test_without_a_projection_the_heavy_fields_are_excluded_by_default(repo):
+    """**ברירת המחדל אינה "מסמך מלא".**
+
+    זו מתודה ציבורית שנועדה לשלוף מאות מסמכים. ברירת מחדל שמושכת ``code``
+    ו-``snippetEmbedding`` סותרת את כלל ה-Smart Projection דווקא במקום
+    שהוא הכי חשוב בו. ``get_user_files`` נוהגת אותו דבר.
+    """
+    from database.repository import _HEAVY_FIELDS_EXCLUDE_PROJECTION
+
+    r, collection = repo()
+    r.get_latest_versions_by_names(7, ["a.py"])
+
+    proj = _project_stage(collection.pipelines[0])
+    assert proj == dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION), (
+        f"ברירת המחדל מושכת מסמך מלא: {proj!r}"
+    )
+
+
+def test_the_search_projection_passes_through_untouched(repo):
+    """נעילת היקף: המסלול החי אינו משתנה מהתיקון.
+
+    ``SEARCH_RESULT_PROJECTION`` כבר כוללת ``file_name``, ולכן ההגנה
+    החדשה אינה אמורה לגעת בה בכלל.
+    """
+    import search_engine as se
+
+    r, collection = repo()
+    r.get_latest_versions_by_names(7, ["a.py"], projection=se.SEARCH_RESULT_PROJECTION)
+
+    assert _project_stage(collection.pipelines[0]) == dict(se.SEARCH_RESULT_PROJECTION)
 
 
 def test_a_failure_is_raised_and_not_swallowed(repo):
@@ -143,3 +213,54 @@ def test_a_failure_is_raised_and_not_swallowed(repo):
     r, _ = repo(explode=True)
     with pytest.raises(RuntimeError):
         r.get_latest_versions_by_names(7, ["a.py"])
+
+
+# --------------------------------------------------------------------------
+# ``get_user_files`` — האחות שההיגיון נלקח ממנה
+# --------------------------------------------------------------------------
+
+
+class _ListCollection(_RecordingCollection):
+    """``get_user_files`` מוסיפה ``$skip``/``$limit``, ולכן ה-``$project``
+    אינו השלב האחרון. אין צורך בהתנהגות אחרת — רק בהקלטה."""
+
+
+def _project_of(pipeline):
+    for stage in pipeline:
+        if "$project" in stage:
+            return stage["$project"]
+    return None
+
+
+@pytest.mark.parametrize(
+    "projection, expected",
+    [
+        pytest.param(None, "heavy", id="בלי-היטלה"),
+        pytest.param({}, "heavy", id="היטלה-ריקה"),
+        pytest.param({"description": 0}, "heavy+description", id="exclude-ממוקד"),
+        pytest.param({"_id": 1, "code": 1}, {"_id": 1, "code": 1, "file_name": 1},
+                     id="include-בלי-file_name"),
+        pytest.param({"file_name": 1, "version": 1}, {"file_name": 1, "version": 1},
+                     id="include-עם-file_name"),
+    ],
+)
+def test_get_user_files_projection_is_unchanged_by_the_shared_helper(projection, expected):
+    """נעילת התנהגות על המסלול החם של **כל מסכי הרשימות**.
+
+    היגיון ההיטלה נכתב במקור בתוך ``get_user_files``, וחולץ ל-
+    ``_latest_version_projection_stage`` כדי ש-``get_latest_versions_by_names``
+    תשתמש בו ולא תחזיק עותק שני. חילוץ הוא ריפקטור, וריפקטור במסלול הזה
+    צריך רשת: הבדיקה מקבעת את חמשת המצבים כפי שנמדדו לפני החילוץ.
+    """
+    from database.repository import _HEAVY_FIELDS_EXCLUDE_PROJECTION
+
+    collection = _ListCollection()
+    Repository(_FakeManager(collection)).get_user_files(7, 50, projection=projection)
+
+    proj = _project_of(collection.pipelines[0])
+    if expected == "heavy":
+        assert proj == dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
+    elif expected == "heavy+description":
+        assert proj == {**_HEAVY_FIELDS_EXCLUDE_PROJECTION, "description": 0}
+    else:
+        assert proj == expected

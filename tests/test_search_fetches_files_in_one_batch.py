@@ -54,6 +54,7 @@ class _LegacyDB:
         self.docs = {name: _doc(name) for name in file_names}
         self.per_file_calls = 0
         self.batch_calls: list[list[str]] = []
+        self.projections: list = []
 
     def get_user_files(self, user_id, limit=200, *, skip=0, projection=None):
         if skip:
@@ -81,6 +82,9 @@ class _CountingDB(_LegacyDB):
                                      chunk_size=None):
         names = list(file_names)
         self.batch_calls.append(names)
+        # ההיטלה נשמרת בנפרד: בלי זה, מחיקת הארגומנט מהקריאה במנוע הייתה
+        # משאירה את כל הקובץ ירוק ומחזירה שליפת מסמכים מלאים בפרודקשן.
+        self.projections.append(projection)
         if self._batched_raises:
             raise RuntimeError("תקלת מונגו חולפת")
         return {n: dict(self.docs[n]) for n in names if n in self.docs}
@@ -146,6 +150,25 @@ def test_the_whole_corpus_is_asked_for_in_one_call(counting_db):
     asked = db.batch_calls[0]
     assert len(asked) == len(set(asked)) == CORPUS, (
         "המנוע ביקש כפילויות או החסיר שמות"
+    )
+
+
+def test_the_engine_actually_passes_the_projection(counting_db):
+    """**הבדיקה שסוגרת את חור הכיסוי שהריוויו תפס.**
+
+    ``test_the_projection_keeps_code_and_drops_the_embedding`` בודק את
+    **תוכן** הקבוע, לא את זה שמישהו מעביר אותו. בלי הבדיקה הזו, מחיקת
+    ``projection=SEARCH_RESULT_PROJECTION`` מהקריאה הייתה משאירה את כל
+    הקובץ ירוק — ובפרודקשן מחזירה שליפת מסמכים מלאים, כולל
+    ``snippetEmbedding``, כלומר מבטלת בשקט חלק מרכזי מהתיקון.
+    """
+    db, engine = counting_db()
+    engine._text_search("needle", _index_over(engine, db), USER_ID)
+
+    assert db.projections, "לא נלכדה אף קריאה מקובצת"
+    assert db.projections[0] == se.SEARCH_RESULT_PROJECTION, (
+        f"המנוע העביר {db.projections[0]!r} במקום את ההיטלה — "
+        f"בלי היטלה נמשכים מסמכים מלאים"
     )
 
 
