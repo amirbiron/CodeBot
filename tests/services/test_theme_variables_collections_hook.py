@@ -54,8 +54,10 @@ def stub_db(monkeypatch):
 
 
 @pytest.fixture
-def client():
-    webapp_app.app.config["TESTING"] = True
+def client(monkeypatch):
+    # setitem ולא השמה ישירה: ‏webapp_app.app משותף לכל הסשן, ו-monkeypatch
+    # משחזר את הערך הקודם בסיום ה-fixture במקום להשאיר אותו דלוף לטסטים הבאים.
+    monkeypatch.setitem(webapp_app.app.config, "TESTING", True)
     with webapp_app.app.test_client() as c:
         with c.session_transaction() as sess:
             sess["user_id"] = 42
