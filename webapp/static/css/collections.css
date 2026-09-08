@@ -144,6 +144,70 @@
   --collections-error-text: #fca5a5;
 }
 
+/* ערכות מיובאות (custom) ומשותפות (shared:) — נגזרות מטוקני הערכה עצמה.
+   base.html מסמן את שתיהן ב-data-theme-type="custom" ומסיר אותו בערכות מובנות,
+   ולכן בורר אחד מכסה את שתיהן בלי להתנגש בבלוקים שמעל.
+   כל ערך כאן נשען על טוקן גלובלי שמתהפך לבד בין ערכה בהירה לכהה, כדי שאותו
+   בלוק ישרת גם ערכה מיובאת בהירה. */
+:root[data-theme-type="custom"] {
+  --collections-content-bg: var(--card-bg);
+  --collections-content-text: var(--text-primary);
+  --collections-content-border: var(--glass-border);
+
+  --collections-btn-bg: var(--bg-tertiary);
+  --collections-btn-border: var(--glass-border);
+  --collections-btn-text: var(--text-primary);
+  --collections-btn-hover-bg: var(--glass-hover);
+  --collections-btn-hover-border: var(--primary);
+
+  --collections-btn-danger-bg: color-mix(in srgb, var(--error) 15%, transparent);
+  --collections-btn-danger-border: color-mix(in srgb, var(--error) 40%, transparent);
+  --collections-btn-danger-text: var(--error);
+
+  --collections-link-color: var(--primary);
+  --collections-accent: var(--primary);
+  --collections-accent-bg: color-mix(in srgb, var(--primary) 15%, transparent);
+  --collections-accent-border: color-mix(in srgb, var(--primary) 40%, transparent);
+
+  --collections-muted: var(--text-muted);
+  --collections-secondary-text: var(--text-secondary);
+  --collections-dark-text: var(--text-primary);
+
+  --collections-card-bg: var(--card-bg);
+  --collections-card-border: var(--glass-border);
+  --collections-card-shadow: var(--shadow-color);
+
+  --collections-pinned-bg: color-mix(in srgb, var(--warning) 15%, transparent);
+  --collections-pinned-border: var(--warning);
+  --collections-pinned-text: var(--warning);
+
+  --collections-modal-bg: var(--bg-secondary);
+  --collections-modal-text: var(--text-primary);
+  --collections-modal-input-border: var(--glass-border);
+  --collections-modal-input-bg: var(--bg-tertiary);
+
+  --collections-viewer-bg: var(--code-bg);
+  --collections-viewer-text: var(--code-text);
+  --collections-viewer-muted: var(--text-muted);
+  --collections-viewer-accent: var(--primary);
+
+  --collections-badge-link-bg: color-mix(in srgb, var(--primary) 20%, transparent);
+  --collections-badge-link-text: var(--primary);
+  --collections-badge-private-bg: color-mix(in srgb, var(--error) 20%, transparent);
+  --collections-badge-private-text: var(--error);
+  --collections-badge-pinned-bg: color-mix(in srgb, var(--warning) 20%, transparent);
+  --collections-badge-pinned-text: var(--warning);
+
+  --collections-action-bg: var(--primary);
+  --collections-action-hover-bg: var(--primary-dark);
+  --collections-action-disabled-bg: var(--bg-tertiary);
+
+  --collections-download-bg: var(--info);
+  --collections-download-hover-bg: color-mix(in srgb, var(--info) 80%, #000 20%);
+
+  --collections-error-text: var(--error);
+}
+
 /* Ocean theme overrides */
 :root[data-theme="ocean"] {
   --collections-content-bg: var(--card-bg);
