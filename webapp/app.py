@@ -2625,7 +2625,22 @@ def get_pygments_style(theme_name: str) -> str:
 
 
 def get_db():
-    """מחזיר חיבור למסד הנתונים"""
+    """מחזיר חיבור למסד הנתונים.
+
+    **סדר הפרסום של הגלובלים הוא חלק מהחוזה, לא סגנון.** ``client`` הוא
+    השומר של המסלול המהיר (``if client is None``) — מי שרואה אותו מאותחל
+    מדלג על הנעילה ומחזיר את ``db`` כמו שהוא. לכן החיבור נבנה במשתנים
+    מקומיים, ושני הגלובלים נכתבים רק כשהוא מוכן, כשהשומר אחרון.
+
+    בלי זה נפתחו שני חורים, ושניהם החזירו ``None`` במקום מסד:
+
+    1. **מרוץ.** ``server_info()`` הוא סיבוב רשת שלם. קורא מקביל שנכנס
+       באמצעו ראה ``client`` כבר מוצב ואת ``db`` עדיין ``None``.
+    2. **הרעלה קבועה.** אם ``server_info()`` נכשל, הגלובל ``client`` נשאר
+       מוצב על לקוח שבור. ה-``except`` זרק הלאה, אבל כל קריאה עתידית כבר
+       דילגה על האתחול והחזירה ``None`` — כלומר תקלת רשת חולפת אחת שיתקה
+       את התהליך עד ריסטארט.
+    """
     global client, db
     # Proper double-checked locking: perform initialization under the lock
     if client is None:
@@ -2634,6 +2649,7 @@ def get_db():
             if client is None:
                 if not MONGODB_URL:
                     raise Exception("MONGODB_URL is not configured")
+                _new_client = None
                 try:
                     # חשוב: ב-ENV יש MONGODB_SERVER_SELECTION_TIMEOUT_MS, אבל בעבר לא חיווטנו אותו לכאן
                     # ולכן בפועל נשאר timeout קשיח של 5 שניות.
@@ -2644,16 +2660,20 @@ def get_db():
                         _server_selection_timeout_ms = 5000
                     # החזר אובייקטי זמן tz-aware כדי למנוע השוואות naive/aware
                     _t0 = _time.perf_counter()
-                    client = MongoClient(
+                    _new_client = MongoClient(
                         MONGODB_URL,
                         serverSelectionTimeoutMS=_server_selection_timeout_ms,
                         tz_aware=True,
                         tzinfo=timezone.utc,
                     )
                     # בדיקת חיבור
-                    client.server_info()
+                    _new_client.server_info()
                     duration = max(0.0, float(_time.perf_counter() - _t0))
-                    db = client[DATABASE_NAME]
+                    _new_db = _new_client[DATABASE_NAME]
+                    # פרסום: קודם הערך, ורק אחריו השומר שמגן עליו
+                    db = _new_db
+                    client = _new_client
+                    _new_client = None
                     try:
                         record_dependency_init("mongodb", duration)
                     except Exception:
@@ -2663,6 +2683,13 @@ def get_db():
                     except Exception:
                         pass
                 except Exception:
+                    # הלקוח לא פורסם, ולכן איש לא יחזיק בו — סוגרים אותו כאן
+                    # כדי שכשל חוזר לא ידלוף חיבורים ו-monitor threads.
+                    if _new_client is not None:
+                        try:
+                            _new_client.close()
+                        except Exception:
+                            pass
                     logger.exception("Failed to connect to MongoDB")
                     raise
     # מחוץ לנעילה: הבטח אינדקסים פעם אחת, ללא קריאה חוזרת ל-get_db
