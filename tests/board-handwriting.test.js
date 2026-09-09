@@ -53,13 +53,18 @@ function inlineScript(src, where) {
 function headScript(boardId, fromSettings = false) {
   const blockAt = SRC.indexOf('{% block extra_head %}');
   if (blockAt < 0) throw new Error('הבלוק extra_head לא נמצא בתבנית');
+  //
+  // **``replaceAll`` ולא ``replace``.** ``replace`` עם מחרוזת מחליף רק
+  // את המופע הראשון, ולכן ביטוי Jinja שני היה נשאר בקוד כטקסט ומפיל
+  // את ההרצה בשגיאת תחביר שאינה מרמזת על הסיבה. זו מגבלה של המנשא
+  // הזה בלבד — התבנית אינה אמורה להיכתב סביבה.
   const shared = inlineScript(SHARED_SRC, '_note_fonts_head.html')
-    .replace(
+    .replaceAll(
       '{{ (note_fonts.get(note_font_surface) if note_fonts else False) | tojson }}',
       JSON.stringify(fromSettings),
     );
   const local = inlineScript(SRC.slice(blockAt), 'note_board.html extra_head')
-    .replace('{{ board_id | tojson }}', JSON.stringify(boardId));
+    .replaceAll('{{ board_id | tojson }}', JSON.stringify(boardId));
   return shared + '\n' + local;
 }
 

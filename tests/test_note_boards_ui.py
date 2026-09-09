@@ -99,15 +99,43 @@ def test_handwriting_toggle_is_per_board(logged_in):
     html = res.get_data(as_text=True)
 
     assert res.status_code == 200
-    assert 'handwritingToggle' in html
+    # על האלמנט ולא על המחרוזת, מאותה סיבה כמו בבדיקת גודל הטקסט: המזהה
+    # חוזר גם ב-JS שבגוף העמוד, ולכן חיפוש מחרוזת חופשי אינו מוכיח שהמתג
+    # קיים במודאל.
+    assert re.search(r'<input[^>]*id="handwritingToggle"', html)
     # המפתח נבנה בסקריפט שבראש העמוד, כי שם מחליטים אם לטעון את הגופן.
-    # הבדיקה מול המזהה **המרונדר** ולא מול ``BOARD_ID``: כך היא מוכיחה
-    # שהמזהה באמת נכנס למפתח, ולא רק שיש שם ביטוי שנראה נכון.
-    assert '\'board-handwriting:\' + "507f1f77bcf86cd799439011"' in html
+    # **שתי טענות ולא אחת.** מזהה הלוח נלכד שם למשתנה אחד ששני המפתחות
+    # נגזרים ממנו, ולכן צריך להוכיח את שני הצדדים: שהמזהה **המרונדר**
+    # באמת נכנס למשתנה, ושהמפתח באמת נגזר ממנו. טענה על אחד מהם לבדו
+    # הייתה מסתפקת בביטוי שנראה נכון.
+    assert 'var boardId = "507f1f77bcf86cd799439011";' in html
+    assert "window.HANDWRITING_KEY = 'board-handwriting:' + boardId;" in html
     # אותה צורה בדיוק כמו שתי ההעדפות שכבר קיימות — אם אחת מהן תשתנה,
     # הבדיקה הזו מזכירה שגם החדשה צריכה להשתנות איתה.
     assert "'board-markdown:' + BOARD_ID" in html
     assert "'board-infinite:' + BOARD_ID" in html
+
+
+def test_note_font_size_key_is_per_board(logged_in):
+    """בורר גודל הטקסט קיים, והמפתח שלו נושא את מזהה הלוח.
+
+    **אותו כשל בדיוק כמו במתג כתב-היד, ולכן אותה בדיקה.** מפתח בלי מזהה
+    הלוח היה הופך את הגודל לגלובלי: בחירה בלוח אחד הייתה מגדילה את
+    הפתקים בכל הלוחות — וגם זה כשל שנראה תקין לחלוטין כשבודקים ידנית
+    על לוח יחיד.
+    """
+    res = logged_in.get('/boards/507f1f77bcf86cd799439011')
+    html = res.get_data(as_text=True)
+
+    assert res.status_code == 200
+    # **על האלמנט ולא על המחרוזת.** אותו מזהה מופיע גם ב-JS שבגוף
+    # העמוד (``getElementById``), ולכן ``'noteFontSizeSelect' in html``
+    # היה מתקיים גם אחרי שהבורר עצמו נמחק מהמודאל — נמדד, לא שוער.
+    assert re.search(r'<select[^>]*id="noteFontSizeSelect"', html)
+    # אותו מזהה שנלכד עבור מפתח כתב-היד, ואותה צורה — שני המפתחות
+    # נגזרים ממנו, ולכן כל אחד מהם נבדק מול שני הצדדים.
+    assert 'var boardId = "507f1f77bcf86cd799439011";' in html
+    assert "window.NOTE_FONT_SIZE_KEY = 'board-font-size:' + boardId;" in html
 
 
 def test_handwriting_font_is_requested_only_when_enabled(logged_in):
