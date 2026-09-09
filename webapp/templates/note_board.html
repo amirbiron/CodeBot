@@ -152,6 +152,10 @@
 
 {% block extra_js %}
 <script>window.STICKY_NOTE_MAX_CHARS = {{ max_note_chars | tojson }};</script>
+<!-- מטא-דאטה של סוגי האלרט (אייקון + תווית בעברית). חייב לקדום ל-sticky-notes.js,
+     שקורא ממנו כדי לרנדר ``::: note`` בתוך פתק. שני המשטחים האחרים שטוענים את
+     sticky-notes.js — md_preview.html ו-repo/base_repo.html — כבר טוענים אותו. -->
+<script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script>
 (function () {

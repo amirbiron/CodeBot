@@ -2426,7 +2426,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         const containerPlugin = (window.markdownitContainer || window.markdownItContainer || null);
         if (!containerPlugin) return;
         const types = ['details','note','tip','warning','danger','important','info','success','question','example','quote','experimental','deprecated','todo','abstract'];
-        const DEFAULT_TITLES = { note:'הערה', tip:'טיפ', warning:'אזהרה', danger:'סכנה', important:'חשוב', info:'מידע', success:'הצלחה', question:'שאלה', example:'דוגמה', quote:'ציטוט', experimental:'ניסוי', deprecated:'לא מומלץ', todo:'משימות לביצוע', abstract:'תקציר' };
+        // מ-admonition-icons.js, כמו ``ADMONITION_ICONS`` שמעל — מקור אחד
+        // לשם ולאייקון של כל סוג. ``defaultTitle`` כבר נופל לשם הסוג.
+        const DEFAULT_TITLES = (typeof window !== 'undefined' && window.ADMONITION_TITLES) || {};
         function defaultTitle(type){ return DEFAULT_TITLES[type] || type; }
 
         types.forEach(function(type){

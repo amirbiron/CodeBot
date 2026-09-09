@@ -314,6 +314,29 @@
   //: קישור נפתח בלשונית חדשה, ולכן רק ``http``/``https``. כל סכימה אחרת
   //: — ``javascript:``, ``data:`` — מרונדרת כטקסט, לא כקישור.
   const MD_SAFE_LINK  = /^https?:\/\//i;
+  //: בלוק אלרט: ``::: note`` ... ``:::``. **התחביר אינו שלנו** — הוא של
+  //: ``markdown-it-container@4.0.0``, שמרנדר את אותם בלוקים בתצוגת המסמך
+  //: ובתצוגה החיה, ולכן הוא הצרכן שהפתק צריך להסכים איתו. הכללים כאן
+  //: נגזרו מ-``node_modules/markdown-it-container/index.mjs`` **והורצו
+  //: מולו בפועל**, לא נזכרו:
+  //:
+  //:  - ``min_markers = 3`` — שלוש נקודתיים לפחות.
+  //:  - ה"פרמטרים" הם כל מה שאחרי רצף הנקודתיים, ולכן ``:::note`` בלי
+  //:    רווח תקף בדיוק כמו ``::: note``.
+  //:  - הוולידציה בשני הצרכנים היא ``^<type>\b\s*(.*)$`` על הפרמטרים
+  //:    אחרי ``trim``, ומכאן שלוש התנהגויות שנמדדו: ``::: note כותרת``
+  //:    נותן כותרת מותאמת; ``::: note2`` ו-``::: note_x`` **אינם** אלרט,
+  //:    כי אין גבול מילה בין אות לספרה או לקו תחתון; ``::: note.x`` כן,
+  //:    עם הכותרת ``.x``.
+  //:  - שורת סגירה: רצף נקודתיים ואחריו רווחים בלבד. ``::: x`` אינו סוגר.
+  //:
+  //: **``[A-Za-z]+\b`` ולא ``\S+``.** הכמת החמדן בולע את כל האותיות, ולכן
+  //: ``noteX`` נלכד כסוג שלם שאינו קיים במפת הסוגים ונדחה — בדיוק כמו
+  //: שה-``\b`` של התוסף נכשל עליו. וה-``\b`` נשאר כאן דווקא בשביל
+  //: ``note2``/``note_x``: שם התו הבא הוא תו-מילה, ובלעדיו הסוג היה נחתך
+  //: ל-``note`` והשורה הייתה הופכת לאלרט שהתוסף דוחה.
+  const MD_ALERT_OPEN_RE  = /^[ \t]*(:{3,})[ \t]*([A-Za-z]+)\b[ \t]*(.*)$/;
+  const MD_ALERT_CLOSE_RE = /^[ \t]*(:{3,})[ \t]*$/;
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
@@ -1819,6 +1842,119 @@
         return { lastIndex: i - 1, nextOffset: offset, tasksConsumed };
       }
 
+      /**
+       * מזהה שורת פתיחה של אלרט, ומחזיר ``{ markers, type, title }`` או
+       * ``null``.
+       *
+       * **רשימת הסוגים המוכרים אינה חיה כאן.** היא ``ADMONITION_TITLES``
+       * ב-``admonition-icons.js``, המקום היחיד בפרויקט שמגדיר מהו סוג
+       * אלרט — אותו מקום שממנו קוראים גם תצוגת המסמך וגם התצוגה החיה.
+       * סוג שאינו שם נשאר טקסט רגיל, וזו בדיוק ההתנהגות של
+       * ``markdown-it-container`` על סוג שלא נרשם: נמדד, ``::: foo``
+       * מרונדר כפסקה ולא כמכולה.
+       *
+       * ``hasOwnProperty`` ולא ``titles[type]``: שם הסוג מגיע מטקסט
+       * שהמשתמש הקליד, ולכן הוא **קלט חיצוני**. בלי הבדיקה הזו
+       * ``::: constructor`` היה מוצא פונקציה על הפרוטוטיפ ונחשב סוג תקף.
+       * מאותה סיבה גם הערך עצמו נבדק כמחרוזת לפני שהוא מוצג.
+       */
+      _alertSpec(line){
+        const m = MD_ALERT_OPEN_RE.exec(line);
+        if (!m) return null;
+        const type = m[2].toLowerCase();
+        const titles = window.ADMONITION_TITLES;
+        if (!titles || !Object.prototype.hasOwnProperty.call(titles, type)) return null;
+        const fallback = typeof titles[type] === 'string' ? titles[type] : type;
+        const custom = (m[3] || '').trim();
+        return { markers: m[1].length, type, title: custom || fallback };
+      }
+
+      /** אורך המרקר אם השורה היא שורת סגירה של אלרט, ו-0 אחרת. */
+      _alertCloseMarkers(line){
+        const m = MD_ALERT_CLOSE_RE.exec(line);
+        return m ? m[1].length : 0;
+      }
+
+      /**
+       * סוגר אלרטים לפי שורת סגירה באורך ``markers``, ומחזיר האם השורה
+       * אכן שימשה כסגירה.
+       *
+       * **הכלל: נסגר החיצוני ביותר שאורכו קטן-או-שווה, ואיתו כל מה
+       * שבתוכו.** זה אינו "סוגר את הפנימי", וההבדל נראה רק בקינון: ב-
+       * ``markdown-it`` כל מכולה סורקת קדימה אחר שורת סגירה **משלה**,
+       * והמכולות שבתוכה נסגרות אוטומטית בסוף ההורה. נמדד על שלוש רמות —
+       * ``::::: note`` ‏/ ``:::: tip`` ‏/ ``::: info`` — ושם ``::::`` סוגר
+       * את ``info`` ואת ``tip`` ומשאיר את ``note`` פתוח.
+       *
+       * שורה שאין מעליה אף אלרט שאורכו מתאים **אינה סגירה כלל** ונשארת
+       * תוכן. גם זה נמדד: ``:::: note`` שנסגר ב-``:::`` מציג את ``:::``
+       * כטקסט בתוך האלרט, והאלרט נסגר בסוף הפתק.
+       */
+      _closeAlertsAt(stack, markers){
+        for (let i = 0; i < stack.length; i += 1){
+          if (stack[i].markers <= markers){ stack.length = i; return true; }
+        }
+        return false;
+      }
+
+      /**
+       * האייקון של הסוג, מתוך ``ADMONITION_ICONS`` המשותף.
+       *
+       * **זה המקום היחיד בקובץ שנוגע ב-``innerHTML``, וזו החלטה ולא
+       * הרגל.** הכלל בפתקים הוא על **הקלט ולא על ה-API** (ראו
+       * ``docs/dev/sticky_notes_extending.rst``): טקסט לא-מהימן אסור בכל
+       * דרך, ותבנית סטטית לחלוטין מותרת. המחרוזת כאן היא קבוע כתוב בקוד,
+       * היא נכנסת ל-``span`` ייעודי שלעולם אינו מקבל טקסט של משתמש, ולכן
+       * אין מסלול שמחבר בין השניים. אותו דפוס בדיוק כבר קיים ב-
+       * ``setTitleWithIcon`` שבתצוגת המסמך.
+       *
+       * **בדיקת הטיפוס אינה קישוט.** ``ADMONITION_ICONS`` הוא גלובל
+       * שנטען מקובץ נפרד; ערך שאינו מחרוזת היה נכתב כ-``[object Object]``.
+       * חוסר בגלובל כולו פירושו שהקובץ לא נטען בעמוד — האלרט עדיין
+       * מוצג, בלי אייקון, ויש טסט חיווט שמוודא שזה לא קורה.
+       */
+      _appendAlertIcon(host, type){
+        const icons = window.ADMONITION_ICONS;
+        const svg = icons ? icons[type] : null;
+        if (typeof svg !== 'string' || !svg) return;
+        const slot = createEl('span', 'sticky-md-alert-icon');
+        slot.innerHTML = svg;
+        host.appendChild(slot);
+      }
+
+      /**
+       * בונה את מעטפת האלרט ומחזיר את רשומת המחסנית.
+       *
+       * **המחלקות הן של רינדור המסמכים** — ``admonition``,
+       * ``admonition-title``, ``admonition-content`` — ולא סט חדש. הן
+       * מוגדרות ב-``markdown-enhanced.css``, שנטען ב-``base.html`` ולכן
+       * זמין בכל שלושת המשטחים שמציגים פתקים (לוח, קובץ Markdown, דפדפן
+       * הריפו). פלטה שנייה עם אותם צבעים הייתה נסחפת מהראשונה בדיוק כמו
+       * שתי מחלקות עם אותם כללים.
+       *
+       * **שורת הפתיחה היא שורת הכותרת.** היא נושאת ``sticky-task-line``
+       * ואת ההיסט שלה, ולכן החוזה של המנוע נשמר: כל שורת מקור היא אלמנט
+       * תצוגה אחד, ולחיצה על הכותרת מחזירה לעריכה בשורת ``::: note``
+       * עצמה.
+       */
+      _openAlert(parent, spec, charOffset){
+        const box = createEl('div', 'admonition admonition-' + spec.type + ' sticky-md-alert');
+        const title = createEl('div', 'admonition-title sticky-task-line');
+        title.dataset.charOffset = String(charOffset);
+        this._appendAlertIcon(title, spec.type);
+        // **הכותרת בצומת נפרד משלה, ותמיד דרך ``textContent``.** כותרת
+        // מותאמת היא טקסט שהמשתמש הקליד; ההפרדה המבנית הזו היא מה שמוודא
+        // שאין מסלול קוד שמחבר אותה למחרוזת HTML.
+        const label = createEl('span', 'sticky-md-alert-label');
+        label.textContent = spec.title;
+        title.appendChild(label);
+        const content = createEl('div', 'admonition-content');
+        box.appendChild(title);
+        box.appendChild(content);
+        parent.appendChild(box);
+        return { markers: spec.markers, content };
+      }
+
       _hasRenderableMarkdown(lines){
         for (let i = 0; i < lines.length; i += 1){
           const line = lines[i];
@@ -1828,6 +1964,10 @@
           // אינו עובר את השער והתצוגה כלל לא נפתחת — כשל שקט בדיוק במקרה
           // הנפוץ ביותר.
           if (i + 1 < lines.length && this._tableSpec(line, lines[i + 1])) return true;
+          // אלרט נבדק כאן מאותה סיבה בדיוק: ``_classifyLine`` הוא פר-שורה
+          // ואינו מכיר בלוקים. בלי הבדיקה הזו פתק שכולו ``::: note`` לא
+          // היה עובר את השער והתצוגה כלל לא הייתה נפתחת.
+          if (this._alertSpec(line)) return true;
           const b = this._classifyLine(line);
           if (b.kind !== 'plain') return true;
           if (this._lineHasInline(b.content)) return true;
@@ -1897,6 +2037,13 @@
           // הפתוחים. היא חיה כאן ולא במתודה, כי עומק הקינון אינו תכונה
           // של שורה בודדת אלא של השורות שקדמו לה.
           const listStack = [];
+          // **מחסנית האלרטים**, ולצידה המכל הנוכחי. אלרט הוא הבלוק הראשון
+          // בפתק ש**מכיל** שורות אחרות במקום להיות אחת מהן, ולכן במקום
+          // לולאת רינדור שנייה משתנה כאן דבר אחד: לאן שורה נכתבת. ברירת
+          // המחדל היא התצוגה עצמה; בתוך אלרט זהו גוף האלרט הפנימי ביותר.
+          // כל שאר הענפים אינם יודעים על האלרט דבר וממשיכים כמו שהם.
+          const alertStack = [];
+          const currentParent = () => (alertStack.length ? alertStack[alertStack.length - 1].content : view);
           // **לולאה מאונדקסת ולא ``forEach``** — טבלה היא בלוק רב-שורתי,
           // והיא צריכה לצרוך כמה שורות בבת אחת ולקדם את ההיסט על כולן.
           for (let li = 0; li < lines.length; li += 1) {
@@ -1906,6 +2053,56 @@
             // המפורשת פותחת גדר שיש בה מקף אנכי הייתה נבלעת לטבלה —
             // והדגל לא היה מתהפך, כך שכל הגדר הייתה נשברת.
             const isFenceLine = wantMd && MD_FENCE_RE.test(line);
+            // **אלרט נבדק ראשון, ורק מחוץ לגדר קוד.** בתוך גדר ``:::`` הוא
+            // קוד ליטרלי — **סטייה מכוונת** מ-``markdown-it``, שם הסורק של
+            // המכולה קורא שורות גולמיות ואינו מודע לגדרות כלל. נמדד:
+            // ``::: note`` ואז גדר שיש בתוכה ``:::`` באמת סוגרת שם את
+            // המכולה ושוברת את הגדר לשניים. זו אותה עמדה שהפתק כבר נוקט
+            // בטבלה שבתוך גדר, והיא גם התוצאה השפויה למשתמש.
+            if (wantMd && !inFence && !isFenceLine) {
+              // **הסגירה נבדקת לפני הפתיחה, והשתיים זרות זו לזו ממילא:**
+              // שורת סגירה היא נקודתיים ורווחים בלבד, ולפתיחה נדרשת אות
+              // אחרי הנקודתיים. הסדר כאן הוא לקריאוּת, לא לנכונות.
+              const closeMarkers = this._alertCloseMarkers(line);
+              if (closeMarkers && this._closeAlertsAt(alertStack, closeMarkers)) {
+                // **שורת הסגירה עוברת בכלל האחיד, כמו כל גבול בלוק אחר.**
+                //
+                // כאן הייתה טעות של אנלוגיה: הגרסה הראשונה לא נגעה במחסנית
+                // הרשימות, בנימוק שזה מה ששורת גדר סוגרת עושה. אבל שם זו
+                // הוכחה ולא בחירה — **בתוך גדר שום דבר אינו נדחף למחסנית**,
+                // כי התוכן ליטרלי, ולכן לסגירה אין מה לסגור. בתוך אלרט
+                // התוכן עובר את המנוע המלא ו**כן** דוחף, ולכן אותה שורה
+                // בדיוק אינה no-op — היא הגבול היחיד שסוגר את מה שנפתח
+                // בפנים.
+                //
+                // בלי זה רשימה שנפתחה בתוך האלרט דלפה החוצה: ``- א`` ואז
+                // ``␣␣- ב`` בתוך האלרט, ו-``␣␣- ג`` **אחריו** יצא בעומק 1
+                // כבן של פריט שאינו קיים עוד. נמדד מול ``markdown-it`` על
+                // 15 צירופים של רשימה × אלרט — חמישה סטו, וכולם נסגרו כאן.
+                //
+                // **וההזחה היא של שורת הסגירה עצמה**, לא עומק שנשמר
+                // בפתיחה. גם את זה מדדתי: שמירת עומק המחסנית בפתיחה
+                // ושחזורה כאן מתקנת פחות מקרים (שלושה נותרו סוטים מול
+                // אחד), כי היא מתעלמת מההזחה — ולכן נשברת בדיוק כשהסגירה
+                // מוזחת פנימה או החוצה ביחס לפתיחה.
+                this._closeListsAbove(listStack, this._lineIndentCols(line));
+                // נצרכת בלי אלמנט — אין לה מה להציג — וההיסט מקודם עליה,
+                // בדיוק כמו שורת המפריד של טבלה. בלי הקידום כל מה שאחרי
+                // האלרט מוסט באורך שורה שלמה, והלחיצה נוחתת בשורה אחרת.
+                charOffset += line.length + 1;
+                continue;
+              }
+              const alert = this._alertSpec(line);
+              if (alert) {
+                // האלרט הוא בלוק ככל בלוק אחר, ולכן הוא סוגר פריטי רשימה
+                // לפי ההזחה של **עצמו** — ולפני שהוא נפתח, אחרת הוא היה
+                // נכנס למכל שכבר אינו אמור להכיל אותו.
+                this._closeListsAbove(listStack, this._lineIndentCols(line));
+                alertStack.push(this._openAlert(currentParent(), alert, charOffset));
+                charOffset += line.length + 1;
+                continue;
+              }
+            }
             // טבלה נבדקת לפני כל השאר, ורק מחוץ לגדר קוד: בתוך גדר, שורה
             // עם מקפים אנכיים היא קוד ליטרלי.
             const spec = (wantMd && !inFence && !isFenceLine && li + 1 < lines.length)
@@ -1915,7 +2112,7 @@
               // מחזיר את שני הערכים במפורש ולא דרך שדה על המופע: ההיסט
               // מקודם על **כל** השורות שנצרכו, כולל שורת המפריד, ובלי זה
               // כל השורות שאחרי הטבלה מצביעות למקום שגוי.
-              const done = this._appendTable(view, lines, li, spec, charOffset);
+              const done = this._appendTable(currentParent(), lines, li, spec, charOffset);
               li = done.lastIndex;
               charOffset = done.nextOffset;
               taskIndex += done.tasksConsumed;
@@ -2033,7 +2230,7 @@
               row.classList.add('is-text');
               row.textContent = line === '' ? ' ' : line;
             }
-            view.appendChild(row);
+            currentParent().appendChild(row);
             charOffset += line.length + 1;   // +1 עבור ה-``\n`` שהפיצול הסיר
           }
           view.hidden = false;
