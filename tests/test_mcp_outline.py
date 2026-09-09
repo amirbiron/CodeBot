@@ -324,16 +324,52 @@ def test_a_bug_in_the_traversal_is_not_swallowed_as_no_outline(monkeypatch):
     אילו היא עטפה את כל הפונקציה, ``AttributeError`` על צומת לא צפוי היה
     חוזר כ-``no_outline`` וקובץ תקין היה נראה כאילו אין לו סימבולים —
     בדיוק הכישלון השקט של K11, שכבה אחת פנימה.
+
+    ``_collect`` עברה ל-``outline_scanners.python`` כשהחילוץ פוצל לסורק
+    לכל שפה. **הטענה לא השתנתה** — רק כתובת המטרה של ה-monkeypatch.
     """
     import mcp_server.outline as module
+    import mcp_server.outline_scanners.python as scanner
 
     def _explode(_tree, _lines):
         raise AttributeError("boom")
 
-    monkeypatch.setattr(module, "_collect", _explode)
+    monkeypatch.setattr(scanner, "_collect", _explode)
 
     with pytest.raises(AttributeError):
         module.extract_outline("def f():\n    pass\n", "x.py")
+
+
+def test_a_file_the_router_does_not_recognise_never_reaches_a_scanner(monkeypatch):
+    """הראוטר מכריע לפי הסיומת, ולא מנסה לפרוס ונופל.
+
+    זו ההבחנה שקל לאבד: מימוש שקורא לסורק הפייתון תמיד ומסתמך על
+    ``SyntaxError`` כדי להחזיר ``unsupported_language`` נראה עובד — עד
+    שקובץ CSS **כן** נפרס במקרה כפייתון תקין (``a{}`` אינו, אבל
+    ``# comment`` הוא), ואז מוחזרת מפה ריקה עם ``status: ok`` במקום
+    הצהרה שהשפה לא נתמכת.
+
+    הסורק מוחלף כאן במלכודת שזורקת: אם הראוטר נגע בו על ``.css``, הטסט
+    נופל בקול במקום להחזיר את התשובה הנכונה במקרה.
+    """
+    import mcp_server.outline as module
+    import mcp_server.outline_scanners.python as scanner
+
+    def _trap(_text, _lines):
+        raise AssertionError("סורק הפייתון נקרא על קובץ שאינו פייתון")
+
+    monkeypatch.setattr(scanner, "extract", _trap)
+    monkeypatch.setitem(module._SCANNERS, ".py", _trap)
+
+    assert module.extract_outline("x{}", "styles.css") == {
+        "status": "no_outline",
+        "reason": "unsupported_language",
+    }
+
+    # ואותה מלכודת **כן** נתפסת על ``.py``, אחרת הטסט היה עובר גם על
+    # ראוטר שלא קורא לאף סורק לעולם.
+    with pytest.raises(AssertionError):
+        module.extract_outline("x{}", "mod.py")
 
 
 def test_deep_nesting_does_not_raise_from_our_side():
