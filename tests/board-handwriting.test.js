@@ -62,6 +62,13 @@ function headScript(boardId, fromSettings = false) {
     .replaceAll(
       '{{ (note_fonts.get(note_font_surface) if note_fonts else False) | tojson }}',
       JSON.stringify(fromSettings),
+    )
+    // גודל הטקסט שמגיע מעמוד ההגדרות מרונדר **ריק בלוחות** — התבנית
+    // בודקת את המשטח — ולכן זה מה שהמנשא מציב. לוח מקבל את הגודל שלו
+    // מהסקריפט המקומי, לא מכאן.
+    .replaceAll(
+      "{{ (note_font_size if (note_font_size and note_font_surface != 'board') else '') | tojson }}",
+      JSON.stringify(''),
     );
   const local = inlineScript(SRC.slice(blockAt), 'note_board.html extra_head')
     .replaceAll('{{ board_id | tojson }}', JSON.stringify(boardId));
@@ -418,17 +425,62 @@ check('גודל: אחסון חסום אינו מפיל את הלוח', () => {
   eq(s.__api.readNoteFontSize(), 'normal', 'נופל לברירת המחדל');
 });
 
-check('גודל: אפשרויות הבורר בתבנית זהות למפה המשותפת', () => {
-  // **המפה היא המקור, וה-HTML הוא העתק שלה.** זו הכפילות היחידה
+check('גודל: אפשרויות הבורר בתבנית זהות לתפריט הלוח', () => {
+  // **הרשימה היא המקור, וה-HTML הוא העתק שלה.** זו הכפילות היחידה
   // שנשארה — משתמש צריך לראות שמות בעברית — ולכן היא נשמרת בבדיקה
-  // ולא בהבטחה. סוג שיתווסף למפה בלי אפשרות בבורר, או להפך, מפיל כאן.
+  // ולא בהבטחה. גודל שיתווסף לתפריט בלי אפשרות בבורר, או להפך, מפיל כאן.
+  //
+  // **מול ``STICKY_NOTE_FONT_MENUS.board`` ולא מול המפה.** מאז שעמוד
+  // ההגדרות מציע גדלים משלו, המפה גדולה מכל תפריט בנפרד; השוואה אליה
+  // הייתה דורשת מהלוח להציע גם את מה ששייך לעמוד ההגדרות.
   const selectAt = SRC.indexOf('id="noteFontSizeSelect"');
   eq(selectAt > 0, true, 'הבורר קיים בתבנית');
   const end = SRC.indexOf('</select>', selectAt);
   const options = [...SRC.slice(selectAt, end).matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
   const s = loadFontSize('bf7');
-  eq(options.join(','), Object.keys(s.window.STICKY_NOTE_FONT_SIZES).join(','),
-     'אותם מפתחות, ובאותו סדר');
+  eq(options.join(','), s.window.STICKY_NOTE_FONT_MENUS.board.join(','),
+     'אותם טוקנים, ובאותו סדר');
+});
+
+check('גודל: כל טוקן בשני התפריטים קיים במפה', () => {
+  // החצי השני של החוזה. בלעדיו תפריט יכול להציע גודל שאין לו מחלקה,
+  // והבחירה פשוט לא הייתה עושה כלום — כשל שנראה כמו "לא נשמר".
+  const s = loadFontSize('bf8');
+  const map = s.window.STICKY_NOTE_FONT_SIZES;
+  const menus = s.window.STICKY_NOTE_FONT_MENUS;
+  Object.keys(menus).forEach((name) => {
+    menus[name].forEach((token) => {
+      eq(Object.prototype.hasOwnProperty.call(map, token), true,
+         'הטוקן ' + token + ' מהתפריט ' + name + ' קיים במפה');
+    });
+  });
+});
+
+check('גודל: ערך ששייך לעמוד ההגדרות אינו מרוקן את הבורר שבלוח', () => {
+  // ``mid`` קיים במפה אבל לא בתפריט הלוח. הצבה שלו על ``<select>`` שאין
+  // לו ``<option>`` כזה מרוקנת אותו במקום ליפול ל"רגיל" — ולכן הלוח
+  // מאמת מול התפריט שלו ולא מול המפה.
+  const s = loadFontSize('bf9', 'mid');
+  eq(s.window.STICKY_NOTE_FONT_MENUS.board.indexOf('mid'), -1, 'mid אינו בתפריט הלוח');
+  eq(Object.prototype.hasOwnProperty.call(s.window.STICKY_NOTE_FONT_SIZES, 'mid'), true,
+     'אבל כן קיים במפה');
+  eq(sizeClasses(s).length, 0, 'ולכן לא הוחל שום גודל על הלוח');
+});
+
+check('גודל: לכל מחלקה שבמפה יש כלל ב-CSS', () => {
+  // **החצי שסוגר את המעגל.** התפריטים מוצלבים למפה, והמפה מוצלבת כאן
+  // ל-CSS. בלי זה אפשר להוסיף גודל, לראות אותו בבורר, ולגלות שבחירה בו
+  // פשוט לא עושה כלום — כי אין מחלקה שמגדירה את הטוקן.
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+  const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const map = loadFontSize('bfc').window.STICKY_NOTE_FONT_SIZES;
+
+  Object.keys(map).forEach((token) => {
+    if (!map[token]) return;   // ``normal`` הוא היעדר מחלקה, לא מחלקה
+    const rule = new RegExp(':root\\.' + map[token] + '\\s*\\{[^}]*--sticky-note-font\\s*:');
+    eq(rule.test(decls), true, 'יש כלל ל-' + map[token]);
+  });
 });
 
 check('גודל: ה-CSS קורא מהטוקן בשני הצרכנים, ואין 14px שנשאר מאחור', () => {

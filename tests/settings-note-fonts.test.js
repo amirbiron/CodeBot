@@ -71,6 +71,8 @@ function load(fetchImpl, opts = {}) {
     mkSelect('board', '0'),
   ];
   const scopeSel = mkSelect('__scope', 'global');
+  const sizeSel = mkSelect('__size', opts.size || 'normal');
+  const sizeScopeSel = mkSelect('__sizeScope', opts.sizeScope || 'global');
 
   // שעון אירועים בדיד לשורת הגיבוי, שמסתירה את עצמה בטיימר.
   let now = 0, seq = 0;
@@ -82,6 +84,8 @@ function load(fetchImpl, opts = {}) {
     clearTimeout: (id) => { timers.delete(id); },
     document: {
       getElementById: (id) => (id === 'noteFontsScopeSelect' ? scopeSel
+                            : id === 'settingsNoteFontSizeSelect' ? (opts.__noSize ? null : sizeSel)
+                            : id === 'settingsNoteFontSizeScopeSelect' ? (opts.__noSize ? null : sizeScopeSel)
                             : id === 'noteFontsMsg' ? msg : null),
       querySelectorAll: (sel) => (sel === '.note-font-select' ? selects : []),
     },
@@ -127,8 +131,19 @@ function load(fetchImpl, opts = {}) {
     }
   }
 
-  return { sent, msg, selects, scopeSel, toasts, advance, installToast,
-           pending: () => timers.size };
+  return { sent, msg, selects, scopeSel, sizeSel, sizeScopeSel, toasts, advance,
+           installToast, pending: () => timers.size };
+}
+
+/**
+ * אותה טעינה, בלי בוררי הגודל ב-DOM.
+ *
+ * **לא תרחיש תיאורטי:** הסקריפט הזה מוטבע ב-``settings.html``, ובזמן
+ * דיפלוי דפדפן יכול להחזיק HTML מגרסה קודמת. הקוד חייב להתנהג כשורה
+ * כשהבוררים אינם שם.
+ */
+function loadWithoutSize(fetchImpl, opts = {}) {
+  return load(fetchImpl, { ...opts, __noSize: true });
 }
 
 // ─── גוף הבקשה ──────────────────────────────────────────────────────────
@@ -165,6 +180,105 @@ await acheck('שינוי התחולה שולח גם את הערכים', async ()
   eq(h.sent.length, 2, 'מספר בקשות');
   eq(h.sent[1].note_fonts_scope, 'device', 'התחולה');
   eq(h.sent[1].note_fonts.board, true, 'הערך נשלח יחד');
+});
+
+// ─── גודל הטקסט ─────────────────────────────────────────────────────────
+//
+// **הגודל רוכב על אותה מכונה כמו כתב היד** — אותו תור, אותו טוסט, אותה
+// החזרה בכשל — ולכן הבדיקות כאן מתמקדות במה ששונה: גוף הבקשה, בורר
+// התחולה הנפרד, וההתנהגות כשהבורר אינו קיים בעמוד.
+
+await acheck('הבקשה נושאת את הגודל ואת התחולה הנפרדת שלו', async () => {
+  const h = load();
+  h.sizeSel.value = 'mid';
+  await h.sizeSel.__fire('change');
+
+  eq(h.sent.length, 1, 'מספר בקשות');
+  eq(h.sent[0].note_font_size, 'mid', 'הגודל');
+  eq(h.sent[0].note_font_size_scope, 'global', 'התחולה של הגודל');
+});
+
+await acheck('שתי התחולות נפרדות ואינן נסחפות זו לזו', async () => {
+  // זו כל הסיבה שיש כאן בורר שני. אם השתיים היו נגזרות מאותו מקור,
+  // שינוי תחולת הגודל היה מעביר גם את כתב היד למכשיר — ובשקט.
+  const h = load();
+  h.sizeScopeSel.value = 'device';
+  await h.sizeScopeSel.__fire('change');
+
+  eq(h.sent[0].note_font_size_scope, 'device', 'תחולת הגודל');
+  eq(h.sent[0].note_fonts_scope, 'global', 'תחולת כתב היד לא זזה');
+});
+
+await acheck('שינוי כתב היד שולח גם את הגודל, ולהפך', async () => {
+  // בקשה אחת נושאת את שתי ההעדפות, בדיוק כמו ששלוש בחירות כתב היד
+  // נשלחות יחד. שליחה חלקית הייתה משאירה את השרת עם שני מצבים
+  // שנשמרו בזמנים שונים.
+  const h = load();
+  h.sizeSel.value = 'lg';
+  h.selects[0].value = '1';
+  await h.selects[0].__fire('change');
+
+  eq(h.sent[0].note_font_size, 'lg', 'הגודל נסע יחד עם כתב היד');
+  eq(h.sent[0].note_fonts.repo, true, 'וגם כתב היד עצמו');
+});
+
+await acheck('כשל שמירה מחזיר גם את בורר הגודל, לא רק את כתב היד', async () => {
+  const h = load(async () => ({ ok: false, status: 500, body: { ok: false } }));
+  h.sizeSel.value = 'lg';
+  await h.sizeSel.__fire('change');
+  eq(h.sizeSel.value, 'normal', 'הבורר הוחזר למצב שהשרת אישר');
+});
+
+await acheck('בלי בורר גודל בעמוד — הבקשה אינה נושאת את המפתח כלל', async () => {
+  // **``null`` אינו ערך חוקי בשרת.** מפתח שנשלח ריק היה מוחזר ב-400
+  // ומפיל איתו את שמירת כתב היד, שאין לה שום קשר לגודל.
+  const h = loadWithoutSize();
+  h.selects[0].value = '1';
+  await h.selects[0].__fire('change');
+
+  eq('note_font_size' in h.sent[0], false, 'המפתח נעדר');
+  eq('note_font_size_scope' in h.sent[0], false, 'וגם התחולה שלו');
+  eq(h.sent[0].note_fonts.repo, true, 'ושמירת כתב היד עברה כרגיל');
+});
+
+await acheck('אפשרויות הבורר בתבנית זהות לתפריט המשותף', async () => {
+  // אותו חוזה כמו בבורר שבמודאל הלוח: ה-HTML הוא העתק של הרשימה, כי
+  // המשתמש רואה שמות בעברית, והשמירה עליו היא בדיקה ולא הבטחה.
+  const shared = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'templates', '_note_fonts_head.html'), 'utf8');
+  const menuAt = shared.indexOf('settings: [');
+  eq(menuAt > 0, true, 'התפריט קיים בתבנית המשותפת');
+  const menu = shared.slice(menuAt, shared.indexOf(']', menuAt))
+    .replace('settings: [', '')
+    .split(',').map((t) => t.trim().replace(/'/g, '')).filter(Boolean);
+
+  const selectAt = SRC.indexOf('id="settingsNoteFontSizeSelect"');
+  eq(selectAt > 0, true, 'הבורר קיים בעמוד ההגדרות');
+  const end = SRC.indexOf('</select>', selectAt);
+  const options = [...SRC.slice(selectAt, end).matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+
+  eq(options.join(','), menu.join(','), 'אותם טוקנים, ובאותו סדר');
+});
+
+await acheck('הטוקנים שהשרת מקבל זהים לתפריט שבתבנית', async () => {
+  // **שני מקורות שחייבים להסכים.** השרת דוחה ב-400 כל טוקן שאינו
+  // ברשימה שלו; טוקן שיתווסף לתפריט בלי להתווסף שם היה מפיל שמירה,
+  // וטוקן שיוסר מהתפריט ויישאר שם היה נשמר בלי דרך לבחור אותו.
+  const shared = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'templates', '_note_fonts_head.html'), 'utf8');
+  const menuAt = shared.indexOf('settings: [');
+  const menu = shared.slice(menuAt, shared.indexOf(']', menuAt))
+    .replace('settings: [', '')
+    .split(',').map((t) => t.trim().replace(/'/g, '')).filter(Boolean);
+
+  const app = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'app.py'), 'utf8');
+  const at = app.indexOf('NOTE_FONT_SIZE_VALUES = (');
+  eq(at > 0, true, 'הקבוע קיים בשרת');
+  const server = app.slice(at, app.indexOf(')', at))
+    .replace('NOTE_FONT_SIZE_VALUES = (', '')
+    .split(',').map((t) => t.trim().replace(/"/g, '')).filter(Boolean);
+
+  eq(server.join(','), menu.join(','), 'אותם טוקנים, ובאותו סדר');
 });
 
 // ─── כשל ────────────────────────────────────────────────────────────────

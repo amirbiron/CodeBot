@@ -2213,6 +2213,12 @@ def inject_globals():
     except Exception:
         note_fonts, note_fonts_scope = _note_fonts_default(), THEME_SCOPE_GLOBAL
 
+    # גודל הטקסט בפתק. אותה הזרקה fail-soft, ואותו ``user_doc``.
+    try:
+        note_font_size, note_font_size_scope = _resolve_note_font_size(user_id, user_doc)
+    except Exception:
+        note_font_size, note_font_size_scope = NOTE_FONT_SIZE_DEFAULT, THEME_SCOPE_GLOBAL
+
     # התצוגה המצומצמת בעמוד הקבצים. ``user_doc`` כבר נשלף למעלה, ולכן אין
     # כאן קריאה נוספת למסד. fail-soft כמו שכניו: תקלה מחזירה את התצוגה המלאה.
     try:
@@ -2227,6 +2233,8 @@ def inject_globals():
         'ui_theme_scope': theme_scope,
         'note_fonts': note_fonts,
         'note_fonts_scope': note_fonts_scope,
+        'note_font_size': note_font_size,
+        'note_font_size_scope': note_font_size_scope,
         'files_compact_view': files_compact_view,
         'ui_theme_custom_id': ui_theme_custom_id,
         'custom_theme': custom_theme,
@@ -2375,6 +2383,73 @@ def _resolve_note_fonts(
     return _note_fonts_default(), scope
 
 
+# ─── גודל הטקסט בפתק, מעמוד ההגדרות ─────────────────────────────────────
+#
+# **הגדרה אחת לשני משטחים** — דפדפן הריפו וקבצי Markdown — ולא אחת לכל
+# אחד. הלוחות **אינם** כאן: להם בורר משלהם במודאל הלוח, שנשמר
+# ב-``localStorage`` לכל לוח בנפרד.
+#
+# הערכים הם הטוקנים ש-``STICKY_NOTE_FONT_MENUS.settings`` מציע
+# ב-``_note_fonts_head.html``, ומי ששומר על שני המקורות מיושרים הוא
+# בדיקה שמשווה ביניהם — בדיוק כמו הבורר שבמודאל הלוח מול המפה.
+NOTE_FONT_SIZE_VALUES = ("normal", "mid", "lg")
+NOTE_FONT_SIZE_DEFAULT = NOTE_FONT_SIZE_VALUES[0]
+
+
+def _decode_note_font_size(raw: Any) -> Optional[str]:
+    """טוקן גודל תקין, או ``None`` כשלא נאמר כלום או שהערך פגום.
+
+    ``None`` ולא ברירת מחדל, מאותה סיבה בדיוק כמו ב-``_decode_note_fonts``:
+    "המכשיר הזה לא אמר כלום" נופל ל-DB, ואילו "המכשיר הזה אמר: רגיל" גובר
+    עליו. פענוח שמחזיר ברירת מחדל בשני המקרים מוחק את ההבחנה.
+
+    **בדיקת הטיפוס באה ראשונה, ולא כנימוס.** הערך מגיע מ-cookie או מגוף
+    JSON — כלומר מחוץ לתהליך — ו-``.strip()`` על מה שאינו מחרוזת זורק.
+    """
+    if not isinstance(raw, str):
+        return None
+    val = raw.strip()
+    return val if val in NOTE_FONT_SIZE_VALUES else None
+
+
+def _resolve_note_font_size(
+    user_id: Optional[int],
+    user_doc: Optional[Dict[str, Any]],
+) -> tuple[str, str]:
+    """מחזיר ``(size, scope)`` — ערך המכשיר גובר רק במצב ``device``.
+
+    אותה הכרעה בדיוק כמו ``_resolve_note_fonts``, על cookie משלה: המשתמש
+    ביקש בורר תחולה **נפרד** לגודל, כדי שיוכל להחזיק גודל אחד בטאבלט
+    וכתב יד בכל המכשירים.
+    """
+    scope = _normalize_theme_scope(request.cookies.get('ui_note_font_size_scope'))
+    device_size = _decode_note_font_size(request.cookies.get('ui_note_font_size'))
+
+    if scope == THEME_SCOPE_DEVICE and device_size is not None:
+        return device_size, scope
+
+    # שליפה עצלה **רק** כשההכרעה הגיעה לכאן, כמו אצל שכנתה.
+    if user_id and user_doc is None:
+        try:
+            user_doc = get_db().users.find_one(
+                {'user_id': int(user_id)}, {'ui_prefs.note_font_size': 1}
+            ) or {}
+        except Exception:
+            user_doc = None
+
+    if user_id and isinstance(user_doc, dict):
+        # ``isinstance`` על ``ui_prefs`` ולא ``or {}``: מסמך שנערך ביד יכול
+        # להחזיק שם מחרוזת, ול-מחרוזת אין ``.get``.
+        prefs = user_doc.get('ui_prefs')
+        stored = _decode_note_font_size(
+            prefs.get('note_font_size') if isinstance(prefs, dict) else None
+        )
+        if stored is not None:
+            return stored, scope
+
+    return NOTE_FONT_SIZE_DEFAULT, scope
+
+
 def _note_fonts_etag_key(
     user_id: Optional[int],
     *,
@@ -2389,12 +2464,17 @@ def _note_fonts_etag_key(
 
     ``theme`` כבר נמצא ב-ETag ובמפתח הקאש מאותה סיבה בדיוק; זה אותו כלל
     שמוחל על הערך השני שמרונדר פר-משתמש.
+
+    **המפתח נושא את שתי ההעדפות של גופן הפתקים** — כתב היד וגודל הטקסט —
+    כי שתיהן מרונדרות לתוך אותו ``head``. הגודל שהתווסף מאוחר יותר היה
+    נופל בדיוק לאותה מלכודת אילו נשאר בחוץ.
     """
     try:
         fonts, _ = _resolve_note_fonts(user_id, user_doc)
-        return "nf:" + _encode_note_fonts(fonts)
+        size, _ = _resolve_note_font_size(user_id, user_doc)
+        return "nf:" + _encode_note_fonts(fonts) + ":" + size
     except Exception:
-        return "nf:" + _encode_note_fonts(None)
+        return "nf:" + _encode_note_fonts(None) + ":" + NOTE_FONT_SIZE_DEFAULT
 
 
 #: מפתח ההעדפה של התצוגה המצומצמת בעמוד הקבצים, תחת ``ui_prefs``.
@@ -3022,6 +3102,7 @@ def _file_last_modified(doc: Dict[str, Any]) -> datetime:
 ETAG_USER_PROJECTION = {
     'ui_prefs.theme': 1,
     'ui_prefs.note_fonts': 1,
+    'ui_prefs.note_font_size': 1,
     'custom_themes': 1,
     'custom_theme': 1,
 }
@@ -3043,7 +3124,15 @@ def _etag_needs_user_doc() -> bool:
         _normalize_theme_scope(request.cookies.get('ui_note_fonts_scope')) == THEME_SCOPE_DEVICE
         and _decode_note_fonts(request.cookies.get('ui_note_fonts')) is not None
     )
-    return not (theme_decided and fonts_decided)
+    # **גם הגודל.** הוא נכנס ל-``_note_fonts_etag_key``, ולכן הכרעה
+    # שמדלגת על המסד בזמן שהוא עדיין תלוי בו הייתה מחשבת מפתח לפי ברירת
+    # המחדל — כלומר ETag שלא זז אחרי שינוי ההגדרה, שזה הכשל שהמפתח נועד
+    # למנוע מלכתחילה.
+    size_decided = (
+        _normalize_theme_scope(request.cookies.get('ui_note_font_size_scope')) == THEME_SCOPE_DEVICE
+        and _decode_note_font_size(request.cookies.get('ui_note_font_size')) is not None
+    )
+    return not (theme_decided and fonts_decided and size_decided)
 
 
 def _get_theme_etag_key(
@@ -18471,6 +18560,9 @@ def api_ui_prefs():
         note_fonts_cookie_value: Optional[str] = None
         note_fonts_scope_cookie_value: Optional[str] = None
         note_fonts_scope: Optional[str] = None
+        note_font_size_cookie_value: Optional[str] = None
+        note_font_size_scope_cookie_value: Optional[str] = None
+        note_font_size_scope: Optional[str] = None
 
         # עדכון גודל גופן במידת הצורך
         if 'font_scale' in payload:
@@ -18594,6 +18686,41 @@ def api_ui_prefs():
             note_fonts_cookie_value = _encode_note_fonts(merged)
             note_fonts_scope_cookie_value = resolved_scope
 
+        # ─── גודל הטקסט בפתק ───────────────────────────────────────────
+        # אותה סמנטיקה, ובורר תחולה **נפרד**: המשתמש ביקש להחזיק גודל
+        # שונה בטאבלט בלי לגעת בבחירת כתב היד.
+        if 'note_font_size_scope' in payload:
+            note_font_size_scope = _normalize_theme_scope(payload.get('note_font_size_scope'))
+            note_font_size_scope_cookie_value = note_font_size_scope
+
+        if 'note_font_size' in payload:
+            # **הערך נדחה ולא מומר.** טוקן לא מוכר שהיה נשמר כמות שהוא
+            # אינו מוחל בדפדפן (ההחלה מאמתת מול המפה), ולכן המשתמש היה
+            # מקבל 200 ורואה שהגודל לא השתנה — 'נשמר' על משהו שלא נשמר.
+            # ``_decode_note_font_size`` בודקת קודם טיפוס: הערך מגיע מגוף
+            # JSON, ויכול להיות מספר, רשימה או ``null``.
+            size_value = _decode_note_font_size(payload.get('note_font_size'))
+            if size_value is None:
+                return jsonify({
+                    'ok': False,
+                    'error': 'note_font_size must be one of %s' % (
+                        ', '.join(NOTE_FONT_SIZE_VALUES),
+                    ),
+                }), 400
+
+            resolved_size_scope = (
+                THEME_SCOPE_DEVICE
+                if note_font_size_scope == THEME_SCOPE_DEVICE
+                else THEME_SCOPE_GLOBAL
+            )
+            # שדה יחיד ולא תת-מסמך, ולכן אין כאן את סיבוך המיזוג שיש
+            # אצל השכן: אין שדות שכנים שכתיבה מלאה הייתה מוחקת.
+            if resolved_size_scope != THEME_SCOPE_DEVICE:
+                update_fields['ui_prefs.note_font_size'] = size_value
+            resp_payload['note_font_size'] = size_value
+            note_font_size_cookie_value = size_value
+            note_font_size_scope_cookie_value = resolved_size_scope
+
         # עדכון סוג העורך במידת הצורך (שיקוף גם ל-session)
         if 'editor' in payload:
             editor_type = (payload.get('editor') or '').strip().lower()
@@ -18691,6 +18818,8 @@ def api_ui_prefs():
                 theme_scope_cookie_value,
                 note_fonts_cookie_value,
                 note_fonts_scope_cookie_value,
+                note_font_size_cookie_value,
+                note_font_size_scope_cookie_value,
             )
         )
 
@@ -18727,6 +18856,16 @@ def api_ui_prefs():
             if note_fonts_scope_cookie_value is not None:
                 if note_fonts_scope_cookie_value not in _THEME_SCOPE_VALUES:
                     note_fonts_scope_cookie_value = None
+            if note_font_size_cookie_value is not None:
+                # ``[a-z]`` ולא בדיקת חברות בלבד, כדי ש-CodeQL יראה ולידציה
+                # על הערך שנכנס ל-cookie — בדיוק כמו ``theme`` שמעל.
+                if not re.fullmatch(r"[a-z]{1,16}", str(note_font_size_cookie_value)):
+                    note_font_size_cookie_value = None
+                elif note_font_size_cookie_value not in NOTE_FONT_SIZE_VALUES:
+                    note_font_size_cookie_value = None
+            if note_font_size_scope_cookie_value is not None:
+                if note_font_size_scope_cookie_value not in _THEME_SCOPE_VALUES:
+                    note_font_size_scope_cookie_value = None
 
             if font_scale_cookie_value is not None:
                 resp.set_cookie(
@@ -18774,6 +18913,29 @@ def api_ui_prefs():
                 resp.set_cookie(
                     'ui_note_fonts_scope',
                     nf_scope_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
+            if note_font_size_cookie_value is not None:
+                resp.set_cookie(
+                    'ui_note_font_size',
+                    note_font_size_cookie_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
+            if note_font_size_scope_cookie_value is not None:
+                nfs_scope_value = (
+                    THEME_SCOPE_DEVICE
+                    if note_font_size_scope_cookie_value == THEME_SCOPE_DEVICE
+                    else THEME_SCOPE_GLOBAL
+                )
+                resp.set_cookie(
+                    'ui_note_font_size_scope',
+                    nfs_scope_value,
                     max_age=365*24*3600,
                     samesite='Lax',
                     secure=True,

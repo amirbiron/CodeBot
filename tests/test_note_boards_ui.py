@@ -138,6 +138,23 @@ def test_note_font_size_key_is_per_board(logged_in):
     assert "window.NOTE_FONT_SIZE_KEY = 'board-font-size:' + boardId;" in html
 
 
+def test_the_board_ignores_the_font_size_from_the_general_settings(logged_in):
+    """גודל הטקסט שנבחר בעמוד ההגדרות **אינו** חל על לוחות.
+
+    ההגדרה הכללית חלה על דפדפן הריפו ועל קובצי Markdown; ללוח יש בורר
+    משלו במודאל, לכל לוח בנפרד. שתי החלטות על אותה מחלקה היו נאבקות,
+    והמנצחת הייתה זו שרצה אחרונה — כלומר תלויה בסדר ההכללה ולא בכוונה.
+
+    הבדיקה על העמוד **המרונדר**, כי מי שמכריע הוא תנאי ב-Jinja שקורא את
+    המשטח; בדיקה על ה-JS לבדו לא הייתה רואה אותו בכלל.
+    """
+    html = logged_in.get('/boards/507f1f77bcf86cd799439011').get_data(as_text=True)
+
+    assert 'window.STICKY_NOTE_FONT_SIZE = "";' in html, (
+        "הלוח קיבל את הגודל מעמוד ההגדרות"
+    )
+
+
 def test_handwriting_font_is_requested_only_when_enabled(logged_in):
     """הגופן זמין לעמוד, אבל **אינו** נטען בתגית סטטית.
 
