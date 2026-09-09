@@ -1978,6 +1978,51 @@ check('אלרט: בעמודה 0 סוגר רשימה, ומוזח לתוך פרי�
   eq(last.classList.contains('is-depth-1'), true, 'ונשארה בתוך הפריט');
 });
 
+check('אלרט: רשימה שנפתחה בפנים אינה דולפת החוצה', () => {
+  // **הבאג שהריוויו תפס, ושכל 176 הבדיקות שלפניו לא ראו.** ``- ב`` נפתח
+  // בתוך האלרט, ו-``- ג`` שאחריו מוזח מספיק כדי "להגיע" לעמודת התוכן
+  // שלו — ולכן בלי סגירת המחסנית בגבול הוא יצא בעומק 1, כבן של פריט
+  // שכבר אינו קיים. נמדד מול ``markdown-it``: שם התשובה היא 0.
+  const { view } = renderMd(mdMgr, '::: note\n- א\n  - ב\n:::\n  - ג');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const last = rows[rows.length - 1];
+  eq(last.textContent.includes('ג'), true, 'זו אכן השורה האחרונה');
+  eq(last.classList.contains('is-depth-1'), false, 'ולא ירשה את העומק מתוך האלרט');
+});
+
+check('אלרט: הדליפה נחסמת גם בשורת צ׳קבוקס', () => {
+  // אותו שורש, ומסלול תצוגה אחר: המחלקה יושבת על ``.sticky-task-line``,
+  // המשותף לשורת רשימה ולשורת משימה. בלי בדיקה נפרדת, ענף שיטפל רק
+  // באחת מהן היה עובר.
+  const { view } = renderMd(mdMgr, '::: todo\n- [ ] א\n  - [ ] ב\n:::\n  - [ ] ג');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const last = rows[rows.length - 1];
+  eq(last.classList.contains('sticky-task'), true, 'השורה האחרונה היא משימה');
+  eq(last.classList.contains('is-depth-1'), false, 'ובעומק 0');
+});
+
+check('אלרט: הסגירה סוגרת לפי ההזחה של עצמה, ומשמרת רשימה חיצונית', () => {
+  // **הצד השני של אותו כלל, והוא מה שמבדיל אותו מ"אפס את המחסנית".**
+  // האלרט מוזח לתוך ``- חיצוני``, ולכן שורת הסגירה המוזחת סוגרת את מה
+  // שנפתח בפנים אבל **אינה** נוגעת בפריט שמעליה — ו-``- אחרי`` נשאר בנו.
+  const { view } = renderMd(mdMgr, '- חיצוני\n  ::: note\n  - פנימי\n  :::\n  - אחרי');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const last = rows[rows.length - 1];
+  eq(last.textContent.includes('אחרי'), true, 'זו השורה האחרונה');
+  eq(last.classList.contains('is-depth-1'), true, 'והיא עדיין בתוך הפריט החיצוני');
+});
+
+check('אלרט: סגירה מוזחת החוצה סוגרת גם את הפריט שהאלרט ישב בו', () => {
+  // ההזחה של שורת הסגירה היא הקובעת, ולא עומק שנשמר בשורת הפתיחה.
+  // זה בדיוק המקרה שבו שמירה-ושחזור נותנת תשובה אחרת — ושגויה: נמדד
+  // מול ``markdown-it``, ושם ``- אחרי`` יוצא בעומק 0.
+  const { view } = renderMd(mdMgr, '- חיצוני\n  ::: note\n  - פנימי\n:::\n  - אחרי');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const last = rows[rows.length - 1];
+  eq(last.textContent.includes('אחרי'), true, 'זו השורה האחרונה');
+  eq(last.classList.contains('is-depth-1'), false, 'והרשימה החיצונית נסגרה איתה');
+});
+
 check('אלרט: ה-CSS מכייל לפתק ואינו מגדיר פלטה שנייה', () => {
   // **שומר טקסטואלי.** הצבעים מגיעים מ-``markdown-enhanced.css`` שנטען
   // ב-``base.html``, ולכן אלרט בפתק נראה בדיוק כמו אלרט בתצוגת המסמך —
