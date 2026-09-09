@@ -153,7 +153,15 @@ def wired_mongo(request):
     ``delete_many`` ו-``insert_one`` פוגעים במסד **האמיתי**.
 
     שם המסד נגזר משם קובץ הבדיקה, כדי ששני קבצים באותה הרצה לא ידרסו
-    זה את זה.
+    זה את זה, **וגם ממזהה ה-worker** כשרצים במקביל.
+
+    למה גם ה-worker: היום ``ci.yml`` מריץ ``--dist=loadscope``, ובמצב הזה
+    כל הבדיקות של מודול אחד רצות באותו worker — נמדד מול xdist 3.8.0,
+    ובריצת בקרה עם ``--dist=load`` אותו מודול התפצל בין ארבעה workers.
+    כלומר שם לפי קובץ בלבד מספיק **רק כל עוד הדגל הזה נשאר**, והוא חי
+    בקובץ אחר לגמרי. מעבר ל-``--dist=load`` היה שולח שני workers לאותו
+    מסד, כשכל אחד מריץ ``drop_database`` ו-``delete_many`` בתחילת בדיקה —
+    כלומר מוחק את הנתונים של השני באמצע הריצה שלו. השם נעשה עצמאי מהדגל.
     """
     import pymongo
 
@@ -165,7 +173,12 @@ def wired_mongo(request):
 
     import webapp.app as wa
 
+    # ``PYTEST_XDIST_WORKER`` (למשל ``gw0``) קיים רק תחת xdist — בהרצה
+    # רגילה הוא חסר, והשם נשאר בדיוק כפי שהיה.
+    _worker = os.environ.get("PYTEST_XDIST_WORKER", "")
     db_name = "cktest_" + Path(str(request.node.fspath)).stem
+    if _worker:
+        db_name += "_" + _worker
     previous = (wa.MONGODB_URL, wa.DATABASE_NAME, wa.client, wa.db,
                 wa.app.config.get("TESTING"))
 
