@@ -6,6 +6,15 @@
 ומחזיר מספרי שורות שאינם במקום שבו הטקסט באמת יושב. סורק טוקנים שטוח לא
 מנסה לאזן, ולכן גם לא משקר.
 
+**מספר השורה נגזר מהאינדקס ואינו מתוחזק תוך כדי ריצה.** ``_line_table``
+בונה פעם אחת את המיקומים של כל ``\\n``, ו-``_line_at`` גוזר מהם. הגרסה
+הקודמת החזיקה מונה שהתקדם על כל ``\\n`` שנצרך — ושלוש קפיצות שהזיזו את
+האינדקס ביותר מתו אחד עקפו אותו: דילוג על ``\\`` במחרוזת וב-regex (שבולע
+גם ``\\`` שאחריו שורה חדשה אמיתית, המשך שורה חוקי ב-JS), והמעבר ל-
+``match.end()`` אחרי התאמה שחצתה שורות. התוצאה הייתה מספרי שורה שגויים
+שחזרו ללקוח עם ``status: "ok"``, והסחף נשאר עד סוף בלוק הסקריפט. אחרי
+השינוי אין ספירה שאפשר לדלג עליה, ולכן זה לא יכול לחזור.
+
 השמות שטוחים ולא מנוקדים: ב-HTML אין מרחבי שמות, ו-``div`` בעומק שתים-עשרה
 אינו שם משמעותי. התחילית נוספת רק כשיש עוגן אמיתי — ``id`` על בלוק
 ``<script>`` הופך את הפונקציות שבתוכו ל-``script#x.initColors``. **המשמעות
@@ -17,6 +26,9 @@
 from __future__ import annotations
 
 import re
+from array import array
+from bisect import bisect_left
+from collections.abc import Sequence
 from typing import Any
 
 #: אלמנטים שאין להם תגית סגירה, ולכן אסור לדחוף אותם למחסנית — אחרת הם
@@ -55,6 +67,12 @@ _JAVASCRIPT_MIME_ESSENCES = frozenset({
 #: שלהם עצמם.
 _RAWTEXT_ELEMENTS = frozenset({"script", "style"})
 
+#: מקומפל פעם אחת ולא בכל קריאה — ``_read_rawtext`` רץ לכל תגית ``script``
+#: ו-``style`` בקובץ, ו-``re.compile`` אינו מוחזק בקאש כמו ``re.search``.
+_RAWTEXT_CLOSERS = {
+    tag: re.compile(rf"</{tag}", re.IGNORECASE) for tag in _RAWTEXT_ELEMENTS
+}
+
 #: תגיות Jinja שהן מרחב עם התחלה וסוף, ולכן מקבלות טווח.
 _JINJA_BLOCK_TAGS = frozenset({"block", "macro"})
 
@@ -73,15 +91,35 @@ _TAG_NAME = re.compile(r"[A-Za-z][A-Za-z0-9-]*")
 _JINJA_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _QUOTED = re.compile(r"""["']([^"']*)["']""")
 
+#: שם תכונה נגמר ברווח, ב-``/``, ב-``>`` או ב-``=``. מקור: מצב "attribute
+#: name state" בטוקנייזר של WHATWG.
+_ATTRIBUTE_NAME = re.compile(r"[^\s/>=]+")
+
 #: הגדרת פונקציה ב-JavaScript, בצורות שמופיעות בפועל. ``base.html`` מכיל
 #: 135 מהצורה הראשונה ו-24 מצורת החץ.
+#:
+#: **ההתאמה נעצרת לפני רשימת הפרמטרים** (``(?=\s*\()`` ולא ``\s*\(``), כדי
+#: שהלולאה תספור בעצמה את הסוגריים העגולים. משם נגזר "האם אנחנו עדיין
+#: בחתימה", במקום לנחש אותו מצורת הטקסט שהותאם.
+#:
+#: **``\s*(?:\*\s*)?`` ולא ``\s*\*?\s*``.** השתיים מתאימות בדיוק את אותה
+#: שפה, אבל בצורה הישנה שני ה-``\s*`` צמודים ומופרדים באטום אופציונלי:
+#: על רצף רווחים באורך *m* יש O(m) דרכים לפצל אותו, וכל פיצול נבדק מחדש
+#: מול ``[A-Za-z_$]`` שנכשל. נמדד על ``<script>\nfunction`` ורצף רווחים:
+#: 0.63 שניות ל-10KB, 2.53 ל-20KB, 9.98 ל-40KB — פי ארבע לכל הכפלה. ``\s``
+#: כולל ``\n``, ולכן רצף שורות ריקות מספיק. הלולאה יושבת במנוע הרג'קס של
+#: CPython שמחזיק את ה-GIL, ואי אפשר לבטל אותה מבחוץ.
 _JS_FUNCTION = re.compile(
-    r"(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\("
+    r"(?:async\s+)?function\s*(?:\*\s*)?([A-Za-z_$][\w$]*)(?=\s*\()"
 )
 #: רשימת הפרמטרים מכבדת רמת קינון אחת של סוגריים, ולא ``[^)]*``. הצורה
 #: הרחבה התאימה ל-``const md = (a ? b : (()=>({x})))({`` — הצבה של תוצאת
 #: קריאה, לא הגדרה — כי היא עצרה ב-``)`` הראשון ומצאה ``=>`` אחריו.
 #: הקינון גם מרוויח: ``const k = (a, b = (1)) => a`` נתפס עכשיו, ולא היה.
+#:
+#: החלופה ``function\b`` **אינה** בולעת את ה-``(``, וצורת החץ **כן** בולעת
+#: את ``(…)`` כי בלעדיה אי אפשר לראות את ה-``=>``. שתיהן עובדות מול אותו
+#: כלל, כי בשנייה עומק הסוגריים חוזר לערכו עוד לפני סוף ההתאמה.
 _JS_ASSIGNED = re.compile(
     r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
     r"(?:async\s+)?(?:function\b|\((?:[^()]|\([^()]*\))*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)"
@@ -93,73 +131,121 @@ _JS_ASSIGNED = re.compile(
 #: המצב הזה המרכאה הייתה פותחת מחרוזת ובולעת את הקוד שאחריה.
 _BEFORE_DIVISION = re.compile(r"[\w$)\]]")
 
+_NEWLINE = re.compile("\n")
+
+
+def _line_table(text: str) -> Sequence[int]:
+    """המיקומים של כל ``\\n`` בטקסט.
+
+    זו הטבלה שממנה נגזר כל מספר שורה שהמפה מחזירה. הבנייה היא מעבר אחד:
+    נמדד על קובץ של 10MB, התקרה ש-``RANGE_READ_MAX_BYTES`` מתיר, 0.16
+    שניות ו-250,752 רשומות.
+
+    **``array`` ולא ``list``, ובגלל הזיכרון.** רשימה מחזיקה מצביע ואובייקט
+    ``int`` נפרד לכל רשומה — נמדד 8.7MB על אותו קובץ, כלומר תוספת בגודל
+    הקלט עצמו. ``array("q")`` מחזיק שמונה בתים לרשומה ויוצא 1.9MB.
+    ``bisect`` עובד על שניהם. ``"q"`` ולא ``"i"`` (שהיה 1.0MB) כדי שלא
+    ייווצר גבול חדש שצריך להצדיק: ``"i"`` נגמר ב-2GB וזורק ``OverflowError``
+    מעליו, ומיליון בתים אינם שווים את השאלה.
+    """
+    return array("q", (found.start() for found in _NEWLINE.finditer(text)))
+
+
+def _line_at(lines: Sequence[int], index: int) -> int:
+    """מספר השורה (מבסיס 1) של המיקום ``index``.
+
+    ``bisect_left`` ולא ``bisect_right``: התוצאה היא מספר ה-``\\n`` שיושבים
+    **לפני** ``index``, ולכן ``\\n`` עצמו שייך לשורה שהוא מסיים. זה בדיוק
+    ``text.count("\\n", 0, index) + 1``, כלומר אותו מיפוי ש-``split("\\n")``
+    נותן — והוא זה שמסלול קריאת הטווח משתמש בו.
+    """
+    return bisect_left(lines, index) + 1
+
 
 def extract(text: str) -> dict[str, Any]:
     """מפת הסימבולים של תבנית HTML/Jinja."""
     rows: list[dict[str, Any]] = []
     tags: list[tuple[str, int, str | None]] = []
     jinja: list[tuple[str, int, str]] = []
-    line = 1
+    lines = _line_table(text)
     index = 0
     size = len(text)
 
     while index < size:
-        char = text[index]
-
-        if char == "\n":
-            line += 1
-            index += 1
-            continue
-
         # ההערות נבדקות **לפני** כל דבר אחר, כדי שקוד מת בתוכן לא ייכנס
         # למפה. ``base.html`` מכיל 25 הערות HTML ותשע הערות Jinja, וחלקן
         # רב-שורתיות.
         if text.startswith("{#", index):
-            index, line = _skip_past(text, index + 2, "#}", line)
+            index = _skip_past(text, index + 2, "#}")
             continue
         if text.startswith("<!--", index):
-            index, line = _skip_past(text, index + 4, "-->", line)
+            index = _skip_past(text, index + 4, "-->")
             continue
 
         # תגית Jinja נבדקת לפני ``<``, כי היא יכולה לעטוף תגית HTML.
         if text.startswith("{%", index):
-            stop, next_line = _skip_past(text, index + 2, "%}", line)
-            _read_jinja(text[index + 2 : stop - 2], line, rows, jinja)
-            index, line = stop, next_line
+            stop = _jinja_tag_end(text, index)
+            if stop < 0:
+                # **תגית שלא נסגרה אינה תגית.** מדלגים על ``{%`` בלבד
+                # וממשיכים לסרוק כטקסט, כדי שתגית תקינה שיושבת מתחתיה
+                # תימצא כרגיל. בליעה עד סוף הקובץ הייתה מוחקת אותה יחד
+                # עם השבורה.
+                index += 2
+                continue
+            _read_jinja(text[index + 2 : stop - 2], _line_at(lines, index), rows, jinja)
+            index = stop
             continue
         if text.startswith("{{", index):
-            index, line = _skip_past(text, index + 2, "}}", line)
+            index = _skip_past(text, index + 2, "}}")
             continue
 
-        if char == "<":
-            index, line = _read_tag(text, index, line, rows, tags)
+        if text[index] == "<":
+            index = _read_tag(text, index, lines, rows, tags)
             continue
 
         index += 1
 
     # תגיות שנשארו פתוחות בסוף הקובץ. זה הכתיב הרגיל בתבנית שנפתחת בענף
     # אחד ונסגרת באחר, ולכן הן מדווחות עד סוף הקובץ ולא נזרקות.
+    last = _line_at(lines, size)
     for name, opened, anchor in tags:
         if anchor:
-            rows.append({"name": f"{name}#{anchor}", "start": opened, "end": line})
+            rows.append({"name": f"{name}#{anchor}", "start": opened, "end": last})
     for kind, opened, name in jinja:
         if kind in _JINJA_BLOCK_TAGS:
-            rows.append({"name": f"{kind} {name}", "start": opened, "end": line})
+            rows.append({"name": f"{kind} {name}", "start": opened, "end": last})
 
     return {"symbols": rows}
 
 
-def _skip_past(text: str, start: int, needle: str, line: int) -> tuple[int, int]:
+def _skip_past(text: str, start: int, needle: str) -> int:
     """מדלג עד אחרי ``needle``, או עד סוף הטקסט אם הוא לא נסגר.
 
     קטע שלא נסגר אינו שגיאה שמפילה את הסריקה: הקלט הוא קובץ שמישהו כתב,
-    ובקובץ באמצע עריכה זה קורה. הוא נבלע עד הסוף, וזה גם מה שדפדפן עושה.
+    ובקובץ באמצע עריכה זה קורה. הוא נבלע עד הסוף, וזה גם מה שדפדפן עושה
+    להערה או לביטוי שלא נסגרו. לתגית ``{% %}`` יש כלל אחר, ב-
+    ``_jinja_tag_end``, כי שם בליעה עד הסוף מוחקת סימבולים תקינים.
     """
     stop = text.find(needle, start)
+    return len(text) if stop < 0 else stop + len(needle)
+
+
+def _jinja_tag_end(text: str, index: int) -> int:
+    """הסוף של תגית ``{% ... %}``, או ``-1`` אם היא לא נסגרה.
+
+    **הסוגר שנמצא חייב להיות של התגית הזאת.** ``text.find`` לבדו מחזיר את
+    המופע הבא של ``%}`` איפשהו בקובץ, ולכן תגית שלא נסגרה בלעה את הסוגר
+    של השכנה התקינה שמתחתיה — וזו נעלמה מהמפה לגמרי, עם ``status: "ok"``
+    ובלי שום סימן שמשהו חסר. ``{%`` נוסף שמופיע לפני הסוגר פירושו שהסוגר
+    שנמצא אינו שלנו.
+    """
+    stop = text.find("%}", index + 2)
     if stop < 0:
-        return len(text), line + text.count("\n", start)
-    end = stop + len(needle)
-    return end, line + text.count("\n", start, end)
+        return -1
+    nested = text.find("{%", index + 2)
+    if 0 <= nested < stop:
+        return -1
+    return stop + 2
 
 
 def _read_jinja(
@@ -187,6 +273,17 @@ def _read_jinja(
         for depth in range(len(stack) - 1, -1, -1):
             if stack[depth][0] == closes:
                 kind, opened, name = stack.pop(depth)
+                # מה שהיה פתוח **בתוך** התגית שנסגרה כבר לא ייסגר בנפרד;
+                # הוא מדווח כאן עד אותה שורה, ולא נזרק בשקט. ``_close_tag``
+                # עשה את זה למחסנית ה-HTML מהיום הראשון, וכאן זה חסר —
+                # ולכן ``{% block %}`` שנפתח בתוך ``{% if %}`` ולא נסגר לפני
+                # ה-``{% endif %}`` נמחק מהמפה בלי שום סימן. זה גם סתר את
+                # מה שהתיעוד מבטיח, שתגית שלא נסגרה מדווחת עד סוף הקובץ.
+                for inner, inner_line, inner_name in stack[depth:]:
+                    if inner in _JINJA_BLOCK_TAGS:
+                        rows.append(
+                            {"name": f"{inner} {inner_name}", "start": inner_line, "end": line}
+                        )
                 del stack[depth:]
                 if kind in _JINJA_BLOCK_TAGS:
                     rows.append({"name": f"{kind} {name}", "start": opened, "end": line})
@@ -210,45 +307,46 @@ def _read_jinja(
 def _read_tag(
     text: str,
     index: int,
-    line: int,
+    lines: Sequence[int],
     rows: list[dict[str, Any]],
     stack: list[tuple[str, int, str | None]],
-) -> tuple[int, int]:
-    """קורא תגית אחת מ-``<``. מחזיר את המיקום והשורה שאחריה."""
+) -> int:
+    """קורא תגית אחת מ-``<``. מחזיר את המיקום שאחריה."""
+    line = _line_at(lines, index)
+
     if text.startswith("</", index):
         name = _TAG_NAME.match(text, index + 2)
         if not name:
-            return index + 1, line
-        stop, next_line = _skip_past(text, index, ">", line)
+            return index + 1
+        stop = _skip_past(text, index, ">")
         _close_tag(name.group(0).lower(), line, rows, stack)
-        return stop, next_line
+        return stop
 
     name = _TAG_NAME.match(text, index + 1)
     if not name:
-        return index + 1, line
+        return index + 1
 
     tag = name.group(0).lower()
-    attributes, stop, next_line = _read_attributes(text, name.end(), line)
-    self_closing = attributes.rstrip().endswith("/")
+    attributes, self_closing, stop = _read_attributes(text, name.end())
     anchor = _attribute(attributes, "id")
 
     if tag in _RAWTEXT_ELEMENTS:
         label = f"{tag}#{anchor}" if anchor else tag
-        body_rows, end_index, end_line = _read_rawtext(
-            text, stop, next_line, tag,
+        body_rows, after, after_line = _read_rawtext(
+            text, stop, lines, tag,
             prefix=f"{label}." if anchor else "",
             javascript=tag == "script" and _is_javascript(attributes),
         )
-        rows.append({"name": label, "start": line, "end": end_line})
+        rows.append({"name": label, "start": line, "end": after_line})
         rows.extend(body_rows)
-        return end_index, end_line
+        return after
 
     if tag not in _VOID_ELEMENTS and not self_closing:
         stack.append((tag, line, anchor))
     elif anchor:
-        rows.append({"name": f"{tag}#{anchor}", "start": line, "end": next_line})
+        rows.append({"name": f"{tag}#{anchor}", "start": line, "end": _line_at(lines, stop)})
 
-    return stop, next_line
+    return stop
 
 
 def _close_tag(
@@ -285,42 +383,86 @@ def _close_tag(
             return
 
 
-def _read_attributes(text: str, start: int, line: int) -> tuple[str, int, int]:
-    """קורא עד ``>``, תוך כיבוד מחרוזות.
+def _read_attributes(text: str, start: int) -> tuple[list[tuple[str, str]], bool, int]:
+    """קורא את התכונות עד ``>``, ומחזיר אותן **מפורסות**.
 
-    ``<div title="a > b">`` הוא תגית אחת. חיפוש ``>`` בלי לכבד מחרוזות היה
-    חותך אותה באמצע, וכל מה שאחריה היה נקרא כטקסט.
+    **הפרסינג נעשה כאן, פעם אחת.** הגרסה הקודמת החזירה את מחרוזת התכונות
+    הגולמית, ומי שרצה ``id`` או ``type`` הריץ עליה רג'קס — ואז ``id=``
+    שיושב **בתוך ערך של תכונה אחרת** ניצח. שתי תוצאות, שתיהן נמדדו:
+    ``<div title="x id=decoy" id="real">`` החזיר ``div#decoy"``, שם שאינו
+    קיים בקובץ בכלל; ו-``<script data-note="see type=text/plain">`` סווג
+    כלא-JavaScript, כך שכל הפונקציות שבתוך הבלוק נעלמו מהמפה.
+
+    **הלוכסן בערך לא מצוטט שייך לערך, לא לתגית.** נמדד ב-Chromium
+    141.0.7390.37: ``<a id="k" href=/>text</a>`` נותן ``href="/"`` ואת
+    הטקסט **בתוך** ה-``<a>``. לפי הטוקנייזר של WHATWG, ערך לא מצוטט נגמר
+    ברווח או ב-``>`` בלבד. הגרסה הקודמת בדקה ``endswith("/")`` על המחרוזת
+    הגולמית וסימנה את התגית כסוגרת את עצמה.
     """
+    attributes: list[tuple[str, str]] = []
     index = start
     size = len(text)
-    quote = ""
+    #: לוכסן שנראה ואינו חלק מערך. רק לוכסן שמגיע ממש לפני ``>`` סוגר.
+    solidus = False
+
     while index < size:
         char = text[index]
-        if quote:
-            if char == quote:
-                quote = ""
-        elif char in "\"'":
-            quote = char
-        elif char == ">":
-            return text[start:index], index + 1, line + text.count("\n", start, index + 1)
-        index += 1
-    return text[start:], size, line + text.count("\n", start)
+        if char == ">":
+            return attributes, solidus, index + 1
+        if char.isspace():
+            index += 1
+            continue
+        if char == "/":
+            solidus = True
+            index += 1
+            continue
+
+        solidus = False
+        name = _ATTRIBUTE_NAME.match(text, index)
+        if not name:
+            index += 1
+            continue
+        index = name.end()
+
+        while index < size and text[index].isspace():
+            index += 1
+        value = ""
+        if index < size and text[index] == "=":
+            index += 1
+            while index < size and text[index].isspace():
+                index += 1
+            if index < size and text[index] in "\"'":
+                # ``<div title="a > b">`` הוא תגית אחת. חיפוש ``>`` בלי
+                # לכבד מחרוזות היה חותך אותה באמצע.
+                quote = text[index]
+                closing = text.find(quote, index + 1)
+                stop = size if closing < 0 else closing
+                value = text[index + 1 : stop]
+                index = min(stop + 1, size)
+            else:
+                stop = index
+                while stop < size and not text[stop].isspace() and text[stop] != ">":
+                    stop += 1
+                value = text[index:stop]
+                index = stop
+
+        attributes.append((name.group(0).casefold(), value))
+
+    return attributes, solidus, size
 
 
-def _attribute(attributes: str, name: str) -> str | None:
-    """הערך של תכונה, או ``None``. מחזיר גם ערך ריק כ-``None``."""
-    found = re.search(
-        rf"""(?:^|\s){re.escape(name)}\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""",
-        attributes,
-        re.IGNORECASE,
-    )
-    if not found:
-        return None
-    value = next((group for group in found.groups() if group is not None), "")
-    return value.strip() or None
+def _attribute(attributes: list[tuple[str, str]], name: str) -> str | None:
+    """הערך של תכונה, או ``None``. מחזיר גם ערך ריק כ-``None``.
+
+    הראשונה מנצחת, כמו בדפדפן: תכונה כפולה נזרקת ולא דורסת.
+    """
+    for found, value in attributes:
+        if found == name:
+            return value.strip() or None
+    return None
 
 
-def _is_javascript(attributes: str) -> bool:
+def _is_javascript(attributes: list[tuple[str, str]]) -> bool:
     """האם הבלוק הזה הוא JavaScript שראוי לרדת לתוכו.
 
     היעדר ``type``, ``type`` ריק, ``module``, או MIME type של JavaScript.
@@ -336,7 +478,7 @@ def _is_javascript(attributes: str) -> bool:
 
 
 def _read_rawtext(
-    text: str, start: int, line: int, tag: str, prefix: str, javascript: bool
+    text: str, start: int, lines: Sequence[int], tag: str, prefix: str, javascript: bool
 ) -> tuple[list[dict[str, Any]], int, int]:
     """קורא גוף של ``<script>`` או ``<style>`` עד תגית הסגירה שלו.
 
@@ -352,18 +494,21 @@ def _read_rawtext(
     # יכול לשנות **אורך** — ``İ`` (U+0130) הופך לשני תווים — והאינדקס
     # שחוזר משמש לחיתוך ולספירת שורות ב-``text``, כך שהוא מוסט. וזו גם
     # הקצאה של עותק מלא של הטקסט לכל תגית ``script``/``style``, עד 10MB
-    # לפי ``RANGE_READ_MAX_BYTES`` — בדיוק העלות שההערה על
-    # ``_CR_WITHOUT_LF`` ב-``outline.py`` נמנעת ממנה במפורש.
-    found = re.compile(rf"</{re.escape(tag)}", re.IGNORECASE).search(text, start)
+    # לפי ``RANGE_READ_MAX_BYTES``.
+    found = _RAWTEXT_CLOSERS[tag].search(text, start)
     stop = found.start() if found else len(text)
-    end_line = line + text.count("\n", start, stop)
-    after, after_line = _skip_past(text, stop, ">", end_line)
+    after = _skip_past(text, stop, ">")
 
-    rows = _read_javascript(text[start:stop], line, prefix) if javascript else []
-    return rows, after, after_line
+    # ``_read_javascript`` מקבל את הטקסט עם גבולות ולא פרוסה שלו: פרוסה
+    # היא מרחב אינדקסים אחר, וטבלת השורות אחת לכל הקובץ. זה גם חוסך
+    # עותק של עד 10MB לכל תגית.
+    rows = _read_javascript(text, start, stop, lines, prefix) if javascript else []
+    return rows, after, _line_at(lines, after)
 
 
-def _read_javascript(source: str, line: int, prefix: str) -> list[dict[str, Any]]:
+def _read_javascript(
+    text: str, start: int, stop: int, lines: Sequence[int], prefix: str
+) -> list[dict[str, Any]]:
     """הגדרות הפונקציות בתוך בלוק סקריפט.
 
     זה מה שהופך בלוק בן שבע-מאות שורות למפה שאפשר לנווט בה. בלוק שמוחזר
@@ -373,102 +518,97 @@ def _read_javascript(source: str, line: int, prefix: str) -> list[dict[str, Any]
     literal**. האחרון אינו קישוט: ב-``base.html`` יש ``.replace(/"/g, ...)``
     בשלושה מקומות, והמרכאה שבתוך ה-regex הייתה פותחת מחרוזת ובולעת את הקוד
     עד המרכאה הבאה.
+
+    **"האם אנחנו עדיין בחתימה" נגזר מעומק הסוגריים, ולא נקבע בהתאמה.**
+    ``function f(a, opts = {})`` מכיל ``{`` שאינו פותח את גוף הפונקציה,
+    ורישום העומק ברגע ההתאמה גרם ל-``}`` שסוגר את ברירת המחדל לסגור את
+    הפונקציה כולה — ``end == start`` בשורת החתימה, ב-136 מתוך 841
+    ההגדרות. הגרסה הקודמת ניסתה לתקן את זה במונה שנקבע מ**צורת הטקסט
+    שהותאם** (``group(0).endswith("(")``), ונכשלה בשני כיוונים: היא לא
+    חלה על ``const f = function (…)``, שבו ההתאמה נגמרת במילה ``function``;
+    וכשהמונה לא חזר לאפס — סוגר עגול אחד שלא נסגר — היא חסמה כל התאמה
+    חדשה ו**השתיקה את שאר הבלוק**.
+
+    עכשיו הלולאה סופרת ``parens`` תמיד, וכל פונקציה ממתינה זוכרת את
+    ``parens`` שברגע ההתאמה. ה-``{`` פותח את הגוף רק כשחזרנו לערך ההוא.
+    סוגר שלא נסגר מקלקל פונקציה אחת במקום בלוק שלם.
     """
     rows: list[dict[str, Any]] = []
-    pending: list[tuple[str, int, int]] = []
+    #: (שם, שורת הפתיחה, עומק הגוף או ``-1`` בהמתנה, עומק הסוגריים בהתאמה)
+    pending: list[tuple[str, int, int, int]] = []
     depth = 0
-    index = 0
-    size = len(source)
-    current = line
+    parens = 0
+    index = start
     #: הטוקן הלא-רווח האחרון — משמש **רק** להבחנה בין regex לחילוק.
     token = ""
-    #: כמה סוגריים עגולים של חתימה עוד פתוחים. חיובי = אנחנו בתוך
-    #: רשימת הפרמטרים, ושם ``{`` אינו פותח גוף.
-    signature = 0
 
-    while index < size:
-        char = source[index]
+    while index < stop:
+        char = text[index]
 
         if char == "\n":
-            current += 1
-            index += 1
             # ``const f = x => x + 1`` בלי גוף מסולסל נגמר בסוף השורה.
-            # הסגירה כאן היא רק למי שכבר יצא מהחתימה: פונקציה שהחתימה
-            # שלה נפרסת על כמה שורות עדיין ממתינה לגוף, ואסור לסגור אותה
-            # בסוף השורה הראשונה.
-            if not signature:
-                while pending and pending[-1][2] < 0:
-                    name, opened, _ = pending.pop()
-                    rows.append({"name": f"{prefix}{name}", "start": opened, "end": current - 1})
+            # הסגירה כאן היא רק למי שכבר יצא מרשימת הפרמטרים: פונקציה
+            # שהחתימה שלה נפרסת על כמה שורות עדיין ממתינה לגוף, ואסור
+            # לסגור אותה בסוף השורה הראשונה.
+            while pending and pending[-1][2] < 0 and parens <= pending[-1][3]:
+                name, opened, _, _ = pending.pop()
+                rows.append({
+                    "name": f"{prefix}{name}", "start": opened,
+                    "end": _line_at(lines, index),
+                })
+            index += 1
             continue
 
-        if source.startswith("//", index):
-            stop = source.find("\n", index)
-            index = size if stop < 0 else stop
+        if text.startswith("//", index):
+            found = text.find("\n", index)
+            index = stop if found < 0 else min(found, stop)
             continue
-        if source.startswith("/*", index):
-            index, current = _skip_past(source, index + 2, "*/", current)
+        if text.startswith("/*", index):
+            index = min(_skip_past(text, index + 2, "*/"), stop)
             continue
         if char in "\"'`":
-            index, current = _skip_string(source, index, current)
+            index = _skip_string(text, index, stop)
             token = "x"
             continue
         if char == "/" and not _BEFORE_DIVISION.match(token):
-            index, current = _skip_regex(source, index, current)
+            index = _skip_regex(text, index, stop)
             token = "x"
             continue
 
-        # **בתוך רשימת הפרמטרים אין גוף.** ``function f(a, opts = {})``
-        # מכיל ``{`` שאינו פותח את הפונקציה, ורישום העומק ברגע ההתאמה
-        # גרם ל-``}`` שסוגר את ברירת המחדל לסגור את הפונקציה כולה —
-        # ``end == start`` בשורת החתימה. נמדד: 136 מתוך 841 ההגדרות בכל
-        # התבניות, ו-61 מתוך 97 ב-``admin_observability.html``.
-        #
-        # לכן ``signature`` סופר את הסוגריים העגולים שנותרו פתוחים מאז
-        # ההתאמה. כל עוד הוא חיובי אנחנו בחתימה: ``{``/``}`` נספרים
-        # לעומק כרגיל, אבל אינם סוגרים כלום, וה-``{`` הראשון **אחרי**
-        # שהם התאזנו הוא זה שרושם את עומק הגוף.
-        if signature:
-            if char == "(":
-                signature += 1
-            elif char == ")":
-                signature -= 1
-            elif char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-            if not char.isspace():
-                token = char
-            index += 1
-            continue
-
-        if char == "{":
+        if char == "(":
+            parens += 1
+        elif char == ")":
+            parens -= 1
+        elif char == "{":
             depth += 1
-            # פונקציה שממתינה לגוף (``-1``) מקבלת כאן את עומקה האמיתי.
-            # זה חל גם על ``function`` רגילה — אחרי שהחתימה נסגרה — וגם
-            # על חץ עם גוף מסולסל.
-            if pending and pending[-1][2] < 0:
-                name, opened, _ = pending.pop()
-                pending.append((name, opened, depth - 1))
+            # פונקציה שממתינה לגוף (``-1``) מקבלת כאן את עומקה האמיתי —
+            # אבל רק אם רשימת הפרמטרים כבר נסגרה.
+            if pending and pending[-1][2] < 0 and parens <= pending[-1][3]:
+                name, opened, _, at_match = pending.pop()
+                pending.append((name, opened, depth - 1, at_match))
         elif char == "}":
             depth -= 1
             while pending and 0 <= pending[-1][2] >= depth:
-                name, opened, _ = pending.pop()
-                rows.append({"name": f"{prefix}{name}", "start": opened, "end": current})
-
-        if char.isalpha() or char in "_$":
+                name, opened, _, _ = pending.pop()
+                rows.append({
+                    "name": f"{prefix}{name}", "start": opened,
+                    "end": _line_at(lines, index),
+                })
+        elif char.isalpha() or char in "_$":
             # ``adjacent`` הוא התו ה**צמוד** ולא הטוקן האחרון. שני
             # השימושים נראים דומים ואינם: ל-regex צריך את הטוקן הקודם
             # (``x /2`` הוא חילוק), ולגבול מזהה צריך את התו הסמוך.
             # משתנה אחד לשניהם חסם הגדרה לגיטימית אחרי ``var s = "abc"``
             # בלי נקודה-פסיק, אחרי ``init()`` ואחרי ``arr[0]``.
-            adjacent = source[index - 1] if index else ""
-            match = _JS_FUNCTION.match(source, index) or _JS_ASSIGNED.match(source, index)
+            adjacent = text[index - 1] if index > start else ""
+            match = (
+                _JS_FUNCTION.match(text, index, stop)
+                or _JS_ASSIGNED.match(text, index, stop)
+            )
             if match and not _BEFORE_DIVISION.match(adjacent):
-                # ``-1`` = "ממתין לגוף" בשני המקרים. ה-``{`` שיגיע הוא
-                # שיקבע את העומק, בין אם החתימה בסוגריים ובין אם לא.
-                pending.append((match.group(1), current, -1))
-                signature = 1 if match.group(0).rstrip().endswith("(") else 0
+                # ``-1`` = "ממתין לגוף". ה-``{`` שיגיע כשעומק הסוגריים
+                # יחזור לערך שנשמר כאן הוא זה שיקבע את העומק.
+                pending.append((match.group(1), _line_at(lines, index), -1, parens))
                 index = match.end()
                 token = "x"
                 continue
@@ -478,12 +618,13 @@ def _read_javascript(source: str, line: int, prefix: str) -> list[dict[str, Any]
         index += 1
 
     # פונקציות שלא נסגרו עד סוף הבלוק.
-    for name, opened, _ in pending:
-        rows.append({"name": f"{prefix}{name}", "start": opened, "end": current})
+    last = _line_at(lines, stop)
+    for name, opened, _, _ in pending:
+        rows.append({"name": f"{prefix}{name}", "start": opened, "end": last})
     return rows
 
 
-def _skip_string(source: str, index: int, line: int) -> tuple[int, int]:
+def _skip_string(text: str, index: int, stop: int) -> int:
     """מדלג על מחרוזת, כולל template literal עם ``${...}`` מקונן.
 
     **המונה חייב לספור את אותם תווים בשני הכיוונים.** גרסה קודמת העלתה
@@ -495,56 +636,66 @@ def _skip_string(source: str, index: int, line: int) -> tuple[int, int]:
     ``admin_observability.html``, ו-``executedFunction`` ב-
     ``md_preview.html``.
 
-    עכשיו, מרגע ה-``${``, גם ``{`` רגיל מעלה. מחרוזת שנפתחת בתוך
-    ``${...}`` מטופלת ברקורסיה, כדי ש-``}`` בתוכה לא ייחשב לסוגר.
+    **מחסנית מפורשת ולא רקורסיה.** מחרוזת שנפתחת בתוך ``${...}`` הייתה
+    נכנסת למסגרת חדשה בלי חסם, ולכן קובץ של כ-3KB — ``` `${ ``` שחוזר
+    994 פעם — הפיל ``RecursionError`` שאיש לא תפס לאורך כל המסלול עד
+    לקוח ה-MCP. זה סתר את מה שהמודול מצהיר על עצמו, שערוץ הכשל הוא ערך
+    ההחזרה ולא חריגה, ואת מה שהפרויקט כבר קיבע לסורק הפייתון ב-
+    ``test_deep_nesting_does_not_raise_from_our_side``.
     """
-    quote = source[index]
+    quotes = [text[index]]
+    #: כמה ``{`` פתוחים בתוך ה-``${...}`` של כל רמה במחסנית.
+    nesting = [0]
     index += 1
-    size = len(source)
-    nesting = 0
-    while index < size:
-        char = source[index]
+
+    while index < stop:
+        char = text[index]
         if char == "\\":
             index += 2
             continue
-        if char == "\n":
-            line += 1
-        elif quote == "`" and source.startswith("${", index):
-            nesting += 1
+
+        quote = quotes[-1]
+        if quote == "`" and char == "$" and index + 1 < stop and text[index + 1] == "{":
+            nesting[-1] += 1
             index += 2
             continue
-        elif nesting and char in "\"'`":
+        if nesting[-1] and char in "\"'`":
             # מחרוזת מקוננת בתוך ההחלפה. בלי זה, ``}`` שיושב בתוכה היה
             # מוריד את המונה ומוציא אותנו מה-template מוקדם.
-            index, line = _skip_string(source, index, line)
+            quotes.append(char)
+            nesting.append(0)
+            index += 1
             continue
-        elif nesting and char == "{":
-            nesting += 1
-        elif nesting and char == "}":
-            nesting -= 1
-        elif char == quote and not nesting:
-            return index + 1, line
+        if nesting[-1] and char == "{":
+            nesting[-1] += 1
+        elif nesting[-1] and char == "}":
+            nesting[-1] -= 1
+        elif char == quote:
+            quotes.pop()
+            nesting.pop()
+            if not quotes:
+                return index + 1
         index += 1
-    return size, line
+
+    return stop
 
 
-def _skip_regex(source: str, index: int, line: int) -> tuple[int, int]:
+def _skip_regex(text: str, index: int, stop: int) -> int:
     """מדלג על regex literal, כולל מחלקת תווים ``[...]`` שיכולה להכיל ``/``."""
     index += 1
-    size = len(source)
     in_class = False
-    while index < size:
-        char = source[index]
+    while index < stop:
+        char = text[index]
         if char == "\\":
             index += 2
             continue
         if char == "\n":  # regex אינו חוצה שורות — כנראה היה חילוק
-            return index, line
+            return index
         if char == "[":
             in_class = True
         elif char == "]":
             in_class = False
         elif char == "/" and not in_class:
-            return index + 1, line
+            return index + 1
         index += 1
-    return size, line
+    return stop

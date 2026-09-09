@@ -11,6 +11,8 @@ import io
 import pathlib
 import re
 import subprocess
+import sys
+import time
 import tokenize
 from collections import Counter
 
@@ -1585,3 +1587,318 @@ def test_the_three_functions_that_had_vanished_are_back():
         names = {row["name"] for row in _js_symbols(path.read_text(encoding="utf-8"))}
 
         assert expected <= names, f"{relative}: חסרות {expected - names}"
+
+
+# ---------------------------------------------------------------------------
+# PR 1.2 — חמשת הממצאים הקריטיים ושתי בעיות האבטחה מסקירת הקוד
+#
+# כל אחד מהטסטים כאן הורץ על הקוד שלפני התיקון ואומת שהוא נופל שם. טסט
+# שנכתב יחד עם תיקון ולא הוכח שהוא מסוגל להיכשל אינו ראיה, הוא קישוט.
+#
+# ארבעה מחמשת הקריטיים הם אפס מופעים בתבניות של הפרויקט היום — נמדד. הם
+# נכנסים בכל זאת כי ``codekeeper_get_repo_file`` משרת כל ריפו ממורר, וכל
+# אחת מהצורות האלה היא JavaScript או HTML רגיל לחלוטין.
+# ---------------------------------------------------------------------------
+
+
+def _definitions(text):
+    """הסימבולים שהם הגדרות בקוד, בלי עוגני תגיות ובלי תגיות Jinja.
+
+    התחילית נקלפת (``script#x.initColors`` ← ``initColors``) במקום לסנן
+    על ``#``, כדי שפונקציה בתוך בלוק בעל ``id`` **תיכנס** ולא תיעלם.
+    """
+    out = []
+    for row in extract_outline(text, "page.html")["symbols"]:
+        bare = row["name"].rsplit(".", 1)[-1]
+        if "#" in bare or " " in bare:
+            continue
+        out.append((bare, row["start"], row["end"]))
+    return sorted(out)
+
+
+def test_a_line_continuation_inside_a_js_string_does_not_shift_the_lines_after_it():
+    """באג 1 מהסקירה, מנגנון א׳ — ``\\`` ואחריו שורה חדשה אמיתית.
+
+    זה המשך שורה חוקי ב-JavaScript. הדילוג על התו שאחרי ``\\`` הזיז את
+    האינדקס בשניים ולא ספר את ה-``\\n`` שביניהם, ולכן ``after`` דווח
+    בשורה 3 — שורה שאין בה שום פונקציה — במקום 4.
+    """
+    text = (
+        "<script>\n"
+        "var s = 'a\\\n"
+        "b';\n"
+        "function after() {\n"
+        "  return 1;\n"
+        "}\n"
+        "</script>\n"
+    )
+
+    assert _definitions(text) == [("after", 4, 6), ("script", 1, 7)]
+
+
+def test_a_signature_spread_over_several_lines_does_not_shift_the_rest_of_the_block():
+    """באג 1 מהסקירה, מנגנון ב׳ — ``index = match.end()`` על התאמה רב-שורתית.
+
+    הסגנון שכל פורמטר מייצר כשרשימת הפרמטרים ארוכה. הרג'קס בולע את
+    השורות החדשות שבתוך ההתאמה, והמונה לא התקדם — ולכן ``handler`` דווח
+    ``2..4``, כלומר נגמר בתוך רשימת הפרמטרים שלו עצמו.
+
+    **הסחף אינו מקומי**, וזה מה שהופך אותו לחמור: גם ``afterwards``,
+    שיושב אחריו וכתוב תקין לחלוטין, דווח ``5..7`` במקום ``8..10``.
+    """
+    text = (
+        "<script>\n"
+        "const handler = (\n"
+        "  a,\n"
+        "  b,\n"
+        ") => {\n"
+        "  a();\n"
+        "};\n"
+        "function afterwards() {\n"
+        "  z();\n"
+        "}\n"
+        "</script>\n"
+    )
+
+    assert _definitions(text) == [
+        ("afterwards", 8, 10),
+        ("handler", 2, 7),
+        ("script", 1, 11),
+    ]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("const f = function (a, o = {}) {\n  z();\n};\n", id="const"),
+        pytest.param("var f = function ({x, y}) {\n  z();\n};\n", id="destructured"),
+        pytest.param("let f = async function (a = {}) {\n  z();\n};\n", id="async"),
+    ],
+)
+def test_a_default_value_in_an_assigned_function_expression_does_not_close_it_early(source):
+    """באג 2 מהסקירה — התיקון של באג "ברירת מחדל סוגרת בחתימה" היה חלקי.
+
+    ``signature`` נקבע מ**צורת הטקסט שהותאם** (``group(0)`` שנגמר ב-``(``),
+    והחלופה ``function\\b`` ב-``_JS_ASSIGNED`` אינה בולעת את ה-``(``. לכן
+    בצורת ביטוי מוצב התיקון לא חל בכלל, וה-``}`` שסוגר את ברירת המחדל סגר
+    את הפונקציה כולה — ``end == start``, בדיוק הפלט שהטסט על צורת ההצהרה
+    קיים כדי לחסום.
+
+    המונה "0 מתוך 771" היה ירוק בזכות מזל בקלט: שלושת ביטויי הפונקציה
+    המוצבים בתבניות הם ``window.X = function (…)``, צורה שהרג'קס דורש
+    לפניה ``const``/``let``/``var`` ולכן אינו מזהה בכלל.
+    """
+    assert _definitions(f"<script>\n{source}</script>\n") == [
+        ("f", 2, 4),
+        ("script", 1, 5),
+    ]
+
+
+def test_an_unclosed_jinja_tag_does_not_erase_a_well_formed_one_below_it():
+    """באג 3 מהסקירה — ``_skip_past`` גנב את הסוגר של השכנה.
+
+    שגיאת הקלדה אחת, ``{% if broken`` בלי ``%}``, ו-``text.find`` החזיר
+    את ה-``%}`` של ``{% block real %}`` שמתחתיה. כל מה שביניהן הפך
+    ל"טקסט הארגומנט" של השבורה, ה-``{% endblock %}`` לא מצא למה להתאים,
+    והפלט היה ``symbols: []`` — עם ``status: "ok"`` ובלי שום סימן.
+
+    זה המצב שה-docstring של המודול מגדיר כגרוע מכולם: מפה חסרה שנראית
+    שלמה.
+    """
+    text = (
+        "before\n"
+        "{% if broken\n"
+        "some html\n"
+        "{% block real %}\n"
+        "content\n"
+        "{% endblock %}\n"
+        "after\n"
+    )
+    result = _html(text)
+
+    assert result["symbols"] == [{"name": "block real", "start": 4, "end": 6}]
+
+
+def test_a_truncated_jinja_tag_does_not_produce_a_mangled_name():
+    """נלווה לבאג 3 — החיתוך של ``%}`` היה בלתי מותנה.
+
+    הקורא עשה ``text[index + 2 : stop - 2]`` בלי לשאול אם הסוגר נמצא
+    בכלל, ולכן ``{% block content`` החזיר ``block conte`` ו-``{% block xy``
+    החזיר שם ריק. תגית שלא נסגרה אינה תגית, ולכן היא אינה סימבול.
+    """
+    assert _html("{% block content")["symbols"] == []
+    assert _html("{% block xy")["symbols"] == []
+
+
+def test_an_unbalanced_paren_in_a_signature_does_not_silence_the_rest_of_the_block():
+    """באג 4 מהסקירה — ``signature`` שלא חזר לאפס השתיק את כל מה שאחריו.
+
+    הענף ``if signature: … continue`` לא ניסה להתאים הגדרות חדשות, ולכן
+    סוגר עגול אחד שלא נסגר גרם לכל פונקציה שאחריו באותו בלוק לא להיות
+    מזוהה בכלל. בלוקי סקריפט כאן מגיעים למאות שורות.
+
+    ההתאוששות אינה "התעלמות מהשגיאה": ``bad`` עצמה עדיין מתקלקלת, כי
+    החתימה שלה לא נסגרת. ההבדל הוא שהיא מתקלקלת לבדה.
+    """
+    text = (
+        "<script>\n"
+        "function bad(a, (b {\n"
+        "  x();\n"
+        "}\n"
+        "function after() {\n"
+        "  y();\n"
+        "}\n"
+        "</script>\n"
+    )
+    found = dict((name, (start, end)) for name, start, end in _definitions(text))
+
+    assert found["after"] == (5, 7)
+
+
+def test_an_id_inside_another_attributes_value_does_not_become_the_anchor():
+    """באג 5 מהסקירה, תוצאה א׳ — רג'קס על מחרוזת התכונות הגולמית.
+
+    נמדד ב-Chromium 141.0.7390.37: ``id`` הוא ``real``. הגרסה הקודמת
+    החזירה ``div#decoy"`` — שם שכולל מרכאה ו**אינו קיים בקובץ בכלל**.
+    """
+    assert _html('<div title="x id=decoy" id="real">\n</div>\n')["symbols"] == [
+        {"name": "div#real", "start": 1, "end": 2}
+    ]
+    assert _html('<div data-tpl="<span id=inner>" id="real">\n</div>\n')["symbols"] == [
+        {"name": "div#real", "start": 1, "end": 2}
+    ]
+
+
+def test_a_type_inside_another_attributes_value_does_not_hide_the_scripts_functions():
+    """באג 5 מהסקירה, תוצאה ב׳ — וזו החמורה מהשתיים.
+
+    ``type=`` שיושב בתוך ערך של תכונה אחרת גרם ל-``_is_javascript``
+    להחזיר ``False``, ואז הבלוק דווח כגבול בלבד ו**כל הפונקציות שבתוכו
+    נעלמו**. נמדד ב-Chromium: הבלוק הזה **רץ** כ-JavaScript.
+    """
+    text = (
+        '<script data-note="see type=text/plain">\n'
+        "function reallyReal() {\n"
+        "  z();\n"
+        "}\n"
+        "</script>\n"
+    )
+
+    assert _definitions(text) == [("reallyReal", 2, 4), ("script", 1, 5)]
+
+
+def test_an_unquoted_attribute_value_ending_in_a_slash_is_not_self_closing():
+    """WARN-004 מהסקירה — הלוכסן שייך לערך, לא לתגית.
+
+    נמדד ב-Chromium 141.0.7390.37: ``<a id="k" href=/>text</a>`` נותן
+    ``href="/"`` ואת הטקסט **בתוך** ה-``<a>``. לפי הטוקנייזר של WHATWG
+    ערך לא מצוטט נגמר ברווח או ב-``>`` בלבד. הגרסה הקודמת בדקה
+    ``endswith("/")`` על המחרוזת הגולמית, ולכן החזירה ``1..1`` ולא דחפה
+    את התגית למחסנית — כך שה-``</a>`` שאחריה גם לא מצא התאמה.
+
+    המקרה השני הוא ההגנה מפני תיקון-יתר: ``/>`` על אלמנט ב-SVG **כן**
+    סוגר את עצמו, ושם ההתנהגות הקיימת נכונה.
+    """
+    assert _html('<a id="k" href=/>\ntext\n</a>\n')["symbols"] == [
+        {"name": "a#k", "start": 1, "end": 3}
+    ]
+    assert _html('<svg>\n<path id="p" d="M0 0" />\n</svg>\n')["symbols"] == [
+        {"name": "path#p", "start": 2, "end": 2}
+    ]
+
+
+def test_a_run_of_whitespace_after_the_function_keyword_stays_linear():
+    """SEC-001 מהסקירה — backtracking ריבועי ב-``_JS_FUNCTION``.
+
+    ``\\s*\\*?\\s*`` הם שני ``\\s*`` צמודים שמופרדים באטום אופציונלי: על
+    רצף רווחים באורך *m* יש O(m) דרכים לפצל אותו, וכל פיצול נבדק מחדש מול
+    ``[A-Za-z_$]`` שנכשל. נמדד על הקוד הישן: 0.63 שניות ל-10KB, 2.53
+    ל-20KB, 9.98 ל-40KB — פי ארבע לכל הכפלה, כלומר סדר גודל של שבוע
+    בתקרת ה-10MB שהכלי מתיר.
+
+    התקציב כאן רחב פי מאות ממה שהתיקון צריך (נמדד: 0.01 שניות) ופי מאות
+    פחות ממה שהבאג נותן, כדי שהטסט לא יהיה שביר על מכונה עמוסה.
+    """
+    text = "<script>\nfunction" + " " * 40_000 + "\n</script>\n"
+
+    started = time.perf_counter()
+    _html(text)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 1.0, f"{elapsed:.2f} שניות — הריבועיות חזרה"
+
+
+def test_deeply_nested_template_literals_do_not_raise_from_our_side():
+    """SEC-002 מהסקירה — רקורסיה בלי חסם ב-``_skip_string``.
+
+    כל מחרוזת שנפתחת בתוך ``${…}`` נכנסה למסגרת חדשה, שלושה בתים לרמה,
+    ולכן קובץ של כ-3KB הפיל ``RecursionError`` שאיש לא תפס לאורך המסלול
+    עד לקוח ה-MCP. זה סתר את מה שהמודול מצהיר על עצמו — שערוץ הכשל הוא
+    ערך ההחזרה ולא חריגה — ואת ``test_deep_nesting_does_not_raise_from_our_side``
+    שהפרויקט כבר קיבע לסורק הפייתון.
+
+    999 רמות אינן מספר שרירותי: הן מעל מגבלת הרקורסיה של CPython, שהיא
+    1000 כברירת מחדל. הטסט מאמת את המגבלה כדי שלא יאבד את מה שהוא בודק.
+    """
+    assert sys.getrecursionlimit() <= 1000, "מגבלת הרקורסיה הועלתה — הטסט איבד את מה שהוא בודק"
+
+    result = _html("<script>\n" + "`${" * 999 + "\n</script>\n")
+
+    assert result["status"] == "ok"
+
+
+def test_every_definition_is_reported_on_a_line_that_actually_contains_its_name():
+    """המונה הרביעי — אורקל שנגזר מהטקסט, לא מהמימוש, על כל התבניות.
+
+    הטענה היא הדבר הפשוט ביותר שכל הפיצ'ר מבטיח: ``start`` שחוזר למפה
+    הוא שורה שאפשר להזין ל-``lines=``, ולכן השם שדווח חייב להיות כתוב
+    בה. שלושת המונים שמעליו עיוורים לזה — מונה הטווח בודק רק שורות
+    שנגמרות ב-``{``, וחתימה רב-שורתית נגמרת ב-``(``; ומונה ההגדרות
+    החסרות סופר **כמה** נמצאו ולא **איפה**.
+
+    **מה שהמונה הזה אינו: ראיה לתיקון של באג 1.** הרצתי אותו על הקוד
+    שלפני התיקון והוא **עבר**. זה לא פגם בו אלא עובדה על הקורפוס, והיא
+    נמדדה: אין בכל 66 התבניות אף חתימה רב-שורתית ואף ``\\`` שאחריו שורה
+    חדשה, ולכן הפלט של הישן והחדש על כל הקורפוס זהה — 2,125 סימבולים,
+    אפס הבדלים. שום מונה ברמת הקורפוס אינו יכול להבדיל ביניהם. מה שכן
+    מוכיח את התיקון הם שני הטסטים המכוונים שלמעלה, ושניהם נופלים על
+    הקוד הישן.
+
+    התפקיד שלו הוא קדימה: התבנית הראשונה שתיכתב בסגנון שמייצר את הצורה
+    הזאת, או שינוי עתידי בסורק שיחזיר את הסחף, נתפסים כאן.
+    """
+    misplaced = []
+    for path in _templates():
+        text = path.read_text(encoding="utf-8")
+        lines = text.split("\n")
+        for name, start, _ in _definitions(text):
+            if name not in lines[start - 1]:
+                misplaced.append((path.name, name, start, lines[start - 1].strip()[:60]))
+
+    assert misplaced == []
+
+
+def test_a_jinja_block_closed_over_by_an_ancestor_is_reported_and_not_dropped():
+    """סימבול שנמחק בשקט — אותה מחלקת כשל, בפונקציה האחות.
+
+    ``{% block x %}`` שנפתח בתוך ``{% if %}`` ולא נסגר לפני ה-``{% endif %}``
+    נעלם מהמפה לגמרי: ה-``endif`` שלף את ה-``if`` ומחק איתו את כל מה
+    שהיה מעליו במחסנית, בלי לדווח. ``_close_tag`` עושה את זה נכון
+    למחסנית ה-HTML מהיום הראשון — הוא מדווח את מי שהיה פתוח בפנים עד
+    שורת הסגירה — ובמחסנית ה-Jinja זה פשוט היה חסר.
+
+    זה גם סתר את ``docs/mcp-server.rst``, שמבטיח שתגית שלא נסגרה מדווחת
+    עד סוף הקובץ. הבטחה שמתקיימת כשאין ``{% endif %}`` כלל, ולא התקיימה
+    כשיש.
+
+    נמדד: בכל התבניות של הפרויקט ``block`` ו-``endblock`` מאוזנים, ולכן
+    זה אינו ניתן להגעה כאן היום.
+    """
+    text = "{% if a %}\n{% block x %}\ntext\n{% endif %}\n"
+
+    assert _html(text)["symbols"] == [{"name": "block x", "start": 2, "end": 4}]
+
+    # בקרה: בלי ``{% endif %}`` בכלל, הדיווח עד סוף הקובץ עבד גם קודם.
+    assert _html("{% if a %}\n{% block x %}\ntext\n")["symbols"] == [
+        {"name": "block x", "start": 2, "end": 4}
+    ]
