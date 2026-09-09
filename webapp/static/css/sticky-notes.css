@@ -117,6 +117,7 @@
    המחלקה יושבת על ``<html>``, כמו ``sticky-handwriting`` ומאותה סיבה:
    היא מוחלת בזמן פרסור ה-``head``, שם ``document.body`` עדיין ``null``,
    והיא צריכה לכסות גם פתק במצב ``screen`` שיושב מחוץ למכל. */
+:root.sticky-font-mid { --sticky-note-font: 15px; }
 :root.sticky-font-lg { --sticky-note-font: 16px; }
 :root.sticky-font-xl { --sticky-note-font: 18px; }
 

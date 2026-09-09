@@ -36,10 +36,17 @@
   window.NOTE_FONT_SIZE_KEY = 'board-font-size:' + boardId;
 
   // **ההחלה כאן ולא ב-DOMContentLoaded.** הבורר משנה את גודל הטקסט של
-  // הפתקים; החלה מאוחרת הייתה מציירת אותם ב-14px ואז מקפיצה. הפונקציה
-  // מאמתת את הערך בעצמה, ולכן ערך פגום באחסון נופל לברירת המחדל.
+  // הפתקים; החלה מאוחרת הייתה מציירת אותם ב-14px ואז מקפיצה.
+  //
+  // **שתי שאלות שונות, ולכן שני מסננים.** ``applyStickyNoteFontSize``
+  // שואלת "האם הגודל הזה קיים" ומאמתת מול המפה; כאן שואלים "האם הלוח
+  // מציע אותו", כי המפה מכילה גם גדלים ששייכים לעמוד ההגדרות. בלי
+  // המסנן הזה ערך כזה באחסון היה מוחל על התצוגה בזמן שהבורר שבמודאל
+  // מציג משהו אחר.
   try {
-    window.applyStickyNoteFontSize(localStorage.getItem(window.NOTE_FONT_SIZE_KEY));
+    var savedSize = localStorage.getItem(window.NOTE_FONT_SIZE_KEY);
+    if (window.STICKY_NOTE_FONT_MENUS.board.indexOf(savedSize) < 0) savedSize = '';
+    window.applyStickyNoteFontSize(savedSize);
   } catch (e) { /* אחסון חסום — נשאר בגודל ברירת המחדל */ }
 })();
 </script>
@@ -476,14 +483,18 @@
   // ב-``localStorage`` כפי שהיא ואינה נדרסת — כיבוי ההגדרה הגלובלית
   // מחזיר בדיוק את מה שהיה לפניה, בכל הלוחות. נעילה שדורסת בשקט הייתה
   // מוחקת את ההעדפות של כל הלוחות בבת אחת.
-  // **הבורר מוצב לפי הערך שהמפה מכירה, לא לפי הערך השמור.** ערך פגום
+  // **הבורר מוצב לפי ערך שהלוח באמת מציע, לא לפי הערך השמור.** ערך פגום
   // באחסון היה משאיר את ה-``<select>`` על האפשרות הראשונה בזמן שהתצוגה
   // בברירת המחדל — שתיהן "רגיל" במקרה הזה, אבל ההסתמכות על הצירוף הזה
   // הייתה נשברת ברגע שסדר האפשרויות ישתנה.
+  //
+  // **מול תפריט הלוח ולא מול המפה.** המפה מכילה גם ``mid``, שקיים רק
+  // בעמוד ההגדרות; הצבה של ערך שאין לו ``<option>`` מרוקנת את הבורר
+  // (``selectedIndex`` נעשה ``-1``) במקום ליפול ל"רגיל".
   const fontSizeSelect = document.getElementById('noteFontSizeSelect');
-  const NOTE_FONT_SIZES = window.STICKY_NOTE_FONT_SIZES;
+  const BOARD_FONT_SIZES = window.STICKY_NOTE_FONT_MENUS.board;
   const savedFontSize = readNoteFontSize();
-  fontSizeSelect.value = Object.prototype.hasOwnProperty.call(NOTE_FONT_SIZES, savedFontSize)
+  fontSizeSelect.value = BOARD_FONT_SIZES.indexOf(savedFontSize) >= 0
     ? savedFontSize : 'normal';
   fontSizeSelect.addEventListener('change', function () {
     writeNoteFontSize(fontSizeSelect.value);

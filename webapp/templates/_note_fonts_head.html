@@ -49,8 +49,22 @@
   // היעדר כל המחלקות, ולכן היא גם מה שמתקבל אחרי ניקוי.
   window.STICKY_NOTE_FONT_SIZES = {
     normal: '',
+    mid: 'sticky-font-mid',
     lg: 'sticky-font-lg',
     xl: 'sticky-font-xl'
+  };
+
+  // **מי מציע מה — מקור נפרד, ובכוונה.** שני תפריטים שואבים מהמפה
+  // ואינם מציעים את אותם גדלים: הלוח נותן 14/16/18, ועמוד ההגדרות
+  // 14/15/16. עד שהיה תפריט אחד, "אילו גדלים קיימים" ו"מה מוצע" היו
+  // אותה שאלה, והבדיקה השוותה את הבורר ישירות למפה. עכשיו הן שתיים,
+  // וכל אחת צריכה מקור משלה — אחרת גודל שנוסף לאחד נדחף גם לשני.
+  //
+  // הבדיקות אוכפות את שני הצדדים: כל תפריט זהה לרשימה שלו, וכל טוקן
+  // ברשימות קיים במפה.
+  window.STICKY_NOTE_FONT_MENUS = {
+    board: ['normal', 'lg', 'xl'],
+    settings: ['normal', 'mid', 'lg']
   };
 
   // מקור יחיד להחלה, כמו ``applyStickyHandwriting`` שמעל.
@@ -79,5 +93,21 @@
   window.STICKY_FONT_FROM_SETTINGS = {{ (note_fonts.get(note_font_surface) if note_fonts else False) | tojson }};
 
   if (window.STICKY_FONT_FROM_SETTINGS) window.applyStickyHandwriting(true);
+
+  // גודל הטקסט שנבחר בעמוד ההגדרות.
+  //
+  // **ריק בלוחות במכוון.** שם מחליט הבורר שבמודאל הלוח, לכל לוח בנפרד,
+  // ומוחל מהסקריפט המקומי של עמוד הלוח. שתי החלטות על אותה מחלקה היו
+  // נאבקות זו בזו, והמנצחת הייתה זו שרצה אחרונה — כלומר תלויה בסדר
+  // ההכללה ולא בכוונה.
+  //
+  // **ההחלה כאן ולא ב-``DOMContentLoaded``**, מאותה סיבה שבגללה כתב היד
+  // מוחל כאן: החלה מאוחרת מציירת את הפתקים בגודל ברירת המחדל ואז
+  // מקפיצה אותם.
+  window.STICKY_NOTE_FONT_SIZE = {{ (note_font_size if (note_font_size and note_font_surface != 'board') else '') | tojson }};
+
+  if (window.STICKY_NOTE_FONT_SIZE) {
+    window.applyStickyNoteFontSize(window.STICKY_NOTE_FONT_SIZE);
+  }
 })();
 </script>

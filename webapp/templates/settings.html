@@ -1191,6 +1191,50 @@
       <p style="opacity: 0.7; margin-top: 0.75rem; font-size: 0.9rem">
         התחולה חלה על שלוש הבחירות יחד. כשבוחרים כתב יד בלוחות, המתג שבמודאל ההגדרות של הלוח ננעל.
       </p>
+
+      {# גודל הטקסט. **בורר תחולה נפרד משלו**, ולא זה שמעל: הוא נועד
+         לאפשר גודל אחר בטאבלט בלי לגעת בבחירת כתב היד. #}
+      <div style="border-top: 1px solid rgba(255,255,255,0.12); margin-top: 1.25rem; padding-top: 1.25rem">
+        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem">
+          <i class="fas fa-text-height" style="font-size: 1.5rem"></i>
+          <div>
+            <div style="font-weight: 600">גודל הטקסט בפתקים</div>
+            <div style="opacity: 0.8; font-size: 0.95rem">
+              בחירה אחת לדפדפן הריפו ולקבצי Markdown יחד. הכותרות, הקוד והטבלאות שבפתק גדלים איתה.
+              בלוחות הפתקים יש בורר משלהם, במודאל ההגדרות של כל לוח.
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 0.6rem">
+          <label for="settingsNoteFontSizeSelect" style="font-size: 0.95rem">גודל הטקסט</label>
+          {# האפשרויות הן העתק של ``STICKY_NOTE_FONT_MENUS.settings``, כי
+             המשתמש רואה אותן בעברית. בדיקה משווה ביניהן. #}
+          <select
+            id="settingsNoteFontSizeSelect"
+            class="filter-select"
+            aria-label="גודל הטקסט בפתקים"
+            style="padding: 0.45rem 0.65rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-primary);"
+          >
+            <option value="normal" {% if note_font_size != 'mid' and note_font_size != 'lg' %}selected{% endif %}>רגיל</option>
+            <option value="mid" {% if note_font_size == 'mid' %}selected{% endif %}>בינוני</option>
+            <option value="lg" {% if note_font_size == 'lg' %}selected{% endif %}>גדול</option>
+          </select>
+        </div>
+
+        <div style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap">
+          <label for="settingsNoteFontSizeScopeSelect" style="font-size: 0.95rem">תחולת גודל הטקסט</label>
+          <select
+            id="settingsNoteFontSizeScopeSelect"
+            class="filter-select"
+            aria-label="תחולת גודל הטקסט בפתקים"
+            style="padding: 0.45rem 0.65rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-primary);"
+          >
+            <option value="global" {% if note_font_size_scope != 'device' %}selected{% endif %}>לכל המכשירים</option>
+            <option value="device" {% if note_font_size_scope == 'device' %}selected{% endif %}>רק במכשיר הזה</option>
+          </select>
+        </div>
+      </div>
       {# רשת ביטחון בלבד. החיווי הרגיל הוא ``window.ckToast``; השורה הזו   #}
       {# נכנסת לפעולה רק אם ``toast.js`` לא נטען, כדי שהודעת כשל שמירה    #}
       {# לא תיעלם בשקט. במסלול התקין היא נשארת ריקה ובלתי נראית.          #}
@@ -2134,6 +2178,11 @@
       (function () {
         const scopeSel = document.getElementById('noteFontsScopeSelect');
         const msgEl = document.getElementById('noteFontsMsg');
+        // גודל הטקסט רוכב על אותה מכונה: אותו תור בעל תא אחד, אותו טוסט,
+        // ואותה החזרה בכשל. בלוק שני היה משכפל את שלושתם — ושתי בקשות
+        // מקבילות לאותו אנדפוינט הן בדיוק מה שהתור נועד למנוע.
+        const sizeSel = document.getElementById('settingsNoteFontSizeSelect');
+        const sizeScopeSel = document.getElementById('settingsNoteFontSizeScopeSelect');
         const selects = Array.prototype.slice.call(
           document.querySelectorAll('.note-font-select')
         );
@@ -2209,12 +2258,19 @@
 
         // צילום של כל הבוררים, כדי שאפשר יהיה להחזיר אותם בכשל.
         function snapshot() {
-          const snap = { scope: scopeSel ? scopeSel.value : null, fonts: {} };
+          const snap = {
+            scope: scopeSel ? scopeSel.value : null,
+            size: sizeSel ? sizeSel.value : null,
+            sizeScope: sizeScopeSel ? sizeScopeSel.value : null,
+            fonts: {},
+          };
           selects.forEach(function (el) { snap.fonts[el.dataset.surface] = el.value; });
           return snap;
         }
         function restore(snap) {
           if (scopeSel && snap.scope !== null) scopeSel.value = snap.scope;
+          if (sizeSel && snap.size !== null) sizeSel.value = snap.size;
+          if (sizeScopeSel && snap.sizeScope !== null) sizeScopeSel.value = snap.sizeScope;
           selects.forEach(function (el) {
             if (snap.fonts[el.dataset.surface] !== undefined) {
               el.value = snap.fonts[el.dataset.surface];
@@ -2237,10 +2293,17 @@
           Object.keys(snap.fonts).forEach(function (k) {
             fonts[k] = snap.fonts[k] === '1';
           });
-          return {
+          const body = {
             note_fonts: fonts,
             note_fonts_scope: snap.scope === 'device' ? 'device' : 'global'
           };
+          // **רק כשהבורר קיים.** מפתח עם ``null`` היה נדחה בשרת כערך לא
+          // חוקי, ומפיל שמירה של כתב היד יחד איתו.
+          if (snap.size !== null) {
+            body.note_font_size = snap.size;
+            body.note_font_size_scope = snap.sizeScope === 'device' ? 'device' : 'global';
+          }
+          return body;
         }
 
         async function send(snap) {
@@ -2290,6 +2353,8 @@
 
         selects.forEach(function (el) { el.addEventListener('change', persist); });
         if (scopeSel) scopeSel.addEventListener('change', persist);
+        if (sizeSel) sizeSel.addEventListener('change', persist);
+        if (sizeScopeSel) sizeScopeSel.addEventListener('change', persist);
       })();
       
       function setVal(x){ if (vEl) vEl.textContent = '× ' + x.toFixed(2); }
