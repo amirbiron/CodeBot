@@ -78,9 +78,13 @@ _QUOTED = re.compile(r"""["']([^"']*)["']""")
 _JS_FUNCTION = re.compile(
     r"(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\("
 )
+#: רשימת הפרמטרים מכבדת רמת קינון אחת של סוגריים, ולא ``[^)]*``. הצורה
+#: הרחבה התאימה ל-``const md = (a ? b : (()=>({x})))({`` — הצבה של תוצאת
+#: קריאה, לא הגדרה — כי היא עצרה ב-``)`` הראשון ומצאה ``=>`` אחריו.
+#: הקינון גם מרוויח: ``const k = (a, b = (1)) => a`` נתפס עכשיו, ולא היה.
 _JS_ASSIGNED = re.compile(
     r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
-    r"(?:async\s+)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)"
+    r"(?:async\s+)?(?:function\b|\((?:[^()]|\([^()]*\))*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)"
 )
 
 #: תו שאחריו ``/`` הוא חילוק ולא תחילת regex. הכלל המקובל: אחרי מזהה,
@@ -344,10 +348,14 @@ def _read_rawtext(
     regular expressions, or comments)". המימוש האינטואיטיבי הוא ההפוך, והוא
     לא היה זורק שגיאה — רק מותח את הבלוק עד הסוגר הבא.
     """
-    closing = f"</{tag}"
-    stop = text.lower().find(closing, start)
-    if stop < 0:
-        stop = len(text)
+    # **חיפוש על הטקסט המקורי, לא על עותק ממוזער.** ``text.lower()``
+    # יכול לשנות **אורך** — ``İ`` (U+0130) הופך לשני תווים — והאינדקס
+    # שחוזר משמש לחיתוך ולספירת שורות ב-``text``, כך שהוא מוסט. וזו גם
+    # הקצאה של עותק מלא של הטקסט לכל תגית ``script``/``style``, עד 10MB
+    # לפי ``RANGE_READ_MAX_BYTES`` — בדיוק העלות שההערה על
+    # ``_CR_WITHOUT_LF`` ב-``outline.py`` נמנעת ממנה במפורש.
+    found = re.compile(rf"</{re.escape(tag)}", re.IGNORECASE).search(text, start)
+    stop = found.start() if found else len(text)
     end_line = line + text.count("\n", start, stop)
     after, after_line = _skip_past(text, stop, ">", end_line)
 
@@ -372,7 +380,11 @@ def _read_javascript(source: str, line: int, prefix: str) -> list[dict[str, Any]
     index = 0
     size = len(source)
     current = line
-    previous = ""
+    #: הטוקן הלא-רווח האחרון — משמש **רק** להבחנה בין regex לחילוק.
+    token = ""
+    #: כמה סוגריים עגולים של חתימה עוד פתוחים. חיובי = אנחנו בתוך
+    #: רשימת הפרמטרים, ושם ``{`` אינו פותח גוף.
+    signature = 0
 
     while index < size:
         char = source[index]
@@ -381,9 +393,13 @@ def _read_javascript(source: str, line: int, prefix: str) -> list[dict[str, Any]
             current += 1
             index += 1
             # ``const f = x => x + 1`` בלי גוף מסולסל נגמר בסוף השורה.
-            while pending and pending[-1][2] < 0:
-                name, opened, _ = pending.pop()
-                rows.append({"name": f"{prefix}{name}", "start": opened, "end": current - 1})
+            # הסגירה כאן היא רק למי שכבר יצא מהחתימה: פונקציה שהחתימה
+            # שלה נפרסת על כמה שורות עדיין ממתינה לגוף, ואסור לסגור אותה
+            # בסוף השורה הראשונה.
+            if not signature:
+                while pending and pending[-1][2] < 0:
+                    name, opened, _ = pending.pop()
+                    rows.append({"name": f"{prefix}{name}", "start": opened, "end": current - 1})
             continue
 
         if source.startswith("//", index):
@@ -395,38 +411,70 @@ def _read_javascript(source: str, line: int, prefix: str) -> list[dict[str, Any]
             continue
         if char in "\"'`":
             index, current = _skip_string(source, index, current)
-            previous = "x"
+            token = "x"
             continue
-        if char == "/" and not _BEFORE_DIVISION.match(previous):
+        if char == "/" and not _BEFORE_DIVISION.match(token):
             index, current = _skip_regex(source, index, current)
-            previous = "x"
+            token = "x"
+            continue
+
+        # **בתוך רשימת הפרמטרים אין גוף.** ``function f(a, opts = {})``
+        # מכיל ``{`` שאינו פותח את הפונקציה, ורישום העומק ברגע ההתאמה
+        # גרם ל-``}`` שסוגר את ברירת המחדל לסגור את הפונקציה כולה —
+        # ``end == start`` בשורת החתימה. נמדד: 136 מתוך 841 ההגדרות בכל
+        # התבניות, ו-61 מתוך 97 ב-``admin_observability.html``.
+        #
+        # לכן ``signature`` סופר את הסוגריים העגולים שנותרו פתוחים מאז
+        # ההתאמה. כל עוד הוא חיובי אנחנו בחתימה: ``{``/``}`` נספרים
+        # לעומק כרגיל, אבל אינם סוגרים כלום, וה-``{`` הראשון **אחרי**
+        # שהם התאזנו הוא זה שרושם את עומק הגוף.
+        if signature:
+            if char == "(":
+                signature += 1
+            elif char == ")":
+                signature -= 1
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+            if not char.isspace():
+                token = char
+            index += 1
             continue
 
         if char == "{":
             depth += 1
+            # פונקציה שממתינה לגוף (``-1``) מקבלת כאן את עומקה האמיתי.
+            # זה חל גם על ``function`` רגילה — אחרי שהחתימה נסגרה — וגם
+            # על חץ עם גוף מסולסל.
+            if pending and pending[-1][2] < 0:
+                name, opened, _ = pending.pop()
+                pending.append((name, opened, depth - 1))
         elif char == "}":
             depth -= 1
-            while pending and pending[-1][2] >= depth:
+            while pending and 0 <= pending[-1][2] >= depth:
                 name, opened, _ = pending.pop()
                 rows.append({"name": f"{prefix}{name}", "start": opened, "end": current})
 
         if char.isalpha() or char in "_$":
+            # ``adjacent`` הוא התו ה**צמוד** ולא הטוקן האחרון. שני
+            # השימושים נראים דומים ואינם: ל-regex צריך את הטוקן הקודם
+            # (``x /2`` הוא חילוק), ולגבול מזהה צריך את התו הסמוך.
+            # משתנה אחד לשניהם חסם הגדרה לגיטימית אחרי ``var s = "abc"``
+            # בלי נקודה-פסיק, אחרי ``init()`` ואחרי ``arr[0]``.
+            adjacent = source[index - 1] if index else ""
             match = _JS_FUNCTION.match(source, index) or _JS_ASSIGNED.match(source, index)
-            if match and not _BEFORE_DIVISION.match(previous):
-                pending.append((match.group(1), current, -1 if "=>" in match.group(0) else depth))
-                # החץ ללא גוף מסולסל מסומן ב-``-1``; אם מגיע ``{`` הוא
-                # מתוקן לעומק האמיתי בבלוק שלמטה.
+            if match and not _BEFORE_DIVISION.match(adjacent):
+                # ``-1`` = "ממתין לגוף" בשני המקרים. ה-``{`` שיגיע הוא
+                # שיקבע את העומק, בין אם החתימה בסוגריים ובין אם לא.
+                pending.append((match.group(1), current, -1))
+                signature = 1 if match.group(0).rstrip().endswith("(") else 0
                 index = match.end()
-                previous = "x"
-                # ``(`` של החתימה כבר נצרך; ``{`` של הגוף עוד לפנינו.
+                token = "x"
                 continue
 
-        if char == "{" and pending and pending[-1][2] < 0:
-            name, opened, _ = pending.pop()
-            pending.append((name, opened, depth - 1))
-
         if not char.isspace():
-            previous = char
+            token = char
         index += 1
 
     # פונקציות שלא נסגרו עד סוף הבלוק.
@@ -436,7 +484,20 @@ def _read_javascript(source: str, line: int, prefix: str) -> list[dict[str, Any]
 
 
 def _skip_string(source: str, index: int, line: int) -> tuple[int, int]:
-    """מדלג על מחרוזת, כולל template literal עם ``${...}`` מקונן."""
+    """מדלג על מחרוזת, כולל template literal עם ``${...}`` מקונן.
+
+    **המונה חייב לספור את אותם תווים בשני הכיוונים.** גרסה קודמת העלתה
+    את ``nesting`` רק על ``${`` אך הורידה אותו על **כל** ``}``, ולכן
+    אובייקט או גוף בלוק בתוך ``${...}`` הורידו אותו לאפס בטרם עת. משם
+    ה-backtick הבא נקרא כסוגר של המחרוזת החיצונית, והסורק המשיך לקרוא
+    טקסט HTML כאילו הוא קוד — ושלוש פונקציות נעלמו מהמפה לגמרי:
+    ``renderStoryCell`` ו-``renderAiExplainCell`` ב-
+    ``admin_observability.html``, ו-``executedFunction`` ב-
+    ``md_preview.html``.
+
+    עכשיו, מרגע ה-``${``, גם ``{`` רגיל מעלה. מחרוזת שנפתחת בתוך
+    ``${...}`` מטופלת ברקורסיה, כדי ש-``}`` בתוכה לא ייחשב לסוגר.
+    """
     quote = source[index]
     index += 1
     size = len(source)
@@ -452,7 +513,14 @@ def _skip_string(source: str, index: int, line: int) -> tuple[int, int]:
             nesting += 1
             index += 2
             continue
-        elif quote == "`" and char == "}" and nesting:
+        elif nesting and char in "\"'`":
+            # מחרוזת מקוננת בתוך ההחלפה. בלי זה, ``}`` שיושב בתוכה היה
+            # מוריד את המונה ומוציא אותנו מה-template מוקדם.
+            index, line = _skip_string(source, index, line)
+            continue
+        elif nesting and char == "{":
+            nesting += 1
+        elif nesting and char == "}":
             nesting -= 1
         elif char == quote and not nesting:
             return index + 1, line

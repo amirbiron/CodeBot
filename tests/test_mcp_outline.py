@@ -1262,19 +1262,25 @@ def test_every_function_in_the_real_base_template_is_found():
         pytest.skip("base.html לא קיים")
     text = path.read_text(encoding="utf-8")
 
-    declared = len(re.findall(r"(?:^|[^\w.$])function\s+[A-Za-z_$][\w$]*\s*\(", text))
-    assigned = len(re.findall(r"\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*"
+    declared = set(re.findall(r"(?:^|[^\w.$])function\s+([A-Za-z_$][\w$]*)\s*\(", text))
+    assigned = set(re.findall(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
                               r"(?:async\s+)?(?:function\b|\([^)]*\)\s*=>)", text))
 
-    symbols = extract_outline(text, str(path))["symbols"]
-    functions = [
-        row for row in symbols
-        if not row["name"].startswith(("script", "style", "block ", "macro ",
-                                       "extends ", "include ", "import ", "from "))
-        and "#" not in row["name"]
-    ]
+    found = {row["name"] for row in _js_symbols(text)}
 
-    assert len(functions) == declared + assigned
+    # **חסם עליון, לא שוויון** — ובדיוק מאותה סיבה שהמונה של ``id="``
+    # הוא חסם: הביטוי ``\([^)]*\)\s*=>`` עוצר ב-``)`` הראשון, ולכן הוא
+    # מתאים גם ל-IIFE — ``const x = (() => {...})()`` — שאינו הגדרת
+    # פונקציה אלא הצבה של הערך שהיא החזירה. ב-``base.html`` יש שניים
+    # כאלה, ושניהם מחזירים בוליאני: ``localKill`` ו-``isMobileViewport``.
+    #
+    # כל הפרש חייב הסבר, ולא "בערך נכון": השם שנדחה חייב להיות כתוב
+    # בקובץ כ-IIFE. פונקציה אמיתית שתיעלם תיפול כאן.
+    assert found <= declared | assigned
+
+    for rejected in (declared | assigned) - found:
+        assert re.search(rf"\b{re.escape(rejected)}\s*=\s*\(\s*\(", text), \
+            f"{rejected!r} נעדר מהמפה ואינו IIFE"
 
 
 def test_no_script_block_is_returned_as_one_opaque_symbol():
@@ -1349,3 +1355,233 @@ def test_a_real_template_yields_a_map_without_raising(relative):
     assert found["total"] > 0
     for row in found["symbols"]:
         assert row["start"] <= row["end"], row
+
+
+# ---------------------------------------------------------------------------
+# ארבעת הבאגים בסורק ה-JavaScript, ושלושת המונים שהיו תופסים אותם
+#
+# הטסט הקודם על ``base.html`` עבר למרות 136 טווחים שגויים ושלוש פונקציות
+# שנעלמו, משתי סיבות נפרדות: הוא סופר **כמות** ולא בודק טווח, והוא רץ על
+# **קובץ אחד**. שני החורים נסגרים כאן.
+# ---------------------------------------------------------------------------
+
+
+def _js_symbols(text):
+    """רק הגדרות הפונקציות, בלי הגבולות ובלי תגיות Jinja."""
+    return [
+        row for row in extract_outline(text, "page.html")["symbols"]
+        if "#" not in row["name"]
+        and not row["name"].startswith(("script", "style", "block ", "macro ",
+                                        "extends ", "include ", "import ", "from "))
+    ]
+
+
+def test_a_default_parameter_value_does_not_close_the_function_at_its_signature():
+    """באג 1 — הנפוץ מכולם: 136 מתוך 841 ההגדרות בכל התבניות.
+
+    ``function f(a, opts = {})`` מכיל ``{`` שאינו פותח את גוף הפונקציה.
+    העומק נלכד ברגע ההתאמה, כשהסורק עדיין **בתוך רשימת הפרמטרים**, ולכן
+    ה-``}`` שסוגר את ברירת המחדל סגר את הפונקציה כולה. נמדד על
+    ``base.html:3485``: ``openWizard`` חזר עם ``end == start == 3485``
+    במקום להגיע ל-3518, וכך גם ``closeWizard``, ``maybeOpen`` ו-``startTour``.
+
+    זה בדיוק השדה שכל הפיצ'ר קיים בשבילו — ממנו נגזר ה-``lines=`` הבא.
+    """
+    text = ("<script>\n"
+            "function openWizard(reason, opts = {}) {\n"
+            "  a();\n"
+            "}\n"
+            "function next() {}\n"
+            "</script>\n")
+
+    assert _js_symbols(text) == [
+        {"name": "openWizard", "start": 2, "end": 4},
+        {"name": "next", "start": 5, "end": 5},
+    ]
+
+
+def test_a_destructured_parameter_is_not_a_body_either():
+    """אותו שורש, צורה שנייה: ``{`` של destructuring גם הוא בחתימה."""
+    text = "<script>\nfunction draw({ x, y }) {\n  paint();\n}\n</script>\n"
+
+    assert _js_symbols(text) == [{"name": "draw", "start": 2, "end": 4}]
+
+
+def test_a_brace_inside_a_template_substitution_does_not_end_the_string():
+    """באג 2 — פונקציות **נעלמות מהמפה לגמרי**, וזה גרוע מטווח שגוי.
+
+    ``nesting`` עלה רק על ``${`` וירד על כל ``}``, ולכן אובייקט בתוך
+    ``${...}`` הוריד אותו לאפס בטרם עת. משם ה-backtick הבא נקרא כסוגר של
+    המחרוזת החיצונית, והסורק המשיך לקרוא טקסט כאילו הוא קוד.
+
+    שלוש פונקציות אמיתיות אבדו כך: ``renderStoryCell``,
+    ``renderAiExplainCell`` ו-``executedFunction``.
+    """
+    text = "<script>\nvar h = `${ {a: 1}.a }`;\nfunction real() {}\n</script>\n"
+
+    assert [row["name"] for row in _js_symbols(text)] == ["real"]
+
+
+def test_a_string_inside_a_template_substitution_does_not_end_it_either():
+    """נגזרת של אותו תיקון: ``}`` בתוך מחרוזת מקוננת אינו סוגר את ``${``."""
+    text = "<script>\nvar h = `${ f('}') }`;\nfunction real() {}\n</script>\n"
+
+    assert [row["name"] for row in _js_symbols(text)] == ["real"]
+
+
+@pytest.mark.parametrize(
+    ("label", "before"),
+    [("string", 'var s = "abc"'), ("call", "init()"), ("index", "var x = arr[0]")],
+)
+def test_a_definition_after_a_value_without_a_semicolon_is_still_found(label, before):
+    """באג 3 — משתנה אחד ששירת שתי שאלות שונות.
+
+    ``previous`` היה התו הלא-רווח האחרון. ל-regex זו השאלה **הנכונה**
+    (``x /2`` הוא חילוק), אבל לגבול מזהה צריך את התו ה**צמוד**. לכן
+    הגדרה שישבה אחרי ערך בלי נקודה-פסיק נחסמה: הטוקן האחרון היה ``c``
+    או ``)`` או ``]``, והבדיקה החליטה שאנחנו באמצע מזהה.
+
+    0 מופעים בתבניות היום, אבל **כן** ב-JS עצמאי: ``editor-manager.js``
+    החזיר שלושה סימבולים בלבד.
+    """
+    text = f"<script>\n{before}\nfunction foo() {{ return 1; }}\n</script>\n"
+
+    assert [row["name"] for row in _js_symbols(text)] == ["foo"]
+
+
+def test_a_word_ending_in_function_is_still_not_a_definition():
+    """הצד השני של אותו תיקון: הגבול חייב להמשיך לחסום.
+
+    בדיקה על התו הצמוד מרחיבה את מה שנתפס, ולכן הטסט הזה מוודא שהיא לא
+    הרחיבה יותר מדי — ``myfunction`` אינו ``function``.
+    """
+    text = "<script>\nvar myfunction = 1;\nvar xfunction foo() {}\n</script>\n"
+
+    assert _js_symbols(text) == []
+
+
+def test_a_character_whose_lowercase_is_longer_does_not_shift_the_script_boundary():
+    """באג 4 — התיקון הזה הוא היחיד שנכנס בזכות ההקצאה ולא בזכות באג נצפה.
+
+    החיפוש רץ על ``text.lower()`` והאינדקס שחזר שימש לחיתוך ולספירת
+    שורות ב-``text`` המקורי. ``str.lower()`` יכול לשנות **אורך**:
+    ``İ`` (U+0130, I טורקית עם נקודה) הופך לשני תווים. בתבניות הפרויקט
+    אין היום אף תו כזה, ולכן הבאג אינו ניתן להגעה — וזו בדיוק הסיבה
+    שה-fixture הזה קיים. בלעדיו התיקון נכון היום ויוחזר בשקט בעוד שנה.
+
+    לפני התיקון, על הקלט הזה: ה-``script`` דווח עם ``end: 5`` במקום 4,
+    ו-``div#x`` **נעלם מהמפה לגמרי**.
+    """
+    assert len("İ".lower()) == 2, "התו כבר לא משנה אורך — הטסט איבד את מה שהוא בודק"
+
+    text = ("İ" * 20 + "\n"
+            "<script>\n"
+            "function f() {}\n"
+            "</script>\n"
+            '<div id="x">\n'
+            "</div>\n")
+
+    assert extract_outline(text, "page.html")["symbols"] == [
+        {"name": "script", "start": 2, "end": 4},
+        {"name": "f", "start": 3, "end": 3},
+        {"name": "div#x", "start": 5, "end": 6},
+    ]
+
+
+def test_an_assignment_of_a_call_result_is_not_reported_as_a_function():
+    """נמצא על ידי המונה, ולא על ידי מי שכתב את הרג'קס.
+
+    ``const md = (a ? b : (() => ({x})))({...})`` הוא הצבה של תוצאת
+    קריאה. הרג'קס התאים לו כי ``[^)]*`` עצר ב-``)`` הראשון ומצא ``=>``
+    אחריו. כיבוד רמת קינון אחת פותר, ובדרך גם מרוויח: ``(a, b = (1)) =>``
+    נתפס עכשיו ולא היה נתפס קודם.
+    """
+    text = "<script>\nconst md = (w.x ? w.x : (() => ({r: 1})))({b: true});\n</script>\n"
+
+    assert _js_symbols(text) == []
+
+    nested = "<script>\nconst k = (a, b = (1)) => a;\n</script>\n"
+    assert [row["name"] for row in _js_symbols(nested)] == ["k"]
+
+
+# ---------------------------------------------------------------------------
+# שלושת המונים
+#
+# אף אחד מהם אינו מיותר, ולא ניתן להחליף אחד בשני: פונקציה שנעלמה מהמפה
+# אין לה טווח, ולכן מונה הטווחים עיוור אליה לחלוטין. שניים מהם רצים על
+# **כל** התבניות ולא על ``base.html`` בלבד — זה החור שאפשר לבאגים לשרוד.
+# ---------------------------------------------------------------------------
+
+
+def _templates():
+    found = sorted(_TEMPLATES.rglob("*.html"))
+    if not found:  # pragma: no cover
+        pytest.skip("אין תבניות")
+    return found
+
+
+def test_a_function_that_opens_a_body_on_its_line_never_ends_on_that_line():
+    """מונה 1 — תופס את באג 1, על כל התבניות.
+
+    הטענה נגזרת מהטקסט ולא מהמימוש: שורה שנגמרת ב-``{`` פותחת גוף, ולכן
+    הגוף נמשך לפחות לשורה הבאה. אין כאן סף ואין חריגים.
+
+    ריצת בקרה על הקוד שלפני התיקון: **68 מתוך 773**. אחריו: 0 מתוך 771.
+    """
+    broken = []
+    for path in _templates():
+        lines = path.read_text(encoding="utf-8").split("\n")
+        for row in _js_symbols(path.read_text(encoding="utf-8")):
+            opening = re.sub(r"//[^\n]*$", "", lines[row["start"] - 1]).rstrip()
+            if opening.endswith("{") and row["end"] <= row["start"]:
+                broken.append((path.name, row))
+
+    assert broken == []
+
+
+def test_no_definition_inside_a_script_block_is_missing_from_the_map():
+    """מונה 2 — תופס את באגים 2 ו-3, על כל התבניות.
+
+    מונה הטווחים לא יכול לתפוס פונקציה שנעלמה, ורשימת שמות ידנית מגנה על
+    שלושת המקרים שכבר נמצאו ולא על הבא. זה החסם העליון, באותה תבנית של
+    ``id="``.
+
+    הספירה מוגבלת ל**תוך גבולות בלוקי הסקריפט**, וזה נמדד ולא הונח: חסם
+    על הקובץ כולו התמלא ברעש שאינו קוד — ``font_preview.html`` מכיל שש
+    הגדרות בתוך ``<code>`` ואף ``<script>`` אחד, ו-``compare_paste.html``
+    מכיל ``function hello(`` בטקסט הדגמה.
+    """
+    missing = []
+    for path in _templates():
+        text = path.read_text(encoding="utf-8")
+        lines = text.split("\n")
+        symbols = extract_outline(text, str(path))["symbols"]
+        known = {row["name"].split(".")[-1] for row in _js_symbols(text)}
+        for block in symbols:
+            if not block["name"].startswith("script") or block["end"] <= block["start"]:
+                continue
+            body = "\n".join(lines[block["start"] : block["end"] - 1])
+            for found in re.finditer(r"(?:^|[^\w.$])function\s+([A-Za-z_$][\w$]*)\s*\(", body):
+                if found.group(1) not in known:
+                    missing.append((path.name, found.group(1)))
+
+    assert missing == []
+
+
+def test_the_three_functions_that_had_vanished_are_back():
+    """דרישה **נוספת** על המונה, לא במקומו.
+
+    היא מקבעת בדיוק את המקרים שנמצאו, אבל היא לא הייתה תופסת את הבא
+    בתור — לשם כך קיים המונה שמעליה.
+    """
+    for relative, expected in (
+        ("admin_observability.html", {"renderStoryCell", "renderAiExplainCell"}),
+        ("md_preview.html", {"executedFunction"}),
+    ):
+        path = _TEMPLATES / relative
+        if not path.exists():  # pragma: no cover
+            pytest.skip(f"{relative} לא קיים")
+
+        names = {row["name"] for row in _js_symbols(path.read_text(encoding="utf-8"))}
+
+        assert expected <= names, f"{relative}: חסרות {expected - names}"
