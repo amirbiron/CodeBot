@@ -8,10 +8,7 @@
 את מה שחזר. הלוגיקה של כל שפה יושבת ב-``outline_scanners/``, וה-docstring
 שם מתאר את החוזה שכל סורק ממלא.
 
-**המיון והסינון יושבים כאן, לא בסורקים.** הם המאפיינים שהעימוד נשען עליהם,
-וסורק חדש שישכפל אותם הוא סורק שאפשר לשכוח בו אחד מהם — והתוצאה תהיה סדר
-לא יציב בשפה אחת בלבד, כלומר סימבול שמדלג בין עמודים. מקום אחד, בלי אפשרות
-לשכוח.
+**המיון והסינון יושבים כאן, לא בסורקים** — הנימוק ב-``outline_scanners``.
 
 **ערוץ הכשל הוא ערך ההחזרה, לא חריגה.** הפונקציה מחזירה תמיד מילון עם
 ``status``: ``"ok"`` או ``"no_outline"``. קורא שבודק רק אם נזרקה חריגה
@@ -21,7 +18,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .outline_scanners import python as _python
 
@@ -31,7 +29,7 @@ from .outline_scanners import python as _python
 #:
 #: המפתחות באותיות קטנות, וההשוואה מנרמלת — ``.pyi`` הוא פייתון תקין
 #: ש-``ast.parse`` מנתחת, והוא נפוץ הרבה יותר מסיומת באותיות גדולות.
-_SCANNERS: dict[str, Callable[[str, list[str]], dict[str, Any]]] = {
+_SCANNERS: dict[str, Callable[[str], dict[str, Any]]] = {
     ".py": _python.extract,
     ".pyi": _python.extract,
 }
@@ -49,15 +47,33 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
     if scanner is None:
         return {"status": "no_outline", "reason": "unsupported_language"}
 
-    # הסורק מקבל גם את הטקסט וגם את פיצולו לשורות, כי כמעט כולם צריכים את
-    # שניהם — פייתון למעטרים, הסורקים הלקסיקליים לחישוב מספר שורה. פיצול
-    # אחד כאן זול יותר מפיצול בכל סורק, והוא גם מבטיח שכולם סופרים שורות
-    # באותו אופן בדיוק.
-    result = scanner(text, text.split("\n"))
-    if result.get("status") == "no_outline":
-        return result
+    result = scanner(text)
 
-    rows: list[dict[str, Any]] = result["symbols"]
+    # **החוזה נאכף כאן, ובקול.** גרסה קודמת בדקה רק
+    # ``result.get("status") == "no_outline"`` ואז ניגשה ל-``result["symbols"]``.
+    # זה עובד על הסורק היחיד שקיים, אבל סורק עתידי שיחזיר צורה שלישית —
+    # ``{"status": "error", ...}``, ``None``, מילון ריק — היה מפיל
+    # ``KeyError`` או ``AttributeError`` סתומים שלא אומרים מי הסורק ומה
+    # הוא החזיר, ו**המסלול עד הכלי אינו עוטף בחריגה**: לא
+    # ``_outline_response`` ולא ``RepoBackend.get_file``.
+    #
+    # הבחירה כאן היא **לא** לבלוע ולהחזיר ``no_outline``. סורק שמחזיר
+    # צורה מחוץ לחוזה הוא באג שלנו, וזו בדיוק אותה הבחנה ש-
+    # ``test_a_bug_in_the_traversal_is_not_swallowed_as_no_outline``
+    # מקבע שכבה אחת פנימה: קלט פגום חוזר כערך, באג נופל. מה שהיה חסר זה
+    # לא הבליעה אלא **האבחון** — ולכן ההודעה נוקבת בסורק ובמה שחזר.
+    # ``isinstance`` על **הערך** ולא רק נוכחות המפתח: ``{"symbols": None}``
+    # עובר בדיקת נוכחות ואז מפיל ``AttributeError`` על ``.sort`` — אותה
+    # חריגה סתומה בשורה אחת מאוחר יותר. בדיקת טיפוס לפני שימוש היא U3.
+    if isinstance(result, dict) and isinstance(result.get("symbols"), list):
+        rows: list[dict[str, Any]] = result["symbols"]
+    elif isinstance(result, dict) and result.get("status") == "no_outline":
+        return result
+    else:
+        raise TypeError(
+            f"סורק האאוטליין של {path!r} החזיר צורה שאינה בחוזה של "
+            f"outline_scanners (נדרש 'symbols' או status='no_outline'): {result!r}"
+        )
 
     # ממוין לפי שורת התחלה, ושובר-שוויון לפי שם. אין כאן מקרה של מעטר
     # משותף — מעטר שייך לסימבול אחד — אבל שובר-שוויון קבוע הוא מה שהופך
@@ -74,7 +90,7 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
     return {"status": "ok", "symbols": rows, "total": len(rows)}
 
 
-def _scanner_for(path: str) -> Callable[[str, list[str]], dict[str, Any]] | None:
+def _scanner_for(path: str) -> Callable[[str], dict[str, Any]] | None:
     """הסורק שמתאים לסיומת של ``path``, או ``None`` אם אין כזה.
 
     ההתאמה נבדקת מהסיומת **הארוכה ביותר** כלפי מטה, ולא לפי סדר המילון:

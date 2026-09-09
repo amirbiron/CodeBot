@@ -766,7 +766,13 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "class with its start and end line, so you can follow up with an exact "
             "lines= range. Names are fully qualified with dots (Class.method, "
             "outer.inner), symbol= filters on that full name, and page/per_page walk "
-            "long files. Python only; anything else returns status no_outline. Size "
+            # הסיומות נקובות במפורש ולא רק "Python only": סוכן ששואל אם
+            # ``.pyi`` נתמך לא יכול היה לענות מהתיאור, בזמן ש-
+            # ``docs/mcp-server.rst`` כן מפרט אותן. הרשימה נאכפת מול
+            # ``outline._SCANNERS`` בטסט, כדי ששפה שתתווסף לטבלה בלי
+            # שהתיאור יעודכן לא תהפוך לפיצ'ר שאף לקוח לא קורא לו.
+            "long files. Python only (.py, .pyi); anything else returns status "
+            "no_outline. Size "
             "limits differ by mode: 500KB for a whole file, 10MB with lines or "
             "outline. Binary files return metadata only."
         ),

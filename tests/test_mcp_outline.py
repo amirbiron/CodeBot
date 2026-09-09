@@ -31,6 +31,11 @@ def _names(text, **kw):
     return [row["name"] for row in extract_outline(text, "x.py", **kw)["symbols"]]
 
 
+def _names_of(result):
+    """השמות מתוך תשובה של ``extract_outline`` שכבר נקראה על נתיב אחר."""
+    return [row["name"] for row in result["symbols"]]
+
+
 def test_a_nested_function_is_prefixed_by_the_function_that_holds_it():
     """``build_mcp`` ב-``mcp_server/server.py`` מכילה 24 כלים מקוננים.
 
@@ -355,7 +360,7 @@ def test_a_file_the_router_does_not_recognise_never_reaches_a_scanner(monkeypatc
     import mcp_server.outline as module
     import mcp_server.outline_scanners.python as scanner
 
-    def _trap(_text, _lines):
+    def _trap(_text):
         raise AssertionError("סורק הפייתון נקרא על קובץ שאינו פייתון")
 
     monkeypatch.setattr(scanner, "extract", _trap)
@@ -370,6 +375,124 @@ def test_a_file_the_router_does_not_recognise_never_reaches_a_scanner(monkeypatc
     # ראוטר שלא קורא לאף סורק לעולם.
     with pytest.raises(AssertionError):
         module.extract_outline("x{}", "mod.py")
+
+
+def test_the_router_sorts_what_a_scanner_hands_it_back_unsorted():
+    """המיון הוא חוזה חוצה-מודולים, ועד עכשיו לא היה לו טסט.
+
+    ``_collect`` עובר על העץ עם מחסנית LIFO, ולכן מה שהוא מחזיר **אינו**
+    ממוין: סימבול מקונן חוזר אחרי אח שמופיע אחריו בקובץ. על
+    ``webapp/app.py`` זה 523 מתוך 526 סימבולים מחוץ למקום, ועמוד ראשון
+    שמכיל שמות אחרים לגמרי.
+
+    הטסטים הקיימים לא יכלו לתפוס את זה: ``test_symbols_are_ordered_by_start_line``
+    משתמש בשתי הגדרות ברמה העליונה, שהסדר הגולמי שלהן כבר ממוין;
+    ``test_the_order_is_stable_across_calls`` משווה שתי קריאות לפונקציה
+    טהורה ודטרמיניסטית, ולכן עובר גם בלי מיון בכלל. נמדד: מחיקת שורת
+    ``rows.sort`` משאירה את כל 64 הטסטים ירוקים.
+
+    הקלט כאן הוא המינימלי שבו הסדר הגולמי שונה מהממוין: ``[1, 6, 2]``
+    מול ``[1, 2, 6]``.
+    """
+    from mcp_server.outline_scanners.python import extract
+
+    text = "def outer():\n    def inner():\n        pass\n\n\ndef top():\n    pass\n"
+
+    # העוגן הבלתי תלוי: הסורק **באמת** מחזיר לא-ממוין. בלי הקביעה הזו
+    # הטסט היה עלול לעבור על קלט שממילא מגיע ממוין, ואז הוא לא בודק כלום.
+    raw = [row["start"] for row in extract(text)["symbols"]]
+    assert raw != sorted(raw), "הקלט מגיע ממוין — הטסט מאבד את מה שהוא בודק"
+
+    ordered = extract_outline(text, "x.py")["symbols"]
+
+    assert [row["start"] for row in ordered] == [1, 2, 6]
+    assert [row["name"] for row in ordered] == ["outer", "outer.inner", "top"]
+
+
+def test_the_longest_matching_suffix_wins_and_not_the_first_registered():
+    """הכלל קיים בשביל סיומת מורכבת שעוד לא נוספה, ולכן הוא לא מוגן מאליו.
+
+    עם הטבלה של היום התוצאה זהה בכל סדר, כי ``.py`` אינו סיומת של
+    ``.pyi``. כלומר מי ש"יפשט" את הלולאה חזרה לאיטרציה רגילה על המילון
+    לא יראה שום טסט נופל — ואז ``.html.j2`` ינותב לסורק של ``.j2``
+    בשקט. הטסט רושם שתי סיומות חופפות ומקבע את הכלל בזמן שהוא עוד זול.
+    """
+    import mcp_server.outline as module
+
+    monkey = {".j2": lambda _t: {"symbols": [{"name": "generic", "start": 1, "end": 1}]},
+              ".html.j2": lambda _t: {"symbols": [{"name": "specific", "start": 1, "end": 1}]}}
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(module, "_SCANNERS", monkey)
+
+        assert _names_of(module.extract_outline("x", "page.html.j2")) == ["specific"]
+        assert _names_of(module.extract_outline("x", "page.j2")) == ["generic"]
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        {"status": "error", "reason": "tree_sitter_missing"},  # status שאינו בחוזה
+        {},                                                     # מילון בלי כלום
+        {"symbols": None},                                      # המפתח קיים, הערך לא
+        None,                                                   # לא מילון בכלל
+        [],                                                     # ולא רצף
+    ],
+    ids=["other-status", "empty-dict", "symbols-is-none", "none", "list"],
+)
+def test_a_scanner_returning_a_shape_outside_the_contract_fails_loudly(shape):
+    """סורק שבור נופל בקול ועם אבחון — לא ב-``KeyError`` סתום.
+
+    הבדיקה הקודמת הייתה ``status == "no_outline"`` ואז ``result["symbols"]``,
+    כלומר היא כיסתה בדיוק את שתי הצורות שהיו קיימות. צורה שלישית הפילה
+    ``KeyError('symbols')`` או ``AttributeError`` — ו**שום שלב במסלול לא
+    עוטף בחריגה**: לא ``_outline_response`` ולא ``RepoBackend.get_file``.
+    כלומר החריגה הייתה בורחת דרך הכלי, בלי לומר מי הסורק ומה הוא החזיר.
+
+    הבחירה היא ליפול, לא לבלוע: קלט פגום חוזר כערך, באג שלנו נופל. מה
+    שהיה חסר הוא האבחון, ולכן נבדק גם שההודעה נוקבת בנתיב.
+    """
+    import mcp_server.outline as module
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setitem(module._SCANNERS, ".py", lambda _t: shape)
+
+        with pytest.raises(TypeError, match="mod.py"):
+            module.extract_outline("x", "mod.py")
+
+
+def test_the_two_shapes_the_contract_does_allow_are_not_rejected():
+    """הצד השני של אותו חוזה, ובטסט נפרד ובכוונה.
+
+    ``{"status": "no_outline", ...}`` היא צורה **חוקית**, ולכן היא לא
+    שייכת לרשימת הצורות הפסולות שלמעלה — טסט ששמו "נופל בקול" שמכיל
+    מקרה שאינו אמור ליפול הוא טסט ששמו סותר את מה שהוא בודק. האכיפה
+    שנוספה כאן אסור לה להדק יותר מדי ולדחות כשל לגיטימי של סורק.
+    """
+    import mcp_server.outline as module
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setitem(
+            module._SCANNERS, ".py",
+            lambda _t: {"status": "no_outline", "reason": "parse_error", "line": 7},
+        )
+
+        assert module.extract_outline("x", "mod.py") == {
+            "status": "no_outline",
+            "reason": "parse_error",
+            "line": 7,
+        }
+
+    with pytest.MonkeyPatch.context() as patch:
+        # רשימה ריקה של סימבולים היא הצלחה, לא כשל: קובץ פייתון תקין
+        # בלי אף הגדרה הוא מקרה אמיתי ונפוץ.
+        patch.setitem(module._SCANNERS, ".py", lambda _t: {"symbols": []})
+
+        assert module.extract_outline("x", "mod.py") == {
+            "status": "ok",
+            "symbols": [],
+            "total": 0,
+        }
 
 
 def test_deep_nesting_does_not_raise_from_our_side():

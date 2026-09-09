@@ -384,3 +384,23 @@ async def test_the_description_tells_the_agent_the_outline_is_python_only():
     assert "outline=true" in description
     assert "Python only" in description
     assert "no_outline" in description
+
+
+async def test_the_description_names_every_suffix_the_outline_router_supports():
+    """``_SCANNERS`` מצהיר על עצמו כמקור האמת היחיד — כאן זה נאכף.
+
+    התיאור הוא מה שלקוח MCP קורא כדי להחליט אם בכלל לשלוח
+    ``outline=true``. סיומת שתתווסף לטבלה בלי שהתיאור יעודכן היא פיצ'ר
+    שעובד ואף אחד לא קורא לו — כשל שקט לגמרי, ובדיוק הדריפט שההערה מעל
+    הטבלה טוענת שהיא מונעת. בלי הטסט הזה, ההערה מבטיחה יותר ממה שקיים.
+
+    הכיוון הוא מהטבלה אל התיאור בלבד: התיאור מותר לו לפרט דברים נוספים,
+    אבל אסור לו להשמיט סיומת שהראוטר כן מקבל.
+    """
+    from mcp_server.outline import _SCANNERS
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+
+    for suffix in _SCANNERS:
+        assert suffix in description, f"{suffix} בטבלת הראוטר אבל לא בתיאור הכלי"

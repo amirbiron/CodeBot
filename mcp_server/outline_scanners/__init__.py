@@ -9,7 +9,7 @@
 
 **החוזה, זהה לכל הסורקים:**
 
-``extract(text: str, lines: list[str]) -> dict``
+``extract(text: str) -> dict``
 
 מחזיר ``{"symbols": [{"name": str, "start": int, "end": int}, ...]}`` בהצלחה,
 או ``{"status": "no_outline", "reason": ..., ...}`` בכשל. ``start``/``end``

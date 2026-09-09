@@ -1,11 +1,8 @@
 """סורק האאוטליין של פייתון — פונקציות ומחלקות, עם טווח שורות.
 
-הרקע: ``webapp/app.py`` הוא מעל 20,000 שורות. בלי מפה, סוכן שמחפש בו פונקציה
-קורא טווח ומנחש. עם מפה הוא מקבל שורת התחלה וסיום ועובר ל-``lines=``.
-
-**ערוץ הכשל הוא ערך ההחזרה, לא חריגה** — קובץ שאינו נפרס מוחזר כ-
-``no_outline`` עם הסיבה, ולא כזריקה. זהו דפוס K11 ב-``amir-bug-patterns``,
-ולכן הבחירה מוצהרת כאן ולא משתמעת.
+הרקע והחוזה חיים ב-``mcp_server/outline.py`` וב-``outline_scanners/__init__.py``
+ולא משוכפלים לכאן: נימוק שגר בשלושה קבצים דורש שלוש עריכות מסונכרנות, וזו
+בדיוק הסחיפה השקטה שהערת ``_SCANNERS`` מתריעה נגדה.
 """
 
 from __future__ import annotations
@@ -20,7 +17,7 @@ _FUNCTION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)
 _SCOPE_NODES = _FUNCTION_NODES + (ast.ClassDef,)
 
 
-def extract(text: str, lines: list[str]) -> dict[str, Any]:
+def extract(text: str) -> dict[str, Any]:
     """מפת הסימבולים של ``text``, או ``no_outline`` עם הסיבה."""
     # ההרחבה הגורפת עוטפת **רק** את הפרסינג, ובכוונה. הקלט הוא קובץ
     # שמישהו אחר כתב, וסוג החריגה משתנה בין גרסאות פייתון: בייט אפס הוא
@@ -41,7 +38,13 @@ def extract(text: str, lines: list[str]) -> dict[str, Any]:
             "line": getattr(error, "lineno", None),
         }
 
-    return {"symbols": _collect(tree, lines)}
+    # הפיצול לשורות נעשה **אחרי** הפרסינג, ולא לפניו. הוא דרוש רק ל-
+    # ``_start_line``, שרץ רק על עץ שכבר נבנה — ובמסלול הכשל הוא עבודה
+    # שנזרקת. נמדד על קלט של 2.4MB שאינו נפרס: פיצול-קודם הגיע לשיא של
+    # 27.3MB מול 2.4MB בסדר הזה, פי 11. זה משנה כי אאוטליין נשפט מול
+    # ``RANGE_READ_MAX_BYTES`` (10MB), שההערה עליו מתעדת תקציב **נמדד**
+    # של פי שלושה מגודל הקובץ; קובץ בגבול עם תחביר שבור היה חורג ממנו.
+    return {"symbols": _collect(tree, text.split("\n"))}
 
 
 def _start_line(
@@ -100,11 +103,7 @@ def _collect(tree: ast.AST, lines: list[str]) -> list[dict[str, Any]]:
                 rows.append(
                     {
                         "name": name,
-                        # שורת ההתחלה היא של המעטר הראשון ולא של ה-``def``.
-                        # ב-``webapp/app.py`` 203 מתוך 408 הפונקציות ברמה
-                        # העליונה מעוטרות, ובלי זה טווח שנקרא לפי האאוטליין
-                        # היה מתחיל **אחרי** ``@app.route(...)`` — כלומר
-                        # מחמיץ את השורה שמזהה את הנתיב.
+                        # המעטר ולא ה-``def`` — הנימוק ב-``_start_line``.
                         "start": _start_line(child, lines),
                         "end": child.end_lineno or child.lineno,
                     }
