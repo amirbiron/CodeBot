@@ -136,6 +136,27 @@ def register_all_jobs():
     )
 
     register_job(
+        job_id="daily_morning_report",
+        name="דוח בוקר יומי",
+        description=(
+            "מצליב בין הדשבורדים ושולח סיכום יומי — רק כשיש מה לדווח. "
+            "החיות נמדדת מרישום ההרצה כאן, לא מהודעה"
+        ),
+        category=JobCategory.MONITORING,
+        job_type=JobType.REPEATING,
+        interval_seconds=24 * 3600,
+        # אין env_toggle: המוסכמה כאן היא "מופעל כשהמשתנה truthy", ו-
+        # DISABLE_DAILY_REPORT הפוך בדיוק. לכן הכיבוי נבדק בתוך ה-job
+        # ומדווח כ-skip_run, בדיוק כמו DISABLE_WEEKLY_REPORTS.
+        enabled=True,
+        callback_name="_daily_morning_report",
+        source_file="main.py",
+        # נקרא על ידי בדיקת "job מתוזמן שלא רץ" ב-_jobs_stuck_monitor.
+        # 26 שעות ולא 24: מרווח למניעת התראת שווא סביב שעון קיץ ודיפלוי.
+        metadata={"expect_run_every_seconds": 24 * 3600, "missed_after_hours": 26},
+    )
+
+    register_job(
         job_id="weekly_admin_report",
         name="דו\"ח שבועי",
         description="שליחת דו\"ח סיכום שבועי לאדמינים",

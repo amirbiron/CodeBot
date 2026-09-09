@@ -152,6 +152,7 @@ Code Keeper Bot - תיעוד API
 
    observability
    observability/background-jobs-monitor
+   observability/daily-morning-report
    observability/observability_dashboard
    observability/query-performance-profiler
    observability/quick_fix_rules

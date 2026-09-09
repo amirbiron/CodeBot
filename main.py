@@ -800,6 +800,618 @@ async def _send_direct_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> 
         return False
 
 
+def _claim_outcome(res) -> str:
+    """מתרגם תוצאת כתיבה מותנה ל-``claimed`` או ל-``already``.
+
+    התבנית המשותפת לכל אתרי הקריאה היא "תפוס את X, אבל רק אם עוד לא
+    נתפס" — ``update_one`` שהתנאי לתפיסה יושב בתוך השאילתה עצמה, ולכן
+    התפיסה אטומית. **התוצאה היא התשובה, לא תופעת לוואי:** מי שמתעלם ממנה
+    קיבל שער שקיים ואינו פועל, כי שני תהליכים שעברו את הקריאה יגיעו שניהם
+    לכתיבה ורק אחד באמת ישנה מסמך.
+
+    שתי צורות מעידות על תפיסה מוצלחת: ``upserted_id`` כשלא היה מסמך קודם,
+    ו-``modified_count`` כשהיה מסמך במצב אחר. אפס בשניהם = מישהו כבר תפס.
+    (ב-``upsert=False`` רק השנייה אפשרית.)
+
+    **חשוב:** זו רק אחת משתי הדרכים שבהן "כבר נתפס" מגיע. הדרך השנייה היא
+    חריגה, ואותה כל אתר קריאה תופס בעצמו — ראו ההערה ב-
+    ``_claim_daily_report_day``.
+    """
+    if int(getattr(res, "modified_count", 0) or 0) or getattr(res, "upserted_id", None):
+        return "claimed"
+    return "already"
+
+
+def _claim_daily_report_day(db_obj, day_key: str, now) -> str:
+    """תובע את היום עבור דוח הבוקר. ``claimed`` / ``already`` / ``error``.
+
+    **למה זה קיים.** ה-job יכול לרוץ יותר מפעם אחת ביום: עלייה מחדש של
+    הבוט עם ``misfire_grace_time`` פתוח, נפילה חזרה ל-``run_repeating``,
+    או טריגר ידני מהדשבורד. ``tracker.track`` מונע רק ריצות **חופפות**
+    באותו תהליך, ולכן הוא לא עוזר כאן. המצב הזה כבר קרה בפרודקשן בדוח
+    השבועי, שנשלח כמה פעמים ביום.
+
+    **למה ``DuplicateKeyError`` הוא "כבר נשלח" ולא "כשל".** תיעוד MongoDB,
+    בסעיף Upsert Behavior, אומר שכאשר אין התאמה המסמך החדש נבנה *מסעיפי
+    השוויון שבשאילתה בלבד*, ושאופרטורי השוואה (``$ne``) אינם נכנסים אליו.
+    כלומר כשכבר קיים מסמך עם אותו ``_id`` וה-``day_key`` של היום, השאילתה
+    לא מוצאת התאמה, מונגו מנסה ליצור מסמך עם ``_id`` שכבר תפוס, ונכשל
+    בהתנגשות מפתח ייחודי. זה בדיוק המקרה שהשער נבנה בשבילו.
+
+    **fail-closed בכוונה.** כשל אחר מחזיר ``error``, והדוח לא נשלח. זו
+    מדיניות הפוכה מזו של ``job_missed``: התראה שנעלמת גרועה מהתראה כפולה,
+    אבל דוח כפול גרוע מדוח חסר — עדיף להפסיד יום מאשר להציף.
+    """
+    try:
+        coll = db_obj["admin_reports"]
+    except Exception:
+        return "error"
+    try:
+        res = coll.update_one(
+            {"_id": "daily_morning_report", "day_key": {"$ne": day_key}},
+            {"$set": {"day_key": day_key, "last_sent_at": now}},
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        return "already"
+    except Exception:
+        return "error"
+    return _claim_outcome(res)
+
+
+async def _check_missed_scheduled_jobs(db_obj, now=None) -> list:
+    """מזהה job מתוזמן שלא רץ בכלל, ומחזיר את רשימת מי שדווח עליו.
+
+    ``job_failed`` ו-``job_stuck`` מכסים רק ריצות ש**התחילו**. job שהתזמון שלו
+    נעלם — משתנה סביבה שנמחק, restart שבלע את התזמון, חריגה בעלייה — פשוט
+    שותק, וזה נראה בדיוק כמו מערכת בריאה. זו הסיבה שהבדיקה הזו קיימת, והיא
+    היישום של הכלל שחיות נמדדת ב-heartbeat שהרכיב מעדכן ולא בכך שמישהו שם לב
+    שהוא שקט; ה-heartbeat כאן הוא רשומת ההרצה ב-``job_runs``.
+
+    **שאילתה מצרפית אחת ולא לולאה.** המנגנון רץ כל 60 שניות, ואסור לו לייצר
+    בעצמו את בעיית הביצועים שהוא נועד לתפוס.
+
+    ``failed`` נחשב "רץ" בכוונה: כשל כבר מכוסה ב-``job_failed``, והשאלה כאן
+    היא אי-התחלה בלבד.
+    """
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    now = now or _dt.now(_tz.utc)
+    try:
+        from services.job_registry import JobRegistry  # type: ignore
+
+        registry = JobRegistry()
+        expected = {}
+        for job in registry.list_all():
+            meta = getattr(job, "metadata", None) or {}
+            hours = meta.get("missed_after_hours")
+            if not hours:
+                continue
+            if not registry.is_enabled(job.job_id):
+                continue
+            expected[str(job.job_id)] = int(hours)
+    except Exception:
+        return []
+
+    if not expected:
+        return []
+
+    coll = getattr(db_obj, "job_runs", None)
+    if coll is None or not hasattr(coll, "aggregate"):
+        return []
+
+    # החלון הרחב ביותר מכסה את כולם בשאילתה אחת; ההשוואה הפרטנית נעשית אחריה.
+    cutoff = now - _td(hours=max(expected.values()))
+    pipeline = [
+        {
+            "$match": {
+                "job_id": {"$in": sorted(expected)},
+                "status": {"$in": ["completed", "failed"]},
+                "started_at": {"$gte": cutoff},
+            }
+        },
+        {"$group": {"_id": "$job_id", "last_started_at": {"$max": "$started_at"}}},
+    ]
+    try:
+        rows = await coll.aggregate(pipeline).to_list(length=100)
+    except Exception:
+        return []
+
+    last_seen = {}
+    for row in list(rows or []):
+        job_id = str((row or {}).get("_id") or "")
+        ts = (row or {}).get("last_started_at")
+        if job_id and ts is not None:
+            last_seen[job_id] = ts
+
+    # האוסף נלקח פעם אחת ולא לכל job: הוא אינו משתנה בין איטרציות, וכשל
+    # בהשגתו משאיר ``None`` — כלומר fail-open, כמו כל כשל אחר בשער הזה.
+    try:
+        reports = getattr(db_obj, "admin_reports", None)
+    except Exception:
+        reports = None
+
+    reported = []
+    for job_id, hours in sorted(expected.items()):
+        ts = last_seen.get(job_id)
+        if ts is not None:
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=_tz.utc)
+            # אף פעם לא שלילי: הפרש שלילי מ-clock skew היה מסתיר ריצה אמיתית.
+            if max(_td(0), now - ts) < _td(hours=hours):
+                continue
+
+        # התראה אחת ליום לכל job — upsert מותנה, "תפוס את היום אם עוד לא נתפס".
+        day_key = now.date().isoformat()
+        if reports is not None:
+            try:
+                res = await reports.update_one(
+                    {"_id": f"job_missed:{job_id}", "day_key": {"$ne": day_key}},
+                    {"$set": {"day_key": day_key, "last_reported_at": now}},
+                    upsert=True,
+                )
+                if _claim_outcome(res) == "already":
+                    continue
+            except DuplicateKeyError:
+                # ה-``$ne`` אינו נכנס למסמך שנוצר ב-upsert (ראו ההסבר
+                # ב-``_claim_daily_report_day``), ולכן "כבר דיווחנו היום"
+                # מגיע לכאן כהתנגשות מפתח ולא כ-``modified_count=0``.
+                # ה-``except`` הרחב שהיה כאן בלע אותה, והתוצאה הייתה התראה
+                # חוזרת כל 60 שניות במקום אחת ליום.
+                continue
+            except Exception:
+                # כשל אחר: fail-open. התראה שנעלמת גרועה מהתראה כפולה — זו
+                # המדיניות ההפוכה מזו של הדוח היומי, ובכוונה.
+                pass
+
+        reported.append(job_id)
+    return reported
+
+
+async def _emit_stuck_job_events(db_obj, now) -> None:
+    """פולט ``job_stuck`` על הרצות שהתחילו ולא הסתיימו.
+
+    הופרד מהמוניטור כדי שלא יחלוק גורל עם בדיקת ``job_missed``: הן נשענות
+    על שאילתות שונות (``find`` מול ``aggregate``), ואין סיבה שכשל של אחת
+    ישתיק את השנייה.
+    """
+    from datetime import timedelta as _td
+
+    from observability import emit_event as _emit  # type: ignore
+
+    try:
+        threshold_min = int(os.getenv("JOBS_STUCK_THRESHOLD_MINUTES", "20") or 20)
+    except Exception:
+        threshold_min = 20
+    threshold_min = max(1, threshold_min)
+    cutoff = now - _td(minutes=threshold_min)
+
+    coll = getattr(db_obj, "job_runs", None)
+    if coll is None or not callable(getattr(coll, "find", None)):
+        return
+
+    # ‏stuck_reported_at הוא השער שמונע פליטה חוזרת על אותה הרצה.
+    cursor = coll.find(
+        {
+            "status": "running",
+            "started_at": {"$lt": cutoff},
+            "stuck_reported_at": {"$exists": False},
+        },
+        {"run_id": 1, "job_id": 1, "started_at": 1},
+    ).sort("started_at", 1).limit(50)
+
+    try:
+        docs = await cursor.to_list(length=50)
+    except Exception:
+        docs = []
+
+    for doc in list(docs or []):
+        run_id = str(doc.get("run_id") or "").strip()
+        job_id = str(doc.get("job_id") or "").strip()
+        started_at = doc.get("started_at")
+        minutes = None
+        try:
+            if started_at:
+                minutes = int(max(1, (now - started_at).total_seconds() // 60))
+        except Exception:
+            minutes = None
+
+        if not run_id or not job_id:
+            continue
+
+        # סימון + שורת לוג (שומרים 50 אחרונות). ה-``update_one`` המותנה הוא
+        # שער ולא סתם סימון: ה-``find`` למעלה וה-``update_one`` כאן הם
+        # check-then-act, ולכן שני תהליכים שראו את אותה הרצה יגיעו שניהם
+        # לכאן — ורק אצל אחד ``stuck_reported_at`` ייכתב בפועל. בדיקת
+        # ה-rowcount היא מה שהופך את זה לשער; בלעדיה השער היה קיים ולא
+        # פועל, וההתראה נפלטה פעמיים.
+        try:
+            res = await coll.update_one(
+                {"run_id": run_id, "stuck_reported_at": {"$exists": False}},
+                {
+                    "$set": {"stuck_reported_at": now},
+                    "$push": {
+                        "logs": {
+                            "$each": [
+                                {
+                                    "timestamp": now,
+                                    "level": "error",
+                                    "message": "Job stuck detected",
+                                    "details": {"minutes": minutes} if minutes is not None else None,
+                                }
+                            ],
+                            "$slice": -50,
+                        }
+                    },
+                },
+                upsert=False,
+            )
+        except Exception:
+            # כשל כתיבה אינו "מישהו אחר דיווח": לא ידוע אם סימנו, ולכן
+            # פולטים בכל זאת. אותה מדיניות fail-open כמו ב-``job_missed`` —
+            # הרצה תקועה שאיש אינו יודע עליה היא הכשל שהמנגנון נבנה לתפוס.
+            logger.debug("job_stuck_mark_failed run_id=%s", run_id, exc_info=True)
+        else:
+            if _claim_outcome(res) == "already":
+                continue
+
+        _emit(
+            "job_stuck",
+            severity="error",
+            job_id=job_id,
+            run_id=run_id,
+            minutes=int(minutes or threshold_min),
+        )
+
+
+async def _emit_missed_job_events(db_obj, now) -> None:
+    """פולט ``job_missed`` על job מתוזמן שלא נרשמה לו ריצה בחלון שלו."""
+    from observability import emit_event as _emit  # type: ignore
+    from services.job_registry import JobRegistry as _JobRegistry  # type: ignore
+
+    for missed_id in await _check_missed_scheduled_jobs(db_obj, now):
+        meta = getattr(_JobRegistry().get(missed_id), "metadata", None) or {}
+        _emit(
+            "job_missed",
+            severity="error",
+            job_id=missed_id,
+            hours=int(meta.get("missed_after_hours") or 26),
+        )
+
+
+async def _jobs_monitor_tick(db_obj, now=None) -> None:
+    """סבב אחד של מוניטור ה-jobs: שתי בדיקות **עצמאיות**.
+
+    הפרדת ה-``try`` היא כל העניין. בגרסה הקודמת שתי הבדיקות ישבו בבלוק
+    אחד, ולכן שלושה מסלולי יציאה של בדיקת ה-stuck — אוסף בלי ``find``,
+    חריגה, ו-``return`` מוקדם — דילגו על בדיקת ה-missed לגמרי. דווקא
+    ה-missed היא זו שתופסת את המקרה החמור יותר: job שלא רץ בכלל.
+    """
+    if db_obj is None:
+        return
+    now = now or datetime.now(timezone.utc)
+    for check in (_emit_stuck_job_events, _emit_missed_job_events):
+        try:
+            await check(db_obj, now)
+        except Exception:
+            logger.debug("jobs_monitor_check_failed: %s", getattr(check, "__name__", "?"), exc_info=True)
+
+
+# ===== עזרי דוח הבוקר היומי =====
+def _daily_report_tz():
+    """אזור הזמן שבו נקבעת שעת השליחה ותאריך היום שהדוח מתאר.
+
+    ``utils._get_israel_tz`` נופל ל-UTC (עם אזהרה בלוג) כשמסד אזורי הזמן חסר
+    בסביבה. הנפילה הזו מזיזה את הדוח בשעתיים, ולכן ה-job רושם את ה-tz שנבחר
+    בפועל בהיסטוריית ההרצה.
+    """
+    try:
+        from utils import _get_israel_tz  # type: ignore
+
+        return _get_israel_tz()
+    except Exception:
+        from datetime import timezone as _tz
+
+        return _tz.utc
+
+
+def _daily_report_hour_minute() -> tuple[int, int]:
+    """שעת השליחה מתוך ``DAILY_REPORT_HOUR_LOCAL`` בפורמט ``HH:MM``.
+
+    ערך פגום אינו מפיל את התזמון ואינו נבלע בשקט — הוא חוזר ל-08:00 ונרשם
+    כאזהרה, כי job שלא נקבע לו זמן פשוט לא ירוץ.
+    """
+    raw = str(os.getenv("DAILY_REPORT_HOUR_LOCAL", "08:00") or "08:00").strip()
+    try:
+        hour_s, _, minute_s = raw.partition(":")
+        hour = int(hour_s)
+        minute = int(minute_s or 0)
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError(raw)
+        return hour, minute
+    except Exception:
+        logger.warning("daily_report_bad_hour_env", extra={"value": raw})
+        return 8, 0
+
+
+def _daily_report_window_minutes() -> int:
+    """רוחב חלון ההצלבה בדקות.
+
+    ‏5 דקות כברירת מחדל, ולא מספר שנשמע סביר: זהו חלון הדגימה שהתראות
+    ה-latency נבנות עליו (``window_minutes`` ב-``config/alerts.yml``), והדלי
+    של ``service_metrics`` הוא 60 שניות. רחב מדי מייצר קישור סיבתי שגוי,
+    שגרוע מכלום כי הוא שולח לחפש במקום הלא נכון.
+    """
+    try:
+        value = int(os.getenv("DAILY_REPORT_CORRELATION_WINDOW_MINUTES", "5") or 5)
+        return max(1, min(120, value))
+    except Exception:
+        return 5
+
+
+def _daily_report_db():
+    """ה-Database של האפליקציה, או ``None`` כשאין מסד אמיתי.
+
+    **דרך לקוח אחד בכוונה.** ``alerts_storage`` ו-``metrics_storage`` פותחים
+    ``MongoClient`` משלהם בלי ``tz_aware``, ולכן אותה חותמת חוזרת מהם נאיבית
+    ומהלקוח של האפליקציה מודעת-אזור. קריאה של כל המקורות דרך לקוח אחד מונעת
+    השוואה בין שני טיפוסים.
+    """
+    try:
+        from database import db as _dbm  # type: ignore
+
+        db_obj = getattr(_dbm, "db", None)
+        if db_obj is None:
+            return None
+        if str(getattr(db_obj, "name", "") or "") == "noop_db":
+            return None
+        return db_obj
+    except Exception:
+        return None
+
+
+def _build_daily_report_deps(db_obj):
+    """מרכיב את התלויות שהאיסוף צורך.
+
+    שמות האוספים של ההתראות והמדדים נלקחים מהמודולים שכותבים אליהם ולא
+    משוכפלים כאן — אחרת שינוי של ``ALERTS_COLLECTION`` היה משאיר את הדוח
+    קורא אוסף ריק ומדווח "אפס התראות" בביטחון מלא.
+    """
+    import services.daily_report_service as drs
+
+    try:
+        from monitoring.alerts_storage import collection_name as _alerts_name  # type: ignore
+
+        alerts_coll = db_obj[_alerts_name()]
+    except Exception:
+        alerts_coll = None
+    try:
+        from monitoring.metrics_storage import collection_name as _metrics_name  # type: ignore
+
+        metrics_coll = db_obj[_metrics_name()]
+    except Exception:
+        metrics_coll = None
+    try:
+        from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
+
+        slow_coll = db_obj[PersistentQueryProfilerService.COLLECTION_NAME]
+    except Exception:
+        slow_coll = None
+
+    def _cache_stats():
+        from services.cache_inspector_service import get_cache_inspector_service  # type: ignore
+
+        return get_cache_inspector_service().get_cache_stats()
+
+    def _mcp_endpoint(name, limit=None):
+        from services.mcp_analytics_service import get_mcp_analytics_service  # type: ignore
+
+        return get_mcp_analytics_service().run_endpoint(name, limit)
+
+    return drs.ReportDeps(
+        alerts_coll=alerts_coll,
+        metrics_coll=metrics_coll,
+        slow_coll=slow_coll,
+        job_runs_coll=db_obj["job_runs"],
+        snapshots_coll=db_obj[drs.COLLECTION_NAME],
+        db_for_collstats=db_obj,
+        cache_stats_fn=_cache_stats,
+        mcp_run_endpoint_fn=_mcp_endpoint,
+    )
+
+
+def _daily_report_gate_reason() -> str:
+    """בודק מראש אם ההודעה בכלל יכולה להגיע לטלגרם. ריק = יכולה.
+
+    ``emit_internal_alert`` מחזיר ``None`` ולעולם אינו מדווח כשל, ולכן בלי
+    הבדיקה הזו הדוח היה מסתיים ב-``completed`` גם כשההודעה נחסמה — הצלחה
+    מדומה על משהו שלא קרה.
+
+    הבדיקה קוראת ל**פונקציות של ה-forwarder עצמו** ולא ל-``os.getenv``: את
+    רשימת ההשתקה הוא מחשב בזמן ה-import, ולכן קריאה עצמאית של המשתנה הייתה
+    יכולה לסתור את מה שקורה בפועל.
+    """
+    try:
+        import alert_forwarder as _af  # type: ignore
+        import services.daily_report_service as drs  # type: ignore
+    except Exception:
+        return ""
+
+    try:
+        if _af._severity_rank(drs.REPORT_SEVERITY) < _af._min_telegram_severity_rank():
+            return "below_min_severity"
+        if _af._is_telegram_suppressed(drs.REPORT_ALERT_NAME):
+            return "suppressed"
+    except Exception:
+        return ""
+    if not os.getenv("ALERT_TELEGRAM_BOT_TOKEN"):
+        return "no_token"
+    if not os.getenv("ALERT_TELEGRAM_CHAT_ID"):
+        return "no_chat"
+    return ""
+
+
+def _daily_report_gate_ok(run, tracker) -> bool:
+    """מפיל את ההרצה כשהדוח לא יכול להימסר, במקום לדווח הצלחה."""
+    reason = _daily_report_gate_reason()
+    if not reason:
+        return True
+    tracker.fail_run(run.run_id, f"telegram_gate:{reason}")
+    return False
+
+
+async def _daily_morning_report_body(tracker, run) -> None:
+    """גוף דוח הבוקר: אוסף סנאפשוט, משווה מול אתמול, ושולח רק אם יש מה לדווח.
+
+    סדר הפעולות כאן אינו שרירותי:
+
+    1. **הסנאפשוט נשמר תמיד, ולפני ההחלטה אם לשלוח.** יום שקט שלא משאיר
+       סנאפשוט הופך את הדוח של מחר לשקר — אין לו מול מה להשוות. השמירה היא
+       ``$setOnInsert``, ולכן הריצה הראשונה מנצחת ואין דריסה.
+    2. **שער המסירה נבדק לפני השליחה.** ``emit_internal_alert`` מחזיר
+       ``None`` תמיד ואינו מדווח כשל, ולכן בלי בדיקה מוקדמת הדוח היה מסתיים
+       ב-``completed`` גם כשההודעה נחסמה על סף החומרה — "✅" על משהו שלא קרה.
+    3. **שער האידמפוטנטיות בא אחרון, ממש לפני השליחה.** אילו ישב מוקדם
+       יותר, יום שקט היה "שורף" את היום וטריגר ידני מאוחר יותר לא היה יכול
+       לשלוח דבר גם אם בינתיים קרה משהו.
+    """
+    import asyncio as _asyncio
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    import services.daily_report_service as drs
+
+    if str(os.getenv("DISABLE_DAILY_REPORT", "")).lower() in {"1", "true", "yes"}:
+        tracker.skip_run(run.run_id, "disabled_by_env")
+        return
+
+    tz = _daily_report_tz()
+    now_utc = _dt.now(_tz.utc)
+    day_key = drs.day_key_for(now_utc.astimezone(tz))
+    day_start, day_end = drs.window_for(now_utc)
+    window = _td(minutes=_daily_report_window_minutes())
+    # ‏tz שנבחר בפועל נרשם בהיסטוריית ההרצה: אם מסד אזורי הזמן חסר, utils
+    # נופל ל-UTC והשעה זזה בשעתיים — וזה חייב להיות נראה כאן ולא רק בלוג.
+    tracker.add_log(run.run_id, "info", f"day={day_key} tz={tz} window_min={window.seconds // 60}")
+
+    db_obj = _daily_report_db()
+    if db_obj is None:
+        tracker.skip_run(run.run_id, "no_database")
+        return
+
+    deps = _build_daily_report_deps(db_obj)
+    snapshots = db_obj[drs.COLLECTION_NAME]
+    previous = drs.load_snapshot(snapshots, drs.previous_day_key(day_key))
+
+    snapshot = await _asyncio.to_thread(
+        drs.collect_snapshot,
+        day_key=day_key,
+        day_start_utc=day_start,
+        day_end_utc=day_end,
+        deps=deps,
+        previous=previous,
+        correlation_window=window,
+        now=now_utc,
+    )
+    # כשל שמירה מפיל את ההרצה בכוונה: ראה נימוק (1) למעלה.
+    stored = await _asyncio.to_thread(drs.save_snapshot, snapshots, snapshot)
+
+    diff = drs.compare(stored, previous, correlation_window=window)
+    text = drs.render_report(diff)
+    if text is None:
+        # ריצה מוצלחת בלי הודעה. **לא** skip: זו בדיוק הרשומה שממנה נמדדת
+        # החיות של ה-job.
+        tracker.add_log(run.run_id, "info", "nothing_to_report")
+        return
+
+    if not _daily_report_gate_ok(run, tracker):
+        return
+
+    claim = await _asyncio.to_thread(_claim_daily_report_day, db_obj, day_key, now_utc)
+    if claim == "already":
+        tracker.skip_run(run.run_id, "already_sent_today")
+        return
+    if claim != "claimed":
+        # fail-closed: לא ידוע אם נשלח, ולכן לא שולחים.
+        tracker.fail_run(run.run_id, "day_claim_failed")
+        return
+
+    from internal_alerts import emit_internal_alert  # type: ignore
+
+    emit_internal_alert(
+        drs.REPORT_ALERT_NAME,
+        severity=drs.REPORT_SEVERITY,
+        summary=text,
+        source="main.daily_morning_report",
+        admin_ids=get_admin_ids(),
+    )
+    tracker.add_log(run.run_id, "info", f"sections={','.join(diff.sections) or 'none'}")
+    try:
+        try:
+            from observability import emit_event as _emit
+        except Exception:  # pragma: no cover
+            _emit = lambda *a, **k: None  # noqa: E731
+        _emit(
+            "daily_report_sent",
+            severity="info",
+            day=day_key,
+            sections=",".join(diff.sections),
+            has_baseline=bool(diff.has_baseline),
+        )
+    except Exception:
+        pass
+
+
+def _schedule_daily_morning_report(application, callback) -> None:
+    """מתזמן את הדוח לשעה קבועה בשעון ישראל.
+
+    ``run_daily`` ולא ``run_repeating(86400)``: אינטרוול נסחף עם כל restart,
+    ו"בוקר" הוא דרישה מפורשת. ה-``time`` נושא ``tzinfo`` מפורש כי ה-
+    ``Defaults`` של הבוט מוגדר רק עם ``parse_mode`` — בלי אזור זמן, וברירת
+    המחדל של JobQueue היא UTC.
+
+    ``misfire_grace_time`` של שעה: restart ב-07:59 לא אמור לבלוע את היום.
+    הנפילה ל-``run_repeating`` היא לסביבות שבהן ה-JobQueue אינו תומך
+    בחתימה הזו, באותה תבנית של ``_safe_run_once``/``_safe_run_repeating``.
+    """
+    from datetime import datetime as _dt, time as _time, timedelta as _td, timezone as _tz
+
+    hour, minute = _daily_report_hour_minute()
+    tz = _daily_report_tz()
+    when = _time(hour=hour, minute=minute, tzinfo=tz)
+    try:
+        application.job_queue.run_daily(
+            callback,
+            time=when,
+            name="daily_morning_report",
+            job_kwargs={"misfire_grace_time": 3600},
+        )
+        return
+    except TypeError:
+        try:
+            application.job_queue.run_daily(callback, time=when, name="daily_morning_report")
+            return
+        except Exception:
+            pass
+    except Exception as exc:
+        logger.warning("daily_report_run_daily_failed: %s", exc)
+
+    # Fallback: אינטרוול יומי שמתחיל במופע הבא של השעה שנקבעה.
+    try:
+        now_local = _dt.now(_tz.utc).astimezone(tz)
+        target = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target <= now_local:
+            target = target + _td(days=1)
+        first = max(60, int((target - now_local).total_seconds()))
+        application.job_queue.run_repeating(
+            callback,
+            interval=24 * 3600,
+            first=first,
+            name="daily_morning_report",
+        )
+    except Exception as exc:
+        logger.warning("daily_report_schedule_failed: %s", exc)
+
+
 async def connect_claude_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """מנפיק טוקן אישי (PAT) לחיבור הקבצים של המשתמש ל‑Claude דרך MCP (קריאה בלבד)."""
     try:
@@ -5753,93 +6365,18 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         except Exception:
             return None
 
-    # Jobs Monitor: זיהוי הרצות "תקועות" (job_stuck)
+    # Jobs Monitor: הרצות "תקועות" (job_stuck) ו-job מתוזמן שלא רץ (job_missed)
     try:
-        from datetime import timedelta as _td
-        from observability import emit_event as _emit  # type: ignore
-
         async def _jobs_stuck_monitor(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
+            """קליפה דקה: משיג את המסד ומעביר ל-``_jobs_monitor_tick``.
+
+            כל הלוגיקה יושבת ברמת המודול כדי שתהיה ניתנת לבדיקה בלי להרים
+            את הבוט — וכדי ששתי הבדיקות יהיו באמת נפרדות זו מזו.
+            """
             try:
-                db_obj = await _get_scheduler_motor_db(_context.application)
-                if db_obj is None:
-                    return
-
-                try:
-                    threshold_min = int(os.getenv("JOBS_STUCK_THRESHOLD_MINUTES", "20") or 20)
-                except Exception:
-                    threshold_min = 20
-                threshold_min = max(1, threshold_min)
-
-                now = datetime.now(timezone.utc)
-                cutoff = now - _td(minutes=threshold_min)
-
-                coll = getattr(db_obj, "job_runs", None)
-                if coll is None or not hasattr(coll, "find"):
-                    return
-
-                # emit only once per run (stuck_reported_at gate)
-                cursor = coll.find(
-                    {
-                        "status": "running",
-                        "started_at": {"$lt": cutoff},
-                        "stuck_reported_at": {"$exists": False},
-                    },
-                    {"run_id": 1, "job_id": 1, "started_at": 1},
-                ).sort("started_at", 1).limit(50)
-
-                try:
-                    docs = await cursor.to_list(length=50)
-                except Exception:
-                    docs = []
-
-                for doc in list(docs or []):
-                    run_id = str(doc.get("run_id") or "").strip()
-                    job_id = str(doc.get("job_id") or "").strip()
-                    started_at = doc.get("started_at")
-                    minutes = None
-                    try:
-                        if started_at:
-                            minutes = int(max(1, (now - started_at).total_seconds() // 60))
-                    except Exception:
-                        minutes = None
-
-                    if not run_id or not job_id:
-                        continue
-
-                    # mark + append log (keep last 50)
-                    try:
-                        await coll.update_one(
-                            {"run_id": run_id, "stuck_reported_at": {"$exists": False}},
-                            {
-                                "$set": {"stuck_reported_at": now},
-                                "$push": {
-                                    "logs": {
-                                        "$each": [
-                                            {
-                                                "timestamp": now,
-                                                "level": "error",
-                                                "message": "Job stuck detected",
-                                                "details": {"minutes": minutes} if minutes is not None else None,
-                                            }
-                                        ],
-                                        "$slice": -50,
-                                    }
-                                },
-                            },
-                            upsert=False,
-                        )
-                    except Exception:
-                        pass
-
-                    _emit(
-                        "job_stuck",
-                        severity="error",
-                        job_id=job_id,
-                        run_id=run_id,
-                        minutes=int(minutes or threshold_min),
-                    )
+                await _jobs_monitor_tick(await _get_scheduler_motor_db(_context.application))
             except Exception:
-                return
+                logger.debug("jobs_monitor_tick_failed", exc_info=True)
 
         try:
             interval = int(os.getenv("JOBS_STUCK_MONITOR_INTERVAL_SECS", "60") or 60)
@@ -6461,6 +6998,42 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             await _weekly_admin_report(_Ctx())
     except Exception:
         pass
+
+    # Daily morning report — מצליב בין הדשבורדים ושולח סיכום פעם ביום
+    try:
+        async def _daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
+            """קליפה דקה: פותחת רשומת הרצה ומעבירה ל-``_daily_morning_report_body``.
+
+            כל הלוגיקה יושבת ברמת המודול כדי שסדר הפעולות — ובעיקר **ששני
+            השערים באמת נקראים לפני השליחה** — יהיה ניתן לבדיקה. שער שקיים
+            בקוד ואיש אינו מוודא שקוראים לו הוא בדיוק אותו כשל של אינדקס
+            שמוצהר ולא נוצר.
+            """
+            from services.job_tracker import get_job_tracker, JobAlreadyRunningError
+
+            tracker = get_job_tracker()
+            try:
+                trigger = (
+                    str(((getattr(getattr(context, "job", None), "data", None) or {}) or {}).get("trigger") or "scheduled")
+                    .strip()
+                    .lower()
+                )
+            except Exception:
+                trigger = "scheduled"
+
+            try:
+                with tracker.track("daily_morning_report", trigger=trigger) as run:
+                    await _daily_morning_report_body(tracker, run)
+            except JobAlreadyRunningError:
+                try:
+                    tracker.record_skipped(job_id="daily_morning_report", trigger=trigger, reason="already_running")
+                except Exception:
+                    pass
+                return
+
+        _schedule_daily_morning_report(application, _daily_morning_report)
+    except Exception:
+        logger.warning("Failed to set up daily morning report job", exc_info=True)
 
     # Background cleanup jobs (Phase 2): cache maintenance and backups retention
     try:
