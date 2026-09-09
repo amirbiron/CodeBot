@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import io
 import pathlib
+import re
 import subprocess
 import tokenize
 from collections import Counter
@@ -1001,3 +1002,350 @@ def test_a_leading_comment_does_not_drag_an_undecorated_symbol_backwards():
     text = "# a note\n\ndef f():\n    pass\n"
 
     assert extract_outline(text, "x.py")["symbols"][0]["start"] == 3
+
+
+# ---------------------------------------------------------------------------
+# HTML / Jinja
+#
+# תבנית Jinja אינה HTML תקין, וזה לא פגם: תגית שנפתחת בענף אחד של
+# ``{% if %}`` ונסגרת באחר היא הכתיב הרגיל. פרסר DOM "מתקן" את זה בשקט
+# ומחזיר שורות שאינן במקום; סורק טוקנים שטוח לא מנסה לאזן ולכן לא משקר.
+# ---------------------------------------------------------------------------
+
+_TEMPLATES = pathlib.Path("webapp/templates")
+
+
+def _html(text, **kw):
+    return extract_outline(text, "page.html", **kw)
+
+
+def test_a_nested_tag_without_an_id_does_not_close_the_one_that_has_it():
+    """המבחן שמסוגל להיכשל, ולכן הוא ראשון.
+
+    מימוש שדוחף למחסנית **רק** אלמנטים בעלי ``id`` אך שולף על כל תגית
+    סוגרת נראה זהה כמעט תמיד. הוא נשבר בדיוק כאן: התגית הסוגרת הפנימית
+    שולפת את ``#a`` ונותנת לו את שורה 2 במקום 3. מעקב העומק חייב להיות
+    שלם גם כשהדיווח מסונן.
+    """
+    symbols = _html('<div id="a">\n<div></div>\n</div>\n')["symbols"]
+
+    assert symbols == [{"name": "div#a", "start": 1, "end": 3}]
+
+
+def test_a_tag_written_inside_a_javascript_string_is_not_a_symbol():
+    """``base.html:2545`` מכיל בדיוק את זה, ולכן זה לא תרחיש מומצא:
+
+        '  <div class="modal-body" id="recentFilesList">' +
+
+    הוא יושב בתוך בלוק ``<script>``, ומפה שסופרת אותו כאלמנט מפנה לשורה
+    שאין בה תגית.
+    """
+    text = '<script>\nvar h = \'<div id="row">\';\nfunction go() {}\n</script>\n'
+
+    names = [row["name"] for row in _html(text)["symbols"]]
+
+    assert "div#row" not in names
+    assert "go" in names, "הפונקציה שאחרי המחרוזת נבלעה"
+
+
+def test_a_definition_written_inside_a_javascript_string_is_not_a_function():
+    """מה שמצב המחרוזת באמת מונע, ובטסט משלו.
+
+    הטסט שמעליו מקבע התנהגות אמיתית, אבל אינו רגיש למצב המחרוזת: תגית
+    בתוך בלוק ``<script>`` אינה נכנסת למפה כי הבלוק כולו נקרא כטקסט
+    גולמי, ולא בגלל המחרוזת. הרגישות היא כאן — ``function`` שכתוב בתוך
+    מחרוזת אינו הגדרה, ובלי המצב הוא היה נספר.
+    """
+    text = '<script>\nvar s = "function fake() {}";\nfunction real() {}\n</script>\n'
+
+    names = [row["name"] for row in _html(text)["symbols"]]
+
+    assert names == ["script", "real"]
+
+
+def test_dead_code_inside_comments_never_enters_the_map():
+    """שני סוגי ההערות, ושתיהן רב-שורתיות ב-``base.html``."""
+    text = (
+        '<!-- <div id="dead">\n'
+        '     <div id="alsodead"></div> -->\n'
+        '{# <div id="jinjadead"></div> #}\n'
+        '<div id="live"></div>\n'
+    )
+
+    assert [row["name"] for row in _html(text)["symbols"]] == ["div#live"]
+
+
+def test_tags_unbalanced_across_if_branches_neither_raise_nor_shift_lines():
+    """הכתיב הרגיל בתבנית, ולכן הוא לא יכול להפיל את הסריקה.
+
+    ``<div id="x">`` נפתח בענף אחד ואינו נסגר בו. תגית סוגרת בלי התאמה
+    אסור לה לרוקן את המחסנית — אחרת כל שורות ה-``end`` שמתחת מוסטות.
+    ``#x`` מדווח עד סוף הקובץ, וזו התשובה הכנה: הוא באמת לא נסגר.
+    """
+    # ``span`` ולא ``div`` שני, ובכוונה: כששני הפתוחים הם מאותו סוג, גם
+    # שליפה עיוורת מראש המחסנית פוגעת במקרה בנכון. כאן ה-``</div>``
+    # מדלג מעל ה-``span`` שמעליו, וזה מה שמפריד בין השתיים.
+    text = (
+        "{% if a %}\n"
+        '<div id="x">\n'
+        "{% else %}\n"
+        '<span id="y">\n'
+        "{% endif %}\n"
+        "</div>\n"
+        '<div id="after"></div>\n'
+    )
+
+    symbols = _html(text)["symbols"]
+
+    assert {row["name"]: (row["start"], row["end"]) for row in symbols} == {
+        # ``#x`` נסגר על ידי ה-``</div>``, וה-``span`` שנפתח בענף השני
+        # ולא נסגר מדווח עד אותה שורה — לא נזרק ולא מסיט.
+        "div#x": (2, 6),
+        "span#y": (4, 6),
+        "div#after": (7, 7),
+    }
+
+
+def test_a_closing_script_tag_inside_a_js_string_still_ends_the_block():
+    """כלל שקט, ולכן הוא מקובע ולא רק כתוב.
+
+    נמדד מול Chromium: ``<script>var s = "</script>";</script>`` מחזיר
+    תוכן אלמנט של ``'var s = "'`` — האלמנט **נגמר בתוך המחרוזת**, וכל
+    השאר הופך לטקסט HTML. המפרט אומר את אותו דבר במפורש ומורה לכתוב
+    ``\\x3C/script`` בתוך literals.
+
+    המימוש האינטואיטיבי הוא ההפוך — לחפש את הסוגר תוך כיבוד מחרוזות —
+    והוא **לא זורק שגיאה**, רק מותח את הבלוק עד הסוגר הבא. כאן זה היה
+    ``end=4`` במקום 2, ו-``after`` היה נספר כפונקציה למרות שאינו קוד.
+    """
+    text = '<script>\nvar s = "</script>";\nfunction after() {}\n</script>\n'
+
+    symbols = _html(text)["symbols"]
+
+    assert symbols == [{"name": "script", "start": 1, "end": 2}]
+
+
+def test_a_regex_literal_holding_a_quote_does_not_swallow_the_code_after_it():
+    """``base.html`` מכיל ``.replace(/"/g, ...)`` בשלושה מקומות.
+
+    בלי מצב ל-regex literal, המרכאה שבתוכו פותחת מחרוזת ובולעת את הקוד
+    עד המרכאה הבאה — כלומר ``b`` נעלמת מהמפה בשקט.
+    """
+    text = (
+        "<script>\n"
+        "function a() { return x.replace(/\"/g, ''); }\n"
+        "function b() {}\n"
+        "</script>\n"
+    )
+
+    names = [row["name"] for row in _html(text)["symbols"]]
+
+    assert names == ["script", "a", "b"]
+
+
+@pytest.mark.parametrize(
+    ("attribute", "scanned"),
+    [
+        ("", True),
+        (' type="module"', True),
+        (' type="text/javascript"', True),
+        (' type="TEXT/JAVASCRIPT"', True),
+        (' type="application/json"', False),
+        (' type="importmap"', False),
+        # ``essence match`` — פרמטר אחרי הסוג פוסל אותו. נמדד ב-Chromium:
+        # סקריפט כזה **אינו רץ**.
+        (' type="text/javascript; charset=utf-8"', False),
+    ],
+)
+def test_only_a_javascript_script_block_is_scanned_for_functions(attribute, scanned):
+    """``base.html`` מכיל ארבעה ``application/json`` ושני ``module``.
+
+    בלוק נתונים שנסרק כקוד מייצר סימבולים ממחרוזות שבמקרה נראות כהגדרות.
+    רשימת ה-MIME types נלקחה מ-``mimesniff.spec.whatwg.org`` ואומתה
+    אחת-אחת מול Chromium.
+    """
+    text = f"<script{attribute}>\nfunction f() {{}}\n</script>\n"
+
+    names = [row["name"] for row in _html(text)["symbols"]]
+
+    assert ("f" in names) is scanned
+
+
+@pytest.mark.parametrize("tag", ["br", "img", "input", "meta", "link", "hr", "param"])
+def test_a_void_element_is_never_pushed_onto_the_stack(tag):
+    """אלמנט void שנדחף למחסנית לא ייסגר לעולם ויסיט את מי שמעליו.
+
+    ``param`` כאן בכוונה: WHATWG הוציא אותו מרשימת ה-void כמיושן,
+    ו-Chromium **עדיין** מתייחס אליו כך — נמדד. הקלט הוא קובץ שמישהו
+    כתב, ומי שכתב ``<param>`` בתבנית ישנה התכוון ל-void.
+    """
+    # ל-void **יש** ``id`` כאן, ובכוונה: בלי ``id`` הוא נשלף בשקט יחד עם
+    # העוטף והתוצאה זהה בשני המימושים. ההבדל נראה רק בשורת ה-``end``
+    # שלו — 2 כשהוא void, 3 כשהוא נדחף למחסנית וממתין לסוגר שלא יבוא.
+    text = f'<div id="outer">\n<{tag} id="inner">\n</div>\n'
+
+    symbols = _html(text)["symbols"]
+
+    assert {row["name"]: (row["start"], row["end"]) for row in symbols} == {
+        "div#outer": (1, 3),
+        f"{tag}#inner": (2, 2),
+    }
+
+
+def test_an_attribute_value_containing_an_angle_bracket_does_not_split_the_tag():
+    """``<div title="a > b">`` הוא תגית אחת.
+
+    חיפוש ``>`` בלי לכבד מחרוזות היה חותך אותה באמצע, וכל מה שאחריה היה
+    נקרא כטקסט — כולל תגיות אמיתיות שהיו נעלמות מהמפה.
+    """
+    text = '<div title="a > b" id="real">\n</div>\n<div id="after"></div>\n'
+
+    names = [row["name"] for row in _html(text)["symbols"]]
+
+    assert names == ["div#real", "div#after"]
+
+
+def test_the_jinja_keyword_and_its_argument_are_read_from_the_same_string():
+    """באג שנתפס על הקובץ האמיתי: ``block content`` חזר כ-``block k``.
+
+    החיפוש רץ על מחרוזת מנוקה וה-slice על המקורית, וההיסט של ה-``strip``
+    הזיז את הגבול בדיוק במספר הרווחים שהוסרו.
+    """
+    text = (
+        '{% extends "base.html" %}\n'
+        "{% block content %}\n"
+        "{% if x %}\n"
+        "{% endif %}\n"
+        "{% endblock %}\n"
+        "{% macro nv(value) -%}\n"
+        "{%- endmacro %}\n"
+        '{% include "y.html" %}\n'
+    )
+
+    symbols = _html(text)["symbols"]
+
+    assert {row["name"]: (row["start"], row["end"]) for row in symbols} == {
+        "extends base.html": (1, 1),
+        "block content": (2, 5),
+        "macro nv": (6, 7),
+        "include y.html": (8, 8),
+    }
+
+
+def test_an_endif_does_not_close_the_block_that_opened_before_it():
+    """``{% endif %}`` שסוגר ``{% block %}`` היה נותן לו טווח קצר מדי.
+
+    ב-``base.html`` יש 319 ``{% if %}`` מול 175 ``{% block %}``, ורובם
+    מקוננים זה בזה.
+    """
+    text = "{% block outer %}\n{% if a %}\n{% endif %}\n{% endblock %}\n"
+
+    symbols = _html(text)["symbols"]
+
+    assert symbols == [{"name": "block outer", "start": 1, "end": 4}]
+
+
+# ---------------------------------------------------------------------------
+# קבצים אמיתיים
+# ---------------------------------------------------------------------------
+
+
+def test_every_function_in_the_real_base_template_is_found():
+    """``base.html`` הוא הקריטריון: 221KB ו-5,225 שורות.
+
+    המונה כאן נגזר ממקור אחר לגמרי — חיפוש טקסטואלי על שלוש הצורות
+    שמופיעות בקובץ — ולא מהסורק. הן זרות זו לזו מספיק כדי שהתאמה ביניהן
+    לא תהיה טאוטולוגיה.
+    """
+    path = _TEMPLATES / "base.html"
+    if not path.exists():  # pragma: no cover
+        pytest.skip("base.html לא קיים")
+    text = path.read_text(encoding="utf-8")
+
+    declared = len(re.findall(r"(?:^|[^\w.$])function\s+[A-Za-z_$][\w$]*\s*\(", text))
+    assigned = len(re.findall(r"\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*"
+                              r"(?:async\s+)?(?:function\b|\([^)]*\)\s*=>)", text))
+
+    symbols = extract_outline(text, str(path))["symbols"]
+    functions = [
+        row for row in symbols
+        if not row["name"].startswith(("script", "style", "block ", "macro ",
+                                       "extends ", "include ", "import ", "from "))
+        and "#" not in row["name"]
+    ]
+
+    assert len(functions) == declared + assigned
+
+
+def test_no_script_block_is_returned_as_one_opaque_symbol():
+    """הקריטריון שהוגדר מראש ככישלון.
+
+    ב-``base.html`` יש בלוק סקריפט בן מאות שורות. אם הוא מוחזר כסימבול
+    אחד, המפה נותנת גבול ולא ניווט — היא לא ירדה לרזולוציה שעורכים בה.
+    """
+    path = _TEMPLATES / "base.html"
+    if not path.exists():  # pragma: no cover
+        pytest.skip("base.html לא קיים")
+
+    symbols = extract_outline(path.read_text(encoding="utf-8"), str(path))["symbols"]
+    blocks = [row for row in symbols if row["name"].startswith("script")]
+    biggest = max(blocks, key=lambda row: row["end"] - row["start"])
+
+    assert biggest["end"] - biggest["start"] > 200, "הקובץ השתנה — אין בלוק גדול"
+
+    inside = [
+        row for row in symbols
+        if biggest["start"] < row["start"] <= biggest["end"]
+        and not row["name"].startswith(("script", "style"))
+        and "#" not in row["name"]
+    ]
+
+    assert len(inside) >= 10, f"{biggest} הוחזר כבלוק אטום"
+
+
+def test_the_ids_found_are_exactly_the_real_ones_and_not_those_in_strings():
+    """המונה הטקסטואלי הוא **חסם עליון**, לא ציפייה.
+
+    ``grep`` על ``id="`` סופר גם ``data-theme-id`` (כי ``-`` הוא גבול
+    מילה) וגם ``id=`` בתוך מחרוזות JS. הסורק חייב להחזיר **פחות**, וכל
+    הפרש חייב להיות מוסבר — לא "בערך נכון".
+    """
+    path = _TEMPLATES / "base.html"
+    if not path.exists():  # pragma: no cover
+        pytest.skip("base.html לא קיים")
+    text = path.read_text(encoding="utf-8")
+
+    upper_bound = set(re.findall(r'\bid="([^"]*)"', text))
+    found = {row["name"].split("#", 1)[1] for row in extract_outline(text, str(path))["symbols"]
+             if "#" in row["name"]}
+
+    assert found < upper_bound, "הסורק לא סינן כלום — או שהוא ממציא"
+
+    for rejected in upper_bound - found:
+        # כל דחייה היא או תכונה שאינה ``id``, או ערך שנבנה בזמן ריצה
+        # (Jinja או template literal) — ואף אחד מהם אינו עוגן שאפשר לנווט אליו.
+        assert "{{" in rejected or "${" in rejected or f'data-{rejected}' in text \
+            or f'-id="{rejected}"' in text or f"id=\"{rejected}\"' " in text \
+            or f"id=\"{rejected}\">' " in text, f"דחייה לא מוסברת: {rejected!r}"
+
+
+@pytest.mark.parametrize(
+    "relative", ["base.html", "components/editor_components.html", "admin_mcp.html"]
+)
+def test_a_real_template_yields_a_map_without_raising(relative):
+    """שלושה קבצים שנבחרו לפי מה שיש בהם ולא באקראי.
+
+    ``base.html`` אינו מכיל אף ``{% macro %}`` — כל העשרה בפרויקט יושבים
+    בשני האחרים — ולכן הוא לבדו לא מכסה אותם. ``admin_mcp.html`` הוא
+    היחיד עם whitespace control (``{%- ... -%}``).
+    """
+    path = _TEMPLATES / relative
+    if not path.exists():  # pragma: no cover
+        pytest.skip(f"{relative} לא קיים")
+
+    found = extract_outline(path.read_text(encoding="utf-8"), str(path))
+
+    assert found["status"] == "ok"
+    assert found["total"] > 0
+    for row in found["symbols"]:
+        assert row["start"] <= row["end"], row

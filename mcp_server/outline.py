@@ -22,6 +22,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from .outline_scanners import html as _html
 from .outline_scanners import python as _python
 
 #: ``\r`` שאינו חלק מ-``\r\n``. ה-lookahead השלילי הוא כל ההבחנה: CRLF
@@ -41,6 +42,11 @@ _CR_WITHOUT_LF = re.compile(r"\r(?!\n)")
 _SCANNERS: dict[str, Callable[[str], dict[str, Any]]] = {
     ".py": _python.extract,
     ".pyi": _python.extract,
+    ".html": _html.extract,
+    ".htm": _html.extract,
+    ".jinja": _html.extract,
+    ".jinja2": _html.extract,
+    ".j2": _html.extract,
 }
 
 

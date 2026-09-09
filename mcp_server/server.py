@@ -771,8 +771,13 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             # ``docs/mcp-server.rst`` כן מפרט אותן. הרשימה נאכפת מול
             # ``outline._SCANNERS`` בטסט, כדי ששפה שתתווסף לטבלה בלי
             # שהתיאור יעודכן לא תהפוך לפיצ'ר שאף לקוח לא קורא לו.
-            "long files. Python only (.py, .pyi); anything else returns status "
-            "no_outline. Size "
+            "long files. Python (.py, .pyi) gives functions and classes with "
+            "dotted names; HTML/Jinja templates (.html, .htm, .jinja, .jinja2, "
+            ".j2) give flat names — {% block %} and {% macro %}, elements with "
+            "an id as tag#id, <script>/<style> blocks, and the function "
+            "definitions inside a script block, so a 700-line script is a map "
+            "and not just a boundary. Anything else returns status no_outline. "
+            "Size "
             "limits differ by mode: 500KB for a whole file, 10MB with lines or "
             "outline. Binary files return metadata only."
         ),

@@ -375,15 +375,23 @@ async def test_the_description_names_both_size_ceilings():
     assert "Binary files return metadata only" in description
 
 
-async def test_the_description_tells_the_agent_the_outline_is_python_only():
+async def test_the_description_tells_the_agent_which_languages_have_a_map():
     """סוכן שיבקש מפה של ``.rst`` ויקבל ``no_outline`` צריך לדעת שזו
-    התנהגות מוצהרת ולא תקלה — אחרת הוא ינסה שוב."""
+    התנהגות מוצהרת ולא תקלה — אחרת הוא ינסה שוב.
+
+    התיאור אמר ``Python only`` עד שנוספה תמיכה ב-HTML/Jinja; המשפט הזה
+    הפך לשגוי באותו PR שהוסיף אותה, וזו הסיבה שהטסט נוקב במה שכן נתמך
+    ולא במה שאינו.
+    """
     mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
     description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
 
     assert "outline=true" in description
-    assert "Python only" in description
     assert "no_outline" in description
+    assert "Python" in description
+    assert "Jinja" in description
+    # הבדל מהותי לסוכן: פייתון נותן שמות מנוקדים, HTML שטוחים.
+    assert "dotted" in description and "flat" in description
 
 
 async def test_the_description_names_every_suffix_the_outline_router_supports():
