@@ -495,6 +495,81 @@ def test_the_two_shapes_the_contract_does_allow_are_not_rejected():
         }
 
 
+def test_a_lone_carriage_return_is_refused_instead_of_raising_indexerror():
+    """שתי הגדרות של "שורה" שנפרדות, וסירוב מפורש במקום מפה שקרית.
+
+    ``ast.parse`` סופר עם universal newlines ולכן ``\\r`` בודד הוא אצלו
+    שורה חדשה; ``apply_line_range`` מפצל ב-``split("\\n")``, וההערה שם
+    מנמקת למה — ``file.lines_count`` נספר כך ומשותף עם הוובאפ.
+
+    נמדד על הקלט הזה לפני התיקון: ``ast`` דיווח על ``def`` בשורה 5 בטקסט
+    ש-``split("\\n")`` רואה כשורה **אחת**, ו-``_start_line`` נפל ב-
+    ``IndexError`` שבורח דרך הכלי — אף שלב במסלול לא עוטף בחריגה.
+
+    התיקון אינו רק להימנע מהנפילה: מפה שהייתה חוזרת עם שורה 5 מצביעה
+    למקום ש-``lines=[5, 6]`` לא מגיע אליו, וזה הערך היחיד של המפה.
+    """
+    text = "x = 1\rx = 2\rx = 3\r@deco\rdef f():\r    pass\r"
+
+    # העוגן הבלתי תלוי: השתיים באמת חלוקות על הקלט הזה. בלי הקביעה הזו
+    # הטסט היה עלול לעבור על קלט שאין בו מחלוקת מלכתחילה.
+    assert len(text.split("\n")) == 1
+    assert ast.parse(text).body[-1].lineno == 5
+
+    assert extract_outline(text, "x.py") == {
+        "status": "no_outline",
+        "reason": "inconsistent_line_endings",
+    }
+
+
+def test_crlf_is_not_refused_because_both_counts_agree_on_it():
+    """הצד השני, ובטסט נפרד: CRLF הוא המקרה הנפוץ וחייב להמשיך לעבוד.
+
+    סירוב גורף לכל ``\\r`` היה מבטל את האאוטליין לכל קובץ שנוצר ב-Windows
+    — ובלי שום סיבה, כי שם ``split("\\n")`` ו-``ast`` מספרים את אותן
+    שורות בדיוק. ההבחנה היא ``\\r`` בודד, לא ``\\r`` בכלל.
+    """
+    text = "x = 1\r\nx = 2\r\n@deco\r\ndef f():\r\n    pass\r\n"
+
+    # העוגן: השורה ש-``ast`` מצביע עליה היא אותה שורה גם ב-``split("\n")``.
+    # זו ההסכמה עצמה, ולא נגזרת ממנה.
+    definition = ast.parse(text).body[-1]
+    assert text.split("\n")[definition.lineno - 1].strip() == "def f():"
+
+    found = extract_outline(text, "x.py")
+
+    assert found["status"] == "ok"
+    assert found["symbols"] == [{"name": "f", "start": 3, "end": 5}]
+
+
+def test_the_outline_never_points_at_a_line_the_range_read_cannot_reach():
+    """המאפיין שמאחורי הסירוב, ולא רק הסירוב עצמו.
+
+    זו הסיבה שהטסט הזה קיים בנוסף לשניים שמעליו: הם מקבעים את ההתנהגות,
+    והוא מקבע את **הטענה** — כל שורה שהמפה מחזירה חייבת להיות שורה
+    שקריאת טווח יכולה להגיע אליה, כי אחרת המפה חסרת ערך. הוא ייכשל על
+    כל מימוש עתידי שיבחר "לתקן" את ה-``IndexError`` בלי לפתור את
+    אי-ההסכמה — למשל בהחלפה ל-``splitlines()``, שתחזיר מפה תקינה למראה
+    עם שורות שהטווח לא מגיע אליהן.
+    """
+    from mcp_server.handlers import apply_line_range
+
+    for text in (
+        "x = 1\rx = 2\r@deco\rdef f():\r    pass\r",       # CR בודד
+        "x = 1\r\n@deco\r\ndef f():\r\n    pass\r\n",      # CRLF
+        "x = 1\n@deco\ndef f():\n    pass\n",              # LF
+    ):
+        found = extract_outline(text, "x.py")
+        if found["status"] != "ok":
+            continue  # נדחה במפורש — אין מפה, ולכן אין למה להצביע
+
+        for row in found["symbols"]:
+            sliced = apply_line_range(text, row["start"], row["end"])
+
+            assert not isinstance(sliced, str), f"{row} נדחה בקריאת טווח"
+            assert "def f" in sliced["text"], f"{row} הצביע על טקסט אחר"
+
+
 def test_deep_nesting_does_not_raise_from_our_side():
     """מחסנית מפורשת ולא רקורסיה: קינון עמוק אינו ``RecursionError`` שלנו."""
     text = "".join(f"{' ' * (4 * i)}def f{i}():\n" for i in range(60))

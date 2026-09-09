@@ -18,10 +18,19 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
 from .outline_scanners import python as _python
+
+#: ``\r`` שאינו חלק מ-``\r\n``. ה-lookahead השלילי הוא כל ההבחנה: CRLF
+#: הוא המקרה הנפוץ ושתי ספירות השורות מסכימות עליו, ולכן הוא חייב להמשיך
+#: לעבוד. רק CR בודד — הפורמט של Mac שלפני 2001 — מפריד ביניהן.
+#:
+#: ``search`` ולא ``replace``: הוא עוצר על ההתאמה הראשונה ואינו מקצה עותק
+#: של הטקסט, שיכול להיות 10MB לפי ``RANGE_READ_MAX_BYTES``.
+_CR_WITHOUT_LF = re.compile(r"\r(?!\n)")
 
 #: הסיומת ← הסורק. **זהו המקום היחיד שאומר מה נתמך**, וזה מכוון: תיאור
 #: הכלי ב-``server.py`` והתיעוד ב-``docs/mcp-server.rst`` מתארים את הטבלה
@@ -46,6 +55,26 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
     scanner = _scanner_for(path)
     if scanner is None:
         return {"status": "no_outline", "reason": "unsupported_language"}
+
+    # **שתי הגדרות שונות של "שורה", ולכן סירוב מפורש כשהן נפרדות.**
+    #
+    # ``apply_line_range`` מפצל ב-``split("\n")``, וההערה שם (handlers.py)
+    # מנמקת למה: ``file.lines_count`` נספר כך ומשותף עם הוובאפ. אבל
+    # ``ast.parse`` סופר עם universal newlines, כלומר ``\r`` בודד הוא אצלו
+    # שורה חדשה. בקובץ שמכיל ``\r`` שאינו חלק מ-``\r\n`` השתיים נפרדות —
+    # וזה נמדד: ``ast`` דיווח על שורה 5 בטקסט ש-``split("\n")`` רואה כשורה
+    # אחת, מה שהפיל ``IndexError`` ב-``_start_line``, והוא **בורח דרך
+    # הכלי** כי אף שלב במסלול לא עוטף בחריגה.
+    #
+    # תיקון ה-``IndexError`` לבדו לא היה מספיק, והוא המלכודת כאן: המפה
+    # הייתה חוזרת תקינה למראה ומצביעה על שורה ש-``lines=[start, end]``
+    # לא מגיעה אליה. הערך היחיד של המפה הוא שאפשר להמשיך ממנה לטווח —
+    # מפה שמצביעה לשומקום גרועה ממפה שאין.
+    #
+    # CRLF **אינו** מושפע ועובד במלואו: שם שתי הספירות זהות, וזה המקרה
+    # הנפוץ. מה שנדחה הוא ``\r`` בודד בלבד.
+    if _CR_WITHOUT_LF.search(text):
+        return {"status": "no_outline", "reason": "inconsistent_line_endings"}
 
     result = scanner(text)
 
