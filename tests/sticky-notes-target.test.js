@@ -289,7 +289,12 @@ class FakeEl {
   // עוברת סתם — בדיוק כמו שקרה עם ``remove`` בסבב קודם.
   removeAttribute(k) { delete this._attrs[k]; }
   hasAttribute(k) { return k in this._attrs; }
-  addEventListener() {}
+  // **המאזינים נרשמים ולא נבלעים.** ``addEventListener`` ריק הוא בדיוק
+  // המלכודת של ``remove``/``blur``/``createTextNode`` בסבבים קודמים:
+  // הכפתור נבנה, המאזין "נרשם", ובדיקה שמנסה ללחוץ עליו לא יכולה
+  // אפילו להיכשל — אין על מה ללחוץ. כאן הם נשמרים לפי סוג אירוע,
+  // והאחרון גובר, כמו שקורא בודד בדפדפן.
+  addEventListener(type, fn) { (this._listeners || (this._listeners = {}))[type] = fn; }
   focus() { FakeEl.focused = this; sandbox.__focused = this; }
   blur() {
     if (FakeEl.focused === this) FakeEl.focused = null;
@@ -1017,13 +1022,14 @@ check('רינדור: קישור מקבל rel ו-target', () => {
   eq(a.getAttribute('rel'), 'noopener noreferrer');
 });
 
-check('רינדור: בלוק קוד — הגדר גלויה, התוכן ליטרלי', () => {
+check('רינדור: בלוק קוד — הגדרות אינן מוצגות, התוכן ליטרלי', () => {
   const { view } = renderMd(mdMgr, '```\na*b*\n```');
   const pre = view.querySelectorAll('.sticky-md-pre');
-  eq(pre.length, 3, 'שלוש שורות: גדר, תוכן, גדר');
+  eq(pre.length, 1, 'שורת התוכן בלבד — שתי הגדרות נצרכו ואינן מוצגות');
   // התוכן בקוד אינו מפורש לאינליין — אין ``em``, והטקסט **מלא**.
   eq(!!view.querySelector('.sticky-md-italic'), false, 'אין נטוי בתוך קוד');
-  eq(pre[1].textContent, 'a*b*', 'שורת התוכן ליטרלית, כולל הכוכביות');
+  eq(pre[0].textContent, 'a*b*', 'שורת התוכן ליטרלית, כולל הכוכביות');
+  eq(!!view.querySelector('.sticky-md-code-block'), true, 'ונבנתה עוטפת לבלוק');
 });
 
 check('רינדור: משימה בגדר קוד — ליטרלית, אבל סופרת בסידור (מארקדאון דלוק)', () => {
@@ -1036,7 +1042,7 @@ check('רינדור: משימה בגדר קוד — ליטרלית, אבל סו�
   eq(boxes.length, 1, 'רק המשימה שמחוץ לגדר אינטראקטיבית');
   eq(boxes[0].dataset.taskIndex, '1', 'והסידור שלה 1 — כמו שהשרת סופר');
   const pre = view.querySelectorAll('.sticky-md-pre');
-  eq(pre[1].textContent, '- [ ] בקוד', 'הדוגמה בגדר נשארה ליטרלית');
+  eq(pre[0].textContent, '- [ ] בקוד', 'הדוגמה בגדר נשארה ליטרלית');
 });
 
 check('רינדור: משימה בגדר — הסידור עקבי גם כשמארקדאון כבוי', () => {
@@ -1220,8 +1226,8 @@ check('קינון: גדר מוזחת לתוך פריט אינה סוגרת או�
   const { view } = renderMd(mdMgr, '- א\n  ```\n  - לא רשימה\n  ```\n  - ב');
   const d = depths(view);
   eq(d[0], 0, 'הפריט הראשון');
-  eq(d[4], 1, 'הפריט שאחרי הגדר חוזר לעומק שלו');
-  eq(view.querySelectorAll('.sticky-md-pre').length, 3, 'שלוש שורות ליטרליות');
+  eq(d.pop(), 1, 'הפריט שאחרי הגדר חוזר לעומק שלו');
+  eq(view.querySelectorAll('.sticky-md-pre').length, 1, 'שורת תוכן אחת');
 });
 
 check('קינון: טבלה בעמודה 0 סוגרת רשימה', () => {
@@ -1260,27 +1266,31 @@ check('סגירה: _lineIndentCols הוא התשובה היחידה להזחה',
 check('גדר: פתיחה בעמודה 0 סוגרת את הרשימה', () => {
   // הבאג שדווח: הגדר לא נגעה במחסנית, ולכן ``  - ב`` שאחריה יצא תת-פריט
   // של ``- א`` — למרות שהגדר בעמודה 0 סיימה את הרשימה.
+  // ארבע שורות תצוגה ולא חמש: הבלוק נצרך שלם ומייצר כותרת ושורת תוכן,
+  // במקום שלוש שורות (גדר, תוכן, גדר).
   const { view } = renderMd(mdMgr, '- א\n```\n- לא רשימה\n```\n  - ב');
-  eq(depths(view).join(','), '0,0,0,0,0');
+  eq(depths(view).join(','), '0,0,0,0');
   const rows = view.querySelectorAll('.sticky-task-line');
-  eq(rows[4].classList.contains('is-depth-1'), false, 'ואין מחלקת עומק על השורה שאחריה');
-  eq(rows[4].classList.contains('sticky-md-li'), true, 'והיא עדיין פריט רשימה');
+  const last = rows[rows.length - 1];
+  eq(last.classList.contains('is-depth-1'), false, 'ואין מחלקת עומק על השורה שאחריה');
+  eq(last.classList.contains('sticky-md-li'), true, 'והיא עדיין פריט רשימה');
 });
 
 check('גדר: פתיחה שאינה מגיעה לעמודת התוכן סוגרת גם היא', () => {
   // רווח אחד אינו מגיע לעמודה 2 שבה מתחיל הטקסט של ``- א``.
   const { view } = renderMd(mdMgr, '- א\n ```\n x\n ```\n  - ב');
-  eq(depths(view).join(','), '0,0,0,0,0');
+  eq(depths(view).join(','), '0,0,0,0');
 });
 
 check('גדר: מקוננת סוגרת רק את מה שמעליה', () => {
   // הגדר בעמודה 2 סוגרת את ``  - ב`` (עמודת תוכן 4) ומשאירה את ``- א``
   // (עמודת תוכן 2) פתוח, ולכן ``    - ג`` יוצא רמה 1 ולא רמה 2.
   const { view } = renderMd(mdMgr, '- א\n  - ב\n  ```\n  x\n  ```\n    - ג');
-  eq(depths(view).join(','), '0,1,0,0,0,1');
+  eq(depths(view).join(','), '0,1,0,0,1');
   const rows = view.querySelectorAll('.sticky-task-line');
-  eq(rows[5].classList.contains('is-depth-1'), true, 'מחלקת רמה 1');
-  eq(rows[5].classList.contains('is-depth-2'), false, 'ולא רמה 2');
+  const last = rows[rows.length - 1];
+  eq(last.classList.contains('is-depth-1'), true, 'מחלקת רמה 1');
+  eq(last.classList.contains('is-depth-2'), false, 'ולא רמה 2');
 });
 
 check('בלוק מוזח לתוך פריט אינו סוגר אותו', () => {
@@ -1340,7 +1350,7 @@ check('גדר: סגירה מוזחת החוצה — סטייה מתועדת, ל�
   //
   // הבדיקה מצמידה את ההתנהגות כדי שהיא תהיה החלטה ולא פער שנשכח.
   const { view } = renderMd(mdMgr, '- א\n  ```\n  x\n```\n  - ב');
-  eq(depths(view).join(','), '0,0,0,0,1', 'הפריט שאחרי הסגירה נשאר בתוך הפריט שמעליו');
+  eq(depths(view).join(','), '0,0,0,1', 'הפריט שאחרי הסגירה נשאר בתוך הפריט שמעליו');
 });
 
 check('קינון: התקרה עוצרת את ההזחה ולא את התצוגה', () => {
@@ -1656,8 +1666,10 @@ check('טבלה: פותחת גדר עם פייפ נשארת גדר', () => {
   eq(!!view.querySelector('table'), false, 'לא נבנתה טבלה');
   // ``FakeEl._matches`` תומך ב-``.class`` ובּ-``tag.class``, לא בשתי
   // מחלקות. שתי שאילתות נפרדות, ולכן גם מדויקות יותר.
-  eq(!!view.querySelector('.sticky-md-pre'), true, 'השורה מרונדרת כקוד');
-  eq(!!view.querySelector('.is-fence'), true, 'והיא מסומנת כפותחת גדר');
+  eq(!!view.querySelector('.sticky-md-code-block'), true, 'נפתח בלוק קוד');
+  // ``sh`` היא המילה הראשונה שאחרי הגדר, ולכן היא שם השפה — והפייפ
+  // שאחריה אינו הופך את השורה לטבלה.
+  eq(view.querySelector('.sticky-md-code-lang').textContent, 'sh', 'ושם השפה נגזר ממנה');
 });
 
 check('טבלה: שורת משימה שנצרכת לטבלה עדיין מקדמת את האינדקס', () => {
@@ -1709,6 +1721,153 @@ check('טבלה: שורה בלי מפריד כלל מסיימת את הטבלה'
   eq(view.querySelector('tbody').querySelectorAll('tr').length, 1, 'שורת גוף אחת');
   const rows = view.querySelectorAll('.sticky-task-line');
   eq(rows[rows.length - 1].textContent, 'טקסט רגיל', 'והשורה האחרונה היא טקסט');
+});
+
+// ---------- בלוק קוד: כותרת, שפה והעתקה ----------
+
+check('בלוק קוד: שורות הגדר נצרכות ואינן מוצגות', () => {
+  const { view } = renderMd(mdMgr, '```python\nx = 1\n```');
+  eq(view.textContent.includes('```'), false, 'אין תווי גדר בתצוגה כלל');
+  eq(view.querySelectorAll('.sticky-md-pre').length, 1, 'שורת תוכן אחת');
+});
+
+check('בלוק קוד: שם השפה מוצג, וריק כשאין', () => {
+  eq(renderMd(mdMgr, '```python\nx\n```').view.querySelector('.sticky-md-code-lang').textContent,
+     'python', 'שם השפה');
+  eq(renderMd(mdMgr, '```\nx\n```').view.querySelector('.sticky-md-code-lang').textContent,
+     '', 'גדר בלי שפה — תווית ריקה');
+  // רק המילה הראשונה, כמו ש-``markdown-it`` גוזר את שם השפה מה-``info``.
+  eq(renderMd(mdMgr, '```js title="a b"\nx\n```').view.querySelector('.sticky-md-code-lang').textContent,
+     'js', 'המילה הראשונה בלבד');
+});
+
+check('בלוק קוד: שם השפה הוא טקסט, לעולם לא תגית', () => {
+  // הטקסט שאחרי הגדר הוא קלט משתמש לכל דבר.
+  const { view } = renderMd(mdMgr, '```<script>alert(1)</script>\nx\n```');
+  const lang = view.querySelector('.sticky-md-code-lang');
+  eq(lang.textContent, '<script>alert(1)</script>', 'הוצג כטקסט');
+  eq(lang.innerHTML, '', 'ולא נכתב כ-HTML');
+});
+
+check('בלוק קוד: כפתור העתקה עם אייקון', () => {
+  const { view } = renderMd(mdMgr, '```\nx\n```');
+  const btn = view.querySelector('.sticky-md-code-copy');
+  eq(!!btn, true, 'הכפתור קיים');
+  eq(btn.getAttribute('type'), 'button', 'type=button — אחרת הוא שולח טפסים');
+  eq(!!btn.getAttribute('aria-label'), true, 'ויש לו שם נגיש');
+  // **``createElementNS`` ולא ``innerHTML``.** בדיקה על ``innerHTML``
+  // ריק היא מה שמונע חזרה בשקט לבניית האייקון ממחרוזת.
+  eq(btn.children.length, 1, 'ילד אחד — האייקון');
+  eq(btn.children[0].tagName, 'svg', 'והוא נבנה כצומת SVG');
+  eq(btn.innerHTML, '', 'ולא הוזרק כ-HTML');
+});
+
+check('בלוק קוד: ההעתקה לוקחת את הגוף מהמקור, בלי הגדרות', async () => {
+  // **המקור ולא ה-DOM.** שורה ריקה מרונדרת כרווח כדי לא לקרוס לגובה
+  // אפס, ולכן קריאה מה-DOM הייתה מחזירה ``" "`` במקום ``""`` — נמדד.
+  const captured = [];
+  const real = mdMgr._copyText;
+  mdMgr._copyText = async (t) => { captured.push(t); return true; };
+  try {
+    const { view } = renderMd(mdMgr, '```python\ndef f():\n\n    return 1\n```');
+    const btn = view.querySelector('.sticky-md-code-copy');
+    await btn._listeners.click({ stopPropagation(){} });
+  } finally {
+    mdMgr._copyText = real;
+  }
+  eq(captured.length, 1, 'נשלחה העתקה אחת');
+  eq(captured[0], 'def f():\n\n    return 1', 'הגוף בדיוק, עם השורה הריקה ובלי הגדרות');
+});
+
+check('בלוק קוד: לחיצה על הכותרת מחזירה לעריכה בשורת הגדר', () => {
+  // **זה מה שמונע מבוי סתום.** בלי הכותרת כשורת מקור, בלוק ריק
+  // (גדר ומיד גדר) היה יוצא בלי שום שורה לחיצה, ואי אפשר היה לחזור
+  // ממנו לעריכה בכלל.
+  const content = 'לפני\n```py\nx\n```';
+  const { el, ta, view } = renderMd(mdMgr, content);
+  const head = view.querySelector('.sticky-md-code-head');
+  eq(Number(head.dataset.charOffset), content.indexOf('```py'), 'ההיסט של שורת הפתיחה');
+  mdMgr._enterEditFromView(el, { target: head.querySelector('.sticky-md-code-lang') });
+  eq(ta.selectionStart, content.indexOf('```py'), 'והלחיצה נוחתת שם');
+});
+
+check('בלוק קוד: לחיצה על כפתור ההעתקה אינה נכנסת לעריכה', () => {
+  // הכפתור יושב **בתוך** שורת המקור, ולכן בלי ההחרגה הוא היה מעתיק
+  // ובאותה לחיצה מפיל את התצוגה לעריכה.
+  const { el, view } = renderMd(mdMgr, '```\nx\n```');
+  const btn = view.querySelector('.sticky-md-code-copy');
+  eq(mdMgr._enterEditFromView(el, { target: btn }), false, 'לא נכנסנו לעריכה');
+});
+
+check('בלוק קוד: charOffset של השורה שאחרי הבלוק', () => {
+  // שורת הסגירה נצרכת בלי אלמנט, אבל ההיסט מקודם עליה — אחרת כל מה
+  // שאחרי הבלוק מוסט באורך שורה שלמה.
+  const content = '```py\nx = 1\ny = 2\n```\nאחרי הבלוק';
+  const { el, ta, view } = renderMd(mdMgr, content);
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const last = rows[rows.length - 1];
+  eq(last.textContent, 'אחרי הבלוק', 'זו השורה שאחרי');
+  eq(Number(last.dataset.charOffset), content.indexOf('אחרי הבלוק'), 'וההיסט מצביע לתחילתה');
+  mdMgr._enterEditFromView(el, { target: last });
+  eq(ta.selectionStart, content.indexOf('אחרי הבלוק'), 'והלחיצה נוחתת שם');
+});
+
+check('בלוק קוד: אינדקס המשימות אינו זז', () => {
+  // **החוזה מול השרת.** ``sticky_notes_tasks`` סופר כל שורת ``- [ ]``
+  // כולל בתוך גדר, ולכן ``tasksConsumed`` חייב להתקדם על שורות הגדר
+  // שנצרכו. בלעדיו כל צ'קבוקס שאחרי בלוק קוד מסמן משימה אחרת.
+  const { view } = renderMd(mdMgr, '- [ ] לפני\n```\n- [ ] בקוד\n- [x] גם בקוד\n```\n- [ ] אחרי');
+  const boxes = view.querySelectorAll('.sticky-task-box');
+  eq(boxes.length, 2, 'שתי תיבות אינטראקטיביות — אלה שמחוץ לגדר');
+  eq(boxes.map((b) => b.dataset.taskIndex).join(','), '0,3', 'והשנייה היא 3, כי שתיים נספרו בגדר');
+});
+
+check('בלוק קוד: גדר שלא נסגרה נמשכת עד סוף הפתק', () => {
+  const { view } = renderMd(mdMgr, '```py\nא\nב');
+  eq(!!view.querySelector('.sticky-md-code-block'), true, 'נבנה בלוק');
+  eq(view.querySelectorAll('.sticky-md-pre').length, 2, 'שתי שורות תוכן');
+  eq(view.querySelector('.sticky-md-code-lang').textContent, 'py', 'והשפה נקראה');
+});
+
+check('בלוק קוד: בלוק ריק עדיין ניתן לחזרה לעריכה', () => {
+  // גדר ומיד גדר. אין שורת תוכן, ולכן הכותרת היא **היחידה** שאפשר
+  // ללחוץ עליה — וזה בדיוק מה שהיא שם בשבילו.
+  const content = '```\n```';
+  const { el, ta, view } = renderMd(mdMgr, content);
+  eq(view.querySelectorAll('.sticky-md-pre').length, 0, 'אין שורות תוכן');
+  const head = view.querySelector('.sticky-md-code-head');
+  mdMgr._enterEditFromView(el, { target: head });
+  eq(ta.selectionStart, 0, 'הלחיצה על הכותרת מחזירה לעריכה');
+});
+
+check('בלוק קוד: בתוך אלרט נבנה בתוכו ולא לצידו', () => {
+  const { view } = renderMd(mdMgr, '::: note\n```py\nx\n```\n:::');
+  const body = view.querySelector('.admonition-content');
+  eq(!!body.querySelector('.sticky-md-code-block'), true, 'הבלוק בתוך גוף האלרט');
+  eq(view.children.length, 1, 'ואין שום דבר לצד האלרט');
+});
+
+check('בלוק קוד: מארקדאון כבוי — הגדרות מוצגות כטקסט גולמי', () => {
+  const off = new StickyNotesManager({ board: 'code-off', markdown: false });
+  const parts = makeNote('```py\n- [ ] משימה\n```');
+  off._syncTaskView(parts.el);
+  eq(!!parts.view.querySelector('.sticky-md-code-block'), false, 'אין בלוק');
+  eq(parts.view.textContent.includes('```py'), true, 'הגדר מוצגת כפי שהוקלדה');
+});
+
+check('בלוק קוד: ה-CSS מעצב את העוטפת ואין יותר is-fence', () => {
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+  const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  ['.sticky-md-code-block', '.sticky-md-code-head', '.sticky-md-code-lang',
+   '.sticky-md-code-copy'].forEach((sel) => {
+    eq(decls.includes(sel + ' {') || decls.includes(sel + '.'), true, 'כלל ל-' + sel);
+  });
+  // הפינות העגולות עברו לעוטפת. הכלל הישן ניסה לזהות "תחילת רצף" לפי
+  // השכן, וכבר נדרש שם תיקון פעם אחת.
+  eq(/\.is-fence/.test(decls), false, 'אין שאריות של המחלקה שבוטלה');
+  // חיווי **כשל** ולא רק הצלחה — אותה דרישה כמו בכפתור של הפתק.
+  eq(decls.includes('.sticky-md-code-copy.is-copy-fail'), true, 'יש חיווי כשל');
 });
 
 // ---------- בלוקי אלרט (``::: note``) ----------
@@ -1927,14 +2086,19 @@ check('אלרט: ::: בתוך גדר קוד נשאר ליטרלי — סטייה
   const found = alerts(view);
   eq(found.length, 1, 'אלרט אחד');
   const body = view.querySelector('.admonition-content');
-  eq(body.querySelectorAll('.sticky-md-pre').length, 3, 'שלוש שורות הגדר נשארו קוד');
+  // הגדר נצרכת שלמה ונסגרת בגדר השנייה, ולכן יש בה **שורת תוכן אחת**
+  // — ה-``:::`` — ושתי שורות הגדר עצמן אינן מוצגות. ``אחרי`` כבר מחוץ
+  // לגדר ובתוך האלרט, כשורת טקסט רגילה.
+  eq(body.querySelectorAll('.sticky-md-pre').length, 1, 'שורת תוכן אחת בגדר');
+  eq(body.querySelector('.sticky-md-pre').textContent, ':::', 'וה-::: נשאר קוד ליטרלי ולא סגר את האלרט');
   eq(body.textContent.includes('אחרי'), true, 'ומה שאחרי הגדר עדיין בתוך האלרט');
 });
 
 check('אלרט: פתיחה בתוך גדר אינה פותחת אלרט', () => {
   const { view } = renderMd(mdMgr, '```\n::: note\n```');
   eq(alerts(view).length, 0, 'אין אלרט');
-  eq(view.querySelectorAll('.sticky-md-pre').length, 3, 'שלוש שורות קוד');
+  eq(view.querySelectorAll('.sticky-md-pre').length, 1, 'שורת תוכן אחת');
+  eq(view.querySelector('.sticky-md-pre').textContent, '::: note', 'והיא ליטרלית');
 });
 
 check('אלרט לבדו פותח את התצוגה', () => {

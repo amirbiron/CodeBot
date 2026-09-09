@@ -340,21 +340,80 @@
 
 /* בלוק קוד — כל שורה מונו, ורצף שורות מקבל רקע משותף.
    הגדר עצמה (``\`\`\``) נשארת גלויה, כי כל שורת מקור היא שורת תצוגה. */
+/* בלוק קוד — עוטפת אחת, כותרת עם שם השפה וכפתור העתקה, וגוף.
+
+   **שורות הגדר עצמן אינן מוצגות**, ולכן גם אין יותר ``.is-fence``:
+   שורת הפתיחה הפכה לכותרת, ושורת הסגירה נצרכת בלי אלמנט. הפינות
+   העגולות עברו לעוטפת, ולכן הן פשוט תמיד נכונות — הסלקטור הקודם ניסה
+   לזהות "תחילת רצף" לפי השכן, ותיקון אחד שם כבר נדרש בעבר.
+
+   הצבעים נגזרים מ-``--note-ink``/``--note-ink-muted`` כמו כל שאר הפתק,
+   ולא מטוקני הערכה: ``docs/webapp/theming_and_css.rst`` מציין את
+   הפתקים כחריג שנשאר Hardcoded בכוונה. */
+.sticky-md-code-block {
+  border-radius: 6px;
+  overflow: hidden;
+  margin-block: .3em;
+  background: color-mix(in srgb, var(--note-ink, #2b3f6a) 8%, transparent);
+}
+
+/* הכותרת היא **שורת המקור של הגדר הפותחת** ונושאת את ההיסט שלה, ולכן
+   היא גם היעד של לחיצה שמחזירה לעריכה. ``direction: ltr`` כי תוכנה —
+   שם שפה וכפתור — אינו טקסט עברי. */
+.sticky-md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .4rem;
+  direction: ltr;
+  padding: .1rem .45rem;
+  background: color-mix(in srgb, var(--note-ink, #2b3f6a) 7%, transparent);
+}
+
+.sticky-md-code-lang {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .75em;
+  letter-spacing: .02em;
+  color: var(--note-ink-muted, #66739A);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ``flex: 0 0 auto`` כדי שהכפתור לא יתכווץ כששם השפה ארוך — הוא
+   האלמנט האינטראקטיבי, ותווית שנחתכת עדיפה על יעד לחיצה שנעלם. */
+.sticky-md-code-copy {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5em;
+  height: 1.5em;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--note-ink-muted, #66739A);
+  cursor: pointer;
+}
+.sticky-md-code-copy svg { width: .95em; height: .95em; }
+.sticky-md-code-copy:hover { color: var(--note-ink, #2b3f6a); }
+/* פוקוס נראה לעין — זה יעד שמגיעים אליו ב-Tab, בדיוק כמו שדה השם. */
+.sticky-md-code-copy:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 1px; }
+/* חיווי הצלחה **וגם** כשל, כמו בכפתור ההעתקה של הפתק: לחיצה שלא קורה
+   בה כלום היא הכשל השקט שהפיצ'ר הזה לא מרשה לעצמו. */
+.sticky-md-code-copy.is-copy-done { background: #d1fae5; color: #065f46; }
+.sticky-md-code-copy.is-copy-fail { background: #fee2e2; color: #b91c1c; }
+
 .sticky-md-pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .88em; direction: ltr; unicode-bidi: embed;
   white-space: pre-wrap; overflow-wrap: anywhere;
-  background: color-mix(in srgb, var(--note-ink, #2b3f6a) 8%, transparent);
   padding: 0 .45rem;
 }
-.sticky-md-pre.is-fence { color: var(--note-ink-muted, #66739A); }
-/* פינות עגולות בקצות הרצף */
-/* פינות עגולות בגדר הפותחת: או ראשונה בתצוגה, או אחרי שורה שאינה
-   ``.sticky-md-pre`` (כלומר תחילת רצף קוד). הסלקטור הקודם היה
-   ``:not(.sticky-md-pre)`` על אלמנט שהוא-עצמו ``.sticky-md-pre`` —
-   בלתי אפשרי, ולכן לא חל לעולם. */
-.sticky-md-pre.is-fence:first-child,
-:not(.sticky-md-pre) + .sticky-md-pre.is-fence { border-radius: 6px 6px 0 0; }
+/* מרווח בקצוות הגוף, כדי שהשורה הראשונה והאחרונה לא יידבקו לכותרת
+   ולקצה. ``padding`` על העוטפת היה מרחיק גם את הכותרת מהקצה שלה. */
+.sticky-md-code-body { padding-block: .2em; }
 
 
 /* חיווי כשל — כתיבה שלא נקלטה חייבת להיראות, לא להיעלם בשקט */

@@ -160,6 +160,41 @@
     return svg;
   }
 
+  //: אייקון ההעתקה של בלוק קוד. **הצורות זהות לאלה שבתצוגת המסמך**
+  //: (``md_preview.html``, הכפתור ``.md-copy-btn``) — שני המסכים מציגים
+  //: את אותו בלוק קוד, ואייקון שונה בכל אחד היה נראה כמו שתי פעולות.
+  //:
+  //: **אבל הן נכתבות כאן ולא מיובאות משם, וזה מכוון.** שם האייקון הוא
+  //: מחרוזת שנכנסת ל-``innerHTML``, וכאן הכל נבנה בצמתים. אותו נימוק
+  //: בדיוק שכבר תיעד ``FAB_ICON_SHAPES``, ואותו נימוק ש-
+  //: ``docs/webapp/language-icons.rst`` מנסח: מי שממילא בונה DOM אינו
+  //: צריך ``innerHTML`` בכלל.
+  const COPY_ICON_SHAPES = [
+    ['rect', { x: '9', y: '9', width: '13', height: '13', rx: '2', ry: '2' }],
+    ['path', { d: 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' }],
+  ];
+
+  //: בונה SVG מקווקו מתוך מערך צורות. ``buildFabIcon`` מצייר צורות
+  //: מלאות עם ``fill`` משלהן; כאן הקווים יורשים את צבע הכפתור דרך
+  //: ``currentColor``, ולכן די בהגדרה אחת על ה-``svg``.
+  function buildStrokeIcon(shapes){
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    // השם הנגיש יושב על הכפתור (``aria-label``), כמו באייקון הצף.
+    svg.setAttribute('aria-hidden', 'true');
+    for (const [tag, attrs] of shapes){
+      const shape = document.createElementNS(SVG_NS, tag);
+      Object.keys(attrs).forEach(k => shape.setAttribute(k, attrs[k]));
+      svg.appendChild(shape);
+    }
+    return svg;
+  }
+
   function clamp(n, min, max){ return Math.min(Math.max(n, min), max); }
 
   // גבולות הגודל של פתק. אותם מספרים נאכפים גם בשרת
@@ -1955,6 +1990,104 @@
         return { markers: spec.markers, content };
       }
 
+      /**
+       * בונה בלוק קוד מתוך שורות המקור, ומחזיר את האינדקס האחרון שנצרך,
+       * את ההיסט להמשך, ואת מספר שורות המשימה שנצרכו.
+       *
+       * **החתימה זהה ל-``_appendTable`` בכוונה.** שני הבלוקים עונים על
+       * אותה שאלה — "כמה שורות בלעתי ומה ההיסט אחריהן" — ושתי תשובות
+       * בצורות שונות היו מזמינות אתר קריאה שמטפל באחת ושוכח את השנייה.
+       *
+       * **מה השתנה מול הגרסה הקודמת, ולמה זה לא סתם קוסמטיקה:** קודם
+       * הגדר רונדרה שורה-שורה בתוך הלולאה, מאחורי הדגלים ``inFence``
+       * ו-``isFenceLine``. הדגלים האלה חייבו שלושה סייגים נפרדים במקומות
+       * מרוחקים בלולאה (חישוב מוקדם של ``isFenceLine``, ההבחנה בין
+       * ``!inFence`` ל-``!inCode``, והחרגת שורת הסגירה) — כל אחד מהם
+       * נכון, וכל אחד מהם דבר שאפשר לשכוח. עם צריכה בבת אחת **הלולאה
+       * לעולם אינה נמצאת בתוך גדר**, ושלושת הסייגים נמחקים.
+       *
+       * **חלוקת התפקידים בין שלוש השורות:**
+       *
+       *  - **שורת הפתיחה היא הכותרת.** היא נושאת ``sticky-task-line``
+       *    ואת ההיסט שלה, ולכן לחיצה עליה מחזירה לעריכה בשורת הגדר
+       *    עצמה. בלי זה בלוק ריק (גדר ומיד גדר) היה יוצא בלי שום שורה
+       *    לחיצה — מבוי סתום שאין ממנו דרך חזרה לעריכה.
+       *  - **שורות התוכן** נשארות שורות תצוגה רגילות, כל אחת עם ההיסט
+       *    שלה, בדיוק כמו קודם.
+       *  - **שורת הסגירה נצרכת בלי אלמנט** — אין לה מה להציג — וההיסט
+       *    מקודם עליה. זהו החריג היחיד כאן, והוא בדיוק זה של שורת
+       *    המפריד בטבלה ושל שורת ה-``:::`` באלרט.
+       *
+       * ``lang`` נלקח משורת הפתיחה. בלי התווית הזו המידע היה נעלם עם
+       * הגדר, וזו הייתה איבוד ולא הסתרה.
+       */
+      _appendCodeBlock(view, lines, startIndex, startOffset){
+        const openLine = lines[startIndex];
+        // מה שאחרי הגדר בשורת הפתיחה. ``markdown-it`` קורא לזה ``info``,
+        // ולוקח ממנו את המילה הראשונה כשם השפה.
+        const info = String(openLine).replace(MD_FENCE_RE, '').trim();
+        const lang = info.split(/\s+/)[0] || '';
+
+        const box = createEl('div', 'sticky-md-code-block');
+        const head = createEl('div', 'sticky-md-code-head sticky-task-line');
+        head.dataset.charOffset = String(startOffset);
+        const langEl = createEl('span', 'sticky-md-code-lang');
+        // ``textContent`` ולא ``innerHTML``: שם השפה הוא טקסט שהמשתמש
+        // הקליד אחרי הגדר, ולכן קלט לכל דבר.
+        langEl.textContent = lang;
+        head.appendChild(langEl);
+        const body = createEl('div', 'sticky-md-code-body');
+
+        let offset = startOffset + openLine.length + 1;
+        let i = startIndex + 1;
+        const codeLines = [];
+        for (; i < lines.length; i += 1){
+          const raw = lines[i];
+          if (MD_FENCE_RE.test(raw)) break;      // שורת הסגירה
+          codeLines.push(raw);
+          const row = createEl('div', 'sticky-task-line sticky-md-pre');
+          row.dataset.charOffset = String(offset);
+          // **שורה ריקה מוצגת כרווח**, אחרת ה-``div`` בגובה אפס והשורה
+          // נעלמת מהתצוגה. זו גם הסיבה שכפתור ההעתקה קורא את **המקור**
+          // ולא את ה-DOM: משם היה חוזר רווח במקום שורה ריקה.
+          row.textContent = raw === '' ? ' ' : raw;
+          body.appendChild(row);
+          offset += raw.length + 1;
+        }
+
+        // גדר שלא נסגרה עד סוף הפתק היא מקרה תקין, לא שגיאה: הפתק נערך
+        // ברגע זה, והשורה השנייה עוד לא הוקלדה.
+        const closed = i < lines.length;
+        if (closed) offset += lines[i].length + 1;
+
+        const copyBtn = createEl('button', 'sticky-md-code-copy',
+          { type: 'button', 'aria-label': 'העתק את הקוד', title: 'העתק את הקוד' });
+        copyBtn.appendChild(buildStrokeIcon(COPY_ICON_SHAPES));
+        // **הטקסט נלכד כאן, מהמקור, ולא נקרא מה-DOM בזמן הלחיצה.**
+        const codeText = codeLines.join('\n');
+        copyBtn.addEventListener('click', async (ev) => {
+          try { ev.stopPropagation(); } catch(_) {}
+          this._flashCopyResult(null, await this._copyText(codeText), copyBtn);
+        });
+        head.appendChild(copyBtn);
+
+        box.appendChild(head);
+        box.appendChild(body);
+        view.appendChild(box);
+
+        // **ספירת שורות המשימה שנצרכו** — אותה החלטה שכבר מתועדת עבור
+        // טבלה. ``sticky_notes_tasks`` בשרת סופר כל שורת ``- [ ]``,
+        // **כולל בתוך גדר**, ולכן הסידור כאן חייב להתקדם עליה גם כשהיא
+        // אינה מוצגת כתיבה. אחרת כל צ'קבוקס שאחרי בלוק הקוד נשלח עם
+        // אינדקס של משימה אחרת.
+        let tasksConsumed = 0;
+        const lastIndex = closed ? i : lines.length - 1;
+        for (let k = startIndex; k <= lastIndex; k += 1){
+          if (TASK_LINE_RE.test(lines[k])) tasksConsumed += 1;
+        }
+        return { lastIndex, nextOffset: offset, tasksConsumed };
+      }
+
       _hasRenderableMarkdown(lines){
         for (let i = 0; i < lines.length; i += 1){
           const line = lines[i];
@@ -2032,7 +2165,6 @@
           view.textContent = '';
           let taskIndex = 0;
           let charOffset = 0;
-          let inFence = false;
           // **מחסנית אחת לכל הפתק** — עמודות התוכן של פריטי הרשימה
           // הפתוחים. היא חיה כאן ולא במתודה, כי עומק הקינון אינו תכונה
           // של שורה בודדת אלא של השורות שקדמו לה.
@@ -2048,18 +2180,46 @@
           // והיא צריכה לצרוך כמה שורות בבת אחת ולקדם את ההיסט על כולן.
           for (let li = 0; li < lines.length; li += 1) {
             const line = lines[li];
-            // **``isFenceLine`` מחושב כאן ולא אחרי בדיקת הטבלה.** ``inFence``
-            // עדיין ``false`` כשרואים את שורת הפתיחה, ולכן בלי ההחרגה
-            // המפורשת פותחת גדר שיש בה מקף אנכי הייתה נבלעת לטבלה —
-            // והדגל לא היה מתהפך, כך שכל הגדר הייתה נשברת.
-            const isFenceLine = wantMd && MD_FENCE_RE.test(line);
-            // **אלרט נבדק ראשון, ורק מחוץ לגדר קוד.** בתוך גדר ``:::`` הוא
-            // קוד ליטרלי — **סטייה מכוונת** מ-``markdown-it``, שם הסורק של
-            // המכולה קורא שורות גולמיות ואינו מודע לגדרות כלל. נמדד:
-            // ``::: note`` ואז גדר שיש בתוכה ``:::`` באמת סוגרת שם את
-            // המכולה ושוברת את הגדר לשניים. זו אותה עמדה שהפתק כבר נוקט
-            // בטבלה שבתוך גדר, והיא גם התוצאה השפויה למשתמש.
-            if (wantMd && !inFence && !isFenceLine) {
+            // **בלוק קוד נצרך ראשון ובבת אחת.**
+            //
+            // זה מה שמייתר את הדגלים ``inFence``/``isFenceLine`` שהיו כאן:
+            // מרגע שהבלוק נצרך כיחידה, **הלולאה לעולם אינה נמצאת בתוך
+            // גדר**, וכל הסייגים שנדרשו כדי לזכור את זה — חישוב מוקדם של
+            // ``isFenceLine`` לפני בדיקת הטבלה, ההבחנה בין ``!inFence``
+            // ל-``!inCode``, והחרגת שורת הסגירה מהמחסנית — נמחקים.
+            //
+            // **הבדיקה קודמת לטבלה, וזה נדרש; היא קודמת לאלרט, וזה לא.**
+            // שתי ההתנהגויות נשמרות, אבל לא מאותה סיבה — נמדד בהיפוך
+            // סדר בפועל:
+            //
+            //  - **מול הטבלה הסדר הוא ההגנה.** `````sh | x`` היא גם
+            //    פותחת גדר וגם כותרת טבלה סבירה, ולכן הזזת בדיקת הטבלה
+            //    לכאן מפילה בדיקה.
+            //  - **מול האלרט הסדר אינו משנה דבר.** שורת גדר מתחילה
+            //    בגרשיים ושורת אלרט בנקודתיים — הן זרות זו לזו, והיפוך
+            //    הסדר אינו מפיל דבר. מה שמשאיר ``:::`` בתוך גדר כקוד
+            //    ליטרלי הוא **הצריכה**: השורה נבלעת עם הבלוק ואינה
+            //    מגיעה ללולאה כלל.
+            if (wantMd && MD_FENCE_RE.test(line)) {
+              const done = this._appendCodeBlock(currentParent(), lines, li, charOffset);
+              li = done.lastIndex;
+              charOffset = done.nextOffset;
+              taskIndex += done.tasksConsumed;
+              // **רק הזחת שורת הפתיחה קובעת** — התנהגות מתועדת שנשמרת
+              // כאן ביט-זהה: הבלוק נצרך שלם, ולכן אין בכלל רגע שבו שורת
+              // הסגירה יכולה לגעת במחסנית.
+              this._closeListsAbove(listStack, this._lineIndentCols(line));
+              continue;
+            }
+            // **אלרט נבדק אחרי בלוק הקוד**, וזה מה שמשאיר את ``:::``
+            // שבתוך גדר כקוד ליטרלי — **סטייה מכוונת** מ-``markdown-it``,
+            // שם הסורק של המכולה קורא שורות גולמיות ואינו מודע לגדרות
+            // כלל. נמדד: ``::: note`` ואז גדר שיש בתוכה ``:::`` באמת
+            // סוגרת שם את המכולה ושוברת את הגדר לשניים. זו אותה עמדה
+            // שהפתק כבר נוקט בטבלה שבתוך גדר, והיא גם התוצאה השפויה
+            // למשתמש. **מה שאוכף אותה הוא הצריכה ולא הסדר** — ראו את
+            // ההערה על ענף בלוק הקוד, שם ההבחנה נמדדה.
+            if (wantMd) {
               // **הסגירה נבדקת לפני הפתיחה, והשתיים זרות זו לזו ממילא:**
               // שורת סגירה היא נקודתיים ורווחים בלבד, ולפתיחה נדרשת אות
               // אחרי הנקודתיים. הסדר כאן הוא לקריאוּת, לא לנכונות.
@@ -2103,9 +2263,9 @@
                 continue;
               }
             }
-            // טבלה נבדקת לפני כל השאר, ורק מחוץ לגדר קוד: בתוך גדר, שורה
-            // עם מקפים אנכיים היא קוד ליטרלי.
-            const spec = (wantMd && !inFence && !isFenceLine && li + 1 < lines.length)
+            // הטבלה כבר אינה צריכה סייג של גדר: שורה בתוך גדר לעולם
+            // אינה מגיעה לכאן.
+            const spec = (wantMd && li + 1 < lines.length)
               ? this._tableSpec(line, lines[li + 1])
               : null;
             if (spec) {
@@ -2145,17 +2305,15 @@
             // אותה שורה. הסיווג ישב פעם בתוך ענף ה-``wantMd`` בלבד, ולכן
             // שורות המשימה כלל לא הזינו את מחסנית העומק: ``- [ ] א``
             // ואחריה ``  - ב`` היו יוצאות בעומק שגוי. שאלה אחת, מקום אחד.
-            const inCode = inFence || isFenceLine;
-            const b = (wantMd && !inCode) ? this._classifyLine(line) : null;
+            const b = wantMd ? this._classifyLine(line) : null;
             let depth = 0;
-            // **כלל אחד לכל השורות: מי שאינו בתוך תוכן גדר, ואינו ריק,
-            // מעדכן את המחסנית לפי ההזחה של עצמו.**
+            // **כלל אחד לכל השורות: מי שאינו ריק מעדכן את המחסנית לפי
+            // ההזחה של עצמו.**
             //
-            // ``!inFence`` הוא בדיוק "לא בתוך תוכן ליטרלי", ולכן הוא גם
-            // מכניס את שורת הגדר **הפותחת** לכלל בלי ענף מיוחד: כשרואים
-            // אותה הדגל עדיין ``false``, והוא מתהפך רק בסוף הענף שמרנדר
-            // אותה. שורת הסגירה ושורות התוכן רואות ``true`` ואינן נוגעות
-            // במחסנית — נכון, כי הן שייכות לבלוק שהפותחת כבר תחמה.
+            // כאן ישב פעם ``!inFence``, שנועד להוציא את שורות הגדר מהכלל
+            // ולהשאיר בו את הפותחת בלבד. הוא מיותר מרגע שהבלוק נצרך
+            // שלם: שורות הגדר כלל אינן מגיעות לכאן, והפותחת קוראת
+            // ל-``_closeListsAbove`` בענף שלה.
             //
             // **שורה ריקה אינה סוגרת רשימה** — נמדד מול ``markdown-it``,
             // גם שורה אחת וגם שתיים.
@@ -2165,7 +2323,7 @@
             // הפסקה שלו והרשימה ממשיכה. בפתק אין המשך פסקה — כל שורת
             // מקור היא שורת תצוגה נפרדת עם ההיסט שלה — והזחה 0 סוגרת
             // ממילא, בלי שנדרש ענף שיאמר זאת.
-            if (wantMd && !inFence && line.trim() !== '') {
+            if (wantMd && line.trim() !== '') {
               if (b && (b.kind === 'ul' || b.kind === 'ol')) {
                 depth = this._listDepth(listStack, line, b);
                 // עומק 0 אינו מקבל מחלקה: הוא חסר הזחה ממילא, ומחלקה
@@ -2175,8 +2333,10 @@
                 this._closeListsAbove(listStack, this._lineIndentCols(line));
               }
             }
-            if (m && !inCode) {
-              // צ'קבוקס אינטראקטיבי — רק מחוץ לגדר.
+            if (m) {
+              // צ'קבוקס אינטראקטיבי. שורת משימה שבתוך גדר כלל אינה
+              // מגיעה לכאן — היא נצרכה עם הבלוק — אבל **הסידור שלה כן
+              // התקדם**, דרך ``tasksConsumed``.
               row.classList.add('sticky-task');
               const box = createEl('input', 'sticky-task-box');
               box.type = 'checkbox';
@@ -2188,14 +2348,6 @@
               else span.textContent = m[3].slice(1).trim();
               row.appendChild(box);
               row.appendChild(span);
-            } else if (inCode) {
-              // בתוך גדר קוד — כל שורה ליטרלית, בלי אינליין. הגדר עצמה
-              // נשארת גלויה: כל שורת מקור היא שורת תצוגה אחת עם charOffset
-              // משלה, וזה מה ששומר על חזרה-לעריכה מדויקת.
-              row.classList.add('sticky-md-pre');
-              if (isFenceLine) row.classList.add('is-fence');
-              row.textContent = line === '' ? ' ' : line;
-              if (isFenceLine) inFence = !inFence;
             } else if (wantMd) {
               if (b.kind === 'heading'){
                 row.classList.add('sticky-md-h', 'sticky-md-h' + b.level);
@@ -2247,6 +2399,10 @@
         // לחיצה על קישור מרונדר פותחת לשונית — היא **לא** אמורה גם
         // להיכנס לעריכה, אחרת בחזרה ללשונית הפתק במצב עריכה במקום תצוגה.
         if (t && t.closest && t.closest('a.sticky-md-link')) return false;
+        // כפתור ההעתקה של בלוק קוד יושב **בתוך** שורת המקור (הכותרת),
+        // ולכן בלי ההחרגה הזו כל לחיצה עליו הייתה גם מעתיקה וגם מפילה
+        // את הפתק לעריכה — הכפתור עושה את עבודתו והתצוגה נעלמת.
+        if (t && t.closest && t.closest('.sticky-md-code-copy')) return false;
         const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
         const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
         this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
@@ -2512,18 +2668,27 @@
       // ``navigator.clipboard`` אינו זמין בהקשר לא-מאובטח ועלול להיחסם
       // בהרשאות. יש נפילה חיננית, ובכל מקרה **חיווי גלוי** — כפתור שנלחץ
       // ולא קורה כלום הוא בדיוק הכשל השקט שהפיצ'ר הזה לא מרשה לעצמו.
-      async _copyNoteContent(el){
-        const textarea = el.querySelector('.sticky-note-content');
-        const text = textarea ? String(textarea.value == null ? '' : textarea.value) : '';
+      /**
+       * כתיבה לקליפבורד, עם הנפילה החיננית. **התשובה היחידה בקוד לשאלה
+       * "איך מעתיקים"**, ושני הכפתורים — של הפתק ושל בלוק הקוד — עוברים
+       * דרכה. מימוש שני היה נסחף בדיוק בקצה שקשה לבדוק: ההרשאה שנחסמה.
+       */
+      async _copyText(text){
         let ok = false;
         try {
           if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(text);
+            await navigator.clipboard.writeText(String(text == null ? '' : text));
             ok = true;
           }
         } catch(_) { ok = false; }
-        if (!ok) ok = this._copyViaFallback(text);
-        this._flashCopyResult(el, ok);
+        if (!ok) ok = this._copyViaFallback(String(text == null ? '' : text));
+        return ok;
+      }
+
+      async _copyNoteContent(el){
+        const textarea = el.querySelector('.sticky-note-content');
+        const text = textarea ? String(textarea.value == null ? '' : textarea.value) : '';
+        this._flashCopyResult(el, await this._copyText(text));
       }
 
       _copyViaFallback(text){
@@ -2541,17 +2706,35 @@
         } catch(_) { return false; }
       }
 
-      _flashCopyResult(el, ok){
+      /**
+       * חיווי הצלחה/כשל על הכפתור שנלחץ.
+       *
+       * ``explicitTarget`` נדרש מרגע שיש יותר מכפתור העתקה אחד בפתק:
+       * בלי זה, לחיצה על כפתור של בלוק קוד הייתה מהבהבת את כפתור הפתק
+       * — חיווי שמופיע במקום הלא נכון גרוע מחיווי שלא מופיע, כי הוא
+       * אומר למשתמש שקרה משהו אחר.
+       */
+      _flashCopyResult(el, ok, explicitTarget){
         try {
           // מחלקה יציבה ולא ה-title, שאותו הפונקציה הזו עצמה משנה
-          const target = el.querySelector('.sticky-note-copy') || el;
+          // ``el &&`` אינו קישוט: אתר הקריאה של בלוק הקוד מעביר ``null``
+          // כ-``el`` ואת הכפתור כיעד מפורש. בלי השמירה, שינוי עתידי
+          // שיפיל את היעד המפורש היה זורק — ונבלע ב-try/catch שסביב,
+          // כלומר חיווי שנעלם בלי שאיש ידע.
+          const target = explicitTarget || (el && el.querySelector('.sticky-note-copy')) || el;
           const cls = ok ? 'is-copy-done' : 'is-copy-fail';
+          // **ה-title המקורי נשמר ומשוחזר, ולא מוקלד מחדש.** הגרסה
+          // הקודמת שחזרה ל-``'העתק את תוכן הפתק'`` בקבוע — נכון כשהיה
+          // כפתור אחד, ומרגע שיש גם כפתור לבלוק קוד זו הייתה כתובת
+          // שקרית: כשל בהעתקת קוד היה משנה את ההסבר של הכפתור לצמיתות
+          // ל"תוכן הפתק".
+          const prevTitle = target.title;
           target.classList.add(cls);
           if (!ok) target.title = 'ההעתקה נחסמה בדפדפן — סמנו והעתיקו ידנית';
           setTimeout(() => {
             try {
               target.classList.remove(cls);
-              if (!ok) target.title = 'העתק את תוכן הפתק';
+              if (!ok) target.title = prevTitle;
             } catch(_) {}
           }, 1800);
         } catch(_) {}
