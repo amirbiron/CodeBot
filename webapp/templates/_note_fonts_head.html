@@ -40,6 +40,40 @@
     } catch (e) { /* אין מה לעשות */ }
   };
 
+  // ---- גודל הטקסט בפתק ----
+  //
+  // **המפה הזו היא המקור היחיד לשאלה "אילו גדלים יש".** ממנה נגזרים
+  // שלושה דברים שאחרת היו נסחפים: הוולידציה של הערך השמור, שם המחלקה
+  // שמוחלת, והאפשרויות שבבורר שבמודאל הלוח (יש בדיקה שמשווה ביניהן).
+  // ``normal`` ממופה למחרוזת ריקה בכוונה — ברירת המחדל אינה מחלקה, אלא
+  // היעדר כל המחלקות, ולכן היא גם מה שמתקבל אחרי ניקוי.
+  window.STICKY_NOTE_FONT_SIZES = {
+    normal: '',
+    lg: 'sticky-font-lg',
+    xl: 'sticky-font-xl'
+  };
+
+  // מקור יחיד להחלה, כמו ``applyStickyHandwriting`` שמעל.
+  //
+  // **הערך מאומת מול המפה ולא מורכב לתוך שם מחלקה.** הוא מגיע מ-
+  // ``localStorage``, כלומר מחוץ לתהליך: ערך שנשמר בעבר, נערך ביד, או
+  // הגיע מגרסה אחרת. הרכבה ישירה (``'sticky-font-' + size``) הייתה
+  // מכניסה כל מחרוזת ל-``classList``.
+  window.applyStickyNoteFontSize = function (size) {
+    var map = window.STICKY_NOTE_FONT_SIZES;
+    var wanted = Object.prototype.hasOwnProperty.call(map, size) ? map[size] : '';
+    try {
+      var root = document.documentElement;
+      // **מסירים את כולן ואז מוסיפים אחת.** מעבר מ-``xl`` ל-``lg`` בלי
+      // הניקוי היה משאיר את שתיהן על ה-``<html>``, ואז הכלל שמנצח הוא
+      // זה שמופיע אחרון בקובץ ולא זה שנבחר.
+      Object.keys(map).forEach(function (k) {
+        if (map[k]) root.classList.remove(map[k]);
+      });
+      if (wanted) root.classList.add(wanted);
+    } catch (e) { /* אין מה לעשות */ }
+  };
+
   // ההעדפה של **המשטח הזה** בלבד. משטח שלא הוגדר אינו טוען דבר —
   // במצב כבוי המחיר הוא אפס בקשות, לא בקשה שנזרקת.
   window.STICKY_FONT_FROM_SETTINGS = {{ (note_fonts.get(note_font_surface) if note_fonts else False) | tojson }};
