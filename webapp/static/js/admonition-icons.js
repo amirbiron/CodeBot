@@ -1,6 +1,19 @@
 /**
- * Lucide SVG icons for markdown admonition blocks.
- * Shared between live-preview.js and md_preview.html to avoid duplication.
+ * מטא-דאטה משותפת לבלוקי האלרט (admonitions) של המארקדאון.
+ *
+ * שני דברים גרים כאן, ומאותה סיבה: **סוג אלרט הוא ישות אחת**, ומי שמוסיף
+ * סוג חדש צריך לגעת במקום אחד — לא בשלושה קבצים שמחזיקים חצי הגדרה כל אחד.
+ *
+ *  - ``ADMONITION_ICONS``  — אייקון Lucide לכל סוג.
+ *  - ``ADMONITION_TITLES`` — התווית בעברית שמוצגת כשהמשתמש לא כתב כותרת משלו.
+ *
+ * שלושה צרכנים: ``md_preview.html`` ו-``live-preview.js`` (שניהם מרכיבים
+ * מחרוזת HTML עבור ``markdown-it-container``), ו-``sticky-notes.js`` (שבונה
+ * צמתים ואינו יכול לגעת ב-HTML גולמי — ראו ``docs/dev/sticky_notes_extending.rst``).
+ *
+ * ``ADMONITION_TITLES`` הוא גם **ההגדרה של "מהו סוג מוכר"** עבור הפתקים
+ * הדביקים: מפתח שאינו כאן אינו אלרט, והשורה נשארת טקסט רגיל. זו בדיוק
+ * ההתנהגות של ``markdown-it-container`` על סוג שלא נרשם — נמדד, לא הונח.
  */
 (function () {
   var ADMONITION_ICONS = {
@@ -20,7 +33,28 @@
     abstract: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>',
   };
 
+  //: התווית שמוצגת כשלא נכתבה כותרת מותאמת (``::: note`` בלי טקסט אחריו).
+  //: **הסדר כאן אינו נושא משמעות** — הגישה היא לפי מפתח בלבד — ולכן אפשר
+  //: להוסיף סוג בכל מקום ברשימה.
+  var ADMONITION_TITLES = {
+    note: 'הערה',
+    tip: 'טיפ',
+    warning: 'אזהרה',
+    danger: 'סכנה',
+    important: 'חשוב',
+    info: 'מידע',
+    success: 'הצלחה',
+    question: 'שאלה',
+    example: 'דוגמה',
+    quote: 'ציטוט',
+    experimental: 'ניסוי',
+    deprecated: 'לא מומלץ',
+    todo: 'משימות לביצוע',
+    abstract: 'תקציר',
+  };
+
   if (typeof window !== 'undefined') {
     window.ADMONITION_ICONS = ADMONITION_ICONS;
+    window.ADMONITION_TITLES = ADMONITION_TITLES;
   }
 })();

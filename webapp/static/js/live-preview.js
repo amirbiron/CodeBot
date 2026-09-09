@@ -7,24 +7,10 @@
     ERROR: 'error',
   };
 
-  const MARKDOWN_DEFAULT_TITLES = {
-    note: 'הערה',
-    tip: 'טיפ',
-    warning: 'אזהרה',
-    important: 'חשוב',
-    danger: 'סכנה',
-    info: 'מידע',
-    success: 'הצלחה',
-    question: 'שאלה',
-    example: 'דוגמה',
-    quote: 'ציטוט',
-    experimental: 'ניסוי',
-    deprecated: 'לא מומלץ',
-    todo: 'משימות לביצוע',
-    abstract: 'תקציר',
-  };
-
-  // ADMONITION_ICONS is loaded from admonition-icons.js via window.ADMONITION_ICONS
+  // שניהם מגיעים מ-admonition-icons.js, שהוא המקור היחיד למטא-דאטה של סוגי
+  // האלרט. אותה צורת קריאה בדיוק לשניהם: מפה חסרה מדרדרת לשם הסוג
+  // (``|| type`` באתר השימוש) ולא שוברת את הרינדור.
+  const MARKDOWN_DEFAULT_TITLES = (typeof window !== 'undefined' && window.ADMONITION_TITLES) || {};
   const ADMONITION_ICONS = (typeof window !== 'undefined' && window.ADMONITION_ICONS) || {};
 
   function slugifyHeadingId(rawText) {

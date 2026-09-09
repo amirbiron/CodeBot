@@ -22,6 +22,11 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MODULE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky-notes.js');
+// **המטא-דאטה של סוגי האלרט נטענת לפני המודול, בדיוק כמו בתבניות.**
+// ``_alertSpec`` קורא את ``window.ADMONITION_TITLES`` כדי לדעת מהו סוג מוכר,
+// ובלי הטעינה כאן אף אלרט לא היה מזוהה וכל הבדיקות עליו היו נכשלות — או
+// גרוע מכך, עוברות מהסיבה הלא נכונה אילו היו בודקות רק שהשורה נשארה טקסט.
+const ADMONITION_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'admonition-icons.js');
 
 /** DOM מינימלי — רק מה ש-``_init`` נוגע בו לפני שהוא נכשל בשקט. */
 function makeSandbox() {
@@ -81,6 +86,7 @@ function makeSandbox() {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(ADMONITION_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   return sandbox;
 }
@@ -266,6 +272,14 @@ class FakeEl {
     const p = this.parentNode;
     if (p) { p.children = p.children.filter((c) => c !== this); this.parentNode = null; }
   }
+  // ``innerHTML`` קיים בכל דפדפן, ו-``_appendAlertIcon`` משתמש בו — פעם
+  // אחת, על ``span`` ייעודי לאייקון SVG סטטי. בלי מימוש כאן ההשמה הייתה
+  // נוחתת על תכונה סתמית, והבדיקה "האייקון נכנס" הייתה עוברת סתם — אותה
+  // מלכודת של ``remove``/``blur`` בסבבים קודמים. הוא נשמר בנפרד מ-
+  // ``_text`` בכוונה, כדי שבדיקה תוכל להבדיל בין "נכתב כ-HTML" לבין
+  // "נכתב כטקסט" — וזו בדיוק ההבחנה שהבדיקה על הכותרת המותאמת עושה.
+  set innerHTML(v) { this.children = []; this._html = String(v == null ? '' : v); }
+  get innerHTML() { return this._html == null ? '' : this._html; }
   set textContent(v) { this.children = []; this._text = String(v); }
   get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join('') : this._text; }
   setAttribute(k, v) { this._attrs[k] = String(v); }
@@ -1695,6 +1709,354 @@ check('טבלה: שורה בלי מפריד כלל מסיימת את הטבלה'
   eq(view.querySelector('tbody').querySelectorAll('tr').length, 1, 'שורת גוף אחת');
   const rows = view.querySelectorAll('.sticky-task-line');
   eq(rows[rows.length - 1].textContent, 'טקסט רגיל', 'והשורה האחרונה היא טקסט');
+});
+
+// ---------- בלוקי אלרט (``::: note``) ----------
+//
+// התחביר אינו שלנו: הוא של ``markdown-it-container@4.0.0``, שמרנדר את אותם
+// בלוקים בתצוגת המסמך. **כל הציפיות כאן נמדדו מולו בפועל** ולא נזכרו —
+// הורצה השוואה של מבנה הקינון על 31 קלטים, וכולם תאמו.
+
+/** האלרטים בתצוגה, כרשימה שטוחה של ``{ type, title }`` לפי סדר הופעה. */
+function alerts(view){
+  return view.querySelectorAll('.admonition').map((box) => {
+    const type = [...box._classes].find((c) => c.startsWith('admonition-')).slice('admonition-'.length);
+    const label = box.querySelector('.sticky-md-alert-label');
+    return { type, title: label ? label.textContent : null };
+  });
+}
+
+check('אלרט: ::: note בונה מעטפת עם הכותרת בעברית ועם אייקון', () => {
+  const { view } = renderMd(mdMgr, '::: note\nגוף\n:::');
+  const found = alerts(view);
+  eq(found.length, 1, 'אלרט אחד');
+  eq(found[0].type, 'note', 'הסוג על המחלקה');
+  eq(found[0].title, 'הערה', 'התווית מ-ADMONITION_TITLES');
+  const icon = view.querySelector('.sticky-md-alert-icon');
+  eq(!!icon, true, 'יש חריץ אייקון');
+  eq(icon.innerHTML.startsWith('<svg'), true, 'והוא מכיל את ה-SVG המשותף');
+});
+
+check('אלרט: כל הסוגים שבמפה המשותפת מזוהים', () => {
+  // **הרשימה נגזרת מהמפה ולא מוקלדת כאן.** רשימה מוקלדת הייתה נשארת
+  // מאחור בדיוק כשמישהו מוסיף סוג חדש — כלומר בדיוק כשהיא נחוצה.
+  const types = Object.keys(sandbox.window.ADMONITION_TITLES);
+  eq(types.length > 0, true, 'המפה נטענה לסנדבוקס');
+  types.forEach((type) => {
+    const { view } = renderMd(mdMgr, '::: ' + type + '\nגוף\n:::');
+    const found = alerts(view);
+    eq(found.length, 1, 'הסוג ' + type + ' מזוהה');
+    eq(found[0].title, sandbox.window.ADMONITION_TITLES[type], 'התווית של ' + type);
+  });
+});
+
+check('אלרט: סוג לא מוכר נשאר טקסט', () => {
+  // נמדד מול markdown-it-container: סוג שלא נרשם אינו מכולה, והשורה
+  // מרונדרת כפסקה רגילה.
+  // ``**גוף**`` כאן אינו קישוט: ``::: foo`` לבדו הוא פתק בלי שום מבנה
+  // מארקדאון, ולכן התצוגה כלל אינה נפתחת — נכון, אבל אז הבדיקה הייתה
+  // עוברת בלי לבדוק כלום. המבנה פותח את התצוגה, וכך נראה מה קרה לשורה.
+  const { view } = renderMd(mdMgr, '::: foo\n**גוף**\n:::');
+  eq(alerts(view).length, 0, 'לא נבנה אלרט');
+  eq(view.textContent.includes('::: foo'), true, 'והשורה נשארה גלויה כטקסט');
+  eq(view.textContent.includes(':::'), true, 'וגם שורת הסגירה, שאינה סוגרת דבר');
+});
+
+check('אלרט: גבול מילה — ספרה וקו תחתון פוסלים, נקודה לא', () => {
+  // שלושתם נמדדו: ``::: note2`` ו-``::: note_x`` אינם מכולה כי ה-``\b``
+  // בוולידציה של התוסף נכשל בין שני תווי-מילה; ``::: note.x`` כן מכולה,
+  // והשארית הופכת לכותרת.
+  eq(alerts(renderMd(mdMgr, '::: note2\nא\n:::').view).length, 0, 'note2');
+  eq(alerts(renderMd(mdMgr, '::: note_x\nא\n:::').view).length, 0, 'note_x');
+  eq(alerts(renderMd(mdMgr, '::: noteX\nא\n:::').view).length, 0, 'noteX');
+  const dotted = alerts(renderMd(mdMgr, '::: note.x\nא\n:::').view);
+  eq(dotted.length, 1, 'note.x כן');
+  eq(dotted[0].title, '.x', 'והשארית היא הכותרת');
+});
+
+check('אלרט: :::note בלי רווח, ורישיות אינה משנה', () => {
+  eq(alerts(renderMd(mdMgr, ':::note\nא\n:::').view).length, 1, 'בלי רווח');
+  eq(alerts(renderMd(mdMgr, '::: NOTE\nא\n:::').view)[0].type, 'note', 'אותיות גדולות');
+});
+
+check('אלרט: כותרת מותאמת גוברת על תווית ברירת המחדל', () => {
+  const found = alerts(renderMd(mdMgr, '::: warning שים לב!\nא\n:::').view);
+  eq(found[0].type, 'warning');
+  eq(found[0].title, 'שים לב!', 'הטקסט שאחרי הסוג');
+});
+
+check('אלרט: רק מחרוזת נכנסת ל-innerHTML של האייקון', () => {
+  // ``_appendAlertIcon`` הוא **המקום היחיד בקובץ שנוגע ב-``innerHTML``**,
+  // ולכן החוזה שלו הוא היחיד שצריך שמירה מפורשת: נכנסת לשם מחרוזת
+  // סטטית מהמפה המשותפת, ושום דבר אחר. בלי בדיקת הטיפוס, ערך שאינו
+  // מחרוזת היה נכתב כ-``[object Object]`` בתוך הכותרת.
+  const icons = sandbox.window.ADMONITION_ICONS;
+  const saved = icons.note;
+  try {
+    icons.note = { evil: true };
+    const { view } = renderMd(mdMgr, '::: note\nגוף\n:::');
+    eq(alerts(view).length, 1, 'האלרט עדיין נבנה');
+    eq(!!view.querySelector('.sticky-md-alert-icon'), false, 'ובלי חריץ אייקון כלל');
+    eq(view.textContent.includes('[object Object]'), false, 'ושום דבר לא דלף לתצוגה');
+  } finally {
+    icons.note = saved;
+  }
+});
+
+check('אלרט: הכותרת המותאמת היא טקסט, לעולם לא תגית', () => {
+  // **החוק שמעל כל השאר בפתקים.** הכותרת היא טקסט שהמשתמש הקליד, ולכן
+  // היא נכתבת ל-``textContent`` על צומת נפרד מהאייקון. ``innerHTML`` על
+  // אותו צומת היה הופך את הזריקה לתגית.
+  const { view } = renderMd(mdMgr, '::: note <script>alert(1)</script>\nא\n:::');
+  const label = view.querySelector('.sticky-md-alert-label');
+  eq(label.textContent, '<script>alert(1)</script>', 'הוצג כטקסט');
+  eq(label.innerHTML, '', 'ולא נכתב כ-HTML');
+});
+
+check('אלרט: מפתח מהפרוטוטיפ אינו סוג', () => {
+  // ``titles[type]`` לבדו היה מחזיר פונקציה עבור ``constructor`` ומקבל
+  // אותה כסוג תקף. שם הסוג מגיע מטקסט שהמשתמש הקליד — קלט חיצוני לכל דבר.
+  eq(alerts(renderMd(mdMgr, '::: constructor\nא\n:::').view).length, 0, 'constructor');
+  eq(alerts(renderMd(mdMgr, '::: toString\nא\n:::').view).length, 0, 'toString');
+});
+
+check('אלרט: בלי שורת סגירה — נמשך עד סוף הפתק', () => {
+  // נמדד: ``markdown-it-container`` סוגר מכולה פתוחה בסוף המסמך.
+  const { view } = renderMd(mdMgr, '::: tip\nא\nב');
+  const box = view.querySelector('.admonition');
+  eq(!!box, true, 'נבנה אלרט');
+  const inner = box.querySelector('.admonition-content');
+  eq(inner.querySelectorAll('.sticky-task-line').length, 2, 'שתי שורות התוכן בפנים');
+});
+
+check('אלרט: שורת סגירה קצרה מהפתיחה אינה סוגרת', () => {
+  // נמדד: ``:::: note`` שנסגר ב-``:::`` — ה-``:::`` נשאר תוכן, והמכולה
+  // נסגרת רק בסוף. הכלל בתוסף: ``marker_count`` של הסגירה ≥ של הפתיחה.
+  const { view } = renderMd(mdMgr, ':::: note\nא\n:::\nב');
+  eq(alerts(view).length, 1, 'אלרט אחד');
+  const inner = view.querySelector('.admonition-content');
+  eq(inner.textContent.includes(':::'), true, 'ה-::: הקצר נשאר תוכן');
+  eq(inner.textContent.includes('ב'), true, 'וגם מה שאחריו נשאר בפנים');
+});
+
+check('אלרט: ::: x אינו סוגר — אחרי הנקודתיים מותרים רווחים בלבד', () => {
+  const { view } = renderMd(mdMgr, '::: note\nא\n::: x\nב');
+  eq(alerts(view).length, 1);
+  eq(view.querySelector('.admonition-content').textContent.includes('::: x'), true, 'נשאר תוכן');
+});
+
+check('אלרט: קינון — הסגירה סוגרת את החיצוני ביותר שאורכו מתאים', () => {
+  // **זו ההתנהגות שהכי קל לטעות בה.** האינטואיציה אומרת "סוגר את
+  // הפנימי"; בפועל ב-markdown-it כל מכולה סורקת קדימה אחר סגירה משלה,
+  // והפנימיות נסגרות בסוף ההורה. נמדד על שלוש רמות, בשני סדרי סגירה.
+  const { view } = renderMd(mdMgr, '::::: note\nא\n:::: tip\nב\n::: info\nג\n::::\nד\n:::::\nה');
+  const found = alerts(view);
+  eq(found.map((a) => a.type).join(','), 'note,tip,info', 'שלוש רמות, מבחוץ פנימה');
+  // ``::::`` סוגר את info ואת tip ומשאיר את note פתוח, ולכן ``ד`` בתוך note
+  const note = view.querySelector('.admonition');
+  const noteBody = note.querySelector('.admonition-content');
+  eq(noteBody.textContent.includes('ד'), true, 'ד נשאר בתוך note');
+  // ``:::::`` סוגר את note, ולכן ``ה`` כבר מחוץ לכל אלרט
+  const top = view.children[view.children.length - 1];
+  eq(top.textContent, 'ה', 'ה הוא שורה עליונה, מחוץ לאלרט');
+});
+
+check('אלרט: התוכן עובר את מנוע המארקדאון המלא', () => {
+  const { view } = renderMd(mdMgr, '::: info\n**מודגש** `קוד`\n# כותרת\n| א | ב |\n|---|---|\n| 1 | 2 |\n:::');
+  const body = view.querySelector('.admonition-content');
+  eq(!!body.querySelector('strong.sticky-md-bold'), true, 'מודגש');
+  eq(!!body.querySelector('code.sticky-md-code'), true, 'קוד בשורה');
+  eq(!!body.querySelector('.sticky-md-h1'), true, 'כותרת');
+  eq(!!body.querySelector('table'), true, 'טבלה — ונבנתה בתוך האלרט ולא לצידו');
+});
+
+check('אלרט: charOffset — הכותרת יושבת על שורת הפתיחה', () => {
+  const content = '::: note\nגוף\n:::';
+  const { el, ta, view } = renderMd(mdMgr, content);
+  const title = view.querySelector('.admonition-title');
+  eq(title.dataset.charOffset, '0', 'ההיסט של ``::: note``');
+  // ההיסט לבדו אינו מספיק — ``_enterEditFromView`` חייב באמת למצוא אותו
+  // דרך ``closest('.sticky-task-line')``, ולכן הכותרת נושאת את המחלקה.
+  const label = title.querySelector('.sticky-md-alert-label');
+  mdMgr._enterEditFromView(el, { target: label });
+  eq(ta.selectionStart, 0, 'לחיצה על הכותרת מחזירה לעריכה בשורת הפתיחה');
+});
+
+check('אלרט: charOffset — שורת הסגירה נצרכת אבל מקדמת את ההיסט', () => {
+  // **הבדיקה שמגינה על החשבון המצטבר.** שורת ``:::`` אינה מייצרת אלמנט
+  // (אין לה מה להציג), בדיוק כמו שורת המפריד של טבלה — אבל בלי קידום
+  // ההיסט עליה, כל מה שאחרי האלרט מוסט באורך שורה שלמה ולחיצה נוחתת
+  // בשורה הלא נכונה.
+  const content = '::: note\nגוף\n:::\nאחרי האלרט';
+  const { el, ta, view } = renderMd(mdMgr, content);
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const last = rows[rows.length - 1];
+  eq(last.textContent, 'אחרי האלרט', 'זו אכן השורה שאחרי');
+  eq(Number(last.dataset.charOffset), content.indexOf('אחרי האלרט'), 'ההיסט מצביע לתחילתה');
+  mdMgr._enterEditFromView(el, { target: last });
+  eq(ta.selectionStart, content.indexOf('אחרי האלרט'), 'והלחיצה נוחתת שם');
+});
+
+check('אלרט: אינדקס המשימות אינו זז בגלל האלרט', () => {
+  // **החמור מכולם, כי הוא נשלח לשרת.** ``sticky_notes_tasks`` בשרת סופר
+  // כל שורת ``- [ ]`` בתוכן — הוא אינו מפרש אלרטים כלל — ולכן הסידור
+  // בלקוח חייב להתקדם בדיוק כמוהו. אינדקס שזז מסמן משימה אחרת מזו
+  // שנלחצה. שורות המרקר עצמן לעולם אינן שורות משימה: הן מתחילות
+  // בנקודתיים, ו-``TASK_LINE_RE`` דורש ``-`` או ``*``.
+  const { view } = renderMd(mdMgr, '- [ ] לפני\n::: todo\n- [ ] בתוך\n:::\n- [x] אחרי');
+  const boxes = view.querySelectorAll('.sticky-task-box');
+  eq(boxes.length, 3, 'שלוש תיבות');
+  eq(boxes.map((b) => b.dataset.taskIndex).join(','), '0,1,2', 'סידור רציף');
+  eq(boxes[2].checked, true, 'והמצב נקרא נכון');
+});
+
+check('אלרט: לחיצה על שורה בתוך אלרט מחזירה לעריכה באותה שורה', () => {
+  const content = '::: note\nשורה ראשונה\nשורה שנייה\n:::';
+  const { el, ta, view } = renderMd(mdMgr, content);
+  const rows = view.querySelector('.admonition-content').querySelectorAll('.sticky-task-line');
+  mdMgr._enterEditFromView(el, { target: rows[1] });
+  eq(ta.selectionStart, content.indexOf('שורה שנייה'), 'הסמן בתחילת השורה שנלחצה');
+});
+
+check('אלרט: ::: בתוך גדר קוד נשאר ליטרלי — סטייה מתועדת', () => {
+  // **סטייה מכוונת מ-markdown-it, ונמדדה שם.** הסורק של המכולה קורא
+  // שורות גולמיות ואינו מודע לגדרות, ולכן אצלו ה-``:::`` שבתוך הגדר סוגר
+  // את הבלוק ושובר את הגדר לשניים. בפתק זו תוצאה גרועה למשתמש, וזו גם
+  // אותה עמדה שהפתק כבר נוקט בטבלה שבתוך גדר.
+  const { view } = renderMd(mdMgr, '::: note\n```\n:::\n```\nאחרי\n:::');
+  const found = alerts(view);
+  eq(found.length, 1, 'אלרט אחד');
+  const body = view.querySelector('.admonition-content');
+  eq(body.querySelectorAll('.sticky-md-pre').length, 3, 'שלוש שורות הגדר נשארו קוד');
+  eq(body.textContent.includes('אחרי'), true, 'ומה שאחרי הגדר עדיין בתוך האלרט');
+});
+
+check('אלרט: פתיחה בתוך גדר אינה פותחת אלרט', () => {
+  const { view } = renderMd(mdMgr, '```\n::: note\n```');
+  eq(alerts(view).length, 0, 'אין אלרט');
+  eq(view.querySelectorAll('.sticky-md-pre').length, 3, 'שלוש שורות קוד');
+});
+
+check('אלרט לבדו פותח את התצוגה', () => {
+  // בלי זיהוי אלרט ב-``_hasRenderableMarkdown``, פתק שכולו ``::: note``
+  // לא היה עובר את השער והתצוגה כלל לא הייתה נפתחת — כשל שקט, בדיוק
+  // כמו שקרה פעם עם טבלה.
+  eq(mdMgr._hasRenderableMarkdown('::: note\nגוף\n:::'.split('\n')), true);
+  eq(mdMgr._hasRenderableMarkdown('::: foo\nגוף\n:::'.split('\n')), false, 'וסוג לא מוכר אינו פותח');
+});
+
+check('אלרט: מארקדאון כבוי מציג טקסט גולמי', () => {
+  const off = new StickyNotesManager({ board: 'b-alert-off', markdown: false });
+  const parts = makeNote('::: note\n- [ ] משימה\n:::');
+  off._syncTaskView(parts.el);
+  eq(alerts(parts.view).length, 0, 'אין אלרט');
+  eq(parts.view.textContent.includes('::: note'), true, 'המרקר מוצג כפי שהוקלד');
+  // צ'קבוקסים עובדים תמיד, בלי תלות בהגדרת המארקדאון
+  eq(parts.view.querySelectorAll('.sticky-task-box').length, 1, 'והצ׳קבוקס עדיין אינטראקטיבי');
+});
+
+check('אלרט: בעמודה 0 סוגר רשימה, ומוזח לתוך פריט נשאר בתוכו', () => {
+  // האלרט הוא בלוק ככל בלוק אחר, ולכן הוא עובר דרך ``_closeListsAbove``
+  // עם ההזחה של עצמו — אותו כלל אחיד שכבר חל על כותרת, ציטוט וטבלה.
+  //
+  // **הפריט המוזח שאחרי האלרט הוא מה שמוכיח את זה, ולא הפריט שבעמודה 0.**
+  // פריט בעמודה 0 סוגר את הרשימה בעצמו לפי הכלל האחיד, ולכן הוא היה יוצא
+  // בעומק 0 גם אם שורת האלרט לא הייתה נוגעת במחסנית — בדיקה שעוברת בלי
+  // הקוד שהיא אמורה לכסות. נתפס במוטציה.
+  const closes = renderMd(mdMgr, '- פריט\n::: note\n  - בן\n:::');
+  const inner = closes.view.querySelector('.admonition-content')
+    .querySelectorAll('.sticky-task-line');
+  eq(inner.length, 1, 'שורה אחת בתוך האלרט');
+  eq(inner[0].classList.contains('is-depth-1'), false,
+     'האלרט בעמודה 0 סגר את הפריט שמעליו, ולכן הפריט שבתוכו מתחיל מרמה 0');
+  const stays = renderMd(mdMgr, '- פריט\n  ::: note\n  א\n  :::\n  - בן');
+  const rows = stays.view.querySelectorAll('.sticky-task-line');
+  const last = rows[rows.length - 1];
+  // ``textContent`` של שורת רשימה כולל את התבליט, ולכן ``includes``
+  // ולא שוויון — אותה סיבה שבגללה שאר בדיקות הקינון משתמשות ב-``depths``.
+  eq(last.textContent.includes('בן'), true, 'השורה האחרונה');
+  eq(last.classList.contains('is-depth-1'), true, 'ונשארה בתוך הפריט');
+});
+
+check('אלרט: ה-CSS מכייל לפתק ואינו מגדיר פלטה שנייה', () => {
+  // **שומר טקסטואלי.** הצבעים מגיעים מ-``markdown-enhanced.css`` שנטען
+  // ב-``base.html``, ולכן אלרט בפתק נראה בדיוק כמו אלרט בתצוגת המסמך —
+  // אותו קוד, לא העתק. ההגדרה של ``--admonition``/``border-color`` בקובץ
+  // הפתקים הייתה פלטה שנייה שנסחפת מהראשונה.
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+  eq(/\.sticky-note \.admonition\s*\{/.test(css), true, 'יש כלל כיול לפתק');
+  // ``markdown-enhanced.css`` מותח את האלרט אל מחוץ לשוליים במסכים צרים
+  // (``margin: 0.75rem -0.5rem``). בעמוד זה נכון; בפתק זה מוציא אותו אל
+  // מחוץ לגבול. הביטול חייב להיות בכלל שגובר בספציפיות, בלי ``!important``.
+  //
+  // **שתי תכונות לוגיות ולא קיצור, וזו לא קוסמטיקה.** מדידה בכרומיום
+  // הראתה שקיצור ``margin: .35em 0`` הופך את ``margin-inline`` לשורה
+  // מתה — כלומר לשורה שאף מוטציה אינה יכולה להפיל. בפיצול היא נושאת
+  // משקל: בלעדיה הצדדים נופלים ל-``-8px`` והאלרט חוצה את גבול הפתק.
+  // **ההערות מוסרות לפני הבדיקה.** בלי זה השומר קורא את הפרוזה שבתוך
+  // הכלל — שמזכירה את שמות התכונות כדי להסביר אותן — ועובר גם כשההצהרה
+  // עצמה נמחקה. נתפס במוטציה: הסרת ``margin-inline: 0`` לא הפילה כלום,
+  // כי המילים ``margin-inline: 0`` הופיעו בהערה שמעליה.
+  const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const calib = decls.slice(decls.indexOf('.sticky-note .admonition {'));
+  const body = calib.slice(0, calib.indexOf('}'));
+  eq(/margin-inline\s*:\s*0/.test(body), true, 'כלל המובייל מבוטל בציר האופקי');
+  eq(/margin-block\s*:/.test(body), true, 'והציר האנכי נקבע בנפרד');
+  eq(/^\s*margin\s*:/m.test(body), false, 'בלי קיצור margin — הוא היה מייתר את margin-inline');
+  // אין הגדרות צבע משלנו לסוגים — אלה חיים במקום אחד בלבד
+  eq(/\.admonition-(note|tip|danger|warning|success)\s*\{/.test(decls), false, 'אין פלטת סוגים שנייה');
+});
+
+check('תיעוד: עמוד המשתמש מונה בדיוק את הסוגים שקיימים במפה', () => {
+  // **הרשימה בעמוד המשתמש היא היחידה שאינה נגזרת מהמפה בזמן ריצה**, כי
+  // משתמש צריך לדעת מה זמין בלי לקרוא קוד. לכן היא היחידה שיכולה
+  // להסתייף — סוג שנוסף למפה ולא לעמוד, או שם שנכתב שם בטעות. הבדיקה
+  // הזו היא מה שהופך את הסיכון הזה לכשל רועש.
+  const doc = fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'user', 'sticky_notes.rst'), 'utf8');
+  const line = doc.split('\n').find((l) => l.startsWith('הסוגים הזמינים הם'));
+  eq(!!line, true, 'נמצאה שורת הסוגים בעמוד המשתמש');
+  const listed = (line.match(/``([a-z]+)``/g) || []).map((m) => m.slice(2, -2));
+  eq(listed.sort().join(','), Object.keys(sandbox.window.ADMONITION_TITLES).sort().join(','),
+     'הרשימה בתיעוד זהה למפה');
+});
+
+check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם את מפת האלרטים, ולפניה', () => {
+  // **זה מה שמונע מהמשטח הרביעי לשכוח.** ``_alertSpec`` קורא את
+  // ``window.ADMONITION_TITLES``; בעמוד שלא טוען את הקובץ, כל אלרט היה
+  // מוצג כטקסט רגיל — בלי שגיאה ובלי סימן. זה כבר היה המצב בפועל
+  // ב-note_board.html לפני השינוי הזה.
+  const dir = path.join(__dirname, '..', 'webapp', 'templates');
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+  const loaders = walk(dir).filter((f) => f.endsWith('.html'))
+    .filter((f) => fs.readFileSync(f, 'utf8').includes("filename='js/sticky-notes.js'"));
+  eq(loaders.length >= 3, true, 'נמצאו התבניות שטוענות את המודול (' + loaders.length + ')');
+  loaders.forEach((f) => {
+    const src = fs.readFileSync(f, 'utf8');
+    const icons = src.indexOf("filename='js/admonition-icons.js'");
+    const sticky = src.indexOf("filename='js/sticky-notes.js'");
+    eq(icons !== -1, true, path.basename(f) + ' טוען את מפת האלרטים');
+    eq(icons < sticky, true, path.basename(f) + ' טוען אותה לפני sticky-notes.js');
+  });
+});
+
+check('מטא-דאטה: מקור אחד לאייקון ולתווית, ואין עותקים נוספים', () => {
+  const titles = sandbox.window.ADMONITION_TITLES;
+  const icons = sandbox.window.ADMONITION_ICONS;
+  eq(Object.keys(titles).sort().join(','), Object.keys(icons).sort().join(','),
+     'לכל סוג יש גם אייקון וגם תווית');
+  // **הכפילות שצומצמה.** שני הצרכנים האחרים החזיקו מפת תוויות משלהם;
+  // עותק שחוזר משאיר סוג חדש בלי תווית באחד המקומות, בשקט.
+  const root = path.join(__dirname, '..');
+  const copies = [
+    ['webapp/static/js/live-preview.js', /MARKDOWN_DEFAULT_TITLES\s*=\s*\{\s*note\s*:/],
+    ['webapp/templates/md_preview.html', /DEFAULT_TITLES\s*=\s*\{\s*note\s*:/],
+  ];
+  copies.forEach(([rel, rx]) => {
+    eq(rx.test(fs.readFileSync(path.join(root, rel), 'utf8')), false, rel + ' אינו מחזיק עותק');
+  });
 });
 
 // -- destroy: flush לפני פירוק --
