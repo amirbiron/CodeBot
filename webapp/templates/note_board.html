@@ -14,7 +14,12 @@
   // עברה ל-``sticky-handwriting`` כשהגופן הפך לזמין בכל שלושת המשטחים;
   // המפתח **לא** — הוא כבר יושב ב-``localStorage`` של משתמשים קיימים,
   // ושינוי שלו היה מוחק בשקט את ההעדפה של כל לוח קיים. אל תיישרו אותם.
-  window.HANDWRITING_KEY = 'board-handwriting:' + {{ board_id | tojson }};
+  // **מזהה הלוח נלכד פעם אחת, ושני המפתחות נגזרים ממנו.** שני ביטויי
+  // Jinja נפרדים היו מרנדרים את אותו ערך פעמיים, ומשאירים שני מקומות
+  // שצריכים להישאר זהים — בדיוק סוג ההיסחפות ששלוש ההעדפות שמתחת
+  // נמנעות ממנה בכך שהן נגזרות מ-``BOARD_ID`` יחיד.
+  var boardId = {{ board_id | tojson }};
+  window.HANDWRITING_KEY = 'board-handwriting:' + boardId;
 
   // אין כאן guard על ההגדרה הגלובלית, במכוון: ההחלה היחידה כאן היא
   // **הדלקה**, ולכן היא אידמפוטנטית מול ההכללה שכבר הדליקה. guard כזה
@@ -24,6 +29,18 @@
       window.applyStickyHandwriting(true);
     }
   } catch (e) { /* אחסון חסום — הגופן ייטען כשידליקו את המתג */ }
+
+  // גודל הטקסט. אותו מפתח נקרא כאן ובגוף העמוד, ולכן הוא מוגדר פעם
+  // אחת על ``window`` — בדיוק מהסיבה שבגללה ``HANDWRITING_KEY`` מוגדר
+  // כאן: שתי מחרוזות נפרדות היו נסחפות בשקט.
+  window.NOTE_FONT_SIZE_KEY = 'board-font-size:' + boardId;
+
+  // **ההחלה כאן ולא ב-DOMContentLoaded.** הבורר משנה את גודל הטקסט של
+  // הפתקים; החלה מאוחרת הייתה מציירת אותם ב-14px ואז מקפיצה. הפונקציה
+  // מאמתת את הערך בעצמה, ולכן ערך פגום באחסון נופל לברירת המחדל.
+  try {
+    window.applyStickyNoteFontSize(localStorage.getItem(window.NOTE_FONT_SIZE_KEY));
+  } catch (e) { /* אחסון חסום — נשאר בגודל ברירת המחדל */ }
 })();
 </script>
 {% endblock %}
@@ -98,6 +115,17 @@
             {% endif %}
           </span>
         </label>
+        <div class="board-setting-row is-choice">
+          <span>
+            <b>גודל הטקסט</b>
+            <small>גודל הטקסט בפתקי הלוח הזה. הכותרות, הקוד והטבלאות גדלים איתו.</small>
+          </span>
+          <select id="noteFontSizeSelect" aria-label="גודל הטקסט בפתקים">
+            <option value="normal">רגיל</option>
+            <option value="lg">גדול</option>
+            <option value="xl">גדול מאוד</option>
+          </select>
+        </div>
         <div class="board-settings-actions">
           <button type="button" class="board-action" data-close>סגור</button>
         </div>
@@ -286,6 +314,28 @@
     } catch (e) { /* מצב זמני בלבד */ }
   }
 
+  // גודל הטקסט בפתקי הלוח. אותה צורה כמו שלוש ההעדפות שמעל: מפתח
+  // מקומי לכל לוח, בלי שינוי סכמה ובלי קריאת רשת.
+  //
+  // **רק בחירה שאינה ברירת המחדל נשמרת** — כמו מתג המארקדאון, ומאותה
+  // סיבה: ``normal`` הוא המצב שכל לוח מתחיל בו, ומפתח שמכריז עליו הוא
+  // רעש שצריך לתחזק.
+  //
+  // **הערך המוחזר אינו מאומת כאן במכוון.** יש לו מאמת אחד —
+  // ``applyStickyNoteFontSize``, שנגזר מהמפה — ואימות שני היה יכול
+  // להיסחף ממנו. מה שחוזר מכאן הוא "מה שמור", והשאלה "האם זה חוקי"
+  // נשאלת במקום אחד בלבד.
+  const NOTE_FONT_SIZE_KEY = window.NOTE_FONT_SIZE_KEY;
+  function readNoteFontSize() {
+    try { return localStorage.getItem(NOTE_FONT_SIZE_KEY) || 'normal'; } catch (e) { return 'normal'; }
+  }
+  function writeNoteFontSize(size) {
+    try {
+      if (size === 'normal') localStorage.removeItem(NOTE_FONT_SIZE_KEY);
+      else localStorage.setItem(NOTE_FONT_SIZE_KEY, size);
+    } catch (e) { /* מצב זמני בלבד */ }
+  }
+
   window._boardNotes = new window.StickyNotesManager({
     board: BOARD_ID,
     container: surface,
@@ -426,6 +476,20 @@
   // ב-``localStorage`` כפי שהיא ואינה נדרסת — כיבוי ההגדרה הגלובלית
   // מחזיר בדיוק את מה שהיה לפניה, בכל הלוחות. נעילה שדורסת בשקט הייתה
   // מוחקת את ההעדפות של כל הלוחות בבת אחת.
+  // **הבורר מוצב לפי הערך שהמפה מכירה, לא לפי הערך השמור.** ערך פגום
+  // באחסון היה משאיר את ה-``<select>`` על האפשרות הראשונה בזמן שהתצוגה
+  // בברירת המחדל — שתיהן "רגיל" במקרה הזה, אבל ההסתמכות על הצירוף הזה
+  // הייתה נשברת ברגע שסדר האפשרויות ישתנה.
+  const fontSizeSelect = document.getElementById('noteFontSizeSelect');
+  const NOTE_FONT_SIZES = window.STICKY_NOTE_FONT_SIZES;
+  const savedFontSize = readNoteFontSize();
+  fontSizeSelect.value = Object.prototype.hasOwnProperty.call(NOTE_FONT_SIZES, savedFontSize)
+    ? savedFontSize : 'normal';
+  fontSizeSelect.addEventListener('change', function () {
+    writeNoteFontSize(fontSizeSelect.value);
+    window.applyStickyNoteFontSize(fontSizeSelect.value);
+  });
+
   const handwritingToggle = document.getElementById('handwritingToggle');
   const handwritingLocked = !!window.STICKY_FONT_FROM_SETTINGS;
   if (handwritingLocked) {

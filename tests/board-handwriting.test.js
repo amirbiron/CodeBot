@@ -1,5 +1,7 @@
 'use strict';
-// בדיקות על מתג כתב-היד של הלוח, ועל טעינת הגופן שלו.
+// בדיקות על **הגדרות הגופן של הלוח**: מתג כתב-היד וטעינת הגופן שלו,
+// ובורר גודל הטקסט. שניהם חיים באותם שני בלוקים בתבנית ומוחלים דרך
+// אותה הכללה משותפת, ולכן הם חולקים כאן הארנס אחד ולא שניים.
 //
 // **למה קובץ חדש:** הלוגיקה חיה בסקריפטים מוטבעים ב-``note_board.html``, ולא
 // בקובץ ``.js``. הטסטים הקיימים על התבנית בודקים מחרוזות ב-HTML, וזה מאמת
@@ -51,13 +53,18 @@ function inlineScript(src, where) {
 function headScript(boardId, fromSettings = false) {
   const blockAt = SRC.indexOf('{% block extra_head %}');
   if (blockAt < 0) throw new Error('הבלוק extra_head לא נמצא בתבנית');
+  //
+  // **``replaceAll`` ולא ``replace``.** ``replace`` עם מחרוזת מחליף רק
+  // את המופע הראשון, ולכן ביטוי Jinja שני היה נשאר בקוד כטקסט ומפיל
+  // את ההרצה בשגיאת תחביר שאינה מרמזת על הסיבה. זו מגבלה של המנשא
+  // הזה בלבד — התבנית אינה אמורה להיכתב סביבה.
   const shared = inlineScript(SHARED_SRC, '_note_fonts_head.html')
-    .replace(
+    .replaceAll(
       '{{ (note_fonts.get(note_font_surface) if note_fonts else False) | tojson }}',
       JSON.stringify(fromSettings),
     );
   const local = inlineScript(SRC.slice(blockAt), 'note_board.html extra_head')
-    .replace('{{ board_id | tojson }}', JSON.stringify(boardId));
+    .replaceAll('{{ board_id | tojson }}', JSON.stringify(boardId));
   return shared + '\n' + local;
 }
 
@@ -75,9 +82,10 @@ function bodyScript() {
  * הראש. ``preset`` הוא מצב ה-localStorage *לפני* טעינת העמוד — כך
  * מדמים משתמש שכבר הדליק את ההעדפה בביקור קודם.
  */
-function loadBoard(boardId, preset, fromSettings = false) {
+function loadBoard(boardId, preset, fromSettings = false, fontPreset = undefined) {
   const store = new Map();
   if (preset !== undefined) store.set('board-handwriting:' + boardId, preset);
+  if (fontPreset !== undefined) store.set('board-font-size:' + boardId, fontPreset);
 
   const classes = new Set();
   const links = [];
@@ -95,8 +103,14 @@ function loadBoard(boardId, preset, fromSettings = false) {
       head: { appendChild: (el) => { links.push(el); if (el.id) byId.set(el.id, el); } },
       // המחלקה עברה מ-``<body>`` ל-``<html>``: הסקריפט רץ בפרסור ה-head,
       // ובשלב הזה ``document.body`` הוא ``null``.
+      // ``add``/``remove`` נוספו עבור ``applyStickyNoteFontSize``, שמנקה
+      // את כל מחלקות הגודל ואז מוסיפה אחת. דמה שמכירה רק ``toggle``
+      // הייתה זורקת, החריגה נבלעת ב-try/catch שבפונקציה, והבדיקה
+      // "המחלקה הוחלה" הייתה נופלת מסיבה שנראית לא קשורה.
       documentElement: { classList: {
         toggle: (c, on) => { if (on) classes.add(c); else classes.delete(c); },
+        add: (c) => { classes.add(c); },
+        remove: (c) => { classes.delete(c); },
       } },
     },
     __store: store,
@@ -312,6 +326,126 @@ check('אחסון חסום אינו מפיל את הלוח', () => {
   s.localStorage.getItem = () => { throw new Error('blocked'); };
   s.__api.writeHandwriting(true);          // לא זורק
   eq(s.__api.readHandwriting(), false, 'נופל לברירת המחדל');
+});
+
+// ---------- גודל הטקסט בפתקי הלוח ----------
+//
+// **הבדיקה עוברת דרך אותו ממשק כמו הצרכן:** הבלוקים מחולצים מהתבנית
+// ורצים כפי שהדפדפן מריץ אותם, ולא מהעתק שלהם. הבורר עצמו נגזר
+// מה-HTML — ראו הבדיקה על התאמת האפשרויות למפה.
+
+/** מחלץ את בלוק גודל הטקסט מגוף העמוד, לפי עוגנים ולא לפי שורות. */
+function fontSizeBlock() {
+  const start = SRC.indexOf('const NOTE_FONT_SIZE_KEY');
+  if (start < 0) throw new Error('בלוק גודל הטקסט לא נמצא בתבנית');
+  const end = SRC.indexOf('window._boardNotes = new', start);
+  if (end < 0) throw new Error('סוף הבלוק לא נמצא — העוגן השתנה');
+  return SRC.slice(start, end);
+}
+
+/** טוען לוח ומריץ את בלוק גודל הטקסט, ומחזיר גם את שתי הפונקציות. */
+function loadFontSize(boardId, fontPreset) {
+  const sandbox = loadBoard(boardId, undefined, false, fontPreset);
+  vm.runInContext(
+    fontSizeBlock() + '\nthis.__api = { readNoteFontSize, writeNoteFontSize };',
+    sandbox,
+  );
+  return sandbox;
+}
+
+/** מחלקות הגודל שהוחלו על ``<html>``, לפי המפה המשותפת. */
+function sizeClasses(sandbox) {
+  const map = sandbox.window.STICKY_NOTE_FONT_SIZES;
+  return [...sandbox.__classes].filter((c) => Object.values(map).includes(c));
+}
+
+check('גודל: ברירת המחדל אינה מחילה מחלקה ואינה כותבת מפתח', () => {
+  const s = loadFontSize('bf1');
+  eq(sizeClasses(s).length, 0, 'אין מחלקת גודל');
+  eq(s.__api.readNoteFontSize(), 'normal', 'הקריאה מחזירה normal');
+  eq(s.__store.size, 0, 'ולא נכתב שום מפתח');
+});
+
+check('גודל: ערך שמור מוחל כבר בטעינת העמוד', () => {
+  // **לפני הציור, לא ב-DOMContentLoaded.** החלה מאוחרת הייתה מציירת
+  // את הפתקים ב-14px ואז מקפיצה אותם.
+  const s = loadFontSize('bf2', 'lg');
+  eq(sizeClasses(s).join(','), 'sticky-font-lg', 'המחלקה הוחלה בסקריפט הראש');
+});
+
+check('גודל: מעבר בין גדלים מסיר את הקודם', () => {
+  // בלי הניקוי שתי המחלקות היו יושבות יחד על ``<html>``, ואז מנצח
+  // הכלל שמופיע אחרון בקובץ — ולא זה שנבחר.
+  const s = loadFontSize('bf3', 'xl');
+  eq(sizeClasses(s).join(','), 'sticky-font-xl', 'התחלנו ב-xl');
+  s.window.applyStickyNoteFontSize('lg');
+  eq(sizeClasses(s).join(','), 'sticky-font-lg', 'ונשארה רק lg');
+  s.window.applyStickyNoteFontSize('normal');
+  eq(sizeClasses(s).length, 0, 'ו-normal מנקה הכל');
+});
+
+check('גודל: ערך פגום באחסון נופל לברירת מחדל ואינו נכנס ל-classList', () => {
+  // **``localStorage`` הוא קלט חיצוני.** ערך שנערך ביד, נשאר מגרסה
+  // אחרת, או הוזרק — לא משנה. הרכבה ישירה של שם מחלקה מהערך
+  // (``'sticky-font-' + size``) הייתה מכניסה כל מחרוזת ל-``classList``.
+  ['evil', 'sticky-font-lg', '', 'lg xl', '__proto__', 'constructor', '99'].forEach((bad) => {
+    const s = loadFontSize('bf4', bad);
+    eq(sizeClasses(s).length, 0, 'הערך ' + JSON.stringify(bad) + ' לא הוחל');
+    eq([...s.__classes].length, 0, 'ושום מחלקה אחרת לא נוספה');
+  });
+});
+
+check('גודל: בחירת ברירת המחדל מוחקת את המפתח ואינה כותבת "normal"', () => {
+  // אותה החלטה כמו מתג המארקדאון: המצב שכל לוח מתחיל בו אינו נכתב.
+  const s = loadFontSize('bf5', 'xl');
+  eq(s.__store.size, 1, 'התחלנו עם מפתח');
+  s.__api.writeNoteFontSize('normal');
+  eq(s.__store.size, 0, 'והמפתח נמחק');
+});
+
+check('גודל: לוחות אינם דולפים זה לזה', () => {
+  const a = loadFontSize('bf-a', 'lg');
+  const b = loadFontSize('bf-b');
+  eq(sizeClasses(a).join(','), 'sticky-font-lg', 'ללוח א יש גודל');
+  eq(sizeClasses(b).length, 0, 'וללוח ב אין');
+});
+
+check('גודל: אחסון חסום אינו מפיל את הלוח', () => {
+  const s = loadFontSize('bf6');
+  s.localStorage.setItem = () => { throw new Error('blocked'); };
+  s.localStorage.getItem = () => { throw new Error('blocked'); };
+  s.__api.writeNoteFontSize('lg');            // לא זורק
+  eq(s.__api.readNoteFontSize(), 'normal', 'נופל לברירת המחדל');
+});
+
+check('גודל: אפשרויות הבורר בתבנית זהות למפה המשותפת', () => {
+  // **המפה היא המקור, וה-HTML הוא העתק שלה.** זו הכפילות היחידה
+  // שנשארה — משתמש צריך לראות שמות בעברית — ולכן היא נשמרת בבדיקה
+  // ולא בהבטחה. סוג שיתווסף למפה בלי אפשרות בבורר, או להפך, מפיל כאן.
+  const selectAt = SRC.indexOf('id="noteFontSizeSelect"');
+  eq(selectAt > 0, true, 'הבורר קיים בתבנית');
+  const end = SRC.indexOf('</select>', selectAt);
+  const options = [...SRC.slice(selectAt, end).matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+  const s = loadFontSize('bf7');
+  eq(options.join(','), Object.keys(s.window.STICKY_NOTE_FONT_SIZES).join(','),
+     'אותם מפתחות, ובאותו סדר');
+});
+
+check('גודל: ה-CSS קורא מהטוקן בשני הצרכנים, ואין 14px שנשאר מאחור', () => {
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+  const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // שני הצרכנים — תיבת העריכה והתצוגה — קוראים מאותו טוקן.
+  eq((decls.match(/font-size:\s*var\(--sticky-note-font/g) || []).length, 2,
+     'שני צרכנים קוראים מהטוקן');
+  // ואף אחד מהם לא נשאר עם המספר הקשיח, שהיה הופך את הטוקן לחסר השפעה.
+  eq(/\.sticky-note-(content|tasks)[^{]*\{[^}]*font-size:\s*14px/.test(decls), false,
+     'אין font-size קשיח שנשאר על אחד הצרכנים');
+  // המחלקות עצמן, ובערכים מוחלטים: ``em`` כאן נפתר מול ההורה ולא מול
+  // הבסיס — זו בדיוק התקלה שכבר תועדה בקובץ.
+  eq(/:root\.sticky-font-lg\s*\{[^}]*--sticky-note-font:\s*\d+px/.test(decls), true, 'lg בפיקסלים');
+  eq(/:root\.sticky-font-xl\s*\{[^}]*--sticky-note-font:\s*\d+px/.test(decls), true, 'xl בפיקסלים');
+  eq(/--sticky-note-font:\s*[\d.]+em/.test(decls), false, 'ואין em על הבסיס');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);
