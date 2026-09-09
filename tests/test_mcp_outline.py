@@ -461,6 +461,61 @@ def test_a_scanner_returning_a_shape_outside_the_contract_fails_loudly(shape):
             module.extract_outline("x", "mod.py")
 
 
+@pytest.mark.parametrize(
+    ("label", "shape"),
+    [
+        ("no-end", {"symbols": [{"name": "f", "start": 1}]}),
+        ("no-start", {"symbols": [{"name": "f", "end": 3}]}),
+        ("no-name", {"symbols": [{"start": 1, "end": 3}]}),
+        ("start-is-str", {"symbols": [{"name": "f", "start": "1", "end": 3}]}),
+        ("end-is-none", {"symbols": [{"name": "f", "start": 1, "end": None}]}),
+        ("row-is-not-a-dict", {"symbols": ["oops"]}),
+        ("no-outline-without-reason", {"status": "no_outline"}),
+    ],
+)
+def test_a_malformed_symbol_record_is_caught_before_it_reaches_the_client(label, shape):
+    """הבדיקה על **תוכן** הרשימה, ולא רק על כך שהיא רשימה.
+
+    הבדיקה החיצונית לבדה עצרה שלוש צורות ופספסה את הרביעית, שהיא
+    החמורה מכולן: נמדד שרשומה **בלי** ``end`` עברה את כל המסלול והגיעה
+    ללקוח כ-``{"ok": true, "status": "outline", "symbols": [{"name": "f",
+    "start": 1}]}`` — תשובה שנראית שלמה לגמרי. ה-``sort`` נוגע רק ב-
+    ``start`` וב-``name``, ולכן ``end`` לא נבדק בשום מקום לאורך המסלול,
+    והוא בדיוק השדה שכל הפיצ'ר קיים בשבילו: ממנו נגזר ה-``lines=`` הבא.
+
+    השאר נפלו ב-``KeyError`` או ב-``TypeError`` סתומים שלא אמרו איזו
+    רשומה פגומה. עכשיו כולן עוברות באותו אבחון, עם המקום ברשימה.
+    """
+    import mcp_server.outline as module
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setitem(module._SCANNERS, ".py", lambda _t, _v=shape: _v)
+
+        with pytest.raises(TypeError, match="mod.py"):
+            module.extract_outline("x", "mod.py")
+
+
+def test_the_diagnostic_names_which_record_is_malformed_and_not_only_that_one_is():
+    """אבחון שלא אומר איפה הבעיה הוא KeyError עם ניסוח יפה יותר.
+
+    על קובץ אמיתי יש מאות רשומות. "משהו לא בסדר" בלי מיקום היה משאיר
+    את הקורא לחפש ידנית, וזו בדיוק הסיבה שהמסלול הזה זורק ולא בולע.
+    """
+    import mcp_server.outline as module
+
+    rows = [{"name": f"f{i}", "start": i, "end": i} for i in range(5)]
+    rows[3] = {"name": "broken", "start": 3}  # חסר end
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setitem(module._SCANNERS, ".py", lambda _t: {"symbols": rows})
+
+        with pytest.raises(TypeError) as caught:
+            module.extract_outline("x", "mod.py")
+
+    assert "3" in str(caught.value)
+    assert "broken" in str(caught.value)
+
+
 def test_the_two_shapes_the_contract_does_allow_are_not_rejected():
     """הצד השני של אותו חוזה, ובטסט נפרד ובכוונה.
 

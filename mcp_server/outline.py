@@ -96,12 +96,32 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
     # חריגה סתומה בשורה אחת מאוחר יותר. בדיקת טיפוס לפני שימוש היא U3.
     if isinstance(result, dict) and isinstance(result.get("symbols"), list):
         rows: list[dict[str, Any]] = result["symbols"]
-    elif isinstance(result, dict) and result.get("status") == "no_outline":
+        # **גם תוכן הרשימה, ולא רק העובדה שהיא רשימה.** הבדיקה החיצונית
+        # לבדה עצרה שלוש צורות ופספסה את הרביעית, שהיא החמורה: רשומה בלי
+        # ``end`` עברה את כל המסלול והגיעה ללקוח כ-``ok: true`` עם
+        # ``status: outline``. ה-``sort`` שלמטה נוגע רק ב-``start`` וב-
+        # ``name``, ולכן ``end`` לא נבדק **בשום מקום** — וזה השדה שכל
+        # הפיצ'ר קיים בשבילו, כי ממנו נגזר ה-``lines=`` הבא.
+        invalid = _first_invalid_row(rows)
+        if invalid >= 0:
+            raise TypeError(
+                f"סורק האאוטליין של {path!r} החזיר רשומה שאינה בחוזה "
+                f"(נדרשים name כמחרוזת, start ו-end כמספרים שלמים) "
+                f"במקום {invalid}: {rows[invalid]!r}"
+            )
+    elif (
+        isinstance(result, dict)
+        and result.get("status") == "no_outline"
+        # ``reason`` אינו רשות: התיעוד מבטיח אותו בכל תשובת ``no_outline``,
+        # והוא ההבדל בין "הקובץ לא נתמך" ל"התחביר שבור" אצל הקורא.
+        and isinstance(result.get("reason"), str)
+    ):
         return result
     else:
         raise TypeError(
             f"סורק האאוטליין של {path!r} החזיר צורה שאינה בחוזה של "
-            f"outline_scanners (נדרש 'symbols' או status='no_outline'): {result!r}"
+            f"outline_scanners (נדרש 'symbols', או status='no_outline' עם "
+            f"'reason'): {result!r}"
         )
 
     # ממוין לפי שורת התחלה, ושובר-שוויון לפי שם. אין כאן מקרה של מעטר
@@ -117,6 +137,26 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
         rows = [row for row in rows if needle in row["name"].casefold()]
 
     return {"status": "ok", "symbols": rows, "total": len(rows)}
+
+
+def _first_invalid_row(rows: list[Any]) -> int:
+    """המקום של הרשומה הראשונה שאינה בחוזה, או ``-1`` אם כולן תקינות.
+
+    מוחזר **מקום** ולא הרשומה עצמה, כי ``None`` הוא גם ערך פגום אפשרי
+    ואז "אין פגומה" ו"הפגומה היא None" היו נראים אותו דבר לקורא.
+
+    ``bool`` הוא תת-מחלקה של ``int`` בפייתון ולכן ``start=True`` יעבור
+    כאן. זה מקרה תיאורטי שאין לו מסלול הגעה מאף סורק, ובדיקה שתחסום
+    אותו הייתה עולה יותר ממה שהיא מונעת.
+    """
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            return index
+        if not isinstance(row.get("name"), str):
+            return index
+        if not isinstance(row.get("start"), int) or not isinstance(row.get("end"), int):
+            return index
+    return -1
 
 
 def _scanner_for(path: str) -> Callable[[str], dict[str, Any]] | None:

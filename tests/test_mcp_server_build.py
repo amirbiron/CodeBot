@@ -396,11 +396,21 @@ async def test_the_description_names_every_suffix_the_outline_router_supports():
 
     הכיוון הוא מהטבלה אל התיאור בלבד: התיאור מותר לו לפרט דברים נוספים,
     אבל אסור לו להשמיט סיומת שהראוטר כן מקבל.
+
+    **ההתאמה היא על אסימון שלם ולא על תת-מחרוזת**, אחרת הטסט חלש ממה
+    שהוא מתיימר: ``".py" in "(.pyi)"`` הוא ``True``, ולכן מחיקת ``.py``
+    מהתיאור הייתה עוברת בשקט. אותו כשל בדיוק חוזר ב-PR הבא, שבו ``.j2``
+    ו-``.html.j2`` יחיו זה לצד זה. הגבולות משני הצדדים חוסמים גם ``\\w``
+    וגם נקודה, כך ש-``.j2`` אינו מתאים בתוך ``.html.j2``.
     """
+    import re
+
     from mcp_server.outline import _SCANNERS
 
     mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
     description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
 
     for suffix in _SCANNERS:
-        assert suffix in description, f"{suffix} בטבלת הראוטר אבל לא בתיאור הכלי"
+        token = re.compile(rf"(?<![\w.]){re.escape(suffix)}(?![\w.])")
+
+        assert token.search(description), f"{suffix} בטבלת הראוטר אבל לא בתיאור הכלי"
