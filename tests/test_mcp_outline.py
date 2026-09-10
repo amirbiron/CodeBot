@@ -2037,6 +2037,52 @@ def test_the_forms_that_do_end_on_their_line_still_do(body, expected):
     assert found == [expected]
 
 
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            "const f = (a) =>\n  a + 1;\n", ("f", 2, 3), id="body-on-the-next-line"
+        ),
+        pytest.param(
+            "const f = a =>\n  a + 1;\n", ("f", 2, 3), id="no-parens-body-next-line"
+        ),
+        pytest.param(
+            "const f = (a) =>\n  a +\n  1;\n", ("f", 2, 4), id="body-over-three-lines"
+        ),
+        pytest.param(
+            "const f = a =>\n  // why\n  a + 1;\n", ("f", 2, 4), id="comment-before-body"
+        ),
+        pytest.param(
+            "const f = a => a ? 1 :\n  2;\n", ("f", 2, 3), id="ternary-broken-at-colon"
+        ),
+    ],
+)
+def test_a_brace_less_arrow_body_that_starts_on_the_next_line_is_not_closed_early(
+    body, expected
+):
+    """גוף ביטוי שמתחיל בשורה שאחרי ה-``=>``, ושנמשך על כמה שורות.
+
+    זו אותה מחלקה בדיוק שסגנון Allman היה בה: הענף שסוגר חץ בגבול שורה
+    לא הבחין בין "אין גוף" לבין "הגוף מתחיל בשורה הבאה", ולכן החזיר
+    ``end == start`` על פונקציה שלמה.
+
+    **שתי עובדות דקדוק, ושתיהן נמדדו ב-Node 22.22.2 דרך ``new Function``
+    ולא נכתבו מהזיכרון.** הראשונה: גוף חץ **אינו יכול להיות ריק** —
+    ``const f = (a) =>`` ואז ``;`` הוא ``SyntaxError``, ולכן ירידת השורה
+    שצמודה ל-``=>`` לעולם אינה מסיימת את הגוף. השנייה, בשאלה דקדוקית
+    טהורה שאין בה תלות ב-ASI: ``(a +)`` הוא שגיאת תחביר בזמן ש-``(a + b)``
+    תקין, כלומר שורה שנגמרת ב-``+`` משאירה את הביטוי חסר. אותה מדידה
+    דחתה את ``! ~ { ; ) ]`` ואת מזהים וספרות, ואישרה את ``:`` בהקשר של
+    תלתן — ``a ? 1 :`` ואז ``2`` בשורה הבאה הוא קוד תקין.
+
+    ``comment-before-body`` הוא הסיבה שהמבחן "הגוף התחיל" עובר דרך
+    קורא שמדלג הערות ולא דרך "התו הלא-רווח הבא".
+    """
+    found = [row for row in _definitions(f"<script>\n{body}</script>\n") if row[0] != "script"]
+
+    assert found == [expected]
+
+
 def test_the_templates_are_found_from_any_working_directory(monkeypatch, tmp_path):
     """החור בהגנה עצמה, ולא באג בפלט — ולכן הוא החמור מהשניים.
 

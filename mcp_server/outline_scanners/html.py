@@ -535,8 +535,12 @@ class _Pending(NamedTuple):
     ``awaits_brace`` אומר שהצורה הזאת חייבת גוף בסוגריים מסולסלים, ולכן
     אסור לסגור אותה בסוף שורה.
 
-    זה ``NamedTuple`` ולא טאפל רגיל כי חמישה שדות שניגשים אליהם לפי
-    מספר מיקום הם שבירות מיותרת בלולאה צפופה.
+    ``body_from`` הוא ההיסט שאחרי ההתאמה — כלומר המקום שממנו הגוף **יכול**
+    להתחיל. ממנו נגזר "האם הגוף בכלל התחיל", וזה מה שמונע סגירה בשורת
+    ה-``=>`` כשהגוף מתחיל בשורה שאחריה.
+
+    זה ``NamedTuple`` ולא טאפל רגיל כי שישה שדות שניגשים אליהם לפי מספר
+    מיקום הם שבירות מיותרת בלולאה צפופה.
     """
 
     name: str
@@ -544,6 +548,55 @@ class _Pending(NamedTuple):
     body_depth: int
     parens: int
     awaits_brace: bool
+    body_from: int
+
+
+#: תו שאם הוא האחרון בשורה, הביטוי שלפניו **חסר** ולכן חייב להימשך לשורה
+#: הבאה. **נמדד ב-Node 22.22.2 ולא נכתב מהזיכרון**, ובשאלה דקדוקית טהורה
+#: שאין בה תלות ב-ASI ובשום ערך החזרה: האם ``(a C)`` הוא שגיאת תחביר
+#: בזמן ש-``(a C b)`` תקין? אם כן — ``C`` דורש אופרנד ימני, ושורה
+#: שנגמרת בו אינה יכולה לסיים את הביטוי.
+#:
+#: ``:`` נכנס אף שהמבחן הזה דחה אותו לבדו, כי הוא נמדד בנפרד בהקשר של
+#: תלתן: ``a ? 1 :`` ואז ``2`` בשורה הבאה הוא קוד תקין. מחוץ לתלתן
+#: ``a :`` אינו חוקי בכלל, ולכן הכללתו אינה עולה דבר על קלט תקין.
+#:
+#: מה ש**אינו** כאן, ומאותה מדידה: ``! ~ { ; ) ] }``, מזהים וספרות —
+#: כולם יכולים לסיים ביטוי או משפט.
+_UNFINISHED_EXPRESSION = re.compile(r"[-+*/%.,?:&|^<>=([]")
+
+
+def _concise_body_ended(
+    text: str, waiting: _Pending, index: int, token: str, parens: int
+) -> bool:
+    """האם גוף החץ של ``waiting`` נגמר ב-``index``, שהוא ירידת שורה?
+
+    זה המקום היחיד שסוגר פונקציה בגבול שורה, והוא קיים בשביל צורה אחת:
+    חץ בלי גוף בסוגריים מסולסלים (``const f = x => x + 1``), שאין דבר
+    אחר שיסגור אותו. **שלוש סיבות שונות שלא לסגור, וכל אחת נחוצה בפני
+    עצמה:**
+
+    ``awaits_brace`` מוציא את מי שחייב גוף מסולסל — צורת ``function``
+    בכל וריאציה — ואת החץ שגופו המסולסל מתחיל בשורה הבאה (סגנון Allman).
+
+    **הגוף אינו יכול להיות ריק.** ``const f = (a) =>`` ואז ``;`` הוא
+    ``SyntaxError`` ב-Node 22.22.2, ולכן ירידת השורה שצמודה ל-``=>``
+    לעולם אינה מסיימת את הגוף — הגוף פשוט מתחיל בשורה הבאה. בלי התנאי
+    הזה הצורה הזאת קיבלה ``end == start`` על פונקציה שלמה, בדיוק כמו
+    סגנון Allman לפני שתוקן.
+
+    **ושורה שנגמרת באופרטור אינה מסיימת את הביטוי**, ולכן גוף שפרוס על
+    כמה שורות נסגר בשורה שבה הביטוי באמת נגמר. ``parens`` מכסה את
+    המשכיות שנפתחה בסוגריים; ``_UNFINISHED_EXPRESSION`` מכסה את זו
+    שנפתחה באופרטור.
+    """
+    if waiting.body_depth >= 0 or waiting.awaits_brace:
+        return False
+    if parens > waiting.parens:
+        return False
+    if _next_meaningful(text, waiting.body_from, index) == "":
+        return False
+    return not _UNFINISHED_EXPRESSION.match(token)
 
 
 def _next_meaningful(text: str, index: int, stop: int) -> str:
@@ -620,17 +673,10 @@ def _read_javascript(
         char = text[index]
 
         if char == "\n":
-            # ``const f = x => x + 1`` בלי גוף מסולסל נגמר בסוף השורה.
-            # שני תנאים חוסמים כאן, וכל אחד מהם נחוץ בפני עצמו:
-            # ``awaits_brace`` מוציא את מי שחייב גוף מסולסל או שגופו
-            # המסולסל מתחיל בשורה הבאה; ומבחן ה-``parens`` מוציא את מי
-            # שעדיין בתוך סוגריים פתוחים — ``const f = a => foo(`` שנמשך
-            # לשורה הבאה הוא גוף ביטוי שטרם נגמר.
-            while (
-                pending
-                and pending[-1].body_depth < 0
-                and not pending[-1].awaits_brace
-                and parens <= pending[-1].parens
+            # ``const f = x => x + 1`` בלי גוף מסולסל נגמר בסוף השורה,
+            # וכל הסיבות שלא לסגור יושבות ב-``_concise_body_ended``.
+            while pending and _concise_body_ended(
+                text, pending[-1], index, token, parens
             ):
                 done = pending.pop()
                 rows.append({
@@ -702,6 +748,7 @@ def _read_javascript(
                         match.group("kw") is not None
                         or _next_meaningful(text, match.end(), stop) == "{"
                     ),
+                    body_from=match.end(),
                 ))
                 index = match.end()
                 token = "x"
