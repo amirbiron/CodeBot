@@ -2150,6 +2150,23 @@ def _css_files():
     return sorted(found)
 
 
+def _richest_template():
+    """התבנית עם הכי הרבה סימבולים, ואת המפה שלה.
+
+    **נגזרת מהקורפוס ולא נקובה בשם**, מאותה סיבה ש-``_densest_css_file``
+    נגזרת: טסט שנוקב בשם קובץ ומדלג בהיעדרו הופך ל**ירוק** ברגע שהקובץ
+    מקבל שם אחר, בזמן שהוא מפסיק לבדוק.
+    """
+    found = max(
+        (
+            (path, extract_outline(path.read_text(encoding="utf-8"), path.name))
+            for path in _templates()
+        ),
+        key=lambda pair: pair[1]["total"],
+    )
+    return found[0], found[1]
+
+
 def _densest_css_file():
     """הקובץ עם הכי הרבה סימבולים מבין קובצי ה-CSS, ואת השם הארוך בו.
 
@@ -2492,6 +2509,112 @@ def test_an_unclosed_jinja_construct_does_not_erase_the_blocks_below_it(broken, 
     names = [(row["name"], row["start"], row["end"]) for row in _css(text)["symbols"]]
 
     assert names == [(f"{residue}.a", 1, 2), (".b", 3, 3)]
+
+
+# ---------------------------------------------------------------------------
+# ``symbol=`` על שמות שאינם פייתון
+#
+# הפילטר עובד על כל שם שהמפה מחזירה, לא רק על המנוקדים — אבל עד כאן לא
+# היה מי שמחזיק את זה: כל טסטי ה-``symbol=`` היו על שמות פייתון, בזמן
+# שארבעה docstrings כבר מזכירים אותו בהקשר CSS ו-HTML. הבטחה לצרכן בלי
+# טסט היא הבטחה שאף אחד אינו אוכף.
+# ---------------------------------------------------------------------------
+
+
+def test_symbol_narrows_a_css_file_to_its_at_rules():
+    """``symbol="@media"`` הוא הדרך למצוא את המובייל וה-RTL בקובץ גדול.
+
+    זה מה שהופך את המפה לשימושית על קובץ שיש בו מאות בלוקים: נמדד
+    שהקובץ הצפוף בקורפוס מחזיר 486 סימבולים בחמישה עמודים, ורק שש
+    שאילתות מדיה — כלומר עמוד אחד, עם הטווחים שאפשר להמשיך מהם ישר
+    ל-``lines=``.
+
+    **הטענה היא שהסינון מצמצם, ולא שמוחזרות שורות.** טסט שבודק
+    אי-ריקנות לבדה עובר גם על סינון שאינו מסנן כלום — וזה בדיוק סוג
+    הירוק שאינו אומר את מה שנראה שהוא אומר.
+    """
+    path, mapped = _densest_css_file()
+    text = path.read_text(encoding="utf-8")
+
+    found = extract_outline(text, path.name, symbol="@media")
+
+    assert found["total"] < mapped["total"] / 10, (
+        f"{path.name}: הסינון החזיר {found['total']} מתוך {mapped['total']} — "
+        "זה אינו צמצום"
+    )
+    assert found["total"] > 0
+    for row in found["symbols"]:
+        assert row["name"].startswith("@media"), row["name"]
+        assert row["end"] > row["start"], f"{row['name']} בלי טווח"
+
+
+@pytest.mark.parametrize(
+    ("probe", "prefixed", "note"),
+    [
+        pytest.param("#", False, "עוגני HTML וסלקטורי id יחד", id="a-hash"),
+        pytest.param("block ", True, "תגיות ג'ינג'ה בלבד", id="a-jinja-block"),
+    ],
+)
+def test_symbol_narrows_a_template_to_the_names_that_carry_the_term(probe, prefixed, note):
+    """באותה תבנית יושבים סימבולים משלוש שפות, ו-``symbol=`` חותך ביניהם.
+
+    תבנית מחזיקה תגיות ג'ינג'ה, אלמנטים עם עוגן, סלקטורי CSS מתוך
+    ``<style>`` והגדרות JavaScript מתוך ``<script>`` — הכול ברשימה אחת,
+    ממוינת לפי שורה. נמדד על התבנית העשירה בקורפוס: מאות סימבולים בלי
+    סינון, ושני החיתוכים כאן מצמצמים לעשרות ולשש.
+
+    **הסינון הוא בהכלה ולא בתחילית**, וזה מה שהופך את ``#`` לחיתוך
+    שימושי: נמדד שהוא מחזיר 31 עוגני HTML בצורת ``tag#id`` **ועוד** שבעה
+    סלקטורי id מתוך ``<style>``, כלומר הוא חוצה שתי שפות. לכן הטענה
+    הבסיסית כאן היא הכלה, ורק ל-``"block "`` מתווספת טענת התחילית — שם
+    היא נכונה ומקבעת שהחיתוך אינו דולף לשפה אחרת.
+
+    .. warning::
+
+       **הרווח שבסוף ``"block "`` מכוון, ואל תנקו אותו.** בלעדיו החיתוך
+       תופס גם שמות משתי השפות האחרות, ונמדד שהוא מבדיל ב**שישה** מקבצי
+       הקורפוס ובשלוש דרכים שונות: ``isWelcomeBlocking`` שהיא **פונקציית
+       JavaScript**, ``blockquote`` שהוא **סלקטור CSS**, וחמישה סלקטורים
+       נוספים ובהם ``#md-content .code-block``. עם הרווח, ההכלה חוסמת את
+       שלושתם — נמדד.
+
+       והרווח בא משלושת האתרים שבונים את השם כ-``f"{kind} {name}"``
+       ב-``html.py``. שינוי המפריד באחד מהם, או נרמול רווחים בשם, יפיל
+       את הטסט הזה **בלי ששום התנהגות של ``symbol=`` השתנתה** — ולכן
+       שתי הטענות למטה נגזרות מהתוצאה ולא מניסוח השאילתה. אם המפריד
+       ישתנה, הטסט ייפול על הטענה ולא על הסינון, וההודעה תגיד מה קרה.
+    """
+    path, mapped = _richest_template()
+    text = path.read_text(encoding="utf-8")
+
+    found = extract_outline(text, path.name, symbol=probe)
+
+    assert found["total"] < mapped["total"] / 5, (
+        f"{path.name}: {note} — הסינון החזיר {found['total']} מתוך "
+        f"{mapped['total']}, זה אינו צמצום"
+    )
+    assert found["total"] > 0
+    for row in found["symbols"]:
+        assert probe in row["name"], f"{row['name']!r} אינו מכיל {probe!r}"
+        if prefixed:
+            assert row["name"].startswith(probe), (
+                f"{row['name']!r} מכיל {probe!r} אך אינו מתחיל בו. אם המפריד "
+                "בשם שונה — זה הטסט שצריך לעדכן, לא הסינון"
+            )
+
+    if not prefixed:
+        # **וההכלה חייבת לעשות עבודה, לא רק להיות נכונה.** נמדד ש-31
+        # מתוך 38 השמות הם ``tag#id``, כלומר ה-``#`` יושב בהם באמצע.
+        # סינון בתחילית היה מחזיר רק את שבעת סלקטורי ה-id ומשמיט את
+        # שלושים ואחד העוגנים — ובלי הטענה הזאת הוא היה עובר בשקט, כי
+        # שבעה מתוך מאות הם עדיין "צמצום" וכולם עדיין "מכילים".
+        inside = [row["name"] for row in found["symbols"]
+                  if not row["name"].startswith(probe)]
+
+        assert inside, (
+            f"אף שם אינו נושא {probe!r} באמצע. הסינון הוא בהכלה ולא "
+            "בתחילית, וזה מה שמאפשר למצוא גם עוגן בצורת tag#id"
+        )
 
 
 # ---------------------------------------------------------------------------
