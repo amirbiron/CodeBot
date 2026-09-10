@@ -237,8 +237,27 @@ class ConditionOperators:
         - הגבלת אורך הדפוס למניעת דפוסים מורכבים מדי
         - הגבלת אורך המחרוזת הנבדקת
         - Timeout באמצעות signal (Linux) או חלופה
+
+        **ההגנה הזאת שומרת ומשחזרת את השעון של מי שקרא לה, ולא רק את
+        ה-handler שלו.** ``signal.alarm`` ו-``signal.setitimer`` עם
+        ``ITIMER_REAL`` הם **אותו שעון** אחד בתהליך — נמדד: אחרי
+        ``setitimer(60)`` הקריאה ``alarm(1)`` מחזירה ``60``, כלומר היא
+        רואה אותו. הגרסה הקודמת סיימה ב-``signal.alarm(0)``, וזה מחק כל
+        שעון חיצוני שדלק. נמדד דרך pytest אמיתי: בדיקה שמחקה את הרצף
+        הזה ואז ישנה עשר שניות תחת תקרה של שלוש — **עברה**, כלומר נשארה
+        בלי תקרה בכלל.
+
+        זה לא נראה כל עוד ``pytest.ini`` קבע ``timeout_method = thread``,
+        שמשתמש ב-``threading.Timer`` ולא בשעון הזה. מהרגע שהשיטה היא
+        ``signal``, שמירת ה-handler בלי השעון הייתה פותחת חור בדיוק
+        במקום שהתקרה באה לשמור עליו.
+
+        ``getitimer``/``setitimer`` ולא ``alarm`` בשחזור, כי ``alarm``
+        עובד בשלמים ומעגל למעלה — שחזור דרכו היה מוסיף עד שנייה שגיאה
+        בכל קריאה.
         """
         import signal
+        import time
 
         MAX_PATTERN_LENGTH = 200
         MAX_INPUT_LENGTH = 10000
@@ -270,12 +289,25 @@ class ConditionOperators:
         def timeout_handler(signum, frame):
             raise TimeoutError("Regex evaluation timed out")
 
+        #: כמה זמן להשאיר לשעון החיצוני כשהוא היה אמור לפוג בזמן שהבלוק
+        #: הזה החזיק את ה-SIGALRM. אפס היה **מבטל** אותו לגמרי, ולכן
+        #: הרצפה חייבת להיות חיובית: הצרכן שלו מקבל את ההתראה שלו, רק
+        #: באיחור של עד שנייה.
+        OUTER_TIMER_FLOOR_SECONDS = 0.001
+
         try:
             # נסה להגדיר timeout (עובד רק על Linux/Unix)
             old_handler = None
+            armed = False
+            outer_remaining = 0.0
+            started = 0.0
             try:
+                # מה שנשאר לשעון שכבר דלק, **לפני** שדורסים אותו.
+                outer_remaining = signal.getitimer(signal.ITIMER_REAL)[0]
+                started = time.monotonic()
                 old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(REGEX_TIMEOUT_SECONDS)
+                signal.setitimer(signal.ITIMER_REAL, REGEX_TIMEOUT_SECONDS)
+                armed = True
             except (ValueError, AttributeError):
                 # Windows או סביבה ללא תמיכה ב-signal
                 pass
@@ -283,11 +315,20 @@ class ConditionOperators:
             try:
                 result = bool(re.search(pattern_str, actual_str))
             finally:
-                # ביטול ה-alarm
+                # שחזור: קודם ה-handler ואחר כך השעון. הסדר ההפוך פותח
+                # חלון שבו השעון המשוחזר יורה אל ה-handler שלנו.
                 try:
-                    signal.alarm(0)
                     if old_handler is not None:
                         signal.signal(signal.SIGALRM, old_handler)
+                    if armed:
+                        if outer_remaining:
+                            left = outer_remaining - (time.monotonic() - started)
+                            signal.setitimer(
+                                signal.ITIMER_REAL,
+                                max(left, OUTER_TIMER_FLOOR_SECONDS),
+                            )
+                        else:
+                            signal.setitimer(signal.ITIMER_REAL, 0)
                 except (ValueError, AttributeError):
                     pass
 
