@@ -11,6 +11,7 @@ Git Mirror Service - ניהול מראה Git מקומי על Render Disk
 
 from __future__ import annotations
 
+import codecs
 import json
 import logging
 import os
@@ -1072,8 +1073,36 @@ class GitMirrorService:
                 "encoding": None
             }
 
+        # **BOM נבדק בבייטים, ולא נגזר מסדר הקודקים.** קובץ עם BOM נפרס
+        # בהצלחה גם כ-``utf-8``, ואז ה-BOM נשאר בטקסט כתו U+FEFF ונוסע
+        # לכל צרכן. הנזק נמדד בשני מסלולים: בקובץ פייתון ``ast.parse``
+        # נכשל ב"invalid non-printable character U+FEFF" והאאוטליין חוזר
+        # ריק, ובקובץ CSS ה-BOM נכנס לשם הסימבול הראשון. Chromium 141
+        # מראה שזו אינה הפרשנות הנכונה: גיליון חיצוני עם BOM בבייטים
+        # נותן ``selectorText`` של ``.hero`` באורך 5, כלומר ה-BOM הוא
+        # מטא-דאטה של קידוד ולא תוכן.
+        #
+        # **וזה ענף ולא סדר, כי הסדר משקר בתווית.** גרסה קודמת פשוט
+        # הקדימה את ``utf-8-sig`` ברשימה, וזה אכן הוריד את ה-BOM — אבל
+        # אז **כל** קובץ UTF-8 דיווח ``encoding: "utf-8-sig"``, גם קובץ
+        # בלי BOM, כלומר כמעט כל קובץ בכל ריפו. ``utf-8-sig`` פירושו
+        # "UTF-8 עם חתימה", והתווית הזאת נוסעת ל-``file_meta`` בתשובת
+        # הכלי. הענף אומר את הסיבה במקום להסתיר אותה בסדר של רשימה.
+        if content.startswith(codecs.BOM_UTF8):
+            try:
+                return {
+                    "is_binary": False,
+                    "content": content.decode('utf-8-sig'),
+                    "encoding": 'utf-8-sig',
+                }
+            except UnicodeDecodeError:
+                # חתימה תקינה וגוף פגום. נופלים לרשימה שלמטה, שם
+                # ``latin-1`` תופס הכול — במקום להחזיר שגיאה על קובץ
+                # שאפשר עוד להציג.
+                pass
+
         # ניסיון encodings נפוצים
-        encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1255']  # cp1255 לעברית
+        encodings = ['utf-8', 'latin-1', 'cp1255']  # cp1255 לעברית
 
         for encoding in encodings:
             try:

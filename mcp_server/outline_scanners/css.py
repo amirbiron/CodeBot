@@ -1,0 +1,389 @@
+"""סורק האאוטליין של CSS.
+
+**הסימבול הוא בלוק הסלקטור, אבל העיקר הוא ה-at-rules.** שם קבורים המובייל
+וה-RTL, ושם באמת מחפשים: מפה שמראה ש-``@media (max-width: 768px)`` יושב
+בשורות 400-520 שווה יותר מכל חיפוש טקסט, כי אחריה אפשר להמשיך ישר
+ל-``lines=[400, 520]``.
+
+**לקסר עם מחסנית, לא רג'קס.** ``CORE-PATTERNS.md`` U3 מזהיר במפורש מפני
+רג'קס חמדן מעל טקסט חיצוני, ו-CSS נותן לזה ראיה: סוגריים מסולסלים יושבים
+בקורפוס הזה בתוך הערות שמצטטות CSS, ``@`` יושב בתוך הערה
+(``Maintainer: @Hirse``), ו-``;`` יושב בתוך ``url()`` מצוטט
+(``url('data:image/svg+xml;utf8, …')``). כל אחד מהם היה מבלבל התאמת
+תבנית, ואף אחד מהם אינו מבלבל מכונת מצבים.
+
+**המצבים:** קוד, ``/* … */``, ``'…'``, ``"…"``, ``url(`` לא מצוטט (שבו
+``)`` הוא הסוגר), ומבני Jinja.
+
+**Jinja מדולג ללא תנאי, ושני הכיוונים נמדדו.** בקובצי ``.css`` בריפו יש
+אפס מבני Jinja, ולכן הדילוג אינו עולה דבר; בבלוקי ``<style>`` בתבניות
+שמונה מתוך 48 כן מכילים, ולכן הוא חובה. ``base.html`` מחזיק את המקרה:
+
+.. code-block:: css
+
+   :root[data-theme="custom"] {
+       {% for var_name, var_value in custom_theme.variables.items() %}
+       {{ var_name }}: {{ var_value }};
+       {% endfor %}
+   }
+
+לקסר שאינו מדלג סופר כאן תשעה בלוקים בתשע שורות. עם הדילוג — סימבול אחד,
+``:root[data-theme="custom"]``, וזה הנכון.
+
+**ההערות מוסרות מה-prelude, וזה הדבר המרכזי בסורק הזה.** אב-טיפוס שלא
+הסיר אותן החזיר שם באורך 1,699 בתים שהוא הערה בעברית ולא סלקטור, ניפח את
+מונה הסלקטורים הרב-שורתיים מ-448 ל-867, וספר ``@media`` 37 במקום 68.
+אחרי ההסרה כל המספרים התיישבו בדיוק על מונה ה-``{`` הבלתי-תלוי.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Sequence
+from typing import Any, NamedTuple
+
+from . import _ceiling
+from ._lines import line_at, line_table
+
+#: רצף רווחים כלשהו ← רווח יחיד. סלקטור שפרוס על כמה שורות הופך לשם אחד,
+#: ובקורפוס הזה יש 448 כאלה.
+_WHITESPACE = re.compile(r"\s+")
+
+#: המילה של at-rule, בלי תחילית ספק. **תחילית הספק אינה ניחוש**: נמדד
+#: ב-Chromium 141.0.7390.37 ש-``@-webkit-keyframes`` ממופה לאותו
+#: ``CSSKeyframesRule`` כמו ``@keyframes``, כלומר הילדים שלו הם צעדים
+#: גם שם. בקורפוס הזה יש אפס מופעים מקדימים, ולכן זו התאמה לשפה ולא
+#: לקורפוס.
+_AT_KEYWORD = re.compile(r"@(?:-[A-Za-z]+-)?([A-Za-z-]+)")
+
+#: ``url(`` הוא פונקציה, ושמות פונקציות ב-CSS אינם תלויי רישיות. רג'קס
+#: ולא ``text[i:i+4].lower()``: ``lower()`` יכול לשנות **אורך** (``İ``
+#: הופך לשני תווים), וכל אריתמטיקת אינדקסים על עותק ממוזער היא בדיוק
+#: ``BY-STACK/hebrew-source.md`` H6.
+_URL_FUNCTION = re.compile(r"url\(", re.IGNORECASE)
+
+#: תו שאם הוא צמוד ל-``url(`` מלפנים, זו פונקציה אחרת ולא ``url``.
+#: ``-webkit-image-set(url(…))`` הוא כן ``url`` כי לפניו ``(``.
+_IDENT_CHARACTER = re.compile(r"[\w-]")
+
+#: מבני Jinja שמדולגים כיחידה, **בכל הקשר**. הסדר לא משנה כי שניהם
+#: נבדקים במקביל.
+#:
+#: שניהם חד-משמעיים: סלקטור ב-CSS אינו יכול להתחיל ב-``%``, ובלוק
+#: מקונן בלי שם אינו CSS תקין. לכן אין כאן שאלה של הקשר, ומבנה שלא
+#: נסגר מדלג על שני תווי הפותח בלבד — הנימוק ב-``_jinja_span``.
+_JINJA_OPENERS = (("{%", "%}"), ("{{", "}}"))
+
+#: הערת Jinja, ו**היא חלה רק בהקשר תבנית** — לא בקובץ ``.css``.
+#:
+#: **זה שני התווים היחידים שבהם שתי השפות מתנגשות באמת.** ב-CSS ממוזער
+#: ``{#`` הוא סוגר-בלוק-פותח ואחריו סלקטור id: ``@media print{#a{…}}``
+#: הוא CSS חוקי ונפוץ, ואומת ב-Chromium 141 שהוא נותן שני כללים. סורק
+#: שקרא שם ``{#`` כפותח הערה בלע את כל מה שעד ה-``#}`` הבא והחזיר מפה
+#: **ריקה** על קובץ מלא.
+#:
+#: **ובתבנית ההכרעה הפוכה, וגם היא נמדדה — ב-Jinja 3.1.6 עצמה:**
+#: ``{# note #}``, ``{# don't do this #}`` ו-``{# TODO .x { #}`` כולם
+#: הערות שנמחקות, גם עם גרש בתוכן וגם עם ``{`` בתוכן. ו-
+#: ``@media print{#a{color:red}}`` בתבנית מחזיר
+#: ``TemplateSyntaxError: Missing end of comment tag`` — כלומר **CSS
+#: ממוזער עם ``{#`` בתוך תבנית אינו יכול להתקיים**, כי התבנית לא
+#: תרונדר. לכן בהקשר תבנית אין אי-בהירות ואין צורך בשום תנאי: ``{#``
+#: הוא הערה, נקודה.
+#:
+#: זו הסיבה שהמפריד הוא **מי הקורא** ולא צורת הטקסט. ניסיון להסיק
+#: "האם זה CSS ממוזער" מהתווים עצמם הוא ניחוש; ``read_blocks`` פשוט
+#: יודע אם קרא לו קובץ ``.css`` או גוף ``<style>`` בתבנית.
+_JINJA_COMMENT = ("{#", "#}")
+
+#: at-rule שהילדים שלו **אינם** כללים עם סלקטור אלא צעדים.
+#:
+#: נמדד ב-CSSOM של Chromium 141.0.7390.37 ולא נכתב מהזיכרון: הילדים של
+#: ``@keyframes`` הם ``CSSKeyframeRule`` עם ``keyText`` (``0%``) ובלי
+#: ``selectorText``, בזמן ש-``@media``, ``@supports``, ``@layer``,
+#: ``@container`` ו-``@scope`` כולם מחזירים ``CSSStyleRule`` עם סלקטור.
+#: ``@font-face``, ``@page``, ``@counter-style`` ו-``@property`` מחזירים
+#: אפס כללי-בן, ולכן אין בהם לְמה לרדת ואינם דורשים טיפול.
+#:
+#: ``0%`` ו-``to`` הם רעש ולא ניווט, ולכן צעד אינו סימבול. בקורפוס יש 54.
+_AT_RULES_WHOSE_CHILDREN_ARE_STEPS = frozenset({"keyframes"})
+
+
+class _Open(NamedTuple):
+    """בלוק שנפתח וממתין ל-``}`` שלו.
+
+    ``anchor`` הוא ההיסט של התו הראשון של ה-prelude שאינו רווח ואינו
+    הערה — כלומר של הסלקטור עצמו, ולא של ההערה שמעליו. ``keyframes``
+    אומר שהילדים של הבלוק הזה הם צעדים; ``step`` אומר שהבלוק הזה **הוא**
+    צעד, ולכן אינו סימבול.
+    """
+
+    name: str
+    anchor: int
+    keyframes: bool
+    step: bool
+
+
+def extract(text: str) -> dict[str, Any]:
+    """מפת הסימבולים של קובץ CSS.
+
+    זהו חוזה הסורק שהראוטר קורא לו. ערוץ הכשל הוא ערך ההחזרה ולא חריגה,
+    ולכן קלט פגום — בלוק שלא נסגר, מחרוזת שלא נסגרה, הערה בלי סוגר —
+    מוחזר כמפה חלקית ולא זורק. זה לא ויתור: קובץ באמצע עריכה הוא קלט
+    לגיטימי כאן, וזה גם מה שדפדפן עושה.
+
+    התקרה היא היוצא מן הכלל היחיד, והיא נוסעת פנימה כחריגה ויוצאת כאן
+    כערך החזרה — הנימוק ב-``_ceiling.TooManySymbols``. וה-``except``
+    תופס **אותה בלבד**.
+    """
+    rows: list[dict[str, Any]] = _ceiling.Capped()
+    try:
+        read_blocks(text, 0, len(text), line_table(text), "", rows)
+    except _ceiling.TooManySymbols:
+        return _ceiling.too_many_symbols()
+    return {"symbols": rows}
+
+
+def read_blocks(
+    text: str,
+    start: int,
+    stop: int,
+    lines: Sequence[int],
+    prefix: str,
+    rows: list[dict[str, Any]],
+    *,
+    jinja: bool = False,
+) -> None:
+    """מוסיף ל-``rows`` את הבלוקים שבין ``start`` ל-``stop``.
+
+    אותו לקסר משרת גם קובץ ``.css`` שלם וגם גוף של ``<style>`` בתוך
+    תבנית. הוא מקבל את הטקסט עם גבולות ולא פרוסה שלו: פרוסה היא מרחב
+    אינדקסים אחר, וטבלת השורות אחת לכל הקובץ.
+
+    **והוא מקבל את ``rows`` של הקורא ואינו בונה רשימה משלו.** אחרת
+    התקרה נעשית שני תקציבים: רשימת ה-``html`` על 49,999 ואז בלוק
+    ``<style>`` שמייצר עוד 50,000 — ושתי הרשימות חיות יחד ברגע האיחוד,
+    כלומר פי שתיים מהתקרה, מקלט שאפשר לחבר בכוונה. נמדד על אותו קלט,
+    שלוש נקודות: 24.8MB בלי תקרה, 18.8MB עם תקרה ושני תקציבים,
+    ו-12.2MB עם תקרה ותקציב אחד.
+
+    **ו-``jinja`` אומר איזו שפה הטקסט, וזה משנה תו אחד בלבד — ``{#``.**
+    ברירת המחדל ``False`` היא קובץ ``.css``, שבו ``{#`` הוא CSS;
+    ``html.py`` מעביר ``True`` לגוף ``<style>``, שבו הוא הערת Jinja.
+    המדידה שמכריעה יושבת ליד ``_JINJA_COMMENT``, והקצר שלה: תבנית
+    שבה ``{#`` **אינו** הערה אינה מתרנדרת בכלל.
+    """
+    stack: list[_Open] = _ceiling.Capped()
+    index = start
+    #: ה-prelude נאסף בחלקים, כי ההערות שבתוכו מושמטות ממנו.
+    pieces: list[str] = []
+    chunk_from = index
+    anchor = -1
+
+    def take(upto: int) -> None:
+        """אוסף את הקטע שעד ``upto`` ל-prelude, ומקבע את העוגן בפעם הראשונה."""
+        nonlocal anchor
+        piece = text[chunk_from:upto]
+        if anchor < 0:
+            trimmed = piece.lstrip()
+            if trimmed:
+                anchor = chunk_from + (len(piece) - len(trimmed))
+        pieces.append(piece)
+
+    def restart(at: int) -> None:
+        """פותח prelude חדש. נקרא אחרי ``{``, ``}`` ו-``;``."""
+        nonlocal chunk_from, pieces, anchor
+        chunk_from, pieces, anchor = at, [], -1
+
+    while index < stop:
+        char = text[index]
+
+        if text.startswith("/*", index):
+            # ההערה יוצאת מה-prelude, אבל **אינה** שוברת אותו:
+            # ``.a /* x */ .b {`` הוא סלקטור אחד חוקי.
+            take(index)
+            found = text.find("*/", index + 2, stop)
+            index = stop if found < 0 else min(found + 2, stop)
+            chunk_from = index
+            continue
+
+        if char == "{":
+            # מבנה Jinja נבדק **לפני** פתיחת הבלוק, אחרת ``{%`` היה
+            # נקרא כבלוק בלי שם. ורק ``{`` נבדק כאן: שני הפותחים
+            # שנשארו מתחילים בו, ואף אחד אינו מתחיל ב-``}``.
+            span = _jinja_span(text, index, stop, jinja)
+            if span >= 0:
+                # ההערה או הביטוי יוצאים מה-prelude, אבל **אינם**
+                # שוברים אותו: ``.a,`` ואז ``{# c #}`` ואז ``.b {`` הוא
+                # סלקטור אחד, ואומת שג'ינג'ה מרנדרת אותו בדיוק כך.
+                take(index)
+                index = span
+                chunk_from = index
+                continue
+
+        if char in "\"'":
+            index = _skip_string(text, index, stop)
+            continue
+
+        if char == "u" or char == "U":
+            call = _URL_FUNCTION.match(text, index, stop)
+            adjacent = text[index - 1] if index > start else ""
+            if call and not _IDENT_CHARACTER.match(adjacent):
+                index = _skip_url(text, call.end(), stop, jinja)
+                continue
+
+        if char == "{":
+            take(index)
+            name = _WHITESPACE.sub(" ", "".join(pieces)).strip()
+            keyword = _AT_KEYWORD.match(name)
+            stack.append(_Open(
+                name=name,
+                anchor=anchor if anchor >= 0 else index,
+                keyframes=bool(
+                    keyword
+                    and keyword.group(1).lower() in _AT_RULES_WHOSE_CHILDREN_ARE_STEPS
+                ),
+                step=bool(stack) and stack[-1].keyframes,
+            ))
+            index += 1
+            restart(index)
+            continue
+
+        if char == "}":
+            if stack:
+                _report(rows, stack.pop(), index, lines, prefix)
+            index += 1
+            restart(index)
+            continue
+
+        if char == ";":
+            # at-rule בלי בלוק (``@import``, ``@charset``) אינה סימבול —
+            # אין לה טווח. וההצהרות שבתוך בלוק אינן prelude של הבא.
+            index += 1
+            restart(index)
+            continue
+
+        index += 1
+
+    # בלוקים שלא נסגרו עד הסוף מדווחים עד השורה האחרונה, כמו תגית שלא
+    # נסגרה בסורק ה-HTML: זו התשובה הכנה, כי הם באמת לא נסגרו.
+    while stack:
+        _report(rows, stack.pop(), stop, lines, prefix)
+
+
+def _report(
+    rows: list[dict[str, Any]],
+    done: _Open,
+    end_index: int,
+    lines: Sequence[int],
+    prefix: str,
+) -> None:
+    """מוסיף בלוק למפה, אם הוא בכלל סימבול.
+
+    **צעד בתוך ``@keyframes`` אינו סימבול, ובלוק בלי שם אינו סימבול.**
+    השני אינו קיים ב-CSS תקין (נמדד: אפס בקורפוס), אבל בקלט פגום הוא
+    אפשרי — ושם לדווח אותו היה גרוע מלהשמיט: שם ריק אינו מזהה, הוא לא
+    נמצא ב-``symbol=``, והוא תופס מקום בעמוד בלי לומר דבר.
+
+    שני הארגומנטים הם **היסטים** ולא מספרי שורה, והגזירה נעשית כאן —
+    כדי שיהיה מקום אחד שממנו מספר שורה יוצא אל המפה.
+    """
+    if done.step or not done.name:
+        return
+    rows.append({
+        "name": f"{prefix}{done.name}",
+        "start": line_at(lines, done.anchor),
+        "end": line_at(lines, end_index),
+    })
+
+
+def _jinja_span(text: str, index: int, stop: int, comments: bool) -> int:
+    """הסוף של מבנה Jinja שמתחיל כאן, או ``-1`` אם אין כזה.
+
+    ``comments`` אומר אם ``{#`` נחשב פותח. הוא ``True`` רק כשהטקסט הוא
+    גוף ``<style>`` בתבנית — הנימוק והמדידה ליד ``_JINJA_COMMENT``.
+
+    מחזיר את המיקום שאחרי הסוגר.
+
+    **מבנה שלא נסגר בתוך הגבול מדלג על שני תווי הפותח בלבד, ואינו נבלע
+    עד ``stop``.** זו אותה החלטה שכבר נלקחה ב-``_jinja_tag_end`` בסורק
+    ה-HTML, ומאותה סיבה: תגית פגומה אחת שבולעת את כל מה שאחריה מוחקת
+    מהמפה קוד תקין לגמרי, וזו תשובת הצלחה עם תוכן שגוי. הדילוג הצר
+    נותן במקומה מפה שנכונה מהתו הבא והלאה.
+
+    וחיפוש הסוגר חסום ב-``stop``. בלי החסימה הוא סורק את כל שאר הקובץ
+    בכל קריאה — וכשהקורא הוא ``html.py``, שקורא לכאן פעם אחת לכל בלוק
+    ``<style>``, זה הופך לריבועי.
+    """
+    openers = (_JINJA_OPENERS + (_JINJA_COMMENT,)) if comments else _JINJA_OPENERS
+    for opener, closer in openers:
+        if text.startswith(opener, index):
+            found = text.find(closer, index + len(opener), stop)
+            return index + len(opener) if found < 0 else found + len(closer)
+    return -1
+
+
+def _skip_string(text: str, index: int, stop: int) -> int:
+    """מדלג על מחרוזת מצוטטת, כולל ``\\`` שמחרג את הסוגר.
+
+    **ומחרוזת נגמרת בסוף שורה, גם בלי סוגר — נמדד ב-Chromium 141.**
+    ``.x{content:'oops`` ואז ``}`` בשורה הבאה ואז ``.b{…}`` נותן שם
+    **שני** כללים: המחרוזת נקטעת בסוף השורה, ה-``}`` סוגר את ``.x``,
+    ו-``.b`` הוא כלל בפני עצמו. גרסה קודמת בלעה כאן עד סוף הקובץ,
+    ולכן ``.b`` **נעלם מהמפה** — תשובת הצלחה עם סימבול חסר, אותה
+    מחלקה בדיוק שבה גרש בודד בקובץ מחק את כל מה שאחריו.
+
+    ה-``\\`` שלפני שורה חדשה כן ממשיך את המחרוזת, וגם זה נמדד:
+    ``content:'oops\\`` ואז ``more'`` חוזר מ-Chromium כמחרוזת אחת.
+    הענף על ``\\`` שכבר קיים מכסה את זה, כי הוא מדלג שני תווים.
+
+    שלושת תווי סוף השורה הם אלה שהמפרט מונה. ``\r`` בודד ממילא נחסם
+    לפני הסורק, אבל הוא כאן כדי שהכלל לא יישען על החסימה הזאת.
+    """
+    quote = text[index]
+    index += 1
+    while index < stop:
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == quote:
+            return index + 1
+        if char in "\n\r\f":
+            # התו עצמו **אינו** נצרך: הוא רווח מבחינת הלקסר, והלולאה
+            # הראשית תמשיך ממנו כרגיל.
+            return index
+        index += 1
+    return stop
+
+
+def _skip_url(text: str, index: int, stop: int, jinja: bool) -> int:
+    """מדלג על גוף ``url(…)``, בשתי הצורות.
+
+    בצורה המצוטטת הסוגר הוא המרכאה ואחריה ``)``; בצורה הלא מצוטטת ``)``
+    לבדו. שתיהן קיימות בקורפוס — 71 מצוטטות ו-28 לא — ולשתיהן זה משנה:
+    ``url('data:image/svg+xml;utf8, <svg …>')`` מכיל ``;`` ומרכאות בתוך
+    הערך, וגם ``<`` ו-``>``.
+
+    **והחיפוש הוא לולאה ולא ``find``, כי גוף ``url()`` יכול להכיל ביטוי
+    Jinja.** ``url({{ url_for('static', filename='x.png') }})`` הוא הצורה
+    הרגילה בתבנית, ובה ה-``)`` הראשון הוא זה שסוגר את ``url_for`` ולא
+    את ``url`` — ``find`` עוצר עליו, והלקסר חוזר לקוד בתוך הביטוי,
+    רואה שם ``}`` וסוגר בלוק שעוד לא נגמר. לכן הלולאה מדלגת על מבני
+    Jinja כיחידה, בדיוק כמו הלולאה הראשית, ועוצרת ב-``stop``.
+    """
+    while index < stop and text[index].isspace():
+        index += 1
+    if index < stop and text[index] in "\"'":
+        index = _skip_string(text, index, stop)
+    while index < stop:
+        char = text[index]
+        if char == "{":
+            span = _jinja_span(text, index, stop, jinja)
+            if span >= 0:
+                index = span
+                continue
+        if char == ")":
+            return index + 1
+        index += 1
+    return stop

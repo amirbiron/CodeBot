@@ -375,12 +375,80 @@ async def test_the_description_names_both_size_ceilings():
     assert "Binary files return metadata only" in description
 
 
-async def test_the_description_tells_the_agent_the_outline_is_python_only():
+async def test_the_description_tells_the_agent_which_languages_have_a_map():
     """סוכן שיבקש מפה של ``.rst`` ויקבל ``no_outline`` צריך לדעת שזו
-    התנהגות מוצהרת ולא תקלה — אחרת הוא ינסה שוב."""
+    התנהגות מוצהרת ולא תקלה — אחרת הוא ינסה שוב.
+
+    התיאור אמר ``Python only`` עד שנוספה תמיכה ב-HTML/Jinja; המשפט הזה
+    הפך לשגוי באותו PR שהוסיף אותה, וזו הסיבה שהטסט נוקב במה שכן נתמך
+    ולא במה שאינו.
+    """
     mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
     description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
 
     assert "outline=true" in description
-    assert "Python only" in description
     assert "no_outline" in description
+    assert "Python" in description
+    assert "Jinja" in description
+    # הבדל מהותי לסוכן: פייתון נותן שמות מנוקדים, HTML שטוחים.
+    assert "dotted" in description and "flat" in description
+
+
+async def test_the_description_says_symbol_works_on_the_non_python_names():
+    """פיצ'ר שאף אחד לא קורא לו הוא פיצ'ר שאינו קיים.
+
+    ``symbol=`` עובד על כל שם שהמפה מחזירה, אבל בתיאור הוא ישב בתוך
+    המשפט של פייתון — "Names are fully qualified with dots (Class.method,
+    outer.inner), symbol= filters on that full name" — ומיד אחריו בא
+    המשפט שאומר ש-HTML נותן שמות **שטוחים**. סוכן שקורא את זה קושר את
+    הפילטר לשמות מנוקדים ולא ינסה אותו על ``@media``.
+
+    **וזה לא היפותטי:** נמדד שעל הקובץ הצפוף בקורפוס ``symbol="@media"``
+    מצמצם 486 סימבולים בחמישה עמודים לשישה בעמוד אחד — ובכל זאת הפילטר
+    נשכח בסשן שבו הוא תועד. הדוגמאות בפסוקית הן מה שגורם לסוכן להשתמש
+    בזה, ולכן הן נבדקות ולא רק המילה ``symbol=``.
+
+    ההתנהגות שהפסוקית מבטיחה נאכפת ב-``tests/test_mcp_outline.py``, ב-
+    ``test_symbol_narrows_a_css_file_to_its_at_rules`` וב-
+    ``test_symbol_narrows_a_template_to_the_names_that_carry_the_term`` —
+    כאן נבדק רק שהיא **נאמרת**. שניהם נדרשים: פסוקית בלי טסט היא הבטחה
+    שאין מי שאוכף, וטסט בלי פסוקית הוא התנהגות שאף אחד לא ימצא.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+
+    assert 'symbol="@media"' in description
+    assert "not just the dotted Python ones" in description
+    # הפסוקית יושבת ליד השמות שהיא מדברת עליהם, ולפני משפט התקרות —
+    # אחרת היא נקראת כמדיניות גודל ולא כדרך לחתוך את המפה.
+    assert description.index('symbol="@media"') < description.index("500KB")
+
+
+async def test_the_description_names_every_suffix_the_outline_router_supports():
+    """``_SCANNERS`` מצהיר על עצמו כמקור האמת היחיד — כאן זה נאכף.
+
+    התיאור הוא מה שלקוח MCP קורא כדי להחליט אם בכלל לשלוח
+    ``outline=true``. סיומת שתתווסף לטבלה בלי שהתיאור יעודכן היא פיצ'ר
+    שעובד ואף אחד לא קורא לו — כשל שקט לגמרי, ובדיוק הדריפט שההערה מעל
+    הטבלה טוענת שהיא מונעת. בלי הטסט הזה, ההערה מבטיחה יותר ממה שקיים.
+
+    הכיוון הוא מהטבלה אל התיאור בלבד: התיאור מותר לו לפרט דברים נוספים,
+    אבל אסור לו להשמיט סיומת שהראוטר כן מקבל.
+
+    **ההתאמה היא על אסימון שלם ולא על תת-מחרוזת**, אחרת הטסט חלש ממה
+    שהוא מתיימר: ``".py" in "(.pyi)"`` הוא ``True``, ולכן מחיקת ``.py``
+    מהתיאור הייתה עוברת בשקט. אותו כשל בדיוק חוזר ב-PR הבא, שבו ``.j2``
+    ו-``.html.j2`` יחיו זה לצד זה. הגבולות משני הצדדים חוסמים גם ``\\w``
+    וגם נקודה, כך ש-``.j2`` אינו מתאים בתוך ``.html.j2``.
+    """
+    import re
+
+    from mcp_server.outline import _SCANNERS
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+
+    for suffix in _SCANNERS:
+        token = re.compile(rf"(?<![\w.]){re.escape(suffix)}(?![\w.])")
+
+        assert token.search(description), f"{suffix} בטבלת הראוטר אבל לא בתיאור הכלי"
