@@ -360,12 +360,14 @@ def test_a_file_the_router_does_not_recognise_never_reaches_a_scanner(monkeypatc
 
     זו ההבחנה שקל לאבד: מימוש שקורא לסורק הפייתון תמיד ומסתמך על
     ``SyntaxError`` כדי להחזיר ``unsupported_language`` נראה עובד — עד
-    שקובץ CSS **כן** נפרס במקרה כפייתון תקין (``a{}`` אינו, אבל
-    ``# comment`` הוא), ואז מוחזרת מפה ריקה עם ``status: ok`` במקום
-    הצהרה שהשפה לא נתמכת.
+    שקובץ **כן** נפרס במקרה כפייתון תקין. כותרת Markdown היא הדוגמה
+    הנקייה: ``# Title`` הוא הערה חוקית בפייתון, ולכן מפה ריקה הייתה
+    חוזרת עם ``status: ok`` במקום הצהרה שהשפה לא נתמכת.
 
-    הסורק מוחלף כאן במלכודת שזורקת: אם הראוטר נגע בו על ``.css``, הטסט
-    נופל בקול במקום להחזיר את התשובה הנכונה במקרה.
+    **הדוגמה כאן הייתה ``.css`` עד שהוא נעשה נתמך**, וזה עצמו הלקח:
+    סיומת שנבחרה כ"לא נתמכת" היום עשויה להיות נתמכת מחר, ולכן הטסט
+    בודק את התכונה ולא את השפה. הסורק מוחלף במלכודת שזורקת: אם הראוטר
+    נגע בו, הטסט נופל בקול במקום להחזיר את התשובה הנכונה במקרה.
     """
     import mcp_server.outline as module
     import mcp_server.outline_scanners.python as scanner
@@ -376,7 +378,7 @@ def test_a_file_the_router_does_not_recognise_never_reaches_a_scanner(monkeypatc
     monkeypatch.setattr(scanner, "extract", _trap)
     monkeypatch.setitem(module._SCANNERS, ".py", _trap)
 
-    assert module.extract_outline("x{}", "styles.css") == {
+    assert module.extract_outline("# Title\n", "README.md") == {
         "status": "no_outline",
         "reason": "unsupported_language",
     }
@@ -1042,7 +1044,8 @@ def test_a_nested_tag_without_an_id_does_not_close_the_one_that_has_it():
 
 
 def test_a_tag_written_inside_a_javascript_string_is_not_a_symbol():
-    """``base.html:2545`` מכיל בדיוק את זה, ולכן זה לא תרחיש מומצא:
+    """``base.html`` מכיל בדיוק את זה בבניית רשימת הקבצים האחרונים,
+    ולכן זה לא תרחיש מומצא:
 
         '  <div class="modal-body" id="recentFilesList">' +
 
@@ -1331,8 +1334,19 @@ def test_the_ids_found_are_exactly_the_real_ones_and_not_those_in_strings():
     text = path.read_text(encoding="utf-8")
 
     upper_bound = set(re.findall(r'\bid="([^"]*)"', text))
-    found = {row["name"].split("#", 1)[1] for row in extract_outline(text, str(path))["symbols"]
-             if "#" in row["name"]}
+    # **מה שיושב בתוך בלוק ``<style>`` אינו עוגן HTML.** סלקטור מזהה
+    # ב-CSS (``#foo``) נראה בדיוק כמו ``tag#id``, ולכן ההפרדה היא לפי
+    # טווח ולא לפי הימצאות ``#`` — אותו תיקון שורש כמו ב-``_inside``.
+    # תווית הבלוק ``style#x`` עצמה **כן** נשארת: היא עוגן HTML אמיתי,
+    # וה-``start`` שלה שווה לתחילת הטווח ולכן אינה נחשבת "בתוכו".
+    in_css = {
+        (row["name"], row["start"]) for row in _inside(text, "style")
+    }
+    found = {
+        row["name"].split("#", 1)[1]
+        for row in extract_outline(text, str(path))["symbols"]
+        if "#" in row["name"] and (row["name"], row["start"]) not in in_css
+    }
 
     assert found < upper_bound, "הסורק לא סינן כלום — או שהוא ממציא"
 
@@ -1375,14 +1389,50 @@ def test_a_real_template_yields_a_map_without_raising(relative):
 # ---------------------------------------------------------------------------
 
 
-def _js_symbols(text):
-    """רק הגדרות הפונקציות, בלי הגבולות ובלי תגיות Jinja."""
+def _inside(text, tag):
+    """הסימבולים שיושבים **בתוך** בלוק ``<script>`` או ``<style>``.
+
+    **ההפרדה היא לפי טווח שורות ולא לפי צורת השם, וזה תיקון שורש.** קודם
+    היא נעשתה בשלילה — "אין ``#`` ואינו מתחיל ב-``script``" — וזה עבד רק
+    כל עוד הדבר היחיד שנראה כמו מזהה בתוך בלוק היה שם של פונקציה.
+    מהרגע שגם CSS נסרק, סלקטור כמו ``.card`` נראה בדיוק כמו שם של
+    פונקציה, וסינון לפי צורה היה מכניס אותו לרשימת ההגדרות של JavaScript
+    ומפיל את מוני ה-JS על ראיה שגויה.
+
+    **ושמות התוויות נגזרים מהטקסט הגולמי ולא מצורת השם.** ``startswith``
+    נראה נכון וכבר נמדד ככשל: סימבול פנימי בבלוק שיש לו ``id`` נושא
+    תחילית, ולכן ``style#user-custom-theme.:root[data-theme="custom"]``
+    **גם הוא** מתחיל ב-``style#`` — כלומר תוכן הבלוק היה מסווג כתווית
+    שלו ונעלם מכל המונים שנשענים על הפונקציה הזאת. כאן שמות התוויות
+    האפשריות נבנים מערכי ה-``id`` שיושבים בתגיות עצמן, וההשוואה היא
+    לקבוצה סגורה.
+
+    **וההחרגה היא לפי זהות ולא לפי מספר שורה**: הצורה הקודמת השוותה
+    ``first < start`` ולכן החריגה כל מה שיושב על שורת התגית הפותחת.
+    תבנית שכתובה ``<style>.card { … }`` בשורה אחת הייתה מאבדת שם את
+    הסימבול הראשון — אפס מופעים בקורפוס היום, ובאג באפס מופעים הוא
+    עדיין באג.
+    """
+    rows = extract_outline(text, "page.html")["symbols"]
+    names = {tag}
+    for found in re.finditer(rf"<{tag}\b[^>]*>", text, re.IGNORECASE):
+        anchor = re.search(r"""\bid\s*=\s*["']?([^"'>\s]*)""", found.group(0))
+        if anchor:
+            names.add(f"{tag}#{anchor.group(1)}")
+
+    labels = [row for row in rows if row["name"] in names]
+    label_ids = {id(row) for row in labels}
+    spans = [(row["start"], row["end"]) for row in labels]
     return [
-        row for row in extract_outline(text, "page.html")["symbols"]
-        if "#" not in row["name"]
-        and not row["name"].startswith(("script", "style", "block ", "macro ",
-                                        "extends ", "include ", "import ", "from "))
+        row for row in rows
+        if id(row) not in label_ids
+        and any(first <= row["start"] <= last for first, last in spans)
     ]
+
+
+def _js_symbols(text):
+    """רק הגדרות הפונקציות שבבלוקי ``<script>``."""
+    return _inside(text, "script")
 
 
 def test_a_default_parameter_value_does_not_close_the_function_at_its_signature():
@@ -1391,8 +1441,9 @@ def test_a_default_parameter_value_does_not_close_the_function_at_its_signature(
     ``function f(a, opts = {})`` מכיל ``{`` שאינו פותח את גוף הפונקציה.
     העומק נלכד ברגע ההתאמה, כשהסורק עדיין **בתוך רשימת הפרמטרים**, ולכן
     ה-``}`` שסוגר את ברירת המחדל סגר את הפונקציה כולה. נמדד על
-    ``base.html:3485``: ``openWizard`` חזר עם ``end == start == 3485``
-    במקום להגיע ל-3518, וכך גם ``closeWizard``, ``maybeOpen`` ו-``startTour``.
+    ``openWizard`` ב-``base.html`` חזר עם ``end == start`` על שורת
+    החתימה במקום להגיע לסוף הגוף, 33 שורות מתחת — וכך גם
+    ``closeWizard``, ``maybeOpen`` ו-``startTour``.
 
     זה בדיוק השדה שכל הפיצ'ר קיים בשבילו — ממנו נגזר ה-``lines=`` הבא.
     """
@@ -1618,18 +1669,16 @@ def test_the_three_functions_that_had_vanished_are_back():
 
 
 def _definitions(text):
-    """הסימבולים שהם הגדרות בקוד, בלי עוגני תגיות ובלי תגיות Jinja.
+    """הגדרות ה-JavaScript שבבלוקי ``<script>``, ותוויות הבלוקים עצמם.
 
-    התחילית נקלפת (``script#x.initColors`` ← ``initColors``) במקום לסנן
-    על ``#``, כדי שפונקציה בתוך בלוק בעל ``id`` **תיכנס** ולא תיעלם.
+    התחילית נקלפת (``script#x.initColors`` ← ``initColors``) כדי שפונקציה
+    בתוך בלוק בעל ``id`` תיכנס ולא תיעלם. הבחירה **מי** נכנס נעשית לפי
+    טווח, ראו ``_inside`` — ולא לפי צורת השם.
     """
-    out = []
-    for row in extract_outline(text, "page.html")["symbols"]:
-        bare = row["name"].rsplit(".", 1)[-1]
-        if "#" in bare or " " in bare:
-            continue
-        out.append((bare, row["start"], row["end"]))
-    return sorted(out)
+    return sorted(
+        (row["name"].rsplit(".", 1)[-1], row["start"], row["end"])
+        for row in _inside(text, "script")
+    )
 
 
 def test_a_line_continuation_inside_a_js_string_does_not_shift_the_lines_after_it():
@@ -1649,7 +1698,7 @@ def test_a_line_continuation_inside_a_js_string_does_not_shift_the_lines_after_i
         "</script>\n"
     )
 
-    assert _definitions(text) == [("after", 4, 6), ("script", 1, 7)]
+    assert _definitions(text) == [("after", 4, 6)]
 
 
 def test_a_signature_spread_over_several_lines_does_not_shift_the_rest_of_the_block():
@@ -1676,11 +1725,7 @@ def test_a_signature_spread_over_several_lines_does_not_shift_the_rest_of_the_bl
         "</script>\n"
     )
 
-    assert _definitions(text) == [
-        ("afterwards", 8, 10),
-        ("handler", 2, 7),
-        ("script", 1, 11),
-    ]
+    assert _definitions(text) == [("afterwards", 8, 10), ("handler", 2, 7)]
 
 
 @pytest.mark.parametrize(
@@ -1704,10 +1749,7 @@ def test_a_default_value_in_an_assigned_function_expression_does_not_close_it_ea
     המוצבים בתבניות הם ``window.X = function (…)``, צורה שהרג'קס דורש
     לפניה ``const``/``let``/``var`` ולכן אינו מזהה בכלל.
     """
-    assert _definitions(f"<script>\n{source}</script>\n") == [
-        ("f", 2, 4),
-        ("script", 1, 5),
-    ]
+    assert _definitions(f"<script>\n{source}</script>\n") == [("f", 2, 4)]
 
 
 def test_an_unclosed_jinja_tag_does_not_erase_a_well_formed_one_below_it():
@@ -1800,7 +1842,7 @@ def test_a_type_inside_another_attributes_value_does_not_hide_the_scripts_functi
         "</script>\n"
     )
 
-    assert _definitions(text) == [("reallyReal", 2, 4), ("script", 1, 5)]
+    assert _definitions(text) == [("reallyReal", 2, 4)]
 
 
 def test_an_unquoted_attribute_value_ending_in_a_slash_is_not_self_closing():
@@ -2019,3 +2061,697 @@ def test_the_templates_are_found_from_any_working_directory(monkeypatch, tmp_pat
 
     assert sorted(_TEMPLATES.rglob("*.html")) == expected
     assert _templates() == expected
+
+
+# ---------------------------------------------------------------------------
+# CSS — הסימבול הוא בלוק הסלקטור, והעיקר הוא ה-at-rules
+#
+# שלושת המונים למטה רצים על **כל** קובצי ה-CSS בריפו ולא על אחד מהם. זה
+# החור שנתן לבאגים של HTML לשרוד: מונה תקין שרץ על קובץ אחד שיצא מאוזן
+# במקרה היה ירוק בזמן שהבאג ישב בקבצים אחרים.
+# ---------------------------------------------------------------------------
+
+_CSS_ROOTS = (_REPO_ROOT / "webapp", _REPO_ROOT / "docs")
+
+
+def _css(text, **kw):
+    return extract_outline(text, "styles.css", **kw)
+
+
+def _css_files():
+    """כל קובצי ה-CSS בריפו. **תיקייה שקיימת וריקה היא כישלון, לא דילוג.**"""
+    missing = [root for root in _CSS_ROOTS if not root.is_dir()]
+    if missing:  # pragma: no cover - הריפו תמיד מכיל אותן
+        pytest.skip(f"{missing} אינן קיימות")
+    found = sorted(
+        path
+        for root in _CSS_ROOTS
+        for path in root.rglob("*.css")
+        if "node_modules" not in path.parts
+    )
+
+    assert found, f"{_CSS_ROOTS} קיימות אך אין בהן CSS"
+
+    return found
+
+
+#: ``@keyframes``, עם תחילית ספק או בלעדיה. **עוגן ותחילית אופציונלית
+#: ולא ``in``**: ההבחנה הזאת נמדדה ב-CSSOM — ``@-webkit-keyframes`` ממופה
+#: לאותו ``CSSKeyframesRule`` וילדיו הם צעדים, בדיוק כמו הצורה ללא
+#: תחילית. בדיקת הכלה הייתה מסכימה עם הסורק רק כל עוד אין בקורפוס אף
+#: צורה עם תחילית — נמדד שאין, וזה בדיוק ירוק שלא אומר את מה שנראה שהוא
+#: אומר. הסורק כן מדלג על שתיהן, ולכן המונה חייב להכיר את שתיהן.
+_KEYFRAMES_PRELUDE = re.compile(r"@(?:-[A-Za-z]+-)?keyframes\b", re.IGNORECASE)
+
+
+def _keyframe_steps(blocks):
+    """מספר הבלוקים ב-``blocks`` שהם צעד בתוך ``@keyframes``.
+
+    צעד אינו סימבול — ``0%`` ו-``to`` הם רעש ולא ניווט — ולכן הוא נספר
+    בנפרד וההשוואה היא ``סימבולים + צעדים == בלוקים``.
+    """
+    return sum(1 for _, parent in blocks if _KEYFRAMES_PRELUDE.match(parent.strip()))
+
+
+def _structural_blocks(text):
+    """כל בלוק ב-CSS, כ-``(prelude, prelude_של_ההורה)``.
+
+    **נכתב כאן ולא נקרא מהמימוש, וזו כל הנקודה.** מונה שגוזר את הציפייה
+    מאותו מקור שהוא בודק הוא טאוטולוגי: קריסה חלקית עוברת אותו. הלולאה
+    כאן מכירה את אותם מצבים — הערה, מחרוזת, ``url()``, Jinja — אבל היא
+    כתובה בנפרד, ולכן היא ראיה ולא הד.
+    """
+    blocks = []
+    stack = []
+    index, size = 0, len(text)
+    piece_from = 0
+
+    def prelude():
+        raw = text[piece_from:index]
+        return re.sub(r"/\*.*?\*/", " ", raw, flags=re.S)
+
+    while index < size:
+        char = text[index]
+        if text.startswith("/*", index):
+            found = text.find("*/", index + 2)
+            index = size if found < 0 else found + 2
+            continue
+        opener = next(
+            (pair for pair in (("{%", "%}"), ("{{", "}}"), ("{#", "#}"))
+             if text.startswith(pair[0], index)),
+            None,
+        )
+        if opener:
+            found = text.find(opener[1], index + 2)
+            index = size if found < 0 else found + len(opener[1])
+            continue
+        if char in "\"'":
+            quote = char
+            index += 1
+            while index < size and text[index] != quote:
+                index += 2 if text[index] == "\\" else 1
+            index += 1
+            continue
+        if text[index : index + 4].casefold() == "url(":
+            found = text.find(")", index + 4)
+            index = size if found < 0 else found + 1
+            continue
+        if char == "{":
+            here = prelude()
+            blocks.append((here, stack[-1] if stack else ""))
+            stack.append(here)
+            index += 1
+            piece_from = index
+            continue
+        if char == "}":
+            if stack:
+                stack.pop()
+            index += 1
+            piece_from = index
+            continue
+        if char == ";":
+            index += 1
+            piece_from = index
+            continue
+        index += 1
+    return blocks
+
+
+def test_the_css_symbol_count_equals_the_braces_that_are_really_structural():
+    """מונה בלתי-תלוי, על כל קובצי ה-CSS: כל ``{`` הוא בלוק אחד בדיוק.
+
+    השוויון מדויק ולא חסם, כי בקורפוס הזה אין ``{`` שאינו פותח בלוק —
+    נמדד. צעדי ``@keyframes`` אינם סימבולים ולכן נספרים בנפרד (54
+    בקורפוס), והסכום חייב לצאת שווה.
+    """
+    for path in _css_files():
+        text = path.read_text(encoding="utf-8")
+        blocks = _structural_blocks(text)
+        steps = _keyframe_steps(blocks)
+        symbols = _css(text)["symbols"]
+
+        assert len(symbols) + steps == len(blocks), (
+            f"{path.name}: {len(symbols)} סימבולים + {steps} צעדים "
+            f"מול {len(blocks)} בלוקים מבניים"
+        )
+
+
+def test_every_css_block_range_is_balanced_in_braces():
+    """מונה מבני, על כל קובצי ה-CSS: הטווח שדווח הוא בלוק שלם.
+
+    נגזר מהטקסט ולא מהמימוש, ולכן אינו יכול "להסכים" עם באג: ``end``
+    שמצביע שורה אחת מוקדם מדי משאיר ``{`` בלי ``}``.
+    """
+    broken = []
+    for path in _css_files():
+        text = path.read_text(encoding="utf-8")
+        lines = text.split("\n")
+        for row in _css(text)["symbols"]:
+            body = "\n".join(lines[row["start"] - 1 : row["end"]])
+            body = re.sub(r"/\*.*?\*/", " ", body, flags=re.S)
+            if body.count("{") != body.count("}"):
+                broken.append((path.name, row["name"][:40], row["start"], row["end"]))
+
+    assert broken == []
+
+
+def test_every_css_symbol_starts_on_a_line_that_carries_its_selector():
+    """אורקל השורה, על כל קובצי ה-CSS.
+
+    ``start`` שחוזר למפה הוא שורה שאפשר להזין ל-``lines=``, ולכן תחילת
+    הסלקטור חייבת להיות כתובה בה. הטענה היא על ה**התחלה** של השם ולא על
+    כולו, כי סלקטור שפרוס על כמה שורות מנורמל לשם אחד — ובקורפוס הזה יש
+    448 כאלה.
+    """
+    misplaced = []
+    for path in _css_files():
+        text = path.read_text(encoding="utf-8")
+        lines = text.split("\n")
+        for row in _css(text)["symbols"]:
+            head = row["name"].split(",")[0].split(" ")[0]
+            if head and head not in lines[row["start"] - 1]:
+                misplaced.append(
+                    (path.name, row["name"][:40], row["start"], lines[row["start"] - 1][:50])
+                )
+
+    assert misplaced == []
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(
+            "/* .fake { } */\n.real {\n  color: red;\n}\n",
+            [(".real", 2, 4)],
+            id="brace-in-comment",
+        ),
+        pytest.param(
+            '.real {\n  content: "{";\n}\n',
+            [(".real", 1, 3)],
+            id="brace-in-string",
+        ),
+        pytest.param(
+            ".real {\n  background: url('a{b}c.png');\n}\n",
+            [(".real", 1, 3)],
+            id="brace-in-quoted-url",
+        ),
+        pytest.param(
+            ".real {\n  background: url(a{b}c.png);\n}\n",
+            [(".real", 1, 3)],
+            id="brace-in-bare-url",
+        ),
+        pytest.param(
+            ".real {\n  background: url('data:image/svg+xml;utf8, <svg/>');\n}\n",
+            [(".real", 1, 3)],
+            id="semicolon-in-url",
+        ),
+        pytest.param(
+            "@import url(other.css);\n@charset \"utf-8\";\n.real {\n  color: red;\n}\n",
+            [(".real", 3, 5)],
+            id="at-rule-without-a-block",
+        ),
+        pytest.param(
+            "{% if dark %}\n.real {\n  color: {{ shade }};\n}\n{% endif %}\n",
+            [(".real", 2, 4)],
+            id="jinja-inside-css",
+        ),
+        pytest.param(
+            ".real {\n  background: URL(a{b}c.png);\n}\n",
+            [(".real", 1, 3)],
+            id="url-in-upper-case",
+        ),
+        pytest.param(
+            ".real {\n  background: image-set(url(a{b}c.png));\n}\n",
+            [(".real", 1, 3)],
+            id="url-nested-in-another-function",
+        ),
+        pytest.param(
+            ".real {\n  --x: nourl(;\n}\n.after {\n  color: red;\n}\n",
+            [(".real", 1, 3), (".after", 4, 6)],
+            id="a-name-that-ends-in-url",
+        ),
+    ],
+)
+def test_a_brace_that_is_not_structural_does_not_open_a_block(text, expected):
+    """כל מצב בלקסר, ומקרה אחד שמוכיח אותו.
+
+    שלושה מהמצבים האלה **קיימים בקורפוס** ואינם סינתטיים: סוגריים
+    מסולסלים בתוך הערה שמצטטת CSS (חמישה מופעים, ב-``note-boards.css``,
+    ``split-view.css`` ו-``sticky-notes.css``), ``;`` בתוך ``url()``
+    מצוטט (``nano.min.css``), ו-Jinja בתוך ``<style>`` (שמונה מ-48
+    הבלוקים בתבניות).
+
+    **ושלושת המקרים של ``url`` אינם קוסמטיקה.** אי-תלות ברישיות היא
+    תכונה של השפה: שמות פונקציות ב-CSS אינם תלויי רישיות, ובקורפוס יש
+    18 מופעים של ``URL(`` — כולם JavaScript (``URL.createObjectURL``)
+    שסורק ה-CSS אינו רואה, וזו בדיוק הסיבה שהמקרה נבדק כאן ולא נשען על
+    הקורפוס. ושמונה מופעים של ``url(`` שקודמת לו אות הם מאותה משפחה,
+    ולכן שם שנגמר ב-``url`` אינו פותח דילוג.
+    """
+    names = [(row["name"], row["start"], row["end"]) for row in _css(text)["symbols"]]
+
+    assert names == expected
+
+
+def test_a_comment_above_a_selector_is_not_part_of_its_name():
+    """ההערה מוסרת מה-prelude, וה-``start`` הוא הסלקטור ולא ההערה.
+
+    זה הדבר המרכזי בסורק הזה, ואב-טיפוס שלא עשה אותו נמדד: הוא החזיר שם
+    באורך 1,699 בתים שהוא הערה בעברית, ניפח את מונה הסלקטורים
+    הרב-שורתיים מ-448 ל-867, וספר ``@media`` 37 במקום 68.
+
+    **וההערה אינה שוברת את הסלקטור**: ``.a /* x */ .b`` הוא סלקטור אחד
+    חוקי, ולכן שני חלקיו נשארים בשם.
+    """
+    text = (
+        "/* ============\n"
+        "   הסבר ארוך על הכלל הבא\n"
+        "   ============ */\n"
+        ".card {\n"
+        "  color: red;\n"
+        "}\n"
+        ".a /* למה */ .b {\n"
+        "  color: blue;\n"
+        "}\n"
+    )
+
+    assert [(row["name"], row["start"]) for row in _css(text)["symbols"]] == [
+        (".card", 4),
+        (".a .b", 7),
+    ]
+
+
+def test_a_selector_spread_over_several_lines_starts_on_its_first_line():
+    """סלקטור מרובה שפרוס על כמה שורות הוא שם אחד, ו-``start`` הוא הראשונה.
+
+    ``base.html`` מכיל את המקרה בפועל — שמונה שורות של סלקטור לפני
+    ה-``{`` — ובקורפוס יש 448 כאלה.
+    """
+    text = (
+        '[data-theme-type="custom"] .btn:active,\n'
+        '[data-theme^="shared:"] .btn:focus,\n'
+        '[data-theme^="shared:"] .btn.disabled {\n'
+        "  opacity: 0.8;\n"
+        "}\n"
+    )
+    symbols = _css(text)["symbols"]
+
+    assert len(symbols) == 1
+    assert symbols[0]["start"] == 1
+    assert symbols[0]["end"] == 5
+    assert symbols[0]["name"].count(",") == 2
+
+
+def test_the_at_rules_keep_their_prelude_and_their_children_stay_flat():
+    """``@media`` ו-``@supports`` הם העיקר, וההשתייכות נקראת מהטווח.
+
+    הבן אינו מקבל תחילית — אותה החלטה שנקבעה ל-HTML: מי שרוצה לדעת למה
+    הוא שייך קורא את טווח השורות, ולא שם מנוקד שיתארך בכל רמה.
+    """
+    text = (
+        "@media (max-width: 768px) {\n"
+        "  .card {\n"
+        "    display: none;\n"
+        "  }\n"
+        "}\n"
+        "@supports (display: grid) {\n"
+        "  .grid {\n"
+        "    display: grid;\n"
+        "  }\n"
+        "}\n"
+    )
+
+    assert [(row["name"], row["start"], row["end"]) for row in _css(text)["symbols"]] == [
+        ("@media (max-width: 768px)", 1, 5),
+        (".card", 2, 4),
+        ("@supports (display: grid)", 6, 10),
+        (".grid", 7, 9),
+    ]
+
+
+@pytest.mark.parametrize("keyword", ["@keyframes", "@-webkit-keyframes"])
+def test_the_steps_inside_keyframes_are_not_symbols(keyword):
+    """``0%`` ו-``to`` הם רעש ולא ניווט, ולכן צעד אינו סימבול.
+
+    **נמדד ב-CSSOM של Chromium 141.0.7390.37 ולא נכתב מהזיכרון:** הילדים
+    של ``@keyframes`` הם ``CSSKeyframeRule`` עם ``keyText`` ובלי
+    ``selectorText``, בזמן ש-``@media``, ``@supports``, ``@layer``,
+    ``@container`` ו-``@scope`` כולם מחזירים ``CSSStyleRule`` עם סלקטור.
+    באותה מדידה ``@-webkit-keyframes`` מופה לאותו ``CSSKeyframesRule``,
+    ולכן תחילית הספק מטופלת — ואינה ניחוש.
+    """
+    text = f"{keyword} spin {{\n  0% {{ opacity: 0 }}\n  to {{ opacity: 1 }}\n}}\n"
+
+    assert [(row["name"], row["start"], row["end"]) for row in _css(text)["symbols"]] == [
+        (f"{keyword} spin", 1, 4)
+    ]
+
+
+def test_a_minified_file_gives_every_block_the_one_line_it_sits_on():
+    """התנהגות מוצהרת, לא באג — וזו הסיבה שהיא כתובה גם בתיעוד.
+
+    קובץ ממוזער הוא שורה אחת, ולכן כל בלוק בו מתחיל ונגמר באותה שורה.
+    זה נכון: ה-``start``/``end`` מצביעים למקום שבו הבלוק באמת יושב,
+    והחוזה הוא שאפשר להמשיך מהם ל-``lines=``. סוכן שיראה מפה שכולה
+    "שורה 1" עלול להסיק שהסורק שבור, ולכן זה נאמר במפורש.
+
+    ``webapp/static/libs/pickr/nano.min.css`` הוא המקרה האמיתי: 9KB
+    בשורה אחת, שממנה יוצאים 61 בלוקים.
+    """
+    text = ".a{color:red}.b{color:blue}@media (min-width:1px){.c{color:teal}}"
+    symbols = _css(text)["symbols"]
+
+    assert len(symbols) == 4
+    assert {row["start"] for row in symbols} == {1}
+    assert {row["end"] for row in symbols} == {1}
+
+
+# ---------------------------------------------------------------------------
+# התפר: גוף של ``<style>`` נסרק על ידי סורק ה-CSS
+#
+# בתבניות של הפרויקט יושבות 13,297 שורות בתוך בלוקי ``<style>`` — כמעט
+# כמו בכל קובצי ה-CSS יחד — ו-``dashboard.html`` החזיר אותן קודם כסימבול
+# אחד בן 1,442 שורות. זה בדיוק הכשל ש-``<script>`` תוקן ממנו.
+# ---------------------------------------------------------------------------
+
+
+def test_a_style_block_is_a_map_and_not_just_a_boundary():
+    """הקריטריון של התפר, על התבנית האמיתית.
+
+    ``base.html`` מחזיק את מקור האמת של טוקני הערכה: ה-``:root`` הגלובלי
+    ושבעת בלוקי ``:root[data-theme="..."]`` יושבים בתוך בלוק ``<style>``
+    בתוך התבנית ולא בקובץ CSS. עד שהתפר נחבר, "איפה ``--primary``
+    מוגדר" לא היה נגיש לאף אחד מהסורקים.
+    """
+    path = _TEMPLATES / "base.html"
+    if not path.exists():  # pragma: no cover
+        pytest.skip("base.html לא קיים")
+    text = path.read_text(encoding="utf-8")
+
+    symbols = extract_outline(text, str(path))["symbols"]
+    blocks = [row for row in symbols if row["name"].startswith("style")]
+    biggest = max(blocks, key=lambda row: row["end"] - row["start"])
+
+    assert biggest["end"] - biggest["start"] > 200, "הקובץ השתנה — אין בלוק גדול"
+
+    inside = _inside(text, "style")
+    within = [row for row in inside if biggest["start"] < row["start"] <= biggest["end"]]
+
+    assert len(within) >= 10, f"{biggest} הוחזר כבלוק אטום"
+
+    roots = {row["name"] for row in within if row["name"].startswith(":root")}
+
+    assert ":root" in roots, "ה-:root הגלובלי אינו במפה"
+    assert any('data-theme="dark"' in name for name in roots), "בלוקי הערכה אינם במפה"
+
+
+#: תגית שגוף האלמנט שלה אינו נפרס כ-HTML. **הרשימה נמדדה ב-Chromium
+#: 141.0.7390.37 ולא נכתבה מהזיכרון:** ``<style>`` שיושב בתוך גוף של
+#: ``script``, ``textarea`` או ``title``, וכן בתוך הערת HTML, נותן
+#: ``document.querySelectorAll("style").length == 0`` — כלומר הוא אינו
+#: אלמנט סגנון בכלל, אלא טקסט.
+_RAWTEXT_BODY = re.compile(
+    r"<(script|textarea|title)\b[^>]*>.*?(?:</\1|\Z)", re.IGNORECASE | re.DOTALL
+)
+_HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
+_STYLE_OPENING = re.compile(r"<style\b[^>]*>", re.IGNORECASE)
+_DECLARED_TYPE = re.compile(r"""\btype\s*=\s*["']?([^"'>]*)""", re.IGNORECASE)
+
+
+def _style_bodies(text):
+    """גוף כל בלוק ``<style>`` בתבנית שהדפדפן באמת מחיל.
+
+    **שני סינונים, ושניהם נמדדו בדפדפן ולא הונחו.**
+
+    הראשון: רג'קס על הטקסט הגולמי הוא **חסם עליון ולא ספירה מדויקת**,
+    בדיוק כמו חסם ה-``id="`` ב-HTML. ``admin_observability.html`` מכיל
+    ``<style>`` בתוך template literal של JavaScript, ושם הוא מחרוזת
+    ולא אלמנט — הסורק צודק שהוא אינו מדווח אותו, והמונה הוא זה שהיה
+    שגוי. האזורים המנוטרלים נמדדו: הערת HTML, ``script``, ``textarea``
+    ו-``title``, כולם מחזירים אפס אלמנטי סגנון.
+
+    השני: ``type`` שאינו ``text/css`` אינו יוצר גיליון סגנון, וגם
+    ``text/css; charset=utf-8`` אינו — פרמטרים נדחים.
+
+    **הגבולות נגזרים מהטקסט הגולמי ולא מהסימבולים שהסורק החזיר**, וזו
+    כל הנקודה: מונה ששואב את הגבולות מהמימוש מעמיד את שני צידי ההשוואה
+    על מקור אחד, וקריסה חלקית עוברת אותו בשקט. הנטרול נכתב כאן בנפרד
+    ואינו נקרא מהמימוש.
+    """
+    masked = list(text)
+    for pattern in (_HTML_COMMENT, _RAWTEXT_BODY):
+        for found in pattern.finditer(text):
+            masked[found.start():found.end()] = " " * (found.end() - found.start())
+    masked = "".join(masked)
+
+    for found in _STYLE_OPENING.finditer(masked):
+        declared = _DECLARED_TYPE.search(found.group(0))
+        if declared and declared.group(1).strip().casefold() not in {"", "text/css"}:
+            continue
+        closing = re.search(r"</style", text[found.end():], re.IGNORECASE)
+        stop = found.end() + (closing.start() if closing else len(text))
+        yield text[found.end():stop]
+
+
+def test_the_style_blocks_hold_exactly_the_css_blocks_that_are_in_them():
+    """מונה התפר, על כל התבניות: כל ``{`` מבני בגוף ``<style>`` הוא סימבול.
+
+    ההשוואה מדויקת ולא חסם, כשצעדי ``@keyframes`` נספרים בנפרד — הם
+    אינם סימבולים.
+    """
+    for path in _templates():
+        text = path.read_text(encoding="utf-8")
+        expected = 0
+        for body in _style_bodies(text):
+            blocks = _structural_blocks(body)
+            expected += len(blocks) - _keyframe_steps(blocks)
+
+        found = _inside(text, "style")
+
+        assert len(found) == expected, (
+            f"{path.name}: {len(found)} סימבולים בבלוקי style "
+            f"מול {expected} בלוקים בטקסט הגולמי"
+        )
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [
+        pytest.param('type="text/plain"', id="plain"),
+        pytest.param('type="text/css; charset=utf-8"', id="css-with-parameters"),
+    ],
+)
+def test_a_style_block_that_the_browser_does_not_apply_is_not_scanned(declared):
+    """**נמדד ב-Chromium 141.0.7390.37, ולא נכתב מהזיכרון.**
+
+    ``type="text/plain"`` אינו יוצר ``sheet`` בכלל, ו-
+    ``type="text/css; charset=utf-8"`` **גם הוא לא** — פרמטרים נדחים,
+    בדיוק כמו ב-essence match של ``<script>``. השני הוא זה שהיה נכתב
+    שגוי מהזיכרון.
+    """
+    text = f"<style {declared}>\n.card {{\n  color: red;\n}}\n</style>\n"
+    symbols = extract_outline(text, "page.html")["symbols"]
+
+    assert [row["name"] for row in symbols] == ["style"]
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [
+        pytest.param("", id="absent"),
+        pytest.param('type=""', id="empty"),
+        pytest.param('type="text/css"', id="css"),
+        pytest.param('type="TEXT/CSS"', id="mixed-case"),
+    ],
+)
+def test_a_style_block_the_browser_does_apply_is_scanned(declared):
+    """בקרה הפוכה, מאותה מדידה: ארבעת המקרים שכן יוצרים ``sheet``."""
+    text = f"<style {declared}>\n.card {{\n  color: red;\n}}\n</style>\n"
+    symbols = extract_outline(text, "page.html")["symbols"]
+
+    assert [row["name"] for row in symbols] == ["style", ".card"]
+
+
+def test_the_css_inside_a_style_block_with_an_id_carries_the_prefix():
+    """אותו מודל שנקבע ל-JavaScript, בלי סטייה.
+
+    בלוק בלי ``id`` ← שמות שטוחים; בלוק עם ``id`` ← התחילית נושאת מידע
+    אמיתי, בדיוק כמו ``script#x.initColors``. נמדד: אף אחד מהסלקטורים
+    בששת בלוקי ה-``<style id=>`` בתבניות אינו מתחיל בנקודה, ולכן צורת
+    ``style#x..card`` היא אפשרית אך אינה קיימת — והשם הוא תווית
+    ל-``symbol=``, לא מבנה שנפרס.
+    """
+    text = '<style id="theme">\n:root {\n  --primary: red;\n}\n</style>\n'
+
+    assert [row["name"] for row in extract_outline(text, "page.html")["symbols"]] == [
+        "style#theme",
+        "style#theme.:root",
+    ]
+
+
+def test_a_style_tag_written_inside_a_javascript_string_is_not_a_style_block():
+    """``<style>`` בתוך גוף ``<script>`` הוא טקסט, לא אלמנט.
+
+    **זה מקרה אמיתי בקורפוס ולא סינתטי**, והוא נתפס על ידי מונה התפר:
+    ``admin_observability.html`` בונה מסמך להדפסה בתוך template literal,
+    ובו ``<style>`` עם שלושה כללים. סורק שמזהה אותו כאלמנט מדווח שלושה
+    סימבולים שאינם CSS של העמוד הזה בכלל.
+
+    **אומת ב-Chromium 141.0.7390.37, ולא נכתב מהזיכרון:**
+    ``document.querySelectorAll("style").length`` הוא 0 כאן — וגם בתוך
+    הערת HTML, ``<textarea>`` ו-``<title>``. במסמך שמכיל את שני המקרים
+    יחד חל רק הכלל שמחוץ למחרוזת.
+    """
+    text = (
+        "<style>\n.real {\n  color: red;\n}\n</style>\n"
+        "<script>\n"
+        "  const html = `\n"
+        "    <style>\n"
+        "      body { font-family: sans-serif }\n"
+        "      h1 { border-bottom: 1px solid #ccc }\n"
+        "    </style>`;\n"
+        "</script>\n"
+    )
+
+    names = [row["name"] for row in extract_outline(text, "page.html")["symbols"]]
+
+    assert names == ["style", ".real", "script"]
+
+
+def test_the_seam_counter_can_actually_fail():
+    """מונה שאינו מסוגל להפיל מימוש שגוי אינו ראיה.
+
+    כאן ה"מימוש השגוי" הוא בדיוק זה שכן היה: רג'קס על הטקסט הגולמי,
+    בלי לנטרל את גוף ה-``<script>``. הוא מוצא בלוק ``<style>`` שאינו
+    אלמנט, והמונה חייב לצאת שונה מהמונה הנכון.
+    """
+    text = (
+        "<style>\n.real {\n  color: red;\n}\n</style>\n"
+        "<script>\n  const html = `<style>body { color: red }</style>`;\n</script>\n"
+    )
+
+    correct = sum(len(_structural_blocks(body)) for body in _style_bodies(text))
+    naive = 0
+    for found in _STYLE_OPENING.finditer(text):
+        closing = re.search(r"</style", text[found.end():], re.IGNORECASE)
+        stop = found.end() + (closing.start() if closing else len(text))
+        naive += len(_structural_blocks(text[found.end():stop]))
+
+    assert correct == 1
+    assert naive == 2, "המונה הנאיבי אינו שונה — כלומר הבדיקה אינה ראיה"
+    assert len(_inside(text, "style")) == correct
+
+
+def test_a_real_css_file_goes_through_the_tool_paginated_and_within_budget():
+    """הצרכן נוגע בזה דרך ``codekeeper_get_repo_file``, ולא דרך החילוץ.
+
+    שם יש עימוד ותקציב בתים שאינם בסורק בכלל. ``repo-browser.css`` הוא
+    קובץ העימוד האמיתי — הגדול בקורפוס — ולכן עמוד ברירת המחדל שלו
+    חייב לחזור מלא, בלי לחרוג מהתקציב, ובלי חורים בין העמודים.
+    """
+    import json
+
+    path = _REPO_ROOT / "webapp" / "static" / "css" / "repo-browser.css"
+    if not path.exists():  # pragma: no cover
+        pytest.skip("repo-browser.css לא קיים")
+    text = path.read_text(encoding="utf-8")
+    backend = _backend(text)
+
+    first = repo_handlers.get_repo_file(
+        backend, repo="r", path="repo-browser.css", outline=True
+    )
+
+    assert first["status"] == "outline"
+    assert first["total"] == len(_css(text)["symbols"])
+    assert len(first["symbols"]) == repo_handlers.OUTLINE_PER_PAGE_DEFAULT
+
+    serialized = json.dumps(first["symbols"], ensure_ascii=False).encode("utf-8")
+
+    assert len(serialized) <= repo_handlers.OUTPUT_BYTE_BUDGET
+
+    pages = -(-first["total"] // repo_handlers.OUTLINE_PER_PAGE_DEFAULT)
+    walked = []
+    for page in range(1, pages + 1):
+        walked += repo_handlers.get_repo_file(
+            backend, repo="r", path="repo-browser.css", outline=True, page=page
+        )["symbols"]
+
+    assert len(walked) == first["total"]
+
+
+def test_a_widest_page_of_a_real_css_file_still_fits_the_budget():
+    """התקרה הגדולה, על הקובץ שנושא את השמות הארוכים.
+
+    השם הארוך ביותר בקורפוס הוא 774 בתים ויושב כאן, ולכן זה הקובץ שבו
+    ``per_page`` המקסימלי הוא הסיכון האמיתי — לא ספירת הסימבולים.
+    """
+    import json
+
+    path = _REPO_ROOT / "webapp" / "static" / "css" / "repo-browser.css"
+    if not path.exists():  # pragma: no cover
+        pytest.skip("repo-browser.css לא קיים")
+
+    out = repo_handlers.get_repo_file(
+        _backend(path.read_text(encoding="utf-8")),
+        repo="r",
+        path="repo-browser.css",
+        outline=True,
+        per_page=repo_handlers.OUTLINE_PER_PAGE_MAX,
+    )
+
+    assert out["status"] == "outline"
+    serialized = json.dumps(out["symbols"], ensure_ascii=False).encode("utf-8")
+    assert len(serialized) <= repo_handlers.OUTPUT_BYTE_BUDGET
+
+
+@pytest.mark.parametrize(
+    ("label", "text"),
+    [
+        pytest.param("whitespace", " " * 40_000 + ".a {\n}\n", id="whitespace"),
+        pytest.param("comments", "/* x */" * 8_000 + ".a {\n}\n", id="comments"),
+        pytest.param("braces", "{" * 20_000, id="braces"),
+        pytest.param("url", "url(" * 20_000, id="unclosed-url"),
+    ],
+)
+def test_a_pathological_input_stays_linear(label, text):
+    """הרג'קסים בסורק נמדדים על קלט פתולוגי ולא מונחים.
+
+    ``\\s+`` בנרמול השם הוא החשוד היחיד כאן, ורצף ארוך של רווחים הוא
+    בדיוק הקלט שמפעיל אותו. הסף רחב בכוונה — הוא מפריד בין לינארי לבין
+    התנהגות ריבועית, ולא מודד ביצועים.
+    """
+    started = time.perf_counter()
+    result = _css(text)
+    elapsed = time.perf_counter() - started
+
+    assert result["status"] == "ok"
+    assert elapsed < 2.0, f"{label}: {elapsed:.2f} שניות"
+
+
+def test_a_block_without_a_name_is_not_a_symbol():
+    """שם ריק אינו מזהה, ולכן בלוק בלי prelude מושמט ולא מדווח.
+
+    זה אינו קיים ב-CSS תקין — נמדד אפס בקורפוס — אבל בקלט פגום הוא
+    אפשרי, ושם דיווח היה גרוע מהשמטה: ``symbol=`` לא ימצא שם ריק, והוא
+    תופס מקום בעמוד בלי לומר דבר. **וההשמטה אינה מזיזה את מה שאחריו.**
+    """
+    text = "{\n  color: red;\n}\n.after {\n  color: red;\n}\n"
+
+    rows = [(row["name"], row["start"], row["end"]) for row in _css(text)["symbols"]]
+
+    assert rows == [(".after", 4, 6)]
+
+
+def test_a_block_that_is_never_closed_is_reported_to_the_last_line():
+    """התשובה הכנה על קובץ באמצע עריכה: הבלוק באמת לא נסגר.
+
+    ערוץ הכשל הוא ערך ההחזרה ולא חריגה, ולכן זה ``status: ok`` עם מפה
+    חלקית — בדיוק מה שדפדפן עושה, ובדיוק מה שסורק ה-HTML עושה לתגית
+    שלא נסגרה.
+    """
+    result = _css(".a {\n  color: red;\n")
+
+    assert result["status"] == "ok"
+    assert [(row["name"], row["start"], row["end"]) for row in result["symbols"]] == [
+        (".a", 1, 3)
+    ]

@@ -6,14 +6,15 @@
 ומחזיר מספרי שורות שאינם במקום שבו הטקסט באמת יושב. סורק טוקנים שטוח לא
 מנסה לאזן, ולכן גם לא משקר.
 
-**מספר השורה נגזר מהאינדקס ואינו מתוחזק תוך כדי ריצה.** ``_line_table``
-בונה פעם אחת את המיקומים של כל ``\\n``, ו-``_line_at`` גוזר מהם. הגרסה
-הקודמת החזיקה מונה שהתקדם על כל ``\\n`` שנצרך — ושלוש קפיצות שהזיזו את
-האינדקס ביותר מתו אחד עקפו אותו: דילוג על ``\\`` במחרוזת וב-regex (שבולע
-גם ``\\`` שאחריו שורה חדשה אמיתית, המשך שורה חוקי ב-JS), והמעבר ל-
-``match.end()`` אחרי התאמה שחצתה שורות. התוצאה הייתה מספרי שורה שגויים
-שחזרו ללקוח עם ``status: "ok"``, והסחף נשאר עד סוף בלוק הסקריפט. אחרי
-השינוי אין ספירה שאפשר לדלג עליה, ולכן זה לא יכול לחזור.
+**מספר השורה נגזר מהאינדקס ואינו מתוחזק תוך כדי ריצה** — ראו
+``_lines.py``, שם ההיגיון והמדידה. הגרסה הקודמת החזיקה מונה שהתקדם על כל
+``\\n`` שנצרך, ושלוש קפיצות שהזיזו את האינדקס ביותר מתו אחד עקפו אותו.
+
+**גוף של ``<script>`` ושל ``<style>`` נסרק על ידי תת-סורק**, וזה מה שהופך
+בלוק בן אלף שורות ממפה שאין בה מה למצוא למפה שאפשר לנווט בה. בתבניות של
+הפרויקט הזה יושבות 13,297 שורות בתוך בלוקי ``<style>`` — כמעט כמו בכל
+קובצי ה-CSS יחד — ו-``dashboard.html`` החזיר אותן קודם כסימבול אחד בן
+1,442 שורות.
 
 השמות שטוחים ולא מנוקדים: ב-HTML אין מרחבי שמות, ו-``div`` בעומק שתים-עשרה
 אינו שם משמעותי. התחילית נוספת רק כשיש עוגן אמיתי — ``id`` על בלוק
@@ -26,10 +27,11 @@
 from __future__ import annotations
 
 import re
-from array import array
-from bisect import bisect_left
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, NamedTuple
+
+from . import css as _css
+from ._lines import line_at, line_table
 
 #: אלמנטים שאין להם תגית סגירה, ולכן אסור לדחוף אותם למחסנית — אחרת הם
 #: לא ייסגרו לעולם ויסיטו את שורת ה-``end`` של כל מה שמעליהם.
@@ -136,43 +138,13 @@ _JS_ASSIGNED = re.compile(
 #: המצב הזה המרכאה הייתה פותחת מחרוזת ובולעת את הקוד שאחריה.
 _BEFORE_DIVISION = re.compile(r"[\w$)\]]")
 
-_NEWLINE = re.compile("\n")
-
-
-def _line_table(text: str) -> Sequence[int]:
-    """המיקומים של כל ``\\n`` בטקסט.
-
-    זו הטבלה שממנה נגזר כל מספר שורה שהמפה מחזירה. הבנייה היא מעבר אחד:
-    נמדד על קובץ של 10MB, התקרה ש-``RANGE_READ_MAX_BYTES`` מתיר, 0.16
-    שניות ו-250,752 רשומות.
-
-    **``array`` ולא ``list``, ובגלל הזיכרון.** רשימה מחזיקה מצביע ואובייקט
-    ``int`` נפרד לכל רשומה — נמדד 8.7MB על אותו קובץ, כלומר תוספת בגודל
-    הקלט עצמו. ``array("q")`` מחזיק שמונה בתים לרשומה ויוצא 1.9MB.
-    ``bisect`` עובד על שניהם. ``"q"`` ולא ``"i"`` (שהיה 1.0MB) כדי שלא
-    ייווצר גבול חדש שצריך להצדיק: ``"i"`` נגמר ב-2GB וזורק ``OverflowError``
-    מעליו, ומיליון בתים אינם שווים את השאלה.
-    """
-    return array("q", (found.start() for found in _NEWLINE.finditer(text)))
-
-
-def _line_at(lines: Sequence[int], index: int) -> int:
-    """מספר השורה (מבסיס 1) של המיקום ``index``.
-
-    ``bisect_left`` ולא ``bisect_right``: התוצאה היא מספר ה-``\\n`` שיושבים
-    **לפני** ``index``, ולכן ``\\n`` עצמו שייך לשורה שהוא מסיים. זה בדיוק
-    ``text.count("\\n", 0, index) + 1``, כלומר אותו מיפוי ש-``split("\\n")``
-    נותן — והוא זה שמסלול קריאת הטווח משתמש בו.
-    """
-    return bisect_left(lines, index) + 1
-
 
 def extract(text: str) -> dict[str, Any]:
     """מפת הסימבולים של תבנית HTML/Jinja."""
     rows: list[dict[str, Any]] = []
     tags: list[tuple[str, int, str | None]] = []
     jinja: list[tuple[str, int, str]] = []
-    lines = _line_table(text)
+    lines = line_table(text)
     index = 0
     size = len(text)
 
@@ -197,7 +169,7 @@ def extract(text: str) -> dict[str, Any]:
                 # עם השבורה.
                 index += 2
                 continue
-            _read_jinja(text[index + 2 : stop - 2], _line_at(lines, index), rows, jinja)
+            _read_jinja(text[index + 2 : stop - 2], line_at(lines, index), rows, jinja)
             index = stop
             continue
         if text.startswith("{{", index):
@@ -212,7 +184,7 @@ def extract(text: str) -> dict[str, Any]:
 
     # תגיות שנשארו פתוחות בסוף הקובץ. זה הכתיב הרגיל בתבנית שנפתחת בענף
     # אחד ונסגרת באחר, ולכן הן מדווחות עד סוף הקובץ ולא נזרקות.
-    last = _line_at(lines, size)
+    last = line_at(lines, size)
     for name, opened, anchor in tags:
         if anchor:
             rows.append({"name": f"{name}#{anchor}", "start": opened, "end": last})
@@ -317,7 +289,7 @@ def _read_tag(
     stack: list[tuple[str, int, str | None]],
 ) -> int:
     """קורא תגית אחת מ-``<``. מחזיר את המיקום שאחריה."""
-    line = _line_at(lines, index)
+    line = line_at(lines, index)
 
     if text.startswith("</", index):
         name = _TAG_NAME.match(text, index + 2)
@@ -340,7 +312,7 @@ def _read_tag(
         body_rows, after, after_line = _read_rawtext(
             text, stop, lines, tag,
             prefix=f"{label}." if anchor else "",
-            javascript=tag == "script" and _is_javascript(attributes),
+            reader=_body_reader(tag, attributes),
         )
         rows.append({"name": label, "start": line, "end": after_line})
         rows.extend(body_rows)
@@ -349,7 +321,7 @@ def _read_tag(
     if tag not in _VOID_ELEMENTS and not self_closing:
         stack.append((tag, line, anchor))
     elif anchor:
-        rows.append({"name": f"{tag}#{anchor}", "start": line, "end": _line_at(lines, stop)})
+        rows.append({"name": f"{tag}#{anchor}", "start": line, "end": line_at(lines, stop)})
 
     return stop
 
@@ -482,8 +454,50 @@ def _is_javascript(attributes: list[tuple[str, str]]) -> bool:
     return normalized in {"", "module"} or normalized in _JAVASCRIPT_MIME_ESSENCES
 
 
+#: ה-MIME type היחיד שגורם ל-``<style>`` להיות CSS. **נמדד ולא נכתב
+#: מהזיכרון**, ב-Chromium 141.0.7390.37: ``type="text/plain"`` אינו יוצר
+#: ``sheet`` בכלל, ו-``type="text/css; charset=utf-8"`` **גם הוא לא** —
+#: פרמטרים נדחים, בדיוק כמו ב-essence match של ``<script>``. היעדר
+#: ``type`` ו-``type=""`` כן חלים, וההשוואה אינה תלוית רישיות.
+#:
+#: בתבניות של הפרויקט אין היום אף ``<style type=...>``, ולכן זו התאמה
+#: לשפה ולא לקורפוס — כמו שאר המקרים כאן.
+_CSS_MIME_ESSENCE = "text/css"
+
+
+def _is_css(attributes: list[tuple[str, str]]) -> bool:
+    """האם גוף ה-``<style>`` הזה הוא CSS שראוי לרדת לתוכו."""
+    declared = _attribute(attributes, "type")
+    if declared is None:
+        return True
+    return declared.strip().casefold() in {"", _CSS_MIME_ESSENCE}
+
+
+#: מי סורק את גוף הבלוק. ``None`` פירושו שלא יורדים לתוכו — הבלוק מדווח
+#: כגבול, וזו התשובה הנכונה ל-data block שהדפדפן אינו מריץ.
+_BodyReader = Callable[[str, int, int, Sequence[int], str], list[dict[str, Any]]]
+
+
+def _body_reader(tag: str, attributes: list[tuple[str, str]]) -> _BodyReader | None:
+    """בוחר את תת-הסורק לגוף של ``<script>`` או ``<style>``.
+
+    ההחלטה נגזרת מהתכונות **המפורסות** ולא מהמחרוזת הגולמית, וזה מה
+    שמונע מ-``type=`` שיושב בתוך ערך של תכונה אחרת להכריע אותה.
+    """
+    if tag == "script":
+        return _read_javascript if _is_javascript(attributes) else None
+    if tag == "style":
+        return _css.read_blocks if _is_css(attributes) else None
+    return None
+
+
 def _read_rawtext(
-    text: str, start: int, lines: Sequence[int], tag: str, prefix: str, javascript: bool
+    text: str,
+    start: int,
+    lines: Sequence[int],
+    tag: str,
+    prefix: str,
+    reader: _BodyReader | None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """קורא גוף של ``<script>`` או ``<style>`` עד תגית הסגירה שלו.
 
@@ -504,11 +518,12 @@ def _read_rawtext(
     stop = found.start() if found else len(text)
     after = _skip_past(text, stop, ">")
 
-    # ``_read_javascript`` מקבל את הטקסט עם גבולות ולא פרוסה שלו: פרוסה
-    # היא מרחב אינדקסים אחר, וטבלת השורות אחת לכל הקובץ. זה גם חוסך
-    # עותק של עד 10MB לכל תגית.
-    rows = _read_javascript(text, start, stop, lines, prefix) if javascript else []
-    return rows, after, _line_at(lines, after)
+    # תת-הסורק מקבל את הטקסט עם גבולות ולא פרוסה שלו: פרוסה היא מרחב
+    # אינדקסים אחר, וטבלת השורות אחת לכל הקובץ. זה גם חוסך עותק של עד
+    # 10MB לכל תגית. שני תת-הסורקים חולקים את החתימה הזאת בדיוק, וזה מה
+    # שמאפשר לבחור ביניהם בלי ענף בתוך הקורא.
+    rows = reader(text, start, stop, lines, prefix) if reader else []
+    return rows, after, line_at(lines, after)
 
 
 class _Pending(NamedTuple):
@@ -620,7 +635,7 @@ def _read_javascript(
                 done = pending.pop()
                 rows.append({
                     "name": f"{prefix}{done.name}", "start": done.opened,
-                    "end": _line_at(lines, index),
+                    "end": line_at(lines, index),
                 })
             index += 1
             continue
@@ -657,7 +672,7 @@ def _read_javascript(
                 done = pending.pop()
                 rows.append({
                     "name": f"{prefix}{done.name}", "start": done.opened,
-                    "end": _line_at(lines, index),
+                    "end": line_at(lines, index),
                 })
         elif char.isalpha() or char in "_$":
             # ``adjacent`` הוא התו ה**צמוד** ולא הטוקן האחרון. שני
@@ -680,7 +695,7 @@ def _read_javascript(
                 # ה-``=>``, ולכן קורא-קדימה שמדלג גם הערות.
                 pending.append(_Pending(
                     name=match.group("name"),
-                    opened=_line_at(lines, index),
+                    opened=line_at(lines, index),
                     body_depth=-1,
                     parens=parens,
                     awaits_brace=(
@@ -697,7 +712,7 @@ def _read_javascript(
         index += 1
 
     # פונקציות שלא נסגרו עד סוף הבלוק.
-    last = _line_at(lines, stop)
+    last = line_at(lines, stop)
     for waiting in pending:
         rows.append({"name": f"{prefix}{waiting.name}", "start": waiting.opened, "end": last})
     return rows

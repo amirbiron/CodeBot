@@ -22,6 +22,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from .outline_scanners import css as _css
 from .outline_scanners import html as _html
 from .outline_scanners import python as _python
 
@@ -47,6 +48,7 @@ _SCANNERS: dict[str, Callable[[str], dict[str, Any]]] = {
     ".jinja": _html.extract,
     ".jinja2": _html.extract,
     ".j2": _html.extract,
+    ".css": _css.extract,
 }
 
 
