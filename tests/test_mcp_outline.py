@@ -107,6 +107,13 @@ def _count_definitions_by_tokenize(text: str) -> int:
     )
 
 
+#: **הנתיבים נגזרים מהקובץ הזה ולא מספריית העבודה.** כשהם היו יחסיים,
+#: הרצה מספרייה אחרת לא נכשלה — היא **דילגה**: נמדד, 124 עוברים ו-17
+#: מדולגים במקום 141, והחבילה דיווחה ירוק. בין המדולגים היו שלושת המונים
+#: שרצים על כל התבניות, כלומר כל ההגנה על הבאגים שתוקנו כאן נעלמה בשקט.
+#: זו המוסכמה שכבר קיימת בריפו, ראו ``tests/test_dashboard_admin_repos.py``.
+_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
 _REAL_FILES = [
     "mcp_server/server.py",
     "mcp_server/repo_backend.py",
@@ -123,7 +130,7 @@ def test_the_outline_finds_every_definition_in_a_real_file(relative):
     היא רצה על קבצי הריפו עצמם ולא על דוגמאות, כי שני הפערים התגלו
     דווקא במבנים שקיימים כאן ולא במבנים שחשבתי עליהם.
     """
-    path = pathlib.Path(relative)
+    path = _REPO_ROOT / relative
     if not path.exists():  # pragma: no cover - הריפו תמיד מכיל אותם
         pytest.skip(f"{relative} לא קיים")
     text = path.read_text(encoding="utf-8")
@@ -209,7 +216,7 @@ def test_real_duplicate_names_in_the_repo_are_not_collapsed():
     הטסט נגזר מהסימבולים עצמם ולא ננעל על שם ספציפי: ``app.py`` משתנה,
     והתכונה שנבדקת היא שאף שלב לא ממפתח לפי שם — לא איזה שם במקרה כפול.
     """
-    path = pathlib.Path("webapp/app.py")
+    path = _REPO_ROOT / "webapp" / "app.py"
     if not path.exists():  # pragma: no cover
         pytest.skip("webapp/app.py לא קיים")
 
@@ -245,7 +252,7 @@ def test_symbols_are_ordered_by_start_line():
 
 def test_the_order_is_stable_across_calls():
     """עימוד בלי סדר יציב הוא באג ממתין: סימבול יכול לדלג בין עמודים."""
-    path = pathlib.Path("webapp/app.py")
+    path = _REPO_ROOT / "webapp" / "app.py"
     if not path.exists():  # pragma: no cover
         pytest.skip("webapp/app.py לא קיים")
     text = path.read_text(encoding="utf-8")
@@ -1014,7 +1021,7 @@ def test_a_leading_comment_does_not_drag_an_undecorated_symbol_backwards():
 # ומחזיר שורות שאינן במקום; סורק טוקנים שטוח לא מנסה לאזן ולכן לא משקר.
 # ---------------------------------------------------------------------------
 
-_TEMPLATES = pathlib.Path("webapp/templates")
+_TEMPLATES = _REPO_ROOT / "webapp" / "templates"
 
 
 def _html(text, **kw):
@@ -1516,9 +1523,18 @@ def test_an_assignment_of_a_call_result_is_not_reported_as_a_function():
 
 
 def _templates():
+    """כל התבניות. **תיקייה שקיימת ומחזירה אפס קבצים היא כישלון, לא דילוג.**
+
+    דילוג הוא הדבר הנכון רק כשאין תיקיית תבניות בכלל — למשל בהתקנה
+    חלקית. תיקייה שקיימת וריקה פירושה שמשהו נשבר, ודילוג עליה מחביא
+    בדיוק את מה שהמונים שלמטה קיימים כדי לתפוס.
+    """
+    if not _TEMPLATES.is_dir():  # pragma: no cover - הריפו תמיד מכיל אותה
+        pytest.skip(f"{_TEMPLATES} אינה קיימת")
     found = sorted(_TEMPLATES.rglob("*.html"))
-    if not found:  # pragma: no cover
-        pytest.skip("אין תבניות")
+
+    assert found, f"{_TEMPLATES} קיימת אך אין בה תבניות"
+
     return found
 
 
@@ -1902,3 +1918,104 @@ def test_a_jinja_block_closed_over_by_an_ancestor_is_reported_and_not_dropped():
     assert _html("{% if a %}\n{% block x %}\ntext\n")["symbols"] == [
         {"name": "block x", "start": 2, "end": 4}
     ]
+
+
+# ---------------------------------------------------------------------------
+# שני ממצאי הריוויו על PR 1.2
+#
+# שניהם פרה-קיימים — הם היו שבורים גם לפני PR 1.2 — ושניהם אפס מופעים
+# בתבניות של הפרויקט. הם נכנסים כי הכלי משרת כל ריפו ממורר, וגם כי השני
+# הוא חור בהגנה ולא באג בפלט.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param("function foo()\n{\n  z();\n}\n", ("foo", 2, 5), id="declaration"),
+        pytest.param(
+            "const foo = function ()\n{\n  z();\n};\n", ("foo", 2, 5), id="expression"
+        ),
+        pytest.param("const foo = (a) =>\n{\n  z();\n};\n", ("foo", 2, 5), id="arrow"),
+        pytest.param(
+            "function foo()\n// why\n{\n  z();\n}\n", ("foo", 2, 6), id="line-comment"
+        ),
+        pytest.param(
+            "const foo = (a) =>\n/* why */\n{\n  z();\n};\n",
+            ("foo", 2, 6),
+            id="block-comment",
+        ),
+    ],
+)
+def test_a_body_brace_on_its_own_line_does_not_close_the_function_at_its_signature(
+    body, expected
+):
+    """סגנון Allman — ``{`` בשורה נפרדת — החזיר ``end == start``.
+
+    הענף שסוגר פונקציה בסוף שורה קיים בשביל חץ בלי גוף מסולסל
+    (``const f = x => x + 1``), שאין דבר אחר שיסגור אותו. הוא לא הבחין בין
+    "אין גוף מסולסל" לבין "הגוף מתחיל בשורה הבאה", ולכן שלוש הצורות —
+    הצהרה, ביטוי מוצב וחץ — חזרו כטווח באורך שורה אחת על פונקציה שלמה.
+
+    **הכלל אומת ב-Node 22.22.2 דרך ``new Function``, ולא נכתב מהזיכרון:**
+    ``function`` בכל צורותיו הוא ``SyntaxError`` בלי גוף בסוגריים
+    מסולסלים, ולכן צורה כזאת חייבת להמתין תמיד. רק חץ יכול בלי סוגריים.
+
+    **שני מקרי ההערה אינם קישוט.** באותה הרצה נמדד ש-
+    ``function foo()\\n// why\\n{\\n}`` הוא JavaScript **תקין**. ההצעה
+    המקורית — "אל תסגור אם התו הלא-רווח הבא הוא ``{``" — נכשלת עליו, כי
+    התו הבא הוא ``/``. לכן הקורא-קדימה מדלג גם הערות.
+    """
+    found = [row for row in _definitions(f"<script>\n{body}</script>\n") if row[0] != "script"]
+
+    assert found == [expected]
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param("const f = x => x + 1;\n", ("f", 2, 2), id="expression-body"),
+        pytest.param("const f = (a, b = (1)) => a;\n", ("f", 2, 2), id="nested-parens"),
+        pytest.param("const f = a => foo(\n  1);\n", ("f", 2, 3), id="wrapped-call"),
+        pytest.param("function f() {\n  z();\n}\n", ("f", 2, 4), id="k-and-r"),
+    ],
+)
+def test_the_forms_that_do_end_on_their_line_still_do(body, expected):
+    """בקרה על תיקון-יתר, וזה הסיכון האמיתי של השינוי הזה.
+
+    חץ עם גוף ביטוי **חייב** להמשיך להיסגר בסוף השורה — אין לו ``{``
+    שיסגור אותו, ומימוש שיפסיק לסגור אותו יגרור אותו עד סוף הבלוק.
+
+    ``wrapped-call`` הוא המקרה שמראה למה מבחן הסוגריים העגולים עדיין
+    נחוץ לצד הדגל החדש: ``const f = a => foo(`` שנמשך לשורה הבאה הוא גוף
+    ביטוי שטרם נגמר, והסוגר הפתוח הוא מה שמונע סגירה מוקדמת.
+    """
+    found = [row for row in _definitions(f"<script>\n{body}</script>\n") if row[0] != "script"]
+
+    assert found == [expected]
+
+
+def test_the_templates_are_found_from_any_working_directory(monkeypatch, tmp_path):
+    """החור בהגנה עצמה, ולא באג בפלט — ולכן הוא החמור מהשניים.
+
+    ``_TEMPLATES`` היה נתיב **יחסי**, ולכן הרצה מספרייה אחרת לא נכשלה אלא
+    **דילגה**. נמדד: 124 עוברים ו-17 מדולגים במקום 141, והחבילה דיווחה
+    ירוק. בין המדולגים היו שלושת המונים שרצים על כל התבניות — כלומר כל
+    ההגנה שנבנתה על באגי הסורק נעלמה בשקט, ומי שהסתכל על הפלט ראה ירוק.
+
+    זה אותו דפוס שנתפס כאן כבר פעמיים: מונה שרץ על קובץ אחד במקום על כל
+    הקורפוס, ובדיקה שהתקיימה על מחרוזת ולא על האלמנט. **ירוק שאינו אומר
+    את מה שנראה שהוא אומר.**
+
+    הטענה היא על ``_TEMPLATES`` **ישירות** ולא דרך ``_templates()``, וזה
+    מכוון: על הקוד שלפני התיקון ``_templates()`` היה עושה ``skip`` אחרי
+    ה-``chdir``, והטסט הזה היה מדולג במקום ליפול — כלומר חוזר בדיוק על
+    הדפוס שהוא קיים כדי לתפוס.
+    """
+    expected = _templates()
+    assert expected, "לא נמצאו תבניות בכלל — הטסט איבד את מה שהוא בודק"
+
+    monkeypatch.chdir(tmp_path)
+
+    assert sorted(_TEMPLATES.rglob("*.html")) == expected
+    assert _templates() == expected

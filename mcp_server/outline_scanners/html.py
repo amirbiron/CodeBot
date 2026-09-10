@@ -29,7 +29,7 @@ import re
 from array import array
 from bisect import bisect_left
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 #: אלמנטים שאין להם תגית סגירה, ולכן אסור לדחוף אותם למחסנית — אחרת הם
 #: לא ייסגרו לעולם ויסיטו את שורת ה-``end`` של כל מה שמעליהם.
@@ -109,8 +109,13 @@ _ATTRIBUTE_NAME = re.compile(r"[^\s/>=]+")
 #: 0.63 שניות ל-10KB, 2.53 ל-20KB, 9.98 ל-40KB — פי ארבע לכל הכפלה. ``\s``
 #: כולל ``\n``, ולכן רצף שורות ריקות מספיק. הלולאה יושבת במנוע הרג'קס של
 #: CPython שמחזיק את ה-GIL, ואי אפשר לבטל אותה מבחוץ.
+#:
+#: **``kw`` היא קבוצה בשם ולא בדיקת טקסט.** ממנה נגזר "הצורה הזאת חייבת
+#: גוף בסוגריים מסולסלים", ראו ``_read_javascript``. בדיקה על צורת
+#: ``group(0)`` הייתה חוזרת בדיוק על הכשל שתוקן כאן קודם — גזירת מצב
+#: מהטקסט שהותאם במקום מעובדה מבנית על ההתאמה.
 _JS_FUNCTION = re.compile(
-    r"(?:async\s+)?function\s*(?:\*\s*)?([A-Za-z_$][\w$]*)(?=\s*\()"
+    r"(?:async\s+)?(?P<kw>function)\s*(?:\*\s*)?(?P<name>[A-Za-z_$][\w$]*)(?=\s*\()"
 )
 #: רשימת הפרמטרים מכבדת רמת קינון אחת של סוגריים, ולא ``[^)]*``. הצורה
 #: הרחבה התאימה ל-``const md = (a ? b : (()=>({x})))({`` — הצבה של תוצאת
@@ -121,8 +126,8 @@ _JS_FUNCTION = re.compile(
 #: את ``(…)`` כי בלעדיה אי אפשר לראות את ה-``=>``. שתיהן עובדות מול אותו
 #: כלל, כי בשנייה עומק הסוגריים חוזר לערכו עוד לפני סוף ההתאמה.
 _JS_ASSIGNED = re.compile(
-    r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
-    r"(?:async\s+)?(?:function\b|\((?:[^()]|\([^()]*\))*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)"
+    r"\b(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*"
+    r"(?:async\s+)?(?:(?P<kw>function)\b|\((?:[^()]|\([^()]*\))*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)"
 )
 
 #: תו שאחריו ``/`` הוא חילוק ולא תחילת regex. הכלל המקובל: אחרי מזהה,
@@ -506,6 +511,49 @@ def _read_rawtext(
     return rows, after, _line_at(lines, after)
 
 
+class _Pending(NamedTuple):
+    """הגדרת פונקציה שנרשמה וממתינה לגוף שלה.
+
+    ``body_depth`` הוא ``-1`` כל עוד הגוף לא התחיל. ``parens`` הוא עומק
+    הסוגריים העגולים **ברגע ההתאמה** — ה-``{`` פותח את הגוף רק כשחוזרים
+    אליו, וזה מה שמונע מ-``{`` שיושב בתוך רשימת הפרמטרים לפתוח גוף.
+    ``awaits_brace`` אומר שהצורה הזאת חייבת גוף בסוגריים מסולסלים, ולכן
+    אסור לסגור אותה בסוף שורה.
+
+    זה ``NamedTuple`` ולא טאפל רגיל כי חמישה שדות שניגשים אליהם לפי
+    מספר מיקום הם שבירות מיותרת בלולאה צפופה.
+    """
+
+    name: str
+    opened: int
+    body_depth: int
+    parens: int
+    awaits_brace: bool
+
+
+def _next_meaningful(text: str, index: int, stop: int) -> str:
+    """התו הבא שאינו רווח ואינו הערה, או מחרוזת ריקה אם אין כזה.
+
+    **הערות נספרות כרווח, וזה לא קישוט.** ``function foo()`` ואחריו
+    ``// why`` ואז ``{`` בשורה נפרדת הוא JavaScript תקין — אומת ב-Node
+    22.22.2 דרך ``new Function``. קורא-קדימה שמסתפק ב"התו הלא-רווח הבא"
+    היה רואה ``/`` ומחמיץ את הגוף.
+    """
+    while index < stop:
+        char = text[index]
+        if char.isspace():
+            index += 1
+        elif text.startswith("//", index):
+            found = text.find("\n", index)
+            index = stop if found < 0 else min(found, stop)
+        elif text.startswith("/*", index):
+            found = text.find("*/", index + 2)
+            index = stop if found < 0 else min(found + 2, stop)
+        else:
+            return char
+    return ""
+
+
 def _read_javascript(
     text: str, start: int, stop: int, lines: Sequence[int], prefix: str
 ) -> list[dict[str, Any]]:
@@ -532,10 +580,21 @@ def _read_javascript(
     עכשיו הלולאה סופרת ``parens`` תמיד, וכל פונקציה ממתינה זוכרת את
     ``parens`` שברגע ההתאמה. ה-``{`` פותח את הגוף רק כשחזרנו לערך ההוא.
     סוגר שלא נסגר מקלקל פונקציה אחת במקום בלוק שלם.
+
+    **וסגירה בסוף שורה חלה רק על מי שרשאי להיגמר שם.** הענף הזה קיים
+    בשביל חץ בלי גוף מסולסל (``const f = x => x + 1``), שאין דבר אחר
+    שיסגור אותו. אבל הוא לא הבחין בין "אין גוף מסולסל" לבין "הגוף מתחיל
+    בשורה הבאה", ולכן סגנון Allman — ``{`` בשורה נפרדת — החזיר
+    ``end == start`` על פונקציה שלמה, בשלוש הצורות.
+
+    ההבחנה נלקחת **ברגע ההתאמה** ונשמרת ב-``awaits_brace``, ולא נבדקת
+    שוב בכל שורה. אומת ב-Node 22.22.2 דרך ``new Function``: ``function``
+    בכל צורותיו — הצהרה, ביטוי, גנרטור, ``async`` — הוא **SyntaxError**
+    בלי גוף בסוגריים מסולסלים, ולכן צורה כזאת ממתינה תמיד. רק חץ יכול
+    בלי סוגריים, ואצלו ההמתנה נקבעת לפי מה שבא אחרי ה-``=>``.
     """
     rows: list[dict[str, Any]] = []
-    #: (שם, שורת הפתיחה, עומק הגוף או ``-1`` בהמתנה, עומק הסוגריים בהתאמה)
-    pending: list[tuple[str, int, int, int]] = []
+    pending: list[_Pending] = []
     depth = 0
     parens = 0
     index = start
@@ -547,13 +606,20 @@ def _read_javascript(
 
         if char == "\n":
             # ``const f = x => x + 1`` בלי גוף מסולסל נגמר בסוף השורה.
-            # הסגירה כאן היא רק למי שכבר יצא מרשימת הפרמטרים: פונקציה
-            # שהחתימה שלה נפרסת על כמה שורות עדיין ממתינה לגוף, ואסור
-            # לסגור אותה בסוף השורה הראשונה.
-            while pending and pending[-1][2] < 0 and parens <= pending[-1][3]:
-                name, opened, _, _ = pending.pop()
+            # שני תנאים חוסמים כאן, וכל אחד מהם נחוץ בפני עצמו:
+            # ``awaits_brace`` מוציא את מי שחייב גוף מסולסל או שגופו
+            # המסולסל מתחיל בשורה הבאה; ומבחן ה-``parens`` מוציא את מי
+            # שעדיין בתוך סוגריים פתוחים — ``const f = a => foo(`` שנמשך
+            # לשורה הבאה הוא גוף ביטוי שטרם נגמר.
+            while (
+                pending
+                and pending[-1].body_depth < 0
+                and not pending[-1].awaits_brace
+                and parens <= pending[-1].parens
+            ):
+                done = pending.pop()
                 rows.append({
-                    "name": f"{prefix}{name}", "start": opened,
+                    "name": f"{prefix}{done.name}", "start": done.opened,
                     "end": _line_at(lines, index),
                 })
             index += 1
@@ -583,15 +649,14 @@ def _read_javascript(
             depth += 1
             # פונקציה שממתינה לגוף (``-1``) מקבלת כאן את עומקה האמיתי —
             # אבל רק אם רשימת הפרמטרים כבר נסגרה.
-            if pending and pending[-1][2] < 0 and parens <= pending[-1][3]:
-                name, opened, _, at_match = pending.pop()
-                pending.append((name, opened, depth - 1, at_match))
+            if pending and pending[-1].body_depth < 0 and parens <= pending[-1].parens:
+                pending.append(pending.pop()._replace(body_depth=depth - 1))
         elif char == "}":
             depth -= 1
-            while pending and 0 <= pending[-1][2] >= depth:
-                name, opened, _, _ = pending.pop()
+            while pending and 0 <= pending[-1].body_depth >= depth:
+                done = pending.pop()
                 rows.append({
-                    "name": f"{prefix}{name}", "start": opened,
+                    "name": f"{prefix}{done.name}", "start": done.opened,
                     "end": _line_at(lines, index),
                 })
         elif char.isalpha() or char in "_$":
@@ -608,7 +673,21 @@ def _read_javascript(
             if match and not _BEFORE_DIVISION.match(adjacent):
                 # ``-1`` = "ממתין לגוף". ה-``{`` שיגיע כשעומק הסוגריים
                 # יחזור לערך שנשמר כאן הוא זה שיקבע את העומק.
-                pending.append((match.group(1), _line_at(lines, index), -1, parens))
+                #
+                # ``kw`` היא קבוצה בשם, כלומר עובדה מבנית על ההתאמה ולא
+                # בדיקה על צורת הטקסט שהותאם. צורת ``function`` חייבת גוף
+                # מסולסל לפי הדקדוק; אצל חץ צריך להסתכל מה בא אחרי
+                # ה-``=>``, ולכן קורא-קדימה שמדלג גם הערות.
+                pending.append(_Pending(
+                    name=match.group("name"),
+                    opened=_line_at(lines, index),
+                    body_depth=-1,
+                    parens=parens,
+                    awaits_brace=(
+                        match.group("kw") is not None
+                        or _next_meaningful(text, match.end(), stop) == "{"
+                    ),
+                ))
                 index = match.end()
                 token = "x"
                 continue
@@ -619,8 +698,8 @@ def _read_javascript(
 
     # פונקציות שלא נסגרו עד סוף הבלוק.
     last = _line_at(lines, stop)
-    for name, opened, _, _ in pending:
-        rows.append({"name": f"{prefix}{name}", "start": opened, "end": last})
+    for waiting in pending:
+        rows.append({"name": f"{prefix}{waiting.name}", "start": waiting.opened, "end": last})
     return rows
 
 
