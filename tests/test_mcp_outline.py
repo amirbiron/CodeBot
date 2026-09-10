@@ -2782,6 +2782,132 @@ def test_no_scanner_reaches_a_symbol_list_through_a_route_the_container_cannot_b
     )
 
 
+@pytest.mark.parametrize(
+    ("css", "in_a_template", "in_a_css_file"),
+    [
+        pytest.param(
+            ".a,\n{# c #}\n.b {\n  color: red;\n}\n",
+            [(".a, .b", 1, 5)],
+            [(".a,", 1, 2), (".b", 3, 5)],
+            id="inside-a-multi-line-prelude",
+        ),
+        pytest.param(
+            ".a, {# c #} .b {\n  color: red;\n}\n",
+            [(".a, .b", 1, 3)],
+            [(".a,", 1, 1), (".b", 1, 3)],
+            id="inside-a-prelude-on-one-line",
+        ),
+        pytest.param(
+            "{# TODO .x { #}\n.a {\n  color: red;\n}\n",
+            [(".a", 2, 4)],
+            [("# TODO .x", 1, 1), (".a", 2, 4)],
+            id="a-comment-holding-an-unbalanced-brace",
+        ),
+        pytest.param(
+            "{# don't #}\n.a {\n  color: red;\n}\n",
+            [(".a", 2, 4)],
+            [("# don't #} .a", 1, 4)],
+            id="a-comment-holding-an-apostrophe",
+        ),
+        pytest.param(
+            "@media print{#a{color:red}}\n.b{color:blue}\n",
+            [("@media printa", 1, 1), (".b", 2, 2)],
+            [("#a", 1, 1), ("@media print", 1, 1), (".b", 2, 2)],
+            id="minified-css-with-an-id-selector",
+        ),
+    ],
+)
+def test_a_jinja_comment_is_read_by_the_language_of_the_file(css, in_a_template, in_a_css_file):
+    """``{#`` הוא הערה בתבנית ובלוק פותח בקובץ ``.css``, ושתיהן נמדדו.
+
+    **אלה שני התווים היחידים שבהם שתי השפות מתנגשות באמת**, ואין תכונה
+    מקומית בטקסט שמפרידה ביניהן — ``{#a{`` ממוזער ו-``{# a #}`` נראים
+    זהים לכל בדיקה נקודתית. מה שמפריד הוא מי הקורא, וזה מידע שהסורק
+    כבר מחזיק.
+
+    **בקובץ** ``.css``: אומת ב-Chromium 141 ש-``@media print{#a{…}}``
+    ואחריו ``.b{…}`` נותן **שני** כללים. סורק שקרא שם ``{#`` כפותח
+    הערה החזיר רשימה **ריקה** על קובץ מלא.
+
+    **בתבנית**: אומת ב-Jinja 3.1.6 ש-``{# note #}``,
+    ``{# don't do this #}`` ו-``{# TODO .x { #}`` כולם הערות שנמחקות —
+    גם עם גרש בתוכן וגם עם ``{`` בתוכן. וש-``@media print{#a{…}}``
+    בתבנית מחזיר ``TemplateSyntaxError: Missing end of comment tag``,
+    כלומר **תבנית שבה ``{#`` אינו הערה אינה מתרנדרת בכלל**. לכן בהקשר
+    תבנית אין אי-בהירות, ואין צורך בשום תנאי.
+
+    **ולכן העמודה השלישית כאן אינה "התוצאה הנכונה" אלא ההסכמה עם
+    הדפדפן על קלט שאינו תבנית.** בקובץ ``.css`` הערת Jinja היא קלט
+    חסר-משמעות, והסורק נדיב שם מהדפדפן — אותה עמדה מוצהרת שכבר נלקחה
+    למבנה Jinja שלא נסגר.
+    """
+    template = f"<style>\n{css}</style>\n"
+    inside = [
+        (row["name"], row["start"] - 1, row["end"] - 1)
+        for row in extract_outline(template, "page.html")["symbols"]
+        if row["name"] != "style"
+    ]
+
+    assert inside == in_a_template
+    assert [
+        (row["name"], row["start"], row["end"]) for row in _css(css)["symbols"]
+    ] == in_a_css_file
+
+
+@pytest.mark.parametrize("quote", ["'", '"'], ids=["single", "double"])
+def test_a_css_string_that_is_never_closed_ends_at_the_line_break(quote):
+    """מחרוזת ב-CSS נגמרת בסוף שורה, ולכן היא אינה מוחקת את מה שאחריה.
+
+    **נמדד ב-Chromium 141:** ``.x{content:'oops`` ואז ``}`` בשורה הבאה
+    ואז ``.b{…}`` נותן שם **שני** כללים — המחרוזת נקטעת בסוף השורה,
+    ה-``}`` סוגר את ``.x``, ו-``.b`` הוא כלל בפני עצמו. גרסה קודמת בלעה
+    כאן עד סוף הקובץ, ולכן ``.b`` **נעלם מהמפה** לגמרי: תשובת הצלחה עם
+    סימבול חסר, אותה מחלקה שבה מבנה Jinja שלא נסגר מחק את מה שמתחתיו.
+
+    גרש בודד בקובץ הוא טעות הקלדה נפוצה לגמרי, ולכן זה אינו קלט
+    תיאורטי.
+    """
+    text = f".x{{content:{quote}oops\n}}\n.b{{color:red}}\n"
+
+    rows = [(row["name"], row["start"], row["end"]) for row in _css(text)["symbols"]]
+
+    assert rows == [(".x", 1, 2), (".b", 3, 3)]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(
+            ".x {\n  content: 'oops\\\n  more';\n}\n.b { color: red }\n",
+            [(".x", 1, 4), (".b", 5, 5)],
+            id="an-escaped-line-break",
+        ),
+        pytest.param(
+            ".x{content:'a\\'}'}\n.b{color:red}\n",
+            [(".x", 1, 1), (".b", 2, 2)],
+            id="an-escaped-quote-holding-a-brace",
+        ),
+    ],
+)
+def test_a_backslash_inside_a_css_string_escapes_the_next_character(text, expected):
+    """שתי הבקרות של ``\\``, וכל אחת מכסה חצי אחר של ההבטחה.
+
+    **סוף שורה מחורג ממשיך את המחרוזת** — נמדד ב-Chromium 141:
+    ``content:'oops\\`` ואז ``more'`` חוזר כמחרוזת אחת, ``"oops more"``.
+    בלי הבקרה הזאת, "מחרוזת נגמרת בסוף שורה" היה הופך לכלל גורף מדי
+    וקוטע גם המשך חוקי.
+
+    **ומרכאה מחורגת אינה סוגרת** — וזו הבקרה שבודקת שהדילוג הוא שני
+    תווים ולא אחד. ``content:'a\\'}'`` מכיל ``}`` בתוך המחרוזת, ולכן
+    דילוג של תו אחד סוגר את המחרוזת מוקדם, ה-``}`` שבתוכה סוגר את
+    הבלוק, והשם שיוצא הוא ``'} .b`` — זבל, ועוד תוך כדי שהוא גורר את
+    ``.b`` לתוכו. הצורה עם סוף שורה לבדה אינה מבדילה כאן, ולכן שתיהן.
+    """
+    rows = [(row["name"], row["start"], row["end"]) for row in _css(text)["symbols"]]
+
+    assert rows == expected
+
+
 def test_a_comment_above_a_selector_is_not_part_of_its_name():
     """ההערה מוסרת מה-prelude, וה-``start`` הוא הסלקטור ולא ההערה.
 
@@ -3238,18 +3364,76 @@ def test_a_concise_arrow_body_that_spans_lines_closes_where_it_really_ends(body,
     assert found == [expected]
 
 
-def test_a_body_continued_by_the_next_line_is_a_declared_limitation():
-    """מה ששלושת המנגנונים **אינם** מכסים, ככישלון מוצהר ולא כהפתעה.
+@pytest.mark.parametrize(
+    ("tail", "expected_end"),
+    [
+        pytest.param(".m();", 3, id="a-dot"),
+        pytest.param("?.m();", 3, id="optional-chaining"),
+        pytest.param("+ 1;", 3, id="a-plus"),
+        pytest.param("- 1;", 3, id="a-minus"),
+        pytest.param("* 2;", 3, id="a-star"),
+        pytest.param("/ 2;", 3, id="a-slash"),
+        pytest.param("&& y;", 3, id="and-and"),
+        pytest.param("|| y;", 3, id="or-or"),
+        pytest.param("?? y;", 3, id="nullish"),
+        pytest.param("? 1 : 2;", 3, id="a-ternary"),
+        pytest.param("(1);", 3, id="a-call"),
+        pytest.param("[0];", 3, id="an-index"),
+        pytest.param("`s`;", 3, id="a-tagged-template"),
+        pytest.param("= 2;", 3, id="an-assignment"),
+        pytest.param(".5;", 2, id="a-number-that-starts-with-a-dot"),
+        pytest.param("++y;", 2, id="an-increment"),
+        pytest.param("--y;", 2, id="a-decrement"),
+        pytest.param("y;", 2, id="an-identifier"),
+        pytest.param("1;", 2, id="a-number"),
+        pytest.param("!y;", 2, id="a-negation"),
+        pytest.param("~y;", 2, id="a-bitwise-not"),
+        pytest.param(", w = 1;", 2, id="a-comma"),
+        pytest.param("const w = 1;", 2, id="a-declaration"),
+        pytest.param("function h() {}", 2, id="a-function"),
+    ],
+)
+def test_a_concise_arrow_body_follows_the_next_line_only_when_the_grammar_says_so(
+    tail, expected_end
+):
+    """המנגנון הרביעי: המשכיות שמסומנת בתחילת השורה הבאה.
 
-    ההסתכלות היא אחורה בלבד: על סוף השורה הנוכחית. המשכיות שמסומנת
-    בתחילת השורה **הבאה** — שרשור מתודות, שהוא כתיב נפוץ לגמרי — אינה
-    נראית, ולכן ``const h = () => list`` נסגר בשורה שלו בזמן שהביטוי
-    נמשך שתי שורות.
+    שלושת המנגנונים האחרים מסתכלים על סוף השורה הנוכחית, וזה מסתכל על
+    תחילת הבאה. שרשור מתודות הוא הצורה שדורשת אותו — ``const f = () =>``
+    ``x`` ואז ``.m()`` בשורה נפרדת — ובלעדיו הגוף נסגר בשורה הראשונה,
+    כי ``x`` הוא מזהה ותקין כסוף ביטוי.
 
-    הטסט מקבע את ההתנהגות **הקיימת** בכוונה: זו הגדרה אחת עם ``end``
-    מוקדם ולא בליעה של הבלוק, והפונקציה שאחריה נמצאת כרגיל. תיקון דורש
-    קורא-קדימה, שהוא שינוי בסדר גודל אחר. אם מישהו יתקן אותו — הטסט הזה
-    ייפול, וזה בדיוק מה שיסמן שהמצב המוצהר השתנה.
+    **הקבוצה נמדדה ב-Node 22.22.2 ברמת הפרסינג**, דרך ``String(f)``
+    שמחזיר את טקסט המקור של החץ כפי שנפרס: אם הוא כולל את הזנב, הגוף
+    בלע אותו.
+
+    **וארבעת החריגים כאן הם העיקר.** ``.5`` הוא ליטרל מספרי, ולכן
+    נקודה שאחריה ספרה **מסיימת** — כלל שהיה עוצר על ``.`` בלי תנאי היה
+    שוגה עליו. ``++``/``--`` מסיימים אף ש-``+``/``-`` ממשיכים. ו-``,``
+    מסיים כאן אף שבביטוי רגיל הוא אופרטור, כי כל חץ ממתין הגיע מהצהרת
+    ``const``/``let``/``var`` ושם הפסיק מפריד בין מוצהרים — נמדד:
+    ``const f = () => a, w = 1`` נותן ל-``f`` את הגוף ``a`` בדיוק.
+    ארבעתם כאן כפרמטרים שליליים, כי בלעדיהם הטבלה נראית פשוטה יותר
+    ממה שהיא.
+    """
+    text = f"<script>\nconst f = () => x\n{tail}\n</script>\n"
+
+    found = [
+        (row["name"], row["start"], row["end"])
+        for row in extract_outline(text, "page.html")["symbols"]
+        if row["name"] == "f"
+    ]
+
+    assert found == [("f", 2, expected_end)]
+
+
+def test_a_method_chain_after_a_concise_arrow_gets_the_whole_range():
+    """המקרה שהוליד את המנגנון, בצורה שלמה ועם שכן שאסור לו לזוז.
+
+    שרשור מתודות על כמה שורות הוא כתיב נפוץ לגמרי, וכאן הוא היה מקבל
+    ``end`` בשורה הראשונה — כלומר צרכן שהזין את הטווח ל-``lines=`` היה
+    מקבל שורה אחת מתוך שלוש. **וההגדרה שאחריו חייבת להישאר במקומה**,
+    כי הכשל האמיתי של סגירה מאוחרת מדי הוא בליעת מה שבא אחרי.
     """
     text = (
         "<script>\n"
@@ -3266,10 +3450,29 @@ def test_a_body_continued_by_the_next_line_is_a_declared_limitation():
         if row["name"] != "script"
     ]
 
-    assert found == [("h", 2, 2), ("after", 5, 5)], (
-        "אם זה נפל — ההתנהגות המוצהרת השתנתה, ויש לעדכן את ההצהרה "
-        "ב-``_concise_body_ended`` ואת הטסט הזה יחד"
-    )
+    assert found == [("h", 2, 4), ("after", 5, 5)]
+
+
+def test_the_lookahead_at_a_line_break_remembers_what_it_already_scanned():
+    """הקורא-קדימה חייב זיכרון, ובלעדיו הוא ריבועי — נמדד.
+
+    הוא נקרא בכל ירידת שורה שיש בה חץ ממתין. רצף ארוך של הערות או שורות
+    ריקות אחרי ``=>`` פירושו שכל ירידת שורה סורקת מחדש את שאר הרצף:
+    **פי ארבע לכל הכפלה (3.97, 3.93), ו-8.9 שניות על 8,000 שורות** מול
+    0.011 שניות עם הזיכרון — פי 809.
+
+    זו בדיוק הצורה של הריבועיות שכבר נמדדה כאן פעם אחת, רק מהצד השני:
+    אז הסריקה החוזרת הייתה אחורה מ-``body_from``, וכאן היא קדימה. הסף
+    רחב בכוונה ומפריד בין לינארי לריבועי.
+    """
+    text = "<script>\nconst f = () =>\n" + "// filler comment line\n" * 16_000 + "1;\n</script>\n"
+
+    started = time.perf_counter()
+    symbols = extract_outline(text, "page.html")["symbols"]
+    elapsed = time.perf_counter() - started
+
+    assert [row["name"] for row in symbols] == ["script", "f"]
+    assert elapsed < 2.0, f"{elapsed:.2f} שניות על {len(text) / 1000:.0f}KB"
 
 
 def test_the_css_inside_a_style_block_with_an_id_carries_the_prefix():

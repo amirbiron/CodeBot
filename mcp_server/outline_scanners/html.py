@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Sequence
+from functools import partial
 from typing import Any, NamedTuple
 
 from . import _ceiling
@@ -537,7 +538,12 @@ def _body_reader(tag: str, attributes: list[tuple[str, str]]) -> _BodyReader | N
     if tag == "script":
         return _read_javascript if _is_javascript(attributes) else None
     if tag == "style":
-        return _css.read_blocks if _is_css(attributes) else None
+        # ``jinja=True`` כי גוף ``<style>`` בתבנית עובר דרך ג'ינג'ה לפני
+        # שהדפדפן רואה אותו, ולכן ``{#`` שם הוא הערה ולא סוגר-בלוק-פותח.
+        # בקובץ ``.css`` ההכרעה הפוכה, ושתיהן נמדדו — ליד
+        # ``css._JINJA_COMMENT``. ``partial`` ולא פרמטר ב-``_BodyReader``,
+        # כדי שהחוזה המשותף עם ``_read_javascript`` יישאר כמו שהוא.
+        return partial(_css.read_blocks, jinja=True) if _is_css(attributes) else None
     return None
 
 
@@ -627,9 +633,42 @@ class _Pending(NamedTuple):
 #: כולם יכולים לסיים ביטוי או משפט.
 _UNFINISHED_EXPRESSION = re.compile(r"[-+*/%.,?:&|^<>=([]")
 
+#: תו שאם הוא **פותח** את השורה הבאה, הביטוי שלפניו נמשך אליה — כלומר
+#: JavaScript **אינו** מכניס שם נקודה-פסיק. זה המנגנון ההפוך של
+#: ``_UNFINISHED_EXPRESSION``: שם מסתכלים על סוף השורה הנוכחית, וכאן על
+#: תחילת הבאה. שרשור מתודות הוא הצורה שדורשת את זה — ``const h = () =>``
+#: ``list`` ואז ``.map(…)`` בשורה נפרדת — ובלעדיו הוא נסגר בשורה
+#: הראשונה, כי ``list`` הוא מזהה ותקין כסוף ביטוי.
+#:
+#: **נמדד ב-Node 22.22.2, ברמת הפרסינג ולא בערך החזרה:** לכל זנב נבנה
+#: ``const f = () => a`` ואחריו שורה שמתחילה בזנב, ואז נקרא
+#: ``String(f)`` — טקסט המקור של החץ **כפי שנפרס**. אם הוא כולל את
+#: הזנב, הגוף בלע אותו.
+#:
+#: נמשך: ``.`` ``+`` ``+=`` ``-`` ``-=`` ``*`` ``**`` ``*=`` ``/``
+#: ``/=`` ``%`` ``^`` ``&`` ``|`` ``&&`` ``||`` ``??`` ``<`` ``>``
+#: ``<=`` ``>=`` ``==`` ``===`` ``=`` ``?`` ``?.`` ``(`` ``[`` ו-backtick.
+#:
+#: **ושלושת החריגים הם מה שמציל את הכלל מלהיות שגוי**, וכל אחד נמדד:
+#: ``.5`` הוא ליטרל מספרי ולכן נקודה שאחריה ספרה **מסיימת**; ``++``
+#: ו-``--`` מסיימים אף ש-``+`` ו-``-`` ממשיכים. וגם ``,`` **מסיים**
+#: כאן, אף שבביטוי רגיל הוא אופרטור: כל חץ ממתין הגיע מ-``_JS_ASSIGNED``,
+#: כלומר מהצהרת ``const``/``let``/``var``, ושם הפסיק מפריד בין מוצהרים —
+#: ``const f = () => a, w = 1`` נותן ל-``f`` את הגוף ``a`` בדיוק.
+#:
+#: ``)`` ``]`` ``}`` אינם כאן כי הם שגיאת תחביר במקום הזה: הם מופיעים
+#: רק כשיש מבנה עוטף שנפתח אחרי ההתאמה, ואת זה ``parens`` ו-``brackets``
+#: כבר מכסים.
+_CONTINUES_THE_EXPRESSION = re.compile(r"\.(?!\d)|\+(?!\+)|-(?!-)|[*/%^&|<>=?([`]")
+
 
 def _concise_body_ended(
-    waiting: _Pending, token: str, token_at: int, parens: int, brackets: int
+    waiting: _Pending,
+    token: str,
+    token_at: int,
+    parens: int,
+    brackets: int,
+    continues: bool,
 ) -> bool:
     """האם גוף החץ של ``waiting`` נגמר ב-``index``, שהוא ירידת שורה?
 
@@ -652,12 +691,13 @@ def _concise_body_ended(
     למשכיות מסוג אחר: ``parens`` לסוגריים עגולים פתוחים, ``brackets``
     למרובעים, ו-``_UNFINISHED_EXPRESSION`` לשורה שנגמרת באופרטור.
 
-    **ומה שהם עדיין אינם מכסים, מדוד ומוצהר:** המשכיות שמסומנת בתחילת
-    השורה **הבאה** ולא בסוף הנוכחית. ``const h = () => list`` ואז
-    ``.map(…)`` בשורה נפרדת נסגר בשורה הראשונה, כי ``list`` הוא מזהה
-    ותקין כסוף ביטוי — וההסתכלות כאן היא אחורה בלבד. זו הגדרה אחת עם
-    ``end`` מוקדם, לא בליעה של הבלוק, ותיקונה דורש קורא-קדימה שהוא
-    שינוי בסדר גודל אחר.
+    **ו-``continues`` הוא המנגנון הרביעי, וההסתכלות בו קדימה.** שלושת
+    הראשונים בודקים את סוף השורה הנוכחית, והוא בודק את תחילת הבאה —
+    ``const h = () => list`` ואז ``.map(…)`` בשורה נפרדת. שם ``list``
+    הוא מזהה ותקין כסוף ביטוי, ולכן בלי המנגנון הזה הגוף נסגר בשורה
+    הראשונה בזמן שהביטוי נמשך שתי שורות. הקבוצה נמדדה, כולל שלושת
+    החריגים שמצילים אותה מלהיות שגויה — הפירוט ליד
+    ``_CONTINUES_THE_EXPRESSION``.
 
     **ו"הגוף התחיל" נגזר מהיסט ולא מסריקה חוזרת.** גרסה קודמת קראה כאן
     ל-``_next_meaningful`` מ-``body_from`` עד ``index`` — כלומר סרקה מחדש
@@ -670,6 +710,8 @@ def _concise_body_ended(
     הוא בדיוק "אין תו משמעותי בין ``body_from`` ל-``index``".
     """
     if waiting.body_depth >= 0 or waiting.awaits_brace:
+        return False
+    if continues:
         return False
     if parens > waiting.parens or brackets > waiting.brackets:
         return False
@@ -686,6 +728,20 @@ def _next_meaningful(text: str, index: int, stop: int) -> str:
     22.22.2 דרך ``new Function``. קורא-קדימה שמסתפק ב"התו הלא-רווח הבא"
     היה רואה ``/`` ומחמיץ את הגוף.
     """
+    found = _meaningful_at(text, index, stop)
+    return text[found] if found < stop else ""
+
+
+def _meaningful_at(text: str, index: int, stop: int) -> int:
+    """ההיסט של התו המשמעותי הבא, או ``stop`` אם אין כזה.
+
+    **ההיסט ולא התו, כי הקורא-קדימה בגבול שורה חייב זיכרון.** הוא נקרא
+    בכל ירידת שורה שיש בה חץ ממתין, ורצף ארוך של שורות ריקות או הערות
+    פירושו שכל ירידת שורה סורקת מחדש את שאר הרצף — כלומר ריבועי, בדיוק
+    הצורה שכבר נמדדה כאן פעם אחת: 80KB בשנייה ושבע-מאות. עם ההיסט אפשר
+    לזכור את התשובה, כי כל ירידת שורה שיושבת **לפני** ההיסט הזה נמצאת
+    בתוך אותו רצף ומקבלת אותה תשובה בדיוק.
+    """
     while index < stop:
         char = text[index]
         if char.isspace():
@@ -697,8 +753,8 @@ def _next_meaningful(text: str, index: int, stop: int) -> str:
             found = text.find("*/", index + 2)
             index = stop if found < 0 else min(found + 2, stop)
         else:
-            return char
-    return ""
+            return index
+    return stop
 
 
 def _read_javascript(
@@ -757,6 +813,11 @@ def _read_javascript(
     #: לסרוק אותו מחדש. שניהם מתעדכנים באותם ארבעה אתרים בדיוק.
     token = ""
     token_at = start - 1
+    #: ההיסט של התו המשמעותי הבא, כזיכרון של הקורא-קדימה. כל ירידת שורה
+    #: שיושבת לפניו נמצאת בתוך אותו רצף רווחים והערות ומקבלת את אותה
+    #: תשובה, ולכן היא אינה סורקת מחדש. בלי זה הקורא-קדימה מחזיר את
+    #: הריבועיות שכבר נמדדה כאן, רק מהצד השני.
+    ahead_at = start - 1
 
     while index < stop:
         char = text[index]
@@ -764,8 +825,18 @@ def _read_javascript(
         if char == "\n":
             # ``const f = x => x + 1`` בלי גוף מסולסל נגמר בסוף השורה,
             # וכל הסיבות שלא לסגור יושבות ב-``_concise_body_ended``.
+            #
+            # הקורא-קדימה רץ **רק** כשיש חץ ממתין, כי זה המצב היחיד שבו
+            # התשובה משנה — ובקובץ רגיל הוא כמעט תמיד ריק.
+            continues = False
+            if pending:
+                if index >= ahead_at:
+                    ahead_at = _meaningful_at(text, index, stop)
+                continues = bool(
+                    _CONTINUES_THE_EXPRESSION.match(text, ahead_at, stop)
+                )
             while pending and _concise_body_ended(
-                pending[-1], token, token_at, parens, brackets
+                pending[-1], token, token_at, parens, brackets, continues
             ):
                 done = pending.pop()
                 rows.append({

@@ -66,19 +66,35 @@ _URL_FUNCTION = re.compile(r"url\(", re.IGNORECASE)
 #: ``-webkit-image-set(url(…))`` הוא כן ``url`` כי לפניו ``(``.
 _IDENT_CHARACTER = re.compile(r"[\w-]")
 
-#: מבני Jinja שמדולגים כיחידה. הסדר לא משנה כי שניהם נבדקים במקביל.
+#: מבני Jinja שמדולגים כיחידה, **בכל הקשר**. הסדר לא משנה כי שניהם
+#: נבדקים במקביל.
 #:
-#: **ו-``{#`` אינו ברשימה, בכוונה.** ב-CSS ממוזער ``{#`` הוא שני דברים
-#: צמודים: סוגר-בלוק-פותח ואחריו סלקטור id. ``@media print{#a{…}}`` הוא
-#: CSS חוקי ונפוץ, בזמן שהערת Jinja בתוך CSS ממוזער אינה קיימת — ומי
-#: שקרא כאן ``{#`` כפותח הערה בלע את כל מה שעד ה-``#}`` הבא, או עד סוף
-#: הקובץ כשאין כזה, והחזיר מפה **ריקה** על קובץ מלא.
-#:
-#: וההוצאה אינה מפסידה דבר, כי ``{#…#}`` מאוזן בסוגריים מעצמו: ה-``{``
-#: פותח בלוק בלי שם, ה-``}`` של ``#}`` סוגר אותו, ובלוק בלי שם מושמט
-#: ב-``_report``. כלומר הערת Jinja ממשיכה להיעלם מהמפה — בלי טיפול
-#: מיוחד, ובלי שהיא מסוגלת למחוק את מה שמתחתיה.
+#: שניהם חד-משמעיים: סלקטור ב-CSS אינו יכול להתחיל ב-``%``, ובלוק
+#: מקונן בלי שם אינו CSS תקין. לכן אין כאן שאלה של הקשר, ומבנה שלא
+#: נסגר מדלג על שני תווי הפותח בלבד — הנימוק ב-``_jinja_span``.
 _JINJA_OPENERS = (("{%", "%}"), ("{{", "}}"))
+
+#: הערת Jinja, ו**היא חלה רק בהקשר תבנית** — לא בקובץ ``.css``.
+#:
+#: **זה שני התווים היחידים שבהם שתי השפות מתנגשות באמת.** ב-CSS ממוזער
+#: ``{#`` הוא סוגר-בלוק-פותח ואחריו סלקטור id: ``@media print{#a{…}}``
+#: הוא CSS חוקי ונפוץ, ואומת ב-Chromium 141 שהוא נותן שני כללים. סורק
+#: שקרא שם ``{#`` כפותח הערה בלע את כל מה שעד ה-``#}`` הבא והחזיר מפה
+#: **ריקה** על קובץ מלא.
+#:
+#: **ובתבנית ההכרעה הפוכה, וגם היא נמדדה — ב-Jinja 3.1.6 עצמה:**
+#: ``{# note #}``, ``{# don't do this #}`` ו-``{# TODO .x { #}`` כולם
+#: הערות שנמחקות, גם עם גרש בתוכן וגם עם ``{`` בתוכן. ו-
+#: ``@media print{#a{color:red}}`` בתבנית מחזיר
+#: ``TemplateSyntaxError: Missing end of comment tag`` — כלומר **CSS
+#: ממוזער עם ``{#`` בתוך תבנית אינו יכול להתקיים**, כי התבנית לא
+#: תרונדר. לכן בהקשר תבנית אין אי-בהירות ואין צורך בשום תנאי: ``{#``
+#: הוא הערה, נקודה.
+#:
+#: זו הסיבה שהמפריד הוא **מי הקורא** ולא צורת הטקסט. ניסיון להסיק
+#: "האם זה CSS ממוזער" מהתווים עצמם הוא ניחוש; ``read_blocks`` פשוט
+#: יודע אם קרא לו קובץ ``.css`` או גוף ``<style>`` בתבנית.
+_JINJA_COMMENT = ("{#", "#}")
 
 #: at-rule שהילדים שלו **אינם** כללים עם סלקטור אלא צעדים.
 #:
@@ -135,6 +151,8 @@ def read_blocks(
     lines: Sequence[int],
     prefix: str,
     rows: list[dict[str, Any]],
+    *,
+    jinja: bool = False,
 ) -> None:
     """מוסיף ל-``rows`` את הבלוקים שבין ``start`` ל-``stop``.
 
@@ -148,6 +166,12 @@ def read_blocks(
     כלומר פי שתיים מהתקרה, מקלט שאפשר לחבר בכוונה. נמדד על אותו קלט,
     שלוש נקודות: 24.8MB בלי תקרה, 18.8MB עם תקרה ושני תקציבים,
     ו-12.2MB עם תקרה ותקציב אחד.
+
+    **ו-``jinja`` אומר איזו שפה הטקסט, וזה משנה תו אחד בלבד — ``{#``.**
+    ברירת המחדל ``False`` היא קובץ ``.css``, שבו ``{#`` הוא CSS;
+    ``html.py`` מעביר ``True`` לגוף ``<style>``, שבו הוא הערת Jinja.
+    המדידה שמכריעה יושבת ליד ``_JINJA_COMMENT``, והקצר שלה: תבנית
+    שבה ``{#`` **אינו** הערה אינה מתרנדרת בכלל.
     """
     stack: list[_Open] = _ceiling.Capped()
     index = start
@@ -187,10 +211,13 @@ def read_blocks(
             # מבנה Jinja נבדק **לפני** פתיחת הבלוק, אחרת ``{%`` היה
             # נקרא כבלוק בלי שם. ורק ``{`` נבדק כאן: שני הפותחים
             # שנשארו מתחילים בו, ואף אחד אינו מתחיל ב-``}``.
-            jinja = _jinja_span(text, index, stop)
-            if jinja >= 0:
+            span = _jinja_span(text, index, stop, jinja)
+            if span >= 0:
+                # ההערה או הביטוי יוצאים מה-prelude, אבל **אינם**
+                # שוברים אותו: ``.a,`` ואז ``{# c #}`` ואז ``.b {`` הוא
+                # סלקטור אחד, ואומת שג'ינג'ה מרנדרת אותו בדיוק כך.
                 take(index)
-                index = jinja
+                index = span
                 chunk_from = index
                 continue
 
@@ -202,7 +229,7 @@ def read_blocks(
             call = _URL_FUNCTION.match(text, index, stop)
             adjacent = text[index - 1] if index > start else ""
             if call and not _IDENT_CHARACTER.match(adjacent):
-                index = _skip_url(text, call.end(), stop)
+                index = _skip_url(text, call.end(), stop, jinja)
                 continue
 
         if char == "{":
@@ -270,8 +297,11 @@ def _report(
     })
 
 
-def _jinja_span(text: str, index: int, stop: int) -> int:
+def _jinja_span(text: str, index: int, stop: int, comments: bool) -> int:
     """הסוף של מבנה Jinja שמתחיל כאן, או ``-1`` אם אין כזה.
+
+    ``comments`` אומר אם ``{#`` נחשב פותח. הוא ``True`` רק כשהטקסט הוא
+    גוף ``<style>`` בתבנית — הנימוק והמדידה ליד ``_JINJA_COMMENT``.
 
     מחזיר את המיקום שאחרי הסוגר.
 
@@ -285,7 +315,8 @@ def _jinja_span(text: str, index: int, stop: int) -> int:
     בכל קריאה — וכשהקורא הוא ``html.py``, שקורא לכאן פעם אחת לכל בלוק
     ``<style>``, זה הופך לריבועי.
     """
-    for opener, closer in _JINJA_OPENERS:
+    openers = (_JINJA_OPENERS + (_JINJA_COMMENT,)) if comments else _JINJA_OPENERS
+    for opener, closer in openers:
         if text.startswith(opener, index):
             found = text.find(closer, index + len(opener), stop)
             return index + len(opener) if found < 0 else found + len(closer)
@@ -293,7 +324,22 @@ def _jinja_span(text: str, index: int, stop: int) -> int:
 
 
 def _skip_string(text: str, index: int, stop: int) -> int:
-    """מדלג על מחרוזת מצוטטת, כולל ``\\`` שמחרג את הסוגר."""
+    """מדלג על מחרוזת מצוטטת, כולל ``\\`` שמחרג את הסוגר.
+
+    **ומחרוזת נגמרת בסוף שורה, גם בלי סוגר — נמדד ב-Chromium 141.**
+    ``.x{content:'oops`` ואז ``}`` בשורה הבאה ואז ``.b{…}`` נותן שם
+    **שני** כללים: המחרוזת נקטעת בסוף השורה, ה-``}`` סוגר את ``.x``,
+    ו-``.b`` הוא כלל בפני עצמו. גרסה קודמת בלעה כאן עד סוף הקובץ,
+    ולכן ``.b`` **נעלם מהמפה** — תשובת הצלחה עם סימבול חסר, אותה
+    מחלקה בדיוק שבה גרש בודד בקובץ מחק את כל מה שאחריו.
+
+    ה-``\\`` שלפני שורה חדשה כן ממשיך את המחרוזת, וגם זה נמדד:
+    ``content:'oops\\`` ואז ``more'`` חוזר מ-Chromium כמחרוזת אחת.
+    הענף על ``\\`` שכבר קיים מכסה את זה, כי הוא מדלג שני תווים.
+
+    שלושת תווי סוף השורה הם אלה שהמפרט מונה. ``\r`` בודד ממילא נחסם
+    לפני הסורק, אבל הוא כאן כדי שהכלל לא יישען על החסימה הזאת.
+    """
     quote = text[index]
     index += 1
     while index < stop:
@@ -303,11 +349,15 @@ def _skip_string(text: str, index: int, stop: int) -> int:
             continue
         if char == quote:
             return index + 1
+        if char in "\n\r\f":
+            # התו עצמו **אינו** נצרך: הוא רווח מבחינת הלקסר, והלולאה
+            # הראשית תמשיך ממנו כרגיל.
+            return index
         index += 1
     return stop
 
 
-def _skip_url(text: str, index: int, stop: int) -> int:
+def _skip_url(text: str, index: int, stop: int, jinja: bool) -> int:
     """מדלג על גוף ``url(…)``, בשתי הצורות.
 
     בצורה המצוטטת הסוגר הוא המרכאה ואחריה ``)``; בצורה הלא מצוטטת ``)``
@@ -329,9 +379,9 @@ def _skip_url(text: str, index: int, stop: int) -> int:
     while index < stop:
         char = text[index]
         if char == "{":
-            jinja = _jinja_span(text, index, stop)
-            if jinja >= 0:
-                index = jinja
+            span = _jinja_span(text, index, stop, jinja)
+            if span >= 0:
+                index = span
                 continue
         if char == ")":
             return index + 1
