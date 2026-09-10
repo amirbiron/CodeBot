@@ -782,7 +782,9 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "sits on. Anything else returns status no_outline. "
             "Size "
             "limits differ by mode: 500KB for a whole file, 10MB with lines or "
-            "outline. Binary files return metadata only."
+            "outline; a file over 50000 symbols returns status no_outline with "
+            "reason too_many_symbols and no partial list. "
+            "Binary files return metadata only."
         ),
         annotations=_READ_ONLY_TOOL,
     )

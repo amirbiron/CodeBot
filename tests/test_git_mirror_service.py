@@ -95,6 +95,40 @@ def test_get_file_content_strips_ref_and_path(service, monkeypatch):
     assert seen["cmd"] == ["git", "show", "origin/main:src/file.py"]
 
 
+def test_a_leading_byte_order_mark_does_not_reach_the_decoded_text(service):
+    """BOM הוא מטא-דאטה של קידוד, ולכן אינו נשאר כתו בטקסט.
+
+    הסדר ברשימת הקודקים הוא מה שקובע כאן: קובץ עם BOM נפרס בהצלחה גם
+    כ-``utf-8``, ואז ה-BOM נשאר כ-U+FEFF ונוסע לכל צרכן. הנזק נמדד
+    בשני מסלולים — ``ast.parse`` נכשל על קובץ פייתון כזה ב"invalid
+    non-printable character U+FEFF" והאאוטליין חוזר ריק, ובקובץ CSS
+    ה-BOM נכנס לשם הסימבול הראשון. Chromium 141 מראה שגיליון חיצוני
+    עם BOM נותן ``selectorText`` של ``.hero`` בלבד, כלומר הפרשנות
+    הנכונה היא שה-BOM אינו תוכן.
+    """
+    with_bom = service._try_decode_content("\ufeff.hero { color: red }\n".encode("utf-8"))
+
+    assert with_bom["is_binary"] is False
+    assert not with_bom["content"].startswith("\ufeff"), (
+        f"ה-BOM נשאר בטקסט: {with_bom['content'][:3]!r}"
+    )
+    assert with_bom["content"] == ".hero { color: red }\n"
+    assert with_bom["encoding"] == "utf-8-sig"
+
+
+def test_text_without_a_byte_order_mark_decodes_exactly_as_before(service):
+    """הבקרה: הקדמת ``utf-8-sig`` אינה משנה דבר בקובץ בלי BOM.
+
+    זו לא הנחה — נמדד על 60,000 קלטים אקראיים ששני הקודקים מחזירים פלט
+    זהה, פרט לקלט שמתחיל ב-BOM. הטסט מקבע את הקצוות של אותה מדידה:
+    עברית, אמוג'י, ו-BOM שיושב **באמצע** ולא בהתחלה (שם הוא כן תו).
+    """
+    for probe in (".hero { color: red }\n", "שלום\nעולם", "x \U0001F600 y", "abc\ufeffdef"):
+        result = service._try_decode_content(probe.encode("utf-8"))
+
+        assert result["content"] == probe, f"נבדל על {probe!r}"
+
+
 def test_parse_grep_output_strips_sha_prefix(service):
     output = "abc123def456:src/app.py\n10:hello\n"
     results = service._parse_grep_output(output, max_results=10)

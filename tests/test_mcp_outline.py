@@ -20,6 +20,7 @@ import pytest
 
 from mcp_server import repo_handlers
 from mcp_server.outline import extract_outline
+from mcp_server.outline_scanners import _ceiling
 
 # ---------------------------------------------------------------------------
 # כלל מרחב השמות
@@ -2008,7 +2009,7 @@ def test_a_body_brace_on_its_own_line_does_not_close_the_function_at_its_signatu
     המקורית — "אל תסגור אם התו הלא-רווח הבא הוא ``{``" — נכשלת עליו, כי
     התו הבא הוא ``/``. לכן הקורא-קדימה מדלג גם הערות.
     """
-    found = [row for row in _definitions(f"<script>\n{body}</script>\n") if row[0] != "script"]
+    found = _definitions(f"<script>\n{body}</script>\n")
 
     assert found == [expected]
 
@@ -2032,7 +2033,7 @@ def test_the_forms_that_do_end_on_their_line_still_do(body, expected):
     נחוץ לצד הדגל החדש: ``const f = a => foo(`` שנמשך לשורה הבאה הוא גוף
     ביטוי שטרם נגמר, והסוגר הפתוח הוא מה שמונע סגירה מוקדמת.
     """
-    found = [row for row in _definitions(f"<script>\n{body}</script>\n") if row[0] != "script"]
+    found = _definitions(f"<script>\n{body}</script>\n")
 
     assert found == [expected]
 
@@ -2078,7 +2079,7 @@ def test_a_brace_less_arrow_body_that_starts_on_the_next_line_is_not_closed_earl
     ``comment-before-body`` הוא הסיבה שהמבחן "הגוף התחיל" עובר דרך
     קורא שמדלג הערות ולא דרך "התו הלא-רווח הבא".
     """
-    found = [row for row in _definitions(f"<script>\n{body}</script>\n") if row[0] != "script"]
+    found = _definitions(f"<script>\n{body}</script>\n")
 
     assert found == [expected]
 
@@ -2125,20 +2126,46 @@ def _css(text, **kw):
 
 
 def _css_files():
-    """כל קובצי ה-CSS בריפו. **תיקייה שקיימת וריקה היא כישלון, לא דילוג.**"""
+    """כל קובצי ה-CSS בריפו. **תיקייה שקיימת וריקה היא כישלון, לא דילוג.**
+
+    **והבדיקה היא לכל שורש בנפרד ולא על האיחוד**, כי איחוד לא-ריק אינו
+    אומר שכל שורש תרם. ``webapp/`` לבדו מספיק להשאיר את האיחוד לא-ריק,
+    ואז ``docs/`` יכול להתרוקן והמונים יסרקו פחות בלי שאף טסט יראה —
+    בדיוק סוג הירוק שאינו אומר את מה שנראה שהוא אומר.
+    """
     missing = [root for root in _CSS_ROOTS if not root.is_dir()]
     if missing:  # pragma: no cover - הריפו תמיד מכיל אותן
         pytest.skip(f"{missing} אינן קיימות")
-    found = sorted(
-        path
-        for root in _CSS_ROOTS
-        for path in root.rglob("*.css")
-        if "node_modules" not in path.parts
+
+    found = []
+    for root in _CSS_ROOTS:
+        here = sorted(
+            path for path in root.rglob("*.css") if "node_modules" not in path.parts
+        )
+
+        assert here, f"{root} קיימת אך אין בה CSS"
+
+        found += here
+
+    return sorted(found)
+
+
+def _densest_css_file():
+    """הקובץ עם הכי הרבה סימבולים מבין קובצי ה-CSS, ואת השם הארוך בו.
+
+    **נגזר מהקורפוס ולא נקוב בשם.** שלושת הטסטים שנשענים על "הקובץ
+    הגדול" נקבו קודם ב-``repo-browser.css`` ודילגו בהיעדרו — כלומר
+    שינוי שם היה הופך אותם ל**ירוקים** בזמן שהם מפסיקים לבדוק. והם
+    הראיה היחידה לעימוד ולמרווח מול תקציב הבתים.
+
+    הקובץ אכן נמדד כמקסימום בקורפוס, ולכן הגזירה אינה מרחיבה ואינה
+    מצמצמת — היא רק מפסיקה להיות תלויה בשם.
+    """
+    found = max(
+        ((path, _css(path.read_text(encoding="utf-8"))) for path in _css_files()),
+        key=lambda pair: len(pair[1]["symbols"]),
     )
-
-    assert found, f"{_CSS_ROOTS} קיימות אך אין בהן CSS"
-
-    return found
+    return found[0], found[1]
 
 
 #: ``@keyframes``, עם תחילית ספק או בלעדיה. **עוגן ותחילית אופציונלית
@@ -2148,6 +2175,9 @@ def _css_files():
 #: צורה עם תחילית — נמדד שאין, וזה בדיוק ירוק שלא אומר את מה שנראה שהוא
 #: אומר. הסורק כן מדלג על שתיהן, ולכן המונה חייב להכיר את שתיהן.
 _KEYFRAMES_PRELUDE = re.compile(r"@(?:-[A-Za-z]+-)?keyframes\b", re.IGNORECASE)
+
+#: רצף רווחים, לזיהוי prelude שכולו רווחים — כלומר בלוק בלי שם.
+_WHITESPACE_RUN = re.compile(r"\s+")
 
 
 def _keyframe_steps(blocks):
@@ -2159,6 +2189,22 @@ def _keyframe_steps(blocks):
     return sum(1 for _, parent in blocks if _KEYFRAMES_PRELUDE.match(parent.strip()))
 
 
+def _nameless_blocks(blocks):
+    """מספר הבלוקים ב-``blocks`` שאין להם prelude בכלל.
+
+    **בלוק בלי שם אינו סימבול**, ויש לזה כלל מוצהר וטסט משלו: שם ריק
+    אינו מזהה, ``symbol=`` לא ימצא אותו, והוא תופס מקום בעמוד בלי לומר
+    דבר. האורקל סופר סוגריים מבניים ולכן הוא **כן** רואה אותו, ולכן
+    ההחסרה כאן — בדיוק כמו צעדי ``@keyframes``.
+
+    בקורפוס זה אינו מקרה תיאורטי: ``base.html`` מכיל שתי הערות Jinja
+    בתוך בלוקי ``<style>``, וכל אחת מהן היא ``{`` שנסגר ב-``#}`` —
+    כלומר בלוק מאוזן בלי prelude. זה גם מה שמאפשר להשמיט את ``{#``
+    מרשימת פותחי ה-Jinja: הערה נעלמת מעצמה, בלי טיפול מיוחד.
+    """
+    return sum(1 for prelude, _ in blocks if not _WHITESPACE_RUN.sub(" ", prelude).strip())
+
+
 def _structural_blocks(text):
     """כל בלוק ב-CSS, כ-``(prelude, prelude_של_ההורה)``.
 
@@ -2166,6 +2212,19 @@ def _structural_blocks(text):
     מאותו מקור שהוא בודק הוא טאוטולוגי: קריסה חלקית עוברת אותו. הלולאה
     כאן מכירה את אותם מצבים — הערה, מחרוזת, ``url()``, Jinja — אבל היא
     כתובה בנפרד, ולכן היא ראיה ולא הד.
+
+    .. warning::
+
+       **אל תייבא מכאן שום דבר מ-``css.py``, גם לא רשימת קבועים.**
+       השכפול כאן הוא ההגנה, לא חוב: ברגע שהאורקל מייבא את
+       ``_JINJA_OPENERS`` או קורא ל-``_skip_url``, שני צידי ההשוואה
+       יוצאים ממקור אחד — ואז באג באותו קבוע עובר את המונה בשקט, כי
+       גם הציפייה וגם הנבדק מכילים אותו. זו בדיוק השורה שמישהו ימחק
+       "כדי להימנע משכפול", ולכן היא כתובה.
+
+       מה שכן נדרש כשהמימוש משתנה: לעדכן את הכלל **גם כאן, ידנית**,
+       ולוודא שהעדכון נובע מהתנהגות מדודה (מה שהדפדפן עושה) ולא
+       מהעתקה של הקוד החדש.
     """
     blocks = []
     stack = []
@@ -2174,7 +2233,12 @@ def _structural_blocks(text):
 
     def prelude():
         raw = text[piece_from:index]
-        return re.sub(r"/\*.*?\*/", " ", raw, flags=re.S)
+        # הערות ומבני Jinja **אינם** חלק מהשם. ההערה כבר הייתה כאן;
+        # ה-Jinja נוסף כי בלעדיו בלוק שכל ה-prelude שלו ``{{ sel }}``
+        # נראה כאן כבעל שם בזמן שהמימוש מייצר לו שם ריק ומשמיט אותו —
+        # והמונה היה מדווח את ההשמטה הנכונה כשגיאה של עצמו.
+        raw = re.sub(r"/\*.*?\*/", " ", raw, flags=re.S)
+        return re.sub(r"\{%.*?%\}|\{\{.*?\}\}", " ", raw, flags=re.S)
 
     while index < size:
         char = text[index]
@@ -2182,8 +2246,13 @@ def _structural_blocks(text):
             found = text.find("*/", index + 2)
             index = size if found < 0 else found + 2
             continue
+        # ``{#`` **אינו** פותח כאן, כמו במימוש ומאותו נימוק מדוד:
+        # ב-CSS ממוזער ``{#`` הוא סוגר-בלוק-פותח ואחריו סלקטור id, וב-
+        # Chromium ``@media print{#a{...}}`` נותן שני כללים. הערת Jinja
+        # ממשיכה להיעלם מעצמה, כי ``{#...#}`` מאוזן בסוגריים והבלוק
+        # שנוצר הוא בלי שם.
         opener = next(
-            (pair for pair in (("{%", "%}"), ("{{", "}}"), ("{#", "#}"))
+            (pair for pair in (("{%", "%}"), ("{{", "}}"))
              if text.startswith(pair[0], index)),
             None,
         )
@@ -2199,8 +2268,20 @@ def _structural_blocks(text):
             index += 1
             continue
         if text[index : index + 4].casefold() == "url(":
-            found = text.find(")", index + 4)
-            index = size if found < 0 else found + 1
+            # גוף ``url()`` יכול להכיל ביטוי Jinja, ואז ה-``)`` הראשון
+            # סוגר את הביטוי ולא את ``url``. אותו כלל כמו במימוש,
+            # ובלולאה נפרדת.
+            index += 4
+            while index < size:
+                if text.startswith("{{", index) or text.startswith("{%", index):
+                    closer = "}}" if text[index + 1] == "{" else "%}"
+                    found = text.find(closer, index + 2)
+                    index = size if found < 0 else found + 2
+                    continue
+                if text[index] == ")":
+                    index += 1
+                    break
+                index += 1
             continue
         if char == "{":
             here = prelude()
@@ -2227,18 +2308,21 @@ def test_the_css_symbol_count_equals_the_braces_that_are_really_structural():
     """מונה בלתי-תלוי, על כל קובצי ה-CSS: כל ``{`` הוא בלוק אחד בדיוק.
 
     השוויון מדויק ולא חסם, כי בקורפוס הזה אין ``{`` שאינו פותח בלוק —
-    נמדד. צעדי ``@keyframes`` אינם סימבולים ולכן נספרים בנפרד (54
-    בקורפוס), והסכום חייב לצאת שווה.
+    נמדד. **ושני סוגי בלוק אינם סימבולים ולכן נספרים בנפרד:** צעד בתוך
+    ``@keyframes`` (54 בקורפוס) ובלוק בלי prelude. שניהם כלל מוצהר
+    במימוש עם טסט משלו, והאורקל סופר סוגריים מבניים ולכן הוא רואה את
+    שניהם — הסכום הוא זה שחייב לצאת שווה.
     """
     for path in _css_files():
         text = path.read_text(encoding="utf-8")
         blocks = _structural_blocks(text)
         steps = _keyframe_steps(blocks)
+        nameless = _nameless_blocks(blocks)
         symbols = _css(text)["symbols"]
 
-        assert len(symbols) + steps == len(blocks), (
+        assert len(symbols) + steps + nameless == len(blocks), (
             f"{path.name}: {len(symbols)} סימבולים + {steps} צעדים "
-            f"מול {len(blocks)} בלוקים מבניים"
+            f"+ {nameless} בלי שם מול {len(blocks)} בלוקים מבניים"
         )
 
 
@@ -2336,6 +2420,30 @@ def test_every_css_symbol_starts_on_a_line_that_carries_its_selector():
             [(".real", 1, 3), (".after", 4, 6)],
             id="a-name-that-ends-in-url",
         ),
+        pytest.param(
+            "@media print{#a{color:red}}\n.b{color:blue}\n",
+            [("#a", 1, 1), ("@media print", 1, 1), (".b", 2, 2)],
+            id="an-id-selector-right-after-a-brace",
+        ),
+        pytest.param(
+            '.x{content:"#}"}#a{color:red}\n',
+            [("#a", 1, 1), (".x", 1, 1)],
+            id="a-jinja-comment-closer-inside-a-string",
+        ),
+        pytest.param(
+            "{# note #}\n.a{color:red}\n",
+            [(".a", 2, 2)],
+            id="a-jinja-comment-is-still-not-a-symbol",
+        ),
+        pytest.param(
+            ".hero {\n"
+            "  background: url({{ url_for('static', filename='a.png') }});\n"
+            "  color: red;\n"
+            "}\n"
+            ".after { color: blue }\n",
+            [(".hero", 1, 4), (".after", 5, 5)],
+            id="url-holding-a-jinja-expression",
+        ),
     ],
 )
 def test_a_brace_that_is_not_structural_does_not_open_a_block(text, expected):
@@ -2357,6 +2465,321 @@ def test_a_brace_that_is_not_structural_does_not_open_a_block(text, expected):
     names = [(row["name"], row["start"], row["end"]) for row in _css(text)["symbols"]]
 
     assert names == expected
+
+
+@pytest.mark.parametrize(
+    ("broken", "residue"),
+    [("{% if x", "if x "), ("{{ x", "x ")],
+    ids=["jinja-tag", "jinja-expression"],
+)
+def test_an_unclosed_jinja_construct_does_not_erase_the_blocks_below_it(broken, residue):
+    """מבנה Jinja בלי סוגר בולע שני תווים, לא את שאר הקובץ.
+
+    זו אותה החלטה שכבר נלקחה ב-``_jinja_tag_end`` בסורק ה-HTML ומאותה
+    סיבה: חיפוש סוגר בלי גבול מחזיר את המופע הבא איפשהו בקובץ, ולכן
+    מבנה שבור אחד מוחק מהמפה קוד תקין לגמרי — עם ``status: "ok"`` ובלי
+    שום סימן שמשהו חסר.
+
+    **השארית בשם מוצהרת ואינה נעלמת.** ``.a`` מקבל כאן שם עם קידומת
+    (``if x .a``) ושורת פתיחה מוקדמת באחת, כי מה שנשאר מהתגית השבורה
+    נאסף כ-prelude. זה מכוון: כל חלופה שמנקה את השם דורשת ניחוש איפה
+    התגית הייתה נגמרת, ואין לזה בסיס. ונמדד ב-Chromium 141 שהקלט הזה
+    כקובץ CSS מייצר **אפס כללים** — כלומר הסורק כאן נדיב מהדפדפן ולא
+    קמצן ממנו, וזו הסיבה שהשארית קוסמטית והבליעה לא הייתה.
+    """
+    text = f"{broken}\n.a{{color:red}}\n.b{{color:blue}}\n"
+
+    names = [(row["name"], row["start"], row["end"]) for row in _css(text)["symbols"]]
+
+    assert names == [(f"{residue}.a", 1, 2), (".b", 3, 3)]
+
+
+# ---------------------------------------------------------------------------
+# התקרה על מספר הסימבולים
+#
+# קלט קטן שקונה עבודה גדולה: 3MB של ``"<a>"`` נמדדו ב-122.5MB, ו-3MB של
+# ``"a{"`` ב-363.0MB — שניהם נכנסים בנוחות לתקרת ה-10MB שלפני הסורק.
+# הנימוק המלא, כולל המדידות, יושב ליד הקבוע ב-``_ceiling.py``.
+# ---------------------------------------------------------------------------
+
+
+def _over_the_ceiling(kind):
+    """קלט שחוצה את התקרה, לפי המכל שאותו הוא ממלא."""
+    over = _ceiling.MAX_SYMBOLS + 1
+    return {
+        "rows-py": ("a.py", "".join(f"def f{i}(): pass\n" for i in range(over))),
+        "rows-css": ("a.css", ".a{}" * over),
+        "rows-html": ("a.html", "<a id=x></a>" * over),
+        "stack-css": ("a.css", "a{" * over),
+        "stack-html-tags": ("a.html", "<a>" * over),
+        "stack-html-jinja": ("a.html", "{% if a %}" * over),
+        "stack-html-pending": (
+            "a.html",
+            "<script>\n"
+            + "".join(f"const f{i} = () =>\n" for i in range(over))
+            + "1;\n</script>\n",
+        ),
+    }[kind]
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "rows-py", "rows-css", "rows-html",
+        "stack-css", "stack-html-tags", "stack-html-jinja", "stack-html-pending",
+    ],
+)
+def test_a_file_over_the_symbol_ceiling_returns_no_outline_and_nothing_else(kind):
+    """שבעה מכלים, שלוש שפות, והשוואת **המילון כולו**.
+
+    ההשוואה אינה על ``status`` לבדו בכוונה: היעדר ``symbols`` הוא חלק
+    מהחוזה ולא פרט. קורא שיקרא ``symbols`` בלי לבדוק ``status`` חייב
+    לקבל ``KeyError`` ולא רשימה חלקית שנראית שלמה — זה בדיוק הכשל שכל
+    התקרה קיימת כדי למנוע.
+
+    **וארבעה מהמקרים כאן ממלאים מחסנית ולא את רשימת השורות**, וזה מה
+    שתקרה על השורות לבדן לא הייתה תופסת: ``"<a>"`` שחוזר מעל התקרה אינו
+    מייצר **אף שורה** — אין לו ``id`` — ובכל זאת נמדד ב-122.5MB, כי כל
+    תגית ממתינה במחסנית לסוגר שלא יבוא.
+    """
+    path, text = _over_the_ceiling(kind)
+
+    assert extract_outline(text, path) == {
+        "status": "no_outline",
+        "reason": "too_many_symbols",
+        "max": _ceiling.MAX_SYMBOLS,
+    }
+
+
+def test_exactly_the_ceiling_passes_and_one_more_overflows():
+    """הגבול בשני הכיוונים, וזו ההוכחה ש"אינה יורה" ולא רק ש"יורה".
+
+    טסט שבודק רק הצפה עובר גם על תקרה שחוסמת קובץ תקין. שני הכיוונים
+    ביחד מקבעים את הגבול המדויק ותופסים off-by-one בין ``>=`` ל-``>``.
+    """
+    at_the_line = ".a{}" * _ceiling.MAX_SYMBOLS
+    one_over = ".a{}" * (_ceiling.MAX_SYMBOLS + 1)
+
+    assert extract_outline(at_the_line, "a.css")["total"] == _ceiling.MAX_SYMBOLS
+    assert extract_outline(one_over, "a.css")["reason"] == "too_many_symbols"
+
+
+def test_the_container_refuses_at_the_boundary_and_not_after_it():
+    """הסירוב הוא **בתוך** ``append``, ולכן השיא נשאר חסום.
+
+    זה ה-proxy הדטרמיניסטי לחסימת הזיכרון, בלי למדוד זיכרון בטסט: אם
+    הסירוב היה מגיע אחרי ההוספה, המכל היה מגיע ל-``MAX_SYMBOLS + 1``
+    ואז נופל — כלומר התשובה נכונה והשיא לא חסום. וזה גם מה שמפריד את
+    ``extend`` שמוסיפה אחד-אחד מ-``list.extend`` שמוסיפה את הכול ואז
+    תיפול.
+    """
+    rows = _ceiling.Capped()
+
+    with pytest.raises(_ceiling.TooManySymbols):
+        rows.extend({"name": str(i)} for i in range(_ceiling.MAX_SYMBOLS + 5))
+
+    assert len(rows) == _ceiling.MAX_SYMBOLS
+
+
+def test_the_ceiling_is_one_budget_for_the_whole_file_and_not_one_per_block():
+    """תבנית שבה כל שכבה לבדה מתחת לתקרה והסך מעליה.
+
+    זה הטסט היחיד שתופס את הרגרסיה של "שתי רשימות, שני תקציבים": אם
+    ``css.read_blocks`` או ``_read_javascript`` בונים רשימה משלהם
+    ומחזירים אותה, שתי הרשימות חיות יחד ברגע האיחוד — כלומר פי שתיים
+    מהתקרה, מקלט שאפשר לחבר בכוונה. נמדד על אותו קלט: 24.8MB בלי
+    תקרה, 18.8MB עם תקרה ושני תקציבים, ו-12.2MB עם תקציב אחד.
+
+    שלוש השכבות כאן: ``id`` ב-HTML, סלקטורים ב-``<style>``, והגדרות
+    ב-``<script>``. כל אחת בשליש התקרה, והסך הוא כפליים ממנה.
+    """
+    third = _ceiling.MAX_SYMBOLS // 3 + 10
+    text = (
+        "<a id=x></a>" * third
+        + "<style>" + ".a{}" * third + "</style>"
+        + "<script>\n" + "".join(f"function g{i}() {{}}\n" for i in range(third)) + "</script>\n"
+    )
+
+    assert extract_outline(text, "page.html")["reason"] == "too_many_symbols"
+
+    # ובקרה: כל שכבה **לבדה** עוברת, כלומר ההצפה היא מהסך ולא מאחת מהן.
+    for layer in (
+        "<a id=x></a>" * third,
+        "<style>" + ".a{}" * third + "</style>",
+        "<script>\n" + "".join(f"function g{i}() {{}}\n" for i in range(third)) + "</script>\n",
+    ):
+        assert extract_outline(layer, "page.html")["status"] == "ok"
+
+
+def test_the_ceiling_cannot_fire_without_the_container(monkeypatch):
+    """המוטציה על התקרה עצמה: מכל שאינו חוסם.
+
+    מונה שאינו מסוגל להיכשל אינו ראיה, ואותו כלל חל על תקרה. הטסט
+    מחליף את המכל ב-``list`` רגיל — כלומר סורק ששכח אותו — ומאמת שהקלט
+    שאמור להיחסם חוזר אז ``ok`` עם ``total`` מעל התקרה.
+
+    **והוא עובד רק אם התקרה נקראת בזמן ריצה** דרך ``_ceiling.Capped``.
+    אופטימיזציה עתידית שתשמור את המכל בארגומנט ברירת מחדל או בשדה מופע
+    תשתיק את ההחלפה הזאת **בשקט**, והטסטים ימשיכו לעבור בזמן שהם בונים
+    50,000 שורות אמיתיות בכל ריצה. לכן הטסט הזה מגן גם על הכתובת.
+    """
+    monkeypatch.setattr(_ceiling, "Capped", list)
+    text = ".a{}" * (_ceiling.MAX_SYMBOLS + 1)
+
+    result = extract_outline(text, "a.css")
+
+    assert result["status"] == "ok"
+    assert result["total"] > _ceiling.MAX_SYMBOLS
+
+
+def test_the_tool_reports_the_ceiling_through_the_real_path(monkeypatch):
+    """דרך ``repo_handlers.get_repo_file`` ולא רק דרך ``extract_outline``.
+
+    שם יש עימוד ותקציב בתים שאינם בסורק, ולפי ``TESTING-PATTERNS`` T1
+    הצרכן נוגע בזה דרך הכלי. התקרה מונמכת כדי שהטסט לא יבנה 50,000
+    שורות בכל ריצה.
+    """
+    monkeypatch.setattr(_ceiling, "MAX_SYMBOLS", 20)
+
+    out = repo_handlers.get_repo_file(
+        _backend(".a{}" * 25), repo="r", path="a.css", outline=True
+    )
+
+    assert out["ok"] is True
+    assert out["status"] == "no_outline"
+    assert out["reason"] == "too_many_symbols"
+    assert out["max"] == 20
+    assert "symbols" not in out
+    assert "truncated" not in out
+    assert "total" not in out
+
+
+#: הוספה לרשימה שתת-מחלקה של ``list`` **אינה** יכולה לחסום, כי היא אינה
+#: עוברת דרך ``append`` או ``extend``. נמדד מול מכל חסום ב-3: כל אחת מהן
+#: הכניסה 9 פריטים בשקט.
+_ROUTES_THE_CONTAINER_CANNOT_BLOCK = (
+    "augmented assignment, slice assignment, insert, list.append"
+)
+
+
+def _capped_names(tree):
+    """שמות המשתנים בקובץ שאמורים להיות מכל חסום.
+
+    **נגזר מהמבנה ולא מצורת הטקסט**, וזה מה שמפריד בין ``rows += [row]``
+    לבין ``index += 1``: שני אלה נראים זהים לרג'קס, והשני הוא קידום
+    מספר שלם שאין לו שום קשר לתקרה.
+
+    שני מקורות, ושניהם קריאים מהקוד: משתנה שמקבל ``_ceiling.Capped()``,
+    ופרמטר שמוכרז ``list[dict[str, Any]]`` — כלומר רשימת השורות של
+    הקורא, שעוברת פנימה ונשארת אותו מכל.
+    """
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            owner = node.func.value
+            if (
+                node.func.attr == "Capped"
+                and isinstance(owner, ast.Name)
+                and owner.id == "_ceiling"
+            ):
+                parent_targets = getattr(node, "_targets", [])
+                names.update(parent_targets)
+        if isinstance(node, ast.FunctionDef):
+            for arg in node.args.args:
+                if arg.annotation is not None and ast.unparse(arg.annotation).replace(
+                    " ", ""
+                ) == "list[dict[str,Any]]":
+                    names.add(arg.arg)
+    return names
+
+
+def _annotate_assignment_targets(tree):
+    """מקשר כל ``Capped()`` לשם שהוא הושם לתוכו."""
+    for node in ast.walk(tree):
+        targets = []
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            targets = [node.target.id]
+        elif isinstance(node, ast.Assign):
+            targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        if targets and isinstance(node.value, ast.Call):
+            node.value._targets = targets  # type: ignore[attr-defined]
+
+
+def test_no_scanner_reaches_a_symbol_list_through_a_route_the_container_cannot_block():
+    """המכל חוסם ``append`` ו-``extend`` בלבד, ולכן צריך גם את זה.
+
+    תת-מחלקה של ``list`` מיישמת רק את מה שהיא דורסת. חמש דרכי הוספה
+    אחרות עוקפות אותה **בשקט** — נמדד, לא הונח: ``rows += [...]``,
+    ``rows[len(rows):] = [...]``, ``list.append(rows, x)``,
+    ``rows.insert(0, x)`` ו-``list.extend(rows, ...)`` כולן הכניסו 9
+    פריטים למכל שחסום ב-3.
+
+    מכל שנראה כמו הגנה מלאה ואינו כזה מייצר **ביטחון שווא**, וזה בדיוק
+    מה שהוא בא למנוע. הבדיקה כאן היא על **המקור** ולא על התנהגות, כי
+    התנהגות אפשר לבדוק רק במסלול שכבר קיים — ומה שצריך לתפוס הוא
+    המסלול שעוד לא נכתב.
+
+    **והיא עוברת דרך ``ast`` ולא דרך רג'קס, וזה לא העדפת סגנון.** רג'קס
+    על ``+=`` תופס גם את ``index += 1`` — 35 מופעים כאלה בשלושת הסורקים —
+    וגם טקסט בתוך docstring שמזכיר את הצורות האסורות. ``ast`` רואה
+    מבנה: איזה משתנה הוא מכל, ומה נעשה בו.
+
+    נמדד על הקוד של היום: אפס מסלולים.
+    """
+    scanners = sorted((_REPO_ROOT / "mcp_server" / "outline_scanners").glob("*.py"))
+    assert scanners, "לא נמצאו סורקים"
+
+    offenders = []
+    for path in scanners:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        _annotate_assignment_targets(tree)
+        capped = _capped_names(tree)
+
+        for node in ast.walk(tree):
+            where = f"{path.name}:{getattr(node, 'lineno', 0)}"
+
+            # ``rows += [...]`` — הוספה שאינה עוברת ב-``extend``.
+            if (
+                isinstance(node, ast.AugAssign)
+                and isinstance(node.op, ast.Add)
+                and isinstance(node.target, ast.Name)
+                and node.target.id in capped
+            ):
+                offenders.append(f"{where} += על {node.target.id}")
+
+            # ``rows[len(rows):] = [...]`` — השמה ל-slice.
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if (
+                        isinstance(target, ast.Subscript)
+                        and isinstance(target.slice, ast.Slice)
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id in capped
+                    ):
+                        offenders.append(f"{where} השמה ל-slice של {target.value.id}")
+
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                owner, attr = node.func.value, node.func.attr
+                # ``rows.insert(...)``
+                if (
+                    attr == "insert"
+                    and isinstance(owner, ast.Name)
+                    and owner.id in capped
+                ):
+                    offenders.append(f"{where} insert על {owner.id}")
+                # ``list.append(rows, x)`` — קריאה שעוקפת את הדריסה.
+                if (
+                    isinstance(owner, ast.Name)
+                    and owner.id == "list"
+                    and attr in {"append", "extend", "insert"}
+                ):
+                    offenders.append(f"{where} list.{attr} בקריאה ישירה")
+
+    assert offenders == [], (
+        f"מסלול הוספה שהמכל אינו חוסם ({_ROUTES_THE_CONTAINER_CANNOT_BLOCK}). "
+        "אם הוא באמת נחוץ — צריך בדיקת אורך מפורשת לידו ולא הסתמכות על "
+        f"המכל: {offenders}"
+    )
 
 
 def test_a_comment_above_a_selector_is_not_part_of_its_name():
@@ -2392,6 +2815,11 @@ def test_a_selector_spread_over_several_lines_starts_on_its_first_line():
 
     ``base.html`` מכיל את המקרה בפועל — שמונה שורות של סלקטור לפני
     ה-``{`` — ובקורפוס יש 448 כאלה.
+
+    **והטענה היא על השם המנורמל, לא רק על ספירת הפסיקים.** ספירת פסיקים,
+    ``start`` ו-``end`` כולם נכונים גם בלי הנרמול לרווח יחיד — נמדד:
+    הסרת הנרמול משאירה את הטסט הזה ירוק. השם עצמו הוא מה שהצרכן מקבל
+    ומזין ל-``symbol=``, ולכן הוא זה שצריך להיות כתוב כאן.
     """
     text = (
         '[data-theme-type="custom"] .btn:active,\n'
@@ -2405,7 +2833,11 @@ def test_a_selector_spread_over_several_lines_starts_on_its_first_line():
     assert len(symbols) == 1
     assert symbols[0]["start"] == 1
     assert symbols[0]["end"] == 5
-    assert symbols[0]["name"].count(",") == 2
+    assert symbols[0]["name"] == (
+        '[data-theme-type="custom"] .btn:active, '
+        '[data-theme^="shared:"] .btn:focus, '
+        '[data-theme^="shared:"] .btn.disabled'
+    )
 
 
 def test_the_at_rules_keep_their_prelude_and_their_children_stay_flat():
@@ -2537,7 +2969,10 @@ def _style_bodies(text):
     ו-``title``, כולם מחזירים אפס אלמנטי סגנון.
 
     השני: ``type`` שאינו ``text/css`` אינו יוצר גיליון סגנון, וגם
-    ``text/css; charset=utf-8`` אינו — פרמטרים נדחים.
+    ``text/css; charset=utf-8`` אינו — פרמטרים נדחים. **וההשוואה מדויקת
+    ובלי קיצוץ רווחים**, כי ``<style type=" text/css ">`` אינו יוצר
+    גיליון — נמדד. זו נקודה שקל להחמיץ, כי ל-``<script>`` זה הפוך
+    ו-``type=" text/javascript "`` **כן** רץ.
 
     **הגבולות נגזרים מהטקסט הגולמי ולא מהסימבולים שהסורק החזיר**, וזו
     כל הנקודה: מונה ששואב את הגבולות מהמימוש מעמיד את שני צידי ההשוואה
@@ -2552,11 +2987,123 @@ def _style_bodies(text):
 
     for found in _STYLE_OPENING.finditer(masked):
         declared = _DECLARED_TYPE.search(found.group(0))
-        if declared and declared.group(1).strip().casefold() not in {"", "text/css"}:
+        if declared and declared.group(1).casefold() not in {"", "text/css"}:
             continue
         closing = re.search(r"</style", text[found.end():], re.IGNORECASE)
         stop = found.end() + (closing.start() if closing else len(text))
         yield text[found.end():stop]
+
+
+def _style_prefixes(text):
+    """התחיליות שסימבול CSS בתוך ``<style id=...>`` נושא.
+
+    **נגזרות מהטקסט הגולמי ולא מהשמות שהסורק החזיר.** זו כל הנקודה של
+    אורקל: אם התחילית נלקחת מהפלט שנבדק, אי אפשר לדעת אם היא נכונה.
+    """
+    found = set()
+    for opening in _STYLE_OPENING.finditer(text):
+        anchor = re.search(r"""\bid\s*=\s*["']?([^"'>\s]*)""", opening.group(0))
+        if anchor and anchor.group(1):
+            found.add(f"style#{anchor.group(1)}.")
+    return found
+
+
+def _selector_head(name, prefixes):
+    """ראש הסלקטור מתוך שם שדווח, בלי התחילית של הבלוק.
+
+    **הסרת התחילית לפי התווית, ולא "כל מה שאחרי ה-``#`` הראשון".**
+    הצורה השנייה נראית פשוטה יותר והיא שגויה: סלקטור יכול להכיל ``#``
+    בעצמו (``#sidebar``), וגם ה-``id`` של הבלוק מכיל אותו. נמדד: היא
+    נותנת חמש הפרות שקריות על קוד נקי לגמרי.
+    """
+    for prefix in prefixes:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    return name.split(",")[0].split(" ")[0]
+
+
+def test_every_css_symbol_in_a_style_block_starts_on_a_line_that_carries_it():
+    """אורקל השורה **לתפר**, על כל התבניות.
+
+    לתפר הייתה עד כאן בדיקת **ספירה** בלבד: כמה סימבולים יש בבלוקי
+    ``<style>``. ספירה נכונה אינה אומרת דבר על המיקום — סימבול שזז
+    בשורה אחת נותן אותה ספירה. וזה לא היפותטי: **מוטציה שמזיזה כל
+    ``start`` ו-``end`` באחת עוברת את כל החבילה** כשהבדיקה הזאת חסרה,
+    ונופלת עליה ב-1,995 הפרות.
+
+    זה מה שהופך את ה-``start`` לשימושי: הצרכן מזין אותו ל-``lines=``.
+    """
+    misplaced = []
+    for path in _templates():
+        text = path.read_text(encoding="utf-8")
+        lines = text.split("\n")
+        prefixes = _style_prefixes(text)
+        for row in _inside(text, "style"):
+            head = _selector_head(row["name"], prefixes)
+            if head and head not in lines[row["start"] - 1]:
+                misplaced.append(
+                    (path.name, row["name"][:40], row["start"],
+                     lines[row["start"] - 1][:50])
+                )
+
+    assert misplaced == []
+
+
+def test_every_css_range_in_a_style_block_is_balanced_in_braces():
+    """אורקל האיזון **לתפר**, על כל התבניות.
+
+    נגזר מהטקסט ולא מהמימוש, ולכן אינו יכול "להסכים" עם באג: ``end``
+    מוקדם בשורה אחת משאיר ``{`` בלי ``}``. אותה מוטציה של הזזה באחת
+    נופלת כאן ב-1,378 הפרות.
+
+    **מבני Jinja אינם דורשים טיפול כאן**, וזה נמדד ולא הונח:
+    ``{% ... %}`` ו-``{{ ... }}`` שניהם מאוזנים בסוגריים מסולסלים
+    בעצמם, ולכן הם אינם מסיטים את המונה.
+    """
+    broken = []
+    for path in _templates():
+        text = path.read_text(encoding="utf-8")
+        lines = text.split("\n")
+        for row in _inside(text, "style"):
+            body = "\n".join(lines[row["start"] - 1 : row["end"]])
+            body = re.sub(r"/\*.*?\*/", " ", body, flags=re.S)
+            if body.count("{") != body.count("}"):
+                broken.append((path.name, row["name"][:40], row["start"], row["end"]))
+
+    assert broken == []
+
+
+@pytest.mark.parametrize(
+    ("prelude", "note"),
+    [
+        pytest.param("{{ sel }}", "כל ה-prelude הוא ביטוי Jinja", id="jinja-expression"),
+        pytest.param("{# note #}", "הערת Jinja", id="jinja-comment"),
+    ],
+)
+def test_a_style_block_whose_prelude_vanishes_agrees_with_the_seam_counter(prelude, note):
+    """שני צידי מונה התפר חייבים להסכים גם כשה-prelude נעלם.
+
+    ``<style>`` שכל ה-prelude שלו הוא ``{{ sel }}`` מייצר **שם ריק**,
+    ו-``_report`` משמיט בלוק בלי שם — החלטה מוצהרת עם טסט משלה. אבל
+    האורקל מודל כל ``{`` מבני כסימבול, ולכן על הקלט הזה הוא מצפה לאחד
+    ומוצא אפס: המימוש צודק והמונה הוא שהיה שגוי.
+
+    בקורפוס אין תבנית בצורת ``{{ sel }}``, אבל **יש שתי הערות Jinja**
+    בבלוקי ה-``<style>`` של ``base.html`` — ושתיהן בלוק מאוזן בלי
+    prelude. כלומר זה לא מקרה תיאורטי, וזה גם מה שמאפשר להשמיט את
+    ``{#`` מרשימת פותחי ה-Jinja בסורק: הערה נעלמת מעצמה.
+    """
+    text = f"<style>\n{prelude} {{\n  color: red;\n}}\n.after {{\n  color: blue;\n}}\n</style>\n"
+
+    found = _inside(text, "style")
+    blocks = _structural_blocks(text[text.index(">") + 1 : text.index("</style")])
+    expected = len(blocks) - _keyframe_steps(blocks) - _nameless_blocks(blocks)
+
+    assert [row["name"] for row in found] == [".after"], note
+    assert len(found) == expected, (
+        f"{note}: המימוש אומר {len(found)} והמונה {expected}"
+    )
 
 
 def test_the_style_blocks_hold_exactly_the_css_blocks_that_are_in_them():
@@ -2570,7 +3117,9 @@ def test_the_style_blocks_hold_exactly_the_css_blocks_that_are_in_them():
         expected = 0
         for body in _style_bodies(text):
             blocks = _structural_blocks(body)
-            expected += len(blocks) - _keyframe_steps(blocks)
+            expected += (
+                len(blocks) - _keyframe_steps(blocks) - _nameless_blocks(blocks)
+            )
 
         found = _inside(text, "style")
 
@@ -2585,15 +3134,25 @@ def test_the_style_blocks_hold_exactly_the_css_blocks_that_are_in_them():
     [
         pytest.param('type="text/plain"', id="plain"),
         pytest.param('type="text/css; charset=utf-8"', id="css-with-parameters"),
+        pytest.param('type=" text/css "', id="css-with-spaces"),
+        pytest.param('type="text/css "', id="css-with-a-trailing-space"),
+        pytest.param('type=" "', id="whitespace-only"),
     ],
 )
 def test_a_style_block_that_the_browser_does_not_apply_is_not_scanned(declared):
-    """**נמדד ב-Chromium 141.0.7390.37, ולא נכתב מהזיכרון.**
+    """**נמדד ב-Chromium 141, ולא נכתב מהזיכרון.**
 
     ``type="text/plain"`` אינו יוצר ``sheet`` בכלל, ו-
     ``type="text/css; charset=utf-8"`` **גם הוא לא** — פרמטרים נדחים,
-    בדיוק כמו ב-essence match של ``<script>``. השני הוא זה שהיה נכתב
-    שגוי מהזיכרון.
+    בדיוק כמו ב-essence match של ``<script>``.
+
+    **ושלושת מקרי הרווחים הם ההפתעה, ולכן הם כאן.** ל-``<style>``
+    ההתאמה מדויקת: ``type=" text/css "``, ``type="text/css "``,
+    ``type="\ttext/css\n"`` ואפילו ``type=" "`` כולם מחזירים
+    ``sheet == null``. ל-``<script>`` זה **הפוך** — רווחים מקוצצים ו-
+    ``type=" text/javascript "`` רץ. שני התגים נבדלים באמת, ולכן שני
+    הקודים נבדלים, וזה בדיוק המקום שבו "אחד כמו השני" נראה נכון והוא
+    שגוי.
     """
     text = f"<style {declared}>\n.card {{\n  color: red;\n}}\n</style>\n"
     symbols = extract_outline(text, "page.html")["symbols"]
@@ -2616,6 +3175,101 @@ def test_a_style_block_the_browser_does_apply_is_scanned(declared):
     symbols = extract_outline(text, "page.html")["symbols"]
 
     assert [row["name"] for row in symbols] == ["style", ".card"]
+
+
+def test_a_concise_arrow_whose_body_starts_after_many_comments_stays_linear():
+    """"האם גוף החץ התחיל" נגזר מהיסט, ולא מסריקה חוזרת בכל שורה.
+
+    ``const f = () =>`` ואחריו רצף הערות משאיר את החץ **ממתין**, וכל
+    ירידת שורה שאלה מחדש "האם התחיל גוף" בסריקה מ-``body_from`` עד כאן.
+    זו סריקה של כל מה שנצבר, בכל שורה — נמדד: פי ארבע לכל הכפלה (4.05,
+    3.71, 3.99), 80KB ב-1.72 שניות, ובהסקה לתקרת ה-10MB שעות. אחרי
+    התיקון 0.0031 שניות על אותו קלט, פי 554, וגדילה של פי 1.8.
+
+    זה חשוב כי ``get_repo_file`` הוא פונקציה סינכרונית, וה-SDK של MCP
+    קורא לה ישירות — כלומר קלט אחד כזה נועל את הלולאה ולא רק את הבקשה
+    שלו. הסף רחב בכוונה, כמו בשאר טסטי הלינאריות: הוא מפריד בין לינארי
+    לריבועי ואינו מודד ביצועים.
+    """
+    text = "<script>\nconst f = () =>\n" + "// filler comment line\n" * 6_000 + "1;\n</script>\n"
+
+    started = time.perf_counter()
+    symbols = extract_outline(text, "page.html")["symbols"]
+    elapsed = time.perf_counter() - started
+
+    assert [row["name"] for row in symbols] == ["script", "f"]
+    assert elapsed < 2.0, f"{elapsed:.2f} שניות על {len(text) / 1000:.0f}KB"
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            "const f = () => [\n  1,\n  2\n];\n", ("f", 2, 5), id="bracket-depth",
+        ),
+        pytest.param(
+            "const g = () => (\n  {a: 1}\n);\n", ("g", 2, 4), id="paren-depth",
+        ),
+        pytest.param(
+            "const h = () =>\n  1 +\n  2;\n", ("h", 2, 4), id="trailing-operator",
+        ),
+        pytest.param(
+            "const k = x => x + 1;\n", ("k", 2, 2), id="single-line",
+        ),
+    ],
+)
+def test_a_concise_arrow_body_that_spans_lines_closes_where_it_really_ends(body, expected):
+    """שלושה מנגנוני המשכיות, וכל אחד עם מקרה משלו.
+
+    ``parens`` לסוגריים עגולים, ``brackets`` למרובעים, ו-
+    ``_UNFINISHED_EXPRESSION`` לשורה שנגמרת באופרטור. המרובעים נמדדו
+    כחסרים: ``const f = () => [`` על ארבע שורות נסגר בשורה 4 בזמן
+    שה-``]`` יושב ב-5, כי ``2`` הוא סוף ביטוי תקין ואין מי שיידע
+    שהמערך עוד פתוח.
+    """
+    text = "<script>\n" + body + "</script>\n"
+
+    found = [
+        (row["name"], row["start"], row["end"])
+        for row in extract_outline(text, "page.html")["symbols"]
+        if row["name"] != "script"
+    ]
+
+    assert found == [expected]
+
+
+def test_a_body_continued_by_the_next_line_is_a_declared_limitation():
+    """מה ששלושת המנגנונים **אינם** מכסים, ככישלון מוצהר ולא כהפתעה.
+
+    ההסתכלות היא אחורה בלבד: על סוף השורה הנוכחית. המשכיות שמסומנת
+    בתחילת השורה **הבאה** — שרשור מתודות, שהוא כתיב נפוץ לגמרי — אינה
+    נראית, ולכן ``const h = () => list`` נסגר בשורה שלו בזמן שהביטוי
+    נמשך שתי שורות.
+
+    הטסט מקבע את ההתנהגות **הקיימת** בכוונה: זו הגדרה אחת עם ``end``
+    מוקדם ולא בליעה של הבלוק, והפונקציה שאחריה נמצאת כרגיל. תיקון דורש
+    קורא-קדימה, שהוא שינוי בסדר גודל אחר. אם מישהו יתקן אותו — הטסט הזה
+    ייפול, וזה בדיוק מה שיסמן שהמצב המוצהר השתנה.
+    """
+    text = (
+        "<script>\n"
+        "const h = () => list\n"
+        "  .map(x => x)\n"
+        "  .filter(Boolean);\n"
+        "function after() {}\n"
+        "</script>\n"
+    )
+
+    found = [
+        (row["name"], row["start"], row["end"])
+        for row in extract_outline(text, "page.html")["symbols"]
+        if row["name"] != "script"
+    ]
+
+    assert found == [("h", 2, 2), ("after", 5, 5)], (
+        "אם זה נפל — ההתנהגות המוצהרת השתנתה, ויש לעדכן את ההצהרה "
+        "ב-``_concise_body_ended`` ואת הטסט הזה יחד"
+    )
 
 
 def test_the_css_inside_a_style_block_with_an_id_carries_the_prefix():
@@ -2691,24 +3345,23 @@ def test_the_seam_counter_can_actually_fail():
 def test_a_real_css_file_goes_through_the_tool_paginated_and_within_budget():
     """הצרכן נוגע בזה דרך ``codekeeper_get_repo_file``, ולא דרך החילוץ.
 
-    שם יש עימוד ותקציב בתים שאינם בסורק בכלל. ``repo-browser.css`` הוא
-    קובץ העימוד האמיתי — הגדול בקורפוס — ולכן עמוד ברירת המחדל שלו
+    שם יש עימוד ותקציב בתים שאינם בסורק בכלל. הקובץ נבחר כצפוף
+    בקורפוס — **נגזר ולא נקוב בשם**, כי טסט שנוקב בשם קובץ ומדלג
+    בהיעדרו הופך לירוק ברגע שהקובץ מקבל שם אחר. עמוד ברירת המחדל שלו
     חייב לחזור מלא, בלי לחרוג מהתקציב, ובלי חורים בין העמודים.
     """
     import json
 
-    path = _REPO_ROOT / "webapp" / "static" / "css" / "repo-browser.css"
-    if not path.exists():  # pragma: no cover
-        pytest.skip("repo-browser.css לא קיים")
+    path, mapped = _densest_css_file()
     text = path.read_text(encoding="utf-8")
     backend = _backend(text)
 
     first = repo_handlers.get_repo_file(
-        backend, repo="r", path="repo-browser.css", outline=True
+        backend, repo="r", path=path.name, outline=True
     )
 
     assert first["status"] == "outline"
-    assert first["total"] == len(_css(text)["symbols"])
+    assert first["total"] == len(mapped["symbols"])
     assert len(first["symbols"]) == repo_handlers.OUTLINE_PER_PAGE_DEFAULT
 
     serialized = json.dumps(first["symbols"], ensure_ascii=False).encode("utf-8")
@@ -2719,28 +3372,27 @@ def test_a_real_css_file_goes_through_the_tool_paginated_and_within_budget():
     walked = []
     for page in range(1, pages + 1):
         walked += repo_handlers.get_repo_file(
-            backend, repo="r", path="repo-browser.css", outline=True, page=page
+            backend, repo="r", path=path.name, outline=True, page=page
         )["symbols"]
 
     assert len(walked) == first["total"]
 
 
 def test_a_widest_page_of_a_real_css_file_still_fits_the_budget():
-    """התקרה הגדולה, על הקובץ שנושא את השמות הארוכים.
+    """התקרה הגדולה, על הקובץ הצפוף בקורפוס.
 
-    השם הארוך ביותר בקורפוס הוא 774 בתים ויושב כאן, ולכן זה הקובץ שבו
-    ``per_page`` המקסימלי הוא הסיכון האמיתי — לא ספירת הסימבולים.
+    השם הארוך ביותר בקורפוס הוא 774 בתים ויושב באותו קובץ, ולכן זה
+    המקום שבו ``per_page`` המקסימלי הוא הסיכון האמיתי — האורך, לא
+    ספירת הסימבולים. הקובץ **נגזר** מהקורפוס ולא נקוב בשם.
     """
     import json
 
-    path = _REPO_ROOT / "webapp" / "static" / "css" / "repo-browser.css"
-    if not path.exists():  # pragma: no cover
-        pytest.skip("repo-browser.css לא קיים")
+    path, _mapped = _densest_css_file()
 
     out = repo_handlers.get_repo_file(
         _backend(path.read_text(encoding="utf-8")),
         repo="r",
-        path="repo-browser.css",
+        path=path.name,
         outline=True,
         per_page=repo_handlers.OUTLINE_PER_PAGE_MAX,
     )
@@ -2772,6 +3424,40 @@ def test_a_pathological_input_stays_linear(label, text):
 
     assert result["status"] == "ok"
     assert elapsed < 2.0, f"{label}: {elapsed:.2f} שניות"
+
+
+@pytest.mark.parametrize(
+    ("label", "unterminated"),
+    [("comment", "/* open"), ("jinja-tag", "{% if x"), ("jinja-expression", "{{ x")],
+    ids=["unclosed-comment", "unclosed-jinja-tag", "unclosed-jinja-expression"],
+)
+def test_many_style_blocks_with_an_unterminated_region_stay_linear(label, unterminated):
+    """חיפוש סוגר בלי גבול הופך לריבועי כשהקורא הוא ``html.py``.
+
+    בקובץ ``.css`` שלם הוא עולה סריקה אחת עד סוף הקובץ ונגמר. אבל
+    ``html.py`` קורא ל-``read_blocks`` **פעם אחת לכל בלוק** ``<style>``,
+    עם ``start`` ו-``stop`` של אותו בלוק — וחיפוש שמתעלם מ-``stop`` סורק
+    בכל קריאה את כל שאר הקובץ. נמדד על תבנית של 1MB: 5.7 שניות לפני
+    חסימת החיפוש ו-0.27 אחריה.
+
+    הסף רחב בכוונה, כמו בטסט הלינאריות של הלקסר: הוא מפריד בין לינארי
+    לריבועי ואינו מודד ביצועים. **וזה הטסט היחיד שתופס את החסימה הזאת**,
+    כי הפלט זהה איתה ובלעדיה — הפרש הוא בזמן בלבד.
+    """
+    # **הבלוק ריק מכללי CSS בכוונה, וזה לא קוסמטיקה.** העבודה
+    # הריבועית גדלה עם **מספר הבלוקים**, ולכן צריך כמה שיותר; אבל כל
+    # כלל בתוך בלוק הוא שורה נוספת, ומעל 50,000 שורות התקרה יורה
+    # והטסט מודד אותה במקום את הלינאריות. בלוק בלי כללים נותן שורה
+    # אחת — התווית — ולכן אפשר גם המון בלוקים וגם להישאר מתחת לתקרה.
+    block = f"<style>{unterminated}\n</style>\n"
+    text = block * (1_000_000 // len(block))
+
+    started = time.perf_counter()
+    result = extract_outline(text, "page.html")
+    elapsed = time.perf_counter() - started
+
+    assert result["status"] == "ok"
+    assert elapsed < 2.0, f"{label}: {elapsed:.2f} שניות על {len(text) / 1e6:.2f}MB"
 
 
 def test_a_block_without_a_name_is_not_a_symbol():

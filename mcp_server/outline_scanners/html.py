@@ -30,6 +30,7 @@ import re
 from collections.abc import Callable, Sequence
 from typing import Any, NamedTuple
 
+from . import _ceiling
 from . import css as _css
 from ._lines import line_at, line_table
 
@@ -141,9 +142,27 @@ _BEFORE_DIVISION = re.compile(r"[\w$)\]]")
 
 def extract(text: str) -> dict[str, Any]:
     """מפת הסימבולים של תבנית HTML/Jinja."""
-    rows: list[dict[str, Any]] = []
-    tags: list[tuple[str, int, str | None]] = []
-    jinja: list[tuple[str, int, str]] = []
+    rows: list[dict[str, Any]] = _ceiling.Capped()
+    try:
+        return {"symbols": _read_template(text, rows)}
+    except _ceiling.TooManySymbols:
+        # **תופס את התקרה בלבד.** ``except Exception`` כאן היה מחזיר
+        # "אין אאוטליין" על כל באג בסורק, על תבנית תקינה לגמרי — וזה
+        # K11 בכיוון ההפוך. הנימוק המלא ב-``_ceiling.TooManySymbols``.
+        return _ceiling.too_many_symbols()
+
+
+def _read_template(text: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """הסריקה עצמה, בלי מעטפת התשובה.
+
+    **שלוש המחסניות חסומות גם הן, ולא רק רשימת השורות.** נמדד:
+    ``"<a>"`` שחוזר מיליון פעם הוא 3.00MB, מייצר **אפס** שורות — אין
+    לו ``id`` — ומגיע ל-122.5MB, כי כל תגית נדחפת ל-``tags`` וממתינה
+    לסוגר שלא יבוא. תקרה על השורות לבדן לא הייתה יורה שם בכלל; עם
+    שלוש המחסניות חסומות אותו קלט נמדד ב-6.1MB.
+    """
+    tags: list[tuple[str, int, str | None]] = _ceiling.Capped()
+    jinja: list[tuple[str, int, str]] = _ceiling.Capped()
     lines = line_table(text)
     index = 0
     size = len(text)
@@ -192,7 +211,7 @@ def extract(text: str) -> dict[str, Any]:
         if kind in _JINJA_BLOCK_TAGS:
             rows.append({"name": f"{kind} {name}", "start": opened, "end": last})
 
-    return {"symbols": rows}
+    return rows
 
 
 def _skip_past(text: str, start: int, needle: str) -> int:
@@ -305,18 +324,20 @@ def _read_tag(
 
     tag = name.group(0).lower()
     attributes, self_closing, stop = _read_attributes(text, name.end())
-    anchor = _attribute(attributes, "id")
+    #: ``id=""`` ו-``id`` בלי ערך אינם עוגן — נמדד ש-``getElementById("")``
+    #: אינו מוצא כלום. אבל ``id=" "`` **כן** עוגן תקין ובר-מציאה, ולכן
+    #: הערך נלקח גולמי ורק ריקנות אמיתית שוללת אותו.
+    anchor = _attribute(attributes, "id") or None
 
     if tag in _RAWTEXT_ELEMENTS:
-        label = f"{tag}#{anchor}" if anchor else tag
-        body_rows, after, after_line = _read_rawtext(
+        return _read_rawtext(
             text, stop, lines, tag,
-            prefix=f"{label}." if anchor else "",
+            label=f"{tag}#{anchor}" if anchor else tag,
+            opened=line,
+            prefix=f"{tag}#{anchor}." if anchor else "",
             reader=_body_reader(tag, attributes),
+            rows=rows,
         )
-        rows.append({"name": label, "start": line, "end": after_line})
-        rows.extend(body_rows)
-        return after
 
     if tag not in _VOID_ELEMENTS and not self_closing:
         stack.append((tag, line, anchor))
@@ -429,13 +450,26 @@ def _read_attributes(text: str, start: int) -> tuple[list[tuple[str, str]], bool
 
 
 def _attribute(attributes: list[tuple[str, str]], name: str) -> str | None:
-    """הערך של תכונה, או ``None``. מחזיר גם ערך ריק כ-``None``.
+    """הערך **הגולמי** של תכונה, או ``None`` אם היא נעדרת.
 
     הראשונה מנצחת, כמו בדפדפן: תכונה כפולה נזרקת ולא דורסת.
+
+    **והערך אינו מקוצץ כאן, בכוונה.** גרסה קודמת עשתה
+    ``value.strip() or None`` — כלומר אפתה נרמול של צרכן אחד לתוך גטר
+    משותף, ושלושת הצרכנים דורשים שלושה דברים שונים. נמדד ב-Chromium
+    141: ``<script type=" text/javascript ">`` **כן** רץ (רווחים
+    מקוצצים), ``<style type=" text/css ">`` **אינו** יוצר גיליון
+    (התאמה מדויקת), ו-``<span id=" x ">`` שומר את הרווחים —
+    ``getElementById(" x ")`` מוצא אותו. הקיצוץ המשותף שבר את שני
+    האחרונים: ``<style type=" ">`` הפך ל-``None`` ונקרא כ"אין ``type``
+    בכלל", כלומר נסרק כ-CSS בזמן שהדפדפן אינו מחיל אותו.
+
+    בקורפוס הזה יש אפס תכונות ``id`` או ``type`` עם רווחים בקצוות, ולכן
+    זו התאמה לשפה ולא לקורפוס — והכלי משרת כל ריפו ממורר, לא רק את זה.
     """
     for found, value in attributes:
         if found == name:
-            return value.strip() or None
+            return value
     return None
 
 
@@ -450,6 +484,8 @@ def _is_javascript(attributes: list[tuple[str, str]]) -> bool:
     declared = _attribute(attributes, "type")
     if declared is None:
         return True
+    #: הקיצוץ כאן, ולא ב-``_attribute``, כי הוא נכון ל-``<script>``
+    #: בלבד — נמדד: ``type=" text/javascript "`` רץ.
     normalized = declared.strip().casefold()
     return normalized in {"", "module"} or normalized in _JAVASCRIPT_MIME_ESSENCES
 
@@ -466,16 +502,30 @@ _CSS_MIME_ESSENCE = "text/css"
 
 
 def _is_css(attributes: list[tuple[str, str]]) -> bool:
-    """האם גוף ה-``<style>`` הזה הוא CSS שראוי לרדת לתוכו."""
+    """האם גוף ה-``<style>`` הזה הוא CSS שראוי לרדת לתוכו.
+
+    **ואין כאן ``strip()``, בשונה מ-``_is_javascript`` — נמדד ב-Chromium
+    141.** ``<style>`` עושה התאמה מדויקת (לא תלוית רישיות) ל-``""`` או
+    ל-``text/css``, וכל רווח בכל מקום מבטל אותה: ``type=" text/css "``,
+    ``type="\ttext/css\n"``, ``type="text/css "`` ואפילו ``type=" "``
+    כולם מחזירים ``sheet == null``. ``<script>`` **כן** מקצץ —
+    ``type=" text/javascript "`` רץ. שני התגים באמת נבדלים, ולכן שני
+    הקודים נבדלים.
+    """
     declared = _attribute(attributes, "type")
     if declared is None:
         return True
-    return declared.strip().casefold() in {"", _CSS_MIME_ESSENCE}
+    return declared.casefold() in {"", _CSS_MIME_ESSENCE}
 
 
 #: מי סורק את גוף הבלוק. ``None`` פירושו שלא יורדים לתוכו — הבלוק מדווח
 #: כגבול, וזו התשובה הנכונה ל-data block שהדפדפן אינו מריץ.
-_BodyReader = Callable[[str, int, int, Sequence[int], str], list[dict[str, Any]]]
+#: תת-הסורק **כותב** לרשימה שהוא מקבל ואינו מחזיר אחת, כדי שהתקרה
+#: תהיה תקציב אחד לכל הקובץ ולא אחד לכל בלוק. הנימוק והמדידה
+#: ב-``css.read_blocks``.
+_BodyReader = Callable[
+    [str, int, int, Sequence[int], str, list[dict[str, Any]]], None
+]
 
 
 def _body_reader(tag: str, attributes: list[tuple[str, str]]) -> _BodyReader | None:
@@ -496,10 +546,19 @@ def _read_rawtext(
     start: int,
     lines: Sequence[int],
     tag: str,
+    label: str,
+    opened: int,
     prefix: str,
     reader: _BodyReader | None,
-) -> tuple[list[dict[str, Any]], int, int]:
+    rows: list[dict[str, Any]],
+) -> int:
     """קורא גוף של ``<script>`` או ``<style>`` עד תגית הסגירה שלו.
+
+    מחזיר את המיקום שאחרי תגית הסגירה, ומוסיף ל-``rows`` את הבלוק עצמו
+    ואחריו מה שתת-הסורק מצא בתוכו. **הדיווח נעשה כאן ולא אצל הקורא**
+    כדי שהסדר יישמר: תגית הסגירה נמצאת לפני שתת-הסורק רץ, ולכן אפשר
+    לרשום את הבלוק תחילה — ורשימה שתת-הסורק כותב לתוכה אינה יכולה
+    להיכנס אחריו אם הוא נרשם אחריה.
 
     **היציאה היא על ``</tag`` בלבד, בלי לכבד מחרוזות של JavaScript** — וזה
     נמדד ולא הונח: ``<script>var s = "</script>";</script>`` נטען ב-Chromium,
@@ -522,8 +581,10 @@ def _read_rawtext(
     # אינדקסים אחר, וטבלת השורות אחת לכל הקובץ. זה גם חוסך עותק של עד
     # 10MB לכל תגית. שני תת-הסורקים חולקים את החתימה הזאת בדיוק, וזה מה
     # שמאפשר לבחור ביניהם בלי ענף בתוך הקורא.
-    rows = reader(text, start, stop, lines, prefix) if reader else []
-    return rows, after, line_at(lines, after)
+    rows.append({"name": label, "start": opened, "end": line_at(lines, after)})
+    if reader:
+        reader(text, start, stop, lines, prefix, rows)
+    return after
 
 
 class _Pending(NamedTuple):
@@ -547,6 +608,7 @@ class _Pending(NamedTuple):
     opened: int
     body_depth: int
     parens: int
+    brackets: int
     awaits_brace: bool
     body_from: int
 
@@ -567,7 +629,7 @@ _UNFINISHED_EXPRESSION = re.compile(r"[-+*/%.,?:&|^<>=([]")
 
 
 def _concise_body_ended(
-    text: str, waiting: _Pending, index: int, token: str, parens: int
+    waiting: _Pending, token: str, token_at: int, parens: int, brackets: int
 ) -> bool:
     """האם גוף החץ של ``waiting`` נגמר ב-``index``, שהוא ירידת שורה?
 
@@ -586,15 +648,32 @@ def _concise_body_ended(
     סגנון Allman לפני שתוקן.
 
     **ושורה שנגמרת באופרטור אינה מסיימת את הביטוי**, ולכן גוף שפרוס על
-    כמה שורות נסגר בשורה שבה הביטוי באמת נגמר. ``parens`` מכסה את
-    המשכיות שנפתחה בסוגריים; ``_UNFINISHED_EXPRESSION`` מכסה את זו
-    שנפתחה באופרטור.
+    כמה שורות נסגר בשורה שבה הביטוי באמת נגמר. שלושה מנגנונים, וכל אחד
+    למשכיות מסוג אחר: ``parens`` לסוגריים עגולים פתוחים, ``brackets``
+    למרובעים, ו-``_UNFINISHED_EXPRESSION`` לשורה שנגמרת באופרטור.
+
+    **ומה שהם עדיין אינם מכסים, מדוד ומוצהר:** המשכיות שמסומנת בתחילת
+    השורה **הבאה** ולא בסוף הנוכחית. ``const h = () => list`` ואז
+    ``.map(…)`` בשורה נפרדת נסגר בשורה הראשונה, כי ``list`` הוא מזהה
+    ותקין כסוף ביטוי — וההסתכלות כאן היא אחורה בלבד. זו הגדרה אחת עם
+    ``end`` מוקדם, לא בליעה של הבלוק, ותיקונה דורש קורא-קדימה שהוא
+    שינוי בסדר גודל אחר.
+
+    **ו"הגוף התחיל" נגזר מהיסט ולא מסריקה חוזרת.** גרסה קודמת קראה כאן
+    ל-``_next_meaningful`` מ-``body_from`` עד ``index`` — כלומר סרקה מחדש
+    את כל מה שנצבר, בכל ירידת שורה. נמדד: גדילה של פי ארבע לכל הכפלה
+    (4.05, 3.71, 3.99), ו-80KB ב-1.72 שניות — בהסקה לתקרת ה-10MB, שעות.
+    ``token_at``, ההיסט של הטוקן המשמעותי האחרון, עונה על אותה שאלה
+    בהשוואת שני מספרים: אותו קלט ב-0.0031 שניות, פי 554, וגדילה של פי
+    1.8. השקילות אינה הנחה: שני מסלולי הדילוג בלולאה — רווחים והערות —
+    אינם נוגעים ב-``token``, ולכן "הטוקן האחרון קודם ל-``body_from``"
+    הוא בדיוק "אין תו משמעותי בין ``body_from`` ל-``index``".
     """
     if waiting.body_depth >= 0 or waiting.awaits_brace:
         return False
-    if parens > waiting.parens:
+    if parens > waiting.parens or brackets > waiting.brackets:
         return False
-    if _next_meaningful(text, waiting.body_from, index) == "":
+    if token_at < waiting.body_from:
         return False
     return not _UNFINISHED_EXPRESSION.match(token)
 
@@ -623,9 +702,14 @@ def _next_meaningful(text: str, index: int, stop: int) -> str:
 
 
 def _read_javascript(
-    text: str, start: int, stop: int, lines: Sequence[int], prefix: str
-) -> list[dict[str, Any]]:
-    """הגדרות הפונקציות בתוך בלוק סקריפט.
+    text: str,
+    start: int,
+    stop: int,
+    lines: Sequence[int],
+    prefix: str,
+    rows: list[dict[str, Any]],
+) -> None:
+    """מוסיף ל-``rows`` את הגדרות הפונקציות שבתוך בלוק סקריפט.
 
     זה מה שהופך בלוק בן שבע-מאות שורות למפה שאפשר לנווט בה. בלוק שמוחזר
     כסימבול אחד אינו מפה — הוא רק גבול.
@@ -661,13 +745,18 @@ def _read_javascript(
     בלי גוף בסוגריים מסולסלים, ולכן צורה כזאת ממתינה תמיד. רק חץ יכול
     בלי סוגריים, ואצלו ההמתנה נקבעת לפי מה שבא אחרי ה-``=>``.
     """
-    rows: list[dict[str, Any]] = []
-    pending: list[_Pending] = []
+    pending: list[_Pending] = _ceiling.Capped()
     depth = 0
     parens = 0
+    brackets = 0
     index = start
-    #: הטוקן הלא-רווח האחרון — משמש **רק** להבחנה בין regex לחילוק.
+    #: הטוקן הלא-רווח האחרון, ו**ההיסט שלו**. שני צרכנים, ולכן שני
+    #: משתנים: ``token`` מבדיל בין regex לחילוק (ושם הסימון ``"x"``
+    #: לאחר מחרוזת, regex או חתימה נושא משקל — הוא אומר "טוקן שאינו
+    #: אופרטור"), ו-``token_at`` עונה על "האם גוף החץ בכלל התחיל" בלי
+    #: לסרוק אותו מחדש. שניהם מתעדכנים באותם ארבעה אתרים בדיוק.
     token = ""
+    token_at = start - 1
 
     while index < stop:
         char = text[index]
@@ -676,7 +765,7 @@ def _read_javascript(
             # ``const f = x => x + 1`` בלי גוף מסולסל נגמר בסוף השורה,
             # וכל הסיבות שלא לסגור יושבות ב-``_concise_body_ended``.
             while pending and _concise_body_ended(
-                text, pending[-1], index, token, parens
+                pending[-1], token, token_at, parens, brackets
             ):
                 done = pending.pop()
                 rows.append({
@@ -696,16 +785,22 @@ def _read_javascript(
         if char in "\"'`":
             index = _skip_string(text, index, stop)
             token = "x"
+            token_at = index - 1
             continue
         if char == "/" and not _BEFORE_DIVISION.match(token):
             index = _skip_regex(text, index, stop)
             token = "x"
+            token_at = index - 1
             continue
 
         if char == "(":
             parens += 1
         elif char == ")":
             parens -= 1
+        elif char == "[":
+            brackets += 1
+        elif char == "]":
+            brackets -= 1
         elif char == "{":
             depth += 1
             # פונקציה שממתינה לגוף (``-1``) מקבלת כאן את עומקה האמיתי —
@@ -744,6 +839,7 @@ def _read_javascript(
                     opened=line_at(lines, index),
                     body_depth=-1,
                     parens=parens,
+                    brackets=brackets,
                     awaits_brace=(
                         match.group("kw") is not None
                         or _next_meaningful(text, match.end(), stop) == "{"
@@ -752,17 +848,21 @@ def _read_javascript(
                 ))
                 index = match.end()
                 token = "x"
+                #: התו האחרון של החתימה, כלומר ``body_from - 1``. חייב
+                #: להיות **לפני** ``body_from``, אחרת ההתאמה עצמה נראית
+                #: כמו גוף שהתחיל והפונקציה תיסגר בשורת החתימה.
+                token_at = index - 1
                 continue
 
         if not char.isspace():
             token = char
+            token_at = index
         index += 1
 
     # פונקציות שלא נסגרו עד סוף הבלוק.
     last = line_at(lines, stop)
     for waiting in pending:
         rows.append({"name": f"{prefix}{waiting.name}", "start": waiting.opened, "end": last})
-    return rows
 
 
 def _skip_string(text: str, index: int, stop: int) -> int:

@@ -42,6 +42,7 @@ import re
 from collections.abc import Sequence
 from typing import Any, NamedTuple
 
+from . import _ceiling
 from ._lines import line_at, line_table
 
 #: רצף רווחים כלשהו ← רווח יחיד. סלקטור שפרוס על כמה שורות הופך לשם אחד,
@@ -65,9 +66,19 @@ _URL_FUNCTION = re.compile(r"url\(", re.IGNORECASE)
 #: ``-webkit-image-set(url(…))`` הוא כן ``url`` כי לפניו ``(``.
 _IDENT_CHARACTER = re.compile(r"[\w-]")
 
-#: מבני Jinja. הסדר לא משנה כי שלושתם נבדקים במקביל, אבל ``{#`` חייב
-#: להיבדק לפני ``{`` הרגיל כדי שהערת Jinja לא תיקרא כפתיחת בלוק.
-_JINJA_OPENERS = (("{%", "%}"), ("{{", "}}"), ("{#", "#}"))
+#: מבני Jinja שמדולגים כיחידה. הסדר לא משנה כי שניהם נבדקים במקביל.
+#:
+#: **ו-``{#`` אינו ברשימה, בכוונה.** ב-CSS ממוזער ``{#`` הוא שני דברים
+#: צמודים: סוגר-בלוק-פותח ואחריו סלקטור id. ``@media print{#a{…}}`` הוא
+#: CSS חוקי ונפוץ, בזמן שהערת Jinja בתוך CSS ממוזער אינה קיימת — ומי
+#: שקרא כאן ``{#`` כפותח הערה בלע את כל מה שעד ה-``#}`` הבא, או עד סוף
+#: הקובץ כשאין כזה, והחזיר מפה **ריקה** על קובץ מלא.
+#:
+#: וההוצאה אינה מפסידה דבר, כי ``{#…#}`` מאוזן בסוגריים מעצמו: ה-``{``
+#: פותח בלוק בלי שם, ה-``}`` של ``#}`` סוגר אותו, ובלוק בלי שם מושמט
+#: ב-``_report``. כלומר הערת Jinja ממשיכה להיעלם מהמפה — בלי טיפול
+#: מיוחד, ובלי שהיא מסוגלת למחוק את מה שמתחתיה.
+_JINJA_OPENERS = (("{%", "%}"), ("{{", "}}"))
 
 #: at-rule שהילדים שלו **אינם** כללים עם סלקטור אלא צעדים.
 #:
@@ -104,21 +115,41 @@ def extract(text: str) -> dict[str, Any]:
     ולכן קלט פגום — בלוק שלא נסגר, מחרוזת שלא נסגרה, הערה בלי סוגר —
     מוחזר כמפה חלקית ולא זורק. זה לא ויתור: קובץ באמצע עריכה הוא קלט
     לגיטימי כאן, וזה גם מה שדפדפן עושה.
+
+    התקרה היא היוצא מן הכלל היחיד, והיא נוסעת פנימה כחריגה ויוצאת כאן
+    כערך החזרה — הנימוק ב-``_ceiling.TooManySymbols``. וה-``except``
+    תופס **אותה בלבד**.
     """
-    return {"symbols": read_blocks(text, 0, len(text), line_table(text), "")}
+    rows: list[dict[str, Any]] = _ceiling.Capped()
+    try:
+        read_blocks(text, 0, len(text), line_table(text), "", rows)
+    except _ceiling.TooManySymbols:
+        return _ceiling.too_many_symbols()
+    return {"symbols": rows}
 
 
 def read_blocks(
-    text: str, start: int, stop: int, lines: Sequence[int], prefix: str
-) -> list[dict[str, Any]]:
-    """הבלוקים שבין ``start`` ל-``stop``.
+    text: str,
+    start: int,
+    stop: int,
+    lines: Sequence[int],
+    prefix: str,
+    rows: list[dict[str, Any]],
+) -> None:
+    """מוסיף ל-``rows`` את הבלוקים שבין ``start`` ל-``stop``.
 
     אותו לקסר משרת גם קובץ ``.css`` שלם וגם גוף של ``<style>`` בתוך
     תבנית. הוא מקבל את הטקסט עם גבולות ולא פרוסה שלו: פרוסה היא מרחב
     אינדקסים אחר, וטבלת השורות אחת לכל הקובץ.
+
+    **והוא מקבל את ``rows`` של הקורא ואינו בונה רשימה משלו.** אחרת
+    התקרה נעשית שני תקציבים: רשימת ה-``html`` על 49,999 ואז בלוק
+    ``<style>`` שמייצר עוד 50,000 — ושתי הרשימות חיות יחד ברגע האיחוד,
+    כלומר פי שתיים מהתקרה, מקלט שאפשר לחבר בכוונה. נמדד על אותו קלט,
+    שלוש נקודות: 24.8MB בלי תקרה, 18.8MB עם תקרה ושני תקציבים,
+    ו-12.2MB עם תקרה ותקציב אחד.
     """
-    rows: list[dict[str, Any]] = []
-    stack: list[_Open] = []
+    stack: list[_Open] = _ceiling.Capped()
     index = start
     #: ה-prelude נאסף בחלקים, כי ההערות שבתוכו מושמטות ממנו.
     pieces: list[str] = []
@@ -147,12 +178,15 @@ def read_blocks(
             # ההערה יוצאת מה-prelude, אבל **אינה** שוברת אותו:
             # ``.a /* x */ .b {`` הוא סלקטור אחד חוקי.
             take(index)
-            found = text.find("*/", index + 2)
+            found = text.find("*/", index + 2, stop)
             index = stop if found < 0 else min(found + 2, stop)
             chunk_from = index
             continue
 
-        if char == "{" or char == "}":
+        if char == "{":
+            # מבנה Jinja נבדק **לפני** פתיחת הבלוק, אחרת ``{%`` היה
+            # נקרא כבלוק בלי שם. ורק ``{`` נבדק כאן: שני הפותחים
+            # שנשארו מתחילים בו, ואף אחד אינו מתחיל ב-``}``.
             jinja = _jinja_span(text, index, stop)
             if jinja >= 0:
                 take(index)
@@ -208,7 +242,6 @@ def read_blocks(
     # נסגרה בסורק ה-HTML: זו התשובה הכנה, כי הם באמת לא נסגרו.
     while stack:
         _report(rows, stack.pop(), stop, lines, prefix)
-    return rows
 
 
 def _report(
@@ -240,13 +273,22 @@ def _report(
 def _jinja_span(text: str, index: int, stop: int) -> int:
     """הסוף של מבנה Jinja שמתחיל כאן, או ``-1`` אם אין כזה.
 
-    מחזיר את המיקום שאחרי הסוגר. מבנה שלא נסגר נבלע עד ``stop``, כמו כל
-    קטע אחר שלא נסגר.
+    מחזיר את המיקום שאחרי הסוגר.
+
+    **מבנה שלא נסגר בתוך הגבול מדלג על שני תווי הפותח בלבד, ואינו נבלע
+    עד ``stop``.** זו אותה החלטה שכבר נלקחה ב-``_jinja_tag_end`` בסורק
+    ה-HTML, ומאותה סיבה: תגית פגומה אחת שבולעת את כל מה שאחריה מוחקת
+    מהמפה קוד תקין לגמרי, וזו תשובת הצלחה עם תוכן שגוי. הדילוג הצר
+    נותן במקומה מפה שנכונה מהתו הבא והלאה.
+
+    וחיפוש הסוגר חסום ב-``stop``. בלי החסימה הוא סורק את כל שאר הקובץ
+    בכל קריאה — וכשהקורא הוא ``html.py``, שקורא לכאן פעם אחת לכל בלוק
+    ``<style>``, זה הופך לריבועי.
     """
     for opener, closer in _JINJA_OPENERS:
         if text.startswith(opener, index):
-            found = text.find(closer, index + len(opener))
-            return stop if found < 0 else min(found + len(closer), stop)
+            found = text.find(closer, index + len(opener), stop)
+            return index + len(opener) if found < 0 else found + len(closer)
     return -1
 
 
@@ -272,10 +314,26 @@ def _skip_url(text: str, index: int, stop: int) -> int:
     לבדו. שתיהן קיימות בקורפוס — 71 מצוטטות ו-28 לא — ולשתיהן זה משנה:
     ``url('data:image/svg+xml;utf8, <svg …>')`` מכיל ``;`` ומרכאות בתוך
     הערך, וגם ``<`` ו-``>``.
+
+    **והחיפוש הוא לולאה ולא ``find``, כי גוף ``url()`` יכול להכיל ביטוי
+    Jinja.** ``url({{ url_for('static', filename='x.png') }})`` הוא הצורה
+    הרגילה בתבנית, ובה ה-``)`` הראשון הוא זה שסוגר את ``url_for`` ולא
+    את ``url`` — ``find`` עוצר עליו, והלקסר חוזר לקוד בתוך הביטוי,
+    רואה שם ``}`` וסוגר בלוק שעוד לא נגמר. לכן הלולאה מדלגת על מבני
+    Jinja כיחידה, בדיוק כמו הלולאה הראשית, ועוצרת ב-``stop``.
     """
     while index < stop and text[index].isspace():
         index += 1
     if index < stop and text[index] in "\"'":
         index = _skip_string(text, index, stop)
-    found = text.find(")", index)
-    return stop if found < 0 else min(found + 1, stop)
+    while index < stop:
+        char = text[index]
+        if char == "{":
+            jinja = _jinja_span(text, index, stop)
+            if jinja >= 0:
+                index = jinja
+                continue
+        if char == ")":
+            return index + 1
+        index += 1
+    return stop

@@ -10,6 +10,8 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from . import _ceiling
+
 #: מרחב שמות בפייתון הוא פונקציה או מחלקה. ``if``/``try``/``with``/``for``
 #: **אינם** — הם משנים זרימה, לא שיוך. לכן המעבר חוצה אותם בלי להוסיף
 #: תחילית, ופונקציה שהוגדרה בתוך ``except ImportError`` נשארת ברמה שלה.
@@ -44,7 +46,15 @@ def extract(text: str) -> dict[str, Any]:
     # 27.3MB מול 2.4MB בסדר הזה, פי 11. זה משנה כי אאוטליין נשפט מול
     # ``RANGE_READ_MAX_BYTES`` (10MB), שההערה עליו מתעדת תקציב **נמדד**
     # של פי שלושה מגודל הקובץ; קובץ בגבול עם תחביר שבור היה חורג ממנו.
-    return {"symbols": _collect(tree, text.split("\n"))}
+    #
+    # וזה ``try`` **שני ונפרד** מזה שלמעלה, ולא הרחבה שלו. שני נימוקים
+    # שכל אחד לבדו מספיק: הצפת סימבולים אינה ``parse_error`` ואסור לה
+    # לדווח כך, וההרחבה הגורפת שלמעלה מנומקת לפרסינג בלבד — היא כתובה
+    # במפורש שהמעבר שמתחת רץ מחוצה לה, כדי שבאג שלנו ייפול בקול.
+    try:
+        return {"symbols": _collect(tree, text.split("\n"))}
+    except _ceiling.TooManySymbols:
+        return _ceiling.too_many_symbols()
 
 
 def _start_line(
@@ -93,7 +103,11 @@ def _collect(tree: ast.AST, lines: list[str]) -> list[dict[str, Any]]:
     ל-``except`` שלמעלה להישאר צר סביב הפרסינג בלבד, בלי פיתוי להרחיב
     אותו כדי לבלוע נפילה של המעבר.
     """
-    rows: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = _ceiling.Capped()
+    #: **מחסנית המעבר אינה חסומה, וזו החלטה ולא שכחה.** היא מחזיקה
+    #: הפניות לצמתים שכבר הוקצו ב-``ast.parse``, ולכן אינה מגדילה את
+    #: השיא שהמסלול הזה מדד ממילא — בשונה משלוש המחסניות בסורק ה-HTML
+    #: ובסורק ה-CSS, שכל רשומה בהן היא הקצאה חדשה מקלט קטן.
     stack: list[tuple[ast.AST, str]] = [(tree, "")]
     while stack:
         node, prefix = stack.pop()
