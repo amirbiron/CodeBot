@@ -14,14 +14,45 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from difflib import get_close_matches
 from typing import List, Optional, Tuple
 
-# תווי adornment חוקיים לכותרות RST (לא כולל אלפאנומרי/רווח)
-_ADORNMENT_CHARS = set("=-`:.'\"~^_*+#<>!$%&()?@[\\]{|}/")
+# תווי adornment חוקיים לכותרות RST. docutils מגדיר את המחלקה הזאת
+# ב-``Body.pats['nonalphanum7bit']`` כ-``[!-/:-@[-`{-~]`` — כל 32 תווי
+# הפיסוק ב-ASCII. נגזר כאן מהטווח ולא מוקלד ביד, כי רשימה מוקלדת סוחפת:
+# הרשימה שקדמה לזו מנתה 30 תווים והחסירה ',' ו-';', ולכן הסתירה כותרות
+# שלמות שהיו כתובות בהם.
+_ADORNMENT_CHARS = frozenset(c for c in map(chr, range(0x21, 0x7F)) if not c.isalnum())
+
+# רוחב בעמודות לכל מחלקת רוחב של Unicode, לפי ``docutils.utils.column_width``.
+# 'A' (ambiguous) הוא 1 בכוונה — כך במקור, עם הערה שמנמקת שההקשר לא זמין.
+_EAST_ASIAN_WIDTHS = {"W": 2, "F": 2, "Na": 1, "H": 1, "N": 1, "A": 1}
+
+# קו adornment קצר מהכותרת אינו כותרת כלל רק אם הוא גם קצר מזה. במקור:
+# ``underline()`` ל-underline-only, ו-``Line`` ל-overline.
+_MIN_SHORT_ADORNMENT = 4
+
+# שורות פיסוק אחידות שתבנית אחרת של ``Body`` חוטפת **לפני** תבנית ה-``line``,
+# ולכן הן לעולם אינן overline. ``Body.initial_transitions`` מגדיר את הסדר,
+# ו-``line`` מופיע בו אחד לפני האחרון. נמדד מול טבלת התבניות עצמה, על כל 32
+# התווים באורכים 1 עד 8 — ואלה **כל** המחרוזות שנחטפות:
+#   '-' '+' '*'  → ``bullet``            '..'  → ``explicit_markup``
+#   '|'          → ``line_block``        '__'  → ``anonymous``
+#   '>>>'        → ``doctest``
+# שורת '====' אינה נחטפת על ידי תבניות הטבלאות, וזה חשוב — אחרת הכותרת
+# הנפוצה ביותר ב-RST הייתה נקראת כראש טבלה.
+# הקדימות הזאת חלה על overline בלבד: underline נבדק במצב ``Text``, שיש לו
+# שתי תבניות בלבד — ``underline`` ו-``text`` — ולכן שם אין מה שיקדים.
+_NOT_AN_OVERLINE = frozenset({"-", "+", "*", "|", "..", "__", ">>>"})
 
 _DIRECTIVE_RE = re.compile(r"^\.\.[ \t]+\S")  # ".. something::" וכו'
+# ``Body.patterns['doctest']`` הוא ``>>>( +|$)``, והוא מופיע ב-
+# ``initial_transitions`` לפני ``line``. בלוק doctest נמשך עד השורה הריקה
+# הבאה, ולכן כותרת שיושבת בתוכו אינה כותרת. נמדד: '>>>' ואחריו טקסט וקו
+# פיסוק בלי שורה ריקה ביניהם מחזיר אפס סקשנים ב-docutils.
+_DOCTEST_RE = re.compile(r"^>>>( +|$)")
 _CODE_DIRECTIVE_RE = re.compile(r"^\.\.[ \t]+(code-block|code|sourcecode|parsed-literal)::")
 _INCLUDE_RE = re.compile(r"^\.\.[ \t]+include::[ \t]*(\S.*)$")
 
@@ -57,8 +88,13 @@ def _adornment_char(line: str) -> Optional[str]:
     if not line or _is_indented(line):
         return None
     s = line.rstrip()
-    if len(s) < 2:  # לפחות 2 תווים — מונע false-positive על תו בודד
+    if not s:
         return None
+    # אין מינימום אורך. תבנית ה-``line`` במקור היא
+    # ``(nonalphanum7bit)\1* *$`` — תו אחד מספיק, וההכרעה אם זו כותרת
+    # נופלת כולה על כלל האורך ב-``_adornment_fits``. שומר "לפחות 2 תווים"
+    # שהיה כאן הסתיר כותרת בת תו אחד (docutils: 'A' מעל '=' הוא סקשן),
+    # והוסיף כותרת מדומה בשם '-' — כי הוא גם גרם ל-'-' בודד להיראות כטקסט.
     ch = s[0]
     if ch not in _ADORNMENT_CHARS:
         return None
@@ -72,12 +108,58 @@ def _is_title_text(line: str) -> bool:
     return _adornment_char(line) is None
 
 
+def _display_width(text: str) -> int:
+    """רוחב הטקסט בעמודות, כפי ש-docutils מודד אותו ב-``column_width``.
+
+    זה אינו ``len``: תו CJK רחב או full-width תופס שתי עמודות, ותו משולב —
+    ניקוד עברי (``U+0591``–``U+05C7``) וסימני הטעמה — תופס אפס. docutils
+    משווה את אורך ה-adornment דווקא מול המדידה הזאת, ולכן ``len`` נותן
+    תשובה אחרת על עברית מנוקדת ועל אמוג'י.
+
+    בריפו הזה יש תקדים חי: הכותרת '🚀 Quickstart לטסטים' היא 19 תווים אבל
+    20 עמודות, והקו שמתחתיה נכתב באורך 20 — כלומר מי שכתב את הקובץ יישר
+    לפי רוחב התצוגה, וזה מה ש-docutils דורש.
+
+    ``east_asian_width`` מחזירה אחת משש המחלקות שבטבלה, ולכן ברירת המחדל
+    אינה ניתנת להגעה היום; היא קיימת כדי שמחלקה חדשה בגרסת Unicode עתידית
+    לא תפיל את הפארסר כולו על ``KeyError``.
+    """
+    width = sum(_EAST_ASIAN_WIDTHS.get(unicodedata.east_asian_width(c), 1) for c in text)
+    return width - sum(1 for c in text if unicodedata.combining(c))
+
+
+def _adornment_fits(title: str, adornment: str) -> bool:
+    """האם שורת ה-adornment ארוכה דיה כדי שהכותרת תיחשב כותרת.
+
+    docutils מפצל את המקרה לשניים — ``underline()`` ל-underline-only,
+    ו-``Line.text()`` ל-overline+underline:
+
+    - קו שאינו קצר מרוחב התצוגה של הכותרת → כותרת.
+    - קו קצר ממנה **וקצר מ-4** → ``TransitionCorrection``, כלומר אינו כותרת.
+    - קו קצר ממנה אבל באורך 4 ומעלה → **כן כותרת**, עם אזהרה
+      ('Title underline too short' / 'Title overline too short').
+
+    הפארסר הזה אינו מדווח אזהרות, ולכן השורה האמצעית היא כל ההבדל: לפניה
+    כותרת שקיימת הייתה נשמטת מהמפה בשקט.
+    """
+    line = adornment.rstrip()
+    if _display_width(title.rstrip()) > len(line):
+        return len(line) >= _MIN_SHORT_ADORNMENT
+    return True
+
+
 def _opens_literal(stripped: str) -> bool:
     """שורה (לא מוזחת) שפותחת literal/code block שבו אין לזהות כותרות."""
     if _CODE_DIRECTIVE_RE.match(stripped):
         return True
-    # paragraph המסתיים ב-'::' שאינו דירקטיבה (למשל 'Development::')
-    return stripped.endswith("::") and not _DIRECTIVE_RE.match(stripped)
+    if not stripped.endswith("::") or _DIRECTIVE_RE.match(stripped):
+        return False
+    # paragraph המסתיים ב-'::' (למשל 'Development::') הוא סמן literal —
+    # אבל שורה שכולה נקודתיים ('::', ':::') **אינה**: ב-``Body`` תבנית
+    # ה-``line`` נבדקת לפני ``text``, ולכן שורה כזאת נכנסת למצב ``Line``
+    # ככל שורת פיסוק אחרת. (המקרה המיוחד ל-'::' ב-``Body.line()`` מותנה
+    # ב-``match_titles`` כבוי, כלומר אינו חל על פרסור מסמך.)
+    return _adornment_char(stripped) is None
 
 
 def parse_document(text: str) -> Document:
@@ -86,12 +168,30 @@ def parse_document(text: str) -> Document:
     n = len(lines)
     sections: List[Section] = []
     includes: List[str] = []
-    order: List[str] = []  # סדר הופעת תווי ה-adornment → קובע את הרמות
+    # סדר הופעת ה**סגנונות** → קובע את הרמות. סגנון הוא התו ב-underline-only
+    # וזוג התווים ב-overline+underline, בדיוק כפי ש-docutils בונה אותו בשני
+    # אתרי הקריאה ל-``section()``: ``underline[0]`` מול
+    # ``(overline[0], underline[0])``. ``check_subsection`` משווה אותם
+    # ב-``title_styles.index(style)``, ולכן '=' ו-('=','=') הם שתי רמות.
+    order: List[object] = []
 
-    def level_for(ch: str) -> int:
-        if ch not in order:
-            order.append(ch)
-        return order.index(ch) + 1
+    # docutils ``check_subsection``: ``oldlevel`` — עומק הסקשן הפתוח כרגע,
+    # שנגזר שם מ-``len(self.parent.section_hierarchy())``. סקשן שאושר הופך
+    # לסקשן הפתוח, ולכן זו הרמה של הסקשן האחרון שאושר.
+    current_level = 0
+
+    def level_of(style: object) -> int:
+        """הרמה של סגנון, בלי לרשום אותו.
+
+        docutils: ``title_styles.index(style) + 1``, ובכשל
+        ``len(title_styles) + 1``. הרישום נפרד בכוונה — סקשן שנדחה על שומר
+        הדילוג אינו רושם את הסגנון שלו, כי ה-``return False`` שם קודם
+        ל-``title_styles.append``.
+        """
+        try:
+            return order.index(style) + 1
+        except ValueError:
+            return len(order) + 1
 
     i = 0
     while i < n:
@@ -103,6 +203,11 @@ def parse_document(text: str) -> Document:
             if m_inc:
                 includes.append(m_inc.group(1).strip())
                 i += 1
+                continue
+            # בלוק doctest — נמשך עד השורה הריקה, וכל מה שבתוכו אינו כותרת
+            if _DOCTEST_RE.match(stripped):
+                while i < n and lines[i].strip():
+                    i += 1
                 continue
             # literal/code block — דלג על הבלוק המוזח שאחרי השורה הפותחת
             if _opens_literal(stripped):
@@ -121,31 +226,86 @@ def parse_document(text: str) -> Document:
                         i += 1
                 continue
 
-        # overline + underline (adornment / title / adornment זהה)
+        # overline + underline. docutils נכנס כאן למצב ``Line``, ויש לו שלוש
+        # יציאות: טקסט ואחריו אותה שורת פיסוק בדיוק → כותרת; כל צורה אחרת
+        # כשה-overline באורך 4+ → שגיאה, אין כותרת, והשורות נצרכות; וכל צורה
+        # אחרת כשה-overline קצר מ-4 → ``short_overline`` מחזיר את השורה
+        # לקריאה כטקסט רגיל, ואז כלל ה-underline-only שמתחת הוא שמכריע.
         over = _adornment_char(raw)
-        if over is not None and i + 2 < n:
-            title_line = lines[i + 1]
-            under = _adornment_char(lines[i + 2])
-            if _is_title_text(title_line) and under == over:
-                lvl = level_for(over)
-                sections.append(Section(
-                    title=title_line.strip(), level=lvl,
-                    title_line=i + 2, heading_line=i + 1, end_line=n,
-                    adornment=over, over=True,
-                ))
+        if over is not None and raw.rstrip() in _NOT_AN_OVERLINE:
+            over = None  # תבנית Body אחרת חוטפת את השורה לפני ``line``
+        if over is not None:
+            title_line = lines[i + 1] if i + 1 < n else ""
+            under_line = lines[i + 2] if i + 2 < n else ""
+            # ``Line.text()``: ``elif overline != underline`` — השוואת
+            # מחרוזות אחרי rstrip, כלומר אותו תו **וגם אותו אורך**.
+            if (_is_title_text(title_line)
+                    and under_line.rstrip() == raw.rstrip()
+                    and _adornment_fits(title_line, raw)):
+                style: object = (over, over)
+                lvl = level_of(style)
+                if lvl <= current_level + 1:
+                    if lvl > len(order):
+                        order.append(style)
+                    current_level = lvl
+                    sections.append(Section(
+                        title=title_line.strip(), level=lvl,
+                        title_line=i + 2, heading_line=i + 1, end_line=n,
+                        adornment=over, over=True,
+                    ))
+                # אחרת: שומר הדילוג של ``check_subsection`` דחה את הסקשן.
+                # השורות נצרכות בכל מקרה — השגיאה מחליפה את הסקשן, ולא את הטקסט.
                 i += 3
                 continue
+            if len(raw.rstrip()) >= _MIN_SHORT_ADORNMENT:
+                # overline באורך 4+ שאין לו כותרת תקינה: ב-docutils זו שגיאה
+                # ואין כותרת. מספר השורות שנצרכות תלוי ביציאה שנבחרה שם.
+                if title_line.strip() and _adornment_char(title_line) is None:
+                    i += 3          # ``Line.text`` / ``Line.indent`` — טקסט
+                elif title_line.strip():
+                    i += 2          # ``Line.underline`` — שתי שורות פיסוק
+                else:
+                    i += 1          # ``Line.blank`` — transition
+                continue
+            # overline קצר מ-4 שאין לו כותרת תקינה: ``short_overline`` קורא
+            # ל-``state_correction``, שמחזיר את השורה ל-Body דרך מעבר
+            # ה-``text`` — כלומר השורה שהודחה נכנסת למצב ``Text`` ככותרת
+            # בפוטנציה, ומשם השורה ה**באה בלבד** מכריעה: adornment → כותרת
+            # בשם השורה שהודחה; כל דבר אחר → פסקה שבולעת את הבלוק עד השורה
+            # הריקה, ואין בה כותרת.
+            demoted = _adornment_char(title_line)
+            if demoted is not None and _adornment_fits(raw, title_line):
+                lvl = level_of(demoted)
+                if lvl <= current_level + 1:
+                    if lvl > len(order):
+                        order.append(demoted)
+                    current_level = lvl
+                    sections.append(Section(
+                        title=raw.strip(), level=lvl,
+                        title_line=i + 1, heading_line=i + 1, end_line=n,
+                        adornment=demoted, over=False,
+                    ))
+                i += 2
+                continue
+            while i < n and lines[i].strip():
+                i += 1
+            continue
 
-        # underline-only (title / adornment באורך >= הכותרת)
+        # underline-only: טקסט ואחריו שורת פיסוק
         if _is_title_text(raw) and i + 1 < n:
             under = _adornment_char(lines[i + 1])
-            if under is not None and len(lines[i + 1].rstrip()) >= len(raw.rstrip()):
-                lvl = level_for(under)
-                sections.append(Section(
-                    title=raw.strip(), level=lvl,
-                    title_line=i + 1, heading_line=i + 1, end_line=n,
-                    adornment=under, over=False,
-                ))
+            if under is not None and _adornment_fits(raw, lines[i + 1]):
+                lvl = level_of(under)
+                if lvl <= current_level + 1:
+                    if lvl > len(order):
+                        order.append(under)
+                    current_level = lvl
+                    sections.append(Section(
+                        title=raw.strip(), level=lvl,
+                        title_line=i + 1, heading_line=i + 1, end_line=n,
+                        adornment=under, over=False,
+                    ))
+                # אחרת: שומר הדילוג דחה. גם כאן השורות נצרכות.
                 i += 2
                 continue
 
