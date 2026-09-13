@@ -1,5 +1,6 @@
 """טסטים לפארסר ה-RST — על קבצי RST אמיתיים מהריפו + מקרי קצה סינתטיים ממוקדים."""
 
+import re
 from pathlib import Path
 
 from services import rst_parser
@@ -120,9 +121,22 @@ _PUNCTUATION = frozenset(c for c in map(chr, range(0x21, 0x7F)) if not c.isalnum
 # ``docutils.utils.column_width``
 _WIDTHS = {"W": 2, "F": 2, "Na": 1, "H": 1, "N": 1, "A": 1}
 
-# שורות פיסוק שתבנית מוקדמת יותר ב-``Body.initial_transitions`` חוטפת לפני
-# תבנית ה-``line``, ולכן הן לעולם אינן overline
-_NOT_OVERLINE = frozenset({"-", "+", "*", "|", "..", "__", ">>>"})
+# שורות ש-``Body`` תופס לפני מעבר ה-``text``, ולכן אינן יכולות להיות
+# הכותרת עצמה. מנוסחות כאן מחדש ובנפרד מהמימוש; החלוקה לשלוש ההתנהגויות
+# נמדדה מול docutils שהורץ, ומתועדת בטבלה שבראש ``services/rst_parser.py``.
+# ``enumerator`` ו-``option_marker`` **אינם** כאן בכוונה — הם מתנהגים כמו
+# פסקה, ונמדדו ככאלה.
+_STRUCTURAL = re.compile(
+    r"(?:[-+*\u2022\u2023\u2043]( +|$)"
+    r"|:(?![: ])([^:\\]|\\.|:(?!([ `]|$)))*(?<! ):( +|$)"
+    r"|\|( +|$)"
+    r"|\+-[-+]+-\+ *$"
+    r"|\.\.( +|$)"
+    r"|__( +|$))"
+)
+_DOCTEST = re.compile(r">>>( +|$)")
+_TABLE_TOP = re.compile(r"=+( +=+)+ *$")
+_TABLE_BORDER = re.compile(r"=+( +=+)* *$")
 
 
 def _display_width(text):
@@ -146,9 +160,10 @@ def _independent_headings(lines):
     """כל הכותרות בקובץ, לפי צורת הטקסט בלבד: (כותרת, סגנון, שורת-פתיחה).
 
     מזהה שנכתב מאפס ואינו יודע דבר על literal blocks, על ``::`` או על
-    דירקטיבות — הוא רק מדלג על שורות מוזחות. העובדה שהוא מסכים עם המימוש
-    על כל קובץ בריפו היא בדיוק מה שהופך אותו לעוגן: הוא מגיע לאותה תשובה
-    דרך היגיון אחר.
+    דירקטיבות — הוא מדלג על שורות מוזחות, מסווג שורות מבניות לפי התבניות
+    שלמעלה, ומכבד את העובדה ש**פסקה שנפתחה בולעת את הבלוק עד השורה
+    הריקה**. העובדה שהוא מסכים עם המימוש על כל קובץ בריפו היא מה שהופך
+    אותו לעוגן: הוא מגיע לאותה תשובה דרך היגיון אחר.
 
     הסגנון הוא התו ב-underline-only, וזוג התווים ב-overline+underline —
     כפי ש-docutils בונה אותו בשני אתרי הקריאה ל-``section()``.
@@ -156,21 +171,44 @@ def _independent_headings(lines):
     found, i, n = [], 0, len(lines)
     while i < n:
         cur = lines[i]
-        if cur[:1] in (" ", "\t") or not cur.strip():
+        if not cur.strip():
+            i += 1
+            continue
+        if cur[:1] in (" ", "\t"):
             i += 1
             continue
         top = cur.rstrip()
-        if _is_punctuation_line(top) and top not in _NOT_OVERLINE and i + 2 < n:
+
+        # overline: שורת פיסוק, ואחריה כותרת ואותה שורת פיסוק בדיוק
+        if _is_punctuation_line(top) and i + 2 < n:
             middle, bottom = lines[i + 1], lines[i + 2].rstrip()
-            if (middle.strip()
-                    and middle[:1] not in (" ", "\t")
-                    and not _is_punctuation_line(middle.rstrip())
-                    and bottom == top
-                    and _adornment_is_long_enough(middle.rstrip(), bottom)):
+            middle_ok = bool(middle.strip()) and (
+                middle[:1] in (" ", "\t") or not _is_punctuation_line(middle.rstrip()))
+            if (middle_ok and bottom == top
+                    and _adornment_is_long_enough(middle.strip(), bottom)):
                 found.append((middle.strip(), (top[0], top[0]), i + 1))
                 i += 3
                 continue
-        if not _is_punctuation_line(top) and i + 1 < n:
+
+        # שורות מבניות — אינן יכולות להיות הכותרת
+        if _DOCTEST.match(top):
+            while i < n and lines[i].strip():
+                i += 1
+            continue
+        if _TABLE_TOP.match(top):
+            i += 1
+            while i < n and lines[i].strip() and not _TABLE_BORDER.match(lines[i].rstrip()):
+                i += 1
+            if i < n and lines[i].strip():
+                i += 1
+            continue
+        if _STRUCTURAL.match(top) or _is_punctuation_line(top):
+            i += 1
+            continue
+
+        # שורת פסקה: או שהשורה הבאה היא קו והיא כותרת, או שהפסקה בולעת
+        # את הבלוק ואין בו כותרת
+        if i + 1 < n:
             bottom = lines[i + 1].rstrip()
             if (_is_punctuation_line(bottom)
                     and lines[i + 1][:1] not in (" ", "\t")
@@ -178,7 +216,8 @@ def _independent_headings(lines):
                 found.append((top.strip(), bottom[0], i + 1))
                 i += 2
                 continue
-        i += 1
+        while i < n and lines[i].strip():
+            i += 1
     return found
 
 
@@ -433,6 +472,102 @@ class TestTitleRecognitionMatchesDocutils:
             assert doc.sections == [], opener
         after_blank = rst_parser.parse_document(">>>\n\na\n---\n\nגוף\n")
         assert [s.title for s in after_blank.sections] == ["a"]
+
+    def test_a_paragraph_that_already_opened_swallows_the_line_below_it(self):
+        """שתי שורות טקסט ואחריהן קו — אין כאן כותרת.
+
+        ``Text`` הוא "השורה השנייה של בלוק טקסט": אם היא אינה קו פיסוק,
+        ``Text.text()`` קורא את **כל** הבלוק עד השורה הריקה כפסקה אחת, וקו
+        הפיסוק שבתוכו אינו נבדק בכלל. נמדד: docutils מחזיר אפס סקשנים לשתי
+        שורות ולשלוש. לפני התיקון הפארסר ייצר כותרת מהשורה האחרונה בפסקה.
+        """
+        for body in ("שורה א\nשורה ב\n=========\n\nגוף\n",
+                     "א\nב\nג\n=========\n\nגוף\n"):
+            assert rst_parser.parse_document(body).sections == [], body
+            assert _expected_sections(body) == []
+
+    def test_a_blank_line_above_reopens_the_block(self):
+        """הבקרה: שורה ריקה מפרידה, ואז הכותרת **כן** כותרת."""
+        doc = rst_parser.parse_document("שורה א\n\nשורה ב\n=========\n\nגוף\n")
+        assert [s.title for s in doc.sections] == ["שורה ב"]
+
+    def test_a_structural_line_above_does_not_swallow_the_heading(self):
+        """והכלל אינו "אחרי שורה ריקה" אלא "פסקה שכבר נפתחה".
+
+        נמדד ב-docutils: בולט, שורת שדה, דירקטיבה, ``line_block``, ראש
+        טבלת grid ויעד אנונימי — כולם מעל כותרת, בלי שורה ריקה ביניהם —
+        וה**כותרת נוצרת**. רק שורת פסקה בולמת.
+
+        וקו הפיסוק של הכותרת שלפניה גם הוא אינו בולם, אבל מסיבה אחרת: הוא
+        נצרך כחלק מאותה כותרת. **הבחנה שנמדדה ולא הונחה** — קו פיסוק שיושב
+        מעל כותרת ואינו נצרך כך הוא overline, ואם אורכו שונה מה-underline
+        docutils דוחה את כל הצורה: ``======`` מעל כותרת שהקו שלה
+        ``=========`` מחזיר אפס סקשנים.
+        """
+        for above in ("- פריט", ":שדה: ערך", ".. note:: x", "| שורה",
+                      "+---+", "__ יעד"):
+            doc = rst_parser.parse_document(f"{above}\nכותרת\n=========\n\nגוף\n")
+            assert "כותרת" in [s.title for s in doc.sections], above
+        after_heading = rst_parser.parse_document(
+            "Doc\n===\nכותרת\n=========\n\nגוף\n")
+        assert [s.title for s in after_heading.sections] == ["Doc", "כותרת"]
+        mismatched_overline = rst_parser.parse_document(
+            "======\nכותרת\n=========\n\nגוף\n")
+        assert mismatched_overline.sections == []
+
+    def test_a_structural_line_cannot_be_the_title_itself(self):
+        """שורה ש-``Body`` תופס אינה יכולה להיות הכותרת ב-underline-only.
+
+        נמדד: בולט, שורת שדה, ``line_block``, דירקטיבה, ראש טבלת grid, ראש
+        טבלה פשוטה ויעד אנונימי — כל אחד מהם עם קו פיסוק מתחתיו מחזיר אפס
+        סקשנים. לפני התיקון כל אחד מהם הפך לכותרת בשם עצמו.
+        """
+        for line in ("- פריט", ":שדה: ערך", "| שורה", ".. note:: x",
+                     "+---+", "== ==", "__ יעד"):
+            doc = rst_parser.parse_document(f"{line}\n{'=' * 12}\n\nגוף\n")
+            assert doc.sections == [], line
+
+    def test_an_enumerator_and_an_option_behave_like_a_paragraph(self):
+        """שתי התבניות שנופלות חזרה ל-``text``, ולכן כן כותרת.
+
+        ``Body.enumerator`` ו-``Body.option_marker`` זורקים
+        ``TransitionCorrection('text')`` כשהם אינם מרכיבים פריט תקין — וזה
+        המצב כשמתחתיהם קו פיסוק. נמדד בשתי הצורות, וגם בתפקיד ההפוך: שתיהן
+        **כן** בולמות כותרת שמתחתיהן, בדיוק כמו פסקה.
+        """
+        for line in ("1. פריט", "-x ערך"):
+            doc = rst_parser.parse_document(f"{line}\n{'=' * 12}\n\nגוף\n")
+            assert [s.title for s in doc.sections] == [line], line
+            below = rst_parser.parse_document(f"{line}\nכותרת\n{'=' * 12}\n\nגוף\n")
+            assert below.sections == [], line
+
+    def test_a_simple_table_ends_at_its_closing_border_not_at_the_blank_line(self):
+        """היקף טבלה פשוטה נקרא עד הגבול הסוגר, ורק אחריו אפשר כותרת.
+
+        נמדד: ``== ==`` ואחריו ``====``, כותרת ו-``====`` מחזיר **כן**
+        כותרת — ה-``====`` סוגר את הטבלה. ובקרה: ``== ==`` ואחריו כותרת
+        וקו, בלי גבול סוגר, מחזיר אפס.
+        """
+        with_border = rst_parser.parse_document(
+            "== ==\n====\nכותרת\n====\n\nגוף\n")
+        assert [s.title for s in with_border.sections] == ["כותרת"]
+        without = rst_parser.parse_document("== ==\nכותרת\n=========\n\nגוף\n")
+        assert without.sections == []
+
+    def test_an_indented_title_between_two_overlines_is_a_title(self):
+        """``Line.indent = text`` — שורה מוזחת מנותבת למסלול הכותרת.
+
+        נמדד: כותרת מוזחת בין שני overline זהים היא סקשן, ו-docutils
+        מחזיר אותה אחרי ``lstrip``. וגם שורת פיסוק **מוזחת** במקום הזה היא
+        סקשן, כי ההזחה מונעת ממעבר ה-``underline`` לתפוס אותה. שורה ריקה
+        אינה.
+        """
+        doc = rst_parser.parse_document("======\n   כותרת\n======\n\nגוף\n")
+        assert [(s.title, s.over) for s in doc.sections] == [("כותרת", True)]
+        dashes = rst_parser.parse_document("======\n   -----\n======\n\nגוף\n")
+        assert [s.title for s in dashes.sections] == ["-----"]
+        blank = rst_parser.parse_document("======\n\n======\n\nגוף\n")
+        assert blank.sections == []
 
     def test_the_independent_recognizer_can_actually_fail(self):
         """מזהה שלא מסוגל להפיל מימוש שגוי אינו ראיה.

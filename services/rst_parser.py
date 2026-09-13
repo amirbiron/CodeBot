@@ -34,25 +34,53 @@ _EAST_ASIAN_WIDTHS = {"W": 2, "F": 2, "Na": 1, "H": 1, "N": 1, "A": 1}
 # ``underline()`` ל-underline-only, ו-``Line`` ל-overline.
 _MIN_SHORT_ADORNMENT = 4
 
-# שורות פיסוק אחידות שתבנית אחרת של ``Body`` חוטפת **לפני** תבנית ה-``line``,
-# ולכן הן לעולם אינן overline. ``Body.initial_transitions`` מגדיר את הסדר,
-# ו-``line`` מופיע בו אחד לפני האחרון. נמדד מול טבלת התבניות עצמה, על כל 32
-# התווים באורכים 1 עד 8 — ואלה **כל** המחרוזות שנחטפות:
-#   '-' '+' '*'  → ``bullet``            '..'  → ``explicit_markup``
-#   '|'          → ``line_block``        '__'  → ``anonymous``
-#   '>>>'        → ``doctest``
-# שורת '====' אינה נחטפת על ידי תבניות הטבלאות, וזה חשוב — אחרת הכותרת
-# הנפוצה ביותר ב-RST הייתה נקראת כראש טבלה.
-# הקדימות הזאת חלה על overline בלבד: underline נבדק במצב ``Text``, שיש לו
-# שתי תבניות בלבד — ``underline`` ו-``text`` — ולכן שם אין מה שיקדים.
-_NOT_AN_OVERLINE = frozenset({"-", "+", "*", "|", "..", "__", ">>>"})
+# ``Body.initial_transitions`` בודק תבניות בסדר קבוע, ומעבר ה-``text`` הוא
+# האחרון — כלומר שורה נעשית פסקה רק כשאף תבנית אחרת לא תפסה אותה. שתי
+# הקבוצות למטה מתועתקות מ-``Body.patterns`` של docutils 0.23 כמחרוזות, ולא
+# נוסחו מחדש.
+#
+# **וחלוקת הקבוצות נמדדה מול docutils שהורץ, לא נגזרה מקריאת הקוד.** לכל שורה
+# יש שני תפקידים נפרדים, והם **אינם** משלימים — וזו ההפתעה שחייבה מדידה:
+#
+#   השורה                 | יכולה להיות הכותרת? | בולמת כותרת מתחתיה?
+#   פסקה רגילה            |         כן          |        כן
+#   ``1. פריט``           |         כן          |        כן
+#   ``-x ערך``            |         כן          |        כן
+#   ``- פריט``            |         לא          |        לא
+#   ``:שדה: ערך``         |         לא          |        לא
+#   ``.. note:: x``       |         לא          |        לא
+#   ``| שורה``            |         לא          |        לא
+#   ``+---+``             |         לא          |        לא
+#   ``__ יעד``            |         לא          |        לא
+#   ``== ==``             |         לא          |        כן
+#   ``>>> foo``           |         לא          |        כן
+#
+# ``enumerator`` ו-``option_marker`` מתנהגים כמו פסקה, ולכן אין להם תבנית
+# כאן בכלל: שניהם נופלים חזרה למעבר ה-``text`` דרך ``TransitionCorrection``
+# כשהם אינם מרכיבים פריט רשימה תקין, וזה בדיוק המצב כשמתחתיהם קו פיסוק.
+
+# שורה מבנית שנצרכת כשורה אחת, ואינה בולמת כותרת מתחתיה
+_BLOCK_LINE_RE = re.compile(
+    r"(?:[-+*\u2022\u2023\u2043]( +|$)"          # bullet
+    r"|:(?![: ])([^:\\]|\\.|:(?!([ `]|$)))*(?<! ):( +|$)"   # field_marker
+    r"|\|( +|$)"                                   # line_block
+    r"|\+-[-+]+-\+ *$"                             # grid_table_top
+    r"|\.\.( +|$)"                                 # explicit_markup
+    r"|__( +|$))"                                  # anonymous
+)
+
+# בלוק doctest נמשך עד השורה הריקה, וכותרת בתוכו אינה כותרת
+_DOCTEST_RE = re.compile(r">>>( +|$)")
+
+# טבלה פשוטה נפתחת בשורת גבול ונסגרת בשורת גבול — לא בשורה הריקה. לכן
+# ההיקף שלה נקרא עד הגבול הסוגר ועד בכלל, ורק אחריו אפשר לזהות כותרת.
+# נמדד: ``== ==`` ואחריו קו ``====`` וכותרת מחזיר **כן** כותרת ב-docutils,
+# כי ה-``====`` סוגר את הטבלה. בלי הכלל הזה הבלוק נבלע עד השורה הריקה
+# והכותרת נעלמת.
+_SIMPLE_TABLE_TOP_RE = re.compile(r"=+( +=+)+ *$")
+_SIMPLE_TABLE_BORDER_RE = re.compile(r"=+( +=+)* *$")
 
 _DIRECTIVE_RE = re.compile(r"^\.\.[ \t]+\S")  # ".. something::" וכו'
-# ``Body.patterns['doctest']`` הוא ``>>>( +|$)``, והוא מופיע ב-
-# ``initial_transitions`` לפני ``line``. בלוק doctest נמשך עד השורה הריקה
-# הבאה, ולכן כותרת שיושבת בתוכו אינה כותרת. נמדד: '>>>' ואחריו טקסט וקו
-# פיסוק בלי שורה ריקה ביניהם מחזיר אפס סקשנים ב-docutils.
-_DOCTEST_RE = re.compile(r"^>>>( +|$)")
 _CODE_DIRECTIVE_RE = re.compile(r"^\.\.[ \t]+(code-block|code|sourcecode|parsed-literal)::")
 _INCLUDE_RE = re.compile(r"^\.\.[ \t]+include::[ \t]*(\S.*)$")
 
@@ -108,6 +136,28 @@ def _is_title_text(line: str) -> bool:
     return _adornment_char(line) is None
 
 
+def _is_overlined_title(line: str) -> bool:
+    """האם השורה יכולה להיות הכותרת שבין overline ל-underline.
+
+    במצב ``Line`` יש שני מעברים בלבד — ``underline`` ואחריו ``text``,
+    שהוא catch-all — ובנוסף ``indent = text``, כלומר שורה מוזחת מנותבת
+    לאותו מסלול. לכן כל שורה לא-ריקה מתאימה, למעט שורת פיסוק **לא מוזחת**
+    שנתפסת קודם על ידי מעבר ה-``underline``.
+
+    נמדד: כותרת מוזחת בין שני overline זהים היא סקשן, וגם שורת פיסוק
+    **מוזחת** במקום הזה היא סקשן (docutils מחזיר '-----' ככותרת). שורה
+    ריקה אינה.
+
+    זה נבדל מ-``_is_title_text``, שמשרת את ה-underline-only: שם השורה חייבת
+    להיות לא מוזחת, כי במצב ``Body`` שורה מוזחת היא blockquote.
+    """
+    if not line.strip():
+        return False
+    if _is_indented(line):
+        return True
+    return _adornment_char(line) is None
+
+
 def _display_width(text: str) -> int:
     """רוחב הטקסט בעמודות, כפי ש-docutils מודד אותו ב-``column_width``.
 
@@ -154,11 +204,22 @@ def _opens_literal(stripped: str) -> bool:
         return True
     if not stripped.endswith("::") or _DIRECTIVE_RE.match(stripped):
         return False
-    # paragraph המסתיים ב-'::' (למשל 'Development::') הוא סמן literal —
-    # אבל שורה שכולה נקודתיים ('::', ':::') **אינה**: ב-``Body`` תבנית
-    # ה-``line`` נבדקת לפני ``text``, ולכן שורה כזאת נכנסת למצב ``Line``
-    # ככל שורת פיסוק אחרת. (המקרה המיוחד ל-'::' ב-``Body.line()`` מותנה
-    # ב-``match_titles`` כבוי, כלומר אינו חל על פרסור מסמך.)
+    # paragraph המסתיים ב-'::' (למשל 'Development::') הוא סמן literal, ולכן
+    # הבלוק המוזח שאחריו מדולג כאן.
+    #
+    # שורה שכולה נקודתיים אינה נכנסת למסלול הזה, כי ב-``Body`` תבנית
+    # ה-``line`` נבדקת לפני ``text``: היא נכנסת למצב ``Line`` ככל שורת
+    # פיסוק אחרת, ולכן היא **כן** מועמדת ל-overline. (המקרה המיוחד ל-'::'
+    # ב-``Body.line()`` מותנה ב-``match_titles`` כבוי, כלומר אינו חל על
+    # פרסור מסמך.)
+    #
+    # **וזה אינו אומר שאין שם literal block.** נמדד ב-docutils 0.23: '::'
+    # לבד ואחריו בלוק מוזח מייצר ``literal_block``, ו-':::' מייצר פסקה
+    # ואחריה ``literal_block`` — כשאין כותרת תקפה, ``Body.paragraph``
+    # מזהה את סיומת ה-'::' ומסמן ``literalnext``. הבלוק המוזח שם אינו
+    # מכיל כותרות, וכאן זה יוצא נכון מסיבה אחרת: שורה מוזחת אינה מועמדת
+    # לכותרת מלכתחילה. לכן אין להסיק מההערה הזאת שאפשר להסיר את הדילוג על
+    # בלוקים מוזחים.
     return _adornment_char(stripped) is None
 
 
@@ -204,11 +265,6 @@ def parse_document(text: str) -> Document:
                 includes.append(m_inc.group(1).strip())
                 i += 1
                 continue
-            # בלוק doctest — נמשך עד השורה הריקה, וכל מה שבתוכו אינו כותרת
-            if _DOCTEST_RE.match(stripped):
-                while i < n and lines[i].strip():
-                    i += 1
-                continue
             # literal/code block — דלג על הבלוק המוזח שאחרי השורה הפותחת
             if _opens_literal(stripped):
                 i += 1
@@ -226,22 +282,38 @@ def parse_document(text: str) -> Document:
                         i += 1
                 continue
 
+            # שורה מבנית: ``Body`` תופס אותה לפני מעבר ה-``text``, ולכן היא
+            # אינה יכולה להיות הכותרת עצמה ב-underline-only.
+            if _DOCTEST_RE.match(stripped):
+                while i < n and lines[i].strip():
+                    i += 1
+                continue
+            if _SIMPLE_TABLE_TOP_RE.match(stripped):
+                i += 1
+                while i < n and lines[i].strip() and not _SIMPLE_TABLE_BORDER_RE.match(
+                        lines[i].rstrip()):
+                    i += 1
+                if i < n and lines[i].strip():
+                    i += 1          # הגבול הסוגר נצרך אף הוא
+                continue
+            if _BLOCK_LINE_RE.match(stripped):
+                i += 1
+                continue
+
         # overline + underline. docutils נכנס כאן למצב ``Line``, ויש לו שלוש
         # יציאות: טקסט ואחריו אותה שורת פיסוק בדיוק → כותרת; כל צורה אחרת
         # כשה-overline באורך 4+ → שגיאה, אין כותרת, והשורות נצרכות; וכל צורה
         # אחרת כשה-overline קצר מ-4 → ``short_overline`` מחזיר את השורה
         # לקריאה כטקסט רגיל, ואז כלל ה-underline-only שמתחת הוא שמכריע.
         over = _adornment_char(raw)
-        if over is not None and raw.rstrip() in _NOT_AN_OVERLINE:
-            over = None  # תבנית Body אחרת חוטפת את השורה לפני ``line``
         if over is not None:
             title_line = lines[i + 1] if i + 1 < n else ""
             under_line = lines[i + 2] if i + 2 < n else ""
             # ``Line.text()``: ``elif overline != underline`` — השוואת
             # מחרוזות אחרי rstrip, כלומר אותו תו **וגם אותו אורך**.
-            if (_is_title_text(title_line)
+            if (_is_overlined_title(title_line)
                     and under_line.rstrip() == raw.rstrip()
-                    and _adornment_fits(title_line, raw)):
+                    and _adornment_fits(title_line.strip(), raw)):
                 style: object = (over, over)
                 lvl = level_of(style)
                 if lvl <= current_level + 1:
@@ -308,6 +380,13 @@ def parse_document(text: str) -> Document:
                 # אחרת: שומר הדילוג דחה. גם כאן השורות נצרכות.
                 i += 2
                 continue
+            # השורה אינה כותרת, והיא שורת פסקה — ולכן ``Text.text()`` קורא
+            # את כל הבלוק עד השורה הריקה כפסקה אחת. כל מה שבתוכו אינו
+            # כותרת, גם אם הוא נראה כמו אחת: פסקה בת שתי שורות ואחריה קו
+            # פיסוק אינה סקשן, נמדד ב-docutils.
+            while i < n and lines[i].strip():
+                i += 1
+            continue
 
         i += 1
 
