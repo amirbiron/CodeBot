@@ -25,6 +25,7 @@ from typing import Any
 from .outline_scanners import css as _css
 from .outline_scanners import html as _html
 from .outline_scanners import python as _python
+from .outline_scanners import rst as _rst
 
 #: ``\r`` שאינו חלק מ-``\r\n``. ה-lookahead השלילי הוא כל ההבחנה: CRLF
 #: הוא המקרה הנפוץ ושתי ספירות השורות מסכימות עליו, ולכן הוא חייב להמשיך
@@ -49,6 +50,7 @@ _SCANNERS: dict[str, Callable[[str], dict[str, Any]]] = {
     ".jinja2": _html.extract,
     ".j2": _html.extract,
     ".css": _css.extract,
+    ".rst": _rst.extract,
 }
 
 
