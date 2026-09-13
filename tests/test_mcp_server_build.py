@@ -311,7 +311,7 @@ async def test_repo_note_listing_uses_the_identity_the_gate_returned(monkeypatch
 
 
 async def test_str_replace_is_not_advertised_as_idempotent():
-    """‏``note_str_replace`` דורס אבל **אינו** אידמפוטנטי, ולכן אינו יכול
+    """``note_str_replace`` דורס אבל **אינו** אידמפוטנטי, ולכן אינו יכול
     לשאת את האנוטציה של ``update_note``.
 
     נמדד מול ``_apply_edit`` האמיתי: גוף ``"a"`` עם ``old="a"``/``new="aa"``
@@ -426,6 +426,19 @@ async def test_the_description_says_symbol_works_on_the_non_python_names():
     # הפסוקית יושבת ליד השמות שהיא מדברת עליהם, ולפני משפט התקרות —
     # אחרת היא נקראת כמדיניות גודל ולא כדרך לחתוך את המפה.
     assert description.index('symbol="@media"') < description.index("500KB")
+
+    # **והפסוקית חייבת לומר שהסינון הוא בהכלה, לא בתחילית.** ניסוח קודם
+    # הבטיח ש-``symbol="_"`` מחזיר "only the RST label targets", ונמדד
+    # שהוא מחזיר 29 תוויות ו-133 שורות שאינן תוויות ב-79 קבצים. הבטחה
+    # שהקוד אינו מקיים גרועה מהיעדר הבטחה, כי סוכן בונה עליה.
+    assert "Matching is by substring in every language" in description
+    assert "also any heading containing an underscore" in description
+    assert "only the RST label targets" not in description
+
+    # ושהטקסט הגולמי של כותרת RST נאמר, כי הוא מה שמונע מ-
+    # ``symbol="backup_service"`` למצוא את העמוד ששמו כך.
+    assert "the source text rather than the rendered text" in description
+    assert 'symbol="backup_service"' in description
 
 
 async def test_the_description_names_every_suffix_the_outline_router_supports():

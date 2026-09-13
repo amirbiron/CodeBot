@@ -19,11 +19,19 @@
 מייבא ``services.rst_parser``. ההיתר אינו "כי היה נוח", והוא נשען על ארבעה
 דברים שכל אחד מהם נמדד או מאומת:
 
-1. **הייבוא קל.** ``from services import rst_parser`` טוען 54 מודולים,
-   **כולם ספריית תקן** — אפס pymongo, אפס bson, אפס ``database``, אפס
-   telegram, אפס flask. ``services/__init__.py`` הוא 18 שורות בלי קוד כבד.
-   כלומר המלכודת שבראש הקובץ הזה, ``db = DatabaseManager()`` בזמן טעינת
-   מודול, אינה נגישה מכאן.
+1. **הייבוא קל, וזה מה שנמדד בפועל.** ``from services import rst_parser``
+   טוען **72** מודולים, ומהם שלושה בלבד מהריפו — ``services``,
+   ``services.backoff_state`` ו-``services.rst_parser``; כל השאר ספריית
+   תקן. **אפס** מודולים כבדים: לא pymongo, לא bson, לא ``database``, לא
+   telegram, לא flask. כלומר המלכודת שבראש הקובץ הזה,
+   ``db = DatabaseManager()`` בזמן טעינת מודול, אינה נגישה מכאן.
+
+   **ו-``services/__init__.py`` אינו רק הצהרות, בניגוד למה שנכתב כאן
+   קודם.** הוא מייבא ``from .backoff_state import state``, ולכן
+   ``services/backoff_state.py`` מריץ בזמן הטעינה ``threading.RLock()``
+   ובנייה של אובייקט מצב, ומנסה לייבא ``observability``. שלושתם קלים
+   וכולם עטופים ב-``try``, ולכן המסקנה עומדת — אבל היא עומדת על המדידה
+   הזאת ולא על "18 שורות בלי קוד".
 2. **יש תקדים מודולי בדיוק לזה.** ``mcp_server/docs_handlers.py`` מייבא
    ``from services import rst_parser`` ברמת המודול, וזה הייבוא הלא-עצל
    היחיד מ-``services`` תחת ``mcp_server``.
