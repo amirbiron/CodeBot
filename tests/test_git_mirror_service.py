@@ -95,6 +95,61 @@ def test_get_file_content_strips_ref_and_path(service, monkeypatch):
     assert seen["cmd"] == ["git", "show", "origin/main:src/file.py"]
 
 
+def test_a_leading_byte_order_mark_does_not_reach_the_decoded_text(service):
+    """BOM הוא מטא-דאטה של קידוד, ולכן אינו נשאר כתו בטקסט.
+
+    הסדר ברשימת הקודקים הוא מה שקובע כאן: קובץ עם BOM נפרס בהצלחה גם
+    כ-``utf-8``, ואז ה-BOM נשאר כ-U+FEFF ונוסע לכל צרכן. הנזק נמדד
+    בשני מסלולים — ``ast.parse`` נכשל על קובץ פייתון כזה ב"invalid
+    non-printable character U+FEFF" והאאוטליין חוזר ריק, ובקובץ CSS
+    ה-BOM נכנס לשם הסימבול הראשון. Chromium 141 מראה שגיליון חיצוני
+    עם BOM נותן ``selectorText`` של ``.hero`` בלבד, כלומר הפרשנות
+    הנכונה היא שה-BOM אינו תוכן.
+    """
+    with_bom = service._try_decode_content("\ufeff.hero { color: red }\n".encode("utf-8"))
+
+    assert with_bom["is_binary"] is False
+    assert not with_bom["content"].startswith("\ufeff"), (
+        f"ה-BOM נשאר בטקסט: {with_bom['content'][:3]!r}"
+    )
+    assert with_bom["content"] == ".hero { color: red }\n"
+    assert with_bom["encoding"] == "utf-8-sig"
+
+
+def test_text_without_a_byte_order_mark_decodes_exactly_as_before(service):
+    """הבקרה: קובץ בלי BOM אינו משתנה, **וגם התווית שלו אינה משתנה.**
+
+    התוכן — נמדד על 60,000 קלטים אקראיים ששני הקודקים מחזירים פלט זהה,
+    פרט לקלט שמתחיל ב-BOM. הטסט מקבע את הקצוות של אותה מדידה: עברית,
+    אמוג'י, ו-BOM שיושב **באמצע** ולא בהתחלה (שם הוא כן תו).
+
+    **והתווית היא החצי שקל לפספס.** גרסה קודמת פשוט הקדימה את
+    ``utf-8-sig`` ברשימת הקודקים, וזה אכן הוריד את ה-BOM — אבל אז כל
+    קובץ UTF-8 דיווח ``utf-8-sig``, גם קובץ בלי BOM, כלומר כמעט כל
+    קובץ בכל ריפו. ``utf-8-sig`` פירושו "UTF-8 עם חתימה", והתווית
+    נוסעת ל-``file_meta`` בתשובת הכלי. הזיהוי הוא ענף על הבייטים, ולכן
+    התווית אומרת את מה שקרה.
+    """
+    for probe in (".hero { color: red }\n", "שלום\nעולם", "x \U0001F600 y", "abc\ufeffdef"):
+        result = service._try_decode_content(probe.encode("utf-8"))
+
+        assert result["content"] == probe, f"נבדל על {probe!r}"
+        assert result["encoding"] == "utf-8", f"תווית שגויה על {probe!r}"
+
+
+def test_a_byte_order_mark_over_an_undecodable_body_still_returns_something(service):
+    """חתימה תקינה וגוף פגום אינם מחזירים שגיאה.
+
+    ``utf-8-sig`` נכשל שם, ולכן הענף על ה-BOM **נופל חזרה** לרשימה —
+    ושם ``latin-1`` תופס כל רצף בייטים. עדיף להציג קובץ מקולקל מלהחזיר
+    כלום, וזו גם ההתנהגות שהייתה לפני שהענף נכנס.
+    """
+    result = service._try_decode_content(b"\xef\xbb\xbf\xff\xfe rest")
+
+    assert result["is_binary"] is False
+    assert result["content"]
+
+
 def test_parse_grep_output_strips_sha_prefix(service):
     output = "abc123def456:src/app.py\n10:hello\n"
     results = service._parse_grep_output(output, max_results=10)

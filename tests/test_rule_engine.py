@@ -2,6 +2,8 @@
 Unit tests for the Visual Rule Engine
 """
 
+import contextlib
+
 import pytest
 
 from services.rule_engine import (
@@ -293,3 +295,122 @@ class TestEvaluationPerformance:
         # וודא שההערכה מהירה (פחות מ-10ms)
         assert result.evaluation_time_ms < 10
 
+
+
+class TestRegexTimeoutDoesNotStealTheCallersClock:
+    """ההגנה מ-ReDoS משחזרת את השעון של מי שקרא לה, ולא רק את ה-handler.
+
+    **למה יש כאן מחלקה שלמה.** ``ConditionOperators.regex`` דורס את
+    ``SIGALRM`` לשנייה אחת כדי לעצור ביטוי שמתפוצץ. עד לתיקון הוא סיים
+    ב-``signal.alarm(0)``, וזה **מוחק** כל שעון שכבר דלק בתהליך —
+    ``alarm`` ו-``setitimer(ITIMER_REAL)`` הם אותו שעון אחד. נמדד: אחרי
+    ``setitimer(60)`` הקריאה ``alarm(1)`` מחזירה ``60``, כלומר היא רואה
+    אותו, ואחרי ``alarm(0)`` נשאר ``0.0``.
+
+    **ולמה זה נעשה קריטי דווקא עכשיו.** כל עוד ``pytest.ini`` קבע
+    ``timeout_method = thread``, תקרת הזמן של הבדיקות רצה על
+    ``threading.Timer`` ולא נגעה בשעון הזה. מהרגע שהשיטה היא ``signal``,
+    כל בדיקה שעוברת במסלול הזה הייתה מאבדת את התקרה שלה — נמדד דרך
+    pytest אמיתי: בדיקה שמחקה את הרצף ואז ישנה עשר שניות תחת תקרה של
+    שלוש **עברה**.
+
+    זה גם באג בקוד ייצור ולא רק בבדיקות: הפונקציה מוחקת שעון של כל צרכן,
+    מי שזה לא יהיה.
+    """
+
+    #: שעון "חיצוני" ארוך דיו שלא ייגמר בזמן הבדיקה, ושארית שלו נמדדת.
+    _OUTER_SECONDS = 60.0
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _holding(seconds):
+        """מדליק שעון ``ITIMER_REAL`` ומחזיר בסוף **בדיוק** את מה שהיה.
+
+        **הבדיקות עצמן חייבות לשחזר, ומאותה סיבה שהקוד הנבדק חייב.**
+        ``pytest-timeout`` בשיטת ``signal`` מחזיק שעון ``ITIMER_REAL``
+        משלו — נמדד ~60 שניות בתחילת כל בדיקה — וגרסה ראשונה של
+        הבדיקות כאן סיימה ב-``setitimer(..., 0)``, כלומר מחקה אותו
+        לשארית הבדיקה. זו בדיוק התקלה שהמחלקה הזאת נכתבה בשבילה, ולכן
+        לא היה נכון להשאיר אותה בבדיקות.
+
+        ולכן גם מופחת הזמן שנצרך: החזרת הערך המקורי כמו שהוא הייתה
+        מאריכה את התקרה של pytest בכל קריאה.
+        """
+        import signal
+        import time
+
+        held = signal.getitimer(signal.ITIMER_REAL)[0]
+        previous_handler = signal.signal(
+            signal.SIGALRM, lambda signum, frame: None
+        )
+        started = time.monotonic()
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+        try:
+            yield
+        finally:
+            signal.signal(signal.SIGALRM, previous_handler)
+            if held:
+                left = held - (time.monotonic() - started)
+                signal.setitimer(signal.ITIMER_REAL, max(left, 0.001))
+            else:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+
+    @staticmethod
+    def _remaining():
+        import signal
+
+        return signal.getitimer(signal.ITIMER_REAL)[0]
+
+    def test_an_outer_timer_survives_a_regex_evaluation(self):
+        """השעון החיצוני נשאר דולק, ומה שנשאר בו קטן ממה שהיה.
+
+        שתי הטענות ביחד, וזה מכוון: "עוד דולק" לבדו עובר גם על מימוש
+        שמדליק שעון **חדש** באותו אורך, ו"קטן ממה שהיה" לבדו עובר גם על
+        אפס. יחד הן אומרות שזה אותו שעון, שהתקדם.
+        """
+        import time
+
+        with self._holding(self._OUTER_SECONDS):
+            time.sleep(0.02)
+            assert ConditionOperators.regex("hello world", r"wor") is True
+            remaining = self._remaining()
+
+        assert remaining > 0, "השעון החיצוני נמחק — הצרכן שלו לא יקבל התראה"
+        assert remaining < self._OUTER_SECONDS, (
+            "מה שנשאר אינו קטן מהמקור, כלומר הודלק שעון חדש ולא שוחזר הקיים"
+        )
+
+    def test_no_timer_is_left_running_when_there_was_none(self):
+        """בקרה בכיוון ההפוך: אין שעון פנטום.
+
+        שחזור שמדליק שעון גם כשלא היה אחד היה מייצר ``SIGALRM`` בלתי
+        צפוי בתהליך, וזו רגרסיה גרועה יותר מהבאג המקורי. ``_holding(0)``
+        הוא מה שמייצר כאן את המצב "אין שעון" — הוא אינו קיים מעצמו בתוך
+        ריצת pytest, כי לתקרה של pytest יש שעון משלה.
+        """
+        with self._holding(0):
+            assert self._remaining() == 0.0, "המצב 'אין שעון' לא נוצר"
+            ConditionOperators.regex("hello world", r"wor")
+            remaining = self._remaining()
+
+        assert remaining == 0.0, f"נשאר שעון פנטום של {remaining} שניות"
+
+    def test_the_redos_ceiling_itself_still_fires(self):
+        """ומה שאסור לו להיחלש: התקרה על הביטוי עצמו.
+
+        **הבדיקה הזאת היא הבלם על התיקון.** דרך פשוטה "לתקן" את גזלת
+        השעון היא לוותר על השעון הפנימי לגמרי, וזה היה מבטל את כל הסיבה
+        שהקוד קיים. הדפוס כאן עובר את שומרי האורך ואת רשימת הדפוסים
+        המסוכנים — הרשימה נוקבת ב-``(.+)+`` ובדומיו ולא ב-``(a+)+`` —
+        ולכן הוא מגיע ל-``re.search`` ומתפוצץ שם.
+        """
+        import time
+
+        started = time.monotonic()
+        result = ConditionOperators.regex("a" * 30 + "!", r"(a+)+$")
+        elapsed = time.monotonic() - started
+
+        assert result is False, "ביטוי שחרג לא הוחזר כ-False"
+        assert elapsed < 10, (
+            f"התקרה לא ירתה — ההערכה לקחה {elapsed:.1f} שניות"
+        )

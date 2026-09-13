@@ -766,9 +766,28 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "class with its start and end line, so you can follow up with an exact "
             "lines= range. Names are fully qualified with dots (Class.method, "
             "outer.inner), symbol= filters on that full name, and page/per_page walk "
-            "long files. Python only; anything else returns status no_outline. Size "
+            # הסיומות נקובות במפורש ולא רק "Python only": סוכן ששואל אם
+            # ``.pyi`` נתמך לא יכול היה לענות מהתיאור, בזמן ש-
+            # ``docs/mcp-server.rst`` כן מפרט אותן. הרשימה נאכפת מול
+            # ``outline._SCANNERS`` בטסט, כדי ששפה שתתווסף לטבלה בלי
+            # שהתיאור יעודכן לא תהפוך לפיצ'ר שאף לקוח לא קורא לו.
+            "long files. Python (.py, .pyi) gives functions and classes with "
+            "dotted names; HTML/Jinja templates (.html, .htm, .jinja, .jinja2, "
+            ".j2) give flat names — {% block %} and {% macro %}, elements with "
+            "an id as tag#id, and the definitions inside a <script> or <style> "
+            "block, so a long block is a map and not just a boundary; CSS "
+            "(.css) names each block by its selector or at-rule text, so "
+            "@media (max-width: 768px) is findable with its own line range, "
+            "and a minified file gives every block the one line it really "
+            "sits on. symbol= matches a substring of any of these names, not "
+            "just the dotted Python ones: symbol=\"@media\" returns only the "
+            "media queries with their ranges, and symbol=\"#\" only the names "
+            "carrying an id. Anything else returns status no_outline. "
+            "Size "
             "limits differ by mode: 500KB for a whole file, 10MB with lines or "
-            "outline. Binary files return metadata only."
+            "outline; a file over 50000 symbols returns status no_outline with "
+            "reason too_many_symbols and no partial list. "
+            "Binary files return metadata only."
         ),
         annotations=_READ_ONLY_TOOL,
     )
