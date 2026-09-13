@@ -1,5 +1,6 @@
 """טסטים לפארסר ה-RST — על קבצי RST אמיתיים מהריפו + מקרי קצה סינתטיים ממוקדים."""
 
+import json
 import re
 from pathlib import Path
 
@@ -577,3 +578,219 @@ class TestTitleRecognitionMatchesDocutils:
         """
         assert _independent_headings("כותרת ארוכה\n===\n\nגוף\n".split("\n")) == []
         assert len(_independent_headings("כותרת ארוכה\n====\n\nגוף\n".split("\n"))) == 1
+
+
+# ---- מחלקת הקלט שהקורפוס אינו מכיל: סיומות שורה ו-whitespace לא מנורמל ----
+#
+# .. warning::
+#
+#    **הלקח שהמחלקה הזאת לימדה, והוא שווה יותר מהטסטים שמתחתיו.** כל 208
+#    קובצי ה-RST בריפו הם LF, וכל האימות של הפארסר נשען עליהם — מזהה
+#    בלתי-תלוי, דיף אפס, והסכמה מלאה עם docutils על כל קובץ. ובדיוק
+#    האחידות הזאת היא מה שהסתיר לולאה אינסופית: קורפוס אחיד אינו יכול
+#    לגלות מחלקת קלט שאין לה בו אף מופע.
+#
+#    **אימות מול קורפוס אמיתי אינו תחליף לאימות מול מחלקות קלט.** הטסטים
+#    שלמטה נגזרים מהמחלקה — סיומת שורה, תו whitespace שאין לו נרמול —
+#    ולא מקובץ שקיים.
+
+_HANGING_INPUTS = (
+    # CRLF, הצורה הנפוצה: קובץ שנוצר ב-Windows עם שורה ריקה אחת
+    "Doc\r\n===\r\n\r\nגוף\r\n",
+    "\r\n",
+    "x\n\r\n",
+    # ותווי whitespace שאין להם נרמול, בקובץ LF תקין לגמרי
+    "x\n\x0b\n",      # vertical tab
+    "x\n\x0c\n",      # form feed
+    "x\n\x1c\n",      # file separator
+    "x\n\x85\n",      # next line
+    "x\n\xa0\n",      # no-break space
+    "x\n \n",    # line separator
+    "x\n　\n",    # ideographic space
+    # ושתיים שמגיעות דרך מסלול אחר: overline קצר נצרך קודם, והשורה
+    # הפוגעת נפגשת בסיבוב הבא
+    "=\n\r\nגוף\n",
+    "=\n\xa0\nגוף\n",
+)
+
+
+def test_a_line_that_is_blank_only_after_strip_does_not_hang_the_parser():
+    """שורה שאינה ריקה אך ריקה תחת ``strip`` תקעה את הפארסר **לנצח**.
+
+    ``_is_title_text`` בדק ``not line`` ואישר שורה שכולה ``\\r``, בזמן
+    שהלולאה שבולעת את הפסקה עוצרת על ``lines[i].strip()`` — אפס איטרציות,
+    ו-``continue`` חוזר לאותה שורה. שתי הגדרות שונות של "שורה ריקה"
+    באותה פונקציה.
+
+    **הטסט רץ בתת-תהליך, וזה מכוון ולא קוסמטי.** קריאה ישירה לקוד תקוע
+    הייתה תולה את הסוויטה עד שתקרת ה-60 שניות תהרוג אותה, ואז ההודעה
+    אומרת "timeout" ולא "הקלט הזה אינו חוזר". תת-תהליך עם ``timeout``
+    הופך את התקיעה לכשל **בשם**, והוא גם אינו מתנגש ב-SIGALRM
+    ש-pytest-timeout משתמש בו (ראו ההערה ב-``pytest.ini``).
+
+    הורץ על הקוד שלפני התיקון: כל שנים-עשר הקלטים נתקעו ויצאו ב-124.
+    """
+    import subprocess
+    import sys
+
+    root = str(Path(__file__).resolve().parents[1])
+    program = (
+        "import sys, json\n"
+        f"sys.path.insert(0, {root!r})\n"
+        "from services import rst_parser\n"
+        "for text in json.loads(sys.argv[1]):\n"
+        "    rst_parser.parse_document(text)\n"
+        "print('all returned')\n"
+    )
+
+    done = subprocess.run(
+        [sys.executable, "-c", program, json.dumps(list(_HANGING_INPUTS))],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=root,
+    )
+    assert done.returncode == 0, (
+        f"הפארסר לא חזר על אחד מהקלטים. stderr={done.stderr[-400:]!r}"
+    )
+    assert "all returned" in done.stdout
+
+
+def test_a_whitespace_only_line_does_not_become_a_section_with_an_empty_name():
+    """ולא רק שהפארסר חוזר — הוא גם אינו ממציא סימבול בשם ריק.
+
+    לפני התיקון, שורת form feed מעל קו פיסוק ייצרה סקשן שהכותרת שלו היא
+    המחרוזת הריקה, ומשם שם מנוקד שנגמר בנקודה ואינו מציין דבר בקובץ.
+    הטענה הזאת יושבת כאן ולא בטסט התקיעה כדי שתיקון שרק "מחזיר תשובה"
+    לא ייראה כמו תיקון מלא.
+    """
+    for whitespace in ("\x0c", "\x0b", "\xa0"):
+        doc = rst_parser.parse_document(
+            f"אמיתי\n=====\n\nגוף\n\n{whitespace}\n-----\n\nעוד\n"
+        )
+        titles = [s.title for s in doc.sections]
+        assert titles == ["אמיתי"], f"{whitespace!r} ייצר {titles!r}"
+        assert all(s.title.strip() for s in doc.sections)
+
+
+def test_crlf_normalisation_keeps_the_mcp_line_unit():
+    """הנרמול מותר **רק** משום שהוא אינו משנה כמה שורות יש.
+
+    כל שדות ה-``lines`` בתשובות ה-MCP נספרים ב-``count_lines``, שמפצל
+    ב-``split("\\n")``. ``\\r\\n`` ← ``\\n`` שומר על המספר; ``splitlines()``
+    לא, והוא גם מפצל על עשרה תווים במקום אחד — ולכן הוא נדחה, וזה מקובע
+    כאן ולא רק בהערה.
+
+    המוטציה שמפילה: להחליף את הנרמול ב-``splitlines()``. אז קובץ שנגמר
+    ב-newline נותן מספר קטן ב-1 והטענה נופלת.
+    """
+    from mcp_server.handlers import count_lines
+
+    for text in (
+        "A\r\n=\r\n\r\nגוף\r\n",
+        "A\r\n=\r\n\r\nגוף",
+        "A\n=\n\nגוף\n",
+        "A\n=\r\n\r\nגוף\n",
+    ):
+        assert len(rst_parser.parse_document(text).lines) == count_lines(text), (
+            f"מספר השורות נפרד מיחידת השורה של ה-MCP על {text!r}"
+        )
+
+
+def test_a_heading_after_an_indented_line_is_not_swallowed_by_the_paragraph():
+    """``Text.text`` קורא את הפסקה ב-``get_text_block(flush_left=True)``.
+
+    כלומר הבלוק נגמר גם בשורה מוזחת, לא רק בשורה ריקה. הלולאה שבלעה עד
+    השורה הריקה החביאה כותרת שכתובה בקובץ, והטווח שמעליה בלע אותה —
+    כלומר ``lines=[start, end]`` שיבוא אחרי המפה מחזיר את הקטע הלא נכון
+    בלי שום סימן שמשהו אבד.
+
+    נמדד מול docutils 0.23 שהורץ, ומול הגרסה שלפני השינוי: שתיהן
+    מחזירות את הכותרת, והגרסה שאחריו לא. כלומר זו הייתה רגרסיה.
+    """
+    doc = rst_parser.parse_document(
+        "פסקה\n  שורה מוזחת\nכותרת\n=====\n\nגוף\n"
+    )
+    assert [s.title for s in doc.sections] == ["כותרת"]
+
+    # ובקרה: עם שורה ריקה לפני הכותרת התוצאה זהה, וזה מה שמצמיד את
+    # הסיבה להזחה ולא למשהו אחר.
+    with_blank = rst_parser.parse_document(
+        "פסקה\n  שורה מוזחת\n\nכותרת\n=====\n\nגוף\n"
+    )
+    assert [s.title for s in with_blank.sections] == ["כותרת"]
+
+
+def test_the_overline_length_rule_counts_the_indentation_of_the_title():
+    """``Line.text`` עושה ל-``title`` רק ``rstrip`` לפני מדידת הרוחב.
+
+    ה-``lstrip`` קורה אחר כך, ורק לטקסט שנשמר. כלומר **ההזחה נספרת
+    ברוחב**, ושורה מוזחת בין שני overline קצרים מ-4 אינה כותרת אף
+    שהטקסט לבדו היה נכנס. נמדד: על מדגם של 384 צורות בממד ההזחה, הצורה
+    שעשתה ``strip`` חלקה על docutils ב-30 מהן וכולן בכיוון של **המצאת**
+    כותרת.
+
+    המוטציה שמפילה: להחזיר ``strip()`` במקום ``rstrip()``.
+    """
+    # רוחב הטקסט לבדו הוא 1 ונכנס ב-overline באורך 1; עם ההזחה הוא 2
+    # ואינו נכנס, וה-overline קצר מ-4 — ולכן אין כותרת.
+    assert rst_parser.parse_document("=\n T\n=\n\nזנב\n").sections == []
+
+    # ובקרה בשני הכיוונים: בלי הזחה זו כותרת, ועם overline באורך 4 ומעלה
+    # ההזחה רק מייצרת אזהרה ב-docutils והכותרת נשארת.
+    assert [s.title for s in rst_parser.parse_document("=\nT\n=\n\nזנב\n").sections] == ["T"]
+    wide = rst_parser.parse_document("====\n  T\n====\n\nזנב\n")
+    assert [s.title for s in wide.sections] == ["T"]
+
+
+# ---- שני כללים שה-docstring מנמק באריכות, ושאף טסט לא קיבע ----
+#
+# נמדד במצבת מוטציות: שתי המוטציות שלמטה השאירו את כל הסוויטה ירוקה,
+# בזמן ששלוש מוטציות בקרה כן נתפסו. כלל שמנומק בפרוזה ואינו מקובע הוא
+# תיעוד של כוונה, לא של התנהגות — והתיקון הבא ימחק אותו בלי שאיש יראה.
+
+
+def test_the_length_rule_subtracts_combining_characters():
+    """כותרת מנוקדת: שלושה תווים, אבל **שתי** עמודות תצוגה.
+
+    ``column_width`` מחסר תווים משולבים, ולכן ניקוד עברי תופס אפס. הקלט
+    כאן נבחר כך שכלל ה-``>= 4`` **לא יכול להציל** אותו: ה-adornment הוא
+    שני תווים, ולכן אם הרוחב נמדד בלי החיסור הכותרת נופלת לגמרי.
+
+    זה מה שהפריד את הטסט הזה משני הטסטים שכבר היו על רוחב התצוגה: הם
+    עברו גם בלי החיסור, כי אצלם ה-adornment ארוך דיו וכלל ה-4 החזיר את
+    הכותרת מסיבה אחרת.
+
+    המוטציה שמפילה: ``return width`` במקום
+    ``return width - sum(1 for c in text if unicodedata.combining(c))``.
+    נמדד: בלי החיסור הקלט הזה מחזיר אפס סקשנים.
+    """
+    doc = rst_parser.parse_document("אָב\n==\n\nגוף\n")
+    assert [s.title for s in doc.sections] == ["אָב"]
+
+    # ובקרה שהכלל עצמו לא בוטל: אותה כותרת בלי ניקוד היא שני תווים
+    # ושתי עמודות, ועם קו בן תו אחד היא **אינה** כותרת.
+    assert rst_parser.parse_document("אב\n=\n\nגוף\n").sections == []
+
+
+def test_a_style_rejected_by_the_skip_guard_is_not_registered():
+    """``title_styles.append`` יושב **אחרי** ה-``return False`` של השומר.
+
+    כלומר סגנון שהסקשן שלו נדחה על "דילוג רמה" אינו נכנס לרשימה, ולכן
+    התו החדש **הבא** מקבל את הרמה שהייתה מתקבלת לולא הדחייה. אומת מול
+    קוד המקור של docutils 0.23 (``check_subsection``, שני ה-return בסדר
+    הזה) ומול הרצה שלו.
+
+    הרצף כאן הוא היחיד שמבחין, וזה למה הוא נראה מסובך: צריך סגנון שנדחה
+    **ועוד** תו חדש אחריו, אחרת שתי הצורות נותנות את אותה רמה ואין מה
+    למדוד. ``~`` נדחה אחרי החזרה לרמה 1, ואז ``^`` חייב לקבל רמה 3.
+
+    המוטציה שמפילה: להוציא את ``order.append`` מחוץ לשומר. נמדד: אז
+    ``^`` מקבל רמה 4, השומר דוחה אותו, והכותרת ``F`` נעלמת מהמפה.
+    """
+    doc = rst_parser.parse_document(
+        "A\n=\n\nB\n-\n\nC\n=\n\nD\n~\n\nE\n-\n\nF\n^\n\nגוף\n"
+    )
+    assert [(s.title, s.level) for s in doc.sections] == [
+        ("A", 1), ("B", 2), ("C", 1), ("E", 2), ("F", 3)
+    ]

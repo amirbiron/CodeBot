@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from typing import Any
@@ -34,6 +35,16 @@ from .outline_scanners import rst as _rst
 #: ``search`` ולא ``replace``: הוא עוצר על ההתאמה הראשונה ואינו מקצה עותק
 #: של הטקסט, שיכול להיות 10MB לפי ``RANGE_READ_MAX_BYTES``.
 _CR_WITHOUT_LF = re.compile(r"\r(?!\n)")
+
+#: **השורה היחידה שהמסלול הזה כותב, והיא נכתבת כאן ולא בסורקים.** כאן יש גם
+#: את הנתיב וגם את גודל הקלט, ולכן זו הנקודה היחידה שבה שורה אחת מזהה מה
+#: נסרק; סורק אינו מקבל נתיב בכלל, לפי החוזה.
+#:
+#: ולמה בכלל: קלט פתולוגי על המסלול הזה נמדד כחוסם את לולאת האירועים —
+#: ``get_repo_file`` סינכרונית וה-SDK קורא לה ישירות — ואז אין בקוד שום
+#: רשומה שאומרת **איזה** קובץ. ``debug`` ולא ``info``, כי זו בקשה רגילה
+#: ואין סיבה שהיא תרעיש בלוג בייצור.
+logger = logging.getLogger(__name__)
 
 #: הסיומת ← הסורק. **זהו המקום היחיד שאומר מה נתמך**, וזה מכוון: תיאור
 #: הכלי ב-``server.py`` והתיעוד ב-``docs/mcp-server.rst`` מתארים את הטבלה
@@ -86,6 +97,7 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
     if _CR_WITHOUT_LF.search(text):
         return {"status": "no_outline", "reason": "inconsistent_line_endings"}
 
+    logger.debug("outline scan: path=%s bytes=%d", path, len(text))
     result = scanner(text)
 
     # **החוזה נאכף כאן, ובקול.** גרסה קודמת בדקה רק

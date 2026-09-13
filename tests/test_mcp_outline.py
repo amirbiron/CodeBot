@@ -4136,11 +4136,19 @@ class TestRstLabelTargets:
 
         assert out["symbols"] == []
 
-    def test_symbol_underscore_returns_the_labels_and_only_them(self):
+    def test_symbol_underscore_reaches_every_label_and_filters_by_substring(self):
         """ההבטחה שכתובה בתיאור הכלי, ולכן היא דורשת טסט.
 
-        והטענה אינה "מוחזרות שורות" אלא **שהסינון מצמצם**: בלי הצמצום,
-        טסט שרק בודק אי-ריקנות עובר גם על סינון שאינו מסנן כלום.
+        **והשם של הטסט הזה תוקן, כי הקודם טען מה שהקוד אינו עושה.** הוא
+        נקרא "the labels and only them", והסינון במנתב הוא **בהכלה** ולא
+        בתחילית — כלומר כל כותרת שיש בה קו תחתון חוזרת גם היא. הטסט הקודם
+        בחר את הקובץ עם הכי הרבה תוויות ועבר במקרה, כי באותו קובץ אין
+        כותרת כזאת. נמדד על הקורפוס: ``symbol="_"`` מחזיר 29 תוויות
+        ו-133 שורות שאינן תוויות, ב-79 קבצים.
+
+        לכן הטענות כאן הן שתיים, ושתיהן נגזרות מהתוצאה: **כל** תווית
+        בקובץ נגישה דרך השאילתה, וכל שורה שחוזרת נושאת את המונח. הטענה
+        השנייה היא מה שמפריד סינון אמיתי מסינון שאינו מסנן כלום.
         """
         path = max(
             _rst_files(),
@@ -4149,14 +4157,91 @@ class TestRstLabelTargets:
             ),
         )
         text = path.read_text(encoding="utf-8", errors="replace")
+        expected_labels = _rst_label_lines(text.split("\n"))
         mapped = _rst(text)
         found = _rst(text, symbol="_")
 
         assert found["total"] > 0
         assert found["total"] < mapped["total"]
+        # כל שורה שחוזרת נושאת את המונח — זה הסינון עצמו.
         for row in found["symbols"]:
-            assert row["name"].startswith("_")
-            assert row["start"] == row["end"]
+            assert "_" in row["name"]
+        # וכל תווית שיש בקובץ נגישה דרך השאילתה. האורקל נגזר מהטקסט הגולמי
+        # ואינו מייבא מהמימוש.
+        returned_labels = {
+            (row["name"], row["start"]) for row in found["symbols"]
+            if row["name"].startswith("_") and row["start"] == row["end"]
+        }
+        assert len(returned_labels) == len(expected_labels)
+
+    def test_a_heading_with_an_underscore_also_answers_symbol_underscore(self):
+        """הצד השני של אותה הבטחה, ובקובץ אמיתי מהקורפוס.
+
+        עמוד autodoc נושא כותרת כמו ``services.backup\\_service module`` —
+        הטקסט הגולמי, עם ה-escape של RST, לפי ההכרעה ש-``start`` מצביע
+        לשורה בקובץ המקור. ולכן שני דברים שהתיאור אומר במפורש חייבים
+        טסט: ``symbol="_"`` מחזיר גם אותה, ו-``symbol=`` בלי ה-escape
+        **אינו** מוצא אותה.
+        """
+        pages = [
+            p for p in _rst_files()
+            if "\\_" in p.read_text(encoding="utf-8", errors="replace").split("\n")[0]
+        ]
+        assert pages, "אין בקורפוס עמוד autodoc עם escape בכותרת"
+        text = pages[0].read_text(encoding="utf-8", errors="replace")
+        heading = text.split("\n")[0].strip()
+
+        assert heading in {row["name"] for row in _rst(text)["symbols"]}
+        assert heading in {row["name"] for row in _rst(text, symbol="_")["symbols"]}
+        # ובלי ה-escape — אפס. זה מה ש-WARN-005 תיעד, וזו התנהגות מוצהרת.
+        assert _rst(text, symbol=heading.replace("\\_", "_"))["total"] == 0
+
+
+class TestRstLineEndings:
+    """סיומות שורה — מחלקת קלט שאין לה אף מופע בקורפוס.
+
+    .. warning::
+
+       כל 208 קובצי ה-RST בריפו הם LF, ולכן **אף אחד** מהמונים על הקורפוס
+       אינו יכול לגלות כאן באג. זה בדיוק מה שהסתיר לולאה אינסופית שנעלה
+       את לולאת האירועים: המונה הבלתי-תלוי, דיף האפס וההסכמה עם docutils
+       על כל קובץ — כולם היו ירוקים. הטסטים כאן נגזרים מהמחלקה, לא מקובץ.
+    """
+
+    def test_a_crlf_file_maps_its_labels_and_not_only_its_headings(self):
+        """הכותרות עבדו ב-CRLF והתוויות לא, וזו א-סימטריה שקטה.
+
+        זיהוי הכותרת עושה ``rstrip`` בעצמו ולכן ה-``\r`` לא הפריע לו,
+        אבל ``_LABEL`` נגמר ב-``:[ \t]*$`` — ו-``\r`` אינו ``[ \t]``
+        ואינו newline עבור ``$``. התוצאה הייתה מפה עם עץ כותרות מלא
+        ו**אפס** תוויות, בלי שום סימן בתשובה שמשהו דולג.
+
+        **והטסט הזה עובר בזכות הנרמול ב-``parse_document``, לא בזכות
+        שינוי ב-``_LABEL``** — ``\r\n`` ← ``\n`` בגבול הקלט מוחק את
+        מחלקת ה-CRLF לשני הסימפטומים במקום אחד. ``rstrip("\r")`` ברג'קס
+        נשקל ונדחה כשני טלאים על אותו שורש.
+        """
+        source = "כותרת\n=====\n\n.. _עוגן-שלי:\n\nגוף.\n"
+        for ending, text in (("LF", source), ("CRLF", source.replace("\n", "\r\n"))):
+            rows = _rst(text)
+            names = [row["name"] for row in rows["symbols"]]
+            assert names == ["כותרת", "_עוגן-שלי"], f"{ending}: {names!r}"
+            labels = [row for row in rows["symbols"] if row["name"].startswith("_")]
+            assert [(row["start"], row["end"]) for row in labels] == [(4, 4)], ending
+
+    def test_a_crlf_file_reports_the_same_ranges_as_the_same_file_in_lf(self):
+        """ולא רק אותם שמות — אותם **טווחים**.
+
+        הנרמול מותר רק משום שהוא אינו משנה כמה שורות יש, ולכן זו הטענה
+        שמקבעת אותו: אם מישהו יחליף אותו ב-``splitlines()``, שורה ריקה
+        סופית תיעלם, כל ``end`` יזוז ב-1, והטענה תיפול.
+        """
+        source = "ראש\n===\n\nגוף\n\nתת\n---\n\nעוד\n"
+        lf = _rst(source)["symbols"]
+        crlf = _rst(source.replace("\n", "\r\n"))["symbols"]
+        assert [(r["name"], r["start"], r["end"]) for r in lf] == [
+            (r["name"], r["start"], r["end"]) for r in crlf
+        ]
 
 
 class TestRstThroughTheToolItself:
