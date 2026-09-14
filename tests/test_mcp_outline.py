@@ -4104,6 +4104,44 @@ class TestRstLabelTargets:
 
         assert [row for row in out["symbols"] if row["name"].startswith("_")] == []
 
+    def test_a_heading_whose_text_starts_with_an_underscore_is_not_a_label(self):
+        """ההבחנה שהתיעוד מלמד נגזרת מהטווח, ולא מצורת השם.
+
+        כותרת יכולה להתחיל בקו תחתון — בעמודי autodoc זה שכיח — ואז השם
+        שלה נראה בדיוק כמו שם של תווית. ההבדל היחיד שמחזיק הוא הטווח:
+        לתווית ``start`` שווה ל-``end``, ולכותרת יש טווח. בקורפוס אין
+        היום כותרת כזאת, ולכן זו מחלקת קלט שהקורפוס אינו מכסה.
+        """
+        rows = _rst("_foo\n====\n\nגוף\n\n.. _real:\n\nעוד\n")["symbols"]
+        by_name = {row["name"]: (row["start"], row["end"]) for row in rows}
+
+        assert by_name["_foo"][0] < by_name["_foo"][1], "כותרת נושאת טווח"
+        assert by_name["_real"][0] == by_name["_real"][1], "תווית היא שורה אחת"
+
+    def test_a_label_as_the_document_s_last_byte_does_not_crash_the_scan(self):
+        """הקלט היחיד שמפעיל את שומר הגבול ב-``document.lines[number]``.
+
+        **וזה הטסט שהיה חסר, אחרי שהראשון שכתבתי לא נגע בשומר בכלל.**
+        השומר נגיש רק כש-``number`` שווה לאורך ``document.lines`` — כלומר
+        כשהתווית היא האיבר האחרון ואין בקובץ שורה חדשה בסופו בכלל. נמדד:
+        על ``".. _site:"`` יש שורה אחת, ``number`` הוא 1, ולכן
+        ``number < len(...)`` שקרי והמוצא הוא המחרוזת הריקה. ובלי השומר
+        אותו קלט זורק ``IndexError``.
+
+        כל צורה אחרת משאירה לפחות שני איברים: ``".. _site:\n"`` משאיר
+        איבר ריק סופי, ושתי צורות ההמשך המוזח נותנות ``1 < 2``. כלומר
+        אף אחת מהן לא הייתה מבחינה בהסרת השומר, וזה מה שמעבר האימות
+        היריב תפס.
+
+        המוטציה שמפילה: להחליף את השומר ב-``document.lines[number]`` בלי
+        התנאי.
+        """
+        labels = [row for row in _rst(".. _site:")["symbols"]
+                  if row["name"].startswith("_")]
+
+        assert labels, "תווית שהיא הבית האחרון בקובץ היא יעד פנימי תקין"
+        assert [(row["name"], row["start"], row["end"]) for row in labels] == [("_site", 1, 1)]
+
     def test_an_indented_continuation_that_is_the_last_line_still_ends_the_block(self):
         """הגבול: ההמשך המוזח הוא השורה האחרונה, ואין אחריה שורה ריקה.
 
@@ -4163,8 +4201,15 @@ class TestRstLabelTargets:
             # ומתמיד; החצי השני — שאף כותרת אינה ``start == end`` — הוא מה
             # שהופך את זה למבחן הבחנה, ובלעדיו ההבטחה אינה מוגנת. נמדד על
             # הקורפוס: אפס כותרות בטווח אפס, מול 29 תוויות.
+            #
+            # **והסיווג נלקח מ-``expected``, שנגזר מהטקסט הגולמי, ולא
+            # מצורת השם.** גרסה ראשונה שאלה אם המקטע האחרון בשם מתחיל בקו
+            # תחתון — וכותרת שהטקסט שלה מתחיל בקו תחתון הייתה נספרת שם
+            # כתווית, ואז האסרשן היה נופל עליה מהסיבה הלא נכונה. נמדד:
+            # ``_foo`` עם קו מתחתיה חוזרת בטווח 1-9 ומסווגת "תווית" לפי
+            # השם. בקורפוס אין כותרת כזאת היום, ולכן זה היה פגם רדום.
             for row in _rst(text)["symbols"]:
-                if row["name"].rsplit(".", 1)[-1].startswith("_"):
+                if row["start"] in expected:
                     assert row["start"] == row["end"], f"{path.name}: {row}"
                 else:
                     assert row["start"] < row["end"], f"{path.name}: {row}"

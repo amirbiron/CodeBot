@@ -182,19 +182,44 @@ def _independent_headings(lines):
         top = cur.rstrip()
 
         # overline: שורת פיסוק, ואחריה כותרת ואותה שורת פיסוק בדיוק
-        if _is_punctuation_line(top) and i + 2 < n:
-            middle, bottom = lines[i + 1], lines[i + 2].rstrip()
-            middle_ok = bool(middle.strip()) and (
+        if _is_punctuation_line(top):
+            middle = lines[i + 1] if i + 1 < n else None
+            bottom = lines[i + 2].rstrip() if i + 2 < n else None
+            middle_ok = middle is not None and bool(middle.strip()) and (
                 middle[:1] in (" ", "\t") or not _is_punctuation_line(middle.rstrip()))
             # ``rstrip`` ולא ``strip``, וזה נגזר מ-``Line.text`` במקור:
             # שם ``title.rstrip()`` נמדד מול הקו, וה-``lstrip`` קורה אחר כך
             # ורק לטקסט שנשמר — כלומר **ההזחה נספרת ברוחב**. עם ``strip``
             # האורקל החזיר כאן כותרת ש-docutils דוחה, כלומר הוא הפסיק
             # להיות עוגן בדיוק לכלל שהמימוש תיקן.
-            if (middle_ok and bottom == top
+            if (middle_ok and bottom is not None and bottom == top
                     and _adornment_is_long_enough(middle.rstrip(), bottom)):
                 found.append((middle.strip(), (top[0], top[0]), i + 1))
                 i += 3
+                continue
+
+            # **ו-overline פגום נצרך כקונסטרוקט, ואינו נופל חזרה לזיהוי
+            # underline-only.** נגזר ממצב ``Line`` במקור, שבו כל מוצא
+            # מתפצל על אורך ה-overline: קצר מ-4 ← ``short_overline``
+            # ו-``state_correction``, כלומר השורה חוזרת למעבר ה-``text``
+            # ומותר ליפול; ארבעה ומעלה ← שגיאה וחזרה ל-``Body``, כלומר
+            # השורות נצרכות ואין סעיף. שלושת המוצאים: שורה ריקה אחריה היא
+            # ``Line.blank`` וצורכת אחת; שורת פיסוק אחריה היא
+            # ``Line.underline`` וצורכת שתיים; וטקסט אחריה הוא
+            # ``Line.text``, שצורך שתיים בסוף קלט ושלוש כשה-underline
+            # חסר או שונה.
+            #
+            # בלי זה האורקל קרא ``=====`` / כותרת / ``-----`` פעמיים: פעם
+            # כ-overline שנכשל, ואז את הכותרת והקו שמתחתיה כסעיף
+            # underline-only — כלומר הוא **המציא** כותרת ש-docutils
+            # והמימוש שניהם דוחים.
+            if len(top) >= 4:
+                if middle is None or not middle.strip():
+                    i += 1
+                elif _is_punctuation_line(middle.rstrip()):
+                    i += 2
+                else:
+                    i += 2 if bottom is None else 3
                 continue
 
         # שורות מבניות — אינן יכולות להיות הכותרת
@@ -235,7 +260,18 @@ def _independent_headings(lines):
                 closing = last_edge if last_edge is not None else n - 1
             i = closing + 1
             continue
-        if _STRUCTURAL.match(top) or _is_punctuation_line(top):
+        # שורה מבנית אינה יכולה להיות הכותרת עצמה, והיא גם אינה בולמת
+        # כותרת שמתחתיה — ולכן שורה אחת בלבד.
+        #
+        # **ושורת פיסוק קצרה מ-4 אינה כאן.** ב-``Line`` שבמקור היא עוברת
+        # ``short_overline`` ואז ``state_correction``, כלומר היא חוזרת
+        # למעבר ה-``text`` ונעשית **הכותרת בפוטנציה** — והשורה שאחריה
+        # לבדה מכריעה: קו פיסוק שנכנס באורך ← כותרת בשם השורה הקצרה,
+        # וכל דבר אחר ← פסקה שבולעת את הבלוק. דילוג של שורה אחת כאן
+        # העביר את התור לשורה הבאה, ואז ``=`` / ``T`` / ``-`` נתן כותרת
+        # ``T`` ש-docutils והמימוש שניהם דוחים. לכן היא נופלת למסלול
+        # הפסקה שלמטה, שמחזיק בדיוק את שני הכיוונים האלה.
+        if _STRUCTURAL.match(top):
             i += 1
             continue
 
@@ -828,6 +864,45 @@ def test_the_doctest_block_still_ends_at_the_blank_line_only():
     # הטסט מודד את ההזחה ולא את ה-doctest כשלעצמו.
     after_blank = rst_parser.parse_document(">>> foo()\n\nכותרת\n======\n\nגוף\n")
     assert [s.title for s in after_blank.sections] == ["כותרת"]
+
+
+def test_the_independent_recognizer_consumes_a_malformed_overline_construct():
+    """overline פגום נצרך כקונסטרוקט, ואינו נופל חזרה לזיהוי underline-only.
+
+    **הסחיפה השלישית של האורקל, ובאותה מחלקה כמו שתי הראשונות.** במצב
+    ``Line`` שבמקור, כל מוצא מתפצל על אורך ה-overline: ארבעה ומעלה ←
+    שגיאה וחזרה ל-``Body``, כלומר השורות נצרכות; קצר מ-4 ←
+    ``short_overline`` ו-``state_correction``, כלומר השורה חוזרת למעבר
+    ה-``text`` ונעשית הכותרת בפוטנציה בעצמה.
+
+    לפני התיקון האורקל קרא ``=====`` / כותרת / ``-----`` פעמיים — פעם
+    כ-overline שנכשל, ואז את שתי השורות שמתחת כסעיף — והמציא כותרת
+    ש-docutils והמימוש שניהם דוחים. ועל overline קצר הוא דילג שורה אחת,
+    והכותרת הבאה נוצרה מהשורה הלא נכונה.
+
+    נמדד אחרי התיקון: על מדגם של 37,376 צורות האורקל מסכים עם docutils
+    ב**כולן**, מול 7,936 אי-הסכמות לפני.
+
+    המוטציות שמפילות: להסיר את בלוק הצריכה של ``len(top) >= 4``, או
+    להחזיר את ``_is_punctuation_line(top)`` לשומר הדילוג.
+    """
+    # ארבעה ומעלה: ה-underline שונה, ולכן שלוש השורות נצרכות ואין סעיף
+    assert _independent_headings("=====\nTitle\n-----\n\nbody\n".split("\n")) == []
+    # ובקרה: overline זהה ל-underline הוא כן סעיף
+    matched = _independent_headings("=====\nTitle\n=====\n\nbody\n".split("\n"))
+    assert [row[0] for row in matched] == ["Title"]
+
+    # קצר מ-4: השורה עצמה הכותרת בפוטנציה, והשורה שאחריה מכריעה
+    assert _independent_headings("=\nT\n-\n\nbody\n".split("\n")) == []
+    demoted = _independent_headings("=\n-\nbody\n".split("\n"))
+    assert [row[0] for row in demoted] == ["="]
+
+    # **ושני הקלטים שמפילים את המוטציה הראשונה.** בלי בלוק הצריכה, שתי
+    # שורות פיסוק ברצף נופלות למסלול הפסקה והשנייה הופכת לכותרת בשם
+    # ``====``. במקור זה ``Line.underline``, שצורך שתיים ואינו יוצר סעיף.
+    # נמדד: בלי הבלוק 1,848 צורות מתוך 37,376 סוטות מ-docutils, ואיתו אפס.
+    assert _independent_headings("====\n====\n--\n".split("\n")) == []
+    assert _independent_headings("  indented\n====\n====\n".split("\n")) == []
 
 
 def test_the_independent_recognizer_holds_the_two_rules_the_parser_fixed():
