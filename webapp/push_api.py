@@ -66,6 +66,24 @@ def _env_positive_int(name: str, default: int) -> int:
 
 
 _PUSH_DELIVERY_TTL_SECONDS = _env_positive_int("PUSH_DELIVERY_TTL_SECONDS", 900)
+
+#: תקרת זמן לקריאת ``pywebpush`` אחת, בשניות.
+#:
+#: ‏``pywebpush`` **אינו** מגן מעצמו. חתימת ``webpush()`` מגדירה
+#: ``timeout: Union[None, float] = None``, והערך מועבר הלאה תמיד — גם כשהוא
+#: ``None``. לכן ברירת המחדל ``10000`` שב-``send()`` (``kwargs.pop("timeout",
+#: 10000)``) אינה חלה לעולם, ומה שמגיע ל-``requests.post`` הוא ``timeout=None``:
+#: המתנה בלי גבול. (מקור: ``pywebpush/__init__.py`` גרסה 2.2.0, שורות 366,
+#: 379, 425 ו-533.)
+#:
+#: הנזק אינו התראה אחת שמתעכבת: ``push-sender`` הוא **חוט יחיד**, ולכן מנוי
+#: אחד שנתקע עוצר את כל התזכורות של כל המשתמשים. המסלול המרוחק חסום ממילא
+#: ב-``PUSH_DELIVERY_TIMEOUT_SECONDS``; זה הערך המקביל למסלול המקומי.
+#:
+#: עשר שניות נדיבות בהרבה ממסירה תקינה (שירותי פוש עונים במאות מילישניות),
+#: וקצרות מספיק כדי שסבב שלם יישאר מתחת ל-``PUSH_CLAIM_TTL_SECONDS``.
+#: פסילה בטעות אינה מאבדת התראה: כשל משאיר את הדגל דלוק, והסבב הבא מנסה שוב.
+_PUSH_LOCAL_TIMEOUT_SECONDS = _env_positive_int("PUSH_LOCAL_TIMEOUT_SECONDS", 10)
 _PUSH_TEST_TTL_SECONDS = _env_positive_int("PUSH_TEST_TTL_SECONDS", 120)
 _PUSH_DELIVERY_URGENCY = (os.getenv("PUSH_DELIVERY_URGENCY") or "high").strip().lower()
 if _PUSH_DELIVERY_URGENCY not in {"very-low", "low", "normal", "high"}:
@@ -915,6 +933,9 @@ def _deliver_payload(ctx: _DeliveryContext, payload: dict, *, idempotency_key: s
                         content_encoding=ce,
                         ttl=_PUSH_DELIVERY_TTL_SECONDS,
                         headers=urgency_headers,
+                        # בלי זה ``pywebpush`` מעביר ``timeout=None`` ל-requests
+                        # וממתין בלי גבול — ראו _PUSH_LOCAL_TIMEOUT_SECONDS.
+                        timeout=_PUSH_LOCAL_TIMEOUT_SECONDS,
                     )
                     delivered = True
                     last_err = None

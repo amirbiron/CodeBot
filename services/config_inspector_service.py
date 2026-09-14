@@ -2142,6 +2142,16 @@ class ConfigService:
             description="הפעלת התראות Push",
             category="push",
         ),
+        "PUSH_LOCAL_TIMEOUT_SECONDS": ConfigDefinition(
+            key="PUSH_LOCAL_TIMEOUT_SECONDS",
+            services=("webapp",),
+            default="10",
+            description=(
+                "תקרת זמן לקריאת pywebpush אחת (שניות). בלעדיה pywebpush ממתין "
+                "בלי גבול, ושולח הפוש הוא חוט יחיד"
+            ),
+            category="push",
+        ),
         "MCP_PUSH_NOTIFICATIONS_ENABLED": ConfigDefinition(
             key="MCP_PUSH_NOTIFICATIONS_ENABLED",
             services=("mcp",),

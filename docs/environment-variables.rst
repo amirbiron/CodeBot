@@ -568,6 +568,12 @@
      - ``true``
      - ``false``
      - WebApp
+   * - ``PUSH_LOCAL_TIMEOUT_SECONDS``
+     - תקרת זמן לקריאת ``pywebpush`` אחת. ‏``pywebpush`` מעביר ``timeout=None`` ל‑requests כשלא נמסר ערך, כלומר ממתין בלי גבול — ו\ ``push-sender`` הוא חוט יחיד
+     - לא
+     - ``10``
+     - ``5``
+     - WebApp
    * - ``MCP_PUSH_NOTIFICATIONS_ENABLED``
      - רישום התראה על קובץ שנשמר דרך ה‑MCP. כיבוי עוצר את **הרישום**, ולכן אינו מותיר תור שאיש אינו קורא
      - לא
