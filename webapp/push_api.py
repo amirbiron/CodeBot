@@ -1187,6 +1187,8 @@ def _build_file_saved_payload(event_doc: dict) -> dict | None:
     name = raw_name.strip() if isinstance(raw_name, str) else ""
     if not name:
         return None
+    # השם המלא, לפני הקיצור לתצוגה, הוא מה שמזהה את הקובץ לצורך ה-tag.
+    full_name = name
     if len(name) > _PUSH_EVENT_NAME_MAX_CHARS:
         name = name[:_PUSH_EVENT_NAME_MAX_CHARS] + "…"
 
@@ -1201,7 +1203,16 @@ def _build_file_saved_payload(event_doc: dict) -> dict | None:
             "body": body_text,
             "icon": "/static/icons/app-icon-512.png",
             "badge": "/static/icons/app-icon-512.png",
-            "tag": f"mcp-file-{file_id_str}" if file_id_str else "mcp-file",
+            # ה-tag מזהה את **הקובץ**, לא את הגרסה. כל שמירה ב-CodeKeeper
+            # היא מסמך חדש עם ``_id`` חדש (גרסאות append-only), ולכן tag
+            # שנגזר מ-``file_id`` היה שונה בכל עדכון — ושתי שמירות רצופות
+            # היו מגיעות כשתי התראות נערמות במקום שהשנייה תחליף את הראשונה,
+            # שזו כל מטרתו של ``tag``.
+            #
+            # מה שמזהה קובץ כאן הוא שמו (יחד עם המשתמש, שממילא מקבל רק את
+            # ההתראות שלו), וה-hash שומר על אורך קבוע במקום להכניס שם
+            # באורך שרירותי לתוך גוף ההתראה.
+            "tag": "mcp-file-" + hashlib.sha256(full_name.encode("utf-8")).hexdigest()[:16],
             "silent": False,
             "requireInteraction": False,
             # רשימה ריקה במכוון, ולא כפתור משלנו. ה-Service Worker מתעלם
