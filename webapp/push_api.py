@@ -1105,7 +1105,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
 _PUSH_EVENT_NAME_MAX_CHARS = 120
 
 
-def _claim_push_event(db, event_doc: dict, ttl_seconds: int | None = None) -> bool:
+def _claim_push_event(db, event_doc: dict, ttl_seconds: int | None = None) -> str | None:
     """תופס אירוע לשליחה כדי שלא יישלח פעמיים משני תהליכים.
 
     מעתיק את התבנית של :func:`_claim_reminder`: ``update_one`` עם תנאי ה-claim
@@ -1114,6 +1114,10 @@ def _claim_push_event(db, event_doc: dict, ttl_seconds: int | None = None) -> bo
     נשלף: CAS שאינו בודק את מה שקרא אינו CAS.
 
     הרזרבציה נלקחת **לפני** השליחה, שהיא הפעולה החיצונית הבלתי הפיכה.
+
+    מחזיר את **מזהה הבעלות** כשהתפיסה הצליחה, ו-``None`` אחרת. המזהה אינו
+    קישוט: :func:`_resolve_push_event` מתנה בו את הכיבוי, כדי שמסירה ארוכה
+    שה-claim שלה פג לא תכבה אירוע שבינתיים נתפס על ידי שולח אחר.
     """
     try:
         now = datetime.now(timezone.utc)
@@ -1128,7 +1132,7 @@ def _claim_push_event(db, event_doc: dict, ttl_seconds: int | None = None) -> bo
         owner = f"{os.getenv('HOSTNAME','')}-{os.getpid()}-{ident}"
         ev_id = event_doc.get("_id")
         if not ev_id:
-            return False
+            return None
         filt = {
             "_id": ev_id,
             "needs_push": True,
@@ -1146,9 +1150,9 @@ def _claim_push_event(db, event_doc: dict, ttl_seconds: int | None = None) -> bo
             }
         }
         res = db.push_events.update_one(filt, upd)
-        return bool(getattr(res, "matched_count", 0))
+        return owner if getattr(res, "matched_count", 0) else None
     except Exception:
-        return False
+        return None
 
 
 def _build_file_saved_payload(event_doc: dict) -> dict | None:
@@ -1210,13 +1214,26 @@ _EVENT_PAYLOAD_BUILDERS = {
 }
 
 
-def _resolve_push_event(db, event_doc: dict, *, sent: bool, reason: str = "") -> None:
+def _resolve_push_event(
+    db, event_doc: dict, *, sent: bool, reason: str = "", owner: str | None = None
+) -> None:
     """מסמן אירוע כמטופל, כדי שלא ייבחר שוב בסבב הבא.
 
     ``sent_at`` ו-``skipped_reason`` הם **עקבות בלבד** — שום קוד אינו מסתעף
     עליהם. מה שמכבה את האירוע הוא ``needs_push``, וזה השדה שהשאילתה קוראת.
+
+    כש-``owner`` נמסר, הכיבוי מותנה בכך שה-claim **עדיין שלנו**: מסירה
+    שנמשכה מעבר ל-``PUSH_CLAIM_TTL_SECONDS`` משחררת את האירוע, שולח אחר
+    יכול לתפוס אותו, ובלי התנאי היינו מכבים אירוע שכבר אינו בבעלותנו —
+    ודורסים את הסימון שלו. זו אותה זהירות שבה מסלול התזכורות מתנה את
+    הכיבוי שלו ב-``remind_at`` שלא השתנה.
+
+    בלי ``owner`` (אירוע שנפסל לפני שנתפס) הכיבוי מתבצע לפי המזהה בלבד.
     """
     try:
+        filt: dict[str, Any] = {"_id": event_doc.get("_id")}
+        if owner is not None:
+            filt["push_claimed_by"] = owner
         fields: dict[str, Any] = {
             "needs_push": False,
             "updated_at": datetime.now(timezone.utc),
@@ -1225,15 +1242,59 @@ def _resolve_push_event(db, event_doc: dict, *, sent: bool, reason: str = "") ->
             fields["sent_at"] = datetime.now(timezone.utc)
         elif reason:
             fields["skipped_reason"] = reason
-        db.push_events.update_one({"_id": event_doc.get("_id")}, {"$set": fields})
+        db.push_events.update_one(filt, {"$set": fields})
     except Exception:
         pass
+
+
+def _user_has_subscriptions(db, user_id: int | str) -> bool | None:
+    """האם למשתמש יש מנוי פוש. ``None`` כשלא הצלחנו לברר.
+
+    ההבחנה בין ``False`` ל-``None`` היא כל תכלית הפונקציה: "אין מנוי" הוא מצב
+    יציב שלא ישתנה מעצמו, ואילו כשל בירור הוא תקלה חולפת. אירוע אינו נפסל על
+    סמך בירור שנכשל.
+    """
+    try:
+        return bool(
+            db.push_subscriptions.find_one(
+                {"user_id": {"$in": _user_id_variants(user_id)}}, {"_id": 1}
+            )
+        )
+    except Exception:
+        return None
 
 
 def _send_events_for_user(user_id: int | str, events: list[dict]) -> None:
     """שולח את אירועי ה-MCP של משתמש אחד, דרך אותה ליבת מסירה של התזכורות."""
     ctx = _open_delivery(user_id)
     if ctx is None:
+        # ``_open_delivery`` מחזיר None בשני מצבים שונים לחלוטין, וההבחנה
+        # ביניהם קריטית:
+        #
+        # * **אין מנוי פוש** — מצב יציב. האירוע לא יישלח לעולם, וכל עוד
+        #   ``needs_push`` שלו דלוק הוא נשלף בכל סבב ותופס מקום במכסה. מי
+        #   שעובד מול ה-MCP בלי להירשם לפוש בדפדפן צובר כך תור שחונק את
+        #   המשתמשים שכן נרשמו. לכן הוא נפסל כאן.
+        # * **תקלת קונפיג** — חסר מפתח VAPID פרטי, או ש-``pywebpush`` אינו
+        #   מותקן. זה חולף, ופסילה בגללו הייתה הופכת תקלה זמנית לאובדן
+        #   התראות קבוע.
+        db = get_db()
+        if _user_has_subscriptions(db, user_id) is False:
+            # פוסלים את **כל** הממתינים של המשתמש ולא רק את המנה שהגיעה
+            # לכאן. ``max_per_user`` מגביל שליחות, ופסילה אינה שליחה אלא
+            # ``update`` יחיד; טפטוף שלה לפי אותה מכסה היה מותיר תור חוסם
+            # למשך שעות, שזו בדיוק התקלה שהפסילה נועדה למנוע.
+            try:
+                db.push_events.update_many(
+                    {"user_id": {"$in": _user_id_variants(user_id)}, "needs_push": True},
+                    {"$set": {
+                        "needs_push": False,
+                        "skipped_reason": "no_subscriptions",
+                        "updated_at": datetime.now(timezone.utc),
+                    }},
+                )
+            except Exception:
+                pass
         return
     db = ctx.db
 
@@ -1260,12 +1321,15 @@ def _send_events_for_user(user_id: int | str, events: list[dict]) -> None:
         if payload is None:
             _resolve_push_event(db, ev, sent=False, reason="incomplete_event")
             continue
-        # תפיסה לפני השליחה, לא אחריה
-        try:
-            if not _claim_push_event(db, ev):
-                continue
-        except Exception:
-            pass
+        # תפיסה לפני השליחה, לא אחריה.
+        #
+        # ‏fail-closed, בשונה ממסלול התזכורות שנופל שם ל"שליחה best-effort"
+        # כשה-claim זורק: ‏_claim_push_event בולע חריגות ומחזיר None, וכשל
+        # שלו משמעו שייתכן ששולח אחר מחזיק את האירוע. כפילות גרועה כאן
+        # מהחמצה — הסבב הבא ייקח אותו ממילא.
+        owner = _claim_push_event(db, ev)
+        if not owner:
+            continue
         try:
             from observability import emit_event  # type: ignore
 
@@ -1279,7 +1343,7 @@ def _send_events_for_user(user_id: int | str, events: list[dict]) -> None:
         except Exception:
             pass
         if _deliver_payload(ctx, payload, idempotency_key=str(ev.get("_id") or "")):
-            _resolve_push_event(db, ev, sent=True)
+            _resolve_push_event(db, ev, sent=True, owner=owner)
 
     _close_delivery(ctx)
 
