@@ -769,9 +769,15 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             # אלא כלי שלא נמצא. המשפט מתאר את הצעד הבא ולא את האפשרות,
             # ויושב כאן, לפני ``outline=true``, כי שני המשפטים הם שתי
             # התשובות לאותה שאלה: "אני לא יודע איפה בקובץ זה".
+            # ``line`` הוא **מספר בודד**, ו-``lines`` דורש זוג: ראו
+            # ``handlers.normalize_line_range``, שמחזיר ``invalid_line_range``
+            # על כל אורך שאינו 2 (נמדד: ``172`` ו-``[172]`` שניהם נדחים).
+            # ולכן הדוגמה נקובה במפורש ולא נאמרת כ"בנה טווח סביבו" — תיאור
+            # שקורא לשורה החוזרת "הטווח" שולח את הקורא לקריאה שנדחית.
             + " When you do not know where in the file your target sits, "
-            "codekeeper_search_repo returns a `line` for every match — that "
-            "line is the lines= range to read here."
+            "codekeeper_search_repo returns a `line` for every match — a single "
+            "number, so read around it with lines=[line - 20, line + 20], or "
+            "lines=[line, line] for that one line."
             + " Set outline=true for a map instead of content: every function and "
             "class with its start and end line, so you can follow up with an exact "
             "lines= range. Names are fully qualified with dots (Class.method, "

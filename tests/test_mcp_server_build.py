@@ -488,6 +488,8 @@ async def test_the_descriptions_name_the_search_to_range_chain():
     בחיפוש צריך לדעת לאן להמשיך, ומי שהתחיל בקריאת קובץ צריך לדעת מאיפה
     להשיג מספר שורה במקום לנחש טווח.
     """
+    import re
+
     mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
 
     search = mcp._tool_manager.get_tool("codekeeper_search_repo").description
@@ -503,6 +505,28 @@ async def test_the_descriptions_name_the_search_to_range_chain():
     assert "`line` for every match" in read
 
     # המשפט החדש חייב לשבת לפני תקרות הגודל ולא להקדים את ``lines=[start,
-    # end]``, אחרת הוא מזיז את הסדר ששלושת הטסטים שמעליו אוכפים.
+    # end]``, אחרת הוא מזיז את הסדר ששלושת הטסטים שמעליו אוכפים. הגבול
+    # העליון הוא ``outline=true`` ולא ``500KB``: שני המשפטים הם שתי
+    # התשובות לאותה שאלה, ותיאור שמפריד ביניהם בפסקת האאוטליין כולה
+    # מאבד בדיוק את הסמיכות שבגללה המשפט נכתב.
     assert read.index("codekeeper_search_repo") > read.index("lines=[start, end]")
+    assert read.index("codekeeper_search_repo") < read.index("outline=true")
     assert read.index("codekeeper_search_repo") < read.index("500KB")
+
+    # **וכל דוגמת טווח בתיאור חייבת להיות חוקית מול המקור.** ``line`` שחוזר
+    # מהחיפוש הוא מספר בודד, ו-``normalize_line_range`` דוחה כל אורך שאינו
+    # 2 (נמדד: גם ``172`` וגם ``[172]`` מחזירים ``invalid_line_range``) —
+    # ולכן תיאור שקורא לשורה החוזרת "הטווח" שולח את הקורא לקריאה שנדחית,
+    # ומבטיח שרשור שלא עובד. זה היה הנוסח הראשון של המשפט הזה, ונתפס
+    # בריוויו. האכיפה היא על **צורת הדוגמה**, לא על ניסוח, כי כל ניסוח
+    # שיחזור לטעות הזו יפר גם אותה.
+    # הכלל הגנרי לבדו אינו מספיק: הניסוח שנתפס בריוויו ("that line **is**
+    # the lines= range") לא הכיל סוגריים בכלל, ולכן היה חומק ממנו. הדוגמה
+    # שבונה טווח מתוך ``line`` היא מה שסוגר את הפער, והיא נדרשת במפורש.
+    assert "lines=[line" in read
+
+    for description in (search, read):
+        for example in re.findall(r"lines=\[([^\]]*)\]", description):
+            assert len(example.split(",")) == 2, f"lines=[{example}] אינו זוג"
+        # הצורה הסקלרית (``lines=42``) אינה מתקבלת בכלל, אז היא לא תופיע.
+        assert not re.search(r"lines=\s*\d", description), description
