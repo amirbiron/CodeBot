@@ -79,6 +79,13 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     # מאפשר לערכה בודדת לקבוע את צבע שמות הקבצים בכרטיס אוסף, בלי שהדבר
     # ישפיע על ערכות אחרות. ראו את וו הדריסה ב-webapp/static/css/collections.css.
     "--collections-link-override",
+
+    # Level 3 - Global Search
+    # מאפשר לערכה בודדת לקבוע את צבע הטקסט בהצעות ההשלמה של החיפוש הגלובלי.
+    # אותו מסלול בדיוק: ההצעות הן <a>, ולכן [data-theme="custom"] a צובע אותן
+    # ב---primary על רקע לבן קבוע. ראו את וו הדריסה ב-
+    # webapp/static/css/global_search.css.
+    "--search-suggestion-text-override",
 ])
 
 

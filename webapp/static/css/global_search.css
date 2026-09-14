@@ -52,6 +52,36 @@
   text-decoration:none;
 }
 
+/* וו דריסה לערכה מיובאת או משותפת: היא יכולה לקבוע לבדה את צבע הטקסט של
+   ההצעות, על ידי הצהרה על --search-suggestion-text-override ב-variables שלה.
+
+   למה זה נדרש: ההצעות מרונדרות ב-global_search.js כאלמנטי <a>, ולכן
+   [data-theme="custom"] a שב-dark-mode.css צובע אותן ב---primary — ספציפיות
+   (0,1,1) שגוברת על .search-suggestion שהיא (0,1,0). רקע התיבה, לעומת זאת,
+   הוא --solid-surface-bg שנשאר לבן בכל ערכה, ולכן ערכה שה---primary שלה בהיר
+   מקבלת טקסט בלתי קריא. נמדד: --primary לבן נותן ניגודיות 1.00.
+
+   הטוקן מכוון להיות חסר ברירת מחדל בכל מקום, ולכן ה-fallback שבכל כלל הוא
+   בדיוק הערך שנצבע היום — ערכה שאינה מצהירה מרונדרת זהה לחלוטין בכל המצבים.
+
+   שלושה כללים, אחד לכל מצב, וסדרם אינו שרירותי:
+   - המצב הרגיל (0,2,0) גובר על [data-theme="custom"] a שהוא (0,1,1).
+   - :focus-visible חייב כלל משלו כי היום .search-suggestion:focus-visible הוא
+     (0,2,0) ומנצח את כלל ה-<a>, כלומר הוא נצבע ב---suggestions-text ולא
+     ב---primary. בלי הכלל הזה, הכלל הרגיל שלמעלה היה שווה לו בספציפיות,
+     מנצח בזכות סדר, ומשנה את מצב הפוקוס גם לערכות שאינן מצהירות.
+   - :hover אחרון: הוא ו-:focus-visible שניהם (0,3,0), ולכן כששני המצבים
+     פעילים יחד מנצח האחרון — וזה שומר על --primary-dark, מה שנצבע שם היום. */
+[data-theme-type="custom"] .search-suggestion{
+  color: var(--search-suggestion-text-override, var(--primary));
+}
+[data-theme-type="custom"] .search-suggestion:focus-visible{
+  color: var(--search-suggestion-text-override, var(--suggestions-text));
+}
+[data-theme-type="custom"] .search-suggestion:hover{
+  color: var(--search-suggestion-text-override, var(--primary-dark));
+}
+
 @media (prefers-reduced-motion: reduce){
   .search-suggestion{ transition:none; }
 }

@@ -139,6 +139,10 @@
      - Level 3
      - שמות הקבצים בכרטיס אוסף ובשולחן העבודה. ברשימה הלבנה, ובכוונה **ללא** ערך ברירת מחדל — כך ערכה בודדת דורסת אותו לעצמה בלי להשפיע על אחרות
      - ``webapp/static/css/collections.css`` (וו דריסה לערכות מיובאות)
+   * - ``--search-suggestion-text-override``
+     - Level 3
+     - הטקסט בהצעות ההשלמה של החיפוש הגלובלי. אותו מבנה בדיוק: ברשימה הלבנה, ובכוונה **ללא** ערך ברירת מחדל
+     - ``webapp/static/css/global_search.css`` (וו דריסה לערכות מיובאות)
 
 רשימת הטוקנים המורחבת זמינה בקובץ ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` ובטבלת הפלטות ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md``.
 
@@ -327,6 +331,7 @@ Component Tokens ו‑Theme Builder
 
 - Collections (`webapp/static/css/collections.css`) עדיין מכיל צבעים קשיחים ישנים – כל שינוי חייב להמיר ל‑`var()` לפי טבלת הטוקנים.
 - **וו דריסה לערכה בודדת (Collections).** שם הקובץ בכרטיס אוסף הוא ``<a>``, ולכן ``dark-mode.css`` צובע אותו ב-``var(--primary)`` דרך ``[data-theme="custom"] a`` — ספציפיות שגוברת על כלל המחלקה שב-``collections.css``. כרטיס האוסף נשאר לבן גם בערכה כהה, כך שערכה שה-``--primary`` שלה בהיר מקבלת שם קובץ בלתי קריא. הפתרון אינו דריסה גורפת אלא **וו בהצטרפות מרצון**: שני כללים על ``.collection-card__link`` ועל ``.workspace-card__link`` — שני המסכים שמציגים שמות קבצים — קוראים ``var(--collections-link-override, <הערך שנצבע היום>)`` — ``--primary`` במצב רגיל, ``--primary-dark`` ב-``:hover``. **הטוקן חייב להישאר ללא ערך ברירת מחדל בשום מקום**, אחרת ה-fallback לא נכנס לפעולה וכל ערכה מושפעת. זה בדיוק מה שקרה בניסיון הראשון: ברירת מחדל שנקבעה ב-``:root[data-theme-type="custom"]`` שינתה את ה-``:hover`` גם בערכות שלא הצהירו, והורידה אותן מניגודיות 4.81 ל-1.00. ל-``:hover`` נדרש כלל נפרד כי ``[data-theme="custom"] a:hover`` ספציפי יותר. ראו :ref:`theme-variables-override-hook`.
+- **וו דריסה לערכה בודדת (הצעות החיפוש הגלובלי).** אותו שורש, ברכיב אחר: ההצעות מרונדרות ב-``global_search.js`` כאלמנטי ``<a>``, ורקע התיבה הוא ``--solid-surface-bg`` שנשאר לבן בכל ערכה — ולכן ``[data-theme="custom"] a`` צובע טקסט בצבע המותג של הערכה על רקע שאינו שלה. נמדד בדפדפן על הדף המרונדר: ערכה שה-``--primary`` שלה לבן מקבלת ניגודיות 1.00, כלומר טקסט בלתי נראה עד שמעבירים עליו עכבר. הווו נבנה באותה צורה בדיוק — ``var(--search-suggestion-text-override, <הערך שנצבע היום>)`` — אבל כאן **שלושה** כללים ולא שניים, כי ל-``:focus-visible`` יש ערך משלו: ``.search-suggestion:focus-visible`` הוא (0,2,0) ומנצח כבר היום את כלל ה-``<a>`` שהוא (0,1,1), ולכן נצבע ב-``--suggestions-text`` ולא ב-``--primary``. **סדר הכללים אינו שרירותי:** ``:hover`` ו-``:focus-visible`` שווים בספציפיות (0,3,0), ולכן כלל ה-``:hover`` נכתב אחרון — כך המצב המשולב נשאר ``--primary-dark``, מה שנצבע שם היום. ``tests/services/test_theme_variables_search_suggestion_hook.py`` נועל את הסדר הזה. ראו :ref:`theme-variables-search-suggestion-hook`.
 - Split View ו‑Markdown Enhanced משתמשים ב‑``--split-*`` ו‑``--md-*`` בהתאמה – הוסיפו טוקן לפני שמוסיפים Class חדש.  
 - Sticky Notes, Reader Modes (`md_preview.html`) וה‑``theme_preview.html`` הם חריגים שנשארים Hardcoded כדי לשמור על תצוגת Preset.  
 - **מלכודת ספציפיות ב-**\ ``transition``\ **, שכל רכיב חדש נתקל בה.** ``dark-mode.css`` מגדיר ``transition`` על ``[data-theme="dark"] *`` (וכן ``dim``, ``nebula``, ``custom`` ו-``shared:``). הספציפיות של ``[attr] *`` שווה לזו של מחלקה יחידה, והקובץ נטען אחרי בלוק ``extra_css`` שבתבנית — ולכן כלל ``transition`` שנכתב על מחלקה אחת בקובץ רכיב **נדרס בשקט בכל הערכות הכהות**, וההנפשה פשוט לא רצה. הכשל שקט לחלוטין: אין שגיאה, ובדיקה בערכה בהירה עוברת. הפתרון שבשימוש ב-``toast.css`` הוא חזרה על שם המחלקה (``.ck-toast.ck-toast``), שמעלה את הספציפיות בלי ``!important``. אותו טיפול נדרש גם לכלל ה-``prefers-reduced-motion`` של הרכיב, שאחרת נדרס באותה דרך.

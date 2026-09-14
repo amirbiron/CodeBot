@@ -311,6 +311,9 @@
    # Level 3 - Collections
    --collections-link-override
 
+   # Level 3 - Global Search
+   --search-suggestion-text-override
+
 .. _theme-variables-override-hook:
 
 דריסת טוקן שאין לו מקבילה ב-VS Code
@@ -343,6 +346,30 @@
 .. note::
 
    ערכה שאינה מצהירה על הטוקן מרונדרת ללא כל שינוי, בשני המצבים: ``webapp/static/css/collections.css`` נופל ל-``var(--primary)`` במצב רגיל ול-``var(--primary-dark)`` ב-``:hover`` — בדיוק הערכים שנצבעו גם קודם. זו דריסה בהצטרפות מרצון, לא שינוי גורף.
+
+.. _theme-variables-search-suggestion-hook:
+
+הצעות ההשלמה בחיפוש הגלובלי
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``--search-suggestion-text-override`` הוא וו מאותו סוג בדיוק, ובאותו מסלול שורש. ההצעות שקופצות מתחת לתיבת החיפוש הגלובלי מרונדרות ב-``webapp/static/js/global_search.js`` כאלמנטי ``<a>``, ולכן ``[data-theme="custom"] a`` שב-``dark-mode.css`` צובע אותן ב-``var(--primary)`` — ספציפיות שגוברת על כלל המחלקה שב-``global_search.css``. רקע התיבה, לעומת זאת, אינו של הערכה כלל: הוא ``--solid-surface-bg``, שנשאר לבן בכל ערכה. כלומר צבע הטקסט נגזר מהערכה והרקע לא, והניגודיות יוצאת מקרית — ערכה שה-``--primary`` שלה לבן מקבלת טקסט לבן על רקע לבן.
+
+ההצהרה נראית זהה, ושני הטוקנים יכולים לחיות באותו בלוק:
+
+.. code-block:: json
+
+   "variables": {
+     "--collections-link-override": "#2e6161",
+     "--search-suggestion-text-override": "#2e6161"
+   }
+
+.. note::
+
+   כאן יש **שלושה** מצבים ולא שניים, ולכל אחד ``var()`` משלו ב-``webapp/static/css/global_search.css``: המצב הרגיל נופל ל-``var(--primary)``, ``:hover`` נופל ל-``var(--primary-dark)``, ו-``:focus-visible`` נופל ל-``var(--suggestions-text)``. השלישי אינו טעות: ``.search-suggestion:focus-visible`` מנצח כבר היום את כלל ה-``<a>`` בזכות ספציפיות, ולכן הערך שנצבע בו היום שונה משני האחרים. ערכה שאינה מצהירה מרונדרת זהה לחלוטין בשלושת המצבים.
+
+.. warning::
+
+   הערך נשמר ב-MongoDB **בזמן הייבוא**. ערכה שכבר קיימת בחשבון אינה מכירה טוקן שנוסף אחריה — צריך לייבא אותה מחדש. זו הסיבה הראשונה לבדוק כשההצהרה נוספה ולא נראה שינוי.
 
 הדגשת תחביר (Syntax Highlighting)
 ----------------------------------
