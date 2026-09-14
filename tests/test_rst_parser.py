@@ -186,8 +186,13 @@ def _independent_headings(lines):
             middle, bottom = lines[i + 1], lines[i + 2].rstrip()
             middle_ok = bool(middle.strip()) and (
                 middle[:1] in (" ", "\t") or not _is_punctuation_line(middle.rstrip()))
+            # ``rstrip`` ולא ``strip``, וזה נגזר מ-``Line.text`` במקור:
+            # שם ``title.rstrip()`` נמדד מול הקו, וה-``lstrip`` קורה אחר כך
+            # ורק לטקסט שנשמר — כלומר **ההזחה נספרת ברוחב**. עם ``strip``
+            # האורקל החזיר כאן כותרת ש-docutils דוחה, כלומר הוא הפסיק
+            # להיות עוגן בדיוק לכלל שהמימוש תיקן.
             if (middle_ok and bottom == top
-                    and _adornment_is_long_enough(middle.strip(), bottom)):
+                    and _adornment_is_long_enough(middle.rstrip(), bottom)):
                 found.append((middle.strip(), (top[0], top[0]), i + 1))
                 i += 3
                 continue
@@ -244,7 +249,14 @@ def _independent_headings(lines):
                 found.append((top.strip(), bottom[0], i + 1))
                 i += 2
                 continue
-        while i < n and lines[i].strip():
+        # הבלוק נגמר בשורה ריקה **או** בשורה מוזחת, כי ``Text.text`` קורא
+        # אותו ב-``get_text_block(flush_left=True)``. בלי העצירה על ההזחה
+        # האורקל איבד כותרת ש-docutils והמימוש שניהם מחזירים.
+        #
+        # וזה אינו נכון ללולאת ה-doctest שלמעלה: ``Body.doctest`` קורא
+        # ``get_text_block()`` בלי ``flush_left``, ושם רק שורה ריקה מסיימת.
+        i += 1
+        while i < n and lines[i].strip() and lines[i][:1] not in (" ", "\t"):
             i += 1
     return found
 
@@ -626,14 +638,20 @@ _HANGING_INPUTS = (
     "Doc\r\n===\r\n\r\nגוף\r\n",
     "\r\n",
     "x\n\r\n",
-    # ותווי whitespace שאין להם נרמול, בקובץ LF תקין לגמרי
+    # ותווי whitespace שאין להם נרמול, בקובץ LF תקין לגמרי.
+    # **כולם נכתבים ב-escape ולא כתו עצמו**, וזה אותו כלל
+    # ש-``BY-STACK/hebrew-source.md`` H1 קובע לתווים בלתי-נראים
+    # במקור: תו שנכתב ישירות אינו נראה לעורך הבא, ואם עריכה או
+    # העברה דרך ערוץ שמנרמל רווחים תחליף אותו ברווח רגיל —
+    # ההערה שלידו תשקר והטסט ימשיך לעבור. נמדד: החלפת שני
+    # התווים האלה ברווח משאירה את הטסט ירוק בדיוק אותו דבר.
     "x\n\x0b\n",      # vertical tab
     "x\n\x0c\n",      # form feed
     "x\n\x1c\n",      # file separator
     "x\n\x85\n",      # next line
     "x\n\xa0\n",      # no-break space
-    "x\n \n",    # line separator
-    "x\n　\n",    # ideographic space
+    "x\n\u2028\n",   # line separator
+    "x\n\u3000\n",   # ideographic space
     # ושתיים שמגיעות דרך מסלול אחר: overline קצר נצרך קודם, והשורה
     # הפוגעת נפגשת בסיבוב הבא
     "=\n\r\nגוף\n",
@@ -670,6 +688,17 @@ def test_a_line_that_is_blank_only_after_strip_does_not_hang_the_parser(tmp_path
         "print('all returned')\n"
     )
 
+    # **והתקרה הפנימית נמוכה מהגלובלית בכוונה.** ``pytest.ini`` מציב
+    # ``timeout = 60``, ובתקרה פנימית שווה לה נמדד שהתקרה הגלובלית מקדימה:
+    # הכשל יוצא ``Failed: Timeout (>60s) from pytest-timeout`` ב-
+    # ``selectors.py``, בלי לנקוב בקלט ובלי לנקוב בפארסר. עם תקרה נמוכה
+    # יותר יוצא ``subprocess.TimeoutExpired`` שנושא את שורת הפקודה, ובה
+    # הקלט התוקע עצמו — וזו כל הסיבה שהטסט הזה רץ בתת-תהליך.
+    #
+    # ושימו לב שהאסרשן שמתחת **אינו** מה שרץ בתקיעה אמיתית:
+    # ``subprocess.run`` זורק ואינו חוזר. הוא מה שרץ כשהתת-תהליך חזר עם
+    # קוד יציאה שאינו אפס.
+    #
     # ``-B`` ו-``cwd=tmp_path``, ושניהם נמדדו ולא נבחרו לנוחות: בלי
     # ``-B`` התת-תהליך כותב ``__pycache__`` לתוך ``services/`` — כלומר
     # לתוך עץ המקור, שכלל הבטיחות בפרויקט אוסר לכתוב בו מטסט — ועם הדגל
@@ -680,7 +709,7 @@ def test_a_line_that_is_blank_only_after_strip_does_not_hang_the_parser(tmp_path
         [sys.executable, "-B", "-c", program, json.dumps(list(_HANGING_INPUTS))],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=45,
         cwd=str(tmp_path),
     )
     assert done.returncode == 0, (
@@ -752,6 +781,80 @@ def test_a_heading_after_an_indented_line_is_not_swallowed_by_the_paragraph():
         "פסקה\n  שורה מוזחת\n\nכותרת\n=====\n\nגוף\n"
     )
     assert [s.title for s in with_blank.sections] == ["כותרת"]
+
+
+def test_a_heading_after_an_indented_line_survives_the_short_overline_path_too():
+    """אותו כלל, האתר השני — ובלעדיו כותרת שכתובה בקובץ נעלמה מהמפה.
+
+    ``short_overline`` מחזיר את השורה ל-``Body`` דרך מעבר ה-``text``, ולכן
+    הבלוק שנבלע במסלול הזה הוא בלוק של ``Text.text`` בדיוק כמו במסלול
+    ה-underline-only — ונגמר גם בשורה מוזחת. הכלל היה כתוב בשני מקומות,
+    אחד מהם קיבל את העצירה והשני לא, וזה השני. **הוא מאוחד עכשיו
+    ב-``_skip_paragraph_block``**, כלומר אין יותר שני נוסחים שיכולים
+    להיסחף.
+
+    נמדד מול docutils 0.23 שהורץ: הוא מחזיר את הכותרת, והמימוש לפני
+    התיקון החזיר אפס סקשנים. **ומול** ``origin/main`` **שמחזיר אותה גם
+    הוא** — כלומר בלי התיקון זו רגרסיה ולא פער חדש. על מדגם של 37,376
+    צורות, 280 חלקו על docutils וכולן חזרו להסכמה.
+
+    המוטציה שמפילה: להחזיר את הלולאה ``while ... lines[i].strip()`` במקום
+    הקריאה ל-``_skip_paragraph_block``.
+    """
+    doc = rst_parser.parse_document("--\n  מוזח\nכותרת\n======\n\nגוף\n")
+    assert [s.title for s in doc.sections] == ["כותרת"]
+
+    # ובקרה: שורה ריקה לפני הכותרת נותנת אותה תוצאה, וזה מצמיד את הסיבה
+    # להזחה ולא לקו הקצר שמעליה.
+    with_blank = rst_parser.parse_document("--\n  מוזח\n\nכותרת\n======\n\nגוף\n")
+    assert [s.title for s in with_blank.sections] == ["כותרת"]
+
+
+def test_the_doctest_block_still_ends_at_the_blank_line_only():
+    """הבקרה שמונעת "איחוד" שגוי של שלוש הלולאות לאחת.
+
+    ``Body.doctest`` קורא ``get_text_block()`` **בלי** ``flush_left``, ולכן
+    בלוק doctest נגמר בשורה ריקה בלבד, ושורה מוזחת בתוכו אינה מסיימת אותו
+    — כלומר הכותרת שאחריה **כן** נבלעת, וזו ההתנהגות הנכונה. אומת במקור
+    של docutils 0.23 ובהרצה שלו: שלוש הצורות כאן מוחזרות זהות.
+
+    מי שיעביר גם את הלולאה הזאת ל-``_skip_paragraph_block`` יחזיר את
+    הכותרת ש-Sphinx אינו בונה, והטסט הזה הוא מה שיתפוס אותו.
+    """
+    swallowed = rst_parser.parse_document(">>> foo()\n  מוזח\nכותרת\n======\n\nגוף\n")
+    assert [s.title for s in swallowed.sections] == []
+
+    # ובקרה: שורה ריקה כן מסיימת את הבלוק, ואז הכותרת חוזרת — כלומר
+    # הטסט מודד את ההזחה ולא את ה-doctest כשלעצמו.
+    after_blank = rst_parser.parse_document(">>> foo()\n\nכותרת\n======\n\nגוף\n")
+    assert [s.title for s in after_blank.sections] == ["כותרת"]
+
+
+def test_the_independent_recognizer_holds_the_two_rules_the_parser_fixed():
+    """אורקל שאינו מחזיק את הכלל אינו עוגן — הוא מאשר רגרסיה.
+
+    שני הכללים האלה תוקנו במימוש והאורקל נשאר מאחור, **וכל אחד בכיוון
+    הפוך**: בכלל הרוחב הוא המציא כותרת ש-docutils דוחה, ובבלוק הפסקה הוא
+    איבד כותרת ש-docutils מחזיר. הטסט על הקורפוס לא תפס את זה, כי אף אחד
+    מ-208 הקבצים אינו נושא את שתי הצורות — אותה מחלקת קלט חסרה שה-
+    ``.. warning::`` שלמעלה מתעד.
+
+    **שני הכללים נגזרו כאן מהמקור של docutils** (``Line.text`` שעושה
+    ``rstrip`` לפני מדידת הרוחב, ו-``Text.text`` שקורא
+    ``get_text_block(flush_left=True)``) ולא מהמימוש — אורקל שמעתיק מהקוד
+    שמולו הוא מושווה מעמיד את שני הצדדים על מקור אחד.
+
+    המוטציות שמפילות: ``middle.strip()`` במקום ``middle.rstrip()``, והסרת
+    העצירה על ההזחה מלולאת הפסקה.
+    """
+    # כלל הרוחב: הטקסט לבדו הוא עמודה אחת ונכנס בקו בן תו אחד; עם ההזחה
+    # הוא שתיים, והקו קצר מ-4 — ולכן אין כותרת.
+    assert _independent_headings("=\n T\n=\n\nזנב\n".split("\n")) == []
+    assert [row[0] for row in _independent_headings("=\nT\n=\n\nזנב\n".split("\n"))] == ["T"]
+
+    # בלוק הפסקה: נגמר גם בשורה מוזחת, ולכן הכותרת שאחריה נשארת.
+    after_indent = _independent_headings("פסקה\n  מוזח\nכותרת\n=====\n\nגוף\n".split("\n"))
+    assert [row[0] for row in after_indent] == ["כותרת"]
 
 
 def test_the_overline_length_rule_counts_the_indentation_of_the_title():

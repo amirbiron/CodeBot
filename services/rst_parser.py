@@ -234,6 +234,30 @@ def _opens_literal(stripped: str) -> bool:
     return _adornment_char(stripped) is None
 
 
+def _skip_paragraph_block(lines: List[str], i: int, n: int) -> int:
+    """מדלג על בלוק הפסקה בדיוק כמו ``Text.text``, ומחזיר את השורה שאחריו.
+
+    **ההגדרה הזאת חייבת להיות אחת, וזו הסיבה שהיא פונקציה.** ``Text.text``
+    קורא את הבלוק ב-``get_text_block(flush_left=True)``, ולכן הבלוק נגמר
+    בשורה ריקה **או** בשורה מוזחת. שני אתרים בפארסר מגיעים לאותו מסלול
+    ב-docutils: מעבר ה-``text`` מ-``Body``, והחזרה אליו מ-``short_overline``
+    דרך ``state_correction``. כשהכלל היה כתוב בשני מקומות, אתר אחד קיבל את
+    העצירה על ההזחה והשני לא — וכותרת שכתובה בקובץ נעלמה מהמפה. נמדד:
+    280 צורות שבהן הפלט חלק על docutils, וכולן חזרו להסכמה כשההגדרה אוחדה.
+
+    וה-``i += 1`` הראשון הוא מה שמבטיח התקדמות: הוא אינו תלוי בתנאי, ולכן
+    הלולאה אינה יכולה לרוץ אפס פעמים גם אם השורה הנוכחית כבר אינה עומדת בו.
+
+    **ולולאת ה-doctest אינה המסלול הזה — אל תאחד אותה לכאן.**
+    ``Body.doctest`` קורא ``get_text_block()`` **בלי** ``flush_left``, ולכן
+    שם הבלוק נגמר בשורה ריקה בלבד. אומת במקור של docutils 0.23.
+    """
+    i += 1
+    while i < n and lines[i].strip() and not _is_indented(lines[i]):
+        i += 1
+    return i
+
+
 def parse_document(text: str) -> Document:
     """מפרסר טקסט RST לעץ סקשנים. עמיד ל-literal/code blocks ולדירקטיבות מוזחות.
 
@@ -420,8 +444,11 @@ def parse_document(text: str) -> Document:
                     ))
                 i += 2
                 continue
-            while i < n and lines[i].strip():
-                i += 1
+            # אותו מסלול ב-docutils בדיוק: ``short_overline`` מחזיר את
+            # השורה ל-``Body`` דרך מעבר ה-``text``, ולכן הבלוק שנבלע כאן
+            # הוא בלוק של ``Text.text`` ונגמר גם בשורה מוזחת. ההערה שהייתה
+            # כאן אמרה "עד השורה הריקה" וזה היה הכלל שלפני התיקון.
+            i = _skip_paragraph_block(lines, i, n)
             continue
 
         # underline-only: טקסט ואחריו שורת פיסוק
@@ -452,12 +479,9 @@ def parse_document(text: str) -> Document:
             # שמעליה בלע אותה — נמדד מול docutils ומול הגרסה שלפני השינוי,
             # ששתיהן מחזירות אותה.
             #
-            # וה-``i += 1`` הראשון הוא מה שמבטיח התקדמות: הוא אינו תלוי
-            # בתנאי, ולכן הלולאה אינה יכולה לרוץ אפס פעמים גם אם השורה
-            # הנוכחית כבר אינה עומדת בו.
-            i += 1
-            while i < n and lines[i].strip() and not _is_indented(lines[i]):
-                i += 1
+            # ההגדרה יושבת ב-``_skip_paragraph_block``, ושם גם הנימוק למה
+            # היא אחת ולא שתיים.
+            i = _skip_paragraph_block(lines, i, n)
             continue
 
         i += 1

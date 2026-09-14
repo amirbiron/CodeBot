@@ -4104,6 +4104,20 @@ class TestRstLabelTargets:
 
         assert [row for row in out["symbols"] if row["name"].startswith("_")] == []
 
+    def test_an_indented_continuation_that_is_the_last_line_still_ends_the_block(self):
+        """הגבול: ההמשך המוזח הוא השורה האחרונה, ואין אחריה שורה ריקה.
+
+        ארבעת המקרים שלמעלה נגמרים ב-``\\n\\nגוף\\n``, ולכן אף אחד מהם
+        אינו נוגע בענף שבו ``number`` הוא השורה שלפני האחרונה. הקריאה
+        ``document.lines[number]`` חסומה בגבול, וזה מה שמקבע שהחסימה אינה
+        מחזירה בטעות מחרוזת ריקה על ההמשך עצמו.
+        """
+        for text in (".. _site:\n   http://example.com",
+                     ".. _site:\n   http://example.com\n"):
+            labels = [row for row in _rst(text)["symbols"] if row["name"].startswith("_")]
+
+            assert labels == [], text
+
     @pytest.mark.parametrize(
         "text,why",
         [
@@ -4143,9 +4157,17 @@ class TestRstLabelTargets:
 
             assert mapped == expected, f"{path.name}: {mapped} מול {expected}"
 
+            # **ושני חצאי ההבחנה, לא רק אחד.** ה-``.. warning::`` ב-
+            # ``docs/mcp-server.rst`` מלמד סוכן לזהות תווית בכך ש-``start``
+            # שווה ל-``end`` ושלכותרת יש טווח. החצי הראשון נבדק כאן מאז
+            # ומתמיד; החצי השני — שאף כותרת אינה ``start == end`` — הוא מה
+            # שהופך את זה למבחן הבחנה, ובלעדיו ההבטחה אינה מוגנת. נמדד על
+            # הקורפוס: אפס כותרות בטווח אפס, מול 29 תוויות.
             for row in _rst(text)["symbols"]:
-                if row["name"].startswith("_"):
+                if row["name"].rsplit(".", 1)[-1].startswith("_"):
                     assert row["start"] == row["end"], f"{path.name}: {row}"
+                else:
+                    assert row["start"] < row["end"], f"{path.name}: {row}"
             total += len(expected)
 
         assert total >= 20, f"האורקל מצא רק {total} תוויות — חשוד מדי"
