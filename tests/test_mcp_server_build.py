@@ -498,7 +498,9 @@ async def test_the_descriptions_name_the_search_to_range_chain():
     # חיפוש ← קריאת טווח.
     assert "Every result carries a `line`" in search
     assert "codekeeper_get_repo_file" in search
-    assert "lines=" in search
+    # ``lines=[line`` ולא ``lines=`` בלבד: שני התיאורים נקראים בנפרד, וסוכן
+    # שראה רק את תיאור החיפוש צריך ללמוד מכאן גם את **צורת** הפרמטר.
+    assert "lines=[line" in search
 
     # קריאת טווח ← חיפוש (הכיוון ההפוך).
     assert "codekeeper_search_repo" in read

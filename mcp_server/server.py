@@ -853,8 +853,12 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             # ``path+line`` כבר הופיע לעיל, אבל כתיאור של מה שחוזר ולא של
             # מה לעשות איתו — וזה בדיוק מה שלא נקרא. השרשור נאמר במפורש.
             "Every result carries a `line`, so the next step on a hit is "
-            "codekeeper_get_repo_file on that path with lines= a range around "
-            "it — the passage itself, not the file."
+            # הדוגמה נקובה בצורתה המלאה ולא כ"טווח סביבו": ``line`` הוא מספר
+            # בודד, ו-``normalize_line_range`` דוחה כל אורך שאינו 2. סוכן
+            # שקורא רק את התיאור הזה, בלי זה של ``get_repo_file``, לא יכול
+            # היה לדעת מכאן שהפרמטר הוא זוג.
+            "codekeeper_get_repo_file on that path with lines=[line - 20, "
+            "line + 20] — the passage itself, not the file."
         ),
         annotations=_READ_ONLY_TOOL,
     )
