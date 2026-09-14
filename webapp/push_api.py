@@ -1104,6 +1104,26 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
 #: נשאר בסדר גודל אחד מתחת לתקרה.
 _PUSH_EVENT_NAME_MAX_CHARS = 120
 
+#: כמה ניסיונות מסירה כושלים לפני שאירוע נפסל.
+#:
+#: בלי תקרה, אירוע שמסירתו נכשלת שוב ושוב נשאר ``needs_push=True`` לנצח.
+#: ‏404/410 מוחקים מנוי מת ופותרים את עצמם, אבל כשל אחר — מנוי עם מפתחות
+#: פגומים, או ``5xx`` משירות הפוש — אינו מוחק דבר: המנוי נשאר, ולכן
+#: ``_open_delivery`` ממשיך להצליח ומסלול ה"אין מנוי" אינו נדלק. האירוע
+#: תופס מקום במכסת המשתמש בכל סבב, ובכמות מספקת ממלא את חלון השליפה כולו
+#: וחונק גם משתמשים אחרים.
+#:
+#: זהו דפוס ``cron-terminal-state``: ה-filter set תופס שורות שלא יהיו
+#: ניתנות לעיבוד לעולם. ומשם גם צורת התיקון — הפסילה מעבירה את האירוע
+#: ל**מצב סופי** (``needs_push=False``) ואינה מסתפקת בסינון
+#: ``attempts < MAX`` בשאילתה: שורה שמוצתה הייתה יוצאת מהשאילתה אבל נשארת
+#: דלוקה במסד לנצח — אותה תקלה בדיוק, רק מוסווית.
+#:
+#: חמישה ניסיונות הם כחמש דקות בקצב ברירת המחדל: מספיק כדי לגשר על תקלה
+#: חולפת בשירות הפוש, ולא מספיק כדי שקונפיג שבור יחנוק את התור. התראה על
+#: שמירת קובץ שלא הגיעה תוך חמש דקות ממילא איבדה את ערכה.
+_PUSH_EVENT_MAX_ATTEMPTS = 5
+
 
 def _claim_push_event(db, event_doc: dict, ttl_seconds: int | None = None) -> str | None:
     """תופס אירוע לשליחה כדי שלא יישלח פעמיים משני תהליכים.
@@ -1264,6 +1284,52 @@ def _user_has_subscriptions(db, user_id: int | str) -> bool | None:
         return None
 
 
+def _record_delivery_failure(db, event_doc: dict, *, owner: str | None = None) -> None:
+    """סופר ניסיון מסירה שנכשל, ופוסל את האירוע כשנגמרו הניסיונות.
+
+    המונה עולה ב-``$inc`` ולא בכתיבת ערך מחושב, וההחלטה לפסול נגזרת מהערך
+    שנקרא ועוד אחד. ההפרש היחיד שיכול להיווצר בין השניים הוא ניסיון אחד,
+    והוא נסבל — מה שאסור היה להיסבל הוא אירוע שאינו מגיע למצב סופי לעולם.
+    """
+    try:
+        attempts = int(event_doc.get("attempts") or 0) + 1
+    except Exception:
+        attempts = 1
+    exhausted = attempts >= _PUSH_EVENT_MAX_ATTEMPTS
+    try:
+        filt: dict[str, Any] = {"_id": event_doc.get("_id")}
+        if owner is not None:
+            filt["push_claimed_by"] = owner
+        now = datetime.now(timezone.utc)
+        fields: dict[str, Any] = {
+            "updated_at": now,
+            # משחררים את ה-claim: המסירה כבר הסתיימה, ואין סיבה להחזיק את
+            # האירוע עד שה-TTL יפוג. בלי זה הניסיון החוזר תלוי בכך שהסבב
+            # הבא יאחר — ``PUSH_CLAIM_TTL_SECONDS`` ו-``PUSH_SEND_INTERVAL_SECONDS``
+            # שווים בברירת המחדל, כך שאירוע שנכשל היה עלול להידלג בסבב
+            # הבא ולחכות סבב נוסף על כל ניסיון.
+            "push_claimed_until": now,
+        }
+        if exhausted:
+            fields["needs_push"] = False
+            fields["skipped_reason"] = "delivery_failed"
+        db.push_events.update_one(filt, {"$set": fields, "$inc": {"attempts": 1}})
+    except Exception:
+        return
+    if exhausted:
+        try:
+            from observability import emit_event  # type: ignore
+
+            emit_event(
+                "push_event_delivery_exhausted",
+                severity="warning",
+                user_id=str(event_doc.get("user_id") or ""),
+                attempts=int(attempts),
+            )
+        except Exception:
+            pass
+
+
 def _send_events_for_user(user_id: int | str, events: list[dict]) -> None:
     """שולח את אירועי ה-MCP של משתמש אחד, דרך אותה ליבת מסירה של התזכורות."""
     ctx = _open_delivery(user_id)
@@ -1344,6 +1410,10 @@ def _send_events_for_user(user_id: int | str, events: list[dict]) -> None:
             pass
         if _deliver_payload(ctx, payload, idempotency_key=str(ev.get("_id") or "")):
             _resolve_push_event(db, ev, sent=True, owner=owner)
+        else:
+            # בלי הענף הזה האירוע נשאר דלוק בלי שנכתב עליו דבר, וחוזר
+            # לסבב הבא לנצח.
+            _record_delivery_failure(db, ev, owner=owner)
 
     _close_delivery(ctx)
 
@@ -1365,6 +1435,10 @@ def _send_due_events_once(max_users: int = 100, max_per_user: int = 10) -> None:
         "file_id": 1,
         "created": 1,
         "created_at": 1,
+        # בלי זה ``_record_delivery_failure`` קורא ``None`` בכל סבב, מתחיל
+        # לספור מאחת, ולעולם אינו מגיע לתקרה — כלומר התקרה קיימת בקוד ואינה
+        # קיימת בפועל.
+        "attempts": 1,
     }
     try:
         raw = list(
