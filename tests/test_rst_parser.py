@@ -162,8 +162,9 @@ def _independent_headings(lines):
 
     מזהה שנכתב מאפס ואינו יודע דבר על literal blocks, על ``::`` או על
     דירקטיבות — הוא מדלג על שורות מוזחות, מסווג שורות מבניות לפי התבניות
-    שלמעלה, ומכבד את העובדה ש**פסקה שנפתחה בולעת את הבלוק עד השורה
-    הריקה**. העובדה שהוא מסכים עם המימוש על כל קובץ בריפו היא מה שהופך
+    שלמעלה, מכבד את העובדה ש**פסקה שנפתחה בולעת את הבלוק עד השורה
+    הריקה**, ומחזיק את היקף הטבלה הפשוטה לפי שלושת תנאי הסגירה
+    שבמקור ולא לפי הגבול הראשון. העובדה שהוא מסכים עם המימוש על כל קובץ בריפו היא מה שהופך
     אותו לעוגן: הוא מגיע לאותה תשובה דרך היגיון אחר.
 
     הסגנון הוא התו ב-underline-only, וזוג התווים ב-overline+underline —
@@ -197,11 +198,37 @@ def _independent_headings(lines):
                 i += 1
             continue
         if _TABLE_TOP.match(top):
-            i += 1
-            while i < n and lines[i].strip() and not _TABLE_BORDER.match(lines[i].rstrip()):
-                i += 1
-            if i < n and lines[i].strip():
-                i += 1
+            # היקף הטבלה, נגזר מהתיאור של ``isolate_simple_table``: הגבול
+            # הסוגר הוא הראשון מבין השלושה — השני שנמצא, האחרון בקלט, או
+            # אחד שאחריו שורה ריקה — והוא נכלל בהיקף. שורה ריקה בתוך הגוף
+            # אינה מסיימת. גבול באורך אחר מסמן טבלה פגומה שנגמרת בו, וטבלה
+            # בלי גבול כלל בולעת את השאר.
+            #
+            # **והכלל נגזר כאן מהמקור ולא מהמימוש שנבדק** — זו כל הנקודה
+            # של אורקל בלתי-תלוי, וההעתקה מהקוד שמולו הוא מושווה הייתה
+            # מעמידה את שני הצדדים על מקור אחד.
+            width = len(top)
+            seen = 0
+            last_edge = None
+            closing = None
+            probe = i + 1
+            while probe < n:
+                edge = lines[probe].rstrip()
+                if _TABLE_BORDER.match(edge):
+                    if len(edge) != width:
+                        closing = probe
+                        break
+                    seen += 1
+                    last_edge = probe
+                    if seen == 2 or probe + 1 >= n or not lines[probe + 1].strip():
+                        closing = probe
+                        break
+                probe += 1
+            if closing is None:
+                # הלולאה מומשה בלי תנאי סגירה: במקור ההיקף נגמר בגבול
+                # האחרון שנמצא, ובלי גבול כלל — בסוף הקלט.
+                closing = last_edge if last_edge is not None else n - 1
+            i = closing + 1
             continue
         if _STRUCTURAL.match(top) or _is_punctuation_line(top):
             i += 1
@@ -614,7 +641,7 @@ _HANGING_INPUTS = (
 )
 
 
-def test_a_line_that_is_blank_only_after_strip_does_not_hang_the_parser():
+def test_a_line_that_is_blank_only_after_strip_does_not_hang_the_parser(tmp_path):
     """שורה שאינה ריקה אך ריקה תחת ``strip`` תקעה את הפארסר **לנצח**.
 
     ``_is_title_text`` בדק ``not line`` ואישר שורה שכולה ``\\r``, בזמן
@@ -643,12 +670,18 @@ def test_a_line_that_is_blank_only_after_strip_does_not_hang_the_parser():
         "print('all returned')\n"
     )
 
+    # ``-B`` ו-``cwd=tmp_path``, ושניהם נמדדו ולא נבחרו לנוחות: בלי
+    # ``-B`` התת-תהליך כותב ``__pycache__`` לתוך ``services/`` — כלומר
+    # לתוך עץ המקור, שכלל הבטיחות בפרויקט אוסר לכתוב בו מטסט — ועם הדגל
+    # לא נוצר דבר. ו-``cwd`` בתיקייה ייחודית לכל ריצה מבודד ריצות מקבילות
+    # זו מזו. ה-``sys.path.insert`` בתוכנית הוא נתיב מוחלט, ולכן הייבוא
+    # אינו תלוי ב-cwd בכלל.
     done = subprocess.run(
-        [sys.executable, "-c", program, json.dumps(list(_HANGING_INPUTS))],
+        [sys.executable, "-B", "-c", program, json.dumps(list(_HANGING_INPUTS))],
         capture_output=True,
         text=True,
         timeout=60,
-        cwd=root,
+        cwd=str(tmp_path),
     )
     assert done.returncode == 0, (
         f"הפארסר לא חזר על אחד מהקלטים. stderr={done.stderr[-400:]!r}"
@@ -794,3 +827,57 @@ def test_a_style_rejected_by_the_skip_guard_is_not_registered():
     assert [(s.title, s.level) for s in doc.sections] == [
         ("A", 1), ("B", 2), ("C", 1), ("E", 2), ("F", 3)
     ]
+
+
+# ---- היקף הטבלה הפשוטה, מול ``isolate_simple_table`` ----
+#
+# שלושת התנאים של הגבול הסוגר נבדקים כאן אחד-אחד, כי עצירה על הגבול
+# הראשון מטפלת נכון רק בצורה אחת מהשלוש — ודווקא היא הצורה שבקורפוס.
+
+_TABLE = "====  ===="
+
+
+def test_a_header_separator_is_not_the_closing_border_of_a_simple_table():
+    """הגבול הראשון בטבלה עם מפריד כותרת הוא המפריד, לא הסוגר.
+
+    עצירה עליו השאירה את גוף הטבלה כשורת פסקה, והפסקה בלעה את הכותרת
+    שבאה מיד אחרי הגבול הסוגר — כלומר כותרת שכתובה בקובץ נעלמה מהמפה,
+    והסעיף שמעליה בלע אותה. ``isolate_simple_table`` סוגר על הגבול
+    ה**שני**, וזה מה שמוכיח הקלט הזה.
+
+    שורת ההפרדה בין הצורות היא **היעדר שורה ריקה** לפני הכותרת: עם שורה
+    ריקה, הפסקה נגמרת בה והכותרת חוזרת גם בקוד הישן.
+    """
+    doc = rst_parser.parse_document(
+        f"ראש\n====\n\n{_TABLE}\nc1    c2\n{_TABLE}\na     b\n{_TABLE}\n"
+        "כותרת\n------\n\nגוף\n"
+    )
+    assert [(s.title, s.level) for s in doc.sections] == [("ראש", 1), ("כותרת", 2)]
+
+
+def test_a_blank_row_inside_a_simple_table_does_not_end_it():
+    """``isolate_simple_table`` מחפש גבולות ואינו עוצר על שורה ריקה.
+
+    טבלה פשוטה יכולה להכיל שורה ריקה בין שורות גוף, ולכן סריקה שעוצרת
+    על שורה ריקה מסיימת את הטבלה מוקדם מדי — ואז הגבול הסוגר והכותרת
+    שאחריו נבלעים כפסקה.
+    """
+    doc = rst_parser.parse_document(
+        f"ראש\n====\n\n{_TABLE}\na     b\n\nc     d\n{_TABLE}\n"
+        "כותרת\n------\n\nגוף\n"
+    )
+    assert [(s.title, s.level) for s in doc.sections] == [("ראש", 1), ("כותרת", 2)]
+
+
+def test_a_simple_table_with_no_closing_border_swallows_the_rest():
+    """הבקרה בכיוון ההפוך, וזו הצורה שהקוד הישן **המציא** בה כותרת.
+
+    כשאין גבול סוגר בכלל, ``isolate_simple_table`` מדווח טבלה פגומה
+    ובולע את שאר הקלט — נמדד ב-docutils, שאינו מחזיר את הכותרת. סריקה
+    שעוצרת על השורה הריקה מחזירה אותה, וזו כותרת שאינה קיימת מבחינת
+    Sphinx.
+    """
+    doc = rst_parser.parse_document(
+        f"ראש\n====\n\n{_TABLE}\na     b\n\nכותרת\n------\n\nגוף\n"
+    )
+    assert [(s.title, s.level) for s in doc.sections] == [("ראש", 1)]

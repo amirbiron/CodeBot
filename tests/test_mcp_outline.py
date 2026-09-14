@@ -4072,6 +4072,64 @@ class TestRstHeadingsAreMappedOnEveryFile:
 class TestRstLabelTargets:
     """יעדי ``.. _label:`` — מה ש-``:ref:`` מצביע אליו."""
 
+    # ---- יעד חיצוני: הבלוק נמשך על שורה מוזחת ----
+    #
+    # ``parse_target`` שב-docutils מחזיר ``refuri`` על **כל** תוכן בבלוק,
+    # בלי לבדוק שזה URI. לכן המבחן הוא "השורה הבאה מוזחת ולא ריקה" ולא
+    # "נראית כמו URI" — הצורה השנייה הייתה מפספסת בדיוק את אותו יעד.
+
+    @pytest.mark.parametrize(
+        "continuation",
+        [
+            pytest.param("   http://example.com", id="http-uri"),
+            pytest.param("   mailto:a@b.c", id="mailto-uri"),
+            pytest.param("\thttp://example.com", id="tab-indented"),
+            pytest.param("   just some words", id="plain-prose"),
+        ],
+    )
+    def test_a_target_whose_block_continues_is_external_and_not_in_the_map(
+        self, continuation
+    ):
+        """יעד חיצוני אינו יעד של ``:ref:``, ולכן אינו במפה.
+
+        ``.. _site:`` ואחריו שורה מוזחת הוא יעד חיצוני — נמדד ב-docutils
+        שהוא מקבל ``refuri`` בכל ארבע הצורות כאן, כולל זו שבה ה"URI" הוא
+        פרוזה רגילה. סוכן שמחפש עוגן שבור וימצא אותו במפה יישלח למקום
+        שאין בו עוגן.
+
+        הצורה שבה ה-URI באותה שורה נחסמת ממילא בעיגון לסוף השורה, ויש לה
+        כיסוי נפרד; כאן נבדקת הצורה שבה הוא בשורה הבאה.
+        """
+        out = _rst(f".. _site:\n{continuation}\n\nגוף\n")
+
+        assert [row for row in out["symbols"] if row["name"].startswith("_")] == []
+
+    @pytest.mark.parametrize(
+        "text,why",
+        [
+            pytest.param(".. _site:\n\nגוף\n", "שורה ריקה מסיימת את הבלוק", id="blank-after"),
+            pytest.param(".. _site:\n", "סוף קובץ", id="end-of-file"),
+            pytest.param(".. _site:\nפסקה\n", "שורה לא מוזחת", id="flush-left-after"),
+            pytest.param(".. _a:\n.. _b:\n\nגוף\n", "תווית היא explicit markup", id="two-targets"),
+            pytest.param(
+                ".. _site:\n\n   http://example.com\n\nגוף\n",
+                "שורה ריקה לפני המוזחת",
+                id="blank-then-indented",
+            ),
+        ],
+    )
+    def test_a_target_whose_block_ends_stays_internal(self, text, why):
+        """הבקרה, ובה חמש צורות — כדי שהתיקון לא יחסום יעד פנימי תקין.
+
+        כל החמש נמדדו ב-docutils כיעד **פנימי**, ולכן כולן חייבות להישאר
+        במפה. השורה הריקה שלפני המוזחת היא המקרה החד: היא מסיימת את הבלוק,
+        ולכן ה-URI שאחריה אינו חלק מהיעד.
+        """
+        labels = [row for row in _rst(text)["symbols"] if row["name"].startswith("_")]
+
+        assert labels, why
+        assert all(row["start"] == row["end"] for row in labels)
+
     def test_every_label_in_the_repo_is_a_one_line_symbol(self):
         total = 0
         for path in _rst_files():

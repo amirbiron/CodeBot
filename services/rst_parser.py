@@ -319,12 +319,43 @@ def parse_document(text: str) -> Document:
                     i += 1
                 continue
             if _SIMPLE_TABLE_TOP_RE.match(stripped):
-                i += 1
-                while i < n and lines[i].strip() and not _SIMPLE_TABLE_BORDER_RE.match(
-                        lines[i].rstrip()):
-                    i += 1
-                if i < n and lines[i].strip():
-                    i += 1          # הגבול הסוגר נצרך אף הוא
+                # היקף הטבלה נגזר מ-``isolate_simple_table``, ושלושת תנאי
+                # הסגירה שלו הם כל ההבדל: הסריקה מתחילה מהשורה שאחרי הגבול
+                # העליון וסוגרת על גבול ש(א) הוא **השני** שנמצא, (ב) הוא
+                # השורה האחרונה בקלט, או (ג) אחריו שורה ריקה — ועד בכלל.
+                #
+                # **ומפריד הכותרת הוא הגבול הראשון, לא הסוגר.** עצירה עליו
+                # השאירה את גוף הטבלה כפסקה, והפסקה בלעה כותרת שבאה מיד
+                # אחרי הגבול הסוגר. נמדד על מדגם צורות טבלה: שבע חולקות עם
+                # העצירה על הראשון, ואפס עם שלושת התנאים.
+                #
+                # **והסריקה אינה עוצרת על שורה ריקה**, כי טבלה פשוטה יכולה
+                # להכיל שורה ריקה בין שורות גוף — במקור הלולאה בודקת רק אם
+                # השורה היא גבול, ושורה ריקה היא פשוט אי-התאמה.
+                #
+                # גבול באורך שאינו תואם את העליון מסמן טבלה פגומה, ושם
+                # ההיקף נגמר בו. וכשלא נמצא גבול כלל — במקור זו טבלה פגומה
+                # שבולעת את שאר הקלט, ולכן גם כאן.
+                toplen = len(stripped)
+                borders = 0
+                last_border = None
+                end = None
+                j = i + 1
+                while j < n:
+                    candidate = lines[j].rstrip()
+                    if _SIMPLE_TABLE_BORDER_RE.match(candidate):
+                        if len(candidate) != toplen:
+                            end = j          # טבלה פגומה — ההיקף נגמר כאן
+                            break
+                        borders += 1
+                        last_border = j
+                        if borders == 2 or j + 1 >= n or not lines[j + 1].strip():
+                            end = j          # הגבול הסוגר נצרך אף הוא
+                            break
+                    j += 1
+                if end is None:
+                    end = last_border if last_border is not None else n - 1
+                i = end + 1
                 continue
             if _BLOCK_LINE_RE.match(stripped):
                 i += 1
