@@ -56,17 +56,18 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | הרכבת URL/מחרוזת שמכילה סוד, הודעות חריגה, ניקוי לוגים/Sentry | `CRITICAL-PATTERNS.md` K13 + `bugbot-rules/secret-in-derived-text.md` |
 | מפתח/טוקן שמועבר כפרמטר URL (`params={"key": ...}`), או שינוי ברשימת דפוסי הניקוי | `CRITICAL-PATTERNS.md` K14 + `bugbot-rules/secret-in-url-query.md` |
 | מסיר שורת לוג, או עוטף אותה ב-guard שמונע הערכת ארגומנטים (הטריגר הנפוץ: תיקון PII) | `bugbot-rules/side-effect-riding-on-log-line.md` |
-| גייטינג אדמין — רשימת היתר, התחזות (`/admin/impersonate/*`), או דגל שמרחיב הרשאה בהיעדר קונפיג (`CHATOPS_ALLOW_ALL_IF_NO_ADMINS`, `LOCK_FAIL_OPEN`) | `CRITICAL-PATTERNS.md` K3 + `bugbot-rules/privilege-escalation-unverified.md`; לדגל עצמו — K12 סעיף 3 (fail-closed, בלי default שקט) |
+| גייטינג אדמין — רשימת היתר, התחזות (`/admin/impersonate/*`), או דגל שמרחיב הרשאה בהיעדר קונפיג (`CHATOPS_ALLOW_ALL_IF_NO_ADMINS`) | `CRITICAL-PATTERNS.md` K3 + `bugbot-rules/privilege-escalation-unverified.md`; לדגל עצמו — K12 סעיף 3 (fail-closed, בלי default שקט) |
+| `LOCK_FAIL_OPEN` — מריץ polling בלי מנעול ה-singleton, כלומר שני מריצים במקום אחד | `CORE-PATTERNS.md` U1 |
 | העלאת שרת HTTP או שינוי כתובת האזנה (`0.0.0.0`) — `main.py`, `services/webserver.py`, `webapp/app.py`, `mcp_server/app.py` | `CRITICAL-PATTERNS.md` K5 + `bugbot-rules/network-exposed-without-auth.md` |
 | אתחול עצל של משאב משותף (חיבור, לקוח, pool, קאש) — או **הסרה** של התנהגות מנוונת שקיימת מזמן | `CRITICAL-PATTERNS.md` K15 + `bugbot-rules/lazy-init-guard-publish-order.md` |
 | `getattr(x, "y", None)` או `except` שאחריו **מסלול חלופי בגלל כשל** — לא ערך ברירת מחדל, ולא זיהוי יכולת סטטי | `bugbot-rules/silent-fallback-to-worse-path.md` |
-| CSP, כותרות תגובה, סקריפט inline שה-hash שלו יושב ב-CSP, או עמודי `/share` ו-`/shared` שנגישים בלי התחברות | `BY-STACK/browser-policy.md` |
+| CSP, כותרות תגובה, סקריפט inline שה-hash שלו יושב ב-CSP, או העמודים הציבוריים `/share/<share_id>`, `/share/<share_id>/download`, `/shared/<token>` ו-`/shared/styled/<token>` (ה-API שמייצר את הקישורים עצמו דורש התחברות) | `BY-STACK/browser-policy.md` |
 
 ### תמיד, בלי קשר לטבלה
 
 - **לפני עטיפת קריאה ב-`try/except`** → `CRITICAL-PATTERNS.md` K11. בקצרה: בדוק מה הפונקציה מחזירה בכשל. אם היא מחזירה `None`/`False`/`0` ולא זורקת, ה-`except` לא ירוץ לעולם — צריך `if not result:` לפני כל דיווח הצלחה.
 הדפוס הזה כבר עלה בריפו הזה **שלוש פעמים** (`save_backup_bytes` ב-PR #3232 ב-#3172, ו-`delete_pattern` של הקאש).
-והמימוש הנכון, להעתיק ממנו: `mcp_server/backend.py:save_file` מחזיר `{"ok": False, "error": "save_failed"}` בכשל, ובהצלחה קורא מחדש מהמסד כדי שהגרסה והגודל שמוחזרים יהיו מה שבאמת נכתב — ולא מה שביקשנו לכתוב.
+והמימוש הנכון, להעתיק ממנו: `mcp_server/backend.py:save_file` מחזיר `{"ok": False, "error": "save_failed"}` **כשמסלול השמירה מחזיר false** (חריגת מסד עולה הלאה ואינה מומרת לתשובת כשל), ובהצלחה קורא את המסמך מחדש מהמסד במקום להחזיר את מה שביקשנו לכתוב. הלקח הוא *קרא את המצב, אל תהדהד את הבקשה* — ולא שזה אטומי: הקריאה החוזרת היא לפי שם הקובץ ולא לפי המזהה שנכתב, ומספר הגרסה נבחר ב-read-then-write, ולכן שתי שמירות מקבילות לאותו שם יכולות להחזיר זו את הגרסה של זו.
 - **לפני כתיבת טסט חדש** → `claude-md-snippets/testing.md`. בפרט: טסט שנוסח עם תיקון חייב להיכשל בלי התיקון — הרץ אותו על הקוד הישן וּודא שהוא נופל.
 - **אחרי שטסט נופל על חריגה** → `bugbot-rules/widened-exception-scope.md`. אל תרחיב `except` כדי לעבור; בדוק קודם את הסטאב/fixture — שם השורש בדרך כלל.
 
