@@ -47,7 +47,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | קאש / invalidation | `bugbot-rules/return-value-failure-unchecked.md` §4 |
 | דגל שמצהיר "מטא-דאטה בלבד" (`npm install --package-lock-only`, `django-admin migrate --fake`), או רשומה שמתעדכנת בנפרד מהעבודה שהיא מתארת | `bugbot-rules/state-record-without-state-change.md` |
 | callbacks / handlers מקביליים, מזהים מבוססי־זמן | `CORE-PATTERNS.md` U1 |
-| תפיסת ג'וב / `claim` / `find_one_and_update` / `upsert` במסלול שרץ גם בעובד רקע וגם בבקשה | `CORE-PATTERNS.md` U1 + `bugbot-rules/race-toctou.md` |
+| `find_one_and_update` / `upsert` / תפיסת ג'וב | `CORE-PATTERNS.md` U1 + `bugbot-rules/race-toctou.md` |
 | PyGithub / קריאות SDK חיצוני | `BY-STACK/external-sdk.md` |
 | **ערך שהגיע מחוץ לתהליך** — גוף JSON, payload, כותרת, ENV, פלט של LLM, CSV, או ערך שמשתמש הקליד | `CORE-PATTERNS.md` U3 + `bugbot-rules/external-input-isinstance.md` |
 | חיתוך או מדידת אורך של טקסט (`$substrBytes`, `$strLenBytes`, `encode()[a:b]`, תקרת אורך שנשלחת החוצה) | `BY-STACK/hebrew-source.md` H6 |
@@ -61,7 +61,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | העלאת שרת HTTP או שינוי כתובת האזנה (`0.0.0.0`) — `main.py`, `services/webserver.py`, `webapp/app.py`, `mcp_server/app.py` | `CRITICAL-PATTERNS.md` K5 + `bugbot-rules/network-exposed-without-auth.md` |
 | אתחול עצל של משאב משותף (חיבור, לקוח, pool, קאש) — או **הסרה** של התנהגות מנוונת שקיימת מזמן | `CRITICAL-PATTERNS.md` K15 + `bugbot-rules/lazy-init-guard-publish-order.md` |
 | `getattr(x, "y", None)` או `except` שאחריו **מסלול חלופי בגלל כשל** — לא ערך ברירת מחדל, ולא זיהוי יכולת סטטי | `bugbot-rules/silent-fallback-to-worse-path.md` |
-| CSP, כותרות תגובה, סקריפט inline שה-hash שלו יושב ב-CSP, או העמודים הציבוריים `/share/<share_id>`, `/share/<share_id>/download`, `/shared/<token>` ו-`/shared/styled/<token>` (ה-API שמייצר את הקישורים עצמו דורש התחברות) | `BY-STACK/browser-policy.md` |
+| CSP, כותרות תגובה, או עמוד שנגיש בלי התחברות | `BY-STACK/browser-policy.md` |
 
 ### תמיד, בלי קשר לטבלה
 
@@ -76,6 +76,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 1. **ריוויוור (cubic/qodo/CodeRabbit/claude) תפס דפוס אמיתי** שאינו ב-amir-bug-patterns → פתח שם PR שמוסיף אותו (מסמך מקור + הצלבה לפי ה-README שלו), **וגם** הוסף שורת טריגר לטבלה כאן.
 2. **זיהית דפוס חוזר בעצמך** (תיקנת פעמיים את אותו סוג טעות) → אותו תהליך.
 3. דפוס בלי שורת טריגר = דפוס שלא ייקרא בזמן המימוש. שני הצעדים הם צעד אחד.
+4. **טריגר מזהה מה אתה מקליד, לא באיזה מצב אתה נמצא.** ‏`LOCK_FAIL_OPEN` ו-`0.0.0.0` רואים על המסך; "מסלול שרץ גם ברקע" ו"אחד מארבעת הנתיבים האלה" הם דברים שצריך **לדעת**. שורה שדורשת את הידע הזה כתנאי כניסה דורשת בדיוק את התשובה שהיא אמורה לתת, ולכן לא תידלק — התנאי שייך למסמך, לא לשורה. ומאותה סיבה: לתאר **מחלקה** ולא למנות מופעים, כי רשימה מתיישנת ברגע שנוסף המופע הבא.
 
 התהליך המלא והמיפוי לשאר הפרויקטים: `INTEGRATION.md` באותו ריפו.
 
