@@ -1642,13 +1642,21 @@ class DatabaseManager:
         enforce: bool = False,
         partial_filter_expression: Optional[Dict[str, Any]] = None,
         expire_after_seconds: Optional[int] = None,
-    ) -> None:
+    ) -> bool:
         """יוצר אינדקס בצורה בטוחה וב-Background.
 
         מטרות:
         - להימנע מקריסה אם קיים אינדקס *זהה* עם שם אחר (IndexOptionsConflict / "already exists")
         - לא להסתיר תקלות אמיתיות (חיבור/הרשאות/duplicate keys וכו')
         - לאפשר "אכיפה" (drop+create) רק לאינדקסים קריטיים כשיש mismatch אמיתי
+
+        Returns:
+            ``True`` אם האינדקס נמצא במצב המבוקש בסוף הקריאה (נוצר, כבר קיים, או
+            עודכן), ו-``False`` בכל כשל. **הפונקציה אינה זורקת**, ולכן זה ערוץ
+            הכשל היחיד שלה: קורא שמפיל אינדקס קיים לפני הקריאה חייב לבדוק את
+            הערך הזה, אחרת כשל משאיר אותו בלי אינדקס בלי שאף חריגה תסמן זאת
+            (דפוס K11 ב-amir-bug-patterns). רוב הקוראים מתעלמים ממנו בכוונה —
+            אינדקס שלא נוצר הוא איטיות, לא אובדן נתונים.
 
         Args:
             partial_filter_expression: אופציונלי - תנאי סינון לאינדקס חלקי (Partial Index).
@@ -1666,7 +1674,7 @@ class DatabaseManager:
         """
         db = getattr(self, "db", None)
         if db is None:
-            return
+            return False
 
         try:
             collection = db[collection_name]
@@ -1678,7 +1686,7 @@ class DatabaseManager:
                 index_name=name or "",
                 error=f"failed_to_get_collection: {e}",
             )
-            return
+            return False
 
         # ולידציה מקדימה של keys כדי לא לקרוס על int(v)
         desired_keys: List[Tuple[str, int]] = []
@@ -1702,7 +1710,7 @@ class DatabaseManager:
                 reason="no_valid_keys",
                 invalid_keys_count=invalid_count,
             )
-            return
+            return False
 
         if invalid_count:
             emit_event(
@@ -1877,7 +1885,7 @@ class DatabaseManager:
                 collection=collection_name,
                 index_name=name or "",
             )
-            return
+            return True
         except Exception as e:
             # ננסה לזהות "קונפליקט אופציות/שם" בצורה מדויקת, בלי לתפוס כל חריגה כ"הכל בסדר"
             code = getattr(e, "code", None)
@@ -1901,19 +1909,24 @@ class DatabaseManager:
                             collection=collection_name,
                             index_name=str(idx.get("name", "")),
                         )
-                        return
+                        return True
 
                 # הבדל שכולו באורך חלון ה-TTL: מעדכנים את האינדקס הקיים במקום
                 # להפיל ולבנות מחדש. זה תופס גם אינדקס בשם אחר לגמרי — בדיוק
                 # המקרה שמסלול ה-enforce שלמטה, שמפיל לפי שם, לא יכול לתפוס.
+                # ⚠️ מגודר ב-``enforce`` בדיוק כמו ה-drop+create שאחריו. שינוי
+                # חלון TTL מוחק מסמכים, והמרת אינדקס רגיל ל-TTL מתחילה למחוק
+                # מסמכים שעד עכשיו לא נמחקו — זו הפעולה ההרסנית ביותר בפונקציה
+                # הזו, ולכן היא אינה יכולה להיות היחידה שהדגל אינו שומר עליה.
                 blocking_name = ""
-                for idx in _existing_indexes():
-                    if not _ttl_sibling(idx):
-                        continue
-                    blocking_name = str(idx.get("name", ""))
-                    if _collmod_ttl(blocking_name):
-                        return
-                    break
+                if enforce:
+                    for idx in _existing_indexes():
+                        if not _ttl_sibling(idx):
+                            continue
+                        blocking_name = str(idx.get("name", ""))
+                        if _collmod_ttl(blocking_name):
+                            return True
+                        break
 
                 # mismatch אמיתי: לאינדקסים קריטיים ננסה לאכוף drop+create.
                 # מפילים את האינדקס **החוסם** ולא את השם שביקשנו: כש-collMod
@@ -1957,7 +1970,7 @@ class DatabaseManager:
                             collection=collection_name,
                             index_name=name,
                         )
-                        return
+                        return True
                     except Exception as e2:
                         emit_event(
                             "db_create_index_error",
@@ -1966,7 +1979,7 @@ class DatabaseManager:
                             index_name=name,
                             error=str(e2),
                         )
-                        return
+                        return False
 
                 emit_event(
                     "db_create_index_conflict",
@@ -1975,7 +1988,7 @@ class DatabaseManager:
                     index_name=name or "",
                     error=msg,
                 )
-                return
+                return False
 
             emit_event(
                 "db_create_index_error",
@@ -1984,6 +1997,7 @@ class DatabaseManager:
                 index_name=name or "",
                 error=msg,
             )
+            return False
 
     def profiler_guard_collections(self) -> frozenset:
         """אוספים שה-``CommandListener`` לא רשאי להקליט.
@@ -2065,8 +2079,17 @@ class DatabaseManager:
             from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
             collection_name = PersistentQueryProfilerService.COLLECTION_NAME
             ttl_seconds = int(PersistentQueryProfilerService.TTL_SECONDS)
-        except Exception:
+        except Exception as import_e:
             # השירות אינו זמין (סביבה מינימלית) — אין טעם ליצור אינדקסים לאוסף שאיש לא כותב אליו.
+            # נרשם, כי כשל ייבוא **חולף** בעלייה נראה בדיוק אותו דבר ומשאיר את
+            # האוסף בלי TTL עד הריסטארט הבא.
+            emit_event(
+                "db_index_setup_skipped",
+                severity="warn",
+                collection="slow_queries_log",
+                reason="profiler_service_import_failed",
+                error=str(import_e),
+            )
             return
 
         # ``enforce=True``: אינדקס TTL קיים עם ``expireAfterSeconds`` אחר אינו מתעדכן
@@ -2130,7 +2153,19 @@ class DatabaseManager:
                 metrics_ttl_seconds,
                 stale_ttl_indexes,
             )
-        except Exception:
+            from services.index_maintenance import restore_dropped_index  # type: ignore
+        except Exception as import_e:
+            # ⚠️ לא ``return`` שקט. כשל ייבוא חולף בעליית התהליך — ייבוא מעגלי,
+            # מודול שעוד לא נטען — מייצר בדיוק את המצב של אישיו #3331: אוסף בלי
+            # TTL, בלי שאף אחד יודע. אותו דפוס כבר תועד כאן ב-
+            # ``profiler_guard_collections``.
+            emit_event(
+                "db_index_setup_skipped",
+                severity="error",
+                collection="service_metrics",
+                reason="metrics_storage_import_failed",
+                error=str(import_e),
+            )
             return
 
         collection_name = metrics_collection_name()
@@ -2145,10 +2180,22 @@ class DatabaseManager:
         except Exception:
             metrics_coll = None
 
+        # ⚠️ ההגדרה של כל אינדקס שמופל **נשמרת לפני ההפלה**. הסדר כאן הוא drop
+        # ואז create, ולכן כשל ביצירה היה משאיר את האוסף בלי שום TTL — מצב גרוע
+        # מזה שלפני העלייה, ועם אירוע ``warn`` בלבד. זו אותה ערובה בדיוק ש-
+        # ``restore_dropped_index`` נותן לשני ה-endpointים של התחזוקה.
+        dropped: List[Tuple[str, Dict[str, Any]]] = []
         if metrics_coll is not None:
+            try:
+                info_before = metrics_coll.index_information() or {}
+            except Exception:
+                info_before = {}
             for stale in stale_ttl_indexes(metrics_coll, keep_name=METRICS_TTL_INDEX_NAME):
+                meta = info_before.get(stale)
                 try:
                     metrics_coll.drop_index(stale)
+                    if isinstance(meta, dict):
+                        dropped.append((stale, dict(meta)))
                     emit_event(
                         "db_index_dropped",
                         severity="warn",
@@ -2170,13 +2217,25 @@ class DatabaseManager:
             [("ts", DESCENDING), ("type", ASCENDING)],
             name="metrics_type_ts",
         )
-        safe_create_index(
+        created = safe_create_index(
             collection_name,
             [("ts", ASCENDING)],
             name=METRICS_TTL_INDEX_NAME,
             expire_after_seconds=metrics_ttl_seconds(),
             enforce=True,
         )
+
+        if not created and metrics_coll is not None:
+            # החזרת האוסף למצב שבו מצאנו אותו: חלון שמירה ישן עדיף על אוסף
+            # שגדל בלי שום חסם. הניסיון הבא בעלייה הבאה יעשה את זה שוב.
+            for stale, meta in dropped:
+                emit_event(
+                    "db_index_restore_after_failed_create",
+                    severity="error",
+                    collection=collection_name,
+                    index_name=stale,
+                    result=restore_dropped_index(metrics_coll, stale, meta),
+                )
 
     def _create_job_runs_indexes(self, safe_create_index) -> None:
         """אינדקסים לאוסף ``job_runs``, מתוך ``database/job_runs_collection.py``.
@@ -2187,7 +2246,16 @@ class DatabaseManager:
         """
         try:
             from .job_runs_collection import JOB_RUNS_COLLECTION, job_runs_indexes
-        except Exception:
+        except Exception as import_e:
+            # לא ``return`` שקט: בלי ההגדרות אין TTL, וזה בדיוק המצב שאישיו
+            # #3331 מתאר — הפעם בלי אפילו שורת לוג אחת שתסגיר אותו.
+            emit_event(
+                "db_index_setup_skipped",
+                severity="error",
+                collection="job_runs",
+                reason="job_runs_collection_import_failed",
+                error=str(import_e),
+            )
             return
 
         for spec in job_runs_indexes():
@@ -2217,7 +2285,9 @@ class DatabaseManager:
         # עם אובייקט דמה (למשל SimpleNamespace) שאין עליו safe_create_index.
         safe_create_index = getattr(self, "safe_create_index", None)
         if not callable(safe_create_index):
-            def safe_create_index(*args: Any, **kwargs: Any) -> None:
+            # ``-> bool`` ולא ``-> None``: העוקף חייב להעביר הלאה את ערך ההחזרה,
+            # כי ``_create_metrics_indexes`` נשען עליו כדי לדעת אם ליישם שחזור.
+            def safe_create_index(*args: Any, **kwargs: Any) -> bool:
                 return DatabaseManager.safe_create_index(self, *args, **kwargs)
 
         # תיקון השגיאה ב-users: לא מבצעים בדיקה בוליאנית על Collection (PyMongo זורק חריגה)

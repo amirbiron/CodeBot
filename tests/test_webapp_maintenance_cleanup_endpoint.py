@@ -208,3 +208,56 @@ def test_failed_ttl_creation_restores_the_dropped_index_and_reports_failure(monk
     assert entry.get("restored_previous_index") == "restored"
     # והראיה האמיתית: מצב האוסף, לא מה שהתשובה מבטיחה
     assert metrics.index_information().get("metrics_ttl", {}).get("expireAfterSeconds") == 86400
+
+
+def test_deleted_documents_names_the_collection_that_was_actually_purged(monkeypatch):
+    """``METRICS_COLLECTION`` מסיט את הכותב, ולכן גם את מה שה-endpoint מוחק.
+
+    מפתח קשיח בתשובה מייחס את המחיקה לאוסף אחר מזה שנמחק. מפתח הפרויילר באותו
+    dict כבר פרמטרי מאותה סיבה.
+    """
+    import webapp.app as webapp_app
+
+    monkeypatch.setenv("DB_HEALTH_TOKEN", "test-db-health-token")
+    monkeypatch.setenv("METRICS_COLLECTION", "metrics_v2")
+
+    class _Coll:
+        def __init__(self):
+            self._idx = {"_id_": {"key": [("_id", 1)]}}
+            self.purged = 0
+
+        def delete_many(self, _q):
+            self.purged += 1
+            return types.SimpleNamespace(deleted_count=7)
+
+        def index_information(self):
+            return dict(self._idx)
+
+        def drop_index(self, name):
+            self._idx.pop(str(name), None)
+
+        def create_index(self, keys, **kwargs):
+            name = str(kwargs.get("name") or "idx")
+            self._idx[name] = {"key": [(str(k), v) for k, v in list(keys)]}
+            return name
+
+    metrics_v2 = _Coll()
+
+    class _StubDB:
+        def __init__(self):
+            self.slow_queries_log = _Coll()
+            self.metrics_v2 = metrics_v2
+            self.code_snippets = _Coll()
+
+        def __getitem__(self, name):
+            return getattr(self, str(name))
+
+    monkeypatch.setattr(webapp_app, "get_db", lambda: _StubDB(), raising=True)
+
+    with webapp_app.app.test_client() as client:
+        payload = client.get("/api/debug/maintenance_cleanup?token=test-db-health-token").get_json()
+
+    deleted = payload.get("deleted_documents") or {}
+    assert metrics_v2.purged == 1, "האוסף שהוגדר ב-METRICS_COLLECTION לא נוקה"
+    assert deleted.get("metrics_v2") == 7
+    assert "service_metrics" not in deleted, "הדיווח ייחס את המחיקה לאוסף שלא נגעו בו"

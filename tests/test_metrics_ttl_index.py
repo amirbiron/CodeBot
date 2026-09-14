@@ -254,3 +254,82 @@ class TestStartupDropsLeftovers:
         dm.DatabaseManager._create_metrics_indexes(types.SimpleNamespace(db=_DB()), lambda *a, **k: None)
 
         assert coll.dropped == []
+
+
+class TestStartupNeverLeavesTheCollectionWorseOff:
+    """ההפלה קודמת ליצירה, ולכן כשל ביצירה הוא הרגע המסוכן.
+
+    ``safe_create_index`` אינה זורקת — היא בולעת כל חריגה ומדווחת בערך ההחזרה.
+    קורא שהפיל אינדקס לפני הקריאה ולא בודק את הערך הזה משאיר את האוסף **בלי שום
+    TTL**, מצב גרוע מזה שלפני העלייה, עם אירוע ``warn`` בודד. זה דפוס K11.
+    """
+
+    def _run(self, monkeypatch, *, creation_succeeds: bool):
+        dm = _import_manager(monkeypatch)
+        monkeypatch.delenv("METRICS_COLLECTION", raising=False)
+        coll = _IndexInfoColl(
+            {
+                "_id_": {"key": [("_id", 1)]},
+                "ttl_cleanup_ts": {"key": [("ts", 1)], "expireAfterSeconds": 86400},
+            }
+        )
+        coll.created: list = []
+
+        def _create(keys, **kwargs):
+            coll.created.append({"keys": list(keys), **kwargs})
+            name = str(kwargs.get("name") or "idx")
+            meta = {"key": [(str(k), int(v)) for k, v in list(keys)]}
+            if kwargs.get("expireAfterSeconds") is not None:
+                meta["expireAfterSeconds"] = kwargs["expireAfterSeconds"]
+            coll._info[name] = meta
+            return name
+
+        coll.create_index = _create
+
+        class _DB:
+            def __getitem__(self, name):
+                return coll
+
+        def _safe(collection, keys, **kwargs):
+            if kwargs.get("expire_after_seconds") is not None:
+                return creation_succeeds
+            return True
+
+        dm.DatabaseManager._create_metrics_indexes(types.SimpleNamespace(db=_DB()), _safe)
+        return coll
+
+    def test_a_failed_creation_puts_the_old_ttl_back(self, monkeypatch):
+        coll = self._run(monkeypatch, creation_succeeds=False)
+
+        assert coll.dropped == ["ttl_cleanup_ts"]
+        restored = coll.index_information().get("ttl_cleanup_ts")
+        assert restored is not None, "האוסף נשאר בלי שום TTL"
+        assert restored.get("expireAfterSeconds") == 86400, "החלון הישן לא שוחזר"
+
+    def test_a_successful_creation_leaves_the_leftover_dropped(self, monkeypatch):
+        coll = self._run(monkeypatch, creation_succeeds=True)
+
+        assert coll.dropped == ["ttl_cleanup_ts"]
+        assert "ttl_cleanup_ts" not in coll.index_information()
+
+
+class TestImportFailureIsNotSilent:
+    def test_a_missing_metrics_module_is_reported(self, monkeypatch):
+        """כשל ייבוא חולף בעלייה מחזיר בדיוק את אישיו #3331 — הפעם בלי לוג."""
+        dm = _import_manager(monkeypatch)
+        bucket: list = []
+        monkeypatch.setattr(dm, "emit_event", lambda event, **kwargs: bucket.append((event, kwargs)))
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _maybe_fail(name, *args, **kwargs):
+            if name == "monitoring.metrics_storage":
+                raise ImportError("circular import during startup")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _maybe_fail)
+        dm.DatabaseManager._create_metrics_indexes(types.SimpleNamespace(db=None), lambda *a, **k: True)
+
+        assert [name for name, _ in bucket] == ["db_index_setup_skipped"]
+        assert bucket[0][1].get("severity") == "error"

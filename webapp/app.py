@@ -6207,8 +6207,10 @@ def api_debug_maintenance_cleanup():
                 "ttl_failures": ttl_failed,
                 "preview": preview,
                 "deleted_documents": {
+                    # שם האוסף בפועל, לא מחרוזת קשיחה: ``METRICS_COLLECTION``
+                    # מסיט את הכותב, והדיווח היה מייחס את המחיקה לאוסף אחר.
                     profiler_collection: deleted_slow,
-                    "service_metrics": deleted_metrics,
+                    metrics_collection: deleted_metrics,
                     "total": deleted_slow + deleted_metrics,
                 },
                 "ttl": ttl_results,
