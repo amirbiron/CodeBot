@@ -19,3 +19,11 @@ alerts:
     severity: critical
     cooldown_seconds: 600
     message: "⚠️ Job {job_id} תקוע כבר {minutes} דקות"
+
+  # job מתוזמן שלא התחיל בכלל. job_failed ו-job_stuck מכסים רק ריצות שכבר
+  # התחילו, ולכן "לא רץ" היה עד היום שקט מוחלט — בדיוק הכשל שאי אפשר לראות.
+  - name: job_missed_alert
+    event_pattern: "job_missed"
+    severity: error
+    cooldown_seconds: 3600
+    message: "🔕 Job {job_id} — לא נרשמה לו ריצה כבר {hours} שעות"

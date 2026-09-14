@@ -143,6 +143,7 @@
 
 - `docs/observability.rst` — **אובזרווביליות (Observability)**: המטרות וקהלי היעד, התצורה, בחירת Backend ל-Traces, הגדרת OTLP לסביבות, ואינסטרומנטציה ידנית.
 - `docs/observability/background-jobs-monitor.rst` — **Background Jobs Monitor**: פיצ'ר ה-Background Jobs Monitor מספק נראות (Observability) מלאה לכל ה-Jobs הרצים ברקע במערכת, כולל פעולות משתמש דינמיות (Drive, Reminders, Batch Operations).
+- `docs/observability/daily-morning-report.rst` — **דוח בוקר יומי**: ה-job שמצליב בין מקורות הניטור הקיימים ושולח סיכום יומי לטלגרם — מה נכנס להודעה, איך נשמר הבסיס להשוואה, ולמה השליחה נבדקת מראש.
 - `docs/observability/observability_dashboard.md` — **📡 Observability Dashboard & API**: מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור בזמן אמת ל-SRE ולמפתחים: כרטיסי מצב וגרפים, טבלת התראות עם סינון, ו-API מתועד למסלולי alerts, timeseries, aggregations, export, replay, runbook, quickfix ו-ai_explain.
 - `docs/observability/query-performance-profiler.rst` — **Query Performance Profiler**: כלי ניטור לשאילתות MongoDB איטיות: דשבורד ב-WebApp שמציג את השאילתות הכבדות, ה-API שמאחוריו, ומה הכלי במפורש אינו עושה.
 - `docs/observability/quick_fix_rules.md` — **🧠 Quick Fix חכם (Queue Delay + עומס/DB) – הנחיות למפתחים ולסוכני AI**: המטרה של Quick Fix היא לתת המלצה קצרה, בטוחה ושימושית על “מה לעשות עכשיו”, לפי אותות שאנחנו כבר מודדים.
@@ -193,4 +194,4 @@
 
 ---
 
-עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 229.
+עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 230.

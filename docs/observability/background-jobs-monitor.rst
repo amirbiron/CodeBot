@@ -37,6 +37,8 @@ Background Jobs Monitor
      - תבנית הדשבורד
    * - ``chatops/jobs_commands.py``
      - פקודת ``/jobs`` בטלגרם
+   * - ``services/daily_report_service.py``
+     - דוח הבוקר היומי: קריאת המקורות, השוואה מול אתמול ורינדור
    * - ``config/alerts.yml``
      - הגדרות Alerts ל-Jobs
 
@@ -78,6 +80,22 @@ Background Jobs Monitor
        {"keys": [("started_at", -1)], "expireAfterSeconds": 604800},  # TTL 7 ימים
        {"keys": [("user_id", 1), ("job_id", 1)], "sparse": True},
    ]
+
+קולקציה: ``daily_report_snapshots``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+דוח הבוקר היומי שומר שורה אחת ליום — מספרים בלבד, בלי טקסט ההודעה — כדי
+שיהיה לו מול מה להשוות מחר. ``_id`` הוא התאריך המקומי שהיום מתאר
+(``YYYY-MM-DD``), ולכן ההשוואה יכולה לדרוש את D-1 במפורש במקום ליפול על
+"השורה האחרונה שיש".
+
+הכתיבה היא ``$setOnInsert``: הכתיבה הראשונה ליום מנצחת, ולכן טריגר ידני
+שרץ במקביל לריצה המתוזמנת אינו דורס סנאפשוט תקין.
+
+ה-TTL כאן **ארוך מזה של המקורות** (``slow_queries_log`` — שבעה ימים), כי
+הסנאפשוט מחזיק גם זיכרון של דפוסי שאילתה וסוגי שגיאות מוכרים לחלון של 30
+יום. שמו של האוסף ומשך השמירה נקראים מ-``services/daily_report_service.py``
+ואינם כתובים שוב ב-``database/manager.py``.
 
 UI / WebApp
 -----------
@@ -309,6 +327,12 @@ Alerts
        cooldown_seconds: 600
        message: "⚠️ Job {job_id} תקוע כבר {minutes} דקות"
 
+     - name: job_missed_alert
+       event_pattern: "job_missed"
+       severity: error
+       cooldown_seconds: 3600
+       message: "🔕 Job {job_id} — לא נרשמה לו ריצה כבר {hours} שעות"
+
 Flow של Alerts
 ~~~~~~~~~~~~~~
 
@@ -317,13 +341,29 @@ Flow של Alerts
 3. בדיקה מול ``alerts.yml`` ו-cooldown
 4. שליחת התראה לערוץ המוגדר (Telegram/Slack)
 
+**זיהוי Job שלא רץ בכלל:**
+
+``job_failed`` ו-``job_stuck`` מכסים רק הרצות ש**התחילו**. Job שהתזמון שלו
+נעלם — משתנה סביבה שנמחק, חריגה בעלייה, restart שבלע את התזמון — היה שקט
+מוחלט, וזה נראה בדיוק כמו מערכת בריאה.
+
+Job שמצהיר ב-``metadata`` על ``missed_after_hours`` נבדק באותו background loop
+של ה-stuck monitor: שאילתה מצרפית אחת על ``job_runs`` מחזירה מי כן רץ בחלון
+(``completed`` או ``failed`` — כשל כבר מכוסה, השאלה כאן היא אי-התחלה), והחסרים
+מפיקים ``job_missed``. ההתראה נשלחת פעם אחת ליום לכל Job — השער הוא upsert מותנה על ``admin_reports``, ו"היום כבר נתפס" מגיע ממנו כהתנגשות מפתח ייחודי (``DuplicateKeyError``) ולא כ-``modified_count=0``, כי אופרטור ה-``$ne`` שבשאילתה אינו נכנס למסמך שנוצר ב-upsert.
+
+מה שנבדק הוא היעדר **רשומה** ב-``job_runs``, לא היעדר ריצה: ``JobTracker._persist_run`` רושם כשל כתיבה ללוג ואינו מפיל את ההרצה, ולכן ריצה שקרתה ורשומתה לא נשמרה תיראה כאן כהיעדר. שתי הבדיקות — ה-stuck וה-missed — רצות באותו loop אבל ב-``try`` נפרד: כשל של אחת אינו משתיק את השנייה.
+
 **זיהוי Jobs תקועים:**
 
 מתבצע ב-background loop (כל ``JOBS_STUCK_MONITOR_INTERVAL_SECS`` שניות):
 
 1. סריקת ``job_runs`` עם ``status=running``
 2. אם ``started_at`` לפני יותר מ-``JOBS_STUCK_THRESHOLD_MINUTES`` דקות
-3. פליטת ``emit_event("job_stuck", ...)``
+3. סימון ``stuck_reported_at`` בכתיבה מותנה (``{"run_id": ..., "stuck_reported_at": {"$exists": false}}``)
+4. פליטת ``emit_event("job_stuck", ...)`` — **רק אם הסימון באמת שינה מסמך**
+
+הצעד הרביעי אינו קוסמטי. הסריקה והסימון הם check-then-act: שני תהליכים שראו את אותה הרצה בסריקה יגיעו שניהם לכתיבה, ורק אצל אחד ``stuck_reported_at`` ייכתב בפועל. ``modified_count=0`` פירושו "מישהו אחר כבר דיווח", ובלי בדיקת ה-rowcount הסימון היה שדה לוואי במקום שער — ההתראה נפלטה פעמיים. כשל **כתיבה** (חריגה) נשאר fail-open ופולט בכל זאת, כי לא ידוע אם סימנו, והרצה תקועה שאיש אינו יודע עליה גרועה מהתראה כפולה.
 
 Troubleshooting
 ---------------

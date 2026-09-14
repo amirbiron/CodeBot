@@ -1258,6 +1258,30 @@ class ConfigService:
             description="1/true מחייב את מנוע הרה-פקטור לרוץ במצב IA Layered (בדיקות ו-POC)",
             category="features",
         ),
+        "DISABLE_DAILY_REPORT": ConfigDefinition(
+            key="DISABLE_DAILY_REPORT",
+            services=("bot",),
+            default="",
+            description="1/true מכבה את דוח הבוקר היומי (ריק = פעיל)",
+            category="monitoring",
+        ),
+        "DAILY_REPORT_HOUR_LOCAL": ConfigDefinition(
+            key="DAILY_REPORT_HOUR_LOCAL",
+            services=("bot",),
+            default="08:00",
+            description="שעת שליחת דוח הבוקר, בפורמט HH:MM ובשעון ישראל (Asia/Jerusalem)",
+            category="monitoring",
+        ),
+        "DAILY_REPORT_CORRELATION_WINDOW_MINUTES": ConfigDefinition(
+            key="DAILY_REPORT_CORRELATION_WINDOW_MINUTES",
+            services=("bot",),
+            default="5",
+            description=(
+                "רוחב חלון ההצלבה בדקות בין התראה לשאילתה איטית. "
+                "צר מדי מפספס בגלל עיכוב אגרגציה, רחב מדי מייצר קישור סיבתי שגוי"
+            ),
+            category="monitoring",
+        ),
         "WEEKLY_REPORT_DELAY_SECS": ConfigDefinition(
             key="WEEKLY_REPORT_DELAY_SECS",
             services=("bot",),

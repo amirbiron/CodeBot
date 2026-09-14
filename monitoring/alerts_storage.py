@@ -70,6 +70,16 @@ def _enabled() -> bool:
     return _write_enabled()
 
 
+def collection_name() -> str:
+    """שם האוסף שהמודול הזה קורא וכותב אליו בפועל.
+
+    קיים כדי שקוראים חיצוניים (למשל דוח הבוקר היומי) לא ישכפלו את ברירת
+    המחדל ``alerts_log`` ואת שם משתנה הסביבה. הביטוי כאן חייב להישאר זהה
+    לזה שב-``_get_collection``.
+    """
+    return os.getenv("ALERTS_COLLECTION") or "alerts_log"
+
+
 _client = None  # type: ignore
 _collection = None  # type: ignore
 _catalog_collection = None  # type: ignore

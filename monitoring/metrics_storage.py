@@ -92,6 +92,16 @@ _worker_event = Event()
 _start_lock = Lock()
 
 
+def collection_name() -> str:
+    """שם האוסף שהמודול הזה קורא וכותב אליו בפועל.
+
+    קיים כדי שקוראים חיצוניים (למשל דוח הבוקר היומי) לא ישכפלו את ברירת
+    המחדל ``service_metrics`` ואת שם משתנה הסביבה. הביטוי כאן חייב להישאר
+    זהה לזה שב-``_get_collection``.
+    """
+    return os.getenv("METRICS_COLLECTION") or "service_metrics"
+
+
 def _is_pytest() -> bool:
     return bool(os.getenv("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules)
 
