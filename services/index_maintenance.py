@@ -31,6 +31,40 @@ def index_creation_options(meta: Dict[str, Any]) -> Tuple[List[Tuple[str, Any]],
     return keys, options
 
 
+def drop_indexes_recording(coll: Any, index_names: List[str]) -> Tuple[List[str], List[Tuple[str, Dict[str, Any]]]]:
+    """מפיל אינדקסים, ושומר את ההגדרה של כל אחד לפני ההפלה.
+
+    מחזיר ``(מה שהופל, מה שאפשר להחזיר)``. ההגדרות נקראות **פעם אחת** לפני
+    הלולאה, כי אחרי ההפלה הראשונה הן כבר לא שם.
+
+    בלי הרישום הזה, הפלה שקדמה ליצירה שנכשלה משאירה את האוסף עם פחות משהיה לו
+    לפני הקריאה. זה חוזר בכל מקום שבו הסדר הוא drop ואז create, ולכן הוא יושב
+    כאן פעם אחת ולא בשלושה עותקים.
+    """
+    try:
+        info = coll.index_information() or {}
+    except Exception:
+        info = {}
+
+    dropped: List[str] = []
+    recorded: List[Tuple[str, Dict[str, Any]]] = []
+    for name in index_names or []:
+        meta = info.get(name) if isinstance(info, dict) else None
+        try:
+            coll.drop_index(name)
+        except Exception:
+            continue
+        dropped.append(str(name))
+        if isinstance(meta, dict):
+            recorded.append((str(name), dict(meta)))
+    return dropped, recorded
+
+
+def restore_indexes(coll: Any, recorded: List[Tuple[str, Dict[str, Any]]]) -> Dict[str, str]:
+    """מחזיר את כל מה ש-``drop_indexes_recording`` הפיל. מחזיר מצב לכל אחד."""
+    return {name: restore_dropped_index(coll, name, meta) for name, meta in (recorded or [])}
+
+
 def restore_dropped_index(coll: Any, index_name: str, meta: Optional[Dict[str, Any]]) -> str:
     """מחזיר אינדקס שהופל, אחרי שהיצירה שבאה במקומו נכשלה.
 

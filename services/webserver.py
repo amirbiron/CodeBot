@@ -1334,7 +1334,11 @@ def create_app() -> web.Application:
                 metrics_ttl_seconds as _metrics_ttl_seconds,
                 stale_ttl_indexes as _stale_ttl_indexes,
             )
-            from services.index_maintenance import restore_dropped_index as _restore_dropped_index
+            from services.index_maintenance import (  # type: ignore
+                drop_indexes_recording as _drop_indexes_recording,
+                restore_dropped_index as _restore_dropped_index,
+                restore_indexes as _restore_indexes,
+            )
 
             # מקור אמת יחיד לשם האוסף ול-retention שלו — אותם ערכים שבהם משתמש
             # DatabaseManager._create_profiler_indexes. שם האוסף היה קשיח כאן
@@ -1455,16 +1459,14 @@ def create_app() -> web.Application:
             # שדה שאין לו כותב באוסף. השני לא נראה לאף אחד והיה נשאר לנצח.
             service_metrics_pre_drop: dict[str, Any]
             stale = _stale_ttl_indexes(service_metrics_coll, keep_name=metrics_ttl_index)
+            pre_drop_recorded: list = []
             if preview:
                 service_metrics_pre_drop = {"planned_drop": stale}
             else:
-                dropped_pre: list[str] = []
-                for idx_name in stale:
-                    try:
-                        service_metrics_coll.drop_index(idx_name)
-                        dropped_pre.append(idx_name)
-                    except Exception:
-                        pass
+                # ⚠️ ההגדרות נשמרות לפני ההפלה. אחד השרידים הוא לרוב אינדקס TTL
+                # **עובד** בשם אחר, וכשל ביצירה שאחריו היה משאיר את האוסף עם
+                # פחות ממה שהיה לו כשנכנסנו.
+                dropped_pre, pre_drop_recorded = _drop_indexes_recording(service_metrics_coll, stale)
                 service_metrics_pre_drop = {"dropped": dropped_pre}
 
             ttl_results: dict[str, Any] = {
@@ -1484,6 +1486,13 @@ def create_app() -> web.Application:
                     index_name=metrics_ttl_index,
                 ),
             }
+            # כשל ביצירה: מחזירים את מה שהפלנו, כדי שהאוסף לא יישאר בלי שום TTL.
+            # ``_ensure_ttl_index`` מחזיר רק את האינדקס ש**הוא** הפיל (לפי השם
+            # המבוקש), ולכן השרידים שהופלו כאן צריכים את המסלול הזה.
+            metrics_entry = ttl_results.get("service_metrics_ts")
+            if pre_drop_recorded and isinstance(metrics_entry, dict) and metrics_entry.get("status") == "error":
+                service_metrics_pre_drop["restored"] = _restore_indexes(service_metrics_coll, pre_drop_recorded)
+
             ttl_results["service_metrics_pre_drop"] = service_metrics_pre_drop
 
             # --- index cleanup (code_snippets) ---

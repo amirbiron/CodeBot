@@ -390,7 +390,13 @@ async def test_failed_ttl_creation_returns_500_and_restores_the_index(monkeypatc
             self._idx[name] = meta
             return name
 
-    metrics = _RefusingColl({"metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 86400}})
+    metrics = _RefusingColl(
+        {
+            "metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 86400},
+            # שריד שה-pre-drop מסיר לפני היצירה — TTL עובד על שדה אחר
+            "ttl_cleanup": {"key": [("timestamp", 1)], "expireAfterSeconds": 86400},
+        }
+    )
 
     class _StubDB(_StubDBBase):
         def __init__(self):
@@ -425,6 +431,12 @@ async def test_failed_ttl_creation_returns_500_and_restores_the_index(monkeypatc
         assert "service_metrics_ts" in (payload.get("ttl_failures") or [])
         entry = (payload.get("ttl") or {}).get("service_metrics_ts") or {}
         assert entry.get("restored_previous_index") == "restored"
-        assert metrics.index_information().get("metrics_ttl", {}).get("expireAfterSeconds") == 86400
+        state = metrics.index_information()
+        assert state.get("metrics_ttl", {}).get("expireAfterSeconds") == 86400
+        # גם מה שהופל ב-pre-drop חזר — אחרת האוסף יוצא עם פחות משנכנס
+        pre_drop = (payload.get("ttl") or {}).get("service_metrics_pre_drop") or {}
+        assert pre_drop.get("dropped") == ["ttl_cleanup"]
+        assert (pre_drop.get("restored") or {}).get("ttl_cleanup") == "restored"
+        assert state.get("ttl_cleanup", {}).get("expireAfterSeconds") == 86400
     finally:
         await runner.cleanup()

@@ -6078,7 +6078,11 @@ def api_debug_maintenance_cleanup():
         # והאינדקס הישן הופל. ובתוך ה-try כדי שהכשל יחזור כ-JSON ולא כדף HTML
         # של Flask — זה ה-endpoint שלקוחות מצפים ממנו לחוזה JSON קבוע.
         from monitoring.metrics_storage import stale_ttl_indexes  # type: ignore
-        from services.index_maintenance import restore_dropped_index  # type: ignore
+        from services.index_maintenance import (  # type: ignore
+            drop_indexes_recording,
+            restore_dropped_index,
+            restore_indexes,
+        )
 
         profiler_collection, profiler_ttl_seconds = _profiler_persistence()
         metrics_collection, metrics_ttl_seconds_value, metrics_ttl_index = _metrics_persistence()
@@ -6101,16 +6105,14 @@ def api_debug_maintenance_cleanup():
         # וגם זה שאינו חוסם ואינו מוחק — ``ttl_cleanup`` על ``timestamp``, שדה
         # שאין לו כותב באוסף. השני לא נראה לאף אחד והיה נשאר לנצח.
         stale = stale_ttl_indexes(service_metrics_coll, keep_name=metrics_ttl_index)
+        pre_drop_recorded: list = []
         if preview:
             service_metrics_pre_drop = {"planned_drop": stale}
         else:
-            dropped_pre: list[str] = []
-            for idx_name in stale:
-                try:
-                    service_metrics_coll.drop_index(idx_name)
-                    dropped_pre.append(idx_name)
-                except Exception:
-                    pass
+            # ⚠️ ההגדרות נשמרות לפני ההפלה. אחד השרידים הוא לרוב אינדקס TTL
+            # **עובד** בשם אחר, וכשל ביצירה שאחריו היה משאיר את האוסף עם פחות
+            # ממה שהיה לו כשנכנסנו.
+            dropped_pre, pre_drop_recorded = drop_indexes_recording(service_metrics_coll, stale)
             service_metrics_pre_drop = {"dropped": dropped_pre}
 
         # TTL indexes
@@ -6130,6 +6132,13 @@ def api_debug_maintenance_cleanup():
                 index_name=metrics_ttl_index,
             ),
         }
+        # כשל ביצירה: מחזירים את מה שהפלנו, כדי שהאוסף לא יישאר בלי שום TTL.
+        # ``_ensure_ttl_index`` מחזיר רק את האינדקס ש**הוא** הפיל (לפי השם
+        # המבוקש), ולכן השרידים שהופלו כאן צריכים את המסלול הזה.
+        metrics_entry = ttl_results.get("service_metrics_ts")
+        if pre_drop_recorded and isinstance(metrics_entry, dict) and metrics_entry.get("status") == "error":
+            service_metrics_pre_drop["restored"] = restore_indexes(service_metrics_coll, pre_drop_recorded)
+
         ttl_results["service_metrics_pre_drop"] = service_metrics_pre_drop
 
         # code_snippets indexes cleanup
