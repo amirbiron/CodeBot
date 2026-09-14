@@ -207,6 +207,23 @@ def _adornment_fits(title: str, adornment: str) -> bool:
     return True
 
 
+class TooManySections(Exception):
+    """הקלט מייצר יותר סקשנים מהתקרה שהמתקשר העביר ב-``max_sections``.
+
+    **חריגה, ולא ערך החזרה ולא ``Document`` חלקי עם דגל "נקטע".** המתקשר
+    היחיד שמעביר תקרה הוא סורק האאוטליין, ושם הכלל כבר נקבע ומנומק
+    ב-``mcp_server/outline_scanners/_ceiling.py``: מפה חלקית שמתחזה
+    למלאה היא בדיוק הכשל שהתקרה קיימת כדי למנוע. דגל דורש בדיקה בכל אתר
+    קריאה, ובדיקה אחת שנשכחת מחזירה תוכן עניינים שחסרות בו כותרות בלי
+    שאיש יידע — ואילו חריגה נכשלת בקול.
+
+    **ומוגדרת כאן ולא שם**, כי הכיוון הוא חד-סטרי: הסורק מייבא את המודול
+    הזה, ו-``services`` אינו מייבא מ-``mcp_server``. ההורשה היא
+    מ-``Exception`` ישירות ולא מחריגת ספריית תקן, כדי שתפיסה צרה של
+    החריגה הזאת לא תוכל להתנגש בשגיאה אמיתית.
+    """
+
+
 def _skip_paragraph_block(lines: List[str], i: int, n: int) -> int:
     """מדלג על בלוק הפסקה בדיוק כמו ``Text.text``, ומחזיר את השורה שאחריו.
 
@@ -231,7 +248,7 @@ def _skip_paragraph_block(lines: List[str], i: int, n: int) -> int:
     return i
 
 
-def parse_document(text: str) -> Document:
+def parse_document(text: str, *, max_sections: int | None = None) -> Document:
     """מפרסר טקסט RST לעץ סקשנים. עמיד ל-literal/code blocks ולדירקטיבות מוזחות.
 
     **סיומות השורה מנורמלות כאן, בגבול הקלט, ו-``split("\\n")`` נשאר יחידת
@@ -251,6 +268,24 @@ def parse_document(text: str) -> Document:
     **ומה שהנרמול אינו מכסה, ולכן אינו לבד:** תו whitespace שאין לו נרמול —
     ``\\v``, ``\\f``, NBSP, ``U+2028`` — אינו נעלם כאן. ההגנה עליו יושבת
     ב-``_is_title_text``, שם ההגדרה של "שורה ריקה" חייבת להיות אחת.
+
+    **``max_sections`` — תקרה על מספר הסקשנים, וברירת המחדל היא ללא תקרה.**
+    ``None`` פירושו התנהגות זהה בית-בית לזו שקדמה לפרמטר, ולכן
+    ``docs_get_section`` — הצרכן השני של המודול הזה — אינו מושפע. כשהתקרה
+    מועברת ונחצית מורמת ``TooManySections`` **בזמן הפרסור**, ולא אחריו.
+
+    **למה בזמן הפרסור, במספרים שנמדדו על קלט של 10MB:** כותרת בת תו אחד
+    בכל שתי שורות נותנת 2.6 מיליון סקשנים, ובלי התקרה זה **18.5 שניות
+    ו-1,132MB**; עם תקרה של 50,000 זה **0.30 שניות ו-83MB**. סינון של
+    הפלט אחרי שהעץ נבנה אינו חוסם את העבודה, וזו אותה מדידה בדיוק
+    שמנומקת ב-``_ceiling`` לגבי בדיקת אורך במנתב.
+
+    **ומה שהתקרה הזאת אינה חוסמת, כדי שלא ייקרא כאן יותר ממה שכתוב:**
+    היא מגבילה סקשנים, לא שורות. 10MB של שורות ריקות הוא **אפס סקשנים
+    ו-6.3 שניות**, ואותו זמן בדיוק עם התקרה ובלעדיה — כי אין שם מה
+    לחסום. השארית הזאת נקבעת על ידי מספר השורות, והחסם היחיד עליה היום
+    הוא תקרת הבתים של הקריאה. **מתועדת באישו #3379** — שם גם הכיוון
+    שמשלים אותה, ומספר השורות ממילא מחושב כאן בראש הפונקציה.
     """
     lines = (text or "").replace("\r\n", "\n").split("\n")
     n = len(lines)
@@ -280,6 +315,30 @@ def parse_document(text: str) -> Document:
             return order.index(style) + 1
         except ValueError:
             return len(order) + 1
+
+    def add_section(section: Section) -> None:
+        """מוסיף סקשן, ועוצר את הפרסור כשהתקרה נחצית.
+
+        **הגדרה אחת לשלושת אתרי ההוספה, ולא שלוש בדיקות זהות.** שלוש
+        בדיקות זהות הן בדיוק מה שאפשר לשכוח באתר הרביעי שייכתב מחר, בלי
+        שאף טסט יראה — וזה כבר קרה במודול הזה: כלל בליעת הפסקה נכתב
+        פעמיים, אתר אחד תוקן והשני נשאר מאחור. אותו נימוק בדיוק שכתוב
+        ב-``_ceiling.Capped`` על שלושה-עשר אתרי ההוספה ב-``html.py``.
+
+        **והגבול זהה לזה של** ``Capped.append``: הסירוב הוא כשהרשימה
+        **כבר** מלאה, ולכן קובץ עם בדיוק ``max_sections`` סקשנים עובר
+        במלואו, והסקשן שמעליו הוא זה שעוצר. כך התשובה על הגבול אינה זזה
+        מזו שהוחזרה לפני שהתקרה נסעה פנימה.
+
+        **והסקשן שחוצה את התקרה כן נבנה, פעם אחת.** ארגומנט מחושב לפני
+        הקריאה, ולכן ``Section`` שיידחה נוצר ונזרק — אובייקט בודד, ולא
+        המשך של הפרסור, וזה מה שהטסט על מספר הבנייות מקבע. לבנות את
+        השדות כאן במקום להעביר אובייקט היה חוסך אותו, במחיר שש מסירות
+        ארגומנטים בכל אתר — ולא זה מה שנמדד כיקר.
+        """
+        if max_sections is not None and len(sections) >= max_sections:
+            raise TooManySections
+        sections.append(section)
 
     i = 0
     while i < n:
@@ -393,7 +452,7 @@ def parse_document(text: str) -> Document:
                     if lvl > len(order):
                         order.append(style)
                     current_level = lvl
-                    sections.append(Section(
+                    add_section(Section(
                         title=title_line.strip(), level=lvl,
                         title_line=i + 2, heading_line=i + 1, end_line=n,
                         adornment=over, over=True,
@@ -425,7 +484,7 @@ def parse_document(text: str) -> Document:
                     if lvl > len(order):
                         order.append(demoted)
                     current_level = lvl
-                    sections.append(Section(
+                    add_section(Section(
                         title=raw.strip(), level=lvl,
                         title_line=i + 1, heading_line=i + 1, end_line=n,
                         adornment=demoted, over=False,
@@ -448,7 +507,7 @@ def parse_document(text: str) -> Document:
                     if lvl > len(order):
                         order.append(under)
                     current_level = lvl
-                    sections.append(Section(
+                    add_section(Section(
                         title=raw.strip(), level=lvl,
                         title_line=i + 1, heading_line=i + 1, end_line=n,
                         adornment=under, over=False,
