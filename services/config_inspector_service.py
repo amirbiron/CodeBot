@@ -2142,6 +2142,16 @@ class ConfigService:
             description="הפעלת התראות Push",
             category="push",
         ),
+        "MCP_PUSH_NOTIFICATIONS_ENABLED": ConfigDefinition(
+            key="MCP_PUSH_NOTIFICATIONS_ENABLED",
+            services=("mcp",),
+            default="true",
+            description=(
+                "רישום התראה על קובץ שנשמר דרך ה-MCP. נקרא בצד הכותב, ולכן כיבוי "
+                "עוצר את הרישום ואינו מותיר תור שאיש אינו קורא"
+            ),
+            category="push",
+        ),
         "VAPID_PUBLIC_KEY": ConfigDefinition(
             key="VAPID_PUBLIC_KEY",
             services=("webapp", "bot"),

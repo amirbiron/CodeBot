@@ -49,6 +49,32 @@ Alerts
 - ``alert_received`` — התקבלה התראה מה-Alertmanager.
 - ``alerts_parse_error`` — כשל בפענוח ההתראה.
 
+Web Push
+--------
+
+מנוי ותפעול:
+
+- ``push_subscribed`` / ``push_unsubscribed`` — דפדפן נרשם למנוי או הוסר ממנו.
+- ``push_subscriptions_cleanup`` / ``push_subscriptions_delete_all`` — ניקוי מנויים מעמוד ההגדרות.
+- ``push_deleted_dead_endpoints`` — מנויים שהוסרו אחרי ``404``/``410`` משירות הפוש.
+- ``sw_push_report`` — דיווח מה-Service Worker על שלב בטיפול בהתראה.
+
+שליחה של תזכורות פתקים:
+
+- ``push_send_attempt`` — ניסיון שליחה של תזכורת שהגיע זמנה.
+- ``push_send_error`` — כשל בשליחה למנוי. נרשם עם ``endpoint_hash`` ולא עם ה-endpoint עצמו, שהוא מזהה מכשיר.
+- ``push_send_no_subscriptions`` — למשתמש אין מנוי פעיל.
+- ``push_send_missing_vapid_private`` — המסלול המקומי נבחר בלי מפתח VAPID פרטי.
+
+שליחה של אירועי כתיבה מה-MCP:
+
+- ``push_event_send_attempt`` — ניסיון שליחה של אירוע שנרשם על ידי שירות ה-MCP.
+- ``push_event_unknown_kind`` — האירוע נושא ``kind`` שגרסת ה-WebApp הזו אינה יודעת לבנות ממנו התראה. הוא מכובה ואינו נשלח, כדי שלא ייבחר בכל סבב מכאן והלאה.
+
+בדיקה ידנית:
+
+- ``push_test_result`` / ``push_test_local_error`` / ``push_test_worker_error`` — תוצאות ``POST /api/push/test``.
+
 Repo Analyzer
 -------------
 

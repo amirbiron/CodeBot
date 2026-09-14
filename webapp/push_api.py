@@ -560,6 +560,13 @@ def _loop_send_due_reminders() -> None:
             _send_due_once()
         except Exception:
             pass
+        # מקור ההתראות השני: אירועים שנרשמו על ידי שירות ה-MCP.
+        # סבב נפרד ולא הרחבה של _send_due_once, ובכוונה: שני המקורות
+        # שולפים מאוספים שונים ובתנאים שונים, וכשל באחד אינו מונע את השני.
+        try:
+            _send_due_events_once()
+        except Exception:
+            pass
         try:
             time.sleep(SLEEP_SECONDS)
         except Exception:
@@ -1063,6 +1070,258 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
 
     # After processing all reminders for this user, remove dead endpoints once
     _close_delivery(ctx)
+
+
+# ---------------------------------------------------------------------------
+# מקור ההתראות השני: אירועי כתיבה שנרשמו על ידי שירות ה-MCP
+# ---------------------------------------------------------------------------
+#
+# שירות ה-MCP רץ בתהליך נפרד ואינו שולח פוש בעצמו — הוא היה עוקף את נעילת
+# ה-flock שמבטיחה שולח יחיד, ומשכפל את מפתחות ה-VAPID לתהליך נוסף. במקום זה
+# הוא רושם שורה ב-``push_events``, והסבב כאן אוסף אותה בסבב הבא.
+#
+# המחיר הוא עיכוב של עד PUSH_SEND_INTERVAL_SECONDS. אין לקצר אותו בשביל
+# המקור הזה: הוא מכתיב את הקצב של **כל** התזכורות.
+
+#: קיצור התצוגה של שם הקובץ בגוף ההתראה, ב**תווים**.
+#:
+#: שני נימוקים, ושניהם חיצוניים לקוד הזה:
+#:
+#: 1. אין היום שום תקרת אורך על ``file_name`` בכלי הכתיבה של ה-MCP — יש על
+#:    גוף הקובץ (``_max_code_size``) ועל תוכן פתק, לא על השם. כלומר האורך
+#:    מגיע מחוץ לתהליך ואין עליו הגבלה.
+#: 2. גוף ההתראה נשלח בבקשת Web Push, ושם התקרה היא של הפרוטוקול:
+#:    *"Push services MUST NOT return a 413 status code in responses to an
+#:    entity body that is 4096 bytes or less in size"* (RFC 8030 §7.2) —
+#:    כלומר 4096 הם המינימום המובטח, ומעבר לו השירות **רשאי** לדחות. התקרה
+#:    היא על הגוף המוצפן: ל-``aes128gcm`` יש כותרת של ``salt(16) + rs(4) +
+#:    idlen(1) + keyid`` ועוד 17 אוקטטים לרשומה — delimiter ו-auth tag
+#:    (RFC 8188 §2). ‏``pywebpush`` עצמו אינו בודק גודל ואינו מגן.
+#:
+#: החיתוך הוא בתווים ולא בבייטים, ובכוונה: בעברית אות היא שני בייטים
+#: ואימוג'י עד ארבעה, וחיתוך לפי בייטים נוחת באמצע תו (דפוס H6 ב-
+#: amir-bug-patterns). ‏120 תווים הם לכל היותר כ-480 בייטים, והגוף כולו
+#: נשאר בסדר גודל אחד מתחת לתקרה.
+_PUSH_EVENT_NAME_MAX_CHARS = 120
+
+
+def _claim_push_event(db, event_doc: dict, ttl_seconds: int | None = None) -> bool:
+    """תופס אירוע לשליחה כדי שלא יישלח פעמיים משני תהליכים.
+
+    מעתיק את התבנית של :func:`_claim_reminder`: ``update_one`` עם תנאי ה-claim
+    **בתוך הפילטר**, ובדיקת ``matched_count`` — ולא ``find_one_and_update``.
+    הפילטר כולל גם ``needs_push: True``, כלומר את הערך שעל בסיסו האירוע
+    נשלף: CAS שאינו בודק את מה שקרא אינו CAS.
+
+    הרזרבציה נלקחת **לפני** השליחה, שהיא הפעולה החיצונית הבלתי הפיכה.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        ttl = max(10, int(os.getenv("PUSH_CLAIM_TTL_SECONDS", str(ttl_seconds or 60))))
+        until = now + timedelta(seconds=ttl)
+        try:
+            import threading
+
+            ident = threading.get_ident()
+        except Exception:
+            ident = 0
+        owner = f"{os.getenv('HOSTNAME','')}-{os.getpid()}-{ident}"
+        ev_id = event_doc.get("_id")
+        if not ev_id:
+            return False
+        filt = {
+            "_id": ev_id,
+            "needs_push": True,
+            # not currently claimed or claim expired
+            "$or": [
+                {"push_claimed_until": {"$exists": False}},
+                {"push_claimed_until": {"$lte": now}},
+            ],
+        }
+        upd = {
+            "$set": {
+                "push_claimed_by": owner,
+                "push_claimed_at": now,
+                "push_claimed_until": until,
+            }
+        }
+        res = db.push_events.update_one(filt, upd)
+        return bool(getattr(res, "matched_count", 0))
+    except Exception:
+        return False
+
+
+def _build_file_saved_payload(event_doc: dict) -> dict | None:
+    """בונה גוף התראה לאירוע ``file_saved``.
+
+    מחזיר ``None`` כשחסר המידע שההתראה עומדת עליו — שם קובץ — כדי שלא תישלח
+    התראה ריקה שאין בה מה לפתוח.
+    """
+    raw_name = event_doc.get("file_name")
+    # הערך הגיע מחוץ לתהליך (ארגומנט של כלי MCP) ונשמר כפי שהוא; אין הבטחה
+    # שהוא מחרוזת. בלי הבדיקה, החיתוך שמיד אחריה זורק על טיפוס אחר.
+    name = raw_name.strip() if isinstance(raw_name, str) else ""
+    if not name:
+        return None
+    if len(name) > _PUSH_EVENT_NAME_MAX_CHARS:
+        name = name[:_PUSH_EVENT_NAME_MAX_CHARS] + "…"
+
+    file_id_str = str(event_doc.get("file_id") or "")
+    created = bool(event_doc.get("created"))
+    title_text = "📄 קובץ חדש נשמר" if created else "✏️ קובץ עודכן"
+    body_text = name
+
+    return {
+        "notification": {
+            "title": title_text,
+            "body": body_text,
+            "icon": "/static/icons/app-icon-512.png",
+            "badge": "/static/icons/app-icon-512.png",
+            "tag": f"mcp-file-{file_id_str}" if file_id_str else "mcp-file",
+            "silent": False,
+            "requireInteraction": False,
+            # רשימה ריקה במכוון, ולא כפתור משלנו. ה-Service Worker מתעלם
+            # מכל action שאינו open_note/snooze_10, ולכן התראה שנושאת כפתור
+            # בשם חדש לא תיפתח כלל אצל מי שה-SW שלו עדיין ישן — וה-SW
+            # מתעדכן באיחור. בלי כפתורים, לחיצה על גוף ההתראה מגיעה ל-SW
+            # בלי action, נופלת למסלול הפתיחה, ומנותבת ל-/md/<file_id>.
+            # ‏JS מתייחס למערך ריק כ-truthy, ולכן הוא גובר על ברירת המחדל
+            # של הפתקים במקום ליפול אליה.
+            "actions": [],
+        },
+        "data": {
+            "type": "mcp_file_saved",
+            # ה-SW מנתב לפי note_id ואז file_id. אין כאן פתק, ולכן note_id
+            # ריק ו-file_id הוא שמוביל לעמוד הקובץ.
+            "note_id": "",
+            "file_id": file_id_str,
+            "board_id": "",
+            "title": title_text,
+            "body": body_text,
+        },
+    }
+
+
+#: בורר לפי ``kind``. אירוע שסוגו אינו כאן אינו נשלח — ראו
+#: :func:`_send_events_for_user` לטיפול בו. הבורר קיים כדי שגרסת WebApp
+#: שרצה לצד שירות MCP חדש יותר לא תשלח התראה שאינה יודעת לבנות.
+_EVENT_PAYLOAD_BUILDERS = {
+    "file_saved": _build_file_saved_payload,
+}
+
+
+def _resolve_push_event(db, event_doc: dict, *, sent: bool, reason: str = "") -> None:
+    """מסמן אירוע כמטופל, כדי שלא ייבחר שוב בסבב הבא.
+
+    ``sent_at`` ו-``skipped_reason`` הם **עקבות בלבד** — שום קוד אינו מסתעף
+    עליהם. מה שמכבה את האירוע הוא ``needs_push``, וזה השדה שהשאילתה קוראת.
+    """
+    try:
+        fields: dict[str, Any] = {
+            "needs_push": False,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        if sent:
+            fields["sent_at"] = datetime.now(timezone.utc)
+        elif reason:
+            fields["skipped_reason"] = reason
+        db.push_events.update_one({"_id": event_doc.get("_id")}, {"$set": fields})
+    except Exception:
+        pass
+
+
+def _send_events_for_user(user_id: int | str, events: list[dict]) -> None:
+    """שולח את אירועי ה-MCP של משתמש אחד, דרך אותה ליבת מסירה של התזכורות."""
+    ctx = _open_delivery(user_id)
+    if ctx is None:
+        return
+    db = ctx.db
+
+    for ev in events:
+        kind = str(ev.get("kind") or "")
+        builder = _EVENT_PAYLOAD_BUILDERS.get(kind)
+        if builder is None:
+            # סוג שאינו מוכר לגרסה הזו. מכבים אותו במקום להשאירו דלוק,
+            # אחרת הוא ייבחר בכל סבב מכאן והלאה בלי שיישלח לעולם.
+            _resolve_push_event(db, ev, sent=False, reason="unknown_kind")
+            try:
+                from observability import emit_event  # type: ignore
+
+                emit_event(
+                    "push_event_unknown_kind",
+                    severity="warning",
+                    user_id=str(user_id),
+                    kind=kind[:64],
+                )
+            except Exception:
+                pass
+            continue
+        payload = builder(ev)
+        if payload is None:
+            _resolve_push_event(db, ev, sent=False, reason="incomplete_event")
+            continue
+        # תפיסה לפני השליחה, לא אחריה
+        try:
+            if not _claim_push_event(db, ev):
+                continue
+        except Exception:
+            pass
+        try:
+            from observability import emit_event  # type: ignore
+
+            emit_event(
+                "push_event_send_attempt",
+                severity="info",
+                user_id=str(user_id),
+                kind=kind,
+                subs=len(ctx.subs),
+            )
+        except Exception:
+            pass
+        if _deliver_payload(ctx, payload, idempotency_key=str(ev.get("_id") or "")):
+            _resolve_push_event(db, ev, sent=True)
+
+    _close_delivery(ctx)
+
+
+def _send_due_events_once(max_users: int = 100, max_per_user: int = 10) -> None:
+    """סורק אירועי כתיבה ממתינים ושולח אותם, מקובצים לפי משתמש.
+
+    שאילתה אחת ולא שתיים: לאוסף הזה אין מסמכים היסטוריים בלי ``needs_push``,
+    ולכן אין מסלול legacy כמו ב-:func:`_send_due_once`. הפילטר מתחיל ב-
+    ``needs_push: True`` כדי שהאינדקס החלקי ייסע.
+    """
+    db = get_db()
+    total_needed = max_users * max_per_user
+    projection = {
+        "_id": 1,
+        "user_id": 1,
+        "kind": 1,
+        "file_name": 1,
+        "file_id": 1,
+        "created": 1,
+        "created_at": 1,
+    }
+    try:
+        raw = list(
+            db.push_events
+            .find({"needs_push": True}, projection)
+            .sort("created_at", 1)
+            .limit(total_needed)
+        )
+    except Exception:
+        return
+
+    by_user: Dict[str, list] = {}
+    for ev in raw:
+        if not isinstance(ev, dict):
+            continue
+        uid = ev.get("user_id")
+        if uid is None:
+            continue
+        by_user.setdefault(str(uid), []).append(ev)
+    for uid, items in list(by_user.items())[:max_users]:
+        _send_events_for_user(uid, items[:max_per_user])
 
 
 def _coerce_preview(db, reminder_doc: dict) -> str:

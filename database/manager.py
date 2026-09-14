@@ -2331,6 +2331,35 @@ class DatabaseManager:
             enforce=False,  # לא לאכוף - אם קיים, לא למחוק
         )
 
+        # push_events - תור ההתראות שמקורן בכתיבה דרך שירות ה-MCP.
+        #
+        # האינדקסים יושבים כאן ולא ב-webapp/push_api.py, ובכוונה: את התור
+        # **כותב** שירות ה-MCP ו**קורא** ה-WebApp, ושני השירותים מייבאים את
+        # database ולכן שניהם מגיעים לפונקציה הזו. ‏_ensure_indexes ב-
+        # push_api.py רץ רק בצד ה-WebApp, ואינדקס שנבנה שם בלבד חסר בדיוק
+        # בפריסה שבה רק ה-MCP עלה.
+        safe_create_index(
+            "push_events",
+            # needs_push ראשון — שוויון לפני מיון, כדי שהסבב ימיין לפי
+            # created_at בתוך האינדקס במקום למיין בזיכרון.
+            [("needs_push", ASCENDING), ("created_at", ASCENDING)],
+            name="push_events_pending_idx",
+            background=True,
+            enforce=True,
+        )
+        # ניקוי אוטומטי: התור חולף מטבעו, ואירוע שלא נשלח תוך שבוע מתאר
+        # כתיבה שאבד בה העניין. בלי זה האוסף גדל בלי גבול.
+        # אינדקס TTL חייב להיות חד-שדה, ולכן הוא נפרד מזה שלמעלה ואינו
+        # מתנגש איתו (מפתח אחר).
+        safe_create_index(
+            "push_events",
+            [("created_at", ASCENDING)],
+            name="push_events_ttl",
+            background=True,
+            enforce=True,
+            expire_after_seconds=7 * 24 * 60 * 60,
+        )
+
         # service_metrics
         DatabaseManager._create_metrics_indexes(self, safe_create_index)
 

@@ -568,6 +568,12 @@
      - ``true``
      - ``false``
      - WebApp
+   * - ``MCP_PUSH_NOTIFICATIONS_ENABLED``
+     - רישום התראה על קובץ שנשמר דרך ה‑MCP. כיבוי עוצר את **הרישום**, ולכן אינו מותיר תור שאיש אינו קורא
+     - לא
+     - ``true``
+     - ``false``
+     - MCP
    * - ``PUSH_REMOTE_DELIVERY_ENABLED``
      - שליחה דרך Worker חיצוני (במקום pywebpush)
      - לא

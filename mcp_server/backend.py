@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime as _dt
 import enum as _enum
 import html
+import os
 import time as _time
 import logging
 import uuid as _uuid
@@ -37,6 +38,23 @@ except Exception:  # pragma: no cover
 
 
 logger = logging.getLogger(__name__)
+
+
+def _push_events_enabled() -> bool:
+    """האם לרשום אירועי התראה על כתיבה דרך ה-MCP. ברירת המחדל: כן.
+
+    הדגל נקרא כאן, **בצד הכותב**, ולא בצד השולח. אירוע שכובה אינו נרשם כלל
+    ולא נרשם-ומסונן, ולכן כיבוי אינו מותיר תור שמתמלא בלי שאף אחד קורא ממנו.
+
+    אותה צורת פענוח כמו ``PUSH_NOTIFICATIONS_ENABLED`` ב-``webapp/push_api.py``.
+    """
+    return os.getenv("MCP_PUSH_NOTIFICATIONS_ENABLED", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
 
 _HEAVY_FIELDS = ("code", "content", "raw_data", "raw_content")
 
@@ -503,7 +521,56 @@ class ProductionBackend:
             return {"ok": False, "error": "save_failed"}
         # Re-fetch so the returned version/size are the authoritative DB values.
         saved = _latest_fresh(dbm, user_id, file_name) or {}
-        return {"ok": True, "created": prev is None, "file": _clean(saved)}
+        cleaned = _clean(saved)
+        # רק אחרי שהשמירה הצליחה — ראו :meth:`_emit_push_event`.
+        self._emit_push_event(
+            user_id,
+            file_name=file_name,
+            file_id=str(cleaned.get("id") or ""),
+            created=prev is None,
+        )
+        return {"ok": True, "created": prev is None, "file": cleaned}
+
+    def _emit_push_event(
+        self, user_id: int, *, file_name: str, file_id: str, created: bool
+    ) -> None:
+        """רושם אירוע התראה על שמירת קובץ, לאיסוף על ידי שולח הפוש של ה-WebApp.
+
+        **נקרא רק אחרי ששמירה הצליחה.** רשומה שמתארת כתיבה ונכתבת גם במסלול
+        שבו הכתיבה נכשלה היא רשומה שמשקרת, ואין קוד שגיאה שיתפוס את הפער.
+
+        השליחה עצמה אינה קורית בתהליך הזה. ה-WebApp מריץ שולח יחיד תחת נעילת
+        ``flock`` ומחזיק את מפתחות ה-VAPID; שליחה מכאן הייתה עוקפת את שניהם.
+        מה שנכתב כאן הוא **בקשה** בתור, ולכן הפער בין הרישום לשליחה הוא
+        התכנון ולא באג.
+
+        ``user_id`` מגיע מהטוקן המאומת של הקריאה (‏``current_user_id``) ולעולם
+        לא מארגומנט של הכלי — הוא קובע למי תישלח ההתראה.
+
+        כשל ברישום **אינו מפיל את השמירה**: הקובץ כבר נשמר, וההתראה היא תוצר
+        לוואי שלה. אבל הוא גם אינו שקט — בלי שורת הלוג, תור שהפסיק להתמלא
+        נראה בדיוק כמו סוכן שלא כתב כלום.
+        """
+        if not _push_events_enabled():
+            return
+        try:
+            self._raw_mongo()["push_events"].insert_one(
+                {
+                    "user_id": int(user_id),
+                    "kind": "file_saved",
+                    "file_name": file_name,
+                    # מזהה הגרסה שנקראה מחדש אחרי השמירה. הקריאה היא לפי שם
+                    # הקובץ, ולכן בשתי שמירות מקבילות לאותו שם הוא יכול להיות
+                    # של גרסה אחרת — אותו קובץ, גרסה שכנה. זה מספיק לקישור,
+                    # ואין להסתמך עליו כמזהה הגרסה שנכתבה.
+                    "file_id": file_id,
+                    "created": bool(created),
+                    "created_at": _dt.datetime.now(_dt.timezone.utc),
+                    "needs_push": True,
+                }
+            )
+        except Exception:
+            logger.warning("push event insert failed", exc_info=True)
 
     # -- collections -------------------------------------------------------
     def list_collections(self, user_id: int, *, limit: int = 100) -> dict[str, Any]:

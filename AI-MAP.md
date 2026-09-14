@@ -166,7 +166,7 @@
 
 ## פריסה ו-Workers
 
-- `docs/deployment/workers.rst` — **עובדי Push**: Web Push מקצה לקצה — דרישות ומפתחות VAPID, המסלול המקומי ב-pywebpush מול עובד ה-Node, החיבור ל-WebApp, מי שולח את התזכורות, צד הלקוח, ובדיקות.
+- `docs/deployment/workers.rst` — **עובדי Push**: Web Push מקצה לקצה — דרישות ומפתחות VAPID, המסלול המקומי ב-pywebpush מול עובד ה-Node, החיבור ל-WebApp, מה מפעיל התראה (תזכורות פתקים וכתיבה דרך ה-MCP), צד הלקוח, ובדיקות.
 
 ## ChatOps
 
