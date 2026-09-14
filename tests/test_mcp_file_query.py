@@ -511,6 +511,32 @@ def test_the_search_tool_keeps_its_own_query_out_of_the_read_mode_column():
     assert analytics.read_mode_properties(request) is None
 
 
+async def test_the_schema_rejects_the_wrong_types_on_the_real_call_path(monkeypatch):
+    """הדחייה נבדקת דרך הכלי, ולא רק מול ``TypeAdapter``.
+
+    ``context_lines`` הוא ``StrictInt`` ו-``max_results`` אינו — **בדיוק** כמו
+    ב-``codekeeper_search_repo``, ולכן האסימטריה הזו היא החלטת עקביות ולא
+    מקרה, ומגיעה לה בדיקה. נמדד מול ``pydantic 2.12.3`` ו-``mcp 1.28.1``.
+
+    מוטציה שמפילה: להחליף את ``context_lines: StrictInt`` ב-``int``. אז
+    ``context_lines=true`` מתקבל ונעשה ``1`` בשקט — קריאה שביקשה משהו אחר
+    וקיבלה תשובה תקינה בלי שום סימן.
+    """
+    mcp = _build(monkeypatch, _SAMPLE)
+
+    for bad in ({"query": 5}, {"query": True}, {"query": ["a"]}):
+        with pytest.raises(Exception):
+            await _call(mcp, file_name=_FILE, **bad)
+    for bad_ctx in (True, 1.5, "2"):
+        with pytest.raises(Exception):
+            await _call(mcp, file_name=_FILE, query="alpha", context_lines=bad_ctx)
+
+    # ``context_lines`` מעל התקרה **נצמד** ואינו נדחה — זו המדיניות המוצהרת.
+    out = await _call(mcp, file_name=_FILE, query="alpha", context_lines=99)
+    assert out["count"] == 1
+    assert len(out["results"][0]["context_after"]) <= handlers.QUERY_CONTEXT_LINES_MAX
+
+
 async def test_the_tool_schema_declares_the_new_parameters_compatibly(monkeypatch):
     """הסכימה היא מה שהלקוח רואה, ולכן היא נבדקת ולא מונחת.
 
