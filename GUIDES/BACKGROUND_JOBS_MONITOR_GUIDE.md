@@ -225,12 +225,9 @@ class JobRun:
 
 JOB_RUNS_COLLECTION = "job_runs"
 
-JOB_RUNS_INDEXES = [
-    {"keys": [("job_id", 1), ("started_at", -1)]},
-    {"keys": [("status", 1)]},
-    {"keys": [("started_at", -1)], "expireAfterSeconds": 7 * 24 * 3600},  # TTL: 7 ימים
-    {"keys": [("user_id", 1), ("job_id", 1)], "sparse": True},
-]
+# הרשימה המחייבת היא זו שבקוד: job_runs_indexes() באותו קובץ.
+# DatabaseManager._create_indexes קורא לה בכל התחברות למסד.
+# TTL על started_at, באינדקס חד-שדה נפרד, לפי JOB_RUNS_TTL_DAYS (ברירת מחדל 30).
 ```
 
 ---
@@ -1815,7 +1812,7 @@ def test_register_and_list_jobs():
 
 ### 1. הגבלת היסטוריה
 
-- TTL Index על `job_runs` – מחיקה אוטומטית אחרי 7 ימים
+- TTL Index על `job_runs.started_at` – מחיקה אוטומטית בתום `JOB_RUNS_TTL_DAYS` (ברירת מחדל 30 יום)
 - שמירת מקסימום 50 לוגים להרצה
 - Pagination ב-API
 

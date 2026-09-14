@@ -682,6 +682,12 @@
      - ``false``
      - ``true``
      - Bot
+   * - ``JOB_RUNS_TTL_DAYS``
+     - כמה ימים נשמרת הרצת Job ב-``job_runs`` לפני מחיקה אוטומטית (אינדקס TTL על ``started_at``). מעבר לחלון הזה קישורי ``/jobs/monitor?run_id=...`` שנשלחו בטלגרם מפסיקים לעבוד, וההיסטוריה של ג'וב שרץ לעיתים רחוקות נעלמת.
+     - לא
+     - ``30``
+     - ``90``
+     - Bot/WebApp/Webserver
    * - ``JOBS_STUCK_THRESHOLD_MINUTES``
      - סף (בדקות) לזיהוי הרצות Jobs "תקועות" והפקת אירוע ``job_stuck`` (נבדק מול ``job_runs`` ב-DB).
      - לא
@@ -1950,6 +1956,12 @@
      - לא
      - ``60``
      - ``300``
+     - Bot/WebApp/Webserver
+   * - ``METRICS_TTL_DAYS``
+     - כמה ימים נשמר מדד ב-``service_metrics`` לפני מחיקה אוטומטית (אינדקס TTL על ``ts``). חייב לכסות את הטווח הארוך ביותר שדשבורד ה-Observability מציע ואת ``OBSERVABILITY_WARMUP_RANGES`` — אחרת התצוגות האלה יתרוקנו בלי שגיאה. לכן דוגמה קצרה מברירת המחדל אינה מופיעה כאן.
+     - לא
+     - ``30``
+     - ``45``
      - Bot/WebApp/Webserver
    * - ``ERROR_HISTORY_SECONDS``
      - חלון זמן (בשניות) לשמירת errors לצורך תרשימי חום.

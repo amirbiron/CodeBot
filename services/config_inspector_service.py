@@ -671,6 +671,13 @@ class ConfigService:
             description="שם האוסף לכתיבת מדדים כשהכתיבה למונגו מופעלת",
             category="metrics",
         ),
+        "METRICS_TTL_DAYS": ConfigDefinition(
+            key="METRICS_TTL_DAYS",
+            services=("webapp", "bot", "webserver"),
+            default="30",
+            description="כמה ימים נשמר מדד באוסף service_metrics לפני מחיקה אוטומטית (אינדקס TTL על ts). הערך הזה חייב לכסות את הטווח הארוך ביותר שהדשבורד מציע (30d) ואת OBSERVABILITY_WARMUP_RANGES, אחרת התצוגות האלה יתרוקנו בלי שגיאה.",
+            category="metrics",
+        ),
         "METRICS_BATCH_SIZE": ConfigDefinition(
             key="METRICS_BATCH_SIZE",
             services=("webapp", "bot", "webserver"),
@@ -3256,6 +3263,13 @@ class ConfigService:
             services=("webapp", "bot", "webserver"),
             default="60",
             description="תדירות (שניות) של מוניטור Jobs תקועות (job_stuck).",
+            category="jobs_monitor",
+        ),
+        "JOB_RUNS_TTL_DAYS": ConfigDefinition(
+            key="JOB_RUNS_TTL_DAYS",
+            services=("webapp", "bot", "webserver"),
+            default="30",
+            description="כמה ימים נשמרת הרצת Job באוסף job_runs לפני מחיקה אוטומטית (אינדקס TTL על started_at). מעבר לחלון הזה קישורי /jobs/monitor?run_id=... מפסיקים לעבוד וההיסטוריה בדשבורד מתרוקנת.",
             category="jobs_monitor",
         ),
         "JOB_TRIGGERS_POLL_INTERVAL_SECS": ConfigDefinition(

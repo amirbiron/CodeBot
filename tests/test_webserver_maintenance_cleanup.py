@@ -49,35 +49,48 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
     monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-db-health-token", raising=True)
 
     class _StubDeleteColl:
-        def __init__(self, deleted_count: int, *, has_legacy_metrics_ttl: bool):
+        """דמה של אוסף שההתנגשות בה היא **לפי מפתח**, כמו במונגו.
+
+        קודם הדמה התנגשה לפי דגל בוליאני שנקשר לשם אחד קשיח (``metrics_ttl``),
+        ולכן היא לא יכלה לתפוס את המקרה האמיתי: אינדקס TTL ישן בשם **אחר** על
+        אותו מפתח. ‏``IndexOptionsConflict`` נובע משיתוף מפתח עם אופציות שונות,
+        לא משיתוף שם.
+        """
+
+        def __init__(self, deleted_count: int, *, indexes: dict | None = None):
             self.deleted_count = deleted_count
             self.calls: list[dict] = []
             self.created_indexes: list[dict] = []
             self.dropped_indexes: list[str] = []
-            self.metrics_ttl_dropped = False
-            self.has_legacy_metrics_ttl = bool(has_legacy_metrics_ttl)
+            self._idx: dict = dict(indexes or {})
 
         def delete_many(self, query):
             self.calls.append(query)
             return types.SimpleNamespace(deleted_count=self.deleted_count)
 
         def index_information(self):
-            if self.has_legacy_metrics_ttl:
-                # Simulate legacy TTL index exists on service_metrics
-                return {"metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 2592000}}
-            return {}
+            return dict(self._idx)
 
         def drop_index(self, name: str):
             self.dropped_indexes.append(str(name))
-            if str(name) == "metrics_ttl":
-                self.metrics_ttl_dropped = True
+            self._idx.pop(str(name), None)
 
         def create_index(self, keys, **kwargs):
-            # If legacy TTL wasn't dropped first, simulate conflict
-            if self.has_legacy_metrics_ttl and kwargs.get("expireAfterSeconds") is not None and not self.metrics_ttl_dropped:
-                raise RuntimeError("IndexOptionsConflict: legacy metrics_ttl still exists")
+            want_key = [(str(k), int(v)) for k, v in list(keys)]
+            for existing_name, meta in self._idx.items():
+                if list(meta.get("key") or []) != want_key:
+                    continue
+                same_name = str(existing_name) == str(kwargs.get("name") or "")
+                same_ttl = meta.get("expireAfterSeconds") == kwargs.get("expireAfterSeconds")
+                if not (same_name and same_ttl):
+                    raise RuntimeError("IndexOptionsConflict: index on the same key already exists")
             self.created_indexes.append({"keys": keys, **kwargs})
-            return kwargs.get("name") or "idx"
+            name = str(kwargs.get("name") or "idx")
+            meta = {"key": want_key}
+            if kwargs.get("expireAfterSeconds") is not None:
+                meta["expireAfterSeconds"] = kwargs["expireAfterSeconds"]
+            self._idx[name] = meta
+            return name
 
     class _StubCodeSnippetsColl:
         def __init__(self):
@@ -112,8 +125,18 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
 
     class _StubDB(_StubDBBase):
         def __init__(self):
-            self.slow_queries_log = _StubDeleteColl(3, has_legacy_metrics_ttl=False)
-            self.service_metrics = _StubDeleteColl(5, has_legacy_metrics_ttl=True)
+            self.slow_queries_log = _StubDeleteColl(3)
+            # אינדקס TTL ישן של 24 שעות בשם שגרסה קודמת של ה-endpoint יצרה.
+            # הוא על אותו מפתח, ולכן חוסם את היצירה עד שמפילים אותו.
+            self.service_metrics = _StubDeleteColl(
+                5,
+                indexes={
+                    # חוסם: אותו מפתח, שם אחר
+                    "ttl_cleanup_ts": {"key": [("ts", 1)], "expireAfterSeconds": 86400},
+                    # אינרטי: אין שום כותב לשדה ``timestamp`` באוסף הזה
+                    "ttl_cleanup": {"key": [("timestamp", 1)], "expireAfterSeconds": 86400},
+                },
+            )
             self.code_snippets = _StubCodeSnippetsColl()
 
     stub_db = _StubDB()
@@ -150,9 +173,17 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
         ttl = payload.get("ttl") or {}
         # Ensure TTL indexes were attempted/created
         assert (ttl.get("slow_queries_log") or {}).get("expireAfterSeconds") == 604800
-        assert (ttl.get("service_metrics_ts") or {}).get("expireAfterSeconds") == 86400
-        # Ensure we pre-dropped legacy metrics_ttl
-        assert "metrics_ttl" in (ttl.get("service_metrics_pre_drop") or {}).get("dropped", [])
+        # 30 יום, מהקבוע שגם יוצר את האינדקס בעלייה — ולא 86400 קשיח, שסתר את
+        # טווח ה-30 יום של הדשבורד ושל ה-warmup (אישיו #3331).
+        assert (ttl.get("service_metrics_ts") or {}).get("expireAfterSeconds") == 30 * 24 * 3600
+        assert (ttl.get("service_metrics_ts") or {}).get("name") == "metrics_ttl"
+        # ה-TTL על ``timestamp`` הוסר: אין לשדה הזה כותב, והאינדקס לא מחק כלום.
+        assert "service_metrics_timestamp" not in ttl
+        # שני השרידים הופלו — החוסם וגם האינרטי, שאיש לא מרגיש בו
+        assert sorted((ttl.get("service_metrics_pre_drop") or {}).get("dropped", [])) == [
+            "ttl_cleanup",
+            "ttl_cleanup_ts",
+        ]
 
         idx = payload.get("indexes") or {}
         dropped = set(idx.get("dropped") or [])
@@ -167,7 +198,13 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
 
         # Ensure TTL create_index was called for both collections
         assert any(ci.get("expireAfterSeconds") == 604800 for ci in stub_db.slow_queries_log.created_indexes)
-        assert any(ci.get("expireAfterSeconds") == 86400 for ci in stub_db.service_metrics.created_indexes)
+        # אינדקס TTL חייב להיות חד-שדה (MongoDB Manual, TTL Indexes; מול
+        # mongod 7.0.14 נמדד שהשרת דוחה יצירת TTL על אינדקס מורכב).
+        metrics_ttl_created = [
+            ci for ci in stub_db.service_metrics.created_indexes if ci.get("expireAfterSeconds") is not None
+        ]
+        assert [ci.get("expireAfterSeconds") for ci in metrics_ttl_created] == [30 * 24 * 3600]
+        assert list(metrics_ttl_created[0]["keys"]) == [("ts", 1)]
 
         # Ensure UI sort index was ensured
         ensured = idx.get("ensured") or {}
@@ -315,5 +352,91 @@ async def test_maintenance_cleanup_allows_token_via_query_param(monkeypatch):
                 assert resp2.status == 401
                 payload2 = await resp2.json()
                 assert payload2.get("error") == "unauthorized"
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_failed_ttl_creation_returns_500_and_restores_the_index(monkeypatch):
+    """אותה התנהגות כמו במראה ב-Flask: כשל ביצירת TTL אינו 200.
+
+    הסדר הוא drop ואז create, ולכן כשל ביצירה משאיר את האוסף בלי TTL בכלל —
+    מצב גרוע מזה שלפני הקריאה. ההגדרה הישנה חוזרת, והתשובה אומרת שנכשלה.
+    """
+    import services.webserver as ws
+
+    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-db-health-token", raising=True)
+
+    class _RefusingColl:
+        def __init__(self, indexes=None):
+            self._idx = dict(indexes or {})
+
+        def delete_many(self, _q):
+            return types.SimpleNamespace(deleted_count=0)
+
+        def index_information(self):
+            return dict(self._idx)
+
+        def drop_index(self, name):
+            self._idx.pop(str(name), None)
+
+        def create_index(self, keys, **kwargs):
+            if kwargs.get("expireAfterSeconds") == 30 * 24 * 3600:
+                raise RuntimeError("IndexOptionsConflict: simulated")
+            name = str(kwargs.get("name") or "idx")
+            meta = {"key": [(str(k), v) for k, v in list(keys)]}
+            if kwargs.get("expireAfterSeconds") is not None:
+                meta["expireAfterSeconds"] = kwargs["expireAfterSeconds"]
+            self._idx[name] = meta
+            return name
+
+    metrics = _RefusingColl(
+        {
+            "metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 86400},
+            # שריד שה-pre-drop מסיר לפני היצירה — TTL עובד על שדה אחר
+            "ttl_cleanup": {"key": [("timestamp", 1)], "expireAfterSeconds": 86400},
+        }
+    )
+
+    class _StubDB(_StubDBBase):
+        def __init__(self):
+            self.slow_queries_log = _RefusingColl()
+            self.service_metrics = metrics
+            self.code_snippets = _RefusingColl({"_id_": {"key": [("_id", 1)]}})
+
+    import services.db_provider as dbp
+
+    monkeypatch.setattr(dbp, "get_db", lambda: _StubDB(), raising=True)
+
+    app = ws.create_app()
+    from aiohttp import web
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+
+        headers = {"Authorization": "Bearer test-db-health-token"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/debug/maintenance_cleanup", headers=headers
+            ) as resp:
+                assert resp.status == 500, "כשל ביצירת TTL חזר כ-200"
+                payload = await resp.json()
+
+        assert payload.get("ok") is False
+        assert "service_metrics_ts" in (payload.get("ttl_failures") or [])
+        entry = (payload.get("ttl") or {}).get("service_metrics_ts") or {}
+        assert entry.get("restored_previous_index") == "restored"
+        state = metrics.index_information()
+        assert state.get("metrics_ttl", {}).get("expireAfterSeconds") == 86400
+        # גם מה שהופל ב-pre-drop חזר — אחרת האוסף יוצא עם פחות משנכנס
+        pre_drop = (payload.get("ttl") or {}).get("service_metrics_pre_drop") or {}
+        assert pre_drop.get("dropped") == ["ttl_cleanup"]
+        assert (pre_drop.get("restored") or {}).get("ttl_cleanup") == "restored"
+        assert state.get("ttl_cleanup", {}).get("expireAfterSeconds") == 86400
     finally:
         await runner.cleanup()

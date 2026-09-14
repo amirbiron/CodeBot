@@ -1311,6 +1311,11 @@ def create_app() -> web.Application:
         - יצירת TTL לקולקציות לוגים (מחיקה אוטומטית בעתיד)
         - ניקוי אינדקסים ב-code_snippets: השארה של אינדקסים קריטיים בלבד.
 
+        חלונות ה-TTL נקראים ממי שמגדיר אותם — ``PersistentQueryProfilerService``
+        ו-``monitoring.metrics_storage`` — ולא קשיחים כאן. אותם ערכים מייצרים את
+        האינדקסים בעלייה (``DatabaseManager._create_indexes``), ושני מקורות שונים
+        לאותו אינדקס הם בדיוק מה שייצר את הסתירה של 24 שעות מול 30 יום.
+
         ⚠️ מוגן ע"י db_health_auth_middleware (Bearer token).
         """
         from services.db_provider import get_db
@@ -1323,6 +1328,17 @@ def create_app() -> web.Application:
             from services.query_profiler_service import (  # type: ignore
                 PersistentQueryProfilerService as _ProfilerSvc,
             )
+            from monitoring.metrics_storage import (  # type: ignore
+                METRICS_TTL_INDEX_NAME as _METRICS_TTL_INDEX_NAME,
+                metrics_collection_name as _metrics_collection_name,
+                metrics_ttl_seconds as _metrics_ttl_seconds,
+                stale_ttl_indexes as _stale_ttl_indexes,
+            )
+            from services.index_maintenance import (  # type: ignore
+                drop_indexes_recording as _drop_indexes_recording,
+                restore_dropped_index as _restore_dropped_index,
+                restore_indexes as _restore_indexes,
+            )
 
             # מקור אמת יחיד לשם האוסף ול-retention שלו — אותם ערכים שבהם משתמש
             # DatabaseManager._create_profiler_indexes. שם האוסף היה קשיח כאן
@@ -1331,6 +1347,13 @@ def create_app() -> web.Application:
             # את האינדקס.
             profiler_collection = str(_ProfilerSvc.COLLECTION_NAME)
             profiler_ttl_seconds = int(_ProfilerSvc.TTL_SECONDS)
+
+            # אותו עיקרון בדיוק ל-service_metrics: שם האוסף ניתן להגדרה ב-
+            # METRICS_COLLECTION, וחלון השמירה היה כאן 86400 קשיח — 24 שעות —
+            # בזמן שהדשבורד מציע 30 יום וה-warmup שואל 30 יום אחורה בכל עלייה.
+            metrics_collection = str(_metrics_collection_name())
+            metrics_ttl_seconds_value = int(_metrics_ttl_seconds())
+            metrics_ttl_index = str(_METRICS_TTL_INDEX_NAME)
 
             preview = str(request.query.get("preview", "") or "").lower() in {"1", "true", "yes", "on"}
             db = get_db()
@@ -1341,7 +1364,7 @@ def create_app() -> web.Application:
             except Exception:
                 slow_queries_coll = None
             try:
-                service_metrics_coll = db.service_metrics
+                service_metrics_coll = db[metrics_collection]
             except Exception:
                 service_metrics_coll = None
             try:
@@ -1365,7 +1388,12 @@ def create_app() -> web.Application:
 
             # --- TTL indexes (permanent cleanup) ---
             def _ensure_ttl_index(coll: Any, *, field: str, expire_seconds: int, index_name: str) -> dict:
-                """Ensure TTL index exists with requested expireAfterSeconds (best-effort)."""
+                """מוודא שקיים אינדקס TTL עם החלון המבוקש.
+
+                ⚠️ הסדר כאן הוא drop ואז create, ולכן **כשל ביצירה משאיר את
+                האוסף בלי TTL בכלל** — גרוע מהמצב שלפני הקריאה. לכן ההגדרה
+                שהופלה נשמרת, ומשוחזרת אם היצירה נכשלה.
+                """
                 info_before = {}
                 try:
                     info_before = coll.index_information() or {}
@@ -1391,9 +1419,11 @@ def create_app() -> web.Application:
                         pass
 
                 # Try drop conflicting TTL index with the same name
+                dropped_meta = None
                 if not preview:
                     try:
                         coll.drop_index(index_name)
+                        dropped_meta = existing_meta if isinstance(existing_meta, dict) else None
                     except Exception:
                         pass
 
@@ -1407,13 +1437,14 @@ def create_app() -> web.Application:
                             background=True,
                         )
                     except Exception as e:
-                        # Best-effort: report error and continue
+                        restored = _restore_dropped_index(coll, index_name, dropped_meta)
                         return {
                             "name": index_name,
                             "field": field,
                             "expireAfterSeconds": int(expire_seconds),
                             "status": "error",
                             "error": str(e),
+                            "restored_previous_index": restored,
                         }
 
                 return {
@@ -1423,17 +1454,19 @@ def create_app() -> web.Application:
                     "status": "planned" if preview else "created",
                 }
 
-            # Explicitly drop legacy TTL index that may conflict (IndexOptionsConflict)
+            # שרידי TTL מגרסאות קודמות: זה שחוסם את היצירה (אותו מפתח, שם אחר),
+            # וגם זה שאינו חוסם ואינו מוחק — ``ttl_cleanup`` על ``timestamp``,
+            # שדה שאין לו כותב באוסף. השני לא נראה לאף אחד והיה נשאר לנצח.
             service_metrics_pre_drop: dict[str, Any]
+            stale = _stale_ttl_indexes(service_metrics_coll, keep_name=metrics_ttl_index)
+            pre_drop_recorded: list = []
             if preview:
-                service_metrics_pre_drop = {"planned_drop": ["metrics_ttl"]}
+                service_metrics_pre_drop = {"planned_drop": stale}
             else:
-                dropped_pre: list[str] = []
-                try:
-                    service_metrics_coll.drop_index("metrics_ttl")
-                    dropped_pre.append("metrics_ttl")
-                except Exception:
-                    pass
+                # ⚠️ ההגדרות נשמרות לפני ההפלה. אחד השרידים הוא לרוב אינדקס TTL
+                # **עובד** בשם אחר, וכשל ביצירה שאחריו היה משאיר את האוסף עם
+                # פחות ממה שהיה לו כשנכנסנו.
+                dropped_pre, pre_drop_recorded = _drop_indexes_recording(service_metrics_coll, stale)
                 service_metrics_pre_drop = {"dropped": dropped_pre}
 
             ttl_results: dict[str, Any] = {
@@ -1443,20 +1476,23 @@ def create_app() -> web.Application:
                     expire_seconds=profiler_ttl_seconds,
                     index_name="ttl_cleanup",
                 ),
-                # service_metrics uses "ts" in code, but we'll also create a "timestamp" TTL for safety/backward-compat
+                # ``ts`` הוא השדה היחיד שהכותב מייצר (monitoring/metrics_storage.py).
+                # ה-TTL שהיה כאן על ``timestamp`` הוסר: אין לשדה הזה שום כותב, ולכן
+                # האינדקס עלה בכל כתיבה ולא מחק מסמך אחד.
                 "service_metrics_ts": _ensure_ttl_index(
                     service_metrics_coll,
                     field="ts",
-                    expire_seconds=86400,  # 24 hours
-                    index_name="ttl_cleanup_ts",
-                ),
-                "service_metrics_timestamp": _ensure_ttl_index(
-                    service_metrics_coll,
-                    field="timestamp",
-                    expire_seconds=86400,  # 24 hours
-                    index_name="ttl_cleanup",
+                    expire_seconds=metrics_ttl_seconds_value,
+                    index_name=metrics_ttl_index,
                 ),
             }
+            # כשל ביצירה: מחזירים את מה שהפלנו, כדי שהאוסף לא יישאר בלי שום TTL.
+            # ``_ensure_ttl_index`` מחזיר רק את האינדקס ש**הוא** הפיל (לפי השם
+            # המבוקש), ולכן השרידים שהופלו כאן צריכים את המסלול הזה.
+            metrics_entry = ttl_results.get("service_metrics_ts")
+            if pre_drop_recorded and isinstance(metrics_entry, dict) and metrics_entry.get("status") == "error":
+                service_metrics_pre_drop["restored"] = _restore_indexes(service_metrics_coll, pre_drop_recorded)
+
             ttl_results["service_metrics_pre_drop"] = service_metrics_pre_drop
 
             # --- index cleanup (code_snippets) ---
@@ -1557,12 +1593,26 @@ def create_app() -> web.Application:
                 idx_info_after = {}
             indexes_after = sorted([str(k) for k in idx_info_after.keys()])
 
+            # ⚠️ ``ok`` נגזר מהתוצאה ולא קבוע. קודם הוא היה ``True`` תמיד, גם
+            # כשיצירת ה-TTL נכשלה — כלומר 200 ו-"הכל בסדר" על אוסף שנשאר בלי
+            # אינדקס TTL. זה בדיוק דפוס K11: הכשל מדווח בערך החזרה, ואף אחד לא
+            # בודק אותו.
+            ttl_failed = sorted(
+                key
+                for key, entry in ttl_results.items()
+                if isinstance(entry, dict) and entry.get("status") == "error"
+            )
+
             return {
-                "ok": True,
+                "ok": not ttl_failed,
+                "ttl_failures": ttl_failed,
                 "preview": preview,
                 "deleted_documents": {
+                    # שם האוסף בפועל, לא מחרוזת קשיחה: ``METRICS_COLLECTION``
+                    # מסיט את הכותב, והדיווח היה מייחס את המחיקה לאוסף אחר.
+                    # מפתח הפרופיילר שלידו כבר פרמטרי מאותה סיבה.
                     profiler_collection: deleted_slow,
-                    "service_metrics": deleted_metrics,
+                    metrics_collection: deleted_metrics,
                     "total": deleted_slow + deleted_metrics,
                 },
                 "ttl": ttl_results,
@@ -1589,7 +1639,8 @@ def create_app() -> web.Application:
                 )
             except Exception:
                 pass
-            return web.json_response(result)
+            # 500 כשה-TTL לא נוצר: תשובת 200 על אוסף בלי TTL היא הצלחה מדומה.
+            return web.json_response(result, status=200 if result.get("ok") else 500)
         except Exception as e:
             logger.exception("maintenance_cleanup_failed")
             try:

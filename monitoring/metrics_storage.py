@@ -16,6 +16,7 @@ Environment variables:
 - METRICS_FLUSH_INTERVAL_SEC: Time-based flush threshold (default: 5 seconds)
 - METRICS_MAX_BUFFER: Max queued items in memory (default: 5000)
 - METRICS_ROLLUP_SECONDS: Rollup bucket size in seconds for DB writes (default: 60)
+- METRICS_TTL_DAYS: Retention window for the collection (default: 30)
 """
 from __future__ import annotations
 
@@ -162,6 +163,80 @@ def _rollup_seconds() -> int:
     return max(1, min(3600, value))
 
 
+#: ברירת המחדל של חלון השמירה של ``service_metrics``, בימים.
+#:
+#: 30 ולא פחות, כי זה הטווח שהמערכת עצמה מבקשת: הדשבורד
+#: (``webapp/templates/admin_observability.html``) מציע כפתור ``30d``, ו-
+#: ``OBSERVABILITY_WARMUP_RANGES`` שואל 30 יום אחורה **בכל עלייה של התהליך**.
+#: חלון קצר יותר היה מרוקן את שתי התצוגות האלה בשקט — הן היו מחזירות אפס בלי
+#: שום שגיאה. ‏(אישיו #3331: ה-endpoint של התחזוקה הגדיר 24 שעות, בסתירה ישירה.)
+METRICS_TTL_DAYS_DEFAULT = 30
+
+#: שם אינדקס ה-TTL. **שם אחד לכל המערכת**: יצירת האינדקסים בעלייה ו-endpoint
+#: התחזוקה נוגעים באותו אינדקס, ושני שמות שונים על אותו מפתח הם IndexOptionsConflict
+#: — כלומר אחד מהם פשוט לא יחול. השם נלקח מזה שכבר קיים בפרודקשן.
+METRICS_TTL_INDEX_NAME = "metrics_ttl"
+
+
+def metrics_collection_name() -> str:
+    """שם האוסף שאליו הכותב באמת כותב.
+
+    מקור אמת יחיד: ה-endpointים של התחזוקה ויצירת האינדקסים חייבים לגעת באותו
+    אוסף שהכותב כותב אליו. שם קשיח אצלם היה מנקה אוסף אחר בזמן שהאמיתי מתנפח.
+    """
+    return os.getenv("METRICS_COLLECTION") or "service_metrics"
+
+
+def metrics_ttl_seconds() -> int:
+    """חלון השמירה של האוסף בשניות, לפי ``METRICS_TTL_DAYS``.
+
+    נקרא בזמן השימוש ולא בזמן הייבוא, כדי שערך שמוגדר מאוחר יותר ייקרא בפועל.
+    """
+    try:
+        days = int(os.getenv("METRICS_TTL_DAYS", "") or METRICS_TTL_DAYS_DEFAULT)
+    except (TypeError, ValueError):
+        days = METRICS_TTL_DAYS_DEFAULT
+    # 0 או שלילי היו יוצרים אינדקס שמוחק כל מסמך בסבב הבא.
+    return max(1, days) * 24 * 3600
+
+
+def stale_ttl_indexes(coll: Any, *, keep_name: str) -> List[str]:
+    """כל אינדקס TTL באוסף שאינו זה שהמערכת מחזיקה — כלומר שריד שיש להפיל.
+
+    **החוזה: לאוסף הזה יש חלון שמירה אחד, ולכן אינדקס TTL אחד** — ``keep_name``
+    על ``{ts: 1}``. כל אינדקס TTL אחר הוא שריד משתי גרסאות קודמות של endpoint
+    התחזוקה, ושניהם עולים בכל כתיבה:
+
+    - על ``{ts: 1}`` בשם אחר (``ttl_cleanup_ts``) — **חוסם**: מונגו מחזיר
+      ``IndexOptionsConflict`` כששני אינדקסים חולקים מפתח ונבדלים באופציות,
+      והכשל חוזר כשדה ``status`` בתשובה ולא כחריגה. כלומר שקט למי שלא קורא.
+    - על שדה אחר (``ttl_cleanup`` על ``timestamp``) — **אינרטי**: אין לשדה הזה
+      שום כותב באוסף, ולכן *"If a document does not contain the indexed field,
+      the document will not expire"*
+      (מקור: https://www.mongodb.com/docs/manual/core/index-ttl/). הוא לא חוסם
+      את היצירה ולכן לא מרגישים בו — הוא רק תופס מקום ומתוחזק בכל כתיבה, לנצח.
+
+    הפונקציה מחזירה את שניהם. זהו החוזה ולא רשימת מופעים: אינדקס TTL חדש על
+    האוסף הזה מתחיל מהמודול הזה, לא מהצד.
+    """
+    try:
+        info = coll.index_information() or {}
+    except Exception:
+        return []
+    out: List[str] = []
+    for idx_name, meta in (info or {}).items():
+        if not isinstance(meta, dict) or meta.get("expireAfterSeconds") is None:
+            continue
+        try:
+            key = [(str(k), int(v)) for k, v in list(meta.get("key") or [])]
+        except Exception:
+            continue
+        if str(idx_name) == str(keep_name) and key == [("ts", 1)]:
+            continue
+        out.append(str(idx_name))
+    return out
+
+
 def _bucket_start_dt(now: datetime, bucket_seconds: int) -> datetime:
     """Floor a datetime to bucket_seconds (UTC)."""
     try:
@@ -245,7 +320,7 @@ def _get_collection(*, for_read: bool = True):  # pragma: no cover - exercised i
             return None
 
         db_name = os.getenv("DATABASE_NAME") or "code_keeper_bot"
-        coll_name = os.getenv("METRICS_COLLECTION") or "service_metrics"
+        coll_name = metrics_collection_name()
 
         _client = MongoClient(
             mongo_url,
