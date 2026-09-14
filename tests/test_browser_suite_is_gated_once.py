@@ -27,6 +27,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _TESTS_DIR = _REPO_ROOT / "tests"
 
@@ -43,6 +45,20 @@ _LAUNCH_CALL = "chromium" + ".launch"
 #: רחב פי כמה כדי שהבדיקה לא תהיה רועשת על ראנר עמוס — היא בודקת מה
 #: נאמר, לא כמה זמן זה לקח.
 _SUBPROCESS_BUDGET = 180
+
+#: שתי התצורות שבהן הריצה חייבת לדווח, ולא אחת.
+#:
+#: **המפוזרת היא זו שה-CI מריץ** — ``.github/workflows/ci.yml`` מריץ
+#: ``pytest -n auto --dist=loadscope`` — והיא זו שבה הדיווח **לא** עבד:
+#: המסלול הקודם נשען על משתנה ברמת המודול, שהפיקסצ'ר ממלא ב-worker
+#: בזמן ש-``pytest_terminal_summary`` רץ ב-controller. שתי הבדיקות כאן
+#: הריצו את תת-התהליך בלי ``-n``, ולכן אף אחת מהן לא הייתה מסוגלת
+#: לראות את זה — זהו T1 ב-``TESTING-PATTERNS.md``: הבדיקה אימתה את
+#: המסלול שהיא בחרה ולא את זה שהצרכן מריץ.
+_RUN_MODES = {
+    "בתהליך אחד": [],
+    "מפוזר כמו ב-CI": ["-n", "2", "--dist=loadscope"],
+}
 
 
 def _browser_test_files() -> list[Path]:
@@ -185,7 +201,85 @@ def test_no_other_file_under_tests_launches_a_browser():
     )
 
 
-def test_a_run_without_a_browser_skips_everything_and_says_so_out_loud(tmp_path):
+@pytest.mark.parametrize("mode", sorted(_RUN_MODES))
+def test_a_run_without_playwright_at_all_also_says_so_out_loud(tmp_path, mode):
+    """מחלקת הקלט השנייה: לא "אין דפדפן" אלא **אין playwright**.
+
+    **שתי מחלקות ולא אחת.** הבדיקה שמעליה מכוונת
+    ``PLAYWRIGHT_BROWSERS_PATH`` לתיקייה ריקה, כלומר playwright מותקן
+    והדפדפן חסר — ואז הפיקסצ'ר ``chromium_executable`` **רץ** ונכשל
+    בהרמה, והדילוג הוא דילוג ``setup``. כשהחבילה עצמה חסרה המסלול אחר
+    לגמרי: כל קובץ דפדפן מדלג את עצמו ב-``pytest.importorskip`` בזמן
+    האיסוף, הפיקסצ'ר אינו רץ, והדילוג הוא דילוג ``collect``.
+
+    נמדד לפני התיקון הראשון: במחלקה הזאת הריצה הסתיימה ב-``1 skipped``
+    בלי שום אזכור של הסוויטה.
+
+    **ומה שהמחלקה הזאת אינה:** היא אינה המצב השכיח ב-CI.
+    ``requirements/base.txt`` מצמיד ``playwright``, והשרשרת
+    development ← production ← base היא מה שה-CI מתקין — כלומר החבילה
+    שם **מותקנת**, ורק הדפדפן חסר. את המצב ההוא בודקת הבדיקה שמתחת,
+    ובתצורה המפוזרת שהוא באמת רץ בה.
+
+    ה-playwright נחסם בתוסף קטן שנכתב ל-``tmp_path`` ומותקן ב-``-p``,
+    ולא בשינוי סביבה: הוא מסיר את החבילה מ-``sys.modules`` ומשתיל
+    ``meta_path`` שזורק ``ModuleNotFoundError``. אין כתיבה מחוץ
+    ל-``tmp_path``.
+    """
+    blocker = tmp_path / "block_playwright_probe.py"
+    blocker.write_text(
+        "import sys\n"
+        "\n"
+        "\n"
+        "class _Blocker:\n"
+        "    def find_spec(self, fullname, path=None, target=None):\n"
+        "        if fullname == 'playwright' or fullname.startswith('playwright.'):\n"
+        "            raise ModuleNotFoundError(f'No module named {fullname!r}', name=fullname)\n"
+        "        return None\n"
+        "\n"
+        "\n"
+        "for _name in [n for n in list(sys.modules)\n"
+        "              if n == 'playwright' or n.startswith('playwright.')]:\n"
+        "    del sys.modules[_name]\n"
+        "sys.meta_path.insert(0, _Blocker())\n",
+        encoding="utf-8",
+    )
+
+    if _RUN_MODES[mode]:
+        pytest.importorskip("xdist", reason="התצורה המפוזרת דורשת pytest-xdist")
+
+    # ``PYTHONPATH`` מוקדם ואינו נדרס: על ראנר שבו הוא חלק ממסלול
+    # הייבוא, דריסה מפילה את ``tests/conftest.py`` בייבוא, והבדיקה
+    # נכשלת על הודעה שאינה מצביעה על הסיבה. אותה צורה כבר בשימוש
+    # בבדיקה שמעליה.
+    environment = dict(
+        os.environ,
+        PYTHONPATH=str(tmp_path) + os.pathsep + os.environ.get("PYTHONPATH", ""),
+    )
+    finished = subprocess.run(
+        [sys.executable, "-m", "pytest", "-o", "addopts=", "-q",
+         "-p", "block_playwright_probe"]
+        + _RUN_MODES[mode]
+        + [path.relative_to(_REPO_ROOT).as_posix() for path in _browser_test_files()],
+        cwd=_REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_BUDGET,
+    )
+    output = finished.stdout + finished.stderr
+
+    assert " passed" not in output, (
+        f"בדיקת דפדפן רצה למרות ש-playwright חסום:\n{output[-3000:]}"
+    )
+    assert "skipped" in output, f"שום דבר לא דולג:\n{output[-3000:]}"
+    assert "הכיסוי שלהן בריצה הזאת הוא אפס" in output, (
+        f"הריצה לא אמרה שבדיקות הדפדפן דולגו:\n{output[-3000:]}"
+    )
+
+
+@pytest.mark.parametrize("mode", sorted(_RUN_MODES))
+def test_a_run_without_a_browser_skips_everything_and_says_so_out_loud(tmp_path, mode):
     """הצד ההתנהגותי: הכול מדולג, והריצה **אומרת** שהכיסוי אפס.
 
     **הדיווח הוא מה שנבדק כאן, ולא הדילוג.** גם לפני התיקון כל 66
@@ -202,9 +296,13 @@ def test_a_run_without_a_browser_skips_everything_and_says_so_out_loud(tmp_path)
     empty_browsers = tmp_path / "no-browsers"
     empty_browsers.mkdir()
 
+    if _RUN_MODES[mode]:
+        pytest.importorskip("xdist", reason="התצורה המפוזרת דורשת pytest-xdist")
+
     environment = dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=str(empty_browsers))
     finished = subprocess.run(
         [sys.executable, "-m", "pytest", "-o", "addopts=", "-q"]
+        + _RUN_MODES[mode]
         + [path.relative_to(_REPO_ROOT).as_posix() for path in _browser_test_files()],
         cwd=_REPO_ROOT,
         env=environment,
