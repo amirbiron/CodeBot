@@ -1,5 +1,6 @@
 """טסטים לפארסר ה-RST — על קבצי RST אמיתיים מהריפו + מקרי קצה סינתטיים ממוקדים."""
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -1165,3 +1166,89 @@ def test_the_section_ceiling_refuses_above_the_line_and_not_on_it():
 
     with pytest.raises(rst_parser.TooManySections):
         rst_parser.parse_document(three + "d\n=\n\n", max_sections=3)
+
+
+def test_no_heading_site_reaches_the_section_list_around_the_funnel():
+    """כל אתר כותרת עובר ב-``add_section``, ואין דרך עקיפה — נבדק על המקור.
+
+    **מה זה שומר.** התקרה של ``max_sections`` חיה כולה ב-``add_section``,
+    ו-``sections`` היא ``list`` רגילה שאינה יכולה לסרב בעצמה. כלומר אתר
+    כותרת רביעי שייכתב מחר עם ``sections.append(...)`` ישיר פותח מחדש
+    את החור, ו**כל** הבדיקות הקיימות ימשיכו לעבור: שלוש הפרמטריות
+    מכסות את שלוש הצורות שקיימות היום, ולא את זו שתיכתב.
+
+    **הבדיקה היא על המקור ולא על התנהגות, וזה אותו נימוק בדיוק** שכתוב
+    ליד השומר המקביל ב-``tests/test_mcp_outline.py``, זה שחוסם חמש דרכי
+    עקיפה של המכל בסורקים: התנהגות אפשר לבדוק רק במסלול שכבר קיים, ומה
+    שצריך לתפוס הוא המסלול שעוד לא נכתב. השומר ההוא מגלוב
+    ``mcp_server/outline_scanners/*.py`` בלבד, ולכן אינו רואה את המודול
+    הזה — וזה הפער שהבדיקה הזאת סוגרת.
+
+    **ו-``ast`` ולא רג'קס**, מאותה סיבה שנומקה שם: רג'קס על ``+=`` תופס
+    גם ``i += 1``, וגם טקסט בתוך docstring שמזכיר את הצורות האסורות.
+
+    נמדד על הקוד של היום: אפס מסלולים.
+    """
+    tree = ast.parse(Path(rst_parser.__file__).read_text(encoding="utf-8"))
+
+    parse_document = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "parse_document"
+    )
+    funnel = next(
+        node for node in ast.walk(parse_document)
+        if isinstance(node, ast.FunctionDef) and node.name == "add_section"
+    )
+    inside_funnel = {id(node) for node in ast.walk(funnel)}
+
+    offenders = []
+    for node in ast.walk(parse_document):
+        if id(node) in inside_funnel:
+            continue
+        where = f"שורה {getattr(node, 'lineno', 0)}"
+
+        # ``sections.append(...)`` / ``.extend`` / ``.insert``
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "sections"
+            and node.func.attr in {"append", "extend", "insert"}
+        ):
+            offenders.append(f"{where}: sections.{node.func.attr}")
+
+        # ``sections += [...]``
+        if (
+            isinstance(node, ast.AugAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "sections"
+        ):
+            offenders.append(f"{where}: += על sections")
+
+        # ``sections[len(sections):] = [...]``
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "sections"
+                ):
+                    offenders.append(f"{where}: השמה ל-slice של sections")
+
+        # ``list.append(sections, x)`` — קריאה שעוקפת את המשפך
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "list"
+            and node.func.attr in {"append", "extend", "insert"}
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "sections"
+        ):
+            offenders.append(f"{where}: list.{node.func.attr} על sections")
+
+    assert offenders == [], (
+        "אתר שמוסיף סקשן בלי לעבור ב-add_section, כלומר בלי התקרה. "
+        f"אם הוא באמת נחוץ — הוא צריך את הבדיקה לידו במפורש: {offenders}"
+    )
