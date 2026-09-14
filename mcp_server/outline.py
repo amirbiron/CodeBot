@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from typing import Any
@@ -25,6 +26,7 @@ from typing import Any
 from .outline_scanners import css as _css
 from .outline_scanners import html as _html
 from .outline_scanners import python as _python
+from .outline_scanners import rst as _rst
 
 #: ``\r`` שאינו חלק מ-``\r\n``. ה-lookahead השלילי הוא כל ההבחנה: CRLF
 #: הוא המקרה הנפוץ ושתי ספירות השורות מסכימות עליו, ולכן הוא חייב להמשיך
@@ -33,6 +35,34 @@ from .outline_scanners import python as _python
 #: ``search`` ולא ``replace``: הוא עוצר על ההתאמה הראשונה ואינו מקצה עותק
 #: של הטקסט, שיכול להיות 10MB לפי ``RANGE_READ_MAX_BYTES``.
 _CR_WITHOUT_LF = re.compile(r"\r(?!\n)")
+
+#: **השורה היחידה שהמסלול הזה כותב, והיא נכתבת כאן ולא בסורקים.** כאן יש גם
+#: את הנתיב וגם את גודל הקלט, ולכן זו הנקודה היחידה שבה שורה אחת מזהה מה
+#: נסרק; סורק אינו מקבל נתיב בכלל, לפי החוזה.
+#:
+#: ולמה בכלל: קלט פתולוגי על המסלול הזה נמדד כחוסם את לולאת האירועים —
+#: ``get_repo_file`` סינכרונית וה-SDK קורא לה ישירות — ואז אין בקוד שום
+#: רשומה שאומרת **איזה** קובץ. ``debug`` ולא ``info``, כי זו בקשה רגילה
+#: ואין סיבה שהיא תרעיש בלוג בייצור.
+#:
+#: .. warning::
+#:
+#:    **והיא אינה נראית בייצור כפי שהתהליך עולה היום — נמדד.** פקודת
+#:    ההרצה המתועדת היא ``uvicorn mcp_server.app:app``, ואף מודול תחת
+#:    ``mcp_server/`` אינו קורא ל-``basicConfig``, ל-``dictConfig`` או
+#:    ל-``setLevel``: הקונפיגורציה יושבת ב-``main.py``, ב-``webapp/app.py``
+#:    וב-``services/webserver.py``, שאף אחד מהם אינו נטען בתהליך הזה.
+#:    המדידה: ה-root ב-``WARNING`` עם **אפס** handlers,
+#:    ``isEnabledFor(DEBUG)`` הוא ``False``, ו-stdout ו-stderr ריקים סביב
+#:    קריאה ל-``extract_outline``. וגם חיבור של
+#:    ``setup_structlog_logging`` לא היה מספיק לבד, כי ברירת המחדל שלו
+#:    היא ``INFO``.
+#:
+#:    השורה נשארת בכוונה, ולא נמחקת: היא הרשומה היחידה שמזהה **איזה**
+#:    קובץ נסרק, וזה מה שהיה חסר כשקלט פתולוגי נעל את השרת. חיבור הלוגים
+#:    לתהליך ה-MCP הוא שינוי תשתיתי שחורג מהיקף השינוי הזה, והוא מדווח
+#:    בנפרד.
+logger = logging.getLogger(__name__)
 
 #: הסיומת ← הסורק. **זהו המקום היחיד שאומר מה נתמך**, וזה מכוון: תיאור
 #: הכלי ב-``server.py`` והתיעוד ב-``docs/mcp-server.rst`` מתארים את הטבלה
@@ -49,6 +79,7 @@ _SCANNERS: dict[str, Callable[[str], dict[str, Any]]] = {
     ".jinja2": _html.extract,
     ".j2": _html.extract,
     ".css": _css.extract,
+    ".rst": _rst.extract,
 }
 
 
@@ -84,6 +115,16 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
     if _CR_WITHOUT_LF.search(text):
         return {"status": "no_outline", "reason": "inconsistent_line_endings"}
 
+    # ``chars`` ולא ``bytes``, כי ``len`` על ``str`` מודד תווים. השם הקודם
+    # היה ``bytes`` והוא שיקר בדיוק בקלט שבגללו הרשומה קיימת: נמדד שעברית
+    # היא 1.83 בתים לתו (60 תווים ← 110 בתים), ולכן עמוד עברי היה נרשם
+    # כחצי מגודלו. ותקרות הכלי — 500KB ו-10MB — נמדדות **בבתים**, כלומר
+    # המספר כאן אינו בר-השוואה אליהן ישירות, וזה בדיוק מה שמי שקורא את
+    # הרשומה בזמן תקיעה צריך לדעת.
+    #
+    # ולא ``len(text.encode("utf-8"))``: זה עותק שלם של הקלט — עד 10MB —
+    # בכל סריקה, בשביל רשומה שברירת המחדל שלה אינה נכתבת בכלל.
+    logger.debug("outline scan: path=%s chars=%d", path, len(text))
     result = scanner(text)
 
     # **החוזה נאכף כאן, ובקול.** גרסה קודמת בדקה רק

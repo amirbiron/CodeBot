@@ -139,3 +139,84 @@ def test_path_outside_docs_rejected(bad_path):
     out = docs_handlers.docs_get_section(be, path=bad_path)
     assert out["ok"] is False and out["error"] == "missing_path"
     assert be.calls == []  # נחסם ב-handler לפני ה-backend
+
+
+# ---- מסלול הצרכן לתיקוני ההיררכיה ב-rst_parser ----
+#
+# ``TESTING-PATTERNS.md`` T1: הבדיקה עוברת דרך אותו ממשק שהצרכן נוגע בו.
+# הצרכן של ``rst_parser`` בייצור הוא ``docs_get_section``, ולכן שלושת התיקונים
+# שמוסיפים סעיף ושהאחד שמסיר אותו נבדקים כאן דרך ה-handler ולא דרך הפארסר.
+# כל הצורות שלמטה נמדדו בהרצה של docutils 0.23 עצמו.
+
+
+class TestSectionsDocutilsAcceptsAreFindable:
+    """סעיף שקיים בקובץ וש-docutils מקבל — חייב להיות נגיש דרך הכלי.
+
+    לפני התיקון שלושת המקרים האלה החזירו ``section_not_found`` על סעיף
+    שכתוב בקובץ, כלומר השמטה שקטה: הקורא רואה "לא נמצא" ולא "לא נתמך".
+    """
+
+    def test_a_section_whose_underline_is_short_but_at_least_four(self):
+        rst = "Doc\n===\n\nכותרת ארוכה מאוד\n----\n\nגוף הסעיף\n"
+        out = docs_handlers.docs_get_section(_TextBackend(rst), path="x",
+                                             section="כותרת ארוכה מאוד")
+        assert out["ok"], out.get("error")
+        assert "גוף הסעיף" in out["content"]
+
+    def test_a_hebrew_title_with_nikud_measured_by_display_width(self):
+        """הכותרת היא 14 תווים ו-9 עמודות; הקו הוא 10.
+
+        ``column_width`` מחסר תווים משולבים, ולכן הקו ארוך מהרוחב וקצר
+        מ-``len``. ההשוואה הישנה, שהייתה על ``len``, הסתירה את הסעיף.
+        """
+        title = "שָׁלוֹם עוֹלָם"
+        assert len(title) == 14, "ה-fixture נשען על הניקוד — אין לנרמל אותו"
+        rst = f"Doc\n===\n\n{title}\n{'-' * 10}\n\nגוף הסעיף\n"
+        out = docs_handlers.docs_get_section(_TextBackend(rst), path="x", section=title)
+        assert out["ok"], out.get("error")
+        assert "גוף הסעיף" in out["content"]
+
+    def test_a_section_adorned_with_commas(self):
+        """',' ו-';' הם תווי adornment חוקיים — 32 במקור, 30 ברשימה הישנה."""
+        rst = "Doc\n===\n\nסעיף בפסיקים\n,,,,,,,,,,,,\n\nגוף הסעיף\n"
+        out = docs_handlers.docs_get_section(_TextBackend(rst), path="x",
+                                             section="סעיף בפסיקים")
+        assert out["ok"], out.get("error")
+        assert "גוף הסעיף" in out["content"]
+
+
+class TestASectionDocutilsDropsIsNotInTheToc:
+    """שומר הדילוג של ``check_subsection``, ומה שקורה לתוכן שמתחתיו."""
+
+    _RST = "A\n===\n\nגוף א\n\nB\n---\n\nגוף ב\n\nC\n===\n\nגוף ג\n\nD\n~~~\n\nגוף ד\n"
+
+    def test_the_dropped_heading_is_absent_from_the_toc(self):
+        """'skip from level 1 to 3' — docutils אינו יוצר את הסקשן."""
+        out = docs_handlers.docs_get_section(_TextBackend(self._RST), path="x")
+        assert out["ok"] and out["mode"] == "toc"
+        assert [t["title"] for t in out["toc"]] == ["A", "B", "C"]
+
+    def test_asking_for_the_dropped_heading_says_not_found(self):
+        out = docs_handlers.docs_get_section(_TextBackend(self._RST), path="x", section="D")
+        assert out["ok"] is False and out["error"] == "section_not_found"
+
+    def test_no_content_is_lost_it_folds_into_the_section_above(self):
+        """העיקר: הכותרת יורדת מה-TOC, אבל הטקסט שמתחתיה עדיין נגיש.
+
+        זה מה שמפריד "סעיף שאינו במפה" מ"תוכן שנעלם" — הטווח של C נמשך
+        עד סוף הקובץ ולכן בולע גם את 'D' וגם את הגוף שלו.
+        """
+        out = docs_handlers.docs_get_section(_TextBackend(self._RST), path="x", section="C")
+        assert out["ok"], out.get("error")
+        assert "גוף ג" in out["content"]
+        assert "גוף ד" in out["content"]
+
+
+def test_an_overlined_heading_is_one_level_deeper_than_the_same_character_underlined():
+    """'=' ו-('=','=') הם שני סגנונות, ולכן שתי רמות. נמדד ב-docutils."""
+    rst = "כותרת א\n========\n\n========\nכותרת ב\n========\n\nגוף\n"
+    out = docs_handlers.docs_get_section(_TextBackend(rst), path="x")
+    assert out["ok"]
+    assert [(t["title"], t["level"]) for t in out["toc"]] == [
+        ("כותרת א", 1), ("כותרת ב", 2)]
+    assert out["toc"][1]["breadcrumb"] == ["כותרת א", "כותרת ב"]

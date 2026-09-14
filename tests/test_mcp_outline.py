@@ -298,8 +298,17 @@ def test_total_counts_matches_and_not_the_whole_file():
 # ---------------------------------------------------------------------------
 
 
-def test_a_non_python_file_says_so_instead_of_returning_nothing():
-    assert extract_outline("Title\n=====\n", "docs/page.rst") == {
+def test_a_file_with_no_scanner_says_so_instead_of_returning_nothing():
+    """**הסיומת כאן הייתה ``.rst``, והטסט התיישן ברגע שנוספה לו תמיכה.**
+
+    שם הטסט גם אמר "non_python" אחרי שנוספו שלוש שפות. הסיומת נגזרת עכשיו
+    **מתוך** מה שהראוטר אינו מכיר, כדי שהיא לא תוכל להתיישן שוב בשקט.
+    """
+    from mcp_server.outline import _SCANNERS
+
+    assert ".md" not in _SCANNERS, "בחר סיומת אחרת שהראוטר אינו מכיר"
+
+    assert extract_outline("# Title\n", "docs/page.md") == {
         "status": "no_outline",
         "reason": "unsupported_language",
     }
@@ -745,8 +754,19 @@ def test_the_outline_and_a_range_read_agree_on_where_a_symbol_lives():
 
 
 def test_an_unsupported_language_reaches_the_caller_as_a_status():
+    """**הסיומת כאן הייתה ``.rst``, והטסט התיישן ברגע שנוספה לו תמיכה.**
+
+    זו בדיוק הסחיפה שההערה מעל ``_SCANNERS`` מתריעה נגדה, רק מהצד השני:
+    שם רשימה בתיאור שנשארת מאחור, וכאן טסט שנוקב בסיומת שהפכה נתמכת.
+    הסיומת נבחרת עכשיו **מתוך** מה שהראוטר אינו מכיר, ולא נכתבת ביד —
+    ולכן היא לא יכולה להתיישן שוב בשקט.
+    """
+    from mcp_server.outline import _SCANNERS
+
+    assert ".md" not in _SCANNERS, "בחר סיומת אחרת שהראוטר אינו מכיר"
+
     out = repo_handlers.get_repo_file(
-        _backend("Title\n=====\n"), repo="r", path="page.rst", outline=True
+        _backend("# Title\n"), repo="r", path="page.md", outline=True
     )
 
     assert out == {
@@ -2632,6 +2652,7 @@ def _over_the_ceiling(kind):
     return {
         "rows-py": ("a.py", "".join(f"def f{i}(): pass\n" for i in range(over))),
         "rows-css": ("a.css", ".a{}" * over),
+        "rows-rst": ("a.rst", "a\n=\n\n" * over),
         "rows-html": ("a.html", "<a id=x></a>" * over),
         "stack-css": ("a.css", "a{" * over),
         "stack-html-tags": ("a.html", "<a>" * over),
@@ -2648,7 +2669,7 @@ def _over_the_ceiling(kind):
 @pytest.mark.parametrize(
     "kind",
     [
-        "rows-py", "rows-css", "rows-html",
+        "rows-py", "rows-css", "rows-html", "rows-rst",
         "stack-css", "stack-html-tags", "stack-html-jinja", "stack-html-pending",
     ],
 )
@@ -3813,3 +3834,605 @@ def test_a_block_that_is_never_closed_is_reported_to_the_last_line():
     assert [(row["name"], row["start"], row["end"]) for row in result["symbols"]] == [
         (".a", 1, 3)
     ]
+
+
+# ---------------------------------------------------------------------------
+# RST — הכותרות כתוכן עניינים, והתוויות כיעדים
+#
+# ``.rst`` אינו כמו שאר השפות כאן, וההבדל נמדד: הוא **דליל**. הקובץ הגדול
+# בקורפוס הוא 2,869 שורות ותשעה סימבולים בלבד — כמעט כולו ``list-table``
+# אחת — והצפוף שבהם הוא 38. כלומר אף קובץ אינו חוצה את עמוד ברירת המחדל,
+# והעמוד הגדול הוא 4,760 בתים מול תקציב של 256,000. ``page_too_large`` אינו
+# ניתן להגעה כאן, וזה נכתב מראש כדי שלא ייראה כהפתעה.
+# ---------------------------------------------------------------------------
+
+_DOCS = _REPO_ROOT / "docs"
+
+
+def _rst(text, **kw):
+    return extract_outline(text, "page.rst", **kw)
+
+
+def _rst_files():
+    """כל קובצי ה-RST בריפו. **תיקייה שקיימת וריקה היא כישלון, לא דילוג.**"""
+    if not _DOCS.is_dir():  # pragma: no cover - הריפו תמיד מכיל אותה
+        pytest.skip(f"{_DOCS} אינה קיימת")
+
+    found = sorted(_DOCS.rglob("*.rst"))
+
+    assert found, f"{_DOCS} קיימת אך אין בה RST"
+
+    return found
+
+
+#: תווי הפיסוק שיכולים לשמש כקו כותרת ב-RST — כל 32 תווי ה-ASCII שאינם
+#: אלפאנומריים. **נכתב כאן ואינו מיובא מ-``services.rst_parser``**, מאותו
+#: נימוק שכתוב ב-``.. warning::`` של ``_structural_blocks``: אורקל שגוזר את
+#: הציפייה מאותו מקור שהוא בודק הוא טאוטולוגי.
+_RST_PUNCTUATION = frozenset(c for c in map(chr, range(0x21, 0x7F)) if not c.isalnum())
+
+
+def _rst_is_line(stripped):
+    return bool(stripped) and stripped[0] in _RST_PUNCTUATION and all(
+        c == stripped[0] for c in stripped
+    )
+
+
+def _rst_heading_starts(lines):
+    """שורות הפתיחה של כל הכותרות בקובץ, לפי צורת הטקסט בלבד.
+
+    **אורקל שנכתב כאן בנפרד, ואינו קורא לפארסר ואינו מייבא ממנו.** הוא
+    מכיר שתי צורות — טקסט ואחריו קו, וקו/טקסט/אותו קו בדיוק — ומחזיר את
+    השורה שבה הכותרת **מתחילה**: שורת ה-overline כשיש אחד, ושורת הטקסט
+    כשאין. זו בדיוק ההבחנה שהסורק עושה בין ``heading_line`` ל-``title_line``,
+    והיא נבדקת כאן מהטקסט ולא מהפלט.
+
+    הוא **אינו** מודל את כלל האורך המלא של docutils ואת קדימות התבניות של
+    ``Body`` — אלה מקובעים ב-``tests/test_rst_parser.py``, ביחידה שבה הם
+    חיים. כאן נבדק **המיפוי**: שכל כותרת שהצורה מזהה מופיעה במפה, ושהיא
+    מופיעה בשורה הנכונה.
+    """
+    starts, index, total = [], 0, len(lines)
+    while index < total:
+        current = lines[index]
+        if not current.strip() or current[:1] in (" ", "\t"):
+            index += 1
+            continue
+        top = current.rstrip()
+        if _rst_is_line(top) and index + 2 < total:
+            middle, bottom = lines[index + 1], lines[index + 2].rstrip()
+            if middle.strip() and bottom == top and not _rst_is_line(middle.rstrip()):
+                starts.append(index + 1)
+                index += 3
+                continue
+        if not _rst_is_line(top) and index + 1 < total:
+            bottom = lines[index + 1].rstrip()
+            if _rst_is_line(bottom) and lines[index + 1][:1] not in (" ", "\t"):
+                if len(top) <= len(bottom) or len(bottom) >= 4:
+                    starts.append(index + 1)
+                    index += 2
+                    continue
+        index += 1
+    return starts
+
+
+def _rst_label_lines(lines):
+    """שורות ה-``.. _label:`` בקובץ, ושמן — נגזר מהטקסט ולא מהמפה.
+
+    נוסח בנפרד ובצורה אחרת מזו שבמימוש: פיצול ידני במקום רג'קס אחד, כדי
+    שטעות בתבנית לא תעבור את שני הצדדים באותה צורה.
+    """
+    found = {}
+    for number, raw in enumerate(lines, 1):
+        if not raw.startswith(".."):
+            continue
+        rest = raw[2:]
+        if rest[:1] not in (" ", "\t"):
+            continue
+        rest = rest.lstrip(" \t")
+        if not rest.startswith("_") or rest.startswith("__"):
+            continue
+        body = rest[1:].rstrip()
+        if not body.endswith(":") or body[:1] in (" ",):
+            continue
+        name = body[:-1]
+        if not name or ":" in name:
+            continue
+        found[number] = "_" + name
+    return found
+
+
+class TestRstHeadingsAreMappedOnEveryFile:
+    """המונים, על **כל** קובצי ה-RST ולא על אחד.
+
+    זה החור שנתן לבאגים של PR 1 לשרוד: מונה תקין שרץ על קובץ אחד היה ירוק
+    בזמן שהבאג ישב באחרים.
+    """
+
+    def test_every_heading_the_shape_finds_is_in_the_map_at_the_right_line(self):
+        """אורקל השורה — זה המונה שתפס את CRIT-001 ב-PR 1.2."""
+        checked = 0
+        for path in _rst_files():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            lines = text.split("\n")
+            mapped = {
+                row["start"]
+                for row in _rst(text)["symbols"]
+                if not row["name"].startswith("_")
+            }
+            expected = set(_rst_heading_starts(lines))
+
+            assert mapped == expected, (
+                f"{path.name}: רק במפה {sorted(mapped - expected)[:3]}, "
+                f"רק באורקל {sorted(expected - mapped)[:3]}"
+            )
+            checked += len(expected)
+
+        assert checked > 1000, f"האורקל מצא רק {checked} כותרות — חשוד מדי"
+
+    def test_the_reported_line_carries_the_reported_title(self):
+        """``start`` מצביע על שורה שנושאת את הכותרת, או על ה-overline שלה.
+
+        **הבדיקה היא שהטקסט בשורה הוא סופית של השם, ולא שהשם נפרס בנקודה.**
+        ההבחנה הזאת נמדדה ואינה סטייל: **90 מתוך 1,337 הכותרות בקורפוס
+        מכילות נקודה בעצמן**, ב-55 קבצים — כמעט כולם עמודי autodoc עם
+        כותרות כמו ``chatops.permissions module``. גרסה ראשונה של הטסט
+        לקחה "את מה שאחרי הנקודה האחרונה" ונפלה עליהן, ובצדק: **השם המנוקד
+        הוא תווית ל-``symbol=`` ואינו מבנה שאפשר לפרק חזרה.** מי שמפרק
+        אותו חוזר לאותה הנחה שגויה.
+        """
+        for path in _rst_files():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            lines = text.split("\n")
+            for row in _rst(text)["symbols"]:
+                if row["name"].startswith("_"):
+                    continue
+                here = lines[row["start"] - 1].strip()
+                below = lines[row["start"]].strip() if row["start"] < len(lines) else ""
+
+                assert row["name"].endswith(here) or row["name"].endswith(below), (
+                    f"{path.name}:{row['start']} — השם {row['name']!r} "
+                    f"אינו נגמר בטקסט של השורה ולא בזה שאחריה"
+                )
+
+    def test_the_ranges_form_a_tree_and_never_cross(self):
+        """כל שני טווחים הם או זרים או מוכלים — תוכן עניינים הוא עץ.
+
+        **טענה על מבנה ולא שחזור של חישוב**, ולכן היא אינה טאוטולוגית:
+        באג ב-``end_line`` שיגרום לשני סעיפים להיחתך זה בזה ייתפס כאן, וגם
+        באג שיקבע רמה שגויה לאח. ובכוונה **לא** דרך פירוק השם — ראו הטסט
+        שמעליו.
+        """
+        for path in _rst_files():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            rows = sorted(
+                (row["start"], row["end"], row["name"])
+                for row in _rst(text)["symbols"]
+                if not row["name"].startswith("_")
+            )
+            for index, (start, end, name) in enumerate(rows):
+                assert start <= end, f"{path.name}: {name} הפוך"
+                for other_start, other_end, other in rows[index + 1 :]:
+                    if other_start > end:
+                        break
+                    assert other_end <= end, (
+                        f"{path.name}: {name} ({start}-{end}) חותך את "
+                        f"{other} ({other_start}-{other_end})"
+                    )
+
+    def test_a_title_that_contains_a_dot_keeps_it(self):
+        """הממצא, מקובע: הנקודה בשם אינה מפריד בלעדי.
+
+        **נמדד: 90 כותרות ב-55 קבצים מכילות נקודה**, ורובן עמודי autodoc.
+        כלומר ``a.b.c`` יכול להיות "סעיף ``c`` תחת ``a.b``" או "סעיף
+        ``b.c`` תחת ``a``", ואי אפשר להכריע מהשם לבדו. זו התנהגות מוצהרת
+        ולא באג — מאותו נימוק שבגללו ``style#theme..foo`` אפשרי ב-HTML:
+        השם הוא תווית ל-``symbol=``, וההשתייכות נקראת **מטווח השורות**.
+
+        הטסט נגזר מהקורפוס ואינו נוקב בשם קובץ.
+        """
+        with_dot = [
+            (path, row)
+            for path in _rst_files()
+            for row in _rst(path.read_text(encoding="utf-8", errors="replace"))["symbols"]
+            if not row["name"].startswith("_")
+            and "." in path.read_text(encoding="utf-8", errors="replace").split("\n")[
+                row["start"] - 1
+            ]
+        ]
+
+        assert with_dot, "אין בקורפוס כותרת עם נקודה — הטסט מאבד את מה שהוא בודק"
+
+        path, row = with_dot[0]
+        line = path.read_text(encoding="utf-8", errors="replace").split("\n")[
+            row["start"] - 1
+        ].strip()
+
+        assert row["name"].endswith(line)
+        assert "." in line, line
+
+    def test_the_independent_counter_can_actually_fail(self):
+        """מונה שאינו מסוגל להפיל מימוש שגוי אינו ראיה.
+
+        שני קלטים שבהם האורקל **חייב** לחלוק על מפה שגויה: כותרת עם
+        overline, שבה ``title_line`` ו-``heading_line`` נבדלים, וכותרת
+        שהקו שמתחתיה קצר מ-4 ולכן אינה כותרת.
+        """
+        overlined = "======\nכותרת\n======\n\nגוף\n"
+
+        assert _rst_heading_starts(overlined.split("\n")) == [1]
+        assert [r["start"] for r in _rst(overlined)["symbols"]] == [1]
+
+        too_short = "כותרת ארוכה\n===\n\nגוף\n"
+
+        assert _rst_heading_starts(too_short.split("\n")) == []
+        assert _rst(too_short)["symbols"] == []
+
+
+class TestRstLabelTargets:
+    """יעדי ``.. _label:`` — מה ש-``:ref:`` מצביע אליו."""
+
+    # ---- יעד חיצוני: הבלוק נמשך על שורה מוזחת ----
+    #
+    # ``parse_target`` שב-docutils מחזיר ``refuri`` על **כל** תוכן בבלוק,
+    # בלי לבדוק שזה URI. לכן המבחן הוא "השורה הבאה מוזחת ולא ריקה" ולא
+    # "נראית כמו URI" — הצורה השנייה הייתה מפספסת בדיוק את אותו יעד.
+
+    @pytest.mark.parametrize(
+        "continuation",
+        [
+            pytest.param("   http://example.com", id="http-uri"),
+            pytest.param("   mailto:a@b.c", id="mailto-uri"),
+            pytest.param("\thttp://example.com", id="tab-indented"),
+            pytest.param("   just some words", id="plain-prose"),
+        ],
+    )
+    def test_a_target_whose_block_continues_is_external_and_not_in_the_map(
+        self, continuation
+    ):
+        """יעד חיצוני אינו יעד של ``:ref:``, ולכן אינו במפה.
+
+        ``.. _site:`` ואחריו שורה מוזחת הוא יעד חיצוני — נמדד ב-docutils
+        שהוא מקבל ``refuri`` בכל ארבע הצורות כאן, כולל זו שבה ה"URI" הוא
+        פרוזה רגילה. סוכן שמחפש עוגן שבור וימצא אותו במפה יישלח למקום
+        שאין בו עוגן.
+
+        הצורה שבה ה-URI באותה שורה נחסמת ממילא בעיגון לסוף השורה, ויש לה
+        כיסוי נפרד; כאן נבדקת הצורה שבה הוא בשורה הבאה.
+        """
+        out = _rst(f".. _site:\n{continuation}\n\nגוף\n")
+
+        assert [row for row in out["symbols"] if row["name"].startswith("_")] == []
+
+    def test_a_heading_whose_text_starts_with_an_underscore_is_not_a_label(self):
+        """ההבחנה שהתיעוד מלמד נגזרת מהטווח, ולא מצורת השם.
+
+        כותרת יכולה להתחיל בקו תחתון — בעמודי autodoc זה שכיח — ואז השם
+        שלה נראה בדיוק כמו שם של תווית. ההבדל היחיד שמחזיק הוא הטווח:
+        לתווית ``start`` שווה ל-``end``, ולכותרת יש טווח. בקורפוס אין
+        היום כותרת כזאת, ולכן זו מחלקת קלט שהקורפוס אינו מכסה.
+        """
+        rows = _rst("_foo\n====\n\nגוף\n\n.. _real:\n\nעוד\n")["symbols"]
+        by_name = {row["name"]: (row["start"], row["end"]) for row in rows}
+
+        assert by_name["_foo"][0] < by_name["_foo"][1], "כותרת נושאת טווח"
+        assert by_name["_real"][0] == by_name["_real"][1], "תווית היא שורה אחת"
+
+    def test_a_label_as_the_document_s_last_byte_does_not_crash_the_scan(self):
+        """הקלט היחיד שמפעיל את שומר הגבול ב-``document.lines[number]``.
+
+        **וזה הטסט שהיה חסר, אחרי שהראשון שכתבתי לא נגע בשומר בכלל.**
+        השומר נגיש רק כש-``number`` שווה לאורך ``document.lines`` — כלומר
+        כשהתווית היא האיבר האחרון ואין בקובץ שורה חדשה בסופו בכלל. נמדד:
+        על ``".. _site:"`` יש שורה אחת, ``number`` הוא 1, ולכן
+        ``number < len(...)`` שקרי והמוצא הוא המחרוזת הריקה. ובלי השומר
+        אותו קלט זורק ``IndexError``.
+
+        כל צורה אחרת משאירה לפחות שני איברים: ``".. _site:\n"`` משאיר
+        איבר ריק סופי, ושתי צורות ההמשך המוזח נותנות ``1 < 2``. כלומר
+        אף אחת מהן לא הייתה מבחינה בהסרת השומר, וזה מה שמעבר האימות
+        היריב תפס.
+
+        המוטציה שמפילה: להחליף את השומר ב-``document.lines[number]`` בלי
+        התנאי.
+        """
+        labels = [row for row in _rst(".. _site:")["symbols"]
+                  if row["name"].startswith("_")]
+
+        assert labels, "תווית שהיא הבית האחרון בקובץ היא יעד פנימי תקין"
+        assert [(row["name"], row["start"], row["end"]) for row in labels] == [("_site", 1, 1)]
+
+    def test_an_indented_continuation_that_is_the_last_line_still_ends_the_block(self):
+        """הגבול: ההמשך המוזח הוא השורה האחרונה, ואין אחריה שורה ריקה.
+
+        ארבעת המקרים שלמעלה נגמרים ב-``\\n\\nגוף\\n``, ולכן אף אחד מהם
+        אינו נוגע בענף שבו ``number`` הוא השורה שלפני האחרונה. הקריאה
+        ``document.lines[number]`` חסומה בגבול, וזה מה שמקבע שהחסימה אינה
+        מחזירה בטעות מחרוזת ריקה על ההמשך עצמו.
+        """
+        for text in (".. _site:\n   http://example.com",
+                     ".. _site:\n   http://example.com\n"):
+            labels = [row for row in _rst(text)["symbols"] if row["name"].startswith("_")]
+
+            assert labels == [], text
+
+    @pytest.mark.parametrize(
+        "text,why",
+        [
+            pytest.param(".. _site:\n\nגוף\n", "שורה ריקה מסיימת את הבלוק", id="blank-after"),
+            pytest.param(".. _site:\n", "סוף קובץ", id="end-of-file"),
+            pytest.param(".. _site:\nפסקה\n", "שורה לא מוזחת", id="flush-left-after"),
+            pytest.param(".. _a:\n.. _b:\n\nגוף\n", "תווית היא explicit markup", id="two-targets"),
+            pytest.param(
+                ".. _site:\n\n   http://example.com\n\nגוף\n",
+                "שורה ריקה לפני המוזחת",
+                id="blank-then-indented",
+            ),
+        ],
+    )
+    def test_a_target_whose_block_ends_stays_internal(self, text, why):
+        """הבקרה, ובה חמש צורות — כדי שהתיקון לא יחסום יעד פנימי תקין.
+
+        כל החמש נמדדו ב-docutils כיעד **פנימי**, ולכן כולן חייבות להישאר
+        במפה. השורה הריקה שלפני המוזחת היא המקרה החד: היא מסיימת את הבלוק,
+        ולכן ה-URI שאחריה אינו חלק מהיעד.
+        """
+        labels = [row for row in _rst(text)["symbols"] if row["name"].startswith("_")]
+
+        assert labels, why
+        assert all(row["start"] == row["end"] for row in labels)
+
+    def test_every_label_in_the_repo_is_a_one_line_symbol(self):
+        total = 0
+        for path in _rst_files():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            expected = _rst_label_lines(text.split("\n"))
+            mapped = {
+                row["start"]: row["name"]
+                for row in _rst(text)["symbols"]
+                if row["name"].startswith("_")
+            }
+
+            assert mapped == expected, f"{path.name}: {mapped} מול {expected}"
+
+            # **ושני חצאי ההבחנה, לא רק אחד.** ה-``.. warning::`` ב-
+            # ``docs/mcp-server.rst`` מלמד סוכן לזהות תווית בכך ש-``start``
+            # שווה ל-``end`` ושלכותרת יש טווח. החצי הראשון נבדק כאן מאז
+            # ומתמיד; החצי השני — שאף כותרת אינה ``start == end`` — הוא מה
+            # שהופך את זה למבחן הבחנה, ובלעדיו ההבטחה אינה מוגנת. נמדד על
+            # הקורפוס: אפס כותרות בטווח אפס, מול 29 תוויות.
+            #
+            # **והסיווג נלקח מ-``expected``, שנגזר מהטקסט הגולמי, ולא
+            # מצורת השם.** גרסה ראשונה שאלה אם המקטע האחרון בשם מתחיל בקו
+            # תחתון — וכותרת שהטקסט שלה מתחיל בקו תחתון הייתה נספרת שם
+            # כתווית, ואז האסרשן היה נופל עליה מהסיבה הלא נכונה. נמדד:
+            # ``_foo`` עם קו מתחתיה חוזרת בטווח 1-9 ומסווגת "תווית" לפי
+            # השם. בקורפוס אין כותרת כזאת היום, ולכן זה היה פגם רדום.
+            for row in _rst(text)["symbols"]:
+                if row["start"] in expected:
+                    assert row["start"] == row["end"], f"{path.name}: {row}"
+                else:
+                    assert row["start"] < row["end"], f"{path.name}: {row}"
+            total += len(expected)
+
+        assert total >= 20, f"האורקל מצא רק {total} תוויות — חשוד מדי"
+
+    def test_an_indented_label_is_not_a_target(self):
+        """תווית מוזחת יושבת בתוך בלוק, ואינה explicit markup.
+
+        **וזה מקרה חי ולא סינתטי:** התווית המוזחת היחידה בקורפוס יושבת
+        בתוך ``.. code-block:: rst`` בעמוד העוגנים היציבים, כלומר היא
+        דוגמה בתוך בלוק ליטרלי. הטסט נגזר מהקורפוס ואינו נוקב בשם הקובץ.
+        """
+        indented = [
+            path
+            for path in _rst_files()
+            if any(
+                line.lstrip().startswith(".. _") and line[:1] in (" ", "\t")
+                for line in path.read_text(encoding="utf-8", errors="replace").split("\n")
+            )
+        ]
+
+        assert indented, "אין בקורפוס תווית מוזחת — הטסט מאבד את מה שהוא בודק"
+
+        for path in indented:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            names = {r["name"] for r in _rst(text)["symbols"]}
+            for number, line in enumerate(text.split("\n"), 1):
+                if not (line.lstrip().startswith(".. _") and line[:1] in (" ", "\t")):
+                    continue
+                inner = line.strip()[3:].rstrip().rstrip(":")
+
+                assert "_" + inner not in names, f"{path.name}:{number} נכנס למפה"
+
+    def test_an_external_target_is_not_a_ref_destination(self):
+        """``.. _site: http://x`` הוא יעד חיצוני, ו-``:ref:`` אינו מגיע אליו.
+
+        נמדד ב-docutils 0.23 שהצורה הזאת מקבלת ``refuri`` בזמן שהצורה
+        הפנימית אינה. בקורפוס יש אפס כאלה, ולכן זו הגנה על ריפו אחר.
+        """
+        out = _rst(".. _site: http://example.com\n\nגוף\n")
+
+        assert out["symbols"] == []
+
+    def test_an_anonymous_target_has_no_name_to_point_at(self):
+        """``.. __:`` הוא יעד אנונימי, ואין שם שאפשר להפנות אליו."""
+        out = _rst(".. __:\n\nגוף\n")
+
+        assert out["symbols"] == []
+
+    def test_symbol_underscore_reaches_every_label_and_filters_by_substring(self):
+        """ההבטחה שכתובה בתיאור הכלי, ולכן היא דורשת טסט.
+
+        **והשם של הטסט הזה תוקן, כי הקודם טען מה שהקוד אינו עושה.** הוא
+        נקרא "the labels and only them", והסינון במנתב הוא **בהכלה** ולא
+        בתחילית — כלומר כל כותרת שיש בה קו תחתון חוזרת גם היא. הטסט הקודם
+        בחר את הקובץ עם הכי הרבה תוויות ועבר במקרה, כי באותו קובץ אין
+        כותרת כזאת. נמדד על הקורפוס: ``symbol="_"`` מחזיר 29 תוויות
+        ו-133 שורות שאינן תוויות, ב-79 קבצים.
+
+        לכן הטענות כאן הן שתיים, ושתיהן נגזרות מהתוצאה: **כל** תווית
+        בקובץ נגישה דרך השאילתה, וכל שורה שחוזרת נושאת את המונח. הטענה
+        השנייה היא מה שמפריד סינון אמיתי מסינון שאינו מסנן כלום.
+        """
+        path = max(
+            _rst_files(),
+            key=lambda p: len(
+                _rst_label_lines(p.read_text(encoding="utf-8", errors="replace").split("\n"))
+            ),
+        )
+        text = path.read_text(encoding="utf-8", errors="replace")
+        expected_labels = _rst_label_lines(text.split("\n"))
+        mapped = _rst(text)
+        found = _rst(text, symbol="_")
+
+        assert found["total"] > 0
+        assert found["total"] < mapped["total"]
+        # כל שורה שחוזרת נושאת את המונח — זה הסינון עצמו.
+        for row in found["symbols"]:
+            assert "_" in row["name"]
+        # וכל תווית שיש בקובץ נגישה דרך השאילתה. האורקל נגזר מהטקסט הגולמי
+        # ואינו מייבא מהמימוש.
+        returned_labels = {
+            (row["name"], row["start"]) for row in found["symbols"]
+            if row["name"].startswith("_") and row["start"] == row["end"]
+        }
+        assert len(returned_labels) == len(expected_labels)
+
+    def test_a_heading_with_an_underscore_also_answers_symbol_underscore(self):
+        """הצד השני של אותה הבטחה, ובקובץ אמיתי מהקורפוס.
+
+        עמוד autodoc נושא כותרת כמו ``services.backup\\_service module`` —
+        הטקסט הגולמי, עם ה-escape של RST, לפי ההכרעה ש-``start`` מצביע
+        לשורה בקובץ המקור. ולכן שני דברים שהתיאור אומר במפורש חייבים
+        טסט: ``symbol="_"`` מחזיר גם אותה, ו-``symbol=`` בלי ה-escape
+        **אינו** מוצא אותה.
+        """
+        pages = [
+            p for p in _rst_files()
+            if "\\_" in p.read_text(encoding="utf-8", errors="replace").split("\n")[0]
+        ]
+        assert pages, "אין בקורפוס עמוד autodoc עם escape בכותרת"
+        text = pages[0].read_text(encoding="utf-8", errors="replace")
+        heading = text.split("\n")[0].strip()
+
+        assert heading in {row["name"] for row in _rst(text)["symbols"]}
+        assert heading in {row["name"] for row in _rst(text, symbol="_")["symbols"]}
+        # ובלי ה-escape — אפס. זה מה ש-WARN-005 תיעד, וזו התנהגות מוצהרת.
+        assert _rst(text, symbol=heading.replace("\\_", "_"))["total"] == 0
+
+
+class TestRstLineEndings:
+    """סיומות שורה — מחלקת קלט שאין לה אף מופע בקורפוס.
+
+    .. warning::
+
+       כל 208 קובצי ה-RST בריפו הם LF, ולכן **אף אחד** מהמונים על הקורפוס
+       אינו יכול לגלות כאן באג. זה בדיוק מה שהסתיר לולאה אינסופית שנעלה
+       את לולאת האירועים: המונה הבלתי-תלוי, דיף האפס וההסכמה עם docutils
+       על כל קובץ — כולם היו ירוקים. הטסטים כאן נגזרים מהמחלקה, לא מקובץ.
+    """
+
+    def test_a_crlf_file_maps_its_labels_and_not_only_its_headings(self):
+        """הכותרות עבדו ב-CRLF והתוויות לא, וזו א-סימטריה שקטה.
+
+        זיהוי הכותרת עושה ``rstrip`` בעצמו ולכן ה-``\r`` לא הפריע לו,
+        אבל ``_LABEL`` נגמר ב-``:[ \t]*$`` — ו-``\r`` אינו ``[ \t]``
+        ואינו newline עבור ``$``. התוצאה הייתה מפה עם עץ כותרות מלא
+        ו**אפס** תוויות, בלי שום סימן בתשובה שמשהו דולג.
+
+        **והטסט הזה עובר בזכות הנרמול ב-``parse_document``, לא בזכות
+        שינוי ב-``_LABEL``** — ``\r\n`` ← ``\n`` בגבול הקלט מוחק את
+        מחלקת ה-CRLF לשני הסימפטומים במקום אחד. ``rstrip("\r")`` ברג'קס
+        נשקל ונדחה כשני טלאים על אותו שורש.
+        """
+        source = "כותרת\n=====\n\n.. _עוגן-שלי:\n\nגוף.\n"
+        for ending, text in (("LF", source), ("CRLF", source.replace("\n", "\r\n"))):
+            rows = _rst(text)
+            names = [row["name"] for row in rows["symbols"]]
+            assert names == ["כותרת", "_עוגן-שלי"], f"{ending}: {names!r}"
+            labels = [row for row in rows["symbols"] if row["name"].startswith("_")]
+            assert [(row["start"], row["end"]) for row in labels] == [(4, 4)], ending
+
+    def test_a_crlf_file_reports_the_same_ranges_as_the_same_file_in_lf(self):
+        """ולא רק אותם שמות — אותם **טווחים**.
+
+        הנרמול מותר רק משום שהוא אינו משנה כמה שורות יש, ולכן זו הטענה
+        שמקבעת אותו: אם מישהו יחליף אותו ב-``splitlines()``, שורה ריקה
+        סופית תיעלם, כל ``end`` יזוז ב-1, והטענה תיפול.
+        """
+        source = "ראש\n===\n\nגוף\n\nתת\n---\n\nעוד\n"
+        lf = _rst(source)["symbols"]
+        crlf = _rst(source.replace("\n", "\r\n"))["symbols"]
+        assert [(r["name"], r["start"], r["end"]) for r in lf] == [
+            (r["name"], r["start"], r["end"]) for r in crlf
+        ]
+
+
+class TestRstThroughTheToolItself:
+    """``claude-md-snippets/testing.md`` כלל 1 — הבדיקה עוברת דרך ממשק הצרכן."""
+
+    def test_the_map_and_a_range_read_agree_on_where_a_section_lives(self):
+        """המסלול השלם: מפה ← טווח. אם הם לא מסכימים, המפה חסרת ערך."""
+        text = (
+            "Doc\n===\n\nintro\n\nהתקנה\n------\n\nגוף ההתקנה\n\n"
+            "דרישות\n~~~~~~\n\nגוף הדרישות\n"
+        )
+        backend = _backend(text)
+
+        found = repo_handlers.get_repo_file(
+            backend, repo="r", path="page.rst", outline=True, symbol="דרישות"
+        )["symbols"][0]
+        body = repo_handlers.get_repo_file(
+            backend, repo="r", path="page.rst", lines=[found["start"], found["end"]]
+        )["content"]
+
+        assert found["name"] == "Doc.התקנה.דרישות"
+        assert body.startswith("דרישות\n~~~~~~")
+        assert "גוף הדרישות" in body
+        assert "גוף ההתקנה" not in body
+
+    def test_a_label_range_reads_back_the_label_line(self):
+        text = "Doc\n===\n\n.. _my-anchor:\n\nסעיף\n-----\n\nגוף\n"
+        backend = _backend(text)
+
+        found = repo_handlers.get_repo_file(
+            backend, repo="r", path="page.rst", outline=True, symbol="_my-anchor"
+        )["symbols"][0]
+        body = repo_handlers.get_repo_file(
+            backend, repo="r", path="page.rst", lines=[found["start"], found["end"]]
+        )["content"]
+
+        assert body == ".. _my-anchor:"
+
+    def test_a_file_with_no_headings_is_ok_and_not_no_outline(self):
+        """קובץ בלי כותרות אינו כשל — הוא מפה ריקה, כמו CSS בלי כללים."""
+        out = repo_handlers.get_repo_file(
+            _backend("just prose\nand more prose\n"),
+            repo="r",
+            path="page.rst",
+            outline=True,
+        )
+
+        assert out["status"] == "outline"
+        assert out["total"] == 0
+        assert out["symbols"] == []
+
+    def test_the_densest_real_file_fits_the_first_page_and_the_byte_budget(self):
+        """נמדד: הצפוף בקורפוס הוא 38 סימבולים, והעמוד 4,760 בתים.
+
+        **הטענה היא שאף קובץ אינו חוצה את עמוד ברירת המחדל**, כלומר מסלול
+        העימוד אינו נגיש ב-RST — וזו התנהגות שצריכה להיות ידועה מראש.
+        """
+        import json
+
+        worst = 0
+        for path in _rst_files():
+            out = _rst(path.read_text(encoding="utf-8", errors="replace"))
+
+            assert out["total"] < repo_handlers.OUTLINE_PER_PAGE_DEFAULT, (
+                f"{path.name} חוצה את עמוד ברירת המחדל — העימוד נעשה נגיש"
+            )
+            worst = max(worst, len(json.dumps(out["symbols"], ensure_ascii=False).encode()))
+
+        assert worst < repo_handlers.OUTPUT_BYTE_BUDGET, worst
