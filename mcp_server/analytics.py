@@ -213,10 +213,15 @@ _PAYLOAD_PROPERTIES = frozenset(
 # **למה מאפיין נגזר ולא הפרמטרים עצמם.** ההבחנה חיה ב-``$mcp_parameters``,
 # והוא חסום — ונשאר חסום, כי בכלי הכתיבה הוא הקובץ עצמו. לכן במקום לפתוח את
 # הארגומנטים, השרת מחשב בעצמו **תווית אחת מתוך קבוצה סגורה** ושולח אותה. מה
-# שיוצא הוא המילה ``outline``, ``range`` או ``full`` — לעולם לא ערך שהגיע
-# מהקורא. הנגזרת נשענת על **נוכחות** הפרמטר, לא על תוכנו.
+# שיוצא הוא המילה ``outline``, ``query``, ``range`` או ``full`` — לעולם לא ערך
+# שהגיע מהקורא. הנגזרת נשענת על **נוכחות** הפרמטר, לא על תוכנו.
 CK_READ_MODE_KEY = "ck_read_mode"
 READ_MODE_OUTLINE = "outline"
+#: ``codekeeper_get_file`` עם ``query`` — מופעים במקום תוכן. תווית משלו ולא
+#: ``full``: זו קריאה **זולה** באותה משפחה של ``outline``, ובלי הערך הזה כל
+#: קריאה כזו הייתה נספרת כקריאת קובץ מלא — כלומר מנפחת בדיוק את העמודה
+#: שהמאפיין נבנה כדי למדוד.
+READ_MODE_QUERY = "query"
 READ_MODE_RANGE = "range"
 READ_MODE_FULL = "full"
 
@@ -225,7 +230,9 @@ READ_MODE_FULL = "full"
 #: אפשר לשלוח כל מחרוזת, כלומר בדיוק החור שהשער קיים כדי לסגור. באג בקולבק
 #: שיחזיר משהו אחר מפיל את הערך, לא מעביר אותו.
 _ALLOWED_CUSTOM_PROPERTIES: dict[str, frozenset[str]] = {
-    CK_READ_MODE_KEY: frozenset({READ_MODE_OUTLINE, READ_MODE_RANGE, READ_MODE_FULL}),
+    CK_READ_MODE_KEY: frozenset(
+        {READ_MODE_OUTLINE, READ_MODE_QUERY, READ_MODE_RANGE, READ_MODE_FULL}
+    ),
 }
 
 #: שני הכלים שמקבלים ``lines``, ורק הם.
@@ -294,7 +301,7 @@ def read_mode_properties(
 ) -> Optional[dict[str, str]]:
     """``event_properties`` callback: tag a file read with **how** it read.
 
-    Returns ``{"ck_read_mode": "outline" | "range" | "full"}`` for a
+    Returns ``{"ck_read_mode": "outline" | "query" | "range" | "full"}`` for a
     ``tools/call`` on one of :data:`FILE_READ_TOOLS`, and ``None`` for
     everything else. That ``None`` is the interesting half. The SDK runs this
     callback on *every* auto-captured event — ``$mcp_initialize`` and
@@ -304,15 +311,23 @@ def read_mode_properties(
     reads, so the column built to prove that ``outline`` replaced content reads
     would have been inflated by traffic that read no file at all.
 
-    **Only presence is read, never a value.** ``lines`` carries line numbers and
-    ``outline`` carries a flag, and neither is echoed: the return value is one
-    of three literals defined in this module, and the gate rejects anything
-    else. This is what makes the split possible while ``$mcp_parameters`` stays
-    blocked.
+    **Only presence is read, never a value.** ``lines`` carries line numbers,
+    ``query`` carries the caller's search string and ``outline`` carries a flag,
+    and none of them is echoed: the return value is one of four literals defined
+    in this module, and the gate rejects anything else. This is what makes the
+    split possible while ``$mcp_parameters`` stays blocked — and ``query`` is
+    exactly the parameter that makes it matter, because it is free text the
+    caller wrote.
 
-    ``outline`` is checked first, so a call passing both — which the tool
-    rejects as ``outline_and_lines`` — is counted as an outline read. That call
-    reads no content either way, so the cheap column is the honest place for it.
+    The cheap modes are checked first, so a call passing two of them — which the
+    tool rejects as ``outline_and_lines`` or ``query_and_lines`` — is counted as
+    the cheap read. That call reads no content either way, so the cheap column is
+    the honest place for it. ``query`` is checked before ``lines`` for the same
+    reason: it returns match positions, not content.
+
+    ``query`` is read only for the tools in :data:`FILE_READ_TOOLS`, which is
+    what keeps ``codekeeper_search_code`` — a different tool with a parameter of
+    the same name — out of this column entirely.
 
     Never raises. ``resolve_event_properties`` in the SDK would swallow an
     exception here anyway, but analytics must not depend on someone else's
@@ -329,6 +344,8 @@ def read_mode_properties(
             arguments = {}
         if arguments.get("outline"):
             return {CK_READ_MODE_KEY: READ_MODE_OUTLINE}
+        if arguments.get("query") is not None:
+            return {CK_READ_MODE_KEY: READ_MODE_QUERY}
         if arguments.get("lines") is not None:
             return {CK_READ_MODE_KEY: READ_MODE_RANGE}
         return {CK_READ_MODE_KEY: READ_MODE_FULL}

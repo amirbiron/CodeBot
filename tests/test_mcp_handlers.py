@@ -20,7 +20,18 @@ class _RecordingBackend:
     # בולע אותו, והבדיקה "קובץ חדש" הפעילה בפועל את **ענף הכשל** — אותו
     # ענף שבדיקה אחרת כבר מכסה. שתי בדיקות על מסלול אחד, ואפס על המסלול
     # של קובץ חדש אמיתי.
-    def get_file(self, user_id, *, file_name=None, file_id=None, version=None, lines=None):
+    def get_file(
+        self,
+        user_id,
+        *,
+        file_name=None,
+        file_id=None,
+        version=None,
+        lines=None,
+        query=None,
+        context_lines=0,
+        max_results=handlers.QUERY_RESULTS_DEFAULT,
+    ):
         self.calls.append(("get_file", user_id, file_name, file_id, version, lines))
         return None
 
@@ -146,7 +157,18 @@ def test_save_file_fills_a_language_when_omitted():
 class _BackendWithExistingFile(_RecordingBackend):
     """‏``get_file`` מחזיר מסמך — כלומר הקובץ כבר קיים."""
 
-    def get_file(self, user_id, *, file_name=None, file_id=None, version=None, lines=None):
+    def get_file(
+        self,
+        user_id,
+        *,
+        file_name=None,
+        file_id=None,
+        version=None,
+        lines=None,
+        query=None,
+        context_lines=0,
+        max_results=handlers.QUERY_RESULTS_DEFAULT,
+    ):
         # אותה צורת tuple כמו ב-``_RecordingBackend``: מי שקורא לפי אינדקס
         # לא אמור לקבל משהו אחר רק כי זו תת-מחלקה.
         self.calls.append(("get_file", user_id, file_name, file_id, version, lines))
@@ -163,7 +185,18 @@ class _BackendWithExistingFile(_RecordingBackend):
 class _BackendWhoseLookupFails(_RecordingBackend):
     """הבדיקה זורקת — כלומר לא ידוע אם הקובץ קיים."""
 
-    def get_file(self, user_id, *, file_name=None, file_id=None, version=None, lines=None):
+    def get_file(
+        self,
+        user_id,
+        *,
+        file_name=None,
+        file_id=None,
+        version=None,
+        lines=None,
+        query=None,
+        context_lines=0,
+        max_results=handlers.QUERY_RESULTS_DEFAULT,
+    ):
         raise RuntimeError("lookup down")
 
     def file_exists(self, user_id, *, file_name):

@@ -24,7 +24,15 @@ import logging
 import uuid as _uuid
 from typing import Any, Callable
 
-from .handlers import apply_line_range, normalize_line_range
+from .handlers import (
+    QUERY_AND_LINES,
+    QUERY_OUTPUT_BYTE_BUDGET,
+    QUERY_RESULTS_DEFAULT,
+    apply_line_range,
+    file_query_error,
+    normalize_line_range,
+    scan_file_query,
+)
 
 # ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
 # אותה תבנית ייבוא עמיד שבה משתמש ``webapp/sticky_notes_api``: בסביבות
@@ -199,6 +207,39 @@ def _apply_range_to_file(out: dict[str, Any], lines: Any) -> dict[str, Any]:
     return out
 
 
+def _apply_query_to_file(
+    out: dict[str, Any], query: str, *, context_lines: int, max_results: int
+) -> dict[str, Any]:
+    """מחליף את תוכן הקובץ ב**מופעים** של ``query`` בתוכו.
+
+    אותה תבנית שבה ``outline=true`` מחזיר מפה במקום תוכן ב-
+    ``codekeeper_get_repo_file``: המטא-דאטה של הקובץ נשארת, התוכן יורד,
+    ובמקומו נכנסים השדות של ``codekeeper_search_repo`` — ``query``, ``count``,
+    ``total``, ``results`` ו-``truncated``, באותם שמות בדיוק.
+
+    **התוכן יורד, וזה כל הרעיון.** ``_HEAVY_FIELDS`` הוא אותה רשימה שמסירה את
+    התוכן בכל מסלול רשימה/חיפוש אחר בשרת הזה, ולא רשימה שנייה שצריך לזכור
+    לעדכן: שדה תוכן חדש שיתווסף לה יורד גם מכאן.
+
+    **החיתוך נעשה מ-``code``**, מאותו נימוק בדיוק שכתוב ב-
+    :func:`_apply_range_to_file` — ``_full`` כבר מבטיח שהוא הטקסט הקנוני.
+
+    **המעטפת מלאה ולא מסמך.** ``get_file`` ב-``server.py`` עוטף מסמך רגיל
+    ב-``{"found": true, "file": ...}``; כאן המעטפת נבנית כאן, ולכן היא נושאת
+    ``status`` שמסמן במפורש שזו תשובת מופעים. ``found`` נשאר במקומו כדי
+    שצרכן קיים שמסתעף עליו ימשיך לעבוד.
+    """
+    found = scan_file_query(
+        out.get("code") or "",
+        query,
+        max_results=max_results,
+        context_lines=context_lines,
+        byte_budget=QUERY_OUTPUT_BYTE_BUDGET,
+    )
+    meta = {key: val for key, val in out.items() if key not in _HEAVY_FIELDS}
+    return {"found": True, "status": "query", "file": meta, "query": query, **found}
+
+
 def _full(doc: dict[str, Any]) -> dict[str, Any]:
     """Serialize a single file WITH content (regular ``code`` or large ``content``)."""
     out = _clean(doc, include_code=True)
@@ -350,7 +391,21 @@ class ProductionBackend:
         file_id: str | None = None,
         version: int | None = None,
         lines: Any = None,
+        query: Any = None,
+        context_lines: int = 0,
+        max_results: int = QUERY_RESULTS_DEFAULT,
     ) -> dict[str, Any] | None:
+        # שני מצבי קריאה שאינם מצטברים, ושניהם נבדקים **לפני** הקריאה למסד:
+        # שאילתה פסולה לא צריכה לשלם טעינת מסמך שלם רק כדי להיפסל בסוף. זו
+        # אותה החלטה ואותו מיקום כמו ``outline_and_lines`` ב-``repo_backend``,
+        # והיא יושבת ב-backend ולא ב-``handlers`` כדי שגם קורא שאינו עובר דרך
+        # שכבת ה-handlers יקבל את הסירוב ולא התעלמות שקטה מאחד הפרמטרים.
+        if query is not None:
+            if lines is not None:
+                return {"ok": False, "error": QUERY_AND_LINES}
+            query_error = file_query_error(query)
+            if query_error:
+                return {"ok": False, "error": query_error}
         dbm = self._require_dbm()
         if file_id:
             doc = dbm.get_file_by_id(file_id)
@@ -368,6 +423,10 @@ class ProductionBackend:
         if not doc:
             return None
         out = _full(doc)
+        if query is not None:
+            return _apply_query_to_file(
+                out, query, context_lines=context_lines, max_results=max_results
+            )
         if lines is None:
             return out
         return _apply_range_to_file(out, lines)

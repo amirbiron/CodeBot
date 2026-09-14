@@ -34,7 +34,9 @@ from .primer import agent_primer_route
 _INSTRUCTIONS = (
     "Access the current user's private code files and collections stored in "
     "CodeKeeper. Use codekeeper_search_code / codekeeper_list_files to find files "
-    "(metadata only), and codekeeper_get_file to read full contents. Use "
+    "(metadata only), and codekeeper_get_file to read full contents — or, when "
+    "you only need one part of a file, codekeeper_get_file with lines=[start, "
+    'end] for a range and query="..." for the lines that contain a string. Use '
     "codekeeper_save_file to create a NEW file — it refuses a name that is already "
     "taken — and codekeeper_edit_file / codekeeper_append_file to change an "
     "existing file, which is also cheaper because the whole file is not resent "
@@ -60,6 +62,32 @@ _RANGE_DOC = (
     "included) instead of the whole file; the reply then carries a `range` "
     "block with the file's total_lines so you know what you did not get. "
     "An `end` past the end of the file is clipped; a start past it is an error."
+)
+
+# תיאור הפרמטר ``query`` של ``codekeeper_get_file``.
+#
+# ``lines`` עונה על "תן לי את החלק הזה" ו-``query`` עונה על "איפה בקובץ זה
+# יושב" — ולכן שני התיאורים נקראים יחד, והמשפט על השרשור ביניהם הוא העיקר:
+# סוכן שקיבל ``line`` בלי לדעת מה לעשות איתו ימשוך שוב את הקובץ המלא, וזה
+# בדיוק מה שהפרמטר בא למנוע. הדוגמה נקובה בצורתה המלאה ולא כ"טווח סביבו",
+# כי ``line`` הוא מספר בודד ו-``lines`` דורש זוג.
+_QUERY_DOC = (
+    'Pass query="needle" to get the matching lines INSTEAD of the content, '
+    "when you want one field or one rule out of a file and would otherwise "
+    "pull the whole thing. The reply carries count, total, truncated and a "
+    "results list whose entries have a `line` and a `snippet` — the same "
+    "field names codekeeper_search_repo returns, and context_lines=N (0-10) "
+    "adds context_before / context_after around each hit exactly as it does "
+    "there. Each `line` is the anchor for the next call: read around it with "
+    "lines=[line - 20, line + 20], or lines=[line, line] for that one line. "
+    "Matching is plain case-insensitive substring — no regex, no stemming, no "
+    "word boundaries, so a special character is just a character. Zero "
+    "matches is a success with an empty results list, never an error. At most "
+    "50 hits come back by default, and max_results raises that as far as 100; "
+    "truncated tells you matches were left out, and total says how many there "
+    "were in the file. Passing "
+    "query and lines together is refused as query_and_lines — ask where, then "
+    "read the range."
 )
 
 # Shared annotations: every tool here is a non-destructive, idempotent read over
@@ -234,6 +262,8 @@ def build_mcp(
         description=(
             "Get a file's full content by name or id (optional version number). "
             + _RANGE_DOC
+            + " "
+            + _QUERY_DOC
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -243,6 +273,9 @@ def build_mcp(
         file_id: str | None = None,
         version: int | None = None,
         lines: StrictLines | None = None,
+        query: str | None = None,
+        context_lines: StrictInt = 0,
+        max_results: int = handlers.QUERY_RESULTS_DEFAULT,
     ) -> dict:
         doc = handlers.get_file(
             backend,
@@ -251,12 +284,23 @@ def build_mcp(
             file_id=file_id,
             version=version,
             lines=lines,
+            query=query,
+            context_lines=context_lines,
+            max_results=max_results,
         )
         if doc is None:
             return {"found": False}
         # מעטפת שגיאה של טווח לא חוקי אינה "קובץ" — היא מוחזרת כפי שהיא,
         # באותה צורה שבה ``codekeeper_get_repo_file`` מדווח על אותה שגיאה.
         if doc.get("ok") is False:
+            return doc
+        # תשובת ``query`` היא כבר מעטפת שלמה — ``found`` ו-``file`` בתוכה,
+        # ולצידם המופעים. עטיפה נוספת הייתה קוברת אותה תחת ``file``.
+        #
+        # התנאי הוא **מה שביקשנו** ולא צורת מה שחזר: בדיקה על
+        # ``doc["status"]`` הייתה מסתעפת לפי שדה במסמך של המשתמש, ומסמך
+        # שנושא במקרה שדה בשם הזה היה משנה את צורת התשובה.
+        if query is not None:
             return doc
         return {"found": True, "file": doc}
 

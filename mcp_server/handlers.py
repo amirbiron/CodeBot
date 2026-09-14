@@ -11,6 +11,7 @@ never pass a client-supplied user id here.
 from __future__ import annotations
 
 import html
+import json
 import re
 from typing import Annotated, Any
 
@@ -45,6 +46,41 @@ StrictLines = Annotated[list[StrictInt], Field(strict=True)]
 # קודי השגיאה של קריאת טווח. אותם קודים בדיוק בשני הכלים.
 LINE_RANGE_INVALID = "invalid_line_range"
 LINE_RANGE_OUT_OF_BOUNDS = "range_out_of_bounds"
+
+# קודי השגיאה של חיפוש בתוך קובץ (``codekeeper_get_file`` עם ``query``).
+# ``QUERY_TOO_SHORT`` הוא אותו קוד שכבר מחזיר ``codekeeper_search_repo`` על
+# שאילתה שאין בה די, כי זו אותה שאלה ואין סיבה לאוצר מילים שני.
+QUERY_AND_LINES = "query_and_lines"
+QUERY_TOO_SHORT = "query_too_short"
+QUERY_INVALID = "invalid_query"
+
+# התקרות של חיפוש בתוך קובץ. **אותם מספרים בדיוק** כמו ב-
+# ``repo_handlers.SEARCH_RESULTS_DEFAULT`` / ``SEARCH_RESULTS_MAX`` /
+# ``CONTEXT_LINES_MAX`` / ``OUTPUT_BYTE_BUDGET``, כי ``query`` מחזיר את צורת
+# התשובה של ``codekeeper_search_repo`` — ושתי תקרות שונות לאותה צורת תשובה הן
+# בדיוק הסוג של הפער שמייצר באגים.
+#
+# **משוכפלים כאן ולא מיובאים, וזו הגבלה אמיתית ולא העדפה:** ``repo_handlers``
+# מייבא ``_clamp`` מהמודול הזה, וייבוא הפוך היה מעגלי. אותה מוסכמה שכבר קיימת
+# בין ``analytics.py`` ל-``server.py``.
+#
+# **ומה שסוגר את הפער הוא אכיפה, לא זיכרון:**
+# ``tests/test_mcp_file_query.py`` משווה את שני העותקים **וגם** מעגן כל אחד
+# למספר ליטרלי שכתוב בטסט. שוויון לבדו אינו מספיק — הוא נשאר ירוק גם אם שני
+# העותקים ישונו יחד לערך שגוי, כלומר אוכף עקביות ולא נכונות.
+QUERY_RESULTS_DEFAULT = 50
+QUERY_RESULTS_MAX = 100
+QUERY_CONTEXT_LINES_MAX = 10
+QUERY_OUTPUT_BYTE_BUDGET = 256_000
+
+# תקרת הטקסט של רשומה אחת — **בבתים, ולא בתווים**.
+#
+# ``codekeeper_search_repo`` חותך ``[:500]`` תווים (``git_mirror_service``),
+# והמספר 500 נלקח משם. מה שהוחלף היא **היחידה**: תו עברי הוא שני בתים ותו CJK
+# שלושה, ולכן חסם בתווים אינו אומר דבר על גודל התשובה בפועל — נמדד בפרויקט
+# הזה שעמוד שנחסם ב-200 תווים לרשומה הגיע ל-323,000 בתים מול תקציב של 256,000.
+# החיתוך עצמו נעשה על גבול תו ולעולם לא באמצע אחד; ראו :func:`clip_to_bytes`.
+QUERY_SNIPPET_MAX_BYTES = 500
 
 
 def normalize_line_range(lines: Any) -> tuple[int, int] | str:
@@ -120,6 +156,131 @@ def apply_line_range(text: str, start: int, end: int) -> dict[str, Any] | str:
     }
 
 
+def clip_to_bytes(text: str, max_bytes: int) -> str:
+    """חותך ``text`` לכל היותר ``max_bytes`` בתים ב-UTF-8, **על גבול תו**.
+
+    ``text.encode("utf-8")[:n]`` לבדו מחזיר רצף בתים פגום כשהגבול נוחת באמצע
+    תו רב-בייטי — והוא אינו זורק שם, אלא אצל הצרכן שמנסה לפענח אותו, רחוק
+    מהמקום שגרם לזה. הפענוח כאן מיידי, ולכן מה שיוצא הוא תמיד מחרוזת תקינה.
+
+    ``errors="ignore"`` מפיל **רק** את הסיומת החתוכה ולא יותר: הקלט הוא ``str``
+    ולכן ה-UTF-8 שנוצר ממנו תקין לכל אורכו, והחלק הלא-תקין היחיד שיכול להיווצר
+    מחיתוך הוא רצף חלקי בזנב.
+    """
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def file_query_error(query: Any) -> str | None:
+    """מחזיר את **קוד השגיאה** של ``query``, או ``None`` כשהיא שמישה.
+
+    הכיוון הזה נאמר במפורש כי הוא הפוך לאינטואיציה: ערך אמיתי פירושו סירוב,
+    ו-``None`` פירושו שהכול תקין. הקורא כותב ``if err:`` ולא ``if not err:``.
+
+    ``isinstance`` ולא הסתמכות על הסכימה: מול ``pydantic 2.12.3`` הטיפוס
+    ``str | None`` אכן דוחה ``int``/``float``/``bool``/``list``/``dict``
+    (נמדד), אבל זו רשת נוספת לקוראים שאינם עוברים דרך הסכימה — בדיוק כמו
+    הבדיקה המקבילה ב-:func:`normalize_line_range`.
+
+    **מחרוזת ריקה או רווחים בלבד נדחות, ולא נקראות כ"בלי פרמטר".** ``query``
+    ריק מתאים לכל מיקום בקובץ ואינו מבקש דבר; קריאתו כהיעדר הייתה מחזירה את
+    הקובץ המלא לקורא שביקש מופעים — כלומר תשובה תקינה שאין בה שום סימן שמה
+    שביקש לא קרה.
+
+    **מה שנבדק הוא ``strip()``, ומה שמחפשים הוא המקור.** ‏``query`` אינו מקוצץ
+    לפני החיפוש: חיפוש של הזחה (``"    return"``) הוא שימוש אמיתי, וקיצוץ היה
+    משנה בשקט את מה שהקורא ביקש. זו סטייה מכוונת מ-``codekeeper_search_repo``,
+    שכן מקצץ.
+    """
+    if not isinstance(query, str):
+        return QUERY_INVALID
+    if not query.strip():
+        return QUERY_TOO_SHORT
+    return None
+
+
+def scan_file_query(
+    text: str,
+    query: str,
+    *,
+    max_results: int,
+    context_lines: int,
+    byte_budget: int,
+) -> dict[str, Any]:
+    """מוצא את השורות שבהן ``query`` מופיע, בצורת התשובה של ``search_repo``.
+
+    מחזיר ``{"count", "total", "results", "truncated"}`` — אותם שמות שדות, ולכל
+    פגיעה ``line`` ו-``snippet``, ועם ``context_lines`` גם ``context_before``
+    ו-``context_after``. ``total`` הוא כל המופעים בקובץ ו-``count`` הוא כמה
+    מהם הוחזרו בפועל, בדיוק כמו שם.
+
+    **הנחת כניסה:** ``query`` עבר את :func:`file_query_error`. השער יושב בקורא,
+    לפני הקריאה למסד, כדי ששאילתה פסולה לא תשלם קריאת מסמך שלם.
+
+    **סריקת מחרוזת, לא רג'קס ולא stemming.** זה מה שמבדיל את הפרמטר הזה
+    מ-``codekeeper_search_code`` (``$text`` של מונגו, שמתאים למילים שלמות),
+    ומ-``codekeeper_search_repo`` שעובר ל-``-E`` כשהשאילתה נראית כמו רג'קס.
+    כאן תו מיוחד הוא תו, ותו לא.
+
+    **ההתאמה אינה רגישה לרישיות**, כמו ב-``codekeeper_search_repo`` שמריץ
+    ``git grep -i``. ‏``casefold`` ולא ``lower``, אותה בחירה כמו ``symbol=``
+    באאוטליין. ‏``casefold`` יכול לשנות אורך (``ß`` ← ``ss``), וזה לא משנה
+    כאן: מה שנבדק הוא הכלה בשורה, ואין שימוש במיקום שהוא מחזיר.
+
+    **הפיצול לשורות זהה ל-**\\ :func:`count_lines` **ול-**\\
+    :func:`apply_line_range` — ``split("\\n")``. זה מה שמבטיח שכל ``line``
+    שחוזר מכאן הוא שורה שאפשר באמת לבקש ב-``lines=[line, line]``; פיצול אחר
+    היה מייצר מפה שמצביעה לשומקום.
+    """
+    lines = text.split("\n") if text else []
+    needle = query.casefold()
+    hits = [i for i, line in enumerate(lines) if needle in line.casefold()]
+    total = len(hits)
+
+    results: list[dict[str, Any]] = []
+    used = 0
+    # חריגה מתקרת המופעים היא התנהגות מוצהרת ולא חיתוך שקט: ``truncated``
+    # נדלק לפני הלולאה, כי הוא נגזר מ-``total`` ולא ממה שהספיק להיכנס.
+    truncated = total > max_results
+    for idx in hits[:max_results]:
+        row: dict[str, Any] = {
+            "line": idx + 1,
+            "snippet": _snippet(lines[idx]),
+        }
+        # שני המפתחות מתווספים אך ורק כשביקשו הקשר, בדיוק כמו ב-
+        # ``repo_backend.search`` — תשובה בלי ``context_lines`` נושאת את אותם
+        # מפתחות בשני הכלים.
+        if context_lines > 0:
+            row["context_before"] = [_snippet(x) for x in lines[max(0, idx - context_lines) : idx]]
+            row["context_after"] = [_snippet(x) for x in lines[idx + 1 : idx + 1 + context_lines]]
+        # נמדד על הסריאליזציה האמיתית ולא בספירת תווים ולא בהערכה פר-רשומה:
+        # ``ensure_ascii=False`` כי זה מה שיוצא בפועל, ובעברית ההבדל בין
+        # השניים הוא פי שלושה.
+        used += len(json.dumps(row, ensure_ascii=False).encode("utf-8"))
+        if used > byte_budget:
+            truncated = True
+            break
+        results.append(row)
+
+    return {
+        "count": len(results),
+        "total": total,
+        "results": results,
+        "truncated": truncated,
+    }
+
+
+def _snippet(line: str) -> str:
+    """שורה אחת כפי שהיא נכנסת לתשובה: מקוצצת ברווחים, ואז חסומה בבתים.
+
+    ``strip()`` הוא מה ש-``codekeeper_search_repo`` עושה לכל שורה שהוא מחזיר
+    (``git_mirror_service``), והטקסט המלא של השורה זמין ממילא ב-``lines=``.
+    """
+    return clip_to_bytes(line.strip(), QUERY_SNIPPET_MAX_BYTES)
+
+
 def _clamp(value: Any, lo: int, hi: int, default: int) -> int:
     try:
         ivalue = int(value)
@@ -158,11 +319,25 @@ def get_file(
     file_id: str | None = None,
     version: int | None = None,
     lines: Any = None,
+    query: Any = None,
+    context_lines: Any = 0,
+    max_results: Any = QUERY_RESULTS_DEFAULT,
 ) -> dict[str, Any] | None:
     if not file_name and not file_id:
         return None
+    # ההצמדה יושבת כאן ולא ב-backend, כמו כל שאר ההצמדות בשכבה הזו: ערך מחוץ
+    # לטווח נצמד ואינו מכשיל את הקריאה. **הדחייה** של ``query`` פסול ושל
+    # ``query``+``lines`` יושבת דווקא ב-backend, בראש המתודה — שם היא מובטחת
+    # גם לקורא שאינו עובר דרך כאן, והיא עדיין קודמת לקריאה למסד.
     return backend.get_file(
-        user_id, file_name=file_name, file_id=file_id, version=version, lines=lines
+        user_id,
+        file_name=file_name,
+        file_id=file_id,
+        version=version,
+        lines=lines,
+        query=query,
+        context_lines=_clamp(context_lines, 0, QUERY_CONTEXT_LINES_MAX, 0),
+        max_results=_clamp(max_results, 1, QUERY_RESULTS_MAX, QUERY_RESULTS_DEFAULT),
     )
 
 
