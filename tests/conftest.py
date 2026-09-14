@@ -285,10 +285,10 @@ def stub_profiler_api():
     return _install
 
 
-#: נדלק כשהשער למטה הכריע שאין דפדפן, כדי ש-``pytest_terminal_summary``
-#: יאמר את זה בקול. בלי זה הדילוג נבלע בתוך אות ``s`` אחת מבין מאות,
-#: ואי אפשר לענות על "האם בדיקות הדפדפן רצו בכלל?".
-_BROWSER_SKIP_REASON: list[str] = []
+#: הקידומת שהודעת דילוג נושאת ב-``longrepr``. מקור: ``_pytest/reports.py``
+#: בגרסה המותקנת — לדילוג, ``longrepr`` הוא ``(נתיב, שורה, הודעה)``,
+#: וההודעה מגיעה מ-``_getreprcrash`` עם הקידומת הזאת.
+_SKIP_PREFIX = "Skipped: "
 
 
 @pytest.fixture(scope="session")
@@ -336,41 +336,64 @@ def chromium_executable():
             )
             browser.close()
     except Exception as exc:  # pragma: no cover - תלוי בסביבה
-        # השורה הראשונה בלבד לשורת הסיכום: Playwright מחזיר אחריה תיבת
-        # ASCII בת עשר שורות עם הוראות התקנה, ותיבה כזאת בתוך שורת סיכום
-        # הופכת אותה לבלתי קריאה. הטקסט המלא נשמר בסיבת הדילוג, ששם הוא
-        # באמת עוזר — ``pytest -rs`` מציג אותו.
-        _BROWSER_SKIP_REASON.append(str(exc).strip().split("\n")[0])
+        # **הסיבה נמסרת ל-pytest ולא נרשמת בשום מקום נוסף.** גרסה קודמת
+        # דחפה אותה גם למשתנה ברמת המודול, וזה בדיוק המקור שלא עבד
+        # בתצורה שה-CI מריץ — הנימוק המלא ב-``_browser_skip_reason``.
+        # הטקסט המלא נכנס כאן במכוון: ``pytest -rs`` מציג אותו, ושורת
+        # הסיכום חותכת אותו לשורה הראשונה בעצמה.
         pytest.skip(f"אין Chromium שאפשר להרים: {exc}")
     return executable
 
 
-def _collected_browser_skip(terminalreporter):
-    """הסיבה לדילוג של קובץ דפדפן **בזמן האיסוף**, אם היה כזה.
+def _browser_skip_reason(terminalreporter) -> str:
+    """הסיבה שבדיקות הדפדפן דולגו, מדיווחי הדילוג של pytest.
 
-    **``_BROWSER_SKIP_REASON`` לבדו אינו מספיק, וזה נמדד.** הוא נרשם
-    בתוך הפיקסצ'ר ``chromium_executable``, כלומר רק כשהפיקסצ'ר רץ — וזה
-    קורה כש-playwright **מותקן** ורק הדפדפן חסר. כשה-playwright עצמו
-    חסר, כל קובץ דפדפן מדלג את עצמו ב-``pytest.importorskip("playwright")``
-    בזמן האיסוף, הפיקסצ'ר אינו רץ בכלל, והרשימה נשארת ריקה — ולכן שורת
-    הסיכום שנכתבה במיוחד כדי לומר "הסוויטה הזאת דולגה ולמה" לא נכתבה
-    דווקא במצב השכיח.
+    **מקור אחד ולא שניים, וזה שורש התיקון.** הגרסה הקודמת החזיקה גם
+    משתנה ברמת המודול שהפיקסצ'ר ממלא, וגם קריאה מהדיווחים — ודווקא
+    הראשון הוא שלא עבד בתצורה שה-CI מריץ: תחת ``pytest -n auto`` הפיקסצ'ר
+    רץ ב-worker ו-``pytest_terminal_summary`` רץ ב-controller, ושם המשתנה
+    ריק לעולם. נמדד על קובץ דפדפן אחד בלי דפדפן: בלי ``-n`` השורה נכתבת,
+    ועם ``-n 2 --dist=loadscope`` הריצה מסתיימת ב-``4 skipped`` בלי שום
+    אזכור של הסוויטה.
 
-    נמדד: עם playwright חסום, הריצה מסתיימת ב-``1 skipped`` ובלי שום
-    אזכור של הסוויטה. הדוח של pytest **כן** מחזיק את העובדה — דיווח
-    דילוג עם ``when == "collect"`` שה-``nodeid`` שלו הוא הקובץ עצמו —
-    ומכאן היא נקראת.
+    **שתי צורות דילוג, ושתיהן נחוצות.** מקור: ``_pytest/reports.py``
+    ו-``_pytest/runner.py``, שם ``CollectReport.when`` הוא ``"collect"``
+    ו-``TestReport.when`` הוא אחד מ-``setup``/``call``/``teardown``:
+
+    - חבילת ``playwright`` חסרה לגמרי ← ``pytest.importorskip`` בזמן
+      האיסוף ← ``when == "collect"``, והמזהה הוא הקובץ.
+    - החבילה מותקנת והדפדפן חסר ← הפיקסצ'ר מדלג ← ``when == "setup"``,
+      והמזהה הוא ``קובץ::בדיקה``.
+
+    **והצורה השנייה היא זו שה-CI מגיע אליה**, ולכן היא שחייבת לעבוד:
+    ``requirements/base.txt`` מצמיד ``playwright``, ואין באף workflow
+    שלב שמתקין דפדפן. הסינון הקודם דרש ``when == "collect"`` ומזהה
+    שנגמר ב-``_browser.py``, ושתי הדרישות דוחות אותה.
+
+    בשתי הצורות ``longrepr`` הוא tuple של שלושה שהאיבר השלישי הוא
+    ההודעה. **אומת בהרצה על ``pytest 8.4.2`` עם ``pytest-xdist 3.8.0``**
+    — הגרסאות שמוצהרות ב-``requirements/development.txt`` וש-CI מתקין,
+    ולא אלה שמותקנות בקונטיינר הפיתוח — עם ``-n 2 --dist=loadscope``
+    ובלעדיו, ובשני המצבים שלושת הדיווחים הגיעו זהים.
+
+    ההודעה נחתכת לשורה הראשונה, כי Playwright מחזיר אחריה תיבת ASCII בת
+    עשר שורות עם הוראות התקנה, ותיבה כזאת בתוך שורת סיכום הופכת אותה
+    לבלתי קריאה. הטקסט המלא נשאר בסיבת הדילוג, ו-``pytest -rs`` מציג אותו.
     """
     for report in terminalreporter.stats.get("skipped", []):
-        nodeid = getattr(report, "nodeid", "") or ""
-        if getattr(report, "when", None) != "collect":
+        if getattr(report, "when", None) not in ("collect", "setup"):
             continue
-        if not nodeid.endswith("_browser.py"):
+        if "_browser.py" not in (getattr(report, "nodeid", "") or ""):
             continue
         longrepr = getattr(report, "longrepr", None)
-        if isinstance(longrepr, tuple) and len(longrepr) == 3:
-            return str(longrepr[2]).removeprefix("Skipped: ")
-        return str(longrepr)
+        # דורש את הצורה המדויקת ולא ``str(longrepr)``: על ``None`` ההמרה
+        # מחזירה ``"None"``, שהוא truthy, ואז שורת הסיכום מדווחת
+        # "הסיבה: None" — דיווח שגרוע מהיעדרו.
+        if not (isinstance(longrepr, tuple) and len(longrepr) == 3):
+            continue
+        message = str(longrepr[2]).removeprefix(_SKIP_PREFIX).strip()
+        if message:
+            return message.split("\n")[0]
     return ""
 
 
@@ -382,9 +405,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     ב-CI של הריפו הזה אין שלב שמתקין דפדפן, כלומר זה המצב **הרגיל** שם
     ולא תקלה — ובדיוק בגלל זה הוא צריך להיאמר, אחרת הוא נשכח.
     """
-    reason = _BROWSER_SKIP_REASON[0] if _BROWSER_SKIP_REASON else _collected_browser_skip(
-        terminalreporter
-    )
+    reason = _browser_skip_reason(terminalreporter)
     if not reason:
         return
     terminalreporter.write_sep("-", "בדיקות דפדפן")
