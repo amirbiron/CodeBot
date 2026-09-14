@@ -3,6 +3,7 @@ Unit tests for the Visual Rule Engine
 """
 
 import contextlib
+import signal
 
 import pytest
 
@@ -297,6 +298,10 @@ class TestEvaluationPerformance:
 
 
 
+@pytest.mark.skipif(
+    not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"),
+    reason="אין SIGALRM בפלטפורמה הזאת — כל המחלקה מודדת את השעון שלו",
+)
 class TestRegexTimeoutDoesNotStealTheCallersClock:
     """ההגנה מ-ReDoS משחזרת את השעון של מי שקרא לה, ולא רק את ה-handler.
 
@@ -323,7 +328,7 @@ class TestRegexTimeoutDoesNotStealTheCallersClock:
 
     @staticmethod
     @contextlib.contextmanager
-    def _holding(seconds):
+    def _holding(seconds, interval=0.0):
         """מדליק שעון ``ITIMER_REAL`` ומחזיר בסוף **בדיוק** את מה שהיה.
 
         **הבדיקות עצמן חייבות לשחזר, ומאותה סיבה שהקוד הנבדק חייב.**
@@ -336,30 +341,38 @@ class TestRegexTimeoutDoesNotStealTheCallersClock:
         ולכן גם מופחת הזמן שנצרך: החזרת הערך המקורי כמו שהוא הייתה
         מאריכה את התקרה של pytest בכל קריאה.
         """
-        import signal
         import time
 
-        held = signal.getitimer(signal.ITIMER_REAL)[0]
+        # **הזוג, ולא רק האיבר הראשון.** ``getitimer`` מחזיר
+        # ``(delay, interval)``, והעזר הזה נשא בעצמו את אותו פגם שהוא
+        # נכתב כדי למדוד: הוא שמר את הראשון בלבד, ולכן אם pytest היה
+        # מחזיק שעון **חוזר**, השחזור כאן היה הופך אותו לחד-פעמי.
+        held_delay, held_interval = signal.getitimer(signal.ITIMER_REAL)
         previous_handler = signal.signal(
             signal.SIGALRM, lambda signum, frame: None
         )
         started = time.monotonic()
-        signal.setitimer(signal.ITIMER_REAL, seconds)
+        signal.setitimer(signal.ITIMER_REAL, seconds, interval)
         try:
             yield
         finally:
             signal.signal(signal.SIGALRM, previous_handler)
-            if held:
-                left = held - (time.monotonic() - started)
-                signal.setitimer(signal.ITIMER_REAL, max(left, 0.001))
+            if held_delay:
+                left = held_delay - (time.monotonic() - started)
+                signal.setitimer(
+                    signal.ITIMER_REAL, max(left, 0.001), held_interval
+                )
             else:
                 signal.setitimer(signal.ITIMER_REAL, 0)
 
     @staticmethod
     def _remaining():
-        import signal
-
         return signal.getitimer(signal.ITIMER_REAL)[0]
+
+    @staticmethod
+    def _interval():
+        """מרווח החזרה של השעון — האיבר שאף בדיקה כאן לא הסתכלה עליו."""
+        return signal.getitimer(signal.ITIMER_REAL)[1]
 
     def test_an_outer_timer_survives_a_regex_evaluation(self):
         """השעון החיצוני נשאר דולק, ומה שנשאר בו קטן ממה שהיה.
@@ -379,6 +392,35 @@ class TestRegexTimeoutDoesNotStealTheCallersClock:
         assert remaining < self._OUTER_SECONDS, (
             "מה שנשאר אינו קטן מהמקור, כלומר הודלק שעון חדש ולא שוחזר הקיים"
         )
+
+    def test_a_repeating_outer_timer_keeps_repeating(self):
+        """שעון **חוזר** נשאר חוזר, ולא רק נשאר דולק.
+
+        **וזו הדרישה שאף בדיקה כאן לא בדקה.** ``getitimer`` מחזיר
+        ``(delay, interval)``: הראשון הוא מה שנשאר עד הירייה הבאה, והשני
+        הוא מרווח החזרה. הקוד שמר את הראשון בלבד והשחזור העביר ארגומנט
+        אחד, כלומר interval אפס — ושעון חוזר של צרכן חיצוני היה חוזר
+        כחד-פעמי, **בשקט**: הירייה הבאה כן מגיעה, וכל אלה שאחריה אינן.
+
+        נמדד: על ``setitimer(30, 5)`` הקוד שלפני התיקון החזיר מרווח
+        ``0.0`` אחרי הקריאה, והמתוקן מחזיר ``5.0``.
+
+        שלושת הטסטים שכאן הדליקו שעון חד-פעמי בלבד, ולכן אף אחד מהם לא
+        היה יכול לראות את זה — אותה צורה של "מונה שאינו מסוגל למצוא".
+
+        המוטציה שמפילה: ``getitimer(...)[0]`` במקום השמה לזוג, או הסרת
+        הארגומנט השלישי מ-``setitimer`` בשחזור.
+        """
+        with self._holding(self._OUTER_SECONDS, interval=5.0):
+            assert self._interval() == 5.0, "מצב 'שעון חוזר' לא נוצר"
+            assert ConditionOperators.regex("hello world", r"wor") is True
+            interval = self._interval()
+            remaining = self._remaining()
+
+        assert interval == 5.0, (
+            f"מרווח החזרה אבד ({interval}) — שעון חוזר הפך לחד-פעמי בשקט"
+        )
+        assert remaining > 0, "השעון החיצוני נמחק"
 
     def test_no_timer_is_left_running_when_there_was_none(self):
         """בקרה בכיוון ההפוך: אין שעון פנטום.

@@ -91,19 +91,31 @@ def test_no_python_source_carries_an_invalid_escape_sequence():
     )
 
 
-def test_the_scan_can_actually_find_one():
+def test_the_scan_can_actually_find_one(tmp_path):
     """מונה שאינו מסוגל למצוא דבר אינו ראיה.
 
     **בלי הבדיקה הזאת השומר שמעליה עובר גם על מימוש שבור לגמרי** — למשל
     כזה שמסנן לפי ``SyntaxWarning`` בגרסת פייתון שמדווחת
     ``DeprecationWarning``. זה לא היפותטי: זו הצורה הראשונה שנכתבה כאן,
     והיא החזירה אפס על ריפו שהיו בו שלושה מופעים.
-    """
-    planted = _REPO_ROOT / "tests" / "conftest.py"  # קובץ אמיתי, לא נכתב אליו
-    source = planted.read_text(encoding="utf-8")
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        compile(source + '\n_PLANTED = "\\ "\n', "planted", "exec")
-        messages = [str(item.message) for item in caught if "escape" in str(item.message)]
 
-    assert messages, "הסריקה אינה מוצאת escape לא חוקי שנשתל בכוונה"
+    **והעד עובר דרך** ``_invalid_escapes`` **עצמה, וזה כל העניין.** הצורה
+    הקודמת שחזרה את הסריקה בתוך הטסט — ``catch_warnings`` משלה, ``compile``
+    משלה, וסינון משלה על ``"escape"`` — ולכן היא הוכיחה ש**סריקה** מוצאת
+    escape שנשתל, ולא שהמימוש מוצא. מי שישבור את ``_invalid_escapes`` היה
+    מקבל אפס offenders בשומר, והעד היה ממשיך לעבור ומאשר את השבירה.
+
+    הקובץ המושתל נכתב ל-``tmp_path`` ולא לעץ המקור, לפי כלל הבטיחות
+    בפרויקט: טסט אינו כותב ואינו מוחק בתיקיות הקוד.
+    """
+    planted = tmp_path / "planted_escape.py"
+    planted.write_text('_PLANTED = "\\ "\n', encoding="utf-8")
+
+    assert _invalid_escapes(planted), "המימוש אינו מוצא escape לא חוקי שנשתל בכוונה"
+
+    # ובקרה בכיוון השני: קובץ נקי אינו מייצר ממצא, אחרת העד היה עובר גם
+    # על מימוש שמחזיר הודעה על כל קובץ.
+    clean = tmp_path / "clean.py"
+    clean.write_text('_CLEAN = r"\\ "\n', encoding="utf-8")
+
+    assert _invalid_escapes(clean) == [], "קובץ נקי אינו אמור לייצר ממצא"
