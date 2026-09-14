@@ -157,29 +157,100 @@ class TestTTLFieldMatchesTheWriter:
         assert ms.METRICS_TTL_INDEX_NAME == "metrics_ttl"
 
 
-class TestConflictingTTLIndexes:
-    def test_an_old_ttl_index_under_another_name_is_reported(self):
-        """``IndexOptionsConflict`` נובע משיתוף מפתח, לא משיתוף שם."""
-        from monitoring.metrics_storage import conflicting_ttl_indexes
+class _IndexInfoColl:
+    def __init__(self, info):
+        self._info = dict(info)
+        self.dropped: list[str] = []
 
-        class _Coll:
-            def index_information(self):
-                return {
-                    "_id_": {"key": [("_id", 1)]},
-                    "metrics_type_ts": {"key": [("ts", -1), ("type", 1)]},
-                    "metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 2592000},
-                    "ttl_cleanup_ts": {"key": [("ts", 1)], "expireAfterSeconds": 86400},
-                }
+    def index_information(self):
+        return dict(self._info)
 
-        assert conflicting_ttl_indexes(_Coll(), keep_name="metrics_ttl") == ["ttl_cleanup_ts"]
+    def drop_index(self, name):
+        self.dropped.append(str(name))
+        self._info.pop(str(name), None)
 
-    def test_a_non_ttl_index_on_the_same_field_is_left_alone(self):
-        """אינדקס רגיל אינו מתנגש עם TTL על אותו מפתח מבחינת המחיקה שלנו —
-        מפילים רק אינדקס TTL אחר, לא כל אינדקס שנוגע ב-``ts``."""
-        from monitoring.metrics_storage import conflicting_ttl_indexes
 
-        class _Coll:
-            def index_information(self):
-                return {"plain_ts": {"key": [("ts", 1)]}}
+class TestStaleTTLIndexes:
+    """לאוסף יש חלון שמירה אחד, ולכן אינדקס TTL אחד. כל השאר — שריד."""
 
-        assert conflicting_ttl_indexes(_Coll(), keep_name="metrics_ttl") == []
+    def test_both_kinds_of_leftover_are_returned(self):
+        """שני שרידים, ורק אחד מהם נראה לעין.
+
+        ``ttl_cleanup_ts`` על ``{ts: 1}`` **חוסם** את היצירה (IndexOptionsConflict
+        נובע משיתוף מפתח, לא משיתוף שם), ולכן מרגישים בו מיד. ‏``ttl_cleanup`` על
+        ``timestamp`` אינו חוסם ואינו מוחק — אין לשדה הזה כותב באוסף — ולכן אף
+        אחד לא מרגיש בו, והוא היה נשאר לנצח ומתוחזק בכל כתיבה.
+        """
+        from monitoring.metrics_storage import stale_ttl_indexes
+
+        coll = _IndexInfoColl(
+            {
+                "_id_": {"key": [("_id", 1)]},
+                "metrics_type_ts": {"key": [("ts", -1), ("type", 1)]},
+                "metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 2592000},
+                "ttl_cleanup_ts": {"key": [("ts", 1)], "expireAfterSeconds": 86400},
+                "ttl_cleanup": {"key": [("timestamp", 1)], "expireAfterSeconds": 86400},
+            }
+        )
+
+        assert sorted(stale_ttl_indexes(coll, keep_name="metrics_ttl")) == ["ttl_cleanup", "ttl_cleanup_ts"]
+
+    def test_the_index_we_own_is_kept_even_with_a_different_window(self):
+        """שינוי חלון מטופל ב-``collMod``, לא בהפלה."""
+        from monitoring.metrics_storage import stale_ttl_indexes
+
+        coll = _IndexInfoColl({"metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 86400}})
+        assert stale_ttl_indexes(coll, keep_name="metrics_ttl") == []
+
+    def test_indexes_without_ttl_are_never_touched(self):
+        """מפילים רק אינדקסי TTL — לא כל אינדקס שנוגע ב-``ts``."""
+        from monitoring.metrics_storage import stale_ttl_indexes
+
+        coll = _IndexInfoColl(
+            {
+                "plain_ts": {"key": [("ts", 1)]},
+                "metrics_type_ts": {"key": [("ts", -1), ("type", 1)]},
+            }
+        )
+        assert stale_ttl_indexes(coll, keep_name="metrics_ttl") == []
+
+
+class TestStartupDropsLeftovers:
+    def test_the_inert_timestamp_ttl_is_dropped_on_startup(self, monkeypatch):
+        """ה-endpoint ידני, ושריד שמחכה להרצה ידנית מחכה לנצח."""
+        dm = _import_manager(monkeypatch)
+        monkeypatch.delenv("METRICS_COLLECTION", raising=False)
+        coll = _IndexInfoColl(
+            {
+                "_id_": {"key": [("_id", 1)]},
+                "ttl_cleanup": {"key": [("timestamp", 1)], "expireAfterSeconds": 86400},
+            }
+        )
+
+        class _DB:
+            def __getitem__(self, name):
+                return coll
+
+        fake_self = types.SimpleNamespace(db=_DB())
+        dm.DatabaseManager._create_metrics_indexes(fake_self, lambda *a, **k: None)
+
+        assert coll.dropped == ["ttl_cleanup"]
+
+    def test_nothing_is_dropped_when_the_collection_is_clean(self, monkeypatch):
+        dm = _import_manager(monkeypatch)
+        monkeypatch.delenv("METRICS_COLLECTION", raising=False)
+        coll = _IndexInfoColl(
+            {
+                "_id_": {"key": [("_id", 1)]},
+                "metrics_type_ts": {"key": [("ts", -1), ("type", 1)]},
+                "metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 2592000},
+            }
+        )
+
+        class _DB:
+            def __getitem__(self, name):
+                return coll
+
+        dm.DatabaseManager._create_metrics_indexes(types.SimpleNamespace(db=_DB()), lambda *a, **k: None)
+
+        assert coll.dropped == []

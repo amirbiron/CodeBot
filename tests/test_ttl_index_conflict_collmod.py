@@ -180,8 +180,14 @@ class TestTTLChangeOnExistingIndex:
         assert collection.dropped == ["metrics_ttl"]
         assert collection.indexes["metrics_ttl"]["expireAfterSeconds"] == 2592000
 
-    def test_a_plain_index_on_the_same_key_is_not_converted(self, monkeypatch, events):
-        """המרת אינדקס רגיל ל-TTL דרך ``collMod`` אינה מתועדת, ולכן לא נשענים עליה."""
+    def test_a_plain_index_on_the_same_key_is_converted_to_ttl(self, monkeypatch, events):
+        """אינדקס רגיל בשם אחר על אותו מפתח חוסם את ה-TTL לצמיתות.
+
+        נמדד מול mongod 7.0.14: יצירת TTL על ``{ts: 1}`` כשקיים שם אינדקס רגיל
+        בשם אחר נדחית בקוד 85, ו-``collMod`` על אותו ``keyPattern`` **כן** ממיר
+        אותו ל-TTL (``{'expireAfterSeconds_new': 100, 'ok': 1.0}``, ו-
+        ``list_indexes`` מאשר). התיעוד אינו אומר זאת במפורש, ולכן זו מדידה.
+        """
         dm = _import_manager(monkeypatch)
         bucket = events(dm)
         collection = _Collection({"plain_ts": {"key": [("ts", 1)]}})
@@ -195,8 +201,32 @@ class TestTTLChangeOnExistingIndex:
             expire_after_seconds=2592000,
         )
 
-        assert db.commands == []
-        assert "db_create_index_conflict" in [name for name, _ in bucket]
+        assert collection.indexes["plain_ts"].get("expireAfterSeconds") == 2592000
+        assert collection.dropped == []
+        assert [name for name, _ in bucket] == ["db_index_ttl_updated"]
+
+    def test_enforce_drops_the_blocking_index_and_not_the_requested_name(self, monkeypatch, events):
+        """כש-``collMod`` נכשל, ההפלה חייבת להיות של מי שבאמת חוסם.
+
+        הפלה לפי השם שביקשנו נכשלת ב-"index not found", היצירה החוזרת מתנגשת
+        שוב, והתוצאה היא בדיוק הלולאה השקטה שהמסלול הזה קיים כדי לשבור.
+        """
+        dm = _import_manager(monkeypatch)
+        bucket = events(dm)
+        collection = _Collection({"ttl_cleanup_ts": {"key": [("ts", 1)], "expireAfterSeconds": 86400}})
+
+        dm.DatabaseManager.safe_create_index(
+            _Manager(_DB(collection, raises=True)),
+            "service_metrics",
+            [("ts", 1)],
+            name="metrics_ttl",
+            expire_after_seconds=2592000,
+            enforce=True,
+        )
+
+        assert collection.dropped == ["ttl_cleanup_ts"]
+        assert collection.indexes["metrics_ttl"]["expireAfterSeconds"] == 2592000
+        assert "db_index_created" in [name for name, _ in bucket]
 
     def test_an_identical_ttl_index_is_left_alone(self, monkeypatch, events):
         """הרצה חוזרת בעלייה של התהליך לא מפילה ולא בונה מחדש כלום."""

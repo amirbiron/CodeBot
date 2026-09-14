@@ -129,7 +129,13 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
             # אינדקס TTL ישן של 24 שעות בשם שגרסה קודמת של ה-endpoint יצרה.
             # הוא על אותו מפתח, ולכן חוסם את היצירה עד שמפילים אותו.
             self.service_metrics = _StubDeleteColl(
-                5, indexes={"ttl_cleanup_ts": {"key": [("ts", 1)], "expireAfterSeconds": 86400}}
+                5,
+                indexes={
+                    # חוסם: אותו מפתח, שם אחר
+                    "ttl_cleanup_ts": {"key": [("ts", 1)], "expireAfterSeconds": 86400},
+                    # אינרטי: אין שום כותב לשדה ``timestamp`` באוסף הזה
+                    "ttl_cleanup": {"key": [("timestamp", 1)], "expireAfterSeconds": 86400},
+                },
             )
             self.code_snippets = _StubCodeSnippetsColl()
 
@@ -173,8 +179,11 @@ async def test_maintenance_cleanup_purges_logs_and_drops_non_critical_indexes(mo
         assert (ttl.get("service_metrics_ts") or {}).get("name") == "metrics_ttl"
         # ה-TTL על ``timestamp`` הוסר: אין לשדה הזה כותב, והאינדקס לא מחק כלום.
         assert "service_metrics_timestamp" not in ttl
-        # האינדקס הישן שחסם את היצירה הופל — לפי מפתח, לא לפי שם קשיח
-        assert "ttl_cleanup_ts" in (ttl.get("service_metrics_pre_drop") or {}).get("dropped", [])
+        # שני השרידים הופלו — החוסם וגם האינרטי, שאיש לא מרגיש בו
+        assert sorted((ttl.get("service_metrics_pre_drop") or {}).get("dropped", [])) == [
+            "ttl_cleanup",
+            "ttl_cleanup_ts",
+        ]
 
         idx = payload.get("indexes") or {}
         dropped = set(idx.get("dropped") or [])
@@ -343,5 +352,79 @@ async def test_maintenance_cleanup_allows_token_via_query_param(monkeypatch):
                 assert resp2.status == 401
                 payload2 = await resp2.json()
                 assert payload2.get("error") == "unauthorized"
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_failed_ttl_creation_returns_500_and_restores_the_index(monkeypatch):
+    """אותה התנהגות כמו במראה ב-Flask: כשל ביצירת TTL אינו 200.
+
+    הסדר הוא drop ואז create, ולכן כשל ביצירה משאיר את האוסף בלי TTL בכלל —
+    מצב גרוע מזה שלפני הקריאה. ההגדרה הישנה חוזרת, והתשובה אומרת שנכשלה.
+    """
+    import services.webserver as ws
+
+    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-db-health-token", raising=True)
+
+    class _RefusingColl:
+        def __init__(self, indexes=None):
+            self._idx = dict(indexes or {})
+
+        def delete_many(self, _q):
+            return types.SimpleNamespace(deleted_count=0)
+
+        def index_information(self):
+            return dict(self._idx)
+
+        def drop_index(self, name):
+            self._idx.pop(str(name), None)
+
+        def create_index(self, keys, **kwargs):
+            if kwargs.get("expireAfterSeconds") == 30 * 24 * 3600:
+                raise RuntimeError("IndexOptionsConflict: simulated")
+            name = str(kwargs.get("name") or "idx")
+            meta = {"key": [(str(k), v) for k, v in list(keys)]}
+            if kwargs.get("expireAfterSeconds") is not None:
+                meta["expireAfterSeconds"] = kwargs["expireAfterSeconds"]
+            self._idx[name] = meta
+            return name
+
+    metrics = _RefusingColl({"metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 86400}})
+
+    class _StubDB(_StubDBBase):
+        def __init__(self):
+            self.slow_queries_log = _RefusingColl()
+            self.service_metrics = metrics
+            self.code_snippets = _RefusingColl({"_id_": {"key": [("_id", 1)]}})
+
+    import services.db_provider as dbp
+
+    monkeypatch.setattr(dbp, "get_db", lambda: _StubDB(), raising=True)
+
+    app = ws.create_app()
+    from aiohttp import web
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+
+        headers = {"Authorization": "Bearer test-db-health-token"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/api/debug/maintenance_cleanup", headers=headers
+            ) as resp:
+                assert resp.status == 500, "כשל ביצירת TTL חזר כ-200"
+                payload = await resp.json()
+
+        assert payload.get("ok") is False
+        assert "service_metrics_ts" in (payload.get("ttl_failures") or [])
+        entry = (payload.get("ttl") or {}).get("service_metrics_ts") or {}
+        assert entry.get("restored_previous_index") == "restored"
+        assert metrics.index_information().get("metrics_ttl", {}).get("expireAfterSeconds") == 86400
     finally:
         await runner.cleanup()

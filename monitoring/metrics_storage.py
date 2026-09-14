@@ -200,16 +200,24 @@ def metrics_ttl_seconds() -> int:
     return max(1, days) * 24 * 3600
 
 
-def conflicting_ttl_indexes(coll: Any, *, keep_name: str) -> List[str]:
-    """אינדקסי TTL אחרים על אותו מפתח (``{ts: 1}``) שחוסמים את יצירת ה-TTL.
+def stale_ttl_indexes(coll: Any, *, keep_name: str) -> List[str]:
+    """כל אינדקס TTL באוסף שאינו זה שהמערכת מחזיקה — כלומר שריד שיש להפיל.
 
-    מונגו מחזיר ``IndexOptionsConflict`` כששני אינדקסים חולקים מפתח ונבדלים
-    באופציות. לכן אינדקס ישן **בשם אחר** — ``ttl_cleanup_ts`` מגרסה קודמת של
-    endpoint התחזוקה, או ``metrics_ttl`` — מונע מה-TTL הנוכחי להיווצר, והכשל
-    חוזר כשדה ``status`` בתשובת ה-endpoint ולא כחריגה. כלומר שקט למי שלא קורא.
+    **החוזה: לאוסף הזה יש חלון שמירה אחד, ולכן אינדקס TTL אחד** — ``keep_name``
+    על ``{ts: 1}``. כל אינדקס TTL אחר הוא שריד משתי גרסאות קודמות של endpoint
+    התחזוקה, ושניהם עולים בכל כתיבה:
 
-    קודם היה בשני ה-endpointים שם קשיח אחד להפלה; כאן מחזירים את מה שבאמת
-    מתנגש, ולא שם שמישהו זכר לכתוב.
+    - על ``{ts: 1}`` בשם אחר (``ttl_cleanup_ts``) — **חוסם**: מונגו מחזיר
+      ``IndexOptionsConflict`` כששני אינדקסים חולקים מפתח ונבדלים באופציות,
+      והכשל חוזר כשדה ``status`` בתשובה ולא כחריגה. כלומר שקט למי שלא קורא.
+    - על שדה אחר (``ttl_cleanup`` על ``timestamp``) — **אינרטי**: אין לשדה הזה
+      שום כותב באוסף, ולכן *"If a document does not contain the indexed field,
+      the document will not expire"*
+      (מקור: https://www.mongodb.com/docs/manual/core/index-ttl/). הוא לא חוסם
+      את היצירה ולכן לא מרגישים בו — הוא רק תופס מקום ומתוחזק בכל כתיבה, לנצח.
+
+    הפונקציה מחזירה את שניהם. זהו החוזה ולא רשימת מופעים: אינדקס TTL חדש על
+    האוסף הזה מתחיל מהמודול הזה, לא מהצד.
     """
     try:
         info = coll.index_information() or {}
@@ -217,16 +225,15 @@ def conflicting_ttl_indexes(coll: Any, *, keep_name: str) -> List[str]:
         return []
     out: List[str] = []
     for idx_name, meta in (info or {}).items():
-        if str(idx_name) == str(keep_name) or not isinstance(meta, dict):
-            continue
-        if meta.get("expireAfterSeconds") is None:
+        if not isinstance(meta, dict) or meta.get("expireAfterSeconds") is None:
             continue
         try:
             key = [(str(k), int(v)) for k, v in list(meta.get("key") or [])]
         except Exception:
             continue
-        if key == [("ts", 1)]:
-            out.append(str(idx_name))
+        if str(idx_name) == str(keep_name) and key == [("ts", 1)]:
+            continue
+        out.append(str(idx_name))
     return out
 
 

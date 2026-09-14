@@ -73,7 +73,12 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
             self.slow_queries_log = _StubDeleteColl()
             # TTL ישן של 24 שעות בשם שגרסה קודמת של ה-endpoint יצרה
             self.service_metrics = _StubDeleteColl(
-                indexes={"ttl_cleanup_ts": {"key": [("ts", 1)], "expireAfterSeconds": 86400}}
+                indexes={
+                    # חוסם: אותו מפתח, שם אחר
+                    "ttl_cleanup_ts": {"key": [("ts", 1)], "expireAfterSeconds": 86400},
+                    # אינרטי: אין שום כותב לשדה ``timestamp`` באוסף הזה
+                    "ttl_cleanup": {"key": [("timestamp", 1)], "expireAfterSeconds": 86400},
+                }
             )
             self.code_snippets = _StubCodeSnippetsColl()
 
@@ -92,7 +97,11 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
         payload = resp.get_json()
         assert payload and payload.get("ok") is True
         ttl = payload.get("ttl") or {}
-        assert "ttl_cleanup_ts" in (ttl.get("service_metrics_pre_drop") or {}).get("dropped", [])
+        # שני השרידים הופלו — החוסם, וגם האינרטי על ``timestamp`` שלא מוחק כלום
+        assert sorted((ttl.get("service_metrics_pre_drop") or {}).get("dropped", [])) == [
+            "ttl_cleanup",
+            "ttl_cleanup_ts",
+        ]
         # 30 יום מהקבוע המשותף, ולא 86400 קשיח שסתר את טווחי הדשבורד (אישיו #3331)
         assert (ttl.get("service_metrics_ts") or {}).get("expireAfterSeconds") == 30 * 24 * 3600
         assert (ttl.get("service_metrics_ts") or {}).get("name") == "metrics_ttl"
@@ -117,3 +126,85 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
         after_deletes = shared_db.slow_queries_log.deleted_calls + shared_db.service_metrics.deleted_calls
         assert after_deletes == before_deletes
 
+
+
+def test_failed_ttl_creation_restores_the_dropped_index_and_reports_failure(monkeypatch):
+    """הסדר הוא drop ואז create, ולכן כשל ביצירה משאיר אוסף **בלי TTL בכלל**.
+
+    קודם ה-endpoint החזיר במקרה הזה ``200`` ו-``ok: true`` — הכשל נשמר כשדה
+    ``status`` בתוך ה-JSON, ואף אחד לא קרא אותו. כאן נבדק שהאינדקס הישן חוזר,
+    ושהתשובה אומרת שנכשלה.
+    """
+    import webapp.app as webapp_app
+
+    monkeypatch.setenv("DB_HEALTH_TOKEN", "test-db-health-token")
+
+    class _RefusingColl:
+        """יוצרת אינדקסים, ומסרבת ליצור את אינדקס ה-TTL בחלון המבוקש."""
+
+        def __init__(self, indexes=None):
+            self._idx = dict(indexes or {})
+            self.dropped: list[str] = []
+
+        def delete_many(self, _q):
+            return types.SimpleNamespace(deleted_count=0)
+
+        def index_information(self):
+            return dict(self._idx)
+
+        def drop_index(self, name):
+            self.dropped.append(str(name))
+            self._idx.pop(str(name), None)
+
+        def create_index(self, keys, **kwargs):
+            # נכשל רק על החלון החדש. שחזור ההגדרה הישנה חייב להיות אפשרי,
+            # אחרת הבדיקה בודקת "גם השחזור נכשל" ולא את השחזור עצמו.
+            if kwargs.get("expireAfterSeconds") == 30 * 24 * 3600:
+                raise RuntimeError("IndexOptionsConflict: simulated")
+            name = str(kwargs.get("name") or "idx")
+            meta = {"key": [(str(k), v) for k, v in list(keys)]}
+            if kwargs.get("expireAfterSeconds") is not None:
+                meta["expireAfterSeconds"] = kwargs["expireAfterSeconds"]
+            self._idx[name] = meta
+            return name
+
+    class _StubCodeSnippetsColl:
+        def __init__(self):
+            self._idx = {"_id_": {"key": [("_id", 1)]}}
+            self.created = []
+
+        def index_information(self):
+            return dict(self._idx)
+
+        def drop_index(self, name):
+            self._idx.pop(name, None)
+
+        def create_index(self, keys, **kwargs):
+            self.created.append({"keys": keys, **kwargs})
+            return str(kwargs.get("name") or "idx")
+
+    metrics = _RefusingColl({"metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 86400}})
+
+    class _StubDB:
+        def __init__(self):
+            self.slow_queries_log = _RefusingColl()
+            self.service_metrics = metrics
+            self.code_snippets = _StubCodeSnippetsColl()
+
+        def __getitem__(self, name):
+            return getattr(self, str(name))
+
+    monkeypatch.setattr(webapp_app, "get_db", lambda: _StubDB(), raising=True)
+
+    with webapp_app.app.test_client() as client:
+        resp = client.get("/api/debug/maintenance_cleanup?token=test-db-health-token")
+
+    payload = resp.get_json()
+    assert resp.status_code == 500, "כשל ביצירת TTL חזר כ-200"
+    assert payload.get("ok") is False
+    assert "service_metrics_ts" in (payload.get("ttl_failures") or [])
+    entry = (payload.get("ttl") or {}).get("service_metrics_ts") or {}
+    assert entry.get("status") == "error"
+    assert entry.get("restored_previous_index") == "restored"
+    # והראיה האמיתית: מצב האוסף, לא מה שהתשובה מבטיחה
+    assert metrics.index_information().get("metrics_ttl", {}).get("expireAfterSeconds") == 86400

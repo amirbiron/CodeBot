@@ -5976,6 +5976,12 @@ def api_debug_maintenance_cleanup():
     preview = str(request.args.get("preview") or "").lower() in {"1", "true", "yes", "on"}
 
     def _ensure_ttl_index(coll: Any, *, field: str, expire_seconds: int, index_name: str) -> dict:
+        """מוודא שקיים אינדקס TTL עם החלון המבוקש.
+
+        ⚠️ הסדר הוא drop ואז create, ולכן **כשל ביצירה משאיר את האוסף בלי TTL
+        בכלל** — מצב גרוע מזה שלפני הקריאה. לכן ההגדרה שהופלה נשמרת, ומשוחזרת
+        אם היצירה נכשלה.
+        """
         info_before: dict = {}
         try:
             info_before = coll.index_information() or {}
@@ -5998,9 +6004,11 @@ def api_debug_maintenance_cleanup():
                 pass
 
         # drop conflicting index with same name (best-effort)
+        dropped_meta = None
         if not preview:
             try:
                 coll.drop_index(index_name)
+                dropped_meta = existing_meta if isinstance(existing_meta, dict) else None
             except Exception:
                 pass
 
@@ -6026,6 +6034,7 @@ def api_debug_maintenance_cleanup():
                 "expireAfterSeconds": int(expire_seconds),
                 "status": "error",
                 "error": str(e),
+                "restored_previous_index": restore_dropped_index(coll, index_name, dropped_meta),
             }
 
     def _should_keep_code_snippets_index(index_name: str, meta: Any) -> bool:
@@ -6068,7 +6077,8 @@ def api_debug_maintenance_cleanup():
         # הפעולות ההרסניות, אחרת כשל בייבוא מחזיר 500 אחרי שהנתונים כבר נמחקו
         # והאינדקס הישן הופל. ובתוך ה-try כדי שהכשל יחזור כ-JSON ולא כדף HTML
         # של Flask — זה ה-endpoint שלקוחות מצפים ממנו לחוזה JSON קבוע.
-        from monitoring.metrics_storage import conflicting_ttl_indexes  # type: ignore
+        from monitoring.metrics_storage import stale_ttl_indexes  # type: ignore
+        from services.index_maintenance import restore_dropped_index  # type: ignore
 
         profiler_collection, profiler_ttl_seconds = _profiler_persistence()
         metrics_collection, metrics_ttl_seconds_value, metrics_ttl_index = _metrics_persistence()
@@ -6086,14 +6096,16 @@ def api_debug_maintenance_cleanup():
             deleted_slow = int(getattr(slow_res, "deleted_count", 0) or 0)
             deleted_metrics = int(getattr(metrics_res, "deleted_count", 0) or 0)
 
-        # Explicitly drop legacy TTL indexes that would conflict (IndexOptionsConflict)
         service_metrics_pre_drop: dict[str, Any]
-        conflicting = conflicting_ttl_indexes(service_metrics_coll, keep_name=metrics_ttl_index)
+        # שרידי TTL מגרסאות קודמות: זה שחוסם את היצירה (אותו מפתח, שם אחר),
+        # וגם זה שאינו חוסם ואינו מוחק — ``ttl_cleanup`` על ``timestamp``, שדה
+        # שאין לו כותב באוסף. השני לא נראה לאף אחד והיה נשאר לנצח.
+        stale = stale_ttl_indexes(service_metrics_coll, keep_name=metrics_ttl_index)
         if preview:
-            service_metrics_pre_drop = {"planned_drop": conflicting}
+            service_metrics_pre_drop = {"planned_drop": stale}
         else:
             dropped_pre: list[str] = []
-            for idx_name in conflicting:
+            for idx_name in stale:
                 try:
                     service_metrics_coll.drop_index(idx_name)
                     dropped_pre.append(idx_name)
@@ -6180,9 +6192,19 @@ def api_debug_maintenance_cleanup():
             idx_info_after = {}
         indexes_after = sorted([str(k) for k in (idx_info_after or {}).keys()])
 
+        # ⚠️ ``ok`` נגזר מהתוצאה ולא קבוע. קודם הוא היה ``True`` תמיד, גם כשיצירת
+        # ה-TTL נכשלה — כלומר 200 ו"הכל בסדר" על אוסף שנשאר בלי אינדקס TTL. זה
+        # דפוס K11: הכשל מדווח בערך החזרה, ואף אחד לא בודק אותו.
+        ttl_failed = sorted(
+            key
+            for key, entry in ttl_results.items()
+            if isinstance(entry, dict) and entry.get("status") == "error"
+        )
+
         return jsonify(
             {
-                "ok": True,
+                "ok": not ttl_failed,
+                "ttl_failures": ttl_failed,
                 "preview": preview,
                 "deleted_documents": {
                     profiler_collection: deleted_slow,
@@ -6201,7 +6223,7 @@ def api_debug_maintenance_cleanup():
                     "ensured": ensured,
                 },
             }
-        )
+        ), (200 if not ttl_failed else 500)
     except Exception:
         logger.exception("api_debug_maintenance_cleanup_failed")
         return jsonify({"ok": False, "error": "failed", "message": "internal_error"}), 500

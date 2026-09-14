@@ -1763,12 +1763,20 @@ class DatabaseManager:
                 return False
 
         def _ttl_sibling(idx: Dict[str, Any]) -> bool:
-            """אינדקס TTL קיים על אותו מפתח בדיוק, שנבדל **רק** באורך החלון.
+            """אינדקס קיים על אותו מפתח בדיוק, שנבדל מהמבוקש רק בחלון ה-TTL.
 
             זה המקרה שבו מונגו מחזיר IndexOptionsConflict בלי קשר לשם שביקשנו,
             ולכן ``drop_index(name)`` של מסלול ה-``enforce`` לא נוגע בו: השם הישן
-            הוא אחר (``metrics_ttl``, ``ttl_cleanup_ts``), ההפלה נכשלת בשקט,
-            והיצירה החוזרת מתנגשת שוב. התוצאה היא TTL שלא חל לעולם.
+            הוא אחר (``metrics_ttl``, ``ttl_cleanup_ts``, ``plain_ts``), ההפלה
+            נכשלת בשקט, והיצירה החוזרת מתנגשת שוב. התוצאה היא TTL שלא חל לעולם.
+
+            **כולל אינדקס שאינו TTL בכלל.** התיעוד של ``collMod`` אינו אומר
+            במפורש שאפשר להמיר אינדקס רגיל ל-TTL, ולכן זה **נמדד** מול mongod
+            7.0.14: ``collMod`` על ``{ts: 1}`` רגיל החזיר
+            ``{'expireAfterSeconds_new': 100, 'ok': 1.0}``, ו-``list_indexes``
+            אישר שהאינדקס נושא מאז TTL. באותה מדידה, ניסיון ליצור TTL על אותו
+            מפתח בשם אחר נדחה בקוד 85 — כלומר בלי ההמרה, אינדקס רגיל בשם אחר
+            חוסם את ה-TTL לצמיתות.
             """
             try:
                 if expire_after_seconds is None:
@@ -1783,10 +1791,8 @@ class DatabaseManager:
                 if idx.get("partialFilterExpression") != partial_filter_expression:
                     return False
                 existing_expire = idx.get("expireAfterSeconds")
-                # רק אינדקס שכבר הוא TTL. המרה של אינדקס רגיל ל-TTL דרך collMod
-                # אינה מתועדת, ולכן לא נשענים עליה.
                 if existing_expire is None:
-                    return False
+                    return True
                 return int(existing_expire) != int(expire_after_seconds)
             except Exception:
                 return False
@@ -1900,22 +1906,29 @@ class DatabaseManager:
                 # הבדל שכולו באורך חלון ה-TTL: מעדכנים את האינדקס הקיים במקום
                 # להפיל ולבנות מחדש. זה תופס גם אינדקס בשם אחר לגמרי — בדיוק
                 # המקרה שמסלול ה-enforce שלמטה, שמפיל לפי שם, לא יכול לתפוס.
+                blocking_name = ""
                 for idx in _existing_indexes():
                     if not _ttl_sibling(idx):
                         continue
-                    if _collmod_ttl(str(idx.get("name", ""))):
+                    blocking_name = str(idx.get("name", ""))
+                    if _collmod_ttl(blocking_name):
                         return
                     break
 
-                # mismatch אמיתי: לאינדקסים קריטיים ננסה לאכוף drop+create לפי השם
-                if enforce and name:
+                # mismatch אמיתי: לאינדקסים קריטיים ננסה לאכוף drop+create.
+                # מפילים את האינדקס **החוסם** ולא את השם שביקשנו: כש-collMod
+                # נכשל או לא אומת, החוסם הוא לרוב בשם אחר, והפלה לפי השם המבוקש
+                # הייתה נכשלת ("index not found") והיצירה החוזרת מתנגשת שוב —
+                # כלומר בדיוק הלולאה השקטה שהמסלול הזה קיים כדי לשבור.
+                drop_target = blocking_name or name
+                if enforce and name and drop_target:
                     try:
-                        collection.drop_index(name)
+                        collection.drop_index(drop_target)
                         emit_event(
                             "db_index_dropped",
                             severity="warn",
                             collection=collection_name,
-                            index_name=name,
+                            index_name=drop_target,
                             reason="enforce_recreate_on_conflict",
                         )
                     except Exception as drop_e:
@@ -1923,7 +1936,7 @@ class DatabaseManager:
                             "db_drop_index_error",
                             severity="warn",
                             collection=collection_name,
-                            index_name=name,
+                            index_name=drop_target,
                             error=str(drop_e),
                         )
 
@@ -2097,6 +2110,12 @@ class DatabaseManager:
         שהוא **הכותב היחיד** לאוסף הזה. אם הוא אינו ניתן לייבוא, אין בתהליך הזה
         מי שיכתוב לאוסף, ואין טעם ליצור לו אינדקסים.
 
+        לפני היצירה מופלים שרידי TTL מגרסאות קודמות (``stale_ttl_indexes``) —
+        בראשם ``ttl_cleanup`` על ``timestamp``, שדה שאין לו כותב באוסף. אינדקס
+        כזה אינו מוחק דבר ואינו חוסם דבר, ולכן אף אחד לא מרגיש בו; הוא רק
+        מתוחזק בכל כתיבה. ההפלה כאן, ולא רק ב-endpoint התחזוקה, כי ה-endpoint
+        ידני — ושריד שמחכה להרצה ידנית מחכה לנצח.
+
         ⚠️ ה-TTL מוחק נתונים בפועל. מה שנמחק מעבר לחלון כולל את המסמכים הישנים
         בצורת ``type: "request"`` (מסמך לכל בקשה), שמזינים את
         ``aggregate_latency_percentiles`` ואת ``find_by_request_id``. **אין להם
@@ -2109,11 +2128,43 @@ class DatabaseManager:
                 METRICS_TTL_INDEX_NAME,
                 metrics_collection_name,
                 metrics_ttl_seconds,
+                stale_ttl_indexes,
             )
         except Exception:
             return
 
         collection_name = metrics_collection_name()
+
+        # שרידי TTL מגרסאות קודמות של endpoint התחזוקה. ההפלה כאן ולא רק שם, כי
+        # ה-endpoint ידני: אינדקס ``ttl_cleanup`` על ``timestamp`` — שדה שאין לו
+        # שום כותב באוסף — אינו מוחק דבר, אינו חוסם דבר, ולכן אף אחד לא מרגיש
+        # בו. בלי ההפלה הזו הוא נשאר לנצח ומתוחזק בכל כתיבה. אינו מוחק נתונים.
+        db = getattr(self, "db", None)
+        try:
+            metrics_coll = db[collection_name] if db is not None else None
+        except Exception:
+            metrics_coll = None
+
+        if metrics_coll is not None:
+            for stale in stale_ttl_indexes(metrics_coll, keep_name=METRICS_TTL_INDEX_NAME):
+                try:
+                    metrics_coll.drop_index(stale)
+                    emit_event(
+                        "db_index_dropped",
+                        severity="warn",
+                        collection=collection_name,
+                        index_name=stale,
+                        reason="stale_ttl_index",
+                    )
+                except Exception as drop_e:
+                    emit_event(
+                        "db_drop_index_error",
+                        severity="warn",
+                        collection=collection_name,
+                        index_name=stale,
+                        error=str(drop_e),
+                    )
+
         safe_create_index(
             collection_name,
             [("ts", DESCENDING), ("type", ASCENDING)],
