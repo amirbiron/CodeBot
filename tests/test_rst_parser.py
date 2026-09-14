@@ -866,6 +866,58 @@ def test_the_doctest_block_still_ends_at_the_blank_line_only():
     assert [s.title for s in after_blank.sections] == ["כותרת"]
 
 
+def test_a_heading_whose_text_ends_with_a_double_colon_is_still_a_heading():
+    """``underline`` נבדק לפני ``text``, ולכן ה-``::`` אינו מתפקד כסמן.
+
+    במצב ``Text`` שבמקור סדר המעברים הוא blank ← indent ← underline ←
+    text. כלומר כשהשורה שאחרי הטקסט היא קו פיסוק, זה **סעיף** — וסיומת
+    ה-``::`` שבטקסט אינה מגיעה לשמש סמן ל-literal block.
+
+    לפני התיקון הענף של ה-``::`` רץ קודם, והכותרת נעלמה מהמפה **כולה**:
+    ``codekeeper_docs_get_section`` ענה "סעיף לא נמצא" על סעיף שכתוב
+    בקובץ, והטווח של הסעיף שמעליו בלע אותו. נמדד מול docutils 0.23
+    שהורץ: הוא בונה שני סעיפים.
+
+    המוטציה שמפילה: להחזיר את ענף ה-``::`` לפני בדיקת הכותרות.
+    """
+    doc = rst_parser.parse_document("Doc\n===\n\nConfiguration::\n---------------\n\nגוף\n")
+
+    assert [(s.title, s.level) for s in doc.sections] == [("Doc", 1), ("Configuration::", 2)]
+
+
+def test_a_paragraph_that_opens_a_literal_block_is_consumed_as_a_paragraph():
+    """ה-literal block נכנס **אחרי** שהפסקה נצרכה, לא במקומה.
+
+    ב-docutils ``Text.blank`` ו-``Text.text`` קוראים את הפסקה ואז, אם היא
+    נגמרת ב-``::``, מפרסרים את ה-literal block. הענף שהיה כאן קידם שורה
+    **אחת** בלבד, ולכן שורות שהיו בתוך אותה פסקה נבחנו שוב ככותרות —
+    והמפה **המציאה** סעיף שאינו קיים.
+
+    נמדד: ``"Run this::"`` ואחריה שורת טקסט וקו פיסוק החזירה גם את שורת
+    הטקסט כסעיף (שורות 5-9), בזמן ש-docutils מחזיר רק את הכותרת
+    הראשונה. ובלוק literal מוזח ממשיך לעבוד בלי הענף, כי שומר ההזחה
+    בראש הלולאה מדלג עליו.
+
+    המוטציה שמפילה: להחזיר את הענף.
+    """
+    invented = rst_parser.parse_document(
+        "Intro\n=====\n\nRun this::\nand see the output\n------------------\n\nגוף\n"
+    )
+    assert [s.title for s in invented.sections] == ["Intro"]
+
+    # והצורה שהייתה רגרסיה מול ``origin/main``: שם ובלעדיו התוצאה ריקה,
+    # ובאמצע היא החזירה כותרת.
+    regressed = rst_parser.parse_document("text::\nLong title\n=====\n  מוזח\n\n- פריט\n")
+    assert regressed.sections == []
+
+    # ובקרה שהדילוג על בלוק מוזח לא אבד: כותרת שאחרי בלוק literal מוזח
+    # חוזרת, והשורות שבתוכו אינן הופכות לסעיפים.
+    with_block = rst_parser.parse_document(
+        "Intro\n=====\n\nכך מריצים::\n\n   Heading\n   =======\n\nכותרת\n------\n\nגוף\n"
+    )
+    assert [s.title for s in with_block.sections] == ["Intro", "כותרת"]
+
+
 def test_the_independent_recognizer_consumes_a_malformed_overline_construct():
     """overline פגום נצרך כקונסטרוקט, ואינו נופל חזרה לזיהוי underline-only.
 

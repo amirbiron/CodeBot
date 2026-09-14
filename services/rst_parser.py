@@ -80,8 +80,6 @@ _DOCTEST_RE = re.compile(r">>>( +|$)")
 _SIMPLE_TABLE_TOP_RE = re.compile(r"=+( +=+)+ *$")
 _SIMPLE_TABLE_BORDER_RE = re.compile(r"=+( +=+)* *$")
 
-_DIRECTIVE_RE = re.compile(r"^\.\.[ \t]+\S")  # ".. something::" וכו'
-_CODE_DIRECTIVE_RE = re.compile(r"^\.\.[ \t]+(code-block|code|sourcecode|parsed-literal)::")
 _INCLUDE_RE = re.compile(r"^\.\.[ \t]+include::[ \t]*(\S.*)$")
 
 
@@ -209,31 +207,6 @@ def _adornment_fits(title: str, adornment: str) -> bool:
     return True
 
 
-def _opens_literal(stripped: str) -> bool:
-    """שורה (לא מוזחת) שפותחת literal/code block שבו אין לזהות כותרות."""
-    if _CODE_DIRECTIVE_RE.match(stripped):
-        return True
-    if not stripped.endswith("::") or _DIRECTIVE_RE.match(stripped):
-        return False
-    # paragraph המסתיים ב-'::' (למשל 'Development::') הוא סמן literal, ולכן
-    # הבלוק המוזח שאחריו מדולג כאן.
-    #
-    # שורה שכולה נקודתיים אינה נכנסת למסלול הזה, כי ב-``Body`` תבנית
-    # ה-``line`` נבדקת לפני ``text``: היא נכנסת למצב ``Line`` ככל שורת
-    # פיסוק אחרת, ולכן היא **כן** מועמדת ל-overline. (המקרה המיוחד ל-'::'
-    # ב-``Body.line()`` מותנה ב-``match_titles`` כבוי, כלומר אינו חל על
-    # פרסור מסמך.)
-    #
-    # **וזה אינו אומר שאין שם literal block.** נמדד ב-docutils 0.23: '::'
-    # לבד ואחריו בלוק מוזח מייצר ``literal_block``, ו-':::' מייצר פסקה
-    # ואחריה ``literal_block`` — כשאין כותרת תקפה, ``Body.paragraph``
-    # מזהה את סיומת ה-'::' ומסמן ``literalnext``. הבלוק המוזח שם אינו
-    # מכיל כותרות, וכאן זה יוצא נכון מסיבה אחרת: שורה מוזחת אינה מועמדת
-    # לכותרת מלכתחילה. לכן אין להסיק מההערה הזאת שאפשר להסיר את הדילוג על
-    # בלוקים מוזחים.
-    return _adornment_char(stripped) is None
-
-
 def _skip_paragraph_block(lines: List[str], i: int, n: int) -> int:
     """מדלג על בלוק הפסקה בדיוק כמו ``Text.text``, ומחזיר את השורה שאחריו.
 
@@ -319,22 +292,37 @@ def parse_document(text: str) -> Document:
                 includes.append(m_inc.group(1).strip())
                 i += 1
                 continue
-            # literal/code block — דלג על הבלוק המוזח שאחרי השורה הפותחת
-            if _opens_literal(stripped):
-                i += 1
-                while i < n and lines[i].strip() == "":
-                    i += 1
-                if i < n and _is_indented(lines[i]):
-                    block_indent = len(lines[i]) - len(lines[i].lstrip())
-                    while i < n:
-                        ln = lines[i]
-                        if ln.strip() == "":
-                            i += 1
-                            continue
-                        if (len(ln) - len(ln.lstrip())) < block_indent:
-                            break
-                        i += 1
-                continue
+            # **ואין כאן ענף ל-``::``, בכוונה.** היה כאן ענף שזיהה שורה
+            # שנגמרת ב-``::`` ודילג על הבלוק המוזח שאחריה, והוא רץ **לפני**
+            # בדיקת הכותרות — ושתי הטעויות נבעו מכך:
+            #
+            # 1. הוא הקדים את מעבר ה-``underline``. במצב ``Text`` שבמקור
+            #    הסדר הוא blank ← indent ← underline ← text, ולכן כותרת
+            #    שהטקסט שלה נגמר ב-``::`` היא **סעיף**, וה-``::`` אינו
+            #    מתפקד כסמן. נמדד: ``"Configuration::"`` ואחריה קו מחזירה
+            #    סעיף ב-docutils, וכאן היא נעלמה מהמפה כולה.
+            # 2. הוא קידם שורה אחת ולא את בלוק הפסקה. ב-docutils ה-literal
+            #    block נכנס רק **אחרי** שהפסקה נצרכה, בתוך המטפל של
+            #    ``blank``/``text``. לכן שורות שהיו בתוך הפסקה נבחנו כאן
+            #    שוב ככותרות, והמפה **המציאה** סעיף.
+            #
+            # ומה שמחזיק בלי הענף: בלוק literal מוזח, ולכן שומר ההזחה בראש
+            # הלולאה מדלג עליו ממילא, ותוכן של דירקטיבה מוזח מאותה סיבה.
+            #
+            # נמדד על אורקל דיפרנציאלי מול docutils, 6,000 קלטים מ-17
+            # אסימוני RST שכוללים ``::``: עם הענף 245 אי-הסכמות, בלעדיו
+            # **ארבע**, ולפניו במקור 706.
+            #
+            # .. note::
+            #
+            #    ארבע הנותרות הן מחלקה אחת ומוצהרת: **quoted literal
+            #    block** — בלוק שאינו מוזח ששורותיו נפתחות בתו פיסוק,
+            #    שתקן RST מתיר. נמדד ש-``"Config::\n\n::\n=====\n"``
+            #    נותן ב-docutils ``literal_block`` שבולע את ``::``, ואז
+            #    ``=====`` הוא transition ואין סעיף. הצורה הזאת אינה
+            #    ממודלת כאן, אין לה אף מופע בקורפוס, והאורקל הבלתי-תלוי
+            #    שבטסטים סוטה על אותן ארבע בדיוק — כלומר שני העוגנים
+            #    מסכימים ביניהם על הגבול הזה.
 
             # שורה מבנית: ``Body`` תופס אותה לפני מעבר ה-``text``, ולכן היא
             # אינה יכולה להיות הכותרת עצמה ב-underline-only.

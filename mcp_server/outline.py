@@ -115,7 +115,16 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
     if _CR_WITHOUT_LF.search(text):
         return {"status": "no_outline", "reason": "inconsistent_line_endings"}
 
-    logger.debug("outline scan: path=%s bytes=%d", path, len(text))
+    # ``chars`` ולא ``bytes``, כי ``len`` על ``str`` מודד תווים. השם הקודם
+    # היה ``bytes`` והוא שיקר בדיוק בקלט שבגללו הרשומה קיימת: נמדד שעברית
+    # היא 1.83 בתים לתו (60 תווים ← 110 בתים), ולכן עמוד עברי היה נרשם
+    # כחצי מגודלו. ותקרות הכלי — 500KB ו-10MB — נמדדות **בבתים**, כלומר
+    # המספר כאן אינו בר-השוואה אליהן ישירות, וזה בדיוק מה שמי שקורא את
+    # הרשומה בזמן תקיעה צריך לדעת.
+    #
+    # ולא ``len(text.encode("utf-8"))``: זה עותק שלם של הקלט — עד 10MB —
+    # בכל סריקה, בשביל רשומה שברירת המחדל שלה אינה נכתבת בכלל.
+    logger.debug("outline scan: path=%s chars=%d", path, len(text))
     result = scanner(text)
 
     # **החוזה נאכף כאן, ובקול.** גרסה קודמת בדקה רק
