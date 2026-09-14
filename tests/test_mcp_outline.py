@@ -2809,10 +2809,14 @@ def test_the_rst_ceiling_stops_the_parse_and_not_only_the_answer(monkeypatch):
     result = extract_outline("a\n=\n\n" * 200, "a.rst")
 
     assert result == {"status": "no_outline", "reason": "too_many_symbols", "max": 20}
-    # 20 שנכנסו, ועוד **אחד** שנבנה ונדחה: הארגומנט מחושב לפני הקריאה
-    # ל-``add_section``, ולכן הסקשן שחוצה את התקרה כן נוצר — אובייקט אחד,
-    # ולא המשך של הפרסור. מימוש שמסנן פלט היה בונה 200.
-    assert len(built) == 21, f"נבנו {len(built)} סקשנים — הפרסור לא נעצר על התקרה"
+    # **חסם ולא מספר מדויק, וזה מכוון.** 20 נכנסו, ועוד אחד נבנה ונדחה —
+    # הארגומנט מחושב לפני הקריאה ל-``add_section`` — ולכן היום זה 21.
+    # אבל הריפקטור שה-docstring של ``add_section`` מתאר כחלופה (בניית
+    # השדות בתוך הפונקציה במקום העברת אובייקט) ייתן 20, ואז השוואה
+    # מדויקת הייתה נופלת עם ההודעה "הפרסור לא נעצר" — כלומר מאשימה
+    # בדיוק בהיפוך ממה שקרה. ההבטחה שצריך לשמור היא חסימת העבודה:
+    # מימוש שמסנן פלט בונה 200.
+    assert len(built) <= 21, f"נבנו {len(built)} סקשנים — הפרסור לא נעצר על התקרה"
 
 
 def test_the_tool_reports_the_ceiling_through_the_real_path(monkeypatch):

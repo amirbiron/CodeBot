@@ -1,11 +1,12 @@
 """טסטים ל-handler של docs_get_section — עם fake backend שקורא RST אמיתי מ-docs/."""
 
+import inspect
 from pathlib import Path
 
 import pytest
 
 from mcp_server import docs_handlers
-from mcp_server.outline_scanners import _ceiling
+from services import rst_parser
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -223,22 +224,40 @@ def test_an_overlined_heading_is_one_level_deeper_than_the_same_character_underl
     assert out["toc"][1]["breadcrumb"] == ["כותרת א", "כותרת ב"]
 
 
-def test_the_docs_reader_is_not_bounded_by_the_outline_ceiling():
-    """הצרכן בייצור אינו מושפע מהתקרה של האאוטליין, וזה נבדק דרכו.
+def test_the_docs_reader_parses_without_any_ceiling(monkeypatch):
+    """הצרכן בייצור אינו מוגבל בתקרה, ונבדק על **התקרה האפקטיבית**.
 
-    ``parse_document`` קיבל ``max_sections``, וברירת המחדל היא ללא תקרה
-    — אבל "ברירת מחדל" היא הבטחה בקוד, ולכן יש לה בדיקה. הכלי הזה הוא
-    המתקשר השני של הפארסר, והוא אינו מעביר תקרה.
+    ``parse_document`` קיבל ``max_sections`` בשביל סורק האאוטליין, ושני
+    דברים חייבים להישאר נכונים כדי שהכלי הזה לא ייחסם: שהוא **אינו
+    מעביר** תקרה, ושברירת המחדל **אינה** תקרה. שניהם נבדקים כאן, כי כל
+    אחד מהם לבדו מספיק כדי לחסום קובץ תיעוד גדול.
 
-    **ולכן הקלט כאן בונה יותר סקשנים מהתקרה במקום להנמיך אותה**
-    ב-``monkeypatch``: תקרה מונמכת הייתה מרוצה גם ממימוש שבו ברירת
-    המחדל היא 50,000 קבוע, וזו בדיוק הרגרסיה שהטסט הזה קיים בשבילה.
-    העלות נמדדה — 819KB, 0.40 שניות — וזה המחיר של בדיקה שמסוגלת ליפול.
+    **וזה נבדק כך במקום להציף את התקרה, בכוונה.** הגרסה הראשונה של
+    הבדיקה בנתה ``MAX_SYMBOLS + 1`` סקשנים אמיתיים — 819KB, 0.40 שניות
+    ו-71MB בכל ריצה — כלומר **המחיר שלה היה צמוד לקבוע שהיא מגנה עליו**.
+    נמדד: בהעלאת התקרה פי עשר, מה שההערה ליד הקבוע מזמינה במפורש, אותה
+    בדיקה הייתה בונה קלט של 8.9MB ו-500,001 סקשנים — 6.64 שניות ו-482MB
+    בכל ריצת CI. בדיקה שמתדרדרת בדיוק כשהמערכת גדלה אינה הצורה הנכונה.
+
+    **וליטרל קבוע לא היה מחליף אותה**, כי הוא מפסיק להוכיח משהו ברגע
+    שהתקרה עולה מעליו. שתי הבדיקות כאן אינן תלויות בגודל התקרה בכלל.
     """
-    over = _ceiling.MAX_SYMBOLS + 1
-    text = "".join(f"h{i}\n{'=' * 8}\n\n" for i in range(over))
+    passed: dict[str, object] = {}
+    real = rst_parser.parse_document
 
-    out = docs_handlers.docs_get_section(_TextBackend(text), path="x")
+    def spy(text, **kwargs):
+        passed.update(kwargs)
+        return real(text, **kwargs)
+
+    monkeypatch.setattr(docs_handlers.rst_parser, "parse_document", spy)
+
+    out = docs_handlers.docs_get_section(_TextBackend("א\n=\n\nב\n=\n\n"), path="x")
 
     assert out["ok"] and out["mode"] == "toc"
-    assert out["section_count"] == over
+    assert out["section_count"] == 2
+    assert passed.get("max_sections") is None, (
+        f"הכלי העביר תקרה לפרסור: {passed}"
+    )
+    assert inspect.signature(real).parameters["max_sections"].default is None, (
+        "ברירת המחדל של max_sections אינה None, ולכן הכלי חסום גם בלי להעביר כלום"
+    )
