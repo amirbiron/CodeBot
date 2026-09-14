@@ -345,6 +345,35 @@ def chromium_executable():
     return executable
 
 
+def _collected_browser_skip(terminalreporter):
+    """הסיבה לדילוג של קובץ דפדפן **בזמן האיסוף**, אם היה כזה.
+
+    **``_BROWSER_SKIP_REASON`` לבדו אינו מספיק, וזה נמדד.** הוא נרשם
+    בתוך הפיקסצ'ר ``chromium_executable``, כלומר רק כשהפיקסצ'ר רץ — וזה
+    קורה כש-playwright **מותקן** ורק הדפדפן חסר. כשה-playwright עצמו
+    חסר, כל קובץ דפדפן מדלג את עצמו ב-``pytest.importorskip("playwright")``
+    בזמן האיסוף, הפיקסצ'ר אינו רץ בכלל, והרשימה נשארת ריקה — ולכן שורת
+    הסיכום שנכתבה במיוחד כדי לומר "הסוויטה הזאת דולגה ולמה" לא נכתבה
+    דווקא במצב השכיח.
+
+    נמדד: עם playwright חסום, הריצה מסתיימת ב-``1 skipped`` ובלי שום
+    אזכור של הסוויטה. הדוח של pytest **כן** מחזיק את העובדה — דיווח
+    דילוג עם ``when == "collect"`` שה-``nodeid`` שלו הוא הקובץ עצמו —
+    ומכאן היא נקראת.
+    """
+    for report in terminalreporter.stats.get("skipped", []):
+        nodeid = getattr(report, "nodeid", "") or ""
+        if getattr(report, "when", None) != "collect":
+            continue
+        if not nodeid.endswith("_browser.py"):
+            continue
+        longrepr = getattr(report, "longrepr", None)
+        if isinstance(longrepr, tuple) and len(longrepr) == 3:
+            return str(longrepr[2]).removeprefix("Skipped: ")
+        return str(longrepr)
+    return ""
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """אומר בקול שבדיקות הדפדפן דולגו, במקום להשאיר את זה בין מאות ``s``.
 
@@ -353,13 +382,16 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     ב-CI של הריפו הזה אין שלב שמתקין דפדפן, כלומר זה המצב **הרגיל** שם
     ולא תקלה — ובדיוק בגלל זה הוא צריך להיאמר, אחרת הוא נשכח.
     """
-    if not _BROWSER_SKIP_REASON:
+    reason = _BROWSER_SKIP_REASON[0] if _BROWSER_SKIP_REASON else _collected_browser_skip(
+        terminalreporter
+    )
+    if not reason:
         return
     terminalreporter.write_sep("-", "בדיקות דפדפן")
     terminalreporter.write_line(
         "כל בדיקות הדפדפן דולגו — הכיסוי שלהן בריצה הזאת הוא אפס."
     )
-    terminalreporter.write_line(f"  הסיבה: {_BROWSER_SKIP_REASON[0]}")
+    terminalreporter.write_line(f"  הסיבה: {reason}")
 
 
 class AdminLiveServer(NamedTuple):

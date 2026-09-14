@@ -185,6 +185,65 @@ def test_no_other_file_under_tests_launches_a_browser():
     )
 
 
+def test_a_run_without_playwright_at_all_also_says_so_out_loud(tmp_path):
+    """מחלקת הקלט השנייה: לא "אין דפדפן" אלא **אין playwright**.
+
+    **והיא זו שנשמטה.** הבדיקה שמעליה מכוונת ``PLAYWRIGHT_BROWSERS_PATH``
+    לתיקייה ריקה, כלומר playwright מותקן והדפדפן חסר — ואז הפיקסצ'ר
+    ``chromium_executable`` **רץ**, נכשל בהרמה, ורושם את הסיבה. כשהחבילה
+    עצמה חסרה המסלול אחר לגמרי: כל קובץ דפדפן מדלג את עצמו ב-
+    ``pytest.importorskip("playwright")`` בזמן האיסוף, הפיקסצ'ר אינו רץ,
+    ואף אחד אינו רושם סיבה.
+
+    נמדד לפני התיקון: הריצה מסתיימת ב-``1 skipped`` **בלי שום אזכור של
+    הסוויטה** — כלומר שורת הסיכום נכתבה בכל המצבים חוץ מהשכיח ב-CI.
+
+    ה-playwright נחסם בתוסף קטן שנכתב ל-``tmp_path`` ומותקן ב-``-p``,
+    ולא בשינוי סביבה: הוא מסיר את החבילה מ-``sys.modules`` ומשתיל
+    ``meta_path`` שזורק ``ModuleNotFoundError``. אין כתיבה מחוץ
+    ל-``tmp_path``.
+    """
+    blocker = tmp_path / "block_playwright_probe.py"
+    blocker.write_text(
+        "import sys\n"
+        "\n"
+        "\n"
+        "class _Blocker:\n"
+        "    def find_spec(self, fullname, path=None, target=None):\n"
+        "        if fullname == 'playwright' or fullname.startswith('playwright.'):\n"
+        "            raise ModuleNotFoundError(f'No module named {fullname!r}', name=fullname)\n"
+        "        return None\n"
+        "\n"
+        "\n"
+        "for _name in [n for n in list(sys.modules)\n"
+        "              if n == 'playwright' or n.startswith('playwright.')]:\n"
+        "    del sys.modules[_name]\n"
+        "sys.meta_path.insert(0, _Blocker())\n",
+        encoding="utf-8",
+    )
+
+    environment = dict(os.environ, PYTHONPATH=str(tmp_path))
+    finished = subprocess.run(
+        [sys.executable, "-m", "pytest", "-o", "addopts=", "-q",
+         "-p", "block_playwright_probe"]
+        + [path.relative_to(_REPO_ROOT).as_posix() for path in _browser_test_files()],
+        cwd=_REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_BUDGET,
+    )
+    output = finished.stdout + finished.stderr
+
+    assert " passed" not in output, (
+        f"בדיקת דפדפן רצה למרות ש-playwright חסום:\n{output[-3000:]}"
+    )
+    assert "skipped" in output, f"שום דבר לא דולג:\n{output[-3000:]}"
+    assert "הכיסוי שלהן בריצה הזאת הוא אפס" in output, (
+        f"הריצה לא אמרה שבדיקות הדפדפן דולגו:\n{output[-3000:]}"
+    )
+
+
 def test_a_run_without_a_browser_skips_everything_and_says_so_out_loud(tmp_path):
     """הצד ההתנהגותי: הכול מדולג, והריצה **אומרת** שהכיסוי אפס.
 

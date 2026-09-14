@@ -300,10 +300,24 @@ class ConditionOperators:
             old_handler = None
             armed = False
             outer_remaining = 0.0
+            outer_interval = 0.0
             started = 0.0
             try:
-                # מה שנשאר לשעון שכבר דלק, **לפני** שדורסים אותו.
-                outer_remaining = signal.getitimer(signal.ITIMER_REAL)[0]
+                # מה שנשאר לשעון שכבר דלק, **לפני** שדורסים אותו — ושני
+                # האיברים, לא רק הראשון.
+                #
+                # ``getitimer`` מחזיר ``(delay, interval)``: הראשון הוא
+                # מה שנשאר עד הירייה הבאה, והשני הוא מרווח החזרה —
+                # אפס בשעון חד-פעמי. נמדד: על שעון שנדלק ל-30 שניות עם
+                # חזרה כל 5 הוא מחזיר ``(29.99999, 5.0)``.
+                #
+                # **וקודם נשמר רק האיבר הראשון**, והשחזור למטה העביר
+                # ארגומנט אחד — כלומר interval אפס. שעון **חוזר** של
+                # קורא חיצוני היה חוזר כחד-פעמי, בשקט: הירייה הבאה כן
+                # מגיעה, וכל אלה שאחריה אינן. זו אותה מחלקה כמו U5
+                # ב-``amir-bug-patterns``: פעולה שדורשת N שדות מקושרים,
+                # והקוד שומר N-1.
+                outer_remaining, outer_interval = signal.getitimer(signal.ITIMER_REAL)
                 started = time.monotonic()
                 old_handler = signal.signal(signal.SIGALRM, timeout_handler)
                 signal.setitimer(signal.ITIMER_REAL, REGEX_TIMEOUT_SECONDS)
@@ -326,6 +340,7 @@ class ConditionOperators:
                             signal.setitimer(
                                 signal.ITIMER_REAL,
                                 max(left, OUTER_TIMER_FLOOR_SECONDS),
+                                outer_interval,
                             )
                         else:
                             signal.setitimer(signal.ITIMER_REAL, 0)
