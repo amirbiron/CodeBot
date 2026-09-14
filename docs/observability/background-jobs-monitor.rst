@@ -46,7 +46,16 @@ Background Jobs Monitor
 קולקציה: ``job_runs``
 ~~~~~~~~~~~~~~~~~~~~~
 
-כל הרצה נשמרת בקולקציה ``job_runs`` עם TTL של **7 ימים** (מחיקה אוטומטית).
+כל הרצה נשמרת בקולקציה ``job_runs``, ונמחקת אוטומטית בתום חלון השמירה —
+``JOB_RUNS_TTL_DAYS``, ברירת מחדל **30 ימים**.
+
+.. warning::
+   עד אישיו #3331 העמוד הזה הבטיח TTL של 7 ימים, והוא **לא היה קיים במסד**:
+   קובץ ההגדרות שהכיל אותו לא יובא מאף מקום, ולכן שום אינדקס TTL לא נוצר.
+   החלון הורחב ל-30 יום כי ארבעה קוראים עובדים בלי חסם זמן — "20 ההרצות
+   האחרונות" של ג'וב שרץ לעיתים רחוקות, ``/jobs failed`` ב-ChatOps, וקישורי
+   ``?run_id=`` קבועים שמחולקים בטלגרם. מעבר לחלון, כל אלה מפסיקים למצוא את
+   ההרצה.
 
 **שדות עיקריים:**
 
@@ -70,14 +79,22 @@ Background Jobs Monitor
 
 **אינדקסים:**
 
-.. code-block:: python
+הרשימה נמשכת מהמקור בזמן הבנייה, ולא מועתקת לכאן — בדיוק כדי שלא תתאר שוב
+מצב שאינו קיים. כל אינדקס והשאילתה שמצדיקה אותו מתועדים ב-docstring של הקובץ.
 
-   JOB_RUNS_INDEXES = [
-       {"keys": [("job_id", 1), ("started_at", -1)]},
-       {"keys": [("status", 1)]},
-       {"keys": [("started_at", -1)], "expireAfterSeconds": 604800},  # TTL 7 ימים
-       {"keys": [("user_id", 1), ("job_id", 1)], "sparse": True},
-   ]
+.. literalinclude:: ../../database/job_runs_collection.py
+   :language: python
+   :pyobject: job_runs_indexes
+   :caption: database/job_runs_collection.py – job_runs_indexes
+
+``DatabaseManager._create_indexes`` קורא לפונקציה הזו בכל התחברות למסד, ומעביר
+כל הגדרה ל-``safe_create_index``.
+
+.. note::
+   ה-TTL יושב על אינדקס **חד-שדה** נפרד. לפי `MongoDB Manual, TTL Indexes
+   <https://www.mongodb.com/docs/manual/core/index-ttl/>`_ אינדקס מורכב מתעלם
+   מ-``expireAfterSeconds``; מול ``mongod`` 7.0.14 נמדד שהשרת דוחה יצירה כזו
+   בשגיאה. כך או כך, אינדקס מורכב אינו מוחק מסמכים.
 
 UI / WebApp
 -----------
@@ -226,6 +243,9 @@ ENV וקונפיגורציה
    * - ``BOT_API_BASE_URL``
      - –
      - Fallback ל-``BOT_JOBS_API_BASE_URL``
+   * - ``JOB_RUNS_TTL_DAYS``
+     - ``30``
+     - כמה ימים נשמרת הרצה לפני מחיקה אוטומטית (TTL על ``started_at``)
    * - ``JOBS_STUCK_THRESHOLD_MINUTES``
      - ``20``
      - סף דקות לזיהוי Job תקוע
@@ -348,7 +368,7 @@ Troubleshooting
 **סיבות אפשריות:**
 
 1. **אין עדיין הרצות** – המשתמש לא ביצע פעולות שיוצרות Jobs דינמיים
-2. **TTL** – הרצות נמחקו אחרי 7 ימים
+2. **TTL** – ההרצות נמחקו בתום חלון השמירה (``JOB_RUNS_TTL_DAYS``)
 3. **הרשאות** – בדקו שיש גישה לקולקציית ``job_runs``
 
 "לא מגיעים Alerts"

@@ -1311,6 +1311,11 @@ def create_app() -> web.Application:
         - יצירת TTL לקולקציות לוגים (מחיקה אוטומטית בעתיד)
         - ניקוי אינדקסים ב-code_snippets: השארה של אינדקסים קריטיים בלבד.
 
+        חלונות ה-TTL נקראים ממי שמגדיר אותם — ``PersistentQueryProfilerService``
+        ו-``monitoring.metrics_storage`` — ולא קשיחים כאן. אותם ערכים מייצרים את
+        האינדקסים בעלייה (``DatabaseManager._create_indexes``), ושני מקורות שונים
+        לאותו אינדקס הם בדיוק מה שייצר את הסתירה של 24 שעות מול 30 יום.
+
         ⚠️ מוגן ע"י db_health_auth_middleware (Bearer token).
         """
         from services.db_provider import get_db
@@ -1323,6 +1328,12 @@ def create_app() -> web.Application:
             from services.query_profiler_service import (  # type: ignore
                 PersistentQueryProfilerService as _ProfilerSvc,
             )
+            from monitoring.metrics_storage import (  # type: ignore
+                METRICS_TTL_INDEX_NAME as _METRICS_TTL_INDEX_NAME,
+                conflicting_ttl_indexes as _conflicting_ttl_indexes,
+                metrics_collection_name as _metrics_collection_name,
+                metrics_ttl_seconds as _metrics_ttl_seconds,
+            )
 
             # מקור אמת יחיד לשם האוסף ול-retention שלו — אותם ערכים שבהם משתמש
             # DatabaseManager._create_profiler_indexes. שם האוסף היה קשיח כאן
@@ -1331,6 +1342,13 @@ def create_app() -> web.Application:
             # את האינדקס.
             profiler_collection = str(_ProfilerSvc.COLLECTION_NAME)
             profiler_ttl_seconds = int(_ProfilerSvc.TTL_SECONDS)
+
+            # אותו עיקרון בדיוק ל-service_metrics: שם האוסף ניתן להגדרה ב-
+            # METRICS_COLLECTION, וחלון השמירה היה כאן 86400 קשיח — 24 שעות —
+            # בזמן שהדשבורד מציע 30 יום וה-warmup שואל 30 יום אחורה בכל עלייה.
+            metrics_collection = str(_metrics_collection_name())
+            metrics_ttl_seconds_value = int(_metrics_ttl_seconds())
+            metrics_ttl_index = str(_METRICS_TTL_INDEX_NAME)
 
             preview = str(request.query.get("preview", "") or "").lower() in {"1", "true", "yes", "on"}
             db = get_db()
@@ -1341,7 +1359,7 @@ def create_app() -> web.Application:
             except Exception:
                 slow_queries_coll = None
             try:
-                service_metrics_coll = db.service_metrics
+                service_metrics_coll = db[metrics_collection]
             except Exception:
                 service_metrics_coll = None
             try:
@@ -1423,17 +1441,19 @@ def create_app() -> web.Application:
                     "status": "planned" if preview else "created",
                 }
 
-            # Explicitly drop legacy TTL index that may conflict (IndexOptionsConflict)
+            # Explicitly drop legacy TTL indexes that would conflict (IndexOptionsConflict)
             service_metrics_pre_drop: dict[str, Any]
+            conflicting = _conflicting_ttl_indexes(service_metrics_coll, keep_name=metrics_ttl_index)
             if preview:
-                service_metrics_pre_drop = {"planned_drop": ["metrics_ttl"]}
+                service_metrics_pre_drop = {"planned_drop": conflicting}
             else:
                 dropped_pre: list[str] = []
-                try:
-                    service_metrics_coll.drop_index("metrics_ttl")
-                    dropped_pre.append("metrics_ttl")
-                except Exception:
-                    pass
+                for idx_name in conflicting:
+                    try:
+                        service_metrics_coll.drop_index(idx_name)
+                        dropped_pre.append(idx_name)
+                    except Exception:
+                        pass
                 service_metrics_pre_drop = {"dropped": dropped_pre}
 
             ttl_results: dict[str, Any] = {
@@ -1443,18 +1463,14 @@ def create_app() -> web.Application:
                     expire_seconds=profiler_ttl_seconds,
                     index_name="ttl_cleanup",
                 ),
-                # service_metrics uses "ts" in code, but we'll also create a "timestamp" TTL for safety/backward-compat
+                # ``ts`` הוא השדה היחיד שהכותב מייצר (monitoring/metrics_storage.py).
+                # ה-TTL שהיה כאן על ``timestamp`` הוסר: אין לשדה הזה שום כותב, ולכן
+                # האינדקס עלה בכל כתיבה ולא מחק מסמך אחד.
                 "service_metrics_ts": _ensure_ttl_index(
                     service_metrics_coll,
                     field="ts",
-                    expire_seconds=86400,  # 24 hours
-                    index_name="ttl_cleanup_ts",
-                ),
-                "service_metrics_timestamp": _ensure_ttl_index(
-                    service_metrics_coll,
-                    field="timestamp",
-                    expire_seconds=86400,  # 24 hours
-                    index_name="ttl_cleanup",
+                    expire_seconds=metrics_ttl_seconds_value,
+                    index_name=metrics_ttl_index,
                 ),
             }
             ttl_results["service_metrics_pre_drop"] = service_metrics_pre_drop

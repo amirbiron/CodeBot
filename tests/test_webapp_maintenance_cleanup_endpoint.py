@@ -8,31 +8,42 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
     monkeypatch.setenv("DB_HEALTH_TOKEN", "test-db-health-token")
 
     class _StubDeleteColl:
-        def __init__(self, *, has_legacy_metrics_ttl: bool):
+        """התנגשות אינדקסים לפי **מפתח**, כמו במונגו — לא לפי שם קשיח."""
+
+        def __init__(self, *, indexes: dict | None = None):
             self.created_indexes = []
             self.deleted_calls = 0
-            self.metrics_ttl_dropped = False
-            self.has_legacy_metrics_ttl = bool(has_legacy_metrics_ttl)
+            self.dropped_indexes: list[str] = []
+            self._idx = dict(indexes or {})
 
         def delete_many(self, _q):
             self.deleted_calls += 1
             return types.SimpleNamespace(deleted_count=0)
 
         def index_information(self):
-            if self.has_legacy_metrics_ttl:
-                return {"metrics_ttl": {"key": [("ts", 1)], "expireAfterSeconds": 2592000}}
-            return {}
+            return dict(self._idx)
 
         def drop_index(self, _name: str):
-            if str(_name) == "metrics_ttl":
-                self.metrics_ttl_dropped = True
+            self.dropped_indexes.append(str(_name))
+            self._idx.pop(str(_name), None)
             return None
 
         def create_index(self, _keys, **kwargs):
-            if self.has_legacy_metrics_ttl and kwargs.get("expireAfterSeconds") is not None and not self.metrics_ttl_dropped:
-                raise RuntimeError("IndexOptionsConflict: legacy metrics_ttl still exists")
+            want_key = [(str(k), int(v)) for k, v in list(_keys)]
+            for existing_name, meta in self._idx.items():
+                if list(meta.get("key") or []) != want_key:
+                    continue
+                same_name = str(existing_name) == str(kwargs.get("name") or "")
+                same_ttl = meta.get("expireAfterSeconds") == kwargs.get("expireAfterSeconds")
+                if not (same_name and same_ttl):
+                    raise RuntimeError("IndexOptionsConflict: index on the same key already exists")
             self.created_indexes.append(kwargs)
-            return kwargs.get("name") or "idx"
+            name = str(kwargs.get("name") or "idx")
+            meta = {"key": want_key}
+            if kwargs.get("expireAfterSeconds") is not None:
+                meta["expireAfterSeconds"] = kwargs["expireAfterSeconds"]
+            self._idx[name] = meta
+            return name
 
     class _StubCodeSnippetsColl:
         def __init__(self):
@@ -59,8 +70,11 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
 
     class _StubDB:
         def __init__(self):
-            self.slow_queries_log = _StubDeleteColl(has_legacy_metrics_ttl=False)
-            self.service_metrics = _StubDeleteColl(has_legacy_metrics_ttl=True)
+            self.slow_queries_log = _StubDeleteColl()
+            # TTL ישן של 24 שעות בשם שגרסה קודמת של ה-endpoint יצרה
+            self.service_metrics = _StubDeleteColl(
+                indexes={"ttl_cleanup_ts": {"key": [("ts", 1)], "expireAfterSeconds": 86400}}
+            )
             self.code_snippets = _StubCodeSnippetsColl()
 
         def __getitem__(self, name):
@@ -77,7 +91,13 @@ def test_webapp_maintenance_cleanup_route_registered_and_allows_query_token(monk
         assert resp.status_code == 200
         payload = resp.get_json()
         assert payload and payload.get("ok") is True
-        assert "metrics_ttl" in (payload.get("ttl", {}).get("service_metrics_pre_drop", {}) or {}).get("dropped", [])
+        ttl = payload.get("ttl") or {}
+        assert "ttl_cleanup_ts" in (ttl.get("service_metrics_pre_drop") or {}).get("dropped", [])
+        # 30 יום מהקבוע המשותף, ולא 86400 קשיח שסתר את טווחי הדשבורד (אישיו #3331)
+        assert (ttl.get("service_metrics_ts") or {}).get("expireAfterSeconds") == 30 * 24 * 3600
+        assert (ttl.get("service_metrics_ts") or {}).get("name") == "metrics_ttl"
+        # אין יותר TTL על ``timestamp`` — שדה שאף כותב אינו מייצר
+        assert "service_metrics_timestamp" not in ttl
         ensured = (payload.get("indexes") or {}).get("ensured") or {}
         assert ensured.get("name") == "user_updated_at"
 

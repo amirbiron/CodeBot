@@ -5926,6 +5926,23 @@ def _profiler_persistence() -> tuple[str, int]:
     )
 
 
+def _metrics_persistence() -> tuple[str, int, str]:
+    """שם האוסף, חלון השמירה ושם אינדקס ה-TTL של ``service_metrics``.
+
+    כולם נקראים מ-``monitoring/metrics_storage.py`` — הכותב היחיד לאוסף — ולא
+    קשיחים כאן. שם האוסף ניתן להגדרה ב-``METRICS_COLLECTION``, ושם קשיח כאן היה
+    מנקה את האוסף הלא נכון; חלון השמירה היה ``86400`` קשיח, בסתירה לטווחים
+    שהדשבורד וה-warmup מבקשים.
+    """
+    from monitoring.metrics_storage import (  # type: ignore
+        METRICS_TTL_INDEX_NAME,
+        metrics_collection_name,
+        metrics_ttl_seconds,
+    )
+
+    return (metrics_collection_name(), int(metrics_ttl_seconds()), str(METRICS_TTL_INDEX_NAME))
+
+
 @app.route("/api/debug/maintenance_cleanup", methods=["GET"])
 def api_debug_maintenance_cleanup():
     """GET /api/debug/maintenance_cleanup
@@ -5933,10 +5950,19 @@ def api_debug_maintenance_cleanup():
     Endpoint תחזוקה קבוע:
     - מחיקה מלאה של slow_queries_log + service_metrics
     - הגדרת TTL:
-      - slow_queries_log.timestamp => 7 ימים (604800)
-      - service_metrics.ts => 24 שעות (86400)
-      - service_metrics.timestamp => 24 שעות (86400) (תאימות לאחור/best-effort)
+      - slow_queries_log.timestamp => PersistentQueryProfilerService.TTL_SECONDS
+      - service_metrics.ts => monitoring.metrics_storage.metrics_ttl_seconds()
     - ניקוי אינדקסים ב-code_snippets להשארת מינימום קריטי
+
+    שני הערכים נקראים ממי שמגדיר אותם, ולא קשיחים כאן. קודם היה כאן ``86400``
+    קשיח — 24 שעות — בזמן שהדשבורד מציע טווח של 30 יום וה-warmup שואל 30 יום
+    אחורה בכל עלייה. כלומר הרצה אחת של ה-endpoint הזה הייתה מרוקנת בשקט את שתי
+    התצוגות האלה. אותו ערך מייצר גם את האינדקס ב-
+    ``DatabaseManager._create_metrics_indexes``.
+
+    ה-TTL על ``service_metrics.timestamp`` הוסר: **אף כותב אינו מייצר שדה בשם
+    ``timestamp`` באוסף הזה** (הכותב היחיד הוא ``monitoring/metrics_storage.py``
+    והוא כותב ``ts``), ולכן האינדקס ההוא עלה בכל כתיבה ולא מחק מסמך אחד.
 
     הרשאות:
     - דורש DB_HEALTH_TOKEN
@@ -6042,31 +6068,37 @@ def api_debug_maintenance_cleanup():
         # הפעולות ההרסניות, אחרת כשל בייבוא מחזיר 500 אחרי שהנתונים כבר נמחקו
         # והאינדקס הישן הופל. ובתוך ה-try כדי שהכשל יחזור כ-JSON ולא כדף HTML
         # של Flask — זה ה-endpoint שלקוחות מצפים ממנו לחוזה JSON קבוע.
+        from monitoring.metrics_storage import conflicting_ttl_indexes  # type: ignore
+
         profiler_collection, profiler_ttl_seconds = _profiler_persistence()
+        metrics_collection, metrics_ttl_seconds_value, metrics_ttl_index = _metrics_persistence()
 
         db = get_db()
         slow_queries_coll = db[profiler_collection]
+        service_metrics_coll = db[metrics_collection]
 
         # Purge logs
         deleted_slow = 0
         deleted_metrics = 0
         if not preview:
             slow_res = slow_queries_coll.delete_many({})
-            metrics_res = db.service_metrics.delete_many({})
+            metrics_res = service_metrics_coll.delete_many({})
             deleted_slow = int(getattr(slow_res, "deleted_count", 0) or 0)
             deleted_metrics = int(getattr(metrics_res, "deleted_count", 0) or 0)
 
-        # Explicitly drop legacy TTL index that may conflict (IndexOptionsConflict)
+        # Explicitly drop legacy TTL indexes that would conflict (IndexOptionsConflict)
         service_metrics_pre_drop: dict[str, Any]
+        conflicting = conflicting_ttl_indexes(service_metrics_coll, keep_name=metrics_ttl_index)
         if preview:
-            service_metrics_pre_drop = {"planned_drop": ["metrics_ttl"]}
+            service_metrics_pre_drop = {"planned_drop": conflicting}
         else:
             dropped_pre: list[str] = []
-            try:
-                db.service_metrics.drop_index("metrics_ttl")
-                dropped_pre.append("metrics_ttl")
-            except Exception:
-                pass
+            for idx_name in conflicting:
+                try:
+                    service_metrics_coll.drop_index(idx_name)
+                    dropped_pre.append(idx_name)
+                except Exception:
+                    pass
             service_metrics_pre_drop = {"dropped": dropped_pre}
 
         # TTL indexes
@@ -6080,16 +6112,10 @@ def api_debug_maintenance_cleanup():
                 index_name="ttl_cleanup",
             ),
             "service_metrics_ts": _ensure_ttl_index(
-                db.service_metrics,
+                service_metrics_coll,
                 field="ts",
-                expire_seconds=86400,
-                index_name="ttl_cleanup_ts",
-            ),
-            "service_metrics_timestamp": _ensure_ttl_index(
-                db.service_metrics,
-                field="timestamp",
-                expire_seconds=86400,
-                index_name="ttl_cleanup",
+                expire_seconds=metrics_ttl_seconds_value,
+                index_name=metrics_ttl_index,
             ),
         }
         ttl_results["service_metrics_pre_drop"] = service_metrics_pre_drop

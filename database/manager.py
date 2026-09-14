@@ -1657,6 +1657,12 @@ class DatabaseManager:
                                   שם הפרמטר ב-pymongo הוא ``expireAfterSeconds``
                                   (מקור: pymongo/synchronous/collection.py, create_index).
                                   ⚠️ אינדקס TTL מוחק נתונים בפועל — לא להוסיף בלי כוונה מפורשת.
+                                  אם כבר קיים אינדקס TTL על אותו מפתח באורך חלון אחר —
+                                  **גם בשם אחר** — הוא מתעדכן ב-``collMod`` והשם שלו נשמר.
+                                  אינדקס TTL חייב להיות חד-שדה: *"TTL indexes are
+                                  single-field indexes. Compound indexes do not support TTL
+                                  and ignore the expireAfterSeconds option"*
+                                  (מקור: https://www.mongodb.com/docs/manual/core/index-ttl/).
         """
         db = getattr(self, "db", None)
         if db is None:
@@ -1756,6 +1762,98 @@ class DatabaseManager:
             except Exception:
                 return False
 
+        def _ttl_sibling(idx: Dict[str, Any]) -> bool:
+            """אינדקס TTL קיים על אותו מפתח בדיוק, שנבדל **רק** באורך החלון.
+
+            זה המקרה שבו מונגו מחזיר IndexOptionsConflict בלי קשר לשם שביקשנו,
+            ולכן ``drop_index(name)`` של מסלול ה-``enforce`` לא נוגע בו: השם הישן
+            הוא אחר (``metrics_ttl``, ``ttl_cleanup_ts``), ההפלה נכשלת בשקט,
+            והיצירה החוזרת מתנגשת שוב. התוצאה היא TTL שלא חל לעולם.
+            """
+            try:
+                if expire_after_seconds is None:
+                    return False
+                key_doc = idx.get("key", {})
+                if not isinstance(key_doc, dict):
+                    return False
+                if [(str(k), int(v)) for k, v in list(key_doc.items())] != desired_keys:
+                    return False
+                if bool(idx.get("unique", False)) != bool(unique):
+                    return False
+                if idx.get("partialFilterExpression") != partial_filter_expression:
+                    return False
+                existing_expire = idx.get("expireAfterSeconds")
+                # רק אינדקס שכבר הוא TTL. המרה של אינדקס רגיל ל-TTL דרך collMod
+                # אינה מתועדת, ולכן לא נשענים עליה.
+                if existing_expire is None:
+                    return False
+                return int(existing_expire) != int(expire_after_seconds)
+            except Exception:
+                return False
+
+        def _collmod_ttl(existing_name: str) -> bool:
+            """מעדכן ``expireAfterSeconds`` של אינדקס קיים דרך ``collMod``.
+
+            זה המנגנון היחיד שמתועד לשינוי TTL של אינדקס קיים:
+            *"You cannot use createIndex() to change the value of expireAfterSeconds
+            of an existing index. Instead, use the collMod database command"*
+            (מקור: https://www.mongodb.com/docs/manual/core/index-ttl/).
+            צורת הפקודה — ``{collMod: <coll>, index: {keyPattern: <spec>,
+            expireAfterSeconds: <number>}}`` — מ-
+            https://www.mongodb.com/docs/manual/reference/command/collMod/.
+
+            **האימות הוא קריאה חוזרת של מצב האינדקס, לא ערך ההחזרה של הפקודה.**
+            ``expireAfterSeconds_old`` מוחזר רק "if the index had a value before",
+            כלומר תשובה בלי השדות האלה אינה בהכרח כשל ואינה בהכרח הצלחה. מי
+            שקובע הוא ``list_indexes`` אחרי הפקודה.
+            """
+            try:
+                db.command(
+                    {
+                        "collMod": collection_name,
+                        "index": {
+                            "keyPattern": {k: v for k, v in desired_keys},
+                            "expireAfterSeconds": int(expire_after_seconds or 0),
+                        },
+                    }
+                )
+            except Exception as mod_e:
+                emit_event(
+                    "db_index_ttl_collmod_error",
+                    severity="warn",
+                    collection=collection_name,
+                    index_name=existing_name,
+                    error=str(mod_e),
+                )
+                return False
+
+            for idx in _existing_indexes():
+                if str(idx.get("name", "")) != existing_name:
+                    continue
+                try:
+                    applied = int(idx.get("expireAfterSeconds"))
+                except (TypeError, ValueError):
+                    applied = None
+                if applied == int(expire_after_seconds or 0):
+                    emit_event(
+                        "db_index_ttl_updated",
+                        severity="info",
+                        collection=collection_name,
+                        index_name=existing_name,
+                        expire_after_seconds=int(expire_after_seconds or 0),
+                    )
+                    return True
+                break
+
+            emit_event(
+                "db_index_ttl_collmod_unverified",
+                severity="error",
+                collection=collection_name,
+                index_name=existing_name,
+                expire_after_seconds=int(expire_after_seconds or 0),
+            )
+            return False
+
         try:
             index_kwargs: Dict[str, Any] = {
                 "name": name,
@@ -1798,6 +1896,16 @@ class DatabaseManager:
                             index_name=str(idx.get("name", "")),
                         )
                         return
+
+                # הבדל שכולו באורך חלון ה-TTL: מעדכנים את האינדקס הקיים במקום
+                # להפיל ולבנות מחדש. זה תופס גם אינדקס בשם אחר לגמרי — בדיוק
+                # המקרה שמסלול ה-enforce שלמטה, שמפיל לפי שם, לא יכול לתפוס.
+                for idx in _existing_indexes():
+                    if not _ttl_sibling(idx):
+                        continue
+                    if _collmod_ttl(str(idx.get("name", ""))):
+                        return
+                    break
 
                 # mismatch אמיתי: לאינדקסים קריטיים ננסה לאכוף drop+create לפי השם
                 if enforce and name:
@@ -1972,6 +2080,78 @@ class DatabaseManager:
             name="slow_queries_coll_dur",
         )
 
+    def _create_metrics_indexes(self, safe_create_index) -> None:
+        """אינדקסים לאוסף ``service_metrics`` — כולל ה-TTL שחוסם את גודלו.
+
+        שני אינדקסים, ולכל אחד קורא:
+
+        - ``metrics_type_ts`` על ``(ts, type)`` — כל הקריאות עוברות דרך
+          ``_build_time_match``, שמסנן ``type`` ואז טווח על ``ts``.
+        - ``metrics_ttl`` על ``ts`` בלבד — חלון השמירה. **חייב להיות אינדקס נפרד
+          וחד-שדה**: התיעוד אומר שאינדקס מורכב מתעלם מ-``expireAfterSeconds``
+          (https://www.mongodb.com/docs/manual/core/index-ttl/), ומול mongod
+          7.0.14 נמדד שהשרת בכלל דוחה יצירה כזו. כך או כך, TTL שנוסף על
+          ``metrics_type_ts`` אינו מוחק דבר.
+
+        שם האוסף וחלון השמירה נקראים מ-``monitoring.metrics_storage`` — המודול
+        שהוא **הכותב היחיד** לאוסף הזה. אם הוא אינו ניתן לייבוא, אין בתהליך הזה
+        מי שיכתוב לאוסף, ואין טעם ליצור לו אינדקסים.
+
+        ⚠️ ה-TTL מוחק נתונים בפועל. מה שנמחק מעבר לחלון כולל את המסמכים הישנים
+        בצורת ``type: "request"`` (מסמך לכל בקשה), שמזינים את
+        ``aggregate_latency_percentiles`` ואת ``find_by_request_id``. **אין להם
+        כותב בעץ הנוכחי** — הכותב היחיד מייצר ``request_agg`` ואינו שומר
+        ``request_id`` — ושני הקוראים של האחוזונים מעבירים תמיד חלון זמן חסום,
+        ולכן הם מקבלים ``{}`` כבר היום. המחיקה אינה מורידה יכולת פעילה.
+        """
+        try:
+            from monitoring.metrics_storage import (  # type: ignore
+                METRICS_TTL_INDEX_NAME,
+                metrics_collection_name,
+                metrics_ttl_seconds,
+            )
+        except Exception:
+            return
+
+        collection_name = metrics_collection_name()
+        safe_create_index(
+            collection_name,
+            [("ts", DESCENDING), ("type", ASCENDING)],
+            name="metrics_type_ts",
+        )
+        safe_create_index(
+            collection_name,
+            [("ts", ASCENDING)],
+            name=METRICS_TTL_INDEX_NAME,
+            expire_after_seconds=metrics_ttl_seconds(),
+            enforce=True,
+        )
+
+    def _create_job_runs_indexes(self, safe_create_index) -> None:
+        """אינדקסים לאוסף ``job_runs``, מתוך ``database/job_runs_collection.py``.
+
+        ההגדרות יושבות שם ולא כאן כדי שיהיה להן מקום אחד. עד אישיו #3331 הקובץ
+        ההוא לא יובא מאף מקום: התיעוד הבטיח TTL של 7 ימים, ובמסד לא היה שום
+        אינדקס TTL ו-318 אלף מסמכים חיכו שם בלי מחיקה.
+        """
+        try:
+            from .job_runs_collection import JOB_RUNS_COLLECTION, job_runs_indexes
+        except Exception:
+            return
+
+        for spec in job_runs_indexes():
+            keys = spec.get("keys") or []
+            if not keys:
+                continue
+            safe_create_index(
+                JOB_RUNS_COLLECTION,
+                list(keys),
+                name=spec.get("name"),
+                unique=bool(spec.get("unique", False)),
+                enforce=bool(spec.get("enforce", False)),
+                expire_after_seconds=spec.get("expire_after_seconds"),
+            )
+
     def _create_indexes(self):
         """צור *רק* את האינדקסים הקריטיים (ברקע) למניעת COLLSCAN.
 
@@ -2031,21 +2211,10 @@ class DatabaseManager:
         )
 
         # service_metrics
-        safe_create_index(
-            "service_metrics",
-            [("ts", DESCENDING), ("type", ASCENDING)],
-            name="metrics_type_ts",
-        )
+        DatabaseManager._create_metrics_indexes(self, safe_create_index)
 
-        # job_runs
-        safe_create_index(
-            "job_runs",
-            [("run_id", ASCENDING)],
-            # אינדקס ייחודי קריטי לעדכוני סטטוס מהירים לפי run_id
-            # (שם האינדקס לא חשוב לביצועים, אבל נשמור שם ברור/סטנדרטי)
-            name="idx_job_runs_id",
-            unique=True,
-        )
+        # job_runs — ההגדרות יושבות ב-database/job_runs_collection.py.
+        DatabaseManager._create_job_runs_indexes(self, safe_create_index)
 
         # slow_queries_log - האוסף שהפרופיילר כותב אליו.
         # קריאה לא-קשורה (unbound) כמו שאר הקובץ, כדי לתמוך גם ב-self דמה מטסטים
