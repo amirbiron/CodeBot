@@ -762,6 +762,22 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             # עוקף אותה. עכשיו הוא באמת עוקף, אבל **שתי תקרות שונות**, ולכן
             # שני המספרים חייבים להופיע: סוכן שקיבל ``too_large`` צריך לדעת
             # אם ``lines`` יעזור לו או שהקובץ מעבר לגבול בכל מקרה.
+
+            # התיאור הסביר איך לקרוא טווח, ולא **מאיפה משיגים את המספר**.
+            # סוכן שעבד מול המראה יום שלם משך קבצים שלמים כדי להפנות לכלל
+            # בודד, וביקש כלי אאוטליין שכבר היה קיים — כלומר לא כלי חסר
+            # אלא כלי שלא נמצא. המשפט מתאר את הצעד הבא ולא את האפשרות,
+            # ויושב כאן, לפני ``outline=true``, כי שני המשפטים הם שתי
+            # התשובות לאותה שאלה: "אני לא יודע איפה בקובץ זה".
+            # ``line`` הוא **מספר בודד**, ו-``lines`` דורש זוג: ראו
+            # ``handlers.normalize_line_range``, שמחזיר ``invalid_line_range``
+            # על כל אורך שאינו 2 (נמדד: ``172`` ו-``[172]`` שניהם נדחים).
+            # ולכן הדוגמה נקובה במפורש ולא נאמרת כ"בנה טווח סביבו" — תיאור
+            # שקורא לשורה החוזרת "הטווח" שולח את הקורא לקריאה שנדחית.
+            + " When you do not know where in the file your target sits, "
+            "codekeeper_search_repo returns a `line` for every match — a single "
+            "number, so read around it with lines=[line - 20, line + 20], or "
+            "lines=[line, line] for that one line."
             + " Set outline=true for a map instead of content: every function and "
             "class with its start and end line, so you can follow up with an exact "
             "lines= range. Names are fully qualified with dots (Class.method, "
@@ -833,7 +849,16 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "(path+line), capped and truncated-flagged. Set context_lines=N "
             "(0-10, default 0) to get N lines before and after each hit as "
             "context_before / context_after, instead of fetching the whole file "
-            "just to see the surroundings."
+            "just to see the surroundings. "
+            # ``path+line`` כבר הופיע לעיל, אבל כתיאור של מה שחוזר ולא של
+            # מה לעשות איתו — וזה בדיוק מה שלא נקרא. השרשור נאמר במפורש.
+            "Every result carries a `line`, so the next step on a hit is "
+            # הדוגמה נקובה בצורתה המלאה ולא כ"טווח סביבו": ``line`` הוא מספר
+            # בודד, ו-``normalize_line_range`` דוחה כל אורך שאינו 2. סוכן
+            # שקורא רק את התיאור הזה, בלי זה של ``get_repo_file``, לא יכול
+            # היה לדעת מכאן שהפרמטר הוא זוג.
+            "codekeeper_get_repo_file on that path with lines=[line - 20, "
+            "line + 20] — the passage itself, not the file."
         ),
         annotations=_READ_ONLY_TOOL,
     )
