@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from services import rst_parser
 
 _ENV_RST = Path(__file__).resolve().parents[1] / "docs" / "environment-variables.rst"
@@ -1111,3 +1113,55 @@ def test_a_simple_table_with_no_closing_border_swallows_the_rest():
         f"ראש\n====\n\n{_TABLE}\na     b\n\nכותרת\n------\n\nגוף\n"
     )
     assert [(s.title, s.level) for s in doc.sections] == [("ראש", 1)]
+
+
+# ---- התקרה על מספר הסקשנים ----
+#
+# ``max_sections`` קיים כדי שהפרסור **ייעצר**, ולא כדי שהתשובה תיחתך.
+# הנימוק והמדידות יושבים ב-docstring של ``parse_document``, והמספר עצמו
+# אינו כאן: הוא של סורק האאוטליין, והפארסר אינו מכיר אותו.
+
+_CEILING_SHAPES = {
+    "כותרת עם קו תחתון": "a\n=\n\n",
+    "כותרת עם קו מעליה ומתחתיה": "===\naaa\n===\n\n",
+    "קו עליון קצר שהודח לכותרת": "~\n=\n\n",
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_CEILING_SHAPES))
+def test_each_of_the_three_heading_shapes_honours_the_section_ceiling(shape):
+    """שלושת אתרי ההוספה, כל אחד בנפרד — וזה הלקח מכלל שנכתב פעמיים.
+
+    ל-``parse_document`` שלוש צורות כותרת ושלושה אתרים שמוסיפים סקשן,
+    ו-``add_section`` הוא ההגדרה היחידה שכולם עוברים דרכה. טסט על צורה
+    אחת היה עובר גם על מימוש שבו אתר אחד נשאר בלי הבדיקה — וזה בדיוק מה
+    שקרה במודול הזה עם כלל בליעת הפסקה, שנכתב בשני אתרים, ואחד מהם תוקן
+    והשני נשאר מאחור עד שהסבב הבא תפס אותו.
+
+    **והבקרה בשורה הראשונה אינה קוסמטית:** בלעדיה, צורה שהפסיקה להיות
+    כותרת בכלל הייתה מספקת את הטסט בשקט — אין סקשנים, אין חריגה, הכול
+    ירוק. ``~`` בודד, למשל, נראה כמו קו עליון קצר אבל ``-`` בודד באותו
+    מקום הוא פריט רשימה ואינו כותרת.
+    """
+    unit = _CEILING_SHAPES[shape]
+
+    assert len(rst_parser.parse_document(unit).sections) == 1
+
+    with pytest.raises(rst_parser.TooManySections):
+        rst_parser.parse_document(unit * 2, max_sections=1)
+
+
+def test_the_section_ceiling_refuses_above_the_line_and_not_on_it():
+    """הגבול בשני הכיוונים, כמו ב-``Capped.append``.
+
+    טסט שבודק רק הצפה עובר גם על תקרה שחוסמת קלט תקין, ולכן שני הכיוונים
+    ביחד הם מה שמקבע את הגבול ותופס off-by-one בין ``>=`` ל-``>``. הגבול
+    חייב להישאר זהה לזה שהיה לפני שהתקרה נסעה לתוך הפרסור, אחרת התשובה
+    על קובץ שיושב בדיוק על הגבול משתנה.
+    """
+    three = "a\n=\n\nb\n=\n\nc\n=\n\n"
+
+    assert len(rst_parser.parse_document(three, max_sections=3).sections) == 3
+
+    with pytest.raises(rst_parser.TooManySections):
+        rst_parser.parse_document(three + "d\n=\n\n", max_sections=3)

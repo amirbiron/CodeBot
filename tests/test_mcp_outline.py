@@ -2776,6 +2776,45 @@ def test_the_ceiling_cannot_fire_without_the_container(monkeypatch):
     assert result["total"] > _ceiling.MAX_SYMBOLS
 
 
+def test_the_rst_ceiling_stops_the_parse_and_not_only_the_answer(monkeypatch):
+    """הטסט היחיד כאן שמקבע **עבודה** ולא תשובה.
+
+    ``rows-rst`` שלמעלה עובר גם על מימוש שמפרסר את הקובץ כולו ורק אחר כך
+    מסרב — התשובה זהה, והעלות אינה. נמדד על 10MB של כותרת בת תו אחד בכל
+    שתי שורות: 18.5 שניות ו-1,132MB כשהפרסור מסתיים, מול 0.30 שניות
+    ו-83MB כשהוא נעצר. כלומר הדבר שצריך הגנה הוא נקודת העצירה, ולא
+    המילון שחוזר.
+
+    **והמונה הוא בנייה של ``Section`` ולא זמן ולא זיכרון**, כי שני אלה
+    תלויים במכונה ובעומס והיו הופכים את הטסט להפכפך. ספירת אובייקטים היא
+    דטרמיניסטית: על 200 כותרות ותקרה של 20, מימוש שנעצר בונה 20 ומימוש
+    שמסנן פלט בונה 200.
+
+    הייבוא מקומי בכוונה: הקובץ הזה נמנע מייבוא ``services.rst_parser``
+    ברמת המודול כדי שהאורקלים שבו לא ייגזרו מהמימוש שהם בודקים, ומונה
+    אינו אורקל.
+    """
+    from services import rst_parser
+
+    monkeypatch.setattr(_ceiling, "MAX_SYMBOLS", 20)
+    built = []
+    real = rst_parser.Section
+
+    def counting(**fields):
+        built.append(1)
+        return real(**fields)
+
+    monkeypatch.setattr(rst_parser, "Section", counting)
+
+    result = extract_outline("a\n=\n\n" * 200, "a.rst")
+
+    assert result == {"status": "no_outline", "reason": "too_many_symbols", "max": 20}
+    # 20 שנכנסו, ועוד **אחד** שנבנה ונדחה: הארגומנט מחושב לפני הקריאה
+    # ל-``add_section``, ולכן הסקשן שחוצה את התקרה כן נוצר — אובייקט אחד,
+    # ולא המשך של הפרסור. מימוש שמסנן פלט היה בונה 200.
+    assert len(built) == 21, f"נבנו {len(built)} סקשנים — הפרסור לא נעצר על התקרה"
+
+
 def test_the_tool_reports_the_ceiling_through_the_real_path(monkeypatch):
     """דרך ``repo_handlers.get_repo_file`` ולא רק דרך ``extract_outline``.
 

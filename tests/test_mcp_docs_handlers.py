@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from mcp_server import docs_handlers
+from mcp_server.outline_scanners import _ceiling
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -220,3 +221,24 @@ def test_an_overlined_heading_is_one_level_deeper_than_the_same_character_underl
     assert [(t["title"], t["level"]) for t in out["toc"]] == [
         ("כותרת א", 1), ("כותרת ב", 2)]
     assert out["toc"][1]["breadcrumb"] == ["כותרת א", "כותרת ב"]
+
+
+def test_the_docs_reader_is_not_bounded_by_the_outline_ceiling():
+    """הצרכן בייצור אינו מושפע מהתקרה של האאוטליין, וזה נבדק דרכו.
+
+    ``parse_document`` קיבל ``max_sections``, וברירת המחדל היא ללא תקרה
+    — אבל "ברירת מחדל" היא הבטחה בקוד, ולכן יש לה בדיקה. הכלי הזה הוא
+    המתקשר השני של הפארסר, והוא אינו מעביר תקרה.
+
+    **ולכן הקלט כאן בונה יותר סקשנים מהתקרה במקום להנמיך אותה**
+    ב-``monkeypatch``: תקרה מונמכת הייתה מרוצה גם ממימוש שבו ברירת
+    המחדל היא 50,000 קבוע, וזו בדיוק הרגרסיה שהטסט הזה קיים בשבילה.
+    העלות נמדדה — 819KB, 0.40 שניות — וזה המחיר של בדיקה שמסוגלת ליפול.
+    """
+    over = _ceiling.MAX_SYMBOLS + 1
+    text = "".join(f"h{i}\n{'=' * 8}\n\n" for i in range(over))
+
+    out = docs_handlers.docs_get_section(_TextBackend(text), path="x")
+
+    assert out["ok"] and out["mode"] == "toc"
+    assert out["section_count"] == over
