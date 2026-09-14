@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from flask import Blueprint, jsonify, request, session
+from dataclasses import dataclass, field
 from functools import wraps
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone, timedelta
@@ -761,7 +762,37 @@ def _claim_reminder(db, reminder_doc: dict, ttl_seconds: int | None = None) -> b
         return False
 
 
-def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
+@dataclass
+class _DeliveryContext:
+    """מצב המסירה למשתמש אחד — נבנה פעם אחת ומשרת כמה שליחות.
+
+    נוצר רק דרך :func:`_open_delivery`, ולכן עצם קיומו מעיד שיש למי
+    לשלוח ושמסלול המסירה זמין.
+
+    ``webpush`` ו-``json_mod`` נשמרים כאן במכוון ולא מיובאים מחדש בכל
+    שליחה: כך נשמרת ההתנהגות שהייתה כאן מאז ומתמיד — היעדר
+    ``pywebpush`` נתפס **פעם אחת, לפני** שנשלח משהו, ולא באמצע מסירה.
+    """
+
+    user_id: int | str
+    db: Any
+    subs: list[dict]
+    use_remote: bool
+    vapid_private: str = ""
+    vapid_email: str = ""
+    webpush: Any = None
+    json_mod: Any = None
+    # endpoints שהתגלו כמתים (404/410) במהלך המסירה. נאספים לאורך כל
+    # השליחות של אותו משתמש ונמחקים פעם אחת ב-_close_delivery.
+    endpoints_to_delete: set[str] = field(default_factory=set)
+
+
+def _open_delivery(user_id: int | str) -> _DeliveryContext | None:
+    """שולף את מנויי המשתמש ומכין את מסלול המסירה.
+
+    מחזיר ``None`` בדיוק במקרים שבהם אין מה לעשות: אין מנויים, חסר
+    מפתח VAPID פרטי במסלול המקומי, או ש-``pywebpush`` אינו מותקן.
+    """
     db = get_db()
     subs = list(db.push_subscriptions.find({"user_id": {"$in": _user_id_variants(user_id)}}))
     if not subs:
@@ -772,30 +803,223 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
             emit_event("push_send_no_subscriptions", severity="info", user_id=str(user_id))
         except Exception:
             pass
-        return
+        return None
     # Decide delivery path
     remote_cfg = _remote_delivery_cfg()
     use_remote = bool(remote_cfg.get("enabled"))
-    if not use_remote:
-        # Local pywebpush path requires private key
-        _, vapid_private = _coerce_vapid_pair()
-        vapid_email = (os.getenv("VAPID_SUB_EMAIL") or os.getenv("SUPPORT_EMAIL") or "").strip()
-        if not vapid_private or not subs:
+    if use_remote:
+        return _DeliveryContext(user_id=user_id, db=db, subs=subs, use_remote=True)
+
+    # Local pywebpush path requires private key
+    _, vapid_private = _coerce_vapid_pair()
+    vapid_email = (os.getenv("VAPID_SUB_EMAIL") or os.getenv("SUPPORT_EMAIL") or "").strip()
+    if not vapid_private or not subs:
+        try:
+            from observability import emit_event  # type: ignore
+
+            emit_event("push_send_missing_vapid_private", severity="warning", user_id=int(user_id))
+        except Exception:
+            pass
+        return None
+    try:
+        from pywebpush import webpush, WebPushException  # type: ignore # noqa: F401
+        import json
+    except Exception:
+        return None
+    return _DeliveryContext(
+        user_id=user_id,
+        db=db,
+        subs=subs,
+        use_remote=False,
+        vapid_private=vapid_private,
+        vapid_email=vapid_email,
+        webpush=webpush,
+        json_mod=json,
+    )
+
+
+def _deliver_payload(ctx: _DeliveryContext, payload: dict, *, idempotency_key: str = "") -> bool:
+    """שולח גוף התראה אחד לכל מנויי המשתמש.
+
+    מחזיר ``True`` אם **לפחות מנוי אחד** קיבל אותו. הקורא הוא שמחליט מה
+    לעשות עם זה — כאן אין שום ידיעה על תזכורות, פתקים או כל מקור אחר.
+    """
+    success_any = False
+    for sub in ctx.subs:
+        ep = str(sub.get("endpoint") or "")
+        if ep and ep in ctx.endpoints_to_delete:
+            continue
+        info = sub.get("subscription") or {"endpoint": ep, "keys": sub.get("keys")}
+        content_enc = (
+            sub.get("content_encoding")
+            or sub.get("contentEncoding")
+            or (info.get("contentEncoding") if isinstance(info, dict) else None)
+        )
+        try:
+            ce = str(content_enc).strip().lower() if content_enc is not None else ""
+        except Exception:
+            ce = ""
+        if ce not in ("aesgcm", "aes128gcm"):
+            ce = "aes128gcm"
+
+        if ctx.use_remote:
+            ok, status_code, _err = _post_to_worker(
+                info if isinstance(info, dict) else {},
+                payload,
+                content_encoding=ce,
+                idempotency_key=idempotency_key,
+                ttl=_PUSH_DELIVERY_TTL_SECONDS,
+                urgency=_PUSH_DELIVERY_URGENCY,
+            )
+            if ok:
+                success_any = True
+            else:
+                if status_code in (404, 410) and ep:
+                    ctx.endpoints_to_delete.add(ep)
+                try:
+                    from observability import emit_event  # type: ignore
+
+                    emit_event(
+                        "push_send_error",
+                        severity="warning",
+                        user_id=str(ctx.user_id),
+                        # אותה סכמה כמו במסלול המקומי: hash בלבד, ועם
+                        # פירוט השגיאה. קודם נרשם כאן ה-endpoint המלא.
+                        endpoint_hash=_hash_endpoint(ep),
+                        status_code=int(status_code or 0),
+                        error=_redact_error(_err)[:300],
+                    )
+                except Exception:
+                    pass
+            continue
+
+        # Local pywebpush path
+        try:
+            delivered = False
+            last_err: Exception | None = None
+            urgency_headers = {"Urgency": _PUSH_DELIVERY_URGENCY} if _PUSH_DELIVERY_URGENCY else None
+            for key_variant in _vapid_key_candidates(ctx.vapid_private):
+                try:
+                    ctx.webpush(
+                        subscription_info=info,
+                        data=ctx.json_mod.dumps(payload, ensure_ascii=False),
+                        vapid_private_key=key_variant,
+                        vapid_claims={"sub": (f"mailto:{ctx.vapid_email}" if ctx.vapid_email and not ctx.vapid_email.startswith("mailto:") else ctx.vapid_email) or "mailto:support@example.com"},
+                        content_encoding=ce,
+                        ttl=_PUSH_DELIVERY_TTL_SECONDS,
+                        headers=urgency_headers,
+                    )
+                    delivered = True
+                    last_err = None
+                    break
+                except Exception as inner_ex:
+                    last_err = inner_ex
+                    continue
+            if not delivered and last_err is not None:
+                raise last_err
+            if delivered:
+                success_any = True
+        except Exception as ex:
+            # רושמים כל חריגה, לא רק WebPushException. בעבר שגיאות אחרות
+            # (מפתחות/הצפנה/תלויות) נבלעו כאן בשקט, והלוג הראה רק
+            # "sent: 0" בלי סיבה — מה שהפך כל אבחון לניחוש.
+            status = 0
+            try:
+                err_str = f"{type(ex).__name__}: {ex}"
+            except Exception:
+                err_str = "unknown_error"
+            try:
+                from pywebpush import WebPushException  # type: ignore
+
+                if isinstance(ex, WebPushException):
+                    status = int(getattr(getattr(ex, "response", None), "status_code", 0) or 0)
+                    if status in (404, 410) and ep:
+                        ctx.endpoints_to_delete.add(ep)
+            except Exception:
+                pass
             try:
                 from observability import emit_event  # type: ignore
 
-                emit_event("push_send_missing_vapid_private", severity="warning", user_id=int(user_id))
+                emit_event(
+                    "push_send_error",
+                    severity="warning",
+                    user_id=str(ctx.user_id),
+                    # hash בלבד — ה-endpoint המלא הוא מזהה מכשיר ולא נרשם ללוג
+                    endpoint_hash=_hash_endpoint(ep),
+                    status_code=int(status or 0),
+                    error=_redact_error(err_str)[:300],
+                )
             except Exception:
                 pass
-            return
-        try:
-            from pywebpush import webpush, WebPushException  # type: ignore
-            import json
-        except Exception:
-            return
+            continue
+    return success_any
 
-    # Track endpoints that should be removed after processing all reminders
-    endpoints_to_delete: set[str] = set()
+
+def _close_delivery(ctx: _DeliveryContext) -> None:
+    """מוחק פעם אחת את ה-endpoints שהתגלו כמתים במהלך המסירה."""
+    if not ctx.endpoints_to_delete:
+        return
+    try:
+        ctx.db.push_subscriptions.delete_many({"user_id": {"$in": _user_id_variants(ctx.user_id)}, "endpoint": {"$in": list(ctx.endpoints_to_delete)}})
+        # Telemetry: cleaned dead endpoints
+        try:
+            from observability import emit_event  # type: ignore
+
+            emit_event(
+                "push_deleted_dead_endpoints",
+                severity="info",
+                user_id=str(ctx.user_id),
+                deleted_count=int(len(ctx.endpoints_to_delete)),
+            )
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _build_reminder_payload(db, reminder_doc: dict) -> dict:
+    """בונה את גוף ההתראה של תזכורת פתק.
+
+    Payload format: notification object at top level (FCM standard),
+    ‏``data`` object for custom handling in SW.
+    """
+    title_text = "🔔 יש פתק ממתין"
+    body_text = _coerce_preview(db, reminder_doc)
+    note_id_str = str(reminder_doc.get("note_id") or "")
+    file_id_str = str(reminder_doc.get("file_id") or "")
+    board_id_str = str(reminder_doc.get("board_id") or "")
+    return {
+        "notification": {
+            "title": title_text,
+            "body": body_text,
+            "icon": "/static/icons/app-icon-512.png",
+            "badge": "/static/icons/app-icon-512.png",
+            "tag": f"reminder-{note_id_str}" if note_id_str else "reminder",
+            "silent": False,
+            "requireInteraction": False,
+            "actions": [
+                {"action": "open_note", "title": "פתח פתק"},
+                {"action": "snooze_10", "title": "דחה 10 דק׳"},
+                {"action": "snooze_60", "title": "דחה שעה"},
+                {"action": "snooze_1440", "title": "דחה 24 שעות"},
+            ],
+        },
+        "data": {
+            "type": "reminder",
+            "note_id": note_id_str,
+            "file_id": file_id_str,
+            "board_id": board_id_str,
+            "title": title_text,
+            "body": body_text,
+        },
+    }
+
+
+def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
+    ctx = _open_delivery(user_id)
+    if ctx is None:
+        return
+    db = ctx.db
 
     for r in reminders:
         # Try to claim this reminder to avoid duplicate push across workers
@@ -805,40 +1029,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
         except Exception:
             # If claiming fails unexpectedly, fall back to best-effort send
             pass
-        title_text = "🔔 יש פתק ממתין"
-        body_text = _coerce_preview(db, r)
-        note_id_str = str(r.get("note_id") or "")
-        file_id_str = str(r.get("file_id") or "")
-        board_id_str = str(r.get("board_id") or "")
-
-        # Payload format: notification object at top level (FCM standard)
-        # data object for custom handling in SW
-        payload = {
-            "notification": {
-                "title": title_text,
-                "body": body_text,
-                "icon": "/static/icons/app-icon-512.png",
-                "badge": "/static/icons/app-icon-512.png",
-                "tag": f"reminder-{note_id_str}" if note_id_str else "reminder",
-                "silent": False,
-                "requireInteraction": False,
-                "actions": [
-                    {"action": "open_note", "title": "פתח פתק"},
-                    {"action": "snooze_10", "title": "דחה 10 דק׳"},
-                    {"action": "snooze_60", "title": "דחה שעה"},
-                    {"action": "snooze_1440", "title": "דחה 24 שעות"},
-                ],
-            },
-            "data": {
-                "type": "reminder",
-                "note_id": note_id_str,
-                "file_id": file_id_str,
-                "board_id": board_id_str,
-                "title": title_text,
-                "body": body_text,
-            },
-        }
-        success_any = False
+        payload = _build_reminder_payload(db, r)
         # Telemetry: attempt send for this reminder batch
         try:
             from observability import emit_event  # type: ignore
@@ -848,119 +1039,12 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                 severity="info",
                 user_id=str(user_id),
                 reminder_id=str(r.get("_id") or ""),
-                subs=len(subs),
+                subs=len(ctx.subs),
             )
         except Exception:
             pass
 
-        for sub in subs:
-            ep = str(sub.get("endpoint") or "")
-            if ep and ep in endpoints_to_delete:
-                continue
-            info = sub.get("subscription") or {"endpoint": ep, "keys": sub.get("keys")}
-            content_enc = (
-                sub.get("content_encoding")
-                or sub.get("contentEncoding")
-                or (info.get("contentEncoding") if isinstance(info, dict) else None)
-            )
-            try:
-                ce = str(content_enc).strip().lower() if content_enc is not None else ""
-            except Exception:
-                ce = ""
-            if ce not in ("aesgcm", "aes128gcm"):
-                ce = "aes128gcm"
-
-            if use_remote:
-                ok, status_code, _err = _post_to_worker(
-                    info if isinstance(info, dict) else {},
-                    payload,
-                    content_encoding=ce,
-                    idempotency_key=str(r.get("_id") or ""),
-                    ttl=_PUSH_DELIVERY_TTL_SECONDS,
-                    urgency=_PUSH_DELIVERY_URGENCY,
-                )
-                if ok:
-                    success_any = True
-                else:
-                    if status_code in (404, 410) and ep:
-                        endpoints_to_delete.add(ep)
-                    try:
-                        from observability import emit_event  # type: ignore
-
-                        emit_event(
-                            "push_send_error",
-                            severity="warning",
-                            user_id=str(user_id),
-                            # אותה סכמה כמו במסלול המקומי: hash בלבד, ועם
-                            # פירוט השגיאה. קודם נרשם כאן ה-endpoint המלא.
-                            endpoint_hash=_hash_endpoint(ep),
-                            status_code=int(status_code or 0),
-                            error=_redact_error(_err)[:300],
-                        )
-                    except Exception:
-                        pass
-                continue
-
-            # Local pywebpush path
-            try:
-                delivered = False
-                last_err: Exception | None = None
-                urgency_headers = {"Urgency": _PUSH_DELIVERY_URGENCY} if _PUSH_DELIVERY_URGENCY else None
-                for key_variant in _vapid_key_candidates(vapid_private):
-                    try:
-                        webpush(
-                            subscription_info=info,
-                            data=json.dumps(payload, ensure_ascii=False),
-                            vapid_private_key=key_variant,
-                            vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
-                            content_encoding=ce,
-                            ttl=_PUSH_DELIVERY_TTL_SECONDS,
-                            headers=urgency_headers,
-                        )
-                        delivered = True
-                        last_err = None
-                        break
-                    except Exception as inner_ex:
-                        last_err = inner_ex
-                        continue
-                if not delivered and last_err is not None:
-                    raise last_err
-                if delivered:
-                    success_any = True
-            except Exception as ex:
-                # רושמים כל חריגה, לא רק WebPushException. בעבר שגיאות אחרות
-                # (מפתחות/הצפנה/תלויות) נבלעו כאן בשקט, והלוג הראה רק
-                # "sent: 0" בלי סיבה — מה שהפך כל אבחון לניחוש.
-                status = 0
-                try:
-                    err_str = f"{type(ex).__name__}: {ex}"
-                except Exception:
-                    err_str = "unknown_error"
-                try:
-                    from pywebpush import WebPushException  # type: ignore
-
-                    if isinstance(ex, WebPushException):
-                        status = int(getattr(getattr(ex, "response", None), "status_code", 0) or 0)
-                        if status in (404, 410) and ep:
-                            endpoints_to_delete.add(ep)
-                except Exception:
-                    pass
-                try:
-                    from observability import emit_event  # type: ignore
-
-                    emit_event(
-                        "push_send_error",
-                        severity="warning",
-                        user_id=str(user_id),
-                        # hash בלבד — ה-endpoint המלא הוא מזהה מכשיר ולא נרשם ללוג
-                        endpoint_hash=_hash_endpoint(ep),
-                        status_code=int(status or 0),
-                        error=_redact_error(err_str)[:300],
-                    )
-                except Exception:
-                    pass
-                continue
-        if success_any:
+        if _deliver_payload(ctx, payload, idempotency_key=str(r.get("_id") or "")):
             try:
                 # Race condition protection: only mark as sent if remind_at hasn't changed
                 # (i.e., user didn't snooze during the push). If snoozed, the new remind_at
@@ -978,23 +1062,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                 pass
 
     # After processing all reminders for this user, remove dead endpoints once
-    if endpoints_to_delete:
-        try:
-            db.push_subscriptions.delete_many({"user_id": {"$in": _user_id_variants(user_id)}, "endpoint": {"$in": list(endpoints_to_delete)}})
-            # Telemetry: cleaned dead endpoints
-            try:
-                from observability import emit_event  # type: ignore
-
-                emit_event(
-                    "push_deleted_dead_endpoints",
-                    severity="info",
-                    user_id=str(user_id),
-                    deleted_count=int(len(endpoints_to_delete)),
-                )
-            except Exception:
-                pass
-        except Exception:
-            pass
+    _close_delivery(ctx)
 
 
 def _coerce_preview(db, reminder_doc: dict) -> str:
