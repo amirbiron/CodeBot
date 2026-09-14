@@ -469,3 +469,40 @@ async def test_the_description_names_every_suffix_the_outline_router_supports():
         token = re.compile(rf"(?<![\w.]){re.escape(suffix)}(?![\w.])")
 
         assert token.search(description), f"{suffix} בטבלת הראוטר אבל לא בתיאור הכלי"
+
+
+async def test_the_descriptions_name_the_search_to_range_chain():
+    """שני הכלים מרכיבים שרשור שלם, ואף אחד מהם לא אמר את זה.
+
+    ``codekeeper_search_repo`` מחזיר ``line`` לכל פגיעה (ראו
+    ``repo_backend.search``, שבונה את השורה מתוך ``r.get("line")``), ומשם
+    ``codekeeper_get_repo_file`` עם ``lines=`` קורא בדיוק את הקטע שההתאמה
+    הצביעה עליו. מי שיודע את זה לא מושך קובץ שלם כדי להפנות לכלל בודד.
+
+    **הפער היה בתיאור ולא ביכולת:** סוכן שעבד מול המראה יום שלם ביקש כלי
+    אאוטליין שכבר היה קיים, כי שני התיאורים תיארו *מה חוזר* ולא *מה הצעד
+    הבא*. ``path+line`` הופיע בתיאור החיפוש מההתחלה, והוא לא הספיק — ולכן
+    הטסט הזה נוקב במשפט שמתאר פעולה, לא בהזכרה של השדה.
+
+    שני הכיוונים נאכפים, כי תיאור אחד בלבד סוגר חצי שרשור: מי שהתחיל
+    בחיפוש צריך לדעת לאן להמשיך, ומי שהתחיל בקריאת קובץ צריך לדעת מאיפה
+    להשיג מספר שורה במקום לנחש טווח.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+
+    search = mcp._tool_manager.get_tool("codekeeper_search_repo").description
+    read = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+
+    # חיפוש ← קריאת טווח.
+    assert "Every result carries a `line`" in search
+    assert "codekeeper_get_repo_file" in search
+    assert "lines=" in search
+
+    # קריאת טווח ← חיפוש (הכיוון ההפוך).
+    assert "codekeeper_search_repo" in read
+    assert "`line` for every match" in read
+
+    # המשפט החדש חייב לשבת לפני תקרות הגודל ולא להקדים את ``lines=[start,
+    # end]``, אחרת הוא מזיז את הסדר ששלושת הטסטים שמעליו אוכפים.
+    assert read.index("codekeeper_search_repo") > read.index("lines=[start, end]")
+    assert read.index("codekeeper_search_repo") < read.index("500KB")

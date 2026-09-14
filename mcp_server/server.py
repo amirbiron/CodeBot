@@ -762,6 +762,16 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             # עוקף אותה. עכשיו הוא באמת עוקף, אבל **שתי תקרות שונות**, ולכן
             # שני המספרים חייבים להופיע: סוכן שקיבל ``too_large`` צריך לדעת
             # אם ``lines`` יעזור לו או שהקובץ מעבר לגבול בכל מקרה.
+
+            # התיאור הסביר איך לקרוא טווח, ולא **מאיפה משיגים את המספר**.
+            # סוכן שעבד מול המראה יום שלם משך קבצים שלמים כדי להפנות לכלל
+            # בודד, וביקש כלי אאוטליין שכבר היה קיים — כלומר לא כלי חסר
+            # אלא כלי שלא נמצא. המשפט מתאר את הצעד הבא ולא את האפשרות,
+            # ויושב כאן, לפני ``outline=true``, כי שני המשפטים הם שתי
+            # התשובות לאותה שאלה: "אני לא יודע איפה בקובץ זה".
+            + " When you do not know where in the file your target sits, "
+            "codekeeper_search_repo returns a `line` for every match — that "
+            "line is the lines= range to read here."
             + " Set outline=true for a map instead of content: every function and "
             "class with its start and end line, so you can follow up with an exact "
             "lines= range. Names are fully qualified with dots (Class.method, "
@@ -833,7 +843,12 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "(path+line), capped and truncated-flagged. Set context_lines=N "
             "(0-10, default 0) to get N lines before and after each hit as "
             "context_before / context_after, instead of fetching the whole file "
-            "just to see the surroundings."
+            "just to see the surroundings. "
+            # ``path+line`` כבר הופיע לעיל, אבל כתיאור של מה שחוזר ולא של
+            # מה לעשות איתו — וזה בדיוק מה שלא נקרא. השרשור נאמר במפורש.
+            "Every result carries a `line`, so the next step on a hit is "
+            "codekeeper_get_repo_file on that path with lines= a range around "
+            "it — the passage itself, not the file."
         ),
         annotations=_READ_ONLY_TOOL,
     )
