@@ -74,10 +74,18 @@ def _drain_the_background_db_pollers():
     הוא גם מזהם, כי הוא נוגע בדיוק באותם גלובלים. נצפה בפועל: סבב שלו
     באמצע בדיקה פרסם ``client`` משלו, והבדיקה ספרה אפס ניסיונות התחברות.
 
-    ההשתקה לבדה אינה מספיקה — סבב שכבר נכנס ל-``_send_due_once`` פתר את
-    השמות לפני ההחלפה, והוא עדיין בדרכו פנימה. לכן: משתיקים את הסבבים
-    הבאים, ואז **מנקזים** את זה שבתנועה. הלולאה ישנה לפחות 20 שניות בין
-    סבבים, ולכן אחרי הניקוז לא נותר אף אחד.
+    **מנתקים את הגישה למסד, ולא כל פונקציה בשמה.** הגרסה הקודמת השתיקה את
+    ``_send_due_once`` בלבד, ואז נוספה ללולאה קריאה שנייה —
+    ``_send_due_events_once`` (‏#3383) — שגם היא פותחת ב-``get_db()``.
+    הרשימה בשמות התיישנה באותו רגע, והבדיקה חזרה ליפול על "נוצרו 0
+    לקוחות". ``push_api.get_db`` הוא הצינור היחיד שכל הקוראים במודול
+    עוברים דרכו, ואף אחד אינו מייבא אותו בשם, ולכן ניתוק שלו מכסה גם את
+    הקורא הבא שיתווסף — בלי שיהיה מה לסנכרן.
+
+    ההשתקה לבדה אינה מספיקה — סבב שכבר נכנס פנימה פתר את השמות לפני
+    ההחלפה, והוא עדיין בדרכו. לכן: מנתקים את הסבבים הבאים, ואז **מנקזים**
+    את זה שבתנועה. הלולאה ישנה לפחות 20 שניות בין סבבים, ולכן אחרי הניקוז
+    לא נותר אף אחד.
 
     לא נגענו בקוד הייצור בכוונה: ``webapp/app.py`` מחזיק שומר מוכן לכך
     (``_is_webapp_runtime``, שכבר מונע את ה-backup scheduler בתהליך שאינו
@@ -87,7 +95,11 @@ def _drain_the_background_db_pollers():
     import webapp.app as wa
     import webapp.push_api as push_api
 
-    saved = push_api._send_due_once
+    saved_get_db = push_api.get_db
+    saved_send = push_api._send_due_once
+    # ``get_db`` הוא מה שבאמת מגן; השתקת ``_send_due_once`` נשארת כדי
+    # שסבב בתנועה לא ירעיש בלוג על מסד שאינו שם.
+    push_api.get_db = lambda *a, **k: None
     push_api._send_due_once = lambda *a, **k: None
     try:
         lock = wa.__dict__.setdefault("_DB_INIT_LOCK", threading.Lock())
@@ -103,7 +115,8 @@ def _drain_the_background_db_pollers():
                 break
         yield
     finally:
-        push_api._send_due_once = saved
+        push_api.get_db = saved_get_db
+        push_api._send_due_once = saved_send
 
 
 @pytest.fixture
@@ -286,3 +299,20 @@ def test_the_module_is_not_left_connected_to_a_fake(app_module):
     """
     assert app_module.client is None
     assert app_module.db is None
+
+
+def test_the_push_loop_cannot_reach_the_module_globals(app_module):
+    """שומר על הבידוד עצמו, כדי שהדריפט הבא ייתפס כאן ולא ב-CI.
+
+    לולאת ה-``push-sender`` רצה ברקע וקוראת ל-``get_db`` בכל סבב. כל עוד
+    הצינור מנותק, סבב שנוחת באמצע בדיקה אינו יכול לפרסם ``client`` — וזה
+    בדיוק מה שגרם ל"נוצרו 0 לקוחות": הבדיקות כאן סופרות ניסיונות התחברות,
+    וקורא אחר שהתחבר במקומן מאפס את הספירה.
+
+    הבדיקה מכוונת ל**צינור** ולא לשמות הפונקציות שעוברות בו, כי רשימת
+    שמות היא בדיוק מה שהתיישן בפעם הקודמת.
+    """
+    import webapp.push_api as push_api
+
+    assert push_api.get_db() is None, "לולאת ה-push עדיין מגיעה למסד האמיתי"
+    assert app_module.client is None
