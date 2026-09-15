@@ -12,9 +12,10 @@ loop, and the tool can still read ``ctx.request_context.request.state``.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import Context, FastMCP
+from pydantic import Field
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -60,6 +61,83 @@ _RANGE_DOC = (
     "included) instead of the whole file; the reply then carries a `range` "
     "block with the file's total_lines so you know what you did not get. "
     "An `end` past the end of the file is clipped; a start past it is an error."
+)
+
+# תיאור הפרמטר ``outline``, ותיאור הפרמטר ``symbol``.
+#
+# **למה הם כאן ולא בתוך תיאור הכלי.** שני הבלוקים האלה ישבו בתוך
+# ``description`` של ``codekeeper_get_repo_file``, והביאו אותו ל-2,482 תווים —
+# פי 3.8 מהכלי השני בגודלו (652) ופי שמונה מהחציון (303). לקוח MCP שחותך
+# תיאור ארוך חותך את **הסוף**, ונמדד בפועל שהתיאור הגיע לסוכן חתוך באמצע
+# המשפט על RST ועל ``symbol=`` — כלומר שני פיצ'רים עבדו ואף לקוח לא קרא
+# עליהם. תיאור פרמטר יושב ב-``inputSchema`` ולא ב-``description``, ולכן
+# הוא אינו מתחרה על אותו תקציב.
+#
+# **וזו העברה, לא קיצור.** אף משפט לא נמחק: סך שלושת השדות גדול מהתיאור
+# שקדם להם. כל משפט כאן נולד מבאג אמיתי ויש עליו טסט ב-
+# ``tests/test_mcp_server_build.py`` — מחיקה הייתה מחזירה את מחלקת הכשל.
+#
+# .. warning::
+#
+#    **מה שנמדד הוא שהשרת שולח את התיאורים האלה במלואם** ב-``inputSchema``
+#    (‏``mcp==1.28.1``, עם ריצת בקרה שבלי ``Field`` השדה חוזר ``None``) —
+#    ולא מה שלקוח מציג מהם. נצפה לקוח שמקצר תיאור פרמטר לכ-120 תווים
+#    בשורת סיכום, ובאותו לקוח תיאור כלי בן 2,482 תווים הגיע שלם. אם
+#    יתברר שזו ההתנהגות הרווחת, הפיצול הזה אינו הפתרון והחלופה היא כלי
+#    אאוטליין נפרד, שם הטקסט חוזר להיות תיאור כלי.
+#
+# הסיומות נקובות במפורש ולא רק "Python only": סוכן ששואל אם ``.pyi`` נתמך
+# לא יכול היה לענות מהתיאור, בזמן ש-``docs/mcp-server.rst`` כן מפרט אותן.
+# הרשימה נאכפת מול ``outline._SCANNERS`` בטסט, כדי ששפה שתתווסף לטבלה בלי
+# שהתיאור יעודכן לא תהפוך לפיצ'ר שאף לקוח קורא לו.
+#
+# ``page/per_page`` נאמר כאן ראשון ובמפורש, כי הוא היה המשפט היחיד בתיאור
+# שלא היה עליו אף טסט — ומשום כך נשמט בטיוטה הראשונה של הפיצול בלי שאף
+# בדיקה שמה לב. עמוד ראשון שנראה כמו כל המפה הוא כשל שקט:
+# ``OUTLINE_PER_PAGE_DEFAULT`` הוא 100, ולכן 486 הסימבולים שנמדדו על
+# הקובץ הצפוף בקורפוס הם חמישה עמודים.
+_OUTLINE_PARAM_DOC = (
+    "A map of the file instead of its content, paged with page/per_page — a "
+    "long map runs to several pages, and page 1 alone is not the whole file. "
+    "Python (.py, .pyi) gives functions and classes with dotted names "
+    "(Class.method, outer.inner); HTML/Jinja templates (.html, .htm, .jinja, "
+    ".jinja2, .j2) give flat names — {% block %} and {% macro %}, elements "
+    "with an id as tag#id, and the definitions inside a <script> or <style> "
+    "block, so a long block is a map and not just a boundary; CSS (.css) "
+    "names each block by its selector or at-rule text, so @media "
+    "(max-width: 768px) is findable with its own line range, and a minified "
+    "file gives every block the one line it really sits on; RST (.rst) gives "
+    "the heading tree with dotted names — the hierarchy comes from the order "
+    "the adornment characters appear in that file, not from the character "
+    "itself — plus every .. _label: target as its own one-line symbol named "
+    "_label, so a broken :ref: is findable by the name it points at. Any "
+    "other suffix returns status no_outline."
+)
+
+# ``symbol=`` ישב בתוך המשפט של פייתון, ומיד אחריו בא המשפט שאומר ש-HTML
+# נותן שמות **שטוחים** — סוכן שקרא את זה קשר את הפילטר לשמות מנוקדים ולא
+# ניסה אותו על ``@media``. נמדד שעל הקובץ הצפוף בקורפוס ``symbol="@media"``
+# מצמצם 486 סימבולים בחמישה עמודים לשישה בעמוד אחד, ובכל זאת הפילטר נשכח
+# בסשן שבו הוא תועד. הדוגמאות הן מה שגורם לסוכן להשתמש בזה, ולכן הן נבדקות
+# ולא רק המילה ``symbol=``.
+#
+# **וההבטחה היא הכלה ולא תחילית.** ניסוח קודם אמר ש-``symbol="_"`` מחזיר
+# "only the RST label targets", ונמדד שהוא מחזיר 29 תוויות **ו-133 שורות
+# שאינן תוויות** ב-79 קבצים. הבטחה שהקוד אינו מקיים גרועה מהיעדר הבטחה.
+#
+# ה-escape ב-``services.backup\\_service`` הוא תו אמיתי בכותרת של עמוד
+# autodoc, ולא קישוט: בלעדיו ``symbol="backup_service"`` נראה כאילו הוא
+# אמור למצוא את העמוד, והוא אינו מוצא.
+_SYMBOL_PARAM_DOC = (
+    "Narrows the outline to names containing this substring, "
+    "case-insensitively. It works on every language's names, not just the "
+    "dotted Python ones: symbol=\"@media\" returns only the media queries "
+    "with their ranges, and symbol=\"#\" only the names carrying an id. "
+    "Matching is by substring in every language, so on RST symbol=\"_\" "
+    "returns the .. _label: targets and also any heading containing an "
+    "underscore; and an RST heading is the source text rather than the "
+    "rendered text, so an autodoc page is named services.backup\\_service "
+    "module and symbol=\"backup_service\" does not match it."
 )
 
 # Shared annotations: every tool here is a non-destructive, idempotent read over
@@ -778,38 +856,20 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "codekeeper_search_repo returns a `line` for every match — a single "
             "number, so read around it with lines=[line - 20, line + 20], or "
             "lines=[line, line] for that one line."
-            + " Set outline=true for a map instead of content: every function and "
-            "class with its start and end line, so you can follow up with an exact "
-            "lines= range. Names are fully qualified with dots (Class.method, "
-            "outer.inner), symbol= filters on that full name, and page/per_page walk "
-            # הסיומות נקובות במפורש ולא רק "Python only": סוכן ששואל אם
-            # ``.pyi`` נתמך לא יכול היה לענות מהתיאור, בזמן ש-
-            # ``docs/mcp-server.rst`` כן מפרט אותן. הרשימה נאכפת מול
-            # ``outline._SCANNERS`` בטסט, כדי ששפה שתתווסף לטבלה בלי
-            # שהתיאור יעודכן לא תהפוך לפיצ'ר שאף לקוח לא קורא לו.
-            "long files. Python (.py, .pyi) gives functions and classes with "
-            "dotted names; HTML/Jinja templates (.html, .htm, .jinja, .jinja2, "
-            ".j2) give flat names — {% block %} and {% macro %}, elements with "
-            "an id as tag#id, and the definitions inside a <script> or <style> "
-            "block, so a long block is a map and not just a boundary; CSS "
-            "(.css) names each block by its selector or at-rule text, so "
-            "@media (max-width: 768px) is findable with its own line range, "
-            "and a minified file gives every block the one line it really "
-            "sits on; RST (.rst) gives the heading tree with dotted names — "
-            "the hierarchy comes from the order the adornment characters "
-            "appear in that file, not from the character itself — plus every "
-            ".. _label: target as its own one-line symbol named _label, so a "
-            "broken :ref: is findable by the name it points at. symbol= "
-            "matches a substring of any of these names, not "
-            "just the dotted Python ones: symbol=\"@media\" returns only the "
-            "media queries with their ranges, and symbol=\"#\" only the names "
-            "carrying an id. Matching is by substring in every language, so on "
-            "RST symbol=\"_\" returns the .. _label: targets and also any "
-            "heading containing an underscore; and an RST heading is the source "
-            "text rather than the rendered text, so an autodoc page is named "
-            "services.backup\\_service module and symbol=\"backup_service\" "
-            "does not match it. "
-            "Anything else returns status no_outline. "
+            # **הפירוט על השפות ועל הסינון יושב בתיאורי הפרמטרים** ``outline``
+            # ו-``symbol`` (‏``_OUTLINE_PARAM_DOC`` / ``_SYMBOL_PARAM_DOC``),
+            # ולא כאן — הנימוק המלא שם. מה שכן חייב להישאר כאן הוא **ההפניה
+            # אליהם**: סוכן שקורא רק את תיאור הכלי ולא יֵדע ש-``symbol=``
+            # קיים הוא בדיוק הכשל שהפירוט ההוא נכתב כדי למנוע, רק במיקום
+            # אחר. הפניה זו נאכפת בטסט.
+            + " Set outline=true for a map instead of content: every definition "
+            "with its start and end line, so you can follow up with an exact "
+            "lines= range — the outline and symbol parameters say which "
+            "languages have a map and how to narrow it. "
+            # ``A file type with no map`` ולא ``Anything else``: הניסוח הקודם
+            # בא מיד אחרי רשימת השפות, ולכן "else" היה ברור. כאן הרשימה כבר
+            # אינה מעליו, ו"anything else" היה מאבד את מה שהוא מתייחס אליו.
+            "A file type with no map returns status no_outline. "
             "Size "
             "limits differ by mode: 500KB for a whole file, 10MB with lines or "
             "outline; a file over 50000 symbols returns status no_outline with "
@@ -824,8 +884,8 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         path: str,
         ref: str | None = None,
         lines: StrictLines | None = None,
-        outline: bool = False,
-        symbol: str | None = None,
+        outline: Annotated[bool, Field(description=_OUTLINE_PARAM_DOC)] = False,
+        symbol: Annotated[str | None, Field(description=_SYMBOL_PARAM_DOC)] = None,
         page: int = 1,
         per_page: int = repo_handlers.OUTLINE_PER_PAGE_DEFAULT,
     ) -> dict:
