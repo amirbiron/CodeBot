@@ -2430,14 +2430,20 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         // לשם ולאייקון של כל סוג. ``defaultTitle`` כבר נופל לשם הסוג.
         const DEFAULT_TITLES = (typeof window !== 'undefined' && window.ADMONITION_TITLES) || {};
         function defaultTitle(type){ return DEFAULT_TITLES[type] || type; }
+        // ``details`` אינו אלרט ולכן אין לו ערך במפת התוויות, אבל תווית
+        // ברירת המחדל שלו מגיעה מאותו קובץ ומאותה סיבה — מקור אחד.
+        const DETAILS_DEFAULT_TITLE = (typeof window !== 'undefined' && window.DETAILS_DEFAULT_TITLE) || '';
 
         types.forEach(function(type){
           if (type === 'details') {
             md.use(containerPlugin, 'details', {
               validate: function(params){ return /^details\b/i.test((params||'').trim()); },
               render: function(tokens, idx){
-                const m = (tokens[idx].info || '').trim().match(/^details\s+(.*)$/i);
-                const title = (m && m[1] && m[1].trim()) || 'לחץ להצגה';
+                // ``\b\s*`` ולא ``\s+`` — אותה צורה שכל שאר הסוגים משתמשים
+                // בה מטה. נמדד: עם ``\s+`` הכותרת של ``::: details.x`` ירדה
+                // לברירת המחדל בעוד ש-``::: note.x`` קיבל ``.x``.
+                const m = (tokens[idx].info || '').trim().match(/^details\b\s*(.*)$/i);
+                const title = (m && m[1] && m[1].trim()) || DETAILS_DEFAULT_TITLE;
                 if (tokens[idx].nesting === 1) {
                   return `<details class="markdown-details"><summary class="markdown-summary">${md.utils.escapeHtml(title)}</summary><div class="details-content">`;
                 }
@@ -2654,7 +2660,12 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           while (cur && cur !== endP) { const next = cur.nextSibling; frag.appendChild(cur); cur = next; }
           return frag;
         }
-        function defaultTitle(type){ const m={note:'הערה',tip:'טיפ',warning:'אזהרה',danger:'סכנה',important:'חשוב',info:'מידע',success:'הצלחה',question:'שאלה',example:'דוגמה',quote:'ציטוט',experimental:'ניסוי',deprecated:'לא מומלץ',todo:'משימות לביצוע',abstract:'תקציר'}; return m[type]||type; }
+        // **מאותה מפה משותפת** כמו מסלול הרישום שמעל. כאן ישב עד עכשיו
+        // עותק שלישי של התוויות, מוטמע בשורה אחת — ולכן גם השומר שאוסר
+        // עותקים לא ראה אותו. סוג שהיה נוסף למפה לא היה מקבל תווית כאן.
+        const TRANSFORM_TITLES = (typeof window !== 'undefined' && window.ADMONITION_TITLES) || {};
+        const TRANSFORM_DETAILS_TITLE = (typeof window !== 'undefined' && window.DETAILS_DEFAULT_TITLE) || '';
+        function defaultTitle(type){ return TRANSFORM_TITLES[type] || type; }
         function setTitleWithIcon(el, type, titleTxt) { var icon = (typeof ADMONITION_ICONS !== 'undefined' && ADMONITION_ICONS[type]) || ''; el.innerHTML = icon; el.appendChild(document.createTextNode(titleTxt)); }
         function transformIn(root) {
           let changed = false;
@@ -2662,13 +2673,18 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           while (node) {
             if (node.tagName === 'P') {
               const text = (node.textContent || '').trim();
-              let m = text.match(/^:{3,}\s*details\s*(.*)$/i);
+              // ``\b`` — כמו ב-``OPEN_RE`` שמעל וכמו בוולידציה של המכולה.
+              // בלעדיו ``::: detailsX`` היה נפתח כאן כבלוק מתקפל עם הכותרת
+              // ``X``, בזמן ש-``markdown-it-container`` דוחה אותו לגמרי —
+              // כלומר אותו עמוד היה מציג שתי תוצאות שונות לאותו קלט, לפי
+              // איזה משני המסלולים תפס אותו.
+              let m = text.match(/^:{3,}\s*details\b\s*(.*)$/i);
               if (m) {
                 const endP = findMatchingClose(node);
                 if (!endP) { node = node.nextElementSibling; continue; }
                 const frag = extractBetween(node, endP);
                 const details = document.createElement('details'); details.className = 'markdown-details';
-                const summary = document.createElement('summary'); summary.className = 'markdown-summary'; summary.textContent = m[1] ? m[1].trim() : 'לחץ להצגה';
+                const summary = document.createElement('summary'); summary.className = 'markdown-summary'; summary.textContent = (m[1] && m[1].trim()) || TRANSFORM_DETAILS_TITLE;
                 const content = document.createElement('div'); content.className = 'details-content'; content.appendChild(frag);
                 details.appendChild(summary); details.appendChild(content);
                 const parent = node.parentNode; parent.replaceChild(details, node);
@@ -2678,7 +2694,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
                 node = details;
                 changed = true;
               } else {
-                m = text.match(/^:{3,}\s*(note|tip|warning|danger|important|info|success|question|example|quote|experimental|deprecated|todo|abstract)\s*(.*)$/i);
+                m = text.match(/^:{3,}\s*(note|tip|warning|danger|important|info|success|question|example|quote|experimental|deprecated|todo|abstract)\b\s*(.*)$/i);
                 if (m) {
                   const type = m[1].toLowerCase(); const titleTxt = (m[2] || '').trim() || defaultTitle(type);
                   const endP = findMatchingClose(node);

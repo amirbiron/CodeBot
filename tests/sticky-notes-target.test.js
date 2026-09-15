@@ -23,7 +23,8 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MODULE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky-notes.js');
 // **המטא-דאטה של סוגי האלרט נטענת לפני המודול, בדיוק כמו בתבניות.**
-// ``_alertSpec`` קורא את ``window.ADMONITION_TITLES`` כדי לדעת מהו סוג מוכר,
+// ``_containerSpec`` קורא את ``window.ADMONITION_TITLES`` ואת
+// ``window.DETAILS_DEFAULT_TITLE`` כדי לדעת מהו סוג מוכר,
 // ובלי הטעינה כאן אף אלרט לא היה מזוהה וכל הבדיקות עליו היו נכשלות — או
 // גרוע מכך, עוברות מהסיבה הלא נכונה אילו היו בודקות רק שהשורה נשארה טקסט.
 const ADMONITION_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'admonition-icons.js');
@@ -2217,6 +2218,255 @@ check('אלרט: ה-CSS מכייל לפתק ואינו מגדיר פלטה שנ�
   eq(/\.admonition-(note|tip|danger|warning|success)\s*\{/.test(decls), false, 'אין פלטת סוגים שנייה');
 });
 
+// ---------- ``::: details`` — הבלוק המתקפל ----------
+//
+// גם כאן התחביר אינו שלנו, ו**כל הציפיות למטה נמדדו מול
+// ``markdown-it-container@4.0.0``** עם אותה רישום מכולות שתצוגת המסמך
+// מריצה — לא נזכרו. ההבדל היחיד מסוגי המכולה האחרים הוא האלמנט: ``details``
+// ו-``summary`` נייטיביים במקום ``div`` עם מחלקה.
+
+/** הבלוקים המתקפלים בתצוגה, לפי סדר הופעה. */
+function detailsBoxes(view){
+  return view.querySelectorAll('details.sticky-md-details');
+}
+/** ה-``summary`` של בלוק מתקפל. */
+function summaryOf(box){
+  return box.querySelector('summary.sticky-md-details-summary');
+}
+
+check('details: ``::: details`` בונה <details>/<summary> נייטיביים', () => {
+  const { view } = renderMd(mdMgr, '::: details\nגוף\n:::');
+  const boxes = detailsBoxes(view);
+  eq(boxes.length, 1, 'בלוק מתקפל אחד');
+  // **האלמנט הוא כל העניין.** ``div`` עם JS שמראה ומסתיר היה מכונת מצב
+  // שנייה לצד הקיפול של הפתק עצמו, ובלי מקלדת, נגישות והדפסה.
+  eq(String(boxes[0].tagName).toLowerCase(), 'details', 'אלמנט details ולא div');
+  const summary = summaryOf(boxes[0]);
+  eq(!!summary, true, 'יש summary');
+  eq(String(summary.tagName).toLowerCase(), 'summary', 'והוא summary אמיתי');
+  eq(boxes[0].open, undefined, 'ומתחיל סגור, כמו בתצוגת המסמך');
+  // אינו אלרט: אין מחלקת ``admonition``, ולכן גם אין אייקון ואין צבע סוג.
+  eq(alerts(view).length, 0, 'אינו נספר כאלרט');
+  eq(!!view.querySelector('.sticky-md-alert-icon'), false, 'ואין לו אייקון');
+});
+
+check('details: תווית ברירת המחדל מגיעה מהמקור המשותף', () => {
+  // **לא מחרוזת חדשה.** אותה תווית שתצוגת המסמך והתצוגה החיה כבר
+  // משתמשות בה, ומאותו קובץ — ``admonition-icons.js``. הבדיקה קוראת את
+  // הגלובל ולא מקלידה את הטקסט, אחרת היא הייתה עותק רביעי.
+  const shared = sandbox.window.DETAILS_DEFAULT_TITLE;
+  eq(typeof shared === 'string' && shared.length > 0, true, 'הקבוע המשותף קיים');
+  const { view } = renderMd(mdMgr, '::: details\nגוף\n:::');
+  eq(summaryOf(detailsBoxes(view)[0]).textContent, shared, 'והוא מה שמוצג');
+  const custom = renderMd(mdMgr, '::: details מה יש בפנים\nגוף\n:::');
+  eq(summaryOf(detailsBoxes(custom.view)[0]).textContent, 'מה יש בפנים', 'כותרת מותאמת גוברת');
+});
+
+check('details: אינו אלרט ולכן אינו במפת הסוגים', () => {
+  // **ההפרדה הזו היא מה ששומר על שתי הבדיקות שמעל.** ``ADMONITION_TITLES``
+  // היא ההגדרה של "מהו סוג אלרט", ורשימת הסוגים בעמוד המשתמש נגזרת ממנה.
+  // הכנסת ``details`` לשם הייתה נותנת לו אייקון (או משאירה אותו בלי, ומפילה
+  // את בדיקת ההצלבה מול ``ADMONITION_ICONS``) ומוסיפה אותו לרשימה שהמשתמש
+  // קורא כרשימת הכרטיסיות הצבעוניות.
+  eq(Object.prototype.hasOwnProperty.call(sandbox.window.ADMONITION_TITLES, 'details'), false);
+  eq(Object.prototype.hasOwnProperty.call(sandbox.window.ADMONITION_ICONS, 'details'), false);
+});
+
+check('details: לבדו פותח את התצוגה, וסוג לא מוכר לא', () => {
+  eq(mdMgr._hasRenderableMarkdown('::: details\nגוף\n:::'.split('\n')), true);
+  // גבול המילה — אותו כלל בדיוק שכבר חל על ``::: note2``. נמדד מול התוסף:
+  // שניהם מרונדרים שם כפסקה.
+  eq(mdMgr._hasRenderableMarkdown('::: detailsX\nגוף\n:::'.split('\n')), false, 'detailsX אינו מכולה');
+  eq(mdMgr._hasRenderableMarkdown('::: details2\nגוף\n:::'.split('\n')), false, 'details2 אינו מכולה');
+});
+
+check('details: ההיסטים נכונים לפני, בתוך ואחרי — גם סגור וגם פתוח', () => {
+  // **הבדיקה שמסוגלת ליפול אם ההיסט יוסר יחד עם מאזין העריכה.** הקליק על
+  // ה-``summary`` מקפל ואינו נכנס לעריכה, ולכן קל לחשוב שההיסט מיותר שם.
+  // הוא אינו: בלעדיו כל שורה שאחרי הבלוק מוסטת באורך שורה שלמה.
+  const content = 'לפני\n::: details כותרת\nבפנים\n:::\nאחרי';
+  const run = (openIt) => {
+    const parts = renderMd(mdMgr, content);
+    if (openIt) {
+      detailsBoxes(parts.view)[0].open = true;
+      mdMgr._syncTaskView(parts.el);   // רינדור מחדש עם הבלוק פתוח
+    }
+    const box = detailsBoxes(parts.view)[0];
+    eq(!!box, true, 'הבלוק קיים');
+    if (openIt) eq(box.open, true, 'ונשאר פתוח');
+    const at = (node) => Number(node.dataset.charOffset);
+    const rows = parts.view.querySelectorAll('.sticky-task-line');
+    const before = rows.find((r) => r.textContent === 'לפני');
+    const inside = box.querySelector('.details-content').querySelectorAll('.sticky-task-line')[0];
+    const after = rows.find((r) => r.textContent === 'אחרי');
+    eq(at(before), 0, 'לפני');
+    eq(at(summaryOf(box)), content.indexOf('::: details'), 'שורת הפתיחה');
+    eq(inside.textContent, 'בפנים', 'השורה שבפנים');
+    eq(at(inside), content.indexOf('בפנים'), 'ההיסט שלה');
+    // שורת הסגירה נצרכת בלי אלמנט, וההיסט מקודם עליה — בלי זה ``אחרי``
+    // היה מצביע ארבעה תווים אחורה.
+    eq(at(after), content.indexOf('אחרי'), 'ואחרי הבלוק');
+    mdMgr._enterEditFromView(parts.el, { target: after });
+    eq(parts.ta.selectionStart, content.indexOf('אחרי'), 'והלחיצה נוחתת שם');
+  };
+  run(false);
+  run(true);
+});
+
+check('details: אינדקס המשימות אינו זז בגלל הבלוק', () => {
+  const { view } = renderMd(mdMgr, '- [ ] לפני\n::: details כותרת\n- [ ] בתוך\n:::\n- [x] אחרי');
+  const boxes = view.querySelectorAll('.sticky-task-box');
+  eq(boxes.length, 3, 'שלוש תיבות');
+  eq(boxes.map((b) => b.dataset.taskIndex).join(','), '0,1,2', 'סידור רציף');
+  eq(boxes[2].checked, true, 'והמצב נקרא נכון');
+});
+
+check('details: לחיצה על ה-summary מקפלת בלבד ואינה נכנסת לעריכה', () => {
+  // **ההכרעה.** האנלוגיה היא אייקון ההעתקה בבלוק קוד — עם ההבדל שכאן
+  // מוותרים על השורה כולה ולא על אזור קטן בתוכה.
+  const { el, ta, view } = renderMd(mdMgr, '::: details כותרת\nבפנים\n:::');
+  ta.selectionStart = -1;
+  FakeEl.focused = null;
+  const summary = summaryOf(detailsBoxes(view)[0]);
+  eq(mdMgr._enterEditFromView(el, { target: summary }), false, 'לא נכנס לעריכה');
+  eq(FakeEl.focused, null, 'וה-textarea לא קיבל focus');
+  // ומה שבפנים כן מוביל לעריכה, אחרת הבלוק היה קריאה-בלבד.
+  const inside = detailsBoxes(view)[0].querySelector('.details-content')
+    .querySelectorAll('.sticky-task-line')[0];
+  eq(mdMgr._enterEditFromView(el, { target: inside }), true, 'שורה בפנים כן');
+});
+
+check('details: Enter ו-Space על ה-summary אינם מבטלים את הקיפול הנייטיבי', () => {
+  // ``preventDefault`` על ``<summary>`` **מבטל את הקיפול עצמו** — כלומר
+  // משתמש מקלדת נשאר בלי שום דרך לפתוח את הבלוק. בשונה מהקישור, שם רק
+  // Enter פטור ו-Space עדיין נבלם כדי לא לגלול.
+  const { el, view } = renderMd(mdMgr, '::: details כותרת\nבפנים\n:::');
+  const summary = summaryOf(detailsBoxes(view)[0]);
+  ['Enter', ' '].forEach((key) => {
+    FakeEl.focused = null;
+    const ev = keyEvent(key, summary);
+    mdMgr._viewKeydown(el, ev);
+    eq(ev._prevented, false, key + ': לא בוטל — הדפדפן מקפל');
+    eq(FakeEl.focused, null, key + ': וגם לא נכנס לעריכה');
+  });
+});
+
+check('details: מצב הפתיחה שורד רינדור מחדש', () => {
+  // **בלי זה סימון צ׳קבוקס שבתוך הבלוק היה סוגר אותו תחת האצבע.**
+  // ``_applyServerContent`` קורא ל-``_syncTaskView`` אחרי כל toggle,
+  // והתצוגה נבנית מאפס.
+  const { el, view } = renderMd(mdMgr, 'לפני\n::: details כותרת\n- [ ] משימה\n:::');
+  detailsBoxes(view)[0].open = true;
+  mdMgr._syncTaskView(el);
+  eq(detailsBoxes(view)[0].open, true, 'נשאר פתוח');
+  // ובלוק שלא נפתח נשאר סגור — אחרת השחזור היה פותח הכול.
+  const other = renderMd(mdMgr, '::: details כותרת\nגוף\n:::');
+  mdMgr._syncTaskView(other.el);
+  eq(detailsBoxes(other.view)[0].open, undefined, 'ובלוק שלא נפתח נשאר סגור');
+});
+
+check('details: מארקדאון כבוי מציג טקסט גולמי', () => {
+  const off = new StickyNotesManager({ board: 'b-details-off', markdown: false });
+  const parts = makeNote('::: details כותרת\n- [ ] משימה\n:::');
+  off._syncTaskView(parts.el);
+  eq(detailsBoxes(parts.view).length, 0, 'אין בלוק מתקפל');
+  eq(parts.view.textContent.includes('::: details כותרת'), true, 'המרקר מוצג כפי שהוקלד');
+  eq(parts.view.querySelectorAll('.sticky-task-box').length, 1, 'והצ׳קבוקס עדיין אינטראקטיבי');
+});
+
+// ---------- קינון: ``details`` והאלרט באותה מחסנית ----------
+//
+// ``_closeContainersAt`` אינה יודעת דבר על הסוג, והציפיות כאן נמדדו מול
+// ``markdown-it-container`` על ארבעת הצירופים.
+
+check('קינון: details בתוך אלרט', () => {
+  const { view } = renderMd(mdMgr, ':::: note\n::: details כותרת\nפנים\n:::\nאחרי\n::::');
+  const alertBody = view.querySelector('.admonition-content');
+  eq(!!alertBody, true, 'יש אלרט');
+  eq(detailsBoxes(alertBody).length, 1, 'והבלוק המתקפל בתוכו');
+  const rows = alertBody.querySelectorAll('.sticky-task-line');
+  const after = rows.find((r) => r.textContent === 'אחרי');
+  eq(!!after, true, '``אחרי`` נשאר בתוך האלרט');
+  eq(!!detailsBoxes(view)[0].querySelector('.details-content')
+      .querySelectorAll('.sticky-task-line').find((r) => r.textContent === 'אחרי'), false,
+     'ולא נשאר בתוך הבלוק המתקפל');
+});
+
+check('קינון: אלרט בתוך details', () => {
+  const { view } = renderMd(mdMgr, ':::: details חיצוני\n::: note\nפנים\n:::\nאחרי\n::::');
+  const boxes = detailsBoxes(view);
+  eq(boxes.length, 1, 'בלוק מתקפל אחד');
+  const body = boxes[0].querySelector('.details-content');
+  eq(alerts(body).length, 1, 'והאלרט בתוכו');
+  eq(!!body.querySelectorAll('.sticky-task-line').find((r) => r.textContent === 'אחרי'), true,
+     '``אחרי`` נשאר בתוך הבלוק המתקפל');
+});
+
+check('קינון: שורת סגירה סוגרת את החיצוני ביותר, גם כששני הסוגים מעורבים', () => {
+  // **הכלל שהכי קל לטעות בו.** האינטואיציה אומרת "סוגר את הפנימי"; נמדד
+  // מול התוסף — ``:::`` סוגר גם את ``note`` וגם את ``details`` שבתוכו,
+  // ו-``אחרי`` יוצא מחוץ לשניהם.
+  const { view } = renderMd(mdMgr, '::: note\n::: details\nפנים\n:::\nאחרי');
+  const after = view.querySelectorAll('.sticky-task-line').find((r) => r.textContent === 'אחרי');
+  eq(!!after, true, 'השורה קיימת');
+  eq(after.closest('.admonition-content'), null, 'ואינה בתוך האלרט');
+  eq(after.closest('.details-content'), null, 'ואינה בתוך הבלוק המתקפל');
+});
+
+check('קינון: שני בלוקים מתקפלים, סגירה אחת ארוכה סוגרת את שניהם', () => {
+  const { view } = renderMd(mdMgr, ':::: details א\n::: details ב\nפנים\n::::\nאחרי');
+  eq(detailsBoxes(view).length, 2, 'שני בלוקים');
+  const after = view.querySelectorAll('.sticky-task-line').find((r) => r.textContent === 'אחרי');
+  eq(after.closest('.details-content'), null, '``אחרי`` מחוץ לשניהם');
+});
+
+check('details: רשימה שנפתחה בפנים אינה דולפת החוצה', () => {
+  // אותו גבול בדיוק שכבר נבדק לאלרט — וכאן הוא מוודא שהסוג החדש עובר
+  // באותו מסלול ולא בענף משלו.
+  const { view } = renderMd(mdMgr, '::: details כותרת\n- א\n  - ב\n:::\n  - ג');
+  const rows = view.querySelectorAll('.sticky-task-line');
+  const last = rows[rows.length - 1];
+  eq(last.textContent.includes('ג'), true, 'זו אכן השורה האחרונה');
+  eq(last.classList.contains('is-depth-1'), false, 'ולא ירשה את העומק מתוך הבלוק');
+});
+
+check('details: ``:::`` בתוך גדר קוד נשאר ליטרלי', () => {
+  const { view } = renderMd(mdMgr, '::: details כותרת\n```\n:::\n```\nאחרי\n:::');
+  const boxes = detailsBoxes(view);
+  eq(boxes.length, 1, 'בלוק אחד');
+  const body = boxes[0].querySelector('.details-content');
+  eq(body.querySelectorAll('.sticky-md-pre').length, 1, 'שורת תוכן אחת בגדר');
+  eq(body.querySelector('.sticky-md-pre').textContent, ':::', 'וה-::: נשאר קוד ליטרלי');
+  eq(body.textContent.includes('אחרי'), true, 'ומה שאחרי הגדר עדיין בתוך הבלוק');
+});
+
+check('details: ה-CSS מכייל לפתק ואינו מגדיר פלטה שנייה', () => {
+  // **אותה מלכודת בדיוק של האלרט, ואותו כלל מובייל תופס את שתי המחלקות
+  // יחד:** ``.markdown-details, .admonition { margin: 0.75rem -0.5rem; }``.
+  // הפיצול ל-``margin-block``/``margin-inline`` הוא מה שהופך את הביטול
+  // לשורה שאפשר להפיל — נמדד בכרומיום, פתק ברוחב 260 באזור תצוגה 390.
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+  const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');   // בלי הערות — הן מזכירות את שמות התכונות
+  eq(/\.sticky-note \.markdown-details\s*\{/.test(decls), true, 'יש כלל כיול לפתק');
+  const calib = decls.slice(decls.indexOf('.sticky-note .markdown-details {'));
+  const body = calib.slice(0, calib.indexOf('}'));
+  eq(/margin-inline\s*:\s*0/.test(body), true, 'כלל המובייל מבוטל בציר האופקי');
+  eq(/margin-block\s*:/.test(body), true, 'והציר האנכי נקבע בנפרד');
+  eq(/^\s*margin\s*:/m.test(body), false, 'בלי קיצור margin — הוא היה מייתר את margin-inline');
+  // הצבעים חיים ב-``markdown-enhanced.css`` בלבד; העתק כאן היה נסחף ממנו.
+  eq(/--details-(bg|border)\s*:/.test(decls), false, 'אין פלטה שנייה לבלוק המתקפל');
+  // **ואין כאן שומר על שבירת כותרת ארוכה, בכוונה.** ההיקש מהאלרט אמר
+  // להצהיר ``overflow-wrap`` על ה-``summary``; מדידה בכרומיום הראתה
+  // שההצהרה חסרת השפעה, כי ``.sticky-note-tasks`` כבר מצהיר אותה
+  // וההצהרה יורשת — 140 תווים רצופים יצאו באותו גובה בדיוק עם השורה
+  // ובלעדיה. שומר על שורה מתה שומר על כלום, ולכן השורה ירדה ואיתה
+  // הטענה. הנימוק המלא בהערה שב-CSS.
+  const sumCalib = decls.slice(decls.indexOf('.sticky-note .markdown-summary {'));
+  const sumBody = sumCalib.slice(0, sumCalib.indexOf('}'));
+  eq(/overflow-wrap|min-width/.test(sumBody), false, 'בלי הצהרות שהמדידה הראתה שאין להן השפעה');
+});
+
 check('תיעוד: עמוד המשתמש מונה בדיוק את הסוגים שקיימים במפה', () => {
   // **הרשימה בעמוד המשתמש היא היחידה שאינה נגזרת מהמפה בזמן ריצה**, כי
   // משתמש צריך לדעת מה זמין בלי לקרוא קוד. לכן היא היחידה שיכולה
@@ -2229,10 +2479,34 @@ check('תיעוד: עמוד המשתמש מונה בדיוק את הסוגים �
   const listed = (line.match(/``([a-z]+)``/g) || []).map((m) => m.slice(2, -2));
   eq(listed.sort().join(','), Object.keys(sandbox.window.ADMONITION_TITLES).sort().join(','),
      'הרשימה בתיעוד זהה למפה');
+  // אותה סיבה בדיוק לתווית של ``::: details``: המשתמש צריך לדעת מה יוצג
+  // כשלא כתב כותרת, והמחרוזת בעמוד אינה נגזרת מהקוד בזמן ריצה.
+  eq(doc.includes(sandbox.window.DETAILS_DEFAULT_TITLE), true,
+     'תווית ברירת המחדל של details מופיעה בעמוד המשתמש כפי שהיא בקוד');
+});
+
+check('חיווט: כל תבנית שטוענת live-preview.js טוענת גם את מפת האלרטים, ולפניה', () => {
+  // **המשטח השני שקורא מהמפה, ואותה מלכודת בדיוק.** ``live-preview.js``
+  // קורא את התוויות ואת תווית ברירת המחדל של ``details`` מ-``window``;
+  // בעמוד שאינו טוען את הקובץ, ה-``summary`` היה נבנה **ריק** — בלי
+  // שגיאה ובלי לוג. עד היום נבדק רק המשטח של הפתקים.
+  const dir = path.join(__dirname, '..', 'webapp', 'templates');
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+  const loaders = walk(dir).filter((f) => f.endsWith('.html'))
+    .filter((f) => fs.readFileSync(f, 'utf8').includes("filename='js/live-preview.js'"));
+  eq(loaders.length >= 3, true, 'נמצאו התבניות שטוענות את התצוגה החיה (' + loaders.length + ')');
+  loaders.forEach((f) => {
+    const src = fs.readFileSync(f, 'utf8');
+    const icons = src.indexOf("filename='js/admonition-icons.js'");
+    const live = src.indexOf("filename='js/live-preview.js'");
+    eq(icons !== -1, true, path.basename(f) + ' טוען את מפת האלרטים');
+    eq(icons < live, true, path.basename(f) + ' טוען אותה לפני live-preview.js');
+  });
 });
 
 check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם את מפת האלרטים, ולפניה', () => {
-  // **זה מה שמונע מהמשטח הרביעי לשכוח.** ``_alertSpec`` קורא את
+  // **זה מה שמונע מהמשטח הרביעי לשכוח.** ``_containerSpec`` קורא את
   // ``window.ADMONITION_TITLES``; בעמוד שלא טוען את הקובץ, כל אלרט היה
   // מוצג כטקסט רגיל — בלי שגיאה ובלי סימן. זה כבר היה המצב בפועל
   // ב-note_board.html לפני השינוי הזה.
@@ -2259,12 +2533,26 @@ check('מטא-דאטה: מקור אחד לאייקון ולתווית, ואין 
   // **הכפילות שצומצמה.** שני הצרכנים האחרים החזיקו מפת תוויות משלהם;
   // עותק שחוזר משאיר סוג חדש בלי תווית באחד המקומות, בשקט.
   const root = path.join(__dirname, '..');
-  const copies = [
-    ['webapp/static/js/live-preview.js', /MARKDOWN_DEFAULT_TITLES\s*=\s*\{\s*note\s*:/],
-    ['webapp/templates/md_preview.html', /DEFAULT_TITLES\s*=\s*\{\s*note\s*:/],
+  const consumers = [
+    'webapp/static/js/live-preview.js',
+    'webapp/templates/md_preview.html',
+    'webapp/static/js/sticky-notes.js',
   ];
-  copies.forEach(([rel, rx]) => {
-    eq(rx.test(fs.readFileSync(path.join(root, rel), 'utf8')), false, rel + ' אינו מחזיק עותק');
+  // **השומר הקודם חיפש שם משתנה, ולכן פספס.** ב-``md_preview.html`` שרד
+  // עותק שלישי של התוויות בתוך ``function defaultTitle(type){ const m={...} }``
+  // — מפה מוטמעת בשורה אחת, עם שם משתנה אחר לגמרי. מה שקבוע בכל עותק אינו
+  // שם המשתנה אלא **הזוג** ``note`` ← ``'הערה'``, ולכן זה מה שנבדק.
+  const PAIR_RE = /note\s*:\s*['"]הערה['"]/;
+  consumers.forEach((rel) => {
+    eq(PAIR_RE.test(fs.readFileSync(path.join(root, rel), 'utf8')), false,
+       rel + ' אינו מחזיק עותק של מפת התוויות');
+  });
+  // ואותו כלל לתווית של ``::: details``, שאינה במפה אבל כן במקור המשותף.
+  const shared = sandbox.window.DETAILS_DEFAULT_TITLE;
+  eq(typeof shared, 'string', 'התווית המשותפת קיימת');
+  consumers.forEach((rel) => {
+    eq(fs.readFileSync(path.join(root, rel), 'utf8').includes(shared), false,
+       rel + ' אינו מחזיק עותק של תווית ברירת המחדל של details');
   });
 });
 

@@ -349,7 +349,7 @@
   //: קישור נפתח בלשונית חדשה, ולכן רק ``http``/``https``. כל סכימה אחרת
   //: — ``javascript:``, ``data:`` — מרונדרת כטקסט, לא כקישור.
   const MD_SAFE_LINK  = /^https?:\/\//i;
-  //: בלוק אלרט: ``::: note`` ... ``:::``. **התחביר אינו שלנו** — הוא של
+  //: בלוק מכולה: ``::: note`` ... ``:::``. **התחביר אינו שלנו** — הוא של
   //: ``markdown-it-container@4.0.0``, שמרנדר את אותם בלוקים בתצוגת המסמך
   //: ובתצוגה החיה, ולכן הוא הצרכן שהפתק צריך להסכים איתו. הכללים כאן
   //: נגזרו מ-``node_modules/markdown-it-container/index.mjs`` **והורצו
@@ -360,9 +360,12 @@
   //:    רווח תקף בדיוק כמו ``::: note``.
   //:  - הוולידציה בשני הצרכנים היא ``^<type>\b\s*(.*)$`` על הפרמטרים
   //:    אחרי ``trim``, ומכאן שלוש התנהגויות שנמדדו: ``::: note כותרת``
-  //:    נותן כותרת מותאמת; ``::: note2`` ו-``::: note_x`` **אינם** אלרט,
+  //:    נותן כותרת מותאמת; ``::: note2`` ו-``::: note_x`` **אינם** מכולה,
   //:    כי אין גבול מילה בין אות לספרה או לקו תחתון; ``::: note.x`` כן,
-  //:    עם הכותרת ``.x``.
+  //:    עם הכותרת ``.x``. **הצורה הזו חלה גם על ``details``** — היא
+  //:    הייתה שם החריג היחיד (``^details\s+``), ויושרה בשני הצרכנים
+  //:    כחלק מהשינוי הזה, אחרת ``::: details.x`` היה מציג בפתק ``.x``
+  //:    ובמסמך את תווית ברירת המחדל.
   //:  - שורת סגירה: רצף נקודתיים ואחריו רווחים בלבד. ``::: x`` אינו סוגר.
   //:
   //: **``[A-Za-z]+\b`` ולא ``\S+``.** הכמת החמדן בולע את כל האותיות, ולכן
@@ -370,8 +373,14 @@
   //: שה-``\b`` של התוסף נכשל עליו. וה-``\b`` נשאר כאן דווקא בשביל
   //: ``note2``/``note_x``: שם התו הבא הוא תו-מילה, ובלעדיו הסוג היה נחתך
   //: ל-``note`` והשורה הייתה הופכת לאלרט שהתוסף דוחה.
-  const MD_ALERT_OPEN_RE  = /^[ \t]*(:{3,})[ \t]*([A-Za-z]+)\b[ \t]*(.*)$/;
-  const MD_ALERT_CLOSE_RE = /^[ \t]*(:{3,})[ \t]*$/;
+  const MD_CONTAINER_OPEN_RE  = /^[ \t]*(:{3,})[ \t]*([A-Za-z]+)\b[ \t]*(.*)$/;
+  const MD_CONTAINER_CLOSE_RE = /^[ \t]*(:{3,})[ \t]*$/;
+  //: ``details`` הוא **סוג המכולה היחיד שאינו אלרט**: אין לו אייקון, אין
+  //: לו מחלקת ``admonition-<type>``, והוא מרונדר כ-``<details>`` נייטיבי.
+  //: הוא נשמר כקבוע ולא כמחרוזת באתר הבדיקה כדי שהשם יופיע פעם אחת בקובץ,
+  //: ומטופל **לפני** מפת האלרטים — כך שגם אם ``details`` ייכנס אי-פעם
+  //: ל-``ADMONITION_TITLES`` לא ייווצר כאן מסלול שני שקט.
+  const MD_DETAILS_TYPE = 'details';
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
@@ -1878,7 +1887,7 @@
       }
 
       /**
-       * מזהה שורת פתיחה של אלרט, ומחזיר ``{ markers, type, title }`` או
+       * מזהה שורת פתיחה של מכולה, ומחזיר ``{ markers, type, title }`` או
        * ``null``.
        *
        * **רשימת הסוגים המוכרים אינה חיה כאן.** היא ``ADMONITION_TITLES``
@@ -1888,31 +1897,48 @@
        * ``markdown-it-container`` על סוג שלא נרשם: נמדד, ``::: foo``
        * מרונדר כפסקה ולא כמכולה.
        *
+       * ``details`` הוא היוצא מן הכלל, ו**אותו כלל בדיוק חל עליו**: הוא
+       * אינו אלרט ולכן אינו במפה, אבל תווית ברירת המחדל שלו מגיעה מאותו
+       * קובץ — ``DETAILS_DEFAULT_TITLE``. כשהיא חסרה (הקובץ לא נטען
+       * בעמוד) השורה נשארת טקסט, בדיוק כמו סוג שאינו במפה; זו אינה
+       * נפילה-לאחור למסלול גרוע אלא היעדר יכולת סטטי, ויש בדיקת חיווט
+       * שמוודאת שכל תבנית טוענת את הקובץ לפני המודול.
+       *
        * ``hasOwnProperty`` ולא ``titles[type]``: שם הסוג מגיע מטקסט
        * שהמשתמש הקליד, ולכן הוא **קלט חיצוני**. בלי הבדיקה הזו
        * ``::: constructor`` היה מוצא פונקציה על הפרוטוטיפ ונחשב סוג תקף.
        * מאותה סיבה גם הערך עצמו נבדק כמחרוזת לפני שהוא מוצג.
        */
-      _alertSpec(line){
-        const m = MD_ALERT_OPEN_RE.exec(line);
+      _containerSpec(line){
+        const m = MD_CONTAINER_OPEN_RE.exec(line);
         if (!m) return null;
         const type = m[2].toLowerCase();
+        const custom = (m[3] || '').trim();
+        if (type === MD_DETAILS_TYPE){
+          const fallback = window.DETAILS_DEFAULT_TITLE;
+          if (typeof fallback !== 'string' || !fallback) return null;
+          return { markers: m[1].length, type, title: custom || fallback };
+        }
         const titles = window.ADMONITION_TITLES;
         if (!titles || !Object.prototype.hasOwnProperty.call(titles, type)) return null;
         const fallback = typeof titles[type] === 'string' ? titles[type] : type;
-        const custom = (m[3] || '').trim();
         return { markers: m[1].length, type, title: custom || fallback };
       }
 
-      /** אורך המרקר אם השורה היא שורת סגירה של אלרט, ו-0 אחרת. */
-      _alertCloseMarkers(line){
-        const m = MD_ALERT_CLOSE_RE.exec(line);
+      /** אורך המרקר אם השורה היא שורת סגירה של מכולה, ו-0 אחרת. */
+      _containerCloseMarkers(line){
+        const m = MD_CONTAINER_CLOSE_RE.exec(line);
         return m ? m[1].length : 0;
       }
 
       /**
-       * סוגר אלרטים לפי שורת סגירה באורך ``markers``, ומחזיר האם השורה
+       * סוגר מכולות לפי שורת סגירה באורך ``markers``, ומחזיר האם השורה
        * אכן שימשה כסגירה.
+       *
+       * **הכלל אינו יודע דבר על הסוג, ובכוונה.** ``markdown-it-container``
+       * סוגר לפי אורך המרקר בלבד, ולכן ``::: details`` בתוך אלרט, אלרט
+       * בתוך ``::: details`` ושני סדרי סגירה — כולם עוברים כאן ללא ענף
+       * נוסף. נמדד מול התוסף על ארבעת הצירופים.
        *
        * **הכלל: נסגר החיצוני ביותר שאורכו קטן-או-שווה, ואיתו כל מה
        * שבתוכו.** זה אינו "סוגר את הפנימי", וההבדל נראה רק בקינון: ב-
@@ -1921,11 +1947,11 @@
        * ``::::: note`` ‏/ ``:::: tip`` ‏/ ``::: info`` — ושם ``::::`` סוגר
        * את ``info`` ואת ``tip`` ומשאיר את ``note`` פתוח.
        *
-       * שורה שאין מעליה אף אלרט שאורכו מתאים **אינה סגירה כלל** ונשארת
+       * שורה שאין מעליה אף מכולה שאורכה מתאים **אינה סגירה כלל** ונשארת
        * תוכן. גם זה נמדד: ``:::: note`` שנסגר ב-``:::`` מציג את ``:::``
        * כטקסט בתוך האלרט, והאלרט נסגר בסוף הפתק.
        */
-      _closeAlertsAt(stack, markers){
+      _closeContainersAt(stack, markers){
         for (let i = 0; i < stack.length; i += 1){
           if (stack[i].markers <= markers){ stack.length = i; return true; }
         }
@@ -1958,7 +1984,19 @@
       }
 
       /**
-       * בונה את מעטפת האלרט ומחזיר את רשומת המחסנית.
+       * בונה את מעטפת המכולה ומחזיר את רשומת המחסנית.
+       *
+       * **כאן, ורק כאן, יש ענף רינדור שני — ו``details`` הוא כל הסיבה
+       * לו.** כל שאר סוגי המכולה הם אותו ``div`` עם מחלקה אחרת, ולכן עד
+       * היום הקובץ כולו נבנה סביב משתנה אחד בלולאה: **לאן שורה נכתבת**.
+       * ‏``details`` דורש ``<details>`` ו-``<summary>`` נייטיביים —
+       * מקלדת, נגישות והדפסה מגיעים איתם בחינם, ומנגנון קיפול משלנו היה
+       * מכונת מצב שנייה שנלחמת בקיפול של הפתק עצמו.
+       *
+       * **הענף מסתיים כאן.** שתי הצורות מחזירות את אותה רשומה בדיוק
+       * (``{ markers, content }``), ולכן ``_closeContainersAt``, מחסנית
+       * הרשימות, ההיסטים והצ'קבוקסים אינם יודעים שהוא קיים. מי שיוסיף
+       * סוג נוסף לא צריך ענף — אלא אם הוא, כמו זה, חייב אלמנט HTML אחר.
        *
        * **המחלקות הן של רינדור המסמכים** — ``admonition``,
        * ``admonition-title``, ``admonition-content`` — ולא סט חדש. הן
@@ -1972,7 +2010,36 @@
        * תצוגה אחד, ולחיצה על הכותרת מחזירה לעריכה בשורת ``::: note``
        * עצמה.
        */
-      _openAlert(parent, spec, charOffset){
+      _openContainer(parent, spec, charOffset, openOffsets){
+        if (spec.type === MD_DETAILS_TYPE){
+          // **המחלקות הן של רינדור המסמכים**, בדיוק כמו אצל האלרט:
+          // ``markdown-details``, ``markdown-summary`` ו-``details-content``
+          // מוגדרות ב-``markdown-enhanced.css`` שנטען ב-``base.html``,
+          // ולכן הבלוק בפתק נראה כמו הבלוק בתצוגת המסמך — אותו קוד.
+          const box = createEl('details', 'markdown-details sticky-md-details');
+          // **שורת הפתיחה היא ה-``summary``, והיא נושאת את ההיסט.** ההיסט
+          // אינו קיים בשביל הקליק — הקליק כאן מקפל בלבד — אלא בשביל
+          // המיפוי בין תצוגה למקור: החוזה הוא ששורת מקור אחת היא אלמנט
+          // תצוגה אחד שנושא את ההיסט שלה. הסרתו יחד עם מאזין העריכה
+          // הייתה מסיטה כל שורה שאחרי הבלוק.
+          const summary = createEl('summary', 'markdown-summary sticky-task-line sticky-md-details-summary');
+          summary.dataset.charOffset = String(charOffset);
+          // ``textContent`` ישירות ובלי צומת עוטף: אין כאן אייקון, ולכן
+          // אין בכלל מסלול שמחבר טקסט של משתמש למחרוזת HTML. זה גם למה
+          // אין כאן את ה-``span`` שהאלרט צריך.
+          summary.textContent = spec.title;
+          const content = createEl('div', 'details-content');
+          // **מצב הפתיחה שורד רינדור מחדש.** התצוגה נבנית מאפס בכל
+          // ``_syncTaskView`` — סימון צ'קבוקס, יציאה מעריכה, תשובת שרת —
+          // ובלי השחזור הזה בלוק שנפתח היה נסגר תחת האצבע בדיוק ברגע
+          // שסימנו משימה שבתוכו. המפתח הוא ההיסט, כלומר אותה זהות שהמנוע
+          // כבר מתחזק לכל שורת מקור.
+          if (openOffsets && openOffsets.has(String(charOffset))) box.open = true;
+          box.appendChild(summary);
+          box.appendChild(content);
+          parent.appendChild(box);
+          return { markers: spec.markers, content };
+        }
         const box = createEl('div', 'admonition admonition-' + spec.type + ' sticky-md-alert');
         const title = createEl('div', 'admonition-title sticky-task-line');
         title.dataset.charOffset = String(charOffset);
@@ -2097,10 +2164,10 @@
           // אינו עובר את השער והתצוגה כלל לא נפתחת — כשל שקט בדיוק במקרה
           // הנפוץ ביותר.
           if (i + 1 < lines.length && this._tableSpec(line, lines[i + 1])) return true;
-          // אלרט נבדק כאן מאותה סיבה בדיוק: ``_classifyLine`` הוא פר-שורה
-          // ואינו מכיר בלוקים. בלי הבדיקה הזו פתק שכולו ``::: note`` לא
-          // היה עובר את השער והתצוגה כלל לא הייתה נפתחת.
-          if (this._alertSpec(line)) return true;
+          // מכולה נבדקת כאן מאותה סיבה בדיוק: ``_classifyLine`` הוא פר-שורה
+          // ואינו מכיר בלוקים. בלי הבדיקה הזו פתק שכולו ``::: note`` (או
+          // ``::: details``) לא היה עובר את השער והתצוגה כלל לא הייתה נפתחת.
+          if (this._containerSpec(line)) return true;
           const b = this._classifyLine(line);
           if (b.kind !== 'plain') return true;
           if (this._lineHasInline(b.content)) return true;
@@ -2162,6 +2229,19 @@
             view.textContent = '';
             return;
           }
+          // **מה שהמשתמש פתח, לפני שהתצוגה נמחקת.** ``<details>`` נייטיבי
+          // מחזיק את מצבו ב-DOM בלבד, והתצוגה כאן נבנית מאפס בכל סנכרון.
+          // הזהות היא ההיסט של שורת הפתיחה — אותו מפתח שהמנוע כבר מתחזק,
+          // ושסימון צ'קבוקס אינו מזיז (``[ ]`` ו-``[x]`` באותו אורך).
+          const openOffsets = new Set();
+          try {
+            view.querySelectorAll('details.sticky-md-details').forEach((box) => {
+              if (!box.open) return;
+              const summary = box.querySelector('summary.sticky-md-details-summary');
+              const off = summary && summary.dataset ? summary.dataset.charOffset : null;
+              if (off != null) openOffsets.add(String(off));
+            });
+          } catch(_) {}
           view.textContent = '';
           let taskIndex = 0;
           let charOffset = 0;
@@ -2169,13 +2249,14 @@
           // הפתוחים. היא חיה כאן ולא במתודה, כי עומק הקינון אינו תכונה
           // של שורה בודדת אלא של השורות שקדמו לה.
           const listStack = [];
-          // **מחסנית האלרטים**, ולצידה המכל הנוכחי. אלרט הוא הבלוק הראשון
+          // **מחסנית המכולות**, ולצידה המכל הנוכחי. מכולה היא הבלוק הראשון
           // בפתק ש**מכיל** שורות אחרות במקום להיות אחת מהן, ולכן במקום
           // לולאת רינדור שנייה משתנה כאן דבר אחד: לאן שורה נכתבת. ברירת
-          // המחדל היא התצוגה עצמה; בתוך אלרט זהו גוף האלרט הפנימי ביותר.
-          // כל שאר הענפים אינם יודעים על האלרט דבר וממשיכים כמו שהם.
-          const alertStack = [];
-          const currentParent = () => (alertStack.length ? alertStack[alertStack.length - 1].content : view);
+          // המחדל היא התצוגה עצמה; בתוך מכולה זהו הגוף הפנימי ביותר.
+          // כל שאר הענפים אינם יודעים על המכולה דבר וממשיכים כמו שהם —
+          // וזה נכון גם ל-``::: details``, שנבדל רק באלמנט שהוא בונה.
+          const containerStack = [];
+          const currentParent = () => (containerStack.length ? containerStack[containerStack.length - 1].content : view);
           // **לולאה מאונדקסת ולא ``forEach``** — טבלה היא בלוק רב-שורתי,
           // והיא צריכה לצרוך כמה שורות בבת אחת ולקדם את ההיסט על כולן.
           for (let li = 0; li < lines.length; li += 1) {
@@ -2223,8 +2304,8 @@
               // **הסגירה נבדקת לפני הפתיחה, והשתיים זרות זו לזו ממילא:**
               // שורת סגירה היא נקודתיים ורווחים בלבד, ולפתיחה נדרשת אות
               // אחרי הנקודתיים. הסדר כאן הוא לקריאוּת, לא לנכונות.
-              const closeMarkers = this._alertCloseMarkers(line);
-              if (closeMarkers && this._closeAlertsAt(alertStack, closeMarkers)) {
+              const closeMarkers = this._containerCloseMarkers(line);
+              if (closeMarkers && this._closeContainersAt(containerStack, closeMarkers)) {
                 // **שורת הסגירה עוברת בכלל האחיד, כמו כל גבול בלוק אחר.**
                 //
                 // כאן הייתה טעות של אנלוגיה: הגרסה הראשונה לא נגעה במחסנית
@@ -2252,13 +2333,13 @@
                 charOffset += line.length + 1;
                 continue;
               }
-              const alert = this._alertSpec(line);
-              if (alert) {
-                // האלרט הוא בלוק ככל בלוק אחר, ולכן הוא סוגר פריטי רשימה
-                // לפי ההזחה של **עצמו** — ולפני שהוא נפתח, אחרת הוא היה
-                // נכנס למכל שכבר אינו אמור להכיל אותו.
+              const container = this._containerSpec(line);
+              if (container) {
+                // המכולה היא בלוק ככל בלוק אחר, ולכן היא סוגרת פריטי רשימה
+                // לפי ההזחה של **עצמה** — ולפני שהיא נפתחת, אחרת היא הייתה
+                // נכנסת למכל שכבר אינו אמור להכיל אותה.
                 this._closeListsAbove(listStack, this._lineIndentCols(line));
-                alertStack.push(this._openAlert(currentParent(), alert, charOffset));
+                containerStack.push(this._openContainer(currentParent(), container, charOffset, openOffsets));
                 charOffset += line.length + 1;
                 continue;
               }
@@ -2403,6 +2484,19 @@
         // ולכן בלי ההחרגה הזו כל לחיצה עליו הייתה גם מעתיקה וגם מפילה
         // את הפתק לעריכה — הכפתור עושה את עבודתו והתצוגה נעלמת.
         if (t && t.closest && t.closest('.sticky-md-code-copy')) return false;
+        // **לחיצה על ה-``summary`` מקפלת בלבד ואינה נכנסת לעריכה.**
+        //
+        // האנלוגיה היא אייקון ההעתקה שמעל — אבל היא אינה מדויקת, ושווה
+        // לדעת במה: שם מוותרים על **אזור קטן ומוקדש** בתוך הבלוק, וכל
+        // שאר הבלוק עדיין מוביל לעריכה. כאן מוותרים על **השורה כולה**,
+        // והיא האלמנט היחיד שמייצג את שורת המקור ``::: details כותרת`` —
+        // כלומר אין מסלול חלופי, וכדי לערוך את השורה הזו נכנסים לעריכה
+        // משורה אחרת בפתק. זו ההכרעה: קיפול ועריכה על אותה שורה הם שתי
+        // פעולות שנלחמות, וקיפול הוא מה שהמשתמש מתכוון אליו כשהוא לוחץ.
+        //
+        // **וההיסט נשאר על ה-``summary`` בכל מקרה** — הוא אינו קיים בשביל
+        // הקליק אלא בשביל המיפוי בין תצוגה למקור.
+        if (t && t.closest && t.closest('summary.sticky-md-details-summary')) return false;
         const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
         const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
         this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
@@ -2425,6 +2519,13 @@
         // ``_enterEditFromView`` חוסם אותו מכניסה לעריכה על קישור. נטו:
         // Space על קישור לא עושה כלום.
         if (ev.key === 'Enter' && t && t.closest && t.closest('a.sticky-md-link')) return;
+        // **‏Enter ו-Space על ה-``summary`` מקפלים, ולכן שניהם יוצאים כאן
+        // לפני ה-``preventDefault``.** בשונה מהקישור, שבו רק Enter מפעיל
+        // ומ-Space צריך רק לבלום גלילה, ``<summary>`` מגיב לשני המקשים
+        // והפעולה שלו **היא** ביטול ברירת המחדל — כלומר גם Space אינו
+        // גולל. ``preventDefault`` כאן היה מבטל את הקיפול הנייטיבי ומשאיר
+        // מקלדת בלי שום דרך לפתוח את הבלוק.
+        if (t && t.closest && t.closest('summary.sticky-md-details-summary')) return;
         ev.preventDefault();
         if (this._enterEditFromView(el, ev) === false) return;
       }

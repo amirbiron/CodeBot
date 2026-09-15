@@ -678,6 +678,54 @@
    אותה סיבה בדיוק כמו ב-``.sticky-md-li-body``. */
 .sticky-md-alert-label { min-width: 0; overflow-wrap: anywhere; }
 
+/* ---------- בלוק מתקפל (``::: details``) ----------
+
+   **גם כאן אין פלטה.** ``.markdown-details``, ``.markdown-summary``
+   ו-``.details-content`` מוגדרות ב-``markdown-enhanced.css`` שנטען
+   ב-``base.html``, ולכן הבלוק בפתק הוא אותו קוד בדיוק כמו בתצוגת המסמך.
+   מה שחי כאן הוא הכיול לפתק הצר — ומדובר באותה מלכודת של האלרט, כי אותו
+   כלל מובייל תופס את שתי המחלקות יחד:
+   ``.markdown-details, .admonition { margin: 0.75rem -0.5rem; }``. */
+.sticky-note .markdown-details {
+  /* **שתי תכונות לוגיות ולא קיצור, מאותו נימוק שנמדד אצל האלרט.** קיצור
+     ``margin`` היה מאפס את הצדדים בעצמו והופך את ``margin-inline`` לשורה
+     מתה — שורה שאף מוטציה אינה יכולה להפיל. בפיצול היא נושאת משקל: המפל
+     פועל לכל תכונה בנפרד, ולכן בלי ``margin-inline`` הצדדים נופלים חזרה
+     ל-``-0.5rem`` של כלל המובייל והבלוק חוצה את גבול הפתק. */
+  margin-block: .35em;
+  margin-inline: 0;
+  border-radius: 6px;
+}
+
+/* ה-``summary`` הוא גם שורת המקור של ``::: details``, ולכן הוא נושא
+   ``sticky-task-line``. הריפוד של תצוגת המסמך (``0.75rem 1rem``) גוזל
+   בפתק צר את רוב הרוחב.
+
+   **אין כאן ``overflow-wrap``, וזו החלטה שנמדדה ולא השמטה.** הגרסה
+   הראשונה כתבה אותו כאן בהיקש מ-``.sticky-md-alert-label``, ומדידה
+   בכרומיום הראתה שהוא חסר השפעה מוחלטת: ``.sticky-note-tasks`` כבר
+   מצהיר ``overflow-wrap: anywhere`` וההצהרה יורשת. כותרת של 140 תווים
+   רצופים בפתק ברוחב 260 יצאה בגובה 131 פיקסלים עם השורה **ובלעדיה**,
+   ו-``scrollWidth`` של התצוגה נשאר שווה ל-``clientWidth`` בשני המקרים.
+   ‏``min-width: 0`` נמדד באותה ריצה ואף הוא חסר השפעה — ה-``summary``
+   אינו פריט flex אלא בלוק בתוך ``<details>``. שורה שאי אפשר להפיל היא
+   שורה שאף בדיקה אינה מכסה, ולכן שתיהן ירדו. */
+.sticky-note .markdown-summary {
+  padding: .3rem .5rem;
+  font-size: .92em;
+  gap: .35rem;
+}
+
+.sticky-note .details-content { padding: .4rem .5rem; font-size: 1em; }
+
+/* בלוק מתקפל מקונן — אותו מרווח בדיוק שהאלרט המקונן מקבל, ומאותה סיבה. */
+.sticky-note .admonition-content > .markdown-details,
+.sticky-note .details-content > .markdown-details,
+.sticky-note .details-content > .admonition { margin-block-end: .25em; }
+.sticky-note .admonition-content > .markdown-details:last-child,
+.sticky-note .details-content > .markdown-details:last-child,
+.sticky-note .details-content > .admonition:last-child { margin-block-end: 0; }
+
 /* ── כתב יד ─────────────────────────────────────────────────────────
    מחלקה **אחת** לשלושת המשטחים (לוח, קובץ md, דפדפן הריפו), כי המראה
    זהה בכולם ושתי מחלקות עם אותם כללים היו נסחפות זו מזו. שני מקורות
