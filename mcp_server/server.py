@@ -35,7 +35,9 @@ from .primer import agent_primer_route
 _INSTRUCTIONS = (
     "Access the current user's private code files and collections stored in "
     "CodeKeeper. Use codekeeper_search_code / codekeeper_list_files to find files "
-    "(metadata only), and codekeeper_get_file to read full contents. Use "
+    "(metadata only), and codekeeper_get_file to read full contents — or, when "
+    "you only need one part of a file, codekeeper_get_file with lines=[start, "
+    'end] for a range and query="..." for the lines that contain a string. Use '
     "codekeeper_save_file to create a NEW file — it refuses a name that is already "
     "taken — and codekeeper_edit_file / codekeeper_append_file to change an "
     "existing file, which is also cheaper because the whole file is not resent "
@@ -129,7 +131,11 @@ _OUTLINE_PARAM_DOC = (
 # autodoc, ולא קישוט: בלעדיו ``symbol="backup_service"`` נראה כאילו הוא
 # אמור למצוא את העמוד, והוא אינו מוצא.
 _SYMBOL_PARAM_DOC = (
-    "Narrows the outline to names containing this substring, "
+    # ``full name`` נשמר במפורש מהניסוח הקודם ("symbol= filters on that full
+    # name"), כי הוא נושא מידע: הסינון הוא על השם המנוקד השלם ולא על החלק
+    # האחרון שלו, ולכן ``symbol="method"`` מוצא גם ``Class.method``.
+    # ההשוואה משפט-משפט מול הנוסח הישן היא מה שהעלתה שהוא נשמט.
+    "Narrows the outline to entries whose full name contains this substring, "
     "case-insensitively. It works on every language's names, not just the "
     "dotted Python ones: symbol=\"@media\" returns only the media queries "
     "with their ranges, and symbol=\"#\" only the names carrying an id. "
@@ -139,6 +145,51 @@ _SYMBOL_PARAM_DOC = (
     "rendered text, so an autodoc page is named services.backup\\_service "
     "module and symbol=\"backup_service\" does not match it."
 )
+
+
+# תיאור הפרמטר ``query`` של ``codekeeper_get_file``.
+#
+# ``lines`` עונה על "תן לי את החלק הזה" ו-``query`` עונה על "איפה בקובץ זה
+# יושב" — ולכן שני התיאורים נקראים יחד, והמשפט על השרשור ביניהם הוא העיקר:
+# סוכן שקיבל ``line`` בלי לדעת מה לעשות איתו ימשוך שוב את הקובץ המלא, וזה
+# בדיוק מה שהפרמטר בא למנוע. הדוגמה נקובה בצורתה המלאה ולא כ"טווח סביבו",
+# כי ``line`` הוא מספר בודד ו-``lines`` דורש זוג.
+def _build_query_doc() -> str:
+    """התיאור שהסוכן קורא על ``query``.
+
+    **פונקציה ולא קבוע, כדי שהקישור לקבועים יהיה בר-הפרכה.** המספרים
+    נשתלים מ-``handlers`` ואינם נכתבים כטקסט, ולכן שינוי תקרה אינו יכול
+    להשאיר את התיאור מבטיח מספר ישן. הצורה הזו היא מה שמאפשר לבדיקה
+    להריץ את הבנייה עם קבועים אחרים ולראות שהטקסט זז — טענת "נשתל" שאי
+    אפשר להפריך אינה שונה מטקסט קשיח שבמקרה נכון היום.
+    """
+    return (
+        'Pass query="needle" to get the matching lines INSTEAD of the content, '
+        "when you want one field or one rule out of a file and would otherwise "
+        "pull the whole thing. The reply carries count, total, truncated and a "
+        "results list whose entries have a `line` and a `snippet` — the same "
+        "field names codekeeper_search_repo returns, and "
+        f"context_lines=N (0-{handlers.QUERY_CONTEXT_LINES_MAX}) "
+        "adds context_before / context_after around each hit exactly as it does "
+        "there. Each `line` is the anchor for the next call: read around it with "
+        "lines=[line - 20, line + 20], or lines=[line, line] for that one line. "
+        "Matching is plain case-insensitive substring — no regex, no stemming, no "
+        "word boundaries, so a special character is just a character. Zero "
+        "matches is a success with an empty results list, never an error. At most "
+        f"{handlers.QUERY_RESULTS_DEFAULT} hits come back by default, and "
+        f"max_results raises that as far as {handlers.QUERY_RESULTS_MAX}; "
+        "truncated tells you matches were left out, and total says how many there "
+        "were in the file. Matching runs line by line, so a query containing a "
+        "newline is refused as query_multiline instead of reported as zero "
+        "matches — search one line, then read around the hit. Passing "
+        "query and lines together is refused as query_and_lines — ask where, then "
+        "read the range. context_lines and max_results describe how matches are "
+        "shown, so passing either one without query is refused as "
+        "context_lines_without_query or max_results_without_query."
+    )
+
+
+_QUERY_DOC = _build_query_doc()
 
 # Shared annotations: every tool here is a non-destructive, idempotent read over
 # the user's own bounded data store (service-prefixed to avoid cross-connector
@@ -312,6 +363,14 @@ def build_mcp(
         description=(
             "Get a file's full content by name or id (optional version number). "
             + _RANGE_DOC
+            # **הפירוט על ``query`` יושב בתיאור הפרמטר ולא כאן**, מאותה סיבה
+            # שהפירוט על ``outline`` ועל ``symbol`` עבר משם: צירופו לכאן הביא
+            # את התיאור ל-1,726 תווים, מעל התקרה שהלקוח מגיש. מה שנשאר כאן
+            # הוא **ההפניה** — סוכן שלא יֵדע ש-``query`` קיים לא יפתח את סכמת
+            # הפרמטרים כדי לגלות אותו, וזה בדיוק הפיצ'ר שאף אחד לא קורא לו.
+            # ההפניה נאכפת בטסט, בשני קצותיה.
+            + ' Or pass query="..." to get only the lines that contain a'
+            " string, instead of the content — see the query parameter."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -321,6 +380,9 @@ def build_mcp(
         file_id: str | None = None,
         version: int | None = None,
         lines: StrictLines | None = None,
+        query: Annotated[str | None, Field(description=_QUERY_DOC)] = None,
+        context_lines: StrictInt | None = None,
+        max_results: int | None = None,
     ) -> dict:
         doc = handlers.get_file(
             backend,
@@ -329,12 +391,23 @@ def build_mcp(
             file_id=file_id,
             version=version,
             lines=lines,
+            query=query,
+            context_lines=context_lines,
+            max_results=max_results,
         )
         if doc is None:
             return {"found": False}
         # מעטפת שגיאה של טווח לא חוקי אינה "קובץ" — היא מוחזרת כפי שהיא,
         # באותה צורה שבה ``codekeeper_get_repo_file`` מדווח על אותה שגיאה.
         if doc.get("ok") is False:
+            return doc
+        # תשובת ``query`` היא כבר מעטפת שלמה — ``found`` ו-``file`` בתוכה,
+        # ולצידם המופעים. עטיפה נוספת הייתה קוברת אותה תחת ``file``.
+        #
+        # התנאי הוא **מה שביקשנו** ולא צורת מה שחזר: בדיקה על
+        # ``doc["status"]`` הייתה מסתעפת לפי שדה במסמך של המשתמש, ומסמך
+        # שנושא במקרה שדה בשם הזה היה משנה את צורת התשובה.
+        if query is not None:
             return doc
         return {"found": True, "file": doc}
 

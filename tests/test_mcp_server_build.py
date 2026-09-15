@@ -668,3 +668,43 @@ async def test_no_tool_description_exceeds_the_truncation_budget():
         f"סופו: {over}. העבירו את העודף ל-Field(description=...) של הפרמטר "
         f"שהוא מתאר, במקום למחוק אותו."
     )
+
+
+async def test_get_file_description_points_at_the_query_parameter():
+    """אותה שרשרת גילוי, על ``codekeeper_get_file``.
+
+    ‏``query`` נוסף ב-#3385 עם תיאור בן 1,376 תווים שצורף לתיאור הכלי,
+    והביא אותו מ-349 ל-1,726 — מעל התקרה, כלומר סופו נחתך אצל הלקוח.
+    **וזה נתפס על ידי ``test_no_tool_description_exceeds_the_truncation_budget``
+    יומיים אחרי שנכתב**, מה שהופך את התקרה ממופע בודד למחלקת בעיה: הפירוט
+    עבר ל-``Field`` של ``query``, בדיוק כמו ב-``codekeeper_get_repo_file``.
+
+    ‏``_RANGE_DOC`` **נשאר בתיאור הכלי ולא זז**, כי הוא משותף ל-
+    ``codekeeper_get_repo_file`` ו-``docs/mcp-server.rst`` מחייב שהשניים
+    יתארו את ``lines=`` באותן מילים בדיוק.
+
+    שני הקצוות נאכפים כאן, כמו בכלי האח: שהכלי מפנה ל-``query``, ושהפרמטר
+    נושא את הפירוט בפועל.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    tool = mcp._tool_manager.get_tool("codekeeper_get_file")
+    query_doc = tool.parameters["properties"]["query"]["description"]
+
+    # קצה ראשון: הכלי מפנה **לפרמטר** ולא רק מזכיר את המילה.
+    #
+    # **``"query" in description`` לבדו אינו מספיק, וזה נמדד:** התיאור נושא
+    # ממילא את הדוגמה ``query="..."``, ולכן מוטציה שמחקה את ההפניה עברה את
+    # הבדיקה החלשה בשקט — כלומר טסט שאינו מסוגל ליפול על מה שהוא אמור
+    # לשמור עליו. ההפניה לשם הפרמטר היא מה שאומר לסוכן איפה לחפש.
+    assert "query parameter" in tool.description
+
+    # קצה שני: הפירוט באמת שם.
+    assert "query_and_lines" in query_doc
+    assert "context_lines" in query_doc
+    assert "max_results" in query_doc
+
+    # ``_RANGE_DOC`` נשאר בתיאור הכלי — הסימטריה מול get_repo_file נשמרת.
+    assert "lines=[start, end]" in tool.description
+    assert "lines=[start, end]" in (
+        mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+    )

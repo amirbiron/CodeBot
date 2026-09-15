@@ -213,10 +213,15 @@ _PAYLOAD_PROPERTIES = frozenset(
 # **למה מאפיין נגזר ולא הפרמטרים עצמם.** ההבחנה חיה ב-``$mcp_parameters``,
 # והוא חסום — ונשאר חסום, כי בכלי הכתיבה הוא הקובץ עצמו. לכן במקום לפתוח את
 # הארגומנטים, השרת מחשב בעצמו **תווית אחת מתוך קבוצה סגורה** ושולח אותה. מה
-# שיוצא הוא המילה ``outline``, ``range`` או ``full`` — לעולם לא ערך שהגיע
-# מהקורא. הנגזרת נשענת על **נוכחות** הפרמטר, לא על תוכנו.
+# שיוצא הוא המילה ``outline``, ``query``, ``range`` או ``full`` — לעולם לא ערך
+# שהגיע מהקורא. הנגזרת נשענת על **נוכחות** הפרמטר, לא על תוכנו.
 CK_READ_MODE_KEY = "ck_read_mode"
 READ_MODE_OUTLINE = "outline"
+#: ``codekeeper_get_file`` עם ``query`` — מופעים במקום תוכן. תווית משלו ולא
+#: ``full``: זו קריאה **זולה** באותה משפחה של ``outline``, ובלי הערך הזה כל
+#: קריאה כזו הייתה נספרת כקריאת קובץ מלא — כלומר מנפחת בדיוק את העמודה
+#: שהמאפיין נבנה כדי למדוד.
+READ_MODE_QUERY = "query"
 READ_MODE_RANGE = "range"
 READ_MODE_FULL = "full"
 
@@ -225,7 +230,9 @@ READ_MODE_FULL = "full"
 #: אפשר לשלוח כל מחרוזת, כלומר בדיוק החור שהשער קיים כדי לסגור. באג בקולבק
 #: שיחזיר משהו אחר מפיל את הערך, לא מעביר אותו.
 _ALLOWED_CUSTOM_PROPERTIES: dict[str, frozenset[str]] = {
-    CK_READ_MODE_KEY: frozenset({READ_MODE_OUTLINE, READ_MODE_RANGE, READ_MODE_FULL}),
+    CK_READ_MODE_KEY: frozenset(
+        {READ_MODE_OUTLINE, READ_MODE_QUERY, READ_MODE_RANGE, READ_MODE_FULL}
+    ),
 }
 
 #: שני הכלים שמקבלים ``lines``, ורק הם.
@@ -244,7 +251,21 @@ _ALLOWED_CUSTOM_PROPERTIES: dict[str, frozenset[str]] = {
 #: להיטען, פשוט עם אפסים בשתי העמודות החדשות.
 #:
 #: אותה מוסכמה שכבר קיימת בין ``outline.py`` ל-``backend.py``.
-FILE_READ_TOOLS = frozenset({"codekeeper_get_file", "codekeeper_get_repo_file"})
+
+#: **איזה פרמטר קריאה שייך לאיזה כלי.** השאלה אינה "מה נשלח" אלא "מה הכלי
+#: הזה בכלל מקבל": הקולבק מקבל את מילון הארגומנטים **הגולמי**, לפני
+#: ש-pydantic מסלק ממנו מפתחות שאינם בסכימה של הכלי, ולכן מפתח של הכלי האחר
+#: מגיע לכאן ונקרא. ``outline`` קיים רק ב-``codekeeper_get_repo_file``
+#: ו-``query`` רק ב-``codekeeper_get_file``, ובלי השיוך הזה קריאה שנושאת
+#: מפתח תועה נספרת בעמודה הלא נכונה — בלי שגיאה, ובלי שמישהו יראה את זה.
+#: שתי העמודות האחרות יוצאות חסרות באותה מידה, וזה בדיוק המדד שהעמודה
+#: נבנתה כדי לספק.
+_TOOL_READ_MODE_PARAMS: dict[str, frozenset[str]] = {
+    "codekeeper_get_file": frozenset({"query", "lines"}),
+    "codekeeper_get_repo_file": frozenset({"outline", "lines"}),
+}
+
+FILE_READ_TOOLS = frozenset(_TOOL_READ_MODE_PARAMS)
 
 _TOOL_CALL_METHOD = "tools/call"
 _MCP_PROPERTY_PREFIX = "$mcp_"
@@ -294,7 +315,7 @@ def read_mode_properties(
 ) -> Optional[dict[str, str]]:
     """``event_properties`` callback: tag a file read with **how** it read.
 
-    Returns ``{"ck_read_mode": "outline" | "range" | "full"}`` for a
+    Returns ``{"ck_read_mode": "outline" | "query" | "range" | "full"}`` for a
     ``tools/call`` on one of :data:`FILE_READ_TOOLS`, and ``None`` for
     everything else. That ``None`` is the interesting half. The SDK runs this
     callback on *every* auto-captured event — ``$mcp_initialize`` and
@@ -304,15 +325,28 @@ def read_mode_properties(
     reads, so the column built to prove that ``outline`` replaced content reads
     would have been inflated by traffic that read no file at all.
 
-    **Only presence is read, never a value.** ``lines`` carries line numbers and
-    ``outline`` carries a flag, and neither is echoed: the return value is one
-    of three literals defined in this module, and the gate rejects anything
-    else. This is what makes the split possible while ``$mcp_parameters`` stays
-    blocked.
+    **Only presence is read, never a value.** ``lines`` carries line numbers,
+    ``query`` carries the caller's search string and ``outline`` carries a flag,
+    and none of them is echoed: the return value is one of four literals defined
+    in this module, and the gate rejects anything else. This is what makes the
+    split possible while ``$mcp_parameters`` stays blocked — and ``query`` is
+    exactly the parameter that makes it matter, because it is free text the
+    caller wrote.
 
-    ``outline`` is checked first, so a call passing both — which the tool
-    rejects as ``outline_and_lines`` — is counted as an outline read. That call
-    reads no content either way, so the cheap column is the honest place for it.
+    The cheap modes are checked first, so a call passing two of them — which the
+    tool rejects as ``outline_and_lines`` or ``query_and_lines`` — is counted as
+    the cheap read. That call reads no content either way, so the cheap column is
+    the honest place for it. ``query`` is checked before ``lines`` for the same
+    reason: it returns match positions, not content.
+
+    **Each parameter is read only for the tool that declares it**, per
+    :data:`_TOOL_READ_MODE_PARAMS`. Two things follow. ``codekeeper_search_code``
+    — a different tool with a ``query`` parameter of its own — stays out of this
+    column entirely, because it is not in the map. And a call that carries the
+    *other* file tool's parameter is counted by what it really did: this callback
+    reads the raw arguments dictionary, before pydantic drops keys the tool does
+    not declare, so ``codekeeper_get_repo_file`` with a stray ``query`` reaches
+    here carrying a parameter that tool never had.
 
     Never raises. ``resolve_event_properties`` in the SDK would swallow an
     exception here anyway, but analytics must not depend on someone else's
@@ -322,14 +356,27 @@ def read_mode_properties(
         if not isinstance(request, dict) or request.get("method") != _TOOL_CALL_METHOD:
             return None
         params = request.get("params")
-        if not isinstance(params, dict) or params.get("name") not in FILE_READ_TOOLS:
+        if not isinstance(params, dict):
+            return None
+        name = params.get("name")
+        # בדיקת טיפוס **לפני** בדיקת שייכות. ``name`` מגיע מבקשה חיצונית,
+        # ו-``dict.get`` מגבב את המפתח: ערך לא-hashable (רשימה, מילון) זורק
+        # ``TypeError`` במקום להחזיר "לא נמצא". כאן זה היה נבלע ב-``except``
+        # שלמטה ומייצר אזהרה עם traceback על כל אירוע כזה, בעוד שהתשובה
+        # הנכונה לשם כלי שאינו מחרוזת היא פשוט ``None``.
+        if not isinstance(name, str):
+            return None
+        owned = _TOOL_READ_MODE_PARAMS.get(name)
+        if owned is None:
             return None
         arguments = params.get("arguments")
         if not isinstance(arguments, dict):
             arguments = {}
-        if arguments.get("outline"):
+        if "outline" in owned and arguments.get("outline"):
             return {CK_READ_MODE_KEY: READ_MODE_OUTLINE}
-        if arguments.get("lines") is not None:
+        if "query" in owned and arguments.get("query") is not None:
+            return {CK_READ_MODE_KEY: READ_MODE_QUERY}
+        if "lines" in owned and arguments.get("lines") is not None:
             return {CK_READ_MODE_KEY: READ_MODE_RANGE}
         return {CK_READ_MODE_KEY: READ_MODE_FULL}
     except Exception:
