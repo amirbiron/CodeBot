@@ -386,16 +386,31 @@ async def test_the_description_tells_the_agent_which_languages_have_a_map():
     התיאור אמר ``Python only`` עד שנוספה תמיכה ב-HTML/Jinja; המשפט הזה
     הפך לשגוי באותו PR שהוסיף אותה, וזו הסיבה שהטסט נוקב במה שכן נתמך
     ולא במה שאינו.
+
+    **פירוט השפות עבר לתיאור הפרמטר ``outline``**, כי תיאור הכלי הגיע
+    ל-2,482 תווים ונחתך אצל הלקוח בדיוק שם. הטענות לא נחלשו — הן נבדקות
+    במקום שבו הטקסט יושב עכשיו. מה שנשאר על תיאור הכלי הוא ההודעה
+    ש-``outline=true`` קיים ומה קורה לסיומת שאין לה מפה, כי זו ההחלטה
+    שסוכן מקבל לפני שהוא פותח את סכמת הפרמטרים.
     """
     mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
-    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+    tool = mcp._tool_manager.get_tool("codekeeper_get_repo_file")
+    description = tool.description
+    outline_doc = tool.parameters["properties"]["outline"]["description"]
 
     assert "outline=true" in description
     assert "no_outline" in description
-    assert "Python" in description
-    assert "Jinja" in description
+    assert "Python" in outline_doc
+    assert "Jinja" in outline_doc
     # הבדל מהותי לסוכן: פייתון נותן שמות מנוקדים, HTML שטוחים.
-    assert "dotted" in description and "flat" in description
+    assert "dotted" in outline_doc and "flat" in outline_doc
+
+    # ``page/per_page`` היה המשפט היחיד בתיאור **בלי שום טסט**, ולכן הוא
+    # נשמט בטיוטה הראשונה של הפיצול הזה בלי שאף בדיקה שמה לב — הכשל
+    # שבדיוק נמנע כאן. עמוד ראשון שנראה כמו כל המפה הוא כשל שקט:
+    # ``OUTLINE_PER_PAGE_DEFAULT`` הוא 100, ולכן 486 הסימבולים שנמדדו על
+    # הקובץ הצפוף בקורפוס מתפרסים על חמישה עמודים.
+    assert "page/per_page" in outline_doc
 
 
 async def test_the_description_says_symbol_works_on_the_non_python_names():
@@ -417,28 +432,44 @@ async def test_the_description_says_symbol_works_on_the_non_python_names():
     ``test_symbol_narrows_a_template_to_the_names_that_carry_the_term`` —
     כאן נבדק רק שהיא **נאמרת**. שניהם נדרשים: פסוקית בלי טסט היא הבטחה
     שאין מי שאוכף, וטסט בלי פסוקית הוא התנהגות שאף אחד לא ימצא.
+
+    **הפסוקית עברה לתיאור הפרמטר ``symbol``**, כי תיאור הכלי נחתך אצל
+    הלקוח בדיוק במשפט הזה — כלומר הפילטר שוב לא נקרא, מסיבה חדשה.
+    ההודעה שהוא קיים נשארת על תיאור הכלי ונאכפת ב-
+    ``test_the_tool_description_points_at_the_parameters_that_carry_the_detail``.
     """
     mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
-    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+    tool = mcp._tool_manager.get_tool("codekeeper_get_repo_file")
+    symbol_doc = tool.parameters["properties"]["symbol"]["description"]
 
-    assert 'symbol="@media"' in description
-    assert "not just the dotted Python ones" in description
-    # הפסוקית יושבת ליד השמות שהיא מדברת עליהם, ולפני משפט התקרות —
-    # אחרת היא נקראת כמדיניות גודל ולא כדרך לחתוך את המפה.
-    assert description.index('symbol="@media"') < description.index("500KB")
+    assert 'symbol="@media"' in symbol_doc
+    assert "not just the dotted Python ones" in symbol_doc
 
     # **והפסוקית חייבת לומר שהסינון הוא בהכלה, לא בתחילית.** ניסוח קודם
     # הבטיח ש-``symbol="_"`` מחזיר "only the RST label targets", ונמדד
     # שהוא מחזיר 29 תוויות ו-133 שורות שאינן תוויות ב-79 קבצים. הבטחה
     # שהקוד אינו מקיים גרועה מהיעדר הבטחה, כי סוכן בונה עליה.
-    assert "Matching is by substring in every language" in description
-    assert "also any heading containing an underscore" in description
-    assert "only the RST label targets" not in description
+    assert "Matching is by substring in every language" in symbol_doc
+    assert "also any heading containing an underscore" in symbol_doc
+
+    # **והאיסור חל על שלושת השדות ולא על אחד.** כשהטקסט ישב במחרוזת אחת
+    # די היה לבדוק אותה; עכשיו ההבטחה השגויה יכולה לחזור דרך כל אחד
+    # משלושת המקומות, ובדיקה על אחד בלבד הייתה נותנת כיסוי מדומה.
+    for field in (tool.description, symbol_doc,
+                  tool.parameters["properties"]["outline"]["description"]):
+        assert "only the RST label targets" not in field
 
     # ושהטקסט הגולמי של כותרת RST נאמר, כי הוא מה שמונע מ-
     # ``symbol="backup_service"`` למצוא את העמוד ששמו כך.
-    assert "the source text rather than the rendered text" in description
-    assert 'symbol="backup_service"' in description
+    assert "the source text rather than the rendered text" in symbol_doc
+    assert 'symbol="backup_service"' in symbol_doc
+
+    # **וה-escape עצמו נבדק, ולא רק השם בלי הלוכסן.** ``symbol="backup_service"``
+    # לבדו עובר גם על טקסט שאיבד את ה-``\\``, וזה בדיוק מה שקורה כשמעתיקים
+    # את המחרוזת דרך Markdown או דרך שכבת escaping נוספת — הדוגמה הופכת
+    # לשקר שקט: היא טוענת שהשם לא נמצא, בזמן שהיא מציגה שם שכן היה נמצא.
+    assert r"services.backup\_service" in symbol_doc
+    assert r"services.backup\\_service" not in symbol_doc
 
 
 async def test_the_description_names_every_suffix_the_outline_router_supports():
@@ -457,18 +488,25 @@ async def test_the_description_names_every_suffix_the_outline_router_supports():
     מהתיאור הייתה עוברת בשקט. אותו כשל בדיוק חוזר ב-PR הבא, שבו ``.j2``
     ו-``.html.j2`` יחיו זה לצד זה. הגבולות משני הצדדים חוסמים גם ``\\w``
     וגם נקודה, כך ש-``.j2`` אינו מתאים בתוך ``.html.j2``.
+
+    **היעד הוא תיאור הפרמטר ``outline`` ולא תיאור הכלי**, כי רשימת
+    הסיומות עברה לשם כשתיאור הכלי קוצר. ההערה מעל ``_SCANNERS`` מנוסחת
+    לפי אותו מיקום — שתי הרשימות עדיין חייבות לא להיסחף זו מזו.
     """
     import re
 
     from mcp_server.outline import _SCANNERS
 
     mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
-    description = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+    tool = mcp._tool_manager.get_tool("codekeeper_get_repo_file")
+    outline_doc = tool.parameters["properties"]["outline"]["description"]
 
     for suffix in _SCANNERS:
         token = re.compile(rf"(?<![\w.]){re.escape(suffix)}(?![\w.])")
 
-        assert token.search(description), f"{suffix} בטבלת הראוטר אבל לא בתיאור הכלי"
+        assert token.search(
+            outline_doc
+        ), f"{suffix} בטבלת הראוטר אבל לא בתיאור הפרמטר outline"
 
 
 async def test_the_descriptions_name_the_search_to_range_chain():
@@ -527,8 +565,146 @@ async def test_the_descriptions_name_the_search_to_range_chain():
     # שבונה טווח מתוך ``line`` היא מה שסוגר את הפער, והיא נדרשת במפורש.
     assert "lines=[line" in read
 
-    for description in (search, read):
+    # **הסריקה כוללת את תיאורי הפרמטרים, לא רק את תיאורי הכלים.** מאז
+    # שהפירוט על האאוטליין ועל ``symbol=`` עבר לשם, דוגמת טווח שתיכתב
+    # באחד מהם לא הייתה נבדקת — וכיסוי שממשיך לעבור בזמן שהטקסט שהוא
+    # שומר עליו זז למקום אחר הוא בדיוק הכשל השקט שהטסט הזה קיים למנוע.
+    # היום אין בהם אף דוגמת ``lines=``, כלומר הלולאה רצה עליהם ריקה —
+    # וזה המצב שהיא נועדה לשמר.
+    repo_file = mcp._tool_manager.get_tool("codekeeper_get_repo_file")
+    scanned = (
+        search,
+        read,
+        repo_file.parameters["properties"]["outline"]["description"],
+        repo_file.parameters["properties"]["symbol"]["description"],
+    )
+    for description in scanned:
         for example in re.findall(r"lines=\[([^\]]*)\]", description):
             assert len(example.split(",")) == 2, f"lines=[{example}] אינו זוג"
         # הצורה הסקלרית (``lines=42``) אינה מתקבלת בכלל, אז היא לא תופיע.
         assert not re.search(r"lines=\s*\d", description), description
+
+
+async def test_the_tool_description_points_at_the_parameters_that_carry_the_detail():
+    """הפירוט על המפה ועל הסינון עבר לתיאורי הפרמטרים — והכלי חייב להפנות.
+
+    תיאור הכלי הגיע ל-2,482 תווים ונחתך אצל הלקוח באמצע המשפט על RST ועל
+    ``symbol=``. הפיצול מרפא את החיתוך ופותח כשל אחר, מאותה משפחה בדיוק:
+    סוכן שקורא רק את תיאור הכלי לא יֵדע ש-``symbol=`` קיים אם התיאור אינו
+    נוקב בו. זה אותו "פיצ'ר שאף אחד לא קורא לו הוא פיצ'ר שאינו קיים"
+    שהוליד את ``test_the_description_says_symbol_works_on_the_non_python_names``,
+    רק במיקום חדש. לכן נאכפים כאן **שני קצות השרשרת**: שהכלי מפנה,
+    ושהיעד באמת נושא את הפירוט ואינו שדה ריק.
+
+    **וזה מחליף טענה שאיבדה משמעות, ולא טענה שנמחקה.** הגלגול הקודם אכף
+    ש-``symbol="@media"`` מופיע **לפני** ``500KB`` באותה מחרוזת, כדי
+    שהפילטר לא ייקרא כמדיניות גודל אלא כדרך לחתוך את המפה. אחרי הפיצול
+    השניים אינם באותה מחרוזת כלל — הסכנה ההיא נמנעת מבנית, והטענה על
+    הסדר לא הייתה יכולה לרוץ.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    tool = mcp._tool_manager.get_tool("codekeeper_get_repo_file")
+    props = tool.parameters["properties"]
+
+    # קצה ראשון: הכלי אומר שהפירוט קיים, ונוקב בשמות הפרמטרים שנושאים אותו.
+    assert "outline" in tool.description
+    assert "symbol" in tool.description
+    assert "parameters" in tool.description
+
+    # קצה שני: היעד נושא את הפירוט בפועל.
+    assert 'symbol="@media"' in props["symbol"]["description"]
+    assert "not just the dotted Python ones" in props["symbol"]["description"]
+    assert "page/per_page" in props["outline"]["description"]
+
+
+#: תקרת תווים לתיאור כלי. **המספר נמדד ולא נבחר כי הוא נראה עגול.**
+#:
+#: מה שהוא מונע: לקוח MCP שחותך תיאור ארוך חותך את **הסוף**, כלומר את
+#: הפסקאות האחרונות. ``codekeeper_get_repo_file`` הגיע ל-2,482 תווים והגיע
+#: לסוכן חתוך באמצע המשפט על RST ועל ``symbol=`` — שני פיצ'רים שעבדו ואף
+#: לקוח לא קרא עליהם.
+#:
+#: הבחירה ב-1,400: אחרי הפיצול הכלי הארוך ביותר הוא 1,125, השני אחריו
+#: ``codekeeper_docs_get_section`` ב-652, והחציון של 29 הכלים הוא 303.
+#: כלומר המספר נותן מרווח למשפט-שניים של גדילה טבעית, ונשאר הרבה מתחת
+#: לאזור שבו החיתוך נצפה בפועל.
+#:
+#: .. warning::
+#:
+#:    **התקרה חלה על ``description`` בלבד, וזו הכרעה ולא שלמות.** מה
+#:    שנמדד הוא שהשרת שולח תיאור פרמטר במלואו ב-``inputSchema``
+#:    (``mcp==1.28.1``, עם ריצת בקרה שבלי ``Field`` השדה חוזר ``None``) —
+#:    **לא** מה שלקוח מציג ממנו. נצפה לקוח שמקצר תיאור פרמטר לכ-120 תווים
+#:    בשורת סיכום, ובאותו לקוח תיאור כלי בן 2,482 תווים הגיע שלם. כלומר
+#:    התקרה שומרת על השדה שנחתך, ואינה מבטיחה דבר על תיאורי הפרמטרים אצל
+#:    כל לקוח.
+_TOOL_DESCRIPTION_MAX_CHARS = 1_400
+
+
+async def test_no_tool_description_exceeds_the_truncation_budget():
+    """אף תיאור כלי אינו ארוך מכדי שלקוח יגיש אותו במלואו.
+
+    **``_tool_manager.list_tools()`` ולא ``mcp.list_tools()``, וזה העיקר
+    כאן.** ``AdminAwareFastMCP`` מסנן את ``_ADMIN_TOOLS`` מבקשה שאינה של
+    אדמין, ובטסט אין request context — ולכן fail-closed מחזיר את תצוגת
+    ה-non-admin. נמדד: 22 כלים מול 29, ו**שבעת החסרים כוללים את
+    ``codekeeper_get_repo_file`` עצמו**, הכלי שבגללו התקרה הזאת קיימת.
+    טסט שהיה רץ על התצוגה המסוננת היה ירוק בלי לכסות את המקרה היחיד
+    שהפיל אותנו — כיסוי מדומה שנראה רחב יותר ממה שהוא.
+
+    התקרה היא על כל הכלים ולא על אחד, כי זו מחלקת בעיה ולא מופע: כל תיאור
+    שיגדל מעבר לה ייחתך אצל הלקוח באותה צורה בדיוק.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+
+    over = {
+        tool.name: len(tool.description or "")
+        for tool in mcp._tool_manager.list_tools()
+        if len(tool.description or "") > _TOOL_DESCRIPTION_MAX_CHARS
+    }
+
+    assert not over, (
+        f"תיאור כלי מעל {_TOOL_DESCRIPTION_MAX_CHARS} תווים — לקוח יחתוך את "
+        f"סופו: {over}. העבירו את העודף ל-Field(description=...) של הפרמטר "
+        f"שהוא מתאר, במקום למחוק אותו."
+    )
+
+
+async def test_get_file_description_points_at_the_query_parameter():
+    """אותה שרשרת גילוי, על ``codekeeper_get_file``.
+
+    ‏``query`` נוסף ב-#3385 עם תיאור בן 1,376 תווים שצורף לתיאור הכלי,
+    והביא אותו מ-349 ל-1,726 — מעל התקרה, כלומר סופו נחתך אצל הלקוח.
+    **וזה נתפס על ידי ``test_no_tool_description_exceeds_the_truncation_budget``
+    יומיים אחרי שנכתב**, מה שהופך את התקרה ממופע בודד למחלקת בעיה: הפירוט
+    עבר ל-``Field`` של ``query``, בדיוק כמו ב-``codekeeper_get_repo_file``.
+
+    ‏``_RANGE_DOC`` **נשאר בתיאור הכלי ולא זז**, כי הוא משותף ל-
+    ``codekeeper_get_repo_file`` ו-``docs/mcp-server.rst`` מחייב שהשניים
+    יתארו את ``lines=`` באותן מילים בדיוק.
+
+    שני הקצוות נאכפים כאן, כמו בכלי האח: שהכלי מפנה ל-``query``, ושהפרמטר
+    נושא את הפירוט בפועל.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    tool = mcp._tool_manager.get_tool("codekeeper_get_file")
+    query_doc = tool.parameters["properties"]["query"]["description"]
+
+    # קצה ראשון: הכלי מפנה **לפרמטר** ולא רק מזכיר את המילה.
+    #
+    # **``"query" in description`` לבדו אינו מספיק, וזה נמדד:** התיאור נושא
+    # ממילא את הדוגמה ``query="..."``, ולכן מוטציה שמחקה את ההפניה עברה את
+    # הבדיקה החלשה בשקט — כלומר טסט שאינו מסוגל ליפול על מה שהוא אמור
+    # לשמור עליו. ההפניה לשם הפרמטר היא מה שאומר לסוכן איפה לחפש.
+    assert "query parameter" in tool.description
+
+    # קצה שני: הפירוט באמת שם.
+    assert "query_and_lines" in query_doc
+    assert "context_lines" in query_doc
+    assert "max_results" in query_doc
+
+    # ``_RANGE_DOC`` נשאר בתיאור הכלי — הסימטריה מול get_repo_file נשמרת.
+    assert "lines=[start, end]" in tool.description
+    assert "lines=[start, end]" in (
+        mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
+    )
