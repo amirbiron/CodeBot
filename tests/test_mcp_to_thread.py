@@ -176,6 +176,12 @@ def test_input_schema_is_identical_with_and_without_the_wrapper():
     assert b.parameters == a.parameters
     assert b.description == a.description
     assert b.context_kwarg == a.context_kwarg
+    # ``output_schema`` and ``annotations`` are the two fields a wrapper is most
+    # likely to drop without anything else noticing, so they are named here
+    # rather than left to the three above to imply.
+    assert b.output_schema == a.output_schema
+    assert b.annotations == a.annotations
+    assert b.title == a.title
 
 
 async def test_auth_context_survives_the_thread_hop(request_context):
@@ -221,6 +227,12 @@ def _write_tool_names_from_source():
     annotations the implementation reads would be circular, and would pass even
     if every annotation were wrong. ``require_write`` is the other, unrelated
     place where "this tool writes" is already stated.
+
+    ``ast.AsyncFunctionDef`` is matched as well as ``ast.FunctionDef``. They are
+    separate classes with no inheritance between them, so checking only the
+    latter would leave this counter blind to exactly the tool shape that
+    ``_offload_to_thread`` now refuses — and blind in the same direction as the
+    bug, which is the worst way for a cross-check to fail.
     """
     import ast
     import pathlib
@@ -228,7 +240,7 @@ def _write_tool_names_from_source():
     tree = ast.parse(pathlib.Path("mcp_server/server.py").read_text(encoding="utf-8"))
     names = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         calls_require_write = any(
             isinstance(c, ast.Call)
@@ -246,34 +258,49 @@ def _write_tool_names_from_source():
     return names
 
 
-def test_exactly_the_write_tools_are_serialized():
-    """The lock covers the write tools — no more, and no fewer.
+def _routed_to_write_pool(tool):
+    """Which branch of ``_offload_to_thread`` actually produced this tool's body.
+
+    ``functools.wraps`` copies ``__name__`` and ``__qualname__`` from the tool,
+    so those say nothing about the wrapper. ``__code__.co_name`` belongs to the
+    code object and is not copied, so it names the branch that ran — which is
+    the point: this reads what ``add_tool`` built, not what the test would build
+    if it made the decision itself.
+    """
+    return tool.fn.__code__.co_name == "_run_on_write_pool"
+
+
+def test_exactly_the_write_tools_are_routed_to_the_write_pool():
+    """The write queue covers the write tools — no more, and no fewer.
 
     Fewer would reopen the interleaving this change is meant to preserve; more
-    would serialize reads for no reason, and ``codekeeper_docs_get_section`` at
+    would queue reads for no reason, and ``codekeeper_docs_get_section`` at
     ~155ms sitting behind a 4.8s save is the whole problem again.
+
+    This asserts on the wrapper ``build_mcp`` produced for each real tool. An
+    earlier version of this test recomputed ``_declares_write`` in its own
+    recorder and compared that to the AST set — which held even when the
+    registration path was mutated to serialize nothing at all, because both
+    sides of the comparison were descriptions and neither was the wiring.
     """
-    from mcp_server.server import _declares_write
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeBackend())
+    tools = _registered(mcp)
+    assert tools, "no tools registered — the fixture is wrong, not the code"
 
-    serialized = set()
+    routed = {t.name for t in tools if _routed_to_write_pool(t)}
+    assert routed == _write_tool_names_from_source()
 
-    # Record the flag per tool by re-registering through a recording subclass.
-    class _Recorder(AdminAwareFastMCP):
-        def add_tool(self, fn, *args, **kwargs):
-            if _declares_write(kwargs.get("annotations")):
-                serialized.add(kwargs.get("name"))
-            return super().add_tool(fn, *args, **kwargs)
 
-    import mcp_server.server as s
+def test_every_read_tool_still_goes_to_the_shared_executor():
+    """The other half: a read must not be sitting in the write queue.
 
-    real = s.AdminAwareFastMCP
-    s.AdminAwareFastMCP = _Recorder
-    try:
-        build_mcp(_FakeBackend(), repo_backend=_FakeBackend())
-    finally:
-        s.AdminAwareFastMCP = real
-
-    assert serialized == _write_tool_names_from_source()
+    Without this, routing everything to the single write worker would satisfy
+    the test above's "no fewer" half and destroy read throughput silently.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeBackend())
+    reads = [t for t in _registered(mcp) if not _routed_to_write_pool(t)]
+    assert reads, "every tool was routed to the write pool"
+    assert all(t.fn.__code__.co_name == "_run_on_shared_pool" for t in reads)
 
 
 async def test_two_writes_from_one_agent_never_overlap(request_context):
@@ -334,3 +361,453 @@ async def test_a_read_does_not_wait_behind_a_long_write(request_context):
     await writer
 
     assert finished == ["read", "write"], f"the read queued behind the write: {finished}"
+
+
+# ── the write queue: one worker, its own pool, in order ──────────────────────
+
+
+def _shared_pool_size():
+    """How many threads ``asyncio.to_thread`` has to hand out.
+
+    Read rather than assumed: ``min(32, cpu_count + 4)`` is the default
+    executor's size, and the tests below need a writer count above it to
+    reproduce what the shared pool used to do to readers.
+    """
+    import os
+
+    return min(32, (os.cpu_count() or 1) + 4)
+
+
+async def test_write_bodies_run_on_the_write_pool_and_reads_do_not(request_context):
+    """The two destinations are real threads, not a naming convention.
+
+    Without this, routing could quietly collapse back to one pool and every
+    other test here would still pass — they assert ordering and latency, both of
+    which one pool can satisfy on a quiet machine.
+    """
+    mcp = AdminAwareFastMCP("t")
+    seen = {}
+
+    def writer(ctx: Context) -> dict:
+        seen["write"] = threading.current_thread().name
+        return {}
+
+    def reader(ctx: Context) -> dict:
+        seen["read"] = threading.current_thread().name
+        return {}
+
+    mcp.add_tool(writer, name="w", annotations={"readOnlyHint": False})
+    mcp.add_tool(reader, name="r", annotations={"readOnlyHint": True})
+    await mcp.call_tool("w", {})
+    await mcp.call_tool("r", {})
+
+    assert seen["write"].startswith("mcp-write"), seen
+    assert not seen["read"].startswith("mcp-write"), seen
+
+
+async def test_a_read_runs_while_the_shared_pool_would_have_been_full(
+    request_context,
+):
+    """The reader must not wait, however many writes are already in flight.
+
+    This is the case the process-wide lock could not cover: a writer blocked on
+    it still held one of the shared executor's threads, so once there were more
+    writes than that pool had threads, a read had nowhere to run.
+
+    The writes are held on an event rather than on a sleep, so the assertion is
+    structural instead of a race the scheduler might win: while every write is
+    parked, a read still has to complete. On the old code it could not, because
+    the parked writers *were* the shared pool.
+    """
+    writers = _shared_pool_size() * 2
+    mcp = AdminAwareFastMCP("t")
+    release = threading.Event()
+    first_started = threading.Event()
+
+    def held_write(ctx: Context) -> dict:
+        first_started.set()
+        release.wait(10.0)
+        return {}
+
+    def quick_read(ctx: Context) -> dict:
+        return {"ok": True}
+
+    mcp.add_tool(held_write, name="w", annotations={"readOnlyHint": False})
+    mcp.add_tool(quick_read, name="r", annotations={"readOnlyHint": True})
+
+    pending = [asyncio.create_task(mcp.call_tool("w", {})) for _ in range(writers)]
+    try:
+        await asyncio.to_thread(first_started.wait, 5.0)
+        await asyncio.wait_for(mcp.call_tool("r", {}), timeout=5.0)
+    finally:
+        release.set()
+        await asyncio.gather(*pending)
+
+
+async def test_writes_finish_in_the_order_they_were_sent(request_context):
+    """Order, not just mutual exclusion.
+
+    A ``threading.Lock`` guarantees no ordering, and above the shared pool's
+    size the writes measurably finished out of the order they were sent in — the
+    one property the lock was there to restore. A single worker fed by
+    ``queue.SimpleQueue`` takes them in submit order, which is what an agent
+    sending two dependent writes together actually needs.
+
+    Several rounds, because one round is a coin toss: on the old code a round
+    came out ordered often enough that a single round proved nothing. Under the
+    fix every round is ordered for a structural reason, so repeating costs
+    nothing and removes the luck.
+    """
+    import time
+
+    writers = _shared_pool_size() * 4
+    mcp = AdminAwareFastMCP("t")
+    done: list[int] = []
+
+    def writer(ctx: Context, n: int = 0) -> dict:
+        time.sleep(0.001)
+        done.append(n)
+        return {}
+
+    mcp.add_tool(writer, name="w", annotations={"readOnlyHint": False})
+
+    for round_no in range(5):
+        done.clear()
+        await asyncio.gather(*[mcp.call_tool("w", {"n": i}) for i in range(writers)])
+        assert done == sorted(done), f"round {round_no} completed out of order: {done}"
+
+
+async def test_two_writes_still_never_overlap(request_context):
+    """The guarantee the lock used to make, kept by the pool's single worker.
+
+    Measured rather than assumed, and kept as its own test because everything
+    else here would still pass if the pool were widened to two workers.
+    """
+    import time
+
+    mcp = AdminAwareFastMCP("t")
+    inside = 0
+    max_inside = 0
+    guard = threading.Lock()
+
+    def writer(ctx: Context) -> dict:
+        nonlocal inside, max_inside
+        with guard:
+            inside += 1
+            max_inside = max(max_inside, inside)
+        time.sleep(0.05)
+        with guard:
+            inside -= 1
+        return {}
+
+    mcp.add_tool(writer, name="w", annotations={"readOnlyHint": False})
+    await asyncio.gather(*[mcp.call_tool("w", {}) for _ in range(4)])
+
+    assert max_inside == 1, f"{max_inside} writes ran at once"
+
+
+# ── what counts as a write, and what counts as async ─────────────────────────
+
+
+def test_annotations_that_do_not_say_read_only_are_treated_as_writes():
+    """Fail closed on a missing hint, because the protocol's default says so.
+
+    ``mcp/types.py`` documents ``readOnlyHint`` as "If true, the tool does not
+    modify its environment. Default: false", so an absent hint describes a tool
+    that may modify. The previous ``hint is False`` read every other shape as
+    read-only, which is the same silent loss of serialization #3379 was about —
+    only for the next tool someone adds without the key.
+    """
+    from mcp.types import ToolAnnotations
+
+    from mcp_server.server import _declares_write
+
+    assert _declares_write({"readOnlyHint": False}) is True
+    assert _declares_write(ToolAnnotations(readOnlyHint=False)) is True
+    # the shapes that used to fall through to "read-only"
+    assert _declares_write({"title": "writes, but nobody said so"}) is True
+    assert _declares_write({}) is True
+    assert _declares_write(None) is True
+    assert _declares_write(ToolAnnotations()) is True
+    # and the one case that really is a read
+    assert _declares_write({"readOnlyHint": True}) is False
+    assert _declares_write(ToolAnnotations(readOnlyHint=True)) is False
+
+
+async def test_a_tool_with_no_annotations_is_actually_queued(request_context):
+    """The fail-closed rule reaches the wiring, not just the helper.
+
+    ``_declares_write`` returning True is worth nothing if ``add_tool`` still
+    sends the tool to the shared executor.
+    """
+    mcp = AdminAwareFastMCP("t")
+    seen = {}
+
+    def unannotated(ctx: Context) -> dict:
+        seen["thread"] = threading.current_thread().name
+        return {}
+
+    mcp.add_tool(unannotated, name="u")
+    await mcp.call_tool("u", {})
+
+    assert seen["thread"].startswith("mcp-write"), seen
+
+
+def test_positional_annotations_are_read_too():
+    """The SDK takes ``annotations`` positionally; so must we.
+
+    Every registration in ``server.py`` passes it by keyword, so this can only
+    ever be caught deliberately: a positional call would otherwise register a
+    write tool with no queue, no error, and an identical schema.
+    """
+    from mcp_server.server import _annotations_of, _declares_write
+
+    # add_tool(fn, name, title, description, annotations) — fn is not in *args
+    positional = ("tool-name", None, "a description", {"readOnlyHint": False})
+    assert _declares_write(_annotations_of(positional, {})) is True
+    assert _annotations_of((), {"annotations": {"readOnlyHint": True}}) == {
+        "readOnlyHint": True
+    }
+
+
+def test_our_async_check_agrees_with_the_sdk():
+    """Our copy of the SDK's private async test must not drift from it.
+
+    ``_is_async_callable`` is private in ``mcp/server/fastmcp/tools/base.py``, so
+    it is reimplemented rather than imported. That is only safe while the two
+    agree, and this is what makes an SDK change fail here instead of silently
+    splitting the definition of "async" between the dispatcher and the wrapper.
+    """
+    import functools as ft
+
+    from mcp.server.fastmcp.tools.base import _is_async_callable as sdk_version
+
+    from mcp_server.server import _is_async_callable as ours
+
+    async def async_fn():
+        return None
+
+    def sync_fn():
+        return None
+
+    class AsyncCallable:
+        async def __call__(self):
+            return None
+
+    class SyncCallable:
+        def __call__(self):
+            return None
+
+    shapes = [
+        async_fn,
+        sync_fn,
+        AsyncCallable(),
+        SyncCallable(),
+        ft.partial(async_fn),
+        ft.partial(sync_fn),
+        lambda: None,
+    ]
+    assert [ours(s) for s in shapes] == [sdk_version(s) for s in shapes]
+    # and the narrower check really is narrower — otherwise this test is a no-op
+    assert ours(AsyncCallable()) and not asyncio.iscoroutinefunction(AsyncCallable())
+
+
+def test_an_async_write_tool_is_refused_at_registration():
+    """An async body cannot be serialized by a worker pool, so it is not accepted.
+
+    Handing the worker a coroutine function makes it return a coroutine object
+    immediately: the body would then run on the loop, unqueued and interleaved,
+    with the tool still advertised as a write. Refusing at registration is the
+    only point where that is visible.
+    """
+    mcp = AdminAwareFastMCP("t")
+
+    async def async_writer(ctx: Context) -> dict:
+        return {}
+
+    async def async_reader(ctx: Context) -> dict:
+        return {}
+
+    with pytest.raises(TypeError, match="declares a write but is async"):
+        mcp.add_tool(async_writer, name="aw", annotations={"readOnlyHint": False})
+
+    # a read tool may be async — it needs no queue and no thread hop
+    mcp.add_tool(async_reader, name="ar", annotations={"readOnlyHint": True})
+    assert mcp._tool_manager.get_tool("ar").fn is async_reader
+
+
+# ── auth, cancellation and the signal ────────────────────────────────────────
+
+
+async def test_a_write_denied_for_scope_still_surfaces_as_an_error(request_context):
+    """``require_write`` must keep working from inside the write pool.
+
+    ``loop.run_in_executor`` does not carry the ``contextvars.Context`` the way
+    ``asyncio.to_thread`` does, so the scope gate now depends on an explicit
+    ``copy_context()``. Drop that and ``get_access_token()`` returns ``None`` in
+    the worker: the gate stops seeing who is asking rather than failing loudly,
+    which is the direction that matters for a permission check.
+    """
+    from mcp_server.auth import require_write
+
+    mcp = AdminAwareFastMCP("t")
+
+    def writer(ctx: Context) -> dict:
+        require_write(ctx)
+        return {"reached": True}
+
+    mcp.add_tool(writer, name="w", annotations={"readOnlyHint": False})
+
+    # the fixture's token carries "write": the allowed path must still work
+    await mcp.call_tool("w", {})
+
+    # and a read-only token must be refused, from the worker thread
+    token = AccessToken(token="t", client_id="user-42", scopes=["read"], expires_at=None)
+    reset = auth_context_var.set(types.SimpleNamespace(access_token=token))
+    request = types.SimpleNamespace(state=types.SimpleNamespace(user_id=4242, scopes=["read"]))
+    rc = RequestContext(
+        request_id=2, meta=None, session=None, lifespan_context=None, request=request
+    )
+    rc_reset = request_ctx.set(rc)
+    try:
+        with pytest.raises(Exception) as excinfo:
+            await mcp.call_tool("w", {})
+        assert "insufficient_scope" in str(excinfo.value)
+    finally:
+        request_ctx.reset(rc_reset)
+        auth_context_var.reset(reset)
+
+
+async def test_a_write_cancelled_while_still_queued_never_runs(request_context):
+    """A caller who gives up before their turn does not spend the worker's time.
+
+    ``asyncio`` cancellation reaches the pool: ``_chain_future`` cancels the
+    underlying ``concurrent.futures.Future``, and ``_WorkItem.run`` checks
+    ``set_running_or_notify_cancel()`` before calling anything. The behaviour is
+    documented next to the pool because it is the opposite of the running case
+    below, and guessing which one applies is how a retry storm gets built.
+    """
+    import time
+
+    mcp = AdminAwareFastMCP("t")
+    ran: list[str] = []
+
+    def writer(ctx: Context, tag: str = "") -> dict:
+        ran.append(tag)
+        time.sleep(0.2)
+        return {}
+
+    mcp.add_tool(writer, name="w", annotations={"readOnlyHint": False})
+
+    first = asyncio.create_task(mcp.call_tool("w", {"tag": "first"}))
+    await asyncio.sleep(0.05)  # first is now on the worker
+    queued = asyncio.create_task(mcp.call_tool("w", {"tag": "queued"}))
+    await asyncio.sleep(0.02)  # queued is behind it, not started
+    queued.cancel()
+    await first
+    await asyncio.sleep(0.1)  # give it every chance to run anyway
+
+    assert ran == ["first"], f"the cancelled write ran: {ran}"
+
+
+async def test_a_write_cancelled_after_it_started_runs_to_completion(request_context):
+    """Once the body is running, cancelling the request does not stop it.
+
+    A synchronous body cannot be interrupted, on a thread or on the loop. The
+    caller stops waiting, the write still happens, and the worker is busy until
+    it finishes — which is why a client that times out and retries can queue two
+    writes it believes are one.
+    """
+    import time
+
+    mcp = AdminAwareFastMCP("t")
+    started = threading.Event()
+    finished = threading.Event()
+
+    def writer(ctx: Context) -> dict:
+        started.set()
+        time.sleep(0.15)
+        finished.set()
+        return {}
+
+    mcp.add_tool(writer, name="w", annotations={"readOnlyHint": False})
+
+    task = asyncio.create_task(mcp.call_tool("w", {}))
+    await asyncio.to_thread(started.wait, 2.0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert await asyncio.to_thread(finished.wait, 2.0), "the running body was cut short"
+
+
+async def test_the_queue_wait_is_logged_apart_from_the_run_time(request_context, caplog):
+    """The signal that tells a slow write apart from a write that waited.
+
+    Both numbers on one line, because either alone sends the reader to the wrong
+    place: total duration blames the write path for a queue problem, and queue
+    depth alone says nothing about whether the writes themselves got slower.
+    """
+    import logging as _logging
+    import time
+
+    import mcp_server.server as server_module
+
+    mcp = AdminAwareFastMCP("t")
+
+    def writer(ctx: Context) -> dict:
+        time.sleep(0.02)
+        return {}
+
+    mcp.add_tool(writer, name="w", annotations={"readOnlyHint": False})
+
+    with caplog.at_level(_logging.DEBUG, logger="mcp_server.server"):
+        await mcp.call_tool("w", {})
+    debug_lines = [r for r in caplog.records if r.levelno == _logging.DEBUG]
+    assert debug_lines, "no timing line for a write"
+    assert "queued" in debug_lines[-1].getMessage()
+    assert "ran" in debug_lines[-1].getMessage()
+
+    caplog.clear()
+    # a threshold no wait can stay under, so the WARNING branch is exercised
+    # without holding the suite for ten seconds
+    original = server_module._SLOW_WRITE_QUEUE_WAIT
+    server_module._SLOW_WRITE_QUEUE_WAIT = -1.0
+    try:
+        with caplog.at_level(_logging.DEBUG, logger="mcp_server.server"):
+            await mcp.call_tool("w", {})
+    finally:
+        server_module._SLOW_WRITE_QUEUE_WAIT = original
+    warnings = [r for r in caplog.records if r.levelno == _logging.WARNING]
+    assert warnings, "a wait past the threshold produced no warning"
+    assert "write queue" in warnings[-1].getMessage()
+
+
+async def test_a_failing_write_does_not_wedge_the_queue(request_context):
+    """One worker means one bad write could, in principle, stop every write.
+
+    It does not: ``_WorkItem.run`` catches ``BaseException`` and puts it on the
+    future, so the worker loop survives and takes the next item. Worth its own
+    test because the failure it guards against is not a slow write — it is every
+    write in the process failing forever, with the pool's single thread gone and
+    nothing replacing it.
+    """
+    mcp = AdminAwareFastMCP("t")
+    ran: list[str] = []
+
+    def explodes(ctx: Context) -> dict:
+        ran.append("boom")
+        raise RuntimeError("write blew up")
+
+    def after(ctx: Context) -> dict:
+        ran.append("after")
+        return {}
+
+    mcp.add_tool(explodes, name="boom", annotations={"readOnlyHint": False})
+    mcp.add_tool(after, name="after", annotations={"readOnlyHint": False})
+
+    with pytest.raises(Exception):
+        await mcp.call_tool("boom", {})
+    await mcp.call_tool("after", {})
+
+    assert ran == ["boom", "after"], ran
