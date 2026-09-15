@@ -580,8 +580,24 @@ async def test_the_tool_schema_declares_the_new_parameters_compatibly(monkeypatc
     props = schema.get("properties") or {}
 
     def _shape(prop):
-        """הצורה בלי ``title``, שהוא רק שם הפרמטר בצורה קריאה."""
-        return {key: val for key, val in prop.items() if key != "title"}
+        """הצורה בלי ``title`` ובלי ``description`` — שניהם תצוגה ולא חוזה.
+
+        ‏``title`` הוא שם הפרמטר בצורה קריאה. ``description`` הצטרף אליו
+        כשהפירוט על ``query`` עבר מתיאור הכלי ל-``Field(description=...)``
+        של הפרמטר, כי התיאור המאוחד הגיע ל-1,726 תווים ונחתך אצל הלקוח.
+
+        **ההחרגה אינה מחלישה את מה שהטסט שומר עליו, וזה נמדד:** ההפרש
+        היחיד בין ``query`` ל-``file_name`` הוא המפתח ``description``
+        בלבד — ``anyOf`` (מחרוזת או null) ו-``default`` זהים בית-בית,
+        ו-``required`` בסכימה הוא ``None``. כלומר תאימות הטיפוס
+        והאופציונליות, שתי הטענות של הטסט, נשארות נאכפות; מה שהוחרג הוא
+        מטא-דאטה שאינו חלק מחוזה הקריאה ולקוח קיים אינו נשבר ממנו.
+        """
+        return {
+            key: val
+            for key, val in prop.items()
+            if key not in ("title", "description")
+        }
 
     # אותה צורה בדיוק כמו מחרוזת אופציונלית שכבר קיימת בכלי הזה.
     assert _shape(props["query"]) == _shape(props["file_name"])
