@@ -4,14 +4,32 @@
 ``build_app`` returns a Starlette ASGI app (Streamable HTTP) wrapped with PAT
 auth plus an unauthenticated ``/healthz`` endpoint for platform health checks.
 
-Tools are defined as **sync** functions on purpose: FastMCP runs sync tools in a
-worker thread, so the blocking (pymongo) backend calls never stall the event
-loop, and the tool can still read ``ctx.request_context.request.state``.
+Tools are defined as **sync** functions on purpose, and :class:`AdminAwareFastMCP`
+moves each one onto a worker thread at registration — see
+:func:`_offload_to_thread`. Read tools go to the loop's shared default executor
+via ``asyncio.to_thread``; write tools go to :data:`_WRITE_POOL`, a pool of one
+worker, so exactly one write body runs at a time and the queue hands them over
+in the order they arrived.
+
+Until #3379 this docstring claimed the SDK ran sync tools on a worker thread by
+itself. **It does not**, and that wrong belief is why nobody looked: measured
+against ``mcp 1.28.1``, ``func_metadata.call_fn_with_arg_validation`` calls a
+sync tool as ``return fn(**arguments_parsed_dict)`` — on the event loop, with no
+``to_thread`` anywhere on the path. Keeping this paragraph accurate is not
+housekeeping: the wrong version of it is the whole reason the bug survived.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
+import functools
+import inspect
+import logging
 import os
+import pathlib
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -270,13 +288,447 @@ _REPO_NOTE_TOOLS = frozenset(
 _ADMIN_TOOLS = _REPO_BROWSER_TOOLS | _REPO_NOTE_TOOLS
 
 
+logger = logging.getLogger(__name__)
+
+
+#: The pool the write tools run on. One worker, so exactly one write body is in
+#: flight at a time — the ordering the tools had while every body sat on the
+#: event loop, and which #3379 would otherwise have taken away. Claude Code does
+#: send tool calls in parallel, so that is a live case and not a thought
+#: experiment.
+#:
+#: **Why a pool and not a lock.** The first version of this took a
+#: ``threading.Lock`` inside the worker thread. That kept writes mutually
+#: exclusive but cost two things, both measured afterwards. A writer waiting on
+#: the lock still occupied a slot in the loop's single default executor, so once
+#: enough writes were in flight the *reads* queued behind them — the class of
+#: failure this whole change exists to remove, moved from the loop to the pool.
+#: And a lock grants in no defined order, so above that executor's size the
+#: writes themselves finished out of the order they were sent in, which is the
+#: one property the lock was there to restore.
+#:
+#: A pool of one worker gives both back without a lock at all. A waiting write
+#: sits in this pool's queue instead of holding a thread the readers need, and
+#: ``ThreadPoolExecutor`` feeds its worker from a ``queue.SimpleQueue``
+#: (CPython ``concurrent/futures/thread.py``), so the worker takes them in
+#: submit order.
+#:
+#: **The price, said plainly.** One queue means writes by *different* users wait
+#: for each other, and a write body is seconds long. Reads never wait for a
+#: write — they keep going to ``asyncio.to_thread`` and the shared executor.
+#: Narrowing this to a queue per user is a real option; it is not this change,
+#: and :data:`_SLOW_WRITE_QUEUE_WAIT` is what will say whether it is needed.
+#:
+#: **It is not a substitute for atomic writes, and must not be read as one.**
+#: The check-then-act gaps in the write path (version allocation in
+#: ``save_code_snippet``, ``update_note`` without ``expected_content``) are
+#: races against the **bot and the webapp**, which run in other processes
+#: entirely and never touch this queue. A queue inside one process cannot close
+#: a cross-process race. It closes exactly the window this change would
+#: otherwise have opened inside the MCP process, no more. The real fix — a
+#: unique index with retry, plus conditional update returning ``conflict`` — is
+#: tracked separately.
+#:
+#: **What cancellation does to a queued write — measured, both ways.** A write
+#: that is cancelled while still waiting its turn **never runs**: asyncio
+#: cancels the underlying ``concurrent.futures.Future`` through
+#: ``_chain_future``, and ``_WorkItem.run`` checks
+#: ``set_running_or_notify_cancel()`` before it calls anything. A write that is
+#: cancelled **after** its body started runs to completion regardless — a
+#: synchronous body cannot be interrupted, on a thread or on the loop — and the
+#: caller simply stops waiting for it. Both were measured against this code, not
+#: read off the documentation. The practical consequence is worth stating: a
+#: client that times out and retries can have the first write still land, so the
+#: retry is a second write and not a replacement for the first.
+#:
+#: **At shutdown the in-flight write finishes.** ``ThreadPoolExecutor`` worker
+#: threads are not daemons and the interpreter joins them on the way out, so a
+#: deploy that stops the process waits for the write that is running rather than
+#: cutting it in half. A deep queue therefore delays shutdown; that is the right
+#: trade for a write path, and it is a property worth knowing before someone
+#: widens the queue.
+#:
+#: **Built at import, not lazily.** A lazily built shared resource has to
+#: publish a guard and a value, and whoever arrives between the two gets the
+#: empty one; building it here removes that shape instead of guarding against
+#: it.
+#:
+#: **Do not import this module into a gevent process.** After
+#: ``monkey.patch_all`` a ``ThreadPoolExecutor`` produces greenlets rather than
+#: OS threads (``docs/observability/asyncio-loop-safety.rst``), and this queue
+#: would stop being a thread boundary at all. The MCP service runs under
+#: uvicorn, and the gevent webapp reaches ``mcp_server`` only through
+#: ``oauth_identity`` and ``token_store`` — neither of which imports this
+#: module. That was checked, and it is an assumption a future import can break.
+_WRITE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mcp-write")
+
+#: How long a write may wait for the queue before the wait is worth a WARNING.
+#:
+#: Picked against this service's own numbers rather than a round figure. A
+#: ``save_file`` body runs 7.5s at p95, so a threshold below one whole body
+#: would fire every time two writes from the same agent arrive together — the
+#: ordinary case, and an alert that fires on the ordinary case is noise. Past
+#: this, the caller waited for more than one complete write ahead of it, which
+#: is the shape of a queue that is not draining rather than of a busy moment.
+_SLOW_WRITE_QUEUE_WAIT = 10.0
+
+#: ``FastMCP.add_tool``'s own signature, read once at import so that the
+#: position of ``annotations`` is never a number written down here.
+_ADD_TOOL_SIGNATURE = inspect.signature(FastMCP.add_tool)
+
+
+def _cpu_budget() -> str:
+    """What the container is actually allowed, as opposed to what Python sees.
+
+    ``os.cpu_count()`` is the machine's CPU count, and CPython says so in as
+    many words: *"This number is not equivalent to the number of CPUs the
+    current process can use."* Inside a container it is the host's, while the
+    service may be allowed a fraction of one core — and the read pool is sized
+    from the former. Printing the quota beside it is what turns that gap from a
+    suspicion into a number.
+
+    cgroup v2 keeps it in ``cpu.max`` as ``"<quota|max> <period>"``; v1 splits
+    it across two files, with ``-1`` meaning unlimited. Neither is guaranteed to
+    exist, and reading them is best effort: this runs during startup, and a
+    missing or unreadable file must not be the reason a deploy fails.
+    """
+    try:
+        raw = pathlib.Path("/sys/fs/cgroup/cpu.max").read_text().split()
+        quota, period = raw[0], raw[1]
+        if quota == "max":
+            return "cgroup v2: unlimited"
+        return f"cgroup v2: {int(quota) / int(period):.2f} cpu"
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        quota = int(pathlib.Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+        period = int(pathlib.Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+        if quota < 0:
+            return "cgroup v1: unlimited"
+        return f"cgroup v1: {quota / period:.2f} cpu"
+    except (OSError, ValueError, ZeroDivisionError):
+        return "unavailable"
+
+
+def _log_dispatch_capacity() -> None:
+    """One line at startup naming the concurrency the dispatch model actually has.
+
+    The read pool's size is ``min(32, os.cpu_count() + 4)`` and nothing in the
+    service reported it, so the ceiling on concurrent reads was a number nobody
+    could look up — including while reasoning about whether it needed one. Every
+    value is computed before the call rather than inside it, so a level guard or
+    a deleted line takes the line and nothing else with it.
+    """
+    detected = os.cpu_count() or 1
+    try:
+        usable = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        usable = detected
+    read_pool = min(32, detected + 4)
+    quota = _cpu_budget()
+    logger.info(
+        "mcp dispatch capacity: read pool %d threads (os.cpu_count=%d, "
+        "usable=%d), write pool 1 thread, cpu quota %s",
+        read_pool,
+        detected,
+        usable,
+        quota,
+    )
+
+
+def _declares_write(annotations: Any) -> bool:
+    """True unless a tool's annotations say it is read-only.
+
+    **Fail-closed, and the phrasing is the whole point.** The protocol's default
+    for a missing ``readOnlyHint`` is ``false`` — "If true, the tool does not
+    modify its environment. Default: false" (``mcp/types.py``,
+    ``ToolAnnotations``) — so an absent hint describes a tool that *may* modify.
+    Reading an absent hint as read-only would drop the queue for the next write
+    tool someone adds without the key: no error, no failing test, and nothing in
+    the schema to show for it. The cost of erring the other way is a read tool
+    that queues needlessly, which is slow and visible rather than silent.
+
+    Derived from the annotation the tool already declares rather than from a
+    list of tool names: a name list is a second place to keep in sync, and the
+    tool added next week is exactly the one that would be missing from it.
+    Accepts a dict or a ``ToolAnnotations``, because the SDK takes either.
+    """
+    if annotations is None:
+        return True
+    hint = (
+        annotations.get("readOnlyHint")
+        if isinstance(annotations, dict)
+        else getattr(annotations, "readOnlyHint", None)
+    )
+    return hint is not True
+
+
+def _annotations_of(args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+    """The annotations of a registration, however they were passed.
+
+    Every registration in this module passes ``annotations`` by keyword, but the
+    SDK declares it as an ordinary parameter and accepts it positionally too.
+    Reading only ``kwargs`` would let a positional call register a write tool
+    with no queue, no error, and an identical schema — the same silent shape the
+    rest of this file exists to remove. Binding against the SDK's real signature
+    keeps the answer correct if a release inserts a parameter ahead of it.
+    """
+    try:
+        bound = _ADD_TOOL_SIGNATURE.bind_partial(None, None, *args, **kwargs)
+    except TypeError:
+        return kwargs.get("annotations")
+    return bound.arguments.get("annotations")
+
+
+def _is_async_callable(obj: Any) -> bool:
+    """Async in the same sense the SDK means it when it decides how to dispatch.
+
+    Copied rather than imported: the SDK's version is private
+    (``_is_async_callable`` in ``mcp/server/fastmcp/tools/base.py``, absent from
+    ``__all__``), and importing a private name is a dependency on something
+    nobody promised to keep. What keeps the copy honest is a test that asserts
+    the two agree shape by shape, so an SDK change fails loudly instead of
+    splitting the two definitions in silence.
+
+    ``inspect.iscoroutinefunction`` alone is narrower: it does not recognise an
+    object whose ``__call__`` is ``async def``. The SDK would dispatch such a
+    tool with ``await`` while we had wrapped it as though it were sync.
+    """
+    while isinstance(obj, functools.partial):
+        obj = obj.func
+    # Kept expression-for-expression identical to the SDK's, because a test
+    # asserts the two agree and a "tidier" rewrite is how they drift apart.
+    # B004 reads ``getattr(obj, "__call__")`` as a callability test; here it
+    # fetches the method so ``iscoroutinefunction`` can look at it, and the
+    # callability test is the ``callable(obj)`` beside it.
+    return inspect.iscoroutinefunction(obj) or (
+        callable(obj)
+        and inspect.iscoroutinefunction(getattr(obj, "__call__", None))  # noqa: B004
+    )
+
+
+def _log_write_timing(tool: str, waited: float, ran: float | None) -> None:
+    """One line per write, splitting the wait for the queue from the work.
+
+    The split is the point. A total duration cannot tell a slow save apart from
+    a fast save that sat behind three others, and those two have different
+    fixes: one is the write path, the other is :data:`_WRITE_POOL` being too
+    narrow. Without this line the only signal is end-to-end duration from
+    PostHog, which makes neither distinction and is off unless a token is set.
+
+    ``ran`` is ``None`` for a write that was cancelled while still in the queue
+    and therefore never started. **That case needs the line most and is the one
+    a timer inside the body cannot produce**, because the body is what does the
+    timing and it never runs: a queue deep enough that callers give up would
+    otherwise be invisible in exactly the way this logging exists to prevent.
+
+    Both numbers are measured by the caller and passed in already computed. They
+    are deliberately not expressions inside the logging call: work that rides on
+    a log line disappears the day someone removes the line or puts a level guard
+    in front of it, and the failure then surfaces somewhere else entirely.
+    """
+    slow = waited >= _SLOW_WRITE_QUEUE_WAIT
+    if ran is None:
+        if slow:
+            logger.warning(
+                "mcp write %s waited %.2fs for the write queue and was cancelled before it ran",
+                tool,
+                waited,
+            )
+        else:
+            logger.debug(
+                "mcp write %s: queued %.3fs, cancelled before it ran", tool, waited
+            )
+        return
+    if slow:
+        logger.warning(
+            "mcp write %s waited %.2fs for the write queue, then ran %.2fs",
+            tool,
+            waited,
+            ran,
+        )
+    else:
+        logger.debug("mcp write %s: queued %.3fs, ran %.3fs", tool, waited, ran)
+
+
+def _offload_to_thread(fn: Any, *, serialize: bool = False) -> Any:
+    """Wrap a sync tool body so it runs on a worker thread instead of the loop.
+
+    **Why this exists (#3379).** Measured against ``mcp 1.28.1``:
+    ``func_metadata.call_fn_with_arg_validation`` dispatches a tool with
+    ``await fn(...)`` when it is a coroutine function and ``return fn(...)``
+    otherwise — so every sync tool body ran **on the event loop**, and one slow
+    call stalled every other session rather than only its own caller. The
+    heaviest measured bodies are seconds long, which makes this a shared-outage
+    class and not a slow request.
+
+    **Why at registration and not in each tool body.** One rule needs one
+    definition: a call site per tool is a chance per tool to forget, and the
+    next tool would start life on the loop again. ``FastMCP.tool()`` funnels
+    into ``add_tool`` (verified in the SDK), so wrapping there covers every tool
+    that exists and every tool that will exist — and
+    ``tests/test_mcp_to_thread.py`` asserts that *every* registered tool is a
+    coroutine function, so a regression fails loudly instead of quietly running
+    on the loop again.
+
+    **Two destinations, not one.** A read goes to ``asyncio.to_thread`` and the
+    loop's shared default executor, where several reads run at once. A write
+    goes to :data:`_WRITE_POOL` and its single worker, which is what keeps write
+    bodies from interleaving and what hands them to the worker in the order they
+    were sent. The reason writes do not simply take a lock on the shared
+    executor is written at :data:`_WRITE_POOL`; the short version is that a
+    writer blocked on a lock still holds a thread the readers need.
+
+    **What survives the hop, measured and not assumed:**
+
+    - ``functools.wraps`` keeps ``__wrapped__``, so ``inspect.signature`` — and
+      with it the advertised input schema — is byte-identical to the unwrapped
+      tool, ``Context`` injection included.
+    - ``ctx.request_context`` is an **instance attribute** on the ``Context``
+      object that ``FastMCP.call_tool`` builds on the loop, so it travels into
+      the thread untouched.
+    - ``get_access_token()`` reads ``auth_context_var``, a ``ContextVar``.
+      ``asyncio.to_thread`` copies the current ``contextvars.Context`` for us
+      (``asyncio/threads.py``); ``loop.run_in_executor`` does **not**
+      (``asyncio/base_events.py``), which is why the write path copies it
+      explicitly below. Verified both ways: without the copy,
+      ``get_access_token()`` returns ``None`` inside the worker and
+      ``require_admin`` / ``require_write`` stop seeing who is asking.
+
+    **What this changes about concurrency, said out loud.** Running on the loop
+    serialized every tool body, reads included: two calls from the same token
+    could not interleave, because the first ran to completion before the second
+    started. Reads can interleave now, and that is the intended result — the
+    serialization was an accident of the bug rather than a design. Writes still
+    cannot, because they share one worker; what they no longer have is the
+    shared-outage cost of getting there.
+
+    The read-then-write version pick in :meth:`Backend.save_file` (``U1``
+    variation *b*: read, branch, write, with no CAS) is **not** made wrong by
+    this change — the webapp and the bot already call ``save_code_snippet``
+    concurrently under gunicorn, from processes this queue does not reach. It
+    does stop being hidden from the MCP path. It is a pre-existing gap, out of
+    scope here, and it wants its own fix rather than a thread model chosen to
+    paper over it.
+
+    **Thread-safety of what the bodies touch — what was checked, and what that
+    does and does not cover.** Checked and clear: ``pymongo`` is thread-safe by
+    contract and is the only driver on this path (no ``motor`` anywhere in
+    ``mcp_server``), the module-level state in this file is read-only constants,
+    there is no ``threading.local``, and the MCP service runs under uvicorn with
+    no gevent monkey-patching.
+
+    That sweep looked at module-level state. It did **not** look at the lazily
+    built fields on the backend objects the bodies call into, and a review
+    caught the gap: with reads now running side by side, every
+    ``if self._x is None: self._x = ...`` in ``mcp_server/backend.py`` and
+    ``mcp_server/repo_backend.py`` is reachable by two threads at once, where
+    the event loop used to make the question impossible. Each was then read
+    against ``lazy-init-guard-publish-order``: all publish the value before the
+    guard (the guard *is* the value), so none can hand out a half-built object;
+    two build something cheap enough to build twice and say so in place; two
+    build something that touches Mongo and are locked. The details live next to
+    each one rather than here, because that is where the next person changing
+    them will be.
+
+    Nothing outside ``mcp_server`` was swept the same way. ``get_mirror_service``
+    was read because the read path reaches it directly, and it carries its own
+    note; anything else a body reaches transitively has not been audited for
+    this, and saying so is more useful than implying it has.
+
+    An ``async def`` read tool is returned untouched: it is already off the
+    blocking path, and wrapping it would add a pointless thread hop. An ``async
+    def`` **write** tool is refused outright — see below.
+    """
+    if _is_async_callable(fn):
+        if serialize:
+            raise TypeError(
+                f"{getattr(fn, '__name__', fn)!r} declares a write but is async. "
+                "Write tools are serialized by running on a single-worker pool, "
+                "which only orders sync bodies: an async body would hand the "
+                "worker a coroutine and run on the loop, unserialized and "
+                "unqueued, with nothing to show that it had. Make the body "
+                "sync, or give the write path an async lock of its own."
+            )
+        return fn
+
+    if not serialize:
+
+        @functools.wraps(fn)
+        async def _run_on_shared_pool(*args: Any, **kwargs: Any) -> Any:
+            return await asyncio.to_thread(fn, *args, **kwargs)
+
+        return _run_on_shared_pool
+
+    tool_name = getattr(fn, "__name__", repr(fn))
+
+    @functools.wraps(fn)
+    async def _run_on_write_pool(*args: Any, **kwargs: Any) -> Any:
+        submitted = time.perf_counter()
+
+        def _timed() -> Any:
+            started = time.perf_counter()
+            waited = started - submitted
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                ran = time.perf_counter() - started
+                _log_write_timing(tool_name, waited, ran)
+
+        loop = asyncio.get_running_loop()
+        # ``loop.run_in_executor`` is ``wrap_future(executor.submit(...))`` and
+        # nothing else (``asyncio/base_events.py``); submitting directly keeps a
+        # handle on the ``concurrent.futures.Future``, which is the only
+        # authoritative answer to "did this body run". It also takes positional
+        # arguments only and does not carry the ``contextvars.Context`` across
+        # the way ``to_thread`` does, so the copy is explicit and ``_timed``
+        # closes over the call's own arguments.
+        context = contextvars.copy_context()
+        pending = _WRITE_POOL.submit(context.run, _timed)
+        try:
+            return await asyncio.wrap_future(pending, loop=loop)
+        except asyncio.CancelledError:
+            # ``cancelled()`` is true only when the cancellation reached the
+            # work item before it started, which is the same state
+            # ``_WorkItem.run`` checks before calling anything — so the body
+            # definitely never ran and definitely never logged. Asking the
+            # future rather than a flag set by the body is what keeps this from
+            # claiming "cancelled before it ran" about a write that was already
+            # running, and from printing a second line about one that was.
+            if pending.cancelled():
+                _log_write_timing(tool_name, time.perf_counter() - submitted, None)
+            raise
+
+    return _run_on_write_pool
+
+
 class AdminAwareFastMCP(FastMCP):
-    """FastMCP that hides the admin-only tools from non-admin tools/list.
+    """FastMCP that hides the admin-only tools from non-admin tools/list, and
+    keeps every tool body off the event loop.
 
     The SDK's tools/list is static (one ToolManager), but the auth context IS
     available inside the handler, so we filter per request. Fail-closed: any
     doubt (no request context, unauthenticated, lookup error) ⇒ non-admin view.
     """
+
+    def add_tool(self, fn: Any, *args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
+        """Register a tool, moving a sync body onto a worker thread first.
+
+        Both registration paths land here — ``@mcp.tool(...)`` builds a
+        decorator that calls ``self.add_tool``, and ``mcp.add_tool(...)`` is
+        called directly — so this is the single place where the guarantee is
+        made. ``*args``/``**kwargs`` pass through untouched so that a new
+        keyword in a future SDK release does not need a change here.
+
+        A tool whose annotations do not say it is read-only is routed to
+        :data:`_WRITE_POOL` instead of the shared executor, so the write path
+        keeps the one-at-a-time ordering it had while it lived on the event
+        loop. The annotations are read through :func:`_annotations_of` rather
+        than straight out of ``kwargs``, because the SDK accepts them
+        positionally as well.
+        """
+        serialize = _declares_write(_annotations_of(args, kwargs))
+        return super().add_tool(_offload_to_thread(fn, serialize=serialize), *args, **kwargs)
 
     async def list_tools(self):  # type: ignore[override]
         tools = await super().list_tools()
@@ -1083,6 +1535,7 @@ def build_app(
       PATs, so Claude Code and Claude.ai both work. ``consent_routes`` are mounted.
     - PAT-only (fallback): the custom ``PATAuthMiddleware`` guards the app.
     """
+    _log_dispatch_capacity()
     oauth = auth_provider is not None and auth_settings is not None
     mcp = build_mcp(
         backend,
