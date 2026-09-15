@@ -4,13 +4,20 @@
 ``build_app`` returns a Starlette ASGI app (Streamable HTTP) wrapped with PAT
 auth plus an unauthenticated ``/healthz`` endpoint for platform health checks.
 
-Tools are defined as **sync** functions on purpose: FastMCP runs sync tools in a
-worker thread, so the blocking (pymongo) backend calls never stall the event
-loop, and the tool can still read ``ctx.request_context.request.state``.
+Tools are defined as **sync** functions on purpose, and :class:`AdminAwareFastMCP`
+moves each one onto a worker thread at registration — see
+:func:`_offload_to_thread`. Until #3379 this docstring claimed the SDK did that
+by itself. **It does not**, and that wrong belief is why nobody looked: measured
+against ``mcp 1.28.1``, ``func_metadata.call_fn_with_arg_validation`` calls a
+sync tool as ``return fn(**arguments_parsed_dict)`` — on the event loop, with no
+``to_thread`` anywhere on the path.
 """
 
 from __future__ import annotations
 
+import asyncio
+import functools
+import inspect
 import os
 from typing import Annotated, Any
 
@@ -270,13 +277,88 @@ _REPO_NOTE_TOOLS = frozenset(
 _ADMIN_TOOLS = _REPO_BROWSER_TOOLS | _REPO_NOTE_TOOLS
 
 
+def _offload_to_thread(fn: Any) -> Any:
+    """Wrap a sync tool body so it runs on a worker thread instead of the loop.
+
+    **Why this exists (#3379).** Measured against ``mcp 1.28.1``:
+    ``func_metadata.call_fn_with_arg_validation`` dispatches a tool with
+    ``await fn(...)`` when it is a coroutine function and ``return fn(...)``
+    otherwise — so every sync tool body ran **on the event loop**, and one slow
+    call stalled every other session rather than only its own caller. The
+    heaviest measured bodies are seconds long, which makes this a shared-outage
+    class and not a slow request.
+
+    **Why at registration and not in 29 tool bodies.** One rule needs one
+    definition: 29 call sites are 29 chances to forget, and the next tool would
+    start life on the loop again. ``FastMCP.tool()`` funnels into ``add_tool``
+    (verified in the SDK), so wrapping there covers every tool that exists and
+    every tool that will exist — and ``tests/test_mcp_to_thread.py`` asserts
+    that *every* registered tool is a coroutine function, so a regression fails
+    loudly instead of quietly running on the loop again.
+
+    **What survives the hop, all three measured and not assumed:**
+
+    - ``functools.wraps`` keeps ``__wrapped__``, so ``inspect.signature`` — and
+      with it the advertised input schema — is byte-identical to the unwrapped
+      tool, ``Context`` injection included.
+    - ``ctx.request_context`` is an **instance attribute** on the ``Context``
+      object that ``FastMCP.call_tool`` builds on the loop, so it travels into
+      the thread untouched.
+    - ``get_access_token()`` reads ``auth_context_var``, and ``asyncio.to_thread``
+      propagates the current ``contextvars.Context`` — verified end to end, not
+      taken from the docs. This is what keeps ``require_admin`` / ``require_write``
+      honest from the worker thread.
+
+    **What this changes about concurrency, said out loud.** Running on the loop
+    serialized every tool body: two calls from the same token could not
+    interleave, because the first ran to completion before the second started.
+    On worker threads they can. That protection was an accident of the bug, not
+    a design, and it never covered the write path anyway — the webapp and the
+    bot already call ``save_code_snippet`` concurrently under gunicorn. So the
+    read-then-write version pick in :meth:`Backend.save_file` (``U1`` variation
+    *b*: read, branch, write, with no CAS) is **not** made wrong by this change,
+    but it does stop being hidden from the MCP path. It is a pre-existing gap,
+    it is out of scope here, and it wants its own fix rather than a thread model
+    chosen to paper over it.
+
+    Thread-safety of what the bodies touch was mapped before this landed, as
+    #3379 asks: ``pymongo`` is thread-safe by contract and is the only driver on
+    this path (no ``motor`` anywhere in ``mcp_server``), the module-level state
+    here is read-only constants, there is no ``threading.local``, and the MCP
+    service runs under uvicorn with no gevent monkey-patching.
+
+    An ``async def`` tool is returned untouched: it is already off the blocking
+    path, and wrapping it would add a pointless thread hop.
+    """
+    if inspect.iscoroutinefunction(fn):
+        return fn
+
+    @functools.wraps(fn)
+    async def _run_in_thread(*args: Any, **kwargs: Any) -> Any:
+        return await asyncio.to_thread(fn, *args, **kwargs)
+
+    return _run_in_thread
+
+
 class AdminAwareFastMCP(FastMCP):
-    """FastMCP that hides the admin-only tools from non-admin tools/list.
+    """FastMCP that hides the admin-only tools from non-admin tools/list, and
+    keeps every tool body off the event loop.
 
     The SDK's tools/list is static (one ToolManager), but the auth context IS
     available inside the handler, so we filter per request. Fail-closed: any
     doubt (no request context, unauthenticated, lookup error) ⇒ non-admin view.
     """
+
+    def add_tool(self, fn: Any, *args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
+        """Register a tool, moving a sync body onto a worker thread first.
+
+        Both registration paths land here — ``@mcp.tool(...)`` builds a
+        decorator that calls ``self.add_tool``, and ``mcp.add_tool(...)`` is
+        called directly — so this is the single place where the guarantee is
+        made. ``*args``/``**kwargs`` pass through untouched so that a new
+        keyword in a future SDK release does not need a change here.
+        """
+        return super().add_tool(_offload_to_thread(fn), *args, **kwargs)
 
     async def list_tools(self):  # type: ignore[override]
         tools = await super().list_tools()
