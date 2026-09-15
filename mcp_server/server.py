@@ -522,6 +522,21 @@ def _log_write_timing(tool: str, waited: float, ran: float | None) -> None:
     timing and it never runs: a queue deep enough that callers give up would
     otherwise be invisible in exactly the way this logging exists to prevent.
 
+    **Why the ordinary case is ``info`` and not ``debug``.** The service
+    configures logging at ``INFO`` (``mcp_server/app.py``, from ``LOG_LEVEL``),
+    so a ``debug`` line is not quiet — it is *absent*, which is the failure this
+    whole area was just fixed for. Against that, the volume cannot run away:
+    one worker runs one write at a time and a write body is 4.3-4.9s at p50, so
+    this line is bounded at roughly thirteen a minute no matter how much load
+    arrives. And logging only the slow case would say when the wait is bad
+    without ever saying what it normally is, which is the number any decision
+    about the queue's width depends on.
+
+    These go through the standard library logger like everything else in
+    ``mcp_server``, which also keeps them clear of ``LOG_INFO_SAMPLE_RATE`` —
+    that sampling is a ``structlog`` processor and applies to ``emit_event``
+    records, not to these.
+
     Both numbers are measured by the caller and passed in already computed. They
     are deliberately not expressions inside the logging call: work that rides on
     a log line disappears the day someone removes the line or puts a level guard
@@ -536,7 +551,7 @@ def _log_write_timing(tool: str, waited: float, ran: float | None) -> None:
                 waited,
             )
         else:
-            logger.debug(
+            logger.info(
                 "mcp write %s: queued %.3fs, cancelled before it ran", tool, waited
             )
         return
@@ -548,7 +563,7 @@ def _log_write_timing(tool: str, waited: float, ran: float | None) -> None:
             ran,
         )
     else:
-        logger.debug("mcp write %s: queued %.3fs, ran %.3fs", tool, waited, ran)
+        logger.info("mcp write %s: queued %.3fs, ran %.3fs", tool, waited, ran)
 
 
 def _offload_to_thread(fn: Any, *, serialize: bool = False) -> Any:
@@ -1535,7 +1550,6 @@ def build_app(
       PATs, so Claude Code and Claude.ai both work. ``consent_routes`` are mounted.
     - PAT-only (fallback): the custom ``PATAuthMiddleware`` guards the app.
     """
-    _log_dispatch_capacity()
     oauth = auth_provider is not None and auth_settings is not None
     mcp = build_mcp(
         backend,
@@ -1544,6 +1558,18 @@ def build_app(
         auth_settings=auth_settings if oauth else None,
         repo_backend=repo_backend,
     )
+    # **After ``build_mcp``, and that ordering is the whole point.** The first
+    # version of this line ran before it and never appeared in production: at
+    # that moment nothing in the process had configured logging, so the root
+    # logger was still at ``WARNING`` with no handlers and the record was
+    # dropped where it stood. ``FastMCP.__init__`` ends with
+    # ``configure_logging(self.settings.log_level)`` (verified in the installed
+    # SDK), so by the time ``build_mcp`` returns there is certainly a handler —
+    # whoever installed it. ``mcp_server/app.py`` also configures logging on
+    # import, which is the fix that makes every other record in this package
+    # visible; emitting here as well means this line does not depend on that
+    # having happened.
+    _log_dispatch_capacity()
     app = mcp.streamable_http_app()  # Starlette app exposing POST/GET /mcp
     # Drain analytics on ASGI shutdown, before uvicorn's event loop closes.
     attach_shutdown_drain(app)

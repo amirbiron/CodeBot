@@ -20,6 +20,36 @@ from __future__ import annotations
 import os
 from typing import Any
 
+# Configure logging before anything else in this process can log. **This module
+# is the only place in the service where that happens**, and until it did,
+# nothing logged here was visible at all: measured in a fresh process, the root
+# logger sits at ``WARNING`` with **zero handlers**, so every ``logger.info`` in
+# ``mcp_server`` went nowhere and ``stdout``/``stderr`` stayed empty. The
+# configuration lived in ``main.py``, ``webapp/app.py`` and
+# ``services/webserver.py`` — none of which this process loads.
+#
+# ``setup_structlog_logging`` is the repository's one entry point for this and
+# it does both halves: it calls ``basicConfig`` when the root logger has no
+# handlers, which is this process's state, and it configures ``structlog``.
+# Calling it rather than reaching for ``basicConfig`` here is the difference
+# between using the mechanism and building a second one beside it.
+#
+# Wrapped exactly as ``services/webserver.py`` wraps it: ``observability``
+# imports ``structlog`` at module level and every caller in this repository
+# treats that import as something that may not be there. A service that cannot
+# configure logging should still serve.
+try:  # pragma: no cover - exercised by tests/test_mcp_logging_visible.py
+    from observability import get_log_level_from_env, setup_structlog_logging
+
+    setup_structlog_logging(get_log_level_from_env("INFO"))
+except Exception:  # noqa: BLE001 - see above: logging must not gate the service
+    import logging as _logging
+
+    _logging.getLogger(__name__).warning(
+        "structured logging setup unavailable; records from this process may be invisible",
+        exc_info=True,
+    )
+
 from .backend import ProductionBackend
 from .server import build_app
 from .token_store import MCPTokenStore
