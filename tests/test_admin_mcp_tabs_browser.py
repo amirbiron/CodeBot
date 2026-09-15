@@ -1011,3 +1011,44 @@ def test_the_copy_control_only_appears_once_javascript_is_running(live_server):
 
     assert visible
     assert label == f"העתק הכל ({_EXTRA_NAV_ROWS})", label
+
+
+def test_two_quick_clicks_leave_the_button_back_in_its_resting_state(live_server):
+    """שתי לחיצות מהירות השאירו את הכפתור על סימן הווי לתמיד.
+
+    הלחיצה השנייה שמרה כ"מקורי" את מה שהראשונה כתבה, ואף אחת לא ביטלה את
+    הטיימר של קודמתה: הטיימר הראשון החזיר את המצב האמיתי, והשני דרס אותו
+    חזרה בסימן הווי — אחרי שכבר לא היה מי שישחזר.
+
+    ההמתנה כאן ארוכה משני משכי ההבהוב יחד, אחרת הבדיקה מודדת את החלון שבו
+    ההבהוב עדיין אמור להיות מוצג ועוברת מהסיבה הלא נכונה.
+    """
+    with _many_sessions(), _browser_page(live_server, query="?tab=navigation") as page:
+        control = '.mcp-copy[data-copy-for="sessions"]'
+        resting = page.inner_text(f"{control} .mcp-copy-label")
+
+        page.click(f"{control} .mcp-copy-main")
+        page.wait_for_timeout(300)
+        page.click(f"{control} .mcp-copy-main")
+        page.wait_for_timeout(2600)
+
+        icon = page.get_attribute(f"{control} .mcp-copy-main i", "class")
+        label = page.inner_text(f"{control} .mcp-copy-label")
+
+    assert resting == f"העתק הכל ({_EXTRA_NAV_ROWS})", resting
+    assert "fa-copy" in icon, f"האייקון נתקע על {icon}"
+    assert label == resting, f"התווית נתקעה על {label!r}"
+
+
+def test_two_quick_clicks_on_a_row_icon_also_settle_back(live_server):
+    """אותו כשל בדיוק בכפתור שבשורה, שם הוא בולט יותר: אייקון ווי קבוע
+    נראה כמו "כבר העתקתי את זה" בכל פעם שפותחים את העמוד."""
+    with _one_missing_capability(), _browser_page(live_server, query="?tab=missing") as page:
+        button = "td.mcp-capability button.mcp-copy-cell"
+        page.click(button)
+        page.wait_for_timeout(300)
+        page.click(button)
+        page.wait_for_timeout(2600)
+        icon = page.get_attribute(f"{button} i", "class")
+
+    assert "fa-copy" in icon, f"האייקון נתקע על {icon}"

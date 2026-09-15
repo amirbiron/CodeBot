@@ -1209,20 +1209,41 @@
       );
     }
 
+    //: הטיימר הפעיל של כל אלמנט שמהבהב כרגע. ``WeakMap`` כדי שהרשומה
+    //: תשתחרר עם האלמנט ולא תחזיק אותו בחיים.
+    var flashTimers = new WeakMap();
+
+    function restartFlash(element, restore) {
+      // **ביטול הטיימר הקודם הוא העיקר כאן.** בלעדיו שתי לחיצות מהירות
+      // מייצרות שני טיימרים: הראשון משחזר בזמן, והשני — שנוצר אחריו —
+      // דורס את השחזור הזה בחזרה למצב ההבהוב, כשכבר אין מי שינקה אותו.
+      window.clearTimeout(flashTimers.get(element));
+      flashTimers.set(element, window.setTimeout(function () {
+        flashTimers.delete(element);
+        restore();
+      }, FLASH_MS));
+    }
+
     function flashIcon(button, ok) {
       var icon = button.querySelector('i');
       if (!icon) { return; }
-      var original = icon.className;
+      // המחלקה המקורית נקראת **פעם אחת** ונשמרת על האלמנט. קריאה בכל
+      // לחיצה הייתה שומרת כ"מקורי" את סימן הווי שהלחיצה הקודמת כתבה,
+      // וסימן הווי היה נשאר על הכפתור לתמיד.
+      if (icon.dataset.flashOriginal === undefined) {
+        icon.dataset.flashOriginal = icon.className;
+      }
       icon.className = ok ? 'fas fa-check' : 'fas fa-triangle-exclamation';
-      window.setTimeout(function () { icon.className = original; }, FLASH_MS);
+      restartFlash(icon, function () { icon.className = icon.dataset.flashOriginal; });
     }
 
-    function flashLabel(control, message) {
+    function flashLabel(control, table, message) {
       var label = control.querySelector('.mcp-copy-label');
       if (!label) { return; }
-      var original = label.textContent;
       label.textContent = message;
-      window.setTimeout(function () { label.textContent = original; }, FLASH_MS);
+      // השחזור **מחשב מחדש** במקום להחזיר צילום מצב, ולכן ספירת השורות
+      // שבתווית נכונה גם אם היא השתנתה בזמן ההבהוב (סינון, למשל).
+      restartFlash(label, function () { refreshLabel(control, table); });
     }
 
     function copyLabel(total) {
@@ -1251,7 +1272,7 @@
         if (button) { flashIcon(button, ok); }
         var rows = visibleRows(table).length;
         var copied = limit ? Math.min(limit, rows) : rows;
-        flashLabel(control, ok ? ('הועתקו ' + copied + ' שורות') : 'ההעתקה נכשלה');
+        flashLabel(control, table, ok ? ('הועתקו ' + copied + ' שורות') : 'ההעתקה נכשלה');
       });
     }
 
