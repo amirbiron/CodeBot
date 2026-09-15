@@ -65,7 +65,10 @@ POSTHOG_LINKS = {
 def _install(monkeypatch, health=None, navigation=None, missing=None, failures=None, links=None):
     """מחליף את השירות כולו, כדי שהבדיקה לא תיגע ברשת ולא תישבר על נתונים."""
     fake = types.SimpleNamespace(
-        get_dashboard=lambda: {
+        # ``**_`` ולא חתימה ריקה: הראוט קורא עם ``navigation_limit``, ודמה
+        # שחתימתה צרה מהאמיתית נופלת על הארגומנט הנוסף — והנפילה נבלעת
+        # ב-``except`` של הראוט ומוצגת כתקלת טעינה שאינה קשורה.
+        get_dashboard=lambda **_: {
             mcp.ENDPOINT_TOOL_HEALTH: (
                 health if health is not None else EndpointResult(rows=list(HEALTH_ROWS))
             ),
@@ -662,3 +665,359 @@ def test_failure_rows_carry_a_raw_timestamp_for_the_new_since_last_visit_count(a
     assert banner is not None
     # מתחיל סגור: השרת אינו יודע מתי הביקור הקודם היה.
     assert banner.has_attr("hidden")
+
+
+# --------------------------------------------------------------------------
+# מיון
+#
+# הדמה כאן **מתנהגת כמו האנדפוינט** ומחזירה את ``limit`` השורות הראשונות
+# בלבד. זה מה שהופך את הבדיקות האלה למסוגלות ליפול: דמה שמחזירה תמיד את
+# כל השורות הייתה עוברת גם על מיון בצד הלקוח — כלומר בודקת בדיוק את מה
+# שאינו בסכנה.
+# --------------------------------------------------------------------------
+
+
+def _session_rows(count, spike_at=None, spike_ms=999999.0):
+    """שורות סשן בסדר ברירת המחדל של השאילתה (``ORDER BY started DESC``)."""
+    rows = []
+    for index in range(count):
+        rows.append({
+            "session": f"ses_{index:03d}",
+            "started": f"2026-09-02T08:{59 - (index % 60):02d}:00Z",
+            "client": "claude-code",
+            "calls": index,
+            "searches": 0,
+            "outline_reads": 1,
+            "content_reads": 2,
+            "errors": 0,
+            "total_ms": 1000.0 + index,
+            "intent": f"intent {index}",
+            "total_sessions": count,
+        })
+    if spike_at is not None:
+        rows[spike_at]["total_ms"] = float(spike_ms)
+    return rows
+
+
+def _install_sessions(monkeypatch, rows, honour_limit=True):
+    """``honour_limit=False`` מדמה תקרה שלא כובדה — ואז המיון חלקי."""
+
+    def _dashboard(navigation_limit=None):
+        limit = (navigation_limit or mcp.NAVIGATION_COST_LIMIT) if honour_limit \
+            else mcp.NAVIGATION_COST_LIMIT
+        return {
+            mcp.ENDPOINT_TOOL_HEALTH: EndpointResult(rows=[dict(r) for r in HEALTH_ROWS]),
+            mcp.ENDPOINT_TOOL_FAILURES: EndpointResult(rows=[dict(r) for r in FAILURE_ROWS]),
+            mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(
+                rows=[dict(r) for r in rows[:limit]], total=len(rows)
+            ),
+            mcp.ENDPOINT_MISSING_CAPABILITIES: EndpointResult(rows=[]),
+        }
+
+    fake = types.SimpleNamespace(get_dashboard=_dashboard, posthog_links=lambda: POSTHOG_LINKS)
+    monkeypatch.setattr(mcp, "get_mcp_analytics_service", lambda: fake)
+
+
+def _sessions_table(soup):
+    return soup.select_one('[data-copy-table="sessions"]')
+
+
+def _column(table, index):
+    return [tr.select("td")[index].get_text(" ", strip=True) for tr in table.select("tbody tr")]
+
+
+def _header_link(soup, table_name, label):
+    """הקישור שמאחורי כותרת עמודה מסוימת, לפי הטקסט שהמשתמש רואה."""
+    table = soup.select_one(f'[data-copy-table="{table_name}"]')
+    for th in table.select("thead th"):
+        if th.get_text(strip=True) == label:
+            link = th.select_one("a.mcp-sort")
+            return link["href"] if link else None
+    return None
+
+
+def test_sorting_by_total_time_reaches_a_row_that_was_never_on_the_first_page(admin, monkeypatch):
+    """זו הבדיקה שכל הפיצ'ר עומד עליה.
+
+    הערך הגבוה ביותר נשתל בשורה 55 מתוך 60 — כלומר **מחוץ** ל-50 שהטבלה
+    טוענת כברירת מחדל. מיון בצד הלקוח היה מחזיר את המקסימום מתוך 50 ומציג
+    אותו כמקסימום, והשורה הזו לא הייתה מופיעה בשום שלב.
+    """
+    _install_sessions(monkeypatch, _session_rows(60, spike_at=55))
+
+    default = _soup(admin.get("/admin/mcp"))
+    assert "ses_055" not in default.get_text(" ", strip=True), "השורה נטענת כברירת מחדל — הבדיקה אינה מוכיחה דבר"
+
+    response = admin.get("/admin/mcp?tab=navigation&sessions_sort=total_ms&sessions_dir=desc")
+    table = _sessions_table(_soup(response))
+    sessions = _column(table, 9)
+
+    assert sessions[0] == "ses_055", f"הערך הגבוה ביותר לא עלה לראש: {sessions[:3]}"
+    assert len(sessions) == mcp.NAVIGATION_COST_LIMIT, "הטבלה שינתה את גודלה בגלל המיון"
+
+
+def test_the_ceiling_is_lifted_only_when_a_sort_was_requested(admin, monkeypatch):
+    """מסלול ברירת המחדל אינו משלם על פיצ'ר שלא ביקשו."""
+    seen = []
+
+    def _dashboard(navigation_limit=None):
+        seen.append(navigation_limit)
+        return {
+            mcp.ENDPOINT_TOOL_HEALTH: EndpointResult(rows=[]),
+            mcp.ENDPOINT_TOOL_FAILURES: EndpointResult(rows=[]),
+            mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(rows=[]),
+            mcp.ENDPOINT_MISSING_CAPABILITIES: EndpointResult(rows=[]),
+        }
+
+    monkeypatch.setattr(
+        mcp,
+        "get_mcp_analytics_service",
+        lambda: types.SimpleNamespace(get_dashboard=_dashboard, posthog_links=lambda: {}),
+    )
+
+    admin.get("/admin/mcp")
+    admin.get("/admin/mcp?sessions_sort=calls")
+    # מיון של טבלת הכלים אינו נוגע בתקרה של הסשנים — היא טבלה אחרת.
+    admin.get("/admin/mcp?tools_sort=calls")
+
+    assert seen == [None, mcp.NAVIGATION_SORT_FETCH_LIMIT, None]
+
+
+def test_a_sort_that_covered_every_row_does_not_cry_partial(admin, monkeypatch):
+    _install_sessions(monkeypatch, _session_rows(12))
+
+    soup = _soup(admin.get("/admin/mcp?tab=navigation&sessions_sort=calls"))
+
+    assert soup.select_one(".mcp-sort-partial") is None
+    assert soup.select_one(".mcp-sort-reset") is not None, "אין דרך לחזור לברירת המחדל"
+
+
+def test_a_sort_over_part_of_the_rows_says_so_where_it_can_be_seen(admin, monkeypatch):
+    """מה שקורה כשהתקרה לא כובדה — מכל סיבה, כולל כזו שאיננו מכירים.
+
+    בלי התווית הזו העמוד מציג מקסימום-מתוך-חלק כאילו הוא המקסימום, וזו
+    טעות שאי אפשר לראות מהמסך.
+    """
+    _install_sessions(monkeypatch, _session_rows(60), honour_limit=False)
+
+    soup = _soup(admin.get("/admin/mcp?tab=navigation&sessions_sort=total_ms"))
+    note = soup.select_one(".mcp-sort-partial")
+
+    assert note is not None, "מיון חלקי הוצג כמיון מלא"
+    text = note.get_text(" ", strip=True)
+    assert "50" in text and "60" in text, text
+
+
+def test_an_unknown_sort_field_is_ignored_instead_of_breaking_the_page(admin, monkeypatch):
+    """הערך מגיע משורת השאילתה. רשימה לבנה, ולא ניסיון לזהות "מה נראה רע"."""
+    _install_sessions(monkeypatch, _session_rows(5))
+
+    response = admin.get("/admin/mcp?tab=navigation&sessions_sort=total_sessions&sessions_dir=hop")
+    soup = _soup(response)
+
+    assert response.status_code == 200
+    assert soup.select_one(".mcp-sort-reset") is None, "ערך שאינו ברשימה הופעל כמיון"
+    assert soup.select("[aria-sort]") == []
+
+    # בקרה חיובית: בלעדיה הבדיקה עוברת גם על עמוד שאינו יודע למיין כלל,
+    # כלומר היא לא מוכיחה שהרשימה הלבנה היא שעצרה את הערך.
+    valid = _soup(admin.get("/admin/mcp?tab=navigation&sessions_sort=total_ms"))
+    assert valid.select_one(".mcp-sort-reset") is not None
+
+
+def test_sorting_one_table_keeps_the_other_tables_sort(admin, monkeypatch):
+    """מי שמיין את טבלת הכלים ואז מיין את הסשנים לא אמור לגלות שהראשון נמחק."""
+    _install_sessions(monkeypatch, _session_rows(5))
+
+    soup = _soup(admin.get("/admin/mcp?tools_sort=p95_ms&tools_dir=asc"))
+    href = _header_link(soup, "sessions", "זמן כולל")
+
+    assert "sessions_sort=total_ms" in href
+    assert "tools_sort=p95_ms" in href and "tools_dir=asc" in href
+    assert "tab=navigation" in href, "הקישור מחזיר לטאב שבו הטבלה אינה נמצאת"
+
+
+def test_only_the_sorted_column_is_announced_to_screen_readers(admin, monkeypatch):
+    """``aria-sort`` על יותר מעמודה אחת אומר לקורא המסך שתי אמיתות סותרות."""
+    _install_sessions(monkeypatch, _session_rows(5))
+
+    soup = _soup(admin.get("/admin/mcp?tab=navigation&sessions_sort=calls&sessions_dir=asc"))
+    marked = soup.select("th[aria-sort]")
+
+    assert len(marked) == 1
+    assert marked[0].get("aria-sort") == "ascending"
+    assert marked[0].get_text(strip=True) == "קריאות"
+
+
+def test_a_third_click_on_the_same_column_returns_to_the_default_order(admin, monkeypatch):
+    """יורד ← עולה ← ברירת מחדל. "להפוך כיוון" לבדו אינו מאפשר לבטל מיון."""
+    _install_sessions(monkeypatch, _session_rows(5))
+
+    first = _header_link(_soup(admin.get("/admin/mcp")), "sessions", "קריאות")
+    assert "sessions_dir=desc" in first
+
+    second = _header_link(
+        _soup(admin.get("/admin/mcp?tab=navigation&sessions_sort=calls&sessions_dir=desc")),
+        "sessions", "קריאות",
+    )
+    assert "sessions_dir=asc" in second
+
+    third = _header_link(
+        _soup(admin.get("/admin/mcp?tab=navigation&sessions_sort=calls&sessions_dir=asc")),
+        "sessions", "קריאות",
+    )
+    assert "sessions_sort" not in third
+
+
+def test_a_sort_link_lands_on_the_tab_that_holds_its_table(admin, monkeypatch):
+    """בלי זה, לחיצה על מיון בטבלת הסשנים נוחתת על טאב הכלים והטבלה נעלמת."""
+    _install_sessions(monkeypatch, _session_rows(5))
+
+    soup = _soup(admin.get("/admin/mcp?tab=navigation&sessions_sort=calls"))
+    panel = soup.select_one('.mcp-panel[data-panel="navigation"]')
+    tab = soup.select_one('.mcp-tab[data-panel="navigation"]')
+
+    assert "active" in panel.get("class", [])
+    assert tab.get("aria-selected") == "true"
+
+
+# --------------------------------------------------------------------------
+# ההעתקה — מה שנקרא מה-DOM
+# --------------------------------------------------------------------------
+
+
+def test_every_cell_carries_the_raw_value_that_the_copy_reads(admin, monkeypatch):
+    """``data-v`` הוא מה שרואים **פחות הקישוט**: מספר בלי ``ms``, תא ריק
+    כמחרוזת ריקה, וטקסט מלא ולא חתוך ב-64 תווים."""
+    _install(monkeypatch)
+    table = _sessions_table(_soup(admin.get("/admin/mcp")))
+    cells = table.select("tbody tr")[0].select("td")
+
+    total_ms = cells[7]
+    assert total_ms["data-v"] == "2574"
+    assert "ms" in total_ms.get_text(" ", strip=True), "היחידה נעלמה מהתצוגה"
+    assert "ms" not in total_ms["data-v"]
+
+    intent = cells[8]
+    assert intent["data-v"] == NAV_ROWS[0]["intent"]
+    assert "…" not in intent["data-v"]
+
+
+def test_a_clipped_intent_keeps_its_whole_text_for_the_copy(admin, monkeypatch):
+    long_intent = "מיפוי הנתיבים " * 20
+    _install(monkeypatch, navigation=EndpointResult(
+        rows=[{**NAV_ROWS[0], "intent": long_intent}], total=1
+    ))
+
+    table = _sessions_table(_soup(admin.get("/admin/mcp")))
+    intent = table.select("tbody tr")[0].select("td")[8]
+
+    assert intent["data-v"] == long_intent
+    assert "…" in intent.select_one("button.mcp-clip").get_text(strip=True), "התצוגה לא קוצצה"
+
+
+def test_an_empty_cell_copies_as_empty_and_not_as_a_dash(admin, monkeypatch):
+    """מקף הוא סימן תצוגה. בטבלת Markdown הוא נראה כמו נתון."""
+    _install(monkeypatch, navigation=EndpointResult(
+        rows=[{**NAV_ROWS[0], "total_ms": None, "client": None}], total=1
+    ))
+
+    cells = _sessions_table(_soup(admin.get("/admin/mcp"))).select("tbody tr")[0].select("td")
+
+    assert cells[7]["data-v"] == ""
+    assert cells[1]["data-v"] == ""
+    assert "—" in cells[7].get_text(" ", strip=True), "התצוגה איבדה את המקף"
+
+
+def test_the_unit_moves_into_the_column_name_for_the_copy(admin, monkeypatch):
+    """המספרים מועתקים גולמיים, ולכן היחידה חייבת להיות בכותרת — אחרת
+    ``2574`` בהדבקה הוא מספר בלי משמעות."""
+    _install(monkeypatch)
+    soup = _soup(admin.get("/admin/mcp"))
+    heads = {
+        th.get_text(strip=True): th.get("data-copy-head")
+        for th in _sessions_table(soup).select("thead th")
+    }
+
+    assert heads["זמן כולל"] == "זמן כולל (ms)"
+
+
+def test_the_copied_caveat_is_the_very_string_shown_under_the_table(admin, monkeypatch):
+    """מקור אחד. שני העתקים היו נסחפים, ומי שמדביק לצ'אט היה מקבל מספרים
+    בלי הסייג שבגללו הם מוצגים ככה."""
+    _install(monkeypatch)
+    soup = _soup(admin.get("/admin/mcp"))
+    note = _sessions_table(soup)["data-copy-note"]
+    panel = soup.select_one('.mcp-panel[data-panel="navigation"]').get_text(" ", strip=True)
+
+    assert "מודד עלות, לא איכות" in note
+    assert note in panel, "הסייג שמועתק אינו מה שמוצג"
+
+
+def test_the_copy_control_stays_hidden_until_javascript_reveals_it(admin, monkeypatch):
+    """בלי JS אין העתקה, וכפתור מת גרוע מכפתור שאינו שם."""
+    _install(monkeypatch)
+    soup = _soup(admin.get("/admin/mcp"))
+
+    for table in ("tools", "sessions"):
+        control = soup.select_one(f'.mcp-copy[data-copy-for="{table}"]')
+        assert control is not None, f"אין פקד העתקה ל-{table}"
+        assert control.has_attr("hidden")
+
+
+def test_an_empty_table_gets_no_copy_control(admin, monkeypatch):
+    _install(monkeypatch, navigation=EndpointResult(rows=[]))
+    soup = _soup(admin.get("/admin/mcp"))
+
+    assert soup.select_one('.mcp-copy[data-copy-for="sessions"]') is None
+
+
+def test_a_missing_capability_row_offers_an_icon_only_copy_button(admin, monkeypatch):
+    """אייקון בלי המילה "העתק": הוא חוזר בכל שורה, וטקסט היה מכפיל את רוחב
+    העמודה שהיא עיקר הטבלה."""
+    _install(monkeypatch, missing=EndpointResult(rows=[{
+        "reported_at": "2026-09-02T10:00:00Z",
+        "capability": "לחפש בתוך תוצאות של חיפוש קודם",
+        "intent_source": "agent", "client": "claude-code", "session": "s1",
+    }]))
+
+    cell = _soup(admin.get("/admin/mcp")).select_one("td.mcp-capability")
+    button = cell.select_one("button.mcp-copy-cell")
+
+    assert button is not None
+    assert button.get_text(strip=True) == "", "הכפתור נושא טקסט, ולא רק אייקון"
+    assert button.get("aria-label"), "כפתור אייקון בלי aria-label הוא כפתור אילם"
+    assert cell["data-v"] == "לחפש בתוך תוצאות של חיפוש קודם"
+
+
+def test_a_capability_with_nothing_in_it_gets_no_copy_button(admin, monkeypatch):
+    _install(monkeypatch, missing=EndpointResult(rows=[{
+        "reported_at": "2026-09-02T10:00:00Z", "capability": None,
+        "intent_source": None, "client": None, "session": "s1",
+    }]))
+
+    cell = _soup(admin.get("/admin/mcp")).select_one("td.mcp-capability")
+
+    assert cell.select_one("button.mcp-copy-cell") is None
+
+
+def test_the_latency_ratio_column_is_there_and_can_be_sorted(admin, monkeypatch):
+    """היחס מפריד בין "איטי תמיד" ל"איטי לפעמים" — שתי שאלות דיבוג שונות."""
+    _install(monkeypatch)
+    soup = _soup(admin.get("/admin/mcp"))
+    tools = soup.select_one('[data-copy-table="tools"]')
+    heads = [th.get_text(strip=True) for th in tools.select("thead th")]
+
+    assert "p95/p50" in heads
+    # 4144 / 150 = 27.6 — כלי שנתקע לפעמים, לא כלי איטי.
+    assert "27.6" in tools.select("tbody tr")[1].get_text(" ", strip=True)
+    assert _header_link(soup, "tools", "p95/p50") is not None
+
+
+def test_the_free_text_columns_are_not_sortable(admin, monkeypatch):
+    """מזהה אטום וטקסט חופשי הם עמודות שאין משמעות לסדר שלהן."""
+    _install(monkeypatch)
+    soup = _soup(admin.get("/admin/mcp"))
+
+    assert _header_link(soup, "sessions", "סשן") is None
+    assert _header_link(soup, "sessions", "מה הסוכן ניסה לעשות") is None

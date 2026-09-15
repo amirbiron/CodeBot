@@ -110,6 +110,71 @@ def _truncated_failures():
         _FAILURES_HAS_MORE = previous
 
 
+#: הטאב השלישי ריק כברירת מחדל — וזה מצב תקין שנבדק במקום אחר. כדי לבדוק
+#: את כפתור ההעתקה שבשורה צריך שורה, ולכן היא מוחלפת בשרת לפני הרינדור.
+_MISSING_ROWS_OVERRIDE: list = []
+
+CAPABILITY_TEXT = (
+    "לחפש בתוך תוצאות של חיפוש קודם | בלי להריץ את החיפוש מחדש\n"
+    "היום צריך לשמור את התוצאות בצד"
+)
+
+
+def _missing_rows():
+    return list(_MISSING_ROWS_OVERRIDE)
+
+
+@contextlib.contextmanager
+def _one_missing_capability():
+    """שורה אחת בטאב "כלים חסרים", עם צינור ושורה חדשה בתוך הטקסט.
+
+    שני התווים האלה הם מה ששובר טבלת Markdown, ולכן הם בטקסט הבדיקה ולא
+    בהערה עליו.
+    """
+    global _MISSING_ROWS_OVERRIDE
+    previous = _MISSING_ROWS_OVERRIDE
+    _MISSING_ROWS_OVERRIDE = [{
+        "reported_at": "2026-09-02T10:00:00Z",
+        "capability": CAPABILITY_TEXT,
+        "intent_source": "agent",
+        "client": "claude-code",
+        "session": "ses_x",
+    }]
+    try:
+        yield
+    finally:
+        _MISSING_ROWS_OVERRIDE = previous
+
+
+#: שורות סשן נוספות, כדי שיהיה מה למיין ומה לחתוך בהעתקה.
+_EXTRA_NAV_ROWS = 6
+
+
+@contextlib.contextmanager
+def _many_sessions():
+    """שש שורות שבהן הזמן הכולל **עולה** עם האינדקס.
+
+    כלומר סדר ברירת המחדל (החדש קודם) הפוך לסדר של "זמן כולל, יורד" —
+    וזה מה שמאפשר לבדוק שההעתקה לוקחת את הסדר שעל המסך ולא את המקורי.
+    """
+    global _NAV_ROWS_OVERRIDE
+    previous = _NAV_ROWS_OVERRIDE
+    _NAV_ROWS_OVERRIDE = [
+        {
+            **NAV_ROWS[0],
+            "session": f"ses_{index}",
+            "total_ms": 1000.0 + index * 100,
+            "calls": index,
+            "intent": f"intent {index}",
+        }
+        for index in range(_EXTRA_NAV_ROWS)
+    ]
+    try:
+        yield
+    finally:
+        _NAV_ROWS_OVERRIDE = previous
+
+
 @contextlib.contextmanager
 def _hostile_intent(text):
     """מחליף את הכוונה בשורת הניווט לאורך הבקשה, ומשחזר בסיום."""
@@ -171,13 +236,18 @@ def live_server(chromium_executable):
     from werkzeug.serving import make_server
 
     fake = types.SimpleNamespace(
-        get_dashboard=lambda: {
+        # ``**_`` — ראו ההסבר ב-``tests/test_admin_mcp_page.py``.
+        get_dashboard=lambda **_: {
             mcp.ENDPOINT_TOOL_HEALTH: EndpointResult(rows=list(HEALTH_ROWS)),
             mcp.ENDPOINT_TOOL_FAILURES: _failures_result(),
             # ``_nav_rows()`` ולא ``NAV_ROWS`` ישירות: כך טסט יכול להחליף את
             # השורות **בשרת** לפני הרינדור, במקום לשתול ערך ב-DOM אחרי כן.
-            mcp.ENDPOINT_NAVIGATION_COST: EndpointResult(rows=_nav_rows(), total=10),
-            mcp.ENDPOINT_MISSING_CAPABILITIES: EndpointResult(rows=[]),
+            # ``total`` נגזר מהשורות ולא קבוע: אחרת כל מיון היה מסומן
+            # חלקי, והבדיקה של התווית הייתה עוברת בלי קשר לקוד.
+            mcp.ENDPOINT_NAVIGATION_COST: (
+                lambda rows: EndpointResult(rows=rows, total=len(rows))
+            )(_nav_rows()),
+            mcp.ENDPOINT_MISSING_CAPABILITIES: EndpointResult(rows=_missing_rows()),
         },
         posthog_links=lambda: dict(POSTHOG_LINKS),
     )
@@ -241,7 +311,7 @@ PHONE_VIEWPORT = {"width": 390, "height": 844}
 
 
 @contextlib.contextmanager
-def _browser_page(live_server, local_storage=None, viewport=None):
+def _browser_page(live_server, local_storage=None, viewport=None, query=""):
     """פותח את העמוד בהקשר דפדפן נקי — **המקום היחיד** שמרים דפדפן בקובץ הזה.
 
     ``local_storage`` הוא הערך של ``mcpFailuresLastSeenAt``; ``None`` מוחק
@@ -264,7 +334,13 @@ def _browser_page(live_server, local_storage=None, viewport=None):
             )
         except Exception as exc:  # pragma: no cover
             pytest.skip(f"אין Chromium זמין: {exc}")
-        context = browser.new_context(viewport=viewport or DESKTOP_VIEWPORT)
+        # ``clipboard-read`` נדרש כדי **לקרוא בחזרה** את מה שנכתב ללוח.
+        # בלי קריאה חוזרת הבדיקה בודקת שהקריאה לא זרקה, ולא שמשהו הועתק —
+        # וזו בדיוק ההבחנה בין ירוק אמיתי לירוק שקרי.
+        context = browser.new_context(
+            viewport=viewport or DESKTOP_VIEWPORT,
+            permissions=["clipboard-read", "clipboard-write"],
+        )
         context.add_cookies([{
             "name": "session", "value": session_cookie,
             "domain": "127.0.0.1", "path": "/",
@@ -281,7 +357,7 @@ def _browser_page(live_server, local_storage=None, viewport=None):
             setup += "localStorage.removeItem('mcpFailuresLastSeenAt');"
         setup += "}catch(e){}"
         page.add_init_script(setup)
-        page.goto(f"{base_url}/admin/mcp", wait_until="domcontentloaded")
+        page.goto(f"{base_url}/admin/mcp{query}", wait_until="domcontentloaded")
         page.wait_for_timeout(400)
         page.evaluate(
             "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
@@ -724,3 +800,255 @@ def test_a_failed_page_load_still_shuts_the_browser_down(live_server):
         patch.undo()
 
     assert stopped == [True], "‏Playwright לא נסגר אחרי כשל בטעינת העמוד"
+
+
+# --------------------------------------------------------------------------
+# העתקה
+#
+# בדיקת שרת יכולה לאמת שה-``data-v`` נכתב. היא **אינה** יכולה לאמת שמשהו
+# הגיע ללוח: ``navigator.clipboard`` חי רק בדפדפן, והוא גם דורש secure
+# context והרשאה. לכן כל בדיקה כאן **קוראת את הלוח בחזרה** — ערך ההחזרה
+# של הכתיבה אינו אימות שלה.
+# --------------------------------------------------------------------------
+
+
+def _clipboard(page):
+    return page.evaluate("() => navigator.clipboard.readText()")
+
+
+def _copy_all(page, table):
+    page.click(f'.mcp-copy[data-copy-for="{table}"] .mcp-copy-main')
+    page.wait_for_timeout(250)
+    return _clipboard(page)
+
+
+def _shown_sessions(page):
+    return page.eval_on_selector_all(
+        '[data-copy-table="sessions"] tbody tr td:last-child',
+        "cells => cells.map(cell => cell.textContent.trim())",
+    )
+
+
+def test_copying_a_table_puts_a_markdown_table_on_the_clipboard(live_server):
+    """היעד הוא הדבקה לצ'אט עם סוכן, ולכן הפורמט הוא טבלת Markdown עם כותרת."""
+    with _many_sessions(), _browser_page(live_server, query="?tab=navigation") as page:
+        text = _copy_all(page, "sessions")
+
+    lines = text.split("\n")
+
+    assert lines[0].startswith("| התחיל |"), lines[0]
+    assert set(lines[1].replace("|", "").split()) == {"---"}, lines[1]
+    body = [line for line in lines[2:] if line.startswith("|")]
+    assert len(body) == _EXTRA_NAV_ROWS, body
+
+
+def test_the_copy_takes_the_order_that_is_on_the_screen(live_server):
+    """ההעתקה מכבדת את המיון מפני שהיא קוראת את ה-DOM, ולא את הסדר המקורי.
+
+    סדר ברירת המחדל כאן הפוך לסדר של "זמן כולל, יורד", ולכן השוואה מול
+    המסך מסוגלת ליפול — לא כמו השוואה מול רשימה קבועה בבדיקה.
+    """
+    query = "?tab=navigation&sessions_sort=total_ms&sessions_dir=desc"
+    with _many_sessions(), _browser_page(live_server, query=query) as page:
+        shown = _shown_sessions(page)
+        text = _copy_all(page, "sessions")
+
+    copied = [
+        line.split("|")[-2].strip()
+        for line in text.split("\n")
+        if line.startswith("|")
+    ][2:]
+
+    assert shown[0] == f"ses_{_EXTRA_NAV_ROWS - 1}", f"הטבלה לא מוינה: {shown}"
+    assert copied == shown, f"ההעתקה לא בסדר התצוגה\nמסך: {shown}\nלוח: {copied}"
+
+
+def test_the_copied_numbers_carry_no_units_and_the_unit_sits_in_the_header(live_server):
+    """מי שמדביק לניתוח רוצה מספרים. ``2574ms`` אינו מספר."""
+    with _many_sessions(), _browser_page(live_server, query="?tab=navigation") as page:
+        text = _copy_all(page, "sessions")
+
+    header = text.split("\n")[0]
+    body = [line for line in text.split("\n")[2:] if line.startswith("|")]
+
+    assert "זמן כולל (ms)" in header, header
+    for line in body:
+        assert "ms" not in line, line
+
+
+def test_the_caveat_travels_with_the_copy(live_server):
+    """בלי זה, מי שמדביק מספרי סשנים לצ'אט מאבד בדיוק את הסייג שהעמוד
+    נבנה כדי לשמר."""
+    with _many_sessions(), _browser_page(live_server, query="?tab=navigation") as page:
+        text = _copy_all(page, "sessions")
+
+    assert "> אין להשוות בין סשנים" in text, text[-200:]
+    assert "מודד עלות, לא איכות" in text
+
+
+def test_the_menu_never_offers_more_rows_than_the_table_holds(live_server):
+    """הרשימה נבנית מהשורות שיש, ולא מרשימה קשיחה שצריך לסנכרן."""
+    with _many_sessions(), _browser_page(live_server, query="?tab=navigation") as page:
+        page.click('.mcp-copy[data-copy-for="sessions"] .mcp-copy-more')
+        page.wait_for_timeout(150)
+        labels = page.eval_on_selector_all(
+            '.mcp-copy[data-copy-for="sessions"] .mcp-copy-option',
+            "items => items.map(item => item.textContent.trim())",
+        )
+
+    assert labels[0] == f"העתק הכל ({_EXTRA_NAV_ROWS})", labels
+    assert labels[1:] == ["5 השורות הראשונות"], labels
+
+
+def test_copying_n_rows_takes_the_first_n_of_the_current_order(live_server):
+    query = "?tab=navigation&sessions_sort=total_ms&sessions_dir=desc"
+    with _many_sessions(), _browser_page(live_server, query=query) as page:
+        shown = _shown_sessions(page)
+        page.click('.mcp-copy[data-copy-for="sessions"] .mcp-copy-more')
+        page.wait_for_timeout(150)
+        page.click('.mcp-copy[data-copy-for="sessions"] .mcp-copy-option:last-child')
+        page.wait_for_timeout(250)
+        text = _clipboard(page)
+
+    copied = [
+        line.split("|")[-2].strip()
+        for line in text.split("\n")
+        if line.startswith("|")
+    ][2:]
+
+    assert copied == shown[:5], f"מסך: {shown}\nלוח: {copied}"
+
+
+def test_a_pipe_or_a_newline_in_agent_text_does_not_break_the_table(live_server):
+    """שני התווים שמפרקים טבלת Markdown, בטקסט שסוכן חיצוני כתב."""
+    with _one_missing_capability(), _browser_page(live_server, query="?tab=missing") as page:
+        page.click("td.mcp-capability button.mcp-copy-cell")
+        page.wait_for_timeout(250)
+        text = _clipboard(page)
+
+    # העתקת תא בודד מעתיקה את הטקסט **כמו שהוא**: אין כאן טבלה לשבור.
+    assert text == CAPABILITY_TEXT, repr(text)
+
+
+def test_the_icon_only_button_copies_the_whole_capability(live_server):
+    with _one_missing_capability(), _browser_page(live_server, query="?tab=missing") as page:
+        label = page.get_attribute("td.mcp-capability button.mcp-copy-cell", "aria-label")
+        page.click("td.mcp-capability button.mcp-copy-cell")
+        page.wait_for_timeout(250)
+        text = _clipboard(page)
+        icon = page.get_attribute("td.mcp-capability button.mcp-copy-cell i", "class")
+
+    assert label, "כפתור אייקון בלי aria-label הוא כפתור אילם"
+    assert text == CAPABILITY_TEXT
+    assert "fa-check" in icon, "אין שום חיווי שההעתקה קרתה"
+
+
+def test_the_copy_menu_is_not_clipped_by_the_card_that_holds_the_table(live_server):
+    """הכרטיס גולל את הטבלה, ותפריט שנפתח בתוך אזור גלילה נחתך בו.
+
+    המדידה היא מול המלבנים עצמם ולא מול "נראה בסדר": תפריט שחציו התחתון
+    מעבר לגבול הכרטיס הוא תפריט שאי אפשר ללחוץ על האופציה האחרונה שלו.
+    """
+    with _many_sessions(), _browser_page(
+        live_server, viewport=PHONE_VIEWPORT, query="?tab=navigation"
+    ) as page:
+        page.click('.mcp-copy[data-copy-for="sessions"] .mcp-copy-more')
+        page.wait_for_timeout(200)
+        measured = page.evaluate("""() => {
+            const control = document.querySelector('.mcp-copy[data-copy-for="sessions"]');
+            const menu = control.querySelector('.mcp-copy-menu');
+            const rect = menu.getBoundingClientRect();
+            let node = menu.parentElement;
+            let clippedBy = null;
+            while (node && node !== document.body) {
+                const style = getComputedStyle(node);
+                const clips = style.overflowX !== 'visible' || style.overflowY !== 'visible';
+                if (clips) {
+                    const box = node.getBoundingClientRect();
+                    if (rect.bottom > box.bottom + 1 || rect.top < box.top - 1) {
+                        clippedBy = node.className;
+                    }
+                    break;
+                }
+                node = node.parentElement;
+            }
+            return {
+                clippedBy: clippedBy,
+                height: rect.height,
+                docWidth: document.documentElement.scrollWidth,
+                viewport: document.documentElement.clientWidth,
+            };
+        }""")
+
+    assert measured["height"] > 0, "התפריט לא נפתח — הבדיקה לא בדקה דבר"
+    assert measured["clippedBy"] is None, f"התפריט נחתך על ידי {measured['clippedBy']}"
+    assert measured["docWidth"] <= measured["viewport"] + 1, measured
+
+
+def test_opening_the_menu_does_not_move_the_table(live_server):
+    """``position: absolute`` — התפריט אינו משתתף בזרימה. במסך צר זה ההבדל
+    בין תפריט לבין טבלה שקופצת למטה."""
+    with _many_sessions(), _browser_page(
+        live_server, viewport=PHONE_VIEWPORT, query="?tab=navigation"
+    ) as page:
+        box = "() => { const t = document.querySelector('[data-copy-table=\"sessions\"]');" \
+              " const r = t.getBoundingClientRect(); return {top: r.top, width: r.width}; }"
+        before = page.evaluate(box)
+        page.click('.mcp-copy[data-copy-for="sessions"] .mcp-copy-more')
+        page.wait_for_timeout(200)
+        after = page.evaluate(box)
+
+    assert abs(after["top"] - before["top"]) < 1, (before, after)
+    assert abs(after["width"] - before["width"]) < 1, (before, after)
+
+
+def test_the_copy_control_only_appears_once_javascript_is_running(live_server):
+    """בשרת הוא נשלח ``hidden``. אם הוא נשאר כך — אין העתקה, וכפתור מת
+    גרוע מכפתור שאינו שם."""
+    with _many_sessions(), _browser_page(live_server, query="?tab=navigation") as page:
+        visible = page.is_visible('.mcp-copy[data-copy-for="sessions"] .mcp-copy-main')
+        label = page.inner_text('.mcp-copy[data-copy-for="sessions"] .mcp-copy-label')
+
+    assert visible
+    assert label == f"העתק הכל ({_EXTRA_NAV_ROWS})", label
+
+
+def test_two_quick_clicks_leave_the_button_back_in_its_resting_state(live_server):
+    """שתי לחיצות מהירות השאירו את הכפתור על סימן הווי לתמיד.
+
+    הלחיצה השנייה שמרה כ"מקורי" את מה שהראשונה כתבה, ואף אחת לא ביטלה את
+    הטיימר של קודמתה: הטיימר הראשון החזיר את המצב האמיתי, והשני דרס אותו
+    חזרה בסימן הווי — אחרי שכבר לא היה מי שישחזר.
+
+    ההמתנה כאן ארוכה משני משכי ההבהוב יחד, אחרת הבדיקה מודדת את החלון שבו
+    ההבהוב עדיין אמור להיות מוצג ועוברת מהסיבה הלא נכונה.
+    """
+    with _many_sessions(), _browser_page(live_server, query="?tab=navigation") as page:
+        control = '.mcp-copy[data-copy-for="sessions"]'
+        resting = page.inner_text(f"{control} .mcp-copy-label")
+
+        page.click(f"{control} .mcp-copy-main")
+        page.wait_for_timeout(300)
+        page.click(f"{control} .mcp-copy-main")
+        page.wait_for_timeout(2600)
+
+        icon = page.get_attribute(f"{control} .mcp-copy-main i", "class")
+        label = page.inner_text(f"{control} .mcp-copy-label")
+
+    assert resting == f"העתק הכל ({_EXTRA_NAV_ROWS})", resting
+    assert "fa-copy" in icon, f"האייקון נתקע על {icon}"
+    assert label == resting, f"התווית נתקעה על {label!r}"
+
+
+def test_two_quick_clicks_on_a_row_icon_also_settle_back(live_server):
+    """אותו כשל בדיוק בכפתור שבשורה, שם הוא בולט יותר: אייקון ווי קבוע
+    נראה כמו "כבר העתקתי את זה" בכל פעם שפותחים את העמוד."""
+    with _one_missing_capability(), _browser_page(live_server, query="?tab=missing") as page:
+        button = "td.mcp-capability button.mcp-copy-cell"
+        page.click(button)
+        page.wait_for_timeout(300)
+        page.click(button)
+        page.wait_for_timeout(2600)
+        icon = page.get_attribute(f"{button} i", "class")
+
+    assert "fa-copy" in icon, f"האייקון נתקע על {icon}"

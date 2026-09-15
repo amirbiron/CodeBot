@@ -943,3 +943,185 @@ def test_a_type_field_inside_the_rejected_value_is_not_mistaken_for_noise():
 
     assert "input_value='[type=z]'" in summary, summary
     assert "string_type" not in summary, summary
+
+
+# --------------------------------------------------------------------------
+# מיון
+#
+# הערכים כאן מגיעים מ-PostHog, כלומר מחוץ לתהליך. ``sorted`` בפייתון זורק
+# ``TypeError`` על טיפוסים מעורבים, ו-``NaN`` גרוע מזה — הוא אינו זורק אלא
+# מתיישב במקום אקראי. שתי ההתנהגויות נבדקות כאן ולא "יימנעו בזהירות".
+# --------------------------------------------------------------------------
+
+
+def test_an_empty_cell_sinks_to_the_bottom_in_both_directions():
+    """ריק אינו אפס.
+
+    סשנים שנרשמו לפני שהאיסוף עלה לאוויר אין להם ערך בעמודה. אילו ריק היה
+    ממוין כאפס, הם היו קופצים לראש מיון "הכי מעט" ונראים כמו ממצא — כלומר
+    המיון היה ממציא תשובה במקום להודות שאין לו נתון.
+    """
+    rows = [
+        {"name": "empty", "total_ms": None},
+        {"name": "big", "total_ms": 900},
+        {"name": "small", "total_ms": 5},
+    ]
+
+    down = [row["name"] for row in mcp.sort_rows(rows, "total_ms", mcp.SORT_NUMBER, True)]
+    up = [row["name"] for row in mcp.sort_rows(rows, "total_ms", mcp.SORT_NUMBER, False)]
+
+    assert down == ["big", "small", "empty"]
+    assert up == ["small", "big", "empty"]
+
+
+def test_a_value_that_is_not_a_number_is_treated_as_empty_and_never_raises():
+    """מחרוזת בעמודה מספרית אינה תרחיש תיאורטי — היא מה ש-JSON מחזיר.
+
+    בלי ההגנה הזו ``sort`` היה זורק ``TypeError`` וכל העמוד היה נופל
+    לעמוד השגיאה, בגלל שורה אחת פגומה מתוך חמישים.
+    """
+    rows = [
+        {"name": "text", "calls": "12"},
+        {"name": "real", "calls": 7},
+        {"name": "flag", "calls": True},
+    ]
+
+    order = [row["name"] for row in mcp.sort_rows(rows, "calls", mcp.SORT_NUMBER, True)]
+
+    # ``isinstance(True, int)`` הוא ``True`` בפייתון, ולכן ``bool`` נפסל
+    # במפורש: בעמודה מספרית הוא נתון פגום ולא הערך 1.
+    assert order == ["real", "text", "flag"]
+
+
+def test_nan_does_not_quietly_win_or_lose_the_sort():
+    """``NaN`` עובר כל בדיקת טווח, כי כל השוואה מולו היא ``False``.
+
+    זה מה שהופך אותו למסוכן יותר ממחרוזת: הוא אינו זורק, אלא מתיישב במקום
+    אקראי בתוצאה — תלוי בסדר הקלט — ואין על המסך שום סימן לכך.
+    """
+    rows = [
+        {"name": "nan", "total_ms": float("nan")},
+        {"name": "low", "total_ms": 1},
+        {"name": "high", "total_ms": 1000},
+    ]
+
+    assert [r["name"] for r in mcp.sort_rows(rows, "total_ms", mcp.SORT_NUMBER, True)] == [
+        "high",
+        "low",
+        "nan",
+    ]
+
+
+def test_a_timezone_less_timestamp_does_not_break_the_comparison():
+    """השוואה בין ``datetime`` עם אזור זמן לאחד בלעדיו זורקת ``TypeError``.
+
+    שורה אחת בפורמט שונה הייתה מפילה את המיון כולו, ולכן הערכים מומרים
+    לחותמת מספרית ומחרוזת בלי אזור זמן נקראת כ-UTC.
+    """
+    rows = [
+        {"name": "naive", "last_seen": "2026-09-02T08:00:00"},
+        {"name": "aware", "last_seen": "2026-09-02T09:00:00Z"},
+        {"name": "broken", "last_seen": "אתמול"},
+    ]
+
+    order = [r["name"] for r in mcp.sort_rows(rows, "last_seen", mcp.SORT_DATETIME, True)]
+
+    assert order == ["aware", "naive", "broken"]
+
+
+def test_rows_with_the_same_value_keep_the_default_order():
+    """המיון יציב, ולכן שוויון אינו מערבב את מה שכבר היה מסודר."""
+    rows = [{"name": "first", "calls": 3}, {"name": "second", "calls": 3}]
+
+    assert [r["name"] for r in mcp.sort_rows(rows, "calls", mcp.SORT_NUMBER, True)] == [
+        "first",
+        "second",
+    ]
+
+
+def test_a_truncated_result_knows_that_it_is_not_the_whole_population():
+    """זו הבדיקה שמפרידה בין מיון אמיתי למיון שנראה אמיתי.
+
+    היא אינה נשענת על הבטחה של PostHog לגבי התקרה שביקשנו, אלא על הספירה
+    שהשאילתה עצמה מחזירה — ולכן היא נכונה גם כשהחיתוך קרה מסיבה שאיננו
+    מכירים.
+    """
+    assert mcp.holds_every_row(EndpointResult(rows=[{"a": 1}] * 3, total=3)) is True
+    assert mcp.holds_every_row(EndpointResult(rows=[{"a": 1}] * 3, total=70)) is False
+    assert mcp.holds_every_row(EndpointResult(rows=[{"a": 1}], has_more=True)) is False
+    # בלי עמודת ספירה ובלי ``hasMore`` — זה מה שיש, וזה הכל.
+    assert mcp.holds_every_row(EndpointResult(rows=[{"a": 1}])) is True
+
+
+def test_sorting_cuts_the_table_back_to_its_display_size():
+    """בקשת מיון מושכת יותר שורות כדי שיהיה מה למיין, אבל המסך מציג את
+    אותו מספר שורות כמו בברירת המחדל — אחרת הטבלה משנה גובה לפי מה שנלחץ.
+    """
+    rows = [{"total_ms": value} for value in range(10)]
+    result = EndpointResult(rows=rows, total=10)
+
+    sorted_result, state = mcp.sort_endpoint(
+        result, "total_ms", mcp.SORT_NUMBER, mcp.SORT_DESC, display_limit=3
+    )
+
+    assert [row["total_ms"] for row in sorted_result.rows] == [9, 8, 7]
+    assert state.sorted_rows == 10, "המיון חייב לרוץ על הכל, והחיתוך רק אחריו"
+    assert state.partial is False
+    assert state.active is True
+
+
+def test_a_sort_over_part_of_the_population_is_marked_partial():
+    result = EndpointResult(rows=[{"total_ms": 1}, {"total_ms": 2}], total=70)
+
+    _, state = mcp.sort_endpoint(result, "total_ms", mcp.SORT_NUMBER, mcp.SORT_DESC)
+
+    assert state.partial is True
+    assert state.sorted_rows == 2
+    assert state.total == 70
+
+
+def test_the_latency_ratio_is_added_without_touching_the_original_rows():
+    """השורות מגיעות מ-``EndpointResult`` וחולקות אובייקטים עם קבועים ברמת
+    המודול בבדיקות. שינוי במקום היה מדליף בין בדיקות ויוצר תלות בסדר."""
+    original = {"p50_ms": 150.0, "p95_ms": 4144.0}
+    rows = [original]
+
+    out = mcp.with_latency_ratio(rows)
+
+    assert out[0][mcp.LATENCY_RATIO_COLUMN] == 27.6
+    assert mcp.LATENCY_RATIO_COLUMN not in original, "השורה המקורית שונתה"
+
+
+def test_the_latency_ratio_is_empty_when_it_cannot_be_computed():
+    """אפס הוא המקרה המעניין: חלוקה בו זורקת, ו"אינסוף" אינו מספר שאפשר
+    להציג בטבלה או למיין לפיו."""
+    rows = [
+        {"p50_ms": 0, "p95_ms": 900},
+        {"p50_ms": None, "p95_ms": 900},
+        {"p50_ms": 100.0, "p95_ms": None},
+        {"p50_ms": "100", "p95_ms": 900},
+    ]
+
+    out = mcp.with_latency_ratio(rows)
+
+    assert [row[mcp.LATENCY_RATIO_COLUMN] for row in out] == [None, None, None, None]
+
+
+def test_the_dashboard_lifts_the_session_ceiling_only_when_asked(monkeypatch):
+    """ברירת המחדל לא זזה: בלי מיון, אותה תקרה ואותה בקשה כמו קודם."""
+    seen: dict[str, int | None] = {}
+
+    def _record(name, limit=None):
+        seen[name] = limit
+        return EndpointResult(rows=[])
+
+    service = McpAnalyticsService()
+    monkeypatch.setattr(service, "run_endpoint", _record)
+
+    service.get_dashboard()
+    assert seen[mcp.ENDPOINT_NAVIGATION_COST] == mcp.NAVIGATION_COST_LIMIT
+
+    service.get_dashboard(navigation_limit=mcp.NAVIGATION_SORT_FETCH_LIMIT)
+    assert seen[mcp.ENDPOINT_NAVIGATION_COST] == mcp.NAVIGATION_SORT_FETCH_LIMIT
+    # התקרה של הכשלים אינה מושפעת — היא של טבלה אחרת.
+    assert seen[mcp.ENDPOINT_TOOL_FAILURES] == mcp.TOOL_FAILURES_LIMIT

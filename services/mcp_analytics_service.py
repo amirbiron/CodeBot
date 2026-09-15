@@ -19,12 +19,14 @@ MCP Analytics Service
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -54,6 +56,18 @@ ENDPOINT_NAVIGATION_COST = "ck_mcp_navigation_cost_v2"
 # את כולן — כמות שגדלה בלי תקרה. הספירה המלאה מגיעה בעמודה ``total_sessions``
 # שנגזרת ב-``count() OVER ()`` בתוך השאילתה, ולכן התקרה כאן אינה מסתירה מידע.
 NAVIGATION_COST_LIMIT = 50
+
+# כשמבקשים מיון בטבלת הסשנים, 50 השורות הראשונות אינן מספיקות: מיון עליהן
+# בלבד מחזיר את המקסימום **מתוך 50** ומציג אותו כמקסימום, והשורה שחיפשת
+# יכולה להיות דווקא אחת מאלה שלא נמשכו. לכן בקשת מיון מושכת תקרה גבוהה
+# הרבה יותר, ממיינת על הכל, ומציגה את 50 העליונות של הסדר החדש.
+#
+# **התקרה הזו אינה הבטחה שמשכנו את הכל, והקוד אינו מתייחס אליה ככזו.**
+# ``holds_every_row`` משווה את מספר השורות שביד מול הספירה שהשאילתה עצמה
+# מחזירה (``count() OVER () AS total_sessions``), וכשהן אינן מתלכדות —
+# מכל סיבה, כולל תקרה של PostHog שאיננו מכירים — העמוד מצהיר על כך
+# בתווית גלויה במקום להציג מיון חלקי כמיון מלא.
+NAVIGATION_SORT_FETCH_LIMIT = 500
 
 #: הפאנל יושב בתוך טאב קיים ולא לבד, ולכן הוא קצר. אין לו ``total`` בשאילתה,
 #: ולכן ``has_more`` הוא מה שאומר שנחתך.
@@ -249,6 +263,229 @@ class EndpointResult:
     def ok(self) -> bool:
         """הצליח — כולל המקרה של אפס שורות."""
         return not self.error_code
+
+
+# --------------------------------------------------------------------------
+# מיון טבלאות
+#
+# **המיון נעשה בשרת, ולא בדפדפן.** אותו נימוק שכבר כתוב ב-
+# ``webapp/templates/profiler_dashboard.html``: מיון של מה שנטען בלבד הוא
+# מיון שקרי — הוא מסדר חלק מהנתונים ומציג את התוצאה כאילו היא הסדר האמיתי.
+# כאן זה חמור במיוחד, כי טבלת הסשנים מציגה ``NAVIGATION_COST_LIMIT`` שורות
+# מתוך אוכלוסייה גדולה יותר, והמשתמש אינו רואה שום סימן לכך שהשורה שחיפש
+# לא נטענה כלל.
+#
+# השאילתות עצמן חיות ב-PostHog ולא בריפו (ראו ``docs/webapp/mcp-analytics.rst``),
+# ולכן אי אפשר לבקש מהן ``ORDER BY`` אחר. מה שכן אפשר — למשוך את כל
+# השורות ולמיין כאן.
+# --------------------------------------------------------------------------
+
+#: איך לקרוא את הערך שבעמודה לצורך ההשוואה.
+SORT_NUMBER = "number"
+SORT_DATETIME = "datetime"
+
+#: כיוון ברירת המחדל כשלוחצים על עמודה חדשה: "הגדול קודם" הוא מה שמחפשים
+#: כמעט תמיד בטבלה שמודדת עלות.
+SORT_DESC = "desc"
+SORT_ASC = "asc"
+
+#: העמודות שאפשר למיין לפיהן בטבלת הכלים, ובאיזה טיפוס הן נקראות.
+#:
+#: **רשימה לבנה.** הערך מגיע משורת השאילתה, כלומר מהמשתמש, ומה שאינו כאן
+#: פשוט אינו מיון — אין כאן ניסיון לזהות "מה נראה מסוכן".
+#:
+#: ``error_rate_pct`` **אינו** כאן בכוונה, ו-``errors`` כן: העמוד עצמו
+#: מסביר שהאחוז מטעה על מדגם קטן (קריאה אחת שנכשלה מתוך אחת היא 100%),
+#: ומיון הוא דירוג — כלומר בדיוק השימוש שבו ההטעיה הזו הכי יקרה.
+TOOL_HEALTH_SORT_FIELDS: dict[str, str] = {
+    "calls": SORT_NUMBER,
+    "errors": SORT_NUMBER,
+    "p50_ms": SORT_NUMBER,
+    "p95_ms": SORT_NUMBER,
+    "latency_ratio": SORT_NUMBER,
+    "sessions": SORT_NUMBER,
+    "last_seen": SORT_DATETIME,
+}
+
+#: אותו דבר לטבלת הסשנים. ``session`` ו-``intent`` אינם כאן: מזהה אטום
+#: וטקסט חופשי שסוכן כתב הם עמודות שאין משמעות לסדר שלהן.
+NAVIGATION_SORT_FIELDS: dict[str, str] = {
+    "started": SORT_DATETIME,
+    "calls": SORT_NUMBER,
+    "searches": SORT_NUMBER,
+    "outline_reads": SORT_NUMBER,
+    "content_reads": SORT_NUMBER,
+    "errors": SORT_NUMBER,
+    "total_ms": SORT_NUMBER,
+}
+
+#: שם העמודה הנגזרת שמתווספת לשורות של ``ck_mcp_tool_health``. היא אינה
+#: מגיעה מ-PostHog — ראו :func:`with_latency_ratio`.
+LATENCY_RATIO_COLUMN = "latency_ratio"
+
+
+@dataclass(frozen=True)
+class TableSort:
+    """מצב המיון של טבלה אחת, כפי שהתבנית צריכה לצייר אותו.
+
+    ``partial`` הוא השדה שבגללו המחלקה הזו קיימת: מיון שרץ על חלק
+    מהשורות בלבד **חייב** להיאמר בקול. בלעדיו העמוד מציג מקסימום־מתוך־חלק
+    כאילו הוא המקסימום, וזו טעות שאי אפשר לראות מהמסך.
+    """
+
+    field: str = ""
+    direction: str = SORT_DESC
+    partial: bool = False
+    #: כמה שורות באמת השתתפו במיון (לפני החיתוך לתצוגה).
+    sorted_rows: int = 0
+    #: כמה שורות קיימות באוכלוסייה כולה, לפי השאילתה עצמה. ``None`` כשאין
+    #: לשאילתה עמודת ספירה.
+    total: int | None = None
+
+    @property
+    def active(self) -> bool:
+        """האם מיון פעיל, או שזו ברירת המחדל של הטבלה."""
+        return bool(self.field)
+
+
+def with_latency_ratio(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """מוסיף עמודת ``p95/p50`` לשורות של בריאות הכלים.
+
+    היחס הוא מה שמפריד בין "איטי תמיד" לבין "איטי לפעמים", ואלה שתי
+    שאלות דיבוג שונות לגמרי: כלי עם p50 של 150ms ו-p95 של 4,100ms אינו
+    כלי איטי — הוא כלי שנתקע לפעמים, ומחפשים את מה שמשותף לאותן פעמים.
+
+    **מחזיר מילונים חדשים ואינו נוגע בקיימים.** השורות מגיעות מ-
+    ``EndpointResult``, ובבדיקות הן חולקות אובייקטים עם קבועים ברמת
+    המודול — שינוי במקום היה מדליף בין בדיקות ויוצר תלות בסדר.
+
+    היחס ריק כשאחד הערכים חסר, אינו מספר, או כש-p50 הוא אפס. אפס הוא
+    המקרה המעניין: חלוקה בו זורקת, ו"אינסוף" אינו מספר שאפשר להציג
+    בטבלה או למיין לפיו.
+    """
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            # לא אמור לקרות — ``_rows_from_payload`` בונה מילונים — אבל
+            # השורה הזו היא מחוץ לתהליך, וזול יותר לדלג מאשר לזרוק.
+            out.append(row)
+            continue
+        p50 = _finite_number(row.get("p50_ms"))
+        p95 = _finite_number(row.get("p95_ms"))
+        ratio = round(p95 / p50, 1) if (p50 and p95 is not None and p50 > 0) else None
+        out.append(dict(row, **{LATENCY_RATIO_COLUMN: ratio}))
+    return out
+
+
+def _finite_number(value: Any) -> float | None:
+    """מחזיר מספר ממשי סופי, או ``None`` לכל דבר אחר.
+
+    הערכים מגיעים מ-JSON של PostHog, כלומר מחוץ לתהליך, ולכן כל אחד
+    מהם יכול להיות ``None``, מחרוזת, או ``NaN``. שני הראשונים זורקים
+    בהשוואה; ``NaN`` דווקא **לא** זורק, וזה מה שהופך אותו למסוכן יותר:
+    כל השוואה מולו היא ``False``, ולכן הוא עובר כל בדיקת טווח ומתיישב
+    במקום אקראי בתוצאת המיון בלי להשאיר עקבות.
+
+    ``bool`` נפסל במפורש: ב-פייתון ``isinstance(True, int)`` הוא ``True``,
+    ו-``True`` בעמודה מספרית הוא נתון פגום ולא הערך 1.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _timestamp(value: Any) -> float | None:
+    """מחרוזת ISO ← חותמת זמן להשוואה, או ``None`` כשאין מה להשוות.
+
+    **מוחזר ``float`` ולא ``datetime``, וזה לא קוסמטי.** השוואה בין
+    ``datetime`` עם אזור זמן לבין אחד בלעדיו זורקת ``TypeError``, ושורה
+    אחת בפורמט שונה הייתה מפילה את כל המיון. מחרוזת בלי אזור זמן נקראת
+    כ-UTC — זה מה ש-PostHog מחזיר — ומכאן הכל מספרים.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def sort_value(row: Any, field: str, kind: str) -> float | None:
+    """הערך שלפיו ממיינים שורה, או ``None`` כשאין ערך בר-השוואה."""
+    if not isinstance(row, dict):
+        return None
+    value = row.get(field)
+    return _finite_number(value) if kind == SORT_NUMBER else _timestamp(value)
+
+
+def sort_rows(
+    rows: list[dict[str, Any]], field: str, kind: str, descending: bool
+) -> list[dict[str, Any]]:
+    """ממיין שורות, ומשאיר את התאים הריקים בסוף — **בשני הכיוונים**.
+
+    **ריק אינו אפס.** סשנים שנרשמו לפני שהאיסוף עלה לאוויר אין להם כוונה
+    שמורה, ומצב הקריאה שלהם לא נשמר. אם ריק היה ממוין כאפס, הם היו קופצים
+    לראש מיון "הכי מעט קריאות תוכן" ונראים כמו ממצא — כלומר המיון היה
+    ממציא תשובה במקום להודות שאין לו נתון.
+
+    המיון יציב, ולכן שורות עם אותו ערך שומרות על סדר ברירת המחדל ביניהן
+    (בטבלת הסשנים: החדשה קודם).
+    """
+    present: list[tuple[float, dict[str, Any]]] = []
+    absent: list[dict[str, Any]] = []
+    for row in rows:
+        value = sort_value(row, field, kind)
+        if value is None:
+            absent.append(row)
+        else:
+            present.append((value, row))
+    present.sort(key=lambda item: item[0], reverse=descending)
+    return [row for _, row in present] + absent
+
+
+def holds_every_row(result: EndpointResult) -> bool:
+    """האם השורות שביד הן **כל** האוכלוסייה, ולא רק החלק העליון שלה.
+
+    זו השאלה שקובעת אם המיון אמיתי. התשובה אינה נשענת על הבטחה של
+    PostHog לגבי התקרה שביקשנו, אלא על שני דברים שחוזרים בתשובה עצמה:
+    ``hasMore``, והספירה שהשאילתה גוזרת ב-``count() OVER ()``. כך גם
+    חיתוך שקרה מסיבה שאיננו מכירים מתגלה, במקום להיבלע.
+    """
+    if result.has_more:
+        return False
+    if result.total is not None and len(result.rows) < result.total:
+        return False
+    return True
+
+
+def sort_endpoint(
+    result: EndpointResult,
+    field: str,
+    kind: str,
+    direction: str,
+    display_limit: int | None = None,
+) -> tuple[EndpointResult, TableSort]:
+    """ממיין תוצאה של אנדפוינט, ומחזיר גם את מה שצריך להצהיר עליו.
+
+    ``display_limit`` מחזיר את הטבלה לגודל שלה אחרי המיון: בקשת מיון
+    מושכת יותר שורות כדי שיהיה מה למיין, אבל המסך מציג את אותו מספר
+    שורות כמו בברירת המחדל — אחרת אותה טבלה משנה את גובהה לפי מה שנלחץ.
+    """
+    descending = direction != SORT_ASC
+    rows = sort_rows(result.rows, field, kind, descending)
+    shown = rows if display_limit is None else rows[:display_limit]
+    state = TableSort(
+        field=field,
+        direction=SORT_DESC if descending else SORT_ASC,
+        partial=not holds_every_row(result),
+        sorted_rows=len(rows),
+        total=result.total,
+    )
+    return replace(result, rows=shown), state
 
 
 def _config_error(code: str, detail: str) -> EndpointResult:
@@ -574,8 +811,14 @@ class McpAnalyticsService:
             "sessions": f"{base}{POSTHOG_SESSIONS_PATH}",
         }
 
-    def get_dashboard(self) -> dict[str, EndpointResult]:
+    def get_dashboard(
+        self, *, navigation_limit: int | None = None
+    ) -> dict[str, EndpointResult]:
         """מריץ את ארבעת האנדפוינטים ומחזיר מילון לפי שם.
+
+        ``navigation_limit`` דורס את התקרה של טבלת הסשנים בלבד, ומשמש
+        כשהמשתמש ביקש מיון: אז צריך את כל השורות ולא את 50 הראשונות.
+        ``None`` — התקרה הרגילה, כלומר שום שינוי במסלול ברירת המחדל.
 
         הקריאות רצות במקביל כדי להוריד את המקרה הטיפוסי מארבעה סבבי רשת
         לאחד. **המקבול אינו ההגנה מפני היתקעות** — הוא מקצר את הסכום ולא
@@ -586,7 +829,14 @@ class McpAnalyticsService:
         לצידה אינה מאריכה אותו. ה-pool מקבל worker לכל spec, ולכן הרביעי לא
         ממתין בתור.
         """
-        specs = DASHBOARD_ENDPOINTS
+        # נגזר מ-``DASHBOARD_ENDPOINTS`` ולא נכתב מחדש, כדי שגם גודל ה-pool
+        # וגם הבדיקות ימשיכו להישען על אותו מקור אחד.
+        specs = tuple(
+            (name, navigation_limit)
+            if (name == ENDPOINT_NAVIGATION_COST and navigation_limit is not None)
+            else (name, limit)
+            for name, limit in DASHBOARD_ENDPOINTS
+        )
         out: dict[str, EndpointResult] = {}
         deadline = time.monotonic() + TOTAL_BUDGET_SECONDS
 

@@ -6295,6 +6295,29 @@ def admin_rules_page():
     return render_template('admin_rules.html')
 
 
+#: הטאבים של ``/admin/mcp``, לפי ``data-panel`` בתבנית. הערך מגיע משורת
+#: השאילתה, ולכן הוא עובר רשימה לבנה ולא נכתב לדף כמו שהוא.
+_MCP_TABS = ("health", "navigation", "missing")
+
+#: באיזה טאב יושבת כל טבלה שאפשר למיין. קישור מיון חייב להחזיר את המשתמש
+#: לטאב שבו הטבלה נמצאת — אחרת הלחיצה מקפיצה אותו לטאב הראשון, והטבלה
+#: שאותה מיין נעלמת מהמסך.
+_MCP_TABLE_TAB = {"tools": "health", "sessions": "navigation"}
+
+
+def _mcp_arg(value, allowed, default=""):
+    """בוחר ערך מרשימה לבנה, או מחזיר את ברירת המחדל.
+
+    **בדיקת הטיפוס קודמת לבדיקת החברות, וזה לא נימוס.** ``in`` על מילון
+    או קבוצה מחשב ``hash(value)``, וערך לא-hashable זורק ``TypeError``
+    במקום להחזיר ``False`` — כלומר 500 לפני שהוולידציה הספיקה לומר מה לא
+    תקין. ``request.args.get`` מחזיר מחרוזת היום, והגבול נבדק בגבול.
+    """
+    if isinstance(value, str) and value in allowed:
+        return value
+    return default
+
+
 @app.route('/admin/mcp')
 @admin_required
 def admin_mcp_page():
@@ -6303,20 +6326,79 @@ def admin_mcp_page():
     ארבעת האנדפוינטים נקראים בצד השרת, כי המפתח של PostHog אינו יכול להגיע
     לדפדפן. השירות לעולם אינו זורק ומדווח כשל ב-``error_code``, ולכן כל טאב
     מקבל את המצב שלו בנפרד: אנדפוינט אחד שנכשל אינו מחשיך את האחרים.
+
+    **המיון נעשה כאן ולא בדפדפן.** טבלת הסשנים מציגה חלק מהאוכלוסייה, ומיון
+    של מה שנטען בלבד היה מחזיר את המקסימום מתוך אותו חלק ומציג אותו
+    כמקסימום — בלי שום סימן על המסך שהשורה שחיפשו לא נטענה כלל. לכן בקשת
+    מיון מושכת את כל השורות (``NAVIGATION_SORT_FETCH_LIMIT``), ממיינת, ורק
+    אז חותכת חזרה לגודל התצוגה.
     """
+    from dataclasses import replace as _replace
+
     from services.mcp_analytics_service import (
         ENDPOINT_MISSING_CAPABILITIES,
         ENDPOINT_NAVIGATION_COST,
         ENDPOINT_TOOL_FAILURES,
         ENDPOINT_TOOL_HEALTH,
         NAVIGATION_COST_LIMIT,
+        NAVIGATION_SORT_FETCH_LIMIT,
+        NAVIGATION_SORT_FIELDS,
+        SORT_ASC,
+        SORT_DESC,
         TOOL_FAILURES_LIMIT,
+        TOOL_HEALTH_SORT_FIELDS,
         EndpointResult,
+        TableSort,
         get_mcp_analytics_service,
+        sort_endpoint,
+        with_latency_ratio,
     )
 
     generated_at = format_datetime_display(datetime.now(timezone.utc))
     service = get_mcp_analytics_service()
+
+    # --- מה ביקשו בשורת השאילתה ---
+    # לכל טבלה זוג פרמטרים משלה. פרמטר ``sort`` אחד משותף היה דו-משמעי:
+    # לשתי הטבלאות יש עמודה בשם ``errors``, ואי אפשר לדעת על מי הכוונה.
+    active_tab = _mcp_arg(request.args.get("tab"), _MCP_TABS, "health")
+    sort_state = {
+        "tools": (
+            _mcp_arg(request.args.get("tools_sort"), TOOL_HEALTH_SORT_FIELDS),
+            _mcp_arg(request.args.get("tools_dir"), (SORT_ASC, SORT_DESC), SORT_DESC),
+        ),
+        "sessions": (
+            _mcp_arg(request.args.get("sessions_sort"), NAVIGATION_SORT_FIELDS),
+            _mcp_arg(request.args.get("sessions_dir"), (SORT_ASC, SORT_DESC), SORT_DESC),
+        ),
+    }
+
+    def mcp_sort_href(table, field=""):
+        """הקישור שאליו מצביעה כותרת עמודה, או צ'יפ האיפוס (``field`` ריק).
+
+        שלושה מצבים ולא שניים: עמודה חדשה מתחילה ביורד, לחיצה שנייה הופכת
+        לעולה, ולחיצה שלישית **חוזרת לברירת המחדל** — כי "להפוך כיוון" לבדו
+        אינו מאפשר לבטל מיון.
+
+        המצב של הטבלה השנייה נשמר בקישור: מי שמיין את טבלת הכלים ואז מיין
+        את הסשנים לא אמור לגלות שהמיון הראשון נמחק.
+        """
+        current_field, current_direction = sort_state[table]
+        if not field or (current_field == field and current_direction == SORT_ASC):
+            chosen, direction = "", SORT_DESC
+        elif current_field != field:
+            chosen, direction = field, SORT_DESC
+        else:
+            chosen, direction = field, SORT_ASC
+
+        wanted = dict(sort_state)
+        wanted[table] = (chosen, direction)
+        params = {"tab": _MCP_TABLE_TAB[table]}
+        for name, (name_field, name_direction) in wanted.items():
+            if name_field:
+                params[f"{name}_sort"] = name_field
+                params[f"{name}_dir"] = name_direction
+        return url_for("admin_mcp_page", **params)
+
     # נבנה לפני הבלוק כדי שהקישורים יופיעו גם כשהשליפה נכשלת: הם אינם תלויים
     # בנתונים, והם בדיוק מה שאדמין צריך כשהעמוד לא הצליח להביא אותם.
     try:
@@ -6324,18 +6406,59 @@ def admin_mcp_page():
     except Exception:
         logger.exception("Error building PostHog links for the MCP page")
         posthog_links = {}
+
+    common = {
+        "navigation_limit": NAVIGATION_COST_LIMIT,
+        "failures_limit": TOOL_FAILURES_LIMIT,
+        "posthog_links": posthog_links,
+        "generated_at": generated_at,
+        "active_tab": active_tab,
+        "sort_href": mcp_sort_href,
+    }
+
     try:
-        results = service.get_dashboard()
+        # התקרה הגדולה נדרשת רק כשמיינו: במסלול ברירת המחדל שום דבר לא זז.
+        sessions_field, sessions_direction = sort_state["sessions"]
+        results = service.get_dashboard(
+            navigation_limit=NAVIGATION_SORT_FETCH_LIMIT if sessions_field else None
+        )
+
+        tool_health = results[ENDPOINT_TOOL_HEALTH]
+        # עמודת היחס נגזרת כאן ולא ב-PostHog, ולכן היא מתווספת לפני המיון —
+        # אחרת אי אפשר למיין לפיה.
+        if tool_health.ok and tool_health.rows:
+            tool_health = _replace(tool_health, rows=with_latency_ratio(tool_health.rows))
+        navigation_cost = results[ENDPOINT_NAVIGATION_COST]
+
+        tools_field, tools_direction = sort_state["tools"]
+        tools_sort = TableSort()
+        if tools_field and tool_health.ok:
+            tool_health, tools_sort = sort_endpoint(
+                tool_health,
+                tools_field,
+                TOOL_HEALTH_SORT_FIELDS[tools_field],
+                tools_direction,
+            )
+
+        sessions_sort = TableSort()
+        if sessions_field and navigation_cost.ok:
+            navigation_cost, sessions_sort = sort_endpoint(
+                navigation_cost,
+                sessions_field,
+                NAVIGATION_SORT_FIELDS[sessions_field],
+                sessions_direction,
+                display_limit=NAVIGATION_COST_LIMIT,
+            )
+
         return render_template(
             'admin_mcp.html',
-            tool_health=results[ENDPOINT_TOOL_HEALTH],
+            tool_health=tool_health,
             tool_failures=results[ENDPOINT_TOOL_FAILURES],
-            navigation_cost=results[ENDPOINT_NAVIGATION_COST],
+            navigation_cost=navigation_cost,
             missing_capabilities=results[ENDPOINT_MISSING_CAPABILITIES],
-            navigation_limit=NAVIGATION_COST_LIMIT,
-            failures_limit=TOOL_FAILURES_LIMIT,
-            posthog_links=posthog_links,
-            generated_at=generated_at,
+            tools_sort=tools_sort,
+            sessions_sort=sessions_sort,
+            **common,
         )
     except Exception:
         logger.exception("Error in admin MCP analytics page")
@@ -6351,10 +6474,9 @@ def admin_mcp_page():
             tool_failures=failed,
             navigation_cost=failed,
             missing_capabilities=failed,
-            navigation_limit=NAVIGATION_COST_LIMIT,
-            failures_limit=TOOL_FAILURES_LIMIT,
-            posthog_links=posthog_links,
-            generated_at=generated_at,
+            tools_sort=TableSort(),
+            sessions_sort=TableSort(),
+            **common,
         ), 500
 
 
