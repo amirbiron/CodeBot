@@ -2537,7 +2537,7 @@ check('details: ``:::`` בתוך גדר קוד נשאר ליטרלי', () => {
   eq(body.textContent.includes('אחרי'), true, 'ומה שאחרי הגדר עדיין בתוך הבלוק');
 });
 
-check('details: ה-CSS מכייל לפתק ואינו מגדיר פלטה שנייה', () => {
+check('details: ה-CSS מכייל את המידות לפתק', () => {
   // **אותה מלכודת בדיוק של האלרט, ואותו כלל מובייל תופס את שתי המחלקות
   // יחד:** ``.markdown-details, .admonition { margin: 0.75rem -0.5rem; }``.
   // הפיצול ל-``margin-block``/``margin-inline`` הוא מה שהופך את הביטול
@@ -2551,8 +2551,6 @@ check('details: ה-CSS מכייל לפתק ואינו מגדיר פלטה שני
   eq(/margin-inline\s*:\s*0/.test(body), true, 'כלל המובייל מבוטל בציר האופקי');
   eq(/margin-block\s*:/.test(body), true, 'והציר האנכי נקבע בנפרד');
   eq(/^\s*margin\s*:/m.test(body), false, 'בלי קיצור margin — הוא היה מייתר את margin-inline');
-  // הצבעים חיים ב-``markdown-enhanced.css`` בלבד; העתק כאן היה נסחף ממנו.
-  eq(/--details-(bg|border)\s*:/.test(decls), false, 'אין פלטה שנייה לבלוק המתקפל');
   // **ואין כאן שומר על שבירת כותרת ארוכה, בכוונה.** ההיקש מהאלרט אמר
   // להצהיר ``overflow-wrap`` על ה-``summary``; מדידה בכרומיום הראתה
   // שההצהרה חסרת השפעה, כי ``.sticky-note-tasks`` כבר מצהיר אותה
@@ -2562,6 +2560,88 @@ check('details: ה-CSS מכייל לפתק ואינו מגדיר פלטה שני
   const sumCalib = decls.slice(decls.indexOf('.sticky-note .markdown-summary {'));
   const sumBody = sumCalib.slice(0, sumCalib.indexOf('}'));
   eq(/overflow-wrap|min-width/.test(sumBody), false, 'בלי הצהרות שהמדידה הראתה שאין להן השפעה');
+});
+
+check('details: הפתק מספק ערך לכל טוקן שהרכיב המשותף קורא', () => {
+  // **הבדיקה הזו החליפה בדיקה שאכפה את ההפך.** הגרסה הקודמת דרשה
+  // ש-``--details-bg``/``--details-border`` **לא** יופיעו ב-``sticky-notes.css``,
+  // בנימוק "הצבעים חיים ב-markdown-enhanced.css בלבד". הנימוק נכון לתצוגת
+  // המסמך ושגוי לפתק: הפתק הוא נייר בהיר קשיח שאינו עוקב אחרי הערכה, ולכן
+  // רכיב שמוצג בתוכו וקורא טוקן ערכה מקבל ערך שנבחר לרקע אחר לגמרי —
+  // בערכה כהה, קופסה שחורה על צהוב. הבדיקה הישנה הפכה את הטעות לאכיפה.
+  //
+  // **הצורה החדשה נגזרת מהרכיב ולא מרשימה מוקלדת.** היא סורקת את הכללים
+  // ב-``markdown-enhanced.css`` ומחלצת מהם את הטוקנים בפועל, ולכן טוקן
+  // שביעי שיתווסף שם — ע"י מי שאינו חושב על הפתקים בכלל — מפיל אותה
+  // ומכריח החלטה, במקום להגיע לפרודקשן בשקט.
+  const root = path.join(__dirname, '..');
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
+  const shared = strip(fs.readFileSync(
+    path.join(root, 'webapp', 'static', 'css', 'markdown-enhanced.css'), 'utf8'));
+  const sticky = strip(fs.readFileSync(
+    path.join(root, 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8'));
+
+  // הכללים של הבלוק המתקפל, לפי הבורר המדויק שלהם. ``::-webkit-details-marker``
+  // מוחרג כי הוא ``display`` בלבד ואינו נושא צבע.
+  const SELECTORS = [
+    '.markdown-details',
+    '.markdown-details[open]',
+    '.markdown-summary',
+    '.markdown-summary:hover',
+    '.markdown-summary::before',
+    '.markdown-details[open] .markdown-summary::before',
+    '.details-content',
+  ];
+  // טוקנים שאינם צבע ולכן אינם צריכים ערך מהפתק. **רשימה מפורשת ולא
+  // היוריסטיקה**, כדי שהוספת טוקן חדש תיפול כברירת מחדל ותדרוש הכרעה.
+  const NOT_A_COLOUR = new Set(['--animation-speed']);
+
+  const used = new Set();
+  SELECTORS.forEach((sel) => {
+    // הבורר המדויק, בתחילת כלל: או בתחילת הקובץ או אחרי ``}``/``{``/שורה.
+    const rx = new RegExp('(^|[}\\n])\\s*' + sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{([^}]*)\\}');
+    const m = rx.exec(shared);
+    eq(!!m, true, 'נמצא הכלל ' + sel + ' ב-markdown-enhanced.css');
+    (m[2].match(/var\(\s*(--[a-z0-9-]+)/gi) || [])
+      .forEach((hit) => used.add(hit.replace(/^var\(\s*/i, '')));
+  });
+  // בקרת שפיות: אם החילוץ מחזיר קבוצה ריקה, כל הבדיקה עוברת מהסיבה הלא
+  // נכונה. נמדד שהרכיב קורא שישה טוקני צבע ואחד שאינו צבע.
+  eq(used.size >= 7, true, 'חולצו הטוקנים בפועל (' + [...used].sort().join(', ') + ')');
+
+  const supplied = new Set(
+    (sticky.match(/--[a-z0-9-]+\s*:/gi) || []).map((d) => d.replace(/\s*:$/, '')));
+  const missing = [...used].filter((t) => !NOT_A_COLOUR.has(t) && !supplied.has(t));
+  eq(missing.join(','), '', 'הפתק מספק ערך לכל טוקן צבע שהרכיב קורא');
+
+  // וההצהרות יושבות על ``.sticky-note`` עצמו — לא על צאצא — אחרת הן אינן
+  // נורשות לכל תת-העץ, והבלוק המקונן שבתוך אלרט היה נשאר בצבע ערכה.
+  //
+  // **בלי מפצל כללים מתוצרת בית.** הגרסה הראשונה פיצלה את הקובץ
+  // ב-``/(?=[.#:@][^{]*\{)/`` כדי לתפוס תחילות כללים — וה-``:`` שבמחלקת
+  // התווים תפס גם את הנקודתיים של ההצהרה עצמה, כך שכל כלל נחתך בדיוק
+  // לפני הערך. הבדיקה נפלה עם קבוצה ריקה, כלומר מהסיבה הלא נכונה.
+  // הצורה כאן מחפשת את הבורר המדויק ולוקחת עד ה-``}`` הבא, כמו שאר
+  // השומרים בקובץ. היא אינה תופסת ``.sticky-note .markdown-details`` כי
+  // שם אחרי השם בא רווח ומחלקה ולא ``{``.
+  const onNote = new Set();
+  const noteRuleRe = /\.sticky-note\s*\{/g;
+  let hit;
+  while ((hit = noteRuleRe.exec(sticky)) !== null) {
+    const body = sticky.slice(hit.index + hit[0].length);
+    (body.slice(0, body.indexOf('}')).match(/--[a-z0-9-]+\s*:/gi) || [])
+      .forEach((d) => onNote.add(d.replace(/\s*:$/, '')));
+  }
+  eq(onNote.size >= 6, true, 'בקרה: נקראו הצהרות מכללי .sticky-note (' + onNote.size + ')');
+  const notOnNote = [...used].filter((t) => !NOT_A_COLOUR.has(t) && !onNote.has(t));
+  eq(notOnNote.join(','), '', 'וכולן מוצהרות על .sticky-note עצמו');
+
+  // **``--summary-bg`` שטוח ולא גרדיאנט — החלטה עיצובית שנאכפת.** בכל
+  // שמונת בלוקי הערכה הוא ``linear-gradient``; בפתק הצר דהייה אופקית
+  // נקראת כמריחה ולא כרצועת כותרת. מי שירצה להחזיר אותה עובר דרך כאן.
+  const bgDecl = /--summary-bg\s*:\s*([^;]+);/.exec(sticky);
+  eq(!!bgDecl, true, 'יש הצהרה ל---summary-bg');
+  eq(/gradient/i.test(bgDecl[1]), false, 'הרקע בפתק שטוח, לא גרדיאנט');
 });
 
 check('תיעוד: עמוד המשתמש מונה בדיוק את הסוגים שקיימים במפה', () => {
@@ -2582,6 +2662,21 @@ check('תיעוד: עמוד המשתמש מונה בדיוק את הסוגים �
      'תווית ברירת המחדל של details מופיעה בעמוד המשתמש כפי שהיא בקוד');
 });
 
+/**
+ * האם הנכס נטען עם ``?v={{ static_version }}``.
+ *
+ * **זה לא ניקיון — זה ההבדל בין פיצ'ר שעובד לפיצ'ר שלא.** הבלוק המתקפל
+ * קורא את ``window.DETAILS_DEFAULT_TITLE`` מ-``admonition-icons.js``;
+ * בלעדיו ``_containerSpec`` מחזיר ``null`` ו-``::: details`` נשאר טקסט
+ * רגיל, בלי שגיאה ובלי סימן. שני משטחים טענו את הקובץ **בלי** מחרוזת
+ * המטמון, כלומר משתמש עם עותק שמור מלפני הפיצ'ר לא היה רואה אותו כלל.
+ */
+function cacheBusted(src, asset){
+  const tag = new RegExp("filename='" + asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    + "'\\s*\\)\\s*\\}\\}\\?v=\\{\\{\\s*static_version\\s*\\}\\}");
+  return tag.test(src);
+}
+
 check('חיווט: כל תבנית שטוענת live-preview.js טוענת גם את מפת האלרטים, ולפניה', () => {
   // **המשטח השני שקורא מהמפה, ואותה מלכודת בדיוק.** ``live-preview.js``
   // קורא את התוויות ואת תווית ברירת המחדל של ``details`` מ-``window``;
@@ -2599,6 +2694,8 @@ check('חיווט: כל תבנית שטוענת live-preview.js טוענת גם 
     const live = src.indexOf("filename='js/live-preview.js'");
     eq(icons !== -1, true, path.basename(f) + ' טוען את מפת האלרטים');
     eq(icons < live, true, path.basename(f) + ' טוען אותה לפני live-preview.js');
+    eq(cacheBusted(src, 'js/admonition-icons.js'), true,
+       path.basename(f) + ' טוען אותה עם ?v=static_version');
   });
 });
 
@@ -2619,6 +2716,10 @@ check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם 
     const sticky = src.indexOf("filename='js/sticky-notes.js'");
     eq(icons !== -1, true, path.basename(f) + ' טוען את מפת האלרטים');
     eq(icons < sticky, true, path.basename(f) + ' טוען אותה לפני sticky-notes.js');
+    eq(cacheBusted(src, 'js/admonition-icons.js'), true,
+       path.basename(f) + ' טוען אותה עם ?v=static_version');
+    eq(cacheBusted(src, 'css/sticky-notes.css'), true,
+       path.basename(f) + ' טוען את ה-CSS של הפתקים עם ?v=static_version');
   });
 });
 
