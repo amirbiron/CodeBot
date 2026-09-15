@@ -19,6 +19,7 @@ import asyncio
 import functools
 import inspect
 import os
+import threading
 from typing import Annotated, Any
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -277,7 +278,55 @@ _REPO_NOTE_TOOLS = frozenset(
 _ADMIN_TOOLS = _REPO_BROWSER_TOOLS | _REPO_NOTE_TOOLS
 
 
-def _offload_to_thread(fn: Any) -> Any:
+#: One process-wide lock that the write tools take, so they still run one at a
+#: time — exactly as they did when every body sat on the event loop.
+#:
+#: **What it preserves, and what it deliberately does not.** Moving the bodies
+#: onto threads is what keeps a 4.8s ``save_file`` from freezing every other
+#: session, but it also removed an ordering that callers had until now: two
+#: write calls from the *same* agent could not interleave, because the loop ran
+#: one to completion before starting the next. Claude Code does send calls in
+#: parallel, so that is a live case and not a thought experiment. This lock
+#: gives that ordering back — and it costs the readers nothing, because a
+#: blocked writer is parked in its worker thread rather than on the loop.
+#:
+#: **It is not a substitute for atomic writes, and must not be read as one.**
+#: The check-then-act gaps in the write path (version allocation in
+#: ``save_code_snippet``, ``update_note`` without ``expected_content``) are
+#: races against the **bot and the webapp**, which run in other processes
+#: entirely and never take this lock. A process-wide lock cannot close a
+#: cross-process race. It closes exactly the window this change would otherwise
+#: have opened inside the MCP process, no more. The real fix — a unique index
+#: with retry, plus conditional update returning ``conflict`` — is tracked
+#: separately.
+#:
+#: Plain ``Lock`` and not ``RLock`` on purpose: no tool body calls another tool,
+#: so reentrancy would only hide a mistake instead of reporting it.
+_WRITES_SERIALIZED = threading.Lock()
+
+
+def _declares_write(annotations: Any) -> bool:
+    """True when a tool's annotations say it is not read-only.
+
+    Derived from the annotation the tool already declares rather than from a
+    list of tool names: a name list is a second place to keep in sync, and the
+    tool added next week is exactly the one that would be missing from it.
+    ``readOnlyHint`` is ``False`` in all three write annotation dicts and
+    ``True`` only in ``_READ_ONLY_TOOL``, so it is the marker that already
+    carries this meaning. Accepts a dict or a ``ToolAnnotations``, because the
+    SDK takes either.
+    """
+    if annotations is None:
+        return False
+    hint = (
+        annotations.get("readOnlyHint")
+        if isinstance(annotations, dict)
+        else getattr(annotations, "readOnlyHint", None)
+    )
+    return hint is False
+
+
+def _offload_to_thread(fn: Any, *, serialize: bool = False) -> Any:
     """Wrap a sync tool body so it runs on a worker thread instead of the loop.
 
     **Why this exists (#3379).** Measured against ``mcp 1.28.1``:
@@ -333,9 +382,18 @@ def _offload_to_thread(fn: Any) -> Any:
     if inspect.iscoroutinefunction(fn):
         return fn
 
+    def _call(*args: Any, **kwargs: Any) -> Any:
+        if not serialize:
+            return fn(*args, **kwargs)
+        # Taken **inside** the worker thread. Acquiring it before the hop would
+        # park the event loop on a lock held by another request — the very
+        # failure this whole change exists to remove.
+        with _WRITES_SERIALIZED:
+            return fn(*args, **kwargs)
+
     @functools.wraps(fn)
     async def _run_in_thread(*args: Any, **kwargs: Any) -> Any:
-        return await asyncio.to_thread(fn, *args, **kwargs)
+        return await asyncio.to_thread(_call, *args, **kwargs)
 
     return _run_in_thread
 
@@ -357,8 +415,13 @@ class AdminAwareFastMCP(FastMCP):
         called directly — so this is the single place where the guarantee is
         made. ``*args``/``**kwargs`` pass through untouched so that a new
         keyword in a future SDK release does not need a change here.
+
+        A tool whose annotations declare it is not read-only also gets
+        ``_WRITES_SERIALIZED``, so the write path keeps the one-at-a-time
+        ordering it had while it lived on the event loop.
         """
-        return super().add_tool(_offload_to_thread(fn), *args, **kwargs)
+        serialize = _declares_write(kwargs.get("annotations"))
+        return super().add_tool(_offload_to_thread(fn, serialize=serialize), *args, **kwargs)
 
     async def list_tools(self):  # type: ignore[override]
         tools = await super().list_tools()

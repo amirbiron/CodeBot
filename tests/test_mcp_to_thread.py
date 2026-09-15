@@ -89,7 +89,9 @@ def test_the_guard_can_fail(monkeypatch):
     Without this, a refactor that turned ``_offload_to_thread`` into the identity
     function would leave the suite green.
     """
-    monkeypatch.setattr("mcp_server.server._offload_to_thread", lambda fn: fn)
+    monkeypatch.setattr(
+        "mcp_server.server._offload_to_thread", lambda fn, **_kw: fn
+    )
     mcp = build_mcp(_FakeBackend(), repo_backend=_FakeBackend())
     sync_tools = [t.name for t in _registered(mcp) if not asyncio.iscoroutinefunction(t.fn)]
     assert sync_tools, "identity wrapper left every tool async — the guard proves nothing"
@@ -207,3 +209,128 @@ def test_async_tool_is_returned_untouched():
         return {}
 
     assert _offload_to_thread(already_async) is already_async
+
+
+# ── write tools stay serialized, readers do not wait ─────────────────────────
+
+
+def _write_tool_names_from_source():
+    """Tool names whose body calls ``require_write`` — read from the AST.
+
+    An independent counter, on purpose: deriving the expected set from the same
+    annotations the implementation reads would be circular, and would pass even
+    if every annotation were wrong. ``require_write`` is the other, unrelated
+    place where "this tool writes" is already stated.
+    """
+    import ast
+    import pathlib
+
+    tree = ast.parse(pathlib.Path("mcp_server/server.py").read_text(encoding="utf-8"))
+    names = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        calls_require_write = any(
+            isinstance(c, ast.Call)
+            and isinstance(c.func, ast.Name)
+            and c.func.id == "require_write"
+            for c in ast.walk(node)
+        )
+        if not calls_require_write:
+            continue
+        for deco in node.decorator_list:
+            if isinstance(deco, ast.Call):
+                for kw in deco.keywords:
+                    if kw.arg == "name" and isinstance(kw.value, ast.Constant):
+                        names.add(kw.value.value)
+    return names
+
+
+def test_exactly_the_write_tools_are_serialized():
+    """The lock covers the write tools — no more, and no fewer.
+
+    Fewer would reopen the interleaving this change is meant to preserve; more
+    would serialize reads for no reason, and ``codekeeper_docs_get_section`` at
+    ~155ms sitting behind a 4.8s save is the whole problem again.
+    """
+    from mcp_server.server import _declares_write
+
+    serialized = set()
+
+    # Record the flag per tool by re-registering through a recording subclass.
+    class _Recorder(AdminAwareFastMCP):
+        def add_tool(self, fn, *args, **kwargs):
+            if _declares_write(kwargs.get("annotations")):
+                serialized.add(kwargs.get("name"))
+            return super().add_tool(fn, *args, **kwargs)
+
+    import mcp_server.server as s
+
+    real = s.AdminAwareFastMCP
+    s.AdminAwareFastMCP = _Recorder
+    try:
+        build_mcp(_FakeBackend(), repo_backend=_FakeBackend())
+    finally:
+        s.AdminAwareFastMCP = real
+
+    assert serialized == _write_tool_names_from_source()
+
+
+async def test_two_writes_from_one_agent_never_overlap(request_context):
+    """Measured, not assumed: the second write waits for the first to finish.
+
+    ``Claude Code`` sends tool calls in parallel, so this is the case the event
+    loop used to cover for free and that ``to_thread`` would otherwise reopen.
+    """
+    import time
+
+    mcp = AdminAwareFastMCP("t")
+    inside = 0
+    max_inside = 0
+    lock = threading.Lock()
+
+    def writer(ctx: Context) -> dict:
+        nonlocal inside, max_inside
+        with lock:
+            inside += 1
+            max_inside = max(max_inside, inside)
+        time.sleep(0.15)
+        with lock:
+            inside -= 1
+        return {"ok": True}
+
+    mcp.add_tool(writer, name="w", annotations={"readOnlyHint": False})
+    await asyncio.gather(mcp.call_tool("w", {}), mcp.call_tool("w", {}))
+
+    assert max_inside == 1, f"{max_inside} writes ran at once — the lock did not hold"
+
+
+async def test_a_read_does_not_wait_behind_a_long_write(request_context):
+    """The reader must overtake the writer, or the lock has cost us the fix.
+
+    Ordering is the assertion, not elapsed time: a wall-clock threshold would
+    be the flaky test this repo keeps warning about.
+    """
+    import time
+
+    mcp = AdminAwareFastMCP("t")
+    finished: list[str] = []
+
+    def slow_write(ctx: Context) -> dict:
+        time.sleep(0.3)
+        finished.append("write")
+        return {}
+
+    def quick_read(ctx: Context) -> dict:
+        finished.append("read")
+        return {}
+
+    mcp.add_tool(slow_write, name="w", annotations={"readOnlyHint": False})
+    mcp.add_tool(quick_read, name="r", annotations={"readOnlyHint": True})
+
+    writer = asyncio.create_task(mcp.call_tool("w", {}))
+    await asyncio.sleep(0.05)          # let the writer take the lock first
+    await mcp.call_tool("r", {})
+    await writer
+
+    assert finished == ["read", "write"], f"the read queued behind the write: {finished}"
