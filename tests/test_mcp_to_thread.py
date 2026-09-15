@@ -27,6 +27,7 @@ from mcp.server.auth.middleware.auth_context import (  # noqa: E402
 )
 from mcp.server.auth.provider import AccessToken  # noqa: E402
 from mcp.server.fastmcp import Context, FastMCP  # noqa: E402
+from mcp.server.fastmcp.exceptions import ToolError  # noqa: E402
 from mcp.server.lowlevel.server import request_ctx  # noqa: E402
 from mcp.shared.context import RequestContext  # noqa: E402
 
@@ -670,7 +671,7 @@ async def test_a_write_denied_for_scope_still_surfaces_as_an_error(request_conte
     )
     rc_reset = request_ctx.set(rc)
     try:
-        with pytest.raises(Exception) as excinfo:
+        with pytest.raises(ToolError) as excinfo:
             await mcp.call_tool("w", {})
         assert "insufficient_scope" in str(excinfo.value)
     finally:
@@ -741,12 +742,18 @@ async def test_a_write_cancelled_after_it_started_runs_to_completion(request_con
     assert await asyncio.to_thread(finished.wait, 2.0), "the running body was cut short"
 
 
-async def test_the_queue_wait_is_logged_apart_from_the_run_time(request_context, caplog):
-    """The signal that tells a slow write apart from a write that waited.
+async def test_the_queue_wait_line_carries_both_numbers(request_context, caplog):
+    """Both numbers on one line, because either alone sends the reader elsewhere.
 
-    Both numbers on one line, because either alone sends the reader to the wrong
-    place: total duration blames the write path for a queue problem, and queue
-    depth alone says nothing about whether the writes themselves got slower.
+    Total duration blames the write path for a queue problem, and queue depth
+    alone says nothing about whether the writes themselves got slower.
+
+    This checks the *content* of the line. Whether it is visible in the running
+    service is a different question, and ``caplog`` cannot answer it — it
+    attaches its own handler, so it reports a record the service would have
+    dropped. ``tests/test_mcp_logging_visible.py`` answers that one, in a fresh
+    process, and exists because this test passed while production printed
+    nothing.
     """
     import logging as _logging
     import time
@@ -763,10 +770,13 @@ async def test_the_queue_wait_is_logged_apart_from_the_run_time(request_context,
 
     with caplog.at_level(_logging.DEBUG, logger="mcp_server.server"):
         await mcp.call_tool("w", {})
-    debug_lines = [r for r in caplog.records if r.levelno == _logging.DEBUG]
-    assert debug_lines, "no timing line for a write"
-    assert "queued" in debug_lines[-1].getMessage()
-    assert "ran" in debug_lines[-1].getMessage()
+    timing = [r for r in caplog.records if "queued" in r.getMessage()]
+    assert timing, "no timing line for a write"
+    assert timing[-1].levelno == _logging.INFO, (
+        f"the ordinary write timing is at {timing[-1].levelname}; the service runs at "
+        "INFO, so anything lower is absent rather than quiet"
+    )
+    assert "ran" in timing[-1].getMessage()
 
     caplog.clear()
     # a threshold no wait can stay under, so the WARNING branch is exercised
@@ -806,7 +816,10 @@ async def test_a_failing_write_does_not_wedge_the_queue(request_context):
     mcp.add_tool(explodes, name="boom", annotations={"readOnlyHint": False})
     mcp.add_tool(after, name="after", annotations={"readOnlyHint": False})
 
-    with pytest.raises(Exception):
+    # ``ToolError`` and not a bare ``Exception``: the point is that the failure
+    # arrives the normal way, so a test that would also pass on a ``TypeError``
+    # from a broken wrapper is not checking what it claims to.
+    with pytest.raises(ToolError):
         await mcp.call_tool("boom", {})
     await mcp.call_tool("after", {})
 
