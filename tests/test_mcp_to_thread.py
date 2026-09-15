@@ -891,3 +891,71 @@ async def test_a_write_cancelled_after_it_started_is_not_logged_as_unrun(
     messages = [r.getMessage() for r in caplog.records]
     assert not [m for m in messages if "cancelled before it ran" in m], messages
     assert [m for m in messages if "ran" in m], messages
+
+
+# ── the capacity the dispatch model actually has ─────────────────────────────
+
+
+def test_startup_names_the_read_pool_and_the_cpu_quota(caplog):
+    """The concurrency ceiling has to be readable, not inferred.
+
+    The read pool is ``min(32, os.cpu_count() + 4)``, and ``os.cpu_count()`` is
+    the machine's count rather than the container's share — CPython says so
+    itself. Printing both beside the quota is what lets someone answer "how many
+    reads can run at once here" without guessing, which is the first question
+    any decision about a read ceiling depends on.
+    """
+    import logging as _logging
+
+    from mcp_server.server import _log_dispatch_capacity
+
+    with caplog.at_level(_logging.INFO, logger="mcp_server.server"):
+        _log_dispatch_capacity()
+
+    assert caplog.records, "startup said nothing about capacity"
+    line = caplog.records[-1].getMessage()
+    for expected in ("read pool", "os.cpu_count=", "usable=", "write pool 1", "cpu quota"):
+        assert expected in line, (expected, line)
+
+
+def test_an_unreadable_cgroup_file_does_not_break_startup(monkeypatch):
+    """Best effort means best effort: a missing quota file is not a failed deploy.
+
+    This runs while the service comes up. Neither cgroup layout is guaranteed to
+    be present — v1 and v2 keep the number in different files, and a sandbox may
+    expose neither — so the only wrong answer here is raising.
+    """
+    import mcp_server.server as server_module
+
+    class _Exploding:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def read_text(self, *_a, **_k):
+            raise OSError("no cgroup here")
+
+    monkeypatch.setattr(server_module.pathlib, "Path", _Exploding)
+    assert server_module._cpu_budget() == "unavailable"
+
+
+def test_the_quota_is_read_and_not_invented(tmp_path, monkeypatch):
+    """The number has to come from the file, or it is decoration.
+
+    A test that only checks "some string came back" would pass on a function
+    that returned a constant, which is the shape of check this repo keeps
+    warning about.
+    """
+    import mcp_server.server as server_module
+
+    v2 = tmp_path / "cpu.max"
+    v2.write_text("150000 100000")
+    real_path = server_module.pathlib.Path
+
+    def fake_path(p, *a, **k):
+        return v2 if str(p) == "/sys/fs/cgroup/cpu.max" else real_path(p, *a, **k)
+
+    monkeypatch.setattr(server_module.pathlib, "Path", fake_path)
+    assert server_module._cpu_budget() == "cgroup v2: 1.50 cpu"
+
+    v2.write_text("max 100000")
+    assert server_module._cpu_budget() == "cgroup v2: unlimited"

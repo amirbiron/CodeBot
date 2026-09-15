@@ -27,6 +27,7 @@ import functools
 import inspect
 import logging
 import os
+import pathlib
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any
@@ -374,6 +375,65 @@ _SLOW_WRITE_QUEUE_WAIT = 10.0
 #: ``FastMCP.add_tool``'s own signature, read once at import so that the
 #: position of ``annotations`` is never a number written down here.
 _ADD_TOOL_SIGNATURE = inspect.signature(FastMCP.add_tool)
+
+
+def _cpu_budget() -> str:
+    """What the container is actually allowed, as opposed to what Python sees.
+
+    ``os.cpu_count()`` is the machine's CPU count, and CPython says so in as
+    many words: *"This number is not equivalent to the number of CPUs the
+    current process can use."* Inside a container it is the host's, while the
+    service may be allowed a fraction of one core — and the read pool is sized
+    from the former. Printing the quota beside it is what turns that gap from a
+    suspicion into a number.
+
+    cgroup v2 keeps it in ``cpu.max`` as ``"<quota|max> <period>"``; v1 splits
+    it across two files, with ``-1`` meaning unlimited. Neither is guaranteed to
+    exist, and reading them is best effort: this runs during startup, and a
+    missing or unreadable file must not be the reason a deploy fails.
+    """
+    try:
+        raw = pathlib.Path("/sys/fs/cgroup/cpu.max").read_text().split()
+        quota, period = raw[0], raw[1]
+        if quota == "max":
+            return "cgroup v2: unlimited"
+        return f"cgroup v2: {int(quota) / int(period):.2f} cpu"
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        quota = int(pathlib.Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+        period = int(pathlib.Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+        if quota < 0:
+            return "cgroup v1: unlimited"
+        return f"cgroup v1: {quota / period:.2f} cpu"
+    except (OSError, ValueError, ZeroDivisionError):
+        return "unavailable"
+
+
+def _log_dispatch_capacity() -> None:
+    """One line at startup naming the concurrency the dispatch model actually has.
+
+    The read pool's size is ``min(32, os.cpu_count() + 4)`` and nothing in the
+    service reported it, so the ceiling on concurrent reads was a number nobody
+    could look up — including while reasoning about whether it needed one. Every
+    value is computed before the call rather than inside it, so a level guard or
+    a deleted line takes the line and nothing else with it.
+    """
+    detected = os.cpu_count() or 1
+    try:
+        usable = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        usable = detected
+    read_pool = min(32, detected + 4)
+    quota = _cpu_budget()
+    logger.info(
+        "mcp dispatch capacity: read pool %d threads (os.cpu_count=%d, "
+        "usable=%d), write pool 1 thread, cpu quota %s",
+        read_pool,
+        detected,
+        usable,
+        quota,
+    )
 
 
 def _declares_write(annotations: Any) -> bool:
@@ -1475,6 +1535,7 @@ def build_app(
       PATs, so Claude Code and Claude.ai both work. ``consent_routes`` are mounted.
     - PAT-only (fallback): the custom ``PATAuthMiddleware`` guards the app.
     """
+    _log_dispatch_capacity()
     oauth = auth_provider is not None and auth_settings is not None
     mcp = build_mcp(
         backend,
