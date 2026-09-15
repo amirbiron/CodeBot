@@ -306,6 +306,127 @@
     }
     .mcp-outlink:hover { text-decoration: underline; }
 
+    /* --- מיון עמודות ---
+       הקישור יורש צבע ואינו נראה כקישור עד שמרחפים עליו: כותרת עמודה היא
+       קודם כל כותרת. החץ הוא ``::after`` שנשען על ``aria-sort`` שכבר יושב
+       על ה-``th``, ולכן אין מצב שבו החץ מראה כיוון אחד וקורא מסך מכריז
+       כיוון אחר — שניהם קוראים מאותה תכונה. */
+    .mcp-sort {
+      color: inherit;
+      text-decoration: none;
+      border-bottom: 1px dashed transparent;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .mcp-sort:hover { border-bottom-color: var(--primary); }
+    .mcp-sort:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .mcp-table thead th[aria-sort] { opacity: 1; font-weight: 600; }
+    .mcp-table thead th[aria-sort="ascending"] .mcp-sort::after { content: ' ▲'; }
+    .mcp-table thead th[aria-sort="descending"] .mcp-sort::after { content: ' ▼'; }
+
+    /* --- שורת הכלים שבכותרת הטבלה --- */
+    .mcp-head-tools {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.9rem;
+    }
+    .mcp-sort-reset {
+      color: var(--primary);
+      text-decoration: none;
+      font-size: 0.8rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .mcp-sort-reset:hover { text-decoration: underline; }
+
+    /* התווית שאסור להשמיט: מיון שרץ על חלק מהשורות נראה על המסך בדיוק
+       כמו מיון מלא, ולכן היא הדבר היחיד שמפריד ביניהם. */
+    .mcp-sort-partial {
+      font-size: 0.8rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 8px;
+      background: var(--danger-bg);
+      border: 1px solid var(--danger-border);
+    }
+
+    /* --- כפתור ההעתקה ---
+       ``position: relative`` על העוטף ו-``absolute`` על התפריט. זה מה
+       שמבטיח שפתיחת התפריט אינה משתתפת בזרימה ואינה דוחפת את הטבלה
+       במסך צר — נמדד ב-390px. */
+    .mcp-copy { position: relative; display: inline-flex; gap: 0.25rem; }
+    .mcp-copy[hidden] { display: none; }
+    .mcp-copy-main,
+    .mcp-copy-more {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.82rem;
+      padding: 0.35rem 0.7rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .mcp-copy-more { padding-inline: 0.5rem; }
+    .mcp-copy-main:hover,
+    .mcp-copy-more:hover { background: var(--glass-hover); }
+    .mcp-copy-main:focus-visible,
+    .mcp-copy-more:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .mcp-copy-menu {
+      position: absolute;
+      inset-block-start: calc(100% + 0.3rem);
+      inset-inline-end: 0;
+      z-index: 5;
+      min-width: 13rem;
+      padding: 0.3rem;
+      border-radius: 10px;
+      background: var(--card-bg, var(--glass));
+      border: 1px solid var(--card-border, var(--glass-border));
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    }
+    .mcp-copy-menu[hidden] { display: none; }
+    .mcp-copy-option {
+      display: block;
+      width: 100%;
+      text-align: start;
+      background: none;
+      border: none;
+      border-radius: 6px;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.85rem;
+      padding: 0.4rem 0.6rem;
+    }
+    .mcp-copy-option:hover { background: var(--glass-hover); }
+    .mcp-copy-option:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+    /* אייקון בלבד, בלי המילה "העתק": הוא חוזר בכל שורה, וטקסט היה מכפיל
+       את רוחב העמודה שהיא עיקר הטבלה הזו. ``aria-label`` נושא את המשמעות
+       לקורא מסך. */
+    .mcp-copy-cell {
+      background: none;
+      border: none;
+      border-radius: 6px;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      opacity: 0.55;
+      padding: 0.15rem 0.35rem;
+      margin-inline-start: 0.4rem;
+      vertical-align: middle;
+    }
+    .mcp-copy-cell:hover,
+    .mcp-copy-cell:focus-visible { opacity: 1; color: var(--primary); }
+    .mcp-copy-cell:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
     /* --- מצב ריק ושגיאה --- */
     .mcp-state {
       text-align: center;
@@ -349,6 +470,11 @@
       .mcp-table { font-size: 0.85rem; }
       .mcp-tabs { gap: 0.35rem; }
       .mcp-tab { padding: 0.45rem 0.7rem; font-size: 0.88rem; }
+      .mcp-head-tools { gap: 0.4rem 0.6rem; }
+      .mcp-copy-main, .mcp-copy-more { font-size: 0.78rem; padding: 0.3rem 0.55rem; }
+      /* התפריט צמוד לקצה ההתחלה במקום לקצה הסיום: במסך צר הכפתור יושב
+         קרוב לשוליים, ותפריט שנפתח לכיוון השני יוצא מהמסך. */
+      .mcp-copy-menu { inset-inline-end: auto; inset-inline-start: 0; min-width: 11rem; }
     }
   </style>
 {% endblock %}
@@ -392,6 +518,92 @@
   {%- else -%}<span class="mcp-empty" aria-hidden="true">—</span><span class="sr-only">אין ערך</span>{%- endif -%}
 {%- endmacro %}
 
+{#- ---------- תאים שנושאים גם את הערך הגולמי ----------
+
+    ``data-v`` הוא מה שההעתקה קוראת, ולכן הוא מחזיק את הערך **בלי הקישוט
+    של התצוגה**: מספר בלי סיומת ``ms``, תא ריק כמחרוזת ריקה ולא כמקף,
+    וטקסט מלא ולא חתוך ב-64 תווים. קריאת ``textContent`` הייתה מעתיקה את
+    הגרסה המקוצצת עם ה-``…`` — כלומר נתון שאי אפשר לנתח.
+
+    הכלל אחיד לכל תא: ``data-v`` הוא מה שרואים, פחות הקישוט. -#}
+{% macro num_td(value) -%}
+  <td class="mcp-num" data-v="{{ '' if value is none else value }}">{{ nv(value) }}</td>
+{%- endmacro %}
+
+{% macro ms_td(value) -%}
+  <td class="mcp-num" data-v="{{ '' if value is none else (value | round | int) }}">{{ ms(value) }}</td>
+{%- endmacro %}
+
+{% macro when_td(value) -%}
+  <td class="mcp-num" data-v="{{ (value | datetime_display) if value else '' }}">{{ when(value) }}</td>
+{%- endmacro %}
+
+{% macro text_td(value, css='') -%}
+  <td{% if css %} class="{{ css }}"{% endif %} data-v="{{ value if value is not none else '' }}">{{ nv(value) }}</td>
+{%- endmacro %}
+
+{#- ---------- כותרות ----------
+
+    ``<a>`` ולא ``<button>``: המיון נעשה בשרת, ולכן הלחיצה היא **ניווט**
+    אמיתי לכתובת אחרת. כך היא עובדת גם בלי JS, אפשר לפתוח מיון בלשונית
+    חדשה, והכתובת עצמה היא המצב — רענון אינו מאבד אותו.
+    (ב-``profiler_dashboard.html`` אותה כותרת היא ``<button>``, מפני ששם
+    המיון נעשה ב-JS ואין ניווט לשום מקום.)
+
+    ``aria-sort`` יושב על ה-``th``, ורק על העמודה הממוינת: זה מה שמודיע
+    לקורא מסך מה הסדר, ושני הערכים בשימוש הם ``ascending`` ו-``descending``.
+
+    ``data-copy-head`` הוא שם העמודה **בהעתקה**, כשהוא נבדל מהמוצג. שם
+    נכנסת היחידה, כי המספרים מועתקים גולמיים בלי ``ms``. -#}
+{% macro sort_th(label, table, field, state, copy_label='') -%}
+  <th scope="col"
+      {%- if copy_label %} data-copy-head="{{ copy_label }}"{% endif %}
+      {%- if state.field == field %} aria-sort="{{ 'descending' if state.direction == 'desc' else 'ascending' }}"{% endif %}>
+    <a class="mcp-sort" href="{{ sort_href(table, field) }}">{{ label }}</a>
+  </th>
+{%- endmacro %}
+
+{% macro plain_th(label, copy_label='') -%}
+  <th scope="col"{% if copy_label %} data-copy-head="{{ copy_label }}"{% endif %}>{{ label }}</th>
+{%- endmacro %}
+
+{#- צ'יפ החזרה לברירת המחדל, ולצידו התווית שאסור להשמיט.
+
+    "להפוך כיוון" לבדו אינו מאפשר **לבטל** מיון, ולכן יש כאן קישור מפורש.
+    (לחיצה שלישית על אותה עמודה עושה את אותו דבר, אבל זה ידע שצריך לנחש.) -#}
+{% macro sort_note(table, state) -%}
+  {%- if state.active -%}
+    <a class="mcp-sort-reset" href="{{ sort_href(table) }}">
+      <i class="fas fa-rotate-left" aria-hidden="true"></i>
+      חזרה לברירת המחדל
+    </a>
+    {%- if state.partial %}
+      <span class="mcp-sort-partial">
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        המיון חל על {{ state.sorted_rows }}{% if state.total %} מתוך {{ state.total }}{% endif %} השורות בלבד
+      </span>
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro %}
+
+{#- פקד ההעתקה. מתחיל מוסתר ונחשף ב-JS: בלי JS אין העתקה, וכפתור מת
+    גרוע מכפתור שאינו שם. הרשימה עצמה נבנית ב-JS מספירת השורות בפועל —
+    רשימה קשיחה לפי מספר הכלים של היום הייתה מקום שני שצריך לזכור
+    לסנכרן ביום שהמספר משתנה. -#}
+{% macro copy_control(table) -%}
+  <div class="mcp-copy" data-copy-for="{{ table }}" hidden>
+    <button type="button" class="mcp-copy-main">
+      <i class="fas fa-copy" aria-hidden="true"></i>
+      <span class="mcp-copy-label">העתקה</span>
+    </button>
+    <button type="button" class="mcp-copy-more" aria-expanded="false" aria-haspopup="true"
+            aria-label="בחירת מספר שורות להעתקה">
+      <i class="fas fa-chevron-down" aria-hidden="true"></i>
+    </button>
+    <div class="mcp-copy-menu" hidden></div>
+  </div>
+{%- endmacro %}
+
 {#- שגיאה של אנדפוינט בודד. מוצגת בתוך הטאב שלו בלבד: אנדפוינט אחד שנכשל
     אינו סיבה להחשיך את השניים שהצליחו. -#}
 {% macro panel_error(result) -%}
@@ -426,18 +638,21 @@
     </p>
   </div>
 
+  {#- הטאב הפעיל נקבע **בשרת** ולא ב-JS, כי קישור מיון מחזיר את המשתמש
+      לעמוד עם ``?tab=...``. בלי זה לחיצה על מיון בטבלת הסשנים הייתה נוחתת
+      על טאב הכלים, והטבלה שמיינו נעלמת מהמסך. -#}
   <div class="mcp-tabs" role="tablist">
-    <button type="button" class="mcp-tab active" data-panel="health" role="tab" aria-selected="true" aria-controls="mcpPanelHealth">
+    <button type="button" class="mcp-tab{% if active_tab == 'health' %} active{% endif %}" data-panel="health" role="tab" aria-selected="{{ 'true' if active_tab == 'health' else 'false' }}" aria-controls="mcpPanelHealth">
       <i class="fas fa-heart-pulse" aria-hidden="true"></i>
       בריאות הכלים
       {%- if tool_health.ok %}<span class="mcp-tab-count">({{ tool_health.rows | length }})</span>{% endif -%}
     </button>
-    <button type="button" class="mcp-tab" data-panel="navigation" role="tab" aria-selected="false" aria-controls="mcpPanelNavigation">
+    <button type="button" class="mcp-tab{% if active_tab == 'navigation' %} active{% endif %}" data-panel="navigation" role="tab" aria-selected="{{ 'true' if active_tab == 'navigation' else 'false' }}" aria-controls="mcpPanelNavigation">
       <i class="fas fa-route" aria-hidden="true"></i>
       עלות ניווט
       {%- if navigation_cost.ok %}<span class="mcp-tab-count">({{ navigation_cost.total if navigation_cost.total is not none else navigation_cost.rows | length }})</span>{% endif -%}
     </button>
-    <button type="button" class="mcp-tab" data-panel="missing" role="tab" aria-selected="false" aria-controls="mcpPanelMissing">
+    <button type="button" class="mcp-tab{% if active_tab == 'missing' %} active{% endif %}" data-panel="missing" role="tab" aria-selected="{{ 'true' if active_tab == 'missing' else 'false' }}" aria-controls="mcpPanelMissing">
       <i class="fas fa-lightbulb" aria-hidden="true"></i>
       כלים חסרים
       {%- if missing_capabilities.ok %}<span class="mcp-tab-count">({{ missing_capabilities.rows | length }})</span>{% endif -%}
@@ -445,7 +660,7 @@
   </div>
 
   {# ---------- טאב 1: בריאות הכלים ---------- #}
-  <div id="mcpPanelHealth" class="mcp-panel active" data-panel="health" role="tabpanel">
+  <div id="mcpPanelHealth" class="mcp-panel{% if active_tab == 'health' %} active{% endif %}" data-panel="health" role="tabpanel">
     {% if not tool_health.ok %}
       {{ panel_error(tool_health) }}
     {% else %}
@@ -468,30 +683,42 @@
         </div>
       </div>
 
+      {#- אותה מחרוזת בדיוק מוצגת בתחתית הטבלה ונוסעת עם ההעתקה. שני
+          העתקים היו נסחפים זה מזה, ומי שמדביק את הטבלה לצ'אט היה מקבל
+          מספרים בלי הסייג שבגללו הם מוצגים ככה. -#}
+      {% set tools_caveat = 'האחוז מוצג לצד מספר השגיאות בכוונה: על מדגם קטן הוא מטעה — קריאה אחת שנכשלה מתוך אחת היא 100%.' %}
       <div class="mcp-table-wrapper">
         <div class="mcp-table-head">
           <h2><i class="fas fa-list" aria-hidden="true"></i> לפי כלי</h2>
-          {{ meta_line(tool_health) }}
+          <div class="mcp-head-tools">
+            {{ sort_note('tools', tools_sort) }}
+            {% if tool_health.rows %}{{ copy_control('tools') }}{% endif %}
+            {{ meta_line(tool_health) }}
+          </div>
         </div>
         {% if tool_health.rows %}
-          <table class="mcp-table">
+          <table class="mcp-table" data-copy-table="tools" data-copy-note="{{ tools_caveat }}">
             <thead>
               <tr>
-                <th scope="col">כלי</th>
-                <th scope="col">קריאות</th>
-                <th scope="col">שגיאות</th>
-                <th scope="col">p50</th>
-                <th scope="col">p95</th>
-                <th scope="col">סשנים</th>
-                <th scope="col">נראה לאחרונה</th>
+                {{ plain_th('כלי') }}
+                {{ sort_th('קריאות', 'tools', 'calls', tools_sort) }}
+                {{ sort_th('שגיאות', 'tools', 'errors', tools_sort) }}
+                {{ sort_th('p50', 'tools', 'p50_ms', tools_sort, 'p50 (ms)') }}
+                {{ sort_th('p95', 'tools', 'p95_ms', tools_sort, 'p95 (ms)') }}
+                {{ sort_th('p95/p50', 'tools', 'latency_ratio', tools_sort) }}
+                {{ sort_th('סשנים', 'tools', 'sessions', tools_sort) }}
+                {{ sort_th('נראה לאחרונה', 'tools', 'last_seen', tools_sort) }}
               </tr>
             </thead>
             <tbody>
               {% for row in tool_health.rows %}
                 <tr>
-                  <td class="mcp-mono">{{ nv(row.tool) }}</td>
-                  <td class="mcp-num">{{ nv(row.calls) }}</td>
-                  <td class="mcp-num">
+                  {{ text_td(row.tool, 'mcp-mono') }}
+                  {{ num_td(row.calls) }}
+                  {#- ``data-v`` נושא את המספר המוחלט ולא את האחוז, וזה גם
+                      מה שהעמודה ממוינת לפיו: האחוז מטעה על מדגם קטן, והוא
+                      ממילא נגזר מהעמודה "קריאות" שנמצאת בהעתקה לצידו. -#}
+                  <td class="mcp-num" data-v="{{ '' if row.errors is none else row.errors }}">
                     <span class="mcp-rate">
                       {%- if row.error_rate_pct is not none -%}
                         <span class="mcp-rate-pct {% if row.errors and row.calls and row.calls >= 20 and row.error_rate_pct >= 10 %}is-danger{% elif row.errors %}is-warning{% endif %}">{{ row.error_rate_pct }}%</span>
@@ -499,16 +726,22 @@
                       <span class="mcp-rate-abs">({{ nv(row.errors) }})</span>
                     </span>
                   </td>
-                  <td class="mcp-num">{{ ms(row.p50_ms) }}</td>
-                  <td class="mcp-num">{{ ms(row.p95_ms) }}</td>
-                  <td class="mcp-num">{{ nv(row.sessions) }}</td>
-                  <td class="mcp-num">{{ when(row.last_seen) }}</td>
+                  {{ ms_td(row.p50_ms) }}
+                  {{ ms_td(row.p95_ms) }}
+                  {{ num_td(row.latency_ratio) }}
+                  {{ num_td(row.sessions) }}
+                  {{ when_td(row.last_seen) }}
                 </tr>
               {% endfor %}
             </tbody>
           </table>
           <p class="mcp-meta" style="margin-top:0.8rem;">
-            האחוז מוצג לצד מספר השגיאות בכוונה: על מדגם קטן הוא מטעה — קריאה אחת שנכשלה מתוך אחת היא 100%.
+            {{ tools_caveat }}
+          </p>
+          <p class="mcp-meta" style="margin-top:0.5rem;">
+            <strong>p95/p50</strong> הוא מה שמפריד בין "איטי תמיד" לבין "איטי לפעמים", ואלה שתי שאלות דיבוג שונות:
+            יחס 1.5 הוא כלי שפשוט לוקח זמן, ויחס 27 הוא כלי שנתקע לפעמים — ואז מחפשים מה משותף לאותן פעמים.
+            התא ריק כשאחד הערכים חסר או כש-p50 הוא אפס.
           </p>
         {% else %}
           <div class="mcp-state">
@@ -589,51 +822,64 @@
   </div>
 
   {# ---------- טאב 2: עלות ניווט ---------- #}
-  <div id="mcpPanelNavigation" class="mcp-panel" data-panel="navigation" role="tabpanel">
+  {#- אותה מחרוזת בדיוק מוצגת מתחת לטבלה ונוסעת עם ההעתקה. בלי זה, מי
+      שמדביק מספרי סשנים לצ'אט עם סוכן מאבד בדיוק את הסייג שהעמוד נבנה
+      כדי לשמר. -#}
+  {% set sessions_caveat = 'אין להשוות בין סשנים בלי לדעת מה הייתה המשימה. הטור מודד עלות, לא איכות.' %}
+  <div id="mcpPanelNavigation" class="mcp-panel{% if active_tab == 'navigation' %} active{% endif %}" data-panel="navigation" role="tabpanel">
     {% if not navigation_cost.ok %}
       {{ panel_error(navigation_cost) }}
     {% else %}
       <div class="mcp-table-wrapper">
         <div class="mcp-table-head">
           <h2><i class="fas fa-route" aria-hidden="true"></i> לפי סשן</h2>
-          {{ meta_line(navigation_cost) }}
+          <div class="mcp-head-tools">
+            {{ sort_note('sessions', sessions_sort) }}
+            {% if navigation_cost.rows %}{{ copy_control('sessions') }}{% endif %}
+            {{ meta_line(navigation_cost) }}
+          </div>
         </div>
         {% if navigation_cost.rows %}
-          <table class="mcp-table">
+          <table class="mcp-table" data-copy-table="sessions" data-copy-note="{{ sessions_caveat }}">
             <thead>
               <tr>
-                <th scope="col">התחיל</th>
-                <th scope="col">לקוח</th>
-                <th scope="col">קריאות</th>
-                <th scope="col">חיפושים</th>
-                <th scope="col">אאוטליין</th>
-                <th scope="col">קריאת תוכן</th>
-                <th scope="col">שגיאות</th>
-                <th scope="col">זמן כולל</th>
-                <th scope="col">מה הסוכן ניסה לעשות</th>
-                <th scope="col">סשן</th>
+                {{ sort_th('התחיל', 'sessions', 'started', sessions_sort) }}
+                {{ plain_th('לקוח') }}
+                {{ sort_th('קריאות', 'sessions', 'calls', sessions_sort) }}
+                {{ sort_th('חיפושים', 'sessions', 'searches', sessions_sort) }}
+                {{ sort_th('אאוטליין', 'sessions', 'outline_reads', sessions_sort) }}
+                {{ sort_th('קריאת תוכן', 'sessions', 'content_reads', sessions_sort) }}
+                {{ sort_th('שגיאות', 'sessions', 'errors', sessions_sort) }}
+                {{ sort_th('זמן כולל', 'sessions', 'total_ms', sessions_sort, 'זמן כולל (ms)') }}
+                {#- כוונת הסוכן ומזהה הסשן אינם ניתנים למיון: טקסט חופשי
+                    ומזהה אטום הם עמודות שאין משמעות לסדר שלהן. -#}
+                {{ plain_th('מה הסוכן ניסה לעשות') }}
+                {{ plain_th('סשן') }}
               </tr>
             </thead>
             <tbody>
               {% for row in navigation_cost.rows %}
                 <tr>
-                  <td class="mcp-num">{{ when(row.started) }}</td>
-                  <td>{{ nv(row.client) }}</td>
-                  <td class="mcp-num">{{ nv(row.calls) }}</td>
-                  <td class="mcp-num">{{ nv(row.searches) }}</td>
-                  <td class="mcp-num">{{ nv(row.outline_reads) }}</td>
-                  <td class="mcp-num">{{ nv(row.content_reads) }}</td>
-                  <td class="mcp-num">{{ nv(row.errors) }}</td>
-                  <td class="mcp-num">{{ ms(row.total_ms) }}</td>
-                  <td>{{ clipped(row.intent) }}</td>
-                  <td class="mcp-mono">{{ nv(row.session) }}</td>
+                  {{ when_td(row.started) }}
+                  {{ text_td(row.client) }}
+                  {{ num_td(row.calls) }}
+                  {{ num_td(row.searches) }}
+                  {{ num_td(row.outline_reads) }}
+                  {{ num_td(row.content_reads) }}
+                  {{ num_td(row.errors) }}
+                  {{ ms_td(row.total_ms) }}
+                  {#- ``data-v`` נושא את הכוונה **המלאה**, בעוד שהתא מציג
+                      גרסה חתוכה ב-64 תווים. העתקה שקוראת את הטקסט המוצג
+                      הייתה מייצרת שורה שנגמרת ב-``…``. -#}
+                  <td data-v="{{ row.intent if row.intent is not none else '' }}">{{ clipped(row.intent) }}</td>
+                  {{ text_td(row.session, 'mcp-mono') }}
                 </tr>
               {% endfor %}
             </tbody>
           </table>
           <p class="mcp-meta" style="margin-top:0.8rem;">
             {% if navigation_cost.total is not none %}
-              מוצגים {{ navigation_cost.rows | length }} מתוך {{ navigation_cost.total }} סשנים, החדשים תחילה.
+              מוצגים {{ navigation_cost.rows | length }} מתוך {{ navigation_cost.total }} סשנים{% if sessions_sort.active %}, לפי המיון שנבחר{% else %}, החדשים תחילה{% endif %}.
             {% else %}
               מוצגים {{ navigation_cost.rows | length }} הסשנים האחרונים{% if navigation_cost.has_more %} · יש עוד{% endif %}.
             {% endif %}
@@ -641,8 +887,8 @@
             טור אחד שסופר את שניהם יחד לא יכול להראות שהאחת החליפה את השנייה, וזה בדיוק מה שהעמוד נבנה כדי למדוד.
           </p>
           <p class="mcp-meta" style="margin-top:0.5rem;">
-            <strong>אין להשוות בין סשנים בלי לדעת מה הייתה המשימה.</strong>
-            15 קריאות במשימה גדולה יכולות להיות יעילות יותר מ-20 במשימה קטנה. הטור מודד עלות, לא איכות.
+            <strong>{{ sessions_caveat }}</strong>
+            15 קריאות במשימה גדולה יכולות להיות יעילות יותר מ-20 במשימה קטנה.
           </p>
           <p class="mcp-meta" style="margin-top:0.5rem;">
             שתי עמודות שנוספו כאן מתמלאות רק מרגע שהאיסוף שלהן עלה לאוויר, וזה צפוי:
@@ -678,7 +924,7 @@
   </div>
 
   {# ---------- טאב 3: כלים חסרים ---------- #}
-  <div id="mcpPanelMissing" class="mcp-panel" data-panel="missing" role="tabpanel">
+  <div id="mcpPanelMissing" class="mcp-panel{% if active_tab == 'missing' %} active{% endif %}" data-panel="missing" role="tabpanel">
     {% if not missing_capabilities.ok %}
       {{ panel_error(missing_capabilities) }}
     {% else %}
@@ -702,7 +948,22 @@
               {% for row in missing_capabilities.rows %}
                 <tr>
                   <td class="mcp-num">{{ when(row.reported_at) }}</td>
-                  <td class="mcp-capability">{{ nv(row.capability) }}</td>
+                  {#- כפתור אייקון בלי טקסט: הוא חוזר בכל שורה, והמילה
+                      "העתק" הייתה מכפילה את רוחב העמודה שהיא עיקר הטבלה.
+                      ``aria-label`` נושא את המשמעות לקורא מסך, וה-``<i>``
+                      מוסתר ממנו כדי שלא יוכרז פעמיים.
+
+                      הטקסט נקרא מ-``data-v`` שעל התא ולא מ-``textContent``,
+                      כי תא ריק מציג מקף — ומקף אינו מה שרוצים בלוח. אין
+                      כפתור כשאין מה להעתיק. -#}
+                  <td class="mcp-capability" data-v="{{ row.capability if row.capability is not none else '' }}">
+                    {{- nv(row.capability) -}}
+                    {%- if row.capability %}
+                      <button type="button" class="mcp-copy-cell" aria-label="העתקת מה שהסוכן ביקש">
+                        <i class="fas fa-copy" aria-hidden="true"></i>
+                      </button>
+                    {%- endif %}
+                  </td>
                   <td>{{ nv(row.intent_source) }}</td>
                   <td>{{ nv(row.client) }}</td>
                   <td class="mcp-mono">{{ nv(row.session) }}</td>
@@ -856,6 +1117,221 @@
       // נכתב **אחרי** הספירה, אחרת הביקור הנוכחי היה מאפס את עצמו.
       writeLastSeen(new Date(newest).toISOString());
     })();
+
+    // ---- העתקה ----
+    //
+    // הפלט הוא טבלת Markdown, כי היעד הוא הדבקה לצ'אט עם סוכן. שלושה
+    // כללים מייצרים אותו:
+    //
+    // 1. **מעתיקים את מה שרואים.** השורות נקראות מה-DOM לפי סדר התצוגה,
+    //    ולכן ההעתקה מכבדת את המיון (שנעשה בשרת) ואת כל סינון שיתווסף
+    //    בעתיד — בלי שורת קוד נוספת ובלי מקום שני שיכול להיסחף.
+    // 2. **הערכים מ-``data-v`` ולא מהטקסט המוצג.** שם יושב המספר בלי
+    //    ``ms``, האחוז כמספר, והכוונה המלאה ולא החתוכה ב-64 תווים.
+    // 3. **הרשימה נבנית מהשורות שיש עכשיו.** אופציה גדולה ממספר השורות
+    //    פשוט אינה נוצרת — אין רשימה קשיחה שצריך לזכור לסנכרן ביום שמספר
+    //    הכלים משתנה.
+    //
+    // אין כאן ``innerHTML``: כל צומת נבנה ב-``createElement`` והטקסט נכתב
+    // ב-``textContent``. זו אותה הגנה שמופיעה בכל שאר העמוד.
+    var COPY_STEPS = [25, 10, 5];
+    var FLASH_MS = 1400;
+
+    function visibleRows(table) {
+      // ``hidden``/``display:none`` על השורה — כך שאר העמודים בריפו
+      // מסננים. הבדיקה **אינה** נשענת על מדידת פריסה (``offsetParent``),
+      // כי הטבלה יושבת בתוך טאב שעשוי להיות סגור ברגע החישוב, ואז כל
+      // השורות היו נספרות כמוסתרות.
+      return Array.prototype.slice.call(table.querySelectorAll('tbody tr'))
+        .filter(function (row) {
+          return !row.hidden && row.style.display !== 'none';
+        });
+    }
+
+    function mdCell(value) {
+      // סדר הבריחות אינו חופשי: הלוכסן ההפוך ראשון, אחרת הלוכסן שנוסף
+      // כדי לברוח מ-"|" היה בורח בעצמו בשלב שאחריו.
+      var text = value === null || value === undefined ? '' : String(value);
+      return text
+        .replace(/\\/g, '\\\\')
+        .replace(/\|/g, '\\|')
+        .replace(/\r\n|\r|\n/g, ' ')
+        .trim();
+    }
+
+    function markdownTable(table, limit) {
+      var heads = Array.prototype.slice.call(table.querySelectorAll('thead th'))
+        .map(function (th) {
+          // ``data-copy-head`` קיים רק כשהשם בהעתקה נבדל מהמוצג — שם
+          // נכנסת היחידה, כי המספרים מועתקים גולמיים בלי "ms".
+          return mdCell(th.dataset.copyHead || th.textContent);
+        });
+      var rows = visibleRows(table);
+      if (limit) {
+        rows = rows.slice(0, limit);
+      }
+      var separator = heads.map(function () { return '---'; });
+      var lines = [
+        '| ' + heads.join(' | ') + ' |',
+        '| ' + separator.join(' | ') + ' |'
+      ];
+      rows.forEach(function (row) {
+        var cells = Array.prototype.slice.call(row.children).map(function (cell) {
+          return mdCell(cell.dataset.v);
+        });
+        lines.push('| ' + cells.join(' | ') + ' |');
+      });
+      // שורת הסייג נוסעת עם הטבלה. בלעדיה מי שמדביק את המספרים לצ'אט
+      // מאבד בדיוק את ההסתייגות שבגללה הם מוצגים ככה.
+      var note = table.dataset.copyNote;
+      if (note) {
+        lines.push('');
+        lines.push('> ' + mdCell(note));
+      }
+      return lines.join('\n');
+    }
+
+    function writeClipboard(text, done) {
+      // ``navigator.clipboard.writeText`` מחזיר Promise שנדחה ב-
+      // ``NotAllowedError`` כשההרשאה חסרה, והוא זמין ב-secure context
+      // בלבד (מקור: MDN, ``Clipboard.writeText``).
+      //
+      // **אין כאן נפילה אחורה ל-``document.execCommand``.** מסלול חלופי
+      // שמצליח לפעמים, ומעתיק משהו אחר ממה שביקשנו, הוא בדיוק סוג הכשל
+      // שאי אפשר לאבחן אחר כך. נכשל ← נאמר בקול.
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        done(false);
+        return;
+      }
+      navigator.clipboard.writeText(text).then(
+        function () { done(true); },
+        function () { done(false); }
+      );
+    }
+
+    function flashIcon(button, ok) {
+      var icon = button.querySelector('i');
+      if (!icon) { return; }
+      var original = icon.className;
+      icon.className = ok ? 'fas fa-check' : 'fas fa-triangle-exclamation';
+      window.setTimeout(function () { icon.className = original; }, FLASH_MS);
+    }
+
+    function flashLabel(control, message) {
+      var label = control.querySelector('.mcp-copy-label');
+      if (!label) { return; }
+      var original = label.textContent;
+      label.textContent = message;
+      window.setTimeout(function () { label.textContent = original; }, FLASH_MS);
+    }
+
+    function copyLabel(total) {
+      return 'העתק הכל (' + total + ')';
+    }
+
+    function refreshLabel(control, table) {
+      var label = control.querySelector('.mcp-copy-label');
+      if (label) { label.textContent = copyLabel(visibleRows(table).length); }
+    }
+
+    function closeMenus(except) {
+      Array.prototype.slice.call(document.querySelectorAll('.mcp-copy')).forEach(function (control) {
+        if (control === except) { return; }
+        var menu = control.querySelector('.mcp-copy-menu');
+        var toggle = control.querySelector('.mcp-copy-more');
+        if (menu) { menu.hidden = true; }
+        if (toggle) { toggle.setAttribute('aria-expanded', 'false'); }
+      });
+    }
+
+    function runCopy(control, table, limit) {
+      var button = control.querySelector('.mcp-copy-main');
+      var text = markdownTable(table, limit);
+      writeClipboard(text, function (ok) {
+        if (button) { flashIcon(button, ok); }
+        var rows = visibleRows(table).length;
+        var copied = limit ? Math.min(limit, rows) : rows;
+        flashLabel(control, ok ? ('הועתקו ' + copied + ' שורות') : 'ההעתקה נכשלה');
+      });
+    }
+
+    function buildMenu(control, table) {
+      var menu = control.querySelector('.mcp-copy-menu');
+      if (!menu) { return; }
+      var total = visibleRows(table).length;
+      while (menu.firstChild) { menu.removeChild(menu.firstChild); }
+
+      var options = [{ limit: 0, label: copyLabel(total) }];
+      COPY_STEPS.forEach(function (step) {
+        // "גדולה ממספר השורות המוצג" — כולל שווה לו, כי אז היא אותה
+        // אופציה כמו "הכל" במילים אחרות.
+        if (step < total) {
+          options.push({ limit: step, label: step + ' השורות הראשונות' });
+        }
+      });
+
+      options.forEach(function (option) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'mcp-copy-option';
+        button.textContent = option.label;
+        button.addEventListener('click', function () {
+          closeMenus();
+          runCopy(control, table, option.limit);
+        });
+        menu.appendChild(button);
+      });
+    }
+
+    Array.prototype.slice.call(document.querySelectorAll('.mcp-copy')).forEach(function (control) {
+      // ``data-copy-for`` נכתב בשרת מתוך קבוצה סגורה של שני ערכים.
+      var table = document.querySelector('[data-copy-table="' + control.dataset.copyFor + '"]');
+      if (!table) { return; }
+
+      // נחשף רק עכשיו: בלי JS אין העתקה, וכפתור מת גרוע מכפתור שאינו שם.
+      control.hidden = false;
+      refreshLabel(control, table);
+
+      var main = control.querySelector('.mcp-copy-main');
+      var more = control.querySelector('.mcp-copy-more');
+      var menu = control.querySelector('.mcp-copy-menu');
+
+      if (main) {
+        main.addEventListener('click', function () {
+          closeMenus();
+          runCopy(control, table, 0);
+        });
+      }
+      if (more && menu) {
+        more.addEventListener('click', function (event) {
+          event.stopPropagation();
+          var open = menu.hidden;
+          closeMenus(control);
+          if (open) { buildMenu(control, table); }
+          menu.hidden = !open;
+          more.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+      }
+    });
+
+    // סגירה בלחיצה בחוץ וב-Escape. בלי זה התפריט נשאר פתוח מעל הטבלה.
+    document.addEventListener('click', function (event) {
+      if (!event.target.closest || !event.target.closest('.mcp-copy')) { closeMenus(); }
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') { closeMenus(); }
+    });
+
+    // העתקת תא בודד ב"כלים חסרים". הטקסט מגיע מ-``data-v`` שעל התא ולא
+    // מ-``textContent``, כי תא ריק מציג מקף — ומקף אינו מה שרוצים בלוח.
+    document.addEventListener('click', function (event) {
+      var button = event.target.closest ? event.target.closest('.mcp-copy-cell') : null;
+      if (!button) { return; }
+      var cell = button.closest('td');
+      var text = cell ? (cell.dataset.v || '') : '';
+      if (!text) { return; }
+      writeClipboard(text, function (ok) { flashIcon(button, ok); });
+    });
   })();
 </script>
 {% endblock %}
