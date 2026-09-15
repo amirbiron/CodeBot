@@ -25,6 +25,8 @@ import uuid as _uuid
 from typing import Any, Callable
 
 from .handlers import (
+    CONTEXT_LINES_WITHOUT_QUERY,
+    MAX_RESULTS_WITHOUT_QUERY,
     QUERY_AND_LINES,
     QUERY_OUTPUT_BYTE_BUDGET,
     QUERY_RESULTS_DEFAULT,
@@ -392,15 +394,26 @@ class ProductionBackend:
         version: int | None = None,
         lines: Any = None,
         query: Any = None,
-        context_lines: int = 0,
-        max_results: int = QUERY_RESULTS_DEFAULT,
+        context_lines: int | None = None,
+        max_results: int | None = None,
     ) -> dict[str, Any] | None:
         # שני מצבי קריאה שאינם מצטברים, ושניהם נבדקים **לפני** הקריאה למסד:
         # שאילתה פסולה לא צריכה לשלם טעינת מסמך שלם רק כדי להיפסל בסוף. זו
         # אותה החלטה ואותו מיקום כמו ``outline_and_lines`` ב-``repo_backend``,
         # והיא יושבת ב-backend ולא ב-``handlers`` כדי שגם קורא שאינו עובר דרך
         # שכבת ה-handlers יקבל את הסירוב ולא התעלמות שקטה מאחד הפרמטרים.
-        if query is not None:
+        if query is None:
+            # ``context_lines`` ו-``max_results`` מתארים **איך להציג מופעים**,
+            # ובלי ``query`` אין מופעים. ``None`` כאן פירושו "לא נשלח":
+            # ``handlers.get_file`` נמנע במכוון מלהצמיד ערך חסר לברירת מחדל,
+            # כדי שההבחנה הזו תשרוד עד לכאן. הסירוב מפורש מאותה סיבה בדיוק
+            # שבגללה ``query``+``lines`` נדחים ולא מונמכים בשקט לאחד מהם:
+            # פרמטר שהתקבל ונזרק הוא אותה שתיקה.
+            if context_lines is not None:
+                return {"ok": False, "error": CONTEXT_LINES_WITHOUT_QUERY}
+            if max_results is not None:
+                return {"ok": False, "error": MAX_RESULTS_WITHOUT_QUERY}
+        else:
             if lines is not None:
                 return {"ok": False, "error": QUERY_AND_LINES}
             query_error = file_query_error(query)
@@ -425,7 +438,10 @@ class ProductionBackend:
         out = _full(doc)
         if query is not None:
             return _apply_query_to_file(
-                out, query, context_lines=context_lines, max_results=max_results
+                out,
+                query,
+                context_lines=0 if context_lines is None else context_lines,
+                max_results=QUERY_RESULTS_DEFAULT if max_results is None else max_results,
             )
         if lines is None:
             return out

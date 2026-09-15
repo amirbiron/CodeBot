@@ -54,6 +54,20 @@ QUERY_AND_LINES = "query_and_lines"
 QUERY_TOO_SHORT = "query_too_short"
 QUERY_INVALID = "invalid_query"
 
+# שאילתה שפרוסה על יותר משורה אחת נדחית, ולא מוחזרת כ"אפס מופעים". הסיבה
+# מבנית ולא נוחות: כל רשומה בתשובה עוגנת לשורה אחת — ``line``, ``snippet``,
+# וההמשך ב-``lines=[line, line]`` — ולהתאמה שחוצה שורות אין ``line`` מוגדר.
+# בלי הדחייה הזו ``query in text`` יכול להיות אמת בעוד התשובה מדווחת
+# ``total: 0`` **כהצלחה**, כלומר תשובה שקרית שנראית בטוחה ואין בה שגיאה.
+QUERY_MULTILINE = "query_multiline"
+
+# ``context_lines`` ו-``max_results`` נושאים משמעות רק יחד עם ``query``.
+# העברתם בלעדיו מקבלת סירוב מפורש ולא התעלמות שקטה — אותה הכרעה שמאחורי
+# ``QUERY_AND_LINES``: פרמטר שהתקבל ונזרק הוא אותה שתיקה בדיוק. שני קודים
+# ולא אחד, כדי שהקורא ידע איזה משני הפרמטרים נדחה.
+CONTEXT_LINES_WITHOUT_QUERY = "context_lines_without_query"
+MAX_RESULTS_WITHOUT_QUERY = "max_results_without_query"
+
 # התקרות של חיפוש בתוך קובץ. **אותם מספרים בדיוק** כמו ב-
 # ``repo_handlers.SEARCH_RESULTS_DEFAULT`` / ``SEARCH_RESULTS_MAX`` /
 # ``CONTEXT_LINES_MAX`` / ``OUTPUT_BYTE_BUDGET``, כי ``query`` מחזיר את צורת
@@ -193,11 +207,20 @@ def file_query_error(query: Any) -> str | None:
     לפני החיפוש: חיפוש של הזחה (``"    return"``) הוא שימוש אמיתי, וקיצוץ היה
     משנה בשקט את מה שהקורא ביקש. זו סטייה מכוונת מ-``codekeeper_search_repo``,
     שכן מקצץ.
+
+    **שאילתה רב-שורתית נדחית כ-**\\ ``query_multiline``. ההתאמה ב-
+    :func:`scan_file_query` נעשית שורה אחר שורה, ולכן מחרוזת שיש בה
+    ``\\n`` אינה יכולה להתאים לעולם — ואפס מופעים הוא **הצלחה** מוצהרת.
+    צירוף שתי ההחלטות האלה מייצר "לא נמצא" על ביטוי שכן נמצא בקובץ, וזה
+    בדיוק מה שסוכן מייצר כשהוא מדביק קטע מקובץ שקרא לפני רגע. נבחרה דחייה
+    ולא תמיכה, כי צורת התשובה עצמה עוגנת-שורה.
     """
     if not isinstance(query, str):
         return QUERY_INVALID
     if not query.strip():
         return QUERY_TOO_SHORT
+    if "\n" in query:
+        return QUERY_MULTILINE
     return None
 
 
@@ -320,8 +343,8 @@ def get_file(
     version: int | None = None,
     lines: Any = None,
     query: Any = None,
-    context_lines: Any = 0,
-    max_results: Any = QUERY_RESULTS_DEFAULT,
+    context_lines: Any = None,
+    max_results: Any = None,
 ) -> dict[str, Any] | None:
     if not file_name and not file_id:
         return None
@@ -329,6 +352,11 @@ def get_file(
     # לטווח נצמד ואינו מכשיל את הקריאה. **הדחייה** של ``query`` פסול ושל
     # ``query``+``lines`` יושבת דווקא ב-backend, בראש המתודה — שם היא מובטחת
     # גם לקורא שאינו עובר דרך כאן, והיא עדיין קודמת לקריאה למסד.
+    #
+    # **``None`` עובר כמות שהוא ואינו נצמד ל-0 או ל-50.** זה מה שמבדיל "לא
+    # נשלח" מ"נשלח בדיוק הערך הזה", והסירוב ב-backend על ``context_lines``
+    # או ``max_results`` בלי ``query`` נשען על ההבחנה הזו. הצמדה של ערך חסר
+    # לברירת מחדל הייתה מוחקת אותה כאן, שורה אחת לפני מי שצריך אותה.
     return backend.get_file(
         user_id,
         file_name=file_name,
@@ -336,8 +364,14 @@ def get_file(
         version=version,
         lines=lines,
         query=query,
-        context_lines=_clamp(context_lines, 0, QUERY_CONTEXT_LINES_MAX, 0),
-        max_results=_clamp(max_results, 1, QUERY_RESULTS_MAX, QUERY_RESULTS_DEFAULT),
+        context_lines=(
+            None if context_lines is None else _clamp(context_lines, 0, QUERY_CONTEXT_LINES_MAX, 0)
+        ),
+        max_results=(
+            None
+            if max_results is None
+            else _clamp(max_results, 1, QUERY_RESULTS_MAX, QUERY_RESULTS_DEFAULT)
+        ),
     )
 
 

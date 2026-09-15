@@ -15,6 +15,7 @@
 """
 
 import json
+import logging
 
 import pytest
 
@@ -29,35 +30,55 @@ pytest.importorskip("mcp")
 
 _USER = 7
 _FILE = "CobaltNext.json"
+_DOC_ID = "abc123"
 
 
 class _Dbm:
-    """דמה של שכבת ה-DB: מחזירה מסמך אחד, לפי שם.
+    """דמה של שכבת ה-DB: מחזירה מסמך אחד, לפי שם / מזהה / גרסה.
 
     ``get_latest_version_fresh`` ולא ``get_latest_version`` — זה המסלול
     ש-``_latest_fresh`` בוחר כשהוא קיים, וזה המסלול שרץ בפרודקשן.
+
+    שלוש השיטות מכסות את שלושת מסלולי הבחירה ב-``ProductionBackend.get_file``,
+    כי ``query`` רץ **אחרי** הבחירה ולכן הוא מבטיח את אותה תשובה בכל אחד מהם.
+    ``get_file_by_id`` אינה מסננת לפי משתמש, בדיוק כמו האמיתית — הבעלות
+    נאכפת ב-backend, וזה מה שהופך את הבדיקה עליה למשמעותית.
     """
 
-    def __init__(self, code: str, extra: dict | None = None):
+    def __init__(self, code: str, extra: dict | None = None, old_code: str | None = None):
         self._code = code
         self._extra = extra or {}
+        self._old_code = old_code
 
-    def get_latest_version_fresh(self, user_id, file_name):
-        if file_name != _FILE:
-            return None
+    def _doc(self, code: str, version: int) -> dict:
         return {
-            "_id": "abc123",
+            "_id": _DOC_ID,
             "user_id": _USER,
             "file_name": _FILE,
-            "version": 2,
-            "code": self._code,
+            "version": version,
+            "code": code,
             "programming_language": "json",
             "is_active": True,
             **self._extra,
         }
 
+    def get_latest_version_fresh(self, user_id, file_name):
+        if file_name != _FILE:
+            return None
+        return self._doc(self._code, 2)
 
-def _build(monkeypatch, code: str, extra: dict | None = None):
+    def get_file_by_id(self, file_id):
+        if file_id != _DOC_ID:
+            return None
+        return self._doc(self._code, 2)
+
+    def get_version(self, user_id, file_name, version):
+        if file_name != _FILE or version != 1 or self._old_code is None:
+            return None
+        return self._doc(self._old_code, 1)
+
+
+def _build(monkeypatch, code: str, extra: dict | None = None, old_code: str | None = None):
     """שרת MCP אמיתי מעל ``ProductionBackend`` אמיתי."""
     import mcp_server.server as srv
     from mcp_server.backend import ProductionBackend
@@ -71,7 +92,9 @@ def _build(monkeypatch, code: str, extra: dict | None = None):
     # אינו ``None``, וגופם רץ רק בקריאה בפועל — שאין כאן. הוא נדרש כדי
     # שהבדיקה על הסכימה תוכל להשוות מול ``codekeeper_search_repo``, ודגל
     # האדמין כדי שהוא לא יסונן מרשימת הכלים.
-    mcp = srv.build_mcp(ProductionBackend(db_manager=_Dbm(code, extra)), repo_backend=object())
+    mcp = srv.build_mcp(
+        ProductionBackend(db_manager=_Dbm(code, extra, old_code)), repo_backend=object()
+    )
     mcp._request_is_admin = lambda: True
     return mcp
 
@@ -522,13 +545,19 @@ async def test_the_schema_rejects_the_wrong_types_on_the_real_call_path(monkeypa
     ``context_lines=true`` מתקבל ונעשה ``1`` בשקט — קריאה שביקשה משהו אחר
     וקיבלה תשובה תקינה בלי שום סימן.
     """
+    from mcp.server.fastmcp.exceptions import ToolError
+
     mcp = _build(monkeypatch, _SAMPLE)
 
+    # ``ToolError`` ולא ``Exception``: הדחייה שנבדקת כאן היא ולידציית סכימה,
+    # ו-``Exception`` היה עובר גם על שגיאת ייבוא, על נפילת הדמה או על כל
+    # תקלה אחרת בדרך — כלומר הבדיקה הייתה ירוקה בלי לבדוק את מה שהיא
+    # מתיימרת לבדוק. הטיפוס והטקסט נמדדו מול ``mcp 1.28.1``.
     for bad in ({"query": 5}, {"query": True}, {"query": ["a"]}):
-        with pytest.raises(Exception):
+        with pytest.raises(ToolError, match="validation error"):
             await _call(mcp, file_name=_FILE, **bad)
     for bad_ctx in (True, 1.5, "2"):
-        with pytest.raises(Exception):
+        with pytest.raises(ToolError, match="validation error"):
             await _call(mcp, file_name=_FILE, query="alpha", context_lines=bad_ctx)
 
     # ``context_lines`` מעל התקרה **נצמד** ואינו נדחה — זו המדיניות המוצהרת.
@@ -556,9 +585,230 @@ async def test_the_tool_schema_declares_the_new_parameters_compatibly(monkeypatc
 
     # אותה צורה בדיוק כמו מחרוזת אופציונלית שכבר קיימת בכלי הזה.
     assert _shape(props["query"]) == _shape(props["file_name"])
-    # ו-``context_lines`` זהה לזה של ``codekeeper_search_repo``, כולל
-    # ברירת המחדל — ``StrictInt`` אינו משנה את מה שהלקוח רואה.
+
+    # ‏``context_lines`` ו-``max_results`` **סוטים במכוון** מ-
+    # ``codekeeper_search_repo``: שם ברירת המחדל היא הערך עצמו (0 ו-50),
+    # וכאן היא ``null``. ההבדל אינו קוסמטי — הוא מה שמאפשר להבדיל בין
+    # "לא נשלח" לבין "נשלח בדיוק הערך הזה", ובלעדיו אי אפשר לדחות פרמטר
+    # שהועבר בלי ``query``: הוא היה נבלע כברירת מחדל ונזרק בשקט. הטיפוס
+    # עצמו נשאר מספר שלם בשני הכלים, ו-``StrictInt`` אינו נראה בסכימה.
     search_props = tools["codekeeper_search_repo"].get("properties") or {}
-    assert _shape(props["context_lines"]) == _shape(search_props["context_lines"])
-    assert _shape(props["max_results"]) == _shape(search_props["max_results"])
+    for name in ("context_lines", "max_results"):
+        assert props[name]["default"] is None
+        assert props[name]["anyOf"] == [{"type": "integer"}, {"type": "null"}]
+        assert search_props[name]["default"] is not None
     assert not schema.get("required")
+
+
+# ===========================================================================
+# 4. סירוב מפורש במקום שתיקה — תיקוני הריוויו
+#
+# שלוש הבדיקות הראשונות כאן חולקות שורש אחד: **פרמטר שהתקבל ולא עשה את מה
+# שהקורא ביקש, בלי שום סימן.** פעם אחת שאילתה שלא יכלה להתאים, פעם אחת
+# פרמטר שנזרק, ופעם אחת קריאה שנספרה בעמודת אנליטיקס לא נכונה. בכל שלוש
+# התשובה נראתה תקינה, וזה מה שהופך אותן למסוכנות יותר משגיאה.
+# ===========================================================================
+
+
+async def test_a_multi_line_query_is_refused_and_not_reported_as_zero_matches(monkeypatch):
+    """ביטוי שפרוס על שתי שורות **נמצא** בקובץ, וההתאמה נעשית לפי שורה.
+
+    בלי הסירוב הזה ``query in text`` הוא אמת בעוד התשובה מדווחת
+    ``total: 0`` **כהצלחה** — "לא נמצא" בטוח על ביטוי שקיים. זה בדיוק מה
+    שסוכן מייצר כשהוא מדביק קטע מקובץ שקרא לפני רגע, ולכן זה לא קצה.
+
+    מוטציה שמפילה: להסיר את ``if "\\n" in query`` מ-``file_query_error``.
+    אז הקריאה חוזרת ``ok`` עם ``total: 0`` והשוואת הסירוב כאן נופלת.
+    """
+    mcp = _build(monkeypatch, _SAMPLE)
+    needle = '"alpha": 1,\n  "beta"'
+    # זו השורה שהופכת את האפס לשקר ולא לתשובה: הביטוי באמת בתוך הקובץ.
+    assert needle in _SAMPLE
+
+    assert await _call(mcp, file_name=_FILE, query=needle) == {
+        "ok": False,
+        "error": handlers.QUERY_MULTILINE,
+    }
+
+    # והצד השני, כדי שהסירוב לא יתרחב בשקט: שאילתה חד-שורתית עובדת.
+    out = await _call(mcp, file_name=_FILE, query='"alpha"')
+    assert out["total"] == 1
+
+
+async def test_context_lines_and_max_results_are_refused_without_query(monkeypatch):
+    """פרמטר שמתאר **איך להציג מופעים** חסר משמעות כשאין מופעים.
+
+    זו אותה הכרעה שמאחורי ``query_and_lines``: שני מצבים שאינם מצטברים
+    נדחים במפורש, ואין הנמכה חשאית של אחד מהם. פרמטר שהתקבל ונזרק הוא
+    אותה שתיקה בדיוק.
+
+    מוטציה שמפילה: להחזיר ל-``handlers.get_file`` הצמדה של ``None`` ל-0
+    ול-50. אז "לא נשלח" ו"נשלח 0" נראים זהים ב-backend, הסירוב אינו יכול
+    לפעול, וארבע ההשוואות כאן נופלות.
+    """
+    mcp = _build(monkeypatch, _SAMPLE)
+
+    assert await _call(mcp, file_name=_FILE, context_lines=5) == {
+        "ok": False,
+        "error": handlers.CONTEXT_LINES_WITHOUT_QUERY,
+    }
+    assert await _call(mcp, file_name=_FILE, max_results=7) == {
+        "ok": False,
+        "error": handlers.MAX_RESULTS_WITHOUT_QUERY,
+    }
+    # גם לצד ``lines``: ``context_lines`` אינו חלק מקריאת טווח.
+    assert await _call(mcp, file_name=_FILE, lines=[1, 2], context_lines=5) == {
+        "ok": False,
+        "error": handlers.CONTEXT_LINES_WITHOUT_QUERY,
+    }
+    # ו-**0 אינו "לא נשלח"**. זו הבדיקה שמוכיחה שההבחנה אמיתית ולא נשענת
+    # על ערך שבמקרה שווה לברירת המחדל הישנה.
+    assert await _call(mcp, file_name=_FILE, context_lines=0) == {
+        "ok": False,
+        "error": handlers.CONTEXT_LINES_WITHOUT_QUERY,
+    }
+
+    # ובלי אף אחד מהם — בדיוק מה שהכלי החזיר לפני כל זה.
+    plain = await _call(mcp, file_name=_FILE)
+    assert set(plain) == {"found", "file"}
+    assert plain["file"]["code"] == _SAMPLE
+
+
+def test_the_read_mode_column_reads_only_the_parameter_each_tool_declares(caplog):
+    """‏``outline`` שייך לכלי הריפו ו-``query`` לכלי הקבצים — לא להפך.
+
+    הקולבק מקבל את מילון הארגומנטים **הגולמי**, לפני ש-pydantic מסלק ממנו
+    מפתחות שאינם בסכימה של הכלי. לכן מפתח תועה של הכלי האחר מגיע לכאן,
+    והתשובה נספרת בעמודה הלא נכונה: לא רק שהעמודה שלו מתנפחת, אלא ששתי
+    האחרות יוצאות חסרות באותה מידה. שום שגיאה אינה נראית.
+
+    מוטציה שמפילה: להחזיר את הבדיקה הלא-מותנית של ``outline`` / ``query``
+    (כלומר להתעלם מ-``_TOOL_READ_MODE_PARAMS``). ארבע ההשוואות הראשונות
+    כאן נופלות — שתיים לכל כיוון.
+    """
+
+    def mode(name, arguments):
+        return analytics.read_mode_properties(
+            {"method": "tools/call", "params": {"name": name, "arguments": arguments}}
+        )
+
+    key = analytics.CK_READ_MODE_KEY
+
+    # ``outline`` אינו פרמטר של ``codekeeper_get_file``.
+    assert mode("codekeeper_get_file", {"outline": True}) == {key: analytics.READ_MODE_FULL}
+    assert mode("codekeeper_get_file", {"outline": True, "lines": [1, 2]}) == {
+        key: analytics.READ_MODE_RANGE
+    }
+    # ``query`` אינו פרמטר של ``codekeeper_get_repo_file``.
+    assert mode("codekeeper_get_repo_file", {"query": "x"}) == {key: analytics.READ_MODE_FULL}
+    assert mode("codekeeper_get_repo_file", {"query": "x", "lines": [1, 2]}) == {
+        key: analytics.READ_MODE_RANGE
+    }
+
+    # וכל כלי כן נספר לפי הפרמטר שבאמת שלו.
+    assert mode("codekeeper_get_file", {"query": "x"}) == {key: analytics.READ_MODE_QUERY}
+    assert mode("codekeeper_get_repo_file", {"outline": True}) == {key: analytics.READ_MODE_OUTLINE}
+
+    # שם כלי שאינו מחרוזת: ``dict.get`` מגבב את המפתח, וערך לא-hashable
+    # מייצר ``TypeError``.
+    #
+    # **מה שנבדק כאן הוא הלוג ולא ערך ההחזרה**, ובכוונה. ה-``except`` שעוטף
+    # את הפונקציה מחזיר ``None`` בכל מקרה, ולכן השוואה ל-``None`` לבדה
+    # עוברת גם בלי ההגנה — כלומר אינה מסוגלת ליפול על מה שהיא בודקת.
+    # ההבדל האמיתי נמדד: בלי ההגנה כל אירוע כזה כותב אזהרה עם traceback,
+    # ועם ההגנה התשובה היא "זו אינה קריאת קובץ" בלי שום רעש.
+    with caplog.at_level(logging.WARNING, logger="mcp_server.analytics"):
+        assert mode(["codekeeper_get_file"], {"query": "x"}) is None
+        assert mode({"a": 1}, {"query": "x"}) is None
+    assert caplog.records == []
+
+
+async def test_the_read_mode_map_matches_the_schemas_the_tools_declare(monkeypatch):
+    """המפה נגזרת מהסכימה, ולא מהזיכרון של מי שכתב אותה.
+
+    ``analytics.py`` אינו יכול לייבא מ-``server.py`` (ייבוא מעגלי), ולכן
+    שיוך הפרמטרים כתוב שם ביד. כאן נשאלים הכלים הרשומים עצמם אילו פרמטרי
+    קריאה הם מצהירים עליהם בפועל. כלי שיקבל מחר ``query`` בלי שהמפה
+    תעודכן מפיל את הבדיקה, במקום להיספר בעמודה הלא נכונה בשקט.
+
+    ``lines`` הוא מה שמגדיר "קריאת תוכן קובץ", וזו אותה הגדרה שכבר משמשת
+    את הבדיקה המקבילה על ``FILE_READ_TOOLS``.
+    """
+    mcp = _build(monkeypatch, _SAMPLE)
+
+    read_mode_params = {"outline", "query", "lines"}
+    declared = {}
+    for tool in await mcp.list_tools():
+        owned = set((tool.inputSchema or {}).get("properties") or {}) & read_mode_params
+        if "lines" in owned:
+            declared[tool.name] = frozenset(owned)
+
+    assert declared == analytics._TOOL_READ_MODE_PARAMS
+    assert frozenset(declared) == analytics.FILE_READ_TOOLS
+
+
+def test_the_tool_description_takes_its_ceilings_from_the_constants(monkeypatch):
+    """המספרים שהסוכן קורא נשתלים מהקבועים, ואינם כתובים כטקסט.
+
+    בלי זה, העלאת ``QUERY_RESULTS_MAX`` משאירה את התיאור מבטיח את המספר
+    הישן והסוויטה נשארת ירוקה — כלומר כל סוכן מגביל את עצמו לתקרה שכבר
+    אינה התקרה. אותה מוסכמה שכבר נאכפת על תיאור הכלי האח ב-
+    ``tests/test_mcp_server_build.py``.
+
+    הבדיקה מריצה את הבנייה מחדש עם קבועים אחרים במקום להסתפק בהשוואה
+    לערכים הנוכחיים: השוואה כזו עוברת גם על טקסט קשיח שבמקרה נכון היום,
+    כלומר אינה מסוגלת ליפול על מה שהיא אמורה לתפוס.
+
+    מוטציה שמפילה: להחזיר את המספרים כטקסט קשיח ב-``_build_query_doc``.
+    """
+    from mcp_server import server
+
+    assert f"as far as {handlers.QUERY_RESULTS_MAX}" in server._QUERY_DOC
+
+    monkeypatch.setattr(handlers, "QUERY_RESULTS_DEFAULT", 7)
+    monkeypatch.setattr(handlers, "QUERY_RESULTS_MAX", 123)
+    monkeypatch.setattr(handlers, "QUERY_CONTEXT_LINES_MAX", 4)
+    rebuilt = server._build_query_doc()
+
+    assert "7 hits come back by default" in rebuilt
+    assert "as far as 123" in rebuilt
+    assert "(0-4)" in rebuilt
+    assert "as far as 100" not in rebuilt
+
+
+async def test_query_answers_the_same_way_on_every_document_selection_path(monkeypatch):
+    """‏``query`` רץ **אחרי** בחירת המסמך, ולכן שלושת המסלולים שקולים.
+
+    זו טענה שהייתה כתובה ולא נבדקה. ``file_id`` ו-``version`` לא הופיעו
+    באף בדיקה בקובץ הזה, וכך גם קובץ חסר — כלומר שלושה מסלולי תשובה על
+    קוד חדש עברו בלי כיסוי. ההתנהגות נכונה בכולם, ומה שנוסף כאן הוא
+    השמירה עליה.
+    """
+    mcp = _build(monkeypatch, _SAMPLE, old_code='{\n  "alpha": 99,\n}\n')
+
+    # קובץ חסר: "לא נמצא", ולא מעטפת שגיאה.
+    assert await _call(mcp, file_name="nope.json", query="alpha") == {"found": False}
+
+    # והשער קודם לקריאה למסד — גם כשהקובץ אינו קיים בכלל.
+    assert await _call(mcp, file_name="nope.json", query="a", lines=[1, 2]) == {
+        "ok": False,
+        "error": handlers.QUERY_AND_LINES,
+    }
+    assert await _call(mcp, file_name="nope.json", query="  ") == {
+        "ok": False,
+        "error": handlers.QUERY_TOO_SHORT,
+    }
+
+    # לפי מזהה: אותו מסמך, אותה תשובה.
+    by_id = await _call(mcp, file_id=_DOC_ID, query="alpha")
+    by_name = await _call(mcp, file_name=_FILE, query="alpha")
+    assert by_id["results"] == by_name["results"]
+    assert by_id["file"]["version"] == 2
+
+    # לפי גרסה: החיפוש רץ על **התוכן של הגרסה שנבחרה**, לא על האחרונה.
+    old = await _call(mcp, file_name=_FILE, version=1, query="99")
+    assert old["file"]["version"] == 1
+    assert old["total"] == 1
+    # ואותה שאילתה על הגרסה האחרונה אינה מוצאת דבר — כלומר באמת נסרק
+    # תוכן אחר, ולא אותו מסמך עם מספר גרסה שונה.
+    assert (await _call(mcp, file_name=_FILE, query="99"))["total"] == 0

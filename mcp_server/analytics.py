@@ -251,7 +251,21 @@ _ALLOWED_CUSTOM_PROPERTIES: dict[str, frozenset[str]] = {
 #: להיטען, פשוט עם אפסים בשתי העמודות החדשות.
 #:
 #: אותה מוסכמה שכבר קיימת בין ``outline.py`` ל-``backend.py``.
-FILE_READ_TOOLS = frozenset({"codekeeper_get_file", "codekeeper_get_repo_file"})
+
+#: **איזה פרמטר קריאה שייך לאיזה כלי.** השאלה אינה "מה נשלח" אלא "מה הכלי
+#: הזה בכלל מקבל": הקולבק מקבל את מילון הארגומנטים **הגולמי**, לפני
+#: ש-pydantic מסלק ממנו מפתחות שאינם בסכימה של הכלי, ולכן מפתח של הכלי האחר
+#: מגיע לכאן ונקרא. ``outline`` קיים רק ב-``codekeeper_get_repo_file``
+#: ו-``query`` רק ב-``codekeeper_get_file``, ובלי השיוך הזה קריאה שנושאת
+#: מפתח תועה נספרת בעמודה הלא נכונה — בלי שגיאה, ובלי שמישהו יראה את זה.
+#: שתי העמודות האחרות יוצאות חסרות באותה מידה, וזה בדיוק המדד שהעמודה
+#: נבנתה כדי לספק.
+_TOOL_READ_MODE_PARAMS: dict[str, frozenset[str]] = {
+    "codekeeper_get_file": frozenset({"query", "lines"}),
+    "codekeeper_get_repo_file": frozenset({"outline", "lines"}),
+}
+
+FILE_READ_TOOLS = frozenset(_TOOL_READ_MODE_PARAMS)
 
 _TOOL_CALL_METHOD = "tools/call"
 _MCP_PROPERTY_PREFIX = "$mcp_"
@@ -325,9 +339,14 @@ def read_mode_properties(
     the honest place for it. ``query`` is checked before ``lines`` for the same
     reason: it returns match positions, not content.
 
-    ``query`` is read only for the tools in :data:`FILE_READ_TOOLS`, which is
-    what keeps ``codekeeper_search_code`` — a different tool with a parameter of
-    the same name — out of this column entirely.
+    **Each parameter is read only for the tool that declares it**, per
+    :data:`_TOOL_READ_MODE_PARAMS`. Two things follow. ``codekeeper_search_code``
+    — a different tool with a ``query`` parameter of its own — stays out of this
+    column entirely, because it is not in the map. And a call that carries the
+    *other* file tool's parameter is counted by what it really did: this callback
+    reads the raw arguments dictionary, before pydantic drops keys the tool does
+    not declare, so ``codekeeper_get_repo_file`` with a stray ``query`` reaches
+    here carrying a parameter that tool never had.
 
     Never raises. ``resolve_event_properties`` in the SDK would swallow an
     exception here anyway, but analytics must not depend on someone else's
@@ -337,16 +356,27 @@ def read_mode_properties(
         if not isinstance(request, dict) or request.get("method") != _TOOL_CALL_METHOD:
             return None
         params = request.get("params")
-        if not isinstance(params, dict) or params.get("name") not in FILE_READ_TOOLS:
+        if not isinstance(params, dict):
+            return None
+        name = params.get("name")
+        # בדיקת טיפוס **לפני** בדיקת שייכות. ``name`` מגיע מבקשה חיצונית,
+        # ו-``dict.get`` מגבב את המפתח: ערך לא-hashable (רשימה, מילון) זורק
+        # ``TypeError`` במקום להחזיר "לא נמצא". כאן זה היה נבלע ב-``except``
+        # שלמטה ומייצר אזהרה עם traceback על כל אירוע כזה, בעוד שהתשובה
+        # הנכונה לשם כלי שאינו מחרוזת היא פשוט ``None``.
+        if not isinstance(name, str):
+            return None
+        owned = _TOOL_READ_MODE_PARAMS.get(name)
+        if owned is None:
             return None
         arguments = params.get("arguments")
         if not isinstance(arguments, dict):
             arguments = {}
-        if arguments.get("outline"):
+        if "outline" in owned and arguments.get("outline"):
             return {CK_READ_MODE_KEY: READ_MODE_OUTLINE}
-        if arguments.get("query") is not None:
+        if "query" in owned and arguments.get("query") is not None:
             return {CK_READ_MODE_KEY: READ_MODE_QUERY}
-        if arguments.get("lines") is not None:
+        if "lines" in owned and arguments.get("lines") is not None:
             return {CK_READ_MODE_KEY: READ_MODE_RANGE}
         return {CK_READ_MODE_KEY: READ_MODE_FULL}
     except Exception:

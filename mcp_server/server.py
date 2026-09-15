@@ -64,6 +64,7 @@ _RANGE_DOC = (
     "An `end` past the end of the file is clipped; a start past it is an error."
 )
 
+
 # תיאור הפרמטר ``query`` של ``codekeeper_get_file``.
 #
 # ``lines`` עונה על "תן לי את החלק הזה" ו-``query`` עונה על "איפה בקובץ זה
@@ -71,24 +72,42 @@ _RANGE_DOC = (
 # סוכן שקיבל ``line`` בלי לדעת מה לעשות איתו ימשוך שוב את הקובץ המלא, וזה
 # בדיוק מה שהפרמטר בא למנוע. הדוגמה נקובה בצורתה המלאה ולא כ"טווח סביבו",
 # כי ``line`` הוא מספר בודד ו-``lines`` דורש זוג.
-_QUERY_DOC = (
-    'Pass query="needle" to get the matching lines INSTEAD of the content, '
-    "when you want one field or one rule out of a file and would otherwise "
-    "pull the whole thing. The reply carries count, total, truncated and a "
-    "results list whose entries have a `line` and a `snippet` — the same "
-    "field names codekeeper_search_repo returns, and context_lines=N (0-10) "
-    "adds context_before / context_after around each hit exactly as it does "
-    "there. Each `line` is the anchor for the next call: read around it with "
-    "lines=[line - 20, line + 20], or lines=[line, line] for that one line. "
-    "Matching is plain case-insensitive substring — no regex, no stemming, no "
-    "word boundaries, so a special character is just a character. Zero "
-    "matches is a success with an empty results list, never an error. At most "
-    "50 hits come back by default, and max_results raises that as far as 100; "
-    "truncated tells you matches were left out, and total says how many there "
-    "were in the file. Passing "
-    "query and lines together is refused as query_and_lines — ask where, then "
-    "read the range."
-)
+def _build_query_doc() -> str:
+    """התיאור שהסוכן קורא על ``query``.
+
+    **פונקציה ולא קבוע, כדי שהקישור לקבועים יהיה בר-הפרכה.** המספרים
+    נשתלים מ-``handlers`` ואינם נכתבים כטקסט, ולכן שינוי תקרה אינו יכול
+    להשאיר את התיאור מבטיח מספר ישן. הצורה הזו היא מה שמאפשר לבדיקה
+    להריץ את הבנייה עם קבועים אחרים ולראות שהטקסט זז — טענת "נשתל" שאי
+    אפשר להפריך אינה שונה מטקסט קשיח שבמקרה נכון היום.
+    """
+    return (
+        'Pass query="needle" to get the matching lines INSTEAD of the content, '
+        "when you want one field or one rule out of a file and would otherwise "
+        "pull the whole thing. The reply carries count, total, truncated and a "
+        "results list whose entries have a `line` and a `snippet` — the same "
+        "field names codekeeper_search_repo returns, and "
+        f"context_lines=N (0-{handlers.QUERY_CONTEXT_LINES_MAX}) "
+        "adds context_before / context_after around each hit exactly as it does "
+        "there. Each `line` is the anchor for the next call: read around it with "
+        "lines=[line - 20, line + 20], or lines=[line, line] for that one line. "
+        "Matching is plain case-insensitive substring — no regex, no stemming, no "
+        "word boundaries, so a special character is just a character. Zero "
+        "matches is a success with an empty results list, never an error. At most "
+        f"{handlers.QUERY_RESULTS_DEFAULT} hits come back by default, and "
+        f"max_results raises that as far as {handlers.QUERY_RESULTS_MAX}; "
+        "truncated tells you matches were left out, and total says how many there "
+        "were in the file. Matching runs line by line, so a query containing a "
+        "newline is refused as query_multiline instead of reported as zero "
+        "matches — search one line, then read around the hit. Passing "
+        "query and lines together is refused as query_and_lines — ask where, then "
+        "read the range. context_lines and max_results describe how matches are "
+        "shown, so passing either one without query is refused as "
+        "context_lines_without_query or max_results_without_query."
+    )
+
+
+_QUERY_DOC = _build_query_doc()
 
 # Shared annotations: every tool here is a non-destructive, idempotent read over
 # the user's own bounded data store (service-prefixed to avoid cross-connector
@@ -274,8 +293,8 @@ def build_mcp(
         version: int | None = None,
         lines: StrictLines | None = None,
         query: str | None = None,
-        context_lines: StrictInt = 0,
-        max_results: int = handlers.QUERY_RESULTS_DEFAULT,
+        context_lines: StrictInt | None = None,
+        max_results: int | None = None,
     ) -> dict:
         doc = handlers.get_file(
             backend,
