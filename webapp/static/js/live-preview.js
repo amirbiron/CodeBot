@@ -12,6 +12,11 @@
   // (``|| type`` באתר השימוש) ולא שוברת את הרינדור.
   const MARKDOWN_DEFAULT_TITLES = (typeof window !== 'undefined' && window.ADMONITION_TITLES) || {};
   const ADMONITION_ICONS = (typeof window !== 'undefined' && window.ADMONITION_ICONS) || {};
+  // ``::: details`` אינו אלרט ולכן אין לו ערך ב-``ADMONITION_TITLES``, אבל
+  // תווית ברירת המחדל שלו מגיעה מאותו קובץ ומאותה סיבה — ראו
+  // ``admonition-icons.js``.
+  const DETAILS_DEFAULT_TITLE =
+    (typeof window !== 'undefined' && window.DETAILS_DEFAULT_TITLE) || '';
 
   function slugifyHeadingId(rawText) {
     try {
@@ -190,8 +195,13 @@
             },
             render(tokens, idx) {
               const info = (tokens[idx].info || '').trim();
-              const match = info.match(/^details\s+(.*)$/i);
-              const title = (match && match[1] && match[1].trim()) || 'לחץ להצגה';
+              // ``\b\s*`` ולא ``\s+`` — **אותה צורה בדיוק** שכל שאר הסוגים
+              // משתמשים בה מטה, וזו התאמה שנמדדה: עם ``\s+`` הכותרת של
+              // ``::: details.x`` נבלעה וירדה לברירת המחדל, בעוד ש-
+              // ``::: note.x`` כן קיבל כותרת. שני הצרכנים האחרים גוזרים את
+              // הכותרת מ-``\b`` ולכן הציגו ``.x``; החריג היחיד היה כאן.
+              const match = info.match(/^details\b\s*(.*)$/i);
+              const title = (match && match[1] && match[1].trim()) || DETAILS_DEFAULT_TITLE;
               if (tokens[idx].nesting === 1) {
                 return `<details class="markdown-details"><summary class="markdown-summary">${md.utils.escapeHtml(
                   title

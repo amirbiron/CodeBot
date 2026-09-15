@@ -1,11 +1,12 @@
 /**
  * מטא-דאטה משותפת לבלוקי האלרט (admonitions) של המארקדאון.
  *
- * שני דברים גרים כאן, ומאותה סיבה: **סוג אלרט הוא ישות אחת**, ומי שמוסיף
+ * שלושה דברים גרים כאן, ומאותה סיבה: **סוג מכולה הוא ישות אחת**, ומי שמוסיף
  * סוג חדש צריך לגעת במקום אחד — לא בשלושה קבצים שמחזיקים חצי הגדרה כל אחד.
  *
  *  - ``ADMONITION_ICONS``  — אייקון Lucide לכל סוג.
  *  - ``ADMONITION_TITLES`` — התווית בעברית שמוצגת כשהמשתמש לא כתב כותרת משלו.
+ *  - ``DETAILS_DEFAULT_TITLE`` — התווית של ``::: details``, שאינו אלרט.
  *
  * שלושה צרכנים: ``md_preview.html`` ו-``live-preview.js`` (שניהם מרכיבים
  * מחרוזת HTML עבור ``markdown-it-container``), ו-``sticky-notes.js`` (שבונה
@@ -53,8 +54,18 @@
     abstract: 'תקציר',
   };
 
+  //: ``::: details`` — המכולה המתקפלת. **אינה אלרט**, ולכן היא אינה
+  //: ב-``ADMONITION_TITLES``: אין לה אייקון, אין לה מחלקת
+  //: ``admonition-<type>``, והיא מרונדרת כ-``<details>``/``<summary>``
+  //: נייטיביים ולא כ-``div``. מה שכן זהה הוא התפקיד של הקבוע הזה —
+  //: **מקור אחד לתווית ברירת המחדל**, לשלושת אותם צרכנים בדיוק. לפני
+  //: השינוי הזה המחרוזת הופיעה שלוש פעמים בקוד, וכל אחת מהן יכלה
+  //: להשתנות בלי שהשתיים האחרות ידעו.
+  var DETAILS_DEFAULT_TITLE = 'לחץ להצגה';
+
   if (typeof window !== 'undefined') {
     window.ADMONITION_ICONS = ADMONITION_ICONS;
     window.ADMONITION_TITLES = ADMONITION_TITLES;
+    window.DETAILS_DEFAULT_TITLE = DETAILS_DEFAULT_TITLE;
   }
 })();
