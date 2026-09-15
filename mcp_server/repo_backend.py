@@ -162,6 +162,22 @@ class RepoBackend:
 
     # -- wiring ------------------------------------------------------------
     def _require_mirror(self) -> Any:
+        """The mirror service, on first use. Unlocked on purpose.
+
+        Tool bodies run on worker threads since #3379, so two reads really can
+        arrive here together — the question is what that costs, and here it
+        costs nothing. The guard is the value, assigned only after the call
+        returns, so there is no window where one is set and the other is not.
+        And the construction is safe to repeat: ``GitMirrorService.__init__``
+        assigns paths and compiled patterns, and its one side effect is
+        ``mkdir(parents=True, exist_ok=True)`` — idempotent, and it raises
+        before any assignment if the path is not writable, so a failure leaves
+        the field unset and the next call retries for real.
+
+        The loser of a race is discarded while its caller may still hold it.
+        That is fine because the object carries no per-instance state beyond
+        those paths: either instance answers identically.
+        """
         if self._mirror is None:
             from services.git_mirror_service import get_mirror_service  # lazy heavy import
 
@@ -169,6 +185,12 @@ class RepoBackend:
         return self._mirror
 
     def _require_search(self) -> Any:
+        """The search service, on first use. Unlocked, for the same reason.
+
+        ``RepoSearchService.__init__`` stores the db handle and calls
+        ``get_mirror_service()`` — so it inherits the paragraph above rather
+        than adding anything of its own.
+        """
         if self._search is None:
             from services.repo_search_service import create_search_service  # lazy
 

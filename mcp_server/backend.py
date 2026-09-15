@@ -19,6 +19,7 @@ import datetime as _dt
 import enum as _enum
 import html
 import os
+import threading
 import time as _time
 import logging
 import uuid as _uuid
@@ -336,6 +337,20 @@ class ProductionBackend:
     module never drags in the whole application.
     """
 
+    #: Guards the lazy paths whose construction is not free. Tool bodies run on
+    #: worker threads since #3379, so two reads can reach an unbuilt lazy field
+    #: at the same moment; before that the event loop made every body exclusive
+    #: and the question could not arise. It is held only while something is
+    #: being built — nothing on the read or write path takes it.
+    #:
+    #: **On the class and not the instance, deliberately.** The tests in this
+    #: repository build backends with ``ProductionBackend.__new__(...)`` in
+    #: several places, which never runs ``__init__``; a lock created there would
+    #: be missing exactly where a fake is used. One lock shared by every backend
+    #: in the process costs nothing, because the only thing it serializes is
+    #: first-time construction, and production has one backend.
+    _lazy_lock = threading.Lock()
+
     def __init__(
         self, db_manager: Any = None, mongo_db: Any = None, collections_manager: Any = None
     ) -> None:
@@ -346,6 +361,14 @@ class ProductionBackend:
 
     # -- lazy wiring -------------------------------------------------------
     def _require_dbm(self) -> Any:
+        """The database module, imported on first use.
+
+        Deliberately not locked, and that is a decision rather than an
+        oversight. The guard is the value itself, so there is no window where
+        one is set and the other is not, and the "construction" is an ``import``
+        that Python has already cached — two threads racing here bind the same
+        module object twice and nothing else happens.
+        """
         if self._dbm is None:
             from database import db as _db  # lazy heavy import
 
@@ -353,15 +376,41 @@ class ProductionBackend:
         return self._dbm
 
     def _collections(self) -> Any:
-        if self._cm is None:
-            from database.collections_manager import CollectionsManager  # lazy
+        """The collections manager, built on first use — under a lock.
 
-            mongo = (
-                self._mongo if self._mongo is not None else getattr(self._require_dbm(), "db", None)
-            )
-            if mongo is None:
-                raise RuntimeError("MongoDB handle unavailable for collections")
-            self._cm = CollectionsManager(mongo)
+        **Locked because the constructor is not free.**
+        ``CollectionsManager.__init__`` calls ``_ensure_indexes``, which issues
+        ``create_indexes`` against Mongo and then runs a one-time migration
+        guarded by a class attribute (``_migration_done``) that is itself a
+        check-then-act. Two threads arriving together would both send the index
+        round trips and could both enter that migration, running its
+        ``update_many`` backfills over the whole collection twice. The data ends
+        up the same — the migration is idempotent — but the work is real, and
+        since #3379 two reads can arrive together where before the loop kept
+        them apart.
+
+        The publication order needs no fixing: the guard *is* the value, and it
+        is assigned only after the constructor returns, so a failure leaves it
+        unset and the next call genuinely retries.
+
+        Tests that inject ``collections_manager`` never reach this path at all.
+        """
+        if self._cm is not None:
+            return self._cm
+        with self._lazy_lock:
+            # Re-checked inside: the thread that waited here may be looking at a
+            # field the holder already filled.
+            if self._cm is None:
+                from database.collections_manager import CollectionsManager  # lazy
+
+                mongo = (
+                    self._mongo
+                    if self._mongo is not None
+                    else getattr(self._require_dbm(), "db", None)
+                )
+                if mongo is None:
+                    raise RuntimeError("MongoDB handle unavailable for collections")
+                self._cm = CollectionsManager(mongo)
         return self._cm
 
     # -- files -------------------------------------------------------------
@@ -682,24 +731,37 @@ class ProductionBackend:
         # מונגו דוחה ב-code 85/86 אינדקס בשם קיים עם מפתחות אחרים, כלומר
         # סטייה של תו אחד הופכת את הבוטסטראפ השני לכשל שקט לצמיתות.
         # חד-פעמי, ולא מפיל כלי.
+        # **הדגל נקבע אחרי הלולאה ותחת נעילה, ולא לפניה.** קודם הוא נקבע
+        # ראשון, ולכן קורא מקביל שנכנס באמצע היה מדלג על הבנייה וממשיך
+        # לשאילתה בלי שהאינדקס קיים — חלון שנפתח כשגופי הכלים ירדו מלולאת
+        # האירועים ב-#3379, וקודם לכן הלולאה מנעה אותו. הנעילה מונעת גם את
+        # הריצה הכפולה של ארבע ה-``create_index``.
+        #
+        # מה שלא השתנה, ובכוונה: כשל ביצירת אינדקס נרשם ואינו נבנה שוב
+        # בתהליך הזה. זו התנהגות קיימת, ושינוי שלה הוא החלטה בפני עצמה.
         if not self._notes_idx_done:
-            self._notes_idx_done = True
-            for keys, name in (
-                ([("user_id", 1), ("scope_id", 1)], "user_scope_idx"),
-                ([("user_id", 1), ("board_id", 1)], "user_board_idx"),
-                ([("user_id", 1), ("repo_name", 1), ("repo_path", 1)], "user_repo_idx"),
-                # חיפוש לפי שם חוצה את שלושת היעדים, ולכן אינו יכול להישען
-                # על אף אחד משני האינדקסים הייחודיים: ה-``partialFilter``
-                # שלהם דורש ``board_id``, או ``repo_name`` **וגם**
-                # ``repo_path`` — פרדיקטים שהחיפוש אינו נושא.
-                ([("user_id", 1), ("title", 1)], "user_title_idx"),
-            ):
-                try:
-                    coll.create_index(keys, name=name)
-                except Exception:
-                    logger.warning(
-                        "sticky notes index %s creation failed (non-fatal)", name, exc_info=True
-                    )
+            with self._lazy_lock:
+                if not self._notes_idx_done:
+                    for keys, name in (
+                        ([("user_id", 1), ("scope_id", 1)], "user_scope_idx"),
+                        ([("user_id", 1), ("board_id", 1)], "user_board_idx"),
+                        ([("user_id", 1), ("repo_name", 1), ("repo_path", 1)], "user_repo_idx"),
+                        # חיפוש לפי שם חוצה את שלושת היעדים, ולכן אינו יכול
+                        # להישען על אף אחד משני האינדקסים הייחודיים:
+                        # ה-``partialFilter`` שלהם דורש ``board_id``, או
+                        # ``repo_name`` **וגם** ``repo_path`` — פרדיקטים
+                        # שהחיפוש אינו נושא.
+                        ([("user_id", 1), ("title", 1)], "user_title_idx"),
+                    ):
+                        try:
+                            coll.create_index(keys, name=name)
+                        except Exception:
+                            logger.warning(
+                                "sticky notes index %s creation failed (non-fatal)",
+                                name,
+                                exc_info=True,
+                            )
+                    self._notes_idx_done = True
         # ``create_board_note`` מחזיר ``duplicate_title`` על סמך דחייה של
         # המסד. אם האינדקס אינו שם — והוא נוצר עד היום רק בוובאפ — ההבטחה
         # ריקה. פריסה של ה-MCP בלי הוובאפ היא בדיוק המקרה הזה.

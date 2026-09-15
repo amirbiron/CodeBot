@@ -447,7 +447,7 @@ def _is_async_callable(obj: Any) -> bool:
     )
 
 
-def _log_write_timing(tool: str, waited: float, ran: float) -> None:
+def _log_write_timing(tool: str, waited: float, ran: float | None) -> None:
     """One line per write, splitting the wait for the queue from the work.
 
     The split is the point. A total duration cannot tell a slow save apart from
@@ -456,12 +456,31 @@ def _log_write_timing(tool: str, waited: float, ran: float) -> None:
     narrow. Without this line the only signal is end-to-end duration from
     PostHog, which makes neither distinction and is off unless a token is set.
 
+    ``ran`` is ``None`` for a write that was cancelled while still in the queue
+    and therefore never started. **That case needs the line most and is the one
+    a timer inside the body cannot produce**, because the body is what does the
+    timing and it never runs: a queue deep enough that callers give up would
+    otherwise be invisible in exactly the way this logging exists to prevent.
+
     Both numbers are measured by the caller and passed in already computed. They
     are deliberately not expressions inside the logging call: work that rides on
     a log line disappears the day someone removes the line or puts a level guard
     in front of it, and the failure then surfaces somewhere else entirely.
     """
-    if waited >= _SLOW_WRITE_QUEUE_WAIT:
+    slow = waited >= _SLOW_WRITE_QUEUE_WAIT
+    if ran is None:
+        if slow:
+            logger.warning(
+                "mcp write %s waited %.2fs for the write queue and was cancelled before it ran",
+                tool,
+                waited,
+            )
+        else:
+            logger.debug(
+                "mcp write %s: queued %.3fs, cancelled before it ran", tool, waited
+            )
+        return
+    if slow:
         logger.warning(
             "mcp write %s waited %.2fs for the write queue, then ran %.2fs",
             tool,
@@ -532,11 +551,30 @@ def _offload_to_thread(fn: Any, *, serialize: bool = False) -> Any:
     scope here, and it wants its own fix rather than a thread model chosen to
     paper over it.
 
-    Thread-safety of what the bodies touch was mapped before this landed, as
-    #3379 asks: ``pymongo`` is thread-safe by contract and is the only driver on
-    this path (no ``motor`` anywhere in ``mcp_server``), the module-level state
-    here is read-only constants, there is no ``threading.local``, and the MCP
-    service runs under uvicorn with no gevent monkey-patching.
+    **Thread-safety of what the bodies touch — what was checked, and what that
+    does and does not cover.** Checked and clear: ``pymongo`` is thread-safe by
+    contract and is the only driver on this path (no ``motor`` anywhere in
+    ``mcp_server``), the module-level state in this file is read-only constants,
+    there is no ``threading.local``, and the MCP service runs under uvicorn with
+    no gevent monkey-patching.
+
+    That sweep looked at module-level state. It did **not** look at the lazily
+    built fields on the backend objects the bodies call into, and a review
+    caught the gap: with reads now running side by side, every
+    ``if self._x is None: self._x = ...`` in ``mcp_server/backend.py`` and
+    ``mcp_server/repo_backend.py`` is reachable by two threads at once, where
+    the event loop used to make the question impossible. Each was then read
+    against ``lazy-init-guard-publish-order``: all publish the value before the
+    guard (the guard *is* the value), so none can hand out a half-built object;
+    two build something cheap enough to build twice and say so in place; two
+    build something that touches Mongo and are locked. The details live next to
+    each one rather than here, because that is where the next person changing
+    them will be.
+
+    Nothing outside ``mcp_server`` was swept the same way. ``get_mirror_service``
+    was read because the read path reaches it directly, and it carries its own
+    note; anything else a body reaches transitively has not been audited for
+    this, and saying so is more useful than implying it has.
 
     An ``async def`` read tool is returned untouched: it is already off the
     blocking path, and wrapping it would add a pointless thread hop. An ``async
@@ -578,11 +616,28 @@ def _offload_to_thread(fn: Any, *, serialize: bool = False) -> Any:
                 _log_write_timing(tool_name, waited, ran)
 
         loop = asyncio.get_running_loop()
-        # ``run_in_executor`` takes positional arguments only and does not carry
-        # the ``contextvars.Context`` across the way ``to_thread`` does, so the
-        # copy is explicit and ``_timed`` closes over the call's own arguments.
+        # ``loop.run_in_executor`` is ``wrap_future(executor.submit(...))`` and
+        # nothing else (``asyncio/base_events.py``); submitting directly keeps a
+        # handle on the ``concurrent.futures.Future``, which is the only
+        # authoritative answer to "did this body run". It also takes positional
+        # arguments only and does not carry the ``contextvars.Context`` across
+        # the way ``to_thread`` does, so the copy is explicit and ``_timed``
+        # closes over the call's own arguments.
         context = contextvars.copy_context()
-        return await loop.run_in_executor(_WRITE_POOL, context.run, _timed)
+        pending = _WRITE_POOL.submit(context.run, _timed)
+        try:
+            return await asyncio.wrap_future(pending, loop=loop)
+        except asyncio.CancelledError:
+            # ``cancelled()`` is true only when the cancellation reached the
+            # work item before it started, which is the same state
+            # ``_WorkItem.run`` checks before calling anything — so the body
+            # definitely never ran and definitely never logged. Asking the
+            # future rather than a flag set by the body is what keeps this from
+            # claiming "cancelled before it ran" about a write that was already
+            # running, and from printing a second line about one that was.
+            if pending.cancelled():
+                _log_write_timing(tool_name, time.perf_counter() - submitted, None)
+            raise
 
     return _run_on_write_pool
 

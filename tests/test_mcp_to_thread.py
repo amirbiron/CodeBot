@@ -811,3 +811,83 @@ async def test_a_failing_write_does_not_wedge_the_queue(request_context):
     await mcp.call_tool("after", {})
 
     assert ran == ["boom", "after"], ran
+
+
+async def test_a_write_cancelled_in_the_queue_is_logged_with_its_wait(
+    request_context, caplog
+):
+    """The queue-depth signal has to cover the callers who gave up.
+
+    The timing is measured by the body, and a write cancelled while queued never
+    has a body run — so without the handler in the coroutine this is the one
+    case that produces no line at all. It is also the case that matters most: a
+    queue deep enough that clients time out is exactly what the threshold exists
+    to report, and it would otherwise be the quietest thing in the log.
+    """
+    import logging as _logging
+    import time
+
+    mcp = AdminAwareFastMCP("t")
+    ran: list[str] = []
+
+    def writer(ctx: Context, tag: str = "") -> dict:
+        ran.append(tag)
+        time.sleep(0.2)
+        return {}
+
+    mcp.add_tool(writer, name="w", annotations={"readOnlyHint": False})
+
+    with caplog.at_level(_logging.DEBUG, logger="mcp_server.server"):
+        occupier = asyncio.create_task(mcp.call_tool("w", {"tag": "occupier"}))
+        await asyncio.sleep(0.05)
+        queued = asyncio.create_task(mcp.call_tool("w", {"tag": "queued"}))
+        await asyncio.sleep(0.02)
+        queued.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await queued
+        await occupier
+
+    assert ran == ["occupier"], f"the cancelled write ran: {ran}"
+    cancelled_lines = [
+        r for r in caplog.records if "cancelled before it ran" in r.getMessage()
+    ]
+    assert len(cancelled_lines) == 1, [r.getMessage() for r in caplog.records]
+    assert "queued" in cancelled_lines[0].getMessage()
+
+
+async def test_a_write_cancelled_after_it_started_is_not_logged_as_unrun(
+    request_context, caplog
+):
+    """The other half, and the reason the handler asks the future rather than a flag.
+
+    Cancelling a request whose body is already running raises ``CancelledError``
+    just the same. Logging on that would print a second line about a write that
+    did run, and the line would say the opposite of what happened.
+    """
+    import logging as _logging
+    import time
+
+    mcp = AdminAwareFastMCP("t")
+    started = threading.Event()
+    finished = threading.Event()
+
+    def writer(ctx: Context) -> dict:
+        started.set()
+        time.sleep(0.15)
+        finished.set()
+        return {}
+
+    mcp.add_tool(writer, name="w", annotations={"readOnlyHint": False})
+
+    with caplog.at_level(_logging.DEBUG, logger="mcp_server.server"):
+        task = asyncio.create_task(mcp.call_tool("w", {}))
+        await asyncio.to_thread(started.wait, 2.0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert await asyncio.to_thread(finished.wait, 2.0)
+        await asyncio.sleep(0.05)  # let the body's own line land
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert not [m for m in messages if "cancelled before it ran" in m], messages
+    assert [m for m in messages if "ran" in m], messages
