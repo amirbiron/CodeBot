@@ -2365,6 +2365,103 @@ check('details: מצב הפתיחה שורד רינדור מחדש', () => {
   eq(detailsBoxes(other.view)[0].open, undefined, 'ובלוק שלא נפתח נשאר סגור');
 });
 
+// ---------- מצב הפתיחה סביב מעבר לעריכה ----------
+//
+// **הפתקים כאן רשומים במנהל**, ולא נבנים ב-``makeNote`` בלבד, כי הזיכרון
+// חי על רשומת הפתק — אותו מקום שבו כבר חי מצב הביטול. פתק שאינו רשום
+// עובד בתוך קריאה אחת אבל אינו זוכר בין קריאות, וזו בדיוק היכולת שנבדקת
+// כאן. ``_renderNote`` רושם את הפתק לפני הסנכרון הראשון, ולכן זו גם
+// הצורה שרצה בפרודקשן.
+
+function renderRegistered(mgr, id, content){
+  const parts = registerNote(mgr, id, content);
+  mgr._syncTaskView(parts.el);
+  return parts;
+}
+/** מצב הפתיחה של כל הבלוקים, לפי סדר הופעה. */
+function openFlags(view){
+  return detailsBoxes(view).map((box) => !!box.open).join(',');
+}
+
+check('details: מצב הפתיחה שורד מעבר לעריכה וחזרה', () => {
+  // **הבאג שהריוויו תפס.** הלכידה ישבה **מתחת** ליציאה המוקדמת, והיציאה
+  // הזו מוחקת את התצוגה בעצמה — כלומר כניסה לעריכה מחקה את המצב לפני
+  // שמישהו קרא אותו, וכל בלוק חזר סגור אחרי כל עריכה.
+  const parts = renderRegistered(mdMgr, 'det-edit-1', 'לפני\n::: details בלוק\nבפנים\n:::');
+  detailsBoxes(parts.view)[0].open = true;
+  mdMgr._syncTaskView(parts.el, { editing: true });   // מוחק את התצוגה
+  mdMgr._syncTaskView(parts.el);                      // ובונה אותה מחדש
+  eq(openFlags(parts.view), 'true', 'הבלוק חזר פתוח');
+});
+
+check('details: המצב שורד גם כשהעריכה הזיזה את הטקסט', () => {
+  // **זו הבדיקה שמכריעה את בחירת המפתח, והיא נמדדה בכרומיום לפני שנכתבה.**
+  // ההיסט של שורת הפתיחה הוא הזהות שהמנוע כבר מתחזק, והוא מדויק כל עוד
+  // הטקסט לא זז — אבל עריכה **כן** מזיזה אותו. תו אחד בתחילת הפתק מזיז
+  // את כל ההיסטים באחד, המטמון מחטיא, ומסלול העריכה — שהוא כל הסיבה
+  // למטמון — נשאר לא מכוסה. הסידור שורד את זה.
+  const parts = renderRegistered(mdMgr, 'det-edit-2', 'לפני\n::: details בלוק\nבפנים\n:::');
+  detailsBoxes(parts.view)[0].open = true;
+  mdMgr._syncTaskView(parts.el, { editing: true });
+  parts.ta.value = 'X' + parts.ta.value;              // כל ההיסטים זזים באחד
+  mdMgr._syncTaskView(parts.el);
+  eq(openFlags(parts.view), 'true', 'הזהות היא הסידור ולא ההיסט');
+});
+
+check('details: רק הבלוק שנפתח נפתח, גם אחרי שהטקסט זז', () => {
+  const parts = renderRegistered(mdMgr, 'det-edit-3',
+    'לפני\n::: details ראשון\nא\n:::\n::: details שני\nב\n:::');
+  const boxes = detailsBoxes(parts.view);
+  eq(boxes.length, 2, 'שני בלוקים');
+  boxes[1].open = true;
+  mdMgr._syncTaskView(parts.el, { editing: true });
+  parts.ta.value = 'X' + parts.ta.value;
+  mdMgr._syncTaskView(parts.el);
+  eq(openFlags(parts.view), 'false,true', 'השני, ורק הוא');
+});
+
+check('details: הסידור נשמר גם בקינון', () => {
+  // ``querySelectorAll`` מחזיר סדר מסמך, והבנייה מוסיפה בלוק מקונן לתוך
+  // גוף ההורה שכבר נוסף — ולכן שני הצדדים סופרים באותו סדר. בלי זה
+  // הבלוק הפנימי היה מקבל מספר אחד בלכידה ומספר אחר בבנייה.
+  const parts = renderRegistered(mdMgr, 'det-edit-5',
+    'לפני\n:::: details חיצוני\n::: details פנימי\nב\n:::\n::::');
+  const boxes = detailsBoxes(parts.view);
+  eq(boxes.length, 2, 'חיצוני ואז פנימי');
+  eq(summaryOf(boxes[0]).textContent, 'חיצוני', 'וזה אכן הסדר');
+  boxes[1].open = true;
+  mdMgr._syncTaskView(parts.el, { editing: true });
+  parts.ta.value = 'X' + parts.ta.value;
+  mdMgr._syncTaskView(parts.el);
+  eq(openFlags(parts.view), 'false,true', 'רק הפנימי');
+});
+
+check('details: פתק שאיבד את כל המבנה מנקה את הזיכרון', () => {
+  // **מצב רפאים שנתפס במדידה, לא בקריאה.** היציאה המוקדמת משרתת שני
+  // מצבים שנראים זהים: "המשתמש עורך עכשיו" — ושם הזיכרון הוא כל העניין —
+  // ו"לפתק אין מבנה בכלל", שבו אין בלוקים ולכן אין מה לזכור. בלי ההבחנה,
+  // בלוק חדש לגמרי נולד פתוח כי ירש את המספר של בלוק שנמחק.
+  const parts = renderRegistered(mdMgr, 'det-edit-4', '::: details ישן\nגוף\n:::');
+  detailsBoxes(parts.view)[0].open = true;
+  parts.ta.value = 'רק טקסט, בלי מבנה';
+  mdMgr._syncTaskView(parts.el);                      // יציאה מוקדמת, לא עריכה
+  eq(detailsBoxes(parts.view).length, 0, 'אין בלוקים');
+  parts.ta.value = '::: details חדש\nגוף\n:::';
+  mdMgr._syncTaskView(parts.el);
+  eq(openFlags(parts.view), 'false', 'הבלוק החדש נולד סגור');
+});
+
+check('details: המצב אינו זולג בין פתקים', () => {
+  // הזיכרון חי על רשומת הפתק, ולכן פתק שני על אותו מנהל אינו יורש אותו.
+  const a = renderRegistered(mdMgr, 'det-edit-6a', '::: details א\nגוף\n:::');
+  detailsBoxes(a.view)[0].open = true;
+  mdMgr._syncTaskView(a.el, { editing: true });
+  mdMgr._syncTaskView(a.el);
+  const bNote = renderRegistered(mdMgr, 'det-edit-6b', '::: details ב\nגוף\n:::');
+  eq(openFlags(a.view), 'true', 'הראשון פתוח');
+  eq(openFlags(bNote.view), 'false', 'והשני סגור');
+});
+
 check('details: מארקדאון כבוי מציג טקסט גולמי', () => {
   const off = new StickyNotesManager({ board: 'b-details-off', markdown: false });
   const parts = makeNote('::: details כותרת\n- [ ] משימה\n:::');

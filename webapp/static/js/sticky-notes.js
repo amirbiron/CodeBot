@@ -2010,7 +2010,7 @@
        * תצוגה אחד, ולחיצה על הכותרת מחזירה לעריכה בשורת ``::: note``
        * עצמה.
        */
-      _openContainer(parent, spec, charOffset, openOffsets){
+      _openContainer(parent, spec, charOffset, startOpen){
         if (spec.type === MD_DETAILS_TYPE){
           // **המחלקות הן של רינדור המסמכים**, בדיוק כמו אצל האלרט:
           // ``markdown-details``, ``markdown-summary`` ו-``details-content``
@@ -2029,12 +2029,11 @@
           // אין כאן את ה-``span`` שהאלרט צריך.
           summary.textContent = spec.title;
           const content = createEl('div', 'details-content');
-          // **מצב הפתיחה שורד רינדור מחדש.** התצוגה נבנית מאפס בכל
-          // ``_syncTaskView`` — סימון צ'קבוקס, יציאה מעריכה, תשובת שרת —
-          // ובלי השחזור הזה בלוק שנפתח היה נסגר תחת האצבע בדיוק ברגע
-          // שסימנו משימה שבתוכו. המפתח הוא ההיסט, כלומר אותה זהות שהמנוע
-          // כבר מתחזק לכל שורת מקור.
-          if (openOffsets && openOffsets.has(String(charOffset))) box.open = true;
+          // **מצב הפתיחה שורד רינדור מחדש.** ההכרעה עצמה נעשית בקורא,
+          // שהוא היחיד שמחזיק את מונה הבלוקים; כאן רק מחילים אותה. בלי זה
+          // בלוק שנפתח היה נסגר תחת האצבע ברגע שמסמנים משימה שבתוכו, וגם
+          // בכל כניסה ויציאה מעריכה.
+          if (startOpen) box.open = true;
           box.appendChild(summary);
           box.appendChild(content);
           parent.appendChild(box);
@@ -2219,6 +2218,40 @@
           // התצוגה נפתחת אם יש צ'קבוקס (תמיד), או אם המארקדאון דלוק ויש בו
           // מבנה כלשהו. פתק טקסט רגיל נשאר textarea ולא משתנה בכלל.
           const wantMd = this.markdown && this._hasRenderableMarkdown(lines);
+          // **מה שהמשתמש פתח, נלכד לפני כל מחיקה של התצוגה.**
+          //
+          // ``<details>`` נייטיבי מחזיק את מצבו ב-DOM בלבד, והתצוגה כאן
+          // נבנית מאפס בכל סנכרון — סימון צ'קבוקס, מעבר לעריכה, תשובת שרת.
+          // הלכידה חייבת לשבת **מעל** היציאה המוקדמת, כי גם היא מוחקת את
+          // התצוגה: בלי זה כניסה לעריכה מוחקת את המצב לפני שמישהו קרא אותו,
+          // וכל בלוק חוזר סגור אחרי כל עריכה. נמדד בכרומיום, ארבעה תרחישים.
+          //
+          // **הזהות היא סידור הבלוק בפתק, ולא ההיסט של שורת הפתיחה.** גם
+          // זה נמדד, והיה מפתה לחשוב אחרת: ההיסט הוא הזהות שהמנוע כבר
+          // מתחזק, והוא מדויק כל עוד הטקסט לא זז. אבל עריכה **כן** מזיזה
+          // אותו — תו אחד שנוסף בתחילת הפתק מזיז את כל ההיסטים באחד — ואז
+          // המטמון מחטיא, כלומר מסלול העריכה, שהוא כל הסיבה למטמון, אינו
+          // מכוסה בו. הסידור שורד כל שינוי טקסט שאינו מוסיף או מוחק בלוק,
+          // ‏``querySelectorAll`` מחזיר סדר מסמך שזהה לסדר הבנייה, ולכן גם
+          // בלוק מקונן מקבל את אותו מספר בשני הצדדים.
+          //
+          // **התצוגה ריקה פירושה שכבר נמחקה, ואין ממה ללמוד** — אז המטמון
+          // נשמר כפי שהוא. אחרת ה-DOM הוא האמת, גם כשאין בו אף בלוק: כך
+          // מחיקת הבלוק האחרון בפתק שממשיך להיות מרונדר מנקה את המטמון.
+          // המקרה שהכלל הזה **אינו** מכסה מטופל ביציאה המוקדמת שמתחתיו.
+          const entry = this._getEntry(el);
+          let openDetails = (entry && entry.detailsOpen) || new Set();
+          if (view.children.length) {
+            openDetails = new Set();
+            view.querySelectorAll('details.sticky-md-details').forEach((box, i) => {
+              if (box.open) openDetails.add(i);
+            });
+            // בלי ``entry`` (פתק שאינו רשום) המצב עדיין נכון בתוך הקריאה
+            // הזו עצמה, ורק מסלול העריכה — שדורש שרידות בין קריאות — אינו
+            // מכוסה. בפרודקשן זה אינו קורה: ``_renderNote`` רושם את הפתק
+            // לפני הסנכרון הראשון.
+            if (entry) entry.detailsOpen = openDetails;
+          }
           if (editing || (!hasTask && !wantMd)) {
             view.hidden = true;
             textarea.hidden = false;
@@ -2227,24 +2260,25 @@
             // עדיין ב-DOM. נתפס באימות: אחרי כיבוי המארקדאון, ``.sticky-md-h1``
             // עדיין נמצא בשאילתה.
             view.textContent = '';
+            // **ומנקים גם את זיכרון הבלוקים — אבל רק בענף שאינו עריכה.**
+            //
+            // שני הענפים האלה נראים אותו דבר ואינם: ``editing`` אומר
+            // "המשתמש עורך עכשיו", ושם הזיכרון הוא כל מטרת המנגנון. הענף
+            // השני אומר "לפתק הזה אין מבנה בכלל", כלומר אין בו בלוקים —
+            // וזיכרון ששורד אותו הוא מצב רפאים.
+            //
+            // נמדד: פתק עם בלוק פתוח, שתוכנו הוחלף בטקסט רגיל ואז בבלוק
+            // חדש לגמרי, פתח את החדש. הבדיקה על ה-DOM שלמעלה אינה תופסת
+            // את זה, כי המסלול הזה מוחק את התצוגה ויוצא לפניה.
+            if (!editing && entry) entry.detailsOpen = new Set();
             return;
           }
-          // **מה שהמשתמש פתח, לפני שהתצוגה נמחקת.** ``<details>`` נייטיבי
-          // מחזיק את מצבו ב-DOM בלבד, והתצוגה כאן נבנית מאפס בכל סנכרון.
-          // הזהות היא ההיסט של שורת הפתיחה — אותו מפתח שהמנוע כבר מתחזק,
-          // ושסימון צ'קבוקס אינו מזיז (``[ ]`` ו-``[x]`` באותו אורך).
-          const openOffsets = new Set();
-          try {
-            view.querySelectorAll('details.sticky-md-details').forEach((box) => {
-              if (!box.open) return;
-              const summary = box.querySelector('summary.sticky-md-details-summary');
-              const off = summary && summary.dataset ? summary.dataset.charOffset : null;
-              if (off != null) openOffsets.add(String(off));
-            });
-          } catch(_) {}
           view.textContent = '';
           let taskIndex = 0;
           let charOffset = 0;
+          //: סידור הבלוקים המתקפלים, לפי סדר הופעה במקור. זהו המפתח
+          //: שמצב הפתיחה נשמר לפיו — ראו ההסבר בלכידה שלמעלה.
+          let detailsIndex = 0;
           // **מחסנית אחת לכל הפתק** — עמודות התוכן של פריטי הרשימה
           // הפתוחים. היא חיה כאן ולא במתודה, כי עומק הקינון אינו תכונה
           // של שורה בודדת אלא של השורות שקדמו לה.
@@ -2339,7 +2373,12 @@
                 // לפי ההזחה של **עצמה** — ולפני שהיא נפתחת, אחרת היא הייתה
                 // נכנסת למכל שכבר אינו אמור להכיל אותה.
                 this._closeListsAbove(listStack, this._lineIndentCols(line));
-                containerStack.push(this._openContainer(currentParent(), container, charOffset, openOffsets));
+                // המונה מתקדם על בלוקים מתקפלים בלבד, ולכן אלרט שנוסף או
+                // נמחק בין השניים אינו מזיז את הזהות של אף בלוק.
+                const startOpen = container.type === MD_DETAILS_TYPE
+                  && openDetails.has(detailsIndex);
+                if (container.type === MD_DETAILS_TYPE) detailsIndex += 1;
+                containerStack.push(this._openContainer(currentParent(), container, charOffset, startOpen));
                 charOffset += line.length + 1;
                 continue;
               }
