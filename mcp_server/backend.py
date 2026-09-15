@@ -25,13 +25,10 @@ import uuid as _uuid
 from typing import Any, Callable
 
 from .handlers import (
-    CONTEXT_LINES_WITHOUT_QUERY,
-    MAX_RESULTS_WITHOUT_QUERY,
-    QUERY_AND_LINES,
     QUERY_OUTPUT_BYTE_BUDGET,
     QUERY_RESULTS_DEFAULT,
     apply_line_range,
-    file_query_error,
+    file_query_request_error,
     normalize_line_range,
     scan_file_query,
 )
@@ -402,23 +399,11 @@ class ProductionBackend:
         # אותה החלטה ואותו מיקום כמו ``outline_and_lines`` ב-``repo_backend``,
         # והיא יושבת ב-backend ולא ב-``handlers`` כדי שגם קורא שאינו עובר דרך
         # שכבת ה-handlers יקבל את הסירוב ולא התעלמות שקטה מאחד הפרמטרים.
-        if query is None:
-            # ``context_lines`` ו-``max_results`` מתארים **איך להציג מופעים**,
-            # ובלי ``query`` אין מופעים. ``None`` כאן פירושו "לא נשלח":
-            # ``handlers.get_file`` נמנע במכוון מלהצמיד ערך חסר לברירת מחדל,
-            # כדי שההבחנה הזו תשרוד עד לכאן. הסירוב מפורש מאותה סיבה בדיוק
-            # שבגללה ``query``+``lines`` נדחים ולא מונמכים בשקט לאחד מהם:
-            # פרמטר שהתקבל ונזרק הוא אותה שתיקה.
-            if context_lines is not None:
-                return {"ok": False, "error": CONTEXT_LINES_WITHOUT_QUERY}
-            if max_results is not None:
-                return {"ok": False, "error": MAX_RESULTS_WITHOUT_QUERY}
-        else:
-            if lines is not None:
-                return {"ok": False, "error": QUERY_AND_LINES}
-            query_error = file_query_error(query)
-            if query_error:
-                return {"ok": False, "error": query_error}
+        request_error = file_query_request_error(
+            query=query, lines=lines, context_lines=context_lines, max_results=max_results
+        )
+        if request_error:
+            return {"ok": False, "error": request_error}
         dbm = self._require_dbm()
         if file_id:
             doc = dbm.get_file_by_id(file_id)

@@ -224,6 +224,40 @@ def file_query_error(query: Any) -> str | None:
     return None
 
 
+def file_query_request_error(
+    *, query: Any, lines: Any, context_lines: Any, max_results: Any
+) -> str | None:
+    """קוד השגיאה של **צורת הבקשה**, או ``None`` אם היא תקינה.
+
+    כל הסירובים של משפחת ``query`` במקום אחד, כדי שיהיה להם בעל בית יחיד
+    ולא שני עותקים שיכולים להיפרד. שתי השכבות קוראות לה: ``get_file`` כאן,
+    ו-:meth:`ProductionBackend.get_file` בראש המתודה — כך שגם קורא שאינו
+    עובר דרך שכבת ה-handlers מקבל סירוב ולא התעלמות שקטה מאחד הפרמטרים.
+
+    **הבדיקה הזו קודמת לשאלה איזה קובץ התבקש**, ובכוונה. בקשה פגומה פגומה
+    בלי קשר לקובץ שהיא נוקבת בו, וקריאה בלי ``file_name`` ובלי ``file_id``
+    מחזירה ``{"found": false}`` — תשובה על **קובץ**. מי שגם שכח לנקוב בקובץ
+    וגם העביר ``query`` יחד עם ``lines`` היה מקבל "הקובץ אינו קיים" על קריאה
+    שלא נקבה בשום קובץ, והולך לחפש קובץ במקום לתקן את הקריאה.
+
+    **מה שאינו כאן:** אימות ``lines`` לבדו. ``range_out_of_bounds`` נגזר
+    מאורך הקובץ, כלומר דורש את המסמך, ופיצול אימות הטווח לשתי נקודות היה
+    גרוע משאיפתו למקום אחד. הוא נשאר ב-:func:`apply_line_range`.
+    """
+    if query is None:
+        # ``context_lines`` ו-``max_results`` מתארים **איך להציג מופעים**,
+        # ובלי ``query`` אין מופעים. ``None`` פירושו "לא נשלח": ההצמדה
+        # ב-:func:`get_file` מדלגת עליו במכוון כדי שההבחנה תשרוד עד לכאן.
+        if context_lines is not None:
+            return CONTEXT_LINES_WITHOUT_QUERY
+        if max_results is not None:
+            return MAX_RESULTS_WITHOUT_QUERY
+        return None
+    if lines is not None:
+        return QUERY_AND_LINES
+    return file_query_error(query)
+
+
 def scan_file_query(
     text: str,
     query: str,
@@ -346,12 +380,20 @@ def get_file(
     context_lines: Any = None,
     max_results: Any = None,
 ) -> dict[str, Any] | None:
+    # **צורת הבקשה נבדקת לפני השאלה איזה קובץ התבקש.** ראו
+    # :func:`file_query_request_error` — שם גם הנימוק, וגם מה שאינו שם.
+    # אותה פונקציה בדיוק נקראת שוב בראש ``ProductionBackend.get_file``,
+    # כדי שקורא שאינו עובר דרך כאן יקבל את אותו סירוב; היא טהורה, ולכן
+    # הקריאה הכפולה עולה השוואה אחת ולא נגיעה במסד.
+    request_error = file_query_request_error(
+        query=query, lines=lines, context_lines=context_lines, max_results=max_results
+    )
+    if request_error:
+        return {"ok": False, "error": request_error}
     if not file_name and not file_id:
         return None
     # ההצמדה יושבת כאן ולא ב-backend, כמו כל שאר ההצמדות בשכבה הזו: ערך מחוץ
-    # לטווח נצמד ואינו מכשיל את הקריאה. **הדחייה** של ``query`` פסול ושל
-    # ``query``+``lines`` יושבת דווקא ב-backend, בראש המתודה — שם היא מובטחת
-    # גם לקורא שאינו עובר דרך כאן, והיא עדיין קודמת לקריאה למסד.
+    # לטווח נצמד ואינו מכשיל את הקריאה.
     #
     # **``None`` עובר כמות שהוא ואינו נצמד ל-0 או ל-50.** זה מה שמבדיל "לא
     # נשלח" מ"נשלח בדיוק הערך הזה", והסירוב ב-backend על ``context_lines``

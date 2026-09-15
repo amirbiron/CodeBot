@@ -812,3 +812,67 @@ async def test_query_answers_the_same_way_on_every_document_selection_path(monke
     # ואותה שאילתה על הגרסה האחרונה אינה מוצאת דבר — כלומר באמת נסרק
     # תוכן אחר, ולא אותו מסמך עם מספר גרסה שונה.
     assert (await _call(mcp, file_name=_FILE, query="99"))["total"] == 0
+
+
+async def test_a_malformed_request_is_refused_even_when_no_file_was_named(monkeypatch):
+    """בקשה פגומה היא פגומה בלי קשר לקובץ שהיא נוקבת בו.
+
+    ``{"found": false}`` היא תשובה על **קובץ**. קריאה ששכחה גם את שם הקובץ
+    וגם העבירה ``query`` יחד עם ``lines`` קיבלה אותה — כלומר "הקובץ אינו
+    קיים" על קריאה שלא נקבה בשום קובץ. הסוכן קורא את זה כתשובה על הקובץ
+    שלו והולך לחפש אותו, במקום לתקן את צורת הקריאה. אותה מחלקה בדיוק שאר
+    התיקונים בקובץ הזה עוסקים בה.
+
+    מוטציה שמפילה: להחזיר את בדיקת המזהה ב-``handlers.get_file`` לפני
+    הקריאה ל-``file_query_request_error``.
+    """
+    mcp = _build(monkeypatch, _SAMPLE)
+
+    assert await _call(mcp, query="a", lines=[1, 2]) == {
+        "ok": False,
+        "error": handlers.QUERY_AND_LINES,
+    }
+    assert await _call(mcp, query="   ") == {"ok": False, "error": handlers.QUERY_TOO_SHORT}
+    assert await _call(mcp, query="a\nb") == {"ok": False, "error": handlers.QUERY_MULTILINE}
+    assert await _call(mcp, context_lines=5) == {
+        "ok": False,
+        "error": handlers.CONTEXT_LINES_WITHOUT_QUERY,
+    }
+    assert await _call(mcp, max_results=7) == {
+        "ok": False,
+        "error": handlers.MAX_RESULTS_WITHOUT_QUERY,
+    }
+
+    # וקריאה שלא ביקשה דבר נשארת "לא נמצא" ואינה הופכת לשגיאה.
+    assert await _call(mcp) == {"found": False}
+
+
+def test_both_layers_refuse_through_the_same_function():
+    """לסולם הסירוב יש בעל בית אחד, ולא שני עותקים שיכולים להיפרד.
+
+    הבדיקה תופסת את שני המצבים שבהם זה נשבר. הראשון: שכבת ה-handlers
+    מפסיקה לסרב ומעבירה בקשה פגומה הלאה — כאן זה נראה כ-backend מזויף
+    שהיה מחזיר מסמך על ``query``+``lines``. השני: ה-backend מקבל עותק
+    משלו של אותה לוגיקה, וזיהוי האובייקט מפסיק להתקיים.
+    """
+    from mcp_server import backend as backend_mod
+
+    class _Fake:
+        """backend שאינו יודע דבר על ולידציה — הוא פשוט מחזיר מסמך."""
+
+        def __init__(self):
+            self.called = False
+
+        def get_file(self, *args, **kwargs):
+            self.called = True
+            return {"file_name": _FILE, "code": _SAMPLE}
+
+    fake = _Fake()
+    assert handlers.get_file(fake, _USER, file_name=_FILE, query="a", lines=[1, 2]) == {
+        "ok": False,
+        "error": handlers.QUERY_AND_LINES,
+    }
+    assert fake.called is False
+
+    # ושזו אותה פונקציה בדיוק, ולא שם זהה על שני מימושים.
+    assert backend_mod.file_query_request_error is handlers.file_query_request_error
