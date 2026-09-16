@@ -311,12 +311,15 @@ PHONE_VIEWPORT = {"width": 390, "height": 844}
 
 
 @contextlib.contextmanager
-def _browser_page(live_server, local_storage=None, viewport=None, query=""):
+def _browser_page(live_server, local_storage=None, viewport=None, query="", init_script=None):
     """פותח את העמוד בהקשר דפדפן נקי — **המקום היחיד** שמרים דפדפן בקובץ הזה.
 
     ``local_storage`` הוא הערך של ``mcpFailuresLastSeenAt``; ``None`` מוחק
     אותו, כלומר "ביקור ראשון". הכתיבה עוברת ב-``add_init_script`` שרץ
     **לפני** קוד העמוד, כי כתיבה אחרי ``goto`` מגיעה אחרי שהבאנר כבר חישב.
+
+    ``init_script`` הוא JS נוסף שרץ באותה נקודה — לזריעת אחסון קיים או
+    לחסימת האחסון. אותו נימוק בדיוק: אחרי ``goto`` זה כבר מאוחר.
 
     כל הניקוי יושב כאן ב-``finally``: כשהוא ישב אצל הקורא, כשל של ``goto``
     היה מדליף דפדפן שלם ואת סשן ה-Playwright איתו.
@@ -357,6 +360,8 @@ def _browser_page(live_server, local_storage=None, viewport=None, query=""):
             setup += "localStorage.removeItem('mcpFailuresLastSeenAt');"
         setup += "}catch(e){}"
         page.add_init_script(setup)
+        if init_script:
+            page.add_init_script(init_script)
         page.goto(f"{base_url}/admin/mcp{query}", wait_until="domcontentloaded")
         page.wait_for_timeout(400)
         page.evaluate(
@@ -1052,3 +1057,150 @@ def test_two_quick_clicks_on_a_row_icon_also_settle_back(live_server):
         icon = page.get_attribute(f"{button} i", "class")
 
     assert "fa-copy" in icon, f"האייקון נתקע על {icon}"
+
+
+# --------------------------------------------------------------------------
+# סימון "טופל" / "נדחה"
+#
+# הסימון נשמר ב-``localStorage`` של הדפדפן, ולכן **רק** דפדפן יכול להוכיח
+# שהוא עובד. בדיקת שרת רואה כפתור; היא אינה יכולה לראות שהלחיצה נשמרה, ששרדה
+# רענון, ושלחיצה שלא נשמרה אינה מוצגת כאילו כן.
+# --------------------------------------------------------------------------
+
+#: המפתח שהשורה של ``_one_missing_capability`` מקבלת: זמן הדיווח והסשן.
+MARK_ROW_KEY = "2026-09-02T10:00:00Z|ses_x"
+MARK_STORAGE_KEY = "mcpMissingMarks"
+#: אותה תקרה שבתבנית. הטסט מייצר אותה, ולכן הוא נשבר אם מישהו משנה אותה
+#: בצד אחד בלבד — וזה בדיוק מה שצריך לקרות.
+MARK_LIMIT = 500
+
+
+def _marks(page):
+    """מה ששמור **באחסון** — לא מה שמצויר על המסך."""
+    return page.evaluate(
+        "() => { try { return JSON.parse(localStorage.getItem('%s')) || {}; }"
+        " catch (e) { return {}; } }" % MARK_STORAGE_KEY
+    )
+
+
+def _mark_state(page):
+    """מה שמצויר: המצב על השורה, ואיזה כפתור לחוץ."""
+    return page.evaluate("""() => {
+        const row = document.querySelector('tr[data-cap-key]');
+        return {
+            row: row ? (row.dataset.mark || '') : null,
+            pressed: [...document.querySelectorAll('.mcp-mark-btn')]
+                .filter(b => b.getAttribute('aria-pressed') === 'true')
+                .map(b => b.dataset.mark),
+            noteVisible: !document.getElementById('mcpMarkNote').hidden,
+        };
+    }""")
+
+
+def _mark_button(value):
+    return f'tr[data-cap-key] .mcp-mark-btn[data-mark="{value}"]'
+
+
+def test_marking_a_capability_as_handled_survives_a_reload(live_server):
+    """זה כל הפיצ'ר: סימון שנעלם ברענון אינו סימון.
+
+    שתי הטענות נפרדות בכוונה — מה שנשמר באחסון, ומה שמצויר אחרי הטעינה
+    מחדש. סימון שנכתב ולא נקרא חזרה היה עובר בדיקה שבודקת רק את הראשון.
+    """
+    with _one_missing_capability(), _browser_page(live_server, query="?tab=missing") as page:
+        page.click(_mark_button("handled"))
+        page.wait_for_timeout(200)
+        stored = _marks(page)
+
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_timeout(400)
+        after = _mark_state(page)
+
+    assert stored == {MARK_ROW_KEY: "handled"}, stored
+    assert after["row"] == "handled"
+    assert after["pressed"] == ["handled"]
+
+
+def test_clicking_the_active_mark_again_clears_it(live_server):
+    """בלי זה אי אפשר לחזור מ"נדחה" ל"לא טופל" אלא בניקוי אחסון ביד."""
+    with _one_missing_capability(), _browser_page(live_server, query="?tab=missing") as page:
+        page.click(_mark_button("rejected"))
+        page.wait_for_timeout(200)
+        page.click(_mark_button("rejected"))
+        page.wait_for_timeout(200)
+        state = _mark_state(page)
+        stored = _marks(page)
+
+    assert state["row"] == ""
+    assert state["pressed"] == []
+    # נמחק מהאחסון ולא נשמר כערך ריק: רשומה ריקה היא רשומה שתיספר בתקרה.
+    assert stored == {}, stored
+
+
+def test_the_two_marks_replace_each_other(live_server):
+    """דיווח אינו יכול להיות גם טופל וגם נדחה."""
+    with _one_missing_capability(), _browser_page(live_server, query="?tab=missing") as page:
+        page.click(_mark_button("handled"))
+        page.wait_for_timeout(200)
+        page.click(_mark_button("rejected"))
+        page.wait_for_timeout(200)
+        state = _mark_state(page)
+        stored = _marks(page)
+
+    assert state["pressed"] == ["rejected"]
+    assert stored == {MARK_ROW_KEY: "rejected"}, stored
+
+
+def test_a_mark_that_was_not_stored_is_not_drawn_as_stored(live_server):
+    """האחסון חסום ← הכפתור **אינו** נדלק, והעמוד אומר זאת.
+
+    זו ההבחנה שכל הקוד הזה עומד עליה: "``setItem`` לא זרק" אינו "נשמר",
+    ולכן מה שמצויר הוא מה שנקרא חזרה מהאחסון. בלי הקריאה החוזרת הלחיצה
+    הייתה נראית בדיוק כמו לחיצה שנשמרה — עד הרענון הבא, שבו הסימון נעלם
+    בלי הסבר.
+    """
+    refuse = (
+        "(function(){var real=Storage.prototype.setItem;"
+        "Storage.prototype.setItem=function(key,value){"
+        f"if(key==='{MARK_STORAGE_KEY}'){{throw new Error('QuotaExceededError');}}"
+        "return real.call(this,key,value);};})();"
+    )
+    with _one_missing_capability(), _browser_page(
+        live_server, query="?tab=missing", init_script=refuse
+    ) as page:
+        page.click(_mark_button("handled"))
+        page.wait_for_timeout(200)
+        state = _mark_state(page)
+        note = page.inner_text("#mcpMarkNote")
+
+    assert state["pressed"] == [], "לחיצה שלא נשמרה הוצגה כאילו נשמרה"
+    assert state["row"] == ""
+    assert state["noteVisible"], "הכישלון נבלע בשקט"
+    assert "לא נשמר" in note
+
+
+def test_the_stored_marks_do_not_grow_past_their_limit(live_server):
+    """דיווח נושר מהשאילתה אחרי 90 יום, אבל הסימון שלו נשאר באחסון.
+
+    בלי תקרה זו צמיחה בלי סוף. הבדיקה מוודאת גם את הצד השני: הסימון שנלחץ
+    זה עתה **שורד** את הגזירה — אחרת הגזירה הייתה מוחקת בדיוק את מה
+    שהמשתמש ביקש, והלחיצה הייתה מדווחת ככשל.
+    """
+    seed = (
+        "(function(){try{var marks={};"
+        f"for(var i=0;i<{MARK_LIMIT};i++){{marks['2020-01-01T00:00:00Z|old'+i]='handled';}}"
+        f"localStorage.setItem('{MARK_STORAGE_KEY}',JSON.stringify(marks));"
+        "}catch(e){}})();"
+    )
+    with _one_missing_capability(), _browser_page(
+        live_server, query="?tab=missing", init_script=seed
+    ) as page:
+        page.click(_mark_button("handled"))
+        page.wait_for_timeout(200)
+        stored = _marks(page)
+        state = _mark_state(page)
+
+    assert len(stored) == MARK_LIMIT, f"{len(stored)} רשומות באחסון"
+    assert stored.get(MARK_ROW_KEY) == "handled", "הסימון החדש נגזר"
+    assert state["pressed"] == ["handled"]
+    assert not state["noteVisible"]
