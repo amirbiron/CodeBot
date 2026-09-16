@@ -1490,8 +1490,8 @@
     function markNote(message) {
       var note = document.getElementById('mcpMarkNote');
       if (!note) { return; }
-      note.textContent = message || '';
       note.hidden = !message;
+      note.textContent = message || '';
     }
 
     (function initMarks() {
