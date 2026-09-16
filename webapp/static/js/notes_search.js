@@ -102,6 +102,14 @@
     var link = document.createElement('a');
     link.className = 'notes-search-link';
     link.href = hit.url || ('/note/' + encodeURIComponent(hit.id || ''));
+    // **כרטיסייה חדשה, ולא ניווט במקום.** תוצאות חיפוש הן רשימה שחוזרים
+    // אליה: פותחים פתק, מסתכלים, וממשיכים לבא בתור. ניווט באותה כרטיסייה
+    // מאבד את הרשימה, ו"חזור" מריץ את החיפוש מחדש.
+    //
+    // ``rel`` אינו קישוט: בלי ``noopener`` העמוד שנפתח מקבל
+    // ``window.opener`` ויכול לנווט את עמוד החיפוש למקום אחר.
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
 
     var swatch = document.createElement('span');
     swatch.className = 'notes-search-swatch';
