@@ -816,7 +816,21 @@ def build_mcp(
 
     @mcp.tool(
         name="codekeeper_search_code",
-        description="Search the user's code by text; returns file metadata (no content).",
+        # התיאור היה משפט אחד שלא אמר דבר על סמנטיקת ההתאמה, ולכן סוכן
+        # הניח substring כמו בשני החיפושים האחרים, חיפש ``**`` או שם
+        # חלקי, קיבל אפס — והסיק שהמחרוזת אינה קיימת. המנוע כאן הוא
+        # ``$text`` של מונגו, והוא מתאים מילים שלמות. נמדד: ``handof``
+        # מחזיר אפס בזמן ש-``handoff`` מחזיר שלוש תוצאות.
+        description=(
+            "Search the user's saved files by text; returns file metadata "
+            "(no content). Matching is by whole words, not substrings: "
+            "`handof` does not find `handoff`, and a query of punctuation "
+            "alone — `**`, `[`, `()` — matches nothing at all, because "
+            "punctuation is not indexed as a word. This is the one search "
+            "tool that does NOT do substring matching; for a literal string "
+            "inside a mirrored repo use codekeeper_search_repo, and inside "
+            "one saved file use the query parameter of codekeeper_get_file."
+        ),
         annotations=_READ_ONLY_TOOL,
     )
     def search_code(ctx: Context, query: str, language: str | None = None, limit: int = 20) -> dict:

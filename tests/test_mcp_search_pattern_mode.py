@@ -501,3 +501,32 @@ async def test_the_tool_defaults_to_literal_matching(monkeypatch):
     await mcp.call_tool("codekeeper_search_repo", {"repo": "r", "query": "dict["})
 
     assert backend.calls[0]["regex"] is False
+
+
+# --------------------------------------------------------------------------
+# codekeeper_search_code — אותה מחלת "אפס שקט", מנוע אחר
+# --------------------------------------------------------------------------
+
+
+def test_the_search_code_description_states_that_it_is_not_substring():
+    """התיאור הוא מה שמונע מסוכן להסיק "המחרוזת אינה קיימת".
+
+    ``codekeeper_search_code`` רץ על ``$text`` של מונגו ומתאים **מילים
+    שלמות**, לא מחרוזות. נמדד מול השרת החי: ``handof`` מחזיר אפס בזמן
+    ש-``handoff`` מחזיר שלוש תוצאות, ו-``**`` מחזיר אפס כי פיסוק לבדו
+    אינו נשמר כטוקן. שני המקרים האלה אינם שגיאה ואינם באג — הם מה
+    שהמנוע עושה, והבאג היה שהתיאור לא אמר זאת ולכן אפס נקרא כ"לא קיים".
+
+    **מוטציה שמפילה:** להחזיר את התיאור לגרסה בת המשפט האחד.
+    """
+    pytest.importorskip("mcp")
+    import mcp_server.server as srv
+
+    mcp = srv.build_mcp(object(), repo_backend=object())
+    desc = mcp._tool_manager.get_tool("codekeeper_search_code").description
+
+    assert "whole words" in desc, "הסמנטיקה חייבת להיאמר, לא להישאר לניחוש"
+    assert "not substring" in desc.lower() or "does NOT do substring" in desc
+    # וההפניה לכלי הנכון, כדי שהסוכן יידע לאן ללכת במקום לנחש שוב.
+    assert "codekeeper_search_repo" in desc
+    assert "codekeeper_get_file" in desc
