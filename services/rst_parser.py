@@ -3,6 +3,13 @@
 מודול עצמאי (בלי תלות ב-MCP) שנועד לשמש כלים שקוראים מקבצי RST של התיעוד:
 ``docs_get_section`` (עכשיו) ובעתיד ``docs_search`` / ``docs_lookup_config``.
 
+**מה יושב כאן ומה לא.** כאן יושב **זיהוי הכותרות של RST בלבד** — תווי
+ה-adornment, כללי האורך, שומר הדילוג של ``check_subsection``, ו-``parse_document``.
+**המודל שנבנה מזה** — ``Section``, ``Document``, חישוב ההיררכיה, וכל הפונקציות
+שעונות על שאלות מעל העץ — עבר ל-``services/doc_sections.py``, כי הוא אינו תלוי
+בשפת המקור ומתוכנן לו צרכן שני (פארסר Markdown). המודול הזה **מייצא אותם מחדש**
+כדי שאף קורא קיים לא יישבר; הפירוט ליד ``__all__`` למטה.
+
 עקרונות מנחים:
 - היררכיית הכותרות ב-RST נקבעת **דינמית פר-קובץ** לפי סדר הופעת תווי ה-adornment
   (אין הנחה קשיחה ש-``=`` היא רמה 1). תמיכה ב-underline-only וב-overline+underline.
@@ -15,9 +22,53 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass, field
-from difflib import get_close_matches
-from typing import List, Optional, Tuple
+from typing import List, Optional
+
+from .doc_sections import (
+    Document,
+    Section,
+    TooManySections,
+    _finalize,
+    build_toc,
+    direct_subsections,
+    find_sections,
+    neighbors,
+    normalize_title,
+    section_bounds,
+    section_text,
+    suggest,
+)
+
+#: **ייצוא מחדש, ולא הגדרה.** המודל המשותף עבר ל-``services/doc_sections.py``
+#: (ההסבר המלא ב-docstring שם), והמודול הזה נשאר **הפארסר של RST בלבד**:
+#: זיהוי כותרות, כללי ה-adornment, ו-``parse_document``.
+#:
+#: הייצוא קיים כדי ש**אף קורא קיים לא יישבר** — ``mcp_server/docs_handlers.py``
+#: קורא היום ל-``rst_parser.build_toc``, ``rst_parser.find_sections``,
+#: ``rst_parser.suggest``, ``rst_parser.section_text``, ``rst_parser.neighbors``
+#: ו-``rst_parser.direct_subsections``, ו-``mcp_server/outline_scanners/rst.py``
+#: תופס ``rst_parser.TooManySections``. ייבוא מחדש הוא **הפניה לאותו אובייקט**
+#: ולא עותק, ולכן ``rst_parser.Section is doc_sections.Section`` — וזה מה
+#: שמחזיק גם את ה-``except`` בסורק וגם טסט שמחליף את ``rst_parser.Section``.
+#:
+#: **ו-``__all__`` כאן אינו קישוט:** בלעדיו שמונה מהשמות האלה אינם נקראים בגוף
+#: המודול, ו-pyflakes היה מדווח עליהם ``F401``. ``# noqa`` שמונה פעמים היה
+#: מסתיר את האזהרה במקום להצהיר על הכוונה; ``__all__`` מצהיר עליה, וגם עונה
+#: לכל כלי שקורא ייצוא-מחדש במפורש.
+__all__ = [
+    "Document",
+    "Section",
+    "TooManySections",
+    "build_toc",
+    "direct_subsections",
+    "find_sections",
+    "neighbors",
+    "normalize_title",
+    "parse_document",
+    "section_bounds",
+    "section_text",
+    "suggest",
+]
 
 # תווי adornment חוקיים לכותרות RST. docutils מגדיר את המחלקה הזאת
 # ב-``Body.pats['nonalphanum7bit']`` כ-``[!-/:-@[-`{-~]`` — כל 32 תווי
@@ -81,28 +132,6 @@ _SIMPLE_TABLE_TOP_RE = re.compile(r"=+( +=+)+ *$")
 _SIMPLE_TABLE_BORDER_RE = re.compile(r"=+( +=+)* *$")
 
 _INCLUDE_RE = re.compile(r"^\.\.[ \t]+include::[ \t]*(\S.*)$")
-
-
-@dataclass
-class Section:
-    """סקשן בודד בעץ הכותרות."""
-    title: str
-    level: int
-    title_line: int          # 1-based — שורת הטקסט של הכותרת
-    heading_line: int        # 1-based — שורת ה-overline (או == title_line אם אין overline)
-    end_line: int            # 1-based inclusive — סוף התוכן (מחושב ב-_finalize)
-    adornment: str
-    over: bool = False
-    parent: Optional[int] = None
-    children: List[int] = field(default_factory=list)
-    breadcrumb: List[str] = field(default_factory=list)
-
-
-@dataclass
-class Document:
-    lines: List[str]
-    sections: List[Section]
-    includes: List[str] = field(default_factory=list)  # יעדי .. include:: (לא מורחבים)
 
 
 def _is_indented(line: str) -> bool:
@@ -205,23 +234,6 @@ def _adornment_fits(title: str, adornment: str) -> bool:
     if _display_width(title.rstrip()) > len(line):
         return len(line) >= _MIN_SHORT_ADORNMENT
     return True
-
-
-class TooManySections(Exception):
-    """הקלט מייצר יותר סקשנים מהתקרה שהמתקשר העביר ב-``max_sections``.
-
-    **חריגה, ולא ערך החזרה ולא ``Document`` חלקי עם דגל "נקטע".** המתקשר
-    היחיד שמעביר תקרה הוא סורק האאוטליין, ושם הכלל כבר נקבע ומנומק
-    ב-``mcp_server/outline_scanners/_ceiling.py``: מפה חלקית שמתחזה
-    למלאה היא בדיוק הכשל שהתקרה קיימת כדי למנוע. דגל דורש בדיקה בכל אתר
-    קריאה, ובדיקה אחת שנשכחת מחזירה תוכן עניינים שחסרות בו כותרות בלי
-    שאיש יידע — ואילו חריגה נכשלת בקול.
-
-    **ומוגדרת כאן ולא שם**, כי הכיוון הוא חד-סטרי: הסורק מייבא את המודול
-    הזה, ו-``services`` אינו מייבא מ-``mcp_server``. ההורשה היא
-    מ-``Exception`` ישירות ולא מחריגת ספריית תקן, כדי שתפיסה צרה של
-    החריגה הזאת לא תוכל להתנגש בשגיאה אמיתית.
-    """
 
 
 def _skip_paragraph_block(lines: List[str], i: int, n: int) -> int:
@@ -535,105 +547,3 @@ def parse_document(text: str, *, max_sections: int | None = None) -> Document:
 
     _finalize(sections, n)
     return Document(lines=lines, sections=sections, includes=includes)
-
-
-def _finalize(sections: List[Section], total_lines: int) -> None:
-    """מחשב end_line, parent/children, ו-breadcrumb לכל סקשן."""
-    for idx, sec in enumerate(sections):
-        end = total_lines
-        for j in range(idx + 1, len(sections)):
-            if sections[j].level <= sec.level:
-                end = sections[j].heading_line - 1
-                break
-        sec.end_line = end
-
-    stack: List[int] = []  # אינדקסים של אבות פתוחים
-    for idx, sec in enumerate(sections):
-        while stack and sections[stack[-1]].level >= sec.level:
-            stack.pop()
-        if stack:
-            parent = stack[-1]
-            sec.parent = parent
-            sections[parent].children.append(idx)
-            sec.breadcrumb = sections[parent].breadcrumb + [sec.title]
-        else:
-            sec.parent = None
-            sec.breadcrumb = [sec.title]
-        stack.append(idx)
-
-
-def normalize_title(s: str) -> str:
-    """נרמול סלחני להשוואת כותרות: רווחים, מקפים, ו-case לחלק האנגלי."""
-    s = (s or "").strip()
-    s = re.sub(r"[‐-―\-]", "-", s)  # מקף/מקף ארוך → מקף אחיד
-    s = re.sub(r"\s+", " ", s)                # רווחים כפולים → יחיד
-    return s.casefold()                       # case-insensitive (עברית לא מושפעת)
-
-
-def find_sections(doc: Document, title: str) -> List[Section]:
-    """כל הסקשנים שכותרתם תואמת (סלחני). ריק/יחיד/מרובה — המתקשר מחליט."""
-    target = normalize_title(title)
-    return [s for s in doc.sections if normalize_title(s.title) == target]
-
-
-def section_bounds(doc: Document, sec: Section, include_subsections: bool) -> Tuple[int, int]:
-    """טווח שורות (1-based inclusive) של תוכן הסקשן — עם או בלי תת-סקשנים."""
-    start = sec.heading_line
-    if include_subsections or not sec.children:
-        return start, sec.end_line
-    first_child = doc.sections[sec.children[0]]
-    return start, first_child.heading_line - 1
-
-
-def section_text(doc: Document, sec: Section, include_subsections: bool) -> str:
-    start, end = section_bounds(doc, sec, include_subsections)
-    return "\n".join(doc.lines[start - 1:end])
-
-
-def direct_subsections(doc: Document, sec: Section) -> List[Section]:
-    return [doc.sections[c] for c in sec.children]
-
-
-def neighbors(doc: Document, sec: Section) -> Tuple[Optional[Section], Optional[Section]]:
-    """הסקשן הקודם והבא באותה רמה תחת אותו אב (לניווט בלי TOC)."""
-    siblings = ([doc.sections[c] for c in doc.sections[sec.parent].children]
-                if sec.parent is not None
-                else [s for s in doc.sections if s.parent is None])
-    ids = [s.title_line for s in siblings]
-    try:
-        pos = ids.index(sec.title_line)
-    except ValueError:
-        return None, None
-    prev = siblings[pos - 1] if pos > 0 else None
-    nxt = siblings[pos + 1] if pos + 1 < len(siblings) else None
-    return prev, nxt
-
-
-def build_toc(doc: Document) -> List[dict]:
-    """עץ כותרות: כותרת, רמה, טווח שורות, גודל משוער (bytes) — בלי תוכן."""
-    toc = []
-    for sec in doc.sections:
-        approx = len("\n".join(doc.lines[sec.heading_line - 1:sec.end_line]).encode("utf-8"))
-        toc.append({
-            "title": sec.title,
-            "level": sec.level,
-            "breadcrumb": list(sec.breadcrumb),
-            "line_range": [sec.heading_line, sec.end_line],
-            "approx_bytes": approx,
-        })
-    return toc
-
-
-def suggest(doc: Document, query: str, n: int = 5) -> List[str]:
-    """כותרות קרובות לשאילתה שלא נמצאה (difflib), לשילוב ב-not-found."""
-    titles = [s.title for s in doc.sections]
-    norm_map = {normalize_title(t): t for t in titles}
-    close = get_close_matches(normalize_title(query), list(norm_map.keys()), n=n, cutoff=0.5)
-    # שמור על סדר ייחודי
-    out, seen = [], set()
-    for c in close:
-        t = norm_map[c]
-        if t not in seen:
-            seen.add(t)
-            out.append(t)
-    return out
