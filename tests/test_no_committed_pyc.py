@@ -226,3 +226,47 @@ def test_a_failure_to_read_git_is_not_reported_as_clean(tmp_path: Path):
         f"הצלחה על בדיקה שלא רצה.\nstdout={result.stdout!r}"
     )
     assert "git" in result.stderr.lower(), result.stderr
+
+
+@pytest.fixture
+def repo_with_awkward_pyc_names(tmp_path: Path) -> Path:
+    """ריפו עם שני קבצי ``.pyc`` שגיט **מצטט** בפלט הרגיל שלו.
+
+    ``line\\nbreak.pyc`` — שורה חדשה בשם. ``שלום.pyc`` — לא-ASCII, שגיט מצטט
+    כברירת מחדל (``core.quotePath``). בשני המקרים ``git ls-files`` בלי ``-z``
+    מדפיס ``"..."`` עם escape-ים, והשם המודפס מסתיים במירכאה ולא ב-``.pyc``.
+    השני הוא המקרה הריאלי כאן: שמות בעברית נפוצים בריפו הזה.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / ".gitignore").write_text("*.pyc\n", encoding="utf-8")
+    (repo / "line\nbreak.pyc").write_bytes(b"\x00\x01")
+    (repo / "שלום.pyc").write_bytes(b"\x00\x01")
+
+    _git("init", "-q", ".", cwd=repo)
+    _git("config", "user.email", "test@example.com", cwd=repo)
+    _git("config", "user.name", "test", cwd=repo)
+    _git("add", "-A", "-f", cwd=repo)
+    _git("commit", "-q", "-m", "awkward names", cwd=repo)
+    return repo
+
+
+@pytest.mark.parametrize("extra_args", [[], ["--ref", "HEAD"]], ids=["index", "ref"])
+def test_paths_git_would_quote_are_still_caught(repo_with_awkward_pyc_names: Path, extra_args):
+    """נתיב עם שורה חדשה או עברית נתפס — בשני מסלולי הקריאה.
+
+    **הבאג שנתפס בסקירה:** בלי ``-z`` גיט מצטט, ``splitlines()`` החזיר
+    ``"line\\nbreak.pyc"`` עם המירכאות, ``endswith(".pyc")`` נכשל על ``"``,
+    והקובץ עבר. אומת על הגרסה הקודמת של הסקריפט: שני הקבצים האלה עברו
+    אותה ב-exit 0, גם ב-index וגם ב-``--ref``. שני המסלולים נבדקים כי הם
+    שתי פקודות git שונות (``ls-files`` / ``ls-tree``), וכל אחת צריכה את
+    ה-``-z`` שלה.
+    """
+    result = _run(*extra_args, cwd=repo_with_awkward_pyc_names)
+
+    assert result.returncode == 1, (
+        f"קובץ .pyc עם שם שגיט מצטט עבר את הבדיקה: stderr={result.stderr!r}"
+    )
+    assert "break.pyc" in result.stderr, result.stderr
+    assert "שלום.pyc" in result.stderr, result.stderr

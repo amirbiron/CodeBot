@@ -64,16 +64,28 @@ def offending_paths(paths: list[str]) -> list[str]:
 def tracked_files(ref: str | None = None) -> list[str]:
     """הקבצים שגיט עוקב אחריהם — ב-index, או ב-``ref`` אם נמסר.
 
+    **NUL-delimited (``-z``), ולא שורות.** בלי ``-z`` גיט **מצטט** נתיב
+    שמכיל תו מיוחד — שורה חדשה, או כל תו שאינו ASCII כש-``core.quotePath``
+    בברירת המחדל — בסגנון C: ``"line\\nbreak.pyc"``, עם המירכאות כחלק
+    מהפלט. ``splitlines()`` החזיר אז מחרוזת שמסתיימת ב-``"`` ולא ב-``.pyc``,
+    והבדיקה פספסה אותה: אומת על שני קבצים כאלה, שעברו את הגרסה הקודמת
+    בשקט. עם ``-z`` אין ציטוט ואין escape — נתיב הוא מה שיושב בין שני NUL,
+    שורה חדשה כלולה.
+
+    הפענוח ב-``surrogateescape``, כדי ששם קובץ שאינו UTF-8 תקין יגיע
+    ל-:func:`offending_paths` במקום להפיל את הבדיקה ב-``UnicodeDecodeError``
+    — כשל בקריאה אינו "נקי", אבל גם אינו סיבה לא לבדוק את השאר.
+
     זורק ``subprocess.CalledProcessError`` כשגיט נכשל. **בכוונה לא נבלע:**
     בדיקה שלא הצליחה לרוץ אינה בדיקה שעברה, וכאן זה ההבדל בין "אין
     קבצים אסורים" לבין "לא הצלחתי לבדוק".
     """
     if ref:
-        cmd = ["git", "ls-tree", "-r", "--name-only", ref]
+        cmd = ["git", "ls-tree", "-r", "-z", "--name-only", ref]
     else:
-        cmd = ["git", "ls-files"]
-    out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
-    return [line for line in out.splitlines() if line.strip()]
+        cmd = ["git", "ls-files", "-z"]
+    out = subprocess.run(cmd, capture_output=True, check=True).stdout
+    return [p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p]
 
 
 def main() -> int:
@@ -99,30 +111,31 @@ def main() -> int:
         try:
             candidates = tracked_files(args.ref)
         except subprocess.CalledProcessError as exc:
-            print(
-                f"‎✗ לא הצלחתי לקרוא את רשימת הקבצים מגיט: {exc.stderr or exc}",
-                file=sys.stderr,
-            )
+            detail = (exc.stderr or b"").decode("utf-8", "replace").strip() or str(exc)
+            print(f"✗ לא הצלחתי לקרוא את רשימת הקבצים מגיט: {detail}", file=sys.stderr)
             return 2
 
     bad = offending_paths(candidates)
     if not bad:
         return 0
 
-    print("‎✗ קבצי bytecode במעקב גיט:", file=sys.stderr)
+    print("✗ קבצי bytecode במעקב גיט:", file=sys.stderr)
     for path in bad:
-        print(f"    {path}", file=sys.stderr)
+        # נתיב עם שורה חדשה היה נשבר לשתי שורות ברשימה ומטעה; ``repr`` מציג
+        # אותו כפי שהוא, בשורה אחת. נתיב רגיל נשאר קריא כמות שהוא.
+        shown = path if path.isprintable() else repr(path)
+        print(f"    {shown}", file=sys.stderr)
     print(
         "\n"
-        "‎.gitignore אינו מונע את זה. הוא חל על קובץ untracked שמנסים\n"
+        ".gitignore אינו מונע את זה. הוא חל על קובץ untracked שמנסים\n"
         "להוסיף — ולא על קובץ שכבר נמצא ב-index. שני המסלולים שמכניסים\n"
         "אותו בכל זאת:\n"
         "\n"
-        "  • ‎git checkout <ref> -- .  מעתיק מה-ref אל העץ ואל ה-index בלי\n"
+        "  • git checkout <ref> -- .  מעתיק מה-ref אל העץ ואל ה-index בלי\n"
         "    להתייעץ עם .gitignore. אם ה-ref מיושן, כל מה שהיה בו חוזר.\n"
         "    כך נכנסו כאן 11 קבצים שכבר הוסרו — ראו את הפירוט ב-\n"
         "    scripts/check_no_committed_pyc.py.\n"
-        "  • ‎git add -f, או קובץ שנכנס לפני שהדפוס נוסף ל-.gitignore.\n"
+        "  • git add -f, או קובץ שנכנס לפני שהדפוס נוסף ל-.gitignore.\n"
         "\n"
         "התיקון:\n"
         "    git rm -r --cached <path>   # להסיר מהמעקב, להשאיר על הדיסק\n",
