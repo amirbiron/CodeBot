@@ -134,6 +134,9 @@ class RepoSearchService:
         )
 
         if "error" in result:
+            # מועבר כמות שהוא, על כל מפתחותיו. ``error`` ו-``message``
+            # מבדילים בין דפוס שנדחה לבין כשל מנוע, ומי שיצמצם כאן ל-דגל
+            # בוליאני יחזיר את הקורא בדיוק למצב שבו הוא לא יודע מה קרה.
             return result
 
         # העשרת התוצאות עם metadata מ-MongoDB

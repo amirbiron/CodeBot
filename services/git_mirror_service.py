@@ -33,6 +33,46 @@ MAX_FILE_SIZE_FOR_DISPLAY = 500 * 1024  # 500KB
 # תקרה קשיחה לשורות ההקשר ב-``git grep -C``; המהדק ב-mcp_server נמוך ממנה.
 MAX_GREP_CONTEXT_LINES = 20
 
+# קציר התהליך אחרי שה-stdout נסגר. זו אינה המתנה לעבודה: מגיעים לשם רק
+# אחרי EOF, כלומר git כבר יצא, ו-``wait`` רק אוסף את קוד היציאה.
+GREP_EXIT_WAIT_SECONDS = 1.0
+# תקרה לקריאת stderr. עד היום נקרא ``.read()`` בלי גבול.
+GREP_STDERR_MAX_BYTES = 8192
+
+# הודעות ש-git מוציא כשהוא דוחה את ה**דפוס** עצמו. קוד היציאה אינו מספיק:
+# ‏128 משותף גם ל-``bad revision`` ולאובייקט פגום, ורק ה-stderr מבדיל.
+_PATTERN_ERROR_MARKERS = (
+    "invalid regular expression",
+    "invalid preceding regular expression",
+    "invalid regex",
+    "unmatched",
+    "unterminated",
+    "trailing backslash",
+    "premature end",
+    "repetition-operator",
+    "invalid back reference",
+    "invalid range end",
+    "invalid character class",
+    "regular expression too big",
+    "brackets ([ ]) not balanced",
+    "parentheses not balanced",
+)
+
+
+def _classify_grep_failure(stderr_text: str) -> str:
+    """‏``invalid_pattern`` כשגיט דחה את הדפוס, אחרת ``search_failed``.
+
+    **ברירת המחדל מאשימה את המנוע ולא את הקורא.** הודעה שלא זוהתה מסווגת
+    כ-``search_failed``, כי לומר לקורא "הדפוס שלך פסול" על ריפו פגום שולח
+    אותו לתקן את הדבר הלא נכון. הכיוון ההפוך — שגיאת מנוע שמדווחת כדפוס
+    פסול — עולה יותר, ולכן הרשימה כאן היא allowlist ולא blocklist.
+
+    זהו החלק השביר בזיהוי, ולכן הוא מבודד בפונקציה טהורה עם טסטים משלה
+    במקום להיות תנאי בתוך לולאת הקריאה.
+    """
+    text = (stderr_text or "").lower()
+    return "invalid_pattern" if any(m in text for m in _PATTERN_ERROR_MARKERS) else "search_failed"
+
 
 @dataclass
 class GitCommandResult:
@@ -2006,6 +2046,9 @@ class GitMirrorService:
             )
 
             if "error" in streaming_result:
+                # השאילתה נוסעת עם השגיאה: העוזר מכיר רק את ``cmd``, ומי
+                # שמקבל ``invalid_pattern`` צריך לדעת איזה דפוס נדחה.
+                streaming_result.setdefault("query", query)
                 return streaming_result
 
             results = streaming_result.get("results", [])
@@ -2057,6 +2100,11 @@ class GitMirrorService:
         max_lines = max_results * 50  # הגבלת קריאה גם אם אין מספיק התאמות
         truncated = False
         truncation_reason: Optional[str] = None
+        # **עצרנו אנחנו, או שגיט נפל?** מרגע שהרגנו את התהליך בכוונה, קוד
+        # היציאה כבר לא אומר דבר על החיפוש: הוא יכול להיות ``-9``, אבל גם
+        # ``0``/``1``/``128`` אם git הספיק לצאת מעצמו רגע לפני ה-kill. לכן
+        # הדגל הזה, ולא סינון ערכים שליליים.
+        killed_by_us = False
 
         # --- מצב לשורות הקשר (פעיל רק כש-context_lines > 0) ---------------
         # ``before`` הוא חלון מתגלגל של השורות שקדמו להתאמה, ו-``pending`` הן
@@ -2097,6 +2145,17 @@ class GitMirrorService:
                 bufsize=1,  # Line buffered
             )
 
+            def _stop_child() -> None:
+                """עצירה יזומה של git — ומסמנת שקוד היציאה כבר לא קביל.
+
+                קיימת כפונקציה ולא כשתי שורות בכל אתר כדי שהאינווריאנט
+                ייאכף מבנית: מי שיוסיף בעתיד מסלול עצירה נוסף יקרא לה,
+                ולא ישכח להדליק את הדגל וייצור מחדש את אותו אפס שקט.
+                """
+                nonlocal killed_by_us
+                killed_by_us = True
+                process.kill()
+
             # קריאה עם timeout
             import select
             import time
@@ -2107,7 +2166,7 @@ class GitMirrorService:
                 # בדיקת timeout
                 elapsed = time.time() - start_time
                 if elapsed >= timeout:
-                    process.kill()
+                    _stop_child()
                     logger.warning(f"git grep timeout after {elapsed:.1f}s")
                     truncated = True
                     truncation_reason = "timeout"
@@ -2138,7 +2197,7 @@ class GitMirrorService:
                 lines_read += 1
                 if lines_read > max_lines:
                     # הגבלת קריאה למקרה של פלט אינסופי
-                    process.kill()
+                    _stop_child()
                     logger.warning(f"git grep output limit reached ({max_lines} lines)")
                     truncated = True
                     truncation_reason = "output_limit"
@@ -2169,7 +2228,7 @@ class GitMirrorService:
                         _feed_after(text)
                         before.append(text)
                         if reached_cap and not pending:
-                            process.kill()
+                            _stop_child()
                             break
                         continue
 
@@ -2186,7 +2245,7 @@ class GitMirrorService:
                                 _feed_after(text)
                                 before.append(text)
                                 if not pending:
-                                    process.kill()
+                                    _stop_child()
                                     break
                                 continue
 
@@ -2208,7 +2267,7 @@ class GitMirrorService:
                             if len(results) >= max_results:
                                 if context_lines == 0:
                                     # מספיק תוצאות - עוצרים מוקדם!
-                                    process.kill()
+                                    _stop_child()
                                     truncated = True
                                     truncation_reason = "max_results"
                                     break
@@ -2218,7 +2277,7 @@ class GitMirrorService:
                                 truncation_reason = "max_results"
                                 reached_cap = True
                                 if not pending:
-                                    process.kill()
+                                    _stop_child()
                                     break
 
                         except ValueError:
@@ -2245,24 +2304,62 @@ class GitMirrorService:
                         _flush_pending()
                         before.clear()
                         if reached_cap:
-                            process.kill()
+                            _stop_child()
                             break
 
                     current_file = file_line
 
-            # בדיקת קוד יציאה - git grep מחזיר 1 כשאין תוצאות (תקין)
-            # קוד יציאה אחר (2+) מציין שגיאה
-            returncode = process.returncode
-            if returncode is not None and returncode > 1:
-                # קריאת stderr לקבלת הודעת השגיאה
+            # --- קוד היציאה ---------------------------------------------
+            # ``git grep``: ‏0 = נמצאו התאמות, 1 = לא נמצאו (תקין), >1 = שגיאה.
+            # נמדד על git 2.43: דפוס ERE פסול יוצא ב-**128** ולא ב-2, כי git
+            # עושה ``die()``. לכן הפרדיקט הוא ``> 1`` ולא ``== 2``.
+            #
+            # **וקוד היציאה משמעותי רק כשנתנו לתהליך להסתיים מעצמו.** הבדיקה
+            # הקודמת קראה את ``process.returncode`` בלי שאיש מילא אותו:
+            # ‏``returncode`` מתמלא רק אחרי ``poll()``/``wait()``, ובלולאה
+            # ‏``poll()`` נקרא רק בענף ``not ready``. במסלול הרגיל — git כותב
+            # ל-stderr, יוצא, ‏``readline()`` מחזיר ``''`` והלולאה נשברת —
+            # הוא נשאר ``None``, הבדיקה דולגה, וכשל אמיתי חזר כ"אפס תוצאות".
+            returncode: Optional[int] = None
+            if not killed_by_us:
+                try:
+                    # קציר, לא המתנה: ה-stdout כבר ב-EOF, כלומר git כבר יצא.
+                    returncode = process.wait(timeout=GREP_EXIT_WAIT_SECONDS)
+                except subprocess.TimeoutExpired:
+                    # לא אמור לקרות. לא חוסמים, לא הורגים (ה-``finally``
+                    # יעשה זאת), ולא ממציאים שגיאה שלא הוכחה.
+                    logger.warning(
+                        "git grep did not reap within %.1fs after EOF", GREP_EXIT_WAIT_SECONDS
+                    )
+                    returncode = None
+
+            if returncode is not None and returncode < 0:
+                # נהרג מבחוץ (OOM killer למשל) ולא בידינו. גם זה החזיר עד
+                # היום "אפס תוצאות" שקט. התוצאות חלקיות — אומרים את זה.
+                logger.warning("git grep killed by signal %s", -returncode)
+                truncated = True
+                truncation_reason = truncation_reason or "process_killed"
+            elif returncode is not None and returncode > 1:
                 stderr_output = ""
                 try:
-                    stderr_output = process.stderr.read() if process.stderr else ""
+                    stderr_output = (
+                        process.stderr.read(GREP_STDERR_MAX_BYTES) if process.stderr else ""
+                    )
                 except Exception:
                     pass
-                error_msg = stderr_output[:200] if stderr_output else f"git grep failed with code {returncode}"
-                logger.warning(f"git grep error (code {returncode}): {error_msg}")
-                return {"error": "search_failed", "message": error_msg, "results": []}
+                error_msg = (
+                    stderr_output.strip()[:200] or f"git grep failed with code {returncode}"
+                )
+                error_key = _classify_grep_failure(stderr_output)
+                logger.warning("git grep %s (code %s): %s", error_key, returncode, error_msg)
+                return {
+                    "error": error_key,
+                    "message": error_msg,
+                    "exit_code": returncode,
+                    # ב-``invalid_pattern`` זה תמיד ריק — git מת לפני שהתאים.
+                    # בכשל באמצע הזרם זה מונע זריקה של התאמות אמיתיות.
+                    "results": results,
+                }
 
             return {
                 "results": results,
