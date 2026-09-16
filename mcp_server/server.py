@@ -976,23 +976,27 @@ def build_mcp(
 
     @mcp.tool(
         name="codekeeper_update_file_description",
+        # **התיאור קצר בכוונה, והקיצור עצמו הוא החלטה.** גרסה קודמת שלו
+        # עמדה על כמעט 1,000 תווים ונשאה שישה דברים שסוכן אינו צריך: מה
+        # הוובאפ מציע (הוא לא שם), ש-``codekeeper_list_versions`` לא יראה
+        # את השינוי (נגזר מ"לא נוצרת גרסה"), מה תחזיר קריאה של גרסה ישנה
+        # (פירוט יתר של המשפט על הגרסה האחרונה), שתגיות אינן נוגעות (שם
+        # הכלי אומר ``description``), שאין התראה (לא קיים בעולם של הסוכן),
+        # ושתיאור ארוך נדחה עם המגבלה (הודעת השגיאה אומרת זאת כשהיא
+        # מגיעה, ולפני כן היא רעש).
+        #
+        # מה שנשאר הוא מה שמשנה **בזמן הבחירה**: מה הכלי עושה, מתי לבחור
+        # בו על פני האחרים, ומה בלתי הפיך. הפירוט המלא חי ב-
+        # ``docs/mcp-server.rst`` (``mcp-update-description``) — שם יש מקום,
+        # וכאן כל משפט מתחרה על תשומת הלב של הסוכן.
         description=(
-            "Replace an existing file's description without resending or changing "
-            "its content — the same quick description edit the file page offers. "
-            "Use it when the stored description no longer matches what the file "
-            "says; codekeeper_save_file sets a description only on a brand-new "
-            "file, and the edit tools carry the old one over unchanged. "
-            "NO NEW VERSION IS CREATED: the content and the version number stay "
-            "as they are, this change does not appear in "
-            "codekeeper_list_versions, and the previous description is NOT kept "
-            "in history — the reply returns it, and that is the only place it "
-            "survives. Only the latest version is updated, so reading an earlier "
-            "version back still returns the description it carried then. "
-            "Description only — tags and other metadata are untouched. Sends no "
-            "save notification, because nothing was saved. An empty description "
-            "clears it. An over-long description is refused rather than cut "
-            "short — the error carries the limit — so no text is lost without "
-            "you knowing. Requires write permission."
+            "Replace an existing file's description without changing its "
+            "content. Use it when the stored description no longer matches the "
+            "file: codekeeper_save_file sets a description only on a new file, "
+            "and the edit tools keep the old one. No new version is created, so "
+            "the previous description is not kept in history. The reply returns "
+            "it, and that is the only copy. Only the latest version is updated. "
+            "An empty description clears it. Requires write permission."
         ),
         annotations=_UPDATE_IN_PLACE_TOOL,
     )

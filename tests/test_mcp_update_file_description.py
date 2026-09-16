@@ -435,6 +435,41 @@ async def test_the_tool_description_says_what_it_does_not_do():
     סוכן שקורא רק "מעדכן תיאור" יניח שנוצרה גרסה ושאפשר לחזור אחורה.
     שלוש ההצהרות האלה הן מה שמונע את ההנחה, ולכן הן נאכפות ולא
     מסתמכות על כך שאיש לא ימחק אותן בעריכה הבאה.
+
+    **הטענה היא על שלוש עובדות ולא על ניסוח.** הגרסה הראשונה של
+    הבדיקה חיפשה ``NO NEW VERSION IS CREATED`` באותיות גדולות, וכך
+    כבלה את הטקסט לצורה שלו במקום לתוכן שלו: קיצור התיאור (מ-1,001
+    תווים ל-451) הפיל אותה, אף שכל שלוש העובדות שרדו בו במלואן. השוואה
+    חסרת-רישיות על הליבה של כל משפט משאירה מקום לעריכה ועדיין נופלת
+    כשעובדה נמחקת.
+    """
+    from mcp_server.server import build_mcp
+
+    class _Fake:
+        def __getattr__(self, _n):
+            return lambda *a, **k: {}
+
+    description = build_mcp(_Fake())._tool_manager.get_tool(
+        "codekeeper_update_file_description"
+    ).description.lower()
+
+    assert "no new version is created" in description
+    assert "not kept in history" in description
+    assert "only the latest version is updated" in description
+
+
+async def test_the_tool_description_stays_short_enough_to_be_read():
+    """התיאור קצר — וזו דרישה, לא תוצר לוואי.
+
+    התקרה הכללית (``test_no_tool_description_exceeds_the_truncation_budget``,
+    1,400 תווים) מונעת חיתוך אצל הלקוח. היא **אינה** מונעת את מה שקרה
+    כאן: תיאור שנכנס במלואו ועדיין בזבז את תשומת הלב של הסוכן על שישה
+    פרטים שאינם משנים בזמן הבחירה — מה הוובאפ מציע, שאין התראה, שתגיות
+    אינן נוגעות, וכן הלאה. הקיצור הוריד אותו מ-1,001 ל-451.
+
+    600 הוא תקרה מקומית לכלי הזה בלבד, ונבחרה עם מרווח של כשליש מעל
+    הניסוח הנוכחי: מספיק למשפט או שניים של גדילה טבעית, ולא מספיק
+    לחזרה לצורה שממנה קיצרנו.
     """
     from mcp_server.server import build_mcp
 
@@ -446,9 +481,11 @@ async def test_the_tool_description_says_what_it_does_not_do():
         "codekeeper_update_file_description"
     ).description
 
-    assert "NO NEW VERSION IS CREATED" in description
-    assert "NOT kept in history" in description
-    assert "Only the latest version is updated" in description
+    assert len(description) <= 600, (
+        f"התיאור תפח ל-{len(description)} תווים. הוא נכנס אצל הלקוח, אבל כל "
+        "משפט בו מתחרה על תשומת הלב של הסוכן — הפירוט שייך ל-"
+        "docs/mcp-server.rst, לא לכאן."
+    )
 
 
 async def test_save_file_points_at_this_tool_for_an_existing_file():
