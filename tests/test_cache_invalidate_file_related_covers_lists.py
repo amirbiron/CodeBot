@@ -54,6 +54,7 @@ class _DummyRedis:
         #: לחצות את הרשת.
         self.scan_calls = 0
         self.match_args: list = []
+        self.count_args: list = []
 
     def ping(self):
         return True
@@ -82,6 +83,7 @@ class _DummyRedis:
         # אותו — כך הסינון בצד הלקוח נבדק, ולא רק זה שבשרת.
         self.scan_calls += 1
         self.match_args.append(match)
+        self.count_args.append(count)
         return list(self.store.keys())
 
 
@@ -394,3 +396,24 @@ def test_keys_already_matched_are_deleted_when_the_budget_runs_out(cache, monkey
     assert any(
         "חלקי" in r.getMessage() and r.levelname == "WARNING" for r in caplog.records
     ), [r.getMessage() for r in caplog.records]
+
+
+def test_scan_count_is_a_reasoned_value_and_not_the_redis_default(cache):
+    """``count`` מגיע לשרת, והוא הקבוע המנומק — לא ``None`` ולא 10.
+
+    ``scan_iter`` של redis-py מעביר ``count=None`` כ"בלי COUNT", ו-Redis
+    נופל אז ל-10: על 200,000 מפתחות זה 20,000 roundtrips **לתבנית**, ועשר
+    תבניות ממצות את תקציב 5 השניות בכל RTT שהוא. הנימוק למספר עצמו כתוב
+    על ``_SCAN_COUNT`` ונמדד; הבדיקה טוענת שהוא נשלח, ושהוא לא נסוג מתחת
+    לאלף — הרצפה שבה roundtrips לתבנית ב-200K הם 200 ולא 400.
+    """
+    from cache_manager import _SCAN_COUNT
+
+    cache.set(LIST_KEYS["search_code"], "[]")
+    cache.redis_client.count_args.clear()
+
+    cache.invalidate_file_related(FILE_ID, USER_ID)
+
+    sent = set(cache.redis_client.count_args)
+    assert sent == {_SCAN_COUNT}, f"count שנשלח: {sent}"
+    assert _SCAN_COUNT >= 1000, _SCAN_COUNT

@@ -699,7 +699,9 @@ class CacheManager:
         רצה על ה-worker היחיד של ``_WRITE_POOL`` — כלומר עדכון תיאור אחד
         חסם כל כתיבה אחרת למשך המשיכה. ``MATCH`` אינו מקצר את המעבר של
         Redis על ה-keyspace, אבל הוא קובע מה חוצה את הרשת ומה מעובד כאן:
-        עם ``match`` חוזרים רק המפתחות שמתאימים.
+        עם ``match`` חוזרים רק המפתחות שמתאימים. מספר ה-roundtrips לתבנית
+        הוא DBSIZE / :data:`_SCAN_COUNT`, וזה — כפול ה-RTT — מה שקובע את
+        זמן הקריאה בייצור; הנימוק למספר כתוב על הקבוע.
 
         **מה כן מאוחד:** תקציב הזמן, ה-batch, והספירה. הצורה המקורית
         קראה ל-``delete_pattern`` בלולאה וכל קריאה קיבלה
@@ -1305,19 +1307,41 @@ def _matches_every_key(pattern: str) -> bool:
     return bool(pattern) and pattern.translate(_GLOB_WILDCARDS) == ""
 
 
+#: כמה מפתחות Redis בוחן בכל צעד ``SCAN``. זה רמז לכמות העבודה בשרת, לא
+#: מספר להחזרה — עם ``MATCH`` החזרה נשארת קטנה בכל ערך.
+#:
+#: **2,000 ולא ברירת המחדל של Redis (10), ולא ה-500 שהיה כאן.** נמדד מול
+#: Redis 7 עם 200,000 מפתחות, ``INFO commandstats``, לקוח redis-py אמיתי:
+#:
+#: - roundtrips לתבנית = DBSIZE / count: 400 ב-500, 100 ב-2,000, 40 ב-5,000.
+#:   ב-``invalidate_file_related`` (עשר תבניות) זה 4,000 מול 1,000 מול 400 —
+#:   ובייצור זמן הקריאה הוא roundtrips × RTT, כי ה-RTT גדול מזמן השרת.
+#: - ה-CPU של Redis לקריאה כזו הוא ~900ms **בכל ערך**: זה מחיר עשרה מעברים
+#:   מלאים על ה-keyspace, ו-count רק קובע לכמה פקודות הוא מתחלק — 0.24ms
+#:   לפקודה ב-500, 0.92ms ב-2,000, 2.15ms ב-5,000. Redis הוא חוט יחיד, וכל
+#:   פקודה חוסמת גם את מוני ה-rate-limit שחיים באותו מסד.
+#:
+#: 2,000 הוא הערך שבו פקודה בודדת עדיין מתחת למילי-שנייה בשרת, ומספר
+#: ה-roundtrips קטן פי ארבעה. מול תקציב ``CACHE_DELETE_PATTERN_BUDGET_SECONDS``
+#: (5 שניות): ב-RTT של 1ms, עשר תבניות על 200K מפתחות עוברות מ-~5.0s —
+#: מיצוי — ל-~1.9s. ב-RTT של 5ms גם 2,000 ממצה (5.9s); שם התשובה אינה
+#: count גבוה יותר אלא ניקוי בלי SCAN (SET של מפתחות לכל היקף — אישו נפרד).
+_SCAN_COUNT = 2000
+
+
 def _scan_matching(client: Any, pattern: str) -> Iterator[Any]:
     """SCAN עם ``MATCH`` בצד השרת, דרך ``scan_iter`` או ``scan`` — לעולם לא ``KEYS``.
 
     ``match`` מועבר תמיד: הוא מה שקובע שרק המפתחות המתאימים חוצים את הרשת.
-    ``count=500`` הוא רמז לכמה מפתחות לבחון בכל צעד, לא כמה להחזיר.
+    ``count`` הוא :data:`_SCAN_COUNT`, והנימוק למספר כתוב שם.
     """
     if hasattr(client, "scan_iter"):
-        return client.scan_iter(match=pattern, count=500)
+        return client.scan_iter(match=pattern, count=_SCAN_COUNT)
 
     def _gen() -> Iterator[Any]:
         cursor = 0
         while True:
-            cursor, keys = client.scan(cursor=cursor, match=pattern, count=500)
+            cursor, keys = client.scan(cursor=cursor, match=pattern, count=_SCAN_COUNT)
             for k in keys or []:
                 yield k
             if int(cursor) == 0:
