@@ -2356,6 +2356,30 @@
         });
         head.appendChild(copyBtn);
 
+        // **יישור לימין לבלוק עברי בלי תג שפה** — אותו כלל שכבר פועל
+        // בתצוגת המסמכים, ולכן אותה פונקציה. ``isHebrewMajority`` ב-
+        // ``utils/rtl-code.js`` היא התשובה היחידה בפרויקט לשאלה "האם
+        // הטקסט הזה עברי", והסף חי שם ולא כאן.
+        //
+        // ``applyRtlIfHebrew`` עצמה אינה שמישה: היא פותחת ב-
+        // ``block.closest('pre')`` והפתק בונה ``div``-ים בלבד. גם
+        // ``hasExplicitLanguage`` אינה — היא קוראת ``class="language-…"``
+        // שאיננו כותבים אף פעם. לכן נקראת הצורה שמקבלת את **שם השפה
+        // הגולמי**, שכבר נגזר למעלה: שורת הגדר אינה מפורסרת פעם שנייה.
+        // מאותה סיבה הטקסט הוא ``codeText`` שכבר חושב לכפתור ההעתקה.
+        //
+        // **היעדר ``window.RtlCode`` הוא היעדר יכולת סטטי, לא נפילה-
+        // לאחור למסלול גרוע** — בדיוק כמו ``ADMONITION_TITLES`` ב-
+        // ``_containerSpec``, ויש בדיקת חיווט שמוודאת שכל תבנית טוענת
+        // את הקובץ לפני המודול. הבדיקה כאן אינה הגנתיות: ``_syncTaskView``
+        // כולו עטוף ב-``try/catch`` אחד שמוחק את התצוגה בתחילתו וחושף
+        // אותה בסופו, ולכן חריגה כאן הייתה משאירה **כל פתק שיש בו גדר**
+        // בלי מארקדאון כלל — בלי שגיאה ובלי לוג.
+        const rtl = window.RtlCode;
+        if (rtl && !rtl.hasExplicitLanguageName(lang) && rtl.isHebrewMajority(codeText)){
+          box.classList.add('rtl-code');
+        }
+
         box.appendChild(head);
         box.appendChild(body);
         view.appendChild(box);
@@ -4658,7 +4682,7 @@
           entry.el.style.transition = 'box-shadow .2s ease';
           const old = entry.el.style.boxShadow;
           entry.el.style.boxShadow = '0 0 0 3px rgba(236, 72, 153, .6)';
-          setTimeout(() => { entry.el.style.boxShadow = old || ''; }, 1200);
+          setTimeout(() => { entry.el.style.boxShadow = old || ''; }, 2400);
         } catch(_) {}
       } catch(_) {}
     }

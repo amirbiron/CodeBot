@@ -28,10 +28,44 @@
     return hebrewCount / letterCount > HEBREW_THRESHOLD;
   }
 
+  /**
+   * שמות שאינם שפת תכנות אמיתית. בלוק שנושא אחד מהם נחשב "בלי שפה",
+   * ולכן הוא עדיין מועמד ליישור לימין.
+   *
+   * **מקור אחד לשתי צורות של אותה שאלה.** לצרכן אחד יש אלמנט DOM עם
+   * ``class="language-…"`` (תצוגת המסמכים), ולצרכן אחר יש את שם השפה
+   * הגולמי שכבר נגזר משורת הגדר (הפתקים בונים ``div`` ולא ``pre``,
+   * ולכן אין להם מחלקה לקרוא). הרשימה נכתבת כאן פעם אחת והרג'קס נבנה
+   * ממנה, כדי ששני הצרכנים לא יוכלו לענות תשובות שונות על אותו קלט.
+   */
+  var PLAIN_LANGUAGE_NAMES = ['plaintext', 'text', 'nohighlight', 'none', 'txt'];
+
+  // ``\b`` נשמר לכל איבר. בלעדיו ``language-texture`` היה נתפס כ"בלי
+  // שפה" ומתהפך — הגבול הוא מה שמפריד בין השם לבין שם שמתחיל בו.
+  var EXPLICIT_LANGUAGE_RE = new RegExp(
+    '\\blanguage-(?!' +
+    PLAIN_LANGUAGE_NAMES.map(function (n) { return n + '\\b'; }).join('|') +
+    ')\\S+'
+  );
+
+  /**
+   * האם שם השפה **הגולמי** הוא שפה אמיתית — אותה שאלה, בלי DOM.
+   *
+   * **רגיש לרישיות במכוון**, בדיוק כמו הרג'קס: ``Text`` נחשב שפה אמיתית
+   * ולכן בלוק כזה אינו מתהפך. ``toLowerCase`` כאן נראה כמו שיפור והוא
+   * בדיוק הפער ששיתוף הרשימה בא למנוע — אותו קלט היה מתהפך בפתק ולא
+   * במסמך. הרשימה המשותפת מבטיחה שהרשימה זהה; רק זה מבטיח שההשוואה זהה.
+   */
+  function hasExplicitLanguageName(name) {
+    var n = String(name || '').trim();
+    if (!n) return false;
+    return PLAIN_LANGUAGE_NAMES.indexOf(n) === -1;
+  }
+
   function hasExplicitLanguage(block) {
     var cls = block.className || '';
     // שפות שאינן שפות תכנות אמיתיות – לא חוסמות זיהוי RTL
-    return /\blanguage-(?!plaintext\b|text\b|nohighlight\b|none\b|txt\b)\S+/.test(cls);
+    return EXPLICIT_LANGUAGE_RE.test(cls);
   }
 
   /**
@@ -63,6 +97,7 @@
     window.RtlCode = {
       isHebrewMajority: isHebrewMajority,
       hasExplicitLanguage: hasExplicitLanguage,
+      hasExplicitLanguageName: hasExplicitLanguageName,
       applyRtlIfHebrew: applyRtlIfHebrew,
     };
   }
