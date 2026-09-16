@@ -607,6 +607,46 @@ class TestRestore:
         assert doc["board_id"] == "board-77"
         assert "file_id" not in doc  # אילוץ "בדיוק אחד"
 
+    def test_restore_normalizes_the_note_colour_on_both_write_paths(self, backup_service, mock_db):
+        """שחזור הוא **כותב לכל דבר**, וקובץ גיבוי הוא קלט חיצוני.
+
+        המשתמש יכול לערוך את ה-ZIP ביד, והוא יכול להיות ישן משנה. בלי
+        נורמליזציה כאן, שחזור היה מחזיר ``hex`` גולמי ישר למסד — דלת
+        אחורית שמחזירה בדיוק את הצורות שהפלטה באה ליישר, ובמסלול היחיד
+        שאינו רץ מול משתמש שרואה את התוצאה מיד.
+
+        **שני האתרים נבדקים**, פתק לוח ופתק קובץ, כי הם יושבים בשתי
+        פונקציות נפרדות — ולכן גם בשני תחומי ייבוא נפרדים. שם בדיוק היה
+        ``NameError`` שאף בדיקה קיימת לא הגיעה אליו.
+        """
+        mock_db.db.note_boards.find_one.return_value = {"_id": "board-77"}
+        mock_db.db.sticky_notes.find_one.return_value = None
+        mock_db.get_file.return_value = {"_id": "abc123", "file_name": "hello.py"}
+
+        zip_bytes = make_backup_zip(
+            {
+                "backup_info.json": {"version": 1},
+                "metadata/files.json": {"regular_files": [], "large_files": []},
+                "metadata/sticky_notes.json": [
+                    # פתק לוח, בצהוב הקיים וברישיות גדולה
+                    {"board_id": "old", "board_name": "לוח", "content": "א", "color": "#FFFFCC"},
+                    # פתק קובץ, ב-hex של הפלטה
+                    {"file_name": "hello.py", "content": "ב", "color": "#FFDBDF"},
+                    # וצבע שאינו בפלטה — נשמר כמות שהוא, רק מנורמל
+                    {"file_name": "hello.py", "content": "ג", "color": "#AABBCC"},
+                ],
+            }
+        )
+
+        result = backup_service.restore_user_data(12345, zip_bytes, overwrite=False)
+
+        assert result["ok"] is True
+        written = [c.args[0] for c in mock_db.db.sticky_notes.insert_one.call_args_list]
+        colours = [doc["color"] for doc in written]
+        assert colours == ["yellow", "pink_light", "#aabbcc"], (
+            "hex של הפלטה מתקפל למזהה, ומה שמחוצה לה נשמר מנורמל ולא נדרס"
+        )
+
     def test_restore_skips_sticky_note_when_file_cannot_be_resolved(self, backup_service, mock_db):
         """פתקית עם file_name שלא נפתר ל-file_id לא תישמר (כדי לא ליצור יתומות)."""
         mock_db.get_file.return_value = None

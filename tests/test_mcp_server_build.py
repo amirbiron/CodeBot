@@ -708,3 +708,28 @@ async def test_get_file_description_points_at_the_query_parameter():
     assert "lines=[start, end]" in (
         mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
     )
+
+
+def test_the_colour_param_doc_is_derived_from_the_palette():
+    """מה שהסוכן קורא על הצבע נגזר מהפלטה, ולא מוקלד לצידה.
+
+    הפלטה חיה ב-``sticky_notes_target.NOTE_COLORS``. טקסט שמונה את
+    הצבעים ביד היה מתיישן בשקט בצבע הבא שיתווסף — הסוכן היה ממשיך לראות
+    רשימה חלקית, בלי שגיאה ובלי שאף בדיקה תשים לב. זה בדיוק הכשל שכבר
+    תועד בריפו על מפת תוויות שהוחזקה פעמיים.
+
+    נופלת אם מישהו יחליף את הגזירה ברשימה מוקלדת, ברגע שהפלטה תשתנה.
+    """
+    from sticky_notes_target import NOTE_COLOR_ORDER
+
+    from mcp_server.server import _build_note_color_doc
+
+    doc = _build_note_color_doc()
+    for color_id in NOTE_COLOR_ORDER:
+        assert color_id in doc, color_id
+
+    # ושני השדות שחוזרים מוסברים, אחרת סוכן שמקבל ``color_id`` ריק אינו
+    # יודע שזו התשובה הנכונה ל"הצבע אינו בפלטה" ולא תקלה.
+    assert "color_id" in doc
+    # ושהדחייה מוצהרת — סוכן שאינו יודע שערך פסול נדחה יניח שהוא הוחל.
+    assert "refused" in doc

@@ -815,3 +815,89 @@
 .sticky-handwriting .sticky-md-pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* ===== בורר הצבע של הפתק ===========================================
+ *
+ * **ליטרלי לגמרי, ואף ``var()`` של ערכה.** זו אותה החלטה שההערה בראש
+ * הקובץ מנסחת על דיו הפתק, ושהיא גם מה ש-``docs/webapp/theming_and_css``
+ * מגדיר לפתקים: משטח קשיח. הבורר מציג את הצבעים **עצמם**, ולכן ערכה
+ * שתצבע את הכרטיס מחדש תשנה בדיוק את הדבר שהמשתמש בא להשוות אליו.
+ *
+ * כל המספרים כאן נמדדו ולא נבחרו לעין:
+ *
+ * * **טקסט על ה-swatch** — הדיו ``#2b3f6a`` מול גווני הפלטה יוצא
+ *   8.14:1 (ורוד, הגרוע) עד 10.10:1 (הצהוב הקיים). כולם מעל הסף המחמיר
+ *   של WCAG AAA (7:1), ולכן התווית יושבת **על** הצבע ואינה צריכה רצועה
+ *   משלה.
+ * * **הגבול של ה-swatch** — הוא זה שמחזיק את כל העניין. גווני הפלטה
+ *   בהירים מאוד (``#f0f8ff`` הוא 1.02:1 מול הכרטיס — כלומר בלי גבול
+ *   הכחול והסגול פשוט נעלמים בו). הגבול הוא פס שיושב חציו על ה-swatch
+ *   וחציו על הכרטיס, ולכן **נמדד לשני הכיוונים**: ``.7`` נותן 3.88:1
+ *   מול ה-swatch ו-4.11:1 מול הכרטיס. ``.6`` הוא הסף המדויק
+ *   (3.10 / 3.19), ו-``.35`` — שנראה סביר לחלוטין — נכשל ב-1.84 / 1.81.
+ * * **טבעת הבחירה** בדיו מלא: 8.14:1 במקרה הגרוע.
+ *
+ * מי שמוסיף כאן צבע מודד את שלושת המספרים האלה עבורו.
+ */
+.sticky-color-modal{
+  position: fixed; inset: 0; z-index: 99999;
+  display: flex; align-items: center; justify-content: center;
+}
+.sticky-color-backdrop{
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,.5);
+  backdrop-filter: blur(2px);
+}
+.sticky-color-card{
+  position: relative;
+  background: #f4f5f7;
+  color: #2b3f6a;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.25);
+  width: min(360px, 92vw);
+  padding: 14px;
+}
+.sticky-color-header{
+  display: flex; align-items: center; justify-content: space-between;
+  margin-block-end: 12px;
+}
+.sticky-color-title{ font-weight: 600; font-size: 1rem; }
+.sticky-color-close{
+  border: none; background: transparent; cursor: pointer;
+  font-size: 22px; line-height: 1; padding: 0 4px;
+  color: #2b3f6a;
+}
+/* ``auto-fit`` ולא מספר קבוע: הרשת יורדת לשתי עמודות בפתק צר בלי
+   media query, וצבע שביעי נכנס בלי לגעת כאן. */
+.sticky-color-grid{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+}
+.sticky-color-swatch{
+  display: flex; align-items: flex-end; justify-content: center;
+  min-height: 64px;
+  padding: 8px 6px;
+  border: 1px solid rgba(43, 63, 106, .7);
+  border-radius: 10px;
+  cursor: pointer;
+  color: #2b3f6a;
+  font: inherit;
+}
+.sticky-color-swatch:hover{ box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+/* טבעת הבחירה היא ``box-shadow`` ולא ``border`` בעובי אחר: שינוי עובי
+   הגבול היה מזיז את תיבת ה-swatch ומקפיץ את כל הרשת בכל בחירה. */
+.sticky-color-swatch.is-active{
+  box-shadow: 0 0 0 3px #2b3f6a;
+}
+/* מיקוד מקלדת נבדל מבחירה — אחרת מי שמנווט ב-Tab אינו יודע איפה הוא
+   עומד ברגע שהוא מגיע לצבע שכבר נבחר. */
+.sticky-color-swatch:focus-visible{
+  outline: 2px solid #2b3f6a;
+  outline-offset: 3px;
+}
+.sticky-color-label{
+  font-size: .82rem;
+  line-height: 1.2;
+  text-align: center;
+}

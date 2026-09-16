@@ -266,6 +266,23 @@ def _as_note(doc: dict[str, Any]) -> dict[str, Any]:
     # פתקי legacy נשמרו עם HTML entities — משחזרים טקסט כמו שהוובאפ עושה בקריאה
     if isinstance(out.get("content"), str):
         out["content"] = html.unescape(out["content"])
+    # **הצבע נגזר ואינו מועתק גולמי — אותו חוזה בדיוק כמו
+    # ``webapp/sticky_notes_api._as_note_response``.**
+    #
+    # מה שיושב במסד הוא מזהה מהפלטה (``yellow``) או ``hex`` legacy, ומאז
+    # שהפלטה נוספה שתי הצורות חיות זו לצד זו: פתק שהמיגרציה יישרה מול פתק
+    # שלא. העתקה ישירה החזירה לסוכן **שתי תשובות שונות לאותו צבע בדיוק**,
+    # בלי שום דרך מצידו לדעת זאת — חוזה שאינו עקבי עם עצמו, שגרוע מחוזה
+    # שהשתנה.
+    #
+    # ``color`` נשאר ``hex`` כי זה מה שהיה כאן מאז ומתמיד וזה מה שסוכן
+    # קיים מצפה לו; ``color_id`` הוא המזהה, או ``""`` לצבע שאינו בפלטה.
+    # שניהם נגזרים מערך אחד במסמך, ולכן אינם יכולים להיסחף זה מזה.
+    from sticky_notes_target import note_color_hex, note_color_id
+
+    raw_color = doc.get("color")
+    out["color"] = note_color_hex(raw_color)
+    out["color_id"] = note_color_id(raw_color)
     out["created_at"] = _json_safe(doc.get("created_at"))
     out["updated_at"] = _json_safe(doc.get("updated_at"))
     return out

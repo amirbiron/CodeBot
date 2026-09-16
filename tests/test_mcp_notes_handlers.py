@@ -135,7 +135,115 @@ def test_create_note_color_default_and_fallback():
     handlers.create_note(be, 7, file_name="a.md", content="hi", color="red")
     assert be.last_kwargs["color"] == DEFAULT_NOTE_COLOR  # לא-חוקי ⇒ ברירת מחדל
     handlers.create_note(be, 7, file_name="a.md", content="hi", color="#AABBCC")
-    assert be.last_kwargs["color"] == "#AABBCC"
+    # ``hex`` שאינו בפלטה נשאר ``hex`` — אבל **מנורמל**. עד לפלטה הוא נשמר
+    # ברישיות שבה הוקלד, וזה מה שייצר את אותו צבע בשתי צורות כתיבה במסד.
+    assert be.last_kwargs["color"] == "#aabbcc"
+
+
+def test_create_note_color_accepts_palette_id_and_folds_hex_into_it():
+    """הקלט סובלני — מזהה **או** ``hex``; האחסון קנוני.
+
+    זה החוזה שסוכן דרך ה-MCP רואה: הוא רשאי להמשיך לשלוח ``hex`` כפי
+    שעשה תמיד, ו-``hex`` שתואם גוון של הפלטה מתקפל למזהה שלה במקום
+    להיכתב כערך שביעי שאי אפשר לסנן לפיו.
+    """
+    be = _NotesBackend()
+
+    handlers.create_note(be, 7, file_name="a.md", content="hi", color="pink_light")
+    assert be.last_kwargs["color"] == "pink_light", "מזהה מהפלטה נשמר כמות שהוא"
+
+    handlers.create_note(be, 7, file_name="a.md", content="hi", color="#FFDBDF")
+    assert be.last_kwargs["color"] == "pink_light", "hex של הפלטה מתקפל למזהה"
+
+    handlers.create_note(be, 7, file_name="a.md", content="hi", color="#FFFFCC")
+    assert be.last_kwargs["color"] == "yellow", (
+        "הצהוב הקיים הוא צבע בפלטה בזכות עצמו — ולא גוון של ``yellow_light``"
+    )
+
+    handlers.create_note(be, 7, file_name="a.md", content="hi", color="#ffc")
+    assert be.last_kwargs["color"] == "yellow", "קיצור ``#rgb`` מתפרש כמו בדפדפן"
+
+
+def test_an_unusable_colour_is_rejected_on_create_with_the_valid_ids():
+    """**סוכן שמקבל ``ok`` על צבע שלא הוחל מדווח למשתמש דבר לא נכון.**
+
+    עד כאן ערך לא תקין הוחלף בברירת המחדל, והתשובה הייתה ``ok`` — כלומר
+    הסוכן אמר "צבעתי בכחול" על פתק צהוב. ערוץ הכשל היה קיים ואיש לא קרא
+    בו, וזה בדיוק האישור השקרי של ``CRITICAL-PATTERNS`` K11.
+
+    השגיאה נושאת את **רשימת המזהים התקינים**, כדי שהסוכן יתקן בניסיון
+    הבא במקום לנחש. שלושת מסלולי היצירה נבדקים, כי הוולידציה משוכפלת
+    בשלושתם ואין דרך אחרת לדעת שאחד מהם לא נשכח.
+
+    נופלת אם תחזור הנפילה השקטה לברירת המחדל.
+    """
+    from sticky_notes_target import NOTE_COLOR_ORDER
+
+    expected = {"ok": False, "error": "invalid_color", "allowed": list(NOTE_COLOR_ORDER)}
+
+    be = _NotesBackend()
+    assert handlers.create_note(be, 7, file_name="a.md", content="hi", color="blue") == expected
+    assert be.calls == [], "שום פתק לא נוצר"
+
+    b = _BoardsBackend()
+    assert _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="hi", color="nope") == expected
+    assert b.calls == []
+
+    r = _RepoNotesBackend()
+    assert handlers.create_repo_note(
+        r, 7, repo_name="CodeBot", repo_path="a.py", content="hi", color="#GGGGGG",
+    ) == expected
+    assert r.calls == []
+
+
+def test_an_unusable_colour_is_rejected_on_update_and_nothing_is_written():
+    """ובעדכון — **הצבע הקיים לא משתנה, וגם לא שום שדה אחר באותה קריאה.**
+
+    השמטה שקטה הייתה משאירה את הפתק בצבעו הישן ומחזירה ``ok``: הסוכן היה
+    מדווח על שינוי שלא קרה. והעצירה היא של העדכון **כולו** ולא של הצבע
+    בלבד, אחרת קריאה אחת הייתה נכתבת למחצה — התוכן מתעדכן והצבע לא.
+
+    נופלת אם תחזור ההתעלמות השקטה.
+    """
+    from sticky_notes_target import NOTE_COLOR_ORDER
+
+    expected = {"ok": False, "error": "invalid_color", "allowed": list(NOTE_COLOR_ORDER)}
+    be = _NotesBackend()
+
+    assert handlers.update_note(be, 7, note_id="a" * 24, color="not-a-colour") == expected
+    assert be.calls == [], "שום כתיבה לא יצאה לדרך"
+
+    # גם לצד שדה תקין: העדכון נעצר, והתוכן **אינו** נכתב לבדו.
+    assert handlers.update_note(
+        be, 7, note_id="a" * 24, content="טקסט", color="not-a-colour",
+    ) == expected
+    assert be.calls == [], "הקריאה לא נכתבה למחצה"
+
+    # ובקריאה תקינה — עובר כרגיל, כדי שהבדיקה לא תעבור רק כי הכל נחסם.
+    handlers.update_note(be, 7, note_id="a" * 24, color="green_light")
+    kind, _user, _nid, fields = be.calls[-1]
+    assert kind == "update" and fields["color"] == "green_light"
+
+
+def test_not_asking_for_a_colour_is_not_an_error():
+    """**"לא ביקשתי צבע" אינו "ביקשתי צבע שאינו קיים".**
+
+    ההבחנה היא כל מה שמפריד בין ולידציה מועילה לבין ולידציה שמעצבנת:
+    ``None`` ומחרוזת ריקה אינם בקשה שנכשלה, ולכן ביצירה הם נופלים
+    לברירת המחדל וב עדכון הם משאירים את הצבע הקיים — בשקט, ובצדק.
+
+    נופלת אם הוולידציה תתחיל לדחות גם היעדר.
+    """
+    be = _NotesBackend()
+    for empty in (None, "", "   "):
+        handlers.create_note(be, 7, file_name="a.md", content="hi", color=empty)
+        assert be.last_kwargs["color"] == DEFAULT_NOTE_COLOR, repr(empty)
+
+    before = len(be.calls)
+    assert handlers.update_note(be, 7, note_id="a" * 24, color="  ") == {
+        "ok": False, "error": "no_fields_to_update",
+    }
+    assert len(be.calls) == before, "ולא נכתב דבר"
 
 
 def test_create_note_anchor_text_trimmed_and_capped():
@@ -161,9 +269,13 @@ def test_update_note_requires_some_field():
     be = _NotesBackend()
     out = handlers.update_note(be, 7, note_id="a" * 24)
     assert out == {"ok": False, "error": "no_fields_to_update"}
-    # צבע לא-חוקי בעדכון נשמט — ואם זה השדה היחיד, אין מה לעדכן
+    # **צבע לא-חוקי מדווח על עצמו**, ולא מתחפש ל"אין מה לעדכן". הניסוח
+    # הישן היה מטעה בפני עצמו: הסוכן שלח שדה, הוא נדחה, והתשובה אמרה לו
+    # שלא שלח כלום — כלומר הסתירה את הסיבה שהוא צריך כדי לתקן.
+    from sticky_notes_target import NOTE_COLOR_ORDER
+
     out = handlers.update_note(be, 7, note_id="a" * 24, color="red")
-    assert out == {"ok": False, "error": "no_fields_to_update"}
+    assert out == {"ok": False, "error": "invalid_color", "allowed": list(NOTE_COLOR_ORDER)}
     assert be.calls == []
 
 
@@ -244,7 +356,10 @@ def test_as_note_serialization():
     assert set(out) == {
         "id",
         "content",
+        # ``color`` הוא ``hex`` מחושב, ולצידו המזהה — ראו
+        # ``test_as_note_gives_the_agent_one_shape_for_a_colour``.
         "color",
+        "color_id",
         "line_start",
         "anchor_text",
         "is_minimized",
@@ -260,6 +375,35 @@ def test_as_note_serialization():
         "created_at",
         "updated_at",
     }
+
+
+def test_as_note_gives_the_agent_one_shape_for_a_colour():
+    """**אותו צבע, אותה תשובה — בלי קשר אם המיגרציה כבר רצה על הפתק.**
+
+    ``_as_note`` העתיק את ``color`` ישירות מהמסמך, ולכן אחרי המעבר לפלטה
+    סוכן שקרא שני פתקים **באותו צבע בדיוק** קיבל שני ערכים שונים:
+    ``"yellow"`` מפתק שיושר, ו-``"#FFFFCC"`` מפתק שלא. זה גרוע מחוזה
+    שהשתנה — זה חוזה שאינו עקבי עם עצמו, ואין לסוכן דרך לדעת זאת.
+
+    התיקון זהה לחוזה שכבר קיים ב-``webapp/sticky_notes_api._as_note_response``:
+    ``color`` הוא **תמיד ``hex``** — כי זה מה שהיה שם מאז ומתמיד ומה
+    שסוכן קיים מצפה לו — ו-``color_id`` הוא המזהה, או ``""`` לצבע שאינו
+    בפלטה.
+
+    נופלת אם ``color`` יחזור להיות מועתק גולמי מהמסמך.
+    """
+    same_colour_two_ways = [_as_note({"_id": "x", "color": raw}) for raw in ("yellow", "#FFFFCC")]
+    assert [n["color"] for n in same_colour_two_ways] == ["#ffffcc", "#ffffcc"]
+    assert [n["color_id"] for n in same_colour_two_ways] == ["yellow", "yellow"]
+
+    # צבע שאינו בפלטה ממשיך להיראות כפי שנראה, ו-``color_id`` ריק —
+    # שאינו כשל אלא התשובה הנכונה ל"הצבע הזה אינו בפלטה".
+    legacy = _as_note({"_id": "x", "color": "#AABBCC"})
+    assert legacy["color"] == "#aabbcc"
+    assert legacy["color_id"] == ""
+
+    # ומסמך בלי ``color`` כלל אינו מחזיר ``None`` לשדה שמוצהר כ-``hex``.
+    assert _as_note({"_id": "x"})["color"] == "#ffffcc"
 
 
 def test_as_note_reports_where_a_board_note_sits():
@@ -396,11 +540,13 @@ def test_create_board_note_normalizes_the_title():
 def test_create_board_note_normalizes_color_and_mode():
     b = _BoardsBackend()
 
-    _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="שלום", color="לא-צבע")
+    # **צבע שלא נתבקש** נופל לברירת המחדל; צבע שנתבקש ואינו קיים נדחה,
+    # וזה נבדק ב-``test_an_unusable_colour_is_rejected_on_create_...``.
+    _h.create_board_note(b, 7, board_id=_VALID_BOARD, content="שלום")
 
     _, _, _, content, color, mode, _title = b.calls[0]
     assert content == "שלום"
-    assert color == _h.DEFAULT_NOTE_COLOR, "צבע לא חוקי נופל לברירת המחדל, כמו ביצירת פתק קובץ"
+    assert color == _h.DEFAULT_NOTE_COLOR, "בלי בקשת צבע — ברירת המחדל, כמו ביצירת פתק קובץ"
     assert mode == "surface", "ברירת המחדל בלוח"
 
 
@@ -725,9 +871,11 @@ def test_create_repo_note_normalizes_title_color_and_mode():
     b = _RepoNotesBackend()
     handlers.create_repo_note(
         b, 7, repo_name="CodeBot", repo_path="a.py", content="שלום",
-        color="not-a-color", mode=None, title="  שם   ארוך \n שני ",
+        mode=None, title="  שם   ארוך \n שני ",
     )
     kw = b.last_kwargs
+    # בלי בקשת צבע — ברירת המחדל. צבע שנתבקש ואינו קיים נדחה, ונבדק
+    # ב-``test_an_unusable_colour_is_rejected_on_create_...``.
     assert kw["color"] == DEFAULT_NOTE_COLOR
     assert kw["mode"] == "surface"
     assert kw["title"] == "שם ארוך שני"

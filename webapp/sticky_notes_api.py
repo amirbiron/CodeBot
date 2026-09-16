@@ -33,6 +33,9 @@ from sticky_notes_target import (
     repo_title_is_taken,
     mirrored_repo_names,
     repo_file_exists,
+    resolve_note_color,
+    note_color_hex,
+    note_color_id,
 )
 # ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
 # תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
@@ -774,7 +777,13 @@ def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
             'width': int(doc.get('width', 240) or 240),
             'height': int(doc.get('height', 180) or 180),
         },
-        'color': str(doc.get('color', '#FFFFCC') or '#FFFFCC'),
+        # ``color`` נשאר **תמיד ``hex`` חוקי**, כי הצרכן היחיד שלו הוא
+        # ``style.backgroundColor`` — לקוח שנטען מקאש ישן ימשיך לצבוע
+        # נכון גם אחרי שהמסד עבר למזהים. ``color_id`` הוא מה שבאמת
+        # מאוחסן, והוא מה שהבורר מסמן ומה שסינון לפי צבע ישווה אליו;
+        # ``''`` שם פירושו צבע ``legacy`` שאינו בפלטה.
+        'color': note_color_hex(doc.get('color')),
+        'color_id': note_color_id(doc.get('color')),
         'is_minimized': bool(doc.get('is_minimized', False)),
         'line_start': doc.get('line_start'),
         'line_end': doc.get('line_end'),
@@ -1293,7 +1302,7 @@ def create_note(file_id: str):
         title = normalize_note_title(data.get('title'))
         pos = data.get('position') or {}
         size = data.get('size') or {}
-        color = str(data.get('color', '#FFFFCC') or '#FFFFCC')
+        color = resolve_note_color(data.get('color'))
         is_minimized = bool(data.get('is_minimized', False))
         line_start = data.get('line_start')
         line_end = data.get('line_end')
@@ -1324,7 +1333,7 @@ def create_note(file_id: str):
             'position_y': _coerce_int(pos.get('y'), 100, 0, 1000000),
             'width': _coerce_int(size.get('width'), 250, 120, 1200),
             'height': _coerce_int(size.get('height'), 200, 80, 1200),
-            'color': color if color else '#FFFFCC',
+            'color': color,
             'is_minimized': bool(is_minimized),
             'line_start': int(line_start) if isinstance(line_start, int) else None,
             'line_end': int(line_end) if isinstance(line_end, int) else None,
@@ -1388,7 +1397,15 @@ def update_note(note_id: str):
             updates['width'] = _coerce_int(size.get('width'), 250, 120, 1200)
             updates['height'] = _coerce_int(size.get('height'), 200, 80, 1200)
         if 'color' in data:
-            color = str(data.get('color') or '').strip()
+            # ``default=None`` ← ערך פסול **נשמט** ואינו דורס את הצבע
+            # הקיים בברירת מחדל.
+            #
+            # **ובכוונה שונה מ-``mcp_server/handlers``, שדוחה בשגיאה.**
+            # הבורר כאן שולח רק מזהים שעברו בדיקה מול הפלטה בצד הלקוח,
+            # ולכן ערך פסול אינו קלט משתמש אלא באג אצלנו; שם הכותב הוא
+            # סוכן שכותב מה שהוא רוצה, ו-``ok`` על צבע שלא הוחל מגיע
+            # למשתמש כדיווח שגוי. ההסבר המלא ב-``resolve_note_color``.
+            color = resolve_note_color(data.get('color'), default=None)
             if color:
                 updates['color'] = color
         if 'is_minimized' in data:
@@ -1553,7 +1570,7 @@ def batch_update_notes():
               "content": "...",
               "position": {"x": 120, "y": 240},
               "size": {"width": 260, "height": 200},
-              "color": "#FFFFCC",
+              "color": "yellow_light",
               "is_minimized": false,
               "line_start": 10,
               "line_end": null,
@@ -1620,7 +1637,7 @@ def batch_update_notes():
                     updates['width'] = _coerce_int(size.get('width'), 250, 120, 1200)
                     updates['height'] = _coerce_int(size.get('height'), 200, 80, 1200)
                 if 'color' in fragment:
-                    col = str(fragment.get('color') or '').strip()
+                    col = resolve_note_color(fragment.get('color'), default=None)
                     if col:
                         updates['color'] = col
                 if 'is_minimized' in fragment:
@@ -1879,7 +1896,7 @@ def create_board_note(board_id: str):
 
         pos = data.get('position') or {}
         size = data.get('size') or {}
-        color = str(data.get('color', '#FFFFCC') or '#FFFFCC')
+        color = resolve_note_color(data.get('color'))
 
         doc: Dict[str, Any] = {
             'user_id': user_id,
@@ -1890,7 +1907,7 @@ def create_board_note(board_id: str):
             'position_y': _coerce_int(pos.get('y'), 100, 0, 1000000),
             'width': _coerce_int(size.get('width'), 250, 120, 1200),
             'height': _coerce_int(size.get('height'), 200, 80, 1200),
-            'color': color if color else '#FFFFCC',
+            'color': color,
             'is_minimized': bool(data.get('is_minimized', False)),
             'mode': mode,
             'created_at': datetime.now(timezone.utc),
@@ -2103,7 +2120,7 @@ def create_repo_note(repo_name: str, repo_path: str):
             return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
         pos = pos or {}
         size = size or {}
-        color = str(data.get('color', '#FFFFCC') or '#FFFFCC')
+        color = resolve_note_color(data.get('color'))
 
         doc: Dict[str, Any] = {
             'user_id': user_id,
@@ -2113,7 +2130,7 @@ def create_repo_note(repo_name: str, repo_path: str):
             'position_y': _coerce_int(pos.get('y'), 100, 0, 1000000),
             'width': _coerce_int(size.get('width'), 250, 120, 1200),
             'height': _coerce_int(size.get('height'), 200, 80, 1200),
-            'color': color if color else '#FFFFCC',
+            'color': color,
             'is_minimized': bool(data.get('is_minimized', False)),
             'mode': mode,
             'created_at': datetime.now(timezone.utc),
