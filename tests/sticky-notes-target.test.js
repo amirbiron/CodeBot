@@ -3104,7 +3104,7 @@ check('הפלטה זהה ב-JS ובפייתון — מזהים, גוונים, ת
   // נופל כשצבע נוסף, מוסר, משנה גוון או משנה מקום בצד אחד בלבד.
   const js = paletteFromJs();
   const py = paletteFromPython();
-  eq(js.length, 6, 'שישה צבעים ב-JS');
+  eq(js.length, 7, 'שבעה צבעים ב-JS');
   eq(JSON.stringify(js), JSON.stringify(py), 'הפלטה ב-JS מול פייתון');
 });
 
@@ -3246,15 +3246,15 @@ check('הבורר מציג את כל הפלטה, מסמן את הנוכחי, ו�
   eq(!!modal.querySelector('.sticky-color-close'), true, 'יש כפתור סגירה');
 
   const swatches = modal.querySelectorAll('.sticky-color-swatch');
-  eq(swatches.length, 6, 'עיגול לכל צבע בפלטה');
+  eq(swatches.length, 7, 'עיגול לכל צבע בפלטה');
   eq(swatches.map(s => s.getAttribute('data-color-id')).join(','),
-     'yellow_light,green_light,orange_light,blue_light,purple_light,pink_light',
-     'בסדר של הפלטה');
+     'yellow,yellow_light,green_light,orange_light,blue_light,purple_light,pink_light',
+     'בסדר של הפלטה, והצהוב הקיים ראשון כי הוא ברירת המחדל');
   // הצבע יושב ב-style ולא במחלקה — כלל CSS לכל גוון היה מקור שני,
-  // וצבע שביעי היה יוצא עיגול לבן.
-  eq(swatches[0].style.backgroundColor, '#ffffba', 'העיגול נצבע בגוון עצמו');
+  // וצבע נוסף היה יוצא עיגול לבן.
+  eq(swatches[0].style.backgroundColor, '#ffffcc', 'העיגול נצבע בגוון עצמו');
   // התווית ב-textContent ולא כמחרוזת HTML.
-  eq(swatches[0].querySelector('.sticky-color-label').textContent, 'צהוב בהיר');
+  eq(swatches[0].querySelector('.sticky-color-label').textContent, 'צהוב');
 
   // **הצבע הנוכחי נקרא מהרשומה.** ``style.backgroundColor`` מוחזר
   // מדפדפן אמיתי כ-``rgb(...)``, ולכן השוואה מולו הייתה משאירה כל
@@ -3283,29 +3283,34 @@ check('פתק בצבע legacy פותח בורר בלי שום עיגול מסו�
   m._openColorModal(el);
 
   const swatches = sb.document.body.querySelectorAll('.sticky-color-swatch');
-  eq(swatches.length, 6, 'הפלטה עדיין מוצגת במלואה');
+  eq(swatches.length, 7, 'הפלטה עדיין מוצגת במלואה');
   eq(swatches.filter(s => s.getAttribute('aria-pressed') === 'true').length, 0,
      'אף עיגול אינו מסומן');
 });
 
-check('hex של הפלטה שמגיע מהשרת מסמן את העיגול הנכון', () => {
+check('פתק של משתמש קיים מסמן את הצהוב הקיים, ולא גוון אחר', () => {
   // השרת מחזיר ``color`` כ-hex, ופתק שנוצר ברגע זה נושא עדיין מזהה.
   // פונקציה שידעה רק אחת מהצורות הייתה נכונה במחצית מהמקרים, והבורר
   // היה נראה ריק בדיוק אחרי רענון עמוד.
+  //
+  // **וזה הצהוב הקיים ולא ``yellow_light``.** הם שני גוונים נפרדים
+  // בפלטה; סימון העיגול השני על פתק קיים היה אומר למשתמש שהפתק בצבע
+  // שהוא אינו בו, ולחיצה עליו הייתה נראית כמו "לא קרה כלום" בזמן
+  // שהגוון דווקא זז.
   const sb = makeDomSandbox();
   const m = new sb.window.StickyNotesManager('abc123');
   m._queueSave = () => {}; m._flushFor = async () => {};
 
   const el = sb.document.createElement('div');
   el.dataset.noteId = 'n1';
-  // ``#FFFFCC`` — ברירת המחדל ההיסטורית, כפי שהיא יושבת אצל משתמש קיים.
+  // ``#FFFFCC`` — ברירת המחדל, כפי שהיא יושבת אצל משתמש קיים.
   m.notes.set('n1', { el, data: { color: '#FFFFCC' } });
   m._openColorModal(el);
 
   const active = sb.document.body.querySelectorAll('.sticky-color-swatch')
     .filter(s => s.getAttribute('aria-pressed') === 'true');
-  eq(active.length, 1, 'הגוון ההיסטורי מזוהה');
-  eq(active[0].getAttribute('data-color-id'), 'yellow_light');
+  eq(active.length, 1, 'הצבע הקיים מזוהה');
+  eq(active[0].getAttribute('data-color-id'), 'yellow');
 });
 
 (async () => {

@@ -628,7 +628,7 @@ class TestRestore:
                 "backup_info.json": {"version": 1},
                 "metadata/files.json": {"regular_files": [], "large_files": []},
                 "metadata/sticky_notes.json": [
-                    # פתק לוח, בגוון ההיסטורי וברישיות גדולה
+                    # פתק לוח, בצהוב הקיים וברישיות גדולה
                     {"board_id": "old", "board_name": "לוח", "content": "א", "color": "#FFFFCC"},
                     # פתק קובץ, ב-hex של הפלטה
                     {"file_name": "hello.py", "content": "ב", "color": "#FFDBDF"},
@@ -643,7 +643,7 @@ class TestRestore:
         assert result["ok"] is True
         written = [c.args[0] for c in mock_db.db.sticky_notes.insert_one.call_args_list]
         colours = [doc["color"] for doc in written]
-        assert colours == ["yellow_light", "pink_light", "#aabbcc"], (
+        assert colours == ["yellow", "pink_light", "#aabbcc"], (
             "hex של הפלטה מתקפל למזהה, ומה שמחוצה לה נשמר מנורמל ולא נדרס"
         )
 

@@ -74,31 +74,36 @@ def _plan_targets(plan, key):
     return {value: target for value, target, _count in plan[key]}
 
 
-def test_every_spelling_of_a_palette_shade_is_planned_onto_one_id():
-    """ארבע צורות כתיבה של אותו צהוב — ערך אחד אחרי המיגרציה.
+def test_every_spelling_of_a_shade_is_planned_onto_its_own_id():
+    """שלוש צורות כתיבה של אותו צהוב — ערך אחד אחרי המיגרציה.
 
     זו כל מטרת הסקריפט: סינון לפי צבע מחפש ערך אחד, ומסד שמחזיק את אותו
-    צבע בארבע צורות מחזיר רבע מהתשובה — בלי שגיאה ובלי סימן.
+    צבע בשלוש צורות מחזיר שליש מהתשובה — בלי שגיאה ובלי סימן.
 
-    נופלת אם הקיפול לפלטה או הנורמליזציה ייפסקו.
+    **ושני הצהובים נשארים נפרדים.** ``#ffffba`` אינו צורת כתיבה של
+    ``#FFFFCC`` אלא צבע אחר בפלטה, ומיפוי שהיה מאחד אותם היה משנה את
+    הגוון של כל פתק שקיים היום.
+
+    נופלת אם הקיפול לפלטה או הנורמליזציה ייפסקו, וגם אם שני הצהובים
+    יתמזגו.
     """
     db = _FakeDB([
         {"color": "#FFFFCC"}, {"color": "#ffffcc"}, {"color": "#ffc"},
-        {"color": "#ffffba"}, {"color": "yellow_light"},
+        {"color": "#ffffba"}, {"color": "yellow"},
     ])
 
     plan = plan_color_migration(db)
 
     assert _plan_targets(plan, "to_palette") == {
-        "#FFFFCC": "yellow_light",
-        "#ffffcc": "yellow_light",
-        "#ffc": "yellow_light",
+        "#FFFFCC": "yellow",
+        "#ffffcc": "yellow",
+        "#ffc": "yellow",
         "#ffffba": "yellow_light",
     }
     assert plan["already_ok"] == 1, "מי שכבר מזהה אינו נספר כעבודה"
 
     apply_color_migration(db, plan)
-    assert {d["color"] for d in db.sticky_notes.docs} == {"yellow_light"}
+    assert sorted({d["color"] for d in db.sticky_notes.docs}) == ["yellow", "yellow_light"]
 
 
 def test_a_colour_outside_the_palette_is_left_alone_by_default():
@@ -181,7 +186,7 @@ def test_a_write_that_moved_fewer_rows_than_counted_is_surfaced():
     """
     db = _FakeDB([{"color": "#FFFFCC"}, {"color": "#FFFFCC"}, {"color": "#FFFFCC"}])
     plan = plan_color_migration(db)
-    assert plan["to_palette"] == [("#FFFFCC", "yellow_light", 3)]
+    assert plan["to_palette"] == [("#FFFFCC", "yellow", 3)]
 
     db.sticky_notes.forced_modified = 1  # המסד מדווח על פחות ממה שנספר
 
@@ -191,7 +196,7 @@ def test_a_write_that_moved_fewer_rows_than_counted_is_surfaced():
     assert outcome["mismatched"] == 1, "והפער מדווח ולא נבלע"
 
 
-@pytest.mark.parametrize("stored", [None, 5, [], {}, "", "yellow_light", "#ffffba"])
+@pytest.mark.parametrize("stored", [None, 5, [], {}, "", "yellow", "#ffffcc"])
 def test_planning_never_raises_on_whatever_sits_in_the_field(stored):
     """המסד הוא קלט חיצוני לכל דבר — גיבוי משוחזר, כתיבה ישנה, זבל.
 

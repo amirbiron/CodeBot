@@ -156,12 +156,12 @@ def test_create_note_color_accepts_palette_id_and_folds_hex_into_it():
     assert be.last_kwargs["color"] == "pink_light", "hex של הפלטה מתקפל למזהה"
 
     handlers.create_note(be, 7, file_name="a.md", content="hi", color="#FFFFCC")
-    assert be.last_kwargs["color"] == "yellow_light", (
-        "ברירת המחדל ההיסטורית היא גוון ``legacy`` של הצהוב, ולכן מתקפלת אליו"
+    assert be.last_kwargs["color"] == "yellow", (
+        "הצהוב הקיים הוא צבע בפלטה בזכות עצמו — ולא גוון של ``yellow_light``"
     )
 
     handlers.create_note(be, 7, file_name="a.md", content="hi", color="#ffc")
-    assert be.last_kwargs["color"] == "yellow_light", "קיצור ``#rgb`` מתפרש כמו בדפדפן"
+    assert be.last_kwargs["color"] == "yellow", "קיצור ``#rgb`` מתפרש כמו בדפדפן"
 
 
 def test_update_note_drops_unusable_color_instead_of_defaulting_it():

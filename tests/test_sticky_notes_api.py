@@ -349,15 +349,16 @@ class TestNoteColorResponse(unittest.TestCase):
         self.assertEqual(note['color'], '#ffdbdf')
         self.assertEqual(note['color_id'], 'pink_light')
 
-    def test_the_historic_default_reads_back_as_the_palette_yellow(self):
+    def test_an_existing_note_is_in_the_palette_without_changing_shade(self):
         """פתק של משתמש קיים, בלי שהמיגרציה רצה עליו.
 
-        הוא כבר מוצג נכון ומסומן נכון בבורר — וזו הסיבה שהסקריפט אינו
-        תנאי לפריסה אלא רק ליישור המסד לצורך סינון.
+        הוא מסומן נכון בבורר ו**נראה בדיוק כפי שנראה תמיד** — הצהוב
+        הקיים הוא צבע בפלטה בזכות עצמו. זו גם הסיבה שהסקריפט אינו תנאי
+        לפריסה אלא רק ליישור צורות הכתיבה במסד.
         """
         note = _as_note_response(self._doc('#FFFFCC'))
-        self.assertEqual(note['color_id'], 'yellow_light')
-        self.assertEqual(note['color'], '#ffffba')
+        self.assertEqual(note['color_id'], 'yellow')
+        self.assertEqual(note['color'], '#ffffcc', 'הגוון לא זז')
 
     def test_a_legacy_colour_keeps_its_own_hex_and_reports_no_id(self):
         note = _as_note_response(self._doc('#AABBCC'))
@@ -370,11 +371,11 @@ class TestNoteColorResponse(unittest.TestCase):
         לכן הנפילה כאן היא לגוון ברירת המחדל ולא ל-``''`` — גם למסמך בלי
         שדה ``color`` כלל, וגם לערך שאינו מחרוזת.
         """
-        for broken in (None, '', 'שטויות', 5, ['#ffffba'], {'hex': '#ffffba'}):
+        for broken in (None, '', 'שטויות', 5, ['#ffffcc'], {'hex': '#ffffcc'}):
             with self.subTest(broken=broken):
                 note = _as_note_response(self._doc(broken))
-                self.assertEqual(note['color'], '#ffffba')
+                self.assertEqual(note['color'], '#ffffcc')
 
         doc = self._doc('x')
         doc.pop('color')
-        self.assertEqual(_as_note_response(doc)['color'], '#ffffba')
+        self.assertEqual(_as_note_response(doc)['color'], '#ffffcc')

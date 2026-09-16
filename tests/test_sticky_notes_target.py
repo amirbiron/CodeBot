@@ -601,20 +601,24 @@ def test_repo_file_exists_queries_the_manifest_field_name():
 # ---------------------------------------------------------------------------
 
 
-def test_the_palette_matches_the_six_colours_that_were_specified():
-    """הפלטה **סגורה**, וששת הגוונים הם מה שנבחר — לא מה שהתגלגל.
+def test_the_palette_matches_the_colours_that_were_specified():
+    """הפלטה **סגורה**, והגוונים הם מה שנבחר — לא מה שהתגלגל.
 
-    זו הבדיקה שנופלת כשמישהו משנה גוון בלי לשים לב, או מוסיף צבע שביעי
+    זו הבדיקה שנופלת כשמישהו משנה גוון בלי לשים לב, או מוסיף צבע נוסף
     בלי להחליט עליו. היא בכוונה מוקלדת ולא נגזרת מהמודול: בדיקה שקוראת
     את אותו מקור שהיא בודקת אינה בודקת כלום.
+
+    ``yellow`` הוא הצהוב שפתקים נולדו בו תמיד, והוא צבע בפלטה ככל צבע
+    אחר — לא גוון היסטורי של ``yellow_light``. הם קרובים, והם נפרדים.
     """
     from sticky_notes_target import NOTE_COLORS, NOTE_COLOR_ORDER
 
     assert NOTE_COLOR_ORDER == (
-        "yellow_light", "green_light", "orange_light",
+        "yellow", "yellow_light", "green_light", "orange_light",
         "blue_light", "purple_light", "pink_light",
     )
     assert {cid: spec["hex"] for cid, spec in NOTE_COLORS.items()} == {
+        "yellow": "#ffffcc",
         "yellow_light": "#ffffba",
         "green_light": "#dbffe3",
         "orange_light": "#ffeddb",
@@ -642,22 +646,28 @@ def test_hex_of_the_palette_folds_into_its_id_in_every_spelling():
         assert resolve_note_color(spelling) == "pink_light", spelling
 
 
-def test_the_historic_default_is_a_legacy_shade_of_the_yellow():
-    """‏``#FFFFCC`` היה ברירת המחדל מאז ומתמיד, ולכן הוא הצהוב של הפלטה.
+def test_an_existing_note_enters_the_palette_without_changing_shade():
+    """**זו כל ההחלטה: פתק קיים נכנס לפלטה ולא זז.**
 
-    בלי השורה הזו כל פתק שקיים היום היה יוצא ``legacy`` — כלומר מחוץ
-    לפלטה, ולא ניתן לסינון לפי צבע. וזו גם ההדגמה של המנגנון שנועד
-    לחסוך את המיגרציה **הבאה**: גוון ישן נכנס ל-``legacy`` ונגמר.
+    ``#FFFFCC`` הוא ברירת המחדל שפתקים נולדו בה תמיד, ולכן כמעט כל פתק
+    שקיים היום נושא אותו. הוא צבע בפלטה בזכות עצמו — ומכאן ששלושת
+    הדברים קורים יחד: הוא מזוהה (הבורר מסמן אותו, וסינון לפי צבע מוצא
+    אותו), הוא נשמר כמזהה, ו**הגוון שמוצג נשאר בדיוק מה שהיה**.
 
-    נופל אם ``#FFFFCC`` יוסר מרשימת הגוונים ההיסטוריים של הצהוב.
+    נופל אם ``yellow`` יוסר מהפלטה, או אם ``#FFFFCC`` יתחיל להתמפות
+    ל-``yellow_light`` — ואז כל פתק קיים בעולם היה משנה גוון בלי שאיש
+    ביקש.
     """
     from sticky_notes_target import note_color_hex, note_color_id, resolve_note_color
 
-    assert resolve_note_color("#FFFFCC") == "yellow_light"
-    assert resolve_note_color("#ffc") == "yellow_light", "קיצור ``#rgb`` מתפרש כמו בדפדפן"
-    # ומרגע שהוא מזהה — הגוון שמוצג הוא הקנוני החדש, לא ההיסטורי.
-    assert note_color_hex("#FFFFCC") == "#ffffba"
-    assert note_color_id("#FFFFCC") == "yellow_light"
+    assert resolve_note_color("#FFFFCC") == "yellow"
+    assert resolve_note_color("#ffc") == "yellow", "קיצור ``#rgb`` מתפרש כמו בדפדפן"
+    assert note_color_id("#FFFFCC") == "yellow"
+    assert note_color_hex("#FFFFCC") == "#ffffcc", "הגוון לא זז"
+
+    # ושני הצהובים נשארים נפרדים — קרובים, אבל לא אותו צבע.
+    assert resolve_note_color("#ffffba") == "yellow_light"
+    assert note_color_hex("yellow") != note_color_hex("yellow_light")
 
 
 def test_a_colour_outside_the_palette_survives_as_legacy():
@@ -712,7 +722,7 @@ def test_create_falls_back_but_update_drops():
     """
     from sticky_notes_target import DEFAULT_NOTE_COLOR_ID, resolve_note_color
 
-    assert resolve_note_color("שטויות") == DEFAULT_NOTE_COLOR_ID
+    assert resolve_note_color("שטויות") == DEFAULT_NOTE_COLOR_ID == "yellow"
     assert resolve_note_color("שטויות", default=None) == ""
 
 
@@ -727,10 +737,10 @@ def test_the_displayed_hex_is_derived_and_never_stored_beside_the_id():
     """
     import sticky_notes_target as target
 
-    original = target.NOTE_COLORS["yellow_light"]["hex"]
+    original = target.NOTE_COLORS["pink_light"]["hex"]
     try:
-        target.NOTE_COLORS["yellow_light"]["hex"] = "#abcdef"
-        assert target.note_color_hex("yellow_light") == "#abcdef"
+        target.NOTE_COLORS["pink_light"]["hex"] = "#abcdef"
+        assert target.note_color_hex("pink_light") == "#abcdef"
     finally:
-        target.NOTE_COLORS["yellow_light"]["hex"] = original
-    assert target.note_color_hex("yellow_light") == original
+        target.NOTE_COLORS["pink_light"]["hex"] = original
+    assert target.note_color_hex("pink_light") == original

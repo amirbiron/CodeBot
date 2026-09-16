@@ -123,13 +123,15 @@
   // נוסף או משנה גוון רק בצד אחד.
   //
   // הסדר כאן הוא סדר התצוגה בבורר, וזהה ל-``NOTE_COLOR_ORDER`` בפייתון.
-  // ``legacy`` הם גוונים שהמזהה נשא בעבר וממשיכים להתמפות אליו.
-  // ``#FFFFCC`` היה ברירת המחדל של הפתקים מאז ומתמיד, ובלעדיו פתק של
-  // משתמש קיים היה פותח בורר בלי שום עיגול מסומן — **בזמן שהשרת דווקא
-  // מזהה אותו**. שתי התשובות לאותה שאלה, וזה בדיוק מה שהצלבת הפלטה
-  // נועדה לתפוס.
+  // **הצהוב הקיים הוא צבע בפלטה**, ולא גוון היסטורי של אחר: כמעט כל
+  // פתק שקיים היום נושא אותו, ולכן הוא מקבל עיגול משלו וממשיך להיות
+  // ברירת המחדל. כך אף פתק קיים אינו משנה מראה, ובכל זאת כולם בפלטה.
+  //
+  // ``legacy`` הם גוונים שמזהה נשא בעבר וממשיכים להתמפות אליו. ריק
+  // היום — אין כאן גוון שהוחלף — והמנגנון קיים לשינוי הגוון הבא.
   const NOTE_COLORS = {
-    yellow_light: { hex: '#ffffba', label: 'צהוב בהיר', legacy: ['#FFFFCC'] },
+    yellow:       { hex: '#ffffcc', label: 'צהוב', legacy: [] },
+    yellow_light: { hex: '#ffffba', label: 'צהוב בהיר', legacy: [] },
     green_light:  { hex: '#dbffe3', label: 'ירוק בהיר', legacy: [] },
     orange_light: { hex: '#ffeddb', label: 'כתום בהיר', legacy: [] },
     blue_light:   { hex: '#f0f8ff', label: 'כחול בהיר', legacy: [] },
@@ -137,7 +139,7 @@
     pink_light:   { hex: '#ffdbdf', label: 'ורוד בהיר', legacy: [] }
   };
   const NOTE_COLOR_ORDER = Object.keys(NOTE_COLORS);
-  const DEFAULT_NOTE_COLOR_ID = 'yellow_light';
+  const DEFAULT_NOTE_COLOR_ID = 'yellow';
 
   // ``hex`` בצורה קנונית אחת, או ``''``. ראי של
   // ``sticky_notes_target.normalize_color_hex`` — שלוש ההמרות זהות:
