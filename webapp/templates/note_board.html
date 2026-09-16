@@ -133,6 +133,16 @@
             <option value="xl">גדול מאוד</option>
           </select>
         </div>
+        {# שורת ניווט ולא הגדרה, ולכן ``is-choice``: המבנה שלה הוא
+           תיאור ואחריו פקד, והפקד כאן הוא קישור. אין מצב לשמור, ולכן
+           גם אין לה טיפול ב-JS של המודאל. #}
+        <div class="board-setting-row is-choice">
+          <span>
+            <b>חיפוש בפתקים</b>
+            <small>מחפש מילה בשם של הפתק ובתוכן שלו, בכל הלוחות ובכל הקבצים — לא רק בלוח הזה.</small>
+          </span>
+          <a href="/notes/search" class="board-action">לחיפוש</a>
+        </div>
         <div class="board-settings-actions">
           <button type="button" class="board-action" data-close>סגור</button>
         </div>

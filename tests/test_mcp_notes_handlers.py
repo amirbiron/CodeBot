@@ -1306,11 +1306,8 @@ def test_one_malformed_row_does_not_kill_the_whole_result():
 
 # -- אינדקסים ------------------------------------------------------------
 
-def test_the_notes_collection_builds_all_four_query_indexes():
-    """ה-MCP הוא כותב מלא של פתקים ובנה עד היום אינדקס אחד.
-
-    נופלת אם אחד השלושה החדשים יוסר.
-    """
+def _mcp_built_indexes():
+    """מה ש-``_notes_coll`` באמת שולח ל-``create_index``."""
     built = []
 
     class _Coll:
@@ -1328,13 +1325,59 @@ def test_the_notes_collection_builds_all_four_query_indexes():
     _verified(b, _NoteIndex.BOARD_TITLE)   # אינדקס השם כבר מאומת — לא נבדק כאן
     b._raw_mongo = lambda: {"sticky_notes": coll}
     b._notes_coll()
+    return {name: keys for keys, name in built}
 
-    assert {name for _, name in built} == {
-        "user_scope_idx", "user_board_idx", "user_repo_idx", "user_title_idx",
-    }
-    by_name = {name: keys for keys, name in built}
-    assert by_name["user_repo_idx"] == (("user_id", 1), ("repo_name", 1), ("repo_path", 1))
-    assert by_name["user_title_idx"] == (("user_id", 1), ("title", 1))
+
+def test_the_notes_collection_builds_the_query_indexes():
+    """ה-MCP הוא כותב מלא של פתקים ובנה עד היום אינדקס אחד.
+
+    **הרשימה אינה נמנית כאן במספר.** הגרסה הקודמת של הבדיקה נקראה
+    ``builds_all_four`` ונעלה קבוצה בת ארבעה שמות — כלומר כל הוספה
+    עתידית הייתה מפילה אותה על הסיבה הלא נכונה, ומי שמתקן מוחק שם במקום
+    לבדוק. מה שנבדק כאן הוא שהאינדקסים שהפתקים נשענים עליהם נבנים, ושכל
+    אחד מהם הוא בדיוק המפרט של הוובאפ (ראו הבדיקה הבאה).
+
+    נופלת אם אחד מהם יוסר.
+    """
+    built = _mcp_built_indexes()
+
+    assert "user_scope_idx" in built and "user_board_idx" in built
+    assert built["user_repo_idx"] == (("user_id", 1), ("repo_name", 1), ("repo_path", 1))
+    assert built["user_title_idx"] == (("user_id", 1), ("title", 1))
+    # החיפוש ממיין ב-``updated_at`` יורד; בלי התחילית הזו מונגו בוחרת
+    # ב-``updated_desc`` וסורקת את הפתקים של **כל** המשתמשים.
+    assert built["user_updated_idx"] == (("user_id", 1), ("updated_at", -1))
+
+
+def test_every_index_the_mcp_builds_matches_the_webapp_spec_exactly():
+    """הצהרת ה"זהים בייט-לבייט" נבדקת, ולא רק נכתבת בהערה.
+
+    ההערה ב-``_notes_coll`` אומרת שהמפרטים כאן זהים לאלה שבוובאפ, והסיבה
+    קונקרטית: מונגו דוחה ב-code 85/86 אינדקס בשם קיים עם מפתחות אחרים,
+    כלומר סטייה של תו אחד הופכת את הבוטסטראפ השני לכשל שקט **לצמיתות** —
+    השם תפוס, המפתחות אחרים, ואף אחד מהצדדים לא יבנה אותו שוב.
+
+    הקבוצה כאן נגזרת מ-``_QUERY_INDEX_SPECS`` ואינה מוקלדת שנית, כי רשימה
+    שנייה היא בדיוק מה שהבדיקה באה למנוע. ה-MCP בונה **תת-קבוצה** (הוא
+    אינו נוגע באינדקסים של מסלול הקבצים), ולכן הטענה היא הכלה עם זהות
+    מפתחות, ולא שוויון.
+
+    נופלת על סטייה של תו אחד בכל כיוון.
+    """
+    import pytest as _pytest
+
+    _pytest.importorskip("flask")
+    from webapp.sticky_notes_api import _QUERY_INDEX_SPECS
+
+    webapp_specs = {name: tuple(tuple(k) for k in keys) for name, keys in _QUERY_INDEX_SPECS}
+    built = _mcp_built_indexes()
+
+    unknown = set(built) - set(webapp_specs)
+    assert not unknown, f"אינדקס שה-MCP בונה ואינו במפרט הוובאפ: {sorted(unknown)}"
+    for name, keys in built.items():
+        assert keys == webapp_specs[name], (
+            f"{name}: ה-MCP בונה {keys} והוובאפ מצהיר {webapp_specs[name]}"
+        )
 
 
 def test_one_failing_index_does_not_block_the_others():
@@ -1361,7 +1404,13 @@ def test_one_failing_index_does_not_block_the_others():
     b._raw_mongo = lambda: {"sticky_notes": _Coll()}
     b._notes_coll()
 
-    assert set(built) == {"user_scope_idx", "user_repo_idx", "user_title_idx"}
+    # **הקבוצה הצפויה נגזרת מריצה תקינה ואינה מוקלדת כאן.** רשימת שמות
+    # קשיחה הייתה נשברת בכל הוספת אינדקס — על הסיבה הלא נכונה — ומי
+    # שמתקן היה מוחק שם במקום לבדוק. מה שנבדק הוא התכונה עצמה: **כל** מה
+    # שהקוד מנסה לבנות נבנה, חוץ מזה שנכשל.
+    expected = set(_mcp_built_indexes()) - {"user_board_idx"}
+    assert set(built) == expected
+    assert expected, "רצפת בטיחות: קבוצה ריקה הייתה מספקת את הטענה בלי לבדוק דבר"
 
 
 def test_the_two_title_indexes_retry_independently(monkeypatch):

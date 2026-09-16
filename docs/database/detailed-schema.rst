@@ -579,7 +579,12 @@
 .. important::
    **האילוץ "בדיוק אחד" נאכף ב-**\ ``sticky_notes_target.build_note_target``, שכל מסלולי הכתיבה עוברים דרכו. הכלל טרנרי (קובץ/לוח/ריפו) ותכונתי: ``TARGET_FIELDS`` ממפה כל סוג לשדות שמותר לו לשאת, וכל שדה זר נדחה. אין ``$jsonSchema`` validator ברמת מונגו, כי אין בריפו תשתית migrations שתחזיק אותו — במקומו ``scripts/migrate_note_boards.py`` מדפיס דוח הפרות, והרצה חוזרת שלו היא הבדיקה.
 
-**אינדקסים:** ``(user_id, file_id)``, ``(user_id, file_id, created_at)``, ``(user_id, scope_id)``, ``(user_id, board_id)``, ``(user_id, repo_name, repo_path)``, ``(updated_at)``. שני אינדקסי שם ייחודיים-חלקיים: ``one_title_per_board_v2`` (מסונן על ``board_id`` קיים) ו-``one_title_per_repo_file_v1`` (מסונן על ``repo_path`` קיים).
+**אינדקסים:** ``(user_id, file_id)``, ``(user_id, file_id, created_at)``, ``(user_id, scope_id)``, ``(user_id, board_id)``, ``(user_id, repo_name, repo_path)``, ``(user_id, title)``, ``(user_id, updated_at)``, ``(updated_at)``. שני אינדקסי שם ייחודיים-חלקיים: ``one_title_per_board_v2`` (מסונן על ``board_id`` קיים) ו-``one_title_per_repo_file_v1`` (מסונן על ``repo_path`` קיים).
+
+.. note::
+   ‏``(user_id, updated_at)`` ו-``(updated_at)`` נראים חופפים ואינם. חיפוש הפתקים ממיין ב-``updated_at`` יורד וגם מסנן לפי משתמש, ו-``explain`` על השאילתה הזו הראה שמונגו בוחרת דווקא ב-``updated_at`` לבדו — כלומר סורקת את הפתקים של **כל** המשתמשים לפי סדר עדכון ומסננת את הבעלות כשארית. התוכניות שנשענות על תחילית ``user_id`` נדחות כולן, כי כל אחת מהן דורשת מיון חוסם. האינדקס המורכב הוא היחיד שנותן את שניהם יחד.
+
+   **אין כאן אינדקס טקסט, ובכוונה.** חיפוש הפתקים מתאים תת-מחרוזת ברג'קס ולא טוקנים שלמים. ``$text`` עם ``default_language: "none"`` מתעד במפורש שהוא מתעלם מגזירת סיומות, ולכן חיפוש "פתק" אינו מוצא "בפתק" — מדידה על פתקים אמיתיים בעברית הראתה שהוא מפספס כ-18% מההתאמות שהרג'קס מוצא, ובמונחים נפוצים הרבה יותר. ההסבר המלא ב-:doc:`/dev/sticky_notes_extending`.
 
 אוסף: note_boards
 ------------------

@@ -1150,14 +1150,42 @@ def test_the_shared_cache_flag_also_confirms_the_title_index(monkeypatch):
     assert sticky_notes_api._REPO_TITLE_INDEX_OK is True
 
 
-def test_the_cache_key_version_was_bumped_with_the_meaning_change():
-    """מפתח ישן נושא משמעות ישנה.
+#: האינדקסים שדגל המוכנוּת מעיד עליהם בגרסה הנוכחית של המפתח.
+#:
+#: **רשימה מפורשת ולא ספירה**, כי היא גם המקום שבו מי שמוסיף אינדקס נתקל
+#: בשאלה "והעליתי את המפתח?". ספירה הייתה עונה על אותה שאלה בלי לומר
+#: **מה** השתנה.
+_INDEXES_ATTESTED_BY_V4 = {
+    "user_file_idx",
+    "user_file_created",
+    "updated_desc",
+    "user_scope_idx",
+    "user_board_idx",
+    "user_repo_idx",
+    "user_title_idx",
+    "user_updated_idx",
+}
+
+
+def test_the_cache_key_version_matches_the_set_of_indexes_it_attests_to():
+    """מפתח ישן נושא משמעות ישנה — ולכן הוא נעול **למה שהוא מעיד עליו**.
 
     הדגל המשותף העיד תחילה רק על אינדקס הלוח, ובהוספת אינדקס הריפו משמעותו
     התרחבה לשני האינדקסים. תחת אותו מפתח, דגל v2 ישן היה מתפרש עכשיו
     כאימות של אינדקס הריפו שלא היה — למשך ה-TTL, ובכל התהליכים. לכן הועלה
-    ל-v3, בדיוק כפי שהועלה בעבר עם שינוי המשמעות הקודם.
+    ל-v3, וב-``user_updated_idx`` ל-v4.
+
+    **ולמה הבדיקה נועלת שניים ולא רק את המספר.** גרסה קבועה לבדה נבדקת
+    בכל הרצה ואינה נבדקת בכלל: מי שמוסיף אינדקס לרשימה בלי לקדם את המפתח
+    אינו מפיל כלום, וכל תהליך שקורא דגל חי מדלג על הבנייה ליממה — האינדקס
+    החדש פשוט לא נבנה, בשקט. כאן שני הצדדים כרוכים: שינוי ברשימה בלי
+    קידום המפתח מפיל, וקידום בלי עדכון הרשימה מפיל גם הוא.
     """
     from webapp import sticky_notes_api
 
-    assert sticky_notes_api._INDEX_READY_CACHE_KEY.endswith("_v3")
+    assert sticky_notes_api._INDEX_READY_CACHE_KEY.endswith("_v4")
+    assert {name for name, _keys in sticky_notes_api._QUERY_INDEX_SPECS} == _INDEXES_ATTESTED_BY_V4, (
+        "רשימת האינדקסים השתנתה. אם זו הכוונה — לקדם את "
+        "``_INDEX_READY_CACHE_KEY`` ולעדכן את הרשימה כאן יחד, אחרת תהליך "
+        "שמחזיק דגל חי ידלג על בניית האינדקס החדש."
+    )
