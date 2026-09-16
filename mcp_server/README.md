@@ -18,20 +18,31 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 ### הכלים (Tools)
 
 כל הכלים מקודמים ב‑`codekeeper_` (מונע התנגשות עם connectors אחרים). כולם read-only
-פרט לתשעת כלי הכתיבה, שדורשים הרשאת `write`: על קבצים —
-`codekeeper_save_file`/`codekeeper_edit_file`/`codekeeper_append_file`; על אוספים —
+פרט לכלי הכתיבה, שדורשים הרשאת `write`: על קבצים —
+`codekeeper_save_file` (יצירת קובץ **חדש** בלבד)/`codekeeper_edit_file`/
+`codekeeper_append_file`/`codekeeper_update_file_description`; על אוספים —
 `codekeeper_add_to_collection`; ועל פתקים — `codekeeper_create_note`/
 `codekeeper_create_board_note`/`codekeeper_create_repo_note`/`codekeeper_update_note`/
 `codekeeper_note_str_replace`.
+
+<!--
+בלי מספר לפני "כלי הכתיבה", בכוונה. הספירה הקודמת ("תשעת") התיישנה ברגע
+שנוסף כלי, וזו בדיוק "ספירת מופעים" ש-`docs/doc-authoring.rst` אוסר: מספר
+שמשתנה בלי שאף בדיקה תתריע. הרשימה עצמה שימושית ונשארת; מה שהוסר הוא
+המונה שאיש לא שומר עליו. מקור האמת לסיווג הוא `readOnlyHint` שכל כלי
+מצהיר עליו, ו-`_declares_write` ב-`server.py` גוזר ממנו.
+-->
+
 
 | כלי | תיאור |
 |-----|-------|
 | `codekeeper_list_files` | רשימת קבצים (מטא‑דאטה בלבד), עם עימוד |
 | `codekeeper_search_code` | חיפוש טקסט בקוד → מטא‑דאטה של קבצים תואמים |
 | `codekeeper_get_file` | תוכן מלא של קובץ לפי `file_name` או `file_id` (אופציונלי: גרסה). `lines=[start, end]` מחזיר רק את הטווח; `query="..."` מחזיר את **המופעים** של המחרוזת בקובץ במקום את התוכן, בצורת התשובה של `codekeeper_search_repo` (`count`/`total`/`results` עם `line` ו-`snippet`, ו-`context_lines`). שני הפרמטרים יחד נדחים כ-`query_and_lines` |
-| `codekeeper_save_file` | **כתיבה:** יצירה/עדכון קובץ לפי `file_name` (גרסה חדשה, לא דורס; בכפוף ל‑`MAX_CODE_SIZE`, ברירת מחדל 100K תווים וניתן להגדלה). דורש `write` |
+| `codekeeper_save_file` | **כתיבה:** יצירת קובץ **חדש** בלבד — שם שכבר תפוס נדחה ב‑`file_exists`, ולעדכון קובץ קיים יש `codekeeper_edit_file`/`codekeeper_append_file` (תוכן) או `codekeeper_update_file_description` (תיאור). בכפוף ל‑`MAX_CODE_SIZE`, ברירת מחדל 100K תווים וניתן להגדלה. דורש `write` |
 | `codekeeper_edit_file` | **כתיבה:** מצא‑והחלף מדויק (`old_string`→`new_string`, אופציונלית `replace_all`) בלי לשלוח את כל הקובץ; גרסה חדשה, משמר שפה/תיאור/תגיות. דורש `write` |
 | `codekeeper_append_file` | **כתיבה:** הוספת טקסט לסוף קובץ קיים (מוסיף שורת‑הפרדה אם צריך); גרסה חדשה. דורש `write` |
+| `codekeeper_update_file_description` | **כתיבה:** החלפת ה‑`description` של קובץ קיים בלי לגעת בתוכן. **אינו יוצר גרסה**, ולכן התיאור הקודם אינו נשמר בהיסטוריה (הוא מוחזר בתשובה) ורק הגרסה האחרונה מתעדכנת. תיאור בלבד, בלי תגיות. דורש `write` |
 | `codekeeper_list_versions` | היסטוריית גרסאות של קובץ (מטא‑דאטה) |
 | `codekeeper_list_notes` | פתקים דביקים של קובץ (לפי `file_name`) — אותם פתקים שמוצגים ב‑UI של הוובאפ |
 | `codekeeper_create_note` | **כתיבה:** יצירת פתק דביק על קובץ קיים; `line` אופציונלי מעגן לשורת מקור (בלעדיו הפתק צף). דורש `write` |

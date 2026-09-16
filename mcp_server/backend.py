@@ -640,6 +640,32 @@ class ProductionBackend:
         )
         return {"ok": True, "created": prev is None, "file": cleaned}
 
+    def update_file_description(
+        self, user_id: int, *, file_name: str, description: str
+    ) -> dict[str, Any]:
+        """Set an existing file's ``description`` **without saving a new version**.
+
+        Delegates straight to ``DatabaseManager.update_file_metadata``, which is
+        the same path ``POST /api/file/<id>/quick-update`` in the webapp takes —
+        the "quick description edit" the file page already offers. Nothing here
+        re-implements the write; if the two ever have to diverge, that argument
+        belongs in one function rather than in two copies of it.
+
+        **No push event, unlike :meth:`save_file`.** The notification says an
+        agent *saved a file*, and this neither creates a version nor touches the
+        content. Firing it here would put a "file saved" notice on something the
+        user would not recognise as a save. See ``docs/deployment/workers.rst``.
+
+        No ``getattr`` probe on the manager, deliberately: a db manager without
+        this method cannot serve the tool, and a silent fallback would answer
+        "updated" for a write that never happened
+        (``bugbot-rules/silent-fallback-to-worse-path.md``). It raises, and the
+        test doubles carry the method instead.
+        """
+        return self._require_dbm().update_file_metadata(
+            user_id, file_name=file_name, description=description
+        )
+
     def _emit_push_event(
         self, user_id: int, *, file_name: str, file_id: str, created: bool
     ) -> None:

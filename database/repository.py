@@ -93,6 +93,191 @@ _HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = {
 # חשוב: לא לשנות את המשתנה הפנימי ישירות ממודולים חיצוניים.
 HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
+#: סנטינל ל"הארגומנט לא נשלח", עבור פרמטרים ש-``None`` הוא ערך תקף שלהם.
+#: ``update_file_metadata`` משתמש בו כדי להבדיל בין "אל תיגע בתיאור" לבין
+#: "נקה את התיאור" — שתי בקשות שונות שגם ``None`` וגם ``""`` היו מאחדות.
+_UNSET: Any = object()
+
+#: התקרה המעשית לאורך ``description`` של קובץ, **בתווים**.
+#:
+#: המספר עצמו אינו חדש — הראוט ``quick-update`` בוובאפ חתך ב-500 מאז שנכתב.
+#: מה שחדש הוא שיש לו שם אחד: משנוסף ``codekeeper_update_file_description``
+#: ב-MCP, ``500`` קשיח בשני קבצים היה נעשה מספר שרק אחד משני המקומות יקבל
+#: את העדכון הבא שלו, ותיאור שנכתב דרך הכלי היה נחתך בשקט ברגע שמישהו
+#: עורך אותו בדפדפן.
+#:
+#: **תווים ולא בייטים, וזה מכוון.** ``len()`` בפייתון סופר תווים, ובעברית
+#: כל אות היא שני בייטים ב-UTF-8 — תקרה שנמדדת בבייטים הייתה חותכת תיאור
+#: עברי בחצי האורך, ובגבול עצמו באמצע אות. ראו ``BY-STACK/hebrew-source.md``
+#: H6.
+#:
+#: **שתי המדיניויות שנשענות עליו שונות, בכוונה.** הוובאפ חותך, כי שם אדם
+#: רואה את הטקסט בתיבה לפני השליחה ואחריה. ה-MCP דוחה, כי סוכן אינו רואה
+#: את התוצאה וחיתוך שקט הוא אובדן טקסט שלא ידווח לו.
+FILE_DESCRIPTION_MAX_CHARS = 500
+
+
+def update_file_metadata_in(
+    collection: Any,
+    user_id: int,
+    *,
+    file_id: Any = None,
+    file_name: Optional[str] = None,
+    description: Any = _UNSET,
+    tags: Any = _UNSET,
+) -> Dict[str, Any]:
+    """עדכון ``description``/``tags`` על מסמך גרסה קיים — **בלי גרסה חדשה**.
+
+    זה המסלול של "עדכון מהיר" בוובאפ (``POST /api/file/<id>/quick-update``)
+    ושל ``codekeeper_update_file_description`` ב-MCP, ושניהם קוראים לכאן.
+    עד שהפונקציה נכתבה הראוט החזיק ``update_one`` משלו, והכלי ב-MCP היה
+    נולד לתוך העותק השני של אותה כתיבה.
+
+    **למה ברמת המודול ולא מתודה של ``Repository``.** הוובאפ פותח חיבור
+    מונגו משלו (``webapp.app.get_db``) ואינו עובר דרך ה-``DatabaseManager``
+    הגלובלי שב-``database/__init__.py`` — בפרודקשן שניהם מצביעים לאותו
+    מסד, אבל הם שני אובייקטים. מסלול משותף שהיה מניח מנהל אחד היה כותב
+    למקום שהקורא לא התכוון אליו. ``collection`` כפרמטר הוא מה שמאפשר
+    לשני החיבורים להזין את אותה לוגיקה — וגם מה שמאפשר לבדוק את צורת
+    השאילתה בלי לבנות מנהל.
+
+    **מה הפונקציה עושה ומה במפורש אינה עושה:**
+
+    - היא כותבת ``$set`` על **מסמך אחד**, ואינה יוצרת גרסה. לכן הערך
+      הקודם **אינו** נשמר בשום מקום — ``get_all_versions`` לא יראה אותו,
+      ואין ממה לשחזר.
+    - כשהזיהוי הוא ``file_name``, המסמך הנבחר הוא זה של הגרסה הגבוהה
+      ביותר. **גרסאות קודמות נשארות עם הערך הישן**, וקריאה מפורשת של
+      גרסה ישנה (``get_version``) תחזיר אותו. זה עקבי עם מה שהמשתמש
+      רואה: החיפוש (``_search_code_cached``) והרשימות
+      (``get_regular_files_paginated``) מקבצות לגרסה האחרונה לכל שם
+      ומציגות את ה-``description`` שלה.
+
+    **``_UNSET`` ולא ``None``.** ``None`` ו-``""`` הם ערכים לגיטימיים
+    לתיאור — "נקה את התיאור" היא בקשה אמיתית שהוובאפ שולח. סנטינל נפרד
+    הוא הדרך היחידה להבדיל בינה לבין "השדה לא נשלח".
+
+    **הנורמליזציה שייכת לקורא, לא לכאן.** הוובאפ חותך תיאור ארוך
+    (``[:500]``) ושכבת ה-MCP דוחה אותו, כי סוכן שמקבל חיתוך שקט אינו
+    יודע שאיבד טקסט. שתי המדיניויות נכונות לממשק שלהן, ואיחוד שלהן כאן
+    היה מכריע עבור שניהם. מה שכן נבדק כאן הוא **טיפוס**: ערך שאינו
+    מחרוזת (או רשימת מחרוזות, לתגיות) נדחה בקוד שגיאה ואינו מומר בשקט —
+    ראו ``bugbot-rules/external-input-isinstance.md``.
+
+    **``find_one_and_update`` ולא בדיקת בעלות ואז ``update_one``.** הצורה
+    השנייה היא מה שהראוט בוובאפ עשה, ויש בה חלון TOCTOU: בין ה-``find_one``
+    ל-``update_one`` המסמך יכול להימחק או לעבור לסל. כאן הבעלות
+    (``user_id``) ומצב הפעילות (``is_active``) יושבים **בתוך הפילטר של
+    הכתיבה עצמה**, ולכן אין רגע שבו ההרשאה נבדקה על מסמך אחד והכתיבה
+    נחתה על אחר. ``return_document`` נשאר בברירת המחדל ``False``
+    (pymongo 4.15.3 — ``Collection.find_one_and_update``), כלומר מוחזר
+    המסמך **שלפני** העדכון — וזה מה שנותן את הערך הקודם בלי קריאה שנייה
+    שיכולה כבר לראות מצב אחר.
+
+    ``projection`` אינו קישוט: בלעדיו מונגו מחזירה את המסמך **כולו**,
+    כולל ``code`` — משיכת קובץ שלם בשביל עדכון שדה טקסט אחד, בניגוד לחוק
+    ה-Smart Projection.
+
+    מחזירה ``{"ok": True, ...}`` עם ``previous`` ו-``updated_fields``, או
+    ``{"ok": False, "error": ...}``. **ערוץ הכשל הוא ערך ההחזרה ולעולם
+    לא חריגה** — קורא שמדווח הצלחה חייב לבדוק את ``ok`` ולא להסתפק
+    בכך שלא נזרקה חריגה (``CRITICAL-PATTERNS.md`` K11).
+    """
+    updates: Dict[str, Any] = {}
+    if description is not _UNSET:
+        if not isinstance(description, str):
+            return {"ok": False, "error": "invalid_description"}
+        if len(description) > FILE_DESCRIPTION_MAX_CHARS:
+            # **דחייה ולא חיתוך, וזה לא סותר את "הנורמליזציה שייכת לקורא".**
+            # התקרה היא עובדה על השדה ולכן היא נאכפת כאן, פעם אחת; מה
+            # שנשאר לקורא הוא **מה לעשות איתה**. הוובאפ חותך לפני הקריאה
+            # ולכן לעולם אינו מגיע לענף הזה — ההתנהגות שלו לא זזה. שכבת
+            # ה-MCP אינה חותכת, ולכן היא מקבלת את הדחייה ומעבירה אותה
+            # לסוכן עם המספר, במקום לאבד לו טקסט בשקט.
+            return {
+                "ok": False,
+                "error": "description_too_long",
+                "max": FILE_DESCRIPTION_MAX_CHARS,
+            }
+        updates["description"] = description
+    if tags is not _UNSET:
+        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+            return {"ok": False, "error": "invalid_tags"}
+        updates["tags"] = list(tags)
+    if not updates:
+        return {"ok": False, "error": "no_fields"}
+
+    # ``updated_at`` נחתם **רק כשהתיאור נכלל**. הוא מציין מתי התוכן,
+    # התיאור או השם השתנו; תגיות הן מטא-דאטה כמו מועדפים ונעיצה, ושינוי
+    # שלהן אינו "עריכה" של הקובץ. זה החוזה שהראוט בוובאפ מקיים היום,
+    # והוא נשמר כאן מילה במילה — ראו ``docs/database/detailed-schema.rst``
+    # ואת ``tests/test_webapp_metadata_routes_keep_updated_at.py``.
+    if "description" in updates:
+        updates["updated_at"] = datetime.now(timezone.utc)
+
+    sort: Optional[List[Tuple[str, int]]] = None
+    if file_id is not None:
+        try:
+            oid = file_id if isinstance(file_id, ObjectId) else ObjectId(str(file_id))
+        except Exception:
+            return {"ok": False, "error": "invalid_file_id"}
+        query: Dict[str, Any] = {"_id": oid, "user_id": int(user_id), "is_active": True}
+    elif file_name:
+        query = {"user_id": int(user_id), "file_name": str(file_name), "is_active": True}
+        # ``idx_snippets_latest_version`` הוא
+        # ``(user_id, is_active, file_name, version DESC)`` — שלושת
+        # הראשונים שוויון והרביעי הוא בדיוק המיון הזה, כלומר התאמה מלאה
+        # ואין צורך באינדקס נוסף.
+        sort = [("version", -1)]
+    else:
+        return {"ok": False, "error": "missing_target"}
+
+    try:
+        previous = collection.find_one_and_update(
+            query,
+            {"$set": updates},
+            projection={
+                "_id": 1,
+                "file_name": 1,
+                "version": 1,
+                "description": 1,
+                "tags": 1,
+            },
+            sort=sort,
+        )
+    except Exception as e:
+        emit_event("db_update_file_metadata_error", severity="error", error=str(e))
+        return {"ok": False, "error": "update_failed"}
+
+    if not previous:
+        return {"ok": False, "error": "not_found"}
+
+    doc_id = str(previous.get("_id"))
+    try:
+        cache.invalidate_file_related(file_id=doc_id, user_id=int(user_id))
+    except Exception:
+        # כשל ניקוי אינו מבטל כתיבה שכבר קרתה, אבל גם אינו שקט: בלי שורת
+        # הלוג, קאש שהפסיק להתרענן נראה בדיוק כמו קאש תקין.
+        logger.warning("update_file_metadata: cache invalidation failed", exc_info=True)
+
+    return {
+        "ok": True,
+        "file_id": doc_id,
+        "file_name": previous.get("file_name"),
+        "version": previous.get("version"),
+        # שתי רשימות, ולא אחת: ``updated_fields`` הוא מה שהקורא **ביקש**
+        # לשנות, ו-``set_fields`` הוא מה ש-``$set`` באמת נשא — כלומר גם
+        # ``updated_at``, שאיש לא ביקש והוא נגזרת. איחודן היה מכריח כל
+        # צרכן לבחור אחת מהמשמעויות ולהסתפק בה, והראוט בוובאפ מחזיר
+        # דווקא את השנייה מאז שנכתב.
+        "updated_fields": [k for k in updates if k != "updated_at"],
+        "set_fields": list(updates.keys()),
+        "previous": {
+            "description": previous.get("description"),
+            "tags": previous.get("tags"),
+        },
+    }
+
 
 def _latest_version_projection_stage(projection: Optional[Dict[str, int]]) -> Dict[str, Any]:
     """שלב ה-``$project`` לשאילתות "הגרסה האחרונה לכל קובץ".
@@ -1463,6 +1648,32 @@ class Repository:
         except Exception as e:
             emit_event("db_get_file_by_id_error", severity="error", error=str(e))
             return None
+
+    def update_file_metadata(
+        self,
+        user_id: int,
+        *,
+        file_id: Any = None,
+        file_name: Optional[str] = None,
+        description: Any = _UNSET,
+        tags: Any = _UNSET,
+    ) -> Dict[str, Any]:
+        """עדכון ``description``/``tags`` בלי גרסה חדשה, על ה-collection של המנהל.
+
+        עטיפה דקה מעל :func:`update_file_metadata_in`, שם יושבת הלוגיקה
+        והתיעוד המלא. הפיצול קיים כי הוובאפ מחזיק **חיבור מונגו משלו**
+        (``webapp.app.get_db``) ואינו עובר דרך ה-``DatabaseManager``
+        הגלובלי — ולכן מסלול משותף חייב לקבל את ה-collection כפרמטר
+        במקום להניח אחד.
+        """
+        return update_file_metadata_in(
+            self.manager.collection,
+            user_id,
+            file_id=file_id,
+            file_name=file_name,
+            description=description,
+            tags=tags,
+        )
 
     @cached(expire_seconds=600, key_prefix="user_stats")
     def get_user_stats(self, user_id: int) -> Dict[str, Any]:

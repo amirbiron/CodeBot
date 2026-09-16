@@ -2851,6 +2851,14 @@ class DatabaseManager:
     def rename_file(self, user_id: int, old_name: str, new_name: str) -> bool:
         return self._get_repo().rename_file(user_id, old_name, new_name)
 
+    def update_file_metadata(self, user_id: int, **kwargs: Any) -> Dict[str, Any]:
+        """עדכון ``description``/``tags`` בלי גרסה חדשה — ראו ``Repository``.
+
+        ה-kwargs מועברים כמות שהם ולא נמנים כאן בכוונה: מניה הייתה מקום
+        שני לסנכרן, והפרמטר שיתווסף הוא זה שהיה נשמט ממנה בשקט.
+        """
+        return self._get_repo().update_file_metadata(user_id, **kwargs)
+
     # Favorites API wrappers
     def toggle_favorite(self, user_id: int, file_name: str) -> Optional[bool]:
         return self._get_repo().toggle_favorite(user_id, file_name)

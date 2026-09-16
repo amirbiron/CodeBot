@@ -553,7 +553,9 @@ def save_file(
                 f"הקובץ '{name}' כבר קיים. שמירה עליו הייתה מסתירה את התוכן "
                 "הקיים מהחיפוש ומעמוד הקובץ. לעריכה השתמשו ב-"
                 "codekeeper_edit_file (החלפת קטע) או ב-codekeeper_append_file "
-                "(הוספה בסוף), או שמרו בשם אחר."
+                "(הוספה בסוף), או שמרו בשם אחר. ואם רק התיאור הוא מה שרציתם "
+                "לעדכן — codekeeper_update_file_description עושה זאת בלי "
+                "לגעת בתוכן ובלי ליצור גרסה."
             ),
         }
 
@@ -677,6 +679,71 @@ def append_file(backend: Any, user_id: int, *, file_name: str, content: str) -> 
     if not res.get("ok"):
         return res
     return {"ok": True, "appended_chars": len(content), "file": res.get("file")}
+
+
+def update_file_description(
+    backend: Any, user_id: int, *, file_name: str, description: str
+) -> dict[str, Any]:
+    """Replace an existing file's ``description`` — **no new version is written**.
+
+    Unlike :func:`edit_file` and :func:`append_file`, which round-trip the body
+    through the versioned save path, this is a metadata ``$set`` on the file's
+    latest version. Three consequences the caller has to know, and the tool
+    description says all three out loud:
+
+    - No version is created, so ``codekeeper_list_versions`` will not show this
+      change and the **previous description is not recoverable** from anywhere.
+      It is returned in the response precisely because that is the only place it
+      will ever appear again.
+    - Earlier versions keep the old description. Reading one back by number
+      returns what it carried at the time.
+    - The file's content and version number do not move.
+
+    **The length ceiling is not enforced here.** It lives on the field, in
+    ``database/repository.py`` (``FILE_DESCRIPTION_MAX_CHARS``), and comes back
+    as ``description_too_long`` with its ``max``. Re-stating the number in this
+    module would put it in two places, and the copy that drifts is the one that
+    rejects text the other accepts. Importing it would drag the whole database
+    layer into a module that is deliberately importable without it.
+
+    Rejecting rather than clipping is the same call :func:`_sanitize_note_text`
+    makes: an agent does not see the stored result, so a silent truncation is
+    data loss it will never learn about.
+    """
+    name = (file_name or "").strip()
+    if not name:
+        return {"ok": False, "error": "missing_file_name"}
+    # mypy מסמן את השורה הבאה ``unreachable``, כי החתימה מצהירה ``str``.
+    # הבדיקה נשארת מאותה סיבה שהיא נשארת ב-:func:`edit_file` וב-
+    # :func:`append_file` — ושם היא מייצרת בדיוק את אותה הערה: ההצהרה
+    # אינה אכיפה בזמן ריצה, והערך מגיע מחוץ לתהליך
+    # (``bugbot-rules/external-input-isinstance.md``). כאן היא גם מגנה
+    # קונקרטית על ה-``.strip()`` שמיד אחריה, שהיה זורק ``AttributeError``
+    # במקום להחזיר קוד שגיאה.
+    if not isinstance(description, str):
+        return {"ok": False, "error": "invalid_description"}
+    # ``strip`` בלבד, ובמכוון לא יותר: זו בדיוק הנורמליזציה שהראוט בוובאפ
+    # מפעיל, ותיאור שנכתב בשני הערוצים צריך להיראות אותו דבר. מחרוזת ריקה
+    # אחרי ה-strip היא בקשה תקפה — "נקה את התיאור" — ולא שגיאה.
+    res = backend.update_file_description(
+        user_id, file_name=name, description=description.strip()
+    )
+    if not isinstance(res, dict) or not res.get("ok"):
+        # ערוץ הכשל של מסלול הכתיבה הוא ערך ההחזרה ולא חריגה, ולכן הבדיקה
+        # הזו היא מה שמפריד בין "עודכן" לבין "לא נזרקה חריגה"
+        # (``CRITICAL-PATTERNS.md`` K11). ``isinstance`` כלול כי backend
+        # שמחזיר ``None`` היה עובר ``.get`` בחריגה ולא בקוד שגיאה.
+        return res if isinstance(res, dict) else {"ok": False, "error": "update_failed"}
+    return {
+        "ok": True,
+        "file_name": res.get("file_name") or name,
+        # מספר הגרסה מוחזר כדי לומר במפורש שהוא **לא** זז. הוא נקרא
+        # מהמסמך שנכתב, לא מהבקשה.
+        "version": res.get("version"),
+        "previous_description": (res.get("previous") or {}).get("description"),
+        "description": description.strip(),
+        "version_created": False,
+    }
 
 
 # -- sticky notes ----------------------------------------------------------
