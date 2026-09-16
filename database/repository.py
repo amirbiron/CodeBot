@@ -1136,59 +1136,90 @@ class Repository:
                         out[name] = doc
         return out
 
-    @cached(expire_seconds=300, key_prefix="search_code")
-    @traced("db.search_code")
-    @_instrument_db("db.search_code")
     def search_code(self, user_id: int, query: str, programming_language: Optional[str] = None, tags: Optional[List[str]] = None, limit: int = 20) -> List[Dict]:
+        """חיפוש בקבצים השמורים. מחזיר ``[]`` בכשל, כמו תמיד.
+
+        **הכשל אינו נכנס לקאש, וזו כל הסיבה שהפונקציה מפוצלת.**
+        ``@cached`` מדלג רק על ``None`` (``cache_manager.py`` — ``if result
+        is None``), ולכן ה-``[]`` שהוחזר מתוך ``except`` נשמר ל-300 שניות
+        וכשל חולף של מסד הפך ל"לא נמצא" שנמשך חמש דקות. הפיצול מוציא את
+        ה-``except`` **מחוץ** לפונקציה המקושטת: חריגה עולה דרך הדקורטור,
+        והשמירה שלו פשוט אינה מגיעה — הקריאה ל-``func`` שם אינה בתוך
+        ``try``, כך שכלום לא נכתב, לא לרימוט ולא לפולבק המקומי.
+
+        **החוזה לא זז.** החתימה, ערך ההחזרה ואירוע ``db_search_code_error``
+        זהים, ושמונת הקוראים (``main.py``, ``search_engine.py``, הפסאדות)
+        אינם מושפעים. שינוי החוזה עצמו — שהקורא יידע להבדיל בין "לא נמצא"
+        לבין "השאילתה נדחתה" — הוא אישו נפרד.
+
+        **ולמה לא פרמטר לדקורטור:** ל-``cached`` יש ארבעה shims של no-op
+        בריפו (כאן למעלה, וכן ב-``code_processor``, ``lazy_loader``
+        ו-``autocomplete_manager``) שמקבלים שני פרמטרים בלבד, וכל אחד מהם
+        היה נשבר ב-``TypeError`` במסלול שבו ``cache_manager`` אינו נטען.
+        """
         try:
-            try:
-                attrs: Dict[str, Any] = {
-                    "user_id_hash": _hash_identifier(user_id),
-                    "query.length": int(len(query or "")),
-                    "language": str(programming_language or "") or None,
-                    "tags_count": len(tags or []),
-                    "limit": int(limit),
-                }
-                attrs = {k: v for k, v in attrs.items() if v not in (None, "")}
-                set_current_span_attributes(attrs)
-            except Exception:
-                pass
-            search_filter: Dict[str, Any] = {"user_id": user_id, "is_active": True}
-            if query:
-                search_filter["$text"] = {"$search": query}
-            if programming_language:
-                search_filter["programming_language"] = programming_language
-            if tags:
-                search_filter["tags"] = {"$in": tags}
-            pipeline = [
-                {"$match": search_filter},
-                {"$sort": {"file_name": 1, "version": -1}},
-                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-                {"$replaceRoot": {"newRoot": "$latest"}},
-                {"$sort": {"updated_at": -1}},
-                {"$limit": limit},
-                # תוצאות חיפוש הן רשימה — אין צורך להחזיר את שדה code המלא כאן.
-                {"$project": {
-                    "_id": 1,
-                    "file_name": 1,
-                    "programming_language": 1,
-                    "updated_at": 1,
-                    "description": 1,
-                    "tags": 1,
-                    "is_favorite": 1,
-                    "favorited_at": 1,
-                }},
-            ]
-            with track_performance("db_search_code"):
-                rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
-            try:
-                set_current_span_attributes({"results_count": int(len(rows))})
-            except Exception:
-                pass
-            return rows
+            return self._search_code_cached(user_id, query, programming_language, tags, limit)
         except Exception as e:
             emit_event("db_search_code_error", severity="error", error=str(e))
             return []
+
+    @cached(expire_seconds=300, key_prefix="search_code")
+    @traced("db.search_code")
+    @_instrument_db("db.search_code")
+    def _search_code_cached(self, user_id: int, query: str, programming_language: Optional[str] = None, tags: Optional[List[str]] = None, limit: int = 20) -> List[Dict]:
+        """הגוף עצמו. **זורק בכשל**, ולכן הדקורטור אינו שומר כלום.
+
+        ``key_prefix`` נשאר ``search_code``, ולכן דפוס הניקוי
+        ``search_code:*:<user_id>:*`` ב-``invalidate_user_cache`` ממשיך
+        להתאים — נבדק מול ``_make_key`` עצמו לפני ואחרי. ‏``@traced``
+        ו-``@_instrument_db`` נושאים שמות מפורשים, ולכן תוויות הטלמטריה
+        אינן זזות גם הן.
+        """
+        try:
+            attrs: Dict[str, Any] = {
+                "user_id_hash": _hash_identifier(user_id),
+                "query.length": int(len(query or "")),
+                "language": str(programming_language or "") or None,
+                "tags_count": len(tags or []),
+                "limit": int(limit),
+            }
+            attrs = {k: v for k, v in attrs.items() if v not in (None, "")}
+            set_current_span_attributes(attrs)
+        except Exception:
+            pass
+        search_filter: Dict[str, Any] = {"user_id": user_id, "is_active": True}
+        if query:
+            search_filter["$text"] = {"$search": query}
+        if programming_language:
+            search_filter["programming_language"] = programming_language
+        if tags:
+            search_filter["tags"] = {"$in": tags}
+        pipeline = [
+            {"$match": search_filter},
+            {"$sort": {"file_name": 1, "version": -1}},
+            {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+            {"$replaceRoot": {"newRoot": "$latest"}},
+            {"$sort": {"updated_at": -1}},
+            {"$limit": limit},
+            # תוצאות חיפוש הן רשימה — אין צורך להחזיר את שדה code המלא כאן.
+            {"$project": {
+                "_id": 1,
+                "file_name": 1,
+                "programming_language": 1,
+                "updated_at": 1,
+                "description": 1,
+                "tags": 1,
+                "is_favorite": 1,
+                "favorited_at": 1,
+            }},
+        ]
+        with track_performance("db_search_code"):
+            rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+        try:
+            set_current_span_attributes({"results_count": int(len(rows))})
+        except Exception:
+            pass
+        return rows
 
     @cached(expire_seconds=20, key_prefix="files_by_repo")
     @traced("db.get_user_files_by_repo")
