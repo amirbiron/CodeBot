@@ -816,7 +816,21 @@ def build_mcp(
 
     @mcp.tool(
         name="codekeeper_search_code",
-        description="Search the user's code by text; returns file metadata (no content).",
+        # התיאור היה משפט אחד שלא אמר דבר על סמנטיקת ההתאמה, ולכן סוכן
+        # הניח substring כמו בשני החיפושים האחרים, חיפש ``**`` או שם
+        # חלקי, קיבל אפס — והסיק שהמחרוזת אינה קיימת. המנוע כאן הוא
+        # ``$text`` של מונגו, והוא מתאים מילים שלמות. נמדד: ``handof``
+        # מחזיר אפס בזמן ש-``handoff`` מחזיר שלוש תוצאות.
+        description=(
+            "Search the user's saved files by text; returns file metadata "
+            "(no content). Matching is by whole words, not substrings: "
+            "`handof` does not find `handoff`, and a query of punctuation "
+            "alone — `**`, `[`, `()` — matches nothing at all, because "
+            "punctuation is not indexed as a word. This is the one search "
+            "tool that does NOT do substring matching; for a literal string "
+            "inside a mirrored repo use codekeeper_search_repo, and inside "
+            "one saved file use the query parameter of codekeeper_get_file."
+        ),
         annotations=_READ_ONLY_TOOL,
     )
     def search_code(ctx: Context, query: str, language: str | None = None, limit: int = 20) -> dict:
@@ -1458,7 +1472,18 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             # שקורא רק את התיאור הזה, בלי זה של ``get_repo_file``, לא יכול
             # היה לדעת מכאן שהפרמטר הוא זוג.
             "codekeeper_get_repo_file on that path with lines=[line - 20, "
-            "line + 20] — the passage itself, not the file."
+            "line + 20] — the passage itself, not the file. "
+            # הסמנטיקה של ``query`` לא הופיעה כאן כלל, והמצב נגזר מתוכן
+            # השאילתה: כל תו מיוחד העביר אותה ל-``git grep -E`` בשקט, כך
+            # ש-``dict[`` היה ERE פסול ו-``a|b`` היה חלופה. עכשיו זה פרמטר,
+            # והתיאור אומר את החוזה במקום להשאיר אותו לניחוש.
+            "The query is matched literally — every character is itself, "
+            "and the leading and trailing whitespace you send is part of it, "
+            "so \"    return\" finds the indented line. Pass regex=true to "
+            "read it as a POSIX extended regular expression instead; a "
+            "pattern git rejects then comes back as "
+            "{\"ok\": false, \"error\": \"invalid_pattern\"} with the reason, "
+            "never as zero matches."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -1469,6 +1494,17 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         file_pattern: str | None = None,
         max_results: int = 50,
         context_lines: StrictInt = 0,
+        regex: Annotated[
+            bool,
+            Field(
+                description=(
+                    "false (the default) matches the query literally. true reads it "
+                    "as a POSIX extended regular expression — use it when you mean "
+                    "`.` as any-char or `|` as alternation, and expect "
+                    "error `invalid_pattern` when git rejects the pattern."
+                )
+            ),
+        ] = False,
     ) -> dict:
         require_admin(ctx)
         return repo_handlers.search_repo(
@@ -1478,6 +1514,7 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             file_pattern=file_pattern,
             max_results=max_results,
             context_lines=context_lines,
+            regex=regex,
         )
 
 

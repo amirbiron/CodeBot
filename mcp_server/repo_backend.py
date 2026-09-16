@@ -550,6 +550,7 @@ class RepoBackend:
         max_results: int = 50,
         byte_budget: int = 256_000,
         context_lines: int = 0,
+        regex: bool = False,
     ) -> dict[str, Any]:
         try:
             res = self._require_search().search(
@@ -559,11 +560,24 @@ class RepoBackend:
                 file_pattern=(file_pattern or None),
                 max_results=int(max_results),
                 context_lines=int(context_lines),
+                regex=bool(regex),
             )
         except Exception:
             logger.warning("search failed", exc_info=True)
             return self._transient_error(repo, "search_failed")
         if res.get("error") and not res.get("results"):
+            # ``invalid_pattern`` הוא באשמת הדפוס שהקורא שלח, ולעולם אינו חולף.
+            # ‏``_transient_error`` היה הופך אותו ל-``sync_in_progress`` עם
+            # ‏``retry_after`` — כלומר מבקש מהקורא לנסות שוב דפוס שייכשל זהה
+            # לנצח. לכן הוא מנותב **לפני** הקריאה אליו, והיא עצמה לא משתנה:
+            # יש לה עוד קוראים שהמיפוי הזה נכון עבורם.
+            if res.get("error") == "invalid_pattern":
+                return {
+                    "ok": False,
+                    "error": "invalid_pattern",
+                    "query": query,
+                    "message": str(res.get("message") or "")[:200],
+                }
             return self._transient_error(repo, "search_failed")
 
         # total reflects what we can actually serve: the policy-filtered matches

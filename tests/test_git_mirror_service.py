@@ -31,11 +31,6 @@ def test_should_classify_errors(service):
     assert service._classify_git_error("Authentication failed") == "auth_error"
 
 
-def test_is_regex(service):
-    assert service._is_regex(".*test") is True
-    assert service._is_regex("simple") is False
-
-
 def test_init_mirror_existing_invalid_mirror_is_cleaned_and_recloned(service, tmp_path, monkeypatch):
     # Create a "corrupt" mirror directory (exists but not a real git repo)
     repo_dir = tmp_path / "test-repo.git"

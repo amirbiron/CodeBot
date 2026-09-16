@@ -2054,6 +2054,32 @@ function formatBytes(bytes) {
 // Search
 // ========================================
 
+// ``error`` שחוזר מ-/repo/api/search הוא לפעמים פרוזה ולפעמים קוד מכונה.
+// שירות החיפוש מחזיר ``invalid_pattern`` / ``search_failed`` כטוקן, והנתיב
+// הזה הציג אותו למשתמש כמו שהוא — כלומר המילה ``invalid_pattern`` בתיבת
+// התוצאות. המפה הזאת מתרגמת את הטוקנים לכותרת קריאה; כל ערך אחר מוצג
+// כמו שהוא, כי שאר המצבים כבר נושאים פרוזה.
+const SEARCH_ERROR_HEADINGS = {
+    invalid_pattern: 'תבנית החיפוש אינה חוקית',
+    search_failed: 'החיפוש נכשל',
+};
+
+// מציג כותרת ופירוט, ולא אחד מהם. ``message`` נושא את הסיבה המדויקת —
+// ב-``invalid_pattern`` זו הודעת git עצמה — אבל בשני המצבים הישנים הוא
+// המשך של ``error`` ולא תחליף לו, ולכן החלפה פשוטה הייתה מוחקת את
+// הכותרת המסבירה. שניהם עוברים ``escapeHtml``: ``message`` הוא stderr
+// גולמי שלא נוקה בשום שלב.
+function renderSearchError(container, data) {
+    const heading = SEARCH_ERROR_HEADINGS[data.error] || data.error;
+    const detail = data.message && data.message !== heading ? data.message : '';
+    container.innerHTML = `
+        <div class="search-result-item">
+            <span class="text-muted">${escapeHtml(heading)}</span>
+            ${detail ? `<div class="search-result-preview">${escapeHtml(detail)}</div>` : ''}
+        </div>
+    `;
+}
+
 async function performRepoSearch(query) {
     const searchInput = document.getElementById('global-search');
     const dropdown = document.getElementById('search-results-dropdown');
@@ -2108,11 +2134,7 @@ async function performRepoSearch(query) {
         }
 
         if (data.error) {
-            resultsList.innerHTML = `
-                <div class="search-result-item">
-                    <span class="text-muted">${escapeHtml(data.error)}</span>
-                </div>
-            `;
+            renderSearchError(resultsList, data);
             dropdown.dataset.hasResults = 'false';
         } else {
             renderSearchResults(resultsList, data.results || [], clean);

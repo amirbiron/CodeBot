@@ -339,3 +339,52 @@ def test_search_error_maps_to_transient_check():
     )
     out = be.search(repo="alpha", query="xy")
     assert out["error"] == "sync_in_progress" and out["retry_after"] > 0
+
+
+def test_an_invalid_pattern_is_not_laundered_into_a_transient_error():
+    """דפוס פסול הוא באשמת הקורא, ולעולם אינו חולף.
+
+    ה-DB כאן מכיל ג'וב סנכרון רץ, ולכן ``_transient_error`` היה מחזיר
+    ``sync_in_progress`` עם ``retry_after`` — כלומר מבקש מהקורא לנסות
+    שוב דפוס שייכשל זהה לנצח, ומסתיר ממנו את הסיבה האמיתית.
+
+    **מוטציה שמפילה:** להסיר את הניתוב של ``invalid_pattern`` ולתת לו
+    ליפול ל-``_transient_error`` כמו כל שגיאה אחרת.
+    """
+    db = _DB(
+        repos=[{"repo_name": "alpha", "default_branch": "main"}],
+        jobs=[{"repo_name": "alpha", "status": "running"}],
+    )
+    be = RepoBackend(
+        db=db,
+        mirror=_Mirror(),
+        search_service=_Search(
+            {
+                "error": "invalid_pattern",
+                "message": "fatal: command line, 'a(': Unmatched ( or \\(",
+                "results": [],
+            }
+        ),
+    )
+
+    out = be.search(repo="alpha", query="a(", regex=True)
+
+    assert out["error"] == "invalid_pattern"
+    assert "retry_after" not in out, "דפוס פסול אינו מצב חולף ואין לבקש ניסיון חוזר"
+    assert out["query"] == "a("
+    assert "Unmatched" in out["message"], "הסיבה חייבת להגיע לקורא ולא רק קוד השגיאה"
+
+
+def test_the_regex_flag_reaches_the_search_service():
+    """הדגל חייב להגיע למנוע, אחרת ``regex=true`` הוא קישוט.
+
+    **מוטציה שמפילה:** להשמיט את ``regex=bool(regex)`` מהקריאה לשירות.
+    """
+    search = _Search()
+    be = RepoBackend(db=_repos_db(), mirror=_Mirror(), search_service=search)
+
+    be.search(repo="alpha", query="a(", regex=True)
+    be.search(repo="alpha", query="a(")
+
+    assert search.calls[0][2]["regex"] is True
+    assert search.calls[1][2]["regex"] is False, "ברירת המחדל היא מילולית"

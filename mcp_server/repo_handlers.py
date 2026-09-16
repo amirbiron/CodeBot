@@ -98,12 +98,24 @@ def search_repo(
     file_pattern: str | None = None,
     max_results: int = SEARCH_RESULTS_DEFAULT,
     context_lines: int = 0,
+    regex: bool = False,
 ) -> dict[str, Any]:
+    """שער הקלט של ``codekeeper_search_repo``.
+
+    **השאילתה אינה מקוצצת לפני החיפוש.** ה-``strip`` כאן מכריע ריקנות
+    בלבד, והמחרוזת המקורית עוברת הלאה — חיפוש הזחה (``"    return"``)
+    הוא שימוש אמיתי, וקיצוץ היה משנה בשקט את מה שביקשו. זו אותה הכרעה
+    שכבר קיימת ב-:func:`mcp_server.handlers.file_query_error`, וכאן היא
+    מיישרת את שני החיפושים לאותו חוזה.
+
+    האורך נמדד על המחרוזת המקורית, ולכן ``" a"`` — רווח ואות — הוא
+    שאילתה תקפה בת שני תווים.
+    """
     name = (repo or "").strip()
-    q = (query or "").strip()
+    q = query or ""
     if not name:
         return {"ok": False, "error": "missing_repo"}
-    if len(q) < 2:
+    if not q.strip() or len(q) < 2:
         return {"ok": False, "error": "query_too_short"}
     return backend.search(
         repo=name,
@@ -112,4 +124,5 @@ def search_repo(
         max_results=_clamp(max_results, 1, SEARCH_RESULTS_MAX, SEARCH_RESULTS_DEFAULT),
         byte_budget=OUTPUT_BYTE_BUDGET,
         context_lines=_clamp(context_lines, 0, CONTEXT_LINES_MAX, 0),
+        regex=bool(regex),
     )
