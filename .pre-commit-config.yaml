@@ -49,6 +49,23 @@ repos:
       - id: bandit
         # אל תשתמש בקובץ קונפיג חיצוני כדי למנוע כשל כשאינו קיים
 
+  # hook מקומי ולא מ-repo חיצוני: הכלל הזה הוא של הריפו הזה, והסקריפט
+  # הוא מקור האמת היחיד שגם ה-CI קורא לו. תלות חיצונית הייתה מקום שני.
+  - repo: local
+    hooks:
+      - id: no-committed-pyc
+        name: אין קבצי bytecode במעקב גיט
+        entry: python scripts/check_no_committed_pyc.py
+        language: system
+        # ``types: [file]`` ולא ``[python]``: pre-commit מזהה ``.pyc``
+        # כבינארי ולא כ-Python, ומסנן אותו עוד לפני שה-hook רץ — כלומר
+        # סינון לפי סוג היה מסתיר בדיוק את מה שאנחנו מחפשים.
+        types: [file]
+        # הקבצים ב-staging מועברים כארגומנטים, ולכן זו בדיקה על מה
+        # שהקומיט הזה מוסיף. ה-CI מריץ את אותו סקריפט בלי ארגומנטים,
+        # ושם הוא בודק את **כל** העץ — גם קובץ שנכנס מזמן.
+        pass_filenames: true
+
 # Pre-commit global settings
 default_language_version:
   python: python3.11

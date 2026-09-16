@@ -41,6 +41,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install flake8 black isort mypy bandit safety ruff pip-audit
+      # חוסם, ובכוונה — בניגוד לרוב הצעדים כאן שמסתיימים ב-``|| true``.
+      # קובץ bytecode שנכנס לעץ אינו נתפס בשום בדיקה אחרת: אין שגיאה, אין
+      # אזהרה, ו-.gitignore אינו חל על קובץ שכבר ב-index. הצעד רץ ראשון כי
+      # הוא זול (קריאת git אחת) והכשל שלו חד-משמעי.
+      - name: 🧹 No committed bytecode
+        run: python scripts/check_no_committed_pyc.py
+
       - name: 📋 Lint (Flake8)
         run: |
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
