@@ -112,6 +112,85 @@
     return el;
   }
 
+  // ----- פלטת צבעי הפתקים -----
+  //
+  // **מקור שני, ולא מקור שני שהתגנב.** מקור האמת הוא
+  // ``sticky_notes_target.NOTE_COLORS`` בפייתון, ואי אפשר לגזור ממנו
+  // בזמן ריצה בלי לטעון אותו — וזו בדיוק הבעיה שהמפה של האלרטים כבר
+  // נשכה בה: היא נקראת מ-``window``, ולכן תבנית שלא טענה אותה הציגה
+  // הכל כטקסט רגיל, בלי שגיאה ובלי לוג. כאן אין תלות בסדר טעינה של
+  // תבניות; במקומה יש **בדיקה שמצליבה את השתיים** ונופלת ברגע שצבע
+  // נוסף או משנה גוון רק בצד אחד.
+  //
+  // הסדר כאן הוא סדר התצוגה בבורר, וזהה ל-``NOTE_COLOR_ORDER`` בפייתון.
+  // ``legacy`` הם גוונים שהמזהה נשא בעבר וממשיכים להתמפות אליו.
+  // ``#FFFFCC`` היה ברירת המחדל של הפתקים מאז ומתמיד, ובלעדיו פתק של
+  // משתמש קיים היה פותח בורר בלי שום עיגול מסומן — **בזמן שהשרת דווקא
+  // מזהה אותו**. שתי התשובות לאותה שאלה, וזה בדיוק מה שהצלבת הפלטה
+  // נועדה לתפוס.
+  const NOTE_COLORS = {
+    yellow_light: { hex: '#ffffba', label: 'צהוב בהיר', legacy: ['#FFFFCC'] },
+    green_light:  { hex: '#dbffe3', label: 'ירוק בהיר', legacy: [] },
+    orange_light: { hex: '#ffeddb', label: 'כתום בהיר', legacy: [] },
+    blue_light:   { hex: '#f0f8ff', label: 'כחול בהיר', legacy: [] },
+    purple_light: { hex: '#f5ecfe', label: 'סגול בהיר', legacy: [] },
+    pink_light:   { hex: '#ffdbdf', label: 'ורוד בהיר', legacy: [] }
+  };
+  const NOTE_COLOR_ORDER = Object.keys(NOTE_COLORS);
+  const DEFAULT_NOTE_COLOR_ID = 'yellow_light';
+
+  // ``hex`` בצורה קנונית אחת, או ``''``. ראי של
+  // ``sticky_notes_target.normalize_color_hex`` — שלוש ההמרות זהות:
+  // אותיות קטנות, הרחבת ``#rgb``/``#rgba``, וחיתוך ``alpha`` אטום.
+  function normalizeColorHex(value){
+    if (typeof value !== 'string') return '';
+    const raw = value.trim();
+    if (!/^#[0-9A-Fa-f]{3,8}$/.test(raw)) return '';
+    let digits = raw.slice(1).toLowerCase();
+    if (digits.length === 3 || digits.length === 4) {
+      digits = digits.split('').map(ch => ch + ch).join('');
+    }
+    if (digits.length === 8 && digits.endsWith('ff')) digits = digits.slice(0, 6);
+    return '#' + digits;
+  }
+
+  const HEX_TO_COLOR_ID = (function(){
+    const map = Object.create(null);
+    NOTE_COLOR_ORDER.forEach(id => {
+      const spec = NOTE_COLORS[id];
+      [spec.hex].concat(spec.legacy || []).forEach(variant => {
+        const key = normalizeColorHex(variant);
+        if (key) map[key] = id;
+      });
+    });
+    return map;
+  })();
+
+  // המזהה בפלטה, או ``''`` לצבע ``legacy``.
+  //
+  // **מקבל גם מזהה וגם ``hex``, ובכוונה.** השרת מחזיר ``color`` כ-``hex``
+  // (כדי שלקוח ישן ימשיך לצבוע נכון), אבל פתק שנוצר כאן ברגע זה נושא
+  // עדיין את המזהה שנשלח. פונקציה שידעה רק אחד מהשניים הייתה נכונה
+  // בדיוק במחצית מהמקרים.
+  function noteColorId(stored){
+    if (typeof stored !== 'string') return '';
+    const candidate = stored.trim().toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(NOTE_COLORS, candidate)) return candidate;
+    return HEX_TO_COLOR_ID[normalizeColorHex(stored)] || '';
+  }
+
+  // ה-``hex`` שנצבע בפועל. **נגזר ולא מאוחסן לצד המזהה** — שני ערכים
+  // שחייבים להישאר שווים הם שני ערכים שיסטו.
+  //
+  // הנפילה היא לגוון ברירת המחדל ולא ל-``''``: הצרכן היחיד הוא
+  // ``style.backgroundColor``, ומחרוזת ריקה שם משאירה פתק שקוף על גבי
+  // הקוד שמתחתיו.
+  function noteColorHex(stored){
+    const id = noteColorId(stored);
+    if (id) return NOTE_COLORS[id].hex;
+    return normalizeColorHex(stored) || NOTE_COLORS[DEFAULT_NOTE_COLOR_ID].hex;
+  }
+
   // האייקון של הכפתור הצף: שני פתקים צהובים עם תג "+" טורקיז.
   //
   // **למה ``createElementNS`` ולא ``innerHTML``.** ``docs/webapp/language-icons.rst``
@@ -694,7 +773,7 @@
           content: '',
           position: { x: noteX, y: noteY },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
-          color: '#FFFFCC',
+          color: DEFAULT_NOTE_COLOR_ID,
           // ברירת המחדל בלוח: מוצמד למשטח. הלוח *הוא* המשטח.
           mode: 'surface'
         } : {
@@ -702,7 +781,7 @@
           // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
           position: { x: noteX, y: noteY },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
-          color: '#FFFFCC',
+          color: DEFAULT_NOTE_COLOR_ID,
           // **פתק חדש צף עם המשתמש.** זו זרימת העבודה: כותבים פתק תוך עיון
           // בקובץ, גוללים למטה, וממשיכים לכתוב — ורק בסוף נועצים אותו במקום
           // שמתאים.
@@ -767,7 +846,9 @@
       // גודל ידני יכתוב אותה מחדש. ההצמדה שרצה בהמשך הרינדור מקטינה את
       // המוצג בלבד — ולכן פתק שנפתח במסך צר וחוזר לרחב חוזר לגודלו.
       this._setSizeIntent(el, note.size.width, note.size.height);
-      if (note.color) el.style.backgroundColor = note.color;
+      // ``note.color`` יכול להיות מזהה (פתק שנוצר ברגע זה) או ``hex``
+      // (מה שהשרת מחזיר). ``noteColorHex`` היא התשובה היחידה לשתי הצורות.
+      el.style.backgroundColor = noteColorHex(note.color);
 
       const header = createEl('div', 'sticky-note-header');
       // שם הפתק, בצד השני של שורת הכפתורים. הוא נשאר גלוי גם כשהפתק
@@ -797,8 +878,14 @@
       undoBtn.disabled = true;
       const copyBtn = createEl('button', 'sticky-note-btn sticky-note-copy', { title: 'העתק את תוכן הפתק' });
       copyBtn.textContent = '⧉';
+      // בורר הצבע. ``aria-haspopup`` הוא מה שאומר לקורא מסך שהלחיצה
+      // פותחת משטח ולא מחילה פעולה — בשונה מכל שאר הכפתורים בשורה.
+      const colorBtn = createEl('button', 'sticky-note-btn sticky-note-color', {
+        type: 'button', title: 'צבע הפתק', 'aria-label': 'בחירת צבע לפתק', 'aria-haspopup': 'dialog'
+      });
+      colorBtn.textContent = '🎨';
       actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(undoBtn);
-      actions.appendChild(copyBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
+      actions.appendChild(copyBtn); actions.appendChild(colorBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
       // **השם יושב בתוך ידית הגרירה, ולא לצידה.**
       //
       // נמדד לפני: שדה השם תפס 218px מהכותרת בפתק ברירת מחדל ו-635px
@@ -869,6 +956,10 @@
       copyBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
         this._copyNoteContent(el);
+      });
+      colorBtn.addEventListener('click', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        this._openColorModal(el);
       });
       pinBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
@@ -1029,6 +1120,124 @@
       } catch(_) {}
 
       return el;
+    }
+
+    /**
+     * בורר הצבע: הפלטה הסגורה, כעיגולים, בלי שהמשתמש רואה או מקליד ``hex``.
+     *
+     * **הכל בצמתים, ואף ``innerHTML``** — בשונה ממודאל התזכורת שמעליו.
+     * הפטור שהכלל בפתקים נותן לתבנית סטטית לחלוטין תקף גם כאן, אבל
+     * ``docs/webapp/language-icons.rst`` מנסח את מה שמעליו: מי שממילא
+     * בונה DOM אינו צריך ``innerHTML`` בכלל. הרווח אינו סגנוני — שלד
+     * שנבנה בצמתים אפשר לבדוק בלי פרסר HTML, כלומר בלי להוסיף תלות
+     * לפרויקט רק כדי שהבדיקה תוכל לרוץ.
+     *
+     * **הצבע נכתב כמזהה ומוצג כ-**\ ``hex``. ``_queueSave`` מקבל את
+     * המזהה — זה מה שנשמר במסד — בעוד שהצביעה המיידית עוברת דרך
+     * ``noteColorHex``. אין כאן שני מקורות: ה-``hex`` נגזר מהמזהה באותה
+     * שורה.
+     */
+    _openColorModal(el){
+      try {
+        const existing = document.querySelector('.sticky-color-modal');
+        if (existing) { try { existing.remove(); } catch(_) {} }
+        const id = el && el.dataset ? el.dataset.noteId : '';
+        if (!id) return;
+
+        const modal = createEl('div', 'sticky-color-modal');
+        const backdrop = createEl('div', 'sticky-color-backdrop');
+        const card = createEl('div', 'sticky-color-card', {
+          role: 'dialog', 'aria-modal': 'true', 'aria-label': 'בחירת צבע לפתק'
+        });
+        const head = createEl('div', 'sticky-color-header');
+        const title = createEl('div', 'sticky-color-title');
+        title.textContent = 'צבע הפתק';
+        const closeBtn = createEl('button', 'sticky-color-close', { type: 'button', 'aria-label': 'סגירה' });
+        closeBtn.textContent = '×';
+        const grid = createEl('div', 'sticky-color-grid');
+        head.appendChild(title); head.appendChild(closeBtn);
+        card.appendChild(head); card.appendChild(grid);
+        modal.appendChild(backdrop); modal.appendChild(card);
+
+        const close = () => {
+          try { modal.remove(); } catch(_) {}
+          try { document.removeEventListener('keydown', onKey, true); } catch(_) {}
+          // המיקוד חוזר לכפתור שפתח — אחרת משתמש מקלדת נזרק לראש המסמך.
+          try {
+            const back = el.querySelector('.sticky-note-color');
+            if (back && back.focus) back.focus();
+          } catch(_) {}
+        };
+        const onKey = (ev) => { if (ev && ev.key === 'Escape') { try { ev.preventDefault(); } catch(_) {} close(); } };
+
+        // **הצבע הנוכחי נקרא מהרשומה, לא מהאלמנט.** ``style.backgroundColor``
+        // מוחזר מהדפדפן כ-``rgb(...)`` ולא כ-``hex``, כלומר השוואה מולו
+        // הייתה נכשלת תמיד ואף עיגול לא היה מסומן. הרשומה מחזיקה את מה
+        // שנשמר, וזו אותה שאלה שיש לה תשובה אחת.
+        const entry = this._getEntry(el);
+        const currentId = noteColorId(entry && entry.data ? entry.data.color : '');
+
+        NOTE_COLOR_ORDER.forEach(colorId => {
+          const spec = NOTE_COLORS[colorId];
+          const active = colorId === currentId;
+          const swatch = createEl('button', 'sticky-color-swatch', {
+            type: 'button',
+            'data-color-id': colorId,
+            'aria-pressed': active ? 'true' : 'false',
+            title: spec.label
+          });
+          if (active) swatch.classList.add('is-active');
+          // הצבע יושב ב-``style`` ולא במחלקה: כלל CSS לכל גוון היה מקור
+          // שני לאותה שאלה, וצבע שביעי היה נוסף לפלטה ויוצא עיגול לבן.
+          swatch.style.backgroundColor = spec.hex;
+          const label = createEl('span', 'sticky-color-label');
+          label.textContent = spec.label;
+          swatch.appendChild(label);
+          swatch.addEventListener('click', (ev) => {
+            try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+            // **הסגירה אינה ממתינה לרשת.** הצביעה כבר קרתה באלמנט
+            // והכתיבה כבר בתור; המתנה כאן הייתה משאירה את המודאל פתוח
+            // מול חיבור איטי, על פעולה שמבחינת המשתמש כבר הסתיימה. זה
+            // אותו חוזה בדיוק שיש למתג המיזעור ולשאר הפעולות הבדידות
+            // בכותרת.
+            this._applyNoteColor(el, colorId);
+            close();
+          });
+          grid.appendChild(swatch);
+        });
+
+        backdrop.addEventListener('click', close);
+        closeBtn.addEventListener('click', close);
+        document.addEventListener('keydown', onKey, true);
+        document.body.appendChild(modal);
+        // מיקוד ראשוני על הצבע הפעיל, או על הראשון — כדי שניווט מקלדת
+        // יתחיל בתוך המודאל ולא מאחוריו.
+        try {
+          const first = grid.querySelector('.sticky-color-swatch.is-active') || grid.querySelector('.sticky-color-swatch');
+          if (first && first.focus) first.focus();
+        } catch(_) {}
+      } catch(err){ console.warn('open color modal failed', err); }
+    }
+
+    /**
+     * מחיל צבע מהפלטה על פתק, וכותב אותו.
+     *
+     * **הצביעה מיידית והכתיבה מיד אחריה.** ``_queueSave`` לבדו ממתין
+     * ל-``debounce``, והמשתמש סוגר את המודאל ומצפה שהצבע נשמר; לכן
+     * ``_flushFor`` מיד אחריו, בדיוק כמו מתג המיזעור ושאר הפעולות
+     * הבדידות בכותרת.
+     */
+    _applyNoteColor(el, colorId){
+      // **רק צבע מהפלטה.** ``colorId`` מגיע מ-``data-color-id`` של עיגול
+      // שנבנה כאן, ולכן הוא אמור להיות תקין תמיד — והבדיקה קיימת כדי
+      // שקורא עתידי שיעביר ערך אחר יקבל אי-פעולה ולא ``undefined`` שנכתב
+      // למסד ומגיע לשרת כצבע שאין לו גוון.
+      if (!el || !Object.prototype.hasOwnProperty.call(NOTE_COLORS, colorId)) return;
+      el.style.backgroundColor = noteColorHex(colorId);
+      this._queueSave(el, { color: colorId });
+      // ``_flushFor`` בלי ``await``, כמו במתג המיזעור: הכתיבה יוצאת מיד
+      // ואינה ממתינה ל-``debounce``, אבל גם אינה עוצרת את הממשק.
+      try { this._flushFor(el); } catch(_) {}
     }
 
     _openReminderModal(el){
@@ -3241,6 +3450,13 @@
       }
       if (Object.prototype.hasOwnProperty.call(fragment, 'is_minimized')) {
         entry.data.is_minimized = !!fragment.is_minimized;
+      }
+      // **מקום אחד שיודע מה הצבע של הפתק.** הפיתוי הוא לשמור אותו גם על
+      // ``el.dataset`` כי הבורר צריך לדעת מה לסמן — וזה היה יוצר שני
+      // ערכים שחייבים להישאר שווים. הרשומה היא כבר המקום שבו חיים מצב
+      // הביטול וזיכרון הבלוקים הפתוחים, והבורר קורא משם.
+      if (Object.prototype.hasOwnProperty.call(fragment, 'color')) {
+        entry.data.color = fragment.color;
       }
     }
 

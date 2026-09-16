@@ -323,3 +323,58 @@ class TestSyncStickyNotesOnRename(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNoteColorResponse(unittest.TestCase):
+    """חוזה הצבע בתשובת ה-API — שני שדות, וערך אחד במסד.
+
+    ``color`` נשאר **תמיד ``hex`` חוקי** כי הצרכן היחיד שלו הוא
+    ``style.backgroundColor``; ``color_id`` הוא מה שבאמת מאוחסן, והוא מה
+    שהבורר מסמן ומה שסינון לפי צבע ישווה אליו. הפיצול הזה הוא מה שמאפשר
+    ללקוח שנטען מקאש ישן להמשיך לצבוע נכון אחרי שהמסד עבר למזהים.
+    """
+
+    @staticmethod
+    def _doc(color):
+        return {
+            '_id': '1', 'file_id': 'f', 'content': 'x',
+            'position_x': 1, 'position_y': 1, 'width': 200, 'height': 150,
+            'color': color, 'is_minimized': False,
+            'created_at': None, 'updated_at': None,
+            'anchor_id': None, 'anchor_text': None,
+        }
+
+    def test_a_stored_palette_id_is_returned_as_both_hex_and_id(self):
+        note = _as_note_response(self._doc('pink_light'))
+        self.assertEqual(note['color'], '#ffdbdf')
+        self.assertEqual(note['color_id'], 'pink_light')
+
+    def test_the_historic_default_reads_back_as_the_palette_yellow(self):
+        """פתק של משתמש קיים, בלי שהמיגרציה רצה עליו.
+
+        הוא כבר מוצג נכון ומסומן נכון בבורר — וזו הסיבה שהסקריפט אינו
+        תנאי לפריסה אלא רק ליישור המסד לצורך סינון.
+        """
+        note = _as_note_response(self._doc('#FFFFCC'))
+        self.assertEqual(note['color_id'], 'yellow_light')
+        self.assertEqual(note['color'], '#ffffba')
+
+    def test_a_legacy_colour_keeps_its_own_hex_and_reports_no_id(self):
+        note = _as_note_response(self._doc('#AABBCC'))
+        self.assertEqual(note['color'], '#aabbcc', 'ממשיך להיראות אותו דבר')
+        self.assertEqual(note['color_id'], '', 'אינו בפלטה — וזו התשובה הנכונה')
+
+    def test_a_missing_or_broken_colour_never_returns_an_invalid_css_value(self):
+        """מחרוזת ריקה ב-``backgroundColor`` משאירה פתק שקוף על גבי הקוד.
+
+        לכן הנפילה כאן היא לגוון ברירת המחדל ולא ל-``''`` — גם למסמך בלי
+        שדה ``color`` כלל, וגם לערך שאינו מחרוזת.
+        """
+        for broken in (None, '', 'שטויות', 5, ['#ffffba'], {'hex': '#ffffba'}):
+            with self.subTest(broken=broken):
+                note = _as_note_response(self._doc(broken))
+                self.assertEqual(note['color'], '#ffffba')
+
+        doc = self._doc('x')
+        doc.pop('color')
+        self.assertEqual(_as_note_response(doc)['color'], '#ffffba')

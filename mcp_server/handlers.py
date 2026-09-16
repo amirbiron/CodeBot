@@ -21,6 +21,7 @@ from pydantic import Field
 # שלו, כך ששינוי באחד היה משאיר את השני אוכף ערך אחר — ואז אותו פתק נדחה
 # בערוץ אחד ומתקבל בשני.
 from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CONTENT
+from sticky_notes_target import DEFAULT_NOTE_COLOR_ID, resolve_note_color
 
 MAX_PER_PAGE = 200
 MAX_SEARCH_LIMIT = 100
@@ -751,12 +752,13 @@ def update_file_description(
 MAX_NOTES_PER_SCOPE = 200
 MAX_ANCHOR_TEXT = 256
 MAX_NOTE_LINE = 1_000_000
-DEFAULT_NOTE_COLOR = "#FFFFCC"
+#: ברירת המחדל היא **המזהה** ולא ה-``hex``. הגוון עצמו חי ב-
+#: ``sticky_notes_target.NOTE_COLORS``, ולכן החלפתו אינה נוגעת כאן.
+DEFAULT_NOTE_COLOR = DEFAULT_NOTE_COLOR_ID
 # sentinel של הוובאפ לפתק "צף": בלעדיו ה-JS מעגן פתק חדש אוטומטית לשורה הקרובה
 NOTE_FLOATING_ANCHOR = "__floating__"
 
 _NOTE_ID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
-_NOTE_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{3,8}$")
 # עותק של webapp/sticky_notes_api.py:_CONTROL_CHARS_RE — לשמור מסונכרן
 _NOTE_CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
 
@@ -835,9 +837,9 @@ def create_note(
         if line_i is None:
             return {"ok": False, "error": "invalid_line", "min": 1, "max": MAX_NOTE_LINE}
 
-    color_s = (color or "").strip()
-    if not _NOTE_COLOR_RE.match(color_s):
-        color_s = DEFAULT_NOTE_COLOR  # ביצירה: צבע לא חוקי נופל לברירת המחדל
+    # מזהה מהפלטה **או** ``hex`` חופשי; ``hex`` שתואם גוון של הפלטה נשמר
+    # כמזהה שלה. ביצירה: צבע לא חוקי נופל לברירת המחדל.
+    color_s = resolve_note_color(color)
 
     return backend.create_note(
         user_id,
@@ -901,9 +903,7 @@ def create_board_note(
         return {"ok": False, "error": "invalid_mode", "allowed": ["surface", "screen"]}
 
     # אותה ולידציה בדיוק כמו ב-``create_note``: צבע לא חוקי נופל לברירת המחדל
-    color_s = (color or "").strip()
-    if not _NOTE_COLOR_RE.match(color_s):
-        color_s = DEFAULT_NOTE_COLOR
+    color_s = resolve_note_color(color)
 
     return backend.create_board_note(
         user_id,
@@ -1003,9 +1003,7 @@ def create_repo_note(
     if mode is not None and not is_valid_board_mode(mode):
         return {"ok": False, "error": "invalid_mode", "allowed": ["surface", "screen"]}
 
-    color_s = (color or "").strip()
-    if not _NOTE_COLOR_RE.match(color_s):
-        color_s = DEFAULT_NOTE_COLOR
+    color_s = resolve_note_color(color)
 
     return backend.create_repo_note(
         user_id,
@@ -1251,9 +1249,10 @@ def update_note(
         # מעבר לעיגון-שורה מנקה עוגני כותרת/sentinel — כמו הקליינט של הוובאפ
         fields.update({"line_start": line_i, "anchor_id": None, "line_end": None})
     if color is not None:
-        color_s = (color or "").strip()
-        if _NOTE_COLOR_RE.match(color_s):
-            fields["color"] = color_s  # בעדכון: צבע לא חוקי נשמט, לא מוחלף בברירת מחדל
+        # בעדכון: צבע לא חוקי נשמט, לא מוחלף בברירת מחדל.
+        color_s = resolve_note_color(color, default=None)
+        if color_s:
+            fields["color"] = color_s
     if anchor_text is not None:
         fields["anchor_text"] = _clean_anchor_text(anchor_text)
     if is_minimized is not None:

@@ -594,3 +594,143 @@ def test_repo_file_exists_queries_the_manifest_field_name():
     repo_file_exists(db, "CodeBot", "a.py")
 
     assert db.last_query == {"repo_name": "CodeBot", "path": "a.py"}
+
+
+# ---------------------------------------------------------------------------
+# צבע הפתק — הפלטה, הקיפול, והקלט שמגיע מחוץ לתהליך
+# ---------------------------------------------------------------------------
+
+
+def test_the_palette_matches_the_six_colours_that_were_specified():
+    """הפלטה **סגורה**, וששת הגוונים הם מה שנבחר — לא מה שהתגלגל.
+
+    זו הבדיקה שנופלת כשמישהו משנה גוון בלי לשים לב, או מוסיף צבע שביעי
+    בלי להחליט עליו. היא בכוונה מוקלדת ולא נגזרת מהמודול: בדיקה שקוראת
+    את אותו מקור שהיא בודקת אינה בודקת כלום.
+    """
+    from sticky_notes_target import NOTE_COLORS, NOTE_COLOR_ORDER
+
+    assert NOTE_COLOR_ORDER == (
+        "yellow_light", "green_light", "orange_light",
+        "blue_light", "purple_light", "pink_light",
+    )
+    assert {cid: spec["hex"] for cid, spec in NOTE_COLORS.items()} == {
+        "yellow_light": "#ffffba",
+        "green_light": "#dbffe3",
+        "orange_light": "#ffeddb",
+        "blue_light": "#f0f8ff",
+        "purple_light": "#f5ecfe",
+        "pink_light": "#ffdbdf",
+    }
+    # כל צבע נושא תווית עברית — היא מה שהמשתמש קורא בבורר, ושם ריק שם
+    # הוא עיגול בלי הסבר.
+    for cid, spec in NOTE_COLORS.items():
+        assert spec["label"].strip(), cid
+
+
+def test_hex_of_the_palette_folds_into_its_id_in_every_spelling():
+    """**אותו צבע, צורה אחת במסד.** זו כל מטרת המזהה.
+
+    ארבע צורות כתיבה של אותו ורוד בדיוק חייבות להגיע לאותו ערך מאוחסן;
+    אחרת סינון לפי צבע מחזיר חלק מהפתקים, בלי שגיאה ובלי סימן.
+
+    נופל אם הקיפול לפלטה או הנורמליזציה יבוטלו.
+    """
+    from sticky_notes_target import resolve_note_color
+
+    for spelling in ("#FFDBDF", "#ffdbdf", "#ffdbdfff", "pink_light", "  PINK_LIGHT  "):
+        assert resolve_note_color(spelling) == "pink_light", spelling
+
+
+def test_the_historic_default_is_a_legacy_shade_of_the_yellow():
+    """‏``#FFFFCC`` היה ברירת המחדל מאז ומתמיד, ולכן הוא הצהוב של הפלטה.
+
+    בלי השורה הזו כל פתק שקיים היום היה יוצא ``legacy`` — כלומר מחוץ
+    לפלטה, ולא ניתן לסינון לפי צבע. וזו גם ההדגמה של המנגנון שנועד
+    לחסוך את המיגרציה **הבאה**: גוון ישן נכנס ל-``legacy`` ונגמר.
+
+    נופל אם ``#FFFFCC`` יוסר מרשימת הגוונים ההיסטוריים של הצהוב.
+    """
+    from sticky_notes_target import note_color_hex, note_color_id, resolve_note_color
+
+    assert resolve_note_color("#FFFFCC") == "yellow_light"
+    assert resolve_note_color("#ffc") == "yellow_light", "קיצור ``#rgb`` מתפרש כמו בדפדפן"
+    # ומרגע שהוא מזהה — הגוון שמוצג הוא הקנוני החדש, לא ההיסטורי.
+    assert note_color_hex("#FFFFCC") == "#ffffba"
+    assert note_color_id("#FFFFCC") == "yellow_light"
+
+
+def test_a_colour_outside_the_palette_survives_as_legacy():
+    """‏``hex`` שאינו בפלטה **אינו נמחק ואינו מוחלף בכוח** — רק מנורמל.
+
+    הוא ממשיך להיראות בדיוק כפי שנראה, ו-``note_color_id`` מחזיר ``""``
+    עליו — שאינו כשל אלא התשובה הנכונה ל"הצבע הזה אינו בפלטה".
+
+    נופל אם צבע legacy יידרס בברירת המחדל.
+    """
+    from sticky_notes_target import note_color_hex, note_color_id, resolve_note_color
+
+    assert resolve_note_color("#AABBCC") == "#aabbcc"
+    assert note_color_hex("#AABBCC") == "#aabbcc", "ממשיך להיראות אותו דבר"
+    assert note_color_id("#AABBCC") == ""
+
+    # חמש ושבע ספרות אינן צורת CSS חוקית, אבל הרג'קס שקדם לפלטה קיבל
+    # אותן — ולכן הן נשארות ``legacy`` ולא נדחות לאחור.
+    assert resolve_note_color("#12345") == "#12345"
+
+
+@pytest.mark.parametrize("value", [None, 5, 3.5, ["#ffffba"], {"hex": "#ffffba"}, True, b"#ffffba"])
+def test_a_colour_that_arrived_from_outside_the_process_never_reaches_strip(value):
+    """גוף JSON יכול לשאת כל טיפוס, ו-``.strip()`` על רובם **זורק**.
+
+    התוצאה של זריקה כאן היא 500 במקום 400 — קריסה לפני שהוולידציה
+    הספיקה לומר מה לא תקין. שלוש הפונקציות חייבות להחזיר ערך שפוי לכל
+    טיפוס, ולא רק למחרוזת.
+
+    נופל אם בדיקת הטיפוס תוסר מאחת מהן.
+    """
+    from sticky_notes_target import (
+        DEFAULT_NOTE_COLOR_ID, NOTE_COLORS,
+        normalize_color_hex, note_color_hex, note_color_id, resolve_note_color,
+    )
+
+    assert resolve_note_color(value) == DEFAULT_NOTE_COLOR_ID
+    assert resolve_note_color(value, default=None) == ""
+    assert note_color_id(value) == ""
+    assert note_color_hex(value) == NOTE_COLORS[DEFAULT_NOTE_COLOR_ID]["hex"]
+    assert normalize_color_hex(value) == ""
+
+
+def test_create_falls_back_but_update_drops():
+    """שתי התנהגויות שונות לאותו ערך פסול, וההבדל הוא כוונת הקורא.
+
+    ביצירה אין צבע קודם, ולכן ברירת מחדל היא התשובה. בעדכון **יש** צבע
+    קודם שהמשתמש בחר, וכתיבת ברירת מחדל עליו הייתה מוחקת בחירה שאיש לא
+    ביקש לשנות.
+
+    נופל אם ``default=None`` יפסיק להבדיל.
+    """
+    from sticky_notes_target import DEFAULT_NOTE_COLOR_ID, resolve_note_color
+
+    assert resolve_note_color("שטויות") == DEFAULT_NOTE_COLOR_ID
+    assert resolve_note_color("שטויות", default=None) == ""
+
+
+def test_the_displayed_hex_is_derived_and_never_stored_beside_the_id():
+    """**מקור אחד.** שינוי גוון בטבלה משנה את מה שמוצג, בלי לגעת באף פתק.
+
+    זו ההבטחה שבגללה נשמר מזהה ולא ``hex``, והבדיקה מוכיחה אותה במקום
+    להצהיר עליה: מזייפים גוון חדש בטבלה, ופתק ששמור כ-``yellow_light``
+    מקבל אותו מיד.
+
+    נופל אם ה-``hex`` ייכתב לצד המזהה במקום להיגזר ממנו.
+    """
+    import sticky_notes_target as target
+
+    original = target.NOTE_COLORS["yellow_light"]["hex"]
+    try:
+        target.NOTE_COLORS["yellow_light"]["hex"] = "#abcdef"
+        assert target.note_color_hex("yellow_light") == "#abcdef"
+    finally:
+        target.NOTE_COLORS["yellow_light"]["hex"] = original
+    assert target.note_color_hex("yellow_light") == original

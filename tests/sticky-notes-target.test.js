@@ -122,7 +122,12 @@ function check(name, fn) {
 
 function eq(actual, expected, what) {
   if (actual !== expected) {
-    throw new Error(`${what || ''} — ציפיתי ל-${JSON.stringify(expected)}, קיבלתי ${JSON.stringify(actual)}`);
+    // ``JSON.stringify`` על צומת DOM מדומה קורס על ``parentNode`` המעגלי,
+    // וההודעה שהייתה יוצאת מתארת את הקריסה ולא את הכשל שנבדק.
+    const show = (v) => {
+      try { return JSON.stringify(v); } catch (_) { return String(v && v.tagName || v); }
+    };
+    throw new Error(`${what || ''} — ציפיתי ל-${show(expected)}, קיבלתי ${show(actual)}`);
   }
 }
 
@@ -3051,6 +3056,256 @@ check('refreshPinned ממקם מחדש את הפתקים הנעוצים', () => 
 
   // הגולל מתחיל 40 מתחת לקונטיינר ונגלל 250 ⇒ 400 + (40-250) = 190
   eq(el.style.top, '190px', 'המיקום חושב מחדש לפי הגולל הנוכחי');
+});
+
+// -- פלטת הצבעים: הצלבה בין שלושת הצרכנים ------------------------------
+//
+// ``NOTE_COLORS`` חי פעמיים — ב-``sticky_notes_target.py`` וב-
+// ``sticky-notes.js`` — ואי אפשר לגזור אחד מהשני בזמן ריצה בלי לטעון
+// פייתון בדפדפן. זו בדיוק המצוקה שכבר תועדה על ``STICKY_NOTE_FONT_SIZES``,
+// והתשובה שם היא התשובה כאן: **מקור שני מותר, בתנאי שבדיקה מצליבה
+// ביניהם**. בלעדיה, צבע שנוסף בצד אחד היה יוצא עיגול שלא נשמר, או ערך
+// שנשמר ואין לו עיגול.
+
+/** רשימת גוונים מתוך מקור — ``'#a', '#b'`` בשתי השפות, בהשוואה חסרת-רישיות. */
+function readHexList(raw) {
+  return (String(raw).match(/#[0-9A-Fa-f]{3,8}/g) || []).map(h => h.toLowerCase());
+}
+
+/** חילוץ אובייקט ``NOTE_COLORS`` מקוד המקור, בלי להריץ את המודול כולו. */
+function paletteFromJs() {
+  const src = fs.readFileSync(MODULE_PATH, 'utf8');
+  const m = src.match(/const NOTE_COLORS = \{([\s\S]*?)\n  \};/);
+  if (!m) throw new Error('לא נמצא NOTE_COLORS ב-sticky-notes.js');
+  const out = [];
+  const re = /(\w+):\s*\{\s*hex:\s*'(#[0-9a-f]{6})',\s*label:\s*'([^']+)',\s*legacy:\s*\[([^\]]*)\]\s*\}/g;
+  let hit;
+  while ((hit = re.exec(m[1]))) {
+    out.push({ id: hit[1], hex: hit[2], label: hit[3], legacy: readHexList(hit[4]) });
+  }
+  return out;
+}
+
+/** אותה פלטה כפי שהיא מוקלדת ב-``sticky_notes_target.py``. */
+function paletteFromPython() {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'sticky_notes_target.py'), 'utf8');
+  const m = src.match(/^NOTE_COLORS: Dict\[str, Dict\[str, Any\]\] = \{([\s\S]*?)^\}/m);
+  if (!m) throw new Error('לא נמצא NOTE_COLORS ב-sticky_notes_target.py');
+  const out = [];
+  const re = /"(\w+)":\s*\{"hex":\s*"(#[0-9a-f]{6})",\s*"label":\s*"([^"]+)",\s*"legacy":\s*\(([^)]*)\)/g;
+  let hit;
+  while ((hit = re.exec(m[1]))) {
+    out.push({ id: hit[1], hex: hit[2], label: hit[3], legacy: readHexList(hit[4]) });
+  }
+  return out;
+}
+
+check('הפלטה זהה ב-JS ובפייתון — מזהים, גוונים, תוויות וסדר', () => {
+  // נופל כשצבע נוסף, מוסר, משנה גוון או משנה מקום בצד אחד בלבד.
+  const js = paletteFromJs();
+  const py = paletteFromPython();
+  eq(js.length, 6, 'שישה צבעים ב-JS');
+  eq(JSON.stringify(js), JSON.stringify(py), 'הפלטה ב-JS מול פייתון');
+});
+
+check('ברירת המחדל זהה בשני הצדדים, והיא צבע שקיים בפלטה', () => {
+  // ברירת מחדל שאינה בפלטה היא פתק שנולד בצבע שאי אפשר לבחור בו חזרה.
+  const jsSrc = fs.readFileSync(MODULE_PATH, 'utf8');
+  const pySrc = fs.readFileSync(path.join(__dirname, '..', 'sticky_notes_target.py'), 'utf8');
+  const jsDefault = (jsSrc.match(/const DEFAULT_NOTE_COLOR_ID = '([^']+)'/) || [])[1];
+  const pyDefault = (pySrc.match(/^DEFAULT_NOTE_COLOR_ID = "([^"]+)"/m) || [])[1];
+  eq(jsDefault, pyDefault, 'ברירת המחדל');
+  eq(paletteFromJs().some(c => c.id === jsDefault), true, 'ברירת המחדל קיימת בפלטה');
+});
+
+check('הבורר לא יורש צבע מהערכה — אף var() בכללים שלו', () => {
+  // הפתק הוא משטח קשיח, והבורר מציג את הצבעים **עצמם**: ערכה שתצבע את
+  // הכרטיס מחדש תשנה בדיוק את מה שהמשתמש בא להשוות אליו. זו ההחלטה
+  // ש-``docs/webapp/theming_and_css`` מגדיר לפתקים, והשומר הזה אוכף אותה.
+  //
+  // ההערות מוסרות לפני הבדיקה — אחרת הפרוזה שמסבירה את הכלל הייתה
+  // מפילה אותו, וזו מלכודת שכבר נתפסה כאן פעם.
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = css.split('}').filter(r => /\.sticky-color-/.test(r));
+  eq(rules.length > 0, true, 'נמצאו כללי הבורר ב-sticky-notes.css');
+  const leaking = rules.filter(r => /var\(--/.test(r));
+  eq(leaking.length, 0, 'אף כלל של הבורר אינו קורא טוקן ערכה: ' + leaking.join(' | '));
+});
+
+// **DOM מינימלי, אבל לא מקרטון.** הסנדבוקס המשותף מחזיר ``appendChild``
+// ריק ו-``querySelector`` שהוא תמיד ``null`` — כלומר מודאל שנבנה חלקית,
+// או עיגול בלי מאזין, היו עוברים בו בלי להיתפס. jsdom אינו בתלויות
+// הפרויקט ואין סיבה להוסיף אותו בשביל בדיקה אחת, ולכן כאן יש עץ צמתים
+// אמיתי: ``appendChild`` באמת מצרף, ``querySelector`` באמת סורק אותו לפי
+// מחלקות, ולחיצה באמת מפעילה את המאזין שנרשם.
+//
+// זה גם מה שנפתח כשהמודאל הפסיק להשתמש ב-``innerHTML``: שלד שנבנה
+// בצמתים אפשר לבדוק בלי פרסר HTML.
+function makeDomSandbox() {
+  const matches = (node, sel) =>
+    sel.split('.').filter(Boolean).every(c => node.__classes.has(c));
+  const collect = (node, sel, out) => {
+    node.children.forEach(child => {
+      if (matches(child, sel)) out.push(child);
+      collect(child, sel, out);
+    });
+    return out;
+  };
+
+  function makeNode(tag) {
+    const classes = new Set();
+    const listeners = {};
+    const node = {
+      tagName: String(tag).toUpperCase(),
+      style: {}, dataset: {}, children: [], parentNode: null,
+      textContent: '', value: '', disabled: false,
+      __classes: classes, __attrs: {},
+      get className() { return [...classes].join(' '); },
+      set className(v) { classes.clear(); String(v || '').split(/\s+/).filter(Boolean).forEach(c => classes.add(c)); },
+      classList: {
+        add: (c) => classes.add(c),
+        remove: (c) => classes.delete(c),
+        contains: (c) => classes.has(c),
+        toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)),
+      },
+      setAttribute(k, v) { this.__attrs[k] = String(v); if (k === 'class') this.className = v; },
+      getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.__attrs, k) ? this.__attrs[k] : null; },
+      appendChild(child) { child.parentNode = node; node.children.push(child); return child; },
+      remove() {
+        const p = node.parentNode;
+        if (p) p.children = p.children.filter(c => c !== node);
+        node.parentNode = null;
+      },
+      addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+      removeEventListener(type, fn) {
+        if (listeners[type]) listeners[type] = listeners[type].filter(f => f !== fn);
+      },
+      focus() {},
+      querySelectorAll(sel) { return collect(node, sel, []); },
+      querySelector(sel) { return collect(node, sel, [])[0] || null; },
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
+      __fire(type, ev) { (listeners[type] || []).forEach(fn => fn(ev || { stopPropagation() {}, preventDefault() {} })); },
+    };
+    return node;
+  }
+
+  const body = makeNode('body');
+  const sandbox = {
+    console,
+    document: {
+      body,
+      createElement: (t) => makeNode(t),
+      createElementNS: (_ns, t) => makeNode(t),
+      getElementById: () => null,
+      querySelector: (sel) => body.querySelector(sel),
+      querySelectorAll: (sel) => body.querySelectorAll(sel),
+      addEventListener() {}, removeEventListener() {},
+      get activeElement() { return null; },
+    },
+    window: {
+      addEventListener() {}, removeEventListener() {},
+      innerWidth: 1024, innerHeight: 768,
+      matchMedia: () => ({ matches: false }),
+      location: { search: '', hash: '' },
+    },
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    fetch: async () => ({ json: async () => ({ ok: true, notes: [] }) }),
+    HTMLElement: function HTMLElement() {},
+    setTimeout, clearTimeout, setInterval, clearInterval,
+    MutationObserver: undefined, ResizeObserver: undefined,
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(ADMONITION_PATH, 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
+  return sandbox;
+}
+
+check('הבורר מציג את כל הפלטה, מסמן את הנוכחי, ושומר את המזהה', () => {
+  // הבדיקה עוברת דרך אותו ממשק כמו המשתמש — פותחת את המודאל ולוחצת על
+  // עיגול — ולא קוראת ל-``_applyNoteColor`` ישירות. בדיקה שעוקפת את
+  // המודאל עוברת גם כשהעיגול נבנה בלי מאזין.
+  const sb = makeDomSandbox();
+  const m = new sb.window.StickyNotesManager('abc123');
+
+  const saved = [];
+  m._queueSave = (el, fragment) => { saved.push(fragment); };
+  m._flushFor = async () => {};
+
+  const el = sb.document.createElement('div');
+  el.dataset.noteId = 'n1';
+  m.notes.set('n1', { el, data: { color: 'green_light' } });
+
+  m._openColorModal(el);
+
+  const modal = sb.document.body.querySelector('.sticky-color-modal');
+  eq(!!modal, true, 'המודאל נוסף ל-body');
+  eq(!!modal.querySelector('.sticky-color-backdrop'), true, 'יש רקע לסגירה');
+  eq(!!modal.querySelector('.sticky-color-close'), true, 'יש כפתור סגירה');
+
+  const swatches = modal.querySelectorAll('.sticky-color-swatch');
+  eq(swatches.length, 6, 'עיגול לכל צבע בפלטה');
+  eq(swatches.map(s => s.getAttribute('data-color-id')).join(','),
+     'yellow_light,green_light,orange_light,blue_light,purple_light,pink_light',
+     'בסדר של הפלטה');
+  // הצבע יושב ב-style ולא במחלקה — כלל CSS לכל גוון היה מקור שני,
+  // וצבע שביעי היה יוצא עיגול לבן.
+  eq(swatches[0].style.backgroundColor, '#ffffba', 'העיגול נצבע בגוון עצמו');
+  // התווית ב-textContent ולא כמחרוזת HTML.
+  eq(swatches[0].querySelector('.sticky-color-label').textContent, 'צהוב בהיר');
+
+  // **הצבע הנוכחי נקרא מהרשומה.** ``style.backgroundColor`` מוחזר
+  // מדפדפן אמיתי כ-``rgb(...)``, ולכן השוואה מולו הייתה משאירה כל
+  // עיגול לא מסומן — מצב שנראה תקין לגמרי עד שבודקים.
+  const active = swatches.filter(s => s.getAttribute('aria-pressed') === 'true');
+  eq(active.length, 1, 'בדיוק אחד מסומן');
+  eq(active[0].getAttribute('data-color-id'), 'green_light', 'המסומן הוא הצבע השמור');
+
+  swatches.find(s => s.getAttribute('data-color-id') === 'pink_light').__fire('click');
+  eq(saved.length, 1, 'יצאה כתיבה אחת');
+  eq(saved[0].color, 'pink_light', '**המזהה** נשמר, ולא ה-hex');
+  eq(el.style.backgroundColor, '#ffdbdf', 'והפתק נצבע ב-hex שנגזר ממנו');
+  eq(sb.document.body.querySelector('.sticky-color-modal'), null, 'המודאל נסגר אחרי הבחירה');
+});
+
+check('פתק בצבע legacy פותח בורר בלי שום עיגול מסומן', () => {
+  // ``''`` אינו כשל — הוא התשובה הנכונה ל"הצבע הזה אינו בפלטה". עיגול
+  // שהיה מסומן כאן היה אומר למשתמש שהפתק בצבע שהוא אינו בו.
+  const sb = makeDomSandbox();
+  const m = new sb.window.StickyNotesManager('abc123');
+  m._queueSave = () => {}; m._flushFor = async () => {};
+
+  const el = sb.document.createElement('div');
+  el.dataset.noteId = 'n1';
+  m.notes.set('n1', { el, data: { color: '#123456' } });
+  m._openColorModal(el);
+
+  const swatches = sb.document.body.querySelectorAll('.sticky-color-swatch');
+  eq(swatches.length, 6, 'הפלטה עדיין מוצגת במלואה');
+  eq(swatches.filter(s => s.getAttribute('aria-pressed') === 'true').length, 0,
+     'אף עיגול אינו מסומן');
+});
+
+check('hex של הפלטה שמגיע מהשרת מסמן את העיגול הנכון', () => {
+  // השרת מחזיר ``color`` כ-hex, ופתק שנוצר ברגע זה נושא עדיין מזהה.
+  // פונקציה שידעה רק אחת מהצורות הייתה נכונה במחצית מהמקרים, והבורר
+  // היה נראה ריק בדיוק אחרי רענון עמוד.
+  const sb = makeDomSandbox();
+  const m = new sb.window.StickyNotesManager('abc123');
+  m._queueSave = () => {}; m._flushFor = async () => {};
+
+  const el = sb.document.createElement('div');
+  el.dataset.noteId = 'n1';
+  // ``#FFFFCC`` — ברירת המחדל ההיסטורית, כפי שהיא יושבת אצל משתמש קיים.
+  m.notes.set('n1', { el, data: { color: '#FFFFCC' } });
+  m._openColorModal(el);
+
+  const active = sb.document.body.querySelectorAll('.sticky-color-swatch')
+    .filter(s => s.getAttribute('aria-pressed') === 'true');
+  eq(active.length, 1, 'הגוון ההיסטורי מזוהה');
+  eq(active[0].getAttribute('data-color-id'), 'yellow_light');
 });
 
 (async () => {

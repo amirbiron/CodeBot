@@ -135,7 +135,68 @@ def test_create_note_color_default_and_fallback():
     handlers.create_note(be, 7, file_name="a.md", content="hi", color="red")
     assert be.last_kwargs["color"] == DEFAULT_NOTE_COLOR  # לא-חוקי ⇒ ברירת מחדל
     handlers.create_note(be, 7, file_name="a.md", content="hi", color="#AABBCC")
-    assert be.last_kwargs["color"] == "#AABBCC"
+    # ``hex`` שאינו בפלטה נשאר ``hex`` — אבל **מנורמל**. עד לפלטה הוא נשמר
+    # ברישיות שבה הוקלד, וזה מה שייצר את אותו צבע בשתי צורות כתיבה במסד.
+    assert be.last_kwargs["color"] == "#aabbcc"
+
+
+def test_create_note_color_accepts_palette_id_and_folds_hex_into_it():
+    """הקלט סובלני — מזהה **או** ``hex``; האחסון קנוני.
+
+    זה החוזה שסוכן דרך ה-MCP רואה: הוא רשאי להמשיך לשלוח ``hex`` כפי
+    שעשה תמיד, ו-``hex`` שתואם גוון של הפלטה מתקפל למזהה שלה במקום
+    להיכתב כערך שביעי שאי אפשר לסנן לפיו.
+    """
+    be = _NotesBackend()
+
+    handlers.create_note(be, 7, file_name="a.md", content="hi", color="pink_light")
+    assert be.last_kwargs["color"] == "pink_light", "מזהה מהפלטה נשמר כמות שהוא"
+
+    handlers.create_note(be, 7, file_name="a.md", content="hi", color="#FFDBDF")
+    assert be.last_kwargs["color"] == "pink_light", "hex של הפלטה מתקפל למזהה"
+
+    handlers.create_note(be, 7, file_name="a.md", content="hi", color="#FFFFCC")
+    assert be.last_kwargs["color"] == "yellow_light", (
+        "ברירת המחדל ההיסטורית היא גוון ``legacy`` של הצהוב, ולכן מתקפלת אליו"
+    )
+
+    handlers.create_note(be, 7, file_name="a.md", content="hi", color="#ffc")
+    assert be.last_kwargs["color"] == "yellow_light", "קיצור ``#rgb`` מתפרש כמו בדפדפן"
+
+
+def test_update_note_drops_unusable_color_instead_of_defaulting_it():
+    """ההבחנה בין יצירה לעדכון נשמרת גם אחרי המעבר לפלטה.
+
+    ביצירה ערך פסול נופל לברירת המחדל; בעדכון הוא **נשמט**, כי המשתמש
+    לא ביקש לשנות צבע — הוא שלח ערך שאי אפשר לפענח, וכתיבת ברירת המחדל
+    שם הייתה מוחקת צבע שנבחר בכוונה.
+    """
+    be = _NotesBackend()
+
+    # צבע פסול לבדו אינו מגיע למסד כלל, ו**הסוכן מקבל שגיאה מפורשת**
+    # במקום אישור על עדכון שלא קרה.
+    res = handlers.update_note(be, 7, note_id="a" * 24, color="not-a-color")
+    assert res == {"ok": False, "error": "no_fields_to_update"}
+    assert be.calls == [], "שום כתיבה לא יצאה לדרך"
+
+    # ``last_kwargs`` של הסטאב קורא מיקום קבוע שמתאים ל-``create``; רשומת
+    # ``update`` נושאת את ה-``fields`` במקום אחר, ולכן נקראת במפורש.
+    def last_update_fields():
+        kind, _user, _nid, fields = be.calls[-1]
+        assert kind == "update"
+        return fields
+
+    # לצד שדה אמיתי — העדכון עובר, והצבע הפסול נשמט ממנו בלבד.
+    handlers.update_note(be, 7, note_id="a" * 24, content="טקסט", color="not-a-color")
+    fields = last_update_fields()
+    assert fields["content"] == "טקסט"
+    assert "color" not in fields, "הצבע הפסול נשמט ולא דרס את הצבע הקיים"
+
+    handlers.update_note(be, 7, note_id="a" * 24, color="green_light")
+    assert last_update_fields()["color"] == "green_light"
+
+    handlers.update_note(be, 7, note_id="a" * 24, color="#DBFFE3")
+    assert last_update_fields()["color"] == "green_light", "גם בעדכון ה-hex מתקפל"
 
 
 def test_create_note_anchor_text_trimmed_and_capped():

@@ -1340,7 +1340,7 @@ class PersonalBackupService:
         עדיף פתק שנחת במקום הלא-מדויק מאשר פתק שנעלם בשקט.
         """
         from note_boards import ensure_default_board, normalize_board_name
-        from sticky_notes_target import build_note_target, normalize_mode
+        from sticky_notes_target import build_note_target, normalize_mode, resolve_note_color
 
         # אותה נורמליזציה שבה נכתב השם. נורמליזציה בצד אחד בלבד היא הכשל
         # השקט: השאילתה רצה, מחזירה אפס, ולא זורקת.
@@ -1393,7 +1393,7 @@ class PersonalBackupService:
         doc = {
             "user_id": int(user_id),
             "content": content,
-            "color": note.get("color", "#FFFFCC"),
+            "color": resolve_note_color(note.get("color")),
             "position_x": note.get("position_x", 100),
             "position_y": note.get("position_y", 100),
             "width": note.get("width", 250),
@@ -1416,6 +1416,12 @@ class PersonalBackupService:
         חייבים לעשות resolve לפי file_name כדי לקבל את ה-file_id החדש,
         וגם לחשב scope_id חדש (כמו ב-sticky_notes_api._resolve_scope).
         """
+        # **ייבוא משלה, ולא הסתמכות על זה שב-``_restore_board_note`` יש אחד.**
+        # השניים הם שתי פונקציות נפרדות, ושימוש בשם שיובא בשכנה הוא
+        # ``NameError`` בזמן ריצה — במסלול שרץ רק בשחזור, כלומר בדיוק
+        # ברגע שבו אין למשתמש עותק שני.
+        from sticky_notes_target import resolve_note_color
+
         count = 0
         try:
             raw_db = getattr(self.db, "db", None)
@@ -1484,7 +1490,7 @@ class PersonalBackupService:
                         "file_name": file_name,
                         "scope_id": scope_id,
                         "content": content,
-                        "color": note.get("color", "#FFFFCC"),
+                        "color": resolve_note_color(note.get("color")),
                         "position_x": note.get("position_x", 100),
                         "position_y": note.get("position_y", 100),
                         "width": note.get("width", 250),
