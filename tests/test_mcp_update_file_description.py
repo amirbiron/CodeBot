@@ -534,25 +534,44 @@ async def test_the_shared_write_path_import_stays_inside_the_route():
 
     הטענה היא על **המיקום** ולא על התוצאה, כי הרצת הייבוא בתת-תהליך
     נקייה מ-ENV היא בדיקה יקרה ושברירית — בעוד שהמיקום הוא מה שקובע.
-    שורת ייבוא ברמת המודול מזוהה בהזחה אפס.
+
+    **דרך ``ast`` ולא דרך טקסט.** הגרסה הראשונה חיפשה את שורת הייבוא עם
+    שמונה רווחים לפניה, ולכן כל שינוי הזחה בראוט היה מפיל אותה אף שהייבוא
+    נשאר בפנים; וגם פתחה את הקובץ בנתיב יחסי ל-``cwd``, כך שהרצה מחוץ
+    לשורש הריפו נתנה ``FileNotFoundError`` במקום תשובה. העץ התחבירי
+    יודע באיזו פונקציה כל ייבוא יושב, בלי תלות ברווחים.
     """
+    import ast
     import pathlib
-    import re
 
-    source = pathlib.Path("webapp/app.py").read_text(encoding="utf-8")
-    top_level = re.findall(
-        r"^from database\.repository import.*$", source, flags=re.MULTILINE
-    )
-    offenders = [line for line in top_level if not line.startswith((" ", "\t"))]
+    app_py = pathlib.Path(__file__).resolve().parent.parent / "webapp" / "app.py"
+    tree = ast.parse(app_py.read_text(encoding="utf-8"))
 
-    # ``HEAVY_FIELDS_EXCLUDE_PROJECTION`` הוא החריג המותר: הוא בתוך
-    # ``try/except`` עם fallback, ולכן כשל ייבוא שלו אינו מפיל את המודול.
-    offenders = [line for line in offenders if "HEAVY_FIELDS" not in line]
+    def _repository_imports(node, enclosing=None):
+        """(שם הפונקציה העוטפת או None, השמות המיובאים) לכל ייבוא מ-database.repository."""
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                yield from _repository_imports(child, child.name)
+            elif isinstance(child, ast.ImportFrom) and child.module == "database.repository":
+                yield enclosing, {alias.name for alias in child.names}
+            else:
+                yield from _repository_imports(child, enclosing)
 
+    imports = list(_repository_imports(tree))
+
+    # ``HEAVY_FIELDS_EXCLUDE_PROJECTION`` הוא החריג המותר ברמת המודול: הוא
+    # בתוך ``try/except`` עם fallback, ולכן כשל ייבוא שלו אינו מפיל את
+    # המודול. כל שם אחר שמיובא שם — כולל מסלול הכתיבה — הוא הרגרסיה.
+    offenders = [
+        names for scope, names in imports
+        if scope is None and names != {"HEAVY_FIELDS_EXCLUDE_PROJECTION"}
+    ]
     assert offenders == [], (
         "ייבוא מ-database.repository ברמת המודול מפיל את import webapp.app "
         f"בסביבה בלי MONGODB_URL: {offenders}"
     )
-    assert "        from database.repository import (" in source, (
+
+    in_route = [names for scope, names in imports if scope == "api_file_quick_update"]
+    assert any("update_file_metadata_in" in names for names in in_route), (
         "הייבוא בתוך הראוט נעלם — המסלול המשותף כבר אינו מחובר"
     )

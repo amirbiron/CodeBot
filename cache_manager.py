@@ -20,6 +20,7 @@ from typing import (
     TypeVar,
     ParamSpec,
     Coroutine,
+    Iterator,
     Sequence,
     cast,
     Tuple,
@@ -684,33 +685,48 @@ class CacheManager:
         return self.delete_patterns([pattern])
 
     def delete_patterns(self, patterns: Sequence[str]) -> int:
-        """מחיקת כל המפתחות שמתאימים ל**אחד** מהדפוסים — בסריקה אחת.
+        """מחיקת כל המפתחות שמתאימים ל**אחד** מהדפוסים, בקריאה אחת.
 
         הפולבק המקומי מנוקה תמיד ולפני בדיקת ``is_enabled``: הוא מאוכלס דווקא
         כש-Redis אינו זמין, ולכן דילוג עליו כאן משאיר נתונים ישנים בזיכרון עד
         שה-TTL פג — גם אחרי כתיבה שהצליחה.
 
-        **למה סריקה אחת ולא אחת לכל דפוס, ולמה זה לא רק ביצועים.** הצורה
-        הקודמת הריצה ``SCAN`` נפרד עם ``MATCH`` לכל דפוס. שלוש תוצאות,
-        ושתיים מהן נמדדו מול Redis 7 אמיתי:
+        **סריקה נפרדת לכל דפוס, עם ``MATCH`` בצד השרת.** גרסת ביניים של
+        הפונקציה הזו הריצה סריקה אחת בלי ``MATCH`` וסיננה בפייתון, ונמדדה
+        מול Redis 7 עם 200,000 מפתחות (flask-limiter, סשנים וקאש חולקים
+        אותו מסד): ``delete_pattern`` עם דפוס יחיד משך **200,007 מפתחות**
+        לתהליך כדי למחוק אחד. יש בריפו עשרות קוראים כאלה, וב-MCP הקריאה
+        רצה על ה-worker היחיד של ``_WRITE_POOL`` — כלומר עדכון תיאור אחד
+        חסם כל כתיבה אחרת למשך המשיכה. ``MATCH`` אינו מקצר את המעבר של
+        Redis על ה-keyspace, אבל הוא קובע מה חוצה את הרשת ומה מעובד כאן:
+        עם ``match`` חוזרים רק המפתחות שמתאימים.
 
-        1. **מספר ה-round-trips גדל פי מספר הדפוסים.** נמדד על keyspace של
-           100,000 מפתחות: 2,000 פקודות ``SCAN`` בעשרה דפוסים, מול 200
-           בסריקה אחת. על localhost זה נבלע (שם הצורה הישנה אפילו מהירה
-           ב-0.9x, כי ``MATCH`` מסנן בשרת וחוסך פרסור), אבל ה-RTT הוא
-           שמכריע: ב-1ms זה 2.0 שניות מול 0.2, וב-5ms זה 10 מול 1.
-        2. **תקציב הזמן הוקצה פר-דפוס.** ``CACHE_DELETE_PATTERN_BUDGET_SECONDS``
-           הוא 5 שניות כברירת מחדל, וכל קריאה קיבלה תקציב משלה — כלומר
-           עשרה דפוסים יכלו לחסום את התהליך עד 50 שניות. זו התנהגות, לא
-           אופטימיזציה: כאן התקציב הוא **אחד** לכל הקריאה.
-        3. ``MATCH`` של Redis מסנן **אחרי** השליפה מהאוסף, ולכן ``SCAN``
-           עם דפוס סורק את ה-keyspace במלואו בדיוק כמו בלעדיו. עשרה דפוסים
-           היו עשרה מעברים מלאים, ולא עשרה חיפושים ממוקדים.
+        **מה כן מאוחד:** תקציב הזמן, ה-batch, והספירה. הצורה המקורית
+        קראה ל-``delete_pattern`` בלולאה וכל קריאה קיבלה
+        ``CACHE_DELETE_PATTERN_BUDGET_SECONDS`` משלה — עשרה דפוסים יכלו
+        לחסום עד 50 שניות. כאן הדדליין אחד לכל הקריאה.
 
-        התאמת המפתחות עוברת לצד הלקוח, לרג'קס אחד מאוחד — מעבר אחד על כל
-        מפתח ולא אחד לכל דפוס. ההתאמה עצמה זהה, כי היא נגזרת מאותו
-        ``fnmatch.translate`` שהקוד ממילא הריץ על כל מפתח כהגנה על לקוחות
-        שאינם מכבדים ``match``.
+        **מפתח שהותאם לעולם אינו נזרק.** בצורה הקודמת, כשהתקציב נגמר, ה-
+        ``batch`` החלקי — עד 199 מפתחות שכבר עברו התאמה — נזרק בלי ``DEL``,
+        והתוצאה הייתה בדיוק הקאש הישן שהניקוי בא להסיר. כאן ה-batch
+        נשטף לפני **כל** יציאה, כולל מיצוי תקציב וחריגה; ומיצוי תקציב
+        נרשם ב-``WARNING`` עם מספר הדפוסים שהושלמו, כי ניקוי חלקי שנראה
+        כמו ניקוי מלא הוא הכשל השקט של הפונקציה הזו.
+
+        **שני סירובים שהם שגיאת קורא, ולכן זורקים ולא נבלעים:**
+
+        - מחרוזת במקום רשימה — ``TypeError``. ``str`` עומד ב-``Sequence[str]``,
+          ו-``[str(p) for p in "file_content:*"]`` מתפרק לדפוס לכל תו; התו
+          ``*`` לבדו מתאים ל**כל** מפתח. טעות של תו אחד בין ``delete_pattern``
+          ל-``delete_patterns`` הייתה מוחקת את המסד כולו, כולל מוני
+          ה-rate-limit.
+        - דפוס שמתאים לכל מפתח (``*``, ``**``, ``?*`` — בלי תו מילולי
+          כלל) — ``ValueError``. ניקוי של כל הקאש עובר דרך :meth:`clear_all`,
+          שעושה זאת במפורש ובמבוקר, ולא דרך כאן. **הקריטריון הוא "אין
+          תו מילולי בכלל" ולא "אין תו מילולי לפני הכוכבית הראשונה":**
+          ``*:user:{uid}:*`` ב-:meth:`invalidate_user_cache` מתחיל בכוכבית
+          ואינו מתאים לכל מפתח — הוא דורש ``:user:{uid}:`` — והצורה השנייה
+          הייתה פוסלת אותו.
 
         על הערך המוחזר: המספר סופר רק מה שנמחק *בתהליך הזה*. שתי מגבלות
         שהקורא חייב להכיר, כי אף אחת מהן לא משתקפת במספר:
@@ -721,11 +737,28 @@ class CacheManager:
         2. כש-Redis אינו זמין, 0 אינו מבחין בין "לא היה מה למחוק" לבין
            "לא יכולתי לגשת". לכן המצב נרשם ללוג פעם אחת במקום להיבלע.
         """
+        # שני הסירובים יושבים **לפני** ה-try, אחרת ה-except הכללי שלמטה
+        # היה בולע אותם ומחזיר 0 — כלומר "לא היה מה למחוק" על שגיאת קורא.
+        if isinstance(patterns, (str, bytes)):
+            raise TypeError(
+                "delete_patterns מקבל רשימת דפוסים, לא מחרוזת. מחרוזת הייתה "
+                "מתפרקת לדפוס לכל תו, ו-'*' לבדו מוחק את כל המסד. "
+                "לדפוס יחיד: delete_pattern(pattern)."
+            )
         pattern_list = [str(p) for p in (patterns or [])]
         if not pattern_list:
-            # אין דפוסים = אין מה למחוק. סריקה בלי דפוסים הייתה מושכת את כל
-            # ה-keyspace כדי לא להתאים לכלום.
             return 0
+        for pattern in pattern_list:
+            if _matches_every_key(pattern):
+                logger.error(
+                    "cache delete_patterns: סירוב לדפוס %r — הוא מתאים לכל מפתח. "
+                    "ניקוי מלא עובר דרך clear_all(), לא דרך כאן.",
+                    pattern,
+                )
+                raise ValueError(
+                    f"הדפוס {pattern!r} מתאים לכל מפתח ב-Redis. ניקוי מלא של הקאש "
+                    "הוא clear_all(); delete_patterns מסרב לו בכוונה."
+                )
 
         deleted_local = 0
         for pattern in pattern_list:
@@ -740,25 +773,30 @@ class CacheManager:
             if cache_op_duration_seconds
             else None
         )
+        deleted = 0
+        batch: List[Any] = []
+        batch_size = 200
+        client: Any = None
+
+        def _flush() -> None:
+            """DEL על מה שכבר הותאם. נקרא לפני כל יציאה, ולכן לא זורק."""
+            nonlocal deleted
+            if not batch:
+                return
+            try:
+                deleted += int(client.delete(*batch) or 0)
+            except Exception as e:
+                logger.warning("cache delete_patterns: DEL של %d מפתחות נכשל: %s", len(batch), e)
+            batch.clear()
+
         try:
             client = self.redis_client
-            deleted = 0
-            # תואם Redis MATCH pattern (במקרים של FakeRedis/scan_iter שלא מכבד match).
-            # רג'קס אחד מאוחד במקום ``fnmatch`` פר-דפוס: אותה סמנטיקה בדיוק,
-            # כי היא נגזרת מאותה פונקציית תרגום.
+            # תואם Redis MATCH pattern (במקרים של FakeRedis/scan_iter שלא מכבד match)
             import fnmatch
             import re as _re
 
-            try:
-                matcher = _re.compile(
-                    "|".join(f"(?:{fnmatch.translate(p)})" for p in pattern_list)
-                )
-            except Exception:
-                logger.error("cache delete_patterns: דפוס לא תקין, לא נמחק דבר")
-                return deleted_local
-
-            # תקציב זמן כדי להימנע מחסימת תהליך במאגרים גדולים. **אחד לכל
-            # הקריאה**, ולא אחד לכל דפוס — ראו סעיף 2 ב-docstring.
+            # תקציב זמן כדי להימנע מחסימת תהליך במאגרים גדולים — **אחד לכל
+            # הקריאה**, ולא אחד לכל דפוס.
             budget_seconds = float(
                 os.getenv(
                     "CACHE_DELETE_PATTERN_BUDGET_SECONDS",
@@ -767,39 +805,22 @@ class CacheManager:
             )
             deadline = time.time() + max(0.0, budget_seconds)
 
-            # שימוש בטוח ב-SCAN (אל תשתמש ב-KEYS!).
-            # ``match`` אינו מועבר: הסינון בשרת יכול לשאת דפוס אחד בלבד,
-            # והמעבר לסריקה אחת הוא כל הרעיון.
-            batch: List[str] = []
-            batch_size = 200
-
-            if hasattr(client, "scan_iter"):
-                iterator = client.scan_iter(count=500)
-            elif hasattr(client, "scan"):
-                # fallback ידני ל-SCAN אם scan_iter לא קיים (עדיין ללא KEYS)
-                def _scan_fallback():  # type: ignore[no-untyped-def]
-                    cursor = 0
-                    while True:
-                        cursor, keys = client.scan(cursor=cursor, count=500)
-                        for k in keys or []:
-                            yield k
-                        if int(cursor) == 0:
-                            break
-
-                iterator = _scan_fallback()
-            elif hasattr(client, "keys"):
+            if not hasattr(client, "scan_iter") and not hasattr(client, "scan"):
+                if not hasattr(client, "keys"):
+                    # אין יכולת סריקה בטוחה -> אל תמחוק
+                    return deleted_local
                 # fallback שמיועד *רק* ללקוחות Fake בטסטים.
                 # חשוב: ב-Redis אמיתי scan_iter קיים ולכן לא נגיע לכאן.
                 mod = str(getattr(getattr(client, "__class__", object), "__module__", "") or "")
                 if mod.startswith("redis"):
                     # ב-Redis אמיתי לא נרשה שימוש ב-KEYS
                     return deleted_local
-                found: List[str] = []
-                seen: set = set()
+                found: List[Any] = []
+                seen_keys: set = set()
                 for pattern in pattern_list:
                     for k in client.keys(pattern) or []:
-                        if k not in seen:
-                            seen.add(k)
+                        if k not in seen_keys:
+                            seen_keys.add(k)
                             found.append(k)
                 if found:
                     try:
@@ -807,38 +828,55 @@ class CacheManager:
                     except Exception:
                         return deleted_local
                 return deleted_local
-            else:
-                # אין יכולת סריקה בטוחה -> אל תמחוק
-                return deleted_local
 
-            for k in iterator:
-                if time.time() > deadline:
-                    break
-                # הגנה נוספת: חלק מלקוחות Fake לא מכבדים match בפרמטרים של scan_iter
-                try:
-                    if not matcher.match(str(k)):
-                        continue
-                except Exception:
-                    # אם לא ניתן להשוות, נמשיך (Fail-open עבור מחיקה מבוקרת)
-                    continue
-                batch.append(k)
-                if len(batch) >= batch_size:
-                    try:
-                        deleted += int(client.delete(*batch) or 0)
-                    except Exception:
-                        pass
-                    batch.clear()
+            # ``SCAN`` יכול להחזיר את אותו מפתח פעמיים באותו מעבר, ומפתח יכול
+            # להתאים לשני דפוסים. ``seen`` שומר את הספירה נכונה ואת ה-batch
+            # בלי כפילויות; הוא גדל רק במספר המפתחות שנמחקו.
+            seen: set = set()
+            exhausted = False
+            patterns_done = 0
+            try:
+                for pattern in pattern_list:
+                    if time.time() > deadline:
+                        exhausted = True
+                        break
+                    matcher = _re.compile(fnmatch.translate(pattern))
+                    for k in _scan_matching(client, pattern):
+                        if time.time() > deadline:
+                            exhausted = True
+                            break
+                        ks = str(k)
+                        # הגנה נוספת: חלק מלקוחות Fake לא מכבדים match ב-scan_iter
+                        if ks in seen or not matcher.match(ks):
+                            continue
+                        seen.add(ks)
+                        batch.append(k)
+                        if len(batch) >= batch_size:
+                            _flush()
+                    if exhausted:
+                        break
+                    patterns_done += 1
+            finally:
+                # לפני כל יציאה — תקציב, חריגה, או סיום רגיל. מה שכבר הותאם
+                # נמחק; אחרת מיצוי תקציב היה משאיר בדיוק את המפתחות
+                # שהניקוי בא להסיר.
+                _flush()
 
-            if batch and time.time() <= deadline:
-                try:
-                    deleted += int(client.delete(*batch) or 0)
-                except Exception:
-                    pass
-
+            if exhausted:
+                logger.warning(
+                    "cache delete_patterns: תקציב %.1fs נגמר אחרי %d/%d דפוסים — "
+                    "הניקוי **חלקי**. נמחקו %d מפתחות; הדפוס שנקטע: %r",
+                    budget_seconds,
+                    patterns_done,
+                    len(pattern_list),
+                    deleted,
+                    pattern_list[min(patterns_done, len(pattern_list) - 1)],
+                )
             return deleted_local + int(deleted)
         except Exception as e:
-            logger.error(f"שגיאה במחיקת תבנית מ-cache: {e}")
-            return deleted_local
+            # ``deleted`` כולל את מה שנשטף ב-finally הפנימי לפני החריגה.
+            logger.error(f"שגיאה במחיקת תבנית מ-cache (נמחקו {deleted} לפני הכשל): {e}")
+            return deleted_local + int(deleted)
         finally:
             try:
                 if timer_ctx:
@@ -863,10 +901,10 @@ class CacheManager:
                 f"*:{user_id}:*",  # נפילה לאחור: כל מפתח שמכיל את המזהה
                 f"*:{user_id}",  # נפילה לאחור: מפתחות שמסתיימים במזהה
             ]
-            # אותה סריקה אחת כמו ב-:meth:`invalidate_file_related`. כאן זה
-            # אפילו בולט יותר: ``*:{user_id}:*`` הוא דפוס שמתחיל בכוכבית,
-            # כלומר הוא ממילא גורם למעבר מלא על ה-keyspace — ושמונה כאלה
-            # היו שמונה מעברים מלאים ושמונה תקציבי זמן נפרדים.
+            # קריאה אחת ולא לולאה על ``delete_pattern``: תקציב זמן אחד לכל
+            # השמונה במקום שמונה נפרדים, ו-batch שנשטף גם כשהתקציב נגמר.
+            # הסריקות עצמן נשארות אחת לכל דפוס, עם ``MATCH`` בשרת — ראו
+            # :meth:`delete_patterns`.
             total_deleted += int(self.delete_patterns(patterns) or 0)
         except Exception as e:
             logger.warning(f"invalidate_user_cache failed for user {user_id}: {e}")
@@ -963,10 +1001,10 @@ class CacheManager:
                         f"files_by_repo:*:{uid}:*",
                     ]
                 )
-            # סריקה אחת לכל הדפוסים, ולא אחת לכל דפוס — ראו
-            # :meth:`delete_patterns`. עם עשרת הדפוסים כאן זה ההבדל בין
-            # 2,000 פקודות SCAN ל-200 (נמדד על keyspace של 100K), ובין
-            # תקציב זמן פי עשרה לתקציב אחד.
+            # קריאה אחת ולא לולאה על ``delete_pattern``: תקציב זמן אחד לכל
+            # העשרה במקום עשרה נפרדים, ו-batch שנשטף גם כשהתקציב נגמר. ראו
+            # :meth:`delete_patterns` — ולמה הסריקות עצמן נשארות אחת לכל
+            # דפוס עם ``MATCH`` בשרת.
             total += int(self.delete_patterns(patterns) or 0)
         except Exception as e:
             logger.warning(f"invalidate_file_related failed: {e}")
@@ -1248,6 +1286,44 @@ def _clear_local_cache() -> int:
     except Exception as e:
         logger.warning(f"local cache clear failed: {e}")
         return 0
+
+
+#: תווי ה-glob של Redis. דפוס שנשאר ריק אחרי הסרתם אינו מכיל שום תו
+#: מילולי, ולכן מתאים לכל מפתח.
+_GLOB_WILDCARDS = str.maketrans("", "", "*?")
+
+
+def _matches_every_key(pattern: str) -> bool:
+    """האם ה-glob מתאים לכל מפתח — כלומר אין בו אף תו מילולי.
+
+    ``*``, ``**``, ``?*`` — כן. ``*:user:42:*`` — **לא**: הוא מתחיל בכוכבית
+    אבל דורש ``:user:42:``, וזה ההבדל בין "מתחיל בכוכבית" ל"מתאים להכול".
+    מחרוזת ריקה — לא: ``SCAN MATCH ""`` מחזיר כלום, לא הכול.
+
+    ברמת המודול כדי שהכלל ייבדק בלי ``CacheManager``.
+    """
+    return bool(pattern) and pattern.translate(_GLOB_WILDCARDS) == ""
+
+
+def _scan_matching(client: Any, pattern: str) -> Iterator[Any]:
+    """SCAN עם ``MATCH`` בצד השרת, דרך ``scan_iter`` או ``scan`` — לעולם לא ``KEYS``.
+
+    ``match`` מועבר תמיד: הוא מה שקובע שרק המפתחות המתאימים חוצים את הרשת.
+    ``count=500`` הוא רמז לכמה מפתחות לבחון בכל צעד, לא כמה להחזיר.
+    """
+    if hasattr(client, "scan_iter"):
+        return client.scan_iter(match=pattern, count=500)
+
+    def _gen() -> Iterator[Any]:
+        cursor = 0
+        while True:
+            cursor, keys = client.scan(cursor=cursor, match=pattern, count=500)
+            for k in keys or []:
+                yield k
+            if int(cursor) == 0:
+                break
+
+    return _gen()
 
 
 def _delete_local_cache_pattern(pattern: str) -> int:
