@@ -1412,6 +1412,16 @@ except Exception as _e:
     except Exception:
         pass
 
+# עמוד חיפוש הפתקים. התוצאות עצמן מגיעות מ-``sticky_notes_bp``.
+try:
+    from webapp.routes.notes_search import notes_search_bp  # noqa: E402
+    app.register_blueprint(notes_search_bp)
+except Exception as _e:
+    try:
+        logger.error("notes_search blueprint not registered: %s", _e, exc_info=True)
+    except Exception:
+        pass
+
 # Web Push API (public key + subscribe/unsubscribe)
 try:
     from webapp.push_api import push_bp, start_sender_if_enabled  # noqa: E402

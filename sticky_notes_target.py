@@ -105,6 +105,17 @@ MAX_NOTES_PER_USER = 1000
 #: אורך מרבי לשם פתק. שם הוא תווית קצרה בשורת הכפתורים, לא כותרת.
 MAX_NOTE_TITLE = 80
 
+#: כמה **תווים** מגוף הפתק מוצגים בתוצאת חיפוש.
+#:
+#: תווים, לא בייטים: החיתוך נעשה ב-``$substrCP`` והמדידה ב-``$strLenCP``,
+#: כי :data:`MAX_NOTE_CHARS` הוא תקרה בתווים והתוכן עברי. ``$substrBytes``
+#: על אותו מספר נוחת באמצע אות ומפיל את השאילתה — זה האירוע שתועד
+#: ב-``amir-bug-patterns`` H6.
+#:
+#: כאן ולא בוובאפ כי גם השרת חותך וגם העמוד מספר "יש עוד", ושני מספרים
+#: שמסונכרנים בתקווה הם מספר אחד שגוי שמחכה.
+NOTE_SEARCH_PREVIEW_CHARS = 200
+
 
 def normalize_note_title(value: Any) -> str:
     """שם פתק מנורמל, או מחרוזת ריקה.
@@ -616,6 +627,7 @@ def note_search_filter(
     *,
     search_content: bool = False,
     content_needle: Any = None,
+    color_id: Any = None,
 ) -> Dict[str, Any]:
     """שאילתת חיפוש פתקים, חוצת שלושת היעדים.
 
@@ -639,10 +651,22 @@ def note_search_filter(
 
     ``search_content`` **כבוי כברירת מחדל, ובכוונה.** חיפוש השם נשען על
     ``user_title_idx`` ומחזיר שורות בלי לגעת בגוף הפתק. הרחבתו לתוכן
-    מוסיפה פרדיקט שאין ולא יהיה עליו אינדקס — מונגו מתיר **אינדקס טקסט
-    אחד לכל אוסף**, וזו החלטה חד-כיוונית שלא נשרפת כאן. מה שכן מגן:
-    ``user_id`` נשאר פרדיקט ראשון, ולכן הסריקה חסומה למכסת המשתמש
-    (:data:`MAX_NOTES_PER_USER`) ואינה COLLSCAN.
+    מוסיפה פרדיקט שאין עליו אינדקס, ולכן הגוף נסרק.
+
+    **וזה המקום להיזהר במה שנאמר כאן.** הגרסה הקודמת של הדוקסטרינג הזה
+    טענה ש-``user_id`` כפרדיקט ראשון חוסם את הסריקה למכסת המשתמש
+    (:data:`MAX_NOTES_PER_USER`) "ואינה COLLSCAN". ‏``explain`` על
+    השאילתה האמיתית — הפילטר הזה עם ``.sort("updated_at", -1)``, כפי
+    ש-``mcp_server.backend.search_notes`` מריץ אותה — הראה משהו אחר:
+    התוכנית **הזוכה** בחרה ב-``updated_desc`` (``updated_at`` לבדו),
+    כלומר סריקה של כל הפתקים של **כל** המשתמשים לפי סדר עדכון, עם
+    ``user_id`` כפילטר שיורי. התוכניות שנשענות על תחילית ``user_id``
+    נדחו, כי כל אחת מהן דורשת ``SORT`` חוסם.
+
+    התיאור הישן תיאר את מה שנדחה. מה שמגשר הוא אינדקס שנותן את שניהם —
+    ``(user_id, updated_at)`` — ומאז שהוא קיים התחילית והמיון מתקיימים
+    יחד. הסריקה חסומה למכסת המשתמש **בזכות האינדקס הזה**, לא בזכות סדר
+    הפרדיקטים.
 
     **פתק בלי שם הוא הסיבה שהדגל קיים.** רוב הפתקים בפועל נכתבים בלי
     כותרת, ולכן היו בלתי-נראים לחיפוש לחלוטין. ``$exists`` על ``title``
@@ -654,6 +678,13 @@ def note_search_filter(
     ריקה מושמט במקום להפוך לסופג-כול. שתי מחטים ריקות הן שגיאת קורא —
     ``ValueError`` מיידי, כי החלופות גרועות ממנו: ``$or`` ריק נופל במונגו
     בשגיאה עמומה, ושאילתה "תופסת הכול" משיבה תשובה לשאלה שלא נשאלה.
+
+    ``color_id`` **מצטרף, ואינו מחליף.** הוא מסנן ולא מחט: ``$or`` של
+    המחטים חייב להתקיים **וגם** הצבע, ולכן הוא נכנס כפרדיקט עצמאי לצד
+    ה-``$or`` ולא כענף נוסף בתוכו. ענף בתוך ה-``$or`` היה מחזיר כל פתק
+    בצבע הזה גם כשהמילה אינה בו. ``None`` = בלי סינון, ולכן הקוראים
+    הקיימים אינם מושפעים; מזהה שאינו בפלטה מעלה ``ValueError``
+    מ-:func:`note_color_query`.
 
     .. note::
        פתקי legacy נשמרו עם ישויות HTML (``&quot;`` במקום ``"``);
@@ -672,9 +703,17 @@ def note_search_filter(
             clauses.append({"content": {"$regex": re.escape(body_needle), "$options": "i"}})
     if not clauses:
         raise ValueError("note_search_filter: both needles are empty")
+
+    query: Dict[str, Any] = {"user_id": int(user_id)}
     if len(clauses) == 1:
-        return {"user_id": int(user_id), **clauses[0]}
-    return {"user_id": int(user_id), "$or": clauses}
+        query.update(clauses[0])
+    else:
+        query["$or"] = clauses
+    if color_id is not None and str(color_id).strip():
+        # ``update`` ולא מיזוג ידני: ``note_color_query`` מחזירה מפתח
+        # ``color`` בלבד, ואין לו התנגשות עם ``title``/``content``/``$or``.
+        query.update(note_color_query(color_id))
+    return query
 
 
 def title_search_filter(user_id: int, needle: Any) -> Dict[str, Any]:
@@ -1003,6 +1042,100 @@ def note_color_id(stored: Any) -> str:
     if candidate in NOTE_COLORS:
         return candidate
     return _HEX_TO_COLOR_ID.get(normalize_color_hex(stored), "")
+
+
+def _color_hex_spellings(hex_value: Any) -> Tuple[str, ...]:
+    """כל צורות הכתיבה של ``hex`` אחד, **בלי הבדלי רישיות**.
+
+    ‏:func:`normalize_color_hex` מקפלת ארבע צורות לאותו צבע, וזו הפונקציה
+    שהופכת את הקיפול הזה לכיוון ההפוך — מהצורה הקנונית אל כל מה שיכול
+    לשבת במסד ולהתנרמל אליה. הרישיות **אינה** מטופלת כאן אלא בדגל ``i``
+    של הרג'קס שנבנה ממנה, ולכן ``ffffcc`` לבדו מייצג גם ``FFFFCC`` וגם
+    ``FfFfCc``.
+
+    ארבע הצורות, כל אחת כנגד שורה ב-:func:`normalize_color_hex`:
+
+    * שש ספרות — הצורה הקנונית עצמה.
+    * שלוש ספרות — **רק כשכל זוג כפול**; ``#dbffe3`` אינו ניתן לקיצור.
+    * שמונה ספרות עם ``alpha`` אטום — הסיומת ``ff`` נחתכת שם.
+    * ארבע ספרות — קיצור של השמונה, ולכן קיים רק כששש הספרות ניתנות
+      לקיצור.
+    """
+    canonical = normalize_color_hex(hex_value)
+    if not canonical:
+        return ()
+    digits = canonical[1:]
+    if len(digits) != 6:
+        # חמש או שבע ספרות — ``normalize_color_hex`` משאירה אותן כמות שהן,
+        # ואין להן צורת קיצור או ``alpha``.
+        return (digits,)
+    spellings = [digits, digits + "ff"]
+    if all(digits[i] == digits[i + 1] for i in (0, 2, 4)):
+        short = digits[0] + digits[2] + digits[4]
+        spellings += [short, short + "f"]
+    return tuple(spellings)
+
+
+#: מזהה פלטה ← רג'קס **מעוגן וחסר-רישיות** שתופס כל צורה שבה הצבע הזה
+#: יכול לשבת בשדה ``color``.
+#:
+#: **למה רג'קס ולא רשימת כתיבים.** רשימה הייתה צריכה למנות את ``#ffffcc``,
+#: ‏``#FFFFCC``, ``#FfFfCc`` וכל 62 שאר הצירופים של שש ספרות — כלומר או
+#: רשימה שאי אפשר לכתוב, או רשימה חלקית שמפספסת בשקט. דגל ``i`` אחד עושה
+#: את כל העבודה הזו, והעיגון (``^``/``$``) מונע ממנו לתפוס ערך שהצבע הזה
+#: הוא רק חלק ממנו.
+#:
+#: נבנה פעם אחת מ-:data:`NOTE_COLORS`, כולל ``legacy``, מאותה סיבה
+#: ש-:data:`_HEX_TO_COLOR_ID` נבנה ממנה: טבלה שנייה שנכתבת ביד היא טבלה
+#: שתיסחף.
+NOTE_COLOR_PATTERNS: Dict[str, "re.Pattern[str]"] = {}
+for _color_id, _color_spec in NOTE_COLORS.items():
+    _alternatives: List[str] = []
+    for _variant in (_color_spec["hex"],) + tuple(_color_spec.get("legacy") or ()):
+        for _spelling in _color_hex_spellings(_variant):
+            if _spelling not in _alternatives:
+                _alternatives.append(_spelling)
+    if _alternatives:
+        # החלופות נכנסות לרג'קס בלי בריחה, וזה בטוח בדיוק בגלל
+        # :data:`_HEX_COLOR_RE`: כל מה ש-:func:`normalize_color_hex` מחזירה
+        # עבר דרכו, ולכן הוא ספרות הקסדצימליות בלבד — אין בו תו שמשמעותו
+        # ברג'קס. הכניסה היא ``NOTE_COLORS``, כלומר ערכים שלנו ולא קלט
+        # חיצוני; ערך חיצוני לעולם אינו מגיע לכאן, אלא נבדק מול הפלטה
+        # ב-:func:`note_color_query`.
+        NOTE_COLOR_PATTERNS[_color_id] = re.compile(
+            "^#(" + "|".join(_alternatives) + ")$", re.IGNORECASE
+        )
+del _color_id, _color_spec, _alternatives, _variant, _spelling
+
+
+def note_color_query(color_id: Any) -> Dict[str, Any]:
+    """הפרדיקט שמוצא פתקים בצבע פלטה אחד — **בכל צורה שהוא שמור בה**.
+
+    ‏``{"color": {"$in": [<המזהה>, <רג'קס>]}}``: המזהה תופס את מה שנכתב
+    אחרי המעבר לפלטה, והרג'קס את ה-``hex`` ההיסטורי.
+
+    **למה שני האיברים, ולא רק המזהה.** כל הכותבים עוברים היום דרך
+    :func:`resolve_note_color` וכותבים מזהה, ו-``scripts/migrate_note_colors``
+    מיישר את מה שכבר קיים — כלומר אחרי מיגרציה שרצה, האיבר השני מיותר.
+    הוא כאן כי **נכונות שתלויה בכך שמישהו זכר להריץ סקריפט אינה נכונות**:
+    עד שהיא רצה בכל סביבה, סינון על ``yellow`` לבדו היה מחזיר אפס פתקים
+    במסד שבו 176 מהם שמורים כ-``#FFFFCC``. זו נקודת הסרה **אחת**: כשכל
+    הסביבות מיושרות ומאומתות, מוחקים כאן את הרג'קס ואין מקום שני לתקן.
+
+    ``$in`` ולא ``$or``: מונגו מתיר רג'קס כערך בתוך ``$in``, ואינו מתיר שם
+    ביטוי ``$regex`` — "You cannot use ``$regex`` operator expressions inside
+    an ``$in``" (``reference/operator/query/in``). לכן האיבר הוא אובייקט
+    רג'קס מהודר, שנוסע כטיפוס BSON regex.
+
+    ``ValueError`` על מזהה שאינו בפלטה, ולא פילטר ריק: פילטר שמתעלם
+    ממסנן שנשלח משיב תשובה לשאלה אחרת מזו שנשאלה. הקורא הוא שמחליט אם
+    זה 400 למשתמש או באג אצלו.
+    """
+    candidate = str(color_id or "").strip().lower()
+    pattern = NOTE_COLOR_PATTERNS.get(candidate)
+    if pattern is None:
+        raise ValueError(f"note_color_query: unknown color id {color_id!r}")
+    return {"color": {"$in": [candidate, pattern]}}
 
 
 def note_color_hex(stored: Any) -> str:

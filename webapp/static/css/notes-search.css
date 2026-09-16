@@ -1,0 +1,217 @@
+/* עמוד חיפוש הפתקים.
+ *
+ * **אין כאן HEX קשיח**, לפי docs/webapp/theming_and_css: כל צבע של
+ * העמוד עצמו נגזר מטוקן סמנטי, ונבדק ב-rg "#[0-9a-fA-F]{3,6}".
+ *
+ * **שני חריגים, ושניהם זורמים מבחוץ ולא נכתבים כאן:**
+ *
+ * 1. גוון הפתק. אותו מסמך מחריג את ה-Sticky Notes מהערכה במפורש
+ *    ("נשארים Hardcoded בכוונה לצורכי Preset/Brand"), ולכן העיגולים
+ *    חייבים להראות את הצבע האמיתי. הערך מגיע מ-NOTE_COLORS דרך
+ *    style="--chip-fill: …" — כלומר מקור אמת אחד בפייתון, ובלי HEX
+ *    בקובץ הזה.
+ * 2. הדגשת ההתאמה. הטוקנים --search-highlight-* מוגדרים לכל ערכה
+ *    ב-global_search.css, שנטען מ-base.html בכל עמוד — כלומר ההדגשה
+ *    כאן נראית כמו ההדגשה בחיפוש הקוד, כולל High Contrast, בלי לכפול
+ *    את הכיול. הנפילה היא Mark/MarkText — צבעי מערכת שהדפדפן מבטיח
+ *    שיש ביניהם ניגודיות, ולא גוון שהמצאנו.
+ */
+
+.notes-search-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.notes-search-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.notes-search-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  color: var(--text-primary);
+}
+
+.notes-search-form {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.notes-search-box {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.notes-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--card-border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.notes-search-input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.notes-search-colors {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.8rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.notes-search-colors legend {
+  /* legend בתוך flex אינו פריט flex בכל הדפדפנים, ולכן הוא יוצא מהשורה
+     ומקבל מרווח משלו במקום להיאבק על מקום בה. */
+  float: none;
+  padding: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.notes-color-chip {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--card-border);
+  background: var(--chip-fill, var(--bg-secondary));
+  cursor: pointer;
+  padding: 0;
+}
+
+.notes-color-chip.is-any {
+  width: auto;
+  height: 28px;
+  border-radius: 14px;
+  padding: 0 0.7rem;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.notes-color-chip[aria-pressed="true"] {
+  /* טבעת ולא שינוי גבול: הגבול הוא מה שמפריד את העיגול מהכרטיס, ושינוי
+     שלו היה מוחק את ההפרדה בדיוק בצבע שנבחר. */
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.notes-color-chip:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.notes-search-msg {
+  margin: 0 0 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.notes-search-msg.is-error {
+  color: var(--danger-border, var(--text-primary));
+}
+
+.notes-search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.notes-search-link {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  padding: 0.8rem;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.notes-search-link:hover,
+.notes-search-link:focus-visible {
+  border-color: var(--primary);
+}
+
+.notes-search-swatch {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 0.25rem;
+  border-radius: 4px;
+  border: 1px solid var(--card-border);
+  background: var(--chip-fill, var(--bg-secondary));
+}
+
+.notes-search-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.notes-search-title {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.notes-search-title.is-untitled {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.notes-search-preview {
+  color: var(--text-secondary, var(--text-muted));
+  font-size: 0.92rem;
+  line-height: 1.5;
+  /* שלוש שורות ואז חיתוך: 200 תווים הם כשש שורות בנייד, והתוצאה השנייה
+     הייתה נדחקת מתחת לקפל. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.notes-search-hint,
+.notes-search-meta {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.notes-search-mark {
+  background: var(--search-highlight-bg, Mark);
+  color: var(--search-highlight-text, MarkText);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+@media (max-width: 480px) {
+  .notes-search-box {
+    flex-wrap: wrap;
+  }
+  .notes-search-box .board-action {
+    width: 100%;
+  }
+}

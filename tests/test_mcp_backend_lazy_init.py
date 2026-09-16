@@ -63,28 +63,37 @@ def _run_concurrently(fn, threads=8):
 
 
 def test_concurrent_readers_build_the_notes_indexes_once():
-    """Four indexes, not eight, and nobody queries before they exist.
+    """Each index once, not once per thread, and nobody queries before they exist.
 
     Two things were wrong here and both are visible from this test. The flag was
     set *before* the loop, so a second thread arriving mid-build skipped it and
     went on to query an index that was not there yet. And nothing stopped two
-    threads from running the four ``create_index`` calls at the same time.
+    threads from running the ``create_index`` calls at the same time.
 
-    Without the fix this reports eight or more index builds. ``_notes_coll`` is
-    reached by ``list_notes`` and ``list_board_notes``, which are read tools —
-    so concurrent arrival is the ordinary case, not a contrived one.
+    Without the fix a thread's worth of builds is repeated for every thread.
+    ``_notes_coll`` is reached by ``list_notes`` and ``list_board_notes``, which
+    are read tools — so concurrent arrival is the ordinary case, not a contrived
+    one.
+
+    **The expected set comes from a sequential run, not from a list typed here.**
+    The earlier version of this test named four indexes and opened with "Four
+    indexes, not eight"; adding a fifth broke it for the wrong reason, and the
+    obvious repair is to edit the list rather than look at what changed. What is
+    actually being protected is the *property* — same members as one quiet build,
+    and each of them exactly once.
     """
+    sequential = _CountingMongo()
+    ProductionBackend(mongo_db=sequential)._notes_coll()
+    expected = sorted(sequential.notes.created)
+    assert expected, "safety floor: an empty baseline would satisfy any assertion"
+    assert len(expected) == len(set(expected)), f"the baseline itself repeats: {expected}"
+
     mongo = _CountingMongo()
     backend = ProductionBackend(mongo_db=mongo)
 
     _run_concurrently(backend._notes_coll)
 
-    assert sorted(mongo.notes.created) == [
-        "user_board_idx",
-        "user_repo_idx",
-        "user_scope_idx",
-        "user_title_idx",
-    ], mongo.notes.created
+    assert sorted(mongo.notes.created) == expected, mongo.notes.created
 
 
 def test_the_index_flag_is_only_set_once_the_indexes_exist():

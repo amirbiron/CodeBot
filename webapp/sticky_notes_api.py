@@ -98,7 +98,13 @@ _INDEX_READY_LOCK = threading.Lock()
 #: ``_TITLE_INDEX_OK`` וגם את ``_REPO_TITLE_INDEX_OK``. דגל ``v2`` שנכתב
 #: בגרסה הקודמת של הקוד העיד על אינדקס הלוח בלבד, ותחת אותו מפתח הוא היה
 #: מתפרש כאימות של אינדקס הריפו שלא היה — למשך יממה, ובכל התהליכים.
-_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v3"
+#:
+#: **ו-v4 מאותה סיבה בדיוק.** הדגל אינו אומר "בדקנו פעם" אלא "כל האינדקסים
+#: שברשימה קיימים", ולכן הוא חייב לעלות בכל פעם שהרשימה משתנה. ``v4``
+#: מלווה את הוספת ``user_updated_idx``: בלי ההעלאה, כל תהליך שקורא דגל
+#: ``v3`` חי היה מדלג על ``_ensure_indexes`` ליממה שלמה, והאינדקס החדש לא
+#: היה נבנה באף אחד מהם — כשל שקט שבדיוק כמוהו כבר קרה כאן.
+_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v4"
 _INDEX_READY_CACHE_TTL_SECONDS = 24 * 3600
 _INDEX_CACHE_LAST_CHECK = 0.0
 _WARMUP_TRIGGERED = threading.Event()
@@ -150,6 +156,15 @@ _QUERY_INDEX_SPECS: Tuple[Tuple[str, List[Tuple[str, int]]], ...] = (
     # דורש ``board_id``, או ``repo_name`` **וגם** ``repo_path`` — פרדיקטים
     # שהחיפוש אינו נושא, ולכן הוא אינו תת-קבוצה של אף אחד מהם.
     ("user_title_idx", [("user_id", 1), ("title", 1)]),
+    # **התחילית והמיון יחד.** ``explain`` על חיפוש הפתקים — הפילטר של
+    # ``note_search_filter`` עם ``.sort("updated_at", -1)``, כפי
+    # ש-``mcp_server.backend.search_notes`` מריץ אותו — הראה שמונגו בוחרת
+    # דווקא ב-``updated_desc``, כלומר סורקת את הפתקים של **כל** המשתמשים
+    # לפי סדר עדכון ומסננת ``user_id`` כשארית. התוכניות שנשענות על תחילית
+    # ``user_id`` נדחות כולן, כי כל אחת מהן דורשת ``SORT`` חוסם (32MB).
+    # האינדקס הזה הוא היחיד שנותן את שניהם: איתור ישיר של המשתמש, ובתוכו
+    # סדר מוכן.
+    ("user_updated_idx", [("user_id", 1), ("updated_at", -1)]),
 )
 
 
@@ -2425,3 +2440,213 @@ def toggle_note_task(note_id: str):
         except Exception:
             pass
         return jsonify({'ok': False, 'error': 'Failed to toggle task'}), 500
+
+
+#: כמה תוצאות מוחזרות כשלא נתבקש אחרת, וכמה הכי הרבה אפשר לבקש.
+#:
+#: **התקרה אינה קוסמטית.** ``limit`` מגיע מה-URL, כלומר מחוץ לתהליך, ובלי
+#: חסם עליון בקשה אחת יכולה לגרור את כל מכסת המשתמש
+#: (:data:`~sticky_notes_target.MAX_NOTES_PER_USER`) לתוך המיון ולתוך
+#: התשובה. חמישים תוצאות הן יותר ממה שמישהו סורק בעין; מי שצריך יותר
+#: מצמצם את החיפוש.
+NOTE_SEARCH_DEFAULT_LIMIT = 30
+NOTE_SEARCH_MAX_LIMIT = 100
+
+#: אורך מרבי למחט החיפוש עצמה.
+#:
+#: קבוע **נפרד** מ-:data:`~sticky_notes_target.NOTE_SEARCH_PREVIEW_CHARS`
+#: אף ששניהם 200 היום: זה חוסם קלט שנכנס לרג'קס, וזה קובע כמה מהגוף מוצג.
+#: מספר משותף לשני דברים שאינם אותו דבר הוא מספר שמישהו ישנה בשביל האחד
+#: וישבור את השני.
+NOTE_SEARCH_MAX_NEEDLE = 200
+
+
+def _search_limit(raw: Any) -> int:
+    """‏``limit`` מהשאילתה, חסום משני הצדדים.
+
+    ערך שאינו מספר אינו שגיאה אלא ברירת מחדל: הוא מגיע מ-URL שאפשר
+    להקליד ביד, והפלת הבקשה על ``?limit=abc`` מחליפה חיפוש שעובד בשגיאה
+    על פרמטר שאיש לא התכוון לשלוח.
+    """
+    try:
+        want = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return NOTE_SEARCH_DEFAULT_LIMIT
+    if want < 1:
+        return NOTE_SEARCH_DEFAULT_LIMIT
+    return min(want, NOTE_SEARCH_MAX_LIMIT)
+
+
+def build_note_search_pipeline(
+    user_id: int,
+    needle: str,
+    *,
+    color_id: Optional[str],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    """הצינור שמחפש פתקים — **בנוי כאן, ונבדק כפי שנשלח**.
+
+    סדר השלבים אינו קוסמטי, ושלושה מהם קיימים בגלל תקלות שכבר קרו בריפו
+    הזה:
+
+    1. ``$match`` — הפילטר המשותף עם ה-MCP
+       (:func:`~sticky_notes_target.note_search_filter`). **אותה פונקציה
+       ולא העתק**: שני חיפושי פתקים שמתאימים אחרת הם שני מוצרים שמתחזים
+       לאחד.
+    2. ``$addFields`` — הדירוג והתצוגה המקדימה, שניהם **לפני** שהגוף יורד,
+       כי שניהם נגזרים ממנו.
+    3. ``$project`` בהחרגה — הגוף יורד **לפני** ה-``$sort``. בסדר ההפוך
+       מונגו החזירה בפרודקשן שגיאה 292
+       (``QueryExceededMemoryLimitNoDiskUseAllowed``) והקוד נפל למסלול
+       איטי; ``allowDiskUse`` אינו מציל כי Atlas מתעלם ממנו ב-Flex. מתועד
+       ב-``tests/test_files_pipelines_drop_heavy_fields_early.py``.
+    4. ``$sort`` — כותרת לפני גוף, ובתוך כל קבוצה לפי עדכון אחרון.
+       ‏``false < true`` בסדר ה-BSON, ולכן ``-1`` מעלה את פגיעות הכותרת.
+    5. ``$limit`` עם **שורת סנטינל** (``limit + 1``), כמו ב-MCP: שורה
+       נוספת שחזרה היא ראיה שיש עוד, ולא ניחוש מתוך ספירה ששווה לתקרה.
+    6. ``$unset`` — שדה העזר של הדירוג אינו חלק מהתשובה.
+
+    **‏``$substrCP`` ו-``$strLenCP``, ולעולם לא הגרסאות ב-Bytes.** אות
+    עברית היא שני בייטים, וחיתוך בבייטים על מספר שנספר בתווים נוחת באמצע
+    תו ומפיל את השאילתה (``Location28657``). זה ``amir-bug-patterns`` H6,
+    והאירוע עצמו קרה כאן.
+
+    **הדירוג פשוט בכוונה.** אין כאן משקלות מכוילים: ``_calculate_relevance_score``
+    שהתיעוד מזכיר אינה קיימת בקוד כלל, וניקוד שאיש אינו יכול להסביר הוא
+    ניקוד שאיש לא יתחזק. פתק הוא נושא שלם, ולכן השאלה היא **איזה** פתק —
+    ומופע בשם הוא עדות חזקה יותר ממופע בגוף.
+    """
+    from sticky_notes_target import NOTE_SEARCH_PREVIEW_CHARS, note_search_filter
+
+    pattern = re.escape(str(needle))
+    body = {"$ifNull": ["$content", ""]}
+    return [
+        {"$match": note_search_filter(
+            int(user_id),
+            needle,
+            search_content=True,
+            content_needle=needle,
+            color_id=color_id,
+        )},
+        {"$addFields": {
+            "_title_hit": {"$regexMatch": {
+                # ``$ifNull`` כי ל-61% מהפתקים במסד אין שדה ``title`` כלל,
+                # ו-``$regexMatch`` על ``missing`` נופל בשגיאה במקום להחזיר
+                # ``false``.
+                "input": {"$ifNull": ["$title", ""]},
+                "regex": pattern,
+                "options": "i",
+            }},
+            "preview": {"$substrCP": [body, 0, NOTE_SEARCH_PREVIEW_CHARS]},
+            "preview_truncated": {"$gt": [{"$strLenCP": body}, NOTE_SEARCH_PREVIEW_CHARS]},
+        }},
+        {"$project": {"content": 0}},
+        {"$sort": {"_title_hit": -1, "updated_at": -1}},
+        {"$limit": int(limit) + 1},
+        {"$unset": "_title_hit"},
+    ]
+
+
+def _as_search_hit(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """שורת תוצאה — זהות, תצוגה מקדימה, ו**לעולם לא הגוף**.
+
+    ``url`` מצביע על ``/note/<id>`` ואינו מורכב כאן משדות היעד.
+    ‏``webapp/boards_ui.note_permalink`` הוא הבונה היחיד של קישור לפתק,
+    והוא מכיר את שלושת הסוגים — כולל רביעי שיתווסף. צרכן שמרכיב URL בעצמו
+    הוא בדיוק מה שהפונקציה ההיא נכתבה כדי לבטל.
+    """
+    from sticky_notes_target import note_target_ref
+
+    note_id = str(doc.get('_id'))
+    updated = doc.get('updated_at')
+    hit = {
+        'id': note_id,
+        'url': f'/note/{note_id}',
+        'title': str(doc.get('title', '') or ''),
+        'preview': _coerce_content_from_doc(doc.get('preview', '')),
+        'preview_truncated': bool(doc.get('preview_truncated')),
+        'color': note_color_hex(doc.get('color')),
+        'color_id': note_color_id(doc.get('color')),
+        'updated_at': updated.isoformat() if isinstance(updated, datetime) else None,
+    }
+    hit.update(note_target_ref(doc))
+    return hit
+
+
+@sticky_notes_bp.route('/search', methods=['GET'])
+@require_auth
+@notes_rate_limit('search', 60)
+@traced("sticky_notes.search")
+def search_notes():
+    """חיפוש בפתקים של המשתמש — בשם ובגוף, חוצה את שלושת היעדים.
+
+    **אותה התאמה כמו ב-MCP.** שניהם עוברים דרך
+    :func:`~sticky_notes_target.note_search_filter`, ולכן חיפוש של אותה
+    מילה בעמוד ובסוכן מחזיר את אותה קבוצת פתקים. מה שנבדל הוא רק מה שכל
+    צרכן **מציג**: ה-MCP מחזיר הפניות בלבד, והעמוד מוסיף תצוגה מקדימה.
+
+    **הרשאות: הפתקים של המשתמש, כל שלושת הסוגים** — בדיוק כמו
+    ``codekeeper_search_notes``, שאינו מגודר לאדמין (הגידור שם חל על
+    ``list_repo_notes``/``create_repo_note`` בלבד). גם ``/api/sticky-notes/repo/…``
+    בוובאפ נושא ``@require_auth`` בלבד, כלומר גייט אדמין כאן היה מסתיר
+    מהמשתמש פתקים שהוא כבר מושך בקריאה אחרת — גייט שאינו מגן על דבר.
+    """
+    try:
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+
+        # ``.strip()`` אחרי הסניטציה, ובכוונה: ``_sanitize_text`` מסירה תווי
+        # בקרה ולא רווחים, ולכן ``?q=%20%20`` היה עובר כמחט "לא ריקה"
+        # ומתורגם לרג'קס שתופס כל פתק שיש בו שני רווחים — כלומר בדיוק
+        # ה"הכול" שהבדיקה למטה נועדה למנוע.
+        needle = _sanitize_text(request.args.get('q', ''), NOTE_SEARCH_MAX_NEEDLE).strip()
+        if not needle:
+            # **ולא "הכול".** שאילתה ריקה על פילטר רג'קס תופסת כל פתק, כלומר
+            # משיבה תשובה לשאלה שלא נשאלה. אותה הכרעה כבר מקודדת
+            # ב-``note_search_filter``, שמעלה ``ValueError`` על מחט ריקה.
+            return jsonify({'ok': False, 'error': 'empty_query'}), 400
+
+        color_id = str(request.args.get('color', '') or '').strip().lower()
+        if color_id:
+            from sticky_notes_target import NOTE_COLOR_ORDER
+            if color_id not in NOTE_COLOR_ORDER:
+                # רשימת המזהים התקינים בתשובה, בדיוק כמו ב-``mcp_server``:
+                # קורא שיודע מה חוקי יכול לתקן, וקורא שקיבל ``ok`` על מסנן
+                # שלא הוחל מדווח דבר לא נכון.
+                return jsonify({
+                    'ok': False,
+                    'error': 'invalid_color',
+                    'allowed': list(NOTE_COLOR_ORDER),
+                }), 400
+        else:
+            color_id = None
+
+        limit = _search_limit(request.args.get('limit'))
+        db = get_db()
+        pipeline = build_note_search_pipeline(user_id, needle, color_id=color_id, limit=limit)
+        cursor = db.sticky_notes.aggregate(pipeline)
+        rows = list(cursor) if cursor is not None else []
+
+        truncated = len(rows) > limit
+        if truncated:
+            rows = rows[:limit]
+
+        resp = jsonify({
+            'ok': True,
+            'query': needle,
+            'color_id': color_id or '',
+            'count': len(rows),
+            'truncated': truncated,
+            'results': [_as_search_hit(doc) for doc in rows if isinstance(doc, dict)],
+        })
+        try:
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+        except Exception:
+            pass
+        return resp
+    except Exception as e:
+        try:
+            emit_event("sticky_notes_search_error", severity="anomaly", error=str(e))
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'Failed to search notes'}), 500

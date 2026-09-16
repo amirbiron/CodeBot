@@ -1,0 +1,66 @@
+{% extends "base_boards.html" %}
+
+{# עמוד חיפוש הפתקים.
+
+   **המזהים כאן ייחודיים בכוונה, ובפרט אינם** ``globalSearchInput``
+   **ו-**``searchBtn``: ‏``global_search.js`` נטען מ-``base.html`` בכל
+   עמוד, ומתחבר לכל דף שמכיל את שני המזהים האלה יחד (ראו
+   ``docs/webapp/commands-catalog``). שימוש חוזר בהם כאן היה מחבר לעמוד
+   הזה חיפוש שני, שמדבר עם API אחר לגמרי. #}
+
+{% block title %}חיפוש בפתקים - Code Keeper Bot{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/notes-search.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="notes-search-page">
+  <div class="notes-search-header">
+    <h1>🔍 חיפוש בפתקים</h1>
+    <a href="/boards" class="board-action">ללוחות</a>
+  </div>
+
+  <form class="notes-search-form" id="noteSearchForm" role="search">
+    <div class="notes-search-box">
+      <input type="search"
+             id="noteSearchInput"
+             name="q"
+             class="notes-search-input"
+             placeholder="מילה מתוך הפתק, או מהשם שלו…"
+             aria-label="חיפוש בפתקים"
+             autocomplete="off"
+             maxlength="200"
+             autofocus>
+      <button type="submit" id="noteSearchSubmit" class="board-action">חפש</button>
+    </div>
+
+    <fieldset class="notes-search-colors" id="noteSearchColors">
+      <legend>סינון לפי צבע</legend>
+      {# ``aria-pressed`` ולא ``aria-selected``: אלה כפתורי מצב דו-ערכי
+         ולא פריטים ברשימת בחירה. אותה החלטה כמו בבורר הצבע של הפתק. #}
+      <button type="button"
+              class="notes-color-chip is-any"
+              data-color-id=""
+              aria-pressed="true">כל הצבעים</button>
+      {% for color in note_palette %}
+      <button type="button"
+              class="notes-color-chip"
+              data-color-id="{{ color.id }}"
+              style="--chip-fill: {{ color.hex }};"
+              title="{{ color.label }}"
+              aria-label="{{ color.label }}"
+              aria-pressed="false"></button>
+      {% endfor %}
+    </fieldset>
+  </form>
+
+  <p class="notes-search-msg" id="noteSearchMsg" role="status" aria-live="polite" hidden></p>
+
+  <ol class="notes-search-results" id="noteSearchResults"></ol>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/notes_search.js') }}?v={{ static_version }}" defer></script>
+{% endblock %}
