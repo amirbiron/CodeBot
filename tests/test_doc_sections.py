@@ -115,7 +115,7 @@ def test_doc_sections_imports_no_parser_and_no_mcp():
     assert not offenders, f"doc_sections מייבא מה שאסור לו: {offenders}"
 
 
-def test_doc_sections_pulls_no_heavy_modules():
+def test_doc_sections_pulls_no_heavy_modules(tmp_path):
     """ייבוא המודול אינו גורר pymongo/bson/telegram/flask/``database``.
 
     **בתת-תהליך נקי ולא בתוך ה-session הזה**, כי pytest כבר ייבא חצי מהריפו
@@ -123,9 +123,21 @@ def test_doc_sections_pulls_no_heavy_modules():
     שהמודול גורר. הכלל עצמו מנומק ב-``mcp_server/__init__.py``:
     ``import database.schemas`` מריץ ``db = DatabaseManager()`` בזמן טעינת
     מודול, כלומר חיבור למונגו.
+
+    **ו-``-B`` ו-``cwd=tmp_path`` אינם קוסמטיקה** — זה בדיוק החיווט
+    ש-``tests/test_rst_parser.py`` כבר משתמש בו, וההערה שם מנמקת אותו:
+    בלי ``-B`` התת-תהליך כותב ``__pycache__`` לתוך ``services/``, כלומר
+    טסט שכותב לעץ המקור, וזה מה שכלל הבטיחות בפרויקט אוסר. ו-``cwd``
+    בתיקייה ייחודית לכל ריצה מבודד ריצות מקבילות זו מזו.
+
+    **ולכן ``sys.path.insert`` בתוכנית הוא נתיב מוחלט.** עד עכשיו הייבוא
+    עבד רק מפני שה-``cwd`` היה שורש הריפו, כלומר ההסתמכות על עץ המקור
+    הייתה גם מה שאפשר את המדידה. הנתיב המוחלט מנתק את השניים, ומאותה
+    סיבה הוא נלקח מ-``_ROOT`` ולא מ-``os.getcwd()``.
     """
     code = (
         "import sys\n"
+        f"sys.path.insert(0, {str(_ROOT)!r})\n"
         "before = set(sys.modules)\n"
         "from services import doc_sections\n"
         "new = set(sys.modules) - before\n"
@@ -134,7 +146,7 @@ def test_doc_sections_pulls_no_heavy_modules():
         "{'pymongo', 'bson', 'telegram', 'flask', 'database'})\n"
         "print(','.join(heavy))\n"
     )
-    proc = subprocess.run([sys.executable, "-c", code], cwd=str(_ROOT),
+    proc = subprocess.run([sys.executable, "-B", "-c", code], cwd=str(tmp_path),
                           capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == "", f"נגררו מודולים כבדים: {proc.stdout.strip()}"
