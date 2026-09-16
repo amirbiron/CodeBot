@@ -123,17 +123,14 @@ _RANGE_DOC = (
 # מתיישן בשקט בצבע הבא שיתווסף — הסוכן היה ממשיך לראות רשימה חלקית בלי
 # שאף בדיקה תשים לב. כאן הוא מתעדכן מאליו.
 def _build_note_color_doc() -> str:
-    from sticky_notes_target import NOTE_COLORS, NOTE_COLOR_ORDER
+    from sticky_notes_target import NOTE_COLOR_ORDER
 
-    names = ", ".join(f"{cid} ({NOTE_COLORS[cid]['hex']})" for cid in NOTE_COLOR_ORDER)
+    names = ", ".join(NOTE_COLOR_ORDER)
     return (
-        "Note colour. Either a palette id — " + names + " — or a free CSS hex "
-        "value. A hex that matches a palette shade is stored as that id; any "
-        "other hex is kept as-is. Notes read back carry both: color as hex "
-        "(always a valid CSS value) and color_id as the palette id, or an "
-        "empty string when the colour is not in the palette. On create an "
-        "unusable value falls back to the default; on update it is dropped, "
-        "so an existing colour is never overwritten by accident."
+        "Note colour: a palette id (" + names + ") or any CSS hex. A hex that "
+        "matches a palette shade is stored as its id. Notes read back carry "
+        "color (hex) and color_id (palette id, or empty). An invalid value is "
+        "refused with the list of valid ids."
     )
 
 

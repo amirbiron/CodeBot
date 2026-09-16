@@ -720,15 +720,16 @@ def test_the_colour_param_doc_is_derived_from_the_palette():
 
     נופלת אם מישהו יחליף את הגזירה ברשימה מוקלדת, ברגע שהפלטה תשתנה.
     """
-    from sticky_notes_target import NOTE_COLORS, NOTE_COLOR_ORDER
+    from sticky_notes_target import NOTE_COLOR_ORDER
 
     from mcp_server.server import _build_note_color_doc
 
     doc = _build_note_color_doc()
     for color_id in NOTE_COLOR_ORDER:
         assert color_id in doc, color_id
-        assert NOTE_COLORS[color_id]["hex"] in doc, color_id
 
     # ושני השדות שחוזרים מוסברים, אחרת סוכן שמקבל ``color_id`` ריק אינו
     # יודע שזו התשובה הנכונה ל"הצבע אינו בפלטה" ולא תקלה.
     assert "color_id" in doc
+    # ושהדחייה מוצהרת — סוכן שאינו יודע שערך פסול נדחה יניח שהוא הוחל.
+    assert "refused" in doc

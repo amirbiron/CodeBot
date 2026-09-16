@@ -1398,9 +1398,13 @@ def update_note(note_id: str):
             updates['height'] = _coerce_int(size.get('height'), 200, 80, 1200)
         if 'color' in data:
             # ``default=None`` ← ערך פסול **נשמט** ואינו דורס את הצבע
-            # הקיים בברירת מחדל. אותה הבחנה בדיוק שכבר קיימת ב-
-            # ``mcp_server/handlers``: ביצירה נופלים לברירת המחדל,
-            # בעדכון שומטים.
+            # הקיים בברירת מחדל.
+            #
+            # **ובכוונה שונה מ-``mcp_server/handlers``, שדוחה בשגיאה.**
+            # הבורר כאן שולח רק מזהים שעברו בדיקה מול הפלטה בצד הלקוח,
+            # ולכן ערך פסול אינו קלט משתמש אלא באג אצלנו; שם הכותב הוא
+            # סוכן שכותב מה שהוא רוצה, ו-``ok`` על צבע שלא הוחל מגיע
+            # למשתמש כדיווח שגוי. ההסבר המלא ב-``resolve_note_color``.
             color = resolve_note_color(data.get('color'), default=None)
             if color:
                 updates['color'] = color
