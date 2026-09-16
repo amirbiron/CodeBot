@@ -713,7 +713,7 @@ def update_file_description(
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
-    # ‏mypy מסמן את השורה הבאה ``unreachable``, כי החתימה מצהירה ``str``.
+    # mypy מסמן את השורה הבאה ``unreachable``, כי החתימה מצהירה ``str``.
     # הבדיקה נשארת מאותה סיבה שהיא נשארת ב-:func:`edit_file` וב-
     # :func:`append_file` — ושם היא מייצרת בדיוק את אותה הערה: ההצהרה
     # אינה אכיפה בזמן ריצה, והערך מגיע מחוץ לתהליך

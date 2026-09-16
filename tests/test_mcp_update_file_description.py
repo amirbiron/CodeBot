@@ -508,7 +508,7 @@ async def test_the_shared_write_path_import_stays_inside_the_route():
     )
     offenders = [line for line in top_level if not line.startswith((" ", "\t"))]
 
-    # ‏``HEAVY_FIELDS_EXCLUDE_PROJECTION`` הוא החריג המותר: הוא בתוך
+    # ``HEAVY_FIELDS_EXCLUDE_PROJECTION`` הוא החריג המותר: הוא בתוך
     # ``try/except`` עם fallback, ולכן כשל ייבוא שלו אינו מפיל את המודול.
     offenders = [line for line in offenders if "HEAVY_FIELDS" not in line]
 

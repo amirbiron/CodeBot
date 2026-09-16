@@ -22,7 +22,6 @@
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 
@@ -50,6 +49,8 @@ class _DummyRedis:
 
     def __init__(self):
         self.store: dict[str, str] = {}
+        #: כמה פעמים ה-keyspace נסרק. הצורה הישנה סרקה אחת לכל דפוס.
+        self.scan_calls = 0
 
     def ping(self):
         return True
@@ -74,14 +75,23 @@ class _DummyRedis:
         return count
 
     def scan_iter(self, match=None, count=None):
-        # מחזיר את כל המפתחות ומשאיר ל-``delete_pattern`` לסנן ב-``fnmatch``,
-        # בדיוק כפי שהיא עושה מול לקוחות שאינם מכבדים ``match``.
+        # מחזיר את כל המפתחות ומשאיר ל-``delete_patterns`` לסנן, בדיוק כפי
+        # שהיא עושה מול לקוחות שאינם מכבדים ``match``. מאז המעבר לסריקה
+        # אחת הקוד ממילא אינו מעביר ``match``.
+        self.scan_calls += 1
         return list(self.store.keys())
 
 
 @pytest.fixture
 def cache(monkeypatch):
-    os.environ["REDIS_URL"] = "redis://dummy"
+    """``CacheManager`` עם Redis מדומה, בלי לדלוף ``REDIS_URL`` החוצה.
+
+    ``monkeypatch.setenv`` ולא השמה ישירה ל-``os.environ``: ההשמה הישירה
+    שרדה את סוף הבדיקה, וכל ``CacheManager`` שנבנה אחריה באותה ריצה ירש
+    ``redis://dummy`` — כתובת שאין מאחוריה שרת. ``monkeypatch`` מחזיר את
+    המצב הקודם, כולל **הסרה** של המשתנה כשהוא לא היה מוגדר מלכתחילה.
+    """
+    monkeypatch.setenv("REDIS_URL", "redis://dummy")
     cm = CacheManager()
     monkeypatch.setattr(cm, "redis_client", _DummyRedis(), raising=True)
     monkeypatch.setattr(cm, "is_enabled", True, raising=True)
@@ -172,3 +182,92 @@ def test_without_a_user_id_only_the_file_keyed_entries_go(cache):
 
     assert cache.get(file_key) is None
     assert cache.get(list_key) is not None
+
+
+def test_all_the_patterns_share_one_scan_of_the_keyspace(cache):
+    """הניקוי סורק את ה-keyspace **פעם אחת**, לא פעם לכל דפוס.
+
+    **למה זה נבדק, ולמה זה לא רק ביצועים.** הצורה הקודמת קראה ל-
+    ``delete_pattern`` בלולאה, וכל קריאה הריצה ``SCAN`` משלה. שתי
+    תוצאות, ושתיהן נמדדו מול Redis 7 אמיתי על keyspace של 100,000
+    מפתחות:
+
+    1. **2,000 פקודות ``SCAN`` מול 200.** ``MATCH`` של Redis מסנן
+       *אחרי* השליפה מהאוסף, ולכן דפוס אינו מקצר את הסריקה — עשרה
+       דפוסים היו עשרה מעברים מלאים. על localhost ההפרש נבלע, אבל
+       ב-RTT של 1ms זה 2.0 שניות מול 0.2.
+    2. **תקציב הזמן היה פר-דפוס.** ``CACHE_DELETE_PATTERN_BUDGET_SECONDS``
+       הוא 5 שניות, וכל קריאה קיבלה תקציב משלה — כלומר עשרה דפוסים יכלו
+       לחסום את התהליך עד 50 שניות. זו התנהגות, לא אופטימיזציה.
+
+    הטענה היא על **מספר הסריקות** ולא על זמן, כי זמן על מכונת בדיקה
+    אינו מעיד על פרודקשן — ומספר הסריקות כן.
+    """
+    for key in LIST_KEYS.values():
+        cache.set(key, json.dumps([{"description": "ישן"}]))
+    cache.redis_client.scan_calls = 0
+
+    cache.invalidate_file_related(FILE_ID, USER_ID)
+
+    assert cache.redis_client.scan_calls == 1, (
+        f"ה-keyspace נסרק {cache.redis_client.scan_calls} פעמים — "
+        "כלומר הדפוסים עדיין נמחקים אחד-אחד"
+    )
+
+
+def test_a_single_pattern_still_works_through_the_same_path(cache):
+    """``delete_pattern`` נשארה עובדת — היא מקרה פרטי של ``delete_patterns``.
+
+    יש לה קוראים רבים בריפו, והמעבר לא אמור להיראות להם. הבדיקה גם
+    מוודאת שדפוס בודד אינו סורק יותר מפעם אחת.
+    """
+    cache.set("file_content:abc:raw", json.dumps({"code": "x"}))
+    cache.set("other:abc:raw", json.dumps({"code": "y"}))
+    cache.redis_client.scan_calls = 0
+
+    deleted = cache.delete_pattern("file_content:*")
+
+    assert deleted == 1, deleted
+    assert cache.get("file_content:abc:raw") is None
+    assert cache.get("other:abc:raw") is not None, "נמחק מפתח שלא תאם"
+    assert cache.redis_client.scan_calls == 1
+
+
+def test_an_empty_pattern_list_scans_nothing(cache):
+    """רשימה ריקה אינה סורקת, ובוודאי אינה מוחקת.
+
+    בלי היציאה המוקדמת, רג'קס מאוחד מאפס דפוסים הוא מחרוזת ריקה —
+    שמתאימה ל**כל** מפתח. כלומר "אין מה למחוק" היה הופך ל"מחק הכול".
+    זה תרחיש הכשל שהופך את השורה הזו לבדיקה ולא לפורמליות.
+    """
+    cache.set("file_content:abc:raw", json.dumps({"code": "x"}))
+    cache.redis_client.scan_calls = 0
+
+    assert cache.delete_patterns([]) == 0
+    assert cache.redis_client.scan_calls == 0
+    assert cache.get("file_content:abc:raw") is not None, "רשימה ריקה מחקה מפתחות"
+
+
+def test_a_pattern_matches_the_whole_key_and_not_a_substring_of_it(cache):
+    """הדפוס מעוגן לתחילת המפתח, כמו glob של Redis.
+
+    **המוטציה שחשפה את הפער:** ``matcher.search`` במקום ``matcher.match``
+    עבר את כל שאר הקובץ. ``fnmatch.translate`` מייצר דפוס שמעוגן בסוף
+    (``\\Z``) אבל **לא** בהתחלה, ולכן ``search`` היה מתאים גם מפתח
+    שהדפוס יושב באמצעו. ``MATCH`` של Redis מתאים את המפתח **כולו**,
+    ולכן ``match`` הוא מה ששומר על זהות בין הסינון בשרת לסינון בלקוח.
+
+    בלי הבדיקה הזו, מפתח של מודול אחר שבמקרה מכיל ``file_content:``
+    באמצעו היה נמחק בניקוי של קובץ שאינו קשור אליו.
+    """
+    victim = "unrelated:file_content:abc:raw"
+    target = "file_content:abc:raw"
+    cache.set(victim, json.dumps({"code": "לא שלי"}))
+    cache.set(target, json.dumps({"code": "שלי"}))
+
+    cache.delete_pattern("file_content:*")
+
+    assert cache.get(target) is None, "המפתח שהיה אמור להימחק נשאר"
+    assert cache.get(victim) is not None, (
+        "נמחק מפתח שהדפוס מופיע רק באמצעו — הסינון אינו מעוגן לתחילת המפתח"
+    )
