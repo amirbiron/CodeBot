@@ -23,7 +23,7 @@ cd -- "${TMPDIR:-/tmp}" 2>/dev/null || true
 
 # ברירת המחדל היא ה-MCP host. חשוב: האנדפוינט חי רק שם — הצבעה על הוובאפ
 # מחזירה 404. ניתן לעקוף דרך CODEKEEPER_PRIMER_URL בהגדרות הסביבה.
-PRIMER_URL="${CODEKEEPER_PRIMER_URL:-https://codekeeper-mcp.onrender.com/api/agent/primer}"
+PRIMER_URL="${CODEKEEPER_PRIMER_URL:-https://codekeepermcp.onrender.com/api/agent/primer}"
 
 # תקרה נדיבה יותר מ-10 שניות: השירות רץ על Render ויכול להיות "ישן", וההתעוררות
 # לבדה אוכלת כמה שניות. עדיין קצר מספיק כדי לא לעכב פתיחת סשן באופן מורגש.
