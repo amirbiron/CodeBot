@@ -427,6 +427,47 @@
     .mcp-copy-cell:focus-visible { opacity: 1; color: var(--primary); }
     .mcp-copy-cell:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 
+    /* --- סימון "טופל" / "נדחה" --- */
+    .mcp-mark { white-space: nowrap; }
+    .mcp-mark-group { display: inline-flex; gap: 0.25rem; }
+    .mcp-mark-group[hidden] { display: none; }
+    .mcp-mark-btn {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      line-height: 1;
+      opacity: 0.6;
+      padding: 0.3rem 0.5rem;
+    }
+    .mcp-mark-btn:hover { opacity: 1; background: var(--glass-hover); }
+    .mcp-mark-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; opacity: 1; }
+    .mcp-mark-btn[aria-pressed="true"] { opacity: 1; }
+    /* הצבע מגיע מהטוקנים הגלובליים ב-``:root`` של ``base.html``, ולכן הוא
+       נכון בכל שמונה הערכות בלי override לכל אחת. */
+    .mcp-mark-btn[data-mark="handled"][aria-pressed="true"] {
+      color: var(--success);
+      border-color: var(--success);
+    }
+    .mcp-mark-btn[data-mark="rejected"][aria-pressed="true"] {
+      color: var(--danger);
+      border-color: var(--danger);
+    }
+    .mcp-mark-off { opacity: 0.4; }
+
+    /* שורה מסומנת מתעמעמת — **חוץ מעמודת הסימון עצמה**, שאחרת הכפתור
+       שמבטל את הסימון היה הדבר הכי קשה לראות בשורה. */
+    tr[data-mark] td:not(.mcp-mark) { opacity: 0.5; }
+
+    .mcp-mark-note {
+      color: var(--danger);
+      font-size: 0.85rem;
+      margin: 0 0 0.5rem;
+    }
+    .mcp-mark-note[hidden] { display: none; }
+
     /* --- מצב ריק ושגיאה --- */
     .mcp-state {
       text-align: center;
@@ -933,10 +974,14 @@
           <h2><i class="fas fa-lightbulb" aria-hidden="true"></i> יכולות שסוכנים ביקשו</h2>
           {{ meta_line(missing_capabilities) }}
         </div>
+        {#- הודעת כשל של הסימון. מוסתרת עד שיש מה לומר, ונחשפת רק כשכתיבה
+            לא נשמרה באמת — ראו ההסבר ב-JS. -#}
+        <p class="mcp-mark-note" id="mcpMarkNote" role="status" hidden></p>
         {% if missing_capabilities.rows %}
           <table class="mcp-table">
             <thead>
               <tr>
+                <th scope="col">טיפול</th>
                 <th scope="col">מתי</th>
                 <th scope="col">מה הסוכן ביקש</th>
                 <th scope="col">מקור</th>
@@ -946,7 +991,31 @@
             </thead>
             <tbody>
               {% for row in missing_capabilities.rows %}
-                <tr>
+                {#- ``data-cap-key`` הוא הזהות של הדיווח לצורך הסימון, והוא
+                    נכתב **רק** כשיש חותמת זמן. שתי שורות בלי חותמת היו
+                    מקבלות אותו מפתח ונסמנות יחד בלי שאף אחד יראה למה, ולכן
+                    שורה כזו פשוט אינה ניתנת לסימון ואומרת זאת. -#}
+                <tr{% if row.reported_at %} data-cap-key="{{ row.reported_at }}|{{ row.session if row.session is not none else '' }}"{% endif %}>
+                  {#- שתי בקרות ולא צ'קבוקס אחד, כי המצבים הם שלושה: לא
+                      טופל, טופל, נדחה. לחיצה על כפתור פעיל מחזירה ל"לא
+                      טופל" — אחרת אי אפשר לבטל סימון שנלחץ בטעות.
+
+                      הן נחשפות ב-JS בלבד: הסימון חי ב-``localStorage`` של
+                      הדפדפן, ובלי JS הכפתור היה נלחץ ולא שומר כלום. -#}
+                  <td class="mcp-mark">
+                    {% if row.reported_at %}
+                      <div class="mcp-mark-group" role="group" aria-label="סימון טיפול" hidden>
+                        <button type="button" class="mcp-mark-btn" data-mark="handled" aria-pressed="false" aria-label="סימון כטופל" title="טופל">
+                          <i class="fas fa-check" aria-hidden="true"></i>
+                        </button>
+                        <button type="button" class="mcp-mark-btn" data-mark="rejected" aria-pressed="false" aria-label="סימון כנדחה" title="נדחה">
+                          <i class="fas fa-xmark" aria-hidden="true"></i>
+                        </button>
+                      </div>
+                    {% else %}
+                      <span class="mcp-mark-off" title="אין חותמת זמן לדיווח, ולכן אי אפשר לזהות אותו בין טעינות">—</span>
+                    {% endif %}
+                  </td>
                   <td class="mcp-num">{{ when(row.reported_at) }}</td>
                   {#- כפתור אייקון בלי טקסט: הוא חוזר בכל שורה, והמילה
                       "העתק" הייתה מכפילה את רוחב העמודה שהיא עיקר הטבלה.
@@ -1342,6 +1411,119 @@
     document.addEventListener('keydown', function (event) {
       if (event.key === 'Escape') { closeMenus(); }
     });
+
+    // ---- סימון "טופל" / "נדחה" ב"כלים חסרים" ----
+    //
+    // הסימון חי **בדפדפן הזה בלבד**, ב-``localStorage``, כמו באנר "שגיאות
+    // חדשות" שמעל. השורות עצמן מגיעות מ-PostHog ואי אפשר לכתוב אליהן, ולכן
+    // מה שנשמר כאן הוא שכבה דקה מעליהן ולא שינוי בנתונים.
+    //
+    // **מה שמצויר הוא מה שנקרא מהאחסון, לא מה שנלחץ.** ``setItem`` זורק
+    // כשהמכסה מלאה או כשהאחסון חסום, ו"לא זרק" עדיין אינו "נשמר". לכן כל
+    // כתיבה נקראת חזרה, ורק הערך שחזר קובע את מצב הכפתורים — אחרת לחיצה
+    // שלא נשמרה הייתה נראית בדיוק כמו לחיצה שנשמרה, עד הרענון הבא.
+    var MARK_KEY = 'mcpMissingMarks';
+    var MARK_VALUES = ['handled', 'rejected'];
+    //: תקרת רשומות. דיווח נושר מהשאילתה אחרי 90 יום ולא חוזר, אבל הסימון
+    //: שלו נשאר באחסון — ובלי תקרה זו צמיחה בלי סוף. הגזירה היא לפי חותמת
+    //: הזמן שבתוך המפתח עצמו, כלומר הישנים נופלים ראשונים ואין צורך בשדה
+    //: נוסף. בקצב הנוכחי היא לא תיגע בכלום במשך שנים; היא שם כדי שהגבול
+    //: יהיה קיים, לא כדי שירוץ.
+    var MARK_LIMIT = 500;
+
+    function normalizeMark(value) {
+      // ``localStorage`` הוא ערך שהגיע מחוץ לתהליך: הוא יכול להכיל כל דבר
+      // שנכתב בגרסה קודמת, או שנערך ביד. מה שאינו אחד משני המצבים המוכרים
+      // נחשב "לא מסומן", ולא נכתב ל-DOM כמו שהוא.
+      return MARK_VALUES.indexOf(value) === -1 ? '' : value;
+    }
+
+    function readMarks() {
+      // כל מה שאינו אובייקט תקין נחשב "אין סימונים": JSON שבור לא אמור
+      // להפיל את הטבלה שהוא מעטר.
+      try {
+        var parsed = JSON.parse(window.localStorage.getItem(MARK_KEY));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) { return {}; }
+        return parsed;
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function prunedMarks(marks, keep) {
+      var keys = Object.keys(marks);
+      if (keys.length <= MARK_LIMIT) { return marks; }
+      // המפתח הוא ``<חותמת זמן ISO>|<סשן>``, ולכן מיון לקסיקוגרפי עליו הוא
+      // מיון כרונולוגי — בלי לשמור שדה זמן נפרד.
+      keys.sort();
+      var survivors = keys.slice(keys.length - MARK_LIMIT);
+      // המפתח שנכתב זה עתה שורד תמיד. בלי זה גזירה הייתה יכולה למחוק דווקא
+      // את הסימון שהמשתמש בדיוק לחץ, והכתיבה הייתה מדווחת ככשל שאי אפשר
+      // להסביר.
+      if (keep && survivors.indexOf(keep) === -1) { survivors[0] = keep; }
+      var out = {};
+      survivors.forEach(function (key) { out[key] = marks[key]; });
+      return out;
+    }
+
+    function storeMark(key, value) {
+      var marks = readMarks();
+      if (value) { marks[key] = value; } else { delete marks[key]; }
+      try {
+        window.localStorage.setItem(MARK_KEY, JSON.stringify(prunedMarks(marks, key)));
+      } catch (e) {
+        return { ok: false, value: normalizeMark(readMarks()[key]) };
+      }
+      var actual = normalizeMark(readMarks()[key]);
+      return { ok: actual === value, value: actual };
+    }
+
+    function paintMark(row, value) {
+      // ``data-mark`` על השורה הוא המצב, ו-``data-mark`` על הכפתור הוא
+      // המצב שהוא מציע. אותו שם, שני תפקידים — וזה מה שמחזיק את ה-CSS פשוט.
+      if (value) { row.dataset.mark = value; } else { delete row.dataset.mark; }
+      Array.prototype.slice.call(row.querySelectorAll('.mcp-mark-btn')).forEach(function (button) {
+        button.setAttribute('aria-pressed', button.dataset.mark === value ? 'true' : 'false');
+      });
+    }
+
+    function markNote(message) {
+      var note = document.getElementById('mcpMarkNote');
+      if (!note) { return; }
+      note.textContent = message || '';
+      note.hidden = !message;
+    }
+
+    (function initMarks() {
+      var rows = Array.prototype.slice.call(document.querySelectorAll('tr[data-cap-key]'));
+      if (!rows.length) { return; }
+
+      var marks = readMarks();
+      rows.forEach(function (row) {
+        // נחשפים רק עכשיו: בלי JS הכפתורים אינם שומרים כלום, וכפתור מת גרוע
+        // מכפתור שאינו שם. אותו נימוק שמאחורי כפתור ההעתקה.
+        var group = row.querySelector('.mcp-mark-group');
+        if (group) { group.hidden = false; }
+        paintMark(row, normalizeMark(marks[row.dataset.capKey]));
+      });
+
+      document.addEventListener('click', function (event) {
+        var button = event.target.closest ? event.target.closest('.mcp-mark-btn') : null;
+        if (!button) { return; }
+        var row = button.closest('tr');
+        var key = row ? row.dataset.capKey : '';
+        if (!key) { return; }
+
+        // לחיצה על כפתור שכבר פעיל מבטלת את הסימון — אחרת אין דרך לחזור
+        // מ"נדחה" ל"לא טופל" בלי לנקות אחסון ביד.
+        var current = normalizeMark(readMarks()[key]);
+        var wanted = current === button.dataset.mark ? '' : button.dataset.mark;
+        var result = storeMark(key, wanted);
+
+        paintMark(row, result.value);
+        markNote(result.ok ? '' : 'הסימון לא נשמר — הדפדפן חוסם אחסון מקומי. מה שמוצג בטבלה הוא מה ששמור בפועל.');
+      });
+    })();
 
     // העתקת תא בודד ב"כלים חסרים". הטקסט מגיע מ-``data-v`` שעל התא ולא
     // מ-``textContent``, כי תא ריק מציג מקף — ומקף אינו מה שרוצים בלוח.

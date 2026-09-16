@@ -1021,3 +1021,77 @@ def test_the_free_text_columns_are_not_sortable(admin, monkeypatch):
 
     assert _header_link(soup, "sessions", "סשן") is None
     assert _header_link(soup, "sessions", "מה הסוכן ניסה לעשות") is None
+
+
+# --------------------------------------------------------------------------
+# סימון "טופל" / "נדחה"
+#
+# הסימון עצמו חי ב-``localStorage`` של הדפדפן, ולכן מה שנבדק כאן הוא רק מה
+# שהשרת מרנדר: העוגן שמזהה את השורה בין טעינות, והכפתורים. ההתנהגות —
+# לחיצה, שמירה, ושרידות לרענון — נבדקת ב-``test_admin_mcp_tabs_browser.py``,
+# כי היא רצה בדפדפן בלבד.
+# --------------------------------------------------------------------------
+
+MARK_ROW = {
+    "reported_at": "2026-09-02T10:00:00Z",
+    "capability": "לחפש בתוך תוצאות של חיפוש קודם",
+    "intent_source": "agent", "client": "claude-code", "session": "ses_x",
+}
+
+
+def test_each_capability_row_carries_a_stable_key_for_the_mark(admin, monkeypatch):
+    """המפתח נגזר מהזמן ומהסשן — שני ערכים שאינם משתנים בין טעינות.
+
+    בלעדיו אין למה לקשור את הסימון, והוא היה נדבק למספר השורה — כלומר
+    זז לשורה אחרת ברגע שיגיע דיווח חדש.
+    """
+    _install(monkeypatch, missing=EndpointResult(rows=[MARK_ROW]))
+    row = _soup(admin.get("/admin/mcp")).select_one("tr[data-cap-key]")
+
+    assert row is not None
+    assert row["data-cap-key"] == "2026-09-02T10:00:00Z|ses_x"
+
+
+def test_a_row_without_a_timestamp_is_not_markable(admin, monkeypatch):
+    """אין חותמת זמן ← אין זהות. שתי שורות כאלה היו מקבלות מפתח זהה
+    ונסמנות יחד, ולכן השורה אומרת שאי אפשר לסמן אותה במקום לסמן לא נכון."""
+    _install(monkeypatch, missing=EndpointResult(rows=[{**MARK_ROW, "reported_at": None}]))
+    soup = _soup(admin.get("/admin/mcp"))
+    panel = soup.select_one('.mcp-panel[data-panel="missing"]')
+
+    assert panel.select_one("tr[data-cap-key]") is None
+    assert panel.select_one("td.mcp-mark .mcp-mark-group") is None
+    assert panel.select_one("td.mcp-mark .mcp-mark-off") is not None
+
+
+def test_both_marks_are_offered_and_start_unpressed(admin, monkeypatch):
+    _install(monkeypatch, missing=EndpointResult(rows=[MARK_ROW]))
+    cell = _soup(admin.get("/admin/mcp")).select_one("td.mcp-mark")
+    buttons = cell.select("button.mcp-mark-btn")
+
+    assert [button["data-mark"] for button in buttons] == ["handled", "rejected"]
+    assert all(button["aria-pressed"] == "false" for button in buttons)
+    # כפתור אייקון בלי שם נגיש הוא כפתור אילם.
+    assert all(button.get("aria-label") for button in buttons)
+
+
+def test_the_mark_buttons_are_hidden_until_javascript_reveals_them(admin, monkeypatch):
+    """בלי JS הלחיצה אינה שומרת כלום, וכפתור מת גרוע מכפתור שאינו שם.
+
+    אותו נימוק שכבר עומד מאחורי כפתור ההעתקה, שגם הוא נחשף ב-JS בלבד.
+    """
+    _install(monkeypatch, missing=EndpointResult(rows=[MARK_ROW]))
+    group = _soup(admin.get("/admin/mcp")).select_one("td.mcp-mark .mcp-mark-group")
+
+    assert group.has_attr("hidden")
+
+
+def test_the_capability_table_has_a_column_for_the_mark(admin, monkeypatch):
+    _install(monkeypatch, missing=EndpointResult(rows=[MARK_ROW]))
+    panel = _soup(admin.get("/admin/mcp")).select_one('.mcp-panel[data-panel="missing"]')
+    heads = [th.get_text(strip=True) for th in panel.select("thead th")]
+    body_cells = panel.select("tbody tr")[0].select("td")
+
+    assert heads[0] == "טיפול"
+    # אותו מספר תאים ככותרות — עמודה שנוספה רק לכותרת מזיזה את כל השורה.
+    assert len(body_cells) == len(heads)
