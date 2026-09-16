@@ -21,6 +21,14 @@
   // הערך **נצרך כשהפתק נמצא**, לא כשהוא נקרא — ראו
   // ``_maybeScrollToNoteFromUrl``. כך טעינת פתקים שנכשלה אינה שורפת את
   // הכוונה, וגלילה מוצלחת אינה חוזרת על עצמה במנהל הבא.
+  //: ה-``z-index`` הבא שיינתן לפתק שמועלה לקדמת הערימה.
+  //:
+  //: מתחיל מ-950, שהוא הערך ש-``sticky-notes.css`` נותן ל**כל** הפתקים,
+  //: ועולה באחד בכל העלאה. מונה ולא ערך קבוע: שני פתקים שהועלו זה אחרי
+  //: זה היו מקבלים אותו ערך, ואז הסדר ביניהם היה נקבע שוב לפי ה-DOM —
+  //: כלומר ההעלאה השנייה לא הייתה עושה כלום.
+  let NOTE_FRONT_Z = 950;
+
   let pendingNoteIdFromUrl = (function(){
     try {
       const u = new URL(window.location.href);
@@ -4486,6 +4494,22 @@
             // מונעת גלילה חוזרת במנהל הבא.
             if (pendingNoteIdFromUrl === id) pendingNoteIdFromUrl = '';
             this.scrollToNote(id);
+            // **הפעולה פעם אחת, והאימות בנפרד.**
+            //
+            // "קראנו ל-``scrollToNote``" אינו "הגענו לפתק": המשטח גדל
+            // לגובה הפתק האחרון **אחרי** שהפתקים נטענו, ולכן גלילה
+            // שחושבה ברגע שהרשומה הופיעה נשענה על פריסה שטרם התייצבה,
+            // והדף נשאר בראש. זו בדיוק הצורה שבה "עובד אצלי" נכשל אצל
+            // מי שהלוח שלו גדול יותר.
+            //
+            // אבל התיקון אינו לקרוא ל-``scrollToNote`` שוב: היא גם פותחת
+            // פתק ממוזער וגם מעלה אותו בערימה, ושתי אלה הן פעולה חד-פעמית
+            // שאין טעם לחזור עליה — וגם ``behavior: 'smooth'`` שנקרא שוב
+            // ושוב נלחם בעצמו. לכן ``_ensureInView`` מחזירה **רק את
+            // הגלילה**. ``tests/sticky-notes-deep-link.test.js`` נועל את
+            // ההבחנה הזו: הוא סופר קריאות ל-``scrollToNote``, ותפס את
+            // הגרסה שחזרה על כולה.
+            this._ensureInView(entry.el, 8);
             return;
           }
         } catch(_) {}
@@ -4496,28 +4520,139 @@
       attempt(8);
     }
 
+    /**
+     * פותח פתק ממוזער — **ושומר אותו פתוח**.
+     *
+     * השמירה אינה פרט טכני. פתק שנפתח לתצוגה בלבד היה נראה פתוח עכשיו
+     * וחוזר להיות ממוזער בכניסה הבאה ללוח, והמשתמש — שלא הפעיל שום
+     * מיזעור — היה מחפש אותו ולא מוצא. כלומר בדיוק הבלבול שהניווט הזה
+     * בא למנוע.
+     */
+    _revealMinimized(entry){
+      try {
+        if (!entry || !entry.el || !entry.el.classList.contains('is-minimized')) return;
+        entry.el.classList.remove('is-minimized');
+        // אותו מסלול שבו הכפתור בכותרת שומר, ולכן גם ``entry.data``
+        // מתעדכן דרך ``_syncEntryFromFragment``.
+        this._queueSave(entry.el, { is_minimized: false });
+      } catch(_) {}
+    }
+
+    /**
+     * מעלה פתק לקדמת הערימה.
+     *
+     * **תמיד, ולא לפי אחוז הסתרה.** כל הפתקים חולקים ``z-index: 950``
+     * ב-CSS, כלומר מי שמצויר אחרון יושב מלמעלה ואין שדה סדר לא ב-DOM ולא
+     * במסד. לכן ההעלאה היא שינוי תצוגה בלבד, בלי שום דבר לשמור — וסף
+     * "כמה מוסתר" היה מוסיף מספר שרירותי לתחזק, בשביל התנהגות שממילא
+     * נכונה תמיד.
+     */
+    _raiseToFront(el){
+      try {
+        if (!el || !el.style) return;
+        NOTE_FRONT_Z += 1;
+        el.style.zIndex = String(NOTE_FRONT_Z);
+      } catch(_) {}
+    }
+
+    /**
+     * האלמנט של העוגן, או ``null``.
+     *
+     * **אלמנט ולא ``Y``, וזה כל ההבדל.** :js:func:`_getYForAnchor` מחזירה
+     * מיקום במרחב המסמך, ומי שמקבל אותו חייב לדעת **את מי** לגלול —
+     * ובדיוק שם נשברה הגלילה: ``window.scrollTo`` מגלגל את
+     * ``document.scrollingElement``, שהוא ``<html>``, בעוד שבעמוד הלוח
+     * נמדד בכרומיום שדווקא ``<body>`` הוא הגולל (``scrollHeight`` 3758 מול
+     * ``clientHeight`` 800). כלומר הקריאה פנתה לאלמנט שאין לו לאן לזוז.
+     *
+     * ``scrollIntoView`` על האלמנט עצמו פותר את זה בשורש: הדפדפן מגלגל
+     * **כל** אב שנדרש, ואינו צריך שנדע מי מהם. זה גם מייתר את הניסיון
+     * לאתר את הגולל ביד — ניסיון שנכתב כאן קודם, וששתי מדידות רצופות
+     * הפריכו: פעם אחת כי ``#boardSurface`` **מצהיר** ``overflow: auto``
+     * אבל גדל לגובה תוכנו ולכן אינו נגלל כלל, ופעם שנייה כי בזמן שהוא
+     * רץ הפריסה עוד לא גדלה, והתשובה הייתה נכונה לרגע הלא נכון.
+     *
+     * ``_getYForAnchor`` נשארת בשימוש במקומות אחרים ואינה משתנה.
+     */
+    _anchorElementFor(anchorId){
+      try {
+        if (!anchorId) return null;
+        const md = (this._anchorHost || document);
+        return md.querySelector(`#${CSS.escape(anchorId)}`) || document.getElementById(anchorId) || null;
+      } catch(_) { return null; }
+    }
+
+    /** האלבמנט של שורה מסומנת, או ``null``. אותו מיפוי כמו :js:func:`_getYForLine`. */
+    _lineElementFor(lineNum){
+      try {
+        if (!Number.isInteger(lineNum) || lineNum <= 0) return null;
+        let node = this._lineIndex ? this._lineIndex.get(lineNum) : null;
+        if (node && !node.isConnected) node = null;
+        if (node) return node;
+        const md = (this._anchorHost || document);
+        const sourceVal = lineNum - 1;
+        if (sourceVal >= 0) {
+          node = md.querySelector(`[data-source-line="${sourceVal}"]`);
+          if (node) return node;
+        }
+      } catch(_) {}
+      return null;
+    }
+
+    /**
+     * מוודא שהאלמנט אכן הגיע לתחום המסך, ומתקן אם לא.
+     *
+     * חוזרת על **הגלילה בלבד** — ראו את ההערה ב-
+     * :js:func:`_maybeScrollToNoteFromUrl`.
+     */
+    _ensureInView(el, triesLeft){
+      try {
+        if (!el || this._isInViewport(el)) return;
+        if (triesLeft <= 0) return;
+        try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); }
+        catch(_) { try { el.scrollIntoView(); } catch(__) {} }
+        setTimeout(() => this._ensureInView(el, triesLeft - 1), 200);
+      } catch(_) {}
+    }
+
+    /** האם האלמנט נמצא בתוך תחום המסך כרגע. */
+    _isInViewport(el){
+      try {
+        const r = el.getBoundingClientRect();
+        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+        return r.bottom > 0 && r.top < vh;
+      } catch(_) { return false; }
+    }
+
     scrollToNote(noteId){
       try {
         const entry = this.notes.get(String(noteId));
         if (!entry || !entry.el || !entry.data) return;
         const data = entry.data;
-        // אם יש עוגן – גלול לעוגן, אחרת ל-top של הפתק עצמו
-        let top = null;
+
+        // לפני הגלילה, ולא אחריה: פתק ממוזער או מוסתר מאחורי אחר הוא
+        // פתק שהגעת אליו ועדיין לא מצאת.
+        this._revealMinimized(entry);
+        this._raiseToFront(entry.el);
+
+        // אם יש עוגן – גלול לעוגן, אחרת לפתק עצמו
+        let target = null;
         if (data.anchor_id && data.anchor_id !== PIN_SENTINEL && data.anchor_id !== FLOATING_SENTINEL) {
-          top = this._getYForAnchor(String(data.anchor_id));
+          target = this._anchorElementFor(String(data.anchor_id));
         }
-        if (top == null && Number.isInteger(data.line_start) && data.line_start > 0) {
-          top = this._getYForLine(Number(data.line_start));
+        if (!target && Number.isInteger(data.line_start) && data.line_start > 0) {
+          target = this._lineElementFor(Number(data.line_start));
         }
-        if (top == null) {
+        if (!target) {
           // ודא שמיקום הפתק מעודכן ואז גלול לפתק
           this._updateAnchoredNotePosition(entry.el, data);
-          const scroll = getScrollOffsets();
-          top = Math.max(0, Math.round(entry.el.getBoundingClientRect().top + scroll.y) - 100);
-        } else {
-          top = Math.max(0, Number(top) - 100);
+          target = entry.el;
         }
-        try { window.scrollTo({ top, behavior: 'smooth' }); } catch(_) { window.scrollTo(0, top); }
+        try {
+          target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+        } catch(_) {
+          try { target.scrollIntoView(); } catch(__) {}
+        }
         // הדגשה קצרה להפניית תשומת לב
         try {
           entry.el.style.transition = 'box-shadow .2s ease';
