@@ -40,13 +40,16 @@
    */
   var PLAIN_LANGUAGE_NAMES = ['plaintext', 'text', 'nohighlight', 'none', 'txt'];
 
-  // ``\b`` נשמר לכל איבר. בלעדיו ``language-texture`` היה נתפס כ"בלי
-  // שפה" ומתהפך — הגבול הוא מה שמפריד בין השם לבין שם שמתחיל בו.
-  var EXPLICIT_LANGUAGE_RE = new RegExp(
-    '\\blanguage-(?!' +
-    PLAIN_LANGUAGE_NAMES.map(function (n) { return n + '\\b'; }).join('|') +
-    ')\\S+'
-  );
+  // **חלופה אחת ששתי הצורות נבנות ממנה.** ה-``\b`` הוא חלק מהשאלה ולא
+  // קישוט: בלעדיו ``texture`` נבלע ב-``text``. וחשוב מכך, הוא מגדיר
+  // שהשאלה היא "**מתחיל** בשם פטור שנגמר בגבול" ולא "שווה לשם פטור" —
+  // ולכן ``text,`` הוא ``text``. רשימה משותפת בלי הסמנטיקה המשותפת
+  // הספיקה כדי ששתי הצורות יחלקו על שמונה קלטים.
+  var PLAIN_LANGUAGE_PREFIX =
+    PLAIN_LANGUAGE_NAMES.map(function (n) { return n + '\\b'; }).join('|');
+
+  var EXPLICIT_LANGUAGE_RE = new RegExp('\\blanguage-(?!' + PLAIN_LANGUAGE_PREFIX + ')\\S+');
+  var PLAIN_LANGUAGE_NAME_RE = new RegExp('^(?:' + PLAIN_LANGUAGE_PREFIX + ')');
 
   /**
    * האם שם השפה **הגולמי** הוא שפה אמיתית — אותה שאלה, בלי DOM.
@@ -55,11 +58,18 @@
    * ולכן בלוק כזה אינו מתהפך. ``toLowerCase`` כאן נראה כמו שיפור והוא
    * בדיוק הפער ששיתוף הרשימה בא למנוע — אותו קלט היה מתהפך בפתק ולא
    * במסמך. הרשימה המשותפת מבטיחה שהרשימה זהה; רק זה מבטיח שההשוואה זהה.
+   *
+   * **ומאותה סיבה זו בדיקת תחילית ולא ``indexOf``.** השוואה מלאה ענתה
+   * "שפה אמיתית" על ``text,`` בזמן שהרג'קס ראה שם ``text`` ועבר —
+   * ‏``markdown-it`` מפיק ``class="language-text,"`` על גדר כזו, ולכן
+   * אותו קלט בדיוק התהפך במסמך ולא בפתק. נסיון לפתור בנרמול (לחתוך את
+   * השם עד הגבול הראשון) נמדד ופותח פער חדש בכיוון ההפוך, על שמות
+   * שאינם פותחים באות כמו ``-x``. התחילית היא מה שמגיע לאפס.
    */
   function hasExplicitLanguageName(name) {
     var n = String(name || '').trim();
     if (!n) return false;
-    return PLAIN_LANGUAGE_NAMES.indexOf(n) === -1;
+    return !PLAIN_LANGUAGE_NAME_RE.test(n);
   }
 
   function hasExplicitLanguage(block) {

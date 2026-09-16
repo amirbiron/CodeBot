@@ -1940,12 +1940,56 @@ check('RTL: שתי הצורות של "האם יש שפה" עונות אותה ת
   // **ההצלבה שמחזיקה את המקור האחד.** לצרכן אחד יש ``class`` ולשני שם
   // גולמי; הרשימה משותפת, אבל רק זה מוודא שגם **ההשוואה** משותפת.
   // שם שיתווסף לרשימה ויישכח באחת הצורות מפיל את הבדיקה הזו.
+  //
+  // **והרשימה כאן חייבת לכלול פיסוק.** הגרסה הראשונה שלה בדקה שמות
+  // נקיים בלבד ועברה, בזמן שהשתיים חלקו על ``text,`` ועל ``text.js``:
+  // הרג'קס שואל "מתחיל בשם פטור שנגמר בגבול מילה" ולכן רואה שם ``text``,
+  // וההשוואה המלאה ענתה "שפה אמיתית". נמדד ש-``markdown-it`` מפיק
+  // ``class="language-text,"`` על ``\u0060\u0060\u0060text,`` — כלומר אותו קלט בדיוק היה
+  // מתהפך במסמך ולא בפתק. **שומר שבודק חלק מהשורה שומר על חלק מהתשובה.**
   const R = sandbox.window.RtlCode;
   ['plaintext', 'text', 'nohighlight', 'none', 'txt', 'python', 'js',
-   'texture', 'Text', 'TXT', 'textual'].forEach((name) => {
+   'texture', 'Text', 'TXT', 'textual',
+   // שם פטור ואחריו תו שאינו אות — כאן נפתח הפער
+   'text,', 'text.', 'text-', 'text;', 'text)', 'text.js',
+   'plaintext:', 'txt,', 'none.', 'nohighlight-x',
+   // ושמות שאינם פותחים באות — כאן נפתח הפער ההפוך, אם מנרמלים במקום
+   // לשאול על גבול
+   '!!!', '-x', '#py', '3d',
+   // ושם פטור שיושב **באמצע** או בסוף. השאלה היא "מתחיל ב-", ולכן
+   // עוגן ה-``^`` הוא חלק ממנה: בלעדיו ``py-text`` היה נחשב "בלי שפה"
+   // בצורה אחת ו"שפה" בשנייה.
+   'py-text', 'sometext', 'a-none', 'txt-x',
+   // ורווחים בלבד — מה שמחזיק את ה-``trim``. הצורה עם ה-``class``
+   // עונה "בלי שפה" כי ``\S+`` אינו מוצא תו, והשנייה חייבת להסכים.
+   '  ', ' text '].forEach((name) => {
     eq(R.hasExplicitLanguageName(name), R.hasExplicitLanguage({ className: 'language-' + name }),
-       'אותה תשובה לשתי הצורות: ' + name);
+       'אותה תשובה לשתי הצורות: ' + JSON.stringify(name));
   });
+});
+
+check('RTL: תשובות הצורה עם ה-class נעולות — תצוגת המסמכים לא זזה', () => {
+  // ``hasExplicitLanguage`` משרתת ארבעה משטחים שאינם הפתקים. הטבלה כאן
+  // נועלת את מה שהיא עונה, כדי ששינוי בבניית הרג'קס — שנעשה כדי ליישר
+  // את הצורה השנייה — לא יזיז אותה בלי שאף בדיקה תשים לב.
+  const R = sandbox.window.RtlCode;
+  [['language-python', true], ['language-js', true], ['language-py3', true],
+   ['hljs language-rust', true], ['language-textual', true], ['language-texture', true],
+   ['language-Text', true], ['language-!!!', true], ['language--x', true],
+   ['language-text', false], ['language-plaintext', false], ['language-txt', false],
+   ['language-none', false], ['language-nohighlight', false],
+   ['language-text,', false], ['language-text.js', false], ['language-none.', false],
+   ['language-', false], ['', false], ['hljs', false]].forEach(([cls, want]) => {
+    eq(R.hasExplicitLanguage({ className: cls }), want, 'class ' + JSON.stringify(cls));
+  });
+});
+
+check('RTL: שם פטור עם פיסוק נחשב "בלי שפה" גם בפתק', () => {
+  // התוצאה של הפער שנסגר: אותו קלט, אותה הכרעה בשני המשטחים.
+  eq(fenceIsRtl('```text,\n' + HEB + '\n```'), true, 'text, אינו חוסם');
+  eq(fenceIsRtl('```text.js\n' + HEB + '\n```'), true, 'text.js אינו חוסם');
+  // ובכיוון השני — הגבול עדיין מפריד, ושם שרק מתחיל בשם פטור כן חוסם.
+  eq(fenceIsRtl('```textual\n' + HEB + '\n```'), false, 'textual הוא שפה');
 });
 
 check('RTL: בלוק שאינו עברי אינו מתהפך', () => {
