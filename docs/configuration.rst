@@ -82,34 +82,6 @@ Security
 - Always use ``rediss://`` in production (Render Redis supports TLS).
 - Keep ``ADMIN_USER_IDS`` minimal.
 
-Databases and Cache (Pooling/Timeouts)
---------------------------------------
-
-- ``MONGODB_URL``: MongoDB connection string (``mongodb://`` or ``mongodb+srv://``)
-- ``MONGODB_MAX_POOL_SIZE`` / ``MONGODB_MIN_POOL_SIZE`` / ``MONGODB_MAX_IDLE_TIME_MS`` / ``MONGODB_WAIT_QUEUE_TIMEOUT_MS`` / ``MONGODB_SERVER_SELECTION_TIMEOUT_MS`` / ``MONGODB_SOCKET_TIMEOUT_MS`` / ``MONGODB_CONNECT_TIMEOUT_MS`` / ``MONGODB_RETRY_WRITES`` / ``MONGODB_RETRY_READS`` / ``MONGODB_APPNAME`` – כוונון Pooling ו‑Timeouts ל‑MongoDB. ראו :doc:`environment-variables` לברירות מחדל ודוגמאות.
-- ``REDIS_URL``: Redis connection string (use ``rediss://`` with TLS in production).
-- ``REDIS_MAX_CONNECTIONS`` / ``REDIS_CONNECT_TIMEOUT`` / ``REDIS_SOCKET_TIMEOUT`` / ``SAFE_MODE`` – גודל Pool ו‑Timeouts ל‑Redis.
-
-.. note::
-   בעבודה עם Docker/Compose הגדירו כתובות ע"י שמות השירותים (למשל ``redis://redis:6379`` או ``mongodb://mongo:27017``) — אל תשתמשו ב‑``localhost`` בין קונטיינרים.
-
-HTTP Clients
-------------
-
-- Async (``aiohttp``): ``AIOHTTP_POOL_LIMIT`` / ``AIOHTTP_LIMIT_PER_HOST`` / ``AIOHTTP_TIMEOUT_TOTAL``
-- Sync (``requests`` via ``http_sync``): ``REQUESTS_POOL_CONNECTIONS`` / ``REQUESTS_POOL_MAXSIZE`` / ``REQUESTS_TIMEOUT`` / ``REQUESTS_RETRIES`` / ``REQUESTS_RETRY_BACKOFF``
-
-שימוש ב-http_sync (Sync HTTP)
------------------------------
-
-בעת ביצוע קריאות סינכרוניות מומלץ להשתמש במודול ``http_sync`` שמספק ``requests.Session`` גלובלי עם Pool ו‑Retries מוגדרים לפי ENV.
-
-דוגמה קצרה::
-
-   from http_sync import request
-   resp = request('GET', 'https://api.example.com/data', headers={'Accept': 'application/json'})
-   data = resp.json()
-
 Config via Pydantic Settings
 ============================
 
