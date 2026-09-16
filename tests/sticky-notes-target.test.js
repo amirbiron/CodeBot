@@ -3270,6 +3270,35 @@ check('הבורר מציג את כל הפלטה, מסמן את הנוכחי, ו�
   eq(sb.document.body.querySelector('.sticky-color-modal'), null, 'המודאל נסגר אחרי הבחירה');
 });
 
+check('בחירת צבע מעדכנת את הרשומה מיד — פתיחה חוזרת מסמנת את החדש', () => {
+  // **הרשומה מתעדכנת בתוך ``_queueSave``, סינכרונית**, דרך
+  // ``_syncEntryFromFragment``. לכן ``_applyNoteColor`` אינה צריכה לכתוב
+  // אותה בעצמה — וכתיבה נוספת שם הייתה מקום שני שיודע את הצבע.
+  //
+  // מה ששובר את זה הוא הסרת הסנכרון מ-``_queueSave``, ואז הבורר היה
+  // נפתח בפעם השנייה ומסמן את הצבע **הקודם** — פער שנראה כמו "הבחירה
+  // לא נשמרה" בזמן שהיא דווקא כן.
+  const sb = makeDomSandbox();
+  const m = new sb.window.StickyNotesManager('abc123');
+  m._flushFor = async () => {};
+
+  const el = sb.document.createElement('div');
+  el.dataset.noteId = 'n1';
+  m.notes.set('n1', { el, data: { color: 'yellow' } });
+
+  m._openColorModal(el);
+  sb.document.body.querySelectorAll('.sticky-color-swatch')
+    .find(s => s.getAttribute('data-color-id') === 'blue_light').__fire('click');
+
+  eq(m.notes.get('n1').data.color, 'blue_light', 'הרשומה עודכנה מיד, בלי להמתין לרשת');
+
+  m._openColorModal(el);
+  const active = sb.document.body.querySelectorAll('.sticky-color-swatch')
+    .filter(s => s.getAttribute('aria-pressed') === 'true');
+  eq(active.length, 1, 'בדיוק אחד מסומן בפתיחה החוזרת');
+  eq(active[0].getAttribute('data-color-id'), 'blue_light', 'והוא הצבע שנבחר');
+});
+
 check('פתק בצבע legacy פותח בורר בלי שום עיגול מסומן', () => {
   // ``''`` אינו כשל — הוא התשובה הנכונה ל"הצבע הזה אינו בפלטה". עיגול
   // שהיה מסומן כאן היה אומר למשתמש שהפתק בצבע שהוא אינו בו.

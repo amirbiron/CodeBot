@@ -39,6 +39,40 @@ from typing import Any, Dict, List, Optional, Tuple
 log = logging.getLogger(__name__)
 
 
+#: מסמך שבו ``color`` הוא **מערך** אינו פתק חוקי — אף כותב אינו מייצר
+#: אחד כזה — אבל הוא יכול לשבת במסד מכתיבה ישירה או מגיבוי פגום, והוא
+#: המקרה היחיד שבו הסקריפט הזה עלול **להרוס** נתונים במקום ליישר אותם.
+#:
+#: **שרשרת הכשל, ושלושת חוליותיה מתועדות ב-MongoDB:**
+#:
+#: 1. ``distinct`` מפרק מערכים — "If the value of the specified field is an
+#:    array, distinct considers each element of the array as a separate
+#:    value" (``reference/command/distinct``). כלומר ``["#FFFFCC", "x"]``
+#:    תורם את המחרוזת ``"#FFFFCC"`` לסריקה, ונראה בדיוק כמו ערך רגיל.
+#: 2. שאילתת שוויון תואמת **איבר** במערך — "To query if the array field
+#:    contains at least one element with the specified value, use the filter
+#:    ``{ <field>: <value> }``" (``tutorial/query-arrays``). כלומר המסמך
+#:    נספר ונכנס לעדכון.
+#: 3. ``$set`` דורס את השדה כולו, ולכן המערך היה מוחלף במחרוזת אחת —
+#:    **איבוד האיברים האחרים**, בפעולה שכל מטרתה לא לשנות שום צבע בכוח.
+#:
+#: ההגנה היא ``$type: "array"``, שהוא **היחיד** שמתייחס לשדה עצמו ולא
+#: לאיבריו: "Queries for ``$type: 'array'`` return documents where the field
+#: itself is an array" (``reference/operator/query/type``). ``$type:
+#: "string"`` דווקא **אינו** מגן — על מערך הוא תואם אם איבר אחד מתאים.
+_NOT_AN_ARRAY = {"$not": {"$type": "array"}}
+
+
+def _scalar_color_filter(value: Any) -> Dict[str, Any]:
+    """הפילטר שמזהה **בדיוק** את המסמכים שבהם ``color`` הוא הערך הזה כשדה.
+
+    מקום אחד לספירה ולעדכון כאחד. שני פילטרים שהיו נכתבים בנפרד הם בדיוק
+    המצב שבו סופרים קבוצה אחת ומעדכנים אחרת — והמונה היה מדווח "לא נכתבו
+    כולם" על הסיבה הלא נכונה.
+    """
+    return {"color": {"$eq": value, **_NOT_AN_ARRAY}}
+
+
 def plan_color_migration(db: Any, *, normalize_legacy: bool = False) -> Dict[str, Any]:
     """מה היה משתנה — **בלי לכתוב דבר**.
 
@@ -46,12 +80,16 @@ def plan_color_migration(db: Any, *, normalize_legacy: bool = False) -> Dict[str
     לשלוש קבוצות: מה שמתקפל לפלטה, מה שנשאר ``legacy``, ומה שכבר במקומו.
 
     ``distinct`` ולא סריקת מסמכים: מספר הצבעים **המובחנים** קטן בסדרי גודל
-    ממספר הפתקים, ולכן זו שאילתה אחת קלה במקום מעבר על האוסף.
+    ממספר הפתקים, ולכן זו שאילתה אחת קלה במקום מעבר על האוסף. המחיר הוא
+    שהוא מפרק מערכים, וכל הספירות והעדכונים כאן עוברים דרך
+    :func:`_scalar_color_filter` בגלל זה.
     """
     from sticky_notes_target import NOTE_COLORS, resolve_note_color
 
     notes = db.sticky_notes
     stored_values: List[Any] = list(notes.distinct("color"))
+    # נספר ומדווח, ולעולם לא נכתב. ראו את ההערה על ``_NOT_AN_ARRAY``.
+    array_valued = notes.count_documents({"color": {"$type": "array"}})
 
     to_palette: List[Tuple[Any, str, int]] = []
     legacy_reshaped: List[Tuple[Any, str, int]] = []
@@ -59,7 +97,7 @@ def plan_color_migration(db: Any, *, normalize_legacy: bool = False) -> Dict[str
     unreadable = 0
 
     for value in stored_values:
-        count = notes.count_documents({"color": value})
+        count = notes.count_documents(_scalar_color_filter(value))
         if isinstance(value, str) and value in NOTE_COLORS:
             already_ok += count
             continue
@@ -68,6 +106,10 @@ def plan_color_migration(db: Any, *, normalize_legacy: bool = False) -> Dict[str
         # מוחזר כ-``""`` ואינו מקבל ברירת מחדל בכוח. הוא נספר ומדווח, ולא
         # נכתב: הוא כבר מוצג כצהוב בקריאה, וכתיבה עליו הייתה הופכת ניחוש
         # של שכבת התצוגה לעובדה במסד.
+        if count == 0:
+            # הערך הגיע מפירוק מערך בלבד — אין אף מסמך שנושא אותו כשדה.
+            continue
+
         target = resolve_note_color(value, default=None)
         if not target:
             unreadable += count
@@ -86,6 +128,7 @@ def plan_color_migration(db: Any, *, normalize_legacy: bool = False) -> Dict[str
         "legacy_reshaped": legacy_reshaped,
         "already_ok": already_ok,
         "unreadable": unreadable,
+        "array_valued": array_valued,
         "total_notes": notes.count_documents({}),
     }
 
@@ -102,7 +145,7 @@ def apply_color_migration(db: Any, plan: Dict[str, Any]) -> Dict[str, int]:
     mismatched = 0
 
     for value, target, expected in plan["to_palette"] + plan["legacy_reshaped"]:
-        result = db.sticky_notes.update_many({"color": value}, {"$set": {"color": target}})
+        result = db.sticky_notes.update_many(_scalar_color_filter(value), {"$set": {"color": target}})
         modified = int(getattr(result, "modified_count", 0) or 0)
         moved += modified
         if modified != expected:
@@ -142,6 +185,8 @@ def main(argv: Optional[list] = None) -> int:
     print(f"  ערכי צבע מובחנים:        {plan['distinct_values']}")
     print(f"  כבר במזהה/בצורה תקינה:   {plan['already_ok']}")
     print(f"  שאי אפשר לפענח (נשארים): {plan['unreadable']}")
+    if plan["array_valued"]:
+        print(f"  ⚠ עם color שהוא מערך:     {plan['array_valued']}  (לא נגעתי בהם — ראו את ההערה בקוד)")
 
     def _show(title: str, rows: List[Tuple[Any, str, int]]) -> int:
         if not rows:

@@ -27,11 +27,27 @@ class _FakeResult:
 
 
 class _FakeNotes:
-    """אוסף פתקים מדומה שמחזיק רשימת מסמכים ומגיב כמו מונגו.
+    """אוסף פתקים מדומה שמגיב **כמו מונגו**, ולא כמו שנוח לבדיקה.
 
     ``update_many`` מחזיר ``modified_count`` אמיתי שנגזר מהמסמכים שהשתנו —
     ולא מספר שהוזן מראש — כך שבדיקה של ספירת העדכונים לא יכולה לעבור על
     סקריפט שלא כתב כלום.
+
+    **ושלוש התנהגויות המערך משוחזרות כאן בכוונה**, כי בלעדיהן הבדיקה
+    אינה מסוגלת ליפול על הבאג שהן יוצרות. כל אחת מתועדת במקור:
+
+    * ``distinct`` **מפרק** מערך לאיברים — "distinct considers each element
+      of the array as a separate value" (``reference/command/distinct``).
+    * שאילתת שוויון תואמת **איבר** במערך — "To query if the array field
+      contains at least one element with the specified value, use the filter
+      ``{ <field>: <value> }``" (``tutorial/query-arrays``).
+    * ``$type: "array"`` מתייחס ל**שדה עצמו** — "Queries for ``$type:
+      'array'`` return documents where the field itself is an array"
+      (``reference/operator/query/type``).
+
+    ``$type`` כאן מקבל ``"array"`` בלבד, כי זה הטיפוס היחיד שהסקריפט
+    שואל עליו. תמיכה רחבה יותר הייתה מדמה התנהגות שאיש אינו נשען עליה,
+    ולכן גם אינה נבדקת.
     """
 
     def __init__(self, docs):
@@ -42,27 +58,58 @@ class _FakeNotes:
         seen = []
         for doc in self.docs:
             value = doc.get(field)
-            if value not in seen:
-                seen.append(value)
+            # פירוק המערך, בדיוק כמו מונגו
+            for item in (value if isinstance(value, list) else [value]):
+                if item not in seen:
+                    seen.append(item)
         return seen
 
-    def count_documents(self, query):
+    @staticmethod
+    def _matches(doc, field, cond):
+        value = doc.get(field)
+        if not isinstance(cond, dict) or not any(k.startswith("$") for k in cond):
+            # שוויון: על שדה מערך — תואם אם **איבר** שווה.
+            #
+            # **השורה הזו נראית חסרת משקל ואינה.** מוטציה שמסירה אותה לבדה
+            # אינה מפילה כלום, כי ההגנה מסננת את המערך קודם. אבל מוטציה
+            # שמסירה את **ההגנה** ואת השורה הזו יחד — עוברת: בלי הסמנטיקה
+            # הזו ה-fake פשוט אינו מסוגל לשחזר את הבאג. כלומר זו החוליה
+            # שהופכת את הבדיקה למסוגלת להיכשל, ומחיקתה תשתיק אותה בשקט.
+            return value == cond or (isinstance(value, list) and cond in value)
+        for op, operand in cond.items():
+            if op == "$eq":
+                if not (value == operand or (isinstance(value, list) and operand in value)):
+                    return False
+            elif op == "$type":
+                if operand != "array":
+                    raise NotImplementedError("ה-fake מכיר רק $type: 'array'")
+                if not isinstance(value, list):
+                    return False
+            elif op == "$not":
+                if _FakeNotes._matches(doc, field, operand):
+                    return False
+            else:
+                raise NotImplementedError(f"אופרטור שאינו נתמך ב-fake: {op}")
+        return True
+
+    def _select(self, query):
         if not query:
-            return len(self.docs)
-        (field, wanted), = query.items()
-        return sum(1 for d in self.docs if d.get(field) == wanted)
+            return list(self.docs)
+        (field, cond), = query.items()
+        return [d for d in self.docs if self._matches(d, field, cond)]
+
+    def count_documents(self, query):
+        return len(self._select(query))
 
     def update_many(self, query, update):
-        (field, wanted), = query.items()
+        (field, _cond), = query.items()
         new_value = update["$set"][field]
-        changed = 0
-        for doc in self.docs:
-            if doc.get(field) == wanted:
-                doc[field] = new_value
-                changed += 1
+        matched = self._select(query)
+        for doc in matched:
+            doc[field] = new_value
         if self.forced_modified is not None:
             return _FakeResult(self.forced_modified)
-        return _FakeResult(changed)
+        return _FakeResult(len(matched))
 
 
 class _FakeDB:
@@ -157,6 +204,62 @@ def test_a_value_that_cannot_be_read_at_all_is_reported_and_not_written():
     assert plan["to_palette"] == []
     apply_color_migration(db, plan)
     assert [d["color"] for d in db.sticky_notes.docs] == [None, 5, "שטויות"]
+
+
+def test_a_note_whose_colour_is_an_array_is_reported_and_never_overwritten():
+    """**המקרה היחיד שבו הסקריפט הזה יכול להרוס נתונים במקום ליישר אותם.**
+
+    מסמך שבו ``color`` הוא מערך אינו פתק חוקי — אף כותב אינו מייצר אחד —
+    אבל הוא יכול לשבת במסד מכתיבה ישירה או מגיבוי פגום. שלוש התנהגויות
+    של מונגו מצטרפות שם לשרשרת: ``distinct`` מפרק את המערך ומגיש את
+    ``"#FFFFCC"`` כאילו היה ערך רגיל, שאילתת שוויון תופסת את המסמך דרך
+    האיבר, ו-``$set`` דורס את **כל** השדה — כלומר האיברים האחרים נמחקים,
+    בפעולה שכל מטרתה לא לשנות שום צבע בכוח.
+
+    נופלת אם ``$not: {$type: "array"}`` יוסר מהפילטר.
+    """
+    db = _FakeDB([
+        {"color": ["#FFFFCC", "משהו אחר"]},   # פגום — לא לגעת
+        {"color": "#FFFFCC"},                  # תקין — כן ליישר
+    ])
+
+    plan = plan_color_migration(db)
+
+    assert plan["array_valued"] == 1, "המסמך הפגום נספר ומדווח"
+    assert plan["to_palette"] == [("#FFFFCC", "yellow", 1)], (
+        "רק המסמך התקין נספר לעדכון — ``distinct`` הגיש את שניהם"
+    )
+
+    apply_color_migration(db, plan)
+
+    assert db.sticky_notes.docs[0]["color"] == ["#FFFFCC", "משהו אחר"], "המערך שרד שלם"
+    assert db.sticky_notes.docs[1]["color"] == "yellow"
+
+
+def test_a_value_that_only_exists_inside_an_array_is_not_planned_at_all():
+    """ערך שהגיע **רק** מפירוק מערך אינו עבודה, וגם אינו ``legacy``.
+
+    בלי הבדיקה הזו הוא היה נספר בדוח כאילו יש פתק שנושא אותו — מספר
+    שאינו מתאר שום מסמך, ושהיה מבלבל בדיוק את מי שמריץ כדי לראות מה המצב.
+    היא גם הבדיקה היחידה שנשענת על כך שה-fake **מפרק** מערכים כמו מונגו:
+    בלי הפירוק הערך לא היה מגיע לסריקה כלל, ולא היה מה לדלג עליו.
+
+    נופלת אם הדילוג על ``count == 0`` יוסר, ואם ה-fake יפסיק לפרק.
+    """
+    db = _FakeDB([{"color": ["#FFFFCC"]}])
+
+    assert db.sticky_notes.distinct("color") == ["#FFFFCC"], (
+        "``distinct`` מפרק את המערך — זו ההנחה שכל הסעיף הזה עומד עליה"
+    )
+
+    plan = plan_color_migration(db)
+
+    assert plan["to_palette"] == []
+    assert plan["already_ok"] == 0
+    assert plan["unreadable"] == 0
+    assert plan["array_valued"] == 1
+    apply_color_migration(db, plan)
+    assert db.sticky_notes.docs[0]["color"] == ["#FFFFCC"]
 
 
 def test_running_twice_finds_nothing_left_to_do():
