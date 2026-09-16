@@ -1933,6 +1933,7 @@ class GitMirrorService:
         case_sensitive: bool = True,
         ref: Optional[str] = None,
         context_lines: int = 0,
+        regex: bool = False,
     ) -> Dict[str, Any]:
         """
         חיפוש בקוד עם git grep (מהיר מאוד!)
@@ -1946,7 +1947,7 @@ class GitMirrorService:
 
         Args:
             repo_name: שם הריפו
-            query: מחרוזת/regex לחיפוש
+            query: מה לחפש. מילולי כברירת מחדל — ראו ``regex``.
             max_results: מקסימום תוצאות
             timeout: timeout בשניות
             file_pattern: סינון קבצים (למשל "*.py")
@@ -1955,11 +1956,18 @@ class GitMirrorService:
                  None = ברירת מחדל origin/main
             context_lines: כמה שורות להחזיר סביב כל התאמה. ``0`` (ברירת המחדל)
                  משאיר את הפקודה ואת הפרסור זהים לחלוטין להתנהגות הקודמת.
+            regex: ``False`` (ברירת המחדל) ← ``git grep -F``, כל תו בשאילתה
+                 הוא תו. ``True`` ← ``git grep -E``, והשאילתה היא ERE שגיט
+                 עשוי לדחות — ואז חוזר ``error: "invalid_pattern"``.
+
+        **השאילתה אינה מקוצצת**, בכוונה. חיפוש הזחה (``"    return"``) הוא
+        שימוש אמיתי, וקיצוץ היה משנה בשקט את מה שביקשו. זו אותה הכרעה
+        שכבר קיימת ב-``query=`` של ``codekeeper_get_file``.
 
         Returns:
             dict עם results, total_count, truncated
         """
-        query = str(query or "").strip()
+        query = str(query or "")
         file_pattern = file_pattern.strip() if isinstance(file_pattern, str) else None
         ref = ref.strip() if isinstance(ref, str) else None
 
@@ -2014,11 +2022,14 @@ class GitMirrorService:
         if not case_sensitive:
             cmd.append("-i")
 
-        # Regex או literal
-        if self._is_regex(query):
-            cmd.append("-E")  # Extended regex
-        else:
-            cmd.append("-F")  # Fixed string (מהיר יותר)
+        # --- מילולי או רג'קס, לפי מה שהקורא ביקש -----------------------
+        # **המצב הוא פרמטר ולא ניחוש.** קודם הייתה כאן היוריסטיקה
+        # ``_is_regex``, שבדקה אם השאילתה מכילה אחד מ-``.*+?[]{}()^$|\``
+        # ועברה ל-``-E`` אם כן — כלומר **תוכן** השאילתה החליף את הסמנטיקה
+        # שלה. חיפוש מילולי של ``dict[`` הפך ל-ERE פסול, ו-``a|b`` הפך
+        # לחלופה. escape לא יכול לתקן את זה: אחריו אי אפשר לחפש רג'קס,
+        # ולפניו אי אפשר לחפש מילולית. רק הפיכת המצב למפורש פותרת.
+        cmd.append("-E" if regex else "-F")
 
         # 1. הוספת ה-Pattern (Query)
         # אם מתחיל ב-"-", צריך להשתמש ב-"-e" כדי שגיט לא יחשוב שזה flag
@@ -2390,11 +2401,6 @@ class GitMirrorService:
                         process.stderr.close()
                 except Exception:
                     pass
-
-    def _is_regex(self, query: str) -> bool:
-        """בדיקה אם ה-query הוא regex"""
-        regex_chars = r".*+?[]{}()^$|\\"
-        return any(c in query for c in regex_chars)
 
     def _parse_grep_output(self, output: str, max_results: int) -> List[Dict[str, Any]]:
         """

@@ -550,6 +550,7 @@ class RepoBackend:
         max_results: int = 50,
         byte_budget: int = 256_000,
         context_lines: int = 0,
+        regex: bool = False,
     ) -> dict[str, Any]:
         try:
             res = self._require_search().search(
@@ -559,6 +560,7 @@ class RepoBackend:
                 file_pattern=(file_pattern or None),
                 max_results=int(max_results),
                 context_lines=int(context_lines),
+                regex=bool(regex),
             )
         except Exception:
             logger.warning("search failed", exc_info=True)

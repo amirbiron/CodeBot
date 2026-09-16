@@ -30,9 +30,13 @@ class _RecordingRepoBackend:
         )
         return {"ok": True}
 
-    def search(self, *, repo, query, file_pattern, max_results, byte_budget, context_lines=0):
+    def search(
+        self, *, repo, query, file_pattern, max_results, byte_budget,
+        context_lines=0, regex=False,
+    ):
         self.calls.append(
-            ("search", repo, query, file_pattern, max_results, byte_budget, context_lines)
+            ("search", repo, query, file_pattern, max_results, byte_budget,
+             context_lines, regex)
         )
         return {"ok": True}
 
@@ -83,3 +87,48 @@ def test_search_validates_query_and_clamps():
     call = be.calls[0]
     assert call[4] == rh.SEARCH_RESULTS_MAX  # capped
     assert call[5] == rh.OUTPUT_BYTE_BUDGET
+
+
+def test_search_passes_the_query_through_without_trimming_it():
+    """השאילתה עוברת כמו שהיא; ה-``strip`` מכריע ריקנות בלבד.
+
+    **מוטציה שמפילה:** להחזיר את ``q = (query or "").strip()``.
+    """
+    be = _RecordingRepoBackend()
+
+    rh.search_repo(be, repo="r", query="    return")
+
+    assert be.calls[0][2] == "    return"
+
+
+def test_search_rejects_only_what_is_empty_or_shorter_than_two_characters():
+    """רווחים בלבד נדחים, אבל ``" a"`` הוא שתי תווים תקפים.
+
+    האורך נמדד על המחרוזת המקורית ולא על המקוצצת, אחרת חיפוש של רווח
+    ואות היה נדחה כ"קצר מדי" בזמן שהוא באורך הנדרש.
+
+    **מוטציה שמפילה:** להחליף את התנאי ל-``len(q.strip()) < 2``.
+    """
+    be = _RecordingRepoBackend()
+
+    assert rh.search_repo(be, repo="r", query="   ") == {
+        "ok": False, "error": "query_too_short"
+    }
+    assert be.calls == []
+
+    rh.search_repo(be, repo="r", query=" a")
+    assert be.calls[0][2] == " a"
+
+
+def test_search_defaults_to_literal_and_forwards_the_regex_flag():
+    """המצב מגיע מהקורא, ובהיעדרו הוא מילולי.
+
+    **מוטציה שמפילה:** להשמיט את ``regex=bool(regex)`` מהקריאה ל-backend.
+    """
+    be = _RecordingRepoBackend()
+
+    rh.search_repo(be, repo="r", query="xy")
+    rh.search_repo(be, repo="r", query="xy", regex=True)
+
+    assert be.calls[0][7] is False
+    assert be.calls[1][7] is True

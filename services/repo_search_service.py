@@ -50,6 +50,7 @@ class RepoSearchService:
         case_sensitive: bool = False,
         max_results: int = 50,
         context_lines: int = 0,
+        regex: bool = False,
     ) -> Dict[str, Any]:
         """
         חיפוש מאוחד בקוד
@@ -62,14 +63,20 @@ class RepoSearchService:
             language: סינון לפי שפה
             case_sensitive: case sensitive?
             max_results: מקסימום תוצאות
+            regex: ``False`` (ברירת המחדל) = התאמה מילולית. ``True`` =
+                 השאילתה היא ERE. רלוונטי ל-``search_type="content"`` בלבד,
+                 כי שאר המסלולים הם שאילתות מונגו עם ``re.escape``.
 
         Returns:
             dict עם results, total, query info
         """
-        if not query or len(query.strip()) < 2:
+        # ה-``strip`` כאן מכריע **ריקנות בלבד**, והשאילתה עוברת הלאה כמו
+        # שהיא: חיפוש הזחה (``"    return"``) הוא שימוש אמיתי, וקיצוץ היה
+        # משנה בשקט את מה שביקשו. אותה הכרעה כמו ב-``file_query_error``.
+        # והאורך נמדד על המחרוזת המקורית, ולכן ``" a"`` — רווח ואות —
+        # הוא שאילתה תקפה בת שני תווים ולא "קצרה מדי".
+        if not (query or "").strip() or len(query) < 2:
             return {"error": "Query too short", "results": []}
-
-        query = query.strip()
 
         # שליפת ה-default_branch מה-DB (לא לנחש שזה main!)
         # זה נשמר במהלך initial_import
@@ -89,6 +96,7 @@ class RepoSearchService:
                 max_results,
                 ref=ref,  # העברת ה-ref הנכון
                 context_lines=context_lines,
+                regex=regex,
             )
         elif search_type == "filename":
             return self._search_filename(repo_name, query, max_results)
@@ -108,6 +116,7 @@ class RepoSearchService:
         max_results: int,
         ref: str = "refs/heads/main",
         context_lines: int = 0,
+        regex: bool = False,
     ) -> Dict[str, Any]:
         """חיפוש תוכן עם git grep.
 
@@ -131,6 +140,7 @@ class RepoSearchService:
             case_sensitive=case_sensitive,
             ref=ref,  # שימוש ב-ref הנכון מה-DB
             context_lines=context_lines,
+            regex=regex,
         )
 
         if "error" in result:

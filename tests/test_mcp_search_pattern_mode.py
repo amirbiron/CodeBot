@@ -18,6 +18,15 @@
 לצאת מעצמו רגע לפני ה-kill — ולכן הוא נבדק רק כשלא הרגנו, ולא "נבדק
 ומסונן". הטסטים כאן מכסים את שני הצדדים: כשל שחייב להידלק, ועצירה
 יזומה שחייבת להישאר שקטה.
+
+**והשורש שמעליו: המצב נגזר מהנתונים.** ההיוריסטיקה ``_is_regex`` בדקה
+אם השאילתה מכילה אחד מ-``.*+?[]{}()^$|\\`` והעבירה אותה ל-``-E`` בלי
+שאיש ביקש — כלומר **תוכן** השאילתה החליף את הסמנטיקה שלה. ‏``dict[``
+הפך ל-ERE פסול, ו-``a|b`` הפך לחלופה שמחזירה שורות בלי קו אנכי בכלל.
+‏escape לא יכול לתקן את זה: אחריו אי אפשר לחפש רג'קס, ולפניו אי אפשר
+לחפש מילולית. לכן המצב הוא היום פרמטר ``regex``, מילולי כברירת מחדל,
+והטסטים כאן בודקים את שני הכיוונים — שאחד מהם לבדו אינו מבדיל בין
+"תוקן" ל"נחסם".
 """
 
 import shutil
@@ -75,6 +84,16 @@ def _search(svc, query: str, **kw):
     return svc.search_with_git_grep(repo_name="repo", query=query, **kw)
 
 
+# כל תו מיוחד יושב בשורה משלו עם מזהה ייחודי. הצורה ``a<תו>b`` נבחרה כדי
+# שהיא תפריד בין שני המצבים: מילולית היא מתאימה לשורה **אחת**, ואילו
+# כ-ERE הצורה ``a.b`` מתאימה לכולן — ולכן טסט שסופר שורה אחת מבדיל בין
+# ``-F`` ל-``-E`` ולא רק בודק "נמצא משהו".
+_METACHARS = [".", "*", "+", "?", "[", "]", "{", "}", "(", ")", "^", "$", "|", "\\"]
+_META_CORPUS = "\n".join(
+    f"mark{i:02d} a{ch}b" for i, ch in enumerate(_METACHARS, start=1)
+) + "\n"
+
+
 # --------------------------------------------------------------------------
 # המסווג — יחידה טהורה
 # --------------------------------------------------------------------------
@@ -113,8 +132,12 @@ def test_the_classifier_blames_the_pattern_only_when_git_did(stderr, expected):
 def test_a_pattern_git_rejects_returns_an_error_and_not_zero_results(tmp_path, query):
     """הבאג המדווח עצמו: דפוס שגיט דוחה חזר כרשימה ריקה.
 
-    כל שלוש השאילתות קיימות בקורפוס כמחרוזת מילולית, ולכן "אפס תוצאות"
-    עליהן אינו יכול להיות תשובה נכונה בשום מצב.
+    **‏``regex=True`` מפורש כאן, וזה מה שהשתנה.** קודם שלוש השאילתות
+    האלה הגיעו ל-``-E`` מעצמן, כי ההיוריסטיקה ראתה בהן תווים מיוחדים —
+    וזה היה הבאג. היום הן מילוליות כברירת מחדל ופשוט עובדות, ולכן דפוס
+    פסול מגיע רק ממי שביקש רג'קס במפורש. בלי ההצהרה הזאת הטסט היה
+    מודד את הצד המילולי, שכבר נבדק ב-
+    ``test_the_same_query_that_is_an_invalid_pattern_works_literally``.
 
     **מוטציה שמפילה:** להחזיר את ``returncode = process.returncode``
     במקום ה-``wait()`` — ואז ``returncode`` הוא ``None``, הבדיקה מדולגת,
@@ -123,7 +146,7 @@ def test_a_pattern_git_rejects_returns_an_error_and_not_zero_results(tmp_path, q
     """
     svc = _build_mirror(tmp_path, {"sample.py": _SAMPLE})
 
-    res = _search(svc, query)
+    res = _search(svc, query, regex=True)
 
     assert res.get("error") == "invalid_pattern", f"נבלע: {res!r}"
     assert res.get("exit_code") == 128
@@ -139,7 +162,7 @@ def test_an_engine_failure_is_not_blamed_on_the_pattern(tmp_path):
     """
     svc = _build_mirror(tmp_path, {"sample.py": _SAMPLE})
 
-    res = _search(svc, "dict", ref="refs/heads/no-such-branch")
+    res = _search(svc, "dict", ref="refs/heads/no-such-branch", regex=True)
 
     assert res.get("error") == "search_failed"
     assert res.get("error") != "invalid_pattern"
@@ -314,3 +337,167 @@ def test_a_child_killed_from_outside_is_reported_as_truncated_and_not_as_success
     assert res["truncated"] is True, f"תוצאות חלקיות הוצגו כסריקה שלמה: {res!r}"
     assert res["truncation_reason"] == "process_killed"
     assert res["results"] == [{"path": "sample.py", "line": 1, "content": "alpha"}]
+
+
+# --------------------------------------------------------------------------
+# מילולי כברירת מחדל, ורג'קס רק כשמבקשים
+# --------------------------------------------------------------------------
+
+
+@requires_git
+@pytest.mark.parametrize("ch", _METACHARS, ids=lambda c: f"char={c!r}")
+def test_a_special_character_in_the_query_is_just_a_character(tmp_path, ch):
+    """כל תו מיוחד נמצא כמחרוזת, ומוצא בדיוק את השורה שמכילה אותו.
+
+    הצורה ``a<תו>b`` מבדילה בין שני המצבים ולא רק מוודאת "נמצא משהו":
+    מילולית היא מתאימה לשורה אחת, ואילו כ-ERE ``a.b`` מתאימה לכל
+    ארבע-עשרה השורות ו-``a[b`` היא דפוס פסול שגיט דוחה.
+
+    **מוטציה שמפילה:** להחזיר את ``-E`` כברירת מחדל — חמישה תווים
+    (``[``, ``(``, ``)``, ``*``, ``+``, ``?``) מפילים את הטסט כשגיאת
+    דפוס, והשאר מחזירים יותר משורה אחת.
+    """
+    svc = _build_mirror(tmp_path, {"meta.txt": _META_CORPUS})
+    expected = f"mark{_METACHARS.index(ch) + 1:02d}"
+
+    res = _search(svc, f"a{ch}b")
+
+    assert "error" not in res, f"תו מילולי נדחה כדפוס: {res!r}"
+    got = [r["content"] for r in res["results"]]
+    assert len(got) == 1, f"התאמה מילולית חייבת להיות יחידה, קיבלנו {got!r}"
+    assert got[0].startswith(expected)
+    assert f"a{ch}b" in got[0]
+
+
+@requires_git
+def test_regex_true_still_reads_the_query_as_a_pattern(tmp_path):
+    """היכולת לא נמחקה, רק הפסיקה להידלק מעצמה.
+
+    בלי הטסט הזה, הטסט שמעליו היה עובר גם אם ``-E`` הוסר לגמרי — כלומר
+    "תוקן" היה נראה זהה ל"נחסם".
+
+    **מוטציה שמפילה:** להתעלם מ-``regex`` ולשלוח תמיד ``-F``.
+    """
+    svc = _build_mirror(tmp_path, {"sample.py": _SAMPLE})
+
+    literal = _search(svc, "foo.*bar", regex=False)
+    as_regex = _search(svc, "foo.*bar", regex=True)
+
+    assert literal["results"] == [], "מילולית אין בקורפוס את המחרוזת הזאת"
+    assert [r["content"] for r in as_regex["results"]] == ["fooXbar = 2"]
+
+
+@requires_git
+@pytest.mark.parametrize("query", ["dict[", "**", "(self"])
+def test_the_same_query_that_is_an_invalid_pattern_works_literally(tmp_path, query):
+    """שני הצדדים של אותו מטבע, ובלי שניהם אי אפשר לדעת מה קרה.
+
+    ב-``regex=True`` גיט דוחה את הדפוס והתשובה היא ``invalid_pattern``;
+    ב-``regex=False`` — ברירת המחדל — אותה שאילתה בדיוק מוצאת את השורות.
+    טסט אחד לבדו לא היה מבדיל בין "תוקן" לבין "נחסם".
+
+    **מוטציה שמפילה:** להחזיר את ההיוריסטיקה ``_is_regex``, שהייתה
+    מעבירה את שלוש השאילתות האלה ל-``-E`` בלי שאיש ביקש.
+    """
+    svc = _build_mirror(tmp_path, {"sample.py": _SAMPLE})
+
+    as_regex = _search(svc, query, regex=True)
+    literal = _search(svc, query, regex=False)
+
+    assert as_regex.get("error") == "invalid_pattern"
+    assert "error" not in literal, f"מילולית זה חייב לעבוד: {literal!r}"
+    assert literal["results"], f"{query!r} קיים בקורפוס ולא נמצא"
+    assert all(query in r["content"] for r in literal["results"])
+
+
+@requires_git
+def test_leading_whitespace_in_the_query_is_not_trimmed_away(tmp_path):
+    """חיפוש הזחה הוא שימוש אמיתי, ולכן השאילתה אינה מקוצצת.
+
+    **שתי השורות נושאות את אותו טוקן בכוונה**, אחת מוזחת ואחת בשוליים.
+    אילו הטוקן היה שונה ביניהן, הקיצוץ לא היה משנה את התוצאה והטסט היה
+    עובר גם על קוד שמקצץ — נמדד, וזו בדיוק הגרסה הראשונה שלו.
+
+    **מוטציה שמפילה:** להחזיר את ``query.strip()`` ב-
+    ``search_with_git_grep`` — ואז החיפוש הופך ל-``return_x`` ושתי
+    השורות חוזרות.
+    """
+    corpus = "    return_x = 1\nreturn_x = 2\n"
+    svc = _build_mirror(tmp_path, {"s.py": corpus})
+
+    res = _search(svc, "    return_x")
+
+    assert "error" not in res
+    assert [r["line"] for r in res["results"]] == [1], f"ההזחה קוצצה: {res!r}"
+
+
+# --------------------------------------------------------------------------
+# דרך ממשק ה-MCP עצמו
+# --------------------------------------------------------------------------
+
+
+class _StubRepoBackend:
+    """דמה לשכבת ה-backend, כדי לבדוק את החיווט של הכלי ולא את git."""
+
+    def __init__(self):
+        self.calls = []
+
+    def search(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"ok": True, "repo": kwargs["repo"], "query": kwargs["query"],
+                "count": 0, "total": 0, "results": [], "truncated": False}
+
+
+async def test_the_tool_passes_the_query_and_the_mode_through_untouched(monkeypatch):
+    """מקצה לקצה דרך ``mcp.call_tool`` — מסלול שלא היה לו טסט כלל.
+
+    בודק את שני הדברים שהשתנו בשכבה הזאת: ``regex`` מגיע עד הסוף,
+    והשאילתה מגיעה **עם הרווחים שלה**.
+
+    **מוטציה שמפילה:** להחזיר את ``q = (query or "").strip()``
+    ב-``repo_handlers.search_repo``, או להשמיט את ``regex=regex``
+    מהקריאה ב-``server.py``.
+    """
+    pytest.importorskip("mcp")
+    import mcp_server.server as srv
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    # ``require_admin`` מיובא לתוך ``server`` ונקרא כגלובל של המודול, ולכן
+    # זו נקודת העקיפה. הכלי מוגדר ``[Admin]``, ו-``mcp._request_is_admin``
+    # לבדו אינו מספיק כי ``require_admin`` דורש הקשר בקשה אמיתי.
+    monkeypatch.setattr(srv, "require_admin", lambda ctx=None: 7)
+    backend = _StubRepoBackend()
+    mcp = srv.build_mcp(object(), repo_backend=backend)
+    mcp._request_is_admin = lambda: True
+
+    await mcp.call_tool(
+        "codekeeper_search_repo",
+        {"repo": "r", "query": "    return", "regex": True},
+    )
+
+    assert backend.calls, "הכלי לא הגיע ל-backend בכלל"
+    call = backend.calls[0]
+    assert call["query"] == "    return", "הרווחים קוצצו בדרך"
+    assert call["regex"] is True
+
+
+async def test_the_tool_defaults_to_literal_matching(monkeypatch):
+    """בלי ``regex``, הכלי מבקש התאמה מילולית.
+
+    **מוטציה שמפילה:** להחליף את ברירת המחדל של הפרמטר ל-``True``.
+    """
+    pytest.importorskip("mcp")
+    import mcp_server.server as srv
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    # ``require_admin`` מיובא לתוך ``server`` ונקרא כגלובל של המודול, ולכן
+    # זו נקודת העקיפה. הכלי מוגדר ``[Admin]``, ו-``mcp._request_is_admin``
+    # לבדו אינו מספיק כי ``require_admin`` דורש הקשר בקשה אמיתי.
+    monkeypatch.setattr(srv, "require_admin", lambda ctx=None: 7)
+    backend = _StubRepoBackend()
+    mcp = srv.build_mcp(object(), repo_backend=backend)
+    mcp._request_is_admin = lambda: True
+
+    await mcp.call_tool("codekeeper_search_repo", {"repo": "r", "query": "dict["})
+
+    assert backend.calls[0]["regex"] is False
