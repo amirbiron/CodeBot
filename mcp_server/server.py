@@ -116,6 +116,29 @@ _RANGE_DOC = (
 # בדיקה שמה לב. עמוד ראשון שנראה כמו כל המפה הוא כשל שקט:
 # ``OUTLINE_PER_PAGE_DEFAULT`` הוא 100, ולכן 486 הסימבולים שנמדדו על
 # הקובץ הצפוף בקורפוס הם חמישה עמודים.
+
+
+# תיאור פרמטר הצבע, **נגזר מהפלטה ולא מוקלד**. הפלטה חיה ב-
+# ``sticky_notes_target.NOTE_COLORS``, וטקסט שמונה את הצבעים ביד היה
+# מתיישן בשקט בצבע הבא שיתווסף — הסוכן היה ממשיך לראות רשימה חלקית בלי
+# שאף בדיקה תשים לב. כאן הוא מתעדכן מאליו.
+def _build_note_color_doc() -> str:
+    from sticky_notes_target import NOTE_COLORS, NOTE_COLOR_ORDER
+
+    names = ", ".join(f"{cid} ({NOTE_COLORS[cid]['hex']})" for cid in NOTE_COLOR_ORDER)
+    return (
+        "Note colour. Either a palette id — " + names + " — or a free CSS hex "
+        "value. A hex that matches a palette shade is stored as that id; any "
+        "other hex is kept as-is. Notes read back carry both: color as hex "
+        "(always a valid CSS value) and color_id as the palette id, or an "
+        "empty string when the colour is not in the palette. On create an "
+        "unusable value falls back to the default; on update it is dropped, "
+        "so an existing colour is never overwritten by accident."
+    )
+
+
+_NOTE_COLOR_PARAM_DOC = _build_note_color_doc()
+
 _OUTLINE_PARAM_DOC = (
     "A map of the file instead of its content, paged with page/per_page — a "
     "long map runs to several pages, and page 1 alone is not the whole file. "
@@ -1059,7 +1082,8 @@ def build_mcp(
         name="codekeeper_list_notes",
         description=(
             "List the user's sticky notes attached to a file (by file_name): content, "
-            "color, anchored line, timestamps. Same notes shown in the web UI."
+            "color (hex) and color_id (palette id, or empty when not in the "
+            "palette), anchored line, timestamps. Same notes shown in the web UI."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -1081,7 +1105,7 @@ def build_mcp(
         file_name: str,
         content: str,
         line: int | None = None,
-        color: str | None = None,
+        color: Annotated[str | None, Field(description=_NOTE_COLOR_PARAM_DOC)] = None,
         anchor_text: str | None = None,
     ) -> dict:
         require_write(ctx)  # דחיית טוקן קריאה-בלבד לפני כל נגיעה בנתונים
@@ -1134,7 +1158,7 @@ def build_mcp(
         ctx: Context,
         board_id: str,
         content: str,
-        color: str | None = None,
+        color: Annotated[str | None, Field(description=_NOTE_COLOR_PARAM_DOC)] = None,
         mode: str | None = None,
         title: str | None = None,
     ) -> dict:
@@ -1165,7 +1189,7 @@ def build_mcp(
         note_id: str,
         content: str | None = None,
         line: int | None = None,
-        color: str | None = None,
+        color: Annotated[str | None, Field(description=_NOTE_COLOR_PARAM_DOC)] = None,
         anchor_text: str | None = None,
         is_minimized: bool | None = None,
     ) -> dict:
@@ -1239,7 +1263,7 @@ def build_mcp(
         repo_name: str,
         repo_path: str,
         content: str,
-        color: str | None = None,
+        color: Annotated[str | None, Field(description=_NOTE_COLOR_PARAM_DOC)] = None,
         mode: str | None = None,
         title: str | None = None,
     ) -> dict:

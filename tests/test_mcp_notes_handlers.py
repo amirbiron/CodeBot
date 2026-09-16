@@ -305,7 +305,10 @@ def test_as_note_serialization():
     assert set(out) == {
         "id",
         "content",
+        # ``color`` הוא ``hex`` מחושב, ולצידו המזהה — ראו
+        # ``test_as_note_gives_the_agent_one_shape_for_a_colour``.
         "color",
+        "color_id",
         "line_start",
         "anchor_text",
         "is_minimized",
@@ -321,6 +324,35 @@ def test_as_note_serialization():
         "created_at",
         "updated_at",
     }
+
+
+def test_as_note_gives_the_agent_one_shape_for_a_colour():
+    """**אותו צבע, אותה תשובה — בלי קשר אם המיגרציה כבר רצה על הפתק.**
+
+    ``_as_note`` העתיק את ``color`` ישירות מהמסמך, ולכן אחרי המעבר לפלטה
+    סוכן שקרא שני פתקים **באותו צבע בדיוק** קיבל שני ערכים שונים:
+    ``"yellow"`` מפתק שיושר, ו-``"#FFFFCC"`` מפתק שלא. זה גרוע מחוזה
+    שהשתנה — זה חוזה שאינו עקבי עם עצמו, ואין לסוכן דרך לדעת זאת.
+
+    התיקון זהה לחוזה שכבר קיים ב-``webapp/sticky_notes_api._as_note_response``:
+    ``color`` הוא **תמיד ``hex``** — כי זה מה שהיה שם מאז ומתמיד ומה
+    שסוכן קיים מצפה לו — ו-``color_id`` הוא המזהה, או ``""`` לצבע שאינו
+    בפלטה.
+
+    נופלת אם ``color`` יחזור להיות מועתק גולמי מהמסמך.
+    """
+    same_colour_two_ways = [_as_note({"_id": "x", "color": raw}) for raw in ("yellow", "#FFFFCC")]
+    assert [n["color"] for n in same_colour_two_ways] == ["#ffffcc", "#ffffcc"]
+    assert [n["color_id"] for n in same_colour_two_ways] == ["yellow", "yellow"]
+
+    # צבע שאינו בפלטה ממשיך להיראות כפי שנראה, ו-``color_id`` ריק —
+    # שאינו כשל אלא התשובה הנכונה ל"הצבע הזה אינו בפלטה".
+    legacy = _as_note({"_id": "x", "color": "#AABBCC"})
+    assert legacy["color"] == "#aabbcc"
+    assert legacy["color_id"] == ""
+
+    # ומסמך בלי ``color`` כלל אינו מחזיר ``None`` לשדה שמוצהר כ-``hex``.
+    assert _as_note({"_id": "x"})["color"] == "#ffffcc"
 
 
 def test_as_note_reports_where_a_board_note_sits():
