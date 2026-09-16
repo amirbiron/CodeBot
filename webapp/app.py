@@ -14268,33 +14268,48 @@ def api_file_quick_update(file_id):
     לקבצים שכבר יש להם תיאור ותגיות) **יישאר שם** אחרי שינוי תגיות בלבד.
     להסרה מהרשימה בלי לזייף עריכה יש מסלול ייעודי:
     ``POST /api/file/<file_id>/dismiss-attention``.
+
+    **הכתיבה עצמה יושבת ב-**\\ ``database.repository.update_file_metadata_in``,
+    לא כאן. הראוט אחראי על מה ששייך ל-HTTP — פענוח ה-body, נורמליזציה של
+    הקלט, ותרגום קוד שגיאה לסטטוס — ומעביר הלאה ערכים מוכנים. עד ש-
+    ``codekeeper_update_file_description`` נוסף ב-MCP, "כאן" היה המקום
+    היחיד שכתב תיאור בלי גרסה; משנוסף כלי שני, המשך החזקת ``update_one``
+    מקומי היה אומר שני עותקים של אותה כתיבה, שרק אחד מהם יקבל את התיקון
+    הבא.
+
+    ``[:500]`` על התיאור נשאר **חיתוך** ולא דחייה, בכוונה: זה מה שהראוט
+    עשה מאז שנכתב, ובממשק שבו אדם רואה את הטקסט שלו בתיבה לפני השליחה
+    החיתוך גלוי. שכבת ה-MCP דוחה במקום לחתוך, כי סוכן אינו רואה את
+    התוצאה ולא ידע שאיבד טקסט.
     """
     try:
+        # ייבוא בתוך הראוט, כמו ``from database import db as _db`` בשאר
+        # הקובץ. **נמדד ולא הונח:** ייבוא ברמת המודול הפיל את
+        # ``import webapp.app`` בסביבה בלי ``MONGODB_URL`` — היום הוא עובר
+        # שם, וה-``try/except`` סביב ``HEAVY_FIELDS_EXCLUDE_PROJECTION``
+        # בראש הקובץ קיים בדיוק בשביל המצב הזה.
+        #
+        # ובלי ``try/except`` סביבו, בניגוד לאותו projection: קבוע אפשר
+        # לשכפל ועדיין לקבל התנהגות נכונה, ופונקציה — לא. כשל ייבוא כאן
+        # יגיע כ-500, ולא כ"נשמר" על כתיבה שלא קרתה.
+        from database.repository import (
+            FILE_DESCRIPTION_MAX_CHARS,
+            update_file_metadata_in,
+        )
+
         user_id = session['user_id']
-        db = get_db()
-        
-        try:
-            oid = ObjectId(file_id)
-        except Exception:
-            return jsonify({'ok': False, 'error': 'מזהה לא תקין'}), 400
-        
-        # וידוא בעלות
-        doc = db.code_snippets.find_one({
-            '_id': oid,
-            'user_id': user_id,
-            'is_active': True
-        }, {'_id': 1})
-        
-        if not doc:
-            return jsonify({'ok': False, 'error': 'הקובץ לא נמצא'}), 404
-        
+
         data = request.get_json() or {}
-        updates = {}
-        
+        # dict ולא שני משתנים עם סנטינל: שדה שלא נשלח פשוט אינו נמצא כאן,
+        # וברירת המחדל של הפונקציה (``_UNSET``) נשארת בתוקף. כך גם אין
+        # צורך לייבא שם פרטי ממודול אחר.
+        fields: Dict[str, Any] = {}
+
         if 'description' in data:
-            desc = (data.get('description') or '').strip()[:500]
-            updates['description'] = desc
-        
+            fields['description'] = (
+                (data.get('description') or '').strip()[:FILE_DESCRIPTION_MAX_CHARS]
+            )
+
         if 'tags' in data:
             raw_tags = data.get('tags') or []
             if isinstance(raw_tags, str):
@@ -14306,30 +14321,38 @@ def api_file_quick_update(file_id):
                 tag = str(t).strip().lower()[:50]
                 if tag and tag not in clean_tags:
                     clean_tags.append(tag)
-            updates['tags'] = clean_tags
-        
-        if not updates:
-            return jsonify({'ok': False, 'error': 'לא סופקו שדות לעדכון'}), 400
+            fields['tags'] = clean_tags
 
-        # ``updated_at`` נחתם רק כשהתיאור השתנה. הראוט הזה מטפל בשני שדות,
-        # ורק אחד מהם נכלל בחוזה של ``updated_at`` — תגיות הן מטא-דאטה,
-        # בדיוק כמו מועדפים ונעיצה, ושינוי שלהן אינו "עריכה" של הקובץ.
-        if 'description' in updates:
-            updates['updated_at'] = datetime.now(timezone.utc)
+        result = update_file_metadata_in(
+            get_db().code_snippets,
+            user_id,
+            file_id=file_id,
+            **fields,
+        )
 
-        db.code_snippets.update_one({'_id': oid}, {'$set': updates})
-        
-        # Invalidate cache
-        try:
-            cache.invalidate_file_related(file_id, user_id)
-        except Exception:
-            pass
-        
+        if not result.get('ok'):
+            # ``ok`` נבדק ולא רק "לא נזרקה חריגה": ערוץ הכשל של הפונקציה
+            # הוא ערך ההחזרה, ודיווח הצלחה בלי הבדיקה הזו הוא בדיוק
+            # ``CRITICAL-PATTERNS.md`` K11.
+            error = result.get('error')
+            if error == 'not_found':
+                return jsonify({'ok': False, 'error': 'הקובץ לא נמצא'}), 404
+            if error == 'invalid_file_id':
+                return jsonify({'ok': False, 'error': 'מזהה לא תקין'}), 400
+            if error == 'no_fields':
+                return jsonify({'ok': False, 'error': 'לא סופקו שדות לעדכון'}), 400
+            logger.error("quick update failed: %s", error)
+            return jsonify({'ok': False, 'error': 'שגיאה בעדכון'}), 500
+
+        # ``set_fields`` ולא ``updated_fields``: הראוט החזיר מאז שנכתב את
+        # **כל** מה ש-``$set`` נשא, כולל ``updated_at``. שמירה על הצורה
+        # הזו היא החוזה כלפי לקוח קיים, גם אם ``updated_fields`` הוא השם
+        # המדויק יותר למה שהמבקש ביקש.
         return jsonify({
             'ok': True,
-            'updated_fields': list(updates.keys())
+            'updated_fields': result.get('set_fields') or []
         })
-        
+
     except Exception as e:
         logger.exception(f"Error in quick update: {e}")
         return jsonify({'ok': False, 'error': 'שגיאה בעדכון'}), 500

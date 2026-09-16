@@ -230,13 +230,21 @@ _WRITE_TOOL = {
     "openWorldHint": False,
 }
 
-# In-place update (sticky-note edit): overwrites the note. Idempotent (same
-# input twice ⇒ same final state).
+# In-place update: overwrites a stored value rather than appending a version.
+# Idempotent (same input twice ⇒ same final state). Two tools carry it —
+# ``codekeeper_update_note`` and ``codekeeper_update_file_description`` — and
+# ``destructiveHint`` is ``True`` for each for a *different* reason:
 #
-# **``destructiveHint`` נשאר ``True`` גם אחרי שנוספה היסטוריה.** השחזור
-# חסום ל-``NOTE_VERSION_RETENTION`` גרסאות אחרונות, ולכן אחרי מספיק עריכות
-# המקור נדחף החוצה — כלומר אובדן עדיין אפשרי. ההנחיה ללקוח מתארת את המקרה
-# הגרוע, לא את הרגיל.
+# - **פתק:** ``destructiveHint`` נשאר ``True`` גם אחרי שנוספה היסטוריה.
+#   השחזור חסום ל-``NOTE_VERSION_RETENTION`` גרסאות אחרונות, ולכן אחרי
+#   מספיק עריכות המקור נדחף החוצה — כלומר אובדן עדיין אפשרי. ההנחיה
+#   ללקוח מתארת את המקרה הגרוע, לא את הרגיל.
+# - **תיאור קובץ:** אין היסטוריה **בכלל**. העדכון הוא ``$set`` על מסמך
+#   הגרסה האחרונה ואינו יוצר גרסה, ולכן התיאור הקודם נעלם ברגע הכתיבה
+#   ואינו ניתן לשחזור משום מקום. כאן ``True`` אינו המקרה הגרוע אלא המקרה
+#   היחיד.
+#
+# כלומר הערכים משותפים והנימוק אינו — ולכן הוא כתוב לשניהם ולא לאחד.
 _UPDATE_IN_PLACE_TOOL = {
     "readOnlyHint": False,
     "destructiveHint": True,
@@ -899,7 +907,10 @@ def build_mcp(
             "taken: saving over it would bury the old content, which the search and "
             "the file page both show by latest version only. Change an existing file "
             "with codekeeper_edit_file / codekeeper_append_file — those keep the old "
-            "versions. Requires write permission."
+            "versions. The description set here applies to a new file only; to "
+            "refresh a stale description on a file that already exists, use "
+            "codekeeper_update_file_description, which changes nothing else. "
+            "Requires write permission."
         ),
         annotations=_WRITE_TOOL,
     )
@@ -961,6 +972,37 @@ def build_mcp(
         require_write(ctx)  # reject a read-only token before touching anything
         return handlers.append_file(
             backend, current_user_id(ctx), file_name=file_name, content=content
+        )
+
+    @mcp.tool(
+        name="codekeeper_update_file_description",
+        description=(
+            "Replace an existing file's description without resending or changing "
+            "its content — the same quick description edit the file page offers. "
+            "Use it when the stored description no longer matches what the file "
+            "says; codekeeper_save_file sets a description only on a brand-new "
+            "file, and the edit tools carry the old one over unchanged. "
+            "NO NEW VERSION IS CREATED: the content and the version number stay "
+            "as they are, this change does not appear in "
+            "codekeeper_list_versions, and the previous description is NOT kept "
+            "in history — the reply returns it, and that is the only place it "
+            "survives. Only the latest version is updated, so reading an earlier "
+            "version back still returns the description it carried then. "
+            "Description only — tags and other metadata are untouched. Sends no "
+            "save notification, because nothing was saved. An empty description "
+            "clears it. An over-long description is refused rather than cut "
+            "short — the error carries the limit — so no text is lost without "
+            "you knowing. Requires write permission."
+        ),
+        annotations=_UPDATE_IN_PLACE_TOOL,
+    )
+    def update_file_description(ctx: Context, file_name: str, description: str) -> dict:
+        require_write(ctx)  # reject a read-only token before touching anything
+        return handlers.update_file_description(
+            backend,
+            current_user_id(ctx),
+            file_name=file_name,
+            description=description,
         )
 
     @mcp.tool(
