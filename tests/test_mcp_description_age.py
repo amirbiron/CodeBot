@@ -358,6 +358,36 @@ async def test_clearing_the_description_removes_the_stamp_instead_of_zeroing_it(
     assert DESCRIPTION_AGE_FIELD not in (await _age_from_get_file(mcp))
 
 
+async def test_a_description_that_looks_like_a_field_path_is_stored_as_text(wired_mongo):
+    """‏``"$code"`` כתיאור נשמר כטקסט, ולא כתוכן הקובץ.
+
+    **זה נבדק בהתנהגות ולא רק בצורת השאילתה, וזה לא כפילות.** מאז
+    שהעדכון הוא pipeline, מחרוזת שמתחילה ב-``$`` היא **נתיב שדה** בעיני
+    מונגו. בלי ``$literal``, התיאור שהמשתמש הקליד היה מוחלף בערך של
+    השדה שהוא במקרה נקרא כמוהו — הקובץ המלא, בשדה שתקרת האורך שלו היא
+    500 תווים. הטענה על צורת השאילתה חיה ב-
+    ``test_mcp_update_file_description.py``; כאן נבדק מה **יצא**.
+    """
+    collection = _fresh_collection(wired_mongo)
+    mcp = _build_mcp(wired_mongo)
+    await _call(
+        mcp, "codekeeper_save_file",
+        file_name=FILE_NAME, code="תוכן אמיתי\n", description=DESCRIPTION,
+    )
+
+    out = await _call(
+        mcp, "codekeeper_update_file_description",
+        file_name=FILE_NAME, description="$code",
+    )
+    assert out["ok"] is True, out
+
+    stored = collection.find_one({"user_id": USER_ID, "file_name": FILE_NAME})
+    assert stored["description"] == "$code", (
+        f"התיאור פוענח כנתיב שדה ולא כטקסט: {stored['description']!r}"
+    )
+    assert stored["code"] == "תוכן אמיתי\n", "התוכן נפגע"
+
+
 async def test_a_file_without_a_description_does_not_carry_the_field_at_all(wired_mongo):
     """אין תיאור, אין מה לבדוק — ולכן גם לא ``null``.
 
@@ -517,6 +547,41 @@ def test_editing_in_the_webapp_with_a_new_description_resets_the_age(wired_mongo
     assert saved is not None, "הראוט לא כתב גרסה חדשה"
     assert saved.get(DESCRIPTION_SET_AT_VERSION_FIELD) == 3, (
         f"תיאור חדש בדפדפן לא איפס את החותמת: {saved.get(DESCRIPTION_SET_AT_VERSION_FIELD)}"
+    )
+
+
+def test_saving_a_shared_document_stamps_it_like_every_other_write(wired_mongo):
+    """המסלול השישי — ``webapp/collections_api.py``.
+
+    **הוא נמצא רק כשנכתב הטסט השומר שמתחת**, אחרי שמיפוי ידני של הקוד
+    מצא חמישה. לכן הוא מקבל בדיקה התנהגותית משלו ולא רק כיסוי מבני:
+    שומר שבודק שהקוד **מזכיר** את הכלל אינו יכול לתפוס מימוש שקורא לו
+    ומשליך את התוצאה, וזו בדיוק הצורה שמוטציה מייצרת.
+
+    שני הכיוונים בקריאה אחת: שמירה ראשונה קובעת חותמת, ושמירה שנייה עם
+    אותו תיאור ותוכן אחר משאירה אותה במקומה.
+    """
+    from webapp.collections_api import _save_shared_document_to_user
+
+    db = wired_mongo.get_db()
+    db.code_snippets.delete_many({})
+    shared = {"file_name": "shared.md", "content": "# ראשון\n",
+              "language": "markdown", "description": DESCRIPTION}
+
+    first = _save_shared_document_to_user(db, user_id=USER_ID, doc=shared)
+    assert first["ok"] is True, first
+    stored = db.code_snippets.find_one({"file_name": "shared.md", "version": 1})
+    assert stored.get(DESCRIPTION_SET_AT_VERSION_FIELD) == 1, (
+        f"מסלול השיתוף כתב גרסה בלי חותמת: {stored}"
+    )
+
+    second = _save_shared_document_to_user(
+        db, user_id=USER_ID, doc={**shared, "content": "# שני\n"},
+    )
+    assert second["ok"] is True, second
+    stored = db.code_snippets.find_one({"file_name": "shared.md", "version": 2})
+    assert stored.get(DESCRIPTION_SET_AT_VERSION_FIELD) == 1, (
+        f"שמירה שנייה עם אותו תיאור איפסה את הגיל: {stored}"
     )
 
 
