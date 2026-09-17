@@ -1550,7 +1550,20 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "read it as a POSIX extended regular expression instead; a "
             "pattern git rejects then comes back as "
             "{\"ok\": false, \"error\": \"invalid_pattern\"} with the reason, "
-            "never as zero matches."
+            "never as zero matches. "
+            # שני השדות, ולמה הם שניים. ``total`` שהיה שווה ל-``count`` הוא
+            # המלכודת שהכלי הזה הטמין: הסוכן שלמד את המשמעות ב-``query=``
+            # של ``codekeeper_get_file`` ייחס אותה גם לכאן.
+            "`count` is how many hits came back; `total` is how many exist in "
+            "the repo, and it is there only when it is exact. When the count "
+            "itself was cut short the answer carries `total_at_least` (the "
+            "ceiling is 100,000) and `truncation_reason` instead — never both "
+            "forms at once. "
+            # אפס תוצאות אינו \"לא קיים\", וזה חייב להיאמר בתיאור עצמו: סוכן
+            # שלא יודע על ההחרגה יסיק מסקנה שגויה משתיקה.
+            "Vendored code (node_modules) is left out of both the search and "
+            "the count by default, so zero results does not mean the string is "
+            "absent from the repo; pass include_vendored=true to search it too."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -1561,6 +1574,18 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         file_pattern: str | None = None,
         max_results: int = 50,
         context_lines: StrictInt = 0,
+        include_vendored: Annotated[
+            bool,
+            Field(
+                description=(
+                    "false (the default) skips vendored code — node_modules at "
+                    "any depth — in both the results and the `total`. true "
+                    "searches it as well. Vendored files stay readable through "
+                    "codekeeper_get_repo_file either way; this only decides "
+                    "what the search looks at."
+                )
+            ),
+        ] = False,
         regex: Annotated[
             bool,
             Field(
@@ -1582,6 +1607,7 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             max_results=max_results,
             context_lines=context_lines,
             regex=regex,
+            include_vendored=include_vendored,
         )
 
 

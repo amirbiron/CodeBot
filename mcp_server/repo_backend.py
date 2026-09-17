@@ -29,7 +29,7 @@ from .repo_handlers import (
 )
 from .handlers import apply_line_range, normalize_line_range
 from .outline import extract_outline
-from .repo_policy import is_denied
+from .repo_policy import denylist_patterns, is_denied
 
 #: תקרת גודל נפרדת לקריאת טווח שורות.
 #:
@@ -551,7 +551,22 @@ class RepoBackend:
         byte_budget: int = 256_000,
         context_lines: int = 0,
         regex: bool = False,
+        include_vendored: bool = False,
     ) -> dict[str, Any]:
+        """Search the mirror, with a count that means what it says.
+
+        ``total`` is the number of matches in the repo, not the number of rows
+        in this answer — and it is present **only when it is exact**. When the
+        count itself was cut short (ceiling, timeout) the field is absent and
+        ``total_at_least`` carries the lower bound instead, because a number
+        that looks exact and is not is worse than no number at all.
+
+        The secrets policy travels **down** to the engine as patterns
+        (:func:`denylist_patterns`), so a denied file is skipped before it is
+        ever scanned — which is what makes the count and the cut agree on the
+        same set of files. :func:`is_denied` still filters the rows that come
+        back: one source, two layers, no second list.
+        """
         try:
             res = self._require_search().search(
                 repo,
@@ -561,6 +576,8 @@ class RepoBackend:
                 max_results=int(max_results),
                 context_lines=int(context_lines),
                 regex=bool(regex),
+                include_vendored=bool(include_vendored),
+                exclude_paths=list(denylist_patterns()),
             )
         except Exception:
             logger.warning("search failed", exc_info=True)
@@ -580,12 +597,16 @@ class RepoBackend:
                 }
             return self._transient_error(repo, "search_failed")
 
-        # total reflects what we can actually serve: the policy-filtered matches
-        # (NOT the engine's raw total, which may count denied paths).
+        # Last layer of the secrets policy. The engine already excluded these
+        # paths from the scan (and therefore from the count), so this normally
+        # removes nothing — it stays because a pattern the pathspec cannot
+        # express must still not be served.
         filtered = [r for r in (res.get("results") or []) if not is_denied(r.get("path", ""))]
-        total = len(filtered)
-        capped = filtered[: max(0, _safe_int(max_results, 50))]  # cap TOTAL matches
-        cap_truncated = total > len(capped)
+        # The cap is the engine's; slicing here is belt-and-braces on a list
+        # that is already at most ``max_results`` long. The old
+        # ``cap_truncated = total > len(capped)`` that sat here was dead code:
+        # ``total`` was ``len(filtered)``, so it could never be true.
+        capped = filtered[: max(0, _safe_int(max_results, 50))]
 
         out: list[dict[str, Any]] = []
         used = 0
@@ -606,12 +627,41 @@ class RepoBackend:
                 budget_truncated = True
                 break
             out.append(row)
-        return {
+        payload: dict[str, Any] = {
             "ok": True,
             "repo": repo,
             "query": query,
             "count": len(out),
-            "total": total,
             "results": out,
-            "truncated": bool(cap_truncated or budget_truncated or res.get("truncated")),
         }
+        # Exactly one of the two, and never both: if ``total`` is there, it is
+        # exact. ``total_at_least`` is the honest form of "we stopped counting".
+        if "total" in res:
+            payload["total"] = res["total"]
+        elif "total_at_least" in res:
+            payload["total_at_least"] = res["total_at_least"]
+
+        # An invariant of the answer, stated once here: if fewer rows came back
+        # than exist, this answer is not everything — whatever the engine
+        # flagged. ``count`` below the count next to ``truncated: false`` would
+        # contradict itself.
+        known = payload.get("total", payload.get("total_at_least"))
+        truncated = bool(
+            budget_truncated
+            or res.get("truncated")
+            or (isinstance(known, int) and known > payload["count"])
+        )
+        payload["truncated"] = truncated
+
+        # A reason only when something was in fact cut — a ``null`` on every
+        # complete search would be noise in every answer. And **always** one
+        # when it was: a flag without a reason sends the caller looking.
+        if truncated:
+            reason = res.get("truncation_reason")
+            if not reason:
+                # Nothing upstream was cut, so what removed rows is local:
+                # either the page did not fit, or the secrets policy dropped a
+                # row the engine's pathspec could not express.
+                reason = "byte_budget" if budget_truncated else "policy_filtered"
+            payload["truncation_reason"] = reason
+        return payload

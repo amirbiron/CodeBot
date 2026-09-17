@@ -15,6 +15,11 @@ from services.git_mirror_service import get_mirror_service
 
 logger = logging.getLogger(__name__)
 
+#: תקציב הזמן של חיפוש תוכן אחד, בשניות — **לשני המעברים יחד**: איסוף
+#: התוצאות וספירת המופעים. היה כאן מספר קסם בגוף הקריאה; משקיבל שם אפשר
+#: גם לקרוא אותו בתיעוד וגם לבדוק את מסלול ה-timeout בלי להמתין באמת.
+CONTENT_SEARCH_TIMEOUT_SECONDS = 10
+
 
 @dataclass
 class SearchResult:
@@ -51,6 +56,8 @@ class RepoSearchService:
         max_results: int = 50,
         context_lines: int = 0,
         regex: bool = False,
+        include_vendored: bool = False,
+        exclude_paths: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         חיפוש מאוחד בקוד
@@ -66,9 +73,15 @@ class RepoSearchService:
             regex: ``False`` (ברירת המחדל) = התאמה מילולית. ``True`` =
                  השאילתה היא ERE. רלוונטי ל-``search_type="content"`` בלבד,
                  כי שאר המסלולים הם שאילתות מונגו עם ``re.escape``.
+            include_vendored: האם לכלול קוד חיצוני (``node_modules``) בחיפוש
+                 ובספירה. ``search_type="content"`` בלבד.
+            exclude_paths: תבניות נתיב נוספות להחרגה, שהקורא מספק —
+                 ``search_type="content"`` בלבד.
 
         Returns:
-            dict עם results, total, query info
+            dict עם results, query info, ו**אחד** משדות הספירה: ``total``
+            כשהוא מדויק, או ``total_at_least`` כשהספירה נקטעה. ראו
+            :meth:`_search_content`.
         """
         # ה-``strip`` כאן מכריע **ריקנות בלבד**, והשאילתה עוברת הלאה כמו
         # שהיא: חיפוש הזחה (``"    return"``) הוא שימוש אמיתי, וקיצוץ היה
@@ -97,6 +110,8 @@ class RepoSearchService:
                 ref=ref,  # העברת ה-ref הנכון
                 context_lines=context_lines,
                 regex=regex,
+                include_vendored=include_vendored,
+                exclude_paths=exclude_paths,
             )
         elif search_type == "filename":
             return self._search_filename(repo_name, query, max_results)
@@ -117,6 +132,8 @@ class RepoSearchService:
         ref: str = "refs/heads/main",
         context_lines: int = 0,
         regex: bool = False,
+        include_vendored: bool = False,
+        exclude_paths: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """חיפוש תוכן עם git grep.
 
@@ -135,12 +152,14 @@ class RepoSearchService:
             repo_name=repo_name,
             query=query,
             max_results=max_results,
-            timeout=10,
+            timeout=CONTENT_SEARCH_TIMEOUT_SECONDS,
             file_pattern=git_pattern,
             case_sensitive=case_sensitive,
             ref=ref,  # שימוש ב-ref הנכון מה-DB
             context_lines=context_lines,
             regex=regex,
+            include_vendored=include_vendored,
+            exclude_paths=exclude_paths,
         )
 
         if "error" in result:
@@ -171,13 +190,24 @@ class RepoSearchService:
                 r["language"] = meta.get("language", "unknown")
                 r["size"] = meta.get("size", 0)
 
-        return {
+        out: Dict[str, Any] = {
             "results": result["results"],
-            "total": result.get("total_count", len(result["results"])),
             "truncated": result.get("truncated", False),
             "search_type": "content",
             "query": query,
         }
+        # **``total`` עובר רק כשהמנוע נקב בו.** קודם עמד כאן
+        # ``result.get("total_count", len(result["results"]))``, וברירת
+        # המחדל הזו היא בדיוק השקר שה-PR הזה מסלק: היא מחזירה את מספר
+        # התוצאות שהוחזרו ומכריזה עליו כסך הכול. אם המנוע לא ידע — גם כאן
+        # לא יודעים, ומה שעובר הוא ``total_at_least``.
+        if "total_count" in result:
+            out["total"] = result["total_count"]
+        if "total_at_least" in result:
+            out["total_at_least"] = result["total_at_least"]
+        if result.get("truncation_reason"):
+            out["truncation_reason"] = result["truncation_reason"]
+        return out
 
     def _search_filename(self, repo_name: str, query: str, max_results: int) -> Dict[str, Any]:
         """חיפוש לפי שם קובץ"""

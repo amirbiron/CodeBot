@@ -32,12 +32,13 @@ class _RecordingRepoBackend:
 
     def search(
         self, *, repo, query, file_pattern, max_results, byte_budget,
-        context_lines=0, regex=False,
+        context_lines=0, regex=False, include_vendored=False,
     ):
         self.calls.append(
             ("search", repo, query, file_pattern, max_results, byte_budget,
              context_lines, regex)
         )
+        self.include_vendored = include_vendored
         return {"ok": True}
 
 

@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 from collections import deque
 import shutil
 from dataclasses import dataclass
@@ -39,6 +40,37 @@ GREP_EXIT_WAIT_SECONDS = 1.0
 # תקרה לקריאת stderr. עד היום נקרא ``.read()`` בלי גבול.
 GREP_STDERR_MAX_BYTES = 8192
 
+# ---- החרגת קוד חיצוני מהחיפוש ------------------------------------------
+#
+# ‏81% מהקבצים ב-CodeBot — 8,242 מתוך 10,150 — יושבים תחת ``node_modules/``,
+# והם מציפים כל חיפוש רחב. נמדד על המראה של הריפו הזה: ``"the"`` מחזיר
+# ‏13,113 התאמות בקוד ו-70,098 כשהספרייה בפנים, כלומר 81% מהתשובה היא קוד
+# שאיש לא כתב כאן.
+#
+# **ההחרגה יושבת במנוע ולא בשכבת ה-MCP** — כך היא חלה גם על החיפוש בוובאפ,
+# והחיתוך והספירה קורים על אותה קבוצת קבצים בדיוק.
+#
+# **וזו רשימה נפרדת ממדיניות הסודות, בכוונה.** סוד חסום גם בקריאה; קוד חיצוני
+# רק אינו נכלל בחיפוש, וממשיך להיקרא דרך ``codekeeper_get_repo_file``.
+VENDORED_PATH_GLOBS: tuple = ("node_modules/*",)
+
+# תקרת הספירה. מעליה אין ``total`` אלא ``total_at_least``, כי מרגע שעצרנו
+# כבר אין לנו את המספר — ותשובה מדויקת-למראית-עין גרועה מהיעדרה.
+#
+# **למה דווקא כאן.** נמדד על מראה בערה של CodeBot (git 2.43), עם ההחרגה
+# פעילה: מעבר הספירה עולה 0.13–0.15 שניות בין אם יש 19,524 התאמות ובין אם
+# יש 507,403 — כי ``git grep -c`` סופר בעצמו ומדפיס שורה לקובץ ולא שורה
+# להתאמה. כלומר התקרה כמעט לעולם אינה נדלקת בריפו אמיתי, והיא קיימת בשביל
+# הקצה הפתולוגי בלבד. מעל 100,000 התאמות המספר המדויק ממילא אינו משנה שום
+# החלטה של סוכן.
+SEARCH_COUNT_CEILING = 100_000
+
+# תקרת רשומות במעבר הספירה. רשומה אחת לכל קובץ **תואם** — 1,828 קבצים
+# בחיפוש הרחב ביותר שנמדד כאן — ולכן זו הגנה מפני פלט פתולוגי ולא מגבלה
+# שנפגשים בה. אינה נגזרת מ-``max_results``: הספירה אינה מוגבלת במה שביקשו
+# להחזיר.
+GREP_COUNT_MAX_FILES = 200_000
+
 # הודעות ש-git מוציא כשהוא דוחה את ה**דפוס** עצמו. קוד היציאה אינו מספיק:
 # ‏128 משותף גם ל-``bad revision`` ולאובייקט פגום, ורק ה-stderr מבדיל.
 _PATTERN_ERROR_MARKERS = (
@@ -57,6 +89,71 @@ _PATTERN_ERROR_MARKERS = (
     "brackets ([ ]) not balanced",
     "parentheses not balanced",
 )
+
+
+def _looks_like_git_sha(text: str) -> bool:
+    t = (text or "").strip()
+    if len(t) < 7 or len(t) > 64:
+        return False
+    return all(c in "0123456789abcdefABCDEF" for c in t)
+
+
+def _strip_ref_prefix(text: str) -> str:
+    """``<ref>:<path>`` ← ``<path>``, כשהתחילית באמת נראית כמו ref.
+
+    ברמת המודול ולא כבלוק בתוך לולאת הפרסור: ההיגיון הזה הוא הכרעה בפני
+    עצמה (מתי ``foo:bar`` הוא ref ומתי הוא שם קובץ), והוא ראוי לשם ולבדיקה
+    משלו במקום להיקרא מתוך ``else`` באמצע לולאה בת 200 שורות.
+    """
+    file_line = (text or "").strip()
+    if ":" not in file_line:
+        return file_line
+    colon_pos = file_line.find(":")
+    before_colon = file_line[:colon_pos]
+    if (
+        "/" in before_colon
+        or before_colon in ["HEAD", "main", "master", "develop"]
+        or before_colon.startswith("refs/")
+        or _looks_like_git_sha(before_colon)
+    ):
+        return file_line[colon_pos + 1:]
+    return file_line
+
+
+def _exclude_pathspecs(patterns) -> List[str]:
+    """תבניות ``fnmatch`` ← pathspec-ים שליליים של ``git grep``.
+
+    **שתי צורות לכל תבנית, ולא אחת.** ``mcp_server/repo_policy.is_denied``
+    מתאים כל תבנית גם ל-basename וגם לנתיב המלא; כאן ``:(exclude,icase)P``
+    מכסה את הנתיב המלא (ובמאגיה ברירת המחדל של git ‏``*`` חוצה ``/``, בדיוק
+    כמו ``fnmatch`` של פייתון), ו-``:(exclude,icase)*/P`` מכסה את ה-basename
+    בכל עומק. בלי השנייה ``config/.env`` היה נסרק; בלי הראשונה ``.env``
+    בשורש היה נסרק.
+
+    **``icase`` ולא השוואה ידנית** — ``is_denied`` משווה על מחרוזת שהורדה
+    לאותיות קטנות, וזה הצד של git לאותה הכרעה. נמדד על git 2.43:
+    ``SECRETS.YAML`` מוחרג על ידי ``secrets.*``.
+
+    **תבנית ריקה מדולגת בכוונה.** ``:(exclude,icase)`` לבדו מתאים **לכל**
+    נתיב, כלומר מרוקן את החיפוש בלי שגיאה ובלי סימן — נמדד: יציאה 1, אפס
+    תוצאות. ``repo_policy`` כבר מסנן ריקים, וזו החגורה השנייה.
+
+    **ההחרגה חזקה מכל pathspec חיובי שהקורא ישלח**, כך ש-``file_pattern``
+    אינו יכול להחזיר קובץ מוחרג. נמדד: ``-- 'config/.env' ':(exclude,icase).env*'``
+    מחזיר אפס.
+    """
+    specs: List[str] = []
+    seen: Set[str] = set()
+    for raw in patterns or ():
+        pattern = str(raw or "").strip()
+        if not pattern:
+            continue
+        for form in (pattern, f"*/{pattern}"):
+            spec = f":(exclude,icase){form}"
+            if spec not in seen:
+                seen.add(spec)
+                specs.append(spec)
+    return specs
 
 
 def _classify_grep_failure(stderr_text: str) -> str:
@@ -1934,6 +2031,8 @@ class GitMirrorService:
         ref: Optional[str] = None,
         context_lines: int = 0,
         regex: bool = False,
+        include_vendored: bool = False,
+        exclude_paths: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         חיפוש בקוד עם git grep (מהיר מאוד!)
@@ -1959,13 +2058,34 @@ class GitMirrorService:
             regex: ``False`` (ברירת המחדל) ← ``git grep -F``, כל תו בשאילתה
                  הוא תו. ``True`` ← ``git grep -E``, והשאילתה היא ERE שגיט
                  עשוי לדחות — ואז חוזר ``error: "invalid_pattern"``.
+            include_vendored: ``False`` (ברירת המחדל) מחריג קוד חיצוני
+                 (``VENDORED_PATH_GLOBS``) מהחיפוש **ומהספירה**. ``True``
+                 מבטל את ההחרגה.
+            exclude_paths: תבניות ``fnmatch`` נוספות להחרגה, שהקורא מספק —
+                 כאן נכנסת מדיניות הסודות של שכבת ה-MCP. המנוע אינו מכיר
+                 את המדיניות ואינו מחזיק העתק שלה; הוא רק יודע להפוך תבנית
+                 ל-pathspec שלילי. ראו :func:`_exclude_pathspecs`.
 
         **השאילתה אינה מקוצצת**, בכוונה. חיפוש הזחה (``"    return"``) הוא
         שימוש אמיתי, וקיצוץ היה משנה בשקט את מה שביקשו. זו אותה הכרעה
         שכבר קיימת ב-``query=`` של ``codekeeper_get_file``.
 
+        **הספירה, ומה שמבדיל בין ``total_count`` ל-``total_at_least``.**
+        מעבר אחד אינו יכול לתת את שניהם: ``-m`` מגביל את ההתאמות לכל קובץ
+        (וזה מה שמפזר את התוצאות על פני קבצים), ו-``git grep -c`` **סופר
+        לפי אותה מגבלה** — נמדד: קובץ עם 5 התאמות מדווח 2 תחת ``-m 2``.
+        לכן יש כאן שני מעברים: מעבר התוצאות, שפקודתו לא השתנתה כלל, ומעבר
+        ספירה נפרד בלי ``-m``. השני רץ **רק כשהראשון אינו יכול לענות** —
+        כלומר כשהוא נקטע, או כשקובץ כלשהו נגע בתקרת ההתאמות-לקובץ.
+
         Returns:
-            dict עם results, total_count, truncated
+            dict עם ``results``, ``truncated``, ``truncation_reason``,
+            ו**אחד** משני שדות הספירה:
+
+            - ``total_count`` — המספר המדויק. קיים רק כשהוא באמת ידוע.
+            - ``total_at_least`` — חסם תחתון, כשהספירה נקטעה (תקרה, timeout,
+              או תהליך שנהרג). אין אז ``total_count`` כלל, כי מספר מדויק
+              למראית עין גרוע מהיעדרו.
         """
         query = str(query or "")
         file_pattern = file_pattern.strip() if isinstance(file_pattern, str) else None
@@ -1989,6 +2109,22 @@ class GitMirrorService:
             ref = "HEAD"
         if not self._validate_repo_ref(ref):
             return {"error": "invalid_ref", "results": []}
+
+        # *** קיבוע ה-ref לקומיט, כדי ששני המעברים יראו את אותו עץ ***
+        # מעבר התוצאות ומעבר הספירה הם שני תהליכי git נפרדים, ובין שניהם
+        # ה-autosync יכול להריץ ``git fetch`` ולהזיז את הענף. בלי קיבוע,
+        # ``total`` היה יכול לתאר עץ אחר מזה שהתוצאות הגיעו ממנו — ובמקרה
+        # הקיצון להיות **קטן** ממספר התוצאות, כלומר תשובה שסותרת את עצמה.
+        #
+        # כשל בקיבוע אינו מפיל את החיפוש: ממשיכים עם ה-ref כמו שהוא, וגיט
+        # ידווח על ref פסול בדיוק כמו קודם. זו נפילה-לאחור על **היעדר**
+        # (אין קומיט כזה) ולא על כשל חולף, והיא מותירה את ההתנהגות הקודמת.
+        resolved = self._validate_ref_with_git(repo_name, ref)
+        resolved_sha = resolved.get("resolved_sha") if resolved.get("valid") else None
+        if resolved_sha:
+            ref = resolved_sha
+        else:
+            logger.debug("search: could not pin ref %r for %s", ref, repo_name)
 
         # בניית הפקודה - סדר נכון ל-Bare Repository!
         # git grep [options] <pattern> <revision> -- <pathspec>
@@ -2041,20 +2177,36 @@ class GitMirrorService:
         # 2. הוספת ה-Revision (branch/SHA)
         cmd.append(ref)
 
-        # 3. File pattern (pathspec)
-        # ב-bare repo אין working directory, אז אם אין פילטר -
-        # פשוט לא מוסיפים pathspec (git grep יחפש בכל העץ)
+        # 3. Pathspec: הפילטר של הקורא, ואחריו ההחרגות
+        #
+        # ההחרגות נבנות פעם אחת ומשמשות את **שני** המעברים — מעבר התוצאות
+        # ומעבר הספירה — כדי שהחיתוך והספירה יקרו על אותה קבוצת קבצים.
+        # ‏``git`` מתיר רשימת pathspec-ים שכולה שלילית (נמדד על 2.43: כל
+        # השאר מותאם), ולכן אין צורך ב-``.`` מדומה כשאין ``file_pattern``.
+        exclude_globs: List[str] = []
+        if not include_vendored:
+            exclude_globs.extend(VENDORED_PATH_GLOBS)
+        exclude_globs.extend(exclude_paths or [])
+        pathspec = _exclude_pathspecs(exclude_globs)
         if file_pattern:
+            pathspec.insert(0, file_pattern)
+        if pathspec:
             cmd.append("--")
-            cmd.append(file_pattern)
-        # אם אין file_pattern, לא צריך -- ולא צריך "."
+            cmd.extend(pathspec)
 
         try:
             # שימוש בשיטת streaming כדי להגביל את צריכת הזיכרון
             # עוצרים מוקדם כשמגיעים למספיק תוצאות
+            started = time.monotonic()
             streaming_result = self._run_grep_with_streaming(
-                cmd, repo_path, max_results, timeout, context_lines=context_lines
+                cmd,
+                repo_path,
+                max_results,
+                timeout,
+                context_lines=context_lines,
+                matches_per_file=matches_per_file,
             )
+            elapsed = time.monotonic() - started
 
             if "error" in streaming_result:
                 # השאילתה נוסעת עם השגיאה: העוזר מכיר רק את ``cmd``, ומי
@@ -2063,20 +2215,210 @@ class GitMirrorService:
                 return streaming_result
 
             results = streaming_result.get("results", [])
-            truncated = streaming_result.get("truncated", False)
+            truncated = bool(streaming_result.get("truncated", False))
             truncation_reason = streaming_result.get("truncation_reason")
 
-            return {
+            out: Dict[str, Any] = {
                 "results": results,
-                "total_count": len(results),
                 "truncated": truncated,
                 "truncation_reason": truncation_reason,
                 "query": query,
             }
 
+            # **מתי מה שנאסף *הוא* הסך הכול.** הסריקה הסתיימה מעצמה, ושום
+            # קובץ לא נגע בתקרת ההתאמות-לקובץ — ולכן כל התאמה בעץ הודפסה
+            # ונאספה. במקרה הזה מעבר שני היה סופר בדיוק את אותו דבר, ולכן
+            # החיפושים הצרים (הרוב המוחלט) ממשיכים לעלות תהליך git אחד.
+            if not truncated and not streaming_result.get("per_file_cap_hit"):
+                out["total_count"] = len(results)
+                return out
+
+            remaining = timeout - elapsed
+            count = self._count_matches_with_git_grep(
+                repo_path=repo_path,
+                query=query,
+                ref=ref,
+                case_sensitive=case_sensitive,
+                regex=regex,
+                pathspec=pathspec,
+                timeout=remaining,
+            )
+            counted = int(count.get("counted", 0) or 0)
+
+            if count.get("complete"):
+                if counted < len(results):
+                    # אינו אמור לקרות: שני המעברים רצים על אותו קומיט ועל
+                    # אותם pathspec-ים. אם בכל זאת — לא מדווחים סך שקטן
+                    # ממה שהוחזר בפועל, ולא בולעים את הסתירה בשקט.
+                    logger.warning(
+                        "grep count (%s) below returned results (%s) for %r",
+                        counted, len(results), query,
+                    )
+                total = max(counted, len(results))
+                out["total_count"] = total
+                if not out["truncated"] and total > len(results):
+                    # **המקרה השקט:** הסריקה הסתיימה, ``max_results`` לא
+                    # נגמר — ובכל זאת חסרות התאמות, כי ``-m`` הפסיק להדפיס
+                    # אחרי המכסה בקובץ. בלי השורה הזאת התשובה הייתה נושאת
+                    # ``truncated: false`` לצד ``count`` קטן מ-``total``,
+                    # כלומר סותרת את עצמה.
+                    out["truncated"] = True
+                    out["truncation_reason"] = "matches_per_file"
+            else:
+                # אין ``total_count`` כלל — **זה** הפער שהשדה החדש סוגר.
+                out["total_at_least"] = max(counted, len(results))
+                out["truncated"] = True
+                # הסיבה של הספירה גוברת: ``max_results`` כבר משתמע מכך
+                # ש-``count`` קטן מהחסם, ומה שדורש הסבר הוא היעדר ``total``.
+                out["truncation_reason"] = count.get("truncation_reason") or truncation_reason
+
+            return out
+
         except Exception as e:
             logger.exception(f"Search error: {e}")
             return {"error": "search_error", "results": []}
+
+    def _count_matches_with_git_grep(
+        self,
+        *,
+        repo_path: Path,
+        query: str,
+        ref: str,
+        case_sensitive: bool,
+        regex: bool,
+        pathspec: List[str],
+        timeout: float,
+    ) -> Dict[str, Any]:
+        """סופר את **כל** ההתאמות, בלי לשמור שורה אחת בזיכרון.
+
+        **למה ``-c`` ולא קריאת הזרם הרגיל עד הסוף.** ``git grep -c`` מדפיס
+        רשומה אחת **לקובץ** (``<ref>:<path>\0<count>``) במקום שורה לכל
+        התאמה, וסופר בעצמו. נמדד על מראה בערה של CodeBot: ``"e"`` נותן
+        507,403 התאמות ב-1,828 רשומות ו-0.14 שניות; קריאת אותן התאמות
+        שורה-שורה בפייתון הייתה מחזיקה את החוט פי כמה, ועם 12 חוטים מול
+        512MB זה בדיוק המשאב שאסור לבזבז.
+
+        **``-z`` כדי שהספירה לא תלויה בניחוש על הנתיב.** בלעדיו הרשומה היא
+        ``ref:path:count`` וקובץ ששמו מכיל נקודתיים היה שובר את הפרסור;
+        עם ``-z`` המפריד בין הנתיב למספר הוא NUL, שאינו יכול להופיע בשם.
+
+        **מה שהפקודה כאן לא נושאת, ובכוונה:** אין ``-m`` (הוא מגביל גם את
+        הספירה — נמדד), אין ``-n``/``--heading`` (אין שורות להציג), ואין
+        ``-C`` (שורות הקשר אינן התאמות, ולכן הן פשוט לא קיימות במעבר הזה —
+        ולא צריך להבדיל בינן לבין התאמות בפרסור).
+
+        Returns:
+            ``{"counted": N, "complete": bool, "truncation_reason": str|None}``.
+            ``complete=False`` פירושו ש-``N`` הוא חסם תחתון בלבד.
+        """
+        if timeout is None or timeout <= 0:
+            return {"counted": 0, "complete": False, "truncation_reason": "timeout"}
+
+        cmd = ["git", "grep", "-c", "-z", "-I"]
+        if not case_sensitive:
+            cmd.append("-i")
+        cmd.append("-E" if regex else "-F")
+        if query.startswith("-"):
+            cmd.extend(["-e", query])
+        else:
+            cmd.append(query)
+        cmd.append(ref)
+        if pathspec:
+            cmd.append("--")
+            cmd.extend(pathspec)
+
+        counted = 0
+        files_read = 0
+        reason: Optional[str] = None
+        complete = False
+        process: Optional[subprocess.Popen] = None
+        try:
+            process = subprocess.Popen(
+                cmd,
+                cwd=str(repo_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                # ``errors="replace"`` ולא ברירת המחדל: קובץ טקסט עם בייט
+                # שאינו UTF-8 קיים בריפו הזה בפועל, וראו את ההערה במעבר
+                # התוצאות. כאן זה נוגע רק לשם הקובץ, והמספר עצמו הוא ASCII.
+                errors="replace",
+                bufsize=1,
+            )
+            stream = process.stdout
+            if stream is None:
+                # ``stdout=PIPE`` תמיד נותן זרם; אם בכל זאת לא — אומרים
+                # שהספירה נכשלה, ולא מחזירים אפס שנראה כמו "אין התאמות".
+                return {"counted": 0, "complete": False, "truncation_reason": "count_failed"}
+
+            start_time = time.monotonic()
+            while True:
+                if time.monotonic() - start_time >= timeout:
+                    process.kill()
+                    reason = "timeout"
+                    break
+                line = stream.readline()
+                if not line:
+                    # EOF בלי שהרגנו — כל מסלול הריגה שובר את הלולאה מיד,
+                    # ולכן הגעה לכאן פירושה שגיט סיים לבדו.
+                    complete = True
+                    break
+                files_read += 1
+                if files_read > GREP_COUNT_MAX_FILES:
+                    process.kill()
+                    reason = "count_output_limit"
+                    break
+                # הנתיב עצמו אינו נחוץ כאן: הקבצים החסומים הוחרגו כבר
+                # ב-pathspec, ולכן כל מה שמגיע לזרם הזה הוא קובץ שמותר
+                # לספור. מה שנדרש הוא רק המספר שאחרי ה-NUL.
+                _, sep, count_part = line.rstrip("\n").rpartition("\0")
+                if not sep:
+                    continue
+                try:
+                    counted += int(count_part.strip())
+                except ValueError:
+                    continue
+                if counted >= SEARCH_COUNT_CEILING:
+                    process.kill()
+                    # מדווחים את התקרה עצמה ולא את הסכום שבמקרה נחצה איתו:
+                    # הספרות שמעבר לתקרה הן ארטיפקט של גבול הקובץ שבו
+                    # עצרנו, והחוזה זהה בכל ריפו ובכל שאילתה.
+                    counted = SEARCH_COUNT_CEILING
+                    reason = "count_ceiling"
+                    break
+
+            if complete:
+                # קוד היציאה נבדק רק כשלא הרגנו — אותה הכרעה בדיוק כמו
+                # במעבר התוצאות. ‏0 = נמצאו, 1 = לא נמצאו, >1 = שגיאה,
+                # ושלילי = נהרג מבחוץ. בכל אלה הספירה אינה שלמה.
+                try:
+                    returncode = process.wait(timeout=GREP_EXIT_WAIT_SECONDS)
+                except subprocess.TimeoutExpired:
+                    returncode = None
+                if returncode is None or returncode > 1 or returncode < 0:
+                    logger.warning("grep count ended with code %s", returncode)
+                    complete = False
+                    reason = "count_failed"
+        except Exception:
+            logger.exception("grep count failed")
+            complete = False
+            reason = reason or "count_failed"
+        finally:
+            if process is not None:
+                try:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=1)
+                except Exception:
+                    pass
+                for stream in (process.stdout, process.stderr):
+                    try:
+                        if stream:
+                            stream.close()
+                    except Exception:
+                        pass
+
+        return {"counted": counted, "complete": complete, "truncation_reason": reason}
 
     def _run_grep_with_streaming(
         self,
@@ -2085,6 +2427,7 @@ class GitMirrorService:
         max_results: int,
         timeout: int,
         context_lines: int = 0,
+        matches_per_file: int = 0,
     ) -> Dict[str, Any]:
         """
         הרצת git grep עם streaming לצמצום צריכת זיכרון.
@@ -2097,9 +2440,14 @@ class GitMirrorService:
             repo_path: נתיב לריפו
             max_results: מקסימום תוצאות
             timeout: timeout בשניות
+            matches_per_file: הערך שנמסר ל-``git grep -m``. משמש **רק** כדי
+                לדווח ``per_file_cap_hit`` — כלומר אם קובץ כלשהו הגיע
+                למכסת ההתאמות שלו, ולכן ייתכן שיש בו עוד התאמות שלא הודפסו.
+                זה מה שמכריע אם צריך מעבר ספירה נפרד.
 
         Returns:
-            dict עם results, truncated, truncation_reason או error
+            dict עם results, truncated, truncation_reason, per_file_cap_hit
+            או error
         """
         # וולידציה בסיסית (ממומש כבר ב-_run_git_command אבל נבדוק גם פה)
         if not cmd or cmd[0] != "git":
@@ -2107,6 +2455,11 @@ class GitMirrorService:
 
         results: List[Dict[str, Any]] = []
         current_file: Optional[str] = None
+        # התאמות שהודפסו לקובץ הנוכחי, מול המכסה של ``-m``. קובץ שנגע במכסה
+        # פירושו שייתכנו בו עוד התאמות שגיט לא הדפיס — ולכן ``len(results)``
+        # אינו יכול לשמש כסך הכול, גם אם שום דבר אחר לא נקטע.
+        current_file_matches = 0
+        per_file_cap_hit = False
         lines_read = 0
         max_lines = max_results * 50  # הגבלת קריאה גם אם אין מספיק התאמות
         truncated = False
@@ -2139,12 +2492,6 @@ class GitMirrorService:
             """סוף קבוצה או סוף קובץ: אין עוד שורות שיכולות להשתייך להתאמות."""
             pending.clear()
 
-        def _looks_like_git_sha(text: str) -> bool:
-            t = (text or "").strip()
-            if len(t) < 7 or len(t) > 64:
-                return False
-            return all(c in "0123456789abcdefABCDEF" for c in t)
-
         process: Optional[subprocess.Popen] = None
         try:
             process = subprocess.Popen(
@@ -2153,6 +2500,16 @@ class GitMirrorService:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                # **בייט שאינו UTF-8 הפיל עד כה את כל החיפוש.** ``text=True``
+                # לבדו מפענח ב-``strict``, ו-``readline`` זרק
+                # ``UnicodeDecodeError`` שנבלע ב-``except`` הכללי וחזר כ-
+                # ``search_error`` — כלומר תשובה ריקה על חיפוש תקין.
+                # נמדד על הריפו הזה: ``docs/images/onboarding-flow.svg`` נושא
+                # בייט ``0xde``, ו-``git grep -I`` אינו מחשיב אותו בינארי;
+                # כל חיפוש שקרא מספיק עמוק כדי להגיע אליו נכשל. עד היום זה
+                # הוסתר בכך שהזרם נהרג מוקדם, ומעבר הספירה היה חושף את זה
+                # בכל חיפוש רחב.
+                errors="replace",
                 bufsize=1,  # Line buffered
             )
 
@@ -2271,6 +2628,10 @@ class GitMirrorService:
                             content = parts[1]
                             text = content.strip()[:500]
 
+                            current_file_matches += 1
+                            if matches_per_file and current_file_matches >= matches_per_file:
+                                per_file_cap_hit = True
+
                             if reached_cap:
                                 # מעבר לתקרה כבר לא אוספים התאמות חדשות, אבל
                                 # השורה עדיין משמשת כהקשר להתאמות שלפניה.
@@ -2315,21 +2676,9 @@ class GitMirrorService:
                         except ValueError:
                             continue
                 else:
-                    # שורת Heading (שם קובץ)
-                    file_line = line.strip()
-
-                    # הסרת ref prefix אם קיים
-                    if ":" in file_line:
-                        colon_pos = file_line.find(":")
-                        before_colon = file_line[:colon_pos]
-
-                        if (
-                            "/" in before_colon
-                            or before_colon in ["HEAD", "main", "master", "develop"]
-                            or before_colon.startswith("refs/")
-                            or _looks_like_git_sha(before_colon)
-                        ):
-                            file_line = file_line[colon_pos + 1:]
+                    # שורת Heading (שם קובץ), בלי תחילית ה-ref
+                    file_line = _strip_ref_prefix(line)
+                    current_file_matches = 0
 
                     if context_lines > 0:
                         # קובץ חדש: שום שורה שלו אינה הקשר של ההתאמה הקודמת.
@@ -2396,7 +2745,8 @@ class GitMirrorService:
             return {
                 "results": results,
                 "truncated": truncated,
-                "truncation_reason": truncation_reason
+                "truncation_reason": truncation_reason,
+                "per_file_cap_hit": per_file_cap_hit,
             }
 
         except FileNotFoundError:

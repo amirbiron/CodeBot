@@ -99,6 +99,7 @@ def search_repo(
     max_results: int = SEARCH_RESULTS_DEFAULT,
     context_lines: int = 0,
     regex: bool = False,
+    include_vendored: bool = False,
 ) -> dict[str, Any]:
     """שער הקלט של ``codekeeper_search_repo``.
 
@@ -110,6 +111,10 @@ def search_repo(
 
     האורך נמדד על המחרוזת המקורית, ולכן ``" a"`` — רווח ואות — הוא
     שאילתה תקפה בת שני תווים.
+
+    ``include_vendored`` הוא **בוליאני ולא נצמד**: קוד חיצוני מוחרג
+    כברירת מחדל מהחיפוש ומהספירה, ו-``True`` מחזיר אותו. ההחרגה עצמה יושבת
+    במנוע ולא כאן, כדי שגם החיפוש בוובאפ יקבל אותה.
     """
     name = (repo or "").strip()
     q = query or ""
@@ -125,4 +130,5 @@ def search_repo(
         byte_budget=OUTPUT_BYTE_BUDGET,
         context_lines=_clamp(context_lines, 0, CONTEXT_LINES_MAX, 0),
         regex=bool(regex),
+        include_vendored=bool(include_vendored),
     )

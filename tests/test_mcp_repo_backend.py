@@ -292,19 +292,30 @@ def test_get_file_sync_in_progress_instead_of_not_found():
 
 
 def test_search_caps_filters_and_snippets():
-    rows = [{"path": f"f{i}.py", "line": i, "content": "x" * 600} for i in range(10)]
+    """‏``total`` הוא מה שהמנוע ספר, ולא ``len`` של מה שהוחזר.
+
+    עד ספטמבר 2026 השדה חושב כאן כ-``len(filtered)``, כלומר היה שווה
+    ל-``count`` תמיד. היום המנוע סופר את כל המופעים במעבר נפרד — ומדיניות
+    הסודות כבר נכנסה ל-``git grep`` עצמו, ולכן הסך שמגיע לכאן אינו כולל
+    נתיבים חסומים. הסינון כאן נשאר כשכבה אחרונה בלבד, ולכן הדמה מחזירה
+    שורה חסומה שאסור שתשורת.
+    """
+    rows = [{"path": f"f{i}.py", "line": i, "content": "x" * 600} for i in range(5)]
     rows.append({"path": ".env", "line": 1, "content": "SECRET=1"})
     be = RepoBackend(
         db=_repos_db(),
         mirror=_Mirror(),
-        search_service=_Search({"results": rows, "total": 11}),
+        search_service=_Search({"results": rows, "total": 11, "truncated": True}),
     )
     out = be.search(repo="alpha", query="x", max_results=5)
     assert out["ok"] is True and out["count"] == 5  # capped to max_results
-    assert out["total"] == 10  # policy-filtered availability (11 minus .env), NOT engine total
+    assert out["total"] == 11  # what exists in the repo, not what came back
     assert out["truncated"] is True  # allowed matches exist beyond the cap
     assert all(len(r["snippet"]) <= 500 for r in out["results"])  # snippet cap
     assert all(r["path"] != ".env" for r in out["results"])  # policy skip
+    # דגל קטיעה תמיד מגיע עם סיבה. כאן המנוע לא נקב באחת, והשורה שהוסרה
+    # הוסרה כאן — בשכבה האחרונה של מדיניות הסודות.
+    assert out["truncation_reason"] == "policy_filtered"
 
 
 def test_search_not_truncated_when_under_cap():
