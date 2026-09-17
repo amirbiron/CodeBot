@@ -185,6 +185,28 @@ _SYMBOL_PARAM_DOC = (
 )
 
 
+# תיאור השדה ``description_age_versions``, משותף לשלושת הכלים שמחזירים אותו.
+#
+# **קבוע אחד ולא שלושה נוסחים**, מאותה סיבה שכל השאר כאן הם קבועים: תיאור
+# שדה שנכתב שלוש פעמים נערך פעם אחת, ואז שני הכלים האחרים מבטיחים משהו
+# אחר מהשלישי על אותו מספר בדיוק.
+#
+# **הנוסח נזהר משתי טעויות הפוכות.** האחת היא לקרוא לגיל גבוה "תיאור
+# שגוי" — הוא אינו: עשר עריכות של שורת קוד לא הופכות תיאור לשגוי, ועריכה
+# אחת גדולה כן יכולה, ולכן זה רמז לבדוק ולא פסק דין. השנייה היא לקרוא
+# ל-``null`` "עדכני". הוא אומר "לא ידוע".
+_DESCRIPTION_AGE_DOC = (
+    " Files carry description_age_versions: how many versions the file has "
+    "moved since its description was last set. 0 means it was set on the "
+    "current version, null means unknown, and the field is absent when the "
+    "file has no description. Read a high number as a hint to check, not as "
+    "a verdict: ten small edits do not make a description wrong, one large "
+    "edit can. It subtracts version numbers, so versions that went to the "
+    "recycle bin inflate it a little. Refresh a stale description with "
+    "codekeeper_update_file_description."
+)
+
+
 # תיאור הפרמטר ``query`` של ``codekeeper_get_file``.
 #
 # ``lines`` עונה על "תן לי את החלק הזה" ו-``query`` עונה על "איפה בקובץ זה
@@ -836,7 +858,10 @@ def build_mcp(
 
     @mcp.tool(
         name="codekeeper_list_files",
-        description="List the user's saved code files (metadata only, no code).",
+        description=(
+            "List the user's saved code files (metadata only, no code)."
+            + _DESCRIPTION_AGE_DOC
+        ),
         annotations=_READ_ONLY_TOOL,
     )
     def list_files(ctx: Context, page: int = 1, per_page: int = 50) -> dict:
@@ -858,6 +883,7 @@ def build_mcp(
             "tool that does NOT do substring matching; for a literal string "
             "inside a mirrored repo use codekeeper_search_repo, and inside "
             "one saved file use the query parameter of codekeeper_get_file."
+            + _DESCRIPTION_AGE_DOC
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -880,6 +906,7 @@ def build_mcp(
             # ההפניה נאכפת בטסט, בשני קצותיה.
             + ' Or pass query="..." to get only the lines that contain a'
             " string, instead of the content — see the query parameter."
+            + _DESCRIPTION_AGE_DOC
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -1016,7 +1043,9 @@ def build_mcp(
             "and the edit tools keep the old one. No new version is created, so "
             "the previous description is not kept in history. The reply returns "
             "it, and that is the only copy. Only the latest version is updated. "
-            "An empty description clears it. Requires write permission."
+            "An empty description clears it. Calling it marks the description "
+            "as checked and resets description_age_versions to 0, so sending "
+            "the same text says it still fits. Requires write permission."
         ),
         annotations=_UPDATE_IN_PLACE_TOOL,
     )

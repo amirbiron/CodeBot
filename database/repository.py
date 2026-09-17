@@ -56,6 +56,11 @@ from .manager import (
 from utils import normalize_code
 # תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
 from file_dates import VERSION_CREATED_AT_FIELD, inherited_created_at
+# גיל התיאור — מודול שורש טהור, ראו file_description.py
+from file_description import (
+    DESCRIPTION_SET_AT_VERSION_FIELD,
+    description_stamp_for_new_version,
+)
 # מחיקה רכה — מודול שורש טהור, אותה שאילתה שהוובאפ מריץ על חיבור משלו.
 from file_deletion import (
     SoftDeleteResult,
@@ -215,6 +220,42 @@ def update_file_metadata_in(
     if "description" in updates:
         updates["updated_at"] = datetime.now(timezone.utc)
 
+    # ``update`` הוא **pipeline** כשהתיאור נכלל, ו-``$set`` רגיל אחרת.
+    #
+    # למה pipeline: החותמת שנכתבת כאן היא מספר הגרסה של המסמך שמתעדכן,
+    # ו-``$set`` רגיל אינו יכול להתייחס לשדה אחר באותו מסמך. החלופה —
+    # לקרוא את הגרסה ואז לכתוב — הייתה מחזירה בדיוק את חלון ה-TOCTOU
+    # ש-``find_one_and_update`` נבחר כדי לסגור, על אותו מסמך שיכול
+    # להימחק או לעבור לסל בין שתי הפעולות.
+    #
+    # **``$literal`` על הערכים שמגיעים מבחוץ, וזה לא קישוט.** בתוך
+    # pipeline מחרוזת שמתחילה ב-``$`` היא **נתיב שדה**, לא טקסט: תיאור
+    # כמו ``"$version"`` או ``"$code"`` היה נכתב כערך של אותו שדה במסמך
+    # במקום כטקסט שהמשתמש הקליד. ``$literal`` הוא מה שמחזיר אותם להיות
+    # נתונים (``bugbot-rules/external-input-isinstance.md`` — ערך חיצוני
+    # שמוזרק למחרוזת עם דקדוק).
+    #
+    # **תיאור ריק מסיר את החותמת** (``$$REMOVE``) ולא מאפס אותה: "נקה את
+    # התיאור" משאיר קובץ בלי תיאור, וחותמת על תיאור שאינו קיים הייתה
+    # מייצרת גיל 0 על כלום. ``$$REMOVE`` הוא הערך שגורם ל-``$set``
+    # להשמיט את השדה, וכך המסמך חוזר בדיוק למצב של קובץ שמעולם לא היה
+    # לו תיאור.
+    #
+    # ``tags``-בלבד אינו נוגע בחותמת כלל, מאותה סיבה שהוא אינו חותם
+    # ``updated_at``: הוא אינו נגיעה בתיאור.
+    update: Any
+    if "description" in updates:
+        stage: Dict[str, Any] = {
+            key: ({"$literal": value} if key in ("description", "tags") else value)
+            for key, value in updates.items()
+        }
+        stage[DESCRIPTION_SET_AT_VERSION_FIELD] = (
+            "$version" if updates["description"] else "$$REMOVE"
+        )
+        update = [{"$set": stage}]
+    else:
+        update = {"$set": updates}
+
     sort: Optional[List[Tuple[str, int]]] = None
     if file_id is not None:
         try:
@@ -235,7 +276,7 @@ def update_file_metadata_in(
     try:
         previous = collection.find_one_and_update(
             query,
-            {"$set": updates},
+            update,
             projection={
                 "_id": 1,
                 "file_name": 1,
@@ -270,8 +311,13 @@ def update_file_metadata_in(
         # ``updated_at``, שאיש לא ביקש והוא נגזרת. איחודן היה מכריח כל
         # צרכן לבחור אחת מהמשמעויות ולהסתפק בה, והראוט בוובאפ מחזיר
         # דווקא את השנייה מאז שנכתב.
+        # ``set_fields`` נגזר מ-``stage`` ולא מ-``updates`` כשיש pipeline,
+        # כי מאז שהחותמת נכתבת שם הם כבר לא אותו דבר — ורשימה שמתיימרת
+        # לתאר את מה שנכתב ומחסירה שדה היא בדיוק ה"רשומה שמתארת מצב
+        # ואינה תואמת לו" מ-``state-record-without-state-change``.
         "updated_fields": [k for k in updates if k != "updated_at"],
-        "set_fields": list(updates.keys()),
+        "set_fields": list(update[0]["$set"].keys()) if isinstance(update, list)
+        else list(updates.keys()),
         "previous": {
             "description": previous.get("description"),
             "tags": previous.get("tags"),
@@ -591,6 +637,20 @@ class Repository:
             # ההיסטוריה חייבת להישאר מסודרת לפי סדר הכתיבה בפועל, אחרת
             # גרסה 5 תוצג כמוקדמת מגרסה 4. ראו ``file_dates.version_created_at``.
             doc[VERSION_CREATED_AT_FIELD] = datetime.now(timezone.utc)
+            # מתי התיאור נקבע. נגזר מהשוואה בין מה שנשמר עכשיו למה שהיה
+            # בגרסה הקודמת, **ולא מועבר על ידי הקורא** — כך אין מסלול
+            # כתיבה שיכול לשכוח אותו. ראו ``file_description.py``.
+            #
+            # ``existing`` ולא ``prev``-כלשהו: זו הגרסה הפעילה האחרונה,
+            # אותה אחת שממנה נורשים כבר ``created_at`` והנעיצה.
+            description_stamp = description_stamp_for_new_version(
+                existing, doc.get("description"), doc.get("version")
+            )
+            if description_stamp is not None:
+                # ``None`` פירושו "אל תכתוב את השדה". שדה חסר הוא מה
+                # שמסלולי הקריאה מתרגמים לגיל ``null``, וכתיבת ``None``
+                # הייתה מגיעה לאותה תוצאה בדרך ארוכה יותר.
+                doc[DESCRIPTION_SET_AT_VERSION_FIELD] = description_stamp
 
             result = self.manager.collection.insert_one(doc)
             if result.inserted_id:
@@ -1459,6 +1519,12 @@ class Repository:
             {"$sort": {"updated_at": -1}},
             {"$limit": limit},
             # תוצאות חיפוש הן רשימה — אין צורך להחזיר את שדה code המלא כאן.
+            #
+            # ``version`` והחותמת הם שני מספרים, והם כאן כדי ש-
+            # ``codekeeper_search_code`` יוכל לגזור מהם את גיל התיאור
+            # (``file_description.description_age_versions``). בלעדיהם
+            # הגיל היה ``null`` בכל תוצאת חיפוש — כלומר השדה קיים ואינו
+            # אומר דבר במסלול שהוא הכי נחוץ בו.
             {"$project": {
                 "_id": 1,
                 "file_name": 1,
@@ -1468,6 +1534,8 @@ class Repository:
                 "tags": 1,
                 "is_favorite": 1,
                 "favorited_at": 1,
+                "version": 1,
+                DESCRIPTION_SET_AT_VERSION_FIELD: 1,
             }},
         ]
         with track_performance("db_search_code"):
@@ -1542,7 +1610,9 @@ class Repository:
         """רשימת "שאר הקבצים" (ללא תגיות שמתחילות ב-"repo:") עם עימוד אמיתי וספירה.
 
         מחזיר מסמכים מגרסה אחרונה לכל `file_name`, עם שדות מטא־דאטה בלבד לתפריטים:
-        _id, file_name, programming_language, updated_at, description, tags.
+        _id, file_name, programming_language, updated_at, description, tags,
+        version ו-``description_set_at_version`` (שני האחרונים הם מה שגיל
+        התיאור נגזר מהם — ראו ``file_description.py``).
         """
         try:
             req_page = max(1, int(page or 1))
@@ -1587,6 +1657,9 @@ class Repository:
                     ]
                 }},
                 {"$sort": {"updated_at": -1}},
+                # ``version`` והחותמת — ראו ההערה באותה היטלה ב-
+                # ``_search_code_cached``: בלעדיהם ``codekeeper_list_files``
+                # מחזיר גיל ``null`` לכל קובץ.
                 {"$project": {
                     "_id": 1,
                     "file_name": 1,
@@ -1594,6 +1667,8 @@ class Repository:
                     "updated_at": 1,
                     "description": 1,
                     "tags": 1,
+                    "version": 1,
+                    DESCRIPTION_SET_AT_VERSION_FIELD: 1,
                 }},
                 {"$skip": skip},
                 {"$limit": per_page},

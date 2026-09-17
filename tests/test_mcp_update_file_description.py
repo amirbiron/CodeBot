@@ -45,6 +45,8 @@ from mcp.server.auth.provider import AccessToken  # noqa: E402
 from mcp.server.lowlevel.server import request_ctx  # noqa: E402
 from mcp.shared.context import RequestContext  # noqa: E402
 
+from file_description import DESCRIPTION_SET_AT_VERSION_FIELD  # noqa: E402
+
 USER_ID = 4242
 FILE_NAME = "code-review-mcp-to-thread-PR3390.md"
 OLD_DESCRIPTION = "מעבר האימות היריב טרם הושלם"
@@ -269,6 +271,29 @@ async def test_the_latest_version_is_chosen_by_an_explicit_sort_not_by_luck():
 
     ``projection`` נטען באותה נשימה: בלעדיו מונגו מחזירה את המסמך כולו,
     כולל ``code``, וזו משיכת קובץ שלם בשביל שדה טקסט אחד.
+
+    **והעדכון הוא pipeline מאז שנוספה חותמת גיל התיאור.** החותמת היא
+    מספר הגרסה של המסמך שמתעדכן, ו-``$set`` רגיל אינו יכול להתייחס לשדה
+    אחר באותו מסמך; קריאה ואז כתיבה הייתה מחזירה בדיוק את חלון ה-TOCTOU
+    ש-``find_one_and_update`` נבחר כדי לסגור.
+
+    **הטענה על הצורה היא מה שמגן על ההבטחה "כתיבה אחת אטומית", וזה
+    נמדד ולא הונח.** ``TESTING-PATTERNS.md`` T1 כלל 5 דורש בדיקה
+    לתכונה שהערה מבטיחה, ולכן נכתבה בדיקה **התנהגותית** מקבילית: שני
+    חוטים, אחד מעדכן תיאור והשני יוצר גרסאות, וטענה שהחותמת נחתה על
+    המסמך שהתשובה הצביעה עליו. היא הורצה מול מימוש בקרה של
+    קריאה-ואז-כתיבה עם חלון מלאכותי — **ועברה גם עליו.** כלומר היא לא
+    שחזרה את התנאי, וזה בדיוק מה ש-T2 מזהיר מפניו: בדיקה שעוברת על קוד
+    שבור נראית ככיסוי ואינה. היא הוסרה.
+
+    מה שכן נמדד: אותו מימוש בקרה מפיל את השורה הבאה כאן, עם
+    ``assert isinstance(update, list)``. הטענה על הצורה היא הכיסוי
+    האמיתי לאטומיות, והיא דטרמיניסטית — לכן היא נשארת, ולא נשענים על
+    תזמון.
+
+    **ו-``$literal`` על הטקסט של המשתמש הוא טענת אבטחת-נתונים, לא
+    סגנון.** בתוך pipeline מחרוזת שמתחילה ב-``$`` היא נתיב שדה: בלי
+    העטיפה, תיאור כמו ``"$code"`` היה נשמר כתוכן הקובץ.
     """
     from mcp_server.backend import ProductionBackend
     from mcp_server.server import build_mcp
@@ -290,7 +315,18 @@ async def test_the_latest_version_is_chosen_by_an_explicit_sort_not_by_luck():
     assert "code" not in (call["projection"] or {}), (
         f"הקובץ המלא נמשך בשביל עדכון תיאור: {call['projection']}"
     )
-    assert set(call["update"]) == {"$set"}, call["update"]
+    update = call["update"]
+    assert isinstance(update, list) and len(update) == 1, update
+    assert set(update[0]) == {"$set"}, update[0]
+    stage = update[0]["$set"]
+    assert stage["description"] == {"$literal": NEW_DESCRIPTION}, (
+        "התיאור נשלח כמחרוזת חשופה בתוך pipeline, כלומר טקסט שמתחיל "
+        f"ב-$ ייקרא כשם שדה: {stage['description']!r}"
+    )
+    assert stage[DESCRIPTION_SET_AT_VERSION_FIELD] == "$version", (
+        "החותמת אינה נלקחת מהמסמך עצמו — כלומר היא נקראה מראש, עם החלון "
+        f"שבדיוק נסגר כאן: {stage.get(DESCRIPTION_SET_AT_VERSION_FIELD)!r}"
+    )
 
 
 # --------------------------------------------------------------------------
