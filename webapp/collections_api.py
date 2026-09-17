@@ -23,7 +23,7 @@ from webapp.size_format import format_file_size
 from webapp.activity_tracker import log_user_event
 
 # תאריכי קובץ — מודול שורש טהור, אותו כלל בדיוק כמו בשכבת ה-DB וב-app.py
-from file_dates import inherited_created_at
+from file_dates import VERSION_CREATED_AT_FIELD, inherited_created_at
 try:
     from config import config as _cfg  # type: ignore
 except Exception:  # pragma: no cover
@@ -1361,6 +1361,7 @@ def _save_shared_document_to_user(db_ref, *, user_id: int, doc: Dict[str, Any]) 
         "lines_count": lines_count,
         "created_at": inherited_created_at(now, prev),
         "updated_at": now,
+        VERSION_CREATED_AT_FIELD: now,
         "is_active": True,
     }
     try:

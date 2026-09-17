@@ -132,7 +132,10 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
        ובלי לגעת בו. **אינו יוצר גרסה** — ראו :ref:`mcp-update-description`.
        תיאור בלבד; תגיות אינן משתנות. דורש ``write``
    * - ``codekeeper_list_versions``
-     - היסטוריית גרסאות של קובץ
+     - היסטוריית גרסאות של קובץ. ``version_created_at`` הוא מתי כל גרסה
+       **נשמרה**, ולא ``updated_at`` — זה שדה של הקובץ ובר-שינוי, ולכן
+       שורת היסטוריה שנשענת עליו יכולה לתאר רגע מאוחר יותר. ראו
+       ``docs/database/detailed-schema.rst``
    * - ``codekeeper_list_notes``
      - פתקים דביקים של קובץ (לפי ``file_name``) — אותם פתקים שמוצגים
        ב-UI של הוובאפ
