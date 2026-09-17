@@ -55,7 +55,7 @@ from .manager import (
 )
 from utils import normalize_code
 # תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
-from file_dates import inherited_created_at
+from file_dates import VERSION_CREATED_AT_FIELD, inherited_created_at
 # מחיקה רכה — מודול שורש טהור, אותה שאילתה שהוובאפ מריץ על חיבור משלו.
 from file_deletion import (
     SoftDeleteResult,
@@ -277,6 +277,69 @@ def update_file_metadata_in(
             "tags": previous.get("tags"),
         },
     }
+
+
+def transfer_pin_to_new_version(
+    collection: Any,
+    user_id: int,
+    *,
+    file_name: str,
+    new_version_id: Any,
+    previous_file_name: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """מעביר את סימון הנעיצה לגרסה שזה עתה נכתבה, ומסיר אותו מהשאר.
+
+    **למה ברמת המודול.** בדיוק כמו :func:`update_file_metadata_in`: הוובאפ
+    פותח חיבור מונגו משלו ואינו עובר דרך ה-``DatabaseManager``, ולכן
+    ה-``collection`` הוא פרמטר. עד שהפונקציה נכתבה היו לכתיבה הזו **שני**
+    מימושים — אחד ב-``save_code_snippet`` ואחד בראוט העריכה — ושניהם
+    נסחפו: אחד מהם הוסיף ל-``$set`` גם ``updated_at``, וכך כל שמירה של
+    קובץ נעוץ חתמה את שעתה על **כל** ההיסטוריה שלו. שני עותקים של אותה
+    כתיבה הם בדיוק המקום שבו סטייה כזאת חיה בלי שאיש רואה אותה.
+
+    **מה נכתב, ומה במפורש לא.** נכתבים ``is_pinned``, ``pinned_at``
+    ו-``pin_order`` בלבד. ‏``updated_at`` **אינו** נכתב: נעיצה אינה עריכה
+    של הקובץ, זה החוזה ב-``docs/database/detailed-schema.rst``, וזה מה
+    ש-``toggle_pin`` ו-``toggle_favorite`` כבר מקיימים. גרסה ישנה היא
+    היסטוריה — התוכן שלה לא זז, ולכן גם החותמת שלה לא.
+
+    **הפילטר כולל** ``is_pinned: True`` בכוונה: רק שורות שנושאות את הדגל
+    צריכות ניקוי, וכך שמירה של קובץ נעוץ אינה נוגעת בעשרות מסמכי היסטוריה
+    שאין בהם מה לשנות.
+
+    ``previous_file_name`` הוא לשמירה ששינתה גם את שם הקובץ: הנעיצה שיושבת
+    על השם הישן לא תיתפס בשאילתה של השם החדש.
+
+    **ערוץ הכשל הוא ערך ההחזרה.** מוחזרת רשימת שגיאות (ריקה בהצלחה),
+    ולעולם לא נזרקת חריגה — הקובץ כבר נשמר, וכשל בניקוי נעיצה אינו מבטל
+    שמירה שקרתה. אבל הוא גם אינו שקט: הקורא **חייב** לבדוק את הרשימה,
+    כי ``update_many`` מדווח כשל בערך החזרה ובחריגה כאחד, וקובץ שנשאר עם
+    שתי גרסאות נעוצות שובר את ``get_pinned_files``
+    (‏``CRITICAL-PATTERNS.md`` K11).
+    """
+    errors: List[Dict[str, Any]] = []
+    unpin_fields = {"is_pinned": False, "pinned_at": None, "pin_order": 0}
+    names: List[Tuple[str, str]] = [("current_name", str(file_name))]
+    if previous_file_name and str(previous_file_name) != str(file_name):
+        names.append(("previous_name", str(previous_file_name)))
+    for scope, name in names:
+        try:
+            collection.update_many(
+                {
+                    "user_id": user_id,
+                    "file_name": name,
+                    "is_pinned": True,
+                    "is_active": True,
+                    "_id": {"$ne": new_version_id},
+                },
+                {"$set": dict(unpin_fields)},
+            )
+        except Exception as exc:
+            logger.warning(
+                "transfer_pin_to_new_version failed for %s (%s)", name, scope, exc_info=True
+            )
+            errors.append({"scope": scope, "file_name": name, "error": str(exc)})
+    return errors
 
 
 def _latest_version_projection_stage(projection: Optional[Dict[str, int]]) -> Dict[str, Any]:
@@ -522,6 +585,12 @@ class Repository:
                 doc["lines_count"] = int(len(code_str.split('\n'))) if code_str else 0
             except Exception:
                 doc["lines_count"] = 0
+            # זמן כתיבת השורה, ולא ``snippet.updated_at``. השניים נפרדים
+            # דווקא במסלול שהכי קל לטעות בו: שחזור מגיבוי מעביר
+            # ``updated_at`` היסטורי מהגיבוי, והשורה עצמה נכתבת עכשיו.
+            # ההיסטוריה חייבת להישאר מסודרת לפי סדר הכתיבה בפועל, אחרת
+            # גרסה 5 תוצג כמוקדמת מגרסה 4. ראו ``file_dates.version_created_at``.
+            doc[VERSION_CREATED_AT_FIELD] = datetime.now(timezone.utc)
 
             result = self.manager.collection.insert_one(doc)
             if result.inserted_id:
@@ -541,25 +610,28 @@ class Repository:
                     exclude_snippet_id=result.inserted_id,
                     older_than_version=getattr(snippet, "version", None),
                 )
-                # אם הקובץ נעוץ, ודא שרק הגרסה החדשה נשארת נעוצה
+                # אם הקובץ נעוץ, ודא שרק הגרסה החדשה נשארת נעוצה.
+                # המסלול משותף עם ראוט העריכה בוובאפ — ראו
+                # ``transfer_pin_to_new_version``, ובפרט למה ``updated_at``
+                # אינו נכתב שם.
                 if bool(doc.get("is_pinned", False)):
-                    try:
-                        self.manager.collection.update_many(
-                            {
-                                "user_id": snippet.user_id,
-                                "file_name": snippet.file_name,
-                                "is_active": True,
-                                "_id": {"$ne": result.inserted_id},
-                            },
-                            {"$set": {
-                                "is_pinned": False,
-                                "pinned_at": None,
-                                "pin_order": 0,
-                                "updated_at": snippet.updated_at,
-                            }},
+                    unpin_errors = transfer_pin_to_new_version(
+                        self.manager.collection,
+                        snippet.user_id,
+                        file_name=snippet.file_name,
+                        new_version_id=result.inserted_id,
+                    )
+                    if unpin_errors:
+                        # הכשל אינו מבטל שמירה שכבר קרתה, אבל הוא גם אינו
+                        # נבלע: קובץ עם שתי גרסאות נעוצות שובר את
+                        # ``get_pinned_files``, ובלי האירוע הזה אין שום סימן.
+                        emit_event(
+                            "save_snippet_unpin_failed",
+                            severity="warning",
+                            user_id=int(snippet.user_id),
+                            file_name=str(snippet.file_name),
+                            errors=unpin_errors,
                         )
-                    except Exception:
-                        pass
                 # Invalidate user-level and file-related caches
                 try:
                     cache.invalidate_user_cache(snippet.user_id)
@@ -1725,10 +1797,40 @@ class Repository:
                 ]
             except Exception:
                 pass
+            # השם מוחלף בכל הגרסאות, כי שם הקובץ הוא המפתח שמקשר ביניהן.
+            # ‏``updated_at`` **אינו** נכתב כאן: הוא מתעד מתי התוכן של אותה
+            # גרסה נערך, וגרסה מלפני חודשיים לא נערכה עכשיו. חתימה על כל
+            # ההיסטוריה הייתה הופכת את כל שורות "גרסה N — <זמן>" לאותו רגע.
+            # הגרסה **האחרונה** כן מקבלת חותמת חדשה, כי עבורה השם הוא חלק
+            # מהקובץ הנוכחי — ראו ``docs/database/detailed-schema.rst``.
+            now_utc = datetime.now(timezone.utc)
             result = self.manager.collection.update_many(
                 {"user_id": user_id, "file_name": old_name, "is_active": True},
-                {"$set": {"file_name": new_name, "updated_at": datetime.now(timezone.utc)}},
+                {"$set": {"file_name": new_name}},
             )
+            # קריאה ואז כתיבה לפי ``_id``, ולא ``update_one(..., sort=...)``:
+            # ‏pymongo 4.15.3 אמנם מקבל ``sort``, אבל התיעוד שלו מצהיר
+            # "only supported on MongoDB 8.0 and above" — תלות בגרסת שרת
+            # בשביל חותמת תצוגה. החלון בין הקריאה לכתיבה אינו מזיק: שמירה
+            # שנכנסת בתוכו כותבת ממילא ``updated_at`` משלה.
+            try:
+                latest = self.manager.collection.find_one(
+                    {"user_id": user_id, "file_name": new_name, "is_active": True},
+                    {"_id": 1},
+                    sort=[("version", -1)],
+                )
+                if latest and latest.get("_id") is not None:
+                    self.manager.collection.update_one(
+                        {"_id": latest["_id"]}, {"$set": {"updated_at": now_utc}}
+                    )
+            except Exception:
+                # השם כבר הוחלף; חסרה רק החותמת על הגרסה האחרונה. לא מבטלים
+                # שינוי שם שהצליח, אבל גם לא בולעים — בלי השורה הזאת "עודכן
+                # לאחרונה" שמפסיק להתרענן נראה בדיוק כמו התנהגות תקינה.
+                logger.warning(
+                    "rename_file: latest-version updated_at not refreshed for %s", new_name,
+                    exc_info=True,
+                )
             # Update collection_items references so collections stay intact after rename
             try:
                 coll = getattr(self.manager.db, 'collection_items', None)

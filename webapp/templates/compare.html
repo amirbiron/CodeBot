@@ -41,7 +41,7 @@
                     {% for v in versions %}
                     <option value="{{ v.version }}" 
                             {% if v.version == current_version - 1 %}selected{% endif %}>
-                        גרסה {{ v.version }} - {{ v.updated_at | format_datetime }}
+                        גרסה {{ v.version }} - {{ v.version_created_at | format_datetime }}
                     </option>
                     {% endfor %}
                 </select>
@@ -57,7 +57,7 @@
                     {% for v in versions %}
                     <option value="{{ v.version }}"
                             {% if v.version == current_version %}selected{% endif %}>
-                        גרסה {{ v.version }} - {{ v.updated_at | format_datetime }}
+                        גרסה {{ v.version }} - {{ v.version_created_at | format_datetime }}
                     </option>
                     {% endfor %}
                 </select>

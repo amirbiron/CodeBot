@@ -177,7 +177,12 @@ from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
 # כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
 # שלמעלה, ראו tests/test_webapp_import_paths.py.
-from file_dates import inherited_created_at, file_was_edited  # noqa: E402
+from file_dates import (  # noqa: E402
+    VERSION_CREATED_AT_FIELD,
+    inherited_created_at,
+    file_was_edited,
+    version_created_at,
+)
 # מחיקה רכה — מודול שורש טהור, אותה שאילתה שהבוט מריץ. ראו file_deletion.py
 from file_deletion import (  # noqa: E402
     resolve_owned_file_names,
@@ -13627,6 +13632,16 @@ def compare_versions_page(file_id: str):
 
     # קבלת כל הגרסאות
     all_versions = db.get_all_versions(user_id, file_doc.get("file_name"))
+    # הרשימה הנפתחת מציגה "גרסה N — <זמן>", ולכן היא צריכה את זמן שמירת
+    # הגרסה ולא את ``updated_at`` של הקובץ. הערך מחושב כאן ולא בתבנית כי
+    # ‏Jinja אינו המקום לכלל סמנטי — ראו ``file_dates.version_created_at``.
+    # עותק ולא עדכון במקום: המסמכים מגיעים מהשכבה שמתחת, ושכבה שתתחיל
+    # להחזיר אותם מקאש הייתה מקבלת כאן זיהום שקט.
+    all_versions = [
+        {**doc, VERSION_CREATED_AT_FIELD: version_created_at(doc)}
+        for doc in (all_versions or [])
+        if isinstance(doc, dict)
+    ]
 
     return render_template(
         'compare.html',
@@ -14520,6 +14535,10 @@ def api_file_history(file_id):
                 'version': 1,
                 'created_at': 1,
                 'updated_at': 1,
+                # מתי השורה הזאת נכתבה. ``_id`` נשאר בהיטלה כי הוא הנפילה
+                # האחורה למסמכים שנוצרו לפני שהשדה קיים — ראו
+                # ``file_dates.version_created_at``.
+                VERSION_CREATED_AT_FIELD: 1,
                 'description': 1,
                 'file_size': 1,
                 'lines_count': 1,
@@ -14552,8 +14571,13 @@ def api_file_history(file_id):
             'is_current': version_number == latest_version,
             'created_at': format_datetime_display(doc.get('created_at')),
             'updated_at': format_datetime_display(doc.get('updated_at')),
+            # ``version_created_at`` ולא ``updated_at``: השני הוא שדה של
+            # הקובץ ובר-שינוי (עדכון תיאור כותב אותו מחדש), ולכן שורת
+            # היסטוריה שנשענת עליו מתארת רגע שאינו שמירת הגרסה.
+            'version_created_at': format_datetime_display(version_created_at(doc)),
             'iso_created': safe_iso(doc.get('created_at'), 'created_at'),
             'iso_updated': safe_iso(doc.get('updated_at'), 'updated_at'),
+            'iso_version_created': safe_iso(version_created_at(doc), 'version_created_at'),
             'line_count': line_count,
             'size': format_file_size(size_bytes),
             'file_size': size_bytes,
@@ -14654,6 +14678,8 @@ def api_restore_file_version(file_id):
         'version': next_version,
         'created_at': inherited_created_at(now, latest_doc, version_doc, file_doc),
         'updated_at': now,
+        # שורה חדשה שנכתבת עכשיו, גם אם התוכן שלה מגרסה ישנה.
+        VERSION_CREATED_AT_FIELD: now,
         'is_active': True,
         'is_favorite': bool((latest_doc or {}).get('is_favorite', file_doc.get('is_favorite', False))),
         'favorited_at': (latest_doc or {}).get('favorited_at'),
@@ -15494,6 +15520,7 @@ def edit_file_page(file_id):
                         'version': version,
                         'created_at': inherited_created_at(now, prev, file),
                         'updated_at': now,
+                        VERSION_CREATED_AT_FIELD: now,
                         'is_active': True,
                     }
                     _attach_file_size_and_lines(new_doc, code)
@@ -15522,50 +15549,19 @@ def edit_file_page(file_id):
                         if res and getattr(res, 'inserted_id', None):
                             _clear_superseded_chunks(new_doc, res.inserted_id)
                             if new_doc.get('is_pinned'):
-                                unpin_errors: List[Dict[str, Any]] = []
-                                try:
-                                    unpin_query = {
-                                        'user_id': user_id,
-                                        'file_name': file_name,
-                                        'is_pinned': True,
-                                        'is_active': True,
-                                        '_id': {'$ne': res.inserted_id},
-                                    }
-                                    db.code_snippets.update_many(
-                                        unpin_query,
-                                        # הגרסה החדשה כן נושאת ``updated_at``
-                                        # חדש. הגרסאות הישנות רק מאבדות את
-                                        # סימון הנעיצה — התוכן שלהן לא זז,
-                                        # ולכן החותמת שלהן נשארת.
-                                        {'$set': {
-                                            'is_pinned': False,
-                                            'pinned_at': None,
-                                            'pin_order': 0,
-                                        }},
-                                    )
-                                except Exception as exc:
-                                    unpin_errors.append({"scope": "same_name", "error": str(exc)})
-                                if pinned_source_name and pinned_source_name != file_name:
-                                    try:
-                                        db.code_snippets.update_many(
-                                            {
-                                                'user_id': user_id,
-                                                'file_name': pinned_source_name,
-                                                'is_pinned': True,
-                                                'is_active': True,
-                                                '_id': {'$ne': res.inserted_id},
-                                            },
-                                            # ראו ההערה באתר ביטול הנעיצה
-                                            # השני — התוכן של הגרסאות הישנות
-                                            # לא זז, ולכן החותמת שלהן נשארת.
-                                            {'$set': {
-                                                'is_pinned': False,
-                                                'pinned_at': None,
-                                                'pin_order': 0,
-                                            }},
-                                        )
-                                    except Exception as exc:
-                                        unpin_errors.append({"scope": "old_name", "error": str(exc)})
+                                # אותה כתיבה בדיוק שמסלול השמירה של הבוט
+                                # וה-MCP מריץ — ראו ``transfer_pin_to_new_version``
+                                # ב-``database/repository.py``. עד שהיא אוחדה
+                                # היו כאן שני עותקים שנסחפו זה מזה, ואחד מהם
+                                # חתם ``updated_at`` על כל ההיסטוריה של הקובץ.
+                                from database.repository import transfer_pin_to_new_version
+                                unpin_errors: List[Dict[str, Any]] = transfer_pin_to_new_version(
+                                    db.code_snippets,
+                                    user_id,
+                                    file_name=file_name,
+                                    new_version_id=res.inserted_id,
+                                    previous_file_name=pinned_source_name,
+                                )
                                 if unpin_errors:
                                     try:
                                         emit_event(
@@ -16726,6 +16722,7 @@ def api_save_shared_file():
             'version': version,
             'created_at': inherited_created_at(now_utc, prev),
             'updated_at': now_utc,
+            VERSION_CREATED_AT_FIELD: now_utc,
             'is_active': True,
         }
         _attach_file_size_and_lines(snippet_doc, code)
@@ -17436,6 +17433,7 @@ def upload_file_web():
                         'version': version,
                         'created_at': inherited_created_at(now, prev),
                         'updated_at': now,
+                        VERSION_CREATED_AT_FIELD: now,
                         'is_active': True,
                     }
                     _attach_file_size_and_lines(doc, code)
@@ -20016,6 +20014,7 @@ def _persist_story_markdown_file(
         'version': version,
         'created_at': inherited_created_at(now, prev),
         'updated_at': now,
+        VERSION_CREATED_AT_FIELD: now,
         'is_active': True,
     }
     _attach_file_size_and_lines(doc, normalized_markdown)

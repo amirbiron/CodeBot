@@ -2618,7 +2618,10 @@ function goBack(ev){
             info.appendChild(title);
             const meta = document.createElement('div');
             meta.className = 'history-modal__meta';
-            const timestamp = entry.updated_at || entry.created_at || '';
+            // ‏version_created_at הוא מתי הגרסה הזאת נשמרה, והוא נכתב פעם
+            // אחת ואינו מתעדכן. ‏updated_at נשאר כנפילה אחורה בלבד: הוא שדה
+            // של הקובץ, ולא של השורה, ולכן הוא יכול לתאר רגע מאוחר יותר.
+            const timestamp = entry.version_created_at || entry.updated_at || entry.created_at || '';
             const lines = typeof entry.line_count === 'number' ? entry.line_count : '-';
             // אין צורך להציג גודל (B) בהיסטוריית גרסאות
             const parts = [];
