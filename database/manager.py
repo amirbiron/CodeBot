@@ -202,36 +202,6 @@ def _get_snippet_chunks_collection(raw_db):
         return getattr(raw_db, "snippet_chunks", None)
 
 
-async def mark_snippet_for_reprocessing(user_id: int, file_name: str) -> bool:
-    """
-    Mark a snippet for reprocessing (after content update).
-    """
-    raw_db = _get_raw_db()
-    if raw_db is None:
-        return False
-    files_collection = _get_files_collection(raw_db)
-    if files_collection is None:
-        return False
-
-    def _update() -> bool:
-        result = files_collection.update_one(
-            {"user_id": user_id, "file_name": file_name},
-            {
-                "$set": {
-                    "needs_embedding": True,
-                    "needs_chunking": True,
-                    "updated_at": datetime.now(timezone.utc),
-                }
-            },
-        )
-        try:
-            return result.modified_count > 0
-        except Exception:
-            return False
-
-    return await asyncio.to_thread(_update)
-
-
 async def get_snippets_needing_processing(limit: int = 50) -> List[Dict[str, Any]]:
     """
     Fetch snippets that require embedding/chunking processing.

@@ -34,6 +34,10 @@ from .handlers import (
     scan_file_query,
 )
 
+# מודול שורש טהור (``datetime`` ו-``typing`` בלבד), ולכן ייבוא ישיר ולא עצל:
+# הוא אינו גורר את שכבת המסד. ראו ``file_dates.py``.
+from file_dates import version_created_at
+
 # ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
 # אותה תבנית ייבוא עמיד שבה משתמש ``webapp/sticky_notes_api``: בסביבות
 # בדיקה בלי pymongo, מחלקה מקומית שלא תיזרק לעולם עדיפה על ייבוא שמפיל
@@ -544,7 +548,19 @@ class ProductionBackend:
         return doc is not None
 
     def list_versions(self, user_id: int, *, file_name: str) -> list[dict[str, Any]]:
-        return [_clean(v) for v in (self._require_dbm().get_all_versions(user_id, file_name) or [])]
+        """היסטוריית הגרסאות של קובץ, מטא-דאטה בלבד.
+
+        ``version_created_at`` נגזר **לפני** ``_clean``, וזה לא סידור
+        שרירותי: ``_clean`` ממיר ``_id`` למחרוזת ``id``, ואיתה נעלמת חותמת
+        הזמן שבתוך ה-ObjectId — הנפילה האחורה למסמכים שנכתבו לפני שהשדה
+        קיים. אחרי הניקוי כבר אין ממה לגזור.
+        """
+        out: list[dict[str, Any]] = []
+        for raw in (self._require_dbm().get_all_versions(user_id, file_name) or []):
+            cleaned = _clean(raw)
+            cleaned["version_created_at"] = _json_safe(version_created_at(raw))
+            out.append(cleaned)
+        return out
 
     # -- agent primer ------------------------------------------------------
     def get_agent_instructions(self, user_id: int) -> str:
