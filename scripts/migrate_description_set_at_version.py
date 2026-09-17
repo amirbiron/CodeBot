@@ -16,11 +16,17 @@
 ריקה והגיל יישאר ``null``. ``null`` אומר "לא ידוע" ואפס אומר "נקבע
 עכשיו"; ניחוש שהיה נראה כמו אפס הוא בדיוק הטענה שאסור להמציא.
 
-**אידמפוטנטית, ולא רק במובן ש"אפשר להריץ שוב".** הסקריפט **אינו נוגע
-בקובץ שכבר יש לגרסתו האחרונה חותמת**, וזה לא ייעול אלא נכונות:
-``codekeeper_update_file_description`` מזיז את החותמת בלי ליצור גרסה,
-ולכן שרשרת הגרסאות כבר לא מתארת אותה. הרצה שנייה שהייתה מחשבת מחדש
-הייתה מחזירה את הגיל אחורה ומוחקת עדכון אמיתי.
+**אידמפוטנטית, ולא רק במובן ש"אפשר להריץ שוב".** חותמת קיימת אינה
+נדרסת לעולם. אבל "לא לדרוס" אינו "לא לגעת", ושתי הצורות נבדלות בדיוק
+במקרה שבו הרצה חוזרת נחוצה: ``update_many`` אינו אטומי בין מסמכים,
+ולכן הרצה שנקטעה משאירה חלק מהשרשרת כתוב וחלק לא.
+
+- **החותמת הקיימת שווה למה שהשרשרת אומרת** ← משלימים את המסמכים
+  החסרים. בטוח בהגדרה, כי הערך שנכתב זהה לזה שכבר שם.
+- **החותמת הקיימת שונה** ← לא נוגעים.
+  ``codekeeper_update_file_description`` מזיז את החותמת בלי ליצור
+  גרסה, ומאותו רגע שרשרת הגרסאות כבר לא מתארת אותה. חישוב מחדש היה
+  מחזיר את הגיל אחורה ומוחק עדכון אמיתי.
 
 שימוש::
 
@@ -148,29 +154,98 @@ def _chains(collection: Any):
     return collection.aggregate(pipeline, allowDiskUse=True)
 
 
+#: כמה מזהים נשלחים ב-``$in`` אחד. התקרה קיימת כי שרשרת גרסאות אינה
+#: חסומה מלמעלה, ושאילתה עם מזהים בלי גבול היא שאילתה שגדלה עם הנתונים.
+#: 250 הוא אותו גודל מנה שכבר נבחר ל-``get_latest_versions_by_names``
+#: ב-``database/repository.py`` — אותו סוג שאילתה, אותה מנה.
+_ID_BATCH = 250
+
+
+def _documents_to_stamp(versions: Any, stamp: int) -> list:
+    """המזהים של מסמכי הגרסה שצריכים לקבל את ``stamp``, ועוד לא קיבלו.
+
+    **הבחירה נעשית בפייתון ולא בפילטר של מונגו, וזה תיקון לבאג ולא
+    העדפת סגנון.** הצורה הקודמת סיננה ``{"version": {"$gte": stamp}}``,
+    ומונגו משווה בין טיפוסים לפי סדר טיפוסים — מספר **אינו** מתאים
+    למחרוזת. נמדד מול MongoDB 7.0.14: על שרשרת ``1, "2", 3`` הפילטר
+    ``$gte: 1`` עדכן שני מסמכים והשאיר את ``"2"`` בלי חותמת, בשקט.
+
+    וזה בדיוק המסמך שהכי חשוב לתפוס: ``normalized_version`` מקבל מספר
+    שנשמר כמחרוזת **במכוון**, כי מסמכים ישנים במונגו נושאים כאלה. שני
+    חצאים של אותה מיגרציה החזיקו שתי תשובות שונות לשאלה "מה נחשב מספר
+    גרסה", והחצי שכותב הוא זה שהחמיץ.
+
+    מסמך שכבר נושא חותמת אינו נבחר — ``$exists`` נשמר גם בפילטר הכתיבה
+    עצמו, כך שגם כותב מקביל שנכנס בין הבחירה לכתיבה אינו נדרס.
+    """
+    out = []
+    for doc in versions or []:
+        if not isinstance(doc, dict):
+            continue
+        if doc.get(DESCRIPTION_SET_AT_VERSION_FIELD) is not None:
+            continue
+        number = normalized_version(doc.get("version"))
+        if number is None or number < stamp:
+            continue
+        out.append(doc["_id"])
+    return out
+
+
+def _write_stamp(collection: Any, ids: list, stamp: int) -> int:
+    """כותב את החותמת למזהים שנבחרו, במנות, ומחזיר כמה מסמכים השתנו."""
+    written = 0
+    for start in range(0, len(ids), _ID_BATCH):
+        batch = ids[start:start + _ID_BATCH]
+        result = collection.update_many(
+            {
+                "_id": {"$in": batch},
+                # נשמר למרות שהבחירה כבר סיננה: בין הקריאה לכתיבה יכול
+                # להיכנס כותב אחר, ואז ``$exists`` הוא מה שמונע דריסה.
+                DESCRIPTION_SET_AT_VERSION_FIELD: {"$exists": False},
+            },
+            {"$set": {DESCRIPTION_SET_AT_VERSION_FIELD: stamp}},
+        )
+        written += int(getattr(result, "modified_count", 0) or 0)
+    return written
+
+
 def migrate(collection: Any, *, dry_run: bool = False) -> dict[str, int]:
     """מריצה את המיגרציה ומחזירה את המונים לדוח.
 
     המונים אינם קישוט: "כמה קיבלו חותמת" לבד אינו אומר אם המיגרציה
     הצליחה, כי קובץ בלי תיאור וקובץ ששרשרתו קטועה נראים ממנו זהים —
     שניהם "לא קיבלו". ההפרדה ביניהם היא מה שמאפשר לקרוא את הדוח.
+
+    **וקובץ שכבר יש לגרסתו האחרונה חותמת אינו מדולג בעיוורון.** הצורה
+    הקודמת עשתה בדיוק את זה, ובכך שברה את ההבטחה שהמודול נושא:
+    ``update_many`` אינו אטומי בין מסמכים, ולכן הרצה שנקטעה באמצע
+    משאירה חלק מהשרשרת כתוב וחלק לא. נמדד: אחרי קטיעה כזו, הרצה חוזרת
+    ספרה את הקובץ כ"כבר מתוארך" ולא השלימה כלום — כלומר "ניתנת להרצה
+    חוזרת" הייתה נכונה רק כשלא היה צורך בה.
+
+    ההכרעה מפרידה בין שני מצבים שנראים זהים מבחוץ:
+
+    - **החותמת הקיימת שווה למה שהשרשרת אומרת** ← משלימים את מסמכי
+      השרשרת שחסרים. זה בטוח בהגדרה, כי הערך שנכתב זהה לזה שכבר שם.
+    - **החותמת הקיימת שונה** ← לא נוגעים.
+      ``codekeeper_update_file_description`` מזיז חותמת בלי ליצור גרסה,
+      ומאותו רגע השרשרת אינה מתארת אותה. חישוב מחדש היה מחזיר את הגיל
+      אחורה ומוחק עדכון אמיתי.
     """
     counters = {
         "files": 0,
         "stamped": 0,
+        "backfilled": 0,
+        "already_complete": 0,
+        "stamp_differs": 0,
         "unknown": 0,
         "no_description": 0,
-        "already_stamped": 0,
         "documents_written": 0,
     }
     for chain in _chains(collection):
         counters["files"] += 1
         versions = chain.get("versions") or []
         latest = _latest_version_doc(versions)
-        if isinstance(latest, dict) and latest.get(DESCRIPTION_SET_AT_VERSION_FIELD) is not None:
-            # כבר מתוארך. לא לגעת — ראו ה-docstring של המודול.
-            counters["already_stamped"] += 1
-            continue
         description = (latest or {}).get("description")
         if not isinstance(description, str) or not description:
             counters["no_description"] += 1
@@ -179,24 +254,20 @@ def migrate(collection: Any, *, dry_run: bool = False) -> dict[str, int]:
         if stamp is None:
             counters["unknown"] += 1
             continue
-        counters["stamped"] += 1
-        if dry_run:
+        existing = normalized_version((latest or {}).get(DESCRIPTION_SET_AT_VERSION_FIELD))
+        if existing is not None and existing != stamp:
+            counters["stamp_differs"] += 1
             continue
-        key = chain.get("_id") or {}
-        result = collection.update_many(
-            {
-                "user_id": key.get("user_id"),
-                "file_name": key.get("file_name"),
-                "is_active": True,
-                # כל הגרסאות מ-``stamp`` ומעלה נושאות את אותו תיאור, ולכן
-                # אותה חותמת נכונה לכולן — וכך גם קריאה מפורשת של גרסה
-                # ישנה מקבלת גיל ולא ``null``.
-                "version": {"$gte": stamp},
-                DESCRIPTION_SET_AT_VERSION_FIELD: {"$exists": False},
-            },
-            {"$set": {DESCRIPTION_SET_AT_VERSION_FIELD: stamp}},
-        )
-        counters["documents_written"] += int(getattr(result, "modified_count", 0) or 0)
+        targets = _documents_to_stamp(versions, stamp)
+        if existing is None:
+            counters["stamped"] += 1
+        elif targets:
+            counters["backfilled"] += 1
+        else:
+            counters["already_complete"] += 1
+        if dry_run or not targets:
+            continue
+        counters["documents_written"] += _write_stamp(collection, targets, stamp)
     return counters
 
 
@@ -228,11 +299,13 @@ def main() -> None:
 
     counters = migrate(db.code_snippets, dry_run=dry_run)
 
-    print(f"📊 קבצים שנסרקו:        {counters['files']}")
-    print(f"✅ קיבלו חותמת:          {counters['stamped']}")
-    print(f"➖ כבר היו מתוארכים:      {counters['already_stamped']}")
-    print(f"➖ בלי תיאור (אין מה לתארך): {counters['no_description']}")
-    print(f"❓ נשארו null (שרשרת קטועה): {counters['unknown']}")
+    print(f"📊 קבצים שנסרקו:                {counters['files']}")
+    print(f"✅ קיבלו חותמת:                  {counters['stamped']}")
+    print(f"🩹 הושלמו (הרצה קודמת נקטעה):    {counters['backfilled']}")
+    print(f"➖ כבר היו שלמים:                {counters['already_complete']}")
+    print(f"🔒 חותמת שונה מהשרשרת (לא נגענו): {counters['stamp_differs']}")
+    print(f"➖ בלי תיאור (אין מה לתארך):      {counters['no_description']}")
+    print(f"❓ נשארו null (שרשרת קטועה):      {counters['unknown']}")
     if not dry_run:
         print(f"✍️  מסמכי גרסה שעודכנו:   {counters['documents_written']}")
 

@@ -237,7 +237,64 @@ def test_running_it_twice_changes_nothing_the_second_time(wired_mongo):
 
     assert _stamps(collection) == before
     assert first["stamped"] == 1 and second["stamped"] == 0, (first, second)
-    assert second["already_stamped"] == 1, second
+    # ``already_complete`` ולא ``backfilled``: לא היה מה להשלים.
+    assert second["already_complete"] == 1, second
+    assert second["documents_written"] == 0, second
+
+
+def test_a_run_that_was_interrupted_is_completed_by_running_it_again(wired_mongo):
+    """**"ניתנת להרצה חוזרת" נבדקת במצב שבו היא באמת נחוצה.**
+
+    ``update_many`` אינו אטומי בין מסמכים: קריסה באמצע משאירה חלק
+    מהשרשרת כתוב וחלק לא. הצורה הקודמת דילגה על קובץ שלגרסתו האחרונה
+    יש חותמת — ולכן דווקא אחרי קטיעה, ההרצה החוזרת לא השלימה כלום
+    וספרה את הקובץ כ"כבר מתוארך". כלומר ההבטמה החזיקה רק כשלא היה בה
+    צורך.
+
+    המצב כאן הוא בדיוק מה שקטיעה משאירה: הגרסה האחרונה נכתבה, הקודמות
+    לא.
+    """
+    collection = _seed(wired_mongo, DESCRIPTION, DESCRIPTION, DESCRIPTION)
+    collection.update_one(
+        {"version": 3}, {"$set": {DESCRIPTION_SET_AT_VERSION_FIELD: 1}}
+    )
+
+    counters = _module().migrate(collection)
+
+    assert _stamps(collection) == {1: 1, 2: 1, 3: 1}, "ההרצה החוזרת לא השלימה"
+    assert counters["backfilled"] == 1, counters
+    assert counters["documents_written"] == 2, counters
+
+
+def test_a_version_stored_as_a_string_is_stamped_like_any_other(wired_mongo):
+    """**מסמך עם ``version`` כמחרוזת נשמט בשקט, ודווקא הוא החשוב.**
+
+    ``normalized_version`` מקבל מספר שנשמר כמחרוזת **במכוון** — מסמכים
+    ישנים במונגו נושאים כאלה. הפילטר שכתב את החותמת השתמש ב-``$gte``
+    מספרי, ומונגו משווה בין טיפוסים לפי סדר טיפוסים: מספר אינו מתאים
+    למחרוזת. נמדד מול MongoDB 7.0.14 — על שרשרת ``1, "2", 3`` העדכון
+    נגע בשניים והשאיר את ``"2"`` בלי חותמת.
+
+    שני חצאים של אותה מיגרציה החזיקו שתי תשובות שונות לאותה שאלה,
+    והחצי שכותב הוא זה שהחמיץ.
+    """
+    collection = wired_mongo.get_db().code_snippets
+    collection.delete_many({})
+    for version in (1, "2", 3):
+        collection.insert_one({
+            "user_id": USER_ID, "file_name": FILE_NAME, "code": "# גרסה\n",
+            "programming_language": "markdown", "description": DESCRIPTION,
+            "tags": [], "version": version, "is_active": True,
+        })
+
+    counters = _module().migrate(collection)
+
+    stamps = {
+        str(d["version"]): d.get(DESCRIPTION_SET_AT_VERSION_FIELD)
+        for d in collection.find({"user_id": USER_ID, "file_name": FILE_NAME})
+    }
+    assert stamps == {"1": 1, "2": 1, "3": 1}, stamps
+    assert counters["documents_written"] == 3, counters
 
 
 def test_it_never_overwrites_a_stamp_an_in_place_update_moved(wired_mongo):

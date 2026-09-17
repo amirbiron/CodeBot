@@ -225,4 +225,15 @@ def normalized_version(value: Any) -> int | None:
         number = int(value)
     except (TypeError, ValueError, ArithmeticError):
         return None
+    # **ערך שברי נדחה ואינו מקוצר.** ``int(1.5)`` הוא ``1``, כלומר מספר
+    # גרסה שהומצא: הוא יכול להתנגש בגרסה 1 אמיתית, והגיל שייגזר ממנו
+    # ייראה סביר לגמרי. זו אותה הכרעה בדיוק שנעשתה על ``Infinity`` שורה
+    # למעלה — נתון פגום הוא אי-ידיעה, לא ערך לעגל.
+    #
+    # ההשוואה מדלגת על מחרוזות כי ``3 != "3"`` תמיד, ושם ``int()`` כבר
+    # עשה את העבודה: ``int("3.5")`` זורק ``ValueError`` מעצמו. למספרים
+    # ``3 == 3.0 == Decimal("3")`` מחזיר ``True``, ולכן ערך שלם שנשמר
+    # כ-``double`` — הצורה הרגילה במונגו — ממשיך לעבור.
+    if not isinstance(value, str) and number != value:
+        return None
     return number if number >= 1 else None

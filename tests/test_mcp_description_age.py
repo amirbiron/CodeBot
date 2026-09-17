@@ -880,3 +880,26 @@ def test_a_non_finite_version_number_does_not_crash_the_read_path():
     assert description_age_field(
         {"description": "יש", "version": 4, DESCRIPTION_SET_AT_VERSION_FIELD: 1}
     ) == {DESCRIPTION_AGE_FIELD: 3}
+
+
+def test_a_fractional_version_number_is_rejected_and_never_truncated():
+    """‏``version: 1.5`` אינו גרסה 1 — הוא אי-ידיעה.
+
+    ``int(1.5)`` הוא ``1``, כלומר **מספר גרסה שהומצא**: הוא יכול
+    להתנגש בגרסה 1 אמיתית, והגיל שייגזר ממנו ייראה סביר לגמרי ולכן
+    לא ייבדק. זו אותה הכרעה שנעשתה על ``Infinity`` — נתון פגום הוא
+    אי-ידיעה, לא ערך לעגל.
+
+    **והכיוון ההפוך נבדק באותה נשימה**, כי הוא זה שקל לשבור: מספר שלם
+    שנשמר כ-``double`` (‏``3.0``) הוא הצורה הרגילה במונגו, ומחרוזת
+    (``"3"``) היא מה שמסמכים ישנים נושאים. שניהם חייבים להמשיך לעבור.
+    """
+    from decimal import Decimal
+
+    from file_description import normalized_version
+
+    for rejected in (1.5, 2.9, Decimal("2.5"), "3.5"):
+        assert normalized_version(rejected) is None, rejected
+
+    for accepted, expected in ((3, 3), (3.0, 3), (Decimal("3"), 3), ("3", 3)):
+        assert normalized_version(accepted) == expected, accepted
