@@ -38,6 +38,9 @@ from .handlers import (
 # הוא אינו גורר את שכבת המסד. ראו ``file_dates.py``.
 from file_dates import version_created_at
 
+# גיל התיאור — אותו סוג מודול שורש טהור בדיוק, ולכן אותו ייבוא ישיר.
+from file_description import DESCRIPTION_SET_AT_VERSION_FIELD, description_age_field
+
 # ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
 # אותה תבנית ייבוא עמיד שבה משתמש ``webapp/sticky_notes_api``: בסביבות
 # בדיקה בלי pymongo, מחלקה מקומית שלא תיזרק לעולם עדיפה על ייבוא שמפיל
@@ -168,13 +171,24 @@ def _clean(doc: dict[str, Any], *, include_code: bool = False) -> dict[str, Any]
 
     שדות החיפוש הסמנטי יורדים **תמיד**, גם עם ``include_code``: הם אינם תוכן
     הקובץ אלא תשתית שמתלווה אליו, ומי שביקש את הקוד לא ביקש אותה.
+
+    **גיל התיאור מחושב כאן, ובמכוון במקום אחד ולא בכל כלי בנפרד.**
+    ‏``_clean`` הוא הצוואר שכל מסמך קובץ עובר דרכו בשרת הזה —
+    ‏``list_files``, ``search_code``, ``get_file`` (דרך ``_full``),
+    ‏``list_versions`` ו-``save_file``. חישוב בכל קורא היה מוסיף לכל כלי
+    חדש דרישה לזכור, והכלי שישכח יחזיר קובץ בלי שום סימן שמשהו חסר בו.
+    ההחלטה מתי השדה מופיע בכלל יושבת ב-``file_description``, ליד החישוב.
+
+    **החותמת הגולמית עצמה יורדת מהתשובה.** ``description_age_versions``
+    נגזר ממנה וממספר הגרסה, ושני שדות שאומרים את אותו דבר הם רעש שסוכן
+    צריך להכריע ביניהם. החותמת היא פרט אחסון, לא ממשק.
     """
     out: dict[str, Any] = {}
     for key, val in (doc or {}).items():
         if key == "_id":
             out["id"] = str(val)
             continue
-        if key in _SEMANTIC_FIELDS:
+        if key in _SEMANTIC_FIELDS or key == DESCRIPTION_SET_AT_VERSION_FIELD:
             continue
         if not include_code and key in _HEAVY_FIELDS:
             continue
@@ -182,6 +196,8 @@ def _clean(doc: dict[str, Any], *, include_code: bool = False) -> dict[str, Any]
     # Friendlier alias without dropping the original field.
     if "programming_language" in out:
         out.setdefault("language", out["programming_language"])
+    # מה-doc הגולמי ולא מ-``out``: החותמת כבר ירדה ממנו שתי שורות למעלה.
+    out.update(description_age_field(doc))
     return out
 
 
