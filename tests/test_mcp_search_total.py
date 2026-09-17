@@ -409,9 +409,12 @@ def _damage_blob(tmp_path, path: str, *, delete: bool) -> None:
     ).stdout.strip()
     obj = mirror / "objects" / sha[:2] / sha[2:]
     assert obj.is_file(), "האובייקט אינו רופף — ההנחה על clone מקומי נשברה"
-    if delete:
-        obj.unlink()
-    else:
+    # git יוצר אובייקטים רופפים ב-``0444``. כתיבה **לתוך** הקובץ עוברת רק
+    # ל-root (שמתעלם מביטי ההרשאה) — ב-CI, שרץ כמשתמש רגיל, היא נופלת
+    # ב-``PermissionError``. מחיקה תלויה בהרשאת התיקייה בלבד, ולכן
+    # "מחק וכתוב קובץ חדש" עובד לכל משתמש ומייצר בדיוק את אותו מצב.
+    obj.unlink()
+    if not delete:
         obj.write_bytes(b"garbage")
 
 
