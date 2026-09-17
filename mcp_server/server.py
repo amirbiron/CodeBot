@@ -1525,6 +1525,11 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
 
     @mcp.tool(
         name="codekeeper_search_repo",
+        # **שני דברים בתיאור הזה נאכפים בבדיקה, וכל ניסוח מחדש חייב לשמור
+        # עליהם:** מה חוזר בכל פגיעה, ומשפט שאומר מה הצעד הבא איתו
+        # (``codekeeper_get_repo_file`` עם ``lines=[line - 20, line + 20]``).
+        # הפער שנולד ממנו ``test_the_descriptions_name_the_search_to_range_chain``
+        # היה תיאור שפירט *מה חוזר* בלי לומר *מה לעשות עם זה*.
         description=(
             "[Admin] Text-search inside a mirrored repo. Returns hits with path, "
             "line and a short snippet; context_lines=N (0-10) adds the lines "

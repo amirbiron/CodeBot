@@ -533,8 +533,13 @@ async def test_the_descriptions_name_the_search_to_range_chain():
     search = mcp._tool_manager.get_tool("codekeeper_search_repo").description
     read = mcp._tool_manager.get_tool("codekeeper_get_repo_file").description
 
-    # חיפוש ← קריאת טווח.
-    assert "Every result carries a `line`" in search
+    # חיפוש ← קריאת טווח. שתי טענות נפרדות, ושתיהן חייבות לשרוד כל
+    # ניסוח מחדש של התיאור: **מה** חוזר בכל פגיעה, ו**מה הצעד הבא** איתו.
+    # המחרוזות עצמן ישתנו ביום שהתיאור ייכתב מחדש — מה שלא ישתנה הוא
+    # שתיאור שמפרט רק את השדות, בלי משפט שמתאר פעולה, מחזיר בדיוק את
+    # הפער שהטסט הזה נולד ממנו.
+    assert "path, line" in search
+    assert "The next step on a hit is" in search
     assert "codekeeper_get_repo_file" in search
     # ``lines=[line`` ולא ``lines=`` בלבד: שני התיאורים נקראים בנפרד, וסוכן
     # שראה רק את תיאור החיפוש צריך ללמוד מכאן גם את **צורת** הפרמטר.
