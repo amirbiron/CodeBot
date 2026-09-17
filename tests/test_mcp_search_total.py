@@ -807,6 +807,42 @@ async def test_include_vendored_brings_it_back_to_both(tmp_path, monkeypatch):
     }
 
 
+# קובץ מקומפל לכל דפוס ברשימה, בשורש ובעומק — כל אחד עם מופע אחד, כדי
+# שהמספרים יגידו בדיוק מי הוחרג.
+_COMPILED = {
+    "static/app.bundle.js": _lines(1),
+    "static/vendor/lib.min.js": _lines(1),
+    "static/css/site.min.css": _lines(1),
+    "deep/dist/app.bundle.js.map": _lines(1),
+}
+
+
+@requires_git
+async def test_compiled_files_are_out_of_both_the_results_and_the_count(tmp_path, monkeypatch):
+    """באנדלים וקבצים ממוזערים — אותה רשימה ואותו מנגנון כמו ``node_modules``.
+
+    המיפוי הראשון ספר קבצים ופספס אותם; מה שקובע הוא שורות תואמות, ובאנדל
+    אחד החזיק 64% מהמופעים של ``function``. **מוטציה שמפילה:** להסיר את
+    ארבעת הדפוסים מ-``VENDORED_PATH_GLOBS``.
+    """
+    mcp = _build(tmp_path, {"src/a.py": _lines(3), **_COMPILED}, monkeypatch)
+
+    out = await _search(mcp, max_results=50)
+
+    assert out["total"] == 3
+    assert {r["path"] for r in out["results"]} == {"src/a.py"}
+
+
+@requires_git
+async def test_include_vendored_brings_compiled_files_back_too(tmp_path, monkeypatch):
+    mcp = _build(tmp_path, {"src/a.py": _lines(3), **_COMPILED}, monkeypatch)
+
+    out = await _search(mcp, max_results=50, include_vendored=True)
+
+    assert out["total"] == 3 + len(_COMPILED)
+    assert {r["path"] for r in out["results"]} == {"src/a.py", *_COMPILED}
+
+
 @requires_git
 async def test_include_vendored_does_not_unlock_a_secret(tmp_path, monkeypatch):
     """שתי הרשימות נפרדות, וזו הבדיקה שמחזיקה את ההפרדה.
