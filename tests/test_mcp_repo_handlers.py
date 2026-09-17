@@ -32,12 +32,15 @@ class _RecordingRepoBackend:
 
     def search(
         self, *, repo, query, file_pattern, max_results, byte_budget,
-        context_lines=0, regex=False, include_vendored=False,
+        context_lines=0, regex=False, case_sensitive=False, include_vendored=False,
     ):
         self.calls.append(
             ("search", repo, query, file_pattern, max_results, byte_budget,
              context_lines, regex)
         )
+        # שני הדגלים החדשים נשמרים בנפרד ולא בסוף הטאפל, כדי שאינדקסים
+        # שטסטים קיימים משווים אליהם לא יזוזו בכל תוספת.
+        self.case_sensitive = case_sensitive
         self.include_vendored = include_vendored
         return {"ok": True}
 
@@ -133,3 +136,27 @@ def test_search_defaults_to_literal_and_forwards_the_regex_flag():
 
     assert be.calls[0][7] is False
     assert be.calls[1][7] is True
+
+
+def test_search_forwards_the_two_boolean_flags_instead_of_dropping_them():
+    """שני דגלים שהשכבה הזו יכולה לבלוע בשקט.
+
+    ‏``case_sensitive`` נבלע כאן בפועל עד ספטמבר 2026: הוא פשוט לא הועבר
+    הלאה, ולכן ``git grep`` רץ תמיד עם ``-i`` ולא הייתה דרך לבקש התאמה
+    מדויקת. פרמטר שמתקבל ונזרק הוא אותה שתיקה שהשרת הזה דוחה בכל מקום
+    אחר, ולכן ההעברה עצמה נבדקת ולא רק התוצאה.
+
+    **מוטציה שמפילה:** להסיר אחת משתי ההעברות מהקריאה ל-backend.
+    """
+    be = _RecordingRepoBackend()
+
+    rh.search_repo(be, repo="r", query="xy")
+    assert be.case_sensitive is False and be.include_vendored is False
+
+    rh.search_repo(be, repo="r", query="xy", case_sensitive=True)
+    assert be.case_sensitive is True
+
+    rh.search_repo(be, repo="r", query="xy", include_vendored=True)
+    assert be.include_vendored is True
+    # ‏``include_vendored`` אינו גורר את השני איתו.
+    assert be.case_sensitive is False

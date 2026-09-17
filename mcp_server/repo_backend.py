@@ -551,6 +551,7 @@ class RepoBackend:
         byte_budget: int = 256_000,
         context_lines: int = 0,
         regex: bool = False,
+        case_sensitive: bool = False,
         include_vendored: bool = False,
     ) -> dict[str, Any]:
         """Search the mirror, with a count that means what it says.
@@ -576,6 +577,12 @@ class RepoBackend:
                 max_results=int(max_results),
                 context_lines=int(context_lines),
                 regex=bool(regex),
+                # Passed explicitly, never left to a default: the two layers
+                # below declare **opposite** ones (``RepoSearchService.search``
+                # is False, ``search_with_git_grep`` is True). Until now this
+                # call omitted the argument entirely, so the False won and the
+                # tool was always case-insensitive with no way to say otherwise.
+                case_sensitive=bool(case_sensitive),
                 include_vendored=bool(include_vendored),
                 exclude_paths=list(denylist_patterns()),
             )

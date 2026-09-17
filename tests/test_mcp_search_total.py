@@ -481,6 +481,97 @@ async def test_the_per_file_cap_is_reported_and_counted(tmp_path, monkeypatch):
 
 
 # ===========================================================================
+# 3ב. רישיות — מה שהחיפוש הזה לא ידע להבדיל
+# ===========================================================================
+
+# ``Config`` ו-``config`` באותו ריפו, ובכוונה גם ``CONFIG`` — שלושה מופעים
+# שהתאמה חסרת-רישיות מאחדת לאחד.
+_CASE_FILES = {
+    "src/upper.py": "class Config:\nCONFIG = 1\n",
+    "src/lower.py": "config = {}\nfrom config import x\n",
+}
+
+
+@requires_git
+async def test_case_is_ignored_by_default_in_results_and_in_the_count(tmp_path, monkeypatch):
+    """ברירת המחדל לא זזה: ``Config`` תופס גם את ``config``.
+
+    זו הבדיקה ששומרת על התאימות — הפרמטר החדש הוא תוספת, ומי שלא מעביר
+    אותו מקבל בדיוק את מה שקיבל קודם.
+    """
+    mcp = _build(tmp_path, _CASE_FILES, monkeypatch)
+
+    out = await _search(mcp, query="Config", max_results=50)
+
+    assert out["total"] == 4
+    assert {r["path"] for r in out["results"]} == {"src/upper.py", "src/lower.py"}
+
+
+@requires_git
+async def test_case_sensitive_narrows_both_the_results_and_the_count(tmp_path, monkeypatch):
+    """הבדיקה המרכזית של הפרמטר.
+
+    **הספירה חייבת לכבד אותו.** מופע שהדגל מוציא מהתוצאות ועדיין נספר
+    היה מייצר בדיוק את הפער ש-``total`` אמור לסגור: מספר שאינו מתאר את
+    מה שאפשר לקבל.
+
+    **מוטציה שמפילה:** להסיר את ``case_sensitive`` מהקריאה ב-
+    ``repo_backend.search`` — ואז ``git grep`` רץ עם ``-i`` ושתי
+    הבדיקות האלה מקבלות את אותו מספר.
+    """
+    mcp = _build(tmp_path, _CASE_FILES, monkeypatch)
+
+    exact = await _search(mcp, query="Config", max_results=50, case_sensitive=True)
+
+    assert exact["total"] == 1
+    assert [r["path"] for r in exact["results"]] == ["src/upper.py"]
+    assert exact["results"][0]["snippet"] == "class Config:"
+
+    # והצד השני של אותו מטבע, כדי שהבדיקה לא תעבור על "פחות זה תמיד טוב".
+    lower = await _search(mcp, query="config", max_results=50, case_sensitive=True)
+    assert lower["total"] == 2
+    assert {r["path"] for r in lower["results"]} == {"src/lower.py"}
+
+
+@requires_git
+async def test_case_sensitive_applies_with_regex_too(tmp_path, monkeypatch):
+    """הדגל אינו נעצר ב-``-F``.
+
+    ‏``-i`` ו-``-E`` הם שני מתגים נפרדים ב-``git grep``, ולכן אין שום
+    ערובה מראש שמי שהעביר את האחד העביר גם את השני — נבדק ולא מונח.
+    """
+    mcp = _build(tmp_path, _CASE_FILES, monkeypatch)
+
+    loose = await _search(mcp, query="Config|CONFIG", max_results=50, regex=True)
+    strict = await _search(
+        mcp, query="Config|CONFIG", max_results=50, regex=True, case_sensitive=True
+    )
+
+    assert loose["total"] == 4
+    assert strict["total"] == 2
+    assert {r["path"] for r in strict["results"]} == {"src/upper.py"}
+
+
+@requires_git
+async def test_case_sensitive_does_not_reopen_a_denied_or_vendored_path(tmp_path, monkeypatch):
+    """דגל נוחות אינו דגל הרשאה — אותה בדיקה שכבר קיימת ל-``include_vendored``."""
+    mcp = _build(
+        tmp_path,
+        {
+            "src/upper.py": "class Config:\n",
+            "config/.env": "Config=secret\n",
+            "node_modules/pkg/i.js": "Config = 1\n",
+        },
+        monkeypatch,
+    )
+
+    out = await _search(mcp, query="Config", max_results=50, case_sensitive=True)
+
+    assert out["total"] == 1
+    assert [r["path"] for r in out["results"]] == ["src/upper.py"]
+
+
+# ===========================================================================
 # 4. הספירה אינה נגזרת ממה שביקשו להחזיר
 # ===========================================================================
 

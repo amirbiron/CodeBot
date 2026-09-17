@@ -2051,6 +2051,11 @@ class GitMirrorService:
         max_results: int = 100,
         timeout: int = 10,
         file_pattern: Optional[str] = None,
+        # **ברירת המחדל כאן היא ההפוכה מזו של** ``RepoSearchService.search``
+        # **(שם ``False``).** ראו את ההערה שם: הקוראים בשרשרת ה-MCP מעבירים
+        # את הערך במפורש, ואף אחד אינו נשען על אף אחת מהשתיים. לא מיישרים
+        # אותן כאן, כי שינוי ברירת מחדל של מתודה ציבורית משנה בשקט את
+        # ההתנהגות של כל קורא עתידי שלא ידע על השינוי.
         case_sensitive: bool = True,
         ref: Optional[str] = None,
         context_lines: int = 0,

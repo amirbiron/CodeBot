@@ -52,6 +52,11 @@ class RepoSearchService:
         search_type: str = "content",  # content, filename, function, class
         file_pattern: Optional[str] = None,
         language: Optional[str] = None,
+        # **ברירת המחדל כאן היא ההפוכה מזו של** ``search_with_git_grep``
+        # **(שם ``True``).** אין כאן טעות ואין כאן כוונה משותפת: שתי
+        # השכבות נכתבו בנפרד. התוצאה היא שמשמעות ה"ברירת מחדל" תלויה
+        # בשכבה שבה הקריאה נעצרה — ולכן כל קורא בשרשרת ה-MCP מעביר את
+        # הערך **במפורש**, ואף אחד לא נשען על אף אחת מהשתיים.
         case_sensitive: bool = False,
         max_results: int = 50,
         context_lines: int = 0,
@@ -104,9 +109,12 @@ class RepoSearchService:
             return self._search_content(
                 repo_name,
                 query,
-                file_pattern,
-                case_sensitive,
-                max_results,
+                file_pattern=file_pattern,
+                # בשם ולא במקום. ``case_sensitive`` ו-``regex`` הם שני
+                # בוליאנים צמודים במסלול הזה, וסדר שמתהפך בריפקטור היה
+                # מחליף ביניהם בלי ששום בדיקת טיפוסים תתלונן.
+                case_sensitive=case_sensitive,
+                max_results=max_results,
                 ref=ref,  # העברת ה-ref הנכון
                 context_lines=context_lines,
                 regex=regex,

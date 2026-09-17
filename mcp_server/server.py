@@ -1529,8 +1529,8 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "[Admin] Text-search inside a mirrored repo; returns short snippets "
             "(path+line), capped and truncated-flagged. Set context_lines=N "
             "(0-10, default 0) to get N lines before and after each hit as "
-            "context_before / context_after, instead of fetching the whole file "
-            "just to see the surroundings. "
+            "context_before / context_after, instead of fetching the whole "
+            "file just to see the surroundings. "
             # ``path+line`` כבר הופיע לעיל, אבל כתיאור של מה שחוזר ולא של
             # מה לעשות איתו — וזה בדיוק מה שלא נקרא. השרשור נאמר במפורש.
             "Every result carries a `line`, so the next step on a hit is "
@@ -1539,14 +1539,19 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             # שקורא רק את התיאור הזה, בלי זה של ``get_repo_file``, לא יכול
             # היה לדעת מכאן שהפרמטר הוא זוג.
             "codekeeper_get_repo_file on that path with lines=[line - 20, "
-            "line + 20] — the passage itself, not the file. "
+            "line + 20] — the passage, not the file. "
             # הסמנטיקה של ``query`` לא הופיעה כאן כלל, והמצב נגזר מתוכן
             # השאילתה: כל תו מיוחד העביר אותה ל-``git grep -E`` בשקט, כך
             # ש-``dict[`` היה ERE פסול ו-``a|b`` היה חלופה. עכשיו זה פרמטר,
             # והתיאור אומר את החוזה במקום להשאיר אותו לניחוש.
+            # "literally" נקרא עד היום כ"בדיוק", והוא לא: git רץ עם ``-i``,
+            # כלומר ``Config`` מותאם גם ל-``config``. המילה נשארת — היא
+            # אומרת שתו מיוחד הוא תו — והרישיות נאמרת לידה במפורש.
             "The query is matched literally — every character is itself, "
-            "and the leading and trailing whitespace you send is part of it, "
-            "so \"    return\" finds the indented line. Pass regex=true to "
+            "and leading/trailing whitespace counts, so \"    return\" finds "
+            "the indented line. Case is ignored by default: Config also "
+            "matches config. Pass case_sensitive=true for exact case "
+            "(results and count alike). Pass regex=true to "
             "read it as a POSIX extended regular expression instead; a "
             "pattern git rejects then comes back as "
             "{\"ok\": false, \"error\": \"invalid_pattern\"} with the reason, "
@@ -1574,6 +1579,17 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         file_pattern: str | None = None,
         max_results: int = 50,
         context_lines: StrictInt = 0,
+        case_sensitive: Annotated[
+            bool,
+            Field(
+                description=(
+                    "false (the default) ignores case, so Config matches "
+                    "config. true matches case exactly. It applies with "
+                    "regex=true as well, and to `total` — a match the flag "
+                    "excludes is not counted either."
+                )
+            ),
+        ] = False,
         include_vendored: Annotated[
             bool,
             Field(
@@ -1607,6 +1623,7 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             max_results=max_results,
             context_lines=context_lines,
             regex=regex,
+            case_sensitive=case_sensitive,
             include_vendored=include_vendored,
         )
 
