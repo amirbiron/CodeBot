@@ -105,6 +105,51 @@ def test_a_version_that_never_had_a_description_stops_the_run():
     assert stamp == 3
 
 
+def test_a_malformed_version_number_is_skipped_and_never_crashes_the_run():
+    """מסמך עם ``version`` שאינו מספר מדולג — בשני חצאי הסקריפט.
+
+    **מיגרציה שקורסת באמצע גרועה במיוחד**, כי היא כבר כתבה לחלק
+    מהקבצים ומי שמריץ אותה שוב אינו יודע איפה היא עצרה. קודם היו כאן
+    שתי תשובות שונות לאותה שאלה: בניית השרשרת סיננה ערך פגום, ובחירת
+    הגרסה האחרונה עשתה עליו ``int(...)`` וזרקה ``ValueError``.
+
+    שתיהן שואלות עכשיו את אותה שאלה, ולכן שתיהן נבדקות כאן על אותם
+    נתונים.
+    """
+    module = _module()
+    chain = [
+        {"version": 1, "description": DESCRIPTION},
+        {"version": "bad", "description": DESCRIPTION},
+        {"version": 2, "description": DESCRIPTION},
+    ]
+
+    assert module.stamp_from_version_chain(chain) == 1
+    assert module._latest_version_doc(chain) == {"version": 2, "description": DESCRIPTION}
+
+    # ומספר שנשמר כמחרוזת הוא ערך תקף ולא פגום — מסמכים ישנים במונגו
+    # נושאים כאלה, וסינון שלהם היה מוותר על קבצים שהתשובה עליהם ידועה.
+    assert module._latest_version_doc([{"version": "3"}, {"version": 1}]) == {"version": "3"}
+
+
+def test_the_migration_survives_a_malformed_version_in_the_collection(wired_mongo):
+    """ואותו דבר מקצה לקצה, על מסמך פגום שיושב במסד.
+
+    הבדיקה שמעל היא על הפונקציות; זו על ``migrate`` עצמה, כי הקריסה
+    הייתה שם — בבחירת הגרסה האחרונה — ולא בהיגיון השרשרת.
+    """
+    collection = _seed(wired_mongo, DESCRIPTION, DESCRIPTION)
+    collection.insert_one({
+        "user_id": USER_ID, "file_name": FILE_NAME, "code": "# פגום\n",
+        "programming_language": "markdown", "description": DESCRIPTION,
+        "tags": [], "version": "bad", "is_active": True,
+    })
+
+    counters = _module().migrate(collection)
+
+    assert counters["stamped"] == 1, counters
+    assert _stamps(collection)[1] == 1
+
+
 def test_a_single_version_file_dates_to_itself():
     assert _module().stamp_from_version_chain(_chain((1, DESCRIPTION))) == 1
 

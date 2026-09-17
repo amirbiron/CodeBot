@@ -37,7 +37,10 @@ from typing import Any
 # הרצה כסקריפט מתוך ``scripts/`` — שורש הפרויקט צריך להיות ב-path.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from file_description import DESCRIPTION_SET_AT_VERSION_FIELD  # noqa: E402
+from file_description import (  # noqa: E402
+    DESCRIPTION_SET_AT_VERSION_FIELD,
+    normalized_version,
+)
 
 
 def stamp_from_version_chain(versions: list[dict[str, Any]]) -> int | None:
@@ -63,14 +66,11 @@ def stamp_from_version_chain(versions: list[dict[str, Any]]) -> int | None:
     for doc in versions:
         if not isinstance(doc, dict):
             continue
-        raw_version = doc.get("version")
-        if isinstance(raw_version, bool) or raw_version is None:
-            continue
-        try:
-            number = int(raw_version)
-        except (TypeError, ValueError):
-            continue
-        if number < 1:
+        # ``normalized_version`` ולא בדיקה מקומית: זו אותה שאלה בדיוק
+        # ששאר הקוד שואל על אותו שדה, ועותק שני שלה כאן כבר עלה לנו —
+        # ראו ה-docstring של :func:`_latest_version_doc`.
+        number = normalized_version(doc.get("version"))
+        if number is None:
             continue
         description = doc.get("description")
         # מסמך בלי תיאור נכנס עם מחרוזת ריקה ולא מושמט: "לא היה תיאור
@@ -96,6 +96,32 @@ def stamp_from_version_chain(versions: list[dict[str, Any]]) -> int | None:
         run_start = probe
         probe -= 1
     return run_start
+
+
+def _latest_version_doc(versions: Any) -> dict[str, Any] | None:
+    """מסמך הגרסה הגבוהה ביותר בשרשרת, או ``None`` כשאין אף מסמך תקין.
+
+    **קיימת בגלל באג אמיתי, לא בשביל סדר.** קודם הבחירה כאן הייתה
+    ``max(..., key=lambda d: int(d.get("version", 0) or 0))``, כלומר
+    עותק **שלישי** של "מה נחשב מספר גרסה" — ועותק שסינן פחות משני
+    האחרים: ``int("bad")`` זורק ``ValueError``, וכל המיגרציה הייתה
+    נופלת באמצע על מסמך פגום יחיד, בזמן ש-:func:`stamp_from_version_chain`
+    על אותם נתונים בדיוק מדלגת עליו וממשיכה.
+
+    מיגרציה שקורסת באמצע גרועה במיוחד: היא כבר כתבה לחלק מהקבצים, ומי
+    שמריץ אותה שוב אינו יודע איפה היא עצרה. ולכן שתי הפונקציות כאן
+    שואלות עכשיו את **אותה** שאלה, דרך ``normalized_version``.
+    """
+    best: dict[str, Any] | None = None
+    best_version = 0
+    for doc in versions or []:
+        if not isinstance(doc, dict):
+            continue
+        number = normalized_version(doc.get("version"))
+        if number is None or number <= best_version:
+            continue
+        best, best_version = doc, number
+    return best
 
 
 def _chains(collection: Any):
@@ -140,11 +166,7 @@ def migrate(collection: Any, *, dry_run: bool = False) -> dict[str, int]:
     for chain in _chains(collection):
         counters["files"] += 1
         versions = chain.get("versions") or []
-        latest = max(
-            (d for d in versions if isinstance(d, dict)),
-            key=lambda d: int(d.get("version", 0) or 0),
-            default=None,
-        )
+        latest = _latest_version_doc(versions)
         if isinstance(latest, dict) and latest.get(DESCRIPTION_SET_AT_VERSION_FIELD) is not None:
             # כבר מתוארך. לא לגעת — ראו ה-docstring של המודול.
             counters["already_stamped"] += 1

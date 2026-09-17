@@ -783,14 +783,45 @@ def test_the_rule_inherits_the_stamp_only_when_the_text_is_identical():
     התנהגותית שנופלת אינה אומרת באיזה ענף — וארבעה ענפים שמתנהגים אותו
     דבר ברוב המקרים הם בדיוק המקום שבו כיסוי נראה רחב יותר ממה שהוא.
     """
-    previous = {"description": "ישן", DESCRIPTION_SET_AT_VERSION_FIELD: 2}
+    # מסמך **מלא**, עם ``version``, כי כך נראה כל מסמך שמסלולי הכתיבה
+    # מעבירים לכאן בפועל: שבעתם שולפים ב-``find_one`` בלי היטלה. פיקסצ'ר
+    # שמשמיט את השדה בודק צורה שאף צרכן אינו מייצר.
+    previous = {"description": "ישן", "version": 8, DESCRIPTION_SET_AT_VERSION_FIELD: 2}
 
     assert description_stamp_for_new_version(None, "חדש", 1) == 1
     assert description_stamp_for_new_version(previous, "ישן", 9) == 2
     assert description_stamp_for_new_version(previous, "אחר", 9) == 9
     assert description_stamp_for_new_version(previous, "", 9) is None
-    assert description_stamp_for_new_version({"description": "ישן"}, "ישן", 9) is None
+    assert description_stamp_for_new_version(
+        {"description": "ישן", "version": 8}, "ישן", 9
+    ) is None
     assert description_stamp_for_new_version(previous, 42, 9) is None
+
+
+def test_a_stamp_newer_than_the_document_it_sits_on_is_not_inherited():
+    """**חותמת נבדקת מול המסמך שהיא יושבת עליו, לא רק מול הגרסה החדשה.**
+
+    מסמך גרסה 5 שנושא חותמת 6 הוא נתון פגום — אין מסלול קוד שמייצר
+    אותו. אבל בדיקה מול הגרסה החדשה בלבד מחמיצה אותו בדיוק ברגע הגרוע:
+    בשמירה הבאה הגרסה החדשה היא 6, ה-6 עובר את הסף ויורש, והמסמך החדש
+    יוצא עם חותמת ששווה למספר שלו — כלומר **גיל 0**. זה הערך היחיד
+    שאסור להמציא, ואי-ידיעה הייתה מתחפשת ל"התיאור נכתב עכשיו".
+
+    ``version`` חסר במסמך הקודם נופל לאותו ענף מאותה סיבה: בלי לדעת על
+    איזו גרסה החותמת יושבת אין מול מה לאמת אותה.
+    """
+    corrupt = {"description": "ד", "version": 5, DESCRIPTION_SET_AT_VERSION_FIELD: 6}
+    assert description_stamp_for_new_version(corrupt, "ד", 6) is None, (
+        "חותמת מהעתיד ירשה, והגרסה החדשה קיבלה גיל 0 על תיאור שאיננו "
+        "יודעים מתי נכתב"
+    )
+
+    no_version = {"description": "ד", DESCRIPTION_SET_AT_VERSION_FIELD: 3}
+    assert description_stamp_for_new_version(no_version, "ד", 9) is None
+
+    # ותקין נשאר תקין, כולל הגבול: חותמת ששווה לגרסה של המסמך שלה.
+    at_boundary = {"description": "ד", "version": 5, DESCRIPTION_SET_AT_VERSION_FIELD: 5}
+    assert description_stamp_for_new_version(at_boundary, "ד", 6) == 5
 
 
 def test_a_stamp_from_the_future_is_treated_as_unknown_not_as_a_negative_age():

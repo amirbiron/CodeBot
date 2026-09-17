@@ -66,9 +66,10 @@ def description_stamp_for_new_version(
     - התיאור זהה לקודם ← החותמת של הקודם **עוברת כמות שהיא**. זה הענף
       היחיד שמונע איפוס של הגיל בכל עריכה.
     - התיאור שונה ← הגרסה החדשה.
-    - גרסה קודמת בלי חותמת תקינה (קובץ מלפני השדה, או כזה שהמיגרציה לא
-      הצליחה לחשב) ← ``None``. עריכה אינה יודעת מתי התיאור נכתב, ושתיקה
-      עדיפה על מספר שנשמע כמו ידיעה.
+    - גרסה קודמת בלי חותמת תקינה (קובץ מלפני השדה, כזה שהמיגרציה לא
+      הצליחה לחשב, או חותמת שאינה תקפה ביחס למסמך שהיא יושבת עליו) ←
+      ``None``. עריכה אינה יודעת מתי התיאור נכתב, ושתיקה עדיפה על מספר
+      שנשמע כמו ידיעה.
 
     **``None`` פירושו "אל תכתוב את השדה"** ולא "כתוב ``None``": שדה חסר
     הוא מה ש-:func:`description_age_versions` מתרגם ל-``null``, ושדה
@@ -89,7 +90,7 @@ def description_stamp_for_new_version(
     """
     if not isinstance(description, str) or not description:
         return None
-    version = _as_version(new_version)
+    version = normalized_version(new_version)
     if version is None:
         return None
     if not isinstance(previous, dict):
@@ -99,10 +100,28 @@ def description_stamp_for_new_version(
         previous_description = ""
     if previous_description != description:
         return version
-    previous_stamp = _as_version(previous.get(DESCRIPTION_SET_AT_VERSION_FIELD))
-    if previous_stamp is None or previous_stamp > version:
-        # חותמת גבוהה ממספר הגרסה אינה מצב שהקוד הזה מייצר, ולכן היא נתון
-        # פגום ולא ידיעה. גיל שלילי היה נקרא כמו תיאור מהעתיד.
+    previous_stamp = normalized_version(previous.get(DESCRIPTION_SET_AT_VERSION_FIELD))
+    previous_version = normalized_version(previous.get("version"))
+    # **החותמת נבדקת מול המסמך שהיא יושבת עליו**, ולא רק מול הגרסה
+    # החדשה. היא תכונה של הגרסה הקודמת — "בגרסה הזו התיאור נקבע" — ולכן
+    # מסגרת ההתייחסות הנכונה היא ``previous["version"]``.
+    #
+    # בדיקה מול הגרסה החדשה בלבד מחמיצה בדיוק את המקרה הגרוע: מסמך גרסה
+    # 5 שנושא חותמת 6 הוא נתון פגום, אבל בשמירה הבאה (גרסה 6) ה-6 עובר
+    # את הסף ויורש — והגרסה החדשה יוצאת עם חותמת ששווה למספר שלה, כלומר
+    # **גיל 0**. זה הערך היחיד שאסור להמציא, ואי-ידיעה הייתה מתחפשת
+    # ל"התיאור נכתב עכשיו".
+    #
+    # ``previous_version is None`` נכנס לאותו ענף מאותה סיבה: בלי לדעת
+    # על איזו גרסה החותמת יושבת אי אפשר לאמת אותה, ושתיקה עדיפה על
+    # מספר שנשמע כמו ידיעה. שני התנאים על ``version`` נשמרים גם יחד,
+    # כי מסמך "קודם" שמספרו גבוה מהחדש הוא בעצמו נתון פגום.
+    if (
+        previous_stamp is None
+        or previous_version is None
+        or previous_stamp > previous_version
+        or previous_stamp > version
+    ):
         return None
     return previous_stamp
 
@@ -133,10 +152,10 @@ def description_age_versions(doc: Any) -> int | None:
     """
     if not isinstance(doc, dict):
         return None
-    version = _as_version(doc.get("version"))
+    version = normalized_version(doc.get("version"))
     if version is None:
         return None
-    stamp = _as_version(doc.get(DESCRIPTION_SET_AT_VERSION_FIELD))
+    stamp = normalized_version(doc.get(DESCRIPTION_SET_AT_VERSION_FIELD))
     if stamp is None or stamp > version:
         return None
     return version - stamp
@@ -168,13 +187,19 @@ def description_age_field(doc: Any) -> dict:
     description = doc.get("description")
     if not isinstance(description, str) or not description:
         return {}
-    if _as_version(doc.get("version")) is None:
+    if normalized_version(doc.get("version")) is None:
         return {}
     return {DESCRIPTION_AGE_FIELD: description_age_versions(doc)}
 
 
-def _as_version(value: Any) -> int | None:
+def normalized_version(value: Any) -> int | None:
     """מספר גרסה חיובי, או ``None`` לכל דבר אחר.
+
+    **ציבורית, כי זו התשובה לשאלה "מה נחשב מספר גרסה" וכל מי ששואל
+    אותה חייב לקבל את אותה תשובה.** ‏``scripts/migrate_description_set_at_version.py``
+    שואל אותה על כל מסמך בשרשרת; קודם היה לו עותק משלו, וכשהעותק הזה
+    היה קיים רק בחצי אחד מהסקריפט — הבנייה סיננה מספר פגום והבחירה
+    של הגרסה האחרונה קרסה עליו. עותק שני של כלל הוא עותק שיסטה.
 
     ``bool`` נפסל מפורשות: הוא תת-מחלקה של ``int`` בפייתון, ו-``True``
     היה עובר כ-1 ונקרא כ"התיאור נקבע בגרסה הראשונה".
