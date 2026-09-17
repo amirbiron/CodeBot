@@ -1526,49 +1526,19 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
     @mcp.tool(
         name="codekeeper_search_repo",
         description=(
-            "[Admin] Text-search inside a mirrored repo; returns short snippets "
-            "(path+line), capped and truncated-flagged. Set context_lines=N "
-            "(0-10, default 0) to get N lines before and after each hit as "
-            "context_before / context_after, instead of fetching the whole "
-            "file just to see the surroundings. "
-            # ``path+line`` כבר הופיע לעיל, אבל כתיאור של מה שחוזר ולא של
-            # מה לעשות איתו — וזה בדיוק מה שלא נקרא. השרשור נאמר במפורש.
-            "Every result carries a `line`, so the next step on a hit is "
-            # הדוגמה נקובה בצורתה המלאה ולא כ"טווח סביבו": ``line`` הוא מספר
-            # בודד, ו-``normalize_line_range`` דוחה כל אורך שאינו 2. סוכן
-            # שקורא רק את התיאור הזה, בלי זה של ``get_repo_file``, לא יכול
-            # היה לדעת מכאן שהפרמטר הוא זוג.
-            "codekeeper_get_repo_file on that path with lines=[line - 20, "
-            "line + 20] — the passage, not the file. "
-            # הסמנטיקה של ``query`` לא הופיעה כאן כלל, והמצב נגזר מתוכן
-            # השאילתה: כל תו מיוחד העביר אותה ל-``git grep -E`` בשקט, כך
-            # ש-``dict[`` היה ERE פסול ו-``a|b`` היה חלופה. עכשיו זה פרמטר,
-            # והתיאור אומר את החוזה במקום להשאיר אותו לניחוש.
-            # "literally" נקרא עד היום כ"בדיוק", והוא לא: git רץ עם ``-i``,
-            # כלומר ``Config`` מותאם גם ל-``config``. המילה נשארת — היא
-            # אומרת שתו מיוחד הוא תו — והרישיות נאמרת לידה במפורש.
-            "The query is matched literally — every character is itself, "
-            "and leading/trailing whitespace counts, so \"    return\" finds "
-            "the indented line. Case is ignored by default: Config also "
-            "matches config. Pass case_sensitive=true for exact case "
-            "(results and count alike). Pass regex=true to "
-            "read it as a POSIX extended regular expression instead; a "
-            "pattern git rejects then comes back as "
-            "{\"ok\": false, \"error\": \"invalid_pattern\"} with the reason, "
-            "never as zero matches. "
-            # שני השדות, ולמה הם שניים. ``total`` שהיה שווה ל-``count`` הוא
-            # המלכודת שהכלי הזה הטמין: הסוכן שלמד את המשמעות ב-``query=``
-            # של ``codekeeper_get_file`` ייחס אותה גם לכאן.
-            "`count` is how many hits came back; `total` is how many exist in "
-            "the repo, and it is there only when it is exact. When the count "
-            "itself was cut short the answer carries `total_at_least` (the "
-            "ceiling is 100,000) and `truncation_reason` instead — never both "
-            "forms at once. "
-            # אפס תוצאות אינו \"לא קיים\", וזה חייב להיאמר בתיאור עצמו: סוכן
-            # שלא יודע על ההחרגה יסיק מסקנה שגויה משתיקה.
-            "Vendored code (node_modules) is left out of both the search and "
-            "the count by default, so zero results does not mean the string is "
-            "absent from the repo; pass include_vendored=true to search it too."
+            "[Admin] Text-search inside a mirrored repo. Returns hits with path, "
+            "line and a short snippet; context_lines=N (0-10) adds the lines "
+            "around each hit. The next step on a hit is codekeeper_get_repo_file "
+            "on that path with lines=[line - 20, line + 20] — the passage, not "
+            "the file. The query is literal: no character is special, and "
+            "leading/trailing whitespace counts, so \"    return\" finds the "
+            "indented line (regex=true for a pattern). Case is ignored unless "
+            "case_sensitive=true. `count` is how many hits came back. `total` is "
+            "how many exist in what was searched, and appears only when exact; "
+            "when counting stopped early the reply carries `total_at_least` and "
+            "`truncation_reason` instead. Vendored code (node_modules) is "
+            "skipped by default, so zero results does not mean the string is "
+            "absent; include_vendored=true searches it too."
         ),
         annotations=_READ_ONLY_TOOL,
     )
