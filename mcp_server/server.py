@@ -1525,32 +1525,25 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
 
     @mcp.tool(
         name="codekeeper_search_repo",
+        # **שני דברים בתיאור הזה נאכפים בבדיקה, וכל ניסוח מחדש חייב לשמור
+        # עליהם:** מה חוזר בכל פגיעה, ומשפט שאומר מה הצעד הבא איתו
+        # (``codekeeper_get_repo_file`` עם ``lines=[line - 20, line + 20]``).
+        # הפער שנולד ממנו ``test_the_descriptions_name_the_search_to_range_chain``
+        # היה תיאור שפירט *מה חוזר* בלי לומר *מה לעשות עם זה*.
         description=(
-            "[Admin] Text-search inside a mirrored repo; returns short snippets "
-            "(path+line), capped and truncated-flagged. Set context_lines=N "
-            "(0-10, default 0) to get N lines before and after each hit as "
-            "context_before / context_after, instead of fetching the whole file "
-            "just to see the surroundings. "
-            # ``path+line`` כבר הופיע לעיל, אבל כתיאור של מה שחוזר ולא של
-            # מה לעשות איתו — וזה בדיוק מה שלא נקרא. השרשור נאמר במפורש.
-            "Every result carries a `line`, so the next step on a hit is "
-            # הדוגמה נקובה בצורתה המלאה ולא כ"טווח סביבו": ``line`` הוא מספר
-            # בודד, ו-``normalize_line_range`` דוחה כל אורך שאינו 2. סוכן
-            # שקורא רק את התיאור הזה, בלי זה של ``get_repo_file``, לא יכול
-            # היה לדעת מכאן שהפרמטר הוא זוג.
-            "codekeeper_get_repo_file on that path with lines=[line - 20, "
-            "line + 20] — the passage itself, not the file. "
-            # הסמנטיקה של ``query`` לא הופיעה כאן כלל, והמצב נגזר מתוכן
-            # השאילתה: כל תו מיוחד העביר אותה ל-``git grep -E`` בשקט, כך
-            # ש-``dict[`` היה ERE פסול ו-``a|b`` היה חלופה. עכשיו זה פרמטר,
-            # והתיאור אומר את החוזה במקום להשאיר אותו לניחוש.
-            "The query is matched literally — every character is itself, "
-            "and the leading and trailing whitespace you send is part of it, "
-            "so \"    return\" finds the indented line. Pass regex=true to "
-            "read it as a POSIX extended regular expression instead; a "
-            "pattern git rejects then comes back as "
-            "{\"ok\": false, \"error\": \"invalid_pattern\"} with the reason, "
-            "never as zero matches."
+            "[Admin] Text-search inside a mirrored repo. Returns hits with path, "
+            "line and a short snippet; context_lines=N (0-10) adds the lines "
+            "around each hit. The next step on a hit is codekeeper_get_repo_file "
+            "on that path with lines=[line - 20, line + 20] — the passage, not "
+            "the file. The query is literal: no character is special, and "
+            "leading/trailing whitespace counts, so \"    return\" finds the "
+            "indented line (regex=true for a pattern). Case is ignored unless "
+            "case_sensitive=true. `count` is how many hits came back. `total` is "
+            "how many exist in what was searched, and appears only when exact; "
+            "when counting stopped early the reply carries `total_at_least` and "
+            "`truncation_reason` instead. Vendored code (node_modules) is "
+            "skipped by default, so zero results does not mean the string is "
+            "absent; include_vendored=true searches it too."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -1561,6 +1554,29 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         file_pattern: str | None = None,
         max_results: int = 50,
         context_lines: StrictInt = 0,
+        case_sensitive: Annotated[
+            bool,
+            Field(
+                description=(
+                    "false (the default) ignores case, so Config matches "
+                    "config. true matches case exactly. It applies with "
+                    "regex=true as well, and to `total` — a match the flag "
+                    "excludes is not counted either."
+                )
+            ),
+        ] = False,
+        include_vendored: Annotated[
+            bool,
+            Field(
+                description=(
+                    "false (the default) skips vendored code — node_modules at "
+                    "any depth — in both the results and the `total`. true "
+                    "searches it as well. Vendored files stay readable through "
+                    "codekeeper_get_repo_file either way; this only decides "
+                    "what the search looks at."
+                )
+            ),
+        ] = False,
         regex: Annotated[
             bool,
             Field(
@@ -1582,6 +1598,8 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             max_results=max_results,
             context_lines=context_lines,
             regex=regex,
+            case_sensitive=case_sensitive,
+            include_vendored=include_vendored,
         )
 
 

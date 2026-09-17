@@ -160,7 +160,12 @@ async def test_query_returns_the_hits_and_not_the_content(monkeypatch):
 
 
 async def test_matching_ignores_case_like_search_repo_does(monkeypatch):
-    """‏``codekeeper_search_repo`` מריץ ``git grep -i``; אותה סמנטיקה כאן.
+    """‏``codekeeper_search_repo`` מריץ ``git grep -i`` **כברירת מחדל**;
+    אותה סמנטיקה כאן.
+
+    מאז שנוסף לו ``case_sensitive`` יש לו גם התאמה מדויקת, ולמסלול הזה
+    אין — וזו אסימטריה מודעת: ``query=`` אינו מקבל פרמטר כזה, וההתאמה
+    כאן תמיד חסרת רישיות.
 
     מוטציה שמפילה: להסיר את ה-``casefold`` ב-``scan_file_query`` — ואז
     ``BETA_UPPER`` לא נתפס והספירה יורדת ל-1.
