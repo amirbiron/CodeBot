@@ -358,6 +358,43 @@ def test_a_filtered_row_alone_is_enough_to_mark_the_answer_incomplete():
     assert "total" not in out and out["total_at_least"] == 1
 
 
+def test_an_engine_error_with_partial_rows_is_served_as_incomplete():
+    """המנוע נפל אחרי שאסף שורות: ``error`` לצד ``results``.
+
+    השומר הישן בדק ``error and not results``, ולכן הצירוף הזה עבר הלאה
+    כתשובה תקינה — ``ok: true``, ``truncated: false``, ובלי אף שדה ספירה.
+    """
+    rows = [{"path": "a.py", "line": 1, "content": "x"}, {"path": "b.py", "line": 2, "content": "x"}]
+    be = RepoBackend(
+        db=_repos_db(),
+        mirror=_Mirror(),
+        search_service=_Search({"error": "search_failed", "message": "fatal: corrupt", "results": rows}),
+    )
+    out = be.search(repo="alpha", query="x", max_results=50)
+    assert out["ok"] is True and out["count"] == 2
+    assert "total" not in out
+    assert out["total_at_least"] == 2
+    assert out["truncated"] is True
+    assert out["truncation_reason"] == "search_failed"
+
+
+def test_an_engine_error_with_partial_rows_during_a_sync_asks_to_retry(monkeypatch):
+    rows = [{"path": "a.py", "line": 1, "content": "x"}]
+    be = RepoBackend(
+        db=_repos_db(),
+        mirror=_Mirror(),
+        search_service=_Search({"error": "search_failed", "results": rows}),
+    )
+    monkeypatch.setattr(RepoBackend, "_sync_running", lambda self, repo: True)
+    out = be.search(repo="alpha", query="x", max_results=50)
+    assert out == {
+        "ok": False,
+        "error": "sync_in_progress",
+        "retry_after": SYNC_RETRY_AFTER_SECONDS,
+        "message": out["message"],
+    }
+
+
 def test_search_not_truncated_when_under_cap():
     rows = [{"path": "a.py", "line": 1, "content": "x"}]
     be = RepoBackend(

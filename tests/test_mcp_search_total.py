@@ -388,6 +388,338 @@ async def test_an_exhausted_budget_never_starts_a_search(tmp_path, monkeypatch):
     assert out["truncation_reason"] == "timeout"
 
 
+def _damage_blob(tmp_path, path: str, *, delete: bool) -> None:
+    """מוטציה על **העותק** שתחת ``tmp_path``: בלוב אחד נמחק או מושחת.
+
+    המראה נוצרת ב-``clone --mirror`` מקומי של ריפו זעיר, ולכן האובייקטים
+    שלה רופפים (loose) ולא ארוזים — אפשר לגעת בקובץ של בלוב בודד.
+    נמדד על git 2.43: בלוב **חסר** מדפיס ``error: ... unable to read``,
+    מדלג על הקובץ ויוצא ב-0; בלוב **מושחת** מדפיס ``fatal: ... is
+    corrupt`` ויוצא ב-128 — אחרי שכבר הדפיס את ההתאמות שקדמו לו.
+    """
+    mirror = tmp_path / "repo.git"
+    # ‏``git grep`` רב-חוטי כברירת מחדל (``grep.threads`` = מספר הליבות),
+    # ו-``die()`` על הבלוב הפגום יכול להקדים את הדפסת הקבצים שלפניו או
+    # לאחר אותה. חוט אחד = סדר סריקה קבוע = תוצאה קבועה. הקונפיג הוא של
+    # המראה שתחת ``tmp_path`` בלבד — לא של הפקודה בקוד הייצור.
+    _run(_GIT, "config", "grep.threads", "1", cwd=mirror)
+    sha = subprocess.run(
+        [_GIT, "rev-parse", f"refs/heads/main:{path}"],
+        cwd=str(mirror), check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    obj = mirror / "objects" / sha[:2] / sha[2:]
+    assert obj.is_file(), "האובייקט אינו רופף — ההנחה על clone מקומי נשברה"
+    if delete:
+        obj.unlink()
+    else:
+        obj.write_bytes(b"garbage")
+
+
+# ===========================================================================
+# 2ב. כשל של המנוע באמצע הזרם
+# ===========================================================================
+
+
+@requires_git
+async def test_an_engine_failure_after_partial_results_is_never_a_clean_answer(
+    tmp_path, monkeypatch
+):
+    """‏``git grep`` שמת באמצע — אחרי שכבר הדפיס התאמות.
+
+    המנוע מחזיר את מה שנאסף יחד עם ``error``, כדי לא לזרוק התאמות
+    אמיתיות. השומר ב-``repo_backend`` בדק ``error and not results`` —
+    כלומר בדיוק את המקרה הזה הוא הניח לעבור הלאה כתשובה **תקינה**:
+    ``ok: true``, ``truncated: false``, ובלי ``total`` ובלי
+    ``total_at_least``. ההשמטה השקטה שה-PR הזה בא לסלק, בתוכו.
+
+    הכשל אמיתי: בלוב מושחת במראה, ולא דמה. ``src/a.py`` נסרק לפני
+    ``src/b.py``, ולכן ההתאמות שלו כבר בחוץ כשגיט נופל.
+    """
+    mcp = _build(
+        tmp_path,
+        {"src/a.py": _lines(2), "src/b.py": _lines(3), "src/c.py": _lines(4)},
+        monkeypatch,
+    )
+    _damage_blob(tmp_path, "src/b.py", delete=False)
+
+    out = await _search(mcp, max_results=50)
+
+    assert out["ok"] is True
+    assert [r["path"] for r in out["results"]] == ["src/a.py", "src/a.py"]
+    assert "total" not in out
+    assert out["total_at_least"] == 2
+    assert out["truncated"] is True
+    assert out["truncation_reason"] == "search_failed"
+
+
+@requires_git
+async def test_a_partial_failure_during_a_sync_says_retry_instead(tmp_path, monkeypatch):
+    """אותו כשל, אבל sync רץ — אז "נסה שוב" עדיף על עמוד חלקי מעץ שזז."""
+    from mcp_server.repo_backend import RepoBackend
+
+    mcp = _build(
+        tmp_path,
+        {"src/a.py": _lines(2), "src/b.py": _lines(3)},
+        monkeypatch,
+    )
+    _damage_blob(tmp_path, "src/b.py", delete=False)
+    monkeypatch.setattr(RepoBackend, "_sync_running", lambda self, repo: True)
+
+    out = await _search(mcp, max_results=50)
+
+    assert out["ok"] is False
+    assert out["error"] == "sync_in_progress"
+    assert out["retry_after"] > 0
+
+
+@requires_git
+async def test_an_unreadable_object_costs_the_exact_total_even_when_git_exits_zero(
+    tmp_path, monkeypatch
+):
+    """בלוב **חסר**: git מדלג עליו, מתלונן ב-stderr — ויוצא ב-0.
+
+    קוד היציאה לבדו היה מכריז על סריקה שלמה ו-``total`` מדויק שחסר בו
+    קובץ. מה שתופס את זה הוא ה-stderr המנוקז: שורת ``error:`` פירושה
+    שהסריקה אינה שלמה, בשני המעברים.
+
+    **מוטציה שמפילה:** להסיר את ``drain.reports_errors()`` מהתנאים.
+    """
+    mcp = _build(
+        tmp_path,
+        {"src/a.py": _lines(2), "src/b.py": _lines(3), "src/c.py": _lines(4)},
+        monkeypatch,
+    )
+    _damage_blob(tmp_path, "src/b.py", delete=True)
+
+    out = await _search(mcp, max_results=50)
+
+    assert out["ok"] is True
+    assert {r["path"] for r in out["results"]} == {"src/a.py", "src/c.py"}
+    assert "total" not in out
+    assert out["total_at_least"] == 6
+    assert out["truncated"] is True
+    assert out["truncation_reason"] == "count_failed"
+
+
+# ===========================================================================
+# 2ג. הצינור של stderr — #3398
+# ===========================================================================
+
+# ילד שמציף את stderr הרבה מעבר לקיבולת הצינור (64KB בלינוקס) **לפני**
+# שהוא כותב את הפלט. בלי ניקוז הוא נחסם ב-``write`` ולעולם אינו מגיע
+# ל-stdout, ולולאה שמסתכלת רק על stdout ממתינה עד תום התקציב.
+_FLOOD = (
+    "import sys\n"
+    "sys.stderr.write('error: noise\\n' * 20000)\n"
+    "sys.stderr.flush()\n"
+    "sys.stdout.write({payload!r})\n"
+    "sys.stdout.flush()\n"
+    "sys.exit({code})\n"
+)
+
+
+def _flooding_popen(payload: str, code: int = 0):
+    """‏``Popen`` שמחליף כל פקודה בילד שמציף stderr ואז מדפיס ``payload``."""
+    import subprocess as sp
+    import sys
+
+    real = sp.Popen
+
+    def _popen(cmd, **kwargs):
+        return real([sys.executable, "-c", _FLOOD.format(payload=payload, code=code)], **kwargs)
+
+    return _popen
+
+
+@requires_git
+def test_the_count_pass_drains_stderr_instead_of_deadlocking(tmp_path, monkeypatch):
+    """מעבר הספירה מול ילד שמציף stderr: הספירה מסתיימת, ולא ב-timeout.
+
+    **מוטציה שמפילה:** להפוך את ``_StderrDrain.pump`` ל-no-op.
+    """
+    import time
+
+    import services.git_mirror_service as gms
+
+    monkeypatch.setattr(gms.subprocess, "Popen", _flooding_popen("HEAD:a.py\x005\nHEAD:b.py\x007\n"))
+    svc = gms.GitMirrorService(base_path=str(tmp_path))
+
+    started = time.monotonic()
+    out = svc._count_matches_with_git_grep(
+        repo_path=tmp_path, query=_N, ref="HEAD", case_sensitive=True,
+        regex=False, pathspec=[], timeout=5,
+    )
+    elapsed = time.monotonic() - started
+
+    assert out["counted"] == 12
+    # ‏``error:`` בזרם השגיאות — הילד המזייף כותב בדיוק את זה, ולכן הספירה
+    # נקראת בכוונה "לא שלמה": זה הכלל שהטסט שמעל מוכיח מול git אמיתי.
+    assert out["complete"] is False and out["truncation_reason"] == "count_failed"
+    assert elapsed < 4, "הלולאה חיכתה ל-timeout — stderr לא נוקז"
+
+
+@requires_git
+def test_the_results_pass_drains_stderr_instead_of_deadlocking(tmp_path, monkeypatch):
+    """אותו ילד מול מעבר התוצאות — הבאג המקורי של #3398."""
+    import time
+
+    import services.git_mirror_service as gms
+
+    monkeypatch.setattr(gms.subprocess, "Popen", _flooding_popen("sample.py\n1:alpha\n2:beta\n"))
+    svc = gms.GitMirrorService(base_path=str(tmp_path))
+
+    started = time.monotonic()
+    res = svc._run_grep_with_streaming(["git", "grep", "-n", "x"], tmp_path, max_results=50, timeout=5)
+    elapsed = time.monotonic() - started
+
+    assert [r["line"] for r in res["results"]] == [1, 2]
+    assert res["truncation_reason"] != "timeout"
+    assert elapsed < 4, "הלולאה חיכתה ל-timeout — stderr לא נוקז"
+
+
+@requires_git
+def test_a_failed_count_logs_the_classified_reason(tmp_path, monkeypatch, caplog):
+    """הלוג אומר **למה** הספירה נכשלה, כמו ``_classify_grep_failure`` במעבר התוצאות."""
+    import logging
+
+    import services.git_mirror_service as gms
+
+    monkeypatch.setattr(gms.subprocess, "Popen", _flooding_popen("", code=128))
+    svc = gms.GitMirrorService(base_path=str(tmp_path))
+
+    with caplog.at_level(logging.WARNING, logger="services.git_mirror_service"):
+        out = svc._count_matches_with_git_grep(
+            repo_path=tmp_path, query=_N, ref="HEAD", case_sensitive=True,
+            regex=False, pathspec=[], timeout=5,
+        )
+
+    assert out["complete"] is False
+    assert any("search_failed" in r.getMessage() and "error: noise" in r.getMessage() for r in caplog.records)
+
+
+# ילד שכותב את כל הפלט, סוגר את stderr, ויוצא — בזמן שנכד עדיין מחזיק את
+# stdout פתוח. זה מודל דטרמיניסטי של החלון שנמדד במרוץ האמיתי: ‏``select``
+# חוזר על EOF של stderr בזמן שכל ה-stdout כבר יושב בבאפר של ``readline``,
+# ו-``poll()`` כבר מדווח יציאה. ``break`` באותו רגע זורק את הבאפר;
+# ``continue`` מחכה ל-EOF של stdout ומנקז אותו.
+#
+# הנכד מחזיק 1.5 שניות — **יותר ממחזור ``select`` אחד** (0.5). עם 0.3 המוטציה
+# לא נתפסה: ה-``select`` הבא כבר ראה את stdout ב-EOF לפני שהגיע לענף
+# ``poll()``, והמרוץ פשוט לא נוצר. נמדד, לא הונח.
+_LINGERING_STDOUT = (
+    "import os, subprocess, sys\n"
+    "sys.stdout.write({payload!r}); sys.stdout.flush()\n"
+    "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(1.5)'],"
+    " stderr=subprocess.DEVNULL)\n"
+    "os.close(2)\n"
+    "sys.exit(0)\n"
+)
+
+
+def _lingering_popen(payload: str):
+    import subprocess as sp
+    import sys
+
+    real = sp.Popen
+
+    def _popen(cmd, **kwargs):
+        return real([sys.executable, "-c", _LINGERING_STDOUT.format(payload=payload)], **kwargs)
+
+    return _popen
+
+
+@requires_git
+def test_the_results_pass_does_not_drop_buffered_output_when_stderr_closes_first(
+    tmp_path, monkeypatch
+):
+    """המרוץ שהניקוז הכניס, ותוקן: EOF של stderr לפני שה-stdout נקרא עד הסוף.
+
+    נמדד על git אמיתי לפני התיקון: 4 מתוך 150 חיפושים על קובץ עם 25
+    התאמות חזרו עם **אפס** תוצאות. **מוטציה שמפילה:** ``break`` על
+    ``poll() is not None`` בענף ``stdout not in ready``.
+    """
+    import services.git_mirror_service as gms
+
+    monkeypatch.setattr(gms.subprocess, "Popen", _lingering_popen("sample.py\n1:alpha\n2:beta\n"))
+    svc = gms.GitMirrorService(base_path=str(tmp_path))
+
+    res = svc._run_grep_with_streaming(["git", "grep", "-n", "x"], tmp_path, max_results=50, timeout=5)
+
+    assert [r["line"] for r in res["results"]] == [1, 2]
+    assert res["truncated"] is False
+
+
+@requires_git
+def test_the_count_pass_does_not_drop_buffered_output_when_stderr_closes_first(
+    tmp_path, monkeypatch
+):
+    """אותו מרוץ במעבר הספירה — שם הוא היה מחזיר ``count_failed`` על ספירה תקינה."""
+    import services.git_mirror_service as gms
+
+    monkeypatch.setattr(gms.subprocess, "Popen", _lingering_popen("HEAD:a.py\x005\nHEAD:b.py\x007\n"))
+    svc = gms.GitMirrorService(base_path=str(tmp_path))
+
+    out = svc._count_matches_with_git_grep(
+        repo_path=tmp_path, query=_N, ref="HEAD", case_sensitive=True,
+        regex=False, pathspec=[], timeout=5,
+    )
+
+    assert out["counted"] == 12
+    assert out["complete"] is True
+
+
+# ===========================================================================
+# 2ד. ``--`` תמיד
+# ===========================================================================
+
+
+@requires_git
+def test_both_passes_end_the_options_with_a_double_dash_even_without_a_pathspec(
+    tmp_path, monkeypatch
+):
+    """‏``--`` נוסף גם כשרשימת ה-pathspec ריקה, בשני המעברים.
+
+    ההערה בקוד הבטיחה זאת בזמן שהקוד הוסיף אותו רק בתוך ``if pathspec``.
+    ``include_vendored=True`` בלי ``file_pattern`` ובלי החרגות הוא המקרה
+    שבו הרשימה באמת ריקה.
+
+    **מוטציה שמפילה:** להחזיר את ``if pathspec:`` סביב ה-``--``.
+    """
+    import subprocess as sp
+
+    import services.git_mirror_service as gms
+
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "a.py").write_text(_lines(25), encoding="utf-8")
+    _run(_GIT, "init", "-q", "-b", "main", ".", cwd=work)
+    _run(_GIT, "add", "-A", cwd=work)
+    _run(_GIT, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init", cwd=work)
+    _run(_GIT, "clone", "-q", "--mirror", str(work), str(tmp_path / "repo.git"), cwd=tmp_path)
+
+    seen = []
+    real = sp.Popen
+
+    def _recording(cmd, **kwargs):
+        seen.append(list(cmd))
+        return real(cmd, **kwargs)
+
+    monkeypatch.setattr(gms.subprocess, "Popen", _recording)
+    svc = gms.GitMirrorService(base_path=str(tmp_path))
+
+    # 25 מופעים מול מכסת 20 לקובץ: מעבר הספירה חייב לרוץ, ולכן שני
+    # ה-argv-ים נרשמים באותה קריאה.
+    res = svc.search_with_git_grep(
+        "repo", _N, max_results=50, timeout=10, ref="refs/heads/main", include_vendored=True,
+    )
+
+    assert res["total_count"] == 25
+    grep_calls = [c for c in seen if c[:2] == ["git", "grep"]]
+    assert len(grep_calls) == 2, seen
+    for cmd in grep_calls:
+        assert cmd[-1] == "--", cmd
+
+
 # ===========================================================================
 # 3. מה שהספירה לא סופרת
 # ===========================================================================

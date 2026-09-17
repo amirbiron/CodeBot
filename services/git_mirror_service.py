@@ -134,6 +134,112 @@ def _strip_ref_prefix(text: str) -> str:
     return file_line
 
 
+class _StderrDrain:
+    """מנקז את stderr של תת-תהליך **תוך כדי** הלולאה, לבאפר חסום.
+
+    **למה זה חובה ולא נוחות (#3398).** ``stderr=PIPE`` שאיש אינו קורא ממנו
+    הוא צינור בן 64KB (ברירת המחדל בלינוקס, ‏``pipe(7)``). git שכותב יותר
+    מזה — ריפו עם אובייקטים חסרים מדפיס שתי שורות ``error:`` לכל קובץ,
+    נמדד — נחסם ב-``write``, מפסיק לכתוב ל-stdout, ו-``select`` על stdout
+    ממתין עד תום התקציב. התוצאה: כשל צינור שמדווח כ-``timeout``, עם חסם
+    תחתון שגוי ובלי שום לוג על הסיבה. האישו נסגר בלי שהקוד השתנה; זה
+    המימוש.
+
+    **מחלקה אחת לשני המעברים** — תוצאות וספירה — כדי שהתיקון לא ייושם
+    באחד ויישכח בשני, שזה בדיוק מה שקרה כשמעבר הספירה נכתב.
+
+    ``os.read`` על ה-fd הגולמי ולא ``process.stderr.read()``: האחרון קורא
+    דרך ``TextIOWrapper`` ויכול להיחסם על שורה חלקית גם כש-``select`` אמר
+    שיש נתונים. מהרגע שקוראים כאן, אסור לקרוא מה-wrapper בשום מקום אחר —
+    ולכן גם ענף השגיאה של מעבר התוצאות עבר ל-:meth:`text`.
+    """
+
+    def __init__(self, process: subprocess.Popen, limit: int = GREP_STDERR_MAX_BYTES) -> None:
+        self._stream = getattr(process, "stderr", None)
+        self._fd: Optional[int] = None
+        if self._stream is not None:
+            try:
+                self._fd = self._stream.fileno()
+            except (AttributeError, ValueError, OSError):
+                # זרם בלי fd אמיתי — אותה סובלנות שכבר קיימת ללולאת התוצאות
+                # (``_FakeStdout.fileno`` זורק בכוונה בטסטים). אין מה לנקז
+                # תוך כדי; מה שיש נקרא פעם אחת ב-:meth:`finish`.
+                self._fd = None
+        self._chunks: List[bytes] = []
+        self._size = 0
+        self._limit = int(limit)
+        self.eof = self._stream is None
+
+    def watch(self) -> List[Any]:
+        """מה לצרף לקבוצת הקריאה של ``select`` — ריק אחרי EOF.
+
+        ``List[Any]`` כי הרשימה משורשרת לזו של stdout, שמחזיק אובייקט קובץ
+        ולא fd; ``select`` מקבל את שניהם.
+        """
+        return [] if self.eof or self._fd is None else [self._fd]
+
+    def pump(self, ready: Any) -> None:
+        """קורא מה שזמין אם ``select`` אמר שיש. מעבר לתקרה — קורא **וזורק**.
+
+        הזריקה היא כל הנקודה: הצינור חייב להתרוקן כדי ש-git ימשיך, והתקרה
+        קיימת רק כדי שאירוע פתולוגי לא יתפח לזיכרון.
+        """
+        if self.eof or self._fd is None or self._fd not in ready:
+            return
+        try:
+            chunk = os.read(self._fd, 65536)
+        except OSError:
+            self.eof = True
+            return
+        if not chunk:
+            self.eof = True
+            return
+        room = self._limit - self._size
+        if room > 0:
+            self._chunks.append(chunk[:room])
+            self._size += min(len(chunk), room)
+
+    def finish(self, deadline: float = 0.2) -> None:
+        """אחרי שהלולאה הסתיימה: מנקז את מה שנשאר, בלי לחסום ובלי להמתין לנכד."""
+        if self._fd is None:
+            # בלי fd אין ``select``; קריאה חסומה אחת דרך ה-wrapper — התהליך
+            # כבר יצא או נהרג בשלב הזה, ולכן היא מסתיימת מיד.
+            if not self.eof:
+                try:
+                    text = self._stream.read(self._limit)  # type: ignore[union-attr]
+                    if isinstance(text, bytes):
+                        text = text.decode("utf-8", "replace")
+                    if text:
+                        self._chunks.append(str(text).encode("utf-8"))
+                except Exception:
+                    pass
+                self.eof = True
+            return
+        end = time.monotonic() + deadline
+        while not self.eof and time.monotonic() < end:
+            try:
+                ready, _, _ = select.select(self.watch(), [], [], 0.05)
+            except (ValueError, OSError):
+                break
+            if not ready:
+                break
+            self.pump(ready)
+
+    def text(self) -> str:
+        return b"".join(self._chunks).decode("utf-8", "replace")
+
+    def reports_errors(self) -> bool:
+        """האם git הודיע על כשל — גם כשיצא ב-0.
+
+        נמדד על git 2.43: בלוב חסר בעץ מדפיס ``error: '<ref>:<path>': unable
+        to read <sha>``, **מדלג על הקובץ ויוצא ב-0**. קוד היציאה לבדו היה
+        מכריז על סריקה שלמה ועל ``total`` מדויק — שחסר בו קובץ.
+        """
+        return any(
+            line.startswith(("error:", "fatal:")) for line in self.text().splitlines()
+        )
+
+
 def _require_git_argv(cmd) -> Optional[str]:
     """מאמת שה-argv הוא בדיוק מה שהתכוונו להריץ, ומחזיר סיבה אם לא.
 
@@ -2265,9 +2371,11 @@ class GitMirrorService:
         pathspec = _exclude_pathspecs(exclude_globs)
         if file_pattern:
             pathspec.insert(0, file_pattern)
-        if pathspec:
-            cmd.append("--")
-            cmd.extend(pathspec)
+        # ``--`` תמיד, גם כשהרשימה ריקה (``include_vendored`` בלי
+        # ``file_pattern`` ובלי החרגות): מסיים את פרשנות האופציות, כך
+        # ששום ערך אחריו לא ייקרא כדגל. אותה הכרעה כמו במעבר הספירה.
+        cmd.append("--")
+        cmd.extend(pathspec)
 
         remaining = timeout - (time.monotonic() - started)
         if remaining <= 0:
@@ -2419,11 +2527,12 @@ class GitMirrorService:
         else:
             cmd.append(query)
         cmd.append(ref)
-        # ``--`` נוסף תמיד כשיש pathspec, ובכוונה גם כשאין: מפריד בין
-        # הרוויזיה לנתיבים, ומונע מכל ערך עתידי להתפרש כאופציה.
-        if pathspec:
-            cmd.append("--")
-            cmd.extend(pathspec)
+        # ``--`` נוסף **תמיד**, גם בלי pathspec: הוא מסיים את פרשנות
+        # האופציות, כך שהרוויזיה ומה שאחריה לעולם לא ייקראו כדגל. נמדד על
+        # git 2.43: ``--`` בסוף בלי כלום אחריו תקין. הערה קודמת כאן הבטיחה
+        # את זה בזמן שהקוד הוסיף אותו רק בתוך ``if pathspec`` — ריוויו תפס.
+        cmd.append("--")
+        cmd.extend(pathspec)
 
         invalid = _require_git_argv(cmd)
         if invalid:
@@ -2455,6 +2564,7 @@ class GitMirrorService:
                 # ``stdout=PIPE`` תמיד נותן זרם; אם בכל זאת לא — אומרים
                 # שהספירה נכשלה, ולא מחזירים אפס שנראה כמו "אין התאמות".
                 return {"counted": 0, "complete": False, "truncation_reason": "count_failed"}
+            drain = _StderrDrain(process)
 
             start_time = time.monotonic()
             while True:
@@ -2471,20 +2581,20 @@ class GitMirrorService:
                     reason = "timeout"
                     break
                 try:
-                    ready, _, _ = select.select([stream], [], [], min(0.5, remaining))
+                    ready, _, _ = select.select(
+                        [stream] + drain.watch(), [], [], min(0.5, remaining)
+                    )
                 except (ValueError, OSError):
                     # ‏fd סגור או לא נבחר — ממשיכים בדרך החוסמת, כמו במעבר
                     # התוצאות. עדיף לקרוא מאשר לוותר על הספירה בגלל select.
                     ready = [stream]
-                if not ready:
-                    if process.poll() is not None:
-                        # גיט יצא, ובכל זאת ה-fd אינו מדווח קריא — כלומר
-                        # מישהו אחר עדיין מחזיק את קצה הכתיבה (נכד ששרד),
-                        # וייתכן שנשאר פלט שלא נקרא. במצב כזה **לא**
-                        # מכריזים על ספירה שלמה: מספר שאולי חסר בו קובץ
-                        # גרוע מחסם תחתון מוצהר.
-                        reason = "count_failed"
-                        break
+                drain.pump(ready)
+                if stream not in ready:
+                    # לא ``break`` גם אם גיט כבר יצא — אותו מרוץ בדיוק כמו
+                    # במעבר התוצאות: ``select`` יכול לחזור על EOF של stderr
+                    # בזמן שכל ה-stdout כבר יושב בבאפר של ``readline``. הסיבוב
+                    # הבא יראה את stdout קריא-ב-EOF וינקז אותו; נכד ששרד
+                    # מסתיים ב-``timeout`` מוצהר, לא בספירה שנזרקה.
                     continue
                 line = stream.readline()
                 if not line:
@@ -2516,18 +2626,30 @@ class GitMirrorService:
                     reason = "count_ceiling"
                     break
 
+            drain.finish()
             if complete:
                 # קוד היציאה נבדק רק כשלא הרגנו — אותה הכרעה בדיוק כמו
                 # במעבר התוצאות. ‏0 = נמצאו, 1 = לא נמצאו, >1 = שגיאה,
-                # ושלילי = נהרג מבחוץ. בכל אלה הספירה אינה שלמה.
+                # ושלילי = נהרג מבחוץ. בכל אלה הספירה אינה שלמה — וגם
+                # כשהקוד תקין אבל git הודיע על אובייקט שלא הצליח לקרוא.
                 try:
                     returncode = process.wait(timeout=GREP_EXIT_WAIT_SECONDS)
                 except subprocess.TimeoutExpired:
                     returncode = None
-                if returncode is None or returncode > 1 or returncode < 0:
-                    logger.warning("grep count ended with code %s", returncode)
+                if returncode is None or returncode > 1 or returncode < 0 or drain.reports_errors():
+                    logger.warning(
+                        "grep count %s (code %s): %s",
+                        _classify_grep_failure(drain.text()), returncode,
+                        drain.text().strip()[:200] or "no stderr",
+                    )
                     complete = False
                     reason = "count_failed"
+            elif drain.text().strip():
+                # נקטע (timeout / תקרה) ו-git גם אמר משהו בדרך — שלא ייעלם:
+                # זה ההבדל בין "החיפוש היה איטי" ל"הריפו פגום".
+                logger.warning(
+                    "grep count stopped (%s) with stderr: %s", reason, drain.text().strip()[:200]
+                )
         except Exception:
             logger.exception("grep count failed")
             complete = False
@@ -2540,10 +2662,10 @@ class GitMirrorService:
                     process.wait(timeout=1)
                 except Exception:
                     pass
-                for stream in (process.stdout, process.stderr):
+                for pipe in (process.stdout, process.stderr):
                     try:
-                        if stream:
-                            stream.close()
+                        if pipe:
+                            pipe.close()
                     except Exception:
                         pass
 
@@ -2644,6 +2766,8 @@ class GitMirrorService:
                 bufsize=1,  # Line buffered
             )
 
+            drain = _StderrDrain(process)
+
             def _stop_child() -> None:
                 """עצירה יזומה של git — ומסמנת שקוד היציאה כבר לא קביל.
 
@@ -2656,9 +2780,6 @@ class GitMirrorService:
                 process.kill()
 
             # קריאה עם timeout
-            import select
-            import time
-
             start_time = time.time()
 
             while True:
@@ -2675,38 +2796,37 @@ class GitMirrorService:
                 remaining_timeout = max(0.1, timeout - elapsed)
 
                 # שימוש ב-select לבדוק אם יש נתונים לקריאה
-                # (עובד על Linux/Mac)
+                # (עובד על Linux/Mac). ‏stderr בקבוצה כדי שיתרוקן תוך כדי —
+                # ראו ``_StderrDrain``.
                 try:
-                    ready, _, _ = select.select([process.stdout], [], [], min(0.5, remaining_timeout))
+                    ready, _, _ = select.select(
+                        [process.stdout] + drain.watch(), [], [], min(0.5, remaining_timeout)
+                    )
                 except (ValueError, OSError):
                     # במקרה של בעיה, נמשיך בדרך הפשוטה
                     ready = [process.stdout]
+                drain.pump(ready)
 
-                if not ready:
-                    # **מתי הענף הזה נבחר, ולמה ה-``break`` שבתוכו כמעט
-                    # ואינו נגיש.** ``select`` בודק את ה-fd הגולמי, ואילו
-                    # ``readline`` קורא דרך ``TextIOWrapper`` — כלומר שורות
-                    # שכבר בבאפר של פייתון אינן נראות ל-``select``. נשמע
-                    # כמו מתכון לאיבוד שורות, ובפועל שני התנאים סותרים זה
-                    # את זה: צינור שקצה הכתיבה שלו נסגר מדווח **קריא-ב-EOF
-                    # לצמיתות**, ולכן מרגע שגיט יצא ``select`` תמיד מוכן
-                    # והזרימה הולכת ל-``readline`` שמנקז את הבאפר עד ``''``.
-                    # ובכיוון ההפוך: ``select`` שאינו מוכן פירושו שקצה
-                    # הכתיבה עדיין פתוח, כלומר גיט חי, כלומר ``poll()``
-                    # מחזיר ``None`` ומגיעים ל-``continue``.
+                if process.stdout not in ready:
+                    # **למה כאן ``continue`` ולא ``break``, גם כשגיט כבר יצא.**
+                    # ``select`` בודק את ה-fd הגולמי, ואילו ``readline`` קורא
+                    # דרך ``TextIOWrapper`` — כלומר שורות שכבר בבאפר של
+                    # פייתון אינן נראות ל-``select``. עד שהצטרף stderr לקבוצת
+                    # הקריאה זה לא הזיק: ``select`` שאינו מוכן פירש שקצה
+                    # הכתיבה של stdout פתוח, כלומר גיט חי. מרגע ש-stderr
+                    # בקבוצה, ``select`` חוזר גם על **EOF של stderr** — וזה
+                    # קורה בדיוק ברגע שגיט יוצא, כשכל ה-stdout שלו כבר נשאב
+                    # לבאפר של פייתון ב-``readline`` הקודם. ``break`` כאן
+                    # היה זורק את הבאפר הזה: נמדד — 4 מתוך 150 ריצות החזירו
+                    # אפס תוצאות על קובץ עם 25 התאמות, והרצף שנתפס היה
+                    # ``stdout מוכן ← (stderr-EOF בלבד, גיט יצא)``.
                     #
-                    # נמדד ולא הונח, על לינוקס: 290 ריצות — פלט של 2,567,760
-                    # שורות, פלט קטן, אפס התאמות, וניסיון לכפות את המרוץ
-                    # בהשהיות 0.45–0.55 שנייה סביב תקרת ה-``select``. בכולן
-                    # היציאה הייתה ב-EOF, ה-``break`` כאן לא נבחר אף פעם,
-                    # ואפס שורות אבדו.
-                    #
-                    # **הסידור היחיד שבו הוא כן ייבחר, ולא נשלל:** נכד
-                    # שירש את קצה הכתיבה ושרד את גיט. אז ה-fd נשאר פתוח
-                    # (``select`` לא מוכן) בזמן ש-``poll()`` כבר מדווח יציאה,
-                    # והבאפר נזרק בלי דגל ובלי שגיאה. ראו האישו הפתוח.
-                    if process.poll() is not None:
-                        break
+                    # ``continue`` בטוח כי צינור שקצה הכתיבה שלו נסגר מדווח
+                    # **קריא-ב-EOF לצמיתות**: הסיבוב הבא של ``select`` יחזיר
+                    # את stdout, ו-``readline`` ינקז את הבאפר עד ``''``.
+                    # הקצה היחיד שבו זה מסתובב עד התקציב: נכד שירש את קצה
+                    # הכתיבה ושרד את גיט — ואז התשובה היא ``timeout`` מוצהר
+                    # עם מה שנאסף, במקום זריקה שקטה של הבאפר.
                     continue
 
                 line = process.stdout.readline()
@@ -2832,6 +2952,7 @@ class GitMirrorService:
             # ‏``poll()`` נקרא רק בענף ``not ready``. במסלול הרגיל — git כותב
             # ל-stderr, יוצא, ‏``readline()`` מחזיר ``''`` והלולאה נשברת —
             # הוא נשאר ``None``, הבדיקה דולגה, וכשל אמיתי חזר כ"אפס תוצאות".
+            drain.finish()
             returncode: Optional[int] = None
             if not killed_by_us:
                 try:
@@ -2852,13 +2973,7 @@ class GitMirrorService:
                 truncated = True
                 truncation_reason = truncation_reason or "process_killed"
             elif returncode is not None and returncode > 1:
-                stderr_output = ""
-                try:
-                    stderr_output = (
-                        process.stderr.read(GREP_STDERR_MAX_BYTES) if process.stderr else ""
-                    )
-                except Exception:
-                    pass
+                stderr_output = drain.text()
                 error_msg = (
                     stderr_output.strip()[:200] or f"git grep failed with code {returncode}"
                 )
@@ -2872,6 +2987,16 @@ class GitMirrorService:
                     # בכשל באמצע הזרם זה מונע זריקה של התאמות אמיתיות.
                     "results": results,
                 }
+            elif not killed_by_us and drain.reports_errors():
+                # יצא ב-0 או ב-1 ובכל זאת דיווח על כשל: git מדלג על אובייקט
+                # שאינו קריא וממשיך. התוצאות חלקיות, ולכן זו קטיעה — ומעבר
+                # הספירה ייתקל באותו אובייקט ויסרב להכריז על מספר מדויק.
+                logger.warning(
+                    "git grep exited %s but reported errors: %s",
+                    returncode, drain.text().strip()[:200],
+                )
+                truncated = True
+                truncation_reason = truncation_reason or "search_failed"
 
             return {
                 "results": results,

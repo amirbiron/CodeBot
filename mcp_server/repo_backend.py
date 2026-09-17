@@ -589,20 +589,40 @@ class RepoBackend:
         except Exception:
             logger.warning("search failed", exc_info=True)
             return self._transient_error(repo, "search_failed")
-        if res.get("error") and not res.get("results"):
+        engine_error = res.get("error")
+        partial_failure = False
+        if engine_error:
             # ``invalid_pattern`` הוא באשמת הדפוס שהקורא שלח, ולעולם אינו חולף.
             # ‏``_transient_error`` היה הופך אותו ל-``sync_in_progress`` עם
             # ‏``retry_after`` — כלומר מבקש מהקורא לנסות שוב דפוס שייכשל זהה
             # לנצח. לכן הוא מנותב **לפני** הקריאה אליו, והיא עצמה לא משתנה:
             # יש לה עוד קוראים שהמיפוי הזה נכון עבורם.
-            if res.get("error") == "invalid_pattern":
+            if engine_error == "invalid_pattern":
                 return {
                     "ok": False,
                     "error": "invalid_pattern",
                     "query": query,
                     "message": str(res.get("message") or "")[:200],
                 }
-            return self._transient_error(repo, "search_failed")
+            if not res.get("results"):
+                return self._transient_error(repo, "search_failed")
+            # **כשל באמצע הזרם, אחרי שכבר נאספו שורות.** המנוע מחזיר אותן
+            # יחד עם ``error`` כדי לא לזרוק התאמות אמיתיות — ועד היום השומר
+            # שמעל בדק ``error and not results``, כלומר את המקרה הזה בדיוק
+            # הוא הניח לעבור הלאה כתשובה **תקינה**: ``ok: true``,
+            # ``truncated: false``, ובלי ``total`` ובלי ``total_at_least``.
+            # ההשמטה השקטה שה-PR הזה בא לסלק, בתוך ה-PR עצמו.
+            #
+            # אם sync רץ, התוצאות החלקיות הן כנראה מעץ שזז מתחת לרגליים,
+            # ו"נסה שוב מיד" עדיף על עמוד חלקי — אותה הכרעה כמו בשאר
+            # המסלולים. אחרת מגישים את מה שיש, ואומרים בדיוק מה זה.
+            if self._sync_running(repo):
+                return self._transient_error(repo, "search_failed")
+            logger.warning(
+                "search served partial results after engine error %s: %s",
+                engine_error, str(res.get("message") or "")[:200],
+            )
+            partial_failure = True
 
         # Last layer of the secrets policy. The engine already excluded these
         # paths from the scan (and therefore from the count), so this normally
@@ -656,8 +676,11 @@ class RepoBackend:
         # out loud how many matches sit inside a blocked file. What is left
         # that is certainly true is the rows we did serve, so that is the
         # bound we give.
-        if policy_removed:
-            payload["total_at_least"] = payload["count"]
+        if policy_removed or partial_failure:
+            # ``len(filtered)`` ולא ``count``: השורות שנאספו ועברו את המדיניות
+            # קיימות בריפו גם אם תקציב הבתים לא הכניס את כולן לעמוד, ולכן
+            # זה החסם התחתון הגדול ביותר שידוע בוודאות.
+            payload["total_at_least"] = len(filtered)
         elif "total" in res:
             payload["total"] = res["total"]
         elif "total_at_least" in res:
@@ -675,6 +698,9 @@ class RepoBackend:
             # while the page is short — the silent omission this server refuses
             # everywhere else.
             or policy_removed
+            # An engine that died mid-stream did not finish the scan, whatever
+            # it managed to hand back first.
+            or partial_failure
             or res.get("truncated")
             or (isinstance(known, int) and known > payload["count"])
         )
@@ -690,6 +716,10 @@ class RepoBackend:
                 # why an exact ``total`` is missing from an answer whose count
                 # finished normally.
                 reason = "policy_filtered"
+            elif partial_failure:
+                # The engine's own error code, so the caller sees the same word
+                # a full failure would have carried.
+                reason = str(engine_error)
             elif not reason:
                 # Nothing upstream was cut, so what shortened the page is local.
                 reason = "byte_budget"
