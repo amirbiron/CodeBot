@@ -28,6 +28,12 @@ const MODULE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky
 // ובלי הטעינה כאן אף אלרט לא היה מזוהה וכל הבדיקות עליו היו נכשלות — או
 // גרוע מכך, עוברות מהסיבה הלא נכונה אילו היו בודקות רק שהשורה נשארה טקסט.
 const ADMONITION_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'admonition-icons.js');
+// **וגם זיהוי העברית נטען לפני המודול, מאותה סיבה בדיוק.**
+// ``_appendCodeBlock`` קורא את ``window.RtlCode`` כדי להחליט אם בלוק קוד
+// בלי תג שפה מיושר לימין. בלי הטעינה כאן הוא היה נופל למסלול "אין
+// יכולת", וכל בדיקת RTL הייתה מאשרת "לא התהפך" בלי שום קשר לקוד —
+// כלומר עוברת מהסיבה הלא נכונה, ולא מסוגלת ליפול.
+const RTL_CODE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'utils', 'rtl-code.js');
 
 /** DOM מינימלי — רק מה ש-``_init`` נוגע בו לפני שהוא נכשל בשקט. */
 function makeSandbox() {
@@ -88,6 +94,7 @@ function makeSandbox() {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(ADMONITION_PATH, 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(RTL_CODE_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   return sandbox;
 }
@@ -1876,6 +1883,170 @@ check('בלוק קוד: ה-CSS מעצב את העוטפת ואין יותר is-f
   eq(decls.includes('.sticky-md-code-copy.is-copy-fail'), true, 'יש חיווי כשל');
 });
 
+// ---------- יישור לימין לבלוק עברי בלי תג שפה ----------
+//
+// אותו פיצ'ר שכבר פועל בתצוגת המסמכים, ולכן אותה פונקציה:
+// ``RtlCode.isHebrewMajority``. הבדיקות כאן שומרות על שני דברים —
+// שההחלטה נכונה, ושהיא **אותה** החלטה בשני המשטחים.
+//
+// **הטענות אינן שואלות על שתי מחלקות יחד.** הדמה מממשת ``.class``
+// כחיפוש מחרוזת אחת, ולכן ``querySelector('.a.b')`` מחפש מחלקה בשם
+// ``"a.b"`` ותמיד מחזיר ``null`` — כלומר טענה שלילית שכתובה כך עוברת
+// גם כשהקוד מחיל את המחלקה תמיד. לכן שואלים את העוטפת ישירות.
+
+/** האם בלוק הקוד היחיד בפתק הזה התהפך. */
+function fenceIsRtl(content){
+  const box = renderMd(mdMgr, content).view.querySelector('.sticky-md-code-block');
+  eq(!!box, true, 'נבנה בלוק קוד עבור: ' + JSON.stringify(content));
+  return box.classList.contains('rtl-code');
+}
+
+const HEB = 'זאת הערה בעברית שכולה מילים';
+
+check('RTL: בלוק עברי בלי תג שפה מתהפך', () => {
+  eq(fenceIsRtl('```\n' + HEB + '\n```'), true, 'התהפך');
+});
+
+check('RTL: תג שפה אמיתי חוסם, גם כשהתוכן עברי', () => {
+  // זו ההתנהגות של תצוגת המסמכים: בלוק שהוצהר עליו שהוא קוד נשאר קוד.
+  eq(fenceIsRtl('```python\n' + HEB + '\n```'), false, 'python חוסם');
+  eq(fenceIsRtl('```js\n' + HEB + '\n```'), false, 'js חוסם');
+});
+
+check('RTL: שפות שאינן שפות אינן חוסמות', () => {
+  // ``text``/``plaintext``/``txt``/``none``/``nohighlight`` מסומנות
+  // ב-``rtl-code.js`` כשמות שאינם שפת תכנות, ולכן בלוק כזה עדיין מועמד.
+  ['text', 'plaintext', 'txt', 'none', 'nohighlight'].forEach((name) => {
+    eq(fenceIsRtl('```' + name + '\n' + HEB + '\n```'), true, name + ' אינו חוסם');
+  });
+});
+
+check('RTL: שם שמתחיל בשם פטור אינו פטור בעצמו', () => {
+  // ``\b`` בכל איבר של הרשימה. בלעדיו ``texture`` היה נבלע ב-``text``
+  // ומתהפך — בדיוק מה שבניית הרג'קס מחדש עלולה לאבד בשקט.
+  eq(fenceIsRtl('```texture\n' + HEB + '\n```'), false, 'texture הוא שפה');
+  eq(fenceIsRtl('```nonempty\n' + HEB + '\n```'), false, 'nonempty הוא שפה');
+});
+
+check('RTL: ההשוואה רגישה לרישיות, בדיוק כמו במסמכים', () => {
+  // הרג'קס על ה-``class`` רגיש לרישיות, ולכן ``language-Text`` נחשב שם
+  // שפה אמיתי. ``toLowerCase`` בצורה שמקבלת שם גולמי היה יוצר בדיוק את
+  // הפער ששיתוף הרשימה בא למנוע: מתהפך בפתק ולא במסמך על אותו קלט.
+  eq(fenceIsRtl('```Text\n' + HEB + '\n```'), false, 'Text נחשב שפה');
+  eq(fenceIsRtl('```TEXT\n' + HEB + '\n```'), false, 'TEXT נחשב שפה');
+});
+
+check('RTL: שתי הצורות של "האם יש שפה" עונות אותה תשובה', () => {
+  // **ההצלבה שמחזיקה את המקור האחד.** לצרכן אחד יש ``class`` ולשני שם
+  // גולמי; הרשימה משותפת, אבל רק זה מוודא שגם **ההשוואה** משותפת.
+  // שם שיתווסף לרשימה ויישכח באחת הצורות מפיל את הבדיקה הזו.
+  //
+  // **והרשימה כאן חייבת לכלול פיסוק.** הגרסה הראשונה שלה בדקה שמות
+  // נקיים בלבד ועברה, בזמן שהשתיים חלקו על ``text,`` ועל ``text.js``:
+  // הרג'קס שואל "מתחיל בשם פטור שנגמר בגבול מילה" ולכן רואה שם ``text``,
+  // וההשוואה המלאה ענתה "שפה אמיתית". נמדד ש-``markdown-it`` מפיק
+  // ``class="language-text,"`` על ``\u0060\u0060\u0060text,`` — כלומר אותו קלט בדיוק היה
+  // מתהפך במסמך ולא בפתק. **שומר שבודק חלק מהשורה שומר על חלק מהתשובה.**
+  const R = sandbox.window.RtlCode;
+  ['plaintext', 'text', 'nohighlight', 'none', 'txt', 'python', 'js',
+   'texture', 'Text', 'TXT', 'textual',
+   // שם פטור ואחריו תו שאינו אות — כאן נפתח הפער
+   'text,', 'text.', 'text-', 'text;', 'text)', 'text.js',
+   'plaintext:', 'txt,', 'none.', 'nohighlight-x',
+   // ושמות שאינם פותחים באות — כאן נפתח הפער ההפוך, אם מנרמלים במקום
+   // לשאול על גבול
+   '!!!', '-x', '#py', '3d',
+   // ושם פטור שיושב **באמצע** או בסוף. השאלה היא "מתחיל ב-", ולכן
+   // עוגן ה-``^`` הוא חלק ממנה: בלעדיו ``py-text`` היה נחשב "בלי שפה"
+   // בצורה אחת ו"שפה" בשנייה.
+   'py-text', 'sometext', 'a-none', 'txt-x',
+   // ורווחים בלבד — מה שמחזיק את ה-``trim``. הצורה עם ה-``class``
+   // עונה "בלי שפה" כי ``\S+`` אינו מוצא תו, והשנייה חייבת להסכים.
+   '  ', ' text '].forEach((name) => {
+    eq(R.hasExplicitLanguageName(name), R.hasExplicitLanguage({ className: 'language-' + name }),
+       'אותה תשובה לשתי הצורות: ' + JSON.stringify(name));
+  });
+});
+
+check('RTL: תשובות הצורה עם ה-class נעולות — תצוגת המסמכים לא זזה', () => {
+  // ``hasExplicitLanguage`` משרתת ארבעה משטחים שאינם הפתקים. הטבלה כאן
+  // נועלת את מה שהיא עונה, כדי ששינוי בבניית הרג'קס — שנעשה כדי ליישר
+  // את הצורה השנייה — לא יזיז אותה בלי שאף בדיקה תשים לב.
+  const R = sandbox.window.RtlCode;
+  [['language-python', true], ['language-js', true], ['language-py3', true],
+   ['hljs language-rust', true], ['language-textual', true], ['language-texture', true],
+   ['language-Text', true], ['language-!!!', true], ['language--x', true],
+   ['language-text', false], ['language-plaintext', false], ['language-txt', false],
+   ['language-none', false], ['language-nohighlight', false],
+   ['language-text,', false], ['language-text.js', false], ['language-none.', false],
+   ['language-', false], ['', false], ['hljs', false]].forEach(([cls, want]) => {
+    eq(R.hasExplicitLanguage({ className: cls }), want, 'class ' + JSON.stringify(cls));
+  });
+});
+
+check('RTL: שם פטור עם פיסוק נחשב "בלי שפה" גם בפתק', () => {
+  // התוצאה של הפער שנסגר: אותו קלט, אותה הכרעה בשני המשטחים.
+  eq(fenceIsRtl('```text,\n' + HEB + '\n```'), true, 'text, אינו חוסם');
+  eq(fenceIsRtl('```text.js\n' + HEB + '\n```'), true, 'text.js אינו חוסם');
+  // ובכיוון השני — הגבול עדיין מפריד, ושם שרק מתחיל בשם פטור כן חוסם.
+  eq(fenceIsRtl('```textual\n' + HEB + '\n```'), false, 'textual הוא שפה');
+});
+
+check('RTL: בלוק שאינו עברי אינו מתהפך', () => {
+  eq(fenceIsRtl('```\nconst x = 1;\nreturn x;\n```'), false, 'אנגלית');
+  eq(fenceIsRtl('```\n12345 +-*/ === !==\n```'), false, 'ספרות וסימנים בלבד');
+});
+
+check('RTL: המכנה הוא אותיות, לא תווים', () => {
+  // ארבע אותיות עבריות מול שלושים ספרות. לפי אותיות היחס הוא 1.0
+  // ומתהפך; לפי אורך המחרוזת הוא 0.12 ולא היה מתהפך. זו המוטציה
+  // שהבדיקה הזו קיימת בשבילה.
+  eq(fenceIsRtl('```\nשלום 123456789012345678901234567890\n```'), true,
+     'ספרות אינן מדללות את היחס');
+});
+
+check('RTL: הסף הוא "יותר מ-", לא "לפחות"', () => {
+  // שלוש אותיות עבריות מול שבע לטיניות — בדיוק 0.3, ולכן **לא** מתהפך.
+  eq(fenceIsRtl('```\nאבג abcdefg\n```'), false, 'בדיוק 30% אינו רוב');
+  // ארבע מול שש — 0.4, מתהפך.
+  eq(fenceIsRtl('```\nאבגד abcdef\n```'), true, 'מעל 30% כן');
+});
+
+check('RTL: בלי window.RtlCode הפתק עדיין מרנדר מארקדאון', () => {
+  // **היעדר יכולת סטטי, לא נפילה-לאחור.** ``_syncTaskView`` עטוף
+  // ב-``try/catch`` אחד שמוחק את התצוגה בתחילתו וחושף אותה בסופו, ולכן
+  // חריגה כאן הייתה משאירה כל פתק שיש בו גדר בלי מארקדאון כלל — בלי
+  // שגיאה ובלי לוג. הבדיקה טוענת על התצוגה, לא על היעדר המחלקה בלבד.
+  const saved = sandbox.window.RtlCode;
+  try {
+    delete sandbox.window.RtlCode;
+    const { view } = renderMd(mdMgr, '```\n' + HEB + '\n```');
+    const box = view.querySelector('.sticky-md-code-block');
+    eq(!!box, true, 'הבלוק נבנה');
+    eq(box.classList.contains('rtl-code'), false, 'ובלי היפוך');
+    eq(view.hidden, false, 'והתצוגה נחשפה — כלומר הרינדור הגיע לסופו');
+    eq(view.querySelectorAll('.sticky-md-pre').length, 1, 'ושורת הקוד קיימת');
+  } finally {
+    sandbox.window.RtlCode = saved;
+  }
+});
+
+check('RTL: ל-CSS יש כלל שמהפך, והוא גובר בלי important', () => {
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+  const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = /\.sticky-md-code-block\.rtl-code\s+\.sticky-md-pre\s*\{([^}]*)\}/.exec(decls);
+  eq(!!rule, true, 'קיים כלל למחלקה');
+  eq(/direction\s*:\s*rtl/.test(rule[1]), true, 'והוא מהפך את הכיוון');
+  // **ספציפיות (0,3,0) מול (0,1,0), ולכן אין צורך ב-important.**
+  // ``!important`` כאן היה מנצח גם אילו הסלקטור היה חלש, ובכך מסתיר
+  // שבירה עתידית של הסלקטור עצמו.
+  eq(/!important/.test(rule[1]), false, 'בלי important');
+  // ``text-align`` נמדד כחסר השפעה — הערך נשאר ``start`` ועוקב אחרי
+  // ``direction``. שורה שאף מוטציה אינה יכולה להפיל אינה נכתבת כאן.
+  eq(/text-align/.test(rule[1]), false, 'ובלי text-align שאינו עושה דבר');
+});
+
 // ---------- בלוקי אלרט (``::: note``) ----------
 //
 // התחביר אינו שלנו: הוא של ``markdown-it-container@4.0.0``, שמרנדר את אותם
@@ -2728,6 +2899,42 @@ check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם 
   });
 });
 
+/** התג המלא שטוען את הנכס בתבנית, או ``null``. */
+function scriptTagFor(src, asset){
+  const esc = asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = new RegExp("<script[^>]*filename='" + esc + "'[^>]*>").exec(src);
+  return m ? m[0] : null;
+}
+
+check('חיווט: כל תבנית שטוענת sticky-notes.js טוענת גם את זיהוי העברית, ולפניה', () => {
+  // **אותה מלכודת של מפת האלרטים, במשטח אחר.** ``_appendCodeBlock`` קורא
+  // את ``window.RtlCode``; בעמוד שלא טוען את הקובץ, בלוק עברי בלי תג שפה
+  // פשוט לא יתהפך — בלי שגיאה ובלי סימן. זה כבר היה המצב ב-note_board.html
+  // לפני השינוי הזה, בדיוק כמו שקרה פעם עם מפת האלרטים.
+  const dir = path.join(__dirname, '..', 'webapp', 'templates');
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+  const loaders = walk(dir).filter((f) => f.endsWith('.html'))
+    .filter((f) => fs.readFileSync(f, 'utf8').includes("filename='js/sticky-notes.js'"));
+  eq(loaders.length >= 3, true, 'נמצאו התבניות שטוענות את המודול (' + loaders.length + ')');
+  loaders.forEach((f) => {
+    const src = fs.readFileSync(f, 'utf8');
+    const rtl = src.indexOf("filename='js/utils/rtl-code.js'");
+    const sticky = src.indexOf("filename='js/sticky-notes.js'");
+    const name = path.basename(f);
+    eq(rtl !== -1, true, name + ' טוען את זיהוי העברית');
+    eq(rtl < sticky, true, name + ' טוען אותו לפני sticky-notes.js');
+    eq(cacheBusted(src, 'js/utils/rtl-code.js'), true,
+       name + ' טוען אותו עם ?v=static_version');
+    // **וזה הסעיף שהופך את טענת הסדר לטענה אמיתית.** הבדיקה משווה מיקום
+    // בקובץ, ומיקום שווה לסדר הרצה רק כששני התגים אינם דחויים. שתי תבניות
+    // אחרות בריפו כן טוענות את הקובץ עם ``defer`` — וזו הצורה שתועתק
+    // בטעות. בלעדיו, תג דחוי היה עובר בזמן שהוא רץ **אחרי** המודול.
+    eq(/\bdefer\b/.test(scriptTagFor(src, 'js/utils/rtl-code.js') || ''), false,
+       name + ' טוען אותו בלי defer');
+  });
+});
+
 check('מטא-דאטה: מקור אחד לאייקון ולתווית, ואין עותקים נוספים', () => {
   const titles = sandbox.window.ADMONITION_TITLES;
   const icons = sandbox.window.ADMONITION_ICONS;
@@ -3219,6 +3426,7 @@ function makeDomSandbox() {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(ADMONITION_PATH, 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(RTL_CODE_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   return sandbox;
 }

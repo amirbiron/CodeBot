@@ -201,6 +201,12 @@
      שקורא ממנו כדי לרנדר ``::: note`` בתוך פתק. שני המשטחים האחרים שטוענים את
      sticky-notes.js — md_preview.html ו-repo/base_repo.html — כבר טוענים אותו. -->
 <script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}"></script>
+<!-- זיהוי עברית לבלוקי קוד. ``_appendCodeBlock`` קורא ממנו כדי להחליט אם
+     בלוק בלי תג שפה מיושר לימין, ולכן הוא חייב לקדום ל-sticky-notes.js —
+     בדיוק כמו מפת האלרטים שמעליו. **בלי defer**, מאותו שיקול שמתועד
+     ב-base.html: סקריפט דחוי רץ אחרי ניתוח המסמך ולכן אינו יכול לשמש
+     תלות של מה שרץ בזמנו. -->
+<script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script>
 (function () {
