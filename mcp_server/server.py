@@ -1541,7 +1541,8 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "case_sensitive=true. `count` is how many hits came back. `total` is "
             "how many exist in what was searched, and appears only when exact; "
             "when counting stopped early the reply carries `total_at_least` and "
-            "`truncation_reason` instead. Vendored code (node_modules) is "
+            "`truncation_reason` instead. Vendored and compiled code "
+            "(node_modules, *.bundle.js, *.min.js, *.min.css, *.map) is "
             "skipped by default, so zero results does not mean the string is "
             "absent; include_vendored=true searches it too."
         ),
@@ -1569,9 +1570,10 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             bool,
             Field(
                 description=(
-                    "false (the default) skips vendored code — node_modules at "
-                    "any depth — in both the results and the `total`. true "
-                    "searches it as well. Vendored files stay readable through "
+                    "false (the default) skips vendored and compiled code — "
+                    "node_modules at any depth, plus *.bundle.js, *.min.js, "
+                    "*.min.css and *.map — in both the results and the `total`. "
+                    "true searches it as well. Those files stay readable through "
                     "codekeeper_get_repo_file either way; this only decides "
                     "what the search looks at."
                 )
