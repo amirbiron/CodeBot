@@ -52,6 +52,22 @@ def _patterns() -> tuple[str, ...]:
     return BASENAME_DENYLIST + extra
 
 
+def denylist_patterns() -> tuple[str, ...]:
+    """The exact patterns :func:`is_denied` matches against, for callers that
+    must apply the same policy *earlier* than the result list.
+
+    ``search_repo`` hands these to the engine, which turns each one into a
+    ``git grep`` exclude pathspec — so a denied file is never scanned, never
+    returned **and never counted**. Deriving both from this one function is the
+    whole point: a second hand-written list would drift, and the drift would be
+    invisible (the count would quietly include a file the results dropped).
+
+    :func:`is_denied` stays the last layer on the results regardless — a
+    pattern the engine cannot express still blocks here.
+    """
+    return _patterns()
+
+
 def is_denied(path: object) -> bool:
     """Return True if ``path`` must not be served. Errors ⇒ True (fail closed)."""
     try:

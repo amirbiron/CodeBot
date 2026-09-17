@@ -29,7 +29,7 @@ from .repo_handlers import (
 )
 from .handlers import apply_line_range, normalize_line_range
 from .outline import extract_outline
-from .repo_policy import is_denied
+from .repo_policy import denylist_patterns, is_denied
 
 #: תקרת גודל נפרדת לקריאת טווח שורות.
 #:
@@ -551,7 +551,23 @@ class RepoBackend:
         byte_budget: int = 256_000,
         context_lines: int = 0,
         regex: bool = False,
+        case_sensitive: bool = False,
+        include_vendored: bool = False,
     ) -> dict[str, Any]:
+        """Search the mirror, with a count that means what it says.
+
+        ``total`` is the number of matches in the repo, not the number of rows
+        in this answer — and it is present **only when it is exact**. When the
+        count itself was cut short (ceiling, timeout) the field is absent and
+        ``total_at_least`` carries the lower bound instead, because a number
+        that looks exact and is not is worse than no number at all.
+
+        The secrets policy travels **down** to the engine as patterns
+        (:func:`denylist_patterns`), so a denied file is skipped before it is
+        ever scanned — which is what makes the count and the cut agree on the
+        same set of files. :func:`is_denied` still filters the rows that come
+        back: one source, two layers, no second list.
+        """
         try:
             res = self._require_search().search(
                 repo,
@@ -561,31 +577,67 @@ class RepoBackend:
                 max_results=int(max_results),
                 context_lines=int(context_lines),
                 regex=bool(regex),
+                # Passed explicitly, never left to a default: the two layers
+                # below declare **opposite** ones (``RepoSearchService.search``
+                # is False, ``search_with_git_grep`` is True). Until now this
+                # call omitted the argument entirely, so the False won and the
+                # tool was always case-insensitive with no way to say otherwise.
+                case_sensitive=bool(case_sensitive),
+                include_vendored=bool(include_vendored),
+                exclude_paths=list(denylist_patterns()),
             )
         except Exception:
             logger.warning("search failed", exc_info=True)
             return self._transient_error(repo, "search_failed")
-        if res.get("error") and not res.get("results"):
+        engine_error = res.get("error")
+        partial_failure = False
+        if engine_error:
             # ``invalid_pattern`` הוא באשמת הדפוס שהקורא שלח, ולעולם אינו חולף.
             # ‏``_transient_error`` היה הופך אותו ל-``sync_in_progress`` עם
             # ‏``retry_after`` — כלומר מבקש מהקורא לנסות שוב דפוס שייכשל זהה
             # לנצח. לכן הוא מנותב **לפני** הקריאה אליו, והיא עצמה לא משתנה:
             # יש לה עוד קוראים שהמיפוי הזה נכון עבורם.
-            if res.get("error") == "invalid_pattern":
+            if engine_error == "invalid_pattern":
                 return {
                     "ok": False,
                     "error": "invalid_pattern",
                     "query": query,
                     "message": str(res.get("message") or "")[:200],
                 }
-            return self._transient_error(repo, "search_failed")
+            if not res.get("results"):
+                return self._transient_error(repo, "search_failed")
+            # **כשל באמצע הזרם, אחרי שכבר נאספו שורות.** המנוע מחזיר אותן
+            # יחד עם ``error`` כדי לא לזרוק התאמות אמיתיות — ועד היום השומר
+            # שמעל בדק ``error and not results``, כלומר את המקרה הזה בדיוק
+            # הוא הניח לעבור הלאה כתשובה **תקינה**: ``ok: true``,
+            # ``truncated: false``, ובלי ``total`` ובלי ``total_at_least``.
+            # ההשמטה השקטה שה-PR הזה בא לסלק, בתוך ה-PR עצמו.
+            #
+            # אם sync רץ, התוצאות החלקיות הן כנראה מעץ שזז מתחת לרגליים,
+            # ו"נסה שוב מיד" עדיף על עמוד חלקי — אותה הכרעה כמו בשאר
+            # המסלולים. אחרת מגישים את מה שיש, ואומרים בדיוק מה זה.
+            if self._sync_running(repo):
+                return self._transient_error(repo, "search_failed")
+            logger.warning(
+                "search served partial results after engine error %s: %s",
+                engine_error, str(res.get("message") or "")[:200],
+            )
+            partial_failure = True
 
-        # total reflects what we can actually serve: the policy-filtered matches
-        # (NOT the engine's raw total, which may count denied paths).
-        filtered = [r for r in (res.get("results") or []) if not is_denied(r.get("path", ""))]
-        total = len(filtered)
-        capped = filtered[: max(0, _safe_int(max_results, 50))]  # cap TOTAL matches
-        cap_truncated = total > len(capped)
+        # Last layer of the secrets policy. The engine already excluded these
+        # paths from the scan (and therefore from the count), so this normally
+        # removes nothing — it stays because a pattern the pathspec cannot
+        # express must still not be served.
+        rows = res.get("results") or []
+        filtered = [r for r in rows if not is_denied(r.get("path", ""))]
+        # Did this last layer actually remove something? It decides whether the
+        # engine's count can still be called exact — see the total block below.
+        policy_removed = len(filtered) != len(rows)
+        # The cap is the engine's; slicing here is belt-and-braces on a list
+        # that is already at most ``max_results`` long. The old
+        # ``cap_truncated = total > len(capped)`` that sat here was dead code:
+        # ``total`` was ``len(filtered)``, so it could never be true.
+        capped = filtered[: max(0, _safe_int(max_results, 50))]
 
         out: list[dict[str, Any]] = []
         used = 0
@@ -606,12 +658,70 @@ class RepoBackend:
                 budget_truncated = True
                 break
             out.append(row)
-        return {
+        payload: dict[str, Any] = {
             "ok": True,
             "repo": repo,
             "query": query,
             "count": len(out),
-            "total": total,
             "results": out,
-            "truncated": bool(cap_truncated or budget_truncated or res.get("truncated")),
         }
+        # Exactly one of the two, and never both: if ``total`` is there, it is
+        # exact. ``total_at_least`` is the honest form of "we stopped counting".
+        #
+        # **And a row removed here costs us the exact number.** The engine
+        # counted every file it scanned; a path it could not express as an
+        # exclude pathspec was therefore scanned *and counted*, and only this
+        # layer refused to serve it. Reporting that count as ``total`` would
+        # claim a number that includes matches nobody can get — and would say
+        # out loud how many matches sit inside a blocked file. What is left
+        # that is certainly true is the rows we did serve, so that is the
+        # bound we give.
+        if policy_removed or partial_failure:
+            # ``len(filtered)`` ולא ``count``: השורות שנאספו ועברו את המדיניות
+            # קיימות בריפו גם אם תקציב הבתים לא הכניס את כולן לעמוד, ולכן
+            # זה החסם התחתון הגדול ביותר שידוע בוודאות.
+            payload["total_at_least"] = len(filtered)
+        elif "total" in res:
+            payload["total"] = res["total"]
+        elif "total_at_least" in res:
+            payload["total_at_least"] = res["total_at_least"]
+
+        # An invariant of the answer, stated once here: if fewer rows came back
+        # than exist, this answer is not everything — whatever the engine
+        # flagged. ``count`` below the count next to ``truncated: false`` would
+        # contradict itself.
+        known = payload.get("total", payload.get("total_at_least"))
+        truncated = bool(
+            budget_truncated
+            # A row removed here is a row the caller asked for and did not get.
+            # Without this term the answer could carry ``truncated: false``
+            # while the page is short — the silent omission this server refuses
+            # everywhere else.
+            or policy_removed
+            # An engine that died mid-stream did not finish the scan, whatever
+            # it managed to hand back first.
+            or partial_failure
+            or res.get("truncated")
+            or (isinstance(known, int) and known > payload["count"])
+        )
+        payload["truncated"] = truncated
+
+        # A reason only when something was in fact cut — a ``null`` on every
+        # complete search would be noise in every answer. And **always** one
+        # when it was: a flag without a reason sends the caller looking.
+        if truncated:
+            reason = res.get("truncation_reason")
+            if policy_removed:
+                # Stated over any upstream reason: it is the one that explains
+                # why an exact ``total`` is missing from an answer whose count
+                # finished normally.
+                reason = "policy_filtered"
+            elif partial_failure:
+                # The engine's own error code, so the caller sees the same word
+                # a full failure would have carried.
+                reason = str(engine_error)
+            elif not reason:
+                # Nothing upstream was cut, so what shortened the page is local.
+                reason = "byte_budget"
+            payload["truncation_reason"] = reason
+        return payload

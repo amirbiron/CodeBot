@@ -99,6 +99,8 @@ def search_repo(
     max_results: int = SEARCH_RESULTS_DEFAULT,
     context_lines: int = 0,
     regex: bool = False,
+    case_sensitive: bool = False,
+    include_vendored: bool = False,
 ) -> dict[str, Any]:
     """שער הקלט של ``codekeeper_search_repo``.
 
@@ -110,6 +112,17 @@ def search_repo(
 
     האורך נמדד על המחרוזת המקורית, ולכן ``" a"`` — רווח ואות — הוא
     שאילתה תקפה בת שני תווים.
+
+    ``include_vendored`` הוא **בוליאני ולא נצמד**: קוד חיצוני מוחרג
+    כברירת מחדל מהחיפוש ומהספירה, ו-``True`` מחזיר אותו. ההחרגה עצמה יושבת
+    במנוע ולא כאן, כדי שגם החיפוש בוובאפ יקבל אותה.
+
+    ‏``case_sensitive`` ברירת המחדל שלו ``False``, שזו ההתנהגות שהייתה כאן
+    מאז ומתמיד (``git grep -i``). הוא מועבר הלאה **תמיד ובמפורש**, וזו לא
+    קפדנות סגנון: שתי השכבות שמתחת מצהירות ברירות מחדל **הפוכות** —
+    ``RepoSearchService.search`` הוא ``False`` ו-``search_with_git_grep``
+    הוא ``True`` — ולכן ערך שנשען על ברירת מחדל משנה משמעות לפי השכבה
+    שבה הוא נעצר.
     """
     name = (repo or "").strip()
     q = query or ""
@@ -125,4 +138,6 @@ def search_repo(
         byte_budget=OUTPUT_BYTE_BUDGET,
         context_lines=_clamp(context_lines, 0, CONTEXT_LINES_MAX, 0),
         regex=bool(regex),
+        case_sensitive=bool(case_sensitive),
+        include_vendored=bool(include_vendored),
     )

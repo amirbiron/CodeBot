@@ -680,6 +680,12 @@ def api_search():
     search_type = request.args.get('type', 'content')
     file_pattern = request.args.get('pattern', '')
     language = request.args.get('language', '')
+    # קוד חיצוני (``node_modules``) מוחרג מחיפוש התוכן במנוע, כי הוא מילא
+    # כל חיפוש רחב. ההחרגה נכונה כברירת מחדל גם כאן — אבל מי שמחפש דווקא
+    # בתוכו צריך דרך לומר זאת, אחרת ההשמטה שקטה ואין ממנה חזרה.
+    include_vendored = request.args.get('include_vendored', '').strip().lower() in (
+        '1', 'true', 'yes', 'on'
+    )
     
     if not query or len(query) < 2:
         return jsonify({"error": "Query too short", "results": []})
@@ -705,7 +711,8 @@ def api_search():
             search_type=search_type,
             file_pattern=file_pattern or None,
             language=language or None,
-            max_results=50
+            max_results=50,
+            include_vendored=include_vendored,
         )
         
         return jsonify(result)
