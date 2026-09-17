@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import select
 import subprocess
 import time
 from collections import deque
@@ -118,6 +119,29 @@ def _strip_ref_prefix(text: str) -> str:
     ):
         return file_line[colon_pos + 1:]
     return file_line
+
+
+def _require_git_argv(cmd) -> Optional[str]:
+    """מאמת שה-argv הוא בדיוק מה שהתכוונו להריץ, ומחזיר סיבה אם לא.
+
+    שלוש בדיקות, וכל אחת חוסמת מחלקה אחרת של טעות עריכה עתידית:
+    התוכנית היא ``git`` ליטרלי ולא ערך מחושב; כל ארגומנט הוא מחרוזת
+    (אובייקט אחר היה מגיע ל-``Popen`` ומתפוצץ רחוק מהמקור); ואין ``NUL``
+    בתוך ארגומנט. ‏``Popen`` עצמו זורק על שני האחרונים — כאן זה חוזר
+    כסירוב מדווח במקום כחריגה שנבלעת ב-``except`` הכללי וחוזרת כ"אפס".
+
+    מה שהיא **אינה** עושה: לחטא ערכים. ניקוי תווים היה שובר שאילתות
+    לגיטימיות (``dict[``, ``a|b``), והבטיחות כאן נשענת על כך שאין shell
+    ושאין ערך שיכול להפוך לדגל — ולא על סינון.
+    """
+    if not cmd or cmd[0] != "git":
+        return "executable is not the literal 'git'"
+    for arg in cmd:
+        if not isinstance(arg, str):
+            return f"non-string argument: {type(arg).__name__}"
+        if "\0" in arg:
+            return "argument contains NUL"
+    return None
 
 
 def _exclude_pathspecs(patterns) -> List[str]:
@@ -2314,6 +2338,22 @@ class GitMirrorService:
         if timeout is None or timeout <= 0:
             return {"counted": 0, "complete": False, "truncation_reason": "timeout"}
 
+        # --- בניית הפקודה, ולמה אף ערך כאן אינו יכול להפוך לדגל ----------
+        #
+        # ‏CodeQL מסמן כל ``Popen`` שערך מהמשתמש מגיע אליו
+        # (``py/command-line-injection``). הרשימה כאן בטוחה לא במקרה אלא
+        # לפי ארבע הכרעות, ושווה למנות אותן כדי שמי שיערוך את הפונקציה
+        # יידע מה הוא מפרק:
+        #
+        # 1. ``shell=False`` (ברירת המחדל של ``Popen`` עם רשימה) — אין
+        #    פרשן שיפרק מחרוזת, ולכן ``;``, ``|`` ו-``$()`` הם תווים
+        #    רגילים בתוך ארגומנט אחד.
+        # 2. שם התוכנית הוא ליטרל, ונאכף ב-``_require_git_argv`` למטה.
+        # 3. ``query`` שמתחיל ב-``-`` עובר אחרי ``-e``, ולכן שאילתה אינה
+        #    יכולה להתחזות לאופציה. זו אותה הכרעה כמו במעבר התוצאות.
+        # 4. ``ref`` עבר את ``_validate_repo_ref`` (חייב להתחיל באות או
+        #    ספרה) ואז קובע ל-SHA ב-``rev-parse``, וכל שאר ה-pathspec
+        #    יושב **אחרי** ``--`` — שם git אינו מפרש אופציות כלל.
         cmd = ["git", "grep", "-c", "-z", "-I"]
         if not case_sensitive:
             cmd.append("-i")
@@ -2323,9 +2363,16 @@ class GitMirrorService:
         else:
             cmd.append(query)
         cmd.append(ref)
+        # ``--`` נוסף תמיד כשיש pathspec, ובכוונה גם כשאין: מפריד בין
+        # הרוויזיה לנתיבים, ומונע מכל ערך עתידי להתפרש כאופציה.
         if pathspec:
             cmd.append("--")
             cmd.extend(pathspec)
+
+        invalid = _require_git_argv(cmd)
+        if invalid:
+            logger.error("grep count refused: %s", invalid)
+            return {"counted": 0, "complete": False, "truncation_reason": "count_failed"}
 
         counted = 0
         files_read = 0
@@ -2333,7 +2380,9 @@ class GitMirrorService:
         complete = False
         process: Optional[subprocess.Popen] = None
         try:
-            process = subprocess.Popen(
+            # ``cmd`` נבנה למעלה ואומת ב-``_require_git_argv``: רשימה,
+            # בלי shell, עם ``git`` ליטרלי, ובלי ערך שיכול להפוך לדגל.
+            process = subprocess.Popen(  # lgtm[py/command-line-injection]
                 cmd,
                 cwd=str(repo_path),
                 stdout=subprocess.PIPE,
@@ -2353,10 +2402,34 @@ class GitMirrorService:
 
             start_time = time.monotonic()
             while True:
-                if time.monotonic() - start_time >= timeout:
+                # **ה-timeout נאכף על ההמתנה, לא רק בין שורות.** ``readline``
+                # חוסם עד שיש פלט, ולכן בדיקת שעון אחרי הקריאה אינה שווה
+                # דבר בדיוק במקרה שבשבילו היא קיימת: ריפו ענק שגיט סורק
+                # דקה שלמה בלי להדפיס אף שורה (אין התאמות, או קבצים
+                # גדולים). ``select`` על ה-fd הוא מה שמחזיר את השליטה
+                # לתקציב הזמן, וזה אותו דפוס בדיוק שכבר מפעיל מעבר
+                # התוצאות.
+                remaining = timeout - (time.monotonic() - start_time)
+                if remaining <= 0:
                     process.kill()
                     reason = "timeout"
                     break
+                try:
+                    ready, _, _ = select.select([stream], [], [], min(0.5, remaining))
+                except (ValueError, OSError):
+                    # ‏fd סגור או לא נבחר — ממשיכים בדרך החוסמת, כמו במעבר
+                    # התוצאות. עדיף לקרוא מאשר לוותר על הספירה בגלל select.
+                    ready = [stream]
+                if not ready:
+                    if process.poll() is not None:
+                        # גיט יצא, ובכל זאת ה-fd אינו מדווח קריא — כלומר
+                        # מישהו אחר עדיין מחזיק את קצה הכתיבה (נכד ששרד),
+                        # וייתכן שנשאר פלט שלא נקרא. במצב כזה **לא**
+                        # מכריזים על ספירה שלמה: מספר שאולי חסר בו קובץ
+                        # גרוע מחסם תחתון מוצהר.
+                        reason = "count_failed"
+                        break
+                    continue
                 line = stream.readline()
                 if not line:
                     # EOF בלי שהרגנו — כל מסלול הריגה שובר את הלולאה מיד,

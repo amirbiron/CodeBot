@@ -64,9 +64,9 @@ def _build(tmp_path, files: dict, monkeypatch):
     """
     import mcp_server.auth as auth
     import mcp_server.server as srv
+    import services.repo_search_service as rss
     from mcp_server.repo_backend import RepoBackend
     from services.git_mirror_service import GitMirrorService
-    from services.repo_search_service import RepoSearchService
 
     work = tmp_path / "work"
     work.mkdir()
@@ -82,11 +82,19 @@ def _build(tmp_path, files: dict, monkeypatch):
     )
     _run(_GIT, "clone", "-q", "--mirror", str(work), str(tmp_path / "repo.git"), cwd=tmp_path)
 
+    # **המראה מוזרקת דרך המפעל, ולא מוצבת אחרי הבנייה.**
+    # ‏``RepoSearchService.__init__`` קורא ל-``get_mirror_service()``, וזה
+    # בונה ``GitMirrorService()`` בברירת המחדל — ‏``REPO_MIRROR_PATH`` או
+    # ‏``/var/data/repos`` — ועושה לו ``mkdir`` כבר בבנאי. הצבה של
+    # ‏``git_service`` אחרי הבנייה מאחרת את המועד: התיקייה כבר נוצרה, וב-CI
+    # שרץ בלי הרשאת כתיבה ל-``/var/data`` הבנאי פשוט זורק ``PermissionError``.
+    # קיבוע המפעל הוא מה שמונע את הבנייה הזו מלכתחילה.
     mirror = GitMirrorService(base_path=str(tmp_path))
-    search = RepoSearchService(db=None)
-    # ‏``RepoSearchService`` מושך את ה-singleton הגלובלי של המראה, שמצביע
-    # על דיסק הייצור. ההזרקה כאן היא מה שמחזיק את הכלל "הכול תחת tmp_path".
-    search.git_service = mirror
+    monkeypatch.setattr(rss, "get_mirror_service", lambda: mirror)
+    # חגורה שנייה, לפי כלל ה-IO של הריפו: גם אם מסלול כלשהו כן יבנה מראה
+    # בברירת מחדל, היא תיפול תחת ``tmp_path`` ולא על דיסק אמיתי.
+    monkeypatch.setenv("REPO_MIRROR_PATH", str(tmp_path / "unused-default"))
+    search = rss.RepoSearchService(db=None)
 
     monkeypatch.setenv("ENVIRONMENT", "production")
     # הזהות מגיעה מהטוקן, והאדמיניות מ-``config.ADMIN_USER_IDS``. הקיבוע
@@ -280,6 +288,67 @@ async def test_a_sync_between_the_two_passes_does_not_move_the_ground(tmp_path, 
     out = await _search(mcp, max_results=2)
 
     assert out["total"] == 7
+
+
+@requires_git
+async def test_the_count_timeout_is_enforced_on_the_wait_itself(tmp_path, monkeypatch):
+    """תהליך שלא מדפיס כלום — והספירה עדיין חוזרת בזמן.
+
+    ``readline`` חוסם עד שיש פלט, ולכן בדיקת שעון **אחרי** הקריאה אינה
+    שווה דבר בדיוק במקרה שבשבילו היא קיימת: סריקה ארוכה שאינה מדפיסה
+    שורה. הבדיקה מחליפה את התהליך בכזה שרק ישן, ומוודאת שהחזרה היא לפי
+    תקציב הזמן ולא לפי סיום התהליך.
+
+    **זו בדיקה של המנגנון ולא של החוזה**, ולכן היא היחידה כאן שקוראת
+    למתודה ישירות: אין דרך לגרום ל-``git`` להשתתק לפי דרישה דרך הכלי.
+    """
+    import subprocess as sp
+    import sys
+    import time
+
+    import services.git_mirror_service as gms
+
+    svc = gms.GitMirrorService(base_path=str(tmp_path))
+    real_popen = sp.Popen
+
+    def _silent_popen(cmd, **kwargs):
+        return real_popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+
+    monkeypatch.setattr(gms.subprocess, "Popen", _silent_popen)
+
+    started = time.monotonic()
+    out = svc._count_matches_with_git_grep(
+        repo_path=tmp_path,
+        query=_N,
+        ref="HEAD",
+        case_sensitive=True,
+        regex=False,
+        pathspec=[],
+        timeout=1,
+    )
+    elapsed = time.monotonic() - started
+
+    assert out["complete"] is False
+    assert out["truncation_reason"] == "timeout"
+    # התהליך היה ישן 30 שניות. חסם של 5 הוא רחב דיו כדי לא להבהב על מכונת
+    # CI עמוסה, וצר דיו כדי ליפול אם ההמתנה אינה מוגבלת בכלל.
+    assert elapsed < 5
+
+
+def test_the_argv_guard_refuses_anything_that_is_not_git():
+    """השומר שמאמת את ה-argv לפני ההרצה.
+
+    הוא אינו מחטא ערכים — ניקוי תווים היה שובר שאילתות לגיטימיות כמו
+    ``dict[`` — אלא מאמת שהתוכנית היא ``git`` ליטרלי ושכל ארגומנט הוא
+    מחרוזת בלי ``NUL``. בלי בדיקה כזאת שומר הוא הצהרה, לא התנהגות.
+    """
+    from services.git_mirror_service import _require_git_argv
+
+    assert _require_git_argv(["git", "grep", "-c", "needle"]) is None
+    assert _require_git_argv([]) is not None
+    assert _require_git_argv(["rm", "-rf", "/"]) is not None
+    assert _require_git_argv(["git", 5]) is not None
+    assert _require_git_argv(["git", "a\0b"]) is not None
 
 
 # ===========================================================================
