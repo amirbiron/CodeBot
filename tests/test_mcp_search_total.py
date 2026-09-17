@@ -351,6 +351,43 @@ def test_the_argv_guard_refuses_anything_that_is_not_git():
     assert _require_git_argv(["git", "a\0b"]) is not None
 
 
+@requires_git
+async def test_an_exhausted_budget_never_starts_a_search(tmp_path, monkeypatch):
+    """תקציב הזמן אחד לשלושת השלבים, ולא אחד לכל שלב.
+
+    קיבוע ה-ref הוא תת-תהליך בפני עצמו, וקודם הוא רץ עם timeout משלו
+    **מחוץ** לתקציב — כלומר קריאה שהובטח לה חסם של עשר שניות יכלה
+    להחזיק חוט עשרים. היום השעון מתחיל לפניו, וכשלא נשאר זמן לא נפתח
+    שום תת-תהליך: לא קיבוע, לא איסוף ולא ספירה.
+
+    **מוטציה שמפילה:** להחזיר את ``started`` אל מתחת לקיבוע.
+    """
+    import services.git_mirror_service as gms
+    import services.repo_search_service as rss
+
+    mcp = _build(tmp_path, {"src/a.py": _lines(7)}, monkeypatch)
+    monkeypatch.setattr(rss, "CONTENT_SEARCH_TIMEOUT_SECONDS", 0)
+
+    started_a_process = []
+
+    def _forbidden(*a, **k):
+        started_a_process.append(a)
+        raise AssertionError("תת-תהליך נפתח למרות שהתקציב נגמר")
+
+    monkeypatch.setattr(gms.GitMirrorService, "_validate_ref_with_git", _forbidden)
+    monkeypatch.setattr(gms.GitMirrorService, "_run_grep_with_streaming", _forbidden)
+    monkeypatch.setattr(gms.GitMirrorService, "_count_matches_with_git_grep", _forbidden)
+
+    out = await _search(mcp, max_results=2)
+
+    assert started_a_process == []
+    assert out["ok"] is True
+    assert "total" not in out
+    assert out["total_at_least"] == 0
+    assert out["truncated"] is True
+    assert out["truncation_reason"] == "timeout"
+
+
 # ===========================================================================
 # 3. מה שהספירה לא סופרת
 # ===========================================================================

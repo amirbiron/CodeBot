@@ -608,7 +608,11 @@ class RepoBackend:
         # paths from the scan (and therefore from the count), so this normally
         # removes nothing — it stays because a pattern the pathspec cannot
         # express must still not be served.
-        filtered = [r for r in (res.get("results") or []) if not is_denied(r.get("path", ""))]
+        rows = res.get("results") or []
+        filtered = [r for r in rows if not is_denied(r.get("path", ""))]
+        # Did this last layer actually remove something? It decides whether the
+        # engine's count can still be called exact — see the total block below.
+        policy_removed = len(filtered) != len(rows)
         # The cap is the engine's; slicing here is belt-and-braces on a list
         # that is already at most ``max_results`` long. The old
         # ``cap_truncated = total > len(capped)`` that sat here was dead code:
@@ -643,7 +647,18 @@ class RepoBackend:
         }
         # Exactly one of the two, and never both: if ``total`` is there, it is
         # exact. ``total_at_least`` is the honest form of "we stopped counting".
-        if "total" in res:
+        #
+        # **And a row removed here costs us the exact number.** The engine
+        # counted every file it scanned; a path it could not express as an
+        # exclude pathspec was therefore scanned *and counted*, and only this
+        # layer refused to serve it. Reporting that count as ``total`` would
+        # claim a number that includes matches nobody can get — and would say
+        # out loud how many matches sit inside a blocked file. What is left
+        # that is certainly true is the rows we did serve, so that is the
+        # bound we give.
+        if policy_removed:
+            payload["total_at_least"] = payload["count"]
+        elif "total" in res:
             payload["total"] = res["total"]
         elif "total_at_least" in res:
             payload["total_at_least"] = res["total_at_least"]
@@ -655,6 +670,11 @@ class RepoBackend:
         known = payload.get("total", payload.get("total_at_least"))
         truncated = bool(
             budget_truncated
+            # A row removed here is a row the caller asked for and did not get.
+            # Without this term the answer could carry ``truncated: false``
+            # while the page is short — the silent omission this server refuses
+            # everywhere else.
+            or policy_removed
             or res.get("truncated")
             or (isinstance(known, int) and known > payload["count"])
         )
@@ -665,10 +685,13 @@ class RepoBackend:
         # when it was: a flag without a reason sends the caller looking.
         if truncated:
             reason = res.get("truncation_reason")
-            if not reason:
-                # Nothing upstream was cut, so what removed rows is local:
-                # either the page did not fit, or the secrets policy dropped a
-                # row the engine's pathspec could not express.
-                reason = "byte_budget" if budget_truncated else "policy_filtered"
+            if policy_removed:
+                # Stated over any upstream reason: it is the one that explains
+                # why an exact ``total`` is missing from an answer whose count
+                # finished normally.
+                reason = "policy_filtered"
+            elif not reason:
+                # Nothing upstream was cut, so what shortened the page is local.
+                reason = "byte_budget"
             payload["truncation_reason"] = reason
         return payload

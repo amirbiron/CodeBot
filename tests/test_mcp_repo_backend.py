@@ -292,13 +292,15 @@ def test_get_file_sync_in_progress_instead_of_not_found():
 
 
 def test_search_caps_filters_and_snippets():
-    """‏``total`` הוא מה שהמנוע ספר, ולא ``len`` של מה שהוחזר.
+    """שורה שנחסמה **כאן** גוררת ויתור על המספר המדויק.
 
-    עד ספטמבר 2026 השדה חושב כאן כ-``len(filtered)``, כלומר היה שווה
-    ל-``count`` תמיד. היום המנוע סופר את כל המופעים במעבר נפרד — ומדיניות
-    הסודות כבר נכנסה ל-``git grep`` עצמו, ולכן הסך שמגיע לכאן אינו כולל
-    נתיבים חסומים. הסינון כאן נשאר כשכבה אחרונה בלבד, ולכן הדמה מחזירה
-    שורה חסומה שאסור שתשורת.
+    מדיניות הסודות נכנסת היום ל-``git grep`` עצמו, ולכן הסך שמגיע לכאן
+    כבר אינו כולל נתיבים חסומים — והסינון הזה הוא שכבה אחרונה לתבנית
+    שה-pathspec לא הצליח לבטא. אבל אם היא **כן** הסירה שורה, המשמעות
+    היא שהמנוע סרק וספר קובץ שאנחנו מסרבים להגיש: הסך שלו כולל מופעים
+    שאיש לא יקבל, והצגתו כ-``total`` הייתה גם טענת דיוק שגויה וגם אמירה
+    בקול כמה מופעים יש בתוך קובץ חסום. מה שנשאר נכון בוודאות הוא השורות
+    שכן הוגשו.
     """
     rows = [{"path": f"f{i}.py", "line": i, "content": "x" * 600} for i in range(5)]
     rows.append({"path": ".env", "line": 1, "content": "SECRET=1"})
@@ -309,13 +311,51 @@ def test_search_caps_filters_and_snippets():
     )
     out = be.search(repo="alpha", query="x", max_results=5)
     assert out["ok"] is True and out["count"] == 5  # capped to max_results
-    assert out["total"] == 11  # what exists in the repo, not what came back
-    assert out["truncated"] is True  # allowed matches exist beyond the cap
+    assert "total" not in out  # the engine counted a file we refuse to serve
+    assert out["total_at_least"] == 5  # what was actually served, and no more
+    assert out["truncated"] is True
     assert all(len(r["snippet"]) <= 500 for r in out["results"])  # snippet cap
     assert all(r["path"] != ".env" for r in out["results"])  # policy skip
-    # דגל קטיעה תמיד מגיע עם סיבה. כאן המנוע לא נקב באחת, והשורה שהוסרה
-    # הוסרה כאן — בשכבה האחרונה של מדיניות הסודות.
+    # דגל קטיעה תמיד מגיע עם סיבה, וזו הסיבה שמסבירה גם את היעדר ``total``.
     assert out["truncation_reason"] == "policy_filtered"
+
+
+def test_an_exact_total_survives_when_the_policy_removed_nothing():
+    """הצד השני של אותו כלל, כדי שהוא לא יידרדר ל"תמיד חסם תחתון".
+
+    בלי שורה חסומה אין סיבה לוותר על המספר: המנוע ספר בדיוק את מה
+    שאפשר להגיש, והתשובה נושאת ``total`` כרגיל.
+    """
+    rows = [{"path": f"f{i}.py", "line": i, "content": "x"} for i in range(5)]
+    be = RepoBackend(
+        db=_repos_db(),
+        mirror=_Mirror(),
+        search_service=_Search({"results": rows, "total": 11, "truncated": True}),
+    )
+    out = be.search(repo="alpha", query="x", max_results=5)
+    assert out["total"] == 11
+    assert "total_at_least" not in out
+    assert out["truncation_reason"] != "policy_filtered"
+
+
+def test_a_filtered_row_alone_is_enough_to_mark_the_answer_incomplete():
+    """שורה שהוסרה בלי ששום דבר אחר נקטע — עדיין תשובה חסרה.
+
+    בלי הדגל הזה התשובה הייתה נושאת ``truncated: false`` לצד עמוד קצר
+    ממה שהמנוע מצא, כלומר השמטה שקטה — בדיוק מה שהשרת הזה דוחה בכל
+    מקום אחר.
+    """
+    rows = [{"path": "a.py", "line": 1, "content": "x"}, {"path": ".env", "line": 1, "content": "S"}]
+    be = RepoBackend(
+        db=_repos_db(),
+        mirror=_Mirror(),
+        search_service=_Search({"results": rows, "total": 2}),
+    )
+    out = be.search(repo="alpha", query="x", max_results=50)
+    assert out["count"] == 1
+    assert out["truncated"] is True
+    assert out["truncation_reason"] == "policy_filtered"
+    assert "total" not in out and out["total_at_least"] == 1
 
 
 def test_search_not_truncated_when_under_cap():

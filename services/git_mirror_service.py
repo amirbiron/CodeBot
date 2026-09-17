@@ -1130,7 +1130,9 @@ class GitMirrorService:
     # מתודות חדשות להיסטוריה ו-Diff
     # ============================================
 
-    def _validate_ref_with_git(self, repo_name: str, ref: str) -> Dict[str, Any]:
+    def _validate_ref_with_git(
+        self, repo_name: str, ref: str, timeout: float = 10
+    ) -> Dict[str, Any]:
         """
         וולידציה של ref באמצעות git rev-parse.
         זו הדרך ה-canonical לוודא ש-ref תקין.
@@ -1138,6 +1140,10 @@ class GitMirrorService:
         Args:
             repo_name: שם הריפו
             ref: Reference לבדיקה
+            timeout: תקציב הזמן לתת-התהליך. ברירת המחדל משמרת את ההתנהגות
+                של כל הקוראים הקיימים; ``search_with_git_grep`` מעביר את
+                **יתרת** התקציב שלו, כדי שהקיבוע לא יתווסף לזמן החיפוש
+                אלא ייגרע ממנו.
 
         Returns:
             Dict עם resolved_sha או error
@@ -1168,7 +1174,7 @@ class GitMirrorService:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=timeout
             )
 
             if result.returncode != 0:
@@ -2161,7 +2167,34 @@ class GitMirrorService:
         # כשל בקיבוע אינו מפיל את החיפוש: ממשיכים עם ה-ref כמו שהוא, וגיט
         # ידווח על ref פסול בדיוק כמו קודם. זו נפילה-לאחור על **היעדר**
         # (אין קומיט כזה) ולא על כשל חולף, והיא מותירה את ההתנהגות הקודמת.
-        resolved = self._validate_ref_with_git(repo_name, ref)
+        #
+        # **והשעון מתחיל כאן, לפניו.** ‏``rev-parse`` הוא תת-תהליך, ועד
+        # עכשיו הוא רץ עם timeout משלו **מחוץ** לתקציב של החיפוש — כלומר
+        # קריאה שהובטח לה חסם של עשר שניות יכלה להחזיק חוט עשרים. מכאן
+        # והלאה תקציב אחד, ושלושת הצרכנים שלו (קיבוע, איסוף, ספירה)
+        # נוגסים ממנו לפי הסדר. כל מה שקדם לשורה הזו הוא עבודה בזיכרון.
+        started = time.monotonic()
+
+        def _budget_exhausted() -> Dict[str, Any]:
+            """התשובה כשאין יותר זמן — אותה צורה בדיוק כמו timeout בזרם.
+
+            ‏``total_at_least`` ולא ``total``: לא נספר דבר, ואפס שמוצהר
+            כמדויק הוא בדיוק השקר שהשדות האלה נוצרו כדי למנוע.
+            """
+            return {
+                "results": [],
+                "truncated": True,
+                "truncation_reason": "timeout",
+                "total_at_least": 0,
+                "query": query,
+            }
+
+        if timeout - (time.monotonic() - started) <= 0:
+            return _budget_exhausted()
+
+        resolved = self._validate_ref_with_git(
+            repo_name, ref, timeout=timeout - (time.monotonic() - started)
+        )
         resolved_sha = resolved.get("resolved_sha") if resolved.get("valid") else None
         if resolved_sha:
             ref = resolved_sha
@@ -2236,18 +2269,23 @@ class GitMirrorService:
             cmd.append("--")
             cmd.extend(pathspec)
 
+        remaining = timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            return _budget_exhausted()
+
         try:
             # שימוש בשיטת streaming כדי להגביל את צריכת הזיכרון
             # עוצרים מוקדם כשמגיעים למספיק תוצאות
-            started = time.monotonic()
             streaming_result = self._run_grep_with_streaming(
                 cmd,
                 repo_path,
                 max_results,
-                timeout,
+                remaining,
                 context_lines=context_lines,
                 matches_per_file=matches_per_file,
             )
+            # מ-``started`` ולא מתחילת הקריאה הזו: ``elapsed`` הוא כמה נוגס
+            # מהתקציב עד כאן, כולל הקיבוע — וזה מה שקובע כמה נשאר לספירה.
             elapsed = time.monotonic() - started
 
             if "error" in streaming_result:
@@ -2516,7 +2554,9 @@ class GitMirrorService:
         cmd: List[str],
         repo_path: Path,
         max_results: int,
-        timeout: int,
+        # ``float`` ולא ``int``: מאז שהתקציב משותף עם קיבוע ה-ref, מה שמגיע
+        # לכאן הוא **יתרה** ולא המספר השלם שהקורא ביקש.
+        timeout: float,
         context_lines: int = 0,
         matches_per_file: int = 0,
     ) -> Dict[str, Any]:
