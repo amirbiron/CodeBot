@@ -46,6 +46,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 |---|---|
 | קאש / invalidation | `bugbot-rules/return-value-failure-unchecked.md` §4 |
 | דגל שמצהיר "מטא-דאטה בלבד" (`npm install --package-lock-only`, `django-admin migrate --fake`), או רשומה שמתעדכנת בנפרד מהעבודה שהיא מתארת | `bugbot-rules/state-record-without-state-change.md` |
+| הוספת מפתח ל-dict שנבנה ביד לפני `insert_one`, או ל-dict שנגזר מ-`asdict(...)` | `bugbot-rules/derived-field-added-to-one-writer.md` |
 | callbacks / handlers מקביליים, מזהים מבוססי־זמן | `CORE-PATTERNS.md` U1 |
 | `find_one_and_update` / `upsert` / תפיסת ג'וב | `CORE-PATTERNS.md` U1 + `bugbot-rules/race-toctou.md` |
 | PyGithub / קריאות SDK חיצוני | `BY-STACK/external-sdk.md` |

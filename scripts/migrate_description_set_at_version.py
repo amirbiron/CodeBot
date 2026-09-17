@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # הרצה כסקריפט מתוך ``scripts/`` — שורש הפרויקט צריך להיות ב-path.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from file_description import DESCRIPTION_SET_AT_VERSION_FIELD  # noqa: E402
 
 
-def stamp_from_version_chain(versions: List[Dict[str, Any]]) -> Optional[int]:
+def stamp_from_version_chain(versions: list[dict[str, Any]]) -> int | None:
     """הגרסה שבה התיאור של הקובץ נקבע, או ``None`` כשאי אפשר לדעת.
 
     **פונקציה טהורה, ובכוונה בנפרד מהסקריפט.** היא המקום היחיד שבו
@@ -59,7 +59,7 @@ def stamp_from_version_chain(versions: List[Dict[str, Any]]) -> Optional[int]:
       הקורא אינו צריך להבדיל בין השניים: שניהם משאירים את הקובץ בלי
       חותמת, ואת הגיל ``null``.
     """
-    by_version: Dict[int, str] = {}
+    by_version: dict[int, str] = {}
     for doc in versions:
         if not isinstance(doc, dict):
             continue
@@ -122,7 +122,7 @@ def _chains(collection: Any):
     return collection.aggregate(pipeline, allowDiskUse=True)
 
 
-def migrate(collection: Any, *, dry_run: bool = False) -> Dict[str, int]:
+def migrate(collection: Any, *, dry_run: bool = False) -> dict[str, int]:
     """מריצה את המיגרציה ומחזירה את המונים לדוח.
 
     המונים אינם קישוט: "כמה קיבלו חותמת" לבד אינו אומר אם המיגרציה

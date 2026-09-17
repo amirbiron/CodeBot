@@ -21,7 +21,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 #: שם השדה המאוחסן שנושא את מספר הגרסה שבה התיאור נקבע לאחרונה.
 #:
@@ -39,7 +39,7 @@ def description_stamp_for_new_version(
     previous: Any,
     description: Any,
     new_version: Any,
-) -> Optional[int]:
+) -> int | None:
     """החותמת ל**גרסה חדשה** שנכתבת עכשיו: באיזו גרסה התיאור הזה נקבע.
 
     **הכלל יושב כאן ולא בכל כותב בנפרד, וזה כל העניין.** כתיבת גרסה חדשה
@@ -107,7 +107,7 @@ def description_stamp_for_new_version(
     return previous_stamp
 
 
-def description_age_versions(doc: Any) -> Optional[int]:
+def description_age_versions(doc: Any) -> int | None:
     """כמה גרסאות עברו מאז שהתיאור נקבע — או ``None`` כשלא ידוע.
 
     **מחושב בזמן קריאה ואינו נשמר.** ערך שמור היה חייב להתעדכן בכל
@@ -173,7 +173,7 @@ def description_age_field(doc: Any) -> dict:
     return {DESCRIPTION_AGE_FIELD: description_age_versions(doc)}
 
 
-def _as_version(value: Any) -> Optional[int]:
+def _as_version(value: Any) -> int | None:
     """מספר גרסה חיובי, או ``None`` לכל דבר אחר.
 
     ``bool`` נפסל מפורשות: הוא תת-מחלקה של ``int`` בפייתון, ו-``True``

@@ -19,8 +19,6 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-import pytest
-
 from file_description import DESCRIPTION_SET_AT_VERSION_FIELD
 
 USER_ID = 8675
@@ -128,7 +126,7 @@ def _seed(wired_mongo, *descriptions, versions=None):
     collection = wired_mongo.get_db().code_snippets
     collection.delete_many({})
     numbers = versions or range(1, len(descriptions) + 1)
-    for version, description in zip(numbers, descriptions):
+    for version, description in zip(numbers, descriptions, strict=True):
         collection.insert_one({
             "user_id": USER_ID, "file_name": FILE_NAME,
             "code": f"# גרסה {version}\n", "programming_language": "markdown",
