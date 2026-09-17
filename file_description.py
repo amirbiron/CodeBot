@@ -207,11 +207,22 @@ def normalized_version(value: Any) -> int | None:
     ``int(value)`` על מחרוזת נעשה בכוונה ולא נדחה — מסמכים ישנים במונגו
     נושאים לעיתים מספרים כמחרוזות, וזה אותו ``int(...)`` שכבר מריצים
     ``_max_version_any_state`` והראוטים בוובאפ על אותו שדה בדיוק.
+
+    **``ArithmeticError`` נתפס, וזה לא הרחבה ליתר ביטחון.** ‏BSON יודע
+    לאחסן ``double`` אינסופי, ו-``int(float("inf"))`` זורק
+    ``OverflowError`` — שאינו ``ValueError`` ואינו ``TypeError``. נמדד:
+    ‏``NaN`` דווקא עובר בשלום (הוא כן ``ValueError``), ולכן הפער היה
+    נראה מכוסה. ‏``OverflowError`` ו-``InvalidOperation`` של ``Decimal``
+    הם שניהם ``ArithmeticError``, כלומר שם אחד מכסה את כל הצורות של
+    "``int()`` לא הצליח להמיר".
+    זה חשוב כאן במיוחד מפני שהפונקציה רצה בכל מסלול קריאה של קובץ
+    (``_clean`` ב-``mcp_server/backend.py``): מסמך פגום יחיד היה מפיל
+    את כל הרשימה, לא רק את עצמו.
     """
     if isinstance(value, bool) or value is None:
         return None
     try:
         number = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, ArithmeticError):
         return None
     return number if number >= 1 else None

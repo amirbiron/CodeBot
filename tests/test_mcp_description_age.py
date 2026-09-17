@@ -856,3 +856,27 @@ def test_a_document_with_no_version_number_carries_no_age_field_at_all():
     assert description_age_field({"description": "יש", "version": 4}) == {
         DESCRIPTION_AGE_FIELD: None
     }
+
+
+def test_a_non_finite_version_number_does_not_crash_the_read_path():
+    """‏``version: Infinity`` מדולג ולא מפיל את כל הרשימה.
+
+    ‏BSON יודע לאחסן ``double`` אינסופי, ו-``int(float("inf"))`` זורק
+    ``OverflowError`` — שאינו ``ValueError`` ואינו ``TypeError``.
+    **הפער נראה מכוסה דווקא מפני ש-``NaN`` כן עובר בשלום** (הוא
+    ``ValueError``), ולכן בדיקה על ``NaN`` לבדה הייתה מאשרת מימוש שבור.
+
+    הנזק אינו מקומי: ``normalized_version`` רץ ב-``_clean``, כלומר על
+    **כל** מסמך קובץ בכל מסלול קריאה. מסמך פגום יחיד היה מפיל את
+    ``codekeeper_list_files`` כולו, לא רק את עצמו.
+    """
+    from file_description import description_age_field, normalized_version
+
+    for value in (float("inf"), float("-inf"), float("nan")):
+        assert normalized_version(value) is None, value
+
+    assert description_age_field({"description": "יש", "version": float("inf")}) == {}
+    # ומסמך תקין לצידו עדיין מקבל תשובה — הדילוג הוא על הפגום בלבד.
+    assert description_age_field(
+        {"description": "יש", "version": 4, DESCRIPTION_SET_AT_VERSION_FIELD: 1}
+    ) == {DESCRIPTION_AGE_FIELD: 3}
