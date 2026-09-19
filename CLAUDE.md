@@ -62,12 +62,30 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | אתחול עצל של משאב משותף (חיבור, לקוח, pool, קאש) — או **הסרה** של התנהגות מנוונת שקיימת מזמן | `CRITICAL-PATTERNS.md` K15 + `bugbot-rules/lazy-init-guard-publish-order.md` |
 | `getattr(x, "y", None)` או `except` שאחריו **מסלול חלופי בגלל כשל** — לא ערך ברירת מחדל, ולא זיהוי יכולת סטטי | `bugbot-rules/silent-fallback-to-worse-path.md` |
 | CSP, כותרות תגובה, או עמוד שנגיש בלי התחברות | `BY-STACK/browser-policy.md` |
+| `create_index` — ובמיוחד `partialFilterExpression` או `sparse=True` | `BY-STACK/mongodb.md` דפוס 1 + `bugbot-rules/mongo-index-and-operator-traps.md` — אופרטורים שהפילטר החלקי לא מקבל, ואתחול שבולע את השגיאה |
+| צינור `aggregate` — `$project`, `$sort`, `$group` — או `find_one` בתוך לולאה | `RECURRING-PATTERNS.md` R8 + `bugbot-rules/work-disproportionate-to-answer.md` |
+| `startswith` / `endswith` על נתיב, URL או דומיין | `CRITICAL-PATTERNS.md` K16 |
+| `replace(tzinfo=` · `datetime.now()` **בלי** אזור זמן · כל `date.today()` · הצגת תאריך למשתמש | `RECURRING-PATTERNS.md` R7 |
+| **ברמה העליונה של מודול** (מחוץ לכל פונקציה): `Thread(`, `.start()`, `scheduler`, `asyncio.create_task`, לקוח או חיבור שנבנה מ-`os.environ`, או קריאת רשת, מסד או קובץ | `bugbot-rules/import-time-side-effects.md` |
+| שינוי שנעשה כדי לספק לינטר: הזזת `import`, ניקוי אזהרת escape, הרחבת `except` | `bugbot-rules/linter-fix-changes-runtime-behavior.md` |
+| מחיקה / שיתוף / שינוי שם לפי `_id` שהגיע מהממשק, `created_at`, או פעולה גורפת על `code_snippets` ו-`large_files` | `bugbot-rules/logical-entity-vs-version-document.md` |
+| שליחה לספק עם תקרת קלט (טוקנים, אורך שדה), או `value[:LIMIT]` לפני שמירה | `bugbot-rules/silent-truncation-at-sink.md` |
+| `clientX` בחיסור, `left`/`right`, גרירה, שינוי גודל, או הצמדה ל-viewport | `BY-STACK/hebrew-source.md` H7 + `bugbot-rules/rtl-geometry-and-clamp.md` |
+| `EWMA` / `_ewma`, `anomaly_detected`, `cooldown`, `first_ts`, `adaptive_*_threshold_*` | `RECURRING-PATTERNS.md` R9 + `BY-STACK/observability.md` |
+| הרצה ראשונה של ג'וב סנכרון: `baseline`, `last_*_check_time`, `if not last_seen` | `BY-STACK/cron-jobs.md` דפוס 10 — מה ההרצה הראשונה שולחת |
+| תגית `<script>` / `<link>` חדשה בתבנית, או כתיבת `Cache-Control` | `BY-STACK/browser-policy.md` B4–B5 + `bugbot-rules/stale-asset-cache-policy.md` |
+| **לפני כתיבת פונקציה חדשה** שמפרמטת, מסננת, מחשבת או ממפה — גודל, תאריך, אייקון, שם שפה, רשימת ערכים, שאילתה | `RECURRING-PATTERNS.md` R6: `grep` על שם התופעה לפני שכותבים. יש עותק — מאחדים |
+| `except TypeError` / `except AttributeError` סביב קריאה ל-SDK חיצוני | `bugbot-rules/dead-parameter-external-api.md` |
+| route ב-`GET` שגופו מוחק, מאפס או מריץ פעולה בלתי הפיכה | `bugbot-rules/auth-before-irreversible-action.md` §5 |
+| `errorhandler(Exception)` גורף, או מגבלת קצב שחלה על `/` ועל `/health` | `bugbot-rules/blanket-policy-silent-block.md` §7–8 |
+
 
 ### תמיד, בלי קשר לטבלה
 
 - **לפני עטיפת קריאה ב-`try/except`** → `CRITICAL-PATTERNS.md` K11. בקצרה: בדוק מה הפונקציה מחזירה בכשל. אם היא מחזירה `None`/`False`/`0` ולא זורקת, ה-`except` לא ירוץ לעולם — צריך `if not result:` לפני כל דיווח הצלחה.
 הדפוס הזה כבר עלה בריפו הזה **שלוש פעמים** (`save_backup_bytes` ב-PR #3232 ב-#3172, ו-`delete_pattern` של הקאש).
 והמימוש הנכון, להעתיק ממנו: `mcp_server/backend.py:save_file` מחזיר `{"ok": False, "error": "save_failed"}` **כשמסלול השמירה מחזיר false** (חריגת מסד עולה הלאה ואינה מומרת לתשובת כשל), ובהצלחה קורא את המסמך מחדש מהמסד במקום להחזיר את מה שביקשנו לכתוב. הלקח הוא *קרא את המצב, אל תהדהד את הבקשה* — ולא שזה אטומי: הקריאה החוזרת היא לפי שם הקובץ ולא לפי המזהה שנכתב, ומספר הגרסה נבחר ב-read-then-write, ולכן שתי שמירות מקבילות לאותו שם יכולות להחזיר זו את הגרסה של זו.
+- **`except` שבולע — `pass`, ערך falsy, או המשך כאילו הצליח** → לוג, או הערה שאומרת למה הכשל הזה אינו מעניין. בלעדיהם זה ממצא, גם כשאין ✅ למשתמש במסלול. (`raise` מחדש אינו בליעה, וגם לא ערך כשל שהקורא בודק.) זה הצד ההפוך של K11: שם ערך כשל לא נבדק, כאן חריגה נתפסה ולא נרשמה. בסריקת ההיסטוריה של הריפו הזה — תשע בליעות, **ארבע מהן מחוץ למסלול של הודעת הצלחה** (PR #3229, #3349, #3358, #3357).
 - **לפני כתיבת טסט חדש** → `claude-md-snippets/testing.md`. בפרט: טסט שנוסח עם תיקון חייב להיכשל בלי התיקון — הרץ אותו על הקוד הישן וּודא שהוא נופל.
 - **אחרי שטסט נופל על חריגה** → `bugbot-rules/widened-exception-scope.md`. אל תרחיב `except` כדי לעבור; בדוק קודם את הסטאב/fixture — שם השורש בדרך כלל.
 
