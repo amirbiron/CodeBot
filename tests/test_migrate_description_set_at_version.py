@@ -266,6 +266,72 @@ def test_a_run_that_was_interrupted_is_completed_by_running_it_again(wired_mongo
     assert counters["documents_written"] == 2, counters
 
 
+def test_a_stamp_stored_as_an_explicit_null_is_filled_like_a_missing_one(wired_mongo):
+    """**חסר ו-``null`` הם אותו דבר עבור השדה, ולכן שניהם מושלמים.**
+
+    ``normalized_version(None)`` הוא ``None`` ו-``description_age_versions``
+    מחזיר ``null`` — כלומר מסמך עם ``null`` מפורש הוא חסר-חותמת בדיוק
+    כמו מסמך בלי השדה. אבל שני חצאי המיגרציה החזיקו שתי תשובות לשאלה
+    הזו: הבחירה פוסלת לפי ``is not None`` ולכן **בוחרת** אותו, והפילטר
+    של הכתיבה היה ``$exists: False`` ולכן **דילג** עליו.
+
+    נמדד מול MongoDB 7.0.14: ``$exists: False`` תופס רק שדה חסר, והשוואה
+    ל-``None`` תופסת גם חסר וגם ``null``. שניהם אינם תופסים ערך מספרי.
+
+    **שתי הטענות כאן הן שתי הפנים של אותו באג.** המסמך נשאר ריק בכל
+    הרצה מחדש, ו-``documents_written`` דיווח מספר נמוך מהמסמכים שנבחרו
+    בזמן שהקובץ נספר כמטופל — רשומה שאומרת שהעבודה בוצעה במסלול שבו היא
+    לא רצה (``bugbot-rules/state-record-without-state-change.md`` §2).
+    """
+    collection = wired_mongo.get_db().code_snippets
+    collection.delete_many({})
+    for version in (1, 2, 3):
+        document = {
+            "user_id": USER_ID, "file_name": FILE_NAME, "code": "# גרסה\n",
+            "programming_language": "markdown", "description": DESCRIPTION,
+            "tags": [], "version": version, "is_active": True,
+        }
+        if version == 2:
+            document[DESCRIPTION_SET_AT_VERSION_FIELD] = None
+        collection.insert_one(document)
+
+    counters = _module().migrate(collection)
+
+    assert _stamps(collection) == {1: 1, 2: 1, 3: 1}, "מסמך עם null מפורש נשאר ריק"
+    assert counters["documents_written"] == 3, counters
+
+
+def test_a_numeric_stamp_on_an_older_version_is_never_overwritten(wired_mongo):
+    """הכיוון ההפוך: ערך מספרי על גרסה ישנה נשאר במקומו.
+
+    **מה שנמדד על הבדיקה הזו, ולא מה שנוח להניח עליה.** על החותמת
+    המספרית שומרים **שני** שומרים בלתי תלויים — הסינון בפייתון
+    ב-:func:`_documents_to_stamp` והתנאי על השדה בפילטר הכתיבה — וכל
+    אחד מהם לבדו מספיק. הרצת מוטציות הראתה בדיוק את זה: הסרת הפילטר
+    במונגו לבדה **אינה** מפילה את הבדיקה, והסרת הסינון בפייתון לבדה גם
+    לא. היא נופלת כששניהם מוסרים.
+
+    כלומר מה שהיא מאמתת הוא ש**הכפילות עדיין שם**, לא איזה מהם עובד.
+    הכפילות אינה מיותרת: הסינון בפייתון רץ על מה שנקרא, והפילטר מגן על
+    החלון שבין הקריאה לכתיבה, שבו כותב אחר יכול להיכנס.
+    """
+    collection = wired_mongo.get_db().code_snippets
+    collection.delete_many({})
+    for version in (1, 2, 3):
+        document = {
+            "user_id": USER_ID, "file_name": FILE_NAME, "code": "# גרסה\n",
+            "programming_language": "markdown", "description": DESCRIPTION,
+            "tags": [], "version": version, "is_active": True,
+        }
+        if version == 2:
+            document[DESCRIPTION_SET_AT_VERSION_FIELD] = 99
+        collection.insert_one(document)
+
+    _module().migrate(collection)
+
+    assert _stamps(collection) == {1: 1, 2: 99, 3: 1}, "חותמת מספרית נדרסה"
+
+
 def test_a_version_stored_as_a_string_is_stamped_like_any_other(wired_mongo):
     """**מסמך עם ``version`` כמחרוזת נשמט בשקט, ודווקא הוא החשוב.**
 
