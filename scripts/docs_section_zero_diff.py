@@ -93,14 +93,19 @@
 ב-``services/doc_sections.py`` — לפני הקומיט, בנוהל שתי ההרצות שלמטה. אין
 מנגנון שיזכיר, וזה מה שהדוקסטרינג הזה מחליף.
 
-הסקריפט אינו כותב לשום מקום מלבד ``--out``, ואינו מוחק דבר.
+הסקריפט אינו כותב לשום קובץ מלבד ``--out``, ואינו מוחק קבצים. **מה שהוא כן
+נוגע בו הוא משתנה סביבה אחד:** ``MCP_DOCS_REPO`` מקובע להרצה ומוחזר ב-
+``finally`` — ראו ``_pinned_docs_repo``. זה נכתב כאן ולא רק שם, כי מי שקורא
+ל-``main`` מתוך תהליך חי (והטסטים עושים בדיוק את זה) צריך לדעת מה נוגעים בו.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -305,6 +310,36 @@ def _edge_inputs(backend: Any) -> Iterator[dict[str, Any]]:
     yield _call(backend, path="does-not-exist-at-all")
 
 
+@contextlib.contextmanager
+def _pinned_docs_repo(value: str):
+    """מקבע את ``MCP_DOCS_REPO`` להרצה אחת, ומחזיר את מה שהיה אחריה.
+
+    **ההחזרה אינה נימוס — ``main`` נקרא מתוך תהליך של טסטים.**
+    ``tests/test_docs_section_zero_diff_script.py`` מריץ אותו שלוש פעמים
+    באותו תהליך, ובלי ``finally`` הערך שהקורא הגדיר נדרס לצמיתות. נמדד:
+    קורא שהגדיר ``"amir-bug-patterns,CodeBot"`` מצא ``"CodeBot"`` אחרי
+    הקריאה. זהו ``test-infra-shared-state`` §2 — state בלי איפוס ב-teardown,
+    שמייצר בדיקות שעוברות ונכשלות בלי דטרמיניזם.
+
+    **והחומרה היום רדומה ולא אפסית:** הערך שדולף שווה במקרה לברירת המחדל,
+    ולכן אף טסט אינו רואה הבדל. הוא יתעורר ביום ש-``DEFAULT_DOCS_REPO``
+    ישתנה, או שייכתב טסט שמניח שהמשתנה אינו מוגדר.
+
+    **ומחיקה ולא מחרוזת ריקה** כשהוא לא היה מוגדר: ``""`` ו"לא מוגדר" הם
+    שני מצבים שונים עבור ``os.getenv``, ו-``_allowed_docs_repos`` מבדיל
+    ביניהם.
+    """
+    previous = os.environ.get("MCP_DOCS_REPO")
+    os.environ["MCP_DOCS_REPO"] = value
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("MCP_DOCS_REPO", None)
+        else:
+            os.environ["MCP_DOCS_REPO"] = previous
+
+
 def main(argv: list[str] | None = None) -> int:
     """נקודת הכניסה. ``argv`` כרשימה ולא ``sys.argv``, כדי שאפשר יהיה לבדוק אותה.
 
@@ -325,94 +360,108 @@ def main(argv: list[str] | None = None) -> int:
         print(f"אין תיקיית קורפוס: {corpus}", file=sys.stderr)
         return 2
 
-    backend = _CorpusBackend(corpus)
-    files = sorted(p.relative_to(corpus).as_posix()
-                   for p in corpus.rglob("*.rst"))
-    if not files:
-        print(f"אין קובצי .rst תחת {corpus}", file=sys.stderr)
-        return 2
+    # **הריפו שהסוללה מדברת עליו מקובע כאן, ולא נגזר מהסביבה.**
+    # ``MCP_DOCS_REPO`` קובע מאז מדיניות הנתיבים לכל ריפו **גם את השורש וגם
+    # את הפורמט** של קריאה שאינה נוקבת בריפו — כלומר בסביבה שבה הכניסה
+    # הראשונה אינה ``CodeBot``, כל הסוללה הזאת הייתה מקבלת
+    # ``suffix_not_allowed`` ו"אפס דיף" היה מתאר שתי הרצות ריקות באותה מידה.
+    # הקיבוע נעשה במשתנה הסביבה ולא כארגומנט לכל קריאה, משתי סיבות: הוא
+    # מכסה גם את אתרי הקריאה שיתווספו מחר בלי שאיש יזכור, והוא **אינו משנה
+    # את ה-JSONL** — ``repo`` שהיה נכנס ל-``query`` של כל רשומה היה שובר את
+    # ההשוואה שהסקריפט קיים בשבילה. הבקרה המכוונת ``repo="not-in-allowlist"``
+    # ממשיכה להידחות, כי היא עדיין אינה ברשימה.
+    with _pinned_docs_repo(docs_handlers.DEFAULT_DOCS_REPO):
 
-    digest = hashlib.sha256()
-    tally: Counter[str] = Counter()
-    records = 0
-    probes = 0
-    carried: list[dict[str, str]] = []  # כותרות בקורפוס שנושאות מזהה — ההנחה שנשברת
+        backend = _CorpusBackend(corpus)
+        files = sorted(p.relative_to(corpus).as_posix()
+                       for p in corpus.rglob("*.rst"))
+        if not files:
+            print(f"אין קובצי .rst תחת {corpus}", file=sys.stderr)
+            return 2
 
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", encoding="utf-8") as fh:
-        for rec in _edge_inputs(backend):
-            line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
-            fh.write(line + "\n")
-            digest.update(line.encode("utf-8"))
-            records += 1
-            tally[str(rec["response"].get("error") or rec["response"].get("mode"))] += 1
+        digest = hashlib.sha256()
+        tally: Counter[str] = Counter()
+        records = 0
+        probes = 0
+        carried: list[dict[str, str]] = []  # כותרות בקורפוס שנושאות מזהה — ההנחה שנשברת
 
-        for rel in files:
-            # הנתיב המלא ולא ה-slug הקצר: ``_resolve_docs_path`` מוסיף את
-            # התחילית ``docs/`` רק כשאין ב-קלט ``/`` בכלל, ולכן קובץ בתת-תיקייה
-            # (``observability/error_codes``) היה נדחה כ-``missing_path``.
-            for rec in _battery(backend, f"docs/{rel}"):
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w", encoding="utf-8") as fh:
+            for rec in _edge_inputs(backend):
                 line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
                 fh.write(line + "\n")
                 digest.update(line.encode("utf-8"))
                 records += 1
-                resp = rec["response"]
-                tally[str(resp.get("error") or resp.get("mode"))] += 1
+                tally[str(rec["response"].get("error") or rec["response"].get("mode"))] += 1
 
-            identifiers = _corpus_identifiers(backend, f"docs/{rel}")
-            carried.extend({"path": f"docs/{rel}", "identifier": i} for i in identifiers)
-            for rec in _identifier_probes(backend, f"docs/{rel}", identifiers):
-                line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
-                fh.write(line + "\n")
-                digest.update(line.encode("utf-8"))
-                records += 1
-                probes += 1
+            for rel in files:
+                # הנתיב המלא ולא ה-slug הקצר: ``_resolve_docs_path`` מעגן את
+                # הקלט לשורש של הריפו רק כשאין בו ``/`` בכלל, ולכן קובץ בתת-תיקייה
+                # (``observability/error_codes``) היה נדחה כ-``missing_path``.
+                # השורש עצמו תלוי בריפו מאז מדיניות הנתיבים; כאן הוא ``docs/``,
+                # כי ההרצה מקובעת ל-``CodeBot`` — ראו את ההערה ב-``main``.
+                for rec in _battery(backend, f"docs/{rel}"):
+                    line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
+                    fh.write(line + "\n")
+                    digest.update(line.encode("utf-8"))
+                    records += 1
+                    resp = rec["response"]
+                    tally[str(resp.get("error") or resp.get("mode"))] += 1
 
-    print(f"קבצים:   {len(files)}")
-    print(f"רשומות:  {records}")
-    print(f"sha256:  {digest.hexdigest()}")
-    print("פילוח מסלולי התשובה:")
-    for key, count in sorted(tally.items()):
-        print(f"  {key}: {count}")
+                identifiers = _corpus_identifiers(backend, f"docs/{rel}")
+                carried.extend({"path": f"docs/{rel}", "identifier": i} for i in identifiers)
+                for rec in _identifier_probes(backend, f"docs/{rel}", identifiers):
+                    line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
+                    fh.write(line + "\n")
+                    digest.update(line.encode("utf-8"))
+                    records += 1
+                    probes += 1
 
-    # **אין כאן שורת "מהן נפתרו", וזו הסרה מכוונת.** כשהפרובים היו רשימה
-    # קבועה, "פרוב שנפתר" היה אירוע: מחרוזת שנוחשה מראש הצליחה למצוא משהו.
-    # מאז שהם נגזרים מהכותרות, פרוב הוא **תמיד** מזהה שקיים בקובץ, ולכן
-    # הוא תמיד נפתר — הספירה הייתה שווה תמיד למספר הפרובים, ולא יכלה לומר
-    # דבר. השאלה היחידה שנשארה בעלת משמעות היא כמה מזהים יש בקורפוס בכלל.
-    print(f"\nמזהים שנמצאו בקורפוס: {len(carried)} (מצופה: 0)")
-    print(f"שאילתות שנגזרו מהם ונרשמו בתצלום: {probes}")
-    for hit in carried[:20]:
-        print(f"  {hit['path']} · כותרת שנפתחת במזהה {hit['identifier']!r}")
+        print(f"קבצים:   {len(files)}")
+        print(f"רשומות:  {records}")
+        print(f"sha256:  {digest.hexdigest()}")
+        print("פילוח מסלולי התשובה:")
+        for key, count in sorted(tally.items()):
+            print(f"  {key}: {count}")
 
-    # הבקרות מודפסות ואינן נכנסות ל-JSONL: ``diff`` על קובץ הקורפוס חייב
-    # להיות ריק, ודווקא השורות האלה חייבות להשתנות בין שתי ההרצות. אם הן
-    # זהות לפני ואחרי — הפרובים עיוורים, וקובץ זהה אינו מוכיח דבר.
-    print("\nבקרות סינתטיות (לא ב-JSONL — ראו את ההסבר ב-docstring):")
-    failed_controls = []
-    for name, text, probe, expected, why in _CONTROLS:
-        resp = docs_handlers.docs_get_section(_TextBackend(text), path="control",
-                                              section=probe)
-        actual = _outcome(resp)
-        good = actual == expected
-        if not good:
-            failed_controls.append((name, expected, actual))
-        print(f"  {'תואם' if good else 'לא תואם'}  {name}\n"
-              f"    section={probe!r} → {actual} {_matched_titles(resp)}\n"
-              f"    מצופה: {expected} — {why}")
+        # **אין כאן שורת "מהן נפתרו", וזו הסרה מכוונת.** כשהפרובים היו רשימה
+        # קבועה, "פרוב שנפתר" היה אירוע: מחרוזת שנוחשה מראש הצליחה למצוא משהו.
+        # מאז שהם נגזרים מהכותרות, פרוב הוא **תמיד** מזהה שקיים בקובץ, ולכן
+        # הוא תמיד נפתר — הספירה הייתה שווה תמיד למספר הפרובים, ולא יכלה לומר
+        # דבר. השאלה היחידה שנשארה בעלת משמעות היא כמה מזהים יש בקורפוס בכלל.
+        print(f"\nמזהים שנמצאו בקורפוס: {len(carried)} (מצופה: 0)")
+        print(f"שאילתות שנגזרו מהם ונרשמו בתצלום: {probes}")
+        for hit in carried[:20]:
+            print(f"  {hit['path']} · כותרת שנפתחת במזהה {hit['identifier']!r}")
 
-    if failed_controls or carried:
-        print("\nההנחות שהסקריפט מקודד אינן מתארות את העץ הזה:")
-        for name, expected, actual in failed_controls:
-            print(f"  בקרה: {name} — מצופה {expected}, התקבל {actual}")
-        if carried:
-            print(f"  קורפוס: {len(carried)} כותרות נושאות מזהה. ההנחה שכל "
-                  f"ההתאמה לפי מזהה נשענת עליה — שאף כותרת כאן אינה נפתחת "
-                  f"במזהה — אינה נכונה יותר. זהו שינוי התנהגות ב-RST שצריך "
-                  f"להיות מוצהר, לא בדיקה שצריך להסיר.")
-        return 1
-    return 0
+        # הבקרות מודפסות ואינן נכנסות ל-JSONL: ``diff`` על קובץ הקורפוס חייב
+        # להיות ריק, ודווקא השורות האלה חייבות להשתנות בין שתי ההרצות. אם הן
+        # זהות לפני ואחרי — הפרובים עיוורים, וקובץ זהה אינו מוכיח דבר.
+        print("\nבקרות סינתטיות (לא ב-JSONL — ראו את ההסבר ב-docstring):")
+        failed_controls = []
+        for name, text, probe, expected, why in _CONTROLS:
+            resp = docs_handlers.docs_get_section(_TextBackend(text), path="control",
+                                                  section=probe)
+            actual = _outcome(resp)
+            good = actual == expected
+            if not good:
+                failed_controls.append((name, expected, actual))
+            print(f"  {'תואם' if good else 'לא תואם'}  {name}\n"
+                  f"    section={probe!r} → {actual} {_matched_titles(resp)}\n"
+                  f"    מצופה: {expected} — {why}")
+
+        if failed_controls or carried:
+            print("\nההנחות שהסקריפט מקודד אינן מתארות את העץ הזה:")
+            for name, expected, actual in failed_controls:
+                print(f"  בקרה: {name} — מצופה {expected}, התקבל {actual}")
+            if carried:
+                print(f"  קורפוס: {len(carried)} כותרות נושאות מזהה. ההנחה שכל "
+                      f"ההתאמה לפי מזהה נשענת עליה — שאף כותרת כאן אינה נפתחת "
+                      f"במזהה — אינה נכונה יותר. זהו שינוי התנהגות ב-RST שצריך "
+                      f"להיות מוצהר, לא בדיקה שצריך להסיר.")
+            return 1
+        return 0
 
 
 if __name__ == "__main__":

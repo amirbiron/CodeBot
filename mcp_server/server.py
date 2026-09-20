@@ -6,10 +6,12 @@ auth plus an unauthenticated ``/healthz`` endpoint for platform health checks.
 
 Tools are defined as **sync** functions on purpose, and :class:`AdminAwareFastMCP`
 moves each one onto a worker thread at registration — see
-:func:`_offload_to_thread`. Read tools go to the loop's shared default executor
-via ``asyncio.to_thread``; write tools go to :data:`_WRITE_POOL`, a pool of one
-worker, so exactly one write body runs at a time and the queue hands them over
-in the order they arrived.
+:func:`_offload_to_thread`. Read tools go to the loop's default executor via
+``asyncio.to_thread`` — a pool this module installs at ASGI startup and sizes
+from the container's **memory** quota (:func:`attach_read_pool`,
+:func:`_read_pool_size`), not from ``os.cpu_count()``; write tools go to
+:data:`_WRITE_POOL`, a pool of one worker, so exactly one write body runs at a
+time and the queue hands them over in the order they arrived.
 
 Until #3379 this docstring claimed the SDK ran sync tools on a worker thread by
 itself. **It does not**, and that wrong belief is why nobody looked: measured
@@ -22,6 +24,7 @@ housekeeping: the wrong version of it is the whole reason the bug survived.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import functools
 import inspect
@@ -30,7 +33,7 @@ import os
 import pathlib
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import Field
@@ -39,6 +42,11 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from services import doc_sections
+# The ceiling on one full-file read, and therefore on one parse — imported
+# rather than copied so the read pool's memory budget follows it. The module
+# imports only the standard library at top level (checked), so this does not
+# pull anything heavy into the MCP process at import.
+from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
 from . import docs_handlers, handlers, repo_handlers
 from .handlers import StrictInt, StrictLines
@@ -186,6 +194,42 @@ _SYMBOL_PARAM_DOC = (
     "module and symbol=\"backup_service\" does not match it."
 )
 
+# תיאור פרמטר ה-``path`` של ``codekeeper_docs_get_section``, **נגזר מטבלת
+# המדיניות ולא מוקלד לצידה**. אותו נימוק בדיוק שמעל ``_build_note_color_doc``:
+# רשימה שנכתבת ביד מתיישנת בשקט בריפו הבא שיתווסף, והסוכן ממשיך לראות רשימה
+# חלקית בלי שאף בדיקה תשים לב.
+#
+# **והגזירה מהטבלה הסטטית ולא מ-``MCP_DOCS_REPO``.** קריאת משתנה סביבה בזמן
+# ייבוא היא ``import-time-side-effects``, ותיאור הכלי היה משתנה בין פריסות —
+# כלומר שני לקוחות היו קוראים שני חוזים שונים לאותו כלי. מה שה-ENV קובע
+# נאמר בתיאור במילים, בלי למנות ממנו.
+def _build_docs_path_doc() -> str:
+    parts = []
+    for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
+        root = policy.root
+        where = f"under {root}/" if root else "at the repo root"
+        parts.append(f"{repo} — {where}, {policy.suffix}")
+    return (
+        "Which file to read. Each repo decides where its docs live and in what "
+        "format: " + "; ".join(parts) + ". Give a full path "
+        "(docs/mcp-server.rst, bugbot-rules/race-toctou.md) or a bare slug "
+        "(mcp-server, CRITICAL-PATTERNS) and the root and the suffix are "
+        "filled in. A slug that already contains a slash is taken as written, "
+        "so a file in a sub-directory of a repo rooted at docs/ needs its full "
+        "path. Asking a repo for the format it does not serve is refused with "
+        "suffix_not_allowed plus the list it does serve — it is never looked "
+        "up silently under the other suffix. Which repos are reachable at all "
+        "is MCP_DOCS_REPO, and its first entry is the default; a repo that "
+        "env allows but this tool has no path rule for is refused with "
+        "repo_not_configured. A path longer than "
+        f"{docs_handlers.MAX_PATH_CHARS} characters is refused with "
+        "path_too_long before anything reads it — the longest real path in "
+        "any served repo is under 120 characters."
+    )
+
+
+_DOCS_PATH_PARAM_DOC = _build_docs_path_doc()
+
 #: תיאור הפרמטר ``section`` של ``codekeeper_docs_get_section``.
 #:
 #: **הפירוט יושב כאן ולא בתיאור הכלי, וזו הכרעה שנמדדה.** תיאור הכלי נחתך
@@ -221,7 +265,9 @@ _SECTION_PARAM_DOC = (
     "this path. (2) BACKTICKS: headings are returned as raw source, so a "
     "heading written with ``literal`` markup needs those backticks in the "
     "query too — section=\"MissingGreenlet\" finds nothing when the "
-    "heading reads ``MissingGreenlet``. When a query misses, suggestions "
+    "heading reads ``MissingGreenlet``. The same holds on a Markdown page, "
+    "where a heading written `K11` or **K11** needs those characters in "
+    "the query as well. When a query misses, suggestions "
     "holds a heading that is close to what you typed, whenever the file has "
     "one. ONLY when nothing is close does it instead hold the identifiers "
     f"that DO exist in the file (at most "
@@ -480,9 +526,10 @@ def _cpu_budget() -> str:
     ``os.cpu_count()`` is the machine's CPU count, and CPython says so in as
     many words: *"This number is not equivalent to the number of CPUs the
     current process can use."* Inside a container it is the host's, while the
-    service may be allowed a fraction of one core — and the read pool is sized
-    from the former. Printing the quota beside it is what turns that gap from a
-    suspicion into a number.
+    service may be allowed a fraction of one core — and until #3391 the read
+    pool was sized from the former. Printing the quota beside it is what turned
+    that gap from a suspicion into a number, and it stays on the capacity line
+    because the quota is still what the pool's threads share.
 
     cgroup v2 keeps it in ``cpu.max`` as ``"<quota|max> <period>"``; v1 splits
     it across two files, with ``-1`` meaning unlimited. Neither is guaranteed to
@@ -507,30 +554,365 @@ def _cpu_budget() -> str:
         return "unavailable"
 
 
-def _log_dispatch_capacity() -> None:
+def _mib(n: int) -> str:
+    """Bytes as mebibytes with one decimal — the unit Render's plan names use.
+
+    Not ``webapp/size_format.py`` on purpose: that formatter prints decimal
+    ``KB``/``MB`` for UI text and wraps the value in bidi isolation marks, which
+    a log line must not carry; this one prints binary ``MiB``, the unit the
+    plan and the cgroup limit are stated in.
+    """
+    return f"{n / (1024 * 1024):.1f}MiB"
+
+
+#: The value at or above which a cgroup v1 memory limit means "no limit".
+#:
+#: v2 says it in a word — ``memory.max`` reads ``max`` — but v1 has no word
+#: for it: ``memory.limit_in_bytes`` is reset to unlimited by writing ``-1``
+#: (``Documentation/admin-guide/cgroup-v1/memory.rst``) and then reads back as
+#: the counter's ceiling, ``PAGE_COUNTER_MAX * PAGE_SIZE`` with
+#: ``PAGE_COUNTER_MAX = LONG_MAX / PAGE_SIZE`` on 64-bit
+#: (``include/linux/page_counter.h``) — ``LONG_MAX`` rounded down to a page,
+#: 9223372036854771712 on the CI image this repository runs on. Anything at or
+#: above 2**62 (four exbibytes) is that sentinel, not a limit a machine has.
+_CGROUP_V1_UNLIMITED_FLOOR = 2**62
+
+
+def _memory_limit() -> tuple[int | None, str]:
+    """The memory this container may use, in bytes — or ``None`` when no finite limit is readable.
+
+    Read the way :func:`_cpu_budget` reads the CPU quota, and for the same
+    reason: this is the number the read pool is sized from, and it has to come
+    from the container in front of us rather than from a constant in the
+    repository. The service already moved plans and regions once (#3391), and
+    a hard-coded 512MB would have described the old one.
+
+    cgroup v2 keeps it in ``/sys/fs/cgroup/memory.max`` as a single value — an
+    integer, or the word ``max`` for no limit (``admin-guide/cgroup-v2``).
+    cgroup v1 keeps it in ``memory/memory.limit_in_bytes``, where "no limit"
+    reads as a number next to ``LONG_MAX`` — see
+    :data:`_CGROUP_V1_UNLIMITED_FLOOR`. The second value returned is what the
+    capacity line prints: the limit with its cgroup version, ``unlimited``, or
+    ``unavailable`` when neither file could be read.
+
+    The file contents are external input. Every parse sits under the same
+    narrow ``except`` the CPU reader uses, and a shape that does not parse is
+    "unavailable" — never an exception on the startup path. ``None`` is the one
+    answer for "no file", "cannot parse" and "no limit", deliberately: in all
+    three the formula has no budget to work from and the caller takes the
+    conservative fallback either way. The display string is what keeps the
+    three apart in the log.
+    """
+    try:
+        raw = pathlib.Path("/sys/fs/cgroup/memory.max").read_text().split()
+        value = raw[0]
+        if value == "max":
+            return None, "cgroup v2: unlimited"
+        limit = int(value)
+        return limit, f"cgroup v2: {_mib(limit)}"
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        limit = int(pathlib.Path("/sys/fs/cgroup/memory/memory.limit_in_bytes").read_text())
+        if limit >= _CGROUP_V1_UNLIMITED_FLOOR:
+            return None, "cgroup v1: unlimited"
+        return limit, f"cgroup v1: {_mib(limit)}"
+    except (OSError, ValueError):
+        return None, "unavailable"
+
+
+# ---------------------------------------------------------------------------
+# The read pool is sized from the container's **memory** quota. The constants
+# below are the measurements it is sized from, and each names where its number
+# came from and when — a number without that is a number nobody can re-check.
+#
+# Why memory and not CPU: for a Mongo or disk read, twelve threads on half a
+# core are fine, they sleep. For pure-Python parsing there is no CPU
+# parallelism at all under the GIL, so what a wider pool buys is only *memory*
+# parallelism — N parse trees alive at once, with nothing to show for it in
+# throughput. The memory budget is the binding constraint; the CPU quota is
+# printed beside the result on the capacity line, not used in it.
+# ---------------------------------------------------------------------------
+
+#: The smallest pool this service runs with, and the size it falls back to when
+#: no memory limit is readable.
+#:
+#: Two, not one: the floor exists so that one Mongo read stuck on the network
+#: cannot stall every other read, and two is the smallest size with that
+#: property. Every unit above it is memory the formula said the container does
+#: not have. The same value is the fallback because, with the limit unknown,
+#: the cost of being too narrow is visible — slow reads, and the capacity line
+#: says why — while the cost of being too wide is an OOM kill nobody can
+#: attribute. That is the fail-closed choice :func:`_declares_write` makes, for
+#: the same reason; and it is explicitly not ``os.cpu_count() + 4``, the number
+#: this sizing exists to stop relying on.
+_READ_POOL_FLOOR = 2
+
+#: The largest pool this service runs with, whatever the plan: the width
+#: production already ran before #3391 (``read pool 12 threads`` on the
+#: capacity line), so a move to a larger plan cannot widen the pool past a
+#: width the service has survived without somebody deciding it. Two reasons
+#: it is a hard bound and not just a formula: above it, more threads are only
+#: more concurrent parses of a GIL-bound parser; and the per-thread cost the
+#: formula divides by is the parse, which understates what an admin range read
+#: holds (see :data:`_PARSE_COST_BYTES`), so the formula must not be allowed
+#: to scale that understatement up with the plan. The first version used
+#: CPython's own default-executor ceiling of 32; the review of #3429 brought it
+#: down to the measured production width.
+_READ_POOL_CAP = 12
+
+#: RSS of the idle service in production: 91.5MB, flat for seven hours on the
+#: Frankfurt service (Render metrics ``memory_usage``, 2026-09-19). Higher than
+#: the 54.5MB a bare ``build_app`` measures locally, because production carries
+#: the Mongo connection pool, the PostHog client and the mirror autosync
+#: thread — which is why the production number is the one used.
+_PROCESS_BASELINE_BYTES = 92 * 1024 * 1024
+
+#: Everything the process holds beyond the baseline that is *not* the parse
+#: being budgeted for: Mongo results, grep output up to the byte budget, the
+#: autosync fetch, the one write in flight. Sized from what was observed, not
+#: guessed: over a full day of agent traffic the working set peaked at
+#: 152–157MB against the 92MB baseline (Render metrics, 2026-09-20), so the
+#: margin is that gap.
+_NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
+
+#: RSS growth per byte of input while a parse is alive — the **peak** during
+#: the parse (``VmHWM`` above the pre-parse high-water mark), because that is
+#: what N parses in flight hold at once; what ``parse_document`` retains
+#: afterwards is smaller.
+#:
+#: **Which parser this number describes.** It was measured on
+#: ``services.md_parser`` (the pinned ``markdown-it-py``), one parse per fresh
+#: process, on 2026-09-20 — the parser the Markdown tool runs, so
+#: the pool is sized ahead of that tool. The tool that parses **today**,
+#: ``codekeeper_docs_get_section``, runs ``services.rst_parser`` on
+#: ``docs/*.rst`` only, and that parser is far cheaper by the same method:
+#: its RST corpus at the read ceiling adds nothing above the process's
+#: pre-parse high-water mark (2.7 bytes per input byte retained), its densest
+#: page (``docs/modules/index.rst``) tiled to the ceiling peaks at 6.4, and a
+#: hostile shape of one-character headings at 90.2 **without a ceiling** —
+#: 44.0MiB for one parse, above the 35.2MiB the formula grants a thread. That
+#: is why ``docs_get_section`` passes the outline's section ceiling (50,000)
+#: to the parser since the review of #3429: the same shape then stops at
+#: 20.1MiB (41.1 bytes per input byte), inside the allowance, and no real
+#: page comes near the ceiling. ``scripts/measure_md_parse_cost.py`` measures
+#: both parsers; run it when either of them changes.
+#:
+#: The cost scales with the document's **density**, not its size: the
+#: repository's Markdown corpus peaks at 21 bytes per input byte at its median
+#: density of ~27 block tokens per KB, and its densest real document
+#: (``CLOUD.md``, ~170 tokens per KB) tiled to the read ceiling peaks at 70.7.
+#: The constant, 72, is the earlier reading of that shape (71.7, before the
+#: script learned to subtract the pre-parse high-water mark) rounded up; the
+#: gap is margin, and re-running the script is what moves the constant, not
+#: an edit by hand. The 110 recorded in #3391 is not directly comparable to
+#: it: that figure came from a denser corpus (~250 tokens per KB) **and** from
+#: markdown-it-py 4.2.0, while the density curve above was measured on the
+#: pinned 3.0.0 only, and the old corpus was not re-measured on 3.0.0. So a
+#: parser upgrade re-runs the script; it does not assume the constant survives.
+#:
+#: What the constant is **not**: the adversarial bound. A 500KB file of
+#: one-line bullets peaks at ~290 bytes per input byte — 141MiB for a single
+#: parse — which no pool width can absorb (three such parses exceed the plan
+#: at any width above the floor). The tool reads only the mirrored,
+#: allow-listed docs repositories, so the densest document it actually serves
+#: is the honest budget, and a ceiling inside the parser itself is the
+#: instrument for the hostile shape: in place for RST (the section ceiling
+#: above), still pending for Markdown, whose bullet shape has no headings for
+#: ``MAX_SECTIONS`` to count — a token ceiling, tracked in #3391, not here.
+_PARSE_RSS_PER_INPUT_BYTE = 72
+
+#: What one parse can cost at most — the divisor of the memory budget. The
+#: largest input a parse can receive is
+#: :data:`~services.git_mirror_service.MAX_FILE_SIZE_FOR_DISPLAY`:
+#: ``codekeeper_docs_get_section`` reads through ``RepoBackend.get_file``
+#: without ``lines`` and therefore without ``max_size``, and refuses
+#: ``too_large`` before it parses anything. Computed from the imported ceiling
+#: rather than copied, so a change to the read ceiling moves the budget with it.
+#:
+#: **A decision, recorded (review of #3429): the divisor is priced by the
+#: parse, and the parse is not the largest thing a read thread holds.** The
+#: admin-only ``codekeeper_get_repo_file`` with ``outline=true`` or ``lines=``
+#: reads up to ``RANGE_READ_MAX_BYTES`` (10MiB), and the mirror buffers the
+#: whole blob before its size check. Measured on 2026-09-20 by the same
+#: method: an outline of a 10MB RST file holds 61–77MiB over the whole path
+#: (realistic tiling / hostile headings, both ending in ``TooManySections``;
+#: the script's ``outline_densest_real`` line shows the parse alone above the
+#: pre-parse high-water mark, 51MiB, the rest being the 10MB of text already
+#: in memory), and a ``lines=`` read of the real 7MB
+#: ``webapp/static/js/md_preview.bundle.js`` holds ~37MiB — 1.1 to 2.2 times
+#: the 35.2MiB this divisor grants a thread. It stays priced
+#: by the parse because: the parse is what the public tool can cost at any
+#: moment, while the range tools sit behind ``require_admin``; the largest hold
+#: on a file that exists in the mirrors today (37MiB) fits the plan even at
+#: full width — 92 + 10 × 37.2 = 464MiB of 512MiB; and the 61–77MiB shape needs
+#: a 10MB RST file that no mirrored repository has (the largest here is 169KB).
+#: Pricing by ``RANGE_READ_MAX_BYTES`` would have cut the public path to 4
+#: threads (at 77MiB) or 9 (at 37MiB) for a shape without a source. What did
+#: change because of this is :data:`_READ_POOL_CAP`; the root fix — bounding
+#: the read at its source with a size probe before ``git show`` — is #3433.
+_PARSE_COST_BYTES = _PARSE_RSS_PER_INPUT_BYTE * MAX_FILE_SIZE_FOR_DISPLAY
+
+
+class _ReadPoolSizing(NamedTuple):
+    """What the read pool was sized to, and why — the why goes on the capacity line."""
+
+    workers: int
+    #: ``memory`` when the formula decided; ``floor`` or ``cap`` when a bound
+    #: overrode it; ``fallback`` when no memory limit was readable.
+    source: str
+    detail: str
+
+
+def _read_pool_size(memory_limit: int | None) -> _ReadPoolSizing:
+    """How many read threads the memory budget allows, bounded below and above.
+
+    ``(limit - baseline - margin) // cost_of_one_parse``: what is left after
+    the process itself and its non-parse work, divided by what one largest
+    allowed parse costs. On the production plan that is
+    ``(512MiB - 92MiB - 64MiB) / 35.2MiB = 10``. The old pool was 12 on the same
+    plan, from ``min(32, os.cpu_count() + 4)`` with ``os.cpu_count()``
+    reporting the host's eight cores against a quota of half a core.
+
+    Pure: takes the limit, returns the size and the arithmetic behind it. A
+    limit of ``None`` means no finite limit was readable, and the answer is
+    the floor — :data:`_READ_POOL_FLOOR` says why the fallback is the
+    conservative end.
+    """
+    if memory_limit is None:
+        return _ReadPoolSizing(
+            _READ_POOL_FLOOR,
+            "fallback",
+            f"fallback {_READ_POOL_FLOOR}: no memory limit readable",
+        )
+    budget = memory_limit - _PROCESS_BASELINE_BYTES - _NON_PARSE_MARGIN_BYTES
+    allowed = budget // _PARSE_COST_BYTES
+    arithmetic = (
+        f"({_mib(memory_limit)} - {_mib(_PROCESS_BASELINE_BYTES)} baseline - "
+        f"{_mib(_NON_PARSE_MARGIN_BYTES)} margin) / {_mib(_PARSE_COST_BYTES)} "
+        f"per parse = {allowed}"
+    )
+    if allowed < _READ_POOL_FLOOR:
+        return _ReadPoolSizing(
+            _READ_POOL_FLOOR, "floor", f"floor {_READ_POOL_FLOOR}: memory budget allowed {arithmetic}"
+        )
+    if allowed > _READ_POOL_CAP:
+        return _ReadPoolSizing(
+            _READ_POOL_CAP, "cap", f"cap {_READ_POOL_CAP}: memory budget allowed {arithmetic}"
+        )
+    return _ReadPoolSizing(int(allowed), "memory", f"sized from memory: {arithmetic}")
+
+
+def _log_dispatch_capacity(
+    read_pool: ThreadPoolExecutor, memory_display: str, sizing: _ReadPoolSizing
+) -> None:
     """One line at startup naming the concurrency the dispatch model actually has.
 
-    The read pool's size is ``min(32, os.cpu_count() + 4)`` and nothing in the
-    service reported it, so the ceiling on concurrent reads was a number nobody
-    could look up — including while reasoning about whether it needed one. Every
-    value is computed before the call rather than inside it, so a level guard or
-    a deleted line takes the line and nothing else with it.
+    The number printed for the read pool is read off the executor that was
+    installed — ``ThreadPoolExecutor._max_workers``, the attribute the pool
+    sizes itself from (``concurrent/futures/thread.py``) — and not recomputed
+    here. A line that computed its own number would describe the pool it
+    expected rather than the pool that exists, and the two would part ways
+    the day someone changed one of them; the previous version of this function
+    did exactly that with ``min(32, os.cpu_count() + 4)``, which is why it is
+    now handed the pool. ``os.cpu_count()`` and the affinity count stay on the
+    line because the gap between them and the quota is the whole story of
+    #3391, and the memory limit joins the CPU quota because it is now the
+    number the pool is sized from.
+
+    Every value is computed before the call rather than inside it, so a level
+    guard or a deleted line takes the line and nothing else with it.
     """
     detected = os.cpu_count() or 1
     try:
         usable = len(os.sched_getaffinity(0))
     except (AttributeError, OSError):
         usable = detected
-    read_pool = min(32, detected + 4)
     quota = _cpu_budget()
     logger.info(
-        "mcp dispatch capacity: read pool %d threads (os.cpu_count=%d, "
-        "usable=%d), write pool 1 thread, cpu quota %s",
-        read_pool,
+        "mcp dispatch capacity: read pool %d threads (%s; os.cpu_count=%d, "
+        "usable=%d), write pool 1 thread, cpu quota %s, memory limit %s",
+        read_pool._max_workers,
+        sizing.detail,
         detected,
         usable,
         quota,
+        memory_display,
     )
+
+
+def attach_read_pool(app: Any) -> None:
+    """Install the sized read pool as the loop's default executor at ASGI startup.
+
+    ``asyncio.to_thread`` — where every read tool runs, see
+    :func:`_offload_to_thread` — submits to the loop's default executor
+    (``asyncio/threads.py`` ends in ``loop.run_in_executor(None, ...)``), so
+    replacing that executor is what sizes the reads, with no change to the
+    dispatch path. Two constraints decide where this happens, both read off
+    CPython and the SDK rather than assumed:
+
+    * ``loop.set_default_executor`` needs a running loop and accepts only a
+      ``ThreadPoolExecutor`` — ``asyncio/base_events.py`` raises ``TypeError``
+      for anything else. ``build_app`` runs at import, before uvicorn has a
+      loop, so the call cannot live there.
+    * ``FastMCP.streamable_http_app()`` builds its Starlette app with an
+      explicit ``lifespan=`` (``mcp 1.28.1``), so Starlette's ``Router``
+      ignores ``on_startup`` entirely and wrapping ``router.lifespan_context``
+      is the only seam — the one
+      :func:`~mcp_server.analytics.attach_shutdown_drain` already uses, and
+      this wrapper has the same shape.
+
+    The pool is built complete, in a local, and published by one assignment;
+    its threads are spawned lazily by the executor under its own lock
+    (``_adjust_thread_count``), which is the library's contract and not a
+    guard of ours. The capacity line is emitted right here, from the pool that
+    was installed, so the line and the state it describes cannot drift apart.
+
+    **What this does not do.** It does not shut the pool down on lifespan
+    exit: the default executor belongs to the loop, and uvicorn's
+    ``asyncio.run`` ends with ``loop.shutdown_default_executor()``
+    (``asyncio/runners.py``), which joins the workers with ``wait=True`` — so
+    a read in flight finishes on a deploy, the property :data:`_WRITE_POOL`
+    has. A second entry into the same lifespan on the same loop would install
+    a second pool and leave the first idle until interpreter exit
+    (``concurrent.futures.thread._python_exit`` wakes and joins it); that is
+    not a production path and is not guarded. And when the app carries no
+    lifespan at all, the executor is **not** replaced and reads keep CPython's
+    default of ``min(32, os.cpu_count() + 4)`` — logged as a warning, because
+    a pool sized from the host's core count is exactly what this function
+    exists to remove.
+    """
+    router = getattr(app, "router", None)
+    original = getattr(router, "lifespan_context", None)
+    if original is None:
+        logger.warning(
+            "no lifespan on the ASGI app; the read pool was not installed and reads "
+            "run on the loop's default executor, sized from os.cpu_count()"
+        )
+        return
+
+    @contextlib.asynccontextmanager
+    async def _lifespan_with_read_pool(scope_app: Any):
+        loop = asyncio.get_running_loop()
+        memory_limit, memory_display = _memory_limit()
+        sizing = _read_pool_size(memory_limit)
+        pool = ThreadPoolExecutor(max_workers=sizing.workers, thread_name_prefix="mcp-read")
+        loop.set_default_executor(pool)
+        _log_dispatch_capacity(pool, memory_display, sizing)
+        if sizing.source == "fallback":
+            # A narrower pool than the plan allows is a worse path, and a worse
+            # path nobody reports is the one that stays. The capacity line says
+            # the size; this says that it was not chosen.
+            logger.warning(
+                "mcp read pool fell back to %d threads: memory limit %s — reads are "
+                "narrower than the plan allows until the cgroup limit is readable",
+                pool._max_workers,
+                memory_display,
+            )
+        async with original(scope_app) as state:
+            yield state
+
+    router.lifespan_context = _lifespan_with_read_pool
 
 
 def _declares_write(annotations: Any) -> bool:
@@ -684,7 +1066,9 @@ def _offload_to_thread(fn: Any, *, serialize: bool = False) -> Any:
     on the loop again.
 
     **Two destinations, not one.** A read goes to ``asyncio.to_thread`` and the
-    loop's shared default executor, where several reads run at once. A write
+    loop's default executor, where several reads run at once — the pool
+    :func:`attach_read_pool` installs at ASGI startup, sized from the memory
+    quota (:func:`_read_pool_size`) rather than from the host's core count. A write
     goes to :data:`_WRITE_POOL` and its single worker, which is what keeps write
     bodies from interleaving and what hands them to the worker in the order they
     were sent. The reason writes do not simply take a lock on the shared
@@ -1693,23 +2077,25 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
     @mcp.tool(
         name="codekeeper_docs_get_section",
         description=(
-            "Read ONE section from a CodeKeeper documentation RST file instead of the "
-            "whole file. Prefer this over codekeeper_get_repo_file for docs/*.rst: it "
-            "returns a single section with navigation (breadcrumb, direct subsections, "
-            "prev/next siblings) rather than a 77KB file. Call with NO `section` to get "
-            "the page's table of contents (heading tree) and pick one. Accepts a full "
-            "path (docs/x.rst) or short slug (x). `ref` is a git ref (default: repo "
-            "default branch). For large sections, page with `offset`/`max_chars`. Never "
-            "returns a bare 'not found': a missing section returns the full TOC + "
-            "suggestions; a duplicate heading returns candidates with breadcrumbs. "
-            "See the `section` parameter for how a heading is matched — identifier "
-            "shortcuts (K11, U3) and headings that carry backticks."
+            "Read ONE section from a CodeKeeper documentation file — RST or "
+            "Markdown — instead of the whole file. Prefer this over "
+            "codekeeper_get_repo_file for docs: it returns a single section with "
+            "navigation (breadcrumb, direct subsections, prev/next siblings) rather "
+            "than a 77KB file. Call with NO `section` to get the page's table of "
+            "contents (heading tree) and pick one. Which repo serves which paths, "
+            "in which format, is per-repo — see the `path` parameter. `ref` is a git "
+            "ref (default: repo default branch). For large sections, page with "
+            "`offset`/`max_chars`. Never returns a bare 'not found': a missing "
+            "section returns the full TOC + suggestions; a duplicate heading returns "
+            "candidates with breadcrumbs. See the `section` parameter for how a "
+            "heading is matched — identifier shortcuts (K11, U3) and headings that "
+            "carry backticks."
         ),
         annotations=_READ_ONLY_TOOL,
     )
     def docs_get_section(
         ctx: Context,
-        path: str,
+        path: Annotated[str, Field(description=_DOCS_PATH_PARAM_DOC)],
         section: Annotated[str | None, Field(description=_SECTION_PARAM_DOC)] = None,
         include_subsections: bool = True,
         max_chars: int = 12000,
@@ -1760,21 +2146,21 @@ def build_app(
         auth_settings=auth_settings if oauth else None,
         repo_backend=repo_backend,
     )
-    # **After ``build_mcp``, and that ordering is the whole point.** The first
-    # version of this line ran before it and never appeared in production: at
-    # that moment nothing in the process had configured logging, so the root
-    # logger was still at ``WARNING`` with no handlers and the record was
-    # dropped where it stood. ``FastMCP.__init__`` ends with
-    # ``configure_logging(self.settings.log_level)`` (verified in the installed
-    # SDK), so by the time ``build_mcp`` returns there is certainly a handler —
-    # whoever installed it. ``mcp_server/app.py`` also configures logging on
-    # import, which is the fix that makes every other record in this package
-    # visible; emitting here as well means this line does not depend on that
-    # having happened.
-    _log_dispatch_capacity()
     app = mcp.streamable_http_app()  # Starlette app exposing POST/GET /mcp
     # Drain analytics on ASGI shutdown, before uvicorn's event loop closes.
     attach_shutdown_drain(app)
+    # Size and install the read pool at ASGI startup, and emit the capacity
+    # line from there. **After ``attach_shutdown_drain``, on purpose:** the
+    # wrapper attached last is the outermost, so the pool exists before the
+    # SDK's session manager starts, and at shutdown the PostHog drain — which
+    # uses ``asyncio.to_thread`` — still runs on a live pool before this
+    # wrapper exits. The capacity line used to be emitted right here, after
+    # ``build_mcp``, and that ordering was the fix for #3393: before
+    # ``FastMCP.__init__`` nothing had configured logging and the record was
+    # dropped where it stood. The lifespan runs later still, so that property
+    # is kept — and the line now describes a pool that exists rather than one
+    # it expected.
+    attach_read_pool(app)
     # Unauthenticated health endpoint for the hosting platform.
     app.router.routes.append(Route("/healthz", _healthz, methods=["GET"]))
     # GET /api/agent/primer. Authenticates INSIDE its own handler, in both modes:

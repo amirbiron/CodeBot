@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 from mcp_server import docs_handlers
-from services import doc_sections, rst_parser
+from services import doc_sections, md_parser, rst_parser
 
 _ROOT = Path(__file__).resolve().parents[1]
 _DOC_SECTIONS_SRC = _ROOT / "services" / "doc_sections.py"
@@ -152,25 +152,93 @@ def test_doc_sections_pulls_no_heavy_modules(tmp_path):
     assert proc.stdout.strip() == "", f"נגררו מודולים כבדים: {proc.stdout.strip()}"
 
 
-def test_every_name_the_handler_uses_survives_the_reexport():
-    """כל ``rst_parser.<attr>`` ש-``docs_handlers`` כותב באמת קיים.
+_PARSER_MODULES = {
+    "doc_sections": doc_sections,
+    "md_parser": md_parser,
+    "rst_parser": rst_parser,
+}
 
-    **נגזר מהמקור של הצרכן ולא מרשימה מוקלדת**, כי רשימה מוקלדת היא בדיוק
-    המקום השני לסנכרן: מי שיוסיף מחר קריאה ל-``rst_parser.section_bounds``
-    ב-handler לא יעדכן רשימה בטסט, והשומר היה ממשיך לדווח ירוק על משטח
-    שכבר אינו מכוסה.
+
+def _attribute_reads(path: Path) -> dict[str, set[str]]:
+    """``{שם המודול: {שמות התכונות}}`` שהקובץ הזה קורא, לפי ה-AST.
+
+    רק ``Name.attr`` — כלומר ``rst_parser.build_toc`` ולא מחרוזת בתוך
+    docstring. זה מה שמבדיל קריאה אמיתית מאזכור בתיעוד, ובקבצים האלה יש
+    הרבה מהשני.
     """
-    tree = ast.parse(Path(docs_handlers.__file__).read_text(encoding="utf-8"))
-    used = {
-        node.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "rst_parser"
-    }
-    assert used, "לא נמצאה אף גישה ל-rst_parser ב-docs_handlers — הבדיקה איבדה את הנושא שלה"
-    missing = [name for name in sorted(used) if not hasattr(rst_parser, name)]
-    assert not missing, f"docs_handlers קורא לשמות שאינם קיימים ב-rst_parser: {missing}"
+    found: dict[str, set[str]] = {}
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in _PARSER_MODULES):
+            found.setdefault(node.value.id, set()).add(node.attr)
+    return found
+
+
+def _production_sources() -> list[Path]:
+    """קובצי הייצור שעשויים לצרוך את הייצוא-מחדש. הפארסרים עצמם מוחרגים."""
+    skip = {_ROOT / "services" / name
+            for name in ("doc_sections.py", "md_parser.py", "rst_parser.py")}
+    out = []
+    for folder in ("mcp_server", "services"):
+        out.extend(f for f in sorted((_ROOT / folder).rglob("*.py")) if f not in skip)
+    return out
+
+
+def test_every_name_a_consumer_reaches_through_a_parser_module_really_exists():
+    """כל ``<מודול>.<תכונה>`` שקוד ייצור כותב על אחד השלושה — קיים באמת.
+
+    **נגזר מהמקור של הצרכנים ולא מרשימה מוקלדת**, כי רשימה מוקלדת היא בדיוק
+    המקום השני לסנכרן: מי שיוסיף מחר קריאה ל-``rst_parser.section_bounds``
+    לא יעדכן רשימה בטסט, והשומר היה ממשיך לדווח ירוק על משטח שכבר אינו מכוסה.
+
+    **והצרכנים עצמם נסרקים ולא נמנים, וזה תיקון ללקח שנלמד כאן.** הגרסה
+    הראשונה של השומר הזה בדקה את ``docs_handlers`` בלבד, ואיבדה את הנושא
+    שלה ברגע שהוא עבר לקרוא ל-``doc_sections`` ישירות — מה שקרה בפועל
+    ב-PR שחיווט את ``md_parser``. היא **אמרה** את זה בקול, כי היה בה
+    ``assert used``, וזה בדיוק מה שהפריד בין שומר שמתפוגג בשקט לבין אחד
+    שמבקש לעדכן אותו. הסריקה על כל ``mcp_server/`` ו-``services/`` היא מה
+    שמעביר אותו לצרכן הבא בלי שאיש יזכור.
+    """
+    seen: dict[str, set[str]] = {}
+    missing: list[str] = []
+    for source in _production_sources():
+        for module_name, attrs in _attribute_reads(source).items():
+            seen.setdefault(module_name, set()).update(attrs)
+            module = _PARSER_MODULES[module_name]
+            missing.extend(
+                f"{source.relative_to(_ROOT)}: {module_name}.{attr}"
+                for attr in sorted(attrs) if not hasattr(module, attr)
+            )
+
+    assert seen, "לא נמצאה אף גישה לאחד משלושת המודולים בקוד הייצור — הבדיקה איבדה את הנושא שלה"
+    assert not missing, f"קוד ייצור קורא לשמות שאינם קיימים: {missing}"
+
+
+def test_the_handler_reaches_the_tree_functions_through_the_shared_model():
+    """``docs_handlers`` קורא ל-``doc_sections.X``, ולא ל-``<פארסר>.X``.
+
+    זו הטענה "אין מסלול קוד שני" בצורה שאפשר לבדוק: המודול של הפארסר נבחר
+    לפי הסיומת ומשמש **רק** ל-``parse_document``, וכל השאר זהה לשני
+    הפורמטים.
+
+    **ולמה דווקא כאן טסט התנהגותי אינו מספיק:** ``rst_parser.build_toc``
+    הוא **אותו אובייקט** כמו ``doc_sections.build_toc`` (ייצוא-מחדש, לא
+    עותק), ולכן קריאה דרך השם הלא נכון הייתה עובדת ומחזירה בדיוק את אותן
+    תוצאות — גם על מסמך Markdown. אין שום פלט שיסגיר את זה, ולכן זה נבדק
+    על המקור.
+    """
+    reads = _attribute_reads(Path(docs_handlers.__file__))
+    through_a_parser = {k: sorted(v) for k, v in reads.items() if k != "doc_sections"}
+    assert not through_a_parser, (
+        f"docs_handlers מגיע לשמות דרך מודול של פארסר ולא דרך המודל: {through_a_parser}")
+
+    tree_functions = {"build_toc", "find_sections", "suggest", "section_text",
+                      "neighbors", "direct_subsections"}
+    assert tree_functions <= reads.get("doc_sections", set()), (
+        "docs_handlers הפסיק לקרוא לחלק מפונקציות העץ מ-doc_sections: "
+        f"{sorted(tree_functions - reads.get('doc_sections', set()))}")
 
 
 # ---------------------------------------------------------------------------
