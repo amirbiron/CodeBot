@@ -357,6 +357,53 @@ async def test_an_identifier_query_reaches_the_section_through_the_public_tool(m
     assert "גוף הסעיף" in payload["content"]
 
 
+async def test_a_markdown_section_reaches_the_caller_through_the_public_tool(monkeypatch):
+    """הפיצ'ר של ה-PR הזה, דרך הממשק שהלקוח באמת מפעיל.
+
+    התאום של הטסט שמעליו, ומאותו נימוק (``T1``): ``tests/test_mcp_docs_handlers.py``
+    מוכיח שה-handler מנתב נכון, וזה מוכיח שה**כלי** עושה זאת — דרך
+    הרישום, ולידציית הפרמטרים, ``current_user_id`` וההסבה ל-JSON.
+
+    הקלט הוא הצורה שבה הפיצ'ר באמת ייקרא: מזהה ``K11`` בעמוד Markdown של
+    ``amir-bug-patterns``, עם בקטיקים בכותרת — כלומר גם הניתוב לפי סיומת,
+    גם התאמת המזהה, וגם "הכותרת חוזרת כטקסט מקור" באותה קריאה.
+    """
+    import json
+
+    import mcp_server.server as srv
+
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    title = "K11. כשל שמדווח ב-`return` נבלע"
+    md = f"# דפוסים\n\n## {title}\n\nגוף הסעיף\n\n## K12. משהו אחר\n"
+
+    class _MdRepoBackend(_FakeRepoBackend):
+        def get_file(self, **k):
+            self.asked = dict(k)
+            return {"ok": True, "status": "ok",
+                    "file": {"path": k.get("path"), "ref": "HEAD",
+                             "resolved_commit": "c0ffee"},
+                    "content": md}
+
+    monkeypatch.setattr(srv, "current_user_id", lambda ctx=None: 7)
+
+    repo_backend = _MdRepoBackend()
+    mcp = build_mcp(_FakeBackend(), repo_backend=repo_backend)
+    blocks = await mcp.call_tool("codekeeper_docs_get_section", {
+        "path": "CRITICAL-PATTERNS", "section": "K11",
+        "repo": "amir-bug-patterns",
+    })
+
+    (block,) = blocks
+    payload = json.loads(block.text)
+    assert payload["ok"] is True and payload["mode"] == "section"
+    assert payload["section"] == title           # טקסט מקור, עם הבקטיקים
+    assert "גוף הסעיף" in payload["content"]
+    assert "K12" not in payload["content"]       # הסעיף נגמר לפני הבא באותה רמה
+    assert payload["includes"] == []             # שדה של RST, ריק ב-Markdown
+    # והשורש והסיומת הגיעו מהמדיניות של הריפו, לא מזו של CodeBot.
+    assert repo_backend.asked["path"] == "CRITICAL-PATTERNS.md"
+
+
 async def test_str_replace_is_not_advertised_as_idempotent():
     """``note_str_replace`` דורס אבל **אינו** אידמפוטנטי, ולכן אינו יכול
     לשאת את האנוטציה של ``update_note``.
