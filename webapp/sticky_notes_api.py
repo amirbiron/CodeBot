@@ -40,7 +40,6 @@ from sticky_notes_target import (
 # מצב התזכורת — אותה שכבה טהורה, ומאותה סיבה: שלושה מודולים שואלים "האם
 # התזכורת פעילה", והתשובה חייבת להיות אחת.
 from note_reminder_state import (
-    ACTIVE_REMINDER_STATUSES,
     acknowledge_fields,
     active_reminder_filter,
     seconds_until as _seconds_until,
@@ -995,11 +994,14 @@ def get_note_reminder(note_id: str):
         note = _ensure_user_owns_note(db, user_id, note_id)
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
-        r = db.note_reminders.find_one({
-            'user_id': user_id,
-            'note_id': str(note_id),
-            'status': {'$in': list(ACTIVE_REMINDER_STATUSES)},
-        })
+        # הפילטר המלא, ולא ``status`` לבדו: מסמך שנכתב לפני שהמצב הסופי
+        # היה קיים נושא ``ack_at`` מלא ו-``status`` ישן, ובלי בדיקת
+        # ``ack_at`` הראוט היה מחזיר תזכורת שהמשתמש כבר סגר כאילו היא חיה.
+        r = db.note_reminders.find_one(dict(
+            active_reminder_filter(),
+            user_id=user_id,
+            note_id=str(note_id),
+        ))
         if not r:
             return jsonify({'ok': True, 'reminder': None})
         out = {
@@ -1099,12 +1101,16 @@ def snooze_note_reminder(note_id: str):
         if minutes < 1 or minutes > 24 * 60:
             return jsonify({'ok': False, 'error': 'Invalid minutes'}), 400
         new_time = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+        # גם כאן הפילטר המלא. ``snooze`` מאפס ``ack_at`` בכוונה — דחייה
+        # מחזירה תזכורת למחזור — אבל הוא אמור להחיות תזכורת **פעילה**,
+        # לא כזו שהמשתמש כבר סגר. בלי התנאי, לחיצה על דחייה בהתראה ישנה
+        # הייתה מחזירה לחיים תזכורת שנסגרה מזמן, בשקט.
         r = db.note_reminders.update_one(
-            {
-                'user_id': user_id,
-                'note_id': str(note_id),
-                'status': {'$in': list(ACTIVE_REMINDER_STATUSES)},
-            },
+            dict(
+                active_reminder_filter(),
+                user_id=user_id,
+                note_id=str(note_id),
+            ),
             {'$set': {
                 'status': 'snoozed',
                 'snooze_until': new_time,
@@ -1153,19 +1159,19 @@ def reminders_summary():
         # רק שני השדות שהתשובה נושאת. הקוד הקודם משך את כל המסמכים המלאים
         # ואז השתמש באורך הרשימה ובאיבר הראשון בלבד.
         next_projection = {'note_id': 1, 'file_id': 1, 'remind_at': 1}
-        try:
-            count_due = int(db.note_reminders.count_documents(due_filter))
-        except Exception:
-            count_due = 0
+        # **שאילתה שנכשלה אינה "אין תזכורות".** כאן ישב ``except`` שהחזיר
+        # ``count_due = 0``, והתשובה יצאה ``ok: true, has_due: false`` —
+        # כלומר המשתמש קיבל "הכול נקי" על מסד שלא ענה. עכשיו החריגה עולה
+        # ל-``except`` החיצוני ומוחזרת כ-500, והלקוח מבדיל בין "אין" לבין
+        # "לא ידוע". זה גם מה שהופך את ``next_in_seconds`` לאמין: לקוח
+        # שנרדם לחצי שעה על סמך כשל הוא גרוע מלקוח שדוגם יותר מדי.
+        count_due = int(db.note_reminders.count_documents(due_filter))
         has_due = count_due > 0
         nxt = None
         if has_due:
-            try:
-                first = db.note_reminders.find_one(
-                    due_filter, next_projection, sort=[('remind_at', 1)]
-                )
-            except Exception:
-                first = None
+            first = db.note_reminders.find_one(
+                due_filter, next_projection, sort=[('remind_at', 1)]
+            )
             if first:
                 remind_at = first.get('remind_at')
                 nxt = {
@@ -1177,14 +1183,11 @@ def reminders_summary():
         # צריך מועד, ולכן השאילתה הזו רצה רק כשאין מה להציג.
         next_in_seconds = None
         if not has_due:
-            try:
-                upcoming = db.note_reminders.find_one(
-                    dict(base_filter, remind_at={'$gt': now}),
-                    {'remind_at': 1},
-                    sort=[('remind_at', 1)],
-                )
-            except Exception:
-                upcoming = None
+            upcoming = db.note_reminders.find_one(
+                dict(base_filter, remind_at={'$gt': now}),
+                {'remind_at': 1},
+                sort=[('remind_at', 1)],
+            )
             next_in_seconds = _seconds_until(upcoming.get('remind_at') if upcoming else None, now)
         return jsonify({
             'ok': True,

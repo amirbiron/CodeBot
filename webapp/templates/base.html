@@ -4625,7 +4625,9 @@
         removeDot();
         return backoffMs;
       }
-      if (!r.ok) { removeDot(); return MAX_POLL_MS; }
+      // שגיאת שרת אינה "אין תזכורות" — היא "לא ידוע". נרדמים לרצפה ולא
+      // לתקרה, אחרת תקלה חולפת קונה חצי שעה של שקט.
+      if (!r.ok) { removeDot(); return MIN_POLL_MS; }
       const j = await r.json();
       if (!j || j.ok === false || !j.has_due) {
         removeDot();

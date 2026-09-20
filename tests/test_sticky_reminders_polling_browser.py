@@ -54,7 +54,8 @@ window.__delays = [];
 const _st = window.setTimeout;
 window.setTimeout = function(fn, ms){ window.__delays.push(ms); return _st(fn, 3600000); };
 window.fetch = async function(){
-  return { ok: true, status: 200, headers: { get: () => null }, json: async () => window.__reply };
+  const status = window.__status || 200;
+  return { ok: status < 400, status, headers: { get: () => null }, json: async () => window.__reply };
 };
 """
 
@@ -82,7 +83,7 @@ def _summary(**overrides):
     return reply
 
 
-def _requested_delay(chromium_executable, reply, script) -> int:
+def _requested_delay(chromium_executable, reply, script, status: int = 200) -> int:
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=chromium_executable)
         try:
@@ -90,6 +91,7 @@ def _requested_delay(chromium_executable, reply, script) -> int:
             page.set_content(PAGE)
             page.evaluate(HARNESS)
             page.evaluate(f"window.__reply = {json.dumps(reply)};")
+            page.evaluate(f"window.__status = {int(status)};")
             page.evaluate(script)
             page.wait_for_function("window.__delays.length > 0", timeout=5000)
             return page.evaluate("window.__delays")[-1]
@@ -116,6 +118,16 @@ def test_client_schedules_from_the_server_answer(chromium_executable, name, repl
     delay = _requested_delay(chromium_executable, reply, _polling_script())
     assert delay == expected, f"{name}: ביקש {delay}, ציפינו ל-{expected}"
     assert delay <= INT32_MAX_MS, f"{name}: {delay} חורג מגבול ה-int32 של setTimeout"
+
+
+def test_a_server_error_retries_soon_rather_than_sleeping(chromium_executable):
+    """500 אינו "אין תזכורות" — הלקוח חוזר לרצפה, לא לתקרה.
+
+    כשל בצד השרת הוא "לא ידוע". לקוח שנרדם לחצי שעה על תקלה חולפת מאריך
+    אותה בדיוק בחצי שעה מבחינת המשתמש.
+    """
+    delay = _requested_delay(chromium_executable, _summary(), _polling_script(), status=500)
+    assert delay == MIN_POLL_MS, f"אחרי 500 ביקש {delay} במקום {MIN_POLL_MS}"
 
 
 def test_removing_the_clamp_breaks_the_long_delay(chromium_executable):

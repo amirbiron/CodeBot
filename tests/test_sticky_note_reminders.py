@@ -281,6 +281,40 @@ class TestNoteRemindersAPI(unittest.TestCase):
         self.assertFalse(data['has_due'])
         self.assertIsNone(data['next_in_seconds'])
 
+    def test_summary_fails_loudly_when_the_count_query_fails(self):
+        """שאילתה שנכשלה אינה "אין תזכורות".
+
+        כאן ישב ``except`` שהחזיר ``count_due = 0``, והתשובה יצאה
+        ``ok: true, has_due: false`` — כלומר "הכול נקי" על מסד שלא ענה.
+        הלקוח היה מוחק את הבועה **ונרדם לחצי שעה** על סמך הכשל הזה.
+        """
+        self._login()
+        self._seed_due()
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('mongo is down')
+
+        self.db.note_reminders.count_documents = _boom
+        r = self.client.get('/api/sticky-notes/reminders/summary')
+        self.assertEqual(r.status_code, 500, 'כשל במסד הוחזר כתשובה תקינה')
+        self.assertFalse(r.get_json()['ok'])
+
+    def test_get_reminder_ignores_an_acknowledged_one(self):
+        """מסמך ישן — ``ack_at`` מלא ו-``status`` שנשאר פעיל — אינו תזכורת חיה."""
+        self._login()
+        self._seed_due(ack_at=datetime.now(timezone.utc))
+        r = self.client.get(f'/api/sticky-notes/note/{self.note_id}/reminder')
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.get_json()['reminder'])
+
+    def test_snooze_does_not_revive_an_acknowledged_reminder(self):
+        """דחייה מחיה תזכורת פעילה, לא כזו שהמשתמש כבר סגר."""
+        self._login()
+        doc = self._seed_due(ack_at=datetime.now(timezone.utc))
+        r = self.client.post(f'/api/sticky-notes/note/{self.note_id}/snooze', json={'minutes': 10})
+        self.assertEqual(r.status_code, 404)
+        self.assertIsNotNone(doc['ack_at'], 'התזכורת הוחייתה בשקט')
+
     def test_summary_rejects_non_dict_json_body(self):
         """גוף JSON שאינו אובייקט מקבל 400, לא 500."""
         self._login()

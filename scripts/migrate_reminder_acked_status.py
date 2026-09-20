@@ -20,6 +20,16 @@ Options:
     --dry-run    מציג מה יעודכן בלי לכתוב כלום
 """
 import sys
+from pathlib import Path
+
+#: **שורש הריפו נכנס ל-``sys.path`` מפורשות.** ‏``python scripts/X.py``
+#: שם ב-``sys.path[0]`` את התיקייה של **הסקריפט** — ``scripts/`` — ולא את
+#: ספריית העבודה, ולכן ``services`` ו-``note_reminder_state`` אינם נמצאים
+#: גם כשמריצים מתוך שורש הפרויקט. נמדד: ההרצה נפלה על
+#: ``No module named 'services'`` בדיוק מהתיקייה שההודעה ממליצה עליה.
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 
 def main():
@@ -39,8 +49,8 @@ def main():
         )
     except ImportError as e:
         print(f"❌ חסרות תלויות: {e}")
-        print("\nהרץ מתוך תיקיית הפרויקט:")
-        print("  cd /path/to/project && python scripts/migrate_reminder_acked_status.py")
+        print("\nהתקינו את תלויות הפרויקט:")
+        print("  pip install -r requirements/production.txt")
         sys.exit(1)
 
     db = get_db()
