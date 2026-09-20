@@ -876,6 +876,65 @@ def test_the_colour_param_doc_is_derived_from_the_palette():
     assert "refused" in doc
 
 
+async def test_the_path_param_doc_names_every_repo_and_suffix_the_policy_knows():
+    """מה שהסוכן קורא על ``path`` נגזר מטבלת המדיניות, ולא מוקלד לצידה.
+
+    אותו נימוק בדיוק שמעל ``test_the_colour_param_doc_is_derived_from_the_palette``:
+    ריפו שיתווסף לטבלה בלי שהתיאור יעודכן היה הופך לפיצ'ר שאף לקוח קורא
+    עליו, ולהפך — ריפו שיוסר היה משאיר הבטחה שקרית.
+
+    **ההתאמה היא על הערך המלא ולא על תת-מחרוזת.** ``".md" in doc`` היה
+    עובר גם על ``".mdx"``, ו-``"CodeBot" in doc`` עובר גם כשהתיאור מדבר
+    על ריפו אחר שהשם שלו מכיל אותו.
+    """
+    from mcp_server import docs_handlers
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    tool = mcp._tool_manager.get_tool("codekeeper_docs_get_section")
+    doc = tool.parameters["properties"]["path"]["description"]
+
+    for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
+        assert re.search(rf"(?<![\w-]){re.escape(repo)}(?![\w-])", doc), repo
+        for suffix in policy.suffixes:
+            assert re.search(rf"(?<!\w){re.escape(suffix)}(?!\w)", doc), suffix
+        root = policy.slug_root
+        assert (f"{root}/" in doc) if root else ("repo root" in doc), repo
+
+    # ושני קודי הסירוב שהפרמטר הזה מייצר מוצהרים, אחרת סוכן שמקבל אותם
+    # אינו יודע אם הוא טעה בנתיב או שהפריסה אינה מכירה את הריפו.
+    assert "suffix_not_allowed" in doc and "repo_not_configured" in doc
+
+
+async def test_the_docs_tool_description_names_both_formats_and_points_at_path():
+    """תיאור הכלי אומר שיש שני פורמטים, ומפנה לפרמטר שמסביר מי מהם היכן.
+
+    ‏``"path" in description`` לבדו אינו מספיק — המילה מופיעה שם ממילא —
+    ולכן הבדיקה היא על ההפניה המפורשת, בדיוק כמו בטסט המקביל על
+    ``section``.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    description = mcp._tool_manager.get_tool("codekeeper_docs_get_section").description
+
+    assert "Markdown" in description and "RST" in description
+    assert "`path` parameter" in description
+    # ומה שכבר לא נכון אסור שיחזור: הכלי אינו מוגבל ל-docs/*.rst.
+    assert "docs/*.rst" not in description
+
+
+async def test_the_section_param_doc_covers_markdown_inline_markup_too():
+    """הכלל "הכותרת חוזרת כטקסט מקור" נאמר לשני הפורמטים ולא רק ל-RST.
+
+    הניסוח הקודם דיבר על ``literal`` בלבד, שהוא סימון של RST. קורא של
+    עמוד Markdown שכותרתו נכתבה ``**K11**`` היה מקבל אפס התאמות ומייחס
+    את זה לבאג — וזו אותה מחלקת הפתעה בדיוק שבגללה סעיף הבקטיקים נכתב
+    מלכתחילה.
+    """
+    from mcp_server.server import _SECTION_PARAM_DOC
+
+    assert "Markdown" in _SECTION_PARAM_DOC
+    assert "``literal``" in _SECTION_PARAM_DOC  # והכלל ל-RST לא נמחק בדרך
+
+
 #: שלושת המשטחים שמתארים לקורא מתי ``suggestions`` מחזיר מזהים.
 #:
 #: **הם התפצלו כבר פעם אחת, וזה מה שהטסט שמתחתם קיים בשבילו.** הקוד עבר
