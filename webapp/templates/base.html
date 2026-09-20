@@ -4457,8 +4457,43 @@
   // מבטיחה שתזכורת שנקבעה ממכשיר אחר (הבוט) תתגלה בתוך זמן סביר.
   const MIN_POLL_MS = 60 * 1000;
   const MAX_POLL_MS = 30 * 60 * 1000;
+  // תקרה על הבקשה עצמה, כי בשרת אין אחת: worker של gevent מודד את השתיקה
+  // של ה-worker ולא את אורך הבקשה (docs/performance-sticky-notes), וחיבור
+  // half-open — מעבר רשת בנייד, NAT שנפל — לא מחזיר שום חבילה, כך ש-fetch
+  // בלי סיגנל תלוי לנצח ואיתו השרשרת כולה: היא דורכת את הטיימר הבא רק
+  // כשהבקשה הנוכחית נגמרת. 15 שניות: המקסימום שנמדד ב-endpoint הוא 5.32
+  // שניות (worker טרי אחרי דיפלוי); ביטול שגוי עולה ניסיון אחד בעוד דקה.
+  // מקור: MDN, AbortSignal.timeout() — Baseline 2024, נדחה עם TimeoutError
+  // ו-fetch דוחה איתו. נמדד ב-Chromium 141: TimeoutError, "signal timed out".
+  const FETCH_TIMEOUT_MS = 15 * 1000;
+  // לא מספר בכוונה: schedule() תוחם מספרים לרצפה, ואת זה אסור לו לתחום.
+  const POLL_STOP = Symbol('poll-stop');
   let pollTimer = null;
   let lastPollAt = 0;
+  let inFlight = false;
+  let consecutiveFailures = 0;
+
+  function fetchOpts(){
+    const o = { cache: 'no-store', credentials: 'same-origin' };
+    // דפדפן שאינו מכיר AbortSignal.timeout שולח בלי סיגנל — נפילה-לאחור על
+    // היעדר יכולת סטטי, לא על כשל בזמן ריצה.
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      o.signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    }
+    return o;
+  }
+  // כשל אינו "אין תזכורות" — הוא "לא ידוע", ולכל הכשלים מונה אחד ו-backoff
+  // אחד: דקה, ואז כפול בכל כשל רצוף עד התקרה. ההמתנה נכתבת לאותו
+  // __stickyRemindersBackoffUntil שמשרת את 429, ולכן גם visibilitychange
+  // מכבד אותה. הגרסה הקודמת חזרה כל דקה לנצח — 1440 בקשות ביממה לטאב, פי
+  // חמישה מה-setInterval שהוחלף, ודווקא כשהשרת נופל.
+  function failAndBackOff(){
+    consecutiveFailures += 1;
+    const backoffMs = Math.min(MAX_POLL_MS, MIN_POLL_MS * 2 ** (consecutiveFailures - 1));
+    window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;
+    removeDot();
+    return backoffMs;
+  }
 
   function isMobile(){ return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
   // ניהול פופ־אפ פעיל והאזנות גלובליות
@@ -4503,9 +4538,12 @@
     pop.setAttribute('aria-modal','false');
     pop.style.display = 'block';
     document.body.appendChild(pop);
+    // מצב "לא ידוע": הרשימה לא נקראה. ה-summary אמר שיש תזכורות — זו הסיבה
+    // שהבועה קיימת — ולכן לא מציגים "0 פתקים" ולא מציעים לדחות מה שלא נקרא.
+    const isError = !!(data && data.error);
     const count = Number(data && data.count) || 0;
-    const items = Array.isArray(data && data.items) ? data.items : [];
-    const title = `🔔 יש לך ${count} פתקים שממתינים:`;
+    const items = isError ? [] : (Array.isArray(data && data.items) ? data.items : []);
+    const title = isError ? '🔔 לא הצלחתי לבדוק את התזכורות. נסו שוב בעוד רגע.' : `🔔 יש לך ${count} פתקים שממתינים:`;
     const listHtml = items.map(it => {
       const prev = (it.preview || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       return `<li style="list-style:none; margin:4px 0;"><a href="#" data-note-id="${String(it.note_id || '')}" data-file-id="${String(it.file_id || '')}" class="reminder-link" style="text-decoration:none; color:inherit;">• ${prev || 'פתק ללא כותרת'}...</a></li>`;
@@ -4515,7 +4553,7 @@
       <div class="notif-popover__body">
         <ul style="padding:0; margin:0; max-width: 30ch;">${listHtml}</ul>
         <div class="notif-popover__actions">
-          <button type="button" class="btn btn-secondary" data-action="snooze-ui">דחה לאחר"כ</button>
+          ${isError ? '' : '<button type="button" class="btn btn-secondary" data-action="snooze-ui">דחה לאחר"כ</button>'}
           <button type="button" class="btn btn-primary" data-action="close-ui">סגור</button>
         </div>
       </div>
@@ -4600,19 +4638,25 @@
     });
     const closeBtn = pop.querySelector('[data-action="close-ui"]');
     const snoozeBtn = pop.querySelector('[data-action="snooze-ui"]');
-    if (closeBtn) closeBtn.addEventListener('click', () => { closePopover(); removeDot(); });
+    // במצב "לא ידוע" הבועה נכונה — רק הרשימה לא נקראה — ו"סגור" אינו מוחק אותה.
+    if (closeBtn) closeBtn.addEventListener('click', () => { closePopover(); if (!isError) { removeDot(); } });
     if (snoozeBtn) snoozeBtn.addEventListener('click', () => { closePopover(); /* משאיר את הבועה גלויה */ });
   }
-  // מחזירה כמה מילישניות להמתין עד הבדיקה הבאה. כל יציאה מחזירה ערך —
-  // יציאה שתחזיר undefined פשוט תיפול לתקרה, ולא תשאיר את הלולאה תקועה.
+  // מחזירה כמה מילישניות להמתין עד הבדיקה הבאה, או POLL_STOP. כל כשל —
+  // תשובת שגיאה, שגיאת רשת, timeout, JSON פגום — עובר דרך failAndBackOff,
+  // ולא נופל לתקרה: "לא הצלחתי לברר" אינו "אין מה לתזמן". הגרסה הקודמת
+  // נרדמה ב-catch לחצי שעה על תקלה חולפת.
   async function poll(){
     try {
       if (document.visibilityState && document.visibilityState !== 'visible') { return MAX_POLL_MS; }
       if (typeof window.__stickyRemindersBackoffUntil === 'number' && Date.now() < window.__stickyRemindersBackoffUntil) {
         return window.__stickyRemindersBackoffUntil - Date.now();
       }
-      const r = await fetch('/api/sticky-notes/reminders/summary', { cache: 'no-store', credentials: 'same-origin' });
+      // החותמת לפני הבקשה, לא אחריה: הרצפה של visibilitychange נמדדת מתחילת
+      // הניסיון, גם כשהוא נכשל או תקוע. כשהיא נכתבה אחרי ה-await, רשת מנותקת
+      // הותירה אותה ב-0, וכל מעבר בין אפליקציות בנייד שלח בקשה נוספת.
       lastPollAt = Date.now();
+      const r = await fetch('/api/sticky-notes/reminders/summary', fetchOpts());
       if (r.status === 429) {
         let backoffMs = 15 * 60 * 1000;
         try {
@@ -4625,15 +4669,21 @@
         removeDot();
         return backoffMs;
       }
-      // שגיאת שרת אינה "אין תזכורות" — היא "לא ידוע". נרדמים לרצפה ולא
-      // לתקרה, אחרת תקלה חולפת קונה חצי שעה של שקט.
-      if (!r.ok) { removeDot(); return MIN_POLL_MS; }
+      // הסשן נגמר. הבועה לא יכולה להיות נכונה עד שמתחברים מחדש, ולנסות כל
+      // דקה זה רק להציף את השרת ב-401. עוצרים את השרשרת; visibilitychange
+      // עדיין מנסה פעם אחת בכל חזרה ללשונית, כך שהתחברות בלשונית אחרת מחיה
+      // את הבועה בלי רענון.
+      if (r.status === 401) { removeDot(); return POLL_STOP; }
+      if (!r.ok) { return failAndBackOff(); }
       const j = await r.json();
-      if (!j || j.ok === false || !j.has_due) {
+      // גוף ריק או ok:false אינם "אין תזכורות" — הם "לא ידוע".
+      if (!j || j.ok === false) { return failAndBackOff(); }
+      consecutiveFailures = 0;
+      if (!j.has_due) {
         removeDot();
         // אין מה להציג. השרת אמר מתי התזכורת הבאה מבשילה; אין כזו —
         // נשארים בתקרה, כדי לגלות תזכורת שתיקבע ממכשיר אחר.
-        const nextIn = j && typeof j.next_in_seconds === 'number' ? j.next_in_seconds : null;
+        const nextIn = typeof j.next_in_seconds === 'number' ? j.next_in_seconds : null;
         return nextIn === null ? MAX_POLL_MS : nextIn * 1000;
       }
       const target = isMobile() ? document.querySelector('.mobile-menu-toggle') : document.querySelector('.nav-link[href="/settings"]');
@@ -4644,17 +4694,18 @@
       bubble.textContent = String(j.count_due || 1);
       bubble.onclick = async (ev) => {
         ev.preventDefault();
+        // רשימה שלא נקראה אינה רשימה ריקה. 500, גוף פגום או שגיאת רשת —
+        // כולם "לא ידוע", והחלונית אומרת את זה במקום להציג "0 פתקים".
         try {
-          const lr = await fetch('/api/sticky-notes/reminders/list?limit=20', { cache: 'no-store', credentials: 'same-origin' });
-          const lj = await lr.json().catch(()=>null);
-          openPopover(target, (lj && lj.ok) ? lj : { items: [], count: 0 });
-        } catch(_) { /* ignore */ }
+          const lr = await fetch('/api/sticky-notes/reminders/list?limit=20', fetchOpts());
+          const lj = lr.ok ? await lr.json().catch(()=>null) : null;
+          openPopover(target, (lj && lj.ok) ? lj : { error: true });
+        } catch(_) { openPopover(target, { error: true }); }
       };
       bubble.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bubble.click(); } };
       // הבועה מוצגת. אין דחיפות לשאול שוב — המשתמש כבר רואה שיש לו משהו.
       return MAX_POLL_MS;
-    } catch(_) { removeDot(); }
-    return MAX_POLL_MS;
+    } catch(_) { return failAndBackOff(); }
   }
   function schedule(ms){
     try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}
@@ -4665,8 +4716,15 @@
   }
 
   async function pollAndReschedule(){
+    // גארד: JS חד-חוטי ואין await בין הבדיקה להצבה, ולכן זה אטומי. בלעדיו
+    // visibilitychange באמצע בקשה שלח בקשה שנייה, והתשובה שהגיעה אחרונה
+    // ניצחה — "אין תזכורות" ישן דרס "יש" טרי.
+    if (inFlight) { return; }
+    inFlight = true;
     let nextMs = MAX_POLL_MS;
-    try { nextMs = await poll(); } catch(_) { nextMs = MAX_POLL_MS; }
+    try { nextMs = await poll(); } catch(_) { nextMs = failAndBackOff(); } finally { inFlight = false; }
+    // 401: אין טיימר. הניסיון הבא הוא visibilitychange, פעם אחת לכל פוקוס.
+    if (nextMs === POLL_STOP) { pollTimer = null; return; }
     schedule(nextMs);
   }
 
