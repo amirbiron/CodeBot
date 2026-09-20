@@ -707,6 +707,18 @@ def update_file_description(
       returns what it carried at the time.
     - The file's content and version number do not move.
 
+    **It also stamps the description as checked.** The write sets
+    ``description_set_at_version`` to the version being updated, which is
+    what resets ``description_age_versions`` to 0 — even when the text
+    sent is identical to the one stored. That is deliberate: calling this
+    tool means someone compared the description against the current
+    content, which is exactly what the age is a proxy for. An edit
+    carrying the description forward makes no such claim, and there the
+    stamp stays where it was. The reply says ``unchanged: true`` when the
+    text did not move, so "only the stamp changed" is visible rather than
+    inferred. Clearing the description removes the stamp instead of
+    zeroing it — a file with no description has no age.
+
     **The length ceiling is not enforced here.** It lives on the field, in
     ``database/repository.py`` (``FILE_DESCRIPTION_MAX_CHARS``), and comes back
     as ``description_too_long`` with its ``max``. Re-stating the number in this
@@ -733,8 +745,9 @@ def update_file_description(
     # ``strip`` בלבד, ובמכוון לא יותר: זו בדיוק הנורמליזציה שהראוט בוובאפ
     # מפעיל, ותיאור שנכתב בשני הערוצים צריך להיראות אותו דבר. מחרוזת ריקה
     # אחרי ה-strip היא בקשה תקפה — "נקה את התיאור" — ולא שגיאה.
+    cleaned = description.strip()
     res = backend.update_file_description(
-        user_id, file_name=name, description=description.strip()
+        user_id, file_name=name, description=cleaned
     )
     if not isinstance(res, dict) or not res.get("ok"):
         # ערוץ הכשל של מסלול הכתיבה הוא ערך ההחזרה ולא חריגה, ולכן הבדיקה
@@ -742,15 +755,26 @@ def update_file_description(
         # (``CRITICAL-PATTERNS.md`` K11). ``isinstance`` כלול כי backend
         # שמחזיר ``None`` היה עובר ``.get`` בחריגה ולא בקוד שגיאה.
         return res if isinstance(res, dict) else {"ok": False, "error": "update_failed"}
+    previous_description = (res.get("previous") or {}).get("description")
     return {
         "ok": True,
         "file_name": res.get("file_name") or name,
         # מספר הגרסה מוחזר כדי לומר במפורש שהוא **לא** זז. הוא נקרא
         # מהמסמך שנכתב, לא מהבקשה.
         "version": res.get("version"),
-        "previous_description": (res.get("previous") or {}).get("description"),
-        "description": description.strip(),
+        "previous_description": previous_description,
+        "description": cleaned,
         "version_created": False,
+        # **הקריאה הזו מסמנת את התיאור כנבדק, גם כשהטקסט לא זז.** היא
+        # מאפסת את ``description_age_versions``, כי היא אישור מפורש
+        # שהתיאור הושווה לתוכן הנוכחי — בניגוד להעתקה האוטומטית שעריכה
+        # עושה, שאינה אומרת דבר על התוכן. ``unchanged`` קיים כדי שההבדל
+        # יהיה גלוי: ``true`` פירושו ששום דבר לא השתנה **מלבד** החותמת,
+        # ולא שהקריאה לא עשתה כלום.
+        #
+        # ההשוואה היא מול הערך שנקרא מהמסמך שנכתב, ולא מול מה שהקורא
+        # חשב שכתוב שם.
+        "unchanged": previous_description == cleaned,
     }
 
 

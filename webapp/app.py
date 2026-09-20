@@ -183,6 +183,14 @@ from file_dates import (  # noqa: E402
     file_was_edited,
     version_created_at,
 )
+# גיל התיאור — מודול שורש טהור, אותו כלל בדיוק שמסלול השמירה של הבוט
+# ושל ה-MCP מריץ. ראו file_description.py, ובפרט למה הוא כאן ולא ב-
+# ``database.repository``: ייבוא משם ברמת המודול מפיל את ``import
+# webapp.app`` בסביבה בלי ``MONGODB_URL``, ויש טסט שאוכף את זה.
+from file_description import (  # noqa: E402
+    DESCRIPTION_SET_AT_VERSION_FIELD,
+    description_stamp_for_new_version,
+)
 # מחיקה רכה — מודול שורש טהור, אותה שאילתה שהבוט מריץ. ראו file_deletion.py
 from file_deletion import (  # noqa: E402
     resolve_owned_file_names,
@@ -428,6 +436,38 @@ def _attach_file_size_and_lines(doc: Dict[str, Any], code_value: Any) -> None:
             doc["lines_count"] = int(lines_count)
     except Exception:
         doc["lines_count"] = int(lines_count)
+
+
+def _attach_description_stamp(doc: Dict[str, Any], *previous_docs: Any) -> None:
+    """מוסיף את חותמת גיל התיאור למסמך גרסה שנכתב ישירות ל-DB.
+
+    האח של :func:`_attach_file_size_and_lines`, ומאותה סיבה בדיוק: חמישה
+    ראוטים בקובץ הזה כותבים ``code_snippets.insert_one`` בעצמם ואינם
+    עוברים ב-``save_code_snippet``, ולכן כל שדה נגזר צריך כאן נקודה אחת
+    שכולם קוראים לה. **הכלל עצמו אינו כאן** — הוא ב-``file_description``,
+    ומשם מריצים אותו גם הבוט וגם ה-MCP; מה שכאן הוא רק החיבור אליו.
+
+    ``previous_docs`` נבדקים לפי הסדר והראשון שהוא ``dict`` מנצח, בדיוק
+    כמו ב-``inherited_created_at`` — ומאותה סיבה: הראוטים מחזיקים כמה
+    מועמדים ל"המסמך הקודם" (הגרסה האחרונה, המסמך שנטען לעמוד, הגרסה
+    שמשחזרים), ומיזוג ביניהם היה מאפשר למסמך בלי תיאור לדרוס את זה שיש
+    לו. **המועמד הנכון הוא הגרסה שהתיאור הוצג ממנה עד עכשיו.**
+
+    ``None`` מהכלל פירושו "אל תכתוב את השדה", ולכן אין כאן ענף ``else``
+    שכותב ``None``: מסמך בלי השדה הוא מה שמסלולי הקריאה מתרגמים לגיל
+    ``null``.
+    """
+    previous: Any = None
+    for candidate in previous_docs:
+        if isinstance(candidate, dict):
+            previous = candidate
+            break
+    stamp = description_stamp_for_new_version(
+        previous, doc.get("description"), doc.get("version")
+    )
+    if stamp is not None:
+        doc[DESCRIPTION_SET_AT_VERSION_FIELD] = stamp
+
 
 DEFAULT_LANGUAGE_CHOICES = [
     "python",
@@ -14688,6 +14728,10 @@ def api_restore_file_version(file_id):
     if source_url:
         new_doc['source_url'] = source_url
     _attach_file_size_and_lines(new_doc, code_value)
+    # ``latest_doc`` ראשון ולא ``version_doc``: מה שנשווה אליו הוא התיאור
+    # ש**הוצג** עד עכשיו, כלומר זה של הגרסה האחרונה. שחזור של גרסה ישנה
+    # שנשאה תיאור אחר הוא שינוי תיאור לכל דבר, ואמור לאפס את הגיל.
+    _attach_description_stamp(new_doc, latest_doc, file_doc)
 
     try:
         res = db.code_snippets.insert_one(new_doc)
@@ -15524,6 +15568,10 @@ def edit_file_page(file_id):
                         'is_active': True,
                     }
                     _attach_file_size_and_lines(new_doc, code)
+                    # ``prev`` הוא הגרסה האחרונה של הקובץ, ו-``file`` הוא
+                    # המסמך שנטען לעמוד העריכה. אותו סדר שבו נבחר כאן
+                    # ``created_at`` ממש למעלה.
+                    _attach_description_stamp(new_doc, prev, file)
                     if pinned_info:
                         new_doc['is_pinned'] = True
                         try:
@@ -16726,6 +16774,7 @@ def api_save_shared_file():
             'is_active': True,
         }
         _attach_file_size_and_lines(snippet_doc, code)
+        _attach_description_stamp(snippet_doc, prev)
 
         try:
             res = db.code_snippets.insert_one(snippet_doc)
@@ -17437,6 +17486,7 @@ def upload_file_web():
                         'is_active': True,
                     }
                     _attach_file_size_and_lines(doc, code)
+                    _attach_description_stamp(doc, prev)
                     if clean_source_url:
                         doc['source_url'] = clean_source_url
                     elif not source_url_removed:
@@ -20018,6 +20068,7 @@ def _persist_story_markdown_file(
         'is_active': True,
     }
     _attach_file_size_and_lines(doc, normalized_markdown)
+    _attach_description_stamp(doc, prev)
     story_context: Dict[str, Any] = {}
     if alert_uid:
         story_context['alert_uid'] = alert_uid

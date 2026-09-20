@@ -24,6 +24,12 @@ from webapp.activity_tracker import log_user_event
 
 # תאריכי קובץ — מודול שורש טהור, אותו כלל בדיוק כמו בשכבת ה-DB וב-app.py
 from file_dates import VERSION_CREATED_AT_FIELD, inherited_created_at
+# גיל התיאור — מודול שורש טהור, אותו כלל שמסלול השמירה של הבוט ושל ה-MCP
+# מריץ. ראו file_description.py.
+from file_description import (
+    DESCRIPTION_SET_AT_VERSION_FIELD,
+    description_stamp_for_new_version,
+)
 try:
     from config import config as _cfg  # type: ignore
 except Exception:  # pragma: no cover
@@ -1364,6 +1370,14 @@ def _save_shared_document_to_user(db_ref, *, user_id: int, doc: Dict[str, Any]) 
         VERSION_CREATED_AT_FIELD: now,
         "is_active": True,
     }
+    # אותו כלל בדיוק שששת מסלולי הכתיבה האחרים מריצים: החותמת נגזרת
+    # מהשוואה בין התיאור שנכתב עכשיו לזה של הגרסה הקודמת, ולעולם אינה
+    # מועתקת ביד. ראו ``file_description.py``.
+    description_stamp = description_stamp_for_new_version(
+        prev, payload.get("description"), payload.get("version")
+    )
+    if description_stamp is not None:
+        payload[DESCRIPTION_SET_AT_VERSION_FIELD] = description_stamp
     try:
         res = db_ref.code_snippets.insert_one(payload)
         inserted_id = str(getattr(res, "inserted_id", "") or "")
