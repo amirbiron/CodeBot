@@ -1,5 +1,8 @@
 """Smoke tests for the FastMCP wiring (tools registered, health route present)."""
 
+import re
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("mcp")
@@ -673,10 +676,21 @@ async def test_the_tool_description_points_at_the_parameters_that_carry_the_deta
 #: לסוכן חתוך באמצע המשפט על RST ועל ``symbol=`` — שני פיצ'רים שעבדו ואף
 #: לקוח לא קרא עליהם.
 #:
-#: הבחירה ב-1,400: אחרי הפיצול הכלי הארוך ביותר הוא 1,125, השני אחריו
-#: ``codekeeper_docs_get_section`` ב-652, והחציון של 29 הכלים הוא 303.
-#: כלומר המספר נותן מרווח למשפט-שניים של גדילה טבעית, ונשאר הרבה מתחת
-#: לאזור שבו החיתוך נצפה בפועל.
+#: הבחירה ב-1,400: הכלי הארוך ביותר מבין 30 הכלים הוא
+#: ``codekeeper_get_repo_file`` ב-1,125 תווים. כלומר המספר נותן מרווח
+#: למשפט-שניים של גדילה טבעית, ונשאר הרבה מתחת לאזור שבו החיתוך נצפה
+#: בפועל.
+#:
+#: **שלושת המספרים בשורות האלה אינם פרוזה — הם מושווים לקוד בכל ריצה**
+#: ב-``test_the_ceiling_rationale_matches_what_the_tools_actually_carry``.
+#: הנוסח הקודם מנה שלושה מספרים אחרים, ו**שלושתם התיישנו בלי שאיש ידע**:
+#: הוא טען שהשני אחרי הארוך ביותר הוא ``codekeeper_docs_get_section``
+#: ב-652 — בזמן שהוא כבר היה 823, והשני בפועל היה כלי אחר לגמרי. מספר
+#: שמתאר מצב ומתעדכן בנפרד ממנו הוא ``state-record-without-state-change``,
+#: והתרופה היא לא לעדכן אותו אלא לקשור אותו. **והתקדים כבר בריפו:**
+#: ``services/md_parser.py`` משווה את שני המספרים שבפרוזה שלו למחוללים
+#: ב-``tests/test_md_parser_oracle.py::test_the_generated_shape_count_matches_the_prose``,
+#: מאותו נימוק בדיוק.
 #:
 #: .. warning::
 #:
@@ -717,6 +731,58 @@ async def test_no_tool_description_exceeds_the_truncation_budget():
         f"סופו: {over}. העבירו את העודף ל-Field(description=...) של הפרמטר "
         f"שהוא מתאר, במקום למחוק אותו."
     )
+
+
+#: שלושת המספרים שההנמקה מעל :data:`_TOOL_DESCRIPTION_MAX_CHARS` נוקבת
+#: בהם, בסדר שבו הם מופיעים שם: כמה כלים, מי הארוך ביותר, וכמה תווים יש בו.
+_CEILING_RATIONALE_RE = re.compile(
+    r"הכלי הארוך ביותר מבין (?P<tools>[\d,]+) הכלים הוא\s*\n"
+    r"#: ``(?P<name>[a-z_]+)`` ב-(?P<chars>[\d,]+) תווים"
+)
+
+
+def _int(text: str) -> int:
+    """מספר מהפרוזה, בלי הפסיקים שמפרידים אלפים."""
+    return int(text.replace(",", ""))
+
+
+async def test_the_ceiling_rationale_matches_what_the_tools_actually_carry():
+    """ההנמקה שמעל התקרה מתארת את המצב **של היום**, ולא של יום שעבר.
+
+    **זה שומר על נימוק, לא על התנהגות — וזו בדיוק הסיבה שהוא נחוץ.** מספר
+    בפרוזה אינו מפיל שום דבר כשהוא מתיישן: הוא פשוט הופך למשפט שקרי שהקורא
+    הבא בונה עליו. הנוסח שקדם לטסט הזה טען ש-``codekeeper_docs_get_section``
+    הוא השני באורכו ב-652 תווים; במדידה הוא היה 823, והשני בפועל היה כלי
+    אחר. אף בדיקה לא צעקה, כי לא היה מה שיצעק.
+
+    **ולמה דווקא שלושת המספרים האלה ולא גם החציון.** הם אלה שנושאים את
+    הטיעון — "התקרה גבוהה מהארוך ביותר, עם מרווח" — ולכן דווקא הם חייבים
+    להיות נכונים. החציון היה קישוט, והוא גם הפריט הרגיש ביותר: כל עריכת
+    תיאור שמזיזה את הכלי האמצעי הייתה מפילה את ה-CI בלי שאיש למד משהו.
+    שומר שצועק על רעש מאומן להתעלם ממנו.
+
+    **ואותה רשימת כלים בדיוק כמו התקרה עצמה** — ``_tool_manager.list_tools()``
+    ולא ``mcp.list_tools()``, מהנימוק שכתוב ב-
+    ``test_no_tool_description_exceeds_the_truncation_budget``. הכלי שבגללו
+    התקרה קיימת נעדר מהתצוגה המסוננת.
+    """
+    source = Path(__file__).read_text(encoding="utf-8")
+    stated = _CEILING_RATIONALE_RE.search(source)
+    assert stated, "ההנמקה מעל התקרה שינתה צורה — הטסט הזה איבד את מה שהוא משווה"
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    lengths = {tool.name: len(tool.description or "")
+               for tool in mcp._tool_manager.list_tools()}
+    longest = max(lengths, key=lambda name: (lengths[name], name))
+
+    assert _int(stated["tools"]) == len(lengths), (
+        f"ההנמקה אומרת {stated['tools']} כלים, ובפועל יש {len(lengths)}")
+    assert stated["name"] == longest, (
+        f"ההנמקה אומרת שהארוך ביותר הוא {stated['name']}, ובפועל {longest}")
+    assert _int(stated["chars"]) == lengths[longest], (
+        f"ההנמקה אומרת {stated['chars']} תווים, ובפועל {lengths[longest]}")
+    assert lengths[longest] < _TOOL_DESCRIPTION_MAX_CHARS, (
+        "הטיעון שההנמקה נושאת — שהתקרה גבוהה מהארוך ביותר — כבר אינו נכון")
 
 
 async def test_get_file_description_points_at_the_query_parameter():

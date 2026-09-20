@@ -101,6 +101,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -324,6 +325,18 @@ def main(argv: list[str] | None = None) -> int:
     if not corpus.is_dir():
         print(f"אין תיקיית קורפוס: {corpus}", file=sys.stderr)
         return 2
+
+    # **הריפו שהסוללה מדברת עליו מקובע כאן, ולא נגזר מהסביבה.**
+    # ``MCP_DOCS_REPO`` קובע מאז מדיניות הנתיבים לכל ריפו **גם את השורש וגם
+    # את הפורמט** של קריאה שאינה נוקבת בריפו — כלומר בסביבה שבה הכניסה
+    # הראשונה אינה ``CodeBot``, כל הסוללה הזאת הייתה מקבלת
+    # ``suffix_not_allowed`` ו"אפס דיף" היה מתאר שתי הרצות ריקות באותה מידה.
+    # הקיבוע נעשה במשתנה הסביבה ולא כארגומנט לכל קריאה, משתי סיבות: הוא
+    # מכסה גם את אתרי הקריאה שיתווספו מחר בלי שאיש יזכור, והוא **אינו משנה
+    # את ה-JSONL** — ``repo`` שהיה נכנס ל-``query`` של כל רשומה היה שובר את
+    # ההשוואה שהסקריפט קיים בשבילה. הבקרה המכוונת ``repo="not-in-allowlist"``
+    # ממשיכה להידחות, כי היא עדיין אינה ברשימה.
+    os.environ["MCP_DOCS_REPO"] = docs_handlers.DEFAULT_DOCS_REPO
 
     backend = _CorpusBackend(corpus)
     files = sorted(p.relative_to(corpus).as_posix()

@@ -186,6 +186,39 @@ _SYMBOL_PARAM_DOC = (
     "module and symbol=\"backup_service\" does not match it."
 )
 
+# תיאור פרמטר ה-``path`` של ``codekeeper_docs_get_section``, **נגזר מטבלת
+# המדיניות ולא מוקלד לצידה**. אותו נימוק בדיוק שמעל ``_build_note_color_doc``:
+# רשימה שנכתבת ביד מתיישנת בשקט בריפו הבא שיתווסף, והסוכן ממשיך לראות רשימה
+# חלקית בלי שאף בדיקה תשים לב.
+#
+# **והגזירה מהטבלה הסטטית ולא מ-``MCP_DOCS_REPO``.** קריאת משתנה סביבה בזמן
+# ייבוא היא ``import-time-side-effects``, ותיאור הכלי היה משתנה בין פריסות —
+# כלומר שני לקוחות היו קוראים שני חוזים שונים לאותו כלי. מה שה-ENV קובע
+# נאמר בתיאור במילים, בלי למנות ממנו.
+def _build_docs_path_doc() -> str:
+    parts = []
+    for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
+        root = policy.slug_root
+        where = f"under {root}/" if root else "at the repo root"
+        parts.append(f"{repo} — {where}, {' '.join(policy.suffixes)}")
+    return (
+        "Which file to read. Each repo decides where its docs live and in what "
+        "format: " + "; ".join(parts) + ". Give a full path "
+        "(docs/mcp-server.rst, bugbot-rules/race-toctou.md) or a bare slug "
+        "(mcp-server, CRITICAL-PATTERNS) and the root and the suffix are "
+        "filled in. A slug that already contains a slash is taken as written, "
+        "so a file in a sub-directory of a repo rooted at docs/ needs its full "
+        "path. Asking a repo for the format it does not serve is refused with "
+        "suffix_not_allowed plus the list it does serve — it is never looked "
+        "up silently under the other suffix. Which repos are reachable at all "
+        "is MCP_DOCS_REPO, and its first entry is the default; a repo that "
+        "env allows but this tool has no path rule for is refused with "
+        "repo_not_configured."
+    )
+
+
+_DOCS_PATH_PARAM_DOC = _build_docs_path_doc()
+
 #: תיאור הפרמטר ``section`` של ``codekeeper_docs_get_section``.
 #:
 #: **הפירוט יושב כאן ולא בתיאור הכלי, וזו הכרעה שנמדדה.** תיאור הכלי נחתך
@@ -221,7 +254,9 @@ _SECTION_PARAM_DOC = (
     "this path. (2) BACKTICKS: headings are returned as raw source, so a "
     "heading written with ``literal`` markup needs those backticks in the "
     "query too — section=\"MissingGreenlet\" finds nothing when the "
-    "heading reads ``MissingGreenlet``. When a query misses, suggestions "
+    "heading reads ``MissingGreenlet``. The same holds on a Markdown page, "
+    "where a heading written `K11` or **K11** needs those characters in "
+    "the query as well. When a query misses, suggestions "
     "holds a heading that is close to what you typed, whenever the file has "
     "one. ONLY when nothing is close does it instead hold the identifiers "
     f"that DO exist in the file (at most "
@@ -1693,23 +1728,25 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
     @mcp.tool(
         name="codekeeper_docs_get_section",
         description=(
-            "Read ONE section from a CodeKeeper documentation RST file instead of the "
-            "whole file. Prefer this over codekeeper_get_repo_file for docs/*.rst: it "
-            "returns a single section with navigation (breadcrumb, direct subsections, "
-            "prev/next siblings) rather than a 77KB file. Call with NO `section` to get "
-            "the page's table of contents (heading tree) and pick one. Accepts a full "
-            "path (docs/x.rst) or short slug (x). `ref` is a git ref (default: repo "
-            "default branch). For large sections, page with `offset`/`max_chars`. Never "
-            "returns a bare 'not found': a missing section returns the full TOC + "
-            "suggestions; a duplicate heading returns candidates with breadcrumbs. "
-            "See the `section` parameter for how a heading is matched — identifier "
-            "shortcuts (K11, U3) and headings that carry backticks."
+            "Read ONE section from a CodeKeeper documentation file — RST or "
+            "Markdown — instead of the whole file. Prefer this over "
+            "codekeeper_get_repo_file for docs: it returns a single section with "
+            "navigation (breadcrumb, direct subsections, prev/next siblings) rather "
+            "than a 77KB file. Call with NO `section` to get the page's table of "
+            "contents (heading tree) and pick one. Which repo serves which paths, "
+            "in which format, is per-repo — see the `path` parameter. `ref` is a git "
+            "ref (default: repo default branch). For large sections, page with "
+            "`offset`/`max_chars`. Never returns a bare 'not found': a missing "
+            "section returns the full TOC + suggestions; a duplicate heading returns "
+            "candidates with breadcrumbs. See the `section` parameter for how a "
+            "heading is matched — identifier shortcuts (K11, U3) and headings that "
+            "carry backticks."
         ),
         annotations=_READ_ONLY_TOOL,
     )
     def docs_get_section(
         ctx: Context,
-        path: str,
+        path: Annotated[str, Field(description=_DOCS_PATH_PARAM_DOC)],
         section: Annotated[str | None, Field(description=_SECTION_PARAM_DOC)] = None,
         include_subsections: bool = True,
         max_chars: int = 12000,

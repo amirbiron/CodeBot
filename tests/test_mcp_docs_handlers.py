@@ -1,12 +1,13 @@
 """טסטים ל-handler של docs_get_section — עם fake backend שקורא RST אמיתי מ-docs/."""
 
+import functools
 import inspect
 from pathlib import Path
 
 import pytest
 
 from mcp_server import docs_handlers
-from services import doc_sections, rst_parser
+from services import doc_sections, md_parser, rst_parser
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -331,3 +332,528 @@ def test_the_docs_reader_parses_without_any_ceiling(monkeypatch):
     assert inspect.signature(real).parameters["max_sections"].default is None, (
         "ברירת המחדל של max_sections אינה None, ולכן הכלי חסום גם בלי להעביר כלום"
     )
+
+
+# ===========================================================================
+# חיווט ה-Markdown: מדיניות נתיבים לכל ריפו, ניתוב לפי סיומת, ומיפוי סירובים
+# ===========================================================================
+
+
+class _RecordingBackend:
+    """מחזיר טקסט נתון, ושומר את הארגומנטים **כפי שהועברו**.
+
+    ``**kwargs`` ולא חתימה מפורטת, וזה כל העניין: ``_FsBackend`` ו-
+    ``_TextBackend`` למעלה מצהירים ``lines=None``, כלומר הם **בולעים** את
+    הפרמטר ואינם מסוגלים לטעון שלא הועבר. דמה שמצהירה מראש על מה שהיא
+    מצפה לקבל אינה יכולה לבדוק מה באמת נשלח — היא יכולה רק לא ליפול.
+    """
+
+    def __init__(self, text="כותרת\n======\n\nגוף\n"):
+        self._text = text
+        self.kwargs: list[dict] = []
+
+    def get_file(self, **kwargs):
+        self.kwargs.append(dict(kwargs))
+        return {
+            "ok": True, "status": "ok",
+            "file": {"path": kwargs.get("path"), "ref": "HEAD",
+                     "resolved_commit": "c0ffee"},
+            "content": self._text,
+        }
+
+    @property
+    def paths(self) -> list:
+        return [k.get("path") for k in self.kwargs]
+
+
+class _CountingMirror:
+    """מראה שסופרת מה נקרא ממנה, כדי שאפשר יהיה להוכיח ש**לא נגעו בה**.
+
+    ``RepoBackend.get_file`` עוטף את הקריאה למראה ב-``except Exception``,
+    ולכן מראה שמרימה חריגה הייתה מתורגמת ל-``read_failed`` — תוצאה
+    שנראית כמו כשל קריאה ולא כמו חסימה. ספירה מבדילה בין השניים בלי
+    להישען על סמנטיקה של חריגות.
+    """
+
+    def __init__(self, text="# כותרת\n\nגוף\n"):
+        self._text = text
+        self.reads: list[str] = []
+
+    def get_file_at_commit(self, repo, path, commit, **k):
+        self.reads.append(path)
+        return {
+            "success": True, "file_path": path, "resolved_commit": "abc123",
+            "is_binary": False, "content": self._text, "encoding": "utf-8",
+            "size": len(self._text), "lines": self._text.count("\n") + 1,
+        }
+
+    def get_default_branch(self, repo):
+        return "main"
+
+
+def _real_backend(mirror):
+    """``RepoBackend`` אמיתי מעל מראה נתונה — התקדים: ``tests/test_mcp_outline.py``."""
+    from mcp_server.repo_backend import RepoBackend
+
+    return RepoBackend(mirror=mirror)
+
+
+@pytest.fixture
+def both_repos(monkeypatch):
+    """שני הריפואים ברשימת ההיתר — התצורה שהפיצ'ר הזה מתאר.
+
+    ``MCP_DOCS_REPO`` הוא גבול אבטחה שנקרא בכל קריאה, ולכן הוא נקבע
+    במפורש בכל טסט שנוגע בריפו ה-Markdown ולא ב-``autouse`` על הקובץ:
+    fixture גורף היה משנה בשקט את המשמעות של הטסטים הקיימים, שחלקם
+    בודקים דווקא את **ברירת המחדל**.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+
+
+@pytest.fixture
+def md_repo(monkeypatch):
+    """הריפו של ה-Markdown כברירת המחדל, בלי לנקוב בו בכל קריאה."""
+    monkeypatch.setenv("MCP_DOCS_REPO", "amir-bug-patterns,CodeBot")
+
+
+# ---- מדיניות נתיבים לכל ריפו ----
+
+
+def test_a_bare_slug_in_the_markdown_repo_lands_at_the_repo_root(both_repos):
+    """slug בלי ``/`` מקבל את השורש והסיומת של **הריפו שנקבו בו**."""
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path="CRITICAL-PATTERNS",
+                                         repo="amir-bug-patterns")
+    assert out["ok"] and be.paths == ["CRITICAL-PATTERNS.md"]
+
+
+def test_a_nested_slug_in_the_markdown_repo_is_taken_as_written(both_repos):
+    """slug שכבר יש בו ``/`` אינו נעגן — רק הסיומת מתווספת.
+
+    זו ההתנהגות של היום ב-CodeBot (``observability/error_codes`` אינו
+    הופך ל-``docs/observability/...``), והיא נשמרת כמות שהיא. בריפו
+    שהשורש שלו ריק זה פשוט אומר שהנתיב המקונן עובד מאליו.
+    """
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path="bugbot-rules/race-toctou",
+                                         repo="amir-bug-patterns")
+    assert out["ok"] and be.paths == ["bugbot-rules/race-toctou.md"]
+
+
+@pytest.mark.parametrize("repo,path,allowed", [
+    ("CodeBot", "CRITICAL-PATTERNS.md", [".rst"]),
+    ("amir-bug-patterns", "mcp-server.rst", [".md"]),
+])
+def test_asking_a_repo_for_a_format_it_does_not_serve_is_refused_by_name(
+        monkeypatch, repo, path, allowed):
+    """פורמט שהכלי מכיר אך הריפו אינו מגיש → ``suffix_not_allowed``, לא ``not_found``.
+
+    **בלי הסירוב המפורש זו הייתה השמטה שקטה:** הסיומת הייתה מתווספת
+    מעל הקיימת (``CRITICAL-PATTERNS.md.rst``), הקובץ לא היה נמצא,
+    והקורא היה מקבל "לא קיים" על קובץ שקיים — כלומר מחפש את הבאג
+    בקובץ במקום במדיניות.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path=path, repo=repo)
+    assert out["ok"] is False and out["error"] == "suffix_not_allowed"
+    assert out["allowed_suffixes"] == allowed
+    assert out["requested_path"] == path
+    assert be.kwargs == []  # נחסם ב-handler, לפני ה-backend
+
+
+def test_an_unknown_suffix_is_part_of_the_slug_and_not_a_format(both_repos):
+    """סיומת שהכלי אינו מכיר אינה סירוב — היא חלק מהשם, והסיומת מתווספת מעליה.
+
+    ``python-3.13`` הוא slug לגיטימי ש-``splitext`` רואה בו סיומת
+    ``.13`` (נמדד), ולכן דחייה של כל סיומת לא-מוכרת הייתה חוסמת שמות
+    תקינים. התשובה **מהדהדת את הנתיב שחיפשנו**, ולכן אין כאן הפתעה
+    שקטה: הקורא רואה בדיוק מה ביקשנו מהמראה.
+    """
+    be = _RecordingBackend()
+    docs_handlers.docs_get_section(be, path=".claude/settings.json",
+                                   repo="amir-bug-patterns")
+    assert be.paths == [".claude/settings.json.md"]
+
+
+def test_a_dotfile_directory_is_reachable_in_a_repo_rooted_at_its_top(both_repos):
+    """קובץ ``.md`` תחת ``.claude/`` **נגיש**, וזו החלטה ולא תאונה.
+
+    שורש ריק פירושו כל הריפו, בכל עומק. נספר לפני ההחלטה: ב-
+    ``amir-bug-patterns`` יש 95 קבצים, 93 מהם ``.md`` וכולם מסמכי
+    דפוסים שנועדו לקריאה על ידי סוכן, והריפו ציבורי ב-GitHub. שני
+    הקבצים שאינם ``.md`` — ``.claude/settings.json`` ו-``.sh`` —
+    מסוננים ממילא על ידי הסיומת.
+
+    **הטסט קיים כדי שההחלטה תהיה נראית.** מי שיחליט מחר שזה לא רצוי
+    יצמצם את ``roots``, יראה את הטסט הזה נופל, ויידע שהוא משנה הכרעה
+    ולא מתקן באג.
+    """
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path=".claude/notes.md",
+                                         repo="amir-bug-patterns")
+    assert out["ok"] and be.paths == [".claude/notes.md"]
+
+
+# ---- fail-closed ----
+
+
+def test_a_repo_on_the_allowlist_without_a_path_policy_is_refused(monkeypatch):
+    """ה-ENV מתיר, והקוד אינו יודע איפה התיעוד שם → ``repo_not_configured``.
+
+    **ולא נפילה לברירת מחדל מתירנית.** ריפו שמישהו הוסיף ל-ENV בלי
+    להוסיף לו מדיניות היה מוגש תחת המדיניות של CodeBot — כלומר קריאת
+    ``docs/*.rst`` מריפו שאיש לא החליט עליו. זה fail-closed מאותו
+    נימוק שבגללו ``is_denied`` נכשל-סגור.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,ghost-repo")
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path="anything", repo="ghost-repo")
+    assert out == {"ok": False, "error": "repo_not_configured", "repo": "ghost-repo"}
+    assert be.kwargs == []
+
+
+def test_the_first_entry_of_the_env_decides_both_the_repo_and_its_path_rules(md_repo):
+    """הכניסה הראשונה ב-``MCP_DOCS_REPO`` קובעת גם את הפורמט, לא רק את השם.
+
+    זו התנהגות חדשה שנובעת ממדיניות פר-ריפו, והיא נכתבת כאן במפורש כי
+    שינוי **סדר** ב-ENV הפך להיות שינוי התנהגות ולא סידור.
+    """
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path="CRITICAL-PATTERNS")
+    assert out["ok"] and out["repo"] == "amir-bug-patterns"
+    assert be.paths == ["CRITICAL-PATTERNS.md"]
+
+
+def test_a_repo_outside_the_allowlist_is_refused_before_the_path_is_examined(monkeypatch):
+    """ריפו אסור נדחה **לפני** הנתיב, גם כששניהם פגומים.
+
+    אחרת קורא שנקב בריפו שאינו רשאי לגעת בו היה לומד ממנו משהו:
+    ``suffix_not_allowed`` מול ``missing_path`` מספר לו מה הפורמט שהריפו
+    ההוא מגיש.
+    """
+    monkeypatch.delenv("MCP_DOCS_REPO", raising=False)
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path="x.md", repo="not-allowed")
+    assert out["ok"] is False and out["error"] == "repo_not_allowed"
+    assert be.kwargs == []
+
+
+# ---- הגבול: traversal, נרמול, ויחידה-ולא-קידומת ----
+
+
+def test_the_root_anchor_is_decided_before_normalisation():
+    """``docs/../secrets`` נדחה — והסדר הוא מה שדוחה אותו.
+
+    הקלט נושא ``/``, ולכן אינו נעגן; אחרי הנרמול הוא ``secrets.rst``,
+    שאינו תחת ``docs/``. מי שיקדים את ``normpath`` לעגינה יקבל
+    ``secrets.rst`` בלי ``/``, יעגן אותו ל-``docs/secrets.rst``,
+    **ויגיש אותו**.
+    """
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path="docs/../secrets", repo="CodeBot")
+    assert out == {"ok": False, "error": "missing_path"}
+    assert be.kwargs == []
+
+
+@pytest.mark.parametrize("bad_path", [
+    "../README.md",
+    "../../etc/passwd.md",
+    "bugbot-rules/../../escape.md",
+])
+def test_traversal_out_of_the_repo_is_refused_even_at_the_repo_root(both_repos, bad_path):
+    """שורש ריק אינו "הכול" — הוא "כל דבר **בתוך** הריפו"."""
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path=bad_path, repo="amir-bug-patterns")
+    assert out == {"ok": False, "error": "missing_path"}
+    assert be.kwargs == []
+
+
+@pytest.mark.parametrize("dots", ["..", "."])
+def test_a_path_that_is_only_dots_becomes_a_harmless_name_and_not_an_escape(
+        both_repos, dots):
+    """``".."`` אינו טיפוס מעל הריפו — הסיומת הופכת אותו לשם קובץ שאינו קיים.
+
+    **וזה ההתנהגות של היום, לא הכרעה חדשה:** גם ב-CodeBot ``path=".."``
+    הופך ל-``docs/...rst`` ומחזיר ``not_found``. מה שנבדק כאן הוא
+    שהשורש הריק לא הפך את המקרה הזה למשהו אחר.
+
+    **ובדרך הוא גם מקבע את מה שהפיל אותנו:** ``splitext("...md")`` מחזיר
+    סיומת **ריקה**, ולכן גזירה שנייה של הסיומת מהנתיב המוגמר הייתה
+    מפילה ``KeyError`` מתוך בקשה. הטסט הזה נפל בדיוק כך לפני התיקון.
+    """
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path=dots, repo="amir-bug-patterns")
+    assert out["ok"]
+    assert be.paths == [dots + ".md"]
+
+
+def test_a_traversal_that_stays_inside_the_repo_resolves_to_what_it_points_at(both_repos):
+    """``..`` אינו מילה אסורה — הוא נרמול. מה שנבדק הוא **לאן** הוא מגיע."""
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path="bugbot-rules/../README",
+                                         repo="amir-bug-patterns")
+    assert out["ok"] and be.paths == ["README.md"]
+
+
+def test_a_root_is_matched_as_a_path_unit_and_not_as_a_prefix(monkeypatch):
+    """``docsecret/x`` אינו תחת ``docs/`` — זו מחלקת הבאג ``K16``.
+
+    נבדק על ריפו סינתטי ולא על CodeBot, כי הדוגמה צריכה להיות נתיב
+    שמתחיל **באותם תווים** בלי שום קשר היררכי, ובקורפוס האמיתי אין
+    כזה. ``norm.startswith("docs")`` בלי המפריד מקבל אותו.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,synthetic")
+    monkeypatch.setitem(docs_handlers.DOCS_PATH_POLICY, "synthetic",
+                        docs_handlers._DocsPathPolicy(roots=("docs",),
+                                                      suffixes=(".rst",)))
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path="docsecret/x", repo="synthetic")
+    assert out == {"ok": False, "error": "missing_path"}
+    assert be.kwargs == []
+
+
+def test_a_leading_slash_is_tolerated_and_the_answer_says_what_was_looked_up(both_repos):
+    """נתיב שמתחיל ב-``/`` מקוצץ ולא נדחה — ההתנהגות של היום, מקובעת.
+
+    סוכן שמדביק ``/docs/mcp-server.rst`` מקבל תשובה במקום סירוב, והנתיב
+    בתשובה אומר לו בדיוק מה נקרא.
+    """
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path="/CRITICAL-PATTERNS",
+                                         repo="amir-bug-patterns")
+    assert out["ok"] and out["path"] == "CRITICAL-PATTERNS.md"
+
+
+# ---- מדיניות הסודות, דרך ה-RepoBackend האמיתי ----
+
+
+@pytest.mark.parametrize("repo,path,normalised", [
+    ("CodeBot", "credentials", "docs/credentials.rst"),
+    ("CodeBot", "secrets", "docs/secrets.rst"),
+    ("amir-bug-patterns", "secrets", "secrets.md"),
+    ("amir-bug-patterns", "config/.env", "config/.env.md"),
+])
+def test_the_secrets_denylist_reaches_this_tool_through_the_real_backend(
+        monkeypatch, repo, path, normalised):
+    """נתיב שתואם דפוס סוד נחסם גם בכלי הציבורי, **והמראה לא נגעה**.
+
+    **דרך ``RepoBackend`` האמיתי ולא דרך דמה.** ``_FsBackend`` ו-
+    ``_TextBackend`` שבראש הקובץ קוראים מהדיסק ישירות ולעולם אינם
+    עוברים דרך ``is_denied`` — טסט סודות שנכתב מולם היה עובר בלי לבדוק
+    שום דבר. זו בדיוק מחלקת הכשל ``T1`` ב-``amir-bug-patterns``: הבדיקה
+    עוברת בממשק שאף צרכן אינו משתמש בו.
+
+    **ו-``mirror.reads == []`` ולא רק קוד השגיאה:** הוא מוכיח שהחסימה
+    קרתה **לפני** נגיעה במראה, שזו כל הנקודה של מדיניות שנכשלת-סגור.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    mirror = _CountingMirror()
+    out = docs_handlers.docs_get_section(_real_backend(mirror), path=path, repo=repo)
+    assert out["ok"] is False and out["error"] == "path_denied"
+    assert out["path"] == normalised
+    assert mirror.reads == []
+
+
+def test_an_ordinary_page_does_reach_the_mirror_through_the_same_backend(monkeypatch):
+    """ריצת הבקרה לטסט שמעליו: בלי אותו נתיב, המראה **כן** נקראת.
+
+    בלי השורה הזאת ``mirror.reads == []`` היה יכול להיות נכון מסיבה
+    אחרת לגמרי — backend שבור, ref שגוי, או מראה שלא חוברה בכלל.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "amir-bug-patterns")
+    mirror = _CountingMirror()
+    out = docs_handlers.docs_get_section(_real_backend(mirror), path="README",
+                                         repo="amir-bug-patterns")
+    assert out["ok"] and mirror.reads == ["README.md"]
+
+
+# ---- ניתוב לפי סיומת ----
+
+
+def test_a_markdown_page_is_parsed_by_the_markdown_parser(both_repos):
+    """``# כותרת`` הוא סעיף ב-Markdown — וב-RST הוא הערה, כלומר אפס סעיפים."""
+    text = "# כותרת\n\nגוף\n"
+    md = docs_handlers.docs_get_section(_TextBackend(text), path="x.md",
+                                        repo="amir-bug-patterns")
+    assert [t["title"] for t in md["toc"]] == ["כותרת"]
+    assert rst_parser.parse_document(text).sections == []
+
+
+def test_an_rst_page_is_still_parsed_by_the_rst_parser():
+    """``~~~~~~`` הוא קו כותרת ב-RST — וב-Markdown הוא גדר קוד, כלומר אפס כותרות."""
+    text = "כותרת\n~~~~~~\n\nגוף\n"
+    out = docs_handlers.docs_get_section(_TextBackend(text), path="x.rst",
+                                         repo="CodeBot")
+    assert [t["title"] for t in out["toc"]] == ["כותרת"]
+    assert md_parser.parse_document(text).sections == []
+
+
+def test_the_parser_table_holds_modules_so_a_monkeypatch_on_the_module_is_seen(
+        monkeypatch):
+    """הטבלה מחזיקה **מודולים**, ולכן החלפת ``parse_document`` עליהם נתפסת.
+
+    **וזה מה ש-``test_the_docs_reader_parses_without_any_ceiling`` אינו
+    תופס.** אילו הטבלה הייתה מחזיקה את הפונקציה עצמה, היא הייתה קופאת
+    על המקורית, ה-spy היה נעקף **בשקט**, ו-``passed`` שם היה נשאר ריק —
+    כלומר ``passed.get("max_sections") is None`` היה ממשיך לעבור. שומר
+    שעובר משתי סיבות שונות אינו שומר.
+    """
+    calls = []
+    real = rst_parser.parse_document
+
+    def spy(text, **kwargs):
+        calls.append(text)
+        return real(text, **kwargs)
+
+    monkeypatch.setattr(docs_handlers.rst_parser, "parse_document", spy)
+    docs_handlers.docs_get_section(_TextBackend("א\n=\n"), path="x.rst", repo="CodeBot")
+    assert len(calls) == 1, "הפארסר נקרא דרך הפניה שהוקפאה, וה-monkeypatch נעקף"
+
+
+# ---- מיפוי שתי חריגות הסירוב ----
+
+
+def test_a_lone_cr_in_markdown_is_refused_by_name_with_the_file_it_came_from(both_repos):
+    """``\\r`` בודד → ``inconsistent_line_endings``, עם ההקשר שמאפשר לפתוח את הקובץ.
+
+    **הפארסר האמיתי, החריגה האמיתית.** הקלט הוא הצורה שבה ``split("\\n")``
+    ו-``splitlines()`` נותנים אותו מספר שורות ובכל זאת המפה זזה — כלומר
+    שומר שמשווה ספירות היה עובר אותו.
+    """
+    out = docs_handlers.docs_get_section(
+        _TextBackend("# א\n\n## ב\rטקסט\n\n## ג\n"),
+        path="x.md", repo="amir-bug-patterns")
+    assert out["ok"] is False and out["error"] == "inconsistent_line_endings"
+    assert out["repo"] == "amir-bug-patterns" and out["path"] == "x.md"
+    assert out["resolved_commit"] == "c0ffee"
+
+
+def test_a_markdown_file_over_the_heading_ceiling_is_refused_by_name(both_repos, monkeypatch):
+    """חריגה מהתקרה → ``too_many_sections``, ולא חריגה שבורחת מהכלי.
+
+    **התקרה מוקטנת במקום להגדיל את הקלט, וזה נימוק ולא נוחות.** קלט
+    של ``MAX_SECTIONS + 1`` כותרות אמיתיות הוא מאות מגה-בייט בכל ריצת
+    CI, והמחיר שלו צמוד לקבוע שהוא מגן עליו — כלומר הוא מתדרדר בדיוק
+    כשהמערכת גדלה. אותו נימוק בדיוק כתוב ב-
+    ``test_the_docs_reader_parses_without_any_ceiling`` שמעליו.
+    """
+    real = md_parser.parse_document
+    monkeypatch.setattr(md_parser, "parse_document",
+                        functools.partial(real, max_sections=5))
+    text = "".join(f"# כותרת {i}\n\n" for i in range(6))
+    out = docs_handlers.docs_get_section(_TextBackend(text), path="x.md",
+                                         repo="amir-bug-patterns")
+    assert out["ok"] is False and out["error"] == "too_many_sections"
+    assert out["path"] == "x.md"
+
+
+def test_the_two_refusals_are_mapped_whichever_parser_raised_them(monkeypatch):
+    """ה-``except`` אינו מותנה בפארסר שפרסר, וגם RST מקבל את אותו קוד.
+
+    התניה על ``parser is md_parser`` הייתה רשימה שנייה לסנכרן: ביום
+    שתקרה תתווסף למסלול ה-RST (אישו נפרד), הסירוב היה בורח מהכלי
+    כחריגה גולמית.
+    """
+    real = rst_parser.parse_document
+    monkeypatch.setattr(docs_handlers.rst_parser, "parse_document",
+                        functools.partial(real, max_sections=1))
+    out = docs_handlers.docs_get_section(_TextBackend("א\n=\n\nב\n=\n"),
+                                         path="x.rst", repo="CodeBot")
+    assert out["ok"] is False and out["error"] == "too_many_sections"
+
+
+# ---- תקרות: צורת הקריאה, והתקרה האפקטיבית של Markdown ----
+
+
+def test_the_reader_asks_for_the_whole_file_and_so_keeps_the_display_ceiling(both_repos):
+    """הקריאה ל-backend נושאת בדיוק ``repo``, ``path`` ו-``ref`` — ותו לא.
+
+    **הטענה היא על הצורה ולא על המספר.** ``lines`` או ``outline`` היו
+    מעבירים את ``RepoBackend`` ל-``RANGE_READ_MAX_BYTES`` (10MB) במקום
+    ל-500KB של שירות המראה, כלומר פי עשרים קלט לפרסור — ושום מספר
+    בקוד הזה לא היה משתנה כדי להסגיר את זה.
+    """
+    be = _RecordingBackend()
+    docs_handlers.docs_get_section(be, path="x.md", repo="amir-bug-patterns")
+    assert set(be.kwargs[0]) == {"repo", "path", "ref"}
+
+
+def test_the_markdown_reader_is_capped_by_the_parser_default(both_repos, monkeypatch):
+    """התקרה האפקטיבית של מסלול ה-Markdown היא ``MAX_SECTIONS``.
+
+    **התמונה ההפוכה של ``test_the_docs_reader_parses_without_any_ceiling``**,
+    ושתי הטענות מאותו סוג: הכלי אינו מעביר תקרה, וברירת המחדל בחתימה
+    **היא** התקרה. העברה מפורשת של ``md_parser.MAX_SECTIONS`` מה-handler
+    הייתה עותק שני של אותה החלטה, ו-PR הפארסר כבר הכריע אותה ונימק
+    למה ברירת המחדל שם הפוכה מזו של RST.
+    """
+    passed: dict = {}
+    real = md_parser.parse_document
+
+    def spy(text, **kwargs):
+        passed.update(kwargs)
+        return real(text, **kwargs)
+
+    monkeypatch.setattr(docs_handlers.md_parser, "parse_document", spy)
+    out = docs_handlers.docs_get_section(_TextBackend("# א\n"), path="x.md",
+                                         repo="amir-bug-patterns")
+
+    assert out["ok"] and out["section_count"] == 1
+    assert passed == {}, f"הכלי העביר תקרה לפרסור: {passed}"
+    assert (inspect.signature(real).parameters["max_sections"].default
+            is md_parser.MAX_SECTIONS), (
+        "ברירת המחדל של max_sections ב-md_parser אינה MAX_SECTIONS, "
+        "ולכן מסלול ה-Markdown רץ בלי תקרה")
+
+
+# ---- סנכרון שתי הטבלאות ----
+
+
+def test_every_suffix_a_repo_policy_names_has_a_parser(monkeypatch):
+    """הטבלה שאומרת מה מוגש והטבלה שאומרת מה נפרסר אינן יכולות להיסחף בשקט.
+
+    **שני חצאים.** הראשון על הטבלה החיה; השני מוכיח שהשומר עצמו מסוגל
+    ליפול — בלעדיו "הכול מקיים את היחס" היה יכול להיות נכון גם אם
+    הבדיקה נמחקה מ-``_validate_policy_tables``.
+    """
+    for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
+        for suffix in policy.suffixes:
+            assert suffix in docs_handlers._PARSERS, f"{repo}: {suffix}"
+
+    monkeypatch.setitem(docs_handlers.DOCS_PATH_POLICY, "broken",
+                        docs_handlers._DocsPathPolicy(roots=("",), suffixes=(".txt",)))
+    with pytest.raises(RuntimeError, match="_PARSERS"):
+        docs_handlers._validate_policy_tables()
+
+
+def test_the_default_repo_has_a_path_policy():
+    """הריפו שמוגש כשאיש לא נקב בריפו חייב להיות כזה שהכלי יודע לקרוא.
+
+    בלי זה, פריסה שמנקה את ``MCP_DOCS_REPO`` הייתה מחזירה
+    ``repo_not_configured`` על **כל** קריאה — כלומר הכלי מת בשקט
+    בהגדרה שנראית כמו ברירת מחדל.
+    """
+    assert docs_handlers.DEFAULT_DOCS_REPO in docs_handlers.DOCS_PATH_POLICY
+
+
+# ---- includes ----
+
+
+def test_a_markdown_answer_carries_an_empty_includes_and_not_a_missing_field(both_repos):
+    """``includes`` נשאר בתשובה, וב-Markdown הוא ריק.
+
+    אפס כאן אינו "לא בדקנו" אלא "אין מה לבדוק" — ל-Markdown אין צורה
+    של ``.. include::``. השמטת השדה הייתה שוברת קורא שכותב
+    ``res["includes"]``, ומוסיפה מקום שלישי שבו סמנטיקת הסיומת חיה.
+    """
+    out = docs_handlers.docs_get_section(_TextBackend("# א\n"), path="x.md",
+                                         repo="amir-bug-patterns")
+    assert out["includes"] == []
+
+
+def test_an_rst_answer_still_lists_its_includes():
+    """ריצת הבקרה: בפורמט שיש לו הכללות, השדה עדיין מתמלא."""
+    out = docs_handlers.docs_get_section(
+        _TextBackend("א\n=\n\n.. include:: other.rst\n"), path="x.rst", repo="CodeBot")
+    assert out["includes"] == ["other.rst"]
