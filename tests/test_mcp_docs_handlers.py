@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from mcp_server import docs_handlers
-from services import rst_parser
+from services import doc_sections, rst_parser
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -141,11 +141,13 @@ def test_suggestions_truncated_appears_only_when_the_list_was_cut():
         _TextBackend(_identified_rst("K1. א", "K2. ב")), path="x", section="K99")
     assert "suggestions_truncated" not in few
 
+    # והכמות שסוכן מקבל בפועל היא ברירת המחדל של ``suggest`` ולא התקרה,
+    # כי ה-handler אינו מעביר ``n``. זה המספר שכתוב בתיאור הפרמטר.
     many = docs_handlers.docs_get_section(
         _TextBackend(_identified_rst(*[f"K{i}. טקסט" for i in range(1, 52)])),
         path="x", section="Z9")
     assert many["suggestions_truncated"] is True
-    assert len(many["suggestions"]) == 50
+    assert len(many["suggestions"]) == doc_sections.DEFAULT_SUGGESTIONS == 5
 
 
 def test_ambiguous_section_returns_candidates_with_breadcrumb():

@@ -479,18 +479,33 @@ def test_suggest_prefers_a_close_title_over_the_identifier_list():
 def test_suggest_caps_the_identifier_list_and_says_that_it_cut():
     """התקרה נבדקת בהתנהגות, ולא רק בקיום הקבוע.
 
-    ‏51 מזהים נחתכים ל-50 **והדגל דלוק**; 15 חוזרים במלואם והדגל כבוי.
-    מוטציה שמסירה את החיתוך מפילה את הראשון, ומוטציה שמדליקה את הדגל תמיד
-    מפילה את השני. החיתוך אינו שקט — זה בדיוק ההבדל בין רשימת רמז לבין
-    ``silent-truncation-at-sink``.
+    **שתי תקרות, ושתיהן נבדקות כאן.** ``n`` הוא מה שהקורא ביקש, ו-
+    ``MAX_IDENTIFIER_SUGGESTIONS`` הוא הגבול שהוא אינו יכול לחרוג ממנו;
+    מה שנאכף הוא הקטן מביניהם. קורא שמבקש 100 מקבל 50, וקורא שמבקש 2
+    מקבל 2 — גם כשבקובץ יש עשרות. הצורה השבורה שהייתה כאן קודם אכפה את
+    הקבוע בלבד והתעלמה מ-``n`` לגמרי.
+
+    ובכל אחד מהמקרים **הדגל אומר את האמת**: דלוק כשנחתך, כבוי כשלא.
     """
     over = _identified(*[f"K{i}. טקסט" for i in range(1, 52)])
-    cut = doc_sections.suggest(over, "Z9")
+
+    # הקורא מבקש יותר מהגבול ← הגבול מנצח
+    cut = doc_sections.suggest(over, "Z9", n=100)
     assert len(cut.titles) == doc_sections.MAX_IDENTIFIER_SUGGESTIONS == 50
     assert cut.truncated is True
 
+    # הקורא מבקש פחות מהגבול ← הבקשה מנצחת
+    asked_two = doc_sections.suggest(over, "Z9", n=2)
+    assert len(asked_two.titles) == 2, "‏n אינו נאכף במסלול המזהים"
+    assert asked_two.truncated is True
+
+    # וברירת המחדל היא מה שסוכן דרך הכלי מקבל בפועל
+    default = doc_sections.suggest(over, "Z9")
+    assert len(default.titles) == doc_sections.DEFAULT_SUGGESTIONS == 5
+    assert default.truncated is True
+
     under = _identified(*[f"K{i}. טקסט" for i in range(1, 16)])
-    whole = doc_sections.suggest(under, "Z9")
+    whole = doc_sections.suggest(under, "Z9", n=100)
     assert len(whole.titles) == 15 and whole.truncated is False
 
 
@@ -512,3 +527,44 @@ def test_suggest_returns_a_two_field_namedtuple_and_not_a_list():
 def test_direct_subsections_returns_children_only_and_not_grandchildren(tree_doc):
     father = tree_doc.sections[0]
     assert [s.title for s in doc_sections.direct_subsections(tree_doc, father)] == ["בן א", "בן ב"]
+
+
+def test_suggest_says_that_the_difflib_list_was_cut_too():
+    """הדגל אומר "היו עוד" גם במסלול הכותרות, ולא רק במסלול המזהים.
+
+    **זה היה חצי-מיושם, והחצי החסר הוא בדיוק מה שהדגל נולד למנוע.**
+    ``truncated`` נוסף כדי שרשימה חתוכה לא תיראה שלמה — ובאותה פונקציה,
+    החיתוך של ``difflib`` ב-``n`` המשיך להחזיר ``False``. עמוד עם עשר
+    כותרות קרובות החזיר חמש, ולא אמר דבר.
+
+    שני הכיוונים נבדקים: ``n`` קטן מהמספר שנמצא ← נחתך והדגל דלוק;
+    ``n`` גדול ממנו ← הכול חוזר והדגל כבוי. השני הוא מה שמונע דגל
+    שדלוק תמיד, שהוא חסר-משמעות באותה מידה.
+    """
+    doc = _identified(*[f"מסלול שמירה מספר {i}" for i in range(10)])
+
+    cut = doc_sections.suggest(doc, "מסלול שמירה מספר", n=5)
+    assert len(cut.titles) == 5
+    assert cut.truncated is True, "חיתוך ב-difflib נשאר שקט"
+
+    whole = doc_sections.suggest(doc, "מסלול שמירה מספר", n=100)
+    assert len(whole.titles) == 10 and whole.truncated is False
+
+
+def test_suggest_on_a_document_with_no_headings_returns_empty_instead_of_raising():
+    """מסמך בלי כותרות מחזיר רשימה ריקה — ולא ``ValueError``.
+
+    **זה מסלול חריגה שהתיקון עצמו יצר, ונתפס בקריאת המקור של ``difflib``.**
+    כדי לדעת ש-``difflib`` חתך, הפונקציה מבקשת ממנו את **כל** ההתאמות —
+    ``n=len(norm_map)``. ובמסמך בלי כותרות זה ``n=0``, ו-``get_close_matches``
+    פותח ב-``if not n > 0: raise ValueError``. כלומר במקום
+    ``section_not_found`` היה חוזר 500 מכלי MCP ציבורי, במסלול שאין בו
+    ``try``.
+
+    בקורפוס ה-RST אין קובץ בלי כותרות, אבל קובץ Markdown שכולו פרוזה הוא
+    בדיוק המקרה — והמודול הזה נבנה לשני הפארסרים.
+    """
+    empty = doc_sections.Document(lines=["סתם פסקה", "ועוד אחת"], sections=[])
+
+    assert doc_sections.suggest(empty, "K11") == doc_sections.Suggestions([], False)
+    assert doc_sections.suggest(empty, "כל טקסט אחר") == doc_sections.Suggestions([], False)

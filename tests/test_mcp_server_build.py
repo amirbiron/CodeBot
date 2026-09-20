@@ -884,6 +884,27 @@ def test_the_suggestion_rule_says_the_same_thing_in_the_code_and_in_all_three_su
     )
 
     texts = _suggestion_rule_texts()
+
+    # **והמספר נקשר יחד איתם, כי הוא התפצל בדיוק כאן.** הכמות שסוכן מקבל
+    # נגזרת ב-``server.py`` מ-``DEFAULT_SUGGESTIONS``, אבל שני קובצי ה-RST
+    # אינם יכולים לגזור דבר — הם מחרוזות. נמדד: ברגע שהתקרה בפועל ירדה
+    # מ-50 ל-5, שניהם המשיכו לומר 50 בלי ששום בדיקה תשים לב. לכן המחרוזת
+    # המצופה **מחושבת כאן מהקבוע**, ולא מוקלדת לצד שלושת המשטחים.
+    from services import doc_sections
+
+    count = doc_sections.DEFAULT_SUGGESTIONS
+    numbers = {
+        "תיאור הפרמטר section": f"at most {count};",
+        "docs/mcp-server.rst": f"**והכמות: {count} הצעות.**",
+        "docs/whats-new.rst": f"— {count} הצעות,",
+    }
+    stale = [f"{name}: חסר {marker!r}" for name, marker in numbers.items()
+             if marker not in texts[name]]
+    assert not stale, (
+        f"משטח שמצהיר על כמות ההצעות אינו אומר {count} — המספר בקוד זז "
+        f"והתיעוד נשאר:\n  " + "\n  ".join(stale)
+    )
+
     missing = [
         f"{name}: חסר {marker!r}"
         for name, *markers in _SUGGESTION_RULE_SURFACES
@@ -895,3 +916,28 @@ def test_the_suggestion_rule_says_the_same_thing_in_the_code_and_in_all_three_su
         + "\n  ".join(missing)
         + "\nשלושתם מתארים את אותו כלל, ולכן עריכה של אחד היא עריכה של שלושה."
     )
+
+
+def test_the_section_param_doc_derives_the_count_from_the_constant():
+    """מה שסוכן קורא על כמות ההצעות נגזר מהקוד, ולא מוקלד לצידו.
+
+    אותה צורה בדיוק כמו :func:`test_the_colour_param_doc_is_derived_from_the_palette`,
+    ומאותה סיבה: מספר שמוקלד ביד ליד הקבוע שאוכף אותו מתיישן בשקט ברגע
+    שמישהו משנה את הקבוע. הסוכן ימשיך לקרוא את הישן, בלי שגיאה ובלי
+    שאף בדיקה תשים לב.
+
+    **והמספר שנגזר הוא ``DEFAULT_SUGGESTIONS`` ולא ``MAX_IDENTIFIER_SUGGESTIONS``,
+    וזו הכרעה.** לקוח MCP אינו יכול להעביר ``n`` — אין פרמטר כזה בכלי —
+    ולכן מה שהוא מקבל בפועל הוא ברירת המחדל. גזירה נכונה של התקרה הייתה
+    מספר מדויק על שאלה שאיש לא שאל.
+
+    נופלת ברגע שמישהו יחליף את הגזירה במספר מוקלד, כשהקבוע ישתנה.
+    """
+    from mcp_server.server import _SECTION_PARAM_DOC
+    from services import doc_sections
+
+    assert f"at most {doc_sections.DEFAULT_SUGGESTIONS};" in _SECTION_PARAM_DOC
+
+    # והתקרה הקשיחה **אינה** נכנסת לשם: היא נוגעת רק למי שקורא ל-``suggest``
+    # ישירות, ומספר שאינו רלוונטי לקורא גרוע ממספר חסר.
+    assert f"at most {doc_sections.MAX_IDENTIFIER_SUGGESTIONS};" not in _SECTION_PARAM_DOC

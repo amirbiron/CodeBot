@@ -38,6 +38,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from services import doc_sections
+
 from . import docs_handlers, handlers, repo_handlers
 from .handlers import StrictInt, StrictLines
 from .analytics import attach_shutdown_drain, instrument_mcp_server
@@ -191,6 +193,14 @@ _SYMBOL_PARAM_DOC = (
 #: כלומר טקסט שעובר לתיאור פרמטר יוצא מהספירה. זה אותו תיקון בדיוק שנעשה
 #: ל-``codekeeper_get_repo_file`` כשהתיאור שלו הגיע ל-2,482 תווים ונחתך
 #: בדיוק בקטעים על RST ועל ``symbol=``: **העברה, לא מחיקה.**
+#:
+#: **ומה שההעברה אינה מבטיחה, כי ההסתייגות כתובה באותו מקום שממנו לקחנו
+#: את התקרה.** האזהרה ליד ``_TOOL_DESCRIPTION_MAX_CHARS`` מתעדת לקוח
+#: שמקצר **תיאורי פרמטרים** לכ-120 תווים בשורת סיכום. המחרוזת כאן ארוכה
+#: בהרבה, וסעיף הבקטיקים יושב הרחק אחרי התו ה-120 — כלומר אצל אותו לקוח
+#: הוא אינו מגיע. ההעברה מוציאה את הטקסט מתקציב **תיאור הכלי**, ולא
+#: מכל חיתוך שקיים בעולם. מכאן גם סדר המשפטים: מה שקריטי ראשון, כי אצל
+#: לקוח שחותך רק הוא מגיע.
 _SECTION_PARAM_DOC = (
     "The heading to return. Matching is full equality on the heading text "
     "after normalization (surrounding and repeated whitespace, dash "
@@ -214,10 +224,10 @@ _SECTION_PARAM_DOC = (
     "heading reads ``MissingGreenlet``. When a query misses, suggestions "
     "holds a heading that is close to what you typed, whenever the file has "
     "one. ONLY when nothing is close does it instead hold the identifiers "
-    "that DO exist in the file (at most 50; suggestions_truncated says so "
-    "when it was cut). So an identifier query can come back with a heading "
-    "rather than with identifiers — do not read the field as always being "
-    "identifiers."
+    f"that DO exist in the file (at most {doc_sections.DEFAULT_SUGGESTIONS}; "
+    "suggestions_truncated says so when it was cut). So an identifier query "
+    "can come back with a heading rather than with identifiers — do not read "
+    "the field as always being identifiers."
 )
 
 
