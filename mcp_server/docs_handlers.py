@@ -19,6 +19,7 @@ from typing import Any
 
 from services import doc_sections, rst_parser
 from .handlers import _clamp
+from .outline_scanners import _ceiling
 
 MAX_CHARS_DEFAULT = 12_000
 MAX_CHARS_MAX = 100_000
@@ -112,7 +113,19 @@ def docs_get_section(
 
     content = res.get("content") or ""
     file_meta = res.get("file") or {}
-    doc = rst_parser.parse_document(content)
+    # תקרת הסקשנים של הסורק נוסעת גם לכאן (סקירת #3429): בלעדיה כותרת בת
+    # תו אחד בכל שורה ב-500KB עולה 44.0MiB לפרסור אחד — יותר מ-35.2MiB שמאגר
+    # הקריאות מקצה לחוט (``_PARSE_COST_BYTES`` ב-``server.py``) — ואיתה היא
+    # נעצרת ב-20.1MiB. אף עמוד אמיתי אינו מתקרב: 500KB של העמוד הצפוף ביותר
+    # בריפו הם כ-3,300 סקשנים. הפרסר מרים חריגה ואינו מחזיר ערך כשל, ולכן
+    # ``except`` הוא הערוץ הנכון (K11), והתשובה היא סירוב מפורש — לא עץ
+    # כותרות חלקי שנראה שלם. התקרה נקראת מהמודול בזמן הקריאה, כדי שהטסט
+    # יוכל להקטין אותה במקום להציף אותה.
+    try:
+        doc = rst_parser.parse_document(content, max_sections=_ceiling.MAX_SYMBOLS)
+    except rst_parser.TooManySections:
+        return {"ok": False, "error": "too_many_sections", "max": _ceiling.MAX_SYMBOLS,
+                "repo": repo_name, "path": file_path, "file": file_meta}
     toc_items, toc_truncated = _toc(doc)
 
     base: dict[str, Any] = {
