@@ -29,7 +29,10 @@ front matter, גדרות קוד — כל אלה הם עניין של הפארס�
 ``services/rst_parser.py`` ו-``services/md_parser.py``. שניהם מייצאים
 מחדש את השמות שכאן, ולכן ``rst_parser.Section`` ו-``md_parser.Section``
 הם **אותו אובייקט מחלקה** — וזה מה שמאפשר לצרכן לבחור מודול לפי סיומת
-ולקרוא לאותם שמות בדיוק.
+ולקרוא לאותם שמות. **בדיוק אותם שמות — למעט שניים:** ``md_parser``
+מייצא גם ``MAX_SECTIONS`` ו-``InconsistentLineEndings``, ש-``rst_parser``
+אינו מרים ואינו מגדיר. חריגות הסירוב נתפסות לכן דרך המודול הזה, לא דרך
+הפארסר — ראו את ה-docstring של :class:`InconsistentLineEndings`.
 
 **ומה שהם כן עושים אחרת, כי זה נראה כמו סתירה למי שלא יודע:** ברירת
 המחדל של ``max_sections``. ב-``rst_parser`` היא ``None`` וב-``md_parser``

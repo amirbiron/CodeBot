@@ -31,6 +31,12 @@
 היכן מתחיל סעיף ואיזו רמה הוא. טקסט הכותרת מושווה בנפרד, ב-
 ``_compare_titles``, ורק על תת-קבוצה — ההנמקה שם.
 
+**ולטענה יש חריג אחד ידוע, והוא מקובע ולא מושתק:** תגית HTML מסוג 7
+שצמודה לשורת פריט רשימה. שם ``markdown-it`` סוטה מ-cmark-gfm וממימוש
+הייחוס של המפרט, והצורות האלה **אינן** עוברות ב-``_compare`` — הן
+עוברות בטסט שמאשר את הפער המדוד, ובטסט שמאשר שהמוחרג הוא בדיוק הן
+ולא יותר. ``_type7_after_list_shapes`` מנמק.
+
 **והחלוקה לכמה טסטים אינה קוסמטית:** ``pytest.ini`` קובע
 ``timeout = 60`` לכל טסט, וטבלה אחת גדולה הייתה מתקרבת לשם.
 """
@@ -488,6 +494,97 @@ def test_a_heading_inside_a_container_is_seen_by_cmark_and_excluded_by_us(text):
 
 
 # ════════════════════════════════════════════════════════════════════
+# הפער הידוע היחיד — תגית HTML מסוג 7 צמודה לשורת פריט רשימה
+# ════════════════════════════════════════════════════════════════════
+
+#: תגיות שאינן ברשימת ה-block של CommonMark ולכן נופלות ל**סוג 7**: תג
+#: פתיחה שלם (לא ``pre``/``script``/``style``/``textarea``) או תג סגירה
+#: שלם, לבדו בשורה. ``</pre>`` הוא סוג 7 כי הוא **סגירה**: הכלל של סוג 1
+#: תופס רק פתיחה.
+_TYPE7_TAGS = ("<br>", "<span>", "</pre>", '<img src="x">')
+_LIST_MARKERS = ("- ", "1. ")
+
+
+def _type7_after_list_shapes():
+    """‏(טקסט, האם שני הפארסרים מסכימים) — תגית מסוג 7 אחרי שורת פריט.
+
+    **זו המחלקה היחידה שידועה בה אי-הסכמה**, והיא נמדדה: כשהתגית
+    **צמודה** לשורת הפריט, ``markdown-it`` (הפורט ל-Python **וגם**
+    המקור ב-JS, 14.3.2 — נמדד, הפורט נאמן) רואה בה המשך עצל של פסקת
+    הפריט, ולכן ``## אחרי`` שאחריה הוא כותרת; cmark-gfm סוגר את הרשימה,
+    פותח בלוק HTML, והבלוק בולע את ``## אחרי`` עד שורה ריקה. **מימוש
+    הייחוס של המפרט** (``commonmark.py`` 0.9.2, פורט של commonmark.js)
+    מסכים עם cmark — כלומר זו סטייה של ``markdown-it`` ולא שלנו, ולא של
+    GitHub.
+
+    עם **שורה ריקה** בין הפריט לתגית שני הצדדים מסכימים, וזה מה שהופך
+    את החצי הזה למקרה בקרה: הוא עובר ב-``_compare`` כמו כל משפחה אחרת.
+
+    **ולמה זה לא מתוקן אצלנו.** התיקון המתבקש — להפוך את דגל
+    ה-terminate של סוג 7 ב-``rules_block/html_block.py`` — נמדד ונדחה:
+    הוא גורם ל-``<br>`` להפריע לפסקה גם **בלי** רשימה, ושם שני הצדדים
+    מסכימים היום. כלומר הוא מחליף אי-הסכמה אחת באחרת. התיקון הנכון
+    הוא בדיקה מודעת-מכל כמו של cmark, והוא שייך ל-``markdown-it-py``
+    ולא לכלל שנכתוב ביד. **מתועד upstream** — טקסט האישו המלא, עם שלושת המימושים והצורה המינימלית,
+    בגוף PR #3418; הוא נפתח מסשן שיש לו גישה ל-``executablebooks/markdown-it-py``
+    ומספרו יוכנס כאן.
+    אפס מופעים ב-521 הקבצים האמיתיים שנמדדו (93 + 428).
+    """
+    for tag, marker, adjacent in itertools.product(_TYPE7_TAGS, _LIST_MARKERS, (True, False)):
+        gap = "" if adjacent else "\n"
+        yield f"## לפני\n\n{marker}פריט\n{gap}{tag}\n## אחרי\n", not adjacent
+
+
+def test_the_type7_family_agrees_when_a_blank_line_separates_it():
+    """חצי הבקרה של המשפחה עובר דרך אותה ``_compare`` כמו כולם."""
+    agreeing = [text for text, agrees in _type7_after_list_shapes() if agrees]
+    assert len(agreeing) == len(_TYPE7_TAGS) * len(_LIST_MARKERS)
+    _compare(agreeing)
+
+
+@pytest.mark.parametrize(
+    "text", [text for text, agrees in _type7_after_list_shapes() if not agrees]
+)
+def test_a_type7_tag_glued_to_a_list_item_still_disagrees_as_measured(text):
+    """**הטסט הזה מקבע פער מדוד, ולא התנהגות רצויה.**
+
+    אצלנו שני סעיפים — ``## לפני`` ו-``## אחרי`` — ואצל cmark-gfm אחד,
+    כי ``## אחרי`` נבלע לתוך בלוק ה-HTML. הצורה המדויקת נטענת כאן
+    בשני הצדדים, כדי שהפער לא יוכל להיסחף לכיוון שלישי בשקט.
+
+    .. warning::
+
+       **נפילה של הטסט הזה היא תוצאה מכוונת**, ופירושה ש-``markdown-it``
+       תיקנה את ההתנהגות (או ש-cmark שינתה את שלה). אז הצורה הזאת
+       עוברת לחצי המסכים של המשפחה, והמשפט על "המחלקה הידועה היחידה"
+       ב-``services/md_parser.py`` נמחק יחד איתה. אל "תתקן" את הטסט
+       הזה כאילו היה באג.
+    """
+    ours, theirs = _ours(text), _oracle_sections(text)
+    assert theirs == [(2, 1)], ("cmark-gfm שינה את התנהגותו", text, theirs)
+    assert [lvl for lvl, _ in ours] == [2, 2] and ours[0] == (2, 1), (
+        "markdown-it שינה את התנהגותו — ראו את האזהרה", text, ours,
+    )
+
+
+def test_the_excluded_class_is_exactly_the_glued_shapes_and_nothing_more():
+    """ההחרגה נאמרת בקול: מה שלא נכנס ל-``_compare`` — ולמה.
+
+    כמו ``compared > 100`` ב-``_compare_titles``: החרגה שקטה יכולה
+    להתרחב בלי שאיש ישים לב. כאן נטען שהקבוצה המוחרגת היא **בדיוק**
+    הצורות הצמודות, לא ריקה ולא רחבה מזה — ושכל אחת מהן באמת חלוקה,
+    כלומר ההחרגה מוצדקת מופע-מופע ולא כהנחה.
+    """
+    excluded = [text for text, agrees in _type7_after_list_shapes() if not agrees]
+    assert len(excluded) == len(_TYPE7_TAGS) * len(_LIST_MARKERS)
+    assert all("\n\n" not in text.split("פריט\n", 1)[1].split("\n## אחרי")[0] for text in excluded), (
+        "צורה מופרדת נכנסה לקבוצה המוחרגת"
+    )
+    for text in excluded:
+        assert _ours(text) != _oracle_sections(text), ("מוחרגת אבל מסכימה — ההחרגה רחבה מדי", text)
+
+
+# ════════════════════════════════════════════════════════════════════
 # המספר שבפרוזה נגזר מכאן, ולא מוקלד פעמיים
 # ════════════════════════════════════════════════════════════════════
 
@@ -505,6 +602,7 @@ def test_the_generated_shape_count_matches_the_prose():
     import re
     from pathlib import Path
 
+    type7 = list(_type7_after_list_shapes())
     total = (
         len(list(_context_shapes()))
         + len(list(_fence_nesting_shapes()))
@@ -512,8 +610,11 @@ def test_the_generated_shape_count_matches_the_prose():
         + len(_HTML_EDGE_CASES)
         + len(list(_table_shapes()))
         + len(_CONTAINER_SHAPES)
+        + sum(1 for _text, agrees in type7 if agrees)
     )
+    excluded = sum(1 for _text, agrees in type7 if not agrees)
     assert total > 10_000, f"מחולל נשמט מהספירה — {total} צורות בלבד"
+    assert excluded > 0, "המחלקה המוחרגת ריקה — הפרוזה על 'מחלקה ידועה אחת' כבר אינה נכונה"
 
     source = (Path(__file__).resolve().parents[1] / "services" / "md_parser.py").read_text(
         encoding="utf-8"
@@ -525,6 +626,11 @@ def test_the_generated_shape_count_matches_the_prose():
         "עדכן את שני המקומות שמצטטים אותו — ``services/md_parser.py`` "
         "ו-``requirements/base.txt``."
     )
+    # **וגם המספר של המחלקה המוחרגת נגזר, לא מוקלד.** אותה סחיפה בדיוק
+    # מחכה לו: תגית שתתווסף ל-``_TYPE7_TAGS`` בלי עדכון המשפט.
+    quoted_excluded = re.search(r"מחלקה אחת ידועה ומקובעת של \*\*(\d+) צורות\*\*", source)
+    assert quoted_excluded, "המשפט על המחלקה המוחרגת אינו במקומו ב-``md_parser`` docstring"
+    assert quoted_excluded.group(1) == str(excluded)
 
     base = (Path(__file__).resolve().parents[1] / "requirements" / "base.txt").read_text(
         encoding="utf-8"

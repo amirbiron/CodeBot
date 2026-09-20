@@ -65,6 +65,42 @@ def test_the_container_does_not_cut_the_range_of_the_section_around_it():
 
 
 # ════════════════════════════════════════════════════════════════════
+# BOM — מוסר בכניסה, ורק הוא
+# ════════════════════════════════════════════════════════════════════
+
+_BOM = "\ufeff"
+
+
+def test_a_leading_bom_does_not_hide_the_headings():
+    """קובץ עם BOM נותן **אותה** מפה כמו בלעדיו.
+
+    בלי ההסרה ``markdown-it`` רואה פסקה שמתחילה בתו בלתי נראה ולא
+    כותרת, והפארסר החזיר **אפס סעיפים בלי חריגה** — מפה ריקה שמתחזה
+    לקובץ בלי כותרות. נמדד. הייצור לא נפגע (המראה מפענחת ב-``utf-8-sig``),
+    ולכן זה נתפס רק בסקירה, על הסקריפט.
+    """
+    plain = "# Title\n\ntext\n\n## Sub\n"
+    with_bom = md_parser.parse_document(_BOM + plain)
+    without = md_parser.parse_document(plain)
+    assert [(s.level, s.heading_line, s.title) for s in with_bom.sections] == \
+        [(s.level, s.heading_line, s.title) for s in without.sections]
+    assert with_bom.lines == without.lines, "ה-BOM חייב לרדת גם מ-lines[0]"
+    assert len(with_bom.sections) == 2
+
+
+def test_only_one_bom_and_only_at_the_start_is_removed():
+    """‏``U+FEFF`` באמצע הטקסט הוא ZWNBSP — תוכן, ולא נוגעים בו.
+
+    ושני BOM רצופים: רק הראשון הוא סימון קידוד. השני הוא כבר תו בגוף
+    השורה — וזה מה ש-cmark עושה בפועל, נמדד.
+    """
+    doc = md_parser.parse_document(_BOM + _BOM + "# A\n\ntext " + _BOM + "here\n")
+    assert doc.lines[0] == _BOM + "# A"
+    assert _BOM in doc.lines[2]
+    assert doc.sections == [], "BOM שני בראש השורה מונע כותרת — כמו ב-cmark"
+
+
+# ════════════════════════════════════════════════════════════════════
 # הכרעה 2 — ``\r`` בודד נדחה, CRLF לא
 # ════════════════════════════════════════════════════════════════════
 
@@ -575,15 +611,24 @@ def test_a_table_is_a_table_and_not_a_setext_heading(name, source):
 def test_only_the_table_extension_is_enabled_on_top_of_commonmark():
     """ארבע ההרחבות האחרות של GFM נבדקו ואינן משנות זיהוי כותרות.
 
-    ``strikethrough`` ו-``autolink`` הן inline, ``tagfilter`` נוגע
-    ברינדור, ו-``tasklist`` משנה פריט רשימה ולא גבול בלוק. הן נשארות
-    כבויות כדי שלא ידלק כאן שום דבר שלא נמדד.
+    ``strikethrough`` ו-GFM autolink (``linkify`` ב-``markdown-it``) הן
+    inline, ``tagfilter`` נוגע ברינדור, ו-``tasklist`` משנה פריט רשימה
+    ולא גבול בלוק. הן נשארות כבויות כדי שלא ידלק כאן שום דבר שלא נמדד.
     """
     block_rules = md_parser._MD.get_active_rules()["block"]
     assert "table" in block_rules
     inline_rules = md_parser._MD.get_active_rules()["inline"]
     assert "strikethrough" not in inline_rules
-    assert "autolink" not in md_parser._MD.get_active_rules()["inline2"]
+    # **``linkify`` ולא ``autolink``.** ``autolink`` הוא הכלל של CommonMark
+    # ל-``<https://a.b>`` — הוא דלוק, ונשאר דלוק, ואינו ההרחבה של GFM.
+    # ההרחבה של GFM (``www.a.b`` הופך לקישור) היא ``linkify``, שיושב
+    # **בשני** rulers — ``core`` ו-``inline`` — ושניהם חייבים להיות
+    # כבויים. הטענה הקודמת בדקה ``autolink`` ב-``inline2``, ששם הוא לא
+    # ישב מעולם — טענה שלא יכלה ליפול. ``enable("linkify")`` מדליק את
+    # שניהם, ולכן היא נופלת עליו.
+    active = md_parser._MD.get_active_rules()
+    assert "linkify" not in active["core"]
+    assert "linkify" not in active["inline"]
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -607,6 +652,21 @@ def test_the_two_exceptions_come_from_the_same_module():
     """המטפל שימיר אותן לתשובת MCP מייבא את שתיהן ממקום אחד."""
     assert md_parser.TooManySections is doc_sections.TooManySections
     assert md_parser.InconsistentLineEndings is doc_sections.InconsistentLineEndings
+
+
+def test_the_two_parsers_export_the_same_names_but_two():
+    """"בני-החלפה" היא טענה בת-בדיקה, לא משאלה.
+
+    כל שם ש-``rst_parser`` מייצא קיים גם ב-``md_parser``, וההפרש הוא
+    **בדיוק** שני השמות שהפרוזה מונה. שם שיתווסף לאחד מהם בלי השני,
+    או ייצוא של ``InconsistentLineEndings`` מ-``rst_parser`` (שאינו מרים
+    אותה), מפיל את זה.
+    """
+    from services import rst_parser
+
+    rst, md = set(rst_parser.__all__), set(md_parser.__all__)
+    assert rst <= md, f"שמות שרק ב-rst_parser: {sorted(rst - md)}"
+    assert md - rst == {"MAX_SECTIONS", "InconsistentLineEndings"}
 
 
 @pytest.mark.parametrize(
