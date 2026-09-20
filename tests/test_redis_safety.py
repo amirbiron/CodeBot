@@ -11,7 +11,11 @@
 """
 
 import importlib
+import importlib.util
+import os
+import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -23,6 +27,9 @@ from runtime_settings import (
     resolve_redis_timeouts,
     safe_mode_enabled,
 )
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _fake_cfg(**fields):
@@ -132,6 +139,82 @@ def test_safe_mode_falsy_values(raw):
 def test_safe_mode_missing_or_not_a_string():
     assert safe_mode_enabled({}) is False
     assert safe_mode_enabled({"SAFE_MODE": 1}) is False
+
+
+# ===================== הנעילה על config.py עצמו =====================
+
+
+def _load_real_config_module(env):
+    """טוען את ``config.py`` של השורש לפי נתיב, עם ``env`` כסביבה.
+
+    בכוונה לא ``import config``: בזמן pytest התיקייה ``tests`` נמצאת בראש
+    ``sys.path``, ו-``tests/config.py`` מאפיל על המודול האמיתי. טעינה לפי
+    נתיב היא הדרך היחידה לבדוק את השדות האמיתיים בלי תלות בסדר.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "_real_config_under_test", REPO_ROOT / "config.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    saved_modules = dict(sys.modules)
+    saved_env = dict(os.environ)
+    try:
+        os.environ.clear()
+        os.environ.update(env)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module.config
+    finally:
+        os.environ.clear()
+        os.environ.update(saved_env)
+        sys.modules.clear()
+        sys.modules.update(saved_modules)
+
+
+_MINIMAL_ENV = {
+    "BOT_TOKEN": "x",
+    "MONGODB_URL": "mongodb://localhost:27017/test",
+}
+
+
+def test_config_fields_stay_unset_when_no_env_var_is_given():
+    """הנעילה על השורש: השדות בקונפיג חייבים להישאר ``None`` בלי ENV.
+
+    זה מה שמונע חזרה של הבאג. אם מישהו יחזיר ל-``config.py`` ברירת מחדל
+    כמו ``default=float(os.getenv("REDIS_CONNECT_TIMEOUT", "3"))``, השדה
+    יישא שוב ערך תמיד, מסלול ה-SAFE_MODE ימות שוב — והטסטים שבודקים רק את
+    הפונקציה הטהורה ימשיכו לעבור בלי לשים לב.
+    """
+    cfg = _load_real_config_module(_MINIMAL_ENV)
+    assert cfg.REDIS_CONNECT_TIMEOUT is None
+    assert cfg.REDIS_SOCKET_TIMEOUT is None
+    # ומכאן, עם SAFE_MODE, ההכרעה חייבת לצאת שנייה אחת
+    assert redis_timeouts(cfg, {"SAFE_MODE": "1"}) == (1.0, 1.0)
+
+
+def test_config_fields_read_an_explicit_env_var():
+    """ולהפך: משתנה מפורש עדיין נקרא — pydantic קורא אותו לפי שם השדה."""
+    cfg = _load_real_config_module(
+        {**_MINIMAL_ENV, "REDIS_CONNECT_TIMEOUT": "2", "REDIS_SOCKET_TIMEOUT": "3"}
+    )
+    assert cfg.REDIS_CONNECT_TIMEOUT == 2.0
+    assert cfg.REDIS_SOCKET_TIMEOUT == 3.0
+
+
+def test_config_does_not_die_on_a_blank_env_var():
+    """``REDIS_CONNECT_TIMEOUT=`` ריק — מצב שכיח בקבוצת משתנים — אינו מפיל."""
+    cfg = _load_real_config_module({**_MINIMAL_ENV, "REDIS_CONNECT_TIMEOUT": "   "})
+    assert cfg.REDIS_CONNECT_TIMEOUT is None
+
+
+@pytest.mark.parametrize("bad", ["-1", "nan", "inf", "abc"])
+def test_config_rejects_an_impossible_timeout_loudly(bad):
+    """ערך בלתי אפשרי נכשל בזמן עלייה, ולא מגיע בשקט ל-redis.
+
+    ``config.py`` ממיר את ה-``ValidationError`` של pydantic ל-``ValueError``
+    כדי לשמר התנהגות היסטורית, ולכן זה הטיפוס שמצפים לו כאן.
+    """
+    with pytest.raises(ValueError):
+        _load_real_config_module({**_MINIMAL_ENV, "REDIS_CONNECT_TIMEOUT": bad})
 
 
 # ===================== החיווט: מה באמת מגיע ל-redis =====================
