@@ -31,6 +31,27 @@ logger = logging.getLogger(__name__)
 MAX_CHARS_DEFAULT = 12_000
 MAX_CHARS_MAX = 100_000
 MAX_CHARS_MIN = 500
+
+#: תקרת אורך ל-``path``, **הקלט החיצוני היחיד כאן שלא הייתה עליו תקרה**.
+#: ``max_chars`` ו-``offset`` עוברים ``_clamp``; המחרוזת לא עברה כלום,
+#: ולכן העבודה שנעשית עליה במורד הזרם גדלה עם מה שהקורא שולח.
+#:
+#: **מה נמדד.** ``repo_policy.is_denied`` — ההוראה הראשונה ב-
+#: ``RepoBackend.get_file`` — סורקת כל רכיב בנתיב מול כל תבנית, ולכן
+#: נתיב של 400KB עלה 608ms לעומת 2.4ms לפני שסריקת הרכיבים נוספה. הכלי
+#: הזה ציבורי (אין ``require_admin``), ולשרת אין תקרת גוף בקשה ואין
+#: הגבלת קצב — אישו #3430.
+#:
+#: **והמספר נגזר ממדידה ולא נבחר.** הנתיב הארוך ביותר בשלוש המראות
+#: שהמדיניות חלה עליהן: ``amir-bug-patterns`` 53 תווים, CodeBot 97,
+#: ו-Han 117. התקרה כאן היא פי 35 מהארוך שבהם, והיא גם ``PATH_MAX``
+#: של לינוקס — כלומר גבול שכלי גיט וקבצים ממילא חיים בתוכו. אפס קבצים
+#: אמיתיים נחסמים.
+#:
+#: זו הקטנת משטח ולא תחליף להגבלת קצב: היא חוסמת את ההגברה לכל בקשה,
+#: ולא את מספר הבקשות.
+MAX_PATH_CHARS = 4096
+
 DEFAULT_DOCS_REPO = "CodeBot"
 _TOC_MAX = 400  # תקרת פריטי TOC בתשובה (הגנת גודל)
 
@@ -52,30 +73,24 @@ _PARSERS: dict[str, ModuleType] = {".rst": rst_parser, ".md": md_parser}
 class _DocsPathPolicy:
     """איפה גרים קובצי התיעוד של ריפו אחד, ובאיזו צורה.
 
-    **``roots[0]`` ו-``suffixes[0]`` הם ברירות המחדל, וזו מוסכמה אחת לשני
-    השדות.** ``roots[0]`` הוא המקום שאליו עוגן slug קצר (``mcp-server`` ←
-    איזה קובץ), ו-``suffixes[0]`` היא הסיומת שמתווספת לו. אפשר היה להצהיר
-    על שניהם בשדות נפרדים — ואז היה צריך לאכוף ששדה ברירת המחדל נמצא
-    ברשימה, כלומר **שתי רשימות שצריך לסנכרן** בתוך אובייקט אחד. כאן יש
-    רשימה אחת, וסדר הוא נתון ולא כפילות.
+    **שדה אחד לכל שאלה, ולא רשימה.** הגרסה הראשונה הצהירה על ``roots``
+    ו-``suffixes`` כרשימות ועל מוסכמה ש"אינדקס 0 הוא ברירת המחדל". אף
+    רשומה לא החזיקה יותר מערך אחד, והריבוי גבה מחיר אמיתי: שתי
+    ``@property`` שכל תפקידן לתת שם לאינדקס 0, שתי לולאות שרצו איטרציה
+    אחת, ותיאור הפרמטר ב-``server.py`` שנגזר מ-``roots[0]`` בלבד — כלומר
+    שורש שני היה **נעלם מהתיאור שהסוכן קורא** בלי שאף בדיקה תשים לב.
+    היום יש שני שדות, אין מוסכמת סדר, ואין מאיפה לסחוף.
 
-    ``roots`` שמכיל ``""`` פירושו **שורש הריפו**: כל נתיב יחסי שאינו יוצא
-    החוצה. זו אינה "בלי מדיניות" — הסיומות עדיין מסננות, וזה מה שמונע
+    ``root`` ריק פירושו **שורש הריפו**: כל נתיב יחסי שאינו יוצא החוצה.
+    זו אינה "בלי מדיניות" — הסיומת עדיין מסננת, וזה מה שמונע
     מ-``.claude/settings.json`` להיות נגיש.
+
+    ריפו שיצטרך באמת שני שורשים או שני פורמטים ירחיב את זה ביום שהוא
+    יתווסף, עם הצרכן שמצדיק את ההרחבה מול העיניים.
     """
 
-    roots: tuple[str, ...]
-    suffixes: tuple[str, ...]
-
-    @property
-    def slug_root(self) -> str:
-        """השורש שאליו עוגן קלט שאין בו ``/``."""
-        return self.roots[0]
-
-    @property
-    def default_suffix(self) -> str:
-        """הסיומת שמתווספת לקלט שאינו נושא סיומת שהכלי מכיר."""
-        return self.suffixes[0]
+    root: str
+    suffix: str
 
 
 #: הריפו ← איפה התיעוד שלו. **הטבלה הזאת היא מה שהקוד יודע לקרוא**;
@@ -94,12 +109,20 @@ class _DocsPathPolicy:
 #:    מהם ``.md`` וכולם מסמכי דפוסים שנועדו לקריאה על ידי סוכן; שני הקבצים
 #:    שאינם ``.md`` מסוננים ממילא על ידי הסיומת.
 #:
+#:    **ומה שהטבלה הזאת סומכת עליו הוא שם, ולא כתובת.** ``RepoBackend``
+#:    פותר מראה לפי **שם**; הקשר בין השם ל-URL חי ברשומת ``repo_metadata``
+#:    במונגו, ו-``mcp_server/repo_autosync.py`` משכפל ממנה. כלומר מי
+#:    שיכול לכתוב לאוסף הזה — בעל הפריסה — יכול גם להחליף את מה שמוגש
+#:    תחת השם הזה, והכלי הציבורי יגיש אותו בלי לשאול. זה מקובל כאן כי
+#:    מדובר באותו אדם שמחליט מה נכנס לטבלה למעלה; מה שאינו מקובל הוא
+#:    שההסתמכות תישאר לא כתובה.
+#:
 #:    מה ש**לא** משתנה: ``mcp_server.repo_policy.is_denied`` הוא ההוראה
 #:    הראשונה ב-``RepoBackend.get_file`` וחל על המסלול הזה במלואו, כך
 #:    ש-``secrets.md``, ``credentials.md`` ו-``.env*`` חסומים גם כאן.
 DOCS_PATH_POLICY: dict[str, _DocsPathPolicy] = {
-    "CodeBot": _DocsPathPolicy(roots=("docs",), suffixes=(".rst",)),
-    "amir-bug-patterns": _DocsPathPolicy(roots=("",), suffixes=(".md",)),
+    "CodeBot": _DocsPathPolicy(root="docs", suffix=".rst"),
+    "amir-bug-patterns": _DocsPathPolicy(root="", suffix=".md"),
 }
 
 
@@ -112,19 +135,23 @@ def _validate_policy_tables() -> None:
     ``_PARSERS`` באמצע קריאה — כלומר 500 למשתמש, במקום שרת שלא עולה.
 
     ``RuntimeError`` ולא ``assert``, כי ``assert`` נמחק תחת ``-O``.
+
+    **מה שהצמצום לשדות סקלריים כבר לקח מכאן:** בדיקת "רשימה ריקה" נעלמה,
+    כי אין רשימה, ושתי הלולאות הפכו לבדיקות בודדות. מה שנשאר הוא הבדיקה
+    היחידה שיש לה מצב כשל אמיתי — סיומת שמוצהרת ואין לה פארסר, כלומר
+    סחיפה בין שתי טבלאות — ושתי בדיקות נרמול שמגינות מפני הקלדה בקבוע
+    שלוש שורות מכאן.
     """
     for repo, policy in DOCS_PATH_POLICY.items():
-        if not policy.roots or not policy.suffixes:
-            raise RuntimeError(f"מדיניות נתיבים ריקה ל-{repo!r}")
-        for suffix in policy.suffixes:
-            if not suffix.startswith(".") or suffix != suffix.casefold():
-                raise RuntimeError(f"סיומת לא מנורמלת ב-{repo!r}: {suffix!r}")
-            if suffix not in _PARSERS:
-                raise RuntimeError(
-                    f"{repo!r} מצהיר על {suffix!r} ואין לו פארסר ב-_PARSERS")
-        for root in policy.roots:
-            if root and (root.startswith("/") or root != posixpath.normpath(root)):
-                raise RuntimeError(f"שורש לא מנורמל ב-{repo!r}: {root!r}")
+        suffix = policy.suffix
+        if not suffix.startswith(".") or suffix != suffix.casefold():
+            raise RuntimeError(f"סיומת לא מנורמלת ב-{repo!r}: {suffix!r}")
+        if suffix not in _PARSERS:
+            raise RuntimeError(
+                f"{repo!r} מצהיר על {suffix!r} ואין לו פארסר ב-_PARSERS")
+        root = policy.root
+        if root and (root.startswith("/") or root != posixpath.normpath(root)):
+            raise RuntimeError(f"שורש לא מנורמל ב-{repo!r}: {root!r}")
 
 
 _validate_policy_tables()
@@ -214,7 +241,8 @@ def _resolve_docs_path(path: str, policy: _DocsPathPolicy) -> _ResolvedPath:
 
     **סדר הפעולות אינו שרירותי, ושתי נקודות בו הן באגי אבטחה אם יזוזו:**
 
-    1. ``strip`` ודחיית ``\\x00`` — הערך מגיע מחוץ לתהליך.
+    1. ``strip``, דחיית ``\\x00``, **ודחיית אורך** — הערך מגיע מחוץ
+       לתהליך, ושלוש הבדיקות האלה הן מה שמותר להניח עליו מכאן והלאה.
     2. הכרעת הסיומת: מותרת ← כמו שהיא; **פורמט אחר שהכלי מכיר** ← סירוב
        מפורש; כל דבר אחר ← חלק מה-slug, והסיומת מתווספת.
     3. **עגינה, על המחרוזת שלפני הנרמול.** זו הנקודה הראשונה:
@@ -223,31 +251,37 @@ def _resolve_docs_path(path: str, policy: _DocsPathPolicy) -> _ResolvedPath:
        ויקדים את ``normpath`` יקבל ``secrets.rst`` בלי ``/``, יעגן אותו
        ל-``docs/secrets.rst``, **ויגיש אותו**.
     4. ``normpath`` — כאן, ורק כאן.
-    5. הגבול מול כל אחד מהשורשים. זו הנקודה השנייה: ``startswith`` חשוף
-       הוא ``K16``, ולכן הוא עטוף ב-``_is_under``.
+    5. הגבול מול השורש. זו הנקודה השנייה: ``startswith`` חשוף הוא
+       ``K16``, ולכן הוא עטוף ב-``_is_under``.
     """
     p = (path or "").strip().strip("/")
     if not p or "\x00" in p:
         return _ResolvedPath(None, None, "missing_path")
+    if len(p) > MAX_PATH_CHARS:
+        # **קוד משלו ולא ``missing_path``.** סירוב שאינו נוקב בסיבתו הוא
+        # בדיוק ``blanket-policy-silent-block``: מבחוץ הוא נראה כמו נתיב
+        # שגוי, והקורא מחפש את הטעות בשם הקובץ. ו-``silent-truncation-
+        # at-sink`` אוסר את החלופה השנייה — לחתוך את הנתיב ולהמשיך
+        # כאילו כלום. סירוב מוצהר הוא הצורה שהשארנו.
+        return _ResolvedPath(None, None, "path_too_long")
 
     suffix = _suffix_of(p)
-    if suffix not in policy.suffixes:
+    if suffix != policy.suffix:
         if suffix in _PARSERS:
             # פורמט שהכלי מכיר, אבל לא זה שהריפו הזה מגיש. השלמה שקטה של
             # הסיומת כאן הייתה בונה ``docs/CRITICAL-PATTERNS.md.rst``
             # ומחזירה ``not_found`` על קובץ שקיים — כלומר סירוב שמתחזה
             # להיעדר, והקורא היה מחפש את הבאג במקום הלא נכון.
             return _ResolvedPath(None, None, "suffix_not_allowed")
-        p = p + policy.default_suffix
-        suffix = policy.default_suffix
+        p = p + policy.suffix
+        suffix = policy.suffix
 
-    if policy.slug_root and "/" not in p:
-        p = policy.slug_root + "/" + p
+    if policy.root and "/" not in p:
+        p = policy.root + "/" + p
 
     norm = posixpath.normpath(p)
-    for root in policy.roots:
-        if _is_under(norm, root):
-            return _ResolvedPath(norm, suffix, None)
+    if _is_under(norm, policy.root):
+        return _ResolvedPath(norm, suffix, None)
     return _ResolvedPath(None, None, "missing_path")
 
 
@@ -256,6 +290,25 @@ def _toc(doc: doc_sections.Document) -> tuple[list, bool]:
     if len(items) > _TOC_MAX:
         return items[:_TOC_MAX], True
     return items, False
+
+
+def _line_of(exc: BaseException) -> dict:
+    """``{"line": N}`` כשהחריגה נושאת מספר שורה, ו-``{}`` כשלא.
+
+    **הצורה המותנית ולא שדה שקיים תמיד**, ומאותו נימוק בדיוק שבגללו
+    ``suggestions_truncated`` ו-``remaining_chars`` מותנים: שדה שיופיע
+    גם כשאין מה לשים בו מלמד את הקורא ש-``line: null`` הוא מצב אפשרי,
+    והוא אינו.
+
+    ``args`` ולא אטריביוט ייעודי, כי זה מה ששתי החריגות באמת מחזיקות —
+    שתיהן נבנות ב-``raise X(n)``. בדיקת הטיפוס אינה נימוס: ``args``
+    יכול להיות ריק אם מישהו יעלה אותן בלי ארגומנט, ואז ``args[0]``
+    היה מפיל את הבקשה במקום להחזיר סירוב.
+    """
+    args = getattr(exc, "args", ())
+    if args and isinstance(args[0], int):
+        return {"line": args[0]}
+    return {}
 
 
 def _section_ref(sec: doc_sections.Section) -> dict:
@@ -291,8 +344,14 @@ def docs_get_section(
 
     resolved = _resolve_docs_path(path, policy)
     if resolved.error == "suffix_not_allowed":
+        # ``allowed_suffixes`` נשאר **רשימה** אף שהמדיניות מחזיקה סיומת
+        # אחת: זה החוזה שהלקוח כבר קורא, וצמצום שדה בתשובה כדי להתאים
+        # אותו לצורה הפנימית הוא שינוי שובר בלי שום תמורה לקורא.
         return {"ok": False, "error": "suffix_not_allowed", "repo": repo_name,
-                "requested_path": path, "allowed_suffixes": list(policy.suffixes)}
+                "requested_path": path, "allowed_suffixes": [policy.suffix]}
+    if resolved.error == "path_too_long":
+        return {"ok": False, "error": "path_too_long", "repo": repo_name,
+                "max_chars": MAX_PATH_CHARS, "actual_chars": len(path or "")}
     if not resolved.path:
         return {"ok": False, "error": "missing_path"}
     file_path = resolved.path
@@ -346,12 +405,22 @@ def docs_get_section(
     #
     # תקרת המקביליות על הפרסור אינה כאן ואינה צריכה להיות: היא נגזרת מגודל
     # מאגר הקריאות, ומקומה ב-lifespan של השרת — אישו #3391.
+    # **והמופע נקשר, כי הוא נושא את מספר השורה.** שתי החריגות נבנות עם
+    # ארגומנט אחד — השורה (1-מבוססת) שגרמה לסירוב — וזו כל הסיבה שהן
+    # חריגות ולא דגל. ``except X:`` בלי ``as`` זרק בדיוק את הערך היחיד
+    # שאפשר לפעול לפיו, בתוך הבלוק שההערה מעליו מסבירה למה קוד שגיאה
+    # לבדו אינו ניתן לפעולה.
+    #
+    # ``_line_of`` ולא ``exc.args[0]`` ישירות: חריגה שתיבנה מחר בלי
+    # ארגומנט לא תפיל כאן ``IndexError`` באמצע בקשה.
     try:
         doc = parser.parse_document(content)
-    except doc_sections.InconsistentLineEndings:
-        return {"ok": False, "error": "inconsistent_line_endings", **context}
-    except doc_sections.TooManySections:
-        return {"ok": False, "error": "too_many_sections", **context}
+    except doc_sections.InconsistentLineEndings as exc:
+        return {"ok": False, "error": "inconsistent_line_endings",
+                **context, **_line_of(exc)}
+    except doc_sections.TooManySections as exc:
+        return {"ok": False, "error": "too_many_sections",
+                **context, **_line_of(exc)}
 
     toc_items, toc_truncated = _toc(doc)
 

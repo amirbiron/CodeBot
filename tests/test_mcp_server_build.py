@@ -942,9 +942,8 @@ async def test_the_path_param_doc_names_every_repo_and_suffix_the_policy_knows()
 
     for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
         assert re.search(rf"(?<![\w-]){re.escape(repo)}(?![\w-])", doc), repo
-        for suffix in policy.suffixes:
-            assert re.search(rf"(?<!\w){re.escape(suffix)}(?!\w)", doc), suffix
-        root = policy.slug_root
+        assert re.search(rf"(?<!\w){re.escape(policy.suffix)}(?!\w)", doc), policy.suffix
+        root = policy.root
         assert (f"{root}/" in doc) if root else ("repo root" in doc), repo
 
     # ושני קודי הסירוב שהפרמטר הזה מייצר מוצהרים, אחרת סוכן שמקבל אותם

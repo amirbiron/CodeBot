@@ -152,15 +152,28 @@ def test_the_policy_blocks_exactly_the_known_files_in_this_repository():
     גדלה, ויחליט במודע.
 
     ``git ls-files`` ולא ``rglob``, כי זה בדיוק מה שהמראה מגישה.
+
+    **ו-``-z`` עם פיצול על ``\\0``, לא ``split()`` על רווחים.** הגרסה
+    הראשונה פיצלה על רווחים, ולכן כל נתיב שיש בו רווח נחתך לשני מחרוזות
+    שאינן נתיבים. נמדד בריפו הזה: 10,174 נתיבים אמיתיים, חמישה מהם עם
+    רווח (``FEATURE_SUGGESTIONS/Features Archive/`` ו-
+    ``GUIDES/Debugging Guide.md``), ו-``split()`` החזיר 10,179 מחרוזות.
+    כלומר חמישה נתיבים אמיתיים לא נבדקו כלל, ועשרה לא-נתיבים נבדקו
+    במקומם — והטענה "על כל הריפו" לא הייתה נכונה.
+
+    **והשומר למטה לא היה יכול לתפוס את זה**, כי הריסוק רק **מגדיל** את
+    המספר. זו הצורה שבה טסט נראה יציב יותר ממה שהוא.
     """
     import subprocess
 
-    proc = subprocess.run(["git", "ls-files"], cwd=str(_ROOT),
+    proc = subprocess.run(["git", "ls-files", "-z"], cwd=str(_ROOT),
                           capture_output=True, text=True)
     if proc.returncode != 0:
         pytest.skip("אין git או שזו אינה עבודה מגיט")
-    paths = proc.stdout.split()
+    paths = [p for p in proc.stdout.split("\0") if p]
     assert len(paths) > 1000, "רשימת הקבצים קצרה מדי — הבדיקה איבדה את הקורפוס שלה"
+    assert any(" " in p for p in paths), (
+        "אין בקורפוס אף נתיב עם רווח — הבדיקה איבדה את המקרה ש-``-z`` קיים בשבילו")
 
     assert sorted(p for p in paths if is_denied(p)) == [".env", ".env.example"]
 
@@ -236,3 +249,59 @@ def test_the_search_side_skips_every_path_the_read_side_denies(tmp_path):
     assert returned == allowed, (
         f"החיפוש ותשובת הקריאה אינם מסכימים: חיפוש={sorted(returned)}, "
         f"מותר={sorted(allowed)}")
+
+
+# ===========================================================================
+# ארבע צורות ה-pathspec — החצי השני של אותה מדיניות
+# ===========================================================================
+
+
+def test_every_pattern_becomes_four_exclude_forms_that_cover_a_component_anywhere():
+    """כל תבנית מתורגמת לארבע צורות, ולא לשתיים.
+
+    **למה טסט ישיר ולא רק דרך git.** ``test_the_search_side_skips_every_path_
+    the_read_side_denies`` למטה מוכיח את ההתנהגות שנובעת מהן, אבל הוא
+    מריץ תהליך git אמיתי, ואם מישהו יחזיר את הצורות לשתיים הוא ידווח על
+    "החיפוש והקריאה אינם מסכימים" — תסמין, לא סיבה. כאן הכשל אומר בדיוק
+    מה נמחק.
+
+    ארבע הצורות הן הפירוק של השאלה "האם רכיב כלשהו תואם" לשפה של git:
+    ``P`` לנתיב המלא, ``*/P`` לרכיב האחרון, ``P/*`` לרכיב הראשון,
+    ו-``*/P/*`` לרכיב באמצע. שתי האחרונות נוספו אחרי מדידה — בלעדיהן
+    ``certs/server.pem/notes.md`` נסרק, כי ``*.pem`` ו-``*/*.pem``
+    דורשים שהנתיב **יסתיים** ב-``.pem``.
+    """
+    from services.git_mirror_service import _exclude_pathspecs
+
+    assert _exclude_pathspecs(["*.pem"]) == [
+        ":(exclude,icase)*.pem",
+        ":(exclude,icase)*/*.pem",
+        ":(exclude,icase)*.pem/*",
+        ":(exclude,icase)*/*.pem/*",
+    ]
+
+
+def test_the_pathspecs_are_deduplicated_and_empty_patterns_are_dropped():
+    """ריצת הבקרה: תבנית כפולה אינה מכפילה, ותבנית ריקה אינה יוצרת pathspec.
+
+    בלי השורות האלה "ארבע צורות לכל תבנית" היה נשבר בשקט על רשימה
+    שמגיעה מ-``MCP_REPO_DENYLIST_EXTRA`` עם פסיק מיותר.
+    """
+    from services.git_mirror_service import _exclude_pathspecs
+
+    assert _exclude_pathspecs(["*.pem", "*.pem", "", "  "]) == \
+        _exclude_pathspecs(["*.pem"])
+    assert _exclude_pathspecs([]) == []
+
+
+def test_the_denylist_constant_is_named_for_what_it_matches():
+    """השם הוא המקום שאליו מגיע מי שבא להוסיף תבנית, ולכן הוא חלק מהחוזה.
+
+    ההתאמה אינה מול ה-basename מאז שסריקת הרכיבים נכנסה. שם שאומר
+    ``BASENAME`` היה מלמד את התורם הבא לכתוב תבנית לשם קובץ, ולא לדעת
+    שהיא נבדקת גם מול כל רכיב וגם מול הנתיב השלם.
+    """
+    assert hasattr(repo_policy, "PATH_DENYLIST")
+    assert not hasattr(repo_policy, "BASENAME_DENYLIST"), (
+        "השם הישן חזר — שני שמות לאותו קבוע הם בדיוק הסחיפה שהשינוי מנע")
+    assert repo_policy.PATH_DENYLIST[0] == ".env*"

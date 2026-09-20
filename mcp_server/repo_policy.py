@@ -25,10 +25,16 @@ import fnmatch
 import os
 import posixpath
 
-# Baseline denylist (lowercase glob patterns, matched against basename AND full
-# path). Deliberately errs on over-blocking — this is a security filter, not a
-# relevance filter. Extend per-deploy via MCP_REPO_DENYLIST_EXTRA (CSV globs).
-BASENAME_DENYLIST: tuple[str, ...] = (
+# Baseline denylist (lowercase glob patterns, matched against the full path AND
+# against every component of it — a sensitive name is caught as a file and as a
+# directory holding other files). Deliberately errs on over-blocking — this is a
+# security filter, not a relevance filter. Extend per-deploy via
+# MCP_REPO_DENYLIST_EXTRA (CSV globs).
+#
+# השם היה ``BASENAME_DENYLIST`` כל עוד ההתאמה הייתה מול ה-basename. היא אינה,
+# והשם הוא המקום שאליו מגיע מי שבא להוסיף תבנית — הוא היה כותב תבנית ל-basename
+# ולא יודע שהיא נבדקת מול כל רכיב ומול הנתיב השלם.
+PATH_DENYLIST: tuple[str, ...] = (
     ".env*",
     "*.pem",
     "*.key",
@@ -51,7 +57,7 @@ _EXTRA_ENV = "MCP_REPO_DENYLIST_EXTRA"
 
 def _patterns() -> tuple[str, ...]:
     extra = tuple(p.strip().lower() for p in os.getenv(_EXTRA_ENV, "").split(",") if p.strip())
-    return BASENAME_DENYLIST + extra
+    return PATH_DENYLIST + extra
 
 
 def denylist_patterns() -> tuple[str, ...]:
@@ -99,10 +105,14 @@ def is_denied(path: object) -> bool:
         # מ-``MCP_REPO_DENYLIST_EXTRA`` יכולה להכיל ``/`` (``internal/*``),
         # והיא מתאימה לנתיב ולא לאף רכיב בודד.
         #
-        # **העלות נמדדה ולא הוערכה:** על 10,174 הקבצים שגיט מכיר בריפו הזה,
-        # ההרחבה חוסמת **אפס** קבצים חדשים ומשחררת אפס. היא סוגרת פערים,
-        # ואינה חוסמת תיעוד לגיטימי — זו הבדיקה ש-
-        # ``blanket-policy-silent-block`` דורש לפני מדיניות שמרחיבה חסימה.
+        # **העלות נמדדה ולא הוערכה, ועל כל המראות ולא על אחת.** המדיניות
+        # הזאת חלה על כל מראה שהשירות מגיש, ולכן המדידה נעשתה על שלושתן,
+        # עם נתיבים מופרדי-``\0`` (פיצול על רווחים מרסק נתיבים שיש בהם
+        # רווח וסופר רסיסים): CodeBot 10,174 נתיבים — שניים חסומים לפני
+        # ושניים אחרי; Han 688 — אפס ואפס; ``amir-bug-patterns`` 95 —
+        # אפס. **אפס קבצים חדשים נחסמים בכל אחת מהן, ואפס משוחררים.**
+        # זו הבדיקה ש-``blanket-policy-silent-block`` דורש לפני מדיניות
+        # שמרחיבה חסימה, והיא מכסה את המשטח שהמדיניות באמת חלה עליו.
         parts = [part for part in norm.split("/") if part and part != "."]
         if not parts:
             return True

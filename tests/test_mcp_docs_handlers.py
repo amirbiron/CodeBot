@@ -486,7 +486,7 @@ def test_a_dotfile_directory_is_reachable_in_a_repo_rooted_at_its_top(both_repos
     מסוננים ממילא על ידי הסיומת.
 
     **הטסט קיים כדי שההחלטה תהיה נראית.** מי שיחליט מחר שזה לא רצוי
-    יצמצם את ``roots``, יראה את הטסט הזה נופל, ויידע שהוא משנה הכרעה
+    ישנה את ``root``, יראה את הטסט הזה נופל, ויידע שהוא משנה הכרעה
     ולא מתקן באג.
     """
     be = _RecordingBackend()
@@ -605,8 +605,7 @@ def test_a_root_is_matched_as_a_path_unit_and_not_as_a_prefix(monkeypatch):
     """
     monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,synthetic")
     monkeypatch.setitem(docs_handlers.DOCS_PATH_POLICY, "synthetic",
-                        docs_handlers._DocsPathPolicy(roots=("docs",),
-                                                      suffixes=(".rst",)))
+                        docs_handlers._DocsPathPolicy(root="docs", suffix=".rst"))
     be = _RecordingBackend()
     out = docs_handlers.docs_get_section(be, path="docsecret/x", repo="synthetic")
     assert out == {"ok": False, "error": "missing_path"}
@@ -824,11 +823,10 @@ def test_every_suffix_a_repo_policy_names_has_a_parser(monkeypatch):
     הבדיקה נמחקה מ-``_validate_policy_tables``.
     """
     for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
-        for suffix in policy.suffixes:
-            assert suffix in docs_handlers._PARSERS, f"{repo}: {suffix}"
+        assert policy.suffix in docs_handlers._PARSERS, f"{repo}: {policy.suffix}"
 
     monkeypatch.setitem(docs_handlers.DOCS_PATH_POLICY, "broken",
-                        docs_handlers._DocsPathPolicy(roots=("",), suffixes=(".txt",)))
+                        docs_handlers._DocsPathPolicy(root="", suffix=".txt"))
     with pytest.raises(RuntimeError, match="_PARSERS"):
         docs_handlers._validate_policy_tables()
 
@@ -886,8 +884,172 @@ def test_the_page_states_the_validation_order_the_code_actually_runs():
 
     # ושהקוד עצמו עדיין מריץ את הסדר הזה — הפרוזה מתארת משהו, וזה הוא.
     order = inspect.getsource(docs_handlers._resolve_docs_path)
-    anchor_at = order.index("policy.slug_root and")
+    anchor_at = order.index("policy.root and")
     norm_at = order.index("posixpath.normpath(p)")
-    bound_at = order.index("for root in policy.roots")
+    bound_at = order.index("_is_under(norm, policy.root)")
     assert anchor_at < norm_at < bound_at, (
         "סדר הפעולות בקוד השתנה, והעמוד מתאר את הישן")
+
+
+# ===========================================================================
+# תקרת אורך ל-``path`` — הקלט החיצוני היחיד כאן שלא הייתה עליו תקרה
+# ===========================================================================
+
+
+def test_a_path_over_the_ceiling_is_refused_before_the_secrets_policy_reads_it(
+        monkeypatch, both_repos):
+    """נתיב ארוך מדי נדחה בשלב 1, ו-``is_denied`` **אינו נקרא עליו כלל**.
+
+    **זו הטענה, ולא "זה מהיר".** מה שהפך נתיב ארוך ליקר הוא ש-
+    ``repo_policy.is_denied`` — ההוראה הראשונה ב-``RepoBackend.get_file``
+    — סורקת כל רכיב בנתיב מול כל תבנית, כלומר עבודה שגדלה עם הקלט. נמדד
+    לפני התקרה: נתיב של 400KB עלה 608ms לעומת 2.4ms לפני שסריקת הרכיבים
+    נוספה. הדרך הדטרמיניסטית להוכיח שהמחיר נעלם היא שהפונקציה היקרה לא
+    רצה, ולא שעון קיר — שהוא מדיד אבל מתעטש תחת עומס.
+
+    ``RepoBackend`` אמיתי ומראה אמיתית, כי ``is_denied`` אינו נקרא
+    מה-handler אלא מה-backend: דמה של backend לא הייתה מוכיחה דבר.
+
+    **והנתיב פי שניים מהתקרה ולא תו אחד מעליה** — זו הבדיקה ש-
+    ``silent-truncation-at-sink`` דורש: מה קורה לערך שגדול פי שניים
+    מהתקרה, נדחה או נחתך בשקט.
+    """
+    from mcp_server import repo_backend, repo_policy
+
+    seen: list[str] = []
+    real = repo_policy.is_denied
+    monkeypatch.setattr(repo_backend, "is_denied",
+                        lambda p: (seen.append(p), real(p))[1])
+
+    mirror = _CountingMirror()
+    long_path = "docs/" + "a/" * docs_handlers.MAX_PATH_CHARS + "x.rst"
+    assert len(long_path) > 2 * docs_handlers.MAX_PATH_CHARS
+
+    out = docs_handlers.docs_get_section(_real_backend(mirror), path=long_path)
+
+    assert out["ok"] is False and out["error"] == "path_too_long"
+    assert seen == [], "הנתיב הארוך הגיע ל-is_denied — התקרה לא חסמה אותו"
+    assert mirror.reads == [], "המראה נקראה על נתיב שנדחה"
+
+
+def test_the_refusal_says_what_the_ceiling_is_and_what_was_sent(both_repos):
+    """הסירוב נוקב בשני המספרים, אחרת הקורא אינו יודע כמה לקצר.
+
+    ``blanket-policy-silent-block`` הוא בדיוק המקרה שבו מדיניות חוסמת
+    ומבחוץ זה נראה כמו נתיב שגוי. קוד משלו **ועוד** שני המספרים הם מה
+    שהופך את החסימה לגלויה.
+    """
+    be = _RecordingBackend()
+    long_path = "x" * (docs_handlers.MAX_PATH_CHARS + 1) + ".rst"
+    out = docs_handlers.docs_get_section(be, path=long_path)
+
+    assert out["error"] == "path_too_long"
+    assert out["max_chars"] == docs_handlers.MAX_PATH_CHARS
+    assert out["actual_chars"] == len(long_path)
+    assert out["error"] != "missing_path"  # לא מתחזה לנתיב שגוי
+    assert be.kwargs == []
+
+
+def test_the_longest_real_path_in_every_served_repo_is_far_under_the_ceiling():
+    """התקרה אינה חוסמת אף קובץ אמיתי — נמדד, לא הונח.
+
+    ``blanket-policy-silent-block`` דורש את המדידה הזאת לפני מדיניות
+    שמרחיבה חסימה. הריפו הזה הוא היחיד שאפשר למדוד מכאן; המספרים לשתי
+    המראות האחרות נמדדו ונכתבו ב-``MAX_PATH_CHARS``, והשומר כאן הוא על
+    הסדר גודל: הכי ארוך שיש רחוק מהתקרה ולא צמוד לה.
+    """
+    import subprocess
+
+    proc = subprocess.run(["git", "ls-files", "-z"], cwd=str(_ROOT),
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        pytest.skip("אין git או שזו אינה עבודה מגיט")
+    paths = [p for p in proc.stdout.split("\0") if p]
+    longest = max(len(p) for p in paths)
+    assert longest * 4 < docs_handlers.MAX_PATH_CHARS, (
+        f"הנתיב הארוך בריפו הוא {longest} תווים, והתקרה {docs_handlers.MAX_PATH_CHARS} "
+        f"כבר אינה רחוקה ממנו — מדוד מחדש לפני שמשאירים אותה")
+
+
+# ===========================================================================
+# מספר השורה שהפארסר ייצר מגיע לקורא
+# ===========================================================================
+
+
+@pytest.mark.parametrize("text,kwargs,error,exc_type", [
+    ("# א\nשורה\nרע\rזנב\n", {}, "inconsistent_line_endings",
+     doc_sections.InconsistentLineEndings),
+    ("\n\n".join(f"# H{i}" for i in range(40)), {"max_sections": 5},
+     "too_many_sections", doc_sections.TooManySections),
+])
+def test_the_line_the_caller_gets_is_the_line_the_parser_produced(
+        both_repos, monkeypatch, text, kwargs, error, exc_type):
+    """המספר בתשובה **נגזר מהפארסר** ולא מוקלד בטסט.
+
+    טסט שכותב ``assert out["line"] == 3`` מקבע מספר קסם: הוא יעבור גם
+    אם ה-handler יחזיר קבוע, וייפול על כל שינוי לגיטימי בפארסר. כאן
+    הפארסר מורץ תחילה כדי **לשאול אותו** מה המספר, ואז נבדק שאותו מספר
+    בדיוק עבר דרך שתי שכבות אל הקורא.
+    """
+    with pytest.raises(exc_type) as raised:
+        md_parser.parse_document(text, **kwargs)
+    expected = raised.value.args[0]
+    assert isinstance(expected, int) and expected > 0
+
+    if kwargs:
+        monkeypatch.setattr(
+            docs_handlers._PARSERS[".md"], "parse_document",
+            functools.partial(md_parser.parse_document, **kwargs))
+
+    out = docs_handlers.docs_get_section(_TextBackend(text), path="x.md",
+                                         repo="amir-bug-patterns")
+    assert out["ok"] is False and out["error"] == error
+    assert out["line"] == expected, "המספר בתשובה אינו זה שהפארסר ייצר"
+    # וההקשר לא הלך לאיבוד בדרך — סירוב בלי קובץ אינו ניתן לפעולה.
+    assert out["repo"] == "amir-bug-patterns" and out["path"] == "x.md"
+
+
+def test_a_refusal_with_no_line_number_omits_the_field_instead_of_sending_null(
+        both_repos, monkeypatch):
+    """חריגה בלי ארגומנט אינה מפילה את הבקשה, ואינה שולחת ``line: null``.
+
+    שדה שקיים תמיד מלמד את הקורא ש-``null`` הוא מצב אפשרי, והוא אינו.
+    ובלי בדיקת הטיפוס ב-``_line_of``, ``args[0]`` על חריגה ריקה היה
+    ``IndexError`` באמצע בקשה — כלומר 500 במקום סירוב.
+    """
+    def _bare(text, **k):
+        raise doc_sections.TooManySections()
+
+    monkeypatch.setattr(docs_handlers._PARSERS[".md"], "parse_document", _bare)
+    out = docs_handlers.docs_get_section(_TextBackend("# א\n"), path="x.md",
+                                         repo="amir-bug-patterns")
+    assert out["error"] == "too_many_sections"
+    assert "line" not in out
+
+
+# ===========================================================================
+# ההחלטה לתת ל-TypeError ול-RuntimeError לעבור — מקובעת, לא רק מנומקת
+# ===========================================================================
+
+
+@pytest.mark.parametrize("exc", [TypeError("חוזה נשבר"), RuntimeError("אסימון בלי map")])
+def test_a_broken_contract_propagates_and_is_not_dressed_up_as_a_refusal(
+        both_repos, monkeypatch, exc):
+    """``TypeError`` ו-``RuntimeError`` עולים הלאה, ואינם הופכים לקוד סירוב.
+
+    **ההחלטה הזאת מנומקת באריכות בהערה שמעל ה-``try`` ולא נשמרה בשום
+    מקום.** מי שירחיב את ה-``except`` כדי להשתיק טסט נופל היה עובר CI,
+    והופך חוזה שבור לסירוב שנראה תקין — זה ``widened-exception-scope``
+    בצורתו המדויקת. הטסט הזה הוא מה שהופך את ההרחבה לכשל CI.
+
+    ומה שהקורא מקבל בפועל נמדד ואינו הנחה: המסגרת ממירה חריגה שעולה
+    ל-``ToolError`` מובנה, כלומר שגיאה נקייה ולא קריסה — ולכן ההחלטה
+    לתת לה לעבור אינה מחיר ללקוח.
+    """
+    def _boom(text, **k):
+        raise exc
+
+    monkeypatch.setattr(docs_handlers._PARSERS[".md"], "parse_document", _boom)
+    with pytest.raises(type(exc)):
+        docs_handlers.docs_get_section(_TextBackend("# א\n"), path="x.md",
+                                       repo="amir-bug-patterns")

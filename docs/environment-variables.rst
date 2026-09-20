@@ -2544,7 +2544,7 @@
      - רשימת הריפואים המותרים (CSV allowlist) שכלי ``codekeeper_docs_get_section`` הציבורי רשאי לקרוא מהם קובצי תיעוד — RST או Markdown, לפי מדיניות הנתיבים של כל ריפו ב-``mcp_server/docs_handlers.py``. גבול אבטחה — ארגומנט ``repo`` שאינו ברשימה נדחה, וריפו שנמצא ברשימה ואין לו מדיניות נתיבים נדחה ב-``repo_not_configured``. **הכניסה הראשונה היא ברירת המחדל, ולכן היא קובעת גם את הפורמט** של קריאה שאינה נוקבת בריפו. ברירת מחדל ``CodeBot``.
      - לא
      - ``CodeBot``
-     - ``CodeBot``
+     - ``CodeBot,amir-bug-patterns``
      - MCP
    * - ``MCP_ALLOWED_HOSTS``
      - רשימת Host מותרים לשרת ה-MCP (CSV; תומך wildcard כמו ``*.onrender.com``). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).

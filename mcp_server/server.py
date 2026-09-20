@@ -198,9 +198,9 @@ _SYMBOL_PARAM_DOC = (
 def _build_docs_path_doc() -> str:
     parts = []
     for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
-        root = policy.slug_root
+        root = policy.root
         where = f"under {root}/" if root else "at the repo root"
-        parts.append(f"{repo} — {where}, {' '.join(policy.suffixes)}")
+        parts.append(f"{repo} — {where}, {policy.suffix}")
     return (
         "Which file to read. Each repo decides where its docs live and in what "
         "format: " + "; ".join(parts) + ". Give a full path "
@@ -213,7 +213,10 @@ def _build_docs_path_doc() -> str:
         "up silently under the other suffix. Which repos are reachable at all "
         "is MCP_DOCS_REPO, and its first entry is the default; a repo that "
         "env allows but this tool has no path rule for is refused with "
-        "repo_not_configured."
+        "repo_not_configured. A path longer than "
+        f"{docs_handlers.MAX_PATH_CHARS} characters is refused with "
+        "path_too_long before anything reads it — the longest real path in "
+        "any served repo is under 120 characters."
     )
 
 
