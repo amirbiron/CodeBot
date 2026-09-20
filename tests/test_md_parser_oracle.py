@@ -1,4 +1,4 @@
-"""‏``md_parser`` מול cmark-gfm — טבלת אמת מחוללת, והקורפוס.
+"""‏``md_parser`` מול cmark-gfm — טבלת אמת מחוללת.
 
 **האורקל הוא ספרייה אחרת בשפה אחרת.** ``cmarkgfm`` עוטף את cmark-gfm,
 הפארסר ש-GitHub מריץ בפועל, והוא נקרא כאן ברינדור ל-HTML עם
@@ -12,11 +12,18 @@
 הרגרסיה, לא סיבה לדלג בשקט. אותו נימוק שכתוב ב-
 ``tests/test_mcp_analytics_privacy.py`` על ``posthog``.
 
-**למה טבלה מחוללת ולא קובץ סטטי.** כל 30 מופעי ה-``#``-שאינו-כותרת
-בקורפוס יושבים בגדרות קוד — אפס בקוד מוזח, אפס בבלוקי HTML, אפס
-ב-front matter. כלומר פארסר שימדל **מחלקת אזור אחת בלבד** יקבל 100%
-על הקורפוס ויישבר על הקובץ הבא. הצורות המחוללות, ולא הקורפוס, הן
-הראיה — והקורפוס הוא בדיקת שפיות עליהן.
+**למה טבלה מחוללת ולא קורפוס של קבצים אמיתיים.** נמדד על
+``amir-bug-patterns``: כל 30 מופעי ה-``#``-שאינו-כותרת שם יושבים בגדרות
+קוד — אפס בקוד מוזח, אפס בבלוקי HTML, אפס ב-front matter. כלומר פארסר
+שימדל **מחלקת אזור אחת בלבד** יקבל 100% על קורפוס אמיתי ויישבר על
+הקובץ הבא. הצורות המחוללות הן הראיה.
+
+**ומה שהקובץ הזה אינו עושה, כדי שזה לא ייקרא כהשמטה:** הוא **אינו מריץ
+אף קובץ אמיתי**. זו החלטה. קורפוס אמיתי הוא בדיקת שפיות חד-פעמית ולא
+רשת שתופסת רגרסיה עתידית, והוא היה דורש להחזיק בריפו הזה עותק של תוכן
+שאינו שלו. ההרצה על קורפוס אמיתי נעשית על פי דרישה, עם
+``scripts/compare_md_parser_to_cmark.py`` — לפני שלב 2, אחרי שדרוג של
+``markdown-it-py``, וכשנוגעים בפארסר.
 
 **והחלוקה לכמה טסטים אינה קוסמטית:** ``pytest.ini`` קובע
 ``timeout = 60`` לכל טסט, וטבלה אחת גדולה הייתה מתקרבת לשם.
@@ -25,9 +32,7 @@
 from __future__ import annotations
 
 import itertools
-import re
 from html.parser import HTMLParser
-from pathlib import Path
 
 import cmarkgfm
 import pytest
@@ -36,8 +41,6 @@ from markdown_it import MarkdownIt
 from mdit_py_plugins.front_matter import front_matter_plugin
 
 from services.md_parser import parse_document
-
-_CORPUS = Path(__file__).resolve().parent / "fixtures" / "md_corpus"
 
 #: מכלים שכותרת בתוכם אינה סעיף במסמך. ``blockquote`` ו-``li`` הם מה
 #: ש-cmark מסמן בפועל; ``level`` של ``markdown-it`` מתאר את אותו דבר
@@ -350,49 +353,3 @@ def test_a_heading_inside_a_container_is_seen_by_cmark_and_excluded_by_us(text):
     all_headings = _oracle_all_headings(text)
     assert any(inside for _lvl, _line, inside in all_headings), "הצורה אינה מכילה מכל"
     assert _ours(text) == _oracle_sections(text)
-
-
-# ════════════════════════════════════════════════════════════════════
-# הקורפוס
-# ════════════════════════════════════════════════════════════════════
-
-def _corpus_files():
-    """תיקייה שקיימת ומחזירה אפס קבצים היא כישלון, לא דילוג.
-
-    אותו כלל בדיוק כמו ``_rst_files`` ב-``tests/test_rst_parser.py``:
-    טסט קורפוס שמדלג בשקט הוא טסט שלא רץ אף פעם.
-    """
-    assert _CORPUS.is_dir(), f"תיקיית הקורפוס חסרה: {_CORPUS}"
-    # ``README.md`` שבתיקייה מתאר את הקורפוס ואינו חלק ממנו.
-    files = sorted(p for p in _CORPUS.rglob("*.md") if p.name != "README.md")
-    assert len(files) >= 8, f"רק {len(files)} קבצים תחת {_CORPUS}"
-    return files
-
-
-@pytest.mark.parametrize("path", _corpus_files(), ids=lambda p: p.name)
-def test_every_corpus_file_matches_cmark(path):
-    """רמה ומספר שורה זהים ל-cmark-gfm, בכל כותרת בכל קובץ."""
-    text = path.read_text(encoding="utf-8")
-    assert _ours(text) == _oracle_sections(text)
-
-
-def test_the_corpus_covers_the_shapes_it_was_chosen_for():
-    """הקורפוס נבחר לפי צורות, ולא לפי גודל — וזה נאכף.
-
-    בלי הטסט הזה, קובץ שיוחלף בעתיד יכול להוציא מחלקה שלמה מהכיסוי
-    בלי שאיש יראה.
-    """
-    texts = {path.name: path.read_text(encoding="utf-8") for path in _corpus_files()}
-    everything = "\n".join(texts.values())
-    assert "‏" in everything, "אין RLM באף קובץ"
-    assert any("````" in text for text in texts.values()), "אין קינון גדרות"
-    assert any(
-        re.match(r"^[ ]{1,3}(```|~~~)", line)
-        for text in texts.values()
-        for line in text.split("\n")
-    ), "אין גדר מוזחת"
-    assert sum(text.count("\n## K1") for text in texts.values()) > 0, "אין מזהים"
-    assert any("`" in line for text in texts.values()
-               for line in text.split("\n") if line.startswith("#")), "אין בקטיקים בכותרות"
-    total_headings = sum(len(_oracle_sections(text)) for text in texts.values())
-    assert total_headings > 200, f"רק {total_headings} כותרות בקורפוס"
