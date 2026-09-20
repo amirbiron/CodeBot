@@ -448,3 +448,18 @@ def test_the_markdown_page_hides_edit_on_an_old_version(wired_mongo):
     old = client.get(f"/md/{ids[1]}").get_data(as_text=True)
     assert BANNER_MARK in old
     assert f'/edit/{ids[1]}' not in old, "אפשר לערוך גרסה ישנה מתצוגת Markdown"
+
+
+def test_a_metadata_write_to_a_trashed_file_says_it_is_in_the_trash(wired_mongo):
+    """הכתיבה נחסמה ממילא בפילטר — אבל כ"לא נמצא", וזה לא מה שקרה.
+
+    לקובץ בסל אין "גרסה פעילה אחרונה", ולכן השוואת המספרים בגארד לא
+    הייתה חוסמת כלום; מה שחסם היה ``is_active`` בפילטר של
+    ``update_file_metadata_in``, שמחזיר תשובה שאינה אומרת למשתמש
+    שהקובץ בסל.
+    """
+    ids = _seed(wired_mongo, versions=3, is_active=False)
+    resp = _client(wired_mongo).post(f"/api/file/{ids[3]}/quick-update",
+                                     json={"description": "תיאור"})
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+    assert "סל" in (resp.get_json() or {}).get("error", "")

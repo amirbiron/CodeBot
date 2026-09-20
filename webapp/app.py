@@ -3947,6 +3947,27 @@ def get_current_user_id() -> Optional[int]:
 compare_bp = Blueprint('compare', __name__, url_prefix='/api/compare')
 
 
+def _default_compare_pair(versions, fallback: int):
+    """שתי הגרסאות שמוצגות כשלא ביקשו אחרות — כלל אחד לעמוד ול-API.
+
+    **נגזר מהקבוצה ולא מחשבון.** ``current_version - 1`` מניח שהמספור
+    רציף, והוא אינו: העברה לסל ואז שמירה מחדש משאירה את הגרסאות
+    הישנות לא פעילות ויוצרת מספר חדש, ומחיקת גרסה בודדת מייצרת חור
+    באמצע. עבור ``{2, 7, 9}`` החשבון נותן 8, שאינה קיימת — הדיף חוזר
+    400 והרשימה הנפתחת מסמנת משהו אחר.
+
+    הפונקציה טהורה ומקבלת מספרים, כי לשני הקוראים יש מקור אחר: העמוד
+    כבר מחזיק את כל הרשימה, וה-API שולף רק את שתי העליונות. מה שאסור
+    שיהיה שונה הוא **הכלל**, לא הדרך להשיג את הנתונים.
+    """
+    ordered = sorted({v for v in versions if v is not None}, reverse=True)
+    if not ordered:
+        return max(1, fallback - 1), fallback
+    right = ordered[0]
+    left = ordered[1] if len(ordered) > 1 else right
+    return left, right
+
+
 def _compare_version_arg(
     name: str,
     default: int,
@@ -4015,21 +4036,31 @@ def compare_versions(file_id: str):
     # כברירת מחדל לפרמטר חסר, והממשק שולח תמיד את שניהם; שליפה בכל
     # בקשה הייתה עבודה שאיש לא קורא את תוצאתה.
     current_version = normalized_version(file_doc.get("version")) or 1
+    default_left, default_right = max(1, current_version - 1), current_version
     if not request.args.get('left') or not request.args.get('right'):
+        # **שתיים, לא אחת.** ברירת המחדל היא זוג, ו"הגרסה שלפני" אינה
+        # ``האחרונה - 1`` כשהמספור אינו רציף. ההיטלה היא ``version``
+        # בלבד ו-``limit(2)`` — עדיין שאילתה אחת על אותו אינדקס.
         try:
-            latest_doc = _latest_active_version_doc(
-                get_db(), user_id, file_name, {"version": 1})
+            top = list(
+                get_db().code_snippets.find(
+                    {"user_id": user_id, "file_name": file_name, "is_active": True},
+                    {"version": 1},
+                    sort=[("version", DESCENDING)],
+                ).limit(2)
+            )
         except Exception:
-            logger.warning("could not resolve the latest version for compare defaults",
+            logger.warning("could not resolve the compare defaults",
                            extra={"file_name": file_name}, exc_info=True)
-            latest_doc = None
-        current_version = (
-            normalized_version((latest_doc or {}).get("version")) or current_version
-        )
+            top = []
+        if top:
+            default_left, default_right = _default_compare_pair(
+                (normalized_version(d.get("version")) for d in top), current_version
+            )
 
     # קבלת פרמטרים
-    version_left, err_left = _compare_version_arg('left', max(1, current_version - 1))
-    version_right, err_right = _compare_version_arg('right', current_version)
+    version_left, err_left = _compare_version_arg('left', default_left)
+    version_right, err_right = _compare_version_arg('right', default_right)
     error = err_left or err_right
     if error:
         return jsonify({"error": error}), 400
@@ -13791,9 +13822,7 @@ def compare_versions_page(file_id: str):
     # שהחשבון נותן 3. לגרסה 3 אין ``<option>``, הדפדפן מסמן את 4,
     # וה-JS מבקש ``?left=3`` ומקבל 400 — בדיוק הסתירה בין הרשימה לדיף
     # שה-PR הזה בא לסגור. ערך שנגזר מהקבוצה אינו יכול לצאת ממנה.
-    ordered = sorted(available, reverse=True)
-    default_right = ordered[0] if ordered else current_version
-    default_left = ordered[1] if len(ordered) > 1 else default_right
+    default_left, default_right = _default_compare_pair(available, current_version)
 
     # שני הערכים נקבעים **פעם אחת** ומוזנים גם לרשימות הנפתחות וגם
     # ל-``CompareView.init``. קודם הם חושבו בשלושה מקומות בנפרד — כאן,
@@ -14021,6 +14050,16 @@ def _reject_when_not_latest_version(db_ref, user_id: int, file_id: str):
 
     if not isinstance(doc, dict):
         return None  # לא נמצא — הפונקציה שמתחת מחזירה 404 עם הודעה משלה
+
+    if doc.get('is_active') is False:
+        # קובץ בסל: אין לו "גרסה פעילה אחרונה", ולכן השוואת המספרים
+        # למטה הייתה מאשרת את הכתיבה. היא נחסמת ממילא בפילטר של
+        # ``update_file_metadata_in``, אבל שם היא חוזרת כ"לא נמצא" —
+        # תשובה שאינה אומרת למשתמש שהקובץ בסל.
+        return jsonify({
+            'ok': False,
+            'error': 'הקובץ נמצא בסל המיחזור; שחזרו אותו לפני עדכון',
+        }), 409
 
     current = normalized_version(doc.get('version'))
     if current is None:

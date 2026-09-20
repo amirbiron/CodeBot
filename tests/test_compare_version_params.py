@@ -72,10 +72,21 @@ def _wire(monkeypatch, *, versions=(1, 2, 3), doc_version=3):
     # פרמטר. הדמה סופרת קריאות כדי שאפשר יהיה לבדוק גם את זה.
     calls = []
 
+    class _Cursor:
+        def __init__(self, docs):
+            self._docs = docs
+
+        def limit(self, n):
+            return iter(self._docs[:n])
+
     class _Snippets:
         def find_one(self, query, projection=None, sort=None):
             calls.append(query)
             return {"version": max(versions)}
+
+        def find(self, query, projection=None, sort=None):
+            calls.append(query)
+            return _Cursor([{"version": v} for v in sorted(versions, reverse=True)])
 
     class _Db:
         code_snippets = _Snippets()
@@ -235,3 +246,25 @@ def test_a_gap_in_the_middle_still_defaults_to_two_real_versions(monkeypatch):
     body = _client(app).get(f"/compare/{FILE_ID}").get_data(as_text=True)
     assert "leftVersion: 7" in body, "ברירת המחדל דילגה על הגרסה הקיימת הקודמת"
     assert "rightVersion: 9" in body
+
+
+def test_the_api_defaults_skip_gaps_in_the_version_numbers(monkeypatch):
+    """אותו כלל בדיוק כמו בעמוד — אחרת שני המשטחים חוזרים להיסחף.
+
+    עבור ``{2, 7, 9}`` החשבון נותן 8, שאינה קיימת, והדיף היה חוזר 400
+    על בקשה שלא ביקשה שום דבר חריג.
+    """
+    app = _import_app()
+    _calls, asked = _wire(monkeypatch, versions=(2, 7, 9), doc_version=9)
+    resp = _client(app).get(f"/api/compare/versions/{FILE_ID}")
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert sorted(set(asked)) == [7, 9], f"הושוו הגרסאות {asked}"
+
+
+def test_the_api_defaults_work_when_only_one_version_is_active(monkeypatch):
+    """אחרי סל ושמירה מחדש נשארת גרסה פעילה אחת בלבד."""
+    app = _import_app()
+    _calls, asked = _wire(monkeypatch, versions=(4,), doc_version=4)
+    resp = _client(app).get(f"/api/compare/versions/{FILE_ID}")
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert set(asked) == {4}, f"הושוו הגרסאות {asked}"
