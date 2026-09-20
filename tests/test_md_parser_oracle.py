@@ -25,6 +25,12 @@
 ``scripts/compare_md_parser_to_cmark.py`` — לפני שלב 2, אחרי שדרוג של
 ``markdown-it-py``, וכשנוגעים בפארסר.
 
+**מה בדיוק מושווה, כדי שהתוצאה לא תיקרא רחבה ממה שהיא.** ההשוואה
+הראשית — ``_compare`` — היא על **הרמה ומספר השורה** של כל כותרת ברמת
+המסמך, ולא על טקסט הכותרת. "אפס אי-הסכמות" היא לכן טענה על **גבולות**:
+היכן מתחיל סעיף ואיזו רמה הוא. טקסט הכותרת מושווה בנפרד, ב-
+``_compare_titles``, ורק על תת-קבוצה — ההנמקה שם.
+
 **והחלוקה לכמה טסטים אינה קוסמטית:** ``pytest.ini`` קובע
 ``timeout = 60`` לכל טסט, וטבלה אחת גדולה הייתה מתקרבת לשם.
 """
@@ -55,6 +61,11 @@ class _HeadingCollector(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.open_tags: list[str] = []
         self.headings: list[tuple[int, int, bool]] = []  # (רמה, שורה, בתוך מכל)
+        # ‏**רשימה מקבילה ולא שדה רביעי בטאפל.** ``headings`` נצרך בשלושה
+        # מקומות שמפרקים אותו לשלושה, והרחבה שם הייתה גוררת את כולם בלי
+        # שהטקסט מעניין אף אחד מהם. כאן האינדקסים מקבילים, וזה כל הקשר.
+        self.texts: list[str] = []
+        self._depth = 0
 
     def handle_starttag(self, tag, attrs):
         if tag in ("hr", "br", "img"):
@@ -65,9 +76,27 @@ class _HeadingCollector(HTMLParser):
             line = int(source_pos.split(":", 1)[0])
             inside = any(t in _CONTAINER_TAGS for t in self.open_tags)
             self.headings.append((int(tag[1]), line, inside))
+            self.texts.append("")
+            self._depth = 1
+        elif self._depth:
+            # תגית שנפתחה **בתוך** הכותרת — ``<code>``, ``<em>``, ``<a>``.
+            # הטקסט שלה נאסף כמו כל טקסט אחר, אבל הסימון שהוליד אותה
+            # כבר אבד, ובדיוק לכן הכותרות האלה מוחרגות מהשוואת הטקסט.
+            self._depth += 1
         self.open_tags.append(tag)
 
+    def handle_data(self, data):
+        if self._depth:
+            self.texts[-1] += data
+
     def handle_endtag(self, tag):
+        # אותה החרגה כמו בפתיחה, ומאותה סיבה: ``<br>`` מגיע כ-
+        # ``handle_startendtag``, כלומר פתיחה **וסגירה** — בלי ההחרגה
+        # הזאת הוא היה מוריד את המונה בלי שהעלה אותו.
+        if tag in ("hr", "br", "img"):
+            return
+        if self._depth:
+            self._depth -= 1
         if tag in self.open_tags:
             # סגירה של התגית הפתוחה האחרונה מאותו שם
             del self.open_tags[len(self.open_tags) - 1 - self.open_tags[::-1].index(tag)]
@@ -119,6 +148,79 @@ def _oracle_sections(text: str) -> list[tuple[int, int]]:
 
 def _ours(text: str) -> list[tuple[int, int]]:
     return [(s.level, s.heading_line) for s in parse_document(text).sections]
+
+
+#: תווים שפותחים סימון פנימי ב-CommonMark, או שמייצגים משהו שעבר
+#: רינדור בדרך ל-HTML. כותרת שהמקור שלה נקי מכולם חוזרת מ-cmark
+#: **כטקסט זהה**, ולכן אפשר להשוות אותה מילה במילה.
+_INLINE_MARKUP = frozenset("`*_[]<>&\\")
+
+
+def _has_inline_markup(title: str) -> bool:
+    return any(ch in _INLINE_MARKUP for ch in title)
+
+
+def _oracle_titles(text: str) -> list[tuple[int, int, str]]:
+    """‏(רמה, שורה, **טקסט**) לכל כותרת ברמת המסמך, לפי cmark-gfm."""
+    collector = _HeadingCollector()
+    collector.feed(
+        cmarkgfm.github_flavored_markdown_to_html(
+            _without_front_matter(text), options=Options.CMARK_OPT_SOURCEPOS
+        )
+    )
+    collector.close()
+    return [
+        (level, line, title)
+        for (level, line, inside), title in zip(collector.headings, collector.texts)
+        if not inside
+    ]
+
+
+def _compare_titles(shapes) -> int:
+    """משווה את **טקסט** הכותרת, ורק על הכותרות שאפשר להשוות.
+
+    **למה בכלל תת-קבוצה, ולא כל הכותרות.** אצלנו ``title`` הוא המקור
+    הגולמי כפי שנכתב בקובץ — ``inline`` מכובה, ולכן ``` `code` ``` נשאר
+    ``` `code` ```. מ-cmark חוזר **HTML מרונדר**, ושם אותה כותרת היא
+    ``<code>code</code>``; אחרי שמסירים את התגיות נשאר ``code``, בלי
+    הבקטיקים. השוואה ישירה בין השניים הייתה נכשלת על כל כותרת שיש בה
+    סימון — לא כי מישהו טועה, אלא כי הם מתארים שני דברים שונים. לכן
+    מושווה רק מה שאין בו סימון פנימי בכלל, ושם **אין** למה להיות פער.
+
+    **וזו פונקציה נפרדת ולא הרחבה של** ``_ours``/``_oracle_sections``.
+    הטאפל ``(רמה, שורה)`` שלהן נצרך בשישה מקומות ובסקריפט ההשוואה
+    החיצוני; הרחבה שלו הייתה גוררת את כולם בשביל שדה שרובם אינם
+    בודקים.
+
+    :returns: כמה כותרות באמת הושוו. המתקשר מוודא שזה אינו אפס — "אפס
+        אי-הסכמות" על אפס השוואות הוא אישור שקרי, אותו נימוק שכתוב
+        ב-``scripts/compare_md_parser_to_cmark.py`` על ריצה בלי קבצים.
+    """
+    compared = 0
+    mismatches = []
+    for text in shapes:
+        ours = [(s.level, s.heading_line, s.title) for s in parse_document(text).sections]
+        theirs = _oracle_titles(text)
+        # **לא ``continue`` על פער מיקום.** הצורות האלה הן אותן צורות
+        # ש-``_compare`` כבר מאשר עליהן הסכמה מלאה על רמה ושורה, ולכן
+        # פער כאן פירושו שמשהו אחר נשבר — ודילוג שקט היה מסתיר אותו.
+        assert [(lvl, ln) for lvl, ln, _ in ours] == [
+            (lvl, ln) for lvl, ln, _ in theirs
+        ], f"פער מיקום שאמור להיתפס ב-_compare: {text!r}"
+        for (lvl, line, mine), (_, _, rendered) in zip(ours, theirs):
+            if _has_inline_markup(mine):
+                continue
+            compared += 1
+            if mine != rendered:
+                mismatches.append((text, mine, rendered))
+    assert not mismatches, (
+        f"{len(mismatches)} כותרות שטקסטן נבדל מ-cmark-gfm. הראשונות:\n"
+        + "\n".join(
+            f"  קלט={text!r}\n    שלנו={mine!r}\n    cmark={rendered!r}"
+            for text, mine, rendered in mismatches[:5]
+        )
+    )
+    return compared
 
 
 def _compare(shapes) -> None:
@@ -383,3 +485,105 @@ def test_a_heading_inside_a_container_is_seen_by_cmark_and_excluded_by_us(text):
     all_headings = _oracle_all_headings(text)
     assert any(inside for _lvl, _line, inside in all_headings), "הצורה אינה מכילה מכל"
     assert _ours(text) == _oracle_sections(text)
+
+
+# ════════════════════════════════════════════════════════════════════
+# המספר שבפרוזה נגזר מכאן, ולא מוקלד פעמיים
+# ════════════════════════════════════════════════════════════════════
+
+def test_the_generated_shape_count_matches_the_prose():
+    """כמה צורות באמת מושוות, ומה הדוקסטרינג מצהיר.
+
+    **זה כבר נסחף.** ``services/md_parser.py`` אמר 11,400,
+    ``requirements/base.txt`` אמר 11,507, והמחוללים ייצרו מספר שלישי —
+    כי משפחת הטבלאות נוספה בלי שאיש עדכן את המשפטים. מספר שמוקלד ביד
+    מתיישן בשקט; מספר שנגזר מהקוד מפיל את החבילה.
+
+    הספירה כאן חייבת לכלול **כל** משפחה שמגיעה ל-``_compare``. משפחה
+    חדשה שתישכח כאן תוריד את הסכום ותפיל — וזו התוצאה הרצויה.
+    """
+    import re
+    from pathlib import Path
+
+    total = (
+        len(list(_context_shapes()))
+        + len(list(_fence_nesting_shapes()))
+        + len(list(_html_shapes()))
+        + len(_HTML_EDGE_CASES)
+        + len(list(_table_shapes()))
+        + len(_CONTAINER_SHAPES)
+    )
+    assert total > 10_000, f"מחולל נשמט מהספירה — {total} צורות בלבד"
+
+    source = (Path(__file__).resolve().parents[1] / "services" / "md_parser.py").read_text(
+        encoding="utf-8"
+    )
+    quoted = re.search(r"על \*\*([\d,]+) צורות מחוללות\*\*", source)
+    assert quoted, "המשפט על מספר הצורות אינו במקומו ב-``md_parser`` docstring"
+    assert quoted.group(1) == f"{total:,}", (
+        f"הדוקסטרינג אומר {quoted.group(1)} והמחוללים מייצרים {total:,}. "
+        "עדכן את שני המקומות שמצטטים אותו — ``services/md_parser.py`` "
+        "ו-``requirements/base.txt``."
+    )
+
+    base = (Path(__file__).resolve().parents[1] / "requirements" / "base.txt").read_text(
+        encoding="utf-8"
+    )
+    assert f"{total:,} הצורות" in base, (
+        f"``requirements/base.txt`` אינו אומר {total:,} — אותו מספר, שני מקומות."
+    )
+
+
+# ════════════════════════════════════════════════════════════════════
+# טקסט הכותרת — התוספת של SUGG-010, על תת-קבוצה ובמפורש
+# ════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("bucket", range(6))
+def test_the_heading_text_agrees_with_cmark_where_it_can_be_compared(bucket):
+    """אותה מטריצה בדיוק, והפעם על **הטקסט** ולא על המיקום.
+
+    מושווה רק מה שאין בו סימון פנימי — ההנמקה המלאה ב-
+    ``_compare_titles``. הדלי זהה לזה של מבחן המיקום, מאותה סיבה:
+    ‏``pytest.ini`` קובע ``timeout = 60``.
+    """
+    shapes = [s for i, s in enumerate(_context_shapes()) if i % 6 == bucket]
+    compared = _compare_titles(shapes)
+    # ‏**"אפס אי-הסכמות" על אפס השוואות אינו הצלחה.** בלי השורה הזאת,
+    # שינוי ב-``_has_inline_markup`` שיחריג בטעות את כל הכותרות היה
+    # משאיר את הטסט ירוק בזמן שהוא כבר לא בודק דבר.
+    assert compared > 100, f"רק {compared} כותרות הושוו — הסינון בלע את הטבלה"
+
+
+#: הצורות שהמבחן למעלה מדלג עליהן, וכאן נאמר **למה**: לכל אחת, מה
+#: אנחנו מחזירים מול מה ש-cmark מחזיר אחרי הרינדור.
+_RENDERED_AWAY = [
+    ("## כותרת עם `בקטיקים`", "כותרת עם `בקטיקים`", "כותרת עם בקטיקים"),
+    ("## **מודגש**", "**מודגש**", "מודגש"),
+    ("## [קישור](https://example.com)", "[קישור](https://example.com)", "קישור"),
+    ("## כותרת עם \\# escape", "כותרת עם \\# escape", "כותרת עם # escape"),
+]
+
+
+@pytest.mark.parametrize("source, ours, cmark", _RENDERED_AWAY)
+def test_a_heading_with_inline_markup_is_excluded_on_purpose(source, ours, cmark):
+    """ההחרגה נאמרת בקול, כדי שלא תיראה כמו חור בכיסוי.
+
+    לכל צורה כאן שלוש טענות: הכותרת שלנו היא המקור הגולמי, של cmark
+    היא הטקסט אחרי הרינדור, **והשתיים באמת נבדלות**. זו הסיבה שהן
+    מוחרגות — ולא הנחה על מה שאולי יקרה.
+
+    .. note::
+
+       **הטסט הזה אינו יכול ליפול על הקוד שלפני הסבב הזה, וזה מכוון.**
+       הוא אינו שומר על תיקון אלא מקבע החלטה שלא השתנתה: שהכותרת אצלנו
+       היא המקור הגולמי. מי ש"יתקן" את ``_title_of`` להסיר גם סימון —
+       כלומר להחזיר טקסט מרונדר — יפיל אותו. ואת הכיוון ההפוך, צמצום
+       של ``_has_inline_markup`` שיפסיק להחריג אחת מהצורות, מפיל מבחן
+       הטקסט שלמעלה.
+    """
+    text = f"{source}\n"
+    assert _has_inline_markup(ours), "הצורה הזאת אמורה להיות מוחרגת"
+    assert [s.title for s in parse_document(text).sections] == [ours]
+    assert [title for _, _, title in _oracle_titles(text)] == [cmark]
+    assert ours != cmark, "אילו השתיים היו זהות, לא היה טעם להחריג"

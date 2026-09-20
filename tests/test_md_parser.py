@@ -76,6 +76,28 @@ def test_a_lone_cr_is_refused():
         md_parser.parse_document("# A\r\r## B\r\r### C\r")
 
 
+@pytest.mark.parametrize(
+    "name, text, expected_line",
+    [
+        ("בשורה הראשונה", "# a\rb\n## c\n", 1),
+        ("באמצע הקובץ", "# a\n\n## b\rx\n\n### c\n", 3),
+        ("בסוף הקובץ", "# a\n\n## b\r", 3),
+    ],
+)
+def test_the_refusal_says_where_the_lone_cr_is(name, text, expected_line):
+    """מבין שלושת ערוצי הסירוב, זה היה היחיד שלא אמר איפה.
+
+    ‏``TooManySections`` נושאת את השורה שבה נעצרנו, ו-``TypeError``
+    נושא את הסוג שהתקבל. ``InconsistentLineEndings`` הורמה ריקה, ומי
+    שהיה צריך לתקן את הקובץ קיבל רק "יש ``\\r`` איפשהו". המיקום ממילא
+    מחושב — ``search`` מחזיר אובייקט התאמה — והוא נזרק לפח.
+    """
+    with pytest.raises(doc_sections.InconsistentLineEndings) as caught:
+        md_parser.parse_document(text)
+
+    assert caught.value.args == (expected_line,), name
+
+
 def test_the_same_file_in_crlf_returns_the_same_line_numbers():
     """CRLF אינו מושפע — זה המקרה הנפוץ, והוא חייב להמשיך לעבוד."""
     lf = md_parser.parse_document(_LF)
@@ -273,17 +295,139 @@ def test_the_counter_never_examines_a_token_twice():
 
 
 class _FakeToken:
-    """טוקן מינימלי למונה. סטאב מלא ולא מצומצם — שני השדות שהוא קורא."""
+    """טוקן מינימלי למונה.
+
+    ‏``type`` הוא מה שהמונה קורא היום; ``level`` נשאר כאן כי הוא מה
+    שמבדיל כותרת שנכנסת למפה מכותרת שבתוך מכל, וזו בדיוק ההבחנה שהמונה
+    **אינו** עושה יותר — טסט שבונה טוקן בלי ``level`` לא היה יכול
+    להראות את זה.
+    """
 
     def __init__(self, type_, level):
         self.type = type_
         self.level = level
 
 
-def test_the_counter_ignores_headings_inside_containers():
+def test_the_counter_counts_headings_inside_containers():
+    """התקרה מגבילה עבודה ולא תוצאה, ולכן כותרת במכל נספרת.
+
+    היא **אינה** נכנסת למפה — זה נבדק ב-
+    ``test_a_heading_inside_a_container_is_not_a_section`` — אבל היא
+    עולה בדיוק כמו כל כותרת אחרת. נמדד: 500KB של ``> ## h`` הם ~64,000
+    כותרות, וספירה לפי ``level == 0`` ראתה בהן אפס ולא עצרה לעולם.
+    """
     counter = md_parser._SectionCounter(max_sections=100)
     counter.scan([_FakeToken("heading_open", 1), _FakeToken("heading_open", 2)])
-    assert counter.seen == 0
+    assert counter.seen == 2
+
+
+def test_the_ceiling_is_not_fooled_by_a_container_heading_in_the_last_block():
+    """הדלף שהיה נפתח אילו רק המונה היה משתנה, בלי השער השני.
+
+    הכלל שבתוך הפרסור נקרא בתחילת כל בלוק ולכן אינו רואה את הבלוק
+    האחרון, והשער שאחרי הפרסור היה סופר **סעיפים** — שכאן הם אפס, כי
+    כל הכותרות בתוך ציטוט. כלומר שני השערים היו מודדים שני דברים
+    שונים, והקלט הזה היה עובר בלי שום סירוב. נמדד בדיוק כך.
+    """
+    ceiling = 20
+    text = "> ## q\n\n" * ceiling + "> ## last\n"
+
+    with pytest.raises(md_parser.TooManySections):
+        md_parser.parse_document(text, max_sections=ceiling)
+
+
+# ════════════════════════════════════════════════════════════════════
+# המופע המשותף — נבנה **במלואו** לפני שהוא מתפרסם
+# ════════════════════════════════════════════════════════════════════
+
+def test_every_ruler_a_real_parse_uses_is_compiled_before_publish(monkeypatch):
+    """אף ruler לא נבנה בפעם הראשונה **תוך כדי** פרסור.
+
+    ‏``markdown-it`` בונה את רשימת הכללים של כל ruler עצלה, בקריאה
+    הראשונה ל-``getRules``, בלי מנעול; ו-``Ruler.__compile__`` מפרסם
+    מילון ריק לפני שהוא ממלא אותו. כלומר שני חוטים שמפרסרים ראשונים
+    יחד יכולים לראות רשימת כללים חלקית — ואז ``parse_document`` מחזיר
+    מפה ריקה למסמך שיש בו כותרות, בלי שום חריגה.
+
+    ‏``_build_parser`` סוגר את זה בפרסור חימום. **הטסט הזה בודק את
+    הכיסוי ולא את הקריאה**: הוא מרגל אחרי ``getRules`` ומחפש ruler
+    שהגיע אליו לא מקומפל. לכן הוא לא יתיישן — אם גרסה עתידית של
+    ``markdown-it`` תוסיף ruler למסלול והחימום יפספס אותו, הטסט ייפול
+    במקום שהחלון ייפתח בשקט.
+
+    **ולמה אין כאן טסט עם חוטים, למרות ש-T1 ב-``TESTING-PATTERNS``
+    דורש שתכונת מקביליות תיבדק במקביל.** מה שהקוד מבטיח הוא תכונה
+    **דטרמיניסטית** — "כל ruler שפרסור אמיתי צורך מקומפל לפני
+    הפרסום" — וזה בדיוק מה שנטען כאן. הסירוב המקבילי עצמו נמדד
+    בהרצת עומס ולא בטסט: טסט חוטים היה מנסה להוכיח **היעדר** מרוץ,
+    וריצה ירוקה שלו אינה ראיה. המספרים, לפני ואחרי, בגוף ה-PR.
+    """
+    from markdown_it.ruler import Ruler
+
+    md = md_parser._build_parser()
+    by_id = {
+        id(md.core.ruler): "core",
+        id(md.block.ruler): "block",
+        id(md.inline.ruler): "inline",
+        id(md.inline.ruler2): "inline2",
+    }
+    found_uncompiled = []
+    original = Ruler.getRules
+
+    def spy(self, chainName=""):
+        if self.__cache__ is None:
+            found_uncompiled.append(by_id.get(id(self), f"<{id(self)}>"))
+        return original(self, chainName)
+
+    monkeypatch.setattr(Ruler, "getRules", spy)
+    # מסמך מייצג ולא מינימלי: כותרת, מכל, טבלה, גדר ו-front matter —
+    # כדי שכל ענף במסלול יתבקש להביא את הכללים שלו.
+    md.parse(
+        "---\na: 1\n---\n\n# כותרת\n\n> ## בציטוט\n\n- ## בפריט\n\n"
+        "| a | b |\n|---|---|\n| 1 | 2 |\n\n```py\nx = 1\n```\n\nסטקסט\n------\n"
+    )
+
+    assert not found_uncompiled, (
+        "פרסור החימום ב-``_build_parser`` פספס rulers שפרסור אמיתי צורך, "
+        f"והם נבנו תוך כדי הפרסור: {sorted(set(found_uncompiled))}. "
+        "זה החלון של lazy-init-guard-publish-order — הרחב את מסמך החימום."
+    )
+
+
+def test_the_ceiling_anchor_fails_loudly_when_the_plugin_is_not_registered():
+    """העוגן ``before("front_matter", ...)`` קונה כשל מיידי — ועל מה בדיוק.
+
+    ה-docstring של ``_build_parser`` טען קודם שהעוגן תופס **תלות
+    חסרה**, וזה לא מדויק: חבילה שאינה מותקנת מפילה את הייבוא שבראש
+    הקובץ, הרבה לפני שמגיעים לכאן. מה שהעוגן באמת תופס הוא **הסרה של
+    הרישום** — מישהו שימחק את ``.use(front_matter_plugin)`` וישאיר את
+    השורה הזאת. הטסט מקבע את המנגנון שהמשפט המתוקן מתאר.
+    """
+    bare = MarkdownIt("commonmark").disable("inline")
+
+    with pytest.raises(KeyError, match="front_matter"):
+        bare.block.ruler.before("front_matter", "ck_max_sections", md_parser._ceiling_rule)
+
+
+def test_a_heading_token_without_a_map_is_refused_and_not_dropped():
+    """הענף היחיד במודול שהיה מפיל סעיף בשקט — עכשיו מרים.
+
+    אומת מול ``rules_block/heading.py`` ו-``lheading.py``: כל מסלול
+    שדוחף ``heading_open`` מציב ``map`` ללא תנאי, ולכן הענף אינו ניתן
+    להגעה היום והטסט בונה את המצב ביד. מה שנבדק הוא ההכרעה: מפה שחסר
+    בה סעיף, בלי לוג ובלי חריגה, היא בדיוק ה"לא נמצא שנראה כמו נשבר"
+    שה-docstring של המודול מצהיר שאין בו.
+    """
+
+    class _MaplessHeading:
+        type = "heading_open"
+        level = 0
+        tag = "h2"
+        markup = "##"
+        map = None
+
+    with pytest.raises(RuntimeError, match="heading_open"):
+        md_parser._sections_from_tokens([_MaplessHeading()], total_lines=1)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -317,6 +461,39 @@ def test_the_title_is_the_raw_source_text(source, expected):
     """
     doc = md_parser.parse_document(source)
     assert [s.title for s in doc.sections] == [expected]
+
+
+#: כותרת setext רב-שורתית: המקור, והטקסט שהכותרת אמורה לשאת.
+#: המדידה שמאחורי כל שורה היא ה-HTML של ``markdown-it-py`` **עצמה** —
+#: לא פרשנות שלנו — ושל cmark-gfm, ושניהם מסכימים.
+_MULTILINE_SETEXT = [
+    ("המשך מוזח בארבעה רווחים", "aaa\n    bbb\n===\n", "aaa\nbbb"),
+    ("המשך מוזח בטאב", "aaa\n\tbbb\n===\n", "aaa\nbbb"),
+    ("רווח בודד בסוף השורה הראשונה", "aaa \nbbb\n===\n", "aaa\nbbb"),
+    ("שני רווחים — hardbreak", "aaa  \nbbb\n===\n", "aaa\nbbb"),
+    ("שלוש שורות, שתי הזחות שונות", "aaa\n  bbb\n\tccc\n===\n", "aaa\nbbb\nccc"),
+    ("רווח סופי והזחה יחד", "aaa  \n   bbb\n===\n", "aaa\nbbb"),
+    # השארית המכוונת: רווח כפול **בתוך** השורה אינו רווח של מעבר שורה,
+    # ולכן הוא נשמר — גם ב-markdown-it וגם ב-cmark.
+    ("רווח כפול באמצע השורה", "aaa  bbb\n===\n", "aaa  bbb"),
+]
+
+
+@pytest.mark.parametrize("name, source, expected", _MULTILINE_SETEXT)
+def test_a_multiline_setext_title_drops_the_whitespace_that_is_not_text(name, source, expected):
+    """ההזחה של שורת ההמשך אינה חלק מהכותרת, ואצלנו היא הייתה שורדת.
+
+    זו הייתה סטייה **שלנו** ולא של הספרייה: ה-HTML של ``markdown-it-py``
+    עצמה מחזיר ``<h1>aaa\\nbbb</h1>``, כלומר כלל ה-softbreak שלה מוריד
+    את הרווחים — והוא חי ב-``inline``, שאנחנו מכבים. כל עוד לא שיחזרנו
+    את הכלל הזה, ``token.content`` נשא הזחה שלא הופיעה בשום רינדור,
+    והיא הייתה מגיעה למשתמש דרך ``build_toc``.
+
+    נתפס על ידי השוואת הטקסט מול cmark-gfm שנוספה באותו סבב — לפני שהיא
+    נוספה, ההשוואה הייתה על רמה ומספר שורה בלבד ולא יכלה לראות את זה.
+    """
+    doc = md_parser.parse_document(source)
+    assert [s.title for s in doc.sections] == [expected], name
 
 
 def test_the_adornment_is_the_markup_of_the_heading():
@@ -454,7 +631,31 @@ def test_the_parser_dependencies_are_pinned_directly_in_base_requirements(packag
 #: ``docs/requirements.txt``. אילוץ, ולא העדפה: הוא זה שקובע כמה גבוה
 #: מותר לנעוץ ב-``requirements/base.txt``.
 _MYST_PINNED = "4.0.1"
-_MYST_REQUIRES = {"markdown-it-py": "3.0", "mdit-py-plugins": "0.4"}
+#: **המפרטים כפי שהם כתובים במטא-דאטה של myst-parser**, ולא הסדרה
+#: שגזרנו מהם. ההבדל אינו סגנוני: ``~=3.0`` פירושו ``>=3.0, ==3.*``
+#: ולכן ``3.1.0`` מקיים אותו, ו-``~=0.4`` פירושו ``>=0.4, ==0.*`` ולכן
+#: גם ``0.5.0`` מקיים. בדיקה שהשוותה קידומת ``"3.0."`` הייתה דוחה את
+#: שניהם ומאשימה את myst-parser בדרישה שאין לו.
+_MYST_REQUIRES = {
+    "markdown-it-py": "~=3.0",
+    "mdit-py-plugins": "~=0.4,>=0.4.1",
+}
+
+
+def _satisfies_myst_requirement(package: str, version: str) -> bool:
+    """האם ``version`` מקיים את מה ש-myst-parser דורש מ-``package``.
+
+    **הפרדיקט מחולץ כדי שיהיה מה לשמור עליו.** ``packaging`` הוא
+    המימוש הרשמי של PEP 440 והוא מגיע עם pytest, ולכן זמין בכל מקום
+    שהטסטים רצים בו בלי להצהיר עליו. לכתוב כאן פרשן מפרטים ביד — או
+    להסתפק בהשוואת קידומת, כפי שהיה — הוא בדיוק הכלל-שנכתב-שוב שהענף
+    הזה נלחם בו, ולכן ``test_the_pin_check_accepts_every_version_...``
+    שומר עליו.
+    """
+    from packaging.specifiers import SpecifierSet
+    from packaging.version import Version
+
+    return Version(version) in SpecifierSet(_MYST_REQUIRES[package])
 
 
 def test_the_parser_pins_can_be_installed_next_to_the_docs_toolchain():
@@ -487,15 +688,52 @@ def test_the_parser_pins_can_be_installed_next_to_the_docs_toolchain():
         f"ועדכן את _MYST_REQUIRES יחד עם הנעיצות ב-base.txt"
     )
 
-    for package, required_series in _MYST_REQUIRES.items():
+    for package, requirement in _MYST_REQUIRES.items():
         pinned = re.search(rf"^{re.escape(package)}==(\S+)$", base, re.MULTILINE)
         assert pinned, f"{package} אינו נעוץ ב-requirements/base.txt"
-        assert pinned.group(1).startswith(required_series + "."), (
+        assert _satisfies_myst_requirement(package, pinned.group(1)), (
             f"{package}=={pinned.group(1)} ב-base.txt אינו מקיים את "
-            f"~={required_series} ש-myst-parser {_MYST_PINNED} דורש"
+            f"{requirement} ש-myst-parser {_MYST_PINNED} דורש"
         )
         # ומה שבאמת מותקן, כדי שהקובץ והסביבה לא ייפרדו בשקט
         assert metadata.version(package) == pinned.group(1)
+
+
+def test_the_pin_check_accepts_every_version_myst_parser_allows():
+    """הבדיקה למעלה אינה קפדנית מהאילוץ שהיא מצטטת.
+
+    **וזה היה שגוי.** הנוסח הקודם השווה קידומת (``"3.0."``), ולכן דחה
+    את ``markdown-it-py 3.1.0`` ואת ``mdit-py-plugins 0.5.0`` — שתיהן
+    גרסאות ש-myst-parser 4.0.1 **מתיר**. הודעת הכשל הייתה אומרת
+    "אינו מקיים את ~=3.0", טענה שאינה נכונה, ושולחת את המתחזק לחקור
+    את החבילה הלא נכונה.
+
+    .. note::
+
+       **הטסט הזה אינו נופל על הקוד שלפני התיקון, וזה מכוון.** הפגם
+       הישן היה בצורת ההשוואה בתוך הטסט השכן, ולא בקוד ייצור. מה שהוא
+       כן עושה הוא לשמור על ``_satisfies_myst_requirement``: כל חזרה
+       להשוואת קידומת תפיל אותו. זו ההגנה שאפשר לתת כאן.
+    """
+    allowed = {
+        "markdown-it-py": ["3.0.0", "3.1.0", "3.9.9"],
+        "mdit-py-plugins": ["0.4.1", "0.4.2", "0.5.0", "0.6.0"],
+    }
+    forbidden = {
+        "markdown-it-py": ["2.2.0", "4.0.0", "4.2.0"],
+        "mdit-py-plugins": ["0.4.0", "1.0.0"],
+    }
+
+    for package, requirement in _MYST_REQUIRES.items():
+        for version in allowed[package]:
+            assert _satisfies_myst_requirement(package, version), (
+                f"{package} {version} מקיים את {requirement} ולכן הבדיקה "
+                "חייבת לקבל אותו — נוסח שדוחה אותו יאשים את myst-parser בטעות"
+            )
+        for version in forbidden[package]:
+            assert not _satisfies_myst_requirement(package, version), (
+                f"{package} {version} אינו מקיים את {requirement}"
+            )
 
 
 def test_the_oracle_is_a_test_dependency_only():
@@ -506,6 +744,71 @@ def test_the_oracle_is_a_test_dependency_only():
     dev = (_REPO / "requirements" / "development.txt").read_text(encoding="utf-8")
     assert "cmarkgfm" not in base
     assert re.search(r"^cmarkgfm==\S+$", dev, re.MULTILINE)
+
+
+# ════════════════════════════════════════════════════════════════════
+# סקריפט ההשוואה — מה הוא באמת רואה, ומה קורה כשקובץ אחד מוזר
+# ════════════════════════════════════════════════════════════════════
+
+def _load_compare_script():
+    """טעינה לפי נתיב, כמו ב-``_load_ai_map_generator``."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "compare_md_parser_for_tests", _REPO / "scripts" / "compare_md_parser_to_cmark.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_compare_script_sees_a_lone_cr_and_survives_one_bad_file(tmp_path, capsys):
+    """שני כשלים באותה לולאה, ושניהם שקטים לפני התיקון.
+
+    **הראשון:** ``Path.read_text`` פותח את הקובץ במצב טקסט עם universal
+    newlines וממיר כל ``\\r`` ל-``\\n``, ולכן ``InconsistentLineEndings``
+    לא יכלה להידלק כאן על שום קובץ — הסקריפט היה מדווח "אפס
+    אי-הסכמות" גם על הקלט שהוא קיים כדי לתפוס.
+
+    **והשני:** הדוח נבנה אחרי הלולאה, ולכן קובץ יחיד שאינו UTF-8 היה
+    מפיל את הריצה כולה ומוחק גם את מה שכבר נסרק. הסקריפט מכוון על ריפו
+    **זר**, ולכן קובץ מוזר הוא המקרה הצפוי ולא החריג.
+    """
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "a_good.md").write_bytes(b"# \xd7\x90\n\nbody\n\n## \xd7\x91\n")
+    (corpus / "b_lone_cr.md").write_bytes(b"# Title\r\r## Sub\r\nbody\n")
+    (corpus / "c_not_utf8.md").write_bytes(b"\xff\xfe# broken\n")
+
+    script = _load_compare_script()
+    exit_code = script.main([str(corpus)])
+    report = capsys.readouterr().out
+
+    # טענות על **מה** שהדוח אומר ולא על הריווח שלו: יישור עמודות הוא
+    # קוסמטיקה, וטסט שנשבר ממנו הוא טסט שמתרגלים להתעלם ממנו.
+    assert exit_code == 0, "אין אי-הסכמות בקובץ התקין, ולכן הריצה מצליחה"
+    assert re.search(r"הושוו\s*1.*סורבו\s*2", report), report
+    assert "b_lone_cr.md" in report and "\\r בודד" in report, "ה-CR הבודד חייב להיתפס"
+    assert "c_not_utf8.md" in report and "אינו UTF-8" in report
+    assert re.search(r"כותרות:\s+2\b", report), "הקובץ התקין חייב להיספר למרות שני הסירובים"
+
+
+def test_the_compare_script_does_not_call_an_empty_run_a_success(tmp_path, capsys):
+    """"אפס אי-הסכמות" על אפס קבצים שהושוו הוא אישור שקרי.
+
+    זה אותו נימוק שכבר כתוב בסקריפט על ריפו בלי קובצי ``.md`` — מספר
+    שנראה טוב כי לא נבדק דבר. בלי הבדיקה הזאת, בידוד התקלות לכל קובץ
+    היה **יוצר** את הכשל הזה: לפניו ריפו כזה היה מפיל את הריצה בקול.
+    """
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "only_bad.md").write_bytes(b"\xff\xfe# broken\n")
+
+    script = _load_compare_script()
+    exit_code = script.main([str(corpus)])
+
+    assert exit_code == 1, "ריצה שלא השוותה דבר אינה מצליחה"
+    assert "כל הקבצים סורבו" in capsys.readouterr().out
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -580,14 +883,62 @@ _FRONT_MATTER_SHAPES = [
     ("לא נסגר", "---\na: 1\n\n# כותרת\n", False, False),
     ("פותח 4 סוגר 3", "----\na: 1\n---\n\n# כותרת\n", False, False),
     ("ריק", "", False, False),
-    # ── חמש הצורות שבהן הם חלוקים, כפי שנמדדו ──
-    ("פותח מוזח", "  ---\na: 1\n---\n\n# כותרת\n", False, True),
+    # ── צורות שנראות חשודות ובכל זאת **מסכימות** — כאן בכוונה, כי
+    #    "בדקנו ואין פער" הוא מידע בדיוק כמו פער ──
     ("פותח רווח בסוף", "--- \na: 1\n---\n\n# כותרת\n", True, True),
-    ("סוגר מוזח", "---\na: 1\n  ---\n\n# כותרת\n", True, True),
+    ("סוגר מוזח 2 רווחים", "---\na: 1\n  ---\n\n# כותרת\n", True, True),
+    # ── והצורות שבהן הם באמת חלוקים. המספר כאן אינו מוקלד בפרוזה:
+    #    ``test_the_measured_front_matter_gap_matches_the_prose`` גוזר
+    #    אותו מהטבלה ומשווה למה שכתוב ב-``md_parser`` ──
+    ("פותח מוזח", "  ---\na: 1\n---\n\n# כותרת\n", False, True),
+    # ארבעה רווחים הם בלוק קוד לפי CommonMark, ולכן התוסף אינו רואה
+    # סוגר — ואילו ``_body_start`` עושה ``.strip()`` ומקבל. הצורה
+    # הזאת נמדדה, הוזכרה ב-``generate_ai_map`` ונשמטה מהטבלה.
+    ("סוגר מוזח 4 רווחים", "---\na: 1\n    ---\n\n# כותרת\n", False, True),
     ("ארבעה מקפים", "----\na: 1\n----\n\n# כותרת\n", True, False),
     ("פותח 3 סוגר 4", "---\na: 1\n----\n\n# כותרת\n", True, False),
     ("פותח עם טקסט", "---title\na: 1\n---\n\n# כותרת\n", True, False),
 ]
+
+#: מספר הצורות שבהן התוסף ו-``_body_start`` חלוקים, **נגזר מהטבלה**.
+#: הפרוזה ב-``services/md_parser.py`` וב-``requirements/base.txt``
+#: מצטטת אותו, וטסט משווה — כדי שתוספת צורה בלי עדכון הפרוזה תפיל.
+_FRONT_MATTER_DISAGREEMENTS = sum(
+    1 for _, _, plugin_sees, body_start_sees in _FRONT_MATTER_SHAPES
+    if plugin_sees is not body_start_sees
+)
+
+#: מילות המספר שהפרוזה משתמשת בהן. טווח קטן בכוונה: אם הטבלה תגדל מעבר
+#: לו, הטסט ייפול על ``KeyError`` ויכריח מבט — וזה עדיף על השלמה שקטה.
+_HEBREW_NUMBERS = {
+    3: "שלוש", 4: "ארבע", 5: "חמש", 6: "שש", 7: "שבע", 8: "שמונה",
+    9: "תשע", 10: "עשר", 11: "אחת-עשרה", 12: "שתים-עשרה",
+    13: "שלוש-עשרה", 14: "ארבע-עשרה", 15: "חמש-עשרה",
+}
+
+
+def test_the_measured_front_matter_gap_matches_the_prose():
+    """הפער שנמדד בטבלה הוא מה שכתוב בפרוזה, בשני המקומות שמצטטים אותו.
+
+    **למה טסט ולא סתם לתקן את המספר.** זה בדיוק מה שכבר קרה: הטבלה
+    גדלה, והפרוזה נשארה על "חמש מתוך שלוש-עשרה" בזמן שבטבלה היו
+    אחת-עשרה שורות וארבע חלוקות — שלוש רשימות שונות של "חמש הצורות"
+    חיו בריפו בו-זמנית. מספר שמוקלד ביד במקום שני מתיישן בשקט; מספר
+    שנגזר מהקוד לא יכול.
+    """
+    disagreements = _HEBREW_NUMBERS[_FRONT_MATTER_DISAGREEMENTS]
+    total = _HEBREW_NUMBERS[len(_FRONT_MATTER_SHAPES)]
+    expected = f"{disagreements} מתוך {total}"
+
+    parser_source = (_REPO / "services" / "md_parser.py").read_text(encoding="utf-8")
+    base = (_REPO / "requirements" / "base.txt").read_text(encoding="utf-8")
+
+    for name, text in (("services/md_parser.py", parser_source), ("requirements/base.txt", base)):
+        assert expected in text, (
+            f"{name} אינו אומר {expected!r}. הטבלה מכילה עכשיו "
+            f"{len(_FRONT_MATTER_SHAPES)} צורות ובהן {_FRONT_MATTER_DISAGREEMENTS} "
+            "חלוקות — עדכן את הפרוזה יחד עם הטבלה."
+        )
 
 
 @pytest.mark.parametrize("name, text, plugin_sees, body_start_sees", _FRONT_MATTER_SHAPES)
@@ -641,3 +992,162 @@ def test_the_parser_never_invents_a_section_where_the_plugin_sees_front_matter()
             assert titles == ["כותרת"], (name, titles)
         else:
             assert "כותרת" in titles, (name, titles)
+
+
+# ════════════════════════════════════════════════════════════════════
+# פונקציות העץ המשותפות — על מסמך Markdown, ולא רק על RST
+# ════════════════════════════════════════════════════════════════════
+
+# ‏``services/doc_sections.py`` נכתב עבור ``rst_parser`` והיה לו עד עכשיו
+# מזין אחד בלבד. הפארסר הזה מזין אותו בצורה שהוא לא ראה קודם: כותרת
+# שנושאת **סימון גולמי** (בקטיקים, הדגשה, קישור), וכותרת setext שנפרסת
+# על שתי שורות ולכן ה-``title`` שלה מכיל ``\n`` באמצע. ב-RST שתי
+# הצורות אינן קיימות.
+#
+# הטסטים כאן מריצים את כל הפונקציות המשותפות שאין להן אף הרצה כזאת —
+# ‏``build_toc``, ‏``find_sections``, ‏``neighbors``, ‏``normalize_title``,
+# ‏``section_bounds``, ‏``suggest``, ‏``direct_subsections``. ‏(``section_text``
+# כבר מורץ למעלה.) הם נכתבו לפני שנבדק אם משהו נשבר: אם הכול עובר,
+# הערך שלהם הוא הקיבוע — שינוי עתידי באחת מהן ייתפס גם מהצד הזה.
+_MARKDOWN_SHAPED = """# `code` ו-**bold**
+
+מבוא
+
+## [קישור](https://example.com) בכותרת
+
+תוכן א
+
+כותרת setext
+שנפרסת על שתי שורות
+---
+
+תוכן ב
+
+### תת-סעיף
+
+תוכן ג
+"""
+
+
+def _shaped() -> doc_sections.Document:
+    return md_parser.parse_document(_MARKDOWN_SHAPED)
+
+
+def test_the_shared_tree_sees_the_markdown_document_as_three_top_levels():
+    """קודם המבנה, כי כל השאר נשען עליו."""
+    doc = _shaped()
+    assert [(s.level, s.title) for s in doc.sections] == [
+        (1, "`code` ו-**bold**"),
+        (2, "[קישור](https://example.com) בכותרת"),
+        (2, "כותרת setext\nשנפרסת על שתי שורות"),
+        (3, "תת-סעיף"),
+    ]
+
+
+def test_find_sections_matches_a_title_that_carries_raw_markup():
+    """‏``find_sections`` עובר דרך ``normalize_title``, וזה המסלול שנבדק.
+
+    הסימון הגולמי **אינו** מוסר בדרך — מי שמחפש מחפש את מה שכתוב
+    בקובץ. מה שכן נסלח הוא רווח כפול, וזה נבדק כאן יחד.
+    """
+    doc = _shaped()
+    found = doc_sections.find_sections(doc, "`code`  ו-**bold**")
+    assert [s.level for s in found] == [1]
+    assert doc_sections.find_sections(doc, "code ו-bold") == []
+
+
+def test_a_setext_title_that_spans_two_lines_is_found_by_its_flattened_form():
+    """ה-``\\n`` שבתוך הכותרת מתקפל לרווח בנרמול, ולכן חיפוש בשורה אחת תופס.
+
+    זו הצורה שהפארסר הזה מזין ל-``doc_sections`` ו-RST אינו מזין
+    לעולם: ב-RST כותרת היא תמיד שורה אחת.
+    """
+    doc = _shaped()
+    flat = "כותרת setext שנפרסת על שתי שורות"
+    assert doc_sections.normalize_title(flat) == doc_sections.normalize_title(
+        "כותרת setext\nשנפרסת על שתי שורות"
+    )
+    found = doc_sections.find_sections(doc, flat)
+    assert len(found) == 1
+    # ‏``adornment`` של setext הוא **תו אחד** ולא הקו המלא, כפי שכבר
+    # מקובע ב-``test_the_adornment_is_the_markup_of_the_heading``.
+    assert found[0].adornment == "-"
+
+
+def test_section_bounds_and_direct_subsections_agree_on_where_the_child_starts():
+    """שתי הפונקציות מתארות את אותו גבול משני צדדים."""
+    doc = _shaped()
+    setext = doc_sections.find_sections(doc, "כותרת setext שנפרסת על שתי שורות")[0]
+    children = doc_sections.direct_subsections(doc, setext)
+    assert [c.title for c in children] == ["תת-סעיף"]
+
+    without = doc_sections.section_bounds(doc, setext, False)
+    with_kids = doc_sections.section_bounds(doc, setext, True)
+    assert without[1] == children[0].heading_line - 1
+    assert with_kids[1] == len(doc.lines)
+    # הכותרת עצמה נכללת בטווח, כולל שתי שורות הטקסט שלה וקו ה-``---``.
+    body = doc_sections.section_text(doc, setext, False)
+    assert body.startswith("כותרת setext\nשנפרסת על שתי שורות\n---")
+
+
+def test_neighbors_walks_the_two_top_level_twos_and_not_the_child():
+    """שכנות היא לפי אותו אב ואותה רמה — כאן שתי ה-``##``."""
+    doc = _shaped()
+    link, setext, child = doc.sections[1], doc.sections[2], doc.sections[3]
+
+    prev, nxt = doc_sections.neighbors(doc, link)
+    assert prev is None
+    assert nxt is setext
+
+    prev, nxt = doc_sections.neighbors(doc, setext)
+    assert prev is link
+    assert nxt is None
+
+    # ל-``תת-סעיף`` אין אחים, ולכן שני הצדדים ריקים.
+    assert doc_sections.neighbors(doc, child) == (None, None)
+
+
+def test_build_toc_carries_the_raw_title_and_a_range_that_holds_the_body():
+    """ה-TOC הוא מה שיוצג למשתמש, ולכן הכותרת בו היא המקור הגולמי."""
+    doc = _shaped()
+    toc = doc_sections.build_toc(doc)
+    assert [row["title"] for row in toc] == [s.title for s in doc.sections]
+    assert [row["level"] for row in toc] == [1, 2, 2, 3]
+
+    child = toc[3]
+    assert child["breadcrumb"] == [
+        "`code` ו-**bold**",
+        "כותרת setext\nשנפרסת על שתי שורות",
+        "תת-סעיף",
+    ]
+    start, end = child["line_range"]
+    assert "תוכן ג" in "\n".join(doc.lines[start - 1:end])
+    # הגודל נמדד בבייטים של UTF-8, ולכן על עברית הוא גדול ממספר התווים.
+    assert child["approx_bytes"] > end - start
+
+
+def test_suggest_returns_the_title_as_it_was_written_in_the_file():
+    """שאילתה שלא נמצאה מקבלת הצעה — והיא חייבת לחזור עם הסימון הגולמי."""
+    doc = _shaped()
+    assert doc_sections.find_sections(doc, "תת סעיף") == []
+    assert "תת-סעיף" in doc_sections.suggest(doc, "תת סעיף")
+
+
+# ════════════════════════════════════════════════════════════════════
+# שתי התקרות — מספר אחד בשני קבצים
+# ════════════════════════════════════════════════════════════════════
+
+
+def test_the_two_ceilings_are_the_same_number():
+    """‏``MAX_SECTIONS`` ו-``MAX_SYMBOLS`` מתארים את אותו גבול, ולא נגזרים זה מזה.
+
+    ‏``services`` אינו מייבא מ-``mcp_server`` — הכיוון חד-סטרי ומנומק
+    ב-``TooManySections`` — ולכן הערך מוקלד פעמיים, ושתי הפרוזות מפנות
+    זו לזו. טסט רשאי לייבא משתי החבילות, וזה המקום היחיד שבו השוויון
+    באמת נבדק. בלי הטסט הזה, שינוי באחד מהשניים היה משאיר את השני
+    מאחור בשקט — ובדיוק זה מה ששני זוגות המספרים האחרים בענף הזה
+    מקובעים מפניו.
+    """
+    from mcp_server.outline_scanners import _ceiling
+
+    assert md_parser.MAX_SECTIONS == _ceiling.MAX_SYMBOLS
