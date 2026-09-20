@@ -294,23 +294,25 @@ def test_an_overlined_heading_is_one_level_deeper_than_the_same_character_underl
     assert out["toc"][1]["breadcrumb"] == ["כותרת א", "כותרת ב"]
 
 
-def test_the_docs_reader_parses_without_any_ceiling(monkeypatch):
-    """הצרכן בייצור אינו מוגבל בתקרה, ונבדק על **התקרה האפקטיבית**.
+def test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it(monkeypatch):
+    """הצרכן בייצור מעביר את תקרת הסקשנים של הסורק, ומעליה מסרב — לא מפרסר את הכול.
 
-    ``parse_document`` קיבל ``max_sections`` בשביל סורק האאוטליין, ושני
-    דברים חייבים להישאר נכונים כדי שהכלי הזה לא ייחסם: שהוא **אינו
-    מעביר** תקרה, ושברירת המחדל **אינה** תקרה. שניהם נבדקים כאן, כי כל
-    אחד מהם לבדו מספיק כדי לחסום קובץ תיעוד גדול.
+    זה היפוך מכוון של הבדיקה שישבה כאן מ-#3378 ("הצרכן בייצור אינו מוגבל
+    בתקרה"). הנימוק שלה — שקובץ תיעוד גדול לא ייחסם — נמדד ונמצא ריק
+    בתקרת הקריאה של הכלי: 500KB של העמוד הצפוף ביותר בריפו (6.5 סקשנים
+    ל-KB) הם כ-3,300 סקשנים, פי 15 מתחת לתקרה. מה שהתקרה כן עוצרת הוא
+    הצורה העוינת — כותרת בת תו אחד בכל שורה — שבלעדיה עולה 44.0MiB לפרסור
+    אחד של 500KB, יותר מ-35.2MiB שמאגר הקריאות מקצה לחוט
+    (``_PARSE_COST_BYTES`` ב-``mcp_server/server.py``), ואיתה נעצרת
+    ב-20.1MiB. סקירת #3429.
 
-    **וזה נבדק כך במקום להציף את התקרה, בכוונה.** הגרסה הראשונה של
-    הבדיקה בנתה ``MAX_SYMBOLS + 1`` סקשנים אמיתיים — 819KB, 0.40 שניות
-    ו-71MB בכל ריצה — כלומר **המחיר שלה היה צמוד לקבוע שהיא מגנה עליו**.
-    נמדד: בהעלאת התקרה פי עשר, מה שההערה ליד הקבוע מזמינה במפורש, אותה
-    בדיקה הייתה בונה קלט של 8.9MB ו-500,001 סקשנים — 6.64 שניות ו-482MB
-    בכל ריצת CI. בדיקה שמתדרדרת בדיוק כשהמערכת גדלה אינה הצורה הנכונה.
-
-    **וליטרל קבוע לא היה מחליף אותה**, כי הוא מפסיק להוכיח משהו ברגע
-    שהתקרה עולה מעליו. שתי הבדיקות כאן אינן תלויות בגודל התקרה בכלל.
+    **ונבדק בלי להציף את התקרה, מאותה סיבה שנימקה הבדיקה הקודמת:** בניית
+    ``MAX_SYMBOLS + 1`` סקשנים אמיתיים קושרת את מחיר הבדיקה לקבוע שהיא
+    מגנה עליו (819KB ו-71MB בכל ריצה, ופי עשר מזה כשהתקרה תעלה). הכלי
+    קורא את התקרה מהמודול בזמן הקריאה, ולכן היא מוקטנת כאן ל-2, והפרסר
+    האמיתי הוא שמרים את החריגה — על שלושה סקשנים. ברירת המחדל של הפרסר
+    נשארת ``None``, וזה עדיין נבדק, כי קורא אחר שאינו מעביר תקרה חייב
+    לדעת שאינו מוגן.
     """
     passed: dict[str, object] = {}
     real = rst_parser.parse_document
@@ -325,9 +327,23 @@ def test_the_docs_reader_parses_without_any_ceiling(monkeypatch):
 
     assert out["ok"] and out["mode"] == "toc"
     assert out["section_count"] == 2
-    assert passed.get("max_sections") is None, (
-        f"הכלי העביר תקרה לפרסור: {passed}"
+    assert passed.get("max_sections") == docs_handlers._ceiling.MAX_SYMBOLS, (
+        f"הכלי לא העביר את תקרת הסורק לפרסור: {passed}"
     )
     assert inspect.signature(real).parameters["max_sections"].default is None, (
-        "ברירת המחדל של max_sections אינה None, ולכן הכלי חסום גם בלי להעביר כלום"
+        "ברירת המחדל של max_sections השתנתה — ההגנה כאן באה מהכלי, לא מהפרסר"
     )
+
+    monkeypatch.setattr(docs_handlers._ceiling, "MAX_SYMBOLS", 2)
+
+    at_the_ceiling = docs_handlers.docs_get_section(_TextBackend("א\n=\n\nב\n=\n\n"), path="x")
+    assert at_the_ceiling["ok"] and at_the_ceiling["section_count"] == 2, (
+        "קובץ עם בדיוק התקרה עובר במלואו — אותו גבול כמו בפרסר ובסורק"
+    )
+
+    above = docs_handlers.docs_get_section(_TextBackend("א\n=\n\nב\n=\n\nג\n=\n\n"), path="x")
+    assert above == {
+        "ok": False, "error": "too_many_sections", "max": 2,
+        "repo": "CodeBot", "path": "docs/x.rst",
+        "file": {"path": "docs/x.rst", "ref": "HEAD", "resolved_commit": "c0ffee"},
+    }

@@ -652,9 +652,12 @@ _NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
 #: its RST corpus at the read ceiling adds nothing above the process's
 #: pre-parse high-water mark (2.7 bytes per input byte retained), its densest
 #: page (``docs/modules/index.rst``) tiled to the ceiling peaks at 6.4, and a
-#: hostile shape of one-character headings at 90.2 — 44.0MiB for one parse,
-#: above the 35.2MiB the formula grants a thread, and reachable only from the
-#: allow-listed docs repository. ``scripts/measure_md_parse_cost.py`` measures
+#: hostile shape of one-character headings at 90.2 **without a ceiling** —
+#: 44.0MiB for one parse, above the 35.2MiB the formula grants a thread. That
+#: is why ``docs_get_section`` passes the outline's section ceiling (50,000)
+#: to the parser since the review of #3429: the same shape then stops at
+#: 20.1MiB (41.1 bytes per input byte), inside the allowance, and no real
+#: page comes near the ceiling. ``scripts/measure_md_parse_cost.py`` measures
 #: both parsers; run it when either of them changes.
 #:
 #: The cost scales with the document's **density**, not its size: the
@@ -675,8 +678,10 @@ _NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
 #: parse — which no pool width can absorb (three such parses exceed the plan
 #: at any width above the floor). The tool reads only the mirrored,
 #: allow-listed docs repositories, so the densest document it actually serves
-#: is the honest budget, and a ceiling on tokens inside the parser itself is
-#: the instrument for the hostile shape; that is tracked in #3391, not here.
+#: is the honest budget, and a ceiling inside the parser itself is the
+#: instrument for the hostile shape: in place for RST (the section ceiling
+#: above), still pending for Markdown, whose bullet shape has no headings for
+#: ``MAX_SECTIONS`` to count — a token ceiling, tracked in #3391, not here.
 _PARSE_RSS_PER_INPUT_BYTE = 72
 
 #: What one parse can cost at most — the divisor of the memory budget. The
