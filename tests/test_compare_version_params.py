@@ -55,7 +55,10 @@ def _wire(monkeypatch, *, versions=(1, 2, 3), doc_version=3):
             for v in sorted(versions, reverse=True)
         ]
 
+    asked = []
+
     def _get_version(user_id, file_name, version):
+        asked.append(version)
         if version in versions:
             return {"_id": f"v{version}", "code": "x\n" * version,
                     "updated_at": "2025-01-01"}
@@ -78,7 +81,7 @@ def _wire(monkeypatch, *, versions=(1, 2, 3), doc_version=3):
         code_snippets = _Snippets()
 
     monkeypatch.setattr(app_module(), "get_db", lambda: _Db())
-    return calls
+    return calls, asked
 
 
 def app_module():
@@ -184,11 +187,12 @@ def test_the_api_default_comes_from_the_file_and_not_from_the_url_document(monke
     שונות לפי מי שאל.
     """
     app = _import_app()
-    _wire(monkeypatch, doc_version=1)
+    _calls, asked = _wire(monkeypatch, doc_version=1)
     resp = _client(app).get(f"/api/compare/versions/{FILE_ID}")
     assert resp.status_code == 200, resp.get_data(as_text=True)
-    # 3 מול 2, ולא 1 מול 1 שהיה יוצא מהמסמך שבכתובת.
-    assert (resp.get_json() or {}).get("stats") is not None
+    # אילו גרסאות באמת הושוו: 2 מול 3 לפי הקובץ, ולא 1 מול 1 שהיה
+    # יוצא מהמסמך שבכתובת. הטענה היא על המספרים ולא על צורת התשובה.
+    assert sorted(set(asked)) == [2, 3], f"הושוו הגרסאות {asked}"
 
 
 def test_the_api_does_not_query_the_latest_version_when_both_params_are_given(monkeypatch):
@@ -197,7 +201,7 @@ def test_the_api_does_not_query_the_latest_version_when_both_params_are_given(mo
     בלי הבדיקה הזו, הזזת השליפה אל מחוץ לתנאי לא הייתה מפילה דבר.
     """
     app = _import_app()
-    calls = _wire(monkeypatch)
+    calls, _asked = _wire(monkeypatch)
     resp = _client(app).get(f"/api/compare/versions/{FILE_ID}?left=1&right=3")
     assert resp.status_code == 200
     assert not calls, f"נשלחה שאילתת גרסה אחרונה מיותרת: {calls}"

@@ -361,3 +361,45 @@ def test_a_page_whose_version_cannot_be_verified_is_read_only(wired_mongo, monke
     body = resp.get_data(as_text=True)
     assert "לא ניתן לוודא" in body
     assert f'/edit/{ids[3]}' not in body, "פעולות עריכה נשארו פתוחות במצב לא ידוע"
+
+
+def test_an_unverified_markdown_page_is_not_cached_either(wired_mongo, monkeypatch):
+    """מצב "לא ידוע" חולף, והקאש אינו.
+
+    ה-HTML של העמוד הזה אומר "לא ניתן לוודא"; שמירתו הייתה מגישה את
+    ההודעה הזו גם אחרי שהמסד התאושש, עד פקיעת ה-TTL. זו אותה סיבה
+    בדיוק שבגללה עמוד של גרסה ישנה אינו נשמר: התוכן תלוי במשהו שאינו
+    חלק מהמפתח.
+    """
+    ids = _seed(wired_mongo, versions=3, name="readme.md", language="markdown",
+                code_for=lambda v: f"# גרסה {v}\n")
+
+    stored = []
+
+    class _Cache:
+        is_enabled = True
+
+        def get(self, key):
+            return None
+
+        def set_dynamic(self, key, value, *args, **kwargs):
+            stored.append(key)
+
+        def set(self, key, value, *args, **kwargs):
+            stored.append(key)
+
+    monkeypatch.setattr(wired_mongo, "cache", _Cache())
+    client = _client(wired_mongo)
+
+    client.get(f"/md/{ids[3]}")
+    assert stored, "גם עמוד תקין הפסיק להישמר בקאש"
+
+    stored.clear()
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("mongo is having a day")
+
+    monkeypatch.setattr(wired_mongo, "_latest_active_version_doc", _boom)
+    body = client.get(f"/md/{ids[3]}").get_data(as_text=True)
+    assert "לא ניתן לוודא" in body
+    assert not stored, "עמוד שלא ניתן לוודא נשמר בקאש"
