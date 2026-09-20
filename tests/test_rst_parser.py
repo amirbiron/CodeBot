@@ -1,13 +1,14 @@
 """טסטים לפארסר ה-RST — על קבצי RST אמיתיים מהריפו + מקרי קצה סינתטיים ממוקדים."""
 
 import ast
+import inspect
 import json
 import re
 from pathlib import Path
 
 import pytest
 
-from services import rst_parser
+from services import doc_sections, rst_parser
 
 _ENV_RST = Path(__file__).resolve().parents[1] / "docs" / "environment-variables.rst"
 
@@ -1166,6 +1167,65 @@ def test_the_section_ceiling_refuses_above_the_line_and_not_on_it():
 
     with pytest.raises(rst_parser.TooManySections):
         rst_parser.parse_document(three + "d\n=\n\n", max_sections=3)
+
+
+# ---- בדיקת הכניסה, וברירת המחדל של התקרה (#3421, #3420) ----
+#
+# שני הפארסרים מתועדים כבני-החלפה, ועל קלט שאינו מחרוזת הם התנהגו אחרת:
+# ``rst_parser.parse_document(None)`` החזיר מסמך ריק **בשקט** — מפה ריקה
+# שמתחזה למפה של קובץ בלי כותרות — ו-``17`` נפל ב-``AttributeError`` גולמי
+# מתוך ``.replace``. וברירת המחדל של ``max_sections`` הייתה ``None`` כאן
+# ו-``MAX_SECTIONS`` שם, כלומר קורא ששכח להעביר תקרה קיבל הגנה מהפארסר
+# האחד ולא מהשני.
+
+_NOT_STRINGS = {"None": None, "int": 17, "bytes": b"x"}
+
+
+@pytest.mark.parametrize("kind", sorted(_NOT_STRINGS))
+def test_input_that_is_not_a_string_is_refused_by_name(kind):
+    """``TypeError`` שאומר מה התקבל — ולא מסמך ריק, ולא ``AttributeError`` מבפנים.
+
+    ``match`` על שם הטיפוס הוא מה שמבדיל את זה מהצורה הישנה גם במקרה של
+    ``bytes``, שנפל אז ב-``TypeError`` **אחר** ("a bytes-like object is
+    required") מתוך ``.replace``: אותו טיפוס חריגה, הודעה שאינה מסבירה כלום.
+    """
+    with pytest.raises(TypeError, match=f"parse_document expects str, got {kind}"):
+        rst_parser.parse_document(_NOT_STRINGS[kind])
+
+
+@pytest.mark.parametrize("kind", sorted(_NOT_STRINGS))
+def test_both_parsers_refuse_a_non_string_with_the_same_words(kind):
+    """בדיקה אחת לשניהם (``doc_sections.require_str``), ולכן אותן מילים בדיוק.
+
+    שתי שורות זהות בשני מודולים הן מה שנסחף בתיקון הבא; המילים נבדקות
+    כאן כי הן החוזה שהמטפל מצהיר עליו — ``TypeError`` היא "חוזה נשבר"
+    ואינה נתפסת ב-``docs_get_section``.
+    """
+    from services import md_parser
+
+    with pytest.raises(TypeError) as from_rst:
+        rst_parser.parse_document(_NOT_STRINGS[kind])
+    with pytest.raises(TypeError) as from_md:
+        md_parser.parse_document(_NOT_STRINGS[kind])
+    assert str(from_rst.value) == str(from_md.value)
+
+
+def test_the_default_ceiling_is_the_shared_constant():
+    """טענת O(1) על הערך, כמו הטסט המקביל ב-``test_md_parser`` — לא 50,001 סקשנים בכל CI.
+
+    ברירת המחדל היא **אותו אובייקט** ``doc_sections.MAX_SECTIONS`` שגם
+    ``md_parser`` מחזיק, וגם מיוצא מחדש מכאן, כדי שקורא שכותב
+    ``rst_parser.MAX_SECTIONS`` יקבל את המספר שהפארסר באמת משתמש בו.
+    המנגנון עצמו — עצירה בזמן הפרסור, גבול "מעל ולא על" — מקובע בטסטים
+    שמעל עם ערכים קטנים מפורשים, ו-``None`` מכבה אותו במפורש.
+    """
+    from services import md_parser
+
+    default = inspect.signature(rst_parser.parse_document).parameters["max_sections"].default
+    assert default is doc_sections.MAX_SECTIONS, "ברירת המחדל היא התקרה, לא None"
+    assert rst_parser.MAX_SECTIONS is md_parser.MAX_SECTIONS is doc_sections.MAX_SECTIONS
+    assert "MAX_SECTIONS" in rst_parser.__all__
+    assert len(rst_parser.parse_document("a\n=\n\n" * 3, max_sections=None).sections) == 3
 
 
 def test_no_heading_site_reaches_the_section_list_around_the_funnel():

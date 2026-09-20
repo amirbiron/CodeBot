@@ -25,7 +25,6 @@ from typing import Any, NamedTuple
 
 from services import doc_sections, md_parser, rst_parser
 from .handlers import _clamp
-from .outline_scanners import _ceiling
 
 logger = logging.getLogger(__name__)
 
@@ -387,16 +386,13 @@ def docs_get_section(
     # ``resolved.suffix`` ולא גזירה שנייה מ-``file_path``: ראו :class:`_ResolvedPath`.
     parser = _PARSERS[resolved.suffix]  # לעולם לא KeyError: ראו _validate_policy_tables
 
-    # **תקרת הסקשנים עוברת ל-RST בלבד, ו-Markdown נשאר על ברירת המחדל של
-    # הפרסר שלו.** שני המסלולים מוגבלים לאותו מספר — ``_ceiling.MAX_SYMBOLS``
-    # ו-``md_parser.MAX_SECTIONS`` שניהם 50,000, וטסט קושר ביניהם — אבל הדרך
-    # שונה בכוונה: ל-``rst_parser`` ברירת המחדל היא ``None`` (קוראים אחרים
-    # שלו אינם מוגנים ויודעים זאת), ולכן הכלי מעביר את התקרה במפורש; ל-
-    # ``md_parser`` ברירת המחדל **היא** התקרה, והעברה מפורשת מכאן הייתה עותק
-    # שני של החלטה ש-PR הפארסר כבר הכריע. ``parser is rst_parser`` שואל על
-    # הפרסר ולא על הסיומת — זו תכונה של המודול, לא מקום שלישי שבו סמנטיקת
-    # הסיומת חיה. התקרה נקראת מהמודול **בזמן הקריאה**, כדי שהטסט יוכל
-    # להקטין אותה במקום להציף אותה.
+    # **שני הפרסרים רצים על ברירת המחדל שלהם, והכלי אינו מעביר תקרה.**
+    # ברירת המחדל של ``max_sections`` בשניהם היא ``doc_sections.MAX_SECTIONS``
+    # (50,000; מיושרת מאז #3420 — בין #3429 ל-#3420 ברירת המחדל של
+    # ``rst_parser`` הייתה ``None`` והכלי העביר לו את ``_ceiling.MAX_SYMBOLS``
+    # במפורש). העברה מפורשת מכאן הייתה עותק שני של החלטה שהפארסר כבר הכריע,
+    # ו-``parser is rst_parser`` היה מקום שלישי שבו סמנטיקת הסיומת חיה. הטסט
+    # שמקטין את התקרה עושה זאת בפרסר (``functools.partial``), לא כאן.
     #
     # מה שהתקרה עוצרת ב-RST (סקירת #3429): כותרת בת תו אחד בכל שורה ב-500KB
     # עולה 44.0MiB לפרסור אחד — יותר מ-35.2MiB שמאגר הקריאות מקצה לחוט
@@ -406,7 +402,6 @@ def docs_get_section(
     # **ומה שאף תקרה כאן אינה עוצרת, ונשאר פתוח:** Markdown עוין של שורות-
     # תבליט בלי כותרות — 500KB עולים 141MiB ו-2.3 שניות, ו-``MAX_SECTIONS``
     # סופר כותרות ולכן אינו נוגע בו. זה אישו #3391 ולא #3429.
-    parse_kwargs = {"max_sections": _ceiling.MAX_SYMBOLS} if parser is rst_parser else {}
 
     # **ה-``try`` הזה אינו ``K11``, וזה נכתב כדי שסקירה עתידית לא תגזור זאת
     # מחדש.** ``parse_document`` מתועד כ"ערוץ הכשל הוא חריגה בלבד": הוא אינו
@@ -419,10 +414,11 @@ def docs_get_section(
     # מייצא אותה, וייצוא משם היה מצהיר על סירוב שאינו קיים. התפיסה אינה
     # מותנית במי שפרסר, כי תנאי כזה היה רשימה שנייה לסנכרן.
     #
-    # **ומה שלא נתפס כאן, בכוונה:** ``TypeError`` ו-``RuntimeError`` של
-    # ``md_parser``. שניהם אומרים "חוזה נשבר" ולא "הקלט נדחה", ועטיפתם
-    # הייתה בדיוק ``widened-exception-scope``. ``content`` הוא תמיד מחרוזת
-    # במסלול הזה, כי ``binary`` ו-``too_large`` נחסמו למעלה.
+    # **ומה שלא נתפס כאן, בכוונה:** ``TypeError`` של שני הפרסרים (מאז #3421
+    # גם ``rst_parser`` מרים אותה, דרך ``doc_sections.require_str``) ו-
+    # ``RuntimeError`` של ``md_parser``. שניהם אומרים "חוזה נשבר" ולא "הקלט
+    # נדחה", ועטיפתם הייתה בדיוק ``widened-exception-scope``. ``content`` הוא
+    # תמיד מחרוזת במסלול הזה, כי ``binary`` ו-``too_large`` נחסמו למעלה.
     #
     # תקרת המקביליות על הפרסור אינה כאן ואינה צריכה להיות: היא נגזרת מגודל
     # מאגר הקריאות, ומקומה ב-lifespan של השרת — נחת ב-#3429.
@@ -436,17 +432,16 @@ def docs_get_section(
     # ``_line_of`` ולא ``exc.args[0]`` ישירות: חריגה שתיבנה מחר בלי
     # ארגומנט לא תפיל כאן ``IndexError`` באמצע בקשה.
     #
-    # ``"max"`` הוא ``_ceiling.MAX_SYMBOLS`` בשני המסלולים, וזה נכון ל-Markdown
-    # רק מפני שהטסט שקושר את שתי התקרות מחזיק אותן שוות — בלעדיו המספר
-    # שמדווח על סירוב Markdown היה יכול להיות תקרה של פרסר אחר.
+    # ``"max"`` הוא ``doc_sections.MAX_SECTIONS`` — המספר שהפרסר באמת השתמש
+    # בו, בשני המסלולים, ולא עותק שלו ממודול אחר.
     try:
-        doc = parser.parse_document(content, **parse_kwargs)
+        doc = parser.parse_document(content)
     except doc_sections.InconsistentLineEndings as exc:
         return {"ok": False, "error": "inconsistent_line_endings",
                 **context, **_line_of(exc)}
     except doc_sections.TooManySections as exc:
         return {"ok": False, "error": "too_many_sections",
-                "max": _ceiling.MAX_SYMBOLS, **context, **_line_of(exc)}
+                "max": doc_sections.MAX_SECTIONS, **context, **_line_of(exc)}
 
     toc_items, toc_truncated = _toc(doc)
 

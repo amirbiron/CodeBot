@@ -61,6 +61,7 @@ from markdown_it.token import Token
 from mdit_py_plugins.front_matter import front_matter_plugin
 
 from .doc_sections import (
+    MAX_SECTIONS,
     Document,
     InconsistentLineEndings,
     Section,
@@ -72,6 +73,7 @@ from .doc_sections import (
     find_sections,
     neighbors,
     normalize_title,
+    require_str,
     section_bounds,
     section_text,
     suggest,
@@ -86,17 +88,17 @@ from .doc_sections import (
 # ``docs_handlers`` יוכל לבחור מודול לפי סיומת ולקרוא לשמות האלה בלי אף
 # ``if`` נוסף במסלול.
 #
-# **ומה שאינו משותף, כדי שהטענה לא תיקרא רחבה ממה שהיא:** ``MAX_SECTIONS``
-# ו-``InconsistentLineEndings`` מיוצאים רק מכאן. ל-``rst_parser`` אין
-# תקרה קבועה (ברירת המחדל שלו היא ``None``), והוא **אינו מרים** את
-# החריגה השנייה לעולם — ייצוא שלה משם היה מצהיר על סירוב שלא קיים.
-# לכן המטפל ב-PR 5 מייבא את **שתי** חריגות הסירוב מ-``doc_sections``,
-# לא ``parser.X``, כפי שכתוב ב-docstring של ``InconsistentLineEndings``.
+# **ומה שאינו משותף, כדי שהטענה לא תיקרא רחבה ממה שהיא:**
+# ``InconsistentLineEndings`` מיוצאת רק מכאן. ``rst_parser`` **אינו מרים**
+# אותה לעולם — ייצוא שלה משם היה מצהיר על סירוב שלא קיים. לכן המטפל מייבא
+# את **שתי** חריגות הסירוב מ-``doc_sections``, לא ``parser.X``, כפי שכתוב
+# ב-docstring של ``InconsistentLineEndings``. (``MAX_SECTIONS`` היה גם הוא
+# רק כאן עד #3420; מאז הוא מוגדר ב-``doc_sections`` ומיוצא משני הפארסרים.)
 # ההפרש בין שני ה-``__all__`` מקובע ב-
-# ``tests/test_md_parser.py::test_the_two_parsers_export_the_same_names_but_two``.
+# ``tests/test_md_parser.py::test_the_two_parsers_export_the_same_names_but_one``.
 __all__ = [
     # שם היסטורי: הוא סופר כותרות, גם כאלה שאינן נכנסות למפה. ההנמקה
-    # המלאה ב-``#:`` שמעל ההגדרה.
+    # המלאה ב-``#:`` שמעל ההגדרה ב-``doc_sections``.
     "MAX_SECTIONS",
     "Document",
     "InconsistentLineEndings",
@@ -114,27 +116,9 @@ __all__ = [
     "suggest",
 ]
 
-#: מקסימום **כותרות** לקובץ, ומעליו הפרסור נעצר.
-#:
-#: **וכותרות ולא סעיפים, וזה ההבדל שצריך להכיר.** נספרת כל כותרת
-#: שהפרסור נתקל בה, כולל כותרת בתוך ציטוט או בתוך פריט רשימה שאינה
-#: נכנסת למפה בכלל. הקבוע מגביל **עבודה** ולא **תוצאה**: מה שמייקר
-#: הוא הכותרת עצמה, ולא השאלה אם היא נספרת כסעיף בסוף. נמדד: 500KB
-#: של ``> ## h`` הם ~64,000 כותרות שאף אחת מהן אינה סעיף, וספירה לפי
-#: ``level == 0`` הייתה רואה בהן אפס ולא עוצרת לעולם. הטענה "לא יותר
-#: מ-``MAX_SECTIONS`` סעיפים" נשארת נכונה — היא פשוט לא כל מה שהקבוע
-#: אוכף. שם מדויק יותר לקבוע הוא שינוי בפני עצמו והוא אישו נפרד.
-#:
-#: **אותו ערך בדיוק כמו ``MAX_SYMBOLS`` ב-
-#: ``mcp_server/outline_scanners/_ceiling.py``**, ושם כתובות שתי
-#: המדידות שקבעו אותו — השיא שהתקרה מרשה, והיחס לקובץ אמיתי. מי
-#: שמשנה את אחד מהשניים צריך לפתוח את השני: הם מתארים את אותו גבול על
-#: אותה מפה, והסורק שיגיע לכאן בשלב 2 יעביר את זה במקום את זה. השוויון
-#: מקובע ב-``tests/test_md_parser.py::test_the_two_ceilings_are_the_same_number``.
-#:
-#: ``_ceiling.MAX_SYMBOLS`` אינו מיובא לכאן, כי ``services`` אינו מייבא
-#: מ-``mcp_server`` — הכיוון חד-סטרי ומנומק ב-``TooManySections``.
-MAX_SECTIONS = 50_000
+# ``MAX_SECTIONS`` מוגדר ב-``doc_sections`` (מאז #3420, כשהפך לברירת המחדל
+# של שני הפארסרים) ומיובא לכאן. מה שהוא סופר **במסלול הזה** — כותרות ולא
+# סעיפים — מנומק ליד הקבוע שם וב-``_SectionCounter`` למטה.
 
 #: ``\r`` שאינו חלק מ-``\r\n``. ההגדרה חוזרת כאן ואינה מיובאת מ-
 #: ``mcp_server/outline.py::_CR_WITHOUT_LF``, מאותה סיבה: הכיוון חד-סטרי.
@@ -323,9 +307,10 @@ def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> 
 
     **סדר הבדיקות בכניסה, והוא אינו שרירותי:**
 
-    1. ``isinstance(text, str)`` — הטקסט מגיע מחוץ לתהליך (קובץ מהמראה,
-       גוף בקשה), ו-``.replace`` על ערך שאינו מחרוזת היה מפיל
-       ``AttributeError`` ממקום שלא מסביר כלום.
+    1. :func:`~services.doc_sections.require_str` — הטקסט מגיע מחוץ
+       לתהליך (קובץ מהמראה, גוף בקשה), ו-``.replace`` על ערך שאינו מחרוזת
+       היה מפיל ``AttributeError`` ממקום שלא מסביר כלום. אותה בדיקה
+       בדיוק, ואותן מילים, כמו ב-``rst_parser`` (מאז #3421).
     2. הסרת ``U+FEFF`` (BOM) **אחד, בתחילת המחרוזת בלבד** — ההנמקה
        בהערה ליד הקוד. לפני בדיקת ה-``\\r``, כדי שמספר השורה שהחריגה
        נושאת יתאים לטקסט שהפארסר באמת רואה.
@@ -345,19 +330,11 @@ def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> 
     הקלט ששלב 3 קיים בשבילו.
 
     :param max_sections: התקרה, **במספר כותרות ולא במספר סעיפים** —
-        ראו :data:`MAX_SECTIONS`. ברירת המחדל היא :data:`MAX_SECTIONS`,
+        ראו :data:`~services.doc_sections.MAX_SECTIONS`. ברירת המחדל היא
+        :data:`~services.doc_sections.MAX_SECTIONS` — אותה ברירת מחדל
+        כמו ב-``services.rst_parser.parse_document`` (מיושר מאז #3420;
+        לפני כן היא הייתה ``None`` שם, וההבדל היה מוצהר בשני המקומות) —
         ו-``None`` מכבה אותה במפורש.
-
-        .. important::
-
-           **ברירת המחדל כאן הפוכה מזו של**
-           ``services.rst_parser.parse_document``\\ **, שם היא ``None``.**
-           שם הפרמטר נוסף לפארסר שכבר היה בייצור, וברירת מחדל שאינה
-           ``None`` הייתה משנה את התנהגות ``docs_get_section`` באותו
-           קומיט; כאן אין התנהגות קודמת לשמר, ולכן נבחרה ההנחה היקרה —
-           קורא ששכח להעביר תקרה מקבל הגנה ולא את היעדרה. ההבדל מוצהר
-           בשני המקומות בכוונה, ויישור של ``rst_parser`` נשקל בנפרד כי
-           הוא שינוי התנהגות על מסלול חי.
 
     :raises TypeError: ``text`` אינו מחרוזת.
     :raises ~services.doc_sections.InconsistentLineEndings: יש ``\\r``
@@ -366,8 +343,7 @@ def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> 
         כותרות מהתקרה. הארגומנט הוא מספר השורה שבה נעצרנו — מה שמבדיל
         עצירה בתוך הפרסור מסינון של פלט אחריו.
     """
-    if not isinstance(text, str):
-        raise TypeError(f"parse_document expects str, got {type(text).__name__}")
+    text = require_str(text)
     # **BOM אחד בתחילת הקובץ מוסר, ולא יותר מזה.** בלי ההסרה, ``# Title``
     # שלפניו ``U+FEFF`` אינו כותרת אצל ``markdown-it`` — הוא פסקה שמתחילה
     # בתו בלתי נראה — והפארסר מחזיר **מפה ריקה בלי חריגה** על קובץ שיש
