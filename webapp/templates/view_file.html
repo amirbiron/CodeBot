@@ -759,6 +759,10 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     } catch(e) {}
 })();
 </script>
+{# האם מוצגת כאן גרסה ישנה. נקבע פעם אחת ונקרא בכל מקום שמסתיר פעולה. #}
+{% set is_old_version = version_context and version_context.state == 'old' %}
+{% include "_version_banner.html" %}
+
 <div class="file-header">
     <div class="file-info">
         <div class="file-title-row">
@@ -792,7 +796,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 
     <div class="file-actions" data-file-actions>
         <div class="file-actions__list" data-actions-list>
-            {% if not file.is_large %}
+            {% if not file.is_large and not is_old_version %}
             <button id="favoriteBtn"
                     class="btn btn-secondary btn-icon"
                     data-overflow-id="favorite"
@@ -806,6 +810,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
             </button>
             {% endif %}
+            {% if not is_old_version %}
             <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon file-primary-action"
                data-overflow-id="edit"
                data-overflow-priority="2"
@@ -813,6 +818,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <i class="fas fa-edit"></i>
                 ערוך
             </a>
+            {% endif %}
             <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button file-primary-action"
                     data-overflow-id="copy"
                     data-overflow-priority="3"
@@ -890,6 +896,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             </button>
             <div class="file-actions__dropdown" id="fileActionsMenu" role="menu" hidden>
                 <div class="file-actions__menu-section">
+                    {% if not is_old_version %}
                     <button type="button"
                             class="file-actions__menu-item"
                             data-menu-action="description"
@@ -908,6 +915,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                     <button type="button" class="file-actions__menu-item" data-menu-action="share">
                         <span>📤 שתף קובץ</span>
                     </button>
+                    {% endif %}
                     {% if file.source_url %}
                     <button type="button"
                             class="file-actions__menu-item"
@@ -927,9 +935,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                     <button type="button" class="file-actions__menu-item" data-menu-action="history">
                         <span>🕐 היסטוריה</span>
                     </button>
+                    {% if not is_old_version %}
                     <button type="button" class="file-actions__menu-item danger" data-menu-action="trash">
                         <span>🗑️ העבר לסל</span>
                     </button>
+                    {% endif %}
                     {% endif %}
                 </div>
                 <div class="file-actions__menu-divider" data-dynamic-divider hidden></div>
@@ -1369,6 +1379,31 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     display: flex;
     gap: 0.5rem;
     align-items: center;
+}
+
+/* בחירת שתי גרסאות להשוואה. הצבעים מגיעים מהטוקנים הסמנטיים של
+   ``base.html`` ולא מערכים קשיחים — ראו docs/webapp/theming_and_css.rst. */
+.history-modal__compare {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+    padding: 0.6rem 0.85rem;
+    border-radius: 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.history-modal__select {
+    flex: 0 0 auto;
+    width: 1.1rem;
+    height: 1.1rem;
+    margin-inline-end: 0.75rem;
+    accent-color: var(--primary);
+    cursor: pointer;
 }
 
 .history-modal__empty,
@@ -2596,25 +2631,106 @@ function goBack(ev){
         historyBody.appendChild(node);
     }
 
+    // הגרסאות המסומנות להשוואה. שתיים לכל היותר, ובחירה שלישית מחליפה
+    // את הוותיקה מביניהן — בדיוק כמו ברשימת הקומיטים ב-GitHub.
+    let selectedVersions = [];
+
+    function latestEntryId() {
+        const current = historyCache.find((e) => e && e.is_current);
+        // ה-``_id`` של הגרסה **האחרונה**, ולא זה שבכתובת: כשצופים בגרסה
+        // ישנה, ``fileId`` הוא המסמך הישן, ודף ההשוואה גוזר ממנו את
+        // ברירות המחדל ואת יעד השחזור.
+        return (current && current.id) || fileId;
+    }
+
+    function updateCompareBar(bar, button) {
+        if (!bar || !button) return;
+        const count = selectedVersions.length;
+        button.disabled = count !== 2;
+        if (count === 0) {
+            bar.firstChild.textContent = 'סמנו שתי גרסאות כדי להשוות ביניהן';
+        } else if (count === 1) {
+            bar.firstChild.textContent = `נבחרה גרסה ${selectedVersions[0]} — סמנו עוד אחת`;
+        } else {
+            const pair = [...selectedVersions].sort((a, b) => a - b);
+            bar.firstChild.textContent = `השוואה בין גרסה ${pair[0]} לגרסה ${pair[1]}`;
+        }
+    }
+
     function renderHistory(entries) {
         if (!historyBody) return;
         if (!entries.length) {
             setHistoryContent(createMessage('אין היסטוריית גרסאות זמינה', 'history-modal__empty'));
             return;
         }
+        selectedVersions = [];
+        const wrapper = document.createElement('div');
+
+        const compareBar = document.createElement('div');
+        compareBar.className = 'history-modal__compare';
+        const compareLabel = document.createElement('span');
+        compareLabel.textContent = 'סמנו שתי גרסאות כדי להשוות ביניהן';
+        compareBar.appendChild(compareLabel);
+        const compareBtn = document.createElement('button');
+        compareBtn.type = 'button';
+        compareBtn.className = 'btn btn-secondary';
+        compareBtn.textContent = 'השווה';
+        compareBtn.disabled = true;
+        compareBtn.addEventListener('click', () => {
+            if (selectedVersions.length !== 2) return;
+            const pair = [...selectedVersions].sort((a, b) => a - b);
+            window.location.href = `/compare/${latestEntryId()}?left=${pair[0]}&right=${pair[1]}`;
+        });
+        compareBar.appendChild(compareBtn);
+        wrapper.appendChild(compareBar);
+
         const list = document.createElement('div');
         list.className = 'history-modal__list';
+        const boxes = [];
         entries.forEach((entry) => {
             const item = document.createElement('div');
             item.className = 'history-modal__item';
             if (entry.is_current) {
                 item.classList.add('is-current');
             }
+
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.className = 'history-modal__select';
+            box.setAttribute('aria-label', `בחר את גרסה ${entry.version || ''} להשוואה`);
+            box.addEventListener('change', () => {
+                const version = entry.version;
+                if (box.checked) {
+                    selectedVersions.push(version);
+                    while (selectedVersions.length > 2) {
+                        const dropped = selectedVersions.shift();
+                        const other = boxes.find((b) => b.dataset.version === String(dropped));
+                        if (other) other.checked = false;
+                    }
+                } else {
+                    selectedVersions = selectedVersions.filter((v) => v !== version);
+                }
+                updateCompareBar(compareBar, compareBtn);
+            });
+            box.dataset.version = String(entry.version || '');
+            boxes.push(box);
+            item.appendChild(box);
+
             const info = document.createElement('div');
             info.className = 'history-modal__info';
             const title = document.createElement('div');
             title.className = 'history-modal__title';
-            title.textContent = `גרסה ${entry.version || ''}`;
+            // גרסה היא ישות שאפשר לפתוח: כל גרסה היא מסמך עם ``_id`` משלה,
+            // ועמוד הקובץ כבר יודע להציג כל מסמך שהמשתמש הוא הבעלים שלו.
+            // השורה שמתארת את המסמך שאנחנו כבר עליו אינה מקושרת.
+            if (entry.id && entry.id !== fileId) {
+                const link = document.createElement('a');
+                link.href = `/file/${entry.id}`;
+                link.textContent = `גרסה ${entry.version || ''}`;
+                title.appendChild(link);
+            } else {
+                title.textContent = `גרסה ${entry.version || ''}`;
+            }
             info.appendChild(title);
             const meta = document.createElement('div');
             meta.className = 'history-modal__meta';
@@ -2652,7 +2768,8 @@ function goBack(ev){
             item.appendChild(actions);
             list.appendChild(item);
         });
-        setHistoryContent(list);
+        wrapper.appendChild(list);
+        setHistoryContent(wrapper);
     }
 
     async function fetchHistory() {
@@ -2686,36 +2803,15 @@ function goBack(ev){
         }
     }
 
-    async function handleRestore(version, button) {
-        if (!fileId || !version || !button) {
+    // הקריאה עצמה יושבת ב-``static/js/restore-version.js``, כי גם באנר
+    // הגרסה הישנה משחזר — ושני עותקים של אותו POST הם שתי דרכים להיסחף.
+    function handleRestore(version, button) {
+        if (typeof window.restoreFileVersion !== 'function') {
             return;
         }
-        button.disabled = true;
-        const originalText = button.textContent;
-        button.textContent = 'משחזר...';
-        try {
-            const resp = await fetch(`/api/file/${fileId}/restore`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ version }),
-            });
-            const data = await resp.json().catch(() => ({}));
-            if (!resp.ok || !data.ok) {
-                throw new Error(data.error || 'שגיאה בשחזור הגרסה');
-            }
-            showToast('הגרסה שוחזרה בהצלחה', 'success');
-            closeHistoryModal();
-            const nextId = data.file_id || data.id;
-            if (nextId) {
-                window.location.href = `/file/${nextId}`;
-            } else {
-                window.location.reload();
-            }
-        } catch (err) {
-            showToast(err.message || 'שגיאה בשחזור הגרסה', 'error');
-            button.disabled = false;
-            button.textContent = originalText || 'שחזר';
-        }
+        window.restoreFileVersion(fileId, version, button, {
+            onSuccess: closeHistoryModal,
+        });
     }
 
     function openHistoryModal() {
@@ -2818,4 +2914,6 @@ function goBack(ev){
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/view-codemirror-toggle.js') }}?v={{ static_version }}" defer></script>
+{# עותק אחד של קריאת השחזור — גם למודאל ההיסטוריה וגם לבאנר הגרסה. #}
+<script src="{{ url_for('static', filename='js/restore-version.js') }}?v={{ static_version }}"></script>
 {% endblock %}

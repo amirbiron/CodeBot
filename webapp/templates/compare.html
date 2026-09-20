@@ -3,7 +3,7 @@
 {% block title %}השוואת גרסאות - {{ file.file_name }}{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block content %}
@@ -38,9 +38,12 @@
             <div class="col-md-5">
                 <label class="form-label">גרסה שמאלית (ישנה)</label>
                 <select id="version-left" class="form-select">
+                    {# ``selected_left`` מגיע מהשרת, מאותו חישוב שמוזן גם
+                       ל-``CompareView.init``. קודם היה כאן חישוב עצמאי,
+                       ושלוש תשובות לאותה שאלה הן שלוש דרכים להיסחף. #}
                     {% for v in versions %}
                     <option value="{{ v.version }}" 
-                            {% if v.version == current_version - 1 %}selected{% endif %}>
+                            {% if v.version == selected_left %}selected{% endif %}>
                         גרסה {{ v.version }} - {{ v.version_created_at | format_datetime }}
                     </option>
                     {% endfor %}
@@ -56,7 +59,7 @@
                 <select id="version-right" class="form-select">
                     {% for v in versions %}
                     <option value="{{ v.version }}"
-                            {% if v.version == current_version %}selected{% endif %}>
+                            {% if v.version == selected_right %}selected{% endif %}>
                         גרסה {{ v.version }} - {{ v.version_created_at | format_datetime }}
                     </option>
                     {% endfor %}
@@ -168,7 +171,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/compare.js') }}"></script>
+<script src="{{ url_for('static', filename='js/compare.js') }}?v={{ static_version }}"></script>
 <script>
     // אתחול עם נתוני הקובץ
     window.CompareView.init({
@@ -176,6 +179,8 @@
         fileName: '{{ file.file_name }}',
         language: '{{ file.programming_language }}',
         currentVersion: {{ current_version }},
+        leftVersion: {{ selected_left }},
+        rightVersion: {{ selected_right }},
     });
 </script>
 {% endblock %}

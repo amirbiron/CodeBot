@@ -1821,6 +1821,7 @@ input.md-task-checkbox {
 
 {% block content %}
 <div id="md-root">
+  {% include "_version_banner.html" %}
   <div class="file-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
     <div style="display:flex;align-items:center;gap:.75rem;min-width:0;">
       {# הדף הזה תמיד מציג Markdown, ולכן השפה קבועה ולא מגיעה מהקובץ #}
@@ -2119,7 +2120,8 @@ input.md-task-checkbox {
 <script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}"></script>
+<script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/restore-version.js') }}?v={{ static_version }}"></script>
 <script>
 // מזהה קובץ לשימוש בשמירת העדפות פר-קובץ
 const FILE_ID = "{{ file.id }}";

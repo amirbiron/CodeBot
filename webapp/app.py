@@ -190,6 +190,7 @@ from file_dates import (  # noqa: E402
 from file_description import (  # noqa: E402
     DESCRIPTION_SET_AT_VERSION_FIELD,
     description_stamp_for_new_version,
+    normalized_version,
 )
 # מחיקה רכה — מודול שורש טהור, אותה שאילתה שהבוט מריץ. ראו file_deletion.py
 from file_deletion import (  # noqa: E402
@@ -3946,6 +3947,36 @@ def get_current_user_id() -> Optional[int]:
 compare_bp = Blueprint('compare', __name__, url_prefix='/api/compare')
 
 
+def _compare_version_arg(
+    name: str,
+    default: int,
+    available: Optional[set] = None,
+) -> Tuple[Optional[int], Optional[str]]:
+    """קריאת ``left``/``right`` מהכתובת — כלל אחד לעמוד ול-API.
+
+    ``request.args.get(name, type=int, default=...)`` נראה כמו אימות
+    ואינו כזה: ב-Flask המרה כושלת מחזירה את ברירת המחדל **בשקט**,
+    כלומר ``?left=abc`` הציג דיף של גרסה אחרת בלי לומר דבר. מספר גרסה
+    שהגיע מהכתובת הוא טקסט של מישהו, לא נתון.
+
+    ``available`` נמסר רק כשקבוצת הגרסאות כבר בידי הקורא (העמוד שולף
+    אותה ממילא). ה-API אינו שולף רשימה רק כדי לאמת — שם הקיום נבדק
+    ממילא ב-``diff_service.compare_versions``, שמחזיר ``None`` כשאחד
+    הצדדים חסר.
+
+    מחזיר ``(value, error)``: בדיוק אחד מהם אינו ``None``.
+    """
+    raw = request.args.get(name)
+    if raw is None or raw == '':
+        return default, None
+    value = normalized_version(raw)
+    if value is None:
+        return None, f"פרמטר {name} אינו מספר גרסה תקין"
+    if available is not None and value not in available:
+        return None, f"גרסה {value} אינה קיימת לקובץ הזה"
+    return value, None
+
+
 @compare_bp.route('/versions/<file_id>', methods=['GET'])
 def compare_versions(file_id: str):
     """
@@ -3977,15 +4008,20 @@ def compare_versions(file_id: str):
     current_version = file_doc.get("version", 1)
 
     # קבלת פרמטרים
-    version_left = request.args.get('left', type=int, default=max(1, current_version - 1))
-    version_right = request.args.get('right', type=int, default=current_version)
+    version_left, err_left = _compare_version_arg('left', max(1, current_version - 1))
+    version_right, err_right = _compare_version_arg('right', current_version)
+    error = err_left or err_right
+    if error:
+        return jsonify({"error": error}), 400
 
     # חישוב ההשוואה
     diff_service = get_diff_service(db)
     result = diff_service.compare_versions(user_id, file_name, version_left, version_right)
 
     if not result:
-        return jsonify({"error": "Could not compare versions"}), 400
+        return jsonify({
+            "error": f"אחת מהגרסאות אינה קיימת לקובץ הזה ({version_left} או {version_right})"
+        }), 400
 
     return jsonify(result.to_dict())
 
@@ -13442,12 +13478,27 @@ def view_file(file_id):
         abort(404)
     is_large = (kind == "large")
 
+    # האם מוצגת כאן גרסה ישנה. החריגה אינה נבלעת: ``None`` שקט היה אומר
+    # "זו הגרסה האחרונה" על מסמך ישן, כלומר עמוד בלי באנר ועם כפתורי
+    # עריכה ומחיקה שפועלים על ה-``_id`` הישן.
+    try:
+        version_context = _file_version_context(db, user_id, file, kind)
+    except Exception as e:
+        logger.exception(
+            "DB error resolving latest version",
+            extra={"file_id": file_id, "user_id": user_id, "error": str(e)},
+        )
+        abort(500)
+    is_old_version = bool(version_context and version_context.get('state') == 'old')
+
     skip_activity = False
     try:
         skip_activity = bool(session.pop('_skip_view_activity_once', False))
     except Exception:
         skip_activity = False
     if not skip_activity:
+        # נשאר גם בגרסה ישנה: הרשומה היא "המשתמש היה פעיל בוובאפ",
+        # ברמת המשתמש ובלי קשר לקובץ או לגרסה.
         _log_webapp_user_activity()
 
     clear_edit_draft_for_id = ''
@@ -13456,29 +13507,44 @@ def view_file(file_id):
     except Exception:
         clear_edit_draft_for_id = ''
 
-    # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי — לפני בדיקות Cache
-    try:
-        ensure_recent_opens_indexes()
-        coll = db.recent_opens
-        now = datetime.now(timezone.utc)
-        coll.update_one(
-            {'user_id': user_id, 'file_name': file.get('file_name')},
-            {'$set': {
-                'user_id': user_id,
-                'file_name': file.get('file_name'),
-                'last_opened_at': now,
-                'last_opened_file_id': file.get('_id'),
-                'language': (file.get('programming_language') or 'text'),
-                'updated_at': now,
-            }, '$setOnInsert': {'created_at': now}},
-            upsert=True
-        )
-    except Exception:
-        # אין לכשיל את הדף אם אין DB או אם יש כשל אינדקס/עדכון
-        pass
+    # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי — לפני בדיקות Cache.
+    # צפייה בגרסה ישנה מדלגת: ``last_opened_file_id`` נקרא מאוחר יותר
+    # כדי לפתוח את הקובץ (ראו ``api_recent_files``), וכתיבת ה-``_id``
+    # הישן כאן הייתה הופכת את "נפתחו לאחרונה" למצביע על הגרסה הישנה.
+    # צפייה בגרסה ישנה היא הצצה, לא פתיחת הקובץ.
+    if not is_old_version:
+        try:
+            ensure_recent_opens_indexes()
+            coll = db.recent_opens
+            now = datetime.now(timezone.utc)
+            coll.update_one(
+                {'user_id': user_id, 'file_name': file.get('file_name')},
+                {'$set': {
+                    'user_id': user_id,
+                    'file_name': file.get('file_name'),
+                    'last_opened_at': now,
+                    'last_opened_file_id': file.get('_id'),
+                    'language': (file.get('programming_language') or 'text'),
+                    'updated_at': now,
+                }, '$setOnInsert': {'created_at': now}},
+                upsert=True
+            )
+        except Exception:
+            # אין לכשיל את הדף אם אין DB או אם יש כשל אינדקס/עדכון
+            pass
     # HTTP cache validators (ETag / Last-Modified)
     theme_key = _get_theme_etag_key(user_id)
-    etag = _compute_file_etag(file, variant=theme_key)
+    # הבאנר נושא את מספר הגרסה האחרונה, שמשתנה בכל שמירה חדשה ואינו
+    # נגזר מהמסמך שמוצג. בלי שהוא ייכנס לוולידטור, ``If-None-Match``
+    # היה מחזיר 304 ומגיש "גרסה N מתוך M" ישן.
+    etag_variant = theme_key
+    if version_context:
+        etag_variant = "{}|{}{}".format(
+            theme_key,
+            version_context.get('state'),
+            version_context.get('latest_version') or '',
+        )
+    etag = _compute_file_etag(file, variant=etag_variant)
     last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
@@ -13508,6 +13574,7 @@ def view_file(file_id):
                              user_is_admin=user_is_admin,
                              is_premium=user_is_premium,
                              clear_edit_draft_for_id=clear_edit_draft_for_id,
+                             version_context=version_context,
                              file={
                                  'id': str(file['_id']),
                                  'file_name': file['file_name'],
@@ -13541,6 +13608,7 @@ def view_file(file_id):
                              user_is_admin=user_is_admin,
                              is_premium=user_is_premium,
                              clear_edit_draft_for_id=clear_edit_draft_for_id,
+                             version_context=version_context,
                              file={
                                  'id': str(file['_id']),
                                  'file_name': file['file_name'],
@@ -13647,6 +13715,7 @@ def view_file(file_id):
                          user_is_admin=user_is_admin,
                          is_premium=user_is_premium,
                          clear_edit_draft_for_id=clear_edit_draft_for_id,
+                             version_context=version_context,
                          file=file_data,
                          highlighted_code=highlighted_code,
                          syntax_css=css,
@@ -13683,11 +13752,41 @@ def compare_versions_page(file_id: str):
         if isinstance(doc, dict)
     ]
 
+    # "הגרסה הנוכחית" היא של **הקובץ**, לא של המסמך שב-URL. ``file_id``
+    # יכול להיות ה-``_id`` של גרסה ישנה (כל גרסה היא מסמך עם מזהה
+    # משלה), ואז ``file_doc["version"]`` היה נותן ברירות מחדל שמחושבות
+    # מול מסמך ישן. ``all_versions`` כבר ממוין יורד ומסונן לפעילים.
+    current_version = None
+    if all_versions:
+        current_version = normalized_version(all_versions[0].get("version"))
+    if current_version is None:
+        current_version = normalized_version(file_doc.get("version")) or 1
+
+    available = {
+        v for v in (normalized_version(d.get("version")) for d in all_versions)
+        if v is not None
+    }
+
+    # שני הערכים נקבעים **פעם אחת** ומוזנים גם לרשימות הנפתחות וגם
+    # ל-``CompareView.init``. קודם הם חושבו בשלושה מקומות בנפרד — כאן,
+    # ב-``selected`` שבתבנית וב-``compare.js`` — ושלוש תשובות לאותה
+    # שאלה הן שלוש דרכים להראות רשימה שאומרת דבר אחד ודיף שמראה אחר.
+    selected_left, err_left = _compare_version_arg(
+        'left', max(1, current_version - 1), available or None)
+    selected_right, err_right = _compare_version_arg(
+        'right', current_version, available or None)
+    if err_left or err_right:
+        # הפניה לכתובת הקנונית ולא רינדור שקט של ערכים אחרים: הכתובת
+        # ומה שמוצג בה לא אמורים לסתור זה את זה.
+        return redirect(url_for('compare_versions_page', file_id=file_id))
+
     return render_template(
         'compare.html',
         file=file_doc,
         versions=all_versions,
-        current_version=file_doc.get("version", 1),
+        current_version=current_version,
+        selected_left=selected_left,
+        selected_right=selected_right,
     )
 
 
@@ -13835,6 +13934,90 @@ def _get_user_file_by_id(db_ref, user_id: int, file_id: str) -> Optional[Dict[st
         return db_ref.code_snippets.find_one({'_id': obj_id, 'user_id': user_id})
     except Exception:
         return None
+
+
+def _latest_active_version_doc(
+    db_ref,
+    user_id: int,
+    file_name: str,
+    projection: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """הגרסה הפעילה האחרונה של קובץ — הגדרה אחת לכל הריפו.
+
+    הכלל הזה היה כתוב פה פעמיים (``api_file_history`` ו-
+    ``api_restore_file_version``), ועמוד הקובץ היה מוסיף עותק שלישי.
+    ``projection`` קיים כדי שהעותק היחיד ישרת גם קורא שצריך את המסמך
+    המלא (השחזור קורא ממנו שפה ותיאור) וגם קורא שצריך רק מספר — בלי
+    ששני הקוראים יחזיקו כל אחד את הפילטר והמיון שלו.
+
+    השגיאה **אינה** נבלעת: מי שקורא לכאן מסיק מהתשובה "זו הגרסה
+    האחרונה או לא", ו-``None`` על כשל היה אומר "כן, האחרונה" על מסמך
+    ישן — כלומר עמוד גרסה ישנה בלי באנר ועם כפתורי עריכה ומחיקה.
+    """
+    if not file_name:
+        return None
+    query = {
+        'user_id': user_id,
+        'file_name': file_name,
+        'is_active': True,
+    }
+    if projection is None:
+        return db_ref.code_snippets.find_one(query, sort=[('version', DESCENDING)])
+    return db_ref.code_snippets.find_one(query, projection, sort=[('version', DESCENDING)])
+
+
+def _file_version_context(
+    db_ref,
+    user_id: int,
+    doc: Dict[str, Any],
+    kind: str,
+) -> Optional[Dict[str, Any]]:
+    """ההקשר שהבאנר בראש עמוד הקובץ צריך — או ``None`` כשאין מה להציג.
+
+    שלושה מצבים, ורק שניים מהם מחזירים ערך:
+
+    * ``trashed`` — המסמך אינו פעיל. העברה לסל מסמנת ``is_active: False``
+      ל**כל** הגרסאות של אותו שם קובץ יחד (ראו ``file_deletion``), ולכן
+      אין לקובץ כזה "גרסה אחרונה פעילה" ו"גרסה N מתוך M" היה שקר.
+      הפעולה הנכונה היא שחזור הקובץ מהסל, ולא הוספת גרסה חדשה לקובץ
+      שאמור להיות מחוק.
+    * ``old`` — יש גרסה פעילה מאוחרת יותר. זה הבאנר המלא.
+    * ``None`` — זו הגרסה העדכנית, או שאין כאן מושג של גרסה בכלל.
+
+    ``large_files`` הוא אוסף דריסה ואין בו שדה ``version``; לכן לא רק
+    שהתשובה היא ``None``, אלא שהשאילתה על הגרסה האחרונה אינה רצה עבורו.
+    """
+    if kind != "regular":
+        return None
+
+    if doc.get('is_active') is False:
+        return {'state': 'trashed'}
+
+    current = normalized_version(doc.get('version'))
+    if current is None:
+        return None
+
+    file_name = (doc.get('file_name') or '').strip()
+    latest = _latest_active_version_doc(
+        db_ref,
+        user_id,
+        file_name,
+        {'version': 1},
+    )
+    latest_version = normalized_version((latest or {}).get('version'))
+    if latest_version is None or latest_version <= current:
+        return None
+
+    return {
+        'state': 'old',
+        'version': current,
+        'latest_version': latest_version,
+        'latest_file_id': str(latest.get('_id')),
+        # ``version_created_at`` ולא ``updated_at``: השני הוא שדה של הקובץ
+        # ובר-שינוי. הפורמוט עובר דרך ``format_datetime_display`` כדי
+        # שהתאריך יומר לאזור התצוגה ולא רק יתויג — ראו PR #3228.
+        'saved_at': format_datetime_display(version_created_at(doc)),
+    }
 
 _LIVE_PREVIEW_MAX_BYTES = 200 * 1024  # 200KB כדי למנוע תקיעות ברינדור
 _LIVE_PREVIEW_ALLOWED_SCHEMES = {"http", "https", "mailto", "tel"}
@@ -14589,12 +14772,15 @@ def api_file_history(file_id):
         return jsonify({'ok': False, 'error': 'שגיאה בטעינת היסטוריה'}), 500
 
     versions: List[Dict[str, Any]] = []
-    latest_version = 0
-    if docs:
-        try:
-            latest_version = int(docs[0].get('version') or 0)
-        except Exception:
-            latest_version = 0
+    # "מהי הגרסה האחרונה" נקרא מהפונקציה המשותפת ולא נגזר מהשורה
+    # הראשונה של הרשימה הזאת. שתי דרכים לענות על אותה שאלה הן שתי
+    # דרכים להיסחף, וכאן הסחיפה הייתה מסמנת ``is_current`` על גרסה
+    # שאינה הנוכחית. ההיטלה היא ``version`` בלבד.
+    try:
+        latest_doc = _latest_active_version_doc(db, user_id, file_name, {'version': 1})
+    except Exception:
+        latest_doc = None
+    latest_version = normalized_version((latest_doc or {}).get('version')) or 0
     for doc in docs:
         version_number = int(doc.get('version') or 0)
         try:
@@ -14667,14 +14853,8 @@ def api_restore_file_version(file_id):
         return jsonify({'ok': False, 'error': 'הגרסה לא נמצאה'}), 404
 
     try:
-        latest_doc = db.code_snippets.find_one(
-            {
-                'user_id': user_id,
-                'file_name': file_name,
-'is_active': True,
-            },
-            sort=[('version', DESCENDING)],
-        )
+        # מסמך מלא בכוונה: השחזור קורא מכאן גם שפה וגם תיאור.
+        latest_doc = _latest_active_version_doc(db, user_id, file_name)
     except Exception:
         latest_doc = None
 
@@ -16007,6 +16187,17 @@ def md_preview(file_id):
     if not file:
         abort(404)
 
+    # אותו הקשר בדיוק כמו בעמוד הקובץ, ומאותה פונקציה — הבאנר הוא תבנית
+    # אחת שנכללת משני העמודים, ולכן גם המידע שמזין אותו מגיע ממקום אחד.
+    try:
+        version_context = _file_version_context(db, user_id, file, _kind)
+    except Exception:
+        # כאן, בניגוד ל-``view_file``, אין כפתורי עריכה או מחיקה בעמוד,
+        # ולכן כשל בשאילתה מסתיים בעמוד בלי באנר ולא ב-500.
+        logger.exception("DB error resolving latest version (md)", extra={"file_id": file_id})
+        version_context = None
+    is_old_version = bool(version_context and version_context.get('state') == 'old')
+
     file_name = (file.get('file_name') or '').strip()
     language = (file.get('programming_language') or '').strip().lower()
     # אם סומן כ-text אך הסיומת .md – התייחס אליו כ-markdown
@@ -16044,7 +16235,16 @@ def md_preview(file_id):
     # ``note_fonts`` בוולידטור: העמוד הזה מרנדר את ההעדפה לתוך ה-HTML,
     # ובלי זה שינוי ההגדרה מחזיר את אותו ETag ← 304 ← הדגל הישן.
     note_fonts_key = _note_fonts_etag_key(user_id, user_doc=_etag_user_doc)
-    etag = _compute_file_etag(file, variant=f"{theme_key}|{note_fonts_key}")
+    # מצב הבאנר בוולידטור מאותה סיבה כמו ``theme`` ו-``note_fonts``:
+    # הוא מרונדר לתוך ה-HTML ואינו נגזר מהמסמך שמוצג, ולכן בלעדיו
+    # ``If-None-Match`` היה מחזיר 304 עם "גרסה N מתוך M" ישן.
+    _banner_key = ""
+    if version_context:
+        _banner_key = "{}{}".format(
+            version_context.get('state'),
+            version_context.get('latest_version') or '',
+        )
+    etag = _compute_file_etag(file, variant=f"{theme_key}|{note_fonts_key}|{_banner_key}")
     last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
@@ -16074,7 +16274,12 @@ def md_preview(file_id):
     # --- Cache: תוצר ה-HTML של תצוגת Markdown (תבנית) ---
     should_cache = getattr(cache, 'is_enabled', False)
     md_cache_key = None
-    if should_cache and not force_no_cache:
+    # עמוד של גרסה ישנה אינו נשמר בקאש. ה-HTML שלו נושא את מספר הגרסה
+    # האחרונה, שמשתנה בכל שמירה ואינו חלק מהמפתח — ייצוג שתלוי במשהו
+    # שמחוץ למפתח אינו אמור להישמר. הוספת המספר למפתח הייתה פיצוי על
+    # הצימוד; זה מנתק אותו. עמוד הגרסה הנוכחית אינו נושא באנר ולכן
+    # ממשיך להישמר בדיוק כמו קודם, עם אותו מפתח.
+    if should_cache and not force_no_cache and not is_old_version:
         try:
             # בתצוגה זו התוכן מגיע כתוכן גולמי ומעובד בצד לקוח; ה-HTML תלוי רק בפרמטרים הללו
             _params = {
@@ -16129,6 +16334,7 @@ def md_preview(file_id):
         'md_preview.html',
         user=session.get('user_data', {}),
         file=file_data,
+        version_context=version_context,
         md_code=code,
         bot_username=BOT_USERNAME_CLEAN,
         can_save_shared=False,

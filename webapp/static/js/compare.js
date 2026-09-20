@@ -58,9 +58,12 @@ window.CompareView = (function() {
      */
     function init(config) {
         state.mode = 'versions';
+        // שתי הגרסאות מגיעות מ-``config``, כלומר מהשרת — אותם ערכים
+        // בדיוק שמסומנים ברשימות הנפתחות. קודם הן חושבו כאן מחדש,
+        // ולכן ``/compare/<id>?left=1&right=3`` הציג רשימה שאומרת דבר
+        // אחד ודיף שמראה אחר. אין כאן ברירת מחדל: מי שיקרא בלי הערכים
+        // ייכשל ברעש ולא יציג בשקט השוואה שלא ביקשו.
         Object.assign(state, config);
-        state.leftVersion = Math.max(1, state.currentVersion - 1);
-        state.rightVersion = state.currentVersion;
 
         cacheElements();
         bindCommonEvents();
