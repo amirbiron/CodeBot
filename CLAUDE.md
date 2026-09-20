@@ -60,13 +60,14 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | `LOCK_FAIL_OPEN` — מריץ polling בלי מנעול ה-singleton, כלומר שני מריצים במקום אחד | `CORE-PATTERNS.md` U1 |
 | העלאת שרת HTTP או שינוי כתובת האזנה (`0.0.0.0`) — `main.py`, `services/webserver.py`, `webapp/app.py`, `mcp_server/app.py` | `CRITICAL-PATTERNS.md` K5 + `bugbot-rules/network-exposed-without-auth.md` |
 | אתחול עצל של משאב משותף (חיבור, לקוח, pool, קאש) — או **הסרה** של התנהגות מנוונת שקיימת מזמן | `CRITICAL-PATTERNS.md` K15 + `bugbot-rules/lazy-init-guard-publish-order.md` |
+| מופע של ספרייה חיצונית שנבנה **ברמת המודול** ומשותף לחוטים — ובמיוחד כשהבנייה כוללת קריאות תצורה (`use`, `enable`, `disable`, `register`, `add_*`, `before`) | `CRITICAL-PATTERNS.md` K15 + `bugbot-rules/lazy-init-guard-publish-order.md` — מתי אובייקט נחשב מוכן, וכשהתצורה קורית בתוכו. ואם אותו מופע גם נבנה מ-`os.environ` או מפעיל משהו — ראה גם את השורה על ברמה העליונה של מודול |
 | `getattr(x, "y", None)` או `except` שאחריו **מסלול חלופי בגלל כשל** — לא ערך ברירת מחדל, ולא זיהוי יכולת סטטי | `bugbot-rules/silent-fallback-to-worse-path.md` |
 | CSP, כותרות תגובה, או עמוד שנגיש בלי התחברות | `BY-STACK/browser-policy.md` |
 | `create_index` — ובמיוחד `partialFilterExpression` או `sparse=True` | `BY-STACK/mongodb.md` דפוס 1 + `bugbot-rules/mongo-index-and-operator-traps.md` — אופרטורים שהפילטר החלקי לא מקבל, ואתחול שבולע את השגיאה |
 | צינור `aggregate` — `$project`, `$sort`, `$group` — או `find_one` בתוך לולאה | `RECURRING-PATTERNS.md` R8 + `bugbot-rules/work-disproportionate-to-answer.md` |
 | `startswith` / `endswith` על נתיב, URL או דומיין | `CRITICAL-PATTERNS.md` K16 |
 | `replace(tzinfo=` · `datetime.now()` **בלי** אזור זמן · כל `date.today()` · הצגת תאריך למשתמש | `RECURRING-PATTERNS.md` R7 |
-| **ברמה העליונה של מודול** (מחוץ לכל פונקציה): `Thread(`, `.start()`, `scheduler`, `asyncio.create_task`, לקוח או חיבור שנבנה מ-`os.environ`, או קריאת רשת, מסד או קובץ | `bugbot-rules/import-time-side-effects.md` |
+| **ברמה העליונה של מודול** (מחוץ לכל פונקציה): `Thread(`, `.start()`, `scheduler`, `asyncio.create_task`, לקוח או חיבור שנבנה מ-`os.environ`, או קריאת רשת, מסד או קובץ | `bugbot-rules/import-time-side-effects.md` — מה רץ בזמן ייבוא. ואם מה שנבנה שם הוא מופע של ספרייה חיצונית שמשותף לחוטים — ראה גם את השורה על מופע של ספרייה חיצונית |
 | שינוי שנעשה כדי לספק לינטר: הזזת `import`, ניקוי אזהרת escape, הרחבת `except` | `bugbot-rules/linter-fix-changes-runtime-behavior.md` |
 | מחיקה / שיתוף / שינוי שם לפי `_id` שהגיע מהממשק, `created_at`, או פעולה גורפת על `code_snippets` ו-`large_files` | `bugbot-rules/logical-entity-vs-version-document.md` |
 | שליחה לספק עם תקרת קלט (טוקנים, אורך שדה), או `value[:LIMIT]` לפני שמירה | `bugbot-rules/silent-truncation-at-sink.md` |

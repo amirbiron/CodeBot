@@ -1,6 +1,13 @@
 # Development requirements - extend production
 -r production.txt
 
+# האורקל הבלתי-תלוי של tests/test_md_parser_oracle.py: ספריית cmark-gfm
+# עצמה, כלומר הפארסר ש-GitHub מריץ בפועל. **לטסטים בלבד** — הפרודקשן
+# משתמש ב-markdown-it-py — והיא כאן ולא ב-base.txt כי אורקל שגוזר את
+# הציפייה מאותו מימוש שהוא בודק אינו אורקל. הרחבת C עם גלגלי manylinux
+# ל-cp311 ול-cp312, שתי הגרסאות שרצות ב-CI, ולכן אין קומפילציה בהתקנה.
+cmarkgfm==2025.10.22
+
 # Test frameworks
 pytest==8.4.2
 pytest-asyncio==1.2.0
