@@ -144,12 +144,19 @@ def test_safe_mode_missing_or_not_a_string():
 # ===================== הנעילה על config.py עצמו =====================
 
 
-def _load_real_config_module(env):
+def _load_real_config_module(env, cwd):
     """טוען את ``config.py`` של השורש לפי נתיב, עם ``env`` כסביבה.
 
     בכוונה לא ``import config``: בזמן pytest התיקייה ``tests`` נמצאת בראש
     ``sys.path``, ו-``tests/config.py`` מאפיל על המודול האמיתי. טעינה לפי
     נתיב היא הדרך היחידה לבדוק את השדות האמיתיים בלי תלות בסדר.
+
+    ``cwd`` היא תיקייה זמנית שהטעינה רצה בתוכה, ולא נוחות. ``BotConfig``
+    קורא גם ``.env`` וגם ``.env.local``, ושניהם **נתיבים יחסיים** שנפתרים
+    מול תיקיית העבודה. בלי המעבר, קובץ ``.env`` מקומי — שקיים בפועל בעץ
+    העבודה ואינו במעקב git — היה נכנס לבדיקה, והתוצאה הייתה תלויה במה
+    שבמקרה כתוב אצל מי שמריץ. זה בדיוק סוג התלות שהבדיקות האלה נועדו
+    לסגור.
     """
     spec = importlib.util.spec_from_file_location(
         "_real_config_under_test", REPO_ROOT / "config.py"
@@ -157,13 +164,16 @@ def _load_real_config_module(env):
     module = importlib.util.module_from_spec(spec)
     saved_modules = dict(sys.modules)
     saved_env = dict(os.environ)
+    saved_cwd = os.getcwd()
     try:
         os.environ.clear()
         os.environ.update(env)
+        os.chdir(cwd)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
         return module.config
     finally:
+        os.chdir(saved_cwd)
         os.environ.clear()
         os.environ.update(saved_env)
         sys.modules.clear()
@@ -176,7 +186,7 @@ _MINIMAL_ENV = {
 }
 
 
-def test_config_fields_stay_unset_when_no_env_var_is_given():
+def test_config_fields_stay_unset_when_no_env_var_is_given(tmp_path):
     """הנעילה על השורש: השדות בקונפיג חייבים להישאר ``None`` בלי ENV.
 
     זה מה שמונע חזרה של הבאג. אם מישהו יחזיר ל-``config.py`` ברירת מחדל
@@ -184,37 +194,42 @@ def test_config_fields_stay_unset_when_no_env_var_is_given():
     יישא שוב ערך תמיד, מסלול ה-SAFE_MODE ימות שוב — והטסטים שבודקים רק את
     הפונקציה הטהורה ימשיכו לעבור בלי לשים לב.
     """
-    cfg = _load_real_config_module(_MINIMAL_ENV)
+    cfg = _load_real_config_module(_MINIMAL_ENV, tmp_path)
     assert cfg.REDIS_CONNECT_TIMEOUT is None
     assert cfg.REDIS_SOCKET_TIMEOUT is None
     # ומכאן, עם SAFE_MODE, ההכרעה חייבת לצאת שנייה אחת
     assert redis_timeouts(cfg, {"SAFE_MODE": "1"}) == (1.0, 1.0)
 
 
-def test_config_fields_read_an_explicit_env_var():
+def test_config_fields_read_an_explicit_env_var(tmp_path):
     """ולהפך: משתנה מפורש עדיין נקרא — pydantic קורא אותו לפי שם השדה."""
     cfg = _load_real_config_module(
-        {**_MINIMAL_ENV, "REDIS_CONNECT_TIMEOUT": "2", "REDIS_SOCKET_TIMEOUT": "3"}
+        {**_MINIMAL_ENV, "REDIS_CONNECT_TIMEOUT": "2", "REDIS_SOCKET_TIMEOUT": "3"},
+        tmp_path,
     )
     assert cfg.REDIS_CONNECT_TIMEOUT == 2.0
     assert cfg.REDIS_SOCKET_TIMEOUT == 3.0
 
 
-def test_config_does_not_die_on_a_blank_env_var():
+def test_config_does_not_die_on_a_blank_env_var(tmp_path):
     """``REDIS_CONNECT_TIMEOUT=`` ריק — מצב שכיח בקבוצת משתנים — אינו מפיל."""
-    cfg = _load_real_config_module({**_MINIMAL_ENV, "REDIS_CONNECT_TIMEOUT": "   "})
+    cfg = _load_real_config_module(
+        {**_MINIMAL_ENV, "REDIS_CONNECT_TIMEOUT": "   "}, tmp_path
+    )
     assert cfg.REDIS_CONNECT_TIMEOUT is None
 
 
 @pytest.mark.parametrize("bad", ["-1", "nan", "inf", "abc"])
-def test_config_rejects_an_impossible_timeout_loudly(bad):
+def test_config_rejects_an_impossible_timeout_loudly(bad, tmp_path):
     """ערך בלתי אפשרי נכשל בזמן עלייה, ולא מגיע בשקט ל-redis.
 
     ``config.py`` ממיר את ה-``ValidationError`` של pydantic ל-``ValueError``
     כדי לשמר התנהגות היסטורית, ולכן זה הטיפוס שמצפים לו כאן.
     """
     with pytest.raises(ValueError):
-        _load_real_config_module({**_MINIMAL_ENV, "REDIS_CONNECT_TIMEOUT": bad})
+        _load_real_config_module(
+            {**_MINIMAL_ENV, "REDIS_CONNECT_TIMEOUT": bad}, tmp_path
+        )
 
 
 # ===================== החיווט: מה באמת מגיע ל-redis =====================

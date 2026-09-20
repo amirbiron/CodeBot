@@ -586,7 +586,19 @@ async def _cancel_command_fallback(update: Update, context: ContextTypes.DEFAULT
     return ConversationHandler.END
 
 
-def _redis_socket_available(redis_url: str, timeout: float = 0.25) -> bool:
+#: תקרה לפרוב הזמינות של Redis, בשניות. זה **אינו** ה-timeout של החיבור:
+#: הפרוב רק שואל אם מישהו עונה בצד השני, וחיבור TCP באותו אזור נסגר
+#: במילישניות בודדות. רבע שנייה הוא כבר מרווח גדול, ומעליו הפרוב רק מאריך
+#: את בניית הבוט מול מארח שאינו נענה.
+REDIS_PROBE_TIMEOUT_SECONDS = 0.25
+
+#: רצפה, כדי שקונפיג אגרסיבי לא יהפוך את הפרוב לחסר משמעות.
+REDIS_PROBE_TIMEOUT_FLOOR = 0.05
+
+
+def _redis_socket_available(
+    redis_url: str, timeout: float = REDIS_PROBE_TIMEOUT_SECONDS
+) -> bool:
     """
     בדיקת reachability בסיסית ל-Redis כדי להימנע מהמתנה ארוכה בזמן טסטים/CI.
 
@@ -2997,14 +3009,19 @@ class CodeKeeperBot:
 
                     if redis_url:
                         # ודא חיבור מהיר ל-Redis; אם נכשל, נשתמש ב-MemoryStorage כדי למנוע TIMEOUT בטסטים.
-                        # אותה הכרעה כמו ב-cache_manager, מאותה פונקציה — כדי שלא
-                        # יהיו שני מושגים של "כמה מחכים ל-Redis" באותו תהליך.
+                        # ה-timeout של החיבור מגיע מאותה הכרעה כמו ב-cache_manager,
+                        # אבל לפרוב יש תקרה משלו: הוא שאלה אחרת — "יש מישהו בצד
+                        # השני?" ולא "כמה מחכים לחיבור". קונפיג נמוך עדיין מוריד
+                        # אותו, גבוה כבר לא מעלה.
                         from runtime_settings import redis_timeouts
 
                         connect_timeout, _socket_timeout = redis_timeouts(config)
-                        connect_timeout = max(0.05, connect_timeout)
+                        probe_timeout = max(
+                            REDIS_PROBE_TIMEOUT_FLOOR,
+                            min(connect_timeout, REDIS_PROBE_TIMEOUT_SECONDS),
+                        )
 
-                        if _redis_socket_available(str(redis_url), timeout=connect_timeout):
+                        if _redis_socket_available(str(redis_url), timeout=probe_timeout):
                             try:
                                 storage = RedisStorage(str(redis_url))
                             except Exception:
