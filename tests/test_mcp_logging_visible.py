@@ -9,7 +9,10 @@ found by running rather than reading:
   logging, so the root logger was still at ``WARNING`` with no handlers and the
   record was dropped where it stood. What configures logging in this service is
   ``FastMCP.__init__``, which ends with ``configure_logging(...)`` — so the line
-  moved to after ``build_mcp`` returns, where a handler certainly exists.
+  moved to after ``build_mcp`` returns, where a handler certainly exists. Since
+  #3391 it is emitted later still, from the ASGI lifespan that installs the
+  read pool it describes, so the probe below enters that lifespan the way
+  uvicorn does.
 * The per-write timing was at ``debug``, and the level the SDK sets is ``INFO``.
 
 A third fix sits beside them: ``mcp_server/app.py`` now configures logging on
@@ -69,7 +72,7 @@ class _FakeBackend:
         return lambda *a, **k: {}
 
 
-build_app(_FakeBackend(), repo_backend=_FakeBackend())
+app = build_app(_FakeBackend(), repo_backend=_FakeBackend())
 
 request_ctx.set(RequestContext(request_id=1, meta=None, session=None, lifespan_context=None,
     request=types.SimpleNamespace(state=types.SimpleNamespace(user_id=1, scopes=["write"]))))
@@ -78,6 +81,10 @@ auth_context_var.set(types.SimpleNamespace(access_token=AccessToken(
 
 
 async def main():
+    # The capacity line is emitted from the ASGI lifespan, where the read pool
+    # is installed; entering it here is what uvicorn does at startup.
+    async with app.router.lifespan_context(app):
+        pass
     mcp = AdminAwareFastMCP("probe")
     def writer(ctx: Context) -> dict:
         return {}
@@ -150,10 +157,15 @@ def test_the_app_module_configures_logging_even_when_startup_fails_early():
 
 
 def test_the_capacity_line_reaches_the_process_output():
-    """Startup has to say how many reads can run at once, where someone can read it."""
+    """Startup has to say how many reads can run at once, where someone can read it.
+
+    The line is emitted from the lifespan that installs the read pool, so it
+    names the pool that exists and the memory limit it was sized from.
+    """
     output = _run(_PRELUDE.format(repo=REPO), _BUILD_AND_WRITE)
     assert "mcp dispatch capacity" in output, output
     assert "read pool" in output and "cpu quota" in output, output
+    assert "memory limit" in output, output
 
 
 def test_the_write_queue_wait_is_printed_at_a_level_that_survives():
@@ -179,8 +191,9 @@ def test_a_line_emitted_before_logging_is_configured_is_lost():
     output = _run(
         _PRELUDE.format(repo=REPO),
         """
-        from mcp_server.server import _log_dispatch_capacity
-        _log_dispatch_capacity()
+        from concurrent.futures import ThreadPoolExecutor
+        from mcp_server.server import _log_dispatch_capacity, _read_pool_size
+        _log_dispatch_capacity(ThreadPoolExecutor(max_workers=2), "unavailable", _read_pool_size(None))
         print(f"HANDLERS={len(logging.getLogger().handlers)}", flush=True)
         print("PROBE-DONE", flush=True)
         """

@@ -907,28 +907,326 @@ async def test_a_write_cancelled_after_it_started_is_not_logged_as_unrun(
 
 
 # ── the capacity the dispatch model actually has ─────────────────────────────
+#
+# The read pool is sized from the container's memory quota (#3391). Each
+# condition below has one test, and each test was run against a mutated copy
+# of the code that removes exactly that condition and fails there — the
+# mutations and their results are recorded in the pull request.
+
+_MiB = 1024 * 1024
 
 
-def test_startup_names_the_read_pool_and_the_cpu_quota(caplog):
+def _probe_pool(workers):
+    from concurrent.futures import ThreadPoolExecutor
+
+    return ThreadPoolExecutor(max_workers=workers, thread_name_prefix="probe")
+
+
+def test_startup_names_the_read_pool_the_cpu_quota_and_the_memory_limit(caplog):
     """The concurrency ceiling has to be readable, not inferred.
 
-    The read pool is ``min(32, os.cpu_count() + 4)``, and ``os.cpu_count()`` is
-    the machine's count rather than the container's share — CPython says so
-    itself. Printing both beside the quota is what lets someone answer "how many
-    reads can run at once here" without guessing, which is the first question
-    any decision about a read ceiling depends on.
+    ``os.cpu_count()`` is the machine's count rather than the container's share
+    — CPython says so itself — and the pool is no longer sized from it, but it
+    stays on the line beside the quota because that gap is the whole story of
+    #3391. The memory limit joins them because it is what the pool is sized
+    from now.
     """
     import logging as _logging
 
-    from mcp_server.server import _log_dispatch_capacity
+    from mcp_server.server import _log_dispatch_capacity, _read_pool_size
 
-    with caplog.at_level(_logging.INFO, logger="mcp_server.server"):
-        _log_dispatch_capacity()
+    pool = _probe_pool(3)
+    try:
+        with caplog.at_level(_logging.INFO, logger="mcp_server.server"):
+            _log_dispatch_capacity(pool, "cgroup v2: 512.0MiB", _read_pool_size(512 * _MiB))
+    finally:
+        pool.shutdown(wait=False)
 
     assert caplog.records, "startup said nothing about capacity"
     line = caplog.records[-1].getMessage()
-    for expected in ("read pool", "os.cpu_count=", "usable=", "write pool 1", "cpu quota"):
+    for expected in (
+        "read pool",
+        "os.cpu_count=",
+        "usable=",
+        "write pool 1",
+        "cpu quota",
+        "memory limit cgroup v2: 512.0MiB",
+    ):
         assert expected in line, (expected, line)
+
+
+def test_the_capacity_line_reports_the_pool_it_was_handed_and_not_a_formula(caplog):
+    """A record that describes state reads the state (``state-record-without-state-change``).
+
+    The pool is deliberately sized to a number no formula in the module
+    produces — not the floor, not the production result, not the cap — while
+    the sizing passed beside it says 6. A line that recomputed its own number,
+    or echoed the sizing instead of the executor, prints something else.
+    """
+    import logging as _logging
+
+    from mcp_server.server import _log_dispatch_capacity, _read_pool_size
+
+    pool = _probe_pool(3)
+    try:
+        with caplog.at_level(_logging.INFO, logger="mcp_server.server"):
+            _log_dispatch_capacity(pool, "cgroup v2: 512.0MiB", _read_pool_size(512 * _MiB))
+    finally:
+        pool.shutdown(wait=False)
+
+    line = caplog.records[-1].getMessage()
+    assert "read pool 3 threads" in line, line
+
+
+def test_the_pool_is_sized_from_the_memory_budget():
+    """``(limit - baseline - margin) // cost of one parse`` — and a different limit gives a different answer.
+
+    The expected numbers are worked out by hand from the constants, not read
+    back from the function, so a constant ``6`` cannot pass: the production
+    plan gives 10, and a plan twice the size does not.
+    """
+    from mcp_server.server import _read_pool_size
+
+    production = _read_pool_size(512 * _MiB)
+    assert (production.workers, production.source) == (10, "memory"), production
+    assert "sized from memory" in production.detail, production.detail
+
+    bigger = _read_pool_size(1024 * _MiB)
+    assert (bigger.workers, bigger.source) == (24, "memory"), bigger
+
+
+def test_the_pool_never_drops_below_the_floor():
+    """One stuck Mongo read must not stall every other read, whatever the plan.
+
+    On 192MiB the formula allows one thread; the floor holds it at two and
+    the line says the floor decided, not the arithmetic.
+    """
+    from mcp_server.server import _READ_POOL_FLOOR, _read_pool_size
+
+    sizing = _read_pool_size(192 * _MiB)
+    assert _READ_POOL_FLOOR == 2
+    assert (sizing.workers, sizing.source) == (2, "floor"), sizing
+    assert sizing.detail.startswith("floor 2:"), sizing.detail
+
+
+def test_the_pool_never_rises_above_the_cap():
+    """A move to a large plan must not silently turn 10 into 112.
+
+    On 4GiB the formula allows far more than the cap; the cap holds it at 32
+    and the line says so.
+    """
+    from mcp_server.server import _READ_POOL_CAP, _read_pool_size
+
+    sizing = _read_pool_size(4 * 1024 * _MiB)
+    assert _READ_POOL_CAP == 32
+    assert (sizing.workers, sizing.source) == (32, "cap"), sizing
+    assert sizing.detail.startswith("cap 32:"), sizing.detail
+
+
+def test_no_readable_memory_limit_falls_back_to_the_floor_and_not_to_cpu_count():
+    """The fallback is the conservative constant, and it is not ``cpu_count + 4``.
+
+    ``cpu_count + 4`` is exactly the number this sizing exists to stop relying
+    on, so the test pins the fallback to the floor on any machine — on a
+    16-core box the old default would have given 20.
+    """
+    import os
+
+    from mcp_server.server import _READ_POOL_FLOOR, _read_pool_size
+
+    sizing = _read_pool_size(None)
+    assert (sizing.workers, sizing.source) == (_READ_POOL_FLOOR, "fallback"), sizing
+    assert sizing.workers != min(32, (os.cpu_count() or 1) + 4) or sizing.workers == 2
+    assert "no memory limit readable" in sizing.detail, sizing.detail
+
+
+def _patch_pathlib(monkeypatch, path_factory):
+    """Replace ``pathlib`` **as ``mcp_server.server`` sees it**, not the real module.
+
+    The module reads the cgroup files as ``pathlib.Path(...)`` through its own
+    global ``pathlib`` name, so swapping that name for a namespace whose
+    ``Path`` is the fake reaches every read and nothing else. Patching
+    ``pathlib.Path`` itself would reach pytest too: ``Path.__new__`` picks the
+    concrete class with ``cls is Path`` against the module global, so while
+    the global is a function every ``Path(...)`` anywhere — including the one
+    pytest builds while reporting a *failing* assertion — dies with
+    ``AttributeError: type object 'Path' has no attribute '_flavour'``, and
+    the failure surfaces as an INTERNALERROR instead of a test failure.
+    Measured on a mutation run before this helper existed.
+    """
+    import types as _types
+
+    import mcp_server.server as server_module
+
+    monkeypatch.setattr(server_module, "pathlib", _types.SimpleNamespace(Path=path_factory))
+
+
+def _fake_cgroup(monkeypatch, tmp_path, files):
+    """Point the cgroup paths the module reads at files under ``tmp_path``.
+
+    ``files`` maps the absolute cgroup path to the text it should contain; a
+    path not in the map behaves as a missing file. Same shape as the CPU quota
+    tests below, so the two readers are exercised the same way.
+    """
+    import pathlib as _pathlib
+
+    staged = {}
+    for name, text in files.items():
+        target = tmp_path / name.strip("/").replace("/", "__")
+        target.write_text(text)
+        staged[name] = target
+
+    def fake_path(p, *a, **k):
+        if str(p) in staged:
+            return staged[str(p)]
+        if str(p).startswith("/sys/fs/cgroup/"):
+            return tmp_path / "missing" / str(p).strip("/")
+        return _pathlib.Path(p, *a, **k)
+
+    _patch_pathlib(monkeypatch, fake_path)
+
+
+def test_the_memory_limit_is_read_from_cgroup_v2(tmp_path, monkeypatch):
+    """The number has to come from the file, or it is decoration."""
+    import mcp_server.server as server_module
+
+    _fake_cgroup(monkeypatch, tmp_path, {"/sys/fs/cgroup/memory.max": "536870912\n"})
+    assert server_module._memory_limit() == (536870912, "cgroup v2: 512.0MiB")
+
+
+def test_a_cgroup_v2_limit_of_max_is_no_limit(tmp_path, monkeypatch):
+    """``max`` is the kernel's word for unlimited, and unlimited is not a budget."""
+    import mcp_server.server as server_module
+
+    _fake_cgroup(monkeypatch, tmp_path, {"/sys/fs/cgroup/memory.max": "max\n"})
+    assert server_module._memory_limit() == (None, "cgroup v2: unlimited")
+
+
+def test_the_memory_limit_is_read_from_cgroup_v1_when_v2_is_absent(tmp_path, monkeypatch):
+    import mcp_server.server as server_module
+
+    _fake_cgroup(
+        monkeypatch,
+        tmp_path,
+        {"/sys/fs/cgroup/memory/memory.limit_in_bytes": "268435456\n"},
+    )
+    assert server_module._memory_limit() == (268435456, "cgroup v1: 256.0MiB")
+
+
+def test_the_cgroup_v1_unlimited_sentinel_is_no_limit(tmp_path, monkeypatch):
+    """v1 has no word for unlimited: it reads back ``LONG_MAX`` rounded to a page.
+
+    That is the value this repository's own CI image shows, and treating it as
+    a four-exbibyte budget would have sized the pool to the cap.
+    """
+    import mcp_server.server as server_module
+
+    _fake_cgroup(
+        monkeypatch,
+        tmp_path,
+        {"/sys/fs/cgroup/memory/memory.limit_in_bytes": "9223372036854771712\n"},
+    )
+    assert server_module._memory_limit() == (None, "cgroup v1: unlimited")
+
+
+def test_an_unreadable_memory_cgroup_is_unavailable_and_does_not_break_startup(monkeypatch):
+    """Best effort means best effort — the same rule the CPU reader follows."""
+    import mcp_server.server as server_module
+
+    class _Exploding:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def read_text(self, *_a, **_k):
+            raise OSError("no cgroup here")
+
+    _patch_pathlib(monkeypatch, _Exploding)
+    assert server_module._memory_limit() == (None, "unavailable")
+
+
+async def test_the_read_pool_really_replaces_the_default_executor_at_startup():
+    """Proof that the executor was swapped at run time, not that a function was called.
+
+    Through the real seam: ``build_app`` wraps the Starlette lifespan, and
+    entering it is exactly what uvicorn does at startup. Before the lifespan a
+    ``to_thread`` call lands on CPython's own default executor (the control);
+    inside it the same call lands on a thread the installed pool named, and
+    the loop's default executor is that pool, sized by the same reader and
+    formula the capacity line reports.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from mcp_server.server import _memory_limit, _read_pool_size, build_app
+
+    app = build_app(_FakeBackend(), repo_backend=_FakeBackend())
+
+    before = await asyncio.to_thread(threading.current_thread)
+    assert not before.name.startswith("mcp-read"), before.name
+
+    async with app.router.lifespan_context(app):
+        inside = await asyncio.to_thread(threading.current_thread)
+        assert inside.name.startswith("mcp-read"), inside.name
+        pool = asyncio.get_running_loop()._default_executor
+        assert isinstance(pool, ThreadPoolExecutor)
+        assert pool._max_workers == _read_pool_size(_memory_limit()[0]).workers
+
+
+async def test_the_lifespan_sizes_from_the_reader_and_reports_a_fallback(monkeypatch, caplog):
+    """The wrapper uses the reader, and a fallback is said out loud.
+
+    A worse path nobody reports is the one that stays
+    (``silent-fallback-to-worse-path``): with no readable limit the pool is
+    the floor **and** a warning names it; with a readable limit the pool is
+    the formula's and no warning is logged.
+    """
+    import contextlib
+    import logging as _logging
+    import types as _types
+
+    import mcp_server.server as server_module
+
+    @contextlib.asynccontextmanager
+    async def _original(_app):
+        yield {"state": 1}
+
+    def _app():
+        return _types.SimpleNamespace(router=_types.SimpleNamespace(lifespan_context=_original))
+
+    app = _app()
+    monkeypatch.setattr(server_module, "_memory_limit", lambda: (None, "unavailable"))
+    server_module.attach_read_pool(app)
+    with caplog.at_level(_logging.INFO, logger="mcp_server.server"):
+        async with app.router.lifespan_context(app) as state:
+            assert state == {"state": 1}
+            assert asyncio.get_running_loop()._default_executor._max_workers == 2
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == _logging.WARNING]
+    assert any("fell back to 2 threads" in m for m in warnings), warnings
+
+    caplog.clear()
+    app = _app()
+    monkeypatch.setattr(server_module, "_memory_limit", lambda: (512 * _MiB, "cgroup v2: 512.0MiB"))
+    server_module.attach_read_pool(app)
+    with caplog.at_level(_logging.INFO, logger="mcp_server.server"):
+        async with app.router.lifespan_context(app):
+            assert asyncio.get_running_loop()._default_executor._max_workers == 10
+    assert not [r for r in caplog.records if r.levelno == _logging.WARNING], caplog.records
+
+
+def test_an_app_without_a_lifespan_keeps_its_executor_and_says_so(caplog):
+    """No seam, no swap — and the line says the pool is then CPython's default."""
+    import logging as _logging
+    import types as _types
+
+    from mcp_server.server import attach_read_pool
+
+    app = _types.SimpleNamespace(router=_types.SimpleNamespace())
+    with caplog.at_level(_logging.WARNING, logger="mcp_server.server"):
+        attach_read_pool(app)
+
+    assert not hasattr(app.router, "lifespan_context")
+    assert any("read pool was not installed" in r.getMessage() for r in caplog.records), (
+        caplog.records
+    )
 
 
 def test_an_unreadable_cgroup_file_does_not_break_startup(monkeypatch):
@@ -947,7 +1245,7 @@ def test_an_unreadable_cgroup_file_does_not_break_startup(monkeypatch):
         def read_text(self, *_a, **_k):
             raise OSError("no cgroup here")
 
-    monkeypatch.setattr(server_module.pathlib, "Path", _Exploding)
+    _patch_pathlib(monkeypatch, _Exploding)
     assert server_module._cpu_budget() == "unavailable"
 
 
@@ -960,14 +1258,15 @@ def test_the_quota_is_read_and_not_invented(tmp_path, monkeypatch):
     """
     import mcp_server.server as server_module
 
+    import pathlib as _pathlib
+
     v2 = tmp_path / "cpu.max"
     v2.write_text("150000 100000")
-    real_path = server_module.pathlib.Path
 
     def fake_path(p, *a, **k):
-        return v2 if str(p) == "/sys/fs/cgroup/cpu.max" else real_path(p, *a, **k)
+        return v2 if str(p) == "/sys/fs/cgroup/cpu.max" else _pathlib.Path(p, *a, **k)
 
-    monkeypatch.setattr(server_module.pathlib, "Path", fake_path)
+    _patch_pathlib(monkeypatch, fake_path)
     assert server_module._cpu_budget() == "cgroup v2: 1.50 cpu"
 
     v2.write_text("max 100000")

@@ -44,6 +44,17 @@ scripts/import_snippets_from_markdown.py
 
    scripts/import_snippets_from_markdown.py --source docs/new-snippets.md --user-id 42 --username "Ops Bot"
 
+``scripts/measure_md_parse_cost.py``
+------------------------------------
+
+- מודד כמה זיכרון מוסיף פרסור Markdown אחד לכל בית קלט — **שיא** ה-RSS בזמן הפרסור, דרך ``services.md_parser`` עצמו, כל פרסור בתהליך נקי משלו — בשלוש צורות: הקורפוס האמיתי של הריפו, המסמכים הצפופים ביותר בו משוכפלים עד ``MAX_FILE_SIZE_FOR_DISPLAY``, וקובץ עוין של שורות-תבליט בודדות.
+- זה המקור של ``_PARSE_RSS_PER_INPUT_BYTE`` ב-``mcp_server/server.py``, שממנו נגזר רוחב מאגר הקריאות של ה-MCP. מריצים אותו מחדש כשמחליפים גרסת ``markdown-it-py`` או כשנוסף מסמך צפוף במיוחד, ומעדכנים את הקבוע לפי "המסמך הצפוף ביותר שהכלי מגיש" — לא לפי הגבול העוין, שאותו הקבוע במפורש אינו מכסה.
+- לא נוגע במסד ולא בריפו: הקבצים הזמניים נכתבים לתיקייה זמנית של המערכת.
+
+דוגמת הרצה::
+
+   python scripts/measure_md_parse_cost.py
+
 scripts/migrate_workspace_collections.py
 ----------------------------------------
 
