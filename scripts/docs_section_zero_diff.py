@@ -29,6 +29,23 @@
 שנשאלו שאלות שונות היו יכולות להיראות זהות. הרישום הוא מה שהופך את זה
 לראיה ולא להשוואה של שני דברים שאינם אותו דבר.
 
+**סוללה שנייה: שאילתות בצורת מזהה.** ``find_sections`` מתאים גם שאילתה
+שבנויה כמזהה (``K11``, ``U3``) לכותרת שנפתחת באותו מזהה, ורק אחרי שהשוויון
+המלא לא מצא כלום. הקורפוס הזה אינו אמור להדליק את הענף — נמדד שאפס מתוך
+1,380 הכותרות ב-208 הקבצים נפתחות במזהה — אבל ==זה ממצא למדידה ולא הנחה==,
+ולכן הסוללה רצה על כל קובץ ומדווחת כמה פעמים הענף נדלק. הרשומות שלה נרשמות
+ב**היטל מצומצם** (שאילתה, סוג התשובה, מה הותאם, ההצעות) ולא כתשובה מלאה, כי
+תשובת ``section_not_found`` נושאת את ה-TOC כולו ועשרות עותקים כאלה לכל קובץ
+היו מנפחים את התצלום פי כמה בלי להוסיף מידע.
+
+**ושתי בקרות סינתטיות, שאינן נכנסות ל-JSONL בכוונה.** בקרה אינה יכולה לרוץ
+על הקורפוס, כי שם אין אף מזהה — סוללה שכל תשובותיה "לא נמצא" אינה מבדילה בין
+"הענף כבוי" לבין "הפרובים לא מסוגלים לראות אותו". לכן שתי כותרות סינתטיות
+נשאלות בסוף ההרצה ונדפסות בדוח: ``K1`` על קובץ שיש בו ``K10.`` בלבד (חייב
+לא להתאים — מבחן הגבול), ו-``P3.`` על כותרת ``P3 — טקסט`` (חייב להתאים —
+גבול רווח ונקודה בשאילתה). הן בדוח ולא בקובץ כדי שה-``diff`` יישאר בינארי:
+**קובץ הקורפוס חייב להיות זהה, והבקרות חייבות להשתנות בין שתי ההרצות.**
+
 שימוש::
 
     python scripts/docs_section_zero_diff.py --corpus docs --out before.jsonl
@@ -59,6 +76,74 @@ from mcp_server import docs_handlers  # noqa: E402
 # שאילתה שאין ולא יכולה להיות לה כותרת תואמת בקורפוס — כדי לקבע את מסלול
 # ה-not-found גם בקובץ שכל כותרת בו נמצאת.
 _ABSENT_QUERY = "זזזז לא קיימת זזזז"
+
+#: שאילתות בצורת מזהה, ובקרות שליליות של צורות כמעט-מזהה. השמונה הראשונות
+#: הן הצורות שקיימות בקורפוס האחות שהסוכנים קוראים; החמש האחרונות אמורות
+#: **לא** להדליק את הענף בכלל — הן מה שמבדיל בין "השומר עובד" לבין "אין
+#: התאמה במקרה".
+_IDENTIFIER_PROBES = (
+    "K1", "K11", "U3", "R7", "H2", "B1", "T3", "P3",
+    "K", "11", "K-11", "k11x", "KKKK1",
+)
+
+#: סוגי תשובה שמשמעותם "הענף מצא משהו" — אלה שנספרים בדוח.
+_RESOLVED = frozenset({"section", "ambiguous_section"})
+
+#: שתי הבקרות הסינתטיות. כל אחת: שם, טקסט RST, השאילתה, ומה מצופה **אחרי**
+#: השינוי. הן מודדות את מבחן הגבול עצמו ולא את צורת השאילתה, ולכן הן
+#: נחוצות: על הקורפוס שתיהן היו מחזירות "לא נמצא" משתי סיבות שונות.
+_CONTROLS = (
+    ("גבול: K1 מול קובץ שיש בו K10 בלבד",
+     "Doc\n===\n\nK10. עשירי\n----------\n\nגוף\n",
+     "K1",
+     "section_not_found — קידומת אינה מזהה"),
+    ("גבול: P3. עם נקודה מול כותרת P3 — טקסט",
+     "Doc\n===\n\nP3 — טקסט\n---------\n\nגוף\n",
+     "P3.",
+     "section — הגבול הוא רווח, והנקודה בשאילתה אופציונלית"),
+)
+
+
+class _TextBackend:
+    """מחזיר טקסט RST נתון — לבקרות הסינתטיות בלבד, לא לקורפוס."""
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def get_file(self, *, repo: str, path: str, ref: str | None = None,
+                 lines: Any = None) -> dict[str, Any]:
+        return {"ok": True, "status": "ok",
+                "file": {"path": path, "ref": "HEAD",
+                         "resolved_commit": "fixed-for-snapshot"},
+                "content": self._text}
+
+
+def _outcome(response: dict[str, Any]) -> str:
+    """סוג התשובה בשם אחד: ``mode`` בהצלחה, ``error`` בסירוב."""
+    return str(response.get("error") or response.get("mode"))
+
+
+def _matched_titles(response: dict[str, Any]) -> list[str]:
+    """מה שהתשובה הצביעה עליו — סעיף יחיד, מועמדים, או כלום."""
+    if response.get("mode") == "section":
+        return [response.get("section")]
+    return [c["title"] for c in response.get("candidates") or []]
+
+
+def _identifier_probes(backend: Any, doc_path: str) -> Iterator[dict[str, Any]]:
+    """הסוללה השנייה, בהיטל מצומצם.
+
+    ההצעות נכנסות לרשומה כי ``suggest`` משנה מסלול על אותו תנאי בדיוק —
+    שאילתה בצורת מזהה — ובלעדיהן שינוי בענף ההוא היה עובר כאן בלי סימן.
+    """
+    for probe in _IDENTIFIER_PROBES:
+        resp = docs_handlers.docs_get_section(backend, path=doc_path, section=probe)
+        yield {
+            "identifier_probe": {"path": doc_path, "section": probe},
+            "outcome": _outcome(resp),
+            "matched": _matched_titles(resp),
+            "suggestions": resp.get("suggestions") or [],
+        }
 
 
 class _CorpusBackend:
@@ -181,6 +266,8 @@ def main() -> int:
     digest = hashlib.sha256()
     tally: Counter[str] = Counter()
     records = 0
+    probes = 0
+    lit: list[dict[str, Any]] = []   # שאילתות מזהה שהדליקו את הענף בקורפוס
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -204,12 +291,35 @@ def main() -> int:
                 resp = rec["response"]
                 tally[str(resp.get("error") or resp.get("mode"))] += 1
 
+            for rec in _identifier_probes(backend, f"docs/{rel}"):
+                line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
+                fh.write(line + "\n")
+                digest.update(line.encode("utf-8"))
+                records += 1
+                probes += 1
+                if rec["outcome"] in _RESOLVED:
+                    lit.append(rec["identifier_probe"] | {"outcome": rec["outcome"]})
+
     print(f"קבצים:   {len(files)}")
     print(f"רשומות:  {records}")
     print(f"sha256:  {digest.hexdigest()}")
     print("פילוח מסלולי התשובה:")
     for key, count in sorted(tally.items()):
         print(f"  {key}: {count}")
+
+    print(f"\nשאילתות בצורת מזהה: {probes} — מהן נפתרו: {len(lit)} (מצופה: 0)")
+    for hit in lit[:20]:
+        print(f"  {hit['path']} · section={hit['section']!r} → {hit['outcome']}")
+
+    # הבקרות מודפסות ואינן נכנסות ל-JSONL: ``diff`` על קובץ הקורפוס חייב
+    # להיות ריק, ודווקא השורות האלה חייבות להשתנות בין שתי ההרצות. אם הן
+    # זהות לפני ואחרי — הפרובים עיוורים, וקובץ זהה אינו מוכיח דבר.
+    print("\nבקרות סינתטיות (לא ב-JSONL — חייבות להשתנות בין ההרצות):")
+    for name, text, probe, expected in _CONTROLS:
+        resp = docs_handlers.docs_get_section(_TextBackend(text), path="control",
+                                              section=probe)
+        print(f"  {name}\n    section={probe!r} → {_outcome(resp)} "
+              f"{_matched_titles(resp)}\n    מצופה אחרי השינוי: {expected}")
     return 0
 
 

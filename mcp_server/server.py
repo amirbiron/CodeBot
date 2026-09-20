@@ -168,6 +168,35 @@ _OUTLINE_PARAM_DOC = (
 # ה-escape ב-``services.backup\\_service`` הוא תו אמיתי בכותרת של עמוד
 # autodoc, ולא קישוט: בלעדיו ``symbol="backup_service"`` נראה כאילו הוא
 # אמור למצוא את העמוד, והוא אינו מוצא.
+#: תיאור הפרמטר ``section`` של ``codekeeper_docs_get_section``.
+#:
+#: **הפירוט יושב כאן ולא בתיאור הכלי, וזו הכרעה שנמדדה.** תיאור הכלי נחתך
+#: אצל הלקוח, והתקרה ב-``tests/test_mcp_server_build.py`` חלה עליו בלבד —
+#: כלומר טקסט שעובר לתיאור פרמטר יוצא מהספירה. זה אותו תיקון בדיוק שנעשה
+#: ל-``codekeeper_get_repo_file`` כשהתיאור שלו הגיע ל-2,482 תווים ונחתך
+#: בדיוק בקטעים על RST ועל ``symbol=``: **העברה, לא מחיקה.**
+_SECTION_PARAM_DOC = (
+    "The heading to return. Matching is full equality on the heading text "
+    "after normalization (surrounding and repeated whitespace, dash "
+    "variants, case) — a substring of a heading matches nothing. "
+    "Two things surprise callers, so they are spelled out here. "
+    "(1) IDENTIFIERS: when the query is itself an identifier — one to "
+    "three letters followed by one to three digits, with an optional "
+    "trailing dot, such as K11, K11., U3 or P3 — and full equality found "
+    "nothing, the heading that OPENS with that identifier is returned "
+    "(the identifier must be followed by a dot, a space, or the end of "
+    "the heading). The identifier is parsed, not prefix-matched, so K1 "
+    "returns K1 alone and never K10-K15. An identifier that repeats in "
+    "the file is ambiguous_section with candidates, like any duplicate "
+    "heading. A query that is not shaped like an identifier never takes "
+    "this path. (2) BACKTICKS: headings are returned as raw source, so a "
+    "heading written with ``literal`` markup needs those backticks in the "
+    "query too — section=\"MissingGreenlet\" finds nothing when the "
+    "heading reads ``MissingGreenlet``. When an identifier query misses, "
+    "the suggestions list holds the identifiers that DO exist in the file "
+    "(at most 50; suggestions_truncated says so when it was cut)."
+)
+
 _SYMBOL_PARAM_DOC = (
     # ``full name`` נשמר במפורש מהניסוח הקודם ("symbol= filters on that full
     # name"), כי הוא נושא מידע: הסינון הוא על השם המנוקד השלם ולא על החלק
@@ -1654,14 +1683,16 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "path (docs/x.rst) or short slug (x). `ref` is a git ref (default: repo "
             "default branch). For large sections, page with `offset`/`max_chars`. Never "
             "returns a bare 'not found': a missing section returns the full TOC + "
-            "suggestions; a duplicate heading returns candidates with breadcrumbs."
+            "suggestions; a duplicate heading returns candidates with breadcrumbs. "
+            "See the `section` parameter for how a heading is matched — identifier "
+            "shortcuts (K11, U3) and headings that carry backticks."
         ),
         annotations=_READ_ONLY_TOOL,
     )
     def docs_get_section(
         ctx: Context,
         path: str,
-        section: str | None = None,
+        section: Annotated[str | None, Field(description=_SECTION_PARAM_DOC)] = None,
         include_subsections: bool = True,
         max_chars: int = 12000,
         offset: int = 0,

@@ -715,6 +715,32 @@ async def test_get_file_description_points_at_the_query_parameter():
     )
 
 
+async def test_docs_get_section_description_points_at_the_section_parameter():
+    """אותה שרשרת גילוי, על ``codekeeper_docs_get_section``.
+
+    שני הדברים שמפתיעים קורא — שמזהה כמו ``K11`` נתפס, ושכותרת עם בקטיקים
+    דורשת אותם בשאילתה — יושבים בתיאור הפרמטר ולא בתיאור הכלי, כי התקרה
+    שלמעלה חלה על ``description`` בלבד. ולכן נאכפים **שני הקצוות**:
+    שהכלי מפנה לפרמטר בשמו, ושהפרמטר באמת נושא את הפירוט.
+
+    ‏``"section" in description`` לבדו אינו מספיק — התיאור נושא ממילא את
+    המילה חמש פעמים, ולכן הבדיקה היא על ההפניה המפורשת.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    tool = mcp._tool_manager.get_tool("codekeeper_docs_get_section")
+    section_doc = tool.parameters["properties"]["section"]["description"]
+
+    # קצה ראשון: הכלי מפנה **לפרמטר**, ונוקב בשתי ההפתעות בשמן.
+    assert "`section` parameter" in tool.description
+    assert "identifier" in tool.description and "backticks" in tool.description
+
+    # קצה שני: הפירוט באמת שם — שני הכללים, והגבול שביניהם.
+    assert "K1 " in section_doc and "K10-K15" in section_doc
+    assert "ambiguous_section" in section_doc
+    assert "``literal``" in section_doc
+    assert "suggestions_truncated" in section_doc
+
+
 def test_the_colour_param_doc_is_derived_from_the_palette():
     """מה שהסוכן קורא על הצבע נגזר מהפלטה, ולא מוקלד לצידה.
 

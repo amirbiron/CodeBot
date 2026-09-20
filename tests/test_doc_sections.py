@@ -283,20 +283,105 @@ def test_normalize_title_applies_all_three_rules(query, expected):
     assert doc_sections.normalize_title(query) == expected
 
 
-def test_find_sections_is_full_equality_after_normalization():
-    """שוויון מלא, **לא הכלה** — וזה החוזה שהמדידה קיבעה.
+def _identified(*titles):
+    """מסמך שכל שורה בו היא כותרת — לבדיקות התאמת המזהה."""
+    sections = [_section(t, 2, i + 1, adornment="#") for i, t in enumerate(titles)]
+    doc_sections._finalize(sections, len(titles) + 1)
+    return doc_sections.Document(lines=list(titles) + ["זנב"], sections=sections)
 
-    ``section="K11"`` על כותרת ``K11. טקסט`` מחזיר **אפס** היום. התאמת
-    המזהה היא PR נפרד בתוכנית, והטסט הזה הוא מה שיראה כשההתנהגות תשתנה.
+
+def test_find_sections_is_still_full_equality_and_not_containment():
+    """החצי שלא השתנה: הכלה **אינה** התאמה, גם אחרי שנוסף ענף המזהה.
+
+    הענף החדש מתאים מזהה ולא מחרוזת כלשהי, ולכן מילה מתוך הכותרת —
+    בתחילתה או באמצעה — ממשיכה להחזיר אפס, בדיוק כמו קודם.
     """
-    sections = [_section("K11. כשל שמדווח בערך החזרה נבלע", 1, 1)]
-    doc_sections._finalize(sections, 2)
-    doc = doc_sections.Document(lines=["K11. כשל שמדווח בערך החזרה נבלע", "גוף"],
-                                sections=sections)
+    doc = _identified("K11. כשל שמדווח בערך החזרה נבלע")
 
-    assert doc_sections.find_sections(doc, "K11") == []
-    assert doc_sections.find_sections(doc, "K11.") == []
+    assert doc_sections.find_sections(doc, "כשל") == []
+    assert doc_sections.find_sections(doc, "כשל שמדווח") == []
     assert len(doc_sections.find_sections(doc, "  k11.   כשל שמדווח בערך החזרה נבלע ")) == 1
+
+
+@pytest.mark.parametrize("query", ["K11", "K11.", "k11", "  K11  "])
+def test_an_identifier_query_finds_the_heading_that_opens_with_it(query):
+    """הזרימה שלשמה הענף נבנה: הסוכן מפנה לפי מזהה, לא לפי הכותרת המלאה.
+
+    ארבע הצורות הן אותו מזהה: עם נקודה ובלעדיה, ברישיות אחרת, ועם רווחים
+    מסביב — כי כולן עוברות דרך ``normalize_title`` כמו השוויון המלא.
+    """
+    doc = _identified("K11. כשל שמדווח בערך החזרה נבלע", "K12. דגל שמרחיב הרשאה")
+
+    (match,) = doc_sections.find_sections(doc, query)
+    assert match.title == "K11. כשל שמדווח בערך החזרה נבלע"
+
+
+def test_full_equality_wins_and_the_identifier_branch_cannot_override_it():
+    """סדר מפורש: מה שהמשתמש הקליד הוא מה שהוא ביקש.
+
+    מסמך שיש בו כותרת ששמה **בדיוק** ``K11`` וגם כותרת ``K11. טקסט``
+    מחזיר את הראשונה בלבד. מוטציה שמזיזה את הענף לפני השוויון מחזירה
+    שתיים ומפילה את זה.
+    """
+    doc = _identified("K11", "K11. טקסט")
+
+    (match,) = doc_sections.find_sections(doc, "K11")
+    assert match.title == "K11"
+
+
+def test_k1_does_not_catch_k10_through_k15():
+    """מבחן הגבול, והסיבה שהמימוש מפרק ולא משווה קידומת.
+
+    ``K1`` הוא תחילית של שישה מזהים אחרים באותו קובץ. כלל שנכתב כ"הכותרת
+    מתחילה במחרוזת שביקשת" היה מחזיר כאן **שבע** התאמות במקום אחת — זה
+    ``K16`` ב-amir-bug-patterns. מוטציה שמחליפה את שוויון-המזהים
+    ב-``startswith`` מפילה את הטסט הזה.
+    """
+    doc = _identified("K1. ראשון", *[f"K1{d}. טקסט" for d in range(6)])
+
+    (match,) = doc_sections.find_sections(doc, "K1")
+    assert match.title == "K1. ראשון"
+    assert [s.title for s in doc_sections.find_sections(doc, "K10")] == ["K10. טקסט"]
+
+
+@pytest.mark.parametrize("query", [
+    "איך", "כלל", "ראה",          # מילים נפוצות שהן התחילית של כותרות אמיתיות
+    "K", "11", "K-11", "k11x", "KKKK1", "U", "P",   # צורות כמעט-מזהה
+])
+def test_a_query_that_is_not_an_identifier_never_lights_the_branch(query):
+    """השומר, וזה הצד שנמדד רק בסבב השלישי של המדידה.
+
+    בלי הדרישה שהשאילתה **עצמה** תהיה מזהה, ``section="איך"`` היה תופס את
+    כל חמש-עשרה הכותרות ``איך זה נראה`` שבקורפוס — כי אחרי ``איך`` בא
+    רווח. מוטציה שמסירה את ``_IDENTIFIER_QUERY_RE`` מפילה את זה.
+    """
+    doc = _identified("איך זה נראה", "כלל לזיהוי", "ראה גם", "K11. טקסט", "P3 — טקסט")
+
+    assert doc_sections.find_sections(doc, query) == []
+
+
+def test_the_space_format_matches_and_the_full_name_still_works():
+    """הפורמט השני בקורפוס — ``P3 — טקסט`` — ובו הגבול הוא רווח ולא נקודה.
+
+    ומצדו השני: ``איך זה נראה`` ממשיך להחזיר את שתי הכפילויות דרך השוויון
+    המלא. ההגבלה מכבה את הענף החדש, לא את ההתנהגות הקיימת.
+    """
+    doc = _identified("P3 — טקסט", "איך זה נראה", "איך זה נראה")
+
+    assert [s.title for s in doc_sections.find_sections(doc, "P3")] == ["P3 — טקסט"]
+    assert [s.title for s in doc_sections.find_sections(doc, "P3.")] == ["P3 — טקסט"]
+    assert len(doc_sections.find_sections(doc, "איך זה נראה")) == 2
+
+
+def test_a_repeated_identifier_returns_every_match():
+    """מזהה שאינו ייחודי הוא ``ambiguous_section``, לא ניחוש.
+
+    זה המקרה של ``P1``/``P2``/``P3`` בקובץ שבו הם תוויות עדיפות ולא
+    מזהים. המתקשר מקבל את כל המועמדים, בדיוק כמו בכותרת כפולה.
+    """
+    doc = _identified("P3 — ראשון", "אחר", "P3 — שני")
+
+    assert [s.title_line for s in doc_sections.find_sections(doc, "P3")] == [1, 3]
 
 
 def test_find_sections_returns_every_duplicate_and_not_the_first():
@@ -313,9 +398,72 @@ def test_suggest_returns_close_titles_and_never_the_query_itself():
     doc_sections._finalize(sections, 3)
     doc = doc_sections.Document(lines=["Configuration", "Deployment", "x"], sections=sections)
 
-    assert doc_sections.suggest(doc, "Configuraton") == ["Configuration"]
+    assert doc_sections.suggest(doc, "Configuraton").titles == ["Configuration"]
     # שאילתה רחוקה מכל כותרת מחזירה רשימה ריקה — ``difflib`` עם ``cutoff=0.5``.
-    assert doc_sections.suggest(doc, "זזזז") == []
+    assert doc_sections.suggest(doc, "זזזז").titles == []
+
+
+def test_suggest_answers_an_identifier_query_with_the_files_identifiers():
+    """ההבטחה "לעולם לא רק \'לא נמצא\'" — שהתנוונה בדיוק במקרה הזה.
+
+    נמדד ש-``suggest("K11")`` ו-``suggest("U3")`` מחזירים רשימה **ריקה**
+    דרך ``difflib``, כי ``cutoff=0.5`` אינו מוצא קרבה בין שלושה תווים
+    לכותרת עברית ארוכה. המזהים חוזרים **כפי שנכתבו**, כי הסוכן מקליד
+    אותם בשאילתה הבאה — מוטציה שמחזירה את הצורה המנורמלת מפילה את זה.
+    """
+    doc = _identified("K11. כשל", "K12. דגל", "איך זה נראה")
+
+    assert doc_sections.suggest(doc, "K99") == doc_sections.Suggestions(["K11", "K12"], False)
+
+
+def test_suggest_keeps_difflib_when_the_file_carries_no_identifiers():
+    """התנאי השני, והוא מה ששומר על כל מסלול ה-RST ללא שינוי.
+
+    **וכותרת ``H2O`` אינה קישוט.** הגרסה הראשונה של הטסט הזה בדקה שקובץ
+    בלי מזהים מחזיר רשימה ריקה לשאילתה ``K99`` — ו**מוטציה שמסירה את
+    התנאי עברה אותה בשקט**, כי שני המסלולים מחזירים ריק כשאין מזהים ואין
+    כותרת קרובה. מה שמבדיל ביניהם הוא כותרת שאינה מזהה אבל ``difflib``
+    כן מוצא אותה: ``H2O`` אינו מזהה (אחרי ``H2`` באה אות ולא גבול), והוא
+    קרוב מספיק ל-``H2`` כדי לחזור כהצעה. מוטציה שמסירה את התנאי מחזירה
+    כאן רשימה ריקה ונופלת.
+    """
+    doc = _identified("H2O", "Deployment")
+
+    assert doc_sections.suggest(doc, "H2").titles == ["H2O"]
+    assert doc_sections.suggest(doc, "Deploymen").titles == ["Deployment"]
+
+
+def test_suggest_caps_the_identifier_list_and_says_that_it_cut():
+    """התקרה נבדקת בהתנהגות, ולא רק בקיום הקבוע.
+
+    ‏51 מזהים נחתכים ל-50 **והדגל דלוק**; 15 חוזרים במלואם והדגל כבוי.
+    מוטציה שמסירה את החיתוך מפילה את הראשון, ומוטציה שמדליקה את הדגל תמיד
+    מפילה את השני. החיתוך אינו שקט — זה בדיוק ההבדל בין רשימת רמז לבין
+    ``silent-truncation-at-sink``.
+    """
+    over = _identified(*[f"K{i}. טקסט" for i in range(1, 52)])
+    cut = doc_sections.suggest(over, "Z9")
+    assert len(cut.titles) == doc_sections.MAX_IDENTIFIER_SUGGESTIONS == 50
+    assert cut.truncated is True
+
+    under = _identified(*[f"K{i}. טקסט" for i in range(1, 16)])
+    whole = doc_sections.suggest(under, "Z9")
+    assert len(whole.titles) == 15 and whole.truncated is False
+
+
+def test_suggest_returns_a_two_field_namedtuple_and_not_a_list():
+    """שינוי החוזה נבדק במפורש, כדי שלא יהיה שקט.
+
+    קורא ישן שכתב ``for t in suggest(...)`` מקבל **טאפל של שני איברים**
+    ולא את הכותרות — הלולאה לא תזרוק, היא פשוט תרוץ על משהו אחר. הטסט
+    מקבע את הצורה שהקורא החדש אמור לצרוך.
+    """
+    doc = _identified("Configuration")
+    result = doc_sections.suggest(doc, "Configuraton")
+
+    assert isinstance(result, tuple) and len(result) == 2
+    assert result.titles == ["Configuration"] and result.truncated is False
+    assert list(result) == [["Configuration"], False]
 
 
 def test_direct_subsections_returns_children_only_and_not_grandchildren(tree_doc):

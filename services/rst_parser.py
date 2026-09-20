@@ -27,6 +27,7 @@ from typing import List, Optional
 from .doc_sections import (
     Document,
     Section,
+    Suggestions,
     TooManySections,
     _finalize,
     build_toc,
@@ -58,6 +59,7 @@ from .doc_sections import (
 __all__ = [
     "Document",
     "Section",
+    "Suggestions",
     "TooManySections",
     "build_toc",
     "direct_subsections",

@@ -131,11 +131,20 @@ def docs_get_section(
 
     # לא נמצא → TOC מלא + הצעות קרובות (לעולם לא רק "לא נמצא")
     if not matches:
+        suggestions = rst_parser.suggest(doc, section)
         base.update({
             "ok": False, "error": "section_not_found", "requested": section,
-            "suggestions": rst_parser.suggest(doc, section),
+            # ``.titles`` ולא האובייקט: ``suggest`` מחזיר ``NamedTuple`` בן שני
+            # שדות, ומי שישכח את זה ישלח לקורא ``[[...], false]`` בלי שום שגיאה.
+            "suggestions": list(suggestions.titles),
             "toc": toc_items, "toc_truncated": toc_truncated,
         })
+        if suggestions.truncated:
+            # רק כשנחתכה, ולא שדה שקיים תמיד — ``remaining_chars`` ו-``next_offset``
+            # למטה הם אותו תקדים בדיוק. וזו גם הסיבה המעשית: שדה שיופיע בכל תשובת
+            # ``section_not_found`` היה משנה את הפלט על כל 208 קובצי ה-RST בלי ששום
+            # התנהגות השתנתה, ושובר את הוכחת אפס-הדיף שהשינוי הזה נשען עליה.
+            base["suggestions_truncated"] = True
         return base
 
     # כותרת כפולה → כל המועמדים עם breadcrumb (בלי לנחש)

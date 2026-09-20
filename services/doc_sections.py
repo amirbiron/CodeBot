@@ -65,7 +65,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from difflib import get_close_matches
-from typing import List, Optional, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 
 @dataclass
@@ -211,10 +211,144 @@ def normalize_title(s: str) -> str:
     return s.casefold()                       # case-insensitive (עברית לא מושפעת)
 
 
+#: הצורה של **מזהה סעיף**: עד שלוש אותיות ואחריהן עד שלוש ספרות — ``K11``,
+#: ``U3``, ``H2``, ``P3``. **הגדרה אחת ושני שימושים**, כי שני רגקסים שמתארים
+#: את אותה צורה הם בדיוק ``duplicate-rule-second-copy``: מי שירחיב את הצורה
+#: (ארבע ספרות, סיפא באות) יתקן אחד מהם וישכח את השני, ושניהם נכונים עד אז.
+_IDENTIFIER = r"[A-Za-z]{1,3}\d{1,3}"
+
+#: השאילתה **עצמה** היא מזהה, עם נקודה אופציונלית בסוף. ``fullmatch`` ולא
+#: ``$``, כי ``$`` מתיר שורה חדשה אחת בסוף — ושאילתה מגיעה מחוץ לתהליך.
+_IDENTIFIER_QUERY_RE = re.compile(rf"{_IDENTIFIER}\.?")
+
+#: הכותרת **נפתחת** במזהה, ואחריו נקודה, רווח, או סוף הכותרת. הגבול מפורש
+#: ולא משתמע: ``K11abc`` אינו המזהה ``K11``.
+_IDENTIFIER_TITLE_RE = re.compile(rf"^({_IDENTIFIER})(?:[.\s]|\Z)")
+
+#: תקרת המזהים שמוחזרים כהצעה. רשימת הצעות היא **רמז**, ורמז בן עשרות אלפי
+#: פריטים אינו רמז — וגם לא נכנס בתשובה, שנושאת ממילא את ה-TOC כולו (חסום
+#: ב-400 פריטים ב-``mcp_server/docs_handlers.py``). נמדד ב-20.09.2026 על
+#: הקורפוס שהסוכנים קוראים (``amir-bug-patterns``, ‏``889c234``): הקובץ
+#: העשיר ביותר נושא 16 מזהים, כלומר לתקרה הזאת יש בערך פי שלושה מרווח.
+#: **והחיתוך אינו שקט** — ``Suggestions.truncated`` אומר שהוא קרה.
+MAX_IDENTIFIER_SUGGESTIONS = 50
+
+
+class Suggestions(NamedTuple):
+    """מה ש-:func:`suggest` מחזיר: הכותרות, והאם הרשימה נחתכה.
+
+    **זה ``NamedTuple`` ולא רשימה, וזה שינוי חוזה שכדאי לשים לב אליו.**
+    קורא ישן שכתב ``for t in suggest(...)`` יקבל **טאפל של שני איברים** —
+    רשימת המחרוזות, ואחריה ``True``/``False`` — ולא את הכותרות אחת-אחת.
+    שום דבר לא ייזרק; הלולאה פשוט תרוץ על משהו אחר. הצורה הנכונה היא
+    ``suggest(...).titles``.
+
+    **ולמה בכלל דגל ולא רשימה חתוכה בשקט.** ``truncated`` הוא האמירה
+    שהתקרה נגעה. בלעדיו זה בדיוק ``silent-truncation-at-sink``: הקורא
+    מקבל תשובה שנראית שלמה, ואין בה שום הפרש שאפשר לראות.
+    """
+
+    titles: List[str]
+    truncated: bool = False
+
+
+def _identifier_query(query: str) -> Optional[str]:
+    """המזהה שהשאילתה **עצמה** בנויה ממנו, מנורמל ובלי הנקודה — או ``None``.
+
+    **זה השומר שמכבה את הענף.** בלי הדרישה הזאת, הכלל "הכותרת נפתחת במה
+    שביקשת ואחריו גבול" חל על **כל** מחרוזת, ואז ``section="איך"`` תופס
+    את כל הכותרות ``איך זה נראה`` שבקורפוס — נמדד ש-``איך``, ``כלל``
+    ו-``ראה`` היו מחזירים 15 התאמות כל אחד.
+
+    .. warning::
+
+       **ובכל זאת, הוא נושא משקל שונה בשני הקוראים שלו, וכדאי לדעת מה
+       בדיוק שובר מה.** ב-:func:`suggest` הוא **הכרחי**: שם אין כותרת
+       שהותאמה, ולכן שום דבר אחר לא מונע משאילתה עברית לקבל את רשימת
+       המזהים במקום ``difflib``. ב-:func:`find_sections` הוא **מסנן
+       מוקדם בלבד**: הצד השני של ההשוואה הוא מזהה שפורק מכותרת, ולכן
+       שאילתה שאינה מזהה לא יכולה להשתוות לו ממילא. כלומר הסרתו משם
+       אינה משנה התנהגות, ואין טסט שייפול עליה — מה שכן נופל הוא השילוב
+       ההיסטורי של הסרת השומר **יחד** עם חזרה ל-``startswith``.
+
+       זה כתוב כאן כדי שאיש לא "ינקה" את :func:`_leading_identifier`
+       בהנחה שהשומר הזה מגן עליו. הוא לא מגן — הוא מקצר.
+
+    הנרמול הוא ``normalize_title`` ולא ``strip`` מקומי, כדי שהמזהה שיוחזר
+    יושווה באותם כללים בדיוק שבהם מושווה השוויון המלא.
+    """
+    match = _IDENTIFIER_QUERY_RE.fullmatch(normalize_title(query))
+    return match.group(0).rstrip(".") if match else None
+
+
+def _leading_identifier(title: str) -> Optional[str]:
+    """המזהה שהכותרת **נפתחת** בו, כפי שנכתב במקור — או ``None``.
+
+    **הפירוק הוא מה שסוגר את מבחן הגבול, ולא תנאי נוסף שאפשר להסיר.**
+    ``K1`` הוא תחילית של ``K10`` עד ``K15``, וכלל שנכתב כ"הכותרת מתחילה
+    במחרוזת שביקשת" היה מחזיר לו **שבע** התאמות במקום אחת. זה ``K16``
+    ב-amir-bug-patterns — אותה משפחה בדיוק כמו נתיב שנבדק כרצף תווים —
+    והתשובה שם היא להשוות את היחידה שפורקה ולא את הרצף. כאן הכותרת
+    ``K10. טקסט`` מפורקת למזהה ``K10``, והוא פשוט **אינו שווה** ל-``K1``:
+    אין קידומת, ואין גבול שצריך לזכור לבדוק.
+
+    **והמזהה מוחזר כפי שנכתב ולא מנורמל**, כי :func:`suggest` מגיש אותו
+    לסוכן כמחרוזת שהוא יקליד בשאילתה הבאה.
+    """
+    match = _IDENTIFIER_TITLE_RE.match((title or "").strip())
+    return match.group(1) if match else None
+
+
+def _document_identifiers(doc: Document) -> List[str]:
+    """המזהים שבמסמך, בסדר הופעתם ובלי כפילויות (השוואה ב-``casefold``)."""
+    found: List[str] = []
+    seen = set()
+    for sec in doc.sections:
+        identifier = _leading_identifier(sec.title)
+        if identifier is None:
+            continue
+        key = identifier.casefold()
+        if key not in seen:
+            seen.add(key)
+            found.append(identifier)
+    return found
+
+
 def find_sections(doc: Document, title: str) -> List[Section]:
-    """כל הסקשנים שכותרתם תואמת (סלחני). ריק/יחיד/מרובה — המתקשר מחליט."""
+    """כל הסקשנים שכותרתם תואמת (סלחני). ריק/יחיד/מרובה — המתקשר מחליט.
+
+    **שני ענפים, ובסדר הזה בדיוק.** קודם שוויון מלא אחרי ``normalize_title``
+    — ההתנהגות ההיסטורית, בלי שינוי. ורק אם הוא לא מצא **כלום**, ורק אם
+    השאילתה עצמה בנויה כמזהה, נבדקת התאמת-מזהה: הכותרת נפתחת באותו מזהה.
+
+    **למה דווקא בסדר הזה:** הענף אינו יכול לגבור על התאמה מדויקת קיימת.
+    מסמך שיש בו כותרת ששמה בדיוק ``K11`` וגם כותרת ``K11. טקסט`` מחזיר את
+    הראשונה בלבד — מה שהמשתמש הקליד הוא מה שהוא ביקש.
+
+    **והצורך עצמו נמדד, לא שוער:** הסוכנים מפנים לפי מזהה ("קרא K11",
+    "ראו U3"), וללא הענף ``section="K11"`` מחזיר ``section_not_found``
+    שההצעות שלו **ריקות** — ``difflib`` עם ``cutoff=0.5`` אינו מוצא קרבה
+    בין שלושה תווים לכותרת עברית ארוכה.
+
+    **ולמה זה אינו משנה את מסלול ה-RST:** אף כותרת בעמודי התיעוד שבריפו
+    הזה אינה נפתחת במזהה, ולכן הענף שם אינו נדלק ושאילתה בצורת מזהה מחזירה
+    בדיוק מה שהחזירה קודם. **זה נמדד ולא הונח**, והמדידה ניתנת להרצה חוזרת:
+    ``scripts/docs_section_zero_diff.py`` שואל כל כותרת בשמה המלא **וגם**
+    שאילתות בצורת מזהה על כל קובץ, ומדווח כמה פעמים הענף נדלק.
+    """
     target = normalize_title(title)
-    return [s for s in doc.sections if normalize_title(s.title) == target]
+    exact = [s for s in doc.sections if normalize_title(s.title) == target]
+    if exact:
+        return exact
+
+    identifier = _identifier_query(title)
+    if identifier is None:
+        return []
+    return [
+        s for s in doc.sections
+        if (leading := _leading_identifier(s.title)) is not None
+        and leading.casefold() == identifier
+    ]
 
 
 def section_bounds(doc: Document, sec: Section, include_subsections: bool) -> Tuple[int, int]:
@@ -265,8 +399,34 @@ def build_toc(doc: Document) -> List[dict]:
     return toc
 
 
-def suggest(doc: Document, query: str, n: int = 5) -> List[str]:
-    """כותרות קרובות לשאילתה שלא נמצאה (difflib), לשילוב ב-not-found."""
+def suggest(doc: Document, query: str, n: int = 5) -> Suggestions:
+    """כותרות קרובות לשאילתה שלא נמצאה, לשילוב ב-not-found.
+
+    **ההחזרה היא :class:`Suggestions` — ``NamedTuple`` בן שני שדות**,
+    ``titles`` ו-``truncated`` — ולא רשימה. קורא ישן שעשה
+    ``for t in suggest(...)`` יקבל טאפל של שני איברים ולא את הכותרות;
+    ראו את ה-docstring של המחלקה.
+
+    **שני מסלולים.** שאילתה בצורת מזהה שלא נמצאה, בקובץ **שיש בו מזהים**,
+    מקבלת את רשימת המזהים שבקובץ. כל שאר המקרים מקבלים ``difflib`` בדיוק
+    כמו קודם.
+
+    **ולמה שני תנאים ולא אחד.** התנאי הראשון נחוץ כי בלי מסלול המזהים
+    ההבטחה "לעולם לא רק \'לא נמצא\'" מתנוונת ל-TOC: נמדד ש-``suggest("K11")``
+    ו-``suggest("U3")`` מחזירים רשימה **ריקה**. התנאי השני נחוץ כי קובץ
+    **בלי** מזהים שמקבל שאילתה בצורת מזהה חייב להמשיך להתנהג כמו היום —
+    וזה מה ששומר על כל מסלול ה-RST ללא שינוי.
+
+    **והמזהה שנשאל אינו יכול להופיע ברשימה שחוזרת**, כי אילו היה בקובץ
+    :func:`find_sections` היה מוצא אותו, והמתקשר לא היה מגיע לכאן בכלל.
+    """
+    identifier = _identifier_query(query)
+    if identifier is not None:
+        identifiers = _document_identifiers(doc)
+        if identifiers:
+            return Suggestions(identifiers[:MAX_IDENTIFIER_SUGGESTIONS],
+                               len(identifiers) > MAX_IDENTIFIER_SUGGESTIONS)
+
     titles = [s.title for s in doc.sections]
     norm_map = {normalize_title(t): t for t in titles}
     close = get_close_matches(normalize_title(query), list(norm_map.keys()), n=n, cutoff=0.5)
@@ -277,4 +437,4 @@ def suggest(doc: Document, query: str, n: int = 5) -> List[str]:
         if t not in seen:
             seen.add(t)
             out.append(t)
-    return out
+    return Suggestions(out)
