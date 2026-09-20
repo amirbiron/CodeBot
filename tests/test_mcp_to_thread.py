@@ -923,13 +923,20 @@ def _probe_pool(workers):
 
 
 def test_startup_names_the_read_pool_the_cpu_quota_and_the_memory_limit(caplog):
-    """The concurrency ceiling has to be readable, not inferred.
+    """The concurrency ceiling has to be readable, not inferred — and read off the pool.
 
     ``os.cpu_count()`` is the machine's count rather than the container's share
     — CPython says so itself — and the pool is no longer sized from it, but it
     stays on the line beside the quota because that gap is the whole story of
     #3391. The memory limit joins them because it is what the pool is sized
     from now.
+
+    The pool handed in is deliberately sized to 3 — a number no formula in the
+    module produces: not the floor, not the production result of 10, not the
+    cap — while the sizing passed beside it says 10. A record that describes
+    state reads the state (``state-record-without-state-change``): a line that
+    recomputed its own number, or echoed the sizing instead of the executor,
+    prints something other than ``read pool 3 threads``.
     """
     import logging as _logging
 
@@ -945,7 +952,7 @@ def test_startup_names_the_read_pool_the_cpu_quota_and_the_memory_limit(caplog):
     assert caplog.records, "startup said nothing about capacity"
     line = caplog.records[-1].getMessage()
     for expected in (
-        "read pool",
+        "read pool 3 threads",
         "os.cpu_count=",
         "usable=",
         "write pool 1",
@@ -955,35 +962,12 @@ def test_startup_names_the_read_pool_the_cpu_quota_and_the_memory_limit(caplog):
         assert expected in line, (expected, line)
 
 
-def test_the_capacity_line_reports_the_pool_it_was_handed_and_not_a_formula(caplog):
-    """A record that describes state reads the state (``state-record-without-state-change``).
-
-    The pool is deliberately sized to a number no formula in the module
-    produces — not the floor, not the production result, not the cap — while
-    the sizing passed beside it says 6. A line that recomputed its own number,
-    or echoed the sizing instead of the executor, prints something else.
-    """
-    import logging as _logging
-
-    from mcp_server.server import _log_dispatch_capacity, _read_pool_size
-
-    pool = _probe_pool(3)
-    try:
-        with caplog.at_level(_logging.INFO, logger="mcp_server.server"):
-            _log_dispatch_capacity(pool, "cgroup v2: 512.0MiB", _read_pool_size(512 * _MiB))
-    finally:
-        pool.shutdown(wait=False)
-
-    line = caplog.records[-1].getMessage()
-    assert "read pool 3 threads" in line, line
-
-
 def test_the_pool_is_sized_from_the_memory_budget():
     """``(limit - baseline - margin) // cost of one parse`` — and a different limit gives a different answer.
 
     The expected numbers are worked out by hand from the constants, not read
-    back from the function, so a constant ``6`` cannot pass: the production
-    plan gives 10, and a plan twice the size does not.
+    back from the function, so a constant ``10`` cannot pass: the production
+    plan gives 10, and a plan of 448MiB gives 8 — (448 − 92 − 64) ÷ 35.2.
     """
     from mcp_server.server import _read_pool_size
 
@@ -991,8 +975,8 @@ def test_the_pool_is_sized_from_the_memory_budget():
     assert (production.workers, production.source) == (10, "memory"), production
     assert "sized from memory" in production.detail, production.detail
 
-    bigger = _read_pool_size(1024 * _MiB)
-    assert (bigger.workers, bigger.source) == (24, "memory"), bigger
+    smaller = _read_pool_size(448 * _MiB)
+    assert (smaller.workers, smaller.source) == (8, "memory"), smaller
 
 
 def test_the_pool_never_drops_below_the_floor():
@@ -1010,17 +994,19 @@ def test_the_pool_never_drops_below_the_floor():
 
 
 def test_the_pool_never_rises_above_the_cap():
-    """A move to a large plan must not silently turn 10 into 112.
+    """A move to a larger plan must not widen the pool past the width production already ran.
 
-    On 4GiB the formula allows far more than the cap; the cap holds it at 32
-    and the line says so.
+    The cap is 12, the width the service ran before #3391. On 1GiB the formula
+    allows 24 and on 4GiB 112; the cap holds both at 12 and the line says the
+    cap decided, not the arithmetic.
     """
     from mcp_server.server import _READ_POOL_CAP, _read_pool_size
 
-    sizing = _read_pool_size(4 * 1024 * _MiB)
-    assert _READ_POOL_CAP == 32
-    assert (sizing.workers, sizing.source) == (32, "cap"), sizing
-    assert sizing.detail.startswith("cap 32:"), sizing.detail
+    assert _READ_POOL_CAP == 12
+    for limit in (1024 * _MiB, 4 * 1024 * _MiB):
+        sizing = _read_pool_size(limit)
+        assert (sizing.workers, sizing.source) == (12, "cap"), sizing
+        assert sizing.detail.startswith("cap 12:"), sizing.detail
 
 
 def test_no_readable_memory_limit_falls_back_to_the_floor_and_not_to_cpu_count():
@@ -1065,8 +1051,9 @@ def _fake_cgroup(monkeypatch, tmp_path, files):
     """Point the cgroup paths the module reads at files under ``tmp_path``.
 
     ``files`` maps the absolute cgroup path to the text it should contain; a
-    path not in the map behaves as a missing file. Same shape as the CPU quota
-    tests below, so the two readers are exercised the same way.
+    path not in the map behaves as a missing file. The CPU-quota tests below
+    stage their own inline fake through the same ``_patch_pathlib`` seam; this
+    helper is the memory reader's version of that staging.
     """
     import pathlib as _pathlib
 

@@ -517,7 +517,13 @@ def _cpu_budget() -> str:
 
 
 def _mib(n: int) -> str:
-    """Bytes as mebibytes with one decimal — the unit Render's plan names use."""
+    """Bytes as mebibytes with one decimal — the unit Render's plan names use.
+
+    Not ``webapp/size_format.py`` on purpose: that formatter prints decimal
+    ``KB``/``MB`` for UI text and wraps the value in bidi isolation marks, which
+    a log line must not carry; this one prints binary ``MiB``, the unit the
+    plan and the cgroup limit are stated in.
+    """
     return f"{n / (1024 * 1024):.1f}MiB"
 
 
@@ -604,15 +610,18 @@ def _memory_limit() -> tuple[int | None, str]:
 #: this sizing exists to stop relying on.
 _READ_POOL_FLOOR = 2
 
-#: The largest pool this service runs with, whatever the plan.
-#:
-#: Above it, more threads are only more concurrent parses of a GIL-bound
-#: parser, and a move to a large plan would otherwise turn 10 into 112 with
-#: nobody deciding it. It is the ceiling CPython itself puts on the default
-#: executor (``concurrent/futures/thread.py``: "limit it to 32 to avoid
-#: consuming surprisingly large resource on many core machine") — the same
-#: number for the same reason, hung off a different quota.
-_READ_POOL_CAP = 32
+#: The largest pool this service runs with, whatever the plan: the width
+#: production already ran before #3391 (``read pool 12 threads`` on the
+#: capacity line), so a move to a larger plan cannot widen the pool past a
+#: width the service has survived without somebody deciding it. Two reasons
+#: it is a hard bound and not just a formula: above it, more threads are only
+#: more concurrent parses of a GIL-bound parser; and the per-thread cost the
+#: formula divides by is the parse, which understates what an admin range read
+#: holds (see :data:`_PARSE_COST_BYTES`), so the formula must not be allowed
+#: to scale that understatement up with the plan. The first version used
+#: CPython's own default-executor ceiling of 32; the review of #3429 brought it
+#: down to the measured production width.
+_READ_POOL_CAP = 12
 
 #: RSS of the idle service in production: 91.5MB, flat for seven hours on the
 #: Frankfurt service (Render metrics ``memory_usage``, 2026-09-19). Higher than
@@ -629,20 +638,40 @@ _PROCESS_BASELINE_BYTES = 92 * 1024 * 1024
 #: margin is that gap.
 _NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
 
-#: RSS growth per byte of Markdown input while a parse is alive — the **peak**
-#: during the parse (``VmHWM``), because that is what N parses in flight hold
-#: at once; what ``parse_document`` retains afterwards is smaller. Measured on
-#: the pinned ``markdown-it-py`` through ``services.md_parser`` itself, one
-#: parse per fresh process, on 2026-09-20; ``scripts/measure_md_parse_cost.py``
-#: reproduces it. The cost scales with the document's **token density**, not
-#: its size: the repository's Markdown corpus costs 24–27 bytes per input byte
-#: at its median density of ~28 block tokens per KB, and its densest real
-#: document (``CLOUD.md``, ~170 tokens per KB) tiled to the read ceiling costs
-#: 72 — the constant. The 110 recorded in #3391 came from a denser corpus
-#: (~250 tokens per KB) on markdown-it-py 4.2.0 and sits on the same curve.
+#: RSS growth per byte of input while a parse is alive — the **peak** during
+#: the parse (``VmHWM`` above the pre-parse high-water mark), because that is
+#: what N parses in flight hold at once; what ``parse_document`` retains
+#: afterwards is smaller.
+#:
+#: **Which parser this number describes.** It was measured on
+#: ``services.md_parser`` (the pinned ``markdown-it-py``), one parse per fresh
+#: process, on 2026-09-20 — the parser the Markdown tool of PR 5 will run, so
+#: the pool is sized ahead of that tool. The tool that parses **today**,
+#: ``codekeeper_docs_get_section``, runs ``services.rst_parser`` on
+#: ``docs/*.rst`` only, and that parser is far cheaper by the same method:
+#: its RST corpus at the read ceiling adds nothing above the process's
+#: pre-parse high-water mark (2.7 bytes per input byte retained), its densest
+#: page (``docs/modules/index.rst``) tiled to the ceiling peaks at 6.4, and a
+#: hostile shape of one-character headings at 90.2 — 44.0MiB for one parse,
+#: above the 35.2MiB the formula grants a thread, and reachable only from the
+#: allow-listed docs repository. ``scripts/measure_md_parse_cost.py`` measures
+#: both parsers; run it when either of them changes.
+#:
+#: The cost scales with the document's **density**, not its size: the
+#: repository's Markdown corpus peaks at 21 bytes per input byte at its median
+#: density of ~27 block tokens per KB, and its densest real document
+#: (``CLOUD.md``, ~170 tokens per KB) tiled to the read ceiling peaks at 70.7.
+#: The constant, 72, is the earlier reading of that shape (71.7, before the
+#: script learned to subtract the pre-parse high-water mark) rounded up; the
+#: gap is margin, and re-running the script is what moves the constant, not
+#: an edit by hand. The 110 recorded in #3391 is not directly comparable to
+#: it: that figure came from a denser corpus (~250 tokens per KB) **and** from
+#: markdown-it-py 4.2.0, while the density curve above was measured on the
+#: pinned 3.0.0 only, and the old corpus was not re-measured on 3.0.0. So a
+#: parser upgrade re-runs the script; it does not assume the constant survives.
 #:
 #: What the constant is **not**: the adversarial bound. A 500KB file of
-#: one-line bullets peaks at ~290 bytes per input byte — 142MB for a single
+#: one-line bullets peaks at ~290 bytes per input byte — 141MiB for a single
 #: parse — which no pool width can absorb (three such parses exceed the plan
 #: at any width above the floor). The tool reads only the mirrored,
 #: allow-listed docs repositories, so the densest document it actually serves
@@ -650,12 +679,35 @@ _NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
 #: the instrument for the hostile shape; that is tracked in #3391, not here.
 _PARSE_RSS_PER_INPUT_BYTE = 72
 
-#: What one parse can cost at most. The largest input a parse can receive is
+#: What one parse can cost at most — the divisor of the memory budget. The
+#: largest input a parse can receive is
 #: :data:`~services.git_mirror_service.MAX_FILE_SIZE_FOR_DISPLAY`:
 #: ``codekeeper_docs_get_section`` reads through ``RepoBackend.get_file``
 #: without ``lines`` and therefore without ``max_size``, and refuses
 #: ``too_large`` before it parses anything. Computed from the imported ceiling
 #: rather than copied, so a change to the read ceiling moves the budget with it.
+#:
+#: **A decision, recorded (review of #3429): the divisor is priced by the
+#: parse, and the parse is not the largest thing a read thread holds.** The
+#: admin-only ``codekeeper_get_repo_file`` with ``outline=true`` or ``lines=``
+#: reads up to ``RANGE_READ_MAX_BYTES`` (10MiB), and the mirror buffers the
+#: whole blob before its size check. Measured on 2026-09-20 by the same
+#: method: an outline of a 10MB RST file holds 61–77MiB over the whole path
+#: (realistic tiling / hostile headings, both ending in ``TooManySections``;
+#: the script's ``outline_densest_real`` line shows the parse alone above the
+#: pre-parse high-water mark, 51MiB, the rest being the 10MB of text already
+#: in memory), and a ``lines=`` read of the real 7MB
+#: ``webapp/static/js/md_preview.bundle.js`` holds ~37MiB — 1.1 to 2.2 times
+#: the 35.2MiB this divisor grants a thread. It stays priced
+#: by the parse because: the parse is what the public tool can cost at any
+#: moment, while the range tools sit behind ``require_admin``; the largest hold
+#: on a file that exists in the mirrors today (37MiB) fits the plan even at
+#: full width — 92 + 10 × 37.2 = 464MiB of 512MiB; and the 61–77MiB shape needs
+#: a 10MB RST file that no mirrored repository has (the largest here is 169KB).
+#: Pricing by ``RANGE_READ_MAX_BYTES`` would have cut the public path to 4
+#: threads (at 77MiB) or 9 (at 37MiB) for a shape without a source. What did
+#: change because of this is :data:`_READ_POOL_CAP`; the root fix — bounding
+#: the read at its source with a size probe before ``git show`` — is #3433.
 _PARSE_COST_BYTES = _PARSE_RSS_PER_INPUT_BYTE * MAX_FILE_SIZE_FOR_DISPLAY
 
 
