@@ -10,6 +10,10 @@ import hashlib
 import logging
 import re
 
+# מה נחשב תזכורת פעילה — הגדרה אחת לשלושת הצרכנים. השולח כבר סינן
+# ``ack_at`` נכון; הייבוא כאן הוא כדי שלא יהיה עותק שיסטה בפעם הבאה.
+from note_reminder_state import active_reminder_filter
+
 
 def get_db():
     from webapp.app import get_db as _get_db  # lazy import to avoid circulars
@@ -612,11 +616,7 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
     # Strategy:
     # 1) Query "new" documents (needs_push=True) — hits the partial index.
     # 2) If we still need items, query legacy documents without needs_push.
-    base_filter = {
-        "ack_at": None,
-        "status": {"$in": ["pending", "snoozed"]},
-        "remind_at": {"$lte": now},
-    }
+    base_filter = dict(active_reminder_filter(), remind_at={"$lte": now})
     total_needed = max_users * max_per_user
     # We still oversample to compensate for claim collisions / missing subscriptions, etc.
     raw_limit = max(10, int(total_needed * 3))
@@ -764,16 +764,13 @@ def _claim_reminder(db, reminder_doc: dict, ttl_seconds: int | None = None) -> b
         r_id = reminder_doc.get("_id")
         if not r_id:
             return False
-        filt = {
-            "_id": r_id,
-            "ack_at": None,
-            "status": {"$in": ["pending", "snoozed"]},
-            # not currently claimed or claim expired
-            "$or": [
-                {"push_claimed_until": {"$exists": False}},
-                {"push_claimed_until": {"$lte": now}},
-            ],
-        }
+        filt = active_reminder_filter()
+        filt["_id"] = r_id
+        # not currently claimed or claim expired
+        filt["$or"] = [
+            {"push_claimed_until": {"$exists": False}},
+            {"push_claimed_until": {"$lte": now}},
+        ]
         upd = {
             "$set": {
                 "push_claimed_by": owner,
