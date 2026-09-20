@@ -384,7 +384,7 @@ def test_a_dot_that_starts_a_sub_number_is_not_a_boundary():
     להקליד ``K11``.
 
     וכותרת בתת-מספור לא הולכת לאיבוד: היא נמצאת בשמה המלא, כמו כל כותרת.
-    **מוטציה:** הסרת ``(?!\d)`` מהרגקס מפילה את השורה הראשונה.
+    **מוטציה:** הסרת ``(?!\\d)`` מהרגקס מפילה את השורה הראשונה.
     """
     doc = _identified("K11. כשל", "K11.1 תת-סעיף", "K11.2 תת-סעיף")
 
@@ -568,3 +568,92 @@ def test_suggest_on_a_document_with_no_headings_returns_empty_instead_of_raising
 
     assert doc_sections.suggest(empty, "K11") == doc_sections.Suggestions([], False)
     assert doc_sections.suggest(empty, "כל טקסט אחר") == doc_sections.Suggestions([], False)
+
+
+def test_a_query_with_a_trailing_dot_matches_a_heading_that_is_only_the_identifier():
+    """הענף ה-``\\Z`` של הרגקס — הגבול שמגיעים אליו רק מכיוון אחד.
+
+    הכותרת ``K11`` (בלי נקודה, בלי טקסט אחריה) מסתיימת מיד אחרי המזהה,
+    ולכן ההתאמה נסמכת על ``\\Z`` ולא על נקודה או רווח. ומכיוון שהשאילתה
+    ``K11.`` נושאת נקודה אופציונלית שמוסרת בנרמול, היא אותו מזהה בדיוק.
+    זה המקרה היחיד שמפעיל את החלופה הזאת, ובלי טסט עליה כל שינוי בגבול
+    היה עובר בלי סימן.
+    """
+    doc = _identified("K11", "K12. טקסט")
+
+    assert [s.title for s in doc_sections.find_sections(doc, "K11.")] == ["K11"]
+    assert [s.title for s in doc_sections.find_sections(doc, "K11")] == ["K11"]
+    # ומהצד השני: הנקודה בשאילתה אינה הופכת אותה למזהה אחר
+    assert [s.title for s in doc_sections.find_sections(doc, "K12.")] == ["K12. טקסט"]
+
+
+@pytest.mark.parametrize("count, expected, cut", [(49, 49, False), (50, 50, False), (51, 50, True)])
+def test_the_identifier_ceiling_is_exact_at_fifty(count, expected, cut):
+    """התקרה נבדקת **על** הגבול ולא סביבו — 49, 50 ו-51.
+
+    ההשוואה בקוד היא ``>``, ולכן 50 בדיוק חוזר שלם והדגל כבוי; 51 נחתך
+    ל-50 והדגל דלוק. מוטציה שמחליפה ל-``>=`` נראית זהה בכל מספר אחר
+    ונופלת כאן בלבד.
+
+    ‏``n=100`` כדי להגיע לגבול הזה בכלל: מאז ש-``n`` נאכף גם במסלול
+    המזהים, ברירת המחדל חוסמת הרבה לפניו.
+    """
+    doc = _identified(*[f"K{i}. טקסט" for i in range(1, count + 1)])
+
+    result = doc_sections.suggest(doc, "Z9", n=100)
+
+    assert len(result.titles) == expected
+    assert result.truncated is cut
+
+
+@pytest.mark.parametrize("too_long", ["K1234", "K1234.", "ABCD1", "K1234 טקסט"])
+def test_four_digits_or_four_letters_are_not_an_identifier(too_long):
+    """גבול הספירה, משני צדדיו — גם כשאילתה וגם ככותרת.
+
+    הצורה היא עד שלוש אותיות ועד שלוש ספרות. בלי טסט על הגבול, הרחבה
+    שגויה של הכמות הייתה משנה אילו כותרות נתפסות בלי ששום דבר יצעק.
+    """
+    assert doc_sections._identifier_query(too_long) is None
+    assert doc_sections._leading_identifier(too_long) is None
+
+
+@pytest.mark.parametrize("arabic_indic", ["K١١", "K۱۲", "U٣"])
+def test_non_ascii_digits_are_not_an_identifier(arabic_indic):
+    """‏``[0-9]`` ולא ``\\d`` — ספרה ערבית-הודית אינה ספרה כאן.
+
+    ‏``\\d`` ב-Python תופס כל ספרה עשרונית ביוניקוד, ולכן השאילתה הזאת
+    הייתה מסווגת כמזהה ונשלחת למסלול המזהים — שם היא יכולה רק להחזיר
+    רשימה שאינה קשורה לשאלה, כי אף כותרת אינה כתובה בספרות כאלה.
+
+    הספרות כתובות כרצפי ``\\u`` ולא כתווים, כדי שמי שקורא את המקור יראה
+    בדיוק מה נבדק.
+    """
+    assert doc_sections._identifier_query(arabic_indic) is None
+
+
+def test_a_bidi_mark_does_not_hide_a_heading_from_either_lookup():
+    """סימן כיווניות אינו מסתיר כותרת — לא בשמה המלא ולא לפי המזהה.
+
+    **זה רלוונטי בדיוק בריפו הזה:** הפרוזה העברית כאן מציבה ``\\u200f``
+    סביב אסימונים לטיניים, וכותב הכותרת אינו רואה אותו. ‏``str.strip()``
+    אינו מסיר אותו, ולכן לפני התיקון כותרת כזו יצאה מכל מסלולי החיפוש
+    בבת אחת.
+
+    **התווים כתובים כרצפי ``\\u`` בכוונה, ולא כתווים עצמם.** טסט שנכתב
+    עם תווי כיווניות ליטרליים נכשל על עצמו: המקור נראה לקורא שונה ממה
+    שהוא, וההצבה של הסימן בשורה אינה מה שנדמה. זה כלל מפורש ב-
+    ``BY-STACK/hebrew-source.md``.
+    """
+    doc = _identified("‏K11. כשל שמדווח בערך החזרה", "K12. אחר")
+
+    # הכותרת נמצאת בשמה המלא — גם כשהשואל לא הקליד את הסימן
+    found = doc_sections.find_sections(doc, "K11. כשל שמדווח בערך החזרה")
+    assert [s.title for s in found] == ["‏K11. כשל שמדווח בערך החזרה"]
+
+    # וגם לפי המזהה
+    by_id = doc_sections.find_sections(doc, "K11")
+    assert [s.title for s in by_id] == ["‏K11. כשל שמדווח בערך החזרה"]
+
+    # ומהכיוון ההפוך: הסימן בשאילתה אינו מסתיר כותרת נקייה
+    assert [s.title for s in doc_sections.find_sections(doc, "‏K12")] == ["K12. אחר"]
+    assert doc_sections._identifier_query("‏K12") == "k12"
