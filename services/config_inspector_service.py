@@ -15,6 +15,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from runtime_settings import resolve_redis_timeouts, safe_mode_enabled
+
 # כתובת URL עם credentials מוטמעים: scheme://user:pass@host — סוד גם אם שם המשתנה אינו רגיש
 _CREDENTIAL_URL_RE = re.compile(r"://[^/\s:@]+:[^/\s:@]+@")
 
@@ -35,6 +37,17 @@ class ConfigSource(str, Enum):
     DEFAULT = "Default"  # נלקח מברירת המחדל
 
 
+def _redis_timeout_default(index: int) -> str:
+    """ברירת המחדל שתקפה **עכשיו** לאחד משני ה-Timeouts של Redis.
+
+    ``index`` הוא 0 ל-connect ו-1 ל-socket. המספר אינו קבוע: ב-``SAFE_MODE``
+    שניהם יורדים ל-1. מחרוזת קבועה בטבלה הייתה מציגה למנהל ערך שהתהליך אינו
+    משתמש בו, ולכן הערך נגזר מאותה פונקציה שמכריעה אותו בקוד.
+    """
+    value = resolve_redis_timeouts(None, None, safe_mode_enabled())[index]
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
 @dataclass
 class ConfigDefinition:
     """הגדרת משתנה קונפיגורציה יחיד."""
@@ -51,6 +64,16 @@ class ConfigDefinition:
     # "שירותים אחרים" עם ציון השירותים — בלי Status/Active Value, כי הערכים שם חיים
     # בתהליכים נפרדים. הערה: ה-webserver הוא שירות Render נפרד (לא חלק מתהליך הבוט).
     services: tuple[str, ...] = ("webapp",)
+
+    def effective_default(self) -> Any:
+        """ברירת המחדל, אחרי הרצה אם היא תלוית-ריצה.
+
+        רוב המשתנים מחזיקים ערך קבוע. למעטים ברירת המחדל נגזרת ממצב הריצה,
+        ואז ``default`` הוא פונקציה חסרת ארגומנטים שמחושבת ברגע שבונים את
+        השורה — ולא בזמן import, כדי לא לקבע מצב סביבה בזמן טעינת המודול.
+        """
+        value = self.default
+        return value() if callable(value) else value
 
 
 @dataclass
@@ -1662,15 +1685,15 @@ class ConfigService:
         "REDIS_CONNECT_TIMEOUT": ConfigDefinition(
             key="REDIS_CONNECT_TIMEOUT",
             services=("webapp", "bot", "mcp", "webserver"),
-            default="3",
-            description="טיימאאוט התחברות ל-Redis (שניות)",
+            default=lambda: _redis_timeout_default(0),
+            description="טיימאאוט התחברות ל-Redis (שניות). לא מוגדר ו-SAFE_MODE דולק ⇒ 1",
             category="cache",
         ),
         "REDIS_SOCKET_TIMEOUT": ConfigDefinition(
             key="REDIS_SOCKET_TIMEOUT",
             services=("webapp", "bot", "mcp", "webserver"),
-            default="5",
-            description="טיימאאוט סוקט Redis (שניות)",
+            default=lambda: _redis_timeout_default(1),
+            description="טיימאאוט סוקט Redis (שניות). לא מוגדר ו-SAFE_MODE דולק ⇒ 1",
             category="cache",
         ),
         "CACHE_ENABLED": ConfigDefinition(
@@ -2574,7 +2597,7 @@ class ConfigService:
             key="SAFE_MODE",
             services=("webapp", "bot", "mcp", "webserver"),
             default="false",
-            description="מצב בטוח - משבית פעולות מסוכנות",
+            description="מצב בטוח - משבית פעולות מסוכנות ומוריד את ברירות המחדל של ה-Timeouts ל-Redis ל-1",
             category="predictive",
         ),
         "DISABLE_PREEMPTIVE_ACTIONS": ConfigDefinition(
@@ -3659,7 +3682,7 @@ class ConfigService:
         """
 
         key = definition.key
-        default = definition.default
+        default = definition.effective_default()
 
         # שליפת הערך מהסביבה
         env_value = self.get_env_value(key)
@@ -3760,7 +3783,7 @@ class ConfigService:
             other = [s for s in definition.services if s != "webapp"]
             if not other:
                 continue
-            default_str = self._normalize_value(definition.default)
+            default_str = self._normalize_value(definition.effective_default())
             is_sensitive = self.is_sensitive_key(definition.key) or definition.sensitive
             rows.append({
                 "key": definition.key,
@@ -3819,7 +3842,8 @@ class ConfigService:
                 continue
 
             env_value = self.get_env_value(definition.key)
-            default_str = str(definition.default) if definition.default is not None else None
+            _default = definition.effective_default()
+            default_str = str(_default) if _default is not None else None
 
             # שימוש באותה לוגיקה כמו determine_status
             env_is_empty = self._is_empty_value(env_value)

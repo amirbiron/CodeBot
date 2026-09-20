@@ -653,19 +653,19 @@
      - ``redis://localhost:6379``
      - Bot/WebApp/MCP
    * - ``REDIS_CONNECT_TIMEOUT``
-     - Timeout התחברות ל-Redis (שניות)
+     - Timeout התחברות ל-Redis (שניות). ערך שמוגדר במפורש מנצח גם ב-``SAFE_MODE``; ברירות המחדל מוכרעות ב-``runtime_settings.resolve_redis_timeouts``
      - לא
      - ``3`` (או ``1`` ב-``SAFE_MODE``)
      - ``2``
      - Bot/WebApp
    * - ``REDIS_SOCKET_TIMEOUT``
-     - Timeout קריאת שקע ל-Redis (שניות)
+     - Timeout קריאת שקע ל-Redis (שניות). ערך שמוגדר במפורש מנצח גם ב-``SAFE_MODE``
      - לא
      - ``5`` (או ``1`` ב-``SAFE_MODE``)
      - ``2``
      - Bot/WebApp
    * - ``SAFE_MODE``
-     - מצב שמרני: מוריד ברירות מחדל של Timeouts לטובת יציבות בסביבות חלשות
+     - מצב שמרני: מוריד ל-``1`` את ברירות המחדל של שני ה-Timeouts של Redis, ומדלג על תחזוקת קאש ועל מחיקה מהדיסק
      - לא
      - ``false``
      - ``true``
