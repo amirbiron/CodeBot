@@ -186,7 +186,7 @@ Mocking HTTP ב‑github_menu_handler
 
    **אחרי מיזוג הן כן רצות, וזה לא אותו קובץ.** ``.github/workflows/deploy.yml`` מריץ את אותה חבילה על push ל-``main``, ושם השירות ``mongodb`` **כן** מוגדר עם ``ports:`` וה-``MONGODB_URL`` מצביע ל-``localhost:27017`` — כלומר שרת נגיש, והבדיקות שנשענות על ``MONGODB_URL`` רצות במלואן. זה ההסבר לכשל שמופיע "רק אחרי מיזוג": אותה חבילה בדיוק, פעם אחת בלי מסד ופעם אחת איתו.
 
-**גרסת השרת: 8.0 ומעלה, ולא "מונגו כלשהו".** הפרודקשן רץ על MongoDB Atlas 8.0, ולכן כל סביבות הבדיקה מרימות ``mongo:8.0`` — ``.github/workflows/ci.yml``, ``.github/workflows/deploy.yml``, ``docker-compose.yml`` ו-``docker-compose.dev.yml``. בדיקה שרצה מול מסד אמיתי ובודקת מנוע אחר מזה שבפרודקשן היא ביטחון שווא, ולא כיסוי.
+**גרסת השרת: 8.0 ומעלה, ולא "מונגו כלשהו".** הפרודקשן רץ על MongoDB Atlas 8.0, ולכן כל סביבות הבדיקה מרימות ``mongo:8.0`` — ``.github/workflows/ci.yml``, ``.github/workflows/deploy.yml``, ``docker-compose.yml`` ו-``docker-compose.dev.yml``. בדיקה שרצה מול מסד אמיתי ובודקת מנוע אחר מזה שבפרודקשן היא ביטחון שווא, ולא כיסוי. מי שמרים את ה-compose מקומית על volume שנוצר בזמן של 6.0 צריך מעבר חד-פעמי לפני ההרצה הראשונה — ראו :doc:`/installation`.
 
 ל-``tests/test_profiler_projection_mongo.py`` זה קריטי במיוחד: הוא משווה את ``queryShapeHash`` שמונגו מחזירה ב-``explain``, ולפי `התיעוד של explain <https://www.mongodb.com/docs/manual/reference/command/explain/>`_, השדה הזה נוסף ב-MongoDB 8.0. מול 6.0 הוא פשוט אינו חוזר, וההשוואה מתרוקנת מתוכן. הפיקסצ'ר שם קורא ``buildInfo``, ואם הגרסה נמוכה מ-8.0 הוא **נכשל** בהודעה שאומרת מה גרסת השרת ומה נדרש — ולא מדלג, כי דילוג היה צובע את הריצה בירוק בזמן שההשוואה היחידה שמוכיחה את התיקון אינה מתבצעת.
 

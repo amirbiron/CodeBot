@@ -79,6 +79,41 @@
 
    docker-compose up -d
 
+3. שדרוג volume קיים מ-MongoDB 6.0
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. warning::
+   **יש volume שנוצר בזמן של mongo:6.0? העלייה הראשונה ל-mongo:8.0 תיכשל.** מונגו אינה מרשה לדלג על גרסה ראשית: מונגו 8 מסרבת לעלות על קבצי נתונים שה-``featureCompatibilityVersion`` שלהם ``6.0``, יוצאת בקוד 62, ומכיוון שהשירות מוגדר ``restart: unless-stopped`` היא נכנסת ללופ נפילות. ה-healthcheck לעולם אינו נעשה ירוק, ולכן ``code-keeper-bot`` — שתלוי ב-``condition: service_healthy`` — פשוט אינו עולה, בלי שגיאה שמסבירה למה. בלוג של הקונטיינר רואים ``UPGRADE PROBLEM: Found an invalid featureCompatibilityVersion document``. אותו דבר בדיוק חל על ``docker-compose.dev.yml`` (השירות ``mongodb-dev`` וה-volume ``mongodb_dev_data``).
+
+   ``<user>`` ו-``<pass>`` בפקודות הם ``MONGO_USERNAME`` ו-``MONGO_PASSWORD`` מה-``.env`` (ברירת המחדל: ``admin`` ו-``password123``), ושם ה-volume הוא ``<שם הפרויקט>_mongodb_data`` — ``docker volume ls`` מראה את השם המדויק.
+
+   **א. הנתונים אינם חשובים — זה המצב הרגיל בפיתוח:**
+
+   .. code-block:: bash
+
+      docker compose down -v   # ⚠️ מוחק את כל ה-volumes של ה-compose, כולל mongodb_data. בלתי הפיך
+      docker compose up -d
+
+   **ב. הנתונים חשובים — עוברים דרך 7.0 פעם אחת:**
+
+   .. code-block:: bash
+
+      # 1. מרימים 7.0 על אותו volume ומעלים את ה-FCV
+      docker compose down
+      docker run --rm -d --name ck-mongo-upgrade -v <שם הפרויקט>_mongodb_data:/data/db \
+          -e MONGO_INITDB_ROOT_USERNAME=<user> -e MONGO_INITDB_ROOT_PASSWORD=<pass> \
+          mongo:7.0 mongod --auth
+      docker exec ck-mongo-upgrade mongosh -u <user> -p <pass> \
+          --eval 'db.adminCommand({setFeatureCompatibilityVersion: "7.0", confirm: true})'
+      docker stop ck-mongo-upgrade
+
+      # 2. עולים ל-8.0 כרגיל, ואחרי שהשירות בריא מעלים את ה-FCV ל-8.0
+      docker compose up -d
+      docker compose exec mongodb mongosh -u <user> -p <pass> \
+          --eval 'db.adminCommand({setFeatureCompatibilityVersion: "8.0", confirm: true})'
+
+   המסלול הזה נמדד מקצה לקצה על volume שנוצר ב-6.0: ‏7.0 עולה על נתוני 6.0, ``setFeatureCompatibilityVersion`` מחזיר ``{ok: 1}``, ואז 8.0 עולה בלי נפילה והנתונים במקומם. ``confirm: true`` נדרש מ-7.0 ומעלה.
+
 הגדרת MongoDB
 -------------
 

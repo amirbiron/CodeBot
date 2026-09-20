@@ -16,6 +16,13 @@ services:
     # 8.0 כמו בפרודקשן (MongoDB Atlas 8.0) וכמו ב-CI. אין להוריד גרסה:
     # ``queryShapeHash`` בפלט של ``explain`` קיים רק מ-8.0 ומעלה, ובדיקות
     # שרצות מול מסד אמיתי נשענות עליו. ראו docs/testing.rst.
+    #
+    # ⚠ יש כבר volume שנוצר עם 6.0? מונגו 8 לא תעלה עליו — FCV 6.0, יציאה
+    # בקוד 62 — ועם ``restart: unless-stopped`` זה לופ נפילות שבו
+    # ה-healthcheck אינו נעשה ירוק, ולכן הבוט (שתלוי ב-service_healthy)
+    # אינו עולה כלל. או ``down -v`` (מוחק את ``mongodb_dev_data``), או מעבר
+    # חד-פעמי דרך 7.0. הנוהל המלא ב-docs/installation.rst, בסעיף
+    # "שדרוג volume קיים מ-MongoDB 6.0".
     image: mongo:8.0
     container_name: code-keeper-mongodb-dev
     restart: unless-stopped
