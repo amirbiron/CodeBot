@@ -10,7 +10,10 @@ services:
   # MongoDB Database
   # ===================================
   mongodb:
-    image: mongo:6.0
+    # 8.0 כמו בפרודקשן (MongoDB Atlas 8.0) וכמו ב-CI. אין להוריד גרסה:
+    # ``queryShapeHash`` בפלט של ``explain`` קיים רק מ-8.0 ומעלה, ובדיקות
+    # שרצות מול מסד אמיתי נשענות עליו. ראו docs/testing.rst.
+    image: mongo:8.0
     container_name: code-keeper-mongodb
     restart: unless-stopped
     environment:
