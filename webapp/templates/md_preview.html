@@ -1821,6 +1821,7 @@ input.md-task-checkbox {
 
 {% block content %}
 <div id="md-root">
+  {% include "_version_banner.html" %}
   <div class="file-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
     <div style="display:flex;align-items:center;gap:.75rem;min-width:0;">
       {# הדף הזה תמיד מציג Markdown, ולכן השפה קבועה ולא מגיעה מהקובץ #}
@@ -1836,13 +1837,18 @@ input.md-task-checkbox {
       <a href="#" onclick="return goBackTwoSteps(event)" class="btn btn-secondary btn-icon" title="חזור למסך קודם"><i class="fas fa-arrow-right"></i> חזור</a>
       <!-- מפריד ויזואלי -->
       <span style="width:1px;height:24px;background:var(--glass-border,rgba(255,255,255,0.2));margin:0 0.25rem;"></span>
-      <!-- כפתור ערוך - רק למשתמשים מחוברים -->
+      <!-- כפתור ערוך - רק למשתמשים מחוברים, ורק על הגרסה העדכנית.
+           עריכה של גרסה ישנה שומרת גרסה חדשה שתוכנה הוא התוכן הישן,
+           כלומר החזרה אחורה של הקובץ — והבאנר ממילא הבטיח שהפעולה
+           מושבתת. -->
+      {% if not is_read_only_version %}
       <a href="/edit/{{ file.id }}"
          class="btn btn-secondary btn-icon"
          title="ערוך">
         <i class="fas fa-edit"></i>
         <span class="btn-text">ערוך</span>
       </a>
+      {% endif %}
       {% endif %}
       <!-- כפתור העתק קוד - זמין לכל המשתמשים -->
       <button id="mdCopySourceBtn"
@@ -2119,7 +2125,8 @@ input.md-task-checkbox {
 <script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}"></script>
+<script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/restore-version.js') }}?v={{ static_version }}"></script>
 <script>
 // מזהה קובץ לשימוש בשמירת העדפות פר-קובץ
 const FILE_ID = "{{ file.id }}";

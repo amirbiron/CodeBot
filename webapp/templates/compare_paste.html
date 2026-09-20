@@ -3,7 +3,7 @@
 {% block title %}השוואת קוד בהדבקה - Code Keeper Bot{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}?v={{ static_version }}">
 <style>
 /* =================================================================
    Compare Paste Page - Specific Styles
@@ -360,7 +360,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/compare.js') }}"></script>
+<script src="{{ url_for('static', filename='js/compare.js') }}?v={{ static_version }}"></script>
 <script>
 (function() {
     'use strict';

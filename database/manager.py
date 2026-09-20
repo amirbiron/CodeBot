@@ -2535,6 +2535,49 @@ class DatabaseManager:
                     error=msg,
                 )
 
+        # code_snippets - "הגרסה האחרונה של קובץ" ו-"גרסה מסוימת של קובץ".
+        # ‏Equality ← Sort: ``user_id`` ו-``file_name`` הם שוויון ו-
+        # ``version`` הוא שדה המיון, ולכן הוא אחרון. ``is_active`` אינו
+        # במפתח בכוונה — הוא מסנן מעטים מתוך קבוצה שכבר צומצמה לקובץ
+        # אחד, ובמפתח הוא היה שובר את סדר ה-ESR מול המיון.
+        #
+        # בלוק נפרד מאינדקס ה-TEXT שלמעלה, ולא ``IndexModel`` נוסף באותה
+        # קריאה: ``create_indexes`` הוא אטומי מבחינת השגיאה, ולכן
+        # התנגשות על אינדקס קיים אחד הייתה מונעת את יצירת השני בשקט.
+        try:
+            db.code_snippets.create_indexes(
+                [
+                    IndexModel(
+                        [("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)],
+                        name="user_file_version_idx",
+                        background=True,
+                    )
+                ]
+            )
+            emit_event(
+                "db_index_created",
+                severity="info",
+                collection="code_snippets",
+                index_name="user_file_version_idx",
+            )
+        except Exception as e:
+            msg = str(e or "")
+            msg_l = msg.lower()
+            code = getattr(e, "code", None)
+            is_conflict = bool(
+                code in {85, 86}
+                or "indexoptionsconflict" in msg_l
+                or "indexkeyspecsconflict" in msg_l
+                or "already exists" in msg_l
+            )
+            emit_event(
+                "db_index_exists" if is_conflict else "db_create_indexes_error",
+                severity="info" if is_conflict else "warn",
+                collection="code_snippets",
+                index_name="user_file_version_idx",
+                error=msg,
+            )
+
         # large_files - אינדקס TEXT לחיפוש מהיר בתוכן קבצים גדולים
         # כולל user_id + is_active כדי לצמצם סריקה לאחר התאמת $text
         try:

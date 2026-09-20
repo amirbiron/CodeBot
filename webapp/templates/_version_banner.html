@@ -1,0 +1,95 @@
+{#
+  באנר "אתה לא צופה בגרסה העדכנית" — תבנית אחת שנכללת גם מעמוד הקובץ
+  וגם מתצוגת ה-Markdown, כדי שלא יהיו שני עותקים שנסחפים.
+
+  ``version_context`` נקבע ב-``_file_version_context`` שב-``webapp/app.py``
+  ונמסר **רק** מהראוטים הפרטיים. המסלול הציבורי (``/s/<share_id>``)
+  מרנדר את אותן תבניות בלי המשתנה, ולכן הבאנר אינו מגיע לשם — ויש טסט
+  שמוודא את זה, כי "משתנה לא מוגדר הוא שקרי" נראה כמו הגנה ואינו כזו.
+
+  ``request.endpoint`` קובע לאן חוזרים: אותה תבנית משרתת שני עמודים,
+  ומי שצופה בגרסה ישנה של Markdown רוצה לחזור לתצוגת ה-Markdown.
+#}
+{% if version_context %}
+<style>
+  .version-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0 0 1rem;
+    padding: 0.85rem 1.1rem;
+    border-radius: 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-inline-start: 4px solid var(--warning);
+    color: var(--text-primary);
+  }
+  .version-banner__text { flex: 1 1 16rem; min-width: 0; }
+  .version-banner__title { font-weight: 600; }
+  .version-banner__meta { font-size: 0.875rem; color: var(--text-muted); margin-top: 0.15rem; }
+  .version-banner__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+</style>
+<div class="version-banner" role="status">
+  {% if version_context.state == 'unknown' %}
+  {# לא ידוע אינו "בסדר": השאילתה על הגרסה האחרונה נכשלה, ולכן אי אפשר
+     לומר שזו הגרסה העדכנית. אין כאן כפתורים, כי אין מזהה לגרסה אחרת. #}
+  <div class="version-banner__text">
+    <div class="version-banner__title">⚠️ לא ניתן לוודא אם זו הגרסה העדכנית</div>
+    <div class="version-banner__meta">אתם צופים בגרסה {{ version_context.version }}. פעולות העריכה מושבתות עד שהמצב יתברר — נסו לרענן.</div>
+  </div>
+  {% elif version_context.state == 'trashed' %}
+  <div class="version-banner__text">
+    <div class="version-banner__title">🗑️ הקובץ נמצא בסל המיחזור</div>
+    <div class="version-banner__meta">כל הגרסאות שלו מסומנות כמחוקות. כדי לערוך אותו שוב יש לשחזר את הקובץ מהסל.</div>
+  </div>
+  <div class="version-banner__actions">
+    <a href="{{ url_for('trash_page') }}" class="btn btn-secondary">פתח את סל המיחזור</a>
+  </div>
+  {% else %}
+  <div class="version-banner__text">
+    <div class="version-banner__title">🕐 אתה צופה בגרסה {{ version_context.version }} מתוך {{ version_context.latest_version }}</div>
+    <div class="version-banner__meta">נשמרה ב־{{ version_context.saved_at }} · זו אינה הגרסה העדכנית, ולכן פעולות העריכה מושבתות</div>
+  </div>
+  <div class="version-banner__actions">
+    <a href="{{ url_for(request.endpoint, file_id=version_context.latest_file_id) }}" class="btn btn-primary">חזרה לגרסה הנוכחית</a>
+    <a href="{{ url_for('compare_versions_page', file_id=version_context.latest_file_id, left=version_context.version, right=version_context.latest_version) }}" class="btn btn-secondary">השווה לנוכחית</a>
+    <button type="button"
+            class="btn btn-secondary"
+            id="versionBannerRestore"
+            data-file-id="{{ file.id }}"
+            data-version="{{ version_context.version }}"
+            data-view-prefix="{{ '/md/' if request.endpoint == 'md_preview' else '/file/' }}">שחזר לגרסה זו</button>
+  </div>
+  {% endif %}
+</div>
+{% if version_context.state == 'old' %}
+{# ``restore-version.js`` נטען ב-``extra_js`` של שתי התבניות שכוללות את
+   הבאנר, ולא כאן, כדי שלא ייטען פעמיים בעמוד אחד. המאזין למטה קורא לו
+   בזמן הלחיצה — אחרי ש-``extra_js`` כבר רץ. #}
+<script>
+  (function () {
+    const btn = document.getElementById('versionBannerRestore');
+    if (!btn) { return; }
+    btn.addEventListener('click', function () {
+      const version = parseInt(btn.getAttribute('data-version'), 10);
+      if (!Number.isFinite(version)) { return; }
+      // ``restore-version.js`` נטען מ-``extra_js``, ולכן היעדרו הוא מצב
+      // אפשרי — ולחיצה שלא עושה כלום ובלי הודעה היא מה שאסור כאן.
+      if (typeof window.restoreFileVersion !== 'function') {
+        const message = 'רכיב השחזור לא נטען. רעננו את העמוד ונסו שוב.';
+        if (typeof window.showToast === 'function') {
+          window.showToast(message, 'error');
+        } else {
+          window.alert(message);
+        }
+        return;
+      }
+      window.restoreFileVersion(btn.getAttribute('data-file-id'), version, btn, {
+        viewPrefix: btn.getAttribute('data-view-prefix'),
+      });
+    });
+  })();
+</script>
+{% endif %}
+{% endif %}
