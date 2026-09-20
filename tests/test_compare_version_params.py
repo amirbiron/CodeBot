@@ -65,6 +65,26 @@ def _wire(monkeypatch, *, versions=(1, 2, 3), doc_version=3):
     monkeypatch.setattr(database.db, "get_all_versions", _get_all_versions)
     monkeypatch.setattr(database.db, "get_version", _get_version)
 
+    # ה-API שואל את החיבור של הוובאפ מהי הגרסה האחרונה, ורק כשחסר
+    # פרמטר. הדמה סופרת קריאות כדי שאפשר יהיה לבדוק גם את זה.
+    calls = []
+
+    class _Snippets:
+        def find_one(self, query, projection=None, sort=None):
+            calls.append(query)
+            return {"version": max(versions)}
+
+    class _Db:
+        code_snippets = _Snippets()
+
+    monkeypatch.setattr(app_module(), "get_db", lambda: _Db())
+    return calls
+
+
+def app_module():
+    import webapp.app as wa
+    return wa
+
 
 def _client(app):
     c = app.test_client()
@@ -155,3 +175,29 @@ def test_a_valid_request_still_works(monkeypatch):
     resp = _client(app).get(f"/api/compare/versions/{FILE_ID}?left=1&right=3")
     assert resp.status_code == 200
     assert "lines" in (resp.get_json() or {})
+
+
+def test_the_api_default_comes_from_the_file_and_not_from_the_url_document(monkeypatch):
+    """``file_id`` יכול להיות של גרסה ישנה — העמוד וה-API חייבים להסכים.
+
+    בלי זה, אותה שאלה ("השווה את הקובץ הזה") הייתה מקבלת שתי תשובות
+    שונות לפי מי שאל.
+    """
+    app = _import_app()
+    _wire(monkeypatch, doc_version=1)
+    resp = _client(app).get(f"/api/compare/versions/{FILE_ID}")
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    # 3 מול 2, ולא 1 מול 1 שהיה יוצא מהמסמך שבכתובת.
+    assert (resp.get_json() or {}).get("stats") is not None
+
+
+def test_the_api_does_not_query_the_latest_version_when_both_params_are_given(monkeypatch):
+    """הממשק שולח תמיד את שני הפרמטרים; שליפה שם היא עבודה מיותרת.
+
+    בלי הבדיקה הזו, הזזת השליפה אל מחוץ לתנאי לא הייתה מפילה דבר.
+    """
+    app = _import_app()
+    calls = _wire(monkeypatch)
+    resp = _client(app).get(f"/api/compare/versions/{FILE_ID}?left=1&right=3")
+    assert resp.status_code == 200
+    assert not calls, f"נשלחה שאילתת גרסה אחרונה מיותרת: {calls}"

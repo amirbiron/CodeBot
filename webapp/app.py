@@ -4005,7 +4005,27 @@ def compare_versions(file_id: str):
         return jsonify({"error": "Forbidden"}), 403
 
     file_name = file_doc.get("file_name")
-    current_version = file_doc.get("version", 1)
+
+    # "הגרסה הנוכחית" היא של **הקובץ**, לא של המסמך שב-URL: ``file_id``
+    # יכול להיות ה-``_id`` של גרסה ישנה, כי כל גרסה היא מסמך משלה. בלי
+    # זה, בקשה בלי פרמטרים על מזהה של גרסה ישנה הייתה מחזירה דיף אחר
+    # מזה שהעמוד מציג על אותו קובץ — אותה שאלה, שתי תשובות.
+    #
+    # **והשאילתה רצה רק כשצריך אותה.** ``current_version`` משמש אך ורק
+    # כברירת מחדל לפרמטר חסר, והממשק שולח תמיד את שניהם; שליפה בכל
+    # בקשה הייתה עבודה שאיש לא קורא את תוצאתה.
+    current_version = normalized_version(file_doc.get("version")) or 1
+    if not request.args.get('left') or not request.args.get('right'):
+        try:
+            latest_doc = _latest_active_version_doc(
+                get_db(), user_id, file_name, {"version": 1})
+        except Exception:
+            logger.warning("could not resolve the latest version for compare defaults",
+                           extra={"file_name": file_name}, exc_info=True)
+            latest_doc = None
+        current_version = (
+            normalized_version((latest_doc or {}).get("version")) or current_version
+        )
 
     # קבלת פרמטרים
     version_left, err_left = _compare_version_arg('left', max(1, current_version - 1))
@@ -13478,18 +13498,13 @@ def view_file(file_id):
         abort(404)
     is_large = (kind == "large")
 
-    # האם מוצגת כאן גרסה ישנה. החריגה אינה נבלעת: ``None`` שקט היה אומר
-    # "זו הגרסה האחרונה" על מסמך ישן, כלומר עמוד בלי באנר ועם כפתורי
-    # עריכה ומחיקה שפועלים על ה-``_id`` הישן.
-    try:
-        version_context = _file_version_context(db, user_id, file, kind)
-    except Exception as e:
-        logger.exception(
-            "DB error resolving latest version",
-            extra={"file_id": file_id, "user_id": user_id, "error": str(e)},
-        )
-        abort(500)
-    is_old_version = bool(version_context and version_context.get('state') == 'old')
+    # מצב הגרסה של המסמך המוצג. ``is_read_only_version`` ולא "ישנה":
+    # גם קובץ בסל וגם מצב שלא ניתן לוודא נסגרים בדיוק באותו אופן.
+    # כשל בשאילתה מוחזר כמצב ``unknown``
+    # ולא מפיל את העמוד: הקובץ עצמו כבר נשלף בהצלחה, ואין סיבה להחליף
+    # תצוגה תקינה ב-500. מה שכן נסגר הוא הפעולות שמשנות מצב.
+    version_context = _file_version_context(db, user_id, file, kind)
+    is_read_only_version = bool(version_context)
 
     skip_activity = False
     try:
@@ -13512,7 +13527,7 @@ def view_file(file_id):
     # כדי לפתוח את הקובץ (ראו ``api_recent_files``), וכתיבת ה-``_id``
     # הישן כאן הייתה הופכת את "נפתחו לאחרונה" למצביע על הגרסה הישנה.
     # צפייה בגרסה ישנה היא הצצה, לא פתיחת הקובץ.
-    if not is_old_version:
+    if not is_read_only_version:
         try:
             ensure_recent_opens_indexes()
             coll = db.recent_opens
@@ -13966,6 +13981,55 @@ def _latest_active_version_doc(
     return db_ref.code_snippets.find_one(query, projection, sort=[('version', DESCENDING)])
 
 
+def _reject_when_not_latest_version(db_ref, user_id: int, file_id: str):
+    """``None`` כשמותר להמשיך, או תשובת שגיאה כשהמסמך אינו הגרסה האחרונה.
+
+    מיועד לראוטים שכותבים על **מסמך** בזמן שהמשתמש התכוון ל**קובץ**.
+    ראוטים שכבר ממוענים לישות אינם צריכים את זה: ``api_toggle_favorite``
+    ו-``api_toggle_pin`` משתמשים ב-``_id`` רק כדי לגזור ``file_name``,
+    ואז מריצים ``update_many`` על ``user_id`` + ``file_name`` — ולכן הם
+    נכונים גם כשהמזהה שייך לגרסה ישנה.
+
+    כשל בשליפה **אינו** מאשר את הפעולה: אם אי אפשר לקבוע מהי הגרסה
+    האחרונה, הכתיבה נחסמת. זה הצד השמרני, כי הכתיבה כאן אינה יוצרת
+    גרסה ואין ממה לשחזר.
+    """
+    try:
+        doc = db_ref.code_snippets.find_one(
+            {'_id': ObjectId(file_id), 'user_id': user_id},
+            {'version': 1, 'file_name': 1, 'is_active': 1},
+        )
+    except (InvalidId, TypeError):
+        return None  # מזהה פגום — ``update_file_metadata_in`` מדווח עליו
+    except Exception:
+        logger.warning("could not verify the target version before a metadata write",
+                       extra={"file_id": file_id}, exc_info=True)
+        return jsonify({'ok': False, 'error': 'לא ניתן לאמת את גרסת הקובץ'}), 503
+
+    if not isinstance(doc, dict):
+        return None  # לא נמצא — הפונקציה שמתחת מחזירה 404 עם הודעה משלה
+
+    current = normalized_version(doc.get('version'))
+    if current is None:
+        return None  # אוסף בלי מספור גרסאות
+
+    try:
+        latest = _latest_active_version_doc(
+            db_ref, user_id, (doc.get('file_name') or '').strip(), {'version': 1})
+    except Exception:
+        logger.warning("could not resolve the latest version before a metadata write",
+                       extra={"file_id": file_id}, exc_info=True)
+        return jsonify({'ok': False, 'error': 'לא ניתן לאמת את גרסת הקובץ'}), 503
+
+    latest_version = normalized_version((latest or {}).get('version'))
+    if latest_version is not None and latest_version > current:
+        return jsonify({
+            'ok': False,
+            'error': 'הבקשה מתייחסת לגרסה ישנה של הקובץ; עדכנו את הגרסה העדכנית',
+        }), 409
+    return None
+
+
 def _file_version_context(
     db_ref,
     user_id: int,
@@ -13982,6 +14046,10 @@ def _file_version_context(
       הפעולה הנכונה היא שחזור הקובץ מהסל, ולא הוספת גרסה חדשה לקובץ
       שאמור להיות מחוק.
     * ``old`` — יש גרסה פעילה מאוחרת יותר. זה הבאנר המלא.
+    * ``unknown`` — השאילתה נכשלה. **לא נבלע ולא 500:** העמוד עצמו
+      נשלף בהצלחה ואין סיבה להפיל אותו, אבל גם אין דרך לומר "זו הגרסה
+      העדכנית". לכן הכשל הופך למצב מוצהר — הבאנר אומר שלא ניתן לוודא,
+      והפעולות שמשנות מצב נסגרות בדיוק כמו בגרסה ישנה.
     * ``None`` — זו הגרסה העדכנית, או שאין כאן מושג של גרסה בכלל.
 
     ``large_files`` הוא אוסף דריסה ואין בו שדה ``version``; לכן לא רק
@@ -13998,12 +14066,20 @@ def _file_version_context(
         return None
 
     file_name = (doc.get('file_name') or '').strip()
-    latest = _latest_active_version_doc(
-        db_ref,
-        user_id,
-        file_name,
-        {'version': 1},
-    )
+    try:
+        latest = _latest_active_version_doc(
+            db_ref,
+            user_id,
+            file_name,
+            {'version': 1},
+        )
+    except Exception:
+        logger.warning(
+            "could not resolve the latest version; showing the page as unverified",
+            extra={"file_name": file_name, "user_id": user_id},
+            exc_info=True,
+        )
+        return {'state': 'unknown', 'version': current}
     latest_version = normalized_version((latest or {}).get('version'))
     if latest_version is None or latest_version <= current:
         return None
@@ -14570,6 +14646,19 @@ def api_file_quick_update(file_id):
                 if tag and tag not in clean_tags:
                     clean_tags.append(tag)
             fields['tags'] = clean_tags
+
+        # **הכתיבה כאן ממוענת למסמך, והמסך קורא את הישות.**
+        # ``update_file_metadata_in`` עושה ``$set`` על המסמך שזוהה
+        # ולא יוצרת גרסה, בעוד שהרשימות והחיפוש מקבצות לגרסה האחרונה
+        # לכל שם קובץ. לכן תיאור שנכתב על מסמך שאינו הגרסה האחרונה
+        # **נשמר ואינו מוצג בשום מסך** — שינוי שנעלם בלי הודעת שגיאה.
+        # זה ``bugbot-rules/logical-entity-vs-version-document.md`` §1.
+        #
+        # הסתרת הכפתור בעמוד של גרסה ישנה אינה ההגנה: היא מה שהמשתמש
+        # רואה, וזה מה שמכריע.
+        guard = _reject_when_not_latest_version(get_db(), user_id, file_id)
+        if guard is not None:
+            return guard
 
         result = update_file_metadata_in(
             get_db().code_snippets,
@@ -16189,14 +16278,8 @@ def md_preview(file_id):
 
     # אותו הקשר בדיוק כמו בעמוד הקובץ, ומאותה פונקציה — הבאנר הוא תבנית
     # אחת שנכללת משני העמודים, ולכן גם המידע שמזין אותו מגיע ממקום אחד.
-    try:
-        version_context = _file_version_context(db, user_id, file, _kind)
-    except Exception:
-        # כאן, בניגוד ל-``view_file``, אין כפתורי עריכה או מחיקה בעמוד,
-        # ולכן כשל בשאילתה מסתיים בעמוד בלי באנר ולא ב-500.
-        logger.exception("DB error resolving latest version (md)", extra={"file_id": file_id})
-        version_context = None
-    is_old_version = bool(version_context and version_context.get('state') == 'old')
+    version_context = _file_version_context(db, user_id, file, _kind)
+    is_read_only_version = bool(version_context)
 
     file_name = (file.get('file_name') or '').strip()
     language = (file.get('programming_language') or '').strip().lower()
@@ -16279,7 +16362,7 @@ def md_preview(file_id):
     # שמחוץ למפתח אינו אמור להישמר. הוספת המספר למפתח הייתה פיצוי על
     # הצימוד; זה מנתק אותו. עמוד הגרסה הנוכחית אינו נושא באנר ולכן
     # ממשיך להישמר בדיוק כמו קודם, עם אותו מפתח.
-    if should_cache and not force_no_cache and not is_old_version:
+    if should_cache and not force_no_cache and not is_read_only_version:
         try:
             # בתצוגה זו התוכן מגיע כתוכן גולמי ומעובד בצד לקוח; ה-HTML תלוי רק בפרמטרים הללו
             _params = {

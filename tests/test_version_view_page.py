@@ -300,3 +300,64 @@ def test_an_old_markdown_version_is_not_written_to_the_cache(wired_mongo, monkey
     stored.clear()
     client.get(f"/md/{ids[1]}")
     assert not stored, "עמוד של גרסה ישנה נשמר בקאש"
+
+
+# ------------------------------------------------ מה שהשרת אוכף
+
+
+def test_a_metadata_write_to_an_old_version_is_rejected(wired_mongo):
+    """הסתרת הכפתור אינה ההגנה — היא מה שהמשתמש רואה.
+
+    ``update_file_metadata_in`` עושה ``$set`` על המסמך שזוהה ואינה
+    יוצרת גרסה, בעוד שהרשימות והחיפוש מציגות את הגרסה האחרונה. תיאור
+    שנכתב על גרסה ישנה נשמר ואינו מוצג בשום מסך — שינוי שנעלם בלי
+    הודעת שגיאה.
+    """
+    ids = _seed(wired_mongo, versions=3)
+    client = _client(wired_mongo)
+
+    resp = client.post(f"/api/file/{ids[1]}/quick-update",
+                       json={"description": "תיאור על גרסה ישנה"})
+    assert resp.status_code == 409, resp.get_data(as_text=True)
+
+    db = wired_mongo.get_db()
+    old = db.code_snippets.find_one({"_id": ObjectId(ids[1])})
+    assert not (old.get("description") or ""), "התיאור נכתב על הגרסה הישנה"
+
+
+def test_a_metadata_write_to_the_current_version_still_works(wired_mongo):
+    """בקרה: בלעדיה הבדיקה למעלה הייתה עוברת גם על ראוט שחוסם הכול."""
+    ids = _seed(wired_mongo, versions=3)
+    resp = _client(wired_mongo).post(f"/api/file/{ids[3]}/quick-update",
+                                     json={"description": "תיאור תקין"})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    doc = wired_mongo.get_db().code_snippets.find_one({"_id": ObjectId(ids[3])})
+    assert doc.get("description") == "תיאור תקין"
+
+
+def test_favorite_still_works_from_an_old_version_because_it_targets_the_file(wired_mongo):
+    """``api_toggle_favorite`` גוזר ``file_name`` ואז מריץ ``update_many``.
+
+    לכן הוא נכון גם כשהמזהה שייך לגרסה ישנה, ואסור לחסום אותו: חסימה
+    הייתה הופכת התנהגות תקינה לשגיאה בשם עקביות.
+    """
+    ids = _seed(wired_mongo, versions=3)
+    resp = _client(wired_mongo).post(f"/api/favorite/toggle/{ids[1]}")
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    marked = list(wired_mongo.get_db().code_snippets.find({"is_favorite": True}))
+    assert len(marked) == 3, "הסימון לא חל על כל גרסאות הקובץ"
+
+
+def test_a_page_whose_version_cannot_be_verified_is_read_only(wired_mongo, monkeypatch):
+    """כשל בשאילתה הוא מצב מוצהר — לא 500, ולא "זו הגרסה העדכנית"."""
+    ids = _seed(wired_mongo, versions=3)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("mongo is having a day")
+
+    monkeypatch.setattr(wired_mongo, "_latest_active_version_doc", _boom)
+    resp = _client(wired_mongo).get(f"/file/{ids[3]}")
+    assert resp.status_code == 200, "העמוד נפל במקום להצהיר שאינו יודע"
+    body = resp.get_data(as_text=True)
+    assert "לא ניתן לוודא" in body
+    assert f'/edit/{ids[3]}' not in body, "פעולות עריכה נשארו פתוחות במצב לא ידוע"

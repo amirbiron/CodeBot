@@ -759,8 +759,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     } catch(e) {}
 })();
 </script>
-{# האם מוצגת כאן גרסה ישנה. נקבע פעם אחת ונקרא בכל מקום שמסתיר פעולה. #}
-{% set is_old_version = version_context and version_context.state == 'old' %}
+{# האם העמוד הזה לקריאה בלבד. נקבע פעם אחת ונקרא בכל מקום שמסתיר
+   פעולה. **כל** מצב של ``version_context`` סוגר — גרסה ישנה, קובץ
+   בסל, ומצב שלא ניתן היה לוודא — כי בשלושתם הפעולה הייתה פועלת על
+   מסמך שאינו הגרסה הפעילה האחרונה. #}
+{% set is_read_only_version = version_context is defined and version_context %}
 {% include "_version_banner.html" %}
 
 <div class="file-header">
@@ -796,7 +799,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 
     <div class="file-actions" data-file-actions>
         <div class="file-actions__list" data-actions-list>
-            {% if not file.is_large and not is_old_version %}
+            {% if not file.is_large and not is_read_only_version %}
             <button id="favoriteBtn"
                     class="btn btn-secondary btn-icon"
                     data-overflow-id="favorite"
@@ -810,7 +813,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
             </button>
             {% endif %}
-            {% if not is_old_version %}
+            {% if not is_read_only_version %}
             <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon file-primary-action"
                data-overflow-id="edit"
                data-overflow-priority="2"
@@ -896,7 +899,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             </button>
             <div class="file-actions__dropdown" id="fileActionsMenu" role="menu" hidden>
                 <div class="file-actions__menu-section">
-                    {% if not is_old_version %}
+                    {% if not is_read_only_version %}
                     <button type="button"
                             class="file-actions__menu-item"
                             data-menu-action="description"
@@ -935,7 +938,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                     <button type="button" class="file-actions__menu-item" data-menu-action="history">
                         <span>🕐 היסטוריה</span>
                     </button>
-                    {% if not is_old_version %}
+                    {% if not is_read_only_version %}
                     <button type="button" class="file-actions__menu-item danger" data-menu-action="trash">
                         <span>🗑️ העבר לסל</span>
                     </button>

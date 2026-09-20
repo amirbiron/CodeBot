@@ -31,7 +31,14 @@
   .version-banner__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 </style>
 <div class="version-banner" role="status">
-  {% if version_context.state == 'trashed' %}
+  {% if version_context.state == 'unknown' %}
+  {# לא ידוע אינו "בסדר": השאילתה על הגרסה האחרונה נכשלה, ולכן אי אפשר
+     לומר שזו הגרסה העדכנית. אין כאן כפתורים, כי אין מזהה לגרסה אחרת. #}
+  <div class="version-banner__text">
+    <div class="version-banner__title">⚠️ לא ניתן לוודא אם זו הגרסה העדכנית</div>
+    <div class="version-banner__meta">אתם צופים בגרסה {{ version_context.version }}. פעולות העריכה מושבתות עד שהמצב יתברר — נסו לרענן.</div>
+  </div>
+  {% elif version_context.state == 'trashed' %}
   <div class="version-banner__text">
     <div class="version-banner__title">🗑️ הקובץ נמצא בסל המיחזור</div>
     <div class="version-banner__meta">כל הגרסאות שלו מסומנות כמחוקות. כדי לערוך אותו שוב יש לשחזר את הקובץ מהסל.</div>
@@ -56,7 +63,7 @@
   </div>
   {% endif %}
 </div>
-{% if version_context.state != 'trashed' %}
+{% if version_context.state == 'old' %}
 {# ``restore-version.js`` נטען ב-``extra_js`` של שתי התבניות שכוללות את
    הבאנר, ולא כאן, כדי שלא ייטען פעמיים בעמוד אחד. המאזין למטה קורא לו
    בזמן הלחיצה — אחרי ש-``extra_js`` כבר רץ. #}
