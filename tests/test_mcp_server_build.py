@@ -1,5 +1,8 @@
 """Smoke tests for the FastMCP wiring (tools registered, health route present)."""
 
+import re
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("mcp")
@@ -354,6 +357,53 @@ async def test_an_identifier_query_reaches_the_section_through_the_public_tool(m
     assert "גוף הסעיף" in payload["content"]
 
 
+async def test_a_markdown_section_reaches_the_caller_through_the_public_tool(monkeypatch):
+    """הפיצ'ר של ה-PR הזה, דרך הממשק שהלקוח באמת מפעיל.
+
+    התאום של הטסט שמעליו, ומאותו נימוק (``T1``): ``tests/test_mcp_docs_handlers.py``
+    מוכיח שה-handler מנתב נכון, וזה מוכיח שה**כלי** עושה זאת — דרך
+    הרישום, ולידציית הפרמטרים, ``current_user_id`` וההסבה ל-JSON.
+
+    הקלט הוא הצורה שבה הפיצ'ר באמת ייקרא: מזהה ``K11`` בעמוד Markdown של
+    ``amir-bug-patterns``, עם בקטיקים בכותרת — כלומר גם הניתוב לפי סיומת,
+    גם התאמת המזהה, וגם "הכותרת חוזרת כטקסט מקור" באותה קריאה.
+    """
+    import json
+
+    import mcp_server.server as srv
+
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    title = "K11. כשל שמדווח ב-`return` נבלע"
+    md = f"# דפוסים\n\n## {title}\n\nגוף הסעיף\n\n## K12. משהו אחר\n"
+
+    class _MdRepoBackend(_FakeRepoBackend):
+        def get_file(self, **k):
+            self.asked = dict(k)
+            return {"ok": True, "status": "ok",
+                    "file": {"path": k.get("path"), "ref": "HEAD",
+                             "resolved_commit": "c0ffee"},
+                    "content": md}
+
+    monkeypatch.setattr(srv, "current_user_id", lambda ctx=None: 7)
+
+    repo_backend = _MdRepoBackend()
+    mcp = build_mcp(_FakeBackend(), repo_backend=repo_backend)
+    blocks = await mcp.call_tool("codekeeper_docs_get_section", {
+        "path": "CRITICAL-PATTERNS", "section": "K11",
+        "repo": "amir-bug-patterns",
+    })
+
+    (block,) = blocks
+    payload = json.loads(block.text)
+    assert payload["ok"] is True and payload["mode"] == "section"
+    assert payload["section"] == title           # טקסט מקור, עם הבקטיקים
+    assert "גוף הסעיף" in payload["content"]
+    assert "K12" not in payload["content"]       # הסעיף נגמר לפני הבא באותה רמה
+    assert payload["includes"] == []             # שדה של RST, ריק ב-Markdown
+    # והשורש והסיומת הגיעו מהמדיניות של הריפו, לא מזו של CodeBot.
+    assert repo_backend.asked["path"] == "CRITICAL-PATTERNS.md"
+
+
 async def test_str_replace_is_not_advertised_as_idempotent():
     """``note_str_replace`` דורס אבל **אינו** אידמפוטנטי, ולכן אינו יכול
     לשאת את האנוטציה של ``update_note``.
@@ -673,10 +723,21 @@ async def test_the_tool_description_points_at_the_parameters_that_carry_the_deta
 #: לסוכן חתוך באמצע המשפט על RST ועל ``symbol=`` — שני פיצ'רים שעבדו ואף
 #: לקוח לא קרא עליהם.
 #:
-#: הבחירה ב-1,400: אחרי הפיצול הכלי הארוך ביותר הוא 1,125, השני אחריו
-#: ``codekeeper_docs_get_section`` ב-652, והחציון של 29 הכלים הוא 303.
-#: כלומר המספר נותן מרווח למשפט-שניים של גדילה טבעית, ונשאר הרבה מתחת
-#: לאזור שבו החיתוך נצפה בפועל.
+#: הבחירה ב-1,400: הכלי הארוך ביותר מבין 30 הכלים הוא
+#: ``codekeeper_get_repo_file`` ב-1,125 תווים. כלומר המספר נותן מרווח
+#: למשפט-שניים של גדילה טבעית, ונשאר הרבה מתחת לאזור שבו החיתוך נצפה
+#: בפועל.
+#:
+#: **שלושת המספרים בשורות האלה אינם פרוזה — הם מושווים לקוד בכל ריצה**
+#: ב-``test_the_ceiling_rationale_matches_what_the_tools_actually_carry``.
+#: הנוסח הקודם מנה שלושה מספרים אחרים, ו**שלושתם התיישנו בלי שאיש ידע**:
+#: הוא טען שהשני אחרי הארוך ביותר הוא ``codekeeper_docs_get_section``
+#: ב-652 — בזמן שהוא כבר היה 823, והשני בפועל היה כלי אחר לגמרי. מספר
+#: שמתאר מצב ומתעדכן בנפרד ממנו הוא ``state-record-without-state-change``,
+#: והתרופה היא לא לעדכן אותו אלא לקשור אותו. **והתקדים כבר בריפו:**
+#: ``services/md_parser.py`` משווה את שני המספרים שבפרוזה שלו למחוללים
+#: ב-``tests/test_md_parser_oracle.py::test_the_generated_shape_count_matches_the_prose``,
+#: מאותו נימוק בדיוק.
 #:
 #: .. warning::
 #:
@@ -717,6 +778,58 @@ async def test_no_tool_description_exceeds_the_truncation_budget():
         f"סופו: {over}. העבירו את העודף ל-Field(description=...) של הפרמטר "
         f"שהוא מתאר, במקום למחוק אותו."
     )
+
+
+#: שלושת המספרים שההנמקה מעל :data:`_TOOL_DESCRIPTION_MAX_CHARS` נוקבת
+#: בהם, בסדר שבו הם מופיעים שם: כמה כלים, מי הארוך ביותר, וכמה תווים יש בו.
+_CEILING_RATIONALE_RE = re.compile(
+    r"הכלי הארוך ביותר מבין (?P<tools>[\d,]+) הכלים הוא\s*\n"
+    r"#: ``(?P<name>[a-z_]+)`` ב-(?P<chars>[\d,]+) תווים"
+)
+
+
+def _int(text: str) -> int:
+    """מספר מהפרוזה, בלי הפסיקים שמפרידים אלפים."""
+    return int(text.replace(",", ""))
+
+
+async def test_the_ceiling_rationale_matches_what_the_tools_actually_carry():
+    """ההנמקה שמעל התקרה מתארת את המצב **של היום**, ולא של יום שעבר.
+
+    **זה שומר על נימוק, לא על התנהגות — וזו בדיוק הסיבה שהוא נחוץ.** מספר
+    בפרוזה אינו מפיל שום דבר כשהוא מתיישן: הוא פשוט הופך למשפט שקרי שהקורא
+    הבא בונה עליו. הנוסח שקדם לטסט הזה טען ש-``codekeeper_docs_get_section``
+    הוא השני באורכו ב-652 תווים; במדידה הוא היה 823, והשני בפועל היה כלי
+    אחר. אף בדיקה לא צעקה, כי לא היה מה שיצעק.
+
+    **ולמה דווקא שלושת המספרים האלה ולא גם החציון.** הם אלה שנושאים את
+    הטיעון — "התקרה גבוהה מהארוך ביותר, עם מרווח" — ולכן דווקא הם חייבים
+    להיות נכונים. החציון היה קישוט, והוא גם הפריט הרגיש ביותר: כל עריכת
+    תיאור שמזיזה את הכלי האמצעי הייתה מפילה את ה-CI בלי שאיש למד משהו.
+    שומר שצועק על רעש מאומן להתעלם ממנו.
+
+    **ואותה רשימת כלים בדיוק כמו התקרה עצמה** — ``_tool_manager.list_tools()``
+    ולא ``mcp.list_tools()``, מהנימוק שכתוב ב-
+    ``test_no_tool_description_exceeds_the_truncation_budget``. הכלי שבגללו
+    התקרה קיימת נעדר מהתצוגה המסוננת.
+    """
+    source = Path(__file__).read_text(encoding="utf-8")
+    stated = _CEILING_RATIONALE_RE.search(source)
+    assert stated, "ההנמקה מעל התקרה שינתה צורה — הטסט הזה איבד את מה שהוא משווה"
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    lengths = {tool.name: len(tool.description or "")
+               for tool in mcp._tool_manager.list_tools()}
+    longest = max(lengths, key=lambda name: (lengths[name], name))
+
+    assert _int(stated["tools"]) == len(lengths), (
+        f"ההנמקה אומרת {stated['tools']} כלים, ובפועל יש {len(lengths)}")
+    assert stated["name"] == longest, (
+        f"ההנמקה אומרת שהארוך ביותר הוא {stated['name']}, ובפועל {longest}")
+    assert _int(stated["chars"]) == lengths[longest], (
+        f"ההנמקה אומרת {stated['chars']} תווים, ובפועל {lengths[longest]}")
+    assert lengths[longest] < _TOOL_DESCRIPTION_MAX_CHARS, (
+        "הטיעון שההנמקה נושאת — שהתקרה גבוהה מהארוך ביותר — כבר אינו נכון")
 
 
 async def test_get_file_description_points_at_the_query_parameter():
@@ -808,6 +921,64 @@ def test_the_colour_param_doc_is_derived_from_the_palette():
     assert "color_id" in doc
     # ושהדחייה מוצהרת — סוכן שאינו יודע שערך פסול נדחה יניח שהוא הוחל.
     assert "refused" in doc
+
+
+async def test_the_path_param_doc_names_every_repo_and_suffix_the_policy_knows():
+    """מה שהסוכן קורא על ``path`` נגזר מטבלת המדיניות, ולא מוקלד לצידה.
+
+    אותו נימוק בדיוק שמעל ``test_the_colour_param_doc_is_derived_from_the_palette``:
+    ריפו שיתווסף לטבלה בלי שהתיאור יעודכן היה הופך לפיצ'ר שאף לקוח קורא
+    עליו, ולהפך — ריפו שיוסר היה משאיר הבטחה שקרית.
+
+    **ההתאמה היא על הערך המלא ולא על תת-מחרוזת.** ``".md" in doc`` היה
+    עובר גם על ``".mdx"``, ו-``"CodeBot" in doc`` עובר גם כשהתיאור מדבר
+    על ריפו אחר שהשם שלו מכיל אותו.
+    """
+    from mcp_server import docs_handlers
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    tool = mcp._tool_manager.get_tool("codekeeper_docs_get_section")
+    doc = tool.parameters["properties"]["path"]["description"]
+
+    for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
+        assert re.search(rf"(?<![\w-]){re.escape(repo)}(?![\w-])", doc), repo
+        assert re.search(rf"(?<!\w){re.escape(policy.suffix)}(?!\w)", doc), policy.suffix
+        root = policy.root
+        assert (f"{root}/" in doc) if root else ("repo root" in doc), repo
+
+    # ושני קודי הסירוב שהפרמטר הזה מייצר מוצהרים, אחרת סוכן שמקבל אותם
+    # אינו יודע אם הוא טעה בנתיב או שהפריסה אינה מכירה את הריפו.
+    assert "suffix_not_allowed" in doc and "repo_not_configured" in doc
+
+
+async def test_the_docs_tool_description_names_both_formats_and_points_at_path():
+    """תיאור הכלי אומר שיש שני פורמטים, ומפנה לפרמטר שמסביר מי מהם היכן.
+
+    ‏``"path" in description`` לבדו אינו מספיק — המילה מופיעה שם ממילא —
+    ולכן הבדיקה היא על ההפניה המפורשת, בדיוק כמו בטסט המקביל על
+    ``section``.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    description = mcp._tool_manager.get_tool("codekeeper_docs_get_section").description
+
+    assert "Markdown" in description and "RST" in description
+    assert "`path` parameter" in description
+    # ומה שכבר לא נכון אסור שיחזור: הכלי אינו מוגבל ל-docs/*.rst.
+    assert "docs/*.rst" not in description
+
+
+async def test_the_section_param_doc_covers_markdown_inline_markup_too():
+    """הכלל "הכותרת חוזרת כטקסט מקור" נאמר לשני הפורמטים ולא רק ל-RST.
+
+    הניסוח הקודם דיבר על ``literal`` בלבד, שהוא סימון של RST. קורא של
+    עמוד Markdown שכותרתו נכתבה ``**K11**`` היה מקבל אפס התאמות ומייחס
+    את זה לבאג — וזו אותה מחלקת הפתעה בדיוק שבגללה סעיף הבקטיקים נכתב
+    מלכתחילה.
+    """
+    from mcp_server.server import _SECTION_PARAM_DOC
+
+    assert "Markdown" in _SECTION_PARAM_DOC
+    assert "``literal``" in _SECTION_PARAM_DOC  # והכלל ל-RST לא נמחק בדרך
 
 
 #: שלושת המשטחים שמתארים לקורא מתי ``suggestions`` מחזיר מזהים.

@@ -1,9 +1,13 @@
 """Unit tests for the repo secrets-path policy (mandatory, fail-closed)."""
 
+from pathlib import Path
+
 import pytest
 
 from mcp_server import repo_policy
 from mcp_server.repo_policy import is_denied
+
+_ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.mark.parametrize(
@@ -78,3 +82,226 @@ def test_fail_closed_on_internal_error(monkeypatch):
 
     monkeypatch.setattr(repo_policy.fnmatch, "fnmatchcase", _boom)
     assert is_denied("main.py") is True
+
+
+# ===========================================================================
+# שם רגיש שהוא **תיקייה** ולא קובץ
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "config/.env/README.md",        # תיקיית .env בעומק אחד
+        "deep/a/b/credentials/notes.md",  # ובעומק שלושה
+        "a/secrets.d/x.md",
+        "keys/id_rsa/readme.md",
+        "certs/server.pem/notes.md",    # תבנית-סיומת כשם תיקייה
+        "x/.NETRC/y.md",                # וריאציית רישיות על תיקייה
+        "CONFIG/.ENV/readme.MD",
+    ],
+)
+def test_a_sensitive_directory_is_denied_at_any_depth(path):
+    """קובץ בתוך תיקייה ששמה רגיש נחסם — התיקייה היא שם, לא רק הקובץ.
+
+    **הכיסוי הקודם היה מקרי ולא חלקי, וזו הנקודה.** ההתאמה הייתה מול
+    ה-basename ומול הנתיב המלא בלבד, ו-``fnmatch`` מרשה ל-``*`` לחצות
+    ``/`` — ולכן ``credentials*`` תפס את ``credentials/notes.md`` רק מפני
+    שהתיקייה ישבה ב**רכיב הראשון**. אותה תיקייה בדיוק, רכיב אחד פנימה,
+    עברה. כל שבעת הנתיבים כאן הוחזרו ``False`` לפני התיקון.
+    """
+    assert is_denied(path) is True
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "envelope/notes.md",       # 'env' בלי הנקודה המובילה
+        "environment/readme.md",
+        "keys/notes.md",           # 'keys' אינו 'key'
+        "src/secrets_helpers/x.py",  # 'secrets_' אינו 'secrets.'
+        "docs/credential-rotation.md",  # 'credential-' אינו 'credentials'
+    ],
+)
+def test_a_directory_that_merely_resembles_a_secret_is_still_served(path):
+    """ריצת הבקרה להרחבה: שם שנראה דומה ואינו תואם — נשאר מותר.
+
+    בלי השורות האלה "ההרחבה לא חוסמת יותר מדי" הוא משפט בלי ראיה.
+    """
+    assert is_denied(path) is False
+
+
+def test_a_pattern_with_a_slash_still_matches_the_whole_path(monkeypatch):
+    """תבנית מ-``MCP_REPO_DENYLIST_EXTRA`` שמכילה ``/`` ממשיכה לעבוד.
+
+    זה מה שמוכיח שבדיקת הנתיב המלא אינה כפילות של סריקת הרכיבים: אף רכיב
+    בודד אינו ``internal/*``, ולכן רק ההשוואה לנתיב השלם תופסת אותה.
+    """
+    monkeypatch.setenv(repo_policy._EXTRA_ENV, "internal/*")
+    assert is_denied("internal/roadmap.md") is True
+    assert is_denied("public/roadmap.md") is False
+
+
+def test_the_policy_blocks_exactly_the_known_files_in_this_repository():
+    """על כל הריפו, המדיניות חוסמת בדיוק שני קבצים — ולא יותר.
+
+    **זה השומר מול חסימת-יתר, והוא אבסולוטי ולא יחסי.** מימוש-ייחוס של
+    הכלל הישן בתוך הטסט היה עותק שני שלו, ולכן הטענה היא על הרשימה עצמה:
+    ``.env`` ו-``.env.example``, ששניהם באמת אמורים להיחסם. מי שיוסיף
+    לריפו קובץ שנחסם — או ירחיב תבנית כך שתתפוס תיעוד — יראה את הרשימה
+    גדלה, ויחליט במודע.
+
+    ``git ls-files`` ולא ``rglob``, כי זה בדיוק מה שהמראה מגישה.
+
+    **ו-``-z`` עם פיצול על ``\\0``, לא ``split()`` על רווחים.** הגרסה
+    הראשונה פיצלה על רווחים, ולכן כל נתיב שיש בו רווח נחתך לשני מחרוזות
+    שאינן נתיבים. נמדד בריפו הזה: 10,174 נתיבים אמיתיים, חמישה מהם עם
+    רווח (``FEATURE_SUGGESTIONS/Features Archive/`` ו-
+    ``GUIDES/Debugging Guide.md``), ו-``split()`` החזיר 10,179 מחרוזות.
+    כלומר חמישה נתיבים אמיתיים לא נבדקו כלל, ועשרה לא-נתיבים נבדקו
+    במקומם — והטענה "על כל הריפו" לא הייתה נכונה.
+
+    **והשומר למטה לא היה יכול לתפוס את זה**, כי הריסוק רק **מגדיל** את
+    המספר. זו הצורה שבה טסט נראה יציב יותר ממה שהוא.
+    """
+    import subprocess
+
+    proc = subprocess.run(["git", "ls-files", "-z"], cwd=str(_ROOT),
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        pytest.skip("אין git או שזו אינה עבודה מגיט")
+    paths = [p for p in proc.stdout.split("\0") if p]
+    assert len(paths) > 1000, "רשימת הקבצים קצרה מדי — הבדיקה איבדה את הקורפוס שלה"
+    assert any(" " in p for p in paths), (
+        "אין בקורפוס אף נתיב עם רווח — הבדיקה איבדה את המקרה ש-``-z`` קיים בשבילו")
+
+    assert sorted(p for p in paths if is_denied(p)) == [".env", ".env.example"]
+
+
+# ===========================================================================
+# שתי מחציות של אותה מדיניות — ושתיהן נבדקות על אותו עץ
+# ===========================================================================
+
+
+def _seeded_mirror(tmp_path):
+    """מראה אמיתית עם שם רגיש כתיקייה, בכל אחת מהצורות.
+
+    ``clone --mirror`` ולא ריפו עובד — זה המבנה שהשירות מצפה לו
+    (``<base>/<repo>.git``), אותה צורה כמו ב-``tests/test_mcp_search_total.py``.
+    """
+    import subprocess
+
+    work = tmp_path / "work"
+    seeded = {
+        "config/.env/README.md": "SEEDTOKEN\n",
+        "deep/a/b/credentials/notes.md": "SEEDTOKEN\n",
+        "certs/server.pem/notes.md": "SEEDTOKEN\n",
+        "a/secrets.d/x.md": "SEEDTOKEN\n",
+        "keys/id_rsa/readme.md": "SEEDTOKEN\n",
+        ".env": "SEEDTOKEN\n",
+        "docs/ok.md": "SEEDTOKEN\n",
+    }
+    for name, body in seeded.items():
+        target = work / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+
+    def _git(*args, cwd):
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                       cwd=str(cwd), check=True, capture_output=True)
+
+    _git("init", "-q", "-b", "main", ".", cwd=work)
+    _git("add", "-A", cwd=work)
+    _git("commit", "-qm", "init", cwd=work)
+    subprocess.run(["git", "clone", "-q", "--mirror", str(work),
+                    str(tmp_path / "demo.git")], check=True, capture_output=True)
+    return seeded
+
+
+def test_the_search_side_skips_every_path_the_read_side_denies(tmp_path):
+    """שתי מחציות המדיניות מסכימות — נמדד מול git אמיתי, לא נגזר מקריאת קוד.
+
+    **וזו הייתה הסיבה שהמדידה נדרשה.** ``is_denied`` חוסם קריאה, והמנוע
+    מחריג את אותן תבניות מ-``git grep``; שתיהן נבנות מאותה רשימה, אבל
+    **סמנטיקת ההתאמה שלהן נפרדה**. נמדד על git 2.43.0 לפני התיקון: מתוך
+    שבעה קבצים שנזרעו, החיפוש החזיר גם את ``certs/server.pem/notes.md`` —
+    תיקייה ששמה תואם תבנית-סיומת, ש-``*.pem`` ו-``*/*.pem`` שניהם מפספסים
+    כי הם דורשים שהנתיב **יסתיים** ב-``.pem``.
+
+    הטענה כאן היא על ההסכמה עצמה ולא על רשימה מוקלדת: כל נתיב שהקריאה
+    חוסמת חייב להיעדר מתוצאות החיפוש, וההפך.
+    """
+    pytest.importorskip("services.git_mirror_service")
+    from services.git_mirror_service import GitMirrorService
+
+    seeded = _seeded_mirror(tmp_path)
+    mirror = GitMirrorService(base_path=str(tmp_path))
+    out = mirror.search_with_git_grep(
+        "demo", "SEEDTOKEN", exclude_paths=list(repo_policy.denylist_patterns()))
+
+    returned = {r["path"] for r in out.get("results", [])}
+    denied = {p for p in seeded if is_denied(p)}
+    allowed = set(seeded) - denied
+
+    assert denied, "אף נתיב שנזרע אינו נחסם — הזריעה איבדה את הנושא שלה"
+    assert returned & denied == set(), (
+        f"החיפוש החזיר נתיבים שהקריאה חוסמת: {sorted(returned & denied)}")
+    assert returned == allowed, (
+        f"החיפוש ותשובת הקריאה אינם מסכימים: חיפוש={sorted(returned)}, "
+        f"מותר={sorted(allowed)}")
+
+
+# ===========================================================================
+# ארבע צורות ה-pathspec — החצי השני של אותה מדיניות
+# ===========================================================================
+
+
+def test_every_pattern_becomes_four_exclude_forms_that_cover_a_component_anywhere():
+    """כל תבנית מתורגמת לארבע צורות, ולא לשתיים.
+
+    **למה טסט ישיר ולא רק דרך git.** ``test_the_search_side_skips_every_path_
+    the_read_side_denies`` למטה מוכיח את ההתנהגות שנובעת מהן, אבל הוא
+    מריץ תהליך git אמיתי, ואם מישהו יחזיר את הצורות לשתיים הוא ידווח על
+    "החיפוש והקריאה אינם מסכימים" — תסמין, לא סיבה. כאן הכשל אומר בדיוק
+    מה נמחק.
+
+    ארבע הצורות הן הפירוק של השאלה "האם רכיב כלשהו תואם" לשפה של git:
+    ``P`` לנתיב המלא, ``*/P`` לרכיב האחרון, ``P/*`` לרכיב הראשון,
+    ו-``*/P/*`` לרכיב באמצע. שתי האחרונות נוספו אחרי מדידה — בלעדיהן
+    ``certs/server.pem/notes.md`` נסרק, כי ``*.pem`` ו-``*/*.pem``
+    דורשים שהנתיב **יסתיים** ב-``.pem``.
+    """
+    from services.git_mirror_service import _exclude_pathspecs
+
+    assert _exclude_pathspecs(["*.pem"]) == [
+        ":(exclude,icase)*.pem",
+        ":(exclude,icase)*/*.pem",
+        ":(exclude,icase)*.pem/*",
+        ":(exclude,icase)*/*.pem/*",
+    ]
+
+
+def test_the_pathspecs_are_deduplicated_and_empty_patterns_are_dropped():
+    """ריצת הבקרה: תבנית כפולה אינה מכפילה, ותבנית ריקה אינה יוצרת pathspec.
+
+    בלי השורות האלה "ארבע צורות לכל תבנית" היה נשבר בשקט על רשימה
+    שמגיעה מ-``MCP_REPO_DENYLIST_EXTRA`` עם פסיק מיותר.
+    """
+    from services.git_mirror_service import _exclude_pathspecs
+
+    assert _exclude_pathspecs(["*.pem", "*.pem", "", "  "]) == \
+        _exclude_pathspecs(["*.pem"])
+    assert _exclude_pathspecs([]) == []
+
+
+def test_the_denylist_constant_is_named_for_what_it_matches():
+    """השם הוא המקום שאליו מגיע מי שבא להוסיף תבנית, ולכן הוא חלק מהחוזה.
+
+    ההתאמה אינה מול ה-basename מאז שסריקת הרכיבים נכנסה. שם שאומר
+    ``BASENAME`` היה מלמד את התורם הבא לכתוב תבנית לשם קובץ, ולא לדעת
+    שהיא נבדקת גם מול כל רכיב וגם מול הנתיב השלם.
+    """
+    assert hasattr(repo_policy, "PATH_DENYLIST")
+    assert not hasattr(repo_policy, "BASENAME_DENYLIST"), (
+        "השם הישן חזר — שני שמות לאותו קבוע הם בדיוק הסחיפה שהשינוי מנע")
+    assert repo_policy.PATH_DENYLIST[0] == ".env*"

@@ -13,6 +13,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -115,3 +116,58 @@ def test_a_control_that_stops_flipping_exits_one(tmp_path, capsys, monkeypatch):
     assert code == 1, report
     assert "לא תואם" in report
     assert "outcome_that_cannot_happen" in report
+
+
+@pytest.mark.parametrize("before", [None, "amir-bug-patterns,CodeBot"])
+def test_the_script_restores_the_env_it_pinned(tmp_path, monkeypatch, capsys, before):
+    """``main`` מקבע ``MCP_DOCS_REPO`` להרצה, ומחזיר בדיוק את מה שהיה.
+
+    **הקיבוע עצמו נכון, וההחזרה היא מה שהיה חסר.** ברירת המחדל של
+    ``MCP_DOCS_REPO`` קובעת מאז מדיניות הנתיבים גם את **הפורמט** שהסוללה
+    שואלת עליו, ולכן הסקריפט חייב לקבע אותה — אחרת "אפס דיף" יכול לתאר
+    שתי הרצות שכולן ``suffix_not_allowed``. אבל ``main`` נקרא מתוך תהליך
+    של טסטים, שלוש פעמים בקובץ הזה, ומשתנה שנדרס ולא מוחזר הוא
+    ``test-infra-shared-state`` §2.
+
+    נמדד לפני התיקון: קורא שהגדיר ``"amir-bug-patterns,CodeBot"`` מצא
+    ``"CodeBot"`` אחרי הקריאה.
+
+    **ושני הכיוונים נבדקים**, כי הם אינם אותו דבר: "לא היה מוגדר" דורש
+    **מחיקה**, ו-``""`` אינו תחליף — ``os.getenv`` מבדיל ביניהם.
+    """
+    monkeypatch.delenv("MCP_DOCS_REPO", raising=False)
+    if before is not None:
+        monkeypatch.setenv("MCP_DOCS_REPO", before)
+
+    script = _load_script()
+    code = script.main(["--corpus", str(_corpus(tmp_path, _CLEAN)),
+                        "--out", str(tmp_path / "snapshot.jsonl")])
+    capsys.readouterr()
+
+    assert code == 0
+    assert os.environ.get("MCP_DOCS_REPO") == before
+
+
+def test_the_script_pins_the_repo_while_it_runs(tmp_path, monkeypatch, capsys):
+    """ובתוך ההרצה הקיבוע אכן חל, גם כשהקורא הגדיר משהו אחר.
+
+    ריצת הבקרה לטסט שמעליו: בלעדיה "הערך חזר למה שהיה" היה יכול להיות
+    נכון גם אם הקיבוע הוסר לגמרי.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "amir-bug-patterns,CodeBot")
+    script = _load_script()
+
+    seen = []
+    original = script.docs_handlers.docs_get_section
+
+    def spy(*args, **kwargs):
+        seen.append(os.environ.get("MCP_DOCS_REPO"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(script.docs_handlers, "docs_get_section", spy)
+    script.main(["--corpus", str(_corpus(tmp_path, _CLEAN)),
+                 "--out", str(tmp_path / "snapshot.jsonl")])
+    capsys.readouterr()
+
+    assert seen, "אף קריאה לכלי לא נצפתה — הבדיקה איבדה את הנושא שלה"
+    assert set(seen) == {script.docs_handlers.DEFAULT_DOCS_REPO}

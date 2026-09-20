@@ -1864,7 +1864,10 @@ class ConfigService:
             default="CodeBot",
             description=(
                 "רשימת הריפואים המותרים (CSV allowlist) שכלי codekeeper_docs_get_section הציבורי "
-                "רשאי לקרוא מהם קבצי RST. גבול אבטחה — repo שאינו ברשימה נדחה. ברירת מחדל: CodeBot."
+                "רשאי לקרוא מהם קובצי תיעוד — RST או Markdown, לפי מדיניות הנתיבים של כל ריפו "
+                "ב-mcp_server/docs_handlers.py. גבול אבטחה — repo שאינו ברשימה נדחה, וריפו שברשימה "
+                "ואין לו מדיניות נדחה ב-repo_not_configured. הכניסה הראשונה היא ברירת המחדל ולכן "
+                "קובעת גם את הפורמט. ברירת מחדל: CodeBot."
             ),
             category="mcp",
             services=("mcp",),
