@@ -259,7 +259,11 @@ def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> 
     # זה בדיוק התקדים שכבר קיים במסלול ה-RST, שם ``add_section`` ו-
     # ``Capped.append`` שומרים על אותו מספר משני צדדים.
     if max_sections is not None and len(sections) > max_sections:
-        raise TooManySections(sections[max_sections].heading_line)
+        # הארגומנט הוא **סוף הקובץ** ולא שורת הסעיף החורג, וזה מכוון: זה
+        # המקום שאליו הפרסור באמת הגיע לפני שסירב. מספר שהיה מצביע על
+        # הסעיף עצמו היה נראה זהה לעצירה בתוך הפרסור, ואז הטענה "נעצרנו
+        # באמצע" לא הייתה ניתנת לבדיקה — נמדד בבדיקת מוטציה שבדיוק זה קרה.
+        raise TooManySections(len(lines))
 
     _finalize(sections, len(lines))
     return Document(lines=lines, sections=sections)

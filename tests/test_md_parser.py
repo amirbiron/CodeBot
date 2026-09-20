@@ -208,10 +208,31 @@ def test_the_ceiling_stops_inside_the_parse_and_not_after_it():
     """
     text = _many_headings(50)
     total_lines = len(text.split("\n"))
+    assert total_lines == 201, "הנחת המקרה"
     with pytest.raises(doc_sections.TooManySections) as caught:
         md_parser.parse_document(text, max_sections=5)
     stopped_at = caught.value.args[0]
-    assert 0 < stopped_at < total_lines // 2, (stopped_at, total_lines)
+
+    # הכותרת השישית — זו שחוצה תקרה של חמש — יושבת בשורה 21, והכלל נורה
+    # בתחילת הבלוק שאחריה. הסף כאן הדוק בכוונה: ``< total_lines`` לבדו
+    # היה עובר גם על מימוש שמפרסר הכול ומסנן בסוף, וזה בדיוק מה שנמדד
+    # בבדיקת מוטציה שקרה לניסוח הרופף הקודם.
+    assert 0 < stopped_at < 40, (stopped_at, total_lines)
+
+
+def test_the_second_gate_catches_a_section_that_the_in_parse_rule_never_sees():
+    """**השער השני אינו קוד מת, וזה נמדד.**
+
+    הכלל שבתוך הפרסור נקרא ב**תחילת** בלוק, ולכן הסעיף האחרון בקובץ —
+    זה שאין אחריו בלוק נוסף — אינו נסרק על ידו לעולם. בקלט הזה שש
+    הכותרות נגמרות בסוף הקובץ ממש, והסירוב מגיע מהשער שאחרי הפרסור.
+    הארגומנט הוא סוף הקובץ, וזה מה שמבדיל בין שני השערים.
+    """
+    text = "".join(f"## h{i}\n\n" for i in range(6))
+    total_lines = len(text.split("\n"))
+    with pytest.raises(doc_sections.TooManySections) as caught:
+        md_parser.parse_document(text, max_sections=5)
+    assert caught.value.args[0] == total_lines
 
 
 def test_a_file_with_exactly_the_ceiling_passes():
