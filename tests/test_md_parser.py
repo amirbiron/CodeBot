@@ -370,6 +370,46 @@ def test_token_map_covers_only_the_heading_line_itself():
 
 
 # ════════════════════════════════════════════════════════════════════
+# הרחבת ה-GFM היחידה שמזיזה כותרת
+# ════════════════════════════════════════════════════════════════════
+
+@pytest.mark.parametrize(
+    "name, source",
+    [
+        ("טבלה ואז --- צמוד", "| a | b |\n|---|---|\n| 1 | 2 |\n---\n\n## אחרי\n"),
+        ("טבלה ואז === צמוד", "| a | b |\n|---|---|\n| 1 | 2 |\n===\n\n## אחרי\n"),
+        ("טבלה בלי גוף ואז ---", "| a | b |\n|---|---|\n---\n\n## אחרי\n"),
+    ],
+)
+def test_a_table_is_a_table_and_not_a_setext_heading(name, source):
+    """**זו הרגרסיה שהפריסט ``commonmark`` לבדו מייצר.**
+
+    בלי ``enable("table")`` שורות הטבלה הן פסקה, והקו שאחריהן הופך אותה
+    לכותרת setext: מתקבל סעיף שכותרתו היא הטבלה כולה, **והסעיף שמעליו
+    נגמר לפני הטבלה במקום אחריה**. הטבלה המחוללת שב-
+    ``tests/test_md_parser_oracle.py`` לא כיסתה את המחלקה הזאת, כי היא
+    לעולם אינה מציבה שורת תא ושורת מפריד זו אחרי זו — ולכן הצורות האלה
+    מקובעות כאן בנפרד, ושם נוספה משפחה שמחוללת אותן.
+    """
+    sections = md_parser.parse_document(source).sections
+    assert [s.title for s in sections] == ["אחרי"], name
+
+
+def test_only_the_table_extension_is_enabled_on_top_of_commonmark():
+    """ארבע ההרחבות האחרות של GFM נבדקו ואינן משנות זיהוי כותרות.
+
+    ``strikethrough`` ו-``autolink`` הן inline, ``tagfilter`` נוגע
+    ברינדור, ו-``tasklist`` משנה פריט רשימה ולא גבול בלוק. הן נשארות
+    כבויות כדי שלא ידלק כאן שום דבר שלא נמדד.
+    """
+    block_rules = md_parser._MD.get_active_rules()["block"]
+    assert "table" in block_rules
+    inline_rules = md_parser._MD.get_active_rules()["inline"]
+    assert "strikethrough" not in inline_rules
+    assert "autolink" not in md_parser._MD.get_active_rules()["inline2"]
+
+
+# ════════════════════════════════════════════════════════════════════
 # ערוץ הכשל, ונעיצת התלויות
 # ════════════════════════════════════════════════════════════════════
 
@@ -408,6 +448,54 @@ def test_the_parser_dependencies_are_pinned_directly_in_base_requirements(packag
     assert found, f"{package} אינו נעוץ ישירות ב-requirements/base.txt"
     assert found.group(1) == metadata.version(package)
     __import__(module)
+
+
+#: הדרישות שנקראו מהמטא-דאטה של ``myst-parser`` בגרסה שנעוצה ב-
+#: ``docs/requirements.txt``. אילוץ, ולא העדפה: הוא זה שקובע כמה גבוה
+#: מותר לנעוץ ב-``requirements/base.txt``.
+_MYST_PINNED = "4.0.1"
+_MYST_REQUIRES = {"markdown-it-py": "3.0", "mdit-py-plugins": "0.4"}
+
+
+def test_the_parser_pins_can_be_installed_next_to_the_docs_toolchain():
+    """שני קבצי התלויות של הריפו הזה חייבים להיות ברי-התקנה יחד.
+
+    **וזה לא תיאורטי:** ``.github/workflows/documentation-py39.yml``
+    מתקין את ``docs/requirements.txt`` ואת ``requirements/production.txt``
+    לאותה סביבה, ומפתח שמריץ את שניהם יחד מקבל
+    ``ResolutionImpossible`` — נמדד. ``myst-parser==4.0.1`` דורש
+    ``markdown-it-py~=3.0``, ולכן נעיצה ל-4.2.0 כאן הייתה סתירה בין שני
+    קבצים באותו ריפו.
+
+    .. important::
+
+       **הטסט הזה ייפול כששדרגו את myst-parser, וזו המטרה.** הדרישות
+       שב-``_MYST_REQUIRES`` נקראו מהמטא-דאטה של הגרסה שב-
+       ``_MYST_PINNED``, ולכן שינוי בצד אחד מחייב לקרוא מחדש את הצד
+       השני. ‏myst-parser 5.x, למשל, דורש ``markdown-it-py~=4.2`` —
+       ואז **צריך** להעלות כאן, לא להשאיר.
+    """
+    import importlib.metadata as metadata
+
+    docs = (_REPO / "docs" / "requirements.txt").read_text(encoding="utf-8")
+    base = (_REPO / "requirements" / "base.txt").read_text(encoding="utf-8")
+
+    found = re.search(r"^myst-parser==(\S+)$", docs, re.MULTILINE)
+    assert found, "myst-parser אינו נעוץ ב-docs/requirements.txt"
+    assert found.group(1) == _MYST_PINNED, (
+        f"myst-parser עודכן ל-{found.group(1)} — קרא מחדש את הדרישות שלו "
+        f"ועדכן את _MYST_REQUIRES יחד עם הנעיצות ב-base.txt"
+    )
+
+    for package, required_series in _MYST_REQUIRES.items():
+        pinned = re.search(rf"^{re.escape(package)}==(\S+)$", base, re.MULTILINE)
+        assert pinned, f"{package} אינו נעוץ ב-requirements/base.txt"
+        assert pinned.group(1).startswith(required_series + "."), (
+            f"{package}=={pinned.group(1)} ב-base.txt אינו מקיים את "
+            f"~={required_series} ש-myst-parser {_MYST_PINNED} דורש"
+        )
+        # ומה שבאמת מותקן, כדי שהקובץ והסביבה לא ייפרדו בשקט
+        assert metadata.version(package) == pinned.group(1)
 
 
 def test_the_oracle_is_a_test_dependency_only():
