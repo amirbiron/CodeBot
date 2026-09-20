@@ -750,7 +750,10 @@ _PARSE_RSS_PER_INPUT_BYTE = 72
 #: Pricing by ``RANGE_READ_MAX_BYTES`` would have cut the public path to 4
 #: threads (at 77MiB) or 9 (at 37MiB) for a shape without a source. What did
 #: change because of this is :data:`_READ_POOL_CAP`; the root fix — bounding
-#: the read at its source with a size probe before ``git show`` — is #3433.
+#: the read at its source with a size probe before ``git show`` (#3433) — has
+#: landed in ``get_file_at_commit``: a blob over ``max_size`` is refused from
+#: ``git cat-file -s`` without being read (12MB: 20MiB peak before, 0 after,
+#: measured), so the hold above is now only what a file *under* the cap costs.
 _PARSE_COST_BYTES = _PARSE_RSS_PER_INPUT_BYTE * MAX_FILE_SIZE_FOR_DISPLAY
 
 
