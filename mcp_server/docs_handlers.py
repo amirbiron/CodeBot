@@ -25,6 +25,7 @@ from typing import Any, NamedTuple
 
 from services import doc_sections, md_parser, rst_parser
 from .handlers import _clamp
+from .outline_scanners import _ceiling
 
 logger = logging.getLogger(__name__)
 
@@ -375,7 +376,6 @@ def docs_get_section(
 
     content = res.get("content") or ""
     file_meta = res.get("file") or {}
-
     # ההקשר נבנה **לפני** הפרסור, כי גם סירוב צריך לומר איזה קובץ, באיזה ריפו
     # ובאיזה commit. ``{"error": "too_many_sections"}`` לבדו אינו ניתן לפעולה.
     context: dict[str, Any] = {
@@ -386,6 +386,27 @@ def docs_get_section(
 
     # ``resolved.suffix`` ולא גזירה שנייה מ-``file_path``: ראו :class:`_ResolvedPath`.
     parser = _PARSERS[resolved.suffix]  # לעולם לא KeyError: ראו _validate_policy_tables
+
+    # **תקרת הסקשנים עוברת ל-RST בלבד, ו-Markdown נשאר על ברירת המחדל של
+    # הפרסר שלו.** שני המסלולים מוגבלים לאותו מספר — ``_ceiling.MAX_SYMBOLS``
+    # ו-``md_parser.MAX_SECTIONS`` שניהם 50,000, וטסט קושר ביניהם — אבל הדרך
+    # שונה בכוונה: ל-``rst_parser`` ברירת המחדל היא ``None`` (קוראים אחרים
+    # שלו אינם מוגנים ויודעים זאת), ולכן הכלי מעביר את התקרה במפורש; ל-
+    # ``md_parser`` ברירת המחדל **היא** התקרה, והעברה מפורשת מכאן הייתה עותק
+    # שני של החלטה ש-PR הפארסר כבר הכריע. ``parser is rst_parser`` שואל על
+    # הפרסר ולא על הסיומת — זו תכונה של המודול, לא מקום שלישי שבו סמנטיקת
+    # הסיומת חיה. התקרה נקראת מהמודול **בזמן הקריאה**, כדי שהטסט יוכל
+    # להקטין אותה במקום להציף אותה.
+    #
+    # מה שהתקרה עוצרת ב-RST (סקירת #3429): כותרת בת תו אחד בכל שורה ב-500KB
+    # עולה 44.0MiB לפרסור אחד — יותר מ-35.2MiB שמאגר הקריאות מקצה לחוט
+    # (``_PARSE_COST_BYTES`` ב-``server.py``) — ואיתה נעצרת ב-20.1MiB. אף
+    # עמוד אמיתי אינו מתקרב: 500KB של העמוד הצפוף ביותר הם כ-3,300 סקשנים.
+    #
+    # **ומה שאף תקרה כאן אינה עוצרת, ונשאר פתוח:** Markdown עוין של שורות-
+    # תבליט בלי כותרות — 500KB עולים 141MiB ו-2.3 שניות, ו-``MAX_SECTIONS``
+    # סופר כותרות ולכן אינו נוגע בו. זה אישו #3391 ולא #3429.
+    parse_kwargs = {"max_sections": _ceiling.MAX_SYMBOLS} if parser is rst_parser else {}
 
     # **ה-``try`` הזה אינו ``K11``, וזה נכתב כדי שסקירה עתידית לא תגזור זאת
     # מחדש.** ``parse_document`` מתועד כ"ערוץ הכשל הוא חריגה בלבד": הוא אינו
@@ -404,7 +425,8 @@ def docs_get_section(
     # במסלול הזה, כי ``binary`` ו-``too_large`` נחסמו למעלה.
     #
     # תקרת המקביליות על הפרסור אינה כאן ואינה צריכה להיות: היא נגזרת מגודל
-    # מאגר הקריאות, ומקומה ב-lifespan של השרת — אישו #3391.
+    # מאגר הקריאות, ומקומה ב-lifespan של השרת — נחת ב-#3429.
+    #
     # **והמופע נקשר, כי הוא נושא את מספר השורה.** שתי החריגות נבנות עם
     # ארגומנט אחד — השורה (1-מבוססת) שגרמה לסירוב — וזו כל הסיבה שהן
     # חריגות ולא דגל. ``except X:`` בלי ``as`` זרק בדיוק את הערך היחיד
@@ -413,14 +435,18 @@ def docs_get_section(
     #
     # ``_line_of`` ולא ``exc.args[0]`` ישירות: חריגה שתיבנה מחר בלי
     # ארגומנט לא תפיל כאן ``IndexError`` באמצע בקשה.
+    #
+    # ``"max"`` הוא ``_ceiling.MAX_SYMBOLS`` בשני המסלולים, וזה נכון ל-Markdown
+    # רק מפני שהטסט שקושר את שתי התקרות מחזיק אותן שוות — בלעדיו המספר
+    # שמדווח על סירוב Markdown היה יכול להיות תקרה של פרסר אחר.
     try:
-        doc = parser.parse_document(content)
+        doc = parser.parse_document(content, **parse_kwargs)
     except doc_sections.InconsistentLineEndings as exc:
         return {"ok": False, "error": "inconsistent_line_endings",
                 **context, **_line_of(exc)}
     except doc_sections.TooManySections as exc:
         return {"ok": False, "error": "too_many_sections",
-                **context, **_line_of(exc)}
+                "max": _ceiling.MAX_SYMBOLS, **context, **_line_of(exc)}
 
     toc_items, toc_truncated = _toc(doc)
 
