@@ -373,6 +373,26 @@ def test_the_space_format_matches_and_the_full_name_still_works():
     assert len(doc_sections.find_sections(doc, "איך זה נראה")) == 2
 
 
+def test_a_dot_that_starts_a_sub_number_is_not_a_boundary():
+    """‏``K11`` אינו ``K11.1``, ולכן תת-סעיפים אינם הופכים את המזהה לרב-משמעי.
+
+    **זו אותה מחלקה בדיוק כמו ``K1`` מול ``K10``, רק במסווה של נקודה.**
+    הנקודה ב-``K11. טקסט`` **מסיימת** את המזהה, וב-``K11.1 טקסט`` היא
+    **מפרידה** בתוך מזהה ארוך יותר. גבול שנבדק כתו בודד בלי לשאול מה בא
+    אחריו היה מחזיר כאן שלוש התאמות ו-``ambiguous_section`` — כלומר
+    שובר בדיוק את הזרימה שהענף נבנה לתקן, ובקובץ שבו ``suggest`` ממליץ
+    להקליד ``K11``.
+
+    וכותרת בתת-מספור לא הולכת לאיבוד: היא נמצאת בשמה המלא, כמו כל כותרת.
+    **מוטציה:** הסרת ``(?!\d)`` מהרגקס מפילה את השורה הראשונה.
+    """
+    doc = _identified("K11. כשל", "K11.1 תת-סעיף", "K11.2 תת-סעיף")
+
+    assert [s.title for s in doc_sections.find_sections(doc, "K11")] == ["K11. כשל"]
+    assert doc_sections.find_sections(doc, "K11.1") == []
+    assert len(doc_sections.find_sections(doc, "K11.1 תת-סעיף")) == 1
+
+
 def test_a_repeated_identifier_returns_every_match():
     """מזהה שאינו ייחודי הוא ``ambiguous_section``, לא ניחוש.
 
@@ -414,6 +434,9 @@ def test_suggest_answers_an_identifier_query_with_the_files_identifiers():
     doc = _identified("K11. כשל", "K12. דגל", "איך זה נראה")
 
     assert doc_sections.suggest(doc, "K99") == doc_sections.Suggestions(["K11", "K12"], False)
+    # ובאותו קובץ: שאילתה שאינה מזהה ואין לה כותרת קרובה מקבלת רשימה ריקה,
+    # ולא את המזהים. זה השומר היחיד שנשאר בפונקציה, ולכן הוא נבדק כאן.
+    assert doc_sections.suggest(doc, "זזזז").titles == []
 
 
 def test_suggest_keeps_difflib_when_the_file_carries_no_identifiers():
@@ -431,6 +454,26 @@ def test_suggest_keeps_difflib_when_the_file_carries_no_identifiers():
 
     assert doc_sections.suggest(doc, "H2").titles == ["H2O"]
     assert doc_sections.suggest(doc, "Deploymen").titles == ["Deployment"]
+
+
+def test_suggest_prefers_a_close_title_over_the_identifier_list():
+    """‏``difflib`` קודם — ורשימת המזהים היא מוצא אחרון, לא ברירת מחדל.
+
+    **מחרוזת יכולה להיות בצורת מזהה בלי להיות מזהה במסמך הזה.** ``H2``
+    עובר את שומר הצורה, ובקובץ שיש בו ולו מזהה אחד הסדר ההפוך היה מחזיר
+    לו את רשימת המזהים — ``["K11"]`` — במקום את הכותרת ``H2O`` שיושבת
+    באותו קובץ ונמדדה כקרובה אליו (יחס 0.8). תשובה שאינה קשורה לשאלה
+    גרועה מתשובה ריקה.
+
+    **ומה שלא השתנה:** כששום כותרת אינה קרובה, הרשימה עדיין חוזרת —
+    זה מה שהטסט שמעל בודק. **מוטציה:** החזרת מסלול המזהים לראש הפונקציה
+    מפילה את זה.
+    """
+    doc = _identified("K11. כשל שמדווח בערך החזרה נבלע", "H2O")
+
+    assert doc_sections.suggest(doc, "H2").titles == ["H2O"]
+    # ובאותו קובץ בדיוק, שאילתת מזהה שאין לה כותרת קרובה — הרשימה כן חוזרת.
+    assert doc_sections.suggest(doc, "K99").titles == ["K11"]
 
 
 def test_suggest_caps_the_identifier_list_and_says_that_it_cut():

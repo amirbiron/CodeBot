@@ -168,6 +168,22 @@ _OUTLINE_PARAM_DOC = (
 # ה-escape ב-``services.backup\\_service`` הוא תו אמיתי בכותרת של עמוד
 # autodoc, ולא קישוט: בלעדיו ``symbol="backup_service"`` נראה כאילו הוא
 # אמור למצוא את העמוד, והוא אינו מוצא.
+_SYMBOL_PARAM_DOC = (
+    # ``full name`` נשמר במפורש מהניסוח הקודם ("symbol= filters on that full
+    # name"), כי הוא נושא מידע: הסינון הוא על השם המנוקד השלם ולא על החלק
+    # האחרון שלו, ולכן ``symbol="method"`` מוצא גם ``Class.method``.
+    # ההשוואה משפט-משפט מול הנוסח הישן היא מה שהעלתה שהוא נשמט.
+    "Narrows the outline to entries whose full name contains this substring, "
+    "case-insensitively. It works on every language's names, not just the "
+    "dotted Python ones: symbol=\"@media\" returns only the media queries "
+    "with their ranges, and symbol=\"#\" only the names carrying an id. "
+    "Matching is by substring in every language, so on RST symbol=\"_\" "
+    "returns the .. _label: targets and also any heading containing an "
+    "underscore; and an RST heading is the source text rather than the "
+    "rendered text, so an autodoc page is named services.backup\\_service "
+    "module and symbol=\"backup_service\" does not match it."
+)
+
 #: תיאור הפרמטר ``section`` של ``codekeeper_docs_get_section``.
 #:
 #: **הפירוט יושב כאן ולא בתיאור הכלי, וזו הכרעה שנמדדה.** תיאור הכלי נחתך
@@ -186,7 +202,10 @@ _SECTION_PARAM_DOC = (
     "nothing, the heading that OPENS with that identifier is returned "
     "(the identifier must be followed by a dot, a space, or the end of "
     "the heading). The identifier is parsed, not prefix-matched, so K1 "
-    "returns K1 alone and never K10-K15. An identifier that repeats in "
+    "returns K1 alone and never K10-K15, and a dot that starts a "
+    "sub-number is not a boundary either: K11 never returns K11.1, and a "
+    "sub-numbered heading is reachable by its full name only. "
+    "An identifier that repeats in "
     "the file is ambiguous_section with candidates, like any duplicate "
     "heading. A query that is not shaped like an identifier never takes "
     "this path. (2) BACKTICKS: headings are returned as raw source, so a "
@@ -195,22 +214,6 @@ _SECTION_PARAM_DOC = (
     "heading reads ``MissingGreenlet``. When an identifier query misses, "
     "the suggestions list holds the identifiers that DO exist in the file "
     "(at most 50; suggestions_truncated says so when it was cut)."
-)
-
-_SYMBOL_PARAM_DOC = (
-    # ``full name`` נשמר במפורש מהניסוח הקודם ("symbol= filters on that full
-    # name"), כי הוא נושא מידע: הסינון הוא על השם המנוקד השלם ולא על החלק
-    # האחרון שלו, ולכן ``symbol="method"`` מוצא גם ``Class.method``.
-    # ההשוואה משפט-משפט מול הנוסח הישן היא מה שהעלתה שהוא נשמט.
-    "Narrows the outline to entries whose full name contains this substring, "
-    "case-insensitively. It works on every language's names, not just the "
-    "dotted Python ones: symbol=\"@media\" returns only the media queries "
-    "with their ranges, and symbol=\"#\" only the names carrying an id. "
-    "Matching is by substring in every language, so on RST symbol=\"_\" "
-    "returns the .. _label: targets and also any heading containing an "
-    "underscore; and an RST heading is the source text rather than the "
-    "rendered text, so an autodoc page is named services.backup\\_service "
-    "module and symbol=\"backup_service\" does not match it."
 )
 
 
