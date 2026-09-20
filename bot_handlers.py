@@ -36,6 +36,7 @@ except Exception:  # pragma: no cover
     CodeImageGenerator = None  # type: ignore
 from rate_limiter import RateLimiter
 from config import config
+from runtime_settings import safe_mode_enabled
 from conversation_handlers import MAIN_KEYBOARD
 from pathlib import Path
 try:
@@ -3303,7 +3304,7 @@ class AdvancedBotHandlers:
             max_scan = max(10, min(max_scan, 100000))
             ttl_threshold = max(1, min(ttl_threshold, 3600))
 
-            safe_mode = str(os.getenv("SAFE_MODE", "")).strip().lower() in {"1", "true", "yes", "on"}
+            safe_mode = safe_mode_enabled()
             maint_disabled = str(os.getenv("DISABLE_CACHE_MAINTENANCE", "")).strip().lower() in {"1", "true", "yes", "on"}
             if safe_mode or maint_disabled:
                 reason = "SAFE_MODE פעיל" if safe_mode else "DISABLE_CACHE_MAINTENANCE=on"

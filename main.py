@@ -2996,12 +2996,12 @@ class CodeKeeperBot:
                     use_memory_fallback = False
 
                     if redis_url:
-                        # ודא חיבור מהיר ל-Redis; אם נכשל, נשתמש ב-MemoryStorage כדי למנוע TIMEOUT בטסטים
-                        connect_timeout = getattr(config, 'REDIS_CONNECT_TIMEOUT', None)
-                        try:
-                            connect_timeout = float(connect_timeout) if connect_timeout is not None else 0.25
-                        except Exception:
-                            connect_timeout = 0.25
+                        # ודא חיבור מהיר ל-Redis; אם נכשל, נשתמש ב-MemoryStorage כדי למנוע TIMEOUT בטסטים.
+                        # אותה הכרעה כמו ב-cache_manager, מאותה פונקציה — כדי שלא
+                        # יהיו שני מושגים של "כמה מחכים ל-Redis" באותו תהליך.
+                        from runtime_settings import redis_timeouts
+
+                        connect_timeout, _socket_timeout = redis_timeouts(config)
                         connect_timeout = max(0.05, connect_timeout)
 
                         if _redis_socket_available(str(redis_url), timeout=connect_timeout):

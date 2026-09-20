@@ -36,6 +36,8 @@ except Exception:  # redis אינו חובה – נריץ במצב מושבת א
 import asyncio
 from datetime import datetime, timedelta
 
+from runtime_settings import redis_timeouts, safe_mode_enabled
+
 logger = logging.getLogger(__name__)
 
 # מטריקות Prometheus (best-effort) — רישום חסין כפילויות
@@ -321,31 +323,11 @@ class CacheManager:
                 logger.info("CACHE_ENABLED=false - Cache מושבת במפורש")
                 return
 
-            # כיבוד timeouts מה-ENV, עם ברירות מחדל שמרניות ב-SAFE_MODE
-            safe_mode = str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on")
-            # כבד קונפיג מפורש גם אם הערך 0.0, אל תשתמש ב-or שמבטל 0
-            connect_timeout_cfg = (
-                getattr(_cfg, "REDIS_CONNECT_TIMEOUT", None) if _cfg is not None else None
-            )
-            socket_timeout_cfg = (
-                getattr(_cfg, "REDIS_SOCKET_TIMEOUT", None) if _cfg is not None else None
-            )
-            connect_timeout_env = os.getenv("REDIS_CONNECT_TIMEOUT")
-            socket_timeout_env = os.getenv("REDIS_SOCKET_TIMEOUT")
-
-            if connect_timeout_cfg is not None:
-                socket_connect_timeout = float(connect_timeout_cfg)
-            elif connect_timeout_env is not None:
-                socket_connect_timeout = float(connect_timeout_env)
-            else:
-                socket_connect_timeout = float("1" if safe_mode else "5")
-
-            if socket_timeout_cfg is not None:
-                socket_timeout = float(socket_timeout_cfg)
-            elif socket_timeout_env is not None:
-                socket_timeout = float(socket_timeout_env)
-            else:
-                socket_timeout = float("1" if safe_mode else "5")
+            # ה-timeouts מוכרעים במקום אחד בלבד. קודם ההכרעה ישבה כאן, עם
+            # ברירות מחדל משלה (5 ו-5) שסתרו את אלה שב-config.py (3 ו-5),
+            # והענף של SAFE_MODE לא נגע לעולם — כי השדה בקונפיג אף פעם לא
+            # היה None.
+            socket_connect_timeout, socket_timeout = redis_timeouts(_cfg)
 
             try:
                 max_conns_env = (
@@ -1027,7 +1009,7 @@ class CacheManager:
             return deleted_local
 
         # דילוג בטוח במצב SAFE_MODE או אם ביקשו לבטל תחזוקת קאש
-        if str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on") or str(
+        if safe_mode_enabled() or str(
             os.getenv("DISABLE_CACHE_MAINTENANCE", "")
         ).lower() in ("1", "true", "yes", "y", "on"):
             logger.info("SAFE_MODE/disable flag פעיל — דילוג על clear_stale")

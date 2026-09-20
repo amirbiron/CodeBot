@@ -1663,14 +1663,14 @@ class ConfigService:
             key="REDIS_CONNECT_TIMEOUT",
             services=("webapp", "bot", "mcp", "webserver"),
             default="3",
-            description="טיימאאוט התחברות ל-Redis (שניות)",
+            description="טיימאאוט התחברות ל-Redis (שניות). לא מוגדר ו-SAFE_MODE דולק ⇒ 1",
             category="cache",
         ),
         "REDIS_SOCKET_TIMEOUT": ConfigDefinition(
             key="REDIS_SOCKET_TIMEOUT",
             services=("webapp", "bot", "mcp", "webserver"),
             default="5",
-            description="טיימאאוט סוקט Redis (שניות)",
+            description="טיימאאוט סוקט Redis (שניות). לא מוגדר ו-SAFE_MODE דולק ⇒ 1",
             category="cache",
         ),
         "CACHE_ENABLED": ConfigDefinition(
@@ -2574,7 +2574,7 @@ class ConfigService:
             key="SAFE_MODE",
             services=("webapp", "bot", "mcp", "webserver"),
             default="false",
-            description="מצב בטוח - משבית פעולות מסוכנות",
+            description="מצב בטוח - משבית פעולות מסוכנות ומוריד את ברירות המחדל של ה-Timeouts ל-Redis ל-1",
             category="predictive",
         ),
         "DISABLE_PREEMPTIVE_ACTIONS": ConfigDefinition(

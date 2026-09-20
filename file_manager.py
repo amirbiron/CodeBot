@@ -204,7 +204,9 @@ class BackupManager:
             return {"skipped": True, "reason": "disabled_by_env"}
 
         # SAFE_MODE → אל תמחק מהדיסק (נחזיר skipped כדי להימנע מהפתעות בסביבת טסטים)
-        if str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "on"):
+        from runtime_settings import safe_mode_enabled
+
+        if safe_mode_enabled():
             return {"skipped": True, "reason": "safe_mode"}
 
         try:
