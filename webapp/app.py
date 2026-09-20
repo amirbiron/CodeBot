@@ -13715,7 +13715,7 @@ def view_file(file_id):
                          user_is_admin=user_is_admin,
                          is_premium=user_is_premium,
                          clear_edit_draft_for_id=clear_edit_draft_for_id,
-                             version_context=version_context,
+                         version_context=version_context,
                          file=file_data,
                          highlighted_code=highlighted_code,
                          syntax_css=css,
