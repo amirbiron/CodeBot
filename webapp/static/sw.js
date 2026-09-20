@@ -383,8 +383,15 @@ self.addEventListener('notificationclick', (event) => {
     // Normalize to absolute URL for best compatibility
     try { urlToOpen = new URL(urlToOpen, self.location.origin).toString(); } catch (_) {}
 
-    // Best-effort ack when we actually have a note id
-    if (noteId) {
+    // Best-effort ack when we actually have a note id.
+    //
+    // ‏`!isSnooze` אינו קישוט: ‏`shouldOpen` כולל בכוונה גם `snooze_10`,
+    // כפולבק לסביבות שבהן כפתורי הפעולה ממופים שגוי. כלומר לחיצה על
+    // "דחה 10 דק׳" הריצה קודם snooze ומיד אחריו ack — וה-ack ביטל את
+    // הדחייה שזה עתה נקבעה, כך שהתזכורת לא חזרה לעולם. שתי הפעולות
+    // סותרות: דחייה אומרת "תחזור אליי", אישור אומר "ראיתי, די".
+    // הדחייה גוברת.
+    if (noteId && !isSnooze) {
       try {
         fetch('/api/sticky-notes/reminders/ack', {
           method: 'POST',

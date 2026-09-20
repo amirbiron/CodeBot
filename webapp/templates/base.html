@@ -4438,9 +4438,28 @@
 })();
 </script>
 
+{% if _session_user_id %}
 <script>
 // Sticky note reminders indicator (persistent UI badge)
+//
+// הבלוק כולו מותנה בסשן. base.html היא תבנית הבסיס של 54 עמודים, וביניהם
+// עמודים ציבוריים לגמרי — דף ההתחברות, ו-/collections/shared/<token> שאין
+// עליו שום בדיקת הרשאה. שם הדגימה רצה אצל מי שלא מחובר וקיבלה 401 כל חמש
+// דקות, לנצח, בשביל כלום.
 (function initStickyRemindersIndicator(){
+  // התזמון נקבע מהתשובה, לא מקבוע.
+  //
+  // ‏MAX_POLL_MS אינו רק "לא לדגום יותר מדי": הוא גם התקרה שמונעת את
+  // ה-overflow של setTimeout. ה-delay מומר ל-int32 חתום, כלומר כל ערך מעל
+  // 2,147,483,647ms (כ-24.8 ימים) גולש — ותזכורת שנקבעה לעוד חודשיים הייתה
+  // מתוזמנת לזמן שרירותי, או נורית מיד. מקור: MDN, Window.setTimeout,
+  // "Maximum delay value". חצי שעה רחוקה מהגבול בשלושה סדרי גודל, וגם
+  // מבטיחה שתזכורת שנקבעה ממכשיר אחר (הבוט) תתגלה בתוך זמן סביר.
+  const MIN_POLL_MS = 60 * 1000;
+  const MAX_POLL_MS = 30 * 60 * 1000;
+  let pollTimer = null;
+  let lastPollAt = 0;
+
   function isMobile(){ return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
   // ניהול פופ־אפ פעיל והאזנות גלובליות
   let activeReminderPopover = null;
@@ -4584,11 +4603,16 @@
     if (closeBtn) closeBtn.addEventListener('click', () => { closePopover(); removeDot(); });
     if (snoozeBtn) snoozeBtn.addEventListener('click', () => { closePopover(); /* משאיר את הבועה גלויה */ });
   }
+  // מחזירה כמה מילישניות להמתין עד הבדיקה הבאה. כל יציאה מחזירה ערך —
+  // יציאה שתחזיר undefined פשוט תיפול לתקרה, ולא תשאיר את הלולאה תקועה.
   async function poll(){
     try {
-      if (document.visibilityState && document.visibilityState !== 'visible') { return; }
-      if (typeof window.__stickyRemindersBackoffUntil === 'number' && Date.now() < window.__stickyRemindersBackoffUntil) { return; }
+      if (document.visibilityState && document.visibilityState !== 'visible') { return MAX_POLL_MS; }
+      if (typeof window.__stickyRemindersBackoffUntil === 'number' && Date.now() < window.__stickyRemindersBackoffUntil) {
+        return window.__stickyRemindersBackoffUntil - Date.now();
+      }
       const r = await fetch('/api/sticky-notes/reminders/summary', { cache: 'no-store', credentials: 'same-origin' });
+      lastPollAt = Date.now();
       if (r.status === 429) {
         let backoffMs = 15 * 60 * 1000;
         try {
@@ -4599,14 +4623,20 @@
         } catch(_) {}
         window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;
         removeDot();
-        return;
+        return backoffMs;
       }
-      if (!r.ok) { removeDot(); return; }
+      if (!r.ok) { removeDot(); return MAX_POLL_MS; }
       const j = await r.json();
-      if (!j || j.ok === false || !j.has_due) { removeDot(); return; }
+      if (!j || j.ok === false || !j.has_due) {
+        removeDot();
+        // אין מה להציג. השרת אמר מתי התזכורת הבאה מבשילה; אין כזו —
+        // נשארים בתקרה, כדי לגלות תזכורת שתיקבע ממכשיר אחר.
+        const nextIn = j && typeof j.next_in_seconds === 'number' ? j.next_in_seconds : null;
+        return nextIn === null ? MAX_POLL_MS : nextIn * 1000;
+      }
       const target = isMobile() ? document.querySelector('.mobile-menu-toggle') : document.querySelector('.nav-link[href="/settings"]');
       const bubble = ensureBubble(target);
-      if (!bubble) return;
+      if (!bubble) { return MAX_POLL_MS; }
       // Update counter
       try { bubble.setAttribute('data-count', String(j.count_due || 0)); } catch(_) {}
       bubble.textContent = String(j.count_due || 1);
@@ -4619,13 +4649,39 @@
         } catch(_) { /* ignore */ }
       };
       bubble.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bubble.click(); } };
+      // הבועה מוצגת. אין דחיפות לשאול שוב — המשתמש כבר רואה שיש לו משהו.
+      return MAX_POLL_MS;
     } catch(_) { removeDot(); }
+    return MAX_POLL_MS;
   }
-  try { setInterval(poll, 5 * 60 * 1000); } catch(_) {}
-  try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); }); } catch(_) {}
-  poll();
+  function schedule(ms){
+    try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}
+    const requested = Number(ms);
+    const safe = Number.isFinite(requested) ? requested : MAX_POLL_MS;
+    const delay = Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, safe));
+    try { pollTimer = setTimeout(pollAndReschedule, delay); } catch(_) {}
+  }
+
+  async function pollAndReschedule(){
+    let nextMs = MAX_POLL_MS;
+    try { nextMs = await poll(); } catch(_) { nextMs = MAX_POLL_MS; }
+    schedule(nextMs);
+  }
+
+  // חזרה ללשונית מפעילה בדיקה — אבל לא בכל פעם. במכשיר נייד כל מעבר בין
+  // אפליקציות הוא visibilitychange, ובלי הרצפה הזו עצם השימוש במכשיר היה
+  // מייצר את רוב הקריאות.
+  try {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') { return; }
+      if (Date.now() - lastPollAt < MIN_POLL_MS) { return; }
+      pollAndReschedule();
+    });
+  } catch(_) {}
+  pollAndReschedule();
 })();
 </script>
+{% endif %}
 
 <script>
 // Announcement banner initialization — with dynamic fetch fallback

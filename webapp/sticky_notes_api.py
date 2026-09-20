@@ -37,6 +37,14 @@ from sticky_notes_target import (
     note_color_hex,
     note_color_id,
 )
+# מצב התזכורת — אותה שכבה טהורה, ומאותה סיבה: שלושה מודולים שואלים "האם
+# התזכורת פעילה", והתשובה חייבת להיות אחת.
+from note_reminder_state import (
+    ACTIVE_REMINDER_STATUSES,
+    acknowledge_fields,
+    active_reminder_filter,
+    seconds_until as _seconds_until,
+)
 # ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
 # תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
 # לעולם עדיפה על ייבוא שמפיל את המודול כולו.
@@ -987,7 +995,11 @@ def get_note_reminder(note_id: str):
         note = _ensure_user_owns_note(db, user_id, note_id)
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
-        r = db.note_reminders.find_one({'user_id': user_id, 'note_id': str(note_id), 'status': {'$in': ['pending', 'snoozed']}})
+        r = db.note_reminders.find_one({
+            'user_id': user_id,
+            'note_id': str(note_id),
+            'status': {'$in': list(ACTIVE_REMINDER_STATUSES)},
+        })
         if not r:
             return jsonify({'ok': True, 'reminder': None})
         out = {
@@ -1088,7 +1100,11 @@ def snooze_note_reminder(note_id: str):
             return jsonify({'ok': False, 'error': 'Invalid minutes'}), 400
         new_time = datetime.now(timezone.utc) + timedelta(minutes=minutes)
         r = db.note_reminders.update_one(
-            {'user_id': user_id, 'note_id': str(note_id), 'status': {'$in': ['pending', 'snoozed']}},
+            {
+                'user_id': user_id,
+                'note_id': str(note_id),
+                'status': {'$in': list(ACTIVE_REMINDER_STATUSES)},
+            },
             {'$set': {
                 'status': 'snoozed',
                 'snooze_until': new_time,
@@ -1113,33 +1129,70 @@ def reminders_summary():
     """Return minimal summary for persistent UI badge.
 
     Response:
-      { ok, has_due: bool, count_due: int, next: { note_id, file_id, remind_at } | null }
+      { ok, has_due: bool, count_due: int, next: {...} | null, next_in_seconds: int | null }
+
+    **``next_in_seconds`` הוא מה שמפסיק את הדגימה על ריק.** עד כאן הלקוח
+    דגם כל חמש דקות בלי קשר למצב, כי "כן/לא" היה כל מה שקיבל — 954 קריאות
+    ביממה שכולן החזירו "אין". השרת הוא היחיד שיודע גם *מתי* התזכורת הבאה,
+    ולכן הוא זה שאומר ללקוח מתי לחזור. אין תזכורת עתידית ← ``None``, והלקוח
+    נרדם עד הניווט הבא.
+
+    **והערך יחסי, לא חותמת.** ``remind_at`` שנקרא מהמסד הוא מודע-אזור רק
+    כל עוד הלקוח נבנה עם ``tz_aware`` — ומחרוזת ISO בלי offset נקראת
+    ב-JavaScript כזמן **מקומי**, כלומר שלוש שעות סטייה בלי שגיאה. מספר
+    שניות אין לו אזור זמן, והוא גם חסין לשעון לקוח שסוטה.
     """
     try:
         _ensure_indexes()
         user_id = int(session['user_id'])
         db = get_db()
         now = datetime.now(timezone.utc)
+        base_filter = active_reminder_filter()
+        base_filter['user_id'] = user_id
+        due_filter = dict(base_filter, remind_at={'$lte': now})
+        # רק שני השדות שהתשובה נושאת. הקוד הקודם משך את כל המסמכים המלאים
+        # ואז השתמש באורך הרשימה ובאיבר הראשון בלבד.
+        next_projection = {'note_id': 1, 'file_id': 1, 'remind_at': 1}
         try:
-            cursor = db.note_reminders.find({
-                'user_id': user_id,
-                'status': {'$in': ['pending', 'snoozed']},
-                'remind_at': {'$lte': now},
-                'ack_at': None,
-            }).sort('remind_at', 1)
+            count_due = int(db.note_reminders.count_documents(due_filter))
         except Exception:
-            cursor = []
-        items = list(cursor) if cursor is not None else []
-        has_due = len(items) > 0
+            count_due = 0
+        has_due = count_due > 0
         nxt = None
         if has_due:
-            first = items[0]
-            nxt = {
-                'note_id': str(first.get('note_id', '')),
-                'file_id': str(first.get('file_id', '')),
-                'remind_at': first.get('remind_at').isoformat() if isinstance(first.get('remind_at'), datetime) else None,
-            }
-        return jsonify({'ok': True, 'has_due': has_due, 'count_due': len(items), 'next': nxt})
+            try:
+                first = db.note_reminders.find_one(
+                    due_filter, next_projection, sort=[('remind_at', 1)]
+                )
+            except Exception:
+                first = None
+            if first:
+                remind_at = first.get('remind_at')
+                nxt = {
+                    'note_id': str(first.get('note_id', '')),
+                    'file_id': str(first.get('file_id', '')),
+                    'remind_at': remind_at.isoformat() if isinstance(remind_at, datetime) else None,
+                }
+        # מתי כדאי לשאול שוב. כשכבר יש תזכורת בשלה הלקוח מציג אותה ואינו
+        # צריך מועד, ולכן השאילתה הזו רצה רק כשאין מה להציג.
+        next_in_seconds = None
+        if not has_due:
+            try:
+                upcoming = db.note_reminders.find_one(
+                    dict(base_filter, remind_at={'$gt': now}),
+                    {'remind_at': 1},
+                    sort=[('remind_at', 1)],
+                )
+            except Exception:
+                upcoming = None
+            next_in_seconds = _seconds_until(upcoming.get('remind_at') if upcoming else None, now)
+        return jsonify({
+            'ok': True,
+            'has_due': has_due,
+            'count_due': count_due,
+            'next': nxt,
+            'next_in_seconds': next_in_seconds,
+        })
     except Exception:
         return jsonify({'ok': False, 'error': 'Failed'}), 500
 
@@ -1178,12 +1231,11 @@ def reminders_list():
         try:
             cursor = (
                 db.note_reminders
-                .find({
-                    'user_id': user_id,
-                    'status': {'$in': ['pending', 'snoozed']},
-                    'remind_at': {'$lte': now},
-                    'ack_at': None,
-                })
+                .find(dict(
+                    active_reminder_filter(),
+                    user_id=user_id,
+                    remind_at={'$lte': now},
+                ))
                 .sort('remind_at', 1)
                 .limit(limit_param)
             )
@@ -1275,17 +1327,29 @@ def reminders_list():
 @notes_rate_limit('note_reminders_ack', 300)
 @traced('sticky_notes.reminders_ack')
 def reminders_ack():
-    """Mark current due reminder as acknowledged (user opened it)."""
+    """Mark current due reminder as acknowledged (user opened it).
+
+    **סוגר את שני שדות המצב יחד.** עד כאן נכתב ``ack_at`` בלבד, ו-``status``
+    נשאר ``pending`` לנצח — כך שכרטיס הדשבורד, שסופר לפי ``status``, דיווח
+    תזכורות "בהמתנה" שאיש לא המתין להן. השדות מגיעים מ-
+    :func:`note_reminder_state.acknowledge_fields`, שמחזירה את שניהם או
+    אף אחד, ומונגו מחילה אותם ב-``$set`` יחיד.
+    """
     try:
         user_id = int(session['user_id'])
         db = get_db()
-        payload = request.get_json(silent=True) or {}
+        # ``or {}`` תופס רק גוף ריק. גוף JSON שהוא רשימה עובר אותו — הוא
+        # truthy — ואז ``.get`` זורק ``AttributeError`` שנבלע למטה ומוחזר
+        # כ-500 במקום 400. הבדיקה היא על הטיפוס, לא על האמיתות.
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            payload = {}
         note_id = str(payload.get('note_id') or '').strip()
         if not note_id:
             return jsonify({'ok': False, 'error': 'note_id required'}), 400
         r = db.note_reminders.update_one(
             {'user_id': user_id, 'note_id': note_id, 'ack_at': None},
-            {'$set': {'ack_at': datetime.now(timezone.utc), 'updated_at': datetime.now(timezone.utc)}}
+            {'$set': acknowledge_fields(datetime.now(timezone.utc))}
         )
         if getattr(r, 'matched_count', 0) <= 0:
             return jsonify({'ok': False, 'error': 'Not found'}), 404

@@ -9,6 +9,41 @@ import importlib
 sticky_mod = importlib.import_module('webapp.sticky_notes_api')
 
 
+def _matches(doc, query):
+    """התאמת מסמך לשאילתה — האופרטורים שמסלול התזכורות באמת משתמש בהם.
+
+    ``$lte``/``$gt`` על ``remind_at``, ``$in`` על ``status``, והשוואה ל-
+    ``None``. האחרונה אינה שוויון פייתוני רגיל: במונגו ``{f: None}`` תופס
+    גם מסמך **שאין בו השדה**, ו-``{f: {"$ne": None}}`` דורש שהשדה קיים
+    ואינו ריק. דמה שמתעלמת מזה עוברת על קוד שבור.
+    מקור: MongoDB Manual, "Query for Null or Missing Fields".
+    """
+    for k, v in query.items():
+        actual = doc.get(k)
+        if isinstance(v, dict):
+            if '$in' in v and actual not in v['$in']:
+                return False
+            if '$lte' in v and not (isinstance(actual, datetime) and actual <= v['$lte']):
+                return False
+            if '$gt' in v and not (isinstance(actual, datetime) and actual > v['$gt']):
+                return False
+            if '$gte' in v and not (isinstance(actual, datetime) and actual >= v['$gte']):
+                return False
+            if '$ne' in v:
+                if v['$ne'] is None:
+                    if k not in doc or actual is None:
+                        return False
+                elif actual == v['$ne']:
+                    return False
+        elif v is None:
+            # null או שדה חסר — שניהם מתאימים
+            if actual is not None:
+                return False
+        elif actual != v:
+            return False
+    return True
+
+
 class _StubColl:
     def __init__(self):
         self._docs = []
@@ -22,17 +57,15 @@ class _StubColl:
         return None
 
     # basic CRUD mocks
-    def find_one(self, query, *args, **kwargs):
-        # very naive match on _id and user_id
-        for d in self._docs:
-            ok = True
-            for k, v in query.items():
-                if d.get(k) != v:
-                    ok = False
-                    break
-            if ok:
-                return d
-        return None
+    def find_one(self, query, projection=None, *args, sort=None, **kwargs):
+        docs = [d for d in self._docs if _matches(d, query)]
+        if sort:
+            for key, direction in reversed(list(sort)):
+                docs.sort(key=lambda d: d.get(key), reverse=(direction < 0))
+        return docs[0] if docs else None
+
+    def count_documents(self, query, *args, **kwargs):
+        return len([d for d in self._docs if _matches(d, query)])
 
     def insert_one(self, doc):
         self._docs.append(dict(doc))
@@ -40,11 +73,31 @@ class _StubColl:
         return R()
 
     def update_one(self, filt, update, upsert=False):
-        # simplistic: record call and simulate matched
+        # **מעדכן באמת.** הגרסה הקודמת רק רשמה את הקריאה והחזירה
+        # ``matched_count=1``, ולכן כל טסט על *תוצאת* העדכון היה עובר גם
+        # על קוד שלא כתב כלום.
         self.calls.append(('update_one', filt, update, upsert))
+        matched = [d for d in self._docs if _matches(d, filt)]
+        if matched:
+            matched[0].update(dict(update.get('$set') or {}))
+        elif upsert:
+            fresh = {k: v for k, v in filt.items() if not isinstance(v, dict)}
+            fresh.update(dict(update.get('$set') or {}))
+            fresh.update(dict(update.get('$setOnInsert') or {}))
+            self._docs.append(fresh)
         class R:
-            matched_count = 1
-            modified_count = 1
+            matched_count = 1 if matched else 0
+            modified_count = 1 if matched else 0
+        return R()
+
+    def update_many(self, filt, update):
+        self.calls.append(('update_many', filt, update))
+        matched = [d for d in self._docs if _matches(d, filt)]
+        for d in matched:
+            d.update(dict(update.get('$set') or {}))
+        class R:
+            matched_count = len(matched)
+            modified_count = len(matched)
         return R()
 
     def delete_one(self, filt):
@@ -53,27 +106,18 @@ class _StubColl:
             deleted_count = 1
         return R()
 
-    def find(self, query):
-        # Support simple comparisons for remind_at and return a cursor-like object
-        def _match(doc):
-            for k, v in query.items():
-                if isinstance(v, dict) and '$in' in v:
-                    if doc.get(k) not in v['$in']:
-                        return False
-                elif isinstance(v, dict) and '$lte' in v:
-                    if not (isinstance(doc.get(k), datetime) and doc.get(k) <= v['$lte']):
-                        return False
-                else:
-                    if doc.get(k) != v:
-                        return False
-            return True
-        filtered = [d for d in self._docs if _match(d)]
+    def find(self, query, projection=None, *args, **kwargs):
+        filtered = [d for d in self._docs if _matches(d, query)]
 
         class _Cursor:
             def __init__(self, items):
                 self._items = list(items)
-            def sort(self, *args, **kwargs):
-                # Keep order as-is for tests; production sorts in DB
+            def sort(self, key=None, direction=1, **kw):
+                if key:
+                    self._items.sort(key=lambda d: d.get(key), reverse=(direction < 0))
+                return self
+            def limit(self, n):
+                self._items = self._items[:n]
                 return self
             def __iter__(self):
                 return iter(self._items)
@@ -169,6 +213,122 @@ class TestNoteRemindersAPI(unittest.TestCase):
         r = self.client.delete(f'/api/sticky-notes/note/{self.note_id}/reminder')
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()['ok'])
+
+    # --- מחזור החיים: ack סוגר את שני השדות ---
+
+    def _seed_due(self, **overrides):
+        doc = {
+            '_id': 'r1', 'user_id': self.user_id, 'note_id': self.note_id,
+            'file_id': 'file-1', 'status': 'pending',
+            'remind_at': datetime.now(timezone.utc) - timedelta(minutes=1),
+            'ack_at': None,
+        }
+        doc.update(overrides)
+        self.db.note_reminders._docs.append(doc)
+        return doc
+
+    def test_ack_closes_status_not_just_ack_at(self):
+        """ack חייב להוציא את התזכורת ממצב פעיל, לא רק לחתום עליה.
+
+        זה הטסט שנופל על הקוד שלפני התיקון: שם נכתב ``ack_at`` בלבד,
+        ו-``status`` נשאר ``pending`` — ולכן כרטיס הדשבורד המשיך לספור
+        אותה כ"בהמתנה".
+        """
+        self._login()
+        doc = self._seed_due()
+        r = self.client.post('/api/sticky-notes/reminders/ack', json={'note_id': self.note_id})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()['ok'])
+        self.assertIsNotNone(doc['ack_at'], 'ack_at לא נכתב')
+        self.assertEqual(doc['status'], 'acked', 'status נשאר במצב פעיל אחרי ack')
+
+    def test_summary_ignores_acked_reminder(self):
+        """תזכורת שאושרה אינה נספרת, גם אם status שלה עדיין ישן.
+
+        המסמך כאן מדמה את מה שיש היום במסד: ``ack_at`` מלא ו-``status``
+        שנשאר ``pending``. הפילטר חייב לפסול אותו על סמך ``ack_at``.
+        """
+        self._login()
+        self._seed_due(ack_at=datetime.now(timezone.utc))
+        data = self.client.get('/api/sticky-notes/reminders/summary').get_json()
+        self.assertFalse(data['has_due'])
+        self.assertEqual(data['count_due'], 0)
+
+    # --- next_in_seconds: מתי הלקוח צריך לחזור ---
+
+    def test_summary_reports_seconds_until_next_reminder(self):
+        self._login()
+        self.db.note_reminders._docs.append({
+            '_id': 'r-future', 'user_id': self.user_id, 'note_id': self.note_id,
+            'status': 'pending', 'ack_at': None,
+            'remind_at': datetime.now(timezone.utc) + timedelta(minutes=45),
+        })
+        data = self.client.get('/api/sticky-notes/reminders/summary').get_json()
+        self.assertFalse(data['has_due'])
+        self.assertIsNotNone(data['next_in_seconds'])
+        # כ-45 דקות, עם מרווח לזמן הריצה
+        self.assertGreater(data['next_in_seconds'], 45 * 60 - 60)
+        self.assertLessEqual(data['next_in_seconds'], 45 * 60)
+
+    def test_summary_reports_none_when_nothing_scheduled(self):
+        """אין תזכורות כלל — הלקוח מקבל None ומפסיק לדגום.
+
+        זה המצב שבו המערכת נמצאה בפועל: אוסף שכולו תזכורות סגורות,
+        ו-954 קריאות ביממה שכולן החזירו "אין".
+        """
+        self._login()
+        data = self.client.get('/api/sticky-notes/reminders/summary').get_json()
+        self.assertFalse(data['has_due'])
+        self.assertIsNone(data['next_in_seconds'])
+
+    def test_summary_rejects_non_dict_json_body(self):
+        """גוף JSON שאינו אובייקט מקבל 400, לא 500."""
+        self._login()
+        r = self.client.post(
+            '/api/sticky-notes/reminders/ack',
+            data=json.dumps([1, 2, 3]),
+            content_type='application/json',
+        )
+        self.assertEqual(r.status_code, 400)
+
+
+class TestReminderStateHelpers(unittest.TestCase):
+    """המודול הטהור — בלי Flask ובלי מסד."""
+
+    def test_active_filter_returns_a_fresh_dict(self):
+        from note_reminder_state import active_reminder_filter
+        a = active_reminder_filter()
+        a['user_id'] = 1
+        self.assertNotIn('user_id', active_reminder_filter())
+
+    def test_acknowledge_fields_sets_both_state_fields(self):
+        from note_reminder_state import acknowledge_fields, REMINDER_STATUS_ACKED
+        now = datetime.now(timezone.utc)
+        fields = acknowledge_fields(now)
+        self.assertEqual(fields['status'], REMINDER_STATUS_ACKED)
+        self.assertEqual(fields['ack_at'], now)
+
+    def test_seconds_until_tags_naive_values_as_utc(self):
+        """ערך נאיבי מהמסד לא מפיל את החישוב.
+
+        חיסור בין נאיבי למודע-אזור זורק TypeError בפייתון, והמסלול הזה
+        נקרא בכל טעינת עמוד.
+        """
+        from note_reminder_state import seconds_until
+        now = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+        naive = datetime(2026, 9, 20, 12, 10, 0)  # בלי tzinfo
+        self.assertEqual(seconds_until(naive, now), 600)
+
+    def test_seconds_until_clamps_past_values_to_zero(self):
+        from note_reminder_state import seconds_until
+        now = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+        past = datetime(2026, 9, 20, 11, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(seconds_until(past, now), 0)
+
+    def test_seconds_until_returns_none_for_missing_value(self):
+        from note_reminder_state import seconds_until
+        now = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+        self.assertIsNone(seconds_until(None, now))
 
 
 if __name__ == '__main__':
