@@ -74,6 +74,17 @@
     btn.addEventListener('click', function () {
       const version = parseInt(btn.getAttribute('data-version'), 10);
       if (!Number.isFinite(version)) { return; }
+      // ``restore-version.js`` נטען מ-``extra_js``, ולכן היעדרו הוא מצב
+      // אפשרי — ולחיצה שלא עושה כלום ובלי הודעה היא מה שאסור כאן.
+      if (typeof window.restoreFileVersion !== 'function') {
+        const message = 'רכיב השחזור לא נטען. רעננו את העמוד ונסו שוב.';
+        if (typeof window.showToast === 'function') {
+          window.showToast(message, 'error');
+        } else {
+          window.alert(message);
+        }
+        return;
+      }
       window.restoreFileVersion(btn.getAttribute('data-file-id'), version, btn, {
         viewPrefix: btn.getAttribute('data-view-prefix'),
       });

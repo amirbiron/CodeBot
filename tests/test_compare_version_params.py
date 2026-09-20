@@ -205,3 +205,33 @@ def test_the_api_does_not_query_the_latest_version_when_both_params_are_given(mo
     resp = _client(app).get(f"/api/compare/versions/{FILE_ID}?left=1&right=3")
     assert resp.status_code == 200
     assert not calls, f"נשלחה שאילתת גרסה אחרונה מיותרת: {calls}"
+
+
+def test_the_default_versions_come_from_the_set_and_not_from_arithmetic(monkeypatch):
+    """מספור הגרסאות אינו רציף, ולכן ``current - 1`` יכול לא להתקיים.
+
+    העברה לסל ואז שמירה מחדש משאירה את 1–3 לא פעילות ויוצרת גרסה 4,
+    ואז ``get_all_versions`` מחזיר רק את 4. החשבון נותן 3, לגרסה 3
+    אין ``<option>``, הדפדפן מסמן 4, וה-JS מבקש ``?left=3`` ומקבל 400 —
+    בדיוק הסתירה בין הרשימה לדיף שהטסטים כאן שומרים עליה.
+    """
+    app = _import_app()
+    _wire(monkeypatch, versions=(4,), doc_version=4)
+    body = _client(app).get(f"/compare/{FILE_ID}").get_data(as_text=True)
+
+    assert "leftVersion: 4" in body, "ברירת המחדל הצביעה על גרסה שאינה קיימת"
+    assert "rightVersion: 4" in body
+
+    import re
+    options = re.findall(r'<option\s+value="(\d+)"(.*?)>', body, re.S)
+    chosen = [int(v) for v, attrs in options if 'selected' in attrs]
+    assert chosen == [4, 4], f"הרשימות מסומנות על {chosen}"
+
+
+def test_a_gap_in_the_middle_still_defaults_to_two_real_versions(monkeypatch):
+    """גם כשחסרות גרסאות באמצע, שני הצדדים קיימים."""
+    app = _import_app()
+    _wire(monkeypatch, versions=(2, 7, 9), doc_version=9)
+    body = _client(app).get(f"/compare/{FILE_ID}").get_data(as_text=True)
+    assert "leftVersion: 7" in body, "ברירת המחדל דילגה על הגרסה הקיימת הקודמת"
+    assert "rightVersion: 9" in body

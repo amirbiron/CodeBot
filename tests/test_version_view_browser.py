@@ -156,3 +156,23 @@ def test_restoring_from_the_banner_creates_a_new_version(page, seeded, wired_mon
     assert newest["code"] == "print(1)\n", "הגרסה החדשה אינה נושאת את תוכן גרסה 1"
     # העמוד שאליו הגענו הוא הגרסה החדשה, ולכן בלי באנר.
     assert page.query_selector(".version-banner") is None
+
+
+def test_a_missing_restore_script_says_so_instead_of_doing_nothing(page, seeded):
+    """כפתור שלא עושה כלום ובלי הודעה הוא הכשל שאסור כאן.
+
+    כל עוד ה-``fetch`` היה inline הוא לא יכול היה להיעלם. מאז שהוא
+    ב-``restore-version.js``, "הקובץ לא נטען" הוא מצב אפשרי — והמשתמש
+    צריך לראות אותו.
+    """
+    page.click(".history-modal__item:last-child .history-modal__title a")
+    page.wait_for_selector("#versionBannerRestore", timeout=10000)
+    _dismiss_welcome(page)
+    page.evaluate("delete window.restoreFileVersion")
+
+    page.click("#versionBannerRestore")
+    page.wait_for_selector(
+        "text=רכיב השחזור לא נטען", timeout=5000,
+    )
+    # והכי חשוב: לא נוצרה גרסה חדשה בשקט.
+    assert page.url.endswith(f"/file/{seeded[1]}")

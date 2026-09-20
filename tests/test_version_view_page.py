@@ -428,3 +428,23 @@ def test_an_unverified_page_does_not_move_recently_opened_either(wired_mongo, mo
     assert db.recent_opens.find_one({"user_id": USER_ID}) is None, (
         "'נפתחו לאחרונה' עודכן למסמך שלא ניתן היה לוודא"
     )
+
+
+def test_the_markdown_page_hides_edit_on_an_old_version(wired_mongo):
+    """הבאנר הבטיח שהעריכה מושבתת — והכפתור היה שם.
+
+    הגזירה של הדגל נכתבה ב-``view_file.html`` בלבד, ולכן ``/md/`` הציג
+    באנר שאומר "פעולות העריכה מושבתות" ולצידו כפתור "ערוך" פעיל.
+    עריכה משם שומרת גרסה חדשה שתוכנה הוא התוכן הישן — החזרה אחורה של
+    הקובץ. מאז הדגל מגיע מהשרת, ושתי התבניות קוראות את אותו ערך.
+    """
+    ids = _seed(wired_mongo, versions=3, name="readme.md", language="markdown",
+                code_for=lambda v: f"# גרסה {v}\n")
+    client = _client(wired_mongo)
+
+    current = client.get(f"/md/{ids[3]}").get_data(as_text=True)
+    assert f'/edit/{ids[3]}' in current, "בקרה: הכפתור נעלם גם מהגרסה העדכנית"
+
+    old = client.get(f"/md/{ids[1]}").get_data(as_text=True)
+    assert BANNER_MARK in old
+    assert f'/edit/{ids[1]}' not in old, "אפשר לערוך גרסה ישנה מתצוגת Markdown"

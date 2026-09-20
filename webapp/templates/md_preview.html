@@ -1837,13 +1837,18 @@ input.md-task-checkbox {
       <a href="#" onclick="return goBackTwoSteps(event)" class="btn btn-secondary btn-icon" title="חזור למסך קודם"><i class="fas fa-arrow-right"></i> חזור</a>
       <!-- מפריד ויזואלי -->
       <span style="width:1px;height:24px;background:var(--glass-border,rgba(255,255,255,0.2));margin:0 0.25rem;"></span>
-      <!-- כפתור ערוך - רק למשתמשים מחוברים -->
+      <!-- כפתור ערוך - רק למשתמשים מחוברים, ורק על הגרסה העדכנית.
+           עריכה של גרסה ישנה שומרת גרסה חדשה שתוכנה הוא התוכן הישן,
+           כלומר החזרה אחורה של הקובץ — והבאנר ממילא הבטיח שהפעולה
+           מושבתת. -->
+      {% if not is_read_only_version %}
       <a href="/edit/{{ file.id }}"
          class="btn btn-secondary btn-icon"
          title="ערוך">
         <i class="fas fa-edit"></i>
         <span class="btn-text">ערוך</span>
       </a>
+      {% endif %}
       {% endif %}
       <!-- כפתור העתק קוד - זמין לכל המשתמשים -->
       <button id="mdCopySourceBtn"

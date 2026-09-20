@@ -759,11 +759,9 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     } catch(e) {}
 })();
 </script>
-{# האם העמוד הזה לקריאה בלבד. נקבע פעם אחת ונקרא בכל מקום שמסתיר
-   פעולה. **כל** מצב של ``version_context`` סוגר — גרסה ישנה, קובץ
-   בסל, ומצב שלא ניתן היה לוודא — כי בשלושתם הפעולה הייתה פועלת על
-   מסמך שאינו הגרסה הפעילה האחרונה. #}
-{% set is_read_only_version = version_context is defined and version_context %}
+{# ``is_read_only_version`` מגיע מהשרת. **כל** מצב של ``version_context``
+   סוגר — גרסה ישנה, קובץ בסל, ומצב שלא ניתן היה לוודא — כי בשלושתם
+   הפעולה הייתה פועלת על מסמך שאינו הגרסה הפעילה האחרונה. #}
 {% include "_version_banner.html" %}
 
 <div class="file-header">
@@ -2809,7 +2807,12 @@ function goBack(ev){
     // הקריאה עצמה יושבת ב-``static/js/restore-version.js``, כי גם באנר
     // הגרסה הישנה משחזר — ושני עותקים של אותו POST הם שתי דרכים להיסחף.
     function handleRestore(version, button) {
+        // חזרה שקטה כאן הייתה משאירה כפתור שלא עושה כלום ובלי הודעה.
+        // קודם ה-``fetch`` היה inline ולא יכול היה להיעלם; מאז שהוא
+        // בקובץ נפרד, "הקובץ לא נטען" הוא מצב אפשרי — ומצב שהמשתמש
+        // צריך לראות.
         if (typeof window.restoreFileVersion !== 'function') {
+            showToast('רכיב השחזור לא נטען. רעננו את העמוד ונסו שוב.', 'error');
             return;
         }
         window.restoreFileVersion(fileId, version, button, {

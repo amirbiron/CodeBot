@@ -13590,6 +13590,7 @@ def view_file(file_id):
                              is_premium=user_is_premium,
                              clear_edit_draft_for_id=clear_edit_draft_for_id,
                              version_context=version_context,
+                             is_read_only_version=is_read_only_version,
                              file={
                                  'id': str(file['_id']),
                                  'file_name': file['file_name'],
@@ -13624,6 +13625,7 @@ def view_file(file_id):
                              is_premium=user_is_premium,
                              clear_edit_draft_for_id=clear_edit_draft_for_id,
                              version_context=version_context,
+                             is_read_only_version=is_read_only_version,
                              file={
                                  'id': str(file['_id']),
                                  'file_name': file['file_name'],
@@ -13731,6 +13733,7 @@ def view_file(file_id):
                          is_premium=user_is_premium,
                          clear_edit_draft_for_id=clear_edit_draft_for_id,
                          version_context=version_context,
+                         is_read_only_version=is_read_only_version,
                          file=file_data,
                          highlighted_code=highlighted_code,
                          syntax_css=css,
@@ -13782,14 +13785,24 @@ def compare_versions_page(file_id: str):
         if v is not None
     }
 
+    # **ברירות המחדל נגזרות מהקבוצה ולא מחשבון.** ``current_version - 1``
+    # מניח שהמספור רציף, והוא אינו: העברה לסל ואז שמירה מחדש משאירה
+    # את 1–3 לא פעילות ויוצרת גרסה 4, ואז ``available == {4}`` בזמן
+    # שהחשבון נותן 3. לגרסה 3 אין ``<option>``, הדפדפן מסמן את 4,
+    # וה-JS מבקש ``?left=3`` ומקבל 400 — בדיוק הסתירה בין הרשימה לדיף
+    # שה-PR הזה בא לסגור. ערך שנגזר מהקבוצה אינו יכול לצאת ממנה.
+    ordered = sorted(available, reverse=True)
+    default_right = ordered[0] if ordered else current_version
+    default_left = ordered[1] if len(ordered) > 1 else default_right
+
     # שני הערכים נקבעים **פעם אחת** ומוזנים גם לרשימות הנפתחות וגם
     # ל-``CompareView.init``. קודם הם חושבו בשלושה מקומות בנפרד — כאן,
     # ב-``selected`` שבתבנית וב-``compare.js`` — ושלוש תשובות לאותה
     # שאלה הן שלוש דרכים להראות רשימה שאומרת דבר אחד ודיף שמראה אחר.
     selected_left, err_left = _compare_version_arg(
-        'left', max(1, current_version - 1), available or None)
+        'left', default_left, available or None)
     selected_right, err_right = _compare_version_arg(
-        'right', current_version, available or None)
+        'right', default_right, available or None)
     if err_left or err_right:
         # הפניה לכתובת הקנונית ולא רינדור שקט של ערכים אחרים: הכתובת
         # ומה שמוצג בה לא אמורים לסתור זה את זה.
@@ -16418,6 +16431,10 @@ def md_preview(file_id):
         user=session.get('user_data', {}),
         file=file_data,
         version_context=version_context,
+        # הדגל מגיע מהשרת ואינו נגזר מחדש בכל תבנית: ``/md/<גרסה ישנה>``
+        # הציג באנר שאומר "פעולות העריכה מושבתות" ולצידו כפתור "ערוך"
+        # פעיל, כי הגזירה נכתבה ב-``view_file.html`` בלבד.
+        is_read_only_version=is_read_only_version,
         md_code=code,
         bot_username=BOT_USERNAME_CLEAN,
         can_save_shared=False,
