@@ -310,6 +310,50 @@ async def test_repo_note_listing_uses_the_identity_the_gate_returned(monkeypatch
     assert seen["user_id"] == 4242
 
 
+async def test_an_identifier_query_reaches_the_section_through_the_public_tool(monkeypatch):
+    """התאמת המזהה, דרך הממשק שהלקוח באמת מפעיל.
+
+    **למה הטסט הזה קיים בנפרד מ-``tests/test_mcp_docs_handlers.py``.** שם
+    נקראת ``docs_handlers.docs_get_section`` ישירות — וזה מוכיח שהפונקציה
+    עובדת, לא שה**כלי** עובד. הצרכן של ``codekeeper_docs_get_section`` הוא
+    לקוח MCP, ובינו לבין ה-handler יושבים הרישום ב-``AdminAwareFastMCP``,
+    ולידציית הפרמטרים של pydantic, ``current_user_id``, וההסבה של ערך
+    ההחזרה לבלוק תוכן. טסט שאינו עובר דרכם מאמת את המפרט ולא את הצרכן —
+    זה ``T1`` ב-``TESTING-PATTERNS.md``, ובאותו נימוק בדיוק ``call_tool``
+    הציבורי נבחר כאן על פני ``_tool_manager``, כמו בטסטי הפתקים למעלה.
+
+    צורת ההחזרה **נמדדה ולא הונחה**: ב-``mcp==1.28.1`` החתימה היא
+    ``Sequence[ContentBlock] | dict``, ובפועל חוזר בלוק טקסט יחיד שגופו
+    ה-JSON — כלומר בדיוק הבייטים שהלקוח מקבל.
+    """
+    import json
+
+    import mcp_server.server as srv
+
+    title = "K11. כשל שמדווח בערך החזרה נבלע"
+    rst = f"Doc\n===\n\n{title}\n{'-' * 60}\n\nגוף הסעיף\n"
+
+    class _RstRepoBackend(_FakeRepoBackend):
+        def get_file(self, **k):
+            return {"ok": True, "status": "ok",
+                    "file": {"path": k.get("path"), "ref": "HEAD",
+                             "resolved_commit": "c0ffee"},
+                    "content": rst}
+
+    monkeypatch.setattr(srv, "current_user_id", lambda ctx=None: 7)
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_RstRepoBackend())
+    blocks = await mcp.call_tool(
+        "codekeeper_docs_get_section", {"path": "x", "section": "K11"}
+    )
+
+    (block,) = blocks          # בלוק אחד, ולא "הראשון מתוך כמה"
+    payload = json.loads(block.text)
+    assert payload["ok"] is True and payload["mode"] == "section"
+    assert payload["section"] == title
+    assert "גוף הסעיף" in payload["content"]
+
+
 async def test_str_replace_is_not_advertised_as_idempotent():
     """``note_str_replace`` דורס אבל **אינו** אידמפוטנטי, ולכן אינו יכול
     לשאת את האנוטציה של ``update_note``.
