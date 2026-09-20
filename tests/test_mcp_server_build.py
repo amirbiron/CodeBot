@@ -808,3 +808,90 @@ def test_the_colour_param_doc_is_derived_from_the_palette():
     assert "color_id" in doc
     # ושהדחייה מוצהרת — סוכן שאינו יודע שערך פסול נדחה יניח שהוא הוחל.
     assert "refused" in doc
+
+
+#: שלושת המשטחים שמתארים לקורא מתי ``suggestions`` מחזיר מזהים.
+#:
+#: **הם התפצלו כבר פעם אחת, וזה מה שהטסט שמתחתם קיים בשבילו.** הקוד עבר
+#: לסדר "difflib קודם" בקומיט שלישי, ושלושת המשטחים המשיכו לתאר את הכלל
+#: שהיה לפניו — כלומר סוכן שקרא את תיאור הכלי למד חוק שהקוד כבר אינו
+#: מקיים. זו בדיוק המחלקה שהסתירה את הבאג ב-#3379: הצהרה שהייתה נכונה
+#: ביום שנכתבה, ושקטה ביום שהתיישנה.
+#:
+#: לכל משטח **סמן נדרש** אחד לכל כלל שהוא חייב לשאת. הסמן אינו הניסוח
+#: המלא אלא הפסוקית שנושאת את המשמעות — מי שינסח מחדש ויפיל אותה מפיל
+#: את הטסט, ומי שרק ישפר סגנון סביבה אינו.
+#:
+#: **והסמן הוא הכלל ולא מונח שמופיע בהסבר שלו, וזה נמדד.** הגרסה הראשונה
+#: חיפשה את המחרוזת ``K11.1``, ומוטציה שמחקה את **הכלל** מ-``whats-new``
+#: שרדה אותה — כי המונח ממשיך להופיע במשפט שמסביר למה הנקודה מפרידה.
+#: כלומר האסרשן לא היה מסוגל ליפול, וזה אותו כשל שהוא נועד לתפוס.
+_SUGGESTION_RULE_SURFACES = (
+    ("תיאור הפרמטר section", "ONLY when nothing is close", "K11 never returns K11.1"),
+    ("docs/mcp-server.rst", "ורק כשאין אף כותרת קרובה",
+     "נקודה שפותחת תת-מספור אינה גבול"),
+    ("docs/whats-new.rst", "ורק כשאין אף כותרת קרובה",
+     "אינו מחזיר את ``K11.1``"),
+)
+
+
+def _suggestion_rule_texts() -> dict[str, str]:
+    """הטקסט של שלושת המשטחים, בשמות של :data:`_SUGGESTION_RULE_SURFACES`."""
+    from pathlib import Path
+
+    from mcp_server.server import _SECTION_PARAM_DOC
+
+    docs = Path(__file__).resolve().parent.parent / "docs"
+    texts = {
+        "תיאור הפרמטר section": _SECTION_PARAM_DOC,
+        "docs/mcp-server.rst": (docs / "mcp-server.rst").read_text(encoding="utf-8"),
+        "docs/whats-new.rst": (docs / "whats-new.rst").read_text(encoding="utf-8"),
+    }
+    # משטח שנקרא ריק אינו "עובר" — הוא אומר שהטסט איבד את מה שהוא מודד.
+    for name, text in texts.items():
+        assert text.strip(), f"משטח ריק: {name}"
+    return texts
+
+
+def test_the_suggestion_rule_says_the_same_thing_in_the_code_and_in_all_three_surfaces():
+    """הקוד ושלושת המשטחים שמתארים אותו אומרים אותו דבר — ולא יכולים להתפצל בשקט.
+
+    **שני חצאים, ושניהם חייבים להסכים.** החצי הראשון מריץ את ההתנהגות
+    עצמה: בעמוד שיש בו גם מזהה וגם כותרת קרובה, שאילתה בצורת מזהה חוזרת
+    עם ה**כותרת**. מי שיהפוך את הסדר ב-:func:`services.doc_sections.suggest`
+    מפיל אותו. החצי השני קורא את שלושת המשטחים ודורש שכל אחד נושא את
+    שתי הפסוקיות — התנאי על ``difflib``, וכלל תת-המספור. מי שיערוך משטח
+    אחד ויפיל ממנו פסוקית מפיל אותו.
+
+    **ולמה שניהם ביחד ולא שני טסטים.** טסט התנהגות לבדו עובר גם כשהתיעוד
+    משקר; טסט טקסט לבדו עובר גם כשהקוד השתנה תחתיו. מה שצריך להיאכף הוא
+    ה**הסכמה** ביניהם, וזה אובייקט אחד.
+    """
+    from services import rst_parser
+
+    # עמוד שיש בו מזהה, ולצידו כותרת שאינה מזהה אבל **קרובה** לשאילתה.
+    # ``H2`` מול ``H2O`` הוא יחס דמיון 0.8, כלומר מעל ה-cutoff של 0.5 —
+    # וזה המקרה היחיד שמבדיל בין שני הסדרים. נמדד, לא שוער.
+    doc = rst_parser.parse_document(
+        "Doc\n===\n\n"
+        "K11. כשל שמדווח בערך החזרה נבלע ואינו נבדק\n"
+        "-------------------------------------------\n\nגוף\n\n"
+        "H2O\n---\n\nגוף\n"
+    )
+    assert rst_parser.find_sections(doc, "H2") == [], "ההנחה של הטסט נשברה"
+    assert rst_parser.suggest(doc, "H2").titles == ["H2O"], (
+        "difflib אינו קודם לרשימת המזהים — הקוד חזר לסדר שהמשטחים כבר אינם מתארים"
+    )
+
+    texts = _suggestion_rule_texts()
+    missing = [
+        f"{name}: חסר {marker!r}"
+        for name, *markers in _SUGGESTION_RULE_SURFACES
+        for marker in markers
+        if marker not in texts[name]
+    ]
+    assert not missing, (
+        "משטח שמתאר את ``suggestions`` איבד פסוקית שהקוד כן מקיים:\n  "
+        + "\n  ".join(missing)
+        + "\nשלושתם מתארים את אותו כלל, ולכן עריכה של אחד היא עריכה של שלושה."
+    )

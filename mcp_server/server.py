@@ -211,9 +211,13 @@ _SECTION_PARAM_DOC = (
     "this path. (2) BACKTICKS: headings are returned as raw source, so a "
     "heading written with ``literal`` markup needs those backticks in the "
     "query too — section=\"MissingGreenlet\" finds nothing when the "
-    "heading reads ``MissingGreenlet``. When an identifier query misses, "
-    "the suggestions list holds the identifiers that DO exist in the file "
-    "(at most 50; suggestions_truncated says so when it was cut)."
+    "heading reads ``MissingGreenlet``. When a query misses, suggestions "
+    "holds a heading that is close to what you typed, whenever the file has "
+    "one. ONLY when nothing is close does it instead hold the identifiers "
+    "that DO exist in the file (at most 50; suggestions_truncated says so "
+    "when it was cut). So an identifier query can come back with a heading "
+    "rather than with identifiers — do not read the field as always being "
+    "identifiers."
 )
 
 
