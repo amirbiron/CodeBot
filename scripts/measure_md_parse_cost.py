@@ -160,7 +160,7 @@ def density(text: str, parser: str = "md") -> float:
     if parser == "md":
         from services import md_parser
 
-        return len(md_parser._build_parser().parse(text)) * 1024 / size
+        return md_parser.token_count(text) * 1024 / size
     from services import rst_parser
 
     return len(rst_parser.parse_document(text).sections) * 1024 / size

@@ -430,6 +430,19 @@ def test_every_ruler_a_real_parse_uses_is_compiled_before_publish(monkeypatch):
     )
 
 
+def test_token_count_is_the_tool_parsers_own_count_and_not_an_export():
+    """המדד למדידה סופר על ``_MD`` — המופע שהכלי מריץ — ונשאר מחוץ לחוזה של ``__all__``.
+
+    הסקריפט שמודד את עלות הפרסור קרא ל-``_build_parser`` הפרטית ובנה פרסר
+    חדש לכל קובץ; ``token_count`` היא אותה תלות בגלוי (#3433, SUGG-010).
+    """
+    text = "---\na: 1\n---\n\n# כותרת\n\n> ## בציטוט\n\n- פריט\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"
+
+    assert md_parser.token_count(text) == len(md_parser._MD.parse(text))
+    assert md_parser.token_count("") == 0
+    assert "token_count" not in md_parser.__all__
+
+
 def test_the_ceiling_anchor_fails_loudly_when_the_plugin_is_not_registered():
     """העוגן ``before("front_matter", ...)`` קונה כשל מיידי — ועל מה בדיוק.
 
