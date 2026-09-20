@@ -118,9 +118,6 @@ from services import doc_sections  # noqa: E402
 # ה-not-found גם בקובץ שכל כותרת בו נמצאת.
 _ABSENT_QUERY = "זזזז לא קיימת זזזז"
 
-#: סוגי תשובה שמשמעותם "הענף מצא משהו" — אלה שנספרים בדוח.
-_RESOLVED = frozenset({"section", "ambiguous_section"})
-
 #: שתי הבקרות הסינתטיות: שם, טקסט RST, השאילתה, **ערך ההשוואה**, והנימוק.
 #: הן מודדות את מבחן הגבול עצמו ולא את צורת השאילתה, ולכן הן נחוצות — על
 #: הקורפוס שתיהן היו מחזירות "לא נמצא", משתי סיבות שונות לגמרי.
@@ -339,7 +336,6 @@ def main(argv: list[str] | None = None) -> int:
     tally: Counter[str] = Counter()
     records = 0
     probes = 0
-    lit: list[dict[str, Any]] = []      # שאילתות מזהה שהדליקו את הענף בקורפוס
     carried: list[dict[str, str]] = []  # כותרות בקורפוס שנושאות מזהה — ההנחה שנשברת
 
     out_path = Path(args.out)
@@ -372,8 +368,6 @@ def main(argv: list[str] | None = None) -> int:
                 digest.update(line.encode("utf-8"))
                 records += 1
                 probes += 1
-                if rec["outcome"] in _RESOLVED:
-                    lit.append(rec["identifier_probe"] | {"outcome": rec["outcome"]})
 
     print(f"קבצים:   {len(files)}")
     print(f"רשומות:  {records}")
@@ -382,8 +376,13 @@ def main(argv: list[str] | None = None) -> int:
     for key, count in sorted(tally.items()):
         print(f"  {key}: {count}")
 
+    # **אין כאן שורת "מהן נפתרו", וזו הסרה מכוונת.** כשהפרובים היו רשימה
+    # קבועה, "פרוב שנפתר" היה אירוע: מחרוזת שנוחשה מראש הצליחה למצוא משהו.
+    # מאז שהם נגזרים מהכותרות, פרוב הוא **תמיד** מזהה שקיים בקובץ, ולכן
+    # הוא תמיד נפתר — הספירה הייתה שווה תמיד למספר הפרובים, ולא יכלה לומר
+    # דבר. השאלה היחידה שנשארה בעלת משמעות היא כמה מזהים יש בקורפוס בכלל.
     print(f"\nמזהים שנמצאו בקורפוס: {len(carried)} (מצופה: 0)")
-    print(f"שאילתות שנגזרו מהם: {probes} — מהן נפתרו: {len(lit)}")
+    print(f"שאילתות שנגזרו מהם ונרשמו בתצלום: {probes}")
     for hit in carried[:20]:
         print(f"  {hit['path']} · כותרת שנפתחת במזהה {hit['identifier']!r}")
 

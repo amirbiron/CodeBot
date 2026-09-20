@@ -141,13 +141,23 @@ def test_suggestions_truncated_appears_only_when_the_list_was_cut():
         _TextBackend(_identified_rst("K1. א", "K2. ב")), path="x", section="K99")
     assert "suggestions_truncated" not in few
 
-    # והכמות שסוכן מקבל בפועל היא ברירת המחדל של ``suggest`` ולא התקרה,
-    # כי ה-handler אינו מעביר ``n``. זה המספר שכתוב בתיאור הפרמטר.
+    # **עמוד בגודל רגיל נענה במלואו, וזה העיקר כאן.** רשימת מזהים היא
+    # מלאי ולא דירוג, ולכן ה-handler מבקש את התקרה במפורש. הקובץ העשיר
+    # ביותר בקורפוס שהסוכנים קוראים נושא 16 מזהים — גרסה קודמת החזירה
+    # עליו חמישה בסדר הופעה, כך שסוכן ששאל ``K11`` לא ראה אותו כלל.
+    sixteen = docs_handlers.docs_get_section(
+        _TextBackend(_identified_rst(*[f"K{i}. טקסט" for i in range(1, 17)])),
+        path="x", section="Z9")
+    assert len(sixteen["suggestions"]) == 16, "העמוד לא נענה במלואו"
+    assert "K11" in sixteen["suggestions"]
+    assert "suggestions_truncated" not in sixteen
+
+    # והתקרה עדיין קיימת, ועדיין אומרת שהיא נגעה
     many = docs_handlers.docs_get_section(
         _TextBackend(_identified_rst(*[f"K{i}. טקסט" for i in range(1, 52)])),
         path="x", section="Z9")
     assert many["suggestions_truncated"] is True
-    assert len(many["suggestions"]) == doc_sections.DEFAULT_SUGGESTIONS == 5
+    assert len(many["suggestions"]) == doc_sections.MAX_IDENTIFIER_SUGGESTIONS == 50
 
 
 def test_ambiguous_section_returns_candidates_with_breadcrumb():

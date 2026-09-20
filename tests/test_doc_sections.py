@@ -617,7 +617,7 @@ def test_four_digits_or_four_letters_are_not_an_identifier(too_long):
     assert doc_sections._leading_identifier(too_long) is None
 
 
-@pytest.mark.parametrize("arabic_indic", ["K١١", "K۱۲", "U٣"])
+@pytest.mark.parametrize("arabic_indic", ["K\u0661\u0661", "K\u06f1\u06f2", "U\u0663"])
 def test_non_ascii_digits_are_not_an_identifier(arabic_indic):
     """‏``[0-9]`` ולא ``\\d`` — ספרה ערבית-הודית אינה ספרה כאן.
 
@@ -634,26 +634,44 @@ def test_non_ascii_digits_are_not_an_identifier(arabic_indic):
 def test_a_bidi_mark_does_not_hide_a_heading_from_either_lookup():
     """סימן כיווניות אינו מסתיר כותרת — לא בשמה המלא ולא לפי המזהה.
 
-    **זה רלוונטי בדיוק בריפו הזה:** הפרוזה העברית כאן מציבה ``\\u200f``
-    סביב אסימונים לטיניים, וכותב הכותרת אינו רואה אותו. ‏``str.strip()``
-    אינו מסיר אותו, ולכן לפני התיקון כותרת כזו יצאה מכל מסלולי החיפוש
-    בבת אחת.
+    **זה רלוונטי בדיוק בריפו הזה:** הפרוזה העברית כאן מציבה סימן
+    ימין-לשמאל סביב אסימונים לטיניים, וכותב הכותרת אינו רואה אותו.
+    ``str.strip()`` אינו מסיר אותו, ולכן לפני התיקון כותרת כזו יצאה מכל
+    מסלולי החיפוש בבת אחת.
 
-    **התווים כתובים כרצפי ``\\u`` בכוונה, ולא כתווים עצמם.** טסט שנכתב
-    עם תווי כיווניות ליטרליים נכשל על עצמו: המקור נראה לקורא שונה ממה
-    שהוא, וההצבה של הסימן בשורה אינה מה שנדמה. זה כלל מפורש ב-
-    ``BY-STACK/hebrew-source.md``.
+    **והטסט בודק את החומר שלו לפני שהוא נשען עליו — וזה לא קישוט.**
+    הגרסה הראשונה של הטסט הזה נכתבה עם הסימן **כתו ממשי** במקור, בניגוד
+    לדוקסטרינג של עצמה. הנזק אינו אסתטי: אם התו נעלם — עורך, העתקה, כלי
+    שמנקה רווחים — הוא נעלם **גם מהקלט וגם מערך הציפייה**, וכל האסרשנים
+    ממשיכים לעבור. כלומר הכיסוי מתאדה בלי שאף אחד ידע, והטסט מפסיק להיות
+    מסוגל ליפול על הדבר שהוא נועד לבדוק. זה בדיוק מה ש-
+    ``BY-STACK/hebrew-source.md`` מזהיר מפניו.
+
+    לכן הסימן מוגדר **פעם אחת כרצף בריחה**, ושתי השורות הראשונות בגוף
+    מאמתות שהוא באמת מה שחשבנו ושהוא באמת נכנס לנתונים. מחיקה של התו
+    מהמקור אינה יכולה לפגוע בקבוע — הוא נבנה מרצף, לא ממחרוזת ליטרלית.
     """
-    doc = _identified("‏K11. כשל שמדווח בערך החזרה", "K12. אחר")
+    import unicodedata
+
+    RLM = "\u200f"
+    assert unicodedata.category(RLM) == "Cf", "הקבוע אינו תו פורמט — המקור שונה"
+
+    marked = RLM + "K11. כשל שמדווח בערך החזרה"
+    assert RLM in marked, "הסימן לא נכנס לנתוני הטסט"
+
+    doc = _identified(marked, "K12. אחר")
 
     # הכותרת נמצאת בשמה המלא — גם כשהשואל לא הקליד את הסימן
     found = doc_sections.find_sections(doc, "K11. כשל שמדווח בערך החזרה")
-    assert [s.title for s in found] == ["‏K11. כשל שמדווח בערך החזרה"]
+    assert [s.title for s in found] == [marked]
 
     # וגם לפי המזהה
-    by_id = doc_sections.find_sections(doc, "K11")
-    assert [s.title for s in by_id] == ["‏K11. כשל שמדווח בערך החזרה"]
+    assert [s.title for s in doc_sections.find_sections(doc, "K11")] == [marked]
 
     # ומהכיוון ההפוך: הסימן בשאילתה אינו מסתיר כותרת נקייה
-    assert [s.title for s in doc_sections.find_sections(doc, "‏K12")] == ["K12. אחר"]
-    assert doc_sections._identifier_query("‏K12") == "k12"
+    assert [s.title for s in doc_sections.find_sections(doc, RLM + "K12")] == ["K12. אחר"]
+    assert doc_sections._identifier_query(RLM + "K12") == "k12"
+
+    # **והכותרת חוזרת לקורא כטקסט המקור, עם הסימן.** הנרמול מייצר מפתח
+    # השוואה בלבד; מי שיחזיר את הצורה המנורמלת ישנה את מה שהסוכן רואה.
+    assert found[0].title == marked

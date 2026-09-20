@@ -892,11 +892,11 @@ def test_the_suggestion_rule_says_the_same_thing_in_the_code_and_in_all_three_su
     # המצופה **מחושבת כאן מהקבוע**, ולא מוקלדת לצד שלושת המשטחים.
     from services import doc_sections
 
-    count = doc_sections.DEFAULT_SUGGESTIONS
+    count = doc_sections.MAX_IDENTIFIER_SUGGESTIONS
     numbers = {
         "תיאור הפרמטר section": f"at most {count};",
-        "docs/mcp-server.rst": f"**והכמות: {count} הצעות.**",
-        "docs/whats-new.rst": f"— {count} הצעות,",
+        "docs/mcp-server.rst": f"**והכמות: עד {count} הצעות.**",
+        "docs/whats-new.rst": f"המזהים שכן קיימים — עד {count},",
     }
     stale = [f"{name}: חסר {marker!r}" for name, marker in numbers.items()
              if marker not in texts[name]]
@@ -926,18 +926,15 @@ def test_the_section_param_doc_derives_the_count_from_the_constant():
     שמישהו משנה את הקבוע. הסוכן ימשיך לקרוא את הישן, בלי שגיאה ובלי
     שאף בדיקה תשים לב.
 
-    **והמספר שנגזר הוא ``DEFAULT_SUGGESTIONS`` ולא ``MAX_IDENTIFIER_SUGGESTIONS``,
-    וזו הכרעה.** לקוח MCP אינו יכול להעביר ``n`` — אין פרמטר כזה בכלי —
-    ולכן מה שהוא מקבל בפועל הוא ברירת המחדל. גזירה נכונה של התקרה הייתה
-    מספר מדויק על שאלה שאיש לא שאל.
+    **והמספר שנגזר הוא ``MAX_IDENTIFIER_SUGGESTIONS`` ולא
+    ``DEFAULT_SUGGESTIONS``, וזו הכרעה שהתהפכה פעם אחת.** גרסה קודמת גזרה
+    את ברירת המחדל, בנימוק ש"זה מה שהסוכן מקבל בפועל" — נכון כל עוד
+    ה-handler לא ביקש כמות. מאז הוא מבקש את התקרה במפורש, כי רשימת מזהים
+    היא מלאי ולא דירוג, ולכן **התקרה היא המספר שהסוכן חווה**.
 
     נופלת ברגע שמישהו יחליף את הגזירה במספר מוקלד, כשהקבוע ישתנה.
     """
     from mcp_server.server import _SECTION_PARAM_DOC
     from services import doc_sections
 
-    assert f"at most {doc_sections.DEFAULT_SUGGESTIONS};" in _SECTION_PARAM_DOC
-
-    # והתקרה הקשיחה **אינה** נכנסת לשם: היא נוגעת רק למי שקורא ל-``suggest``
-    # ישירות, ומספר שאינו רלוונטי לקורא גרוע ממספר חסר.
-    assert f"at most {doc_sections.MAX_IDENTIFIER_SUGGESTIONS};" not in _SECTION_PARAM_DOC
+    assert f"at most {doc_sections.MAX_IDENTIFIER_SUGGESTIONS};" in _SECTION_PARAM_DOC
