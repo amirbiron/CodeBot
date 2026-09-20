@@ -197,33 +197,43 @@ def test_a_large_file_page_has_no_banner_and_does_not_raise(wired_mongo):
     assert BANNER_MARK not in resp.get_data(as_text=True)
 
 
-def test_a_large_file_does_not_even_run_the_latest_version_query(wired_mongo, monkeypatch):
-    """הערך של השומר אינו רק "בלי באנר" אלא "בלי שאילתה".
+def test_a_large_file_is_never_matched_against_a_snippet_of_the_same_name(wired_mongo):
+    """שני אוספים, שני עולמות — ושם קובץ אינו מזהה חוצה-אוסף.
 
-    ל-``large_files`` אין שדה ``version`` בכלל, ולכן חישוב "הגרסה
-    האחרונה" עבורו הוא עבודה שלעולם לא תניב תשובה — בכל טעינת עמוד.
-    בלי הבדיקה הזו, הסרת השומר לא הייתה מפילה דבר: השאילתה הייתה רצה
-    ומחזירה ריק, והבאנר בכל מקרה לא היה מוצג.
+    ``large_files`` הוא אוסף דריסה ואין בו ``version``; ``code_snippets``
+    הוא append ויש בו. בלי השומר על סוג המסמך, קובץ גדול בשם ``shared.md``
+    היה נמדד מול שרשרת הגרסאות של קובץ **אחר** בשם הזהה — והמשתמש היה
+    מקבל "אתה צופה בגרסה 1 מתוך 3" על קובץ שאין לו גרסאות בכלל.
+
+    הגרסה הראשונה של הבדיקה הזו ספרה שאילתות, ובדיקת מוטציה הראתה
+    שהיא עוברת גם בלי השומר — כי ``version`` החסר עוצר קודם. זו הבדיקה
+    שבאמת מתארת את מה שהשומר מונע.
     """
     db = wired_mongo.get_db()
     db.code_snippets.delete_many({})
     db.large_files.delete_many({})
-    oid = ObjectId()
+
+    for version in (1, 2, 3):
+        db.code_snippets.insert_one({
+            "_id": ObjectId(), "user_id": USER_ID, "file_name": "shared.md",
+            "code": f"# גרסה {version}\n", "programming_language": "markdown",
+            "version": version, "is_active": True,
+        })
+
+    large_id = ObjectId()
     db.large_files.insert_one({
-        "_id": oid, "user_id": USER_ID, "file_name": "big.txt",
-        "content": "x" * 50, "programming_language": "text", "is_active": True,
+        "_id": large_id, "user_id": USER_ID, "file_name": "shared.md",
+        "content": "x" * 50, "programming_language": "markdown",
+        "is_active": True,
+        # שדה תועה: אם מישהו יוסיף אותו אי פעם, השומר הוא מה שמונע
+        # מהקובץ הגדול להימדד מול שרשרת של אוסף אחר.
+        "version": 1,
     })
 
-    calls = []
-    real = wired_mongo._latest_active_version_doc
-
-    def _counting(*args, **kwargs):
-        calls.append(args[2] if len(args) > 2 else None)
-        return real(*args, **kwargs)
-
-    monkeypatch.setattr(wired_mongo, "_latest_active_version_doc", _counting)
-    assert _client(wired_mongo).get(f"/file/{oid}").status_code == 200
-    assert not calls, f"שאילתת הגרסה האחרונה רצה על קובץ גדול: {calls}"
+    resp = _client(wired_mongo).get(f"/file/{large_id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert BANNER_MARK not in body, "קובץ גדול נמדד מול גרסאות של קובץ אחר"
 
 
 def test_the_public_share_page_never_shows_the_banner(wired_mongo):
