@@ -403,3 +403,28 @@ def test_an_unverified_markdown_page_is_not_cached_either(wired_mongo, monkeypat
     body = client.get(f"/md/{ids[3]}").get_data(as_text=True)
     assert "לא ניתן לוודא" in body
     assert not stored, "עמוד שלא ניתן לוודא נשמר בקאש"
+
+
+def test_an_unverified_page_does_not_move_recently_opened_either(wired_mongo, monkeypatch):
+    """אם לא ידוע שזו הגרסה העדכנית, אסור לרשום אותה כ"הקובץ שנפתח".
+
+    ``last_opened_file_id`` נקרא מאוחר יותר כדי לפתוח את הקובץ. כתיבתו
+    על מסמך שאולי הוא גרסה ישנה היא בדיוק הבאג ש-``recent_opens``
+    מדלגת עליו בגרסה ישנה — והוא אינו נעלם רק מפני שהמצב אינו ודאי.
+    """
+    ids = _seed(wired_mongo, versions=3)
+    db = wired_mongo.get_db()
+    client = _client(wired_mongo)
+
+    client.get(f"/file/{ids[3]}")
+    assert db.recent_opens.find_one({"user_id": USER_ID}), "בקרה: הכתיבה התקינה לא קרתה"
+    db.recent_opens.delete_many({})
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("mongo is having a day")
+
+    monkeypatch.setattr(wired_mongo, "_latest_active_version_doc", _boom)
+    client.get(f"/file/{ids[3]}")
+    assert db.recent_opens.find_one({"user_id": USER_ID}) is None, (
+        "'נפתחו לאחרונה' עודכן למסמך שלא ניתן היה לוודא"
+    )
