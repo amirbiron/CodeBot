@@ -38,6 +38,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from services import doc_sections
+
 from . import docs_handlers, handlers, repo_handlers
 from .handlers import StrictInt, StrictLines
 from .analytics import attach_shutdown_drain, instrument_mcp_server
@@ -182,6 +184,51 @@ _SYMBOL_PARAM_DOC = (
     "underscore; and an RST heading is the source text rather than the "
     "rendered text, so an autodoc page is named services.backup\\_service "
     "module and symbol=\"backup_service\" does not match it."
+)
+
+#: תיאור הפרמטר ``section`` של ``codekeeper_docs_get_section``.
+#:
+#: **הפירוט יושב כאן ולא בתיאור הכלי, וזו הכרעה שנמדדה.** תיאור הכלי נחתך
+#: אצל הלקוח, והתקרה ב-``tests/test_mcp_server_build.py`` חלה עליו בלבד —
+#: כלומר טקסט שעובר לתיאור פרמטר יוצא מהספירה. זה אותו תיקון בדיוק שנעשה
+#: ל-``codekeeper_get_repo_file`` כשהתיאור שלו הגיע ל-2,482 תווים ונחתך
+#: בדיוק בקטעים על RST ועל ``symbol=``: **העברה, לא מחיקה.**
+#:
+#: **ומה שההעברה אינה מבטיחה, כי ההסתייגות כתובה באותו מקום שממנו לקחנו
+#: את התקרה.** האזהרה ליד ``_TOOL_DESCRIPTION_MAX_CHARS`` מתעדת לקוח
+#: שמקצר **תיאורי פרמטרים** לכ-120 תווים בשורת סיכום. המחרוזת כאן ארוכה
+#: בהרבה, וסעיף הבקטיקים יושב הרחק אחרי התו ה-120 — כלומר אצל אותו לקוח
+#: הוא אינו מגיע. ההעברה מוציאה את הטקסט מתקציב **תיאור הכלי**, ולא
+#: מכל חיתוך שקיים בעולם. מכאן גם סדר המשפטים: מה שקריטי ראשון, כי אצל
+#: לקוח שחותך רק הוא מגיע.
+_SECTION_PARAM_DOC = (
+    "The heading to return. Matching is full equality on the heading text "
+    "after normalization (surrounding and repeated whitespace, dash "
+    "variants, case) — a substring of a heading matches nothing. "
+    "Two things surprise callers, so they are spelled out here. "
+    "(1) IDENTIFIERS: when the query is itself an identifier — one to "
+    "three letters followed by one to three digits, with an optional "
+    "trailing dot, such as K11, K11., U3 or P3 — and full equality found "
+    "nothing, the heading that OPENS with that identifier is returned "
+    "(the identifier must be followed by a dot, a space, or the end of "
+    "the heading). The identifier is parsed, not prefix-matched, so K1 "
+    "returns K1 alone and never K10-K15, and a dot that starts a "
+    "sub-number is not a boundary either: K11 never returns K11.1, and a "
+    "sub-numbered heading is reachable by its full name only. "
+    "An identifier that repeats in "
+    "the file is ambiguous_section with candidates, like any duplicate "
+    "heading. A query that is not shaped like an identifier never takes "
+    "this path. (2) BACKTICKS: headings are returned as raw source, so a "
+    "heading written with ``literal`` markup needs those backticks in the "
+    "query too — section=\"MissingGreenlet\" finds nothing when the "
+    "heading reads ``MissingGreenlet``. When a query misses, suggestions "
+    "holds a heading that is close to what you typed, whenever the file has "
+    "one. ONLY when nothing is close does it instead hold the identifiers "
+    f"that DO exist in the file (at most "
+    f"{doc_sections.MAX_IDENTIFIER_SUGGESTIONS}; "
+    "suggestions_truncated says so when it was cut). So an identifier query "
+    "can come back with a heading rather than with identifiers — do not read "
+    "the field as always being identifiers."
 )
 
 
@@ -1654,14 +1701,16 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "path (docs/x.rst) or short slug (x). `ref` is a git ref (default: repo "
             "default branch). For large sections, page with `offset`/`max_chars`. Never "
             "returns a bare 'not found': a missing section returns the full TOC + "
-            "suggestions; a duplicate heading returns candidates with breadcrumbs."
+            "suggestions; a duplicate heading returns candidates with breadcrumbs. "
+            "See the `section` parameter for how a heading is matched — identifier "
+            "shortcuts (K11, U3) and headings that carry backticks."
         ),
         annotations=_READ_ONLY_TOOL,
     )
     def docs_get_section(
         ctx: Context,
         path: str,
-        section: str | None = None,
+        section: Annotated[str | None, Field(description=_SECTION_PARAM_DOC)] = None,
         include_subsections: bool = True,
         max_chars: int = 12000,
         offset: int = 0,

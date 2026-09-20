@@ -17,7 +17,7 @@ import os
 import posixpath
 from typing import Any
 
-from services import rst_parser
+from services import doc_sections, rst_parser
 from .handlers import _clamp
 
 MAX_CHARS_DEFAULT = 12_000
@@ -131,11 +131,31 @@ def docs_get_section(
 
     # לא נמצא → TOC מלא + הצעות קרובות (לעולם לא רק "לא נמצא")
     if not matches:
+        # ``n`` מפורש, וזו אמירה ולא מספר שרירותי: **התשובה הזאת היא מלאי,
+        # לא קיצור.** ``suggest`` מגיש שני סוגי תשובה — דירוג קצר של כותרות
+        # קרובות, ורשימת המזהים שקיימים בעמוד — ולשני הסוגים מתאימה כמות
+        # אחרת. לשאלה "ביקשת מזהה שאינו קיים, אלה שכן" אין דירוג: חיתוך
+        # שרירותי שלה מסתיר פריטים בלי שום קריטריון, ולסוכן אין פרמטר לבקש
+        # את השאר. נמדד: עם ברירת המחדל (5), עמוד עם 16 מזהים החזיר את חמשת
+        # הראשונים **בסדר הופעה**, וסוכן ששאל ``K11`` לא ראה אותו כלל.
+        #
+        # ה-handler הוא המקום היחיד שיודע איזו שאלה נשאלה, ולכן הבקשה יושבת
+        # כאן ולא כברירת מחדל של הפונקציה.
+        suggestions = rst_parser.suggest(
+            doc, section, n=doc_sections.MAX_IDENTIFIER_SUGGESTIONS)
         base.update({
             "ok": False, "error": "section_not_found", "requested": section,
-            "suggestions": rst_parser.suggest(doc, section),
+            # ``.titles`` ולא האובייקט: ``suggest`` מחזיר ``NamedTuple`` בן שני
+            # שדות, ומי שישכח את זה ישלח לקורא ``[[...], false]`` בלי שום שגיאה.
+            "suggestions": list(suggestions.titles),
             "toc": toc_items, "toc_truncated": toc_truncated,
         })
+        if suggestions.truncated:
+            # רק כשנחתכה, ולא שדה שקיים תמיד — ``remaining_chars`` ו-``next_offset``
+            # למטה הם אותו תקדים בדיוק. וזו גם הסיבה המעשית: שדה שיופיע בכל תשובת
+            # ``section_not_found`` היה משנה את הפלט על כל 208 קובצי ה-RST בלי ששום
+            # התנהגות השתנתה, ושובר את הוכחת אפס-הדיף שהשינוי הזה נשען עליה.
+            base["suggestions_truncated"] = True
         return base
 
     # כותרת כפולה → כל המועמדים עם breadcrumb (בלי לנחש)

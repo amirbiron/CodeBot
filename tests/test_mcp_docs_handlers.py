@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from mcp_server import docs_handlers
-from services import rst_parser
+from services import doc_sections, rst_parser
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -88,6 +88,76 @@ def test_section_not_found_returns_toc_and_suggestions():
     assert out["ok"] is False and out["error"] == "section_not_found"
     assert out["toc"]  # TOC מלא, לא רק שגיאה
     assert "suggestions" in out
+
+
+def _identified_rst(*headings):
+    """עמוד RST סינתטי שכל כותרת בו היא כותרת רמה 2 עם גוף בן שורה."""
+    body = "Doc\n===\n\n"
+    for h in headings:
+        body += f"{h}\n{'-' * max(len(h), 4)}\n\nגוף\n\n"
+    return body
+
+
+def test_an_identifier_query_reaches_the_section_through_the_tool():
+    """הזרימה המרכזית, דרך הכלי ולא דרך הפונקציה.
+
+    עד היום ``section="K11"`` החזיר ``section_not_found`` עם הצעות ריקות,
+    וזה בדיוק מה שהסוכנים מקלידים. כאן נבדק שהתשובה היא הסעיף עצמו, עם
+    הכותרת המלאה — כדי שהקורא יראה מה הוא קיבל.
+    """
+    rst = _identified_rst("K11. כשל שמדווח בערך החזרה נבלע", "K12. דגל שמרחיב הרשאה")
+    out = docs_handlers.docs_get_section(_TextBackend(rst), path="x", section="K11")
+
+    assert out["ok"] and out["mode"] == "section"
+    assert out["section"] == "K11. כשל שמדווח בערך החזרה נבלע"
+    assert "גוף" in out["content"]
+
+
+def test_an_identifier_that_repeats_is_ambiguous_and_not_a_guess():
+    rst = _identified_rst("P3 — ראשון", "אחר", "P3 — שני")
+    out = docs_handlers.docs_get_section(_TextBackend(rst), path="x", section="P3")
+
+    assert out["ok"] is False and out["error"] == "ambiguous_section"
+    assert [c["title"] for c in out["candidates"]] == ["P3 — ראשון", "P3 — שני"]
+
+
+def test_the_suggestions_field_is_a_list_of_strings_and_not_the_namedtuple():
+    """‏``suggest`` מחזיר ``NamedTuple``, והתשובה חייבת לשאת את ``titles`` בלבד.
+
+    מי שישכח את ``.titles`` ישלח לקורא ``[["K11"], false]`` — JSON תקין
+    לגמרי, בלי שום שגיאה, ועם דגל שמתחזה להצעה.
+    """
+    rst = _identified_rst("K11. כשל", "K12. דגל")
+    out = docs_handlers.docs_get_section(_TextBackend(rst), path="x", section="K99")
+
+    assert out["error"] == "section_not_found"
+    assert out["suggestions"] == ["K11", "K12"]
+    assert all(isinstance(s, str) for s in out["suggestions"])
+
+
+def test_suggestions_truncated_appears_only_when_the_list_was_cut():
+    """הדגל קיים רק כשהוא נכון — וזה מה ששומר על אפס-דיף בכל שאר התשובות."""
+    few = docs_handlers.docs_get_section(
+        _TextBackend(_identified_rst("K1. א", "K2. ב")), path="x", section="K99")
+    assert "suggestions_truncated" not in few
+
+    # **עמוד בגודל רגיל נענה במלואו, וזה העיקר כאן.** רשימת מזהים היא
+    # מלאי ולא דירוג, ולכן ה-handler מבקש את התקרה במפורש. הקובץ העשיר
+    # ביותר בקורפוס שהסוכנים קוראים נושא 16 מזהים — גרסה קודמת החזירה
+    # עליו חמישה בסדר הופעה, כך שסוכן ששאל ``K11`` לא ראה אותו כלל.
+    sixteen = docs_handlers.docs_get_section(
+        _TextBackend(_identified_rst(*[f"K{i}. טקסט" for i in range(1, 17)])),
+        path="x", section="Z9")
+    assert len(sixteen["suggestions"]) == 16, "העמוד לא נענה במלואו"
+    assert "K11" in sixteen["suggestions"]
+    assert "suggestions_truncated" not in sixteen
+
+    # והתקרה עדיין קיימת, ועדיין אומרת שהיא נגעה
+    many = docs_handlers.docs_get_section(
+        _TextBackend(_identified_rst(*[f"K{i}. טקסט" for i in range(1, 52)])),
+        path="x", section="Z9")
+    assert many["suggestions_truncated"] is True
+    assert len(many["suggestions"]) == doc_sections.MAX_IDENTIFIER_SUGGESTIONS == 50
 
 
 def test_ambiguous_section_returns_candidates_with_breadcrumb():

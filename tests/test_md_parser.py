@@ -1190,7 +1190,7 @@ def test_suggest_returns_the_title_as_it_was_written_in_the_file():
     """שאילתה שלא נמצאה מקבלת הצעה — והיא חייבת לחזור עם הסימון הגולמי."""
     doc = _shaped()
     assert doc_sections.find_sections(doc, "תת סעיף") == []
-    assert "תת-סעיף" in doc_sections.suggest(doc, "תת סעיף")
+    assert "תת-סעיף" in doc_sections.suggest(doc, "תת סעיף").titles
 
 
 # ════════════════════════════════════════════════════════════════════

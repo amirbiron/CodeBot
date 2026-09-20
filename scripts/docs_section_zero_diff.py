@@ -29,12 +29,69 @@
 שנשאלו שאלות שונות היו יכולות להיראות זהות. הרישום הוא מה שהופך את זה
 לראיה ולא להשוואה של שני דברים שאינם אותו דבר.
 
+**סוללה שנייה: שאילתות בצורת מזהה, שנגזרות מהקורפוס עצמו.** ``find_sections``
+מתאים גם שאילתה שבנויה כמזהה (``K11``, ``U3``) לכותרת שנפתחת באותו מזהה, ורק
+אחרי שהשוויון המלא לא מצא כלום. כל ה-PR נשען על הנחה אחת: **אף כותרת בקורפוס
+הזה אינה נפתחת במזהה**, ולכן הענף אינו נדלק כאן.
+
+**והשאלות נגזרות מהכותרות של כל קובץ, ולא מרשימה קבועה — וזה תיקון.** הגרסה
+הראשונה שאלה שלוש-עשרה מחרוזות מוקלדות, והדוקסטרינג הצהיר שההרצה מבססת את
+ההנחה כולה. זה היה רחב ממה שהכלי מודד: כותרת ``md5 package`` נושאת את המזהה
+``md5``, אף פרוב לא שאל עליו, והסקריפט היה יוצא ב-0 ואומר שהכול בסדר. היום
+כל קובץ נשאל על המזהים ש**הוא עצמו** נושא, ולכן הסוללה אינה יכולה להחמיץ
+צורה שאיש לא ניחש. על הקורפוס של היום זה מייצר אפס שאלות, וזו התשובה הנכונה
+— היא מדווחת כמספר ולא כסוללה שרצה בשקט.
+
+הרשומות נרשמות ב**היטל מצומצם** (שאילתה, סוג התשובה, מה הותאם, ההצעות) ולא
+כתשובה מלאה, כי תשובת ``section_not_found`` נושאת את ה-TOC כולו ועותקים כאלה
+לכל קובץ היו מנפחים את התצלום בלי להוסיף מידע.
+
+**ובקרות שליליות אינן כאן.** צורות כמעט-מזהה (``K``, ``11``, ``K-11``) יכולות
+להחזיר רק "לא נמצא" על כל קובץ בקורפוס, כלומר אלף רשומות שאינן מסוגלות לומר
+דבר. הן חיות ב-``tests/test_doc_sections.py`` כטסט יחידה, שם הן באמת נבדקות.
+
+**ושתי בקרות סינתטיות, שאינן נכנסות ל-JSONL בכוונה.** בקרה אינה יכולה לרוץ
+על הקורפוס, כי שם אין אף מזהה — סוללה שכל תשובותיה "לא נמצא" אינה מבדילה בין
+"הענף כבוי" לבין "הפרובים לא מסוגלים לראות אותו". לכן שתי כותרות סינתטיות
+נשאלות בסוף ההרצה ונדפסות בדוח: ``K1`` על קובץ שיש בו ``K10.`` בלבד (חייב
+לא להתאים — מבחן הגבול), ו-``P3.`` על כותרת ``P3 — טקסט`` (חייב להתאים —
+גבול רווח ונקודה בשאילתה). הן בדוח ולא בקובץ כדי שה-``diff`` יישאר בינארי:
+**קובץ הקורפוס חייב להיות זהה, והבקרות חייבות להשתנות בין שתי ההרצות.**
+
+**קוד היציאה אומר דבר אחד:** ההנחות שהסקריפט מקודד אינן מתארות את העץ הזה.
+הוא ``1`` כש**בקרה אינה תואמת** את ערך ההשוואה שלה, או כש**הקורפוס מניב ולו
+מזהה אחד** — כלומר כשההנחה שכל השינוי נשען עליה נשברה. שתיהן היו טענות
+מודפסות בלבד קודם, כלומר בדיקות שלא היו מסוגלות ליפול. ה-JSONL נכתב בכל
+מקרה, כדי שה-``diff`` יהיה אפשרי גם בריצה שנכשלה.
+
+**וההנחה עצמה מוגנת גם בלי הסקריפט הזה**, ב-
+``tests/test_docs_headings_carry_no_identifier.py`` — הוא סורק את כל קובצי
+ה-RST ונופל על כותרת שנפתחת במזהה. הסקריפט מוסיף עליו את **התצלום**: כשההנחה
+תישבר, ה-JSONL יראה מה בדיוק הכלי מחזיר על אותה כותרת, ולא רק שהיא קיימת.
+
+.. warning::
+
+   **על עץ שאין בו את התאמת המזהה, הבקרה השנייה אמורה לא להתאים, והסקריפט
+   אמור לצאת ב-1.** זו אינה תקלה — זו ההוכחה שהפרובים אינם עיוורים. לכן אל
+   תחברו את שתי ההרצות ב-``&&``: הריצו כל אחת בנפרד, והשוו את הקבצים אחר
+   כך. הבקרה הראשונה, לעומת זאת, היא אינווריאנט אמיתי ותואמת בשני העצים.
+
 שימוש::
 
     python scripts/docs_section_zero_diff.py --corpus docs --out before.jsonl
     # ... הריפקטור ...
     python scripts/docs_section_zero_diff.py --corpus docs --out after.jsonl
     diff before.jsonl after.jsonl && echo "אפס דיף"
+
+**זהו כלי פיתוח ידני, והוא אינו רץ ב-CI — בכוונה.** הערך שלו הוא ה**דיף בין
+שני עצים**, ו-CI אינו יכול לייצר אותו בהרצה אחת. גרוע מזה: ההרצה על עץ הבסיס
+**אמורה** לצאת ב-1, כי הבקרה השנייה אינה מתהפכת שם — כלומר CI היה מדווח אדום
+בדיוק על הדבר שמוכיח שהכלי עובד. מה ש-CI כן שומר עליו הוא ההנחה, דרך הטסט
+שנקרא למעלה בשמו.
+
+**מי מריץ:** מי שנוגע ב-``find_sections``, ב-``suggest`` או ב-``normalize_title``
+ב-``services/doc_sections.py`` — לפני הקומיט, בנוהל שתי ההרצות שלמטה. אין
+מנגנון שיזכיר, וזה מה שהדוקסטרינג הזה מחליף.
 
 הסקריפט אינו כותב לשום מקום מלבד ``--out``, ואינו מוחק דבר.
 """
@@ -55,10 +112,100 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from mcp_server import docs_handlers  # noqa: E402
+from services import doc_sections  # noqa: E402
 
 # שאילתה שאין ולא יכולה להיות לה כותרת תואמת בקורפוס — כדי לקבע את מסלול
 # ה-not-found גם בקובץ שכל כותרת בו נמצאת.
 _ABSENT_QUERY = "זזזז לא קיימת זזזז"
+
+#: שתי הבקרות הסינתטיות: שם, טקסט RST, השאילתה, **ערך ההשוואה**, והנימוק.
+#: הן מודדות את מבחן הגבול עצמו ולא את צורת השאילתה, ולכן הן נחוצות — על
+#: הקורפוס שתיהן היו מחזירות "לא נמצא", משתי סיבות שונות לגמרי.
+#:
+#: **ערך ההשוואה נפרד מהפרוזה בכוונה.** בגרסה הראשונה היה כאן שדה אחד,
+#: משפט אנושי, והלולאה רק **הדפיסה** אותו לצד מה שהתקבל. כלומר בקרה
+#: שתפסיק להתהפך — פרובים שיתעוורו — הייתה מדפיסה שורה שנראית כמעט נכונה,
+#: וסומכת על כך שאדם ישים לב. בדיקה שאינה מסוגלת ליפול אינה ראיה, וזה כל
+#: מה שהבקרות האלה קיימות בשבילו.
+_CONTROLS = (
+    ("גבול: K1 מול קובץ שיש בו K10 בלבד",
+     "Doc\n===\n\nK10. עשירי\n----------\n\nגוף\n",
+     "K1",
+     "section_not_found",
+     "קידומת אינה מזהה — ואינווריאנט אמיתי, תקף גם לפני השינוי וגם אחריו"),
+    ("גבול: P3. עם נקודה מול כותרת P3 — טקסט",
+     "Doc\n===\n\nP3 — טקסט\n---------\n\nגוף\n",
+     "P3.",
+     "section",
+     "הגבול הוא רווח, והנקודה בשאילתה אופציונלית — הבקרה שחייבת להתהפך"),
+)
+
+
+class _TextBackend:
+    """מחזיר טקסט RST נתון — לבקרות הסינתטיות בלבד, לא לקורפוס."""
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def get_file(self, *, repo: str, path: str, ref: str | None = None,
+                 lines: Any = None) -> dict[str, Any]:
+        return {"ok": True, "status": "ok",
+                "file": {"path": path, "ref": "HEAD",
+                         "resolved_commit": "fixed-for-snapshot"},
+                "content": self._text}
+
+
+def _outcome(response: dict[str, Any]) -> str:
+    """סוג התשובה בשם אחד: ``mode`` בהצלחה, ``error`` בסירוב."""
+    return str(response.get("error") or response.get("mode"))
+
+
+def _matched_titles(response: dict[str, Any]) -> list[str]:
+    """מה שהתשובה הצביעה עליו — סעיף יחיד, מועמדים, או כלום."""
+    if response.get("mode") == "section":
+        return [response.get("section")]
+    return [c["title"] for c in response.get("candidates") or []]
+
+
+def _corpus_identifiers(backend: Any, doc_path: str) -> list[str]:
+    """המזהים שהקובץ הזה נושא בפועל, בסדר הופעתם ובלי כפילויות.
+
+    **הפירוק נעשה בפונקציה של הייצור ולא בעותק שלה כאן.** מזהה הוא צורה
+    שמוגדרת במקום אחד — ``_IDENTIFIER_TITLE_RE`` — ורגקס שני שמתאר אותה
+    צורה בסקריפט הוא בדיוק ``duplicate-rule-second-copy``: ביום שהצורה
+    תורחב, הסקריפט ימשיך לשאול לפי הצורה הישנה ויצהיר שהכול בסדר. השם
+    פרטי, וזו הסיבה שהוא נקרא בכל זאת: הסקריפט חייב לשאול **בדיוק** מה
+    שהייצור מפרסר.
+    """
+    toc = docs_handlers.docs_get_section(backend, path=doc_path).get("toc") or []
+    found: list[str] = []
+    seen: set[str] = set()
+    for item in toc:
+        identifier = doc_sections._leading_identifier(item.get("title") or "")
+        if identifier is None:
+            continue
+        key = identifier.casefold()
+        if key not in seen:
+            seen.add(key)
+            found.append(identifier)
+    return found
+
+
+def _identifier_probes(backend: Any, doc_path: str,
+                       probes: list[str]) -> Iterator[dict[str, Any]]:
+    """הסוללה השנייה, בהיטל מצומצם.
+
+    ההצעות נכנסות לרשומה כי ``suggest`` משנה מסלול על אותו תנאי בדיוק —
+    שאילתה בצורת מזהה — ובלעדיהן שינוי בענף ההוא היה עובר כאן בלי סימן.
+    """
+    for probe in probes:
+        resp = docs_handlers.docs_get_section(backend, path=doc_path, section=probe)
+        yield {
+            "identifier_probe": {"path": doc_path, "section": probe},
+            "outcome": _outcome(resp),
+            "matched": _matched_titles(resp),
+            "suggestions": resp.get("suggestions") or [],
+        }
 
 
 class _CorpusBackend:
@@ -158,13 +305,20 @@ def _edge_inputs(backend: Any) -> Iterator[dict[str, Any]]:
     yield _call(backend, path="does-not-exist-at-all")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    """נקודת הכניסה. ``argv`` כרשימה ולא ``sys.argv``, כדי שאפשר יהיה לבדוק אותה.
+
+    זו המוסכמה בריפו — ``scripts/compare_md_parser_to_cmark.py`` בנוי כך,
+    ו-``tests/test_md_parser.py`` מריץ אותו עם ``main([str(corpus)])``. אין
+    באף טסט בריפו ``monkeypatch`` על ``sys.argv``, וזה לא במקרה: שער שאי
+    אפשר להריץ מטסט הוא שער שאיש לא בודק.
+    """
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--corpus", default=str(_ROOT / "docs"),
                     help="תיקיית קובצי ה-RST. אותה תיקייה לשתי ההרצות.")
     ap.add_argument("--out", required=True, help="קובץ הפלט (JSONL).")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     corpus = Path(args.corpus).resolve()
     if not corpus.is_dir():
@@ -181,6 +335,8 @@ def main() -> int:
     digest = hashlib.sha256()
     tally: Counter[str] = Counter()
     records = 0
+    probes = 0
+    carried: list[dict[str, str]] = []  # כותרות בקורפוס שנושאות מזהה — ההנחה שנשברת
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -204,12 +360,58 @@ def main() -> int:
                 resp = rec["response"]
                 tally[str(resp.get("error") or resp.get("mode"))] += 1
 
+            identifiers = _corpus_identifiers(backend, f"docs/{rel}")
+            carried.extend({"path": f"docs/{rel}", "identifier": i} for i in identifiers)
+            for rec in _identifier_probes(backend, f"docs/{rel}", identifiers):
+                line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
+                fh.write(line + "\n")
+                digest.update(line.encode("utf-8"))
+                records += 1
+                probes += 1
+
     print(f"קבצים:   {len(files)}")
     print(f"רשומות:  {records}")
     print(f"sha256:  {digest.hexdigest()}")
     print("פילוח מסלולי התשובה:")
     for key, count in sorted(tally.items()):
         print(f"  {key}: {count}")
+
+    # **אין כאן שורת "מהן נפתרו", וזו הסרה מכוונת.** כשהפרובים היו רשימה
+    # קבועה, "פרוב שנפתר" היה אירוע: מחרוזת שנוחשה מראש הצליחה למצוא משהו.
+    # מאז שהם נגזרים מהכותרות, פרוב הוא **תמיד** מזהה שקיים בקובץ, ולכן
+    # הוא תמיד נפתר — הספירה הייתה שווה תמיד למספר הפרובים, ולא יכלה לומר
+    # דבר. השאלה היחידה שנשארה בעלת משמעות היא כמה מזהים יש בקורפוס בכלל.
+    print(f"\nמזהים שנמצאו בקורפוס: {len(carried)} (מצופה: 0)")
+    print(f"שאילתות שנגזרו מהם ונרשמו בתצלום: {probes}")
+    for hit in carried[:20]:
+        print(f"  {hit['path']} · כותרת שנפתחת במזהה {hit['identifier']!r}")
+
+    # הבקרות מודפסות ואינן נכנסות ל-JSONL: ``diff`` על קובץ הקורפוס חייב
+    # להיות ריק, ודווקא השורות האלה חייבות להשתנות בין שתי ההרצות. אם הן
+    # זהות לפני ואחרי — הפרובים עיוורים, וקובץ זהה אינו מוכיח דבר.
+    print("\nבקרות סינתטיות (לא ב-JSONL — ראו את ההסבר ב-docstring):")
+    failed_controls = []
+    for name, text, probe, expected, why in _CONTROLS:
+        resp = docs_handlers.docs_get_section(_TextBackend(text), path="control",
+                                              section=probe)
+        actual = _outcome(resp)
+        good = actual == expected
+        if not good:
+            failed_controls.append((name, expected, actual))
+        print(f"  {'תואם' if good else 'לא תואם'}  {name}\n"
+              f"    section={probe!r} → {actual} {_matched_titles(resp)}\n"
+              f"    מצופה: {expected} — {why}")
+
+    if failed_controls or carried:
+        print("\nההנחות שהסקריפט מקודד אינן מתארות את העץ הזה:")
+        for name, expected, actual in failed_controls:
+            print(f"  בקרה: {name} — מצופה {expected}, התקבל {actual}")
+        if carried:
+            print(f"  קורפוס: {len(carried)} כותרות נושאות מזהה. ההנחה שכל "
+                  f"ההתאמה לפי מזהה נשענת עליה — שאף כותרת כאן אינה נפתחת "
+                  f"במזהה — אינה נכונה יותר. זהו שינוי התנהגות ב-RST שצריך "
+                  f"להיות מוצהר, לא בדיקה שצריך להסיר.")
+        return 1
     return 0
 
 

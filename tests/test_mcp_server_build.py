@@ -310,6 +310,50 @@ async def test_repo_note_listing_uses_the_identity_the_gate_returned(monkeypatch
     assert seen["user_id"] == 4242
 
 
+async def test_an_identifier_query_reaches_the_section_through_the_public_tool(monkeypatch):
+    """התאמת המזהה, דרך הממשק שהלקוח באמת מפעיל.
+
+    **למה הטסט הזה קיים בנפרד מ-``tests/test_mcp_docs_handlers.py``.** שם
+    נקראת ``docs_handlers.docs_get_section`` ישירות — וזה מוכיח שהפונקציה
+    עובדת, לא שה**כלי** עובד. הצרכן של ``codekeeper_docs_get_section`` הוא
+    לקוח MCP, ובינו לבין ה-handler יושבים הרישום ב-``AdminAwareFastMCP``,
+    ולידציית הפרמטרים של pydantic, ``current_user_id``, וההסבה של ערך
+    ההחזרה לבלוק תוכן. טסט שאינו עובר דרכם מאמת את המפרט ולא את הצרכן —
+    זה ``T1`` ב-``TESTING-PATTERNS.md``, ובאותו נימוק בדיוק ``call_tool``
+    הציבורי נבחר כאן על פני ``_tool_manager``, כמו בטסטי הפתקים למעלה.
+
+    צורת ההחזרה **נמדדה ולא הונחה**: ב-``mcp==1.28.1`` החתימה היא
+    ``Sequence[ContentBlock] | dict``, ובפועל חוזר בלוק טקסט יחיד שגופו
+    ה-JSON — כלומר בדיוק הבייטים שהלקוח מקבל.
+    """
+    import json
+
+    import mcp_server.server as srv
+
+    title = "K11. כשל שמדווח בערך החזרה נבלע"
+    rst = f"Doc\n===\n\n{title}\n{'-' * 60}\n\nגוף הסעיף\n"
+
+    class _RstRepoBackend(_FakeRepoBackend):
+        def get_file(self, **k):
+            return {"ok": True, "status": "ok",
+                    "file": {"path": k.get("path"), "ref": "HEAD",
+                             "resolved_commit": "c0ffee"},
+                    "content": rst}
+
+    monkeypatch.setattr(srv, "current_user_id", lambda ctx=None: 7)
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_RstRepoBackend())
+    blocks = await mcp.call_tool(
+        "codekeeper_docs_get_section", {"path": "x", "section": "K11"}
+    )
+
+    (block,) = blocks          # בלוק אחד, ולא "הראשון מתוך כמה"
+    payload = json.loads(block.text)
+    assert payload["ok"] is True and payload["mode"] == "section"
+    assert payload["section"] == title
+    assert "גוף הסעיף" in payload["content"]
+
+
 async def test_str_replace_is_not_advertised_as_idempotent():
     """``note_str_replace`` דורס אבל **אינו** אידמפוטנטי, ולכן אינו יכול
     לשאת את האנוטציה של ``update_note``.
@@ -715,6 +759,32 @@ async def test_get_file_description_points_at_the_query_parameter():
     )
 
 
+async def test_docs_get_section_description_points_at_the_section_parameter():
+    """אותה שרשרת גילוי, על ``codekeeper_docs_get_section``.
+
+    שני הדברים שמפתיעים קורא — שמזהה כמו ``K11`` נתפס, ושכותרת עם בקטיקים
+    דורשת אותם בשאילתה — יושבים בתיאור הפרמטר ולא בתיאור הכלי, כי התקרה
+    שלמעלה חלה על ``description`` בלבד. ולכן נאכפים **שני הקצוות**:
+    שהכלי מפנה לפרמטר בשמו, ושהפרמטר באמת נושא את הפירוט.
+
+    ‏``"section" in description`` לבדו אינו מספיק — התיאור נושא ממילא את
+    המילה חמש פעמים, ולכן הבדיקה היא על ההפניה המפורשת.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    tool = mcp._tool_manager.get_tool("codekeeper_docs_get_section")
+    section_doc = tool.parameters["properties"]["section"]["description"]
+
+    # קצה ראשון: הכלי מפנה **לפרמטר**, ונוקב בשתי ההפתעות בשמן.
+    assert "`section` parameter" in tool.description
+    assert "identifier" in tool.description and "backticks" in tool.description
+
+    # קצה שני: הפירוט באמת שם — שני הכללים, והגבול שביניהם.
+    assert "K1 " in section_doc and "K10-K15" in section_doc
+    assert "ambiguous_section" in section_doc
+    assert "``literal``" in section_doc
+    assert "suggestions_truncated" in section_doc
+
+
 def test_the_colour_param_doc_is_derived_from_the_palette():
     """מה שהסוכן קורא על הצבע נגזר מהפלטה, ולא מוקלד לצידה.
 
@@ -738,3 +808,133 @@ def test_the_colour_param_doc_is_derived_from_the_palette():
     assert "color_id" in doc
     # ושהדחייה מוצהרת — סוכן שאינו יודע שערך פסול נדחה יניח שהוא הוחל.
     assert "refused" in doc
+
+
+#: שלושת המשטחים שמתארים לקורא מתי ``suggestions`` מחזיר מזהים.
+#:
+#: **הם התפצלו כבר פעם אחת, וזה מה שהטסט שמתחתם קיים בשבילו.** הקוד עבר
+#: לסדר "difflib קודם" בקומיט שלישי, ושלושת המשטחים המשיכו לתאר את הכלל
+#: שהיה לפניו — כלומר סוכן שקרא את תיאור הכלי למד חוק שהקוד כבר אינו
+#: מקיים. זו בדיוק המחלקה שהסתירה את הבאג ב-#3379: הצהרה שהייתה נכונה
+#: ביום שנכתבה, ושקטה ביום שהתיישנה.
+#:
+#: לכל משטח **סמן נדרש** אחד לכל כלל שהוא חייב לשאת. הסמן אינו הניסוח
+#: המלא אלא הפסוקית שנושאת את המשמעות — מי שינסח מחדש ויפיל אותה מפיל
+#: את הטסט, ומי שרק ישפר סגנון סביבה אינו.
+#:
+#: **והסמן הוא הכלל ולא מונח שמופיע בהסבר שלו, וזה נמדד.** הגרסה הראשונה
+#: חיפשה את המחרוזת ``K11.1``, ומוטציה שמחקה את **הכלל** מ-``whats-new``
+#: שרדה אותה — כי המונח ממשיך להופיע במשפט שמסביר למה הנקודה מפרידה.
+#: כלומר האסרשן לא היה מסוגל ליפול, וזה אותו כשל שהוא נועד לתפוס.
+_SUGGESTION_RULE_SURFACES = (
+    ("תיאור הפרמטר section", "ONLY when nothing is close", "K11 never returns K11.1"),
+    ("docs/mcp-server.rst", "ורק כשאין אף כותרת קרובה",
+     "נקודה שפותחת תת-מספור אינה גבול"),
+    ("docs/whats-new.rst", "ורק כשאין אף כותרת קרובה",
+     "אינו מחזיר את ``K11.1``"),
+)
+
+
+def _suggestion_rule_texts() -> dict[str, str]:
+    """הטקסט של שלושת המשטחים, בשמות של :data:`_SUGGESTION_RULE_SURFACES`."""
+    from pathlib import Path
+
+    from mcp_server.server import _SECTION_PARAM_DOC
+
+    docs = Path(__file__).resolve().parent.parent / "docs"
+    texts = {
+        "תיאור הפרמטר section": _SECTION_PARAM_DOC,
+        "docs/mcp-server.rst": (docs / "mcp-server.rst").read_text(encoding="utf-8"),
+        "docs/whats-new.rst": (docs / "whats-new.rst").read_text(encoding="utf-8"),
+    }
+    # משטח שנקרא ריק אינו "עובר" — הוא אומר שהטסט איבד את מה שהוא מודד.
+    for name, text in texts.items():
+        assert text.strip(), f"משטח ריק: {name}"
+    return texts
+
+
+def test_the_suggestion_rule_says_the_same_thing_in_the_code_and_in_all_three_surfaces():
+    """הקוד ושלושת המשטחים שמתארים אותו אומרים אותו דבר — ולא יכולים להתפצל בשקט.
+
+    **שני חצאים, ושניהם חייבים להסכים.** החצי הראשון מריץ את ההתנהגות
+    עצמה: בעמוד שיש בו גם מזהה וגם כותרת קרובה, שאילתה בצורת מזהה חוזרת
+    עם ה**כותרת**. מי שיהפוך את הסדר ב-:func:`services.doc_sections.suggest`
+    מפיל אותו. החצי השני קורא את שלושת המשטחים ודורש שכל אחד נושא את
+    שתי הפסוקיות — התנאי על ``difflib``, וכלל תת-המספור. מי שיערוך משטח
+    אחד ויפיל ממנו פסוקית מפיל אותו.
+
+    **ולמה שניהם ביחד ולא שני טסטים.** טסט התנהגות לבדו עובר גם כשהתיעוד
+    משקר; טסט טקסט לבדו עובר גם כשהקוד השתנה תחתיו. מה שצריך להיאכף הוא
+    ה**הסכמה** ביניהם, וזה אובייקט אחד.
+    """
+    from services import rst_parser
+
+    # עמוד שיש בו מזהה, ולצידו כותרת שאינה מזהה אבל **קרובה** לשאילתה.
+    # ``H2`` מול ``H2O`` הוא יחס דמיון 0.8, כלומר מעל ה-cutoff של 0.5 —
+    # וזה המקרה היחיד שמבדיל בין שני הסדרים. נמדד, לא שוער.
+    doc = rst_parser.parse_document(
+        "Doc\n===\n\n"
+        "K11. כשל שמדווח בערך החזרה נבלע ואינו נבדק\n"
+        "-------------------------------------------\n\nגוף\n\n"
+        "H2O\n---\n\nגוף\n"
+    )
+    assert rst_parser.find_sections(doc, "H2") == [], "ההנחה של הטסט נשברה"
+    assert rst_parser.suggest(doc, "H2").titles == ["H2O"], (
+        "difflib אינו קודם לרשימת המזהים — הקוד חזר לסדר שהמשטחים כבר אינם מתארים"
+    )
+
+    texts = _suggestion_rule_texts()
+
+    # **והמספר נקשר יחד איתם, כי הוא התפצל בדיוק כאן.** הכמות שסוכן מקבל
+    # נגזרת ב-``server.py`` מ-``DEFAULT_SUGGESTIONS``, אבל שני קובצי ה-RST
+    # אינם יכולים לגזור דבר — הם מחרוזות. נמדד: ברגע שהתקרה בפועל ירדה
+    # מ-50 ל-5, שניהם המשיכו לומר 50 בלי ששום בדיקה תשים לב. לכן המחרוזת
+    # המצופה **מחושבת כאן מהקבוע**, ולא מוקלדת לצד שלושת המשטחים.
+    from services import doc_sections
+
+    count = doc_sections.MAX_IDENTIFIER_SUGGESTIONS
+    numbers = {
+        "תיאור הפרמטר section": f"at most {count};",
+        "docs/mcp-server.rst": f"**והכמות: עד {count} הצעות.**",
+        "docs/whats-new.rst": f"המזהים שכן קיימים — עד {count},",
+    }
+    stale = [f"{name}: חסר {marker!r}" for name, marker in numbers.items()
+             if marker not in texts[name]]
+    assert not stale, (
+        f"משטח שמצהיר על כמות ההצעות אינו אומר {count} — המספר בקוד זז "
+        f"והתיעוד נשאר:\n  " + "\n  ".join(stale)
+    )
+
+    missing = [
+        f"{name}: חסר {marker!r}"
+        for name, *markers in _SUGGESTION_RULE_SURFACES
+        for marker in markers
+        if marker not in texts[name]
+    ]
+    assert not missing, (
+        "משטח שמתאר את ``suggestions`` איבד פסוקית שהקוד כן מקיים:\n  "
+        + "\n  ".join(missing)
+        + "\nשלושתם מתארים את אותו כלל, ולכן עריכה של אחד היא עריכה של שלושה."
+    )
+
+
+def test_the_section_param_doc_derives_the_count_from_the_constant():
+    """מה שסוכן קורא על כמות ההצעות נגזר מהקוד, ולא מוקלד לצידו.
+
+    אותה צורה בדיוק כמו :func:`test_the_colour_param_doc_is_derived_from_the_palette`,
+    ומאותה סיבה: מספר שמוקלד ביד ליד הקבוע שאוכף אותו מתיישן בשקט ברגע
+    שמישהו משנה את הקבוע. הסוכן ימשיך לקרוא את הישן, בלי שגיאה ובלי
+    שאף בדיקה תשים לב.
+
+    **והמספר שנגזר הוא ``MAX_IDENTIFIER_SUGGESTIONS`` ולא
+    ``DEFAULT_SUGGESTIONS``, וזו הכרעה שהתהפכה פעם אחת.** גרסה קודמת גזרה
+    את ברירת המחדל, בנימוק ש"זה מה שהסוכן מקבל בפועל" — נכון כל עוד
+    ה-handler לא ביקש כמות. מאז הוא מבקש את התקרה במפורש, כי רשימת מזהים
+    היא מלאי ולא דירוג, ולכן **התקרה היא המספר שהסוכן חווה**.
+
+    נופלת ברגע שמישהו יחליף את הגזירה במספר מוקלד, כשהקבוע ישתנה.
+    """
+    from mcp_server.server import _SECTION_PARAM_DOC
+    from services import doc_sections
+
+    assert f"at most {doc_sections.MAX_IDENTIFIER_SUGGESTIONS};" in _SECTION_PARAM_DOC
