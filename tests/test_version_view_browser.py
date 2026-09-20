@@ -24,6 +24,19 @@ USER_ID = 1
 FILE_NAME = "history.py"
 
 
+def _dismiss_welcome(p):
+    """מודאל הפתיחה מכסה את העמוד וחוסם קליקים.
+
+    ``add_init_script`` לבדו אינו מספיק: הוא מריץ localStorage בכל ניווט,
+    אבל המודאל מרונדר ומקבל ``active`` גם כך, ולכן הוא מוסר מה-DOM אחרי
+    כל מעבר עמוד — לא רק בטעינה הראשונה.
+    """
+    p.evaluate(
+        "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
+        " #welcomeModal').forEach(e => e.remove())"
+    )
+
+
 @pytest.fixture
 def seeded(wired_mongo):
     db = wired_mongo.get_db()
@@ -67,10 +80,7 @@ def page(seeded, admin_live_server, chromium_executable):
             )
             p.goto(f"{admin_live_server.base_url}/file/{seeded[3]}",
                    wait_until="domcontentloaded")
-            p.evaluate(
-                "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
-                " #welcomeModal').forEach(e => e.remove())"
-            )
+            _dismiss_welcome(p)
             # המודאל נפתח דרך תפריט ה"עוד", ו-``openHistoryModal`` הוא
             # הגלובל שהתפריט קורא לו.
             p.evaluate("window.openHistoryModal && window.openHistoryModal()")
@@ -120,3 +130,29 @@ def test_a_third_selection_replaces_the_oldest(page):
     checked = [b for b in page.query_selector_all(".history-modal__select")
                if b.is_checked()]
     assert len(checked) == 2, "אפשר לסמן יותר משתי גרסאות להשוואה"
+
+
+def test_restoring_from_the_banner_creates_a_new_version(page, seeded, wired_mongo):
+    """הפעולה המרכזית של הבאנר, מקצה לקצה.
+
+    השחזור הוא ``POST`` ולא קישור: פעולה שמשנה מצב מאחורי ``GET`` נורית
+    על ידי prefetch, היסטוריה וסורקי תצוגה מקדימה של קישורים.
+    """
+    page.click(".history-modal__item:last-child .history-modal__title a")
+    page.wait_for_selector("#versionBannerRestore", timeout=10000)
+    _dismiss_welcome(page)
+    page.click("#versionBannerRestore")
+    # ``wait_for_url`` ולא ``wait_for_function``: ה-CSP של העמוד אינו
+    # מתיר ``unsafe-eval``, ולכן הערכת מחרוזת כ-JavaScript נחסמת — וטוב
+    # שכך. ההמתנה כאן היא על הכתובת, בלי להריץ קוד בדף.
+    page.wait_for_url(lambda url: seeded[1] not in url, timeout=15000)
+
+    db = wired_mongo.get_db()
+    versions = sorted(d["version"] for d in
+                      db.code_snippets.find({"file_name": FILE_NAME}, {"version": 1}))
+    assert versions == [1, 2, 3, 4], f"גרסאות אחרי שחזור: {versions}"
+
+    newest = db.code_snippets.find_one({"file_name": FILE_NAME, "version": 4})
+    assert newest["code"] == "print(1)\n", "הגרסה החדשה אינה נושאת את תוכן גרסה 1"
+    # העמוד שאליו הגענו הוא הגרסה החדשה, ולכן בלי באנר.
+    assert page.query_selector(".version-banner") is None
