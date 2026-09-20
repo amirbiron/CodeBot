@@ -109,19 +109,33 @@ class BotConfig(BaseSettings):
         le=100_000,
         description="Redis connection pool max size",
     )
-    # הערכים הוגדלו בדצמבר 2025 בעקבות עומס על בסיס הנתונים שגרם ל-Timeouts שגויים בקאש
-    REDIS_CONNECT_TIMEOUT: float = Field(
-        default=float(os.getenv("REDIS_CONNECT_TIMEOUT", "3")),
-        description="Redis socket_connect_timeout (seconds); if None, uses SAFE_MODE defaults",
+    # שני השדות הבאים מחזיקים ערך **רק** כשהוא הוגדר במפורש. ברירות המחדל
+    # אינן כאן אלא ב-``runtime_settings.resolve_redis_timeouts``, כי הן תלויות
+    # ב-SAFE_MODE. עד שזה הופרד, ברירת המחדל נקבעה כאן בזמן import ולעולם לא
+    # הייתה None — ולכן ה-SAFE_MODE של הקאש היה קוד מת.
+    REDIS_CONNECT_TIMEOUT: Optional[float] = Field(
+        default=None,
+        ge=0,
+        allow_inf_nan=False,
+        description=(
+            "Redis socket_connect_timeout (seconds). Unset means the default "
+            "resolved by runtime_settings.resolve_redis_timeouts: 1 under "
+            "SAFE_MODE, otherwise 3"
+        ),
     )
-    # הערכים הוגדלו בדצמבר 2025 בעקבות עומס על בסיס הנתונים שגרם ל-Timeouts שגויים בקאש
-    REDIS_SOCKET_TIMEOUT: float = Field(
-        default=float(os.getenv("REDIS_SOCKET_TIMEOUT", "5")),
-        description="Redis socket_timeout (seconds); if None, uses SAFE_MODE defaults",
+    REDIS_SOCKET_TIMEOUT: Optional[float] = Field(
+        default=None,
+        ge=0,
+        allow_inf_nan=False,
+        description=(
+            "Redis socket_timeout (seconds). Unset means the default resolved "
+            "by runtime_settings.resolve_redis_timeouts: 1 under SAFE_MODE, "
+            "otherwise 5"
+        ),
     )
-    # הערכים הוגדלו בדצמבר 2025 בעקבות עומס על בסיס הנתונים שגרם ל-Timeouts שגויים בקאש
+    # הערך הוגדל בדצמבר 2025 בעקבות עומס על בסיס הנתונים שגרם ל-Timeouts שגויים בקאש
     CACHE_CLEAR_BUDGET_SECONDS: float = Field(
-        default=float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5")),
+        default=5.0,
         ge=0.0,
         le=30.0,
         description="Time budget in seconds for cache maintenance (SCAN+DEL) to avoid blocking workers",
@@ -478,6 +492,19 @@ class BotConfig(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    @field_validator("REDIS_CONNECT_TIMEOUT", "REDIS_SOCKET_TIMEOUT", mode="before")
+    @classmethod
+    def _blank_timeout_is_unset(cls, v):
+        """משתנה סביבה שהוגדר ריק פירושו "לא הוגדר", לא "אפס".
+
+        ``REDIS_CONNECT_TIMEOUT=`` בקבוצת משתנים ברנדר הוא מצב שכיח. בלי
+        השורה הזו הוא היה מפיל את טעינת הקונפיג כולה על ``float('')``,
+        כלומר מונע מהשירות לעלות בגלל שדה אופציונלי.
+        """
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator("ADMIN_USER_IDS", mode="before")
     @classmethod

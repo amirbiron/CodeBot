@@ -31,6 +31,15 @@ os.environ.setdefault('DISABLE_DB', '1')
 os.environ.setdefault('BOT_TOKEN', 'x')
 os.environ.setdefault('MONGODB_URL', 'mongodb://localhost:27017/test')
 
+# סביבת הבדיקות מצהירה במפורש שלא ממתינים ל-Redis. אף טסט אינו מדבר עם Redis
+# אמיתי — כולם משתמשים בכתובת דמה — אבל ``main`` בודק זמינות בסוקט לפני שהוא
+# בונה את אחסון ה-rate limiter, ו-``REDIS_URL`` כן מוגדר ב-CI. בלי ההצהרה כאן
+# הבדיקה הזו ממתינה את ה-timeout המלא בכל בניית בוט, מול מארח שאינו נענה.
+# עד היום זה יצא מהיר במקרה, כי ``tests/config.py`` מאפיל על הקונפיג ואין בו
+# את השדות האלה; עכשיו זה כתוב.
+os.environ.setdefault('REDIS_CONNECT_TIMEOUT', '0.25')
+os.environ.setdefault('REDIS_SOCKET_TIMEOUT', '0.25')
+
 # Import stubs so any import of `telegram` succeeds in tests
 try:
     import tests._telegram_stubs  # noqa: F401

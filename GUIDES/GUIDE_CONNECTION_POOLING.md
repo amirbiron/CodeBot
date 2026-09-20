@@ -24,11 +24,13 @@
 ## 2. Redis (redis-py)
 **קובץ:** `cache_manager.py`
 
+ברירות המחדל של שני ה-Timeouts מוכרעות במקום אחד, `runtime_settings.resolve_redis_timeouts`. ערך שהוגדר במפורש מנצח תמיד — גם ב-`SAFE_MODE`.
+
 | משתנה סביבה | ברירת מחדל בקוד | תיאור |
 |:---|:---:|:---|
 | `REDIS_MAX_CONNECTIONS` | `50` | מקסימום חיבורים ב-Pool של Redis. |
-| `REDIS_CONNECT_TIMEOUT` | `5` | (בשניות) זמן המתנה לחיבור. במצב `SAFE_MODE=1` הערך יורד ל-`1`. |
-| `REDIS_SOCKET_TIMEOUT` | `5` | (בשניות) זמן המתנה לפעולת רשת. במצב `SAFE_MODE=1` הערך יורד ל-`1`. |
+| `REDIS_CONNECT_TIMEOUT` | `3` | (בשניות) זמן המתנה לחיבור. כשהמשתנה אינו מוגדר ו-`SAFE_MODE=1`, הערך יורד ל-`1`. |
+| `REDIS_SOCKET_TIMEOUT` | `5` | (בשניות) זמן המתנה לפעולת רשת. כשהמשתנה אינו מוגדר ו-`SAFE_MODE=1`, הערך יורד ל-`1`. |
 | *(Internal definition)* | `30` | `health_check_interval` - בדיקת תקינות חיבור כל 30 שניות (קבוע בקוד). |
 
 ---
