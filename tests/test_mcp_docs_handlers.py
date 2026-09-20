@@ -863,3 +863,31 @@ def test_an_rst_answer_still_lists_its_includes():
     out = docs_handlers.docs_get_section(
         _TextBackend("א\n=\n\n.. include:: other.rst\n"), path="x.rst", repo="CodeBot")
     assert out["includes"] == ["other.rst"]
+
+
+def test_the_page_states_the_validation_order_the_code_actually_runs():
+    """העמוד אומר את סדר הפעולות שהקוד מריץ, ולא את ההפך ממנו.
+
+    **הפרוזה כבר סטתה כאן פעם אחת, ולכן יש עליה שומר.** הניסוח הקודם אמר
+    "הגבול נבדק כיחידת נתיב, **והנרמול קורה אחריו**" — כלומר הפוך מהקוד,
+    שבו הסדר הוא עגינה ← נרמול ← גבול. זה לא ניסוח מסורבל אלא הפוך:
+    קורא שיסמוך עליו ילמד שהנרמול אינו קודם לגבול, וה"תיקון" שינבע מזה
+    הוא להקדים את ``normpath`` לעגינה — בדיוק מה שמגיש
+    ``docs/../secrets``.
+
+    **הסמן הוא הטענה ולא המשפט המלא**, כדי שמי שישפר סגנון לא יפיל את
+    הטסט ומי שיהפוך את המשמעות כן. אותה צורה בדיוק כמו
+    ``_SUGGESTION_RULE_SURFACES`` ב-``tests/test_mcp_server_build.py``,
+    ומאותה סיבה.
+    """
+    page = (_ROOT / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
+    assert "עגינה, אחריה נרמול" in page, (
+        "העמוד אינו אומר עוד שהנרמול בא אחרי העגינה ולפני הגבול")
+
+    # ושהקוד עצמו עדיין מריץ את הסדר הזה — הפרוזה מתארת משהו, וזה הוא.
+    order = inspect.getsource(docs_handlers._resolve_docs_path)
+    anchor_at = order.index("policy.slug_root and")
+    norm_at = order.index("posixpath.normpath(p)")
+    bound_at = order.index("for root in policy.roots")
+    assert anchor_at < norm_at < bound_at, (
+        "סדר הפעולות בקוד השתנה, והעמוד מתאר את הישן")
