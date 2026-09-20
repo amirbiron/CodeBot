@@ -362,9 +362,11 @@ def main(argv: list[str] | None = None) -> int:
             tally[str(rec["response"].get("error") or rec["response"].get("mode"))] += 1
 
         for rel in files:
-            # הנתיב המלא ולא ה-slug הקצר: ``_resolve_docs_path`` מוסיף את
-            # התחילית ``docs/`` רק כשאין ב-קלט ``/`` בכלל, ולכן קובץ בתת-תיקייה
+            # הנתיב המלא ולא ה-slug הקצר: ``_resolve_docs_path`` מעגן את
+            # הקלט לשורש של הריפו רק כשאין בו ``/`` בכלל, ולכן קובץ בתת-תיקייה
             # (``observability/error_codes``) היה נדחה כ-``missing_path``.
+            # השורש עצמו תלוי בריפו מאז מדיניות הנתיבים; כאן הוא ``docs/``,
+            # כי ההרצה מקובעת ל-``CodeBot`` — ראו את ההערה ב-``main``.
             for rec in _battery(backend, f"docs/{rel}"):
                 line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
                 fh.write(line + "\n")
