@@ -34,6 +34,13 @@ from .outline_scanners import rst as _rst
 #:
 #: ``search`` ולא ``replace``: הוא עוצר על ההתאמה הראשונה ואינו מקצה עותק
 #: של הטקסט, שיכול להיות 10MB לפי ``RANGE_READ_MAX_BYTES``.
+#:
+#: **עותק שני של אותו כלל קיים ב-**``services/md_parser.py::_CR_WITHOUT_LF``.
+#: הוא אינו מיובא משם ולא לשם, כי ``services`` אינו מייבא מ-``mcp_server``
+#: והמסלול השני אינו עובר דרך המנתב הזה בכלל. השקילות אינה תקווה:
+#: ``tests/test_md_parser.py::test_the_lone_cr_rule_matches_markdown_it``
+#: מריץ את שניהם מול ההתנהגות של ``markdown-it-py`` עצמו. איחוד השניים
+#: בשכבת ``services`` הוא אישו נפרד.
 _CR_WITHOUT_LF = re.compile(r"\r(?!\n)")
 
 #: **השורה היחידה שהמסלול הזה כותב, והיא נכתבת כאן ולא בסורקים.** כאן יש גם
