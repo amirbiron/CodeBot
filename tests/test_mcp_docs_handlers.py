@@ -170,6 +170,52 @@ def test_ambiguous_section_returns_candidates_with_breadcrumb():
     assert crumbs[0] != crumbs[1]  # Alpha vs Beta
 
 
+def test_candidates_are_capped_and_the_flag_appears_only_when_they_were_cut(monkeypatch):
+    """‏``candidates`` היה השדה היחיד בתשובה בלי תקרה (#3426).
+
+    מזהה שחוזר בעמוד החזיר את **כל** המופעים — נמדד 13,030 מועמדים ו-1.39MB
+    על שאילתה בת שלושה תווים. עכשיו הוא חסום כמו ``toc`` ו-``suggestions``,
+    והדגל קיים רק כשהוא נכון, כדי שכל תשובת ``ambiguous_section`` על עמוד
+    רגיל תישאר זהה בית-בית (אפס-דיף). התקרה נקראת מהמודול בזמן הקריאה
+    ומוקטנת כאן ל-2, במקום לבנות חמישים ואחת כותרות — אותו נימוק כמו בטסט
+    תקרת הסקשנים.
+    """
+    monkeypatch.setattr(docs_handlers, "_CANDIDATES_MAX", 2)
+
+    at_the_cap = docs_handlers.docs_get_section(
+        _TextBackend(_identified_rst("P3 — ראשון", "P3 — שני")), path="x", section="P3")
+    assert at_the_cap["error"] == "ambiguous_section"
+    assert [c["title"] for c in at_the_cap["candidates"]] == ["P3 — ראשון", "P3 — שני"]
+    assert "candidates_truncated" not in at_the_cap, "עמוד שבדיוק בתקרה נענה במלואו, בלי דגל"
+
+    over = docs_handlers.docs_get_section(
+        _TextBackend(_identified_rst("P3 — ראשון", "P3 — שני", "P3 — שלישי")),
+        path="x", section="P3")
+    assert over["error"] == "ambiguous_section"
+    assert [c["title"] for c in over["candidates"]] == ["P3 — ראשון", "P3 — שני"], "בסדר הופעה"
+    assert over["candidates_truncated"] is True
+
+
+def test_the_candidates_cap_is_the_suggestions_inventory_number():
+    """שני מלאים לא-מדורגים באותה תשובה — מספר אחד, כמו שני גבולות האאוטליין והפארסר."""
+    assert docs_handlers._CANDIDATES_MAX == doc_sections.MAX_IDENTIFIER_SUGGESTIONS
+
+
+def test_suggestions_on_a_markdown_page_are_a_list_of_strings_too(both_repos):
+    """הצרכן שנוסף ב-#3428 הוא אותו אתר קריאה לשני הפורמטים, והוא כותב ``.titles``.
+
+    ‏#3426 ביקש שזה ייקבע בטסט ולא רק ב-docstring של ``Suggestions``: מי שישכח
+    את ``.titles`` ישלח ``[["K11"], false]`` — JSON תקין בלי שום שגיאה — וגם
+    במסלול ה-Markdown איש לא היה תופס את זה.
+    """
+    md = "# K11. כשל\n\nטקסט\n\n# K12. דגל\n\nטקסט\n"
+    out = docs_handlers.docs_get_section(_TextBackend(md), path="x.md",
+                                         repo="amir-bug-patterns", section="K99")
+    assert out["error"] == "section_not_found"
+    assert out["suggestions"] == ["K11", "K12"]
+    assert all(isinstance(s, str) for s in out["suggestions"])
+
+
 def test_include_subsections_false_smaller_than_true():
     full = docs_handlers.docs_get_section(_FsBackend(), path="environment-variables",
                                           section="משתני סביבה - רפרנס", include_subsections=True)
