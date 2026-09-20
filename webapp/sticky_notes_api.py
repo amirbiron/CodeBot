@@ -1231,21 +1231,24 @@ def reminders_list():
             limit_param = 20
         limit_param = max(1, min(50, limit_param))
 
-        try:
-            cursor = (
-                db.note_reminders
-                .find(dict(
-                    active_reminder_filter(),
-                    user_id=user_id,
-                    remind_at={'$lte': now},
-                ))
-                .sort('remind_at', 1)
-                .limit(limit_param)
-            )
-        except Exception:
-            cursor = []
+        # בלי ``try`` סביב השאילתה — בכוונה. ``get_db()`` מחזיר ``None``
+        # בחלון הצינון שאחרי כשל התחברות, וה-``AttributeError`` שנובע מזה
+        # חייב להגיע ל-handler החיצוני ולענות 500. הגרסה הקודמת בלעה אותו
+        # ל-``cursor = []`` וענתה ``ok:true, count:0`` — "אין תזכורות" על
+        # מסד שלא נקרא. ``reminders_summary`` עונה 500 על אותו מצב, ומסלולי
+        # הבועה חייבים חוזה אחד: אחרת הבועה אומרת "3" והחלונית "0".
+        cursor = (
+            db.note_reminders
+            .find(dict(
+                active_reminder_filter(),
+                user_id=user_id,
+                remind_at={'$lte': now},
+            ))
+            .sort('remind_at', 1)
+            .limit(limit_param)
+        )
 
-        reminders = list(cursor) if cursor is not None else []
+        reminders = list(cursor)
         items = []
 
         def _first_n_words(text: str, n: int = 6) -> str:

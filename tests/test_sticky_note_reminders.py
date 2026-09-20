@@ -325,6 +325,51 @@ class TestNoteRemindersAPI(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 400)
 
+    def test_list_fails_loudly_when_the_db_handle_is_dead(self):
+        """כשל בקבלת המסד אינו "אין תזכורות" — גם במסלול הרשימה.
+
+        ``get_db()`` מחזיר ``None`` בחלון הצינון שאחרי כשל התחברות, וזה
+        מה שהטסט מדמה. עד התיקון המסלול בלע את ה-``AttributeError`` הנובע
+        מזה לתוך ``cursor = []`` וענה ``200 {"ok": true, "count": 0}``:
+        הבועה אמרה "3", החלונית נפתחה ריקה ודיווחה הצלחה. ``reminders_summary``
+        כבר עונה 500 על אותו מצב, ומסלולי הבועה חייבים חוזה אחד.
+
+        ``_INDEX_READY`` מקובע ל-``True`` כדי ש-``_ensure_indexes`` — שרץ
+        ראשון ובולע כשל של ``get_db`` בעצמו — לא ייגע במסד, וה-500 יגיע
+        רק מהשאילתה של הרשימה ולא ממנו.
+        """
+        self._login()
+        orig_ready = sticky_mod._INDEX_READY
+        sticky_mod._INDEX_READY = True
+        sticky_mod.get_db = lambda: None
+        try:
+            r = self.client.get('/api/sticky-notes/reminders/list')
+        finally:
+            sticky_mod._INDEX_READY = orig_ready
+        self.assertEqual(r.status_code, 500)
+        self.assertFalse(r.get_json().get('ok'))
+
+    def test_list_returns_a_due_reminder_with_its_preview(self):
+        """המסלול התקין: תזכורת בשלה חוזרת עם תצוגה מקדימה מהפתק.
+
+        לרשימה לא היה טסט, ולכן הסרת הבליעה צריכה עד שהמסלול שנשאר
+        עדיין עונה — אחרת "נופל בקול" ו"נופל תמיד" נראים אותו דבר.
+        """
+        self._login()
+        self.db.sticky_notes._docs[0]['content'] = 'שלום עולם דביק'
+        now = datetime.now(timezone.utc)
+        self.db.note_reminders._docs.append({
+            '_id': 'r1', 'user_id': self.user_id, 'note_id': self.note_id, 'file_id': 'file-1',
+            'status': 'pending', 'remind_at': now - timedelta(minutes=1), 'ack_at': None,
+        })
+        r = self.client.get('/api/sticky-notes/reminders/list')
+        self.assertEqual(r.status_code, 200)
+        data = r.get_json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['count'], 1)
+        self.assertEqual(data['items'][0]['note_id'], self.note_id)
+        self.assertEqual(data['items'][0]['preview'], 'שלום עולם דביק')
+
 
 class TestReminderStateHelpers(unittest.TestCase):
     """המודול הטהור — בלי Flask ובלי מסד."""
