@@ -169,19 +169,26 @@ Mocking HTTP ב‑github_menu_handler
 - **צינורות aggregation** — סטאב שנכתב ביד מבין רק את הצורה שנכתבה בו, ולכן שגיאת תחביר אמיתית עוברת אצלו.
 - **בייטים מול תווים** — ``$substrBytes`` ו-``$strLenBytes`` מודדים בבייטים, ``$substrCP`` ו-``$strLenCP`` בתווים, ו-``$regexFind`` מחזיר ``idx`` **בתווים**. על טקסט עברי ערבוב היחידות חותך באמצע אות ומונגו זורקת. אף סטאב בריפו אינו מדגמן את זה — ``tests/_fake_mongo.py`` אפילו אין בו ``aggregate``.
 
-הבדיקות האלה חיות בשני קבצים, וכל אחד מהם נשען על **משתנה סביבה אחר**:
+הבדיקות האלה חיות בקבצים נפרדים, וכל אחד מהם נשען על **משתנה סביבה** משלו:
 
 - ``tests/test_note_boards_mongo.py`` — ``MONGODB_URL``, דרך ``pytestmark`` שנבדק פעם אחת בטעינת המודול.
+- ``tests/test_profiler_projection_mongo.py`` — ``MONGODB_URL``, גם הוא דרך ``pytestmark``, ובנוסף **שער גרסה** בפיקסצ'ר (ראו למטה).
 - ``tests/test_snippet_hebrew_offsets_mongo.py`` — ``NOTE_FONTS_TEST_MONGO_URI``, דרך הפיקסצ'ר ``wired_mongo`` שב-``tests/conftest.py``. אותו פיקסצ'ר משרת גם את שאר הבדיקות שמריצות את הראוטים של הוובאפ מול מסד אמיתי.
 
 **המשתנה הנפרד אינו כפילות מיותרת.** ``tests/conftest.py`` עושה ``os.environ.setdefault('MONGODB_URL', …)`` בטעינה, כלומר המשתנה הזה **תמיד** מוגדר בבדיקות — לערך דמה. פיקסצ'ר שהיה נופל אליו היה מחכה 30 שניות לכתובת שאין מאחוריה שרת, בכל בדיקה, ואז נכשל — ו-``--maxfail=1`` היה עוצר את כל החבילה.
 
-שניהם **מדלגים** כשהמשתנה שלהם ריק או כשהשרת אינו נגיש, כך שהרצה מקומית רגילה נשארת מהירה.
+כולם **מדלגים** כשהמשתנה שלהם ריק או כשהשרת אינו נגיש, כך שהרצה מקומית רגילה נשארת מהירה. **שרת שכן נגיש אבל בגרסה נמוכה מדי הוא מקרה אחר לגמרי** — שם הבדיקה נכשלת ואינה מדלגת, ראו את הפסקה על גרסת השרת למטה.
 
 .. warning::
-   **הן אינן רצות ב-CI כרגע.** הג'וב ``Unit Tests`` אמנם מרים ``mongo:6.0`` כשירות, אבל הוא ``runs-on: ubuntu-latest`` **בלי** ``container:``, והשירות מוגדר **בלי** ``ports:``. לפי `תיעוד GitHub Actions <https://docs.github.com/en/actions/using-containerized-services/about-service-containers>`_, גישה לפי שם השירות עובדת רק כשהג'וב עצמו רץ בקונטיינר; אחרת צריך למפות פורטים ולפנות ל-``127.0.0.1:<port>``. בלי זה המארח ``mongodb`` אינו נפתר כלל (``[Errno -3] Temporary failure in name resolution``), והבדיקות מדלגות בשקט.
+   **ב-CI של ה-PR הן אינן רצות.** הג'וב ``Unit Tests`` ב-``.github/workflows/ci.yml`` אמנם מרים ``mongo:8.0`` כשירות, אבל הוא ``runs-on: ubuntu-latest`` **בלי** ``container:``, והשירות מוגדר **בלי** ``ports:``. לפי `תיעוד GitHub Actions <https://docs.github.com/en/actions/using-containerized-services/about-service-containers>`_, גישה לפי שם השירות עובדת רק כשהג'וב עצמו רץ בקונטיינר; אחרת צריך למפות פורטים ולפנות ל-``127.0.0.1:<port>``. בלי זה המארח ``mongodb`` אינו נפתר כלל (``[Errno -3] Temporary failure in name resolution``), והבדיקות מדלגות בשקט.
 
    התיקון הוא ``ports:`` על השירות ומעבר ל-``127.0.0.1`` — בדיוק כפי שהג'וב ``alembic-migrations`` באותו קובץ כבר עושה עבור postgres. הוא מוצא לסבב נפרד, כי הוא **יעיר** את הבדיקות האלה ואי אפשר לדעת מראש אילו מהן עוברות.
+
+   **אחרי מיזוג הן כן רצות, וזה לא אותו קובץ.** ``.github/workflows/deploy.yml`` מריץ את אותה חבילה על push ל-``main``, ושם השירות ``mongodb`` **כן** מוגדר עם ``ports:`` וה-``MONGODB_URL`` מצביע ל-``localhost:27017`` — כלומר שרת נגיש, והבדיקות שנשענות על ``MONGODB_URL`` רצות במלואן. זה ההסבר לכשל שמופיע "רק אחרי מיזוג": אותה חבילה בדיוק, פעם אחת בלי מסד ופעם אחת איתו.
+
+**גרסת השרת: 8.0 ומעלה, ולא "מונגו כלשהו".** הפרודקשן רץ על MongoDB Atlas 8.0, ולכן כל סביבות הבדיקה מרימות ``mongo:8.0`` — ``.github/workflows/ci.yml``, ``.github/workflows/deploy.yml``, ``docker-compose.yml`` ו-``docker-compose.dev.yml``. בדיקה שרצה מול מסד אמיתי ובודקת מנוע אחר מזה שבפרודקשן היא ביטחון שווא, ולא כיסוי. מי שמרים את ה-compose מקומית על volume שנוצר בזמן של 6.0 צריך מעבר חד-פעמי לפני ההרצה הראשונה — ראו :doc:`/installation`.
+
+ל-``tests/test_profiler_projection_mongo.py`` זה קריטי במיוחד: הוא משווה את ``queryShapeHash`` שמונגו מחזירה ב-``explain``, ולפי `התיעוד של explain <https://www.mongodb.com/docs/manual/reference/command/explain/>`_, השדה הזה נוסף ב-MongoDB 8.0. מול 6.0 הוא פשוט אינו חוזר, וההשוואה מתרוקנת מתוכן. הפיקסצ'ר שם קורא ``buildInfo``, ואם הגרסה נמוכה מ-8.0 הוא **נכשל** בהודעה שאומרת מה גרסת השרת ומה נדרש — ולא מדלג, כי דילוג היה צובע את הריצה בירוק בזמן שההשוואה היחידה שמוכיחה את התיקון אינה מתבצעת.
 
 להרצה מקומית מול שרת אמיתי:
 
@@ -189,11 +196,13 @@ Mocking HTTP ב‑github_menu_handler
 
    MONGODB_URL='mongodb://127.0.0.1:27017' pytest tests/test_note_boards_mongo.py -v
 
+   MONGODB_URL='mongodb://127.0.0.1:27017' pytest tests/test_profiler_projection_mongo.py -v
+
    NOTE_FONTS_TEST_MONGO_URI='mongodb://127.0.0.1:27017' \
        pytest tests/test_snippet_hebrew_offsets_mongo.py -v
 
 .. warning::
-   שני הקבצים יוצרים מסד ייעודי משלהם ואינם נוגעים במסד ברירת המחדל: ``test_note_boards_mongo.py`` מגריל שם עם התחילית ``codebot_notes_it_``, ו-``wired_mongo`` בונה ``cktest_<שם קובץ הבדיקה>``. ה-teardown של הראשון מוודא שהשם תואם לתחילית **לפני** ``drop_database``. עם זאת — אל תכוונו את אף אחד משני המשתנים למסד שיש בו נתונים אמיתיים.
+   כל הקבצים האלה יוצרים מסד ייעודי משלהם ואינם נוגעים במסד ברירת המחדל: ``test_note_boards_mongo.py`` מגריל שם עם התחילית ``codebot_notes_it_``, ``test_profiler_projection_mongo.py`` עם התחילית ``codebot_profiler_it_``, ו-``wired_mongo`` בונה ``cktest_<שם קובץ הבדיקה>``. ה-teardown של השניים הראשונים מוודא שהשם תואם לתחילית **לפני** ``drop_database``. עם זאת — אל תכוונו את אף אחד משני המשתנים למסד שיש בו נתונים אמיתיים.
 
 כיסוי בדיקות (pytest-cov)
 --------------------------
