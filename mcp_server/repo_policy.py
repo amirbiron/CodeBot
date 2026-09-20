@@ -11,8 +11,10 @@ precondition** for the MCP repo tools (FEATURE doc §13.5):
 
 Matching is fail-closed: any internal error while evaluating a path counts as
 denied. Paths are normalized (posix separators, ``normpath``, lowercase) and
-matched case-insensitively against both the full path and the basename, so
-nested paths (``config/.env``) and case variants (``.ENV``) are covered.
+matched case-insensitively against the full path **and against every path
+component**, so case variants (``.ENV``) are covered and a sensitive name is
+caught wherever it sits in the tree — as a file (``config/.env``) or as a
+directory holding other files (``config/.env/README.md``).
 
 Stdlib-only on purpose — trivially unit-testable, importable anywhere.
 """
@@ -74,9 +76,40 @@ def is_denied(path: object) -> bool:
         norm = posixpath.normpath(str(path or "").replace("\\", "/")).lower().lstrip("/")
         if not norm or norm in (".", ".."):
             return True
-        base = posixpath.basename(norm)
+        # **כל רכיב בנתיב, ולא רק ה-basename.** שם רגיש יכול להיות תיקייה
+        # ולא קובץ, והקבצים שבתוכה רגישים בדיוק כמוהו. ההתאמה הקודמת בדקה
+        # basename ונתיב מלא בלבד, וזה נתן כיסוי **מקרי**: ``fnmatch`` מרשה
+        # ל-``*`` לחצות ``/``, ולכן ``credentials*`` תפס את
+        # ``credentials/notes.md`` — כי התיקייה במקרה ישבה ברכיב הראשון —
+        # ואילו ``config/.env/README.md`` עבר. נמדד, לפני התיקון:
+        # ``config/.env/README.md``, ``a/secrets.d/x.md``,
+        # ``keys/id_rsa/readme.md``, ``x/.NETRC/y.md`` ו-
+        # ``deep/a/b/credentials/notes.md`` — כולם ``False``.
+        #
+        # זהו ``filter-too-narrow`` §2 ב-``amir-bug-patterns`` (התאמה
+        # מדויקת במקום התאמה ליחידה הנכונה), ואותה מחלקה כמו ``K16``: גבול
+        # היררכי שנבדק כרצף תווים במקום כרצף רכיבים.
+        #
+        # **ובדיקת ה-basename נמחקה ולא נוספה לה שנייה.** הרכיב האחרון
+        # **הוא** ה-basename — נמדד שהם זהים בכל צורה שמגיעה לכאן, אחרי
+        # ``normpath`` — ולכן סריקת הרכיבים בולעת אותה. שתי בדיקות שמתארות
+        # אותו כלל הן ``duplicate-rule-second-copy``.
+        #
+        # **ובדיקת הנתיב המלא נשארת, והיא אינה כפילות:** תבנית שמגיעה
+        # מ-``MCP_REPO_DENYLIST_EXTRA`` יכולה להכיל ``/`` (``internal/*``),
+        # והיא מתאימה לנתיב ולא לאף רכיב בודד.
+        #
+        # **העלות נמדדה ולא הוערכה:** על 10,174 הקבצים שגיט מכיר בריפו הזה,
+        # ההרחבה חוסמת **אפס** קבצים חדשים ומשחררת אפס. היא סוגרת פערים,
+        # ואינה חוסמת תיעוד לגיטימי — זו הבדיקה ש-
+        # ``blanket-policy-silent-block`` דורש לפני מדיניות שמרחיבה חסימה.
+        parts = [part for part in norm.split("/") if part and part != "."]
+        if not parts:
+            return True
         for pattern in _patterns():
-            if fnmatch.fnmatchcase(base, pattern) or fnmatch.fnmatchcase(norm, pattern):
+            if fnmatch.fnmatchcase(norm, pattern):
+                return True
+            if any(fnmatch.fnmatchcase(part, pattern) for part in parts):
                 return True
         return False
     except Exception:

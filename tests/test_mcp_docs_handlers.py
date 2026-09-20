@@ -633,6 +633,12 @@ def test_a_leading_slash_is_tolerated_and_the_answer_says_what_was_looked_up(bot
     ("CodeBot", "secrets", "docs/secrets.rst"),
     ("amir-bug-patterns", "secrets", "secrets.md"),
     ("amir-bug-patterns", "config/.env", "config/.env.md"),
+    # שם רגיש כ**תיקייה** ולא כקובץ. שורש ריק פירושו כל הריפו בכל עומק,
+    # ולכן דווקא כאן הצורה הזאת נגישה — ודווקא כאן היא הייתה עוברת לפני
+    # שהמדיניות למדה להשוות מול כל רכיב בנתיב.
+    ("amir-bug-patterns", "config/.env/README.md", "config/.env/README.md"),
+    ("amir-bug-patterns", "certs/server.pem/notes.md", "certs/server.pem/notes.md"),
+    ("CodeBot", "docs/.env/README", "docs/.env/README.rst"),
 ])
 def test_the_secrets_denylist_reaches_this_tool_through_the_real_backend(
         monkeypatch, repo, path, normalised):
