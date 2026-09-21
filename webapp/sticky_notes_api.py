@@ -1127,6 +1127,13 @@ def snooze_note_reminder(note_id: str):
         return jsonify({'ok': False, 'error': 'Failed'}), 500
 
 
+#: כשיש בועה על המסך השרת מבקש מהלקוח לחזור לכל היותר בעוד חמש דקות — המרווח
+#: הקבוע שהיה כאן לפני הדגימה לפי השרת, וזה שריענן גם ניקוי ממכשיר אחר וגם
+#: מונה שהשתנה. הערך יושב בשרת ולא בלקוח כדי שללקוח יישאר כלל אחד: "ישן כמה
+#: שהשרת אמר, בין הרצפה לתקרה". תזכורת נוספת שמבשילה מוקדם יותר גוברת עליו.
+BADGE_REFRESH_SECONDS = 5 * 60
+
+
 @sticky_notes_bp.route('/reminders/summary', methods=['GET'])
 @require_auth
 @notes_rate_limit('note_reminders_summary', 300)
@@ -1135,13 +1142,16 @@ def reminders_summary():
     """Return minimal summary for persistent UI badge.
 
     Response:
-      { ok, has_due: bool, count_due: int, next: {...} | null, next_in_seconds: int | null }
+      { ok, has_due: bool, count_due: int, next_in_seconds: int | null }
 
     **``next_in_seconds`` הוא מה שמפסיק את הדגימה על ריק.** עד כאן הלקוח
     דגם כל חמש דקות בלי קשר למצב, כי "כן/לא" היה כל מה שקיבל — 954 קריאות
     ביממה שכולן החזירו "אין". השרת הוא היחיד שיודע גם *מתי* התזכורת הבאה,
-    ולכן הוא זה שאומר ללקוח מתי לחזור. אין תזכורת עתידית ← ``None``, והלקוח
-    נרדם עד הניווט הבא.
+    ולכן הוא זה שאומר ללקוח מתי לחזור — גם כשיש בועה: אז התשובה היא לכל
+    היותר ``BADGE_REFRESH_SECONDS``, כדי שבועה שנוקתה ממכשיר אחר ומונה
+    שהשתנה ייראו תוך דקות ולא אחרי חצי שעה. אין תזכורת עתידית ואין בועה ←
+    ``None``, והלקוח נרדם עד התקרה שלו (חצי שעה) — לא לנצח, כדי שתזכורת
+    שתיקבע ממכשיר אחר עדיין תתגלה.
 
     **והערך יחסי, לא חותמת.** ``remind_at`` שנקרא מהמסד הוא מודע-אזור רק
     כל עוד הלקוח נבנה עם ``tz_aware`` — ומחרוזת ISO בלי offset נקראת
@@ -1156,9 +1166,6 @@ def reminders_summary():
         base_filter = active_reminder_filter()
         base_filter['user_id'] = user_id
         due_filter = dict(base_filter, remind_at={'$lte': now})
-        # רק שני השדות שהתשובה נושאת. הקוד הקודם משך את כל המסמכים המלאים
-        # ואז השתמש באורך הרשימה ובאיבר הראשון בלבד.
-        next_projection = {'note_id': 1, 'file_id': 1, 'remind_at': 1}
         # **שאילתה שנכשלה אינה "אין תזכורות".** כאן ישב ``except`` שהחזיר
         # ``count_due = 0``, והתשובה יצאה ``ok: true, has_due: false`` —
         # כלומר המשתמש קיבל "הכול נקי" על מסד שלא ענה. עכשיו החריגה עולה
@@ -1167,33 +1174,26 @@ def reminders_summary():
         # שנרדם לחצי שעה על סמך כשל הוא גרוע מלקוח שדוגם יותר מדי.
         count_due = int(db.note_reminders.count_documents(due_filter))
         has_due = count_due > 0
-        nxt = None
+        # מתי כדאי לשאול שוב — בשני המצבים. התזכורת העתידית הקרובה קובעת את
+        # המועד; כשיש בועה, התשובה נחתכת ב-BADGE_REFRESH_SECONDS, כי בועה שנוקתה
+        # ממכשיר אחר אינה שולחת שום אות, וחצי שעה של בועה ישנה היא בדיוק מה
+        # שהדגימה לפי השרת לא נועדה לייצר. זו השאילתה היחידה שנשארה לצד הספירה:
+        # היא שואלת על העתיד והספירה על ההווה, ולכן שתי התשובות אינן יכולות
+        # לסתור זו את זו — ``has_due`` נגזר מהספירה בלבד.
+        upcoming = db.note_reminders.find_one(
+            dict(base_filter, remind_at={'$gt': now}),
+            {'remind_at': 1},
+            sort=[('remind_at', 1)],
+        )
+        next_in_seconds = _seconds_until(upcoming.get('remind_at') if upcoming else None, now)
         if has_due:
-            first = db.note_reminders.find_one(
-                due_filter, next_projection, sort=[('remind_at', 1)]
+            next_in_seconds = (
+                BADGE_REFRESH_SECONDS if next_in_seconds is None else min(BADGE_REFRESH_SECONDS, next_in_seconds)
             )
-            if first:
-                remind_at = first.get('remind_at')
-                nxt = {
-                    'note_id': str(first.get('note_id', '')),
-                    'file_id': str(first.get('file_id', '')),
-                    'remind_at': remind_at.isoformat() if isinstance(remind_at, datetime) else None,
-                }
-        # מתי כדאי לשאול שוב. כשכבר יש תזכורת בשלה הלקוח מציג אותה ואינו
-        # צריך מועד, ולכן השאילתה הזו רצה רק כשאין מה להציג.
-        next_in_seconds = None
-        if not has_due:
-            upcoming = db.note_reminders.find_one(
-                dict(base_filter, remind_at={'$gt': now}),
-                {'remind_at': 1},
-                sort=[('remind_at', 1)],
-            )
-            next_in_seconds = _seconds_until(upcoming.get('remind_at') if upcoming else None, now)
         return jsonify({
             'ok': True,
             'has_due': has_due,
             'count_due': count_due,
-            'next': nxt,
             'next_in_seconds': next_in_seconds,
         })
     except Exception:

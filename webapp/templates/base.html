@@ -4732,8 +4732,7 @@
         removeDot();
         // אין מה להציג. השרת אמר מתי התזכורת הבאה מבשילה; אין כזו —
         // נשארים בתקרה, כדי לגלות תזכורת שתיקבע ממכשיר אחר.
-        const nextIn = typeof j.next_in_seconds === 'number' ? j.next_in_seconds : null;
-        return nextIn === null ? MAX_POLL_MS : nextIn * 1000;
+        return requestedDelay(j);
       }
       const target = isMobile() ? document.querySelector('.mobile-menu-toggle') : document.querySelector('.nav-link[href="/settings"]');
       const bubble = ensureBubble(target);
@@ -4765,9 +4764,17 @@
         }
       };
       bubble.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bubble.click(); } };
-      // הבועה מוצגת. אין דחיפות לשאול שוב — המשתמש כבר רואה שיש לו משהו.
-      return MAX_POLL_MS;
+      // גם כשהבועה מוצגת השרת אומר מתי לחזור: לכל היותר חמש דקות, ומוקדם
+      // יותר כשתזכורת נוספת מבשילה — כדי שניקוי ממכשיר אחר ומונה שמשתנה
+      // ייראו תוך כדי, ולא אחרי חצי שעה. שרת ישן שלא שולח ערך ← התקרה.
+      return requestedDelay(j);
     } catch (e) { if (gen !== chainGen) { return staleAfterStop(); } return failAndBackOff(e); }
+  }
+  // מה השרת ביקש, אם ביקש: מספר שניות, ובלעדיו התקרה. הרצפה והתקרה נאכפות
+  // ב-schedule. ערך שאינו מספר (שרת ישן, גוף חלקי) נחשב "לא ביקש".
+  function requestedDelay(j){
+    const nextIn = typeof j.next_in_seconds === 'number' ? j.next_in_seconds : null;
+    return nextIn === null ? MAX_POLL_MS : nextIn * 1000;
   }
   function schedule(ms){
     try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}

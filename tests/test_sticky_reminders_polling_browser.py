@@ -87,7 +87,6 @@ def _summary(**overrides):
         "ok": True,
         "has_due": False,
         "count_due": 0,
-        "next": None,
         "next_in_seconds": None,
     }
     reply.update(overrides)
@@ -245,6 +244,10 @@ STOP_BUMPS_GEN = "    stopped = true;\n    chainGen += 1;"
 KEEP_BADGE_ON_429 = (
     "        window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;\n"
     "        return backoffMs;"
+)
+DUE_USES_SERVER_DELAY = (
+    "      // ייראו תוך כדי, ולא אחרי חצי שעה. שרת ישן שלא שולח ערך ← התקרה.\n"
+    "      return requestedDelay(j);"
 )
 POPOVER_UNKNOWN = "openPopover(target, (lj && lj.ok) ? lj : { error: true });"
 FLOOR_SKIPS_WHEN_STOPPED = "if (!stopped && Date.now() - lastPollAt < MIN_POLL_MS) { return; }"
@@ -571,7 +574,7 @@ def test_a_catch_that_returns_the_ceiling_breaks_the_test(chromium_executable):
 
 # --- החלונית: "לא ידוע" אינו "אין" ----------------------------------------------
 
-_DUE = dict(has_due=True, count_due=2, next={"note_id": "n1", "file_id": "f1", "remind_at": None})
+_DUE = dict(has_due=True, count_due=2)
 
 
 def _click_bubble_and_read_popover(page):
@@ -980,3 +983,28 @@ def test_dropping_the_generation_bump_breaks_the_timeout_test(chromium_executabl
         page.wait_for_timeout(200)
         assert len(_delays(page)) == len(armed) + 1, (armed, _delays(page))
         assert [t for _, t in sink if "poll failed" in t], sink
+
+
+# --- יש בועה: השרת אומר מתי לחזור, והלקוח מקשיב ---------------------------------
+
+
+def test_a_due_reminder_uses_the_servers_refresh_interval(chromium_executable):
+    """יש בועה והשרת אמר לחזור בעוד חמש דקות: הטיימר הוא חמש דקות, לא התקרה.
+
+    לפני התיקון הענף של "יש בשלה" התעלם מ-next_in_seconds ונרדם לחצי שעה —
+    בועה שנוקתה ממכשיר אחר, או מונה שהשתנה, חיכו עד אז.
+    """
+    reply = _summary(**_DUE, next_in_seconds=300)
+    with _chain(chromium_executable, _polling_script(), __status=200, __reply=reply) as page:
+        page.wait_for_function("window.__delays.length >= 1", timeout=8000)
+        assert _delays(page) == [300 * 1000], _delays(page)
+        assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is True
+
+
+def test_ignoring_the_interval_while_a_badge_is_up_breaks_the_test(chromium_executable):
+    """ריצת בקרה: הענף חוזר להחזיר את התקרה — הטיימר הוא חצי שעה."""
+    script = _mutate(_polling_script(), DUE_USES_SERVER_DELAY, "      return MAX_POLL_MS;")
+    reply = _summary(**_DUE, next_in_seconds=300)
+    with _chain(chromium_executable, script, __status=200, __reply=reply) as page:
+        page.wait_for_function("window.__delays.length >= 1", timeout=8000)
+        assert _delays(page) == [MAX_POLL_MS], _delays(page)

@@ -44,6 +44,27 @@ def _matches(doc, query):
     return True
 
 
+def _project(doc, projection):
+    """מחיל היטלה כמו מונגו, במקום לזרוק אותה.
+
+    הכללה (``{f: 1}``) שומרת את השדות שנקבו ואת ``_id`` אלא אם ``_id: 0``;
+    החרגה (``{f: 0}``) מסירה את השדות שנקבו. בלי היטלה חוזר המסמך עצמו.
+    הסטאב הישן קיבל ``projection`` וזרק אותו, ולכן טסט ראה מסמך מלא היכן
+    שהייצור רואה שדה אחד — שינוי שמפיל שדה מההיטלה עבר את הסוויטה.
+    מקור: MongoDB Manual, "Project Fields to Return from Query".
+    """
+    if not projection:
+        return doc
+    if isinstance(projection, (list, tuple)):
+        projection = {k: 1 for k in projection}
+    include = {k for k, v in projection.items() if v and k != '_id'}
+    if include:
+        keep = include | ({'_id'} if projection.get('_id', 1) else set())
+        return {k: v for k, v in doc.items() if k in keep}
+    exclude = {k for k, v in projection.items() if not v}
+    return {k: v for k, v in doc.items() if k not in exclude}
+
+
 class _StubColl:
     def __init__(self):
         self._docs = []
@@ -62,7 +83,7 @@ class _StubColl:
         if sort:
             for key, direction in reversed(list(sort)):
                 docs.sort(key=lambda d: d.get(key), reverse=(direction < 0))
-        return docs[0] if docs else None
+        return _project(docs[0], projection) if docs else None
 
     def count_documents(self, query, *args, **kwargs):
         return len([d for d in self._docs if _matches(d, query)])
@@ -110,8 +131,9 @@ class _StubColl:
         filtered = [d for d in self._docs if _matches(d, query)]
 
         class _Cursor:
-            def __init__(self, items):
+            def __init__(self, items, projection=None):
                 self._items = list(items)
+                self._projection = projection
             def sort(self, key=None, direction=1, **kw):
                 if key:
                     self._items.sort(key=lambda d: d.get(key), reverse=(direction < 0))
@@ -120,11 +142,12 @@ class _StubColl:
                 self._items = self._items[:n]
                 return self
             def __iter__(self):
-                return iter(self._items)
+                # המיון וה-limit רצים על המסמכים המלאים, כמו במונגו; ההיטלה חלה על מה שיוצא.
+                return iter([_project(d, self._projection) for d in self._items])
             def __len__(self):
                 return len(self._items)
 
-        return _Cursor(filtered)
+        return _Cursor(filtered, projection)
 
     def sort(self, *args, **kwargs):
         return self
@@ -216,7 +239,7 @@ class TestNoteRemindersAPI(unittest.TestCase):
         data = r.get_json()
         self.assertTrue(data['ok'])
         self.assertTrue(data['has_due'])
-        self.assertIsNotNone(data['next'])
+        self.assertEqual(data['count_due'], 1)
 
     def test_delete_reminder(self):
         self._login()
@@ -290,6 +313,55 @@ class TestNoteRemindersAPI(unittest.TestCase):
         data = self.client.get('/api/sticky-notes/reminders/summary').get_json()
         self.assertFalse(data['has_due'])
         self.assertIsNone(data['next_in_seconds'])
+
+    # --- יש בועה: השרת עדיין אומר מתי לחזור ---
+
+    def _seed_upcoming(self, minutes, _id='r-future'):
+        self.db.note_reminders._docs.append({
+            '_id': _id, 'user_id': self.user_id, 'note_id': self.note_id, 'file_id': 'file-1',
+            'status': 'pending', 'ack_at': None,
+            'remind_at': datetime.now(timezone.utc) + timedelta(minutes=minutes),
+        })
+
+    def test_summary_with_a_due_reminder_says_when_to_come_back(self):
+        """יש בועה ואין עתידית: השרת עונה "חזור בעוד חמש דקות", לא שותק.
+
+        לפני התיקון ``next_in_seconds`` חושב רק כשאין בשלות, והלקוח נרדם
+        לתקרה — חצי שעה שבה בועה שנוקתה ממכשיר אחר נשארה על המסך.
+        """
+        self._login()
+        self._seed_due()
+        data = self.client.get('/api/sticky-notes/reminders/summary').get_json()
+        self.assertTrue(data['has_due'])
+        self.assertEqual(data['next_in_seconds'], 300)
+
+    def test_summary_with_a_due_reminder_wakes_for_the_next_maturity(self):
+        """יש בועה ותזכורת נוספת בעוד שתי דקות: חוזרים כשהיא מבשילה, לא בעוד חמש."""
+        self._login()
+        self._seed_due()
+        self._seed_upcoming(2)
+        data = self.client.get('/api/sticky-notes/reminders/summary').get_json()
+        self.assertTrue(data['has_due'])
+        self.assertIsNotNone(data['next_in_seconds'])
+        self.assertGreater(data['next_in_seconds'], 2 * 60 - 60)
+        self.assertLessEqual(data['next_in_seconds'], 2 * 60)
+
+    def test_summary_with_a_due_reminder_caps_a_far_maturity_at_the_refresh(self):
+        """יש בועה והעתידית רחוקה (45 דקות): הריענון של חמש דקות גובר."""
+        self._login()
+        self._seed_due()
+        self._seed_upcoming(45)
+        data = self.client.get('/api/sticky-notes/reminders/summary').get_json()
+        self.assertTrue(data['has_due'])
+        self.assertEqual(data['next_in_seconds'], 300)
+
+    def test_summary_no_longer_ships_the_unread_next_object(self):
+        """``next`` ירד: אין לו צרכן, והשאילתה שבנתה אותו הייתה הסיבוב שיכול לא להסכים עם הספירה."""
+        self._login()
+        self._seed_due()
+        data = self.client.get('/api/sticky-notes/reminders/summary').get_json()
+        self.assertNotIn('next', data)
+        self.assertEqual(data['count_due'], 1)
 
     def test_summary_fails_loudly_when_the_count_query_fails(self):
         """שאילתה שנכשלה אינה "אין תזכורות".
