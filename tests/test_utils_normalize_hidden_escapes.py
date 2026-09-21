@@ -43,3 +43,59 @@ def test_normalize_code_disable_strip_literal_escapes():
     out = normalize_code(text, remove_escaped_format_escapes=False)
     assert "\\u200B" in out
     assert "\\U000E0001" in out
+
+
+# ---------------------------------------------------------------------------
+# #3427: רשימה אחת נמחקה משני מקומות, ופונקציה אחת במקום שתיים
+# ---------------------------------------------------------------------------
+
+#: 16 הקודים שישבו ב-``known_hex4`` (utils) וב-``_KNOWN_ESCAPE_HEX4`` (הדומיין) —
+#: זהים תו-בתו, ונמדד שכולם ``Cf``, כלומר הרשימה לא הוסיפה דבר על הקטגוריה.
+_FORMERLY_LISTED = [
+    "200B", "200C", "200D", "2060", "FEFF",
+    "200E", "200F", "202A", "202B", "202C", "202D", "202E",
+    "2066", "2067", "2068", "2069",
+]
+
+
+def test_the_two_normalizers_share_one_hidden_escape_rule_and_no_list():
+    """הגדרה אחת בשכבת הדומיין, ושני הצרכנים קוראים לה — בלי רשימה באף אחד מהם."""
+    import inspect
+
+    import utils
+    from src.domain.services import code_normalizer
+
+    assert utils._strip_hidden_escapes is code_normalizer.strip_hidden_escapes
+    assert not hasattr(code_normalizer.CodeNormalizer, "_KNOWN_ESCAPE_HEX4")
+    assert not hasattr(code_normalizer.CodeNormalizer, "_strip_hidden_escapes")
+    assert "known_hex4" not in inspect.getsource(utils.normalize_code)
+
+
+@pytest.mark.parametrize("hexcode", _FORMERLY_LISTED)
+def test_every_code_the_deleted_lists_named_is_cf_and_is_still_stripped_on_both_paths(hexcode):
+    """המדידה מהאישו, כטסט: כל קוד שהרשימה תפסה נתפס על ידי הקטגוריה — בשני הנרמולים."""
+    from src.domain.services.code_normalizer import CodeNormalizer
+
+    assert unicodedata.category(chr(int(hexcode, 16))) == "Cf"
+    text = f"a\\u{hexcode}b"
+    assert CodeNormalizer().normalize(text) == "ab"
+    assert normalize_code(text, strip_bom=False) == "ab", "המסלול הישן של utils (אפשרות שאינה ברירת מחדל)"
+
+
+def test_variation_selectors_stay_a_separate_branch_because_they_are_mn_not_cf():
+    """‏``U+FE0F`` הוא ``Mn``: הקטגוריה לא תופסת אותו, ולכן הוא ענף משלו שנדלק רק לפי בקשה."""
+    from src.domain.services.code_normalizer import CodeNormalizer, strip_hidden_escapes
+
+    assert unicodedata.category("\uFE0F") == "Mn"
+    assert strip_hidden_escapes("a\\uFE0Fb") == "a\\uFE0Fb"
+    assert strip_hidden_escapes("a\\uFE0Fb", remove_variation_selectors=True) == "ab"
+    assert CodeNormalizer().normalize("a\\uFE0Fb") == "a\\uFE0Fb"
+    assert normalize_code("a\\uFE0Fb", strip_bom=False) == "a\\uFE0Fb"
+    assert normalize_code("a\\uFE0Fb", strip_bom=False, remove_variation_selectors=True) == "ab"
+
+
+def test_an_escape_beyond_unicode_is_left_exactly_as_written():
+    """‏``\\U00110000`` אינו תו (מעל U+10FFFF): לא ``Cf``, לא שגיאה — נשאר כמות שהוא, כמו קודם."""
+    from src.domain.services.code_normalizer import strip_hidden_escapes
+
+    assert strip_hidden_escapes("a\\U00110000b") == "a\\U00110000b"

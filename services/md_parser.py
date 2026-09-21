@@ -53,13 +53,13 @@
 
 from __future__ import annotations
 
-import re
 from typing import List, Optional
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from mdit_py_plugins.front_matter import front_matter_plugin
 
+from .line_endings import find_lone_cr
 from .doc_sections import (
     Document,
     InconsistentLineEndings,
@@ -136,14 +136,8 @@ __all__ = [
 #: מ-``mcp_server`` — הכיוון חד-סטרי ומנומק ב-``TooManySections``.
 MAX_SECTIONS = 50_000
 
-#: ``\r`` שאינו חלק מ-``\r\n``. ההגדרה חוזרת כאן ואינה מיובאת מ-
-#: ``mcp_server/outline.py::_CR_WITHOUT_LF``, מאותה סיבה: הכיוון חד-סטרי.
-#: השקילות בין השניים אינה תקווה — ``tests/test_md_parser.py`` משווה את
-#: שניהם מול ההתנהגות של ``markdown-it-py`` עצמו על טבלת קלטים אחת.
-#:
-#: ``search`` ולא ``replace``: הוא עוצר על ההתאמה הראשונה ואינו מקצה
-#: עותק של הטקסט.
-_CR_WITHOUT_LF = re.compile(r"\r(?!\n)")
+# כלל ה-``\r`` הבודד יושב ב-``services/line_endings.py`` (מאז #3419), משותף
+# למנתב האאוטליין ולפארסר הזה — עותק אחד, לא שניים שצריכים להסכים לנצח.
 
 #: המפתח שתחתיו יושב מונה ה**כותרות** ב-``env`` של פרסור בודד.
 #: המחרוזת עצמה נשארה ``section`` כשמשמעות המונה השתנתה, כי היא
@@ -242,10 +236,11 @@ def _build_parser() -> MarkdownIt:
        בקובצי ה-``.md`` שתחת ``docs/`` בריפו הזה. נמדד שהיא **אינה מזיזה
        אף מספר שורה** באף אחת מעשר הצורות שנבדקו — כולל בלוק שאינו נסגר,
        ``---`` מוזח, ו-``---`` עם רווח בסוף — כי הטקסט עצמו אינו משתנה
-       כלל. וכלל שהיינו כותבים בעצמנו כן היה סוטה ממנה: נמדד שפרוטוטיפ
-       שמשווה ``---`` מדויק חולק עליה ב**חמש מתוך שתים-עשרה** צורות.
-       המספר נגזר מהטבלה ב-``tests/test_md_parser.py`` ומושווה למשפט
-       הזה ב-``test_the_measured_front_matter_gap_matches_the_prose``.
+       כלל. וכלל שהיינו כותבים בעצמנו כן היה סוטה ממנה: נמדד שהכלל שנכתב
+       ביד ב-``scripts/generate_ai_map.py`` חלק עליה בחמש מתוך שתים-עשרה
+       צורות. מאז #3419 הסקריפט קורא את הגבול מהמופע הזה, דרך
+       :func:`front_matter_end`, והטבלה ב-``tests/test_md_parser.py``
+       מקבעת שהשניים מסכימים על כל צורה.
     3. **``disable("inline")``** — הכלל ה**ליבתי** בשם הזה, שהוא זה
        שמפרק את תוכן הכותרת לטוקנים פנימיים. נמדד: עד 40% חיסכון בזמן
        ו-37% בזיכרון, **ואפס שינוי בזיהוי הכותרות ובטווחים** — כי השם
@@ -392,7 +387,7 @@ def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> 
     # **החריגה נושאת את מספר השורה**, כמו ``TooManySections``. המיקום
     # כבר מחושב כאן — ``search`` מחזיר אובייקט התאמה — והוא ההבדל בין
     # "יש ``\r`` איפשהו בקובץ" לבין משהו שאפשר לפתוח ולתקן.
-    lone_cr = _CR_WITHOUT_LF.search(text)
+    lone_cr = find_lone_cr(text)
     if lone_cr:
         raise InconsistentLineEndings(text.count("\n", 0, lone_cr.start()) + 1)
 
@@ -526,3 +521,25 @@ def _title_of(tokens: List[Token], heading_index: int) -> str:
         else (part if index == 0 else part.lstrip(" \t"))
         for index, part in enumerate(parts)
     )
+
+
+def front_matter_end(text: str) -> int:
+    """אינדקס השורה שאחרי בלוק ה-front matter — או 0 כשאין בלוק, כולל בלוק שלא נסגר.
+
+    לפי התוסף ``mdit_py_plugins.front_matter`` שרשום על ``_MD`` — ההגדרה
+    ש-MyST מריץ — ולא לפי כלל שנכתב ביד. ``scripts/generate_ai_map.py`` כתב
+    עד #3419 כלל משלו, ונמדד שהוא חלק על התוסף בחמש מתוך שתים-עשרה צורות:
+    ``---`` מוזח, סוגר מוזח בארבעה רווחים, ארבעה מקפים, סוגר ארוך מהפותח,
+    ופותח שיש אחריו טקסט. הטוקן ``front_matter`` הוא תמיד הראשון (התוסף
+    מזהה בלוק רק בשורה 0) ונושא ``map = [0, end]``, ו-``end`` הוא בדיוק
+    האינדקס שהסקריפט צריך.
+
+    פרסור מלא של הטקסט, בלי ``env`` ולכן בלי תקרה — הקלט הוא עמודי
+    תיעוד. **מחוץ ל-``__all__`` בכוונה**, מאותו נימוק שכתוב ליד
+    :func:`token_count` אם הוא קיים כאן: הרשימה שם היא החוזה של "שני
+    פארסרים בני-החלפה", וגבול front matter אינו קיים ל-RST.
+    """
+    tokens = _MD.parse(text)
+    if tokens and tokens[0].type == "front_matter" and tokens[0].map:
+        return tokens[0].map[1]
+    return 0

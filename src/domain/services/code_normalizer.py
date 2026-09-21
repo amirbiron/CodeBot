@@ -50,12 +50,6 @@ class CodeNormalizer:
         "\u2069",  # PDI
     }
 
-    _KNOWN_ESCAPE_HEX4 = {
-        "200B", "200C", "200D", "2060", "FEFF",  # zero-width set
-        "200E", "200F", "202A", "202B", "202C", "202D", "202E",  # directional
-        "2066", "2067", "2068", "2069",  # directional isolates
-    }
-
     def normalize(self, text: Any) -> str:
         """Normalize code text.
 
@@ -69,7 +63,7 @@ class CodeNormalizer:
 
         # Handle sequences like "\\u200B" and "\\U0001F600" that represent hidden/format chars literally
         if ("\\u" in out) or ("\\U" in out):
-            out = self._strip_hidden_escapes(out)
+            out = strip_hidden_escapes(out)
 
         # 1) Strip BOM at start
         if out.startswith("\ufeff"):
@@ -115,37 +109,62 @@ class CodeNormalizer:
 
         return out
 
-    def _strip_hidden_escapes(self, s: str) -> str:
-        """Remove literal unicode escape sequences for hidden/format characters.
+    # ``_strip_hidden_escapes`` היה כאן כמתודה, עם ``_KNOWN_ESCAPE_HEX4`` — עותק
+    # שני של אותה פונקציה ואותה רשימה מ-``utils.normalize_code`` (#3427).
+    # ההגדרה האחת היא :func:`strip_hidden_escapes` למטה, ושני הצרכנים קוראים לה.
 
-        - Removes escapes in KNOWN sets or with Unicode category Cf
-        - Handles both \\uXXXX and \\UXXXXXXXX forms
-        """
-        def _strip_if_hidden_u4(m: "re.Match[str]") -> str:
-            hexcode = m.group(1).upper()
-            if hexcode in self._KNOWN_ESCAPE_HEX4:
-                return ""
-            try:
-                ch = chr(int(hexcode, 16))
-                cat = unicodedata.category(ch)
-                if cat == "Cf":
-                    return ""
-                # Variation Selectors (FE00..FE0F) are kept by default (compatibility)
-            except Exception:
-                pass
-            return m.group(0)
 
-        def _strip_if_hidden_u8(m: "re.Match[str]") -> str:
-            hexcode = m.group(1).upper()
-            try:
-                ch = chr(int(hexcode, 16))
-                if unicodedata.category(ch) == "Cf":
-                    return ""
-                # Ideographic Variation Selectors (E0100..E01EF) are kept by default
-            except Exception:
-                pass
-            return m.group(0)
+# תווי Variation Selector: ``Mn`` ולא ``Cf``, ולכן בדיקת הקטגוריה אינה תופסת
+# אותם והם צריכים תנאי משלהם — שנדלק רק לפי בקשה.
+_VS_HEX4 = range(0xFE00, 0xFE0F + 1)
+_IDEOGRAPHIC_VS = range(0xE0100, 0xE01EF + 1)
 
-        s = re.sub(r"\\u([0-9a-fA-F]{4})", _strip_if_hidden_u4, s)
-        s = re.sub(r"\\U([0-9a-fA-F]{8})", _strip_if_hidden_u8, s)
-        return s
+_ESCAPE_U4 = re.compile(r"\\u([0-9a-fA-F]{4})")
+_ESCAPE_U8 = re.compile(r"\\U([0-9a-fA-F]{8})")
+
+
+def strip_hidden_escapes(s: str, *, remove_variation_selectors: bool = False) -> str:
+    """מסיר רצפי בריחה טקסטואליים (``\\uXXXX``, ``\\UXXXXXXXX``) שמייצגים תווי פורמט.
+
+    **ההגדרה היחידה, לשני הצרכנים** — :meth:`CodeNormalizer.normalize` ו-
+    ``utils.normalize_code`` (#3427). עד אז כל אחד מהם החזיק עותק של אותה
+    פונקציה, ולפניה רשימה של 16 קודים "ידועים" (``_KNOWN_ESCAPE_HEX4`` /
+    ``known_hex4``) שנבדקה לפני בדיקת הקטגוריה. נמדד: כל 16 הערכים הם
+    ``Cf``, כלומר הרשימה לא הוסיפה דבר על ``unicodedata.category`` — מסלול
+    מהיר שאיש לא מדד, בשני עותקים שהיו צריכים להסכים לנצח. ומי שהיה מוסיף
+    קוד לרשימה באחד הקבצים לא היה משנה דבר בפועל, ומסיק שהתיקון עבד.
+    **רשימה היא העתק של ידע שצריך להסכים עם עצמו; קטגוריה היא הגדרה
+    שמתעדכנת עם התקן** — ולכן נשארה הקטגוריה לבדה.
+
+    - ``Cf`` (format) מוסר תמיד, בשתי הצורות.
+    - Variation Selectors (``U+FE00``–``U+FE0F``, ובצורה הארוכה
+      ``U+E0100``–``U+E01EF``) הם ``Mn`` ולא ``Cf``, ולכן הם ענף נפרד שנדלק
+      רק עם ``remove_variation_selectors=True`` — ברירת המחדל שומרת אותם,
+      כמו קודם בשני הצרכנים.
+    - רצף שאינו מתפענח לקוד תו (``\\uZZZZ`` אינו תואם את הביטוי; ``chr``
+      מעבר לטווח) נשאר כמות שהוא.
+    """
+
+    def _strip_if_hidden_u4(m: "re.Match[str]") -> str:
+        code = int(m.group(1), 16)
+        if unicodedata.category(chr(code)) == "Cf":
+            return ""
+        if remove_variation_selectors and code in _VS_HEX4:
+            return ""
+        return m.group(0)
+
+    def _strip_if_hidden_u8(m: "re.Match[str]") -> str:
+        code = int(m.group(1), 16)
+        try:
+            hidden = unicodedata.category(chr(code)) == "Cf"
+        except (ValueError, OverflowError):
+            return m.group(0)  # מעבר לטווח Unicode — לא תו, נשאר כמות שהוא
+        if hidden:
+            return ""
+        if remove_variation_selectors and code in _IDEOGRAPHIC_VS:
+            return ""
+        return m.group(0)
+
+    s = _ESCAPE_U4.sub(_strip_if_hidden_u4, s)
+    s = _ESCAPE_U8.sub(_strip_if_hidden_u8, s)
+    return s

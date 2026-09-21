@@ -35,6 +35,11 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+# הסקריפט רץ גם לבדו (``python3 scripts/generate_ai_map.py``), ואז ``sys.path[0]``
+# הוא ``scripts/`` ולא שורש הריפו; גבול ה-front matter נקרא מ-``services``.
+sys.path.insert(0, str(ROOT))
+
+from services import md_parser  # noqa: E402
 DOCS = ROOT / "docs"
 OUTPUT = ROOT / "AI-MAP.md"
 SUMMARY_CAP = 220
@@ -126,33 +131,20 @@ def _toctree_blocks(lines: list[str]):
 
 
 def _body_start(lines: list[str]) -> int:
-    """האינדקס שאחרי ה-front matter, או 0 אם אין.
+    """האינדקס שאחרי ה-front matter, או 0 אם אין — לפי התוסף, לא לפי כלל שנכתב ביד.
 
-    לפי ``markdown_it``/MyST, front matter הוא בלוק שנפתח ב-``---`` בשורה
-    הראשונה ממש ונסגר ב-``---`` או ``...``.
+    ``services.md_parser.front_matter_end`` שואל את ``mdit_py_plugins.front_matter``
+    שרשום על הפארסר של הכלי — ההגדרה ש-MyST באמת מריץ על קובצי ה-``.md``
+    שתחת ``docs/``. עד #3419 הפונקציה הזאת כתבה את הכלל ביד, ונמדד שהיא
+    חלקה על התוסף בחמש מתוך שתים-עשרה צורות (``---`` מוזח, סוגר מוזח
+    בארבעה רווחים, ארבעה מקפים, סוגר ארוך מהפותח, פותח שיש אחריו טקסט).
+    בקורפוס לא היה מופע לאף אחת מהן, ולכן המפה שנוצרה הייתה נכונה — וזה
+    מה שאפס-הדיף על ``AI-MAP.md`` מקבע גם אחרי המעבר.
 
-    .. warning::
-
-       **הכלל כאן אינו מדויק מול התוסף שהוא מתאר, וזה נמדד.**
-       ``mdit_py_plugins.front_matter`` — שהוא מה ש-MyST באמת מריץ, וש-
-       ``services/md_parser.py`` רושם על מופע הפארסר שלו במקום לכתוב את
-       הכלל ביד — חולק על הפונקציה הזאת בחמש צורות: ``---`` מוזח (כאן
-       מתקבל, שם נדחה), ``----`` בן ארבעה מקפים, סוגר ארוך מהפותח, פותח
-       שיש אחריו טקסט, וסוגר מוזח בארבעה רווחים שהוא בלוק קוד. בקורפוס
-       של היום אין לאף אחת מהן מופע — 23 מתוך 34 קובצי ה-``.md`` תחת
-       ``docs/`` פותחים ב-``---`` מדויק — ולכן המפה שנוצרת כאן נכונה.
-
-       הפער מקובע ב-
-       ``tests/test_md_parser.py::test_the_front_matter_rules_still_disagree_as_measured``
-       כדי שלא ייסחף בשקט, והיעד — שהפונקציה הזאת תשתמש בתוסף — הוא
-       אישו נפרד.
+    ``"\\n".join`` מחזיר את הטקסט ש-``_read`` פיצל ב-``split("\\n")``, ולכן
+    האינדקסים של הפרסר הם האינדקסים של ``lines``.
     """
-    if not lines or lines[0].strip() != "---":
-        return 0
-    for i in range(1, len(lines)):
-        if lines[i].strip() in ("---", "..."):
-            return i + 1
-    return 0  # לא נסגר — MyST גם לא היה מזהה אותו כ-front matter
+    return md_parser.front_matter_end("\n".join(lines))
 
 
 def _title(lines: list[str], path: Path) -> str:
