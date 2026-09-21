@@ -38,11 +38,13 @@ from .repo_policy import denylist_patterns, is_denied
 #: ``too_large`` עם הפרמטר בדיוק כמו בלעדיו (#3317). ``webapp/app.py`` בן
 #: 805,594 הבייטים, הקובץ שהכי הרבה עובדים עליו, היה בלתי קריא דרך הכלי.
 #:
-#: **למה תקרה אחרת ולא ביטול.** הבלוב עדיין נקרא ומפוענח במלואו לפני
+#: **למה תקרה אחרת ולא ביטול.** בלוב שמתחת לתקרה נקרא ומפוענח במלואו לפני
 #: החיתוך, אז "בלי תקרה" פירושו שקובץ פתולוגי בריפו יגיע ל-RAM כמו שהוא.
 #: נמדד: קריאה ופענוח צורכים כפי שלושה מגודל הקובץ — 6.6MB הגיעו ל-35.7MB
 #: שיא. תקרה של 10MB חוסמת את זה בערך ב-30MB, ונותנת פי 12 מרווח מעל
-#: הקובץ הגדול ביותר שבאמת קוראים.
+#: הקובץ הגדול ביותר שבאמת קוראים. ומאז #3433 התקרה נבדקת מול גודל
+#: האובייקט במאגר **לפני** ``git show``, ולכן קובץ שמעליה אינו נטען כלל —
+#: החסם הוא על מה שנקרא, לא בדיקה בדיעבד.
 #:
 #: זו החלטת מדיניות של שכבת ה-MCP, לא של שירות המראה — ולכן היא כאן ולא
 #: שם, ואינה מייתרת את 500KB שממשיכה לחול על קריאה מלאה ועל הוובאפ.
@@ -538,7 +540,15 @@ class RepoBackend:
             return {"ok": False, "error": "invalid_input"}
         # repo_not_found / invalid_commit / git_error / timeout / internal_error:
         # possibly a transient race with a running sync — say so if it is.
-        fallback = "not_found" if err in ("repo_not_found", "invalid_commit") else "read_failed"
+        #
+        # A mirror the host does not have is its own code (#3432, SUGG-011):
+        # ``not_found`` invites the agent to try another file name, when what
+        # is missing is the whole repository — an operator's matter, not the
+        # caller's. ``invalid_commit`` stays ``not_found``: the repo is there,
+        # and the ref is what the caller can change.
+        if err == "repo_not_found":
+            return self._transient_error(repo, "repo_not_mirrored")
+        fallback = "not_found" if err == "invalid_commit" else "read_failed"
         return self._transient_error(repo, fallback)
 
     def search(

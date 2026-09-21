@@ -19,29 +19,19 @@
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Callable
 from typing import Any
+
+from services.line_endings import find_lone_cr
 
 from .outline_scanners import css as _css
 from .outline_scanners import html as _html
 from .outline_scanners import python as _python
 from .outline_scanners import rst as _rst
 
-#: ``\r`` שאינו חלק מ-``\r\n``. ה-lookahead השלילי הוא כל ההבחנה: CRLF
-#: הוא המקרה הנפוץ ושתי ספירות השורות מסכימות עליו, ולכן הוא חייב להמשיך
-#: לעבוד. רק CR בודד — הפורמט של Mac שלפני 2001 — מפריד ביניהן.
-#:
-#: ``search`` ולא ``replace``: הוא עוצר על ההתאמה הראשונה ואינו מקצה עותק
-#: של הטקסט, שיכול להיות 10MB לפי ``RANGE_READ_MAX_BYTES``.
-#:
-#: **עותק שני של אותו כלל קיים ב-**``services/md_parser.py::_CR_WITHOUT_LF``.
-#: הוא אינו מיובא משם ולא לשם, כי ``services`` אינו מייבא מ-``mcp_server``
-#: והמסלול השני אינו עובר דרך המנתב הזה בכלל. השקילות אינה תקווה:
-#: ``tests/test_md_parser.py::test_the_lone_cr_rule_matches_markdown_it``
-#: מריץ את שניהם מול ההתנהגות של ``markdown-it-py`` עצמו. איחוד השניים
-#: בשכבת ``services`` הוא אישו נפרד.
-_CR_WITHOUT_LF = re.compile(r"\r(?!\n)")
+# כלל ה-``\r`` הבודד יושב ב-``services/line_endings.py`` (מאז #3419), משותף
+# למנתב הזה ול-``services/md_parser.py`` — עותק אחד במקום שניים שטסט השווה
+# ביניהם. הנימוק המלא, ו"למה ``search`` ולא ``replace``", שם.
 
 #: **השורה היחידה שהמסלול הזה כותב, והיא נכתבת כאן ולא בסורקים.** כאן יש גם
 #: את הנתיב וגם את גודל הקלט, ולכן זו הנקודה היחידה שבה שורה אחת מזהה מה
@@ -128,7 +118,7 @@ def extract_outline(text: str, path: str, symbol: str | None = None) -> dict[str
     #
     # CRLF **אינו** מושפע ועובד במלואו: שם שתי הספירות זהות, וזה המקרה
     # הנפוץ. מה שנדחה הוא ``\r`` בודד בלבד.
-    if _CR_WITHOUT_LF.search(text):
+    if find_lone_cr(text):
         return {"status": "no_outline", "reason": "inconsistent_line_endings"}
 
     # ``chars`` ולא ``bytes``, כי ``len`` על ``str`` מודד תווים. השם הקודם

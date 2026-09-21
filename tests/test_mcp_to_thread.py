@@ -962,6 +962,33 @@ def test_startup_names_the_read_pool_the_cpu_quota_and_the_memory_limit(caplog):
         assert expected in line, (expected, line)
 
 
+def test_a_pool_without_a_readable_width_does_not_fail_startup_and_says_so(caplog):
+    """``_max_workers`` is CPython-private; if it goes, the line says so instead of the service not starting.
+
+    A record that describes state reads the state — and when the state cannot
+    be read, it says *that*, rather than echoing the request as if it were
+    the state. The pool here is an object with no ``_max_workers`` at all,
+    which is what a future Python would look like to this code (#3433,
+    SUGG-004).
+    """
+    import logging as _logging
+    import types as _types
+
+    from mcp_server.server import _log_dispatch_capacity, _read_pool_size
+
+    sizing = _read_pool_size(512 * _MiB)
+    with caplog.at_level(_logging.INFO, logger="mcp_server.server"):
+        _log_dispatch_capacity(_types.SimpleNamespace(), "cgroup v2: 512.0MiB", sizing)
+
+    info = [r.getMessage() for r in caplog.records if r.levelno == _logging.INFO]
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == _logging.WARNING]
+    # The width belongs to the memory arithmetic, which has its own test; this
+    # one is about the label, so it reads the number back instead of typing it.
+    expected = f"read pool {sizing.workers} (requested; installed width unreadable) threads"
+    assert any(expected in m for m in info), info
+    assert any("_max_workers" in m for m in warnings), warnings
+
+
 def test_the_pool_is_sized_from_the_memory_budget():
     """``(limit - baseline - margin) // cost of one parse`` — and a different limit gives a different answer.
 
@@ -1009,20 +1036,25 @@ def test_the_pool_never_rises_above_the_cap():
         assert sizing.detail.startswith("cap 12:"), sizing.detail
 
 
-def test_no_readable_memory_limit_falls_back_to_the_floor_and_not_to_cpu_count():
+def test_no_readable_memory_limit_falls_back_to_the_floor_and_not_to_cpu_count(monkeypatch):
     """The fallback is the conservative constant, and it is not ``cpu_count + 4``.
 
     ``cpu_count + 4`` is exactly the number this sizing exists to stop relying
-    on, so the test pins the fallback to the floor on any machine — on a
-    16-core box the old default would have given 20.
+    on. ``os.cpu_count`` is pinned to 16 here so that the old default,
+    ``min(32, 16 + 4) = 20``, is a number the floor can never be — a fallback
+    that consulted the host's cores would answer 20 and fail. The line this
+    replaced (``workers != min(32, cpu_count + 4) or workers == 2``) could not
+    fail after the assertion before it had pinned ``workers == 2`` (#3433,
+    SUGG-001).
     """
     import os
 
     from mcp_server.server import _READ_POOL_FLOOR, _read_pool_size
 
+    monkeypatch.setattr(os, "cpu_count", lambda: 16)
+
     sizing = _read_pool_size(None)
     assert (sizing.workers, sizing.source) == (_READ_POOL_FLOOR, "fallback"), sizing
-    assert sizing.workers != min(32, (os.cpu_count() or 1) + 4) or sizing.workers == 2
     assert "no memory limit readable" in sizing.detail, sizing.detail
 
 
@@ -1096,6 +1128,42 @@ def test_the_memory_limit_is_read_from_cgroup_v1_when_v2_is_absent(tmp_path, mon
         monkeypatch,
         tmp_path,
         {"/sys/fs/cgroup/memory/memory.limit_in_bytes": "268435456\n"},
+    )
+    assert server_module._memory_limit() == (268435456, "cgroup v1: 256.0MiB")
+
+
+def test_an_empty_cgroup_v2_file_falls_through_to_v1(tmp_path, monkeypatch):
+    """A ``memory.max`` that exists but holds nothing is not a limit of zero — v1 answers.
+
+    ``split()`` of an empty file is ``[]`` and ``raw[0]`` is the ``IndexError``
+    the reader's ``except`` names; until now only a *missing* v2 file proved
+    the fall-through (#3433, SUGG-014). Line coverage was complete, the
+    scenario was not.
+    """
+    import mcp_server.server as server_module
+
+    _fake_cgroup(
+        monkeypatch,
+        tmp_path,
+        {
+            "/sys/fs/cgroup/memory.max": "",
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes": "268435456\n",
+        },
+    )
+    assert server_module._memory_limit() == (268435456, "cgroup v1: 256.0MiB")
+
+
+def test_a_non_numeric_cgroup_v2_file_falls_through_to_v1(tmp_path, monkeypatch):
+    """``memory.max`` with a word that is not ``max`` is the ``ValueError`` branch — v1 answers."""
+    import mcp_server.server as server_module
+
+    _fake_cgroup(
+        monkeypatch,
+        tmp_path,
+        {
+            "/sys/fs/cgroup/memory.max": "lots\n",
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes": "268435456\n",
+        },
     )
     assert server_module._memory_limit() == (268435456, "cgroup v1: 256.0MiB")
 

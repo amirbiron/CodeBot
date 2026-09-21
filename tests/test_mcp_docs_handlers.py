@@ -170,6 +170,52 @@ def test_ambiguous_section_returns_candidates_with_breadcrumb():
     assert crumbs[0] != crumbs[1]  # Alpha vs Beta
 
 
+def test_candidates_are_capped_and_the_flag_appears_only_when_they_were_cut(monkeypatch):
+    """‏``candidates`` היה השדה היחיד בתשובה בלי תקרה (#3426).
+
+    מזהה שחוזר בעמוד החזיר את **כל** המופעים — נמדד 13,030 מועמדים ו-1.39MB
+    על שאילתה בת שלושה תווים. עכשיו הוא חסום כמו ``toc`` ו-``suggestions``,
+    והדגל קיים רק כשהוא נכון, כדי שכל תשובת ``ambiguous_section`` על עמוד
+    רגיל תישאר זהה בית-בית (אפס-דיף). התקרה נקראת מהמודול בזמן הקריאה
+    ומוקטנת כאן ל-2, במקום לבנות חמישים ואחת כותרות — אותו נימוק כמו בטסט
+    תקרת הסקשנים.
+    """
+    monkeypatch.setattr(docs_handlers, "_CANDIDATES_MAX", 2)
+
+    at_the_cap = docs_handlers.docs_get_section(
+        _TextBackend(_identified_rst("P3 — ראשון", "P3 — שני")), path="x", section="P3")
+    assert at_the_cap["error"] == "ambiguous_section"
+    assert [c["title"] for c in at_the_cap["candidates"]] == ["P3 — ראשון", "P3 — שני"]
+    assert "candidates_truncated" not in at_the_cap, "עמוד שבדיוק בתקרה נענה במלואו, בלי דגל"
+
+    over = docs_handlers.docs_get_section(
+        _TextBackend(_identified_rst("P3 — ראשון", "P3 — שני", "P3 — שלישי")),
+        path="x", section="P3")
+    assert over["error"] == "ambiguous_section"
+    assert [c["title"] for c in over["candidates"]] == ["P3 — ראשון", "P3 — שני"], "בסדר הופעה"
+    assert over["candidates_truncated"] is True
+
+
+def test_the_candidates_cap_is_the_suggestions_inventory_number():
+    """שני מלאים לא-מדורגים באותה תשובה — מספר אחד, כמו שני גבולות האאוטליין והפארסר."""
+    assert docs_handlers._CANDIDATES_MAX == doc_sections.MAX_IDENTIFIER_SUGGESTIONS
+
+
+def test_suggestions_on_a_markdown_page_are_a_list_of_strings_too(both_repos):
+    """הצרכן שנוסף ב-#3428 הוא אותו אתר קריאה לשני הפורמטים, והוא כותב ``.titles``.
+
+    ‏#3426 ביקש שזה ייקבע בטסט ולא רק ב-docstring של ``Suggestions``: מי שישכח
+    את ``.titles`` ישלח ``[["K11"], false]`` — JSON תקין בלי שום שגיאה — וגם
+    במסלול ה-Markdown איש לא היה תופס את זה.
+    """
+    md = "# K11. כשל\n\nטקסט\n\n# K12. דגל\n\nטקסט\n"
+    out = docs_handlers.docs_get_section(_TextBackend(md), path="x.md",
+                                         repo="amir-bug-patterns", section="K99")
+    assert out["error"] == "section_not_found"
+    assert out["suggestions"] == ["K11", "K12"]
+    assert all(isinstance(s, str) for s in out["suggestions"])
+
+
 def test_include_subsections_false_smaller_than_true():
     full = docs_handlers.docs_get_section(_FsBackend(), path="environment-variables",
                                           section="משתני סביבה - רפרנס", include_subsections=True)
@@ -210,7 +256,7 @@ def test_explicit_repo_in_allowlist_allowed(monkeypatch):
 def test_path_outside_docs_rejected(bad_path):
     be = _FsBackend()
     out = docs_handlers.docs_get_section(be, path=bad_path)
-    assert out["ok"] is False and out["error"] == "missing_path"
+    assert out["ok"] is False and out["error"] == "path_outside_root"
     assert be.calls == []  # נחסם ב-handler לפני ה-backend
 
 
@@ -295,25 +341,29 @@ def test_an_overlined_heading_is_one_level_deeper_than_the_same_character_underl
     assert out["toc"][1]["breadcrumb"] == ["כותרת א", "כותרת ב"]
 
 
-def test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it(monkeypatch):
-    """הצרכן בייצור מעביר את תקרת הסקשנים של הסורק, ומעליה מסרב — לא מפרסר את הכול.
+def test_the_rst_reader_is_capped_by_the_parser_default_and_refuses_above_it(monkeypatch):
+    """הצרכן בייצור אינו מעביר תקרה, וברירת המחדל של הפרסר **היא** התקרה (#3420).
 
-    זה היפוך מכוון של הבדיקה שישבה כאן מ-#3378 ("הצרכן בייצור אינו מוגבל
-    בתקרה"). הנימוק שלה — שקובץ תיעוד גדול לא ייחסם — נמדד ונמצא ריק
-    בתקרת הקריאה של הכלי: 500KB של העמוד הצפוף ביותר בריפו (6.5 סקשנים
-    ל-KB) הם כ-3,300 סקשנים, פי 15 מתחת לתקרה. מה שהתקרה כן עוצרת הוא
-    הצורה העוינת — כותרת בת תו אחד בכל שורה — שבלעדיה עולה 44.0MiB לפרסור
-    אחד של 500KB, יותר מ-35.2MiB שמאגר הקריאות מקצה לחוט
-    (``_PARSE_COST_BYTES`` ב-``mcp_server/server.py``), ואיתה נעצרת
-    ב-20.1MiB. סקירת #3429.
+    הגלגול השלישי של הבדיקה שיושבת כאן. #3378: "הצרכן בייצור אינו מוגבל
+    בתקרה". סקירת #3429 הפכה אותה: הכלי מעביר את ``_ceiling.MAX_SYMBOLS``
+    במפורש, כי ברירת המחדל של ``rst_parser`` הייתה ``None`` וכל קורא אחר
+    נשאר בלי הגנה. #3420 יישר את ברירת המחדל ל-``MAX_SECTIONS`` של
+    ``doc_sections`` — אחרי מדידה על כל 208 קובצי ה-RST (הקובץ העשיר ביותר
+    נושא 50 סקשנים, אחד לאלף מהתקרה) ואפס-דיף על פלט הכלי — ומאז הכלי
+    אינו מעביר דבר, בדיוק כמו במסלול ה-Markdown: העברה מפורשת מכאן הייתה
+    עותק שני של החלטה שהפארסר כבר הכריע.
 
-    **ונבדק בלי להציף את התקרה, מאותה סיבה שנימקה הבדיקה הקודמת:** בניית
-    ``MAX_SYMBOLS + 1`` סקשנים אמיתיים קושרת את מחיר הבדיקה לקבוע שהיא
-    מגנה עליו (819KB ו-71MB בכל ריצה, ופי עשר מזה כשהתקרה תעלה). הכלי
-    קורא את התקרה מהמודול בזמן הקריאה, ולכן היא מוקטנת כאן ל-2, והפרסר
-    האמיתי הוא שמרים את החריגה — על שלושה סקשנים. ברירת המחדל של הפרסר
-    נשארת ``None``, וזה עדיין נבדק, כי קורא אחר שאינו מעביר תקרה חייב
-    לדעת שאינו מוגן.
+    **ומה שנשמר משתי הגרסאות הקודמות:** הסירוב מעל התקרה בא כ-``error``
+    ולא כחריגה שבורחת, קובץ שיושב בדיוק על התקרה עובר במלואו, ו-``"max"``
+    בתשובה הוא המספר שהפרסר השתמש בו. מה שהתקרה עוצרת — כותרת בת תו אחד
+    בכל שורה, 44.0MiB לפרסור של 500KB בלעדיה ו-20.1MiB איתה — נמדד בסקירת
+    #3429 ולא זז.
+
+    **ונבדק בלי להציף את התקרה, מאותה סיבה שנימקו שתי הקודמות:** בניית
+    ``MAX_SECTIONS + 1`` סקשנים אמיתיים קושרת את מחיר הבדיקה לקבוע שהיא
+    מגנה עליו. ברירת המחדל קפואה בחתימה, ולכן היא מוקטנת ב-``partial``
+    על הפרסר עצמו — וזה עובד רק מפני שהכלי אינו מעביר ארגומנט שדורס
+    אותה, שזו הטענה הראשונה כאן.
     """
     passed: dict[str, object] = {}
     real = rst_parser.parse_document
@@ -328,14 +378,14 @@ def test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it(
 
     assert out["ok"] and out["mode"] == "toc"
     assert out["section_count"] == 2
-    assert passed.get("max_sections") == docs_handlers._ceiling.MAX_SYMBOLS, (
-        f"הכלי לא העביר את תקרת הסורק לפרסור: {passed}"
-    )
-    assert inspect.signature(real).parameters["max_sections"].default is None, (
-        "ברירת המחדל של max_sections השתנתה — ההגנה כאן באה מהכלי, לא מהפרסר"
-    )
+    assert passed == {}, f"הכלי העביר תקרה לפרסור: {passed}"
+    assert (inspect.signature(real).parameters["max_sections"].default
+            is doc_sections.MAX_SECTIONS), (
+        "ברירת המחדל של max_sections ב-rst_parser אינה MAX_SECTIONS — "
+        "ההגנה במסלול הזה באה מהפרסר, וכשהיא זזה שם היא זזה גם כאן")
 
-    monkeypatch.setattr(docs_handlers._ceiling, "MAX_SYMBOLS", 2)
+    monkeypatch.setattr(docs_handlers.rst_parser, "parse_document",
+                        functools.partial(real, max_sections=2))
 
     at_the_ceiling = docs_handlers.docs_get_section(_TextBackend("א\n=\n\nב\n=\n\n"), path="x")
     assert at_the_ceiling["ok"] and at_the_ceiling["section_count"] == 2, (
@@ -346,9 +396,12 @@ def test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it(
     above = docs_handlers.docs_get_section(_TextBackend(three), path="x")
     assert {k: above[k] for k in ("ok", "error", "max", "repo", "path", "ref",
                                   "resolved_commit")} == {
-        "ok": False, "error": "too_many_sections", "max": 2,
+        "ok": False, "error": "too_many_sections", "max": doc_sections.MAX_SECTIONS,
         "repo": "CodeBot", "path": "docs/x.rst", "ref": "HEAD", "resolved_commit": "c0ffee",
     }
+    # ``"max"`` הוא הקבוע ולא ה-2 של ה-``partial``: הכלי מדווח את התקרה
+    # שהפרסר מצהיר עליה, והטסט הוא שהנמיך אותה מאחורי גבו.
+    #
     # **ואין ``line``, וזה לא חסר אלא נכון.** ``rst_parser`` מרים
     # ``TooManySections`` בלי ארגומנט (``raise TooManySections``, נמדד), בעוד
     # ``md_parser`` מרים אותה עם השורה. ``_line_of`` מוסיף את השדה רק כשיש
@@ -578,7 +631,7 @@ def test_the_root_anchor_is_decided_before_normalisation():
     """
     be = _RecordingBackend()
     out = docs_handlers.docs_get_section(be, path="docs/../secrets", repo="CodeBot")
-    assert out == {"ok": False, "error": "missing_path"}
+    assert out == {"ok": False, "error": "path_outside_root", "repo": "CodeBot", "root": "docs"}
     assert be.kwargs == []
 
 
@@ -591,7 +644,7 @@ def test_traversal_out_of_the_repo_is_refused_even_at_the_repo_root(both_repos, 
     """שורש ריק אינו "הכול" — הוא "כל דבר **בתוך** הריפו"."""
     be = _RecordingBackend()
     out = docs_handlers.docs_get_section(be, path=bad_path, repo="amir-bug-patterns")
-    assert out == {"ok": False, "error": "missing_path"}
+    assert out == {"ok": False, "error": "path_outside_root", "repo": "amir-bug-patterns", "root": ""}
     assert be.kwargs == []
 
 
@@ -630,11 +683,11 @@ def test_a_root_is_matched_as_a_path_unit_and_not_as_a_prefix(monkeypatch):
     כזה. ``norm.startswith("docs")`` בלי המפריד מקבל אותו.
     """
     monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,synthetic")
-    monkeypatch.setitem(docs_handlers.DOCS_PATH_POLICY, "synthetic",
+    monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, "synthetic",
                         docs_handlers._DocsPathPolicy(root="docs", suffix=".rst"))
     be = _RecordingBackend()
     out = docs_handlers.docs_get_section(be, path="docsecret/x", repo="synthetic")
-    assert out == {"ok": False, "error": "missing_path"}
+    assert out == {"ok": False, "error": "path_outside_root", "repo": "synthetic", "root": "docs"}
     assert be.kwargs == []
 
 
@@ -724,11 +777,11 @@ def test_the_parser_table_holds_modules_so_a_monkeypatch_on_the_module_is_seen(
         monkeypatch):
     """הטבלה מחזיקה **מודולים**, ולכן החלפת ``parse_document`` עליהם נתפסת.
 
-    **וזה מה ש-``test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it`` אינו
+    **וזה מה ש-``test_the_rst_reader_is_capped_by_the_parser_default_and_refuses_above_it`` אינו
     תופס.** אילו הטבלה הייתה מחזיקה את הפונקציה עצמה, היא הייתה קופאת
     על המקורית, ה-spy היה נעקף **בשקט**, ו-``passed`` שם היה נשאר ריק —
-    כלומר ``passed.get("max_sections") is None`` היה ממשיך לעבור. שומר
-    שעובר משתי סיבות שונות אינו שומר.
+    כלומר ``passed == {}`` היה ממשיך לעבור. שומר שעובר משתי סיבות שונות
+    אינו שומר.
     """
     calls = []
     real = rst_parser.parse_document
@@ -767,7 +820,7 @@ def test_a_markdown_file_over_the_heading_ceiling_is_refused_by_name(both_repos,
     של ``MAX_SECTIONS + 1`` כותרות אמיתיות הוא מאות מגה-בייט בכל ריצת
     CI, והמחיר שלו צמוד לקבוע שהוא מגן עליו — כלומר הוא מתדרדר בדיוק
     כשהמערכת גדלה. אותו נימוק בדיוק כתוב ב-
-    ``test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it`` שמעליו.
+    ``test_the_rst_reader_is_capped_by_the_parser_default_and_refuses_above_it`` שמעליו.
     """
     real = md_parser.parse_document
     monkeypatch.setattr(md_parser, "parse_document",
@@ -785,11 +838,14 @@ def test_the_two_refusals_are_mapped_whichever_parser_raised_them(monkeypatch):
     התניה על ``parser is md_parser`` הייתה רשימה שנייה לסנכרן: כשהתקרה
     נוספה למסלול ה-RST (#3429), הסירוב היה בורח מהכלי כחריגה גולמית.
 
-    **ה-``partial`` שהיה כאן כבר אינו עובד, וזו לא תקלה של הטסט:** הכלי
-    מעביר עכשיו ``max_sections`` במפורש, וארגומנט מפורש בקריאה דורס את
-    זה שב-``partial``. לכן מקטינים את התקרה במקום שהכלי קורא אותה.
+    **התקרה מונמכת ב-``partial`` על הפרסר, כמו במסלול ה-Markdown.** בין
+    #3429 ל-#3420 זה לא עבד כאן — הכלי העביר ``max_sections`` במפורש,
+    וארגומנט מפורש בקריאה דורס את זה שב-``partial`` — ולכן הטסט הנמיך אז
+    את ``_ceiling.MAX_SYMBOLS``. מאז #3420 הכלי אינו מעביר דבר לאף פארסר,
+    וה-``partial`` הוא הדרך היחידה להנמיך, בשני המסלולים.
     """
-    monkeypatch.setattr(docs_handlers._ceiling, "MAX_SYMBOLS", 1)
+    monkeypatch.setattr(docs_handlers.rst_parser, "parse_document",
+                        functools.partial(rst_parser.parse_document, max_sections=1))
     out = docs_handlers.docs_get_section(_TextBackend("א\n=\n\nב\n=\n"),
                                          path="x.rst", repo="CodeBot")
     assert out["ok"] is False and out["error"] == "too_many_sections"
@@ -814,11 +870,11 @@ def test_the_reader_asks_for_the_whole_file_and_so_keeps_the_display_ceiling(bot
 def test_the_markdown_reader_is_capped_by_the_parser_default(both_repos, monkeypatch):
     """התקרה האפקטיבית של מסלול ה-Markdown היא ``MAX_SECTIONS``.
 
-    **התמונה ההפוכה של ``test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it``**,
+    **אותה תמונה כמו ``test_the_rst_reader_is_capped_by_the_parser_default_and_refuses_above_it``**,
     ושתי הטענות מאותו סוג: הכלי אינו מעביר תקרה, וברירת המחדל בחתימה
     **היא** התקרה. העברה מפורשת של ``md_parser.MAX_SECTIONS`` מה-handler
-    הייתה עותק שני של אותה החלטה, ו-PR הפארסר כבר הכריע אותה ונימק
-    למה ברירת המחדל שם הפוכה מזו של RST.
+    הייתה עותק שני של אותה החלטה, ו-PR הפארסר כבר הכריע אותה — ומאז
+    #3420 גם מסלול ה-RST על אותה ברירת מחדל בדיוק.
     """
     passed: dict = {}
     real = md_parser.parse_document
@@ -852,10 +908,77 @@ def test_every_suffix_a_repo_policy_names_has_a_parser(monkeypatch):
     for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
         assert policy.suffix in docs_handlers._PARSERS, f"{repo}: {policy.suffix}"
 
-    monkeypatch.setitem(docs_handlers.DOCS_PATH_POLICY, "broken",
+    monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, "broken",
                         docs_handlers._DocsPathPolicy(root="", suffix=".txt"))
     with pytest.raises(RuntimeError, match="_PARSERS"):
         docs_handlers._validate_policy_tables()
+
+
+@pytest.mark.parametrize("policy, message", [
+    (docs_handlers._DocsPathPolicy(root="docs", suffix="RST"), "סיומת לא מנורמלת"),
+    (docs_handlers._DocsPathPolicy(root="docs", suffix="rst"), "סיומת לא מנורמלת"),
+    (docs_handlers._DocsPathPolicy(root="/docs", suffix=".rst"), "שורש לא מנורמל"),
+    (docs_handlers._DocsPathPolicy(root="docs/", suffix=".rst"), "שורש לא מנורמל"),
+    (docs_handlers._DocsPathPolicy(root="./docs", suffix=".rst"), "שורש לא מנורמל"),
+])
+def test_the_validator_refuses_an_unnormalised_suffix_or_root(monkeypatch, policy, message):
+    """שתי בדיקות הנרמול ב-``_validate_policy_tables``, שהיו בלי טסט (#3432, SUGG-009).
+
+    כל אחת מהצורות כאן הייתה עוברת בשקט את ``_suffix_of``/``_is_under`` ומחזירה
+    ``suffix_not_allowed`` או ``path_outside_root`` על כל קריאה — הכלי מת בלי
+    שאיש ידע למה. הוולידטור הוא מה שהופך הקלדה בקבוע לשרת שלא עולה.
+    """
+    monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, "bad", policy)
+    with pytest.raises(RuntimeError, match=message):
+        docs_handlers._validate_policy_tables()
+
+
+def test_the_policy_tables_cannot_be_changed_after_import_but_the_seam_can(monkeypatch):
+    """הוולידציה בייבוא היא הבטחה רק אם הטבלאות אינן משתנות אחריה (#3432, SUGG-021).
+
+    ``MappingProxyType`` דוחה כתיבה ישירה, והטבלה שמתחת נשארת התפר לטסטים —
+    שינוי בה נראה דרך הפרוקסי מיד, ו-``monkeypatch`` מחזיר אותו בסוף.
+    """
+    policy = docs_handlers._DocsPathPolicy(root="", suffix=".md")
+    with pytest.raises(TypeError):
+        docs_handlers.DOCS_PATH_POLICY["seam"] = policy  # type: ignore[index]
+    with pytest.raises(TypeError):
+        docs_handlers._PARSERS[".txt"] = docs_handlers.md_parser  # type: ignore[index]
+
+    monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, "seam", policy)
+    assert docs_handlers.DOCS_PATH_POLICY["seam"] is policy
+
+
+def test_a_repo_without_a_policy_is_logged_for_the_operator(monkeypatch, caplog):
+    """התשובה מגיעה לסוכן; השורה מגיעה למפעיל — ומחיקתה הייתה משאירה הכול ירוק (#3432, SUGG-010)."""
+    import logging as _logging
+
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,ghost-repo")
+    with caplog.at_level(_logging.WARNING, logger="mcp_server.docs_handlers"):
+        out = docs_handlers.docs_get_section(_RecordingBackend(), path="anything", repo="ghost-repo")
+    assert out["error"] == "repo_not_configured"
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == _logging.WARNING]
+    assert any("ghost-repo" in m and "MCP_DOCS_REPO" in m for m in warnings), warnings
+
+
+@pytest.mark.parametrize("path", ["", "   ", "a\x00b"])
+def test_no_usable_path_is_still_missing_path(path):
+    """‏``missing_path`` נשאר לדחייה שהוא נבנה בשבילה — אין נתיב — וזו כבר אינה גם "יצאת מהשורש" (#3432, SUGG-013)."""
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path=path, repo="CodeBot")
+    assert out == {"ok": False, "error": "missing_path"}
+    assert be.kwargs == []
+
+
+def test_a_host_without_the_mirror_is_passed_through_as_repo_not_mirrored_with_context():
+    """‏``repo_not_mirrored`` מהמראה עובר לקורא עם הריפו והנתיב — לא כ-``not_found`` (#3432, SUGG-011)."""
+
+    class _NoMirror:
+        def get_file(self, **kwargs):
+            return {"ok": False, "error": "repo_not_mirrored"}
+
+    out = docs_handlers.docs_get_section(_NoMirror(), path="mcp-server", repo="CodeBot")
+    assert out == {"ok": False, "error": "repo_not_mirrored", "repo": "CodeBot", "path": "docs/mcp-server.rst"}
 
 
 def test_the_default_repo_has_a_path_policy():
@@ -1088,14 +1211,17 @@ def test_a_broken_contract_propagates_and_is_not_dressed_up_as_a_refusal(
 
 
 def test_the_two_section_ceilings_are_the_same_number():
-    """``_ceiling.MAX_SYMBOLS`` ו-``md_parser.MAX_SECTIONS`` הם אותו מספר.
+    """``_ceiling.MAX_SYMBOLS`` ו-``doc_sections.MAX_SECTIONS`` הם אותו מספר.
 
-    RST מקבל את התקרה מהכלי (``_ceiling``), Markdown מברירת המחדל של
-    הפרסר שלו (``MAX_SECTIONS``). שני מודולים, מספר אחד, בלי ייבוא ביניהם
-    — זה ``duplicate-rule-second-copy`` §2 בצורתו המדויקת, והתיקון שהכלל
-    מבקש כשהכפילות מוצדקת בגבול מודול הוא **טסט שקורא את שני המקורות
-    ומשווה**. שני דברים נשענים על השוויון הזה: התיעוד שאומר "שני המסלולים
-    מוגבלים ל-50,000", ו-``"max"`` בסירוב, שמדווח את ``_ceiling`` גם על
-    קובץ Markdown.
+    שני הפארסרים מקבלים את התקרה מברירת המחדל שלהם — ``MAX_SECTIONS`` של
+    ``doc_sections``, אותו אובייקט בדיוק דרך שני הייצואים-מחדש — וסורק
+    האאוטליין מ-``_ceiling.MAX_SYMBOLS``. שני מודולים, מספר אחד, בלי ייבוא
+    ביניהם — זה ``duplicate-rule-second-copy`` §2 בצורתו המדויקת, והתיקון
+    שהכלל מבקש כשהכפילות מוצדקת בגבול מודול הוא **טסט שקורא את שני
+    המקורות ומשווה**. מה שנשען על השוויון: התיעוד שאומר "50,000 בשני
+    המסלולים ובסורק", והמדידות ב-``_ceiling`` שקבעו את המספר לשניהם.
     """
-    assert docs_handlers._ceiling.MAX_SYMBOLS == md_parser.MAX_SECTIONS
+    from mcp_server.outline_scanners import _ceiling
+
+    assert rst_parser.MAX_SECTIONS is md_parser.MAX_SECTIONS is doc_sections.MAX_SECTIONS
+    assert _ceiling.MAX_SYMBOLS == doc_sections.MAX_SECTIONS

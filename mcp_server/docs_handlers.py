@@ -20,12 +20,11 @@ import logging
 import os
 import posixpath
 from dataclasses import dataclass
-from types import ModuleType
-from typing import Any, NamedTuple
+from types import MappingProxyType, ModuleType
+from typing import Any, Mapping, NamedTuple
 
 from services import doc_sections, md_parser, rst_parser
 from .handlers import _clamp
-from .outline_scanners import _ceiling
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +55,20 @@ MAX_PATH_CHARS = 4096
 DEFAULT_DOCS_REPO = "CodeBot"
 _TOC_MAX = 400  # תקרת פריטי TOC בתשובה (הגנת גודל)
 
+#: תקרת המועמדים בתשובת ``ambiguous_section``. **אותו מספר כמו
+#: ``doc_sections.MAX_IDENTIFIER_SUGGESTIONS``, ומאותה סיבה:** רשימת המועמדים
+#: היא מלאי בסדר הופעה ולא דירוג, ולכן חיתוך שלה מסתיר פריטים בלי קריטריון —
+#: והתקרה גבוהה מספיק כדי שכל עמוד אמיתי ייענה במלואו (כותרת כפולה בקורפוס
+#: חוזרת פעמיים או שלוש). מה שהיא עוצרת נמדד בסקירת #3425: עמוד סינתטי של
+#: 512KB עם 13,030 כותרות שנפתחות ב-``K11.`` החזיר 13,030 מועמדים — 1,393,787
+#: בתים ושיא הקצאה של 12.6MB — על שאילתה בת שלושה תווים, וזה היה השדה היחיד
+#: בתשובה בלי גבול (``toc`` ב-``_TOC_MAX``, ‏``suggestions``
+#: ב-``MAX_IDENTIFIER_SUGGESTIONS``). הענף נדלק רק מכותרות שנושאות מזהה, ומאז
+#: #3428 הקורפוס שנושא מזהים (``amir-bug-patterns``) מוגש. אותו מספר ממש —
+#: מיובא ולא מוקלד שוב (הכיוון ``services`` ← ``mcp_server`` מותר; ההפוך לא),
+#: והטסט שומר שלא יוקלד מחדש. אישו #3426.
+_CANDIDATES_MAX = doc_sections.MAX_IDENTIFIER_SUGGESTIONS
+
 #: הסיומת ← **המודול** שמפרסר אותה. זהו המקום היחיד שאומר איזה פורמט הכלי
 #: יודע לקרוא בכלל, ו-``DOCS_PATH_POLICY`` למטה אומר מי מהם מוגש בכל ריפו.
 #: שתי שאלות שונות, ולכן שתי טבלאות — ו-``_validate_policy_tables`` קושר
@@ -67,7 +80,13 @@ _TOC_MAX = 400  # תקרת פריטי TOC בתשובה (הגנת גודל)
 #: קופאת על הפונקציה המקורית וה-spy היה נעקף **בשקט** — בלי שאף טסט קיים
 #: ייפול. ``tests/test_mcp_docs_handlers.py::test_the_parser_table_holds_modules_
 #: so_a_monkeypatch_on_the_module_is_seen`` מקבע את זה.
-_PARSERS: dict[str, ModuleType] = {".rst": rst_parser, ".md": md_parser}
+_PARSER_TABLE: dict[str, ModuleType] = {".rst": rst_parser, ".md": md_parser}
+#: **מה שמיוצא אינו ניתן לשינוי** (#3432, SUGG-021): ``_validate_policy_tables``
+#: רץ פעם אחת בייבוא, ושינוי של הטבלה אחריו עוקף אותו בשקט. ``MappingProxyType``
+#: הופך את ההבטחה לתכונה — ``_PARSERS[".txt"] = x`` הוא ``TypeError`` — והטבלה
+#: שמתחת, ``_PARSER_TABLE``, נשארת התפר לטסטים (``monkeypatch.setitem`` עליה
+#: נראה דרך הפרוקסי מיד, ומוחזר בסוף הטסט).
+_PARSERS: Mapping[str, ModuleType] = MappingProxyType(_PARSER_TABLE)
 
 
 @dataclass(frozen=True)
@@ -121,10 +140,14 @@ class _DocsPathPolicy:
 #:    מה ש**לא** משתנה: ``mcp_server.repo_policy.is_denied`` הוא ההוראה
 #:    הראשונה ב-``RepoBackend.get_file`` וחל על המסלול הזה במלואו, כך
 #:    ש-``secrets.md``, ``credentials.md`` ו-``.env*`` חסומים גם כאן.
-DOCS_PATH_POLICY: dict[str, _DocsPathPolicy] = {
+_DOCS_PATH_POLICY_TABLE: dict[str, _DocsPathPolicy] = {
     "CodeBot": _DocsPathPolicy(root="docs", suffix=".rst"),
     "amir-bug-patterns": _DocsPathPolicy(root="", suffix=".md"),
 }
+#: קריאה בלבד, מאותו נימוק שכתוב ליד ``_PARSERS``: הוולידציה בייבוא היא הבטחה
+#: רק אם הטבלה אינה משתנה אחריה. הטסטים שמוסיפים ריפו סינתטי עושים זאת על
+#: ``_DOCS_PATH_POLICY_TABLE``.
+DOCS_PATH_POLICY: Mapping[str, _DocsPathPolicy] = MappingProxyType(_DOCS_PATH_POLICY_TABLE)
 
 
 def _validate_policy_tables() -> None:
@@ -164,7 +187,11 @@ class _ResolvedPath(NamedTuple):
     ``str | None`` הספיק כל עוד הייתה סיבת דחייה אחת. הצורה
     ``value-or-error-string`` שב-``repo_backend.normalize_line_range`` אינה
     עובדת כאן, כי הנתיב וקוד השגיאה שניהם ``str`` ו-``isinstance`` אינו
-    מבדיל ביניהם.
+    מבדיל ביניהם. ארבעה קודים חיים כאן היום, אחד לכל דחייה: ``missing_path``
+    (אין נתיב — ריק או עם NUL), ``path_too_long``, ``suffix_not_allowed``,
+    ו-``path_outside_root`` (הנתיב תקין בצורתו ופותר אל מחוץ לשורש התיעוד;
+    עד #3432 הוא חלק קוד עם ``missing_path``, והקורא לא ידע אם שכח נתיב או
+    ניסה לצאת מהשורש).
 
     **ו-``suffix`` נישא ולא נגזר מחדש, וזה תיקון לבאג שנתפס בבדיקה.**
     הגרסה הראשונה קראה ל-``_suffix_of`` פעם שנייה על הנתיב המוגמר כדי
@@ -253,7 +280,8 @@ def _resolve_docs_path(path: str, policy: _DocsPathPolicy) -> _ResolvedPath:
        ל-``docs/secrets.rst``, **ויגיש אותו**.
     4. ``normpath`` — כאן, ורק כאן.
     5. הגבול מול השורש. זו הנקודה השנייה: ``startswith`` חשוף הוא
-       ``K16``, ולכן הוא עטוף ב-``_is_under``.
+       ``K16``, ולכן הוא עטוף ב-``_is_under`` — ונתיב שנופל בה נדחה
+       ב-``path_outside_root``, בשמו, ולא כ"נתיב חסר".
     """
     p = (path or "").strip().strip("/")
     if not p or "\x00" in p:
@@ -283,14 +311,24 @@ def _resolve_docs_path(path: str, policy: _DocsPathPolicy) -> _ResolvedPath:
     norm = posixpath.normpath(p)
     if _is_under(norm, policy.root):
         return _ResolvedPath(norm, suffix, None)
-    return _ResolvedPath(None, None, "missing_path")
+    return _ResolvedPath(None, None, "path_outside_root")
+
+
+def _capped(items: list, limit: int) -> tuple[list, bool]:
+    """‏``(items, truncated)`` — הרשימה עד ``limit``, והאם באמת נחתכה.
+
+    **פונקציה אחת לשני הגבולות של התשובה** (``toc`` ו-``candidates``), כדי
+    שהשאלה "מתי הדגל נכון" תיענה במקום אחד: ``True`` רק כשהיו יותר מהתקרה,
+    ולעולם לא על רשימה שבדיוק בגודלה — אותו גבול כמו ``Capped.append``
+    ב-``_ceiling`` וכמו ``max_sections`` בפארסר.
+    """
+    if len(items) > limit:
+        return items[:limit], True
+    return items, False
 
 
 def _toc(doc: doc_sections.Document) -> tuple[list, bool]:
-    items = doc_sections.build_toc(doc)
-    if len(items) > _TOC_MAX:
-        return items[:_TOC_MAX], True
-    return items, False
+    return _capped(doc_sections.build_toc(doc), _TOC_MAX)
 
 
 def _line_of(exc: BaseException) -> dict:
@@ -353,6 +391,11 @@ def docs_get_section(
     if resolved.error == "path_too_long":
         return {"ok": False, "error": "path_too_long", "repo": repo_name,
                 "max_chars": MAX_PATH_CHARS, "actual_chars": len(path or "")}
+    if resolved.error == "path_outside_root":
+        # השורש כבר כתוב בתיאור הכלי לכל ריפו, ולכן אמירתו כאן אינה מגלה
+        # דבר — היא רק חוסכת לקורא לחפש את הטעות בשם הקובץ.
+        return {"ok": False, "error": "path_outside_root", "repo": repo_name,
+                "root": policy.root}
     if not resolved.path:
         return {"ok": False, "error": "missing_path"}
     file_path = resolved.path
@@ -387,16 +430,13 @@ def docs_get_section(
     # ``resolved.suffix`` ולא גזירה שנייה מ-``file_path``: ראו :class:`_ResolvedPath`.
     parser = _PARSERS[resolved.suffix]  # לעולם לא KeyError: ראו _validate_policy_tables
 
-    # **תקרת הסקשנים עוברת ל-RST בלבד, ו-Markdown נשאר על ברירת המחדל של
-    # הפרסר שלו.** שני המסלולים מוגבלים לאותו מספר — ``_ceiling.MAX_SYMBOLS``
-    # ו-``md_parser.MAX_SECTIONS`` שניהם 50,000, וטסט קושר ביניהם — אבל הדרך
-    # שונה בכוונה: ל-``rst_parser`` ברירת המחדל היא ``None`` (קוראים אחרים
-    # שלו אינם מוגנים ויודעים זאת), ולכן הכלי מעביר את התקרה במפורש; ל-
-    # ``md_parser`` ברירת המחדל **היא** התקרה, והעברה מפורשת מכאן הייתה עותק
-    # שני של החלטה ש-PR הפארסר כבר הכריע. ``parser is rst_parser`` שואל על
-    # הפרסר ולא על הסיומת — זו תכונה של המודול, לא מקום שלישי שבו סמנטיקת
-    # הסיומת חיה. התקרה נקראת מהמודול **בזמן הקריאה**, כדי שהטסט יוכל
-    # להקטין אותה במקום להציף אותה.
+    # **שני הפרסרים רצים על ברירת המחדל שלהם, והכלי אינו מעביר תקרה.**
+    # ברירת המחדל של ``max_sections`` בשניהם היא ``doc_sections.MAX_SECTIONS``
+    # (50,000; מיושרת מאז #3420 — בין #3429 ל-#3420 ברירת המחדל של
+    # ``rst_parser`` הייתה ``None`` והכלי העביר לו את ``_ceiling.MAX_SYMBOLS``
+    # במפורש). העברה מפורשת מכאן הייתה עותק שני של החלטה שהפארסר כבר הכריע,
+    # ו-``parser is rst_parser`` היה מקום שלישי שבו סמנטיקת הסיומת חיה. הטסט
+    # שמקטין את התקרה עושה זאת בפרסר (``functools.partial``), לא כאן.
     #
     # מה שהתקרה עוצרת ב-RST (סקירת #3429): כותרת בת תו אחד בכל שורה ב-500KB
     # עולה 44.0MiB לפרסור אחד — יותר מ-35.2MiB שמאגר הקריאות מקצה לחוט
@@ -406,7 +446,6 @@ def docs_get_section(
     # **ומה שאף תקרה כאן אינה עוצרת, ונשאר פתוח:** Markdown עוין של שורות-
     # תבליט בלי כותרות — 500KB עולים 141MiB ו-2.3 שניות, ו-``MAX_SECTIONS``
     # סופר כותרות ולכן אינו נוגע בו. זה אישו #3391 ולא #3429.
-    parse_kwargs = {"max_sections": _ceiling.MAX_SYMBOLS} if parser is rst_parser else {}
 
     # **ה-``try`` הזה אינו ``K11``, וזה נכתב כדי שסקירה עתידית לא תגזור זאת
     # מחדש.** ``parse_document`` מתועד כ"ערוץ הכשל הוא חריגה בלבד": הוא אינו
@@ -419,10 +458,11 @@ def docs_get_section(
     # מייצא אותה, וייצוא משם היה מצהיר על סירוב שאינו קיים. התפיסה אינה
     # מותנית במי שפרסר, כי תנאי כזה היה רשימה שנייה לסנכרן.
     #
-    # **ומה שלא נתפס כאן, בכוונה:** ``TypeError`` ו-``RuntimeError`` של
-    # ``md_parser``. שניהם אומרים "חוזה נשבר" ולא "הקלט נדחה", ועטיפתם
-    # הייתה בדיוק ``widened-exception-scope``. ``content`` הוא תמיד מחרוזת
-    # במסלול הזה, כי ``binary`` ו-``too_large`` נחסמו למעלה.
+    # **ומה שלא נתפס כאן, בכוונה:** ``TypeError`` של שני הפרסרים (מאז #3421
+    # גם ``rst_parser`` מרים אותה, דרך ``doc_sections.require_str``) ו-
+    # ``RuntimeError`` של ``md_parser``. שניהם אומרים "חוזה נשבר" ולא "הקלט
+    # נדחה", ועטיפתם הייתה בדיוק ``widened-exception-scope``. ``content`` הוא
+    # תמיד מחרוזת במסלול הזה, כי ``binary`` ו-``too_large`` נחסמו למעלה.
     #
     # תקרת המקביליות על הפרסור אינה כאן ואינה צריכה להיות: היא נגזרת מגודל
     # מאגר הקריאות, ומקומה ב-lifespan של השרת — נחת ב-#3429.
@@ -436,18 +476,44 @@ def docs_get_section(
     # ``_line_of`` ולא ``exc.args[0]`` ישירות: חריגה שתיבנה מחר בלי
     # ארגומנט לא תפיל כאן ``IndexError`` באמצע בקשה.
     #
-    # ``"max"`` הוא ``_ceiling.MAX_SYMBOLS`` בשני המסלולים, וזה נכון ל-Markdown
-    # רק מפני שהטסט שקושר את שתי התקרות מחזיק אותן שוות — בלעדיו המספר
-    # שמדווח על סירוב Markdown היה יכול להיות תקרה של פרסר אחר.
+    # ``"max"`` הוא ``doc_sections.MAX_SECTIONS`` — המספר שהפרסר באמת השתמש
+    # בו, בשני המסלולים, ולא עותק שלו ממודול אחר.
     try:
-        doc = parser.parse_document(content, **parse_kwargs)
+        doc = parser.parse_document(content)
     except doc_sections.InconsistentLineEndings as exc:
         return {"ok": False, "error": "inconsistent_line_endings",
                 **context, **_line_of(exc)}
     except doc_sections.TooManySections as exc:
         return {"ok": False, "error": "too_many_sections",
-                "max": _ceiling.MAX_SYMBOLS, **context, **_line_of(exc)}
+                "max": doc_sections.MAX_SECTIONS, **context, **_line_of(exc)}
 
+    return _answer_from_document(doc, context=context, section=section,
+                                 include_subsections=include_subsections,
+                                 max_chars=max_chars, offset=offset)
+
+
+def _answer_from_document(
+    doc: doc_sections.Document,
+    *,
+    context: dict[str, Any],
+    section: str | None,
+    include_subsections: bool,
+    max_chars: int,
+    offset: int,
+) -> dict[str, Any]:
+    """ארבע צורות התשובה של הכלי, מתוך מסמך שכבר נפרסר.
+
+    **מה שנפרד מ-``docs_get_section`` (#3432, SUGG-020):** הפונקציה ההיא
+    פותרת ריפו, פותרת נתיב, קוראת קובץ ובוחרת פארסר — ארבע החלטות שכל אחת
+    מהן יכולה לסרב — ומכאן והלאה יש רק מסמך ושאלה. הזנב הזה הוא החלק שנפרד
+    הכי נקי, ואפס-דיף על 208 קובצי ה-RST (``scripts/docs_section_zero_diff.py``)
+    הוא מה שמוכיח שהוא רק זז.
+
+    ארבע הצורות: ``toc`` כשאין ``section``; ``section_not_found`` עם הצעות;
+    ``ambiguous_section`` עם מועמדים; ו-``section`` עם התוכן, השכנים
+    ותת-הסקשנים. ``context`` הוא ``repo``/``path``/``ref``/``resolved_commit``
+    שכל תשובה נושאת.
+    """
     toc_items, toc_truncated = _toc(doc)
 
     # ``includes`` הוא שדה של פארסר: ``rst_parser`` ממלא אותו מיעדי
@@ -496,13 +562,19 @@ def docs_get_section(
 
     # כותרת כפולה → כל המועמדים עם breadcrumb (בלי לנחש)
     if len(matches) > 1:
+        candidates, candidates_truncated = _capped(matches, _CANDIDATES_MAX)
         base.update({
             "ok": False, "error": "ambiguous_section", "requested": section,
             "candidates": [{
                 "title": s.title, "breadcrumb": list(s.breadcrumb),
                 "level": s.level, "line_range": [s.heading_line, s.end_line],
-            } for s in matches],
+            } for s in candidates],
         })
+        if candidates_truncated:
+            # רק כשנחתך — אותה מוסכמה של ``suggestions_truncated`` ו-``remaining_chars``:
+            # שדה שקיים תמיד היה משנה כל תשובת ``ambiguous_section`` בתצלום
+            # אפס-הדיף בלי ששום התנהגות השתנתה.
+            base["candidates_truncated"] = True
         return base
 
     # התאמה יחידה → הסקשן + ניווט (שכנים ותת-סקשנים)

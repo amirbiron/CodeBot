@@ -25,6 +25,7 @@ import unicodedata
 from typing import List, Optional
 
 from .doc_sections import (
+    MAX_SECTIONS,
     Document,
     Section,
     Suggestions,
@@ -35,6 +36,7 @@ from .doc_sections import (
     find_sections,
     neighbors,
     normalize_title,
+    require_str,
     section_bounds,
     section_text,
     suggest,
@@ -57,6 +59,7 @@ from .doc_sections import (
 #: מסתיר את האזהרה במקום להצהיר על הכוונה; ``__all__`` מצהיר עליה, וגם עונה
 #: לכל כלי שקורא ייצוא-מחדש במפורש.
 __all__ = [
+    "MAX_SECTIONS",
     "Document",
     "Section",
     "Suggestions",
@@ -262,7 +265,7 @@ def _skip_paragraph_block(lines: List[str], i: int, n: int) -> int:
     return i
 
 
-def parse_document(text: str, *, max_sections: int | None = None) -> Document:
+def parse_document(text: str, *, max_sections: int | None = MAX_SECTIONS) -> Document:
     """מפרסר טקסט RST לעץ סקשנים. עמיד ל-literal/code blocks ולדירקטיבות מוזחות.
 
     **סיומות השורה מנורמלות כאן, בגבול הקלט, ו-``split("\\n")`` נשאר יחידת
@@ -283,12 +286,25 @@ def parse_document(text: str, *, max_sections: int | None = None) -> Document:
     ``\\v``, ``\\f``, NBSP, ``U+2028`` — אינו נעלם כאן. ההגנה עליו יושבת
     ב-``_is_title_text``, שם ההגדרה של "שורה ריקה" חייבת להיות אחת.
 
-    **``max_sections`` — תקרה על מספר הסקשנים, וברירת המחדל היא ללא תקרה.**
-    ``None`` פירושו התנהגות זהה בית-בית לזו שקדמה לפרמטר. ``docs_get_section``
-    — הצרכן השני של המודול הזה — לא העביר תקרה עד הסקירה של #3429, ומאז הוא
-    מעביר את אותה תקרה של הסורק ומתרגם את החריגה לתשובת ``too_many_sections``;
-    ברירת המחדל נשארת ``None`` לכל קורא אחר. כשהתקרה מועברת ונחצית מורמת
-    ``TooManySections`` **בזמן הפרסור**, ולא אחריו.
+    **הכניסה: ``text`` חייב להיות מחרוזת, ואחרת ``TypeError`` שאומר מה
+    התקבל** — :func:`~services.doc_sections.require_str`, אותה בדיקה ואותן
+    מילים כמו ב-``md_parser`` (מאז #3421). עד אז ``None`` הפך כאן ל-``""``
+    והחזיר ``Document`` ריק **בשקט** — מפה ריקה שמתחזה למפה של קובץ בלי
+    כותרות — ו-``17`` נפל ב-``AttributeError`` גולמי מתוך ``.replace``.
+    אף קורא לא נשען על הצורה הישנה: המטפל, הסורק והסקריפטים מעבירים תמיד
+    מחרוזת (נבדק), ולכן היישור לא שינה אף תשובה קיימת.
+
+    **``max_sections`` — תקרה על מספר הסקשנים, וברירת המחדל היא
+    :data:`~services.doc_sections.MAX_SECTIONS` (50,000), כמו ב-``md_parser``.**
+    ``None`` מכבה אותה במפורש. כשהתקרה נחצית מורמת ``TooManySections``
+    **בזמן הפרסור**, ולא אחריו. ההיסטוריה, כי היא מסבירה למה זה נראה כמו
+    שינוי: הפרמטר נוסף לפארסר שכבר רץ בייצור, ו-``None`` היה מה ששמר על
+    ``docs_get_section`` זהה בית-בית באותו קומיט; ``docs_get_section`` העביר
+    את תקרת הסורק במפורש מאז הסקירה של #3429, וכל קורא אחר נשאר בלי הגנה.
+    היישור ב-#3420 נעשה אחרי מדידה על כל 208 קובצי ה-RST ב-``docs/``: הקובץ
+    העשיר ביותר נושא 50 סקשנים, אחד לאלף מהתקרה, ופלט ``docs_get_section``
+    על כולם זהה לפני ואחרי — כלומר ברירת המחדל מגינה על מי ששכח, ואינה
+    נוגעת באף קלט אמיתי.
 
     **למה בזמן הפרסור, במספרים שנמדדו על קלט של 10MB:** כותרת בת תו אחד
     בכל שתי שורות נותנת 2.6 מיליון סקשנים, ובלי התקרה זה **18.5 שניות
@@ -303,17 +319,13 @@ def parse_document(text: str, *, max_sections: int | None = None) -> Document:
     הוא תקרת הבתים של הקריאה. **מתועדת באישו #3379** — שם גם הכיוון
     שמשלים אותה, ומספר השורות ממילא מחושב כאן בראש הפונקציה.
 
-    .. important::
-
-       **ברירת המחדל כאן הפוכה מזו של** ``services.md_parser.parse_document``\\ **,
-       שם היא** ``MAX_SECTIONS``. ההבדל מכוון ומוצהר בשני המקומות: כאן
-       ``None`` הוא מה ששמר על ``docs_get_section`` זהה בית-בית כשהפרמטר
-       נוסף לפארסר שכבר רץ בייצור, ושם אין התנהגות קודמת לשמר ולכן נבחרה
-       ההנחה היקרה. המשמעות שצריך להכיר: **קורא שאינו מעביר תקרה מקבל
-       הגנה מהפארסר האחד ולא מהשני.** יישור של הפונקציה הזאת נשקל בנפרד,
-       כי הוא שינוי התנהגות על מסלול חי.
+    **ומה שהתקרה עוצרת כאן נמדד ולא הונח:** כותרת בת תו אחד בכל שורה
+    ב-500KB עולה 44.0MiB לפרסור אחד בלי תקרה, ואיתה נעצרת ב-20.1MiB
+    (סקירת #3429). קורא שרוצה את המחיר בלי התקרה — הסקריפט שמודד את
+    עלות הפרסור, למשל — מעביר ``max_sections=None`` ואומר זאת.
     """
-    lines = (text or "").replace("\r\n", "\n").split("\n")
+    text = require_str(text)
+    lines = text.replace("\r\n", "\n").split("\n")
     n = len(lines)
     sections: List[Section] = []
     includes: List[str] = []

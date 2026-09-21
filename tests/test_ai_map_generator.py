@@ -204,6 +204,19 @@ def test_declared_summary_is_capped():
     assert got.endswith("…")
 
 
+def test_body_start_is_read_from_the_parser_and_not_computed_here(monkeypatch):
+    """הגבול של ה-front matter מגיע מ-``services.md_parser.front_matter_end`` (#3419) — לא מכלל שנכתב כאן.
+
+    ערך שאף כלל ידני לא היה מחזיר על הקלט הזה מוכיח שהפונקציה מאצילה ולא
+    מחשבת; ההסכמה עם התוסף על כל צורה נבדקת ב-``tests/test_md_parser.py``.
+    """
+    from services import md_parser
+
+    g = _load_generator()
+    monkeypatch.setattr(md_parser, "front_matter_end", lambda text: 7)
+    assert g._body_start(["# not front matter at all"]) == 7
+
+
 def test_front_matter_does_not_become_the_title():
     """ה-``---`` הסוגר של front matter אינו קו-תחתון של כותרת setext.
 

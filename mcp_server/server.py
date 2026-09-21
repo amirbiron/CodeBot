@@ -35,7 +35,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any, NamedTuple
 
+import pydantic_core
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import CallToolResult, TextContent
 from pydantic import Field
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
@@ -50,6 +52,14 @@ from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
 from . import docs_handlers, handlers, repo_handlers
 from .handlers import StrictInt, StrictLines
+from .limits import (
+    BODY_TOO_LARGE,
+    DEFAULT_MAX_REQUEST_BYTES,
+    DEFAULT_RATE_LIMIT_PER_MINUTE,
+    RATE_LIMITED,
+    BodySizeLimitMiddleware,
+    ToolRateLimiter,
+)
 from .analytics import attach_shutdown_drain, instrument_mcp_server
 from .auth import (
     PATAuthMiddleware,
@@ -203,6 +213,8 @@ _SYMBOL_PARAM_DOC = (
 # ייבוא היא ``import-time-side-effects``, ותיאור הכלי היה משתנה בין פריסות —
 # כלומר שני לקוחות היו קוראים שני חוזים שונים לאותו כלי. מה שה-ENV קובע
 # נאמר בתיאור במילים, בלי למנות ממנו.
+
+
 def _build_docs_path_doc() -> str:
     parts = []
     for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
@@ -224,7 +236,10 @@ def _build_docs_path_doc() -> str:
         "repo_not_configured. A path longer than "
         f"{docs_handlers.MAX_PATH_CHARS} characters is refused with "
         "path_too_long before anything reads it — the longest real path in "
-        "any served repo is under 120 characters."
+        "any served repo is under 120 characters. A path that resolves outside "
+        "the repo's docs root is refused with path_outside_root (the root is "
+        "in the answer), and a repo this host has no mirror of with "
+        "repo_not_mirrored — an operator matter, not a wrong file name."
     )
 
 
@@ -261,7 +276,9 @@ _SECTION_PARAM_DOC = (
     "sub-numbered heading is reachable by its full name only. "
     "An identifier that repeats in "
     "the file is ambiguous_section with candidates, like any duplicate "
-    "heading. A query that is not shaped like an identifier never takes "
+    "heading — at most 50 of them, in document order, with "
+    "candidates_truncated: true only when more were cut. A query that is "
+    "not shaped like an identifier never takes "
     "this path. (2) BACKTICKS: headings are returned as raw source, so a "
     "heading written with ``literal`` markup needs those backticks in the "
     "query too — section=\"MissingGreenlet\" finds nothing when the "
@@ -508,11 +525,17 @@ _WRITE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mcp-write")
 #: How long a write may wait for the queue before the wait is worth a WARNING.
 #:
 #: Picked against this service's own numbers rather than a round figure. A
-#: ``save_file`` body runs 7.5s at p95, so a threshold below one whole body
-#: would fire every time two writes from the same agent arrive together — the
-#: ordinary case, and an alert that fires on the ordinary case is noise. Past
-#: this, the caller waited for more than one complete write ahead of it, which
-#: is the shape of a queue that is not draining rather than of a busy moment.
+#: ``save_file`` body ran 7.5s at p95 when this was set (before the service
+#: moved to Frankfurt, next to Mongo, on 2026-09-16), so a threshold below one
+#: whole body would fire every time two writes from the same agent arrive
+#: together — the ordinary case, and an alert that fires on the ordinary case
+#: is noise. Past this, the caller waited for more than one complete write
+#: ahead of it, which is the shape of a queue that is not draining rather than
+#: of a busy moment. **The 7.5s figure is stale:** the Frankfurt service's logs
+#: (2026-09-16 to 2026-09-21) show ``ran`` between 0.012s and 1.993s over 30
+#: writes, so today the threshold sits well above five whole bodies — still a
+#: queue that is not draining, and not worth lowering until a slow write shows
+#: up in those logs.
 _SLOW_WRITE_QUEUE_WAIT = 10.0
 
 #: ``FastMCP.add_tool``'s own signature, read once at import so that the
@@ -750,7 +773,10 @@ _PARSE_RSS_PER_INPUT_BYTE = 72
 #: Pricing by ``RANGE_READ_MAX_BYTES`` would have cut the public path to 4
 #: threads (at 77MiB) or 9 (at 37MiB) for a shape without a source. What did
 #: change because of this is :data:`_READ_POOL_CAP`; the root fix — bounding
-#: the read at its source with a size probe before ``git show`` — is #3433.
+#: the read at its source with a size probe before ``git show`` (#3433) — has
+#: landed in ``get_file_at_commit``: a blob over ``max_size`` is refused from
+#: ``git cat-file -s`` without being read (12MB: 20MiB peak before, 0 after,
+#: measured), so the hold above is now only what a file *under* the cap costs.
 _PARSE_COST_BYTES = _PARSE_RSS_PER_INPUT_BYTE * MAX_FILE_SIZE_FOR_DISPLAY
 
 
@@ -803,6 +829,28 @@ def _read_pool_size(memory_limit: int | None) -> _ReadPoolSizing:
     return _ReadPoolSizing(int(allowed), "memory", f"sized from memory: {arithmetic}")
 
 
+def _installed_width(pool: ThreadPoolExecutor) -> int | None:
+    """The width the executor actually has — or ``None`` when this Python no longer exposes it.
+
+    ``ThreadPoolExecutor._max_workers`` is private to CPython, and it is read
+    on purpose (``state-record-without-state-change``: the capacity line
+    describes the pool that exists, not the one that was requested). Private
+    means it can go away. When it does, the answer here is ``None`` — not the
+    requested width, which would be exactly the echo the line exists to avoid
+    — and the callers print that they do not know, with a warning, instead of
+    failing the startup of the service over a log line (#3433, SUGG-004).
+    """
+    return getattr(pool, "_max_workers", None)
+
+
+def _width_label(pool: ThreadPoolExecutor, sizing: _ReadPoolSizing) -> str:
+    """What the capacity line prints for the read pool: the installed width, or an honest "unreadable"."""
+    width = _installed_width(pool)
+    if width is not None:
+        return str(width)
+    return f"{sizing.workers} (requested; installed width unreadable)"
+
+
 def _log_dispatch_capacity(
     read_pool: ThreadPoolExecutor, memory_display: str, sizing: _ReadPoolSizing
 ) -> None:
@@ -821,7 +869,10 @@ def _log_dispatch_capacity(
     number the pool is sized from.
 
     Every value is computed before the call rather than inside it, so a level
-    guard or a deleted line takes the line and nothing else with it.
+    guard or a deleted line takes the line and nothing else with it. And the
+    private attribute is read through :func:`_installed_width`: should it
+    vanish, the line says "unreadable" beside the requested width and a
+    warning names the reason — a log line never fails the startup.
     """
     detected = os.cpu_count() or 1
     try:
@@ -829,10 +880,17 @@ def _log_dispatch_capacity(
     except (AttributeError, OSError):
         usable = detected
     quota = _cpu_budget()
+    if _installed_width(read_pool) is None:
+        logger.warning(
+            "mcp read pool width is not readable on this Python "
+            "(ThreadPoolExecutor._max_workers is gone); the capacity line reports "
+            "the requested width %d instead of the installed one",
+            sizing.workers,
+        )
     logger.info(
-        "mcp dispatch capacity: read pool %d threads (%s; os.cpu_count=%d, "
+        "mcp dispatch capacity: read pool %s threads (%s; os.cpu_count=%d, "
         "usable=%d), write pool 1 thread, cpu quota %s, memory limit %s",
-        read_pool._max_workers,
+        _width_label(read_pool, sizing),
         sizing.detail,
         detected,
         usable,
@@ -904,9 +962,9 @@ def attach_read_pool(app: Any) -> None:
             # path nobody reports is the one that stays. The capacity line says
             # the size; this says that it was not chosen.
             logger.warning(
-                "mcp read pool fell back to %d threads: memory limit %s — reads are "
+                "mcp read pool fell back to %s threads: memory limit %s — reads are "
                 "narrower than the plan allows until the cgroup limit is readable",
-                pool._max_workers,
+                _width_label(pool, sizing),
                 memory_display,
             )
         async with original(scope_app) as state:
@@ -1005,9 +1063,12 @@ def _log_write_timing(tool: str, waited: float, ran: float | None) -> None:
     configures logging at ``INFO`` (``mcp_server/app.py``, from ``LOG_LEVEL``),
     so a ``debug`` line is not quiet — it is *absent*, which is the failure this
     whole area was just fixed for. Against that, the volume cannot run away:
-    one worker runs one write at a time and a write body is 4.3-4.9s at p50, so
-    this line is bounded at roughly thirteen a minute no matter how much load
-    arrives. And logging only the slow case would say when the wait is bad
+    one worker runs one write at a time, so this line is bounded by how many
+    writes a minute one worker can finish — thirteen at the 4.3-4.9s p50 this
+    was written against (before the 2026-09-16 move to Frankfurt; the service's
+    logs since then show 0.012-1.993s, so the bound is higher now, and it is
+    still one line per write, never more). And logging only the slow case would
+    say when the wait is bad
     without ever saying what it normally is, which is the number any decision
     about the queue's width depends on.
 
@@ -1198,6 +1259,34 @@ def _offload_to_thread(fn: Any, *, serialize: bool = False) -> Any:
     return _run_on_write_pool
 
 
+def _refusal_result(refusal: dict[str, Any]) -> CallToolResult:
+    """A rate-limit refusal as the whole ``CallToolResult`` — the one shape every tool can return.
+
+    ``FastMCP.call_tool`` normally returns what the tool's own ``convert_result``
+    built for its return type, and the low-level ``tools/call`` handler then
+    validates structured content against the tool's ``outputSchema``: a bare
+    content list for a tool that declares one becomes an ``isError`` result
+    ("outputSchema defined but no structured output returned"). A
+    ``CallToolResult`` is returned by that handler as it is
+    (``if isinstance(results, types.CallToolResult): return
+    types.ServerResult(results)`` — ``mcp/server/lowlevel/server.py``, mcp
+    1.28.1), so it serves a ``dict`` tool, a typed tool and an unknown name
+    alike. Until the seven-PR review (SUGG-009) the refusal went through the
+    refused tool's ``convert_result``, which turned the throttle of a tool
+    annotated ``-> list[str]`` into a ``pydantic.ValidationError`` exactly when
+    it fired, and an unknown name into the SDK's unknown-tool error.
+
+    The text is built the way ``_convert_to_content`` builds it for a ``dict``
+    (``mcp/server/fastmcp/utilities/func_metadata.py``:
+    ``pydantic_core.to_json(result, fallback=str, indent=2)``), so the client
+    reads the same block a body's own refusal produces. ``isError`` stays
+    ``False``: a refusal is a regular protocol answer, not a server incident —
+    the rule ``docs/mcp-server.rst`` states for every refusal.
+    """
+    text = pydantic_core.to_json(refusal, fallback=str, indent=2).decode()
+    return CallToolResult(content=[TextContent(type="text", text=text)], isError=False)
+
+
 class AdminAwareFastMCP(FastMCP):
     """FastMCP that hides the admin-only tools from non-admin tools/list, and
     keeps every tool body off the event loop.
@@ -1206,6 +1295,20 @@ class AdminAwareFastMCP(FastMCP):
     available inside the handler, so we filter per request. Fail-closed: any
     doubt (no request context, unauthenticated, lookup error) ⇒ non-admin view.
     """
+
+    def __init__(
+        self, *args: Any, tool_rate_limiter: ToolRateLimiter | None = None, **kwargs: Any
+    ) -> None:
+        # Set before ``super().__init__`` so the attribute exists whatever the
+        # SDK's constructor does; ``call_tool`` below reads it on every call.
+        # ``is None`` and not ``or``: ``ToolRateLimiter(0)`` is the documented
+        # kill switch, and ``or`` kept it only because the class defines neither
+        # ``__bool__`` nor ``__len__`` — the first one added would have swapped a
+        # switched-off limiter for the 60/min default in silence (K12 §3).
+        if tool_rate_limiter is None:
+            tool_rate_limiter = ToolRateLimiter(DEFAULT_RATE_LIMIT_PER_MINUTE)
+        self._tool_rate_limiter = tool_rate_limiter
+        super().__init__(*args, **kwargs)
 
     def add_tool(self, fn: Any, *args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
         """Register a tool, moving a sync body onto a worker thread first.
@@ -1225,6 +1328,57 @@ class AdminAwareFastMCP(FastMCP):
         """
         serialize = _declares_write(_annotations_of(args, kwargs))
         return super().add_tool(_offload_to_thread(fn, serialize=serialize), *args, **kwargs)
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:  # type: ignore[override]
+        """Decide the per-identity rate limit here, and nowhere else (#3431).
+
+        The SDK registers this method as the low-level ``tools/call`` handler
+        (``FastMCP._setup_handlers`` — ``self._mcp_server.call_tool(...)(self.call_tool)``,
+        mcp 1.28.1), so every tool call passes through it: sync bodies before
+        they are handed to a worker, async bodies before they run on the loop.
+        A refused call therefore costs no thread. And the registered functions
+        stay exactly what ``add_tool`` built — the routing tests read
+        ``fn.__code__.co_name`` off them, which an outer wrapper would hide.
+
+        The refusal is a whole ``CallToolResult`` (:func:`_refusal_result`), so
+        the client sees the same text block a body's own refusal has
+        (``{"ok": false, "error": ...}``), whatever the tool's return type is
+        and whether or not the name exists — the budget is charged before the
+        name is looked up, so an identity over budget cannot probe tool names
+        for free.
+        """
+        user_id = self._caller_identity()
+        if user_id is not None:
+            refusal = await self._tool_rate_limiter.admit(user_id)
+            if refusal is not None:
+                return _refusal_result(refusal)
+        return await super().call_tool(name, arguments)
+
+    def _caller_identity(self) -> int | None:
+        """Whose budget a call is charged to — or ``None`` when there is nobody to charge.
+
+        Outside a request ``Server.request_context`` raises ``LookupError``
+        ("If called outside of a request context, this will raise a
+        LookupError" — ``mcp/server/lowlevel/server.py``): no client, nothing
+        to count, and the tool bodies keep answering as they do in the tests
+        that call them directly. Inside a request the identity is
+        ``current_user_id`` on the SDK's context — the same function every gate
+        uses, in both auth modes. Its documented failure, ``PermissionError``
+        (no identity on the request), is unreachable for a ``tools/call`` in
+        production, because both auth modes reject an unauthenticated request
+        upstream: ``RequireAuthMiddleware`` on the ``/mcp`` mount in OAuth
+        mode, ``PATAuthMiddleware`` in PAT mode. So answering ``None`` there is
+        not a way past the limiter; the test that reaches it does so by
+        monkeypatching ``current_user_id``.
+        """
+        try:
+            self._mcp_server.request_context
+        except LookupError:
+            return None
+        try:
+            return current_user_id(self.get_context())
+        except PermissionError:
+            return None
 
     async def list_tools(self):  # type: ignore[override]
         tools = await super().list_tools()
@@ -1270,6 +1424,7 @@ def build_mcp(
     auth_provider: Any = None,
     auth_settings: Any = None,
     repo_backend: Any = None,
+    rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
 ) -> FastMCP:
     kwargs: dict[str, Any] = {
         "instructions": _INSTRUCTIONS,
@@ -1281,7 +1436,9 @@ def build_mcp(
         # register) plus the auth layer that calls provider.load_access_token.
         kwargs["auth_server_provider"] = auth_provider
         kwargs["auth"] = auth_settings
-    mcp: FastMCP = AdminAwareFastMCP(name, **kwargs)
+    mcp: FastMCP = AdminAwareFastMCP(
+        name, tool_rate_limiter=ToolRateLimiter(rate_limit_per_minute), **kwargs
+    )
     # PostHog MCP analytics. Additive: no tool is changed and no tool schema is
     # touched. Must run before ``streamable_http_app()`` below, which the same
     # call also wraps. See ``mcp_server/analytics.py`` for the privacy gate.
@@ -2129,6 +2286,8 @@ def build_app(
     consent_routes: Any = None,
     repo_backend: Any = None,
     name: str = "CodeKeeper",
+    max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
+    rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
 ):
     """Build the authenticated Streamable-HTTP ASGI app.
 
@@ -2145,6 +2304,7 @@ def build_app(
         auth_provider=auth_provider if oauth else None,
         auth_settings=auth_settings if oauth else None,
         repo_backend=repo_backend,
+        rate_limit_per_minute=rate_limit_per_minute,
     )
     app = mcp.streamable_http_app()  # Starlette app exposing POST/GET /mcp
     # Drain analytics on ASGI shutdown, before uvicorn's event loop closes.
@@ -2174,9 +2334,32 @@ def build_app(
             auth_provider=auth_provider if oauth else None,
         )
     )
+    # Request-body cap for every route, in both auth modes (#3431). Added
+    # before ``PATAuthMiddleware`` on purpose: ``add_middleware`` inserts at the
+    # front of the stack (``starlette/applications.py``, Starlette 1.6.0), so the
+    # middleware added last is the outermost — the PAT check stays outside, and an
+    # unauthenticated oversized POST is a 401 before it is a 413. In OAuth mode
+    # the SDK's auth wraps only the ``/mcp`` mount, so here the cap is the
+    # outermost app-level layer: it refuses a declared 20MB body before any
+    # credential is looked at, and hands a declared body under the cap on
+    # *unread*, so the SDK's 401 still comes without a byte of it read
+    # (SEC-001 in the seven-PR review; the drain that remains, for a body with
+    # no declared length, is bounded by the cap and by a deadline —
+    # ``mcp_server/limits.py``). ``/healthz`` is a GET, and GET is not a
+    # method the cap looks at, so a spoofed ``Content-Length`` there is not a
+    # 413; both modes pin that in ``tests/test_mcp_limits.py``.
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=max_request_bytes)
     if oauth:
         for route in consent_routes or []:
             app.router.routes.append(route)
     else:
         app.add_middleware(PATAuthMiddleware, token_store=token_store)
+    logger.info(
+        "mcp request limits: body <= %d bytes (413 %s), tool calls <= %s per identity "
+        "per minute (%s); /healthz sits outside both",
+        max_request_bytes,
+        BODY_TOO_LARGE,
+        rate_limit_per_minute if rate_limit_per_minute > 0 else "unlimited",
+        RATE_LIMITED,
+    )
     return app

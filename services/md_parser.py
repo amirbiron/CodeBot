@@ -53,14 +53,15 @@
 
 from __future__ import annotations
 
-import re
 from typing import List, Optional
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from mdit_py_plugins.front_matter import front_matter_plugin
 
+from .line_endings import find_lone_cr
 from .doc_sections import (
+    MAX_SECTIONS,
     Document,
     InconsistentLineEndings,
     Section,
@@ -72,6 +73,7 @@ from .doc_sections import (
     find_sections,
     neighbors,
     normalize_title,
+    require_str,
     section_bounds,
     section_text,
     suggest,
@@ -86,17 +88,17 @@ from .doc_sections import (
 # ``docs_handlers`` יוכל לבחור מודול לפי סיומת ולקרוא לשמות האלה בלי אף
 # ``if`` נוסף במסלול.
 #
-# **ומה שאינו משותף, כדי שהטענה לא תיקרא רחבה ממה שהיא:** ``MAX_SECTIONS``
-# ו-``InconsistentLineEndings`` מיוצאים רק מכאן. ל-``rst_parser`` אין
-# תקרה קבועה (ברירת המחדל שלו היא ``None``), והוא **אינו מרים** את
-# החריגה השנייה לעולם — ייצוא שלה משם היה מצהיר על סירוב שלא קיים.
-# לכן המטפל ב-PR 5 מייבא את **שתי** חריגות הסירוב מ-``doc_sections``,
-# לא ``parser.X``, כפי שכתוב ב-docstring של ``InconsistentLineEndings``.
+# **ומה שאינו משותף, כדי שהטענה לא תיקרא רחבה ממה שהיא:**
+# ``InconsistentLineEndings`` מיוצאת רק מכאן. ``rst_parser`` **אינו מרים**
+# אותה לעולם — ייצוא שלה משם היה מצהיר על סירוב שלא קיים. לכן המטפל מייבא
+# את **שתי** חריגות הסירוב מ-``doc_sections``, לא ``parser.X``, כפי שכתוב
+# ב-docstring של ``InconsistentLineEndings``. (``MAX_SECTIONS`` היה גם הוא
+# רק כאן עד #3420; מאז הוא מוגדר ב-``doc_sections`` ומיוצא משני הפארסרים.)
 # ההפרש בין שני ה-``__all__`` מקובע ב-
-# ``tests/test_md_parser.py::test_the_two_parsers_export_the_same_names_but_two``.
+# ``tests/test_md_parser.py::test_the_two_parsers_export_the_same_names_but_one``.
 __all__ = [
     # שם היסטורי: הוא סופר כותרות, גם כאלה שאינן נכנסות למפה. ההנמקה
-    # המלאה ב-``#:`` שמעל ההגדרה.
+    # המלאה ב-``#:`` שמעל ההגדרה ב-``doc_sections``.
     "MAX_SECTIONS",
     "Document",
     "InconsistentLineEndings",
@@ -114,36 +116,12 @@ __all__ = [
     "suggest",
 ]
 
-#: מקסימום **כותרות** לקובץ, ומעליו הפרסור נעצר.
-#:
-#: **וכותרות ולא סעיפים, וזה ההבדל שצריך להכיר.** נספרת כל כותרת
-#: שהפרסור נתקל בה, כולל כותרת בתוך ציטוט או בתוך פריט רשימה שאינה
-#: נכנסת למפה בכלל. הקבוע מגביל **עבודה** ולא **תוצאה**: מה שמייקר
-#: הוא הכותרת עצמה, ולא השאלה אם היא נספרת כסעיף בסוף. נמדד: 500KB
-#: של ``> ## h`` הם ~64,000 כותרות שאף אחת מהן אינה סעיף, וספירה לפי
-#: ``level == 0`` הייתה רואה בהן אפס ולא עוצרת לעולם. הטענה "לא יותר
-#: מ-``MAX_SECTIONS`` סעיפים" נשארת נכונה — היא פשוט לא כל מה שהקבוע
-#: אוכף. שם מדויק יותר לקבוע הוא שינוי בפני עצמו והוא אישו נפרד.
-#:
-#: **אותו ערך בדיוק כמו ``MAX_SYMBOLS`` ב-
-#: ``mcp_server/outline_scanners/_ceiling.py``**, ושם כתובות שתי
-#: המדידות שקבעו אותו — השיא שהתקרה מרשה, והיחס לקובץ אמיתי. מי
-#: שמשנה את אחד מהשניים צריך לפתוח את השני: הם מתארים את אותו גבול על
-#: אותה מפה, והסורק שיגיע לכאן בשלב 2 יעביר את זה במקום את זה. השוויון
-#: מקובע ב-``tests/test_md_parser.py::test_the_two_ceilings_are_the_same_number``.
-#:
-#: ``_ceiling.MAX_SYMBOLS`` אינו מיובא לכאן, כי ``services`` אינו מייבא
-#: מ-``mcp_server`` — הכיוון חד-סטרי ומנומק ב-``TooManySections``.
-MAX_SECTIONS = 50_000
+# ``MAX_SECTIONS`` מוגדר ב-``doc_sections`` (מאז #3420, כשהפך לברירת המחדל
+# של שני הפארסרים) ומיובא לכאן. מה שהוא סופר **במסלול הזה** — כותרות ולא
+# סעיפים — מנומק ליד הקבוע שם וב-``_SectionCounter`` למטה.
 
-#: ``\r`` שאינו חלק מ-``\r\n``. ההגדרה חוזרת כאן ואינה מיובאת מ-
-#: ``mcp_server/outline.py::_CR_WITHOUT_LF``, מאותה סיבה: הכיוון חד-סטרי.
-#: השקילות בין השניים אינה תקווה — ``tests/test_md_parser.py`` משווה את
-#: שניהם מול ההתנהגות של ``markdown-it-py`` עצמו על טבלת קלטים אחת.
-#:
-#: ``search`` ולא ``replace``: הוא עוצר על ההתאמה הראשונה ואינו מקצה
-#: עותק של הטקסט.
-_CR_WITHOUT_LF = re.compile(r"\r(?!\n)")
+# כלל ה-``\r`` הבודד יושב ב-``services/line_endings.py`` (מאז #3419), משותף
+# למנתב האאוטליין ולפארסר הזה — עותק אחד, לא שניים שצריכים להסכים לנצח.
 
 #: המפתח שתחתיו יושב מונה ה**כותרות** ב-``env`` של פרסור בודד.
 #: המחרוזת עצמה נשארה ``section`` כשמשמעות המונה השתנתה, כי היא
@@ -242,10 +220,11 @@ def _build_parser() -> MarkdownIt:
        בקובצי ה-``.md`` שתחת ``docs/`` בריפו הזה. נמדד שהיא **אינה מזיזה
        אף מספר שורה** באף אחת מעשר הצורות שנבדקו — כולל בלוק שאינו נסגר,
        ``---`` מוזח, ו-``---`` עם רווח בסוף — כי הטקסט עצמו אינו משתנה
-       כלל. וכלל שהיינו כותבים בעצמנו כן היה סוטה ממנה: נמדד שפרוטוטיפ
-       שמשווה ``---`` מדויק חולק עליה ב**חמש מתוך שתים-עשרה** צורות.
-       המספר נגזר מהטבלה ב-``tests/test_md_parser.py`` ומושווה למשפט
-       הזה ב-``test_the_measured_front_matter_gap_matches_the_prose``.
+       כלל. וכלל שהיינו כותבים בעצמנו כן היה סוטה ממנה: נמדד שהכלל שנכתב
+       ביד ב-``scripts/generate_ai_map.py`` חלק עליה בחמש מתוך שתים-עשרה
+       צורות. מאז #3419 הסקריפט קורא את הגבול מהמופע הזה, דרך
+       :func:`front_matter_end`, והטבלה ב-``tests/test_md_parser.py``
+       מקבעת שהשניים מסכימים על כל צורה.
     3. **``disable("inline")``** — הכלל ה**ליבתי** בשם הזה, שהוא זה
        שמפרק את תוכן הכותרת לטוקנים פנימיים. נמדד: עד 40% חיסכון בזמן
        ו-37% בזיכרון, **ואפס שינוי בזיהוי הכותרות ובטווחים** — כי השם
@@ -318,16 +297,85 @@ def _build_parser() -> MarkdownIt:
 _MD = _build_parser()
 
 
+def _entry_checks(text: object) -> str:
+    """שער הכניסה המשותף לכל מי שמפרסר כאן: ``parse_document``, ``token_count`` ו-``front_matter_end``.
+
+    שלושה צעדים, בסדר הזה (ההנמקה לסדר ב-docstring של ``parse_document``):
+    ``require_str``, הסרת BOM אחד בתחילת המחרוזת, ו-``\\r`` בודד →
+    :class:`~services.doc_sections.InconsistentLineEndings`. הנרמול של
+    ``\\r\\n`` נשאר ב-``parse_document``, כי רק היא בונה ``lines`` שחייב להסכים
+    עם המפה; markdown-it מנרמל אותו בעצמו לפני הפרסור.
+
+    עד סקירת שבעת ה-PRים (SUGG-019) שתי הפונקציות הקטנות קראו ל-``_MD.parse``
+    ישירות ודילגו על שלושתם, ונמדד מה זה עושה: ``front_matter_end`` על בלוק
+    שיש בו ``\\r`` בודד החזיר 4 בעוד ה-``---`` הסוגר יושב באינדקס 2 של
+    ``split("\\n")`` — markdown-it סופר ``\\r`` כמעבר שורה והקורא לא — ועם BOM
+    החזיר 0, כלומר לא ראה את הבלוק כלל; ערך שאינו מחרוזת נפל עם ההודעה של
+    markdown-it ולא של המודול.
+    """
+    text = require_str(text)
+    # **BOM אחד בתחילת הקובץ מוסר, ולא יותר מזה.** בלי ההסרה, ``# Title``
+    # שלפניו ``U+FEFF`` אינו כותרת אצל ``markdown-it`` — הוא פסקה שמתחילה
+    # בתו בלתי נראה — והפארסר מחזיר **מפה ריקה בלי חריגה** על קובץ שיש
+    # בו כותרות, שזו בדיוק מחלקת הכשל שהמודול הזה מצהיר שאין בו. נמדד.
+    #
+    # **וזה יישור ל-cmark-gfm ול-GitHub, לא למפרט.** מימוש הייחוס של
+    # CommonMark (``commonmark.py`` 0.9.2) **אינו** מסיר BOM ומרנדר
+    # ``<p>﻿# Title</p>`` בדיוק כמו ``markdown-it``; cmark מסיר.
+    # האורקל שנבחר למודול הזה הוא GitHub, ולכן הולכים אחריו.
+    #
+    # **למה זה אינו מזיז מספרי שורות:** התו יושב בעמודה 0 של שורה 1
+    # ואינו מעבר שורה, ולכן ``lines`` ומספרי המפה זהים עם ובלי ההסרה —
+    # אותו תנאי שהתיר את נרמול ה-``\r\n``. חיתוך בתווים, לא בבייטים.
+    #
+    # **ורק בתחילת המחרוזת.** ``U+FEFF`` באמצע הטקסט הוא ZERO WIDTH
+    # NO-BREAK SPACE רגיל — תוכן, לא סימון קידוד — ואיש אינו נוגע בו.
+    # מסלול הייצור (``git_mirror_service._try_decode_content``) מפענח
+    # ב-``utf-8-sig`` ולכן לא יעביר BOM לכאן; ההגנה היא בשביל כל קורא
+    # אחר — הסקריפט, טסט, או הצרכן הבא — שיפענח ב-``utf-8`` רגיל.
+    if text.startswith("﻿"):
+        text = text[1:]
+    # **החריגה נושאת את מספר השורה**, כמו ``TooManySections``. המיקום
+    # כבר מחושב כאן — ``search`` מחזיר אובייקט התאמה — והוא ההבדל בין
+    # "יש ``\r`` איפשהו בקובץ" לבין משהו שאפשר לפתוח ולתקן.
+    lone_cr = find_lone_cr(text)
+    if lone_cr:
+        raise InconsistentLineEndings(text.count("\n", 0, lone_cr.start()) + 1)
+    return text
+
+
+def token_count(text: str) -> int:
+    """מספר הטוקנים שהפרסר של הכלי מייצר לטקסט — מדד צפיפות, לא מפה.
+
+    קיים בשביל ``scripts/measure_md_parse_cost.py``, שמדרג מסמכים לפי
+    צפיפות טוקני-בלוק ל-KB, וקרא עד #3433 ל-``_build_parser`` הפרטית —
+    תלות סמויה בפנימי של המודול, ובנייה של פרסר חדש לכל קובץ. הפונקציה
+    הזאת היא התלות בגלוי: על ``_MD``, המופע שהכלי מריץ, בלי ``env`` ולכן
+    בלי תקרה (``_ceiling_rule`` מקבל ``None`` ומחזיר ``False``), ובלי
+    טוקני inline (``disable("inline")``) — כלומר בדיוק מה שהפרסור האמיתי
+    סופר. ודרך אותו שער כניסה (:func:`_entry_checks`): BOM מוסר, ``\\r`` בודד
+    נדחה, וערך שאינו מחרוזת מקבל את החריגה של המודול — כמו בכלי.
+
+    **ומחוץ ל-``__all__`` בכוונה:** הרשימה שם היא החוזה של "שני פארסרים
+    בני-החלפה", וטסט מקבע את ההפרש בינה לבין זו של ``rst_parser``. מדד
+    למדידה אינו חלק מהחוזה הזה ואינו קיים ל-RST, ולכן הוא ציבורי (בלי קו
+    תחתון, מתועד) אך אינו מיוצא.
+    """
+    return len(_MD.parse(_entry_checks(text)))
+
+
 def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> Document:
     """בונה ``Document`` מטקסט Markdown.
 
     **סדר הבדיקות בכניסה, והוא אינו שרירותי:**
 
-    1. ``isinstance(text, str)`` — הטקסט מגיע מחוץ לתהליך (קובץ מהמראה,
-       גוף בקשה), ו-``.replace`` על ערך שאינו מחרוזת היה מפיל
-       ``AttributeError`` ממקום שלא מסביר כלום.
+    1. :func:`~services.doc_sections.require_str` — הטקסט מגיע מחוץ
+       לתהליך (קובץ מהמראה, גוף בקשה), ו-``.replace`` על ערך שאינו מחרוזת
+       היה מפיל ``AttributeError`` ממקום שלא מסביר כלום. אותה בדיקה
+       בדיוק, ואותן מילים, כמו ב-``rst_parser`` (מאז #3421).
     2. הסרת ``U+FEFF`` (BOM) **אחד, בתחילת המחרוזת בלבד** — ההנמקה
-       בהערה ליד הקוד. לפני בדיקת ה-``\\r``, כדי שמספר השורה שהחריגה
+       בהערה ליד הקוד ב-:func:`_entry_checks`, השער המשותף לשלוש הפונקציות
+       שמפרסרות כאן. לפני בדיקת ה-``\\r``, כדי שמספר השורה שהחריגה
        נושאת יתאים לטקסט שהפארסר באמת רואה.
     3. ``\\r`` בודד → :class:`~services.doc_sections.InconsistentLineEndings`.
     4. נרמול ``\\r\\n`` ← ``\\n``. ``splitlines()`` נשקל ונדחה באותו
@@ -345,19 +393,11 @@ def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> 
     הקלט ששלב 3 קיים בשבילו.
 
     :param max_sections: התקרה, **במספר כותרות ולא במספר סעיפים** —
-        ראו :data:`MAX_SECTIONS`. ברירת המחדל היא :data:`MAX_SECTIONS`,
+        ראו :data:`~services.doc_sections.MAX_SECTIONS`. ברירת המחדל היא
+        :data:`~services.doc_sections.MAX_SECTIONS` — אותה ברירת מחדל
+        כמו ב-``services.rst_parser.parse_document`` (מיושר מאז #3420;
+        לפני כן היא הייתה ``None`` שם, וההבדל היה מוצהר בשני המקומות) —
         ו-``None`` מכבה אותה במפורש.
-
-        .. important::
-
-           **ברירת המחדל כאן הפוכה מזו של**
-           ``services.rst_parser.parse_document``\\ **, שם היא ``None``.**
-           שם הפרמטר נוסף לפארסר שכבר היה בייצור, וברירת מחדל שאינה
-           ``None`` הייתה משנה את התנהגות ``docs_get_section`` באותו
-           קומיט; כאן אין התנהגות קודמת לשמר, ולכן נבחרה ההנחה היקרה —
-           קורא ששכח להעביר תקרה מקבל הגנה ולא את היעדרה. ההבדל מוצהר
-           בשני המקומות בכוונה, ויישור של ``rst_parser`` נשקל בנפרד כי
-           הוא שינוי התנהגות על מסלול חי.
 
     :raises TypeError: ``text`` אינו מחרוזת.
     :raises ~services.doc_sections.InconsistentLineEndings: יש ``\\r``
@@ -366,35 +406,7 @@ def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> 
         כותרות מהתקרה. הארגומנט הוא מספר השורה שבה נעצרנו — מה שמבדיל
         עצירה בתוך הפרסור מסינון של פלט אחריו.
     """
-    if not isinstance(text, str):
-        raise TypeError(f"parse_document expects str, got {type(text).__name__}")
-    # **BOM אחד בתחילת הקובץ מוסר, ולא יותר מזה.** בלי ההסרה, ``# Title``
-    # שלפניו ``U+FEFF`` אינו כותרת אצל ``markdown-it`` — הוא פסקה שמתחילה
-    # בתו בלתי נראה — והפארסר מחזיר **מפה ריקה בלי חריגה** על קובץ שיש
-    # בו כותרות, שזו בדיוק מחלקת הכשל שהמודול הזה מצהיר שאין בו. נמדד.
-    #
-    # **וזה יישור ל-cmark-gfm ול-GitHub, לא למפרט.** מימוש הייחוס של
-    # CommonMark (``commonmark.py`` 0.9.2) **אינו** מסיר BOM ומרנדר
-    # ``<p>\ufeff# Title</p>`` בדיוק כמו ``markdown-it``; cmark מסיר.
-    # האורקל שנבחר למודול הזה הוא GitHub, ולכן הולכים אחריו.
-    #
-    # **למה זה אינו מזיז מספרי שורות:** התו יושב בעמודה 0 של שורה 1
-    # ואינו מעבר שורה, ולכן ``lines`` ומספרי המפה זהים עם ובלי ההסרה —
-    # אותו תנאי שהתיר את נרמול ה-``\r\n``. חיתוך בתווים, לא בבייטים.
-    #
-    # **ורק בתחילת המחרוזת.** ``U+FEFF`` באמצע הטקסט הוא ZERO WIDTH
-    # NO-BREAK SPACE רגיל — תוכן, לא סימון קידוד — ואיש אינו נוגע בו.
-    # מסלול הייצור (``git_mirror_service._try_decode_content``) מפענח
-    # ב-``utf-8-sig`` ולכן לא יעביר BOM לכאן; ההגנה היא בשביל כל קורא
-    # אחר — הסקריפט, טסט, או הצרכן הבא — שיפענח ב-``utf-8`` רגיל.
-    if text.startswith("\ufeff"):
-        text = text[1:]
-    # **החריגה נושאת את מספר השורה**, כמו ``TooManySections``. המיקום
-    # כבר מחושב כאן — ``search`` מחזיר אובייקט התאמה — והוא ההבדל בין
-    # "יש ``\r`` איפשהו בקובץ" לבין משהו שאפשר לפתוח ולתקן.
-    lone_cr = _CR_WITHOUT_LF.search(text)
-    if lone_cr:
-        raise InconsistentLineEndings(text.count("\n", 0, lone_cr.start()) + 1)
+    text = _entry_checks(text)
 
     normalized = text.replace("\r\n", "\n")
     lines = normalized.split("\n")
@@ -526,3 +538,29 @@ def _title_of(tokens: List[Token], heading_index: int) -> str:
         else (part if index == 0 else part.lstrip(" \t"))
         for index, part in enumerate(parts)
     )
+
+
+def front_matter_end(text: str) -> int:
+    """אינדקס השורה שאחרי בלוק ה-front matter — או 0 כשאין בלוק, כולל בלוק שלא נסגר.
+
+    לפי התוסף ``mdit_py_plugins.front_matter`` שרשום על ``_MD`` — ההגדרה
+    ש-MyST מריץ — ולא לפי כלל שנכתב ביד. ``scripts/generate_ai_map.py`` כתב
+    עד #3419 כלל משלו, ונמדד שהוא חלק על התוסף בחמש מתוך שתים-עשרה צורות:
+    ``---`` מוזח, סוגר מוזח בארבעה רווחים, ארבעה מקפים, סוגר ארוך מהפותח,
+    ופותח שיש אחריו טקסט. הטוקן ``front_matter`` הוא תמיד הראשון (התוסף
+    מזהה בלוק רק בשורה 0) ונושא ``map = [0, end]``, ו-``end`` הוא בדיוק
+    האינדקס שהסקריפט צריך.
+
+    פרסור מלא של הטקסט, בלי ``env`` ולכן בלי תקרה — הקלט הוא עמודי
+    תיעוד. ודרך :func:`_entry_checks`, כי האינדקס שמוחזר חייב להסכים עם
+    ``split("\\n")`` של הקורא: ``\\r`` בודד (ש-markdown-it סופר כמעבר שורה)
+    היה מזיז אותו בשקט, ו-BOM היה מסתיר את הבלוק כולו — עכשיו הראשון
+    נדחה בשם, והשני מוסר, בדיוק כמו ב-``parse_document``. **מחוץ ל-``__all__``
+    בכוונה**, מאותו נימוק שכתוב ליד :func:`token_count` אם הוא קיים כאן:
+    הרשימה שם היא החוזה של "שני פארסרים בני-החלפה", וגבול front matter אינו
+    קיים ל-RST.
+    """
+    tokens = _MD.parse(_entry_checks(text))
+    if tokens and tokens[0].type == "front_matter" and tokens[0].map:
+        return tokens[0].map[1]
+    return 0

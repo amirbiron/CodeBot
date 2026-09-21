@@ -280,6 +280,27 @@ def test_get_file_not_found_and_denied():
     assert mirror.calls == []
 
 
+def test_get_file_names_a_missing_mirror_and_keeps_not_found_for_a_bad_ref():
+    """‏``repo_not_found`` מהמראה הוא ``repo_not_mirrored`` — עניין של המפעיל, לא שם קובץ שגוי (#3432, SUGG-011).
+
+    ‏``invalid_commit`` נשאר ``not_found``: הריפו קיים, וה-ref הוא מה שהקורא
+    יכול לשנות. ובזמן sync שניהם ``sync_in_progress``, כמו קודם.
+    """
+    no_mirror = RepoBackend(db=_repos_db(), mirror=_Mirror(file_result={"error": "repo_not_found"}),
+                            search_service=_Search())
+    assert no_mirror.get_file(repo="alpha", path="a.py") == {"ok": False, "error": "repo_not_mirrored"}
+
+    bad_ref = RepoBackend(db=_repos_db(), mirror=_Mirror(file_result={"error": "invalid_commit"}),
+                          search_service=_Search())
+    assert bad_ref.get_file(repo="alpha", path="a.py") == {"ok": False, "error": "not_found"}
+
+    syncing = _DB(repos=[{"repo_name": "alpha", "default_branch": "main"}],
+                  jobs=[{"repo_name": "alpha", "status": "running"}])
+    mid_sync = RepoBackend(db=syncing, mirror=_Mirror(file_result={"error": "repo_not_found"}),
+                           search_service=_Search())
+    assert mid_sync.get_file(repo="alpha", path="a.py")["error"] == "sync_in_progress"
+
+
 def test_get_file_sync_in_progress_instead_of_not_found():
     db = _DB(
         repos=[{"repo_name": "alpha", "default_branch": "main"}],
