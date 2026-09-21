@@ -781,6 +781,8 @@
   { "minutes": 60 }
   ```
 
+  `minutes` — מספר שלם בין 1 ל‑1440, ברירת מחדל 60. טיפוס אחר מחזיר `400 Invalid minutes`; גוף שאינו אובייקט JSON מחזיר `400 invalid_payload`.
+
 - סיכום לתצוגת באדג': GET `/api/sticky-notes/reminders/summary`
 
   מחזיר `has_due`, `count_due` ו‑`next_in_seconds` (בעוד כמה שניות לשאול שוב; `null` כשאין מה לתזמן).

@@ -126,7 +126,7 @@ Endpoints
      - POST
      - דחיית תזכורת ב‑X דקות
      - ✅
-     - ``{"minutes": 60}``
+     - ``{"minutes": 60}`` — מספר שלם בין 1 ל‑1440, ברירת מחדל 60; טיפוס אחר ← ``400 Invalid minutes``, גוף שאינו אובייקט ← ``400 invalid_payload``
      - ``{"ok": true, "remind_at": "..."}``
    * - ``/api/welcome/ack``
      - POST

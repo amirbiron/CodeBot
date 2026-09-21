@@ -1,4 +1,6 @@
+import ast
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 from datetime import datetime, timedelta, timezone
 
@@ -385,6 +387,46 @@ class TestNoteRemindersAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 500, 'כשל במסד הוחזר כתשובה תקינה')
         self.assertFalse(r.get_json()['ok'])
 
+    def test_summary_failure_leaves_a_server_side_trace(self):
+        """500 בלי לוג הוא כשל שקט: הלקוח הופך אותו ל-backoff, ו-``@traced`` רושם
+        רק חריגה שיוצאת מהפונקציה — ה-``except`` הגורף תופס אותה קודם. לפני
+        התיקון נתיב שנפל לא השאיר שום סימן בשרת.
+        """
+        self._login()
+        self._seed_due()
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('mongo is down')
+
+        self.db.note_reminders.count_documents = _boom
+        with self.assertLogs('webapp.sticky_notes_api', level='ERROR') as cm:
+            r = self.client.get('/api/sticky-notes/reminders/summary')
+        self.assertEqual(r.status_code, 500)
+        # חימום האינדקסים עלול לרשום שגיאה משלו קודם; מחפשים את הרשומה של המסלול.
+        recs = [rec for rec in cm.records if 'reminders_summary' in rec.getMessage()]
+        self.assertTrue(recs, [rec.getMessage() for rec in cm.records])
+        rec = recs[0]
+        self.assertIsNotNone(rec.exc_info, 'ה-traceback לא צורף ללוג')
+        self.assertIn('mongo is down', str(rec.exc_info[1]))
+
+    def test_list_failure_leaves_a_server_side_trace(self):
+        """אותו חוזה במסלול הרשימה — הנתיב השני שמשרת את הבועה."""
+        self._login()
+        self._seed_due()
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('mongo is down')
+
+        self.db.note_reminders.find = _boom
+        with self.assertLogs('webapp.sticky_notes_api', level='ERROR') as cm:
+            r = self.client.get('/api/sticky-notes/reminders/list')
+        self.assertEqual(r.status_code, 500)
+        recs = [rec for rec in cm.records if 'reminders_list' in rec.getMessage()]
+        self.assertTrue(recs, [rec.getMessage() for rec in cm.records])
+        rec = recs[0]
+        self.assertIsNotNone(rec.exc_info)
+        self.assertIn('mongo is down', str(rec.exc_info[1]))
+
     def test_get_reminder_ignores_an_acknowledged_one(self):
         """מסמך ישן — ``ack_at`` מלא ו-``status`` שנשאר פעיל — אינו תזכורת חיה."""
         self._login()
@@ -400,6 +442,94 @@ class TestNoteRemindersAPI(unittest.TestCase):
         r = self.client.post(f'/api/sticky-notes/note/{self.note_id}/snooze', json={'minutes': 10})
         self.assertEqual(r.status_code, 404)
         self.assertIsNotNone(doc['ack_at'], 'התזכורת הוחייתה בשקט')
+
+    def _seed_pending(self):
+        """תזכורת פעילה לעתיד הקרוב — מה שהדחייה אמורה להזיז."""
+        return self._seed_due(remind_at=datetime.now(timezone.utc) + timedelta(minutes=1))
+
+    def test_snooze_rejects_minutes_that_are_not_an_integer_without_a_server_error(self):
+        """קלט פסול הוא 400 שקט, לא 500 עם traceback.
+
+        ``int()`` על מחרוזת או רשימה זורק, ולפני התיקון ה-``except`` הגורף הפך
+        את זה ל-500 ולשורת ERROR בלוג, כאילו השרת נפל. ועל ``True`` או ``3.9``
+        ``int()`` ממיר בשקט (1, 3) ומקבע דחייה שאיש לא ביקש. לכן בדיקת טיפוס
+        לפני ההמרה — מספר שלם בלבד — ולא ``except`` אחריה.
+        """
+        self._login()
+        doc = self._seed_pending()
+        before = doc['remind_at']
+        for bad in ('abc', '10', True, 3.9, [10], '', 0):
+            with self.subTest(minutes=bad):
+                with self.assertNoLogs('webapp.sticky_notes_api', level='ERROR'):
+                    r = self.client.post(f'/api/sticky-notes/note/{self.note_id}/snooze', json={'minutes': bad})
+                self.assertEqual(r.status_code, 400, r.get_data(as_text=True))
+                self.assertEqual(r.get_json()['error'], 'Invalid minutes')
+                self.assertEqual(doc['remind_at'], before, 'הדחייה נקבעה למרות הקלט הפסול')
+
+    def test_snooze_without_minutes_keeps_the_documented_hour(self):
+        """שומר: גוף בלי ``minutes`` עדיין דוחה בשעה, כמו שהתיעוד מבטיח.
+
+        עובר גם על הקוד הישן, בכוונה — הוא מגן על ברירת המחדל מפני החמרת הטיפוס.
+        """
+        self._login()
+        doc = self._seed_pending()
+        r = self.client.post(f'/api/sticky-notes/note/{self.note_id}/snooze', json={})
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        delta = doc['remind_at'] - datetime.now(timezone.utc)
+        self.assertGreater(delta, timedelta(minutes=59))
+        self.assertLessEqual(delta, timedelta(minutes=60))
+
+    def test_snooze_with_a_list_body_is_400_not_500(self):
+        """גוף JSON שהוא רשימה עובר את ``or {}`` (הוא truthy), ואז ``.get`` זורק —
+        וזה היה 500 עם traceback במקום 400."""
+        self._login()
+        self._seed_pending()
+        with self.assertNoLogs('webapp.sticky_notes_api', level='ERROR'):
+            r = self.client.post(f'/api/sticky-notes/note/{self.note_id}/snooze', json=[10])
+        self.assertEqual(r.status_code, 400, r.get_data(as_text=True))
+        self.assertEqual(r.get_json()['error'], 'invalid_payload')
+
+    def test_set_reminder_with_a_list_body_is_400_not_500(self):
+        """אותו גוף-רשימה במסלול הקביעה. ``_INDEX_READY`` מקובע כמו בטסט הרשימה,
+        כדי שחימום האינדקסים לא ירשום שגיאה משלו לתוך הבדיקה על הלוג."""
+        self._login()
+        orig_ready = sticky_mod._INDEX_READY
+        sticky_mod._INDEX_READY = True
+        try:
+            with self.assertNoLogs('webapp.sticky_notes_api', level='ERROR'):
+                r = self.client.post(f'/api/sticky-notes/note/{self.note_id}/reminder', json=['1h'])
+        finally:
+            sticky_mod._INDEX_READY = orig_ready
+        self.assertEqual(r.status_code, 400, r.get_data(as_text=True))
+        self.assertEqual(r.get_json()['error'], 'invalid_payload')
+
+    def test_ack_with_a_list_body_names_the_payload(self):
+        """ack כבר ענה 400 על רשימה, אבל בשם השדה החסר; עכשיו שלושת מסלולי
+        התזכורות שקוראים גוף עונים אותה תשובה, ``invalid_payload``."""
+        self._login()
+        r = self.client.post('/api/sticky-notes/reminders/ack', json=[1, 2, 3])
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()['error'], 'invalid_payload')
+
+    def test_set_reminder_save_failure_leaves_a_server_side_trace(self):
+        """ה-``except`` הפנימי סביב ``update_one`` החזיר ``Failed to save`` בלי לוג —
+        אותו כשל שקט שתוקן בשאר המסלולים, רק בטקסט אחר, ולכן הספירה המילולית
+        לא ראתה אותו. החוזה ללקוח נשאר; מה שנוסף הוא העקבה.
+        """
+        self._login()
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('mongo is down')
+
+        self.db.note_reminders.update_one = _boom
+        with self.assertLogs('webapp.sticky_notes_api', level='ERROR') as cm:
+            r = self.client.post(f'/api/sticky-notes/note/{self.note_id}/reminder', json={'preset': '1h', 'tz': 'UTC'})
+        self.assertEqual(r.status_code, 500)
+        self.assertEqual(r.get_json()['error'], 'Failed to save')
+        recs = [rec for rec in cm.records if 'set_note_reminder' in rec.getMessage()]
+        self.assertTrue(recs, [rec.getMessage() for rec in cm.records])
+        self.assertIsNotNone(recs[0].exc_info, 'ה-traceback לא צורף ללוג')
+        self.assertIn('mongo is down', str(recs[0].exc_info[1]))
 
     def test_summary_rejects_non_dict_json_body(self):
         """גוף JSON שאינו אובייקט מקבל 400, לא 500."""
@@ -455,6 +585,68 @@ class TestNoteRemindersAPI(unittest.TestCase):
         self.assertEqual(data['count'], 1)
         self.assertEqual(data['items'][0]['note_id'], self.note_id)
         self.assertEqual(data['items'][0]['preview'], 'שלום עולם דביק')
+
+
+def _reminder_route_functions(tree):
+    """הפונקציות שרשומות כמסלולי תזכורות — לפי הנתיב בדקורטור, לא לפי שם הפונקציה."""
+    for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)):
+        for dec in fn.decorator_list:
+            if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute) and dec.func.attr == 'route'):
+                continue
+            path = dec.args[0].value if dec.args and isinstance(dec.args[0], ast.Constant) else ''
+            if isinstance(path, str) and ('reminder' in path or 'snooze' in path):
+                yield fn
+                break
+
+
+def _returns_500(node):
+    return any(
+        isinstance(n, ast.Return) and isinstance(n.value, ast.Tuple) and len(n.value.elts) == 2
+        and isinstance(n.value.elts[1], ast.Constant) and n.value.elts[1].value == 500
+        for n in ast.walk(node)
+    )
+
+
+def _leaves_a_trace(node):
+    """``_failed`` או ``logger.error``/``exception``/``critical`` בגוף ה-``except``."""
+    for n in (n for n in ast.walk(node) if isinstance(n, ast.Call)):
+        f = n.func
+        if isinstance(f, ast.Name) and f.id == '_failed':
+            return True
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id == 'logger' \
+                and f.attr in ('error', 'exception', 'critical'):
+            return True
+    return False
+
+
+class TestReminderRoutesFailLoudly(unittest.TestCase):
+    """כל 500 במסלולי התזכורות עובר דרך העוזר שרושם לוג — לא נשאר ``return`` חשוף.
+
+    הטסטים למעלה מודדים מסלולים בודדים; אלה תופסים את השאר ואת הבא שייכתב.
+    """
+
+    def test_no_bare_500_is_left_in_the_module(self):
+        source = Path(sticky_mod.__file__).read_text(encoding='utf-8')
+        bare = "return jsonify({'ok': False, 'error': 'Failed'}), 500"
+        self.assertIn('def _failed(', source, 'העוזר שרושם לוג לפני 500 חסר')
+        self.assertEqual(source.count(bare), 0, 'אין 500 חשוף — הכול עובר דרך _failed')
+
+    def test_every_500_in_a_reminder_route_leaves_a_trace(self):
+        """סורק את ה-AST: כל ``except`` במסלול תזכורות שמחזיר 500 קורא ל-``_failed``
+        או רושם ``logger.error``. תופס גם וריאנטים בטקסט אחר (``Failed to save``)
+        שהספירה המילולית למעלה לא רואה. מוגבל למסלולי התזכורות בכוונה: שאר מסלולי
+        הפתקים פולטים אירוע anomaly בלי traceback, וזה נושא נפרד.
+        """
+        tree = ast.parse(Path(sticky_mod.__file__).read_text(encoding='utf-8'))
+        routes = list(_reminder_route_functions(tree))
+        self.assertIn('snooze_note_reminder', [fn.name for fn in routes], 'הסריקה לא מצאה את מסלולי התזכורות')
+        offenders = [
+            f'{fn.name}:{handler.lineno}'
+            for fn in routes
+            for handler in ast.walk(fn) if isinstance(handler, ast.ExceptHandler)
+            if _returns_500(handler) and not _leaves_a_trace(handler)
+        ]
+        self.assertEqual(offenders, [], 'except שמחזיר 500 בלי עקבה במסלול תזכורות')
 
 
 class TestStubProjection(unittest.TestCase):
