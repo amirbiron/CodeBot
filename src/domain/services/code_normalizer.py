@@ -137,33 +137,32 @@ def strip_hidden_escapes(s: str, *, remove_variation_selectors: bool = False) ->
     שמתעדכנת עם התקן** — ולכן נשארה הקטגוריה לבדה.
 
     - ``Cf`` (format) מוסר תמיד, בשתי הצורות.
-    - Variation Selectors (``U+FE00``–``U+FE0F``, ובצורה הארוכה
-      ``U+E0100``–``U+E01EF``) הם ``Mn`` ולא ``Cf``, ולכן הם ענף נפרד שנדלק
-      רק עם ``remove_variation_selectors=True`` — ברירת המחדל שומרת אותם,
-      כמו קודם בשני הצרכנים.
+    - Variation Selectors (``U+FE00``–``U+FE0F`` ו-``U+E0100``–``U+E01EF``)
+      הם ``Mn`` ולא ``Cf``, ולכן הם ענף נפרד שנדלק רק עם
+      ``remove_variation_selectors=True`` — ברירת המחדל שומרת אותם, כמו קודם
+      בשני הצרכנים. **ההחלטה היא על קוד התו, לא על צורת הכתיב:** ``\\U0000FE0F``
+      הוא אותו תו כמו ``\\uFE0F`` ומקבל אותה תשובה. עד סקירת #3443 הענף הארוך
+      בדק רק את הטווח האידאוגרפי, כאילו הכתיב קובע את הטווח.
     - רצף שאינו מתפענח לקוד תו (``\\uZZZZ`` אינו תואם את הביטוי; ``chr``
       מעבר לטווח) נשאר כמות שהוא.
     """
 
-    def _strip_if_hidden_u4(m: "re.Match[str]") -> str:
-        code = int(m.group(1), 16)
+    def _is_hidden(code: int) -> bool:
+        # הכלל האחד לשתי הצורות. ``chr`` מרים ``ValueError``/``OverflowError``
+        # מעל U+10FFFF — הצורה הארוכה היא היחידה שיכולה להגיע לשם, והיא תופסת.
         if unicodedata.category(chr(code)) == "Cf":
-            return ""
-        if remove_variation_selectors and code in _VS_HEX4:
-            return ""
-        return m.group(0)
+            return True
+        return remove_variation_selectors and (code in _VS_HEX4 or code in _IDEOGRAPHIC_VS)
+
+    def _strip_if_hidden_u4(m: "re.Match[str]") -> str:
+        return "" if _is_hidden(int(m.group(1), 16)) else m.group(0)
 
     def _strip_if_hidden_u8(m: "re.Match[str]") -> str:
-        code = int(m.group(1), 16)
         try:
-            hidden = unicodedata.category(chr(code)) == "Cf"
+            hidden = _is_hidden(int(m.group(1), 16))
         except (ValueError, OverflowError):
             return m.group(0)  # מעבר לטווח Unicode — לא תו, נשאר כמות שהוא
-        if hidden:
-            return ""
-        if remove_variation_selectors and code in _IDEOGRAPHIC_VS:
-            return ""
-        return m.group(0)
+        return "" if hidden else m.group(0)
 
     s = _ESCAPE_U4.sub(_strip_if_hidden_u4, s)
     s = _ESCAPE_U8.sub(_strip_if_hidden_u8, s)

@@ -94,6 +94,21 @@ def test_variation_selectors_stay_a_separate_branch_because_they_are_mn_not_cf()
     assert normalize_code("a\\uFE0Fb", strip_bom=False, remove_variation_selectors=True) == "ab"
 
 
+def test_a_variation_selector_is_stripped_whatever_escape_form_spells_it():
+    """‏``\\U0000FE0F`` ו-``\\uFE0F`` הם אותו תו, ולכן אותה החלטה בשתי הצורות (סקירת CodeRabbit על #3443).
+
+    הענף של ``\\UXXXXXXXX`` בדק רק את הטווח האידאוגרפי (``U+E0100``–``U+E01EF``),
+    כאילו הצורה הארוכה מאייתת רק אותו — אבל ``\\U0000FE0F`` היא כתיב חוקי של
+    ``U+FE0F``, ונשארה כמות שהיא בזמן ש-``\\uFE0F`` הוסר. כלל אחד לשתי הצורות.
+    """
+    from src.domain.services.code_normalizer import strip_hidden_escapes
+
+    assert strip_hidden_escapes("a\\U0000FE0Fb") == "a\\U0000FE0Fb", "default: kept, like the short form"
+    assert strip_hidden_escapes("a\\U0000FE0Fb", remove_variation_selectors=True) == "ab"
+    assert strip_hidden_escapes("a\\U0000FE00b", remove_variation_selectors=True) == "ab"
+    assert normalize_code("a\\U0000FE0Fb", strip_bom=False, remove_variation_selectors=True) == "ab"
+
+
 def test_an_escape_beyond_unicode_is_left_exactly_as_written():
     """‏``\\U00110000`` אינו תו (מעל U+10FFFF): לא ``Cf``, לא שגיאה — נשאר כמות שהוא, כמו קודם."""
     from src.domain.services.code_normalizer import strip_hidden_escapes
