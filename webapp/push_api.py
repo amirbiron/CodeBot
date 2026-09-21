@@ -1106,7 +1106,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
 #: שני נימוקים, ושניהם חיצוניים לקוד הזה:
 #:
 #: 1. אין היום שום תקרת אורך על ``file_name`` בכלי הכתיבה של ה-MCP — יש על
-#:    גוף הקובץ (``_max_code_size``) ועל תוכן פתק, לא על השם. כלומר האורך
+#:    גוף הקובץ (``max_code_size``) ועל תוכן פתק, לא על השם. כלומר האורך
 #:    מגיע מחוץ לתהליך ואין עליו הגבלה.
 #: 2. גוף ההתראה נשלח בבקשת Web Push, ושם התקרה היא של הפרוטוקול:
 #:    *"Push services MUST NOT return a 413 status code in responses to an

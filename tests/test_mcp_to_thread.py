@@ -976,12 +976,16 @@ def test_a_pool_without_a_readable_width_does_not_fail_startup_and_says_so(caplo
 
     from mcp_server.server import _log_dispatch_capacity, _read_pool_size
 
+    sizing = _read_pool_size(512 * _MiB)
     with caplog.at_level(_logging.INFO, logger="mcp_server.server"):
-        _log_dispatch_capacity(_types.SimpleNamespace(), "cgroup v2: 512.0MiB", _read_pool_size(512 * _MiB))
+        _log_dispatch_capacity(_types.SimpleNamespace(), "cgroup v2: 512.0MiB", sizing)
 
     info = [r.getMessage() for r in caplog.records if r.levelno == _logging.INFO]
     warnings = [r.getMessage() for r in caplog.records if r.levelno == _logging.WARNING]
-    assert any("read pool 10 (requested; installed width unreadable) threads" in m for m in info), info
+    # The width belongs to the memory arithmetic, which has its own test; this
+    # one is about the label, so it reads the number back instead of typing it.
+    expected = f"read pool {sizing.workers} (requested; installed width unreadable) threads"
+    assert any(expected in m for m in info), info
     assert any("_max_workers" in m for m in warnings), warnings
 
 

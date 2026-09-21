@@ -1,5 +1,4 @@
 import asyncio
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
@@ -13,7 +12,9 @@ class RateLimiter:
 
     def __init__(self, max_per_minute: int = 30) -> None:
         self.max_per_minute = max(1, int(max_per_minute or 30))
-        self._requests: Dict[int, List[datetime]] = defaultdict(list)
+        # מילון רגיל ולא ``defaultdict``: רשומה נוצרת רק כשקריאה אושרה
+        # (``check_rate_limit``), ולא לכל זהות ששאלו עליה — ראו ``_live_entries``.
+        self._requests: Dict[int, List[datetime]] = {}
         self._lock = asyncio.Lock()
 
     def _live_entries(self, user_id: int, now: datetime) -> List[datetime]:
@@ -23,8 +24,16 @@ class RateLimiter:
         עותקים של אותה לולאה שצריכים להסכים זה עם זה לנצח. הרשומות נשמרות
         בסדר הזמן, ולכן הראשונה שעדיין בחלון היא הגבול, ומה שלפניה נמחק
         (תיקון off-by-one כאשר כל הערכים פגי-תוקף: אז נמחק הכול).
+
+        **ואינו יוצר רשומה למי ששואלים עליו בלבד.** עם ``defaultdict`` הקריאה
+        ``self._requests[user_id]`` יצרה מפתח קבוע לכל זהות ש-``get_current_usage_ratio``
+        או ``seconds_until_allowed`` נשאלו עליה (סקירת שבעת ה-PRים, SUGG-011);
+        עכשיו זהות בלי רשומה מקבלת רשימה ריקה שאינה נשמרת, ומפתח שהחלון שלו
+        התרוקן נמחק. מי ששומר הוא ``check_rate_limit``, וברגע האישור בלבד.
         """
-        entries = self._requests[user_id]
+        entries = self._requests.get(user_id)
+        if entries is None:
+            return []
         one_min_ago = now - timedelta(seconds=60)
         delete_upto = len(entries)
         for idx, ts in enumerate(entries):
@@ -33,6 +42,8 @@ class RateLimiter:
                 break
         if delete_upto > 0:
             del entries[:delete_upto]
+        if not entries:
+            del self._requests[user_id]
         return entries
 
     async def check_rate_limit(self, user_id: int) -> bool:
@@ -43,6 +54,8 @@ class RateLimiter:
             if len(entries) >= self.max_per_minute:
                 return False
             entries.append(now)
+            # הרשימה עשויה להיות חדשה, או כזו ש-``_live_entries`` ניתק כשהתרוקנה.
+            self._requests[user_id] = entries
             return True
 
     async def get_current_usage_ratio(self, user_id: int) -> float:

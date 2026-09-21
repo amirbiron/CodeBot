@@ -66,9 +66,12 @@ def test_main_reports_each_parsers_candidate_from_its_densest_shape(monkeypatch,
     monkeypatch.setattr(script, "real_files", lambda suffix: [docs[suffix]])
     monkeypatch.setattr(script, "density", lambda text, parser="md": 1.0)
     costs = {"corpus": 25.0, "tiled_": 70.7, "hostile": 290.0, "outline_": 7.7}
+    seen_kwargs = {}
 
     def fake_peak_cost(path, workdir, *, parser="md", kwargs=None):
-        cost = next(v for prefix, v in costs.items() if path.name.startswith(prefix))
+        prefix = next(prefix for prefix in costs if path.name.startswith(prefix))
+        seen_kwargs[(parser, prefix)] = kwargs
+        cost = costs[prefix]
         return {
             "module": script.PARSERS[parser]["module"],
             "input_bytes": 1,
@@ -89,6 +92,17 @@ def test_main_reports_each_parsers_candidate_from_its_densest_shape(monkeypatch,
     assert last["md"]["hostile_bound_bytes_per_input_byte"] == 290.0
     assert last["rst"]["constant_candidate_bytes_per_input_byte"] == 70.7
     assert last["rst"]["hostile_bound_bytes_per_input_byte"] == 290.0
+
+    # WARN-004 (סקירת שבעת ה-PRים): הצורה העוינת מודדת את הפרסר בלי התקרה —
+    # עם ברירת המחדל היא נעצרת על MAX_SECTIONS והמספר מתאר עצירה. הקורפוס
+    # והמסמך הצפוף רצים כמו הכלי, בלי kwargs; ה-outline עם התקרה שלו.
+    from mcp_server.outline_scanners._ceiling import MAX_SYMBOLS
+
+    for parser in ("md", "rst"):
+        assert seen_kwargs[(parser, "hostile")] == {"max_sections": None}, parser
+        assert seen_kwargs[(parser, "corpus")] is None and seen_kwargs[(parser, "tiled_")] is None
+    assert seen_kwargs[("rst", "outline_")] == {"max_sections": MAX_SYMBOLS}
+    assert "max_sections=None" in last["note"]
 
 
 def test_a_checkout_with_no_document_of_the_minimum_size_fails_with_a_named_message():

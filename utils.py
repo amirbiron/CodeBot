@@ -1521,10 +1521,11 @@ def normalize_code(text: str,
 
         # Fast path: delegate to domain normalizer when all defaults are used
         # This preserves behavior and enables gradual migration to domain layer
+        # (the normalizer is imported unconditionally since #3427 — there is no
+        # path on which it is missing).
         try:
             if (
-                _DOMAIN_NORMALIZER is not None
-                and strip_bom is True
+                strip_bom is True
                 and normalize_newlines is True
                 and replace_nbsp is True
                 and replace_all_space_separators is True

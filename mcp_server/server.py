@@ -35,7 +35,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any, NamedTuple
 
+import pydantic_core
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import CallToolResult, TextContent
 from pydantic import Field
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
@@ -523,11 +525,17 @@ _WRITE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mcp-write")
 #: How long a write may wait for the queue before the wait is worth a WARNING.
 #:
 #: Picked against this service's own numbers rather than a round figure. A
-#: ``save_file`` body runs 7.5s at p95, so a threshold below one whole body
-#: would fire every time two writes from the same agent arrive together — the
-#: ordinary case, and an alert that fires on the ordinary case is noise. Past
-#: this, the caller waited for more than one complete write ahead of it, which
-#: is the shape of a queue that is not draining rather than of a busy moment.
+#: ``save_file`` body ran 7.5s at p95 when this was set (before the service
+#: moved to Frankfurt, next to Mongo, on 2026-09-16), so a threshold below one
+#: whole body would fire every time two writes from the same agent arrive
+#: together — the ordinary case, and an alert that fires on the ordinary case
+#: is noise. Past this, the caller waited for more than one complete write
+#: ahead of it, which is the shape of a queue that is not draining rather than
+#: of a busy moment. **The 7.5s figure is stale:** the Frankfurt service's logs
+#: (2026-09-16 to 2026-09-21) show ``ran`` between 0.012s and 1.993s over 30
+#: writes, so today the threshold sits well above five whole bodies — still a
+#: queue that is not draining, and not worth lowering until a slow write shows
+#: up in those logs.
 _SLOW_WRITE_QUEUE_WAIT = 10.0
 
 #: ``FastMCP.add_tool``'s own signature, read once at import so that the
@@ -1055,9 +1063,12 @@ def _log_write_timing(tool: str, waited: float, ran: float | None) -> None:
     configures logging at ``INFO`` (``mcp_server/app.py``, from ``LOG_LEVEL``),
     so a ``debug`` line is not quiet — it is *absent*, which is the failure this
     whole area was just fixed for. Against that, the volume cannot run away:
-    one worker runs one write at a time and a write body is 4.3-4.9s at p50, so
-    this line is bounded at roughly thirteen a minute no matter how much load
-    arrives. And logging only the slow case would say when the wait is bad
+    one worker runs one write at a time, so this line is bounded by how many
+    writes a minute one worker can finish — thirteen at the 4.3-4.9s p50 this
+    was written against (before the 2026-09-16 move to Frankfurt; the service's
+    logs since then show 0.012-1.993s, so the bound is higher now, and it is
+    still one line per write, never more). And logging only the slow case would
+    say when the wait is bad
     without ever saying what it normally is, which is the number any decision
     about the queue's width depends on.
 
@@ -1248,6 +1259,34 @@ def _offload_to_thread(fn: Any, *, serialize: bool = False) -> Any:
     return _run_on_write_pool
 
 
+def _refusal_result(refusal: dict[str, Any]) -> CallToolResult:
+    """A rate-limit refusal as the whole ``CallToolResult`` — the one shape every tool can return.
+
+    ``FastMCP.call_tool`` normally returns what the tool's own ``convert_result``
+    built for its return type, and the low-level ``tools/call`` handler then
+    validates structured content against the tool's ``outputSchema``: a bare
+    content list for a tool that declares one becomes an ``isError`` result
+    ("outputSchema defined but no structured output returned"). A
+    ``CallToolResult`` is returned by that handler as it is
+    (``if isinstance(results, types.CallToolResult): return
+    types.ServerResult(results)`` — ``mcp/server/lowlevel/server.py``, mcp
+    1.28.1), so it serves a ``dict`` tool, a typed tool and an unknown name
+    alike. Until the seven-PR review (SUGG-009) the refusal went through the
+    refused tool's ``convert_result``, which turned the throttle of a tool
+    annotated ``-> list[str]`` into a ``pydantic.ValidationError`` exactly when
+    it fired, and an unknown name into the SDK's unknown-tool error.
+
+    The text is built the way ``_convert_to_content`` builds it for a ``dict``
+    (``mcp/server/fastmcp/utilities/func_metadata.py``:
+    ``pydantic_core.to_json(result, fallback=str, indent=2)``), so the client
+    reads the same block a body's own refusal produces. ``isError`` stays
+    ``False``: a refusal is a regular protocol answer, not a server incident —
+    the rule ``docs/mcp-server.rst`` states for every refusal.
+    """
+    text = pydantic_core.to_json(refusal, fallback=str, indent=2).decode()
+    return CallToolResult(content=[TextContent(type="text", text=text)], isError=False)
+
+
 class AdminAwareFastMCP(FastMCP):
     """FastMCP that hides the admin-only tools from non-admin tools/list, and
     keeps every tool body off the event loop.
@@ -1262,7 +1301,13 @@ class AdminAwareFastMCP(FastMCP):
     ) -> None:
         # Set before ``super().__init__`` so the attribute exists whatever the
         # SDK's constructor does; ``call_tool`` below reads it on every call.
-        self._tool_rate_limiter = tool_rate_limiter or ToolRateLimiter(DEFAULT_RATE_LIMIT_PER_MINUTE)
+        # ``is None`` and not ``or``: ``ToolRateLimiter(0)`` is the documented
+        # kill switch, and ``or`` kept it only because the class defines neither
+        # ``__bool__`` nor ``__len__`` — the first one added would have swapped a
+        # switched-off limiter for the 60/min default in silence (K12 §3).
+        if tool_rate_limiter is None:
+            tool_rate_limiter = ToolRateLimiter(DEFAULT_RATE_LIMIT_PER_MINUTE)
+        self._tool_rate_limiter = tool_rate_limiter
         super().__init__(*args, **kwargs)
 
     def add_tool(self, fn: Any, *args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
@@ -1295,18 +1340,18 @@ class AdminAwareFastMCP(FastMCP):
         stay exactly what ``add_tool`` built — the routing tests read
         ``fn.__code__.co_name`` off them, which an outer wrapper would hide.
 
-        The refusal goes through the tool's own ``convert_result``, so the
-        client sees the same shape a body's own refusal has
-        (``{"ok": false, "error": ...}`` as text content), not a transport error.
+        The refusal is a whole ``CallToolResult`` (:func:`_refusal_result`), so
+        the client sees the same text block a body's own refusal has
+        (``{"ok": false, "error": ...}``), whatever the tool's return type is
+        and whether or not the name exists — the budget is charged before the
+        name is looked up, so an identity over budget cannot probe tool names
+        for free.
         """
         user_id = self._caller_identity()
         if user_id is not None:
             refusal = await self._tool_rate_limiter.admit(user_id)
             if refusal is not None:
-                tool = self._tool_manager.get_tool(name)
-                if tool is not None:
-                    return tool.fn_metadata.convert_result(refusal)
-                # An unknown name is the SDK's own ToolError, unchanged.
+                return _refusal_result(refusal)
         return await super().call_tool(name, arguments)
 
     def _caller_identity(self) -> int | None:
@@ -1318,8 +1363,13 @@ class AdminAwareFastMCP(FastMCP):
         to count, and the tool bodies keep answering as they do in the tests
         that call them directly. Inside a request the identity is
         ``current_user_id`` on the SDK's context — the same function every gate
-        uses, in both auth modes — and its documented failure,
-        ``PermissionError``, means the body itself is about to refuse.
+        uses, in both auth modes. Its documented failure, ``PermissionError``
+        (no identity on the request), is unreachable for a ``tools/call`` in
+        production, because both auth modes reject an unauthenticated request
+        upstream: ``RequireAuthMiddleware`` on the ``/mcp`` mount in OAuth
+        mode, ``PATAuthMiddleware`` in PAT mode. So answering ``None`` there is
+        not a way past the limiter; the test that reaches it does so by
+        monkeypatching ``current_user_id``.
         """
         try:
             self._mcp_server.request_context
@@ -2290,8 +2340,14 @@ def build_app(
     # middleware added last is the outermost — the PAT check stays outside, and an
     # unauthenticated oversized POST is a 401 before it is a 413. In OAuth mode
     # the SDK's auth wraps only the ``/mcp`` mount, so here the cap is the
-    # outermost app-level layer and refuses a 20MB body before any credential
-    # is looked at. ``/healthz`` is a GET: no body, nothing to cap.
+    # outermost app-level layer: it refuses a declared 20MB body before any
+    # credential is looked at, and hands a declared body under the cap on
+    # *unread*, so the SDK's 401 still comes without a byte of it read
+    # (SEC-001 in the seven-PR review; the drain that remains, for a body with
+    # no declared length, is bounded by the cap and by a deadline —
+    # ``mcp_server/limits.py``). ``/healthz`` is a GET, and GET is not a
+    # method the cap looks at, so a spoofed ``Content-Length`` there is not a
+    # 413; both modes pin that in ``tests/test_mcp_limits.py``.
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=max_request_bytes)
     if oauth:
         for route in consent_routes or []:

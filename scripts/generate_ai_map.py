@@ -142,7 +142,11 @@ def _body_start(lines: list[str]) -> int:
     מה שאפס-הדיף על ``AI-MAP.md`` מקבע גם אחרי המעבר.
 
     ``"\\n".join`` מחזיר את הטקסט ש-``_read`` פיצל ב-``split("\\n")``, ולכן
-    האינדקסים של הפרסר הם האינדקסים של ``lines``.
+    האינדקסים של הפרסר הם האינדקסים של ``lines`` — בתנאי שהקלט עבר את שער
+    הכניסה של הפרסר, ומאז סקירת שבעת ה-PRים (SUGG-019) הוא עובר: קובץ עם
+    ``\\r`` בודד, ש-markdown-it היה סופר כמעבר שורה ו-``split("\\n")`` לא,
+    מרים כאן ``InconsistentLineEndings`` עם מספר השורה — כמו בכלי — במקום
+    להזיז את הגבול בשקט, ו-BOM בתחילת הקובץ מוסר במקום להסתיר את הבלוק.
     """
     return md_parser.front_matter_end("\n".join(lines))
 
@@ -152,7 +156,9 @@ def _title(lines: list[str], path: Path) -> str:
         # מדלגים על front matter לפני חיפוש הכותרת: ה-``---`` הסוגר שלו
         # הוא קו-תחתון חוקי לפי ``_UNDERLINE_RE``, ולכן שורת ``summary:``
         # שמעליו נקראה ככותרת setext והכותרת של העמוד יצאה "summary: ...".
-        for idx, ln in enumerate(lines[_body_start(lines):], start=_body_start(lines)):
+        # פעם אחת: כל קריאה היא פרסור מלא של העמוד.
+        start = _body_start(lines)
+        for idx, ln in enumerate(lines[start:], start=start):
             if ln.startswith("# "):
                 return ln[2:].strip()
             if ln.strip() and idx + 1 < len(lines) and _UNDERLINE_RE.match(lines[idx + 1]):

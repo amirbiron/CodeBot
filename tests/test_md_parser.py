@@ -662,6 +662,41 @@ def test_input_that_is_not_a_string_is_refused_in_the_entry(bad):
         md_parser.parse_document(bad)
 
 
+@pytest.mark.parametrize("bad", [None, 17, b"# bytes\n", ["# list"]])
+@pytest.mark.parametrize("entry", [md_parser.token_count, md_parser.front_matter_end])
+def test_the_two_small_entries_refuse_a_non_string_with_the_modules_own_message(entry, bad):
+    """SUGG-019: ``token_count`` ו-``front_matter_end`` עוברים באותו שער כמו ``parse_document``.
+
+    עד עכשיו הן קראו ל-``_MD.parse`` ישירות: ערך שאינו מחרוזת נפל ב-``TypeError``
+    של markdown-it, בלי לומר מה התקבל. ה-``match`` הוא מה שמבדיל: ההודעה של
+    המודול, לא של הספרייה.
+    """
+    with pytest.raises(TypeError, match="expects str"):
+        entry(bad)
+
+
+def test_the_two_small_entries_see_past_a_bom_like_the_parser():
+    """BOM בתחילת הקובץ הסתיר את בלוק ה-front matter (0 במקום 3) והפך תבליט לפסקה."""
+    page = "---\nsummary: x\n---\n\n# T\n"
+    assert md_parser.front_matter_end("﻿" + page) == md_parser.front_matter_end(page) == 3
+    assert md_parser.token_count("﻿- a\n") == md_parser.token_count("- a\n")
+
+
+def test_the_two_small_entries_refuse_a_lone_cr_instead_of_disagreeing_with_split():
+    """‏``\\r`` בודד: markdown-it סופר אותו כמעבר שורה ו-``split("\\n")`` לא.
+
+    ``front_matter_end`` החזיר 4 על בלוק שה-``---`` הסוגר שלו יושב באינדקס 2
+    של ``split("\\n")`` — ו-``scripts/generate_ai_map.py`` היה מדלג על השורה
+    הראשונה של הגוף. עכשיו שתי הפונקציות מרימות את החריגה של הכלי, עם מספר
+    השורה.
+    """
+    page = "---\rsummary: x\r---\n\n# T\n"
+    for entry in (md_parser.front_matter_end, md_parser.token_count):
+        with pytest.raises(md_parser.InconsistentLineEndings) as excinfo:
+            entry(page)
+        assert excinfo.value.args == (1,)
+
+
 def test_the_two_exceptions_come_from_the_same_module():
     """המטפל שימיר אותן לתשובת MCP מייבא את שתיהן ממקום אחד."""
     assert md_parser.TooManySections is doc_sections.TooManySections

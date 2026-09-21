@@ -25,10 +25,13 @@
   לתקרת הקריאה ``MAX_FILE_SIZE_FOR_DISPLAY``); המסמך הצפוף ביותר בו משוכפל עד
   התקרה — זה המועמד לקבוע, כי זה הגרוע ביותר שהכלי באמת מגיש; וצורה עוינת
   (Markdown: שורות-תבליט בודדות, RST: כותרת בת תו אחד בכל שורה) שהיא הגבול
-  העליון של הפרסר ושהקבוע במפורש אינו מכסה. שלוש הצורות רצות על ברירת
-  המחדל של ``max_sections`` — ``MAX_SECTIONS`` בשני הפרסרים מאז #3420 — כלומר
-  בדיוק כמו הכלי; הצורה העוינת של RST נעצרת לכן על התקרה, והמחיר בלי
-  התקרה נמדד רק אם מעבירים ``max_sections=None`` במפורש. ל-RST נמדד גם מסלול ה-outline
+  העליון של הפרסר ושהקבוע במפורש אינו מכסה. הקורפוס והמסמך הצפוף רצים על
+  ברירת המחדל של ``max_sections`` — ``MAX_SECTIONS`` בשני הפרסרים מאז #3420 —
+  כלומר בדיוק כמו הכלי. **הצורה העוינת רצה בלי תקרה, ``max_sections=None``
+  במפורש:** היא מודדת את הגבול העליון של הפרסר ולא את מה שהכלי מגיש, ועם
+  ברירת המחדל היא נעצרת על התקרה ומדווחת עלות של עצירה במקום של הפרסר —
+  נמדד ב-RST 41.0 בתים לבית עם התקרה מול 90.1 בלעדיה (סקירת שבעת ה-PRים,
+  WARN-004). ל-RST נמדד גם מסלול ה-outline
   של ``codekeeper_get_repo_file``: המסמך הצפוף ביותר משוכפל עד
   ``RANGE_READ_MAX_BYTES`` ומפורסר עם ``max_sections`` של ``MAX_SYMBOLS``,
   כי זו ההחזקה הגדולה ביותר שחוט קריאה נושא היום, והיא גדולה מעלות הפרסור
@@ -185,7 +188,9 @@ def real_files(suffix: str) -> list[pathlib.Path]:
 
 
 def rank(files: list[pathlib.Path], parser: str) -> list[tuple[float, pathlib.Path, str]]:
-    """הקבצים לפי צפיפות, מהצפוף ביותר; קובץ שאינו UTF-8 מדולג בקול ב-stderr."""
+    """הקבצים לפי צפיפות, מהצפוף ביותר; קובץ שאינו UTF-8, או עם ``\\r`` בודד, מדולג בקול ב-stderr."""
+    from services.doc_sections import InconsistentLineEndings
+
     ranked = []
     for p in files:
         try:
@@ -195,7 +200,13 @@ def rank(files: list[pathlib.Path], parser: str) -> list[tuple[float, pathlib.Pa
             # ביותר יכול לצאת מהדירוג בלי שאיש יידע.
             print(json.dumps({"skipped": str(p), "reason": f"not utf-8: {exc.reason}"}), file=sys.stderr)
             continue
-        ranked.append((density(text, parser), p, text))
+        try:
+            ranked.append((density(text, parser), p, text))
+        except InconsistentLineEndings as exc:
+            # אותו כלל: הפרסר של הכלי מסרב לקובץ עם ``\r`` בודד (מאז SUGG-019
+            # גם ``token_count`` עובר בשער הכניסה שלו), והכלי לא היה מגיש אותו.
+            print(json.dumps({"skipped": str(p), "reason": f"lone CR at line {exc.args[0]}"}), file=sys.stderr)
+            continue
     if not ranked:
         suffix = PARSERS[parser]["suffix"]
         raise SystemExit(f"no {suffix} file of at least {MIN_DOC_BYTES} bytes under {REPO} — nothing to measure")
@@ -244,14 +255,20 @@ def measure(parser: str, work: pathlib.Path) -> list[dict]:
         "density_per_kb": round(top_density, 1),
         **peak_cost(tiled, work, parser=parser),
     })
-    # הצורה העוינת — הגבול העליון של הפרסר, שהקבוע במפורש אינו מכסה.
+    # הצורה העוינת — הגבול העליון של הפרסר, שהקבוע במפורש אינו מכסה. בלי
+    # תקרה, במפורש: עם ברירת המחדל הפרסר נעצר על ``MAX_SECTIONS`` והמספר
+    # מתאר עצירה, לא את הפרסר (ראו את ה-docstring של המודול).
     unit = spec["hostile_unit"]
     hostile = work / ("hostile" + spec["suffix"])
     hostile.write_text(
         clip_to_bytes(unit * (MAX_FILE_SIZE_FOR_DISPLAY // len(unit) + 1), MAX_FILE_SIZE_FOR_DISPLAY),
         encoding="utf-8",
     )
-    results.append({"parser": parser, "shape": "hostile", **peak_cost(hostile, work, parser=parser)})
+    results.append({
+        "parser": parser,
+        "shape": "hostile",
+        **peak_cost(hostile, work, parser=parser, kwargs={"max_sections": None}),
+    })
     if parser == "rst":
         # מסלול ה-outline של codekeeper_get_repo_file: קריאה עד RANGE_READ_MAX_BYTES,
         # פרסור עם תקרת סקשנים — ההחזקה הגדולה ביותר של חוט קריאה היום.
@@ -289,7 +306,8 @@ def main() -> int:
     } | {
         "note": (
             "the constant is the densest document the tool actually serves; "
-            "the hostile bound is not a pool problem"
+            "the hostile bound is the parser's own ceiling, measured with max_sections=None, "
+            "and is not a pool problem"
         ),
     }))
     return 0
