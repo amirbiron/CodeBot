@@ -33,9 +33,11 @@
 הריפו `amirbiron/amir-bug-patterns` מרכז דפוסי באגים שכבר עלו לי בפרודקשן — לא תיאוריה. הוא ממורר ב-CodeKeeper, אז קוראים אותו כך:
 
 ```text
-codekeeper_get_repo_file(repo="amir-bug-patterns", path="CRITICAL-PATTERNS.md")
+codekeeper_docs_get_section(repo="amir-bug-patterns", path="CRITICAL-PATTERNS", section="K11")
 codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 ```
+
+> בלי `section` הכלי מחזיר את מפת הקובץ, עם גודל כל סעיף. עם `section` הוא מחזיר רק אותו, לפי מזהה (K11) או לפי שם הכותרת. `search_repo` הוא למקרה שלא יודעים באיזה קובץ או סעיף הדפוס נמצא.
 
 אם ה-MCP לא זמין בסשן: הריפו ציבורי, אז אפשר לצרף אותו לסשן (`add_repo` ואז clone) או לקרוא ממנו ישירות. אין צורך בהרשאות מיוחדות.
 
