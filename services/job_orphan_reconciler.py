@@ -27,6 +27,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from services.job_registry import env_toggle_enabled
 from services.job_tracker import JOB_RUN_LOGS_KEPT, JobStatus
 
 logger = logging.getLogger(__name__)
@@ -92,17 +93,24 @@ _RECONCILE_DELAY_SECS_DEFAULT = 180
 #: כלומר בדיוק לזמן שבו שני התהליכים חיים יחד.
 _RECONCILE_DELAY_SECS_MIN = 90
 
+#: האם הפיוס פעיל כשהמשתנה כלל אינו מוגדר. נקרא גם ב-``register_jobs``
+#: בתור ``env_toggle_default``, כדי שהדשבורד והתזמון יגזרו מאותו ערך.
+RECONCILE_ENABLED_DEFAULT = True
+
 
 def reconcile_enabled() -> bool:
-    """האם הפיוס פעיל. ברירת המחדל פעילה.
+    """האם הפיוס פעיל.
+
+    הכלל עצמו חי ב-``job_registry.env_toggle_enabled``, ולא בעותק כאן:
+    ‏``JobRegistry.is_enabled`` קובע מה הדשבורד מציג, ושתי תשובות שונות
+    לאותה שאלה היו מראות "מושבת" בזמן שהפיוס רץ.
 
     נקרא בזמן התזמון ולא בזמן הייבוא, כדי שערך שנקבע אחרי עליית המודול
     (ובבדיקות) ייקרא בפועל — אותה צורה שבה ``job_runs_ttl_seconds`` עובדת.
     """
-    raw = str(os.getenv("JOBS_ORPHAN_RECONCILE_ENABLED", "") or "").strip().lower()
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    return True
+    return env_toggle_enabled(
+        os.getenv("JOBS_ORPHAN_RECONCILE_ENABLED"), RECONCILE_ENABLED_DEFAULT
+    )
 
 
 def reconcile_delay_seconds() -> int:
@@ -172,24 +180,32 @@ async def reconcile_orphan_runs(
     skipped = 0
     truncated = False
     job_ids: List[str] = []
+    # מסמכים שלא יכולנו לפעול עליהם **בכלל** — אין להם ``run_id``, ולכן
+    # אין עדכון מוגן שאפשר לשלוח. הם היו חוזרים בכל שליפה, ולכן מוחרגים.
+    # ‏**הרצות שנדחו ב-CAS אינן כאן:** דחייה פירושה שהסטטוס כבר אינו
+    # ``running``, כלומר הן יצאו מקבוצת הסינון בעצמן.
+    unresolved_ids: List[Any] = []
 
     while True:
         if scanned >= _MAX_RUNS:
             truncated = True
             break
 
-        cursor = collection.find(
-            # ‏``status`` בשוויון ו-``started_at`` בטווח — בדיוק הצורה
-            # ש-``idx_job_runs_status_time`` משרת, ולפי ESR.
-            {"status": JobStatus.RUNNING.value, "started_at": {"$lt": lock_acquired_at}},
-            _PROJECTION,
-        ).limit(_BATCH_SIZE)
+        # ‏``status`` בשוויון ו-``started_at`` בטווח — בדיוק הצורה
+        # ש-``idx_job_runs_status_time`` משרת, ולפי ESR.
+        query: Dict[str, Any] = {
+            "status": JobStatus.RUNNING.value,
+            "started_at": {"$lt": lock_acquired_at},
+        }
+        if unresolved_ids:
+            query["_id"] = {"$nin": unresolved_ids}
+
+        cursor = collection.find(query, _PROJECTION).limit(_BATCH_SIZE)
 
         docs = await cursor.to_list(length=_BATCH_SIZE)
         if not docs:
             break
 
-        applied_in_batch = 0
         for doc in docs:
             if not isinstance(doc, dict):
                 continue
@@ -199,6 +215,9 @@ async def reconcile_orphan_runs(
             if not run_id:
                 # בלי מזהה הרצה אין עדכון מוגן. נרשם כדי שלא ייעלם.
                 logger.warning("job run without run_id skipped during orphan reconcile")
+                doc_id = doc.get("_id")
+                if doc_id is not None:
+                    unresolved_ids.append(doc_id)
                 continue
 
             result = await collection.update_one(
@@ -236,7 +255,6 @@ async def reconcile_orphan_runs(
             matched = int(getattr(result, "matched_count", 0) or 0)
             if matched:
                 reconciled += 1
-                applied_in_batch += 1
                 if job_id:
                     job_ids.append(job_id)
             else:
@@ -248,10 +266,6 @@ async def reconcile_orphan_runs(
                     "orphan reconcile skipped run; status changed before update",
                     extra={"event": "job_run_reconcile_skipped", "run_id": run_id},
                 )
-
-        if applied_in_batch == 0:
-            # שום מסמך במנה לא עודכן, ולכן השליפה הבאה תחזיר את אותה מנה.
-            break
 
     if reconciled or truncated:
         unique_job_ids = sorted(set(job_ids))

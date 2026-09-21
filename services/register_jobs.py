@@ -5,6 +5,7 @@
 
 import os
 
+from services.job_orphan_reconciler import RECONCILE_ENABLED_DEFAULT as _RECONCILE_ENABLED_DEFAULT
 from services.job_registry import register_job, JobCategory, JobType
 
 
@@ -108,8 +109,12 @@ def register_all_jobs():
         # ``services/job_orphan_reconciler.reconcile_delay_seconds``.
         job_type=JobType.ONCE,
         env_toggle="JOBS_ORPHAN_RECONCILE_ENABLED",
-        env_toggle_default=True,
-        callback_name="_reconcile_orphan_job_runs",
+        env_toggle_default=_RECONCILE_ENABLED_DEFAULT,
+        # ‏**בלי ``callback_name`` בכוונה.** הוא מה שמדליק ``can_trigger``
+        # בדשבורד, ו-``trigger_job`` מחפש את הג'וב ב-JobQueue לפי שמו כדי
+        # לקחת ממנו את ה-callback. ג'וב ``run_once`` נעלם מהתור אחרי
+        # שירוץ, ולכן הכפתור היה עובד בדקות הראשונות שאחרי העלייה ומחזיר
+        # ‏404 מכאן והלאה — הבטחה שהקוד אינו יכול לקיים.
         source_file="main.py",
     )
 

@@ -1,7 +1,9 @@
 import pytest
 
 from services.job_tracker import JobTracker, JobStatus
-from tests._fake_mongo import FakeDB
+# ‏``tests`` אינו חבילה, וב-CI יש חבילת ``tests`` זרה שמאפילה עליו —
+# ראה את ה-docstring של ``tests/conftest.py``.
+from _fake_mongo import FakeDB
 from services.job_registry import JobRegistry, register_job, JobCategory, JobType
 
 

@@ -20,7 +20,11 @@ from services.job_orphan_reconciler import (
     reconcile_orphan_runs,
 )
 from services.job_tracker import JobStatus, JobTracker
-from tests._fake_mongo import AsyncFakeCollection, FakeDB
+# ‏``tests`` אינו חבילה (אין ``__init__.py``), וב-CI יש חבילת ``tests``
+# זרה שמאפילה עליו — ראה את ה-docstring של ``tests/conftest.py``. ייבוא
+# של שכן באותה תיקייה עובד בשני המצבים, כי pytest מכניס את תיקיית קובץ
+# הטסט ל-``sys.path``.
+from _fake_mongo import AsyncFakeCollection, FakeDB
 
 LOCK_AT = datetime(2026, 9, 21, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -320,7 +324,7 @@ def test_both_writers_of_the_log_list_cut_it_to_the_same_length():
     assert not re.search(r"\$slice\"?:\s*-\d", reconciler + main_src)
 
 
-def test_the_delay_default_covers_renders_full_shutdown_window():
+def test_the_delay_default_covers_renders_full_shutdown_window(monkeypatch):
     """ההשהיה גדולה מחלון הסגירה של Render, ולא רק "מספר עגול".
 
     המספרים כאן חיצוניים לריפו ולכן אין מזהה לנקוב בשמו — הם מצוטטים
@@ -329,8 +333,102 @@ def test_the_delay_default_covers_renders_full_shutdown_window():
     ‏``SIGKILL``. הבדיקה היא גלאי הסחיפה: אם מישהו יקטין את ברירת המחדל
     מתחת לחלון, הפיוס ירוץ בזמן ששני התהליכים חיים.
     """
+    # בלי הניקוי הזה הטסט בודק את מה שמוגדר בסביבה, לא את ברירת המחדל —
+    # וב-CI או אצל מפתח שהגדיר את המשתנה הוא היה מאשר ערך אחר לגמרי.
+    monkeypatch.delenv("JOBS_ORPHAN_RECONCILE_DELAY_SECS", raising=False)
+    monkeypatch.delenv("JOBS_ORPHAN_RECONCILE_ENABLED", raising=False)
+
     render_sigterm_wait_secs = 60
     render_shutdown_delay_secs = 30
 
     assert reconcile_delay_seconds() >= render_sigterm_wait_secs + render_shutdown_delay_secs
     assert reconcile_enabled() is True
+
+
+@pytest.mark.asyncio
+async def test_records_that_closed_themselves_do_not_stop_the_scan(coll):
+    """מנה שכולה נדחתה ב-CAS אינה עוצרת את הסריקה.
+
+    הגרסה הראשונה נעצרה כש**שום** מסמך במנה לא עודכן, כהגנה מפני לולאה.
+    אבל הרצה שנדחתה כבר אינה ``running``, כלומר היא יוצאת מקבוצת הסינון
+    בעצמה — והעצירה הותירה מאחור הרצות יתומות אמיתיות שחיכו מאחוריה.
+    """
+
+    class _FirstBatchRaces(AsyncFakeCollection):
+        """סוגרת את ההרצה הראשונה בדיוק לפני העדכון שלה."""
+
+        def __init__(self, sync):
+            super().__init__(sync)
+            self.raced = False
+
+        async def update_one(self, q, u, upsert=False):
+            if not self.raced:
+                self.raced = True
+                self.sync.update_one(
+                    {"run_id": "closed-itself"},
+                    {"$set": {"status": JobStatus.COMPLETED.value}},
+                )
+            return await super().update_one(q, u, upsert=upsert)
+
+    racing = _FirstBatchRaces(coll.sync)
+    racing.sync.insert_one(_run_doc("closed-itself", "job_a", LOCK_AT - timedelta(minutes=9)))
+    racing.sync.insert_one(_run_doc("really-orphaned", "job_b", LOCK_AT - timedelta(minutes=8)))
+
+    summary = await reconcile_orphan_runs(racing, lock_acquired_at=LOCK_AT)
+
+    assert summary["skipped"] == 1
+    assert summary["reconciled"] == 1
+    assert racing.sync.find_one({"run_id": "really-orphaned"})["status"] == JobStatus.FAILED.value
+
+
+@pytest.mark.asyncio
+async def test_a_record_without_a_run_id_cannot_loop_forever(coll):
+    """מסמך שאי אפשר לעדכן בצורה מוגנת מוחרג, ואינו חוזר בשליפה הבאה.
+
+    בלי ההחרגה השליפה הייתה מחזירה אותו שוב ושוב: אין לו ``run_id``, ולכן
+    אין עדכון שישנה את הסטטוס שלו ויוציא אותו מהסינון.
+    """
+    coll.sync.insert_one(_run_doc("", "job_broken", LOCK_AT - timedelta(minutes=4)))
+    coll.sync.insert_one(_run_doc("fine", "job_ok", LOCK_AT - timedelta(minutes=3)))
+
+    summary = await reconcile_orphan_runs(coll, lock_acquired_at=LOCK_AT)
+
+    assert summary["reconciled"] == 1
+    assert coll.sync.find_one({"run_id": "fine"})["status"] == JobStatus.FAILED.value
+    # ‏**זו הבדיקה שתופסת את הסיבוב.** בלי ההחרגה הריצה עדיין מסתיימת,
+    # כי התקרה חוסמת אותה — אבל היא בוחנת את אותו מסמך אלפי פעמים ומסיימת
+    # עם ``truncated``. שני השדות האלה הם ההבדל בין "עבד" ל"הסתובב".
+    assert summary["scanned"] == 2
+    assert summary["truncated"] is False
+
+
+def test_the_enabled_flag_answers_exactly_like_the_dashboard(monkeypatch):
+    """הדשבורד והתזמון חייבים להסכים — אחרת "מושבת" מוצג על ג'וב שרץ."""
+    from services.job_registry import JobRegistry
+    from services.register_jobs import register_all_jobs
+
+    register_all_jobs()
+    registry = JobRegistry()
+
+    for raw in ("", "false", "off", "0", "no", "maybe", "true", "1", "YES", "On"):
+        monkeypatch.setenv("JOBS_ORPHAN_RECONCILE_ENABLED", raw)
+        assert reconcile_enabled() is registry.is_enabled("jobs_orphan_reconcile"), raw
+
+    monkeypatch.delenv("JOBS_ORPHAN_RECONCILE_ENABLED", raising=False)
+    assert reconcile_enabled() is registry.is_enabled("jobs_orphan_reconcile")
+
+
+def test_the_one_time_job_does_not_advertise_a_manual_trigger():
+    """``can_trigger`` בדשבורד נגזר מ-``callback_name``.
+
+    ‏``trigger_job`` מוצא את ה-callback דרך ``get_jobs_by_name`` ב-JobQueue,
+    וג'וב ``run_once`` נעלם משם אחרי שירוץ — כלומר הכפתור היה מחזיר 404
+    מרגע שהפיוס הסתיים.
+    """
+    from services.job_registry import JobRegistry
+    from services.register_jobs import register_all_jobs
+
+    register_all_jobs()
+    job = JobRegistry().get("jobs_orphan_reconcile")
+    assert job is not None
+    assert not job.callback_name
