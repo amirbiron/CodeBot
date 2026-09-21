@@ -167,7 +167,8 @@ def test_removing_the_clamp_breaks_the_long_delay(chromium_executable):
 # שהקוד מבחין ביניהן, ומכבד ``opts.signal`` — כי ``AbortSignal.timeout`` הוא
 # של הדפדפן, ו-``page.clock`` של Playwright אינו מזייף אותו (מתועד: הוא מכסה
 # Date/setTimeout/rAF/performance בלבד). לכן הקבוע שמוזן לו מקוצר בעותק
-# (``_with_fetch_timeout``), והערך האמיתי נאכף בטסט נפרד.
+# (``_with_fetch_timeout``), והערך האמיתי נאכף ב-``test_sticky_reminders_polling_source.py``
+# — קובץ שאינו דפדפן, כי כאן כל בדיקה חייבת להגיע לשער ``chromium_executable``.
 # ---------------------------------------------------------------------------
 
 CHAIN_HARNESS = """
@@ -204,11 +205,15 @@ window.fetch = async function(url, opts){
     status = window.__statuses[Math.min(i, window.__statuses.length - 1)];
   } else { status = window.__status || 200; }
   const body = isList ? (window.__listReply || null) : (window.__reply || null);
-  return {
+  const res = {
     ok: status < 400, status,
     headers: { get: () => null },
     json: async () => { if (mode === 'bad_json') { throw new SyntaxError('Unexpected token'); } return body; }
   };
+  // 'hold': התשובה מוכנה אבל ממתינה עד ש-window.__release() נקרא — כדי למדוד
+  // מה קורה לתשובה שמגיעה אחרי שהשרשרת כבר נעצרה.
+  if (mode === 'hold') { return new Promise((resolve) => { window.__release = () => resolve(res); }); }
+  return res;
 };
 Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
 """
@@ -235,7 +240,12 @@ STAMP_THEN_FETCH = (
     "lastPollAt = Date.now();\n"
     "      const r = await fetch('/api/sticky-notes/reminders/summary', fetchOpts());"
 )
-CATCH_BACKS_OFF = "} catch (e) { return failAndBackOff(e); }"
+CATCH_BACKS_OFF = "} catch (e) { if (gen !== chainGen) { return staleAfterStop(); } return failAndBackOff(e); }"
+STOP_BUMPS_GEN = "    stopped = true;\n    chainGen += 1;"
+KEEP_BADGE_ON_429 = (
+    "        window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;\n"
+    "        return backoffMs;"
+)
 POPOVER_UNKNOWN = "openPopover(target, (lj && lj.ok) ? lj : { error: true });"
 FLOOR_SKIPS_WHEN_STOPPED = "if (!stopped && Date.now() - lastPollAt < MIN_POLL_MS) { return; }"
 LOG_ON_FAILURE = (
@@ -476,15 +486,6 @@ def test_dropping_the_signal_breaks_the_test(chromium_executable):
         page.wait_for_timeout(2000)
         assert _calls(page)[0]["hasSignal"] is False
         assert _delays(page) == [], _delays(page)
-
-
-def test_the_real_fetch_timeout_is_fifteen_seconds():
-    """הערך האמיתי של התקרה נאכף כאן, כי טסטי ה-stall מקצרים אותו בעותק.
-
-    15 שניות: פי כמעט שלושה מהמקסימום שנמדד ב-endpoint (5.32 שניות, worker
-    טרי אחרי דיפלוי; המקור המלא בהערה מעל הקבוע ב-base.html).
-    """
-    assert _polling_script().count(FETCH_TIMEOUT_LINE) == 1
 
 
 # --- חפיפה ורצפה ---------------------------------------------------------------
@@ -858,3 +859,124 @@ def test_ignoring_a_thrown_list_error_breaks_the_test(chromium_executable):
         page.click(".notif-bubble[data-kind='reminder']")
         page.wait_for_timeout(500)
         assert page.evaluate("!!document.querySelector('.notif-popover[data-kind=\"reminder\"]')") is False
+
+
+# --- 429, ותשובה שחוזרת אחרי שהשרשרת נעצרה ---------------------------------------
+
+
+def test_a_429_keeps_the_badge_and_is_not_counted_as_a_failure(chromium_executable):
+    """429 אחרי "יש תזכורות": הבועה נשארת, החלון נכתב, והמונה לא זז.
+
+    429 אינו כשל ואינו "אין" — השרת נקב בעצמו בהמתנה. לפני התיקון הענף מחק
+    את הבועה, בניגוד לכלל שרק "אין" ו-401 מסירים אותה. ה-500 שאחריו הוא
+    הכשל הראשון (המתנה של MIN, לא של 2·MIN).
+    """
+    script = _shrunk(_polling_script(), 1, 40)
+    with _chain(
+        chromium_executable, script, __statuses=[200, 429, 500], __reply=_summary(**_DUE), __fireFirst=1
+    ) as page:
+        page.wait_for_function("window.__calls.length >= 2", timeout=8000)
+        page.wait_for_timeout(100)
+        assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is True
+        assert page.evaluate("window.__stickyRemindersBackoffUntil > Date.now()") is True
+        # חלון ה-429 חוסם את הבקשה הבאה בתוך poll(); מנקים אותו כדי שה-500 יצא בפוקוס.
+        page.evaluate("window.__stickyRemindersBackoffUntil = 0")
+        _focus(page)
+        page.wait_for_function("window.__calls.length >= 3", timeout=8000)
+        page.wait_for_timeout(100)
+        assert _delays(page) == [40, 40, 1], _delays(page)
+        assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is True
+
+
+def test_removing_the_badge_on_429_breaks_the_test(chromium_executable):
+    """ריצת בקרה: removeDot() בחזרה לענף ה-429 — הבועה נמחקת."""
+    script = _mutate(
+        _shrunk(_polling_script(), 1, 40), KEEP_BADGE_ON_429,
+        KEEP_BADGE_ON_429.replace("        return backoffMs;", "        removeDot();\n        return backoffMs;"),
+    )
+    with _chain(chromium_executable, script, __statuses=[200, 429], __reply=_summary(**_DUE), __fireFirst=1) as page:
+        page.wait_for_function("window.__calls.length >= 2", timeout=8000)
+        page.wait_for_timeout(100)
+        assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is False
+
+
+def _stop_by_list_401_during_a_pending_poll(page, mode):
+    """דגימה שנייה שנשארת באוויר (``hold`` או ``stall``), ובינתיים לחיצה על הבועה מקבלת 401.
+
+    מחזיר את רשימת הטיימרים ברגע העצירה — הטענה של הקורא היא שהיא לא גדלה.
+    """
+    page.wait_for_function("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')", timeout=8000)
+    page.evaluate(f"window.__mode = '{mode}'")
+    _focus(page)
+    page.wait_for_function(
+        "window.__calls.filter(c => c.url.indexOf('/summary') !== -1).length >= 2", timeout=8000
+    )
+    pop = _click_bubble_and_read_popover(page)
+    assert "ההתחברות פגה" in pop["title"], pop
+    assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is False
+    return _delays(page)
+
+
+def test_a_stale_summary_after_a_stop_does_not_revive_the_chain(chromium_executable):
+    """דגימה שהייתה באוויר כשלחיצה קיבלה 401: תשובתה המאוחרת נזרקת.
+
+    לפני התיקון "יש תזכורות" שהגיע אחרי "ההתחברות פגה" החזיר את הבועה ודרך
+    טיימר — השרשרת קמה לתחייה מתשובה ישנה. ההשוואה אחרי ה-await היא הגבול.
+    """
+    sink = []
+    script = _shrunk(_polling_script(), 1, 40)
+    with _chain(
+        chromium_executable, script, console_sink=sink, __status=200, __reply=_summary(**_DUE), __listStatus=401
+    ) as page:
+        armed = _stop_by_list_401_during_a_pending_poll(page, "hold")
+        page.evaluate("window.__release()")
+        page.wait_for_timeout(300)
+        assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is False
+        assert _delays(page) == armed, (armed, _delays(page))
+        title = page.evaluate("(document.querySelector('.notif-popover__title') || {}).textContent || ''")
+        assert "ההתחברות פגה" in title, title
+        assert [t for _, t in sink if "outlived a stop" in t], sink
+
+
+def test_dropping_the_generation_bump_breaks_the_test(chromium_executable):
+    """ריצת בקרה: העצירה לא מעלה את הדור — התשובה הישנה מחזירה בועה ודורכת טיימר."""
+    script = _mutate(_shrunk(_polling_script(), 1, 40), STOP_BUMPS_GEN, "    stopped = true;")
+    with _chain(chromium_executable, script, __status=200, __reply=_summary(**_DUE), __listStatus=401) as page:
+        armed = _stop_by_list_401_during_a_pending_poll(page, "hold")
+        page.evaluate("window.__release()")
+        page.wait_for_timeout(300)
+        assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is True
+        assert len(_delays(page)) == len(armed) + 1, (armed, _delays(page))
+
+
+def test_a_stale_timeout_after_a_stop_is_not_a_failure(chromium_executable):
+    """הדגימה שהייתה באוויר נחתכת ב-timeout אחרי העצירה: לא כשל, לא backoff, לא טיימר.
+
+    לפני התיקון ה-TimeoutError המאוחר נכנס ל-failAndBackOff — אזהרת "poll
+    failed", חלון backoff, וטיימר שמחיה שרשרת שנעצרה בגלל 401. התקרה מקוצרת
+    בעותק ל-300 מ"ש.
+    """
+    sink = []
+    script = _with_fetch_timeout(_shrunk(_polling_script(), 1, 40), 300)
+    with _chain(
+        chromium_executable, script, console_sink=sink, __status=200, __reply=_summary(**_DUE), __listStatus=401
+    ) as page:
+        armed = _stop_by_list_401_during_a_pending_poll(page, "stall")
+        page.wait_for_function("window.__abortReason === 'TimeoutError'", timeout=5000)
+        page.wait_for_timeout(200)
+        assert _delays(page) == armed, (armed, _delays(page))
+        assert not [t for _, t in sink if "poll failed" in t], sink
+
+
+def test_dropping_the_generation_bump_breaks_the_timeout_test(chromium_executable):
+    """ריצת בקרה: בלי העלאת הדור, ה-timeout המאוחר נספר ככשל ודורך טיימר."""
+    sink = []
+    script = _mutate(_with_fetch_timeout(_shrunk(_polling_script(), 1, 40), 300), STOP_BUMPS_GEN, "    stopped = true;")
+    with _chain(
+        chromium_executable, script, console_sink=sink, __status=200, __reply=_summary(**_DUE), __listStatus=401
+    ) as page:
+        armed = _stop_by_list_401_during_a_pending_poll(page, "stall")
+        page.wait_for_function("window.__abortReason === 'TimeoutError'", timeout=5000)
+        page.wait_for_timeout(200)
+        assert len(_delays(page)) == len(armed) + 1, (armed, _delays(page))
+        assert [t for _, t in sink if "poll failed" in t], sink

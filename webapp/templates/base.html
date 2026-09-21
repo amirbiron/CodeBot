@@ -4480,6 +4480,11 @@
   // והפוקוס הבא הוא המסלול היחיד חזרה — ולכן רצפת הדקה של visibilitychange
   // אינה חלה עליו.
   let stopped = false;
+  // דור השרשרת: עולה בכל עצירה. דגימה שהייתה באוויר כשהשרשרת נעצרה — למשל
+  // 401 בלחיצה על הבועה בזמן דגימה — משווה אותו אחרי כל await, ותשובה ישנה
+  // נזרקת: היא לא מחזירה בועה ולא דורכת טיימר אחרי "ההתחברות פגה". JS
+  // חד-חוטי; ההשוואה אחרי ה-await היא הגבול (נמדד).
+  let chainGen = 0;
   // מונה לחיצות על הבועה: הלחיצה האחרונה מנצחת, ותשובה של לחיצה קודמת נזרקת.
   let listGen = 0;
 
@@ -4520,8 +4525,13 @@
   // ושולח עוד בקשה.
   function stopChain(){
     stopped = true;
+    chainGen += 1;
     try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}
     pollTimer = null;
+  }
+  function staleAfterStop(){
+    console.warn('[sticky-reminders] poll outlived a stop; its outcome is ignored');
+    return POLL_STOP;
   }
 
   function isMobile(){ return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
@@ -4680,6 +4690,7 @@
   // ולא נופל לתקרה: "לא הצלחתי לברר" אינו "אין מה לתזמן". הגרסה הקודמת
   // נרדמה ב-catch לחצי שעה על תקלה חולפת.
   async function poll(){
+    const gen = chainGen;
     try {
       if (document.visibilityState && document.visibilityState !== 'visible') { return MAX_POLL_MS; }
       if (typeof window.__stickyRemindersBackoffUntil === 'number' && Date.now() < window.__stickyRemindersBackoffUntil) {
@@ -4690,7 +4701,11 @@
       // הותירה אותה ב-0, וכל מעבר בין אפליקציות בנייד שלח בקשה נוספת.
       lastPollAt = Date.now();
       const r = await fetch('/api/sticky-notes/reminders/summary', fetchOpts());
+      if (gen !== chainGen) { return staleAfterStop(); }
       if (r.status === 429) {
+        // 429 אינו כשל ואינו "אין": השרת נקב בעצמו בהמתנה (Retry-After, ולפחות
+        // רבע שעה), היא נכתבת לאותו חלון ש-visibilitychange מכבד, המונה לא זז,
+        // והבועה נשארת — כמו בכל תשובה שאינה "אין" ואינה 401.
         let backoffMs = 15 * 60 * 1000;
         try {
           const ra = parseInt(r.headers.get('Retry-After') || '', 10);
@@ -4699,7 +4714,6 @@
           }
         } catch(_) {}
         window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;
-        removeDot();
         return backoffMs;
       }
       // הסשן נגמר. הבועה לא יכולה להיות נכונה עד שמתחברים מחדש, ולנסות כל
@@ -4709,6 +4723,7 @@
       if (r.status === 401) { console.warn('[sticky-reminders] session ended (401); polling stops until the next tab focus'); removeDot(); return POLL_STOP; }
       if (!r.ok) { return failAndBackOff(r.status); }
       const j = await r.json();
+      if (gen !== chainGen) { return staleAfterStop(); }
       // גוף ריק, ok:false או גוף שאינו תשובה בכלל — כולם "לא ידוע", לא "אין
       // תזכורות": אותה בדיקה כמו במסלול הרשימה (lj.ok).
       if (!j || !j.ok) { return failAndBackOff('bad body'); }
@@ -4752,7 +4767,7 @@
       bubble.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bubble.click(); } };
       // הבועה מוצגת. אין דחיפות לשאול שוב — המשתמש כבר רואה שיש לו משהו.
       return MAX_POLL_MS;
-    } catch (e) { return failAndBackOff(e); }
+    } catch (e) { if (gen !== chainGen) { return staleAfterStop(); } return failAndBackOff(e); }
   }
   function schedule(ms){
     try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}
