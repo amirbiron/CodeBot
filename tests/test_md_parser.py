@@ -306,6 +306,7 @@ def test_the_default_ceiling_is_the_documented_constant():
     import inspect
 
     assert md_parser.MAX_SECTIONS == 50_000
+    assert md_parser.MAX_SECTIONS is doc_sections.MAX_SECTIONS, "ייצוא-מחדש, לא עותק"
     default = inspect.signature(md_parser.parse_document).parameters["max_sections"].default
     assert default is md_parser.MAX_SECTIONS, "ברירת המחדל היא התקרה, לא None"
 
@@ -667,19 +668,21 @@ def test_the_two_exceptions_come_from_the_same_module():
     assert md_parser.InconsistentLineEndings is doc_sections.InconsistentLineEndings
 
 
-def test_the_two_parsers_export_the_same_names_but_two():
+def test_the_two_parsers_export_the_same_names_but_one():
     """"בני-החלפה" היא טענה בת-בדיקה, לא משאלה.
 
     כל שם ש-``rst_parser`` מייצא קיים גם ב-``md_parser``, וההפרש הוא
-    **בדיוק** שני השמות שהפרוזה מונה. שם שיתווסף לאחד מהם בלי השני,
+    **בדיוק** השם היחיד שהפרוזה מונה. שם שיתווסף לאחד מהם בלי השני,
     או ייצוא של ``InconsistentLineEndings`` מ-``rst_parser`` (שאינו מרים
-    אותה), מפיל את זה.
+    אותה), מפיל את זה. עד #3420 ההפרש היה שניים — ``MAX_SECTIONS`` היה
+    רק כאן; מאז הוא מוגדר ב-``doc_sections`` ומיוצא משני הפארסרים, כי
+    הוא ברירת המחדל של שניהם.
     """
     from services import rst_parser
 
     rst, md = set(rst_parser.__all__), set(md_parser.__all__)
     assert rst <= md, f"שמות שרק ב-rst_parser: {sorted(rst - md)}"
-    assert md - rst == {"MAX_SECTIONS", "InconsistentLineEndings"}
+    assert md - rst == {"InconsistentLineEndings"}
 
 
 @pytest.mark.parametrize(

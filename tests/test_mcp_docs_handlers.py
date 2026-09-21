@@ -341,25 +341,29 @@ def test_an_overlined_heading_is_one_level_deeper_than_the_same_character_underl
     assert out["toc"][1]["breadcrumb"] == ["כותרת א", "כותרת ב"]
 
 
-def test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it(monkeypatch):
-    """הצרכן בייצור מעביר את תקרת הסקשנים של הסורק, ומעליה מסרב — לא מפרסר את הכול.
+def test_the_rst_reader_is_capped_by_the_parser_default_and_refuses_above_it(monkeypatch):
+    """הצרכן בייצור אינו מעביר תקרה, וברירת המחדל של הפרסר **היא** התקרה (#3420).
 
-    זה היפוך מכוון של הבדיקה שישבה כאן מ-#3378 ("הצרכן בייצור אינו מוגבל
-    בתקרה"). הנימוק שלה — שקובץ תיעוד גדול לא ייחסם — נמדד ונמצא ריק
-    בתקרת הקריאה של הכלי: 500KB של העמוד הצפוף ביותר בריפו (6.5 סקשנים
-    ל-KB) הם כ-3,300 סקשנים, פי 15 מתחת לתקרה. מה שהתקרה כן עוצרת הוא
-    הצורה העוינת — כותרת בת תו אחד בכל שורה — שבלעדיה עולה 44.0MiB לפרסור
-    אחד של 500KB, יותר מ-35.2MiB שמאגר הקריאות מקצה לחוט
-    (``_PARSE_COST_BYTES`` ב-``mcp_server/server.py``), ואיתה נעצרת
-    ב-20.1MiB. סקירת #3429.
+    הגלגול השלישי של הבדיקה שיושבת כאן. #3378: "הצרכן בייצור אינו מוגבל
+    בתקרה". סקירת #3429 הפכה אותה: הכלי מעביר את ``_ceiling.MAX_SYMBOLS``
+    במפורש, כי ברירת המחדל של ``rst_parser`` הייתה ``None`` וכל קורא אחר
+    נשאר בלי הגנה. #3420 יישר את ברירת המחדל ל-``MAX_SECTIONS`` של
+    ``doc_sections`` — אחרי מדידה על כל 208 קובצי ה-RST (הקובץ העשיר ביותר
+    נושא 50 סקשנים, אחד לאלף מהתקרה) ואפס-דיף על פלט הכלי — ומאז הכלי
+    אינו מעביר דבר, בדיוק כמו במסלול ה-Markdown: העברה מפורשת מכאן הייתה
+    עותק שני של החלטה שהפארסר כבר הכריע.
 
-    **ונבדק בלי להציף את התקרה, מאותה סיבה שנימקה הבדיקה הקודמת:** בניית
-    ``MAX_SYMBOLS + 1`` סקשנים אמיתיים קושרת את מחיר הבדיקה לקבוע שהיא
-    מגנה עליו (819KB ו-71MB בכל ריצה, ופי עשר מזה כשהתקרה תעלה). הכלי
-    קורא את התקרה מהמודול בזמן הקריאה, ולכן היא מוקטנת כאן ל-2, והפרסר
-    האמיתי הוא שמרים את החריגה — על שלושה סקשנים. ברירת המחדל של הפרסר
-    נשארת ``None``, וזה עדיין נבדק, כי קורא אחר שאינו מעביר תקרה חייב
-    לדעת שאינו מוגן.
+    **ומה שנשמר משתי הגרסאות הקודמות:** הסירוב מעל התקרה בא כ-``error``
+    ולא כחריגה שבורחת, קובץ שיושב בדיוק על התקרה עובר במלואו, ו-``"max"``
+    בתשובה הוא המספר שהפרסר השתמש בו. מה שהתקרה עוצרת — כותרת בת תו אחד
+    בכל שורה, 44.0MiB לפרסור של 500KB בלעדיה ו-20.1MiB איתה — נמדד בסקירת
+    #3429 ולא זז.
+
+    **ונבדק בלי להציף את התקרה, מאותה סיבה שנימקו שתי הקודמות:** בניית
+    ``MAX_SECTIONS + 1`` סקשנים אמיתיים קושרת את מחיר הבדיקה לקבוע שהיא
+    מגנה עליו. ברירת המחדל קפואה בחתימה, ולכן היא מוקטנת ב-``partial``
+    על הפרסר עצמו — וזה עובד רק מפני שהכלי אינו מעביר ארגומנט שדורס
+    אותה, שזו הטענה הראשונה כאן.
     """
     passed: dict[str, object] = {}
     real = rst_parser.parse_document
@@ -374,14 +378,14 @@ def test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it(
 
     assert out["ok"] and out["mode"] == "toc"
     assert out["section_count"] == 2
-    assert passed.get("max_sections") == docs_handlers._ceiling.MAX_SYMBOLS, (
-        f"הכלי לא העביר את תקרת הסורק לפרסור: {passed}"
-    )
-    assert inspect.signature(real).parameters["max_sections"].default is None, (
-        "ברירת המחדל של max_sections השתנתה — ההגנה כאן באה מהכלי, לא מהפרסר"
-    )
+    assert passed == {}, f"הכלי העביר תקרה לפרסור: {passed}"
+    assert (inspect.signature(real).parameters["max_sections"].default
+            is doc_sections.MAX_SECTIONS), (
+        "ברירת המחדל של max_sections ב-rst_parser אינה MAX_SECTIONS — "
+        "ההגנה במסלול הזה באה מהפרסר, וכשהיא זזה שם היא זזה גם כאן")
 
-    monkeypatch.setattr(docs_handlers._ceiling, "MAX_SYMBOLS", 2)
+    monkeypatch.setattr(docs_handlers.rst_parser, "parse_document",
+                        functools.partial(real, max_sections=2))
 
     at_the_ceiling = docs_handlers.docs_get_section(_TextBackend("א\n=\n\nב\n=\n\n"), path="x")
     assert at_the_ceiling["ok"] and at_the_ceiling["section_count"] == 2, (
@@ -392,9 +396,12 @@ def test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it(
     above = docs_handlers.docs_get_section(_TextBackend(three), path="x")
     assert {k: above[k] for k in ("ok", "error", "max", "repo", "path", "ref",
                                   "resolved_commit")} == {
-        "ok": False, "error": "too_many_sections", "max": 2,
+        "ok": False, "error": "too_many_sections", "max": doc_sections.MAX_SECTIONS,
         "repo": "CodeBot", "path": "docs/x.rst", "ref": "HEAD", "resolved_commit": "c0ffee",
     }
+    # ``"max"`` הוא הקבוע ולא ה-2 של ה-``partial``: הכלי מדווח את התקרה
+    # שהפרסר מצהיר עליה, והטסט הוא שהנמיך אותה מאחורי גבו.
+    #
     # **ואין ``line``, וזה לא חסר אלא נכון.** ``rst_parser`` מרים
     # ``TooManySections`` בלי ארגומנט (``raise TooManySections``, נמדד), בעוד
     # ``md_parser`` מרים אותה עם השורה. ``_line_of`` מוסיף את השדה רק כשיש
@@ -770,11 +777,11 @@ def test_the_parser_table_holds_modules_so_a_monkeypatch_on_the_module_is_seen(
         monkeypatch):
     """הטבלה מחזיקה **מודולים**, ולכן החלפת ``parse_document`` עליהם נתפסת.
 
-    **וזה מה ש-``test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it`` אינו
+    **וזה מה ש-``test_the_rst_reader_is_capped_by_the_parser_default_and_refuses_above_it`` אינו
     תופס.** אילו הטבלה הייתה מחזיקה את הפונקציה עצמה, היא הייתה קופאת
     על המקורית, ה-spy היה נעקף **בשקט**, ו-``passed`` שם היה נשאר ריק —
-    כלומר ``passed.get("max_sections") is None`` היה ממשיך לעבור. שומר
-    שעובר משתי סיבות שונות אינו שומר.
+    כלומר ``passed == {}`` היה ממשיך לעבור. שומר שעובר משתי סיבות שונות
+    אינו שומר.
     """
     calls = []
     real = rst_parser.parse_document
@@ -813,7 +820,7 @@ def test_a_markdown_file_over_the_heading_ceiling_is_refused_by_name(both_repos,
     של ``MAX_SECTIONS + 1`` כותרות אמיתיות הוא מאות מגה-בייט בכל ריצת
     CI, והמחיר שלו צמוד לקבוע שהוא מגן עליו — כלומר הוא מתדרדר בדיוק
     כשהמערכת גדלה. אותו נימוק בדיוק כתוב ב-
-    ``test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it`` שמעליו.
+    ``test_the_rst_reader_is_capped_by_the_parser_default_and_refuses_above_it`` שמעליו.
     """
     real = md_parser.parse_document
     monkeypatch.setattr(md_parser, "parse_document",
@@ -831,11 +838,14 @@ def test_the_two_refusals_are_mapped_whichever_parser_raised_them(monkeypatch):
     התניה על ``parser is md_parser`` הייתה רשימה שנייה לסנכרן: כשהתקרה
     נוספה למסלול ה-RST (#3429), הסירוב היה בורח מהכלי כחריגה גולמית.
 
-    **ה-``partial`` שהיה כאן כבר אינו עובד, וזו לא תקלה של הטסט:** הכלי
-    מעביר עכשיו ``max_sections`` במפורש, וארגומנט מפורש בקריאה דורס את
-    זה שב-``partial``. לכן מקטינים את התקרה במקום שהכלי קורא אותה.
+    **התקרה מונמכת ב-``partial`` על הפרסר, כמו במסלול ה-Markdown.** בין
+    #3429 ל-#3420 זה לא עבד כאן — הכלי העביר ``max_sections`` במפורש,
+    וארגומנט מפורש בקריאה דורס את זה שב-``partial`` — ולכן הטסט הנמיך אז
+    את ``_ceiling.MAX_SYMBOLS``. מאז #3420 הכלי אינו מעביר דבר לאף פארסר,
+    וה-``partial`` הוא הדרך היחידה להנמיך, בשני המסלולים.
     """
-    monkeypatch.setattr(docs_handlers._ceiling, "MAX_SYMBOLS", 1)
+    monkeypatch.setattr(docs_handlers.rst_parser, "parse_document",
+                        functools.partial(rst_parser.parse_document, max_sections=1))
     out = docs_handlers.docs_get_section(_TextBackend("א\n=\n\nב\n=\n"),
                                          path="x.rst", repo="CodeBot")
     assert out["ok"] is False and out["error"] == "too_many_sections"
@@ -860,11 +870,11 @@ def test_the_reader_asks_for_the_whole_file_and_so_keeps_the_display_ceiling(bot
 def test_the_markdown_reader_is_capped_by_the_parser_default(both_repos, monkeypatch):
     """התקרה האפקטיבית של מסלול ה-Markdown היא ``MAX_SECTIONS``.
 
-    **התמונה ההפוכה של ``test_the_docs_reader_passes_the_shared_section_ceiling_and_refuses_above_it``**,
+    **אותה תמונה כמו ``test_the_rst_reader_is_capped_by_the_parser_default_and_refuses_above_it``**,
     ושתי הטענות מאותו סוג: הכלי אינו מעביר תקרה, וברירת המחדל בחתימה
     **היא** התקרה. העברה מפורשת של ``md_parser.MAX_SECTIONS`` מה-handler
-    הייתה עותק שני של אותה החלטה, ו-PR הפארסר כבר הכריע אותה ונימק
-    למה ברירת המחדל שם הפוכה מזו של RST.
+    הייתה עותק שני של אותה החלטה, ו-PR הפארסר כבר הכריע אותה — ומאז
+    #3420 גם מסלול ה-RST על אותה ברירת מחדל בדיוק.
     """
     passed: dict = {}
     real = md_parser.parse_document
@@ -1134,14 +1144,17 @@ def test_a_broken_contract_propagates_and_is_not_dressed_up_as_a_refusal(
 
 
 def test_the_two_section_ceilings_are_the_same_number():
-    """``_ceiling.MAX_SYMBOLS`` ו-``md_parser.MAX_SECTIONS`` הם אותו מספר.
+    """``_ceiling.MAX_SYMBOLS`` ו-``doc_sections.MAX_SECTIONS`` הם אותו מספר.
 
-    RST מקבל את התקרה מהכלי (``_ceiling``), Markdown מברירת המחדל של
-    הפרסר שלו (``MAX_SECTIONS``). שני מודולים, מספר אחד, בלי ייבוא ביניהם
-    — זה ``duplicate-rule-second-copy`` §2 בצורתו המדויקת, והתיקון שהכלל
-    מבקש כשהכפילות מוצדקת בגבול מודול הוא **טסט שקורא את שני המקורות
-    ומשווה**. שני דברים נשענים על השוויון הזה: התיעוד שאומר "שני המסלולים
-    מוגבלים ל-50,000", ו-``"max"`` בסירוב, שמדווח את ``_ceiling`` גם על
-    קובץ Markdown.
+    שני הפארסרים מקבלים את התקרה מברירת המחדל שלהם — ``MAX_SECTIONS`` של
+    ``doc_sections``, אותו אובייקט בדיוק דרך שני הייצואים-מחדש — וסורק
+    האאוטליין מ-``_ceiling.MAX_SYMBOLS``. שני מודולים, מספר אחד, בלי ייבוא
+    ביניהם — זה ``duplicate-rule-second-copy`` §2 בצורתו המדויקת, והתיקון
+    שהכלל מבקש כשהכפילות מוצדקת בגבול מודול הוא **טסט שקורא את שני
+    המקורות ומשווה**. מה שנשען על השוויון: התיעוד שאומר "50,000 בשני
+    המסלולים ובסורק", והמדידות ב-``_ceiling`` שקבעו את המספר לשניהם.
     """
-    assert docs_handlers._ceiling.MAX_SYMBOLS == md_parser.MAX_SECTIONS
+    from mcp_server.outline_scanners import _ceiling
+
+    assert rst_parser.MAX_SECTIONS is md_parser.MAX_SECTIONS is doc_sections.MAX_SECTIONS
+    assert _ceiling.MAX_SYMBOLS == doc_sections.MAX_SECTIONS

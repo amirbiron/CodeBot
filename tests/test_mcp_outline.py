@@ -2819,6 +2819,33 @@ def test_the_rst_ceiling_stops_the_parse_and_not_only_the_answer(monkeypatch):
     assert len(built) <= 21, f"נבנו {len(built)} סקשנים — הפרסור לא נעצר על התקרה"
 
 
+def test_the_rst_scanner_passes_its_own_ceiling_and_does_not_lean_on_the_parser_default(monkeypatch):
+    """הסורק אומר את התקרה שלו בעצמו — ``_ceiling.MAX_SYMBOLS`` — בכל קריאה לפארסר.
+
+    **פין, לא תיקון (#3420):** כשברירת המחדל של ``max_sections`` ב-``rst_parser``
+    יושרה ל-``MAX_SECTIONS``, האישו דרש שהסורק יישאר לא-מושפע, וש"זה ייאמר
+    בטסט ולא בהיגיון". המספר כאן הוא של המפה — כותרות ותוויות יחד, דרך
+    ``Capped`` — ולכן הוא עובר במפורש גם כששני המספרים שווים. מוטציה שמוחקת
+    את הארגומנט מפילה את זה; ריצה על הקוד שלפני #3420 עוברת, וזה מכוון.
+    """
+    from services import rst_parser
+
+    passed: list[dict] = []
+    real = rst_parser.parse_document
+
+    def spy(text, **kwargs):
+        passed.append(dict(kwargs))
+        return real(text, **kwargs)
+
+    monkeypatch.setattr(rst_parser, "parse_document", spy)
+
+    names = [row["name"] for row in extract_outline("a\n=\n\nb\n-\n\n", "a.rst")["symbols"]]
+
+    assert names == ["a", "a.b"]
+    assert passed == [{"max_sections": _ceiling.MAX_SYMBOLS}], (
+        f"הסורק נשען על ברירת המחדל של הפארסר במקום לומר את התקרה שלו: {passed}")
+
+
 def test_the_tool_reports_the_ceiling_through_the_real_path(monkeypatch):
     """דרך ``repo_handlers.get_repo_file`` ולא רק דרך ``extract_outline``.
 
