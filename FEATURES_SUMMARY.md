@@ -65,72 +65,109 @@
 
 ### מבנה התיקיות הראשי
 
+> **העץ מתאר מה יושב איפה ולמה, בלי גדלים וספירות שורות.** מספרי קנה-מידה יושבים במקום אחד — [סטטיסטיקות פרויקט](#-סטטיסטיקות-פרויקט) — כדי שלא יהיו שני מקומות שצריך לעדכן יחד.
+
 ```
 CodeBot/
-├── main.py                          # נקודת הכניסה של הבוט (3,965 שורות)
-├── bot_handlers.py                  # מטפלי פקודות ראשיים (3,375 שורות)
-├── conversation_handlers.py         # זרימות שיחה (4,688 שורות)
-├── github_menu_handler.py           # אינטגרציית GitHub (7,185 שורות)
-├── backup_menu_handler.py           # מערכת גיבויים (834 שורות)
-├── refactoring_engine.py            # מנוע רפקטורינג (701 שורות)
-├── search_engine.py                 # מנוע חיפוש (885 שורות)
-├── code_processor.py                # עיבוד וזיהוי קוד (1,071 שורות)
-├── file_manager.py                  # ניהול קבצים (1,263 שורות)
-├── cache_manager.py                 # שכבת מטמון (824 שורות)
-├── observability.py                 # לוגים מובנים (824 שורות)
-├── metrics.py                       # מטריקות Prometheus (900 שורות)
+├── main.py                       # נקודת הכניסה של הבוט
+├── bot_handlers.py               # מטפלי פקודות ראשיים
+├── conversation_handlers.py      # זרימות שיחה רב-שלביות
+├── github_menu_handler.py        # אינטגרציית GitHub (המודול הגדול ביותר בשורש)
+├── backup_menu_handler.py        # תפריט גיבוי ושחזור
+├── refactoring_engine.py         # מנוע רפקטורינג
+├── search_engine.py              # מנוע חיפוש
+├── code_processor.py             # עיבוד קוד וזיהוי שפה
+├── file_manager.py               # ניהול קבצים
+├── cache_manager.py              # שכבת מטמון (Redis + זיכרון)
+├── config.py                     # תצורה ומשתני סביבה
+├── utils.py                      # עזרים משותפים (כולל safe_edit_message_*)
 │
-├── /database/                       # שכבת גישה למסד הנתונים
-│   ├── repository.py                # DAL ראשי (89 KB)
-│   ├── manager.py                   # מנהל פעולות DB (38 KB)
-│   ├── collections_manager.py       # ניהול אוספים (54 KB)
-│   └── bookmarks_manager.py         # ניהול סימניות (36 KB)
+│   # תצפיתיות והתראות — ברמת השורש
+├── observability.py              # לוגים מובנים
+├── metrics.py                    # מטריקות Prometheus
+├── alert_manager.py              # ניהול התראות
+├── alert_forwarder.py            # העברת התראות ליעדים
+├── predictive_engine.py          # חיזוי תקלות
+├── rate_limiter.py               # חלון מתגלגל, משותף לבוט ול-MCP
 │
-├── /handlers/                       # מטפלי שיחות מודולריים
-│   ├── documents.py                 # טיפול במסמכים (42 KB)
-│   ├── file_view.py                 # צפייה בקבצים (65 KB)
-│   ├── save_flow.py                 # זרימת שמירה (21 KB)
-│   └── drive/                       # אינטגרציית Google Drive
+│   # פתקים דביקים — הלוגיקה המשותפת
+├── sticky_notes_target.py        # יעד הפתק, הפלטה והמגבלות
+├── sticky_notes_scope.py         # הרשאות וגבולות
+├── note_boards.py                # לוחות פתקים
+├── note_reminder_state.py        # מצב תזכורות
 │
-├── /services/                       # לוגיקה עסקית
-│   ├── webserver.py                 # הגדרות Flask (15 KB)
-│   ├── google_drive_service.py      # שירות Google Drive (39 KB)
-│   ├── snippet_library_service.py   # ספריית קוד (37 KB)
-│   ├── github_service.py            # שירות GitHub
-│   ├── backup_service.py            # שירות גיבויים
-│   └── ai_explain_service.py        # שירות הסבר AI
+├── /database/                    # שכבת גישה למסד
+│   ├── repository.py             # ה-DAL הראשי
+│   ├── manager.py                # מנהל פעולות
+│   ├── collections_manager.py    # אוספים
+│   ├── bookmarks_manager.py      # סימניות
+│   ├── models.py · schemas.py    # מודלים וסכימות
+│   └── job_runs_collection.py    # הרצות ג'ובים
 │
-├── /webapp/                         # אפליקציית Web
-│   ├── app.py                       # Flask App ראשי (244 KB)
-│   ├── bookmarks_api.py             # API סימניות (26 KB)
-│   ├── collections_api.py           # API אוספים (33 KB)
-│   ├── sticky_notes_api.py          # API פתקים + תזכורות (26 KB)
-│   ├── workspace_api.py             # API Workspace Kanban
-│   ├── push_api.py                  # API התראות פוש
-│   ├── snippet_library_api.py       # API ספריית סניפטים
-│   ├── community_library_api.py     # API ספריית קהילה
-│   ├── collections_ui.py            # UI אוספים
-│   ├── activity_tracker.py          # מעקב פעילות
-│   ├── config_radar.py              # ניטור הגדרות
-│   ├── /static/                     # קבצים סטטיים
-│   │   ├── /css/                    # CSS (smooth-scroll.css, split-view.css)
-│   │   ├── /js/                     # JavaScript (live-preview.js, collections.js)
-│   │   ├── /images/                 # תמונות
-│   │   └── /data/                   # קבצי נתונים (commands.json)
-│   ├── /templates/                  # תבניות HTML
-│   ├── /FEATURE_SUGGESTIONS/        # תיעוד תכונות
-│   └── /static_build/               # נכסים מובנים
+├── /handlers/                    # מטפלי שיחה מודולריים
+│   ├── documents.py              # מסמכים
+│   ├── file_view.py              # צפייה בקובץ
+│   ├── save_flow.py              # זרימת שמירה
+│   ├── /github/ · /drive/        # תת-זרימות לכל אינטגרציה
+│   └── states.py · pagination.py # מצבי שיחה ועימוד
 │
-├── /tests/                          # בדיקות מקיפות
-├── /docs/                           # תיעוד Sphinx
-│   ├── /webapp/                     # תיעוד WebApp
-│   ├── /chatops/                    # תיעוד ChatOps
-│   ├── /user/                       # מדריכי משתמש
-│   └── /_static/                    # קבצים סטטיים (copy-page.js)
-├── /GUIDES/                         # מדריכים (MERMAID_IN_MARKDOWN.md)
-├── /docker/                         # Docker & Docker Compose
-├── /config/                         # קבצי הגדרות
-└── /monitoring/                     # כלי מוניטורינג
+├── /services/                    # לוגיקה עסקית — הרובד הגדול בפרויקט
+│   ├── github_service.py         # GitHub
+│   ├── google_drive_service.py   # Google Drive
+│   ├── backup_service.py         # גיבויים
+│   ├── snippet_library_service.py# ספריית סניפטים
+│   ├── community_library_service.py # ספריית קהילה
+│   ├── ai_explain_service.py     # הסבר קוד ב-AI
+│   ├── code_execution_service.py # הרצת קוד
+│   ├── code_indexer.py · chunking_service.py # אינדוקס וצ'אנקים לחיפוש סמנטי
+│   ├── md_parser.py · rst_parser.py · doc_sections.py # פרסור מסמכים לקריאה לפי סעיף
+│   ├── git_mirror_service.py     # מראות הריפו (Repo Sync Engine)
+│   ├── mcp_analytics_service.py  # קריאת מדדי ה-MCP לוובאפ
+│   └── webserver.py              # הרמת Flask
+│
+├── /mcp_server/                  # שרת ה-MCP — שירות נפרד (ASGI + uvicorn)
+│   ├── app.py · server.py        # האפליקציה ורישום הכלים
+│   ├── backend.py · repo_backend.py # גישה לקבצים ולמראות
+│   ├── handlers.py · docs_handlers.py # גופי הכלים
+│   ├── outline.py · /outline_scanners/ # מפת סימבולים לפייתון, HTML/Jinja, CSS ו-RST
+│   ├── auth.py · oauth_*.py      # PAT ו-OAuth 2.1
+│   ├── limits.py                 # תקרת גוף הבקשה ומגבלת הקצב
+│   ├── analytics.py · redaction.py # מדידה ושער הפרטיות
+│   └── primer.py                 # פריימר הסוכן
+│
+├── /webapp/                      # אפליקציית ה-Web (Flask)
+│   ├── app.py                    # האפליקציה הראשית
+│   ├── sticky_notes_api.py       # API פתקים ותזכורות
+│   ├── note_boards_api.py        # API לוחות
+│   ├── collections_api.py · bookmarks_api.py · backup_api.py
+│   ├── snippet_library_api.py · community_library_api.py
+│   ├── code_tools_api.py · json_formatter_api.py · rules_api.py
+│   ├── push_api.py               # התראות פוש
+│   ├── /routes/                  # ראוטים מודולריים (כולל settings_routes.py)
+│   ├── /templates/               # תבניות Jinja (base.html נושא את טוקני הערכות)
+│   ├── /static/                  # css · js · libs · icons · data · sw.js
+│   └── /FEATURE_SUGGESTIONS/     # מסמכי תכנון של פיצ'רים
+│
+├── /reminders/                   # תזכורות: מודלים, תזמון ואימות
+├── /chatops/                     # פקודות ChatOps והרשאותיהן
+├── /monitoring/                  # אחסון התראות, תקריות, חתימות שגיאה ופרופיילר
+├── /push_worker/                 # עובד Node לשליחת פוש
+├── /src/                         # ארכיטקטורה נקייה: domain · application · infrastructure
+├── /i18n/                        # מחרוזות בעברית
+│
+├── /tests/                       # חבילת הבדיקות
+├── /docs/                        # אתר התיעוד (Sphinx)
+│   ├── /webapp/ · /database/ · /services/ · /handlers/ · /engines/
+│   ├── /chatops/ · /observability/ · /deployment/ · /runbooks/
+│   ├── /user/ · /dev/ · /architecture/ · /api/ · /modules/
+│   └── /_static/                 # נכסי התיעוד (copy-page.js)
+│
+├── /scripts/                     # כלי תחזוקה: אינדקסים, מדידות, generate_ai_map
+├── /tools/                       # ניתוח שאילתות וזיהוי כפילויות
+├── /config/                      # YAML/JSON של התראות, ראנבוקס ו-whats_new
+├── /requirements/                # base · production · development · minimal
+├── /docker/                      # Prometheus · Grafana · Alertmanager
+└── /GUIDES/                      # מדריכים
 ```
 
 ---
@@ -2244,19 +2281,19 @@ python -m http.server -d docs/_build/html 8000
 
 ## 📊 סטטיסטיקות פרויקט
 
+> **זה המקום היחיד במסמך שנושא מספרי קנה-מידה.** עץ התיקיות מתאר מבנה בלבד, כדי שלא יהיו שתי רשימות שצריך לעדכן יחד. המספרים נמדדו ב-21.09.2026 מתוך הקבצים שבמעקב git, בלי `tests/` ובלי קוד חיצוני.
+
 ### גודל Codebase
-- **~65,000 שורות** קוד Python (מודולים ראשיים)
-- **244 KB** app.py של Flask לבדו
-- חבילת בדיקות מקיפה עם **100+ קבצי בדיקה**
-- **40+ סעיפי תיעוד** Sphinx
+- **~182,000 שורות** קוד Python ב-**291 מודולים**
+- **868 קבצי בדיקה** תחת `tests/`
+- **242 עמודי תיעוד** (RST ו-Markdown) תחת `docs/`
+- שלושת המודולים הגדולים: `webapp/app.py`, ואחריו `github_menu_handler.py` ו-`main.py`
 
 ### מטריקות מפתח
-- **50+** מודולי Python ליבה
-- **10+** מימושי שירות
-- **9+** מטפלים מיוחדים
-- **100+** שאילתות/פעולות מסד נתונים
-- **18+** זרימות עבודה של GitHub Actions
-- תמיכה ברב-לשוניות (**20+ שפות תכנות**)
+- **18** זרימות עבודה של GitHub Actions
+- **30 כלי MCP** — 23 למשתמש, 7 לאדמין
+- **ארבעה תהליכים נפרדים בייצור:** הבוט, הוובאפ (`services/webserver.py`), שרת ה-MCP (`mcp_server/app.py`) ועובד הפוש (`render.push-worker.yaml`)
+- **20 שפות** ב-`SUPPORTED_LANGUAGES` (‏`config.py`) — אלה השפות שמקבלות טיפול ייעודי. הדגשת התחביר עצמה רחבה בהרבה, כי היא נשענת על Pygments
 
 ---
 
