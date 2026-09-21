@@ -19,6 +19,8 @@ pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
 from playwright.sync_api import sync_playwright  # noqa: E402
 
+from _mutation import mutate as _mutate  # noqa: E402
+
 SW_SOURCE = Path(__file__).resolve().parent.parent / "webapp" / "static" / "sw.js"
 
 #: מה שה-handler משווה כדי להבחין בין דחייה שהתקבלה לסירוב; המוטציה מוחקת אותו.
@@ -57,7 +59,7 @@ window.fetch = async (url, opts) => {
 CLICK = """
 () => {
   const ev = new Event('notificationclick');
-  ev.notification = { data: { note_id: 'n1', file_id: 'f1' }, close: () => {} };
+  ev.notification = { data: window.__notifData || { note_id: 'n1', file_id: 'f1' }, close: () => {} };
   ev.action = window.__action || 'snooze_60';
   ev.waitUntil = (p) => { window.__done = Promise.resolve(p).catch(() => {}); };
   window.dispatchEvent(ev);
@@ -68,13 +70,6 @@ CLICK = """
 
 def _sw_source() -> str:
     return SW_SOURCE.read_text(encoding="utf-8")
-
-
-def _mutate(script: str, anchor: str, replacement: str) -> str:
-    assert script.count(anchor) == 1, f"העוגן נמצא {script.count(anchor)} פעמים: {anchor!r}"
-    mutated = script.replace(anchor, replacement)
-    assert mutated != script
-    return mutated
 
 
 @contextmanager
@@ -103,6 +98,37 @@ def _click(page):
         "opened": page.evaluate("window.__opened"),
         "snooze_bodies": [f["body"] for f in page.evaluate("window.__fetches") if "/snooze" in f["url"]],
     }
+
+
+#: המועד שההתראה נושאת — כפי שהשרת כותב אותו, ``isoformat`` של ערך מודע-אזור.
+OCCURRENCE = "2026-09-20T09:00:00+00:00"
+
+
+def _ack_bodies(page):
+    return [json.loads(f["body"]) for f in page.evaluate("window.__fetches") if "/reminders/ack" in f["url"]]
+
+
+def test_opening_the_notification_acks_the_occurrence_it_carried(chromium_executable):
+    """WARN-001: ה-``ack`` נושא את ``remind_at`` שההתראה קיבלה מהשרת.
+
+    בלעדיו האישור סגר "איזו שהיא" תזכורת של הפתק — גם תזכורת שנקבעה מחדש
+    אחרי שההתראה נורתה, כי יש מסמך אחד לפתק. השרת קושר את האישור למועד.
+    """
+    data = {"note_id": "n1", "file_id": "f1", "remind_at": OCCURRENCE}
+    with _worker(chromium_executable, _sw_source(), __action="open_note", __notifData=data) as page:
+        page.evaluate(CLICK)
+        page.wait_for_timeout(200)
+        bodies = _ack_bodies(page)
+    assert bodies == [{"note_id": "n1", "remind_at": OCCURRENCE}], bodies
+
+
+def test_a_notification_without_the_occurrence_acks_without_binding(chromium_executable):
+    """שומר: התראה שהוצגה לפני שהשדה נוסף עדיין מאשרת, בלי מועד. עובר גם על הקוד הישן."""
+    with _worker(chromium_executable, _sw_source(), __action="open_note") as page:
+        page.evaluate(CLICK)
+        page.wait_for_timeout(200)
+        bodies = _ack_bodies(page)
+    assert bodies == [{"note_id": "n1"}], bodies
 
 
 def test_a_refused_snooze_is_reported_and_shown(chromium_executable):

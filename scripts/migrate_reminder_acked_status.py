@@ -14,12 +14,18 @@ Migration script: סגירת ``status`` לתזכורות שכבר אושרו.
 ``ack_at``, ולכן הוא אינו יכול לסגור תזכורת שעדיין ממתינה למשתמש.
 
 Usage:
-    python scripts/migrate_reminder_acked_status.py [--dry-run]
+    python scripts/migrate_reminder_acked_status.py           # דיווח בלבד
+    python scripts/migrate_reminder_acked_status.py --apply   # כותב
 
-Options:
-    --dry-run    מציג מה יעודכן בלי לכתוב כלום
+**בלי ``--apply`` הסקריפט רק מדווח**, כמו ``migrate_note_boards.py``,
+``migrate_note_colors.py`` ו-``cleanup_repo_tags.py`` (המוסכמה מתועדת
+ב-``docs/development/scripts.rst``). הגרסה הראשונה כתבה כברירת מחדל ודילגה
+רק עם ``--dry-run`` — הפוך מכל סקריפט אחר בתיקייה, ומי שהריץ "כדי לראות מה
+יקרה" כתב. הכיוון בטוח; ההפתעה לא.
 """
+import argparse
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 #: **שורש הריפו נכנס ל-``sys.path`` מפורשות.** ‏``python scripts/X.py``
@@ -32,8 +38,14 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 
-def main():
-    dry_run = "--dry-run" in sys.argv
+def _parse_args(argv):
+    parser = argparse.ArgumentParser(description="סגירת status לתזכורות פתקים שכבר אושרו")
+    parser.add_argument("--apply", action="store_true", help="לכתוב בפועל, ולא רק לדווח")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = _parse_args(sys.argv[1:] if argv is None else argv)
 
     try:
         from dotenv import load_dotenv
@@ -64,6 +76,10 @@ def main():
 
     collection = db.note_reminders
 
+    # ``DATABASE_NAME`` שגוי נותן אוסף אמיתי וריק — ואז "אין מה לעדכן" עם קוד
+    # יציאה 0 נראה בדיוק כמו הצלחה. שם המסד וגודל האוסף מודפסים לפני כל מסקנה.
+    print(f"🗄️ מסד: {getattr(db, 'name', '?')} — {collection.estimated_document_count()} מסמכים באוסף note_reminders")
+
     # ``$ne: None`` דורש שהשדה **קיים ואינו null**. מסמך בלי ``ack_at`` כלל
     # אינו נתפס — וזה בדיוק הרצוי: אין לו אישור, הוא עדיין ממתין.
     #
@@ -87,8 +103,8 @@ def main():
 
     print(f"📊 נמצאו {total} תזכורות עם ack_at מלא שעדיין במצב פעיל")
 
-    if dry_run:
-        print("\n🔍 מצב dry-run - לא מבצע שינויים")
+    if not args.apply:
+        print("\n🔍 דיווח בלבד — לא מבצע שינויים")
         for doc in collection.find(stale_filter, {"note_id": 1, "status": 1, "ack_at": 1}).limit(5):
             print(
                 f"  - {doc.get('_id')}: note_id={doc.get('note_id')}, "
@@ -97,21 +113,26 @@ def main():
             )
         if total > 5:
             print(f"  ... ועוד {total - 5} מסמכים")
-        print("\nלהרצה אמיתית, הרץ ללא --dry-run")
+        print("\nלכתיבה בפועל, הרץ עם --apply")
         return
 
+    # תחילת הריצה נרשמת לפני הכתיבה: הספירה החוזרת תחומה לאישורים שכבר היו
+    # קיימים אז. פוד ישן שמאשר באמצע הריצה כותב ``ack_at`` בלי ``status`` ויוצר
+    # מסמך "ישן" חדש בין הכתיבה לספירה — הוא שייך לריצה הבאה, לא לכשל של זו.
+    started_at = datetime.now(timezone.utc)
     print(f"\n🔄 מעדכן status ל-{REMINDER_STATUS_ACKED!r}...")
     result = collection.update_many(
         stale_filter, {"$set": {"status": REMINDER_STATUS_ACKED}}
     )
     print(f"   נכתבו {result.modified_count} מסמכים")
+    print("   אישור שנחת בזמן הריצה נספר לריצה הבאה; הרצה חוזרת בטוחה, הכיוון היחיד הוא מאושר לאושר.")
 
-    # ערך החזרה של כתיבה אינו אימות — סופרים שוב מהמסד.
-    remaining = collection.count_documents(stale_filter)
+    # ערך החזרה של כתיבה אינו אימות — סופרים שוב מהמסד, רק מה שאושר לפני שהתחלנו.
+    remaining = collection.count_documents(dict(stale_filter, ack_at={"$ne": None, "$lte": started_at}))
     if remaining == 0:
         print(f"\n✅ מיגרציה הושלמה בהצלחה! עודכנו {result.modified_count} מסמכים")
     else:
-        print(f"\n⚠️ נותרו {remaining} מסמכים שלא עודכנו")
+        print(f"\n⚠️ נותרו {remaining} מסמכים שלא עודכנו — הרץ שוב")
         sys.exit(1)
 
 

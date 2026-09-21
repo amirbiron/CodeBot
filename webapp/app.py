@@ -11738,6 +11738,9 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
     # Push/reminder events
     push_docs: List[Dict[str, Any]] = []
     try:
+        # בכוונה בלי ``active_reminder_filter()``: הטיימליין מציג היסטוריה, ותזכורת
+        # שאושרה או נדחתה היא אירוע בדיוק כמו תזכורת שממתינה. שאר הקוראים —
+        # הבועה, הכרטיס, השליחה — שואלים "מה פעיל", וזו שאלה אחרת.
         cursor = db.note_reminders.find(
             {'user_id': user_id},
             {'note_id': 1, 'status': 1, 'remind_at': 1, 'updated_at': 1, 'ack_at': 1, 'last_push_success_at': 1},

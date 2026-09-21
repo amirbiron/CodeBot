@@ -4589,7 +4589,7 @@
       : (isError ? '🔔 לא הצלחתי לבדוק את התזכורות כרגע.' : `🔔 יש לך ${count} פתקים שממתינים:`);
     const listHtml = items.map(it => {
       const prev = (it.preview || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      return `<li style="list-style:none; margin:4px 0;"><a href="#" data-note-id="${String(it.note_id || '')}" data-file-id="${String(it.file_id || '')}" class="reminder-link" style="text-decoration:none; color:inherit;">• ${prev || 'פתק ללא כותרת'}...</a></li>`;
+      return `<li style="list-style:none; margin:4px 0;"><a href="#" data-note-id="${String(it.note_id || '')}" data-file-id="${String(it.file_id || '')}" data-remind-at="${String(it.remind_at || '').replace(/[^0-9T:+.Z-]/g, '')}" class="reminder-link" style="text-decoration:none; color:inherit;">• ${prev || 'פתק ללא כותרת'}...</a></li>`;
     }).join('');
     pop.innerHTML = `
       <div class="notif-popover__title">${title}</div>
@@ -4670,8 +4670,12 @@
         ev.preventDefault();
         const noteId = a.getAttribute('data-note-id') || '';
         const fileId = a.getAttribute('data-file-id') || '';
-        // best-effort ack
-        try { fetch('/api/sticky-notes/reminders/ack', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ note_id: noteId }), credentials: 'same-origin' }).catch(()=>{}); } catch(_) {}
+        // best-effort ack. המועד שהפריט נורה עליו חוזר לשרת, כדי שהאישור ייקשר
+        // אליו ולא ל"איזו שהיא" תזכורת של הפתק — גם כזו שנדרכה מחדש ממכשיר אחר.
+        const remindAt = a.getAttribute('data-remind-at') || '';
+        const ackBody = { note_id: noteId };
+        if (remindAt) { ackBody.remind_at = remindAt; }
+        try { fetch('/api/sticky-notes/reminders/ack', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(ackBody), credentials: 'same-origin' }).catch(()=>{}); } catch(_) {}
         // הפרמלינק /note/<id> מפנה לקובץ או ללוח, לפי מה שהפתק באמת הוא.
         // קודם נבנה כאן /md/<file_id>, ולכן לחיצה על פתק לוח פשוט לא עשתה
         // כלום — התנאי `if (fileId)` לא התקיים.

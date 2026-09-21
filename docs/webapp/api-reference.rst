@@ -103,7 +103,7 @@ Endpoints
      - רשימת פתקים ממתינים עם תצוגה מקדימה (6 מילים) וקישור לעוגן
      - ✅
      - Query: ``?limit=20``
-     - ``{"ok": true, "count": 3, "items": [{"note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro"}]}``
+     - ``{"ok": true, "count": 3, "items": [{"note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro", "remind_at": "2026-09-20T09:00:00+00:00"}]}``
    * - ``/api/v1/announcements/active``
      - GET
      - ההכרזה הפעילה היחידה להצגה בבאנר (או ``null`` אם אין)
@@ -112,9 +112,9 @@ Endpoints
      - ``{"id": "...", "text": "...", "link": "/path"}`` או ``null``
    * - ``/api/sticky-notes/reminders/ack``
      - POST
-     - סימון תזכורת כ־acknowledged (המשתמש פתח)
+     - סימון תזכורת כ־acknowledged (המשתמש פתח). ``remind_at`` הוא המועד שההתראה או החלונית נשאו: איתו האישור סוגר רק את המסמך שעדיין נושא את המועד הזה (תזכורת שנדרכה מחדש או נדחתה מאז עונה 404); בלעדיו — האישור אינו נקשר למועד; מחרוזת שאינה ISO ← ``400 invalid_remind_at``
      - ✅
-     - ``{"note_id": "..."}``
+     - ``{"note_id": "...", "remind_at": "2026-09-20T09:00:00+00:00"}``
      - ``{"ok": true}``
    * - ``/api/sticky-notes/note/<note_id>/reminder``
      - POST

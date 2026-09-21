@@ -1,6 +1,7 @@
 import ast
 import unittest
 from pathlib import Path
+from unittest import mock
 from unittest.mock import MagicMock
 from datetime import datetime, timedelta, timezone
 
@@ -530,6 +531,106 @@ class TestNoteRemindersAPI(unittest.TestCase):
         self.assertTrue(recs, [rec.getMessage() for rec in cm.records])
         self.assertIsNotNone(recs[0].exc_info, 'ה-traceback לא צורף ללוג')
         self.assertIn('mongo is down', str(recs[0].exc_info[1]))
+
+    # --- WARN-001: האישור סוגר את המועד שההתראה נשאה, לא "איזו שהיא" תזכורת של הפתק ---
+
+    ACK = '/api/sticky-notes/reminders/ack'
+
+    def test_ack_closes_only_the_occurrence_the_notification_carried(self):
+        """התראה שישבה במגש מאתמול אינה סוגרת את התזכורת שנקבעה מחדש למחר.
+
+        הפילטר התאים על ``(user_id, note_id, ack_at)`` בלי לומר *איזו* תזכורת, ו-
+        ``set_note_reminder`` עושה upsert על אותו מסמך — כך שתמיד יש שורה אחת
+        לפגוע בה. ההתראה נושאת את ``remind_at`` של המועד שבו נורתה; אישור עם
+        מועד שאינו המועד השמור הוא 404, והתזכורת החדשה נשארת פעילה.
+        """
+        self._login()
+        fired_at = datetime(2026, 9, 20, 9, 0, 0, tzinfo=timezone.utc)
+        doc = self._seed_due(remind_at=fired_at + timedelta(days=1))
+        r = self.client.post(self.ACK, json={'note_id': self.note_id, 'remind_at': fired_at.isoformat()})
+        self.assertEqual(r.status_code, 404, r.get_data(as_text=True))
+        self.assertEqual(doc['status'], 'pending')
+        self.assertIsNone(doc['ack_at'], 'התראה ישנה סגרה תזכורת חדשה')
+
+    def test_ack_with_the_carried_occurrence_closes_it(self):
+        self._login()
+        fired_at = datetime(2026, 9, 20, 9, 0, 0, 123000, tzinfo=timezone.utc)
+        doc = self._seed_due(remind_at=fired_at)
+        r = self.client.post(self.ACK, json={'note_id': self.note_id, 'remind_at': fired_at.isoformat()})
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        self.assertEqual(doc['status'], 'acked')
+        self.assertIsNotNone(doc['ack_at'])
+
+    def test_ack_tolerates_the_microseconds_the_database_dropped(self):
+        """BSON שומר מילישניות; מחרוזת עם מיקרו-שניות חייבת עדיין להתאים למועד השמור.
+        בקרה: הסרת החיתוך במפתח ← 404 על אישור נכון."""
+        self._login()
+        stored = datetime(2026, 9, 20, 9, 0, 0, 123000, tzinfo=timezone.utc)
+        doc = self._seed_due(remind_at=stored)
+        precise = stored.replace(microsecond=123456).isoformat()
+        r = self.client.post(self.ACK, json={'note_id': self.note_id, 'remind_at': precise})
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        self.assertEqual(doc['status'], 'acked')
+
+    def test_ack_rejects_a_remind_at_it_cannot_read(self):
+        self._login()
+        doc = self._seed_due()
+        for bad in ('yesterday', 123, ['2026-09-20T09:00:00+00:00']):
+            with self.subTest(remind_at=bad):
+                with self.assertNoLogs('webapp.sticky_notes_api', level='ERROR'):
+                    r = self.client.post(self.ACK, json={'note_id': self.note_id, 'remind_at': bad})
+                self.assertEqual(r.status_code, 400, r.get_data(as_text=True))
+                self.assertEqual(r.get_json()['error'], 'invalid_remind_at')
+        self.assertEqual(doc['status'], 'pending', 'קלט פסול סגר תזכורת')
+
+    def test_ack_without_an_occurrence_still_closes_the_reminder(self):
+        """שומר: לקוח ישן — SW שנשמר במטמון, או התראה שכבר הוצגה בלי המועד — שולח
+        ``note_id`` בלבד, ועדיין סוגר. עובר גם על הקוד הישן בכוונה."""
+        self._login()
+        doc = self._seed_due()
+        r = self.client.post(self.ACK, json={'note_id': self.note_id})
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        self.assertEqual(doc['status'], 'acked')
+
+    def test_list_items_carry_the_occurrence_for_the_ack(self):
+        """החלונית מאשרת בלחיצה; כדי שהאישור ייקשר למועד, הרשימה חייבת לשאת אותו."""
+        self._login()
+        fired_at = datetime(2026, 9, 20, 9, 0, 0, 123000, tzinfo=timezone.utc)
+        self._seed_due(remind_at=fired_at)
+        r = self.client.get('/api/sticky-notes/reminders/list')
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        items = r.get_json()['items']
+        self.assertEqual(len(items), 1, items)
+        self.assertEqual(items[0]['remind_at'], fired_at.isoformat())
+
+    # --- WARN-010 ו-SUGG-010: אתרי הכתיבה עוברים דרך המודול -----------------------
+
+    def test_arming_writes_the_status_the_module_defines(self):
+        """שינוי הקבוע שינה מה נקרא אבל לא מה נכתב, כי אתר הכתיבה החזיק מחרוזת משלו.
+        הקבוע מוחלף לרגע, והכתיבה חייבת לעקוב אחריו."""
+        self._login()
+        with mock.patch('note_reminder_state.REMINDER_STATUS_PENDING', 'armed-by-test'):
+            r = self.client.post(f'/api/sticky-notes/note/{self.note_id}/reminder', json={'preset': '1h', 'tz': 'UTC'})
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        self.assertEqual(self.db.note_reminders._docs[-1]['status'], 'armed-by-test')
+
+    def test_snoozing_writes_the_status_the_module_defines(self):
+        self._login()
+        doc = self._seed_pending()
+        with mock.patch('note_reminder_state.REMINDER_STATUS_SNOOZED', 'snoozed-by-test'):
+            r = self.client.post(f'/api/sticky-notes/note/{self.note_id}/snooze', json={'minutes': 10})
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        self.assertEqual(doc['status'], 'snoozed-by-test')
+
+    def test_snooze_does_not_rewrite_the_ack_it_already_required(self):
+        """הפילטר דורש ``ack_at`` ריק, ולכן ``ack_at: None`` בכתיבה היה מת."""
+        self._login()
+        self._seed_pending()
+        r = self.client.post(f'/api/sticky-notes/note/{self.note_id}/snooze', json={'minutes': 10})
+        self.assertEqual(r.status_code, 200, r.get_data(as_text=True))
+        sets = [c[2]['$set'] for c in self.db.note_reminders.calls if c[0] == 'update_one']
+        self.assertTrue(sets)
+        self.assertNotIn('ack_at', sets[-1])
 
     def test_summary_rejects_non_dict_json_body(self):
         """גוף JSON שאינו אובייקט מקבל 400, לא 500."""

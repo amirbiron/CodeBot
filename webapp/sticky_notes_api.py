@@ -42,7 +42,10 @@ from sticky_notes_target import (
 from note_reminder_state import (
     acknowledge_fields,
     active_reminder_filter,
+    armed_fields,
+    parse_remind_at,
     seconds_until as _seconds_until,
+    snoozed_fields,
 )
 # ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
 # תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
@@ -1078,12 +1081,8 @@ def set_note_reminder(note_id: str):
             # לפתק לוח אין file_id, ובלי השדה הזה ה-Service Worker
             # לא היה יודע לאן לפתוח את ההתראה.
             'board_id': str(note.get('board_id', '') or ''),
-            'status': 'pending',
-            'remind_at': dt_utc,
-            'snooze_until': None,
-            'ack_at': None,
-            'updated_at': now_utc,
-            'needs_push': True,
+            # שדות מחזור החיים מגיעים מהמודול, כדי שקבוע שמשתנה ישנה גם את הכתיבה.
+            **armed_fields(dt_utc, now_utc),
         }
         # Upsert: keep only one active reminder per note for simplicity
         try:
@@ -1145,24 +1144,17 @@ def snooze_note_reminder(note_id: str):
         if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1 or minutes > 24 * 60:
             return jsonify({'ok': False, 'error': 'Invalid minutes'}), 400
         new_time = datetime.now(timezone.utc) + timedelta(minutes=minutes)
-        # גם כאן הפילטר המלא. ``snooze`` מאפס ``ack_at`` בכוונה — דחייה
-        # מחזירה תזכורת למחזור — אבל הוא אמור להחיות תזכורת **פעילה**,
-        # לא כזו שהמשתמש כבר סגר. בלי התנאי, לחיצה על דחייה בהתראה ישנה
-        # הייתה מחזירה לחיים תזכורת שנסגרה מזמן, בשקט.
+        # גם כאן הפילטר המלא: דחייה מחיה תזכורת **פעילה**, לא כזו שהמשתמש כבר
+        # סגר. בלי התנאי, לחיצה על דחייה בהתראה ישנה הייתה מחזירה לחיים תזכורת
+        # שנסגרה מזמן, בשקט. ומכיוון שהפילטר כבר דורש ``ack_at`` ריק, הכתיבה
+        # אינה נוגעת בו — שדות הדחייה מגיעים מהמודול.
         r = db.note_reminders.update_one(
             dict(
                 active_reminder_filter(),
                 user_id=user_id,
                 note_id=str(note_id),
             ),
-            {'$set': {
-                'status': 'snoozed',
-                'snooze_until': new_time,
-                'remind_at': new_time,
-                'updated_at': datetime.now(timezone.utc),
-                'ack_at': None,
-                'needs_push': True,  # Reset so push will be sent again
-            }},
+            {'$set': snoozed_fields(new_time, datetime.now(timezone.utc))},
         )
         if getattr(r, 'matched_count', 0) <= 0:
             return jsonify({'ok': False, 'error': 'Reminder not found'}), 404
@@ -1188,7 +1180,7 @@ def reminders_summary():
     Response:
       { ok, has_due: bool, count_due: int, next_in_seconds: int | null }
 
-    **``next_in_seconds`` הוא מה שמפסיק את הדגימה על ריק.** עד כאן הלקוח
+    **``next_in_seconds`` הוא מה שמחליף את הדגימה הקבועה.** עד כאן הלקוח
     דגם כל חמש דקות בלי קשר למצב, כי "כן/לא" היה כל מה שקיבל — 954 קריאות
     ביממה שכולן החזירו "אין". השרת הוא היחיד שיודע גם *מתי* התזכורת הבאה,
     ולכן הוא זה שאומר ללקוח מתי לחזור — גם כשיש בועה: אז התשובה היא לכל
@@ -1258,10 +1250,14 @@ def reminders_list():
         {
           "ok": true,
           "items": [
-            { "note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro", "anchor_text": "Intro" }
+            { "note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro", "anchor_text": "Intro",
+              "remind_at": "2026-09-20T09:00:00+00:00" }
           ],
           "count": 1
         }
+
+    ``remind_at`` הוא המועד שהפריט הזה נורה עליו; החלונית מחזירה אותו ב-``ack``,
+    כדי שהאישור ייקשר למועד הזה ולא ל"איזו שהיא" תזכורת של הפתק.
     """
     try:
         _ensure_indexes()
@@ -1355,6 +1351,7 @@ def reminders_list():
                 else:
                     preview = ''
 
+                remind_at = r.get('remind_at')
                 items.append({
                     'note_id': note_id,
                     'file_id': file_id,
@@ -1362,6 +1359,7 @@ def reminders_list():
                     'preview': preview,
                     'anchor_id': anchor_id,
                     'anchor_text': anchor_text,
+                    'remind_at': remind_at.isoformat() if isinstance(remind_at, datetime) else '',
                 })
             except Exception:
                 # Skip malformed entries rather than failing the entire list
@@ -1384,6 +1382,14 @@ def reminders_ack():
     תזכורות "בהמתנה" שאיש לא המתין להן. השדות מגיעים מ-
     :func:`note_reminder_state.acknowledge_fields`, שמחזירה את שניהם או
     אף אחד, ומונגו מחילה אותם ב-``$set`` יחיד.
+
+    **ונקשר למועד שההתראה נשאה.** בלי ``remind_at`` בגוף, האישור סגר "איזו
+    שהיא" תזכורת של הפתק; וכשהפתק נדרך מחדש אחרי שההתראה נורתה — בדיוק מה
+    שעושים כשתזכורת מגיעה ברגע לא נוח — התראה ישנה במגש סגרה את התזכורת של
+    מחר, כי ``set_note_reminder`` עושה upsert על אותו מסמך ויש תמיד שורה אחת
+    לפגוע בה. עם המועד, הפילטר תופס רק את המסמך שעדיין נושא אותו: מסמך שנדרך
+    מחדש או נדחה מאז עונה 404, ונשאר פעיל. לקוח שאינו שולח מועד (SW ישן
+    במטמון, התראה שהוצגה לפני השדה) מאשר בלי קשירה — ההתנהגות של קודם.
     """
     try:
         user_id = int(session['user_id'])
@@ -1394,8 +1400,17 @@ def reminders_ack():
         note_id = str(payload.get('note_id') or '').strip()
         if not note_id:
             return jsonify({'ok': False, 'error': 'note_id required'}), 400
+        # קלט חיצוני: מחרוזת ISO או כלום. מחרוזת שאינה נקראת היא 400 ולא
+        # "בלי קשירה" — אחרת באג בלקוח היה סוגר תזכורת שרירותית של הפתק.
+        try:
+            occurrence = parse_remind_at(payload.get('remind_at'))
+        except ValueError:
+            return jsonify({'ok': False, 'error': 'invalid_remind_at'}), 400
+        ack_filter = {'user_id': user_id, 'note_id': note_id, 'ack_at': None}
+        if occurrence is not None:
+            ack_filter['remind_at'] = occurrence
         r = db.note_reminders.update_one(
-            {'user_id': user_id, 'note_id': note_id, 'ack_at': None},
+            ack_filter,
             {'$set': acknowledge_fields(datetime.now(timezone.utc))}
         )
         if getattr(r, 'matched_count', 0) <= 0:
