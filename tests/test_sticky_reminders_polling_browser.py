@@ -222,6 +222,13 @@ STAMP_THEN_FETCH = (
 )
 CATCH_BACKS_OFF = "} catch(_) { return failAndBackOff(); }"
 POPOVER_UNKNOWN = "openPopover(target, (lj && lj.ok) ? lj : { error: true });"
+FLOOR_SKIPS_WHEN_STOPPED = "if (!stopped && Date.now() - lastPollAt < MIN_POLL_MS) { return; }"
+BACKOFF_RETURNS = "    window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;\n    return backoffMs;"
+STOP_CLEARS_TIMER = "    try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}\n    pollTimer = null;"
+LIST_401_STOPS = (
+    "if (lr.status === 401) { removeDot(); stopChain(); "
+    "openPopover(target, { unauthorized: true }); return; }"
+)
 
 
 def _mutate(script: str, anchor: str, replacement: str) -> str:
@@ -344,21 +351,67 @@ def test_401_stops_the_chain_and_removes_the_badge(chromium_executable):
 
 
 def test_after_401_the_next_attempt_is_the_next_focus(chromium_executable):
-    """"מתי הניסיון הבא כן יוצא": בחזרה ללשונית, פעם אחת, ועדיין בלי טיימר.
+    """"מתי הניסיון הבא כן יוצא": בחזרה ללשונית, מיד, ועדיין בלי טיימר.
 
-    כך התחברות בלשונית אחרת מחיה את הבועה בלי רענון, ובלי התחברות זו
-    בקשה אחת לכל פוקוס ולא אחת לדקה. הרצפה מאופסת כאן כי אי אפשר להמתין
-    דקה בטסט; מה שנמדד הוא שהפוקוס עצמו מנסה שוב ושהתוצאה שוב עוצרת.
+    ברצפה האמיתית של דקה, בכוונה. הרצפה נועדה למעברים בין אפליקציות בזמן
+    ששרשרת חיה; במצב עצור אין שרשרת, והפוקוס הוא המסלול היחיד חזרה — ולכן
+    הוא מנסה גם שניות אחרי ה-401. כך התחברות בלשונית אחרת מחיה את הבועה
+    בלי רענון. לפני התיקון פוקוס בתוך הדקה נבלע ברצפה, בעוד התיעוד ושתי
+    הערות בקוד הבטיחו "פעם אחת בכל חזרה ללשונית".
     """
-    script = _mutate(_polling_script(), MIN_LINE, "const MIN_POLL_MS = 0;")
+    with _chain(chromium_executable, _polling_script(), __status=401) as page:
+        page.wait_for_function("window.__calls.length >= 1", timeout=8000)
+        page.wait_for_timeout(300)
+        _focus(page)
+        page.wait_for_timeout(500)
+        assert len(_calls(page)) == 2, len(_calls(page))
+        assert _delays(page) == [], _delays(page)
+
+
+def test_applying_the_floor_while_stopped_breaks_the_test(chromium_executable):
+    """ריצת בקרה: הרצפה חלה גם במצב עצור — הפוקוס בתוך הדקה נבלע."""
+    script = _mutate(
+        _polling_script(), FLOOR_SKIPS_WHEN_STOPPED, "if (Date.now() - lastPollAt < MIN_POLL_MS) { return; }"
+    )
+    with _chain(chromium_executable, script, __status=401) as page:
+        page.wait_for_function("window.__calls.length >= 1", timeout=8000)
+        page.wait_for_timeout(300)
+        _focus(page)
+        page.wait_for_timeout(500)
+        assert len(_calls(page)) == 1, len(_calls(page))
+
+
+def test_the_inflight_guard_holds_while_the_floor_is_bypassed(chromium_executable):
+    """במצב עצור הרצפה עקופה — אבל בקשה באוויר עדיין חוסמת פוקוס נוסף.
+
+    401 עוצר; הפוקוס הבא שולח בקשה שנתקעת; שלושה פוקוסים נוספים בזמן שהיא
+    באוויר אינם שולחים כלום. הגארד inFlight אינו תלוי ברצפה.
+    """
+    with _chain(chromium_executable, _polling_script(), __status=401) as page:
+        page.wait_for_function("window.__calls.length >= 1", timeout=8000)
+        page.wait_for_timeout(200)
+        page.evaluate("window.__mode = 'stall'")
+        _focus(page)
+        page.wait_for_function("window.__calls.length >= 2", timeout=8000)
+        for _ in range(3):
+            _focus(page)
+        page.wait_for_timeout(300)
+        assert len(_calls(page)) == 2, len(_calls(page))
+
+
+def test_dropping_the_inflight_guard_while_stopped_breaks_the_test(chromium_executable):
+    """ריצת בקרה: בלי הגארד, במצב עצור כל פוקוס פותח עוד בקשה תקועה."""
+    script = _mutate(_polling_script(), INFLIGHT_GUARD, "")
     with _chain(chromium_executable, script, __status=401) as page:
         page.wait_for_function("window.__calls.length >= 1", timeout=8000)
         page.wait_for_timeout(200)
+        page.evaluate("window.__mode = 'stall'")
         _focus(page)
         page.wait_for_function("window.__calls.length >= 2", timeout=8000)
-        page.wait_for_timeout(200)
-        assert len(_calls(page)) == 2, len(_calls(page))
-        assert _delays(page) == [], _delays(page)
+        for _ in range(3):
+            _focus(page)
+        page.wait_for_function("window.__calls.length >= 3", timeout=8000)
+        assert len(_calls(page)) >= 3, len(_calls(page))
 
 
 def test_dropping_the_401_branch_breaks_the_test(chromium_executable):
@@ -523,3 +576,98 @@ def test_falling_back_to_an_empty_list_breaks_the_test(chromium_executable):
         page.wait_for_function("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')", timeout=8000)
         pop = _click_bubble_and_read_popover(page)
         assert "0 פתקים" in pop["title"] and pop["snooze"] is True, pop
+
+
+# --- הבועה כמצב אחרון ידוע, ועצירה שמבטלת את הטיימר --------------------------
+
+def test_a_failed_poll_keeps_the_badge_it_cannot_refute(chromium_executable):
+    """500 אחרי "יש תזכורות": הבועה נשארת — כשל אינו ראיה שהתזכורות נעלמו.
+
+    לפני התיקון failAndBackOff מחקה את הבועה, ועם ה-backoff המעריכי היא
+    נעלמה עד חצי שעה על תקלה חולפת; והחלונית "לא הצלחתי לבדוק" לא הייתה
+    נגישה, כי מה שפותח אותה נמחק. רק 401 ו"אין תזכורות" מסירים בועה.
+    """
+    script = _shrunk(_polling_script(), 1, 40)
+    with _chain(chromium_executable, script, __statuses=[200, 500], __reply=_summary(**_DUE), __fireFirst=1) as page:
+        page.wait_for_function("window.__calls.length >= 2", timeout=8000)
+        page.wait_for_timeout(100)
+        assert _delays(page) == [40, 1], _delays(page)
+        assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is True
+
+
+def test_removing_the_badge_on_failure_breaks_the_test(chromium_executable):
+    """ריצת בקרה: removeDot() בחזרה לתוך failAndBackOff — הבועה נמחקת על 500."""
+    script = _mutate(_shrunk(_polling_script(), 1, 40), BACKOFF_RETURNS, "    removeDot();\n    return backoffMs;")
+    with _chain(chromium_executable, script, __statuses=[200, 500], __reply=_summary(**_DUE), __fireFirst=1) as page:
+        page.wait_for_function("window.__calls.length >= 2", timeout=8000)
+        page.wait_for_timeout(100)
+        assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is False
+
+
+def test_a_401_on_a_focus_poll_cancels_the_pending_timer(chromium_executable):
+    """401 שמגיע בפוקוס, בזמן שטיימר מהדגימה הקודמת תלוי: הטיימר מבוטל.
+
+    לפני התיקון העצירה איפסה רק את הידית, והטיימר התלוי ירה ושלח עוד בקשה.
+    הרצפה מאופסת כי הטיימר כאן הוא של 400 מ"ש ולא של 30 דקות.
+    """
+    script = _shrunk(_polling_script(), 0, 400)
+    with _chain(chromium_executable, script, __statuses=[200, 401], __reply=_summary(), __fireFirst=1) as page:
+        page.wait_for_function("window.__calls.length >= 1", timeout=8000)
+        page.wait_for_timeout(50)
+        _focus(page)
+        page.wait_for_function("window.__calls.length >= 2", timeout=8000)
+        page.wait_for_timeout(700)
+        assert len(_calls(page)) == 2, len(_calls(page))
+        assert _delays(page) == [400], _delays(page)
+
+
+def test_dropping_the_clear_on_stop_breaks_the_test(chromium_executable):
+    """ריצת בקרה: בלי clearTimeout בעצירה — הטיימר התלוי יורה ושולח בקשה שלישית."""
+    script = _mutate(_shrunk(_polling_script(), 0, 400), STOP_CLEARS_TIMER, "    pollTimer = null;")
+    with _chain(chromium_executable, script, __statuses=[200, 401], __reply=_summary(), __fireFirst=1) as page:
+        page.wait_for_function("window.__calls.length >= 1", timeout=8000)
+        page.wait_for_timeout(50)
+        _focus(page)
+        page.wait_for_function("window.__calls.length >= 3", timeout=8000)
+        assert len(_calls(page)) == 3, len(_calls(page))
+
+
+# --- 401 ברשימה: הסשן נגמר, לא "לא ידוע" ---------------------------------------
+
+def test_a_401_on_the_list_says_the_session_ended(chromium_executable):
+    """הסשן פג בין הדגימה ללחיצה: החלונית אומרת זאת, הבועה יורדת, והשרשרת נעצרת.
+
+    לפני התיקון 401 ברשימה קיבל את הטיפול הגנרי — "לא הצלחתי לבדוק" ובועה
+    שנשארת — בעוד אותו 401 בדגימה מסיר את הבועה ועוצר את השרשרת.
+    """
+    due = _summary(**_DUE)
+    with _chain(chromium_executable, _polling_script(), __status=200, __reply=due, __listStatus=401) as page:
+        page.wait_for_function("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')", timeout=8000)
+        armed = _delays(page)
+        pop = _click_bubble_and_read_popover(page)
+        assert "ההתחברות פגה" in pop["title"], pop
+        assert pop["links"] == 0 and pop["snooze"] is False and pop["close"] is True, pop
+        assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is False
+        page.click(".notif-popover [data-action='close-ui']")
+        page.wait_for_timeout(200)
+        # השרשרת עצורה: אין טיימר חדש, והפוקוס הבא מנסה מיד ומקבל 401 גם בדגימה.
+        page.evaluate("window.__status = 401")
+        before = len([c for c in _calls(page) if "/summary" in c["url"]])
+        _focus(page)
+        page.wait_for_timeout(400)
+        after = len([c for c in _calls(page) if "/summary" in c["url"]])
+        assert after == before + 1, (before, after)
+        assert _delays(page) == armed, _delays(page)
+
+
+def test_treating_a_list_401_as_unknown_breaks_the_test(chromium_executable):
+    """ריצת בקרה: 401 ברשימה במסלול הגנרי — "לא הצלחתי", והבועה נשארת."""
+    script = _mutate(_polling_script(), LIST_401_STOPS, "")
+    due = _summary(**_DUE)
+    with _chain(chromium_executable, script, __status=200, __reply=due, __listStatus=401) as page:
+        page.wait_for_function("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')", timeout=8000)
+        pop = _click_bubble_and_read_popover(page)
+        assert "לא הצלחתי" in pop["title"], pop
+        page.click(".notif-popover [data-action='close-ui']")
+        page.wait_for_timeout(200)
+        assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is True

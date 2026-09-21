@@ -4472,6 +4472,10 @@
   let lastPollAt = 0;
   let inFlight = false;
   let consecutiveFailures = 0;
+  // השרשרת עצורה: הסשן נגמר (401 בדגימה או בלחיצה על הבועה). אין טיימר,
+  // והפוקוס הבא הוא המסלול היחיד חזרה — ולכן רצפת הדקה של visibilitychange
+  // אינה חלה עליו.
+  let stopped = false;
 
   function fetchOpts(){
     const o = { cache: 'no-store', credentials: 'same-origin' };
@@ -4487,12 +4491,22 @@
   // __stickyRemindersBackoffUntil שמשרת את 429, ולכן גם visibilitychange
   // מכבד אותה. הגרסה הקודמת חזרה כל דקה לנצח — 1440 בקשות ביממה לטאב, פי
   // חמישה מה-setInterval שהוחלף, ודווקא כשהשרת נופל.
+  // והבועה שכבר הוצגה נשארת: היא המצב האחרון הידוע, וכשל אינו ראיה
+  // שהתזכורות נעלמו. רק "אין תזכורות" ו-401 מסירים אותה — מחיקה כאן הפכה
+  // תקלה חולפת לבועה שנעלמת לחצי שעה, בלי דרך לפתוח את החלונית.
   function failAndBackOff(){
     consecutiveFailures += 1;
     const backoffMs = Math.min(MAX_POLL_MS, MIN_POLL_MS * 2 ** (consecutiveFailures - 1));
     window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;
-    removeDot();
     return backoffMs;
+  }
+  // עוצרת את השרשרת כשהסשן נגמר. מבטלת את הטיימר התלוי ולא רק את הידית:
+  // 401 שהגיע בפוקוס, בזמן שטיימר מהדגימה הקודמת תלוי, השאיר אותו יורה
+  // ושולח עוד בקשה.
+  function stopChain(){
+    stopped = true;
+    try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}
+    pollTimer = null;
   }
 
   function isMobile(){ return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
@@ -4540,10 +4554,14 @@
     document.body.appendChild(pop);
     // מצב "לא ידוע": הרשימה לא נקראה. ה-summary אמר שיש תזכורות — זו הסיבה
     // שהבועה קיימת — ולכן לא מציגים "0 פתקים" ולא מציעים לדחות מה שלא נקרא.
-    const isError = !!(data && data.error);
+    // ומצב "הסשן נגמר": 401 ברשימה — הבועה כבר הוסרה, ואומרים למה.
+    const isUnauthorized = !!(data && data.unauthorized);
+    const isError = isUnauthorized || !!(data && data.error);
     const count = Number(data && data.count) || 0;
     const items = isError ? [] : (Array.isArray(data && data.items) ? data.items : []);
-    const title = isError ? '🔔 לא הצלחתי לבדוק את התזכורות. נסו שוב בעוד רגע.' : `🔔 יש לך ${count} פתקים שממתינים:`;
+    const title = isUnauthorized
+      ? '🔔 ההתחברות פגה. התחברו מחדש כדי לראות את התזכורות.'
+      : (isError ? '🔔 לא הצלחתי לבדוק את התזכורות. נסו שוב בעוד רגע.' : `🔔 יש לך ${count} פתקים שממתינים:`);
     const listHtml = items.map(it => {
       const prev = (it.preview || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       return `<li style="list-style:none; margin:4px 0;"><a href="#" data-note-id="${String(it.note_id || '')}" data-file-id="${String(it.file_id || '')}" class="reminder-link" style="text-decoration:none; color:inherit;">• ${prev || 'פתק ללא כותרת'}...</a></li>`;
@@ -4671,8 +4689,8 @@
       }
       // הסשן נגמר. הבועה לא יכולה להיות נכונה עד שמתחברים מחדש, ולנסות כל
       // דקה זה רק להציף את השרת ב-401. עוצרים את השרשרת; visibilitychange
-      // עדיין מנסה פעם אחת בכל חזרה ללשונית, כך שהתחברות בלשונית אחרת מחיה
-      // את הבועה בלי רענון.
+      // מנסה מיד בכל חזרה ללשונית — בלי רצפת הדקה, שנועדה לשרשרת חיה — כך
+      // שהתחברות בלשונית אחרת מחיה את הבועה בלי רענון.
       if (r.status === 401) { removeDot(); return POLL_STOP; }
       if (!r.ok) { return failAndBackOff(); }
       const j = await r.json();
@@ -4698,6 +4716,9 @@
         // כולם "לא ידוע", והחלונית אומרת את זה במקום להציג "0 פתקים".
         try {
           const lr = await fetch('/api/sticky-notes/reminders/list?limit=20', fetchOpts());
+          // הסשן נגמר בין הדגימה ללחיצה: הבועה אינה נכונה, והשרשרת נעצרת כמו
+          // ב-401 של הדגימה — ואומרים למשתמש למה, במקום להעלים בועה בשקט.
+          if (lr.status === 401) { removeDot(); stopChain(); openPopover(target, { unauthorized: true }); return; }
           const lj = lr.ok ? await lr.json().catch(()=>null) : null;
           openPopover(target, (lj && lj.ok) ? lj : { error: true });
         } catch(_) { openPopover(target, { error: true }); }
@@ -4723,18 +4744,21 @@
     inFlight = true;
     let nextMs = MAX_POLL_MS;
     try { nextMs = await poll(); } catch(_) { nextMs = failAndBackOff(); } finally { inFlight = false; }
-    // 401: אין טיימר. הניסיון הבא הוא visibilitychange, פעם אחת לכל פוקוס.
-    if (nextMs === POLL_STOP) { pollTimer = null; return; }
+    // 401: אין טיימר. הניסיון הבא הוא visibilitychange, מיד בפוקוס הבא.
+    if (nextMs === POLL_STOP) { stopChain(); return; }
+    stopped = false;
     schedule(nextMs);
   }
 
   // חזרה ללשונית מפעילה בדיקה — אבל לא בכל פעם. במכשיר נייד כל מעבר בין
   // אפליקציות הוא visibilitychange, ובלי הרצפה הזו עצם השימוש במכשיר היה
-  // מייצר את רוב הקריאות.
+  // מייצר את רוב הקריאות. במצב עצור אין שרשרת שהרצפה שומרת עליה, והפוקוס
+  // הוא הדרך היחידה חזרה — לכן שם היא לא חלה; inFlight והשער של ה-backoff
+  // בתוך poll() ממשיכים לחול (נמדד).
   try {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible') { return; }
-      if (Date.now() - lastPollAt < MIN_POLL_MS) { return; }
+      if (!stopped && Date.now() - lastPollAt < MIN_POLL_MS) { return; }
       pollAndReschedule();
     });
   } catch(_) {}
