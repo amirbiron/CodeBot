@@ -523,17 +523,35 @@ def require_auth(f):
     return _inner
 
 
-def _failed(route: str):
-    """500 עם עקבה בשרת: הלוג נושא את ה-traceback, הלקוח מקבל רק ``Failed``.
+def _failed(route: str, error: str = 'Failed'):
+    """500 עם עקבה בשרת: הלוג נושא את ה-traceback, הלקוח מקבל רק ``error``.
 
     ``@traced`` רושם רק חריגה שיוצאת מהפונקציה, וה-``except`` הגורף במסלולי
     התזכורות תופס אותה קודם — ולכן עד היום נתיב שנפל לא השאיר שום סימן בשרת,
     בזמן שהלקוח הופך את ה-500 ל-backoff שקט. ההודעה קבועה, והחריגה עוברת את
     מסנן ההשחרה של הלוגים כמו כל ``exc_info`` אחר במודול. חייב להיקרא מתוך
-    ה-``except``, כי ``exc_info=True`` קורא את החריגה הפעילה.
+    ה-``except``, כי ``exc_info=True`` קורא את החריגה הפעילה. ``error`` הוא הטקסט
+    שהלקוח כבר מכיר במסלול הזה (``Failed``, או ``Failed to save`` בשמירה); הוא
+    לעולם אינו נושא פרטי חריגה.
     """
     logger.error("sticky notes %s failed", route, exc_info=True)
-    return jsonify({'ok': False, 'error': 'Failed'}), 500
+    return jsonify({'ok': False, 'error': error}), 500
+
+
+def _json_object():
+    """גוף ה-JSON של הבקשה כמילון — או ``None`` כשהגוף אינו אובייקט.
+
+    ``request.get_json(silent=True) or {}`` תופס רק גוף ריק: גוף שהוא רשימה או
+    מחרוזת הוא truthy, עובר את ה-``or``, ואז ``.get`` זורק ``AttributeError``
+    שה-``except`` הגורף הופך ל-500 — ומאז ``_failed`` גם לשורת ERROR עם
+    traceback — על טעות של הלקוח. הבדיקה היא על הטיפוס, לא על האמיתות: אין גוף
+    ← מילון ריק, כי למסלולים יש ברירות מחדל (דחייה בלי ``minutes`` היא שעה);
+    גוף שאינו אובייקט ← ``None``, והמסלול עונה ``invalid_payload`` 400.
+    """
+    payload = request.get_json(silent=True)
+    if payload is None:
+        return {}
+    return payload if isinstance(payload, dict) else None
 
 
 # Simple in-memory rate limiter per user and endpoint key
@@ -1042,7 +1060,9 @@ def set_note_reminder(note_id: str):
         note = _ensure_user_owns_note(db, user_id, note_id)
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
-        payload = request.get_json(silent=True) or {}
+        payload = _json_object()
+        if payload is None:
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
         client_tz = str(payload.get('tz') or 'Asia/Jerusalem')
         dt_utc = _parse_when_to_utc(payload, client_tz)
         if not dt_utc:
@@ -1076,7 +1096,7 @@ def set_note_reminder(note_id: str):
                 upsert=True,
             )
         except Exception:
-            return jsonify({'ok': False, 'error': 'Failed to save'}), 500
+            return _failed('set_note_reminder.save', error='Failed to save')
         try:
             emit_event('note_reminder_set', severity='info', user_id=user_id, note_id=str(note_id))
         except Exception:
@@ -1111,9 +1131,18 @@ def snooze_note_reminder(note_id: str):
     try:
         user_id = int(session['user_id'])
         db = get_db()
-        payload = request.get_json(silent=True) or {}
-        minutes = int(payload.get('minutes') or 60)
-        if minutes < 1 or minutes > 24 * 60:
+        payload = _json_object()
+        if payload is None:
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
+        # קלט חיצוני, ולכן בדיקת טיפוס לפני ההמרה ולא ``except`` אחריה: ``int()``
+        # על מחרוזת או רשימה זורק — וזה היה 500 עם traceback על טעות של הלקוח —
+        # ועל ``True`` או ``3.9`` הוא ממיר בשקט (1, 3) ומקבע דחייה שאיש לא ביקש.
+        # מספר שלם בלבד; ``bool`` הוא תת-טיפוס של ``int`` ולכן מוחרג במפורש.
+        # חסר או ``null`` ← ברירת המחדל המתועדת, שעה.
+        minutes = payload.get('minutes')
+        if minutes is None:
+            minutes = 60
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1 or minutes > 24 * 60:
             return jsonify({'ok': False, 'error': 'Invalid minutes'}), 400
         new_time = datetime.now(timezone.utc) + timedelta(minutes=minutes)
         # גם כאן הפילטר המלא. ``snooze`` מאפס ``ack_at`` בכוונה — דחייה
@@ -1359,12 +1388,9 @@ def reminders_ack():
     try:
         user_id = int(session['user_id'])
         db = get_db()
-        # ``or {}`` תופס רק גוף ריק. גוף JSON שהוא רשימה עובר אותו — הוא
-        # truthy — ואז ``.get`` זורק ``AttributeError`` שנבלע למטה ומוחזר
-        # כ-500 במקום 400. הבדיקה היא על הטיפוס, לא על האמיתות.
-        payload = request.get_json(silent=True)
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = _json_object()
+        if payload is None:
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
         note_id = str(payload.get('note_id') or '').strip()
         if not note_id:
             return jsonify({'ok': False, 'error': 'note_id required'}), 400
