@@ -166,7 +166,8 @@ def test_removing_the_clamp_breaks_the_long_delay(chromium_executable):
 # תתקדם ונמדוד רצף, ואז חונה. ``fetch`` המדומה יודע להיכשל בכל הצורות
 # שהקוד מבחין ביניהן, ומכבד ``opts.signal`` — כי ``AbortSignal.timeout`` הוא
 # של הדפדפן, ו-``page.clock`` של Playwright אינו מזייף אותו (מתועד: הוא מכסה
-# Date/setTimeout/rAF/performance בלבד). לכן טסט ה-stall ממתין זמן אמיתי.
+# Date/setTimeout/rAF/performance בלבד). לכן הקבוע שמוזן לו מקוצר בעותק
+# (``_with_fetch_timeout``), והערך האמיתי נאכף בטסט נפרד.
 # ---------------------------------------------------------------------------
 
 CHAIN_HARNESS = """
@@ -217,6 +218,7 @@ PAGE_WITH_BUBBLE = PAGE.replace(
     '<a class="nav-link" href="/settings">הגדרות</a>',
     '<a class="nav-link" href="/settings">הגדרות<span class="notif-bubble" data-kind="reminder">1</span></a>',
 )
+assert PAGE_WITH_BUBBLE != PAGE, "העוגן לזריעת הבועה לא נמצא ב-PAGE — 'הבועה הוסרה' היה עובר על עמוד ריק"
 
 #: השורות שהמוטציות תופסות. כולן חייבות להופיע פעם אחת בדיוק בסקריפט.
 MIN_LINE = "const MIN_POLL_MS = 60 * 1000;"
@@ -245,6 +247,10 @@ FETCH_TIMEOUT_LINE = "const FETCH_TIMEOUT_MS = 15 * 1000;"
 ABORT_FALLBACK = "} else if (typeof AbortController === 'function') {"
 BAD_BODY_CHECK = "if (!j || !j.ok) { return failAndBackOff('bad body'); }"
 LATEST_CLICK = "const gen = ++listGen;"
+LIST_CATCH_REPORTS = (
+    "          console.warn('[sticky-reminders] list fetch failed:', e);\n"
+    "          openPopover(target, { error: true });"
+)
 NO_ABORT_TIMEOUT = "AbortSignal.timeout = undefined;"
 STOP_CLEARS_TIMER = "    try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}\n    pollTimer = null;"
 LIST_401_STOPS = (
@@ -452,12 +458,12 @@ def test_a_stalled_request_times_out_and_the_chain_survives(chromium_executable)
 
     לפני התיקון: אפס טיימרים — השרשרת מתה עד רענון. השרת לא יכול להציל:
     worker של gevent אינו מודד אורך בקשה, ובחיבור half-open שום חבילה לא
-    מגיעה ללקוח. ממתין 15 שניות אמיתיות, כי ``AbortSignal.timeout`` הוא של
-    הדפדפן ולא ניתן לזיוף. הדחייה חייבת להיות ``TimeoutError`` — נמדד
-    ב-Chromium 141 מול MDN.
+    מגיעה ללקוח. ``AbortSignal.timeout`` הוא של הדפדפן ולא ניתן לזיוף, ולכן
+    התקרה מקוצרת בעותק ל-300 מ"ש. הדחייה חייבת להיות ``TimeoutError`` —
+    נמדד ב-Chromium 141 מול MDN.
     """
-    with _chain(chromium_executable, _polling_script(), __mode="stall") as page:
-        page.wait_for_function("window.__delays.length >= 1", timeout=25000)
+    with _chain(chromium_executable, _with_fetch_timeout(_polling_script(), 300), __mode="stall") as page:
+        page.wait_for_function("window.__delays.length >= 1", timeout=5000)
         assert _calls(page)[0]["hasSignal"] is True
         assert page.evaluate("window.__abortReason") == "TimeoutError"
         assert _delays(page) == [MIN_POLL_MS], _delays(page)
@@ -465,11 +471,20 @@ def test_a_stalled_request_times_out_and_the_chain_survives(chromium_executable)
 
 def test_dropping_the_signal_breaks_the_test(chromium_executable):
     """ריצת בקרה: בלי סיגנל — הבקשה תלויה, ואין טיימר גם אחרי הזמן."""
-    script = _mutate(_polling_script(), SIGNAL_LINE, "")
+    script = _mutate(_with_fetch_timeout(_polling_script(), 300), SIGNAL_LINE, "")
     with _chain(chromium_executable, script, __mode="stall") as page:
-        page.wait_for_timeout(18000)
+        page.wait_for_timeout(2000)
         assert _calls(page)[0]["hasSignal"] is False
         assert _delays(page) == [], _delays(page)
+
+
+def test_the_real_fetch_timeout_is_fifteen_seconds():
+    """הערך האמיתי של התקרה נאכף כאן, כי טסטי ה-stall מקצרים אותו בעותק.
+
+    15 שניות: פי כמעט שלושה מהמקסימום שנמדד ב-endpoint (5.32 שניות, worker
+    טרי אחרי דיפלוי; המקור המלא בהערה מעל הקבוע ב-base.html).
+    """
+    assert _polling_script().count(FETCH_TIMEOUT_LINE) == 1
 
 
 # --- חפיפה ורצפה ---------------------------------------------------------------
@@ -571,14 +586,21 @@ def _click_bubble_and_read_popover(page):
     })""")
 
 
-def test_badge_click_says_unknown_when_the_list_cannot_be_read(chromium_executable):
+@pytest.mark.parametrize(
+    "list_failure",
+    [{"__listStatus": 500}, {"__listMode": "reject"}, {"__listMode": "bad_json"}],
+    ids=["status-500", "network-error", "bad-json"],
+)
+def test_badge_click_says_unknown_when_the_list_cannot_be_read(chromium_executable, list_failure):
     """הרשימה נכשלה: החלונית אומרת זאת, בלי פריטים ובלי "דחה", והבועה נשארת.
 
-    ה-summary אמר שיש תזכורות — זו הסיבה שהבועה קיימת. 500 ברשימה הוא "לא
-    ידוע", לא "אפס פתקים", ו"סגור" לא מבטל בועה שהיא נכונה.
+    ה-summary אמר שיש תזכורות — זו הסיבה שהבועה קיימת. כשל ברשימה הוא "לא
+    ידוע", לא "אפס פתקים", ו"סגור" לא מבטל בועה שהיא נכונה. 500, שגיאת רשת
+    ו-JSON פגום עוברים בשלושה מסלולים שונים בקוד (lr.ok, ה-catch, lr.json),
+    ולכן שלושתם נמדדים.
     """
     due = _summary(**_DUE)
-    with _chain(chromium_executable, _polling_script(), __status=200, __reply=due, __listStatus=500) as page:
+    with _chain(chromium_executable, _polling_script(), __status=200, __reply=due, **list_failure) as page:
         page.wait_for_function("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')", timeout=8000)
         pop = _click_bubble_and_read_popover(page)
         assert "לא הצלחתי" in pop["title"], pop
@@ -824,3 +846,15 @@ def test_letting_every_click_render_breaks_the_test(chromium_executable):
         assert "יש לך 1" in _popover_title(page), _popover_title(page)
         page.wait_for_timeout(800)
         assert "לא הצלחתי" in _popover_title(page), _popover_title(page)
+
+
+def test_ignoring_a_thrown_list_error_breaks_the_test(chromium_executable):
+    """ריצת בקרה: catch שבולע (``/* ignore */``, כמו ב-main לפני #3438) — שגיאת רשת ברשימה
+    לא פותחת חלונית בכלל, ולכן המקרה network-error של הטסט הראשי נופל."""
+    script = _mutate(_polling_script(), LIST_CATCH_REPORTS, "          /* ignore */")
+    due = _summary(**_DUE)
+    with _chain(chromium_executable, script, __status=200, __reply=due, __listMode="reject") as page:
+        page.wait_for_function("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')", timeout=8000)
+        page.click(".notif-bubble[data-kind='reminder']")
+        page.wait_for_timeout(500)
+        assert page.evaluate("!!document.querySelector('.notif-popover[data-kind=\"reminder\"]')") is False

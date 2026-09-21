@@ -4462,7 +4462,11 @@
   // half-open — מעבר רשת בנייד, NAT שנפל — לא מחזיר שום חבילה, כך ש-fetch
   // בלי סיגנל תלוי לנצח ואיתו השרשרת כולה: היא דורכת את הטיימר הבא רק
   // כשהבקשה הנוכחית נגמרת. 15 שניות: המקסימום שנמדד ב-endpoint הוא 5.32
-  // שניות (worker טרי אחרי דיפלוי); ביטול שגוי עולה ניסיון אחד בעוד דקה.
+  // שניות — access_logs מהייצור שנמצא במהלך הסקירה של #3430 (request_id
+  // 9cbf7ae2, 2026-09-20T00:20:29Z): duration_ms 5324 עם queue_delay 8, כלומר
+  // כל הזמן בתוך ה-handler, כ-2.5 דקות אחרי דיפלוי — worker טרי שפותח חיבור
+  // ראשון למונגו ובונה אינדקסים בבקשה הראשונה (docs/performance-sticky-notes);
+  // ביטול שגוי עולה ניסיון אחד בעוד דקה.
   // מקור: MDN, AbortSignal.timeout() — Baseline 2024, נדחה עם TimeoutError
   // ו-fetch דוחה איתו. נמדד ב-Chromium 141: TimeoutError, "signal timed out".
   const FETCH_TIMEOUT_MS = 15 * 1000;

@@ -194,6 +194,16 @@ class TestNoteRemindersAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()['ok'])
 
+    def test_summary_requires_a_session(self):
+        """בלי סשן — 401 נקי, לא הפניה ולא 403.
+
+        הלקוח (base.html) עוצר את הדגימה על הסטטוס הזה בדיוק; סטטוס אחר
+        היה נכנס ל-backoff המסלים במקום לעצור. הטסט מצמיד את החוזה.
+        """
+        r = self.client.get('/api/sticky-notes/reminders/summary')
+        self.assertEqual(r.status_code, 401)
+        self.assertFalse((r.get_json() or {}).get('ok'))
+
     def test_summary_has_due(self):
         self._login()
         now = datetime.now(timezone.utc)
