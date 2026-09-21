@@ -10,6 +10,10 @@ import hashlib
 import logging
 import re
 
+# מה נחשב תזכורת פעילה — הגדרה אחת לשלושת הצרכנים. השולח כבר סינן
+# ``ack_at`` נכון; הייבוא כאן הוא כדי שלא יהיה עותק שיסטה בפעם הבאה.
+from note_reminder_state import active_reminder_filter
+
 
 def get_db():
     from webapp.app import get_db as _get_db  # lazy import to avoid circulars
@@ -612,11 +616,7 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
     # Strategy:
     # 1) Query "new" documents (needs_push=True) — hits the partial index.
     # 2) If we still need items, query legacy documents without needs_push.
-    base_filter = {
-        "ack_at": None,
-        "status": {"$in": ["pending", "snoozed"]},
-        "remind_at": {"$lte": now},
-    }
+    base_filter = dict(active_reminder_filter(), remind_at={"$lte": now})
     total_needed = max_users * max_per_user
     # We still oversample to compensate for claim collisions / missing subscriptions, etc.
     raw_limit = max(10, int(total_needed * 3))
@@ -764,16 +764,13 @@ def _claim_reminder(db, reminder_doc: dict, ttl_seconds: int | None = None) -> b
         r_id = reminder_doc.get("_id")
         if not r_id:
             return False
-        filt = {
-            "_id": r_id,
-            "ack_at": None,
-            "status": {"$in": ["pending", "snoozed"]},
-            # not currently claimed or claim expired
-            "$or": [
-                {"push_claimed_until": {"$exists": False}},
-                {"push_claimed_until": {"$lte": now}},
-            ],
-        }
+        filt = active_reminder_filter()
+        filt["_id"] = r_id
+        # not currently claimed or claim expired
+        filt["$or"] = [
+            {"push_claimed_until": {"$exists": False}},
+            {"push_claimed_until": {"$lte": now}},
+        ]
         upd = {
             "$set": {
                 "push_claimed_by": owner,
@@ -1016,6 +1013,11 @@ def _build_reminder_payload(db, reminder_doc: dict) -> dict:
     note_id_str = str(reminder_doc.get("note_id") or "")
     file_id_str = str(reminder_doc.get("file_id") or "")
     board_id_str = str(reminder_doc.get("board_id") or "")
+    # המועד שההתראה נורתה עליו. ה-SW מחזיר אותו ב-``ack`` כדי שהאישור ייקשר
+    # למועד הזה: התראה ישנה במגש לא תסגור תזכורת שנקבעה מחדש מאז. הערך נקרא
+    # מהמסד (מודע-אזור עם ``tz_aware``), ו-``isoformat`` שומר את ה-offset.
+    remind_at = reminder_doc.get("remind_at")
+    remind_at_str = remind_at.isoformat() if isinstance(remind_at, datetime) else ""
     return {
         "notification": {
             "title": title_text,
@@ -1037,6 +1039,7 @@ def _build_reminder_payload(db, reminder_doc: dict) -> dict:
             "note_id": note_id_str,
             "file_id": file_id_str,
             "board_id": board_id_str,
+            "remind_at": remind_at_str,
             "title": title_text,
             "body": body_text,
         },
@@ -1109,7 +1112,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
 #: שני נימוקים, ושניהם חיצוניים לקוד הזה:
 #:
 #: 1. אין היום שום תקרת אורך על ``file_name`` בכלי הכתיבה של ה-MCP — יש על
-#:    גוף הקובץ (``_max_code_size``) ועל תוכן פתק, לא על השם. כלומר האורך
+#:    גוף הקובץ (``max_code_size``) ועל תוכן פתק, לא על השם. כלומר האורך
 #:    מגיע מחוץ לתהליך ואין עליו הגבלה.
 #: 2. גוף ההתראה נשלח בבקשת Web Push, ושם התקרה היא של הפרוטוקול:
 #:    *"Push services MUST NOT return a 413 status code in responses to an

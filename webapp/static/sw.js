@@ -327,6 +327,7 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil((async () => {
     const fileId = (d && d.file_id != null) ? String(d.file_id) : '';
     const noteId = (d && d.note_id != null) ? String(d.note_id) : '';
+    const remindAt = (d && d.remind_at != null) ? String(d.remind_at) : '';
     const action = (event && event.action) ? String(event.action) : '';
 
     // Report click (no PII: only presence + action)
@@ -342,13 +343,38 @@ self.addEventListener('notificationclick', (event) => {
     const isSnooze = !!(action && action.startsWith('snooze_') && noteId);
     if (isSnooze) {
       const minutes = Number(action.split('_')[1] || 10);
+      // סירוב אינו כשל רשת: 404 על תזכורת שכבר אושרה (ממכשיר אחר, או מהחלונית
+      // בזמן שההתראה עוד ישבה במגש) חוזר כתשובה רגילה, ו-.catch לא רואה אותו.
+      // בלי לקרוא response.ok המשתמש חושב שנדחה, וההתראה שנשאה את הכפתור כבר
+      // נסגרה — אין הזדמנות שנייה. לכן: מדווחים בכל תוצאה (כדי שהקצב יימדד),
+      // וכשהדחייה לא נקבעה מראים התראה שאומרת זאת. קוד התשובה נקרא http_status
+      // ולא status, כי status הוא שדה הדיווח עצמו.
+      let outcome = 'error';
+      const detail = { minutes: minutes };
       try {
-        await fetch(`/api/sticky-notes/note/${encodeURIComponent(noteId)}/snooze`, {
+        const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(noteId)}/snooze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ minutes })
-        }).catch(() => {});
-      } catch (_) {}
+        });
+        outcome = resp.ok ? 'success' : 'refused';
+        detail.http_status = resp.status;
+      } catch (e) {
+        detail.error = String(e);
+      }
+      try { await reportToServer('snooze', outcome, detail); } catch (_) {}
+      if (outcome !== 'success') {
+        try {
+          await self.registration.showNotification('הדחייה לא התקבלה', {
+            body: outcome === 'refused'
+              ? 'התזכורת כבר טופלה או נמחקה, ולכן אין מה לדחות.'
+              : 'לא הצלחתי להגיע לשרת. פתחו את הפתק כדי לקבוע תזכורת מחדש.',
+            icon: '/static/icons/app-icon-512.png',
+            tag: 'codekeeper-snooze-' + noteId,
+            data: { note_id: noteId, file_id: fileId },
+          });
+        } catch (_) {}
+      }
     }
 
     // Open-note action OR clicking the notification body: open the markdown view with deep-link
@@ -383,13 +409,25 @@ self.addEventListener('notificationclick', (event) => {
     // Normalize to absolute URL for best compatibility
     try { urlToOpen = new URL(urlToOpen, self.location.origin).toString(); } catch (_) {}
 
-    // Best-effort ack when we actually have a note id
-    if (noteId) {
+    // Best-effort ack when we actually have a note id.
+    //
+    // ‏`!isSnooze` אינו קישוט: ‏`shouldOpen` כולל בכוונה גם `snooze_10`,
+    // כפולבק לסביבות שבהן כפתורי הפעולה ממופים שגוי. כלומר לחיצה על
+    // "דחה 10 דק׳" הריצה קודם snooze ומיד אחריו ack — וה-ack ביטל את
+    // הדחייה שזה עתה נקבעה, כך שהתזכורת לא חזרה לעולם. שתי הפעולות
+    // סותרות: דחייה אומרת "תחזור אליי", אישור אומר "ראיתי, די".
+    // הדחייה גוברת.
+    if (noteId && !isSnooze) {
+      // המועד שההתראה נשאה חוזר לשרת, והאישור נקשר אליו: התראה שישבה במגש
+      // מאתמול לא סוגרת תזכורת שנקבעה מחדש מאז. התראה בלי מועד (הוצגה לפני
+      // שהשדה נוסף) מאשרת בלי קשירה, כמו קודם.
+      const ackBody = { note_id: noteId };
+      if (remindAt) { ackBody.remind_at = remindAt; }
       try {
         fetch('/api/sticky-notes/reminders/ack', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ note_id: noteId })
+          body: JSON.stringify(ackBody)
         }).catch(() => {});
       } catch (_) {}
     }

@@ -37,6 +37,16 @@ from sticky_notes_target import (
     note_color_hex,
     note_color_id,
 )
+# מצב התזכורת — אותה שכבה טהורה, ומאותה סיבה: שלושה מודולים שואלים "האם
+# התזכורת פעילה", והתשובה חייבת להיות אחת.
+from note_reminder_state import (
+    acknowledge_fields,
+    active_reminder_filter,
+    armed_fields,
+    parse_remind_at,
+    seconds_until as _seconds_until,
+    snoozed_fields,
+)
 # ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
 # תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
 # לעולם עדיפה על ייבוא שמפיל את המודול כולו.
@@ -514,6 +524,39 @@ def require_auth(f):
             return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
         return f(*args, **kwargs)
     return _inner
+
+
+def _failed(route: str, error: str = 'Failed'):
+    """500 עם עקבה בשרת: הלוג נושא את ה-traceback, הלקוח מקבל רק ``error``.
+
+    ``@traced`` רושם רק חריגה שיוצאת מהפונקציה, וה-``except`` הגורף במסלולי
+    התזכורות תופס אותה קודם — ולכן עד היום נתיב שנפל לא השאיר שום סימן בשרת,
+    בזמן שהלקוח הופך את ה-500 ל-backoff שקט. ההודעה קבועה, והחריגה עוברת את
+    מסנן ההשחרה של הלוגים כמו כל ``exc_info`` אחר במודול. חייב להיקרא מתוך
+    ה-``except``, כי ``exc_info=True`` קורא את החריגה הפעילה. ``error`` הוא הטקסט
+    שהלקוח כבר מכיר במסלול הזה (``Failed``, או ``Failed to save`` בשמירה); הוא
+    לעולם אינו נושא פרטי חריגה.
+    """
+    logger.error("sticky notes %s failed", route, exc_info=True)
+    return jsonify({'ok': False, 'error': error}), 500
+
+
+def _json_object():
+    """גוף ה-JSON של הבקשה כמילון — או ``None`` כשהגוף אינו אובייקט.
+
+    ``request.get_json(silent=True) or {}`` תופס רק גוף ריק: גוף שהוא רשימה או
+    מחרוזת הוא truthy, עובר את ה-``or``, ואז ``.get`` זורק ``AttributeError``
+    שה-``except`` הגורף הופך ל-500 — ומאז ``_failed`` גם לשורת ERROR עם
+    traceback — על טעות של הלקוח. הבדיקה היא על הטיפוס, לא על האמיתות: אין גוף
+    ← מילון ריק, כי למסלולים יש ברירות מחדל (דחייה בלי ``minutes`` היא שעה);
+    גוף שאינו אובייקט ← ``None``, והמסלול עונה ``invalid_payload`` 400.
+    """
+    payload = request.get_json(silent=True)
+    if payload is None:
+        return {}
+    return payload if isinstance(payload, dict) else None
+
+
 # Simple in-memory rate limiter per user and endpoint key
 _RATE_LOG: Dict[tuple, list] = {}
 
@@ -987,7 +1030,14 @@ def get_note_reminder(note_id: str):
         note = _ensure_user_owns_note(db, user_id, note_id)
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
-        r = db.note_reminders.find_one({'user_id': user_id, 'note_id': str(note_id), 'status': {'$in': ['pending', 'snoozed']}})
+        # הפילטר המלא, ולא ``status`` לבדו: מסמך שנכתב לפני שהמצב הסופי
+        # היה קיים נושא ``ack_at`` מלא ו-``status`` ישן, ובלי בדיקת
+        # ``ack_at`` הראוט היה מחזיר תזכורת שהמשתמש כבר סגר כאילו היא חיה.
+        r = db.note_reminders.find_one(dict(
+            active_reminder_filter(),
+            user_id=user_id,
+            note_id=str(note_id),
+        ))
         if not r:
             return jsonify({'ok': True, 'reminder': None})
         out = {
@@ -998,7 +1048,7 @@ def get_note_reminder(note_id: str):
         }
         return jsonify({'ok': True, 'reminder': out})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('get_note_reminder')
 
 
 @sticky_notes_bp.route('/note/<note_id>/reminder', methods=['POST'])
@@ -1013,7 +1063,9 @@ def set_note_reminder(note_id: str):
         note = _ensure_user_owns_note(db, user_id, note_id)
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
-        payload = request.get_json(silent=True) or {}
+        payload = _json_object()
+        if payload is None:
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
         client_tz = str(payload.get('tz') or 'Asia/Jerusalem')
         dt_utc = _parse_when_to_utc(payload, client_tz)
         if not dt_utc:
@@ -1029,12 +1081,8 @@ def set_note_reminder(note_id: str):
             # לפתק לוח אין file_id, ובלי השדה הזה ה-Service Worker
             # לא היה יודע לאן לפתוח את ההתראה.
             'board_id': str(note.get('board_id', '') or ''),
-            'status': 'pending',
-            'remind_at': dt_utc,
-            'snooze_until': None,
-            'ack_at': None,
-            'updated_at': now_utc,
-            'needs_push': True,
+            # שדות מחזור החיים מגיעים מהמודול, כדי שקבוע שמשתנה ישנה גם את הכתיבה.
+            **armed_fields(dt_utc, now_utc),
         }
         # Upsert: keep only one active reminder per note for simplicity
         try:
@@ -1047,14 +1095,14 @@ def set_note_reminder(note_id: str):
                 upsert=True,
             )
         except Exception:
-            return jsonify({'ok': False, 'error': 'Failed to save'}), 500
+            return _failed('set_note_reminder.save', error='Failed to save')
         try:
             emit_event('note_reminder_set', severity='info', user_id=user_id, note_id=str(note_id))
         except Exception:
             pass
         return jsonify({'ok': True, 'remind_at': dt_utc.isoformat()})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('set_note_reminder')
 
 
 @sticky_notes_bp.route('/note/<note_id>/reminder', methods=['DELETE'])
@@ -1071,7 +1119,7 @@ def delete_note_reminder(note_id: str):
         db.note_reminders.delete_one({'user_id': user_id, 'note_id': str(note_id)})
         return jsonify({'ok': True})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('delete_note_reminder')
 
 
 @sticky_notes_bp.route('/note/<note_id>/snooze', methods=['POST'])
@@ -1082,27 +1130,44 @@ def snooze_note_reminder(note_id: str):
     try:
         user_id = int(session['user_id'])
         db = get_db()
-        payload = request.get_json(silent=True) or {}
-        minutes = int(payload.get('minutes') or 60)
-        if minutes < 1 or minutes > 24 * 60:
+        payload = _json_object()
+        if payload is None:
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
+        # קלט חיצוני, ולכן בדיקת טיפוס לפני ההמרה ולא ``except`` אחריה: ``int()``
+        # על מחרוזת או רשימה זורק — וזה היה 500 עם traceback על טעות של הלקוח —
+        # ועל ``True`` או ``3.9`` הוא ממיר בשקט (1, 3) ומקבע דחייה שאיש לא ביקש.
+        # מספר שלם בלבד; ``bool`` הוא תת-טיפוס של ``int`` ולכן מוחרג במפורש.
+        # חסר או ``null`` ← ברירת המחדל המתועדת, שעה.
+        minutes = payload.get('minutes')
+        if minutes is None:
+            minutes = 60
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1 or minutes > 24 * 60:
             return jsonify({'ok': False, 'error': 'Invalid minutes'}), 400
         new_time = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+        # גם כאן הפילטר המלא: דחייה מחיה תזכורת **פעילה**, לא כזו שהמשתמש כבר
+        # סגר. בלי התנאי, לחיצה על דחייה בהתראה ישנה הייתה מחזירה לחיים תזכורת
+        # שנסגרה מזמן, בשקט. ומכיוון שהפילטר כבר דורש ``ack_at`` ריק, הכתיבה
+        # אינה נוגעת בו — שדות הדחייה מגיעים מהמודול.
         r = db.note_reminders.update_one(
-            {'user_id': user_id, 'note_id': str(note_id), 'status': {'$in': ['pending', 'snoozed']}},
-            {'$set': {
-                'status': 'snoozed',
-                'snooze_until': new_time,
-                'remind_at': new_time,
-                'updated_at': datetime.now(timezone.utc),
-                'ack_at': None,
-                'needs_push': True,  # Reset so push will be sent again
-            }},
+            dict(
+                active_reminder_filter(),
+                user_id=user_id,
+                note_id=str(note_id),
+            ),
+            {'$set': snoozed_fields(new_time, datetime.now(timezone.utc))},
         )
         if getattr(r, 'matched_count', 0) <= 0:
             return jsonify({'ok': False, 'error': 'Reminder not found'}), 404
         return jsonify({'ok': True, 'remind_at': new_time.isoformat()})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('snooze_note_reminder')
+
+
+#: כשיש בועה על המסך השרת מבקש מהלקוח לחזור לכל היותר בעוד חמש דקות — המרווח
+#: הקבוע שהיה כאן לפני הדגימה לפי השרת, וזה שריענן גם ניקוי ממכשיר אחר וגם
+#: מונה שהשתנה. הערך יושב בשרת ולא בלקוח כדי שללקוח יישאר כלל אחד: "ישן כמה
+#: שהשרת אמר, בין הרצפה לתקרה". תזכורת נוספת שמבשילה מוקדם יותר גוברת עליו.
+BADGE_REFRESH_SECONDS = 5 * 60
 
 
 @sticky_notes_bp.route('/reminders/summary', methods=['GET'])
@@ -1113,35 +1178,62 @@ def reminders_summary():
     """Return minimal summary for persistent UI badge.
 
     Response:
-      { ok, has_due: bool, count_due: int, next: { note_id, file_id, remind_at } | null }
+      { ok, has_due: bool, count_due: int, next_in_seconds: int | null }
+
+    **``next_in_seconds`` הוא מה שמחליף את הדגימה הקבועה.** עד כאן הלקוח
+    דגם כל חמש דקות בלי קשר למצב, כי "כן/לא" היה כל מה שקיבל — 954 קריאות
+    ביממה שכולן החזירו "אין". השרת הוא היחיד שיודע גם *מתי* התזכורת הבאה,
+    ולכן הוא זה שאומר ללקוח מתי לחזור — גם כשיש בועה: אז התשובה היא לכל
+    היותר ``BADGE_REFRESH_SECONDS``, כדי שבועה שנוקתה ממכשיר אחר ומונה
+    שהשתנה ייראו תוך דקות ולא אחרי חצי שעה. אין תזכורת עתידית ואין בועה ←
+    ``None``, והלקוח נרדם עד התקרה שלו (חצי שעה) — לא לנצח, כדי שתזכורת
+    שתיקבע ממכשיר אחר עדיין תתגלה.
+
+    **והערך יחסי, לא חותמת.** ``remind_at`` שנקרא מהמסד הוא מודע-אזור רק
+    כל עוד הלקוח נבנה עם ``tz_aware`` — ומחרוזת ISO בלי offset נקראת
+    ב-JavaScript כזמן **מקומי**, כלומר שלוש שעות סטייה בלי שגיאה. מספר
+    שניות אין לו אזור זמן, והוא גם חסין לשעון לקוח שסוטה.
     """
     try:
         _ensure_indexes()
         user_id = int(session['user_id'])
         db = get_db()
         now = datetime.now(timezone.utc)
-        try:
-            cursor = db.note_reminders.find({
-                'user_id': user_id,
-                'status': {'$in': ['pending', 'snoozed']},
-                'remind_at': {'$lte': now},
-                'ack_at': None,
-            }).sort('remind_at', 1)
-        except Exception:
-            cursor = []
-        items = list(cursor) if cursor is not None else []
-        has_due = len(items) > 0
-        nxt = None
+        base_filter = active_reminder_filter()
+        base_filter['user_id'] = user_id
+        due_filter = dict(base_filter, remind_at={'$lte': now})
+        # **שאילתה שנכשלה אינה "אין תזכורות".** כאן ישב ``except`` שהחזיר
+        # ``count_due = 0``, והתשובה יצאה ``ok: true, has_due: false`` —
+        # כלומר המשתמש קיבל "הכול נקי" על מסד שלא ענה. עכשיו החריגה עולה
+        # ל-``except`` החיצוני ומוחזרת כ-500, והלקוח מבדיל בין "אין" לבין
+        # "לא ידוע". זה גם מה שהופך את ``next_in_seconds`` לאמין: לקוח
+        # שנרדם לחצי שעה על סמך כשל הוא גרוע מלקוח שדוגם יותר מדי.
+        count_due = int(db.note_reminders.count_documents(due_filter))
+        has_due = count_due > 0
+        # מתי כדאי לשאול שוב — בשני המצבים. התזכורת העתידית הקרובה קובעת את
+        # המועד; כשיש בועה, התשובה נחתכת ב-BADGE_REFRESH_SECONDS, כי בועה שנוקתה
+        # ממכשיר אחר אינה שולחת שום אות, וחצי שעה של בועה ישנה היא בדיוק מה
+        # שהדגימה לפי השרת לא נועדה לייצר. זו השאילתה היחידה שנשארה לצד הספירה:
+        # היא שואלת על העתיד והספירה על ההווה, ולכן שתי התשובות אינן יכולות
+        # לסתור זו את זו — ``has_due`` נגזר מהספירה בלבד.
+        upcoming = db.note_reminders.find_one(
+            dict(base_filter, remind_at={'$gt': now}),
+            {'remind_at': 1},
+            sort=[('remind_at', 1)],
+        )
+        next_in_seconds = _seconds_until(upcoming.get('remind_at') if upcoming else None, now)
         if has_due:
-            first = items[0]
-            nxt = {
-                'note_id': str(first.get('note_id', '')),
-                'file_id': str(first.get('file_id', '')),
-                'remind_at': first.get('remind_at').isoformat() if isinstance(first.get('remind_at'), datetime) else None,
-            }
-        return jsonify({'ok': True, 'has_due': has_due, 'count_due': len(items), 'next': nxt})
+            next_in_seconds = (
+                BADGE_REFRESH_SECONDS if next_in_seconds is None else min(BADGE_REFRESH_SECONDS, next_in_seconds)
+            )
+        return jsonify({
+            'ok': True,
+            'has_due': has_due,
+            'count_due': count_due,
+            'next_in_seconds': next_in_seconds,
+        })
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('reminders_summary')
 
 
 @sticky_notes_bp.route('/reminders/list', methods=['GET'])
@@ -1158,10 +1250,14 @@ def reminders_list():
         {
           "ok": true,
           "items": [
-            { "note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro", "anchor_text": "Intro" }
+            { "note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro", "anchor_text": "Intro",
+              "remind_at": "2026-09-20T09:00:00+00:00" }
           ],
           "count": 1
         }
+
+    ``remind_at`` הוא המועד שהפריט הזה נורה עליו; החלונית מחזירה אותו ב-``ack``,
+    כדי שהאישור ייקשר למועד הזה ולא ל"איזו שהיא" תזכורת של הפתק.
     """
     try:
         _ensure_indexes()
@@ -1175,22 +1271,24 @@ def reminders_list():
             limit_param = 20
         limit_param = max(1, min(50, limit_param))
 
-        try:
-            cursor = (
-                db.note_reminders
-                .find({
-                    'user_id': user_id,
-                    'status': {'$in': ['pending', 'snoozed']},
-                    'remind_at': {'$lte': now},
-                    'ack_at': None,
-                })
-                .sort('remind_at', 1)
-                .limit(limit_param)
-            )
-        except Exception:
-            cursor = []
+        # בלי ``try`` סביב השאילתה — בכוונה. ``get_db()`` מחזיר ``None``
+        # בחלון הצינון שאחרי כשל התחברות, וה-``AttributeError`` שנובע מזה
+        # חייב להגיע ל-handler החיצוני ולענות 500. הגרסה הקודמת בלעה אותו
+        # ל-``cursor = []`` וענתה ``ok:true, count:0`` — "אין תזכורות" על
+        # מסד שלא נקרא. ``reminders_summary`` עונה 500 על אותו מצב, ומסלולי
+        # הבועה חייבים חוזה אחד: אחרת הבועה אומרת "3" והחלונית "0".
+        cursor = (
+            db.note_reminders
+            .find(dict(
+                active_reminder_filter(),
+                user_id=user_id,
+                remind_at={'$lte': now},
+            ))
+            .sort('remind_at', 1)
+            .limit(limit_param)
+        )
 
-        reminders = list(cursor) if cursor is not None else []
+        reminders = list(cursor)
         items = []
 
         def _first_n_words(text: str, n: int = 6) -> str:
@@ -1253,6 +1351,7 @@ def reminders_list():
                 else:
                     preview = ''
 
+                remind_at = r.get('remind_at')
                 items.append({
                     'note_id': note_id,
                     'file_id': file_id,
@@ -1260,6 +1359,7 @@ def reminders_list():
                     'preview': preview,
                     'anchor_id': anchor_id,
                     'anchor_text': anchor_text,
+                    'remind_at': remind_at.isoformat() if isinstance(remind_at, datetime) else '',
                 })
             except Exception:
                 # Skip malformed entries rather than failing the entire list
@@ -1267,7 +1367,7 @@ def reminders_list():
 
         return jsonify({'ok': True, 'items': items, 'count': len(items)})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('reminders_list')
 
 
 @sticky_notes_bp.route('/reminders/ack', methods=['POST'])
@@ -1275,23 +1375,49 @@ def reminders_list():
 @notes_rate_limit('note_reminders_ack', 300)
 @traced('sticky_notes.reminders_ack')
 def reminders_ack():
-    """Mark current due reminder as acknowledged (user opened it)."""
+    """Mark current due reminder as acknowledged (user opened it).
+
+    **סוגר את שני שדות המצב יחד.** עד כאן נכתב ``ack_at`` בלבד, ו-``status``
+    נשאר ``pending`` לנצח — כך שכרטיס הדשבורד, שסופר לפי ``status``, דיווח
+    תזכורות "בהמתנה" שאיש לא המתין להן. השדות מגיעים מ-
+    :func:`note_reminder_state.acknowledge_fields`, שמחזירה את שניהם או
+    אף אחד, ומונגו מחילה אותם ב-``$set`` יחיד.
+
+    **ונקשר למועד שההתראה נשאה.** בלי ``remind_at`` בגוף, האישור סגר "איזו
+    שהיא" תזכורת של הפתק; וכשהפתק נדרך מחדש אחרי שההתראה נורתה — בדיוק מה
+    שעושים כשתזכורת מגיעה ברגע לא נוח — התראה ישנה במגש סגרה את התזכורת של
+    מחר, כי ``set_note_reminder`` עושה upsert על אותו מסמך ויש תמיד שורה אחת
+    לפגוע בה. עם המועד, הפילטר תופס רק את המסמך שעדיין נושא אותו: מסמך שנדרך
+    מחדש או נדחה מאז עונה 404, ונשאר פעיל. לקוח שאינו שולח מועד (SW ישן
+    במטמון, התראה שהוצגה לפני השדה) מאשר בלי קשירה — ההתנהגות של קודם.
+    """
     try:
         user_id = int(session['user_id'])
         db = get_db()
-        payload = request.get_json(silent=True) or {}
+        payload = _json_object()
+        if payload is None:
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
         note_id = str(payload.get('note_id') or '').strip()
         if not note_id:
             return jsonify({'ok': False, 'error': 'note_id required'}), 400
+        # קלט חיצוני: מחרוזת ISO או כלום. מחרוזת שאינה נקראת היא 400 ולא
+        # "בלי קשירה" — אחרת באג בלקוח היה סוגר תזכורת שרירותית של הפתק.
+        try:
+            occurrence = parse_remind_at(payload.get('remind_at'))
+        except ValueError:
+            return jsonify({'ok': False, 'error': 'invalid_remind_at'}), 400
+        ack_filter = {'user_id': user_id, 'note_id': note_id, 'ack_at': None}
+        if occurrence is not None:
+            ack_filter['remind_at'] = occurrence
         r = db.note_reminders.update_one(
-            {'user_id': user_id, 'note_id': note_id, 'ack_at': None},
-            {'$set': {'ack_at': datetime.now(timezone.utc), 'updated_at': datetime.now(timezone.utc)}}
+            ack_filter,
+            {'$set': acknowledge_fields(datetime.now(timezone.utc))}
         )
         if getattr(r, 'matched_count', 0) <= 0:
             return jsonify({'ok': False, 'error': 'Not found'}), 404
         return jsonify({'ok': True})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('reminders_ack')
 
 
 @sticky_notes_bp.route('/<file_id>', methods=['POST'])

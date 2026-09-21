@@ -781,9 +781,23 @@
   { "minutes": 60 }
   ```
 
+  `minutes` — מספר שלם בין 1 ל‑1440, ברירת מחדל 60. טיפוס אחר מחזיר `400 Invalid minutes`; גוף שאינו אובייקט JSON מחזיר `400 invalid_payload`.
+
 - סיכום לתצוגת באדג': GET `/api/sticky-notes/reminders/summary`
 
-  מחזיר `has_due` ו‑`next` (פתק הבא לפתיחה).
+  מחזיר `has_due`, `count_due` ו‑`next_in_seconds` (בעוד כמה שניות לשאול שוב; `null` כשאין מה לתזמן).
+
+- רשימת הפתקים הממתינים לחלונית: GET `/api/sticky-notes/reminders/list?limit=20`
+
+  כל פריט נושא `note_id`, `file_id`, `board_id`, `preview`, `anchor_id`, `anchor_text` ו‑`remind_at` — המועד שהפריט נורה עליו.
+
+- אישור (המשתמש פתח את הפתק): POST `/api/sticky-notes/reminders/ack`
+
+  ```json
+  { "note_id": "...", "remind_at": "2026-09-20T09:00:00+00:00" }
+  ```
+
+  `remind_at` הוא המועד שההתראה או החלונית נשאו. איתו האישור סוגר רק את התזכורת שעדיין נושאת את המועד הזה — תזכורת שנדרכה מחדש או נדחתה מאז מחזירה 404 ונשארת פעילה. בלעדיו האישור אינו נקשר למועד. מחרוזת שאינה ISO מחזירה `400 invalid_remind_at`.
 
 > הערה: התראות Web Push מלאות יגיעו באיטרציה נפרדת (Service Worker + VAPID).
 

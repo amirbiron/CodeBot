@@ -2,8 +2,11 @@
 
 Repo convention is hand-rolled fakes (no mongomock). The OAuth store, provider
 and consent-route tests all need the same duck-typed Mongo stand-in, so the
-collection semantics — filter matching (incl. ``$ne``), upsert, and the
-delete/modify counts our store now reads — live here in one place.
+collection semantics — filter matching (``$ne``, ``$in`` and the range
+operators), upsert, ``update_many``, counting, and the delete/modify counts
+our store now reads — live here in one place. The migration-script tests
+reach the DB as ``db.note_reminders`` and read ``db.name``, so ``FakeDB``
+also answers attribute access like a real ``Database`` handle.
 
 Usage::
 
@@ -46,12 +49,41 @@ class FakeCollection:
     @staticmethod
     def _match(doc, q):
         for k, v in q.items():
-            if isinstance(v, dict) and "$ne" in v:
-                if doc.get(k) == v["$ne"]:
+            actual = doc.get(k)
+            if isinstance(v, dict) and any(str(op).startswith("$") for op in v):
+                # ``$ne: None`` treats a missing field as null (excluded), like Mongo.
+                if "$ne" in v and actual == v["$ne"]:
                     return False
-            elif doc.get(k) != v:
+                if "$in" in v and actual not in v["$in"]:
+                    return False
+                if "$lte" in v and not (actual is not None and actual <= v["$lte"]):
+                    return False
+                if "$lt" in v and not (actual is not None and actual < v["$lt"]):
+                    return False
+                if "$gte" in v and not (actual is not None and actual >= v["$gte"]):
+                    return False
+                if "$gt" in v and not (actual is not None and actual > v["$gt"]):
+                    return False
+            elif actual != v:
                 return False
         return True
+
+    def count_documents(self, q, *a, **k):
+        return sum(1 for d in self.docs if self._match(d, q))
+
+    def estimated_document_count(self):
+        return len(self.docs)
+
+    def find(self, q, projection=None, *a, **k):
+        return _FakeCursor([copy.deepcopy(d) for d in self.docs if self._match(d, q)])
+
+    def update_many(self, q, u):
+        modified = 0
+        for d in self.docs:
+            if self._match(d, q):
+                d.update(u.get("$set", {}))
+                modified += 1
+        return _Res(modified=modified)
 
     def find_one(self, q):
         # Return an independent copy (like real pymongo) so a caller mutating the
@@ -83,11 +115,31 @@ class FakeCollection:
         return _Res()
 
 
-class FakeDB:
-    """Duck-typed ``db[name]`` handle returning per-name FakeCollections."""
+class _FakeCursor:
+    """Iteration plus ``limit`` — what a report-only pass over a filter uses."""
 
-    def __init__(self) -> None:
+    def __init__(self, docs: list[dict]) -> None:
+        self._docs = docs
+
+    def limit(self, n):
+        self._docs = self._docs[: max(0, int(n))]
+        return self
+
+    def __iter__(self):
+        return iter(self._docs)
+
+
+class FakeDB:
+    """Duck-typed ``db[name]`` / ``db.name`` handle returning per-name FakeCollections."""
+
+    def __init__(self, name: str = "fake_db") -> None:
         self.c: dict[str, FakeCollection] = {}
+        self.name = name
 
     def __getitem__(self, name):
         return self.c.setdefault(name, FakeCollection())
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self[name]

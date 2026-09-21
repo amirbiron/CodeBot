@@ -1864,7 +1864,10 @@ class ConfigService:
             default="CodeBot",
             description=(
                 "רשימת הריפואים המותרים (CSV allowlist) שכלי codekeeper_docs_get_section הציבורי "
-                "רשאי לקרוא מהם קבצי RST. גבול אבטחה — repo שאינו ברשימה נדחה. ברירת מחדל: CodeBot."
+                "רשאי לקרוא מהם קובצי תיעוד — RST או Markdown, לפי מדיניות הנתיבים של כל ריפו "
+                "ב-mcp_server/docs_handlers.py. גבול אבטחה — repo שאינו ברשימה נדחה, וריפו שברשימה "
+                "ואין לו מדיניות נדחה ב-repo_not_configured. הכניסה הראשונה היא ברירת המחדל ולכן "
+                "קובעת גם את הפורמט. ברירת מחדל: CodeBot."
             ),
             category="mcp",
             services=("mcp",),
@@ -1908,6 +1911,26 @@ class ConfigService:
             services=("mcp",),
             default="300",
             description="מרווח בשניות בין מעברי ה-autosync של דפדפן הריפו ב-MCP (מינימום 30).",
+            category="mcp",
+        ),
+        "MCP_MAX_REQUEST_BYTES": ConfigDefinition(
+            key="MCP_MAX_REQUEST_BYTES",
+            services=("mcp",),
+            default="1048576",
+            description=(
+                "תקרת גודל (בתים) לגוף בקשה לשרת ה-MCP, לכל הכלים; גוף גדול יותר נדחה ב-413 "
+                "body_too_large לפני שמפוענח. מינימום 65536; ערך פגום — ברירת המחדל."
+            ),
+            category="mcp",
+        ),
+        "MCP_RATE_LIMIT_PER_MINUTE": ConfigDefinition(
+            key="MCP_RATE_LIMIT_PER_MINUTE",
+            services=("mcp",),
+            default="60",
+            description=(
+                "קריאות כלים לזהות אחת בדקה בשרת ה-MCP; קריאה מעבר לזה מחזירה rate_limited עם "
+                "retry_after_seconds. 0 מכבה במפורש (נרשם WARNING בעלייה); /healthz אינו נספר."
+            ),
             category="mcp",
         ),
         "POSTHOG_PROJECT_TOKEN": ConfigDefinition(

@@ -2541,10 +2541,10 @@
      - ``CodeKeeper``
      - MCP
    * - ``MCP_DOCS_REPO``
-     - רשימת הריפואים המותרים (CSV allowlist) שכלי ``codekeeper_docs_get_section`` הציבורי רשאי לקרוא מהם קבצי RST. גבול אבטחה — ארגומנט ``repo`` שאינו ברשימה נדחה. ברירת מחדל ``CodeBot``.
+     - רשימת הריפואים המותרים (CSV allowlist) שכלי ``codekeeper_docs_get_section`` הציבורי רשאי לקרוא מהם קובצי תיעוד — RST או Markdown, לפי מדיניות הנתיבים של כל ריפו ב-``mcp_server/docs_handlers.py``. גבול אבטחה — ארגומנט ``repo`` שאינו ברשימה נדחה, וריפו שנמצא ברשימה ואין לו מדיניות נתיבים נדחה ב-``repo_not_configured``. **הכניסה הראשונה היא ברירת המחדל, ולכן היא קובעת גם את הפורמט** של קריאה שאינה נוקבת בריפו. ברירת מחדל ``CodeBot``.
      - לא
      - ``CodeBot``
-     - ``CodeBot``
+     - ``CodeBot,amir-bug-patterns``
      - MCP
    * - ``MCP_ALLOWED_HOSTS``
      - רשימת Host מותרים לשרת ה-MCP (CSV; תומך wildcard כמו ``*.onrender.com``). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).
@@ -2574,6 +2574,18 @@
      - מרווח (שניות) בין מעברי הרענון של ה-autosync. מינימום 30.
      - לא
      - ``300``
+     - ``120``
+     - MCP
+   * - ``MCP_MAX_REQUEST_BYTES``
+     - תקרת גודל (בתים) לגוף בקשה לשרת ה-MCP, במתודות שנושאות גוף (``POST``/``PUT``/``PATCH``) ולכל הכלים. ברירת המחדל **נגזרת** מ-``MAX_CODE_SIZE`` (``request_bytes_for`` ב-``mcp_server/limits.py``: פי שישה ועוד מעטפת, מעוגל ל-MiB שלם — 1MiB על ברירת המחדל של ``MAX_CODE_SIZE``), והמשתנה הזה רק מעלה אותה בלי דיפלוי; הוא אינו kill switch — ``0`` אינו מכבה, המינימום ``65536`` חל. ``Content-Length`` מעל התקרה נדחה ב-``413`` עם ``{"error": "body_too_large", "max_bytes": ...}`` בלי שנקרא בית; גוף בלי אורך מוצהר נספר עד התקרה תחת דדליין של 30 שניות (``408 body_read_timeout``). ערך שאינו מספר — ברירת המחדל, עם WARNING. ראו "גבולות הבקשה" ב-:doc:`mcp-server`.
+     - לא
+     - ``1048576``
+     - ``2097152``
+     - MCP
+   * - ``MCP_RATE_LIMIT_PER_MINUTE``
+     - כמה קריאות כלים מותרות לזהות אחת (משתמש מאומת) בחלון מתגלגל של דקה, בשרת ה-MCP. קריאה מעבר לזה מחזירה ``{"ok": false, "error": "rate_limited", "limit_per_minute": ..., "retry_after_seconds": ...}`` בלי לתפוס חוט. ‏``0`` מכבה במפורש (WARNING בעלייה); ערך שאינו מספר — ברירת המחדל. ‏``/healthz`` ושאר נתיבי ה-HTTP אינם נספרים. ראו "גבולות הבקשה" ב-:doc:`mcp-server`.
+     - לא
+     - ``60``
      - ``120``
      - MCP
    * - ``POSTHOG_PROJECT_TOKEN``

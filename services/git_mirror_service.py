@@ -281,12 +281,29 @@ def _require_git_argv(cmd) -> Optional[str]:
 def _exclude_pathspecs(patterns) -> List[str]:
     """תבניות ``fnmatch`` ← pathspec-ים שליליים של ``git grep``.
 
-    **שתי צורות לכל תבנית, ולא אחת.** ``mcp_server/repo_policy.is_denied``
-    מתאים כל תבנית גם ל-basename וגם לנתיב המלא; כאן ``:(exclude,icase)P``
-    מכסה את הנתיב המלא (ובמאגיה ברירת המחדל של git ‏``*`` חוצה ``/``, בדיוק
-    כמו ``fnmatch`` של פייתון), ו-``:(exclude,icase)*/P`` מכסה את ה-basename
-    בכל עומק. בלי השנייה ``config/.env`` היה נסרק; בלי הראשונה ``.env``
-    בשורש היה נסרק.
+    **ארבע צורות לכל תבנית, כדי לכסות רכיב בכל מקום בנתיב.**
+    ``mcp_server/repo_policy.is_denied`` מתאים כל תבנית לנתיב המלא ול**כל
+    רכיב** בו, וארבע הצורות כאן הן הפירוק של אותה שאלה לשפה של git:
+    ``P`` לנתיב המלא (ובמאגיה ברירת המחדל של git ‏``*`` חוצה ``/``, בדיוק
+    כמו ``fnmatch`` של פייתון), ``*/P`` לרכיב האחרון בכל עומק, ``P/*``
+    לרכיב הראשון עם כל מה שתחתיו, ו-``*/P/*`` לרכיב באמצע.
+
+    **ושתי הצורות האחרונות אינן קישוט — הן נוספו אחרי מדידה.** עם שתי
+    הצורות הראשונות בלבד, ``git grep`` החזיר ``certs/server.pem/notes.md``:
+    תיקייה ששמה תואם תבנית-סיומת (``*.pem``, ``*.key``, ``*.p12``,
+    ``*.keystore``) אינה מכוסה, כי ``*.pem`` ו-``*/*.pem`` שניהם דורשים
+    שהנתיב **יסתיים** ב-``.pem``. נמדד על git 2.43.0, מירור אמיתי: משבעה
+    קבצים שנזרעו, שתי הצורות הראשונות השאירו את
+    ``certs/server.pem/notes.md`` בפנים, וארבע הצורות משאירות רק את הקובץ
+    הלגיטימי.
+
+    **ומה שהמדידה גם הראתה, ולכן כתוב כאן כדי שאיש לא ימדוד שוב:** שתי
+    הצורות הראשונות **כן** כיסו תיקייה מקוננת לתבניות מסוג תחילית —
+    ``config/.env/README.md`` ו-``deep/a/b/credentials/notes.md`` הוחרגו גם
+    לפני השינוי — כי שם ``*/P`` מספיק. הפער היה בתבניות-סיומת בלבד.
+
+    **והעלות אפס:** על 10,174 הקבצים שגיט מכיר בריפו הזה, שתי הצורות
+    הנוספות מחריגות **אפס** קבצים חדשים.
 
     **``icase`` ולא השוואה ידנית** — ``is_denied`` משווה על מחרוזת שהורדה
     לאותיות קטנות, וזה הצד של git לאותה הכרעה. נמדד על git 2.43:
@@ -306,7 +323,7 @@ def _exclude_pathspecs(patterns) -> List[str]:
         pattern = str(raw or "").strip()
         if not pattern:
             continue
-        for form in (pattern, f"*/{pattern}"):
+        for form in (pattern, f"*/{pattern}", f"{pattern}/*", f"*/{pattern}/*"):
             spec = f":(exclude,icase){form}"
             if spec not in seen:
                 seen.add(spec)
@@ -1556,6 +1573,41 @@ class GitMirrorService:
             self.logger.error(f"Error getting file history: {e}")
             return {"error": "internal_error", "message": "שגיאה פנימית"}
 
+    def _object_size(
+        self, mirror_path: Path, resolved_commit: str, safe_file_path: str, timeout: float = 10
+    ) -> Dict[str, Any]:
+        """גודל האובייקט ``<sha>:<path>`` מהמאגר, בלי לקרוא את תוכנו — ``git cat-file -s``.
+
+        מחזיר ``{"size": int}`` או ``{"error": ..., "message": ...}`` באותה מפה
+        של ``git show`` (:meth:`_object_read_error`), כי git 2.43 מדפיס את
+        **אותן** הודעות לשתי הפקודות על נתיב חסר (``path 'x' does not exist
+        in '<sha>'``) ועל קומיט שאינו מכיל אותו (``exists on disk, but not
+        in``) — נמדד, לא הונח. הפלט הוא קלט חיצוני (U3): מספר שאינו מתפענח
+        הוא כשל ולא אפס, כדי שלא ייקרא כ"קטן מהתקרה". ``TimeoutExpired`` עולה
+        לקורא, שכבר ממפה אותה ל-``timeout``.
+        """
+        result = subprocess.run(
+            ["git", "-C", str(mirror_path), "cat-file", "-s", f"{resolved_commit}:{safe_file_path}"],
+            capture_output=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            return self._object_read_error(result.stderr)
+        try:
+            return {"size": int(result.stdout.decode("ascii", errors="replace").strip())}
+        except ValueError:
+            self.logger.warning("git cat-file -s returned a non-numeric size for %s", safe_file_path)
+            return {"error": "git_error", "message": "git לא החזיר גודל אובייקט תקין"}
+
+    def _object_read_error(self, stderr_bytes: bytes) -> Dict[str, Any]:
+        """ממפה stderr של ``git show`` ושל ``git cat-file`` לתשובת שגיאה — הגדרה אחת לשתיהן."""
+        stderr = self._sanitize_output(stderr_bytes.decode('utf-8', errors='replace'))
+        if "does not exist" in stderr or "exists on disk" in stderr:
+            return {"error": "file_not_in_commit", "message": "הקובץ לא קיים ב-commit זה"}
+        if "unknown revision" in stderr or "bad revision" in stderr:
+            return {"error": "invalid_commit", "message": "Commit לא נמצא"}
+        return {"error": "git_error", "message": stderr}
+
     def get_file_at_commit(
         self,
         repo_name: str,
@@ -1570,7 +1622,10 @@ class GitMirrorService:
             repo_name: שם הריפו
             file_path: נתיב הקובץ
             commit: Hash, tag, branch או expression
-            max_size: גודל מקסימלי להחזרה (bytes)
+            max_size: תקרה בבתים. **נבדקת מול גודל האובייקט במאגר לפני
+                ``git show``** (#3433), ולכן קובץ גדול ממנה אינו נטען לזיכרון
+                כלל — ``max_size`` הוא חסם על מה שנקרא, לא בדיקה בדיעבד. ונבדקת
+                שוב על מה שמוחזר, כדי שהחסם יחול על כל סוג אובייקט.
 
         Returns:
             Dict עם תוכן הקובץ או שגיאה
@@ -1598,6 +1653,29 @@ class GitMirrorService:
         resolved_commit = ref_validation["resolved_sha"]
 
         try:
+            # **הגודל נבדק מול מאגר האובייקטים לפני שנקרא בית אחד של תוכן (#3433).**
+            # עד כאן ``git show`` נטען כולו לזיכרון (``capture_output=True``) ורק
+            # אז ``max_size`` נבדק — כלומר התקרה הייתה בדיקה בדיעבד ולא חסם על
+            # הזיכרון: קובץ של 12MB נטען במלואו (20MiB שיא, נמדד) לפני שנדחה.
+            # ``git cat-file -s`` מחזיר את גודל האובייקט מהמאגר בלי לקרוא אותו,
+            # ושתי הפקודות פונות לאותו ``<sha>:<path>`` שנפתר פעם אחת למעלה —
+            # אובייקט בקומיט נתון אינו משתנה, ולכן אין חלון בין הבדיקה לקריאה
+            # שסנכרון של המראה יכול להיכנס בו (TOCTOU נבחן ונדחה).
+            probe = self._object_size(mirror_path, resolved_commit, safe_file_path)
+            if "error" in probe:
+                # כשל בבדיקה אינו נופל לקריאה בלי תקרה — זו בדיוק הנפילה-לאחור
+                # השקטה למסלול הגרוע (``silent-fallback-to-worse-path``). הסירוב
+                # עולה כמות שהוא, באותה מפה שהייתה ל-``git show``.
+                return probe
+            file_size = probe["size"]
+            if file_size > max_size:
+                return {
+                    "error": "file_too_large",
+                    "message": f"הקובץ גדול מדי ({file_size:,} bytes)",
+                    "size": file_size,
+                    "max_size": max_size
+                }
+
             # שליפת תוכן כ-bytes (לא text) לזיהוי בינארי נכון
             cmd = [
                 "git", "-C", str(mirror_path),
@@ -1612,25 +1690,15 @@ class GitMirrorService:
             )
 
             if result.returncode != 0:
-                stderr = result.stderr.decode('utf-8', errors='replace')
-                stderr = self._sanitize_output(stderr)
-
-                if "does not exist" in stderr or "exists on disk" in stderr:
-                    return {
-                        "error": "file_not_in_commit",
-                        "message": "הקובץ לא קיים ב-commit זה"
-                    }
-                if "unknown revision" in stderr or "bad revision" in stderr:
-                    return {
-                        "error": "invalid_commit",
-                        "message": "Commit לא נמצא"
-                    }
-                return {"error": "git_error", "message": stderr}
+                return self._object_read_error(result.stderr)
 
             raw_content = result.stdout
             file_size = len(raw_content)
 
-            # בדיקת גודל
+            # **החסם על מה שמוחזר, בנוסף לחסם על מה שנקרא.** לבלוב שני
+            # המספרים זהים; לנתיב של תיקייה ``cat-file -s`` מודד את אובייקט
+            # העץ ואילו ``git show`` מדפיס רשימה מעוצבת — ומה שחוזר מכאן
+            # לעולם אינו גדול מ-``max_size``, יהיה סוג האובייקט אשר יהיה.
             if file_size > max_size:
                 return {
                     "error": "file_too_large",

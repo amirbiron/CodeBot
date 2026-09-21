@@ -94,16 +94,16 @@ Endpoints
      - ``image/svg+xml``
    * - ``/api/sticky-notes/reminders/summary``
      - GET
-     - סיכום מינימלי לבועה הקבועה (האם יש פתקים ממתינים + מונה)
+     - סיכום מינימלי לבועה הקבועה (האם יש פתקים ממתינים, מונה, ובעוד כמה שניות לשאול שוב)
      - ✅
      - -
-     - ``{"ok": true, "has_due": true, "count_due": 3, "next": {"note_id": "...", "file_id": "...", "remind_at": "..."}}``
+     - ``{"ok": true, "has_due": true, "count_due": 3, "next_in_seconds": 300}``
    * - ``/api/sticky-notes/reminders/list``
      - GET
      - רשימת פתקים ממתינים עם תצוגה מקדימה (6 מילים) וקישור לעוגן
      - ✅
      - Query: ``?limit=20``
-     - ``{"ok": true, "count": 3, "items": [{"note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro"}]}``
+     - ``{"ok": true, "count": 3, "items": [{"note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro", "remind_at": "2026-09-20T09:00:00+00:00"}]}``
    * - ``/api/v1/announcements/active``
      - GET
      - ההכרזה הפעילה היחידה להצגה בבאנר (או ``null`` אם אין)
@@ -112,9 +112,9 @@ Endpoints
      - ``{"id": "...", "text": "...", "link": "/path"}`` או ``null``
    * - ``/api/sticky-notes/reminders/ack``
      - POST
-     - סימון תזכורת כ־acknowledged (המשתמש פתח)
+     - סימון תזכורת כ־acknowledged (המשתמש פתח). ``remind_at`` הוא המועד שההתראה או החלונית נשאו: איתו האישור סוגר רק את המסמך שעדיין נושא את המועד הזה (תזכורת שנדרכה מחדש או נדחתה מאז עונה 404); בלעדיו — האישור אינו נקשר למועד; מחרוזת שאינה ISO ← ``400 invalid_remind_at``
      - ✅
-     - ``{"note_id": "..."}``
+     - ``{"note_id": "...", "remind_at": "2026-09-20T09:00:00+00:00"}``
      - ``{"ok": true}``
    * - ``/api/sticky-notes/note/<note_id>/reminder``
      - POST
@@ -126,7 +126,7 @@ Endpoints
      - POST
      - דחיית תזכורת ב‑X דקות
      - ✅
-     - ``{"minutes": 60}``
+     - ``{"minutes": 60}`` — מספר שלם בין 1 ל‑1440, ברירת מחדל 60; טיפוס אחר ← ``400 Invalid minutes``, גוף שאינו אובייקט ← ``400 invalid_payload``
      - ``{"ok": true, "remind_at": "..."}``
    * - ``/api/welcome/ack``
      - POST

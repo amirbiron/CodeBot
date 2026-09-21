@@ -172,6 +172,7 @@ from http_sync import request as http_request  # noqa: E402
 # תקרת אורך פתק, לשימוש בתבניות. חייב לשבת כאן ולא בראש הקובץ —
 # ראו tests/test_webapp_import_paths.py, ששומר על הכלל ונופל אם הוא מופר.
 from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  # noqa: E402
+from note_reminder_state import active_reminder_filter  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
@@ -11737,6 +11738,9 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
     # Push/reminder events
     push_docs: List[Dict[str, Any]] = []
     try:
+        # בכוונה בלי ``active_reminder_filter()``: הטיימליין מציג היסטוריה, ותזכורת
+        # שאושרה או נדחתה היא אירוע בדיוק כמו תזכורת שממתינה. שאר הקוראים —
+        # הבועה, הכרטיס, השליחה — שואלים "מה פעיל", וזו שאלה אחרת.
         cursor = db.note_reminders.find(
             {'user_id': user_id},
             {'note_id': 1, 'status': 1, 'remind_at': 1, 'updated_at': 1, 'ack_at': 1, 'last_push_success_at': 1},
@@ -12102,9 +12106,18 @@ def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dic
             last_subscribed = None
 
     try:
-        pending_count = db.note_reminders.count_documents({'user_id': user_id, 'status': {'$in': ['pending', 'snoozed']}})
+        # ``status`` לבדו ספר גם תזכורות שהמשתמש כבר ראה וסגר — וכיוון
+        # ש-``reminders_ack`` לא נגע ב-``status``, זה היה **כל** המסמכים
+        # באוסף. הכרטיס דיווח 23 "בהמתנה" בזמן שאף אחת לא המתינה.
+        pending_count = db.note_reminders.count_documents(
+            dict(active_reminder_filter(), user_id=user_id)
+        )
     except Exception:
-        pending_count = 0
+        # מאז #3430 אפס הוא גם הערך הבריא, ולכן כשל שמוצג כ-0 נראה בדיוק כמו
+        # "הכול נקי". "לא ידוע" מפורש בכרטיס, ועקבה בלוג — כמו בשאר מסלולי
+        # התזכורות.
+        logger.warning("push card: pending reminders count failed", exc_info=True)
+        pending_count = None
 
     last_push_doc = None
     try:
@@ -12121,7 +12134,7 @@ def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dic
     next_reminder_doc = None
     try:
         cur = db.note_reminders.find(
-            {'user_id': user_id, 'status': {'$in': ['pending', 'snoozed']}, 'remind_at': {'$gte': now}},
+            dict(active_reminder_filter(), user_id=user_id, remind_at={'$gte': now}),
             {'note_id': 1, 'remind_at': 1}
         ).sort('remind_at', 1).limit(1)
         docs = list(cur or [])
