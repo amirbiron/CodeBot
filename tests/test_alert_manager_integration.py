@@ -31,13 +31,15 @@ def test_alert_manager_emits_remediation_and_bump(tmp_path, monkeypatch):
     # Ensure remediation_manager is importable
     import remediation_manager as rm  # noqa: F401
 
-    # ‏_load_alert_manager הוא מה שתשעת הטסטים האחרים בקובץ משתמשים בו:
-    # הוא יוצר ``data/``, עובר ל-``tmp_path``, טוען מחדש את המודול
-    # ו**מאפס את המצב**. הטסט הזה היה היחיד שדילג על האיפוס, ולכן
-    # ה-cooldown בן חמש הדקות של ``_emit_critical_once`` — משתנה ברמת
-    # המודול — נשאר מטסט קודם באותו תהליך, הקריאה יצאה מוקדם **לפני**
-    # כתיבת האינסידנט, והטסט נפל על קובץ חסר. תלוי סדר, ולכן מהבהב
-    # תחת ``pytest-xdist`` ב-CI.
+    # ‏alert_manager מחזיק מצב ברמת המודול, ובכללו ``_last_alert_ts``:
+    # ‏``_emit_critical_once`` בודק אותו מול ``_COOLDOWN_SEC`` ויוצא מוקדם
+    # אם אותו מדד כבר התריע לאחרונה. היציאה קורית **לפני**
+    # ``handle_critical_incident``, כלומר לפני שהאינסידנט נכתב לקובץ.
+    #
+    # לכן כל טסט כאן חייב לאפס את המצב בתחילתו — דרך ``_load_alert_manager``
+    # או בקריאה ישירה ל-``reset_state_for_tests``. הטסט הזה לא עשה אף אחד
+    # מהשניים, ולכן נפל על קובץ חסר כשטסט קודם באותו תהליך כבר ירה את
+    # אותו מדד. תלוי בסדר ההרצה, ומכאן ההבהוב תחת ``pytest-xdist`` ב-CI.
     am = _load_alert_manager(tmp_path, monkeypatch)
 
     # Seed threshold and then bump
