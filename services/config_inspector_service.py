@@ -3338,6 +3338,20 @@ class ConfigService:
             description="כמה ימים נשמרת הרצת Job באוסף job_runs לפני מחיקה אוטומטית (אינדקס TTL על started_at). מעבר לחלון הזה קישורי /jobs/monitor?run_id=... מפסיקים לעבוד וההיסטוריה בדשבורד מתרוקנת.",
             category="jobs_monitor",
         ),
+        "JOBS_ORPHAN_RECONCILE_ENABLED": ConfigDefinition(
+            key="JOBS_ORPHAN_RECONCILE_ENABLED",
+            services=("bot",),
+            default="true",
+            description="האם לסגור בעלייה הרצות שנשארו running ממחזיק מנעול קודם. כיבוי משאיר אותן פתוחות עד מחיקת ה-TTL, והן ימשיכו להופיע כהרצות חיות בדשבורד.",
+            category="jobs_monitor",
+        ),
+        "JOBS_ORPHAN_RECONCILE_DELAY_SECS": ConfigDefinition(
+            key="JOBS_ORPHAN_RECONCILE_DELAY_SECS",
+            services=("bot",),
+            default="180",
+            description="כמה שניות להמתין מעליית התהליך עד פיוס ההרצות היתומות. ההשהיה מכסה את חלון הסגירה של Render, שבו התהליך הישן עדיין יכול לסיים הרצה. מי שמעלה את ה-shutdown delay ב-Render חייב להעלות גם את זה. ערך נמוך מ-90 נחסם מלמטה.",
+            category="jobs_monitor",
+        ),
         "JOB_TRIGGERS_POLL_INTERVAL_SECS": ConfigDefinition(
             key="JOB_TRIGGERS_POLL_INTERVAL_SECS",
             services=("webapp", "bot", "webserver"),

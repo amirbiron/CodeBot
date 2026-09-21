@@ -5,6 +5,7 @@
 
 import os
 
+from services.job_orphan_reconciler import RECONCILE_ENABLED_DEFAULT as _RECONCILE_ENABLED_DEFAULT
 from services.job_registry import register_job, JobCategory, JobType
 
 
@@ -92,6 +93,28 @@ def register_all_jobs():
         interval_seconds=max(30, int(os.getenv("JOBS_STUCK_MONITOR_INTERVAL_SECS", "60") or 60)),
         enabled=True,
         callback_name="_jobs_stuck_monitor",
+        source_file="main.py",
+    )
+
+    register_job(
+        job_id="jobs_orphan_reconcile",
+        name="פיוס הרצות יתומות",
+        description=(
+            "סגירת הרצות שנשארו ``running`` ממחזיק מנעול קודם — רצה פעם אחת "
+            "בעלייה, אחרי השהיה (מנוהל ב-main.py)"
+        ),
+        category=JobCategory.MONITORING,
+        # ‏``interval_seconds`` אינו מועבר בכוונה: הוא מתאר תדירות של ג'וב
+        # חוזר, וכאן יש השהיה חד-פעמית. ההשהיה נגזרת ב-
+        # ``services/job_orphan_reconciler.reconcile_delay_seconds``.
+        job_type=JobType.ONCE,
+        env_toggle="JOBS_ORPHAN_RECONCILE_ENABLED",
+        env_toggle_default=_RECONCILE_ENABLED_DEFAULT,
+        # ‏**בלי ``callback_name`` בכוונה.** הוא מה שמדליק ``can_trigger``
+        # בדשבורד, ו-``trigger_job`` מחפש את הג'וב ב-JobQueue לפי שמו כדי
+        # לקחת ממנו את ה-callback. ג'וב ``run_once`` נעלם מהתור אחרי
+        # שירוץ, ולכן הכפתור היה עובד בדקות הראשונות שאחרי העלייה ומחזיר
+        # ‏404 מכאן והלאה — הבטחה שהקוד אינו יכול לקיים.
         source_file="main.py",
     )
 

@@ -76,6 +76,36 @@ Web Push
 
 - ``push_test_result`` / ``push_test_local_error`` / ``push_test_worker_error`` — תוצאות ``POST /api/push/test``.
 
+Jobs
+----
+
+- ``job_started`` — הרצת Job התחילה.
+- ``job_completed`` — הרצה הסתיימה בהצלחה.
+- ``job_failed`` — הרצה נכשלה.
+- ``job_skipped`` — הרצה דולגה (מושבת, או כבר רץ).
+- ``job_stuck`` — הרצה עברה את סף הזמן ועדיין ``running``.
+- ``job_runs_reconciled`` — הרצות שנשארו ממחזיק מנעול קודם נסגרו בעלייה.
+  אירוע מסכם אחד לכל פיוס: ``count`` הוא המניין המלא, ‏``job_ids_sample``
+  הוא מדגם ולא הרשימה כולה. ראו :doc:`background-jobs-monitor`.
+  כשלא נמצא מה לסגור נרשמת שורת לוג באותו שם עם ``count`` אפס — ולא נשלח
+  אירוע — כדי ש"רץ ולא מצא כלום" ייראה שונה מ"לא רץ".
+- ``jobs_orphan_reconcile_skipped`` — הפיוס לא רץ כלל. ‏``reason`` אומר למה:
+  ``no_lock`` (התהליך אינו מחזיק זמן רכישת מנעול, למשל תחת ``LOCK_FAIL_OPEN``)
+  או ``no_db`` (אוסף ``job_runs`` לא זמין).
+- ``jobs_orphan_reconcile_timed_out`` — הפיוס נחתך אחרי ``RECONCILE_TIMEOUT_SECS``
+  (‏``services/job_orphan_reconciler.py``). מה שלא נסגר ממתין לעלייה הבאה.
+- ``jobs_orphan_reconcile_failed`` — הפיוס נפל על חריגה; ה-traceback בלוג.
+- ``job_run_reconcile_skipped`` — הרצה **אחת** לא נסגרה כי הסטטוס שלה השתנה
+  בין השליפה לעדכון (סיימה בעצמה). נספרת ב-``skipped`` של האירוע המסכם.
+  השמות ברמת הג'וב פותחים במזהה הג'וב, ``jobs_orphan_reconcile``; השם ברמת
+  ההרצה הבודדת פותח ב-``job_run`` — כדי שחיפוש על אחד לא יתפוס את השני בטעות.
+
+דוגמה לאירוע המסכם ``job_runs_reconciled``:
+
+.. code-block:: json
+
+   {"event":"job_runs_reconciled","severity":"warn","count":3,"skipped":0,"truncated":false,"job_ids_sample":["cache_warming","drive_sync"]}
+
 Repo Analyzer
 -------------
 

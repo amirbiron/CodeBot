@@ -1295,6 +1295,11 @@ LOCK_TIMEOUT_MINUTES = 5  # legacy fallback (deprecated)
 _LOCK_SERVICE_ID: str | None = None
 _LOCK_OWNER_ID: str | None = None
 _LOCK_HEARTBEAT: "_MongoLockHeartbeat | None" = None
+#: מתי **התהליך הזה** קיבל את המנעול. נקבע יחד עם שאר מצב המנעול, ונקרא
+#: על ידי פיוס ההרצות היתומות: הרצה שהתחילה לפני הרגע הזה שייכת למחזיק
+#: קודם. ‏``None`` פירושו שאין רגע רכישה ידוע — בהרצה ללא מנעול
+#: (``LOCK_FAIL_OPEN``, או כשל בהעלאת ה-heartbeat) — ואז הפיוס אינו רץ.
+_LOCK_ACQUIRED_AT: "datetime | None" = None
 _LOCK_PORT_GUARD_SOCKET: socket.socket | None = None
 
 def get_lock_collection():
@@ -2164,9 +2169,10 @@ def manage_mongo_lock():
             pass
 
         # Save global ownership state for cleanup/heartbeat
-        global _LOCK_SERVICE_ID, _LOCK_OWNER_ID, _LOCK_HEARTBEAT
+        global _LOCK_SERVICE_ID, _LOCK_OWNER_ID, _LOCK_HEARTBEAT, _LOCK_ACQUIRED_AT
         _LOCK_SERVICE_ID = service_id
         _LOCK_OWNER_ID = owner_id
+        _LOCK_ACQUIRED_AT = _utcnow()
 
         # Ensure lock is released on exit ASAP after ownership is established
         # (גם אם שלבים מאוחרים יותר ייכשלו)
@@ -2218,6 +2224,9 @@ def manage_mongo_lock():
                 _LOCK_HEARTBEAT = None
                 _LOCK_SERVICE_ID = None
                 _LOCK_OWNER_ID = None
+                # בלי רגע רכישה אין מבחן יתמות. מתאפס יחד עם השאר, כדי
+                # שהמסלול של fail-open לא יריץ פיוס בלי מנעול.
+                _LOCK_ACQUIRED_AT = None
             except Exception:
                 pass
             if not fail_open:
@@ -5643,6 +5652,18 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # Fail-open: אל תכשיל startup אם מודול הניטור לא זמין
         pass
 
+    # מי מריץ את ההרצות. נכתב על כל רשומת הרצה לצורך אבחון, ומוחזר ב-API
+    # של ההרצה (``webapp.app._job_run_doc_to_dict``); אף תבנית אינה מציגה
+    # אותו עדיין. המזהה נגזר במקום אחד בלבד (``_default_owner_id``) ומועבר
+    # לכאן, במקום להיגזר שוב בשכבת המעקב.
+    try:
+        from services.job_tracker import get_job_tracker
+
+        get_job_tracker().owner_id = _LOCK_OWNER_ID
+    except Exception:
+        # Fail-open: שדה אבחון חסר אינו סיבה להפיל את העלייה.
+        logger.debug("job tracker owner_id assignment failed", exc_info=True)
+
     # אינדקסי טבלת החסימות. בלי זה אין אינדקס ייחודי על user_id, ושני
     # /ban מקבילים על אותו משתמש היו יוצרים שתי רשומות. pymongo סינכרוני,
     # ולכן to_thread כדי לא לחסום את העלייה.
@@ -5775,6 +5796,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         from datetime import timedelta as _td
         from observability import emit_event as _emit  # type: ignore
 
+        # אותה תקרה שבה ``_persist_run`` חותך את הרשימה. שני כותבים לאותו
+        # שדה שחותכים לשני אורכים היו משאירים את האורך תלוי במי כתב אחרון.
+        from services.job_tracker import JOB_RUN_LOGS_KEPT as _JOB_RUN_LOGS_KEPT
+
         async def _jobs_stuck_monitor(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
             try:
                 db_obj = await _get_scheduler_motor_db(_context.application)
@@ -5839,7 +5864,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                                                 "details": {"minutes": minutes} if minutes is not None else None,
                                             }
                                         ],
-                                        "$slice": -50,
+                                        "$slice": -_JOB_RUN_LOGS_KEPT,
                                     }
                                 },
                             },
@@ -5872,6 +5897,39 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception:
         # Fail-open
         pass
+
+    # פיוס הרצות יתומות: סוגר הרצות ``running`` שנשארו פתוחות ממחזיק מנעול
+    # קודם. רץ פעם אחת, באיחור — הנימוק למספר, ולמה הוא מכסה רק את מסלול
+    # הדיפלוי, יושב ב-``services/job_orphan_reconciler``.
+    try:
+        from services.job_orphan_reconciler import (
+            reconcile_delay_seconds,
+            reconcile_enabled,
+            reconcile_job_callback,
+        )
+
+        async def _reconcile_orphan_job_runs(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
+            # ‏``_LOCK_ACQUIRED_AT`` נקרא כאן, ברגע השימוש, ולא נלכד בזמן התזמון.
+            # אין מסלול שבו הוא משתנה בין השניים — אובדן מנעול בזמן ריצה מסיים
+            # את התהליך (``_handle_lost_lock`` ← ``os._exit``). השומר שבתוך
+            # ה-callback מגן מפני תהליך שלא החזיק מנעול מלכתחילה
+            # (``LOCK_FAIL_OPEN``). התוצאה תמיד מחרוזת ולעולם לא חריגה — ראה
+            # ``reconcile_job_callback``.
+            async def _job_runs_collection():
+                db_obj = await _get_scheduler_motor_db(_context.application)
+                return getattr(db_obj, "job_runs", None) if db_obj is not None else None
+
+            await reconcile_job_callback(_job_runs_collection, lock_acquired_at=_LOCK_ACQUIRED_AT)
+
+        if reconcile_enabled():
+            application.job_queue.run_once(
+                _reconcile_orphan_job_runs,
+                when=reconcile_delay_seconds(),
+                name="jobs_orphan_reconcile",
+            )
+    except Exception:
+        # Fail-open: כשל ברישום הפיוס אינו סיבה להפיל את העלייה.
+        logger.warning("orphan reconcile registration failed", exc_info=True)
 
     # Job Triggers Processor: עיבוד בקשות trigger מה-Webapp
     try:

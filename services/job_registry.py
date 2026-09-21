@@ -83,14 +83,34 @@ class JobRegistry:
         if job.env_toggle:
             import os
 
-            raw = os.getenv(job.env_toggle)
-            if raw is None:
-                if job.env_toggle_default is not None:
-                    return bool(job.env_toggle_default)
-                # התנהגות קיימת: אם יש env_toggle אבל אין ערך => מושבת
-                return False
-            return str(raw).lower() in ("1", "true", "yes", "on")
+            # ברירת המחדל כשהמשתנה כלל אינו מוגדר. ``None`` פירושו
+            # "יש דגל ואין ערך ⇐ מושבת", וזו ההתנהגות ההיסטורית.
+            return env_toggle_enabled(
+                os.getenv(job.env_toggle), bool(job.env_toggle_default)
+            )
         return job.enabled
+
+
+def env_toggle_enabled(raw: Optional[str], default: bool) -> bool:
+    """האם דגל סביבה מפעיל את מה שהוא שולט בו.
+
+    **הבעלים היחיד של הכלל.** ``JobRegistry.is_enabled`` קובע מה הדשבורד
+    מציג, וכל קוד שמחליט בעצמו אם לתזמן חייב לענות בדיוק אותו דבר —
+    אחרת הדשבורד יראה "מושבת" בזמן שהג'וב רץ, או להפך. רשימת הערכים
+    חיה כאן, ולא בעותק שני אצל כל קורא.
+
+    Args:
+        raw: הערך כפי שהוא ב-``os.environ``, או ``None`` אם אינו מוגדר.
+        default: מה נכון כשהמשתנה כלל אינו מוגדר.
+
+    Returns:
+        ‏``True`` רק לערך מוכר של הפעלה, אחרי ניקוי רווחים. ערך ריק או לא מוכר ⇐ ``False``.
+    """
+    if raw is None:
+        return bool(default)
+    # ‏``strip`` כי פאנל סביבה משאיר רווח או שורה חדשה בהדבקה — ובלי הניקוי
+    # ‏``"true "`` היה מפרש כ"מושבת", ההפך ממה שהמפעיל כתב.
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
 
 
 def register_job(
@@ -112,4 +132,3 @@ def register_job(
     )
     JobRegistry().register(job)
     return job
-
