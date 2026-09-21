@@ -327,6 +327,7 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil((async () => {
     const fileId = (d && d.file_id != null) ? String(d.file_id) : '';
     const noteId = (d && d.note_id != null) ? String(d.note_id) : '';
+    const remindAt = (d && d.remind_at != null) ? String(d.remind_at) : '';
     const action = (event && event.action) ? String(event.action) : '';
 
     // Report click (no PII: only presence + action)
@@ -417,11 +418,16 @@ self.addEventListener('notificationclick', (event) => {
     // סותרות: דחייה אומרת "תחזור אליי", אישור אומר "ראיתי, די".
     // הדחייה גוברת.
     if (noteId && !isSnooze) {
+      // המועד שההתראה נשאה חוזר לשרת, והאישור נקשר אליו: התראה שישבה במגש
+      // מאתמול לא סוגרת תזכורת שנקבעה מחדש מאז. התראה בלי מועד (הוצגה לפני
+      // שהשדה נוסף) מאשרת בלי קשירה, כמו קודם.
+      const ackBody = { note_id: noteId };
+      if (remindAt) { ackBody.remind_at = remindAt; }
       try {
         fetch('/api/sticky-notes/reminders/ack', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ note_id: noteId })
+          body: JSON.stringify(ackBody)
         }).catch(() => {});
       } catch (_) {}
     }

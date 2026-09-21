@@ -1013,6 +1013,11 @@ def _build_reminder_payload(db, reminder_doc: dict) -> dict:
     note_id_str = str(reminder_doc.get("note_id") or "")
     file_id_str = str(reminder_doc.get("file_id") or "")
     board_id_str = str(reminder_doc.get("board_id") or "")
+    # המועד שההתראה נורתה עליו. ה-SW מחזיר אותו ב-``ack`` כדי שהאישור ייקשר
+    # למועד הזה: התראה ישנה במגש לא תסגור תזכורת שנקבעה מחדש מאז. הערך נקרא
+    # מהמסד (מודע-אזור עם ``tz_aware``), ו-``isoformat`` שומר את ה-offset.
+    remind_at = reminder_doc.get("remind_at")
+    remind_at_str = remind_at.isoformat() if isinstance(remind_at, datetime) else ""
     return {
         "notification": {
             "title": title_text,
@@ -1034,6 +1039,7 @@ def _build_reminder_payload(db, reminder_doc: dict) -> dict:
             "note_id": note_id_str,
             "file_id": file_id_str,
             "board_id": board_id_str,
+            "remind_at": remind_at_str,
             "title": title_text,
             "body": body_text,
         },

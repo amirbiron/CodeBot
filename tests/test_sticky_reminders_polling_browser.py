@@ -32,6 +32,8 @@ pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
 from playwright.sync_api import sync_playwright  # noqa: E402
 
+from _mutation import mutate as _mutate  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASE_TEMPLATE = REPO_ROOT / "webapp" / "templates" / "base.html"
 
@@ -184,7 +186,11 @@ window.setTimeout = function(fn, ms){
 window.fetch = async function(url, opts){
   const u = String(url);
   const isList = u.indexOf('/reminders/list') !== -1;
-  window.__calls.push({ url: u, hasSignal: !!(opts && opts.signal), t: Date.now() });
+  const reqBody = (opts && opts.body) ? String(opts.body) : '';
+  window.__calls.push({ url: u, hasSignal: !!(opts && opts.signal), t: Date.now(), body: reqBody });
+  // לחיצה על פריט בחלונית מנווטת מיד אחרי ה-ack, והדף נעלם עם window.__calls —
+  // sessionStorage שורד ניווט באותו מקור (ועל about:blank הוא זורק, ולכן ה-try).
+  if (u.indexOf('/reminders/ack') !== -1) { try { sessionStorage.setItem('__ackBody', reqBody); } catch (_) {} }
   const mode = isList ? (window.__listMode || 'status') : (window.__mode || 'status');
   if (mode === 'reject') { throw new TypeError('Failed to fetch'); }
   if (mode === 'stall') {
@@ -270,14 +276,6 @@ LIST_401_STOPS = (
     "if (lr.status === 401) { removeDot(); stopChain(); "
     "openPopover(target, { unauthorized: true }); return; }"
 )
-
-
-def _mutate(script: str, anchor: str, replacement: str) -> str:
-    """החלפה על עותק בזיכרון, עם אימות שהעוגן נתפס ושמשהו באמת השתנה."""
-    assert script.count(anchor) == 1, f"העוגן לא נמצא פעם אחת בדיוק: {anchor[:70]!r}"
-    out = script.replace(anchor, replacement)
-    assert out != script, "המוטציה לא שינתה כלום"
-    return out
 
 
 def _shrunk(script: str, min_ms: int, max_ms: int) -> str:
@@ -614,6 +612,59 @@ def test_badge_click_says_unknown_when_the_list_cannot_be_read(chromium_executab
         assert page.evaluate("!!document.querySelector('.notif-popover[data-kind=\"reminder\"]')") is False
         bubble_left = page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')")
         assert bubble_left is True, "סגור מחק בועה שהיא נכונה"
+
+
+@contextmanager
+def _panel(chromium_executable, script: str, **window_vars):
+    """כמו ``_chain``, אבל על מקור http אמיתי.
+
+    לחיצה על פריט בחלונית מנווטת מיד אחרי ה-``ack``, והדף נעלם עם כל מה
+    שנרשם ב-``window``. על מקור אמיתי ``sessionStorage`` שורד את הניווט,
+    וה-harness מפקיד בו את גוף ה-``ack``. כל בקשת רשת — הדף וגם יעד
+    הניווט — נענית מקומית.
+    """
+    with sync_playwright() as p:
+        browser = (
+            p.chromium.launch(executable_path=chromium_executable) if chromium_executable else p.chromium.launch()
+        )
+        try:
+            page = browser.new_page()
+            page.route("**/*", lambda route: route.fulfill(
+                status=200, content_type="text/html; charset=utf-8", body=PAGE_WITH_BUBBLE,
+            ))
+            page.goto("http://reminders.test/")
+            page.evaluate(CHAIN_HARNESS)
+            page.evaluate(f"Object.assign(window, {json.dumps(window_vars)});")
+            page.evaluate(script)
+            yield page
+        finally:
+            browser.close()
+
+
+#: המועד שהרשימה נושאת — ``isoformat`` של ערך מודע-אזור, כפי שהשרת כותב.
+OCCURRENCE = "2026-09-20T09:00:00+00:00"
+
+
+def test_clicking_a_panel_item_acks_the_occurrence_it_listed(chromium_executable):
+    """WARN-001 בחלונית: הרשימה נושאת ``remind_at``, הקישור נושא אותו, וה-``ack`` מחזיר אותו.
+
+    בלעדיו האישור סגר "איזו שהיא" תזכורת של הפתק — גם כזו שנדרכה מחדש ממכשיר
+    אחר בין הרשימה ללחיצה. השרת קושר את האישור למועד.
+    """
+    listing = {"ok": True, "count": 1, "items": [
+        {"note_id": "n1", "file_id": "f1", "preview": "פתק", "remind_at": OCCURRENCE},
+    ]}
+    with _panel(
+        chromium_executable, _polling_script(), __status=200, __reply=_summary(**_DUE), __listReply=listing,
+    ) as page:
+        page.wait_for_function("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')", timeout=8000)
+        pop = _click_bubble_and_read_popover(page)
+        assert pop["links"] == 1, pop
+        page.click(".notif-popover a.reminder-link")
+        page.wait_for_url("**/note/n1", timeout=8000)
+        body = page.evaluate("sessionStorage.getItem('__ackBody')")
+    assert body is not None, "לא נרשם ack"
+    assert json.loads(body) == {"note_id": "n1", "remind_at": OCCURRENCE}, body
 
 
 def test_falling_back_to_an_empty_list_breaks_the_test(chromium_executable):
