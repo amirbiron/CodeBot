@@ -94,10 +94,10 @@ Endpoints
      - ``image/svg+xml``
    * - ``/api/sticky-notes/reminders/summary``
      - GET
-     - סיכום מינימלי לבועה הקבועה (האם יש פתקים ממתינים + מונה)
+     - סיכום מינימלי לבועה הקבועה (האם יש פתקים ממתינים, מונה, ובעוד כמה שניות לשאול שוב)
      - ✅
      - -
-     - ``{"ok": true, "has_due": true, "count_due": 3, "next": {"note_id": "...", "file_id": "...", "remind_at": "..."}}``
+     - ``{"ok": true, "has_due": true, "count_due": 3, "next_in_seconds": 300}``
    * - ``/api/sticky-notes/reminders/list``
      - GET
      - רשימת פתקים ממתינים עם תצוגה מקדימה (6 מילים) וקישור לעוגן

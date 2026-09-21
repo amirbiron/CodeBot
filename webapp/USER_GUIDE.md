@@ -783,7 +783,7 @@
 
 - סיכום לתצוגת באדג': GET `/api/sticky-notes/reminders/summary`
 
-  מחזיר `has_due` ו‑`next` (פתק הבא לפתיחה).
+  מחזיר `has_due`, `count_due` ו‑`next_in_seconds` (בעוד כמה שניות לשאול שוב; `null` כשאין מה לתזמן).
 
 > הערה: התראות Web Push מלאות יגיעו באיטרציה נפרדת (Service Worker + VAPID).
 
