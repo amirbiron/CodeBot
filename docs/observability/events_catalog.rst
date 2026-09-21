@@ -76,6 +76,22 @@ Web Push
 
 - ``push_test_result`` / ``push_test_local_error`` / ``push_test_worker_error`` — תוצאות ``POST /api/push/test``.
 
+Jobs
+----
+
+- ``job_started`` — הרצת Job התחילה.
+- ``job_completed`` — הרצה הסתיימה בהצלחה.
+- ``job_failed`` — הרצה נכשלה.
+- ``job_skipped`` — הרצה דולגה (מושבת, או כבר רץ).
+- ``job_stuck`` — הרצה עברה את סף הזמן ועדיין ``running``.
+- ``job_runs_reconciled`` — הרצות שנשארו ממחזיק מנעול קודם נסגרו בעלייה.
+  אירוע מסכם אחד לכל פיוס: ``count`` הוא המניין המלא, ‏``job_ids_sample``
+  הוא מדגם ולא הרשימה כולה. ראו :doc:`background-jobs-monitor`.
+
+.. code-block:: json
+
+   {"event":"job_runs_reconciled","severity":"warn","count":3,"skipped":0,"truncated":false,"job_ids_sample":["cache_warming","drive_sync"]}
+
 Repo Analyzer
 -------------
 

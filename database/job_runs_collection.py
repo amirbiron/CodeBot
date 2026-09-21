@@ -23,7 +23,8 @@ expire"* (מקור: https://www.mongodb.com/docs/manual/core/index-ttl/) — ה�
                                                            ``webapp api_job_detail``
 ``find({job_id, status}).sort(started_at desc)``           ``webapp api_job_detail``       ``idx_job_runs_job_time``
 ``find({status:"running"}).sort(started_at desc)``         ``webapp api_jobs_active``      ``idx_job_runs_status_time``
-``find({status:"running", started_at:{$lt}})``             ``main.py`` (ניטור תקיעות)       ``idx_job_runs_status_time``
+``find({status:"running", started_at:{$lt}})``             ``main.py`` (ניטור תקיעות),      ``idx_job_runs_status_time``
+                                                           ``job_orphan_reconciler``
 ``aggregate($match started_at>=since, $group job_id)``     ``webapp api_jobs``             ``idx_job_runs_ttl``
 =========================================================  ==============================  =========================
 
@@ -36,6 +37,14 @@ expire"* (מקור: https://www.mongodb.com/docs/manual/core/index-ttl/) — ה�
   ה-TTL הוא מה שחוסם את הגודל.
 - ``find({status:"failed"}).sort(started_at desc).limit(10)``
   (``chatops/jobs_commands.py``) — משרת את ``idx_job_runs_status_time``.
+
+**שני שדות נכתבים על ידי מי שאינו ההרצה עצמה.** ‏``failure_reason`` נכתב
+בפיוס (``services/job_orphan_reconciler.py``) ומבדיל הרצה שנסגרה מבחוץ
+מג'וב שנפל בקוד שלו; ``_persist_run`` מנקה אותו בכל כתיבה של ההרצה עצמה,
+כדי שלא יישאר ייחוס חיצוני על רשומה שדיווחה על עצמה. ‏``owner_id`` נכתב
+ב-``_persist_run`` ומזהה את המופע שהריץ. שניהם נקראים ב-
+``webapp/app.py:_job_run_doc_to_dict``, ו-``failure_reason`` גם ב-
+``chatops/jobs_commands.py``.
 
 **אינדקס על ``user_id`` אינו נוצר.** ‏``user_id`` נכתב ומוצג, ואף שאילתה בריפו
 אינה מסננת לפיו. אינדקס בלי קורא עולה בכל כתיבה ולא מחזיר דבר.

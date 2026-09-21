@@ -6900,6 +6900,13 @@ def _job_run_doc_to_dict(doc: Dict[str, Any], include_logs: bool = False) -> Dic
         "total_items": int(doc.get("total_items") or 0),
         "processed_items": int(doc.get("processed_items") or 0),
         "error_message": doc.get("error_message"),
+        # ‏``failure_reason`` מבדיל בין ג'וב שנפל בקוד שלו לבין הרצה שנסגרה
+        # מבחוץ כי התהליך שהתחיל אותה נעלם (``orphaned``). בלעדיו שתי
+        # האוכלוסיות נראות זהות בדשבורד, כי שתיהן ``failed``.
+        "failure_reason": doc.get("failure_reason"),
+        # איזה מופע הריץ את ההרצה. השדה היחיד שמאפשר להבדיל, בדיעבד, בין
+        # הרצה של התהליך הנוכחי להרצה שנשארה ממחזיק מנעול קודם.
+        "owner_id": doc.get("owner_id"),
         "trigger": doc.get("trigger"),
         "user_id": doc.get("user_id"),
         "duration_seconds": duration_seconds,

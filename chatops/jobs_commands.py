@@ -61,10 +61,16 @@ def handle_jobs_command(args: str) -> str:
                 s = s[: max(0, limit - 1)] + "…"
             return s
 
+        # הרצה שנסגרה בפיוס נכתבת כ-``failed``, ולכן היא נוחתת ברשימה הזו.
+        # בלי ההבחנה "הכשלונות האחרונים" היו מערבבים ג'וב שנפל בקוד שלו עם
+        # הרצה שאיש לא סגר — שתי אוכלוסיות שונות תחת מספר אחד.
+        from services.job_orphan_reconciler import ORPHANED_FAILURE_REASON
+
         lines = ["❌ **כשלים אחרונים:**\n"]
         for doc in failed_docs:
             job_id = str(doc.get("job_id") or "").strip() or "unknown"
             run_id = str(doc.get("run_id") or "").strip()
+            is_orphan = str(doc.get("failure_reason") or "").strip() == ORPHANED_FAILURE_REASON
             err = _safe_code(str(doc.get("error_message") or ""))
             try:
                 started = doc.get("started_at")
@@ -72,7 +78,8 @@ def handle_jobs_command(args: str) -> str:
             except Exception:
                 ts = ""
             logs_link = f"{monitor_base_url}/jobs/monitor?run_id={run_id}" if run_id else f"{monitor_base_url}/jobs/monitor"
-            lines.append(f"❌ `{job_id}` {ts}\n   `{err}`\n   [📋 לוגים]({logs_link})")
+            icon = "👻" if is_orphan else "❌"
+            lines.append(f"{icon} `{job_id}` {ts}\n   `{err}`\n   [📋 לוגים]({logs_link})")
 
         return "\n".join(lines)
 

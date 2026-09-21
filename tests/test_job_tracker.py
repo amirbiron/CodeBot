@@ -1,51 +1,42 @@
 import pytest
 
 from services.job_tracker import JobTracker, JobStatus
+from tests._fake_mongo import FakeDB
 from services.job_registry import JobRegistry, register_job, JobCategory, JobType
 
 
+class _MockDB:
+    """‏``db.client[db_name]["job_runs"]`` — הדרך שבה ``JobTracker`` מגיע לאוסף."""
+
+    def __init__(self):
+        self.db = FakeDB("test")
+        self.client = {"test": self.db}
+        self.db_name = "test"
+
+    @property
+    def runs(self):
+        return self.db["job_runs"]
+
+
 @pytest.fixture
-def tracker():
-    """Tracker עם mock DB"""
-
-    class MockCollection:
-        def __init__(self):
-            self.docs = {}
-
-        def update_one(self, query, update, upsert=False):  # noqa: ARG002
-            self.docs[query["run_id"]] = update["$set"]
-
-        def find_one(self, query):
-            return self.docs.get(query["run_id"])
-
-        def find(self, query):
-            return MockCursor(
-                [d for d in self.docs.values() if d.get("job_id") == query.get("job_id")]
-            )
-
-    class MockCursor:
-        def __init__(self, docs):
-            self._docs = docs
-
-        def sort(self, *args):  # noqa: ARG002
-            return self
-
-        def limit(self, n):
-            self._docs = self._docs[:n]
-            return self
-
-        def __iter__(self):
-            return iter(self._docs)
-
-    class MockDB:
-        def __init__(self):
-            self.client = {"test": {"job_runs": MockCollection()}}
-            self.db_name = "test"
-
-    return JobTracker(MockDB())
+def mock_db():
+    return _MockDB()
 
 
-def test_start_and_complete_run(tracker):
+@pytest.fixture
+def tracker(mock_db):
+    """Tracker מול דמת מונגו משותפת.
+
+    הדמה שהייתה כאן קודם החזירה ``None`` מ-``update_one`` והתעלמה מכל
+    מסנן פרט ל-``run_id``. כלומר ברגע ש-``_persist_run`` התחיל לבדוק
+    ``matched_count``, כל כתיבה בטסטים נראתה כדחייה — והטסטים המשיכו
+    לעבור, כי אף אחד מהם לא קרא את הרשומה בחזרה. ‏``tests/_fake_mongo``
+    מעריך את המסנן באמת ומחזיר ספירות אמיתיות.
+    """
+    return JobTracker(mock_db)
+
+
+def test_start_and_complete_run(tracker, mock_db):
     run = tracker.start_run("test_job")
     assert run.status == JobStatus.RUNNING
     assert run.run_id in [r.run_id for r in tracker.get_active_runs()]
@@ -54,13 +45,25 @@ def test_start_and_complete_run(tracker):
 
     assert run.run_id not in [r.run_id for r in tracker.get_active_runs()]
 
+    # נקרא מהמסד ולא מהאובייקט בזיכרון: כתיבה שנדחתה נראית זהה לכתיבה
+    # שנחתה, אם בודקים רק את ה-dataclass.
+    doc = mock_db.runs.find_one({"run_id": run.run_id})
+    assert doc is not None
+    assert doc["status"] == "completed"
+    assert doc["result"] == {"count": 5}
+    assert doc["ended_at"] is not None
 
-def test_fail_run(tracker):
+
+def test_fail_run(tracker, mock_db):
     run = tracker.start_run("test_job")
     tracker.fail_run(run.run_id, "Test error")
 
     assert run.status == JobStatus.FAILED
     assert run.error_message == "Test error"
+
+    doc = mock_db.runs.find_one({"run_id": run.run_id})
+    assert doc["status"] == "failed"
+    assert doc["error_message"] == "Test error"
 
 
 def test_skip_run(tracker):

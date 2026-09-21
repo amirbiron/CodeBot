@@ -18,6 +18,21 @@ class JobStatus(Enum):
     SKIPPED = "skipped"
 
 
+#: הסטטוסים שמהם אין דרך חזרה. אחרי שהרצה קיבלה אחד מהם, כתיבה שמחזירה
+#: אותה ל-``running`` אינה עדכון אלא תחייה — והיא הייתה משאירה את הרשומה
+#: פתוחה לנצח, כי הפיוס ב-``services/job_orphan_reconciler.py`` רץ פעם אחת
+#: בעלייה ולא חוזר. ‏``CANCELLED`` נכלל אף שאיש עדיין אינו כותב אותו: קבוצה
+#: שמונה רק את מה שכתוב היום מתיישנת ברגע שמישהו מוסיף ביטול.
+TERMINAL_STATUSES = frozenset(
+    {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.SKIPPED}
+)
+
+#: כמה רשומות לוג נשמרות על הרצה. הקורא השני הוא הפיוס, שדוחף רשומה
+#: ב-``$push`` עם ``$slice`` — והמספר חייב להיות אותו מספר, אחרת שתי
+#: הכתיבות חותכות את אותה רשימה לשני אורכים.
+JOB_RUN_LOGS_KEPT = 50
+
+
 @dataclass
 class JobLogEntry:
     """רשומת לוג בודדת"""
@@ -64,6 +79,11 @@ class JobTracker:
         else:
             self.db = db_manager
         self._active_runs: Dict[str, JobRun] = {}
+        #: מי מריץ את ההרצות האלה — נכתב על כל רשומה לצורך אבחון, ומוצג
+        #: בעמוד ההרצה. נקבע פעם אחת מ-``main.py`` אחרי שהמנעול נרכש; כאן
+        #: אין ייבוא של מודול המנעול, כדי לא לשכפל את כלל גזירת המזהה.
+        #: ‏``None`` הוא מצב לגיטימי (בדיקות, הרצה בלי מנעול).
+        self.owner_id: Optional[str] = None
 
     def start_run(
         self,
@@ -107,7 +127,7 @@ class JobTracker:
             total_items=total_items,
         )
         self._active_runs[run.run_id] = run
-        self._persist_run(run)
+        self._persist_run(run, allow_create=True)
 
         try:
             from observability import emit_event
@@ -283,7 +303,7 @@ class JobTracker:
             )
         except Exception:
             pass
-        self._persist_run(run)
+        self._persist_run(run, allow_create=True)
         try:
             from observability import emit_event
 
@@ -314,8 +334,40 @@ class JobTracker:
             self.fail_run(run.run_id, str(e))
             raise
 
-    def _persist_run(self, run: JobRun) -> None:
-        """שמירת הרצה ל-DB"""
+    def _persist_run(self, run: JobRun, *, allow_create: bool = False) -> bool:
+        """שמירת הרצה ל-DB.
+
+        Args:
+            allow_create: האם מותר ליצור מסמך שאינו קיים. רק שתי נקודות
+                יוצרות הרצה — ``start_run`` ו-``record_skipped``. לשאר
+                הכתיבות ``upsert`` היה מייצר מסמך חדש מתוך שם ההרצה
+                כשהמסנן אינו תואם, ומתנגש באינדקס הייחודי.
+
+        Returns:
+            ‏``True`` אם הכתיבה נחתה. ‏``False`` בשני מקרים, ושניהם נרשמים
+            בלוג: חריגה מהמסד, או כתיבה **לא סופית** שנדחתה כי ההרצה כבר
+            הגיעה לסטטוס סופי. המקרה השני אינו תקלה — הוא בדיוק השומר.
+
+        ⚠️ ערוץ הכשל הוא ערך ההחזרה, לא חריגה: ``except`` סביב הקריאה הזו
+        לא ירוץ. מי שמדווח הצלחה אחריה חייב לבדוק את הערך.
+        """
+        is_terminal = run.status in TERMINAL_STATUSES
+        if is_terminal:
+            # תוצאה אמיתית לעולם אינה נחסמת. גם אם הפיוס הספיק לסמן את
+            # ההרצה כיתומה, ההרצה עצמה רשאית לכתוב את הסוף שלה.
+            flt: Dict[str, Any] = {"run_id": run.run_id}
+            upsert = bool(allow_create)
+        elif allow_create:
+            flt = {"run_id": run.run_id}
+            upsert = True
+        else:
+            # השומר: כתיבה שמחזירה הרצה סופית ל-``running`` היא תחייה.
+            flt = {
+                "run_id": run.run_id,
+                "status": {"$nin": sorted(s.value for s in TERMINAL_STATUSES)},
+            }
+            upsert = False
+
         try:
             doc = {
                 "run_id": run.run_id,
@@ -334,19 +386,47 @@ class JobTracker:
                         "message": log.message,
                         "details": log.details,
                     }
-                    for log in run.logs[-50:]  # שמירת 50 לוגים אחרונים
+                    for log in run.logs[-JOB_RUN_LOGS_KEPT:]
                 ],
                 "result": run.result,
                 "trigger": run.trigger,
                 "user_id": run.user_id,
+                "owner_id": self.owner_id,
             }
-            self.db.client[self.db.db_name]["job_runs"].update_one(
-                {"run_id": run.run_id},
-                {"$set": doc},
-                upsert=True,
+            result = self.db.client[self.db.db_name]["job_runs"].update_one(
+                flt,
+                {
+                    "$set": doc,
+                    # ‏``failure_reason`` מתאר ייחוס חיצוני — מי שסגר את
+                    # ההרצה במקומה. ברגע שההרצה מדווחת על עצמה, הייחוס
+                    # הזה מתיישן, ו-status בלי ניקוי שלו היה משאיר זוג
+                    # סותר: ``completed`` עם ``orphaned``.
+                    "$unset": {"failure_reason": ""},
+                },
+                upsert=upsert,
             )
         except Exception as e:
             logger.error(f"Failed to persist job run: {e}")
+            return False
+
+        matched = int(getattr(result, "matched_count", 0) or 0)
+        if matched or getattr(result, "upserted_id", None) is not None:
+            return True
+
+        # שני מצבים מגיעים לכאן, ושניהם ראויים לשורה: כתיבה לא סופית
+        # שהשומר דחה כי ההרצה כבר סופית, וכתיבה על הרצה שאין לה מסמך כלל
+        # (הכתיבה היוצרת נכשלה קודם). ההבחנה ביניהם היא ב-``guarded``.
+        logger.warning(
+            "job run persist did not match any document",
+            extra={
+                "event": "job_run_persist_rejected",
+                "run_id": run.run_id,
+                "job_id": run.job_id,
+                "attempted_status": run.status.value,
+                "guarded": not is_terminal and not allow_create,
+            },
+        )
+        return False
 
     def get_run(self, run_id: str) -> Optional[JobRun]:
         """קבלת הרצה לפי ID"""

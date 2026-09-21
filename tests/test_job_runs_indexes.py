@@ -111,9 +111,17 @@ class TestTTLShape:
         class _RunsColl:
             def update_one(self, _filter, update, **_kwargs):
                 persisted.update(update["$set"])
+                # ‏``_persist_run`` קורא ``matched_count`` כדי להבדיל בין
+                # כתיבה שנחתה לכתיבה שהשומר דחה. דמה שמחזירה ``None``
+                # הייתה מדווחת על כל כתיבה כדחייה, והטסט היה עובר בשקט.
+                return types.SimpleNamespace(matched_count=1, upserted_id=None)
 
         fake_tracker = types.SimpleNamespace(
-            db=types.SimpleNamespace(client={"db": {"job_runs": _RunsColl()}}, db_name="db")
+            db=types.SimpleNamespace(client={"db": {"job_runs": _RunsColl()}}, db_name="db"),
+            # אותו שדה שקיים על ``JobTracker`` האמיתי. דמה שחסרה אותו
+            # מייצרת ``AttributeError`` בתוך ``_persist_run`` — כשל שנראה
+            # כמו באג בכותב, ומקורו בדמה.
+            owner_id=None,
         )
         run = JobRun(
             run_id="r1",
@@ -121,7 +129,7 @@ class TestTTLShape:
             started_at=datetime.now(timezone.utc),
             status=JobStatus.RUNNING,
         )
-        JobTracker._persist_run(fake_tracker, run)
+        assert JobTracker._persist_run(fake_tracker, run, allow_create=True) is True
 
         assert "started_at" in persisted and persisted["started_at"] is not None
         # ההרצה עדיין רצה — השדה השני ריק, ולכן אינו יכול לשאת TTL

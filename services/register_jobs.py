@@ -96,6 +96,24 @@ def register_all_jobs():
     )
 
     register_job(
+        job_id="jobs_orphan_reconcile",
+        name="פיוס הרצות יתומות",
+        description=(
+            "סגירת הרצות שנשארו ``running`` ממחזיק מנעול קודם — רצה פעם אחת "
+            "בעלייה, אחרי השהיה (מנוהל ב-main.py)"
+        ),
+        category=JobCategory.MONITORING,
+        # ‏``interval_seconds`` אינו מועבר בכוונה: הוא מתאר תדירות של ג'וב
+        # חוזר, וכאן יש השהיה חד-פעמית. ההשהיה נגזרת ב-
+        # ``services/job_orphan_reconciler.reconcile_delay_seconds``.
+        job_type=JobType.ONCE,
+        env_toggle="JOBS_ORPHAN_RECONCILE_ENABLED",
+        env_toggle_default=True,
+        callback_name="_reconcile_orphan_job_runs",
+        source_file="main.py",
+    )
+
+    register_job(
         job_id="pending_job_triggers",
         name="עיבוד בקשות Trigger",
         description="Polling על job_trigger_requests כדי להפעיל Jobs שנשלחו מה-WebApp (מנוהל ב-main.py)",
