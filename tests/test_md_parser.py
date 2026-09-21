@@ -922,134 +922,96 @@ _LINE_ENDING_INPUTS = [
 
 @pytest.mark.parametrize("name, text", _LINE_ENDING_INPUTS)
 def test_the_lone_cr_rule_matches_markdown_it(name, text):
-    """שני העותקים של כלל ה-``\\r`` הבודד, מול ההתנהגות שהם מתארים.
+    """הכלל המשותף של ה-``\\r`` הבודד, מול ההתנהגות שהוא מתאר.
 
-    אמת המידה אינה אחד מהם אלא ``markdown-it-py``: הכלל שלו,
+    אמת המידה אינה הכלל אלא ``markdown-it-py``: הכלל שלו,
     ``rules_core/normalize.py`` עם ``\\r\\n?|\\n``, הוא מה שהופך ``\\r``
     בודד לשורה חדשה — ומשם הפער מול ``split("\\n")`` שכל שדות ה-
-    ``lines`` ב-MCP נספרים בו.
-
-    הטסט מריץ את הביטוי משני המקומות ואת הספרייה, ודורש שהשלושה יסכימו
-    על כל קלט. פיצול עתידי של אחד מהם ייפול כאן.
+    ``lines`` ב-MCP נספרים בו. עד #3419 היו כאן שני עותקים (המנתב
+    והפארסר) שהטסט השווה ביניהם; מאז יש הגדרה אחת ב-``services/line_endings``,
+    והטסט שאחרי זה מוכיח ששני הצרכנים באמת קוראים לה.
     """
-    from mcp_server import outline as outline_router
+    from services import line_endings
 
-    by_router = bool(outline_router._CR_WITHOUT_LF.search(text))
-    by_parser = bool(md_parser._CR_WITHOUT_LF.search(text))
+    by_rule = bool(line_endings.find_lone_cr(text))
 
     # האמת: האם ``markdown-it-py`` סופר שורות אחרת מ-``split("\n")``?
     normalized_by_library = re.sub(r"\r\n?|\n", "\n", text)
     normalized_by_us = text.replace("\r\n", "\n")
     by_library = normalized_by_library != normalized_by_us
 
-    assert by_router == by_parser == by_library, {
-        "מנתב": by_router,
-        "פארסר": by_parser,
-        "הספרייה": by_library,
-    }
+    assert by_rule == by_library, {"הכלל": by_rule, "הספרייה": by_library}
 
 
-#: הפער שנמדד בין ``_body_start`` לבין התוסף, צורה ← האם התוסף רואה כאן
-#: front matter. ``True`` פירושו שהתוסף מזהה בלוק והפונקציה הישנה לא, או
-#: להפך — הפירוט בעמודה השלישית.
+def test_both_consumers_use_the_shared_lone_cr_rule_and_neither_keeps_a_copy():
+    """המנתב והפארסר מייבאים את הכלל מ-``services.line_endings`` — ואף אחד מהם אינו מגדיר אותו מחדש.
+
+    הבדיקה היא על המקור ולא על התנהגות, כי התנהגות זהה היא בדיוק מה ששני
+    עותקים מספקים ביום הראשון (R6): מה שצריך לתפוס הוא העותק שיחזור מחר.
+    """
+    import ast
+
+    from mcp_server import outline as outline_router
+    from services import line_endings
+
+    rule = r"\r(?!\n)"
+    assert line_endings.CR_WITHOUT_LF.pattern == rule
+    for module in (outline_router, md_parser):
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        assert rule not in source, f"{module.__name__} מחזיק עותק משלו של כלל ה-CR הבודד"
+        imported = {
+            alias.name
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("line_endings")
+            for alias in node.names
+        }
+        assert "find_lone_cr" in imported, f"{module.__name__} אינו מייבא את find_lone_cr"
+
+
+#: הצורות שבהן נמדד, ב-#3418, מה התוסף רואה — כולל חמש שכלל שנכתב ביד
+#: (``scripts/generate_ai_map.py::_body_start``, עד #3419) חלק עליו בהן.
+#: העמודה השלישית היא האמת: האם ``mdit_py_plugins.front_matter`` מזהה בלוק.
 _FRONT_MATTER_SHAPES = [
-    # (שם, טקסט, האם התוסף מזהה בלוק, האם _body_start מזהה בלוק)
-    ("רגיל", "---\na: 1\n---\n\n# כותרת\n", True, True),
-    ("סוגר ...", "---\na: 1\n...\n\n# כותרת\n", True, True),
-    ("לא נסגר", "---\na: 1\n\n# כותרת\n", False, False),
-    ("פותח 4 סוגר 3", "----\na: 1\n---\n\n# כותרת\n", False, False),
-    ("ריק", "", False, False),
-    # ── צורות שנראות חשודות ובכל זאת **מסכימות** — כאן בכוונה, כי
-    #    "בדקנו ואין פער" הוא מידע בדיוק כמו פער ──
-    ("פותח רווח בסוף", "--- \na: 1\n---\n\n# כותרת\n", True, True),
-    ("סוגר מוזח 2 רווחים", "---\na: 1\n  ---\n\n# כותרת\n", True, True),
-    # ── והצורות שבהן הם באמת חלוקים. המספר כאן אינו מוקלד בפרוזה:
-    #    ``test_the_measured_front_matter_gap_matches_the_prose`` גוזר
-    #    אותו מהטבלה ומשווה למה שכתוב ב-``md_parser`` ──
-    ("פותח מוזח", "  ---\na: 1\n---\n\n# כותרת\n", False, True),
-    # ארבעה רווחים הם בלוק קוד לפי CommonMark, ולכן התוסף אינו רואה
-    # סוגר — ואילו ``_body_start`` עושה ``.strip()`` ומקבל. הצורה
-    # הזאת נמדדה, הוזכרה ב-``generate_ai_map`` ונשמטה מהטבלה.
-    ("סוגר מוזח 4 רווחים", "---\na: 1\n    ---\n\n# כותרת\n", False, True),
-    ("ארבעה מקפים", "----\na: 1\n----\n\n# כותרת\n", True, False),
-    ("פותח 3 סוגר 4", "---\na: 1\n----\n\n# כותרת\n", True, False),
-    ("פותח עם טקסט", "---title\na: 1\n---\n\n# כותרת\n", True, False),
+    # (שם, טקסט, האם התוסף מזהה בלוק)
+    ("רגיל", "---\na: 1\n---\n\n# כותרת\n", True),
+    ("סוגר ...", "---\na: 1\n...\n\n# כותרת\n", True),
+    ("לא נסגר", "---\na: 1\n\n# כותרת\n", False),
+    ("פותח 4 סוגר 3", "----\na: 1\n---\n\n# כותרת\n", False),
+    ("ריק", "", False),
+    ("פותח רווח בסוף", "--- \na: 1\n---\n\n# כותרת\n", True),
+    ("סוגר מוזח 2 רווחים", "---\na: 1\n  ---\n\n# כותרת\n", True),
+    # ── חמש הצורות שהכלל שנכתב ביד חלק עליהן, עד #3419 ──
+    ("פותח מוזח", "  ---\na: 1\n---\n\n# כותרת\n", False),
+    # ארבעה רווחים הם בלוק קוד לפי CommonMark, ולכן התוסף אינו רואה סוגר.
+    ("סוגר מוזח 4 רווחים", "---\na: 1\n    ---\n\n# כותרת\n", False),
+    ("ארבעה מקפים", "----\na: 1\n----\n\n# כותרת\n", True),
+    ("פותח 3 סוגר 4", "---\na: 1\n----\n\n# כותרת\n", True),
+    ("פותח עם טקסט", "---title\na: 1\n---\n\n# כותרת\n", True),
 ]
 
-#: מספר הצורות שבהן התוסף ו-``_body_start`` חלוקים, **נגזר מהטבלה**.
-#: הפרוזה ב-``services/md_parser.py`` וב-``requirements/base.txt``
-#: מצטטת אותו, וטסט משווה — כדי שתוספת צורה בלי עדכון הפרוזה תפיל.
-_FRONT_MATTER_DISAGREEMENTS = sum(
-    1 for _, _, plugin_sees, body_start_sees in _FRONT_MATTER_SHAPES
-    if plugin_sees is not body_start_sees
-)
 
-#: מילות המספר שהפרוזה משתמשת בהן. טווח קטן בכוונה: אם הטבלה תגדל מעבר
-#: לו, הטסט ייפול על ``KeyError`` ויכריח מבט — וזה עדיף על השלמה שקטה.
-_HEBREW_NUMBERS = {
-    3: "שלוש", 4: "ארבע", 5: "חמש", 6: "שש", 7: "שבע", 8: "שמונה",
-    9: "תשע", 10: "עשר", 11: "אחת-עשרה", 12: "שתים-עשרה",
-    13: "שלוש-עשרה", 14: "ארבע-עשרה", 15: "חמש-עשרה",
-}
+@pytest.mark.parametrize("name, text, plugin_sees", _FRONT_MATTER_SHAPES)
+def test_front_matter_end_is_the_plugins_boundary_on_every_shape(name, text, plugin_sees):
+    """``md_parser.front_matter_end`` אומר בדיוק מה שהתוסף אומר — גם בחמש הצורות שהכלל הידני חלק עליהן.
 
-
-def test_the_measured_front_matter_gap_matches_the_prose():
-    """הפער שנמדד בטבלה הוא מה שכתוב בפרוזה, בשני המקומות שמצטטים אותו.
-
-    **למה טסט ולא סתם לתקן את המספר.** זה בדיוק מה שכבר קרה: הטבלה
-    גדלה, והפרוזה נשארה על "חמש מתוך שלוש-עשרה" בזמן שבטבלה היו
-    אחת-עשרה שורות וארבע חלוקות — שלוש רשימות שונות של "חמש הצורות"
-    חיו בריפו בו-זמנית. מספר שמוקלד ביד במקום שני מתיישן בשקט; מספר
-    שנגזר מהקוד לא יכול.
-    """
-    disagreements = _HEBREW_NUMBERS[_FRONT_MATTER_DISAGREEMENTS]
-    total = _HEBREW_NUMBERS[len(_FRONT_MATTER_SHAPES)]
-    expected = f"{disagreements} מתוך {total}"
-
-    parser_source = (_REPO / "services" / "md_parser.py").read_text(encoding="utf-8")
-    base = (_REPO / "requirements" / "base.txt").read_text(encoding="utf-8")
-
-    for name, text in (("services/md_parser.py", parser_source), ("requirements/base.txt", base)):
-        assert expected in text, (
-            f"{name} אינו אומר {expected!r}. הטבלה מכילה עכשיו "
-            f"{len(_FRONT_MATTER_SHAPES)} צורות ובהן {_FRONT_MATTER_DISAGREEMENTS} "
-            "חלוקות — עדכן את הפרוזה יחד עם הטבלה."
-        )
-
-
-@pytest.mark.parametrize("name, text, plugin_sees, body_start_sees", _FRONT_MATTER_SHAPES)
-def test_the_front_matter_rules_still_disagree_as_measured(
-    name, text, plugin_sees, body_start_sees
-):
-    """**הטסט הזה מקבע פער מדוד, ולא התנהגות רצויה.**
-
-    אמת המידה היא ``mdit_py_plugins.front_matter`` — מה ש-MyST באמת
-    מריץ, ומה ש-``md_parser`` רושם על מופע הפארסר שלו.
-    ``scripts/generate_ai_map.py::_body_start`` הוא **הסוטה**: הוא
-    כותב את אותו כלל ביד ו-``.strip()`` שבו מקבל ``---`` מוזח שהתוסף
-    דוחה, ופוסל ``----`` וסוגר ארוך מהפותח שהתוסף מקבל.
-
-    .. warning::
-
-       **נפילה של הטסט הזה אחרי שהפער ייסגר היא תוצאה מכוונת.** היעד
-       הוא ש-``_body_start`` יעבור להשתמש בתוסף; ביום שזה יקרה, הטסט
-       הזה **חייב** להיערך יחד עם השינוי ועם האישו שמתעד אותו. אל
-       "תתקן" אותו כאילו היה באג — הוא הדבר היחיד שמונע מהפער להיסחף
-       בשקט לכיוון שלישי.
-
-    בקורפוס של היום אין לאף אחת מחמש הצורות החלוקות מופע: 23 מתוך 34
-    קובצי ה-``.md`` תחת ``docs/`` פותחים ב-``---`` מדויק, ואפס במוזח או
-    עם רווח. כלומר המפה שנוצרת היום נכונה, והפער הוא חוב ולא תקלה.
+    **הגלגול השני של הטסט שישב כאן.** הקודם — ``..._still_disagree_as_measured``
+    — קיבע פער מדוד בין ``_body_start`` של ``generate_ai_map`` לבין התוסף,
+    והכריז שנפילתו אחרי סגירת הפער היא תוצאה מכוונת. הפער נסגר ב-#3419:
+    הסקריפט קורא את הגבול מהפארסר, והטסט נערך יחד עם השינוי, כפי שה-docstring
+    שלו דרש. אמת המידה לא זזה: התוסף עצמו, על פרסר בקרה שנבנה כאן.
     """
     from mdit_py_plugins.front_matter import front_matter_plugin
 
     probe = MarkdownIt("commonmark").use(front_matter_plugin).disable("inline")
-    saw_block = any(t.type == "front_matter" for t in probe.parse(text, {}))
+    tokens = probe.parse(text, {})
+    saw_block = any(t.type == "front_matter" for t in tokens)
     assert saw_block is plugin_sees, f"התנהגות התוסף השתנתה בצורה {name!r}"
+    expected = next((t.map[1] for t in tokens if t.type == "front_matter"), 0)
 
+    assert md_parser.front_matter_end(text) == expected, name
     generator = _load_ai_map_generator()
-    assert bool(generator._body_start(text.split("\n"))) is body_start_sees, (
-        f"‏_body_start השתנה בצורה {name!r} — עדכן את הטבלה יחד עם האישו"
+    assert generator._body_start(text.split("\n")) == expected, (
+        f"‏_body_start חולק על התוסף בצורה {name!r} — הפער שנסגר ב-#3419 נפתח מחדש"
     )
 
 
@@ -1060,7 +1022,7 @@ def test_the_parser_never_invents_a_section_where_the_plugin_sees_front_matter()
     ה"מומצאת" היא התנהגות CommonMark נכונה ולא באג שלנו, ולכן היא
     מוצהרת כאן במפורש.
     """
-    for name, text, plugin_sees, _old in _FRONT_MATTER_SHAPES:
+    for name, text, plugin_sees in _FRONT_MATTER_SHAPES:
         if not text:
             continue
         titles = [s.title for s in md_parser.parse_document(text).sections]

@@ -25,12 +25,14 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from zoneinfo import ZoneInfo
 
-# Try to use the new domain CodeNormalizer when available (backwards compatible)
-try:  # pragma: no cover - optional import during gradual refactor
-    from src.domain.services.code_normalizer import CodeNormalizer as _DomainCodeNormalizer  # type: ignore
-    _DOMAIN_NORMALIZER = _DomainCodeNormalizer()
-except Exception:  # pragma: no cover - keep legacy path if domain not present
-    _DOMAIN_NORMALIZER = None  # type: ignore
+# The domain CodeNormalizer is pure Python with no I/O (``src/domain/services/
+# code_normalizer.py``), and it is the single home of the hidden-escape rule
+# that both normalizers use (#3427) — so it is a plain import, not an optional
+# one: a legacy path that silently ran without it would be a second copy again.
+from src.domain.services.code_normalizer import CodeNormalizer as _DomainCodeNormalizer
+from src.domain.services.code_normalizer import strip_hidden_escapes as _strip_hidden_escapes
+
+_DOMAIN_NORMALIZER = _DomainCodeNormalizer()
 
 # Optional telegram import with safe fallback for web-only environments
 try:
@@ -1538,60 +1540,11 @@ def normalize_code(text: str,
             # Fallback to legacy logic below on any error
             pass
 
-        # Handle sequences like "\u200B" that represent hidden/format chars literally
-        # We do NOT decode arbitrary escapes; only strip escapes that would decode to Cf/hidden sets
+        # Handle sequences like "\u200B" that represent hidden/format chars literally.
+        # One definition for both normalizers (#3427): Cf by category, and the
+        # Variation-Selector branch (Mn, not Cf) only when asked for.
         if remove_escaped_format_escapes and ("\\u" in out or "\\U" in out):
-            try:
-                import re as _re
-                # Known hidden/format codepoints we target explicitly
-                known_hex4 = {
-                    "200B", "200C", "200D", "2060", "FEFF",  # zero-width set
-                    "200E", "200F", "202A", "202B", "202C", "202D", "202E",  # directional
-                    "2066", "2067", "2068", "2069",  # directional isolates
-                }
-
-                def _strip_if_hidden(m: 're.Match[str]') -> str:
-                    hexcode = m.group(1).upper()
-                    # Quick allowlist: only remove if in known set or Unicode category Cf
-                    if hexcode in known_hex4:
-                        return ""
-                    try:
-                        ch = chr(int(hexcode, 16))
-                        cat = unicodedata.category(ch)
-                        if cat == 'Cf':
-                            return ""
-                        # Remove Unicode Variation Selectors (U+FE00..U+FE0F)
-                        if remove_variation_selectors:
-                            v = int(hexcode, 16)
-                            if 0xFE00 <= v <= 0xFE0F:
-                                return ""
-                    except Exception:
-                        pass
-                    return m.group(0)  # keep original escape
-
-                # Replace \uXXXX sequences
-                out = _re.sub(r"\\u([0-9a-fA-F]{4})", _strip_if_hidden, out)
-
-                # Replace \UXXXXXXXX sequences (rare for these marks, but safe)
-                def _strip_if_hidden_u8(m: 're.Match[str]') -> str:
-                    hexcode = m.group(1).upper()
-                    try:
-                        ch = chr(int(hexcode, 16))
-                        if unicodedata.category(ch) == 'Cf':
-                            return ""
-                        # Remove Ideographic Variation Selectors (U+E0100..U+E01EF)
-                        if remove_variation_selectors:
-                            v = int(hexcode, 16)
-                            if 0xE0100 <= v <= 0xE01EF:
-                                return ""
-                    except Exception:
-                        pass
-                    return m.group(0)
-
-                out = _re.sub(r"\\U([0-9a-fA-F]{8})", _strip_if_hidden_u8, out)
-            except Exception:
-                # Best-effort: ignore on failure
-                pass
+            out = _strip_hidden_escapes(out, remove_variation_selectors=remove_variation_selectors)
 
         # Strip BOM at start
         if strip_bom and out.startswith("\ufeff"):
