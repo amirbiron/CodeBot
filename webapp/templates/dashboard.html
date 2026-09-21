@@ -382,7 +382,11 @@
                 </li>
                 <li>
                     <span>תזכורות בהמתנה</span>
+                    {% if push_card.pending_count is none %}
+                    <strong title="הספירה נכשלה; זה לא אומר שאין תזכורות">לא ידוע</strong>
+                    {% else %}
                     <strong>{{ push_card.pending_count }}</strong>
+                    {% endif %}
                 </li>
                 <li>
                     <span>שליחה אחרונה</span>

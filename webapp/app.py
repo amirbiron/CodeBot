@@ -12110,7 +12110,11 @@ def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dic
             dict(active_reminder_filter(), user_id=user_id)
         )
     except Exception:
-        pending_count = 0
+        # מאז #3430 אפס הוא גם הערך הבריא, ולכן כשל שמוצג כ-0 נראה בדיוק כמו
+        # "הכול נקי". "לא ידוע" מפורש בכרטיס, ועקבה בלוג — כמו בשאר מסלולי
+        # התזכורות.
+        logger.warning("push card: pending reminders count failed", exc_info=True)
+        pending_count = None
 
     last_push_doc = None
     try:

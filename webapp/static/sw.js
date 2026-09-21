@@ -342,13 +342,38 @@ self.addEventListener('notificationclick', (event) => {
     const isSnooze = !!(action && action.startsWith('snooze_') && noteId);
     if (isSnooze) {
       const minutes = Number(action.split('_')[1] || 10);
+      // סירוב אינו כשל רשת: 404 על תזכורת שכבר אושרה (ממכשיר אחר, או מהחלונית
+      // בזמן שההתראה עוד ישבה במגש) חוזר כתשובה רגילה, ו-.catch לא רואה אותו.
+      // בלי לקרוא response.ok המשתמש חושב שנדחה, וההתראה שנשאה את הכפתור כבר
+      // נסגרה — אין הזדמנות שנייה. לכן: מדווחים בכל תוצאה (כדי שהקצב יימדד),
+      // וכשהדחייה לא נקבעה מראים התראה שאומרת זאת. קוד התשובה נקרא http_status
+      // ולא status, כי status הוא שדה הדיווח עצמו.
+      let outcome = 'error';
+      const detail = { minutes: minutes };
       try {
-        await fetch(`/api/sticky-notes/note/${encodeURIComponent(noteId)}/snooze`, {
+        const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(noteId)}/snooze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ minutes })
-        }).catch(() => {});
-      } catch (_) {}
+        });
+        outcome = resp.ok ? 'success' : 'refused';
+        detail.http_status = resp.status;
+      } catch (e) {
+        detail.error = String(e);
+      }
+      try { await reportToServer('snooze', outcome, detail); } catch (_) {}
+      if (outcome !== 'success') {
+        try {
+          await self.registration.showNotification('הדחייה לא התקבלה', {
+            body: outcome === 'refused'
+              ? 'התזכורת כבר טופלה או נמחקה, ולכן אין מה לדחות.'
+              : 'לא הצלחתי להגיע לשרת. פתחו את הפתק כדי לקבוע תזכורת מחדש.',
+            icon: '/static/icons/app-icon-512.png',
+            tag: 'codekeeper-snooze-' + noteId,
+            data: { note_id: noteId, file_id: fileId },
+          });
+        } catch (_) {}
+      }
     }
 
     // Open-note action OR clicking the notification body: open the markdown view with deep-link

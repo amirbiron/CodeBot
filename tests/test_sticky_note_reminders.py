@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 from datetime import datetime, timedelta, timezone
 
@@ -385,6 +386,46 @@ class TestNoteRemindersAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 500, 'כשל במסד הוחזר כתשובה תקינה')
         self.assertFalse(r.get_json()['ok'])
 
+    def test_summary_failure_leaves_a_server_side_trace(self):
+        """500 בלי לוג הוא כשל שקט: הלקוח הופך אותו ל-backoff, ו-``@traced`` רושם
+        רק חריגה שיוצאת מהפונקציה — ה-``except`` הגורף תופס אותה קודם. לפני
+        התיקון נתיב שנפל לא השאיר שום סימן בשרת.
+        """
+        self._login()
+        self._seed_due()
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('mongo is down')
+
+        self.db.note_reminders.count_documents = _boom
+        with self.assertLogs('webapp.sticky_notes_api', level='ERROR') as cm:
+            r = self.client.get('/api/sticky-notes/reminders/summary')
+        self.assertEqual(r.status_code, 500)
+        # חימום האינדקסים עלול לרשום שגיאה משלו קודם; מחפשים את הרשומה של המסלול.
+        recs = [rec for rec in cm.records if 'reminders_summary' in rec.getMessage()]
+        self.assertTrue(recs, [rec.getMessage() for rec in cm.records])
+        rec = recs[0]
+        self.assertIsNotNone(rec.exc_info, 'ה-traceback לא צורף ללוג')
+        self.assertIn('mongo is down', str(rec.exc_info[1]))
+
+    def test_list_failure_leaves_a_server_side_trace(self):
+        """אותו חוזה במסלול הרשימה — הנתיב השני שמשרת את הבועה."""
+        self._login()
+        self._seed_due()
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('mongo is down')
+
+        self.db.note_reminders.find = _boom
+        with self.assertLogs('webapp.sticky_notes_api', level='ERROR') as cm:
+            r = self.client.get('/api/sticky-notes/reminders/list')
+        self.assertEqual(r.status_code, 500)
+        recs = [rec for rec in cm.records if 'reminders_list' in rec.getMessage()]
+        self.assertTrue(recs, [rec.getMessage() for rec in cm.records])
+        rec = recs[0]
+        self.assertIsNotNone(rec.exc_info)
+        self.assertIn('mongo is down', str(rec.exc_info[1]))
+
     def test_get_reminder_ignores_an_acknowledged_one(self):
         """מסמך ישן — ``ack_at`` מלא ו-``status`` שנשאר פעיל — אינו תזכורת חיה."""
         self._login()
@@ -455,6 +496,19 @@ class TestNoteRemindersAPI(unittest.TestCase):
         self.assertEqual(data['count'], 1)
         self.assertEqual(data['items'][0]['note_id'], self.note_id)
         self.assertEqual(data['items'][0]['preview'], 'שלום עולם דביק')
+
+
+class TestReminderRoutesFailLoudly(unittest.TestCase):
+    """כל 500 במסלולי התזכורות עובר דרך העוזר שרושם לוג — לא נשאר ``return`` חשוף.
+
+    הטסטים למעלה מודדים שני מסלולים; זה תופס את חמשת האחרים ואת הבא שייכתב.
+    """
+
+    def test_no_bare_500_is_left_in_the_module(self):
+        source = Path(sticky_mod.__file__).read_text(encoding='utf-8')
+        bare = "return jsonify({'ok': False, 'error': 'Failed'}), 500"
+        self.assertIn('def _failed(', source, 'העוזר שרושם לוג לפני 500 חסר')
+        self.assertEqual(source.count(bare), 1, 'ה-500 החשוף מותר רק בתוך _failed')
 
 
 class TestStubProjection(unittest.TestCase):

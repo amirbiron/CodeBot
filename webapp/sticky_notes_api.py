@@ -521,6 +521,21 @@ def require_auth(f):
             return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
         return f(*args, **kwargs)
     return _inner
+
+
+def _failed(route: str):
+    """500 עם עקבה בשרת: הלוג נושא את ה-traceback, הלקוח מקבל רק ``Failed``.
+
+    ``@traced`` רושם רק חריגה שיוצאת מהפונקציה, וה-``except`` הגורף במסלולי
+    התזכורות תופס אותה קודם — ולכן עד היום נתיב שנפל לא השאיר שום סימן בשרת,
+    בזמן שהלקוח הופך את ה-500 ל-backoff שקט. ההודעה קבועה, והחריגה עוברת את
+    מסנן ההשחרה של הלוגים כמו כל ``exc_info`` אחר במודול. חייב להיקרא מתוך
+    ה-``except``, כי ``exc_info=True`` קורא את החריגה הפעילה.
+    """
+    logger.error("sticky notes %s failed", route, exc_info=True)
+    return jsonify({'ok': False, 'error': 'Failed'}), 500
+
+
 # Simple in-memory rate limiter per user and endpoint key
 _RATE_LOG: Dict[tuple, list] = {}
 
@@ -1012,7 +1027,7 @@ def get_note_reminder(note_id: str):
         }
         return jsonify({'ok': True, 'reminder': out})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('get_note_reminder')
 
 
 @sticky_notes_bp.route('/note/<note_id>/reminder', methods=['POST'])
@@ -1068,7 +1083,7 @@ def set_note_reminder(note_id: str):
             pass
         return jsonify({'ok': True, 'remind_at': dt_utc.isoformat()})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('set_note_reminder')
 
 
 @sticky_notes_bp.route('/note/<note_id>/reminder', methods=['DELETE'])
@@ -1085,7 +1100,7 @@ def delete_note_reminder(note_id: str):
         db.note_reminders.delete_one({'user_id': user_id, 'note_id': str(note_id)})
         return jsonify({'ok': True})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('delete_note_reminder')
 
 
 @sticky_notes_bp.route('/note/<note_id>/snooze', methods=['POST'])
@@ -1124,7 +1139,7 @@ def snooze_note_reminder(note_id: str):
             return jsonify({'ok': False, 'error': 'Reminder not found'}), 404
         return jsonify({'ok': True, 'remind_at': new_time.isoformat()})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('snooze_note_reminder')
 
 
 #: כשיש בועה על המסך השרת מבקש מהלקוח לחזור לכל היותר בעוד חמש דקות — המרווח
@@ -1197,7 +1212,7 @@ def reminders_summary():
             'next_in_seconds': next_in_seconds,
         })
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('reminders_summary')
 
 
 @sticky_notes_bp.route('/reminders/list', methods=['GET'])
@@ -1325,7 +1340,7 @@ def reminders_list():
 
         return jsonify({'ok': True, 'items': items, 'count': len(items)})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('reminders_list')
 
 
 @sticky_notes_bp.route('/reminders/ack', methods=['POST'])
@@ -1361,7 +1376,7 @@ def reminders_ack():
             return jsonify({'ok': False, 'error': 'Not found'}), 404
         return jsonify({'ok': True})
     except Exception:
-        return jsonify({'ok': False, 'error': 'Failed'}), 500
+        return _failed('reminders_ack')
 
 
 @sticky_notes_bp.route('/<file_id>', methods=['POST'])
