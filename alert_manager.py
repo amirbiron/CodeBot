@@ -1095,17 +1095,20 @@ def _emit_warning_once(key: str, name: str, summary: str, details: Dict[str, Any
         emit_internal_alert(name=name, severity="warning", summary=summary, details=details)
     except Exception:
         try:
-            # ל-``emit_event`` אין ערוץ מטען נפרד — רק ``**fields`` — ולכן
-            # מפתח "severity" שהגיע מהקורא מתנגש עם הפרמטר ומפיל את הקריאה.
-            # אותו אילוץ ואותו פתרון כמו ב-``services/index_maintenance.py``
-            # (``options.pop("name", None)`` לפני ``create_index``).
-            warn_fields = dict(details or {})
-            conflicting_severity = warn_fields.pop("severity", None)
-            if conflicting_severity is not None:
-                warn_fields["source_severity"] = conflicting_severity
-            warn_fields["name"] = name
-            warn_fields["summary"] = summary
-            emit_event("external_warning", severity="warning", **warn_fields)
+            # המטען נכנס כשדה אחד ולא ב-``**``. ל-``emit_event`` שני
+            # פרמטרים משלו — ``event`` ו-``severity`` — ו-``details``
+            # מגיע כפרמטר מהקורא, כך שמפתחותיו אינם ידועים כאן. פריסה
+            # ב-``**`` הייתה מפילה את הקריאה ב-``TypeError`` על כל אחד
+            # מהשניים, וה-``except`` שמסביב היה בולע את האזהרה כולה.
+            # ניקוי שם-אחרי-שם אינו פתרון: הוא מכסה את המפתח שנזכרנו בו
+            # ונשבר שוב כשנוסף פרמטר לחתימה.
+            emit_event(
+                "external_warning",
+                severity="warning",
+                name=name,
+                summary=summary,
+                details=dict(details or {}),
+            )
         except Exception:
             pass
 

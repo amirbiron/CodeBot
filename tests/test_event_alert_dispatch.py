@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -25,7 +26,15 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # הפונקציות שמקבלות מטען של שדות מקוראים שרירותיים לצד ארגומנטים משלהן.
-ALERT_DISPATCH_FUNCTIONS = {"emit_internal_alert", "forward_critical_alert"}
+# ‏``emit_event`` ו-``emit_anomaly`` נמצאות כאן בדיוק מאותה סיבה: גם להן
+# יש פרמטרים משלהן (``event``/``severity``/``name``) שחולקים מרחב שמות
+# עם המטען, וגם הקריאות אליהן עטופות ב-``except`` שבולע.
+ALERT_DISPATCH_FUNCTIONS = {
+    "emit_internal_alert",
+    "forward_critical_alert",
+    "emit_event",
+    "emit_anomaly",
+}
 
 SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", "tmp", "build", "_build"}
 
@@ -293,10 +302,13 @@ def _dispatch_parameter_names() -> Dict[str, Set[str]]:
     """
     from alert_manager import forward_critical_alert
     from internal_alerts import emit_internal_alert
+    from observability import emit_anomaly, emit_event
 
     functions = {
         "emit_internal_alert": emit_internal_alert,
         "forward_critical_alert": forward_critical_alert,
+        "emit_event": emit_event,
+        "emit_anomaly": emit_anomaly,
     }
     return {
         fname: {
@@ -377,6 +389,77 @@ def test_alert_dispatch_calls_never_splat_a_foreign_payload():
         "מטען שלא נבנה באותה פונקציה מועבר ב-** לצד ארגומנט מפורש. "
         "העבירו אותו כ-details={...}:\n  " + "\n  ".join(sorted(set(violations)))
     )
+
+
+def test_emit_anomaly_actually_reaches_emit_event(monkeypatch):
+    """‏``emit_anomaly`` חייבת לפלוט משהו.
+
+    הגרסה שלפני התיקון הציבה ``fields["event"]`` ואז פרסה ``**fields``
+    לצד ``event`` פוזיציוני — ``TypeError`` בכל קריאה, שנבלע ב-``except``.
+    על הקוד הישן הטסט הזה נכשל עם ``0 == 1``.
+    """
+    import observability
+
+    seen: List[Any] = []
+    monkeypatch.setattr(
+        observability,
+        "emit_event",
+        lambda event, severity="info", **fields: seen.append((event, severity, fields)),
+    )
+
+    observability.emit_anomaly("queue_backlog", queue_len=42)
+
+    assert len(seen) == 1, "emit_anomaly לא הגיעה ל-emit_event בכלל"
+    event, severity, fields = seen[0]
+    assert event == "queue_backlog"
+    assert severity == "anomaly"
+    assert fields["details"]["queue_len"] == 42
+
+
+def test_external_warning_fallback_survives_reserved_payload_keys(monkeypatch):
+    """מסלול הגיבוי של האזהרה שורד מטען שנושא שמות של פרמטרים.
+
+    ‏``event`` ו-``severity`` הם פרמטרים של ``emit_event``. מטען שמכיל
+    מפתח כזה היה מפיל את הקריאה, וה-``except`` הפנימי היה מוחק את
+    האזהרה כולה — בדיוק אחרי שהמסלול הראשי כבר נכשל.
+    """
+    import alert_manager
+    import internal_alerts
+
+    alert_manager.reset_state_for_tests()
+
+    def _primary_is_down(*_args, **_kwargs):
+        raise RuntimeError("primary dispatch down")
+
+    monkeypatch.setattr(internal_alerts, "emit_internal_alert", _primary_is_down)
+
+    captured: List[Any] = []
+    monkeypatch.setattr(
+        alert_manager,
+        "emit_event",
+        lambda event, severity="info", **fields: captured.append((event, severity, fields)),
+    )
+
+    alert_manager._emit_warning_once(
+        key="reserved_keys_probe",
+        name="External Service Degraded",
+        summary="probe",
+        details={
+            "event": "a field called event",
+            "severity": "a field called severity",
+            "source": "external",
+        },
+        now_ts=time.time(),
+    )
+
+    assert len(captured) == 1, "מפתח שמור במטען הפיל את אזהרת הגיבוי"
+    event, severity, fields = captured[0]
+    assert event == "external_warning"
+    assert severity == "warning"
+    # והמטען המקורי נשמר במלואו, לא נוקה שם-אחרי-שם.
+    assert fields["details"]["event"] == "a field called event"
+    assert fields["details"]["severity"] == "a field called severity"
+    assert fields["details"]["source"] == "external"
 
 
 def _scan_source_for_violations(source: str) -> List[str]:

@@ -945,11 +945,20 @@ def get_recent_errors(limit: int = 10) -> list[Dict[str, Any]]:
 
 
 def emit_anomaly(name: str, **fields: Any) -> None:
-    """Utility to emit an ANOMALY-level event consistently across services."""
+    """Utility to emit an ANOMALY-level event consistently across services.
+
+    ⚠️ הגרסה הקודמת לא פלטה דבר, אף פעם: היא הציבה ``fields["event"]``
+    ואז פרסה ``**fields`` לצד ``event`` פוזיציוני, מה שזורק
+    ``TypeError: got multiple values for argument 'event'`` בכל קריאה —
+    וה-``except`` כאן בלע את זה. נמדד: אפס קריאות הגיעו ל-``emit_event``.
+    אף קורא בריפו לא השתמש בפונקציה, ולכן לא נפגע דבר בפועל.
+
+    המטען נכנס עכשיו כשדה אחד ולא ב-``**``: מפתחותיו מגיעים מקוראים
+    שרירותיים, ושניים משמות הפרמטרים של ``emit_event`` (``event``
+    ו-``severity``) שמורים. ‏``emit_event`` מציב ``event`` בעצמו.
+    """
     try:
-        fields = dict(fields or {})
-        fields.setdefault("event", str(name))
-        emit_event(str(name), severity="anomaly", **fields)
+        emit_event(str(name), severity="anomaly", details=dict(fields or {}))
     except Exception:
         return
 
