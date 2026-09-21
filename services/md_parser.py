@@ -318,6 +318,25 @@ def _build_parser() -> MarkdownIt:
 _MD = _build_parser()
 
 
+def token_count(text: str) -> int:
+    """מספר הטוקנים שהפרסר של הכלי מייצר לטקסט — מדד צפיפות, לא מפה.
+
+    קיים בשביל ``scripts/measure_md_parse_cost.py``, שמדרג מסמכים לפי
+    צפיפות טוקני-בלוק ל-KB, וקרא עד #3433 ל-``_build_parser`` הפרטית —
+    תלות סמויה בפנימי של המודול, ובנייה של פרסר חדש לכל קובץ. הפונקציה
+    הזאת היא התלות בגלוי: על ``_MD``, המופע שהכלי מריץ, בלי ``env`` ולכן
+    בלי תקרה (``_ceiling_rule`` מקבל ``None`` ומחזיר ``False``), ובלי
+    טוקני inline (``disable("inline")``) — כלומר בדיוק מה שהפרסור האמיתי
+    סופר.
+
+    **ומחוץ ל-``__all__`` בכוונה:** הרשימה שם היא החוזה של "שני פארסרים
+    בני-החלפה", וטסט מקבע את ההפרש בינה לבין זו של ``rst_parser``. מדד
+    למדידה אינו חלק מהחוזה הזה ואינו קיים ל-RST, ולכן הוא ציבורי (בלי קו
+    תחתון, מתועד) אך אינו מיוצא.
+    """
+    return len(_MD.parse(text))
+
+
 def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> Document:
     """בונה ``Document`` מטקסט Markdown.
 

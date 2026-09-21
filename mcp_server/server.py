@@ -818,6 +818,28 @@ def _read_pool_size(memory_limit: int | None) -> _ReadPoolSizing:
     return _ReadPoolSizing(int(allowed), "memory", f"sized from memory: {arithmetic}")
 
 
+def _installed_width(pool: ThreadPoolExecutor) -> int | None:
+    """The width the executor actually has — or ``None`` when this Python no longer exposes it.
+
+    ``ThreadPoolExecutor._max_workers`` is private to CPython, and it is read
+    on purpose (``state-record-without-state-change``: the capacity line
+    describes the pool that exists, not the one that was requested). Private
+    means it can go away. When it does, the answer here is ``None`` — not the
+    requested width, which would be exactly the echo the line exists to avoid
+    — and the callers print that they do not know, with a warning, instead of
+    failing the startup of the service over a log line (#3433, SUGG-004).
+    """
+    return getattr(pool, "_max_workers", None)
+
+
+def _width_label(pool: ThreadPoolExecutor, sizing: _ReadPoolSizing) -> str:
+    """What the capacity line prints for the read pool: the installed width, or an honest "unreadable"."""
+    width = _installed_width(pool)
+    if width is not None:
+        return str(width)
+    return f"{sizing.workers} (requested; installed width unreadable)"
+
+
 def _log_dispatch_capacity(
     read_pool: ThreadPoolExecutor, memory_display: str, sizing: _ReadPoolSizing
 ) -> None:
@@ -836,7 +858,10 @@ def _log_dispatch_capacity(
     number the pool is sized from.
 
     Every value is computed before the call rather than inside it, so a level
-    guard or a deleted line takes the line and nothing else with it.
+    guard or a deleted line takes the line and nothing else with it. And the
+    private attribute is read through :func:`_installed_width`: should it
+    vanish, the line says "unreadable" beside the requested width and a
+    warning names the reason — a log line never fails the startup.
     """
     detected = os.cpu_count() or 1
     try:
@@ -844,10 +869,17 @@ def _log_dispatch_capacity(
     except (AttributeError, OSError):
         usable = detected
     quota = _cpu_budget()
+    if _installed_width(read_pool) is None:
+        logger.warning(
+            "mcp read pool width is not readable on this Python "
+            "(ThreadPoolExecutor._max_workers is gone); the capacity line reports "
+            "the requested width %d instead of the installed one",
+            sizing.workers,
+        )
     logger.info(
-        "mcp dispatch capacity: read pool %d threads (%s; os.cpu_count=%d, "
+        "mcp dispatch capacity: read pool %s threads (%s; os.cpu_count=%d, "
         "usable=%d), write pool 1 thread, cpu quota %s, memory limit %s",
-        read_pool._max_workers,
+        _width_label(read_pool, sizing),
         sizing.detail,
         detected,
         usable,
@@ -919,9 +951,9 @@ def attach_read_pool(app: Any) -> None:
             # path nobody reports is the one that stays. The capacity line says
             # the size; this says that it was not chosen.
             logger.warning(
-                "mcp read pool fell back to %d threads: memory limit %s — reads are "
+                "mcp read pool fell back to %s threads: memory limit %s — reads are "
                 "narrower than the plan allows until the cgroup limit is readable",
-                pool._max_workers,
+                _width_label(pool, sizing),
                 memory_display,
             )
         async with original(scope_app) as state:

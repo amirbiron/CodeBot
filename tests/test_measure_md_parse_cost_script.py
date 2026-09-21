@@ -128,6 +128,19 @@ def test_tiling_stops_at_the_ceiling_and_is_longer_than_its_input():
     assert 997 <= len(script.tiled_to_ceiling(text, 1000).encode("utf-8")) <= 1000
 
 
+def test_density_goes_through_the_public_token_count_and_not_the_private_builder(monkeypatch):
+    """הסקריפט אינו קורא ל-``md_parser._build_parser`` (#3433, SUGG-010): התלות היא ``token_count``."""
+    from services import md_parser
+
+    script = _load_script()
+
+    def _forbidden():
+        raise AssertionError("הסקריפט קרא ל-_build_parser הפרטית")
+
+    monkeypatch.setattr(md_parser, "_build_parser", _forbidden)
+    assert script.density("- a\n" * 10, "md") > 0
+
+
 def test_density_ranks_a_dense_document_above_a_sparse_one_of_the_same_size():
     """הצפיפות היא מה שמדרג: טוקני בלוק ל-KB ב-Markdown, סקשנים ל-KB ב-RST."""
     script = _load_script()
