@@ -4476,13 +4476,21 @@
   // והפוקוס הבא הוא המסלול היחיד חזרה — ולכן רצפת הדקה של visibilitychange
   // אינה חלה עליו.
   let stopped = false;
+  // מונה לחיצות על הבועה: הלחיצה האחרונה מנצחת, ותשובה של לחיצה קודמת נזרקת.
+  let listGen = 0;
 
   function fetchOpts(){
     const o = { cache: 'no-store', credentials: 'same-origin' };
-    // דפדפן שאינו מכיר AbortSignal.timeout שולח בלי סיגנל — נפילה-לאחור על
-    // היעדר יכולת סטטי, לא על כשל בזמן ריצה.
+    // דפדפן שאינו מכיר AbortSignal.timeout מקבל את אותה תקרה מ-AbortController —
+    // נפילה-לאחור על היעדר יכולת סטטי, לא על כשל בזמן ריצה, ובלי מסלול גרוע
+    // יותר. בלי סיגנל בכלל, בקשה תקועה השאירה את inFlight דלוק לנצח והפוקוס
+    // לא הציל: הגארד אינו יכול לחיות יותר מהבקשה שהוא שומר.
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
       o.signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    } else if (typeof AbortController === 'function') {
+      const c = new AbortController();
+      setTimeout(() => c.abort(), FETCH_TIMEOUT_MS);
+      o.signal = c.signal;
     }
     return o;
   }
@@ -4494,10 +4502,13 @@
   // והבועה שכבר הוצגה נשארת: היא המצב האחרון הידוע, וכשל אינו ראיה
   // שהתזכורות נעלמו. רק "אין תזכורות" ו-401 מסירים אותה — מחיקה כאן הפכה
   // תקלה חולפת לבועה שנעלמת לחצי שעה, בלי דרך לפתוח את החלונית.
-  function failAndBackOff(){
+  // וכל כשל נרשם בקונסול — מספר הכשל, ההמתנה הבאה והסיבה — כדי שצילום מסך
+  // של הקונסול יגיד למה הבועה נעלמה; בלי זה "הפעמון הפסיק לעבוד" הגיע בלי עקבה.
+  function failAndBackOff(reason){
     consecutiveFailures += 1;
     const backoffMs = Math.min(MAX_POLL_MS, MIN_POLL_MS * 2 ** (consecutiveFailures - 1));
     window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;
+    console.warn(`[sticky-reminders] poll failed (#${consecutiveFailures}) — retry in ${backoffMs} ms:`, reason);
     return backoffMs;
   }
   // עוצרת את השרשרת כשהסשן נגמר. מבטלת את הטיימר התלוי ולא רק את הידית:
@@ -4561,7 +4572,7 @@
     const items = isError ? [] : (Array.isArray(data && data.items) ? data.items : []);
     const title = isUnauthorized
       ? '🔔 ההתחברות פגה. התחברו מחדש כדי לראות את התזכורות.'
-      : (isError ? '🔔 לא הצלחתי לבדוק את התזכורות. נסו שוב בעוד רגע.' : `🔔 יש לך ${count} פתקים שממתינים:`);
+      : (isError ? '🔔 לא הצלחתי לבדוק את התזכורות כרגע.' : `🔔 יש לך ${count} פתקים שממתינים:`);
     const listHtml = items.map(it => {
       const prev = (it.preview || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       return `<li style="list-style:none; margin:4px 0;"><a href="#" data-note-id="${String(it.note_id || '')}" data-file-id="${String(it.file_id || '')}" class="reminder-link" style="text-decoration:none; color:inherit;">• ${prev || 'פתק ללא כותרת'}...</a></li>`;
@@ -4691,11 +4702,12 @@
       // דקה זה רק להציף את השרת ב-401. עוצרים את השרשרת; visibilitychange
       // מנסה מיד בכל חזרה ללשונית — בלי רצפת הדקה, שנועדה לשרשרת חיה — כך
       // שהתחברות בלשונית אחרת מחיה את הבועה בלי רענון.
-      if (r.status === 401) { removeDot(); return POLL_STOP; }
-      if (!r.ok) { return failAndBackOff(); }
+      if (r.status === 401) { console.warn('[sticky-reminders] session ended (401); polling stops until the next tab focus'); removeDot(); return POLL_STOP; }
+      if (!r.ok) { return failAndBackOff(r.status); }
       const j = await r.json();
-      // גוף ריק או ok:false אינם "אין תזכורות" — הם "לא ידוע".
-      if (!j || j.ok === false) { return failAndBackOff(); }
+      // גוף ריק, ok:false או גוף שאינו תשובה בכלל — כולם "לא ידוע", לא "אין
+      // תזכורות": אותה בדיקה כמו במסלול הרשימה (lj.ok).
+      if (!j || !j.ok) { return failAndBackOff('bad body'); }
       consecutiveFailures = 0;
       if (!j.has_due) {
         removeDot();
@@ -4714,19 +4726,29 @@
         ev.preventDefault();
         // רשימה שלא נקראה אינה רשימה ריקה. 500, גוף פגום או שגיאת רשת —
         // כולם "לא ידוע", והחלונית אומרת את זה במקום להציג "0 פתקים".
+        // והלחיצה האחרונה מנצחת: תשובה — או כשל — של לחיצה קודמת שהגיעה
+        // מאוחר אינה דורסת מה שכבר מוצג. JS חד-חוטי; ההשוואה אחרי ה-await
+        // היא הגבול.
+        const gen = ++listGen;
         try {
           const lr = await fetch('/api/sticky-notes/reminders/list?limit=20', fetchOpts());
+          if (gen !== listGen) { return; }
           // הסשן נגמר בין הדגימה ללחיצה: הבועה אינה נכונה, והשרשרת נעצרת כמו
           // ב-401 של הדגימה — ואומרים למשתמש למה, במקום להעלים בועה בשקט.
           if (lr.status === 401) { removeDot(); stopChain(); openPopover(target, { unauthorized: true }); return; }
           const lj = lr.ok ? await lr.json().catch(()=>null) : null;
+          if (gen !== listGen) { return; }
           openPopover(target, (lj && lj.ok) ? lj : { error: true });
-        } catch(_) { openPopover(target, { error: true }); }
+        } catch (e) {
+          if (gen !== listGen) { return; }
+          console.warn('[sticky-reminders] list fetch failed:', e);
+          openPopover(target, { error: true });
+        }
       };
       bubble.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bubble.click(); } };
       // הבועה מוצגת. אין דחיפות לשאול שוב — המשתמש כבר רואה שיש לו משהו.
       return MAX_POLL_MS;
-    } catch(_) { return failAndBackOff(); }
+    } catch (e) { return failAndBackOff(e); }
   }
   function schedule(ms){
     try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}
@@ -4743,7 +4765,7 @@
     if (inFlight) { return; }
     inFlight = true;
     let nextMs = MAX_POLL_MS;
-    try { nextMs = await poll(); } catch(_) { nextMs = failAndBackOff(); } finally { inFlight = false; }
+    try { nextMs = await poll(); } catch (e) { nextMs = failAndBackOff(e); } finally { inFlight = false; }
     // 401: אין טיימר. הניסיון הבא הוא visibilitychange, מיד בפוקוס הבא.
     if (nextMs === POLL_STOP) { stopChain(); return; }
     stopped = false;

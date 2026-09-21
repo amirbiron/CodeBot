@@ -72,6 +72,16 @@ def _polling_script() -> str:
     return script
 
 
+def _with_fetch_timeout(script: str, ms: int) -> str:
+    """תקרת הבקשה מקוצרת בעותק.
+
+    ``AbortSignal.timeout`` הוא של הדפדפן ואינו ניתן לזיוף ב-``page.clock`` —
+    אבל הקבוע שמוזן לו ניתן לקיצור, וכך טסט שממתין לתקרה נמשך מילישניות ולא
+    15 שניות.
+    """
+    return _mutate(script, FETCH_TIMEOUT_LINE, f"const FETCH_TIMEOUT_MS = {ms};")
+
+
 def _summary(**overrides):
     reply = {
         "ok": True,
@@ -213,17 +223,29 @@ MIN_LINE = "const MIN_POLL_MS = 60 * 1000;"
 MAX_LINE = "const MAX_POLL_MS = 30 * 60 * 1000;"
 ESCALATION = "MIN_POLL_MS * 2 ** (consecutiveFailures - 1)"
 RESET_ON_SUCCESS = "consecutiveFailures = 0;\n      if (!j.has_due) {"
-STOP_ON_401 = "if (r.status === 401) { removeDot(); return POLL_STOP; }"
+STOP_ON_401 = (
+    "if (r.status === 401) { console.warn('[sticky-reminders] session ended (401); "
+    "polling stops until the next tab focus'); removeDot(); return POLL_STOP; }"
+)
 SIGNAL_LINE = "o.signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);"
 INFLIGHT_GUARD = "if (inFlight) { return; }"
 STAMP_THEN_FETCH = (
     "lastPollAt = Date.now();\n"
     "      const r = await fetch('/api/sticky-notes/reminders/summary', fetchOpts());"
 )
-CATCH_BACKS_OFF = "} catch(_) { return failAndBackOff(); }"
+CATCH_BACKS_OFF = "} catch (e) { return failAndBackOff(e); }"
 POPOVER_UNKNOWN = "openPopover(target, (lj && lj.ok) ? lj : { error: true });"
 FLOOR_SKIPS_WHEN_STOPPED = "if (!stopped && Date.now() - lastPollAt < MIN_POLL_MS) { return; }"
-BACKOFF_RETURNS = "    window.__stickyRemindersBackoffUntil = Date.now() + backoffMs;\n    return backoffMs;"
+LOG_ON_FAILURE = (
+    "    console.warn(`[sticky-reminders] poll failed (#${consecutiveFailures}) — "
+    "retry in ${backoffMs} ms:`, reason);"
+)
+BACKOFF_RETURNS = LOG_ON_FAILURE + "\n    return backoffMs;"
+FETCH_TIMEOUT_LINE = "const FETCH_TIMEOUT_MS = 15 * 1000;"
+ABORT_FALLBACK = "} else if (typeof AbortController === 'function') {"
+BAD_BODY_CHECK = "if (!j || !j.ok) { return failAndBackOff('bad body'); }"
+LATEST_CLICK = "const gen = ++listGen;"
+NO_ABORT_TIMEOUT = "AbortSignal.timeout = undefined;"
 STOP_CLEARS_TIMER = "    try { if (pollTimer) { clearTimeout(pollTimer); } } catch(_) {}\n    pollTimer = null;"
 LIST_401_STOPS = (
     "if (lr.status === 401) { removeDot(); stopChain(); "
@@ -249,27 +271,28 @@ def _shrunk(script: str, min_ms: int, max_ms: int) -> str:
     return _mutate(s, MAX_LINE, f"const MAX_POLL_MS = {max_ms};")
 
 
-def _summary(**overrides):
-    return _summary_reply(**overrides)
-
-
-def _summary_reply(**overrides):
-    reply = {"ok": True, "has_due": False, "count_due": 0, "next": None, "next_in_seconds": None}
-    reply.update(overrides)
-    return reply
-
-
 @contextmanager
-def _chain(chromium_executable, script: str, *, seed_bubble: bool = False, **window_vars):
-    """מרים דפדפן, מזריק את ה-harness ואת המשתנים, ומריץ את הסקריפט."""
+def _chain(
+    chromium_executable, script: str, *, seed_bubble: bool = False, setup_js: str = "",
+    console_sink: list | None = None, **window_vars,
+):
+    """מרים דפדפן, מזריק את ה-harness ואת המשתנים, ומריץ את הסקריפט.
+
+    ``setup_js`` רץ אחרי ה-harness ולפני הסקריפט (למשל מחיקת יכולת דפדפן), ו-``console_sink``
+    אוסף את הודעות הקונסול כזוגות ``(type, text)`` — כולל אלה שנרשמות בזמן ההרצה הראשונה.
+    """
     with sync_playwright() as p:
         browser = (
             p.chromium.launch(executable_path=chromium_executable) if chromium_executable else p.chromium.launch()
         )
         try:
             page = browser.new_page()
+            if console_sink is not None:
+                page.on("console", lambda m: console_sink.append((m.type, m.text)))
             page.set_content(PAGE_WITH_BUBBLE if seed_bubble else PAGE)
             page.evaluate(CHAIN_HARNESS)
+            if setup_js:
+                page.evaluate(setup_js)
             page.evaluate(f"Object.assign(window, {json.dumps(window_vars)});")
             page.evaluate(script)
             yield page
@@ -597,7 +620,9 @@ def test_a_failed_poll_keeps_the_badge_it_cannot_refute(chromium_executable):
 
 def test_removing_the_badge_on_failure_breaks_the_test(chromium_executable):
     """ריצת בקרה: removeDot() בחזרה לתוך failAndBackOff — הבועה נמחקת על 500."""
-    script = _mutate(_shrunk(_polling_script(), 1, 40), BACKOFF_RETURNS, "    removeDot();\n    return backoffMs;")
+    script = _mutate(
+        _shrunk(_polling_script(), 1, 40), BACKOFF_RETURNS, LOG_ON_FAILURE + "\n    removeDot();\n    return backoffMs;"
+    )
     with _chain(chromium_executable, script, __statuses=[200, 500], __reply=_summary(**_DUE), __fireFirst=1) as page:
         page.wait_for_function("window.__calls.length >= 2", timeout=8000)
         page.wait_for_timeout(100)
@@ -671,3 +696,131 @@ def test_treating_a_list_401_as_unknown_breaks_the_test(chromium_executable):
         page.click(".notif-popover [data-action='close-ui']")
         page.wait_for_timeout(200)
         assert page.evaluate("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')") is True
+
+
+# --- timeout בכל דפדפן, לוג על כל כשל, גוף שאינו תשובה, והלחיצה האחרונה מנצחת ---
+
+def _popover_title(page):
+    return page.evaluate("(document.querySelector('.notif-popover__title') || {}).textContent || ''")
+
+
+def test_a_browser_without_abortsignal_timeout_still_gets_a_timeout(chromium_executable):
+    """בלי AbortSignal.timeout הבקשה מקבלת את אותה תקרה מ-AbortController.
+
+    לפני התיקון דפדפן כזה שלח בלי סיגנל: בקשה תקועה השאירה את inFlight דלוק
+    לנצח וכל פוקוס נחסם — בעוד שבקוד שלפני הגארד הפוקוס פתח בקשה חדשה.
+    הגארד אינו יכול לחיות יותר מהבקשה שהוא שומר. התקרה מקוצרת בעותק; טיימר
+    ה-abort הוא setTimeout רגיל, ולכן ה-harness מפעיל אותו.
+    """
+    script = _with_fetch_timeout(_polling_script(), 300)
+    with _chain(chromium_executable, script, setup_js=NO_ABORT_TIMEOUT, __mode="stall", __fireFirst=1) as page:
+        page.wait_for_function("window.__calls.length >= 1", timeout=8000)
+        page.wait_for_timeout(1500)
+        assert _calls(page)[0]["hasSignal"] is True
+        assert page.evaluate("window.__abortReason") == "AbortError"
+        assert _delays(page) == [300, MIN_POLL_MS], _delays(page)
+
+
+def test_disabling_the_abort_fallback_breaks_the_test(chromium_executable):
+    """ריצת בקרה: בלי ענף ה-AbortController — בלי סיגנל, ובלי טיימר אחרי התקרה."""
+    script = _mutate(_with_fetch_timeout(_polling_script(), 300), ABORT_FALLBACK, "} else if (false) {")
+    with _chain(chromium_executable, script, setup_js=NO_ABORT_TIMEOUT, __mode="stall", __fireFirst=1) as page:
+        page.wait_for_function("window.__calls.length >= 1", timeout=8000)
+        page.wait_for_timeout(1500)
+        assert _calls(page)[0]["hasSignal"] is False
+        assert _delays(page) == [], _delays(page)
+
+
+def test_every_poll_failure_is_logged(chromium_executable):
+    """כשל בדגימה משאיר שורה בקונסול: מספר הכשל, ההמתנה הבאה והסיבה.
+
+    לפני התיקון אפס console.* ב-IIFE מול 14 catch(_): הבועה נעלמה בשקט וגם
+    צילום מסך של הקונסול לא אמר למה. הקובץ עצמו כבר רושם console.error
+    בארבעה מקומות אחרים — זו הצורה הקיימת.
+    """
+    sink = []
+    with _chain(chromium_executable, _polling_script(), console_sink=sink, __status=500) as page:
+        page.wait_for_function("window.__delays.length >= 1", timeout=8000)
+    warnings = [text for kind, text in sink if kind == "warning"]
+    assert len(warnings) == 1, sink
+    assert "(#1)" in warnings[0] and f"retry in {MIN_POLL_MS} ms" in warnings[0] and "500" in warnings[0], warnings
+
+
+def test_the_401_stop_is_logged(chromium_executable):
+    """גם העצירה על 401 נרשמת — אחרת "הפעמון הפסיק לעבוד" בלי שום עקבה."""
+    sink = []
+    with _chain(chromium_executable, _polling_script(), console_sink=sink, __status=401) as page:
+        page.wait_for_function("window.__calls.length >= 1", timeout=8000)
+        page.wait_for_timeout(200)
+    warnings = [text for kind, text in sink if kind == "warning"]
+    assert len(warnings) == 1 and "401" in warnings[0], sink
+
+
+def test_dropping_the_failure_log_breaks_the_test(chromium_executable):
+    """ריצת בקרה: בלי console.warn — אפס אזהרות על 500."""
+    sink = []
+    script = _mutate(_polling_script(), LOG_ON_FAILURE, "")
+    with _chain(chromium_executable, script, console_sink=sink, __status=500) as page:
+        page.wait_for_function("window.__delays.length >= 1", timeout=8000)
+    assert [text for kind, text in sink if kind == "warning"] == [], sink
+
+
+def test_a_body_that_is_not_a_summary_is_a_failure(chromium_executable):
+    """200 עם גוף שאינו תשובה — {} — הוא "לא ידוע": backoff של דקה, לא שינה של חצי שעה.
+
+    לפני התיקון הבדיקה הייתה ``j.ok === false`` בלבד ו-{} עבר כהצלחה: המונה
+    אופס והשרשרת נרדמה 30 דקות, בעוד ההערה מעל השורה קראה לגוף ריק "לא ידוע"
+    ומסלול הרשימה כבר בדק ``lj.ok``. השרת אינו מייצר גוף כזה היום.
+    """
+    with _chain(chromium_executable, _polling_script(), __status=200, __reply={}) as page:
+        page.wait_for_function("window.__delays.length >= 1", timeout=8000)
+        assert _delays(page) == [MIN_POLL_MS], _delays(page)
+        assert page.evaluate("typeof window.__stickyRemindersBackoffUntil") == "number"
+
+
+def test_accepting_any_truthy_body_breaks_the_test(chromium_executable):
+    """ריצת בקרה: ``j.ok === false`` בלבד — {} נרדם חצי שעה בלי backoff."""
+    script = _mutate(
+        _polling_script(), BAD_BODY_CHECK, "if (!j || j.ok === false) { return failAndBackOff('bad body'); }"
+    )
+    with _chain(chromium_executable, script, __status=200, __reply={}) as page:
+        page.wait_for_function("window.__delays.length >= 1", timeout=8000)
+        assert _delays(page) == [MAX_POLL_MS], _delays(page)
+
+
+def _click_twice_first_stalls(page):
+    """לחיצה ראשונה שנתקעת, ואז לחיצה שנייה שמחזירה רשימה של פריט אחד."""
+    page.click(".notif-bubble[data-kind='reminder']")
+    page.wait_for_timeout(100)
+    page.evaluate(
+        "window.__listMode = 'status'; "
+        "window.__listReply = {ok: true, count: 1, items: [{note_id: 'n1', file_id: 'f1', preview: 'שלום'}]};"
+    )
+    page.click(".notif-bubble[data-kind='reminder']")
+    page.wait_for_selector(".notif-popover[data-kind='reminder']", timeout=8000)
+
+
+def test_a_late_failure_does_not_overwrite_a_list_already_shown(chromium_executable):
+    """לחיצה ראשונה נתקעת, השנייה מחזירה רשימה; כשהתקרה של הראשונה נגמרת — הרשימה נשארת.
+
+    לפני התיקון הכשל המאוחר של הלחיצה הראשונה החליף רשימה נכונה ב"לא הצלחתי
+    לבדוק". הלחיצה האחרונה מנצחת. התקרה מקוצרת בעותק כדי לא להמתין 15 שניות.
+    """
+    script = _with_fetch_timeout(_polling_script(), 300)
+    with _chain(chromium_executable, script, __status=200, __reply=_summary(**_DUE), __listMode="stall") as page:
+        page.wait_for_function("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')", timeout=8000)
+        _click_twice_first_stalls(page)
+        assert "יש לך 1" in _popover_title(page), _popover_title(page)
+        page.wait_for_timeout(800)
+        assert "יש לך 1" in _popover_title(page), _popover_title(page)
+
+
+def test_letting_every_click_render_breaks_the_test(chromium_executable):
+    """ריצת בקרה: בלי "האחרונה מנצחת" — הכשל המאוחר דורס את הרשימה."""
+    script = _mutate(_with_fetch_timeout(_polling_script(), 300), LATEST_CLICK, "const gen = listGen;")
+    with _chain(chromium_executable, script, __status=200, __reply=_summary(**_DUE), __listMode="stall") as page:
+        page.wait_for_function("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')", timeout=8000)
+        _click_twice_first_stalls(page)
+        assert "יש לך 1" in _popover_title(page), _popover_title(page)
+        page.wait_for_timeout(800)
+        assert "לא הצלחתי" in _popover_title(page), _popover_title(page)
