@@ -256,7 +256,7 @@ def test_explicit_repo_in_allowlist_allowed(monkeypatch):
 def test_path_outside_docs_rejected(bad_path):
     be = _FsBackend()
     out = docs_handlers.docs_get_section(be, path=bad_path)
-    assert out["ok"] is False and out["error"] == "missing_path"
+    assert out["ok"] is False and out["error"] == "path_outside_root"
     assert be.calls == []  # נחסם ב-handler לפני ה-backend
 
 
@@ -631,7 +631,7 @@ def test_the_root_anchor_is_decided_before_normalisation():
     """
     be = _RecordingBackend()
     out = docs_handlers.docs_get_section(be, path="docs/../secrets", repo="CodeBot")
-    assert out == {"ok": False, "error": "missing_path"}
+    assert out == {"ok": False, "error": "path_outside_root", "repo": "CodeBot", "root": "docs"}
     assert be.kwargs == []
 
 
@@ -644,7 +644,7 @@ def test_traversal_out_of_the_repo_is_refused_even_at_the_repo_root(both_repos, 
     """שורש ריק אינו "הכול" — הוא "כל דבר **בתוך** הריפו"."""
     be = _RecordingBackend()
     out = docs_handlers.docs_get_section(be, path=bad_path, repo="amir-bug-patterns")
-    assert out == {"ok": False, "error": "missing_path"}
+    assert out == {"ok": False, "error": "path_outside_root", "repo": "amir-bug-patterns", "root": ""}
     assert be.kwargs == []
 
 
@@ -683,11 +683,11 @@ def test_a_root_is_matched_as_a_path_unit_and_not_as_a_prefix(monkeypatch):
     כזה. ``norm.startswith("docs")`` בלי המפריד מקבל אותו.
     """
     monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,synthetic")
-    monkeypatch.setitem(docs_handlers.DOCS_PATH_POLICY, "synthetic",
+    monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, "synthetic",
                         docs_handlers._DocsPathPolicy(root="docs", suffix=".rst"))
     be = _RecordingBackend()
     out = docs_handlers.docs_get_section(be, path="docsecret/x", repo="synthetic")
-    assert out == {"ok": False, "error": "missing_path"}
+    assert out == {"ok": False, "error": "path_outside_root", "repo": "synthetic", "root": "docs"}
     assert be.kwargs == []
 
 
@@ -908,10 +908,77 @@ def test_every_suffix_a_repo_policy_names_has_a_parser(monkeypatch):
     for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
         assert policy.suffix in docs_handlers._PARSERS, f"{repo}: {policy.suffix}"
 
-    monkeypatch.setitem(docs_handlers.DOCS_PATH_POLICY, "broken",
+    monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, "broken",
                         docs_handlers._DocsPathPolicy(root="", suffix=".txt"))
     with pytest.raises(RuntimeError, match="_PARSERS"):
         docs_handlers._validate_policy_tables()
+
+
+@pytest.mark.parametrize("policy, message", [
+    (docs_handlers._DocsPathPolicy(root="docs", suffix="RST"), "סיומת לא מנורמלת"),
+    (docs_handlers._DocsPathPolicy(root="docs", suffix="rst"), "סיומת לא מנורמלת"),
+    (docs_handlers._DocsPathPolicy(root="/docs", suffix=".rst"), "שורש לא מנורמל"),
+    (docs_handlers._DocsPathPolicy(root="docs/", suffix=".rst"), "שורש לא מנורמל"),
+    (docs_handlers._DocsPathPolicy(root="./docs", suffix=".rst"), "שורש לא מנורמל"),
+])
+def test_the_validator_refuses_an_unnormalised_suffix_or_root(monkeypatch, policy, message):
+    """שתי בדיקות הנרמול ב-``_validate_policy_tables``, שהיו בלי טסט (#3432, SUGG-009).
+
+    כל אחת מהצורות כאן הייתה עוברת בשקט את ``_suffix_of``/``_is_under`` ומחזירה
+    ``suffix_not_allowed`` או ``path_outside_root`` על כל קריאה — הכלי מת בלי
+    שאיש ידע למה. הוולידטור הוא מה שהופך הקלדה בקבוע לשרת שלא עולה.
+    """
+    monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, "bad", policy)
+    with pytest.raises(RuntimeError, match=message):
+        docs_handlers._validate_policy_tables()
+
+
+def test_the_policy_tables_cannot_be_changed_after_import_but_the_seam_can(monkeypatch):
+    """הוולידציה בייבוא היא הבטחה רק אם הטבלאות אינן משתנות אחריה (#3432, SUGG-021).
+
+    ``MappingProxyType`` דוחה כתיבה ישירה, והטבלה שמתחת נשארת התפר לטסטים —
+    שינוי בה נראה דרך הפרוקסי מיד, ו-``monkeypatch`` מחזיר אותו בסוף.
+    """
+    policy = docs_handlers._DocsPathPolicy(root="", suffix=".md")
+    with pytest.raises(TypeError):
+        docs_handlers.DOCS_PATH_POLICY["seam"] = policy  # type: ignore[index]
+    with pytest.raises(TypeError):
+        docs_handlers._PARSERS[".txt"] = docs_handlers.md_parser  # type: ignore[index]
+
+    monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, "seam", policy)
+    assert docs_handlers.DOCS_PATH_POLICY["seam"] is policy
+
+
+def test_a_repo_without_a_policy_is_logged_for_the_operator(monkeypatch, caplog):
+    """התשובה מגיעה לסוכן; השורה מגיעה למפעיל — ומחיקתה הייתה משאירה הכול ירוק (#3432, SUGG-010)."""
+    import logging as _logging
+
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,ghost-repo")
+    with caplog.at_level(_logging.WARNING, logger="mcp_server.docs_handlers"):
+        out = docs_handlers.docs_get_section(_RecordingBackend(), path="anything", repo="ghost-repo")
+    assert out["error"] == "repo_not_configured"
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == _logging.WARNING]
+    assert any("ghost-repo" in m and "MCP_DOCS_REPO" in m for m in warnings), warnings
+
+
+@pytest.mark.parametrize("path", ["", "   ", "a\x00b"])
+def test_no_usable_path_is_still_missing_path(path):
+    """‏``missing_path`` נשאר לדחייה שהוא נבנה בשבילה — אין נתיב — וזו כבר אינה גם "יצאת מהשורש" (#3432, SUGG-013)."""
+    be = _RecordingBackend()
+    out = docs_handlers.docs_get_section(be, path=path, repo="CodeBot")
+    assert out == {"ok": False, "error": "missing_path"}
+    assert be.kwargs == []
+
+
+def test_a_host_without_the_mirror_is_passed_through_as_repo_not_mirrored_with_context():
+    """‏``repo_not_mirrored`` מהמראה עובר לקורא עם הריפו והנתיב — לא כ-``not_found`` (#3432, SUGG-011)."""
+
+    class _NoMirror:
+        def get_file(self, **kwargs):
+            return {"ok": False, "error": "repo_not_mirrored"}
+
+    out = docs_handlers.docs_get_section(_NoMirror(), path="mcp-server", repo="CodeBot")
+    assert out == {"ok": False, "error": "repo_not_mirrored", "repo": "CodeBot", "path": "docs/mcp-server.rst"}
 
 
 def test_the_default_repo_has_a_path_policy():

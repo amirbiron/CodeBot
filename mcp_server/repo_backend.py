@@ -540,7 +540,15 @@ class RepoBackend:
             return {"ok": False, "error": "invalid_input"}
         # repo_not_found / invalid_commit / git_error / timeout / internal_error:
         # possibly a transient race with a running sync — say so if it is.
-        fallback = "not_found" if err in ("repo_not_found", "invalid_commit") else "read_failed"
+        #
+        # A mirror the host does not have is its own code (#3432, SUGG-011):
+        # ``not_found`` invites the agent to try another file name, when what
+        # is missing is the whole repository — an operator's matter, not the
+        # caller's. ``invalid_commit`` stays ``not_found``: the repo is there,
+        # and the ref is what the caller can change.
+        if err == "repo_not_found":
+            return self._transient_error(repo, "repo_not_mirrored")
+        fallback = "not_found" if err == "invalid_commit" else "read_failed"
         return self._transient_error(repo, fallback)
 
     def search(

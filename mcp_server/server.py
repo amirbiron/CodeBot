@@ -234,7 +234,10 @@ def _build_docs_path_doc() -> str:
         "repo_not_configured. A path longer than "
         f"{docs_handlers.MAX_PATH_CHARS} characters is refused with "
         "path_too_long before anything reads it — the longest real path in "
-        "any served repo is under 120 characters."
+        "any served repo is under 120 characters. A path that resolves outside "
+        "the repo's docs root is refused with path_outside_root (the root is "
+        "in the answer), and a repo this host has no mirror of with "
+        "repo_not_mirrored — an operator matter, not a wrong file name."
     )
 
 

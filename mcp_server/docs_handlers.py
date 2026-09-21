@@ -20,8 +20,8 @@ import logging
 import os
 import posixpath
 from dataclasses import dataclass
-from types import ModuleType
-from typing import Any, NamedTuple
+from types import MappingProxyType, ModuleType
+from typing import Any, Mapping, NamedTuple
 
 from services import doc_sections, md_parser, rst_parser
 from .handlers import _clamp
@@ -79,7 +79,13 @@ _CANDIDATES_MAX = 50
 #: קופאת על הפונקציה המקורית וה-spy היה נעקף **בשקט** — בלי שאף טסט קיים
 #: ייפול. ``tests/test_mcp_docs_handlers.py::test_the_parser_table_holds_modules_
 #: so_a_monkeypatch_on_the_module_is_seen`` מקבע את זה.
-_PARSERS: dict[str, ModuleType] = {".rst": rst_parser, ".md": md_parser}
+_PARSER_TABLE: dict[str, ModuleType] = {".rst": rst_parser, ".md": md_parser}
+#: **מה שמיוצא אינו ניתן לשינוי** (#3432, SUGG-021): ``_validate_policy_tables``
+#: רץ פעם אחת בייבוא, ושינוי של הטבלה אחריו עוקף אותו בשקט. ``MappingProxyType``
+#: הופך את ההבטחה לתכונה — ``_PARSERS[".txt"] = x`` הוא ``TypeError`` — והטבלה
+#: שמתחת, ``_PARSER_TABLE``, נשארת התפר לטסטים (``monkeypatch.setitem`` עליה
+#: נראה דרך הפרוקסי מיד, ומוחזר בסוף הטסט).
+_PARSERS: Mapping[str, ModuleType] = MappingProxyType(_PARSER_TABLE)
 
 
 @dataclass(frozen=True)
@@ -133,10 +139,14 @@ class _DocsPathPolicy:
 #:    מה ש**לא** משתנה: ``mcp_server.repo_policy.is_denied`` הוא ההוראה
 #:    הראשונה ב-``RepoBackend.get_file`` וחל על המסלול הזה במלואו, כך
 #:    ש-``secrets.md``, ``credentials.md`` ו-``.env*`` חסומים גם כאן.
-DOCS_PATH_POLICY: dict[str, _DocsPathPolicy] = {
+_DOCS_PATH_POLICY_TABLE: dict[str, _DocsPathPolicy] = {
     "CodeBot": _DocsPathPolicy(root="docs", suffix=".rst"),
     "amir-bug-patterns": _DocsPathPolicy(root="", suffix=".md"),
 }
+#: קריאה בלבד, מאותו נימוק שכתוב ליד ``_PARSERS``: הוולידציה בייבוא היא הבטחה
+#: רק אם הטבלה אינה משתנה אחריה. הטסטים שמוסיפים ריפו סינתטי עושים זאת על
+#: ``_DOCS_PATH_POLICY_TABLE``.
+DOCS_PATH_POLICY: Mapping[str, _DocsPathPolicy] = MappingProxyType(_DOCS_PATH_POLICY_TABLE)
 
 
 def _validate_policy_tables() -> None:
@@ -176,7 +186,11 @@ class _ResolvedPath(NamedTuple):
     ``str | None`` הספיק כל עוד הייתה סיבת דחייה אחת. הצורה
     ``value-or-error-string`` שב-``repo_backend.normalize_line_range`` אינה
     עובדת כאן, כי הנתיב וקוד השגיאה שניהם ``str`` ו-``isinstance`` אינו
-    מבדיל ביניהם.
+    מבדיל ביניהם. ארבעה קודים חיים כאן היום, אחד לכל דחייה: ``missing_path``
+    (אין נתיב — ריק או עם NUL), ``path_too_long``, ``suffix_not_allowed``,
+    ו-``path_outside_root`` (הנתיב תקין בצורתו ופותר אל מחוץ לשורש התיעוד;
+    עד #3432 הוא חלק קוד עם ``missing_path``, והקורא לא ידע אם שכח נתיב או
+    ניסה לצאת מהשורש).
 
     **ו-``suffix`` נישא ולא נגזר מחדש, וזה תיקון לבאג שנתפס בבדיקה.**
     הגרסה הראשונה קראה ל-``_suffix_of`` פעם שנייה על הנתיב המוגמר כדי
@@ -265,7 +279,8 @@ def _resolve_docs_path(path: str, policy: _DocsPathPolicy) -> _ResolvedPath:
        ל-``docs/secrets.rst``, **ויגיש אותו**.
     4. ``normpath`` — כאן, ורק כאן.
     5. הגבול מול השורש. זו הנקודה השנייה: ``startswith`` חשוף הוא
-       ``K16``, ולכן הוא עטוף ב-``_is_under``.
+       ``K16``, ולכן הוא עטוף ב-``_is_under`` — ונתיב שנופל בה נדחה
+       ב-``path_outside_root``, בשמו, ולא כ"נתיב חסר".
     """
     p = (path or "").strip().strip("/")
     if not p or "\x00" in p:
@@ -295,7 +310,7 @@ def _resolve_docs_path(path: str, policy: _DocsPathPolicy) -> _ResolvedPath:
     norm = posixpath.normpath(p)
     if _is_under(norm, policy.root):
         return _ResolvedPath(norm, suffix, None)
-    return _ResolvedPath(None, None, "missing_path")
+    return _ResolvedPath(None, None, "path_outside_root")
 
 
 def _capped(items: list, limit: int) -> tuple[list, bool]:
@@ -375,6 +390,11 @@ def docs_get_section(
     if resolved.error == "path_too_long":
         return {"ok": False, "error": "path_too_long", "repo": repo_name,
                 "max_chars": MAX_PATH_CHARS, "actual_chars": len(path or "")}
+    if resolved.error == "path_outside_root":
+        # השורש כבר כתוב בתיאור הכלי לכל ריפו, ולכן אמירתו כאן אינה מגלה
+        # דבר — היא רק חוסכת לקורא לחפש את הטעות בשם הקובץ.
+        return {"ok": False, "error": "path_outside_root", "repo": repo_name,
+                "root": policy.root}
     if not resolved.path:
         return {"ok": False, "error": "missing_path"}
     file_path = resolved.path
@@ -466,6 +486,33 @@ def docs_get_section(
         return {"ok": False, "error": "too_many_sections",
                 "max": doc_sections.MAX_SECTIONS, **context, **_line_of(exc)}
 
+    return _answer_from_document(doc, context=context, section=section,
+                                 include_subsections=include_subsections,
+                                 max_chars=max_chars, offset=offset)
+
+
+def _answer_from_document(
+    doc: doc_sections.Document,
+    *,
+    context: dict[str, Any],
+    section: str | None,
+    include_subsections: bool,
+    max_chars: int,
+    offset: int,
+) -> dict[str, Any]:
+    """ארבע צורות התשובה של הכלי, מתוך מסמך שכבר נפרסר.
+
+    **מה שנפרד מ-``docs_get_section`` (#3432, SUGG-020):** הפונקציה ההיא
+    פותרת ריפו, פותרת נתיב, קוראת קובץ ובוחרת פארסר — ארבע החלטות שכל אחת
+    מהן יכולה לסרב — ומכאן והלאה יש רק מסמך ושאלה. הזנב הזה הוא החלק שנפרד
+    הכי נקי, ואפס-דיף על 208 קובצי ה-RST (``scripts/docs_section_zero_diff.py``)
+    הוא מה שמוכיח שהוא רק זז.
+
+    ארבע הצורות: ``toc`` כשאין ``section``; ``section_not_found`` עם הצעות;
+    ``ambiguous_section`` עם מועמדים; ו-``section`` עם התוכן, השכנים
+    ותת-הסקשנים. ``context`` הוא ``repo``/``path``/``ref``/``resolved_commit``
+    שכל תשובה נושאת.
+    """
     toc_items, toc_truncated = _toc(doc)
 
     # ``includes`` הוא שדה של פארסר: ``rst_parser`` ממלא אותו מיעדי
