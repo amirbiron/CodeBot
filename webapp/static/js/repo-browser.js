@@ -81,6 +81,79 @@ let currentRepo = CONFIG.repoName;
 let repoMetadataByName = {};
 let repoDropdownDocListenerAttached = false;
 
+/**
+ * דולק כל עוד מעבר בין ריפואים באוויר.
+ *
+ * **מה הוא סוגר:** ``switchRepo`` מקדם את ``currentRepo`` סינכרונית — וזה
+ * מכוון ואין להפוך אותו, כי ``getRepoParam`` בונה ממנו כל קריאת API והשער
+ * בראש ``switchRepo`` משווה מולו. אבל התצוגה מתעדכנת רק אחרי ההמתנות
+ * שבדרך, ולעץ אין מצב טעינה, ולכן הוא נשאר מרונדר וקליקבילי כל אותו זמן.
+ * בחירת קובץ בחלון הזה שולחת נתיב של הריפו הקודם מול ``getRepoParam()``
+ * של החדש — קובץ שגוי או 404.
+ *
+ * **למה דגל אחד ב-``selectFile`` ולא נעילה של העץ:** ``selectFile`` היא
+ * נקודת ההתכנסות של כל דרכי הפתיחה, וכל אחת מהן יושבת בקונטיינר אחר.
+ * נעילה של העץ הייתה סוגרת חלק מהן, ומנייה של הנתיבים מתיישנת ברגע
+ * שנוסף הבא. ``fileSelectionSeq`` שומר על בחירות שכבר באוויר; הדגל הזה
+ * משלים אותו עבור בחירות חדשות שנפתחות בתוך החלון.
+ */
+let repoSwitchInFlight = false;
+
+/**
+ * התקרה על בקשה יוצאת שמחזיקה מצב.
+ *
+ * **למה זה נחוץ:** ``repoSwitchInFlight`` מכובה ב-``finally``, אבל
+ * ``finally`` רץ רק כשגוף הפונקציה חוזר. חיבור half-open — מעבר רשת
+ * בנייד, NAT שנפל — אינו עונה ואינו מתנתק, ו-``fetch`` בלי סיגנל תלוי
+ * לנצח. בלי תקרה הדגל נשאר דלוק, והדפדפן נעול על פתיחת קבצים עד ריענון.
+ * בשרת אין תקרה שתסיים את ההמתנה במקומנו: worker של gevent מודד את שתיקת
+ * ה-worker ולא את אורך הבקשה (``docs/performance-sticky-notes``).
+ *
+ * ``AbortSignal.timeout`` נדחה עם ``TimeoutError`` ולא עם ``AbortError``,
+ * ולכן הוא **אינו** נבלע ב-``catch`` של ``initTree`` ו-``loadFileTypes``
+ * שמתעלמים מביטול מכוון — והמשתמש רואה הודעת שגיאה במקום עץ ישן.
+ * מקור: MDN, ``AbortSignal.timeout()`` — *"The signal aborts with a
+ * TimeoutError DOMException on timeout"*, Baseline מאפריל 2024.
+ *
+ * **המספר לא נמדד מול הייצור** — אין לי גישה ל-access_logs מכאן. הוא נגזר
+ * מהתקרה שכן נמדדה בריפו: ``FETCH_TIMEOUT_MS`` ב-``webapp/templates/base.html``
+ * עומד על 15 שניות מול מקסימום נמדד של 5.32 שניות בדגימת התזכורות. עץ הריפו
+ * כבד יותר מאותו endpoint — ``api_tree`` ב-``webapp/routes/repo_browser.py``
+ * מריץ ``find`` ו-``distinct`` עם regex על ``repo_files`` — ולכן נבחר כפול.
+ * התקרה קיימת כדי שהדגל ישתחרר, לא כדי לכוון ביצועים.
+ */
+const REQUEST_DEADLINE_MS = 30 * 1000;
+
+/**
+ * מחזיר את ה-``signal`` שיש להעביר ל-``fetch``: התקרה לבדה, או התקרה
+ * מחוברת לסיגנל הביטול שהקורא כבר מחזיק.
+ *
+ * הסיבה שמגיעה ל-``catch`` היא של הסיגנל שבוטל ראשון (מקור: MDN,
+ * ``AbortSignal.any()`` — *"The reason will be set to the reason of the
+ * first abort signal that is aborted"*), ולכן ביטול מכוון נשאר
+ * ``AbortError`` ונבלע כמו קודם, ורק פקיעת התקרה מגיעה כ-``TimeoutError``.
+ *
+ * דפדפן שאינו מכיר את שני ה-APIים מקבל את מה שיש — נפילה-לאחור על היעדר
+ * יכולת סטטי, לא על כשל בזמן ריצה. שניהם Baseline 2024, כלומר בפועל או
+ * ששניהם קיימים או ששניהם אינם.
+ */
+function withRequestDeadline(signal) {
+    let deadline = null;
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+        deadline = AbortSignal.timeout(REQUEST_DEADLINE_MS);
+    } else if (typeof AbortController === 'function') {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), REQUEST_DEADLINE_MS);
+        deadline = controller.signal;
+    }
+    if (!signal) return deadline || undefined;
+    if (!deadline) return signal;
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+        return AbortSignal.any([signal, deadline]);
+    }
+    return signal;
+}
+
 // ========================================
 // State
 // ========================================
@@ -683,7 +756,10 @@ async function persistSelectedRepo(repoName) {
         await fetch(`${CONFIG.apiBase}/select-repo`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ repo_name: repoName })
+            body: JSON.stringify({ repo_name: repoName }),
+            // **התקרה חשובה כאן במיוחד:** זו הקריאה היחידה במסלול המעבר
+            // שאין לה שום מנגנון ביטול משלה, והיא הראשונה שהדגל מחכה לה.
+            signal: withRequestDeadline()
         });
     } catch (e) {
         // לא קריטי - localStorage מספיק
@@ -709,27 +785,46 @@ async function switchRepo(repoName) {
     // קריאת API, והשער בראש הפונקציה הזו משווה מולו, כלומר קריאה שנייה
     // לא הייתה נחסמת ונוצרת החלפה כפולה.
     currentRepo = repoName;
-    await persistSelectedRepo(repoName);
+    // **הדגל צמוד לקידום, ומאותה סיבה.** כל מה שבא אחריו מחכה לרשת, ובזמן
+    // הזה התצוגה עדיין מתארת את הריפו הקודם.
+    repoSwitchInFlight = true;
 
-    // עדכון UI
-    updateRepoDisplay(repoName);
+    try {
+        // **הפאנל צמוד לקידום גם הוא.** ``showWelcomeScreen`` שבסוף רק
+        // מחליפה ``display`` — היא מציגה מחדש את התוכן שכבר יושב בפאנל,
+        // כלומר את הרשימה של הריפו הקודם. רינדור כאן, סינכרונית ולפני
+        // ההמתנה הראשונה, הוא מה שמונע את זה; ``getRecentFiles`` כבר
+        // נגזרת מ-``currentRepo`` החדש. **בתוך ה-``try``** כדי שגם חריגה
+        // ממנו תעבור דרך ה-``finally`` ולא תשאיר את הדגל דלוק.
+        loadRecentFiles();
 
-    // איפוס state
-    state.currentFile = null;
-    state.expandedFolders.clear();
-    state.selectedTypes.clear();
-    saveFilterPreferences();
-    clearSearchState();
-    updateUrlHash(null);
+        await persistSelectedRepo(repoName);
 
-    // טעינה מחדש של העץ
-    await initTree();
-    await loadFileTypes();
+        // עדכון UI
+        updateRepoDisplay(repoName);
 
-    // הצגת מסך פתיחה
-    showWelcomeScreen();
+        // איפוס state
+        state.currentFile = null;
+        state.expandedFolders.clear();
+        state.selectedTypes.clear();
+        saveFilterPreferences();
+        clearSearchState();
+        updateUrlHash(null);
 
-    showToast(`Switched to ${repoName}`);
+        // טעינה מחדש של העץ
+        await initTree();
+        await loadFileTypes();
+
+        // הצגת מסך פתיחה
+        showWelcomeScreen();
+
+        showToast(`Switched to ${repoName}`);
+    } finally {
+        // **ב-``finally`` ולא בנתיב ההצלחה.** כשל באמצע המעבר שמשאיר את
+        // הדגל דלוק נועל את הדפדפן על פתיחת קבצים עד ריענון — כלומר הופך
+        // תקלה חולפת אחת לשיתוק מתמשך.
+        repoSwitchInFlight = false;
+    }
 }
 
 /**
@@ -959,6 +1054,7 @@ async function initRepoBrowser() {
     initResizer();
     initKeyboardShortcuts();
     initMobileSidebar();
+    dropLegacyRecentFiles();
     loadRecentFiles();
     await applyInitialNavigationFromUrl();
 }
@@ -1092,7 +1188,7 @@ async function initTree() {
         state.treeAbortController.abort();
     }
     state.treeAbortController = new AbortController();
-    const signal = state.treeAbortController.signal;
+    const signal = withRequestDeadline(state.treeAbortController.signal);
 
     try {
         // Build URL with repo and filter parameters
@@ -1374,7 +1470,7 @@ async function loadFileTypes() {
         state.fileTypesAbortController.abort();
     }
     state.fileTypesAbortController = new AbortController();
-    const signal = state.fileTypesAbortController.signal;
+    const signal = withRequestDeadline(state.fileTypesAbortController.signal);
     
     state.fileTypesLoading = true;
     
@@ -1593,6 +1689,16 @@ function selectionIsCurrent(seq) {
 }
 
 async function selectFile(path, element) {
+    // **השער, לפני כל דבר אחר.** בזמן מעבר בין ריפואים הנתיב שביד הקורא
+    // שייך לריפו הקודם, בעוד ``getRepoParam()`` כבר בונה את הבקשה מול
+    // החדש — ולכן הבחירה הזו אינה חוקית, ואין טעם לשלוח אותה.
+    //
+    // **יציאה לפני קידום ``fileSelectionSeq``**: קידום כאן היה מבטל
+    // בחירה לגיטימית שעדיין באוויר, בלי להעמיד דבר במקומה. ושקטה
+    // בכוונה — זו החלטת ממשק ולא כשל שנבלע: המעבר עצמו מודיע על עצמו
+    // (``showToast``), והעץ שמתחתיו מתחלף תוך רגע.
+    if (repoSwitchInFlight) return;
+
     // הבחירה הזו היא האחרונה **נכון לרגע הזה**, וסינכרונית — כדי שטעינה
     // קודמת שעדיין באוויר תגלה בסופה שהיא כבר לא.
     const mySeq = ++fileSelectionSeq;
@@ -2796,20 +2902,72 @@ function loadRecentFiles() {
     `).join('');
 }
 
+/**
+ * המפתח ב-``localStorage`` של הרשימה, ממופתח לפי הריפו המוצג.
+ *
+ * **כותב אחד לשני הצדדים.** עד כה הקריאה והכתיבה נקבו במפתח הגלובלי
+ * ``'recentFiles'`` כל אחת בנפרד, והרשימה הייתה משותפת לכל הריפואים: נתיב
+ * שנשמר בריפו אחד הוצג בריפו אחר, ולחיצה עליו נשלחה מול ``getRepoParam()``
+ * של הריפו הנוכחי — קובץ שגוי או 404 (אישיו #3276).
+ *
+ * מרחב-שמות לפי ריפו ב-``localStorage`` הוא המוסכמה שכבר קיימת כאן:
+ * ``prefKey`` ב-``webapp/static/js/repo-notes.js`` בונה בדיוק כך את מפתח
+ * העדפת הפתקים.
+ */
+function recentFilesKey() {
+    return `recentFiles:${currentRepo}`;
+}
+
+/**
+ * המפתח הגלובלי מלפני המיפתוח לפי ריפו.
+ *
+ * הרשומות שבו הן מחרוזות נתיב בלבד, בלי שום סימן לריפו שממנו הגיעו —
+ * ולכן אין לאן למגר אותן: כל שיוך יהיה ניחוש, ובדיוק הניחוש הזה הוא הבאג.
+ * הרשימה מתמלאת מחדש מעצמה תוך שימוש קצר, ולכן המפתח נמחק פעם אחת.
+ */
+const LEGACY_RECENT_FILES_KEY = 'recentFiles';
+
+function dropLegacyRecentFiles() {
+    try {
+        localStorage.removeItem(LEGACY_RECENT_FILES_KEY);
+    } catch (e) {
+        // אחסון חסום (מצב פרטי, הרשאות) — אין מה לנקות וגם אין מה לשבור.
+        console.warn('Failed to drop legacy recent files key:', e);
+    }
+}
+
 function getRecentFiles() {
     try {
-        return JSON.parse(localStorage.getItem('recentFiles') || '[]');
+        const parsed = JSON.parse(localStorage.getItem(recentFilesKey()) || '[]');
+        // **הערך הגיע מחוץ לתהליך.** ``localStorage`` פתוח לעריכה ידנית,
+        // ונושא גם מה שגרסה קודמת של הקוד כתבה. ``JSON.parse`` מצליח יפה
+        // על ``{}``, ``5`` ו-``"x"``, ואז ``.filter`` ו-``.map`` על התוצאה
+        // זורקים — ``addToRecentFiles`` רצה בתוך ה-``try`` של ``selectFile``,
+        // כך שקובץ שנטען בהצלחה היה מוצג כ-"Failed to load file".
+        // זו גם המוסכמה שכבר קיימת בקובץ: ``loadFilterPreferences``.
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter(p => typeof p === 'string' && p);
     } catch {
         return [];
     }
 }
 
 function addToRecentFiles(path) {
+    if (typeof path !== 'string' || !path) return;
     let recent = getRecentFiles();
     recent = recent.filter(p => p !== path);
     recent.unshift(path);
     recent = recent.slice(0, CONFIG.maxRecentFiles);
-    localStorage.setItem('recentFiles', JSON.stringify(recent));
+    try {
+        localStorage.setItem(recentFilesKey(), JSON.stringify(recent));
+    } catch (e) {
+        // **העטיפה נוספה עם המיפתוח, כי המיפתוח הוא שמצדיק אותה:** במקום
+        // מפתח אחד יש עכשיו מפתח לכל ריפו, כלומר צריכת אחסון שגדלה עם מספר
+        // הריפואים, ו-``setItem`` זורק כשהמכסה מלאה. בלי העטיפה החריגה
+        // מתפשטת ל-``catch`` של ``selectFile`` ומציגה שגיאת טעינה על קובץ
+        // שנטען. הרשימה היא נוחות — כשל בשמירתה אינו מצדיק לשבור את התצוגה.
+        console.warn('Failed to save recent files:', e);
+    }
     loadRecentFiles();
 }
 
