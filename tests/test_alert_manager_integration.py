@@ -25,19 +25,20 @@ def _load_alert_manager(tmp_path, monkeypatch):
 
 
 def test_alert_manager_emits_remediation_and_bump(tmp_path, monkeypatch):
-    (tmp_path / "data").mkdir()
-    monkeypatch.chdir(tmp_path)
-
-    # Stub observability
-    monkeypatch.setitem(sys.modules, 'observability', types.SimpleNamespace(emit_event=lambda *a, **k: None))
-
     # Stub internal_alerts to avoid side effects
     monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=lambda *a, **k: None))
 
     # Ensure remediation_manager is importable
     import remediation_manager as rm  # noqa: F401
 
-    am = importlib.import_module('alert_manager')
+    # ‏_load_alert_manager הוא מה שתשעת הטסטים האחרים בקובץ משתמשים בו:
+    # הוא יוצר ``data/``, עובר ל-``tmp_path``, טוען מחדש את המודול
+    # ו**מאפס את המצב**. הטסט הזה היה היחיד שדילג על האיפוס, ולכן
+    # ה-cooldown בן חמש הדקות של ``_emit_critical_once`` — משתנה ברמת
+    # המודול — נשאר מטסט קודם באותו תהליך, הקריאה יצאה מוקדם **לפני**
+    # כתיבת האינסידנט, והטסט נפל על קובץ חסר. תלוי סדר, ולכן מהבהב
+    # תחת ``pytest-xdist`` ב-CI.
+    am = _load_alert_manager(tmp_path, monkeypatch)
 
     # Seed threshold and then bump
     am._thresholds['error_rate_percent'].threshold = 10.0  # type: ignore[attr-defined]
