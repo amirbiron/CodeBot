@@ -1089,10 +1089,26 @@ def _emit_warning_once(key: str, name: str, summary: str, details: Dict[str, Any
     _last_alert_ts[key] = now_ts
     try:
         from internal_alerts import emit_internal_alert  # type: ignore
-        emit_internal_alert(name=name, severity="warning", summary=summary, **details)
+        # ‏details= ולא ‏**: ‏details מגיע כפרמטר מהקורא, ולכן מפתחותיו אינם
+        # ידועים כאן. מפתח בשם "name"/"severity"/"summary" היה מפיל את
+        # הקריאה ב-TypeError, וה-except היה בולע את ההתראה.
+        emit_internal_alert(name=name, severity="warning", summary=summary, details=details)
     except Exception:
         try:
-            emit_event("external_warning", severity="warning", name=name, summary=summary, **details)
+            # המטען נכנס כשדה אחד ולא ב-``**``. ל-``emit_event`` שני
+            # פרמטרים משלו — ``event`` ו-``severity`` — ו-``details``
+            # מגיע כפרמטר מהקורא, כך שמפתחותיו אינם ידועים כאן. פריסה
+            # ב-``**`` הייתה מפילה את הקריאה ב-``TypeError`` על כל אחד
+            # מהשניים, וה-``except`` שמסביב היה בולע את האזהרה כולה.
+            # ניקוי שם-אחרי-שם אינו פתרון: הוא מכסה את המפתח שנזכרנו בו
+            # ונשבר שוב כשנוסף פרמטר לחתימה.
+            emit_event(
+                "external_warning",
+                severity="warning",
+                name=name,
+                summary=summary,
+                details=dict(details or {}),
+            )
         except Exception:
             pass
 
@@ -1269,7 +1285,8 @@ def _emit_critical_once(key: str, name: str, summary: str, details: Dict[str, An
         if emit_internal_alert is not None:
             # internal_alerts will forward critical alerts via alert_manager.forward_critical_alert
             # to avoid duplicate dispatches, do not call _notify_critical_external when this path is taken
-            emit_internal_alert(name=name, severity="critical", summary=summary, **details)
+            # ‏details= ולא ‏**: ‏details מגיע כפרמטר, ומפתחותיו אינם ידועים כאן.
+            emit_internal_alert(name=name, severity="critical", summary=summary, details=details)
         else:
             # Fallback: ensure external delivery directly
             _notify_critical_external(name=name, summary=summary, details=details)
@@ -1281,9 +1298,22 @@ def _emit_critical_once(key: str, name: str, summary: str, details: Dict[str, An
             pass
 
 
-def forward_critical_alert(name: str, summary: str, **details: Any) -> None:
-    """Public API: forward a critical alert to sinks and log dispatches."""
-    _notify_critical_external(name=name, summary=summary, details=details)
+def forward_critical_alert(
+    name: str,
+    summary: str,
+    details: Optional[Dict[str, Any]] = None,
+    **legacy_details: Any,
+) -> None:
+    """Public API: forward a critical alert to sinks and log dispatches.
+
+    ‏``details`` הוא ערוץ המטען והוא מפורש בכוונה: המטען מורכב משדות של
+    קוראים שרירותיים, ומפתח ששמו ``name`` או ``summary`` היה מפיל את
+    הקריאה ב-``TypeError`` — ובשקט, כי הקורא עוטף ב-``except``.
+    הצורה הישנה (``**details``) עדיין נתמכת ומתמזגת פנימה.
+    """
+    merged: Dict[str, Any] = dict(details or {})
+    merged.update(legacy_details)
+    _notify_critical_external(name=name, summary=summary, details=merged)
 
 
 def _notify_critical_external(name: str, summary: str, details: Dict[str, Any]) -> None:

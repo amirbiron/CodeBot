@@ -554,7 +554,15 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     try:
         _maybe_emit_event_alert(event, severity, fields)
     except Exception:
-        pass
+        # ‏warning ולא error במכוון: המסלול הזה רץ בכל אירוע, וה-
+        # ‏LoggingIntegration מוגדר ‏event_level=logging.ERROR (ראה init_sentry),
+        # כלומר ‏error כאן היה מייצר Issue ב-Sentry על כל בקשה. נרשם שם האירוע
+        # בלבד — ערכי השדות אינם נכנסים ללוג (PII/סודות).
+        LOGGER.warning(
+            "event alert hook failed",
+            extra={"event": "event_alert_hook_failed", "alert_event": str(event)},
+            exc_info=True,
+        )
 
     if severity in {"error", "critical"}:
         ctx = get_observability_context()
@@ -810,8 +818,24 @@ def _maybe_emit_event_alert(event: str, severity: str, fields: dict[str, Any]) -
         if internal_sev == "warning":
             internal_sev = "warn"
         try:
-            emit_internal_alert(name=name, severity=internal_sev, summary=summary, **ctx)
+            # ‏details=ctx ולא ‏**ctx. מפתחות ה-ctx מגיעים מקוראים שרירותיים של
+            # ‏emit_event, וכל מפתח ששמו כשם פרמטר של הפונקציה הנקראת מפיל את
+            # הקריאה ב-``TypeError: got multiple values for keyword argument``.
+            # ‏ctx תמיד מכיל "severity" (נקבע למעלה ב-setdefault), ולכן ‏**ctx
+            # נכשל ב-100% מהקריאות — וזה מה שהשבית את הכללים ב-config/alerts.yml.
+            # ‏emit_internal_alert פורס ‏details={...} יחיד חזרה למטען (ראה
+            # internal_alerts.emit_internal_alert).
+            emit_internal_alert(name=name, severity=internal_sev, summary=summary, details=ctx)
         except Exception:
+            # כשל כאן הוא ממצא, לא רעש: הוא רץ רק כשכלל באמת תאם לאירוע.
+            LOGGER.exception(
+                "event alert dispatch failed",
+                extra={
+                    "event": "event_alert_dispatch_failed",
+                    "alert_name": str(name),
+                    "alert_event": str(ev),
+                },
+            )
             return
 
 
@@ -921,11 +945,20 @@ def get_recent_errors(limit: int = 10) -> list[Dict[str, Any]]:
 
 
 def emit_anomaly(name: str, **fields: Any) -> None:
-    """Utility to emit an ANOMALY-level event consistently across services."""
+    """Utility to emit an ANOMALY-level event consistently across services.
+
+    ⚠️ הגרסה הקודמת לא פלטה דבר, אף פעם: היא הציבה ``fields["event"]``
+    ואז פרסה ``**fields`` לצד ``event`` פוזיציוני, מה שזורק
+    ``TypeError: got multiple values for argument 'event'`` בכל קריאה —
+    וה-``except`` כאן בלע את זה. נמדד: אפס קריאות הגיעו ל-``emit_event``.
+    אף קורא בריפו לא השתמש בפונקציה, ולכן לא נפגע דבר בפועל.
+
+    המטען נכנס עכשיו כשדה אחד ולא ב-``**``: מפתחותיו מגיעים מקוראים
+    שרירותיים, ושניים משמות הפרמטרים של ``emit_event`` (``event``
+    ו-``severity``) שמורים. ‏``emit_event`` מציב ``event`` בעצמו.
+    """
     try:
-        fields = dict(fields or {})
-        fields.setdefault("event", str(name))
-        emit_event(str(name), severity="anomaly", **fields)
+        emit_event(str(name), severity="anomaly", details=dict(fields or {}))
     except Exception:
         return
 

@@ -5,6 +5,11 @@ import importlib
 
 import pytest
 
+# נטען כאן, לפני ש-monkeypatch מחליף את המודול 'internal_alerts' בדמה.
+# הדמויות בקובץ הזה קוראות לו כדי לראות את המטען באותו מבנה שהפונקציה
+# האמיתית רואה — קוד הייצור מעביר אותו כ-details={...} ולא כ-**kwargs.
+from internal_alerts import normalize_alert_details
+
 
 def _load_alert_manager(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
@@ -65,7 +70,7 @@ def test_high_error_rate_alert_carries_meta(tmp_path, monkeypatch):
         captured["name"] = name
         captured["severity"] = severity
         captured["summary"] = summary
-        captured["details"] = details
+        captured["details"] = normalize_alert_details(**details)
 
     monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=_fake_emit_internal_alert))
 
@@ -144,7 +149,7 @@ def test_external_warning_includes_service_when_context_available(tmp_path, monk
     captured: list[tuple[str, str, str, dict]] = []
 
     def _fake_alert(name, severity="info", summary="", **details):
-        captured.append((name, severity, summary, details))
+        captured.append((name, severity, summary, normalize_alert_details(**details)))
 
     monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=_fake_alert))
 
@@ -210,7 +215,7 @@ def test_high_latency_details_include_source(tmp_path, monkeypatch):
     captured: list[tuple[str, str, dict]] = []
 
     def _fake_alert(name, severity="info", summary="", **details):
-        captured.append((name, severity, details))
+        captured.append((name, severity, normalize_alert_details(**details)))
 
     monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=_fake_alert))
 

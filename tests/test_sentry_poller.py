@@ -1,6 +1,9 @@
 import types
 import pytest
 
+# נטען לפני ש-monkeypatch מחליף את 'internal_alerts' בדמה.
+from internal_alerts import normalize_alert_details
+
 
 @pytest.mark.asyncio
 async def test_sentry_poller_seeds_silently_then_emits_on_new_last_seen(monkeypatch):
@@ -25,7 +28,7 @@ async def test_sentry_poller_seeds_silently_then_emits_on_new_last_seen(monkeypa
     emitted = []
 
     def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):
-        emitted.append({"name": name, "severity": severity, "summary": summary, "details": details})
+        emitted.append({"name": name, "severity": severity, "summary": summary, "details": normalize_alert_details(**details)})
 
     monkeypatch.setitem(__import__("sys").modules, "internal_alerts", types.SimpleNamespace(emit_internal_alert=emit_internal_alert))
 
