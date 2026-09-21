@@ -203,6 +203,8 @@ _SYMBOL_PARAM_DOC = (
 # ייבוא היא ``import-time-side-effects``, ותיאור הכלי היה משתנה בין פריסות —
 # כלומר שני לקוחות היו קוראים שני חוזים שונים לאותו כלי. מה שה-ENV קובע
 # נאמר בתיאור במילים, בלי למנות ממנו.
+
+
 def _build_docs_path_doc() -> str:
     parts = []
     for repo, policy in docs_handlers.DOCS_PATH_POLICY.items():
@@ -261,7 +263,9 @@ _SECTION_PARAM_DOC = (
     "sub-numbered heading is reachable by its full name only. "
     "An identifier that repeats in "
     "the file is ambiguous_section with candidates, like any duplicate "
-    "heading. A query that is not shaped like an identifier never takes "
+    "heading — at most 50 of them, in document order, with "
+    "candidates_truncated: true only when more were cut. A query that is "
+    "not shaped like an identifier never takes "
     "this path. (2) BACKTICKS: headings are returned as raw source, so a "
     "heading written with ``literal`` markup needs those backticks in the "
     "query too — section=\"MissingGreenlet\" finds nothing when the "

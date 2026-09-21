@@ -56,6 +56,19 @@ MAX_PATH_CHARS = 4096
 DEFAULT_DOCS_REPO = "CodeBot"
 _TOC_MAX = 400  # תקרת פריטי TOC בתשובה (הגנת גודל)
 
+#: תקרת המועמדים בתשובת ``ambiguous_section``. **אותו מספר כמו
+#: ``doc_sections.MAX_IDENTIFIER_SUGGESTIONS``, ומאותה סיבה:** רשימת המועמדים
+#: היא מלאי בסדר הופעה ולא דירוג, ולכן חיתוך שלה מסתיר פריטים בלי קריטריון —
+#: והתקרה גבוהה מספיק כדי שכל עמוד אמיתי ייענה במלואו (כותרת כפולה בקורפוס
+#: חוזרת פעמיים או שלוש). מה שהיא עוצרת נמדד בסקירת #3425: עמוד סינתטי של
+#: 512KB עם 13,030 כותרות שנפתחות ב-``K11.`` החזיר 13,030 מועמדים — 1,393,787
+#: בתים ושיא הקצאה של 12.6MB — על שאילתה בת שלושה תווים, וזה היה השדה היחיד
+#: בתשובה בלי גבול (``toc`` ב-``_TOC_MAX``, ‏``suggestions``
+#: ב-``MAX_IDENTIFIER_SUGGESTIONS``). הענף נדלק רק מכותרות שנושאות מזהה, ומאז
+#: #3428 הקורפוס שנושא מזהים (``amir-bug-patterns``) מוגש. השוויון בין שני
+#: המספרים מקובע בטסט, כמו שני גבולות האאוטליין והפארסר. אישו #3426.
+_CANDIDATES_MAX = 50
+
 #: הסיומת ← **המודול** שמפרסר אותה. זהו המקום היחיד שאומר איזה פורמט הכלי
 #: יודע לקרוא בכלל, ו-``DOCS_PATH_POLICY`` למטה אומר מי מהם מוגש בכל ריפו.
 #: שתי שאלות שונות, ולכן שתי טבלאות — ו-``_validate_policy_tables`` קושר
@@ -286,11 +299,21 @@ def _resolve_docs_path(path: str, policy: _DocsPathPolicy) -> _ResolvedPath:
     return _ResolvedPath(None, None, "missing_path")
 
 
-def _toc(doc: doc_sections.Document) -> tuple[list, bool]:
-    items = doc_sections.build_toc(doc)
-    if len(items) > _TOC_MAX:
-        return items[:_TOC_MAX], True
+def _capped(items: list, limit: int) -> tuple[list, bool]:
+    """‏``(items, truncated)`` — הרשימה עד ``limit``, והאם באמת נחתכה.
+
+    **פונקציה אחת לשני הגבולות של התשובה** (``toc`` ו-``candidates``), כדי
+    שהשאלה "מתי הדגל נכון" תיענה במקום אחד: ``True`` רק כשהיו יותר מהתקרה,
+    ולעולם לא על רשימה שבדיוק בגודלה — אותו גבול כמו ``Capped.append``
+    ב-``_ceiling`` וכמו ``max_sections`` בפארסר.
+    """
+    if len(items) > limit:
+        return items[:limit], True
     return items, False
+
+
+def _toc(doc: doc_sections.Document) -> tuple[list, bool]:
+    return _capped(doc_sections.build_toc(doc), _TOC_MAX)
 
 
 def _line_of(exc: BaseException) -> dict:
@@ -496,13 +519,19 @@ def docs_get_section(
 
     # כותרת כפולה → כל המועמדים עם breadcrumb (בלי לנחש)
     if len(matches) > 1:
+        candidates, candidates_truncated = _capped(matches, _CANDIDATES_MAX)
         base.update({
             "ok": False, "error": "ambiguous_section", "requested": section,
             "candidates": [{
                 "title": s.title, "breadcrumb": list(s.breadcrumb),
                 "level": s.level, "line_range": [s.heading_line, s.end_line],
-            } for s in matches],
+            } for s in candidates],
         })
+        if candidates_truncated:
+            # רק כשנחתך — אותה מוסכמה של ``suggestions_truncated`` ו-``remaining_chars``:
+            # שדה שקיים תמיד היה משנה כל תשובת ``ambiguous_section`` בתצלום
+            # אפס-הדיף בלי ששום התנהגות השתנתה.
+            base["candidates_truncated"] = True
         return base
 
     # התאמה יחידה → הסקשן + ניווט (שכנים ותת-סקשנים)
