@@ -5652,8 +5652,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # Fail-open: אל תכשיל startup אם מודול הניטור לא זמין
         pass
 
-    # מי מריץ את ההרצות. נכתב על כל רשומת הרצה לצורך אבחון, ומוצג בעמוד
-    # ההרצה. המזהה נגזר במקום אחד בלבד (``_default_owner_id``) ומועבר
+    # מי מריץ את ההרצות. נכתב על כל רשומת הרצה לצורך אבחון, ומוחזר ב-API
+    # של ההרצה (``webapp.app._job_run_doc_to_dict``); אף תבנית אינה מציגה
+    # אותו עדיין. המזהה נגזר במקום אחד בלבד (``_default_owner_id``) ומועבר
     # לכאן, במקום להיגזר שוב בשכבת המעקב.
     try:
         from services.job_tracker import get_job_tracker
@@ -5904,39 +5905,21 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         from services.job_orphan_reconciler import (
             reconcile_delay_seconds,
             reconcile_enabled,
-            reconcile_orphan_runs,
+            reconcile_job_callback,
         )
 
         async def _reconcile_orphan_job_runs(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
-            # השומר נבדק **כאן** ולא בזמן התזמון: בין השניים עוברות דקות,
-            # ובהן התהליך יכול לאבד את המנעול. ונבדק הערך שבו משתמשים
-            # בפועל, לא משתנה אח שלו.
-            acquired_at = _LOCK_ACQUIRED_AT
-            if acquired_at is None:
-                # הרצה בלי מנעול (LOCK_FAIL_OPEN, או כשל בהעלאת ה-heartbeat):
-                # ייתכן שתהליך אחר מריץ ג'ובים ממש עכשיו, וכל ``running``
-                # יכול להיות שלו. בלי מבחן אין פיוס.
-                logger.warning(
-                    "orphan reconcile skipped: this process holds no lock acquisition time",
-                    extra={"event": "job_runs_reconcile_skipped", "reason": "no_lock"},
-                )
-                return
-            try:
+            # ‏``_LOCK_ACQUIRED_AT`` נקרא כאן, ברגע השימוש, ולא נלכד בזמן התזמון.
+            # אין מסלול שבו הוא משתנה בין השניים — אובדן מנעול בזמן ריצה מסיים
+            # את התהליך (``_handle_lost_lock`` ← ``os._exit``). השומר שבתוך
+            # ה-callback מגן מפני תהליך שלא החזיק מנעול מלכתחילה
+            # (``LOCK_FAIL_OPEN``). התוצאה תמיד מחרוזת ולעולם לא חריגה — ראה
+            # ``reconcile_job_callback``.
+            async def _job_runs_collection():
                 db_obj = await _get_scheduler_motor_db(_context.application)
-                if db_obj is None:
-                    return
-                coll = getattr(db_obj, "job_runs", None)
-                if coll is None or not hasattr(coll, "find"):
-                    return
-                await reconcile_orphan_runs(coll, lock_acquired_at=acquired_at)
-            except Exception:
-                # גבול של job callback: חריגה כאן אסור לה להפיל את ה-JobQueue.
-                # נרשמת במלואה — פיוס שנכשל בשקט היה משאיר את הזומבים בלי
-                # שאיש ידע.
-                logger.exception(
-                    "orphan reconcile failed",
-                    extra={"event": "job_runs_reconcile_failed"},
-                )
+                return getattr(db_obj, "job_runs", None) if db_obj is not None else None
+
+            await reconcile_job_callback(_job_runs_collection, lock_acquired_at=_LOCK_ACQUIRED_AT)
 
         if reconcile_enabled():
             application.job_queue.run_once(

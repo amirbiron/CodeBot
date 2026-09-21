@@ -104,11 +104,13 @@ def env_toggle_enabled(raw: Optional[str], default: bool) -> bool:
         default: מה נכון כשהמשתנה כלל אינו מוגדר.
 
     Returns:
-        ‏``True`` רק לערך מוכר של הפעלה. ערך ריק או לא מוכר ⇐ ``False``.
+        ‏``True`` רק לערך מוכר של הפעלה, אחרי ניקוי רווחים. ערך ריק או לא מוכר ⇐ ``False``.
     """
     if raw is None:
         return bool(default)
-    return str(raw).lower() in ("1", "true", "yes", "on")
+    # ‏``strip`` כי פאנל סביבה משאיר רווח או שורה חדשה בהדבקה — ובלי הניקוי
+    # ‏``"true "`` היה מפרש כ"מושבת", ההפך ממה שהמפעיל כתב.
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
 
 
 def register_job(
@@ -130,4 +132,3 @@ def register_job(
     )
     JobRegistry().register(job)
     return job
-

@@ -5,7 +5,10 @@ same duck-typed stand-in, so the collection semantics — filter matching
 (``$ne``, ``$in``, ``$nin``, ``$exists`` and the range operators), inclusion
 projections, upsert, ``$push`` with ``$each``/``$slice``, ``$unset``,
 ``update_many``, counting, and the matched/modified/deleted counts the callers
-read — live here in one place. The migration-script tests reach the DB as
+read — live here in one place. An operator outside those sets raises
+``NotImplementedError`` rather than matching everything or ignoring the
+write. ``FakeTrackerDB`` is the ``DatabaseManager``
+shape the job tracker reaches its collection through. The migration-script tests reach the DB as
 ``db.note_reminders`` and read ``db.name``, so ``FakeDB`` also answers
 attribute access like a real ``Database`` handle.
 
@@ -46,6 +49,22 @@ class _Res:
         self.matched_count = modified if matched is None else matched
 
 
+#: What the matcher and the writer implement. Anything else raises instead of
+#: silently matching everything (or silently doing nothing): a test that reaches
+#: the fake with ``$regex`` must fail loudly, not pass for the wrong reason.
+QUERY_OPERATORS = frozenset({"$ne", "$in", "$nin", "$exists", "$lt", "$lte", "$gt", "$gte"})
+UPDATE_OPERATORS = frozenset({"$set", "$unset", "$push"})
+PUSH_MODIFIERS = frozenset({"$each", "$slice"})
+
+
+def _unsupported(kind: str, names) -> NotImplementedError:
+    return NotImplementedError(
+        f"tests/_fake_mongo.py does not implement the {kind} {sorted(names)}; "
+        "add it to the fake (and to the operator set) so the test measures "
+        "something, instead of matching every document or ignoring the write"
+    )
+
+
 class FakeCollection:
     """A minimal, list-backed stand-in for a pymongo collection."""
 
@@ -65,9 +84,15 @@ class FakeCollection:
 
     @staticmethod
     def _match(doc, q):
+        top = [k for k in q if str(k).startswith("$")]
+        if top:  # $or / $and / $expr / $where …
+            raise _unsupported("query operator(s)", top)
         for k, v in q.items():
             actual = doc.get(k)
             if isinstance(v, dict) and any(str(op).startswith("$") for op in v):
+                unknown = [op for op in v if str(op).startswith("$") and op not in QUERY_OPERATORS]
+                if unknown:
+                    raise _unsupported("query operator(s)", unknown)
                 # ``$ne: None`` treats a missing field as null (excluded), like Mongo.
                 if "$ne" in v and actual == v["$ne"]:
                     return False
@@ -112,7 +137,7 @@ class FakeCollection:
         modified = 0
         for d in self.docs:
             if self._match(d, q):
-                d.update(u.get("$set", {}))
+                self._apply(d, u)
                 modified += 1
         return _Res(modified=modified)
 
@@ -124,12 +149,18 @@ class FakeCollection:
 
     @staticmethod
     def _apply(doc, u):
+        unknown = [op for op in u if op not in UPDATE_OPERATORS]
+        if unknown:  # $inc / $addToSet / $setOnInsert / $pull …
+            raise _unsupported("update operator(s)", unknown)
         doc.update(u.get("$set", {}))
         for field in u.get("$unset", {}):
             doc.pop(field, None)
         for field, spec in (u.get("$push") or {}).items():
             current = list(doc.get(field) or [])
             if isinstance(spec, dict) and "$each" in spec:
+                modifiers = [m for m in spec if str(m).startswith("$") and m not in PUSH_MODIFIERS]
+                if modifiers:  # $position / $sort
+                    raise _unsupported("$push modifier(s)", modifiers)
                 current.extend(spec["$each"])
                 slice_n = spec.get("$slice")
                 if isinstance(slice_n, int) and slice_n < 0:
@@ -231,6 +262,24 @@ class _AsyncFakeCursor:
         if length is not None:
             docs = docs[: max(0, int(length))]
         return docs
+
+
+class FakeTrackerDB:
+    """The ``db.client[db_name]["job_runs"]`` shape ``JobTracker`` reaches its
+    collection through — a ``DatabaseManager`` stand-in. ``runs`` is the same
+    collection object, for reading a write back. To inject a misbehaving
+    collection, assign into ``db.c["job_runs"]`` before the tracker's first
+    write.
+    """
+
+    def __init__(self, name: str = "test") -> None:
+        self.db = FakeDB(name)
+        self.client = {name: self.db}
+        self.db_name = name
+
+    @property
+    def runs(self) -> "FakeCollection":
+        return self.db["job_runs"]
 
 
 class FakeDB:

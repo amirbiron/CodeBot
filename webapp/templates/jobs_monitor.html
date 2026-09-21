@@ -522,7 +522,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="run-meta">
                     <span>התחיל: ${formatTime(run.started_at)}</span>
                     <span>סיים: ${formatTime(run.ended_at)}</span>
-                    ${run.duration_seconds ? `<span>⏱️ ${run.duration_seconds.toFixed(1)}s</span>` : ''}
+                    ${run.duration_seconds ? `<span>⏱️ ${formatInterval(run.duration_seconds)}</span>` : ''}
                 </div>
                 ${run.error_message ? `<div class="error-msg">❌ ${escapeHtml(run.error_message)}</div>` : ''}
             </div>
@@ -617,7 +617,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="run-summary">
                     <span>${getStatusIcon(run.status)} ${run.status}</span>
                     <span>${formatTime(run.started_at)}</span>
-                    ${run.duration_seconds ? `<span>⏱️ ${run.duration_seconds.toFixed(1)}s</span>` : ''}
+                    ${run.duration_seconds ? `<span>⏱️ ${formatInterval(run.duration_seconds)}</span>` : ''}
                 </div>
                 ${run.error_message ? `<div class="error-msg">❌ ${run.error_message}</div>` : ''}
             </div>
@@ -644,11 +644,13 @@ document.addEventListener('DOMContentLoaded', function() {
         return icons[status] || '❓';
     }
 
+    // משמש גם לאינטרוול של ג'וב (שלם) וגם למשך הרצה (שבר): הרצה שנסגרה
+    // בפיוס אחרי שבועות מוצגת בימים, ולא כמיליון שניות עם ספרה אחרי הנקודה.
     function formatInterval(seconds) {
         if (seconds >= 86400) return `${Math.round(seconds / 86400)} ימים`;
         if (seconds >= 3600) return `${Math.round(seconds / 3600)} שעות`;
         if (seconds >= 60) return `${Math.round(seconds / 60)} דקות`;
-        return `${seconds} שניות`;
+        return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} שניות`;
     }
 
     function formatTime(isoString) {

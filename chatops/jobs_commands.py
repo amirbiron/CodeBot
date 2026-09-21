@@ -2,8 +2,30 @@
 פקודות ChatOps לניהול Background Jobs.
 """
 
+from typing import Optional
+
+from services.job_orphan_reconciler import ORPHANED_FAILURE_REASON
 from services.job_registry import JobRegistry, JobCategory
 from services.job_tracker import get_job_tracker
+
+_RUN_STATUS_ICONS = {
+    "completed": "✅",
+    "failed": "❌",
+    "running": "🔄",
+    "skipped": "⏭️",
+}
+
+
+def _run_icon(status: str, failure_reason: Optional[str]) -> str:
+    """אייקון להרצה שהסתיימה — כלל אחד לכל הקוראים בקובץ.
+
+    הרצה שנסגרה בפיוס נכתבת כ-``failed`` עם ``failure_reason``, ומקבלת 👻
+    ולא ❌: ג'וב שנפל בקוד שלו והרצה שאיש לא סגר הן שתי אוכלוסיות שונות,
+    ושתי הפקודות שמציגות הרצות חייבות לענות אותו דבר על אותה הרצה.
+    """
+    if status == "failed" and str(failure_reason or "").strip() == ORPHANED_FAILURE_REASON:
+        return "👻"
+    return _RUN_STATUS_ICONS.get(status, "❓")
 
 
 def handle_jobs_command(args: str) -> str:
@@ -61,24 +83,20 @@ def handle_jobs_command(args: str) -> str:
                 s = s[: max(0, limit - 1)] + "…"
             return s
 
-        # הרצה שנסגרה בפיוס נכתבת כ-``failed``, ולכן היא נוחתת ברשימה הזו.
-        # בלי ההבחנה "הכשלונות האחרונים" היו מערבבים ג'וב שנפל בקוד שלו עם
-        # הרצה שאיש לא סגר — שתי אוכלוסיות שונות תחת מספר אחד.
-        from services.job_orphan_reconciler import ORPHANED_FAILURE_REASON
-
         lines = ["❌ **כשלים אחרונים:**\n"]
         for doc in failed_docs:
             job_id = str(doc.get("job_id") or "").strip() or "unknown"
             run_id = str(doc.get("run_id") or "").strip()
-            is_orphan = str(doc.get("failure_reason") or "").strip() == ORPHANED_FAILURE_REASON
             err = _safe_code(str(doc.get("error_message") or ""))
             try:
                 started = doc.get("started_at")
                 ts = started.strftime("%d/%m %H:%M") if started else ""
             except Exception:
                 ts = ""
-            logs_link = f"{monitor_base_url}/jobs/monitor?run_id={run_id}" if run_id else f"{monitor_base_url}/jobs/monitor"
-            icon = "👻" if is_orphan else "❌"
+            logs_link = (
+                f"{monitor_base_url}/jobs/monitor?run_id={run_id}" if run_id else f"{monitor_base_url}/jobs/monitor"
+            )
+            icon = _run_icon("failed", doc.get("failure_reason"))
             lines.append(f"{icon} `{job_id}` {ts}\n   `{err}`\n   [📋 לוגים]({logs_link})")
 
         return "\n".join(lines)
@@ -121,15 +139,12 @@ def handle_jobs_command(args: str) -> str:
         if history:
             lines.append("\n**5 הרצות אחרונות:**")
             for run in history[:5]:
-                icon = {
-                    "completed": "✅",
-                    "failed": "❌",
-                    "running": "🔄",
-                    "skipped": "⏭️",
-                }.get(run.status.value, "❓")
+                icon = _run_icon(run.status.value, run.failure_reason)
                 dur = ""
                 if run.ended_at and run.started_at:
-                    dur = f" ({(run.ended_at - run.started_at).total_seconds():.1f}s)"
+                    # אותו פורמט כמו שורת האינטרוול: הרצה שנסגרה בפיוס אחרי
+                    # שבועות מוצגת בימים, ולא כמיליון שניות.
+                    dur = f" ({_format_interval(int((run.ended_at - run.started_at).total_seconds()))})"
 
                 line = f"  {icon} {run.started_at.strftime('%d/%m %H:%M')}{dur}"
 
@@ -181,4 +196,3 @@ def _format_interval(seconds: int) -> str:
     if seconds >= 60:
         return f"{seconds // 60} דקות"
     return f"{seconds} שניות"
-

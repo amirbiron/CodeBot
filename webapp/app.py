@@ -6901,11 +6901,13 @@ def _job_run_doc_to_dict(doc: Dict[str, Any], include_logs: bool = False) -> Dic
         "processed_items": int(doc.get("processed_items") or 0),
         "error_message": doc.get("error_message"),
         # ‏``failure_reason`` מבדיל בין ג'וב שנפל בקוד שלו לבין הרצה שנסגרה
-        # מבחוץ כי התהליך שהתחיל אותה נעלם (``orphaned``). בלעדיו שתי
-        # האוכלוסיות נראות זהות בדשבורד, כי שתיהן ``failed``.
+        # מבחוץ כי התהליך שהתחיל אותה נעלם (``orphaned``). הכותב היחיד הוא
+        # ``services/job_orphan_reconciler.py``; מי שמציג את ההבחנה היום הוא
+        # ``chatops/jobs_commands.py`` — ``jobs_monitor.html`` עדיין לא.
         "failure_reason": doc.get("failure_reason"),
-        # איזה מופע הריץ את ההרצה. השדה היחיד שמאפשר להבדיל, בדיעבד, בין
-        # הרצה של התהליך הנוכחי להרצה שנשארה ממחזיק מנעול קודם.
+        # איזה מופע כתב את ההרצה (``JobTracker.owner_id``). מוחזר לאבחון בלבד:
+        # אף תבנית או שאילתה אינה קוראת אותו עדיין, ולמסמכים שנכתבו לפני
+        # שהשדה נוסף הוא ``null`` — אין backfill.
         "owner_id": doc.get("owner_id"),
         "trigger": doc.get("trigger"),
         "user_id": doc.get("user_id"),

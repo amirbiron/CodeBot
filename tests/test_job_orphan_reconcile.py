@@ -8,15 +8,22 @@
 
 from __future__ import annotations
 
+import asyncio
+import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
+
+import services.job_orphan_reconciler as reconciler_module
 
 from services.job_orphan_reconciler import (
     ORPHANED_ERROR_MESSAGE,
     ORPHANED_FAILURE_REASON,
+    RECONCILE_OUTCOMES,
     reconcile_delay_seconds,
     reconcile_enabled,
+    reconcile_job_callback,
     reconcile_orphan_runs,
 )
 from services.job_tracker import JobStatus, JobTracker
@@ -24,7 +31,7 @@ from services.job_tracker import JobStatus, JobTracker
 # זרה שמאפילה עליו — ראה את ה-docstring של ``tests/conftest.py``. ייבוא
 # של שכן באותה תיקייה עובד בשני המצבים, כי pytest מכניס את תיקיית קובץ
 # הטסט ל-``sys.path``.
-from _fake_mongo import AsyncFakeCollection, FakeDB
+from _fake_mongo import AsyncFakeCollection, FakeTrackerDB
 
 LOCK_AT = datetime(2026, 9, 21, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -41,6 +48,13 @@ def _run_doc(run_id: str, job_id: str, started_at: datetime, status: str = "runn
     }
     doc.update(extra)
     return doc
+
+
+class _RefusingCollection(AsyncFakeCollection):
+    """אוסף שמפיל את הטסט אם מישהו בכלל שואל אותו — לשומרים שחייבים לפעול לפני המסד."""
+
+    def find(self, *a, **k):
+        raise AssertionError("השאילתה רצה למרות שהקלט נדחה")
 
 
 @pytest.fixture
@@ -158,10 +172,6 @@ async def test_a_naive_lock_timestamp_is_refused_before_any_query(coll):
     שומר שפועל מסנן החוצה לפני כל עבודה, ולא נופל באמצעה.
     """
 
-    class _RefusingCollection(AsyncFakeCollection):
-        def find(self, *a, **k):
-            raise AssertionError("השאילתה רצה למרות שהזמן נאיבי")
-
     refusing = _RefusingCollection(coll.sync)
     refusing.sync.insert_one(_run_doc("old-2", "cache_warming", LOCK_AT - timedelta(minutes=5)))
 
@@ -229,24 +239,13 @@ async def test_only_the_projected_fields_are_read(coll):
 # --------------------------------------------------------------------------
 
 
-class _MockDB:
-    def __init__(self):
-        self.db = FakeDB("test")
-        self.client = {"test": self.db}
-        self.db_name = "test"
-
-    @property
-    def runs(self):
-        return self.db["job_runs"]
-
-
 def test_a_terminal_run_is_not_revived_to_running():
     """אחרי שהפיוס סגר הרצה, עדכון התקדמות מאוחר אינו מחזיר אותה ל-``running``.
 
     בלי השומר הזה הרשומה הייתה חוזרת להיות ``running`` לנצח: הפיוס רץ פעם
     אחת בעלייה ולא חוזר, ואיש לא היה סוגר אותה שוב.
     """
-    db = _MockDB()
+    db = FakeTrackerDB()
     tracker = JobTracker(db)
     run = tracker.start_run("late_job")
 
@@ -268,7 +267,7 @@ def test_a_real_result_is_never_blocked_by_the_orphan_marking():
     כתיבה **סופית** עוברת גם על מסמך שהפיוס כבר סימן — ולכן הרצה שסיימה
     באמת דורסת את הסימון, והייחוס החיצוני מנוקה יחד איתו.
     """
-    db = _MockDB()
+    db = FakeTrackerDB()
     tracker = JobTracker(db)
     run = tracker.start_run("slow_job")
 
@@ -294,7 +293,7 @@ def test_a_real_result_is_never_blocked_by_the_orphan_marking():
 
 
 def test_the_owner_is_written_on_the_run_and_can_be_read_back():
-    db = _MockDB()
+    db = FakeTrackerDB()
     tracker = JobTracker(db)
     tracker.owner_id = "srv-7:4242"
 
@@ -306,22 +305,20 @@ def test_the_owner_is_written_on_the_run_and_can_be_read_back():
 def test_both_writers_of_the_log_list_cut_it_to_the_same_length():
     """התקרה נגזרת ממקום אחד, ולא מוקלדת פעמיים.
 
-    ‏``_persist_run`` חותך ב-Python ו-הפיוס חותך ב-``$slice``. שני אורכים
-    שונים היו הופכים את אורך הרשימה לתלוי במי כתב אחרון.
+    שלושת הכותבים — ‏``_persist_run``, הפיוס וניטור התקיעות — חותכים ב-``$slice``
+    לאותו קבוע. שני אורכים שונים היו הופכים את אורך הרשימה לתלוי במי כתב אחרון.
     """
-    import re
-    from pathlib import Path
-
     root = Path(__file__).resolve().parents[1]
     reconciler = (root / "services/job_orphan_reconciler.py").read_text(encoding="utf-8")
     tracker_src = (root / "services/job_tracker.py").read_text(encoding="utf-8")
     main_src = (root / "main.py").read_text(encoding="utf-8")
 
     assert "$slice\": -JOB_RUN_LOGS_KEPT" in reconciler
-    assert "run.logs[-JOB_RUN_LOGS_KEPT:]" in tracker_src
+    assert "$slice\": -JOB_RUN_LOGS_KEPT" in tracker_src
+    assert "new_logs[-JOB_RUN_LOGS_KEPT:]" in tracker_src
     assert "-_JOB_RUN_LOGS_KEPT" in main_src
     # ואין מספר מוקלד ששרד באחד מהם.
-    assert not re.search(r"\$slice\"?:\s*-\d", reconciler + main_src)
+    assert not re.search(r"\$slice\"?:\s*-\d", reconciler + tracker_src + main_src)
 
 
 def test_the_delay_default_covers_renders_full_shutdown_window(monkeypatch):
@@ -432,3 +429,138 @@ def test_the_one_time_job_does_not_advertise_a_manual_trigger():
     job = JobRegistry().get("jobs_orphan_reconcile")
     assert job is not None
     assert not job.callback_name
+
+
+@pytest.mark.asyncio
+async def test_a_naive_now_is_refused_like_the_lock_timestamp(coll):
+    """שני ערכי זמן, אותו כלל. ``now`` נאיבי היה מוחלף בשקט בשעת השרת,
+    וטסט שהזריק אותו היה מקבל חותמת אחרת ממה שהתכוון — בלי אזהרה."""
+    refusing = _RefusingCollection(coll.sync)
+
+    with pytest.raises(TypeError, match="timezone-aware"):
+        await reconcile_orphan_runs(refusing, lock_acquired_at=LOCK_AT, now=LOCK_AT.replace(tzinfo=None))
+
+
+def test_a_stray_space_in_the_flag_does_not_flip_it(monkeypatch):
+    """``"true "`` — רווח שפאנל סביבה משאיר בהדבקה — הפעיל את ההפך ממה שנכתב.
+
+    ברירת המחדל היא מופעל, ולכן מי שכתב ``true`` עם רווח כדי להפעיל במפורש
+    **השבית**. הכלל חי ב-``env_toggle_enabled`` ולכן התיקון חל גם על הדשבורד.
+    """
+    from services.job_registry import env_toggle_enabled
+
+    for raw in ("true ", " true", "1 ", "on\n", "\tyes"):
+        assert env_toggle_enabled(raw, False) is True, repr(raw)
+    assert env_toggle_enabled("false ", True) is False
+
+    monkeypatch.setenv("JOBS_ORPHAN_RECONCILE_ENABLED", "false ")
+    assert reconcile_enabled() is False
+    monkeypatch.setenv("JOBS_ORPHAN_RECONCILE_ENABLED", "true ")
+    assert reconcile_enabled() is True
+
+
+_EMPTY_SUMMARY = {"scanned": 0, "reconciled": 0, "skipped": 0, "truncated": False, "job_ids": []}
+
+
+def _events(caplog):
+    return [getattr(r, "event", None) for r in caplog.records]
+
+
+@pytest.mark.asyncio
+async def test_without_a_lock_time_the_callback_never_asks_for_the_database(caplog):
+    """‏``LOCK_FAIL_OPEN``: תהליך בלי זמן רכישת מנעול אינו מפייס — וגם אינו נוגע במסד."""
+
+    async def _collection():
+        raise AssertionError("המסד נשאל למרות שאין מנעול")
+
+    outcome = await reconcile_job_callback(_collection, lock_acquired_at=None)
+
+    assert outcome == "skipped_no_lock"
+    assert "jobs_orphan_reconcile_skipped" in _events(caplog)
+
+
+@pytest.mark.asyncio
+async def test_the_callback_forwards_the_lock_time_and_the_collection(coll, monkeypatch, caplog):
+    seen = {}
+
+    async def _fake_reconcile(collection, *, lock_acquired_at):
+        seen["collection"], seen["at"] = collection, lock_acquired_at
+        return dict(_EMPTY_SUMMARY)
+
+    monkeypatch.setattr(reconciler_module, "reconcile_orphan_runs", _fake_reconcile)
+
+    async def _collection():
+        return coll
+
+    outcome = await reconcile_job_callback(_collection, lock_acquired_at=LOCK_AT)
+
+    assert outcome == "done"
+    assert seen == {"collection": coll, "at": LOCK_AT}
+    # "רץ ולא מצא כלום" נראה שונה מ"לא רץ": יש שורה, עם המניין.
+    assert "job_runs_reconciled" in _events(caplog)
+
+
+@pytest.mark.asyncio
+async def test_a_reconcile_that_hangs_is_cut_off_and_reported(coll, monkeypatch, caplog):
+    """קריאה שנתקעה — סוקט שותק — אינה תוקעת ג'וב חד-פעמי לנצח."""
+    monkeypatch.setattr(reconciler_module, "RECONCILE_TIMEOUT_SECS", 0.05)
+
+    async def _hangs_forever(collection, *, lock_acquired_at):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(reconciler_module, "reconcile_orphan_runs", _hangs_forever)
+
+    async def _collection():
+        return coll
+
+    outcome = await asyncio.wait_for(reconcile_job_callback(_collection, lock_acquired_at=LOCK_AT), timeout=5)
+
+    assert outcome == "timed_out"
+    assert "jobs_orphan_reconcile_timed_out" in _events(caplog)
+
+
+@pytest.mark.asyncio
+async def test_a_missing_collection_is_a_reported_skip(caplog):
+    async def _collection():
+        return None
+
+    assert await reconcile_job_callback(_collection, lock_acquired_at=LOCK_AT) == "skipped_no_db"
+    assert "jobs_orphan_reconcile_skipped" in _events(caplog)
+
+
+@pytest.mark.asyncio
+async def test_a_failing_reconcile_is_reported_and_never_raised(coll, monkeypatch, caplog):
+    async def _boom(collection, *, lock_acquired_at):
+        raise RuntimeError("mongo went away")
+
+    monkeypatch.setattr(reconciler_module, "reconcile_orphan_runs", _boom)
+
+    async def _collection():
+        return coll
+
+    assert await reconcile_job_callback(_collection, lock_acquired_at=LOCK_AT) == "failed"
+    assert "jobs_orphan_reconcile_failed" in _events(caplog)
+
+
+def test_every_outcome_the_callback_can_return_is_declared():
+    src = Path(reconciler_module.__file__).read_text(encoding="utf-8")
+    body = src[src.index("async def reconcile_job_callback"):]
+    returned = set(re.findall(r'return "([a-z_]+)"', body))
+    assert returned == set(RECONCILE_OUTCOMES)
+
+
+def test_every_reconcile_event_the_code_emits_is_in_the_catalog():
+    """גלאי סחיפה: שם אירוע חדש בקוד בלי שורה בקטלוג נופל כאן, לא בלוגים.
+
+    שני אירועים שנבדלו באות אחת (``job_runs_…`` מול ``job_run_…``) כבר עברו
+    סקירה. הקטלוג הוא הרשימה, והקוד נגזר ומושווה אליו.
+    """
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "services/job_orphan_reconciler.py").read_text(encoding="utf-8")
+    src += (root / "main.py").read_text(encoding="utf-8")
+    emitted = set(re.findall(r'"event":\s*"((?:jobs_orphan_reconcile|job_runs?_reconcile)[a-z_]*)"', src))
+    assert emitted, "אף אירוע פיוס לא נמצא — ה-regex התיישן"
+
+    catalog = (root / "docs/observability/events_catalog.rst").read_text(encoding="utf-8")
+    missing = sorted(e for e in emitted if f"``{e}``" not in catalog)
+    assert not missing, f"אירועים שהקוד פולט ואינם בקטלוג: {missing}"
