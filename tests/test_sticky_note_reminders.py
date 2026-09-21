@@ -575,7 +575,9 @@ class TestNoteRemindersAPI(unittest.TestCase):
     def test_ack_rejects_a_remind_at_it_cannot_read(self):
         self._login()
         doc = self._seed_due()
-        for bad in ('yesterday', 123, ['2026-09-20T09:00:00+00:00']):
+        # האחרון תקין תחבירית, אבל ההמרה ל-UTC יוצאת מטווח datetime — OverflowError
+        # ולא ValueError, וזה היה 500 עם traceback על טעות של הלקוח.
+        for bad in ('yesterday', 123, ['2026-09-20T09:00:00+00:00'], '0001-01-01T00:00:00+03:00'):
             with self.subTest(remind_at=bad):
                 with self.assertNoLogs('webapp.sticky_notes_api', level='ERROR'):
                     r = self.client.post(self.ACK, json={'note_id': self.note_id, 'remind_at': bad})

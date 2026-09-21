@@ -166,10 +166,18 @@ def parse_remind_at(raw: Any) -> Optional[datetime]:
     נכון או מחרוזת שאינה ISO — זורק ``ValueError``, והמסלול עונה 400: קלט
     פסול אינו "בלי קשירה", אחרת שגיאה בלקוח הייתה סוגרת תזכורת שרירותית.
     ``datetime.fromisoformat`` מקבל גם סיומת ``Z`` מפייתון 3.11, שהיא הרצפה
-    של הפרויקט.
+    של הפרויקט. ומועד תקין תחבירית שההמרה שלו ל-UTC יוצאת מטווח ``datetime``
+    (``0001-01-01T00:00:00+03:00``) מפיל את ``astimezone`` ב-``OverflowError``
+    ולא ב-``ValueError`` — נמדד, ובמימוש הייחוס ``Lib/datetime.py`` זה
+    ``raise OverflowError("result out of range")`` בחיבור התאריכים. החוזה כאן
+    הוא "מפתח או ``ValueError``", ולכן זה מנורמל; בלי הנרמול המסלול היה עונה
+    500 עם traceback על טעות של הלקוח.
     """
     if raw is None or raw == '':
         return None
     if not isinstance(raw, str):
         raise ValueError(f"remind_at must be an ISO string, not {type(raw).__name__}")
-    return occurrence_key(datetime.fromisoformat(raw))
+    try:
+        return occurrence_key(datetime.fromisoformat(raw))
+    except OverflowError as exc:
+        raise ValueError("remind_at is outside the supported datetime range") from exc

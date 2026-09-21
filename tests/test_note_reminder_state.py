@@ -85,7 +85,10 @@ class TestParseRemindAt(unittest.TestCase):
         self.assertEqual(parsed, datetime(2026, 9, 20, 9, 0, 0, tzinfo=timezone.utc))
 
     def test_anything_unreadable_raises(self):
-        for bad in ('yesterday', 123, ['2026-09-20T09:00:00+00:00'], {'at': 1}):
+        """כולל מועד תקין תחבירית שההמרה שלו ל-UTC יוצאת מטווח ``datetime`` — שם
+        הספרייה זורקת ``OverflowError`` ולא ``ValueError``, והמסלול היה עונה 500."""
+        overflow = ('0001-01-01T00:00:00+03:00', '9999-12-31T23:59:59-03:00')
+        for bad in ('yesterday', 123, ['2026-09-20T09:00:00+00:00'], {'at': 1}, *overflow):
             with self.subTest(raw=bad):
                 with self.assertRaises(ValueError):
                     st.parse_remind_at(bad)
