@@ -18,7 +18,7 @@ from __future__ import annotations
 import ast
 import inspect
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set
 
 import pytest
 
@@ -179,41 +179,150 @@ def _own_body_nodes(scope: ast.AST):
         stack.extend(ast.iter_child_nodes(node))
 
 
-def _locally_built_dict_names(scope: ast.AST) -> set:
-    """שמות שכל השמה אליהם בתוך ה-scope היא בניית מילון מקומית.
+def _literal_dict_keys(node: Any) -> Optional[Set[str]]:
+    """מפתחות של ``{...}`` שכולם מחרוזות קבועות, אחרת ``None``.
 
-    מילון שנבנה כאן — ``{...}`` או dict comprehension — אפשר לקרוא את
-    מפתחותיו באותה פונקציה. פרמטר, אטריבוט או ערך מוחזר מקריאה — אי אפשר,
-    ולכן הם חייבים לעבור דרך ``details=``.
+    ‏``{**other}`` בתוך הליטרל מחזיר ``None``: אי אפשר לדעת מה נכנס משם.
     """
-    assigned: Dict[str, List[Any]] = {}
-    for node in _own_body_nodes(scope):
-        targets: List[ast.AST] = []
+    if not isinstance(node, ast.Dict):
+        return None
+    keys: Set[str] = set()
+    for key in node.keys:
+        if key is None:  # ‏{**other}
+            return None
+        if isinstance(key, ast.Constant) and isinstance(key.value, str):
+            keys.add(key.value)
+        else:
+            return None
+    return keys
+
+
+def _statically_known_keys(value: Any, scope: ast.AST) -> Optional[Set[str]]:
+    """קבוצת המפתחות של המטען בנקודת הקריאה, או ``None`` אם אי אפשר לקרוא.
+
+    ‏**המבחן הוא "האם אני יכול לקרוא את המפתחות כאן בעין"**, ולא "האם
+    המשתנה נבנה כאן". מילון שנבנה כליטרל ואז קיבל ``update(external)``
+    נבנה מקומית לגמרי — ובכל זאת מפתחותיו אינם ידועים, ולכן הוא אינו
+    פטור. אותו דבר ל-dict comprehension: התוצאה שלו תלויה בנתונים.
+    """
+    direct = _literal_dict_keys(value)
+    if direct is not None:
+        return direct
+    if not isinstance(value, ast.Name):
+        return None
+
+    target = value.id
+    keys: Set[str] = set()
+    saw_assignment = False
+
+    # בסדר המקור, כי ``pop`` מסיר מפתח שהשמה קודמת הוסיפה.
+    nodes = sorted(
+        _own_body_nodes(scope),
+        key=lambda n: (getattr(n, "lineno", 0), getattr(n, "col_offset", 0)),
+    )
+    for node in nodes:
+        assigned: Any = None
+
         if isinstance(node, ast.Assign):
-            targets = list(node.targets)
-        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-            targets = [node.target]
-        for target in targets:
-            if isinstance(target, ast.Name):
-                assigned.setdefault(target.id, []).append(getattr(node, "value", None))
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name) and tgt.id == target:
+                    assigned = node.value
+                elif (
+                    isinstance(tgt, ast.Subscript)
+                    and isinstance(tgt.value, ast.Name)
+                    and tgt.value.id == target
+                ):
+                    slot = tgt.slice
+                    if isinstance(slot, ast.Constant) and isinstance(slot.value, str):
+                        keys.add(slot.value)
+                    else:
+                        return None
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == target:
+                assigned = node.value
+        elif isinstance(node, ast.AugAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == target:
+                merged = _literal_dict_keys(node.value)
+                if merged is None:
+                    return None
+                keys |= merged
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == target
+        ):
+            method = node.func.attr
+            if method == "update":
+                for arg in node.args:
+                    merged = _literal_dict_keys(arg)
+                    if merged is None:
+                        return None
+                    keys |= merged
+                for kw in node.keywords:
+                    if kw.arg is None:
+                        return None
+                    keys.add(kw.arg)
+            elif method == "setdefault":
+                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                    keys.add(node.args[0].value)
+                else:
+                    return None
+            elif method == "pop":
+                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                    keys.discard(node.args[0].value)
+
+        if assigned is not None:
+            saw_assignment = True
+            merged = _literal_dict_keys(assigned)
+            if merged is None:
+                return None
+            keys |= merged
+
+    if not saw_assignment:
+        # פרמטר, ייבוא, או שם שמגיע מבחוץ ל-scope.
+        return None
+    return keys
+
+
+def _dispatch_parameter_names() -> Dict[str, Set[str]]:
+    """שמות הפרמטרים של פונקציות השיגור, מהחתימה האמיתית.
+
+    נגזר ולא מוקלד ביד: רשימה קשיחה מתיישנת ברגע שנוסף פרמטר, ואז
+    הבדיקה תמשיך לעבור על התנגשות אמיתית.
+    """
+    from alert_manager import forward_critical_alert
+    from internal_alerts import emit_internal_alert
+
+    functions = {
+        "emit_internal_alert": emit_internal_alert,
+        "forward_critical_alert": forward_critical_alert,
+    }
     return {
-        name
-        for name, values in assigned.items()
-        if values and all(isinstance(v, (ast.Dict, ast.DictComp)) for v in values)
+        fname: {
+            param.name
+            for param in inspect.signature(fn).parameters.values()
+            if param.kind is not inspect.Parameter.VAR_KEYWORD
+        }
+        for fname, fn in functions.items()
     }
 
 
 def test_alert_dispatch_calls_never_splat_a_foreign_payload():
-    """אסור ``**`` של מטען שלא נבנה באותה פונקציה, לצד ארגומנט מפורש.
+    """‏``**`` של מטען שמפתחותיו אינם ידועים בנקודת הקריאה — אסור.
 
     זו הצורה שמפילה את הקריאה ב-``TypeError`` כשמפתח במטען נושא שם של
-    פרמטר. כשהמטען נבנה מקומית אפשר לראות את המפתחות בעין; כשהוא מגיע
-    מפרמטר, מאטריבוט או מקריאה — אי אפשר, והוא חייב לעבור ב-``details=``.
+    פרמטר. הבדיקה היא **האם אפשר לקרוא את המפתחות כאן**: ליטרל עם
+    מפתחות קבועים — כן; מילון שקיבל ``update(external)``, dict
+    comprehension, פרמטר, אטריבוט או ערך מקריאה — לא, והם חייבים לעבור
+    ב-``details=``. ומעבר לכך: גם מטען שמפתחותיו ידועים נבדק שאינו מכיל
+    מפתח ששמו כשם פרמטר של הנמען.
 
     ‏מקור לסמנטיקה: ``keyword(identifier? arg, expr value)`` ב-ASDL של
     ``ast`` — ``arg`` הוא ``None`` בדיוק עבור ``**``. אומת מול המפרשנים
     המותקנים 3.11, 3.12 ו-3.13 (מטריצת ה-CI היא 3.11 ו-3.12).
     """
+    dispatch_params = _dispatch_parameter_names()
     violations: List[str] = []
     scanned_files = 0
     scanned_dispatch_calls = 0
@@ -228,13 +337,13 @@ def test_alert_dispatch_calls_never_splat_a_foreign_payload():
         for scope in ast.walk(tree):
             if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)):
                 continue
-            local_dicts = _locally_built_dict_names(scope)
 
             # רק הקריאות ששייכות ל-scope הזה עצמו, לא לפונקציות מקוננות בתוכו.
             for node in _own_body_nodes(scope):
                 if not isinstance(node, ast.Call):
                     continue
-                if _callee_name(node) not in ALERT_DISPATCH_FUNCTIONS:
+                callee = _callee_name(node)
+                if callee not in ALERT_DISPATCH_FUNCTIONS:
                     continue
                 scanned_dispatch_calls += 1
 
@@ -243,17 +352,22 @@ def test_alert_dispatch_calls_never_splat_a_foreign_payload():
                 if not explicit or not splats:
                     continue
 
+                reserved = dispatch_params.get(callee, set())
+                rel = path.relative_to(REPO_ROOT)
                 for kw in splats:
-                    value = kw.value
-                    if isinstance(value, ast.Name) and value.id in local_dicts:
-                        continue
-                    if isinstance(value, (ast.Dict, ast.DictComp)):
-                        continue
-                    rel = path.relative_to(REPO_ROOT)
-                    violations.append(
-                        f"{rel}:{node.lineno} — {_callee_name(node)}("
-                        f"{', '.join(explicit)}, **{ast.unparse(value)})"
+                    keys = _statically_known_keys(kw.value, scope)
+                    call_text = (
+                        f"{rel}:{node.lineno} — {callee}("
+                        f"{', '.join(explicit)}, **{ast.unparse(kw.value)})"
                     )
+                    if keys is None:
+                        violations.append(f"{call_text}  ← אי אפשר לקרוא את המפתחות כאן")
+                        continue
+                    shadowed = sorted(keys & reserved)
+                    if shadowed:
+                        violations.append(
+                            f"{call_text}  ← מפתח שמצל על פרמטר: {', '.join(shadowed)}"
+                        )
 
     # שומר מפני המצב שבו הסריקה לא ראתה כלום והטסט "עבר" על אוויר.
     assert scanned_files > 100, f"הסריקה עברה על {scanned_files} קבצים בלבד — משהו בסינון שבור"
@@ -263,6 +377,109 @@ def test_alert_dispatch_calls_never_splat_a_foreign_payload():
         "מטען שלא נבנה באותה פונקציה מועבר ב-** לצד ארגומנט מפורש. "
         "העבירו אותו כ-details={...}:\n  " + "\n  ".join(sorted(set(violations)))
     )
+
+
+def _scan_source_for_violations(source: str) -> List[str]:
+    """מריץ את אותו פרדיקט של הבדיקה המבנית על קטע קוד יחיד."""
+    dispatch_params = _dispatch_parameter_names()
+    tree = ast.parse(source)
+    found: List[str] = []
+    for scope in ast.walk(tree):
+        if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)):
+            continue
+        for node in _own_body_nodes(scope):
+            if not isinstance(node, ast.Call):
+                continue
+            callee = _callee_name(node)
+            if callee not in ALERT_DISPATCH_FUNCTIONS:
+                continue
+            explicit = [kw.arg for kw in node.keywords if kw.arg is not None]
+            splats = [kw for kw in node.keywords if kw.arg is None]
+            if not explicit or not splats:
+                continue
+            reserved = dispatch_params.get(callee, set())
+            for kw in splats:
+                keys = _statically_known_keys(kw.value, scope)
+                if keys is None:
+                    found.append("unknown-keys")
+                elif keys & reserved:
+                    found.append(f"shadows:{sorted(keys & reserved)}")
+    return found
+
+
+@pytest.mark.parametrize(
+    "case, source, expect_violation",
+    [
+        (
+            "ליטרל עם מפתחות קבועים — מותר",
+            "def f(n):\n    payload = {'a': 1, 'b': 2}\n    emit_internal_alert(name=n, **payload)\n",
+            False,
+        ),
+        (
+            "ליטרל שעודכן ממקור חיצוני — המפתחות כבר אינם ידועים",
+            "def f(n, external):\n    payload = {'a': 1}\n    payload.update(external)\n"
+            "    emit_internal_alert(name=n, **payload)\n",
+            True,
+        ),
+        (
+            "ליטרל שמכיל מפתח בשם 'name'",
+            "def f(n):\n    payload = {'name': 'x'}\n    emit_internal_alert(name=n, **payload)\n",
+            True,
+        ),
+        (
+            "השמה לפי מפתח שאינו קבוע",
+            "def f(n, k, v):\n    payload = {'a': 1}\n    payload[k] = v\n"
+            "    emit_internal_alert(name=n, **payload)\n",
+            True,
+        ),
+        (
+            "השמה לפי מפתח קבוע בשם 'summary'",
+            "def f(n, v):\n    payload = {'a': 1}\n    payload['summary'] = v\n"
+            "    emit_internal_alert(name=n, **payload)\n",
+            True,
+        ),
+        (
+            "dict comprehension — התוצאה תלויה בנתונים",
+            "def f(n, src):\n    payload = {k: v for k, v in src.items()}\n"
+            "    emit_internal_alert(name=n, **payload)\n",
+            True,
+        ),
+        (
+            "פרמטר שנפרס ישירות",
+            "def f(n, payload):\n    emit_internal_alert(name=n, **payload)\n",
+            True,
+        ),
+        (
+            "ליטרל שמכיל ** בתוכו",
+            "def f(n, other):\n    payload = {'a': 1, **other}\n"
+            "    emit_internal_alert(name=n, **payload)\n",
+            True,
+        ),
+        (
+            "setdefault עם מפתח בשם 'severity'",
+            "def f(n, v):\n    payload = {'a': 1}\n    payload.setdefault('severity', v)\n"
+            "    emit_internal_alert(name=n, **payload)\n",
+            True,
+        ),
+        (
+            "details= — הצורה הנכונה, תמיד מותרת",
+            "def f(n, payload):\n    emit_internal_alert(name=n, details=payload)\n",
+            False,
+        ),
+    ],
+)
+def test_the_structural_check_is_able_to_fail(case, source, expect_violation):
+    """מוטציות שמוכיחות שהבדיקה המבנית מסוגלת להיכשל.
+
+    בדיקה שסורקת ריפו נקי ועוברת אינה מוכיחה דבר על יכולת הזיהוי שלה.
+    כל שורה כאן היא קוד שבור שהבדיקה **חייבת** לסמן, או קוד תקין
+    שהיא חייבת לתת לעבור.
+    """
+    found = _scan_source_for_violations(source)
+    if expect_violation:
+        assert found, f"הבדיקה לא תפסה: {case}"
+    else:
+        assert not found, f"הבדיקה סימנה קוד תקין: {case} ← {found}"
 
 
 def test_dispatch_functions_still_accept_an_explicit_details_payload():

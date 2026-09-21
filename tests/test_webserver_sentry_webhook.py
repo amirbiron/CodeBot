@@ -4,6 +4,10 @@ import pytest
 
 from services.webserver import create_app
 
+# נטען לפני ש-monkeypatch מחליף את 'internal_alerts' בדמה: הדמויות
+# כאן חייבות לראות את המטען באותו מבנה שהפונקציה האמיתית רואה.
+from internal_alerts import normalize_alert_details
+
 
 @pytest.mark.asyncio
 async def test_sentry_webhook_accepts_without_secret_and_emits_internal_alert(monkeypatch):
@@ -16,7 +20,7 @@ async def test_sentry_webhook_accepts_without_secret_and_emits_internal_alert(mo
     captured = []
 
     def fake_emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):
-        captured.append({"name": name, "severity": severity, "summary": summary, "details": details})
+        captured.append({"name": name, "severity": severity, "summary": summary, "details": normalize_alert_details(**details)})
 
     import types
     import importlib
@@ -81,7 +85,7 @@ async def test_sentry_webhook_accepts_with_token_query_when_secret_set(monkeypat
     captured = []
 
     def fake_emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):
-        captured.append((name, severity, summary, details))
+        captured.append((name, severity, summary, normalize_alert_details(**details)))
 
     import types
     import importlib
@@ -120,7 +124,7 @@ async def test_sentry_webhook_resolved_operationcancelled_stays_info(monkeypatch
     captured = []
 
     def fake_emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):
-        captured.append({"name": name, "severity": severity, "summary": summary, "details": details})
+        captured.append({"name": name, "severity": severity, "summary": summary, "details": normalize_alert_details(**details)})
 
     import types
     import importlib

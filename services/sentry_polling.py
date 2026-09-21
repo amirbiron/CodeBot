@@ -176,7 +176,15 @@ class SentryPoller:
 
             try:
                 from internal_alerts import emit_internal_alert  # type: ignore
-                emit_internal_alert(name=name, severity=str(self.cfg.severity), summary=summary, **details)
+                # ‏details= ולא ‏**: המפתחות נגזרים מ-dict comprehension ולכן
+                # אינם ניתנים לקריאה סטטית בנקודת הקריאה. מפתח בשם
+                # "name"/"severity"/"summary" היה מפיל את הקריאה ב-TypeError.
+                emit_internal_alert(
+                    name=name,
+                    severity=str(self.cfg.severity),
+                    summary=summary,
+                    details=details,
+                )
                 self._last_emitted_by_issue[issue_id] = now
                 emitted += 1
             except Exception:

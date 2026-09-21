@@ -608,8 +608,22 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                     summary=str(summary),
                     details=dict(details_payload or {}),
                 )
-            except Exception:
-                # Fallback to Telegram only
+            except Exception as exc:
+                # המסלול החלופי גרוע מהותית מהרגיל: הוא שולח לטלגרם בלבד,
+                # בלי בדיקת silences, בלי אנוטציית Grafana, בלי alert_id
+                # ובלי לוג השיגור. בלי השורה הזו אי אפשר לענות על "כמה פעמים
+                # החודש ירדנו למסלול הזה", וכשל חולף נראה בדיוק כמו הצלחה.
+                # נרשמים סוג החריגה ו**שמות** שדות המטען בלבד — לא ערכים,
+                # כי המטען עלול לשאת PII או סוד.
+                logger.error(
+                    "critical alert forwarding failed; falling back to telegram-only",
+                    extra={
+                        "event": "critical_alert_forward_fallback",
+                        "alert_name": str(name),
+                        "error_type": type(exc).__name__,
+                        "payload_fields": sorted(str(k) for k in (details_payload or {})),
+                    },
+                )
                 try:
                     _send_telegram(_format_text(name, severity, summary, details_payload), severity=str(severity))
                 except Exception:
