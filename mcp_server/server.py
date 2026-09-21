@@ -50,6 +50,14 @@ from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
 from . import docs_handlers, handlers, repo_handlers
 from .handlers import StrictInt, StrictLines
+from .limits import (
+    BODY_TOO_LARGE,
+    DEFAULT_MAX_REQUEST_BYTES,
+    DEFAULT_RATE_LIMIT_PER_MINUTE,
+    RATE_LIMITED,
+    BodySizeLimitMiddleware,
+    ToolRateLimiter,
+)
 from .analytics import attach_shutdown_drain, instrument_mcp_server
 from .auth import (
     PATAuthMiddleware,
@@ -1211,6 +1219,14 @@ class AdminAwareFastMCP(FastMCP):
     doubt (no request context, unauthenticated, lookup error) ⇒ non-admin view.
     """
 
+    def __init__(
+        self, *args: Any, tool_rate_limiter: ToolRateLimiter | None = None, **kwargs: Any
+    ) -> None:
+        # Set before ``super().__init__`` so the attribute exists whatever the
+        # SDK's constructor does; ``call_tool`` below reads it on every call.
+        self._tool_rate_limiter = tool_rate_limiter or ToolRateLimiter(DEFAULT_RATE_LIMIT_PER_MINUTE)
+        super().__init__(*args, **kwargs)
+
     def add_tool(self, fn: Any, *args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
         """Register a tool, moving a sync body onto a worker thread first.
 
@@ -1229,6 +1245,52 @@ class AdminAwareFastMCP(FastMCP):
         """
         serialize = _declares_write(_annotations_of(args, kwargs))
         return super().add_tool(_offload_to_thread(fn, serialize=serialize), *args, **kwargs)
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:  # type: ignore[override]
+        """Decide the per-identity rate limit here, and nowhere else (#3431).
+
+        The SDK registers this method as the low-level ``tools/call`` handler
+        (``FastMCP._setup_handlers`` — ``self._mcp_server.call_tool(...)(self.call_tool)``,
+        mcp 1.28.1), so every tool call passes through it: sync bodies before
+        they are handed to a worker, async bodies before they run on the loop.
+        A refused call therefore costs no thread. And the registered functions
+        stay exactly what ``add_tool`` built — the routing tests read
+        ``fn.__code__.co_name`` off them, which an outer wrapper would hide.
+
+        The refusal goes through the tool's own ``convert_result``, so the
+        client sees the same shape a body's own refusal has
+        (``{"ok": false, "error": ...}`` as text content), not a transport error.
+        """
+        user_id = self._caller_identity()
+        if user_id is not None:
+            refusal = await self._tool_rate_limiter.admit(user_id)
+            if refusal is not None:
+                tool = self._tool_manager.get_tool(name)
+                if tool is not None:
+                    return tool.fn_metadata.convert_result(refusal)
+                # An unknown name is the SDK's own ToolError, unchanged.
+        return await super().call_tool(name, arguments)
+
+    def _caller_identity(self) -> int | None:
+        """Whose budget a call is charged to — or ``None`` when there is nobody to charge.
+
+        Outside a request ``Server.request_context`` raises ``LookupError``
+        ("If called outside of a request context, this will raise a
+        LookupError" — ``mcp/server/lowlevel/server.py``): no client, nothing
+        to count, and the tool bodies keep answering as they do in the tests
+        that call them directly. Inside a request the identity is
+        ``current_user_id`` on the SDK's context — the same function every gate
+        uses, in both auth modes — and its documented failure,
+        ``PermissionError``, means the body itself is about to refuse.
+        """
+        try:
+            self._mcp_server.request_context
+        except LookupError:
+            return None
+        try:
+            return current_user_id(self.get_context())
+        except PermissionError:
+            return None
 
     async def list_tools(self):  # type: ignore[override]
         tools = await super().list_tools()
@@ -1274,6 +1336,7 @@ def build_mcp(
     auth_provider: Any = None,
     auth_settings: Any = None,
     repo_backend: Any = None,
+    rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
 ) -> FastMCP:
     kwargs: dict[str, Any] = {
         "instructions": _INSTRUCTIONS,
@@ -1285,7 +1348,9 @@ def build_mcp(
         # register) plus the auth layer that calls provider.load_access_token.
         kwargs["auth_server_provider"] = auth_provider
         kwargs["auth"] = auth_settings
-    mcp: FastMCP = AdminAwareFastMCP(name, **kwargs)
+    mcp: FastMCP = AdminAwareFastMCP(
+        name, tool_rate_limiter=ToolRateLimiter(rate_limit_per_minute), **kwargs
+    )
     # PostHog MCP analytics. Additive: no tool is changed and no tool schema is
     # touched. Must run before ``streamable_http_app()`` below, which the same
     # call also wraps. See ``mcp_server/analytics.py`` for the privacy gate.
@@ -2133,6 +2198,8 @@ def build_app(
     consent_routes: Any = None,
     repo_backend: Any = None,
     name: str = "CodeKeeper",
+    max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
+    rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
 ):
     """Build the authenticated Streamable-HTTP ASGI app.
 
@@ -2149,6 +2216,7 @@ def build_app(
         auth_provider=auth_provider if oauth else None,
         auth_settings=auth_settings if oauth else None,
         repo_backend=repo_backend,
+        rate_limit_per_minute=rate_limit_per_minute,
     )
     app = mcp.streamable_http_app()  # Starlette app exposing POST/GET /mcp
     # Drain analytics on ASGI shutdown, before uvicorn's event loop closes.
@@ -2178,9 +2246,26 @@ def build_app(
             auth_provider=auth_provider if oauth else None,
         )
     )
+    # Request-body cap for every route, in both auth modes (#3431). Added
+    # before ``PATAuthMiddleware`` on purpose: ``add_middleware`` inserts at the
+    # front of the stack (``starlette/applications.py``, Starlette 1.6.0), so the
+    # middleware added last is the outermost — the PAT check stays outside, and an
+    # unauthenticated oversized POST is a 401 before it is a 413. In OAuth mode
+    # the SDK's auth wraps only the ``/mcp`` mount, so here the cap is the
+    # outermost app-level layer and refuses a 20MB body before any credential
+    # is looked at. ``/healthz`` is a GET: no body, nothing to cap.
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=max_request_bytes)
     if oauth:
         for route in consent_routes or []:
             app.router.routes.append(route)
     else:
         app.add_middleware(PATAuthMiddleware, token_store=token_store)
+    logger.info(
+        "mcp request limits: body <= %d bytes (413 %s), tool calls <= %s per identity "
+        "per minute (%s); /healthz sits outside both",
+        max_request_bytes,
+        BODY_TOO_LARGE,
+        rate_limit_per_minute if rate_limit_per_minute > 0 else "unlimited",
+        RATE_LIMITED,
+    )
     return app

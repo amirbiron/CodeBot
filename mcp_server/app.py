@@ -51,6 +51,14 @@ except Exception:  # noqa: BLE001 - see above: logging must not gate the service
     )
 
 from .backend import ProductionBackend
+from .limits import (
+    DEFAULT_MAX_REQUEST_BYTES,
+    DEFAULT_RATE_LIMIT_PER_MINUTE,
+    MAX_REQUEST_BYTES_ENV,
+    MIN_MAX_REQUEST_BYTES,
+    RATE_LIMIT_ENV,
+    limit_from_env,
+)
 from .server import build_app
 from .token_store import MCPTokenStore
 from .wiring import resolve_mongo
@@ -116,6 +124,13 @@ def create_app():
 
     backend = ProductionBackend(db_manager=db_manager, mongo_db=mongo)
     name = os.getenv("MCP_SERVER_NAME", "CodeKeeper")
+    # Request limits (#3431) — read here, at the service entry, not at import.
+    max_request_bytes = limit_from_env(
+        MAX_REQUEST_BYTES_ENV, DEFAULT_MAX_REQUEST_BYTES, minimum=MIN_MAX_REQUEST_BYTES
+    )
+    rate_limit_per_minute = limit_from_env(
+        RATE_LIMIT_ENV, DEFAULT_RATE_LIMIT_PER_MINUTE, minimum=1, zero_disables=True
+    )
 
     # Phase D: admin-only repo-browser tools (hidden + gated for non-admins).
     from .repo_backend import RepoBackend
@@ -148,10 +163,19 @@ def create_app():
             consent_routes=consent,
             repo_backend=repo_backend,
             name=name,
+            max_request_bytes=max_request_bytes,
+            rate_limit_per_minute=rate_limit_per_minute,
         )
 
     # Fallback: PAT-only (Claude Code/Desktop) — runs without OAuth config.
-    return build_app(backend, MCPTokenStore(mongo), repo_backend=repo_backend, name=name)
+    return build_app(
+        backend,
+        MCPTokenStore(mongo),
+        repo_backend=repo_backend,
+        name=name,
+        max_request_bytes=max_request_bytes,
+        rate_limit_per_minute=rate_limit_per_minute,
+    )
 
 
 app = create_app()
