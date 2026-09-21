@@ -57,9 +57,13 @@ def _project(doc, projection):
         return doc
     if isinstance(projection, (list, tuple)):
         projection = {k: 1 for k in projection}
-    include = {k for k, v in projection.items() if v and k != '_id'}
-    if include:
-        keep = include | ({'_id'} if projection.get('_id', 1) else set())
+    fields = {k: v for k, v in projection.items() if k != '_id'}
+    # מצב ההכללה נקבע לפי השדות שאינם ``_id``; כשיש רק ``_id`` — לפי הערך שלו.
+    # ``{_id: 1}`` לבדו מחזיר רק ``_id``, ו-``{_id: 1, f: 0}`` הוא החרגה, כי ``_id``
+    # הוא היוצא מן הכלל היחיד לאיסור על ערבוב. נמדד מול MongoDB 8.0.32.
+    inclusion = any(fields.values()) if fields else bool(projection.get('_id'))
+    if inclusion:
+        keep = {k for k, v in fields.items() if v} | ({'_id'} if projection.get('_id', 1) else set())
         return {k: v for k, v in doc.items() if k in keep}
     exclude = {k for k, v in projection.items() if not v}
     return {k: v for k, v in doc.items() if k not in exclude}
@@ -451,6 +455,34 @@ class TestNoteRemindersAPI(unittest.TestCase):
         self.assertEqual(data['count'], 1)
         self.assertEqual(data['items'][0]['note_id'], self.note_id)
         self.assertEqual(data['items'][0]['preview'], 'שלום עולם דביק')
+
+
+class TestStubProjection(unittest.TestCase):
+    """הסטאב מחיל היטלה כמו מונגו — חמשת המקרים נמדדו מול MongoDB 8.0.32 בייצור לפני הכתיבה.
+
+    ``{_id: 1}`` לבדו הוא הכללה ומחזיר רק ``_id``; ``{_id: 1, f: 0}`` הוא החרגה,
+    כי ``_id`` הוא היוצא מן הכלל היחיד לאיסור על ערבוב הכללה והחרגה.
+    """
+
+    DOC = {'_id': 'r1', 'remind_at': 'R', 'note_id': 'N'}
+
+    def _keys(self, projection):
+        return sorted(_project(dict(self.DOC), projection))
+
+    def test_id_only_is_an_inclusion(self):
+        self.assertEqual(self._keys({'_id': 1}), ['_id'])
+
+    def test_id_alongside_an_exclusion_stays_an_exclusion(self):
+        self.assertEqual(self._keys({'_id': 1, 'note_id': 0}), ['_id', 'remind_at'])
+
+    def test_excluding_id_keeps_the_rest(self):
+        self.assertEqual(self._keys({'_id': 0}), ['note_id', 'remind_at'])
+
+    def test_inclusion_can_drop_id(self):
+        self.assertEqual(self._keys({'remind_at': 1, '_id': 0}), ['remind_at'])
+
+    def test_inclusion_keeps_id_by_default(self):
+        self.assertEqual(self._keys({'remind_at': 1}), ['_id', 'remind_at'])
 
 
 class TestReminderStateHelpers(unittest.TestCase):
