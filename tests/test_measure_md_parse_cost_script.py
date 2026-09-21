@@ -66,9 +66,12 @@ def test_main_reports_each_parsers_candidate_from_its_densest_shape(monkeypatch,
     monkeypatch.setattr(script, "real_files", lambda suffix: [docs[suffix]])
     monkeypatch.setattr(script, "density", lambda text, parser="md": 1.0)
     costs = {"corpus": 25.0, "tiled_": 70.7, "hostile": 290.0, "outline_": 7.7}
+    seen_kwargs = {}
 
     def fake_peak_cost(path, workdir, *, parser="md", kwargs=None):
-        cost = next(v for prefix, v in costs.items() if path.name.startswith(prefix))
+        prefix = next(prefix for prefix in costs if path.name.startswith(prefix))
+        seen_kwargs[(parser, prefix)] = kwargs
+        cost = costs[prefix]
         return {
             "module": script.PARSERS[parser]["module"],
             "input_bytes": 1,
@@ -89,6 +92,17 @@ def test_main_reports_each_parsers_candidate_from_its_densest_shape(monkeypatch,
     assert last["md"]["hostile_bound_bytes_per_input_byte"] == 290.0
     assert last["rst"]["constant_candidate_bytes_per_input_byte"] == 70.7
     assert last["rst"]["hostile_bound_bytes_per_input_byte"] == 290.0
+
+    # WARN-004 (סקירת שבעת ה-PRים): הצורה העוינת מודדת את הפרסר בלי התקרה —
+    # עם ברירת המחדל היא נעצרת על MAX_SECTIONS והמספר מתאר עצירה. הקורפוס
+    # והמסמך הצפוף רצים כמו הכלי, בלי kwargs; ה-outline עם התקרה שלו.
+    from mcp_server.outline_scanners._ceiling import MAX_SYMBOLS
+
+    for parser in ("md", "rst"):
+        assert seen_kwargs[(parser, "hostile")] == {"max_sections": None}, parser
+        assert seen_kwargs[(parser, "corpus")] is None and seen_kwargs[(parser, "tiled_")] is None
+    assert seen_kwargs[("rst", "outline_")] == {"max_sections": MAX_SYMBOLS}
+    assert "max_sections=None" in last["note"]
 
 
 def test_a_checkout_with_no_document_of_the_minimum_size_fails_with_a_named_message():
@@ -126,6 +140,19 @@ def test_tiling_stops_at_the_ceiling_and_is_longer_than_its_input():
     assert script.MAX_FILE_SIZE_FOR_DISPLAY - 3 <= size <= script.MAX_FILE_SIZE_FOR_DISPLAY
     assert size > len(text.encode("utf-8"))
     assert 997 <= len(script.tiled_to_ceiling(text, 1000).encode("utf-8")) <= 1000
+
+
+def test_density_goes_through_the_public_token_count_and_not_the_private_builder(monkeypatch):
+    """הסקריפט אינו קורא ל-``md_parser._build_parser`` (#3433, SUGG-010): התלות היא ``token_count``."""
+    from services import md_parser
+
+    script = _load_script()
+
+    def _forbidden():
+        raise AssertionError("הסקריפט קרא ל-_build_parser הפרטית")
+
+    monkeypatch.setattr(md_parser, "_build_parser", _forbidden)
+    assert script.density("- a\n" * 10, "md") > 0
 
 
 def test_density_ranks_a_dense_document_above_a_sparse_one_of_the_same_size():

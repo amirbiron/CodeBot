@@ -249,3 +249,157 @@ def test_constructor_token_overrides_map(tmp_path, monkeypatch):
     svc = GitMirrorService(base_path=str(tmp_path), github_token="ghp_EXPLICIT")
     # טוקן שהוזרק במפורש ל-constructor גובר על הכל
     assert svc._token_for_url("https://github.com/Campaign-AI4U/campaign-ai.git") == "ghp_EXPLICIT"
+
+
+# ---------------------------------------------------------------------------
+# get_file_at_commit: התקרה נבדקת מול מאגר האובייקטים לפני git show (#3433, פריט 9)
+# ---------------------------------------------------------------------------
+#
+# עד #3433 ``git show`` נטען כולו לזיכרון ורק אז ``max_size`` נבדק — קובץ של
+# 12MB שנדחה עלה 20MiB שיא. הטסטים כאן רצים על מראה git אמיתית שנבנית
+# ב-``tmp_path`` (bare clone, כמו בייצור), ומרגלים על ``subprocess.run`` כדי
+# לראות **אילו** פקודות git רצו — כי התכונה הנבדקת היא מה לא נקרא, ואת זה
+# רואים רק ברשימת הפקודות.
+
+import subprocess  # noqa: E402
+
+from services import git_mirror_service as _gms  # noqa: E402
+
+
+def _bare_mirror(tmp_path, files):
+    """מראה bare בשם ``probe`` תחת ``tmp_path``, עם הקבצים הנתונים בקומיט אחד; מחזיר את השירות ואת ה-sha."""
+    src = tmp_path / "src"
+    src.mkdir()
+    for name, data in files.items():
+        target = src / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "PATH": __import__("os").environ["PATH"]}
+    for cmd in (["git", "init", "-q"], ["git", "add", "-A"], ["git", "commit", "-qm", "init"]):
+        subprocess.run(cmd, cwd=src, check=True, env=env, capture_output=True)
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=src, check=True, env=env,
+                         capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "clone", "-q", "--bare", str(src), str(tmp_path / "probe.git")],
+                   check=True, env=env, capture_output=True)
+    return GitMirrorService(base_path=str(tmp_path)), sha
+
+
+def _spy_on_git(monkeypatch, override=None):
+    """מרגל שמעביר כל קריאה ל-``subprocess.run`` האמיתי ורושם את ה-argv; ``override(argv)`` יכול להחזיר תוצאה מזויפת."""
+    calls = []
+    real = subprocess.run
+
+    def spy(cmd, *args, **kwargs):
+        calls.append(list(cmd))
+        if override is not None:
+            faked = override(list(cmd))
+            if faked is not None:
+                return faked
+        return real(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(_gms.subprocess, "run", spy)
+    return calls
+
+
+def _subcommands(calls):
+    return [cmd[cmd.index("-C") + 2] if "-C" in cmd else cmd[1] for cmd in calls]
+
+
+def test_a_file_over_the_cap_is_refused_before_git_show_reads_it(tmp_path, monkeypatch):
+    """הסירוב מגיע מ-``git cat-file -s``, ו-``git show`` אינו רץ כלל — אפס בתים נקראים."""
+    svc, _ = _bare_mirror(tmp_path, {"big.bin": b"x" * 3000})
+    calls = _spy_on_git(monkeypatch)
+
+    out = svc.get_file_at_commit("probe", "big.bin", "HEAD", max_size=1000)
+
+    assert out["error"] == "file_too_large" and out["size"] == 3000 and out["max_size"] == 1000
+    assert "cat-file" in _subcommands(calls)
+    assert "show" not in _subcommands(calls), f"git show רץ על קובץ שמעל התקרה: {calls}"
+
+
+def test_a_file_under_the_cap_is_read_exactly_as_before(tmp_path, monkeypatch):
+    """הבקרה: מתחת לתקרה התשובה זהה לזו של קודם — תוכן, קידוד, גודל, שורות, sha."""
+    svc, sha = _bare_mirror(tmp_path, {"a.txt": "שלום\nעולם\n".encode("utf-8")})
+    calls = _spy_on_git(monkeypatch)
+
+    out = svc.get_file_at_commit("probe", "a.txt", "HEAD", max_size=1000)
+
+    assert out["success"] and out["content"] == "שלום\nעולם\n" and out["is_binary"] is False
+    assert out["encoding"] == "utf-8" and out["size"] == len("שלום\nעולם\n".encode("utf-8"))
+    assert out["lines"] == 3 and out["resolved_commit"] == sha
+    assert "show" in _subcommands(calls), "מתחת לתקרה הקובץ כן נקרא"
+
+
+def test_a_missing_path_is_still_file_not_in_commit_through_the_probe(tmp_path):
+    """git מדפיס את אותה הודעה ל-``cat-file -s`` ול-``show`` על נתיב חסר, והמפה אחת לשתיהן."""
+    svc, _ = _bare_mirror(tmp_path, {"a.txt": b"x"})
+    out = svc.get_file_at_commit("probe", "nope.txt", "HEAD")
+    assert out == {"error": "file_not_in_commit", "message": "הקובץ לא קיים ב-commit זה"}
+
+
+def test_both_commands_name_the_same_resolved_commit(tmp_path, monkeypatch):
+    """בלי חלון בין הבדיקה לקריאה: שתי הפקודות פונות ל-``<sha>:<path>`` שנפתר פעם אחת, לא ל-``HEAD``."""
+    svc, sha = _bare_mirror(tmp_path, {"a.txt": b"x"})
+    calls = _spy_on_git(monkeypatch)
+
+    svc.get_file_at_commit("probe", "a.txt", "HEAD")
+
+    # ``rev-parse`` של אימות ה-ref רץ גם הוא עם ``-C``; כאן מעניינות רק שתי פקודות האובייקט.
+    targets = {sub: cmd[-1] for cmd in calls if "-C" in cmd
+               for sub in [cmd[cmd.index("-C") + 2]] if sub in ("cat-file", "show")}
+    assert targets == {"cat-file": f"{sha}:a.txt", "show": f"{sha}:a.txt"}
+    assert [s for s in _subcommands(calls) if s in ("cat-file", "show")] == ["cat-file", "show"], (
+        "הבדיקה קודמת לקריאה — זה הסדר שהופך את max_size לחסם על מה שנקרא")
+
+
+def test_a_failed_size_probe_never_falls_back_to_an_unbounded_read(tmp_path, monkeypatch):
+    """כשל בבדיקת הגודל הוא סירוב, לא קריאה בלי תקרה — ``silent-fallback-to-worse-path``."""
+    svc, _ = _bare_mirror(tmp_path, {"a.txt": b"x" * 3000})
+
+    def fail_the_probe(cmd):
+        if "cat-file" in cmd:
+            return subprocess.CompletedProcess(cmd, 128, stdout=b"", stderr=b"fatal: object store unreadable")
+        return None
+
+    calls = _spy_on_git(monkeypatch, override=fail_the_probe)
+    out = svc.get_file_at_commit("probe", "a.txt", "HEAD", max_size=10)
+
+    assert out["error"] == "git_error" and "unreadable" in out["message"]
+    assert "show" not in _subcommands(calls)
+
+
+def test_a_non_numeric_size_is_a_failure_and_not_a_small_file(tmp_path, monkeypatch):
+    """הפלט של git הוא קלט חיצוני (U3): "lots" אינו אפס, והוא אינו עובר את התקרה בשקט."""
+    svc, _ = _bare_mirror(tmp_path, {"a.txt": b"x" * 3000})
+
+    def garble_the_probe(cmd):
+        if "cat-file" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"lots\n", stderr=b"")
+        return None
+
+    calls = _spy_on_git(monkeypatch, override=garble_the_probe)
+    out = svc.get_file_at_commit("probe", "a.txt", "HEAD", max_size=10)
+
+    assert out["error"] == "git_error"
+    assert "show" not in _subcommands(calls)
+
+
+def test_what_comes_back_never_exceeds_the_cap_whatever_the_probe_said(tmp_path, monkeypatch):
+    """החסם השני, על מה שמוחזר: גם אם המאגר דיווח גודל קטן, מה ש-``git show`` הדפיס נבדק שוב.
+
+    פין של תכונה שהייתה קיימת — הבדיקה בדיעבד — ונשארת בכוונה, כי לנתיב
+    של תיקייה ``cat-file -s`` מודד את אובייקט העץ ואילו ``git show`` מדפיס
+    רשימה מעוצבת. הדרך היחידה לבודד אותה היא מאגר שמשקר.
+    """
+    svc, _ = _bare_mirror(tmp_path, {"a.txt": b"x" * 3000})
+
+    def understate_the_probe(cmd):
+        if "cat-file" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"10\n", stderr=b"")
+        return None
+
+    _spy_on_git(monkeypatch, override=understate_the_probe)
+    out = svc.get_file_at_commit("probe", "a.txt", "HEAD", max_size=1000)
+
+    assert out["error"] == "file_too_large" and out["size"] == 3000

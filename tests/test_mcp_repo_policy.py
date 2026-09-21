@@ -1,11 +1,25 @@
 """Unit tests for the repo secrets-path policy (mandatory, fail-closed)."""
 
+import shutil
 from pathlib import Path
 
 import pytest
 
 from mcp_server import repo_policy
 from mcp_server.repo_policy import is_denied
+
+
+def _require_git() -> None:
+    """הטסטים שמריצים git מדלגים בלי git — כולם באותה צורה (#3432, SUGG-005).
+
+    ``pytest.importorskip("services.git_mirror_service")`` בודק מודול פייתון,
+    לא את הבינארי; עד כאן טסט אחד דילג על ``returncode`` וטסט שני קרס על
+    ``check=True``. אותו אידיום כמו ``_GIT = shutil.which("git")`` ב-
+    ``tests/test_mcp_search_total.py``.
+    """
+    if shutil.which("git") is None:
+        pytest.skip("git אינו מותקן")
+
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -166,10 +180,11 @@ def test_the_policy_blocks_exactly_the_known_files_in_this_repository():
     """
     import subprocess
 
+    _require_git()
     proc = subprocess.run(["git", "ls-files", "-z"], cwd=str(_ROOT),
                           capture_output=True, text=True)
     if proc.returncode != 0:
-        pytest.skip("אין git או שזו אינה עבודה מגיט")
+        pytest.skip("זו אינה עבודה מגיט")
     paths = [p for p in proc.stdout.split("\0") if p]
     assert len(paths) > 1000, "רשימת הקבצים קצרה מדי — הבדיקה איבדה את הקורפוס שלה"
     assert any(" " in p for p in paths), (
@@ -191,6 +206,7 @@ def _seeded_mirror(tmp_path):
     """
     import subprocess
 
+    _require_git()
     work = tmp_path / "work"
     seeded = {
         "config/.env/README.md": "SEEDTOKEN\n",
@@ -229,7 +245,11 @@ def test_the_search_side_skips_every_path_the_read_side_denies(tmp_path):
     כי הם דורשים שהנתיב **יסתיים** ב-``.pem``.
 
     הטענה כאן היא על ההסכמה עצמה ולא על רשימה מוקלדת: כל נתיב שהקריאה
-    חוסמת חייב להיעדר מתוצאות החיפוש, וההפך.
+    חוסמת חייב להיעדר מתוצאות החיפוש. **ולא ההפך** — ``repo_policy`` מצהיר
+    ש-``is_denied`` נשאר השכבה האחרונה, כלומר תבנית שהמנוע אינו יכול לבטא
+    (או מבטא רחב יותר) עדיין נחסמת בקריאה; שוויון מדויק בין שני החצאים היה
+    דורש את ההפך ממה שמתועד (#3432, SUGG-004). מה שכן נדרש: החיפוש אינו
+    ריק, אחרת "אפס חסומים בתוצאות" היה נכון גם על מנוע שבור.
     """
     pytest.importorskip("services.git_mirror_service")
     from services.git_mirror_service import GitMirrorService
@@ -241,14 +261,12 @@ def test_the_search_side_skips_every_path_the_read_side_denies(tmp_path):
 
     returned = {r["path"] for r in out.get("results", [])}
     denied = {p for p in seeded if is_denied(p)}
-    allowed = set(seeded) - denied
 
     assert denied, "אף נתיב שנזרע אינו נחסם — הזריעה איבדה את הנושא שלה"
     assert returned & denied == set(), (
         f"החיפוש החזיר נתיבים שהקריאה חוסמת: {sorted(returned & denied)}")
-    assert returned == allowed, (
-        f"החיפוש ותשובת הקריאה אינם מסכימים: חיפוש={sorted(returned)}, "
-        f"מותר={sorted(allowed)}")
+    assert "docs/ok.md" in returned, (
+        f"החיפוש לא החזיר את הקובץ המותר — התוצאות ריקות מסיבה אחרת: {sorted(returned)}")
 
 
 # ===========================================================================

@@ -461,8 +461,13 @@ def get_collection_items(
     )
 
 
-def _max_code_size() -> int:
-    """The app's per-file size gate (characters, not bytes), with a safe fallback."""
+def max_code_size() -> int:
+    """The app's per-file size gate (characters, not bytes), with a safe fallback.
+
+    Public, because ``mcp_server/app.py`` derives the request-body cap from it
+    (``limits.request_bytes_for``): one lookup of ``MAX_CODE_SIZE`` serves both
+    gates, so the two cannot drift apart.
+    """
     try:
         from config import config as _cfg
 
@@ -493,7 +498,7 @@ def save_file(
 
     # Reject oversize content (the large-file path is non-versioned; out of scope
     # here). Mirror the app's own gate, which counts characters, not bytes.
-    max_size = _max_code_size()
+    max_size = max_code_size()
     if len(code) > max_size:
         return {"ok": False, "error": "code_too_large", "max": max_size}
 
@@ -615,7 +620,7 @@ def _resave_edited(
     an edit never resets them; the same size gate as ``save_file`` applies to
     the resulting body.
     """
-    max_size = _max_code_size()
+    max_size = max_code_size()
     if len(new_code) > max_size:
         return {"ok": False, "error": "code_too_large", "max": max_size}
     return backend.save_file(
