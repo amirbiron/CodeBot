@@ -919,11 +919,14 @@ def create_app() -> web.Application:
             try:
                 from internal_alerts import emit_internal_alert  # type: ignore
 
+                # ‏details= ולא ‏**: המטען מגיע מאטריבוט של האובייקט ולא נבנה
+                # כאן, ולכן מפתחותיו אינם ידועים בנקודת הקריאה. מפתח בשם
+                # "name"/"severity"/"summary" היה מפיל את הקריאה ב-TypeError.
                 emit_internal_alert(
                     name=alert.name,
                     severity=str(alert.severity),
                     summary=str(alert.summary),
-                    **(alert.details or {}),
+                    details=dict(alert.details or {}),
                 )
             except Exception as e:
                 try:

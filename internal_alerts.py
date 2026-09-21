@@ -430,30 +430,42 @@ def _send_telegram(text: str, severity: str = "info") -> None:
         return
 
 
+def normalize_alert_details(**details: Any) -> Dict[str, Any]:
+    """מחזיר את מטען ההתראה כמילון שטוח, משתי צורות הקריאה.
+
+    ‏``emit_internal_alert`` מקבל את המטען דרך ``**details``, ולכן קורא
+    שמעביר אותו כ-``details={...}`` מגיע לכאן כמילון מקונן. הצורה הזו
+    אינה "תמיכה לאחור לטסטים" אלא **הצורה הנכונה** בכל מקום שבו מפתחות
+    המטען אינם ידועים בנקודת הקריאה: מפתח ששמו ``name``/``severity``/
+    ``summary`` היה מתנגש עם פרמטר של הפונקציה ומפיל אותה ב-``TypeError``.
+
+    הכלל חי כאן ולא משוכפל: גם קוד הייצור וגם דמויות בטסטים קוראים לו,
+    כדי שדמה לא תראה מבנה אחר ממה שהפונקציה האמיתית רואה.
+    """
+    try:
+        nested = details.get("details")
+        if isinstance(nested, dict):
+            payload: Dict[str, Any] = dict(nested)
+            for key, value in details.items():
+                if key == "details":
+                    continue
+                payload[key] = value
+            return payload
+        return dict(details or {})
+    except Exception:
+        return dict(details or {})
+
+
 def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details: Any) -> None:
     """Emit an internal alert: store in-memory, forward to sinks, and log.
 
     severity: "info" | "warn" | "error" | "critical" | "anomaly"
+
+    המטען מתקבל גם כ-``**details`` וגם כ-``details={...}``; ראה
+    ``normalize_alert_details``.
     """
     try:
-        # תמיכה לאחור: יש קריאות שמעבירות details=dict(...) במקום kwargs (למשל tests)
-        details_payload: Dict[str, Any] = {}
-        try:
-            if isinstance(details, dict) and "details" in details and isinstance(details.get("details"), dict):
-                nested = details.get("details") or {}
-                if len(details) == 1:
-                    details_payload = dict(nested)
-                else:
-                    # מיזוג: nested details + שאר ה-kwargs (שיישארו כ-"details" אמיתיים)
-                    details_payload = dict(nested)
-                    for k, v in details.items():
-                        if k == "details":
-                            continue
-                        details_payload[k] = v
-            else:
-                details_payload = dict(details or {})
-        except Exception:
-            details_payload = dict(details or {})
+        details_payload: Dict[str, Any] = normalize_alert_details(**details)
 
         def _is_drill(d: Any) -> bool:
             if not isinstance(d, dict):
@@ -588,7 +600,14 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                 return
             try:
                 from alert_manager import forward_critical_alert  # type: ignore
-                forward_critical_alert(name=str(name), summary=str(summary), **(details_payload or {}))
+                # ‏details= ולא ‏**: ‏details_payload מורכב משדות של קוראים
+                # שרירותיים, ומפתח בשם "name"/"summary" היה מפיל את הקריאה
+                # ב-TypeError ומפיל את ההתראה למסלול הגיבוי בשקט.
+                forward_critical_alert(
+                    name=str(name),
+                    summary=str(summary),
+                    details=dict(details_payload or {}),
+                )
             except Exception:
                 # Fallback to Telegram only
                 try:
