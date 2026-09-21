@@ -144,14 +144,27 @@ async def test_a_run_that_ends_between_the_find_and_the_update_is_not_overwritte
 
 
 @pytest.mark.asyncio
-async def test_a_naive_lock_timestamp_is_refused(coll):
-    """זמן בלי אזור זמן אינו מסנן לפי אותו רגע — ולכן נדחה, ולא "מתוקן"."""
-    coll.sync.insert_one(_run_doc("old-2", "cache_warming", LOCK_AT - timedelta(minutes=5)))
+async def test_a_naive_lock_timestamp_is_refused_before_any_query(coll):
+    """זמן בלי אזור זמן נדחה **לפני** שנוגעים במסד.
 
-    with pytest.raises(TypeError):
-        await reconcile_orphan_runs(coll, lock_acquired_at=LOCK_AT.replace(tzinfo=None))
+    ‏``pytest.raises(TypeError)`` לבדו אינו מספיק כאן: בלי הבדיקה המפורשת
+    ההשוואה בין מודע לנאיבי זורקת ``TypeError`` בעצמה, בתוך השאילתה —
+    ולכן טסט שרק בודק את סוג החריגה עובר גם על קוד שאין בו שום שומר.
+    ‏(נמדד: הרצת מוטציה שהסירה את הבדיקה עברה.) מה שמבדיל הוא **מתי**:
+    שומר שפועל מסנן החוצה לפני כל עבודה, ולא נופל באמצעה.
+    """
 
-    assert coll.sync.find_one({"run_id": "old-2"})["status"] == JobStatus.RUNNING.value
+    class _RefusingCollection(AsyncFakeCollection):
+        def find(self, *a, **k):
+            raise AssertionError("השאילתה רצה למרות שהזמן נאיבי")
+
+    refusing = _RefusingCollection(coll.sync)
+    refusing.sync.insert_one(_run_doc("old-2", "cache_warming", LOCK_AT - timedelta(minutes=5)))
+
+    with pytest.raises(TypeError, match="timezone-aware"):
+        await reconcile_orphan_runs(refusing, lock_acquired_at=LOCK_AT.replace(tzinfo=None))
+
+    assert refusing.sync.find_one({"run_id": "old-2"})["status"] == JobStatus.RUNNING.value
 
 
 @pytest.mark.asyncio
