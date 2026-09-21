@@ -25,19 +25,22 @@ def _load_alert_manager(tmp_path, monkeypatch):
 
 
 def test_alert_manager_emits_remediation_and_bump(tmp_path, monkeypatch):
-    (tmp_path / "data").mkdir()
-    monkeypatch.chdir(tmp_path)
-
-    # Stub observability
-    monkeypatch.setitem(sys.modules, 'observability', types.SimpleNamespace(emit_event=lambda *a, **k: None))
-
     # Stub internal_alerts to avoid side effects
     monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=lambda *a, **k: None))
 
     # Ensure remediation_manager is importable
     import remediation_manager as rm  # noqa: F401
 
-    am = importlib.import_module('alert_manager')
+    # ‏alert_manager מחזיק מצב ברמת המודול, ובכללו ``_last_alert_ts``:
+    # ‏``_emit_critical_once`` בודק אותו מול ``_COOLDOWN_SEC`` ויוצא מוקדם
+    # אם אותו מדד כבר התריע לאחרונה. היציאה קורית **לפני**
+    # ``handle_critical_incident``, כלומר לפני שהאינסידנט נכתב לקובץ.
+    #
+    # לכן כל טסט כאן חייב לאפס את המצב בתחילתו — דרך ``_load_alert_manager``
+    # או בקריאה ישירה ל-``reset_state_for_tests``. הטסט הזה לא עשה אף אחד
+    # מהשניים, ולכן נפל על קובץ חסר כשטסט קודם באותו תהליך כבר ירה את
+    # אותו מדד. תלוי בסדר ההרצה, ומכאן ההבהוב תחת ``pytest-xdist`` ב-CI.
+    am = _load_alert_manager(tmp_path, monkeypatch)
 
     # Seed threshold and then bump
     am._thresholds['error_rate_percent'].threshold = 10.0  # type: ignore[attr-defined]
