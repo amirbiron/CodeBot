@@ -32,10 +32,11 @@
 ``_compare_titles``, ורק על תת-קבוצה — ההנמקה שם.
 
 **ולטענה יש חריג אחד ידוע, והוא מקובע ולא מושתק:** תגית HTML מסוג 7
-שצמודה לשורת פריט רשימה. שם ``markdown-it`` סוטה מ-cmark-gfm וממימוש
-הייחוס של המפרט, והצורות האלה **אינן** עוברות ב-``_compare`` — הן
-עוברות בטסט שמאשר את הפער המדוד, ובטסט שמאשר שהמוחרג הוא בדיוק הן
-ולא יותר. ``_type7_after_list_shapes`` מנמק.
+שצמודה לשורת מכל — פריט רשימה או ציטוט. שם ``markdown-it`` סוטה
+מ-cmark-gfm וממימוש הייחוס של המפרט, והצורות האלה **אינן** עוברות
+ב-``_compare`` — הן עוברות בטסט שמאשר את הפער המדוד, ובטסט שמאשר
+שהמוחרג הוא בדיוק הן ולא יותר. ``_type7_after_container_shapes`` מנמק,
+והאישו upstream הוא executablebooks/markdown-it-py#434.
 
 **והחלוקה לכמה טסטים אינה קוסמטית:** ``pytest.ini`` קובע
 ``timeout = 60`` לכל טסט, וטבלה אחת גדולה הייתה מתקרבת לשם.
@@ -494,7 +495,7 @@ def test_a_heading_inside_a_container_is_seen_by_cmark_and_excluded_by_us(text):
 
 
 # ════════════════════════════════════════════════════════════════════
-# הפער הידוע היחיד — תגית HTML מסוג 7 צמודה לשורת פריט רשימה
+# הפער הידוע היחיד — תגית HTML מסוג 7 צמודה לשורת מכל (פריט רשימה או ציטוט)
 # ════════════════════════════════════════════════════════════════════
 
 #: תגיות שאינן ברשימת ה-block של CommonMark ולכן נופלות ל**סוג 7**: תג
@@ -502,50 +503,77 @@ def test_a_heading_inside_a_container_is_seen_by_cmark_and_excluded_by_us(text):
 #: שלם, לבדו בשורה. ``</pre>`` הוא סוג 7 כי הוא **סגירה**: הכלל של סוג 1
 #: תופס רק פתיחה.
 _TYPE7_TAGS = ("<br>", "<span>", "</pre>", '<img src="x">')
-_LIST_MARKERS = ("- ", "1. ")
+#: שורת המכל שהתגית צמודה אליה. **הציטוט הגיע מהתגובה באישו ה-upstream**
+#: ולא מהמדידה המקורית, שכיסתה רק רשימות — ונמדד שהוא מתנהג **זהה**
+#: לשני סמני הרשימה: צמוד = פער באותה צורה בדיוק, מופרד = הסכמה. כלל
+#: הציטוט של ``markdown-it`` מסמן המשכים לא-בדוקים בהזחה שלילית, ולכן
+#: תיקון upstream שיבדוק רק רשימות לא יכסה אותו — וזו סיבה נוספת
+#: שהמחלקה מוגדרת כ"מכל" ולא כ"פריט".
+_CONTAINER_MARKERS = ("- ", "1. ", "> ")
+
+#: שני מקרי גבול **מסכימים** מהדיון ב-upstream, מקובעים כלשונם: תגית
+#: מסוג 7 מוזחת ארבעה רווחים נשארת בפסקת הפריט — בשלושת המימושים —
+#: גם כשיש שני אבות. תיקון נאיבי ב-``markdown-it`` (לאפשר סיום סוג 7
+#: בכל פעם ש-``sCount < blkIndent``) שובר בדיוק את אלה, ולכן הם
+#: יושבים כאן: אם ספרייה עתידית תסטה בהם, ``_compare`` יתפוס אצלנו
+#: לפני שמישהו יבחין ברינדור.
+_TYPE7_INDENTED_AGREEING = [
+    "-    a\n    <br>\n## Next\n",
+    "100. a\n     - b\n    <br>\n## Next\n",
+]
 
 
-def _type7_after_list_shapes():
-    """‏(טקסט, האם שני הפארסרים מסכימים) — תגית מסוג 7 אחרי שורת פריט.
+def _type7_after_container_shapes():
+    """‏(טקסט, האם שני הפארסרים מסכימים) — תגית מסוג 7 אחרי שורת מכל.
 
     **זו המחלקה היחידה שידועה בה אי-הסכמה**, והיא נמדדה: כשהתגית
-    **צמודה** לשורת הפריט, ``markdown-it`` (הפורט ל-Python **וגם**
-    המקור ב-JS, 14.3.2 — נמדד, הפורט נאמן) רואה בה המשך עצל של פסקת
-    הפריט, ולכן ``## אחרי`` שאחריה הוא כותרת; cmark-gfm סוגר את הרשימה,
-    פותח בלוק HTML, והבלוק בולע את ``## אחרי`` עד שורה ריקה. **מימוש
-    הייחוס של המפרט** (``commonmark.py`` 0.9.2, פורט של commonmark.js)
-    מסכים עם cmark — כלומר זו סטייה של ``markdown-it`` ולא שלנו, ולא של
-    GitHub.
+    **צמודה** לשורת המכל — פריט רשימה או ציטוט — ``markdown-it`` (הפורט
+    ל-Python **וגם** המקור ב-JS, 14.3.2 — נמדד, הפורט נאמן) רואה בה
+    המשך עצל של פסקת המכל, ולכן ``## אחרי`` שאחריה הוא כותרת; cmark-gfm
+    סוגר את המכל, פותח בלוק HTML, והבלוק בולע את ``## אחרי`` עד שורה
+    ריקה. **מימוש הייחוס של המפרט** (``commonmark.py`` 0.9.2, פורט של
+    commonmark.js) מסכים עם cmark — כלומר זו סטייה של ``markdown-it``
+    ולא שלנו, ולא של GitHub.
 
-    עם **שורה ריקה** בין הפריט לתגית שני הצדדים מסכימים, וזה מה שהופך
+    עם **שורה ריקה** בין המכל לתגית שני הצדדים מסכימים, וזה מה שהופך
     את החצי הזה למקרה בקרה: הוא עובר ב-``_compare`` כמו כל משפחה אחרת.
+    ובאותו מעמד ``_TYPE7_INDENTED_AGREEING`` — התגית מוזחת לתוך הפריט.
 
     **ולמה זה לא מתוקן אצלנו.** התיקון המתבקש — להפוך את דגל
     ה-terminate של סוג 7 ב-``rules_block/html_block.py`` — נמדד ונדחה:
     הוא גורם ל-``<br>`` להפריע לפסקה גם **בלי** רשימה, ושם שני הצדדים
     מסכימים היום. כלומר הוא מחליף אי-הסכמה אחת באחרת. התיקון הנכון
     הוא בדיקה מודעת-מכל כמו של cmark, והוא שייך ל-``markdown-it-py``
-    ולא לכלל שנכתוב ביד. **מתועד upstream** — טקסט האישו המלא, עם שלושת המימושים והצורה המינימלית,
-    בגוף PR #3418; הוא נפתח מסשן שיש לו גישה ל-``executablebooks/markdown-it-py``
-    ומספרו יוכנס כאן.
+    ולא לכלל שנכתוב ביד. **מתועד upstream:** executablebooks/markdown-it-py#434
+    (https://github.com/executablebooks/markdown-it-py/issues/434) — הצורה
+    המינימלית, שלושת המימושים, והמנגנון. התגובה הראשונה שם הביאה את
+    שלושת מקרי הגבול שמקובעים כאן: הציטוט (הצטרף למחלקה המוחרגת) ושתי
+    הצורות המוזחות (``_TYPE7_INDENTED_AGREEING``). ביום שהאישו ייסגר
+    בתיקון, ``test_a_type7_tag_glued_to_a_container_still_disagrees_as_measured``
+    ייפול על הגרסה החדשה — וזה הסימן למחוק את ההחרגה, לא להרפות אותו.
     אפס מופעים ב-521 הקבצים האמיתיים שנמדדו (93 + 428).
     """
-    for tag, marker, adjacent in itertools.product(_TYPE7_TAGS, _LIST_MARKERS, (True, False)):
+    for tag, marker, adjacent in itertools.product(
+        _TYPE7_TAGS, _CONTAINER_MARKERS, (True, False)
+    ):
         gap = "" if adjacent else "\n"
         yield f"## לפני\n\n{marker}פריט\n{gap}{tag}\n## אחרי\n", not adjacent
 
 
 def test_the_type7_family_agrees_when_a_blank_line_separates_it():
-    """חצי הבקרה של המשפחה עובר דרך אותה ``_compare`` כמו כולם."""
-    agreeing = [text for text, agrees in _type7_after_list_shapes() if agrees]
-    assert len(agreeing) == len(_TYPE7_TAGS) * len(_LIST_MARKERS)
-    _compare(agreeing)
+    """חצי הבקרה של המשפחה עובר דרך אותה ``_compare`` כמו כולם.
+
+    ואיתו שני מקרי הגבול המוזחים — הם מסכימים היום, וזה מה שנטען.
+    """
+    agreeing = [text for text, agrees in _type7_after_container_shapes() if agrees]
+    assert len(agreeing) == len(_TYPE7_TAGS) * len(_CONTAINER_MARKERS)
+    _compare(agreeing + _TYPE7_INDENTED_AGREEING)
 
 
 @pytest.mark.parametrize(
-    "text", [text for text, agrees in _type7_after_list_shapes() if not agrees]
+    "text", [text for text, agrees in _type7_after_container_shapes() if not agrees]
 )
-def test_a_type7_tag_glued_to_a_list_item_still_disagrees_as_measured(text):
+def test_a_type7_tag_glued_to_a_container_still_disagrees_as_measured(text):
     """**הטסט הזה מקבע פער מדוד, ולא התנהגות רצויה.**
 
     אצלנו שני סעיפים — ``## לפני`` ו-``## אחרי`` — ואצל cmark-gfm אחד,
@@ -575,8 +603,11 @@ def test_the_excluded_class_is_exactly_the_glued_shapes_and_nothing_more():
     הצורות הצמודות, לא ריקה ולא רחבה מזה — ושכל אחת מהן באמת חלוקה,
     כלומר ההחרגה מוצדקת מופע-מופע ולא כהנחה.
     """
-    excluded = [text for text, agrees in _type7_after_list_shapes() if not agrees]
-    assert len(excluded) == len(_TYPE7_TAGS) * len(_LIST_MARKERS)
+    excluded = [text for text, agrees in _type7_after_container_shapes() if not agrees]
+    # תגיות × מכלים — כל תגית מול כל מכל, ורק הצורה הצמודה של כל זוג.
+    assert len(excluded) == len(_TYPE7_TAGS) * len(_CONTAINER_MARKERS)
+    # שורת המכל היא תמיד ``<סמן>פריט``, גם לציטוט (``> פריט``), ולכן
+    # הפיצול על ``"פריט\n"`` תופס את מה שבין שורת המכל לכותרת שאחריה.
     assert all("\n\n" not in text.split("פריט\n", 1)[1].split("\n## אחרי")[0] for text in excluded), (
         "צורה מופרדת נכנסה לקבוצה המוחרגת"
     )
@@ -602,7 +633,7 @@ def test_the_generated_shape_count_matches_the_prose():
     import re
     from pathlib import Path
 
-    type7 = list(_type7_after_list_shapes())
+    type7 = list(_type7_after_container_shapes())
     total = (
         len(list(_context_shapes()))
         + len(list(_fence_nesting_shapes()))
@@ -611,6 +642,7 @@ def test_the_generated_shape_count_matches_the_prose():
         + len(list(_table_shapes()))
         + len(_CONTAINER_SHAPES)
         + sum(1 for _text, agrees in type7 if agrees)
+        + len(_TYPE7_INDENTED_AGREEING)
     )
     excluded = sum(1 for _text, agrees in type7 if not agrees)
     assert total > 10_000, f"מחולל נשמט מהספירה — {total} צורות בלבד"
