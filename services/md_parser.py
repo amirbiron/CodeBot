@@ -11,7 +11,8 @@
 מחלקה אחת ידועה ומקובעת של **12 צורות** — תגית HTML מסוג 7 שצמודה
 לשורת מכל (פריט רשימה או ציטוט), שבה ``markdown-it`` (הפורט וגם המקור
 ב-JS) סוטה מ-cmark-gfm וממימוש הייחוס של המפרט. היא אינה מתוקנת כאן —
-הנימוק והאישו upstream ב-``tests/test_md_parser_oracle.py::_type7_after_container_shapes``
+האישו upstream הוא executablebooks/markdown-it-py#434, והנימוק
+ב-``tests/test_md_parser_oracle.py::_type7_after_container_shapes``
 — ואין לה מופע ב-521 הקבצים האמיתיים שנמדדו. שני המספרים אינם מוקלדים
 כאן ביד אלא נגזרים מהמחוללים ומושווים למה שכתוב בשורות האלה
 ב-``tests/test_md_parser_oracle.py::test_the_generated_shape_count_matches_the_prose``,
