@@ -322,6 +322,44 @@ def test_create_and_read_back_a_board_note(mcp_backend, mongo_db):
     assert listed["notes"][0]["board_id"] == board
 
 
+def test_a_lean_listing_measures_the_bodies_inside_the_database(mcp_backend, mongo_db):
+    """**זו הבדיקה שסטאב אינו יכול לעשות:** הצינור הרזה של ``include_content=False``
+    רץ במנוע — ``$strLenBytes`` תחת שמירת ``$type`` — ורק המנוע יודע לומר אם
+    הביטוי חוקי, אם הוא מודד בתים ולא תווים, ואם גוף שאינו מחרוזת מפיל את
+    השאילתה או חוזר ``null``. ``mongomock`` אינו מכיר ``$type`` כביטוי.
+
+    ``"שלום עולם"`` — תשעה תווים, שבעה-עשר בתים: מדידה בתווים הייתה עוברת
+    טסט שמשווה ל-``len(content)``, וזו בדיוק הסחיפה שהיחידה הנקובה מונעת.
+    """
+    board = _make_board(mongo_db, user_id=7)
+    mongo_db.sticky_notes.insert_many([
+        {"user_id": 7, "board_id": board, "content": "שלום עולם", "title": "עברי",
+         "color": "yellow", "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc)},
+        {"user_id": 7, "board_id": board, "content": "ascii",
+         "created_at": datetime(2026, 1, 2, tzinfo=timezone.utc)},
+        {"user_id": 7, "board_id": board,                       # בלי גוף בכלל
+         "created_at": datetime(2026, 1, 3, tzinfo=timezone.utc)},
+        {"user_id": 7, "board_id": board, "content": 42,        # גוף שאינו מחרוזת
+         "created_at": datetime(2026, 1, 4, tzinfo=timezone.utc)},
+    ])
+
+    lean = mcp_backend.list_board_notes(7, board_id=board, include_content=False)
+
+    assert lean["ok"] is True and lean["count"] == 4
+    assert all("content" not in n for n in lean["notes"])
+    assert [n["content_bytes"] for n in lean["notes"]] == [
+        len("שלום עולם".encode("utf-8")), len("ascii"), None, None,
+    ]
+    assert len("שלום עולם".encode("utf-8")) == 17 != len("שלום עולם")
+    assert lean["notes"][0]["title"] == "עברי"
+    assert (lean["notes"][0]["color"], lean["notes"][0]["color_id"]) == ("#ffffcc", "yellow")
+
+    # המסלול המלא לא זז: אותם פתקים, עם הגוף.
+    full = mcp_backend.list_board_notes(7, board_id=board)
+    assert [n["id"] for n in full["notes"]] == [n["id"] for n in lean["notes"]]
+    assert full["notes"][0]["content"] == "שלום עולם"
+
+
 def test_the_quota_rejects_when_the_count_fails(mcp_backend, mongo_db, monkeypatch):
     """כשל ספירה → **דחייה**, לא מעבר.
 

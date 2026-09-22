@@ -2043,16 +2043,18 @@ def build_mcp(
             "codekeeper_search_notes. Reach a note this way instead of listing its whole "
             "board or file: a listing of a large board can exceed what a client shows, "
             "while one note is bounded. The reply carries the note (content, title, "
-            "color, color_id, timestamps), version — the number of the CURRENT body, "
+            "color, color_id, timestamps); version — the number of the CURRENT body "
+            "(null for an empty body), "
             "which codekeeper_get_note_version reads back by that number once the body "
-            "has been overwritten — and where the note sits, in exactly the arguments "
+            "has been overwritten; and where the note sits, in exactly the arguments "
             "the matching list tool takes: target with file_name, board_id, or "
             "repo_name + repo_path (a repo note also says orphaned=true when its path "
             "is no longer in the mirrored tree). content is the stored text, byte for "
             "byte, so an old_string for codekeeper_note_str_replace can be copied from "
             "it, and this is the read to repeat when that tool answers conflict. A note "
             "you do not own answers not_found, and so does a note on a mirrored "
-            "repository unless you are the admin."
+            "repository unless you are the admin; a note being edited right now "
+            "answers conflict — read it again."
         ),
         annotations=_READ_ONLY_TOOL,
     )

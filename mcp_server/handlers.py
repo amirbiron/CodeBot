@@ -799,6 +799,22 @@ _NOTE_ID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
 _NOTE_CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
 
 
+def _clean_note_id(note_id: Any) -> str | None:
+    """מזהה פתק בצורתו **הקנונית** — או ``None`` כשאינו בצורת ObjectId.
+
+    ``_NOTE_ID_RE`` מקבל גם הקסה גדולה, ו-``str(ObjectId)`` היא תמיד קטנה —
+    וזו הצורה ש-``sticky_note_versions.note_id`` מחזיק. מזהה שהוקלד באותיות
+    גדולות עבר את השער, מצא את הפתק (``ObjectId`` סלחני) ואז חיפש היסטוריה
+    שלעולם לא תימצא: ``version_not_found`` על גרסה שקיימת (נתפס בסקירה של
+    #3456). אותה מלכודת בדיוק של ``_canonical_board_id`` ב-backend, ומאותו
+    נימוק — ולכן שער אחד לכל כלי שמקבל ``note_id``, ולא ``.match`` בכל אחד.
+    """
+    nid = str(note_id or "").strip()
+    if not _NOTE_ID_RE.match(nid):
+        return None
+    return nid.lower()
+
+
 def _note_color_or_error(color: str | None, *, default: str | None) -> Any:
     """הצבע לכתיבה, או **תשובת שגיאה** כשסופק ערך שאי אפשר לפענח.
 
@@ -1176,8 +1192,8 @@ def note_str_replace(
     משמר את הגוף **הישן**, לא את העריכה שאבדה. המפסיד מקבל ``conflict``:
     קריאה חוזרת של הפתק וניסיון נוסף הם התשובה הנכונה, לא ניצחון שקרי.
     """
-    nid = (note_id or "").strip()
-    if not _NOTE_ID_RE.match(nid):
+    nid = _clean_note_id(note_id)
+    if nid is None:
         return {"ok": False, "error": "invalid_note_id"}
     if not isinstance(old_string, str) or not isinstance(new_string, str):
         return {"ok": False, "error": "invalid_arguments"}
@@ -1237,16 +1253,25 @@ def get_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dic
     **הגוף חוזר בדיוק כפי שהוא מאוחסן** (``stored_content``), ולא הגוף
     המפוענח שכלי הרשימה מציגים; הנימוק המלא ב-``ProductionBackend.get_note``.
     ``version`` הוא מספר הגוף **הנוכחי** — המספר ש-``get_note_version``
-    יקרא אותו בו אחרי שיידרס. פתק ריפו נושא ``orphaned: true`` כשהנתיב
+    יקרא אותו בו — ומגיע **מאותה קריאה** של הגוף (``with_version=True``):
+    ה-backend מוכיח ששום כתיבה לא נגעה בפתק בין קריאת הגוף לקריאת
+    ההיסטוריה, ופתק שזז ברצף חוזר כ-``conflict`` עם רמז — לא כזוג שאולי
+    אינו תואם. גוף ריק נושא ``version: null``: ההיסטוריה אינה מצלמת אותו,
+    ולכן אין מספר שיחזיר אותו. פתק ריפו נושא ``orphaned: true`` כשהנתיב
     כבר אינו בעץ המשוקף, באותו כלל של ``list_repo_notes``.
     """
-    nid = (note_id or "").strip()
-    if not _NOTE_ID_RE.match(nid):
+    nid = _clean_note_id(note_id)
+    if nid is None:
         return {"ok": False, "error": "invalid_note_id"}
 
-    current = backend.get_note(user_id, note_id=nid)
+    current = backend.get_note(user_id, note_id=nid, with_version=True)
     if not isinstance(current, dict) or not current.get("ok"):
-        return {"ok": False, "error": str((current or {}).get("error") or "not_found")}
+        refused: dict[str, Any] = {
+            "ok": False, "error": str((current or {}).get("error") or "not_found"),
+        }
+        if isinstance(current, dict) and current.get("hint"):
+            refused["hint"] = str(current["hint"])
+        return refused
 
     note = dict(current.get("note") or {})
     is_repo_note = (
@@ -1264,8 +1289,8 @@ def get_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dic
         note["content"] = stored
 
     out: dict[str, Any] = {"ok": True, "note": note}
-    out["version"] = int(backend.current_note_version(user_id, note_id=nid))
-    # היעד, בדיוק בארגומנטים שכלי הרשימה המתאים דורש — כמו פגיעת חיפוש.
+    # היעד, בדיוק בארגומנטים שכלי הרשימה המתאים דורש — כמו פגיעת חיפוש;
+    # ו-``version`` שנקרא באותה קריאה תחומה כמו הגוף.
     out.update({k: v for k, v in current.items() if k not in ("ok", "note", "stored_content")})
     if is_repo_note and backend.repo_path_orphaned(
         repo_name=str(note.get("repo_name") or ""), repo_path=str(note.get("repo_path") or "")
@@ -1276,16 +1301,16 @@ def get_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dic
 
 def list_note_versions(backend: Any, user_id: int, *, note_id: str) -> dict[str, Any]:
     """Previous revisions of a note — metadata only, newest first."""
-    nid = (note_id or "").strip()
-    if not _NOTE_ID_RE.match(nid):
+    nid = _clean_note_id(note_id)
+    if nid is None:
         return {"ok": False, "error": "invalid_note_id"}
     return backend.list_note_versions(user_id, note_id=nid)
 
 
 def get_note_version(backend: Any, user_id: int, *, note_id: str, version: int) -> dict[str, Any]:
     """Read the content of one previous revision."""
-    nid = (note_id or "").strip()
-    if not _NOTE_ID_RE.match(nid):
+    nid = _clean_note_id(note_id)
+    if nid is None:
         return {"ok": False, "error": "invalid_note_id"}
     try:
         ver = int(version)
@@ -1374,8 +1399,8 @@ def update_note(
     is_minimized: bool | None = None,
 ) -> dict[str, Any]:
     """Partial update of a sticky note by its id (in-place, no version history)."""
-    nid = (note_id or "").strip()
-    if not _NOTE_ID_RE.match(nid):
+    nid = _clean_note_id(note_id)
+    if nid is None:
         return {"ok": False, "error": "invalid_note_id"}
 
     fields: dict[str, Any] = {}

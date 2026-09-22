@@ -46,8 +46,8 @@ class _Recorder:
             "content_query": content_query,
         })
 
-    def get_note(self, user_id, *, note_id):
-        return self._record("get_note", user_id, {"note_id": note_id})
+    def get_note(self, user_id, *, note_id, with_version=False):
+        return self._record("get_note", user_id, {"note_id": note_id, "with_version": with_version})
 
     def update_note(self, user_id, *, note_id, fields, expected_content=None):
         return self._record("update_note", user_id, {
@@ -59,10 +59,6 @@ class _Recorder:
 
     def get_note_version(self, user_id, *, note_id, version):
         return self._record("get_note_version", user_id, {"note_id": note_id, "version": version})
-
-    def current_note_version(self, user_id, *, note_id):
-        self.calls.append(("current_note_version", user_id, {"note_id": note_id}))
-        return self.returns.get("current_note_version", 1)
 
     def repo_path_orphaned(self, *, repo_name, repo_path):
         self.calls.append(
@@ -398,6 +394,7 @@ def _board_note(**over):
             "repo_name": None, "repo_path": None,
         },
         "stored_content": 'a "b"',
+        "version": 1,
         "target": "board",
         "board_id": _BOARD,
     }
@@ -413,6 +410,7 @@ def _repo_note(**over):
             "repo_name": "CodeBot", "repo_path": "a.py",
         },
         "stored_content": "secret",
+        "version": 1,
         "target": "repo",
         "repo_name": "CodeBot",
         "repo_path": "a.py",
@@ -478,7 +476,7 @@ def test_a_half_repo_document_is_gated_like_a_repo_note():
 
 
 def test_a_repo_note_is_readable_by_the_admin_with_its_target_and_orphan_state():
-    b = _Recorder(get_note=_repo_note(), current_note_version=3, repo_path_orphaned=True)
+    b = _Recorder(get_note=_repo_note(version=3), repo_path_orphaned=True)
 
     res = handlers.get_note(b, 7, note_id=_OID, is_admin=True)
 
@@ -503,7 +501,10 @@ def test_a_live_repo_path_carries_no_orphaned_key():
 
 
 def test_a_board_note_needs_no_admin_and_asks_no_orphan_question():
-    b = _Recorder(get_note=_board_note(), current_note_version=1)
+    """הגוף והגרסה מגיעים **מקריאה אחת** של ה-backend (``with_version=True``) —
+    לא משתי קריאות שה-handler מרכיב, כי בין שתיים כאלה ``update_note`` יכול
+    להצמיד לגוף הישן את המספר של החדש (נתפס בסקירה של #3456)."""
+    b = _Recorder(get_note=_board_note(version=1))
 
     res = handlers.get_note(b, 7, note_id=_OID, is_admin=False)
 
@@ -511,8 +512,8 @@ def test_a_board_note_needs_no_admin_and_asks_no_orphan_question():
     assert (res["target"], res["board_id"]) == ("board", _BOARD)
     assert res["version"] == 1
     assert "orphaned" not in res
-    assert [c[0] for c in b.calls] == ["get_note", "current_note_version"]
-    assert b.calls[1][2] == {"note_id": _OID}
+    assert [c[0] for c in b.calls] == ["get_note"]
+    assert b.calls[0][2] == {"note_id": _OID, "with_version": True}
 
 
 def test_a_file_note_carries_the_file_name_the_list_tool_takes():
@@ -555,6 +556,53 @@ def test_a_non_string_stored_body_keeps_the_list_tools_shape():
 
 
 def test_the_version_is_the_number_the_backend_reports():
-    b = _Recorder(get_note=_board_note(), current_note_version=4)
+    b = _Recorder(get_note=_board_note(version=4))
 
     assert handlers.get_note(b, 7, note_id=_OID, is_admin=False)["version"] == 4
+
+
+def test_an_empty_body_carries_a_null_version_not_a_made_up_one():
+    """גוף ריק אינו מצולם לעולם, ולכן אין מספר שיחזיר אותו — ``null``, לא ``1``."""
+    note = {**_board_note()["note"], "content": ""}
+    b = _Recorder(get_note=_board_note(note=note, stored_content="", version=None))
+
+    res = handlers.get_note(b, 7, note_id=_OID, is_admin=False)
+
+    assert "version" in res and res["version"] is None
+
+
+def test_a_conflict_from_the_bracketed_read_passes_through_with_its_hint():
+    """פתק שזז ברצף בין קריאת הגוף לקריאת ההיסטוריה חוזר כ-``conflict`` —
+    עם הרמז של ה-backend, ובלי תוכן."""
+    b = _Recorder(get_note={
+        "ok": False, "error": "conflict",
+        "hint": "the note is being edited right now — read it again",
+    })
+
+    res = handlers.get_note(b, 7, note_id=_OID, is_admin=True)
+
+    assert res == {
+        "ok": False, "error": "conflict",
+        "hint": "the note is being edited right now — read it again",
+    }
+
+
+def test_an_uppercase_note_id_reaches_every_backend_in_its_canonical_form():
+    """``_NOTE_ID_RE`` מקבל הקסה גדולה; ``sticky_note_versions.note_id`` מחזיק
+    את ``str(ObjectId)`` — תמיד קטנה. מזהה גדול עבר את השער ומצא את הפתק,
+    ואז חיפש היסטוריה שלעולם לא תימצא (נתפס בסקירה של #3456). אותה מלכודת
+    של ``_canonical_board_id``. נופל אם ``_clean_note_id`` יחזור ל-``.strip()``.
+    """
+    loud = _OID.upper()
+    b = _Recorder(get_note={"ok": False, "error": "not_found"})
+
+    handlers.get_note(b, 7, note_id=loud, is_admin=True)
+    handlers.note_str_replace(b, 7, note_id=loud, old_string="a", new_string="b")
+    handlers.list_note_versions(b, 7, note_id=loud)
+    handlers.get_note_version(b, 7, note_id=loud, version=1)
+    handlers.update_note(b, 7, note_id=loud, content="x")
+
+    assert [c[0] for c in b.calls] == [
+        "get_note", "get_note", "list_note_versions", "get_note_version", "update_note",
+    ]
+    assert all(c[2]["note_id"] == _OID for c in b.calls)

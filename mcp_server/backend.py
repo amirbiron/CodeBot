@@ -331,6 +331,60 @@ def _as_note_ref(doc: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+#: כמה שורות רשימת פתקים מחזירה לכל היותר — אותה תקרה בשלושת כלי הרשימה,
+#: ובצינור הרזה. מספר אחד ולא ארבעה ``limit(500)`` שמסונכרנים בתקווה.
+NOTES_LIST_LIMIT = 500
+
+
+def _lean_notes_pipeline(query: dict[str, Any]) -> list[dict[str, Any]]:
+    """הצינור של ``include_content=false``: **הגוף אינו יוצא מהמסד בכלל.**
+
+    ``find`` בלי היטלה היה מושך 500 גופים של עד ``MAX_NOTE_CHARS`` תווים כדי
+    להחזיר 500 מספרים — בדיוק "עבודה שאינה פרופורציונלית לתשובה" (R8), וזה
+    מה שריוויוור תפס ב-PR #3456. כאן הגודל מחושב **במסד**: ``$strLenBytes``
+    סופר את בתי ה-UTF-8 של הגוף המאוחסן — היחידה שבה ``OUTPUT_BYTE_BUDGET``
+    נמדד, ובפתק עברי פי שניים מספירת תווים (H6: בתים הם היחידה הנכונה
+    לגודל תעבורה) — ו-``$project`` מוריד את ``content`` לפני ``$sort``, כך
+    שהגוף אינו נגרר דרך המיון (R8 §2). ``$sort`` ואחריו ``$limit`` נשארים
+    צמודים, כדי שהמנוע יאחד אותם למיון-עם-תקרה.
+
+    **השמירה על גוף שאינו מחרוזת נעשית ב-``$type``, לא ב-``$ifNull``.**
+    ``$strLenBytes`` על ערך שאינו מחרוזת מפיל את השאילתה כולה — לא שורה
+    אחת — ולכן ``null``/חסר/מספר מחזירים ``content_bytes: null`` ("לא ידוע",
+    לא "ידוע שריק"). אף כותב אינו שומר גוף כזה, אבל השדה מגיע מהמסד.
+
+    מקורות: ``$strLenBytes`` — https://www.mongodb.com/docs/manual/reference/operator/aggregation/strLenBytes/
+    ("returns the number of UTF-8 encoded bytes"; on null or missing —
+    error); ``$type`` — https://www.mongodb.com/docs/manual/reference/operator/aggregation/type/
+    (``"string"``/``"null"``/``"missing"``, works inside ``$project``).
+    נמדד מול mongod 8.0 אמיתי (ראו ``tests/test_note_boards_mongo.py``);
+    ``mongomock`` אינו מכיר ``$type`` כביטוי, ולכן הצינור אינו נבדק מולו.
+
+    פונקציה טהורה ברמת המודול, כמו :func:`_notes_scope_filter` — כדי שטסט
+    יוכל לעגן את הצורה המדויקת: ההיטלה לפני המיון, ובלי ``content``.
+    """
+    return [
+        {"$match": dict(query)},
+        {
+            "$project": {
+                "title": 1,
+                "color": 1,
+                "updated_at": 1,
+                "created_at": 1,
+                "content_bytes": {
+                    "$cond": [
+                        {"$eq": [{"$type": "$content"}, "string"]},
+                        {"$strLenBytes": "$content"},
+                        None,
+                    ]
+                },
+            }
+        },
+        {"$sort": {"created_at": 1}},
+        {"$limit": NOTES_LIST_LIMIT},
+    ]
+
+
 def _as_note_summary(doc: dict[str, Any] | None) -> dict[str, Any]:
     """שורת פתק **בלי הגוף** — מה ש-``include_content=false`` מחזיר ברשימה.
 
@@ -339,25 +393,24 @@ def _as_note_summary(doc: dict[str, Any] | None) -> dict[str, Any]:
     ש-Smart Projection נועד למנוע. מה שכן יש כאן הוא הזהות, הצבע, מועד
     העדכון — ו**גודל** הגוף, כדי שהקורא יחליט אילו פתקים לקרוא.
 
-    ``content_bytes`` נמדד על הגוף **כפי שהוא מאוחסן**, ב**בתים** של UTF-8
-    ולא בתווים — היחידה שבה ``OUTPUT_BYTE_BUDGET`` נמדד, ובפתק עברי ההפרש
-    הוא פי שניים. וזה בדיוק גודל ה-``content`` ש-``get_note`` יחזיר לאותו
-    פתק, כי גם הוא מחזיר את הגוף המאוחסן. גוף שאינו מחרוזת — אף כותב אינו
-    שומר כזה, אבל השדה מגיע מהמסד — מדווח ``None`` ("לא ידוע"), ולא ``0``
-    שמשמעו "ידוע שריק".
+    ``content_bytes`` **אינו מחושב כאן.** הוא מגיע מהשורה שהצינור
+    :func:`_lean_notes_pipeline` החזיר — המסד מדד אותו, בבתים של UTF-8 על
+    הגוף המאוחסן, שהוא בדיוק גודל ה-``content`` ש-``get_note`` יחזיר לאותו
+    פתק. שורה בלי השדה (מי שהעביר לכאן מסמך מלא בטעות) מדווחת ``None`` —
+    "לא ידוע" — ולא מודדת בעצמה: מדידה שנייה בפייתון הייתה עותק שני של
+    אותו כלל, שנסחף ביום שבו אחד מהם ישתנה.
     """
     from sticky_notes_target import note_color_hex, note_color_id
 
     doc = doc or {}
     raw_color = doc.get("color")
-    content = doc.get("content")
     return {
         "id": str(doc.get("_id") or ""),
         "title": _json_safe(doc.get("title")),
         # אותו זוג נגזר כמו ב-``_as_note``, מאותו ערך אחד במסמך.
         "color": note_color_hex(raw_color),
         "color_id": note_color_id(raw_color),
-        "content_bytes": len(content.encode("utf-8")) if isinstance(content, str) else None,
+        "content_bytes": _json_safe(doc.get("content_bytes")),
         "updated_at": _json_safe(doc.get("updated_at")),
     }
 
@@ -1048,26 +1101,38 @@ class ProductionBackend:
     ) -> dict[str, Any]:
         """List notes for a file (pure read — no backfill, unlike the webapp GET).
 
-        ``include_content=False`` מחזיר את השורות דרך :func:`_as_note_summary`
-        — בלי הגוף, עם גודלו. **השאילתה עצמה אינה משתנה:** הגוף עדיין נקרא
-        מהמסד ורק אינו נשלח ללקוח. מה שהפרמטר מקטין הוא התשובה, שהיא מה
-        שחסם בפועל (לוח שלם חרג ממה שלקוח מציג); היטלה בגבול המסד — כמו
-        שהחיפוש עושה — היא שינוי נפרד, ומדידת הגודל הייתה דורשת אז ביטוי
-        אגרגציה שסוויטת הסטאבים אינה מריצה.
+        ``include_content=False`` עובר ב-:meth:`_list_note_rows` דרך הצינור
+        הרזה: הגוף אינו יוצא מהמסד, וגודלו מגיע ממנו — ראו
+        :func:`_lean_notes_pipeline`.
         """
         from sticky_notes_scope import make_scope_id  # מודול טהור בשורש הריפו
 
         scope_id = make_scope_id(int(user_id), file_name)
         related = self._related_file_ids(user_id, file_name)
         query = _notes_scope_filter(user_id, scope_id, related)
-        rows = list(self._notes_coll().find(query).sort("created_at", 1).limit(500))
-        serialize = _as_note if include_content else _as_note_summary
+        notes = self._list_note_rows(query, include_content=include_content)
         return {
             "ok": True,
             "file_name": file_name,
-            "count": len(rows),
-            "notes": [serialize(r) for r in rows],
+            "count": len(notes),
+            "notes": notes,
         }
+
+    def _list_note_rows(
+        self, query: dict[str, Any], *, include_content: bool
+    ) -> list[dict[str, Any]]:
+        """שורות רשימת פתקים, מסודרות לפי יצירה, עד :data:`NOTES_LIST_LIMIT`.
+
+        המסלול המלא הוא ``find`` בלי היטלה — כלי הרשימה מחזירים את הגוף, וזו
+        התנהגותם מאז ומתמיד. המסלול הרזה הוא :func:`_lean_notes_pipeline`, שבו
+        הגוף נשאר במסד. שני המסלולים חולקים שאילתה, מיון ותקרה — כאן, פעם
+        אחת, ולא בכל כלי רשימה בנפרד.
+        """
+        coll = self._notes_coll()
+        if include_content:
+            rows = coll.find(query).sort("created_at", 1).limit(NOTES_LIST_LIMIT)
+            return [_as_note(r) for r in rows]
+        return [_as_note_summary(r) for r in coll.aggregate(_lean_notes_pipeline(query))]
 
     def create_note(
         self,
@@ -1219,8 +1284,8 @@ class ProductionBackend:
     ) -> dict[str, Any]:
         """פתקי לוח יחיד (קריאה טהורה).
 
-        ``include_content=False`` — אותה הכרעה בדיוק כמו ב-:meth:`list_notes`:
-        השורות עוברות דרך :func:`_as_note_summary`, והשאילתה אינה משתנה.
+        ``include_content=False`` — אותו מסלול רזה של :meth:`list_notes`, דרך
+        :meth:`_list_note_rows`.
         """
         from sticky_notes_target import board_notes_filter
 
@@ -1230,14 +1295,13 @@ class ProductionBackend:
 
         canonical = self._canonical_board_id(board)
         query = board_notes_filter(int(user_id), canonical)
-        rows = list(self._notes_coll().find(query).sort("created_at", 1).limit(500))
-        serialize = _as_note if include_content else _as_note_summary
+        notes = self._list_note_rows(query, include_content=include_content)
         return {
             "ok": True,
             "board_id": canonical,
             "board_name": str(board.get("name") or ""),
-            "count": len(rows),
-            "notes": [serialize(r) for r in rows],
+            "count": len(notes),
+            "notes": notes,
         }
 
     def create_board_note(
@@ -1335,14 +1399,14 @@ class ProductionBackend:
         clean_repo = str(repo_name or "")
         clean_path = normalize_repo_path(repo_path)
         query = repo_notes_filter(int(user_id), clean_repo, clean_path)
-        rows = list(self._notes_coll().find(query).sort("created_at", 1).limit(500))
+        notes = self._list_note_rows(query, include_content=True)
 
         out: dict[str, Any] = {
             "ok": True,
             "repo_name": clean_repo,
             "repo_path": clean_path,
-            "count": len(rows),
-            "notes": [_as_note(r) for r in rows],
+            "count": len(notes),
+            "notes": notes,
         }
         if self.repo_path_orphaned(repo_name=clean_repo, repo_path=clean_path):
             out["orphaned"] = True
@@ -1464,15 +1528,48 @@ class ProductionBackend:
         note["_id"] = getattr(res, "inserted_id", None)
         return {"ok": True, "note": _as_note(note)}
 
-    def get_note(self, user_id: int, *, note_id: str) -> dict[str, Any]:
+    #: השדות שמעידים שכתיבה כלשהי נגעה בפתק. **שלושתם יחד**, ומאותו נימוק
+    #: שכתוב במסלול הכשל של :meth:`update_note`: תוכן לבדו הוא ABA (כותב
+    #: שהחזיר את הגוף הקודם), חותמת לבדה נקטמת למילישניות, ורק ``write_id``
+    #: — אסימון שנוצר לכתיבה אחת ואינו חוזר — מכריע בוודאות במסלול ה-MCP.
+    _NOTE_TOUCH_FIELDS = ("content", "updated_at", "write_id")
+
+    #: כמה פעמים לקרוא את הפתק שוב כשהוא זז בין קריאת הגוף לקריאת ההיסטוריה.
+    #: שלוש, כמו :data:`_SNAPSHOT_RETRIES`: אחרי שלושה ניסיונות שבכולם הפתק
+    #: זז, מישהו כותב בו ברצף, והתשובה הישרה היא ``conflict`` ולא ניחוש.
+    _CONSISTENT_READ_RETRIES = 3
+
+    @classmethod
+    def _note_untouched(cls, before: dict[str, Any], after: dict[str, Any] | None) -> bool:
+        """האם שום כתיבה לא נגעה בפתק בין שתי קריאות שלו.
+
+        ההגדרה היחידה של "לא נגעו": :meth:`update_note` משתמש בה כדי להוכיח
+        שכתיבה שנכשלה לא קרתה, ו-:meth:`get_note` כדי להוכיח שהגוף שקרא
+        והגרסה שחישב מתארים את אותו רגע.
+        """
+        return after is not None and all(
+            after.get(k) == before.get(k) for k in cls._NOTE_TOUCH_FIELDS
+        )
+
+    def _owned_note_row(self, user_id: int, oid: Any) -> dict[str, Any] | None:
+        """המסמך של פתק, אם הוא של הקורא — הקריאה-לפי-מזהה היחידה של פתק.
+
+        הבעלות יושבת **במסנן** ולא בבדיקה אחריו, ולכן פתק של משתמש אחר הוא
+        ``None`` — אותה תשובה כמו למזהה שאינו קיים, כדי שהסירוב לא יגלה
+        שהמזהה תפוס.
+        """
+        row = self._notes_coll().find_one({"_id": oid, "user_id": int(user_id)})
+        return row if isinstance(row, dict) else None
+
+    def get_note(
+        self, user_id: int, *, note_id: str, with_version: bool = False
+    ) -> dict[str, Any]:
         """פתק בודד לפי מזהה, תחום לבעלות — **הקריאה-לפי-מזהה היחידה** של פתק.
 
         שני קוראים, ומסלול קריאה אחד: ``note_str_replace`` (עריכת מצא-והחלף
         היא read-modify-write, וכלי הרשימה מחייבים לדעת **איפה** הפתק יושב —
         בדיוק מה שהקורא אינו יודע כשיש בידו ``note_id`` בלבד), והכלי
-        ``codekeeper_get_note``. הבעלות יושבת **במסנן** ולא בבדיקה אחריו,
-        ולכן פתק של משתמש אחר הוא ``not_found`` — אותה תשובה כמו למזהה
-        שאינו קיים, כדי שהסירוב לא יגלה שהמזהה תפוס.
+        ``codekeeper_get_note``, שמבקש גם ``with_version``.
 
         התשובה נושאת, לצד ``note`` (הסריאליזציה של :func:`_as_note`, שבה
         ``content`` עבר ``html.unescape`` כמו בכלי הרשימה), שני דברים שאין
@@ -1490,6 +1587,21 @@ class ProductionBackend:
           ``note_str_replace`` ממשיך לעבוד על ``note["content"]`` המפוענח,
           כי הוא מפענח גם את ``old_string`` (``_sanitize_note_text``) ומשווה
           במרחב אחד — שתי הצורות מגיעות אליו ותופסות.
+
+        **``with_version`` — הגוף והגרסה מתארים את אותו רגע, וזה נאכף ולא
+        מונח.** הגרסה יושבת באוסף אחר (``sticky_note_versions``), ולכן היא
+        קריאה שנייה; ``update_note`` שרץ בין השתיים היה מצמיד לגוף הישן את
+        המספר של הגוף החדש, ו-``get_note_version`` עם המספר ההוא היה מחזיר
+        גוף אחר מזה שהתשובה נשאה (נתפס בסקירה של #3456). לכן הקריאה
+        **תחומה משני הצדדים**: הפתק נקרא, ההיסטוריה נקראת, והפתק נקרא שוב —
+        ורק אם שום כתיבה לא נגעה בו בין השתיים (:meth:`_note_untouched`, אותה
+        הוכחה משולשת של ``update_note``) הזוג מוחזר. פתק שזז — קוראים שוב,
+        עד :data:`_CONSISTENT_READ_RETRIES` פעמים; פתק שזז בכולן מחזיר
+        ``conflict``, כי מישהו כותב בו ברצף והתשובה הישרה היא "קרא שוב" ולא
+        זוג שאולי אינו תואם. ומה שהחלון הזה **אינו** סוגר: הצילום נכתב לפני
+        הדריסה, ולכן בין השניים ההיסטוריה כבר מחזיקה את הגוף הנוכחי בעוד
+        הפתק עצמו טרם זז — את זה סוגר :meth:`_version_of_body`, שמזהה את
+        המצב הזה לפי התוכן.
         """
         from bson import ObjectId  # lazy heavy import
         from sticky_notes_target import note_target_ref
@@ -1498,46 +1610,104 @@ class ProductionBackend:
             oid = ObjectId(str(note_id))
         except Exception:
             return {"ok": False, "error": "invalid_note_id"}
-        row = self._notes_coll().find_one({"_id": oid, "user_id": int(user_id)})
-        if not row:
+        row = self._owned_note_row(user_id, oid)
+        if row is None:
             return {"ok": False, "error": "not_found"}
+
+        version: int | None = None
+        if with_version:
+            for _attempt in range(self._CONSISTENT_READ_RETRIES):
+                version = self._version_of_body(int(user_id), str(oid), row.get("content"))
+                again = self._owned_note_row(user_id, oid)
+                if again is None:
+                    return {"ok": False, "error": "not_found"}  # נמחק בין הקריאות
+                if self._note_untouched(row, again):
+                    break
+                row = again
+            else:
+                return {
+                    "ok": False,
+                    "error": "conflict",
+                    "hint": "the note is being edited right now — read it again",
+                }
+
         self._backfill_file_names(int(user_id), [row])
-        return {
+        out: dict[str, Any] = {
             "ok": True,
             "note": _as_note(row),
             "stored_content": _json_safe(row.get("content")),
             **_json_safe(note_target_ref(row)),
         }
-
-    def current_note_version(self, user_id: int, *, note_id: str) -> int:
-        """מספר הגרסה של הגוף **הנוכחי** — המספר שהוא יקבל בהיסטוריה כשיידרס.
-
-        אותו חישוב בדיוק שבו :meth:`_snapshot_note` בוחר מספר לגוף שהוא
-        מצלם (:meth:`_next_note_version`), ולא עותק שלו: לכן
-        ``get_note_version`` עם המספר הזה יחזיר, אחרי הדריסה הבאה, בדיוק את
-        מה ש-``get_note`` מחזיר עכשיו. ``1`` לפתק שמעולם לא נדרס דרך השרת
-        הזה. ההיסטוריה נכתבת רק ב-:meth:`update_note`, כלומר עריכה מהוובאפ
-        אינה מזיזה את המספר — הוא סופר דריסות דרך ה-MCP.
-
-        כשל שאילתה עולה הלאה, כמו בכל קריאה כאן: ``None`` שנראה כמו "אין
-        היסטוריה" הוא בדיוק המסלול החלופי השקט שאסור לפתוח.
-        """
-        return self._next_note_version(self._note_versions_coll(), int(user_id), str(note_id))
+        if with_version:
+            out["version"] = version
+        return out
 
     @staticmethod
-    def _next_note_version(coll: Any, user_id: int, note_id: str) -> int:
-        """המספר שהצילום הבא של הפתק יקבל: הגרסה החדשה ביותר ועוד אחת.
+    def _snapshot_worthy(content: Any) -> bool:
+        """האם גוף כזה נכנס להיסטוריה — ההגדרה היחידה, לצילום ולמספור כאחד.
 
-        המקור היחיד לחשבון הזה. :meth:`_snapshot_note` מצלם איתו,
-        ו-:meth:`current_note_version` מדווח איתו — עותק שני היה נסחף בדיוק
-        ביום שבו אחד מהם ישתנה.
+        גוף ריק (או שאינו מחרוזת) אינו מידע שאפשר לאבד, ולכן
+        :meth:`_snapshot_note` אינו מצלם אותו. ומכאן, ובאותו מקום: גוף כזה
+        גם **אינו נושא מספר** — מספר שההיסטוריה לעולם לא תיתן לו הוא
+        הבטחה ריקה (נתפס בסקירה של #3456: הצילום דילג על גוף ריק בעוד
+        המספור נתן לו ``1``, שני כללים לאותה שאלה).
         """
-        prev = coll.find_one(
+        return isinstance(content, str) and bool(content)
+
+    @staticmethod
+    def _newest_snapshot(
+        coll: Any, user_id: int, note_id: str, *, fields: dict[str, int]
+    ) -> dict[str, Any] | None:
+        """הגרסה החדשה ביותר של פתק בהיסטוריה — השאילתה היחידה שקוראת אותה."""
+        return coll.find_one(
             {"user_id": int(user_id), "note_id": str(note_id)},
-            {"version": 1},
+            fields,
             sort=[("version", -1)],
         )
-        return int((prev or {}).get("version") or 0) + 1
+
+    @staticmethod
+    def _number_after(newest: dict[str, Any] | None) -> int:
+        """המספר שבא אחרי הגרסה החדשה ביותר: ``1`` כשאין היסטוריה."""
+        return int((newest or {}).get("version") or 0) + 1
+
+    @classmethod
+    def _next_note_version(cls, coll: Any, user_id: int, note_id: str) -> int:
+        """המספר שהצילום הבא של הפתק יקבל.
+
+        :meth:`_snapshot_note` מצלם איתו, ו-:meth:`_version_of_body` מדווח
+        איתו — אותה שאילתה ואותו חשבון, לא עותק.
+        """
+        return cls._number_after(
+            cls._newest_snapshot(coll, user_id, note_id, fields={"version": 1})
+        )
+
+    def _version_of_body(self, user_id: int, note_id: str, body: Any) -> int | None:
+        """המספר שבו ``get_note_version`` מחזיר **את הגוף הזה** — עכשיו או
+        אחרי הדריסה הבאה.
+
+        - גוף שאינו נכנס להיסטוריה (:meth:`_snapshot_worthy`) — ``None``:
+          אין מספר שיחזיר אותו, ולא ממציאים אחד.
+        - הגרסה החדשה ביותר כבר מחזיקה בדיוק את הגוף הזה — מספרה. זה החלון
+          שבין הצילום לדריסה ב-:meth:`update_note` (הצילום נכתב **לפני**
+          הדריסה, בכוונה), וגם צילום שנשאר אחרי כתיבה שנכשלה בספק; בשניהם
+          הגוף כבר ניתן לקריאה במספר ההוא, ו"החדשה ביותר ועוד אחת" היה מספר
+          של גוף אחר.
+        - אחרת — המספר שהצילום הבא ייתן לו, אותו חשבון של
+          :meth:`_next_note_version`.
+
+        ההשוואה היא של תוכן, וזה **אינו** ה-ABA של מסלול הכשל: השאלה כאן
+        טקסטואלית מטבעה — "האם הטקסט הזה כבר שמור במספר הזה" — ולא "האם
+        מישהו כתב". על "האם מישהו כתב" עונה :meth:`_note_untouched` סביב
+        הקריאה הזו.
+        """
+        if not self._snapshot_worthy(body):
+            return None
+        newest = self._newest_snapshot(
+            self._note_versions_coll(), user_id, note_id, fields={"version": 1, "content": 1}
+        )
+        if newest is not None and newest.get("content") == body:
+            return int(newest.get("version") or 0)
+        return self._number_after(newest)
 
     #: כמה גרסאות קודמות נשמרות לכל פתק.
     #:
@@ -1608,8 +1778,9 @@ class ProductionBackend:
         הבא — לא לדחיית העריכה כולה.
         """
         content = note.get("content")
-        if not isinstance(content, str) or not content:
-            # אין מה לצלם. זו הצלחה, לא כשל: פתק ריק אינו מידע שאפשר לאבד.
+        if not self._snapshot_worthy(content):
+            # אין מה לצלם. זו הצלחה, לא כשל: פתק ריק אינו מידע שאפשר לאבד —
+            # ומאותו כלל, ``_version_of_body`` אינו נותן לו מספר.
             return True, None
         coll = self._raw_mongo()["sticky_note_versions"]
         # **בלי אינדקס מאומת — אין צילום, ולכן אין עדכון.** כל ההבטחה
@@ -2036,12 +2207,9 @@ class ProductionBackend:
             try:
                 after = coll.find_one(
                     {"_id": oid, "user_id": int(user_id)},
-                    {"content": 1, "updated_at": 1, "write_id": 1},
+                    {k: 1 for k in self._NOTE_TOUCH_FIELDS},
                 )
-                untouched = after is not None and all(
-                    after.get(k) == note.get(k) for k in ("content", "updated_at", "write_id")
-                )
-                if untouched:
+                if self._note_untouched(note, after):
                     self._discard_snapshot(snap_ref)
             except Exception:
                 logger.warning("post-failure note verification failed; keeping snapshot")
