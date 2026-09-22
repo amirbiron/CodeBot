@@ -863,12 +863,19 @@ def _clean_anchor_text(anchor_text: Any) -> str | None:
     return text[:MAX_ANCHOR_TEXT] or None
 
 
-def list_notes(backend: Any, user_id: int, *, file_name: str) -> dict[str, Any]:
-    """List the user's sticky notes attached to ``file_name`` (read-only)."""
+def list_notes(
+    backend: Any, user_id: int, *, file_name: str, include_content: bool = True
+) -> dict[str, Any]:
+    """List the user's sticky notes attached to ``file_name`` (read-only).
+
+    ``include_content`` הוא פרמטר תוספתי: ברירת המחדל מחזירה בדיוק את מה
+    שהכלי החזיר לפניו. **רק ``False`` מפורש** מוריד את הגוף מהשורות —
+    ערך שאינו בוליאני נופל לצד המלא, שהוא ההתנהגות הישנה ולא הצורה החדשה.
+    """
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
-    return backend.list_notes(user_id, file_name=name)
+    return backend.list_notes(user_id, file_name=name, include_content=include_content is not False)
 
 
 def create_note(
@@ -929,12 +936,19 @@ def list_boards(backend: Any, user_id: int) -> dict[str, Any]:
     return backend.list_boards(user_id)
 
 
-def list_board_notes(backend: Any, user_id: int, *, board_id: str) -> dict[str, Any]:
-    """List the sticky notes sitting on one board (read-only)."""
+def list_board_notes(
+    backend: Any, user_id: int, *, board_id: str, include_content: bool = True
+) -> dict[str, Any]:
+    """List the sticky notes sitting on one board (read-only).
+
+    ``include_content`` — אותו כלל בדיוק כמו ב-:func:`list_notes`.
+    """
     bid = (board_id or "").strip()
     if not _BOARD_ID_RE.match(bid):
         return {"ok": False, "error": "invalid_board_id"}
-    return backend.list_board_notes(user_id, board_id=bid)
+    return backend.list_board_notes(
+        user_id, board_id=bid, include_content=include_content is not False
+    )
 
 
 def create_board_note(
@@ -1200,6 +1214,64 @@ def note_str_replace(
             res["hint"] = "the note changed since it was read — re-read it and retry"
         return res
     return {"ok": True, "replacements": occurrences, "note": res.get("note")}
+
+
+def get_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dict[str, Any]:
+    """Read ONE sticky note by id — the current body, where it sits, and its version.
+
+    **אותה קריאה-לפי-מזהה של** ``note_str_replace`` (``backend.get_note``),
+    ולא מסלול שני: מה שהכלי הזה מחזיר הוא בדיוק הגוף שהעריכה תיבדק מולו.
+
+    **ההרשאה נבדקת לפי סוג הפתק, לפני שתוכן כלשהו חוזר.** פתק על קובץ ועל
+    לוח — של הקורא בלבד, וזה כבר במסנן של ``backend.get_note``. פתק על קובץ
+    בריפו משוקף חסום לאדמין, כמו ``list_repo_notes``; מי שאינו אדמין מקבל
+    ``not_found`` — אותה תשובה כמו לפתק של מישהו אחר ולמזהה שאינו קיים,
+    כך שהסירוב אינו מגלה שהמזהה קיים. השער נסגר גם על מסמך שנושא רק חצי
+    יעד ריפו (``target: "unknown"``): כל שדה ריפו שהוא הופך את הפתק לריפו
+    לעניין השער, ולא רק יעד שלם.
+
+    ``is_admin`` הוא **חובה ובלי ברירת מחדל** (K12 §3): קורא ששכח להחליט
+    נופל בקריאה, לא לצד המתיר. ורק ``True`` ממש פותח — ערך "אמיתי" שאינו
+    בוליאני נשאר סגור, כמו ``_declares_write``.
+
+    **הגוף חוזר בדיוק כפי שהוא מאוחסן** (``stored_content``), ולא הגוף
+    המפוענח שכלי הרשימה מציגים; הנימוק המלא ב-``ProductionBackend.get_note``.
+    ``version`` הוא מספר הגוף **הנוכחי** — המספר ש-``get_note_version``
+    יקרא אותו בו אחרי שיידרס. פתק ריפו נושא ``orphaned: true`` כשהנתיב
+    כבר אינו בעץ המשוקף, באותו כלל של ``list_repo_notes``.
+    """
+    nid = (note_id or "").strip()
+    if not _NOTE_ID_RE.match(nid):
+        return {"ok": False, "error": "invalid_note_id"}
+
+    current = backend.get_note(user_id, note_id=nid)
+    if not isinstance(current, dict) or not current.get("ok"):
+        return {"ok": False, "error": str((current or {}).get("error") or "not_found")}
+
+    note = dict(current.get("note") or {})
+    is_repo_note = (
+        current.get("target") == "repo"
+        or bool(note.get("repo_name"))
+        or bool(note.get("repo_path"))
+    )
+    if is_repo_note and is_admin is not True:
+        return {"ok": False, "error": "not_found"}
+
+    stored = current.get("stored_content")
+    if isinstance(stored, str):
+        # רק מחרוזת מחליפה את הגוף המפוענח; גוף שאינו מחרוזת (אף כותב אינו
+        # שומר כזה) נשאר כפי ש-``_as_note`` הציג אותו, זהה לכלי הרשימה.
+        note["content"] = stored
+
+    out: dict[str, Any] = {"ok": True, "note": note}
+    out["version"] = int(backend.current_note_version(user_id, note_id=nid))
+    # היעד, בדיוק בארגומנטים שכלי הרשימה המתאים דורש — כמו פגיעת חיפוש.
+    out.update({k: v for k, v in current.items() if k not in ("ok", "note", "stored_content")})
+    if is_repo_note and backend.repo_path_orphaned(
+        repo_name=str(note.get("repo_name") or ""), repo_path=str(note.get("repo_path") or "")
+    ):
+        out["orphaned"] = True
+    return out
 
 
 def list_note_versions(backend: Any, user_id: int, *, note_id: str) -> dict[str, Any]:

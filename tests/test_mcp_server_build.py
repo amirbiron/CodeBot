@@ -18,6 +18,7 @@ _EXPECTED_TOOLS = {
     "codekeeper_edit_file",
     "codekeeper_append_file",
     "codekeeper_list_notes",
+    "codekeeper_get_note",
     "codekeeper_create_note",
     "codekeeper_update_note",
     "codekeeper_list_versions",
@@ -173,6 +174,104 @@ async def test_note_search_is_visible_to_a_plain_user():
     names = {t.name for t in await mcp.list_tools()}
     assert "codekeeper_search_notes" in names
     assert "codekeeper_search_notes" not in _ADMIN_TOOLS
+
+
+async def test_get_note_is_a_plain_user_tool_declared_read_only():
+    """``codekeeper_get_note`` גלוי לכל משתמש ומוצהר קריאה — ולכן במאגר הקריאות.
+
+    אינו ב-``_ADMIN_TOOLS`` בכוונה: פתק ריפו חסום לאדמין **בגוף**, ומי שאינו
+    אדמין מקבל ``not_found`` — לא ``require_admin`` שזורק ומגלה שהמזהה קיים.
+    ``readOnlyHint`` הוא מה ש-``_declares_write`` קורא, ולכן הוא מה שמוציא
+    את הכלי מתור הכתיבה.
+    """
+    from mcp_server.server import _ADMIN_TOOLS
+
+    mcp = build_mcp(_FakeBackend())
+    by_name = {t.name: t for t in await mcp.list_tools()}  # תצוגת non-admin
+
+    tool = by_name["codekeeper_get_note"]
+    assert "codekeeper_get_note" not in _ADMIN_TOOLS
+    assert tool.annotations.readOnlyHint is True
+    assert tool.inputSchema["required"] == ["note_id"]
+
+
+@pytest.mark.parametrize("admin", [True, False])
+async def test_get_note_derives_the_admin_flag_from_the_identity_it_queries_with(
+    monkeypatch, admin
+):
+    """זהות אחת לשער ולשאילתה.
+
+    ``is_admin`` נגזר מאותו ``user_id`` שנשלח ל-handler, ולא מקריאה שנייה
+    ל-``current_user_id`` — אותה הכרעה שמאחורי ערך ההחזרה של ``require_admin``
+    ב-``list_repo_notes``. הקריאה עוברת דרך ``mcp.call_tool`` הציבורי, המסלול
+    שהלקוח באמת מפעיל.
+    """
+    import mcp_server.server as srv
+
+    asked: list[int] = []
+    seen: dict = {}
+    monkeypatch.setattr(srv, "current_user_id", lambda ctx=None: 4242)
+    monkeypatch.setattr(srv, "is_admin_user", lambda uid: (asked.append(uid), admin)[1])
+    monkeypatch.setattr(
+        srv.handlers, "get_note",
+        lambda backend, user_id, **kw: seen.update(user_id=user_id, **kw) or {"ok": True},
+    )
+
+    mcp = build_mcp(_FakeBackend())
+    await mcp.call_tool("codekeeper_get_note", {"note_id": "a" * 24})
+
+    assert seen == {"user_id": 4242, "note_id": "a" * 24, "is_admin": admin}
+    assert asked == [4242]
+
+
+async def test_the_note_tool_descriptions_close_the_read_edit_loop():
+    """שרשור שלם, ואף תיאור לא אמר אותו: חיפוש ← ``get_note`` ← עריכה ← ``conflict`` ← ``get_note``.
+
+    כמו ``test_the_descriptions_name_the_search_to_range_chain``: הפער היה
+    בתיאורים ולא ביכולת. ``search_notes`` שלח לקרוא "בכלי הרשימה" — לוח של
+    18 פתקים בכ-65,000 תווים כדי להגיע לפתק אחד — ו-``note_str_replace``
+    אמר ``conflict`` בלי לומר מה לקרוא כדי לנסות שוב. ההחלטה שפגיעת חיפוש
+    לעולם אינה נושאת תוכן **נשארת**, ולכן גם היא נאכפת כאן.
+    """
+    mcp = build_mcp(_FakeBackend())
+    by_name = {t.name: t for t in mcp._tool_manager.list_tools()}
+
+    def desc(name):
+        return by_name[name].description
+
+    # חיפוש ← קריאה: את הפתק קוראים ב-get_note, לא בכלי הרשימה.
+    search = desc("codekeeper_search_notes")
+    assert "codekeeper_get_note;" in search
+    assert "hits never carry content" in search
+    assert "read the note itself with that tool" not in search
+
+    # עריכה ← conflict ← get_note ← ניסיון חוזר, בסדר הזה. ``get_note`` מוזכר
+    # גם בפתיח (מאיפה לוקחים note_id), ולכן מחפשים את האזכור שאחרי conflict.
+    replace = desc("codekeeper_note_str_replace")
+    assert "conflict" in replace and "codekeeper_get_note" in replace
+    conflict_at = replace.index("conflict")
+    assert (
+        conflict_at
+        < replace.index("codekeeper_get_note", conflict_at)
+        < replace.index("call this tool again")
+    )
+
+    # ההווה מול העבר: השניים מצביעים זה על זה, כדי שלא ייווצר ספק מי מחזיר את ההווה.
+    current, previous = desc("codekeeper_get_note"), desc("codekeeper_get_note_version")
+    assert "codekeeper_get_note_version" in current and "CURRENT" in current
+    assert "codekeeper_get_note" in previous and "PREVIOUS" in previous
+
+    # ההרשאה נאמרת: לא בעלים, או פתק ריפו בלי אדמין ← not_found.
+    assert "not_found" in current and "admin" in current
+
+    # רשימה קטנה ואחריה get_note — בשני כלי הרשימה, והפרמטר יושב בסכימה
+    # עם ברירת מחדל ששומרת על ההתנהגות הישנה ועם היחידה נקובה.
+    for name in ("codekeeper_list_notes", "codekeeper_list_board_notes"):
+        assert "include_content=false" in desc(name) and "codekeeper_get_note" in desc(name)
+        prop = by_name[name].parameters["properties"]["include_content"]
+        assert prop["type"] == "boolean" and prop["default"] is True
+        assert "content_bytes" in prop["description"] and "BYTES" in prop["description"]
+        assert "codekeeper_get_note" in prop["description"]
 
 
 def test_build_app_exposes_healthz_route():
@@ -723,7 +822,7 @@ async def test_the_tool_description_points_at_the_parameters_that_carry_the_deta
 #: לסוכן חתוך באמצע המשפט על RST ועל ``symbol=`` — שני פיצ'רים שעבדו ואף
 #: לקוח לא קרא עליהם.
 #:
-#: הבחירה ב-1,400: הכלי הארוך ביותר מבין 30 הכלים הוא
+#: הבחירה ב-1,400: הכלי הארוך ביותר מבין 31 הכלים הוא
 #: ``codekeeper_get_repo_file`` ב-1,125 תווים. כלומר המספר נותן מרווח
 #: למשפט-שניים של גדילה טבעית, ונשאר הרבה מתחת לאזור שבו החיתוך נצפה
 #: בפועל.
