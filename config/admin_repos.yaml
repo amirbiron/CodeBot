@@ -43,3 +43,7 @@ repos:
     description: "פריימר | הנחיות לסוכן"
     icon: "📝"
     badge: "לשים הוק בכל ריפו!"
+
+  - name: "markdown-it-py`issue"
+    url: "https://github.com/executablebooks/markdown-it-py/issues/434#issue-5517055344"
+    description: "אישו למעקב"
