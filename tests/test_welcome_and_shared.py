@@ -41,11 +41,16 @@ class FakeCodeSnippetsCollection:
     def __init__(self):
         self.docs = []
 
-    def find_one(self, query, sort=None):
+    def find_one(self, query, projection=None, *args, sort=None, **kwargs):
+        """חתימה כמו של ``Collection.find_one`` ב-pymongo: ההיטלה היא הארגומנט הפוזיציוני השני, ו-``sort`` מגיע בשם.
+
+        בצורה הקודמת (``query, sort=None``) ההיטלה של שאילתת המועדף (``file_favorite.py``) נחתה ב-``sort``, והשמירה החזירה 500. ``$in`` על ``file_name`` נתמך מאותה סיבה — השאילתה שואלת את כל השמות של הקובץ.
+        """
         user_id = query.get('user_id')
         file_name = query.get('file_name')
+        names = list(file_name['$in']) if isinstance(file_name, dict) and '$in' in file_name else [file_name]
         for doc in reversed(self.docs):
-            if doc.get('user_id') == user_id and doc.get('file_name') == file_name:
+            if doc.get('user_id') == user_id and doc.get('file_name') in names:
                 return doc
         return None
 

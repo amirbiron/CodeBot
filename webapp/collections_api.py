@@ -1371,7 +1371,7 @@ def _save_shared_document_to_user(db_ref, *, user_id: int, doc: Dict[str, Any]) 
         "updated_at": now,
         VERSION_CREATED_AT_FIELD: now,
         "is_active": True,
-        **favorite_fields_for_new_version(prev),
+        **favorite_fields_for_new_version(db_ref.code_snippets, int(user_id), file_name),
     }
     # אותו כלל בדיוק שששת מסלולי הכתיבה האחרים מריצים: החותמת נגזרת
     # מהשוואה בין התיאור שנכתב עכשיו לזה של הגרסה הקודמת, ולעולם אינה

@@ -198,8 +198,8 @@ from file_deletion import (  # noqa: E402
     resolve_owned_file_names,
     soft_delete_files_by_names as _soft_delete_files_by_names,
 )
-# ירושת סימון המועדף לגרסה חדשה — מודול שורש טהור, אותו כלל שמסלול השמירה
-# של הבוט ושל ה-MCP מריץ. ראו file_favorite.py.
+# ירושת סימון המועדף לגרסה חדשה — מודול שורש בלי חיבור משלו, אותו כלל
+# שמסלול השמירה של הבוט ושל ה-MCP מריץ. ראו file_favorite.py.
 from file_favorite import favorite_fields_for_new_version  # noqa: E402
 from user_stats import user_stats  # noqa: E402
 from webapp.size_format import format_file_size as _format_file_size_shared
@@ -12704,8 +12704,10 @@ def files():
     #
     # ולמה בכלל במפתח ולא בביטול קאש בעת שינוי ההעדפה: מפתח שמתאר את התוכן
     # אינו צריך פעולה שיכולה להיכשל. ``delete_pattern`` שמחזיר 0 בלי בדיקה
-    # הוא דפוס שכבר עלה בריפו הזה (ראו K11 ב-``CLAUDE.md``), ואין היום שום
-    # קוד שמבטל את ``web:files:user:*`` — הוא TTL בלבד. התקדים לצורה הזו הוא
+    # הוא דפוס שכבר עלה בריפו הזה (ראו K11 ב-``CLAUDE.md``). ומה שכן מוחק את
+    # ``web:files:user:*`` — ``CacheManager.invalidate_user_cache`` (דרך התבנית
+    # ``*:user:<id>:*``) ו-``invalidate_file_related`` — אינו נקרא משינוי העדפת
+    # תצוגה (``api_ui_prefs``). התקדים לצורה הזו הוא
     # ``_note_fonts_etag_key``, שנוצר בדיוק כדי שהעדפה שמרונדרת לתוך ה-HTML
     # תיכנס לוולידטור ולמפתח.
     _compact_tag = 'c' if files_compact_view else 'f'
@@ -14970,8 +14972,8 @@ def api_restore_file_version(file_id):
         # שורה חדשה שנכתבת עכשיו, גם אם התוכן שלה מגרסה ישנה.
         VERSION_CREATED_AT_FIELD: now,
         'is_active': True,
-        # הגרסה האחרונה קודם, ואחריה המסמך שממנו נפתח השחזור — ראו file_favorite.py
-        **favorite_fields_for_new_version(latest_doc, file_doc),
+        # המצב של הקובץ, מכל הגרסאות הפעילות שלו — ראו file_favorite.py
+        **favorite_fields_for_new_version(db.code_snippets, user_id, file_name),
     }
     source_url = version_doc.get('source_url') or file_doc.get('source_url')
     if source_url:
@@ -15816,8 +15818,11 @@ def edit_file_page(file_id):
                         VERSION_CREATED_AT_FIELD: now,
                         'is_active': True,
                         # עד 23.9.2026 המסלול הזה לא העביר את הסימון, וכל עריכה
-                        # בדפדפן כתבה גרסה לא מסומנת. אותו סדר כמו ``created_at``.
-                        **favorite_fields_for_new_version(prev, file),
+                        # בדפדפן כתבה גרסה לא מסומנת. גם השם שממנו העריכה
+                        # יצאה נשאל, כדי ששינוי שם לא יוציא קובץ מהמועדפים —
+                        # ראו file_favorite.py.
+                        **favorite_fields_for_new_version(
+                            db.code_snippets, user_id, file_name, original_file_name),
                     }
                     _attach_file_size_and_lines(new_doc, code)
                     # ``prev`` הוא הגרסה האחרונה של הקובץ, ו-``file`` הוא
@@ -17048,7 +17053,7 @@ def api_save_shared_file():
             'updated_at': now_utc,
             VERSION_CREATED_AT_FIELD: now_utc,
             'is_active': True,
-            **favorite_fields_for_new_version(prev),
+            **favorite_fields_for_new_version(db.code_snippets, user_id, safe_name),
         }
         _attach_file_size_and_lines(snippet_doc, code)
         _attach_description_stamp(snippet_doc, prev)
@@ -17761,7 +17766,7 @@ def upload_file_web():
                         'updated_at': now,
                         VERSION_CREATED_AT_FIELD: now,
                         'is_active': True,
-                        **favorite_fields_for_new_version(prev),
+                        **favorite_fields_for_new_version(db.code_snippets, user_id, file_name),
                     }
                     _attach_file_size_and_lines(doc, code)
                     _attach_description_stamp(doc, prev)
@@ -17858,6 +17863,7 @@ def api_toggle_favorite(file_id):
         except Exception:
             return jsonify({'ok': False, 'error': 'לא ניתן לעדכן מועדפים'}), 500
 
+        _invalidate_after_favorite_change(user_id)
         return jsonify({'ok': True, 'state': new_state})
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
@@ -18011,7 +18017,42 @@ def _bulk_set_favorite(state: bool):
             # הקבצים נמחקו בין הספירה לכתיבה. דיווח "N קבצים עודכנו" על
             # כתיבה שלא נגעה בכלום הוא בדיוק K11.
             return jsonify({'success': False, 'error': 'Files changed, refresh and retry'}), 409
+        _invalidate_after_favorite_change(user_id)
     return jsonify({'success': True, 'updated': len(live_names)})
+
+
+def _invalidate_after_favorite_change(user_id: int) -> None:
+    """ביטול הקאש של המשתמש אחרי שסימון מועדף השתנה — רק אחרי כתיבה שנגעה במשהו.
+
+    עמוד המועדפים נשמר כ-HTML בקאש (``files``, המפתח ``web:files:user:<id>:…``),
+    וגם ``Repository.get_latest_version`` שומר את הגרסה האחרונה עם הסימון שלה.
+    בלי הביטול, קובץ שהוסר ממועדפים חזר לרשימה ברענון עד שהקאש פג.
+
+    **``CacheManager.invalidate_user_cache`` בלבד, ולא ``invalidate_file_related``
+    לכל קובץ.** הסימון לא יושב באף קאש של קובץ בודד: ``md_preview.html`` לא
+    מציג אותו, ו-``view_file`` אינו נשמר בקאש. וקריאה לכל קובץ הייתה מכפילה
+    במספר הקבצים את העלות של ניקוי אחד — סריקה לכל תבנית, ראו
+    ``CacheManager.delete_patterns``.
+
+    **העלות.** הקריאה סינכרונית, כמו בשאר המסלולים בוובאפ שמבטלים קאש (למשל
+    ``api_restore_file_version``), והזמן שלה גדל עם גודל ה-Redis
+    (``_SCAN_COUNT`` ב-``cache_manager.py``). הפתרון השורשי, ניקוי בלי סריקה,
+    הוא #3402 — וכשהוא ייכנס הקריאה הזו תתקצר בלי שינוי כאן.
+
+    **כשל בניקוי אינו הופך את הכתיבה לכשל.** הכתיבה כבר הצליחה, ותשובת שגיאה
+    הייתה שולחת את המשתמש ללחוץ שוב — ובטוגל, לחיצה נוספת מחזירה את הסימון
+    שהוא הרגע הסיר. לכן חריגה נרשמת ללוג ולא עולה, והקאש פג לבד. זה אותו כלל
+    שכבר כתוב בטסטים של שכבת המסד: "הקאש הוא ניקוי אופורטוניסטי"
+    (``tests/test_repository_invalidation_and_list_branch.py``).
+    """
+    try:
+        cache.invalidate_user_cache(int(user_id))
+    except Exception:
+        logger.warning(
+            "files.favorite_cache_invalidation_failed request_id=%s",
+            getattr(g, "request_id", None),
+            exc_info=True,
+        )
 
 
 @app.route('/api/files/bulk-favorite', methods=['POST'])
@@ -20345,7 +20386,7 @@ def _persist_story_markdown_file(
         'updated_at': now,
         VERSION_CREATED_AT_FIELD: now,
         'is_active': True,
-        **favorite_fields_for_new_version(prev),
+        **favorite_fields_for_new_version(db_ref.code_snippets, user_id, safe_name),
     }
     _attach_file_size_and_lines(doc, normalized_markdown)
     _attach_description_stamp(doc, prev)
