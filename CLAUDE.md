@@ -40,7 +40,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 
 > `codekeeper_docs_get_section` בלי `section` מחזיר את מפת הקובץ, עם גודל כל סעיף. עם `section` הוא מחזיר רק אותו, לפי מזהה (K11) או לפי שם הכותרת.
 > `codekeeper_get_repo_file` הוא לקריאת כל הקובץ, כשמופנים למשל לקובץ תחת `bugbot-rules/`.
-> `search_repo` הוא למקרה שלא יודעים באיזה קובץ או סעיף הדפוס נמצא.
+> `codekeeper_search_repo` הוא למקרה שלא יודעים באיזה קובץ או סעיף הדפוס נמצא.
 
 אם ה-MCP לא זמין בסשן: הריפו ציבורי, אז אפשר לצרף אותו לסשן (`add_repo` ואז clone) או לקרוא ממנו ישירות. אין צורך בהרשאות מיוחדות.
 

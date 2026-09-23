@@ -4,7 +4,7 @@ What's New
 
 2026-09-23
 ----------
-- **docs (MCP): ``codekeeper_docs_get_section`` אומר איך קוראים קובץ שלם בקריאה אחת.** תיאור הכלי, שורת הטבלה ב"הכלים" וה-README אומרים עכשיו את מה שהקוד כבר ידע: ``section`` עם הכותרת הראשונה בעץ מחזיר את כל המסמך (תת-הסקשנים כלולים כברירת מחדל), ולאדמין יש גם ``codekeeper_get_repo_file``. עד היום התיאור הזכיר את ``codekeeper_get_repo_file`` רק כדבר שעדיף לא להשתמש בו, וקורא שאינו אדמין לא ידע שיש לו דרך לקרוא קובץ ``bugbot-rules`` שלם בלי סיבוב של עץ כותרות. ה-README גם אומר שהכלי קורא Markdown ולא רק RST. ובאותו PR: הבלוק "דפוסי באגים" ב-``CLAUDE.md`` מונה את ``codekeeper_get_repo_file`` לקריאת קובץ שלם מ-``amir-bug-patterns``, לצד ``codekeeper_docs_get_section`` ו-``codekeeper_search_repo``.
+- **docs (MCP): ``codekeeper_docs_get_section`` אומר איך קוראים קובץ שלם.** תיאור הכלי, שורת הטבלה ב"הכלים" וה-README אומרים עכשיו את מה שהקוד כבר ידע: ``section`` עם הכותרת הראשונה בעץ מחזיר את תת-העץ שלה (תת-הסקשנים כלולים כברירת מחדל; כל הקובץ כשהוא כולו תחת כותרת עליונה אחת, כמו קובצי ``bugbot-rules``), מדופדף כמו כל סעיף — כל עוד ``truncated`` הוא ``true`` ממשיכים מ-``next_offset`` — ולאדמין יש גם ``codekeeper_get_repo_file``. עד היום התיאור הזכיר את ``codekeeper_get_repo_file`` רק כדבר שעדיף לא להשתמש בו, וקורא שאינו אדמין לא ידע שיש לו דרך לקרוא קובץ ``bugbot-rules`` שלם בלי סיבוב של עץ כותרות. ה-README גם אומר שהכלי קורא Markdown ולא רק RST. ובאותו PR: הבלוק "דפוסי באגים" ב-``CLAUDE.md`` מונה את ``codekeeper_get_repo_file`` לקריאת קובץ שלם מ-``amir-bug-patterns``, לצד ``codekeeper_docs_get_section`` ו-``codekeeper_search_repo``.
 
 2026-09-22
 ----------

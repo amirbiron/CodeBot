@@ -59,7 +59,7 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_get_collection` | אוסף בודד לפי id |
 | `codekeeper_get_collection_items` | הקבצים בתוך אוסף (עם עימוד/סינון תיקייה) |
 | `codekeeper_add_to_collection` | **כתיבה:** שיוך קובץ שמור קיים לאוסף קיים. `save_file` **אינו** משייך — זו הקריאה השנייה שמשלימה אותו. נכשל במפורש כשהאוסף או הקובץ אינם קיימים. דורש `write` |
-| `codekeeper_docs_get_section` | סקשן בודד מקובץ תיעוד — RST (`docs/*.rst`) או Markdown (בריפו שמגיש `.md`, כמו `amir-bug-patterns`) — במקום קובץ שלם; בלי `section` מחזיר עץ כותרות. כולל breadcrumb/תת‑סקשנים/שכנים לניווט. **קובץ שלם בקריאה אחת:** `section` עם הכותרת הראשונה בעץ (תת‑הסקשנים כלולים כברירת מחדל), או, לאדמין, `codekeeper_get_repo_file`. עדיף על `codekeeper_get_repo_file` לקריאת תיעוד לפי סעיפים |
+| `codekeeper_docs_get_section` | סקשן בודד מקובץ תיעוד — RST (`docs/*.rst`) או Markdown (בריפו שמגיש `.md`, כמו `amir-bug-patterns`) — במקום קובץ שלם; בלי `section` מחזיר עץ כותרות. כולל breadcrumb/תת‑סקשנים/שכנים לניווט. **קובץ שלם:** `section` עם הכותרת הראשונה בעץ מחזיר את תת‑העץ שלה (תת‑הסקשנים כלולים כברירת מחדל; כל הקובץ כשהוא כולו תחת כותרת עליונה אחת, כמו קובצי `bugbot-rules`), מדופדף כמו כל סעיף — כל עוד `truncated` הוא `true` ממשיכים מ‑`next_offset` — או, לאדמין, `codekeeper_get_repo_file`. עדיף על `codekeeper_get_repo_file` לקריאת תיעוד לפי סעיפים |
 
 > **היסטוריית פתקים.** כל עדכון **שמשנה** את ה‑`content` שומר את הגוף הקודם באוסף
 > `sticky_note_versions` **לפני** הדריסה — עד 20 גרסאות לפתק (עדכון עם תוכן זהה אינו
