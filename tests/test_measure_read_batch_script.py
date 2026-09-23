@@ -238,3 +238,40 @@ def test_a_missing_mirror_is_refused_by_name_before_anything_runs(tmp_path, caps
 
     assert code == 2
     assert f"{_NAME}.git" in capsys.readouterr().err
+
+
+def test_the_documented_gap_to_production_is_the_ref_label():
+    """התיעוד מסביר את הפער בין הסבב בפרודקשן לסבב של הסקריפט ב-``ref`` בלבד.
+
+    ``docs/mcp-server.rst`` מצטט שני מספרים לאותו סבב — מה שהפרודקשן שלח ומה
+    שהסקריפט מודד — ואומר שההפרש הוא שם הענף שכל פריט שנקרא נושא: ``HEAD``
+    בלי מונגו, ו-``refs/heads/main`` בפרודקשן. כאן ההפרש לפריט נגזר מ-
+    ``RepoBackend._default_ref`` עצמו, ומספר הפריטים מ-``REVIEW_ROUND``. מי
+    שמוסיף פריט לסבב, או משנה את מה ש-``_default_ref`` מחזיר, מפיל את הטסט —
+    כי אז שני המספרים המתוארכים בתיעוד כבר אינם של הסבב הזה, וצריך למדוד שוב.
+    """
+    import re
+
+    from mcp_server.repo_backend import RepoBackend
+
+    class _Metadata:
+        def find_one(self, query: dict[str, Any]) -> dict[str, Any]:
+            return {"default_branch": "main"}
+
+    script = _load_script()
+    page = (_REPO / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
+
+    def number(pattern: str) -> int:
+        found = re.search(pattern, page)
+        assert found, f"המשפט {pattern!r} אינו בצורה שהטסט קורא"
+        return int(found.group(1).replace(",", ""))
+
+    in_production = number(r"בפרודקשן הסבב האמיתי היה ([\d,]+) בתים")
+    by_the_script = number(r"\*\*אותו סבב במדידה המקומית\.\*\*.*?ומודד ([\d,]+) בתים")
+    per_item = number(r"(\d+) בתים פחות בכל פריט שנקרא")
+
+    production_ref = RepoBackend(db={"repo_metadata": _Metadata()})._default_ref(_NAME)
+    local_ref = RepoBackend(db=None)._default_ref(_NAME)
+    assert (production_ref, local_ref) == ("refs/heads/main", "HEAD")
+    assert per_item == len(production_ref) - len(local_ref)
+    assert in_production - by_the_script == len(script.REVIEW_ROUND) * per_item
