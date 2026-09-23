@@ -67,6 +67,8 @@ from file_deletion import (
     resolve_owned_file_names,
     soft_delete_files_by_names as _shared_soft_delete_by_names,
 )
+# ירושת סימון המועדף — מודול שורש טהור, אותו כלל שכותבי הוובאפ מריצים.
+from file_favorite import favorite_fields_for_new_version
 from config import config
 try:
     from observability import emit_event
@@ -584,17 +586,12 @@ class Repository:
                 # תאריך היצירה שייך לקובץ, לא לשורה: גרסה חדשה יורשת אותו
                 # מהגרסה הקודמת, אחרת "נוצר" היה מציג את זמן העריכה האחרונה.
                 snippet.created_at = inherited_created_at(snippet.created_at, existing)
-                # שמור סטטוס מועדפים מהגרסה הקודמת אם לא סופק מפורשות
-                try:
-                    prev_is_fav = bool(existing.get('is_favorite', False))
-                    if prev_is_fav and not bool(getattr(snippet, 'is_favorite', False)):
-                        snippet.is_favorite = True
-                        try:
-                            snippet.favorited_at = existing.get('favorited_at')
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                # סטטוס המועדף עובר לגרסה החדשה, אלא אם הקורא סימן מפורשות.
+                # הכלל משותף לכל שבעת מסלולי הכתיבה — ראו file_favorite.py.
+                if not bool(getattr(snippet, 'is_favorite', False)):
+                    inherited = favorite_fields_for_new_version(existing)
+                    snippet.is_favorite = inherited['is_favorite']
+                    snippet.favorited_at = inherited['favorited_at']
                 # שמור סטטוס נעיצה מהגרסה הקודמת אם לא סופק מפורשות
                 try:
                     prev_is_pinned = bool(existing.get('is_pinned', False))
@@ -1656,7 +1653,18 @@ class Repository:
                         {"tags": {"$not": {"$elemMatch": {"$regex": "^repo:"}}}},
                     ]
                 }},
-                {"$sort": {"updated_at": -1}},
+                # ההיטלה **לפני** המיון, ולא אחריו. ``$skip`` + ``$limit``
+                # מאוחדים לתוך המיון, והוא מחזיק בזיכרון ``skip + per_page``
+                # מסמכים — שלמים, כל עוד ההיטלה אחריו. נמדד על הקלאסטר ב-
+                # 23.9.2026, אצל המשתמש הראשי: עמוד ראשון של 50 — 1,716,112
+                # בתים (``totalDataSizeSortedBytesEstimate`` ב-explain). בעמוד
+                # האחרון המיון מחזיק את הגרסה האחרונה של כל הקבצים עם הגוף
+                # שלהם — עד 19,114,802 בתים (``$bsonSize``), מול תקרת מיון של
+                # 33,554,432 באשכול (``internalQueryMaxBlockingSortMemoryUsageBytes``).
+                # והסוכן לא היה רואה את הכשל: ה-``except`` שמתחת רושם
+                # ``db_get_regular_files_paginated_error`` ומחזיר ``([], 0)``,
+                # כלומר "אין קבצים".
+                #
                 # ``version`` והחותמת — ראו ההערה באותה היטלה ב-
                 # ``_search_code_cached``: בלעדיהם ``codekeeper_list_files``
                 # מחזיר גיל ``null`` לכל קובץ.
@@ -1670,6 +1678,9 @@ class Repository:
                     "version": 1,
                     DESCRIPTION_SET_AT_VERSION_FIELD: 1,
                 }},
+                # ``_id`` שובר שוויון, כדי שקבצים עם אותו ``updated_at`` לא
+                # יקפצו בין עמודים (``docs/database/cursor-pagination.rst``).
+                {"$sort": {"updated_at": -1, "_id": -1}},
                 {"$skip": skip},
                 {"$limit": per_page},
             ]

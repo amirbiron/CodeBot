@@ -664,11 +664,14 @@ async def test_an_old_file_reports_a_real_age_once_the_migration_has_run(wired_m
 
 
 #: הקבצים שמותר להם לכתוב מסמך גרסה ל-``code_snippets``, ומה כל אחד חייב
-#: להזכיר כדי שהכתיבה תיחשב מכוסה.
+#: להזכיר כדי שהכתיבה תיחשב מכוסה — כלל אחד לכל שדה שגרסה חדשה גוזרת או
+#: יורשת. רשימה **אחת** לכל הכללים, ולא רשימה לכל כלל: כותב שיתווסף ייתפס
+#: פעם אחת כאן, ולא יחמוק מכלל שהרשימה שלו לא עודכנה. סימון המועדף נוסף
+#: אחרי שחמישה מתוך שבעת הכותבים נמצאו מאבדים אותו (``file_favorite.py``).
 _VERSION_WRITERS = {
-    "database/repository.py": "description_stamp_for_new_version",
-    "webapp/app.py": "_attach_description_stamp",
-    "webapp/collections_api.py": "description_stamp_for_new_version",
+    "database/repository.py": ("description_stamp_for_new_version", "favorite_fields_for_new_version"),
+    "webapp/app.py": ("_attach_description_stamp", "favorite_fields_for_new_version"),
+    "webapp/collections_api.py": ("description_stamp_for_new_version", "favorite_fields_for_new_version"),
 }
 
 
@@ -710,19 +713,26 @@ def test_every_path_that_writes_a_version_also_sets_the_stamp():
     הבדיקה היא על **הכלה בגוף הפונקציה** ולא על סדר או מיקום, כי מה
     שנאכף הוא שהמסלול מחובר לכלל המשותף — לא איך הוא נראה. שינוי שם של
     העוזר מפיל אותה, וזה בסדר: שם הוא בדיוק מה שהיא מצביעה עליו.
+
+    אותה בדיקה נושאת גם את כלל המועדף: חמישה מתוך שבעה כותבים בנו את
+    הגרסה החדשה בלי ``is_favorite``, והקובץ איבד את הסימון בכל עריכה. הכלל
+    והראיות ב-``file_favorite.py``, והבדיקה ההתנהגותית לכל כותב ב-
+    ``tests/test_favorite_is_a_file_state.py``.
     """
     offenders = []
-    for relative_path, required in _VERSION_WRITERS.items():
+    for relative_path, required_rules in _VERSION_WRITERS.items():
         source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
         tree = ast.parse(source)
         for function in _functions_inserting_versions(tree):
             body = ast.get_source_segment(source, function) or ""
-            if required not in body:
-                offenders.append(f"{relative_path}::{function.name}")
+            for required in required_rules:
+                if required not in body:
+                    offenders.append(f"{relative_path}::{function.name} ← {required}")
 
     assert offenders == [], (
-        "מסלול שכותב גרסה חדשה ואינו קובע את חותמת התיאור — כלומר עריכה "
-        "שתאפס את הגיל בשקט, או תשאיר חותמת של קובץ אחר: " + ", ".join(offenders)
+        "מסלול שכותב גרסה חדשה ואינו מריץ את אחד הכללים — חותמת התיאור "
+        "(עריכה שתאפס את הגיל בשקט) או ירושת המועדף (קובץ שיאבד את הסימון "
+        "בעריכה הבאה): " + ", ".join(offenders)
     )
 
 
@@ -767,7 +777,7 @@ def test_no_file_outside_the_known_writers_inserts_a_version():
 
     assert offenders == [], (
         "קובץ שכותב מסמך גרסה ואינו ברשימת המסלולים המכוסים — הוסיפו אותו "
-        f"ל-_VERSION_WRITERS יחד עם חיבור לכלל החותמת: {sorted(set(offenders))}"
+        f"ל-_VERSION_WRITERS יחד עם חיבור לכל הכללים שבה: {sorted(set(offenders))}"
     )
 
 

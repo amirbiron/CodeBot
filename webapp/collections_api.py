@@ -30,6 +30,8 @@ from file_description import (
     DESCRIPTION_SET_AT_VERSION_FIELD,
     description_stamp_for_new_version,
 )
+# ירושת סימון המועדף — אותו כלל בכל מסלול שכותב גרסה. ראו file_favorite.py.
+from file_favorite import favorite_fields_for_new_version
 try:
     from config import config as _cfg  # type: ignore
 except Exception:  # pragma: no cover
@@ -1369,6 +1371,7 @@ def _save_shared_document_to_user(db_ref, *, user_id: int, doc: Dict[str, Any]) 
         "updated_at": now,
         VERSION_CREATED_AT_FIELD: now,
         "is_active": True,
+        **favorite_fields_for_new_version(prev),
     }
     # אותו כלל בדיוק שששת מסלולי הכתיבה האחרים מריצים: החותמת נגזרת
     # מהשוואה בין התיאור שנכתב עכשיו לזה של הגרסה הקודמת, ולעולם אינה

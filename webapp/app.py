@@ -18,7 +18,7 @@ import socket
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
 from types import SimpleNamespace
-from typing import Optional, Dict, Any, List, Tuple, Set, Union
+from typing import Optional, Dict, Any, List, Tuple, Union
 from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g, flash, make_response, send_from_directory
@@ -32,7 +32,7 @@ from urllib.parse import urlparse, urlunparse, quote as url_quote
 from werkzeug.exceptions import HTTPException
 from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING, ASCENDING
-from pymongo.errors import PyMongoError, OperationFailure
+from pymongo.errors import PyMongoError
 from pygments import highlight
 from pygments.lexers import TextLexer, get_lexer_by_name, guess_lexer
 from pygments.util import ClassNotFound
@@ -198,6 +198,9 @@ from file_deletion import (  # noqa: E402
     resolve_owned_file_names,
     soft_delete_files_by_names as _soft_delete_files_by_names,
 )
+# ירושת סימון המועדף לגרסה חדשה — מודול שורש טהור, אותו כלל שמסלול השמירה
+# של הבוט ושל ה-MCP מריץ. ראו file_favorite.py.
+from file_favorite import favorite_fields_for_new_version  # noqa: E402
 from user_stats import user_stats  # noqa: E402
 from webapp.size_format import format_file_size as _format_file_size_shared
 from webapp.activity_tracker import log_user_event  # noqa: E402
@@ -344,48 +347,95 @@ _MONGO_ADD_SIZE_LINES_STAGE = {
 }
 
 
+#: "הקובץ אינו ריק", לפי ``file_size`` השמור. ``None`` מתאים גם לשדה חסר
+#: (https://www.mongodb.com/docs/manual/tutorial/query-for-null-fields/),
+#: ומסמך בלי גודל שמור נחשב לא-ריק: אי אפשר לדעת את גודלו בלי למשוך את
+#: ``code``, והסתרת קובץ של משתמש גרועה מהצגתו. ב-23.9.2026 לכל 1,406
+#: המסמכים במסד היה ``file_size`` שמור (קיבוץ לפי ``$type`` של השדה על כל
+#: ``code_snippets``), ולכן זו רשת ביטחון ולא מקרה חי.
+_NON_EMPTY_FILE_MATCH: Dict[str, Any] = {
+    '$or': [{'file_size': {'$gt': 0}}, {'file_size': None}],
+}
+
+
 def _latest_version_per_file_stages(
     match: Dict[str, Any],
     *,
-    with_size_fields: bool = True,
+    non_empty_only: bool = True,
+    favorites_only: bool = False,
 ) -> List[Dict[str, Any]]:
-    """שלבי "הגרסה האחרונה לכל שם קובץ", עם השדות הכבדים יורדים מוקדם.
+    """שלבי "הגרסה האחרונה לכל שם קובץ" — שורה אחת לכל קובץ, בלי גוף הקובץ.
 
     כל עריכה יוצרת מסמך חדש ב-``code_snippets``, ולכן מסך רשימה חייב לקבץ
-    לפי ``file_name`` ולקחת את ה-``version`` הגבוה. הקיבוץ נעשה עם
-    ``$$ROOT`` כדי לשמור את המסמך כולו.
+    לפי ``file_name`` ולקחת את ה-``version`` הגבוה. ``match`` מסנן **גרסאות**
+    לפני הקיבוץ (משתמש, פעיל, שפה, חיפוש, קטגוריה).
 
-    **סדר השלבים כאן הוא כל העניין.** ``$sort`` מאגר את מה שהוא ממיין,
-    ו-``$group`` צובר את מה שהוא שומר — ואם ``code`` עדיין במסמך באותו
-    רגע, גוף הקובץ נכנס לזיכרון. בפרודקשן זה חרג מתקציב ה-100MB של מונגו
-    והחזיר שגיאה 292, שגררה נפילה למסלול ``find`` איטי: 3.1 עד 3.4 שניות
-    לטעינת ``/files``.
+    **הסדר כאן הוא כל העניין: רק ``$match`` רשאי לבוא לפני ההיטלה.** כך מונגו
+    מחיל את הורדת השדות הכבדים כבר בשכבת השאילתה, והמסמכים שמגיעים לקיבוץ
+    קטנים באמת. שלב אחר באמצע — עד 23.9.2026 ישב שם ``$addFields`` שחישב
+    גודל מתוך ``$code`` — מבטל את זה: ההיטלה רצה אז כשלב בצינור, ושם היא
+    **לא** מקטינה את מה שהשלב הבא נספר עליו. נמדד ב-23.9.2026 על הקלאסטר
+    ‏(MongoDB 8.0.32, Atlas Flex), ב-``explain`` במצב ``executionStats``,
+    בשדה ``totalDataSizeSortedBytesEstimate`` של שלב המיון: מיון של אותם 79
+    מסמכים נספר 2,585,634 בתים בצורה הישנה ו-93,939 כשההיטלה צמודה ל-
+    ``$match``. אצל המשתמש הראשי הגודל המלא של כל הגרסאות היה 35,776,968
+    בתים (``$bsonSize``), מעל תקרת המיון של האשכול
+    (``internalQueryMaxBlockingSortMemoryUsageBytes``, 33,554,432 לפי
+    ``serverParameters`` שב-explain), ו"שאר קבצים" החזיר 500 עם שגיאה 292.
 
-    ``allowDiskUse`` **אינו** מציל כאן. התיעוד של Atlas מפורש: *"Atlas
-    Free clusters and Flex clusters don't support writing temporary files
-    to disk. Atlas ignores the ``allowDiskUse`` option and the
-    corresponding commands behave as if the ``allowDiskUse`` option is set
-    to ``false``."* אין דלת מילוט לדיסק, ולכן הדרך היחידה היא לא להכניס
-    את השדות הכבדים לשלבים האלה מלכתחילה.
+    ``allowDiskUse`` **אינו** מציל כאן: *"Atlas Free clusters and Flex
+    clusters don't support writing temporary files to disk. Atlas ignores
+    the ``allowDiskUse`` option"*
+    (https://www.mongodb.com/docs/atlas/reference/free-shared-limitations/).
+
+    **קיבוץ בלי מיון מקדים.** ``$top`` בוחר את הגרסה הגבוהה בתוך הקיבוץ
+    עצמו (MongoDB 5.2 ומעלה), כך שאין מיון שחוסם על כל הגרסאות — הזיכרון
+    גדל עם מספר הקבצים ולא עם מספר הגרסאות. ``_id`` שובר שוויון בין שתי
+    גרסאות עם אותו מספר, כפי שתיעוד ``$top`` ממליץ. על הנתונים המלאים
+    בפרודקשן, באותה מדידה, הצינור של "כל הקבצים" רץ ב-26ms
+    (``executionTimeMillis``), והמיון של העמוד הראשון נספר 23,738 בתים. גם
+    בעמוד האחרון הוא לא יכול לעבור בהרבה את המטא-דאטה של כל הגרסאות בלי
+    השדות הכבדים — 838,899 בתים ב-``$bsonSize``, פחות מ-3% מהתקרה.
 
     **החרגה ולא רשימת שדות מותרים.** ``LIST_EXCLUDE_HEAVY_PROJECTION``
-    מוריד את הכבדים ומשאיר את השאר, ולכן התוצאה זהה למה שהצינורות החזירו
-    קודם. רשימת מותרים הייתה נקייה יותר למראה, אבל תנאי סינון שיתווסף מחר
-    על שדה שאינו ברשימה היה מחזיר בשקט תוצאה ריקה.
+    מוריד את הכבדים ומשאיר את השאר, ולכן שדה שיתווסף למסמך יגיע לרשימה
+    בלי שמישהו יזכור להוסיף אותו כאן.
 
-    ``with_size_fields`` — האם לחשב ``file_size``/``lines_count`` ולסנן
-    קבצים ריקים. **חייב להישאר כבוי אצל מי שלא עשה זאת קודם:** הוספת
-    ``$match`` על ``file_size`` משנה את קבוצת התוצאות, ואצל מונה זה משנה
-    את המספר שהמשתמש רואה. שלב החישוב רץ **לפני** ההחרגה, כי הוא נגזר
-    מ-``$code``.
+    ``non_empty_only`` — לסנן קבצים ריקים לפי ``_NON_EMPTY_FILE_MATCH``.
+    הסינון חל על הגרסאות **לפני** הקיבוץ, כך שנבחרת הגרסה האחרונה
+    הלא-ריקה. **כבוי אצל מי שלא סינן קודם** (רשימת הריפואים, הווידג'ט,
+    המועדפים, תצוגת ריפו): הוספת הסינון הייתה משנה את קבוצת התוצאות.
+
+    ``favorites_only`` — הכלל ברמת הקובץ של ``file_favorite.py``: קובץ
+    נכנס אם **איזושהי** גרסה פעילה שלו מסומנת, והשורה היא הגרסה האחרונה
+    שלו גם כשהיא עצמה לא מסומנת. ``favorited_at`` של השורה הוא הסימון
+    האחרון בקובץ. סינון ``is_favorite`` בתוך ``match`` היה בוחר את האחרונה
+    **מבין המסומנות** — ובפרודקשן נמצאו שני קבצים שבהם זו גרסה ישנה.
     """
     stages: List[Dict[str, Any]] = [{'$match': match}]
-    if with_size_fields:
-        stages.append(_MONGO_ADD_SIZE_LINES_STAGE)
-        stages.append({'$match': {'file_size': {'$gt': 0}}})
+    if non_empty_only:
+        stages.append({'$match': dict(_NON_EMPTY_FILE_MATCH)})
     stages.append({'$project': dict(LIST_EXCLUDE_HEAVY_PROJECTION)})
-    stages.append({'$sort': {'file_name': 1, 'version': -1}})
-    stages.append({'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}})
+    group: Dict[str, Any] = {
+        '_id': '$file_name',
+        'latest': {'$top': {'sortBy': {'version': -1, '_id': -1}, 'output': '$$ROOT'}},
+    }
+    if favorites_only:
+        # ``$max`` מתעלם מ-null כל עוד יש ערך אחר, ובוליאני משווה לפי סדר
+        # BSON (false < true) — https://www.mongodb.com/docs/manual/reference/operator/aggregation/max/
+        group['is_favorite'] = {'$max': {'$eq': ['$is_favorite', True]}}
+        group['favorited_at'] = {
+            '$max': {'$cond': [{'$eq': ['$is_favorite', True]}, '$favorited_at', None]},
+        }
+        stages.append({'$group': group})
+        stages.append({'$match': {'is_favorite': True}})
+        # הערך מהמסמך האחרון בממוזג גובר (תיעוד ``$mergeObjects``), ולכן
+        # הסימון ברמת הקובץ דורס את מה שכתוב על הגרסה עצמה.
+        stages.append({'$replaceRoot': {'newRoot': {'$mergeObjects': [
+            '$latest', {'is_favorite': True, 'favorited_at': '$favorited_at'},
+        ]}}})
+        return stages
+    stages.append({'$group': group})
     stages.append({'$replaceRoot': {'newRoot': '$latest'}})
     return stages
 
@@ -11912,7 +11962,7 @@ def _build_files_need_attention(
     projection = dict(HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
     def _latest_files_pipeline(match_extra: Optional[Dict[str, Any]], sort_after: Dict[str, int]) -> List[Dict[str, Any]]:
-        pipeline = _latest_version_per_file_stages(base_query, with_size_fields=False)
+        pipeline = _latest_version_per_file_stages(base_query, non_empty_only=False)
         if dismissed_oids:
             pipeline.append({'$match': {'_id': {'$nin': dismissed_oids}}})
         if match_extra:
@@ -11929,7 +11979,7 @@ def _build_files_need_attention(
         # ``description``/``tags``/``updated_at``) חלים עליו ולא על כל גרסה.
         # ``$project {file_name: 1}`` היה מוחק בדיוק את השדות האלה, והספירה
         # הייתה יוצאת אפס.
-        pipeline = _latest_version_per_file_stages(base_query, with_size_fields=False)
+        pipeline = _latest_version_per_file_stages(base_query, non_empty_only=False)
         if dismissed_oids:
             pipeline.append({'$match': {'_id': {'$nin': dismissed_oids}}})
         if match_extra:
@@ -12729,130 +12779,19 @@ def files():
             return curr_query
 
     def _aggregate_code_snippets(curr_pipeline: List[Dict[str, Any]]):
-        """הרצת aggregation עם allowDiskUse כדי למנוע חריגות זיכרון בשלב sort."""
-        return _aggregate_snippets(db, curr_pipeline)
+        """ה-``aggregate`` של העמוד, דרך ``_aggregate_snippets``.
 
-    def _fallback_files_created_at_page(
-        curr_query: Dict[str, Any],
-        curr_sort_dir: int,
-        curr_last_dt: Optional[datetime],
-        curr_last_oid: Optional[Any],
-    ) -> List[Dict[str, Any]]:
-        """Fallback ללא aggregate במקרה של קוד 292 במסלול /files.
+        ``allowDiskUse`` מועבר שם, אבל באשכול של הפרודקשן (Atlas Flex) מתעלמים
+        ממנו — מה שמחזיק את הרשימות בתוך תקרת הזיכרון הוא צורת הצינור ב-
+        ``_latest_version_per_file_stages``, לא הדגל.
 
-        המטרה: למנוע 500 גם אם allowDiskUse לא נאכף בפועל ע"י השרת/פרוקסי.
-        נחזיר רשימה מדורגת לפי created_at עם דה-דופ לפי file_name.
+        **אין כאן מסלול עוקף ל-292, במכוון.** עד 23.9.2026 "כל הקבצים" תפס את
+        השגיאה ועבר ל-``find`` שסרק עד 4,000 מסמכים במנות ובחר גרסה לפי סדר
+        ``created_at`` ולא לפי מספר הגרסה. כך הוא הסתיר 17 יום צינור שנכשל
+        בכל טעינה, וזה שנחשף היה "שאר קבצים", שלא היה לו מסלול כזה. כשל כאן
+        עולה כשגיאה (``bugbot-rules/silent-fallback-to-worse-path.md``).
         """
-        try:
-            fallback_query: Dict[str, Any] = dict(curr_query)
-            and_list = list(fallback_query.get('$and') or [])
-            if curr_last_dt is not None and curr_last_oid is not None:
-                if curr_sort_dir == -1:
-                    and_list.append({
-                        '$or': [
-                            {'created_at': {'$lt': curr_last_dt}},
-                            {'$and': [
-                                {'created_at': {'$eq': curr_last_dt}},
-                                {'_id': {'$lt': curr_last_oid}},
-                            ]},
-                        ]
-                    })
-                else:
-                    and_list.append({
-                        '$or': [
-                            {'created_at': {'$gt': curr_last_dt}},
-                            {'$and': [
-                                {'created_at': {'$eq': curr_last_dt}},
-                                {'_id': {'$gt': curr_last_oid}},
-                            ]},
-                        ]
-                    })
-            fallback_query['$and'] = and_list
-
-            # exclude-projection: משאיר רק מטא-דאטה, בלי code/content כבדים
-            projection = dict(LIST_EXCLUDE_HEAVY_PROJECTION)
-            batch_size = max(120, per_page * 6)
-            max_scan = 4000
-            scanned = 0
-            skip_local = 0
-            seen_names: Set[str] = set()
-            out: List[Dict[str, Any]] = []
-
-            while len(out) < (per_page + 1) and scanned < max_scan:
-                batch = list(
-                    db.code_snippets.find(fallback_query, projection)
-                    .sort([('created_at', curr_sort_dir), ('_id', curr_sort_dir)])
-                    .skip(skip_local)
-                    .limit(batch_size)
-                )
-                if not batch:
-                    break
-
-                # השלמת file_size/lines_count למסמכים שחסר להם מטא-דאטה,
-                # בלי להחזיר את `code` למסך רשימה (חישוב ב-DB בלבד).
-                try:
-                    needs_ids = []
-                    for d in batch:
-                        if not isinstance(d, dict):
-                            continue
-                        if d.get('file_size') is None or d.get('lines_count') is None:
-                            _id = d.get('_id')
-                            if _id is not None:
-                                needs_ids.append(_id)
-                    if needs_ids:
-                        meta_pipeline = [
-                            {'$match': {'_id': {'$in': needs_ids}}},
-                            _MONGO_ADD_SIZE_LINES_STAGE,
-                            {'$project': {'_id': 1, 'file_size': 1, 'lines_count': 1}},
-                        ]
-                        meta_docs = list(_aggregate_code_snippets(meta_pipeline))
-                        meta_map = {m.get('_id'): m for m in meta_docs if isinstance(m, dict)}
-                        for d in batch:
-                            if not isinstance(d, dict):
-                                continue
-                            m = meta_map.get(d.get('_id'))
-                            if isinstance(m, dict):
-                                # הימנע מדריסה של שדות קיימים אם כבר קיימים במסמך
-                                if d.get('file_size') is None and m.get('file_size') is not None:
-                                    d['file_size'] = m.get('file_size')
-                                if d.get('lines_count') is None and m.get('lines_count') is not None:
-                                    d['lines_count'] = m.get('lines_count')
-                except Exception:
-                    # fallback "שקט": עדיף להחזיר תוצאות גם אם ההשלמה נכשלה
-                    pass
-
-                skip_local += len(batch)
-                scanned += len(batch)
-                for doc in batch:
-                    fname = str(doc.get('file_name') or '').strip()
-                    if not fname:
-                        continue
-                    # שמור על "קובץ לא ריק" בלי למשוך code:
-                    # אם file_size קיים ומשמש כ-0 -> דלג.
-                    size_val = doc.get('file_size')
-                    if size_val is not None:
-                        try:
-                            if int(size_val) <= 0:
-                                continue
-                        except Exception:
-                            continue
-                    if fname in seen_names:
-                        continue
-                    seen_names.add(fname)
-                    out.append(doc)
-                    if len(out) >= (per_page + 1):
-                        break
-
-            logger.warning(
-                "files.aggregate_fallback_used request_id=%s scanned=%s returned=%s",
-                getattr(g, "request_id", None),
-                scanned,
-                len(out),
-            )
-            return out
-        except Exception:
-            logger.exception("files.aggregate_fallback_failed request_id=%s", getattr(g, "request_id", None))
-            return []
+        return _aggregate_snippets(db, curr_pipeline)
     
     if search_query:
         # חיפוש טקסטואלי ב-UI: נעדיף $text במקום $regex כדי לאפשר שימוש באינדקס טקסט
@@ -12876,10 +12815,10 @@ def files():
                     'is_active': True,
                 }
                 # מיישר ללוגיקה של הבוט: קבוצה לפי file_name (הגרסה האחרונה בלבד), ואז חילוץ תגית repo: אחת
-                # אין כאן ``with_size_fields``: הצינור הזה מעולם לא סינן לפי
+                # אין כאן ``non_empty_only``: הצינור הזה מעולם לא סינן לפי
                 # ``file_size``, והוספת הסינון הייתה משנה את רשימת הריפואים.
                 repo_pipeline = _latest_version_per_file_stages(
-                    base_active_query, with_size_fields=False,
+                    base_active_query, non_empty_only=False,
                 ) + [
                     {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
                     {'$project': {
@@ -13001,8 +12940,11 @@ def files():
                 count_result = list(_aggregate_code_snippets(pipeline + [{'$count': 'total'}]))
                 total_count = count_result[0]['total'] if count_result else 0
         elif category_filter == 'favorites':
-            # קטגוריית "מועדפים" – השתמש בשדה is_favorite
-            query['$and'].append({'is_favorite': True})
+            # "מועדפים" אינו מסנן גרסאות כאן, במכוון. הכלל הוא ברמת הקובץ —
+            # קובץ נכנס אם איזושהי גרסה פעילה שלו מסומנת, ומוצגת הגרסה
+            # האחרונה שלו — והבנאי מחיל אותו אחרי הקיבוץ (``favorites_only``).
+            # ``is_favorite: True`` בשאילתה היה בוחר את האחרונה מבין המסומנות.
+            pass
         elif category_filter == 'other':
             # שאר הקבצים (לא מסומנים כריפו/גיטהאב, לא ZIP)
             query['$and'].append({
@@ -13018,59 +12960,38 @@ def files():
             # נחזיר מוקדם תבנית שמחכה ל-files_list שנבנה מטבלת recent_opens
             pass
     
-    # ספירת סך הכל (אם לא חושב כבר)
-    if not category_filter:
-        # "כל הקבצים": ספירה distinct לפי שם קובץ לאחר סינון (תוכן >0)
-        count_pipeline = [
-            {'$match': query},
-            _MONGO_ADD_SIZE_LINES_STAGE,
-            {'$match': {'file_size': {'$gt': 0}}},
-            {'$group': {'_id': '$file_name'}},
-            {'$count': 'total'}
-        ]
+    # איך בונים שורה לכל קובץ. הספירה והשליפה משתמשות באותן אפשרויות בדיוק,
+    # כדי ש"מציג X מתוך Y" יספור את מה שמוצג — קבצים, לא גרסאות. עד 23.9.2026
+    # מועדפים ותצוגת ריפו ספרו ב-``count_documents``, כלומר גרסאות. הסינון של
+    # קבצים ריקים נשאר רק היכן שהיה קודם: "כל הקבצים" ו"שאר הקבצים".
+    latest_opts: Dict[str, Any] = {
+        'non_empty_only': category_filter in ('', 'other'),
+        'favorites_only': category_filter == 'favorites',
+    }
+
+    # ספירת סך הכל. ``recent`` סופר בעצמו אחרי השליפה, ו-``large`` כבר ספר.
+    if category_filter not in ('large', 'recent'):
+        count_tail = [{'$count': 'total'}]
         try:
-            count_result = list(_aggregate_code_snippets(count_pipeline))
+            count_result = list(_aggregate_code_snippets(
+                _latest_version_per_file_stages(query, **latest_opts) + count_tail))
         except Exception:
+            # ``$text`` נכשל (אינדקס טקסט חסר או בבנייה) — חיפוש ליטרלי, וגם
+            # השליפה שאחרי תשתמש בו.
             query = _with_regex_fallback(query)
-            count_pipeline[0] = {'$match': query}
             try:
-                count_result = list(_aggregate_code_snippets(count_pipeline))
+                count_result = list(_aggregate_code_snippets(
+                    _latest_version_per_file_stages(query, **latest_opts) + count_tail))
             except Exception:
+                # הרשימה עצמה עוד תרוץ ותיכשל בקול אם הבעיה במסד. ספירה
+                # שנכשלה לבד מוצגת כאפס — ונרשמת, כדי שלא תיבלע.
+                logger.warning(
+                    "files.count_failed category=%s request_id=%s",
+                    category_filter or 'all', getattr(g, "request_id", None), exc_info=True,
+                )
                 count_result = []
         total_count = count_result[0]['total'] if count_result else 0
-    elif category_filter == 'other':
-        # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (תוכן >0), עם עקביות ל-query הכללי
-        count_pipeline = [
-            {'$match': query},
-            _MONGO_ADD_SIZE_LINES_STAGE,
-            {'$match': {'file_size': {'$gt': 0}}},
-            {'$group': {'_id': '$file_name'}},
-            {'$count': 'total'}
-        ]
-        try:
-            count_result = list(_aggregate_code_snippets(count_pipeline))
-        except Exception:
-            query = _with_regex_fallback(query)
-            count_pipeline[0] = {'$match': query}
-            try:
-                count_result = list(_aggregate_code_snippets(count_pipeline))
-            except Exception:
-                count_result = []
-        total_count = count_result[0]['total'] if count_result else 0
-    elif category_filter != 'large':
-        try:
-            total_count = db.code_snippets.count_documents(query)
-        except Exception:
-            query = _with_regex_fallback(query)
-            try:
-                total_count = db.code_snippets.count_documents(query)
-            except Exception:
-                total_count = 0
-    
-    # שליפת הקבצים
-    sort_order = DESCENDING if sort_by.startswith('-') else 1
-    sort_field = sort_by.lstrip('-')
-    
+
     # קטגוריה מיוחדת: recent
     if category_filter == 'recent':
         # שליפת שמות קבצים אחרונים לפי user_id והזמן האחרון שנפתחו
@@ -13166,11 +13087,16 @@ def files():
         try:
             latest_items = list(_aggregate_code_snippets(_recent_pipeline(recent_query)))
         except Exception:
-            # fallback אם $text נכשל
+            # fallback אם $text נכשל. כשל מסוג אחר יחזור גם בניסיון השני,
+            # ויירשם שם.
             try:
                 recent_query_fallback = _with_regex_fallback(recent_query)
                 latest_items = list(_aggregate_code_snippets(_recent_pipeline(recent_query_fallback)))
             except Exception:
+                # העמוד מציג רשימה ריקה, וזה נראה בדיוק כמו "לא נפתח כלום".
+                # עד 23.9.2026 השורה הזו לא השאירה עקבות: כשהצינור חרג
+                # מתקרת המיון, "נפתחו לאחרונה" פשוט התרוקן.
+                logger.exception("files.recent_list_failed request_id=%s", getattr(g, "request_id", None))
                 latest_items = []
 
         # מיון לפי זמן פתיחה אחרון (במידה ונדרש)
@@ -13242,14 +13168,16 @@ def files():
     # שימוש בסיסי: במצב ברירת מחדל אין פג'ינציית cursor
     use_cursor = False
 
-    # אם לא עשינו aggregation כבר (בקטגוריות large/other) — עבור all נשתמש גם באגרגציה
+    # כל קטגוריה שנשלפת מ-``code_snippets`` עוברת באותו בנאי: שורה אחת לכל
+    # קובץ, בגרסה האחרונה שלו. ``_id`` שובר שוויון בכל מיון, כדי שקבצים עם
+    # אותו ערך לא יקפצו בין עמודים (``docs/database/cursor-pagination.rst``).
     if not category_filter:
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
         # בסיס הפייפליין: גרסה אחרונה לכל file_name ותוכן לא ריק
         # סינון "לא ריק" לפני ה-group: אחרת, אם הגרסה האחרונה ריקה, נקבל
         # אי-התאמה בין ``total_count`` לבין הרשימה בפועל.
-        base_pipeline = _latest_version_per_file_stages(query)
+        base_pipeline = _latest_version_per_file_stages(query, **latest_opts)
         next_cursor_token = None
         use_cursor = (sort_field_local == 'created_at')
         if use_cursor:
@@ -13281,20 +13209,7 @@ def files():
             # מיון יציב + חיתוך ל-page+1 כדי לזהות אם יש עוד
             pipeline.append({'$sort': {'created_at': sort_dir, '_id': sort_dir}})
             pipeline.append({'$limit': per_page + 1})
-            try:
-                docs = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
-            except OperationFailure as exc:
-                if int(getattr(exc, "code", 0) or 0) == 292:
-                    logger.warning(
-                        "files.aggregate_memory_limit request_id=%s fallback=find code=%s",
-                        getattr(g, "request_id", None),
-                        getattr(exc, "code", None),
-                    )
-                    docs = _fallback_files_created_at_page(query, sort_dir, last_dt, last_oid)
-                else:
-                    raise
-            except TypeError:
-                docs = list(db.code_snippets.aggregate(pipeline))
+            docs = list(_aggregate_code_snippets(pipeline))
             if len(docs) > per_page:
                 anchor = docs[per_page - 1]
                 try:
@@ -13305,27 +13220,18 @@ def files():
             files_cursor = docs
         else:
             pipeline = list(base_pipeline)
-            pipeline.append({'$sort': {sort_field_local: sort_dir}})
+            pipeline.append({'$sort': {sort_field_local: sort_dir, '_id': sort_dir}})
             pipeline.append({'$skip': (page - 1) * per_page})
             pipeline.append({'$limit': per_page})
             files_cursor = _aggregate_code_snippets(pipeline)
-    elif category_filter not in ('large', 'other'):
-        # קטגוריות רגילות (ללא recent/large/other): עימוד לפי מסמכים,
-        # אבל עם Smart Projection כדי לא להחזיר `code` למסך רשימה.
-        files_cursor = _aggregate_code_snippets([
-            {'$match': query},
-            _MONGO_ADD_SIZE_LINES_STAGE,
-            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
-            {'$sort': {sort_field: sort_order}},
-            {'$skip': (page - 1) * per_page},
-            {'$limit': per_page},
-        ])
-    elif category_filter == 'other':
-        # "שאר קבצים": בעלי תוכן (>0 בתים), מציגים גרסה אחרונה לכל file_name; עקבי עם ה-query הכללי
+    elif category_filter != 'large':
+        # "שאר קבצים", מועדפים, ריפו ספציפי. עד 23.9.2026 כל מה שאינו "שאר
+        # קבצים" עבר כאן בעימוד לפי **מסמכים** — שורה לכל גרסה — ומועדפים
+        # הציגו 65 שורות ל-30 קבצים.
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
-        pipeline = _latest_version_per_file_stages(query) + [
-            {'$sort': {sort_field_local: sort_dir}},
+        pipeline = _latest_version_per_file_stages(query, **latest_opts) + [
+            {'$sort': {sort_field_local: sort_dir, '_id': sort_dir}},
             {'$skip': (page - 1) * per_page},
             {'$limit': per_page},
         ]
@@ -15064,8 +14970,8 @@ def api_restore_file_version(file_id):
         # שורה חדשה שנכתבת עכשיו, גם אם התוכן שלה מגרסה ישנה.
         VERSION_CREATED_AT_FIELD: now,
         'is_active': True,
-        'is_favorite': bool((latest_doc or {}).get('is_favorite', file_doc.get('is_favorite', False))),
-        'favorited_at': (latest_doc or {}).get('favorited_at'),
+        # הגרסה האחרונה קודם, ואחריה המסמך שממנו נפתח השחזור — ראו file_favorite.py
+        **favorite_fields_for_new_version(latest_doc, file_doc),
     }
     source_url = version_doc.get('source_url') or file_doc.get('source_url')
     if source_url:
@@ -15909,6 +15815,9 @@ def edit_file_page(file_id):
                         'updated_at': now,
                         VERSION_CREATED_AT_FIELD: now,
                         'is_active': True,
+                        # עד 23.9.2026 המסלול הזה לא העביר את הסימון, וכל עריכה
+                        # בדפדפן כתבה גרסה לא מסומנת. אותו סדר כמו ``created_at``.
+                        **favorite_fields_for_new_version(prev, file),
                     }
                     _attach_file_size_and_lines(new_doc, code)
                     # ``prev`` הוא הגרסה האחרונה של הקובץ, ו-``file`` הוא
@@ -17139,6 +17048,7 @@ def api_save_shared_file():
             'updated_at': now_utc,
             VERSION_CREATED_AT_FIELD: now_utc,
             'is_active': True,
+            **favorite_fields_for_new_version(prev),
         }
         _attach_file_size_and_lines(snippet_doc, code)
         _attach_description_stamp(snippet_doc, prev)
@@ -17851,6 +17761,7 @@ def upload_file_web():
                         'updated_at': now,
                         VERSION_CREATED_AT_FIELD: now,
                         'is_active': True,
+                        **favorite_fields_for_new_version(prev),
                     }
                     _attach_file_size_and_lines(doc, code)
                     _attach_description_stamp(doc, prev)
@@ -18049,79 +17960,80 @@ def api_get_pinned_files():
         return jsonify({"ok": False, "error": "אירעה שגיאה בעת טעינת הקבצים הנעוצים"}), 500
 
 
+def _bulk_set_favorite(state: bool):
+    """הוספה או הסרה ממועדפים לקבוצת **קבצים** — כל הגרסאות הפעילות של כל אחד.
+
+    המזהים מזהים **גרסה**, והסימון הוא של **קובץ**: הרשימות מוסרות לממשק את
+    ה-``_id`` של הגרסה האחרונה בלבד, וסימון לפי מזהה נגע בגרסה אחת. "הסר
+    ממועדפים" השאיר כך את הגרסאות הקודמות מסומנות, והקובץ נשאר ברשימה — כי
+    הרשימה מכניסה קובץ אם איזושהי גרסה פעילה שלו מסומנת (``file_favorite.py``).
+    אותה המרה למזהי שם כמו במחיקה המרובה, והבעלות נאכפת בתוך השאילתה.
+
+    ``updated`` סופר **קבצים**, כי ``bulk-actions.js`` מדפיס אותו כ-"N קבצים".
+    קובץ שכל גרסאותיו בסל אינו נספר ואינו מסומן. מגבלה ידועה, כמו במחיקה
+    המרובה: בקשה מקבילה שמוחקת את אותו קובץ בין הספירה לכתיבה תיספר כאן.
+    """
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'success': False, 'error': 'Invalid request body'}), 400
+    file_ids = data.get('file_ids')
+    if not isinstance(file_ids, list) or not file_ids:
+        return jsonify({'success': False, 'error': 'No files selected'}), 400
+    if len(file_ids) > 100:
+        return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+    if not all(isinstance(fid, str) for fid in file_ids):
+        return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+    try:
+        object_ids = list(dict.fromkeys(ObjectId(fid) for fid in file_ids))
+    except Exception:
+        return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+    db = get_db()
+    user_id = session['user_id']
+    file_names, found_ids = resolve_owned_file_names(db.code_snippets, user_id, object_ids)
+    if len(found_ids) != len(object_ids):
+        return jsonify({'success': False, 'error': 'Some files not found'}), 404
+
+    live_names = list(db.code_snippets.distinct(
+        'file_name', {'user_id': user_id, 'file_name': {'$in': file_names}, 'is_active': True},
+    ))
+    if live_names:
+        # ``favorited_at`` מתעד את הפעולה, ו-``updated_at`` לא זז: סימון אינו
+        # שינוי בקובץ עצמו — ראו ``docs/database/detailed-schema.rst``.
+        res = db.code_snippets.update_many(
+            {'user_id': user_id, 'file_name': {'$in': live_names}, 'is_active': True},
+            {'$set': {
+                'is_favorite': state,
+                'favorited_at': (datetime.now(timezone.utc) if state else None),
+            }},
+        )
+        if int(getattr(res, 'matched_count', 0) or 0) == 0:
+            # הקבצים נמחקו בין הספירה לכתיבה. דיווח "N קבצים עודכנו" על
+            # כתיבה שלא נגעה בכלום הוא בדיוק K11.
+            return jsonify({'success': False, 'error': 'Files changed, refresh and retry'}), 409
+    return jsonify({'success': True, 'updated': len(live_names)})
+
+
 @app.route('/api/files/bulk-favorite', methods=['POST'])
 @login_required
 @traced("files.bulk_favorite")
 def api_files_bulk_favorite():
-    """הוספת is_favorite=True לקבוצת קבצים של המשתמש."""
+    """הוספה למועדפים לקבוצת קבצים של המשתמש — ראו ``_bulk_set_favorite``."""
     try:
-        data = request.get_json(silent=True) or {}
-        file_ids = list(data.get('file_ids') or [])
-        if not file_ids:
-            return jsonify({'success': False, 'error': 'No files selected'}), 400
-        if len(file_ids) > 100:
-            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
-
-        try:
-            object_ids = [ObjectId(fid) for fid in file_ids]
-        except Exception:
-            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
-
-        db = get_db()
-        user_id = session['user_id']
-        now = datetime.now(timezone.utc)
-
-        q = {
-            '_id': {'$in': object_ids},
-            'user_id': user_id,
-            'is_active': True
-        }
-        res = db.code_snippets.update_many(q, {
-            '$set': {
-                # ראו ההערה ב-``api_toggle_favorite``.
-                'is_favorite': True,
-                'favorited_at': now,
-            }
-        })
-        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+        return _bulk_set_favorite(True)
     except Exception:
+        logger.exception("files.bulk_favorite_failed request_id=%s", getattr(g, "request_id", None))
         return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/bulk-unfavorite', methods=['POST'])
 @login_required
 @traced("files.bulk_unfavorite")
 def api_files_bulk_unfavorite():
-    """ביטול is_favorite לקבוצת קבצים של המשתמש."""
+    """הסרה ממועדפים לקבוצת קבצים של המשתמש — ראו ``_bulk_set_favorite``."""
     try:
-        data = request.get_json(silent=True) or {}
-        file_ids = list(data.get('file_ids') or [])
-        if not file_ids:
-            return jsonify({'success': False, 'error': 'No files selected'}), 400
-        if len(file_ids) > 100:
-            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
-
-        try:
-            object_ids = [ObjectId(fid) for fid in file_ids]
-        except Exception:
-            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
-
-        db = get_db()
-        user_id = session['user_id']
-
-        q = {
-            '_id': {'$in': object_ids},
-            'user_id': user_id,
-            'is_active': True
-        }
-        res = db.code_snippets.update_many(q, {
-            '$set': {
-                # ראו ההערה ב-``api_toggle_favorite``.
-                'is_favorite': False,
-                'favorited_at': None,
-            }
-        })
-        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+        return _bulk_set_favorite(False)
     except Exception:
+        logger.exception("files.bulk_unfavorite_failed request_id=%s", getattr(g, "request_id", None))
         return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/bulk-tag', methods=['POST'])
@@ -20433,6 +20345,7 @@ def _persist_story_markdown_file(
         'updated_at': now,
         VERSION_CREATED_AT_FIELD: now,
         'is_active': True,
+        **favorite_fields_for_new_version(prev),
     }
     _attach_file_size_and_lines(doc, normalized_markdown)
     _attach_description_stamp(doc, prev)
