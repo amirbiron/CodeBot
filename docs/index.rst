@@ -269,7 +269,7 @@ Code Keeper Bot - תיעוד API
 -------------
 
 * Python 3.9+
-* MongoDB 4.4+
+* MongoDB — גרסת המינימום והסיבה לה: :doc:`/installation`
 * Telegram Bot API Token
 * Redis (אופציונלי, לקאש)
 

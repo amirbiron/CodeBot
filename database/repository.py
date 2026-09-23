@@ -67,6 +67,8 @@ from file_deletion import (
     resolve_owned_file_names,
     soft_delete_files_by_names as _shared_soft_delete_by_names,
 )
+# ירושת סימון המועדף — מודול שורש בלי חיבור משלו, אותו כלל שכותבי הוובאפ מריצים.
+from file_favorite import favorite_fields_for_new_version
 from config import config
 try:
     from observability import emit_event
@@ -584,17 +586,14 @@ class Repository:
                 # תאריך היצירה שייך לקובץ, לא לשורה: גרסה חדשה יורשת אותו
                 # מהגרסה הקודמת, אחרת "נוצר" היה מציג את זמן העריכה האחרונה.
                 snippet.created_at = inherited_created_at(snippet.created_at, existing)
-                # שמור סטטוס מועדפים מהגרסה הקודמת אם לא סופק מפורשות
-                try:
-                    prev_is_fav = bool(existing.get('is_favorite', False))
-                    if prev_is_fav and not bool(getattr(snippet, 'is_favorite', False)):
-                        snippet.is_favorite = True
-                        try:
-                            snippet.favorited_at = existing.get('favorited_at')
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                # הגרסה החדשה יורשת את המצב של הקובץ — איזושהי גרסה פעילה
+                # מסומנת — אלא אם הקורא סימן מפורשות. הכלל משותף לכל שבעת
+                # מסלולי הכתיבה, ונקרא מהמסד ולא מ-``existing``: ראו file_favorite.py.
+                if not bool(getattr(snippet, 'is_favorite', False)):
+                    inherited = favorite_fields_for_new_version(
+                        self.manager.collection, snippet.user_id, snippet.file_name)
+                    snippet.is_favorite = inherited['is_favorite']
+                    snippet.favorited_at = inherited['favorited_at']
                 # שמור סטטוס נעיצה מהגרסה הקודמת אם לא סופק מפורשות
                 try:
                     prev_is_pinned = bool(existing.get('is_pinned', False))
@@ -1101,8 +1100,12 @@ class Repository:
 
     def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags: Optional[List[str]] = None) -> bool:
         # Preserve existing description and tags when creating a new version during edits
+        # מהמסד ולא דרך ``get_latest_version``: מה שנקרא כאן **נכתב** לגרסה
+        # החדשה, והגרסה המקוּשה יכולה להיות ישנה — תיאור או תגיות ששונו בוובאפ
+        # היו חוזרים לקדמותם בשמירה הבאה מהבוט. זה החוזה שכתוב ב-docstring של
+        # ``get_latest_version``, ואותו לקח כמו ב-``tests/test_edit_file_accumulates.py``.
         try:
-            existing = self.get_latest_version(user_id, file_name)
+            existing = self._fetch_latest_version(user_id, file_name)
         except Exception:
             existing = None
         prev_description = ""
@@ -1174,16 +1177,10 @@ class Repository:
                 code = normalize_code(code)
         except Exception:
             pass
-        # שמירה על סטטוס מועדפים מהגרסה הקודמת
-        try:
-            prev_is_favorite = bool((existing or {}).get('is_favorite', False)) if isinstance(existing, dict) else False
-        except Exception:
-            prev_is_favorite = False
-        try:
-            prev_favorited_at = (existing or {}).get('favorited_at') if isinstance(existing, dict) else None
-        except Exception:
-            prev_favorited_at = None
-
+        # אין כאן סימון מועדף, במכוון: ``save_code_snippet`` מחיל את הכלל
+        # המשותף של file_favorite.py, שמצב המועדף הוא של הקובץ ולא של גרסה.
+        # עותק של הכלל שישב כאן קרא את ``existing`` דרך הקאש, והחזיר לחיים
+        # סימון שכבר הוסר אם השמירה הגיעה לפני שהקאש פג.
         snippet = CodeSnippet(
             user_id=user_id,
             file_name=file_name,
@@ -1191,8 +1188,6 @@ class Repository:
             programming_language=programming_language,
             description=prev_description,
             tags=merged_tags,
-            is_favorite=prev_is_favorite,
-            favorited_at=prev_favorited_at,
         )
         return self.save_code_snippet(snippet)
 
@@ -1656,7 +1651,18 @@ class Repository:
                         {"tags": {"$not": {"$elemMatch": {"$regex": "^repo:"}}}},
                     ]
                 }},
-                {"$sort": {"updated_at": -1}},
+                # ההיטלה **לפני** המיון, ולא אחריו. ``$skip`` + ``$limit``
+                # מאוחדים לתוך המיון, והוא מחזיק בזיכרון ``skip + per_page``
+                # מסמכים — שלמים, כל עוד ההיטלה אחריו. נמדד על הקלאסטר ב-
+                # 23.9.2026, אצל המשתמש הראשי: עמוד ראשון של 50 — 1,716,112
+                # בתים (``totalDataSizeSortedBytesEstimate`` ב-explain). בעמוד
+                # האחרון המיון מחזיק את הגרסה האחרונה של כל הקבצים עם הגוף
+                # שלהם — עד 19,114,802 בתים (``$bsonSize``), מול תקרת מיון של
+                # 33,554,432 באשכול (``internalQueryMaxBlockingSortMemoryUsageBytes``).
+                # והסוכן לא היה רואה את הכשל: ה-``except`` שמתחת רושם
+                # ``db_get_regular_files_paginated_error`` ומחזיר ``([], 0)``,
+                # כלומר "אין קבצים".
+                #
                 # ``version`` והחותמת — ראו ההערה באותה היטלה ב-
                 # ``_search_code_cached``: בלעדיהם ``codekeeper_list_files``
                 # מחזיר גיל ``null`` לכל קובץ.
@@ -1670,6 +1676,9 @@ class Repository:
                     "version": 1,
                     DESCRIPTION_SET_AT_VERSION_FIELD: 1,
                 }},
+                # ``_id`` שובר שוויון, כדי שקבצים עם אותו ``updated_at`` לא
+                # יקפצו בין עמודים (``docs/database/cursor-pagination.rst``).
+                {"$sort": {"updated_at": -1, "_id": -1}},
                 {"$skip": skip},
                 {"$limit": per_page},
             ]

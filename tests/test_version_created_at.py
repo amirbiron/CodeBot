@@ -84,6 +84,10 @@ class InMemoryCollection:
                 if isinstance(expected, dict) and "$ne" in expected:
                     if doc.get(key) == expected["$ne"]:
                         return False
+                # ``$in`` — ירושת המועדף (``file_favorite.py``) שואלת את כל השמות של הקובץ בשאילתה אחת. בלי זה ``doc.get(key) != expected`` משווה ערך למילון, לעולם אינו מתאים, והקובץ נראה לא מסומן.
+                elif isinstance(expected, dict) and "$in" in expected:
+                    if doc.get(key) not in list(expected["$in"]):
+                        return False
                 elif doc.get(key) != expected:
                     return False
             return True

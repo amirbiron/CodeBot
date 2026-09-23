@@ -21,6 +21,15 @@ Atlas מתעלם ממנו בקלאסטרים חינמיים ו-Flex.
 השלבים האלה הם שמחזיקים מסמכים בזיכרון — ``$sort`` מאגר את מה שהוא ממיין,
 ו-``$group`` צובר את מה שהוא שומר.
 
+**ולפני ההיטלה מותר רק ``$match``.** זה נוסף ב-23.9.2026, אחרי ש"שאר
+קבצים" החזיר 500 עם אותה שגיאה 292 — על צינור שעבר את הבדיקה כפי שהייתה.
+בין ה-``$match`` להיטלה ישב ``$addFields`` שחישב גודל מתוך ``$code``, ושם
+ההיטלה לא הקטינה את מה שהמיון נספר עליו. כלומר "יורד לפני המיון" אינו
+מספיק — הוא חייב לרדת **בשאילתה עצמה**. למה, ומה נמדד על הקלאסטר — ב-
+docstring של ``_latest_version_per_file_stages`` ב-``webapp/app.py``.
+הבדיקה ההתנהגותית, מול מונגו אמיתי ובתקרת המיון של האשכול, ב-
+``tests/test_files_list_one_row_per_file.py``.
+
 רשימת השדות הכבדים נגזרת מהקבוע שהייצור משתמש בו ולא נכתבת כאן, כי צינור
 שמחריג את ``code`` בלבד היה עובר את כל הבדיקות בזמן שה-292 חוזר דרך
 ``content``.
@@ -124,7 +133,8 @@ def _buffers_documents(stage: Any) -> bool:
 
 
 def assert_heavy_fields_drop_early(pipeline: List[Dict[str, Any]], label: str) -> None:
-    """**כל** שדה כבד חייב לרדת לפני השלב הראשון שמחזיק מסמכים בזיכרון."""
+    """**כל** שדה כבד חייב לרדת לפני השלב הראשון שמחזיק מסמכים בזיכרון,
+    ושום שלב מלבד ``$match`` לא רשאי לבוא לפני ההיטלה שמורידה אותו."""
     stages = list(pipeline or [])
     buffering = [i for i, st in enumerate(stages) if _buffers_documents(st)]
     if not buffering:
@@ -144,6 +154,13 @@ def assert_heavy_fields_drop_early(pipeline: List[Dict[str, Any]], label: str) -
             f"[{label}] `{heavy_field}` יורד בשלב {drops[0]}, אחרי שלב שמחזיק "
             f"מסמכים בזיכרון בשלב {first_buffer}. השדה נגרר לתוך "
             f"{_stage_name(stages[first_buffer])}.\n   {shape}"
+        )
+        before = [_stage_name(st) or "?" for st in stages[: drops[0]]]
+        blockers = [name for name in before if name != "$match"]
+        assert not blockers, (
+            f"[{label}] לפני ההיטלה שמורידה את `{heavy_field}` יושב {blockers}. "
+            f"רק `$match` רשאי לבוא לפניה — אחרת מונגו אינו מחיל אותה בשכבת "
+            f"השאילתה, והמיון נספר על המסמכים המלאים.\n   {shape}"
         )
 
 
@@ -231,6 +248,8 @@ def _client():
         ("/files?category=repo", "רשימת הריפואים (repo_pipeline)"),
         ("/files?sort=name", "מיון לפי שם — מסלול ללא cursor"),
         ("/files?category=other", "קטגוריית other"),
+        ("/files?category=favorites", "קטגוריית מועדפים"),
+        ("/files?category=repo&repo=amirbiron/CodeBot", "תצוגת ריפו ספציפי"),
     ],
 )
 def test_files_page_never_sorts_or_groups_full_documents(recorder, url, label):
@@ -359,6 +378,27 @@ def test_the_checker_rejects_a_pipeline_that_only_drops_code():
     assert other_heavy[0] in str(caught.value), (
         "הבודק לא הצביע על השדה הכבד שנגרר: " + str(caught.value)
     )
+
+
+def test_the_checker_rejects_the_shape_that_failed_in_production():
+    """הצורה שהחזירה 500 ב"שאר קבצים": ``$addFields`` בין ה-``$match`` להיטלה.
+
+    היא עוברת את הבדיקה המקורית — ההיטלה **כן** לפני המיון — ולכן היא נבדקת
+    כאן במפורש: בודק שמתעלם ממנה היה מאשר בדיוק את מה שנשבר.
+    """
+    production_shape = [
+        {"$match": {"user_id": 1}},
+        {"$addFields": {"file_size": {"$strLenBytes": "$code"}}},
+        {"$match": {"file_size": {"$gt": 0}}},
+        {"$project": dict(webapp_app.LIST_EXCLUDE_HEAVY_PROJECTION)},
+        {"$sort": {"file_name": 1, "version": -1}},
+        {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+    ]
+
+    with pytest.raises(AssertionError) as caught:
+        assert_heavy_fields_drop_early(production_shape, "הצורה מהפרודקשן")
+
+    assert "$addFields" in str(caught.value), str(caught.value)
 
 
 def test_the_checker_accepts_the_full_exclusion():

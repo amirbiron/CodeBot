@@ -8,7 +8,7 @@
 **דרישות תוכנה:**
 
 * Python 3.9 או גרסה חדשה יותר
-* MongoDB 4.4 או גרסה חדשה יותר
+* MongoDB 5.2 או גרסה חדשה יותר. רשימות הקבצים בוובאפ בוחרות את הגרסה האחרונה של כל קובץ עם ``$top`` (``_latest_version_per_file_stages`` ב-``webapp/app.py``), ו-`האופרטור הזה נוסף ב-MongoDB 5.2 <https://www.mongodb.com/docs/manual/reference/operator/aggregation/top/>`_. עמודים אחרים מפנים לכאן ולא חוזרים על המספר, כדי שיהיה מקום אחד לעדכן כשקוד חדש נשען על אופרטור חדש יותר.
 * Redis 6.0+ (אופציונלי, לקאש)
 * Git
 

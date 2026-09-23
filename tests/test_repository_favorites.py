@@ -25,7 +25,11 @@ class InMemoryCollection:
         self.docs.append(doc)
         return InMemoryResult(inserted_id=doc["_id"]) 
 
-    def find_one(self, query: Dict[str, Any], sort=None, projection=None):
+    def find_one(self, query: Dict[str, Any], projection=None, *args, sort=None, **kwargs):
+        """חתימה כמו של ``Collection.find_one`` ב-pymongo: ההיטלה היא הארגומנט הפוזיציוני השני, ו-``sort`` מגיע בשם.
+
+        בצורה הקודמת (``query, sort=None, projection=None``) היטלה שהועברה במקום הנכון נחתה ב-``sort``, והשאילתה של ``file_favorite.favorite_fields_for_new_version`` נפלה ב-``TypeError`` — ``save_code_snippet`` בלע אותה והחזיר ``False``.
+        """
         items = self._filter(query)
         if sort:
             # sort is list of tuples e.g., [("version", -1)]
