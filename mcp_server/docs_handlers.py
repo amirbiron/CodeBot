@@ -355,17 +355,43 @@ def _section_ref(sec: doc_sections.Section) -> dict:
             "line_range": [sec.heading_line, sec.end_line]}
 
 
-def docs_get_section(
-    backend: Any,
-    *,
-    path: str,
-    section: str | None = None,
-    include_subsections: bool = True,
-    max_chars: int = MAX_CHARS_DEFAULT,
-    offset: int = 0,
-    repo: str | None = None,
-    ref: str | None = None,
-) -> dict[str, Any]:
+class DocsTarget(NamedTuple):
+    """קובץ תיעוד מוכרע — מה שידוע אחרי השער הטהור, ולפני שנקרא בית אחד.
+
+    ``repo`` הוא הריפו אחרי רשימת ההיתר, ``path`` הנתיב המנורמל שהמדיניות של
+    הריפו מגישה, ו-``suffix`` הסיומת **שהוכרעה לו** — היא שבוחרת את הפארסר,
+    ולעולם אינה נגזרת שוב מהנתיב (ראו :class:`_ResolvedPath`).
+    """
+
+    repo: str
+    path: str
+    suffix: str
+
+
+class LoadedDocument(NamedTuple):
+    """מסמך שנקרא ופורסר, וההקשר שכל תשובה עליו נושאת.
+
+    ``context`` הוא ``repo``/``path``/``ref``/``resolved_commit`` — ארבעת השדות
+    שכל תשובה של הכלי על הקובץ הזה נושאת, גם סירוב.
+    """
+
+    doc: doc_sections.Document
+    context: dict[str, Any]
+
+
+def resolve_docs_target(*, path: str, repo: str | None = None) -> DocsTarget | dict[str, Any]:
+    """השער הטהור של ``codekeeper_docs_get_section``: ריפו, מדיניות ונתיב — בלי לקרוא דבר.
+
+    מחזיר :class:`DocsTarget`, או את **אותה** תשובת סירוב שהכלי מחזיר:
+    ``repo_not_allowed``, ``repo_not_configured``, ``suffix_not_allowed``,
+    ``path_too_long``, ``path_outside_root`` או ``missing_path``.
+
+    **למה זה חלק נפרד.** ``codekeeper_read_batch`` מקבץ פריטים לפי הקובץ שהם
+    קוראים, כדי לקרוא ולפרסר כל קובץ פעם אחת — ולכן הוא צריך את הנתיב
+    המוכרע **לפני** הקריאה. ``docs_get_section`` עובר באותה פונקציה, כך שאין
+    שני נוסחים של השער. ``scripts/docs_section_zero_diff.py`` הוא מה שמראה
+    שהפיצול לא שינה אף תשובה, כולל תשובות הסירוב.
+    """
     # **הריפו נבדק לפני הנתיב.** אחרת קורא שנקב בריפו שאינו רשאי לגעת בו
     # היה לומד ממנו משהו: ``suffix_not_allowed`` מול ``missing_path`` מספר
     # לו מה הפורמט שהריפו ההוא מגיש.
@@ -396,39 +422,68 @@ def docs_get_section(
         # דבר — היא רק חוסכת לקורא לחפש את הטעות בשם הקובץ.
         return {"ok": False, "error": "path_outside_root", "repo": repo_name,
                 "root": policy.root}
-    if not resolved.path:
+    # ``suffix`` תמיד מוכרע כשיש ``path`` (ראו ``_resolve_docs_path``); הבדיקה
+    # כאן רק מצמצמת את הטיפוס, ואינה מסלול שאפשר להגיע אליו.
+    if not resolved.path or resolved.suffix is None:
         return {"ok": False, "error": "missing_path"}
-    file_path = resolved.path
+    return DocsTarget(repo_name, resolved.path, resolved.suffix)
 
-    max_chars = _clamp(max_chars, MAX_CHARS_MIN, MAX_CHARS_MAX, MAX_CHARS_DEFAULT)
-    offset = _clamp(offset, 0, 10 ** 9, 0)
 
+def load_document(
+    backend: Any,
+    target: DocsTarget,
+    *,
+    ref: str | None = None,
+    snapshot: Any = None,
+) -> LoadedDocument | dict[str, Any]:
+    """קריאה ופרסור של קובץ מוכרע אחד — כל מה שהכלי עושה חוץ מבחירת הסעיף.
+
+    ``snapshot`` מגיע רק מ-``codekeeper_read_batch`` (``RepoBackend.snapshot``),
+    ומועבר ל-``backend.get_file`` **רק כשהוא קיים** — כך שהכלי הבודד קורא
+    ל-backend בדיוק באותם ארגומנטים כמו לפני שהפרמטר נוסף.
+    """
     # קריאה — reuse מלא של RepoBackend.get_file (ref default, מדיניות סודות, sync_in_progress).
     # **בלי ``lines`` ובלי ``outline`` בכוונה:** כך ``wants_slice`` הוא False, לא מועבר
     # ``max_size``, ותקרת 500KB של שירות המראה נשארת ההגנה היחידה על הפרסור.
-    res = backend.get_file(repo=repo_name, path=file_path, ref=((ref or "").strip() or None))
+    pinned = {"snapshot": snapshot} if snapshot is not None else {}
+    res = backend.get_file(repo=target.repo, path=target.path,
+                           ref=((ref or "").strip() or None), **pinned)
+    return document_from_read(res, target)
+
+
+def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocument | dict[str, Any]:
+    """מה שהכלי עושה עם תשובת ``backend.get_file``: סירוב בהקשר, או מסמך מפורסר.
+
+    **נפרד מ-:func:`load_document` בשביל קריאה משותפת.** ``codekeeper_read_batch``
+    קורא קובץ פעם אחת גם כשפריט קובץ ופריטי סעיף מבקשים אותו יחד, ואז מעביר
+    לכאן את מה שכבר נקרא במקום לקרוא שוב.
+
+    **מוטציה, ובכוונה:** בכשל ``res`` עצמו מקבל ``repo`` ו-``path`` ומוחזר — זו
+    התשובה שהכלי מחזיר תמיד. מי שמחזיק את ``res`` גם לשימוש אחר מעביר לכאן
+    עותק.
+    """
     if not res.get("ok"):
         # not_found / invalid_input / path_denied / sync_in_progress — מוסיפים הקשר ומעבירים הלאה
-        res.setdefault("repo", repo_name)
-        res.setdefault("path", file_path)
+        res.setdefault("repo", target.repo)
+        res.setdefault("path", target.path)
         return res
     if res.get("status") != "ok":
         # binary / too_large — אין תוכן טקסט לפרסר
         return {"ok": False, "error": f"unreadable_{res.get('status')}",
-                "repo": repo_name, "path": file_path, "file": res.get("file")}
+                "repo": target.repo, "path": target.path, "file": res.get("file")}
 
     content = res.get("content") or ""
     file_meta = res.get("file") or {}
     # ההקשר נבנה **לפני** הפרסור, כי גם סירוב צריך לומר איזה קובץ, באיזה ריפו
     # ובאיזה commit. ``{"error": "too_many_sections"}`` לבדו אינו ניתן לפעולה.
     context: dict[str, Any] = {
-        "repo": repo_name, "path": file_path,
+        "repo": target.repo, "path": target.path,
         "ref": file_meta.get("ref"),
         "resolved_commit": file_meta.get("resolved_commit"),
     }
 
-    # ``resolved.suffix`` ולא גזירה שנייה מ-``file_path``: ראו :class:`_ResolvedPath`.
-    parser = _PARSERS[resolved.suffix]  # לעולם לא KeyError: ראו _validate_policy_tables
+    # ``target.suffix`` ולא גזירה שנייה מ-``target.path``: ראו :class:`_ResolvedPath`.
+    parser = _PARSERS[target.suffix]  # לעולם לא KeyError: ראו _validate_policy_tables
 
     # **שני הפרסרים רצים על ברירת המחדל שלהם, והכלי אינו מעביר תקרה.**
     # ברירת המחדל של ``max_sections`` בשניהם היא ``doc_sections.MAX_SECTIONS``
@@ -487,7 +542,60 @@ def docs_get_section(
         return {"ok": False, "error": "too_many_sections",
                 "max": doc_sections.MAX_SECTIONS, **context, **_line_of(exc)}
 
-    return _answer_from_document(doc, context=context, section=section,
+    return LoadedDocument(doc, context)
+
+
+def _paging(max_chars: Any, offset: Any) -> tuple[int, int]:
+    """``max_chars`` ו-``offset`` אחרי ההידוק — מקום אחד לשני הקוראים שלמטה."""
+    return (_clamp(max_chars, MAX_CHARS_MIN, MAX_CHARS_MAX, MAX_CHARS_DEFAULT),
+            _clamp(offset, 0, 10 ** 9, 0))
+
+
+def answer_section(
+    loaded: LoadedDocument,
+    *,
+    section: str | None = None,
+    include_subsections: bool = True,
+    max_chars: int = MAX_CHARS_DEFAULT,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """מה ש-:func:`docs_get_section` עונה על ``section``, מתוך מסמך שכבר נקרא ופורסר.
+
+    ``codekeeper_read_batch`` קורא לזה פעם לכל פריט סעיף, על מסמך אחד שנקרא
+    ופורסר פעם אחת לכל הפריטים מאותו קובץ. **ברירות המחדל הן של
+    ``docs_get_section``**, כי פריט סעיף בבאץ' הוא בדיוק הכלי הבודד בלי
+    הפרמטרים האלה; ``tests/test_mcp_read_batch.py`` מקבע ששתי החתימות לא נפרדו.
+    """
+    max_chars, offset = _paging(max_chars, offset)
+    return _answer_from_document(loaded.doc, context=loaded.context, section=section,
+                                 include_subsections=include_subsections,
+                                 max_chars=max_chars, offset=offset)
+
+
+def docs_get_section(
+    backend: Any,
+    *,
+    path: str,
+    section: str | None = None,
+    include_subsections: bool = True,
+    max_chars: int = MAX_CHARS_DEFAULT,
+    offset: int = 0,
+    repo: str | None = None,
+    ref: str | None = None,
+) -> dict[str, Any]:
+    """``codekeeper_docs_get_section``: שער, הידוק, קריאה ופרסור, ואז תשובה.
+
+    הסדר הוא הסדר שהיה כאן לפני שהפונקציה פוצלה ל-:func:`resolve_docs_target`,
+    :func:`load_document` ו-:func:`answer_section`, כולל ההידוק **לפני** הקריאה.
+    """
+    target = resolve_docs_target(path=path, repo=repo)
+    if isinstance(target, dict):
+        return target
+    max_chars, offset = _paging(max_chars, offset)
+    loaded = load_document(backend, target, ref=ref)
+    if isinstance(loaded, dict):
+        return loaded
+    return _answer_from_document(loaded.doc, context=loaded.context, section=section,
                                  include_subsections=include_subsections,
                                  max_chars=max_chars, offset=offset)
 
@@ -503,9 +611,11 @@ def _answer_from_document(
 ) -> dict[str, Any]:
     """ארבע צורות התשובה של הכלי, מתוך מסמך שכבר נפרסר.
 
-    **מה שנפרד מ-``docs_get_section`` (#3432, SUGG-020):** הפונקציה ההיא
-    פותרת ריפו, פותרת נתיב, קוראת קובץ ובוחרת פארסר — ארבע החלטות שכל אחת
-    מהן יכולה לסרב — ומכאן והלאה יש רק מסמך ושאלה. הזנב הזה הוא החלק שנפרד
+    **מה שנפרד מ-``docs_get_section`` (#3432, SUGG-020):** הפונקציה ההיא —
+    מאז ``codekeeper_read_batch`` דרך :func:`resolve_docs_target` ו-
+    :func:`load_document` — פותרת ריפו, פותרת נתיב, קוראת קובץ ובוחרת
+    פארסר — ארבע החלטות שכל אחת מהן יכולה לסרב — ומכאן והלאה יש רק מסמך
+    ושאלה. הזנב הזה הוא החלק שנפרד
     הכי נקי, ואפס-דיף על 208 קובצי ה-RST (``scripts/docs_section_zero_diff.py``)
     הוא מה שמוכיח שהוא רק זז.
 

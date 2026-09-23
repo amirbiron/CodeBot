@@ -46,14 +46,37 @@ class RateLimiter:
             del self._requests[user_id]
         return entries
 
-    async def check_rate_limit(self, user_id: int) -> bool:
-        """מחזיר True אם מותר להמשיך, אחרת False."""
+    def _require_weight(self, weight: int) -> int:
+        """המשקל כמספר שלם בטווח ``1..max_per_minute`` — אחרת ``ValueError``.
+
+        **שגיאה ולא סירוב**, כי משקל אינו מגיע מהמשתמש אלא מהקוד שקורא לכאן:
+        משקל 0 היה מאשר קריאה בלי לחייב אותה, ומשקל גדול מהחלון היה נדחה לנצח
+        ו-``seconds_until_allowed`` לא היה יכול לומר מתי יתפנה מקום. שניהם באג
+        אצל הקורא, והקורא הוא מי שצריך לשמוע עליו — לא הלקוח שלו.
+        """
+        weight = int(weight)
+        if weight < 1 or weight > self.max_per_minute:
+            raise ValueError(
+                f"weight must be between 1 and {self.max_per_minute}, got {weight}")
+        return weight
+
+    async def check_rate_limit(self, user_id: int, weight: int = 1) -> bool:
+        """מחזיר True אם מותר להמשיך, אחרת False.
+
+        ``weight`` — כמה יחידות הקריאה צורכת. **הכול או כלום, תחת המנעול:**
+        אם אין מקום לכל היחידות, לא נרשמת אף אחת. חיוב יחידה-יחידה בלולאה היה
+        משאיר חלון בין יחידה ליחידה שקריאה אחרת של אותה זהות נכנסת בו (U1),
+        וקריאה שנדחתה באמצע הייתה משאירה אחריה יחידות ששולמו על עבודה שלא
+        נעשתה. ברירת המחדל 1 היא ההתנהגות שהייתה כאן תמיד, ולכן הבוט
+        (``main.py``, ``bot_handlers.py``) אינו משתנה.
+        """
+        weight = self._require_weight(weight)
         now = datetime.now(timezone.utc)
         async with self._lock:
             entries = self._live_entries(user_id, now)
-            if len(entries) >= self.max_per_minute:
+            if len(entries) + weight > self.max_per_minute:
                 return False
-            entries.append(now)
+            entries.extend([now] * weight)
             # הרשימה עשויה להיות חדשה, או כזו ש-``_live_entries`` ניתק כשהתרוקנה.
             self._requests[user_id] = entries
             return True
@@ -69,16 +92,21 @@ class RateLimiter:
             limit = max(1, int(self.max_per_minute))
             return min(1.0, float(used) / float(limit))
 
-    async def seconds_until_allowed(self, user_id: int) -> float:
-        """כמה שניות עד שהחלון משחרר מקום — ‏0.0 כשיש מקום כבר עכשיו.
+    async def seconds_until_allowed(self, user_id: int, weight: int = 1) -> float:
+        """כמה שניות עד שהחלון משחרר מקום ל-``weight`` יחידות — ‏0.0 כשיש מקום כבר עכשיו.
 
-        הרשומה הישנה ביותר בחלון היא שתפוג ראשונה, ואז ``check_rate_limit``
-        יאשר שוב; לכן התשובה היא הזמן שנותר לה. זו התשובה שסירוב יכול לשאת
-        החוצה כ-``retry_after`` במקום "נסה שוב" סתמי.
+        הרשומות בחלון שמורות בסדר הזמן, והן פגות באותו סדר. כדי ש-``weight``
+        יחידות ייכנסו צריכות לפוג ``len + weight - max`` רשומות, ולכן התשובה
+        היא הזמן שנותר לאחרונה מביניהן. במשקל 1 זו בדיוק התשובה שהייתה כאן
+        תמיד — הרשומה הישנה ביותר — וזו התשובה שסירוב יכול לשאת החוצה
+        כ-``retry_after`` במקום "נסה שוב" סתמי.
         """
+        weight = self._require_weight(weight)
         now = datetime.now(timezone.utc)
         async with self._lock:
             entries = self._live_entries(user_id, now)
-            if len(entries) < self.max_per_minute:
+            must_expire = len(entries) + weight - self.max_per_minute
+            if must_expire <= 0:
                 return 0.0
-            return max(0.0, (entries[0] + timedelta(seconds=60) - now).total_seconds())
+            last_to_go = entries[must_expire - 1]
+            return max(0.0, (last_to_go + timedelta(seconds=60) - now).total_seconds())
