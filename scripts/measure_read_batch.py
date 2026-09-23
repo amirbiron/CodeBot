@@ -271,7 +271,18 @@ def _spawn(arguments: list[str], mirror_root: Path, repo: str, workdir: str) -> 
         sys.stderr.write(proc.stderr)
     if proc.returncode != 0:
         raise SystemExit(f"the measuring child failed: {' '.join(arguments)}")
-    return json.loads(proc.stdout.strip().splitlines()[-1])
+    # הפלט עבר גבול של תהליך (U3): הילד הוא הסקריפט הזה, אבל ספרייה שכותבת
+    # ל-stdout הייתה דוחקת את שורת ה-JSON, והמדידה הייתה נופלת ב-KeyError רחוק
+    # מכאן. הסירוב נוקב במה שהילד הדפיס בפועל.
+    lines = proc.stdout.strip().splitlines()
+    try:
+        line = json.loads(lines[-1]) if lines else None
+    except json.JSONDecodeError:
+        line = None
+    if not isinstance(line, dict):
+        raise SystemExit(f"the measuring child printed no JSON object ({' '.join(arguments)}): "
+                         f"{proc.stdout[-500:]!r}")
+    return line
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -217,6 +217,20 @@ def test_a_mirror_that_moved_between_measurements_fails_the_run(tmp_path, capsys
     assert summary["commits"] == ["a" * 40, "b" * 40]
 
 
+@pytest.mark.parametrize("stdout", ["", "a log line, not json\n", "[1, 2]\n"])
+def test_a_child_that_prints_no_json_object_is_refused_by_name(tmp_path, monkeypatch, stdout):
+    """U3: שורת הפלט של הילד עוברת גבול של תהליך — שורה שאינה אובייקט JSON נדחית בשמה, לא ב-KeyError."""
+    script = _load_script()
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(script.subprocess, "run", fake_run)
+
+    with pytest.raises(SystemExit, match="printed no JSON object"):
+        script._spawn(["--child-select"], tmp_path, _NAME, str(tmp_path))
+
+
 def test_a_missing_mirror_is_refused_by_name_before_anything_runs(tmp_path, capsys):
     script = _load_script()
 
