@@ -326,7 +326,9 @@ async def test_every_file_item_is_byte_identical_to_the_single_tool(tmp_path, mo
 
 
 @requires_git
-async def test_a_file_item_and_a_section_item_that_share_a_failed_read_each_answer_like_their_tool(tmp_path, monkeypatch):
+async def test_a_file_item_and_a_section_item_that_share_a_failed_read_each_answer_like_their_tool(
+    tmp_path, monkeypatch
+):
     """קובץ שאינו קיים, כפריט קובץ וכפריט סעיף באותו באץ' — קבוצה אחת, קריאה אחת.
 
     ``document_from_read`` מוסיף ``repo`` ו-``path`` לתשובת הכשל שהוא מקבל, וזה
@@ -352,7 +354,8 @@ async def test_a_sync_in_progress_answers_the_same_in_both_kinds(tmp_path, monke
     world = _world(tmp_path, monkeypatch)
     world.sync_jobs.docs.append({"repo_name": _GHOST, "status": "running"})
     monkeypatch.setenv("MCP_DOCS_REPO", f"{_MD},{_RST},{_GHOST}")
-    monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, _GHOST, docs_handlers._DocsPathPolicy(root="", suffix=".md"))
+    monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, _GHOST,
+                        docs_handlers._DocsPathPolicy(root="", suffix=".md"))
     cases = [
         ({"kind": "file", "repo": _GHOST, "path": "a.md"},
          ("codekeeper_get_repo_file", {"repo": _GHOST, "path": "a.md"})),
@@ -550,8 +553,8 @@ async def test_interleaved_items_from_large_files_match_a_run_without_sharing(tm
     cases = []
     for i in range(1, 4):
         for name in ("A", "B", "C"):
-            cases.append(({"kind": "section", "repo": _MD, "path": f"big/{name}", "section": f"{name}{i}"},
-                          ("codekeeper_docs_get_section", {"repo": _MD, "path": f"big/{name}", "section": f"{name}{i}"})))
+            arguments = {"repo": _MD, "path": f"big/{name}", "section": f"{name}{i}"}
+            cases.append(({"kind": "section", **arguments}, ("codekeeper_docs_get_section", arguments)))
     cases.append(({"kind": "file", "repo": _MD, "path": "big/B.md"},
                   ("codekeeper_get_repo_file", {"repo": _MD, "path": "big/B.md"})))
 
@@ -642,7 +645,9 @@ async def _costs(world: _World, items: list[dict[str, Any]]) -> list[int]:
 
 
 @requires_git
-async def test_an_answer_that_fits_exactly_is_whole_and_one_byte_less_leaves_the_last_item_unread(tmp_path, monkeypatch):
+async def test_an_answer_that_fits_exactly_is_whole_and_one_byte_less_leaves_the_last_item_unread(
+    tmp_path, monkeypatch
+):
     """גבול התקציב, בעברית: בדיוק ← הכול נכנס; בית אחד פחות ← הפריט האחרון ב-``unread``.
 
     **מוטציה שמפילה:** ``>=`` במקום ``>`` בהשוואה של התקציב.
@@ -1040,6 +1045,35 @@ def test_the_batch_carries_no_read_mode_label():
     }}
     assert analytics.read_mode_properties(request) is None
     assert read_batch.TOOL_NAME not in analytics._TOOL_READ_MODE_PARAMS
+
+
+def test_the_documented_numbers_are_the_code_numbers():
+    """טבלת הקבועים והחשבון של הדדליין ב-``docs/mcp-server.rst`` נגזרים מהקבועים עצמם.
+
+    **קובץ RST אינו יכול לגזור דבר — הוא מחרוזת** (``prose-restates-code-fact``).
+    לכן הערך המצופה בכל שורה **מחושב כאן מהקבוע**, ולא מוקלד לצידו: מי שמשנה
+    את ``DEADLINE_SECONDS`` בלי לעדכן את החשבון שהתיעוד נשען עליו ("10 + 46 = 56,
+    מתחת ל-60") מפיל את הטסט, וכך גם מי שמשנה את הטבלה בלי לשנות את הקוד.
+    """
+    from pathlib import Path
+
+    page = (Path(__file__).resolve().parent.parent / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
+    lines = page.splitlines()
+
+    def table_value(name: str) -> str:
+        row = lines.index(f"   * - ``{name}``")
+        cell = lines[row + 1].strip()
+        assert cell.startswith("- "), f"השורה של {name} בטבלה אינה בצורה שהטסט קורא"
+        return cell[2:]
+
+    assert table_value("MAX_BATCH_ITEMS") == f"{read_batch.MAX_BATCH_ITEMS:,}"
+    assert table_value("DEADLINE_SECONDS") == f"{read_batch.DEADLINE_SECONDS:g}"
+    assert table_value("MAX_RESULT_CHARS") == f"{read_batch.MAX_RESULT_CHARS:,}"
+
+    deadline = read_batch.DEADLINE_SECONDS
+    assert f"**{deadline:g} + 46 = {deadline + 46:g}, מתחת ל-60**" in page, (
+        "החשבון שהדדליין נשען עליו בתיעוד אינו מחושב מ-DEADLINE_SECONDS של היום"
+    )
 
 
 # ===========================================================================
