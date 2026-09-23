@@ -200,7 +200,7 @@ from file_deletion import (  # noqa: E402
 )
 # ירושת סימון המועדף לגרסה חדשה — מודול שורש בלי חיבור משלו, אותו כלל
 # שמסלול השמירה של הבוט ושל ה-MCP מריץ. ראו file_favorite.py.
-from file_favorite import favorite_fields_for_new_version  # noqa: E402
+from file_favorite import favorite_fields_for_new_version, file_is_favorite  # noqa: E402
 from user_stats import user_stats  # noqa: E402
 from webapp.size_format import format_file_size as _format_file_size_shared
 from webapp.activity_tracker import log_user_event  # noqa: E402
@@ -363,6 +363,7 @@ def _latest_version_per_file_stages(
     *,
     non_empty_only: bool = True,
     favorites_only: bool = False,
+    file_match: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """שלבי "הגרסה האחרונה לכל שם קובץ" — שורה אחת לכל קובץ, בלי גוף הקובץ.
 
@@ -411,6 +412,18 @@ def _latest_version_per_file_stages(
     שלו גם כשהיא עצמה לא מסומנת. ``favorited_at`` של השורה הוא הסימון
     האחרון בקובץ. סינון ``is_favorite`` בתוך ``match`` היה בוחר את האחרונה
     **מבין המסומנות** — ובפרודקשן נמצאו שני קבצים שבהם זו גרסה ישנה.
+
+    ``file_match`` — תנאים על **הקובץ**, שנבדקים על הגרסה שהשורה מציגה (האחרונה),
+    אחרי הקיבוץ. כאן יושבים מסנני הקטגוריה — תגית ריפו, "שאר קבצים": אותה שאלה
+    ש-``repo_pipeline`` ב-``files()`` (רשימת הריפואים) שואל כשהוא משייך קובץ
+    לריפו לפי הגרסה האחרונה שלו. ב-
+    ``match`` הם סיננו **גרסאות**, ו-``$top`` בחר את האחרונה **מבין המתאימות**:
+    קובץ שעבר לריפו אחר הוצג גם בישן, בגרסה הישנה, וקובץ ידני שיובא אחר כך
+    מ-GitHub המשיך להופיע ב"שאר קבצים". לפני הקיבוץ נשארים רק התחום (משתמש,
+    גרסאות פעילות), ``$text`` — שמונגו מחייבת ב-``$match`` הראשון (תיעוד
+    MongoDB, עמוד ``$text``, סעיף Restrictions; ``test_search_still_reaches_the_latest_version``
+    מקבע את זה מול מונגו אמיתי) — וסינון הקבצים הריקים (``non_empty_only``,
+    וראו את ההערה מעל ``_recent_pipeline``).
     """
     stages: List[Dict[str, Any]] = [{'$match': match}]
     if non_empty_only:
@@ -434,9 +447,11 @@ def _latest_version_per_file_stages(
         stages.append({'$replaceRoot': {'newRoot': {'$mergeObjects': [
             '$latest', {'is_favorite': True, 'favorited_at': '$favorited_at'},
         ]}}})
-        return stages
-    stages.append({'$group': group})
-    stages.append({'$replaceRoot': {'newRoot': '$latest'}})
+    else:
+        stages.append({'$group': group})
+        stages.append({'$replaceRoot': {'newRoot': '$latest'}})
+    if file_match:
+        stages.append({'$match': dict(file_match)})
     return stages
 
 
@@ -12802,13 +12817,16 @@ def files():
     if language_filter:
         query['programming_language'] = language_filter
     
-    # סינון לפי קטגוריה
+    # סינון לפי קטגוריה. הקטגוריה היא של **הקובץ**, ולכן היא נבדקת על הגרסה
+    # שהשורה מציגה — אחרי הקיבוץ, דרך ``file_match`` של הבנאי — ולא נכנסת ל-
+    # ``query``, שמסנן גרסאות. ראו ``_latest_version_per_file_stages``.
+    category_file_match: Optional[Dict[str, Any]] = None
     if category_filter:
         if category_filter == 'repo':
             # תצוגת "לפי ריפו":
             # אם נבחר ריפו ספציפי -> מסנן לקבצים של אותו ריפו; אחרת -> נציג רשימת ריפואים ונחזור מיד
             if repo_name:
-                query['$and'].append({'tags': f'repo:{repo_name}'})
+                category_file_match = {'tags': f'repo:{repo_name}'}
             else:
                 # הפקה של רשימת ריפואים מתוך תגיות שמתחילות ב- repo:
                 # חשוב: לא מושפעת מחיפוש/שפה כדי להציג את כל הריפואים של המשתמש
@@ -12949,14 +12967,14 @@ def files():
             pass
         elif category_filter == 'other':
             # שאר הקבצים (לא מסומנים כריפו/גיטהאב, לא ZIP)
-            query['$and'].append({
-                '$nor': [
+            category_file_match = {'$and': [
+                {'$nor': [
                     {'tags': 'source:github'},
                     {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}
-                ]
-            })
-            query['$and'].append({'file_name': {'$not': {'$regex': r'\.zip$', '$options': 'i'}}})
-            query['$and'].append({'is_archive': {'$ne': True}})
+                ]},
+                {'file_name': {'$not': {'$regex': r'\.zip$', '$options': 'i'}}},
+                {'is_archive': {'$ne': True}},
+            ]}
         elif category_filter == 'recent':
             # תצוגת "נפתחו לאחרונה" – נשתמש באוסף recent_opens
             # נחזיר מוקדם תבנית שמחכה ל-files_list שנבנה מטבלת recent_opens
@@ -12969,6 +12987,7 @@ def files():
     latest_opts: Dict[str, Any] = {
         'non_empty_only': category_filter in ('', 'other'),
         'favorites_only': category_filter == 'favorites',
+        'file_match': category_file_match,
     }
 
     # ספירת סך הכל. ``recent`` סופר בעצמו אחרי השליפה, ו-``large`` כבר ספר.
@@ -13467,6 +13486,25 @@ def view_file(file_id):
     version_context = _file_version_context(db, user_id, file, kind)
     is_read_only_version = bool(version_context)
 
+    # מועדף הוא מצב של הקובץ ולא של הגרסה שנפתחה — אותה שאלה שרשימת
+    # המועדפים שואלת (``file_favorite.file_is_favorite``). כשל בשאילתה הוא מצב
+    # לא ידוע (``None``): נרשם, והכפתור לא מוצג. זה הכלל של
+    # ``_file_version_context``: הקובץ כבר נשלף ואין סיבה ל-500, אבל גם אין
+    # להציג כפתור שהתווית שלו אולי הפוכה — התנאי על ``favoriteBtn`` ב-
+    # ``view_file.html``, שגם לא מציג כפתור לקובץ גדול.
+    # מחושב כאן, לפני ה-ETag, כי הוא חלק ממה שהעמוד מציג.
+    favorite_state: Optional[bool] = bool(file.get('is_favorite', False))
+    if not is_large:
+        try:
+            favorite_state = file_is_favorite(db.code_snippets, user_id, file['file_name'])
+        except Exception:
+            favorite_state = None
+            logger.warning(
+                "view_file.favorite_state_failed request_id=%s",
+                getattr(g, "request_id", None),
+                exc_info=True,
+            )
+
     skip_activity = False
     try:
         skip_activity = bool(session.pop('_skip_view_activity_once', False))
@@ -13520,6 +13558,11 @@ def view_file(file_id):
             version_context.get('state'),
             version_context.get('latest_version') or '',
         )
+    # מצב המועדף שהעמוד מציג הוא של הקובץ, ויכול להשתנות בלי שהמסמך המוצג
+    # ישתנה (למשל הסרה מהרשימה של קובץ שרק גרסה ישנה שלו מסומנת). ה-ETag
+    # הוא הוולידטור היחיד לעמוד הזה (ראו ההערה על ``If-Modified-Since``
+    # מתחת), ולכן המצב נכנס אליו — כולל "לא ידוע".
+    etag_variant = "{}|fav:{}".format(etag_variant, {None: 'u', True: '1', False: '0'}[favorite_state])
     etag = _compute_file_etag(file, variant=etag_variant)
     last_modified_dt = _file_last_modified(file)
     last_modified_str = http_date(last_modified_dt)
@@ -13567,6 +13610,7 @@ def view_file(file_id):
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
                                  'can_pin': False,
+                                 'is_favorite': favorite_state,
                                  'is_pinned': bool(file.get('is_pinned', False)),
                                  'source_url': file.get('source_url') or '',
                                  'source_url_host': _extract_source_hostname(file.get('source_url')),
@@ -13602,6 +13646,7 @@ def view_file(file_id):
                                  'version': (file.get('version', 1) if not is_large else None),
                                  'is_large': is_large,
                                  'can_pin': False,
+                                 'is_favorite': favorite_state,
                                  'is_pinned': bool(file.get('is_pinned', False)),
                                  'source_url': file.get('source_url') or '',
                                  'source_url_host': _extract_source_hostname(file.get('source_url')),
@@ -13664,7 +13709,7 @@ def view_file(file_id):
         'version': (file.get('version', 1) if not is_large else None),
         'is_large': is_large,
         'can_pin': not is_large,
-        'is_favorite': bool(file.get('is_favorite', False)),
+        'is_favorite': favorite_state,
         'is_pinned': bool(file.get('is_pinned', False)),
         'source_url': file.get('source_url') or '',
         'source_url_host': _extract_source_hostname(file.get('source_url')),
@@ -17840,7 +17885,10 @@ def api_toggle_favorite(file_id):
         if not file_name:
             return jsonify({'ok': False, 'error': 'שם קובץ חסר'}), 400
 
-        current = bool(src.get('is_favorite', False))
+        # המצב של הקובץ ולא של הגרסה שנפתחה — אותה שאלה שרשימת המועדפים
+        # שואלת. בקובץ שרק גרסה ישנה שלו מסומנת, הגרסה שנפתחה (האחרונה) לא
+        # מסומנת, והלחיצה "הוסיפה" במקום להסיר. ראו file_favorite.py.
+        current = file_is_favorite(db.code_snippets, user_id, file_name)
         new_state = not current
         now = datetime.now(timezone.utc)
 

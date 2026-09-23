@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatchcase
 
@@ -196,6 +197,87 @@ def test_bulk_favorites_reject_a_malformed_body_with_400(wa, route, body):
     response = _client(wa).post(route, json=body)
 
     assert response.status_code == 400, (route, body, response.get_json())
+
+
+# ------------------------------------ עמוד הקובץ והכוכב שבו — המצב של הקובץ
+
+
+def _favorite_button_label(html):
+    """התווית של כפתור המועדף בעמוד הקובץ (``view_file.html``)."""
+    match = re.search(r'<span id="favoriteLabel">([^<]*)</span>', html)
+    assert match, "לא נמצא כפתור המועדף בעמוד הקובץ"
+    return match.group(1).strip()
+
+
+def test_the_file_page_shows_the_state_of_the_file_and_not_of_the_opened_version(wa):
+    """המצב מהפרודקשן: הגרסה הישנה מסומנת והאחרונה לא, והקובץ מוצג ברשימת המועדפים.
+
+    עמוד הקובץ הציג את הסימון של הגרסה שנפתחה — "הוסף למועדפים" על קובץ שכבר ברשימה. הרשימה מגיעה לגרסה האחרונה, ולכן זה בדיוק העמוד שנפתח ממנה.
+    """
+    ids = _seed(wa, "partial.md", versions=2, favorite=(1,))
+
+    page = _client(wa).get(f"/file/{ids[-1]}")
+
+    assert page.status_code == 200
+    assert _favorite_button_label(page.get_data(as_text=True)) == "הסר ממועדפים"
+
+
+def test_the_star_on_the_file_page_takes_the_whole_file_out_of_favorites(wa):
+    """הטוגל חישב את המצב הנוכחי מהגרסה שנפתחה. בגרסה לא מסומנת הוא "הוסיף" — סימן את כל הגרסאות — והקובץ נשאר ברשימה. כלומר מעמוד הקובץ לא הייתה דרך להוציא אותו מהמועדפים."""
+    ids = _seed(wa, "partial.md", versions=2, favorite=(1,))
+    client = _client(wa)
+
+    response = client.post(f"/api/favorite/toggle/{ids[-1]}")
+
+    assert response.status_code == 200, response.get_data(as_text=True)[:300]
+    assert response.get_json() == {"ok": True, "state": False}
+    assert [v.get("is_favorite") for v in _versions(wa, "partial.md")] == [False, False]
+    assert "partial.md" not in client.get("/files?category=favorites").get_data(as_text=True)
+
+
+def test_after_leaving_favorites_the_file_page_is_not_served_from_the_browser_cache(wa):
+    """עמוד הקובץ נשען על ה-ETag בלבד (ראו ההערה על ``If-Modified-Since`` ב-``view_file``).
+
+    המצב שהעמוד מציג הוא של הקובץ, והוא יכול להשתנות בלי שהמסמך המוצג ישתנה: כאן הגרסה האחרונה לא מסומנת לפני ההסרה וגם אחריה. בלי המצב בוולידטור, הדפדפן היה מקבל 304 וממשיך להציג "הסר ממועדפים" על קובץ שכבר לא ברשימה.
+    """
+    ids = _seed(wa, "partial.md", versions=2, favorite=(1,))
+    client = _client(wa)
+    first = client.get(f"/file/{ids[-1]}")
+    assert _favorite_button_label(first.get_data(as_text=True)) == "הסר ממועדפים"
+
+    assert client.post("/api/files/bulk-unfavorite", json={"file_ids": [str(ids[-1])]}).status_code == 200
+
+    again = client.get(f"/file/{ids[-1]}", headers={"If-None-Match": first.headers["ETag"]})
+    assert again.status_code == 200, "304 — הדפדפן היה מציג את מצב המועדף הישן"
+    assert _favorite_button_label(again.get_data(as_text=True)) == "הוסף למועדפים"
+
+
+def test_when_the_favorite_state_cannot_be_read_the_page_hides_the_button_and_logs(wa, monkeypatch, caplog):
+    """כשל בשאילתת המצב אינו מפיל את העמוד (הקובץ כבר נשלף), ואינו מציג כפתור שהתווית שלו אולי הפוכה — הכלל של ``_file_version_context``."""
+    ids = _seed(wa, "partial.md", versions=2, favorite=(1,))
+
+    def _mongo_is_down(*_args, **_kwargs):
+        raise RuntimeError("mongo is down")
+
+    monkeypatch.setattr(wa, "file_is_favorite", _mongo_is_down, raising=True)
+    with caplog.at_level(logging.WARNING):
+        page = _client(wa).get(f"/file/{ids[-1]}")
+
+    assert page.status_code == 200
+    assert 'id="favoriteBtn"' not in page.get_data(as_text=True)
+    assert any("view_file.favorite_state_failed" in r.getMessage() for r in caplog.records), (
+        f"הכשל לא נרשם: {[r.getMessage() for r in caplog.records]}"
+    )
+
+
+def test_the_binary_file_page_shows_the_state_of_the_file_too(wa):
+    """עמוד "קובץ בינארי" נבנה במילון נפרד, בלי ``is_favorite`` בכלל — ולכן הכפתור אמר שם תמיד "הוסף למועדפים", גם על קובץ מועדף."""
+    ids = _seed(wa, "photo.png", versions=1, favorite=(1,))
+
+    page = _client(wa).get(f"/file/{ids[-1]}")
+
+    assert page.status_code == 200
+    assert _favorite_button_label(page.get_data(as_text=True)) == "הסר ממועדפים"
 
 
 # ------------------------------------------------ ביטול הקאש אחרי שינוי סימון

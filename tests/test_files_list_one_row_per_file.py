@@ -232,6 +232,69 @@ def test_a_single_repo_view_lists_each_file_once(wa):
     assert _total(html) == 1
 
 
+# ------------------------------------- הקטגוריה של קובץ נקבעת לפי הגרסה האחרונה שלו
+
+
+def _retag(wa, doc_id, tags):
+    """התגיות של גרסה אחת — כמו עריכה שמשנה אותן, או ייבוא שמוסיף תגית ריפו."""
+    wa.get_db().code_snippets.update_one({"_id": doc_id}, {"$set": {"tags": list(tags)}})
+
+
+def _repo_counts(html):
+    """רשימת הריפואים (``category=repo`` בלי ריפו נבחר): שם הריפו ← מספר הקבצים שהיא משייכת אליו."""
+    return {
+        name.strip(): int(count)
+        for name, count in re.findall(
+            r'<i class="fab fa-github"></i>\s*([^<]+?)\s*</span>\s*<span class="badge">(\d+)</span>', html
+        )
+    }
+
+
+def test_a_file_that_moved_to_another_repo_is_listed_only_under_its_current_repo(wa):
+    """הגרסה הישנה מתויגת בריפו אחד, והאחרונה באחר.
+
+    רשימת הריפואים משייכת קובץ לריפו לפי **הגרסה האחרונה** שלו. תצוגת ריפו ספציפי סיננה גרסאות לפני הקיבוץ, ולכן הציגה את הקובץ גם בריפו הישן — בגרסה הישנה — ומה שהרשימה ספרה לא התאים למה שהתצוגה הציגה.
+    """
+    ids = _seed(wa, "moved.py", versions=2, tags=("repo:amirbiron/old",))
+    _retag(wa, ids[-1], ("repo:amirbiron/new",))
+
+    repo_list = _get(wa, "/files?category=repo").get_data(as_text=True)
+    old_view = _get(wa, "/files?category=repo&repo=amirbiron/old").get_data(as_text=True)
+    new_view = _get(wa, "/files?category=repo&repo=amirbiron/new").get_data(as_text=True)
+
+    assert _repo_counts(repo_list) == {"amirbiron/new": 1}
+    assert _shown_ids(old_view) == [], "הקובץ מוצג בריפו שהוא כבר לא שייך אליו"
+    assert _shown_ids(new_view) == [str(ids[-1])]
+    assert _total(new_view) == 1
+
+
+def test_a_file_later_imported_into_a_repo_is_not_in_other_files(wa):
+    """שמרת קובץ ידנית, ואחר כך ייבאת ריפו שיש בו קובץ באותו שם — הגרסה האחרונה מתויגת בריפו.
+
+    "שאר קבצים" סינן גרסאות לפני הקיבוץ ("בלי תגית ריפו"), ולכן המשיך להציג את הקובץ — בגרסה הידנית הישנה — גם אחרי שהוא עבר לריפו.
+    """
+    ids = _seed(wa, "README.md", versions=2)
+    _retag(wa, ids[-1], (REPO_TAG,))
+    stays = _seed(wa, "notes.md", versions=1)
+
+    html = _get(wa, "/files?category=other").get_data(as_text=True)
+
+    assert _shown_ids(html) == [str(stays[0])], "קובץ שעבר לריפו מוצג ב'שאר קבצים' בגרסה ישנה"
+    assert _total(html) == 1
+
+
+def test_a_file_whose_repo_tag_was_removed_is_in_other_files_and_not_in_the_repo(wa):
+    """הכיוון ההפוך: הגרסה הישנה בריפו, ובאחרונה התגית הוסרה."""
+    ids = _seed(wa, "loose.py", versions=2, tags=(REPO_TAG,))
+    _retag(wa, ids[-1], ())
+
+    other = _get(wa, "/files?category=other").get_data(as_text=True)
+    repo_view = _get(wa, "/files?category=repo&repo=amirbiron/demo").get_data(as_text=True)
+
+    assert _shown_ids(other) == [str(ids[-1])]
+    assert _shown_ids(repo_view) == [], "הקובץ מוצג בריפו אחרי שהתגית הוסרה ממנו"
+
+
 def test_search_still_reaches_the_latest_version(wa):
     """``$text`` חייב לשבת ב-``$match`` הראשון של הצינור, והבנאי מוסיף ``$match`` משלו אחריו.
 

@@ -2,7 +2,7 @@
 
 ב-Ck כל גרסה של קובץ היא מסמך נפרד ב-``code_snippets``, וסימון המועדף (``is_favorite`` ו-``favorited_at``) נשמר על כל מסמך. לכן שני כללים חייבים להחזיק יחד, והם הסיבה שהמודול קיים:
 
-1. **קריאה:** קובץ הוא מועדף אם **איזושהי** גרסה פעילה שלו מסומנת — הכלל של ``Repository.is_favorite``. רשימת המועדפים בוובאפ מקבצת לפיו (``_latest_version_per_file_stages`` עם ``favorites_only``).
+1. **קריאה:** קובץ הוא מועדף אם **איזושהי** גרסה פעילה שלו מסומנת — הכלל של ``Repository.is_favorite``. רשימת המועדפים בוובאפ מקבצת לפיו (``_latest_version_per_file_stages`` עם ``favorites_only``), ועמוד הקובץ והכוכב שבו שואלים דרך :func:`file_is_favorite`.
 2. **כתיבה:** כל מסמך גרסה חדש יורש את המצב של **הקובץ**, לפי אותו כלל בדיוק. זה מה ש-:func:`favorite_fields_for_new_version` קובע, וכל מסלול שכותב גרסה קורא לה.
 
 **למה הכתיבה שואלת את כל הגרסאות ולא את האחרונה.** בגרסה הראשונה של הכלל הגרסה החדשה ירשה מהגרסה האחרונה בלבד. בקובץ שרק גרסה ישנה שלו מסומנת — מצב שנמצא בפרודקשן בשני קבצים — העריכה הבאה כתבה גרסה לא מסומנת, בזמן שהרשימה המשיכה להציג את הקובץ כמועדף בזכות הגרסה הישנה. שני הכללים ענו תשובות שונות על אותה שאלה. כשהכתיבה שואלת בדיוק את מה שהקריאה שואלת, מצב כזה מתאחה בכתיבה הבאה במקום להימשך.
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-__all__ = ["favorite_fields_for_new_version"]
+__all__ = ["favorite_fields_for_new_version", "file_is_favorite"]
 
 
 def favorite_fields_for_new_version(collection: Any, user_id: Any, *file_names: Any) -> Dict[str, Any]:
@@ -44,3 +44,13 @@ def favorite_fields_for_new_version(collection: Any, user_id: Any, *file_names: 
     if isinstance(marked, dict) and marked.get("is_favorite") is True:
         return {"is_favorite": True, "favorited_at": marked.get("favorited_at")}
     return {"is_favorite": False, "favorited_at": None}
+
+
+def file_is_favorite(collection: Any, user_id: Any, *file_names: Any) -> bool:
+    """האם הקובץ מועדף עכשיו — אותה שאלה, ולכן אותה שאילתה, של :func:`favorite_fields_for_new_version`.
+
+    לעמוד הקובץ ולכוכב שבו. שניהם הציגו וחישבו את הסימון של **הגרסה שנפתחה**: בקובץ שרק גרסה ישנה שלו מסומנת הכפתור אמר "הוסף למועדפים" על קובץ שכבר ברשימה, והלחיצה סימנה את כל הגרסאות במקום להסיר — כלומר מעמוד הקובץ לא הייתה דרך להוציא אותו מהמועדפים.
+
+    ערוץ הכשל זהה: חריגת מסד עולה לקורא.
+    """
+    return favorite_fields_for_new_version(collection, user_id, *file_names)["is_favorite"] is True

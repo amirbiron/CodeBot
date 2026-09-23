@@ -797,7 +797,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 
     <div class="file-actions" data-file-actions>
         <div class="file-actions__list" data-actions-list>
-            {% if not file.is_large and not is_read_only_version %}
+            {% if not file.is_large and not is_read_only_version and file.is_favorite is not none %}
             <button id="favoriteBtn"
                     class="btn btn-secondary btn-icon"
                     data-overflow-id="favorite"
