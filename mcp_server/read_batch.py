@@ -266,6 +266,12 @@ def _plan(raw: Any) -> _Plan:
     file_target = repo_handlers.file_target(item.repo, item.path)
     if isinstance(file_target, dict):
         return _Plan(raw, "file", immediate=file_target)
+    # **המפתח הוא כל ארגומנט שמשנה את מה ש-``get_file`` מחזיר**, ו-``lines`` הוא
+    # גם מה שמכריע את תקרת הגודל: קריאה מלאה נשפטת מול 500KB, קריאת טווח מול
+    # ``RANGE_READ_MAX_BYTES`` (``wants_slice`` ב-``RepoBackend.get_file``). פריט
+    # סעיף הוא תמיד קריאה מלאה (``None`` כאן), ולכן הוא חולק קבוצה רק עם קריאה
+    # מלאה — ולעולם אינו מפרסר טקסט שנקרא תחת התקרה של טווח. תקרת 500KB היא
+    # ההגנה היחידה על הפרסור (``docs_handlers.load_document``).
     lines_key = tuple(item.lines) if item.lines is not None else None
     return _Plan(raw, "file", target=file_target, lines=item.lines,
                  key=(file_target[0], file_target[1], lines_key))

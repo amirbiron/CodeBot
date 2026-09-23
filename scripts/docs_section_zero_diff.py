@@ -83,6 +83,23 @@
     python scripts/docs_section_zero_diff.py --corpus docs --out after.jsonl
     diff before.jsonl after.jsonl && echo "אפס דיף"
 
+**שני מצבים נוספים, לריפקטור שנוגע גם במסלול הקריאה ולא רק בפארסר**
+(``codekeeper_read_batch`` פיצל את ``docs_get_section`` לשלושה חלקים):
+
+* ``--repo`` מריץ את הסוללה תחת מדיניות הנתיבים של ריפו אחר — למשל
+  ``amir-bug-patterns``, ששורשו שורש הריפו והפורמט שלו ``.md``. הקורפוס
+  נקרא לפי הסיומת של אותה מדיניות, והנתיבים נבנים לפי השורש שלה.
+* ``--mirror-root`` קורא דרך ``RepoBackend`` **האמיתי** מעל מראת git
+  (``<mirror-root>/<repo>.git``) במקום ``_CorpusBackend``, ורשימת הקבצים
+  נלקחת מהמראה. רק כך תשובות הסירוב שנולדות במסלול הקריאה — ``path_denied``
+  של מדיניות הסודות, ``not_found`` של git — נכנסות לתצלום כמו שהכלי מחזיר
+  אותן. ``resolved_commit`` בתצלום הוא אז ה-SHA האמיתי, ולכן **אותה מראה**
+  לשתי ההרצות.
+
+על קורפוס ``amir-bug-patterns`` הכותרות **כן** נושאות מזהים (``K11``, ``U3``) —
+בשביל זה הם שם — ולכן הסקריפט יוצא שם ב-1 ומונה אותם. זו ההנחה של קורפוס ה-RST
+שאינה מתארת את הקורפוס הזה, ולא דיף; מה שמכריע הוא ``diff`` בין שני הקבצים.
+
 **זהו כלי פיתוח ידני, והוא אינו רץ ב-CI — בכוונה.** הערך שלו הוא ה**דיף בין
 שני עצים**, ו-CI אינו יכול לייצר אותו בהרצה אחת. גרוע מזה: ההרצה על עץ הבסיס
 **אמורה** לצאת ב-1, כי הבקרה השנייה אינה מתהפכת שם — כלומר CI היה מדווח אדום
@@ -220,15 +237,19 @@ class _CorpusBackend:
     ``status``, ``content`` ו-``file``. ``resolved_commit`` קבוע ולא נגזר
     מגיט — הוא נכנס לתשובה כמו שהוא, וערך שמשתנה בין ההרצות היה מייצר דיף
     שאינו התנהגות.
+
+    ``root`` הוא שורש התיעוד של הריפו שהסוללה רצה תחתיו (``docs`` ל-``CodeBot``,
+    ריק לריפו ששורשו שורש הריפו), והקורפוס הוא אותה תיקייה.
     """
 
-    def __init__(self, corpus_root: Path) -> None:
+    def __init__(self, corpus_root: Path, root: str = "docs") -> None:
         self._root = corpus_root
+        self._prefix = f"{root}/" if root else ""
 
     def get_file(self, *, repo: str, path: str, ref: str | None = None,
                  lines: Any = None) -> dict[str, Any]:
-        # ``path`` מגיע מנורמל כ-``docs/<name>.rst``; הקורפוס הוא אותה תיקייה.
-        rel = path[len("docs/"):] if path.startswith("docs/") else path
+        # ``path`` מגיע מנורמל כ-``<root>/<name>``; הקורפוס הוא אותה תיקייה.
+        rel = path[len(self._prefix):] if self._prefix and path.startswith(self._prefix) else path
         f = self._root / rel
         if not f.is_file():
             return {"ok": False, "error": "not_found"}
@@ -301,13 +322,48 @@ def _battery(backend: Any, doc_path: str) -> Iterator[dict[str, Any]]:
                         max_chars=docs_handlers.MAX_CHARS_MIN, offset=nxt)
 
 
-def _edge_inputs(backend: Any) -> Iterator[dict[str, Any]]:
-    """מסלולי הדחייה שאינם תלויים בקובץ — פעם אחת לכל ההרצה."""
+def _edge_inputs(backend: Any, suffix: str) -> Iterator[dict[str, Any]]:
+    """מסלולי הדחייה שאינם תלויים בקובץ — פעם אחת לכל ההרצה.
+
+    ``suffix`` — הסיומת שהריפו הנבדק מגיש; ממנה נגזרת הסיומת **האחרת** שהכלי
+    מכיר, כדי ש-``suffix_not_allowed`` ייבדק בכל ריפו ולא רק באחד. ``secrets``
+    נדחה כ-``path_denied`` רק מול ``RepoBackend`` אמיתי (``--mirror-root``),
+    שם מדיניות הסודות היא ההוראה הראשונה; מול ``_CorpusBackend`` הוא ``not_found``.
+    """
     yield _call(backend, path="")
     yield _call(backend, path="../etc/passwd")
     yield _call(backend, path="webapp/app")
     yield _call(backend, path="environment-variables", repo="not-in-allowlist")
     yield _call(backend, path="does-not-exist-at-all")
+    yield _call(backend, path="secrets")
+    for other in sorted(set(docs_handlers._PARSERS) - {suffix}):
+        yield _call(backend, path=f"x{other}")
+    yield _call(backend, path="a" * (docs_handlers.MAX_PATH_CHARS + 1))
+
+
+def _mirror_backend(mirror_root: Path) -> Any:
+    """``RepoBackend`` אמיתי מעל ``<mirror_root>/<repo>.git`` — בלי מונגו.
+
+    בלי ``db`` הענף הראשי הוא ``HEAD`` של המראה ואין בדיקת סנכרון, וזה בדיוק
+    מה שצריך כאן: אותה מראה לשתי ההרצות, ואף קריאה החוצה.
+    """
+    from mcp_server.repo_backend import RepoBackend
+    from services.git_mirror_service import GitMirrorService
+
+    return RepoBackend(db=None, mirror=GitMirrorService(base_path=str(mirror_root)))
+
+
+def _mirror_files(backend: Any, repo: str, policy: Any) -> list[str]:
+    """הקבצים שהכלי מגיש מהמראה: הסיומת והשורש של המדיניות, בסדר קבוע.
+
+    בדיוק שתי השאלות ש-``_resolve_docs_path`` שואל, דרך אותן פונקציות.
+    """
+    files = backend._require_mirror().list_all_files(repo, "HEAD") or []
+    return sorted(
+        path for path in files
+        if docs_handlers._suffix_of(path) == policy.suffix
+        and docs_handlers._is_under(path, policy.root)
+    )
 
 
 @contextlib.contextmanager
@@ -351,12 +407,21 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--corpus", default=str(_ROOT / "docs"),
-                    help="תיקיית קובצי ה-RST. אותה תיקייה לשתי ההרצות.")
+                    help="תיקיית הקורפוס (שורש התיעוד של הריפו). אותה תיקייה לשתי ההרצות.")
     ap.add_argument("--out", required=True, help="קובץ הפלט (JSONL).")
+    ap.add_argument("--repo", default=docs_handlers.DEFAULT_DOCS_REPO,
+                    help="הריפו שהסוללה רצה תחת מדיניות הנתיבים שלו (ברירת מחדל: CodeBot).")
+    ap.add_argument("--mirror-root", default=None,
+                    help="תיקיית מראות git: קריאה דרך RepoBackend האמיתי מ-<root>/<repo>.git "
+                         "במקום מהקורפוס. אותה מראה לשתי ההרצות.")
     args = ap.parse_args(argv)
 
+    policy = docs_handlers.DOCS_PATH_POLICY.get(args.repo)
+    if policy is None:
+        print(f"לריפו {args.repo!r} אין מדיניות נתיבים ב-DOCS_PATH_POLICY", file=sys.stderr)
+        return 2
     corpus = Path(args.corpus).resolve()
-    if not corpus.is_dir():
+    if args.mirror_root is None and not corpus.is_dir():
         print(f"אין תיקיית קורפוס: {corpus}", file=sys.stderr)
         return 2
 
@@ -370,13 +435,20 @@ def main(argv: list[str] | None = None) -> int:
     # את ה-JSONL** — ``repo`` שהיה נכנס ל-``query`` של כל רשומה היה שובר את
     # ההשוואה שהסקריפט קיים בשבילה. הבקרה המכוונת ``repo="not-in-allowlist"``
     # ממשיכה להידחות, כי היא עדיין אינה ברשימה.
-    with _pinned_docs_repo(docs_handlers.DEFAULT_DOCS_REPO):
+    with _pinned_docs_repo(args.repo):
 
-        backend = _CorpusBackend(corpus)
-        files = sorted(p.relative_to(corpus).as_posix()
-                       for p in corpus.rglob("*.rst"))
+        if args.mirror_root is not None:
+            backend = _mirror_backend(Path(args.mirror_root).resolve())
+            files = _mirror_files(backend, args.repo, policy)
+            where = f"{args.mirror_root}/{args.repo}.git"
+        else:
+            backend = _CorpusBackend(corpus, policy.root)
+            prefix = f"{policy.root}/" if policy.root else ""
+            files = sorted(prefix + p.relative_to(corpus).as_posix()
+                           for p in corpus.rglob(f"*{policy.suffix}"))
+            where = str(corpus)
         if not files:
-            print(f"אין קובצי .rst תחת {corpus}", file=sys.stderr)
+            print(f"אין קובצי {policy.suffix} תחת {where}", file=sys.stderr)
             return 2
 
         digest = hashlib.sha256()
@@ -388,20 +460,20 @@ def main(argv: list[str] | None = None) -> int:
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with out_path.open("w", encoding="utf-8") as fh:
-            for rec in _edge_inputs(backend):
+            for rec in _edge_inputs(backend, policy.suffix):
                 line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
                 fh.write(line + "\n")
                 digest.update(line.encode("utf-8"))
                 records += 1
                 tally[str(rec["response"].get("error") or rec["response"].get("mode"))] += 1
 
-            for rel in files:
+            for doc_path in files:
                 # הנתיב המלא ולא ה-slug הקצר: ``_resolve_docs_path`` מעגן את
                 # הקלט לשורש של הריפו רק כשאין בו ``/`` בכלל, ולכן קובץ בתת-תיקייה
                 # (``observability/error_codes``) היה נדחה כ-``missing_path``.
-                # השורש עצמו תלוי בריפו מאז מדיניות הנתיבים; כאן הוא ``docs/``,
-                # כי ההרצה מקובעת ל-``CodeBot`` — ראו את ההערה ב-``main``.
-                for rec in _battery(backend, f"docs/{rel}"):
+                # השורש עצמו תלוי בריפו מאז מדיניות הנתיבים — ``docs/`` ל-``CodeBot``,
+                # ריק ל-``amir-bug-patterns`` — ו-``files`` כבר נושא אותו.
+                for rec in _battery(backend, doc_path):
                     line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
                     fh.write(line + "\n")
                     digest.update(line.encode("utf-8"))
@@ -409,9 +481,9 @@ def main(argv: list[str] | None = None) -> int:
                     resp = rec["response"]
                     tally[str(resp.get("error") or resp.get("mode"))] += 1
 
-                identifiers = _corpus_identifiers(backend, f"docs/{rel}")
-                carried.extend({"path": f"docs/{rel}", "identifier": i} for i in identifiers)
-                for rec in _identifier_probes(backend, f"docs/{rel}", identifiers):
+                identifiers = _corpus_identifiers(backend, doc_path)
+                carried.extend({"path": doc_path, "identifier": i} for i in identifiers)
+                for rec in _identifier_probes(backend, doc_path, identifiers):
                     line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
                     fh.write(line + "\n")
                     digest.update(line.encode("utf-8"))

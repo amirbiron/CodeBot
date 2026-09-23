@@ -75,6 +75,11 @@ _MD_FILES = {
     "secrets.md": "# לא לקרוא\n",
     # ``\r`` בודד — הצורה היחידה שמפילה את ספירת השורות (``InconsistentLineEndings``).
     "CR.md": "# כותרת\rעם CR בודד\n",
+    # front matter: הפרסור רץ על טקסט שבו שורות הבלוק ריקות, ו-``section_text``
+    # חותך מהטקסט המקורי — מספרי השורות זהים בשניהם.
+    "FM.md": "---\ntitle: עם front matter\ntags: [a, b]\n---\n\n# ראשי\n\n## סעיף\n\nגוף הסעיף.\n",
+    # כותרות בתוך ציטוט ובתוך רשימה אינן סעיפים (``token.level != 0``).
+    "NESTED.md": "# ראשי\n\n> # בתוך ציטוט\n\n- # בתוך רשימה\n\n## אמיתי\n\nגוף.\n",
 }
 _RST_FILES = {"docs/guide.rst": "Guide\n=====\n\nIntro.\n\nFirst\n-----\n\nBody.\n"}
 
@@ -258,6 +263,12 @@ _IDENTITY_CASES = [
      ("codekeeper_docs_get_section", {"repo": _RST, "path": "guide", "section": "First"})),
     ({"kind": "section", "repo": _RST, "path": "docs/guide.md"},
      ("codekeeper_docs_get_section", {"repo": _RST, "path": "docs/guide.md"})),
+    ({"kind": "section", "repo": _MD, "path": "FM", "section": "סעיף"},
+     ("codekeeper_docs_get_section", {"repo": _MD, "path": "FM", "section": "סעיף"})),
+    ({"kind": "section", "repo": _MD, "path": "NESTED"},
+     ("codekeeper_docs_get_section", {"repo": _MD, "path": "NESTED"})),
+    ({"kind": "section", "repo": _MD, "path": "NESTED", "section": "בתוך ציטוט"},
+     ("codekeeper_docs_get_section", {"repo": _MD, "path": "NESTED", "section": "בתוך ציטוט"})),
 ]
 
 _FILE_IDENTITY_CASES = [
@@ -432,6 +443,68 @@ async def test_items_that_read_the_same_file_share_one_read_and_one_parse(tmp_pa
     assert len(parses.calls) == 2
     assert answer["items"][0]["result"] == answer["items"][5]["result"], "כפילות חוזרת במקומה, זהה"
     assert [e["index"] for e in answer["items"]] == list(range(len(items)))
+
+
+@requires_git
+async def test_a_section_item_never_parses_text_read_under_the_range_ceiling(tmp_path, monkeypatch):
+    """קובץ מעל 500KB: פריט טווח קורא אותו (תקרת 10MB), ופריט סעיף על אותו קובץ — ``unreadable_too_large``.
+
+    תקרת 500KB היא ההגנה היחידה על הפרסור. פריט הסעיף מקבל בדיוק את מה שהכלי
+    הבודד מחזיר, כי הוא אינו חולק קריאה עם פריט הטווח: ``lines`` הוא חלק
+    ממפתח הקבוצה, והוא מה שמכריע את התקרה. ופריט קובץ **בלי** ``lines`` על אותו
+    קובץ — קריאה מלאה, ולכן כן חולק עם הסעיף — מחזיר ``too_large``, שוב כמו הכלי.
+
+    **מוטציה שמפילה:** להוריד את ``lines`` ממפתח הקבוצה — אז הסעיף היה מפרסר
+    את הטווח שנקרא תחת 10MB, ועונה מתוכו.
+    """
+    huge = {"huge.md": "# ענק\n\n## בפנים\n\n" + "שורה בעברית מעל התקרה.\n" * 13_000}
+    assert len(huge["huge.md"].encode("utf-8")) > 500 * 1024
+    world = _world(tmp_path, monkeypatch, extra=huge)
+    await _assert_identical(world, [
+        ({"kind": "file", "repo": _MD, "path": "huge.md", "lines": [1, 3]},
+         ("codekeeper_get_repo_file", {"repo": _MD, "path": "huge.md", "lines": [1, 3]})),
+        ({"kind": "section", "repo": _MD, "path": "huge", "section": "בפנים"},
+         ("codekeeper_docs_get_section", {"repo": _MD, "path": "huge", "section": "בפנים"})),
+        ({"kind": "file", "repo": _MD, "path": "huge.md"},
+         ("codekeeper_get_repo_file", {"repo": _MD, "path": "huge.md"})),
+    ])
+    _, answer = await _batch(world.mcp, [
+        {"kind": "file", "repo": _MD, "path": "huge.md", "lines": [1, 3]},
+        {"kind": "section", "repo": _MD, "path": "huge", "section": "בפנים"},
+    ])
+    assert answer["items"][0]["result"]["status"] == "ok"
+    assert answer["items"][1]["result"]["error"] == "unreadable_too_large"
+
+
+@requires_git
+async def test_a_batch_builds_no_markdown_parser_of_its_own(tmp_path, monkeypatch):
+    """הבאץ' מפרסר דרך המופע היחיד של ``md_parser`` — זה שעבר חימום בזמן הבנייה.
+
+    ``markdown-it`` בונה את הכללים שלו בשימוש הראשון, ומופע חדש שרץ בכמה חוטים
+    במקביל נתן מפות שגויות (PR #3418). הפיצול של ``docs_get_section`` אינו
+    יוצר מופע — לא לכל קריאה ולא לכל תמונת מצב — וזה נספר, לא מונח.
+    """
+    import markdown_it
+
+    world = _world(tmp_path, monkeypatch)
+    built = []
+    real_init = markdown_it.MarkdownIt.__init__
+
+    def _count(self, *args, **kwargs):
+        built.append(1)
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(markdown_it.MarkdownIt, "__init__", _count)
+    parses = _Spy(md_parser.parse_document)
+    monkeypatch.setattr(md_parser, "parse_document", parses)
+
+    _, answer = await _batch(world.mcp, [
+        {"kind": "section", "repo": _MD, "path": "CRITICAL-PATTERNS", "section": "K11"},
+        {"kind": "section", "repo": _MD, "path": "TESTING-PATTERNS", "section": "T1"},
+    ])
+    assert [entry["result"]["mode"] for entry in answer["items"]] == ["section", "section"]
+    assert len(parses.calls) == 2, "הפרסור באמת רץ — אחרת הספירה למטה לא הייתה אומרת דבר"
+    assert built == []
 
 
 @requires_git
