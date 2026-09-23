@@ -1341,6 +1341,37 @@ class GitMirrorService:
                 "message": "שגיאה פנימית באימות ה-ref"
             }
 
+    def resolve_commit(self, repo_name: str, ref: str) -> Dict[str, Any]:
+        """לאיזה commit ``ref`` מצביע במראה **עכשיו** — בלי לקרוא שום קובץ.
+
+        זה החצי הראשון של העבודה ש-:meth:`get_file_at_commit` עושה בכל קריאה,
+        לבדו: אותו :meth:`_validate_ref_with_git`, ואותן שתי בדיקות לפניו ובאותו
+        סדר — שם ריפו תקין, ואז מראה שקיימת בדיסק. הצרכן הוא
+        ``codekeeper_read_batch``, שמקבע כל ריפו ל-commit אחד בתחילת הקריאה
+        ואז קורא את כל הפריטים שלו מה-SHA (``mcp_server/repo_backend.py``,
+        ``ReadSnapshot``); כך autosync שמושך באמצע אינו מפצל את התשובה בין שני
+        commits. ``get_file_at_commit`` מקבל SHA כמו כל ref.
+
+        **שם הריפו נבדק לפני הדיסק, ולא אחריו.** ``_validate_ref_with_git``
+        אינו בודק אותו בעצמו, ובונה ממנו נתיב (``<base>/<name>.git``) שעליו רץ
+        ``git -C`` — ולכן שם כמו ``../x`` היה מריץ git מחוץ לתיקיית המראות.
+        ``get_file_at_commit`` בודק באותו סדר.
+
+        מחזיר ``{"ok": True, "commit": <sha>}`` או ``{"ok": False, "error": ...}``,
+        כש-``error`` הוא ``invalid_repo_name``, ``repo_not_found``, או קוד
+        הכשל של ``_validate_ref_with_git`` כמות שהוא (``invalid_ref``,
+        ``timeout``, ``internal_error``). **ערוץ הכשל הוא ערך ההחזרה בלבד** —
+        המתודה אינה זורקת, ומי שקורא לה בודק ``ok``.
+        """
+        if not self._validate_repo_name(repo_name):
+            return {"ok": False, "error": "invalid_repo_name"}
+        if not self._get_mirror_path(repo_name).exists():
+            return {"ok": False, "error": "repo_not_found"}
+        validation = self._validate_ref_with_git(repo_name, ref)
+        if validation.get("valid"):
+            return {"ok": True, "commit": validation["resolved_sha"]}
+        return {"ok": False, "error": str(validation.get("error") or "invalid_ref")}
+
     def _detect_binary_content(self, content: bytes) -> bool:
         """
         זיהוי תוכן בינארי באמצעות בדיקת NUL bytes.

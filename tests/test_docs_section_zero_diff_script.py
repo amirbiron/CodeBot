@@ -14,6 +14,8 @@
 import importlib.util
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,7 @@ import pytest
 pytest.importorskip("docutils")
 
 _REPO = Path(__file__).resolve().parent.parent
+_GIT = shutil.which("git")
 
 
 def _load_script():
@@ -171,3 +174,67 @@ def test_the_script_pins_the_repo_while_it_runs(tmp_path, monkeypatch, capsys):
 
     assert seen, "אף קריאה לכלי לא נצפתה — הבדיקה איבדה את הנושא שלה"
     assert set(seen) == {script.docs_handlers.DEFAULT_DOCS_REPO}
+
+
+def _records(out: Path) -> list[dict]:
+    return [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+
+
+def test_the_battery_runs_under_another_repos_path_policy(tmp_path, capsys):
+    """``--repo amir-bug-patterns``: קורפוס ``.md`` ששורשו שורש הריפו, כולל תת-תיקייה.
+
+    הנתיבים בתצלום הם יחסיים לשורש הריפו (``sub/page.md``), ולא ``docs/...``,
+    ו-``suffix_not_allowed`` נשאל על הסיומת **האחרת** — ``.rst``.
+    """
+    script = _load_script()
+    corpus = tmp_path / "corpus"
+    (corpus / "sub").mkdir(parents=True)
+    (corpus / "sub" / "page.md").write_text("# עמוד\n\n## סעיף\n\nגוף\n", encoding="utf-8")
+    out = tmp_path / "snapshot.jsonl"
+
+    code = script.main(["--corpus", str(corpus), "--repo", "amir-bug-patterns", "--out", str(out)])
+    capsys.readouterr()
+
+    assert code == 0
+    records = _records(out)
+    sections = [r for r in records if r.get("query", {}).get("path") == "sub/page.md"]
+    assert sections and all(r["response"]["repo"] == "amir-bug-patterns" for r in sections)
+    wrong_suffix = [r for r in records if r.get("query", {}).get("path") == "x.rst"]
+    assert wrong_suffix[0]["response"]["error"] == "suffix_not_allowed"
+
+
+@pytest.mark.skipif(_GIT is None, reason="git is not installed")
+def test_through_the_real_backend_the_read_path_refusals_are_in_the_snapshot(tmp_path, capsys):
+    """``--mirror-root``: ``RepoBackend`` אמיתי מעל מראת git, ולכן גם ``path_denied`` ו-``not_found``.
+
+    אלה שתי תשובות הסירוב שנולדות במסלול הקריאה ולא בשער של ``docs_get_section``,
+    ו-``_CorpusBackend`` אינו מסוגל לייצר את הראשונה. ``resolved_commit`` הוא ה-SHA
+    של המראה.
+    """
+    script = _load_script()
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "page.md").write_text("# עמוד\n\n## סעיף\n\nגוף\n", encoding="utf-8")
+    (work / "secrets.md").write_text("# לא לקרוא\n", encoding="utf-8")
+
+    def git(*args, cwd):
+        return subprocess.run((_GIT, *args), cwd=str(cwd), check=True, capture_output=True, text=True).stdout.strip()
+
+    git("init", "-q", "-b", "main", ".", cwd=work)
+    git("add", "-A", cwd=work)
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init", cwd=work)
+    mirrors = tmp_path / "mirrors"
+    mirrors.mkdir()
+    git("clone", "-q", "--mirror", str(work), str(mirrors / "amir-bug-patterns.git"), cwd=tmp_path)
+    out = tmp_path / "snapshot.jsonl"
+
+    script.main(["--mirror-root", str(mirrors), "--repo", "amir-bug-patterns", "--out", str(out)])
+    capsys.readouterr()
+
+    by_path = {r["query"].get("path"): r["response"] for r in _records(out) if "query" in r}
+    assert by_path["secrets"]["error"] == "path_denied"
+    assert by_path["does-not-exist-at-all"]["error"] == "not_found"
+    assert by_path["page.md"]["resolved_commit"] == git("rev-parse", "main", cwd=work)
+    # קובץ שקיים במראה ושמדיניות הסודות חוסמת: הסוללה רצה עליו כמו על כל קובץ,
+    # והכלי עונה ``path_denied`` — סירוב אמיתי על קובץ אמיתי, לא רק על קלט דחייה.
+    assert by_path["secrets.md"]["error"] == "path_denied"

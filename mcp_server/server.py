@@ -50,7 +50,7 @@ from services import doc_sections
 # pull anything heavy into the MCP process at import.
 from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
-from . import docs_handlers, handlers, repo_handlers
+from . import docs_handlers, handlers, read_batch, repo_handlers
 from .backend import LEAN_NOTE_FIELDS
 from .handlers import StrictInt, StrictLines
 from .limits import (
@@ -393,6 +393,72 @@ def _build_query_doc() -> str:
 
 _QUERY_DOC = _build_query_doc()
 
+
+# תיאור הכלי ``codekeeper_read_batch`` ותיאור הפרמטר ``items`` שלו.
+#
+# **בתיאור הכלי רק מה שסוכן חייב לדעת לפני שהוא קורא לו** — מה הוא מקבל,
+# שכישלון פריט אינו מפיל את הקריאה, שכל פריט נספר מול מכסת הקצב, והתקרה.
+# כל השאר ב-``items``, מאותו נימוק שמעל ``_OUTLINE_PARAM_DOC``: תיאור כלי
+# נחתך אצל הלקוח, ו-``tests/test_mcp_server_build.py`` אוכף את התקרה שלו.
+#
+# **והמספרים נשתלים מהקבועים ולא מוקלדים** — פרוזה שרצה בזמן ריצה נבנית
+# מהקבוע עצמו (``prose-restates-code-fact``), כמו ``MAX_PATH_CHARS`` בתיאור
+# הנתיב של ``codekeeper_docs_get_section``.
+def _build_read_batch_description() -> str:
+    return (
+        "[Admin] Read many documentation sections and repo files in ONE call "
+        "instead of one call each — e.g. every pattern a review round must read. "
+        "`items` is a list; each item is {kind: \"section\", path, section?, repo?} "
+        "(the arguments of codekeeper_docs_get_section) or {kind: \"file\", repo, "
+        "path, lines?} (those of codekeeper_get_repo_file). Answers come back in "
+        "request order as {index, request, result}, and each `result` is exactly "
+        "what that single tool returns for the same arguments, errors included — "
+        "a missing file or section fails only its own item. Each repo is read at "
+        "ONE commit for the whole call. Every item counts as one call against the "
+        "per-minute rate limit, and a batch holds at most "
+        f"{read_batch.MAX_BATCH_ITEMS} items. Items are read one after another, "
+        "never in parallel, and never cut: an item bigger than a whole answer may "
+        "be gets item_too_large, and items that did not fit or were not reached "
+        "in time are listed in `unread` with `unread_reason` — send those again. "
+        "The `items` parameter has the details."
+    )
+
+
+def _build_read_batch_items_doc() -> str:
+    return (
+        "The items to read, in the order the answers should come back. A SECTION "
+        "item {\"kind\": \"section\", \"path\", \"section\", \"repo\"} reads like "
+        "codekeeper_docs_get_section with only those arguments: path and repo "
+        "mean what they mean there (repo defaults to the first MCP_DOCS_REPO "
+        "entry), no section returns the page's table of contents, and paging "
+        f"stays at that tool's defaults (max_chars {docs_handlers.MAX_CHARS_DEFAULT}, "
+        "offset 0) — page a longer section with codekeeper_docs_get_section "
+        "itself. A FILE item {\"kind\": \"file\", \"repo\", \"path\", \"lines\"} "
+        "reads like codekeeper_get_repo_file with those arguments; without lines "
+        "it is the whole file. Items take no ref: every repo is read at its "
+        "default branch, pinned to one commit for the whole call, and an item "
+        "whose answer came from a commit carries it as resolved_commit. Any other "
+        "key, or a value of the wrong type, answers invalid_item with the "
+        "problems, for that item only. The whole answer is at most "
+        f"{repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent: items fill it in "
+        "request order, the first one that does not fit stops the answer, and it "
+        "and every item after it are listed in unread with unread_reason "
+        "byte_budget. An item larger than that on its own answers item_too_large "
+        "with its bytes, the max, and read_with — the single tool to read it "
+        "with (a file item can narrow itself with lines). Nothing is read later "
+        f"than {read_batch.DEADLINE_SECONDS:g} seconds after the server received "
+        "the call: the items not reached by then are listed in unread with "
+        "unread_reason timeout. Duplicate items are allowed, and items that read "
+        "the same file share one read and one parse. A batch of N items costs N "
+        "calls of the per-minute rate limit, decided before anything is read; "
+        f"more than {read_batch.MAX_BATCH_ITEMS} items (fewer where that limit is "
+        "lower) is refused as too_many_items, and an empty list as missing_items."
+    )
+
+
+_READ_BATCH_DESCRIPTION = _build_read_batch_description()
+_READ_BATCH_ITEMS_DOC = _build_read_batch_items_doc()
+
 # Shared annotations: every tool here is a non-destructive, idempotent read over
 # the user's own bounded data store (service-prefixed to avoid cross-connector
 # collisions on generic names like get_file / list_files).
@@ -459,6 +525,10 @@ _REPO_BROWSER_TOOLS = frozenset(
         "codekeeper_list_repo_tree",
         "codekeeper_get_repo_file",
         "codekeeper_search_repo",
+        # אדמין **בהחלטה ולא בירושה**: פריטי הסעיף שלו משקפים כלי ציבורי,
+        # אבל הצורך נולד מסוכן הריוויו של האדמין, פריטי הקובץ ממילא דורשים
+        # אדמין, ומשטח ציבורי שמכפיל עלות פרסור בקריאה אחת אינו נחוץ היום.
+        read_batch.TOOL_NAME,
     }
 )
 
@@ -1378,13 +1448,57 @@ class AdminAwareFastMCP(FastMCP):
         and whether or not the name exists — the budget is charged before the
         name is looked up, so an identity over budget cannot probe tool names
         for free.
+
+        **``codekeeper_read_batch`` weighs as many calls as it has items**
+        (``mcp_server/read_batch.py``), and three things about it happen here:
+
+        * **The moment the call arrived is recorded first**, before the limiter
+          and before the wait for a read thread, and handed to the body through
+          :data:`read_batch.ENTERED_AT` — the batch deadline is measured from
+          it, because the client's clock started then too.
+        * **The empty list and the item cap are refused before the weighing**,
+          so a request that could never pass hears why (``missing_items``,
+          ``too_many_items``) instead of ``rate_limited`` with a wait that would
+          not help. Only for an admin: anyone else is charged one call and
+          refused by the body's ``require_admin``, without learning the cap of a
+          tool they cannot see.
+        * **The weight is all or nothing** (``RateLimiter.check_rate_limit``): a
+          batch that does not fit whole is refused before any of it is read.
+
+        No units come back for items the batch did not read (``unread``). That
+        case is rare — the review round that created the tool (``REVIEW_ROUND``
+        in ``scripts/measure_read_batch.py``) used under two fifths of the byte
+        budget and under two percent of the deadline — and a refund
+        would be a second mechanism with nothing today to justify it.
         """
+        entered_at = read_batch.clock() if name == read_batch.TOOL_NAME else None
         user_id = self._caller_identity()
-        if user_id is not None:
-            refusal = await self._tool_rate_limiter.admit(user_id)
+        weight = 1
+        if entered_at is not None and user_id is not None and is_admin_user(user_id):
+            items = arguments.get("items") if isinstance(arguments, dict) else None
+            refusal = read_batch.refuse_items(items, cap=self.batch_item_cap())
             if refusal is not None:
                 return _refusal_result(refusal)
-        return await super().call_tool(name, arguments)
+            weight = read_batch.weight_of(items)
+        if user_id is not None:
+            refusal = await self._tool_rate_limiter.admit(user_id, weight=weight)
+            if refusal is not None:
+                return _refusal_result(refusal)
+        if entered_at is None:
+            return await super().call_tool(name, arguments)
+        token = read_batch.ENTERED_AT.set(entered_at)
+        try:
+            return await super().call_tool(name, arguments)
+        finally:
+            read_batch.ENTERED_AT.reset(token)
+
+    def batch_item_cap(self) -> int:
+        """How many items one ``codekeeper_read_batch`` call may carry on this server.
+
+        One answer for the refusal here and for the tool body, read off the one
+        limiter this server charges — see :func:`read_batch.item_cap`.
+        """
+        return read_batch.item_cap(self._tool_rate_limiter.per_minute)
 
     def _caller_identity(self) -> int | None:
         """Whose budget a call is charged to — or ``None`` when there is nobody to charge.
@@ -2312,6 +2426,45 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             regex=regex,
             case_sensitive=case_sensitive,
             include_vendored=include_vendored,
+        )
+
+    # **נקרא כאן, בזמן הרישום**: אותה תשובה ש-``call_tool`` מסרב לפיה לפני
+    # השקילה, כך שהגוף והשער אינם יכולים להחזיק שתי תקרות שונות.
+    item_cap = mcp.batch_item_cap()
+
+    @mcp.tool(
+        name=read_batch.TOOL_NAME,
+        description=_READ_BATCH_DESCRIPTION,
+        # ``readOnlyHint: True`` מפורש — בלעדיו ``_declares_write`` (fail-closed)
+        # היה שולח את הבאץ' לתור הכתיבה של העובד היחיד, מאחורי כל שמירה.
+        annotations=_READ_ONLY_TOOL,
+        # Claude Code שומר לקובץ תשובה שעוברת את הסף שלו ומחליף אותה בנתיב;
+        # בלי ההצהרה הזו באץ' של סבב ריוויו היה מגיע כקובץ ולא להקשר. הערך
+        # והנימוק ליחידות — ליד ``read_batch.MAX_RESULT_CHARS``.
+        meta={"anthropic/maxResultSizeChars": read_batch.MAX_RESULT_CHARS},
+    )
+    def read_batch_items(
+        ctx: Context,
+        items: Annotated[
+            list[Any],
+            Field(
+                description=_READ_BATCH_ITEMS_DOC,
+                # הסכימה של פריט נגזרת מהמודלים שהגוף מאמת לפיהם (``read_batch``),
+                # ולכן ה-SDK מקבל כאן ``list[Any]``: פריט פגום נענה כ-``invalid_item``
+                # של אותו פריט, ולא מפיל את הקריאה כולה בשגיאת ולידציה.
+                json_schema_extra={"items": read_batch.ITEM_JSON_SCHEMA},
+            ),
+        ],
+    ) -> dict:
+        # ``def`` ולא ``async def``, בכוונה: ``add_tool`` מעביר גוף סינכרוני
+        # ל-``asyncio.to_thread`` — חוט אחד של מאגר הקריאות, שגודלו נגזר
+        # ממכסת הזיכרון — והבאץ' רץ כולו בחוט הזה, בלי חוטים פנימיים.
+        require_admin(ctx)
+        return read_batch.read_batch(
+            repo_backend,
+            items,
+            item_cap=item_cap,
+            entered_at=read_batch.ENTERED_AT.get(),
         )
 
 

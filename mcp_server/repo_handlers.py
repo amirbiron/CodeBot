@@ -60,6 +60,23 @@ def list_repo_tree(
     )
 
 
+def file_target(repo: str, path: str) -> tuple[str, str] | dict[str, Any]:
+    """‏``(repo, path)`` מנורמלים לקריאת קובץ — או הסירוב שהכלי מחזיר עליהם.
+
+    **החלק הטהור של :func:`get_repo_file`, במקום אחד.** ``codekeeper_read_batch``
+    מקבץ פריטים לפי הקובץ שהם קוראים לפני שהוא קורא אותו, ולכן הוא צריך את
+    הנתיב המנורמל מראש; נרמול שני אצלו היה עותק של שתי השורות האלה (R6), ופריט
+    ``" a.md"`` היה מקובץ אחרת ממה שהכלי הבודד היה קורא.
+    """
+    name = (repo or "").strip()
+    file_path = (path or "").strip()
+    if not name:
+        return {"ok": False, "error": "missing_repo"}
+    if not file_path:
+        return {"ok": False, "error": "missing_path"}
+    return name, file_path
+
+
 def get_repo_file(
     backend: Any,
     *,
@@ -71,13 +88,19 @@ def get_repo_file(
     symbol: str | None = None,
     page: int = 1,
     per_page: int = OUTLINE_PER_PAGE_DEFAULT,
+    snapshot: Any = None,
 ) -> dict[str, Any]:
-    name = (repo or "").strip()
-    file_path = (path or "").strip()
-    if not name:
-        return {"ok": False, "error": "missing_repo"}
-    if not file_path:
-        return {"ok": False, "error": "missing_path"}
+    """השער של ``codekeeper_get_repo_file``.
+
+    ``snapshot`` מגיע רק מ-``codekeeper_read_batch`` (``RepoBackend.snapshot``),
+    ומועבר ל-``backend.get_file`` **רק כשהוא קיים** — כך שהכלי הבודד קורא
+    ל-backend בדיוק באותם ארגומנטים כמו לפני שהפרמטר נוסף.
+    """
+    target = file_target(repo, path)
+    if isinstance(target, dict):
+        return target
+    name, file_path = target
+    pinned = {"snapshot": snapshot} if snapshot is not None else {}
     return backend.get_file(
         repo=name,
         path=file_path,
@@ -87,6 +110,7 @@ def get_repo_file(
         symbol=((symbol or "").strip() or None),
         page=_clamp(page, 1, 10_000, 1),
         per_page=_clamp(per_page, 1, OUTLINE_PER_PAGE_MAX, OUTLINE_PER_PAGE_DEFAULT),
+        **pinned,
     )
 
 

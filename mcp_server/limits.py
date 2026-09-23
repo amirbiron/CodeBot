@@ -350,13 +350,20 @@ class ToolRateLimiter:
         self._limiter = RateLimiter(max_per_minute=self.per_minute) if self.per_minute > 0 else None
         self._warned_at: dict[int, float] = {}
 
-    async def admit(self, user_id: int) -> dict | None:
-        """‏``None`` כשהקריאה מותרת; אחרת תשובת הסירוב שהכלי מחזיר במקום לרוץ."""
+    async def admit(self, user_id: int, weight: int = 1) -> dict | None:
+        """‏``None`` כשהקריאה מותרת; אחרת תשובת הסירוב שהכלי מחזיר במקום לרוץ.
+
+        ``weight`` — כמה קריאות הקריאה הזו שווה. ‏``codekeeper_read_batch`` שוקל
+        כמספר הפריטים שלו (``mcp_server/read_batch.py``), וכל כלי אחר שוקל 1.
+        ההכרעה היא הכול או כלום (``RateLimiter.check_rate_limit``), ו-
+        ``retry_after_seconds`` בסירוב הוא הזמן עד שיתפנה מקום **לכל** המשקל,
+        לא ליחידה אחת.
+        """
         if self._limiter is None:
             return None
-        if await self._limiter.check_rate_limit(user_id):
+        if await self._limiter.check_rate_limit(user_id, weight=weight):
             return None
-        retry_after = await self._limiter.seconds_until_allowed(user_id)
+        retry_after = await self._limiter.seconds_until_allowed(user_id, weight=weight)
         self._warn_once_per_window(user_id, retry_after)
         return {
             "ok": False,

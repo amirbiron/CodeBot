@@ -138,6 +138,96 @@ def _outline_response(
     }
 
 
+#: קודי הכשל של קיבוע commit שאומרים "לא עכשיו" ולא "אין כזה". רק עליהם
+#: ``ReadSnapshot`` מתריע: ``invalid_ref``, ``repo_not_found`` ו-
+#: ``invalid_repo_name`` הם תשובות רגילות שהקריאה עצמה תחזיר לקורא בשמן
+#: (``not_found``, ``repo_not_mirrored``, ``invalid_input``), וסירוב רגיל אינו
+#: נרשם בלוג (SUGG-022).
+_TRANSIENT_PIN_ERRORS = frozenset({"timeout", "internal_error"})
+
+
+class ReadSnapshot:
+    """תמונת מצב אחת של המראות, לקריאה אחת של ``codekeeper_read_batch``.
+
+    **שלוש שאלות, כל אחת פעם אחת לכל ריפו:** מה הענף הראשי (``repo_metadata``
+    במונגו), לאיזה commit הוא מצביע עכשיו (``GitMirrorService.resolve_commit``),
+    והאם סנכרון רץ (``sync_jobs``, רק במסלול הכשל). בלי האובייקט הזה כל פריט
+    בבאץ' היה שואל את שלושתן מחדש — ``find_one`` בתוך לולאה (R8) — ו-autosync
+    שמושך באמצע הבאץ' היה מפצל את התשובה בין שני commits.
+
+    **קורא מה-SHA ומדווח את ה-ref.** :meth:`RepoBackend.get_file` מעביר למראה
+    את ה-commit המקובע, אבל ``file.ref`` בתשובה נשאר ה-ref שהתבקש — אותה
+    מחרוזת שהכלי הבודד היה כותב. כך תשובה של פריט זהה בית-בית לתשובת הכלי
+    הבודד, כל עוד הענף לא זז.
+
+    **כשהקיבוע נכשל, הקריאה ממשיכה בשם הענף — והכשל גלוי.** קוד שאומר "אין
+    כזה" (``invalid_ref``, ``repo_not_found``, ``invalid_repo_name``) יחזור
+    מהקריאה עצמה בשמו, בדיוק כמו בכלי הבודד, ולכן אין מה לרשום. קוד שאומר
+    "לא עכשיו" (``timeout``, ``internal_error``) נרשם כ-WARNING, פעם אחת לכל
+    ריפו: הפריטים של אותו ריפו נקראים אז לפי שם הענף, וכל אחד פותר אותו
+    בנפרד, כך שהם **יכולים** להגיע מ-commits שונים. זו נפילה-לאחור למסלול
+    גרוע (``silent-fallback-to-worse-path``), ולכן היא לא שקטה: הלוג אומר
+    שהיא קרתה, ו-``resolved_commit`` של כל פריט אומר מאיזה commit הוא בא.
+    הכשל נשמר ואינו מנוסה שוב בפריט הבא, כי ניסיון חוזר על timeout היה עולה
+    לכל פריט את כל ה-``timeout`` של ``GitMirrorService._validate_ref_with_git``.
+
+    **חוט אחד, קריאה אחת.** האובייקט נבנה בתחילת הקריאה ונזרק בסופה, ורק
+    החוט שמריץ את הבאץ' נוגע בו — ולכן אין בו מנעול. הוא אינו משותף בין
+    קריאות, ואינו מטמון: שום דבר ממנו אינו שורד את הקריאה שבנתה אותו.
+    """
+
+    def __init__(self, backend: "RepoBackend") -> None:
+        self._backend = backend
+        self._refs: dict[str, str] = {}
+        self._commits: dict[tuple[str, str], str] = {}
+        self._syncing: dict[str, bool] = {}
+
+    def default_ref(self, repo: str) -> str:
+        """הענף הראשי של ``repo`` — שאילתה אחת לכל ריפו, לא לכל פריט."""
+        ref = self._refs.get(repo)
+        if ref is None:
+            ref = self._backend._default_ref(repo)
+            self._refs[repo] = ref
+        return ref
+
+    def commit(self, repo: str, ref: str) -> str:
+        """ה-commit לקרוא ממנו את ``ref``: ה-SHA המקובע, או ``ref`` עצמו כשהקיבוע נכשל."""
+        key = (repo, ref)
+        read_at = self._commits.get(key)
+        if read_at is None:
+            read_at = self._pin(repo, ref)
+            self._commits[key] = read_at
+        return read_at
+
+    def _pin(self, repo: str, ref: str) -> str:
+        try:
+            pinned = self._backend._require_mirror().resolve_commit(repo, ref)
+        except Exception:
+            # ``resolve_commit`` אינו זורק לפי החוזה שלו; חריגה כאן היא באג
+            # או תלות שבורה, ולכן ``exception`` עם traceback ולא אזהרה. הקריאה
+            # עצמה תנסה את אותה מראה ותחזיר את הכשל בשמו.
+            logger.exception("read snapshot: pinning %s at %s raised; reading at the ref", repo, ref)
+            return ref
+        if pinned.get("ok"):
+            return str(pinned["commit"])
+        error = pinned.get("error")
+        if error in _TRANSIENT_PIN_ERRORS:
+            logger.warning(
+                "read snapshot: could not pin %s at %s (%s); its items are read at the ref "
+                "and may come from different commits",
+                repo, ref, error,
+            )
+        return ref
+
+    def sync_running(self, repo: str) -> bool:
+        """האם סנכרון רץ על ``repo`` — שאלה אחת לכל ריפו, במסלול הכשל בלבד."""
+        running = self._syncing.get(repo)
+        if running is None:
+            running = self._backend._sync_running(repo)
+            self._syncing[repo] = running
+        return running
+
+
 class RepoBackend:
     """Duck-typed backend over a pymongo handle + the mirror/search services.
 
@@ -269,9 +359,21 @@ class RepoBackend:
         except Exception:
             return False
 
-    def _transient_error(self, repo_name: str, fallback: str) -> dict[str, Any]:
-        """Map a failed read to sync_in_progress (retryable) when a sync runs."""
-        if self._sync_running(repo_name):
+    def _transient_error(
+        self, repo_name: str, fallback: str, snapshot: ReadSnapshot | None = None
+    ) -> dict[str, Any]:
+        """Map a failed read to sync_in_progress (retryable) when a sync runs.
+
+        With a ``snapshot`` the sync status is asked once per repo for the whole
+        call (:meth:`ReadSnapshot.sync_running`); without one, every failure
+        asks again, as it always has.
+        """
+        running = (
+            snapshot.sync_running(repo_name)
+            if snapshot is not None
+            else self._sync_running(repo_name)
+        )
+        if running:
             return {
                 "ok": False,
                 "error": "sync_in_progress",
@@ -294,6 +396,10 @@ class RepoBackend:
             meta = None
         branch = (meta or {}).get("default_branch")
         return f"refs/heads/{branch}" if branch else "HEAD"
+
+    def snapshot(self) -> ReadSnapshot:
+        """תמונת מצב חדשה לקריאה אחת — ראו :class:`ReadSnapshot`."""
+        return ReadSnapshot(self)
 
     # -- tools -------------------------------------------------------------
     def list_repos(self, *, limit: int = 50) -> dict[str, Any]:
@@ -461,7 +567,18 @@ class RepoBackend:
         symbol: str | None = None,
         page: int = 1,
         per_page: int = 100,
+        snapshot: ReadSnapshot | None = None,
     ) -> dict[str, Any]:
+        """Read one file from a mirror — the path every repo and docs read goes through.
+
+        ``snapshot`` is passed only by ``codekeeper_read_batch``: the default
+        branch, the commit the file is read at, and the sync status then come
+        from the one :class:`ReadSnapshot` of that call instead of being looked
+        up again per file. The answer names ``ref`` exactly as it would without
+        it; what changes is only which commit the mirror is asked for. Without a
+        snapshot this method does precisely what it did before the parameter
+        existed.
+        """
         if is_denied(path):  # policy: block, before touching the mirror
             return {"ok": False, "error": "path_denied"}
         # הטווח נבדק **לפני** הקריאה. כשהתקרה הייתה 500KB זה לא היה משנה,
@@ -482,7 +599,9 @@ class RepoBackend:
             if isinstance(bounds, str):
                 return {"ok": False, "error": bounds}
 
-        use_ref = ref or self._default_ref(repo)
+        use_ref = ref or (
+            snapshot.default_ref(repo) if snapshot is not None else self._default_ref(repo)
+        )
         # רק לקריאת טווח. בלי ``lines`` לא מועבר ``max_size`` כלל, כך
         # שברירת המחדל של שירות המראה נשארת מקור האמת היחיד ל-500KB —
         # ושתי ההתנהגויות לא נפרדות לשני מספרים שצריך לסנכרן.
@@ -491,8 +610,12 @@ class RepoBackend:
         wants_slice = lines is not None or outline
         size_kwargs = {"max_size": RANGE_READ_MAX_BYTES} if wants_slice else {}
         try:
+            # עם תמונת מצב — ה-SHA שהריפו קובע אליו בתחילת הקריאה; בלעדיה —
+            # ה-ref כמו שהוא, כמו תמיד. ``file.ref`` בתשובה הוא ``use_ref`` בשני
+            # המקרים (ראו :class:`ReadSnapshot`, "קורא מה-SHA ומדווח את ה-ref").
+            read_at = snapshot.commit(repo, use_ref) if snapshot is not None else use_ref
             res = self._require_mirror().get_file_at_commit(
-                repo, path, use_ref, **size_kwargs
+                repo, path, read_at, **size_kwargs
             )
         except Exception:
             logger.warning("get_file read failed", exc_info=True)
@@ -547,9 +670,9 @@ class RepoBackend:
         # caller's. ``invalid_commit`` stays ``not_found``: the repo is there,
         # and the ref is what the caller can change.
         if err == "repo_not_found":
-            return self._transient_error(repo, "repo_not_mirrored")
+            return self._transient_error(repo, "repo_not_mirrored", snapshot=snapshot)
         fallback = "not_found" if err == "invalid_commit" else "read_failed"
-        return self._transient_error(repo, fallback)
+        return self._transient_error(repo, fallback, snapshot=snapshot)
 
     def search(
         self,
