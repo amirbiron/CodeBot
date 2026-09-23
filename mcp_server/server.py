@@ -1466,10 +1466,11 @@ class AdminAwareFastMCP(FastMCP):
           batch that does not fit whole is refused before any of it is read.
 
         No units come back for items the batch did not read (``unread``). That
-        case is rare — the review round that created the tool (``REVIEW_ROUND``
-        in ``scripts/measure_read_batch.py``) used under two fifths of the byte
-        budget and under two percent of the deadline — and a refund
-        would be a second mechanism with nothing today to justify it.
+        case is rare — the review round that created the tool fits well inside
+        both the byte budget and the deadline, measured in production and by
+        ``scripts/measure_read_batch.py``; the numbers live in
+        ``docs/mcp-server.rst`` (``codekeeper_read_batch``) — and a refund would
+        be a second mechanism with nothing today to justify it.
         """
         entered_at = read_batch.clock() if name == read_batch.TOOL_NAME else None
         user_id = self._caller_identity()

@@ -1249,7 +1249,12 @@ def test_the_documented_numbers_are_the_code_numbers():
     לכן הערך המצופה בכל שורה **מחושב כאן מהקבוע**, ולא מוקלד לצידו: מי שמשנה
     את ``DEADLINE_SECONDS`` בלי לעדכן את החשבון שהתיעוד נשען עליו ("10 + 46 = 56,
     מתחת ל-60") מפיל את הטסט, וכך גם מי שמשנה את הטבלה בלי לשנות את הקוד.
+
+    **והאחוזים של הסבב בפרודקשן.** הבתים והאלפיות נמדדו ונושאים תאריך, אבל
+    "39% מהתקציב" ו-"2.7% מהדדליין" נגזרים מהם ומ-``OUTPUT_BYTE_BUDGET`` ומ-
+    ``DEADLINE_SECONDS`` — ולכן מחושבים כאן, ולא מוקלדים.
     """
+    import re
     from pathlib import Path
 
     page = (Path(__file__).resolve().parent.parent / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
@@ -1268,6 +1273,20 @@ def test_the_documented_numbers_are_the_code_numbers():
     deadline = read_batch.DEADLINE_SECONDS
     assert f"**{deadline:g} + 46 = {deadline + 46:g}, מתחת ל-60**" in page, (
         "החשבון שהדדליין נשען עליו בתיעוד אינו מחושב מ-DEADLINE_SECONDS של היום"
+    )
+
+    measured = re.search(
+        r"בפרודקשן הסבב האמיתי היה ([\d,]+) בתים בצורה שנשלחת — (\d+)% מהתקציב"
+        r" — ו-(\d+) אלפיות שנייה, ([\d.]+)% מהדדליין",
+        page,
+    )
+    assert measured, "המשפט על הסבב בפרודקשן אינו בצורה שהטסט קורא"
+    sent, of_budget, took_ms, of_deadline = measured.groups()
+    assert int(of_budget) == round(int(sent.replace(",", "")) * 100 / read_batch.OUTPUT_BYTE_BUDGET), (
+        "האחוז מהתקציב אינו מחושב מ-OUTPUT_BYTE_BUDGET של היום"
+    )
+    assert of_deadline == f"{int(took_ms) * 100 / (deadline * 1000):.1f}", (
+        "האחוז מהדדליין אינו מחושב מ-DEADLINE_SECONDS של היום"
     )
 
 
