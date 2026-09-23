@@ -1022,6 +1022,27 @@ def test_the_colour_param_doc_is_derived_from_the_palette():
     assert "refused" in doc
 
 
+def test_the_lean_field_list_in_the_descriptions_is_derived_from_the_backend():
+    """מה שהסוכן קורא על השורה הרזה נגזר מ-``LEAN_NOTE_FIELDS``, ולא מוקלד לצידה.
+
+    אותו נימוק בדיוק שמעל ``test_the_colour_param_doc_is_derived_from_the_palette``:
+    הרשימה הייתה מוקלדת בשלושה נוסחים, ואחד מהם כבר אמר "colour, size" על
+    שדות ששמם ``color`` ו-``content_bytes``. נופלת אם מישהו יחליף את הגזירה
+    ברשימה מוקלדת, ברגע שהרשימה תשתנה.
+    """
+    from mcp_server.backend import LEAN_NOTE_FIELDS
+    from mcp_server.server import _INCLUDE_CONTENT_PARAM_DOC
+
+    joined = ", ".join(LEAN_NOTE_FIELDS)
+    assert joined in _INCLUDE_CONTENT_PARAM_DOC
+
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+    board_desc = mcp._tool_manager.get_tool("codekeeper_list_board_notes").description
+    assert joined in board_desc
+    # ואין נוסח שני של הרשימה במילים אחרות.
+    assert "colour, size" not in board_desc
+
+
 async def test_the_path_param_doc_names_every_repo_and_suffix_the_policy_knows():
     """מה שהסוכן קורא על ``path`` נגזר מטבלת המדיניות, ולא מוקלד לצידה.
 

@@ -1693,6 +1693,19 @@ class _MovingNoteColl(_NoteColl):
         return dict(row) if row else row
 
 
+class _VanishingColl(_NoteColl):
+    """הפתק קיים בקריאה הראשונה ונעלם אחריה — מחיקה מקבילה (הוובאפ) שנוחתת
+    בין קריאת הגוף לקריאה החוזרת של הקריאה התחומה."""
+
+    def __init__(self):
+        super().__init__()
+        self.reads = 0
+
+    def find_one(self, query, projection=None):
+        self.reads += 1
+        return super().find_one(query, projection) if self.reads == 1 else None
+
+
 class _VersionsColl:
     """``sticky_note_versions`` מזויף: ``find_one`` עם ``sort``, הכנסה, וגיזום."""
 
@@ -1806,6 +1819,11 @@ def test_as_note_summary_carries_identity_colour_size_and_time_only():
     })
 
     assert set(out) == {"id", "title", "color", "color_id", "content_bytes", "updated_at"}
+    # השמות והסדר — ``LEAN_NOTE_FIELDS``, המקור שתיאורי הכלים נגזרים ממנו:
+    # שדה שיתווסף לשורה בלי להתווסף לרשימה נופל כאן, ולא מגיע לסוכן חסר.
+    from mcp_server.backend import LEAN_NOTE_FIELDS
+
+    assert tuple(out) == LEAN_NOTE_FIELDS
     assert out["content_bytes"] == 8
     assert out["title"] is None
     assert (out["color"], out["color_id"]) == ("#ffffcc", "yellow")
@@ -2094,6 +2112,23 @@ def test_a_note_that_keeps_moving_is_a_conflict_not_a_guess():
     assert "stored_content" not in res and "note" not in res
     assert coll.reads == 1 + retries  # הקריאה הראשונה, ואחריה קריאה חוזרת לכל ניסיון
     assert coll.writes == []          # כל הכתיבות נצרכו — הפתק זז לפני כל קריאה
+
+
+def test_a_note_deleted_between_the_two_reads_is_not_found_and_stops_retrying():
+    """הפתק נמחק אחרי שהגוף נקרא ולפני הקריאה החוזרת — ``not_found``, בלי
+    חריגה ובלי זוג ישן, ובלי ניסיון חוזר על פתק שכבר איננו.
+
+    נופלת בשתי הרגרסיות של הענף: החזרת הגוף מהקריאה הראשונה (``again = row``),
+    ומחיקת הענף כולו — אז ``row`` הופך ל-``None`` והסיבוב הבא זורק חריגה.
+    """
+    coll = _VanishingColl()
+    coll.inserted.append(_stored_note("שלום", board_id=_VALID_BOARD))
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.get_note(7, note_id=_NOTE_OID, with_version=True)
+
+    assert res == {"ok": False, "error": "not_found"}
+    assert coll.reads == 2  # הקריאה הראשונה, והקריאה החוזרת שגילתה את המחיקה
 
 
 def test_without_the_version_the_read_is_a_single_query():

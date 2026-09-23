@@ -360,6 +360,48 @@ def test_a_lean_listing_measures_the_bodies_inside_the_database(mcp_backend, mon
     assert full["notes"][0]["content"] == "שלום עולם"
 
 
+def test_a_lean_file_listing_matches_by_scope_and_by_legacy_file_id_in_the_engine(
+    mcp_backend, mongo_db
+):
+    """הצורה שרשימת פתקי **קובץ** באמת שולחת לצינור הרזה — ``$or`` על ``scope_id``
+    ועל ``file_id: {$in: [...]}`` (פתקי legacy של גרסאות קודמות של הקובץ) — רצה
+    במנוע, ולא רק בסטאב שמקבל כל ``$match``. הטסט על הלוח מכסה מסנן שטוח בלבד.
+
+    נופלת אם אחד משני ענפי ה-``$or`` יישמט (פתק ה-legacy נעלם), אם המסנן
+    יפסיק לתחום ל-``user_id`` (פתק של משתמש אחר נכנס), או אם הגוף יחזור.
+    """
+    from bson import ObjectId
+
+    from sticky_notes_scope import make_scope_id
+
+    old_version, new_version = ObjectId(), ObjectId()
+    mongo_db.code_snippets.insert_many([
+        {"_id": old_version, "user_id": 7, "file_name": "notes.py"},
+        {"_id": new_version, "user_id": 7, "file_name": "notes.py"},
+    ])
+    mongo_db.sticky_notes.insert_many([
+        {"user_id": 7, "scope_id": make_scope_id(7, "notes.py"), "content": "שלום",
+         "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc)},
+        {"user_id": 7, "file_id": str(old_version), "content": "ascii",      # legacy
+         "created_at": datetime(2026, 1, 2, tzinfo=timezone.utc)},
+        {"user_id": 8, "file_id": str(old_version), "content": "של אחר",     # משתמש אחר
+         "created_at": datetime(2026, 1, 3, tzinfo=timezone.utc)},
+        {"user_id": 7, "scope_id": make_scope_id(7, "other.py"), "content": "קובץ אחר",
+         "created_at": datetime(2026, 1, 4, tzinfo=timezone.utc)},
+    ])
+
+    lean = mcp_backend.list_notes(7, file_name="notes.py", include_content=False)
+
+    assert lean["ok"] is True and lean["count"] == 2
+    assert all("content" not in n for n in lean["notes"])
+    assert [n["content_bytes"] for n in lean["notes"]] == [len("שלום".encode("utf-8")), len("ascii")]
+
+    # המסלול המלא רואה את אותם שני פתקים, באותו סדר, עם הגוף.
+    full = mcp_backend.list_notes(7, file_name="notes.py")
+    assert [n["id"] for n in full["notes"]] == [n["id"] for n in lean["notes"]]
+    assert [n["content"] for n in full["notes"]] == ["שלום", "ascii"]
+
+
 def test_the_quota_rejects_when_the_count_fails(mcp_backend, mongo_db, monkeypatch):
     """כשל ספירה → **דחייה**, לא מעבר.
 

@@ -51,6 +51,7 @@ from services import doc_sections
 from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
 from . import docs_handlers, handlers, repo_handlers
+from .backend import LEAN_NOTE_FIELDS
 from .handlers import StrictInt, StrictLines
 from .limits import (
     BODY_TOO_LARGE,
@@ -170,15 +171,21 @@ _NOTE_COLOR_PARAM_DOC = _build_note_color_doc()
 # **היחידה נקובה במפורש, ובבתים.** הכלל בפרויקט הוא בתים נמדדים על המטען
 # האמיתי ולא ספירת תווים — בפתק עברי ההפרש הוא פי שניים (ראו
 # ``backend._as_note_summary``).
+#
+# **רשימת השדות נגזרת מ-``LEAN_NOTE_FIELDS`` ולא מוקלדת**, מאותו נימוק שמאחורי
+# ``_build_note_color_doc``: רשימה שמוקלדת ביד מתיישנת בשקט בשדה הבא
+# שיתווסף, והסוכן ממשיך לקרוא רשימה חלקית בלי שאף בדיקה תשים לב.
+_LEAN_NOTE_FIELDS_DOC = ", ".join(LEAN_NOTE_FIELDS)
+
 _INCLUDE_CONTENT_PARAM_DOC = (
     "true, the default, returns every note with its content — exactly what the "
     "tool returned before this parameter existed. false returns each note without "
-    "its body: only id, title, color, color_id, updated_at and content_bytes — the "
-    "size of the stored body in UTF-8 BYTES (a Hebrew note is about twice its "
-    "character count), which is exactly the size of the content codekeeper_get_note "
-    "returns for it. Use false on a board or file you have not read yet — a full "
-    "listing of a large board can exceed what a client shows — then read the notes "
-    "you need one at a time with codekeeper_get_note by id."
+    "its body: only " + _LEAN_NOTE_FIELDS_DOC + ". content_bytes is the size of the "
+    "stored body in UTF-8 BYTES (a Hebrew note is about twice its character count), "
+    "which is exactly the size of the content codekeeper_get_note returns for it. "
+    "Use false on a board or file you have not read yet — a full listing of a large "
+    "board can exceed what a client shows — then read the notes you need one at a "
+    "time with codekeeper_get_note by id."
 )
 
 _OUTLINE_PARAM_DOC = (
@@ -1786,7 +1793,7 @@ def build_mcp(
             "Same notes shown on the board page in the web UI. Use codekeeper_list_notes "
             "instead for notes attached to a file. On a large board a full listing can "
             "exceed what a client shows: pass include_content=false to list the notes "
-            "without their bodies (id, title, colour, size, updated_at), then read the "
+            "without their bodies (" + _LEAN_NOTE_FIELDS_DOC + "), then read the "
             "ones you need with codekeeper_get_note by id."
         ),
         annotations=_READ_ONLY_TOOL,
@@ -2004,7 +2011,8 @@ def build_mcp(
         name="codekeeper_list_note_versions",
         description=(
             "Previous revisions of one sticky note (metadata only: version number, when "
-            "it was saved, how long it was), newest first. A revision is kept every time "
+            "it was saved, its length in characters — not bytes), newest first. A "
+            "revision is kept every time "
             "the note's content is overwritten, up to a fixed number of the most recent "
             "ones. Read one with codekeeper_get_note_version; the current body is "
             "codekeeper_get_note."
@@ -2020,8 +2028,9 @@ def build_mcp(
             "Read the content of one PREVIOUS revision of a sticky note (version number "
             "from codekeeper_list_note_versions). The current body is codekeeper_get_note, "
             "which also says which number that body carries — the number this tool will "
-            "read it by once it is overwritten. To restore a revision, pass its content "
-            "back to codekeeper_update_note."
+            "read it by once it is overwritten through this server (a web-app edit is "
+            "not kept in history). To restore a revision, pass its content back to "
+            "codekeeper_update_note."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -2039,21 +2048,19 @@ def build_mcp(
         name="codekeeper_get_note",
         description=(
             "Read ONE sticky note by note_id — the id every note carries in "
-            "codekeeper_list_notes, codekeeper_list_board_notes and "
-            "codekeeper_search_notes. Reach a note this way instead of listing its whole "
-            "board or file: a listing of a large board can exceed what a client shows, "
-            "while one note is bounded. The reply carries the note (content, title, "
-            "color, color_id, timestamps); version — the number of the CURRENT body "
-            "(null for an empty body), "
-            "which codekeeper_get_note_version reads back by that number once the body "
-            "has been overwritten; and where the note sits, in exactly the arguments "
-            "the matching list tool takes: target with file_name, board_id, or "
-            "repo_name + repo_path (a repo note also says orphaned=true when its path "
-            "is no longer in the mirrored tree). content is the stored text, byte for "
-            "byte, so an old_string for codekeeper_note_str_replace can be copied from "
-            "it, and this is the read to repeat when that tool answers conflict. A note "
-            "you do not own answers not_found, and so does a note on a mirrored "
-            "repository unless you are the admin; a note being edited right now "
+            "codekeeper_list_notes, codekeeper_list_board_notes and codekeeper_search_notes. "
+            "Use it instead of listing a whole board or file, which can exceed what a client "
+            "shows; one note is bounded. The reply carries the note (content, title, color, "
+            "color_id, timestamps); version — the number of the CURRENT body (null for an "
+            "empty body), which codekeeper_get_note_version reads back by that number once "
+            "the body has been overwritten through this server (a web-app edit is not kept in "
+            "history); and where the note sits, in exactly the arguments the matching list "
+            "tool takes: target with file_name, board_id, or repo_name + repo_path (a repo "
+            "note also says orphaned=true when its path is no longer in the mirrored tree). "
+            "content is the stored text, byte for byte: copy an old_string for "
+            "codekeeper_note_str_replace from it, and repeat this read when that tool answers "
+            "conflict. A note you do not own answers not_found, and so does a note on a "
+            "mirrored repository unless you are the admin; a note being edited right now "
             "answers conflict — read it again."
         ),
         annotations=_READ_ONLY_TOOL,

@@ -339,8 +339,8 @@ NOTES_LIST_LIMIT = 500
 def _lean_notes_pipeline(query: dict[str, Any]) -> list[dict[str, Any]]:
     """הצינור של ``include_content=false``: **הגוף אינו יוצא מהמסד בכלל.**
 
-    ``find`` בלי היטלה היה מושך 500 גופים של עד ``MAX_NOTE_CHARS`` תווים כדי
-    להחזיר 500 מספרים — בדיוק "עבודה שאינה פרופורציונלית לתשובה" (R8), וזה
+    ``find`` בלי היטלה היה מושך עד ``NOTES_LIST_LIMIT`` גופים של עד
+    ``MAX_NOTE_CHARS`` תווים כדי להחזיר את אותו מספר של מספרים — בדיוק "עבודה שאינה פרופורציונלית לתשובה" (R8), וזה
     מה שריוויוור תפס ב-PR #3456. כאן הגודל מחושב **במסד**: ``$strLenBytes``
     סופר את בתי ה-UTF-8 של הגוף המאוחסן — היחידה שבה ``OUTPUT_BYTE_BUDGET``
     נמדד, ובפתק עברי פי שניים מספירת תווים (H6: בתים הם היחידה הנכונה
@@ -385,13 +385,23 @@ def _lean_notes_pipeline(query: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+#: השדות של השורה הרזה (``include_content=false``), בסדר שבו הם חוזרים —
+#: **המקור היחיד** של הרשימה. :func:`_as_note_summary` בונה את השורה וטסט
+#: משווה את המפתחות שלה לכאן; תיאורי הכלים ב-``mcp_server/server.py`` נגזרים
+#: מכאן ולא מקלידים את הרשימה, כך ששדה שיתווסף מופיע אצל הסוכן מאליו.
+LEAN_NOTE_FIELDS: tuple[str, ...] = (
+    "id", "title", "color", "color_id", "content_bytes", "updated_at"
+)
+
+
 def _as_note_summary(doc: dict[str, Any] | None) -> dict[str, Any]:
     """שורת פתק **בלי הגוף** — מה ש-``include_content=false`` מחזיר ברשימה.
 
     **סריאלייזר משלו ולא ``_as_note`` פחות ``content``**, מאותו נימוק שכתוב
     ב-:func:`_as_note_ref`: "לזכור להסיר את השדה הכבד" הוא בדיוק מצב הכשל
     ש-Smart Projection נועד למנוע. מה שכן יש כאן הוא הזהות, הצבע, מועד
-    העדכון — ו**גודל** הגוף, כדי שהקורא יחליט אילו פתקים לקרוא.
+    העדכון — ו**גודל** הגוף, כדי שהקורא יחליט אילו פתקים לקרוא. המפתחות,
+    בסדר הזה, הם :data:`LEAN_NOTE_FIELDS`.
 
     ``content_bytes`` **אינו מחושב כאן.** הוא מגיע מהשורה שהצינור
     :func:`_lean_notes_pipeline` החזיר — המסד מדד אותו, בבתים של UTF-8 על
@@ -1535,8 +1545,8 @@ class ProductionBackend:
     _NOTE_TOUCH_FIELDS = ("content", "updated_at", "write_id")
 
     #: כמה פעמים לקרוא את הפתק שוב כשהוא זז בין קריאת הגוף לקריאת ההיסטוריה.
-    #: שלוש, כמו :data:`_SNAPSHOT_RETRIES`: אחרי שלושה ניסיונות שבכולם הפתק
-    #: זז, מישהו כותב בו ברצף, והתשובה הישרה היא ``conflict`` ולא ניחוש.
+    #: אחרי שלושה ניסיונות שבכולם הפתק זז, מישהו כותב בו ברצף, והתשובה
+    #: הישרה היא ``conflict`` ולא ניחוש.
     _CONSISTENT_READ_RETRIES = 3
 
     @classmethod
@@ -1670,17 +1680,6 @@ class ProductionBackend:
         """המספר שבא אחרי הגרסה החדשה ביותר: ``1`` כשאין היסטוריה."""
         return int((newest or {}).get("version") or 0) + 1
 
-    @classmethod
-    def _next_note_version(cls, coll: Any, user_id: int, note_id: str) -> int:
-        """המספר שהצילום הבא של הפתק יקבל.
-
-        :meth:`_snapshot_note` מצלם איתו, ו-:meth:`_version_of_body` מדווח
-        איתו — אותה שאילתה ואותו חשבון, לא עותק.
-        """
-        return cls._number_after(
-            cls._newest_snapshot(coll, user_id, note_id, fields={"version": 1})
-        )
-
     def _version_of_body(self, user_id: int, note_id: str, body: Any) -> int | None:
         """המספר שבו ``get_note_version`` מחזיר **את הגוף הזה** — עכשיו או
         אחרי הדריסה הבאה.
@@ -1692,8 +1691,9 @@ class ProductionBackend:
           הדריסה, בכוונה), וגם צילום שנשאר אחרי כתיבה שנכשלה בספק; בשניהם
           הגוף כבר ניתן לקריאה במספר ההוא, ו"החדשה ביותר ועוד אחת" היה מספר
           של גוף אחר.
-        - אחרת — המספר שהצילום הבא ייתן לו, אותו חשבון של
-          :meth:`_next_note_version`.
+        - אחרת — המספר שהצילום הבא ייתן לו: :meth:`_number_after` על
+          :meth:`_newest_snapshot`, אותם שני חלקים שבהם :meth:`_snapshot_note`
+          בוחר מספר לצילום. חלקים משותפים, לא עותק של החשבון.
 
         ההשוואה היא של תוכן, וזה **אינו** ה-ABA של מסלול הכשל: השאלה כאן
         טקסטואלית מטבעה — "האם הטקסט הזה כבר שמור במספר הזה" — ולא "האם
@@ -1796,7 +1796,9 @@ class ProductionBackend:
         nid = str(note.get("_id"))
         for _attempt in range(self._SNAPSHOT_RETRIES):
             try:
-                nxt = self._next_note_version(coll, int(user_id), nid)
+                nxt = self._number_after(
+                    self._newest_snapshot(coll, int(user_id), nid, fields={"version": 1})
+                )
                 coll.insert_one(
                     {
                         "user_id": int(user_id),
@@ -1804,7 +1806,9 @@ class ProductionBackend:
                         "version": nxt,
                         "content": content,
                         # האורך נשמר בכתיבה כדי שרשימת הגרסאות לא תצטרך
-                        # לקרוא את הגוף (עד 20K תווים) רק כדי למדוד אותו.
+                        # לקרוא את הגוף (עד ``MAX_NOTE_CHARS`` תווים) רק כדי
+                        # למדוד אותו. **בתווים** — לא בבתים כמו ``content_bytes``
+                        # של הרשימה הרזה; תיאור הכלי והתיעוד נוקבים ביחידה.
                         "length": len(content),
                         "saved_at": _dt.datetime.now(_dt.timezone.utc),
                     }
