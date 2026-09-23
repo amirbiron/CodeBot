@@ -17870,7 +17870,11 @@ def upload_file_web():
 @app.route('/api/favorite/toggle/<file_id>', methods=['POST'])
 @login_required
 def api_toggle_favorite(file_id):
-    """טוגל מועדפים עבור קובץ: מעדכן את המסמך הפעיל העדכני לפי file_name למשתמש."""
+    """טוגל מועדפים עבור **קובץ**: ``file_id`` משמש רק למציאת שם הקובץ ולבדיקת הבעלות.
+
+    המצב הנוכחי הוא של הקובץ (``file_favorite.file_is_favorite``), והעדכון חל על
+    כל הגרסאות הפעילות שלו — לא על המסמך שנפתח.
+    """
     try:
         db = get_db()
         user_id = session['user_id']
