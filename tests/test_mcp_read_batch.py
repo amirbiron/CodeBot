@@ -762,6 +762,201 @@ def test_the_wire_form_is_never_smaller_than_the_repos_formula():
     assert len(_as_sent(sample).encode("utf-8")) >= len(json.dumps(sample, ensure_ascii=False).encode("utf-8"))
 
 
+def _far_files(count: int = 10, size: int = 15_000) -> dict[str, str]:
+    """קבצים שבכל אחד סעיף קצר, ואחריו גוף ארוך — פריט הסעיף קטן, ופריט הקובץ גדול."""
+    return {f"far/F{i}.md": f"# F{i}\n\n## S{i}\n\nגוף קצר.\n\n## Big\n\n" + "x" * size + "\n"
+            for i in range(count)}
+
+
+def _far_items(count: int = 10) -> list[dict[str, Any]]:
+    """סעיף מכל קובץ, ואחריהם הקבצים עצמם **בסדר הפוך** — כל קבוצה עונה גם על פריט רחוק."""
+    items: list[dict[str, Any]] = [
+        {"kind": "section", "repo": _MD, "path": f"far/F{i}", "section": f"S{i}"} for i in range(count)]
+    items += [{"kind": "file", "repo": _MD, "path": f"far/F{i}.md"} for i in reversed(range(count))]
+    return items
+
+
+def _count_live_entries(monkeypatch: Any) -> dict[str, int]:
+    """כל תשובה שהבאץ' בונה נספרת כל עוד היא חיה — ``__del__`` מוריד אותה כשהיא משתחררת.
+
+    כך הטסט מודד מה **נשמר בפועל**, ולא מה שהקוד מתכוון לשמור: תשובה שנבנתה
+    ונזרקה יורדת מהספירה ברגע שאין אליה הפניה.
+    """
+    live = {"now": 0, "peak": 0}
+
+    class _Alive(dict):
+        cost = 0
+
+        def __del__(self) -> None:
+            live["now"] -= self.cost
+
+    original = read_batch._entry
+
+    def counted(index: int, plan: Any, result: dict[str, Any], per_item_max: int) -> tuple[dict[str, Any], int]:
+        entry, cost = original(index, plan, result, per_item_max)
+        alive = _Alive(entry)
+        alive.cost = cost
+        live["now"] += cost
+        live["peak"] = max(live["peak"], live["now"])
+        return alive, cost
+
+    monkeypatch.setattr(read_batch, "_entry", counted)
+    return live
+
+
+def _watch_keep(monkeypatch: Any) -> list[str]:
+    """בודק את שני האינווריאנטים של ``_keep`` אחרי כל קריאה אליו — ורושם כל הפרה.
+
+    (1) מה שכבר נכנס, ועוד כל מה שמחכה לתורו, אינם עוברים את ``OUTPUT_BYTE_BUDGET``;
+    (2) שום תשובה אינה מחכה בנקודה שבה המעבר ייעצר או אחריה (``min(cut)``).
+    הספירה של :func:`_count_live_entries` מודדת את הזיכרון מבחוץ, עם מרווח של
+    תשובה אחת שנבנית; כאן אין מרווח — הבדיקה היא על מה ש-``_keep`` השאיר.
+    """
+    violations: list[str] = []
+    original = read_batch._keep
+
+    def watched(ready: dict, cut: set, used: int, index: int, entry: dict, cost: int) -> None:
+        original(ready, cut, used, index, entry, cost)
+        held = used + sum(entry_cost for _, entry_cost in ready.values())
+        if held > read_batch.OUTPUT_BYTE_BUDGET:
+            violations.append(f"אחרי {index}: {held} בתים > התקציב")
+        stop = min(cut) if cut else None
+        waiting_past = sorted(j for j in ready if stop is not None and j >= stop)
+        if waiting_past:
+            violations.append(f"אחרי {index}: מחכות תשובות מנקודת העצירה {stop} והלאה: {waiting_past}")
+
+    monkeypatch.setattr(read_batch, "_keep", watched)
+    return violations
+
+
+@requires_git
+async def test_answers_waiting_for_their_turn_never_hold_more_than_the_budget(tmp_path, monkeypatch):
+    """מה שהבאץ' מחזיק בין פריטים חסום בתקציב — גם כשכל קבוצה עונה על פריט רחוק.
+
+    סעיף מכל אחד מעשרה קבצים, ואחריהם עשרת הקבצים עצמם בסדר הפוך. כל קבוצה
+    שנקראת עונה גם על פריט הקובץ שלה, רחוק בבקשה. בדיקה של כל תשובה רק מול מה
+    שלפניה השאירה את כולן בזיכרון — כל אחת נכנסה לבדה, ויחד הן היו פי כמה
+    מהתקציב, ואף אחת מהן לא נשלחה.
+
+    **החסם:** מה שנכנס ועוד מה שמחכה לתורו ≤ ``OUTPUT_BYTE_BUDGET``, ועוד התשובה
+    האחת שנבנית ברגע זה — ``per_item_max`` לכל היותר. **והתשובה ללקוח לא
+    השתנתה:** עשרת הסעיפים נכנסים, וכל הקבצים ב-``unread``.
+
+    **מוטציה שמפילה:** להסיר מ-``_keep`` את הפינוי של מה שנדחק — השיא חוזר
+    להיות סכום התשובות הרחוקות.
+    """
+    budget = 20_000
+    world = _world(tmp_path, monkeypatch, extra=_far_files())
+    monkeypatch.setattr(read_batch, "OUTPUT_BYTE_BUDGET", budget)
+    live = _count_live_entries(monkeypatch)
+    violations = _watch_keep(monkeypatch)
+    items = _far_items()
+
+    _, answer = await _batch(world.mcp, items)
+
+    assert [entry["index"] for entry in answer["items"]] == list(range(10))
+    assert answer["unread"] == list(range(10, 20)) and answer["unread_reason"] == "byte_budget"
+    per_item_max = budget - read_batch._reserve(len(items))
+    assert live["peak"] <= budget + per_item_max, (
+        f"הבאץ' החזיק {live['peak']:,} בתים של תשובות בבת אחת — מעל התקציב ועוד תשובה אחת")
+    assert violations == []
+
+
+@requires_git
+async def test_no_answer_is_built_for_an_item_past_the_first_that_will_not_fit(tmp_path, monkeypatch):
+    """פריט אחרי הנקודה שבה המעבר ייעצר אינו נענה כלל — לא נבנה ונזרק.
+
+    הסדר: סעיף של A, הקובץ B, סעיף של C, הקובץ A, סעיף של B. הקבוצה של A עונה
+    על 0 ועל 3; הקבוצה של B על 1 ועל 4. כשהקובץ B (1) נכנס, הקובץ A (3) כבר לא
+    ייכנס אחריו — ``_keep`` מפנה אותו ומסמן אותו, ולכן כשאותה קבוצה מגיעה ל-4,
+    ברור שהמעבר ייעצר ב-3 לפניו. בניית התשובה של 4 הייתה עבודה שנזרקת.
+
+    **מוטציה שמפילה:** להסיר מ-``_run_group`` את הדילוג על מה שאחרי ``min(cut)``
+    — ``_keep`` עדיין לא ישמור את 4, אבל התשובה שלו כבר נבנתה.
+    """
+    budget = 20_000
+    files = {
+        "cut/A.md": "# A\n\n## SA\n\nגוף.\n\n## Big\n\n" + "a" * 14_000 + "\n",
+        "cut/B.md": "# B\n\n## SB\n\nגוף.\n\n## Big\n\n" + "b" * 10_000 + "\n",
+        "cut/C.md": "# C\n\n## SC\n\nגוף.\n",
+    }
+    world = _world(tmp_path, monkeypatch, extra=files)
+    monkeypatch.setattr(read_batch, "OUTPUT_BYTE_BUDGET", budget)
+    reads = _Spy(world.mirror.get_file_at_commit)
+    monkeypatch.setattr(world.mirror, "get_file_at_commit", reads)
+    built: list[int] = []
+    original = read_batch._item_result
+
+    def spy(plan: Any, read: Any, loaded: Any, **kwargs: Any) -> dict[str, Any]:
+        built.append(kwargs["index"])
+        return original(plan, read, loaded, **kwargs)
+
+    monkeypatch.setattr(read_batch, "_item_result", spy)
+    items = [
+        {"kind": "section", "repo": _MD, "path": "cut/A", "section": "SA"},
+        {"kind": "file", "repo": _MD, "path": "cut/B.md"},
+        {"kind": "section", "repo": _MD, "path": "cut/C", "section": "SC"},
+        {"kind": "file", "repo": _MD, "path": "cut/A.md"},
+        {"kind": "section", "repo": _MD, "path": "cut/B", "section": "SB"},
+    ]
+
+    _, answer = await _batch(world.mcp, items)
+
+    assert [entry["index"] for entry in answer["items"]] == [0, 1, 2]
+    assert answer["unread"] == [3, 4] and answer["unread_reason"] == "byte_budget"
+    assert 3 in built, "ההנחה של הטסט נשברה: הקובץ A אמור להיבנות לפני שהוא נדחק"
+    assert 4 not in built, "נבנתה תשובה לפריט שהמעבר ייעצר לפניו"
+    # והפינוי אינו מחזיר קבוצה לקריאה: פריט שנדחק מסומן ב-``cut``, ולכן המעבר
+    # נעצר בו ואינו קורא את הקובץ שלו פעם שנייה.
+    assert sorted(call[0][1] for call in reads.calls) == ["cut/A.md", "cut/B.md", "cut/C.md"]
+
+
+@requires_git
+async def test_in_any_order_the_answer_is_the_longest_prefix_that_fits_and_nothing_more_is_held(
+    tmp_path, monkeypatch
+):
+    """בכל סדר של הפריטים: התשובה היא הרצף הארוך ביותר שנכנס, והזיכרון חסום.
+
+    **האורקל פשוט, ובכוונה:** מחיר כל פריט נמדד בריצה בתקציב שאינו חוסם, והתשובה
+    בתקציב קטן יותר חייבת להיות בדיוק הרצף הארוך ביותר מתחילת הבקשה שהמחירים
+    שלו, עם המעטפת השמורה, נכנסים — אותם פריטים, בית-בית. זה מה שמוכיח שהפינוי
+    ב-``_keep`` אינו מוקדם מדי: תשובה שפונתה לעולם אינה כזו שהייתה נכנסת. והשיא
+    של מה שנשמר נבדק בכל סדר, לא רק בסדר שנבנה כדי להכשיל.
+    """
+    world = _world(tmp_path, monkeypatch, extra=_far_files(size=6_000))
+    base = _far_items()
+    real_budget = read_batch.OUTPUT_BYTE_BUDGET
+    real_entry = read_batch._entry
+    real_keep = read_batch._keep
+    rng = random.Random(11)
+    for _ in range(12):
+        items = base[:]
+        rng.shuffle(items)
+        monkeypatch.setattr(read_batch, "_entry", real_entry)
+        monkeypatch.setattr(read_batch, "OUTPUT_BYTE_BUDGET", real_budget)
+        _, full = await _batch(world.mcp, items)
+        assert "unread" not in full
+        costs = [read_batch._entry_cost(entry) for entry in full["items"]]
+        reserve = read_batch._reserve(len(items))
+        # לפחות הפריט הגדול ביותר נכנס לבדו — כך אף פריט אינו ``item_too_large``,
+        # והמחירים בתקציב הקטן הם אותם מחירים.
+        budget = rng.randint(reserve + max(costs), reserve + sum(costs) - 1)
+        fits = 0
+        while fits < len(costs) and reserve + sum(costs[:fits + 1]) <= budget:
+            fits += 1
+
+        monkeypatch.setattr(read_batch, "OUTPUT_BYTE_BUDGET", budget)
+        live = _count_live_entries(monkeypatch)
+        violations = _watch_keep(monkeypatch)
+        _, answer = await _batch(world.mcp, items)
+        monkeypatch.setattr(read_batch, "_keep", real_keep)
+
+        assert answer["items"] == full["items"][:fits]
+        assert answer["unread"] == list(range(fits, len(items))) and answer["unread_reason"] == "byte_budget"
+        assert live["peak"] <= budget + (budget - reserve)
+        assert violations == []
+
+
 # ===========================================================================
 # 4. תקרות — נדחות ולא נצמדות, ולפני השקילה
 # ===========================================================================

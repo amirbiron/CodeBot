@@ -39,9 +39,10 @@
 שהקבוצה שלו נקראה, המעבר נעצר, והפריט הזה וכל מה שאחריו מדווחים
 ב-``unread`` — גם פריט שכבר נענה כחלק מקבוצה, כי תשובה שכבר חושבה אבל
 מופיעה אחרי החור לא תיכנס. זה מה שמאפשר ``unread_reason`` אחד: הוא אומר
-למה המעבר נעצר, והלקוח שולח שוב את כל הרשימה שב-``unread``. ובזיכרון:
-תשובה שמחכה לתורה נשמרת רק כל עוד יש סיכוי שהיא תיכנס — ראו
-:func:`_lower_bound`, שזו התקרה על כל מה שנשמר בין פריטים.
+למה המעבר נעצר, והלקוח שולח שוב את כל הרשימה שב-``unread``. ובזיכרון: מה
+שכבר נכנס, ועוד כל תשובה שמחכה לתורה, אינם עוברים יחד את
+``OUTPUT_BYTE_BUDGET`` — ראו :func:`_keep`, שזו התקרה על כל מה שנשמר בין
+פריטים, ושמפנה תשובה שמחכה ברגע שתשובה חדשה לפניה דוחקת אותה החוצה.
 
 **תקציב הבתים נמדד בצורה שה-SDK שולח.** ``pydantic_core.to_json(...,
 indent=2)`` — ``_convert_to_content`` ב-``mcp/server/fastmcp/utilities/
@@ -424,12 +425,62 @@ def _lower_bound(used: int, ready: dict[int, tuple[dict[str, Any], int]], index:
     """כמה בתים יהיו בתשובה לכל הפחות כשהמעבר יגיע ל-``index``.
 
     כל מה שכבר נכנס, ועוד כל תשובה מוכנה שממתינה לפני ``index`` — אם המעבר
-    מגיע ל-``index`` בכלל, כולן נכנסו לפניו. פריטים שעוד לא נקראו רק מוסיפים.
-    כשהחסם הזה כבר מלא, הפריט לא ייכנס לעולם, ואין טעם לענות עליו ולשמור את
-    התשובה: **זו התקרה על מה שנשמר בין פריטים** — תשובות שמחכות לתורן אינן
-    עוברות את התקציב ביותר מפריט אחד.
+    מגיע ל-``index`` בכלל, כולן נכנסו לפניו. פריטים שעוד לא נקראו רק מוסיפים,
+    ולכן תשובה שאינה נכנסת מעל החסם הזה לא תיכנס לעולם. **זה חסם על מה שלפני
+    ``index`` בלבד**, ולא על מה שנשמר: את זה אוכף :func:`_keep`.
     """
     return used + sum(cost for j, (_, cost) in ready.items() if j < index)
+
+
+def _drop_from(ready: dict[int, tuple[dict[str, Any], int]], first: int) -> None:
+    """מפנה כל תשובה שמחכה מ-``first`` והלאה — המעבר ייעצר לפניהן."""
+    for later in [j for j in ready if j >= first]:
+        del ready[later]
+
+
+def _keep(
+    ready: dict[int, tuple[dict[str, Any], int]],
+    cut: set[int],
+    used: int,
+    index: int,
+    entry: dict[str, Any],
+    cost: int,
+) -> None:
+    """שומר את התשובה של ``index`` עד שהמעבר יגיע אליה — רק אם היא עוד יכולה להישלח.
+
+    **האינווריאנט: מה שכבר נכנס, ועוד כל מה שמחכה לתורו, אינם עוברים יחד את
+    ``OUTPUT_BYTE_BUDGET``.** זו התקרה על מה שהבאץ' מחזיק בין פריטים. בדיקה של
+    תשובה רק מול מה שלפניה (:func:`_lower_bound`) אינה מספיקה לזה: קבוצה שנקראת
+    עונה גם על פריטים רחוקים בבקשה, וכשהקבוצות נקראות בסדר הפוך לפריטים
+    הרחוקים שלהן — סעיפים של עשרה קבצים ואחריהם עשרת הקבצים עצמם, מהאחרון
+    לראשון — כל תשובה רחוקה נכנסת לבדה, ויחד הן פי כמה מהתקציב.
+    ``tests/test_mcp_read_batch.py`` בונה בדיוק את זה.
+
+    שני מקרים:
+
+    * **התשובה לא תיכנס** — מה שלפניה, ועוד היא, כבר עוברים את התקציב.
+      ``index`` נכנס ל-``cut``, וכל מה שמחכה אחריו מפונה.
+    * **התשובה נכנסת** — ואז היא דוחקת כל מה שמחכה אחריה. התשובה הראשונה שכבר
+      לא נכנסת נכנסת ל-``cut``, ומפונה יחד עם כל מה שאחריה.
+
+    **ההכרעה לעולם אינה מוקדמת מדי.** פריטים שעוד לא נקראו רק מוסיפים לפני
+    ``index``, ולכן תשובה שנחתכה כאן הייתה נעצרת גם במעבר עצמו: התשובה שהלקוח
+    מקבל זהה לזו שהייתה נבנית בלי הפינוי. מה שהפינוי משנה הוא רק מה שנשאר
+    בזיכרון עד שהמעבר מגיע. (תשובה לפריט שאחרי ``min(cut)`` אינה נבנית מלכתחילה
+    — ``_run_group`` מדלג עליו.)
+    """
+    if _lower_bound(used, ready, index) + cost > OUTPUT_BYTE_BUDGET:
+        cut.add(index)
+        _drop_from(ready, index + 1)
+        return
+    ready[index] = (entry, cost)
+    total = _lower_bound(used, ready, index) + cost
+    for later in sorted(j for j in ready if j > index):
+        total += ready[later][1]
+        if total > OUTPUT_BYTE_BUDGET:
+            cut.add(later)
+            _drop_from(ready, later)
+            return
 
 
 def _run_group(
@@ -462,22 +513,33 @@ def _run_group(
         failed = False
 
     for j in indices:
+        if cut and j > min(cut):
+            continue  # המעבר ייעצר לפניו — אין טעם לבנות תשובה שלא תישלח
         if _lower_bound(used, ready, j) >= OUTPUT_BYTE_BUDGET:
             cut.add(j)
             continue
-        plan = plans[j]
-        if failed:
-            result: dict[str, Any] = {"ok": False, "error": "internal_error"}
-        else:
-            try:
-                result = _answer(plan, read, loaded)
-            except Exception:
-                logger.exception(
-                    "%s: item %d (%s %s:%s) raised; answered internal_error",
-                    TOOL_NAME, j, plan.kind, repo, path,
-                )
-                result = {"ok": False, "error": "internal_error"}
-        ready[j] = _entry(j, plan, result, per_item_max)
+        # בביטוי אחד, בלי משתנה מקומי שמחזיק את התשובה: תשובה ש-``_keep`` אינו
+        # שומר משתחררת מיד, ולא נשארת בזיכרון עד שהאיבר הבא בלולאה נבנה לצידה.
+        _keep(ready, cut, used, j, *_entry(
+            j, plans[j], _item_result(plans[j], read, loaded, failed=failed, index=j, repo=repo, path=path),
+            per_item_max,
+        ))
+
+
+def _item_result(
+    plan: _Plan, read: Any, loaded: Any, *, failed: bool, index: int, repo: str, path: str
+) -> dict[str, Any]:
+    """התשובה של פריט אחד בקבוצה — או ``internal_error`` כשהקבוצה או הפריט נפלו."""
+    if failed:
+        return {"ok": False, "error": "internal_error"}
+    try:
+        return _answer(plan, read, loaded)
+    except Exception:
+        logger.exception(
+            "%s: item %d (%s %s:%s) raised; answered internal_error",
+            TOOL_NAME, index, plan.kind, repo, path,
+        )
+        return {"ok": False, "error": "internal_error"}
 
 
 def read_batch(
@@ -519,13 +581,17 @@ def read_batch(
             groups.setdefault(plan.key, []).append(index)
             group_of[index] = plan.key
 
+    # כל תשובה נשמרת דרך ``_keep``, גם סירוב של השער: מה שנכנס ועוד מה שמחכה
+    # לתורו אינם עוברים יחד את התקציב, ולכן מה שנשמר כאן תמיד ייכנס כשהמעבר
+    # יגיע אליו — והמעבר למטה אינו צריך לבדוק את התקציב שוב.
+    used = reserve
     ready: dict[int, tuple[dict[str, Any], int]] = {}
     cut: set[int] = set()
     for index, plan in enumerate(plans):
         if plan.immediate is not None:
-            ready[index] = _entry(index, plan, plan.immediate, per_item_max)
+            entry, cost = _entry(index, plan, plan.immediate, per_item_max)
+            _keep(ready, cut, used, index, entry, cost)
 
-    used = reserve
     entries: list[dict[str, Any]] = []
     stopped_at: int | None = None
     reason: str | None = None
@@ -546,9 +612,6 @@ def read_batch(
             stopped_at, reason = index, UNREAD_BYTE_BUDGET
             break
         entry, cost = ready.pop(index)
-        if used + cost > OUTPUT_BYTE_BUDGET:
-            stopped_at, reason = index, UNREAD_BYTE_BUDGET
-            break
         entries.append(entry)
         used += cost
 
