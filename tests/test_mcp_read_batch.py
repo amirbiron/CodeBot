@@ -326,6 +326,27 @@ async def test_every_file_item_is_byte_identical_to_the_single_tool(tmp_path, mo
 
 
 @requires_git
+async def test_a_file_item_and_a_section_item_that_share_a_failed_read_each_answer_like_their_tool(tmp_path, monkeypatch):
+    """קובץ שאינו קיים, כפריט קובץ וכפריט סעיף באותו באץ' — קבוצה אחת, קריאה אחת.
+
+    ``document_from_read`` מוסיף ``repo`` ו-``path`` לתשובת הכשל שהוא מקבל, וזה
+    בדיוק מה ש-``codekeeper_docs_get_section`` מחזיר. אבל פריט הקובץ מחזיק את
+    **אותה** קריאה, ו-``codekeeper_get_repo_file`` אינו מוסיף אותם — ולכן הסעיף
+    מקבל עותק. **מוטציה שמפילה:** להעביר את הקריאה עצמה ולא עותק שלה.
+    """
+    world = _world(tmp_path, monkeypatch)
+    reads = _Spy(world.mirror.get_file_at_commit)
+    monkeypatch.setattr(world.mirror, "get_file_at_commit", reads)
+    await _assert_identical(world, [
+        ({"kind": "file", "repo": _MD, "path": "NOPE.md"},
+         ("codekeeper_get_repo_file", {"repo": _MD, "path": "NOPE.md"})),
+        ({"kind": "section", "repo": _MD, "path": "NOPE"},
+         ("codekeeper_docs_get_section", {"repo": _MD, "path": "NOPE"})),
+    ])
+    assert len(reads.calls) == 1 + 2, "קריאה אחת לבאץ', ועוד אחת לכל כלי בודד שההשוואה מריצה"
+
+
+@requires_git
 async def test_a_sync_in_progress_answers_the_same_in_both_kinds(tmp_path, monkeypatch):
     """ריפו בלי מראה שסנכרון רץ עליו: ``sync_in_progress`` עם ``retry_after``, כמו בכלי הבודד."""
     world = _world(tmp_path, monkeypatch)
