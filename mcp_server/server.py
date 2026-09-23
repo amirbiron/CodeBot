@@ -51,6 +51,7 @@ from services import doc_sections
 from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
 from . import docs_handlers, handlers, repo_handlers
+from .backend import LEAN_NOTE_FIELDS
 from .handlers import StrictInt, StrictLines
 from .limits import (
     BODY_TOO_LARGE,
@@ -88,7 +89,9 @@ _INSTRUCTIONS = (
     "permission; notes appear in the CodeKeeper web UI). "
     "codekeeper_search_notes finds a note across all three — by title, or with "
     "search_content=true also by body text, which is how untitled notes (most notes) "
-    "are found. "
+    "are found — and codekeeper_get_note reads ONE note by its id: the way to reach a "
+    "note a search found, and the read to repeat when codekeeper_note_str_replace "
+    "answers conflict. "
     "All data is scoped to the authenticated user."
 )
 
@@ -155,6 +158,35 @@ def _build_note_color_doc() -> str:
 
 
 _NOTE_COLOR_PARAM_DOC = _build_note_color_doc()
+
+# תיאור הפרמטר ``include_content``, משותף לשני כלי הרשימה שמקבלים אותו
+# (``codekeeper_list_notes`` ו-``codekeeper_list_board_notes``). קבוע אחד,
+# מאותו נימוק שמאחורי ``_RANGE_DOC``: שני נוסחים לאותה סמנטיקה נסחפים.
+#
+# **למה הפרמטר קיים.** לוח של 18 פתקים חזר ב-64,691–66,416 תווים — כ-130KB,
+# מתחת ל-``OUTPUT_BYTE_BUDGET`` של השרת, ומעל מה שלקוח מציג — כדי להגיע
+# לפתק אחד של 4,997 תווים. סוכן בלי shell לא יכול היה לקרוא את הפתק בכלל.
+# הזרימה שהפרמטר פותח היא רשימה קטנה ואחריה ``codekeeper_get_note``.
+#
+# **היחידה נקובה במפורש, ובבתים.** הכלל בפרויקט הוא בתים נמדדים על המטען
+# האמיתי ולא ספירת תווים — בפתק עברי ההפרש הוא פי שניים (ראו
+# ``backend._as_note_summary``).
+#
+# **רשימת השדות נגזרת מ-``LEAN_NOTE_FIELDS`` ולא מוקלדת**, מאותו נימוק שמאחורי
+# ``_build_note_color_doc``: רשימה שמוקלדת ביד מתיישנת בשקט בשדה הבא
+# שיתווסף, והסוכן ממשיך לקרוא רשימה חלקית בלי שאף בדיקה תשים לב.
+_LEAN_NOTE_FIELDS_DOC = ", ".join(LEAN_NOTE_FIELDS)
+
+_INCLUDE_CONTENT_PARAM_DOC = (
+    "true, the default, returns every note with its content — exactly what the "
+    "tool returned before this parameter existed. false returns each note without "
+    "its body: only " + _LEAN_NOTE_FIELDS_DOC + ". content_bytes is the size of the "
+    "stored body in UTF-8 BYTES (a Hebrew note is about twice its character count), "
+    "which is exactly the size of the content codekeeper_get_note returns for it. "
+    "Use false on a board or file you have not read yet — a full listing of a large "
+    "board can exceed what a client shows — then read the notes you need one at a "
+    "time with codekeeper_get_note by id."
+)
 
 _OUTLINE_PARAM_DOC = (
     "A map of the file instead of its content, paged with page/per_page — a "
@@ -1697,12 +1729,20 @@ def build_mcp(
         description=(
             "List the user's sticky notes attached to a file (by file_name): content, "
             "color (hex) and color_id (palette id, or empty when not in the "
-            "palette), anchored line, timestamps. Same notes shown in the web UI."
+            "palette), anchored line, timestamps. Same notes shown in the web UI. "
+            "include_content=false lists them without their bodies (with the size of "
+            "each), and codekeeper_get_note reads one note by its id."
         ),
         annotations=_READ_ONLY_TOOL,
     )
-    def list_notes(ctx: Context, file_name: str) -> dict:
-        return handlers.list_notes(backend, current_user_id(ctx), file_name=file_name)
+    def list_notes(
+        ctx: Context,
+        file_name: str,
+        include_content: Annotated[bool, Field(description=_INCLUDE_CONTENT_PARAM_DOC)] = True,
+    ) -> dict:
+        return handlers.list_notes(
+            backend, current_user_id(ctx), file_name=file_name, include_content=include_content
+        )
 
     @mcp.tool(
         name="codekeeper_create_note",
@@ -1751,12 +1791,21 @@ def build_mcp(
         description=(
             "List the sticky notes on one board (by board_id from codekeeper_list_boards). "
             "Same notes shown on the board page in the web UI. Use codekeeper_list_notes "
-            "instead for notes attached to a file."
+            "instead for notes attached to a file. On a large board a full listing can "
+            "exceed what a client shows: pass include_content=false to list the notes "
+            "without their bodies (" + _LEAN_NOTE_FIELDS_DOC + "), then read the "
+            "ones you need with codekeeper_get_note by id."
         ),
         annotations=_READ_ONLY_TOOL,
     )
-    def list_board_notes(ctx: Context, board_id: str) -> dict:
-        return handlers.list_board_notes(backend, current_user_id(ctx), board_id=board_id)
+    def list_board_notes(
+        ctx: Context,
+        board_id: str,
+        include_content: Annotated[bool, Field(description=_INCLUDE_CONTENT_PARAM_DOC)] = True,
+    ) -> dict:
+        return handlers.list_board_notes(
+            backend, current_user_id(ctx), board_id=board_id, include_content=include_content
+        )
 
     @mcp.tool(
         name="codekeeper_create_board_note",
@@ -1790,7 +1839,8 @@ def build_mcp(
     @mcp.tool(
         name="codekeeper_update_note",
         description=(
-            "Update an existing sticky note by note_id (from codekeeper_list_notes): any "
+            "Update an existing sticky note by note_id (from codekeeper_list_notes or "
+            "codekeeper_get_note): any "
             "of content, line, color, anchor_text, is_minimized. Overwrites in place; "
             "when the content changes, the previous body is kept as a version (up to a "
             "fixed number of recent revisions), readable with "
@@ -1928,13 +1978,15 @@ def build_mcp(
         name="codekeeper_note_str_replace",
         description=(
             "Exact find-and-replace inside ONE sticky note (note_id from "
-            "codekeeper_list_notes or codekeeper_search_notes) — send only the changed "
-            "snippet, never the whole note. Same semantics as codekeeper_edit_file: an "
-            "old_string matching more than once is refused unless replace_all=true. The "
-            "previous body is kept as a version, readable with "
-            "codekeeper_list_note_versions. NOT idempotent — do not blindly retry: a "
-            "repeated call re-applies the replacement to the already-edited body. "
-            "Requires write permission."
+            "codekeeper_get_note, codekeeper_list_notes or codekeeper_search_notes) — send "
+            "only the changed snippet, never the whole note. Same semantics as "
+            "codekeeper_edit_file: an old_string matching more than once is refused "
+            "unless replace_all=true. The write is guarded: if the note changed since "
+            "it was read, the answer is conflict — read it again with codekeeper_get_note, "
+            "take old_string from that body, and call this tool again. The previous body "
+            "is kept as a version, readable with codekeeper_list_note_versions. NOT "
+            "idempotent — do not blindly retry: a repeated call re-applies the "
+            "replacement to the already-edited body. Requires write permission."
         ),
         annotations=_REPLACE_IN_PLACE_TOOL,
     )
@@ -1959,9 +2011,11 @@ def build_mcp(
         name="codekeeper_list_note_versions",
         description=(
             "Previous revisions of one sticky note (metadata only: version number, when "
-            "it was saved, how long it was), newest first. A revision is kept every time "
+            "it was saved, its length in characters — not bytes), newest first. A "
+            "revision is kept every time "
             "the note's content is overwritten, up to a fixed number of the most recent "
-            "ones. Read one with codekeeper_get_note_version."
+            "ones. Read one with codekeeper_get_note_version; the current body is "
+            "codekeeper_get_note."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -1971,8 +2025,11 @@ def build_mcp(
     @mcp.tool(
         name="codekeeper_get_note_version",
         description=(
-            "Read the content of one previous revision of a sticky note (version number "
-            "from codekeeper_list_note_versions). To restore it, pass the content back to "
+            "Read the content of one PREVIOUS revision of a sticky note (version number "
+            "from codekeeper_list_note_versions). The current body is codekeeper_get_note, "
+            "which also says which number that body carries — the number this tool will "
+            "read it by once it is overwritten through this server (a web-app edit is "
+            "not kept in history). To restore a revision, pass its content back to "
             "codekeeper_update_note."
         ),
         annotations=_READ_ONLY_TOOL,
@@ -1980,6 +2037,41 @@ def build_mcp(
     def get_note_version(ctx: Context, note_id: str, version: int) -> dict:
         return handlers.get_note_version(
             backend, current_user_id(ctx), note_id=note_id, version=version
+        )
+
+    # קריאה טהורה — ``readOnlyHint`` אמיתי, לא כמו ``list_boards`` שמוצהר
+    # קריאה ובכל זאת יוצר לוח ברירת מחדל (שם זו הכרעה מנומקת, לא תקדים).
+    # **אינו** כלי אדמין ואינו ב-``_ADMIN_TOOLS``: פתק ריפו חסום לאדמין בתוך
+    # הגוף, ומי שאינו אדמין מקבל עליו ``not_found`` — לא סירוב שמגלה שהמזהה
+    # קיים, ולכן גם לא ``require_admin`` שזורק.
+    @mcp.tool(
+        name="codekeeper_get_note",
+        description=(
+            "Read ONE sticky note by note_id — the id every note carries in "
+            "codekeeper_list_notes, codekeeper_list_board_notes and codekeeper_search_notes. "
+            "Use it instead of listing a whole board or file, which can exceed what a client "
+            "shows; one note is bounded. The reply carries the note (content, title, color, "
+            "color_id, timestamps); version — the number of the CURRENT body (null for an "
+            "empty body), which codekeeper_get_note_version reads back by that number once "
+            "the body has been overwritten through this server (a web-app edit is not kept in "
+            "history); and where the note sits, in exactly the arguments the matching list "
+            "tool takes: target with file_name, board_id, or repo_name + repo_path (a repo "
+            "note also says orphaned=true when its path is no longer in the mirrored tree). "
+            "content is the stored text, byte for byte: copy an old_string for "
+            "codekeeper_note_str_replace from it, and repeat this read when that tool answers "
+            "conflict. A note you do not own answers not_found, and so does a note on a "
+            "mirrored repository unless you are the admin; a note being edited right now "
+            "answers conflict — read it again."
+        ),
+        annotations=_READ_ONLY_TOOL,
+    )
+    def get_note(ctx: Context, note_id: str) -> dict:
+        # זהות אחת לשער ולשאילתה: ``is_admin`` נגזר מאותו ``user_id`` שנשלח
+        # ל-handler, ולא מקריאה שנייה ל-``current_user_id`` — אותה הכרעה
+        # שמאחורי השימוש בערך ההחזרה של ``require_admin`` ב-``list_repo_notes``.
+        user_id = current_user_id(ctx)
+        return handlers.get_note(
+            backend, user_id, note_id=note_id, is_admin=is_admin_user(user_id)
         )
 
     # החיפוש **אינו** אדמין: הוא ``user_id``-scoped ולכן יכול להחזיר רק
@@ -1993,7 +2085,8 @@ def build_mcp(
             "needed to find the many notes that carry no title at all, and slower because "
             "no index covers the body. Each hit says where the note sits, with exactly the "
             "arguments the matching list tool needs (file_name, board_id, or repo_name + "
-            "repo_path) — read the note itself with that tool; hits never carry content."
+            "repo_path) and carries the note's id — read the note itself with "
+            "codekeeper_get_note; hits never carry content."
         ),
         annotations=_READ_ONLY_TOOL,
     )

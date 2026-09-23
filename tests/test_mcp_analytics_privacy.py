@@ -877,6 +877,35 @@ def test_nothing_but_a_file_read_gets_tagged(request_payload):
     assert analytics.read_mode_properties(request_payload) is None
 
 
+@pytest.mark.parametrize(
+    "request_payload",
+    [
+        _tool_call_request("codekeeper_get_note", {"note_id": "a" * 24}),
+        _tool_call_request(
+            "codekeeper_list_board_notes", {"board_id": "b" * 24, "include_content": False}
+        ),
+        _tool_call_request("codekeeper_list_notes", {"file_name": "x.md", "include_content": True}),
+    ],
+)
+def test_a_note_read_is_not_a_file_read_and_carries_no_read_mode(request_payload):
+    """קריאת פתק אינה קריאת קובץ, ולכן אינה מקבלת ``ck_read_mode`` כלל.
+
+    **וזו הכרעה, לא השמטה.** התווית מתויגת רק לכלים שב-
+    ``_TOOL_READ_MODE_PARAMS``, וכולם כלי קריאת **קובץ** שמקבלים ``lines``.
+    כלי שאינו במפה אינו נספר כ-``full`` — הוא פשוט מחוץ לעמודה, כמו
+    ``codekeeper_search_code`` שנושא ``query`` ובכוונה אינו שם.
+    ``codekeeper_get_note`` ו-``include_content`` נשארים מחוץ למפה מאותה
+    סיבה: קריאת פתק בעמודת "קריאת קובץ מלאה" הייתה מנפחת בדיוק את המדד
+    שהעמודה נבנתה כדי למדוד.
+
+    **המוטציה שמפילה את הטסט:** הוספת ``"codekeeper_get_note"`` (או אחד
+    מכלי הרשימה) ל-``_TOOL_READ_MODE_PARAMS`` — ואז הקולבק נופל
+    ל-``full`` ומחזיר תווית. נמדד: זה מה שקורה לכל שם שנכנס למפה בלי
+    פרמטר זול משלו.
+    """
+    assert analytics.read_mode_properties(request_payload) is None
+
+
 @pytest.mark.parametrize("arguments", [None, "outline=true", ["outline"], 42])
 def test_arguments_that_are_not_a_mapping_read_as_a_full_read(arguments):
     """קריאה לכלי קריאת קובץ נספרת, גם כשה-SDK מסר ארגומנטים בצורה לא צפויה.

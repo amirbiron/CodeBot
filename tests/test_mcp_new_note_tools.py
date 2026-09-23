@@ -46,8 +46,8 @@ class _Recorder:
             "content_query": content_query,
         })
 
-    def get_note(self, user_id, *, note_id):
-        return self._record("get_note", user_id, {"note_id": note_id})
+    def get_note(self, user_id, *, note_id, with_version=False):
+        return self._record("get_note", user_id, {"note_id": note_id, "with_version": with_version})
 
     def update_note(self, user_id, *, note_id, fields, expected_content=None):
         return self._record("update_note", user_id, {
@@ -59,6 +59,12 @@ class _Recorder:
 
     def get_note_version(self, user_id, *, note_id, version):
         return self._record("get_note_version", user_id, {"note_id": note_id, "version": version})
+
+    def repo_path_orphaned(self, *, repo_name, repo_path):
+        self.calls.append(
+            ("repo_path_orphaned", None, {"repo_name": repo_name, "repo_path": repo_path})
+        )
+        return self.returns.get("repo_path_orphaned", False)
 
     @property
     def last(self):
@@ -351,6 +357,7 @@ def test_every_note_id_gate_rejects_before_the_backend(bad):
         handlers.note_str_replace(b, 7, note_id=bad, old_string="a", new_string="b"),
         handlers.list_note_versions(b, 7, note_id=bad),
         handlers.get_note_version(b, 7, note_id=bad, version=1),
+        handlers.get_note(b, 7, note_id=bad, is_admin=True),
     ):
         assert res == {"ok": False, "error": "invalid_note_id"}
     assert b.calls == []
@@ -367,3 +374,235 @@ def test_the_version_number_is_coerced_to_int():
     b = _Recorder()
     handlers.get_note_version(b, 7, note_id=_OID, version="3")
     assert b.last["version"] == 3
+
+
+# ── 5. קריאת פתק בודד — ``get_note`` ─────────────────────────────────────
+#
+# יעד הטסטים כאן הוא ה-handler: מה מגיע ל-backend, מה נחסם לפניו, ואיזו
+# תשובה חוזרת. השאילתות עצמן — הבעלות במסנן, הגוף המאוחסן, מספר הגרסה —
+# ב-``test_mcp_notes_handlers.py`` על סטאבים של אוספים.
+
+_BOARD = "b" * 24
+
+
+def _board_note(**over):
+    """תשובת ``backend.get_note`` לפתק לוח, בצורה ש-``ProductionBackend`` מחזיר."""
+    out = {
+        "ok": True,
+        "note": {
+            "id": _OID, "content": 'a "b"', "title": "t", "board_id": _BOARD,
+            "repo_name": None, "repo_path": None,
+        },
+        "stored_content": 'a "b"',
+        "version": 1,
+        "target": "board",
+        "board_id": _BOARD,
+    }
+    out.update(over)
+    return out
+
+
+def _repo_note(**over):
+    out = {
+        "ok": True,
+        "note": {
+            "id": _OID, "content": "secret", "title": None, "board_id": None,
+            "repo_name": "CodeBot", "repo_path": "a.py",
+        },
+        "stored_content": "secret",
+        "version": 1,
+        "target": "repo",
+        "repo_name": "CodeBot",
+        "repo_path": "a.py",
+    }
+    out.update(over)
+    return out
+
+
+def test_a_missing_note_is_not_found_and_nothing_else_is_asked():
+    b = _Recorder(get_note={"ok": False, "error": "not_found"})
+
+    res = handlers.get_note(b, 7, note_id=_OID, is_admin=True)
+
+    assert res == {"ok": False, "error": "not_found"}
+    assert [c[0] for c in b.calls] == ["get_note"]
+
+
+@pytest.mark.parametrize("flag", [False, None, 0, 1, "yes", "True"])
+def test_a_repo_note_is_not_found_for_anyone_but_a_real_admin(flag):
+    """פתק ריפו למי שאינו אדמין הוא ``not_found`` — לא סירוב שמגלה שהמזהה קיים.
+
+    אותו שער של ``list_repo_notes``, רק שכאן הוא נסגר בשקט: ``require_admin``
+    זורק "admin_only", וזה היה אומר לקורא שהפתק קיים ורק חסום לו.
+
+    **ורק ``True`` ממש פותח את השער** (``is_admin is True``): ערך "אמיתי"
+    שאינו בוליאני נשאר סגור, כמו ``_declares_write``. שתי מוטציות מפילות
+    את הטסט: הסרת השער ב-``handlers.get_note`` — ואז ``secret`` חוזר;
+    ו-``if not is_admin`` במקום ``is not True`` — ואז ``1`` ו-``"yes"``
+    פותחים אותו.
+    """
+    b = _Recorder(get_note=_repo_note())
+
+    res = handlers.get_note(b, 7, note_id=_OID, is_admin=flag)
+
+    assert res == {"ok": False, "error": "not_found"}
+    assert "secret" not in str(res)
+    # אחרי הסירוב לא נשאלת אף שאלה נוספת — לא גרסה ולא יתמות.
+    assert [c[0] for c in b.calls] == ["get_note"]
+
+
+def test_a_half_repo_document_is_gated_like_a_repo_note():
+    """מסמך שנושא חצי יעד ריפו בלבד (``target: "unknown"``) נשאר מאחורי השער.
+
+    ``build_note_target`` אינו מייצר כזה, אבל השער נגזר ממה שהמסמך נושא ולא
+    ממה שהכותב היה אמור לכתוב: כל שדה ריפו הופך את הפתק לריפו לעניין
+    ההרשאה. נופל אם השער יבדוק ``target == "repo"`` בלבד.
+    """
+    half = {
+        "ok": True,
+        "note": {
+            "id": _OID, "content": "secret", "title": None, "board_id": None,
+            "repo_name": "CodeBot", "repo_path": None,
+        },
+        "stored_content": "secret",
+        "target": "unknown",
+    }
+    b = _Recorder(get_note=half)
+
+    assert handlers.get_note(b, 7, note_id=_OID, is_admin=False) == {
+        "ok": False, "error": "not_found",
+    }
+    assert handlers.get_note(b, 7, note_id=_OID, is_admin=True)["ok"] is True
+
+
+def test_a_repo_note_is_readable_by_the_admin_with_its_target_and_orphan_state():
+    b = _Recorder(get_note=_repo_note(version=3), repo_path_orphaned=True)
+
+    res = handlers.get_note(b, 7, note_id=_OID, is_admin=True)
+
+    assert res["ok"] is True
+    assert res["note"]["content"] == "secret"
+    # היעד בדיוק בארגומנטים ש-``list_repo_notes`` דורש — מוסכמת החיפוש.
+    assert (res["target"], res["repo_name"], res["repo_path"]) == ("repo", "CodeBot", "a.py")
+    assert res["version"] == 3
+    assert res["orphaned"] is True
+    assert "stored_content" not in res
+    # והיתמות נשאלת על אותו זוג בדיוק.
+    assert b.calls[-1] == (
+        "repo_path_orphaned", None, {"repo_name": "CodeBot", "repo_path": "a.py"},
+    )
+
+
+def test_a_live_repo_path_carries_no_orphaned_key():
+    """``orphaned`` מופיע רק כשהוא אמת — כמו ב-``list_repo_notes``, ולא כ-``false``."""
+    b = _Recorder(get_note=_repo_note(), repo_path_orphaned=False)
+
+    assert "orphaned" not in handlers.get_note(b, 7, note_id=_OID, is_admin=True)
+
+
+def test_a_board_note_needs_no_admin_and_asks_no_orphan_question():
+    """הגוף והגרסה מגיעים **מקריאה אחת** של ה-backend (``with_version=True``) —
+    לא משתי קריאות שה-handler מרכיב, כי בין שתיים כאלה ``update_note`` יכול
+    להצמיד לגוף הישן את המספר של החדש (נתפס בסקירה של #3456)."""
+    b = _Recorder(get_note=_board_note(version=1))
+
+    res = handlers.get_note(b, 7, note_id=_OID, is_admin=False)
+
+    assert res["ok"] is True
+    assert (res["target"], res["board_id"]) == ("board", _BOARD)
+    assert res["version"] == 1
+    assert "orphaned" not in res
+    assert [c[0] for c in b.calls] == ["get_note"]
+    assert b.calls[0][2] == {"note_id": _OID, "with_version": True}
+
+
+def test_a_file_note_carries_the_file_name_the_list_tool_takes():
+    b = _Recorder(get_note={
+        "ok": True,
+        "note": {
+            "id": _OID, "content": "x", "title": None, "board_id": None,
+            "repo_name": None, "repo_path": None,
+        },
+        "stored_content": "x",
+        "target": "file", "file_name": "notes.md", "file_id": "f" * 24,
+    })
+
+    res = handlers.get_note(b, 7, note_id=_OID, is_admin=False)
+
+    assert (res["target"], res["file_name"], res["file_id"]) == ("file", "notes.md", "f" * 24)
+
+
+def test_the_body_comes_back_exactly_as_stored_not_decoded():
+    """**הגוף המאוחסן, לא המפוענח.** כלי הרשימה מציגים ``"`` על פתק ישן
+    שנשמר עם ``&quot;``; ``get_note`` מחזיר את ``&quot;`` — כמו
+    ``get_note_version``, כדי שהשוואה בין גרסה קודמת לגוף הנוכחי תהיה
+    בית-בית. נופל אם ה-handler יחזור להעביר את ``note["content"]`` כמות שהוא.
+    """
+    b = _Recorder(get_note=_board_note(stored_content='a &quot;b&quot;'))
+
+    res = handlers.get_note(b, 7, note_id=_OID, is_admin=False)
+
+    assert res["note"]["content"] == 'a &quot;b&quot;'
+    assert "stored_content" not in res
+
+
+def test_a_non_string_stored_body_keeps_the_list_tools_shape():
+    """אף כותב אינו שומר גוף שאינו מחרוזת; אם יש כזה, הכלי מציג אותו בדיוק
+    כמו כלי הרשימה במקום להמציא לו מחרוזת."""
+    note = {**_board_note()["note"], "content": None}
+    b = _Recorder(get_note=_board_note(note=note, stored_content=None))
+
+    assert handlers.get_note(b, 7, note_id=_OID, is_admin=False)["note"]["content"] is None
+
+
+def test_the_version_is_the_number_the_backend_reports():
+    b = _Recorder(get_note=_board_note(version=4))
+
+    assert handlers.get_note(b, 7, note_id=_OID, is_admin=False)["version"] == 4
+
+
+def test_an_empty_body_carries_a_null_version_not_a_made_up_one():
+    """גוף ריק אינו מצולם לעולם, ולכן אין מספר שיחזיר אותו — ``null``, לא ``1``."""
+    note = {**_board_note()["note"], "content": ""}
+    b = _Recorder(get_note=_board_note(note=note, stored_content="", version=None))
+
+    res = handlers.get_note(b, 7, note_id=_OID, is_admin=False)
+
+    assert "version" in res and res["version"] is None
+
+
+def test_a_conflict_from_the_bracketed_read_passes_through_with_its_hint():
+    """פתק שזז ברצף בין קריאת הגוף לקריאת ההיסטוריה חוזר כ-``conflict`` —
+    עם הרמז של ה-backend, ובלי תוכן."""
+    b = _Recorder(get_note={
+        "ok": False, "error": "conflict",
+        "hint": "the note is being edited right now — read it again",
+    })
+
+    res = handlers.get_note(b, 7, note_id=_OID, is_admin=True)
+
+    assert res == {
+        "ok": False, "error": "conflict",
+        "hint": "the note is being edited right now — read it again",
+    }
+
+
+def test_an_uppercase_note_id_reaches_every_backend_in_its_canonical_form():
+    """``_NOTE_ID_RE`` מקבל הקסה גדולה; ``sticky_note_versions.note_id`` מחזיק
+    את ``str(ObjectId)`` — תמיד קטנה. מזהה גדול עבר את השער ומצא את הפתק,
+    ואז חיפש היסטוריה שלעולם לא תימצא (נתפס בסקירה של #3456). אותה מלכודת
+    של ``_canonical_board_id``. נופל אם ``_clean_note_id`` יחזור ל-``.strip()``.
+    """
+    loud = _OID.upper()
+    b = _Recorder(get_note={"ok": False, "error": "not_found"})
+
+    handlers.get_note(b, 7, note_id=loud, is_admin=True)
+    handlers.note_str_replace(b, 7, note_id=loud, old_string="a", new_string="b")
+    handlers.list_note_versions(b, 7, note_id=loud)
+    handlers.get_note_version(b, 7, note_id=loud, version=1)
+    handlers.update_note(b, 7, note_id=loud, content="x")
+
+    assert [c[0] for c in b.calls] == [
+        "get_note", "get_note", "list_note_versions", "get_note_version", "update_note",
+    ]
+    assert all(c[2]["note_id"] == _OID for c in b.calls)

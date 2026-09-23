@@ -20,8 +20,11 @@ class _NotesBackend:
     def __init__(self):
         self.calls = []
 
-    def list_notes(self, user_id, *, file_name):
+    def list_notes(self, user_id, *, file_name, include_content=True):
+        # הדמה הורחבה ולא עוקפה: ``include_content`` נרשם בצד, כך שצורת
+        # הטאפל שהטסטים הישנים בודקים לא זזה.
         self.calls.append(("list", user_id, file_name))
+        self.include_content = include_content
         return {"ok": True, "file_name": file_name, "count": 0, "notes": []}
 
     def create_note(self, user_id, *, file_name, content, line, color, anchor_text, anchor_id):
@@ -445,8 +448,9 @@ class _BoardsBackend:
         self.calls.append(("list_boards", user_id))
         return {"ok": True, "count": 1, "boards": [{"id": "a" * 24, "name": "לוח עבודה"}]}
 
-    def list_board_notes(self, user_id, *, board_id):
+    def list_board_notes(self, user_id, *, board_id, include_content=True):
         self.calls.append(("list_board_notes", user_id, board_id))
+        self.include_content = include_content
         return {"ok": True, "board_id": board_id, "count": 0, "notes": []}
 
     def create_board_note(self, user_id, *, board_id, content, color, mode, title=""):
@@ -1573,3 +1577,631 @@ def test_every_note_on_the_same_legacy_file_gets_the_name():
 
     assert len(notes) == 3
     assert [n.get("file_name") for n in notes] == ["old.py"] * 3
+
+
+# -- קריאת פתק בודד, גרסה נוכחית, ורשימה בלי גוף — backend על סטאבים --------
+#
+# ``get_note`` הוא הקריאה-לפי-מזהה היחידה של פתק (משותפת ל-``note_str_replace``
+# ולכלי ``codekeeper_get_note``), ולכן מה שנבדק כאן הוא מה שהיא באמת שואלת
+# את המסד ומה היא מחזירה ממנו: הבעלות במסנן, הגוף המאוחסן לצד המפוענח,
+# היעד, והמספר שהצילום הבא ייקח.
+
+import pytest  # noqa: E402
+
+from mcp_server.backend import (  # noqa: E402
+    NOTES_LIST_LIMIT,
+    _as_note_summary,
+    _lean_notes_pipeline,
+)
+
+_NOTE_OID = "6a8cfe7e35f97a799c443651"
+
+
+def _oid(text):
+    from bson import ObjectId
+
+    return ObjectId(text)
+
+
+class _MatchResult:
+    def __init__(self, matched):
+        self.matched_count = matched
+
+
+def _matches(doc, query):
+    """התאמה מספיקה לשאילתות הפתק: שוויון, ``$or`` של שאילתת הקובץ, ו-``$in``."""
+    for key, want in query.items():
+        if key == "$or":
+            if not any(_matches(doc, clause) for clause in want):
+                return False
+        elif isinstance(want, dict):
+            if "$in" in want and doc.get(key) not in want["$in"]:
+                return False
+        elif doc.get(key) != want:
+            return False
+    return True
+
+
+class _NoteColl(_IndexSpyColl):
+    """``sticky_notes`` מזויף שמבין גם ``update_one`` ו-``aggregate`` — כדי
+    לסגור מסלול עריכה שלם ואת המסלול הרזה.
+
+    ``find_one`` יורש את ההתאמה של ``_IndexSpyColl`` (כל מפתח שאינו מילון
+    מושווה למסמך), ולכן ``user_id`` ו-``content`` במסנן באמת מסננים.
+    ``find`` מבין גם את ``$or`` של שאילתת הקובץ (``_notes_scope_filter``).
+
+    ``aggregate`` **אינו מפרש את הצינור** — הוא מקליט אותו ומחזיר את מה
+    שהצינור הרזה אמור להחזיר (בתי UTF-8 לגוף מחרוזתי, ``None`` לאחר).
+    הצורה עצמה מעוגנת בטסט על :func:`_lean_notes_pipeline`, והמשמעות מול
+    מנוע אמיתי ב-``tests/test_note_boards_mongo.py``.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.pipelines = []
+
+    def find(self, query, projection=None):
+        return _Cursor([d for d in self.inserted if _matches(d, query)])
+
+    def aggregate(self, pipeline):
+        self.pipelines.append(pipeline)
+        match = pipeline[0]["$match"]
+        rows = []
+        for d in self.inserted:
+            if not _matches(d, match):
+                continue
+            body = d.get("content")
+            rows.append({
+                "_id": d.get("_id"), "title": d.get("title"), "color": d.get("color"),
+                "updated_at": d.get("updated_at"), "created_at": d.get("created_at"),
+                "content_bytes": len(body.encode("utf-8")) if isinstance(body, str) else None,
+            })
+        rows.sort(key=lambda r: r.get("created_at"))
+        return iter(rows[: pipeline[-1]["$limit"]])
+
+    def update_one(self, filt, update, upsert=False):
+        for doc in self.inserted:
+            if _matches(doc, filt):
+                doc.update(update.get("$set", {}))
+                return _MatchResult(1)
+        return _MatchResult(0)
+
+
+class _MovingNoteColl(_NoteColl):
+    """פתק ש**זז** בין קריאות: כתיבה מקבילה שנוחתת לפני הקריאה ה-``n``.
+
+    ``writes`` הוא רצף של מילונים; הפריט ה-``n`` מוחל על המסמך **לפני**
+    ``find_one`` ה-``n`` — כלומר הקורא רואה גוף אחד, ההיסטוריה נקראת,
+    והקריאה החוזרת רואה גוף אחר. ``None`` ברצף פירושו "לפני הקריאה הזו לא
+    קרה כלום". ``find_one`` מחזיר עותק, כדי שהכתיבה הבאה לא תשנה את מה
+    שהקורא כבר מחזיק ביד — כמו מסמך שחזר מהמסד.
+    """
+
+    def __init__(self, writes):
+        super().__init__()
+        self.writes = list(writes)
+        self.reads = 0
+
+    def find_one(self, query, projection=None):
+        if self.writes:
+            write = self.writes.pop(0)
+            if write:
+                for doc in self.inserted:
+                    doc.update(write)
+        self.reads += 1
+        row = super().find_one(query, projection)
+        return dict(row) if row else row
+
+
+class _VanishingColl(_NoteColl):
+    """הפתק קיים בקריאה הראשונה ונעלם אחריה — מחיקה מקבילה (הוובאפ) שנוחתת
+    בין קריאת הגוף לקריאה החוזרת של הקריאה התחומה."""
+
+    def __init__(self):
+        super().__init__()
+        self.reads = 0
+
+    def find_one(self, query, projection=None):
+        self.reads += 1
+        return super().find_one(query, projection) if self.reads == 1 else None
+
+
+class _VersionsColl:
+    """``sticky_note_versions`` מזויף: ``find_one`` עם ``sort``, הכנסה, וגיזום."""
+
+    def __init__(self):
+        self.rows = []
+
+    def _matching(self, query):
+        return [
+            r for r in self.rows
+            if all(r.get(k) == v for k, v in query.items() if not isinstance(v, dict))
+        ]
+
+    def find_one(self, query, projection=None, sort=None):
+        rows = self._matching(query)
+        if sort:
+            key, direction = sort[0]
+            rows.sort(key=lambda r: r.get(key), reverse=direction < 0)
+        return rows[0] if rows else None
+
+    def insert_one(self, doc):
+        self.rows.append(dict(doc))
+
+    def find(self, query, projection=None):
+        return _Cursor(self._matching(query))
+
+    def delete_many(self, query):
+        floor = query.get("version", {}).get("$lt")
+        self.rows = [
+            r for r in self.rows
+            if not (
+                r.get("user_id") == query.get("user_id")
+                and r.get("note_id") == query.get("note_id")
+                and floor is not None
+                and r.get("version") < floor
+            )
+        ]
+
+    def delete_one(self, query):
+        self.rows = [r for r in self.rows if not all(r.get(k) == v for k, v in query.items())]
+
+
+class _BoardColl:
+    """``note_boards`` מזויף — לוח אחד, של משתמש אחד."""
+
+    def __init__(self, board):
+        self.board = board
+
+    def find_one(self, query, projection=None):
+        ok = all(self.board.get(k) == v for k, v in query.items() if not isinstance(v, dict))
+        return dict(self.board) if ok else None
+
+
+class _NoteDb:
+    """ידית מסד מזויפת לכל האוספים שמסלול הפתק הבודד נוגע בהם."""
+
+    def __init__(self, notes, versions=None, snippets=(), board=None):
+        self.notes = notes
+        self.versions = versions if versions is not None else _VersionsColl()
+        self.snippets = _SnippetColl(snippets)
+        self.boards = _BoardColl(board) if board is not None else None
+
+    def __getitem__(self, name):
+        return {
+            "sticky_notes": self.notes,
+            "sticky_note_versions": self.versions,
+            "code_snippets": self.snippets,
+            "note_boards": self.boards,
+        }[name]
+
+
+def _note_backend(db):
+    from mcp_server.backend import ProductionBackend
+
+    b = ProductionBackend.__new__(ProductionBackend)
+    b._notes_idx_done = True
+    # שני האינדקסים מאומתים ← בלי מסלול הגיבוי, ובלי שהצילום יסרב.
+    _verified(b, _NoteIndex.BOARD_TITLE, _NoteIndex.NOTE_VERSIONS)
+    b._raw_mongo = lambda: db
+    return b
+
+
+def _stored_note(content, **fields):
+    import datetime as dt
+
+    doc = {
+        "_id": _oid(_NOTE_OID),
+        "user_id": 7,
+        "content": content,
+        "color": "yellow",
+        "updated_at": dt.datetime(2026, 9, 22, tzinfo=dt.timezone.utc),
+        "created_at": dt.datetime(2026, 9, 21, tzinfo=dt.timezone.utc),
+    }
+    doc.update(fields)
+    return doc
+
+
+def test_as_note_summary_carries_identity_colour_size_and_time_only():
+    """הצורה של ``include_content=false``: מזהה, כותרת, צבע, גודל, מועד — ותו לא.
+
+    הגודל **מגיע מהשורה** שהצינור הרזה החזיר (המסד מדד אותו ב-``$strLenBytes``)
+    ואינו נמדד כאן — ואם השורה נושאת ``content`` (מי שהעביר מסמך מלא בטעות),
+    הוא אינו נמדד ואינו דולף.
+    """
+    import datetime as dt
+
+    out = _as_note_summary({
+        "_id": "OID", "content_bytes": 8, "content": "שלום", "color": "yellow", "board_id": "b",
+        "updated_at": dt.datetime(2026, 1, 2, tzinfo=dt.timezone.utc),
+        "created_at": dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+        "position_x": 120,
+    })
+
+    assert set(out) == {"id", "title", "color", "color_id", "content_bytes", "updated_at"}
+    # השמות והסדר — ``LEAN_NOTE_FIELDS``, המקור שתיאורי הכלים נגזרים ממנו:
+    # שדה שיתווסף לשורה בלי להתווסף לרשימה נופל כאן, ולא מגיע לסוכן חסר.
+    from mcp_server.backend import LEAN_NOTE_FIELDS
+
+    assert tuple(out) == LEAN_NOTE_FIELDS
+    assert out["content_bytes"] == 8
+    assert out["title"] is None
+    assert (out["color"], out["color_id"]) == ("#ffffcc", "yellow")
+    assert out["updated_at"].startswith("2026-01-02")
+
+
+def test_a_row_without_a_measured_size_reports_unknown_not_a_second_measurement():
+    """אין מדידה שנייה בפייתון: שורה בלי ``content_bytes`` היא "לא ידוע" —
+    גם כשיש בה ``content`` שאפשר היה למדוד. עותק שני של הכלל היה נסחף."""
+    assert _as_note_summary({"_id": "x", "content": "שלום"})["content_bytes"] is None
+    assert _as_note_summary({"_id": "x"})["content_bytes"] is None
+
+
+def test_include_content_reaches_both_backends_and_only_an_explicit_false_drops_the_body():
+    """הפרמטר תוספתי: ברירת המחדל וכל ערך שאינו ``False`` ממש שומרים על
+    ההתנהגות הישנה; רק ``False`` מפורש מוריד את הגוף."""
+    for handler, be, kw in (
+        (handlers.list_notes, _NotesBackend(), {"file_name": "x.md"}),
+        (_h.list_board_notes, _BoardsBackend(), {"board_id": _VALID_BOARD}),
+    ):
+        handler(be, 7, **kw)
+        assert be.include_content is True
+        handler(be, 7, include_content=False, **kw)
+        assert be.include_content is False
+        handler(be, 7, include_content=None, **kw)
+        assert be.include_content is True
+
+
+def test_the_lean_pipeline_leaves_the_body_in_the_database_and_measures_bytes_there(monkeypatch):
+    """הצורה של הצינור הרזה, שלב-שלב — כי סטאב אינו מריץ אותו.
+
+    - ``$match`` ראשון, עם השאילתה כפי שהיא.
+    - ``$project`` **לפני** ``$sort``: הגוף אינו נגרר דרך המיון (R8 §2), ואינו
+      ברשימת השדות — הוא אינו יוצא מהמסד בכלל.
+    - ``content_bytes`` נמדד ב-``$strLenBytes`` — בתים, לא ``$strLenCP``
+      (תווים): בפתק עברי ההפרש הוא פי שניים, וזו היחידה של
+      ``OUTPUT_BYTE_BUDGET``. השמירה מפני גוף שאינו מחרוזת היא ``$type``,
+      כי ``$strLenBytes`` על מספר או ``null`` מפיל את השאילתה כולה.
+    - ``$sort`` ואחריו ``$limit`` צמודים, בתקרה של כל כלי הרשימה.
+
+    נופל על ``$strLenCP``, על ``content: 1`` בהיטלה, על מיון לפני היטלה,
+    ועל תקרה שנכתבה כמספר במקום מהקבוע — הקבוע מוזז כאן כדי שמספר
+    שהועתק ממנו (``500``) לא יעבור במקרה.
+    """
+    import mcp_server.backend as backend_mod
+
+    monkeypatch.setattr(backend_mod, "NOTES_LIST_LIMIT", NOTES_LIST_LIMIT + 1)
+    query = {"user_id": 7, "board_id": "b"}
+
+    stages = _lean_notes_pipeline(query)
+
+    assert [next(iter(s)) for s in stages] == ["$match", "$project", "$sort", "$limit"]
+    assert stages[0]["$match"] == query
+    project = stages[1]["$project"]
+    assert "content" not in project
+    assert {"title", "color", "updated_at", "created_at"} <= set(project)
+    size = project["content_bytes"]
+    assert size == {
+        "$cond": [
+            {"$eq": [{"$type": "$content"}, "string"]},
+            {"$strLenBytes": "$content"},
+            None,
+        ]
+    }
+    assert "$strLenCP" not in str(size)
+    assert stages[2]["$sort"] == {"created_at": 1}
+    assert stages[3]["$limit"] == NOTES_LIST_LIMIT + 1
+
+
+def test_a_lean_board_listing_runs_the_lean_pipeline_and_drops_the_bodies():
+    """``include_content=False`` על ``ProductionBackend``: אותה שאילתה, אותו
+    ``count`` ואותו לוח — אבל דרך ``aggregate`` עם הצינור הרזה, ולא דרך
+    ``find`` שמושך גופים כדי לזרוק אותם."""
+    from sticky_notes_target import board_notes_filter
+
+    board = {"_id": _oid(_VALID_BOARD), "user_id": 7, "name": "לוח"}
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("שלום עולם", board_id=_VALID_BOARD))
+    coll.inserted.append({**_stored_note("second", board_id=_VALID_BOARD), "_id": _oid("c" * 24)})
+    b = _note_backend(_NoteDb(coll, board=board))
+
+    full = b.list_board_notes(7, board_id=_VALID_BOARD)
+    lean = b.list_board_notes(7, board_id=_VALID_BOARD, include_content=False)
+
+    assert full["count"] == lean["count"] == 2
+    assert (lean["board_id"], lean["board_name"]) == (_VALID_BOARD, "לוח")
+    assert [n["content"] for n in full["notes"]] == ["שלום עולם", "second"]
+    assert all("content" not in n for n in lean["notes"])
+    assert [n["content_bytes"] for n in lean["notes"]] == [
+        len("שלום עולם".encode("utf-8")), len("second"),
+    ]
+    assert [n["id"] for n in lean["notes"]] == [n["id"] for n in full["notes"]]
+    # המסלול המלא לא נגע ב-``aggregate``; הרזה שלח בדיוק את הצינור הרזה.
+    assert coll.pipelines == [_lean_notes_pipeline(board_notes_filter(7, _VALID_BOARD))]
+
+
+def test_a_lean_file_listing_runs_the_lean_pipeline_and_drops_the_bodies():
+    from sticky_notes_scope import make_scope_id
+
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("גוף", scope_id=make_scope_id(7, "x.md"), file_name="x.md"))
+    b = _note_backend(_NoteDb(coll))
+
+    full = b.list_notes(7, file_name="x.md")
+    lean = b.list_notes(7, file_name="x.md", include_content=False)
+
+    assert full["count"] == lean["count"] == 1
+    assert full["notes"][0]["content"] == "גוף"
+    assert "content" not in lean["notes"][0]
+    assert lean["notes"][0]["content_bytes"] == len("גוף".encode("utf-8"))
+    assert len(coll.pipelines) == 1
+    assert coll.pipelines[0][0]["$match"]["user_id"] == 7
+
+
+def test_get_note_scopes_the_lookup_to_the_owner_inside_the_filter():
+    """הבעלות יושבת **במסנן**, ולכן פתק של מישהו אחר הוא ``not_found`` —
+    אותה תשובה כמו למזהה שאינו קיים. נופל אם ``user_id`` יורד מהמסנן."""
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("mine", board_id=_VALID_BOARD))
+    b = _note_backend(_NoteDb(coll))
+
+    assert b.get_note(8, note_id=_NOTE_OID) == {"ok": False, "error": "not_found"}
+    assert b.get_note(7, note_id=_NOTE_OID)["ok"] is True
+    assert all(q.get("user_id") in (7, 8) for q in coll.find_calls)
+
+
+def test_get_note_returns_the_stored_body_beside_the_decoded_one_and_the_target():
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note('a &quot;b&quot;', board_id=_VALID_BOARD))
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.get_note(7, note_id=_NOTE_OID)
+
+    assert res["note"]["content"] == 'a "b"'          # מה שכלי הרשימה מציגים
+    assert res["stored_content"] == 'a &quot;b&quot;'  # מה שבמסד, בית-בית
+    assert (res["target"], res["board_id"]) == ("board", _VALID_BOARD)
+    assert "file_name" not in res and "repo_name" not in res
+
+
+def test_get_note_names_a_repo_target_by_both_halves():
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("x", repo_name="CodeBot", repo_path="a.py"))
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.get_note(7, note_id=_NOTE_OID)
+
+    assert (res["target"], res["repo_name"], res["repo_path"]) == ("repo", "CodeBot", "a.py")
+
+
+def test_get_note_fills_in_the_file_name_of_a_legacy_note():
+    """פתק קובץ ישן נושא ``file_id`` בלבד; בלי ``file_name`` היעד היה מבוי
+    סתום — אותו מילוי שהחיפוש עושה, ובאותה שאילתה אחת."""
+    fid = "6a8cfe7e35f97a799c443650"
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("x", file_id=fid))
+    db = _NoteDb(coll, snippets=[{"_id": fid, "file_name": "old.py"}])
+    b = _note_backend(db)
+
+    res = b.get_note(7, note_id=_NOTE_OID)
+
+    assert (res["target"], res["file_name"], res["file_id"]) == ("file", "old.py", fid)
+    assert len(db.snippets.queries) == 1
+
+
+def _version(b, note_id=_NOTE_OID):
+    return b.get_note(7, note_id=note_id, with_version=True)["version"]
+
+
+def test_the_version_is_the_number_the_next_overwrite_gives_the_body():
+    """**האינווריאנטה שהופכת את המספר לשימושי:** ``version`` שחוזר עכשיו הוא
+    בדיוק המספר שבו ``get_note_version`` יחזיר את הגוף הזה אחרי הדריסה
+    הבאה — דרך ``update_note`` האמיתי, שמצלם ואז דורס.
+
+    הצילום והמספור חולקים את ``_newest_snapshot``/``_number_after``; הטסט
+    נופל אם אחד מהם יקבל עותק משלו שיסחף (למשל ``max`` במקום ``max + 1``
+    בצד הקריאה).
+    """
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("v1", board_id=_VALID_BOARD))
+    db = _NoteDb(coll)
+    b = _note_backend(db)
+
+    assert _version(b) == 1
+
+    assert b.update_note(7, note_id=_NOTE_OID, fields={"content": "v2"})["ok"] is True
+    assert b.get_note_version(7, note_id=_NOTE_OID, version=1)["content"] == "v1"
+    assert _version(b) == 2
+
+    assert b.update_note(7, note_id=_NOTE_OID, fields={"content": "v3"})["ok"] is True
+    assert b.get_note_version(7, note_id=_NOTE_OID, version=2)["content"] == "v2"
+    assert _version(b) == 3
+
+
+def test_a_body_the_history_already_holds_is_numbered_by_that_snapshot():
+    """החלון שבין הצילום לדריסה: ``update_note`` כותב את הצילום **לפני**
+    שהוא דורס, ולכן קורא שנכנס בין השניים רואה בהיסטוריה את הגוף הנוכחי
+    כבר במספר N. המספר הישר לגוף הזה הוא N — הוא כבר ניתן לקריאה שם —
+    ולא N+1, שהוא המספר של הגוף שעומד להחליף אותו.
+
+    נופל אם ``_version_of_body`` יחזור ל"החדשה ביותר ועוד אחת" בלי להשוות
+    את התוכן.
+    """
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("current", board_id=_VALID_BOARD))
+    db = _NoteDb(coll)
+    db.versions.insert_one({"user_id": 7, "note_id": _NOTE_OID, "version": 4, "content": "older"})
+    b = _note_backend(db)
+    assert _version(b) == 5  # הגוף הנוכחי עוד לא צולם
+
+    db.versions.insert_one({"user_id": 7, "note_id": _NOTE_OID, "version": 5, "content": "current"})
+
+    assert _version(b) == 5  # צולם, טרם נדרס — כבר ניתן לקריאה כ-5
+
+
+def test_an_empty_body_has_no_version_because_it_is_never_snapshotted():
+    """``_snapshot_note`` מדלג על גוף ריק; מספר שההיסטוריה לעולם לא תיתן הוא
+    הבטחה ריקה, ולכן ``None`` (נתפס בסקירה של #3456). אותו כלל,
+    ``_snapshot_worthy``, משרת את הצילום ואת המספור — נופל אם יתפצלו."""
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("", board_id=_VALID_BOARD))
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.get_note(7, note_id=_NOTE_OID, with_version=True)
+
+    assert res["ok"] is True and res["version"] is None
+    assert b._snapshot_note(7, coll.inserted[0]) == (True, None)
+
+
+def test_the_version_survives_pruning_because_the_newest_is_never_pruned():
+    """הגיזום מוחק את הישנות ומשאיר את החדשות; המספר נגזר מהחדשה ביותר,
+    ולכן אינו זז כשההיסטוריה מתקצרת."""
+    from mcp_server.backend import ProductionBackend
+
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("body", board_id=_VALID_BOARD))
+    db = _NoteDb(coll)
+    b = _note_backend(db)
+    retention = int(ProductionBackend.NOTE_VERSION_RETENTION)
+    for n in range(1, retention + 6):
+        db.versions.insert_one({"user_id": 7, "note_id": _NOTE_OID, "version": n, "content": "x"})
+
+    b._prune_note_versions(7, _NOTE_OID)
+
+    assert len(db.versions.rows) == retention
+    assert _version(b) == retention + 6
+
+
+def test_the_body_and_the_version_describe_the_same_moment():
+    """**הגוף והגרסה נקראים תחומים.** כתיבה שנוחתת בין קריאת הגוף לקריאת
+    ההיסטוריה משנה את הפתק; הקריאה החוזרת רואה זאת, קוראת שוב, ומחזירה את
+    הגוף **החדש** עם המספר שלו — לא את הישן עם מספר של אחר (נתפס בסקירה של
+    #3456). נופל אם הקריאה החוזרת תוסר: אז חוזר ``old``.
+    """
+    coll = _MovingNoteColl(writes=[
+        None,                                             # R1: קוראים ``old``
+        {"content": "new", "write_id": "w2", "updated_at": "t2"},  # נוחת לפני R3
+    ])
+    coll.inserted.append({**_stored_note("old", board_id=_VALID_BOARD), "write_id": "w1"})
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.get_note(7, note_id=_NOTE_OID, with_version=True)
+
+    assert res["ok"] is True
+    assert res["stored_content"] == "new"
+    assert res["version"] == 1
+    assert coll.reads == 3  # R1 (old) ← R3 (זז: new) ← R3' (יציב: new)
+
+
+def test_a_note_that_keeps_moving_is_a_conflict_not_a_guess():
+    """שלוש קריאות שבכולן הפתק זז — מישהו כותב בו ברצף — מחזירות ``conflict``
+    עם רמז, ולא זוג גוף-גרסה שאולי אינו תואם."""
+    from mcp_server.backend import ProductionBackend
+
+    retries = int(ProductionBackend._CONSISTENT_READ_RETRIES)
+    coll = _MovingNoteColl(writes=[
+        {"content": f"v{i}", "write_id": f"w{i}", "updated_at": f"t{i}"}
+        for i in range(1, retries + 2)          # כתיבה לפני כל אחת מהקריאות
+    ])
+    coll.inserted.append({**_stored_note("v0", board_id=_VALID_BOARD), "write_id": "w0"})
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.get_note(7, note_id=_NOTE_OID, with_version=True)
+
+    assert res["ok"] is False and res["error"] == "conflict"
+    assert "read it again" in res["hint"]
+    assert "stored_content" not in res and "note" not in res
+    assert coll.reads == 1 + retries  # הקריאה הראשונה, ואחריה קריאה חוזרת לכל ניסיון
+    assert coll.writes == []          # כל הכתיבות נצרכו — הפתק זז לפני כל קריאה
+
+
+def test_a_note_deleted_between_the_two_reads_is_not_found_and_stops_retrying():
+    """הפתק נמחק אחרי שהגוף נקרא ולפני הקריאה החוזרת — ``not_found``, בלי
+    חריגה ובלי זוג ישן, ובלי ניסיון חוזר על פתק שכבר איננו.
+
+    נופלת בשתי הרגרסיות של הענף: החזרת הגוף מהקריאה הראשונה (``again = row``),
+    ומחיקת הענף כולו — אז ``row`` הופך ל-``None`` והסיבוב הבא זורק חריגה.
+    """
+    coll = _VanishingColl()
+    coll.inserted.append(_stored_note("שלום", board_id=_VALID_BOARD))
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.get_note(7, note_id=_NOTE_OID, with_version=True)
+
+    assert res == {"ok": False, "error": "not_found"}
+    assert coll.reads == 2  # הקריאה הראשונה, והקריאה החוזרת שגילתה את המחיקה
+
+
+def test_without_the_version_the_read_is_a_single_query():
+    """``note_str_replace`` קורא בלי ``with_version`` — ואז אין קריאה חוזרת
+    ואין קריאת היסטוריה: קריאה אחת, כמו לפני."""
+    coll = _MovingNoteColl(writes=[])
+    coll.inserted.append(_stored_note("body", board_id=_VALID_BOARD))
+    db = _NoteDb(coll)
+    b = _note_backend(db)
+
+    res = b.get_note(7, note_id=_NOTE_OID)
+
+    assert res["ok"] is True and "version" not in res
+    assert coll.reads == 1
+
+
+def test_an_uppercase_id_still_finds_the_history_it_belongs_to():
+    """``sticky_note_versions.note_id`` הוא ``str(ObjectId)`` — תמיד קטן.
+    ההיסטוריה נשאלת לפי המזהה הקנוני, לא לפי מה שהקורא הקליד."""
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("body", board_id=_VALID_BOARD))
+    db = _NoteDb(coll)
+    db.versions.insert_one({"user_id": 7, "note_id": _NOTE_OID, "version": 3, "content": "older"})
+    b = _note_backend(db)
+
+    assert _version(b, note_id=_NOTE_OID.upper()) == 4
+
+
+def test_repo_path_orphaned_is_true_only_on_an_explicit_missing_file(monkeypatch):
+    """אותו כלל שלושת-המצבים של ``list_repo_notes``, עכשיו במקום אחד ששניהם קוראים."""
+    coll = _IndexSpyColl()
+
+    present = _repo_backend(_RepoDB(coll), monkeypatch)
+    missing = _repo_backend(_RepoDB(coll, files=()), monkeypatch)
+    unknown = _repo_backend(_RepoDB(coll, files_fail=True), monkeypatch)
+
+    assert present.repo_path_orphaned(repo_name="CodeBot", repo_path="a.py") is False
+    assert missing.repo_path_orphaned(repo_name="CodeBot", repo_path="a.py") is True
+    assert unknown.repo_path_orphaned(repo_name="CodeBot", repo_path="a.py") is False
+
+
+@pytest.mark.parametrize("old_string", ['&quot;hi&quot;', '"hi"'])
+def test_the_read_edit_loop_closes_on_a_legacy_note_with_html_entities(old_string):
+    """פתק ישן עם ישות HTML: ``get_note`` מחזיר את הגוף כפי שהוא מאוחסן,
+    ו-``note_str_replace`` עם ``old_string`` שהועתק ממנו **מצליח** — והמצב
+    במסד באמת השתנה (נקרא מהאוסף, לא מערך ההחזרה).
+
+    שתי הצורות של ``old_string`` תופסות, וזה ממצא ולא הנחה: ``note_str_replace``
+    מפענח את ``old_string`` (``_sanitize_note_text``) ומשווה אותו לגוף
+    המפוענח — כלומר ההתאמה רצה במרחב אחד, וגם המחרוזת הגולמית שהועתקה
+    מ-``get_note`` וגם המפוענחת שהועתקה מכלי רשימה מגיעות אליו. מה
+    ש-``get_note`` הגולמי כן מוסיף הוא השוואה בית-בית מול ``get_note_version``,
+    שגם הוא מחזיר את הצורה המאוחסנת — וזה החלק השני של הטסט.
+    """
+    stored = 'say &quot;hi&quot;'
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note(stored, board_id=_VALID_BOARD))
+    db = _NoteDb(coll)
+    b = _note_backend(db)
+
+    before = handlers.get_note(b, 7, note_id=_NOTE_OID, is_admin=False)
+    assert before["note"]["content"] == stored
+    assert before["version"] == 1
+
+    res = handlers.note_str_replace(
+        b, 7, note_id=_NOTE_OID, old_string=old_string, new_string='"bye"'
+    )
+
+    assert res["ok"] is True and res["replacements"] == 1
+    assert coll.inserted[0]["content"] == 'say "bye"'      # המצב, לא ערך ההחזרה
+
+    after = handlers.get_note(b, 7, note_id=_NOTE_OID, is_admin=False)
+    assert after["note"]["content"] == 'say "bye"'
+    assert after["version"] == 2
+    # הגוף שדווח כגרסה 1 הוא בית-בית מה ש-get_note_version(1) מחזיר עכשיו.
+    assert b.get_note_version(7, note_id=_NOTE_OID, version=1)["content"] == stored
