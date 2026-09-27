@@ -5,9 +5,7 @@ import importlib
 def _make_service():
     from src.application.services.snippet_service import SnippetService
     repo = MagicMock()
-    norm = MagicMock()
-    norm.normalize = lambda x: x
-    return SnippetService(snippet_repository=repo, code_normalizer=norm)
+    return SnippetService(snippet_repository=repo)
 
 
 def test_taskfile_maps_to_yaml():

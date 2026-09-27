@@ -53,7 +53,6 @@ from .manager import (
     delete_snippet_chunks,
     mark_snippets_for_reindex,
 )
-from utils import normalize_code
 # תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
 from file_dates import VERSION_CREATED_AT_FIELD, inherited_created_at
 # גיל התיאור — מודול שורש טהור, ראו file_description.py
@@ -558,12 +557,9 @@ class Repository:
     @_instrument_db("db.save_code_snippet")
     def save_code_snippet(self, snippet: CodeSnippet) -> bool:
         try:
-            # Normalize code before persisting
-            try:
-                if config.NORMALIZE_CODE_ON_SAVE:
-                    snippet.code = normalize_code(snippet.code)
-            except Exception:
-                pass
+            # התוכן נשמר בדיוק כמו שהגיע. ניקוי של קוד מודבק שייך לכניסה של
+            # הבוט (``code_service.clean_pasted_code``), לא לשכבה שכל כניסה עוברת
+            # בה — ``tests/test_content_cleaning_stays_in_the_bot.py``.
             # במכוון לא דרך הגרסה המקוּשה: ערך ישן כאן מייצר שתי גרסאות עם
             # אותו מספר, ואז העריכה הבאה נבנית שוב על גבי הבסיס הישן.
             existing = self._fetch_latest_version(snippet.user_id, snippet.file_name)
@@ -1171,12 +1167,6 @@ class Repository:
                 merged_tags = list(prev_tags or [])
             except Exception:
                 merged_tags = []
-        # Normalize code before constructing snippet
-        try:
-            if config.NORMALIZE_CODE_ON_SAVE:
-                code = normalize_code(code)
-        except Exception:
-            pass
         # אין כאן סימון מועדף, במכוון: ``save_code_snippet`` מחיל את הכלל
         # המשותף של file_favorite.py, שמצב המועדף הוא של הקובץ ולא של גרסה.
         # עותק של הכלל שישב כאן קרא את ``existing`` דרך הקאש, והחזיר לחיים
@@ -1950,12 +1940,6 @@ class Repository:
     # Large files operations
     def save_large_file(self, large_file: LargeFile) -> bool:
         try:
-            # Normalize content before persist
-            try:
-                if config.NORMALIZE_CODE_ON_SAVE:
-                    large_file.content = normalize_code(large_file.content)
-            except Exception:
-                pass
             existing = self.get_large_file(large_file.user_id, large_file.file_name)
             if existing:
                 # לפני המחיקה, לא אחריה: אחרי delete_large_file המסמך כבר לא פעיל.

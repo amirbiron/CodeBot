@@ -2630,6 +2630,11 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             file_name = editing_large_file['file_name']
             file_data = editing_large_file['file_data']
 
+            # נקודת הניקוי של הזרימה: עד היום הקוד כאן נוקה רק בשכבת השמירה.
+            cleanup = code_service.clean_pasted_code(new_code, file_name)
+            new_code = cleanup.text
+            cleanup_notice = code_service.format_cleanup_notice(cleanup)
+
             language = code_service.detect_language(new_code, file_name)
 
             success = _save_large_file_compat(
@@ -2649,12 +2654,14 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 lines_count = len(new_code.split('\n'))
+                notice_block = f"\n\n{cleanup_notice}" if cleanup_notice else ""
                 await update.message.reply_text(
                     f"✅ **הקובץ הגדול עודכן בהצלחה!**\n\n"
                     f"📄 **קובץ:** `{file_name}`\n"
                     f"{emoji} **שפה:** {language}\n"
                     f"💾 **גודל חדש:** {len(new_code):,} תווים\n"
-                    f"📏 **שורות:** {lines_count:,}",
+                    f"📏 **שורות:** {lines_count:,}"
+                    f"{notice_block}",
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
                 )
@@ -2685,8 +2692,11 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         editing_file_index = context.user_data.get('editing_file_index')
         files_cache = context.user_data.get('files_cache')
         
+        # נקודת הניקוי של הזרימה, לפני האימות: המאמת אינו מנקה.
+        cleanup = code_service.clean_pasted_code(new_code, file_name)
+        cleanup_notice = code_service.format_cleanup_notice(cleanup)
         # אימות וסניטציה של הקוד הנכנס
-        is_valid, cleaned_code, error_message = code_service.validate_code_input(new_code, file_name, user_id)
+        is_valid, cleaned_code, error_message = code_service.validate_code_input(cleanup.text, file_name, user_id)
         
         if not is_valid:
             await update.message.reply_text(
@@ -2733,12 +2743,14 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             except Exception as e:
                 logger.warning(f"Failed to refresh files_cache after edit: {e}")
             
+            notice_block = f"\n\n{cleanup_notice}" if cleanup_notice else ""
             await update.message.reply_text(
                 f"✅ *הקובץ עודכן בהצלחה!*\n\n"
                 f"📄 **קובץ:** `{file_name}`\n"
                 f"🧠 **שפה:** {detected_language}\n"
                 f"📝 **גרסה:** {version_num} (עודכן מהגרסה הקודמת)\n"
-                f"💾 **הקובץ הקיים עודכן עם השינויים החדשים!**",
+                f"💾 **הקובץ הקיים עודכן עם השינויים החדשים!**"
+                f"{notice_block}",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )

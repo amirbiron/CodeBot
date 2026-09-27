@@ -10,7 +10,7 @@
   - ``_handle_github_create_repo_from_zip`` – יצירת ריפו חדש מקובץ ZIP
   - ``_handle_zip_import`` – יבוא ZIP פנימי ושחזור קבצים
   - ``_handle_zip_create`` – יצירת ZIP מרשימת קבצים שנאספת
-  - ``_handle_textual_file`` – נרמול, זיהוי קידוד, ושמירת קובץ טקסט
+  - ``_handle_textual_file`` – זיהוי קידוד, ושמירת קובץ טקסט כמו שהוא (בלי ניקוי תוכן)
 
 זרימת טיפול בקובץ
 ------------------

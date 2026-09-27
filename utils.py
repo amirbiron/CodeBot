@@ -4,7 +4,6 @@ General Utility Functions for Code Keeper Bot
 """
 
 import asyncio
-import unicodedata
 import hashlib
 import json
 import logging
@@ -24,15 +23,6 @@ from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from zoneinfo import ZoneInfo
-
-# The domain CodeNormalizer is pure Python with no I/O (``src/domain/services/
-# code_normalizer.py``), and it is the single home of the hidden-escape rule
-# that both normalizers use (#3427) — so it is a plain import, not an optional
-# one: a legacy path that silently ran without it would be a second copy again.
-from src.domain.services.code_normalizer import CodeNormalizer as _DomainCodeNormalizer
-from src.domain.services.code_normalizer import strip_hidden_escapes as _strip_hidden_escapes
-
-_DOMAIN_NORMALIZER = _DomainCodeNormalizer()
 
 # Optional telegram import with safe fallback for web-only environments
 try:
@@ -1487,145 +1477,6 @@ def install_sensitive_filter():
     f = SensitiveDataFilter()
     for h in root.handlers:
         h.addFilter(f)
-
-
-# --- Code normalization ---
-def normalize_code(text: str,
-                   *,
-                   strip_bom: bool = True,
-                   normalize_newlines: bool = True,
-                   replace_nbsp: bool = True,
-                   replace_all_space_separators: bool = True,
-                   remove_zero_width: bool = True,
-                   remove_directional_marks: bool = True,
-                   trim_trailing_whitespace: bool = True,
-                   remove_other_format_chars: bool = True,
-                   remove_escaped_format_escapes: bool = True,
-                   remove_variation_selectors: bool = False) -> str:
-    """נרמול קוד לפני שמירה.
-
-    פעולות עיקריות:
-
-    - הסרת BOM בתחילת הטקסט
-    - המרת CRLF/CR ל-LF
-    - החלפת רווחים לא-שוברים (NBSP/NNBSP) לרווח רגיל
-    - הסרת תווי רוחב-אפס וסימוני כיוון (LRM/RLM/LRE/RLE/PDF/RLO/LRO/LRI/RLI/FSI/PDI)
-    - הסרת תווי בקרה (Cc) פרט ל-\\t, \\n, \\r
-    - הסרת רווחי סוף שורה
-    """
-    try:
-        if not isinstance(text, str):
-            return text if text is not None else ""
-
-        out = text
-
-        # Fast path: delegate to domain normalizer when all defaults are used
-        # This preserves behavior and enables gradual migration to domain layer
-        # (the normalizer is imported unconditionally since #3427 — there is no
-        # path on which it is missing).
-        try:
-            if (
-                strip_bom is True
-                and normalize_newlines is True
-                and replace_nbsp is True
-                and replace_all_space_separators is True
-                and remove_zero_width is True
-                and remove_directional_marks is True
-                and trim_trailing_whitespace is True
-                and remove_other_format_chars is True
-                and remove_escaped_format_escapes is True
-                and remove_variation_selectors is False
-            ):
-                return _DOMAIN_NORMALIZER.normalize(out)
-        except Exception:
-            # Fallback to legacy logic below on any error
-            pass
-
-        # Handle sequences like "\u200B" that represent hidden/format chars literally.
-        # One definition for both normalizers (#3427): Cf by category, and the
-        # Variation-Selector branch (Mn, not Cf) only when asked for.
-        if remove_escaped_format_escapes and ("\\u" in out or "\\U" in out):
-            out = _strip_hidden_escapes(out, remove_variation_selectors=remove_variation_selectors)
-
-        # Strip BOM at start
-        if strip_bom and out.startswith("\ufeff"):
-            out = out.lstrip("\ufeff")
-
-        # Normalize newlines to LF
-        if normalize_newlines:
-            out = out.replace("\r\n", "\n").replace("\r", "\n")
-
-        # Replace non-breaking spaces with regular space
-        if replace_nbsp:
-            out = out.replace("\u00A0", " ").replace("\u202F", " ")
-
-        # Replace all Unicode space separators (Zs) with regular ASCII space
-        if replace_all_space_separators:
-            try:
-                out = "".join(" " if unicodedata.category(ch) == "Zs" else ch for ch in out)
-            except Exception:
-                # If classification fails, skip Zs replacement and keep current text
-                pass
-
-        # Remove zero-width and directional formatting characters
-        if remove_zero_width or remove_directional_marks:
-            zero_width = {
-                "\u200B",  # ZWSP
-                "\u200C",  # ZWNJ
-                "\u200D",  # ZWJ
-                "\u2060",  # WJ
-                "\uFEFF",  # ZWNBSP/BOM
-            }
-            directional = {
-                "\u200E",  # LRM
-                "\u200F",  # RLM
-                "\u202A",  # LRE
-                "\u202B",  # RLE
-                "\u202C",  # PDF
-                "\u202D",  # LRO
-                "\u202E",  # RLO
-                "\u2066",  # LRI
-                "\u2067",  # RLI
-                "\u2068",  # FSI
-                "\u2069",  # PDI
-            }
-
-            def _should_keep(ch: str) -> bool:
-                # Keep tabs/newlines/carriage returns
-                if ch in ("\t", "\n", "\r"):
-                    return True
-                # Drop specific sets
-                if remove_zero_width and ch in zero_width:
-                    return False
-                if remove_directional_marks and ch in directional:
-                    return False
-                # Remove Variation Selectors if requested
-                if remove_variation_selectors:
-                    cp = ord(ch)
-                    # VS1..VS16 (U+FE00..U+FE0F) and Ideographic VS (U+E0100..U+E01EF)
-                    if (0xFE00 <= cp <= 0xFE0F) or (0xE0100 <= cp <= 0xE01EF):
-                        return False
-                # Drop other control chars (Cc), keep others
-                cat = unicodedata.category(ch)
-                if cat == 'Cc' and ch not in ("\t", "\n", "\r"):
-                    return False
-                # Optionally remove other format chars (Cf) beyond explicit sets
-                if cat == 'Cf' and remove_other_format_chars:
-                    return False
-                return True
-
-            out = "".join(ch for ch in out if _should_keep(ch))
-
-        # Trim trailing whitespace for each line
-        if trim_trailing_whitespace:
-            out = "\n".join(line.rstrip(" \t") for line in out.split("\n"))
-            # Drop trailing newline characters introduced by the line-based trimming
-            out = out.rstrip("\n")
-
-        return out
-    except Exception:
-        # במקרה של שגיאה, החזר את הטקסט המקורי
-        return text
 
 
 # ----- כלי יצירת ZIP מרוכז (בטוח מפני Zip-Slip + חסום-מגבלות, טהור וניתן להרצה ב-thread) -----

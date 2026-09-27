@@ -14,8 +14,14 @@ Code Service Module
 from typing import Any, Dict, List, Tuple, Optional, Callable, TypeVar
 import re
 from pathlib import Path
-from utils import normalize_code
 from utils import detect_language_from_filename as _detect_from_filename
+
+# ייבוא רגיל ולא אופציונלי: מסלול שממשיך לשמור בלי הניקוי כשהייבוא נכשל היה
+# חוזר בשקט להתנהגות אחרת. המודול טהור, בלי I/O.
+from src.domain.services.code_normalizer import PasteCleanup
+from src.domain.services.code_normalizer import clean_pasted_code as _clean_pasted_code
+from src.domain.services.code_normalizer import explicit_bidi_control_lines
+from src.domain.services.code_normalizer import is_markdown_filename
 
 try:
     from observability_instrumentation import traced, set_current_span_attributes
@@ -184,15 +190,14 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
     except Exception:
         pass
     if code_processor is None:
-        # Minimal fallback: normalize only
+        # בלי המאמת (תלות אופציונלית חסרה בזמן ייבוא) אין בדיקות — הקוד חוזר כמו שהוא.
         ok = True
-        cleaned = normalize_code(code)
+        cleaned = code
         msg = ""
     else:
         ok, cleaned, msg = code_processor.validate_code_input(code, file_name, user_id)
-    # לאחר שהוולידטור מריץ sanitize + normalize (עם טיפול מיוחד ל-Markdown),
-    # אין לבצע נרמול חוזר שעלול לקצץ רווחי סוף שורה במסמכי Markdown.
-    # אם בפועל נדרש נרמול נוסף בעתיד, יש להעביר דגלים תואמים לסוג הקובץ.
+    # המאמת אינו מנקה: הניקוי של קוד מודבק הוא ``clean_pasted_code`` שלמטה,
+    # וה-handler מריץ אותו פעם אחת לפני האימות.
     try:
         try:
             cleaned_length = int(len(cleaned or ""))
@@ -212,6 +217,115 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
     except Exception:
         pass
     return ok, cleaned, msg
+
+
+def clean_pasted_code(code: Optional[str], file_name: Optional[str]) -> PasteCleanup:
+    """הניקוי המינימלי לקוד שמודבק בבוט — הדלת של ה-handlers אליו.
+
+    ה-handlers אינם מייבאים את שכבת הדומיין
+    (``tests/unit/architecture/test_layer_boundaries.py``), ולכן הם עוברים כאן.
+    מה מנוקה ומה לא — ב-docstring של
+    :func:`src.domain.services.code_normalizer.clean_pasted_code`; כאן רק נקבע
+    אם הקובץ הוא Markdown, לפי השם (:func:`is_markdown_filename`).
+
+    כל זרימה בבוט קוראת לזה פעם אחת, ממש לפני השמירה, כשגם הקוד וגם השם
+    ידועים. ``None`` הוא טקסט ריק: ``context.user_data`` יכול לאבד את הקוד בין
+    שלבי השיחה, והזרימות תמיד שמרו אז מחרוזת ריקה.
+    """
+    return _clean_pasted_code(code if code is not None else "", is_markdown=is_markdown_filename(file_name))
+
+
+#: כמה מספרי שורות :func:`_where_lines` מונה לפני "ועוד N שורות". חל על
+#: המשפט של :func:`format_bidi_warning` בכל מקום שמציג אותו — הודעת השמירה
+#: בבוט והאזהרה מעל הקוד בוובאפ. רק המשפט מקוצר: כל מספרי השורות נשארים
+#: ב-``PasteCleanup.bidi_control_lines`` ובמה ש-``explicit_bidi_control_lines``
+#: מחזירה.
+_NOTICE_MAX_LISTED_LINES = 10
+
+
+def _join_hebrew(items: List[str]) -> str:
+    """מחבר רשימה כמו בעברית: א, ב וג. לפני ספרה או אות לטינית ה-ו' באה עם מקף."""
+    if len(items) <= 1:
+        return "".join(items)
+    last = items[-1]
+    conj = "ו" if "א" <= last[:1] <= "ת" else "ו-"
+    return ", ".join(items[:-1]) + " " + conj + last
+
+
+def _count_phrase(count: int, one: str, many: str) -> str:
+    return one if count == 1 else many.format(n=count)
+
+
+def format_cleanup_notice(cleanup: PasteCleanup) -> str:
+    """השורות שהבוט מוסיף להודעת ההצלחה: מה נוקה, ואזהרה על תווי כיווניות.
+
+    מחרוזת ריקה כשאין מה לומר. בלי השורה הזו הניקוי היה קורה בשקט, וזה בדיוק
+    מה שהוחלף כאן. הטקסט אינו מכיל אף תו מבין ``_*`[]<>&``: הוא נכנס להודעות
+    עם ``parse_mode`` של Markdown וגם של HTML, ותו כזה היה משנה את העיצוב או
+    מפיל את השליחה ב-``BadRequest``.
+    """
+    lines: List[str] = []
+    cleaned = _cleaned_items(cleanup)
+    if cleaned:
+        lines.append("🧹 ניקיתי מהקוד: " + _join_hebrew(cleaned))
+    if cleanup.bidi_control_lines:
+        lines.append("⚠️ " + format_bidi_warning(cleanup.bidi_control_lines) + " לא נגעתי בהם.")
+    return "\n".join(lines)
+
+
+def format_bidi_warning(line_numbers: Tuple[int, ...]) -> str:
+    """המשפט האחד על תווי embedding, override ו-isolate — לבוט ולוובאפ.
+
+    מחרוזת ריקה כשאין שורות. בלי אייקון ובלי סיומת: הבוט מוסיף "⚠️" ו"לא נגעתי
+    בהם" (:func:`format_cleanup_notice`), והוובאפ מציג אותו בבאנר משלו
+    (:func:`bidi_warning_for_display`). כך הניסוח חי במקום אחד.
+    """
+    if not line_numbers:
+        return ""
+    return (
+        _where_lines(line_numbers) + " יש תווים שמשנים את סדר התצוגה. "
+        "הם לא נראים, ויכולים לגרום לקוד להיראות אחרת ממה שהוא עושה."
+    )
+
+
+def bidi_warning_for_display(code: object) -> str:
+    """האזהרה שמוצגת לצד קוד בוובאפ, או מחרוזת ריקה כשאין בו תווים כאלה.
+
+    התווים נשמרים כמו שנשלחו, ולכן עמוד שמציג קוד צריך להזהיר עליהם בעצמו.
+    אילו עמודים כבר מזהירים ואילו עוד לא — ב-``docs/quality/code-normalization.md``,
+    ו-``tests/test_bidi_warning_pages_match_the_doc.py`` משווה את הרשימה לקוד.
+    מספרי השורות הם של הטקסט שמקבלים כאן; עמוד שממספר אחרת (Pygments חותך
+    שורות ריקות מההתחלה) מעביר את הטקסט שהוא מציג.
+    """
+    return format_bidi_warning(explicit_bidi_control_lines(code))
+
+
+def _cleaned_items(cleanup: PasteCleanup) -> List[str]:
+    """הפריטים של שורת "ניקיתי מהקוד", לפי הסדר שבו הניקוי רץ."""
+    counted = (
+        (cleanup.crlf, "סוף שורה אחד של Windows", "{n} סופי שורה של Windows"),
+        (cleanup.lone_cr, "סוף שורה אחד של Mac הישן", "{n} סופי שורה של Mac הישן"),
+        (int(cleanup.bom), "סימן BOM בתחילת הטקסט", "סימן BOM בתחילת הטקסט"),
+        (
+            cleanup.special_spaces,
+            "רווח מיוחד אחד (כמו NBSP) שהפך לרווח רגיל",
+            "{n} רווחים מיוחדים (כמו NBSP) שהפכו לרווח רגיל",
+        ),
+        (cleanup.zwsp, "ZWSP אחד", "{n} תווי ZWSP"),
+        (cleanup.trailing_whitespace_lines, "רווחים בסוף שורה אחת", "רווחים בסוף {n} שורות"),
+    )
+    return [_count_phrase(count, one, many) for count, one, many in counted if count]
+
+
+def _where_lines(numbers: Tuple[int, ...]) -> str:
+    """איפה התווים: "בשורה 4", "בשורות 4 ו-9", או "בשורות 1, 2, ... ועוד 3 שורות"."""
+    listed = [str(n) for n in numbers[:_NOTICE_MAX_LISTED_LINES]]
+    rest = len(numbers) - len(listed)
+    if rest:
+        return "בשורות " + ", ".join(listed) + " " + _count_phrase(rest, "ועוד שורה אחת", "ועוד {n} שורות")
+    if len(listed) == 1:
+        return "בשורה " + listed[0]
+    return "בשורות " + _join_hebrew(listed)
 
 
 @traced("code.analyze")

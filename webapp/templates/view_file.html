@@ -60,6 +60,19 @@
     overflow: auto;
 }
 
+/* אזהרה מעל הקוד כשיש בו תווים שמשנים את סדר התצוגה (bidi_warning מהראוט).
+   גוון של --warning ב-color-mix, באותה צורה של --danger-bg / --danger-border ב-base.html. */
+.bidi-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--warning) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+}
+
 /* כותרת מקטע עם כפתור פעולה (למסך מלא) */
 .section-header {
     display: flex;
@@ -1044,6 +1057,12 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             <span>מסך מלא</span>
         </button>
     </div>
+    {% if bidi_warning is defined and bidi_warning %}
+    <div class="bidi-warning" data-testid="bidi-warning">
+        <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+        <span>{{ bidi_warning }}</span>
+    </div>
+    {% endif %}
     <div class="code-container">
         <div id="codeBasicContainer">
             {{ highlighted_code|safe }}

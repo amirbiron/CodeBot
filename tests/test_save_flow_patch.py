@@ -105,27 +105,21 @@ def test_save_file_final_escapes_note_markdown(monkeypatch):
     assert calls['kwargs'].get('parse_mode') == 'Markdown'
 
 
-# --- New tests to cover early normalization in save_flow ---
-
-def _has_invisibles(s: str) -> bool:
-    """Helper: detect zero-width and bidi marks in string."""
-    invis = [
-        "\u200b", "\u200c", "\u200d", "\u2060", "\ufeff",  # zero-width/BOM/WJ
-        "\u200e", "\u200f",  # LRM/RLM
-        "\u202a", "\u202b", "\u202c", "\u202d", "\u202e",  # LRE/RLE/PDF/LRO/RLO
-        "\u2066", "\u2067", "\u2068", "\u2069",  # LRI/RLI/FSI/PDI
-    ]
-    return any(c in s for c in invis)
+# --- הקוד נשאר כמו שנשלח עד השמירה, ורק שם עובר את הניקוי המינימלי ---
+#
+# עד ספטמבר 2026 כל שלב בזרימה הריץ את ``normalize_code`` (``get_code``,
+# ``long_collect_receive``, ``long_collect_done`` ו-``save_file_final``), והטסטים
+# כאן קיבעו שכל שלב מוחק תווי רוחב-אפס וכיווניות. עכשיו יש נקודת ניקוי אחת,
+# ב-``save_file_final``, כשגם שם הקובץ ידוע — ורק היא משנה את הטקסט.
 
 
-def test_get_code_normalizes_zero_width():
+def test_get_code_keeps_the_text_raw_until_save():
     import asyncio
     from handlers.save_flow import get_code
 
     class _Msg:
         def __init__(self, text: str):
             self.text = text
-            # שדה document נדרש בענף לוגיקה של long_collect_receive
             self.document = None
 
         async def reply_text(self, *args, **kwargs):
@@ -139,21 +133,20 @@ def test_get_code_normalizes_zero_width():
         def __init__(self):
             self.user_data = {}
 
-    u = _Update("A\u200bB\u200fC\u200d")
+    sent = "A\u200bB\u200fC\u200d\r\n"
     c = _Ctx()
-    asyncio.run(get_code(u, c))
-    cleaned = c.user_data.get('code_to_save', '')
-    assert cleaned and not _has_invisibles(cleaned)
+    asyncio.run(get_code(_Update(sent), c))
+    assert c.user_data.get('code_to_save') == sent
 
 
-def test_long_collect_receive_normalizes_text():
+def test_long_collect_receive_keeps_each_part_raw():
+    """כולל "…": הכלל שמחק אותו מכל חלק (#427) הוסר — זה תוכן של המשתמש."""
     import asyncio
     from handlers.save_flow import long_collect_receive
 
     class _Msg:
         def __init__(self, text: str):
             self.text = text
-            # נדרש עבור הענף הבודק קבצים ב-long_collect_receive
             self.document = None
 
         async def reply_text(self, *args, **kwargs):
@@ -177,14 +170,13 @@ def test_long_collect_receive_normalizes_text():
             self.user_data = {}
             self.job_queue = _JobQueue()
 
-    u = _Update("x\u200b y\u202e z\u2060")
+    sent = "x\u200b y\u202e z\u2060 wait\u2026"
     c = _Ctx()
-    asyncio.run(long_collect_receive(u, c))
-    parts = c.user_data.get('long_collect_parts') or []
-    assert parts and all(not _has_invisibles(p) for p in parts)
+    asyncio.run(long_collect_receive(_Update(sent), c))
+    assert c.user_data.get('long_collect_parts') == [sent]
 
 
-def test_long_collect_done_normalizes_combined():
+def test_long_collect_done_joins_parts_raw():
     import asyncio
     from handlers.save_flow import long_collect_done
 
@@ -196,24 +188,22 @@ def test_long_collect_done_normalizes_combined():
         def __init__(self):
             self.message = _Msg()
 
+    parts = [
+        "a\u200b\u200f\u200d",
+        "b\u202a\u202b\u202c\u202d\u202e",
+        "c\u2066\u2067\u2068\u2069\u2060",
+    ]
+
     class _Ctx:
         def __init__(self):
-            self.user_data = {
-                'long_collect_parts': [
-                    "a\u200b\u200f\u200d",
-                    "b\u202a\u202b\u202c\u202d\u202e",
-                    "c\u2066\u2067\u2068\u2069\u2060",
-                ]
-            }
+            self.user_data = {'long_collect_parts': list(parts)}
 
-    u = _Update()
     c = _Ctx()
-    asyncio.run(long_collect_done(u, c))
-    combined = c.user_data.get('code_to_save', '')
-    assert combined and not _has_invisibles(combined)
+    asyncio.run(long_collect_done(_Update(), c))
+    assert c.user_data.get('code_to_save') == "\n".join(parts)
 
 
-def test_save_file_final_normalizes_code_content(monkeypatch):
+def test_save_file_final_applies_the_minimal_cleaning(monkeypatch):
     # Stub telegram keyboard classes used in save_flow to keep test lightweight
     import handlers.save_flow as sf
     sf.InlineKeyboardButton = lambda *a, **k: ('btn', a, k)
@@ -244,7 +234,6 @@ def test_save_file_final_normalizes_code_content(monkeypatch):
     db_mod.CodeSnippet = _CodeSnippet
     monkeypatch.setitem(sys.modules, 'database', db_mod)
 
-    # Build update/context stubs
     calls = {}
 
     class _Msg:
@@ -259,15 +248,13 @@ def test_save_file_final_normalizes_code_content(monkeypatch):
     class _Ctx:
         def __init__(self):
             self.user_data = {
-                'code_to_save': 'print(1)\u200b\u200f',
+                'code_to_save': 'print(1)\u200b\u200f\r\n',
                 'note_to_save': 'ok'
             }
 
-    u = _Update()
-    c = _Ctx()
-
     import asyncio
-    asyncio.run(sf.save_file_final(u, c, filename='a.py', user_id=1))
+    asyncio.run(sf.save_file_final(_Update(), _Ctx(), filename='a.py', user_id=1))
 
-    saved = db_mod.db.last_snip.kwargs['code']
-    assert saved and not _has_invisibles(saved)
+    # CRLF ← LF ו-ZWSP נמחק (קובץ קוד); RLM וה-newline בסוף נשארים
+    assert db_mod.db.last_snip.kwargs['code'] == 'print(1)\u200f\n'
+    assert "🧹 ניקיתי מהקוד: סוף שורה אחד של Windows ו-ZWSP אחד" in calls['text']

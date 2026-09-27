@@ -12,7 +12,6 @@ from services import code_service
 from utils import TextUtils
 from utils import ValidationUtils
 from utils import TelegramUtils
-from utils import normalize_code  # נרמול קלט כדי להסיר תווים נסתרים מוקדם
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +107,10 @@ def _cleanup_save_flow_state(context: ContextTypes.DEFAULT_TYPE) -> None:
             continue
 
 
-async def _send_save_success(update, context, filename, detected_language, note, fid):
+async def _send_save_success(update, context, filename, detected_language, note, fid, cleanup_notice: str = ""):
+    """הודעת ההצלחה אחרי שמירה. ``cleanup_notice`` הוא מה ש-
+    ``code_service.format_cleanup_notice`` החזיר — מה נוקה מהקוד, ואזהרה על
+    תווי כיווניות — ונכנס לפני שורת הכפתורים כשאינו ריק."""
     note = note or ''
     note_btn_text = "📝 ערוך הערה" if note else "📝 הוסף הערה"
     keyboard = [
@@ -136,11 +138,13 @@ async def _send_save_success(update, context, filename, detected_language, note,
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     note_display = TextUtils.escape_markdown(note, version=1) if note else '—'
+    notice_block = f"{cleanup_notice}\n\n" if cleanup_notice else ""
     await update.message.reply_text(
         f"🎉 *קובץ נשמר בהצלחה!*\n\n"
         f"📄 **שם:** `{filename}`\n"
         f"🧠 **שפה זוהתה:** {detected_language}\n"
         f"📝 **הערה:** {note_display}\n\n"
+        f"{notice_block}"
         f"🎮 בחר פעולה מהכפתורים החכמים:",
         reply_markup=reply_markup,
         parse_mode='Markdown',
@@ -161,7 +165,7 @@ async def _send_save_success(update, context, filename, detected_language, note,
         pass
 
 
-async def _save_via_layered_flow(update, context, filename, user_id, code, note):
+async def _save_via_layered_flow(update, context, filename, user_id, code, note, cleanup_notice: str = ""):
     service = _build_layered_snippet_service()
     if not service:
         return False
@@ -212,7 +216,9 @@ async def _save_via_layered_flow(update, context, filename, user_id, code, note)
             detected_language = code_service.detect_language(code, filename)
         except Exception:
             detected_language = "text"
-    await _send_save_success(update, context, filename, detected_language, note or '', fid)
+    await _send_save_success(
+        update, context, filename, detected_language, note or '', fid, cleanup_notice=cleanup_notice,
+    )
     _cleanup_save_flow_state(context)
     return True
 
@@ -222,14 +228,6 @@ def _get_total_bytes(parts: list[str]) -> int:
         return sum(len(p.encode('utf-8', errors='ignore')) for p in parts)
     except Exception:
         return 0
-
-
-def _sanitize_part(text: str) -> str:
-    # הסר אליפסות יוניקוד '…' מכל חלק
-    try:
-        return (text or '').replace('…', '')
-    except Exception:
-        return text or ''
 
 
 def _detect_secrets(text: str) -> list[str]:
@@ -401,11 +399,14 @@ async def long_collect_receive(update, context: ContextTypes.DEFAULT_TYPE) -> in
         doc = update.message.document
         mime = (doc.mime_type or '').lower()
         if mime.startswith('text/') or doc.file_name.endswith(('.txt', '.md', '.py', '.js', '.ts', '.json', '.yml', '.yaml', '.java', '.kt', '.go', '.rs', '.c', '.cpp', '.h', '.cs', '.rb', '.php', '.swift', '.sql', '.sh', '.bat', '.ps1')):
-            # הורדה כטקסט
+            # הורדה כטקסט. ``utf-8-sig`` ולא ``utf-8``: ה-BOM הוא חתימת קידוד של
+            # הקובץ ולא תוכן. עם ``utf-8`` הוא היה נשאר בתחילת החלק, ואחרי
+            # האיחוד ב-/done — באמצע הקוד, שם הניקוי שלפני השמירה כבר לא מזהה
+            # אותו כ-BOM (ופייתון נופל עליו ב-SyntaxError).
             file = await doc.get_file()
             bio = BytesIO()
             await file.download_to_memory(out=bio)
-            text = bio.getvalue().decode('utf-8', errors='ignore')
+            text = bio.getvalue().decode('utf-8-sig', errors='ignore')
         else:
             await update.message.reply_text("📎 קיבלתי קובץ שאינו טקסט. שלח/י מסמך טקסט או הדבק/י את הקוד כהודעת טקסט.")
             return LONG_COLLECT
@@ -416,12 +417,8 @@ async def long_collect_receive(update, context: ContextTypes.DEFAULT_TYPE) -> in
         await update.message.reply_text("🖼️ התקבלה הודעה שאינה טקסט. שלח/י קוד כהודעת טקסט או קובץ טקסט.")
         return LONG_COLLECT
 
-    text = _sanitize_part(text)
-    # נרמול מוקדם: הסרת תווים נסתרים/כיווניות ואיחוד שורות
-    try:
-        text = normalize_code(text)
-    except Exception:
-        pass
+    # החלק נשמר כמו שהגיע. הניקוי המינימלי רץ פעם אחת על הקוד המאוחד, לפני
+    # השמירה (``save_file_final``), כשגם שם הקובץ ידוע.
     parts = context.user_data.get('long_collect_parts')
     if parts is None:
         parts = []
@@ -461,11 +458,6 @@ async def long_collect_done(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return LONG_COLLECT
     code_text = "\n".join(parts)
-    # נרמול כלל הטקסט המאוחד (אידמפוטנטי)
-    try:
-        code_text = normalize_code(code_text)
-    except Exception:
-        pass
     context.user_data['code_to_save'] = code_text
     # אזהרת סודות באיחוד הכולל
     try:
@@ -495,13 +487,9 @@ async def long_collect_done(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def get_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # קלט טקסט גולמי כפי שנשלח ע"י המשתמש, ללא המרה ל-Markdown
+    # קלט טקסט גולמי כפי שנשלח ע"י המשתמש, ללא המרה ל-Markdown. הניקוי המינימלי
+    # רץ לפני השמירה (``save_file_final``): רק שם ידוע אם הקובץ הוא Markdown.
     code = update.message.text or ''
-    # נרמול מוקדם כדי למנוע תווים נסתרים כבר בשלב האיסוף
-    try:
-        code = normalize_code(code)
-    except Exception:
-        pass
     context.user_data['code_to_save'] = code
     lines = len(code.split('\n'))
     chars = len(code)
@@ -613,17 +601,19 @@ async def save_file_final(update, context, filename, user_id):
     except Exception:
         # במקרה של כשל בבדיקה – נמשיך כרגיל
         pass
-    # הבטחת נרמול לפני שמירה (אידמפוטנטי)
-    try:
-        code = normalize_code(code)
-    except Exception:
-        pass
+    # נקודת הניקוי היחידה של הזרימה: הקוד והשם ידועים, ורק מכאן ואילך הוא
+    # נשמר. מה שנוקה נאמר למשתמש בהודעת ההצלחה.
+    cleanup = code_service.clean_pasted_code(code, filename)
+    code = cleanup.text
+    cleanup_notice = code_service.format_cleanup_notice(cleanup)
     note = (context.user_data.get('note_to_save') or '').strip()
     # נסה מסלול חדש (ארכיטקטורה שכבתית) כאשר מופעל בדגל סביבה
     use_new = _should_use_new_save_flow()
     if use_new:
         try:
-            layered_saved = await _save_via_layered_flow(update, context, filename, user_id, code, note)
+            layered_saved = await _save_via_layered_flow(
+                update, context, filename, user_id, code, note, cleanup_notice=cleanup_notice,
+            )
             if layered_saved:
                 return ConversationHandler.END
         except Exception:
@@ -661,7 +651,9 @@ async def save_file_final(update, context, filename, user_id):
                 fid = str(saved_doc.get('_id') or '')
             except Exception:
                 fid = ''
-            await _send_save_success(update, context, filename, detected_language, note or '', fid)
+            await _send_save_success(
+                update, context, filename, detected_language, note or '', fid, cleanup_notice=cleanup_notice,
+            )
             _cleanup_save_flow_state(context)
             return ConversationHandler.END
         else:

@@ -3,7 +3,6 @@ import pytest
 from src.application.dto.create_snippet_dto import CreateSnippetDTO
 from src.application.services.snippet_service import SnippetService
 from src.domain.entities.snippet import Snippet
-from src.domain.services.code_normalizer import CodeNormalizer
 from src.domain.interfaces.snippet_repository_interface import ISnippetRepository
 
 
@@ -35,22 +34,25 @@ class StubRepo(ISnippetRepository):
 
 
 @pytest.mark.asyncio
-async def test_create_snippet_normalizes_and_detects_language_py():
+async def test_create_snippet_keeps_code_and_detects_language_py():
+    """השירות לא נוגע בתוכן. עד ספטמבר 2026 הוא הריץ ``CodeNormalizer``, והטסט
+    קיבע ש-CRLF, רווחים בסוף שורה וה-newline שבסוף נמחקים. הניקוי של קוד
+    מודבק רץ עכשיו ב-handler, לפני הקריאה לשירות (``save_file_final``)."""
     repo = StubRepo()
-    service = SnippetService(snippet_repository=repo, code_normalizer=CodeNormalizer())
+    service = SnippetService(snippet_repository=repo)
 
     dto = CreateSnippetDTO(user_id=1, filename="t.py", code="a\r\nb  \r\n")
     result = await service.create_snippet(dto)
 
     assert isinstance(result, Snippet)
     assert result.language == "python"
-    assert result.code == "a\nb\n".rstrip("\n")  # service doesn't force newline
+    assert result.code == "a\r\nb  \r\n"
 
 
 @pytest.mark.asyncio
 async def test_get_snippet_delegates_to_repo():
     repo = StubRepo()
-    service = SnippetService(snippet_repository=repo, code_normalizer=CodeNormalizer())
+    service = SnippetService(snippet_repository=repo)
 
     dto = CreateSnippetDTO(user_id=2, filename="x.ts", code="let a=1\r\n")
     await service.create_snippet(dto)
@@ -63,7 +65,7 @@ async def test_get_snippet_delegates_to_repo():
 @pytest.mark.asyncio
 async def test_search_delegates_to_repo_with_language_filter():
     repo = StubRepo()
-    service = SnippetService(snippet_repository=repo, code_normalizer=CodeNormalizer())
+    service = SnippetService(snippet_repository=repo)
 
     await service.create_snippet(CreateSnippetDTO(user_id=3, filename="a.py", code="print(1)"))
     await service.create_snippet(CreateSnippetDTO(user_id=3, filename="b.js", code="console.log(1)"))
