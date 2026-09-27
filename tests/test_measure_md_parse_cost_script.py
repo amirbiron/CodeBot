@@ -559,12 +559,82 @@ def test_the_counter_lag_bound_is_three_counters_short_of_one_batch_each(
     import os
 
     script = _load_script()
+    monkeypatch.setattr(os, "uname", lambda: _uname("Linux", "6.18.44-fc-v37"))
     monkeypatch.setattr(os, "cpu_count", lambda: online)
     assert script.counter_lag_bound_bytes() == 3 * (batch - 1) * mmap.PAGESIZE
 
     monkeypatch.setattr(os, "cpu_count", lambda: None)
     with pytest.raises(SystemExit, match="counter lag cannot be bounded"):
         script.counter_lag_bound_bytes()
+
+
+def _uname(sysname, release):
+    """``os.uname()`` של מערכת אחרת — רק ``sysname`` ו-``release`` נקראים בסקריפט."""
+    import os
+
+    return os.uname_result((sysname, "host", release, "#1", "x86_64"))
+
+
+@pytest.mark.parametrize(
+    "sysname, release, proven",
+    [
+        # הקרנל שהמספרים המתועדים נמדדו עליו (2026-09-27).
+        ("Linux", "6.18.44-fc-v37", True),
+        # ה-runner של GitHub ל-ubuntu-24.04, שה-CI מריץ עליו ילד אמיתי (לפי ה-README של
+        # actions/runner-images, תמונה 20260920.314.1).
+        ("Linux", "6.17.0-1022-azure", True),
+        # הגרסה הראשונה שהחסם מוכח עליה, גם כגרסת מועמד.
+        ("Linux", "6.16.0-rc3+", True),
+        ("Linux", "7.0.1", True),
+        # מונים לכל מעבד, אבל VmRSS נקרא משוער — השיא יכול לחסור עד פי שניים מהחסם.
+        ("Linux", "6.15.11-200.fc42.x86_64", False),
+        # מודל אחר של מונים (``SPLIT_RSS_COUNTING``), שהנוסחה אינה חלה עליו.
+        ("Linux", "6.1.0-18-amd64", False),
+        ("Linux", "5.15.0-1057-aws", False),
+        # מספר גדול יותר, ובכל זאת לא לינוקס.
+        ("Darwin", "23.1.0", False),
+        ("Linux", "unknown", False),
+    ],
+)
+def test_the_counter_lag_bound_exists_only_on_a_kernel_it_was_proven_on(
+        monkeypatch, sysname, release, proven):
+    """הנוסחה של הפיגור נגזרה מקוד הקרנל של גרסה מסוימת, ועל קרנל אחר היא אינה חסם (#3467).
+
+    לפני 6.16 גם VmRSS נקרא משוער, ולפני 6.2 המונים בכלל אחרים — ושם "חסם עליון" היה
+    מספר שנראה בדיוק כמו חסם ואינו. לכן בלי קרנל מוכח אין חסם, והמדידה נעצרת.
+    """
+    import mmap
+    import os
+
+    script = _load_script()
+    monkeypatch.setattr(os, "uname", lambda: _uname(sysname, release))
+    monkeypatch.setattr(os, "cpu_count", lambda: 4)
+    if proven:
+        assert script.counter_lag_bound_bytes() == 3 * 31 * mmap.PAGESIZE
+    else:
+        with pytest.raises(SystemExit, match="refusing to measure"):
+            script.counter_lag_bound_bytes()
+
+
+def test_a_measurement_on_a_kernel_the_bound_is_not_proven_on_stops_before_any_child(
+        monkeypatch, tmp_path):
+    """עצירה לפני הילד הראשון — לא אחרי שמדדנו, ולא בפסק הדין בלבד.
+
+    אותו כלל כמו האיפוס וההצמדה: אין "נמדוד בכל זאת" עם חסם שאיש לא הוכיח.
+    """
+    import os
+
+    script = _load_script()
+    doc = tmp_path / "tiny.md"
+    doc.write_text("# t\n", encoding="utf-8")
+    monkeypatch.setattr(os, "uname", lambda: _uname("Linux", "6.15.11-200.fc42.x86_64"))
+
+    def no_child(*args, **kwargs):
+        pytest.fail("a measuring child was started on a kernel the bound is not proven on")
+
+    monkeypatch.setattr(script.subprocess, "run", no_child)
+    with pytest.raises(SystemExit, match="older than Linux"):
+        script.peak_cost(doc, tmp_path)
 
 
 @pytest.mark.parametrize("failure", ["platform_has_no_affinity", "setaffinity_refused"])

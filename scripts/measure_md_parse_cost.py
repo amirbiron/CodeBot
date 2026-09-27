@@ -45,7 +45,8 @@
   של מעבד אחד, כל ילד מוצמד למעבד אחד מרגע ה-fork (``_pinned``) ובודק בעצמו שהוא
   מוצמד. **ההצמדה היא של המדידה בלבד** — השרת אינו מוצמד לשום מעבד — ואם היא לא
   אפשרית בסביבה, הריצה נעצרת בקול, כמו האיפוס. החסם מכסה את הסידורים שנמדדו, לא
-  כל סידור אפשרי.
+  כל סידור אפשרי, והוא מוכח רק על לינוקס מ-``LAG_BOUND_PROVEN_FROM_KERNEL``: על קרנל
+  אחר הריצה נעצרת לפני שנמדד משהו (הנימוק ליד הקבוע).
 - דרך ``services.md_parser`` ו-``services.rst_parser`` עצמם. מדידה שרצה
   **כמו הכלי** — בלי ארגומנטים, כלומר על ברירות המחדל של התקרות — מסומנת
   ``as_tool``, ורק היא נכנסת למועמד לקבוע: היא מה שחוט קריאה באמת נושא.
@@ -113,6 +114,7 @@ import json
 import mmap
 import os
 import pathlib
+import re
 import statistics
 import subprocess
 import sys
@@ -188,6 +190,23 @@ RSS_COUNTERS = 3
 #: הרצפה של ``percpu_counter_batch``: ``max(32, nr*2)`` כש-``nr`` הוא מספר המעבדים
 #: המחוברים (``compute_batch_value`` ב-``lib/percpu_counter.c``).
 PERCPU_BATCH_FLOOR = 32
+
+#: מאיזו גרסת לינוקס ``counter_lag_bound_bytes`` הוא חסם מוכח. הוא נשען על שני דברים בקרנל,
+#: ושניהם נקראו במקור לפי גרסה (torvalds/linux, 2026-09-27): **מונים לכל מעבד** — מ-v6.2
+#: ``mm->rss_stat`` הוא ``percpu_counter``, וב-v6.1 אלה מונים אטומיים, ולצידם — כשמוגדר
+#: ``SPLIT_RSS_COUNTING`` (``USE_SPLIT_PTE_PTLOCKS`` עם MMU) — מטמון לכל חוט שמסונכרן כל
+#: ``TASK_RSS_EVENTS_THRESH`` (64) אירועים: מודל אחר, שהנוסחה אינה חלה עליו; **ו-VmRSS
+#: מדויק** — מ-v6.16 ``task_mem`` קורא אותו ב-``get_mm_counter_sum``, ועד v6.15
+#: ב-``get_mm_counter``, משוער כמו השיא. שם גם ה-RSS שלפני הפרסור סוטה עד אותו פיגור,
+#: לשני הכיוונים, והשיא שנספר ממנו יכול לחסור עד פי שניים מהחסם. נבדק ב-v6.16, ב-v6.18
+#: וב-master של אותו יום; קרנל חדש יותר לא נקרא.
+#: **למה גרסה ולא בדיקה של היכולת עצמה:** המונים הם מבנה פנימי של הקרנל, ואין ממשק
+#: שחושף אותם. השוואה של VmRSS לספירה אחרת אינה הוכחה: הקריאה המשוערת
+#: (``percpu_counter_read_positive``) מחזירה בדיוק את הסכום בכל רגע שבו מה שמחכה אצל
+#: המעבד הוא אפס, ולכן בדיקה כזו עוברת במקרה. רצפת גרסה לעולם אינה מקבלת קרנל ששני
+#: הדברים חסרים בו, כי הם ב-upstream מאז; קרנל של הפצה עם מספר נמוך יותר שקיבל אותם
+#: ב-backport — היא מסרבת לו, וזה הכיוון הבטוח.
+LAG_BOUND_PROVEN_FROM_KERNEL = (6, 16)
 
 #: שני הפרסרים שהמאגר צריך לדעת את עלותם: השם ב-``services``, הסיומת שהכלי
 #: מגיש דרכו, טקסט חימום קטן, והצורה העוינת של כל אחד.
@@ -350,7 +369,11 @@ def counter_lag_bound_bytes() -> int:
     המחוברים של המכונה, גם בתוך קונטיינר. בדרך כלל זה המספר הלא נכון לגזור ממנו גודל,
     אבל כאן הוא הנכון: ה-batch של הקרנל נגזר מהמעבדים שהקרנל רואה, לא מהמכסה של
     הקונטיינר. בלי המספר אין חסם, והמדידה נעצרת.
+
+    וכל זה נכון רק על קרנל שבו הוא נקרא (``LAG_BOUND_PROVEN_FROM_KERNEL``). על קרנל אחר
+    אין חסם, והמדידה נעצרת — כאן ולא אצל מי שקורא, כי כל שימוש בחסם עובר בפונקציה הזו.
     """
+    _require_a_kernel_the_lag_bound_is_proven_on()
     online = os.cpu_count()
     if not online:
         raise SystemExit(
@@ -359,6 +382,39 @@ def counter_lag_bound_bytes() -> int:
         )
     batch = max(PERCPU_BATCH_FLOOR, 2 * online)
     return RSS_COUNTERS * (batch - 1) * mmap.PAGESIZE
+
+
+def _require_a_kernel_the_lag_bound_is_proven_on() -> None:
+    """עוצר בקול אלא אם הקרנל הוא לינוקס מ-``LAG_BOUND_PROVEN_FROM_KERNEL`` ומעלה.
+
+    הגרסה נקראת מ-``os.uname()`` — ה-``release`` של ``uname(2)``, מחרוזת כמו
+    ``6.18.44-fc-v37`` או ``6.16.0-rc3+`` — ורק שני המספרים שבראשה נשפטים. מערכת שאינה
+    לינוקס נעצרת לפני המספרים: גם ל-macOS יש ``release``, ו-``23.1.0`` שלו גדול מ-6.16.
+    """
+    if not hasattr(os, "uname"):
+        raise SystemExit(
+            "os.uname() is not available, so the kernel that the counter-lag bound depends on "
+            "cannot be identified; refusing to measure"
+        )
+    kernel = os.uname()
+    if kernel.sysname != "Linux":
+        raise SystemExit(
+            f"the counter-lag bound is proven for Linux only, and this is {kernel.sysname!r}; "
+            "refusing to measure"
+        )
+    version = re.match(r"([0-9]+)\.([0-9]+)", kernel.release)
+    if version is None:
+        raise SystemExit(
+            f"cannot read a kernel version from {kernel.release!r}, so the counter-lag bound "
+            "cannot be proven for it; refusing to measure"
+        )
+    if (int(version[1]), int(version[2])) < LAG_BOUND_PROVEN_FROM_KERNEL:
+        proven = ".".join(map(str, LAG_BOUND_PROVEN_FROM_KERNEL))
+        raise SystemExit(
+            f"kernel {kernel.release} is older than Linux {proven}, the first kernel the "
+            "counter-lag bound is proven on (LAG_BOUND_PROVEN_FROM_KERNEL): on it the peak's "
+            "upper bound would not be one; refusing to measure"
+        )
 
 
 def _measuring_cpu() -> int:
