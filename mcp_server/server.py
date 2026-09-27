@@ -836,17 +836,29 @@ _NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
 #: an edit by hand. The 110 recorded in #3391 is still not directly
 #: comparable to it: that figure came from a denser corpus (~250 tokens per
 #: KB), which was not re-measured. So a parser upgrade re-runs the script; it
-#: does not assume the constant survives.
+#: does not assume the constant survives. All of these readings predate the
+#: parser ceilings of #3391 and were taken on text tiled to the whole read
+#: ceiling; under the ceilings the tool refuses both tiled shapes at
+#: ``MAX_LINES`` before parsing (512,000 bytes of ordinary Markdown is more
+#: lines than that), so the script now cuts every input to what the tool
+#: still parses, and the costliest thing it measures is the adversarial input
+#: below.
 #:
-#: What the constant is **not**: the adversarial bound. A 500KB file of
-#: one-line bullets peaks at ~290 bytes per input byte — 141MiB for a single
-#: parse — which no pool width can absorb (three such parses exceed the plan
-#: at any width above the floor). The tool reads only the mirrored,
-#: allow-listed docs repositories, so the densest document it actually serves
-#: is the honest budget, and a ceiling inside the parser itself is the
-#: instrument for the hostile shape: in place for RST (the section ceiling
-#: above), still pending for Markdown, whose bullet shape has no headings for
-#: ``MAX_SECTIONS`` to count — a token ceiling, tracked in #3391, not here.
+#: **Since #3391 the constant also bounds the adversarial case — within the
+#: parser's own ceilings.** Until then it did not: a 500KB file of one-line
+#: bullets had no headings for ``MAX_SECTIONS`` to count, nothing inside the
+#: Markdown parser stopped it, and one parse of it cost several times this
+#: allowance. ``services.md_parser`` now refuses a file over ``MAX_LINES``
+#: before parsing and stops a parse at ``MAX_TOKENS``, and the worst input
+#: found under both fits inside :data:`_PARSE_COST_BYTES` — the input, the
+#: measurement, its date and the script that reproduces it are next to
+#: ``MAX_TOKENS`` in ``services/md_parser.py``, and
+#: ``scripts/measure_md_parse_cost.py`` re-checks the bound whenever the
+#: parser or its ceilings change. So the budget no longer rests on *what* the
+#: tool reads (the mirrored, allow-listed repositories — an assumption #3466
+#: shows is weaker than it looked) but on what the parser can be made to do
+#: with any file it accepts. The RST path keeps its own instrument, the
+#: section ceiling above.
 _PARSE_RSS_PER_INPUT_BYTE = 72
 
 #: What one parse can cost at most — the divisor of the memory budget. The
@@ -1408,7 +1420,8 @@ class AdminAwareFastMCP(FastMCP):
         # ``is None`` and not ``or``: ``ToolRateLimiter(0)`` is the documented
         # kill switch, and ``or`` kept it only because the class defines neither
         # ``__bool__`` nor ``__len__`` — the first one added would have swapped a
-        # switched-off limiter for the 60/min default in silence (K12 §3).
+        # switched-off limiter for the ``DEFAULT_RATE_LIMIT_PER_MINUTE`` default
+        # in silence (K12 §3).
         if tool_rate_limiter is None:
             tool_rate_limiter = ToolRateLimiter(DEFAULT_RATE_LIMIT_PER_MINUTE)
         self._tool_rate_limiter = tool_rate_limiter

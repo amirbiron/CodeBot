@@ -12,8 +12,9 @@
   ה-``includes``, מספר השורות וגיבוב שלהן — או הסירוב, עם סוג החריגה והארגומנטים שלה.
   לקובצי ``.md`` גם ``front_matter_end``.
 - ``refusals`` — קלטים סינתטיים דרך ``docs_handlers.document_from_read``, כלומר בדיוק התשובה
-  שהכלי מחזיר: ``\\r`` בודד, מעל ``MAX_SECTIONS``, קובץ ריק, BOM, front matter, ו-``binary`` או
-  ``too_large``.
+  שהכלי מחזיר: ``\\r`` בודד, מעל ``MAX_LINES`` ומעל ``MAX_TOKENS`` ב-Markdown (שם
+  ``MAX_SECTIONS`` אינה יכולה להיפגע — ראו ``md_parser``), מעל ``MAX_SECTIONS`` ב-RST, קובץ ריק,
+  BOM, front matter, ו-``binary`` או ``too_large``.
 - ``hostile`` — צורות עוינות קטנות: טבלה רחבה, תבליטים, הגדרות קישור רצופות. מפות בלבד.
 - ``oracle`` — כל המשפחות של ``tests/test_md_parser_oracle.py``, בשמן: אלה שב-
   ``_COMPARED_FAMILIES``, והמשפחה של כל שורה ב-``_KNOWN_DIVERGENCES`` לפי ה-``key`` שלה. לכל
@@ -92,7 +93,13 @@ _PACKAGES = ("markdown-it-py", "mdit-py-plugins", "cmarkgfm")
 #: הסירובים המתועדים של הפארסרים ("ערוץ הכשל הוא חריגה בלבד" ב-``md_parser``). סירוב
 #: כזה הוא **תוצאה**: הוא נרשם בתצלום ומושווה כמו כל תוצאה אחרת. כל חריגה אחרת היא
 #: באג, והיא עולה ומפילה את הריצה.
-_REFUSALS = (doc_sections.InconsistentLineEndings, doc_sections.TooManySections, TypeError)
+_REFUSALS = (
+    doc_sections.InconsistentLineEndings,
+    doc_sections.TooManyLines,
+    doc_sections.TooManyTokens,
+    doc_sections.TooManySections,
+    TypeError,
+)
 
 #: כמה דוגמאות להדפיס לכל קבוצה או משפחה שיש בה הבדל.
 _SHOWN = 5
@@ -173,14 +180,27 @@ def _maps(corpus: dict[str, tuple[Path, list[Path]]]) -> tuple[dict[str, Any], d
 
 
 def _refusals() -> dict[str, Any]:
-    """תשובות הכלי על קלטים שמסורבים או גבוליים — דרך ``document_from_read``, כמו בייצור."""
-    many_md = "# h\n\n" * (doc_sections.MAX_SECTIONS + 1)
+    """תשובות הכלי על קלטים שמסורבים או גבוליים — דרך ``document_from_read``, כמו בייצור.
+
+    ב-Markdown אין מקרה של ``too_many_sections``: עם ברירות המחדל תקרת הכותרות אינה
+    יכולה להיפגע (#3391), וקלט שהיה מוכיח אותה נעצר קודם בתקרת השורות. במקומו שני
+    המקרים של התקרות שכן עוצרות — שורות, וטבלה אחת שעוברת את תקרת הטוקנים הרבה
+    לפני תקרת השורות.
+    """
+    long_md = "a\n" * md_parser.MAX_LINES
+    columns = 16
+    dense_md = (
+        "|" + "|".join(" h " for _ in range(columns)) + "|\n"
+        + "|" + "|".join("---" for _ in range(columns)) + "|\n"
+        + ("|" + "|".join(" x " for _ in range(columns)) + "|\n") * 1_000
+    )
     many_rst = "Doc\n===\n\n" + "h\n-\n\n" * (doc_sections.MAX_SECTIONS + 1)
     cases = {
         "md_lone_cr_middle": (".md", "# a\n\nfoo\rbar\n"),
         "md_lone_cr_first_line": (".md", "# a\rb\n"),
         "md_mixed_crlf_and_lone_cr": (".md", "# a\r\n\r\nfoo\rbar\r\n"),
-        "md_too_many_sections": (".md", many_md),
+        "md_too_many_lines": (".md", long_md),
+        "md_too_many_tokens": (".md", dense_md),
         "md_empty": (".md", ""),
         "md_bom_crlf": (".md", "﻿# a\r\n\r\ntext\r\n## b\r\n"),
         "md_front_matter_only": (".md", "---\ntitle: x\n---\n"),

@@ -171,7 +171,17 @@ def _oracle_sections(text: str) -> list[tuple[int, int]]:
 
 
 def _ours(text: str) -> list[tuple[int, int]]:
-    return [(s.level, s.heading_line) for s in parse_document(text).sections]
+    """‏(רמה, שורה) לכל סעיף — **בלי תקרת השורות ותקרת הטוקנים**, בכוונה (#3391).
+
+    האורקל שואל איך הפרסר מבין את הטקסט, והתקרות הן מדיניות משאבים: הן קובעות
+    אם הכלי מפרסר קובץ בכלל, ולא מה הוא רואה בו. השוואה עם התקרות הייתה הופכת את
+    משפחת השורה השלישית ב-``_KNOWN_DIVERGENCES`` לסירוב מול כותרות, ומסתירה את
+    הפער שהיא מתעדת. מה שהכלי עושה עם אותן צורות — מסרב לכולן — נבדק לחוד, ב-
+    ``test_the_table_cap_gap_is_unreachable_through_the_tool``. ``max_sections``
+    נשארת על ברירת המחדל, כמו בכלי: היא אינה נוגעת באף צורה כאן.
+    """
+    doc = parse_document(text, max_lines=None, max_tokens=None)
+    return [(s.level, s.heading_line) for s in doc.sections]
 
 
 #: תווים שפותחים סימון פנימי ב-CommonMark, או שמייצגים משהו שעבר
@@ -1109,6 +1119,9 @@ class _Divergence:
     נתפס רק בהשוואת המפות של ``scripts/compare_md_parser_to_cmark.py``.
     ‏``closed`` — צורות שבהן פער **נסגר**, כלומר שני הצדדים מסכימים היום על מה
     שבגרסה קודמת חלקו עליו: מידע למי שיקרא את זה בעוד חצי שנה, ומקובע בטסט.
+    ‏``unreachable`` — כשהפער קיים בפרסר אבל **אינו יכול להגיע ללקוח של הכלי**, למה.
+    הוא כתוב בשורה עצמה ולא רק בתיעוד, כדי שמי שקורא את הטבלה לא יראה פער מקובע
+    בלי לדעת שאיש לא יכול להגיע אליו; טסט בודק את הטענה, והתיעוד מעתיק אותה.
     """
 
     key: str
@@ -1120,6 +1133,7 @@ class _Divergence:
     family: Callable[[], Iterable[tuple[str, bool]]]
     trigger: re.Pattern[str] | None = None
     closed: tuple[_Example, ...] = ()
+    unreachable: str | None = None
 
 
 #: על מה נמדדה הטבלה. אותה מחרוזת בכל השורות ובתיעוד, וטסט משווה.
@@ -1185,6 +1199,14 @@ _KNOWN_DIVERGENCES: tuple[_Divergence, ...] = (
         family=_table_cap_family,
         # **בלי טריגר, בכוונה.** הפער תלוי בגודל הטבלה כולה ובקו שאחריה, ולא
         # בשורה אחת שאפשר לסמן.
+        #
+        # המספר הוא ``3 × _TABLE_AUTOCOMPLETE_CAP`` — כתוב כאן כמספר כדי שייקרא
+        # בשורה, ונגזר ב-``test_the_table_cap_gap_is_unreachable_through_the_tool``.
+        unreachable=(
+            "אינו נגיש דרך הכלי: הפער מתחיל רק אחרי 196,608 טוקנים — שלושה לכל תא"
+            " משלים עד התקרה — והכלי מסרב לכל מסמך שעובר את ``MAX_TOKENS``"
+            " ב-``too_many_tokens``, לפני שהוא מגיע לשם."
+        ),
     ),
     _Divergence(
         key="setext_after_link_reference",
@@ -1343,6 +1365,49 @@ def test_the_table_cap_is_the_librarys_constant():
     from markdown_it.rules_block.table import MAX_AUTOCOMPLETED_CELLS
 
     assert MAX_AUTOCOMPLETED_CELLS == _TABLE_AUTOCOMPLETE_CAP
+
+
+def test_the_table_cap_gap_is_unreachable_through_the_tool(monkeypatch):
+    """מה שכתוב ב-``unreachable`` של השורה השלישית — כבדיקה, ולא רק כמשפט.
+
+    שלושה חלקים. **המספר נגזר:** כל תא בשורת גוף — גם תא משלים — הוא שלושה טוקנים,
+    ולכן טבלה נחתכת רק אחרי ``3 × _TABLE_AUTOCOMPLETE_CAP`` טוקנים, וזה המספר שכתוב
+    בשורה. **הוא מעל ``MAX_TOKENS``.** ו**הכלי עצמו** — ``docs_get_section`` על
+    ברירות המחדל של הפרסר, כמו בייצור — מסרב לכל צורה במשפחה ב-``too_many_tokens``,
+    גם לחצי שמסכים עם GitHub: הוא אינו מגיע לאף אחת מהן.
+
+    הייבוא כאן ולא בראש הקובץ: הקובץ נטען גם על ידי ``scripts/compare_md_parser_to_cmark.py``,
+    ששם אין צורך בשכבת ה-MCP.
+    """
+    from mcp_server import docs_handlers
+    from services import md_parser
+
+    row = _KNOWN_DIVERGENCES_BY_KEY["table_over_autocomplete_cap"]
+    gap_tokens = 3 * _TABLE_AUTOCOMPLETE_CAP
+    assert row.unreachable and f"{gap_tokens:,}" in row.unreachable, row.unreachable
+
+    columns = _TABLE_CAP_COLUMNS
+    one_body_row = (md_parser.token_count(_wide_table(columns, 2, ""))
+                    - md_parser.token_count(_wide_table(columns, 1, "")))
+    assert one_body_row == 2 + 3 * columns, "תא בשורת גוף — גם משלים — אינו שלושה טוקנים"
+    assert gap_tokens > md_parser.MAX_TOKENS
+
+    class _Backend:
+        def __init__(self, text: str) -> None:
+            self._text = text
+
+        def get_file(self, *, repo, path, ref=None, lines=None):
+            return {"ok": True, "status": "ok", "content": self._text,
+                    "file": {"path": path, "ref": "HEAD", "resolved_commit": "c0ffee"}}
+
+    monkeypatch.setenv("MCP_DOCS_REPO", "amir-bug-patterns")
+    answers = [
+        docs_handlers.docs_get_section(_Backend(text), path="x.md", repo="amir-bug-patterns")
+        for text, _agrees in row.family()
+    ]
+    assert len(answers) == 8
+    assert {(a["ok"], a["error"], a["max"]) for a in answers} == {
+        (False, "too_many_tokens", md_parser.MAX_TOKENS)}
 
 
 def test_the_reference_family_is_exactly_as_measured():
@@ -1695,7 +1760,7 @@ def test_the_documentation_table_is_this_table():
     **וגם המספרים בפסקאות שמתחת לטבלה נגזרים**, מאותן הגדרות שהמשפחות בנויות מהן:
     גודל המטריצה של ``source``/``search``, התקרה של השורה השלישית, והגודל והמידות
     של הטבלה לדוגמה שלה, שלושת הסוגים של הגדרות הקישור, ומספר התווים והתגיות של
-    השורה החמישית.
+    השורה החמישית. ``unreachable`` של כל שורה שיש לה מועתק כלשונו לפסקה שלה.
     """
     rst = (_REPO / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
     start = rst.index(".. _mcp-md-known-divergences:")
@@ -1740,6 +1805,8 @@ def test_the_documentation_table_is_this_table():
         f"ב-{len(_HTML_BLOCK_TAGS)} תגיות הבלוק",
         f"ב-{len(_TYPE1_TAGS)} התגיות מסוג 1",
     ]
+    # ומה שכתוב בשורה עצמה על פער שאינו נגיש דרך הכלי — מועתק כלשונו.
+    details += [row.unreachable for row in _KNOWN_DIVERGENCES if row.unreachable]
     missing = [fact for fact in details if fact not in section]
     assert not missing, missing
 

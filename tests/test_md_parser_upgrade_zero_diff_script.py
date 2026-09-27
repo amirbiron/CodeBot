@@ -96,7 +96,9 @@ def test_the_snapshot_holds_every_group_the_verdict_reads(snapshot):
     assert [s["title"] for s in snapshot["maps"]["c:a.md"]["sections"]] == ["א", "ב"]
     assert snapshot["maps"]["c:a.md"]["front_matter_end"] == 0
     assert [s["title"] for s in snapshot["maps"]["c:b.rst"]["sections"]] == ["Doc", "Sec"]
-    assert snapshot["refusals"]["md_too_many_sections"]["answer"]["error"] == "too_many_sections"
+    assert snapshot["refusals"]["md_too_many_lines"]["answer"]["error"] == "too_many_lines"
+    assert snapshot["refusals"]["md_too_many_tokens"]["answer"]["error"] == "too_many_tokens"
+    assert snapshot["refusals"]["rst_too_many_sections"]["answer"]["error"] == "too_many_sections"
     lone_cr = snapshot["refusals"]["md_lone_cr_middle"]["answer"]
     assert lone_cr["error"] == "inconsistent_line_endings"
     assert snapshot["hostile"]["bullets_1000"]["sections"] == []
@@ -105,6 +107,37 @@ def test_the_snapshot_holds_every_group_the_verdict_reads(snapshot):
     # מטריצת ההקשר לא צולמה, ולכן גם טקסט הכותרות שלה לא
     assert snapshot["oracle_titles"] == []
     assert isinstance(snapshot["info_token_count"]["c:a.md"], int)
+
+
+def test_a_corpus_file_over_a_markdown_ceiling_is_recorded_as_a_refusal_and_not_a_crash(
+        script, tmp_path):
+    """``_REFUSALS`` כולל את שתי התקרות של #3391: קובץ בקורפוס שעובר אחת מהן נרשם כסירוב.
+
+    בלעדיהן ``_parse`` היה מעלה את החריגה, והתצלום כולו היה נופל על קובץ אחד — כלומר
+    שדרוג לא היה יכול להיבדק על ריפו שיש בו קובץ כזה. ``front_matter_end`` רץ בלי תקרות,
+    בכוונה (ראו ``md_parser``), ולכן הוא נרשם גם על קובץ שהפרסור מסרב לו.
+    """
+    from services import md_parser
+
+    columns = 16
+    dense = (
+        "|" + "|".join(" h " for _ in range(columns)) + "|\n"
+        + "|" + "|".join("---" for _ in range(columns)) + "|\n"
+        + ("|" + "|".join(" x " for _ in range(columns)) + "|\n") * 1_000
+    )
+    corpus = _corpus(tmp_path, **{"long.md": "a\n" * md_parser.MAX_LINES, "dense.md": dense})
+    out = tmp_path / "snapshot.json"
+
+    assert script.main(_snapshot_argv(corpus, out)) == 0
+
+    maps = json.loads(out.read_text(encoding="utf-8"))["maps"]
+    assert maps["c:long.md"] == {
+        "raised": "TooManyLines",
+        "args": [md_parser.MAX_LINES + 1, md_parser.MAX_LINES],
+        "front_matter_end": 0,
+    }
+    assert maps["c:dense.md"]["raised"] == "TooManyTokens"
+    assert maps["c:dense.md"]["args"][1] == md_parser.MAX_TOKENS
 
 
 def test_the_snapshot_writes_nothing_but_out(taken):
@@ -123,7 +156,7 @@ def test_two_identical_snapshots_are_a_zero_diff(script, snapshot, tmp_path, cap
 
 @pytest.mark.parametrize(
     "group, key",
-    [("maps", "c:a.md"), ("refusals", "md_too_many_sections"), ("hostile", "bullets_1000")],
+    [("maps", "c:a.md"), ("refusals", "md_too_many_tokens"), ("hostile", "bullets_1000")],
 )
 def test_a_change_in_an_exact_group_is_a_difference_and_names_the_key(
     script, snapshot, tmp_path, capsys, group, key

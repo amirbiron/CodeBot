@@ -387,6 +387,49 @@ async def test_a_too_many_sections_refusal_is_the_same_in_the_batch(tmp_path, mo
 
 
 @requires_git
+async def test_the_line_and_token_refusals_are_the_same_in_the_batch_and_fail_only_themselves(
+        tmp_path, monkeypatch):
+    """#3391 בתצורת הייצור: מראה אמיתית, השרת האמיתי, וברירות המחדל של ``md_parser``.
+
+    שני קבצים שכל אחד מהם נעצר בתקרה אחרת — ארוך מ-``MAX_LINES`` בשורות קצרות,
+    וטבלה אחת שעוברת את ``MAX_TOKENS`` הרבה לפני תקרת השורות — ושניהם מתחת
+    לתקרת ה-500KB של המראה, כלומר מגיעים לפרסר. כל פריט זהה לכלי הבודד, והפריט
+    שלידם עונה כרגיל: סירוב של פריט אחד אינו סירוב של הבאץ'.
+    """
+    columns = 16
+    extra = {
+        "LONG.md": "# ארוך\n\n" + "שורה\n" * md_parser.MAX_LINES,
+        "DENSE.md": ("# צפוף\n\n"
+                     + "|" + "|".join(" h " for _ in range(columns)) + "|\n"
+                     + "|" + "|".join("---" for _ in range(columns)) + "|\n"
+                     + ("|" + "|".join(" x " for _ in range(columns)) + "|\n") * 1_000),
+    }
+    assert all(len(body.encode("utf-8")) < 500 * 1024 for body in extra.values())
+    assert extra["DENSE.md"].count("\n") + 1 < md_parser.MAX_LINES
+    world = _world(tmp_path, monkeypatch, extra=extra)
+    cases = [
+        ({"kind": "section", "repo": _MD, "path": "LONG", "section": "ארוך"},
+         ("codekeeper_docs_get_section", {"repo": _MD, "path": "LONG", "section": "ארוך"})),
+        ({"kind": "section", "repo": _MD, "path": "DENSE", "section": "צפוף"},
+         ("codekeeper_docs_get_section", {"repo": _MD, "path": "DENSE", "section": "צפוף"})),
+        ({"kind": "section", "repo": _MD, "path": "CRITICAL-PATTERNS", "section": "K11"},
+         ("codekeeper_docs_get_section",
+          {"repo": _MD, "path": "CRITICAL-PATTERNS", "section": "K11"})),
+    ]
+    await _assert_identical(world, cases)
+    _, answer = await _batch(world.mcp, [item for item, _ in cases])
+    long_file, dense, neighbour = (entry["result"] for entry in answer["items"])
+
+    assert long_file["error"] == "too_many_lines"
+    assert (long_file["max"], long_file["total_lines"]) == (
+        md_parser.MAX_LINES, extra["LONG.md"].count("\n") + 1)
+    assert "line" not in long_file
+    assert dense["error"] == "too_many_tokens" and dense["max"] == md_parser.MAX_TOKENS
+    assert 4 < dense["line"] < extra["DENSE.md"].count("\n"), "העצירה באמצע הטבלה"
+    assert neighbour["mode"] == "section" and "גוף K11" in neighbour["content"]
+
+
+@requires_git
 async def test_a_missing_file_and_a_missing_section_fail_only_themselves(tmp_path, monkeypatch):
     world = _world(tmp_path, monkeypatch)
     _, answer = await _batch(world.mcp, [
@@ -1243,12 +1286,13 @@ def test_the_batch_carries_no_read_mode_label():
 
 
 def test_the_documented_numbers_are_the_code_numbers():
-    """טבלת הקבועים והחשבון של הדדליין ב-``docs/mcp-server.rst`` נגזרים מהקבועים עצמם.
+    """טבלת הקבועים ב-``docs/mcp-server.rst`` נגזרת מהקבועים עצמם.
 
     **קובץ RST אינו יכול לגזור דבר — הוא מחרוזת** (``prose-restates-code-fact``).
     לכן הערך המצופה בכל שורה **מחושב כאן מהקבוע**, ולא מוקלד לצידו: מי שמשנה
-    את ``DEADLINE_SECONDS`` בלי לעדכן את החשבון שהתיעוד נשען עליו ("10 + 46 = 56,
-    מתחת ל-60") מפיל את הטסט, וכך גם מי שמשנה את הטבלה בלי לשנות את הקוד.
+    את הטבלה בלי לשנות את הקוד מפיל את הטסט, וכך גם להפך. **החשבון שהדדליין
+    נשען עליו** נבדק מאז #3391 ב-``tests/test_md_parse_worst_case_claims.py``,
+    יחד עם הקבוע שהוא נגזר ממנו — זמן המעבד של הפרסור הגרוע.
 
     **והאחוזים של הסבב בפרודקשן.** הבתים והאלפיות נמדדו ונושאים תאריך, אבל
     "39% מהתקציב" ו-"2.7% מהדדליין" נגזרים מהם ומ-``OUTPUT_BYTE_BUDGET`` ומ-
@@ -1271,9 +1315,6 @@ def test_the_documented_numbers_are_the_code_numbers():
     assert table_value("MAX_RESULT_CHARS") == f"{read_batch.MAX_RESULT_CHARS:,}"
 
     deadline = read_batch.DEADLINE_SECONDS
-    assert f"**{deadline:g} + 46 = {deadline + 46:g}, מתחת ל-60**" in page, (
-        "החשבון שהדדליין נשען עליו בתיעוד אינו מחושב מ-DEADLINE_SECONDS של היום"
-    )
 
     measured = re.search(
         r"בפרודקשן הסבב האמיתי היה ([\d,]+) בתים בצורה שנשלחת — (\d+)% מהתקציב"

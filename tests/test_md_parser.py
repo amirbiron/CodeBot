@@ -1,10 +1,11 @@
-"""טסטים ל-``services/md_parser.py`` — שש ההכרעות שהתוכנית קבעה.
+"""טסטים ל-``services/md_parser.py`` — שש ההכרעות שהתוכנית קבעה, והתקרות של #3391.
 
 **למה קריאה ישירה לפונקציה ולא דרך ממשק ה-MCP.** הכלל בפרויקט הוא
-שטסט עובר דרך אותו ממשק כמו הצרכן. כאן אין צרכן: הפארסר נוסף ואינו
-מחווט לאף כלי — ``docs_handlers`` ממשיך לקרוא ל-``rst_parser`` בלבד —
-והחיווט הוא PR נפרד. לפונקציה טהורה בלי צרכן חיצוני, הקריאה הישירה
-**היא** הממשק. כשיהיה צרכן, הטסטים שלו יעברו דרך ממשק ה-MCP.
+שטסט עובר דרך אותו ממשק כמו הצרכן. כשהקובץ הזה נכתב לא היה צרכן; מאז
+#3428 יש אחד — ``docs_handlers`` — והטסטים שעוברים דרכו, בתצורת הייצור,
+יושבים ב-``tests/test_mcp_docs_handlers.py`` וב-``tests/test_mcp_read_batch.py``.
+כאן נשארות הטענות על הפונקציה הטהורה עצמה: היכן בדיוק נעצרים, מה החריגה
+נושאת, ואיזה מצב חי על המופע המשותף.
 
 **וכל טענה כאן נמדדה בהרצה**, ולא נגזרה מקריאת הקוד של
 ``markdown-it-py``. ההפניות למקור הן לפי שם מודול ופונקציה ולא לפי
@@ -375,6 +376,404 @@ def test_the_ceiling_is_not_fooled_by_a_container_heading_in_the_last_block():
 
 
 # ════════════════════════════════════════════════════════════════════
+# תקרת השורות ותקרת הטוקנים (#3391)
+# ════════════════════════════════════════════════════════════════════
+
+def _table(rows, columns=2):
+    """טבלה אחת — כלומר קריאה אחת לכלל ``table`` של markdown-it, שבונה את כולה."""
+    head = "|" + "|".join(f" h{c} " for c in range(columns)) + "|\n"
+    rule = "|" + "|".join("---" for _ in range(columns)) + "|\n"
+    body = "".join(
+        "|" + "|".join(f" {r}.{c} " for c in range(columns)) + "|\n" for r in range(rows)
+    )
+    return head + rule + body
+
+
+def _refusal_line(tokens, limit):
+    """השורה שסירוב בתקרה ``limit`` אמור לשאת, מתוך זרם הטוקנים **בלי** תקרה.
+
+    הפרסור דטרמיניסטי, ולכן ``limit`` הטוקנים הראשונים של פרסור עם תקרה הם
+    בדיוק ``limit`` הטוקנים הראשונים של פרסור בלעדיה — והשורה היא של האחרון
+    מביניהם שיש לו ``map``. זו ההגדרה שהסירוב מבטיח, מנוסחת מהצד של הפלט ולא
+    של המימוש: ``test_the_refusal_line_is_where_the_parse_was_for_every_limit``
+    משווה בין השניים על כל תקרה אפשרית.
+    """
+    for token in reversed(tokens[:limit]):
+        if token.map is not None:
+            return token.map[0] + 1
+    return None
+
+
+def _count_appends(monkeypatch):
+    """כמה פעמים נקרא ``_CappedTokens.append`` — כולל הקריאה שסירבה."""
+    calls = []
+    real = md_parser._CappedTokens.append
+
+    def counting(self, token):
+        calls.append(token.type)
+        return real(self, token)
+
+    monkeypatch.setattr(md_parser._CappedTokens, "append", counting)
+    return calls
+
+
+def test_the_token_ceiling_stops_in_the_middle_of_a_table(monkeypatch):
+    """טבלה נבנית כולה בקריאה אחת לכלל, ובכל זאת הפרסור נעצר באמצעה.
+
+    **שתי ראיות, ולכל אחת מוטציה שמפילה אותה.** מספר הקריאות ל-``append``
+    הוא ``limit + 1`` בדיוק — ``limit`` שנכנסו, ואחת שסירבה — ולא מספר הטוקנים
+    של הטבלה כולה; והשורה שהסירוב נושא יושבת בתחילת הטבלה ולא בשורה האחרונה
+    שלה. בדיקה שהייתה רצה אחרי ``md.parse``, או בתחילת בלוק כמו תקרת הכותרות,
+    הייתה רואה את הטבלה רק אחרי שכל הטוקנים שלה כבר נוצרו — ושתי הראיות היו
+    נופלות.
+    """
+    text = _table(rows=200)
+    full = md_parser._MD.parse(text)
+    limit = 100
+    expected_line = _refusal_line(full, limit)
+    last_row = text.count("\n")
+    assert 3 <= expected_line < last_row // 4, "הנחת המקרה: העצירה ברבע הראשון של הטבלה"
+    assert len(full) > 10 * limit, "הנחת המקרה: הטבלה ארוכה בהרבה מהתקרה"
+
+    calls = _count_appends(monkeypatch)
+    with pytest.raises(doc_sections.TooManyTokens) as caught:
+        md_parser.parse_document(text, max_tokens=limit)
+
+    assert len(calls) == limit + 1, "הבדיקה אינה רצה בכל טוקן שנוצר"
+    assert caught.value.line == expected_line
+    assert caught.value.limit == limit
+    assert caught.value.args == (expected_line, limit)
+
+
+def test_the_token_ceiling_stops_in_the_middle_of_a_list(monkeypatch):
+    """אותה ראיה ברשימה — מבנה שנבנה גם הוא בקריאה אחת לכלל ``list``."""
+    text = "".join(f"- item {i}\n" for i in range(300))
+    full = md_parser._MD.parse(text)
+    limit = 100
+    expected_line = _refusal_line(full, limit)
+    assert expected_line < 300 // 4, "הנחת המקרה: העצירה ברבע הראשון של הרשימה"
+
+    calls = _count_appends(monkeypatch)
+    with pytest.raises(doc_sections.TooManyTokens) as caught:
+        md_parser.parse_document(text, max_tokens=limit)
+
+    assert len(calls) == limit + 1
+    assert (caught.value.line, caught.value.limit) == (expected_line, limit)
+
+
+def test_the_refusal_line_is_where_the_parse_was_for_every_limit():
+    """על כל תקרה אפשרית, מ-0 ועד מעבר לסוף: הסירוב זהה להגדרה שמנוסחת מהפלט.
+
+    המסמך עובר בכל ענף שמייצר טוקנים — front matter, כותרות משני הסוגים,
+    ציטוט ורשימה מקוננים, טבלה עם שורה קצרה, גדר, HTML, קוד מוזח, קו והגדרת
+    קישור — כי ``_last_line`` נשען על כך שכל כלל מציב את ``map`` מיד אחרי
+    ``push``, **לפני** הטוקן הבא. כלל שיציב אותו מאוחר יותר ישבור את
+    ההשוואה כאן, ולא ישבור אותה בשקט אצל הלקוח.
+    """
+    text = (
+        "---\na: 1\n---\n\n# כותרת\n\nפסקה\nהמשך\n\n> ## בציטוט\n> טקסט\n\n"
+        "- פריט\n  - מקונן\n- ## בפריט\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 |\n\n"
+        "```py\nx = 1\n```\n\nסטקסט\n------\n\n<div>\nhtml\n</div>\n\n    code\n\n***\n"
+        "[ref]: /url\n"
+    )
+    full = md_parser._MD.parse(text)
+    for limit in range(len(full) + 2):
+        if limit >= len(full):
+            md_parser.parse_document(text, max_tokens=limit)
+            continue
+        with pytest.raises(doc_sections.TooManyTokens) as caught:
+            md_parser.parse_document(text, max_tokens=limit)
+        assert caught.value.line == _refusal_line(full, limit), limit
+
+
+def test_a_file_with_exactly_the_token_ceiling_passes():
+    """אותה צורת גבול כמו תקרת הכותרות: ``limit`` טוקנים עוברים, ``limit + 1`` לא."""
+    text = _table(rows=5) + "\n# כותרת\n\n- פריט\n"
+    count = md_parser.token_count(text)
+
+    doc = md_parser.parse_document(text, max_tokens=count)
+    assert [s.title for s in doc.sections] == ["כותרת"]
+    with pytest.raises(doc_sections.TooManyTokens):
+        md_parser.parse_document(text, max_tokens=count - 1)
+
+
+def test_a_refusal_before_any_token_with_a_place_carries_no_line():
+    """``max_tokens=0``: הטוקן הראשון כבר חורג, ואין עדיין טוקן שיש לו ``map``.
+
+    ``None`` ולא 0 או 1 — מספר שורה שהיה נראה אמיתי היה מצביע על מקום שהפרסור
+    מעולם לא הגיע אליו. המטפל ממיר את ``None`` להיעדר השדה ``line``.
+    """
+    with pytest.raises(doc_sections.TooManyTokens) as caught:
+        md_parser.parse_document("# a\n", max_tokens=0)
+    assert caught.value.line is None
+    assert caught.value.args == (None, 0)
+
+
+def test_a_refusal_deep_inside_nested_containers_reaches_the_caller():
+    """K11: החריגה עוברת דרך שלוש קריאות מקוננות של הספרייה ויוצאת כסירוב.
+
+    טבלה בתוך פריט רשימה בתוך ציטוט — כל רמה היא ``tokenize`` מקונן, וה-``try``
+    היחידים במסלול הם ``except IndexError`` צרים (נקרא במקור של 4.2.0). אילו
+    רמה כלשהי הייתה בולעת חריגות, הפרסור היה ממשיך ומחזיר ``Document`` חלקי —
+    ובדיוק זה מה שהטסט שולל: אין ערך החזרה, יש חריגה, והשורה שלה בתוך הטבלה.
+    """
+    text = "# לפני\n\n> - | a | b |\n>   |---|---|\n" + "".join(
+        f">   | {i} | x |\n" for i in range(30)
+    )
+    full = md_parser._MD.parse(text)
+    assert "table_open" in [t.type for t in full], "הנחת המקרה: זו טבלה"
+    limit = 60
+
+    with pytest.raises(doc_sections.TooManyTokens) as caught:
+        md_parser.parse_document(text, max_tokens=limit)
+    assert caught.value.line == _refusal_line(full, limit)
+    assert 5 < caught.value.line < text.count("\n"), "העצירה בתוך הטבלה המקוננת"
+
+
+def test_the_line_ceiling_refuses_before_the_parse_starts(monkeypatch):
+    """הראיה: ``_MD.parse`` אינו נקרא בכלל, והחריגה נושאת את הספירה ואת התקרה.
+
+    מה שהתקרה קיימת כדי לחסום — המערכים ש-``StateBlock`` בונה לכל שורה,
+    ורשימות הציטוט לכל שורה בכל רמה — נבנה בתוך ``_MD.parse``. בדיקה שהייתה
+    רצה אחריו, למשל על ``len(lines)``, הייתה מסרבת רק אחרי שכל העלות כבר שולמה.
+    """
+    parses = []
+    real = md_parser._MD.parse
+
+    def spy(*args, **kwargs):
+        parses.append(args)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(md_parser._MD, "parse", spy)
+    with pytest.raises(doc_sections.TooManyLines) as caught:
+        md_parser.parse_document("a\n" * 10, max_lines=10)
+
+    assert parses == [], "הפרסור התחיל לפני שתקרת השורות נבדקה"
+    assert (caught.value.total_lines, caught.value.limit) == (11, 10)
+    assert caught.value.args == (11, 10)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "a", "a\n", "\n", "\n\n", "a\nb", "a\r\nb\r\n", "﻿a\nb", "﻿", "# a\n\n## b\n\n"],
+)
+def test_the_line_ceiling_counts_exactly_like_count_lines(text):
+    """R6: הספירה היא הנוסחה של ``count_lines`` — עותק שני בכוונה, ולכן מושווית כאן.
+
+    ``services`` אינו מייבא מ-``mcp_server``, וטסט רשאי לייבא משניהם. המספר
+    ש-``too_many_lines`` מחזיר הוא אותו מספר שהלקוח רואה בכל שדה ``lines``,
+    ולכן ``lines=[start, end]`` הוא הדרך לקרוא קובץ שסורב. ההשוואה היא על הטקסט
+    שאחרי שער הכניסה, כי שם הפרסר סופר: BOM אחד מוסר, והוא אינו מעבר שורה —
+    ולכן ההבדל היחיד מ-``count_lines`` על הטקסט הגולמי הוא קובץ שכולו BOM.
+
+    הגבול נבדק משני הצדדים: ``count`` עובר, ``count - 1`` מסרב עם ``count``.
+    """
+    from mcp_server.handlers import count_lines
+
+    count = count_lines(md_parser._entry_checks(text))
+    md_parser.parse_document(text, max_lines=count)
+    with pytest.raises(doc_sections.TooManyLines) as caught:
+        md_parser.parse_document(text, max_lines=count - 1)
+    assert caught.value.total_lines == count
+
+
+def test_the_default_line_ceiling_is_exact_at_its_own_number():
+    """ברירת המחדל עצמה, ולא תקרה מוקטנת: ``MAX_LINES`` שורות עוברות, אחת נוספת לא.
+
+    זול — 8,000 שורות קצרות הן עשרות מילישניות — ולכן נבדק על הקבוע האמיתי.
+    """
+    at_ceiling = "a\n" * (md_parser.MAX_LINES - 1) + "a"
+    assert at_ceiling.count("\n") + 1 == md_parser.MAX_LINES
+    md_parser.parse_document(at_ceiling)
+    with pytest.raises(doc_sections.TooManyLines) as caught:
+        md_parser.parse_document(at_ceiling + "\n")
+    assert (caught.value.total_lines, caught.value.limit) == (
+        md_parser.MAX_LINES + 1, md_parser.MAX_LINES)
+
+
+def test_the_new_defaults_are_the_documented_constants():
+    """ברירות המחדל בחתימה **הן** הקבועים — לא ``None``, ולא עותק של המספר."""
+    import inspect
+
+    params = inspect.signature(md_parser.parse_document).parameters
+    assert params["max_lines"].default is md_parser.MAX_LINES
+    assert params["max_tokens"].default is md_parser.MAX_TOKENS
+
+
+def test_the_two_ceilings_can_be_turned_off_explicitly():
+    """``None`` מכבה כל אחת מהן — על קלט שעובר את שתי ברירות המחדל."""
+    text = "- a\n" * 10_000
+    assert text.count("\n") + 1 > md_parser.MAX_LINES
+    assert md_parser.token_count(text) > md_parser.MAX_TOKENS
+
+    with pytest.raises(doc_sections.TooManyLines):
+        md_parser.parse_document(text)
+    with pytest.raises(doc_sections.TooManyTokens):
+        md_parser.parse_document(text, max_lines=None)
+    doc = md_parser.parse_document(text, max_lines=None, max_tokens=None)
+    assert len(doc.lines) == 10_001
+
+
+def test_the_measuring_entries_count_past_the_ceilings():
+    """``token_count`` ו-``front_matter_end`` רצים בלי תקרות, בכוונה.
+
+    המדד צריך לומר כמה רחוק קובץ נמצא מ-``MAX_TOKENS`` — גם כשהוא מעליה — והשניים
+    רצים רק בסקריפטים, על קבצי הריפו. תקרה כאן הייתה הופכת את המדידה לסירוב.
+    """
+    body = "- a\n" * 10_000
+    assert md_parser.token_count(body) == 50_002
+    page = "---\nsummary: x\n---\n\n" + body
+    assert md_parser.front_matter_end(page) == 3
+
+
+def test_max_sections_cannot_be_reached_by_markdown_under_the_default_ceilings():
+    """הטענה בדוקסטרינג של המודול, כחשבון ולא כמשאלה.
+
+    כל כותרת פותחת בשורה משלה — שתי כותרות אינן מתחילות באותה שורה (נבדק
+    ב-fuzz של 30,000 מסמכים) — ולכן קובץ שעובר את תקרת השורות מחזיק לכל היותר
+    ``MAX_LINES`` כותרות. וגם מצד הטוקנים: כותרת היא שלושה טוקנים, כך ש-
+    ``MAX_SECTIONS + 1`` כותרות דורשות יותר מ-``MAX_TOKENS``. כל אחד מהשניים
+    לבדו מספיק. והקלט שפעם הוכיח את תקרת הכותרות — ``MAX_SECTIONS + 1``
+    כותרות — מסורב היום בתקרת השורות, לפני הפרסור.
+    """
+    assert md_parser.MAX_LINES < md_parser.MAX_SECTIONS
+    assert md_parser.token_count("# h\n") == 3
+    assert md_parser.MAX_TOKENS < 3 * (md_parser.MAX_SECTIONS + 1)
+
+    with pytest.raises(doc_sections.TooManyLines):
+        md_parser.parse_document("# h\n" * (md_parser.MAX_SECTIONS + 1))
+
+
+def test_two_threads_with_different_ceilings_never_see_each_others_list():
+    """U1: הרשימה עם התקרה חיה ב-``env`` של הפרסור, לא על ``_MD`` המשותף.
+
+    שלושה חוטים מפרסרים את אותו טקסט יחד — שניים עם תקרות שונות ואחד בלי —
+    עם ``setswitchinterval(1e-6)`` כדי שהמתזמן יחליף חוט בין כל כמה פקודות.
+    כל חוט חייב לקבל את התוצאה שלו בדיוק: הסירוב עם **התקרה שלו** והשורה
+    שלה, או מעבר מלא. מצב שהיה יושב על המופע המשותף היה מערבב ביניהם, ונמדד
+    בריצת בקרה שזה בדיוק מה שהטסט הזה תופס (ראו את גוף ה-PR).
+
+    **וחוט שמת מפיל את הטסט.** כל חוט מחזיר את רשימת התוצאות שלו דרך ``Future``,
+    ו-``result()`` מעלה בחוט הראשי כל חריגה שלא נתפסה — כולל חריגה שנזרקת בתוך
+    ``except`` עצמו. הגרסה הראשונה אספה חריגות לרשימה משותפת בתוך ה-``except``,
+    ובהרצה על main (T2) עברה: שם ``doc_sections.TooManyTokens`` אינו קיים, ה-``except``
+    זרק ``AttributeError``, החוטים מתו בשקט, והרשימה נשארה ריקה.
+    """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    text = _table(rows=40)
+    full = md_parser._MD.parse(text)
+    limits = (20, 60, None)
+    expected = {limit: _refusal_line(full, limit) for limit in limits if limit is not None}
+    assert len(set(expected.values())) == len(expected), "הנחת המקרה: שורות שונות"
+    rounds = 150
+    barrier = threading.Barrier(len(limits))
+
+    def worker(limit):
+        barrier.wait()
+        outcomes = []
+        for _ in range(rounds):
+            try:
+                md_parser.parse_document(text, max_tokens=limit)
+            except doc_sections.TooManyTokens as exc:
+                outcomes.append((exc.limit, exc.line))
+            else:
+                outcomes.append("passed")
+        return outcomes
+
+    previous = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        with ThreadPoolExecutor(max_workers=len(limits)) as pool:
+            futures = {limit: pool.submit(worker, limit) for limit in limits}
+            results = {limit: future.result() for limit, future in futures.items()}
+    finally:
+        sys.setswitchinterval(previous)
+
+    for limit, outcomes in results.items():
+        want = "passed" if limit is None else (limit, expected[limit])
+        assert outcomes == [want] * rounds, (limit, sorted(set(map(repr, outcomes))))
+
+
+# ---- המלכודת של ``StateCore``: ``tokens or []`` ----
+
+
+def test_a_capped_list_passed_to_the_statecore_constructor_is_silently_replaced():
+    """העובדה שבגללה הרשימה מותקנת בכלל core ולא בבנאי — מקובעת, כדי שנדע אם תשתנה.
+
+    ``StateCore.__init__`` עושה ``self.tokens = tokens or []``, ורשימה חדשה תמיד
+    ריקה — כלומר falsy. רשימה עם תקרה שהייתה מועברת כאן הייתה מוחלפת ב-``[]``
+    רגיל בלי שום אות, והפרסור היה רץ בלי תקרה ונראה בדיוק כמו פרסור איתה.
+    """
+    from markdown_it.rules_core import StateCore
+
+    capped = md_parser._CappedTokens(3)
+    state = StateCore("# a\n", md_parser._MD, {}, capped)
+    assert state.tokens is not capped
+    assert type(state.tokens) is list
+
+
+def test_the_ceiling_is_installed_by_a_core_rule_right_before_block_and_enforced():
+    """הכוח עצמו: הכלל ``ck_max_tokens`` רץ לפני ``block``, ופרסור אמיתי נעצר בתקרה.
+
+    זה הטסט שמפיל את המוטציה "הרשימה עוברת בבנאי של ``StateCore`` במקום
+    בכלל core": בלי הכלל אין מי שיתקין את הרשימה, והפרסור נכשל ב-
+    ``RuntimeError`` של המעקה — או, אם גם המעקה הוסר, עובר בלי שום תקרה. בשני
+    המקרים אין כאן ``TooManyTokens``.
+    """
+    core = md_parser._MD.get_active_rules()["core"]
+    assert "ck_max_tokens" in core
+    assert core.index("ck_max_tokens") < core.index("block")
+
+    with pytest.raises(doc_sections.TooManyTokens) as caught:
+        md_parser.parse_document(_table(rows=20), max_tokens=10)
+    assert caught.value.limit == 10
+
+
+def _parser_with_extra_core_rule(name, rule, *, before):
+    """מופע כמו ``_MD`` — אותה בנייה בדיוק — עם כלל core נוסף, בשביל טסטי המעקים."""
+    md = md_parser._build_parser()
+    md.core.ruler.before(before, name, rule)
+    md.parse("# warm-up\n")
+    return md
+
+
+def test_a_swapped_token_list_fails_loudly_instead_of_parsing_without_a_ceiling(monkeypatch):
+    """המעקה ב-``parse_document``: רשימה שהוחלפה אחרי ההתקנה היא ``RuntimeError``.
+
+    כלל שמחליף את ``state.tokens`` ברשימה רגילה אחרי ``ck_max_tokens`` מדמה כל
+    מסלול עתידי שבו הרשימה שלנו אינה זו שהפרסור כותב אליה — שינוי בספרייה,
+    כלל נוסף, או התקנה אחרת. בלי המעקה הפרסור היה עובר את כל הטבלה, והסירוב
+    שהתקרה אמורה לתת לא היה מגיע לעולם.
+    """
+    def swap(state):
+        state.tokens = []
+
+    swapping = _parser_with_extra_core_rule("swap", swap, before="block")
+    monkeypatch.setattr(md_parser, "_MD", swapping)
+    with pytest.raises(RuntimeError, match="תקרת הטוקנים לא נאכפה"):
+        md_parser.parse_document(_table(rows=20), max_tokens=10)
+
+
+def test_tokens_that_exist_before_the_ceiling_is_installed_fail_loudly(monkeypatch):
+    """המעקה בכלל עצמו: טוקן שנוצר לפני ``ck_max_tokens`` הוא ``RuntimeError``, לא נמחק.
+
+    בלי המעקה, ההצבה ``state.tokens = capped`` הייתה זורקת את הטוקן שכבר נוצר
+    בשקט — מפה שחסר בה משהו בלי שום אות.
+    """
+    from markdown_it.token import Token
+
+    def early(state):
+        state.tokens.append(Token("paragraph_open", "p", 1))
+
+    pushing_early = _parser_with_extra_core_rule("early", early, before="ck_max_tokens")
+    monkeypatch.setattr(md_parser, "_MD", pushing_early)
+    with pytest.raises(RuntimeError, match="לפני הכלל ck_max_tokens"):
+        md_parser.parse_document("# a\n", max_tokens=10)
+
+
+# ════════════════════════════════════════════════════════════════════
 # המופע המשותף — נבנה **במלואו** לפני שהוא מתפרסם
 # ════════════════════════════════════════════════════════════════════
 
@@ -487,7 +886,9 @@ def test_a_heading_token_without_a_map_is_refused_and_not_dropped():
 
 def test_the_inline_core_rule_is_disabled():
     """נמדד: עם הכלל כבוי, הכללים הליבתיים הפעילים הם
-    ``['normalize', 'block', 'text_join']``.
+    ``['normalize', 'ck_max_tokens', 'block', 'text_join']`` — השני הוא שלנו
+    (#3391), ומקומו לפני ``block`` נבדק ב-
+    ``test_the_ceiling_is_installed_by_a_core_rule_right_before_block_and_enforced``.
     """
     assert "inline" not in md_parser._MD.get_active_rules()["core"]
     assert "block" in md_parser._MD.get_active_rules()["core"], "הפרסור עצמו חייב להישאר"
@@ -698,27 +1099,30 @@ def test_the_two_small_entries_refuse_a_lone_cr_instead_of_disagreeing_with_spli
         assert excinfo.value.args == (1,)
 
 
-def test_the_two_exceptions_come_from_the_same_module():
-    """המטפל שימיר אותן לתשובת MCP מייבא את שתיהן ממקום אחד."""
+def test_the_refusals_come_from_the_same_module():
+    """המטפל שממיר אותן לתשובת MCP מייבא את כולן ממקום אחד."""
     assert md_parser.TooManySections is doc_sections.TooManySections
     assert md_parser.InconsistentLineEndings is doc_sections.InconsistentLineEndings
+    assert md_parser.TooManyLines is doc_sections.TooManyLines
+    assert md_parser.TooManyTokens is doc_sections.TooManyTokens
 
 
-def test_the_two_parsers_export_the_same_names_but_one():
+def test_the_two_parsers_export_the_same_names_but_the_markdown_refusals():
     """"בני-החלפה" היא טענה בת-בדיקה, לא משאלה.
 
     כל שם ש-``rst_parser`` מייצא קיים גם ב-``md_parser``, וההפרש הוא
-    **בדיוק** השם היחיד שהפרוזה מונה. שם שיתווסף לאחד מהם בלי השני,
-    או ייצוא של ``InconsistentLineEndings`` מ-``rst_parser`` (שאינו מרים
-    אותה), מפיל את זה. עד #3420 ההפרש היה שניים — ``MAX_SECTIONS`` היה
-    רק כאן; מאז הוא מוגדר ב-``doc_sections`` ומיוצא משני הפארסרים, כי
-    הוא ברירת המחדל של שניהם.
+    **בדיוק** חריגות הסירוב שרק ``md_parser`` מרים. שם שיתווסף לאחד מהם בלי
+    השני, ייצוא של אחת מהן מ-``rst_parser`` (שאינו מרים אותן), או ייצוא של
+    ``MAX_LINES`` / ``MAX_TOKENS`` (שאין להם מקבילה ב-RST) — מפיל את זה. עד
+    #3420 ההפרש כלל גם את ``MAX_SECTIONS``, שהיה רק כאן; מאז הוא מוגדר ב-
+    ``doc_sections`` ומיוצא משני הפארסרים, כי הוא ברירת המחדל של שניהם. שתי
+    החריגות של #3391 נוספו להפרש.
     """
     from services import rst_parser
 
     rst, md = set(rst_parser.__all__), set(md_parser.__all__)
     assert rst <= md, f"שמות שרק ב-rst_parser: {sorted(rst - md)}"
-    assert md - rst == {"InconsistentLineEndings"}
+    assert md - rst == {"InconsistentLineEndings", "TooManyLines", "TooManyTokens"}
 
 
 @pytest.mark.parametrize(

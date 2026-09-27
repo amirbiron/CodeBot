@@ -2595,9 +2595,9 @@
      - ``2097152``
      - MCP
    * - ``MCP_RATE_LIMIT_PER_MINUTE``
-     - כמה קריאות כלים מותרות לזהות אחת (משתמש מאומת) בחלון מתגלגל של דקה, בשרת ה-MCP. קריאה מעבר לזה מחזירה ``{"ok": false, "error": "rate_limited", "limit_per_minute": ..., "retry_after_seconds": ...}`` בלי לתפוס חוט. ‏``0`` מכבה במפורש (WARNING בעלייה); ערך שאינו מספר — ברירת המחדל. ‏``/healthz`` ושאר נתיבי ה-HTTP אינם נספרים. ראו "גבולות הבקשה" ב-:doc:`mcp-server`.
+     - כמה קריאות כלים מותרות לזהות אחת (משתמש מאומת) בחלון מתגלגל של דקה, בשרת ה-MCP. קריאה מעבר לזה מחזירה ``{"ok": false, "error": "rate_limited", "limit_per_minute": ..., "retry_after_seconds": ...}`` בלי לתפוס חוט. ‏``0`` מכבה במפורש (WARNING בעלייה); ערך שאינו מספר — ברירת המחדל. ‏``/healthz`` ושאר נתיבי ה-HTTP אינם נספרים. ברירת המחדל היא ``DEFAULT_RATE_LIMIT_PER_MINUTE`` ב-``mcp_server/limits.py``, ואיך היא נגזרת — "גבולות הבקשה" ב-:doc:`mcp-server`.
      - לא
-     - ``60``
+     - ``45``
      - ``120``
      - MCP
    * - ``POSTHOG_PROJECT_TOKEN``

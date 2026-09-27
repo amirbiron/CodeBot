@@ -339,10 +339,15 @@ def _line_of(exc: BaseException) -> dict:
     גם כשאין מה לשים בו מלמד את הקורא ש-``line: null`` הוא מצב אפשרי,
     והוא אינו.
 
-    ``args`` ולא אטריביוט ייעודי, כי זה מה ששתי החריגות באמת מחזיקות —
-    שתיהן נבנות ב-``raise X(n)``. בדיקת הטיפוס אינה נימוס: ``args``
-    יכול להיות ריק אם מישהו יעלה אותן בלי ארגומנט, ואז ``args[0]``
-    היה מפיל את הבקשה במקום להחזיר סירוב.
+    ``args`` ולא אטריביוט ייעודי, כי זה מה ששלוש החריגות שנושאות שורה
+    באמת מחזיקות: ``InconsistentLineEndings`` ו-``TooManySections`` נבנות
+    ב-``raise X(n)``, ו-``TooManyTokens`` שמה את השורה ב-``args[0]`` — או
+    ``None`` כשעוד לא נוצר טוקן עם מיקום, ואז אין שדה. בדיקת הטיפוס אינה
+    נימוס: ``args`` יכול להיות ריק אם מישהו יעלה אותן בלי ארגומנט, ואז
+    ``args[0]`` היה מפיל את הבקשה במקום להחזיר סירוב.
+
+    **ולא ל-``TooManyLines``**: ה-``args[0]`` שלה הוא **מספר השורות** ולא שורה
+    שבה נעצרנו, והמטפל קורא אותה בשמות.
     """
     args = getattr(exc, "args", ())
     if args and isinstance(args[0], int):
@@ -498,9 +503,11 @@ def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocumen
     # (``_PARSE_COST_BYTES`` ב-``server.py``) — ואיתה נעצרת ב-20.1MiB. אף
     # עמוד אמיתי אינו מתקרב: 500KB של העמוד הצפוף ביותר הם כ-3,300 סקשנים.
     #
-    # **ומה שאף תקרה כאן אינה עוצרת, ונשאר פתוח:** Markdown עוין של שורות-
-    # תבליט בלי כותרות — 500KB עולים 141MiB ו-2.3 שניות, ו-``MAX_SECTIONS``
-    # סופר כותרות ולכן אינו נוגע בו. זה אישו #3391 ולא #3429.
+    # **ובמסלול ה-Markdown עוד שתי תקרות, מאז #3391**, כי תקרת הכותרות לבדה
+    # אינה נוגעת בקובץ עוין בלי כותרות: ``MAX_LINES`` לפני הפרסור, ו-``MAX_TOKENS``
+    # בכל טוקן שנוצר — גם באמצע טבלה ובאמצע רשימה. שתיהן ברירות מחדל של
+    # ``md_parser.parse_document``, וגם אותן הכלי אינו מעביר. מה הן עוצרות, ואיך
+    # נבחרו המספרים — ליד הקבועים ב-``services/md_parser.py``.
 
     # **ה-``try`` הזה אינו ``K11``, וזה נכתב כדי שסקירה עתידית לא תגזור זאת
     # מחדש.** ``parse_document`` מתועד כ"ערוץ הכשל הוא חריגה בלבד": הוא אינו
@@ -508,10 +515,11 @@ def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocumen
     # תקינה של קובץ בלי כותרות. זה ה-false-positive ש-K11 מונה במפורש —
     # "פונקציות raise-on-error מתועדות, שם try/except הוא הערוץ הנכון".
     #
-    # **ושתי החריגות מיובאות מ-``doc_sections`` ולא מ-``parser.X``.**
-    # ``rst_parser`` אינו מרים את ``InconsistentLineEndings`` לעולם ואינו
-    # מייצא אותה, וייצוא משם היה מצהיר על סירוב שאינו קיים. התפיסה אינה
-    # מותנית במי שפרסר, כי תנאי כזה היה רשימה שנייה לסנכרן.
+    # **וכל חריגות הסירוב מיובאות מ-``doc_sections`` ולא מ-``parser.X``.**
+    # ``rst_parser`` אינו מרים לעולם את ``InconsistentLineEndings``,
+    # ``TooManyLines`` ו-``TooManyTokens`` ואינו מייצא אותן, וייצוא משם היה
+    # מצהיר על סירוב שאינו קיים. התפיסה אינה מותנית במי שפרסר, כי תנאי כזה היה
+    # רשימה שנייה לסנכרן.
     #
     # **ומה שלא נתפס כאן, בכוונה:** ``TypeError`` של שני הפרסרים (מאז #3421
     # גם ``rst_parser`` מרים אותה, דרך ``doc_sections.require_str``) ו-
@@ -522,22 +530,32 @@ def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocumen
     # תקרת המקביליות על הפרסור אינה כאן ואינה צריכה להיות: היא נגזרת מגודל
     # מאגר הקריאות, ומקומה ב-lifespan של השרת — נחת ב-#3429.
     #
-    # **והמופע נקשר, כי הוא נושא את מספר השורה.** שתי החריגות נבנות עם
-    # ארגומנט אחד — השורה (1-מבוססת) שגרמה לסירוב — וזו כל הסיבה שהן
-    # חריגות ולא דגל. ``except X:`` בלי ``as`` זרק בדיוק את הערך היחיד
-    # שאפשר לפעול לפיו, בתוך הבלוק שההערה מעליו מסבירה למה קוד שגיאה
-    # לבדו אינו ניתן לפעולה.
+    # **והמופע נקשר, כי הוא נושא את מה שאפשר לפעול לפיו.** שלוש מהחריגות
+    # נושאות ב-``args[0]`` את השורה (1-מבוססת) שבה הפרסור עצר, וזו כל הסיבה
+    # שהן חריגות ולא דגל. ``except X:`` בלי ``as`` זרק בדיוק את הערך היחיד
+    # שאפשר לפעול לפיו, בתוך הבלוק שההערה מעליו מסבירה למה קוד שגיאה לבדו
+    # אינו ניתן לפעולה. **הרביעית, ``TooManyLines``, אינה נושאת שורה** — הפרסור
+    # לא התחיל — ולכן היא נקראת בשמות (``total_lines``, ``limit``) ולא דרך
+    # ``_line_of``, שהיה הופך את מספר השורות לשורה שלא קיימת.
     #
     # ``_line_of`` ולא ``exc.args[0]`` ישירות: חריגה שתיבנה מחר בלי
     # ארגומנט לא תפיל כאן ``IndexError`` באמצע בקשה.
     #
-    # ``"max"`` הוא ``doc_sections.MAX_SECTIONS`` — המספר שהפרסר באמת השתמש
-    # בו, בשני המסלולים, ולא עותק שלו ממודול אחר.
+    # ``"max"`` הוא המספר שהפרסר באמת השתמש בו, ולא עותק שלו ממודול אחר:
+    # ל-``too_many_sections`` זה ``doc_sections.MAX_SECTIONS`` (אותה ברירת מחדל
+    # בשני המסלולים), ולשתי התקרות של ``md_parser`` — ``exc.limit``, התקרה
+    # שהחריגה נבנתה איתה.
     try:
         doc = parser.parse_document(content)
     except doc_sections.InconsistentLineEndings as exc:
         return {"ok": False, "error": "inconsistent_line_endings",
                 **context, **_line_of(exc)}
+    except doc_sections.TooManyLines as exc:
+        return {"ok": False, "error": "too_many_lines",
+                "max": exc.limit, **context, "total_lines": exc.total_lines}
+    except doc_sections.TooManyTokens as exc:
+        return {"ok": False, "error": "too_many_tokens",
+                "max": exc.limit, **context, **_line_of(exc)}
     except doc_sections.TooManySections as exc:
         return {"ok": False, "error": "too_many_sections",
                 "max": doc_sections.MAX_SECTIONS, **context, **_line_of(exc)}
