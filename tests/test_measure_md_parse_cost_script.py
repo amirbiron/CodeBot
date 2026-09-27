@@ -3,9 +3,10 @@
 הסקריפט הוא המקור של ``_PARSE_RSS_PER_INPUT_BYTE`` ב-``mcp_server/server.py``,
 שממנו נגזר רוחב מאגר הקריאות של ה-MCP. באג בבחירת המספר — למשל לקיחת
 המדידה הראשונה במקום הגבוהה ביותר, או הקורפוס במקום המסמך הצפוף — ידפיס
-מספר סביר-למראה שייכנס לייצור, ואיש לא יידע. לכן הטסטים הראשונים כאן הם על
-הבחירה ועל החיווט, ולא על המדידה עצמה; המדידה האמיתית (תת-תהליך) רצה פעם
-אחת על קובץ זעיר, כדי להוכיח שהילד מדווח את השיא מעל הבסיס הנכון.
+מספר סביר-למראה שייכנס לייצור, ואיש לא יידע. לכן רוב הטסטים כאן הם על הבחירה
+ועל החיווט, בלי תת-תהליך; והמדידה האמיתית רצה על קבצים זעירים כדי להוכיח את
+מה שאי אפשר לדמות: שהאיפוס של ``VmHWM`` קרה ושהשיא נספר ממנו, שכל כשל שלו או של
+ההצמדה למעבד עוצר את המדידה בקול, ושהזרע מגיע לילד.
 
 הטעינה לפי נתיב — ``scripts/`` אינה חבילה — היא אותה תבנית כמו
 ``tests/test_docs_section_zero_diff_script.py``. כל קלט ופלט תחת ``tmp_path``.
@@ -22,6 +23,24 @@ pytest.importorskip("markdown_it")
 _REPO = Path(__file__).resolve().parent.parent
 
 
+@pytest.fixture(autouse=True)
+def _cpu_mask_restored():
+    """כל טסט מתחיל מאותה מסכת מעבדים, ומה שטסט השאיר אחריו אינו עובר לבא.
+
+    ``_pinned`` מצמיד את החוט הקורא לזמן יצירת הילד. אם הוא היה דולף, הטסט הראשון עם
+    ילד אמיתי היה משאיר את כל התהליך על מעבד אחד — והבדיקה שהמסכה חוזרת הייתה משווה
+    אחר כך מסכה מצומצמת לעצמה ועוברת. כך בדיוק מוטציה שמוחקת את ההחזרה שרדה (T3).
+    """
+    import os
+
+    if not hasattr(os, "sched_getaffinity"):
+        yield
+        return
+    before = os.sched_getaffinity(0)
+    yield
+    os.sched_setaffinity(0, before)
+
+
 def _load_script():
     spec = importlib.util.spec_from_file_location(
         "measure_md_parse_cost_under_test", _REPO / "scripts" / "measure_md_parse_cost.py"
@@ -32,11 +51,18 @@ def _load_script():
     return module
 
 
-def _measurement(parser, shape, peak_bytes, *, as_tool=True, per_input_byte=0.0, cpu=0.0, **extra):
+def _measurement(parser, shape, peak_bytes, *, as_tool=True, per_input_byte=0.0, cpu=0.0,
+                 lag=0, **extra):
     return {
         "parser": parser, "shape": shape, "as_tool": as_tool, "peak_bytes": peak_bytes,
+        "peak_upper_bound_bytes": peak_bytes + lag,
         "peak_bytes_per_input_byte": per_input_byte, "cpu_seconds": cpu, **extra,
     }
+
+
+#: פיגור מונה קבוע לטסטי החיווט: החסם האמיתי נגזר ממספר המעבדים של המכונה, וטסט
+#: שמשווה מספרים מדויקים לא יכול להיות תלוי בו.
+_LAG = 93 * 4096
 
 
 def test_the_constant_candidate_is_the_costliest_parse_run_as_the_tool_per_ceiling_byte():
@@ -69,19 +95,46 @@ def test_the_constant_candidate_is_the_costliest_parse_run_as_the_tool_per_ceili
     assert script.hostile_bound(results, "rst") == 90.2
 
 
-def _fake_child(script, costs, seen_kwargs, outcomes):
-    """``peak_cost`` בלי תת-תהליך: העלות והתוצאה לפי תחילית שם הקובץ, והארגומנטים נרשמים."""
+def test_the_constant_candidate_is_the_upper_bound_and_not_the_maximum_alone():
+    """המועמד לקבוע נשען על החסם העליון — המקסימום על הסידורים ועוד פיגור המונה.
 
-    def fake_peak_cost(path, workdir, *, parser="md", kwargs=None):
+    המקסימום לבדו נמוך מהשיא האמיתי בדיוק בפיגור של מוני הקרנל, ותמיד לכיוון "נכנס";
+    מועמד שמתעלם ממנו נראה בדיוק כמו מועמד נכון. כאן המקסימום הוא בדיוק 66 בתים לבית
+    תקרה, והמועמד — 66 ועוד הפיגור, שני מקומות אחרי הנקודה.
+    """
+    script = _load_script()
+    ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
+    results = [_measurement("md", "worst_memory", 66 * ceiling, lag=_LAG)]
+    assert script.constant_candidate(results, "md") == round(66 + _LAG / ceiling, 2)
+    assert script.constant_candidate(results, "md") > 66
+
+
+def _fake_child(script, costs, seen_kwargs, outcomes, seen_seeds):
+    """``peak_cost`` בלי תת-תהליך: העלות והתוצאה לפי תחילית שם הקובץ, והארגומנטים והזרעים נרשמים.
+
+    עלות יכולה להיות פונקציה של הזרע — סידור זיכרון שעולה יותר מהאחרים — ותוצאה
+    יכולה להיות מילון לפי זרע.
+    """
+
+    def fake_peak_cost(path, workdir, *, parser="md", kwargs=None, seed=0):
         prefix = next(prefix for prefix in costs if path.name.startswith(prefix))
         seen_kwargs.setdefault((parser, prefix), []).append(kwargs)
-        peak_bytes, cpu = costs[prefix]
+        seen_seeds.setdefault((parser, prefix), []).append(seed)
+        cost = costs[prefix]
+        peak_bytes, cpu = cost(seed) if callable(cost) else cost
+        outcome = outcomes.get(prefix, "parsed")
+        if isinstance(outcome, dict):
+            outcome = outcome.get(seed, "parsed")
         return {
             "module": script.PARSERS[parser]["module"],
+            "hash_seed": str(seed),
+            "cpu": [0],
             "input_bytes": 1,
-            "outcome": outcomes.get(prefix, "parsed"),
+            "outcome": outcome,
             "line": None,
             "sections": 1,
+            "headroom_kb_before_reset": 0,
+            "reset_probe_kb": script.RESET_PROBE_BYTES // 1024,
             "headroom_kb_before_parse": 0,
             "peak_bytes": peak_bytes,
             "peak_mib": 0.0,
@@ -93,15 +146,17 @@ def _fake_child(script, costs, seen_kwargs, outcomes):
     return fake_peak_cost
 
 
-def _wire_main(script, monkeypatch, tmp_path, costs, outcomes=None):
+def _wire_main(script, monkeypatch, tmp_path, costs, outcomes=None, seen_seeds=None):
     docs = {".md": tmp_path / "a.md", ".rst": tmp_path / "b.rst"}
     docs[".md"].write_text("# t\n\n- one\n- two\n" * 200, encoding="utf-8")
     docs[".rst"].write_text("T\n=\n\ntext\n\n" * 200, encoding="utf-8")
     monkeypatch.setattr(script, "REPO", tmp_path)
     monkeypatch.setattr(script, "real_files", lambda suffix: [docs[suffix]])
     monkeypatch.setattr(script, "density", lambda text, parser="md": 1.0)
+    monkeypatch.setattr(script, "counter_lag_bound_bytes", lambda: _LAG)
     seen_kwargs: dict = {}
-    fake = _fake_child(script, costs, seen_kwargs, outcomes or {})
+    fake = _fake_child(script, costs, seen_kwargs, outcomes or {},
+                       {} if seen_seeds is None else seen_seeds)
     monkeypatch.setattr(script, "peak_cost", fake)
     return seen_kwargs
 
@@ -125,23 +180,28 @@ def test_main_runs_every_markdown_shape_as_the_tool_and_the_hostile_bound_withou
     """החיווט, בלי תת-תהליכים: מה רץ כמו הכלי, מה רץ בלי תקרות, ומה נכנס לשורה האחרונה.
 
     כמו הכלי — בלי ארגומנטים — הקורפוס, המסמך הצפוף, כל צורה עוינת בתקרת הקריאה,
-    הקלט הגרוע בזיכרון, וכל קלט מעבד ``CPU_REPEATS`` פעמים. בלי תקרות — הצורה
-    העוינת, בכל פרסר עם מה שמכבה את התקרות **שלו** (WARN-004 בסקירת שבעת
-    ה-PRים: עם ברירת המחדל היא נעצרת על תקרה, והמספר מתאר עצירה ולא את הפרסר).
-    ה-outline עם התקרה שלו.
+    הקלט הגרוע בזיכרון, וכל קלט מעבד. בלי תקרות — הצורה העוינת, בכל פרסר עם מה
+    שמכבה את התקרות **שלו** (WARN-004 בסקירת שבעת ה-PRים: עם ברירת המחדל היא נעצרת
+    על תקרה, והמספר מתאר עצירה ולא את הפרסר). ה-outline עם התקרה שלו. ובכל אחד —
+    ריצה לכל זרע: ``LAYOUT_SEEDS`` לזיכרון, ``CPU_REPEATS`` לקלטי המעבד.
     """
     script = _load_script()
     ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
-    seen_kwargs = _wire_main(script, monkeypatch, tmp_path, _costs_within_the_constants(ceiling))
+    seen_seeds: dict = {}
+    seen_kwargs = _wire_main(script, monkeypatch, tmp_path, _costs_within_the_constants(ceiling),
+                             seen_seeds=seen_seeds)
 
     assert script.main([]) == 0
 
     last = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
-    assert last["md"]["constant_candidate_bytes_per_input_byte"] == 60.0
+    assert last["md"]["constant_candidate_bytes_per_input_byte"] == round(60 + _LAG / ceiling, 2)
     assert last["md"]["hostile_bound_bytes_per_input_byte"] == 290 * ceiling
-    assert last["rst"]["constant_candidate_bytes_per_input_byte"] == 50.0
+    assert last["rst"]["constant_candidate_bytes_per_input_byte"] == round(50 + _LAG / ceiling, 2)
     assert last["verdict"]["md_unmeasured"] == []
     assert last["verdict"]["every_input_measured"] is True
+    assert last["verdict"]["decided_on_every_layout"] is True
+    assert last["verdict"]["md_worst_shape"] == "worst_memory"
+    assert last["verdict"]["md_worst_upper_bound_bytes"] == 60 * ceiling + _LAG
     assert last["verdict"]["memory_within_budget"] is True
     assert last["verdict"]["cpu_within_constant"] is True
     assert last["verdict"]["passed"] is True
@@ -149,31 +209,119 @@ def test_main_runs_every_markdown_shape_as_the_tool_and_the_hostile_bound_withou
 
     from mcp_server.outline_scanners._ceiling import MAX_SYMBOLS
 
+    layouts = len(script.LAYOUT_SEEDS)
     assert seen_kwargs[("md", "hostile")] == [
-        {"max_sections": None, "max_lines": None, "max_tokens": None}]
-    assert seen_kwargs[("rst", "hostile")] == [{"max_sections": None}]
-    assert seen_kwargs[("rst", "outline_")] == [{"max_sections": MAX_SYMBOLS}]
+        {"max_sections": None, "max_lines": None, "max_tokens": None}] * layouts
+    assert seen_kwargs[("rst", "hostile")] == [{"max_sections": None}] * layouts
+    assert seen_kwargs[("rst", "outline_")] == [{"max_sections": MAX_SYMBOLS}] * layouts
     for key in (("md", "corpus"), ("md", "tiled_"), ("rst", "corpus"), ("rst", "tiled_"),
                 ("md", "capped_"), ("md", "worst_memory"), ("md", "cpu_")):
         assert set(map(repr, seen_kwargs[key])) == {"None"}, key
-    assert len(seen_kwargs[("md", "capped_")]) == len(script.HOSTILE_SHAPES)
-    assert len(seen_kwargs[("md", "cpu_")]) == len(script.CPU_SHAPES) * script.CPU_REPEATS
+    assert len(seen_kwargs[("md", "capped_")]) == len(script.HOSTILE_SHAPES) * layouts
+    assert seen_seeds[("md", "worst_memory")] == list(script.LAYOUT_SEEDS)
+    assert seen_seeds[("md", "cpu_")] == list(range(script.CPU_REPEATS)) * len(script.CPU_SHAPES)
 
 
-@pytest.mark.parametrize("breaks", ["memory", "cpu"])
+def test_every_memory_measurement_runs_once_per_layout_seed_and_the_rare_layout_decides(
+        monkeypatch, tmp_path, capsys):
+    """40 זרעים, והסידור היקר קובע — גם כשהוא אחד מארבעים (דרישה 1–3 בסבב של #3467).
+
+    הזרעים הם בדיוק ``LAYOUT_SEEDS``, בסדר, ולא "40 ריצות" כלשהן: הרצה חוזרת על אותו
+    קוד חייבת למדוד את אותם סידורים. כאן סידור אחד, זרע 27, עולה 1MB יותר מכל השאר —
+    והמספר של השורה, החסם שלה ופסק הדין נשענים עליו; המינימום והפיזור נשארים בשורה.
+    """
+    script = _load_script()
+    ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
+    base, rare = 60 * ceiling, 60 * ceiling + 1024 * 1024
+    costs = _costs_within_the_constants(ceiling) | {
+        "worst_memory": lambda seed: (rare if seed == 27 else base, 0.3),
+    }
+    seen_seeds: dict = {}
+    _wire_main(script, monkeypatch, tmp_path, costs, seen_seeds=seen_seeds)
+
+    assert script.main([]) == 0
+
+    lines = capsys.readouterr().out.strip().splitlines()
+    worst = next(json.loads(line) for line in lines if '"shape": "worst_memory"' in line)
+    assert seen_seeds[("md", "worst_memory")] == list(script.LAYOUT_SEEDS)
+    assert worst["layout_runs"] == len(script.LAYOUT_SEEDS) == 40
+    assert worst["peak_bytes"] == rare and worst["hash_seed"] == "27"
+    assert worst["peak_bytes_min"] == base
+    assert worst["peak_bytes_by_layout"][27] == rare
+    assert worst["peak_bytes_by_layout"].count(base) == 39
+    assert worst["peak_upper_bound_bytes"] == rare + _LAG
+    verdict = json.loads(lines[-1])["verdict"]
+    assert verdict["md_worst_peak_bytes"] == rare
+    assert verdict["md_worst_peak_min_bytes"] == base
+    assert verdict["md_worst_upper_bound_bytes"] == rare + _LAG
+
+
+def test_an_outcome_that_changes_between_layouts_is_not_a_measurement(
+        monkeypatch, tmp_path, capsys):
+    """הפרסור דטרמיניסטי: תוצאה שונה בסידור אחד אומרת שקרה שם משהו אחר, והמקסימום אינו עלות.
+
+    ``MemoryError`` בזרע אחד מתוך ארבעים, עם שיא נמוך — K11: בלי הבדיקה, המקסימום של
+    השאר היה נכנס בתקציב, ופסק הדין היה עובר על ריצה שנפלה.
+    """
+    script = _load_script()
+    costs = _costs_within_the_constants(script.MAX_FILE_SIZE_FOR_DISPLAY)
+    outcomes = {"worst_memory": {seed: "too_many_tokens" for seed in script.LAYOUT_SEEDS} | {
+        13: "memory_error"}}
+    _wire_main(script, monkeypatch, tmp_path, costs, outcomes=outcomes)
+
+    assert script.main([]) == 1
+
+    lines = capsys.readouterr().out.strip().splitlines()
+    worst = next(json.loads(line) for line in lines if '"shape": "worst_memory"' in line)
+    assert worst["outcome"] == script.OUTCOME_DIFFERS_BY_LAYOUT
+    assert worst["outcomes_by_layout"][13] == "memory_error"
+    verdict = json.loads(lines[-1])["verdict"]
+    assert verdict["md_unmeasured"] == [
+        {"shape": "worst_memory", "outcome": script.OUTCOME_DIFFERS_BY_LAYOUT}]
+    assert verdict["passed"] is False
+
+
+def test_the_input_that_decides_memory_must_have_run_on_every_layout(
+        monkeypatch, tmp_path, capsys):
+    """קלטי המעבד רצים ``CPU_REPEATS`` פעמים בלבד — אם אחד מהם יכריע את הזיכרון, פסק הדין נופל.
+
+    מקסימום על חמישה סידורים הוא מדגם קטן מדי כשהמצב היקר נדיר; פסק דין שהיה עובר עליו
+    היה מחזיר את ההגרלה שהסבב הזה בא לסגור.
+    """
+    script = _load_script()
+    ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
+    costs = _costs_within_the_constants(ceiling) | {"cpu_": (65 * ceiling, 0.5)}
+    _wire_main(script, monkeypatch, tmp_path, costs)
+
+    assert script.main([]) == 1
+
+    verdict = json.loads(capsys.readouterr().out.strip().splitlines()[-1])["verdict"]
+    assert verdict["md_worst_shape"].startswith("cpu:")
+    assert verdict["md_worst_layout_runs"] == script.CPU_REPEATS
+    assert verdict["decided_on_every_layout"] is False
+    assert verdict["memory_within_budget"] is True
+    assert verdict["passed"] is False
+
+
+@pytest.mark.parametrize("breaks", ["memory", "memory_only_with_the_lag", "cpu"])
 def test_main_exits_1_when_a_measurement_breaks_a_constant_it_feeds(
         monkeypatch, tmp_path, capsys, breaks):
-    """השיא מעל ``_PARSE_COST_BYTES``, או מעבד מעל ``WORST_CASE_CPU_SECONDS`` — קוד יציאה 1.
+    """החסם העליון מעל ``_PARSE_COST_BYTES``, או מעבד מעל ``WORST_CASE_CPU_SECONDS`` — קוד יציאה 1.
 
     אלה שני הקבועים שהמאגר, מגבלת הקצב והדדליין נגזרים מהם. מדידה שעוברת אחד מהם
-    ויוצאת ב-0 הייתה משאירה את כל שלושת החשבונות על מספר שכבר אינו נכון.
+    ויוצאת ב-0 הייתה משאירה את כל שלושת החשבונות על מספר שכבר אינו נכון. והזיכרון
+    נשפט על החסם ולא על המקסימום: ``memory_only_with_the_lag`` הוא מקסימום שנכנס
+    בתקציב, עם פיגור מונה שמעביר אותו — ופסק הדין נופל, כי זה מה שהשיא האמיתי יכול להיות.
     """
     from mcp_server.server import _PARSE_COST_BYTES
     from services import md_parser
 
     script = _load_script()
     ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
-    over_memory = _PARSE_COST_BYTES + 4096 if breaks == "memory" else 30 * ceiling
+    over_memory = {
+        "memory": _PARSE_COST_BYTES + 4096,
+        "memory_only_with_the_lag": _PARSE_COST_BYTES - _LAG // 2,
+    }.get(breaks, 30 * ceiling)
     over_cpu = md_parser.WORST_CASE_CPU_SECONDS + 0.01 if breaks == "cpu" else 0.1
     costs = _costs_within_the_constants(ceiling) | {
         "worst_memory": (over_memory, 0.3), "cpu_": (20 * ceiling, over_cpu),
@@ -184,9 +332,12 @@ def test_main_exits_1_when_a_measurement_breaks_a_constant_it_feeds(
 
     verdict = json.loads(capsys.readouterr().out.strip().splitlines()[-1])["verdict"]
     assert verdict["every_input_measured"] is True
-    assert verdict["memory_within_budget"] is (breaks != "memory")
+    assert verdict["memory_within_budget"] is (breaks == "cpu")
     assert verdict["cpu_within_constant"] is (breaks != "cpu")
     assert verdict["passed"] is False
+    if breaks == "memory_only_with_the_lag":
+        assert verdict["md_worst_peak_bytes"] <= _PARSE_COST_BYTES < verdict[
+            "md_worst_upper_bound_bytes"]
 
 
 @pytest.mark.parametrize("outcome", ["memory_error", "too_many_lines"])
@@ -196,8 +347,9 @@ def test_main_exits_1_when_a_run_as_the_tool_measured_no_parse(
 
     ``memory_error``: הפרסור נפל על ``RLIMIT_AS``, והשיא הוא רק מה שהספיק לתפוס לפני
     ההקצאה שנכשלה. כך נראתה הרצה אמיתית של הילד על הקלט הגרוע, עם ``RLIMIT_AS`` של
-    12MB מעל מה שהייבוא תפס (סקירת #3467): ``memory_error`` עם שיא של 10,493,952
-    בתים, מתחת לתקציב — ופסק הדין אמר ``true`` בשתי השאלות. ``too_many_lines``: הקלט
+    12MB מעל מה שהייבוא תפס (סקירת #3467): ``memory_error`` עם שיא של כ-10.5MB, מתחת
+    לתקציב — ופסק הדין אמר ``true`` בשתי השאלות (בילד עם האיפוס, 2026-09-27, חמישה
+    סידורים: 10,612,736–10,969,088 בתים, ופסק הדין נופל). ``too_many_lines``: הקלט
     נדחה לפני הפרסור ונמדד אפס — כך נראתה ההרצה הראשונה על הקוד של #3391, לפני
     ``fit_to_the_tool``: 32 מתוך 38 המדידות כמו הכלי היו סירובים, ופסק הדין עבר.
     """
@@ -312,6 +464,61 @@ def test_real_files_skip_vendored_directories_and_undersized_documents(tmp_path,
     assert script.real_files(".md") == [keep]
 
 
+@pytest.mark.parametrize("online, batch", [(4, 32), (16, 32), (17, 34), (64, 128)])
+def test_the_counter_lag_bound_is_three_counters_short_of_one_batch_each(
+        monkeypatch, online, batch):
+    """החסם של פיגור המונה, לפי הקרנל: שלושה מונים, וכל אחד עד ``batch − 1`` עמודים בחוץ.
+
+    ``batch = max(32, 2 × המעבדים המחוברים)`` (``compute_batch_value``), ולכן עד 16
+    מעבדים הפיגור קבוע, ומעליהם הוא גדל. בלי מספר מעבדים אין חסם — והמדידה נעצרת.
+    """
+    import mmap
+    import os
+
+    script = _load_script()
+    monkeypatch.setattr(os, "cpu_count", lambda: online)
+    assert script.counter_lag_bound_bytes() == 3 * (batch - 1) * mmap.PAGESIZE
+
+    monkeypatch.setattr(os, "cpu_count", lambda: None)
+    with pytest.raises(SystemExit, match="counter lag cannot be bounded"):
+        script.counter_lag_bound_bytes()
+
+
+@pytest.mark.parametrize("failure", ["platform_has_no_affinity", "setaffinity_refused"])
+def test_a_measurement_that_cannot_pin_its_child_stops_loudly(monkeypatch, tmp_path, failure):
+    """ההצמדה היא של המדידה, ובלעדיה הפיגור אינו חסום — ולכן אין "נמדוד בכל זאת" (דרישה 4).
+
+    אותו כלל כמו האיפוס: לא נופלים בשקט למדידה על כמה מעבדים, שהייתה נראית בדיוק
+    אותו דבר ומחזירה מספר עם פיגור שאיש לא חסם.
+    """
+    import os
+
+    script = _load_script()
+    doc = tmp_path / "tiny.md"
+    doc.write_text("# t\n", encoding="utf-8")
+    if failure == "platform_has_no_affinity":
+        monkeypatch.delattr(os, "sched_setaffinity")
+        expected = "sched_setaffinity is not available"
+    else:
+        def refuse(pid, mask):
+            raise OSError(22, "Invalid argument")
+
+        monkeypatch.setattr(os, "sched_setaffinity", refuse)
+        expected = "cannot pin the measuring child"
+    with pytest.raises(SystemExit, match=expected):
+        script.peak_cost(doc, tmp_path)
+
+
+def test_a_probe_too_small_to_tell_a_reset_from_none_stops_loudly(monkeypatch, tmp_path):
+    """איפוס שקרה משאיר עד פיגור המונה, ושלא קרה — לפחות חצי probe. בלי פער ביניהם אין הוכחה."""
+    script = _load_script()
+    doc = tmp_path / "tiny.md"
+    doc.write_text("# t\n", encoding="utf-8")
+    monkeypatch.setattr(script, "counter_lag_bound_bytes", lambda: script.RESET_PROBE_BYTES // 2)
+    with pytest.raises(SystemExit, match="raise RESET_PROBE_BYTES"):
+        script.peak_cost(doc, tmp_path)
+
+
 @pytest.mark.parametrize(
     "parser, text, kwargs",
     [
@@ -322,8 +529,12 @@ def test_real_files_skip_vendored_directories_and_undersized_documents(tmp_path,
         ("rst", "T\n=\n\ntext\n", {"max_sections": 50}),
     ],
 )
-def test_the_measuring_child_reports_the_peak_above_the_pre_parse_high_water_mark(tmp_path, parser, text, kwargs):
-    """המדידה האמיתית, פעם אחת על קובץ זעיר: הפלט נושא את המרווח שלפני הפרסור ואת השיא שמעליו."""
+def test_the_measuring_child_reports_the_peak_since_the_reset(tmp_path, parser, text, kwargs):
+    """המדידה האמיתית על קובץ זעיר: ה-probe הרים את השיא, האיפוס הוריד אותו, והשיא נספר מאז.
+
+    ``reset_probe_kb`` — לפחות חצי ה-probe מעל ה-RSS לפני האיפוס; ``headroom_kb_before_parse``
+    — לכל היותר פיגור המונה אחריו. ילד שלא איפס היה נעצר לפני שהגיע לכאן.
+    """
     script = _load_script()
     doc = tmp_path / ("tiny" + script.PARSERS[parser]["suffix"])
     doc.write_text(text, encoding="utf-8", newline="")
@@ -334,10 +545,119 @@ def test_the_measuring_child_reports_the_peak_above_the_pre_parse_high_water_mar
     assert result["input_bytes"] == doc.stat().st_size
     assert result["input_lines"] == text.count("\n") + 1
     assert result["outcome"] == "parsed" and result["sections"] >= 1
-    assert result["headroom_kb_before_parse"] >= 0
+    assert result["reset_probe_kb"] * 1024 >= script.RESET_PROBE_BYTES // 2
+    assert 0 <= result["headroom_kb_before_parse"] <= script.counter_lag_bound_bytes() // 1024
     assert result["peak_bytes"] >= 0 and result["peak_bytes_per_input_byte"] >= 0
+    assert result["peak_bytes"] < script.RESET_PROBE_BYTES // 2, "השיא אינו כולל את ה-probe"
     assert result["peak_mib"] >= 0
     assert result["cpu_seconds"] >= 0
+
+
+def test_the_peak_counts_from_the_rss_before_the_parse_so_a_reset_residue_is_counted_not_dropped():
+    """הנוסחה, בלי תת-תהליך: השיא הוא ``VmHWM`` שאחרי פחות ה-RSS **שלפני**, לא ``VmHWM`` שלפני.
+
+    אחרי איפוס אמיתי שני אלה נבדלים רק בשארית שהאיפוס משאיר, ומדדנו אותה: 0 או
+    100KB על אותו קלט. החיסור מה-RSS סופר את השארית — ספירת-יתר, הכיוון הבטוח; חיסור
+    מ-``VmHWM`` שלפני הפרסור (הנוסחה של השיטה הישנה) היה מוריד אותה מהשיא — ספירת-חסר,
+    הכיוון שהסבב הזה סוגר. בילד אמיתי השארית כמעט תמיד 0, ולכן רק כאן אפשר לראות את ההבדל.
+    """
+    script = _load_script()
+    raw = {
+        "input_bytes": 512_000, "rss_kb_before_parse": 10_000, "hwm_kb_before_parse": 10_100,
+        "hwm_kb_after_parse": 15_000, "rss_kb_after_parse": 10_500,
+    }
+    derived = script._from_the_kernel(raw)
+    assert derived["peak_bytes"] == 5_000 * 1024
+    assert derived["headroom_kb_before_parse"] == 100
+    assert derived["peak_bytes_per_input_byte"] == round(5_000 * 1024 / 512_000, 1)
+    assert derived["retained_bytes_per_input_byte"] == round(500 * 1024 / 512_000, 1)
+    assert derived["rss_kb_before_parse"] == 10_000, "הקריאות הגולמיות נשארות בשורה"
+
+
+def test_the_reset_keeps_a_peak_reached_before_the_parse_out_of_the_measurement(
+        monkeypatch, tmp_path):
+    """תנאי 5: הקצאה גדולה ושחרורה לפני המדידה — והשיא הנמדד אינו כולל אותה, ואינו נבלע תחתיה.
+
+    ההקצאה היא החימום של הילד — הפרסור שרץ לפני האיפוס — מוחלף בחימום גדול (7,000
+    פריטי רשימה), שמשחרר את רוב מה שהקצה ומשאיר שיא גבוה מה-RSS
+    (``headroom_kb_before_reset``). הקלט הנמדד (4,000 פריטים) עולה פחות מהשיא הזה.
+    שלוש טענות: החימום באמת השאיר שיא — אחרת הטסט לא מוכיח כלום; השיא הנמדד קטן
+    ממנו — בלי האיפוס הוא היה נספר מעליו ומכיל אותו; והשיא הנמדד אינו אפס — ובגלל
+    שהוא קטן משיא החימום, השיטה שלפני #3467 (מעל הגבוה מבין ה-RSS ושיא-העבר) הייתה
+    מחזירה כאן אפס. מתחת ל-4,000 פריטים הטענה השלישית אינה יציבה: הפרסור ממלא קודם
+    זיכרון פנוי שהחימום השאיר בתהליך, ושם ה-RSS אינו גדל (בכיול, על שמונה זרעים:
+    2,000 פריטים נמדדו 0.84–1.88MB, 4,000 — 4.85–5.90MB, מול שיא חימום של 10.8–11.9MB).
+    """
+    script = _load_script()
+    doc = tmp_path / "measured.md"
+    doc.write_text("- item\n" * 4_000, encoding="utf-8")
+    monkeypatch.setitem(script.PARSERS["md"], "warm", "- item\n" * 7_000)
+
+    result = script.peak_cost(doc, tmp_path)
+
+    earlier_peak = result["headroom_kb_before_reset"] * 1024
+    measured = result["peak_bytes"]
+    assert earlier_peak >= 4 * 1024 * 1024, "החימום הגדול לא השאיר שיא — הטסט לא מוכיח כלום"
+    assert measured < earlier_peak, "השיא הנמדד כולל את השיא שלפני הפרסור"
+    assert measured >= 1024 * 1024, "השיא הנמדד נבלע מתחת לשיא שלפני הפרסור"
+
+
+@pytest.mark.parametrize("target", ["missing", "not_proc"])
+def test_a_reset_that_cannot_be_written_or_does_not_happen_stops_the_measurement(
+        monkeypatch, tmp_path, target):
+    """תנאי 3: קובץ שלא קיים, או כתיבה שמתקבלת בלי לאפס — עצירה עם הודעה, לא מדידה בשיטה הישנה.
+
+    ``not_proc`` הוא קובץ רגיל: הכתיבה עוברת, ושום שיא לא יורד — בדיוק מה ש-
+    ``proc_pid_clear_refs(5)`` מתאר לערך שהקרנל אינו מכיר ("has no effect").
+    """
+    script = _load_script()
+    doc = tmp_path / "tiny.md"
+    doc.write_text("# t\n", encoding="utf-8")
+    if target == "missing":
+        path, expected = tmp_path / "missing" / "clear_refs", "cannot reset VmHWM through"
+    else:
+        path, expected = tmp_path / "clear_refs.txt", "accepted the write but VmHWM was not reset"
+        path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(script, "CLEAR_REFS_PATH", str(path))
+
+    with pytest.raises(SystemExit, match=expected):
+        script.peak_cost(doc, tmp_path)
+
+
+def test_the_pin_belongs_to_the_measurement_and_the_seed_reaches_the_child(tmp_path):
+    """דרישה 4 ו-3: הילד רץ על מעבד אחד ועם הזרע שביקשו — והחוט הקורא חוזר למסכה שלו.
+
+    הילד מדווח מה **הוא** רואה (``sched_getaffinity``, ``PYTHONHASHSEED`` בסביבה שלו),
+    לא מה שביקשו ממנו.
+    """
+    import os
+
+    script = _load_script()
+    doc = tmp_path / "tiny.md"
+    doc.write_text("# t\n", encoding="utf-8")
+    before = os.sched_getaffinity(0)
+
+    result = script.peak_cost(doc, tmp_path, seed=7)
+
+    assert result["cpu"] == [min(before)]
+    assert result["hash_seed"] == "7"
+    assert os.sched_getaffinity(0) == before
+
+
+def test_a_child_that_is_not_pinned_refuses_to_measure(monkeypatch, tmp_path):
+    """הילד קורא את ההצמדה שלו ולא מניח אותה: בלי ``_pinned`` הוא עוצר, ולא מודד עם פיגור לא חסום."""
+    import contextlib
+    import os
+
+    if len(os.sched_getaffinity(0)) < 2:
+        pytest.skip("על מעבד אחד כל ילד מוצמד ממילא")
+    script = _load_script()
+    doc = tmp_path / "tiny.md"
+    doc.write_text("# t\n", encoding="utf-8")
+    monkeypatch.setattr(script, "_pinned", lambda cpu: contextlib.nullcontext())
+
+    with pytest.raises(SystemExit, match="is not pinned to CPU"):
+        script.peak_cost(doc, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -560,6 +880,33 @@ def test_growth_calls_a_blown_up_run_superlinear_by_name(outcome):
         "memory_growth": None, "cpu_growth": None, "superlinear": True, "reason": outcome}
 
 
+def test_the_memory_floor_outweighs_the_counter_lag_or_the_doubling_check_stops(monkeypatch):
+    """הרצפה מגינה על היחס רק כשהיא מעל פי 2.25 מפיגור המונה; במכונה שבה לא — עוצרים, לא מנחשים.
+
+    בגבול עצמו: פיגור שעבורו הרצפה היא בדיוק מה שצריך — עוצרים; פיגור קטן מזה בבית —
+    ממשיכים. והפיגור של מכונה עם 64 מעבדים (1.5MB) עוצר, כי שם צורה ליניארית
+    ברצפה הייתה נמדדת כריבועית.
+    """
+    import mmap
+
+    script = _load_script()
+    floor = script.MEMORY_NOISE_FLOOR_BYTES
+    # F > L·(1 + g·r) / (r·(g − 1)) עם r = 4 ו-g = 2: הפיגור הגבולי הוא F·4/9.
+    boundary = floor * 4 / 9
+    monkeypatch.setattr(script, "counter_lag_bound_bytes", lambda: boundary)
+    with pytest.raises(SystemExit, match="Refusing to run the doubling check"):
+        script._require_a_memory_floor_above_the_counter_lag()
+    monkeypatch.setattr(script, "counter_lag_bound_bytes", lambda: boundary - 1)
+    script._require_a_memory_floor_above_the_counter_lag()
+    monkeypatch.setattr(script, "counter_lag_bound_bytes", lambda: 3 * 127 * mmap.PAGESIZE)
+    with pytest.raises(SystemExit, match="Refusing to run the doubling check"):
+        script._require_a_memory_floor_above_the_counter_lag()
+    # ודרך הכניסה האמיתית, לפני שמשהו נמדד: ``--doubling`` עוצר, ואף ילד לא נוצר.
+    monkeypatch.setattr(script, "peak_cost", lambda *a, **k: pytest.fail("measured anyway"))
+    with pytest.raises(SystemExit, match="Refusing to run the doubling check"):
+        script.main(["--doubling"])
+
+
 def test_doubling_runs_every_shape_uncapped_at_three_sizes_and_exits_1_on_a_superlinear_one(
         monkeypatch, tmp_path, capsys):
     """החיווט של ``--doubling``: כל צורה בשלושה גדלים, בלי אף תקרה, וקוד יציאה 1 על ריבועית.
@@ -572,7 +919,7 @@ def test_doubling_runs_every_shape_uncapped_at_three_sizes_and_exits_1_on_a_supe
     script = _load_script()
     seen = []
 
-    def fake_peak_cost(path, workdir, *, parser="md", kwargs=None):
+    def fake_peak_cost(path, workdir, *, parser="md", kwargs=None, seed=0):
         size = len(path.read_bytes())
         seen.append((path.name, kwargs))
         if path.name.startswith("double_bullets_"):
@@ -582,6 +929,7 @@ def test_doubling_runs_every_shape_uncapped_at_three_sizes_and_exits_1_on_a_supe
         return _run(40 * size, size, size / 100_000)
 
     monkeypatch.setattr(script, "peak_cost", fake_peak_cost)
+    monkeypatch.setattr(script, "counter_lag_bound_bytes", lambda: _LAG)
 
     assert script.main(["--doubling"]) == 1
 

@@ -802,9 +802,28 @@ _PROCESS_BASELINE_BYTES = 92 * 1024 * 1024
 _NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
 
 #: RSS growth per byte of input while a parse is alive — the **peak** during
-#: the parse (``VmHWM`` above the pre-parse high-water mark), because that is
-#: what N parses in flight hold at once; what ``parse_document`` retains
-#: afterwards is smaller.
+#: the parse, because that is what N parses in flight hold at once; what
+#: ``parse_document`` retains afterwards is smaller.
+#:
+#: **How the peak is measured** (``scripts/measure_md_parse_cost.py``, whose
+#: docstring has the whole method). ``VmHWM`` is the peak of the process's
+#: whole life, so the measuring child **resets** it to the current RSS right
+#: before the parse — it writes ``5`` to ``/proc/self/clear_refs`` — and counts
+#: the peak from the RSS just before the parse. Without the reset (the method
+#: from #3429 until #3467) the baseline was the higher of the RSS and that
+#: earlier peak, and memory the process had reached and released before the
+#: parse — mostly the buffer of the file read — hid whatever the parse
+#: allocated below it: about half a MB on a 512KB input, always in the "fits"
+#: direction. The reset is proven on every run and stops the script loudly
+#: when it cannot be made (Linux only, ``5`` since 4.0); every number in this
+#: comment was re-measured with it. Two more corrections ride with it, both
+#: against the same bias: each memory measurement runs on 40 memory layouts
+#: (``LAYOUT_SEEDS`` — the same parse of the same input differs by up to
+#: ~0.9MB between layouts, and which layouts land high depends on the exact
+#: program, so one run is a draw), and what is judged is an upper
+#: bound — the maximum plus the lag of the kernel's per-CPU RSS counters
+#: (``counter_lag_bound_bytes``), with the measuring child pinned to one CPU
+#: so that lag is one CPU's. The pin is the measurement's, not the server's.
 #:
 #: **Which parser this number describes.** It was measured on
 #: ``services.md_parser`` (the pinned ``markdown-it-py``), one parse per fresh

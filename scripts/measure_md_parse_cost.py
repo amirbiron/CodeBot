@@ -15,10 +15,36 @@
 - **שיא** ה-RSS בזמן הפרסור (``VmHWM`` ב-``/proc/self/status``), ולא מה
   שנשאר אחריו — ``parse_document`` משחרר את הטוקנים ומחזיר ``Document`` קטן
   בהרבה, אבל כמה פרסורים במקביל מחזיקים כל אחד את השיא שלו בו-זמנית.
-  ``VmHWM`` נקרא גם **לפני** הפרסור, ומה שנזקף לפרסור הוא רק מה שמעל הגבוה
-  מבין ה-RSS ושיא-העבר; בלי זה זיכרון שהייבוא כבר הגיע אליו ושחרר היה נספר
-  כאילו הפרסור הוסיף אותו. ``headroom_kb_before_parse`` בפלט אומר כמה זה היה.
   ולצידו **זמן המעבד** של הפרסור עצמו (``time.process_time``).
+- **``VmHWM`` מאופס רגע לפני הפרסור.** הוא השיא של **כל חיי התהליך**, ולכן
+  הילד כותב ``5`` ל-``CLEAR_REFS_PATH`` (``/proc/self/clear_refs``), שמוריד את
+  השיא לגובה ה-RSS הנוכחי, ומה שנזקף לפרסור הוא השיא שאחרי האיפוס פחות ה-RSS
+  שלפני הפרסור — מה שהפרסור הוסיף (עד הפיגור של מוני הקרנל, למטה). **בלי
+  האיפוס** — כך נמדד מ-#3429 ועד #3467 — הבסיס היה הגבוה מבין ה-RSS ושיא-העבר,
+  וזיכרון שהתהליך כבר הגיע אליו
+  ושחרר (בעיקר החוצץ של קריאת הקובץ) הסתיר את מה שהפרסור הקצה מתחתיו: בקלט
+  העוין של 512KB כחצי MB, ותמיד לכיוון "נכנס". ``headroom_kb_before_reset``
+  בפלט אומר כמה זה היה בכל מדידה, ו-``headroom_kb_before_parse`` כמה נשאר אחרי
+  האיפוס.
+- **האיפוס מוכח בכל מדידה, ובקול.** לפניו הקצאה של ``RESET_PROBE_BYTES`` שמשוחררת
+  מרימה את השיא בכוונה, כדי שתמיד יהיה מה לאפס; אחריו נבדק שהשיא ירד עד הפיגור של
+  מוני הקרנל (``counter_lag_bound_bytes``) מעל ה-RSS. ``/proc/self/clear_refs`` קיים
+  רק בלינוקס, והערך ``5`` רק מגרסה 4.0. אם הכתיבה נכשלת, או מתקבלת ולא מאפסת, הילד
+  עוצר עם הודעה שאומרת מה קרה, והריצה כולה נעצרת. אין נפילה חזרה לשיטה הישנה: היא
+  הייתה מחזירה מספר מוטה בלי לומר זאת.
+- **כל מדידת זיכרון רצה על ``LAYOUT_SEEDS`` — 40 סידורי זיכרון — והמספר שלה הוא
+  המקסימום.** השיא של אותו פרסור על אותו קלט תלוי בסידור הזיכרון של התהליך רגע
+  לפני הפרסור, וזרע הגיבוב (``PYTHONHASHSEED``) הוא אחד הדברים שמשנים אותו: ריצה
+  אחת היא הגרלה, והמצב היקר נדיר. השורה נושאת גם את המינימום ואת כל הריצות
+  (``peak_bytes_min``, ``peak_bytes_by_layout``), כדי שמי שמריץ פעם אחת יבין איפה
+  המספר שלו נופל. קלטי המעבד רצים ``CPU_REPEATS`` פעמים, כמו קודם.
+- **המספר שנשפט הוא חסם עליון:** המקסימום ועוד ``counter_lag_bound_bytes``. הקרנל
+  רושם את השיא ממונים שכל מעבד מעדכן במנות, ולכן השיא שנרשם יכול לפגר אחרי האמיתי
+  — עד ``RSS_COUNTERS × (batch − 1)`` עמודים, ותמיד לכיוון "נכנס". כדי שהפיגור יהיה
+  של מעבד אחד, כל ילד מוצמד למעבד אחד מרגע ה-fork (``_pinned``) ובודק בעצמו שהוא
+  מוצמד. **ההצמדה היא של המדידה בלבד** — השרת אינו מוצמד לשום מעבד — ואם היא לא
+  אפשרית בסביבה, הריצה נעצרת בקול, כמו האיפוס. החסם מכסה את הסידורים שנמדדו, לא
+  כל סידור אפשרי.
 - דרך ``services.md_parser`` ו-``services.rst_parser`` עצמם. מדידה שרצה
   **כמו הכלי** — בלי ארגומנטים, כלומר על ברירות המחדל של התקרות — מסומנת
   ``as_tool``, ורק היא נכנסת למועמד לקבוע: היא מה שחוט קריאה באמת נושא.
@@ -45,18 +71,22 @@
 נחתכים כך — אחרת הם היו נדחים בתקרת השורות, ונמדד סירוב במקום פרסור.
 
 **פסק הדין בשורה האחרונה**, והוא קוד היציאה (``passed``): 0 כשכל מדידה שרצה
-כמו הכלי באמת מדדה פרסור (``MEASURED_OUTCOMES`` — לא סירוב לפני הפרסור ולא
-``MemoryError``), **וגם** השיא הגבוה נכנס ב-``_PARSE_COST_BYTES`` (כלומר המועמד
-אינו עובר את ``_PARSE_RSS_PER_INPUT_BYTE``), **וגם** זמן המעבד הגבוה אינו עובר את
-``WORST_CASE_CPU_SECONDS``; 1 כשאחד מהם נשבר. כשהמדידות תקינות וקבוע נשבר, הטענות
-שנגזרות ממנו (רוחב המאגר, מגבלת הקצב, הדדליין) צריכות חשבון חדש לפני שמשנים
-משהו. זמן מעבד תלוי במכונה, ולכן השורה נושאת את שני המספרים.
+כמו הכלי באמת מדדה פרסור (``MEASURED_OUTCOMES`` — לא סירוב לפני הפרסור, לא
+``MemoryError``, ולא תוצאה ששונה בין הסידורים), **וגם** המדידה שמכריעה את הזיכרון
+רצה על כל ``LAYOUT_SEEDS``, **וגם** החסם העליון שלה נכנס ב-``_PARSE_COST_BYTES``
+(כלומר המועמד אינו עובר את ``_PARSE_RSS_PER_INPUT_BYTE``), **וגם** זמן המעבד הגבוה
+אינו עובר את ``WORST_CASE_CPU_SECONDS``; 1 כשאחד מהם נשבר. כשהמדידות תקינות וקבוע
+נשבר, הטענות שנגזרות ממנו (רוחב המאגר, מגבלת הקצב, הדדליין) צריכות חשבון חדש
+לפני שמשנים משהו. זמן מעבד תלוי במכונה, ולכן השורה נושאת את שני המספרים.
 
 **``--doubling`` — בדיקת ההכפלה.** כל צורה ב-``HOSTILE_SHAPES``, **בלי אף תקרה**,
 בשלושה גדלים שכל אחד כפול מקודמו (``DOUBLING_SIZES``; לטבלאות מעל תקרת התאים
 גדלים קטנים יותר, ``TABLE_DOUBLING_SIZES``, כי כבר ב-128KB הן עוברות 3GB), כל אחד
-בתהליך נקי. בפרסר ליניארי העלות לבית קלט נשארת קבועה כשהקלט גדל; עלות לבית
-שגדלה בין הגודל הקטן לגדול יותר מ-``SUPERLINEAR_GROWTH``, ``MemoryError``, או חריגה
+בתהליך נקי, מוצמד ומאופס כמו במדידה הרגילה — אבל על סידור אחד (זרע 0) ולא על
+``LAYOUT_SEEDS``: כאן נשפט יחס בין שני גדלים מול ``SUPERLINEAR_GROWTH``, וריבועי הוא
+פי ארבעה, הרבה מעבר לפיזור בין סידורים. בפרסר ליניארי העלות לבית קלט נשארת
+קבועה כשהקלט גדל; עלות לבית שגדלה בין הגודל הקטן לגדול יותר מ-
+``SUPERLINEAR_GROWTH``, ``MemoryError``, או חריגה
 מהזמן, מסומנים ``superlinear``, וקוד היציאה הוא 1. משאב שהמדידה שלו מתחת לרצפת
 הרעש שלו (``MEMORY_NOISE_FLOOR_BYTES``, ``CPU_NOISE_FLOOR_SECONDS``) אינו נבדק
 לגדילה, והגדילה שלו בשורה היא ``None``. זו הבדיקה שהייתה תופסת מראש את הריבועיות
@@ -76,13 +106,17 @@ UTF-8, ובסוף שורת סיכום. אם אין בריפו אף קובץ בס
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import mmap
+import os
 import pathlib
 import statistics
 import subprocess
 import sys
 import tempfile
 import textwrap
+from collections.abc import Iterator, Sequence
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -104,6 +138,54 @@ ADDRESS_SPACE_BYTES = 3 * 1024**3
 
 #: כמה שניות מותר לתהליך מדידה אחד. פרסור ריבועי חורג ממנה, וזה נרשם כתוצאה.
 CHILD_TIMEOUT_SECONDS = 600
+
+#: הקובץ שכתיבת ``5`` אליו מאפסת את ``VmHWM`` לגובה ה-RSS הנוכחי. ``proc_pid_clear_refs(5)``:
+#: "Reset the peak resident set size ("high water mark") to the process's current
+#: resident set size value", מאז לינוקס 4.0, וכתיב רק לבעלים של התהליך. קבוע ולא
+#: מחרוזת בתוך הילד, כדי שטסט יוכל להפנות אותו לנתיב שאינו קיים או לקובץ רגיל — ולוודא
+#: שהסקריפט עוצר.
+CLEAR_REFS_PATH = "/proc/self/clear_refs"
+
+#: ה-probe שלפני האיפוס: 8MiB אנונימיים ב-``mmap``, שנוגעים בכל עמוד שלהם ומשחררים,
+#: כך שהשיא עולה מעל ה-RSS לפני כל איפוס. בלעדיו, בקלט שאין לפניו headroom טבעי
+#: (בכיול של 2026-09-27: אפס ב-128KB וב-256KB, 372–496KB בקלט הגרוע), קרנל שמתעלם
+#: מהכתיבה היה נראה בדיוק כמו קרנל שמכבד אותה. ``mmap`` ולא ``bytearray``: הקצאה גדולה
+#: דרך ``malloc`` ששוחררה מזיזה את סף ה-mmap של glibc ("when blocks larger than the
+#: current threshold ... are freed, the threshold is adjusted upward to the size of
+#: the freed block", ``mallopt(3)``, ``M_MMAP_THRESHOLD``), ואז הקצאות גדולות של
+#: הפרסור היו נוחתות בערימה במקום ב-mmap — פרסור אחר מזה שבשרת. נבדק על glibc 2.39:
+#: אחרי ``bytearray`` של 8MiB הקצאה של 2MiB נוחתת בערימה, ואחרי ה-probe הזה ב-mmap,
+#: כמו בלי probe בכלל. חצי ממנו חייב להיות מעל ``counter_lag_bound_bytes``: איפוס
+#: שקרה משאיר עד הפיגור של המונים, ואיפוס שלא קרה משאיר לפחות חצי probe — ורק כשיש
+#: פער בין השניים אפשר להבדיל ביניהם (``peak_cost`` עוצר בקול אם אין).
+RESET_PROBE_BYTES = 8 * 1024 * 1024
+
+#: משתנה הסביבה שקובע לפייתון את זרע הגיבוב של ``str``/``bytes``: מספר שלם בין 0
+#: ל-4,294,967,295, ו-0 מכבה את האקראיות (``PYTHONHASHSEED`` ב-docs.python.org, 3.11).
+HASH_SEED_ENV = "PYTHONHASHSEED"
+
+#: **מדיניות, לא קסם:** כל מדידת זיכרון רצה פעם אחת לכל זרע כאן — ``PYTHONHASHSEED``
+#: מ-0 עד 39 — והמספר שלה הוא המקסימום. למה בכלל: השיא של אותו פרסור, על אותו קלט,
+#: תלוי בסידור הזיכרון של התהליך רגע לפני הפרסור (אילו חורים פנויים יש בערימה ואיפה
+#: נוחתות ההקצאות הגדולות), וזרע הגיבוב הוא אחד הדברים שמשנים אותו. ב-2026-09-27, בכל
+#: הריצות עם האיפוס, השיא של הקלט הגרוע נע בין 34,037,760 ל-34,959,360 בתים (92.3%–94.8%
+#: מ-``_PARSE_COST_BYTES``), בשני מצבים עיקריים — ו**איזה מהם שכיח תלוי בתוכנית הילד
+#: עצמה**: בגרסה מוקדמת שלה 36 מ-40 הזרעים נפלו ב-92.5%–92.9% וארבעה ב-94.5%, ובזו
+#: שכאן 39 נפלו ב-93.6%–94.3% ואחד ב-92.7%. מי שמריץ פעם אחת ומקבל מספר נמוך מהמתועד
+#: פגש סידור, לא שינוי בקוד. למה 40 ולא 10: מצב שמופיע בעשירית מהסידורים חומק מעשר
+#: ריצות ביותר משליש מהפעמים (0.9 בחזקת 10), ומארבעים בפחות מ-2% (0.9 בחזקת 40). זרעים
+#: קבועים ולא אקראיים, כדי שהרצה חוזרת על אותו קוד תמדוד את אותם סידורים. גם כך זה
+#: מדגם, לא כל הסידורים האפשריים — ולכן פסק הדין משווה חסם עליון ולא את המקסימום
+#: לבדו (``counter_lag_bound_bytes``).
+LAYOUT_SEEDS = range(40)
+
+#: כמה מונים הקרנל מחבר כשהוא קורא את ה-RSS לשיא: ``get_mm_rss`` = קבצים + אנונימי +
+#: זיכרון משותף (``include/linux/mm.h``), כל אחד ``percpu_counter`` נפרד.
+RSS_COUNTERS = 3
+
+#: הרצפה של ``percpu_counter_batch``: ``max(32, nr*2)`` כש-``nr`` הוא מספר המעבדים
+#: המחוברים (``compute_batch_value`` ב-``lib/percpu_counter.c``).
+PERCPU_BATCH_FLOOR = 32
 
 #: שני הפרסרים שהמאגר צריך לדעת את עלותם: השם ב-``services``, הסיומת שהכלי
 #: מגיש דרכו, טקסט חימום קטן, והצורה העוינת של כל אחד.
@@ -131,7 +213,13 @@ UNCAPPED: dict[str, dict[str, None]] = {
 
 _CHILD = textwrap.dedent(
     """
-    import json, resource, sys, time
+    import json, mmap, os, resource, sys, time
+    # ההצמדה נעשתה לפני ה-fork (``_pinned``); כאן קוראים את המצב, לא מניחים אותו —
+    # ילד שרץ על כמה מעבדים הוא ילד שהפיגור של המונה שלו אינו חסום.
+    if os.sched_getaffinity(0) != {{{cpu}}}:
+        raise SystemExit(
+            "the measuring child is not pinned to CPU {cpu} (affinity "
+            + str(sorted(os.sched_getaffinity(0))) + "); refusing to measure")
     resource.setrlimit(resource.RLIMIT_AS, ({address_space}, {address_space}))
     sys.path.insert(0, {repo!r})
 
@@ -148,10 +236,38 @@ _CHILD = textwrap.dedent(
     # ``newline=""``: בלי תרגום של סופי שורות, כדי ש-``\\r\\n`` יגיע לפרסר כמו שנכתב.
     text = open({path!r}, encoding="utf-8", newline="").read()
     parser.parse_document({warm!r})
+    # מה שהשיטה הישנה הייתה מפספסת: הזיכרון שהתהליך כבר הגיע אליו ושחרר (בעיקר
+    # החוצץ של קריאת הקובץ). נרשם בפלט, ואינו נכנס לשום חישוב.
+    headroom_before_reset = status("VmHWM") - status("VmRSS")
+    # ה-probe: headroom ידוע, כדי שהאיפוס יוכח בכל ריצה ולא רק כשיש מה לאפס.
+    probe = mmap.mmap(-1, {probe_bytes})
+    for offset in range(0, len(probe), mmap.PAGESIZE):
+        probe[offset] = 1
+    probe.close()
+    probed = status("VmHWM") - status("VmRSS")
+    if probed * 1024 < {probe_bytes} // 2:
+        raise SystemExit(
+            "the reset probe did not raise VmHWM above VmRSS (" + str(probed)
+            + " kB), so the reset cannot be proven; refusing to measure")
+    # האיפוס, ובקול: אין נפילה חזרה לשיא מעל שיא-העבר, שמפספס את מה שהפרסור
+    # מקצה מתחתיו (כחצי MB בקלט של 512KB) — תמיד לכיוון "נכנס".
+    try:
+        with open({clear_refs!r}, "w") as f:
+            f.write("5")
+    except OSError as exc:
+        raise SystemExit(
+            "cannot reset VmHWM through " + {clear_refs!r} + " (" + str(exc) + "): the peak "
+            "would be counted above the process's earlier high-water mark and miss what "
+            "the parse allocates below it; refusing to measure") from exc
     rss_before, hwm_before = status("VmRSS"), status("VmHWM")
-    # מה שהתהליך כבר הגיע אליו לפני הפרסור אינו של הפרסור — הבסיס הוא הגבוה
-    # מבין ה-RSS הנוכחי ושיא-העבר, ולא ה-RSS לבדו.
-    baseline = max(rss_before, hwm_before)
+    # מה שנשאר מעל ה-RSS אחרי איפוס אמיתי הוא לכל היותר הפיגור של מוני הקרנל: האיפוס
+    # כותב לשיא ערך משוער, שיכול לצאת גבוה מה-RSS המדויק (ספירת-יתר — הכיוון הבטוח).
+    # איפוס שלא קרה משאיר לפחות חצי probe, הרבה מעבר לזה.
+    if hwm_before - rss_before > {tolerance_kb}:
+        raise SystemExit(
+            {clear_refs!r} + " accepted the write but VmHWM was not reset ("
+            + str(hwm_before - rss_before) + " kB above VmRSS, more than the kernel counter "
+            "lag of {tolerance_kb} kB); refusing to measure")
     outcome, sections, line = "parsed", None, None
     cpu_before = time.process_time()
     # כל ענף כאן הוא **תוצאה** שנרשמת בשורת הפלט, לא בליעה: הסירובים
@@ -170,24 +286,113 @@ _CHILD = textwrap.dedent(
         outcome = "memory_error"
     cpu = time.process_time() - cpu_before
     hwm_after, rss_after = status("VmHWM"), status("VmRSS")
-    n = len(text.encode("utf-8"))
-    peak = (hwm_after - baseline) * 1024
+    # הילד רק קורא מהקרנל; מה שנגזר מהקריאות — השיא, העלות לבית — מחושב אצל ההורה
+    # (``_from_the_kernel``), שם אפשר לבדוק את הנוסחה בלי תת-תהליך.
     print(json.dumps({{
         "module": {module!r},
-        "input_bytes": n,
+        "hash_seed": os.environ.get({hash_seed_env!r}),
+        "cpu": sorted(os.sched_getaffinity(0)),
+        "input_bytes": len(text.encode("utf-8")),
         "input_lines": text.count("\\n") + 1 if text else 0,
         "outcome": outcome,
         "line": line,
         "sections": sections,
-        "headroom_kb_before_parse": hwm_before - rss_before,
-        "peak_bytes": peak,
-        "peak_mib": round(peak / 1024 / 1024, 1),
-        "peak_bytes_per_input_byte": round(peak / max(1, n), 1),
-        "retained_bytes_per_input_byte": round((rss_after - rss_before) * 1024 / max(1, n), 1),
+        "headroom_kb_before_reset": headroom_before_reset,
+        "reset_probe_kb": probed,
+        "rss_kb_before_parse": rss_before,
+        "hwm_kb_before_parse": hwm_before,
+        "hwm_kb_after_parse": hwm_after,
+        "rss_kb_after_parse": rss_after,
         "cpu_seconds": round(cpu, 3),
     }}))
     """
 )
+
+
+def _from_the_kernel(raw: dict) -> dict:
+    """שורת הילד, ועוד מה שנגזר מהקריאות שלו: השיא שהפרסור הוסיף, וממנו העלות לבית.
+
+    השיא הוא ``VmHWM`` אחרי הפרסור פחות ה-RSS **שלפני** הפרסור — ולא פחות ``VmHWM``
+    שלפניו. אחרי איפוס אמיתי שני אלה נבדלים רק בשארית שהאיפוס משאיר (עד
+    ``counter_lag_bound_bytes``), ואז הנוסחה הזאת סופרת את השארית — ספירת-יתר, הכיוון
+    הבטוח — ואילו חיסור של ``VmHWM`` שלפני הפרסור היה מוריד אותה מהשיא: ספירת-חסר,
+    הכיוון שהסבב הזה בא לסגור. ``headroom_kb_before_parse`` הוא אותה שארית.
+    """
+    peak = (raw["hwm_kb_after_parse"] - raw["rss_kb_before_parse"]) * 1024
+    n = max(1, raw["input_bytes"])
+    return {
+        **raw,
+        "headroom_kb_before_parse": raw["hwm_kb_before_parse"] - raw["rss_kb_before_parse"],
+        "peak_bytes": peak,
+        "peak_mib": round(peak / 1024 / 1024, 1),
+        "peak_bytes_per_input_byte": round(peak / n, 1),
+        "retained_bytes_per_input_byte": round(
+            (raw["rss_kb_after_parse"] - raw["rss_kb_before_parse"]) * 1024 / n, 1
+        ),
+    }
+
+
+def counter_lag_bound_bytes() -> int:
+    """בכמה השיא שהקרנל רושם יכול לפגר אחרי השיא האמיתי — מה שמוסיפים למקסימום כדי לקבל חסם עליון.
+
+    הקרנל מעדכן את השיא (``update_hiwater_rss``) מ-``get_mm_rss``, שקורא מכל אחד משלושת
+    המונים רק את הערך המשותף (``percpu_counter_read_positive``), בלי מה שכל מעבד עוד
+    לא העביר אליו. מעבד מעביר כשהסכום אצלו מגיע ל-``percpu_counter_batch``, כלומר עד
+    ``batch − 1`` עמודים לכל מונה נשארים בחוץ (``percpu_counter_add_batch``). ה-RSS
+    עצמו נקרא מדויק (``get_mm_counter_sum`` ב-``task_mem``), ולכן הפיגור הוא רק בשיא —
+    ותמיד לכיוון "נכנס". הילד מוצמד למעבד אחד מרגע היצירה, אז הפיגור הוא של מעבד אחד:
+    ``RSS_COUNTERS × (batch − 1)`` עמודים. המקור: torvalds/linux, ``fs/proc/task_mmu.c``,
+    ``include/linux/mm.h``, ``lib/percpu_counter.c``.
+
+    ``os.cpu_count()`` הוא ``sysconf(_SC_NPROCESSORS_ONLN)`` (CPython 3.11) — המעבדים
+    המחוברים של המכונה, גם בתוך קונטיינר. בדרך כלל זה המספר הלא נכון לגזור ממנו גודל,
+    אבל כאן הוא הנכון: ה-batch של הקרנל נגזר מהמעבדים שהקרנל רואה, לא מהמכסה של
+    הקונטיינר. בלי המספר אין חסם, והמדידה נעצרת.
+    """
+    online = os.cpu_count()
+    if not online:
+        raise SystemExit(
+            "os.cpu_count() is unknown, so the kernel's counter lag cannot be bounded; "
+            "refusing to measure"
+        )
+    batch = max(PERCPU_BATCH_FLOOR, 2 * online)
+    return RSS_COUNTERS * (batch - 1) * mmap.PAGESIZE
+
+
+def _measuring_cpu() -> int:
+    """המעבד שכל ילד מדידה רץ עליו: הנמוך מבין המותרים לתהליך. בקול אם אין הצמדה בפלטפורמה."""
+    if not hasattr(os, "sched_setaffinity"):
+        raise SystemExit(
+            "os.sched_setaffinity is not available on this platform, so the measuring child "
+            "cannot be pinned to one CPU and the kernel's counter lag is not bounded; "
+            "refusing to measure"
+        )
+    return min(os.sched_getaffinity(0))
+
+
+@contextlib.contextmanager
+def _pinned(cpu: int) -> Iterator[None]:
+    """החוט הקורא מוצמד ל-``cpu`` עד שהבלוק נגמר, ואז חוזר למסכה שהייתה לו.
+
+    ילד שנוצר בזמן הזה יורש את ההצמדה מרגע ה-fork, והיא נשמרת גם ב-execve
+    (``sched_setaffinity(2)``: "A child created via fork(2) inherits its parent's CPU
+    affinity mask. The affinity mask is preserved across an execve(2)."), כך שכל
+    חיי הילד — כולל הטעינה של המפרש — עוברים על מעבד אחד. עם pid 0 הקריאה חלה על
+    החוט הקורא בלבד, ולכן שאר החוטים של התהליך לא זזים, והחוט עצמו חוזר למסכה שלו.
+    זו הצמדה של המדידה בלבד: השרת אינו מוצמד לשום מעבד.
+    """
+    before = os.sched_getaffinity(0)
+    try:
+        os.sched_setaffinity(0, {cpu})
+    except OSError as exc:
+        raise SystemExit(
+            f"cannot pin the measuring child to CPU {cpu} ({exc}): without it the kernel's "
+            "counter lag is not bounded; refusing to measure"
+        ) from exc
+    try:
+        yield
+    finally:
+        os.sched_setaffinity(0, before)
 
 
 def peak_cost(
@@ -196,13 +401,25 @@ def peak_cost(
     *,
     parser: str = "md",
     kwargs: dict | None = None,
+    seed: int = 0,
 ) -> dict:
-    """פרסור אחד בתהליך נקי; מחזיר את שיא ה-RSS שהוא הוסיף מעל הבסיס, ואת זמן המעבד שלו.
+    """פרסור אחד בתהליך נקי; מחזיר את שיא ה-RSS שהוא הוסיף מאז איפוס ``VmHWM``, ואת זמן המעבד שלו.
 
-    ``subprocess.TimeoutExpired`` עולה הלאה: מצב ``--doubling`` רושם אותו כתוצאה,
-    ובמצב הרגיל הוא באג שעוצר את הריצה.
+    הילד רץ עם ``PYTHONHASHSEED=seed`` — סידור זיכרון אחד מתוך ``LAYOUT_SEEDS`` — ומוצמד
+    למעבד אחד (``_pinned``). ``subprocess.TimeoutExpired`` עולה הלאה: מצב ``--doubling``
+    רושם אותו כתוצאה, ובמצב הרגיל הוא באג שעוצר את הריצה. ילד שנכשל — כולל איפוס
+    שלא נכתב או לא קרה, והצמדה שלא קרתה — עוצר את הריצה ב-``SystemExit`` עם ההודעה
+    שלו, בשני המצבים.
     """
     spec = PARSERS[parser]
+    cpu = _measuring_cpu()
+    lag = counter_lag_bound_bytes()
+    if lag >= RESET_PROBE_BYTES // 2:
+        raise SystemExit(
+            f"the kernel counter lag on this machine ({lag} bytes) is not below half the reset "
+            f"probe ({RESET_PROBE_BYTES} bytes), so a reset that happened cannot be told from one "
+            "that did not; raise RESET_PROBE_BYTES. Refusing to measure"
+        )
     program = _CHILD.format(
         repo=str(REPO),
         path=str(path),
@@ -210,18 +427,25 @@ def peak_cost(
         warm=spec["warm"],
         kwargs=dict(kwargs or {}),
         address_space=ADDRESS_SPACE_BYTES,
+        clear_refs=CLEAR_REFS_PATH,
+        probe_bytes=RESET_PROBE_BYTES,
+        tolerance_kb=lag // 1024,
+        cpu=cpu,
+        hash_seed_env=HASH_SEED_ENV,
     )
-    proc = subprocess.run(
-        [sys.executable, "-B", "-c", program],
-        capture_output=True,
-        text=True,
-        cwd=str(workdir),
-        timeout=CHILD_TIMEOUT_SECONDS,
-        check=False,
-    )
+    with _pinned(cpu):
+        proc = subprocess.run(
+            [sys.executable, "-B", "-c", program],
+            capture_output=True,
+            text=True,
+            cwd=str(workdir),
+            env={**os.environ, HASH_SEED_ENV: str(seed)},
+            timeout=CHILD_TIMEOUT_SECONDS,
+            check=False,
+        )
     if proc.returncode != 0:
         raise SystemExit(f"the measuring child failed on {path.name}:\n{proc.stderr}")
-    return json.loads(proc.stdout.strip().splitlines()[-1])
+    return _from_the_kernel(json.loads(proc.stdout.strip().splitlines()[-1]))
 
 
 def density(text: str, parser: str = "md") -> float:
@@ -456,16 +680,18 @@ SUPERLINEAR_GROWTH = 2.0
 #: אלפיות בודדות הוא רעש, ועלות כזאת אינה בעיה גם אם היא ריבועית בגדלים האלה.
 CPU_NOISE_FLOOR_SECONDS = 0.1
 
-#: מתחת לשיא הזה, בגודל **הקטן**, הזיכרון אינו נבדק לגדילה — היחס מתחלק בו, ושיא
-#: כזה הוא בתחום הרעש של השיטה: עד ``headroom_kb_before_parse`` מהזיכרון של הפרסור
-#: נבלע מתחת לשיא-העבר של התהליך (ב-2026-09-27: אפס בגודל הקטן, עד כחצי MB ב-512KB).
-#: שיא אפס היה הופך כל שיא בגודל הגדול ליחס אינסופי, וצורה ליניארית הייתה מסומנת
-#: ``superlinear``; ברצפה הזאת, חצי MB שנבלע מנפח את היחס לכל היותר פי 1.5. במעבד
-#: הרצפה יושבת על הגודל הגדול, כי שם הרעש הוא תנודה ולא סכום שנבלע מהמכנה. ועלות
-#: כזאת אינה בעיה גם אם היא ריבועית: ב-``DOUBLING_SIZES`` פי ארבעה בקלט הם פי
-#: שישה-עשר בעלות, ועדיין בתוך ``_PARSE_COST_BYTES``. הצורה הזולה ביותר,
-#: ``nested_bullets_10``, עלתה בגודל הקטן 1.15–1.26MB בשלוש הרצות — מעל הרצפה, כך
-#: שאף צורה אינה מאבדת את הבדיקה.
+#: מתחת לשיא הזה, בגודל **הקטן**, הזיכרון אינו נבדק לגדילה — היחס מתחלק בו, ושני דברים
+#: שאינם הפרסור מזיזים שיא כזה: פיגור מוני הקרנל (``counter_lag_bound_bytes``, לשני
+#: הכיוונים) וסידור הזיכרון (בגדלים של ``DOUBLING_SIZES``, על 40 סידורים, נמדד ב-2026-09-27
+#: פיזור של עד 16% — יחס שזז כך רחוק מ-``SUPERLINEAR_GROWTH``). שיא אפס היה הופך כל שיא
+#: בגודל הגדול ליחס אינסופי, וצורה ליניארית הייתה מסומנת ``superlinear``. הרצפה חייבת
+#: להיות מעל פי 2.25 מפיגור המונה, אחרת צורה ליניארית שנמדדת בה נראית ריבועית —
+#: ``_require_a_memory_floor_above_the_counter_lag`` עוצר את בדיקת ההכפלה כשלא (כאן:
+#: 1MiB מול 372KB). במעבד הרצפה יושבת על הגודל הגדול, כי שם הרעש הוא תנודה ולא סכום
+#: במכנה. ועלות כזאת אינה בעיה גם אם היא ריבועית: ב-``DOUBLING_SIZES`` פי ארבעה בקלט
+#: הם פי שישה-עשר בעלות, ועדיין בתוך ``_PARSE_COST_BYTES``. הצורה הזולה ביותר,
+#: ``nested_bullets_10``, עלתה בגודל הקטן 1,138,688–1,282,048 בתים על 40 סידורים — מעל
+#: הרצפה בכולם, כך שאף צורה אינה מאבדת את הבדיקה.
 MEMORY_NOISE_FLOOR_BYTES = 1024 * 1024
 
 
@@ -506,17 +732,20 @@ def rank(files: list[pathlib.Path], parser: str) -> list[tuple[float, pathlib.Pa
 
 
 def constant_candidate(results: list[dict], parser: str) -> float:
-    """המועמד ל-``_PARSE_RSS_PER_INPUT_BYTE``: השיא הגבוה מבין המדידות שרצו **כמו הכלי**.
+    """המועמד ל-``_PARSE_RSS_PER_INPUT_BYTE``: החסם העליון הגבוה מבין המדידות שרצו **כמו הכלי**.
 
-    בבתים לכל בית של **תקרת הקריאה**, ולא של הקלט שנמדד: הקבוע מוכפל ב-
-    ``MAX_FILE_SIZE_FOR_DISPLAY`` כדי לתת את העלות של פרסור אחד, ולכן קלט קטן
-    ויקר — טבלה של 17KB שנעצרת בתקרת הטוקנים — נמדד לפי מה שהוא באמת עולה לחוט.
-    מדידות שאינן כמו הכלי (הצורה בלי תקרות, מסלול ה-outline) אינן נכנסות.
+    החסם העליון (``peak_upper_bound_bytes``) — המקסימום על ``LAYOUT_SEEDS`` ועוד
+    ``counter_lag_bound_bytes`` — ולא המקסימום לבדו ולא ריצה אחת: מה שריצה אחת מפספסת
+    (סידור נדיר, פיגור המונה) הוא תמיד לכיוון "נכנס". בבתים לכל בית של **תקרת
+    הקריאה**, ולא של הקלט שנמדד: הקבוע מוכפל ב-``MAX_FILE_SIZE_FOR_DISPLAY`` כדי לתת את
+    העלות של פרסור אחד, ולכן קלט קטן ויקר — טבלה של 17KB שנעצרת בתקרת הטוקנים — נמדד
+    לפי מה שהוא באמת עולה לחוט. מדידות שאינן כמו הכלי (הצורה בלי תקרות, מסלול
+    ה-outline) אינן נכנסות. שתי ספרות אחרי הנקודה, כי המרווח מהקבוע קטן.
     """
     return round(
-        max(r["peak_bytes"] for r in results if r["parser"] == parser and r["as_tool"])
+        max(r["peak_upper_bound_bytes"] for r in results if r["parser"] == parser and r["as_tool"])
         / MAX_FILE_SIZE_FOR_DISPLAY,
-        1,
+        2,
     )
 
 
@@ -530,15 +759,50 @@ def worst_cpu_seconds(results: list[dict], parser: str) -> float:
     return max(r["cpu_seconds"] for r in results if r["parser"] == parser and r["as_tool"])
 
 
+#: התוצאה של מדידה שלא קיבלה אותה תוצאה בכל הסידורים. הפרסור דטרמיניסטי — אותו קלט
+#: נעצר באותה תקרה בכל סידור — ולכן תוצאות שונות אומרות שבאחד מהם קרה משהו אחר (למשל
+#: ``MemoryError``), והמקסימום אינו עלות של פרסור. אינה ב-``MEASURED_OUTCOMES``.
+OUTCOME_DIFFERS_BY_LAYOUT = "differs_by_layout"
+
+
+def across_layouts(runs: list[dict]) -> dict:
+    """ריצות של אותו קלט על כמה סידורי זיכרון, כשורה אחת: הריצה הגבוהה, ועוד הפיזור והחסם העליון.
+
+    ``peak_bytes`` הוא המקסימום, עם שאר השדות של אותה ריצה (כולל ``hash_seed``).
+    ``peak_bytes_min`` ו-``peak_bytes_by_layout`` (לפי סדר הזרעים) הם הפיזור — כדי שמי
+    שמריץ פעם אחת יבין איפה המספר שלו נופל. ``peak_upper_bound_bytes`` הוא המקסימום ועוד
+    ``counter_lag_bound_bytes`` — המספר שנשפט מול התקציב. ``cpu_seconds`` הוא הגבוה מבין
+    הריצות ו-``cpu_seconds_all`` כולן. תוצאה שאינה זהה בכל הריצות היא
+    ``OUTCOME_DIFFERS_BY_LAYOUT``, ואז ``outcomes_by_layout`` אומר מה יצא בכל אחת.
+    """
+    peaks = [run["peak_bytes"] for run in runs]
+    outcomes = [run["outcome"] for run in runs]
+    worst = max(runs, key=lambda run: run["peak_bytes"])
+    same_outcome = len(set(outcomes)) == 1
+    return {
+        **worst,
+        "outcome": outcomes[0] if same_outcome else OUTCOME_DIFFERS_BY_LAYOUT,
+        **({} if same_outcome else {"outcomes_by_layout": outcomes}),
+        "layout_runs": len(runs),
+        "peak_bytes_min": min(peaks),
+        "peak_bytes_by_layout": peaks,
+        "peak_upper_bound_bytes": max(peaks) + counter_lag_bound_bytes(),
+        "cpu_seconds": max(run["cpu_seconds"] for run in runs),
+        "cpu_seconds_all": [run["cpu_seconds"] for run in runs],
+    }
+
+
 def _measured(parser: str, shape: str, path: pathlib.Path, work: pathlib.Path, *,
-              kwargs: dict | None = None, **extra) -> dict:
-    """מדידה אחת, עם הסימון אם היא רצה כמו הכלי — בלי ארגומנטים, כלומר על ברירות המחדל."""
+              kwargs: dict | None = None, seeds: Sequence[int] = LAYOUT_SEEDS,
+              **extra) -> dict:
+    """מדידה אחת על פני ``seeds`` — ריצה לכל זרע — עם הסימון אם היא רצה כמו הכלי, בלי ארגומנטים."""
+    runs = [peak_cost(path, work, parser=parser, kwargs=kwargs, seed=seed) for seed in seeds]
     return {
         "parser": parser,
         "shape": shape,
         "as_tool": kwargs is None,
         **extra,
-        **peak_cost(path, work, parser=parser, kwargs=kwargs),
+        **across_layouts(runs),
     }
 
 
@@ -616,9 +880,10 @@ def measure_hostile_as_the_tool(work: pathlib.Path) -> list[dict]:
     results.append(_measured("md", "worst_memory", worst, work))
     for name, make in CPU_SHAPES.items():
         path = _write(work, f"cpu_{name}.md", make(md_parser.MAX_LINES, md_parser.MAX_TOKENS))
-        runs = [_measured("md", f"cpu:{name}", path, work) for _ in range(CPU_REPEATS)]
-        slowest = max(runs, key=lambda r: r["cpu_seconds"])
-        results.append({**slowest, "cpu_seconds_all": [r["cpu_seconds"] for r in runs]})
+        # ``CPU_REPEATS`` ולא ``LAYOUT_SEEDS``: המספר שנשפט כאן הוא המעבד, ומקסימום על
+        # יותר ריצות היה משנה את מה ש-``WORST_CASE_CPU_SECONDS`` מודד. הזיכרון שלהם רחוק
+        # מהקלט הגרוע, ואם אחד מהם יכריע את הזיכרון, פסק הדין נכשל (``verdict``).
+        results.append(_measured("md", f"cpu:{name}", path, work, seeds=range(CPU_REPEATS)))
     return results
 
 
@@ -635,10 +900,13 @@ MEASURED_OUTCOMES = frozenset({"parsed", "too_many_tokens", "too_many_sections"}
 def verdict(results: list[dict]) -> dict:
     """השורה האחרונה: האם מה שנמדד עדיין בתוך הקבועים שנגזרו ממנו — ואם לא, מה נשבר.
 
-    שלוש שאלות, כל אחת בשדה משלה: האם כל מדידה של Markdown שרצה כמו הכלי באמת
-    מדדה פרסור (``every_input_measured``, ו-``md_unmeasured`` אומר אילו לא), האם
-    השיא הגבוה נכנס ב-``_PARSE_COST_BYTES``, והאם זמן המעבד הגבוה אינו עובר את
-    ``WORST_CASE_CPU_SECONDS``. ``passed`` הוא שלושתן יחד, והוא קוד היציאה.
+    ארבע שאלות, כל אחת בשדה משלה: האם כל מדידה של Markdown שרצה כמו הכלי באמת מדדה
+    פרסור (``every_input_measured``, ו-``md_unmeasured`` אומר אילו לא); האם המדידה
+    שמכריעה את הזיכרון רצה על כל ``LAYOUT_SEEDS`` (``decided_on_every_layout``); האם
+    **החסם העליון** שלה — המקסימום ועוד ``counter_lag_bound_bytes`` — נכנס ב-
+    ``_PARSE_COST_BYTES``; והאם זמן המעבד הגבוה אינו עובר את
+    ``WORST_CASE_CPU_SECONDS``. ``passed`` הוא ארבעתן יחד, והוא קוד היציאה. לצד החסם
+    השורה נושאת את המקסימום הנמדד ואת המינימום של אותו קלט — הפיזור בין הסידורים.
     """
     from mcp_server.server import _PARSE_COST_BYTES, _PARSE_RSS_PER_INPUT_BYTE
     from services import md_parser
@@ -651,36 +919,77 @@ def verdict(results: list[dict]) -> dict:
         for r in as_tool
         if r["outcome"] not in MEASURED_OUTCOMES
     ]
-    worst_peak = max(r["peak_bytes"] for r in as_tool)
+    deciding = max(as_tool, key=lambda r: r["peak_upper_bound_bytes"])
+    upper = deciding["peak_upper_bound_bytes"]
+    # המדידה שמכריעה חייבת להיות על כל הסידורים: מקסימום על פחות מהם הוא מדגם קטן
+    # יותר, והמצב הגבוה נדיר. היום אלה קלטי המעבד (``CPU_REPEATS`` ריצות), ואם אחד
+    # מהם יהפוך ליקר בזיכרון, זה נופל כאן ולא עובר על מדגם של חמש.
+    every_layout = deciding["layout_runs"] >= len(LAYOUT_SEEDS)
     worst_cpu = worst_cpu_seconds(results, "md")
     # בבתים ולא לפי המועמד המעוגל: ``_PARSE_COST_BYTES`` הוא מה שהמאגר מקצה לחוט.
-    memory_ok = worst_peak <= _PARSE_COST_BYTES
+    memory_ok = upper <= _PARSE_COST_BYTES
     cpu_ok = worst_cpu <= md_parser.WORST_CASE_CPU_SECONDS
     return {
         "md_unmeasured": unmeasured,
         "every_input_measured": not unmeasured,
-        "md_worst_peak_bytes": worst_peak,
+        "md_worst_shape": deciding["shape"],
+        "md_worst_layout_runs": deciding["layout_runs"],
+        "decided_on_every_layout": every_layout,
+        "md_worst_peak_bytes": deciding["peak_bytes"],
+        "md_worst_peak_min_bytes": deciding["peak_bytes_min"],
+        "counter_lag_bound_bytes": counter_lag_bound_bytes(),
+        "md_worst_upper_bound_bytes": upper,
         "parse_cost_bytes": _PARSE_COST_BYTES,
+        "md_worst_upper_bound_share_of_budget": round(upper / _PARSE_COST_BYTES, 4),
         "md_constant_candidate_bytes_per_ceiling_byte": constant_candidate(results, "md"),
         "parse_rss_per_input_byte": _PARSE_RSS_PER_INPUT_BYTE,
         "memory_within_budget": memory_ok,
         "md_worst_cpu_seconds": worst_cpu,
         "worst_case_cpu_seconds": md_parser.WORST_CASE_CPU_SECONDS,
         "cpu_within_constant": cpu_ok,
-        "passed": not unmeasured and memory_ok and cpu_ok,
+        "passed": not unmeasured and every_layout and memory_ok and cpu_ok,
         "note": (
-            "every_input_measured false: a run as the tool was refused before parsing or "
-            "failed on MemoryError, so its numbers are not the cost of a parse and the "
-            "budget answers do not cover that input. Otherwise the pool, the rate limit and "
-            "the batch deadline are derived from the two constants; a false means their "
-            "arithmetic needs a new look before anything else changes "
-            "(cpu time depends on the machine: both numbers are printed)"
+            "every_input_measured false: a run as the tool was refused before parsing, "
+            "failed on MemoryError, or ended differently across layouts, so its numbers are "
+            "not the cost of a parse. decided_on_every_layout false: the input that decides "
+            "memory was measured on fewer layouts than LAYOUT_SEEDS. The memory answer is on "
+            "the upper bound (the maximum over the layouts plus the kernel counter lag), not "
+            "on one run. Otherwise the pool, the rate limit and the batch deadline are derived "
+            "from the two constants; a false means their arithmetic needs a new look before "
+            "anything else changes (cpu time depends on the machine: both numbers are printed)"
         ),
     }
 
 
+def _require_a_memory_floor_above_the_counter_lag() -> None:
+    """רצפת הזיכרון של בדיקת ההכפלה חייבת להיות גבוהה מספיק מפיגור המונה — אחרת עוצרים.
+
+    כל מדידה יכולה לסטות עד ``counter_lag_bound_bytes`` (L) לכל כיוון: מטה בשיא,
+    ומעלה בשארית שהאיפוס משאיר. בין הגודל הקטן לגדול הקלט גדל פי r (4 ב-
+    ``DOUBLING_SIZES`` וב-``TABLE_DOUBLING_SIZES``), והסף הוא g
+    (``SUPERLINEAR_GROWTH``). צורה ליניארית שהשיא שלה בגודל הקטן הוא בדיוק הרצפה F
+    נמדדת במקרה הגרוע ביחס ((r·F + L) / (F − L)) / r, והוא מתחת ל-g רק כש-
+    F > L·(1 + g·r) / (r·(g − 1)) — פי 2.25 מהפיגור. כאן: F = 1MiB ו-L = 372KB.
+    במכונה עם הרבה מעבדים הפיגור גדל, והבדיקה הייתה מסמנת צורה ליניארית כריבועית —
+    ובפיגור גדול עוד יותר, מפספסת ריבועית. במקום אחד מאלה, היא עוצרת.
+    """
+    lag = counter_lag_bound_bytes()
+    for sizes in (DOUBLING_SIZES, TABLE_DOUBLING_SIZES):
+        r = sizes[-1] / sizes[0]
+        g = SUPERLINEAR_GROWTH
+        needed = lag * (1 + g * r) / (r * (g - 1))
+        if MEMORY_NOISE_FLOOR_BYTES <= needed:
+            raise SystemExit(
+                f"MEMORY_NOISE_FLOOR_BYTES ({MEMORY_NOISE_FLOOR_BYTES}) is not above what the "
+                f"kernel counter lag on this machine ({lag} bytes) needs ({int(needed)} bytes): a "
+                "linear shape could read as superlinear, and a larger lag could hide a quadratic "
+                "one. Refusing to run the doubling check"
+            )
+
+
 def doubling(work: pathlib.Path) -> list[dict]:
     """כל צורה בלי תקרות, בשלושה גדלים כפולים — ומה קרה לעלות לבית קלט כשהקלט גדל."""
+    _require_a_memory_floor_above_the_counter_lag()
     uncapped = dict(UNCAPPED["md"])
     rows = []
     for name, build in HOSTILE_SHAPES.items():
