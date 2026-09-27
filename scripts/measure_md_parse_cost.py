@@ -44,18 +44,22 @@
 המדידות שרצו כמו הכלי, בבתים לכל בית של תקרת הקריאה. גם הקורפוס והמסמך הצפוף
 נחתכים כך — אחרת הם היו נדחים בתקרת השורות, ונמדד סירוב במקום פרסור.
 
-**פסק הדין בשורה האחרונה**, והוא קוד היציאה: 0 כשהשיא הגבוה נכנס ב-
-``_PARSE_COST_BYTES`` (כלומר המועמד אינו עובר את ``_PARSE_RSS_PER_INPUT_BYTE``)
-**וגם** זמן המעבד הגבוה אינו עובר את ``WORST_CASE_CPU_SECONDS``; 1 כשאחד מהם
-נשבר — ואז הטענות שנגזרות מהם (רוחב המאגר, מגבלת הקצב, הדדליין) צריכות חשבון
-חדש לפני שמשנים משהו. זמן מעבד תלוי במכונה, ולכן השורה נושאת את שני המספרים.
+**פסק הדין בשורה האחרונה**, והוא קוד היציאה (``passed``): 0 כשכל מדידה שרצה
+כמו הכלי באמת מדדה פרסור (``MEASURED_OUTCOMES`` — לא סירוב לפני הפרסור ולא
+``MemoryError``), **וגם** השיא הגבוה נכנס ב-``_PARSE_COST_BYTES`` (כלומר המועמד
+אינו עובר את ``_PARSE_RSS_PER_INPUT_BYTE``), **וגם** זמן המעבד הגבוה אינו עובר את
+``WORST_CASE_CPU_SECONDS``; 1 כשאחד מהם נשבר. כשהמדידות תקינות וקבוע נשבר, הטענות
+שנגזרות ממנו (רוחב המאגר, מגבלת הקצב, הדדליין) צריכות חשבון חדש לפני שמשנים
+משהו. זמן מעבד תלוי במכונה, ולכן השורה נושאת את שני המספרים.
 
 **``--doubling`` — בדיקת ההכפלה.** כל צורה ב-``HOSTILE_SHAPES``, **בלי אף תקרה**,
 בשלושה גדלים שכל אחד כפול מקודמו (``DOUBLING_SIZES``; לטבלאות מעל תקרת התאים
 גדלים קטנים יותר, ``TABLE_DOUBLING_SIZES``, כי כבר ב-128KB הן עוברות 3GB), כל אחד
-בתהליך נקי. בפרסר ליניארי העלות לבית קלט נשארת קבועה כשהקלט גדל; עלות שגדלה
-**יותר מפי שניים** בין הגודל הקטן לגדול, ``MemoryError``, או חריגה מהזמן, מסומנים
-``superlinear``, וקוד היציאה הוא 1. זו הבדיקה שהייתה תופסת מראש את הריבועיות
+בתהליך נקי. בפרסר ליניארי העלות לבית קלט נשארת קבועה כשהקלט גדל; עלות לבית
+שגדלה בין הגודל הקטן לגדול יותר מ-``SUPERLINEAR_GROWTH``, ``MemoryError``, או חריגה
+מהזמן, מסומנים ``superlinear``, וקוד היציאה הוא 1. משאב שהמדידה שלו מתחת לרצפת
+הרעש שלו (``MEMORY_NOISE_FLOOR_BYTES``, ``CPU_NOISE_FLOOR_SECONDS``) אינו נבדק
+לגדילה, והגדילה שלו בשורה היא ``None``. זו הבדיקה שהייתה תופסת מראש את הריבועיות
 של הגדרות הקישור ב-markdown-it-py 3.0.0 (upstream #367 — 105 שניות על 8,000
 הגדרות), ושדרוג הבא של הפרסר מריץ אותה.
 
@@ -443,13 +447,26 @@ DOUBLING_SIZES = (
 TABLE_DOUBLING_SIZES = (4_000, 8_000, 16_000)
 
 #: מאיזו גדילה בעלות לבית קלט — בין הגודל הקטן לגדול, פי ארבעה בקלט — צורה
-#: מסומנת ``superlinear``. בפרסר ליניארי היחס סביב 1 (נמדד עד 1.45, מרעש המעבד);
-#: בריבועי הוא סביב 4. שתיים באמצע.
+#: מסומנת ``superlinear``. בפרסר ליניארי היחס סביב 1 — בשתי הרצות של ``--doubling``
+#: על markdown-it-py 4.2.0 (2026-09-27) כל הצורות נמדדו בין 0.56 ל-1.73, והגבוה הוא
+#: המעבד של ``tables_over_autocomplete_cap``; בריבועי הוא סביב 4. שתיים באמצע.
 SUPERLINEAR_GROWTH = 2.0
 
-#: מתחת לזמן הזה המעבד אינו נבדק לגדילה: יחס בין שני מספרים של אלפיות בודדות הוא
-#: רעש, ועלות כזאת אינה בעיה גם אם היא ריבועית בגדלים האלה.
+#: מתחת לזמן הזה, בגודל **הגדול**, המעבד אינו נבדק לגדילה: יחס בין שני מספרים של
+#: אלפיות בודדות הוא רעש, ועלות כזאת אינה בעיה גם אם היא ריבועית בגדלים האלה.
 CPU_NOISE_FLOOR_SECONDS = 0.1
+
+#: מתחת לשיא הזה, בגודל **הקטן**, הזיכרון אינו נבדק לגדילה — היחס מתחלק בו, ושיא
+#: כזה הוא בתחום הרעש של השיטה: עד ``headroom_kb_before_parse`` מהזיכרון של הפרסור
+#: נבלע מתחת לשיא-העבר של התהליך (ב-2026-09-27: אפס בגודל הקטן, עד כחצי MB ב-512KB).
+#: שיא אפס היה הופך כל שיא בגודל הגדול ליחס אינסופי, וצורה ליניארית הייתה מסומנת
+#: ``superlinear``; ברצפה הזאת, חצי MB שנבלע מנפח את היחס לכל היותר פי 1.5. במעבד
+#: הרצפה יושבת על הגודל הגדול, כי שם הרעש הוא תנודה ולא סכום שנבלע מהמכנה. ועלות
+#: כזאת אינה בעיה גם אם היא ריבועית: ב-``DOUBLING_SIZES`` פי ארבעה בקלט הם פי
+#: שישה-עשר בעלות, ועדיין בתוך ``_PARSE_COST_BYTES``. הצורה הזולה ביותר,
+#: ``nested_bullets_10``, עלתה בגודל הקטן 1.15–1.26MB בשלוש הרצות — מעל הרצפה, כך
+#: שאף צורה אינה מאבדת את הבדיקה.
+MEMORY_NOISE_FLOOR_BYTES = 1024 * 1024
 
 
 def real_files(suffix: str) -> list[pathlib.Path]:
@@ -605,17 +622,43 @@ def measure_hostile_as_the_tool(work: pathlib.Path) -> list[dict]:
     return results
 
 
+#: התוצאות שבהן מדידה שרצה כמו הכלי באמת מדדה פרסור: הפרסור רץ עד הסוף, או עד
+#: תקרה שעצרה אותו באמצע — והעצירה היא בדיוק מה שהכלי משלם עליו (הקלט הגרוע בזיכרון
+#: בנוי להגיע אליה). כל תוצאה אחרת אומרת שהמספרים בשורה אינם עלות של פרסור:
+#: ``too_many_lines`` — הקלט נדחה לפני הפרסור, ונמדד אפס; ``memory_error`` — הפרסור
+#: נפל על ``RLIMIT_AS``, והשיא הוא רק מה שהספיק לתפוס לפני ההקצאה שנכשלה, כך שהוא
+#: יכול להיות מתחת לתקציב דווקא כשהפרסור אינו נכנס בו. רשימה של מה שמותר ולא של
+#: מה שאסור, כדי שתוצאה חדשה תפיל את פסק הדין עד שמישהו יחליט מה היא.
+MEASURED_OUTCOMES = frozenset({"parsed", "too_many_tokens", "too_many_sections"})
+
+
 def verdict(results: list[dict]) -> dict:
-    """השורה האחרונה: האם מה שנמדד עדיין בתוך הקבועים שנגזרו ממנו — ואם לא, מה נשבר."""
+    """השורה האחרונה: האם מה שנמדד עדיין בתוך הקבועים שנגזרו ממנו — ואם לא, מה נשבר.
+
+    שלוש שאלות, כל אחת בשדה משלה: האם כל מדידה של Markdown שרצה כמו הכלי באמת
+    מדדה פרסור (``every_input_measured``, ו-``md_unmeasured`` אומר אילו לא), האם
+    השיא הגבוה נכנס ב-``_PARSE_COST_BYTES``, והאם זמן המעבד הגבוה אינו עובר את
+    ``WORST_CASE_CPU_SECONDS``. ``passed`` הוא שלושתן יחד, והוא קוד היציאה.
+    """
     from mcp_server.server import _PARSE_COST_BYTES, _PARSE_RSS_PER_INPUT_BYTE
     from services import md_parser
 
-    worst_peak = max(r["peak_bytes"] for r in results if r["parser"] == "md" and r["as_tool"])
+    as_tool = [r for r in results if r["parser"] == "md" and r["as_tool"]]
+    # K11: הילד מחזיר כשל כערך (``outcome``) ולא זורק, ולכן הוא נבדק כאן לפני כל
+    # "נכנס בתקציב" — אחרת ``MemoryError`` עם שיא נמוך היה יוצא בקוד 0.
+    unmeasured = [
+        {"shape": r["shape"], "outcome": r["outcome"]}
+        for r in as_tool
+        if r["outcome"] not in MEASURED_OUTCOMES
+    ]
+    worst_peak = max(r["peak_bytes"] for r in as_tool)
     worst_cpu = worst_cpu_seconds(results, "md")
     # בבתים ולא לפי המועמד המעוגל: ``_PARSE_COST_BYTES`` הוא מה שהמאגר מקצה לחוט.
     memory_ok = worst_peak <= _PARSE_COST_BYTES
     cpu_ok = worst_cpu <= md_parser.WORST_CASE_CPU_SECONDS
     return {
+        "md_unmeasured": unmeasured,
+        "every_input_measured": not unmeasured,
         "md_worst_peak_bytes": worst_peak,
         "parse_cost_bytes": _PARSE_COST_BYTES,
         "md_constant_candidate_bytes_per_ceiling_byte": constant_candidate(results, "md"),
@@ -624,9 +667,13 @@ def verdict(results: list[dict]) -> dict:
         "md_worst_cpu_seconds": worst_cpu,
         "worst_case_cpu_seconds": md_parser.WORST_CASE_CPU_SECONDS,
         "cpu_within_constant": cpu_ok,
+        "passed": not unmeasured and memory_ok and cpu_ok,
         "note": (
-            "the pool, the rate limit and the batch deadline are derived from these two constants; "
-            "a false here means their arithmetic needs a new look before anything else changes "
+            "every_input_measured false: a run as the tool was refused before parsing or "
+            "failed on MemoryError, so its numbers are not the cost of a parse and the "
+            "budget answers do not cover that input. Otherwise the pool, the rate limit and "
+            "the batch deadline are derived from the two constants; a false means their "
+            "arithmetic needs a new look before anything else changes "
             "(cpu time depends on the machine: both numbers are printed)"
         ),
     }
@@ -657,19 +704,26 @@ def _per_input_byte(run: dict, key: str) -> float:
 
 
 def growth(runs: list[dict]) -> dict:
-    """הגדילה בעלות לבית קלט בין המדידה הקטנה לגדולה, והאם היא מעל ``SUPERLINEAR_GROWTH``."""
+    """הגדילה בעלות לבית קלט בין המדידה הקטנה לגדולה, והאם היא מעל ``SUPERLINEAR_GROWTH``.
+
+    משאב שהמדידה שלו מתחת לרצפת הרעש שלו — ``MEMORY_NOISE_FLOOR_BYTES`` בגודל הקטן,
+    ``CPU_NOISE_FLOOR_SECONDS`` בגודל הגדול — אינו נבדק, והגדילה שלו היא ``None``;
+    רק גדילה שנמדדה יכולה לסמן ``superlinear``.
+    """
     failed = [run["outcome"] for run in runs if run["outcome"] in ("memory_error", "timeout")]
     if failed:
         return {"memory_growth": None, "cpu_growth": None, "superlinear": True, "reason": failed[0]}
     first, last = runs[0], runs[-1]
-    memory = _per_input_byte(last, "peak_bytes") / max(1e-9, _per_input_byte(first, "peak_bytes"))
+    memory = None
+    if first["peak_bytes"] >= MEMORY_NOISE_FLOOR_BYTES:
+        memory = _per_input_byte(last, "peak_bytes") / _per_input_byte(first, "peak_bytes")
     cpu = None
     if last["cpu_seconds"] >= CPU_NOISE_FLOOR_SECONDS:
         first_cpu = _per_input_byte(first, "cpu_seconds")
         cpu = _per_input_byte(last, "cpu_seconds") / max(1e-9, first_cpu)
-    superlinear = memory > SUPERLINEAR_GROWTH or (cpu is not None and cpu > SUPERLINEAR_GROWTH)
+    superlinear = any(g is not None and g > SUPERLINEAR_GROWTH for g in (memory, cpu))
     return {
-        "memory_growth": round(memory, 2),
+        "memory_growth": None if memory is None else round(memory, 2),
         "cpu_growth": None if cpu is None else round(cpu, 2),
         "superlinear": superlinear,
     }
@@ -716,7 +770,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "verdict": summary,
     }))
-    return 0 if summary["memory_within_budget"] and summary["cpu_within_constant"] else 1
+    return 0 if summary["passed"] else 1
 
 
 if __name__ == "__main__":

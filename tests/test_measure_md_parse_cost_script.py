@@ -69,8 +69,8 @@ def test_the_constant_candidate_is_the_costliest_parse_run_as_the_tool_per_ceili
     assert script.hostile_bound(results, "rst") == 90.2
 
 
-def _fake_child(script, costs, seen_kwargs):
-    """``peak_cost`` בלי תת-תהליך: העלות לפי תחילית שם הקובץ, והארגומנטים נרשמים."""
+def _fake_child(script, costs, seen_kwargs, outcomes):
+    """``peak_cost`` בלי תת-תהליך: העלות והתוצאה לפי תחילית שם הקובץ, והארגומנטים נרשמים."""
 
     def fake_peak_cost(path, workdir, *, parser="md", kwargs=None):
         prefix = next(prefix for prefix in costs if path.name.startswith(prefix))
@@ -79,7 +79,7 @@ def _fake_child(script, costs, seen_kwargs):
         return {
             "module": script.PARSERS[parser]["module"],
             "input_bytes": 1,
-            "outcome": "parsed",
+            "outcome": outcomes.get(prefix, "parsed"),
             "line": None,
             "sections": 1,
             "headroom_kb_before_parse": 0,
@@ -93,7 +93,7 @@ def _fake_child(script, costs, seen_kwargs):
     return fake_peak_cost
 
 
-def _wire_main(script, monkeypatch, tmp_path, costs):
+def _wire_main(script, monkeypatch, tmp_path, costs, outcomes=None):
     docs = {".md": tmp_path / "a.md", ".rst": tmp_path / "b.rst"}
     docs[".md"].write_text("# t\n\n- one\n- two\n" * 200, encoding="utf-8")
     docs[".rst"].write_text("T\n=\n\ntext\n\n" * 200, encoding="utf-8")
@@ -101,8 +101,23 @@ def _wire_main(script, monkeypatch, tmp_path, costs):
     monkeypatch.setattr(script, "real_files", lambda suffix: [docs[suffix]])
     monkeypatch.setattr(script, "density", lambda text, parser="md": 1.0)
     seen_kwargs: dict = {}
-    monkeypatch.setattr(script, "peak_cost", _fake_child(script, costs, seen_kwargs))
+    fake = _fake_child(script, costs, seen_kwargs, outcomes or {})
+    monkeypatch.setattr(script, "peak_cost", fake)
     return seen_kwargs
+
+
+def _costs_within_the_constants(ceiling):
+    """(שיא, מעבד) לכל תחילית של שם קובץ, וטסט משנה רק את מה שהוא בודק.
+
+    כל מה שרץ כמו הכלי בתוך שני הקבועים; הצורה בלי תקרות וה-outline מעליהם, כמו
+    במדידה האמיתית — הם אינם כמו הכלי, ולכן אינם נשפטים.
+    """
+    return {
+        "corpus": (20 * ceiling, 0.1), "tiled_": (50 * ceiling, 0.2),
+        "hostile": (290 * ceiling, 2.8),
+        "outline_": (300 * ceiling, 0.5), "capped_": (30 * ceiling, 0.3),
+        "worst_memory": (60 * ceiling, 0.3), "cpu_": (20 * ceiling, 0.5),
+    }
 
 
 def test_main_runs_every_markdown_shape_as_the_tool_and_the_hostile_bound_without_ceilings(
@@ -117,13 +132,7 @@ def test_main_runs_every_markdown_shape_as_the_tool_and_the_hostile_bound_withou
     """
     script = _load_script()
     ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
-    costs = {
-        "corpus": (20 * ceiling, 0.1), "tiled_": (50 * ceiling, 0.2),
-        "hostile": (290 * ceiling, 2.8),
-        "outline_": (300 * ceiling, 0.5), "capped_": (30 * ceiling, 0.3),
-        "worst_memory": (60 * ceiling, 0.3), "cpu_": (20 * ceiling, 0.5),
-    }
-    seen_kwargs = _wire_main(script, monkeypatch, tmp_path, costs)
+    seen_kwargs = _wire_main(script, monkeypatch, tmp_path, _costs_within_the_constants(ceiling))
 
     assert script.main([]) == 0
 
@@ -131,8 +140,11 @@ def test_main_runs_every_markdown_shape_as_the_tool_and_the_hostile_bound_withou
     assert last["md"]["constant_candidate_bytes_per_input_byte"] == 60.0
     assert last["md"]["hostile_bound_bytes_per_input_byte"] == 290 * ceiling
     assert last["rst"]["constant_candidate_bytes_per_input_byte"] == 50.0
+    assert last["verdict"]["md_unmeasured"] == []
+    assert last["verdict"]["every_input_measured"] is True
     assert last["verdict"]["memory_within_budget"] is True
     assert last["verdict"]["cpu_within_constant"] is True
+    assert last["verdict"]["passed"] is True
     assert last["verdict"]["md_worst_cpu_seconds"] == 0.5
 
     from mcp_server.outline_scanners._ceiling import MAX_SYMBOLS
@@ -163,10 +175,7 @@ def test_main_exits_1_when_a_measurement_breaks_a_constant_it_feeds(
     ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
     over_memory = _PARSE_COST_BYTES + 4096 if breaks == "memory" else 30 * ceiling
     over_cpu = md_parser.WORST_CASE_CPU_SECONDS + 0.01 if breaks == "cpu" else 0.1
-    costs = {
-        "corpus": (20 * ceiling, 0.1), "tiled_": (50 * ceiling, 0.2),
-        "hostile": (290 * ceiling, 2.8),
-        "outline_": (300 * ceiling, 0.5), "capped_": (30 * ceiling, 0.3),
+    costs = _costs_within_the_constants(ceiling) | {
         "worst_memory": (over_memory, 0.3), "cpu_": (20 * ceiling, over_cpu),
     }
     _wire_main(script, monkeypatch, tmp_path, costs)
@@ -174,8 +183,62 @@ def test_main_exits_1_when_a_measurement_breaks_a_constant_it_feeds(
     assert script.main([]) == 1
 
     verdict = json.loads(capsys.readouterr().out.strip().splitlines()[-1])["verdict"]
+    assert verdict["every_input_measured"] is True
     assert verdict["memory_within_budget"] is (breaks != "memory")
     assert verdict["cpu_within_constant"] is (breaks != "cpu")
+    assert verdict["passed"] is False
+
+
+@pytest.mark.parametrize("outcome", ["memory_error", "too_many_lines"])
+def test_main_exits_1_when_a_run_as_the_tool_measured_no_parse(
+        monkeypatch, tmp_path, capsys, outcome):
+    """מדידה כמו הכלי שלא מדדה פרסור מפילה את פסק הדין — גם כשהמספרים שלה בתוך הקבועים.
+
+    ``memory_error``: הפרסור נפל על ``RLIMIT_AS``, והשיא הוא רק מה שהספיק לתפוס לפני
+    ההקצאה שנכשלה. כך נראתה הרצה אמיתית של הילד על הקלט הגרוע, עם ``RLIMIT_AS`` של
+    12MB מעל מה שהייבוא תפס (סקירת #3467): ``memory_error`` עם שיא של 10,493,952
+    בתים, מתחת לתקציב — ופסק הדין אמר ``true`` בשתי השאלות. ``too_many_lines``: הקלט
+    נדחה לפני הפרסור ונמדד אפס — כך נראתה ההרצה הראשונה על הקוד של #3391, לפני
+    ``fit_to_the_tool``: 32 מתוך 38 המדידות כמו הכלי היו סירובים, ופסק הדין עבר.
+    """
+    script = _load_script()
+    costs = _costs_within_the_constants(script.MAX_FILE_SIZE_FOR_DISPLAY) | {
+        "worst_memory": (10_493_952, 0.3),
+    }
+    _wire_main(script, monkeypatch, tmp_path, costs, outcomes={"worst_memory": outcome})
+
+    assert script.main([]) == 1
+
+    verdict = json.loads(capsys.readouterr().out.strip().splitlines()[-1])["verdict"]
+    assert verdict["md_unmeasured"] == [{"shape": "worst_memory", "outcome": outcome}]
+    assert verdict["every_input_measured"] is False
+    assert verdict["memory_within_budget"] is True and verdict["cpu_within_constant"] is True
+    assert verdict["passed"] is False
+
+
+@pytest.mark.parametrize(
+    "prefix, outcome",
+    [("worst_memory", "too_many_tokens"), ("capped_", "too_many_sections"),
+     ("hostile", "memory_error")],
+)
+def test_a_parse_stopped_by_a_ceiling_counts_and_a_run_without_ceilings_is_not_judged(
+        monkeypatch, tmp_path, capsys, prefix, outcome):
+    """עצירה בתקרה היא מדידה, ומדידה שלא רצה כמו הכלי אינה נשפטת.
+
+    הקלט הגרוע בזיכרון **בנוי** להיעצר ב-``too_many_tokens`` — פסק דין שהיה דוחה את
+    העצירה היה נכשל בכל הרצה אמיתית. ``too_many_sections`` אינו נגיש ב-Markdown היום
+    (``MAX_SECTIONS`` גדול מ-``MAX_LINES``), אבל גם הוא נזרק מתוך הפרסור או אחריו,
+    כלומר אחרי שהעלות שולמה. והצורה העוינת בלי תקרות היא מידע על הפרסר, לא טענה על הכלי.
+    """
+    script = _load_script()
+    costs = _costs_within_the_constants(script.MAX_FILE_SIZE_FOR_DISPLAY)
+    _wire_main(script, monkeypatch, tmp_path, costs, outcomes={prefix: outcome})
+
+    assert script.main([]) == 0
+
+    verdict = json.loads(capsys.readouterr().out.strip().splitlines()[-1])["verdict"]
+    assert verdict["md_unmeasured"] == []
+    assert verdict["passed"] is True
 
 
 def test_a_checkout_with_no_document_of_the_minimum_size_fails_with_a_named_message():
@@ -398,25 +461,95 @@ def _run(peak_bytes, input_bytes, cpu, outcome="parsed"):
 
 
 def test_growth_calls_a_linear_shape_linear_and_a_quadratic_one_superlinear():
-    """הגבול בין ליניארי לריבועי, על מספרים שנמדדו: עד 1.45 ברעש, סביב 4 בריבועי."""
+    """הגבול בין ליניארי לריבועי, על מספרים שנמדדו (``--doubling``, 4.2.0, 2026-09-27).
+
+    הטבלאות מעל תקרת התאים הן היחס הגבוה ביותר שנמדד בצורה ליניארית — 1.73 במעבד —
+    ועדיין מתחת ל-``SUPERLINEAR_GROWTH``; ריבועי, מאותה נקודת התחלה, הוא סביב 4.
+    """
     script = _load_script()
-    linear = [_run(10_000, 1_000, 0.5), _run(20_100, 2_000, 1.1), _run(40_200, 4_000, 2.9)]
-    quadratic_cpu = [_run(10_000, 1_000, 0.5), _run(20_000, 2_000, 2.0), _run(40_000, 4_000, 8.0)]
+    tables = [
+        _run(136_818_688, 3_090, 0.838), _run(344_428_544, 7_725, 2.225),
+        _run(690_589_696, 15_450, 7.25),
+    ]
+    bullets = [
+        _run(36_859_904, 128_000, 0.532), _run(74_858_496, 256_000, 0.959),
+        _run(148_910_080, 512_000, 2.395),
+    ]
+    quadratic_cpu = [
+        _run(36_859_904, 128_000, 0.5), _run(73_719_808, 256_000, 2.0),
+        _run(147_439_616, 512_000, 8.0),
+    ]
     quadratic_memory = [
-        _run(10_000, 1_000, 0.5), _run(40_000, 2_000, 1.0), _run(160_000, 4_000, 2.0),
+        _run(36_859_904, 128_000, 0.5), _run(147_439_616, 256_000, 1.0),
+        _run(589_758_464, 512_000, 2.0),
     ]
 
-    assert script.growth(linear)["superlinear"] is False
+    assert script.growth(tables) == {
+        "memory_growth": 1.01, "cpu_growth": 1.73, "superlinear": False}
+    assert script.growth(bullets) == {
+        "memory_growth": 1.01, "cpu_growth": 1.13, "superlinear": False}
     assert script.growth(quadratic_cpu) == {
-        "memory_growth": 1.0, "cpu_growth": 4.0, "superlinear": True,
-    }
-    assert script.growth(quadratic_memory)["superlinear"] is True
+        "memory_growth": 1.0, "cpu_growth": 4.0, "superlinear": True}
+    assert script.growth(quadratic_memory) == {
+        "memory_growth": 4.0, "cpu_growth": 1.0, "superlinear": True}
 
 
-def test_growth_ignores_cpu_noise_below_the_floor_but_never_memory():
+def test_growth_checks_each_resource_only_above_its_noise_floor():
+    """מתחת לרצפה היחס הוא רעש, ולכן הוא ``None`` — ורק גדילה שנמדדה מסמנת ``superlinear``.
+
+    ``nested_bullets_10`` אמיתי: מעבד של אלפיות בודדות בגודל הגדול אינו נבדק, והזיכרון
+    שלו — 1.26MB בגודל הקטן, מעל ``MEMORY_NOISE_FLOOR_BYTES`` — כן. ושיא אפס בגודל
+    הקטן, זיכרון שנבלע כולו מתחת לשיא-העבר של התהליך, היה הופך את השיא בגודל הגדול
+    ליחס אינסופי ומסמן צורה ליניארית כריבועית (סקירת CodeRabbit ב-#3467). עכשיו
+    הזיכרון שלה אינו נבדק, והמעבד, שמעל הרצפה שלו, כן — ומסמן לבדו כשהוא ריבועי.
+    """
     script = _load_script()
-    tiny = [_run(10_000, 1_000, 0.001), _run(20_000, 2_000, 0.004), _run(40_000, 4_000, 0.03)]
-    assert script.growth(tiny) == {"memory_growth": 1.0, "cpu_growth": None, "superlinear": False}
+    floor = script.MEMORY_NOISE_FLOOR_BYTES
+    nested_bullets_10 = [
+        _run(1_261_568, 128_000, 0.009), _run(2_592_768, 256_000, 0.013),
+        _run(5_480_448, 512_000, 0.033),
+    ]
+    swallowed = [
+        _run(0, 128_000, 0.2), _run(20_000_000, 256_000, 0.4), _run(40_000_000, 512_000, 0.8),
+    ]
+    swallowed_quadratic_cpu = [
+        _run(0, 128_000, 0.2), _run(20_000_000, 256_000, 0.8), _run(40_000_000, 512_000, 3.2),
+    ]
+    # רצפת המעבד יושבת על הגודל הגדול: 50ms בגודל הקטן הם מתחת לה, אבל מה שנעשה יקר
+    # רק בגודל הגדול הוא בדיוק מה שהבדיקה קיימת בשבילו.
+    cheap_then_quadratic_cpu = [
+        _run(36_859_904, 128_000, 0.05), _run(73_719_808, 256_000, 0.2),
+        _run(147_439_616, 512_000, 0.8),
+    ]
+
+    assert script.growth(nested_bullets_10) == {
+        "memory_growth": 1.09, "cpu_growth": None, "superlinear": False}
+    assert script.growth(swallowed) == {
+        "memory_growth": None, "cpu_growth": 1.0, "superlinear": False}
+    assert script.growth(swallowed_quadratic_cpu) == {
+        "memory_growth": None, "cpu_growth": 4.0, "superlinear": True}
+    assert script.growth(cheap_then_quadratic_cpu) == {
+        "memory_growth": 1.0, "cpu_growth": 4.0, "superlinear": True}
+    # הגבול עצמו: ברצפה הזיכרון נבדק, ובית אחד מתחתיה — לא.
+    for first, measured in ((floor, True), (floor - 1, False)):
+        runs = [_run(first, 128_000, 0.2), _run(2 * floor, 256_000, 0.4),
+                _run(4 * floor, 512_000, 0.8)]
+        assert (script.growth(runs)["memory_growth"] is not None) is measured, first
+
+
+def test_a_shape_under_the_memory_floor_fits_one_parse_even_if_quadratic():
+    """הטענה ב-docstring של ``MEMORY_NOISE_FLOOR_BYTES``, מחושבת ולא מוקלדת.
+
+    הזיכרון של צורה שמתחת לרצפה בגודל הקטן אינו נבדק לגדילה, וזה בטוח רק כי גם
+    ריבועית היא נשארת בגודל הגדול של ``DOUBLING_SIZES`` — תקרת הקריאה — בתוך מה
+    שהמאגר מקצה לפרסור אחד. רצפה שתעלה מעבר לזה תפיל את הטסט הזה.
+    """
+    from mcp_server.server import _PARSE_COST_BYTES
+
+    script = _load_script()
+    small, *_, large = script.DOUBLING_SIZES
+    assert large == script.MAX_FILE_SIZE_FOR_DISPLAY
+    assert script.MEMORY_NOISE_FLOOR_BYTES * (large / small) ** 2 <= _PARSE_COST_BYTES
 
 
 @pytest.mark.parametrize("outcome", ["memory_error", "timeout"])
