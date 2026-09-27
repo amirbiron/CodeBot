@@ -970,12 +970,6 @@
      - ``false``
      - ``true``
      - Integrations
-   * - ``NORMALIZE_CODE_ON_SAVE``
-     - נרמול קוד בשמירה
-     - לא
-     - ``true``
-     - ``false``
-     - Bot
    * - ``MAINTENANCE_MODE``
      - מצב תחזוקה המדכא פעולות משתמשים
      - לא

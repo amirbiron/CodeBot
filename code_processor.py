@@ -84,7 +84,7 @@ if cache is None:  # pragma: no cover
         def get(self, *a, **k):
             return None
     cache = _NullCache()  # type: ignore[assignment]
-from utils import normalize_code
+from src.domain.services.code_normalizer import is_markdown_filename
 
 logger = logging.getLogger(__name__)
 
@@ -178,24 +178,12 @@ class CodeProcessor:
             
             # עבור קבצי Markdown נשמור את התוכן כמו שהוא (כולל בלוקי ``` מרובי שפות)
             # כדי לא לפגוע במסמך מרובה-שפות.
-            is_markdown: bool = False
-            try:
-                ext = Path((filename or "")).suffix.lower()
-                is_markdown = ext in (".md", ".markdown")
-            except Exception:
-                is_markdown = False
+            is_markdown = is_markdown_filename(filename)
 
-            # סניטציה ראשונית (דלג עבור Markdown), ואז נרמול להסרת תווים נסתרים
+            # סניטציה של בלוקי ``` (דלג עבור Markdown). המאמת אינו מנקה תווים:
+            # הניקוי של קוד מודבק הוא ``code_service.clean_pasted_code``, וה-handler
+            # מריץ אותו פעם אחת לפני האימות.
             cleaned_code = code if is_markdown else self.sanitize_code_blocks(code)
-            try:
-                # בקבצי Markdown נשמר רווחי סוף שורה (Hard line breaks)
-                cleaned_code = normalize_code(
-                    cleaned_code,
-                    trim_trailing_whitespace=not is_markdown
-                )
-            except Exception:
-                # במקרה של כשל בנרמול, נמשיך עם הטקסט לאחר הסניטציה הבסיסית
-                pass
             cleaned_length = len(cleaned_code)
             
             # רישום הצלחת סניטציה

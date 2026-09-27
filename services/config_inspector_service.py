@@ -1355,13 +1355,6 @@ class ConfigService:
             description="רשימת שפות התכנות הנתמכות. ריק = הרשימה שבקוד (python, javascript, html ועוד)",
             category="display",
         ),
-        "NORMALIZE_CODE_ON_SAVE": ConfigDefinition(
-            key="NORMALIZE_CODE_ON_SAVE",
-            services=("webapp", "bot", "webserver"),
-            default="true",
-            description="ניקוי תווים נסתרים מהקוד לפני שמירה",
-            category="features",
-        ),
         "FEATURE_MY_COLLECTIONS": ConfigDefinition(
             key="FEATURE_MY_COLLECTIONS",
             services=("webapp", "bot", "webserver"),

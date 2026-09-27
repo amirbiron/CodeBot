@@ -400,9 +400,6 @@ class BotConfig(BaseSettings):
     DRIVE_ADD_HASH: bool = Field(
         default=False, description="Append hash to filenames to avoid collisions"
     )
-    NORMALIZE_CODE_ON_SAVE: bool = Field(
-        default=True, description="Normalize hidden characters before save"
-    )
 
     # Feature flags
     FEATURE_MY_COLLECTIONS: bool = Field(

@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from utils import TextUtils, SecurityUtils, FileUtils, normalize_code
+from utils import TextUtils, SecurityUtils, FileUtils
 
 
 def test_truncate_text_basic():
@@ -63,18 +63,3 @@ def test_tg_emoji_with_and_without_id():
     assert tg_emoji("5069094945915142952", "📁") == '<tg-emoji emoji-id="5069094945915142952">📁</tg-emoji>'
     assert tg_emoji(None, "📁") == "📁"
     assert tg_emoji("", "📁") == "📁"
-
-
-def test_normalize_code_removes_invisibles_and_normalizes_newlines():
-    # Compose a string with BOM, CRLF, zero-width space, directional marks, NBSP, and trailing spaces
-    s = "\ufeffline1\r\nline\u200B2\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\rend\u00A0 \t\r\n"
-    out = normalize_code(s)
-    # Newlines normalized to LF only
-    assert "\r" not in out
-    # Zero-width and directional marks removed
-    for ch in ["\u200B", "\u200E", "\u200F", "\u202A", "\u202B", "\u202C", "\u202D", "\u202E", "\u2066", "\u2067", "\u2068", "\u2069"]:
-        assert ch not in out
-    # NBSP replaced with regular space already trimmed at end of line
-    assert out.endswith(" ") is False
-    assert out.rstrip("\n") == "line1\nline2\nend"
-

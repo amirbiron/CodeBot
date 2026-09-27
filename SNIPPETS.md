@@ -176,9 +176,7 @@ from dataclasses import asdict
 
 def save_code_snippet(self, snippet: CodeSnippet) -> bool:
     try:
-        # נרמול קוד לפני שמירה
-        if config.NORMALIZE_CODE_ON_SAVE:
-            snippet.code = normalize_code(snippet.code)
+        # התוכן נשמר כמו שהגיע — שכבת השמירה לא מנקה ולא משנה תוכן.
 
         # בדיקת גרסה קיימת
         existing = self.get_latest_version(snippet.user_id, snippet.file_name)
@@ -380,24 +378,22 @@ def delete_file(self, user_id: int, file_name: str) -> bool:
 
 ### 3.1 שמירת קובץ עם זיהוי שפה אוטומטי
 
-**למה זה שימושי:** זרימה מלאה של שמירת קובץ - נרמול, זיהוי שפה, שמירה + החזרת ID.
+**למה זה שימושי:** זרימה מלאה של שמירת קובץ - ניקוי מינימלי של קוד מודבק, זיהוי שפה, שמירה + החזרת ID.
 
 **מיקום:** `handlers/save_flow.py:379-398`
 
 ```python
 from database import db, CodeSnippet
-from services.code_service import detect_language, normalize_code
+from services.code_service import clean_pasted_code, detect_language
 
 async def save_file_final(update, context, filename, user_id):
     """שומר קובץ עם metadata מלא"""
 
     code = context.user_data.get('code_to_save')
 
-    # נרמול קוד
-    try:
-        code = normalize_code(code)
-    except Exception:
-        pass
+    # ניקוי מינימלי של קוד מודבק — פעם אחת, ממש לפני השמירה, כשהשם ידוע
+    cleanup = clean_pasted_code(code, filename)
+    code = cleanup.text
 
     # זיהוי שפת תכנות
     detected_language = detect_language(code, filename)
@@ -1276,11 +1272,8 @@ def validate_code_input(
     if len(code) > MAX_CODE_LENGTH:
         return False, "", f"הקוד ארוך מדי (מקסימום {MAX_CODE_LENGTH} תווים)"
 
-    # ניקוי קוד
-    try:
-        cleaned = normalize_code(code)
-    except Exception as e:
-        return False, "", f"שגיאה בניקוי הקוד: {str(e)}"
+    # המאמת לא מנקה: הניקוי של קוד מודבק רץ ב-handler לפני הקריאה לכאן
+    cleaned = code
 
     # ולידציה נוספת אם יש
     if code_processor:

@@ -174,8 +174,12 @@ from http_sync import request as http_request  # noqa: E402
 from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  # noqa: E402
 from note_reminder_state import active_reminder_filter  # noqa: E402
 
-# נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
-from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
+from utils import TimeUtils, detect_language_from_filename  # noqa: E402
+# פענוח ה-CRLF ששליחת טופס HTML מוסיפה לערך של textarea. זה לא ניקוי של תוכן:
+# הוובאפ שומר בדיוק את מה שהמשתמש כתב (ראו services/line_endings.py).
+from services.line_endings import decode_form_newlines  # noqa: E402
+# אזהרה לצד קוד שמוצג, כשיש בו תווים שמשנים את סדר התצוגה (ראו services/code_service.py).
+from services.code_service import bidi_warning_for_display  # noqa: E402
 # כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
 # שלמעלה, ראו tests/test_webapp_import_paths.py.
 from file_dates import (  # noqa: E402
@@ -13487,6 +13491,23 @@ def trash_page():
         recycle_ttl_days=RECYCLE_TTL_DAYS,
     )
 
+
+def _bidi_warning_for_highlighted_code(code: str, lexer: Any) -> str:
+    """האזהרה לצד קוד ש-Pygments מרנדר, עם מספרי השורות שהעמוד מציג.
+
+    העמוד ממספר את הטקסט **אחרי** העיבוד המקדים של ה-lexer. נקרא מ-Pygments
+    2.19.2 (``Lexer._preprocess_lexer_input``): BOM בהתחלה נמחק, CRLF ו-CR בודד
+    הופכים ל-LF, ו-``stripall`` חותך רווחים ושורות ריקות מההתחלה. מספור של
+    הקוד הגולמי היה מפנה לשורה הלא נכונה בדיוק בקובץ שבו זה חשוב, ולכן
+    המספרים נגזרים מהטוקנים שה-lexer עצמו מפיק — אותו זרם ש-``highlight``
+    מרנדר. הטוקניזציה הנוספת רצה רק כשבדיקה זולה על הקוד הגולמי מצאה תו כזה.
+    """
+    if not bidi_warning_for_display(code):
+        return ""
+    rendered = "".join(value for _token, value in lexer.get_tokens(code))
+    return bidi_warning_for_display(rendered)
+
+
 @app.route('/file/<file_id>')
 @login_required
 def view_file(file_id):
@@ -13786,7 +13807,8 @@ def view_file(file_id):
                          file=file_data,
                          highlighted_code=highlighted_code,
                          syntax_css=css,
-                         raw_code=code)
+                         raw_code=code,
+                         bidi_warning=_bidi_warning_for_highlighted_code(code, lexer))
     resp = Response(html, mimetype='text/html; charset=utf-8')
     resp.headers['ETag'] = etag
     resp.headers['Last-Modified'] = last_modified_str
@@ -15488,8 +15510,7 @@ def edit_file_page(file_id):
     if request.method == 'POST' and is_large:
         try:
             file_name = (request.form.get('file_name') or '').strip()
-            content = request.form.get('code') or ''
-            content = normalize_code(content)
+            content = decode_form_newlines(request.form.get('code') or '')
             language = (request.form.get('language') or '').strip() or (file.get('programming_language') or 'text')
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
@@ -15501,7 +15522,8 @@ def edit_file_page(file_id):
 
             if not file_name:
                 error = 'יש להזין שם קובץ'
-            if not content and not error:
+            # ``strip`` רק לשאלה אם יש תוכן. התוכן עצמו נשמר כמו שהוא.
+            if not content.strip() and not error:
                 error = 'יש להזין תוכן קוד'
 
             update_doc: Dict[str, Any] = {}
@@ -15573,9 +15595,7 @@ def edit_file_page(file_id):
     if request.method == 'POST' and not is_large:
         try:
             file_name = (request.form.get('file_name') or '').strip()
-            code = request.form.get('code') or ''
-            # נרמול התוכן כדי להסיר תווים נסתרים וליישר פורמט עוד לפני שמירה
-            code = normalize_code(code)
+            code = decode_form_newlines(request.form.get('code') or '')
             language = (request.form.get('language') or '').strip() or (file.get('programming_language') or 'text')
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
@@ -15622,7 +15642,8 @@ def edit_file_page(file_id):
 
             if not file_name and not error:
                 error = 'יש להזין שם קובץ'
-            if not code and not error:
+            # ``strip`` רק לשאלה אם יש תוכן. התוכן עצמו נשמר כמו שהוא.
+            if not code.strip() and not error:
                 error = 'יש להזין תוכן קוד'
             if not error:
                 # זיהוי שפה בסיסי אם לא סופק
@@ -17090,7 +17111,7 @@ def api_save_shared_file():
         raw_code = share_doc.get('code', '')
         if not raw_code:
             return jsonify({'ok': False, 'error': 'השיתוף אינו כולל תוכן מלא'}), 400
-        code = normalize_code(raw_code if isinstance(raw_code, str) else str(raw_code or ''))
+        code = raw_code if isinstance(raw_code, str) else str(raw_code or '')
 
         requested_name = str(payload.get('file_name') or share_doc.get('file_name') or '').strip()
         if not requested_name:
@@ -17436,11 +17457,8 @@ def pwa_share_target():
     title, title_truncated = _limit_share_value(payload_src.get('title'), _PWA_SHARE_PAYLOAD_TITLE_LIMIT, strip=True)
     text, text_truncated = _limit_share_value(payload_src.get('text'), _PWA_SHARE_PAYLOAD_TEXT_LIMIT, strip=False)
     url, url_truncated = _limit_share_value(payload_src.get('url'), _PWA_SHARE_PAYLOAD_URL_LIMIT, strip=True)
-    if text:
-        try:
-            text = normalize_code(text)
-        except Exception:
-            pass
+    # הטקסט לא מנורמל כאן: הוא רק ממלא את ה-textarea בעמוד ההעלאה, ו-/upload
+    # מפענח את ה-CRLF של השליחה כשהמשתמש שומר.
     if not (title or text or url):
         flash('לא התקבל תוכן לשיתוף', 'error')
         return redirect(url_for('upload_file_web'), code=303)
@@ -17564,7 +17582,7 @@ def upload_file_web():
     if request.method == 'POST':
         try:
             file_name = (request.form.get('file_name') or '').strip()
-            code = request.form.get('code') or ''
+            code = decode_form_newlines(request.form.get('code') or '')
             language = (request.form.get('language') or '').strip() or 'text'
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
@@ -17628,14 +17646,17 @@ def upload_file_web():
                     if not file_name:
                         file_name = uploaded.filename or ''
 
-            # נרמול התוכן (בין אם הגיע מהטופס או מקובץ שהועלה)
-            code = normalize_code(code)
+            # התוכן נשמר כמו שהגיע, אחרי פענוח בלבד. מהטופס — ה-CRLF של השליחה
+            # (``decode_form_newlines``). מקובץ שהועלה — הבתים לטקסט, למעלה: UTF-8,
+            # ואם הם אינם UTF-8 תקין אז latin-1. BOM ו-CRLF שהיו בקובץ נשמרים. קובץ
+            # בקידוד אחר, למשל עברית ב-Windows-1255, נשמר לכן כג'יבריש.
             if not had_upload_too_large:
-                code_value = code  # עדכן גם את ערך השחזור לאחר נרמול, אלא אם קובץ היה גדול מדי
+                code_value = code  # ערך השחזור בטופס: תוכן הקובץ שהועלה, אלא אם היה גדול מדי
 
             if not file_name and not error:
                 error = 'יש להזין שם קובץ'
-            if not code and not error:
+            # ``strip`` רק לשאלה אם יש תוכן. התוכן עצמו נשמר כמו שהוא.
+            if not code.strip() and not error:
                 error = 'יש להזין תוכן קוד'
             if not error:
                 # זיהוי שפה בסיסי אם לא סופק
@@ -20433,8 +20454,8 @@ def _persist_story_markdown_file(
         raise ValueError("invalid_file_name")
     if not safe_name.lower().endswith('.md'):
         safe_name = f"{safe_name}.md"
-    normalized_markdown = normalize_code(markdown or "")
-    if not normalized_markdown:
+    story_markdown = markdown or ""
+    if not story_markdown.strip():
         raise ValueError("empty_markdown")
     db_ref = get_db()
     if db_ref is None:
@@ -20472,7 +20493,7 @@ def _persist_story_markdown_file(
     doc: Dict[str, Any] = {
         'user_id': user_id,
         'file_name': safe_name,
-        'code': normalized_markdown,
+        'code': story_markdown,
         'programming_language': 'markdown',
         'description': description[:400],
         'tags': dedup_tags,
@@ -20483,7 +20504,7 @@ def _persist_story_markdown_file(
         'is_active': True,
         **favorite_fields_for_new_version(db_ref.code_snippets, user_id, safe_name),
     }
-    _attach_file_size_and_lines(doc, normalized_markdown)
+    _attach_file_size_and_lines(doc, story_markdown)
     _attach_description_stamp(doc, prev)
     story_context: Dict[str, Any] = {}
     if alert_uid:
@@ -20994,7 +21015,13 @@ def public_share(share_id):
         'version': 1,
         'can_pin': False,
     }
-    return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
+    return render_template(
+        'view_file.html',
+        file=file_data,
+        highlighted_code=highlighted_code,
+        syntax_css=css,
+        bidi_warning=_bidi_warning_for_highlighted_code(code, lexer),
+    )
 
 
 @app.route('/read/share/<share_id>')

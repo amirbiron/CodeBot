@@ -75,7 +75,7 @@ src/
 שכבות (בהתאמה לקיים):
 - **Presentation (web):** routes, request/response schemas (Pydantic), view models, templates
 - **Application (services):** orchestration של use-cases, עבודה עם DTOs, קריאה ל-domain ול-repositories – **שימוש ב-SnippetService הקיים**
-- **Domain:** entities/value objects/validators/services טהורים – **שימוש ב-LanguageDetector/CodeNormalizer הקיימים**
+- **Domain:** entities/value objects/validators/services טהורים – **שימוש ב-LanguageDetector הקיים** (הוובאפ לא מנקה תוכן — ראו `docs/quality/code-normalization.md`)
 - **Infrastructure:** repositories + **FilesFacade הקיים** + הרחבות לפי הצורך
 - **Shared:** utils/text/time/constants
 

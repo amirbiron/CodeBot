@@ -193,7 +193,7 @@ def test_rename_file_success_and_conflict(monkeypatch):
     assert isinstance(repo.rename_file(7, "same.py", "same.py"), bool)
 
 
-def test_save_large_file_normalize_and_existing(monkeypatch):
+def test_save_large_file_with_existing_deletes_then_inserts(monkeypatch):
     from dataclasses import dataclass
     from database.repository import Repository
 
@@ -223,9 +223,6 @@ def test_save_large_file_normalize_and_existing(monkeypatch):
     monkeypatch.setattr(repo, "get_large_file", lambda *_: {"_id": 1})
     del_calls = {"n": 0}
     monkeypatch.setattr(repo, "delete_large_file", lambda *_: del_calls.__setitem__("n", del_calls["n"] + 1) or True)
-    # enable normalization flag; ensure it does not break
-    import config as config_mod
-    monkeypatch.setattr(config_mod, "NORMALIZE_CODE_ON_SAVE", True, raising=False)
 
     ok = repo.save_large_file(DLF(3, "big.bin", "data"))
     assert ok is True and inserted["n"] == 1 and del_calls["n"] == 1

@@ -2,7 +2,6 @@ import pytest
 
 from src.application.dto.create_snippet_dto import CreateSnippetDTO
 from src.application.services.snippet_service import SnippetService
-from src.domain.services.code_normalizer import CodeNormalizer
 from src.domain.interfaces.snippet_repository_interface import ISnippetRepository
 from src.domain.entities.snippet import Snippet
 
@@ -25,7 +24,7 @@ class StubRepo(ISnippetRepository):
 @pytest.mark.asyncio
 async def test_detects_javascript_by_extension():
     repo = StubRepo()
-    svc = SnippetService(snippet_repository=repo, code_normalizer=CodeNormalizer())
+    svc = SnippetService(snippet_repository=repo)
     dto = CreateSnippetDTO(user_id=1, filename="app.js", code="console.log('hi')\r\n")
     saved = await svc.create_snippet(dto)
     assert saved.language == 'javascript'
@@ -34,7 +33,7 @@ async def test_detects_javascript_by_extension():
 @pytest.mark.asyncio
 async def test_detects_text_for_unknown_extension():
     repo = StubRepo()
-    svc = SnippetService(snippet_repository=repo, code_normalizer=CodeNormalizer())
+    svc = SnippetService(snippet_repository=repo)
     dto = CreateSnippetDTO(user_id=1, filename="README", code="some text")
     saved = await svc.create_snippet(dto)
     assert saved.language == 'text'

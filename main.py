@@ -4923,6 +4923,12 @@ class CodeKeeperBot:
         if 'pending_code_buffer' in context.user_data:
             code = context.user_data.pop('pending_code_buffer')
 
+        # נקודת הניקוי של הזרימה: עד היום הקוד של /save נוקה רק בשכבת השמירה.
+        # (``code_processor`` כאן הוא ``services.code_service`` — ראו הייבוא.)
+        cleanup = code_processor.clean_pasted_code(code, saving_data['file_name'])
+        code = cleanup.text
+        cleanup_notice = code_processor.format_cleanup_notice(cleanup)
+
         # יצירת אובייקט קטע קוד כולל הערה (description)
         snippet = CodeSnippet(
             user_id=saving_data['user_id'],
@@ -4955,13 +4961,15 @@ class CodeKeeperBot:
                 )
             except Exception:
                 pass
+            notice_block = f"\n\n{cleanup_notice}" if cleanup_notice else ""
             await update.message.reply_text(
                 f"✅ נשמר בהצלחה!\n\n"
                 f"📁 **{saving_data['file_name']}**\n"
                 f"🔤 שפה: {detected_language}\n"
                 f"🏷️ תגיות: {', '.join(saving_data['tags']) if saving_data['tags'] else 'ללא'}\n"
                 f"📝 הערה: {note or '—'}\n"
-                f"📊 גודל: {len(code)} תווים",
+                f"📊 גודל: {len(code)} תווים"
+                f"{notice_block}",
                 parse_mode=ParseMode.HTML
             )
         else:
