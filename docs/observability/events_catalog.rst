@@ -27,12 +27,7 @@ DB
 - ``db_get_latest_version_error`` — שגיאה בשליפת גרסה אחרונה.
 - ``db_save_code_snippet_error`` — שגיאה בשמירת קטע קוד.
 - ``db_delete_file_error`` — שגיאה במחיקה.
-- ``db_recycle_bin_ttl_index_missing`` — אינדקס ה-TTL שמרוקן את סל המיחזור אינו
-  במצב המבוקש בקולקציה שב-``collection``. בלעדיו פריטים בסל אינם נמחקים לעולם,
-  והעמוד ``/trash`` ממשיך להציג "נמחק סופית ב-" על תאריכים שעברו. נשלח
-  מ-``DatabaseManager._create_recycle_bin_ttl_indexes`` בכל עלייה ובפקודה
-  ``/recycle_backfill``; הסיבה הטכנית נרשמת לפניו באירוע של ``safe_create_index``.
-  המצב הנוכחי נראה בעמוד ``/admin/verify-indexes``, בסעיף ``recycle_bin_ttl``.
+- ``db_recycle_bin_ttl_index_missing`` — אינדקס ה-TTL שמרוקן את סל המיחזור אינו במצב המבוקש בקולקציה שב-``collection``. בלעדיו פריטים בסל אינם נמחקים לעולם, והעמוד ``/trash`` ממשיך להציג "נמחק סופית ב-" על תאריכים שעברו. נשלח מ-``DatabaseManager._create_recycle_bin_ttl_indexes`` בכל עלייה ובפקודה ``/recycle_backfill``; הסיבה הטכנית נרשמת לפניו באירוע של ``safe_create_index``. המצב הנוכחי נראה בעמוד ``/admin/verify-indexes``, בסעיף ``recycle_bin_ttl``.
 
 .. code-block:: json
 
