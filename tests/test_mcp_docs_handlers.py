@@ -356,8 +356,9 @@ def test_the_rst_reader_is_capped_by_the_parser_default_and_refuses_above_it(mon
     **ומה שנשמר משתי הגרסאות הקודמות:** הסירוב מעל התקרה בא כ-``error``
     ולא כחריגה שבורחת, קובץ שיושב בדיוק על התקרה עובר במלואו, ו-``"max"``
     בתשובה הוא המספר שהפרסר השתמש בו. מה שהתקרה עוצרת — כותרת בת תו אחד
-    בכל שורה, 44.0MiB לפרסור של 500KB בלעדיה ו-20.1MiB איתה — נמדד בסקירת
-    #3429 ולא זז.
+    בכל שורה, שבלעדיה פרסור של 500KB עולה יותר ממה שמאגר הקריאות מקצה לחוט
+    — נמדד בסקירת #3429 (ומחדש ב-#3467; המספרים ליד
+    ``_PARSE_RSS_PER_INPUT_BYTE``) ולא זז.
 
     **ונבדק בלי להציף את התקרה, מאותה סיבה שנימקו שתי הקודמות:** בניית
     ``MAX_SECTIONS + 1`` סקשנים אמיתיים קושרת את מחיר הבדיקה לקבוע שהיא
@@ -795,7 +796,7 @@ def test_the_parser_table_holds_modules_so_a_monkeypatch_on_the_module_is_seen(
     assert len(calls) == 1, "הפארסר נקרא דרך הפניה שהוקפאה, וה-monkeypatch נעקף"
 
 
-# ---- מיפוי שתי חריגות הסירוב ----
+# ---- מיפוי חריגות הסירוב ----
 
 
 def test_a_lone_cr_in_markdown_is_refused_by_name_with_the_file_it_came_from(both_repos):
@@ -832,7 +833,69 @@ def test_a_markdown_file_over_the_heading_ceiling_is_refused_by_name(both_repos,
     assert out["path"] == "x.md"
 
 
-def test_the_two_refusals_are_mapped_whichever_parser_raised_them(monkeypatch):
+# הקשר הקריאה ש-``_TextBackend`` מחזיר — ארבעת השדות שכל סירוב נושא.
+_TEXT_CONTEXT = {"repo": "amir-bug-patterns", "path": "x.md", "ref": "HEAD",
+                 "resolved_commit": "c0ffee"}
+
+
+def test_a_markdown_file_over_the_line_ceiling_is_refused_with_the_count(both_repos):
+    """``too_many_lines`` בתצורת הייצור — ברירות המחדל של ``md_parser``, בלי שום הנמכה.
+
+    בשונה מתקרת הכותרות, כאן אין צורך להקטין דבר: ``MAX_LINES`` שורות קצרות הן
+    עשרות KB, והסירוב קורה לפני הפרסור. **ההשוואה היא על התשובה כולה**, ולכן
+    היא תופסת גם שדה ``line`` שאין לו מקום כאן — ``args[0]`` של החריגה הוא מספר
+    השורות, ו-``_line_of`` היה הופך אותו לשורה שלא קיימת.
+    """
+    text = "# כותרת\n" + "שורה\n" * md_parser.MAX_LINES
+    total = text.count("\n") + 1
+    out = docs_handlers.docs_get_section(_TextBackend(text), path="x.md",
+                                         repo="amir-bug-patterns")
+    assert out == {"ok": False, "error": "too_many_lines", "max": md_parser.MAX_LINES,
+                   **_TEXT_CONTEXT, "total_lines": total}
+
+
+def test_a_markdown_file_over_the_token_ceiling_is_refused_with_the_line_it_reached(both_repos):
+    """``too_many_tokens`` בתצורת הייצור, על טבלה אחת שעוברת את ``MAX_TOKENS``.
+
+    הטבלה קצרה בהרבה מתקרת השורות — כלומר רק תקרת הטוקנים יכולה לעצור אותה —
+    וה-``line`` הוא השורה שהפרסור הגיע אליה, באמצע הטבלה: אותה הגדרה כמו ב-
+    ``tests/test_md_parser.py::_refusal_line``, מחושבת מזרם הטוקנים בלי תקרה.
+    """
+    columns = 16
+    rows = 1_000
+    text = ("|" + "|".join(" h " for _ in range(columns)) + "|\n"
+            + "|" + "|".join("---" for _ in range(columns)) + "|\n"
+            + ("|" + "|".join(" x " for _ in range(columns)) + "|\n") * rows)
+    assert text.count("\n") + 1 < md_parser.MAX_LINES, "הנחת המקרה: רק תקרת הטוקנים חלה"
+    full = md_parser._MD.parse(text)
+    assert len(full) > md_parser.MAX_TOKENS, "הנחת המקרה: הטבלה עוברת את התקרה"
+    expected_line = next(t.map[0] + 1 for t in reversed(full[:md_parser.MAX_TOKENS])
+                         if t.map is not None)
+
+    out = docs_handlers.docs_get_section(_TextBackend(text), path="x.md",
+                                         repo="amir-bug-patterns")
+
+    assert out == {"ok": False, "error": "too_many_tokens", "max": md_parser.MAX_TOKENS,
+                   **_TEXT_CONTEXT, "line": expected_line}
+    assert expected_line < rows, "העצירה באמצע הטבלה ולא בסופה"
+
+
+def test_a_token_refusal_before_any_place_has_no_line_and_names_the_limit_it_used(
+        both_repos, monkeypatch):
+    """``max`` הוא התקרה שהחריגה נבנתה איתה, ו-``line`` נעדר כשאין עדיין מקום.
+
+    תקרה 0 מסרבת בטוקן הראשון, לפני שיש טוקן עם ``map`` — ולכן ``line`` הוא
+    ``None`` בחריגה ואינו מופיע בתשובה בכלל, כמו בכל סירוב שאין לו שורה. ו-
+    ``max: 0`` ולא ``MAX_TOKENS``: המספר בתשובה הוא זה שנאכף בפועל.
+    """
+    monkeypatch.setattr(md_parser, "parse_document",
+                        functools.partial(md_parser.parse_document, max_tokens=0))
+    out = docs_handlers.docs_get_section(_TextBackend("# א\n"), path="x.md",
+                                         repo="amir-bug-patterns")
+    assert out == {"ok": False, "error": "too_many_tokens", "max": 0, **_TEXT_CONTEXT}
+
+
+def test_the_refusals_are_mapped_whichever_parser_raised_them(monkeypatch):
     """ה-``except`` אינו מותנה בפארסר שפרסר, וגם RST מקבל את אותו קוד.
 
     התניה על ``parser is md_parser`` הייתה רשימה שנייה לסנכרן: כשהתקרה
@@ -868,13 +931,15 @@ def test_the_reader_asks_for_the_whole_file_and_so_keeps_the_display_ceiling(bot
 
 
 def test_the_markdown_reader_is_capped_by_the_parser_default(both_repos, monkeypatch):
-    """התקרה האפקטיבית של מסלול ה-Markdown היא ``MAX_SECTIONS``.
+    """מסלול ה-Markdown רץ על שלוש ברירות המחדל של ``md_parser``, והכלי אינו מעביר אף אחת.
 
     **אותה תמונה כמו ``test_the_rst_reader_is_capped_by_the_parser_default_and_refuses_above_it``**,
     ושתי הטענות מאותו סוג: הכלי אינו מעביר תקרה, וברירת המחדל בחתימה
-    **היא** התקרה. העברה מפורשת של ``md_parser.MAX_SECTIONS`` מה-handler
-    הייתה עותק שני של אותה החלטה, ו-PR הפארסר כבר הכריע אותה — ומאז
-    #3420 גם מסלול ה-RST על אותה ברירת מחדל בדיוק.
+    **היא** התקרה. העברה מפורשת מה-handler הייתה עותק שני של אותה החלטה,
+    ו-PR הפארסר כבר הכריע אותה — ומאז #3420 גם מסלול ה-RST על אותה ברירת
+    מחדל בדיוק. מאז #3391 התקרות שבאמת עוצרות קובץ Markdown הן ``MAX_LINES``
+    ו-``MAX_TOKENS``; ``MAX_SECTIONS`` אינה יכולה להיפגע איתן (החשבון ב-
+    ``tests/test_md_parser.py::test_max_sections_cannot_be_reached_by_markdown_under_the_default_ceilings``).
     """
     passed: dict = {}
     real = md_parser.parse_document
@@ -889,10 +954,13 @@ def test_the_markdown_reader_is_capped_by_the_parser_default(both_repos, monkeyp
 
     assert out["ok"] and out["section_count"] == 1
     assert passed == {}, f"הכלי העביר תקרה לפרסור: {passed}"
-    assert (inspect.signature(real).parameters["max_sections"].default
-            is md_parser.MAX_SECTIONS), (
-        "ברירת המחדל של max_sections ב-md_parser אינה MAX_SECTIONS, "
-        "ולכן מסלול ה-Markdown רץ בלי תקרה")
+    params = inspect.signature(real).parameters
+    for name, constant in (("max_sections", md_parser.MAX_SECTIONS),
+                           ("max_lines", md_parser.MAX_LINES),
+                           ("max_tokens", md_parser.MAX_TOKENS)):
+        assert params[name].default is constant, (
+            f"ברירת המחדל של {name} ב-md_parser אינה הקבוע, "
+            "ולכן מסלול ה-Markdown רץ בלי התקרה הזאת")
 
 
 # ---- סנכרון שתי הטבלאות ----

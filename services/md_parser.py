@@ -33,17 +33,21 @@
 עבר ארבעה סבבי סקירה שכל אחד מהם מצא מה שקודמו פספס. המחיר מוצהר: הוא
 איטי פי 10–25 מ-cmark-gfm, וזה נסבל בשכבה שחלה כאן.
 
+**שלוש תקרות, ולכל אחת תפקיד שהאחרות אינן ממלאות** (#3391):
+
+* **שורות** (:data:`MAX_LINES`) — לפני הפרסור. חלק מהזיכרון של
+  ``markdown-it-py`` נגזר ממספר השורות ולא ממספר הטוקנים, ולכן קובץ שכולו
+  שורות ריקות, או ציטוט מקונן לעומק, אינו נראה לאף תקרה אחרת.
+* **טוקנים** (:data:`MAX_TOKENS`) — ברגע שנוצר כל טוקן, ולכן גם באמצע טבלה
+  ובאמצע רשימה.
+* **כותרות** (``max_sections``, :data:`~services.doc_sections.MAX_SECTIONS`) —
+  בתחילת כל בלוק. **ב-Markdown היא אינה יכולה להיפגע עם ברירות המחדל:** כל
+  כותרת צריכה שורה משלה, ו-:data:`MAX_LINES` קטן מ-``MAX_SECTIONS``. היא
+  נשארת בשביל ``rst_parser`` (אותו חוזה), ובשביל מתקשר שמעביר תקרה קטנה
+  במפורש.
+
 **מה שהמודול הזה לא עושה, כדי שהקורא לא ישלים מהדמיון:**
 
-* **אין חסם על מספר שורות.** התקרה שכאן סופרת **כותרות** — כל כותרת,
-  גם בתוך ציטוט ובתוך פריט רשימה — והזיכרון של ``markdown-it-py`` נגזר
-  ממספר ה**שורות**. כלומר קובץ שכולו שורות ריקות אינו מייצר אף כותרת,
-  התקרה אינה רואה אותו, ומחירו נשאר ליניארי בגודל הקלט: נמדד כ-107
-  בתים לשורה, כלומר 10MB של שורות ריקות הם כג'יגה-בייט.
-  מה שחוסם אותם היום הוא תקרת ה-500KB של שירות המראה, שחלה על הקורא
-  היחיד המתוכנן (``docs_get_section`` קורא בלי ``lines`` ובלי
-  ``outline``). חסם שורות יידרש כשהמודול הזה ישרת גם את האאוטליין, ששם
-  התקרה היא 10MB.
 * **אין דה-דופליקציה של כותרות ואין נרמול של טקסט הכותרת.** השם מוחזר
   כפי שהוא במקור, עם בקטיקים, הדגשות וקישורים.
 * **אין ``includes``** — לצורה הזאת אין מקבילה ב-Markdown, והשדה נשאר ריק.
@@ -51,8 +55,9 @@
 **ערוץ הכשל הוא חריגה בלבד.** ``parse_document`` אף פעם אינו מחזיר
 ``None``, ``Document`` חלקי, או מפה ריקה כדי לסמן כשל: קובץ בלי כותרות
 מחזיר מפה ריקה **תקינה**, וכל סירוב הוא חריגה — ``TypeError``,
-``InconsistentLineEndings`` או ``TooManySections``. זה נכתב במפורש כי
-פונקציה עם שני ערוצי כשל היא בדיוק מה שמלכד את הקורא הבא.
+``InconsistentLineEndings``, ``TooManyLines``, ``TooManyTokens`` או
+``TooManySections``. זה נכתב במפורש כי פונקציה עם שני ערוצי כשל היא בדיוק
+מה שמלכד את הקורא הבא.
 """
 
 from __future__ import annotations
@@ -60,6 +65,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from markdown_it import MarkdownIt
+from markdown_it.rules_core import StateCore
 from markdown_it.token import Token
 from mdit_py_plugins.front_matter import front_matter_plugin
 
@@ -70,7 +76,9 @@ from .doc_sections import (
     InconsistentLineEndings,
     Section,
     Suggestions,
+    TooManyLines,
     TooManySections,
+    TooManyTokens,
     _finalize,
     build_toc,
     direct_subsections,
@@ -92,14 +100,18 @@ from .doc_sections import (
 # ``docs_handlers`` יוכל לבחור מודול לפי סיומת ולקרוא לשמות האלה בלי אף
 # ``if`` נוסף במסלול.
 #
-# **ומה שאינו משותף, כדי שהטענה לא תיקרא רחבה ממה שהיא:**
-# ``InconsistentLineEndings`` מיוצאת רק מכאן. ``rst_parser`` **אינו מרים**
-# אותה לעולם — ייצוא שלה משם היה מצהיר על סירוב שלא קיים. לכן המטפל מייבא
-# את **שתי** חריגות הסירוב מ-``doc_sections``, לא ``parser.X``, כפי שכתוב
-# ב-docstring של ``InconsistentLineEndings``. (``MAX_SECTIONS`` היה גם הוא
-# רק כאן עד #3420; מאז הוא מוגדר ב-``doc_sections`` ומיוצא משני הפארסרים.)
-# ההפרש בין שני ה-``__all__`` מקובע ב-
-# ``tests/test_md_parser.py::test_the_two_parsers_export_the_same_names_but_one``.
+# **ומה שאינו משותף, כדי שהטענה לא תיקרא רחבה ממה שהיא:** שלוש חריגות סירוב
+# מיוצאות רק מכאן — ``InconsistentLineEndings``, ``TooManyLines`` ו-
+# ``TooManyTokens``. ``rst_parser`` **אינו מרים** אף אחת מהן לעולם — ייצוא
+# שלהן משם היה מצהיר על סירוב שלא קיים. לכן המטפל מייבא את חריגות הסירוב
+# מ-``doc_sections``, לא ``parser.X``, כפי שכתוב ב-docstring של
+# ``InconsistentLineEndings``. (``MAX_SECTIONS`` היה גם הוא רק כאן עד #3420;
+# מאז הוא מוגדר ב-``doc_sections`` ומיוצא משני הפארסרים.) ``MAX_LINES`` ו-
+# ``MAX_TOKENS`` **אינם** ברשימה, מאותו נימוק שכתוב ליד ``token_count``: הם
+# מתארים את העלות של ``markdown-it-py`` ואין להם מקבילה ב-RST, והמטפל אינו
+# צריך אותם — הסירוב נושא את התקרה שנאכפה. ההפרש בין שני ה-``__all__``
+# מקובע ב-
+# ``tests/test_md_parser.py::test_the_two_parsers_export_the_same_names_but_the_markdown_refusals``.
 __all__ = [
     # שם היסטורי: הוא סופר כותרות, גם כאלה שאינן נכנסות למפה. ההנמקה
     # המלאה ב-``#:`` שמעל ההגדרה ב-``doc_sections``.
@@ -108,7 +120,9 @@ __all__ = [
     "InconsistentLineEndings",
     "Section",
     "Suggestions",
+    "TooManyLines",
     "TooManySections",
+    "TooManyTokens",
     "build_toc",
     "direct_subsections",
     "find_sections",
@@ -123,6 +137,82 @@ __all__ = [
 # ``MAX_SECTIONS`` מוגדר ב-``doc_sections`` (מאז #3420, כשהפך לברירת המחדל
 # של שני הפארסרים) ומיובא לכאן. מה שהוא סופר **במסלול הזה** — כותרות ולא
 # סעיפים — מנומק ליד הקבוע שם וב-``_SectionCounter`` למטה.
+
+#: התקרה על מספר השורות — ברירת המחדל של ``max_lines`` ב-:func:`parse_document`.
+#: קובץ ארוך ממנה נדחה ב-:class:`~services.doc_sections.TooManyLines` **לפני**
+#: הפרסור, ו-``None`` מכבה אותה במפורש.
+#:
+#: **למה תקרת שורות, ולא רק תקרת טוקנים.** חלק מהזיכרון של ``markdown-it-py``
+#: נגזר ממספר השורות, ושם אין טוקנים לספור: ``StateBlock`` בונה חמישה מערכים
+#: עם ערך לכל שורה לפני שכלל כלשהו רץ (``rules_block/state_block.py``); הגדרת
+#: קישור נשמרת ב-``env["references"]``, וכל כפילות שלה ב-``env["duplicate_refs"]``,
+#: בלי טוקן (``rules_block/reference.py``); וכלל הציטוט שומר ארבע רשימות עם ערך
+#: לכל שורה **בכל רמת קינון**, והן חיות כל עוד הרמות הפנימיות מפורסרות
+#: (``rules_block/blockquote.py``). בעומק 19 זה כ-1,600 בתים לשורה, עם כ-40
+#: טוקנים לכל הקובץ. לכן תקרת השורות, ולא זו של הטוקנים, היא שמכריעה את
+#: התקציב. (נקרא במקור של markdown-it-py 4.2.0 ונמדד, 2026-09-27.)
+#:
+#: **היחידה:** ``count("\n") + 1``, ו-0 לקובץ ריק — הנוסחה של ``count_lines`` ב-
+#: ``mcp_server/handlers.py``, שכל שדות ה-``lines`` בתשובות ה-MCP מדווחים לפיה,
+#: על הטקסט שאחרי שער הכניסה (:func:`_entry_checks` מסיר BOM אחד, שאינו מעבר
+#: שורה). זה עותק שני בכוונה, כי ``services`` אינו מייבא מ-``mcp_server``, וטסט
+#: משווה בין השניים. ``StateBlock`` בונה מערכים לכל היותר לכמות הזאת של שורות
+#: (אומת במקור וב-fuzz), כך שהתקרה חוסמת גם אותם.
+#:
+#: **איך נבחר המספר** — יחד עם :data:`MAX_TOKENS`, והמדידות ליד הקבוע ההוא. מה
+#: שייחודי לשורות: הקובץ האמיתי הארוך ביותר הוא קובץ שמור של 6,151 שורות, כלומר
+#: מרווח של פי 1.30. המרווח יושב בשורות ולא בטוקנים בכוונה — הקובץ הארוך קרוב
+#: לתקרה שלו יותר מהקובץ הצפוף לשלו, וקובץ שגדל בשורות הוא התרחיש השכיח.
+MAX_LINES = 8_000
+
+#: התקרה על מספר טוקני הבלוק — ברירת המחדל של ``max_tokens`` ב-:func:`parse_document`.
+#: פרסור שמגיע אליה נעצר ב-:class:`~services.doc_sections.TooManyTokens`, ו-``None``
+#: מכבה אותה במפורש.
+#:
+#: **נבדקת ברגע שנוצר כל טוקן**, ולא בתחילת בלוק כמו תקרת הכותרות: טבלה
+#: ורשימה נבנות בקריאה אחת לכלל של ``markdown-it-py``, וכל הטוקנים שלהן נוצרים
+#: בה. המנגנון — :class:`_CappedTokens` ו-:func:`_install_token_ceiling`.
+#:
+#: **למה היא הכרחית גם אחרי השדרוג ל-4.2.0:** התיקון של upstream לטבלה שמשלימה
+#: תאים ריקים (``MAX_AUTOCOMPLETED_CELLS`` ב-``rules_block/table.py``, #364)
+#: סופר **לכל טבלה** — המונה מתאפס בכל טבלה חדשה. נמדד בלי התקרה: קובץ של 128KB
+#: עם הרבה טבלאות כאלה הגיע ל-3GB ונפל ב-``MemoryError``. הטוקנים שם אינם באים
+#: משורות, ולכן תקרת השורות אינה עוזרת.
+#:
+#: **איך נבחרו שני המספרים יחד** (2026-09-27, markdown-it-py 4.2.0, Python 3.11,
+#: ``scripts/measure_md_parse_cost.py``), משני תנאים שחייבים להתקיים בו-זמנית:
+#:
+#: 1. **הקלט העוין הגרוע נכנס בעלות שמאגר הקריאות מקצה לפרסור אחד**,
+#:    ``_PARSE_COST_BYTES`` ב-``mcp_server/server.py``. הגרוע שנמצא: ציטוט בעומק
+#:    19 בכל אחת מ-:data:`MAX_LINES` השורות, ממולא עד 512,000 בתים, עם ``\r\n``
+#:    ותו אסטרלי בכל שורה, ובסוף הציטוט טבלה שעוברת את התקרה — כך ששני המחירים
+#:    חיים באותו רגע. החסם העליון שלו — השיא הגבוה ביותר שנמדד על פני סידורי
+#:    הזיכרון, ועוד פיגור המונים של הקרנל — הוא 35,340,288 בתים, 95.9% מ-
+#:    ``_PARSE_COST_BYTES``. איך החסם נבנה, הפיזור בין הסידורים והמרווח מול הקבוע —
+#:    ליד ``_PARSE_RSS_PER_INPUT_BYTE``.
+#:    זמן המעבד הגרוע תחת שתי התקרות הוא :data:`WORST_CASE_CPU_SECONDS`.
+#: 2. **אף קובץ אמיתי אינו נחסם.** הצפוף ביותר הוא קובץ שמור של 38,153 טוקנים
+#:    (מרווח של פי 1.18); ב-``docs/`` עד 1,287, בכל הריפו עד 8,453, וב-
+#:    amir-bug-patterns עד 5,142. כל שאר הקבצים השמורים מתחת ל-19,188, לפי חסם
+#:    עליון שחושב במסד ואומת מול הפרסר.
+MAX_TOKENS = 45_000
+
+#: זמן המעבד, בשניות, של הפרסור הגרוע ביותר שנמצא תחת :data:`MAX_LINES` ו-
+#: :data:`MAX_TOKENS` — המקסימום של כל הריצות שנמדדו (2026-09-27, markdown-it-py
+#: 4.2.0, Python 3.11, ``scripts/measure_md_parse_cost.py``). הקלט: ציטוט בעומק 19
+#: עם שורות המשך עד :data:`MAX_LINES`, ואחריו טבלה שעוברת את :data:`MAX_TOKENS`.
+#: בלי התקרות הזמן לא היה חסום בכלל: המדידה הקודמת — קובץ תבליטים עוין של 500KB —
+#: נתנה 2.3 שניות (#3431), ובבדיקת ההכפלה של הסקריפט (``--doubling``, אותו יום,
+#: אותה גרסה) ציטוט מקונן עם שורות המשך עד תקרת הקריאה עלה כמעט 15 שניות.
+#:
+#: **למה זה קבוע ולא רק מספר בפרוזה.** שני מספרים בשירות נגזרים ממנו, ולכל
+#: אחד טענה שאפשר לבדוק: ``DEFAULT_RATE_LIMIT_PER_MINUTE`` ב-
+#: ``mcp_server/limits.py`` — זהות אחת לא עוברת דקת מעבד בדקה — ו-
+#: ``DEADLINE_SECONDS`` ב-``mcp_server/read_batch.py`` — באץ' לא עובר את 60
+#: השניות של הלקוח. עד #3391 המדידה הישנה הייתה מוקלדת בכמה מקומות בקוד ובתיעוד,
+#: וזה בדיוק מה שהתיישן. עכשיו יש לה בעלים אחד: טסט גוזר מהקבוע את שתי הטענות
+#: ואת החשבון בתיעוד, וסקריפט המדידה משווה אותו למה שנמדד בפועל.
+WORST_CASE_CPU_SECONDS = 0.66
 
 # כלל ה-``\r`` הבודד יושב ב-``services/line_endings.py`` (מאז #3419), משותף
 # למנתב האאוטליין ולפארסר הזה — עותק אחד, לא שניים שצריכים להסכים לנצח.
@@ -201,6 +291,91 @@ def _ceiling_rule(state, startLine: int, endLine: int, silent: bool) -> bool:
     return False
 
 
+#: המפתח שתחתיו יושבת רשימת הטוקנים עם התקרה ב-``env`` של פרסור בודד.
+#: :func:`parse_document` בונה אותה, :func:`_install_token_ceiling` מתקין אותה,
+#: ו-:func:`parse_document` בודק אחרי הפרסור שזו הרשימה שחזרה.
+_ENV_TOKENS = "ck_md_capped_tokens"
+
+
+class _CappedTokens(List[Token]):
+    """רשימת הטוקנים של פרסור אחד, עם תקרה שנבדקת בכל הוספה.
+
+    **למה ברשימה עצמה.** כל טוקן בלוק ש-``markdown-it-py`` יוצר נוצר ב-
+    ``StateBlock.push``, שהשורה האחרונה שלו היא ``self.tokens.append(token)``
+    (``rules_block/state_block.py``). ‏``self.tokens`` היא הרשימה שכלל ה-core
+    ``block`` מעביר (``rules_core/block.py``), ו-``MarkdownIt.parse`` מחזיר אותה.
+    כלומר ``append`` כאן הוא הנקודה היחידה שכל טוקן עובר בה — גם בתוך טבלה
+    ורשימה, שנבנות בקריאה אחת לכלל. אומת בהרצה: רשימה-מרגלת על 279 מסמכים
+    ו-472,932 טוקנים ראתה רק ``append``, ואף פעם לא ``extend``, ``insert`` או
+    השמה (markdown-it-py 4.2.0, 2026-09-27).
+
+    **והחריגה אינה נבלעת בדרך החוצה.** ה-``try`` היחידים במסלול הם ``except
+    IndexError`` צרים סביב קריאת תו, ו-``except AttributeError`` אחד שעוטף רק
+    את ``is_code_block`` (``mdit_py_plugins/utils.py``). חריגה שנזרקת כאן עולה עד
+    :func:`parse_document`, ומה שנבנה עד אז נזרק איתה.
+
+    **המחיר:** ``append`` בפייתון במקום ב-C, לכל טוקן. על הקובץ השמור הצפוף
+    ביותר (38,153 טוקנים) לא נמדד הבדל — 0.16 שניות עם התקרה ובלעדיה.
+    """
+
+    __slots__ = ("limit",)
+
+    def __init__(self, limit: int) -> None:
+        super().__init__()
+        self.limit = limit
+
+    def append(self, token: Token) -> None:
+        # ``>=``: הטוקן שהיה נכנס במקום ה-``limit + 1`` הוא החורג, ולכן קלט של
+        # בדיוק ``limit`` טוקנים עובר במלואו — אותה צורת גבול כמו
+        # ``_SectionCounter.scan``.
+        if len(self) >= self.limit:
+            raise TooManyTokens(self._last_line(), self.limit)
+        super().append(token)
+
+    def _last_line(self) -> Optional[int]:
+        """השורה (1-מבוססת) של הטוקן האחרון שיש לו ``map`` — כלומר היכן הפרסור היה.
+
+        הטוקן החורג עצמו עוד בלי ``map``: הכללים מציבים אותו **אחרי** ש-``push``
+        חוזר (למשל ``token.map = [nextLine, nextLine + 1]`` ב-``table.py``), ולכן
+        הולכים אחורה. טוקני סגירה ו-``td_open`` אינם נושאים ``map``, כך שההליכה
+        קצרה, והיא רצה פעם אחת — ברגע הסירוב. ``None`` כשאין עדיין טוקן עם
+        מיקום, ואז הסירוב אינו נושא ``line`` בכלל.
+        """
+        for token in reversed(self):
+            if token.map is not None:
+                return token.map[0] + 1
+        return None
+
+
+def _install_token_ceiling(state: StateCore) -> None:
+    """כלל core שרץ לפני ``block``: מתקין את רשימת הטוקנים עם התקרה, כשיש כזו.
+
+    **למה כלל ולא ארגומנט לבנאי.** ``StateCore.__init__`` עושה ``self.tokens =
+    tokens or []`` (``rules_core/state_core.py``), ולכן רשימה שמועברת **ריקה**
+    — ורשימה חדשה תמיד ריקה — נבלעת בשקט ומוחלפת ברשימה רגילה: פרסור בלי תקרה
+    שנראה בדיוק כמו פרסור עם תקרה. הכלל רץ אחרי ``normalize`` ולפני ``block``,
+    כלומר לפני שנוצר טוקן אחד. והמעקה ב-:func:`parse_document` בודק אחרי הפרסור
+    שזו אכן הרשימה שחזרה, כך שהחלפה עתידית כלשהי נכשלת בקול.
+
+    **המצב של כל פרסור יושב ב-``env`` ולא על המופע המשותף** (U1), בדיוק כמו
+    מונה הכותרות: :func:`parse_document` בונה את הרשימה, והכלל רק מתקין אותה.
+    כשאין רשימה ב-``env`` — פרסור החימום, ``token_count``, ``front_matter_end``
+    — הכלל אינו עושה דבר.
+    """
+    capped: Optional[_CappedTokens] = state.env.get(_ENV_TOKENS)
+    if capped is None:
+        return
+    if state.tokens:
+        # אין מסלול כזה היום: ``normalize`` הוא הכלל היחיד לפני ``block``, והוא
+        # נוגע רק ב-``src``. הרמה כאן פירושה שהספרייה שינתה חוזה — אותה הכרעה
+        # כמו ``heading_open`` בלי ``map`` ב-``_sections_from_tokens``.
+        raise RuntimeError(
+            "markdown-it יצר טוקנים לפני הכלל ck_max_tokens — "
+            "חוזה הספרייה השתנה, ראו _install_token_ceiling"
+        )
+    state.tokens = capped
+
+
 def _build_parser() -> MarkdownIt:
     """המופע היחיד.
 
@@ -209,8 +384,9 @@ def _build_parser() -> MarkdownIt:
     תהליכון ואין ``os.environ``, כלומר אף אחד מהטריגרים של
     ``import-time-side-effects``. והכלל ההוא אינו מסתפק בכך שהאובייקט
     מותר: הוא דורש שמה שהאובייקט **מפעיל** בזמן היצירה ייבדק לגופו —
-    ולכן המחיר נמדד, והוא 0.05 מילישניות (0.10 בלי החימום מול 0.15
-    איתו, חציון של 200 בניות). זה נאמר במפורש כי
+    ולכן המחיר נמדד, והוא 0.03–0.04 מילישניות (0.06–0.07 בלי החימום מול
+    0.09–0.11 איתו, חציון של 1,000 בניות; markdown-it-py 4.2.0, עם כלל תקרת
+    הטוקנים, 2026-09-27). זה נאמר במפורש כי
     "הגדרה בלבד" כבר **אינו** מדויק, ומשפט שמתיישן הוא בדיוק מה
     שמונע מהקורא הבא לבדוק.
 
@@ -257,6 +433,11 @@ def _build_parser() -> MarkdownIt:
     את השורה הזאת ייפול כאן, מיד, ולא בשקט בזמן פרסור. ‏(תלות **חסרה**
     היא מקרה אחר והיא נופלת מוקדם יותר, בייבוא שבראש הקובץ.)
 
+    **תקרת הטוקנים יושבת בשרשרת אחרת — ``core``, לפני ``block``** — כי היא
+    אינה כלל בלוק: הכלל :func:`_install_token_ceiling` מחליף את רשימת הטוקנים
+    לפני שהפרסור מתחיל, והבדיקה עצמה רצה בכל ``append`` (:class:`_CappedTokens`).
+    העוגן ``"block"`` הוא הכלל שמריץ את כל הפרסור, ולכן אינו יכול להיעדר.
+
     **ופרסור החימום שבסוף אינו קישוט.** ``markdown-it`` בונה את רשימת
     הכללים של כל ruler **עצלה**, בקריאה הראשונה ל-``getRules``, בלי
     מנעול — ו-``Ruler.__compile__`` מפרסם מילון ריק לפני שהוא ממלא
@@ -276,8 +457,11 @@ def _build_parser() -> MarkdownIt:
     """
     md = MarkdownIt("commonmark").use(front_matter_plugin).disable("inline").enable("table")
     md.block.ruler.before("front_matter", "ck_max_sections", _ceiling_rule)
-    # בלי ``env``, ולכן ``state.env`` הוא מילון ריק, ``_ceiling_rule``
-    # מקבל ``None`` ומחזיר ``False`` מיד — החימום אינו משאיר שום מצב.
+    md.core.ruler.before("block", "ck_max_tokens", _install_token_ceiling)
+    # בלי ``env``, ולכן ``state.env`` הוא מילון ריק: ``_ceiling_rule`` מקבל
+    # ``None`` ומחזיר ``False`` מיד, ו-``_install_token_ceiling`` אינו מוצא
+    # רשימה ואינו עושה דבר — החימום אינו משאיר שום מצב. **והוא נשאר השורה
+    # האחרונה לפני ה-``return``**, אחרי כל קריאת תצורה (ראו למעלה).
     md.parse("# ck warm-up\n")
     return md
 
@@ -355,10 +539,14 @@ def token_count(text: str) -> int:
     צפיפות טוקני-בלוק ל-KB, וקרא עד #3433 ל-``_build_parser`` הפרטית —
     תלות סמויה בפנימי של המודול, ובנייה של פרסר חדש לכל קובץ. הפונקציה
     הזאת היא התלות בגלוי: על ``_MD``, המופע שהכלי מריץ, בלי ``env`` ולכן
-    בלי תקרה (``_ceiling_rule`` מקבל ``None`` ומחזיר ``False``), ובלי
-    טוקני inline (``disable("inline")``) — כלומר בדיוק מה שהפרסור האמיתי
-    סופר. ודרך אותו שער כניסה (:func:`_entry_checks`): BOM מוסר, ``\\r`` בודד
-    נדחה, וערך שאינו מחרוזת מקבל את החריגה של המודול — כמו בכלי.
+    בלי אף תקרה — לא של כותרות (``_ceiling_rule`` מקבל ``None`` ומחזיר
+    ``False``), לא של טוקנים (``_install_token_ceiling`` אינו מוצא רשימה) ולא
+    של שורות — ובלי טוקני inline (``disable("inline")``), כלומר בדיוק מה
+    שהפרסור האמיתי סופר. **בלי תקרות בכוונה:** המדד צריך לספור גם מעל
+    :data:`MAX_TOKENS`, כדי לומר כמה רחוק קובץ נמצא ממנה, והוא רץ רק בסקריפטים
+    על קבצי הריפו ולא על קלט של משתמש. ודרך אותו שער כניסה
+    (:func:`_entry_checks`): BOM מוסר, ``\\r`` בודד נדחה, וערך שאינו מחרוזת
+    מקבל את החריגה של המודול — כמו בכלי.
 
     **ומחוץ ל-``__all__`` בכוונה:** הרשימה שם היא החוזה של "שני פארסרים
     בני-החלפה", וטסט מקבע את ההפרש בינה לבין זו של ``rst_parser``. מדד
@@ -368,7 +556,13 @@ def token_count(text: str) -> int:
     return len(_MD.parse(_entry_checks(text)))
 
 
-def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> Document:
+def parse_document(
+    text: str,
+    *,
+    max_sections: Optional[int] = MAX_SECTIONS,
+    max_lines: Optional[int] = MAX_LINES,
+    max_tokens: Optional[int] = MAX_TOKENS,
+) -> Document:
     """בונה ``Document`` מטקסט Markdown.
 
     **סדר הבדיקות בכניסה, והוא אינו שרירותי:**
@@ -382,16 +576,21 @@ def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> 
        שמפרסרות כאן. לפני בדיקת ה-``\\r``, כדי שמספר השורה שהחריגה
        נושאת יתאים לטקסט שהפארסר באמת רואה.
     3. ``\\r`` בודד → :class:`~services.doc_sections.InconsistentLineEndings`.
-    4. נרמול ``\\r\\n`` ← ``\\n``. ``splitlines()`` נשקל ונדחה באותו
+    4. **תקרת השורות** → :class:`~services.doc_sections.TooManyLines`. אחרי
+       שלב 3, כי רק שם ספירת השורות חד-משמעית; ולפני כל העתקה, פיצול או
+       פרסור, כי אלה בדיוק העבודה שגדלה עם מספר השורות.
+    5. נרמול ``\\r\\n`` ← ``\\n``. ``splitlines()`` נשקל ונדחה באותו
        נימוק שכתוב ב-``rst_parser``: הוא מפצל על עשרה תווים במקום אחד.
-    5. סימון ה-front matter — בתוך הפרסור, על ידי התוסף.
-    6. פרסור.
+    6. סימון ה-front matter — בתוך הפרסור, על ידי התוסף.
+    7. פרסור, עם **תקרת הטוקנים** שנבדקת בכל טוקן שנוצר
+       (:class:`~services.doc_sections.TooManyTokens`), ותקרת הכותרות בתחילת
+       כל בלוק ובשער שאחרי הפרסור.
 
     **שני הנרמולים — הסרת ה-BOM ו-``\\r\\n`` ← ``\\n`` — הם היחידים
     שמותרים, ומאותו תנאי בדיוק:** אף אחד מהם אינו משנה כמה שורות יש,
     ולכן ``lines`` ומספרי השורות במפה נשארים מיושרים.
 
-    **ה-front matter מטופל בתוך הפרסור ולא לפניו**, ולכן הוא שלב 5 ולא
+    **ה-front matter מטופל בתוך הפרסור ולא לפניו**, ולכן הוא שלב 6 ולא
     שלב שלפני הבדיקות. אילו היינו מחליפים את שורות הבלוק לפני שלב 3,
     הוא היה יכול לבלוע ``\\r`` בודד שיושב בתוכו, ולהסתיר בדיוק את
     הקלט ששלב 3 קיים בשבילו.
@@ -401,16 +600,35 @@ def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> 
         :data:`~services.doc_sections.MAX_SECTIONS` — אותה ברירת מחדל
         כמו ב-``services.rst_parser.parse_document`` (מיושר מאז #3420;
         לפני כן היא הייתה ``None`` שם, וההבדל היה מוצהר בשני המקומות) —
-        ו-``None`` מכבה אותה במפורש.
+        ו-``None`` מכבה אותה במפורש. עם שתי התקרות האחרות על ברירת המחדל
+        שלהן היא אינה יכולה להיפגע — ראו את ה-docstring של המודול.
+    :param max_lines: התקרה על מספר השורות, ביחידה של ``count_lines`` —
+        ראו :data:`MAX_LINES`. ``None`` מכבה אותה במפורש.
+    :param max_tokens: התקרה על מספר טוקני הבלוק — ראו :data:`MAX_TOKENS`.
+        ``None`` מכבה אותה במפורש.
 
     :raises TypeError: ``text`` אינו מחרוזת.
     :raises ~services.doc_sections.InconsistentLineEndings: יש ``\\r``
         שאינו חלק מ-``\\r\\n``.
+    :raises ~services.doc_sections.TooManyLines: יש בקלט יותר שורות מהתקרה.
+        החריגה נושאת את מספר השורות ואת התקרה, והפרסור לא התחיל.
+    :raises ~services.doc_sections.TooManyTokens: הפרסור הגיע לתקרת הטוקנים.
+        החריגה נושאת את השורה שבה הפרסור היה ואת התקרה.
     :raises ~services.doc_sections.TooManySections: הקלט מכיל יותר
         כותרות מהתקרה. הארגומנט הוא מספר השורה שבה נעצרנו — מה שמבדיל
         עצירה בתוך הפרסור מסינון של פלט אחריו.
     """
     text = _entry_checks(text)
+
+    # **תקרת השורות — לפני כל עבודה שגדלה עם מספר השורות.** ``replace``,
+    # ``split`` והמערכים ש-``StateBlock`` בונה לכל שורה הם בדיוק העלות שהתקרה
+    # קיימת כדי לחסום, ולכן הספירה רצה על ``text`` עצמו. ``\r\n`` אינו משנה
+    # אותה (כל אחד נושא ``\n`` אחד בדיוק), ו-``\r`` בודד כבר נדחה בשלב הקודם.
+    # הנוסחה היא זו של ``count_lines`` ב-``mcp_server/handlers.py`` — ראו
+    # :data:`MAX_LINES`.
+    total_lines = text.count("\n") + 1 if text else 0
+    if max_lines is not None and total_lines > max_lines:
+        raise TooManyLines(total_lines, max_lines)
 
     normalized = text.replace("\r\n", "\n")
     lines = normalized.split("\n")
@@ -418,8 +636,24 @@ def parse_document(text: str, *, max_sections: Optional[int] = MAX_SECTIONS) -> 
     env: dict = {}
     if max_sections is not None:
         env[_ENV_COUNTER] = _SectionCounter(max_sections)
+    capped: Optional[_CappedTokens] = None
+    if max_tokens is not None:
+        capped = _CappedTokens(max_tokens)
+        env[_ENV_TOKENS] = capped
 
     tokens = _MD.parse(normalized, env)
+
+    # **המעקה של תקרת הטוקנים — הרשימה שחזרה היא זו שהותקנה.** ההתקנה עוברת
+    # בכלל core ולא בבנאי של ``StateCore``, כי שם רשימה ריקה נבלעת בשקט
+    # (``tokens or []``); והבדיקה כאן היא מה שהופך כל החלפה עתידית — שינוי
+    # בספרייה, כלל נוסף, או מסלול התקנה אחר — מפרסור שרץ בלי תקרה ונראה כמו
+    # פרסור עם תקרה, לכשל בקול. ``is`` ולא ``isinstance``: השאלה היא אם זו
+    # **אותה** רשימה, ולא אם יש איפשהו רשימה מאותו סוג.
+    if capped is not None and tokens is not capped:
+        raise RuntimeError(
+            "תקרת הטוקנים לא נאכפה: markdown-it החזיר רשימה אחרת מזו שהותקנה — "
+            "ראו _install_token_ceiling"
+        )
 
     # **שער שני לאותה תקרה, ולא כפילות.** הכלל שבתוך הפרסור נקרא
     # ב**תחילת** כל בלוק, ולכן הטוקנים שנדחפו אחרי הקריאה האחרונה שלו
@@ -477,9 +711,9 @@ def _sections_from_tokens(tokens: List[Token], *, total_lines: int) -> List[Sect
         #
         # ``RuntimeError`` ולא ``AssertionError``: האחרונה מסמנת שבירת
         # הנחה פנימית, והמטפל שימפה חריגות לתשובת MCP יזהה טיפוסים
-        # מוכרים. **וזה אינו ערוץ סירוב רביעי** — שלושת הערוצים נשארים
-        # ``TypeError``, ``InconsistentLineEndings`` ו-``TooManySections``,
-        # וזה כאן הוא שגיאה פנימית שאין למשתמש מה לעשות איתה.
+        # מוכרים. **וזה אינו ערוץ סירוב נוסף** — ערוצי הסירוב הם אלה שמנויים
+        # ב-docstring של המודול (``TypeError`` וחריגות הסירוב של
+        # ``doc_sections``), וזה כאן הוא שגיאה פנימית שאין למשתמש מה לעשות איתה.
         if token.map is None:
             raise RuntimeError(
                 f"markdown-it דחף heading_open בלי map בשורה {index} — "
@@ -555,8 +789,10 @@ def front_matter_end(text: str) -> int:
     מזהה בלוק רק בשורה 0) ונושא ``map = [0, end]``, ו-``end`` הוא בדיוק
     האינדקס שהסקריפט צריך.
 
-    פרסור מלא של הטקסט, בלי ``env`` ולכן בלי תקרה — הקלט הוא עמודי
-    תיעוד. ודרך :func:`_entry_checks`, כי האינדקס שמוחזר חייב להסכים עם
+    פרסור מלא של הטקסט, בלי ``env`` ולכן בלי אף תקרה (לא כותרות, לא טוקנים
+    ולא שורות) — הקלט הוא קבצים מהריפו: עמודי תיעוד ב-
+    ``scripts/generate_ai_map.py``, והקורפוס ב-``scripts/md_parser_upgrade_zero_diff.py``.
+    ודרך :func:`_entry_checks`, כי האינדקס שמוחזר חייב להסכים עם
     ``split("\\n")`` של הקורא: ``\\r`` בודד (ש-markdown-it סופר כמעבר שורה)
     היה מזיז אותו בשקט, ו-BOM היה מסתיר את הבלוק כולו — עכשיו הראשון
     נדחה בשם, והשני מוסר, בדיוק כמו ב-``parse_document``. **מחוץ ל-``__all__``

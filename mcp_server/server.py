@@ -802,51 +802,102 @@ _PROCESS_BASELINE_BYTES = 92 * 1024 * 1024
 _NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
 
 #: RSS growth per byte of input while a parse is alive — the **peak** during
-#: the parse (``VmHWM`` above the pre-parse high-water mark), because that is
-#: what N parses in flight hold at once; what ``parse_document`` retains
-#: afterwards is smaller.
+#: the parse, because that is what N parses in flight hold at once; what
+#: ``parse_document`` retains afterwards is smaller.
 #:
-#: **Which parser this number describes.** It was measured on
-#: ``services.md_parser`` (the pinned ``markdown-it-py``), one parse per fresh
-#: process, on 2026-09-20 — the parser the Markdown tool runs, so
-#: the pool is sized ahead of that tool. The tool that parses **today**,
-#: ``codekeeper_docs_get_section``, runs ``services.rst_parser`` on
-#: ``docs/*.rst`` only, and that parser is far cheaper by the same method:
-#: its RST corpus at the read ceiling adds nothing above the process's
-#: pre-parse high-water mark (2.7 bytes per input byte retained), its densest
-#: page (``docs/modules/index.rst``) tiled to the ceiling peaks at 6.4, and a
-#: hostile shape of one-character headings at 90.2 **without a ceiling** —
-#: 44.0MiB for one parse, above the 35.2MiB the formula grants a thread. That
-#: is why ``docs_get_section`` passes the outline's section ceiling (50,000)
-#: to the parser since the review of #3429: the same shape then stops at
-#: 20.1MiB (41.1 bytes per input byte), inside the allowance, and no real
-#: page comes near the ceiling. ``scripts/measure_md_parse_cost.py`` measures
-#: both parsers; run it when either of them changes.
+#: **How the peak is measured** (``scripts/measure_md_parse_cost.py``, whose
+#: docstring has the whole method). ``VmHWM`` is the peak of the process's
+#: whole life, so the measuring child **resets** it to the current RSS right
+#: before the parse — it writes ``5`` to ``/proc/self/clear_refs`` — and counts
+#: the peak from the RSS just before the parse. Without the reset (the method
+#: from #3429 until #3467) the baseline was the higher of the RSS and that
+#: earlier peak, and memory the process had reached and released before the
+#: parse — mostly the buffer of the file read — hid whatever the parse
+#: allocated below it: about half a MB on a 512KB input, always in the "fits"
+#: direction. The reset is proven on every run and stops the script loudly
+#: when it cannot be made (Linux only, ``5`` since 4.0); every number in this
+#: comment was re-measured with it. Two more corrections ride with it, both
+#: against the same bias: each memory measurement runs on 40 memory layouts
+#: (``LAYOUT_SEEDS`` — the same parse of the same input differs by up to
+#: ~0.9MB between layouts, and which layouts land high depends on the exact
+#: program, so one run is a draw), and what is judged is an upper
+#: bound — the maximum plus the lag of the kernel's per-CPU RSS counters
+#: (``counter_lag_bound_bytes``), with the measuring child pinned to one CPU
+#: so that lag is one CPU's. The pin is the measurement's, not the server's.
 #:
-#: The cost scales with the document's **density**, not its size: the
-#: repository's Markdown corpus peaks at 20.5 bytes per input byte at its
-#: median density of ~27 block tokens per KB, and its densest real document
-#: (``CLOUD.md``, ~170 tokens per KB) tiled to the read ceiling peaks at 70.1.
-#: Those are the numbers on markdown-it-py 4.2.0, re-measured on 2026-09-27
-#: when the pin moved up from 3.0.0 — on 3.0.0, the same day and the same
-#: script gave 20.8 and 71.2, so the upgrade does not move the constant.
-#: The constant, 72, is the earlier reading of that shape (71.7, before the
-#: script learned to subtract the pre-parse high-water mark) rounded up; the
-#: gap is margin, and re-running the script is what moves the constant, not
-#: an edit by hand. The 110 recorded in #3391 is still not directly
-#: comparable to it: that figure came from a denser corpus (~250 tokens per
-#: KB), which was not re-measured. So a parser upgrade re-runs the script; it
-#: does not assume the constant survives.
+#: **Which parser this number describes.** ``services.md_parser`` (the pinned
+#: ``markdown-it-py``), one parse per fresh process — the more expensive of
+#: the two parsers ``codekeeper_docs_get_section`` runs (``_PARSERS`` in
+#: ``mcp_server/docs_handlers.py``: ``services.rst_parser`` for ``.rst``,
+#: ``services.md_parser`` for ``.md``). The RST parser is far cheaper by the
+#: same method (2026-09-27, with the reset, over the 40 layouts): the
+#: repository's RST corpus tiled to the read ceiling peaks at 2.0 bytes per
+#: input byte — the method before the reset showed nothing at all, the
+#: pre-parse peak hiding it — its densest page (``docs/modules/index.rst``)
+#: tiled to the ceiling at 7.0, and a hostile shape of one-character headings
+#: at 90.8 **without a ceiling** — 44.3MiB for one parse, above the 35.2MiB
+#: the formula grants a thread. That is why the RST path has had a section
+#: ceiling since the review of #3429 (today ``doc_sections.MAX_SECTIONS``,
+#: 50,000, the default of both parsers, which the tool does not override):
+#: the same shape then stops at 20.2MiB (41.4 bytes per input byte), inside
+#: the allowance, and no real page comes near the ceiling.
+#: ``scripts/measure_md_parse_cost.py`` measures both parsers; run it when
+#: either of them changes.
 #:
-#: What the constant is **not**: the adversarial bound. A 500KB file of
-#: one-line bullets peaks at ~290 bytes per input byte — 141MiB for a single
-#: parse — which no pool width can absorb (three such parses exceed the plan
-#: at any width above the floor). The tool reads only the mirrored,
-#: allow-listed docs repositories, so the densest document it actually serves
-#: is the honest budget, and a ceiling inside the parser itself is the
-#: instrument for the hostile shape: in place for RST (the section ceiling
-#: above), still pending for Markdown, whose bullet shape has no headings for
-#: ``MAX_SECTIONS`` to count — a token ceiling, tracked in #3391, not here.
+#: The cost scales with the document's **density**, not its size. Tiled to
+#: the read ceiling, the repository's Markdown corpus (a median of ~27 block
+#: tokens per KB) peaks at 24.6 bytes per input byte, and its densest real
+#: document (``CLOUD.md``, ~170 tokens per KB) at 72.4 — 73.2 as an upper
+#: bound — on markdown-it-py 4.2.0; on 3.0.0 the same script gives 24.7 and
+#: 72.8 (upper bound 73.6), so the upgrade does not move the cost (2026-09-27,
+#: with the reset, over the 40 layouts). **That shape costs more than the
+#: constant, and always did.** 72 was set in #3429 from one reading of it,
+#: 71.7, rounded up, with the gap called margin; over 40 layouts the same
+#: shape on that day's parser (3.0.0) peaks anywhere from 71.2 to 72.8, so
+#: 71.7 was one draw, and the method used since — the pre-parse peak hiding
+#: about half a MB — read it lower still (70.1 and 71.2), which kept the
+#: shortfall from showing. **The constant holds only because of the parser
+#: ceilings of #3391 (#3467):** the tool refuses both tiled shapes at
+#: ``MAX_LINES`` before parsing (512,000 bytes of ordinary Markdown is more
+#: lines than that), so the script cuts every input to what the tool still
+#: parses, and what decides the constant is the adversarial input below. The
+#: 110 recorded in #3391 is still not directly comparable: that figure came
+#: from a denser corpus (~250 tokens per KB), which was not re-measured. A
+#: parser upgrade re-runs the script, and so does a change to either ceiling;
+#: none of them assumes the constant survives, and an edit by hand does not
+#: move it.
+#:
+#: **Since #3391 the constant also bounds the adversarial case — within the
+#: parser's own ceilings.** Until then it did not: a 500KB file of one-line
+#: bullets had no headings for ``MAX_SECTIONS`` to count, nothing inside the
+#: Markdown parser stopped it, and one parse of it cost several times this
+#: allowance. ``services.md_parser`` now refuses a file over ``MAX_LINES``
+#: before parsing and stops a parse at ``MAX_TOKENS``, and the worst input
+#: found under both (described next to ``MAX_TOKENS`` in
+#: ``services/md_parser.py``) is what holds the constant today.
+#:
+#: **The number that holds 72: 69.02 bytes per byte of the read ceiling —
+#: 95.9% of the constant, a margin of 4.1%** (2026-09-27, markdown-it-py
+#: 4.2.0, ``scripts/measure_md_parse_cost.py`` with the reset). It is an
+#: upper bound, built as the method above says: the highest peak of that
+#: input seen in any run with the reset, 34,959,360 bytes, plus the kernel's
+#: counter lag, 380,928 bytes on the four-CPU host it ran on — 35,340,288
+#: bytes over the 512,000 of the ceiling. The script's own full run gave
+#: 68.61 on its 40 layouts; the documented number takes the highest run seen.
+#: The peak itself spreads from 34,004,992 to 34,959,360 bytes, 92.2% to 94.8%
+#: of :data:`_PARSE_COST_BYTES` (how the runs fall is next to
+#: ``LAYOUT_SEEDS``), so one run that reads lower has met a layout, not a
+#: change. The margin is thin, and a future run that crosses 72 is **not
+#: noise**: the bound already carries the layout spread and the counter lag,
+#: so crossing it means the parse got more expensive — derive the constant
+#: again or tighten a ceiling; do not re-run until it passes.
+#:
+#: So the budget no longer rests on *what* the tool reads (the mirrored,
+#: allow-listed repositories — an assumption #3466 shows is weaker than it
+#: looked) but on what the parser can be made to do with any file it accepts,
+#: and ``scripts/measure_md_parse_cost.py`` re-checks the bound whenever the
+#: parser or its ceilings change. The RST path keeps its own instrument, the
+#: section ceiling above.
 _PARSE_RSS_PER_INPUT_BYTE = 72
 
 #: What one parse can cost at most — the divisor of the memory budget. The
@@ -860,27 +911,32 @@ _PARSE_RSS_PER_INPUT_BYTE = 72
 #: **A decision, recorded (review of #3429): the divisor is priced by the
 #: parse, and the parse is not the largest thing a read thread holds.** The
 #: admin-only ``codekeeper_get_repo_file`` with ``outline=true`` or ``lines=``
-#: reads up to ``RANGE_READ_MAX_BYTES`` (10MiB), and the mirror buffers the
-#: whole blob before its size check. Measured on 2026-09-20 by the same
-#: method: an outline of a 10MB RST file holds 61–77MiB over the whole path
-#: (realistic tiling / hostile headings, both ending in ``TooManySections``;
-#: the script's ``outline_densest_real`` line shows the parse alone above the
-#: pre-parse high-water mark, 51MiB, the rest being the 10MB of text already
-#: in memory), and a ``lines=`` read of the real 7MB
-#: ``webapp/static/js/md_preview.bundle.js`` holds ~37MiB — 1.1 to 2.2 times
-#: the 35.2MiB this divisor grants a thread. It stays priced
-#: by the parse because: the parse is what the public tool can cost at any
-#: moment, while the range tools sit behind ``require_admin``; the largest hold
-#: on a file that exists in the mirrors today (37MiB) fits the plan even at
-#: full width — 92 + 10 × 37.2 = 464MiB of 512MiB; and the 61–77MiB shape needs
-#: a 10MB RST file that no mirrored repository has (the largest here is 169KB).
-#: Pricing by ``RANGE_READ_MAX_BYTES`` would have cut the public path to 4
-#: threads (at 77MiB) or 9 (at 37MiB) for a shape without a source. What did
-#: change because of this is :data:`_READ_POOL_CAP`; the root fix — bounding
-#: the read at its source with a size probe before ``git show`` (#3433) — has
-#: landed in ``get_file_at_commit``: a blob over ``max_size`` is refused from
-#: ``git cat-file -s`` without being read (12MB: 20MiB peak before, 0 after,
-#: measured), so the hold above is now only what a file *under* the cap costs.
+#: reads up to ``RANGE_READ_MAX_BYTES`` (10MiB), and the mirror holds the
+#: whole blob in memory. Re-measured on 2026-09-27 with the reset, over 40
+#: layouts, upper bounds in parentheses — by a harness that is **not** in the
+#: repository, since the script measures the parse alone: an outline of a
+#: 10MB RST file holds 80.8MiB (81.2) over the whole path with realistic
+#: tiling and 91.6MiB (92.0) with hostile headings, both ending in
+#: ``TooManySections``. The parse alone is 61.2MiB (the script's
+#: ``outline_densest_real`` line), the rest being the 10MB of text and the
+#: read that brought it in; the method before the reset put the parse alone
+#: at 51MiB, the 10MB read buffer hiding the difference. A ``lines=`` read of
+#: the real 7MB ``webapp/static/js/md_preview.bundle.js`` holds 29.6MiB
+#: (29.9). So the largest hold is up to 2.6 times the 35.2MiB this divisor
+#: grants a thread. It stays priced by the parse because: the parse is what
+#: the public tool can cost at any moment, while the range tools sit behind
+#: ``require_admin``; the largest hold on a file that exists in the mirrors
+#: today, that bundle read, is under one thread's allowance, so it fits at
+#: full width by construction; and the 81–92MiB shape needs a 10MB RST file
+#: that no mirrored repository has (the largest here, ``docs/mcp-server.rst``,
+#: is under 250KB on 2026-09-27). Pricing by that shape would cut the public
+#: path to 3 threads (at 92MiB) for a shape without a source. What did change
+#: because of this is :data:`_READ_POOL_CAP`; the root fix — bounding the read
+#: at its source with a size probe before ``git show`` (#3433) — has landed in
+#: ``get_file_at_commit``: a blob over ``max_size`` is refused from
+#: ``git cat-file -s`` without being read (12MB: 22MiB peak before, 0 after,
+#: re-measured on 2026-09-27), so the hold above is now only what a file
+#: *under* the cap costs.
 _PARSE_COST_BYTES = _PARSE_RSS_PER_INPUT_BYTE * MAX_FILE_SIZE_FOR_DISPLAY
 
 
@@ -1408,7 +1464,8 @@ class AdminAwareFastMCP(FastMCP):
         # ``is None`` and not ``or``: ``ToolRateLimiter(0)`` is the documented
         # kill switch, and ``or`` kept it only because the class defines neither
         # ``__bool__`` nor ``__len__`` — the first one added would have swapped a
-        # switched-off limiter for the 60/min default in silence (K12 §3).
+        # switched-off limiter for the ``DEFAULT_RATE_LIMIT_PER_MINUTE`` default
+        # in silence (K12 §3).
         if tool_rate_limiter is None:
             tool_rate_limiter = ToolRateLimiter(DEFAULT_RATE_LIMIT_PER_MINUTE)
         self._tool_rate_limiter = tool_rate_limiter
