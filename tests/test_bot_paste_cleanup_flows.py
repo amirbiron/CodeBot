@@ -231,9 +231,18 @@ def test_editing_a_large_file_cleans_before_the_save(store):
     assert "🧹 ניקיתי מהקוד:" in chat.replies[-1]
 
 
-def test_the_save_command_cleans_before_the_save(store):
+def test_the_save_command_cleans_before_the_save(store, monkeypatch):
     """``/save <שם>`` ואז הקוד ואז ההערה — דרך ה-handlers ש-``CodeKeeperBot`` רושם."""
+    import database
     import main
+
+    # ``main`` קושר את ``db`` ואת ``CodeSnippet`` פעם אחת, בזמן הייבוא (``from database
+    # import ...``). טסטים אחרים בחבילה מייבאים את ``main`` בפעם הראשונה כש-``database``
+    # מוחלף בסטאב, והמודול נשאר בזיכרון עם הסטאב — ואז השמירה כאן הולכת לסטאב ולא
+    # לאוסף (נמדד: נופל אחרי ``tests/test_log_user_activity.py``). בייצור ``main.db``
+    # הוא ``database.db``, ולכן קושרים אותם כאן למצב של הייצור, בלי תלות בסדר הטסטים.
+    monkeypatch.setattr(main, "db", store.dbm)
+    monkeypatch.setattr(main, "CodeSnippet", database.CodeSnippet)
 
     bot = main.CodeKeeperBot()
     handlers = [args[0] for args, _kwargs in bot.application.handlers]
