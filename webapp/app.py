@@ -195,6 +195,9 @@ from file_description import (  # noqa: E402
 )
 # מחיקה רכה — מודול שורש טהור, אותה שאילתה שהבוט מריץ. ראו file_deletion.py
 from file_deletion import (  # noqa: E402
+    RECYCLE_BIN_COLLECTIONS,
+    RECYCLE_BIN_TTL_FIELD,
+    is_recycle_bin_ttl_index,
     resolve_owned_file_names,
     soft_delete_files_by_names as _soft_delete_files_by_names,
 )
@@ -9008,6 +9011,7 @@ def verify_indexes():
     2. אינדקסים בקולקשן users (לבדיקת user_id)
     3. אינדקסים בקולקשן note_reminders
     4. אינדקסים בקולקציות קריטיות נוספות
+    5. אינדקס ה-TTL שמרוקן את סל המיחזור, וכמה פריטים שתאריכם עבר עדיין בסל
     """
     import json
     from bson import json_util
@@ -9018,6 +9022,7 @@ def verify_indexes():
         "note_reminders_indexes": {},
         "job_trigger_requests_indexes": {},
         "code_snippets_indexes": {},
+        "recycle_bin_ttl": {},
         "summary": {}
     }
 
@@ -9098,6 +9103,37 @@ def verify_indexes():
         except Exception as e:
             results["code_snippets_indexes"] = {"error": str(e)}
 
+        # 6. אינדקס ה-TTL של סל המיחזור. אינדקס של התנהגות: בלעדיו אף פריט בסל
+        # לא נמחק, והעמוד /trash מציג "נמחק סופית ב-" על תאריכים שעברו. המפרט
+        # וההשוואה אליו יושבים ב-file_deletion.py; מסלול העלייה יוצר את האינדקס
+        # (DatabaseManager._create_recycle_bin_ttl_indexes), וכאן רק בודקים.
+        # "עבר ועדיין בסל" אמור להיות 0: תהליך ה-TTL של מונגו רץ פעם בדקה
+        # (https://www.mongodb.com/docs/manual/core/index-ttl/), ולכן מספר קטן
+        # לרגע הוא תקין ומספר שנשאר הוא אינדקס שאינו עובד.
+        now_utc = datetime.now(timezone.utc)
+        for coll_name in RECYCLE_BIN_COLLECTIONS:
+            try:
+                on_field = [
+                    dict(idx) for idx in db[coll_name].list_indexes()
+                    if RECYCLE_BIN_TTL_FIELD in dict(idx.get("key") or {})
+                ]
+                matching = [idx.get("name") for idx in on_field if is_recycle_bin_ttl_index(idx)]
+                overdue = db[coll_name].count_documents(
+                    {"is_active": False, RECYCLE_BIN_TTL_FIELD: {"$lt": now_utc}}
+                )
+                results["recycle_bin_ttl"][coll_name] = {
+                    "ttl_index_present": bool(matching),
+                    "ttl_index_names": matching,
+                    "indexes_on_field": json.loads(json_util.dumps(on_field)),
+                    "overdue_still_in_trash": int(overdue),
+                    "status": (
+                        "✅ אינדקס ה-TTL קיים ותואם למפרט" if matching
+                        else "⚠️ חסר אינדקס TTL — פריטים בסל לא יימחקו לעולם"
+                    ),
+                }
+            except Exception as e:
+                results["recycle_bin_ttl"][coll_name] = {"error": str(e)}
+
         # סיכום
         warnings = []
         if not results.get("users_indexes", {}).get("has_user_id_index"):
@@ -9106,6 +9142,13 @@ def verify_indexes():
             warnings.append("חסר אינדקס על job_trigger_requests.status")
         if not results.get("code_snippets_indexes", {}).get("has_is_active_created_at_index"):
             warnings.append("חסר אינדקס מורכב על code_snippets")
+        for coll_name in RECYCLE_BIN_COLLECTIONS:
+            section = results["recycle_bin_ttl"].get(coll_name, {})
+            # "לא הצלחתי לבדוק" אינו "חסר" — ערבוב ביניהם שולח לתקן את הדבר הלא נכון.
+            if "error" in section:
+                warnings.append(f"לא ניתן לבדוק את אינדקס ה-TTL של סל המיחזור ב-{coll_name}")
+            elif not section.get("ttl_index_present"):
+                warnings.append(f"חסר אינדקס TTL לסל המיחזור ב-{coll_name}")
         
         results["summary"] = {
             "all_critical_indexes_present": len(warnings) == 0,
