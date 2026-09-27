@@ -12,6 +12,7 @@
 """
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -741,15 +742,16 @@ def test_the_parser_dependencies_are_pinned_directly_in_base_requirements(packag
 #: הדרישות שנקראו מהמטא-דאטה של ``myst-parser`` בגרסה שנעוצה ב-
 #: ``docs/requirements.txt``. אילוץ, ולא העדפה: הוא זה שקובע כמה גבוה
 #: מותר לנעוץ ב-``requirements/base.txt``.
-_MYST_PINNED = "4.0.1"
-#: **המפרטים כפי שהם כתובים במטא-דאטה של myst-parser**, ולא הסדרה
-#: שגזרנו מהם. ההבדל אינו סגנוני: ``~=3.0`` פירושו ``>=3.0, ==3.*``
-#: ולכן ``3.1.0`` מקיים אותו, ו-``~=0.4`` פירושו ``>=0.4, ==0.*`` ולכן
-#: גם ``0.5.0`` מקיים. בדיקה שהשוותה קידומת ``"3.0."`` הייתה דוחה את
-#: שניהם ומאשימה את myst-parser בדרישה שאין לו.
+_MYST_PINNED = "5.1.0"
+#: **המפרטים כפי שהם כתובים במטא-דאטה של myst-parser** (נקראו ב-
+#: ``importlib.metadata.requires("myst-parser")`` על 5.1.0 מותקן,
+#: 2026-09-27), ולא הסדרה שגזרנו מהם. ההבדל אינו סגנוני: ``~=4.2`` פירושו
+#: ``>=4.2, ==4.*`` ולכן ``4.3.0`` מקיים אותו, ו-``~=0.6`` פירושו
+#: ``>=0.6, ==0.*`` ולכן גם ``0.7.0`` מקיים. בדיקה שהשוותה קידומת
+#: ``"4.2."`` הייתה דוחה את שניהם ומאשימה את myst-parser בדרישה שאין לו.
 _MYST_REQUIRES = {
-    "markdown-it-py": "~=3.0",
-    "mdit-py-plugins": "~=0.4,>=0.4.1",
+    "markdown-it-py": "~=4.2",
+    "mdit-py-plugins": "~=0.6,>=0.6.1",
 }
 
 
@@ -774,18 +776,19 @@ def test_the_parser_pins_can_be_installed_next_to_the_docs_toolchain():
 
     **וזה לא תיאורטי:** ``.github/workflows/documentation-py39.yml``
     מתקין את ``docs/requirements.txt`` ואת ``requirements/production.txt``
-    לאותה סביבה, ומפתח שמריץ את שניהם יחד מקבל
-    ``ResolutionImpossible`` — נמדד. ``myst-parser==4.0.1`` דורש
-    ``markdown-it-py~=3.0``, ולכן נעיצה ל-4.2.0 כאן הייתה סתירה בין שני
-    קבצים באותו ריפו.
+    לאותה סביבה. כש-``myst-parser==4.0.1`` היה נעוץ שם הוא דרש
+    ``markdown-it-py~=3.0``, ונעיצה ל-4.2.0 כאן נפלה ב-
+    ``ResolutionImpossible`` — נמדד. מאז השדרוג (2026-09-27) הכיוון התהפך:
+    myst-parser 5.1.0 דורש ``~=4.2``, ונמדד שהתקנה של שתי הקבוצות ברזולוציה
+    אחת עוברת ו-``pip check`` נקי.
 
     .. important::
 
        **הטסט הזה ייפול כששדרגו את myst-parser, וזו המטרה.** הדרישות
        שב-``_MYST_REQUIRES`` נקראו מהמטא-דאטה של הגרסה שב-
        ``_MYST_PINNED``, ולכן שינוי בצד אחד מחייב לקרוא מחדש את הצד
-       השני. ‏myst-parser 5.x, למשל, דורש ``markdown-it-py~=4.2`` —
-       ואז **צריך** להעלות כאן, לא להשאיר.
+       השני — ואם הגרסה החדשה דורשת טווח אחר, **צריך** להזיז את הנעיצה
+       ב-``requirements/base.txt``, לא להשאיר.
     """
     import importlib.metadata as metadata
 
@@ -817,7 +820,8 @@ def test_the_pin_check_accepts_every_version_myst_parser_allows():
     את ``markdown-it-py 3.1.0`` ואת ``mdit-py-plugins 0.5.0`` — שתיהן
     גרסאות ש-myst-parser 4.0.1 **מתיר**. הודעת הכשל הייתה אומרת
     "אינו מקיים את ~=3.0", טענה שאינה נכונה, ושולחת את המתחזק לחקור
-    את החבילה הלא נכונה.
+    את החבילה הלא נכונה. (הרשימות למטה עוקבות אחרי ``_MYST_REQUIRES``
+    הנוכחי, של myst-parser 5.1.0; הסיפור הוא של 4.0.1.)
 
     .. note::
 
@@ -827,12 +831,13 @@ def test_the_pin_check_accepts_every_version_myst_parser_allows():
        להשוואת קידומת תפיל אותו. זו ההגנה שאפשר לתת כאן.
     """
     allowed = {
-        "markdown-it-py": ["3.0.0", "3.1.0", "3.9.9"],
-        "mdit-py-plugins": ["0.4.1", "0.4.2", "0.5.0", "0.6.0"],
+        "markdown-it-py": ["4.2.0", "4.3.0", "4.9.9"],
+        "mdit-py-plugins": ["0.6.1", "0.6.2", "0.7.0", "0.9.9"],
     }
     forbidden = {
-        "markdown-it-py": ["2.2.0", "4.0.0", "4.2.0"],
-        "mdit-py-plugins": ["0.4.0", "1.0.0"],
+        "markdown-it-py": ["3.0.0", "4.1.0", "5.0.0"],
+        # ``0.6.0`` נדחה בגלל ``>=0.6.1`` — החלק של המפרט שבדיקת קידומת לא הייתה רואה
+        "mdit-py-plugins": ["0.5.0", "0.6.0", "1.0.0"],
     }
 
     for package, requirement in _MYST_REQUIRES.items():
@@ -920,6 +925,63 @@ def test_the_compare_script_does_not_call_an_empty_run_a_success(tmp_path, capsy
 
     assert exit_code == 1, "ריצה שלא השוותה דבר אינה מצליחה"
     assert "כל הקבצים סורבו" in capsys.readouterr().out
+
+
+def test_the_compare_script_loads_the_oracle_it_depends_on():
+    """``_load_oracle`` מחזיר מודול עם מה ש-``main`` צריך — כשל כאן מצביע על הטוען, לא על ``main``.
+
+    בלי הרישום ב-``sys.modules`` שלושה טסטים אחרים של הסקריפט נופלים, אבל ב-
+    ``AttributeError`` מתוך ``dataclasses`` שאינו אומר מילה על הטוען. הטסט הזה נקרא
+    בשם של מה שנשבר.
+    """
+    oracle = _load_compare_script()._load_oracle()
+    for name in ("_KNOWN_DIVERGENCES", "_divergence_trigger_lines", "_ours", "_oracle_sections"):
+        assert hasattr(oracle, name), name
+
+
+def test_a_broken_oracle_is_not_left_half_built_in_sys_modules(tmp_path, monkeypatch):
+    """טעינה שנכשלת מסירה את הרישום, כמו ש-``import`` רגיל עושה — והחריגה עולה כמו שהיא."""
+    broken = tmp_path / "tests"
+    broken.mkdir()
+    (broken / "test_md_parser_oracle.py").write_text(
+        "raise RuntimeError('שבור בכוונה')\n", encoding="utf-8"
+    )
+    script = _load_compare_script()
+    monkeypatch.setattr(script, "_REPO", tmp_path)
+    monkeypatch.delitem(sys.modules, "md_parser_oracle", raising=False)
+
+    with pytest.raises(RuntimeError, match="שבור בכוונה"):
+        script._load_oracle()
+
+    assert "md_parser_oracle" not in sys.modules
+
+
+def test_the_compare_script_fails_on_a_known_divergence_trigger_even_when_maps_agree(
+    tmp_path, capsys
+):
+    """הטענה "אף קובץ אמיתי לא מושפע" על ``amir-bug-patterns`` נבדקת בסקריפט.
+
+    ה-CI אינו רואה את הקורפוס הזה, ולכן הבדיקה שם היא הרצה על פי דרישה —
+    והיא צריכה ליפול על שורה שמפעילה פער ידוע **גם כשהמפה עדיין מסכימה**:
+    ``<source>`` שלמה ולבדה אחרי שורה ריקה היא בלוק HTML בשני הצדדים, אבל
+    עריכה אחת שתצמיד אותה לפסקה תהפוך אותה לפער. ובתוך בלוק קוד היא אינה
+    נספרת, כמו בסריקה של ``docs/``.
+    """
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "a_fenced.md").write_text("# א\n\n```html\n<source>\n```\n", encoding="utf-8")
+
+    script = _load_compare_script()
+    assert script.main([str(corpus)]) == 0, "תגית בתוך בלוק קוד אינה טריגר"
+    report = capsys.readouterr().out
+    assert re.search(r"טריגרים:\s+0\b", report), report
+
+    (corpus / "b_after_blank.md").write_text("# א\n\n<source>\n", encoding="utf-8")
+    assert script.main([str(corpus)]) == 1, "שורת טריגר מחוץ לקוד מפילה את הריצה"
+    report = capsys.readouterr().out
+    assert re.search(r"אי-הסכמות:\s+0\b", report), "המפות מסכימות — הנפילה היא מהטריגר בלבד"
+    assert re.search(r"טריגרים:\s+1\b", report), report
+    assert "b_after_blank.md:3" in report and "source/search" in report, report
 
 
 # ════════════════════════════════════════════════════════════════════

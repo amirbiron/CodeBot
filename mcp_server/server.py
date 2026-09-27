@@ -824,17 +824,19 @@ _NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
 #: both parsers; run it when either of them changes.
 #:
 #: The cost scales with the document's **density**, not its size: the
-#: repository's Markdown corpus peaks at 21 bytes per input byte at its median
-#: density of ~27 block tokens per KB, and its densest real document
-#: (``CLOUD.md``, ~170 tokens per KB) tiled to the read ceiling peaks at 70.7.
+#: repository's Markdown corpus peaks at 20.5 bytes per input byte at its
+#: median density of ~27 block tokens per KB, and its densest real document
+#: (``CLOUD.md``, ~170 tokens per KB) tiled to the read ceiling peaks at 70.1.
+#: Those are the numbers on markdown-it-py 4.2.0, re-measured on 2026-09-27
+#: when the pin moved up from 3.0.0 — on 3.0.0, the same day and the same
+#: script gave 20.8 and 71.2, so the upgrade does not move the constant.
 #: The constant, 72, is the earlier reading of that shape (71.7, before the
 #: script learned to subtract the pre-parse high-water mark) rounded up; the
 #: gap is margin, and re-running the script is what moves the constant, not
-#: an edit by hand. The 110 recorded in #3391 is not directly comparable to
-#: it: that figure came from a denser corpus (~250 tokens per KB) **and** from
-#: markdown-it-py 4.2.0, while the density curve above was measured on the
-#: pinned 3.0.0 only, and the old corpus was not re-measured on 3.0.0. So a
-#: parser upgrade re-runs the script; it does not assume the constant survives.
+#: an edit by hand. The 110 recorded in #3391 is still not directly
+#: comparable to it: that figure came from a denser corpus (~250 tokens per
+#: KB), which was not re-measured. So a parser upgrade re-runs the script; it
+#: does not assume the constant survives.
 #:
 #: What the constant is **not**: the adversarial bound. A 500KB file of
 #: one-line bullets peaks at ~290 bytes per input byte — 141MiB for a single

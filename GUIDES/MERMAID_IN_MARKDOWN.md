@@ -237,7 +237,7 @@ extensions = [
 גרסאות (`docs/requirements.txt`):
 ```
 sphinxcontrib-mermaid==1.0.0
-myst-parser==4.0.1
+myst-parser==5.1.0
 ```
 
 ### סינטקס RST
