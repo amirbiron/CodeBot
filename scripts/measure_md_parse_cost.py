@@ -368,9 +368,9 @@ def _table_past(max_tokens: int, prefix: str = "") -> list[str]:
     שורת גוף אחת מעבר למינימום — אותה בנייה בדיוק כמו בקלט שנמדד ב-#3391, כדי
     שהסקריפט ישחזר את המדידה שהקבועים נשענים עליה ולא קלט שכן שלה.
     """
-    header = _table_tokens(0)
-    per_row = _table_tokens(1) - header
-    rows = max(0, max_tokens - header) // per_row + 2
+    header_tokens = _table_tokens(0)
+    per_row = _table_tokens(1) - header_tokens
+    rows = max(0, max_tokens - header_tokens) // per_row + 2
     header = [prefix + "|" + "a|" * TABLE_COLUMNS, prefix + "|" + "-|" * TABLE_COLUMNS]
     return header + [prefix + "x"] * rows
 
