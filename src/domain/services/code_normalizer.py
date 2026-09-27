@@ -1,169 +1,192 @@
-"""
-Domain service: normalize code content.
+"""ניקוי מינימלי לקוד שמודבק בבוט — ההגדרה היחידה.
 
-Pure Python only. Mirrors default behavior of utils.normalize_code with defaults:
-- strip BOM
-- normalize CRLF/CR to LF
-- replace NBSP/NNBSP with space
-- replace Unicode space separators (Zs) with ASCII space
-- remove zero-width and directional marks
-- remove control/format characters except \t, \n, \r
-- trim trailing whitespace per line
-- drop trailing newline characters introduced by per-line trimming
-- handle literal escapes like "\\u200B" by stripping hidden characters
+**למה יש ניקוי, ולמה רק בבוט.** קוד שמודבק בטלגרם מגיע עם שאריות של הדרך
+שעבר: סופי שורה של Windows, BOM, ורווחים מיוחדים שהעתקה מדפדפן או ממעבד
+תמלילים משאירה. חלק מהם מפילים קוד: נמדד על Python 3.11 ש-NBSP, NNBSP,
+THIN SPACE, IDEOGRAPHIC SPACE ו-ZWSP בתוך קוד מרימים ``SyntaxError``. זה
+הצורך שבשבילו נבנה הנרמול (#637), והוא שייך לכניסה הזו בלבד.
 
-Note: intentionally does NOT force a trailing newline to preserve legacy behavior.
+**כל שאר הכניסות שומרות בדיוק את מה שנשלח.** עד היום הנרמול ישב גם בשכבת
+השמירה (``Repository.save_code_snippet`` ועוד שתיים), ולכן שכתב בשקט גם קבצים
+שהגיעו מה-MCP, מהוובאפ ומהעלאת מסמכים: מחק LRM ו-RLM ממסמכים בעברית, מחק
+רצפי escape טקסטואליים מקוד מקור (#643), ומחק את ה-newline שבסוף הקובץ
+(#1662). ``tests/test_content_cleaning_stays_in_the_bot.py`` נופל אם אחת
+הפונקציות כאן נקראת מ-``database/``, ``webapp/`` או ``mcp_server/``.
+
+מודול טהור: בלי I/O, ובזמן ייבוא לא רץ כלום מלבד הגדרות.
 """
 
 from __future__ import annotations
 
 import unicodedata
-import re
-from typing import Any
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+from typing import Tuple
+
+from src.domain.services.language_detector import MARKDOWN_SUFFIXES
+
+_BOM = "\ufeff"
+_ZWSP = "\u200b"
+
+#: מחלקות הכיווניות (Bidi_Class) של תווי ה-embedding, ה-override וה-isolate
+#: לפי UAX #9 — תשעת התווים שבטבלה 1 של מאמר Trojan Source (CVE-2021-42574).
+#: **מחלקה ולא רשימת תווים:** ההגדרה מתעדכנת עם התקן, והמקור לא מחזיק את
+#: התווים עצמם (H1 — תו כזה בקובץ מקור מפיל את bandit ב-B613). נמדד על
+#: Python 3.11.15 (Unicode 14.0): בדיוק U+202A–U+202E ו-U+2066–U+2069 נופלים
+#: בהן, ו-LRM, RLM ו-ALM (מחלקות L, R ו-AL) לא. הטסטים מקבעים את זה.
+_EXPLICIT_BIDI_CLASSES = frozenset({"LRE", "RLE", "PDF", "LRO", "RLO", "LRI", "RLI", "FSI", "PDI"})
 
 
-class CodeNormalizer:
-    """Normalize code strings into a safe, consistent form.
+@dataclass(frozen=True)
+class PasteCleanup:
+    """מה :func:`clean_pasted_code` החזירה: הטקסט הנקי, ומה בדיוק נעשה בו.
 
-    The implementation avoids any framework or I/O dependencies.
+    הספירות קיימות כדי שהבוט יוכל לומר למשתמש מה נוקה — ניקוי שאיש לא
+    מספר עליו הוא בדיוק השכתוב השקט שהמודול הזה בא להחליף.
     """
 
-    _ZERO_WIDTH = {
-        "\u200B",  # ZWSP
-        "\u200C",  # ZWNJ
-        "\u200D",  # ZWJ
-        "\u2060",  # WJ
-        "\uFEFF",  # ZWNBSP/BOM
-    }
+    text: str
+    #: זוגות ``\r\n`` שהפכו ל-``\n``.
+    crlf: int = 0
+    #: ``\r`` בודד (הפורמט של Mac שלפני 2001) שהפך ל-``\n``.
+    lone_cr: int = 0
+    #: האם נמחק BOM (אחד או רצף) מתחילת הטקסט.
+    bom: bool = False
+    #: תווי ``Zs`` שאינם רווח רגיל והוחלפו ברווח רגיל. רק בקוד, לא ב-Markdown.
+    special_spaces: int = 0
+    #: תווי ZWSP שנמחקו. רק בקוד, לא ב-Markdown.
+    zwsp: int = 0
+    #: שורות שנמחקו מסופן רווחים או טאבים. רק בקוד, לא ב-Markdown.
+    trailing_whitespace_lines: int = 0
+    #: מספרי השורות (מ-1, בטקסט הנקי) שיש בהן תו embedding, override או
+    #: isolate. **לא נוגעים בהם** — הם יכולים להיות שם בכוונה (FSI ו-PDI סביב
+    #: שם משתמש במחרוזת UI בעברית), והמשתמש מקבל עליהם אזהרה.
+    bidi_control_lines: Tuple[int, ...] = ()
 
-    _DIRECTIONAL = {
-        "\u200E",  # LRM
-        "\u200F",  # RLM
-        "\u202A",  # LRE
-        "\u202B",  # RLE
-        "\u202C",  # PDF
-        "\u202D",  # LRO
-        "\u202E",  # RLO
-        "\u2066",  # LRI
-        "\u2067",  # RLI
-        "\u2068",  # FSI
-        "\u2069",  # PDI
-    }
-
-    def normalize(self, text: Any) -> str:
-        """Normalize code text.
-
-        If text is not a string, returns an empty string for None or the original
-        value for non-string inputs (mirrors legacy behavior as closely as practical).
-        """
-        if not isinstance(text, str):
-            return text if text is not None else ""
-
-        out = text
-
-        # Handle sequences like "\\u200B" and "\\U0001F600" that represent hidden/format chars literally
-        if ("\\u" in out) or ("\\U" in out):
-            out = strip_hidden_escapes(out)
-
-        # 1) Strip BOM at start
-        if out.startswith("\ufeff"):
-            out = out.lstrip("\ufeff")
-
-        # 2) Normalize newlines to LF
-        out = out.replace("\r\n", "\n").replace("\r", "\n")
-
-        # 3) Replace NBSP/NNBSP with regular space
-        out = out.replace("\u00A0", " ").replace("\u202F", " ")
-
-        # 4) Replace all Unicode space separators (Zs) with ASCII space
-        try:
-            out = "".join(" " if unicodedata.category(ch) == "Zs" else ch for ch in out)
-        except Exception:
-            pass
-
-        # 5) Remove zero-width and directional formatting characters, and control/format chars
-        def _keep_char(ch: str) -> bool:
-            # Keep tabs/newlines/carriage returns
-            if ch in ("\t", "\n", "\r"):
-                return True
-            if ch in self._ZERO_WIDTH:
-                return False
-            if ch in self._DIRECTIONAL:
-                return False
-            cat = unicodedata.category(ch)
-            # Drop control characters (Cc) except the kept whitespace above
-            if cat == "Cc" and ch not in ("\t", "\n", "\r"):
-                return False
-            # Drop other format characters (Cf)
-            if cat == "Cf":
-                return False
-            return True
-
-        out = "".join(ch for ch in out if _keep_char(ch))
-
-        # 6) Trim trailing whitespace for each line
-        out = "\n".join(line.rstrip(" \t") for line in out.split("\n"))
-
-        # 7) Drop trailing newline characters so we don't force a newline at EOF
-        out = out.rstrip("\n")
-
-        return out
-
-    # ``_strip_hidden_escapes`` היה כאן כמתודה, עם ``_KNOWN_ESCAPE_HEX4`` — עותק
-    # שני של אותה פונקציה ואותה רשימה מ-``utils.normalize_code`` (#3427).
-    # ההגדרה האחת היא :func:`strip_hidden_escapes` למטה, ושני הצרכנים קוראים לה.
+    @property
+    def changed(self) -> bool:
+        """האם הטקסט הנקי שונה מזה שנשלח."""
+        return bool(
+            self.crlf
+            or self.lone_cr
+            or self.bom
+            or self.special_spaces
+            or self.zwsp
+            or self.trailing_whitespace_lines
+        )
 
 
-# תווי Variation Selector: ``Mn`` ולא ``Cf``, ולכן בדיקת הקטגוריה אינה תופסת
-# אותם והם צריכים תנאי משלהם — שנדלק רק לפי בקשה.
-_VS_HEX4 = range(0xFE00, 0xFE0F + 1)
-_IDEOGRAPHIC_VS = range(0xE0100, 0xE01EF + 1)
+def is_markdown_filename(name: object) -> bool:
+    """האם שם הקובץ הוא של מסמך Markdown, לפי הסיומת.
 
-_ESCAPE_U4 = re.compile(r"\\u([0-9a-fA-F]{4})")
-_ESCAPE_U8 = re.compile(r"\\U([0-9a-fA-F]{8})")
-
-
-def strip_hidden_escapes(s: str, *, remove_variation_selectors: bool = False) -> str:
-    """מסיר רצפי בריחה טקסטואליים (``\\uXXXX``, ``\\UXXXXXXXX``) שמייצגים תווי פורמט.
-
-    **ההגדרה היחידה, לשני הצרכנים** — :meth:`CodeNormalizer.normalize` ו-
-    ``utils.normalize_code`` (#3427). עד אז כל אחד מהם החזיק עותק של אותה
-    פונקציה, ולפניה רשימה של 16 קודים "ידועים" (``_KNOWN_ESCAPE_HEX4`` /
-    ``known_hex4``) שנבדקה לפני בדיקת הקטגוריה. נמדד: כל 16 הערכים הם
-    ``Cf``, כלומר הרשימה לא הוסיפה דבר על ``unicodedata.category`` — מסלול
-    מהיר שאיש לא מדד, בשני עותקים שהיו צריכים להסכים לנצח. ומי שהיה מוסיף
-    קוד לרשימה באחד הקבצים לא היה משנה דבר בפועל, ומסיק שהתיקון עבד.
-    **רשימה היא העתק של ידע שצריך להסכים עם עצמו; קטגוריה היא הגדרה
-    שמתעדכנת עם התקן** — ולכן נשארה הקטגוריה לבדה.
-
-    - ``Cf`` (format) מוסר תמיד, בשתי הצורות.
-    - Variation Selectors (``U+FE00``–``U+FE0F`` ו-``U+E0100``–``U+E01EF``)
-      הם ``Mn`` ולא ``Cf``, ולכן הם ענף נפרד שנדלק רק עם
-      ``remove_variation_selectors=True`` — ברירת המחדל שומרת אותם, כמו קודם
-      בשני הצרכנים. **ההחלטה היא על קוד התו, לא על צורת הכתיב:** ``\\U0000FE0F``
-      הוא אותו תו כמו ``\\uFE0F`` ומקבל אותה תשובה. עד סקירת #3443 הענף הארוך
-      בדק רק את הטווח האידאוגרפי, כאילו הכתיב קובע את הטווח.
-    - רצף שאינו מתפענח לקוד תו (``\\uZZZZ`` אינו תואם את הביטוי; ``chr``
-      מעבר לטווח) נשאר כמות שהוא.
+    הסיומות הן :data:`~src.domain.services.language_detector.MARKDOWN_SUFFIXES`
+    — אותה הגדרה שזיהוי השפה משתמש בה, כדי שקובץ שמזוהה כ-Markdown יקבל גם
+    את הניקוי של Markdown. הסיומת נקראת מ-``PurePosixPath(...).suffix`` ולא
+    בהשוואת קידומת או סיומת של מחרוזת. שם שאינו מחרוזת אינו Markdown.
     """
+    if not isinstance(name, str):
+        return False
+    return PurePosixPath(name.strip()).suffix.lower() in MARKDOWN_SUFFIXES
 
-    def _is_hidden(code: int) -> bool:
-        # הכלל האחד לשתי הצורות. ``chr`` מרים ``ValueError``/``OverflowError``
-        # מעל U+10FFFF — הצורה הארוכה היא היחידה שיכולה להגיע לשם, והיא תופסת.
-        if unicodedata.category(chr(code)) == "Cf":
-            return True
-        return remove_variation_selectors and (code in _VS_HEX4 or code in _IDEOGRAPHIC_VS)
 
-    def _strip_if_hidden_u4(m: "re.Match[str]") -> str:
-        return "" if _is_hidden(int(m.group(1), 16)) else m.group(0)
+def _has_explicit_bidi_control(line: str) -> bool:
+    return any(unicodedata.bidirectional(ch) in _EXPLICIT_BIDI_CLASSES for ch in line)
 
-    def _strip_if_hidden_u8(m: "re.Match[str]") -> str:
-        try:
-            hidden = _is_hidden(int(m.group(1), 16))
-        except (ValueError, OverflowError):
-            return m.group(0)  # מעבר לטווח Unicode — לא תו, נשאר כמות שהוא
-        return "" if hidden else m.group(0)
 
-    s = _ESCAPE_U4.sub(_strip_if_hidden_u4, s)
-    s = _ESCAPE_U8.sub(_strip_if_hidden_u8, s)
-    return s
+def clean_pasted_code(text: str, *, is_markdown: bool) -> PasteCleanup:
+    """הניקוי המינימלי לקוד שמודבק בבוט. מחזירה :class:`PasteCleanup`.
+
+    **בכל קובץ:**
+
+    - ``\\r\\n`` ו-``\\r`` בודד ← ``\\n``.
+    - BOM בתחילת הטקסט נמחק — גם כמה ברצף. ``U+FEFF`` במקום אחר אינו BOM ונשאר.
+
+    **רק כש-``is_markdown`` שקרי:**
+
+    - כל תו בקטגוריה ``Zs`` (NBSP, NNBSP, THIN SPACE, IDEOGRAPHIC SPACE
+      ועוד) ← רווח רגיל. קטגוריה ולא רשימה, כדי לא לפספס את התו הבא.
+    - ZWSP (``U+200B``) נמחק. ב-Markdown הוא לא שובר כלום, ואולי הוכנס בכוונה.
+    - רווחים וטאבים בסוף כל שורה נמחקים. ב-Markdown שני רווחים בסוף שורה הם
+      Hard break, ולכן שם הם נשארים.
+
+    **לעולם לא נוגעים ב:** LRM, RLM, ALM, ZWNJ, ZWJ, WJ, שאר תווי ``Cf``,
+    תווי ``Cc``, רצפי escape טקסטואליים (``"\\u200f"`` בתוך קוד הוא קוד), וה-newline
+    בסוף הטקסט. תווי embedding, override ו-isolate נשארים, ומדווחים ב-
+    :attr:`PasteCleanup.bidi_control_lines`.
+
+    הניקוי אידמפוטנטי: הרצה שנייה על הטקסט הנקי לא משנה בו דבר.
+
+    :raises TypeError: כש-``text`` אינו מחרוזת. ההמרה של ``None`` למחרוזת
+        ריקה היא החלטה של הקורא, לא של הפונקציה.
+    """
+    if not isinstance(text, str):
+        raise TypeError(f"clean_pasted_code expects str, got {type(text).__name__}")
+
+    # כל הרצף שבתחילת הטקסט: גם BOM שני ברצף מפיל קוד (נמדד על Python 3.11),
+    # ומחיקה של אחד בלבד הייתה משאירה קוד שבור והופכת הרצה שנייה למשנה.
+    out = text.lstrip(_BOM)
+    bom = len(out) != len(text)
+
+    crlf = out.count("\r\n")
+    if crlf:
+        out = out.replace("\r\n", "\n")
+    lone_cr = out.count("\r")
+    if lone_cr:
+        out = out.replace("\r", "\n")
+
+    special_spaces = 0
+    zwsp = 0
+    trailing_whitespace_lines = 0
+    if not is_markdown:
+        out, special_spaces, zwsp = _replace_special_spaces_and_drop_zwsp(out)
+        # אחרי ההחלפה של Zs, כדי ש-NBSP בסוף שורה ייחתך יחד עם שאר הרווחים.
+        out, trailing_whitespace_lines = _trim_trailing_whitespace(out)
+
+    return PasteCleanup(
+        text=out,
+        crlf=crlf,
+        lone_cr=lone_cr,
+        bom=bom,
+        special_spaces=special_spaces,
+        zwsp=zwsp,
+        trailing_whitespace_lines=trailing_whitespace_lines,
+        bidi_control_lines=_explicit_bidi_control_lines(out),
+    )
+
+
+def _replace_special_spaces_and_drop_zwsp(text: str) -> Tuple[str, int, int]:
+    """``Zs`` ← רווח רגיל, ו-ZWSP נמחק. מחזירה את הטקסט ואת שתי הספירות."""
+    # מסלול מהיר: טקסט ASCII אינו יכול להכיל Zs (חוץ מרווח רגיל) או ZWSP.
+    if text.isascii():
+        return text, 0, 0
+    special_spaces = 0
+    zwsp = 0
+    kept = []
+    for ch in text:
+        if ch == _ZWSP:
+            zwsp += 1
+        elif ch != " " and unicodedata.category(ch) == "Zs":
+            special_spaces += 1
+            kept.append(" ")
+        else:
+            kept.append(ch)
+    return "".join(kept), special_spaces, zwsp
+
+
+def _trim_trailing_whitespace(text: str) -> Tuple[str, int]:
+    """מוחקת רווחים וטאבים בסוף כל שורה. מחזירה את הטקסט ואת מספר השורות שהשתנו."""
+    lines = text.split("\n")
+    trimmed = [line.rstrip(" \t") for line in lines]
+    changed = sum(1 for before, after in zip(lines, trimmed) if before != after)
+    return ("\n".join(trimmed) if changed else text), changed
+
+
+def _explicit_bidi_control_lines(text: str) -> Tuple[int, ...]:
+    """מספרי השורות (מ-1) שיש בהן תו embedding, override או isolate."""
+    if text.isascii():
+        return ()
+    return tuple(
+        number
+        for number, line in enumerate(text.split("\n"), start=1)
+        if _has_explicit_bidi_control(line)
+    )

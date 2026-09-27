@@ -4,6 +4,11 @@ import re
 from pathlib import Path
 from typing import Optional
 
+#: הסיומות של מסמך Markdown. ההגדרה האחת בדומיין: זיהוי השפה משתמש בה כאן,
+#: ו-``code_normalizer.is_markdown_filename`` משתמש בה כדי שקובץ שמזוהה
+#: כ-Markdown יקבל גם את הניקוי של Markdown.
+MARKDOWN_SUFFIXES = frozenset({".md", ".markdown", ".mdown", ".mkd", ".mkdn"})
+
 
 class LanguageDetector:
     """
@@ -97,7 +102,7 @@ class LanguageDetector:
             return non_generic_map[ext]
 
         # 4) Generic extensions: consider content signals
-        generic_md_exts = {".md", ".markdown", ".mdown", ".mkd", ".mkdn"}
+        generic_md_exts = MARKDOWN_SUFFIXES
         generic_text_exts = {".txt", ""}
 
         def looks_like_markdown(content: str) -> bool:

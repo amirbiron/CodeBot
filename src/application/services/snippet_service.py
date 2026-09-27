@@ -4,7 +4,6 @@ from typing import Optional, List
 
 from src.application.dto.create_snippet_dto import CreateSnippetDTO
 from src.domain.entities.snippet import Snippet
-from src.domain.services.code_normalizer import CodeNormalizer
 try:
     # Optional during gradual refactor: allow running without the detector present
     from src.domain.services.language_detector import LanguageDetector
@@ -24,21 +23,20 @@ class SnippetService:
     def __init__(
         self,
         snippet_repository: ISnippetRepository,
-        code_normalizer: CodeNormalizer,
         language_detector: Optional["LanguageDetector"] = None,
     ) -> None:
         self._repo = snippet_repository
-        self._normalizer = code_normalizer
         # Prefer domain-level detector when available; otherwise fall back to local heuristics
         self._language_detector = language_detector if language_detector is not None else (LanguageDetector() if LanguageDetector else None)
 
     async def create_snippet(self, dto: CreateSnippetDTO) -> Snippet:
-        normalized = self._normalizer.normalize(dto.code)
+        # התוכן נשמר כמו שהגיע. ניקוי של קוד מודבק שייך לכניסה של הבוט, והיחיד
+        # שקורא לכאן (``handlers/save_flow._save_via_layered_flow``) כבר ניקה.
         entity = Snippet(
             user_id=dto.user_id,
             filename=dto.filename,
-            code=normalized,
-            language=self._detect_language(normalized, dto.filename),
+            code=dto.code,
+            language=self._detect_language(dto.code, dto.filename),
             description=dto.note or "",
             tags=list(dto.tags or []),
         )

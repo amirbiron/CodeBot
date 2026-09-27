@@ -26,7 +26,7 @@ def test_sanitize_code_blocks_variants():
     assert cp.sanitize_code_blocks(plain) == plain
 
 
-def test_validate_code_input_non_str_empty_long_and_unicode_error(monkeypatch):
+def test_validate_code_input_non_str_empty_long_and_unicode_error():
     mod = _reload_module()
     cp = mod.code_processor
 
@@ -43,14 +43,6 @@ def test_validate_code_input_non_str_empty_long_and_unicode_error(monkeypatch):
     bad = "bad surrogate: " + "\ud800"
     ok, cleaned, msg = cp.validate_code_input(bad)
     assert ok is False and "לא חוקיים" in msg
-
-    # נרמול שמתרסק — נוודא שמתבצע fallback ולא קורס
-    def boom(*args, **kwargs):
-        raise RuntimeError("normalize fail")
-
-    monkeypatch.setattr(mod, 'normalize_code', boom, raising=True)
-    ok, cleaned, msg = cp.validate_code_input("print('hi')", filename="x.py")
-    assert ok is True and "print('hi')" in cleaned
 
 
 def test_detect_language_patterns_guess_and_structure(monkeypatch):

@@ -3,9 +3,10 @@
 Repo convention is hand-rolled fakes (no mongomock). Several suites need the
 same duck-typed stand-in, so the collection semantics — filter matching
 (``$ne``, ``$in``, ``$nin``, ``$exists`` and the range operators), inclusion
-projections, upsert, ``$push`` with ``$each``/``$slice``, ``$unset``,
-``update_many``, counting, and the matched/modified/deleted counts the callers
-read — live here in one place. An operator outside those sets raises
+projections, ``find_one`` with pymongo's positional projection and ``sort``,
+upsert, ``$push`` with ``$each``/``$slice``, ``$unset``, ``update_many``,
+counting, and the matched/modified/deleted counts and ``inserted_id`` the
+callers read — live here in one place. An operator outside those sets raises
 ``NotImplementedError`` rather than matching everything or ignoring the
 write. ``FakeTrackerDB`` is the ``DatabaseManager``
 shape the job tracker reaches its collection through. The migration-script tests reach the DB as
@@ -42,11 +43,15 @@ class _Res:
         upserted: Any = None,
         deleted: int = 0,
         matched: int | None = None,
+        inserted: Any = None,
     ) -> None:
         self.modified_count = modified
         self.upserted_id = upserted
         self.deleted_count = deleted
         self.matched_count = modified if matched is None else matched
+        # ``Repository.save_code_snippet`` reads ``inserted_id`` to decide the
+        # save happened; a result without it reads as a failed insert.
+        self.inserted_id = inserted
 
 
 #: What the matcher and the writer implement. Anything else raises instead of
@@ -80,7 +85,7 @@ class FakeCollection:
         d = dict(d)
         d.setdefault("_id", self._id)
         self.docs.append(d)
-        return _Res()
+        return _Res(inserted=d["_id"])
 
     @staticmethod
     def _match(doc, q):
@@ -120,8 +125,8 @@ class FakeCollection:
     def estimated_document_count(self):
         return len(self.docs)
 
-    def find(self, q, projection=None, *a, **k):
-        docs = [copy.deepcopy(d) for d in self.docs if self._match(d, q)]
+    @staticmethod
+    def _project(docs, projection):
         if projection:
             # Inclusion projections only — that is all this repo's queries use.
             # Honouring it matters: a caller that reads a field it did not ask
@@ -131,7 +136,11 @@ class FakeCollection:
             if keep:
                 keep.add("_id")
                 docs = [{f: v for f, v in d.items() if f in keep} for d in docs]
-        return _FakeCursor(docs)
+        return docs
+
+    def find(self, q, projection=None, *a, **k):
+        docs = [copy.deepcopy(d) for d in self.docs if self._match(d, q)]
+        return _FakeCursor(self._project(docs, projection))
 
     def update_many(self, q, u):
         modified = 0
@@ -141,11 +150,27 @@ class FakeCollection:
                 modified += 1
         return _Res(modified=modified)
 
-    def find_one(self, q):
+    def find_one(self, q=None, projection=None, *a, sort=None, **k):
+        """pymongo's shape: the projection is the **second positional** argument,
+        and ``sort`` is a list of ``(key, direction)`` pairs.
+
+        The repository's save path uses both — ``find_one(query, {"version": 1},
+        sort=[("version", -1)])`` — so a fake that took only the query would
+        raise ``TypeError`` there, and the save would report failure. As in
+        Mongo, the sort runs before the projection, and a missing or ``None``
+        field sorts lowest.
+        """
+        matches = [d for d in self.docs if self._match(d, q or {})]
+        for key, direction in reversed(list(sort or [])):
+            matches.sort(
+                key=lambda d: (d.get(key) is not None, d.get(key)),
+                reverse=int(direction) < 0,
+            )
+        if not matches:
+            return None
         # Return an independent copy (like real pymongo) so a caller mutating the
         # result — e.g. oauth_store popping "_id" — can't corrupt stored docs.
-        match = next((d for d in self.docs if self._match(d, q)), None)
-        return copy.deepcopy(match) if match is not None else None
+        return self._project([copy.deepcopy(matches[0])], projection)[0]
 
     @staticmethod
     def _apply(doc, u):

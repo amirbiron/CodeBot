@@ -6,8 +6,7 @@ def test_snippet_service_detect_language_md_variants():
 
     # Create service with minimal dummies
     repo = MagicMock()
-    norm = MagicMock()
-    svc = SnippetService(snippet_repository=repo, code_normalizer=norm)
+    svc = SnippetService(snippet_repository=repo)
 
     assert svc._detect_language('x', 'doc.md') == 'markdown'
     assert svc._detect_language('x', 'notes.markdown') == 'markdown'

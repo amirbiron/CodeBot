@@ -71,3 +71,34 @@ def test_the_operators_the_repo_relies_on_keep_working(coll):
 def test_update_many_applies_the_same_write_semantics(coll):
     coll.update_many({"a": {"$gte": 1}}, {"$unset": {"tags": ""}})
     assert all("tags" not in d for d in coll.find({}))
+
+
+def test_find_one_takes_projection_and_sort_like_pymongo(coll):
+    """``Repository.save_code_snippet`` שואל ``find_one(query, projection, sort=...)``.
+
+    דמה שלוקחת רק שאילתה זורקת שם ``TypeError``, והשמירה מדווחת על כשל. ה-sort
+    רץ לפני ההיטלה (שדה שהוחרג עדיין קובע את הסדר), וערך חסר ממוין ראשון,
+    כמו ``null`` במונגו.
+    """
+    coll.insert_one({"a": 1, "version": 3, "code": "v3"})
+    coll.insert_one({"a": 1, "version": 5, "code": "v5"})
+    coll.insert_one({"a": 1})
+
+    top = coll.find_one({"a": 1}, {"version": 1}, sort=[("version", -1)])
+    assert top["version"] == 5 and "code" not in top and "_id" in top
+
+    lowest = coll.find_one({"a": 1}, sort=[("version", 1)])
+    assert "version" not in lowest  # ה-None ממוין ראשון
+
+    assert coll.find_one({"a": 99}, {"version": 1}, sort=[("version", -1)]) is None
+
+
+def test_find_one_still_refuses_an_unimplemented_operator(coll):
+    with pytest.raises(NotImplementedError, match="does not implement"):
+        coll.find_one({"a": {"$regex": "^1"}}, {"a": 1}, sort=[("a", -1)])
+
+
+def test_insert_one_reports_the_inserted_id(coll):
+    res = coll.insert_one({"a": 3})
+    assert res.inserted_id is not None
+    assert coll.find_one({"_id": res.inserted_id})["a"] == 3

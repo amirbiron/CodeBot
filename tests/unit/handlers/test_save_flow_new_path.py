@@ -10,9 +10,9 @@ async def test_save_flow_new_path_saves_and_replies(monkeypatch):
 
     # Stub modules imported inside save_flow function
     class DummyService:
-        def __init__(self, snippet_repository=None, code_normalizer=None):
+        def __init__(self, snippet_repository=None, language_detector=None):
             self.repo = snippet_repository
-            self.norm = code_normalizer
+            self.detector = language_detector
 
         async def create_snippet(self, dto):
             class _S:
@@ -24,7 +24,6 @@ async def test_save_flow_new_path_saves_and_replies(monkeypatch):
 
     dummy_service_mod = types.SimpleNamespace(SnippetService=DummyService)
     dummy_dto_mod = types.SimpleNamespace(CreateSnippetDTO=object)
-    dummy_norm_mod = types.SimpleNamespace(CodeNormalizer=object)
     dummy_repo_mod = types.SimpleNamespace(SnippetRepository=object)
 
     fake_db = types.SimpleNamespace(get_latest_version=lambda u, f: {'_id': 'abc123'})
@@ -32,7 +31,6 @@ async def test_save_flow_new_path_saves_and_replies(monkeypatch):
 
     monkeypatch.setitem(__import__('sys').modules, 'src.application.services.snippet_service', dummy_service_mod)
     monkeypatch.setitem(__import__('sys').modules, 'src.application.dto.create_snippet_dto', dummy_dto_mod)
-    monkeypatch.setitem(__import__('sys').modules, 'src.domain.services.code_normalizer', dummy_norm_mod)
     monkeypatch.setitem(
         __import__('sys').modules,
         'src.infrastructure.database.mongodb.repositories.snippet_repository',

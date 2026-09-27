@@ -1,6 +1,6 @@
 זרימת שמירת קוד (Save Flow)
 ==============================
-:summary: מצבי השמירה, מצב האיסוף הארוך, זיהוי סודות, טיפול בכפילויות, ונרמול הקוד לפני השמירה.
+:summary: מצבי השמירה, מצב האיסוף הארוך, זיהוי סודות, טיפול בכפילויות, והניקוי המינימלי של קוד מודבק לפני השמירה.
 
 סקירה כללית
 ------------
@@ -60,7 +60,6 @@
          H->>H: _schedule_long_collect_timeout()
          H->>U: "מצב איסוף ארוך. שלח עוד קוד או /done"
        else קוד רגיל
-         H->>H: נרמול קוד (normalize_code)
          H->>H: זיהוי secrets (_detect_secrets)
          alt נמצאו secrets
            H->>U: "אזהרה: נמצאו סודות בקוד"
@@ -79,6 +78,7 @@
        end
        
        U->>H: הערה או /skip
+       H->>CS: clean_pasted_code(code, filename)
        H->>CS: process_code(code, filename, language)
        CS->>CS: זיהוי שפה (detect_language)
        CS->>CS: ניתוח קוד (analyze_code)
@@ -163,24 +163,23 @@
            [InlineKeyboardButton("❌ ביטול", callback_data="cancel")]
        ]
 
-נרמול קוד
-----------
+ניקוי קוד מודבק
+----------------
 
-כל קוד עובר נרמול לפני שמירה:
+הקוד נשמר כמו שהמשתמש שלח, חוץ מניקוי מינימלי אחד שרץ ב-``save_file_final``, ממש לפני השמירה — שם גם הקוד וגם שם הקובץ ידועים, ורק לפי השם אפשר לדעת אם זה Markdown. שלבי הכניסה (``get_code``, ``long_collect_receive``, ``long_collect_done``) שומרים את הטקסט כמו שהגיע:
 
 .. code-block:: python
 
-   from utils import normalize_code
-   
-   normalized = normalize_code(code)
-   # הסרת תווים נסתרים
-   # נרמול שורות ריקות
-   # טיפול בקידודים שונים
+   cleanup = code_service.clean_pasted_code(code, filename)
+   code = cleanup.text
+   cleanup_notice = code_service.format_cleanup_notice(cleanup)
+
+מה מנוקה ומה לא — ב-docstring של ``clean_pasted_code`` (``src/domain/services/code_normalizer.py``) ובעמוד :doc:`/quality/code-normalization`. מה שנוקה נכתב בהודעת ההצלחה, יחד עם אזהרה כשיש בקוד תווים שמשנים את סדר התצוגה.
 
 הערות לסוכנים:
 
-- הנורמלייזר מסיר רווחים ריקים בסוף כל שורה, ואז מוריד גם ``\n`` עודפים בסוף הטקסט. כלומר אם המשתמש לא שלח שורה ריקה אחרונה – לא נוסיף אחת באופן מלאכותי.
-- אם מבחני יחידה או תסריטים חיצוניים מצפים לשורת סיום מסוימת, צריך להוסיף אותה במפורש בקוד לפני הקריאה ל-``normalize_code`` או להתאים את האסרט.
+- ה-newline בסוף הקוד נשמר, ורווחים בסוף שורה נשמרים בקובצי Markdown (שם הם Hard break).
+- חלק באיסוף ארוך שנשלח כקובץ טקסט מפוענח ב-``utf-8-sig``, כדי שה-BOM של הקובץ לא יגיע לאמצע הקוד המאוחד.
 
 Edge Cases
 ----------

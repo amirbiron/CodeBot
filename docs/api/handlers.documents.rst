@@ -15,7 +15,7 @@ handlers.documents module
 - ``DocumentHandler._handle_github_create_repo_from_zip`` – יצירת ריפו חדש והעלאת תכולת ה‑ZIP.
 - ``DocumentHandler._handle_zip_import`` – יבוא ZIP פנימי (Backup) ושחזור קבצים לחשבון המשתמש.
 - ``DocumentHandler._handle_zip_create`` – צבירת קבצים ל‑bundle ZIP לשימוש חוזר.
-- ``DocumentHandler._handle_textual_file`` – נרמול, זיהוי קידוד ושמירה של קבצים טקסטואליים/קוד.
+- ``DocumentHandler._handle_textual_file`` – זיהוי קידוד ושמירה של קבצים טקסטואליים/קוד, בלי שינוי בתוכן.
 
 קישורים לטסטים רלוונטיים
 -------------------------

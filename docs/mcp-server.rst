@@ -236,11 +236,13 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
      - **כתיבה:** יצירת קובץ **חדש**. שם שכבר תפוס נדחה ב-``file_exists``,
        ולעדכון קובץ קיים יש ``codekeeper_edit_file`` / ``codekeeper_append_file``.
        בכפוף למגבלת ``MAX_CODE_SIZE`` — ברירת מחדל 100K תווים, ניתנת להגדלה
-       בקונפיג. דורש ``write``
+       בקונפיג. התוכן נשמר **בדיוק** כמו שנשלח, בכל שלושת כלי הכתיבה: בלי
+       ניקוי תווים ובלי קיצוץ רווחים או newline — ראו
+       :doc:`/quality/code-normalization`. דורש ``write``
    * - ``codekeeper_edit_file``
      - **כתיבה:** מצא-והחלף מדויק בקובץ קיים (``old_string`` →
-       ``new_string``) — בלי לשלוח את כל הקובץ. נשמר כגרסה חדשה. דורש
-       ``write``
+       ``new_string``) — בלי לשלוח את כל הקובץ. נשמר כגרסה חדשה, ורק הטקסט
+       שהוחלף משתנה: שאר הקובץ נשאר תו בתו. דורש ``write``
    * - ``codekeeper_append_file``
      - **כתיבה:** הוספת טקסט לסוף קובץ קיים (גרסה חדשה). דורש ``write``
    * - ``codekeeper_update_file_description``

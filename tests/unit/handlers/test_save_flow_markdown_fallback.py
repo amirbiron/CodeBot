@@ -38,11 +38,14 @@ def test_layered_flow_fallback_detects_markdown_for_md(monkeypatch):
     sf.InlineKeyboardButton = lambda *a, **k: ('btn', a, k)
     sf.InlineKeyboardMarkup = lambda rows: ('kb', rows)
 
-    async def _capture_send(update, context, filename, detected_language, note, fid):
+    # החתימה של ``_send_save_success`` כולה, כולל ``cleanup_notice``: סטאב צר
+    # יותר זורק TypeError, שנבלע במסלול השכבתי ומפיל את הזרימה למסלול הישן.
+    async def _capture_send(update, context, filename, detected_language, note, fid, cleanup_notice=""):
         captured['filename'] = filename
         captured['language'] = detected_language
         captured['note'] = note
         captured['fid'] = fid
+        captured['cleanup_notice'] = cleanup_notice
 
     monkeypatch.setattr(sf, '_send_save_success', _capture_send)
 
