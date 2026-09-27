@@ -62,11 +62,12 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import functools
 import hashlib
 import importlib.metadata
 import json
 import sys
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -241,6 +242,11 @@ def _load_oracle():
     return load()
 
 
+def _row_texts(row) -> Iterator[str]:
+    """הטקסטים של המשפחה של שורה בטבלה, בלי הדגל שאומר אם החוק מצפה להסכמה."""
+    return (text for text, _agrees in row.family())
+
+
 def _oracle_families(oracle) -> dict[str, Callable[[], Iterable[str]]]:
     """כל משפחה בשמה: ``_COMPARED_FAMILIES``, ומשפחת כל שורה ב-``_KNOWN_DIVERGENCES``."""
     families: dict[str, Callable[[], Iterable[str]]] = dict(oracle._COMPARED_FAMILIES)
@@ -248,7 +254,7 @@ def _oracle_families(oracle) -> dict[str, Callable[[], Iterable[str]]]:
         if row.key in families:
             # שני שמות זהים היו משאירים בתצלום רק אחת מהמשפחות, בלי שאיש ידע
             raise RuntimeError(f"שם משפחה כפול באורקל: {row.key}")
-        families[row.key] = lambda row=row: (text for text, _agrees in row.family())
+        families[row.key] = functools.partial(_row_texts, row)
     return families
 
 
@@ -424,23 +430,23 @@ def _compare(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             failed = True
             continue
         # ‏``strict`` אינו יכול לזרוק כאן: רשימות הגיבובים שוות, ולכן גם האורכים
-        different = [
+        changed_indices = [
             index for index, (a, b) in enumerate(zip(before, after, strict=True)) if a != b
         ]
         declared = name in expected
         lines.append(
-            f"[oracle:{name}] צורות={len(before)} השתנו={len(different)} "
+            f"[oracle:{name}] צורות={len(before)} השתנו={len(changed_indices)} "
             f"מסכימות עם cmark: ישן={sum(shape.get('agree') is True for shape in before)} "
             f"חדש={sum(shape.get('agree') is True for shape in after)}"
             + (" — שינוי מוכרז" if declared else "")
         )
-        if not different:
+        if not changed_indices:
             continue
         if declared:
             changed.add(name)
             continue
         failed = True
-        for index in different[:_SHOWN]:
+        for index in changed_indices[:_SHOWN]:
             lines.append(f"    #{index} ישן: {before[index]}")
             lines.append(f"    #{index} חדש: {after[index]}")
     for name in expected:
