@@ -18,12 +18,15 @@
 שימדל **מחלקת אזור אחת בלבד** יקבל 100% על קורפוס אמיתי ויישבר על
 הקובץ הבא. הצורות המחוללות הן הראיה.
 
-**ומה שהקובץ הזה אינו עושה, כדי שזה לא ייקרא כהשמטה:** הוא **אינו מריץ
-אף קובץ אמיתי**. זו החלטה. קורפוס אמיתי הוא בדיקת שפיות חד-פעמית ולא
-רשת שתופסת רגרסיה עתידית, והוא היה דורש להחזיק בריפו הזה עותק של תוכן
-שאינו שלו. ההרצה על קורפוס אמיתי נעשית על פי דרישה, עם
+**ומה שהקובץ הזה אינו עושה, כדי שזה לא ייקרא כהשמטה:** הוא **אינו משווה
+מפה של אף קובץ אמיתי**. זו החלטה. קורפוס אמיתי הוא בדיקת שפיות חד-פעמית
+ולא רשת שתופסת רגרסיה עתידית, והוא היה דורש להחזיק בריפו הזה עותק של
+תוכן שאינו שלו. ההרצה על קורפוס אמיתי נעשית על פי דרישה, עם
 ``scripts/compare_md_parser_to_cmark.py`` — לפני שלב 2, אחרי שדרוג של
-``markdown-it-py``, וכשנוגעים בפארסר.
+``markdown-it-py``, וכשנוגעים בפארסר. **החריג היחיד, וצר:** עמודי ה-``.md``
+תחת ``docs/`` של הריפו הזה נסרקים — לא להשוואת מפה, אלא לשורות שמפעילות
+את אחד הפערים הידועים (``_divergence_trigger_lines``). הם בריפו, ולכן אין
+כאן עותק של תוכן זר.
 
 **מה בדיוק מושווה, כדי שהתוצאה לא תיקרא רחבה ממה שהיא.** ההשוואה
 הראשית — ``_compare`` — היא על **הרמה ומספר השורה** של כל כותרת ברמת
@@ -31,12 +34,16 @@
 היכן מתחיל סעיף ואיזו רמה הוא. טקסט הכותרת מושווה בנפרד, ב-
 ``_compare_titles``, ורק על תת-קבוצה — ההנמקה שם.
 
-**ולטענה יש חריג אחד ידוע, והוא מקובע ולא מושתק:** תגית HTML מסוג 7
-שצמודה לשורת מכל — פריט רשימה או ציטוט. שם ``markdown-it`` סוטה
-מ-cmark-gfm וממימוש הייחוס של המפרט, והצורות האלה **אינן** עוברות
-ב-``_compare`` — הן עוברות בטסט שמאשר את הפער המדוד, ובטסט שמאשר
-שהמוחרג הוא בדיוק הן ולא יותר. ``_type7_after_container_shapes`` מנמק,
-והאישו upstream הוא executablebooks/markdown-it-py#434.
+**ולטענה יש חריגים ידועים, והם מקובעים ולא מושתקים — בטבלה אחת,**
+``_KNOWN_DIVERGENCES``**:** תגית HTML מסוג 7 שצמודה לשורת מכל (שם
+``markdown-it`` סוטה מ-cmark-gfm וממימוש הייחוס של המפרט; האישו upstream
+הוא executablebooks/markdown-it-py#434), ורשימת תגיות הבלוק של CommonMark
+0.31.2 — ``source``/``search`` — ש-``markdown-it-py`` עובד לפיה מאז 4.0.0
+ו-cmark-gfm עוד לא. הצורות החולקות **אינן** עוברות ב-``_compare`` — הן
+עוברות בטסט שמאשר את הפער המדוד, ובטסט שמאשר שהמוחרג הוא בדיוק הן ולא
+יותר. לכל שורה בטבלה: הסיבה, צורה לדוגמה ומה כל צד מחזיר עליה, על מה ומתי
+נמדדה, וקישור ל-upstream כשיש; ``docs/mcp-server.rst`` מעתיק ממנה, וטסט
+משווה.
 
 **והחלוקה לכמה טסטים אינה קוסמטית:** ``pytest.ini`` קובע
 ``timeout = 60`` לכל טסט, וטבלה אחת גדולה הייתה מתקרבת לשם.
@@ -45,7 +52,11 @@
 from __future__ import annotations
 
 import itertools
+import re
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from html.parser import HTMLParser
+from pathlib import Path
 
 import cmarkgfm
 import pytest
@@ -54,6 +65,8 @@ from markdown_it import MarkdownIt
 from mdit_py_plugins.front_matter import front_matter_plugin
 
 from services.md_parser import parse_document
+
+_REPO = Path(__file__).resolve().parents[1]
 
 #: מכלים שכותרת בתוכם אינה סעיף במסמך. ``blockquote`` ו-``li`` הם מה
 #: ש-cmark מסמן בפועל; ``level`` של ``markdown-it`` מתאר את אותו דבר
@@ -109,9 +122,12 @@ class _HeadingCollector(HTMLParser):
             del self.open_tags[len(self.open_tags) - 1 - self.open_tags[::-1].index(tag)]
 
 
-#: הפארסר ששימש **אך ורק** כדי לאתר את גבול ה-front matter באורקל. זו
-#: הספרייה עצמה ולא כלל שכתבתי, ולכן האורקל נשאר בלתי תלוי במימוש.
-_FRONT_MATTER_PROBE = MarkdownIt("commonmark").use(front_matter_plugin).disable("inline")
+#: פארסר עזר לשתי שאלות מבניות בלבד, ולא למפה עצמה: איפה נגמר ה-front
+#: matter (בשביל האורקל, ``_without_front_matter``), ואיפה יושבים אזורי קוד
+#: (בשביל סריקת הטריגרים, ``_divergence_trigger_lines``). זו הספרייה עצמה
+#: ולא כלל שכתבתי, ולכן האורקל נשאר בלתי תלוי במימוש — ואין שני מופעים
+#: באותה תצורה בקובץ הזה.
+_BLOCK_PROBE = MarkdownIt("commonmark").use(front_matter_plugin).disable("inline")
 
 
 def _without_front_matter(text: str) -> str:
@@ -129,7 +145,7 @@ def _without_front_matter(text: str) -> str:
     השאר יישארו זהים — וזו בדיוק ההתאמה למה שהפארסר שנבדק רואה, שם
     התוסף בולע את הבלוק והשאר נשאר במקומו.
     """
-    for token in _FRONT_MATTER_PROBE.parse(text, {}):
+    for token in _BLOCK_PROBE.parse(text, {}):
         if token.type == "front_matter" and token.map is not None:
             lines = text.split("\n")
             start, end = token.map
@@ -495,8 +511,14 @@ def test_a_heading_inside_a_container_is_seen_by_cmark_and_excluded_by_us(text):
 
 
 # ════════════════════════════════════════════════════════════════════
-# הפער הידוע היחיד — תגית HTML מסוג 7 צמודה לשורת מכל (פריט רשימה או ציטוט)
+# הפערים הידועים מ-GitHub — שתי משפחות, טבלה אחת (``_KNOWN_DIVERGENCES``)
 # ════════════════════════════════════════════════════════════════════
+#
+# כל פער ידוע יושב בשורה אחת בטבלה שלמטה, והיא המקור: ``docs/mcp-server.rst``
+# (:ref:`mcp-md-known-divergences`) מעתיק ממנה, וטסט משווה ביניהן. מעל הטבלה —
+# משפחת הצורות של כל שורה, כלומר מה שבאמת נמדד.
+#
+# ─── שורה 1: תגית HTML מסוג 7 צמודה לשורת מכל (פריט רשימה או ציטוט) ───
 
 #: תגיות שאינן ברשימת ה-block של CommonMark ולכן נופלות ל**סוג 7**: תג
 #: פתיחה שלם (לא ``pre``/``script``/``style``/``textarea``) או תג סגירה
@@ -526,7 +548,7 @@ _TYPE7_INDENTED_AGREEING = [
 def _type7_after_container_shapes():
     """‏(טקסט, האם שני הפארסרים מסכימים) — תגית מסוג 7 אחרי שורת מכל.
 
-    **זו המחלקה היחידה שידועה בה אי-הסכמה**, והיא נמדדה: כשהתגית
+    **זו השורה הראשונה ב-``_KNOWN_DIVERGENCES``**, והיא נמדדה: כשהתגית
     **צמודה** לשורת המכל — פריט רשימה או ציטוט — ``markdown-it`` (הפורט
     ל-Python **וגם** המקור ב-JS, 14.3.2 — נמדד, הפורט נאמן) רואה בה
     המשך עצל של פסקת המכל, ולכן ``## אחרי`` שאחריה הוא כותרת; cmark-gfm
@@ -584,9 +606,9 @@ def test_a_type7_tag_glued_to_a_container_still_disagrees_as_measured(text):
 
        **נפילה של הטסט הזה היא תוצאה מכוונת**, ופירושה ש-``markdown-it``
        תיקנה את ההתנהגות (או ש-cmark שינתה את שלה). אז הצורה הזאת
-       עוברת לחצי המסכים של המשפחה, והמשפט על "המחלקה הידועה היחידה"
-       ב-``services/md_parser.py`` נמחק יחד איתה. אל "תתקן" את הטסט
-       הזה כאילו היה באג.
+       עוברת לחצי המסכים של המשפחה, והשורה שלה ב-``_KNOWN_DIVERGENCES``
+       — ובסעיף :ref:`mcp-md-known-divergences` בתיעוד — מתעדכנת יחד
+       איתה. אל "תתקן" את הטסט הזה כאילו היה באג.
     """
     ours, theirs = _ours(text), _oracle_sections(text)
     assert theirs == [(2, 1)], ("cmark-gfm שינה את התנהגותו", text, theirs)
@@ -615,6 +637,363 @@ def test_the_excluded_class_is_exactly_the_glued_shapes_and_nothing_more():
         assert _ours(text) != _oracle_sections(text), ("מוחרגת אבל מסכימה — ההחרגה רחבה מדי", text)
 
 
+def _type7_family():
+    """כל מה שנמדד בשורה של סוג 7: המשפחה הצמודה/המופרדת, ושני מקרי הגבול המוזחים."""
+    yield from _type7_after_container_shapes()
+    for text in _TYPE7_INDENTED_AGREEING:
+        yield text, True
+
+
+# ─── שורה 2: רשימת תגיות הבלוק של CommonMark 0.31.2 — source/search ───
+
+#: שתי התגיות שרשימת תגיות הבלוק שינתה ב-CommonMark 0.31: ``source`` יצאה
+#: ממנה ("Remove `source` element as HTML block start condition" ב-changelog
+#: של המפרט), ו-``search`` נמצאת בה (תנאי פתיחה 6 ב-
+#: https://spec.commonmark.org/0.31.2/#html-blocks — נקרא ב-2026-09-27).
+#: ``markdown-it-py`` עובד לפי הרשימה הזאת מאז 4.0.0 ("Comply with Commonmark
+#: 0.31.2", #362; ``markdown_it/common/html_blocks.py`` ב-4.2.0), ו-cmark-gfm —
+#: הפארסר ש-GitHub מריץ — לפי הקודמת. שם שיושב ברשימה פותח בלוק HTML מסוג 6;
+#: שם שאינו בה יכול לפתוח רק סוג 7.
+_BLOCK_TAG_LIST_TAGS = ("source", "search")
+
+#: צורות הכתיבה של שורת התגית: ``{t}`` הוא השם, ``{T}`` השם באותיות גדולות.
+#: ההבחנה שמכריעה היא בין ארבע הראשונות — תגית **שלמה ולבדה בשורה**, שבצד
+#: שאינו מכיר את השם היא סוג 7 — לבין שתי האחרונות, שאינן סוג 7 באף צד.
+_BLOCK_TAG_LIST_FORMS = {
+    "open": "<{t}>",
+    "close": "</{t}>",
+    "attribute": '<{t} src="x">',
+    "upper": "<{T}>",
+    "trailing_text": "<{t}> טקסט",
+    "unclosed": "<{t}",
+}
+
+#: היכן שורת התגית יושבת. ``## אחרי`` הוא תמיד השורה האחרונה, והפער — כשהוא
+#: קיים — הוא בדיוק השאלה אם הכותרת הזאת נבלעת בבלוק HTML או נשארת כותרת.
+_BLOCK_TAG_LIST_CONTEXTS = {
+    "glued_after_paragraph": "## לפני\n\nטקסט\n{line}\n## אחרי\n",
+    "after_blank_line": "## לפני\n\nטקסט\n\n{line}\n## אחרי\n",
+    "right_after_heading": "## לפני\n{line}\n## אחרי\n",
+    "glued_after_list_item": "## לפני\n\n- פריט\n{line}\n## אחרי\n",
+    "inside_blockquote": "## לפני\n\n> טקסט\n> {line}\n\n## אחרי\n",
+}
+
+
+def _block_tag_list_agrees(tag: str, form: str, context: str) -> bool:
+    """המטריצה שנמדדה, כחוק אחד: האם שני הפארסרים מסכימים על הצורה.
+
+    **נמדד ב-2026-09-27**, markdown-it-py 4.2.0 מול cmarkgfm 2025.10.22, על כל
+    הצורות שהמחולל מייצר (2 תגיות × 6 צורות כתיבה × 5 הקשרים). החוק כתוב לפי
+    המנגנון ולא כרשימת מופעים, כדי שיהיה אפשר לקרוא אותו — ו-
+    ``test_the_block_tag_list_matrix_is_exactly_as_measured`` משווה אותו
+    לשני הפארסרים בכל ריצה, ולכן הוא אינו יכול להתיישן בשקט:
+
+    - **בתוך ציטוט אין פער**: ``## אחרי`` יושב אחרי שורה ריקה שסוגרת את
+      הציטוט בשני הצדדים.
+    - **תגית עם טקסט אחריה, או לא סגורה** — בצד שהשם ברשימה שלו היא בלוק
+      HTML (סוג 6 אינו דורש תגית שלמה), ובצד השני היא פסקה (סוג 7 דורש).
+      לכן פער בכל הקשר אחר.
+    - **תגית שלמה ולבדה בשורה** היא בלוק HTML בשני הצדדים — סוג 6 בצד
+      אחד, סוג 7 בשני — וההבדל הוא רק כשהיא **צמודה** לשורה שלפניה: סוג 6
+      קוטע פסקה, סוג 7 אינו קוטע. לכן פער מיד אחרי שורת פסקה; ומיד אחרי
+      שורת פריט ברשימה — רק ל-``source``: אצלנו היא סוג 7, וזה בדיוק
+      המנגנון של השורה הראשונה בטבלה (#434). ``search`` אצלנו סוג 6,
+      קוטעת את פסקת הפריט, ולכן מסכימה עם cmark — **וזה פער שנסגר**
+      בשדרוג: ב-markdown-it-py 3.0.0, שבו ``search`` לא הייתה ברשימה, זה
+      היה מופע של #434 (``closed`` בשורה בטבלה).
+    """
+    if context == "inside_blockquote":
+        return True
+    if form in ("trailing_text", "unclosed"):
+        return False
+    if context == "glued_after_paragraph":
+        return False
+    if context == "glued_after_list_item":
+        return tag == "search"
+    return True
+
+
+def _block_tag_list_cells():
+    """‏(תגית, צורה, הקשר, טקסט) לכל תא במטריצה — בסדר קבוע, כדי שדוח פער יהיה בר-השוואה."""
+    for tag, (form, template), (context, frame) in itertools.product(
+        _BLOCK_TAG_LIST_TAGS, _BLOCK_TAG_LIST_FORMS.items(), _BLOCK_TAG_LIST_CONTEXTS.items()
+    ):
+        yield tag, form, context, frame.format(line=template.format(t=tag, T=tag.upper()))
+
+
+def _block_tag_list_family():
+    """‏(טקסט, האם מסכימים) לכל תא — הצורה שכל משפחה בטבלה מחזירה."""
+    for tag, form, context, text in _block_tag_list_cells():
+        yield text, _block_tag_list_agrees(tag, form, context)
+
+
+# ─── הטבלה ───
+
+
+@dataclass(frozen=True)
+class _Example:
+    """צורה אחת ומה שכל צד מחזיר עליה: (רמה, שורה) לכל כותרת ברמת המסמך."""
+
+    text: str
+    github: tuple[tuple[int, int], ...]
+    ours: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
+class _Divergence:
+    """שורה אחת בטבלת הפערים הידועים מ-GitHub.
+
+    ``cause`` הוא **הסיבה** בשמה, ולא ספירה של מופעים. ``examples`` הן הצורות
+    שהתיעוד מציג, עם מה ש-cmark-gfm מחזיר (``github``) ומה שאנחנו מחזירים;
+    ``family`` היא כל מה שנמדד — ממנה נגזר "N מתוך M צורות שנמדדו", שהוא
+    **מדידה ולא גבול**, ולכן הוא נכתב תמיד עם ``measured_on`` ו-``measured_at``.
+    ``upstream`` הוא קישור לאישו כשיש כזה. ``trigger`` הוא שורה בקובץ אמיתי
+    שיכולה להפעיל את הפער (ראו ``_divergence_trigger_lines``), ו-``closed`` —
+    צורות שבהן פער **נסגר**, כלומר שני הצדדים מסכימים היום על מה שבגרסה
+    קודמת חלקו עליו: מידע למי שיקרא את זה בעוד חצי שנה, ומקובע בטסט.
+    """
+
+    key: str
+    cause: str
+    examples: tuple[_Example, ...]
+    measured_on: str
+    measured_at: str
+    upstream: str | None
+    family: Callable[[], Iterable[tuple[str, bool]]]
+    trigger: re.Pattern[str] | None = None
+    closed: tuple[_Example, ...] = ()
+
+
+#: על מה נמדדה הטבלה. אותו מחרוזת בשתי השורות ובתיעוד, וטסט משווה.
+_MEASURED_ON = "markdown-it-py 4.2.0, cmarkgfm 2025.10.22"
+
+#: **כלל השיוך:** צורה ששורה בה מתחילה בתגית מ-``_BLOCK_TAG_LIST_TAGS`` שייכת
+#: לשורה השנייה — גם כשהמנגנון בפועל הוא של הראשונה (``source`` צמודה לפריט
+#: רשימה). כך כל צורה יושבת בשורה אחת בדיוק, ו-
+#: ``test_every_measured_shape_belongs_to_one_row`` אוכף זאת.
+_KNOWN_DIVERGENCES: tuple[_Divergence, ...] = (
+    _Divergence(
+        key="type7_glued_to_container",
+        cause="תגית HTML מסוג 7 צמודה לשורת מכל (פריט רשימה או ציטוט)",
+        examples=(
+            _Example("## לפני\n\n- פריט\n<br>\n## אחרי\n", github=((2, 1),), ours=((2, 1), (2, 5))),
+        ),
+        measured_on=_MEASURED_ON,
+        measured_at="2026-09-27",
+        upstream="https://github.com/executablebooks/markdown-it-py/issues/434",
+        family=_type7_family,
+    ),
+    _Divergence(
+        key="commonmark_0_31_block_tag_list",
+        cause="רשימת תגיות הבלוק של CommonMark 0.31.2: source/search",
+        examples=(
+            _Example(
+                "## לפני\n\nטקסט\n<source>\n## אחרי\n", github=((2, 1),), ours=((2, 1), (2, 5))
+            ),
+            _Example(
+                "## לפני\n\nטקסט\n<search>\n## אחרי\n", github=((2, 1), (2, 5)), ours=((2, 1),)
+            ),
+        ),
+        measured_on=_MEASURED_ON,
+        measured_at="2026-09-27",
+        upstream=None,
+        family=_block_tag_list_family,
+        # תנאי הפתיחה של סוג 6 במפרט: עד שלושה רווחים, ``<`` או ``</``, השם,
+        # ואחריו רווח, ``>``, ``/>`` או סוף שורה — בלי תלות ברישיות. השמות
+        # נלקחים מ-``_BLOCK_TAG_LIST_TAGS`` ולא מוקלדים פעם שנייה.
+        trigger=re.compile(
+            r"^ {0,3}</?(?:" + "|".join(_BLOCK_TAG_LIST_TAGS) + r")(?=[ \t]|/?>|$)", re.IGNORECASE
+        ),
+        closed=(
+            _Example("## לפני\n\n- פריט\n<search>\n## אחרי\n", github=((2, 1),), ours=((2, 1),)),
+        ),
+    ),
+)
+
+
+def _row_counts(row: _Divergence) -> tuple[int, int]:
+    """‏(כמה צורות נמדדו, בכמה מהן יש פער) — הזוג שהתיעוד כותב כ-"N מתוך M"."""
+    family = list(row.family())
+    return len(family), sum(1 for _text, agrees in family if not agrees)
+
+
+def _row_ids(rows):
+    return [row.key for row in rows]
+
+
+@pytest.mark.parametrize("row", _KNOWN_DIVERGENCES, ids=_row_ids(_KNOWN_DIVERGENCES))
+def test_each_row_example_returns_what_the_table_says(row):
+    """הצורות שהתיעוד מציג מחזירות בדיוק את מה שכתוב בטבלה — בשני הצדדים."""
+    for example in row.examples + row.closed:
+        assert _oracle_sections(example.text) == list(example.github), ("cmark-gfm", example.text)
+        assert _ours(example.text) == list(example.ours), ("שלנו", example.text)
+    for example in row.examples:
+        assert example.github != example.ours, ("דוגמה לפער חייבת להיות פער", example.text)
+    for example in row.closed:
+        assert example.github == example.ours, ("פער שנסגר פירושו הסכמה היום", example.text)
+
+
+@pytest.mark.parametrize("row", _KNOWN_DIVERGENCES, ids=_row_ids(_KNOWN_DIVERGENCES))
+def test_the_agreeing_half_of_each_row_goes_through_compare(row):
+    """מה שהמשפחה מצהירה עליו כהסכמה עובר ב-``_compare`` כמו כל משפחה אחרת."""
+    agreeing = [text for text, agrees in row.family() if agrees]
+    assert agreeing, "משפחה בלי חצי מסכים — אין מקרה בקרה"
+    _compare(agreeing)
+
+
+def test_the_block_tag_list_matrix_is_exactly_as_measured():
+    """**כל** תא במטריצה, בשני הכיוונים — ומה בדיוק שונה כשיש פער.
+
+    תא שמוצהר כהסכמה חייב להסכים, ותא שמוצהר כפער חייב לחלוק. **וכשיש
+    פער, הוא אותו פער בכל התאים:** ``## לפני`` נשאר בשני הצדדים, וההבדל
+    היחיד הוא ``## אחרי`` — כותרת בצד אחד, בלועה בבלוק HTML בצד השני. כך
+    פער לא יכול להיסחף לכיוון שלישי בשקט.
+
+    .. warning::
+
+       **נפילה כאן פירושה שאחד הפארסרים שינה התנהגות** — markdown-it-py
+       או cmark-gfm. לא "מתקנים" את החוק כדי שיעבור: מודדים מחדש, מעדכנים
+       את ``measured_on`` ו-``measured_at``, ואת התיעוד שמעתיק מהטבלה.
+    """
+    wrong = []
+    for tag, form, context, text in _block_tag_list_cells():
+        ours, theirs = _ours(text), _oracle_sections(text)
+        expected = _block_tag_list_agrees(tag, form, context)
+        if (ours == theirs) != expected:
+            wrong.append((tag, form, context, ours, theirs))
+            continue
+        if not expected:
+            after_line = text.count("\n")  # ``## אחרי`` היא תמיד השורה האחרונה
+            assert set(ours) ^ set(theirs) == {(2, after_line)}, (tag, form, context, ours, theirs)
+            assert (2, 1) in ours and (2, 1) in theirs, (tag, form, context, ours, theirs)
+    assert not wrong, f"{len(wrong)} תאים שאינם כפי שנמדדו:\n" + "\n".join(map(repr, wrong))
+
+
+def test_every_measured_shape_belongs_to_one_row():
+    """כלל השיוך: צורה ששורה בה מפעילה טריגר של שורה בטבלה אינה נמצאת בשורה אחרת."""
+    for row in _KNOWN_DIVERGENCES:
+        for other in _KNOWN_DIVERGENCES:
+            if other is row or other.trigger is None:
+                continue
+            for text, _agrees in row.family():
+                assert not any(other.trigger.search(line) for line in text.split("\n")), (
+                    f"צורה של {row.key} מפעילה את הטריגר של {other.key}", text,
+                )
+
+
+# ─── הטענה "אף קובץ אמיתי לא מושפע", מקובעת ולא רק נמדדת ───
+
+#: סוגי הטוקנים שבתוכם שורה **אינה** יכולה לפתוח בלוק HTML באף פארסר: גדר קוד,
+#: קוד מוזח ו-front matter.
+_CODE_REGIONS = frozenset({"fence", "code_block", "front_matter"})
+
+_DOCS_ROOT = _REPO / "docs"
+
+
+def _divergence_trigger_lines(text: str) -> list[tuple[int, str]]:
+    """‏(שורה, מפתח השורה בטבלה) לכל שורה בקובץ שיכולה להפעיל פער ידוע.
+
+    **לפי הפארסר ולא לפי כלל שנכתב ביד.** שורה בתוך גדר קוד, קוד מוזח או
+    front matter אינה נספרת, ומה שקובע איפה האזורים האלה נמצאים הוא
+    ``markdown-it`` עצמו (``_BLOCK_PROBE``) ולא סורק גדרות שכתבתי. זה ההבדל
+    בין הבדיקה הזאת לסריקת שורות פשוטה: נמדד (2026-09-27) שבקבצים השמורים
+    יש שורה ``<source src=...>`` בתוך בלוק ```` ```markdown ```` — המפה שלה
+    אינה מושפעת, וסריקה פשוטה הייתה מדווחת עליה.
+
+    **ומה שהיא כן סופרת, בכוונה:** שורה שהיא המשך של בלוק HTML שנפתח
+    בתגית אחרת. שם שני הפארסרים כבר בתוך אותו בלוק ולכן מסכימים — אבל
+    הקביעה הזאת תלויה בתגית שפתחה אותו, והבדיקה מעדיפה דיווח שיש לבדוק
+    על השמטה שקטה.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    excluded: set[int] = set()
+    for token in _BLOCK_PROBE.parse("\n".join(lines), {}):
+        if token.type in _CODE_REGIONS and token.map is not None:
+            excluded.update(range(token.map[0], token.map[1]))
+    hits = []
+    for index, line in enumerate(lines):
+        if index in excluded:
+            continue
+        for row in _KNOWN_DIVERGENCES:
+            if row.trigger is not None and row.trigger.search(line):
+                hits.append((index + 1, row.key))
+    return hits
+
+
+def _scan_for_divergence_triggers(root: Path) -> list[tuple[str, int, str]]:
+    """‏(נתיב יחסי, שורה, מפתח) לכל טריגר בכל קובץ ``.md`` תחת ``root``."""
+    hits = []
+    for path in sorted(root.rglob("*.md")):
+        text = path.read_bytes().decode("utf-8")
+        for line, key in _divergence_trigger_lines(text):
+            hits.append((path.relative_to(root).as_posix(), line, key))
+    return hits
+
+
+def test_no_markdown_page_under_docs_holds_a_known_divergence_trigger():
+    """עמודי ה-Markdown תחת ``docs/`` אינם מכילים שורה שמפעילה פער ידוע.
+
+    **למה ``docs/`` בלבד:** זה הקורפוס היחיד שה-CI רואה. ``amir-bug-patterns``
+    נבדק ב-``scripts/compare_md_parser_to_cmark.py`` — אותה פונקציה, על פי
+    דרישה — והקבצים השמורים נמדדו פעם אחת במסד; שתי התוצאות מתוארכות ב-
+    :ref:`mcp-md-known-divergences`.
+    """
+    hits = _scan_for_divergence_triggers(_DOCS_ROOT)
+    causes = {row.key: row.cause for row in _KNOWN_DIVERGENCES}
+    assert not hits, (
+        "שורה בעמוד תיעוד מפעילה פער ידוע מ-GitHub — מפת הסעיפים שלנו יכולה "
+        "לחלוק כאן על GitHub ועל MyST:\n"
+        + "\n".join(f"  docs/{path}:{line} — {causes[key]}" for path, line, key in hits)
+        + "\nאם השורה נחוצה: עטפו אותה בבלוק קוד, או הפרידו אותה בשורה ריקה "
+        "וכתבו את התגית שלמה ולבדה בשורה (החוק ב-_block_tag_list_agrees)."
+    )
+
+
+def test_the_trigger_scan_catches_a_tag_outside_code_and_ignores_it_inside(tmp_path):
+    """הבדיקה שלמעלה מסוגלת ליפול — ואינה נופלת על מה שאינו משפיע.
+
+    קבצים שתולים, דרך אותה פונקציית סריקה בדיוק: תגית מחוץ לבלוק קוד
+    נתפסת (בכל רישיות), ובתוך גדר קוד, קוד מוזח או front matter — לא.
+    """
+    planted = {
+        "outside.md": "# א\n\nטקסט\n<source>\n## ב\n",
+        "outside_upper.md": "# א\n\n<SEARCH> טקסט\n",
+        "inside_fence.md": "# א\n\n```html\n<source src=\"x\">\n```\n",
+        "inside_indented.md": "# א\n\n    <search>\n",
+        "inside_front_matter.md": "---\n<source>\n---\n# א\n",
+    }
+    for name, text in planted.items():
+        (tmp_path / name).write_text(text, encoding="utf-8")
+
+    hits = _scan_for_divergence_triggers(tmp_path)
+
+    key = "commonmark_0_31_block_tag_list"
+    assert hits == [("outside.md", 4, key), ("outside_upper.md", 3, key)], hits
+
+
+def test_the_documentation_table_is_this_table():
+    """הסעיף ב-``docs/mcp-server.rst`` מעתיק מהטבלה — וזה נבדק, לא מקווה.
+
+    לכל שורה: הסיבה, "N מתוך M צורות שנמדדו", על מה ומתי נמדד, והקישור
+    ל-upstream כשיש. המספרים נגזרים מהמשפחות ולא מוקלדים כאן פעם נוספת.
+    """
+    rst = (_REPO / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
+    start = rst.index(".. _mcp-md-known-divergences:")
+    section = rst[start:rst.index("\n.. _", start + 1)]
+    for row in _KNOWN_DIVERGENCES:
+        measured, disagree = _row_counts(row)
+        facts = [
+            row.cause,
+            f"{disagree} מתוך {measured} צורות שנמדדו",
+            row.measured_on,
+            row.measured_at,
+        ]
+        if row.upstream:
+            facts.append(row.upstream)
+        missing = [fact for fact in facts if fact not in section]
+        assert not missing, (row.key, missing)
+
+
 # ════════════════════════════════════════════════════════════════════
 # המספר שבפרוזה נגזר מכאן, ולא מוקלד פעמיים
 # ════════════════════════════════════════════════════════════════════
@@ -628,12 +1007,11 @@ def test_the_generated_shape_count_matches_the_prose():
     מתיישן בשקט; מספר שנגזר מהקוד מפיל את החבילה.
 
     הספירה כאן חייבת לכלול **כל** משפחה שמגיעה ל-``_compare``. משפחה
-    חדשה שתישכח כאן תוריד את הסכום ותפיל — וזו התוצאה הרצויה.
+    חדשה שתישכח כאן תוריד את הסכום ותפיל — וזו התוצאה הרצויה. החצי המסכים
+    של כל שורה ב-``_KNOWN_DIVERGENCES`` נכנס לסכום, והחצי החולק — למספר
+    המוחרגות; שניהם נגזרים מהטבלה, כך ששורה חדשה בה מזיזה את שניהם.
     """
-    import re
-    from pathlib import Path
-
-    type7 = list(_type7_after_container_shapes())
+    counts = [_row_counts(row) for row in _KNOWN_DIVERGENCES]
     total = (
         len(list(_context_shapes()))
         + len(list(_fence_nesting_shapes()))
@@ -641,16 +1019,13 @@ def test_the_generated_shape_count_matches_the_prose():
         + len(_HTML_EDGE_CASES)
         + len(list(_table_shapes()))
         + len(_CONTAINER_SHAPES)
-        + sum(1 for _text, agrees in type7 if agrees)
-        + len(_TYPE7_INDENTED_AGREEING)
+        + sum(measured - disagree for measured, disagree in counts)
     )
-    excluded = sum(1 for _text, agrees in type7 if not agrees)
+    excluded = sum(disagree for _measured, disagree in counts)
     assert total > 10_000, f"מחולל נשמט מהספירה — {total} צורות בלבד"
-    assert excluded > 0, "המחלקה המוחרגת ריקה — הפרוזה על 'מחלקה ידועה אחת' כבר אינה נכונה"
+    assert excluded > 0, "הטבלה ריקה מפערים — הפרוזה על 'הפערים הידועים' כבר אינה נכונה"
 
-    source = (Path(__file__).resolve().parents[1] / "services" / "md_parser.py").read_text(
-        encoding="utf-8"
-    )
+    source = (_REPO / "services" / "md_parser.py").read_text(encoding="utf-8")
     quoted = re.search(r"על \*\*([\d,]+) צורות מחוללות\*\*", source)
     assert quoted, "המשפט על מספר הצורות אינו במקומו ב-``md_parser`` docstring"
     assert quoted.group(1) == f"{total:,}", (
@@ -658,15 +1033,13 @@ def test_the_generated_shape_count_matches_the_prose():
         "עדכן את שני המקומות שמצטטים אותו — ``services/md_parser.py`` "
         "ו-``requirements/base.txt``."
     )
-    # **וגם המספר של המחלקה המוחרגת נגזר, לא מוקלד.** אותה סחיפה בדיוק
-    # מחכה לו: תגית שתתווסף ל-``_TYPE7_TAGS`` בלי עדכון המשפט.
-    quoted_excluded = re.search(r"מחלקה אחת ידועה ומקובעת של \*\*(\d+) צורות\*\*", source)
-    assert quoted_excluded, "המשפט על המחלקה המוחרגת אינו במקומו ב-``md_parser`` docstring"
+    # **וגם מספר הצורות המוחרגות נגזר, לא מוקלד.** אותה סחיפה בדיוק מחכה
+    # לו: תגית שתתווסף ל-``_TYPE7_TAGS``, או שורה חדשה בטבלה, בלי עדכון המשפט.
+    quoted_excluded = re.search(r"\*\*(\d+) צורות\*\* בסך הכול", source)
+    assert quoted_excluded, "המשפט על הצורות המוחרגות אינו במקומו ב-``md_parser`` docstring"
     assert quoted_excluded.group(1) == str(excluded)
 
-    base = (Path(__file__).resolve().parents[1] / "requirements" / "base.txt").read_text(
-        encoding="utf-8"
-    )
+    base = (_REPO / "requirements" / "base.txt").read_text(encoding="utf-8")
     assert f"{total:,} הצורות" in base, (
         f"``requirements/base.txt`` אינו אומר {total:,} — אותו מספר, שני מקומות."
     )
