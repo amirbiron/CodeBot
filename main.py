@@ -1113,50 +1113,73 @@ async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT
         now = datetime.now(timezone.utc)
         expires = now + timedelta(days=ttl_days)
 
-        # ודא אינדקסי TTL ואח"כ Backfill בשתי הקולקציות
         from database import db as _db
+        # במצב no-op (המסד לא עלה) כל קולקציה "מצליחה" בלי לעשות דבר, והדוח
+        # היה מציג ✅ ואפסים על פעולה שלא קרתה (K11).
+        if not _db.is_connected:
+            try:
+                await update.message.reply_text("❌ אין חיבור למסד — לא בוצע דבר")
+            except Exception as e:
+                logger.warning("recycle_backfill: reply failed: %s", e)
+            return
+
+        # אינדקס ה-TTL — אותה פונקציה שמסלול העלייה קורא לה, כדי שיהיה למפרט
+        # מקום אחד. היא מחזירה את המצב לכל קולקציה, והדוח מציג אותו כמו שהוא.
+        ttl_status = _db.ensure_recycle_bin_ttl_indexes()
+
+        def _backfill(coll, query, update_doc, label):
+            """מספר המסמכים שעודכנו, או ``None`` בכשל — כדי שהדוח לא יציג 0 על שגיאה."""
+            try:
+                return int(getattr(coll.update_many(query, update_doc), "modified_count", 0) or 0)
+            except Exception as e:
+                logger.warning("recycle_backfill: %s failed: %s", label, e)
+                return None
+
         results = []
-        for coll_name, friendly in (("collection", "קבצים רגילים"), ("large_files_collection", "קבצים גדולים")):
-            coll = getattr(_db, coll_name, None)
+        for coll_attr, coll_name, friendly in (
+            ("collection", "code_snippets", "קבצים רגילים"),
+            ("large_files_collection", "large_files", "קבצים גדולים"),
+        ):
+            index_ok = bool(ttl_status.get(coll_name))
+            coll = getattr(_db, coll_attr, None)
             # חשוב: אל תשתמשו ב-truthiness על קולקציה של PyMongo
             if coll is None:
-                results.append((friendly, 0, 0, "collection-missing"))
+                results.append((friendly, index_ok, None, None, "collection-missing"))
                 continue
-            # ensure TTL index idempotently
-            try:
-                coll.create_index("deleted_expires_at", expireAfterSeconds=0, name="deleted_ttl")
-            except Exception:
-                # לא קריטי; נמשיך
-                pass
+            modified_deleted_at = _backfill(
+                coll,
+                {"is_active": False, "deleted_at": {"$exists": False}},
+                {"$set": {"deleted_at": now}},
+                "deleted_at",
+            )
+            modified_deleted_exp = _backfill(
+                coll,
+                {"is_active": False, "deleted_expires_at": {"$exists": False}},
+                {"$set": {"deleted_expires_at": expires}},
+                "deleted_expires_at",
+            )
+            results.append((friendly, index_ok, modified_deleted_at, modified_deleted_exp, ""))
 
-            modified_deleted_at = 0
-            modified_deleted_exp = 0
-            # backfill deleted_at where missing
-            try:
-                if hasattr(coll, 'update_many'):
-                    r1 = coll.update_many({"is_active": False, "deleted_at": {"$exists": False}}, {"$set": {"deleted_at": now}})
-                    modified_deleted_at = int(getattr(r1, 'modified_count', 0) or 0)
-            except Exception:
-                pass
-            # backfill deleted_expires_at where missing
-            try:
-                if hasattr(coll, 'update_many'):
-                    r2 = coll.update_many({"is_active": False, "deleted_expires_at": {"$exists": False}}, {"$set": {"deleted_expires_at": expires}})
-                    modified_deleted_exp = int(getattr(r2, 'modified_count', 0) or 0)
-            except Exception:
-                pass
-
-            results.append((friendly, modified_deleted_at, modified_deleted_exp, ""))
+        def _count(value):
+            return "שגיאה" if value is None else str(value)
 
         # דו"ח
         lines = [
             f"🧹 Backfill סל מיחזור (TTL={ttl_days} ימים)",
         ]
-        for friendly, c_at, c_exp, err in results:
+        for friendly, index_ok, c_at, c_exp, err in results:
+            index_text = (
+                "אינדקס TTL ✅"
+                if index_ok
+                else "אינדקס TTL ❌ (ראו האירוע db_recycle_bin_ttl_index_missing)"
+            )
             if err:
-                lines.append(f"• {friendly}: דילוג ({err})")
+                lines.append(f"• {friendly}: {index_text} | דילוג ({err})")
             else:
-                lines.append(f"• {friendly}: deleted_at={c_at}, deleted_expires_at={c_exp}")
+                lines.append(
+                    f"• {friendly}: {index_text} | "
+                    f"deleted_at={_count(c_at)}, deleted_expires_at={_count(c_exp)}"
+                )
         try:
             await update.message.reply_text("\n".join(lines))
         except Exception:

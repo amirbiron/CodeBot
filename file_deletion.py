@@ -7,8 +7,8 @@ r"""מחיקה רכה של קבצים — השאילתה שהבוט והוובא
 ואולי לאמיתי. הפונקציות כאן מקבלות את ה-collection כפרמטר, וכך שני הצדדים
 מריצים את אותו קוד בלי לחלוק חיבור.
 
-**המודול יושב בשורש והוא טהור** — ``dataclasses``, ``datetime``
-ו-``typing`` ותו לא, בלי Flask ובלי מסד. אותה תבנית של ``file_dates.py``,
+**המודול יושב בשורש והוא טהור** — ``dataclasses``, ``datetime``,
+``types`` ו-``typing`` ותו לא, בלי Flask ובלי מסד. אותה תבנית של ``file_dates.py``,
 ומאותה סיבה: מודול תחת ``database/`` היה גורר את ``database/__init__.py``,
 שיוצר ``DatabaseManager()`` גלובלי בזמן הייבוא. כך שני הצדדים מייבאים
 ישירות, בלי ה-``try/except`` שנופל ל-no-op בסביבה מינימלית — ומחיקה
@@ -31,13 +31,91 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable, List, Sequence, Tuple
+from types import MappingProxyType
+from typing import Any, Iterable, List, Mapping, Sequence, Tuple
 
 __all__ = [
+    "RECYCLE_BIN_COLLECTIONS",
+    "RECYCLE_BIN_TTL_EXPIRE_AFTER_SECONDS",
+    "RECYCLE_BIN_TTL_FIELD",
+    "RECYCLE_BIN_TTL_INDEX_NAME",
+    "RECYCLE_BIN_TTL_PARTIAL_FILTER",
     "SoftDeleteResult",
+    "is_recycle_bin_ttl_index",
     "resolve_owned_file_names",
     "soft_delete_files_by_names",
 ]
+
+
+# --- פקיעת הסל: המפרט של אינדקס ה-TTL --------------------------------------
+#
+# המחיקה הרכה כותבת ``deleted_expires_at``, ואף שורת קוד שלנו אינה מוחקת
+# בתאריך הזה — את העבודה עושה אינדקס TTL בצד השרת. זה הבעלים היחיד של
+# המפרט שלו: ``DatabaseManager._create_recycle_bin_ttl_indexes`` יוצר אותו
+# בכל עלייה, ``/recycle_backfill`` קורא לאותה פונקציה, ו-``/admin/verify-indexes``
+# בודק מולו. הוא כאן ולא תחת ``database/`` מאותה סיבה שהמחיקה עצמה כאן:
+# הוובאפ מייבא אותו בלי לגרור את ``database/__init__.py``.
+
+#: הקולקציות שהסל יושב בהן. קובץ יכול לשבת בכל אחת מהן, ולכן כל פעולה על
+#: הסל מונה את שתיהן.
+RECYCLE_BIN_COLLECTIONS: Tuple[str, ...] = ("code_snippets", "large_files")
+
+RECYCLE_BIN_TTL_INDEX_NAME = "deleted_ttl"
+
+#: השדה שכל מסלולי המחיקה הרכה כותבים — ``soft_delete_files_by_names``
+#: כאן ו-``Repository.delete_large_file`` — והעמוד ``/trash`` מציג כ"נמחק
+#: סופית ב-". הכיוון ``1`` הוא ``pymongo.ASCENDING``; המודול הזה אינו מייבא
+#: את pymongo.
+RECYCLE_BIN_TTL_FIELD = "deleted_expires_at"
+
+#: ``0``: המסמך נמחק בדיוק בתאריך שבשדה, שהוא התאריך שהמשתמש רואה —
+#: *"specify an expireAfterSeconds value of 0"* ב-"Expire Documents at a
+#: Specific Clock Time" (https://www.mongodb.com/docs/manual/tutorial/expire-data/).
+RECYCLE_BIN_TTL_EXPIRE_AFTER_SECONDS = 0
+
+#: TTL חלקי: נמחק רק מה שבאמת בסל. כל מסלולי השחזור היום מסירים את התאריך,
+#: אבל מסלול עתידי ששוכח היה משאיר קובץ פעיל שהאינדקס מוחק — וזו פעולה שאין
+#: ממנה חזרה. שוויון מותר ב-``partialFilterExpression``, ו-TTL חלקי נתמך:
+#: *"Partial indexes can also be TTL indexes"*
+#: (https://www.mongodb.com/docs/manual/core/index-partial/).
+RECYCLE_BIN_TTL_PARTIAL_FILTER: Mapping[str, Any] = MappingProxyType({"is_active": False})
+
+
+def _is_number(value: Any) -> bool:
+    # ``bool`` הוא תת-מחלקה של ``int``, ו-``True == 1``; מפתח אינדקס אינו בוליאני.
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def is_recycle_bin_ttl_index(index_info: Any) -> bool:
+    """האם שורה מ-``list_indexes()`` היא אינדקס שמרוקן את הסל כפי שהוצהר.
+
+    הבדיקה היא על המפרט ולא על השם: מונגו מוחק לפי המפתח, החלון והמסנן, ואינדקס
+    תקין בשם אחר עושה את אותה עבודה. מפתח מורכב אינו מתאים גם אם יש עליו חלון:
+    אינדקס TTL הוא חד-שדה (https://www.mongodb.com/docs/manual/core/index-ttl/),
+    ומול 8.0.32 נמדד שהשרת **דוחה** יצירה כזו (``OperationFailure`` קוד 67) ולא
+    "מתעלם" כמו שהתיעוד מנסח. הבדיקה נשארת בכל זאת, כי השורה מגיעה מחוץ לתהליך.
+
+    המספרים נבדקים בערכם ולא בטיפוס: אינדקס שנוצר מ-mongosh שומר ``1.0`` ולא
+    ``1``, ושניהם אותו מפרט.
+    """
+    if not isinstance(index_info, Mapping):
+        return False
+
+    key = index_info.get("key")
+    if not isinstance(key, Mapping) or list(key.keys()) != [RECYCLE_BIN_TTL_FIELD]:
+        return False
+    direction = key.get(RECYCLE_BIN_TTL_FIELD)
+    if not _is_number(direction) or direction != 1:
+        return False
+
+    expire = index_info.get("expireAfterSeconds")
+    if not _is_number(expire) or expire != RECYCLE_BIN_TTL_EXPIRE_AFTER_SECONDS:
+        return False
+
+    partial = index_info.get("partialFilterExpression")
+    if not isinstance(partial, Mapping):
+        return False
+    return dict(partial) == dict(RECYCLE_BIN_TTL_PARTIAL_FILTER)
 
 
 @dataclass(frozen=True)
@@ -133,7 +211,8 @@ def soft_delete_files_by_names(
                 # היא תווית על הקובץ ולא שינוי בו.
                 "is_active": False,
                 "deleted_at": now,
-                "deleted_expires_at": expires_at,
+                # השדה שאינדקס ה-TTL קורא — ראו ``RECYCLE_BIN_TTL_FIELD``.
+                RECYCLE_BIN_TTL_FIELD: expires_at,
             }
         },
     )

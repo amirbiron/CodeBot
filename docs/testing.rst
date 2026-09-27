@@ -174,6 +174,7 @@ Mocking HTTP ב‑github_menu_handler
 - ``tests/test_note_boards_mongo.py`` — ``MONGODB_URL``, דרך ``pytestmark`` שנבדק פעם אחת בטעינת המודול.
 - ``tests/test_profiler_projection_mongo.py`` — ``MONGODB_URL``, גם הוא דרך ``pytestmark``, ובנוסף **שער גרסה** בפיקסצ'ר (ראו למטה).
 - ``tests/test_snippet_hebrew_offsets_mongo.py`` — ``NOTE_FONTS_TEST_MONGO_URI``, דרך הפיקסצ'ר ``wired_mongo`` שב-``tests/conftest.py``. אותו פיקסצ'ר משרת גם את שאר הבדיקות שמריצות את הראוטים של הוובאפ מול מסד אמיתי.
+- ``tests/test_recycle_bin_ttl_index_mongo.py`` — ``NOTE_FONTS_TEST_MONGO_URI``, ואם הוא ריק ``MONGODB_URL``, דרך ``pytestmark`` שנבדק פעם אחת בטעינת המודול. בודק מה השרת עושה עם הבקשה ליצור את אינדקס ה-TTL של סל המיחזור. את המחיקה עצמה הוא אינו בודק: תהליך ה-TTL של השרת רץ פעם בדקה (`TTL Indexes <https://www.mongodb.com/docs/manual/core/index-ttl/>`_), ובדיקה שממתינה לו הייתה נוגעת בתקרת ה-``timeout`` שב-``pytest.ini``.
 
 **המשתנה הנפרד אינו כפילות מיותרת.** ``tests/conftest.py`` עושה ``os.environ.setdefault('MONGODB_URL', …)`` בטעינה, כלומר המשתנה הזה **תמיד** מוגדר בבדיקות — לערך דמה. פיקסצ'ר שהיה נופל אליו היה מחכה 30 שניות לכתובת שאין מאחוריה שרת, בכל בדיקה, ואז נכשל — ו-``--maxfail=1`` היה עוצר את כל החבילה.
 
@@ -201,8 +202,11 @@ Mocking HTTP ב‑github_menu_handler
    NOTE_FONTS_TEST_MONGO_URI='mongodb://127.0.0.1:27017' \
        pytest tests/test_snippet_hebrew_offsets_mongo.py -v
 
+   NOTE_FONTS_TEST_MONGO_URI='mongodb://127.0.0.1:27017' \
+       pytest tests/test_recycle_bin_ttl_index_mongo.py -v
+
 .. warning::
-   כל הקבצים האלה יוצרים מסד ייעודי משלהם ואינם נוגעים במסד ברירת המחדל: ``test_note_boards_mongo.py`` מגריל שם עם התחילית ``codebot_notes_it_``, ``test_profiler_projection_mongo.py`` עם התחילית ``codebot_profiler_it_``, ו-``wired_mongo`` בונה ``cktest_<שם קובץ הבדיקה>``. ה-teardown של השניים הראשונים מוודא שהשם תואם לתחילית **לפני** ``drop_database``. עם זאת — אל תכוונו את אף אחד משני המשתנים למסד שיש בו נתונים אמיתיים.
+   כל הקבצים האלה יוצרים מסד ייעודי משלהם ואינם נוגעים במסד ברירת המחדל: ``test_note_boards_mongo.py`` מגריל שם עם התחילית ``codebot_notes_it_``, ``test_profiler_projection_mongo.py`` עם התחילית ``codebot_profiler_it_``, ``test_recycle_bin_ttl_index_mongo.py`` עם התחילית ``codebot_recycle_ttl_it_``, ו-``wired_mongo`` בונה ``cktest_<שם קובץ הבדיקה>``. ה-teardown של כל קובץ שמגריל שם מוודא שהשם תואם לתחילית **לפני** ``drop_database``. עם זאת — אל תכוונו את אף אחד משני המשתנים למסד שיש בו נתונים אמיתיים.
 
 כיסוי בדיקות (pytest-cov)
 --------------------------

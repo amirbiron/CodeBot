@@ -126,6 +126,14 @@ class _StubCollection:
         return []
 
 from config import config
+# מפרט אינדקס ה-TTL של סל המיחזור — מודול שורש טהור, כדי שגם הוובאפ יבדוק מולו.
+from file_deletion import (
+    RECYCLE_BIN_COLLECTIONS,
+    RECYCLE_BIN_TTL_EXPIRE_AFTER_SECONDS,
+    RECYCLE_BIN_TTL_FIELD,
+    RECYCLE_BIN_TTL_INDEX_NAME,
+    RECYCLE_BIN_TTL_PARTIAL_FILTER,
+)
 try:
     # Structured logging events
     from observability import emit_event
@@ -2241,10 +2249,70 @@ class DatabaseManager:
                 expire_after_seconds=spec.get("expire_after_seconds"),
             )
 
+    def _create_recycle_bin_ttl_indexes(self, safe_create_index) -> Dict[str, bool]:
+        """אינדקס ה-TTL שמרוקן את סל המיחזור, בכל אחת מ-``RECYCLE_BIN_COLLECTIONS``.
+
+        זה אינדקס של **התנהגות**, לא של ביצועים: אף שורת קוד שלנו אינה מוחקת
+        את מה שבסל, ובלעדיו העמוד ``/trash`` ממשיך להציג "נמחק סופית ב-" על
+        תאריכים שעברו. לכן הוא יושב במסלול שרץ בכל עלייה — לא רק בפקודת אדמין,
+        ולא ברשימה שמצמצמים לפי מהירות שאילתות. כך הוא נעלם פעם אחת: PR #2525
+        כתב את הרשימה מחדש בלעדיו, והאשכול שהוקם אחריו מעולם לא קיבל אותו.
+        המפרט עצמו יושב ב-``file_deletion.py``.
+
+        ⚠️ **ביצירה הראשונה — וגם אחרי כל פער שבו האינדקס חסר — מונגו מוחק
+        בסבב הראשון את כל מה שתאריכו כבר עבר, בבת אחת** (*"After you create a
+        TTL index, it might have a very large number of qualifying documents to
+        delete at once"*, https://www.mongodb.com/docs/manual/core/index-ttl/).
+        זו החלטה ולא תאונה: התאריך הוצג למשתמש, וזו ההבטחה. נשקלה דחייה
+        לפריטים שכבר עברו, והוחלט שלא.
+
+        ``safe_create_index`` אינו זורק; כשל חוזר כ-``False`` (דפוס K11). אצל
+        אינדקס ביצועים מתעלמים ממנו בכוונה — כאן הכשל הוא הבטחה שבורה, ולכן
+        הוא יוצא כאירוע ברמת error.
+
+        Returns:
+            ``{שם קולקציה: האם האינדקס במצב המבוקש בסוף הקריאה}``.
+        """
+        results: Dict[str, bool] = {}
+        for collection_name in RECYCLE_BIN_COLLECTIONS:
+            ok = bool(
+                safe_create_index(
+                    collection_name,
+                    [(RECYCLE_BIN_TTL_FIELD, ASCENDING)],
+                    name=RECYCLE_BIN_TTL_INDEX_NAME,
+                    background=True,
+                    # אינדקס קיים בשם הזה שאינו במפרט — בלי המסנן, כפי שנוצר עד
+                    # היום (בעלייה עד #2525, ואחר כך ב-``/recycle_backfill``), או
+                    # בלי TTL בכלל — מתנגש. בלי enforce הישן נשאר, הפונקציה
+                    # מחזירה False, וה-TTL לעולם לא נבנה.
+                    enforce=True,
+                    partial_filter_expression=dict(RECYCLE_BIN_TTL_PARTIAL_FILTER),
+                    expire_after_seconds=RECYCLE_BIN_TTL_EXPIRE_AFTER_SECONDS,
+                )
+            )
+            if not ok:
+                emit_event(
+                    "db_recycle_bin_ttl_index_missing",
+                    severity="error",
+                    collection=collection_name,
+                    index_name=RECYCLE_BIN_TTL_INDEX_NAME,
+                )
+            results[collection_name] = ok
+        return results
+
+    def ensure_recycle_bin_ttl_indexes(self) -> Dict[str, bool]:
+        """הכניסה מבחוץ לאותה פונקציה — ``/recycle_backfill`` מדווח לפיה."""
+        return DatabaseManager._create_recycle_bin_ttl_indexes(self, self.safe_create_index)
+
     def _create_indexes(self):
         """צור *רק* את האינדקסים הקריטיים (ברקע) למניעת COLLSCAN.
 
         דרישה: להימנע מיצירת אינדקסים נוספים מעבר לרשימה האופטימלית שהוגדרה.
+
+        **והרשימה מכילה גם אינדקסים של התנהגות, שאינם אופטימיזציה:** TTL שמוחק
+        מסמכים ו-``unique`` ששומר על שלמות. צמצום לפי "איזו שאילתה הוא מאיץ"
+        מפיל בדיוק אותם, כי אין להם שאילתה — כך נעלם ב-PR #2525 אינדקס ה-TTL של
+        סל המיחזור (``_create_recycle_bin_ttl_indexes``), והסל הפסיק להתרוקן.
         """
         db = getattr(self, "db", None)
 
@@ -2469,6 +2537,11 @@ class DatabaseManager:
             [("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)],
             name="idx_snippets_version_any_state",
         )
+
+        # פקיעת סל המיחזור, ב-code_snippets וב-large_files. אינדקס של התנהגות
+        # ולא של ביצועים — מי שמצמצם את הרשימה הזו, שלא יוריד אותו. ההסבר המלא
+        # ב-docstring של הפונקציה.
+        DatabaseManager._create_recycle_bin_ttl_indexes(self, safe_create_index)
 
         # NOTE:
         # אינדקס נעוצים `user_pinned_pin_order_idx` נוצר ומטופל ב-webapp (ensure_code_snippets_indexes)

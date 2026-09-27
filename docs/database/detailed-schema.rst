@@ -84,7 +84,7 @@
    * - ``deleted_expires_at``
      - datetime
      - לא
-     - תאריך תפוגה למחיקה סופית
+     - תאריך המחיקה הסופית, שהעמוד ``/trash`` מציג כ"נמחק סופית ב-". אף קוד אפליקציה אינו מוחק בו: אינדקס TTL חלקי (רק מסמכים עם ``is_active: false``) מוחק את המסמך בצד השרת. האינדקס נוצר בכל עלייה ב-``DatabaseManager._create_recycle_bin_ttl_indexes``, והמפרט שלו ב-``file_deletion.py``
 
 **אילוצים:**
 - ``user_id`` + ``file_name`` + ``version`` ייחודיים יחד
@@ -202,7 +202,7 @@
    * - ``deleted_expires_at``
      - datetime
      - לא
-     - תאריך תפוגה
+     - תאריך המחיקה הסופית — אותו אינדקס TTL ואותו מפרט כמו ב-``code_snippets``
 
 **הבדלים מ-code_snippets:**
 - אין ``version`` (גרסאות נשמרות ב-``file_versions``)
