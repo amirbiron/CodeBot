@@ -67,6 +67,20 @@ scripts/import_snippets_from_markdown.py
 
    python scripts/measure_md_parse_cost.py
 
+``scripts/md_parser_upgrade_zero_diff.py``
+------------------------------------------
+
+- מראה ששדרוג של ``markdown-it-py`` או של ``mdit-py-plugins`` לא שינה את מה שהפארסרים של התיעוד מחזירים. הוא רץ פעמיים, בסביבה הישנה ובחדשה, מאותו עץ עבודה ועל אותו קורפוס, וכותב תצלום JSON בכל ריצה; ``compare`` משווה את שני התצלומים. התצלום נושא את המפה של כל קובץ ``.md`` ו-``.rst`` תחת השורשים שנמסרו ב-``--root``, את תשובות הסירוב של הכלי דרך ``docs_handlers.document_from_read``, צורות עוינות, ואת כל משפחות הצורות של ``tests/test_md_parser_oracle.py`` מול cmark-gfm.
+- **פסק הדין:** הכול זהה, חוץ ממשפחות באורקל שהוכרזו מראש ב-``--expected-change``. משפחה שהוכרזה ולא השתנתה מפילה את ההשוואה גם היא, כי הכרזה שנשארת בפקודה בלי סיבה תסתיר את השינוי הבא באותה משפחה. כך שדרוג שמשנה מחלקה ידועה עובר, והסקריפט מוכיח ששום דבר אחר לא השתנה. קוד היציאה של ``compare``: 0 — אפס דיף, 1 — הבדל, 2 — קלט שגוי.
+- לא רץ ב-CI, בכוונה: הערך שלו הוא הדיף בין שתי סביבות, ו-CI רץ באחת. דורש בשתי הסביבות את ``requirements/development.txt``, כי האורקל נטען מקובץ הטסטים (בטוען של ``scripts/compare_md_parser_to_cmark.py``). כותב רק ל-``--out``. הנימוק המלא ב-docstring שלו, והטסטים שלו: ``tests/test_md_parser_upgrade_zero_diff_script.py``.
+
+דוגמת הרצה — בשדרוג ל-4.2.0 שתי המשפחות שבדוגמה הן אלה שהשתנו::
+
+   <python של הסביבה הישנה> scripts/md_parser_upgrade_zero_diff.py snapshot --root repo=. --out /tmp/before.json
+   <python של הסביבה החדשה> scripts/md_parser_upgrade_zero_diff.py snapshot --root repo=. --out /tmp/after.json
+   python scripts/md_parser_upgrade_zero_diff.py compare /tmp/before.json /tmp/after.json \
+       --expected-change commonmark_0_31_block_tag_list --expected-change table_over_autocomplete_cap
+
 scripts/migrate_workspace_collections.py
 ----------------------------------------
 

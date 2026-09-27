@@ -7,7 +7,7 @@
 
 **דרישות תוכנה:**
 
-* Python 3.9 או גרסה חדשה יותר
+* Python 3.11 או גרסה חדשה יותר. הקוד מייבא ``datetime.UTC``, ש-`נוסף בפייתון 3.11 <https://docs.python.org/3/library/datetime.html#datetime.UTC>`_, וגם כלי בניית התיעוד שב-``docs/requirements.txt`` (Sphinx ו-``myst-parser``) דורשים אותה. זו הגרסה הנמוכה ביותר במטריצה של ``unit-tests`` ב-``.github/workflows/ci.yml``, ו-``tests/test_docs_python_minimum.py`` בודק שהמספר כאן שווה לה. עמודים אחרים מפנים לכאן ולא חוזרים על המספר.
 * MongoDB 5.2 או גרסה חדשה יותר. רשימות הקבצים בוובאפ בוחרות את הגרסה האחרונה של כל קובץ עם ``$top`` (``_latest_version_per_file_stages`` ב-``webapp/app.py``), ו-`האופרטור הזה נוסף ב-MongoDB 5.2 <https://www.mongodb.com/docs/manual/reference/operator/aggregation/top/>`_. עמודים אחרים מפנים לכאן ולא חוזרים על המספר, כדי שיהיה מקום אחד לעדכן כשקוד חדש נשען על אופרטור חדש יותר.
 * Redis 6.0+ (אופציונלי, לקאש)
 * Git

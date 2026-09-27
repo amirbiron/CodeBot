@@ -10,7 +10,7 @@ sphinx-rtd-theme==3.0.2
 sphinx-autodoc-typehints==3.5.2
 sphinxcontrib-napoleon==0.7
 sphinxcontrib-mermaid==1.0.0
-myst-parser==4.0.1
+myst-parser==5.1.0
 
 # Additional Documentation Tools
 sphinx-copybutton==0.5.2  # Copy button for code blocks

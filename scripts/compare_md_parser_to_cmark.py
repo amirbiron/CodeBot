@@ -22,12 +22,22 @@
 מקובץ הטסטים, כי שני עותקים של "מה נחשב הסכמה" היו נסחפים זה מזה —
 והראשון שהיה נשבר הוא זה שרץ לעיתים רחוקות, כלומר הסקריפט.
 
+**ובאותה ריצה — שורות שמפעילות פער ידוע.** לכל קובץ נסרקות גם השורות
+שיכולות להפעיל את אחת השורות ב-``_KNOWN_DIVERGENCES`` **שיש להן טריגר**, באותה
+פונקציה שסורקת את ``docs/`` ב-CI (``_divergence_trigger_lines``: לפי הפארסר, בלי
+שורות בתוך בלוק קוד ובלי שורות בתוך בלוק HTML שנפתח בשורה קודמת). זה מה שמקבע
+את הטענה "אף קובץ אמיתי לא מושפע" על קורפוס שה-CI אינו רואה: שורה כזאת מפילה את
+הריצה, גם כשהמפה של אותו קובץ עדיין מסכימה עם cmark — כי ההסכמה תלויה בכותרת
+שאחריה, וזו יכולה להשתנות בעריכה הבאה. לשורות בטבלה שאין להן טריגר, מה שתופס קובץ
+אמיתי הוא השוואת המפות שלמעלה.
+
 שימוש::
 
     python scripts/compare_md_parser_to_cmark.py /path/to/amir-bug-patterns
     python scripts/compare_md_parser_to_cmark.py /path/to/repo --out /tmp/report.txt
 
-דורש ``cmarkgfm``, שנעוץ ב-``requirements/development.txt``.
+דורש את ``cmarkgfm`` ואת ``pytest`` — האורקל נטען מקובץ טסטים — ושניהם נעוצים
+ב-``requirements/development.txt``.
 """
 
 from __future__ import annotations
@@ -46,12 +56,30 @@ from services.doc_sections import InconsistentLineEndings, TooManySections  # no
 
 
 def _load_oracle():
-    """טוען את האורקל מקובץ הטסטים — הגדרה אחת לשני המריצים."""
+    """טוען את האורקל מקובץ הטסטים — הגדרה אחת לשני המריצים.
+
+    **המודול נרשם ב-``sys.modules`` לפני שהוא רץ**, לפי המתכון "Importing a
+    source file directly" בתיעוד של ``importlib`` (docs.python.org, 3.11).
+    זה לא טקס: ``@dataclass`` במודול עם ``from __future__ import annotations``
+    מחפש את המודול של המחלקה ב-``sys.modules`` בזמן שהיא נבנית, ובלי הרישום
+    הטעינה נופלת ב-``AttributeError`` — נמדד, כשהטבלה ``_KNOWN_DIVERGENCES``
+    נכנסה לאורקל.
+    """
+    name = "md_parser_oracle"
     spec = importlib.util.spec_from_file_location(
-        "md_parser_oracle", _REPO / "tests" / "test_md_parser_oracle.py"
+        name, _REPO / "tests" / "test_md_parser_oracle.py"
     )
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.modules[name] = module
+    # **ואם הטעינה נכשלת, הרישום מוסר.** המתכון של ``importlib`` אינו מנקה, אבל
+    # ``import`` רגיל כן מסיר מודול שנכשל — ובלי זה נשאר ב-``sys.modules`` מודול
+    # חצי-בנוי, וכל ייבוא אחר שלו באותו תהליך היה מקבל אותו בשקט. החריגה עצמה
+    # עולה הלאה כמו שהיא.
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
     return module
 
 
@@ -73,8 +101,10 @@ def main(argv: list[str] | None = None) -> int:
     if not files:
         parser.error(f"אפס קובצי .md תחת {root} — זה כישלון, לא ריצה ריקה")
 
+    causes = {row.key: row.cause for row in oracle._KNOWN_DIVERGENCES}
     lines: list[str] = []
     skipped: list[str] = []
+    triggers: list[str] = []
     mismatched = 0
     compared = 0
     total_headings = 0
@@ -121,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
             lines.append(f"✘ {name}")
             lines.append(f"    שלנו : {ours}")
             lines.append(f"    cmark: {theirs}")
+        for line_no, key in oracle._divergence_trigger_lines(text):
+            triggers.append(f"⚑ {name}:{line_no} — {causes[key]}")
 
     header = [
         f"ריפו:       {root}",
@@ -128,10 +160,16 @@ def main(argv: list[str] | None = None) -> int:
         f"כותרות:     {total_headings} (לפי cmark-gfm, ברמת המסמך)",
         f"אי-הסכמות:  {mismatched} — ההשוואה היא על **רמה ומספר שורה** בלבד,",
         "            ולא על טקסט הכותרת. ההנמקה בראש קובץ האורקל.",
+        f"טריגרים:    {len(triggers)} שורות שמפעילות פער ידוע שיש לו טריגר",
+        "            (לא לכל שורה ב-_KNOWN_DIVERGENCES יש), מחוץ לבלוקי קוד",
+        "            ומחוץ לבלוק HTML שנפתח בשורה קודמת. כל אחת מפילה את הריצה.",
         "",
     ]
     if skipped:
         header.extend(skipped)
+        header.append("")
+    if triggers:
+        header.extend(triggers)
         header.append("")
     report = "\n".join(header + lines) + "\n"
     if args.out:
@@ -146,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     if not compared:
         print("כל הקבצים סורבו — לא הושווה דבר, וזה כישלון ולא ריצה נקייה.")
         return 1
-    return 1 if mismatched else 0
+    return 1 if mismatched or triggers else 0
 
 
 if __name__ == "__main__":
