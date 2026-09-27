@@ -1599,8 +1599,29 @@ class DatabaseManager:
 
     @property
     def is_connected(self) -> bool:
-        """האם יש חיבור חי ל-MongoDB (לא NoOp)."""
+        """האם אין על מה לחכות: יש חיבור, **או** שהמסד נוטרל בכוונה.
+
+        בניטרול מכוון ``connect()`` מאתחל קולקציות NoOp ומחזיר כאן ``True``, ולולאת
+        ההמתנה שב-``main()`` נשענת על זה כדי לא לחכות לחיבור שלא יגיע. לכן זו אינה
+        התשובה ל"האם כתיבה מגיעה למסד" — לזה ``has_real_database``.
+        """
         return self._db_connected
+
+    @property
+    def has_real_database(self) -> bool:
+        """האם כתיבה מגיעה למסד אמיתי: מחובר, והמסד אינו ``NoOpDB``.
+
+        במצב NoOp כל כתיבה "מצליחה" בלי לעשות דבר, ולכן מי שמדווח למשתמש על פעולה
+        שבוצעה בודק את זה ולא את ``is_connected`` (K11).
+
+        הדגל נקרא לפני המסד: החיבור מחדש ברקע מציב את ``_db_connected`` אחרון,
+        ולכן מי שרואה אותו דלוק רואה כבר את המסד החדש. ``is not None`` ולא אמת
+        בוליאנית, כי ``Database`` של pymongo זורק על ``bool()``.
+        """
+        if not self._db_connected:
+            return False
+        db = self.db
+        return db is not None and not isinstance(db, NoOpDB)
 
     # --- Lazy repository accessor to avoid circular imports ---
     def _get_repo(self):

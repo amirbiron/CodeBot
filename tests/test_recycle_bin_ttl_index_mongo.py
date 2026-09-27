@@ -11,8 +11,9 @@
 ``ttlMonitorSleepSecs=1``, יחד עם ריצת בקרה על הקוד שלפני התיקון — ראו
 תיאור ה-PR.
 
-מתי הן רצות: כשיש שרת נגיש ב-``NOTE_FONTS_TEST_MONGO_URI`` או ב-``MONGODB_URL``
-(אותו מנגנון כמו ``test_note_boards_mongo.py``). אחרת הן מדלגות.
+מתי הן רצות: כש-``NOTE_FONTS_TEST_MONGO_URI``, או ``MONGODB_URL`` כשהוא ריק,
+מצביע לשרת נגיש. כשאין שם שרת הן מדלגות; כשיש שרת והחיבור נכשל מסיבה
+אחרת — אימות, כתובת — הן נכשלות. ראו ``mongo_client``.
 
 **בטיחות מחיקה:** כל בדיקה עובדת על מסד עם שם ייחודי משלה, וה-teardown מוחק
 רק מסד שמתחיל בתחילית שלמטה.
@@ -30,6 +31,8 @@ import pytest
 
 pymongo = pytest.importorskip("pymongo")
 
+from pymongo.errors import ServerSelectionTimeoutError  # noqa: E402
+
 from database.manager import DatabaseManager  # noqa: E402
 from file_deletion import is_recycle_bin_ttl_index  # noqa: E402
 
@@ -40,37 +43,55 @@ _MONGO_URL = (
     os.environ.get("NOTE_FONTS_TEST_MONGO_URI") or os.environ.get("MONGODB_URL") or ""
 ).strip()
 
-
-def _server_is_reachable(url: str) -> bool:
-    """האם יש שרת בקצה השני. בלי זה הבדיקות היו נתלות עד timeout ארוך."""
-    try:
-        client = pymongo.MongoClient(url, serverSelectionTimeoutMS=2000)
-        try:
-            client.admin.command("ping")
-        finally:
-            client.close()
-        return True
-    except Exception:
-        return False
-
-
+#: הדילוג ברמת המודול נשען על ה-ENV בלבד ואינו נוגע ברשת: בדיקת נגישות כאן
+#: הייתה פותחת חיבור בכל איסוף של pytest, גם בהרצה שאינה כוללת את הקובץ.
+#: הנגישות נבדקת ב-``mongo_client``, כשהבדיקות באמת עומדות לרוץ.
 pytestmark = pytest.mark.skipif(
-    not _MONGO_URL or not _server_is_reachable(_MONGO_URL),
-    reason="דורש שרת מונגו נגיש ב-NOTE_FONTS_TEST_MONGO_URI או ב-MONGODB_URL",
+    not _MONGO_URL,
+    reason="דורש NOTE_FONTS_TEST_MONGO_URI או MONGODB_URL",
 )
 
 
-@pytest.fixture
-def mongo_db():
-    name = f"{_TEST_DB_PREFIX}{uuid.uuid4().hex[:12]}"
-    client = pymongo.MongoClient(_MONGO_URL, tz_aware=True, tzinfo=timezone.utc)
+@pytest.fixture(scope="module")
+def mongo_client():
+    """לקוח מחובר, או דילוג — **רק** כשאין שרת בקצה השני.
+
+    ``ServerSelectionTimeoutError`` הוא "אין שרת", וכך גם מארח שאינו נפתר (הג'וב
+    ``Unit Tests`` של ה-PR). כל חריגה אחרת עולה ומכשילה: אימות שגוי
+    (``OperationFailure``), ``mongodb+srv://`` שאינו נפתר (``ConfigurationError``).
+    דילוג עליהן היה מעלים בשקט את הבדיקות האלה, שהן ההוכחה היחידה מול שרת אמיתי
+    — אותו כלל כמו ``_connect_or_skip`` ב-``test_profiler_projection_mongo.py``.
+    נמדד מול pymongo 4.15.3, הגרסה שב-``requirements/base.txt``.
+
+    סיבת הדילוג אינה מצטטת את החריגה: היא נגזרת מחיבור שהכתובת שלו יכולה לשאת
+    סיסמה (K13).
+    """
+    client = pymongo.MongoClient(
+        _MONGO_URL, serverSelectionTimeoutMS=2000, tz_aware=True, tzinfo=timezone.utc
+    )
     try:
-        yield client[name]
+        client.admin.command("ping")
+    except ServerSelectionTimeoutError:
+        client.close()
+        pytest.skip("אין שרת מונגו נגיש בכתובת שהוגדרה")
+    except Exception:
+        client.close()
+        raise
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+@pytest.fixture
+def mongo_db(mongo_client):
+    name = f"{_TEST_DB_PREFIX}{uuid.uuid4().hex[:12]}"
+    try:
+        yield mongo_client[name]
     finally:
         # סורג בטיחות: מוחקים רק מסד שנוצר כאן
         if name.startswith(_TEST_DB_PREFIX):
-            client.drop_database(name)
-        client.close()
+            mongo_client.drop_database(name)
 
 
 @pytest.fixture

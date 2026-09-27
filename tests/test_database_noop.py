@@ -46,6 +46,38 @@ def test_noop_db_when_pymongo_unavailable(monkeypatch):
     assert getattr(mgr.db, "name", "") == "noop_db"
 
 
+def test_a_disabled_database_is_connected_but_not_real(monkeypatch):
+    """``is_connected`` הוא ``True`` גם בניטרול מכוון, כי לולאת ההמתנה שב-``main()``
+    נשענת על זה. לכן "האם כתיבה מגיעה למסד" נשאל דרך ``has_real_database``."""
+    monkeypatch.setenv("DISABLE_DB", "1")
+    monkeypatch.setenv("BOT_TOKEN", "dummy")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017")
+
+    import database.manager as dm
+
+    mgr = dm.DatabaseManager()
+    assert mgr.is_connected is True
+    assert mgr.has_real_database is False
+
+
+def test_a_connected_database_that_is_not_noop_is_real(monkeypatch):
+    """הצד השני, כדי שתכונה שתמיד מחזירה ``False`` לא תעבור: המצב שהחיבור
+    מחדש ברקע מציב (מסד אמיתי ודגל דלוק), ואחריו המצב ש-``close()`` משאיר."""
+    monkeypatch.setenv("DISABLE_DB", "1")
+    monkeypatch.setenv("BOT_TOKEN", "dummy")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017")
+
+    import database.manager as dm
+
+    mgr = dm.DatabaseManager()
+    mgr.db = object()  # כל מסד שאינו NoOpDB
+    mgr._db_connected = True
+    assert mgr.has_real_database is True
+
+    mgr._db_connected = False
+    assert mgr.has_real_database is False
+
+
 def test_noop_db_private_attr_raises(monkeypatch):
     # Ensure attribute names starting with '_' raise AttributeError per stub contract
     monkeypatch.setenv("DISABLE_DB", "1")

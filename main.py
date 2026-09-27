@@ -1114,9 +1114,10 @@ async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT
         expires = now + timedelta(days=ttl_days)
 
         from database import db as _db
-        # במצב no-op (המסד לא עלה) כל קולקציה "מצליחה" בלי לעשות דבר, והדוח
-        # היה מציג ✅ ואפסים על פעולה שלא קרתה (K11).
-        if not _db.is_connected:
+        # במצב NoOp כל קולקציה "מצליחה" בלי לעשות דבר, והדוח היה מציג ✅ ואפסים
+        # על פעולה שלא קרתה (K11). ``is_connected`` אינו השאלה הנכונה: בניטרול
+        # מכוון הוא ``True`` — ראו ``DatabaseManager.has_real_database``.
+        if not _db.has_real_database:
             try:
                 await update.message.reply_text("❌ אין חיבור למסד — לא בוצע דבר")
             except Exception as e:

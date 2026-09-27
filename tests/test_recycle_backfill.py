@@ -29,14 +29,14 @@ class DummyColl:
 
 
 class DummyDB(types.SimpleNamespace):
-    """דמה ל-``database.db``: הקולקציות, ``is_connected``, והפונקציה שיוצרת את
-    אינדקס ה-TTL — שהפקודה קוראת לה במקום ליצור אינדקס בעצמה."""
+    """דמה ל-``database.db``: הקולקציות, ``has_real_database``, והפונקציה שיוצרת
+    את אינדקס ה-TTL — שהפקודה קוראת לה במקום ליצור אינדקס בעצמה."""
 
-    def __init__(self, collection, large_files_collection, ttl_status=None, is_connected=True):
+    def __init__(self, collection, large_files_collection, ttl_status=None, has_real_database=True):
         super().__init__(
             collection=collection,
             large_files_collection=large_files_collection,
-            is_connected=is_connected,
+            has_real_database=has_real_database,
         )
         if ttl_status is None:
             ttl_status = {"code_snippets": True, "large_files": True}
@@ -206,7 +206,7 @@ async def test_recycle_backfill_refuses_without_a_database(monkeypatch):
 
     monkeypatch.setattr(m, "get_admin_ids", lambda: [1])
     coll = DummyColl()
-    dummy_db = DummyDB(collection=coll, large_files_collection=None, is_connected=False)
+    dummy_db = DummyDB(collection=coll, large_files_collection=None, has_real_database=False)
 
     mod = types.ModuleType("database")
     mod.db = dummy_db
@@ -218,3 +218,34 @@ async def test_recycle_backfill_refuses_without_a_database(monkeypatch):
     assert any("אין חיבור למסד" in s for s in upd.message.sent)
     assert dummy_db.ensure_calls == 0
     assert coll.calls["update_many"] == []
+
+
+@pytest.mark.asyncio
+async def test_recycle_backfill_refuses_when_the_database_is_disabled_on_purpose(monkeypatch):
+    """עם ``DatabaseManager`` האמיתי ב-``DISABLE_DB``, ולא עם דמה.
+
+    בניטרול מכוון המנהל מאתחל NoOp, ו-``is_connected`` שלו ``True``. שומר שבדק
+    את ``is_connected`` עבר כאן: ``safe_create_index`` "הצליח" מול NoOp, והדוח
+    הציג "אינדקס TTL ✅" ואפסים בלי שנכתב דבר. הדמה שבטסט הקודם לא יכלה לתפוס
+    את זה, כי היא בונה מצב שהמנהל האמיתי אינו מייצר.
+    """
+    monkeypatch.setenv("BOT_TOKEN", "dummy")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    monkeypatch.setenv("DISABLE_DB", "1")
+
+    if "main" in __import__("sys").modules:
+        importlib.reload(__import__("sys").modules["main"])  # type: ignore
+    m = importlib.import_module("main")
+    monkeypatch.setattr(m, "get_admin_ids", lambda: [1])
+
+    from database.manager import DatabaseManager
+
+    mod = types.ModuleType("database")
+    mod.db = DatabaseManager()
+    monkeypatch.setitem(__import__("sys").modules, "database", mod)
+
+    upd = FakeUpdate(uid=1)
+    await m.recycle_backfill_command(upd, FakeContext(args=[]))
+
+    assert any("אין חיבור למסד" in s for s in upd.message.sent)
+    assert not any("✅" in s for s in upd.message.sent)
