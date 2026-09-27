@@ -23,19 +23,21 @@
 והראשון שהיה נשבר הוא זה שרץ לעיתים רחוקות, כלומר הסקריפט.
 
 **ובאותה ריצה — שורות שמפעילות פער ידוע.** לכל קובץ נסרקות גם השורות
-שיכולות להפעיל את אחת השורות ב-``_KNOWN_DIVERGENCES``, באותה פונקציה
-שסורקת את ``docs/`` ב-CI (``_divergence_trigger_lines``: לפי הפארסר, בלי
-שורות בתוך בלוק קוד). זה מה שמקבע את הטענה "אף קובץ אמיתי לא מושפע" על
-קורפוס שה-CI אינו רואה: שורה כזאת מפילה את הריצה, גם כשהמפה של אותו
-קובץ עדיין מסכימה עם cmark — כי ההסכמה תלויה בכותרת שאחריה, וזו יכולה
-להשתנות בעריכה הבאה.
+שיכולות להפעיל את אחת השורות ב-``_KNOWN_DIVERGENCES`` **שיש להן טריגר**, באותה
+פונקציה שסורקת את ``docs/`` ב-CI (``_divergence_trigger_lines``: לפי הפארסר, בלי
+שורות בתוך בלוק קוד ובלי שורות בתוך בלוק HTML שנפתח בשורה קודמת). זה מה שמקבע
+את הטענה "אף קובץ אמיתי לא מושפע" על קורפוס שה-CI אינו רואה: שורה כזאת מפילה את
+הריצה, גם כשהמפה של אותו קובץ עדיין מסכימה עם cmark — כי ההסכמה תלויה בכותרת
+שאחריה, וזו יכולה להשתנות בעריכה הבאה. לשורות בטבלה שאין להן טריגר, מה שתופס קובץ
+אמיתי הוא השוואת המפות שלמעלה.
 
 שימוש::
 
     python scripts/compare_md_parser_to_cmark.py /path/to/amir-bug-patterns
     python scripts/compare_md_parser_to_cmark.py /path/to/repo --out /tmp/report.txt
 
-דורש ``cmarkgfm``, שנעוץ ב-``requirements/development.txt``.
+דורש את ``cmarkgfm`` ואת ``pytest`` — האורקל נטען מקובץ טסטים — ושניהם נעוצים
+ב-``requirements/development.txt``.
 """
 
 from __future__ import annotations
@@ -69,7 +71,15 @@ def _load_oracle():
     )
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
-    spec.loader.exec_module(module)
+    # **ואם הטעינה נכשלת, הרישום מוסר.** המתכון של ``importlib`` אינו מנקה, אבל
+    # ``import`` רגיל כן מסיר מודול שנכשל — ובלי זה נשאר ב-``sys.modules`` מודול
+    # חצי-בנוי, וכל ייבוא אחר שלו באותו תהליך היה מקבל אותו בשקט. החריגה עצמה
+    # עולה הלאה כמו שהיא.
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
     return module
 
 
@@ -150,8 +160,9 @@ def main(argv: list[str] | None = None) -> int:
         f"כותרות:     {total_headings} (לפי cmark-gfm, ברמת המסמך)",
         f"אי-הסכמות:  {mismatched} — ההשוואה היא על **רמה ומספר שורה** בלבד,",
         "            ולא על טקסט הכותרת. ההנמקה בראש קובץ האורקל.",
-        f"טריגרים:    {len(triggers)} שורות שמפעילות פער ידוע (_KNOWN_DIVERGENCES),",
-        "            מחוץ לבלוקי קוד. כל אחת מפילה את הריצה.",
+        f"טריגרים:    {len(triggers)} שורות שמפעילות פער ידוע שיש לו טריגר",
+        "            (לא לכל שורה ב-_KNOWN_DIVERGENCES יש), מחוץ לבלוקי קוד",
+        "            ומחוץ לבלוק HTML שנפתח בשורה קודמת. כל אחת מפילה את הריצה.",
         "",
     ]
     if skipped:

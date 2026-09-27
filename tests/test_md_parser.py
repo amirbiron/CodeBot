@@ -12,6 +12,7 @@
 """
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -924,6 +925,35 @@ def test_the_compare_script_does_not_call_an_empty_run_a_success(tmp_path, capsy
 
     assert exit_code == 1, "ריצה שלא השוותה דבר אינה מצליחה"
     assert "כל הקבצים סורבו" in capsys.readouterr().out
+
+
+def test_the_compare_script_loads_the_oracle_it_depends_on():
+    """``_load_oracle`` מחזיר מודול עם מה ש-``main`` צריך — כשל כאן מצביע על הטוען, לא על ``main``.
+
+    בלי הרישום ב-``sys.modules`` שלושה טסטים אחרים של הסקריפט נופלים, אבל ב-
+    ``AttributeError`` מתוך ``dataclasses`` שאינו אומר מילה על הטוען. הטסט הזה נקרא
+    בשם של מה שנשבר.
+    """
+    oracle = _load_compare_script()._load_oracle()
+    for name in ("_KNOWN_DIVERGENCES", "_divergence_trigger_lines", "_ours", "_oracle_sections"):
+        assert hasattr(oracle, name), name
+
+
+def test_a_broken_oracle_is_not_left_half_built_in_sys_modules(tmp_path, monkeypatch):
+    """טעינה שנכשלת מסירה את הרישום, כמו ש-``import`` רגיל עושה — והחריגה עולה כמו שהיא."""
+    broken = tmp_path / "tests"
+    broken.mkdir()
+    (broken / "test_md_parser_oracle.py").write_text(
+        "raise RuntimeError('שבור בכוונה')\n", encoding="utf-8"
+    )
+    script = _load_compare_script()
+    monkeypatch.setattr(script, "_REPO", tmp_path)
+    monkeypatch.delitem(sys.modules, "md_parser_oracle", raising=False)
+
+    with pytest.raises(RuntimeError, match="שבור בכוונה"):
+        script._load_oracle()
+
+    assert "md_parser_oracle" not in sys.modules
 
 
 def test_the_compare_script_fails_on_a_known_divergence_trigger_even_when_maps_agree(
