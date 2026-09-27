@@ -781,33 +781,33 @@ def _run(peak_bytes, input_bytes, cpu, outcome="parsed"):
 
 
 def test_growth_calls_a_linear_shape_linear_and_a_quadratic_one_superlinear():
-    """הגבול בין ליניארי לריבועי, על מספרים שנמדדו (``--doubling``, 4.2.0, 2026-09-27).
+    """הגבול בין ליניארי לריבועי, על מספרים שנמדדו (``--doubling`` עם האיפוס, 4.2.0, 2026-09-27).
 
-    הטבלאות מעל תקרת התאים הן היחס הגבוה ביותר שנמדד בצורה ליניארית — 1.73 במעבד —
-    ועדיין מתחת ל-``SUPERLINEAR_GROWTH``; ריבועי, מאותה נקודת התחלה, הוא סביב 4.
+    הטבלאות מעל תקרת התאים הן היחס הגבוה ביותר באותה ריצה — 1.56 במעבד — ועדיין
+    מתחת ל-``SUPERLINEAR_GROWTH``; ריבועי, מנקודת ההתחלה של התבליטים, הוא סביב 4.
     """
     script = _load_script()
     tables = [
-        _run(136_818_688, 3_090, 0.838), _run(344_428_544, 7_725, 2.225),
-        _run(690_589_696, 15_450, 7.25),
+        _run(136_826_880, 3_090, 0.897), _run(344_440_832, 7_725, 2.115),
+        _run(690_663_424, 15_450, 7.014),
     ]
     bullets = [
-        _run(36_859_904, 128_000, 0.532), _run(74_858_496, 256_000, 0.959),
-        _run(148_910_080, 512_000, 2.395),
+        _run(37_150_720, 128_000, 0.539), _run(73_867_264, 256_000, 1.007),
+        _run(150_167_552, 512_000, 2.026),
     ]
     quadratic_cpu = [
-        _run(36_859_904, 128_000, 0.5), _run(73_719_808, 256_000, 2.0),
-        _run(147_439_616, 512_000, 8.0),
+        _run(37_150_720, 128_000, 0.5), _run(74_301_440, 256_000, 2.0),
+        _run(148_602_880, 512_000, 8.0),
     ]
     quadratic_memory = [
-        _run(36_859_904, 128_000, 0.5), _run(147_439_616, 256_000, 1.0),
-        _run(589_758_464, 512_000, 2.0),
+        _run(37_150_720, 128_000, 0.5), _run(148_602_880, 256_000, 1.0),
+        _run(594_411_520, 512_000, 2.0),
     ]
 
     assert script.growth(tables) == {
-        "memory_growth": 1.01, "cpu_growth": 1.73, "superlinear": False}
+        "memory_growth": 1.01, "cpu_growth": 1.56, "superlinear": False}
     assert script.growth(bullets) == {
-        "memory_growth": 1.01, "cpu_growth": 1.13, "superlinear": False}
+        "memory_growth": 1.01, "cpu_growth": 0.94, "superlinear": False}
     assert script.growth(quadratic_cpu) == {
         "memory_growth": 1.0, "cpu_growth": 4.0, "superlinear": True}
     assert script.growth(quadratic_memory) == {
@@ -817,17 +817,17 @@ def test_growth_calls_a_linear_shape_linear_and_a_quadratic_one_superlinear():
 def test_growth_checks_each_resource_only_above_its_noise_floor():
     """מתחת לרצפה היחס הוא רעש, ולכן הוא ``None`` — ורק גדילה שנמדדה מסמנת ``superlinear``.
 
-    ``nested_bullets_10`` אמיתי: מעבד של אלפיות בודדות בגודל הגדול אינו נבדק, והזיכרון
-    שלו — 1.26MB בגודל הקטן, מעל ``MEMORY_NOISE_FLOOR_BYTES`` — כן. ושיא אפס בגודל
-    הקטן, זיכרון שנבלע כולו מתחת לשיא-העבר של התהליך, היה הופך את השיא בגודל הגדול
-    ליחס אינסופי ומסמן צורה ליניארית כריבועית (סקירת CodeRabbit ב-#3467). עכשיו
+    ``nested_bullets_10`` אמיתי (``--doubling`` עם האיפוס): מעבד של אלפיות בודדות בגודל
+    הגדול אינו נבדק, והזיכרון שלו — 1.13MB בגודל הקטן, מעל ``MEMORY_NOISE_FLOOR_BYTES`` —
+    כן. ושיא אפס בגודל הקטן, זיכרון שנבלע כולו מתחת לשיא-העבר של התהליך, היה הופך את
+    השיא בגודל הגדול ליחס אינסופי ומסמן צורה ליניארית כריבועית (סקירת CodeRabbit ב-#3467). עכשיו
     הזיכרון שלה אינו נבדק, והמעבד, שמעל הרצפה שלו, כן — ומסמן לבדו כשהוא ריבועי.
     """
     script = _load_script()
     floor = script.MEMORY_NOISE_FLOOR_BYTES
     nested_bullets_10 = [
-        _run(1_261_568, 128_000, 0.009), _run(2_592_768, 256_000, 0.013),
-        _run(5_480_448, 512_000, 0.033),
+        _run(1_134_592, 128_000, 0.007), _run(2_666_496, 256_000, 0.016),
+        _run(5_869_568, 512_000, 0.032),
     ]
     swallowed = [
         _run(0, 128_000, 0.2), _run(20_000_000, 256_000, 0.4), _run(40_000_000, 512_000, 0.8),
@@ -843,7 +843,7 @@ def test_growth_checks_each_resource_only_above_its_noise_floor():
     ]
 
     assert script.growth(nested_bullets_10) == {
-        "memory_growth": 1.09, "cpu_growth": None, "superlinear": False}
+        "memory_growth": 1.29, "cpu_growth": None, "superlinear": False}
     assert script.growth(swallowed) == {
         "memory_growth": None, "cpu_growth": 1.0, "superlinear": False}
     assert script.growth(swallowed_quadratic_cpu) == {
