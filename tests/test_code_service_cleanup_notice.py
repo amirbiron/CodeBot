@@ -81,6 +81,28 @@ def test_markdown_is_decided_by_the_file_name(file_name, expected):
     assert cleanup.text == expected
 
 
+def test_the_bot_and_the_webapp_share_one_warning_sentence():
+    """הבוט והוובאפ מציגים את אותו משפט. הבוט רק מוסיף אייקון ו"לא נגעתי בהם"."""
+    sentence = code_service.format_bidi_warning((4, 9))
+    assert sentence == (
+        "בשורות 4 ו-9 יש תווים שמשנים את סדר התצוגה. "
+        "הם לא נראים, ויכולים לגרום לקוד להיראות אחרת ממה שהוא עושה."
+    )
+    notice = code_service.format_cleanup_notice(PasteCleanup(text="", bidi_control_lines=(4, 9)))
+    assert notice == "⚠️ " + sentence + " לא נגעתי בהם."
+
+
+def test_the_display_warning_is_empty_without_such_chars_or_for_a_non_string():
+    """RLM הוא סימן כיוון ולא תו override או isolate, ולכן אין עליו אזהרה.
+    וערך שאינו מחרוזת (שדה פגום במסמך) אינו קוד שמוצג — אין אזהרה ואין חריגה."""
+    rlm = chr(0x200F)
+    assert code_service.bidi_warning_for_display("x = 1\n") == ""
+    assert code_service.bidi_warning_for_display("גרסה" + rlm + " 2.0\n") == ""
+    assert code_service.bidi_warning_for_display(None) == ""
+    assert code_service.bidi_warning_for_display(["a" + RLO]) == ""
+    assert code_service.bidi_warning_for_display("a\n" + RLO + "b\n").startswith("בשורה 2 יש")
+
+
 def test_missing_code_is_an_empty_text_not_an_error():
     """``context.user_data`` יכול לאבד את הקוד בין שלבי השיחה."""
     assert code_service.clean_pasted_code(None, "x.py").text == ""

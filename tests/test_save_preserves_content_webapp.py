@@ -111,7 +111,7 @@ class _FormReader(HTMLParser):
             name, chunks = self._textarea
             value = "".join(chunks)
             # מפענח HTML מתעלם מ-LF אחד שבא מיד אחרי תג הפתיחה של textarea
-            # (נמדד ב-Chromium, ראו tests/test_webapp_edit_browser_preserves_content.py).
+            # (נמדד ב-Chromium 141, ב-PR #3469).
             if value.startswith("\n"):
                 value = value[1:]
             self.fields.append((name, value))

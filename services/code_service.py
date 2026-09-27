@@ -20,6 +20,7 @@ from utils import detect_language_from_filename as _detect_from_filename
 # חוזר בשקט להתנהגות אחרת. המודול טהור, בלי I/O.
 from src.domain.services.code_normalizer import PasteCleanup
 from src.domain.services.code_normalizer import clean_pasted_code as _clean_pasted_code
+from src.domain.services.code_normalizer import explicit_bidi_control_lines
 from src.domain.services.code_normalizer import is_markdown_filename
 
 try:
@@ -265,11 +266,33 @@ def format_cleanup_notice(cleanup: PasteCleanup) -> str:
     if cleaned:
         lines.append("🧹 ניקיתי מהקוד: " + _join_hebrew(cleaned))
     if cleanup.bidi_control_lines:
-        lines.append(
-            "⚠️ " + _where_lines(cleanup.bidi_control_lines) + " יש תווים שמשנים את סדר התצוגה. "
-            "הם לא נראים, ויכולים לגרום לקוד להיראות אחרת ממה שהוא עושה. לא נגעתי בהם."
-        )
+        lines.append("⚠️ " + format_bidi_warning(cleanup.bidi_control_lines) + " לא נגעתי בהם.")
     return "\n".join(lines)
+
+
+def format_bidi_warning(line_numbers: Tuple[int, ...]) -> str:
+    """המשפט האחד על תווי embedding, override ו-isolate — לבוט ולוובאפ.
+
+    מחרוזת ריקה כשאין שורות. בלי אייקון ובלי סיומת: הבוט מוסיף "⚠️" ו"לא נגעתי
+    בהם" (:func:`format_cleanup_notice`), והוובאפ מציג אותו בבאנר משלו
+    (:func:`bidi_warning_for_display`). כך הניסוח חי במקום אחד.
+    """
+    if not line_numbers:
+        return ""
+    return (
+        _where_lines(line_numbers) + " יש תווים שמשנים את סדר התצוגה. "
+        "הם לא נראים, ויכולים לגרום לקוד להיראות אחרת ממה שהוא עושה."
+    )
+
+
+def bidi_warning_for_display(code: object) -> str:
+    """האזהרה שמוצגת לצד קוד בוובאפ, או מחרוזת ריקה כשאין בו תווים כאלה.
+
+    התווים נשמרים כמו שנשלחו, ולכן כל עמוד שמציג קוד — גם שיתוף ציבורי —
+    מזהיר עליהם בעצמו. מספרי השורות הם של הטקסט שמקבלים כאן; עמוד שממספר
+    אחרת (Pygments חותך שורות ריקות מההתחלה) מעביר את הטקסט שהוא מציג.
+    """
+    return format_bidi_warning(explicit_bidi_control_lines(code))
 
 
 def _cleaned_items(cleanup: PasteCleanup) -> List[str]:

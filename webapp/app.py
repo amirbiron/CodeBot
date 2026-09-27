@@ -178,6 +178,8 @@ from utils import TimeUtils, detect_language_from_filename  # noqa: E402
 # פענוח ה-CRLF ששליחת טופס HTML מוסיפה לערך של textarea. זה לא ניקוי של תוכן:
 # הוובאפ שומר בדיוק את מה שהמשתמש כתב (ראו services/line_endings.py).
 from services.line_endings import decode_form_newlines  # noqa: E402
+# אזהרה לצד קוד שמוצג, כשיש בו תווים שמשנים את סדר התצוגה (ראו services/code_service.py).
+from services.code_service import bidi_warning_for_display  # noqa: E402
 # כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
 # שלמעלה, ראו tests/test_webapp_import_paths.py.
 from file_dates import (  # noqa: E402
@@ -13489,6 +13491,23 @@ def trash_page():
         recycle_ttl_days=RECYCLE_TTL_DAYS,
     )
 
+
+def _bidi_warning_for_highlighted_code(code: str, lexer: Any) -> str:
+    """האזהרה לצד קוד ש-Pygments מרנדר, עם מספרי השורות שהעמוד מציג.
+
+    העמוד ממספר את הטקסט **אחרי** העיבוד המקדים של ה-lexer. נקרא מ-Pygments
+    2.19.2 (``Lexer._preprocess_lexer_input``): BOM בהתחלה נמחק, CRLF ו-CR בודד
+    הופכים ל-LF, ו-``stripall`` חותך רווחים ושורות ריקות מההתחלה. מספור של
+    הקוד הגולמי היה מפנה לשורה הלא נכונה בדיוק בקובץ שבו זה חשוב, ולכן
+    המספרים נגזרים מהטוקנים שה-lexer עצמו מפיק — אותו זרם ש-``highlight``
+    מרנדר. הטוקניזציה הנוספת רצה רק כשבדיקה זולה על הקוד הגולמי מצאה תו כזה.
+    """
+    if not bidi_warning_for_display(code):
+        return ""
+    rendered = "".join(value for _token, value in lexer.get_tokens(code))
+    return bidi_warning_for_display(rendered)
+
+
 @app.route('/file/<file_id>')
 @login_required
 def view_file(file_id):
@@ -13788,7 +13807,8 @@ def view_file(file_id):
                          file=file_data,
                          highlighted_code=highlighted_code,
                          syntax_css=css,
-                         raw_code=code)
+                         raw_code=code,
+                         bidi_warning=_bidi_warning_for_highlighted_code(code, lexer))
     resp = Response(html, mimetype='text/html; charset=utf-8')
     resp.headers['ETag'] = etag
     resp.headers['Last-Modified'] = last_modified_str
@@ -20993,7 +21013,13 @@ def public_share(share_id):
         'version': 1,
         'can_pin': False,
     }
-    return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
+    return render_template(
+        'view_file.html',
+        file=file_data,
+        highlighted_code=highlighted_code,
+        syntax_css=css,
+        bidi_warning=_bidi_warning_for_highlighted_code(code, lexer),
+    )
 
 
 @app.route('/read/share/<share_id>')

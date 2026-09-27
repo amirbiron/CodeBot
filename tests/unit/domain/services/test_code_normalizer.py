@@ -160,6 +160,14 @@ def test_a_non_string_is_refused_not_guessed():
         clean_pasted_code(None, is_markdown=False)  # type: ignore[arg-type]
 
 
+def test_detection_for_display_has_no_lines_for_a_non_string():
+    """הזיהוי משמש גם תצוגה בוובאפ, שם הקוד מגיע ממסמך במסד: ערך שאינו מחרוזת
+    אינו קוד שמוצג, ולכן אין בו שורות — ולא חריגה (בניגוד לניקוי, שמסרב)."""
+    assert cn.explicit_bidi_control_lines(None) == ()
+    assert cn.explicit_bidi_control_lines([TROJAN_SOURCE[0]]) == ()
+    assert cn.explicit_bidi_control_lines("a\nb" + TROJAN_SOURCE[4] + "\n") == (2,)
+
+
 @pytest.mark.parametrize(
     "name, expected",
     [

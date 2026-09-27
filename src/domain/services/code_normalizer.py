@@ -150,7 +150,7 @@ def clean_pasted_code(text: str, *, is_markdown: bool) -> PasteCleanup:
         special_spaces=special_spaces,
         zwsp=zwsp,
         trailing_whitespace_lines=trailing_whitespace_lines,
-        bidi_control_lines=_explicit_bidi_control_lines(out),
+        bidi_control_lines=explicit_bidi_control_lines(out),
     )
 
 
@@ -181,9 +181,18 @@ def _trim_trailing_whitespace(text: str) -> Tuple[str, int]:
     return ("\n".join(trimmed) if changed else text), changed
 
 
-def _explicit_bidi_control_lines(text: str) -> Tuple[int, ...]:
-    """מספרי השורות (מ-1) שיש בהן תו embedding, override או isolate."""
-    if text.isascii():
+def explicit_bidi_control_lines(text: object) -> Tuple[int, ...]:
+    """מספרי השורות (מ-1, לפי ``\\n``) שיש בהן תו embedding, override או isolate.
+
+    **ההגדרה האחת לזיהוי, לשני צרכנים:** :func:`clean_pasted_code`, שממנה הבוט
+    מזהיר בהודעת השמירה, ותצוגת הקוד בוובאפ, דרך
+    ``services/code_service.bidi_warning_for_display``. התווים נשמרים כמו שנשלחו,
+    ולכן מי שקורא את הקוד אחר כך — גם בקישור שיתוף ציבורי — צריך את האזהרה
+    בעמוד עצמו, ולא רק מי ששמר אותו.
+
+    ערך שאינו מחרוזת (למשל שדה פגום במסמך) אינו קוד שמוצג, ולכן אין בו שורות.
+    """
+    if not isinstance(text, str) or text.isascii():
         return ()
     return tuple(
         number
