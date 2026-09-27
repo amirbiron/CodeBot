@@ -2073,7 +2073,16 @@
                             <span class="qa-label">שולחן עבודה</span>
                         </button>
                         <a href="/boards" class="quick-access-item" title="לוחות פתקים">
-                            <span class="qa-icon">📌</span>
+                            {# ``-128`` הוא עותק מוקטן וחתוך של ``boards-quick-access.png``,
+                               שנשאר בתיקייה כמקור לעריכות הבאות; התמונה מוצגת
+                               בגודל של כמה פיקסלים, ואין סיבה להוריד את המקור.
+                               ``data-src`` ולא ``src``: החלונית סגורה ברוב טעינות
+                               העמוד, ו-``loadDeferredImages`` מציב את ה-``src``
+                               בפתיחה הראשונה — ההסבר המלא ליד אייקון דפדפן הקוד.
+                               ``?v=`` כי סטטיקה נשמרת בדפדפן לזמן ארוך
+                               (``SEND_FILE_MAX_AGE_DEFAULT``), ובלי מזהה גרסה
+                               החלפת התמונה באותו שם לא הייתה מגיעה למשתמשים. #}
+                            <span class="qa-icon"><img data-src="{{ url_for('static', filename='icons/boards-quick-access-128.png') }}?v={{ static_version }}" alt="" style="width: 1.3em; height: 1.3em; vertical-align: middle;"></span>
                             <span class="qa-label">לוחות פתקים</span>
                         </a>
                         <button class="quick-access-item" onclick="showRecentFiles()" title="קבצים שנפתחו לאחרונה">

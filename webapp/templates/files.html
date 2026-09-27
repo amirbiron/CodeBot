@@ -247,14 +247,45 @@
                 <i class="fas fa-plus" aria-hidden="true"></i>
                 <span class="btn-text">הוסף קובץ חדש</span>
             </a>
-            {# חיפוש בפתקים. העמוד RTL, ולכן האח הבא ב-DOM נוחת **משמאל**
-               לכפתור ההוספה — שם ביקשנו אותו. #}
+            {# חיפוש בפתקים ולוחות הפתקים. העמוד RTL, ולכן כל אח הבא ב-DOM
+               נוחת **משמאל** לקודמו: הוספה ← חיפוש ← לוחות.
+               שני הכפתורים מציירים את אותו דף בדיוק, ובחיפוש הזכוכית
+               המגדלת **נחתכת** מתוכו. החיתוך הוא ``mask`` של בהירות: לבן
+               משאיר את הדף, שחור מחורר אותו (``mask-type`` מתחיל ב-``luminance``,
+               ותוכן ה-``mask`` בקואורדינטות של ה-SVG עצמו —
+               https://www.w3.org/TR/css-masking-1/#MaskElement). ``white``/``black`` כאן אינם
+               צבעים על המסך אלא ערכי שקיפות, ולכן הם לא עוברים דרך טוקני
+               הערכה. הצבע עצמו הוא ``currentColor`` — צבע הכפתור, כמו
+               שאר האייקונים בשורה.
+               ``viewBox`` חתוך לגבולות הדף (3 עד 21 מתוך 24) וגודל ``1em``:
+               כך הציור ממלא את ה-em כמו אייקוני Font Awesome שלידו, והכפתור
+               נשאר בגובה שלהם. #}
             <a href="/notes/search"
                class="btn btn-secondary btn-icon"
                title="חיפוש בפתקים"
                aria-label="חיפוש בפתקים"
                style="padding: 0.5rem 0.85rem;">
-                <i class="fas fa-note-sticky" aria-hidden="true"></i>
+                <svg viewBox="3 3 18 18" width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false">
+                    <defs>
+                        <mask id="notesSearchIconCut">
+                            <rect width="24" height="24" fill="white"/>
+                            <circle cx="9.8" cy="9.8" r="3.2" fill="none" stroke="black" stroke-width="1.6"/>
+                            <path d="M12.3 12.3 13.8 13.8" stroke="black" stroke-width="2" stroke-linecap="round"/>
+                        </mask>
+                    </defs>
+                    <path mask="url(#notesSearchIconCut)" d="M6 3h12a3 3 0 0 1 3 3v8.5h-4a2.5 2.5 0 0 0-2.5 2.5v4H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z"/>
+                    <path d="M17.2 15.7H21l-5.3 5.3v-3.8a1.5 1.5 0 0 1 1.5-1.5z"/>
+                </svg>
+            </a>
+            <a href="/boards"
+               class="btn btn-secondary btn-icon"
+               title="לוחות פתקים"
+               aria-label="לוחות פתקים"
+               style="padding: 0.5rem 0.85rem;">
+                <svg viewBox="3 3 18 18" width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false">
+                    <path d="M6 3h12a3 3 0 0 1 3 3v8.5h-4a2.5 2.5 0 0 0-2.5 2.5v4H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z"/>
+                    <path d="M17.2 15.7H21l-5.3 5.3v-3.8a1.5 1.5 0 0 1 1.5-1.5z"/>
+                </svg>
             </a>
             <a href="/tools/json"
                class="btn btn-secondary btn-icon"

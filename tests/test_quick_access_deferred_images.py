@@ -21,9 +21,15 @@ import pytest
 
 BASE_HTML = Path(__file__).resolve().parent.parent / "webapp/templates/base.html"
 
-# ה-``<img>`` היחיד בחלונית קיצורי הדרך. אם ייווספו עוד — ``loadDeferredImages``
-# גנרי על ``img[data-src]`` ויטפל גם בהם, והבדיקה כאן תמשיך לתפוס ``src`` נוקשה.
+# האייקון הכבד, שבגללו נבנה המנגנון. הוא לא היחיד בחלונית — כל ``<img>`` בה
+# נשמר ב-``test_every_img_in_the_menu_is_deferred`` — אבל עליו ההודעה כאן
+# מסבירה את המחיר.
 DEFERRED_ICON = "icons/repo-browser-icon.png"
+
+# אייקון לוחות הפתקים — עותק מוקטן, ולכן לא ה"כבד"; הוא כאן בגלל ``?v=``.
+BOARDS_ICON = "icons/boards-quick-access-128.png"
+
+DROPDOWN_OPEN = 'id="quickAccessDropdown"'
 
 _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.DOTALL)
 
@@ -59,6 +65,62 @@ def test_heavy_icon_is_deferred_not_eager():
         f"השתמשו ב-``data-src``. התגיות שנמצאו: {eager}"
     )
     assert any("data-src=" in t for t in tags), "חסר ``data-src`` על התגית"
+
+
+def _dropdown_html(html: str) -> str:
+    """גוף החלונית, מהתגית הפותחת ועד ה-``</div>`` שסוגר אותה.
+
+    ספירת ``<div`` מול ``</div>`` ולא חיפוש ה-``</div>`` הראשון, כדי ש-div
+    שייווסף בתוך החלונית לא יקצר את הטווח ויוציא ממנו תמונות בשקט.
+    """
+    i = html.find(DROPDOWN_OPEN)
+    assert i != -1, f"לא נמצא בתבנית: {DROPDOWN_OPEN}"
+    start = html.rfind("<div", 0, i)
+    depth = 0
+    for m in re.finditer(r"<div\b|</div>", html[start:]):
+        depth += 1 if m.group(0) == "<div" else -1
+        if depth == 0:
+            return html[start : start + m.end()]
+    raise AssertionError("החלונית אינה נסגרת")
+
+
+def test_every_img_in_the_menu_is_deferred():
+    """כל ``<img>`` בחלונית מגיע כ-``data-src``, לא רק הכבד.
+
+    החלונית סגורה ברוב טעינות העמוד, ו-``loadDeferredImages`` גנרי על
+    ``img[data-src]`` — אז אין סיבה שתמונה כלשהי בה תרד לפני שפתחו אותה.
+    """
+    menu = _dropdown_html(_html_without_jinja_comments())
+    imgs = re.findall(r"<img\b[^>]*>", menu)
+    assert any(DEFERRED_ICON in t for t in imgs) and any(BOARDS_ICON in t for t in imgs), (
+        f"החלונית אמורה להכיל את {DEFERRED_ICON} ואת {BOARDS_ICON} — האם התחום נחתך?"
+    )
+    eager = [t for t in imgs if re.search(r"(?<![-\w])src\s*=", t)]
+    assert not eager, f"תמונות בחלונית שיורדות בכל טעינת עמוד: {eager}"
+
+
+def test_boards_icon_carries_the_static_version():
+    """``?v={{ static_version }}`` על אייקון הלוחות.
+
+    סטטיקה נשמרת בדפדפן לזמן ארוך (``SEND_FILE_MAX_AGE_DEFAULT``). בלי מזהה
+    גרסה בכתובת, תמונה חדשה באותו שם לא הייתה מגיעה למי שכבר ראה את הישנה.
+    """
+    tags = _img_tags_with(BOARDS_ICON, _html_without_jinja_comments())
+    assert tags, f"לא נמצא <img> שמפנה ל-{BOARDS_ICON}"
+    assert all("?v={{ static_version }}" in t for t in tags), tags
+
+
+def test_the_menu_guard_can_actually_fail(tmp_path, monkeypatch):
+    """מוטציה: אייקון הלוחות חוזר ל-``src``. הבדיקה הכללית חייבת ליפול."""
+    html = BASE_HTML.read_text(encoding="utf-8")
+    needle = "<img data-src=\"{{ url_for('static', filename='" + BOARDS_ICON + "')"
+    assert needle in html, "צורת התגית השתנתה — עדכנו את המוטציה"
+    mutated = html.replace(needle, needle.replace("data-src=", "src=", 1), 1)
+    fake = tmp_path / "base.html"
+    fake.write_text(mutated, encoding="utf-8")
+    monkeypatch.setattr(f"{__name__}.BASE_HTML", fake)
+    with pytest.raises(AssertionError):
+        test_every_img_in_the_menu_is_deferred()
 
 
 # העוגנים. ה-``{`` בסוף ``OPEN_BRANCH_HEAD`` אינו קישוט — הוא הנקודה
