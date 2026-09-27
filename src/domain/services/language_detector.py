@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Optional
 
 #: הסיומות של מסמך Markdown. ההגדרה האחת בדומיין: זיהוי השפה משתמש בה כאן,
-#: ו-``code_normalizer.is_markdown_filename`` משתמש בה כדי שקובץ שמזוהה
-#: כ-Markdown יקבל גם את הניקוי של Markdown.
+#: ו-``code_normalizer.is_markdown_filename`` מחליט לפיה אם לנקות קוד מודבק
+#: כמו Markdown. משותפת הרשימה, לא ההחלטה — ההסבר ב-``is_markdown_filename``.
 MARKDOWN_SUFFIXES = frozenset({".md", ".markdown", ".mdown", ".mkd", ".mkdn"})
 
 

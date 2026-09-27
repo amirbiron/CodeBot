@@ -235,8 +235,11 @@ def clean_pasted_code(code: Optional[str], file_name: Optional[str]) -> PasteCle
     return _clean_pasted_code(code if code is not None else "", is_markdown=is_markdown_filename(file_name))
 
 
-#: כמה מספרי שורות האזהרה מונה לפני "ועוד N שורות". הרשימה המלאה אינה
-#: הולכת לאיבוד — היא במסמך עצמו; זה רק מה שנכנס להודעה בטלגרם.
+#: כמה מספרי שורות :func:`_where_lines` מונה לפני "ועוד N שורות". חל על
+#: המשפט של :func:`format_bidi_warning` בכל מקום שמציג אותו — הודעת השמירה
+#: בבוט והאזהרה מעל הקוד בוובאפ. רק המשפט מקוצר: כל מספרי השורות נשארים
+#: ב-``PasteCleanup.bidi_control_lines`` ובמה ש-``explicit_bidi_control_lines``
+#: מחזירה.
 _NOTICE_MAX_LISTED_LINES = 10
 
 
@@ -288,9 +291,11 @@ def format_bidi_warning(line_numbers: Tuple[int, ...]) -> str:
 def bidi_warning_for_display(code: object) -> str:
     """האזהרה שמוצגת לצד קוד בוובאפ, או מחרוזת ריקה כשאין בו תווים כאלה.
 
-    התווים נשמרים כמו שנשלחו, ולכן כל עמוד שמציג קוד — גם שיתוף ציבורי —
-    מזהיר עליהם בעצמו. מספרי השורות הם של הטקסט שמקבלים כאן; עמוד שממספר
-    אחרת (Pygments חותך שורות ריקות מההתחלה) מעביר את הטקסט שהוא מציג.
+    התווים נשמרים כמו שנשלחו, ולכן עמוד שמציג קוד צריך להזהיר עליהם בעצמו.
+    אילו עמודים כבר מזהירים ואילו עוד לא — ב-``docs/quality/code-normalization.md``,
+    ו-``tests/test_bidi_warning_pages_match_the_doc.py`` משווה את הרשימה לקוד.
+    מספרי השורות הם של הטקסט שמקבלים כאן; עמוד שממספר אחרת (Pygments חותך
+    שורות ריקות מההתחלה) מעביר את הטקסט שהוא מציג.
     """
     return format_bidi_warning(explicit_bidi_control_lines(code))
 

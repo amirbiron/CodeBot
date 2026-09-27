@@ -10,8 +10,11 @@ THIN SPACE, IDEOGRAPHIC SPACE ו-ZWSP בתוך קוד מרימים ``SyntaxError
 השמירה (``Repository.save_code_snippet`` ועוד שתיים), ולכן שכתב בשקט גם קבצים
 שהגיעו מה-MCP, מהוובאפ ומהעלאת מסמכים: מחק LRM ו-RLM ממסמכים בעברית, מחק
 רצפי escape טקסטואליים מקוד מקור (#643), ומחק את ה-newline שבסוף הקובץ
-(#1662). ``tests/test_content_cleaning_stays_in_the_bot.py`` נופל אם אחת
-הפונקציות כאן נקראת מ-``database/``, ``webapp/`` או ``mcp_server/``.
+(#1662). השומר המבני, ``tests/test_content_cleaning_stays_in_the_bot.py``,
+נופל אם שכבת השמירה, הוובאפ או ה-MCP (``GUARDED_DIRS`` שם) משתמשים בשם
+``clean_pasted_code`` או בשם שנמחק (``FORBIDDEN``). הוא לא חוסם את שאר
+הפונקציות כאן: הוובאפ מזהיר על תווי כיווניות דרך
+:func:`explicit_bidi_control_lines`.
 
 מודול טהור: בלי I/O, ובזמן ייבוא לא רץ כלום מלבד הגדרות.
 """
@@ -80,9 +83,11 @@ def is_markdown_filename(name: object) -> bool:
     """האם שם הקובץ הוא של מסמך Markdown, לפי הסיומת.
 
     הסיומות הן :data:`~src.domain.services.language_detector.MARKDOWN_SUFFIXES`
-    — אותה הגדרה שזיהוי השפה משתמש בה, כדי שקובץ שמזוהה כ-Markdown יקבל גם
-    את הניקוי של Markdown. הסיומת נקראת מ-``PurePosixPath(...).suffix`` ולא
-    בהשוואת קידומת או סיומת של מחרוזת. שם שאינו מחרוזת אינו Markdown.
+    — אותה רשימה שזיהוי השפה משתמש בה. משותפת הרשימה, לא ההחלטה:
+    ``LanguageDetector.detect_language`` יכול לבחור לקובץ ``.md`` שפה אחרת לפי
+    התוכן, וכאן ההחלטה היא לפי השם בלבד. לכן קובץ ``.md`` שנשמר עם שפה אחרת
+    עדיין מקבל את הניקוי של Markdown. הסיומת נקראת מ-``PurePosixPath(...).suffix``
+    ולא בהשוואת קידומת או סיומת של מחרוזת. שם שאינו מחרוזת אינו Markdown.
     """
     if not isinstance(name, str):
         return False
@@ -184,11 +189,11 @@ def _trim_trailing_whitespace(text: str) -> Tuple[str, int]:
 def explicit_bidi_control_lines(text: object) -> Tuple[int, ...]:
     """מספרי השורות (מ-1, לפי ``\\n``) שיש בהן תו embedding, override או isolate.
 
-    **ההגדרה האחת לזיהוי, לשני צרכנים:** :func:`clean_pasted_code`, שממנה הבוט
-    מזהיר בהודעת השמירה, ותצוגת הקוד בוובאפ, דרך
-    ``services/code_service.bidi_warning_for_display``. התווים נשמרים כמו שנשלחו,
-    ולכן מי שקורא את הקוד אחר כך — גם בקישור שיתוף ציבורי — צריך את האזהרה
-    בעמוד עצמו, ולא רק מי ששמר אותו.
+    **ההגדרה האחת לזיהוי:** :func:`clean_pasted_code` משתמשת בה, ומשם הבוט
+    מזהיר בהודעת השמירה; ו-``services/code_service.bidi_warning_for_display``
+    משתמש בה לאזהרה מעל קוד בוובאפ. התווים נשמרים כמו שנשלחו, ולכן כל עמוד
+    שמציג קוד צריך להזהיר עליהם בעצמו, ולא רק הודעת השמירה. לא כל העמודים
+    עושים את זה עדיין — הרשימה ב-``docs/quality/code-normalization.md``.
 
     ערך שאינו מחרוזת (למשל שדה פגום במסמך) אינו קוד שמוצג, ולכן אין בו שורות.
     """
