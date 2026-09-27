@@ -37,7 +37,8 @@
   לפני הפרסור, וזרע הגיבוב (``PYTHONHASHSEED``) הוא אחד הדברים שמשנים אותו: ריצה
   אחת היא הגרלה, והמצב היקר נדיר. השורה נושאת גם את המינימום ואת כל הריצות
   (``peak_bytes_min``, ``peak_bytes_by_layout``), כדי שמי שמריץ פעם אחת יבין איפה
-  המספר שלו נופל. קלטי המעבד רצים ``CPU_REPEATS`` פעמים, כמו קודם.
+  המספר שלו נופל. גם קלטי המעבד רצים על כל ``LAYOUT_SEEDS``, וזמן המעבד שלהם נשפט על
+  ``CPU_REPEATS`` הראשונות (הנימוק ליד הקבוע).
 - **המספר שנשפט הוא חסם עליון:** המקסימום ועוד ``counter_lag_bound_bytes``. הקרנל
   רושם את השיא ממונים שכל מעבד מעדכן במנות, ולכן השיא שנרשם יכול לפגר אחרי האמיתי
   — עד ``RSS_COUNTERS × (batch − 1)`` עמודים, ותמיד לכיוון "נכנס". כדי שהפיגור יהיה
@@ -65,15 +66,16 @@
 ``HOSTILE_SHAPES`` בגודל הגדול ביותר שהכלי עוד מפרסר (``fit_to_the_tool``: תקרת
 הקריאה בבתים ותקרת השורות), על ברירות המחדל של ``MAX_LINES`` ו-``MAX_TOKENS``; הקלט
 המשולב שהוא הגרוע בזיכרון (``worst_memory_input``); והקלטים הגרועים במעבד
-(``CPU_SHAPES``), כל אחד ``CPU_REPEATS`` פעמים — המעבד רועש, והמספר הוא המקסימום.
+(``CPU_SHAPES``), שהמעבד שלהם נשפט על ``CPU_REPEATS`` ריצות — המעבד רועש, והמספר הוא
+המקסימום.
 התקרות הן מה שהופך את העוין לתקציבי, ולכן המועמד לקבוע הוא הגבוה מבין **כל**
 המדידות שרצו כמו הכלי, בבתים לכל בית של תקרת הקריאה. גם הקורפוס והמסמך הצפוף
 נחתכים כך — אחרת הם היו נדחים בתקרת השורות, ונמדד סירוב במקום פרסור.
 
 **פסק הדין בשורה האחרונה**, והוא קוד היציאה (``passed``): 0 כשכל מדידה שרצה
 כמו הכלי באמת מדדה פרסור (``MEASURED_OUTCOMES`` — לא סירוב לפני הפרסור, לא
-``MemoryError``, ולא תוצאה ששונה בין הסידורים), **וגם** המדידה שמכריעה את הזיכרון
-רצה על כל ``LAYOUT_SEEDS``, **וגם** החסם העליון שלה נכנס ב-``_PARSE_COST_BYTES``
+``MemoryError``, ולא תוצאה ששונה בין הסידורים), **וגם** כל מדידה כזו רצה על כל
+``LAYOUT_SEEDS``, **וגם** החסם העליון של המכריעה נכנס ב-``_PARSE_COST_BYTES``
 (כלומר המועמד אינו עובר את ``_PARSE_RSS_PER_INPUT_BYTE``), **וגם** זמן המעבד הגבוה
 אינו עובר את ``WORST_CASE_CPU_SECONDS``; 1 כשאחד מהם נשבר. כשהמדידות תקינות וקבוע
 נשבר, הטענות שנגזרות ממנו (רוחב המאגר, מגבלת הקצב, הדדליין) צריכות חשבון חדש
@@ -656,8 +658,14 @@ CPU_SHAPES = {
     "ordered_to_cap": lambda lines, tokens: "\n".join(["1. a"] * min(lines, tokens // 5 + 2)),
 }
 
-#: כמה פעמים נמדד כל קלט במעבד. המעבד רועש (נמדד פער של עד 10% בין ריצות),
-#: והמספר שמושווה לקבוע הוא המקסימום.
+#: על כמה ריצות של כל קלט מעבד נשפט זמן המעבד שלו: ה-``CPU_REPEATS`` הראשונות מתוך
+#: ``LAYOUT_SEEDS``, והמספר שמושווה לקבוע הוא המקסימום שלהן — המעבד רועש (נמדד פער של עד
+#: 10% בין ריצות). הקלטים עצמם רצים על **כל** ``LAYOUT_SEEDS``, כי גם הזיכרון שלהם נכנס
+#: לפסק הדין ולמועמד לקבוע, והשיא היקר נדיר (סבב הסקירה השלישי של #3467: על חמישה סידורים
+#: בלבד, קלט מעבד שיקר בסידור שלא הוגרל היה מתפספס). המעבד נשאר על ``CPU_REPEATS`` כי
+#: ``WORST_CASE_CPU_SECONDS`` נגזר כך — מאז #3391 כל קלט מעבד נמדד ``CPU_REPEATS`` פעמים —
+#: ומקסימום על יותר ריצות היה משנה את מה שהקבוע מודד; שאר הריצות נשמרות בשורה
+#: (``cpu_seconds_all``) ואינן נשפטות.
 CPU_REPEATS = 5
 
 #: הגדלים של בדיקת ההכפלה — כל אחד כפול מקודמו, והגדול הוא תקרת הקריאה.
@@ -767,19 +775,22 @@ def worst_cpu_seconds(results: list[dict], parser: str) -> float:
 OUTCOME_DIFFERS_BY_LAYOUT = "differs_by_layout"
 
 
-def across_layouts(runs: list[dict]) -> dict:
+def across_layouts(runs: list[dict], *, cpu_runs: int | None = None) -> dict:
     """ריצות של אותו קלט על כמה סידורי זיכרון, כשורה אחת: הריצה הגבוהה, ועוד הפיזור והחסם העליון.
 
     ``peak_bytes`` הוא המקסימום, עם שאר השדות של אותה ריצה (כולל ``hash_seed``).
     ``peak_bytes_min`` ו-``peak_bytes_by_layout`` (לפי סדר הזרעים) הם הפיזור — כדי שמי
     שמריץ פעם אחת יבין איפה המספר שלו נופל. ``peak_upper_bound_bytes`` הוא המקסימום ועוד
-    ``counter_lag_bound_bytes`` — המספר שנשפט מול התקציב. ``cpu_seconds`` הוא הגבוה מבין
-    הריצות ו-``cpu_seconds_all`` כולן. תוצאה שאינה זהה בכל הריצות היא
+    ``counter_lag_bound_bytes`` — המספר שנשפט מול התקציב, תמיד על **כל** הריצות.
+    ``cpu_seconds`` הוא הגבוה מבין הריצות שנספרות למעבד — כולן, או ``cpu_runs`` הראשונות
+    כשהמדיניות של הקלט אומרת כך (``CPU_REPEATS``) — ו-``cpu_timed_runs`` אומר כמה מהן;
+    ``cpu_seconds_all`` מחזיק את כולן, גם את מה שלא נספר. תוצאה שאינה זהה בכל הריצות היא
     ``OUTCOME_DIFFERS_BY_LAYOUT``, ואז ``outcomes_by_layout`` אומר מה יצא בכל אחת.
     """
     peaks = [run["peak_bytes"] for run in runs]
     outcomes = [run["outcome"] for run in runs]
     worst = max(runs, key=lambda run: run["peak_bytes"])
+    timed = runs if cpu_runs is None else runs[:cpu_runs]
     same_outcome = len(set(outcomes)) == 1
     return {
         **worst,
@@ -789,22 +800,26 @@ def across_layouts(runs: list[dict]) -> dict:
         "peak_bytes_min": min(peaks),
         "peak_bytes_by_layout": peaks,
         "peak_upper_bound_bytes": max(peaks) + counter_lag_bound_bytes(),
-        "cpu_seconds": max(run["cpu_seconds"] for run in runs),
+        "cpu_seconds": max(run["cpu_seconds"] for run in timed),
+        "cpu_timed_runs": len(timed),
         "cpu_seconds_all": [run["cpu_seconds"] for run in runs],
     }
 
 
 def _measured(parser: str, shape: str, path: pathlib.Path, work: pathlib.Path, *,
               kwargs: dict | None = None, seeds: Sequence[int] = LAYOUT_SEEDS,
-              **extra) -> dict:
-    """מדידה אחת על פני ``seeds`` — ריצה לכל זרע — עם הסימון אם היא רצה כמו הכלי, בלי ארגומנטים."""
+              cpu_runs: int | None = None, **extra) -> dict:
+    """מדידה אחת על פני ``seeds`` — ריצה לכל זרע — עם הסימון אם היא רצה כמו הכלי, בלי ארגומנטים.
+
+    ``cpu_runs`` מגביל רק את מה שנספר למעבד (``across_layouts``); הזיכרון נשפט על כל ``seeds``.
+    """
     runs = [peak_cost(path, work, parser=parser, kwargs=kwargs, seed=seed) for seed in seeds]
     return {
         "parser": parser,
         "shape": shape,
         "as_tool": kwargs is None,
         **extra,
-        **across_layouts(runs),
+        **across_layouts(runs, cpu_runs=cpu_runs),
     }
 
 
@@ -882,10 +897,9 @@ def measure_hostile_as_the_tool(work: pathlib.Path) -> list[dict]:
     results.append(_measured("md", "worst_memory", worst, work))
     for name, make in CPU_SHAPES.items():
         path = _write(work, f"cpu_{name}.md", make(md_parser.MAX_LINES, md_parser.MAX_TOKENS))
-        # ``CPU_REPEATS`` ולא ``LAYOUT_SEEDS``: המספר שנשפט כאן הוא המעבד, ומקסימום על
-        # יותר ריצות היה משנה את מה ש-``WORST_CASE_CPU_SECONDS`` מודד. הזיכרון שלהם רחוק
-        # מהקלט הגרוע, ואם אחד מהם יכריע את הזיכרון, פסק הדין נכשל (``verdict``).
-        results.append(_measured("md", f"cpu:{name}", path, work, seeds=range(CPU_REPEATS)))
+        # על כל ``LAYOUT_SEEDS``, כמו כל מדידה כמו הכלי — הזיכרון שלהם נשפט גם הוא — והמעבד
+        # על ``CPU_REPEATS`` הראשונות בלבד; הנימוק ליד הקבוע.
+        results.append(_measured("md", f"cpu:{name}", path, work, cpu_runs=CPU_REPEATS))
     return results
 
 
@@ -903,12 +917,12 @@ def verdict(results: list[dict]) -> dict:
     """השורה האחרונה: האם מה שנמדד עדיין בתוך הקבועים שנגזרו ממנו — ואם לא, מה נשבר.
 
     ארבע שאלות, כל אחת בשדה משלה: האם כל מדידה של Markdown שרצה כמו הכלי באמת מדדה
-    פרסור (``every_input_measured``, ו-``md_unmeasured`` אומר אילו לא); האם המדידה
-    שמכריעה את הזיכרון רצה על כל ``LAYOUT_SEEDS`` (``decided_on_every_layout``); האם
-    **החסם העליון** שלה — המקסימום ועוד ``counter_lag_bound_bytes`` — נכנס ב-
-    ``_PARSE_COST_BYTES``; והאם זמן המעבד הגבוה אינו עובר את
-    ``WORST_CASE_CPU_SECONDS``. ``passed`` הוא ארבעתן יחד, והוא קוד היציאה. לצד החסם
-    השורה נושאת את המקסימום הנמדד ואת המינימום של אותו קלט — הפיזור בין הסידורים.
+    פרסור (``every_input_measured``, ו-``md_unmeasured`` אומר אילו לא); האם כל מדידה
+    כזו רצה על כל ``LAYOUT_SEEDS`` (``every_input_on_every_layout``, ו-``md_undersampled``
+    אומר אילו לא); האם **החסם העליון** של המכריעה — המקסימום ועוד
+    ``counter_lag_bound_bytes`` — נכנס ב-``_PARSE_COST_BYTES``; והאם זמן המעבד הגבוה אינו
+    עובר את ``WORST_CASE_CPU_SECONDS``. ``passed`` הוא ארבעתן יחד, והוא קוד היציאה. לצד
+    החסם השורה נושאת את המקסימום הנמדד ואת המינימום של אותו קלט — הפיזור בין הסידורים.
     """
     from mcp_server.server import _PARSE_COST_BYTES, _PARSE_RSS_PER_INPUT_BYTE
     from services import md_parser
@@ -921,12 +935,17 @@ def verdict(results: list[dict]) -> dict:
         for r in as_tool
         if r["outcome"] not in MEASURED_OUTCOMES
     ]
+    # כל מדידה, ולא רק המכריעה: מקסימום על פחות סידורים הוא הגרלה קטנה יותר, והוא נמוך
+    # בדיוק כשהסידור היקר לא הוגרל — ולכן מדידה כזו היא דווקא זו שלא תיבחר כמכריעה.
+    # בדיקה של המכריעה בלבד לא הייתה נדלקת על המקרה שבשבילו היא קיימת (סבב הסקירה
+    # השלישי של #3467: קלטי המעבד רצו על חמישה סידורים, ושיא שלהם בסידור אחר לא נראה).
+    undersampled = [
+        {"shape": r["shape"], "layout_runs": r["layout_runs"]}
+        for r in as_tool
+        if r["layout_runs"] < len(LAYOUT_SEEDS)
+    ]
     deciding = max(as_tool, key=lambda r: r["peak_upper_bound_bytes"])
     upper = deciding["peak_upper_bound_bytes"]
-    # המדידה שמכריעה חייבת להיות על כל הסידורים: מקסימום על פחות מהם הוא מדגם קטן
-    # יותר, והמצב הגבוה נדיר. היום אלה קלטי המעבד (``CPU_REPEATS`` ריצות), ואם אחד
-    # מהם יהפוך ליקר בזיכרון, זה נופל כאן ולא עובר על מדגם של חמש.
-    every_layout = deciding["layout_runs"] >= len(LAYOUT_SEEDS)
     worst_cpu = worst_cpu_seconds(results, "md")
     # בבתים ולא לפי המועמד המעוגל: ``_PARSE_COST_BYTES`` הוא מה שהמאגר מקצה לחוט.
     memory_ok = upper <= _PARSE_COST_BYTES
@@ -934,9 +953,9 @@ def verdict(results: list[dict]) -> dict:
     return {
         "md_unmeasured": unmeasured,
         "every_input_measured": not unmeasured,
+        "md_undersampled": undersampled,
+        "every_input_on_every_layout": not undersampled,
         "md_worst_shape": deciding["shape"],
-        "md_worst_layout_runs": deciding["layout_runs"],
-        "decided_on_every_layout": every_layout,
         "md_worst_peak_bytes": deciding["peak_bytes"],
         "md_worst_peak_min_bytes": deciding["peak_bytes_min"],
         "counter_lag_bound_bytes": counter_lag_bound_bytes(),
@@ -949,12 +968,14 @@ def verdict(results: list[dict]) -> dict:
         "md_worst_cpu_seconds": worst_cpu,
         "worst_case_cpu_seconds": md_parser.WORST_CASE_CPU_SECONDS,
         "cpu_within_constant": cpu_ok,
-        "passed": not unmeasured and every_layout and memory_ok and cpu_ok,
+        "passed": not unmeasured and not undersampled and memory_ok and cpu_ok,
         "note": (
             "every_input_measured false: a run as the tool was refused before parsing, "
             "failed on MemoryError, or ended differently across layouts, so its numbers are "
-            "not the cost of a parse. decided_on_every_layout false: the input that decides "
-            "memory was measured on fewer layouts than LAYOUT_SEEDS. The memory answer is on "
+            "not the cost of a parse. every_input_on_every_layout false: a run as the tool "
+            "was measured on fewer layouts than LAYOUT_SEEDS (md_undersampled says which): its "
+            "maximum is a smaller draw, low exactly when it missed the costly layout, and then "
+            "another run decides in its place. The memory answer is on "
             "the upper bound (the maximum over the layouts plus the kernel counter lag), not "
             "on one run. Otherwise the pool, the rate limit and the batch deadline are derived "
             "from the two constants; a false means their arithmetic needs a new look before "

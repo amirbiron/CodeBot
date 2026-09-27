@@ -183,7 +183,7 @@ def test_main_runs_every_markdown_shape_as_the_tool_and_the_hostile_bound_withou
     הקלט הגרוע בזיכרון, וכל קלט מעבד. בלי תקרות — הצורה העוינת, בכל פרסר עם מה
     שמכבה את התקרות **שלו** (WARN-004 בסקירת שבעת ה-PRים: עם ברירת המחדל היא נעצרת
     על תקרה, והמספר מתאר עצירה ולא את הפרסר). ה-outline עם התקרה שלו. ובכל אחד —
-    ריצה לכל זרע: ``LAYOUT_SEEDS`` לזיכרון, ``CPU_REPEATS`` לקלטי המעבד.
+    ריצה לכל זרע של ``LAYOUT_SEEDS``, גם בקלטי המעבד (סבב הסקירה השלישי של #3467).
     """
     script = _load_script()
     ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
@@ -199,7 +199,8 @@ def test_main_runs_every_markdown_shape_as_the_tool_and_the_hostile_bound_withou
     assert last["rst"]["constant_candidate_bytes_per_input_byte"] == round(50 + _LAG / ceiling, 2)
     assert last["verdict"]["md_unmeasured"] == []
     assert last["verdict"]["every_input_measured"] is True
-    assert last["verdict"]["decided_on_every_layout"] is True
+    assert last["verdict"]["md_undersampled"] == []
+    assert last["verdict"]["every_input_on_every_layout"] is True
     assert last["verdict"]["md_worst_shape"] == "worst_memory"
     assert last["verdict"]["md_worst_upper_bound_bytes"] == 60 * ceiling + _LAG
     assert last["verdict"]["memory_within_budget"] is True
@@ -219,7 +220,7 @@ def test_main_runs_every_markdown_shape_as_the_tool_and_the_hostile_bound_withou
         assert set(map(repr, seen_kwargs[key])) == {"None"}, key
     assert len(seen_kwargs[("md", "capped_")]) == len(script.HOSTILE_SHAPES) * layouts
     assert seen_seeds[("md", "worst_memory")] == list(script.LAYOUT_SEEDS)
-    assert seen_seeds[("md", "cpu_")] == list(range(script.CPU_REPEATS)) * len(script.CPU_SHAPES)
+    assert seen_seeds[("md", "cpu_")] == list(script.LAYOUT_SEEDS) * len(script.CPU_SHAPES)
 
 
 def test_every_memory_measurement_runs_once_per_layout_seed_and_the_rare_layout_decides(
@@ -281,26 +282,108 @@ def test_an_outcome_that_changes_between_layouts_is_not_a_measurement(
     assert verdict["passed"] is False
 
 
-def test_the_input_that_decides_memory_must_have_run_on_every_layout(
+def test_a_cpu_input_costly_in_memory_only_on_a_late_layout_decides_memory(
         monkeypatch, tmp_path, capsys):
-    """קלטי המעבד רצים ``CPU_REPEATS`` פעמים בלבד — אם אחד מהם יכריע את הזיכרון, פסק הדין נופל.
+    """קלט מעבד שיקר בזיכרון רק בסידור מאוחר הוא המכריע, ופסק הדין נופל.
 
-    מקסימום על חמישה סידורים הוא מדגם קטן מדי כשהמצב היקר נדיר; פסק דין שהיה עובר עליו
-    היה מחזיר את ההגרלה שהסבב הזה בא לסגור.
+    סבב הסקירה השלישי של #3467. עד אז קלטי המעבד רצו על ``CPU_REPEATS`` סידורים בלבד,
+    והבדיקה שכל הסידורים נמדדו חלה רק על המדידה המכריעה. סידור יקר שלא הוגרל השאיר את
+    הקלט נמוך — ולכן גם לא מכריע — ופסק הדין עבר על קלט שהזיכרון שלו מעל התקציב. כאן
+    הסידור היקר הוא האחרון ב-``LAYOUT_SEEDS``, מחוץ ל-``CPU_REPEATS`` הראשונים.
     """
+    from mcp_server.server import _PARSE_COST_BYTES
+
     script = _load_script()
     ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
-    costs = _costs_within_the_constants(ceiling) | {"cpu_": (65 * ceiling, 0.5)}
+    late = script.LAYOUT_SEEDS[-1]
+    assert late not in range(script.CPU_REPEATS)
+    over = _PARSE_COST_BYTES + 4096
+    costs = _costs_within_the_constants(ceiling) | {
+        "cpu_": lambda seed: (over if seed == late else 20 * ceiling, 0.5),
+    }
     _wire_main(script, monkeypatch, tmp_path, costs)
 
     assert script.main([]) == 1
 
     verdict = json.loads(capsys.readouterr().out.strip().splitlines()[-1])["verdict"]
+    assert verdict["memory_within_budget"] is False
     assert verdict["md_worst_shape"].startswith("cpu:")
-    assert verdict["md_worst_layout_runs"] == script.CPU_REPEATS
-    assert verdict["decided_on_every_layout"] is False
-    assert verdict["memory_within_budget"] is True
+    assert verdict["md_worst_peak_bytes"] == over
+    assert verdict["md_worst_upper_bound_bytes"] == over + _LAG
+    assert verdict["every_input_on_every_layout"] is True
     assert verdict["passed"] is False
+
+
+def test_every_run_as_the_tool_must_have_run_on_every_layout_not_only_the_deciding_one(
+        monkeypatch):
+    """מדידה שרצה על פחות סידורים מפילה את פסק הדין — גם כשהיא לא המכריעה.
+
+    זו בדיוק הצורה שבה הבדיקה הקודמת, על המכריעה בלבד, לא נדלקה: מקסימום על פחות
+    סידורים נמוך כשהסידור היקר לא הוגרל, ולכן הוא לא נבחר כמכריע. כאן השורה החסרה
+    בתוך התקציב ורחוקה מהמכריעה, ופסק הדין בכל זאת נופל: מה שהיא לא מדדה אינו ידוע.
+    """
+    script = _load_script()
+    monkeypatch.setattr(script, "counter_lag_bound_bytes", lambda: _LAG)
+    ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
+    layouts = len(script.LAYOUT_SEEDS)
+
+    def row(shape, peak_bytes, layout_runs):
+        return _measurement("md", shape, peak_bytes, cpu=0.3, lag=_LAG, outcome="parsed",
+                            layout_runs=layout_runs, peak_bytes_min=peak_bytes)
+
+    results = [
+        row("corpus", 20 * ceiling, layouts),
+        row("worst_memory", 60 * ceiling, layouts),
+        row("cpu:lazy_quote_then_table", 20 * ceiling, script.CPU_REPEATS),
+    ]
+
+    verdict = script.verdict(results)
+
+    assert verdict["passed"] is False
+    assert verdict["md_undersampled"] == [
+        {"shape": "cpu:lazy_quote_then_table", "layout_runs": script.CPU_REPEATS}]
+    assert verdict["every_input_on_every_layout"] is False
+    assert verdict["md_worst_shape"] == "worst_memory"
+    assert verdict["every_input_measured"] is True
+    assert verdict["memory_within_budget"] is True
+    assert verdict["cpu_within_constant"] is True
+
+
+def test_a_cpu_input_is_judged_on_its_first_cpu_repeats_runs_and_keeps_the_rest(
+        monkeypatch, tmp_path, capsys):
+    """קלטי המעבד רצים על כל ``LAYOUT_SEEDS``, והמעבד שלהם נשפט על ``CPU_REPEATS`` הראשונות.
+
+    הבקשה בסבב הסקירה השלישי של #3467: לכסות את הזיכרון **בלי** לשנות את מספר החזרות
+    שבודק את המעבד, כי ``WORST_CASE_CPU_SECONDS`` נגזר ממקסימום על ``CPU_REPEATS`` ריצות.
+    כאן ריצה מאוחרת עוברת את הקבוע: היא נשמרת בשורה (``cpu_seconds_all``) ואינה נשפטת.
+    """
+    from services import md_parser
+
+    script = _load_script()
+    ceiling = script.MAX_FILE_SIZE_FOR_DISPLAY
+    late = script.LAYOUT_SEEDS[-1]
+    assert late not in range(script.CPU_REPEATS)
+    slow = md_parser.WORST_CASE_CPU_SECONDS + 0.2
+    costs = _costs_within_the_constants(ceiling) | {
+        "cpu_": lambda seed: (20 * ceiling, slow if seed == late else 0.5),
+    }
+    _wire_main(script, monkeypatch, tmp_path, costs)
+
+    assert script.main([]) == 0
+
+    lines = capsys.readouterr().out.strip().splitlines()
+    rows = [json.loads(line) for line in lines if '"shape": "cpu:' in line]
+    assert len(rows) == len(script.CPU_SHAPES)
+    for cpu_row in rows:
+        assert cpu_row["layout_runs"] == len(script.LAYOUT_SEEDS)
+        assert cpu_row["cpu_timed_runs"] == script.CPU_REPEATS
+        assert cpu_row["cpu_seconds"] == 0.5
+        assert len(cpu_row["cpu_seconds_all"]) == len(script.LAYOUT_SEEDS)
+        assert cpu_row["cpu_seconds_all"][late] == slow
+    verdict = json.loads(lines[-1])["verdict"]
+    assert verdict["md_worst_cpu_seconds"] == 0.5
+    assert verdict["cpu_within_constant"] is True
+    assert verdict["passed"] is True
 
 
 @pytest.mark.parametrize("breaks", ["memory", "memory_only_with_the_lag", "cpu"])
