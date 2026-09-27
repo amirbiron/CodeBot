@@ -311,7 +311,7 @@ def _snapshot(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
 
     maps, token_counts = _maps(corpus)
     oracle_rows, titles = _oracle(oracle, families, names)
-    snapshot = {
+    snapshot: dict[str, Any] = {
         "format": _FORMAT,
         "versions": {package: importlib.metadata.version(package) for package in _PACKAGES},
         "maps": maps,
