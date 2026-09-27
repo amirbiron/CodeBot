@@ -268,7 +268,7 @@ Code Keeper Bot - תיעוד API
 דרישות מערכת
 -------------
 
-* Python 3.9+
+* Python — גרסת המינימום והסיבה לה: :doc:`/installation`
 * MongoDB — גרסת המינימום והסיבה לה: :doc:`/installation`
 * Telegram Bot API Token
 * Redis (אופציונלי, לקאש)

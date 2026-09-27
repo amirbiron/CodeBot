@@ -5,7 +5,7 @@
 ## 🚀 בניית התיעוד
 
 ### דרישות
-- Python 3.9+
+- Python — גרסת המינימום והסיבה לה: [installation.rst](installation.rst)
 - Sphinx
 - sphinx-rtd-theme
 
