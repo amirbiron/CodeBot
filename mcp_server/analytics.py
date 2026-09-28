@@ -337,9 +337,12 @@ def read_mode_properties(
     callback on *every* auto-captured event — ``$mcp_initialize`` and
     ``$mcp_tools_list`` included — and a version that fell through to ``full``
     stamped a read mode on the handshake too (measured against
-    ``posthog 7.45.3``). Those events would then have been counted as full file
-    reads, so the column built to prove that ``outline`` replaced content reads
-    would have been inflated by traffic that read no file at all.
+    ``posthog 7.45.3``): events that read no file at all, carrying the label of
+    a full file read. (The dashboard's ``ck_mcp_navigation_cost_v2`` counts its
+    read columns only over ``$mcp_tool_call`` events of
+    ``codekeeper_get_repo_file``, so such a label would not have reached its
+    columns — the comment next to ``CK_READ_MODE_KEY`` says why the label must
+    still be true.)
 
     **Only presence is read, never a value.** ``lines`` carries line numbers,
     ``query`` carries the caller's search string, ``section`` carries a heading

@@ -956,6 +956,29 @@ def test_a_section_longer_than_the_ceiling_is_refused_by_name_before_any_matchin
     assert matched == [ceiling]
 
 
+def test_the_docs_page_states_the_section_ceiling_the_code_enforces():
+    """המספר ש-``docs/mcp-server.rst`` נוקב בו לתקרה נגזר מהקבוע — בטבלה ובפרוזה.
+
+    קובץ RST אינו יכול לגזור דבר (``prose-restates-code-fact``), ולכן הערך המצופה
+    מחושב כאן, באותה צורה שהעמוד כותב (פסיקים באלפים) — כמו בטסטים המקבילים על
+    ``MAX_LINES`` ועל ``MAX_BATCH_ITEMS``. הפרוזה נבדקת בכל מקום שבו היא אומרת
+    "``section`` ארוך מ-N תווים", ולא רק במקום אחד.
+
+    מוטציה שמפילה: לשנות את ``MAX_SECTION_CHARS`` בלי העמוד, או להפך.
+    """
+    import re
+
+    page = (_ROOT / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
+    lines = page.splitlines()
+    expected = f"{docs_handlers.MAX_SECTION_CHARS:,}"
+
+    row = lines.index("   * - ``MAX_SECTION_CHARS``")
+    assert lines[row + 1].strip() == f"- {expected}"
+    stated = re.findall(r"``section`` ארוך מ-([\d,]+) תווים", page)
+    assert stated, "העמוד אינו נוקב עוד בתקרה בצורה שהטסט קורא"
+    assert set(stated) == {expected}
+
+
 def test_no_heading_in_the_docs_the_tool_serves_comes_near_the_section_ceiling():
     """התקרה אינה חוסמת אף כותרת אמיתית — נבדק על כל עמודי ה-RST ב-``docs/``.
 
