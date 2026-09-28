@@ -70,7 +70,6 @@ import logging
 import time
 from typing import Annotated, Any, Literal, NamedTuple, Union
 
-import pydantic_core
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from . import docs_handlers, repo_handlers
@@ -304,9 +303,10 @@ _NESTED_INDENT_BYTES = 4
 _NON_EMPTY_LIST_BYTES = len("\n  ")
 
 
-def _wire(value: Any) -> bytes:
-    """מה שה-SDK שולח על ``value`` — ``_convert_to_content`` ל-``dict`` (mcp 1.28.1)."""
-    return pydantic_core.to_json(value, fallback=str, indent=2)
+#: מה שה-SDK שולח על ``value`` — הפונקציה של ``repo_handlers``, ליד התקציב, כי גם
+#: תשובת הסעיף נמדדת בה (``docs_handlers``). השם המקומי נשאר, כי
+#: ``scripts/measure_read_batch.py`` והטסט שלו קוראים ``read_batch._wire``.
+_wire = repo_handlers.wire_json
 
 
 def _entry_cost(entry: dict[str, Any]) -> int:

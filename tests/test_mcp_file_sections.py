@@ -23,7 +23,7 @@ import json
 
 import pytest
 
-from mcp_server import analytics, docs_handlers, handlers
+from mcp_server import analytics, docs_handlers, handlers, read_batch, repo_handlers
 from services import doc_sections, md_parser
 
 pytest.importorskip("mcp")
@@ -171,6 +171,19 @@ async def _call(mcp, **arguments):
     return _payload(await mcp.call_tool("codekeeper_get_file", arguments))
 
 
+async def _call_sent(mcp, tool="codekeeper_get_file", **arguments):
+    """התשובה **ומספר הבתים שלה כפי שה-SDK שלח אותה** — בלוק הטקסט עצמו, לא הערכה."""
+    result = await mcp.call_tool(tool, arguments)
+    blocks = result[0] if isinstance(result, tuple) else result
+    return json.loads(blocks[0].text), len(blocks[0].text.encode("utf-8"))
+
+
+def _wide_lines(char: str, count: int, width: int = 80) -> str:
+    """``count`` פעמים ``char``, בשורות של ``width`` — גוף של סעיף ארוך בתו אחד."""
+    body = char * count
+    return "\n".join(body[i:i + width] for i in range(0, len(body), width))
+
+
 def _meta(*, version: int = 2, doc_id: str = _DOC_ID, file_name: str = _MD_NAME,
           language: str | None = "markdown") -> dict:
     """המטא-דאטה שתשובה נושאת ב-``file``: המסמך בלי התוכן, עם הכינוי ``language``."""
@@ -314,6 +327,137 @@ async def test_a_long_section_is_paged_with_max_chars_and_offset(monkeypatch):
 
     clamped = await _call(mcp, file_name=_MD_NAME, section="ארוך", max_chars=10)
     assert len(clamped["content"]) == docs_handlers.MAX_CHARS_MIN
+
+
+@pytest.mark.parametrize("char", ["汉", "😀", "\x01"], ids=["cjk", "emoji", "control"])
+async def test_a_page_of_wide_characters_ends_early_inside_the_byte_budget(monkeypatch, char):
+    """עמוד של ``MAX_CHARS_MAX`` תווים רחבים נגמר מוקדם — בתוך ``OUTPUT_BYTE_BUDGET``.
+
+    ``max_chars`` סופר תווים, והתקציב הוא בתים **כפי שנשלחו**: תו CJK הוא שלושה
+    בתים, אימוג'י ארבעה, ותו בקרה הוא שישה ב-JSON (``\\u0001``). לכן עמוד מלא עבר
+    את התקציב, והבדיקה מודדת את בלוק הטקסט שה-SDK החזיר, ולא הערכה. העמוד מתחיל
+    בתחילת הסעיף, ``next_offset`` הוא איפה שהוא באמת נגמר, ו-``truncation_reason``
+    אומר למה חזרו פחות מ-``max_chars``.
+
+    על הקוד שלפני התיקון, בדיוק המקרים האלה: עמוד ה-CJK יצא ב-299,373 בתים, עמוד
+    האימוג'י ב-398,132 ועמוד תווי הבקרה ב-595,650. ותווי הבקרה הם גם מה שתפס את
+    הגרסה הראשונה של התיקון — ראו ``_fit_page``.
+    מוטציה שמפילה: להחזיר את ``base`` ב-``_answer_from_document`` בלי ``_fit_page``.
+    """
+    text = "# רחב\n\n" + _wide_lines(char, 120_000) + "\n"
+    full = _source(text, 1, text.count("\n") + 1)
+    mcp = _build(monkeypatch, _Dbm(text))
+
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="רחב",
+                                 max_chars=docs_handlers.MAX_CHARS_MAX)
+
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["truncated"] is True and out["truncation_reason"] == "byte_budget"
+    assert 0 < len(out["content"]) < docs_handlers.MAX_CHARS_MAX
+    assert out["content"] == full[:len(out["content"])]
+    assert out["next_offset"] == len(out["content"])
+    assert out["remaining_chars"] == len(full) - out["next_offset"]
+
+
+async def test_paging_by_bytes_loses_nothing(monkeypatch):
+    """ממשיכים מ-``next_offset`` עד ש-``truncated`` כבה — והעמודים מתחברים בדיוק לסעיף.
+
+    זה מה שמבדיל עמוד שנגמר מוקדם מחיתוך: שום תו לא נופל בין עמוד לעמוד, כל
+    עמוד בתוך התקציב, וכל קריאה מתקדמת.
+
+    מוטציה שמפילה: לחשב ב-``_fit_page`` את ``next_offset`` מאורך העמוד לפני
+    החיתוך — העמוד הבא מדלג על מה שנחתך, והחיבור אינו הסעיף.
+    """
+    text = "# רחב\n\n" + _wide_lines("汉", 150_000) + "\n"
+    full = _source(text, 1, text.count("\n") + 1)
+    mcp = _build(monkeypatch, _Dbm(text))
+
+    pages: list[str] = []
+    offset = 0
+    while True:
+        out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="רחב", offset=offset,
+                                     max_chars=docs_handlers.MAX_CHARS_MAX)
+        assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+        assert out["offset"] == offset
+        pages.append(out["content"])
+        if not out["truncated"]:
+            break
+        assert out["next_offset"] > offset
+        offset = out["next_offset"]
+
+    assert len(pages) >= 2
+    assert "".join(pages) == full
+
+
+async def test_the_page_leaves_room_for_found_and_status(monkeypatch):
+    """העמוד נחתך אל התקציב **פחות המעטפת** — ולכן התשובה כפי שיצאה נכנסת, וצמוד לגבול.
+
+    שורה אחת בלי שורות חדשות: כל תו הוא שלושה בתים גם ב-UTF-8 וגם ב-JSON, ולכן
+    העמוד נגמר עד כדי תו אחד מהגבול שהוא קיבל — ו-``found``/``status``, שנוספים
+    אחרי ``answer_section``, הם מה שמכריע אם התשובה נכנסת. והצמידות נבדקת גם היא:
+    עמוד שנגמר הרבה לפני הגבול היה נכנס תמיד, ולא היה מוכיח כלום.
+
+    מוטציה שמפילה: ``reserve_bytes=0`` ב-``_apply_sections_to_file`` — העמוד נחתך אל
+    ``OUTPUT_BYTE_BUDGET`` לפני העטיפה, והעטיפה דוחפת אותו מעבר.
+    """
+    text = "# רחב\n\n" + "汉" * 120_000 + "\n"
+    mcp = _build(monkeypatch, _Dbm(text))
+
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="רחב",
+                                 max_chars=docs_handlers.MAX_CHARS_MAX)
+
+    assert out["found"] is True and out["status"] == "section"
+    assert out["truncation_reason"] == "byte_budget"
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert repo_handlers.OUTPUT_BYTE_BUDGET - sent < 16
+
+
+async def test_a_page_that_fits_is_left_exactly_as_it_was(monkeypatch):
+    """עמוד שנכנס בתקציב אינו משתנה: ``max_chars`` תווים, ובלי ``truncation_reason``.
+
+    עברית היא שני בתים לתו, ולכן עמוד מלא של ``MAX_CHARS_MAX`` תווים נכנס. זו
+    שמירה על ההתנהגות הקיימת ולא בדיקה של התיקון — היא עוברת גם על הקוד שלפניו,
+    בכוונה, והאפס-דיף על קורפוס התיעוד הוא אותה טענה בקנה מידה.
+
+    מוטציה שמפילה: לחתוך ב-``_fit_page`` גם כשהעמוד נכנס (בלי ה-``return`` המוקדם).
+    """
+    text = "# עברית\n\n" + _wide_lines("ש", 120_000) + "\n"
+    mcp = _build(monkeypatch, _Dbm(text))
+
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="עברית",
+                                 max_chars=docs_handlers.MAX_CHARS_MAX)
+
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert len(out["content"]) == docs_handlers.MAX_CHARS_MAX
+    assert out["next_offset"] == docs_handlers.MAX_CHARS_MAX
+    assert "truncation_reason" not in out
+
+
+async def test_subsections_are_capped_like_the_map(monkeypatch):
+    """``subsections`` חסום ב-``_TOC_MAX``, בסדר המסמך, עם ``subsections_truncated`` — רק כשנחתך.
+
+    תת-הסעיפים הם שורות מאותה מפה, ולכן אותה תקרה. בלעדיה זה היה השדה היחיד בתשובה
+    בלי גבול: על הקוד שלפני התיקון, סעיף עם 7,000 תת-סעיפים יצא בתשובה של כמיליון
+    בתים, ורובם הרשימה. בדיוק בגובה התקרה אין דגל: הוא אומר שנחתך משהו, לא שהרשימה
+    מלאה.
+
+    מוטציה שמפילה: להחזיר את ``direct_subsections`` בלי ``_capped``.
+    """
+    cap = docs_handlers._TOC_MAX
+    many = "# שורש\n" + "".join(f"## כותרת {i:04d}\n" for i in range(cap + 600))
+    mcp = _build(monkeypatch, _Dbm(many))
+
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="שורש")
+
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert [s["title"] for s in out["subsections"]] == [f"כותרת {i:04d}" for i in range(cap)]
+    assert out["subsections_truncated"] is True
+
+    exactly = "# שורש\n" + "".join(f"## כותרת {i:04d}\n" for i in range(cap))
+    mcp = _build(monkeypatch, _Dbm(exactly))
+    out = await _call(mcp, file_name=_MD_NAME, section="שורש")
+    assert len(out["subsections"]) == cap
+    assert "subsections_truncated" not in out
 
 
 async def test_version_and_file_id_choose_the_version_the_section_is_read_from(monkeypatch):
@@ -680,6 +824,37 @@ async def test_a_section_longer_than_the_ceiling_is_refused_as_in_the_docs_tool(
     assert at_the_ceiling["error"] == "section_not_found"
 
 
+async def test_a_section_whose_headings_alone_do_not_fit_is_refused_with_its_lines(
+    monkeypatch,
+):
+    """``section_too_large`` — כשגם עמוד **ריק** של הסעיף אינו נכנס בתקציב.
+
+    ``_TOC_MAX`` תת-סעיפים שכל אחד מהם כותרת באורך של פסקה: הרשימה לבדה גדולה
+    מ-``OUTPUT_BYTE_BUDGET``, ואין תוכן שאפשר לקצר כדי להיכנס. עמוד ריק עם
+    ``next_offset`` שלא זז היה שולח קורא ממושמע ללולאה אינסופית, ולכן זה סירוב —
+    עם ``bytes`` מעל ``max``, עם ``line_range`` של הסעיף כדי לקרוא אותו ב-``lines``,
+    ועם ה-``hint`` של קובץ שמור.
+
+    מוטציה שמפילה: להחזיר מ-``_fit_page`` את העמוד גם כשהתוכן שלו התרוקן.
+    """
+    title = "汉" * 240
+    text = "# שורש\n" + "".join(f"## {title} {i}\n" for i in range(docs_handlers._TOC_MAX))
+    from mcp_server import backend as backend_mod
+
+    assert len(text.encode("utf-8")) < backend_mod.MAX_FILE_SIZE_FOR_DISPLAY, "הנחה: הקובץ נפרסר"
+    mcp = _build(monkeypatch, _Dbm(text))
+    toc = await _call(mcp, file_name=_MD_NAME, toc=True)
+
+    out = await _call(mcp, file_name=_MD_NAME, section="שורש")
+
+    assert out["ok"] is False and out["error"] == docs_handlers.SECTION_TOO_LARGE
+    assert out["file"] == _meta() and out["hint"] == _HINT
+    assert out["bytes"] > out["max"]
+    assert out["max"] <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["line_range"] == toc["toc"][0]["line_range"]
+    assert "content" not in out
+
+
 def test_the_request_nets_refuse_what_the_schema_would_have_stopped():
     """רשת מאחורי הסכימה, לקורא שאינו עובר בה — ``handlers`` ו-backend באותה פונקציה.
 
@@ -766,6 +941,32 @@ async def test_both_tools_answer_through_the_same_functions(monkeypatch):
     for key in ("mode", "section", "breadcrumb", "level", "line_range", "content",
                 "include_subsections", "offset", "truncated", "subsections", "neighbors"):
         assert from_file[key] == from_docs[key], key
+
+
+async def test_the_docs_tool_fits_its_page_to_the_same_budget(monkeypatch):
+    """``codekeeper_docs_get_section`` מקבל את אותו חיתוך, כי הוא ב-``_answer_from_document``.
+
+    לכלי התיעוד אין ``found``/``status``, ולכן הוא אינו שומר להם מקום — והעמוד שלו
+    על אותו טקסט אינו קצר מזה של ``codekeeper_get_file``. שניהם בתוך התקציב כפי
+    שנשלחו, ושניהם אומרים למה.
+
+    מוטציה שמפילה: לחתוך רק ב-``_apply_sections_to_file`` ולא בפונקציה המשותפת —
+    תשובת כלי התיעוד עוברת את התקציב.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    text = "# רחב\n\n" + _wide_lines("汉", 120_000) + "\n"
+    mcp = _build(monkeypatch, _Dbm(text), repo_backend=_RepoText(text))
+
+    from_file, file_sent = await _call_sent(mcp, file_name=_MD_NAME, section="רחב",
+                                            max_chars=docs_handlers.MAX_CHARS_MAX)
+    from_docs, docs_sent = await _call_sent(
+        mcp, "codekeeper_docs_get_section", path="x.md", repo="amir-bug-patterns",
+        section="רחב", max_chars=docs_handlers.MAX_CHARS_MAX)
+
+    assert docs_sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert file_sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert from_docs["truncation_reason"] == from_file["truncation_reason"] == "byte_budget"
+    assert from_docs["content"].startswith(from_file["content"])
 
 
 # ---------------------------------------------------------------------------
@@ -930,3 +1131,33 @@ def test_the_paging_numbers_in_the_section_doc_come_from_the_constants(monkeypat
     monkeypatch.setattr(docs_handlers, "MAX_CHARS_MAX", 8765)
     _, rebuilt = srv._build_file_sections_docs()
     assert "(default 4321, 21-8765)" in rebuilt
+
+
+def test_the_byte_budget_numbers_in_the_section_doc_come_from_the_constants(monkeypatch):
+    """התקציב והתקרה על ``subsections`` נשתלים מהקבועים — כמו מספרי העימוד שמעל.
+
+    מוטציה שמפילה: לכתוב ``256000`` או ``400`` כטקסט ב-``_build_file_sections_docs``.
+    """
+    from mcp_server import server as srv
+
+    assert f"never exceeds {repo_handlers.OUTPUT_BYTE_BUDGET} bytes" in srv._FILE_SECTION_DOC
+    monkeypatch.setattr(repo_handlers, "OUTPUT_BYTE_BUDGET", 1234)
+    monkeypatch.setattr(docs_handlers, "_TOC_MAX", 56)
+    _, rebuilt = srv._build_file_sections_docs()
+    assert "never exceeds 1234 bytes" in rebuilt
+    assert "subsections lists at most 56," in rebuilt
+
+
+def test_the_byte_budget_has_one_measure_and_one_word():
+    """המדידה "כפי שנשלח" היא פונקציה אחת, והסיבה ``byte_budget`` היא מילה אחת.
+
+    ``read_batch`` מודד את הבאץ' ו-``docs_handlers`` את עמוד הסעיף — באותה
+    ``wire_json``, ולא בשני עותקים של הנוסחה (R6). והמילה שמסבירה עמוד שנגמר מוקדם
+    היא אותה מילה של ``unread_reason`` בבאץ' ושל ``truncation_reason`` בחיפוש.
+
+    מוטציה שמפילה: להחזיר ל-``read_batch`` פונקציה ``_wire`` משלו, או לאיית את
+    הסיבה אחרת.
+    """
+    assert read_batch._wire is repo_handlers.wire_json
+    assert docs_handlers.wire_json is repo_handlers.wire_json
+    assert docs_handlers._BYTE_BUDGET_REASON == read_batch.UNREAD_BYTE_BUDGET == "byte_budget"

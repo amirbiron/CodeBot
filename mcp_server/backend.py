@@ -38,11 +38,13 @@ from .handlers import (
     scan_file_query,
 )
 # קריאה לפי סעיף בקובץ שמור עוברת **באותן פונקציות** של ``codekeeper_docs_get_section``
-# — המיפוי של סירובי הפרסר ובניית התשובה — ולא בעותק שלהן. שלושת הייבואים קלים
+# — המיפוי של סירובי הפרסר ובניית התשובה — ולא בעותק שלהן. כל הייבואים כאן קלים
 # במובן של ``mcp_server/__init__.py``: אין בהם מסד, רשת או קובץ בזמן ייבוא
 # (``services.md_parser`` בונה מופע ``markdown-it`` אחד ומחמם אותו, ו-``server.py``
-# כבר מייבא את כולם ממילא). התקרה מיובאת ולא מועתקת, כמו ב-``server.py``.
+# כבר מייבא את כולם ממילא). התקרה מיובאת ולא מועתקת, כמו ב-``server.py``, ו-
+# ``wire_json`` הוא המדידה של תקציב הבתים — ממקום אחד עם ``read_batch``.
 from . import docs_handlers
+from .repo_handlers import wire_json
 from services import md_parser
 from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 from services.markdown_files import is_markdown_file
@@ -294,11 +296,17 @@ def _apply_sections_to_file(
        קלט, ותו עברי הוא שני בתים — ספירת תווים הייתה מעבירה קובץ עברי כפול.
     3. פרסור. סירוב של הפרסר חוזר כמו ב-docs, ועם ``hint`` שמפנה ל-``lines``/``query``:
        בקובץ שמור אין ריפו לתקן בו.
+    4. **מקום למעטפת.** הצלחה עטופה ב-``found`` וב-``status`` (``toc`` או
+       ``section``), ו-``answer_section`` חותך את עמוד הסעיף אל התקציב **פחות
+       המעטפת** (``reserve_bytes``) — כך שהתשובה כפי שהיא יוצאת מכאן נכנסת ב-
+       ``OUTPUT_BYTE_BUDGET``, ולא רק מה שהיה לפני העטיפה. גודל המעטפת נמדד באותה
+       פונקציה שמודדת את התשובה (``wire_json``), על המעטפת עצמה, ולא נספר ביד.
+       ``section_too_large`` — סעיף שגם עמוד ריק שלו אינו נכנס — מקבל את אותו
+       ``hint`` של שלב 3.
 
     ``context`` הוא ``{"file": <מטא-דאטה>}`` — המטא-דאטה בלי ``_HEAVY_FIELDS``, כמו
     ב-:func:`_apply_query_to_file` — ולכן כל תשובה, גם סירוב, אומרת איזה קובץ
-    ואיזו גרסה נקראו. הצלחה עטופה ב-``found`` וב-``status`` (``toc`` או
-    ``section``), והפלט של ``answer_section`` נשאר כמו שהוא.
+    ואיזו גרסה נקראו. מעבר למעטפת, הפלט של ``answer_section`` נשאר כמו שהוא.
     """
     meta = {key: val for key, val in out.items() if key not in _HEAVY_FIELDS}
     context = {"file": meta}
@@ -337,13 +345,20 @@ def _apply_sections_to_file(
         for name, value in (("max_chars", max_chars), ("offset", offset))
         if value is not None
     }
+    envelope = {"found": True, "status": "toc" if section is None else "section"}
+    reserve = len(wire_json({**envelope, "_": 0})) - len(wire_json({"_": 0}))
     answer = docs_handlers.answer_section(
-        docs_handlers.LoadedDocument(parsed, context), section=section, **paging
+        docs_handlers.LoadedDocument(parsed, context),
+        section=section,
+        reserve_bytes=reserve,
+        **paging,
     )
     if answer.get("ok") is False:
+        if answer.get("error") == docs_handlers.SECTION_TOO_LARGE:
+            answer["hint"] = SECTIONS_UNAVAILABLE_HINT
         # ``section_not_found`` / ``ambiguous_section`` — כמו שהם, עם ה-TOC וההצעות.
         return answer
-    return {"found": True, "status": "toc" if section is None else "section", **answer}
+    return {**envelope, **answer}
 
 
 def _full(doc: dict[str, Any]) -> dict[str, Any]:

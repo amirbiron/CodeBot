@@ -25,6 +25,7 @@ from typing import Any, Mapping, NamedTuple
 
 from services import doc_sections, md_parser, rst_parser
 from .handlers import _clamp
+from .repo_handlers import OUTPUT_BYTE_BUDGET, wire_json
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +63,10 @@ MAX_PATH_CHARS = 4096
 #: 1.7ms ותשובה של 21,048 בתים. ‏4,096: 2.8ms ו-25,054. ‏170,000 תווים עבריים:
 #: 82.8ms ו-360,958 בתים. ‏1,000,000 תווים: 321ms ו-1,020,958 בתים. גוף בקשה
 #: יכול לשאת את זה (``DEFAULT_MAX_REQUEST_BYTES`` הוא 1MiB), ושני דברים נשברים
-#: בלי התקרה: התשובה עוברת את ``OUTPUT_BYTE_BUDGET`` (256,000) שאף תשובה אחרת
-#: של כלי קריאה אינה עוברת, והטענה ש-``DEFAULT_RATE_LIMIT_PER_MINUTE`` שומר
-#: עליה — שקריאה אחת אינה עולה יותר מ-``WORST_CASE_CPU_SECONDS`` — מפסיקה
+#: בלי התקרה: תשובת ``section_not_found`` עוברת את ``OUTPUT_BYTE_BUDGET``
+#: (256,000) — ואותה אי אפשר לקצר כמו עמוד של סעיף (:func:`_fit_page`), כי
+#: מה שמנפח אותה הוא ההד של השאילתה; והטענה ש-``DEFAULT_RATE_LIMIT_PER_MINUTE``
+#: שומר עליה — שקריאה אחת אינה עולה יותר מ-``WORST_CASE_CPU_SECONDS`` — מפסיקה
 #: להחזיק, כי ההתאמה מתווספת על הפרסור.
 #:
 #: **והמספר נגזר ממדידה ולא נבחר.** הכותרת הארוכה ביותר: 71 תווים בעמודי ה-RST
@@ -103,6 +105,19 @@ _TOC_MAX = 400  # תקרת פריטי TOC בתשובה (הגנת גודל)
 #: מיובא ולא מוקלד שוב (הכיוון ``services`` ← ``mcp_server`` מותר; ההפוך לא),
 #: והטסט שומר שלא יוקלד מחדש. אישו #3426.
 _CANDIDATES_MAX = doc_sections.MAX_IDENTIFIER_SUGGESTIONS
+
+#: קוד הסירוב כשגם עמוד **ריק** של סעיף אינו נכנס בתקציב הבתים (ראו
+#: :func:`_fit_page`): הכותרות שהתשובה נושאת — הסעיף עצמו, ה-breadcrumb, עד
+#: :data:`_TOC_MAX` תת-סעיפים והשכנים — גדולות ממנו לבדן, כלומר כותרות באורך
+#: של פסקאות. ``_too_large`` כמו ``page_too_large`` ו-``item_too_large``, שגם
+#: הם תשובה שאינה נכנסת, ולא ``section_too_long``, שהוא השאילתה שנדחתה. מיוצא,
+#: כי ``codekeeper_get_file`` מוסיף לו את ההפניה ל-``lines``/``query``.
+SECTION_TOO_LARGE = "section_too_large"
+
+#: ``truncation_reason`` של עמוד שתקציב הבתים — ולא ``max_chars`` — קיצר. אותה
+#: מילה כמו ב-``codekeeper_search_repo`` וב-``read_batch.UNREAD_BYTE_BUDGET``:
+#: אוצר מילים אחד לאותה סיבה (``docs/mcp-server.rst``), וטסט מצמיד ביניהם.
+_BYTE_BUDGET_REASON = "byte_budget"
 
 #: הסיומת ← **המודול** שמפרסר אותה. זהו המקום היחיד שאומר איזה פורמט הכלי
 #: יודע לקרוא בכלל, ו-``DOCS_PATH_POLICY`` למטה אומר מי מהם מוגש בכל ריפו.
@@ -635,6 +650,7 @@ def answer_section(
     include_subsections: bool = True,
     max_chars: int = MAX_CHARS_DEFAULT,
     offset: int = 0,
+    reserve_bytes: int = 0,
 ) -> dict[str, Any]:
     """מה ש-:func:`docs_get_section` עונה על ``section``, מתוך מסמך שכבר נקרא ופורסר.
 
@@ -648,11 +664,17 @@ def answer_section(
     הכותרת, החיתוך, העימוד ובניית התשובה הם **אותה פונקציה** בשני הכלים, ולא
     עותק שני. הוא אינו מעביר ``include_subsections``, ולכן תת-הסעיפים תמיד כלולים
     אצלו.
+
+    ``reserve_bytes`` — מה שהקורא עוד יוסיף סביב התשובה לפני שהיא נשלחת. עמוד
+    הסעיף נחתך אל ``OUTPUT_BYTE_BUDGET`` פחות זה (:func:`_fit_page`), כדי שהתשובה
+    **כפי שהיא יוצאת** תיכנס. ``codekeeper_get_file`` מוסיף ``found`` ו-``status``
+    ושומר להם מקום; הבאץ' אינו עוטף את התשובה אלא מקנן אותה, ומודד את זה בעצמו.
     """
     max_chars, offset = _paging(max_chars, offset)
     return _answer_from_document(loaded.doc, context=loaded.context, section=section,
                                  include_subsections=include_subsections,
-                                 max_chars=max_chars, offset=offset)
+                                 max_chars=max_chars, offset=offset,
+                                 budget=OUTPUT_BYTE_BUDGET - reserve_bytes)
 
 
 def docs_get_section(
@@ -691,6 +713,7 @@ def _answer_from_document(
     include_subsections: bool,
     max_chars: int,
     offset: int,
+    budget: int = OUTPUT_BYTE_BUDGET,
 ) -> dict[str, Any]:
     """ארבע צורות התשובה של הכלי, מתוך מסמך שכבר נפרסר.
 
@@ -707,6 +730,10 @@ def _answer_from_document(
     ותת-הסקשנים. ``context`` הוא ``repo``/``path``/``ref``/``resolved_commit``
     שכל תשובה נושאת — או ``file`` כשהקורא הוא ``codekeeper_get_file``. ולפניהן
     סירוב חמישי, ``section_too_long`` (ראו :data:`MAX_SECTION_CHARS`).
+
+    ``budget`` חל על צורת ה-``section`` בלבד — היא היחידה שגדלה עם ``max_chars``,
+    ולכן היחידה שאפשר לקצר בלי לאבד דבר (:func:`_fit_page`). השאר חסומות במספר
+    פריטים (:data:`_TOC_MAX`, :data:`_CANDIDATES_MAX`, ``MAX_IDENTIFIER_SUGGESTIONS``).
     """
     # ``includes`` הוא שדה של פארסר: ``rst_parser`` ממלא אותו מיעדי
     # ``.. include::``, ול-Markdown אין צורה כזאת ולכן הוא **תמיד ריק**.
@@ -785,6 +812,11 @@ def _answer_from_document(
     chunk = full[offset:offset + max_chars]
     truncated = (offset + len(chunk)) < total
     prev, nxt = doc_sections.neighbors(doc, sec)
+    # **תת-הסעיפים חסומים באותה תקרה של המפה** — הם שורות מאותה מפה, רק של ענף
+    # אחד. בלעדיה זה היה השדה היחיד בתשובה בלי גבול, כמו ``candidates`` לפני
+    # #3426, וסעיף עם אלפי תת-סעיפים עבר בגללו לבדו את ``OUTPUT_BYTE_BUDGET``.
+    subsections, subsections_truncated = _capped(
+        doc_sections.direct_subsections(doc, sec), _TOC_MAX)
 
     base.update({
         "mode": "section",
@@ -796,13 +828,93 @@ def _answer_from_document(
         "offset": offset,
         "content": chunk,
         "truncated": truncated,
-        "subsections": [_section_ref(s) for s in doc_sections.direct_subsections(doc, sec)],
+        "subsections": [_section_ref(s) for s in subsections],
         "neighbors": {
             "prev": _section_ref(prev) if prev else None,
             "next": _section_ref(nxt) if nxt else None,
         },
     })
+    if subsections_truncated:
+        # רק כשנחתכה — אותה מוסכמה של ``candidates_truncated`` ושל ``remaining_chars``.
+        base["subsections_truncated"] = True
     if truncated:
         base["remaining_chars"] = total - (offset + len(chunk))
         base["next_offset"] = offset + len(chunk)
-    return base
+
+    page, size = _fit_page(base, total=total, budget=budget)
+    if page is None:
+        return {"ok": False, **context, "includes": list(doc.includes),
+                "error": SECTION_TOO_LARGE, "bytes": size, "max": budget,
+                "line_range": [sec.heading_line, sec.end_line]}
+    return page
+
+
+def _fit_page(
+    page: dict[str, Any], *, total: int, budget: int
+) -> tuple[dict[str, Any] | None, int]:
+    """עמוד הסעיף בתוך ``budget`` בתים **כפי שהוא נשלח** — וגודלו.
+
+    ``max_chars`` סופר תווים, והתקציב הוא בתים: תו עברי הוא שני בתים, תו CJK
+    שלושה ואימוג'י ארבעה, וב-JSON שורה חדשה או מירכאה הן שני תווים. לכן עמוד
+    של ``MAX_CHARS_MAX`` תווי CJK הוא פי שלושה בתים, ועבר את
+    ``OUTPUT_BYTE_BUDGET`` עד שהפונקציה הזו נוספה (ריוויו על PR #3470). חסם
+    בתווים אינו חסם בבתים — אותה טעות כבר נפלה פעם בעמוד האאוטליין (ההערה ליד
+    ``QUERY_SNIPPET_MAX_BYTES`` ב-``handlers.py``).
+
+    **עמוד שאינו נכנס נגמר מוקדם יותר — ולא נדחה.** בעימוד לפי ``offset`` זה
+    חיתוך בלי אובדן: ``truncated`` נדלק, ``next_offset`` הוא איפה שהעמוד באמת
+    נגמר, והקריאה הבאה ממשיכה בדיוק משם. ``truncation_reason: "byte_budget"``
+    אומר לקורא למה קיבל פחות מ-``max_chars``, ומופיע רק אז. זה ההפך מ-
+    ``page_too_large`` באאוטליין, ששם עימוד אריתמטי (``per_page``) היה מאבד
+    סימבולים — כאן אין מה לאבד.
+
+    **המדידה היא על התשובה כולה, בצורה שה-SDK שולח** (:func:`~mcp_server.
+    repo_handlers.wire_json`). קודם נמדד העמוד **בלי תוכן**, עם כל השדות שעמוד
+    חתוך נושא — ``truncated``, הסיבה, ו-``remaining_chars``/``next_offset`` בערך
+    הגדול ביותר שהם יכולים לקבל (``total``), כך שהערכים האמיתיים לעולם אינם
+    ארוכים ממה שנמדד. מה שנשאר עד התקציב הוא המקום לתוכן, ו-
+    :func:`_longest_prefix_within` מוצא כמה תווים ממנו נכנסים בו.
+
+    **ולא חיתוך לפי בתי UTF-8, וזה נמדד.** הגרסה הראשונה הורידה את העודף בבתי
+    UTF-8 (``clip_to_bytes``), מתוך ההנחה שכל תו עולה ב-JSON לפחות את בתי ה-UTF-8
+    שלו. ההנחה נכונה — אבל היא חוסמת מלמטה בלבד: תו בקרה הוא בית אחד ב-UTF-8
+    ושישה ב-JSON (``\\u0001``), והעודף של עמוד כזה גדול מכל בתי ה-UTF-8 שלו.
+    הקיצוץ מחק את כל התוכן, וסעיף שעמוד של 42,915 תווים ממנו נכנס בתקציב חזר
+    כ-``section_too_large`` עם ``bytes`` של 610 (``tests/test_mcp_file_sections.py``,
+    המקרה ``control``).
+
+    ``(None, size)`` — כשאין עמוד **לא ריק** שנכנס: מה שנשאר בתשובה בלי שום
+    תוכן גדול מהתקציב לבדו, ו-``size`` הוא הגודל הזה. עמוד ריק עם
+    ``next_offset`` שלא זז היה שולח קורא ממושמע ללולאה אינסופית, ולכן זה סירוב
+    (:data:`SECTION_TOO_LARGE`) ולא עמוד.
+    """
+    size = len(wire_json(page))
+    if size <= budget:
+        return page, size
+    content = page["content"]
+    offset = page["offset"]
+    fitted = {**page, "content": "", "truncated": True, "remaining_chars": total,
+              "next_offset": total, "truncation_reason": _BYTE_BUDGET_REASON}
+    keep = _longest_prefix_within(content, budget - len(wire_json(fitted)))
+    end = offset + keep
+    fitted.update({"content": content[:keep], "remaining_chars": total - end,
+                   "next_offset": end})
+    return (fitted if keep else None), len(wire_json(fitted))
+
+
+def _longest_prefix_within(text: str, room: int) -> int:
+    """כמה תווים מתחילת ``text`` נכנסים ב-``room`` בתים — כמחרוזת JSON, כפי שנשלחת.
+
+    חיפוש בינארי על מספר התווים, וכל ניסיון נמדד באותה סריאליזציה של התשובה
+    (``wire_json`` על מחרוזת הוא המחרוזת במירכאות, ולכן מינוס 2). העלות של
+    קידומת עולה עם אורכה — לכל תו יש עלות קבועה משלו — ולכן החיפוש נכון. והחיתוך
+    הוא על גבול תו, כי מה שנחתך הוא ``str`` ולא בתים. ``room`` שלילי — אפס.
+    """
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if len(wire_json(text[:mid])) - 2 <= room:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo

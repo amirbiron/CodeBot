@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pydantic_core
+
 from .handlers import _clamp
 
 REPOS_LIMIT_DEFAULT = 50
@@ -30,6 +32,17 @@ CONTEXT_LINES_MAX = 10
 OUTLINE_PER_PAGE_DEFAULT = 100
 OUTLINE_PER_PAGE_MAX = 500
 OUTPUT_BYTE_BUDGET = 256_000
+
+
+def wire_json(value: Any) -> bytes:
+    """מה שה-SDK שולח על ``value`` — ``_convert_to_content`` ל-``dict`` (mcp 1.28.1).
+
+    המדידה של :data:`OUTPUT_BYTE_BUDGET` **כפי שהתשובה נשלחת**, ולכן היא יושבת
+    ליד התקציב ולא בכלי אחד: ``codekeeper_read_batch`` מודד בה את הבאץ', ו-
+    ``docs_handlers`` את תשובת הסעיף. הצורה הזו לעולם אינה קטנה מ-``json.dumps``
+    הדחוס (היא מוסיפה רק רווחים ושורות), ולכן תשובה שנכנסת בה נכנסת בשתיהן.
+    """
+    return pydantic_core.to_json(value, fallback=str, indent=2)
 
 
 def list_repos(backend: Any, *, limit: int = REPOS_LIMIT_DEFAULT) -> dict[str, Any]:
