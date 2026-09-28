@@ -80,6 +80,19 @@ class FakeCollection:
     def create_index(self, *a, **k):
         return "i"
 
+    def with_options(self, codec_options=None, read_preference=None, write_concern=None,
+                     read_concern=None):
+        """pymongo's ``Collection.with_options``: a clone over the **same** documents.
+
+        The keyword names are pymongo's (4.15.3, ``synchronous/collection.py``), so
+        a caller that misspells one fails here as it would against a real
+        collection. The options themselves change nothing in memory — there is
+        one copy of the data and no replica to read from. The save path's
+        read-back asks for ``ReadPreference.PRIMARY`` through this, and without
+        it the read-back raised ``AttributeError`` against the fake.
+        """
+        return self
+
     def insert_one(self, d):
         self._id += 1
         d = dict(d)

@@ -461,7 +461,13 @@ except Exception:  # pragma: no cover
         return None
 
 
-def _instrument_db(operation_name: str):
+def _instrument_db(operation_name: str, *, failed: Optional[Callable[[Any], bool]] = None):
+    """מטריקת זמן וסטטוס לפעולת מסד.
+
+    ``failed`` אומר מה מסמן כשל בערך ההחזרה, לפונקציה שערוץ הכשל שלה אינו ``False``.
+    בלעדיו רק ``bool`` נקרא ככשל, ופונקציה שמחזירה ``None`` בכשל הייתה נרשמת ``ok``
+    גם כשהפעולה לא קרתה — מטריקה שאומרת "הצליח" על כתיבה שלא נכתבה.
+    """
     def _decorator(func: Callable[..., Any]):
         if getattr(func, "_db_metrics_wrapped", False):
             return func
@@ -471,7 +477,9 @@ def _instrument_db(operation_name: str):
             status = "ok"
             try:
                 result = func(self, *args, **kwargs)
-                if isinstance(result, bool):
+                if failed is not None:
+                    status = "fail" if failed(result) else "ok"
+                elif isinstance(result, bool):
                     status = "ok" if result else "fail"
                 return result
             except Exception:
@@ -481,6 +489,8 @@ def _instrument_db(operation_name: str):
                 try:
                     record_db_operation(operation_name, max(0.0, time.perf_counter() - start), status=status)
                 except Exception:
+                    # מטריקה בלבד: כשל ברישום שלה אינו אמור להפיל פעולת מסד שכבר
+                    # הסתיימה, ואין לו קורא שיכול לעשות משהו אחר עם הכשל.
                     pass
 
         _wrapper.__name__ = getattr(func, "__name__", f"wrapped_{operation_name}")
@@ -554,8 +564,28 @@ class Repository:
     def __init__(self, manager: DatabaseManager):
         self.manager = manager
 
-    @_instrument_db("db.save_code_snippet")
     def save_code_snippet(self, snippet: CodeSnippet) -> bool:
+        """שומר גרסה חדשה ומחזיר אם היא נכתבה — :meth:`save_code_snippet_returning_id` כ-``bool``.
+
+        הקוראים שצריכים רק "נשמר או לא" (הבוט, הוובאפ, השחזור) נשארים על החוזה הזה.
+        מי שצריך את המסמך שנכתב — כדי לקרוא אותו חזרה לפי ``_id`` — קורא לגרסה
+        שמחזירה את המזהה. המטריקה נרשמת שם, פעם אחת לכל שמירה בשני המסלולים.
+        """
+        return self.save_code_snippet_returning_id(snippet) is not None
+
+    @_instrument_db("db.save_code_snippet", failed=lambda inserted_id: inserted_id is None)
+    def save_code_snippet_returning_id(self, snippet: CodeSnippet) -> Optional[Any]:
+        """שומר גרסה חדשה ומחזיר את ה-``_id`` שנכתב, או ``None`` כשהשמירה לא קרתה.
+
+        **ערוץ הכשל הוא ``None``, ולא חריגה** — אותו חוזה של ``save_code_snippet``
+        (``False``), כי זה אותו מסלול: חריגת מסד נרשמת כאירוע ומוחזרת ככשל.
+
+        **למה המזהה יוצא החוצה.** ה-MCP קורא את מה שנשמר בחזרה כדי להוכיח את השמירה
+        (``content_sha256``). קריאה "לפי שם הקובץ" הייתה מחזירה את הגרסה האחרונה —
+        ואם הבוט או הוובאפ שמרו גרסה משלהם באמצע, את התוכן **שלהם**. המזהה שה-insert
+        כתב הוא הדרך היחידה לקרוא בדיוק את המסמך הזה, ולכן הוא מוחזר כמו שהוא
+        (``InsertOneResult.inserted_id``), בלי המרה למחרוזת וחזרה.
+        """
         try:
             # התוכן נשמר בדיוק כמו שהגיע. ניקוי של קוד מודבק שייך לכניסה של
             # הבוט (``code_service.clean_pasted_code``), לא לשכבה שכל כניסה עוברת
@@ -576,7 +606,7 @@ class Repository:
                 # כלומר אובדן שקט של מה שנשמר עכשיו. עדיף כשל גלוי.
                 emit_event("db_save_aborted_unknown_version", severity="error",
                            file_name=str(snippet.file_name))
-                return False
+                return None
             snippet.version = max_version + 1
             if existing:
                 # תאריך היצירה שייך לקובץ, לא לשורה: גרסה חדשה יורשת אותו
@@ -705,11 +735,38 @@ class Repository:
                     pass
                 from autocomplete_manager import autocomplete
                 autocomplete.invalidate_cache(snippet.user_id)
-                return True
-            return False
+                return result.inserted_id
+            return None
         except Exception as e:
             emit_event("db_save_code_snippet_error", severity="error", error=str(e))
-            return False
+            return None
+
+    def find_version_by_id(self, doc_id: Any, user_id: int) -> Optional[Dict]:
+        """מסמך הגרסה עם ה-``_id`` הזה בדיוק — ורק אם הוא של ``user_id``.
+
+        **בשביל מה:** לקרוא בחזרה את מה ש-:meth:`save_code_snippet_returning_id` כתב,
+        כדי שתשובת השמירה תתאר את המסמך שנשמר ולא את מה שביקשו לשמור.
+
+        - **``user_id`` הוא חלק מהשאילתה ולא בדיקה אחריה.** היום היא נקראת רק עם מזהה
+          שהקוד עצמו הכניס, אבל פונקציה ציבורית שמאתרת לפי ``_id`` בלבד היא בדיוק
+          המבנה שמאפשר לקורא הבא, עם מזהה שהגיע מבחוץ, להגיע למסמך של משתמש אחר.
+        - **בלי קאש.** ``find_one`` ישיר על האוסף — לא ``get_latest_version``, שעטופה
+          ב-``@cached``.
+        - **מה-primary, במפורש** (``ReadPreference.PRIMARY``, pymongo 4.15.3,
+          ``Collection.with_options``). בלי זה הקריאה יורשת את ה-read preference של
+          הלקוח, ו-``readPreference`` בכתובת החיבור היה יכול להפנות אותה למשני שעוד
+          לא ראה את הכתיבה.
+        - ``doc_id`` משמש כמו שהוא — ה-``inserted_id`` של ה-insert — בלי המרה.
+
+        **ערוץ הכשל:** ``None`` פירושו "אין מסמך כזה של המשתמש הזה". **שגיאת מסד נזרקת**
+        ואינה נבלעת, כדי שהקורא יוכל להבדיל בין "לא נמצא" לבין "לא הצלחתי לקרוא".
+        """
+        # ייבוא עצל, כמו ``bson`` בראש המודול: המודול נשאר ניתן לייבוא בסביבה בלי pymongo.
+        from pymongo import ReadPreference
+
+        return self.manager.collection.with_options(
+            read_preference=ReadPreference.PRIMARY
+        ).find_one({"_id": doc_id, "user_id": user_id})
 
     # --- Favorites API ---
     def _validate_file_name(self, file_name: str) -> bool:

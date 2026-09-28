@@ -55,8 +55,8 @@ class _RecordingBackend:
         self.calls.append(("items", user_id, collection_id, page, per_page, folder))
         return {}
 
-    def save_file(self, user_id, *, file_name, code, programming_language, description):
-        self.calls.append(("save", user_id, file_name, code, programming_language, description))
+    def save_file(self, user_id, *, file_name, code, programming_language, description, tool):
+        self.calls.append(("save", user_id, file_name, code, programming_language, description, tool))
         return {"ok": True, "created": True, "file": {"file_name": file_name, "version": 1}}
 
 
@@ -144,7 +144,8 @@ def test_save_file_passes_explicit_language_and_trims_name():
     be = _RecordingBackend()
     out = handlers.save_file(be, 7, file_name=" a.py ", code="print(1)", language="python")
     assert out["ok"] is True
-    assert _save_call(be) == ("save", 7, "a.py", "print(1)", "python", "")
+    # ``tool`` הוא שם הכלי שנרשם בלוג כשמה שנשמר שונה ממה שנשלח.
+    assert _save_call(be) == ("save", 7, "a.py", "print(1)", "python", "", "codekeeper_save_file")
 
 
 def test_save_file_fills_a_language_when_omitted():
