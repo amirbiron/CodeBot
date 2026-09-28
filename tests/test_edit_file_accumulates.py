@@ -37,18 +37,30 @@ class _FakeCollection:
         שמצהיר על ``sort`` במקום הזה מקבל אליה את ההיטלה. כאן זה עדיין
         לא נשבר — לאוסף יש ``docs``, ולכן חישוב הגרסה פונה למסלול
         הזיכרון המהיר ולא לשאילתה — אבל היישור מסיר את התלות במקריות.
+
+        **שאילתה עם ``_id`` מתאימה לפי כל השדות שבה**, כמו במונגו: זו הקריאה
+        החוזרת של השמירה (``find_version_by_id``), והיא צריכה את המסמך הזה בדיוק.
+        קודם הסטאב התעלם מ-``_id`` וחיפש לפי שם — שאילתה בלי ``file_name`` לא
+        הייתה מוצאת כלום, והשמירה הייתה נראית כאילו הקריאה החוזרת נכשלה.
         """
-        matches = [
-            d
-            for d in self.docs
-            if d.get("user_id") == query.get("user_id")
-            and d.get("file_name") == query.get("file_name")
-        ]
+        if "_id" in query:
+            matches = [d for d in self.docs if all(d.get(k) == v for k, v in query.items())]
+        else:
+            matches = [
+                d
+                for d in self.docs
+                if d.get("user_id") == query.get("user_id")
+                and d.get("file_name") == query.get("file_name")
+            ]
         if not matches:
             return None
         doc = max(matches, key=lambda d: int(d.get("version", 0) or 0))
         include = {k for k, v in (projection or {}).items() if v}
         return {k: v for k, v in doc.items() if k in include} if include else doc
+
+    def with_options(self, **_options):
+        """``Collection.with_options`` מחזיר עותק מעל אותם נתונים; בזיכרון זה אותו אוסף."""
+        return self
 
     def update_many(self, *a, **k):
         return type("R", (), {"modified_count": 0})()
@@ -73,8 +85,11 @@ class _FakeDBM:
     def get_latest_version_fresh(self, user_id, file_name):
         return self.repo._fetch_latest_version(user_id, file_name)
 
-    def save_code_snippet(self, snippet):
-        return self.repo.save_code_snippet(snippet)
+    def save_code_snippet_returning_id(self, snippet):
+        return self.repo.save_code_snippet_returning_id(snippet)
+
+    def find_version_by_id(self, doc_id, user_id):
+        return self.repo.find_version_by_id(doc_id, user_id)
 
     def get_version(self, user_id, file_name, version):
         for d in self.collection.docs:

@@ -1,5 +1,7 @@
 """Unit tests for ProductionBackend: serialization + the critical ownership check."""
 
+import hashlib
+
 from mcp_server.backend import ProductionBackend, _full
 
 
@@ -10,7 +12,7 @@ class _FakeDbManager:
         self._versions = versions or []
         self._search = search or []
         self._fail_save = fail_save
-        self.saved = None  # last CodeSnippet passed to save_code_snippet
+        self.saved = None  # last CodeSnippet passed to save_code_snippet_returning_id
 
     def get_regular_files_paginated(self, user_id, page, per_page):
         return list(self._files), len(self._files)
@@ -37,26 +39,38 @@ class _FakeDbManager:
     def get_all_versions(self, user_id, file_name):
         return [v for v in self._versions if v.get("file_name") == file_name]
 
-    def save_code_snippet(self, snippet):
+    def save_code_snippet_returning_id(self, snippet):
+        """Same contract as ``Repository``: the version is set on ``snippet`` and the
+        written ``_id`` comes back — ``None`` when the save did not happen."""
         self.saved = snippet  # capture the real CodeSnippet for assertions
         if self._fail_save:
-            return False
+            return None
         prev = self.get_latest_version(snippet.user_id, snippet.file_name)
-        version = (prev.get("version", 0) + 1) if prev else 1
+        snippet.version = (prev.get("version", 0) + 1) if prev else 1
+        doc_id = f"{snippet.file_name}@v{snippet.version}"
         # Replace the same-name entry so the post-save re-fetch sees the new version.
         self._files = [f for f in self._files if f.get("file_name") != snippet.file_name]
         self._files.append(
             {
-                "_id": "new",
+                "_id": doc_id,
+                "user_id": snippet.user_id,
                 "file_name": snippet.file_name,
+                "code": snippet.code,
                 "programming_language": snippet.programming_language,
-                "version": version,
+                "version": snippet.version,
                 "file_size": len(snippet.code.encode("utf-8")),
                 "lines_count": len(snippet.code.split("\n")),
                 "description": snippet.description,
             }
         )
-        return True
+        return doc_id
+
+    def find_version_by_id(self, doc_id, user_id):
+        """Same contract as ``Repository``: by ``_id`` **and** ``user_id``, or ``None``."""
+        return next(
+            (dict(f) for f in self._files if f.get("_id") == doc_id and f.get("user_id") == user_id),
+            None,
+        )
 
 
 def test_list_files_excludes_heavy_code_field():
@@ -150,11 +164,15 @@ def test_save_file_creates_new_file():
         code="print(1)\nprint(2)",
         programming_language="python",
         description="hi",
+        tool="codekeeper_save_file",
     )
     assert out["ok"] is True and out["created"] is True
     f = out["file"]
     assert f["version"] == 1 and f["file_name"] == "new.py" and f["language"] == "python"
     assert "code" not in f  # Smart Projection: never echo the body back
+    # the hash of what was read back, and it matches what was meant to be saved
+    assert f["content_sha256"] == hashlib.sha256(b"print(1)\nprint(2)").hexdigest()
+    assert out["content_changed"] is False and "content_diff" not in out
     # the real CodeSnippet reached the DB with the expected fields
     assert dbm.saved.user_id == 7 and dbm.saved.code == "print(1)\nprint(2)"
     assert dbm.saved.programming_language == "python" and dbm.saved.description == "hi"
@@ -163,7 +181,7 @@ def test_save_file_creates_new_file():
 def test_save_file_updates_existing_bumps_version():
     dbm = _FakeDbManager(files=[{"_id": "a", "file_name": "x.py", "version": 1}])
     out = ProductionBackend(db_manager=dbm).save_file(
-        7, file_name="x.py", code="v2", programming_language="python"
+        7, file_name="x.py", code="v2", programming_language="python", tool="codekeeper_edit_file"
     )
     assert out["ok"] is True and out["created"] is False
     assert out["file"]["version"] == 2  # append-only: new version, not overwrite
@@ -172,7 +190,7 @@ def test_save_file_updates_existing_bumps_version():
 def test_save_file_reports_failure():
     dbm = _FakeDbManager(fail_save=True)
     out = ProductionBackend(db_manager=dbm).save_file(
-        7, file_name="x.py", code="c", programming_language="python"
+        7, file_name="x.py", code="c", programming_language="python", tool="codekeeper_save_file"
     )
     assert out == {"ok": False, "error": "save_failed"}
 

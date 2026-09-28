@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import enum as _enum
+import hashlib
 import html
 import os
 import threading
@@ -60,10 +61,19 @@ from file_description import DESCRIPTION_SET_AT_VERSION_FIELD, description_age_f
 # אותה תבנית ייבוא עמיד שבה משתמש ``webapp/sticky_notes_api``: בסביבות
 # בדיקה בלי pymongo, מחלקה מקומית שלא תיזרק לעולם עדיפה על ייבוא שמפיל
 # את המודול כולו.
+#
+# ``PyMongoError`` הוא הבסיס של כל שגיאות pymongo — רשת, בחירת שרת, פקודה שנכשלה
+# (נבדק במקור של pymongo 4.15.3, ``pymongo/errors.py``). הקריאה החוזרת אחרי שמירה
+# תופסת רק אותו: תקלת מסד היא "לא הצלחתי לקרוא", אבל ``AttributeError`` או
+# ``TypeError`` הם באג, ותפיסה שלהם הייתה מציגה באג קבוע כתקלה רגעית.
 try:  # type: ignore
     from pymongo.errors import DuplicateKeyError as _DuplicateKeyError  # type: ignore
+    from pymongo.errors import PyMongoError as _PyMongoError
 except Exception:  # pragma: no cover
     class _DuplicateKeyError(Exception):  # type: ignore
+        pass
+
+    class _PyMongoError(Exception):  # type: ignore
         pass
 
 
@@ -189,8 +199,8 @@ def _clean(doc: dict[str, Any], *, include_code: bool = False) -> dict[str, Any]
 
     **גיל התיאור מחושב כאן, ובמכוון במקום אחד ולא בכל כלי בנפרד.**
     ‏``_clean`` הוא הצוואר שכל מסמך קובץ עובר דרכו בשרת הזה —
-    ‏``list_files``, ``search_code``, ``get_file`` (דרך ``_full``),
-    ‏``list_versions`` ו-``save_file``. חישוב בכל קורא היה מוסיף לכל כלי
+    ‏``list_files``, ``search_code`` ו-``list_versions`` ישירות, ו-``get_file``
+    ו-``save_file`` דרך ``_full``. חישוב בכל קורא היה מוסיף לכל כלי
     חדש דרישה לזכור, והכלי שישכח יחזיר קובץ בלי שום סימן שמשהו חסר בו.
     ההחלטה מתי השדה מופיע בכלל יושבת ב-``file_description``, ליד החישוב.
 
@@ -254,7 +264,8 @@ def _apply_query_to_file(
 
     **התוכן יורד, וזה כל הרעיון.** ``_HEAVY_FIELDS`` הוא אותה רשימה שמסירה את
     התוכן בכל מסלול רשימה/חיפוש אחר בשרת הזה, ולא רשימה שנייה שצריך לזכור
-    לעדכן: שדה תוכן חדש שיתווסף לה יורד גם מכאן.
+    לעדכן: שדה תוכן חדש שיתווסף לה יורד גם מכאן. ``file`` הוא :func:`_file_meta`,
+    ולכן הוא נושא את ``content_sha256`` של הקובץ המלא ולא של המופעים.
 
     **החיתוך נעשה מ-``code``**, מאותו נימוק בדיוק שכתוב ב-
     :func:`_apply_range_to_file` — ``_full`` כבר מבטיח שהוא הטקסט הקנוני.
@@ -271,8 +282,7 @@ def _apply_query_to_file(
         context_lines=context_lines,
         byte_budget=QUERY_OUTPUT_BYTE_BUDGET,
     )
-    meta = {key: val for key, val in out.items() if key not in _HEAVY_FIELDS}
-    return {"found": True, "status": "query", "file": meta, "query": query, **found}
+    return {"found": True, "status": "query", "file": _file_meta(out), "query": query, **found}
 
 
 def _apply_sections_to_file(
@@ -306,22 +316,19 @@ def _apply_sections_to_file(
        — תשובה שגם בלי אף פריט ברשימות שלה אינה נכנסת — מקבלים את אותו ``hint``
        של שלב 3.
 
-    ``context`` הוא ``{"file": <מטא-דאטה>}`` — המטא-דאטה בלי ``_HEAVY_FIELDS``, כמו
-    ב-:func:`_apply_query_to_file` — ולכן כל תשובה, גם סירוב, אומרת איזה קובץ
-    ואיזו גרסה נקראו. מעבר למעטפת, הפלט של ``answer_section`` נשאר כמו שהוא.
+    ``context`` הוא ``{"file": <מטא-דאטה>}`` — :func:`_file_meta`, כמו ב-
+    :func:`_apply_query_to_file` — ולכן כל תשובה, גם סירוב, אומרת איזה קובץ ואיזו
+    גרסה נקראו, ונושאת את ``content_sha256`` של הקובץ המלא. ``file`` נבנה **לפני**
+    ``answer_section``, ולכן ה-hash נמדד בתקציב יחד עם כל השאר ולא נוסף אחריו.
+    מעבר למעטפת, הפלט של ``answer_section`` נשאר כמו שהוא.
+
+    תוכן שאינו מחרוזת לא מגיע לכאן: :func:`_full` כבר נפל עליו בקול.
     """
-    meta = {key: val for key, val in out.items() if key not in _HEAVY_FIELDS}
-    context = {"file": meta}
+    context = {"file": _file_meta(out)}
     if not is_markdown_file(out.get("programming_language"), out.get("file_name")):
         return {"ok": False, "error": NOT_MARKDOWN, **context, "hint": SECTIONS_UNAVAILABLE_HINT}
 
-    code = out.get("code") or ""
-    if not isinstance(code, str):
-        # אין מסלול שמירה שכותב תוכן שאינו מחרוזת, ולכן זה חוזה שנשבר ולא קלט
-        # שנדחה — ונופל בקול, כמו ``TypeError`` של הפרסר (ראו ``parse_with_refusals``),
-        # במקום להיות מומר למחרוזת ולהחזיר מפה של משהו שאינו הקובץ. ההודעה נושאת
-        # רק את שם הטיפוס, לא תוכן.
-        raise TypeError(f"stored file content is {type(code).__name__}, not str")
+    code = out["code"]
     size = len(code.encode("utf-8"))
     if size > MAX_FILE_SIZE_FOR_DISPLAY:
         return {
@@ -364,11 +371,159 @@ def _apply_sections_to_file(
 
 
 def _full(doc: dict[str, Any]) -> dict[str, Any]:
-    """Serialize a single file WITH content (regular ``code`` or large ``content``)."""
+    """Serialize a single file WITH content (regular ``code`` or large ``content``).
+
+    **הנקודה האחת שמחשבת ``content_sha256``**: sha256 בהקס על בתי ה-UTF-8 של
+    ``code`` כפי שהוא יוצא מכאן, בלי שום נרמול (BOM, ‏CRLF וירידת שורה בסוף
+    נשארים). כל תשובה שמתארת קובץ שמור **בודד** עוברת כאן — ``get_file`` בכל
+    מצביו, ותשובות הכתיבה, שקוראות חזרה את מה שנכתב. החישוב קורה לפני כל
+    חיתוך, ולכן ה-hash הוא תמיד של הקובץ המלא, גם כשחוזר רק טווח או רק מופעים.
+
+    **ולא ב-:func:`_clean`, אף שהוא הצוואר המשותף.** ``_clean`` משרת גם רשימות, ו-
+    ``get_all_versions`` שמאחורי ``list_versions`` מושך את התוכן של כל הגרסאות
+    בלי היטלה. חישוב "כשיש תוכן" שם היה נותן hash לכל גרסה ברשימה, ונוכחות השדה
+    הייתה תלויה בהיטלה של כל שאילתה. כאן ההחלטה היא של הפונקציה ולא של השאילתה.
+
+    **תוכן שאינו מחרוזת נופל בקול**, ב-``TypeError`` שנושא רק את שם הטיפוס. אין
+    מסלול שמירה שכותב דבר כזה, ולכן זה חוזה שנשבר — ולא קלט שיתורגם בשקט ל"קובץ
+    ריק" עם hash של מחרוזת ריקה. זה חל גם על שדה חסר (``NoneType``): הכותבים ל-
+    ``code_snippets`` — ``Repository.save_code_snippet_returning_id`` והראוטים שכותבים
+    ``code_snippets.insert_one`` ב-``webapp/app.py`` — כותבים ``code``, והקריאות שמזינות
+    את ``get_file`` (``get_file_by_id``, ``get_version`` ו-``_fetch_latest_version`` ב-
+    ``Repository``) מושכות את המסמך בלי היטלה.
+    """
     out = _clean(doc, include_code=True)
     if not out.get("code") and out.get("content"):
         out["code"] = out["content"]
+    code = out.get("code")
+    if not isinstance(code, str):
+        raise TypeError(f"stored file content is {type(code).__name__}, not str")
+    out["content_sha256"] = _content_sha256(code)
     return out
+
+
+def _content_sha256(text: str) -> str:
+    """sha256 בהקס על בתי ה-UTF-8 של ``text`` — מה שסוכן מחשב מקומית כדי להשוות.
+
+    בדיוק ``hashlib.sha256(text.encode("utf-8")).hexdigest()``, הנוסח שתיאורי הכלים
+    נותנים לסוכן. ``encode`` בלי ``errors``: מחרוזת שאינה Unicode תקין לא עוברת
+    קידוד BSON ולכן לא נשמרת, וכאן היא הייתה נופלת ולא מגובבת חלקית.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _file_meta(out: dict[str, Any]) -> dict[str, Any]:
+    """אובייקט ``file`` של תשובה שאינה מחזירה את התוכן: ``_full`` בלי ``_HEAVY_FIELDS``.
+
+    **המקום היחיד ב-backend שבונה ``file`` בלי תוכן.** ``query``, ``toc``/``section``
+    ותשובות הכתיבה עוברים כאן, ולכן ``content_sha256`` — ש-``_full`` כבר חישב על
+    הקובץ המלא — נשאר בכולם. ``tests/test_mcp_content_sha256.py`` נופל על ``file``
+    שנבנה ב-backend בדרך אחרת.
+    """
+    return {key: val for key, val in out.items() if key not in _HEAVY_FIELDS}
+
+
+def _unverified_saved_file(inserted_id: Any, *, file_name: str, version: Any) -> dict[str, Any]:
+    """``file`` מינימלי לתשובת כתיבה שהקריאה החוזרת שלה נכשלה — **בלי hash, במכוון**.
+
+    הכתיבה קרתה (יש ``_id``), אבל אין בידינו את מה שנשמר. hash שהיה נבנה כאן
+    היה חייב לבוא מהקלט, וזה בדיוק ה-hash שתמיד "תקין" — הכשל שהשדה בא לתפוס.
+    לכן ``content_changed`` הוא ``null`` והשדות הם רק מה שידוע בלי לקרוא: המזהה
+    שה-insert החזיר, השם, ומספר הגרסה ש-``Repository`` קבע וכתב.
+
+    נקרא רק מ-:meth:`ProductionBackend.save_file` — וזה נאכף באותו טסט של :func:`_file_meta`.
+    """
+    return {"id": str(inserted_id), "file_name": file_name, "version": version}
+
+
+#: עד כמה code points מכל צד של החלון שהשתנה מוחזרים ב-``content_diff``.
+CONTENT_DIFF_MAX_CODE_POINTS = 32
+
+#: גודל הבלוק (בתווים) בחיפוש הקידומת והסיומת המשותפות של :func:`_content_diff`.
+_DIFF_SCAN_BLOCK = 1 << 14
+
+
+def _common_prefix_len(a: str, b: str) -> int:
+    """אורך הקידומת המשותפת: סריקה בבלוקים, ואז חיפוש בינארי בתוך הבלוק שנבדל.
+
+    כל השוואה היא השוואת slice שרצה ב-C. חיפוש בינארי על כל הקידומת היה מעתיק
+    ומשווה בכל צעד את כל מה שלפני האמצע, כלומר עד הקובץ כולו בכל צעד; כאן כל
+    צעד של החיפוש נוגע בבלוק אחד בלבד.
+    """
+    n = min(len(a), len(b))
+    start = 0
+    while start < n and a[start:start + _DIFF_SCAN_BLOCK] == b[start:start + _DIFF_SCAN_BLOCK]:
+        start += _DIFF_SCAN_BLOCK
+    if start >= n:
+        return n
+    lo, hi = start, min(start + _DIFF_SCAN_BLOCK, n)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if a[start:mid] == b[start:mid]:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def _common_suffix_len(a: str, b: str, limit: int) -> int:
+    """אורך הסיומת המשותפת, עד ``limit`` — כך שהיא לא חופפת את הקידומת המשותפת."""
+    len_a, len_b = len(a), len(b)
+    done = 0
+    while done < limit:
+        size = min(_DIFF_SCAN_BLOCK, limit - done)
+        if a[len_a - done - size:len_a - done] != b[len_b - done - size:len_b - done]:
+            break
+        done += size
+    if done >= limit:
+        return limit
+    lo, hi = done, min(done + _DIFF_SCAN_BLOCK, limit)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if a[len_a - mid:len_a - done] == b[len_b - mid:len_b - done]:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def _code_points(text: str) -> list[str]:
+    return [f"U+{ord(ch):04X}" for ch in text[:CONTENT_DIFF_MAX_CODE_POINTS]]
+
+
+def _content_diff(intended: str, stored: str) -> dict[str, Any]:
+    """סיכום זול של ההבדל בין מה שהכלי התכוון לשמור לבין מה שנשמר. לא diff.
+
+    הקידומת המשותפת והסיומת המשותפת נחתכות, ומה שנשאר ביניהן הוא **החלון**
+    שהשתנה. ``line`` הוא מספר השורה של תחילת החלון במונחים של ``lines=``,
+    ו-``offset_bytes`` הוא המיקום שלו בבתי UTF-8. מכל צד חוזרים מספר הבתים ועד
+    :data:`CONTENT_DIFF_MAX_CODE_POINTS` code points בכתיב ``U+XXXX``.
+
+    **ההשוואה היא תו מול תו, בלי לדעת מה נרמול כלשהו עושה**, ולכן היא תופסת גם
+    שינוי שאף אחד עוד לא חשב עליו. על ``str`` תקין זה שקול להשוואה בית מול בית.
+
+    **הסיכום נושא קטעים מהתוכן, ולכן יוצא רק בתשובה לסוכן** — לעולם לא בחריגה
+    (הודעת חריגה יוצאת ל-PostHog כ-``$mcp_error_message``, ``mcp_server/analytics.py``)
+    ולא בשורת הלוג.
+    """
+    prefix = _common_prefix_len(intended, stored)
+    suffix = _common_suffix_len(intended, stored, min(len(intended), len(stored)) - prefix)
+    intended_window = intended[prefix:len(intended) - suffix]
+    stored_window = stored[prefix:len(stored) - suffix]
+    return {
+        "line": intended.count("\n", 0, prefix) + 1,
+        "offset_bytes": len(intended[:prefix].encode("utf-8")),
+        "intended_bytes": len(intended_window.encode("utf-8")),
+        "stored_bytes": len(stored_window.encode("utf-8")),
+        "intended_code_points": _code_points(intended_window),
+        "stored_code_points": _code_points(stored_window),
+        "code_points_truncated": (
+            len(intended_window) > CONTENT_DIFF_MAX_CODE_POINTS
+            or len(stored_window) > CONTENT_DIFF_MAX_CODE_POINTS
+        ),
+        "intended_total_bytes": len(intended.encode("utf-8")),
+        "stored_total_bytes": len(stored.encode("utf-8")),
+    }
 
 
 def _strip_heavy(value: Any) -> Any:
@@ -861,6 +1016,7 @@ class ProductionBackend:
         programming_language: str,
         description: str = "",
         tags: list[str] | None = None,
+        tool: str,
     ) -> dict[str, Any]:
         """Create a new file or append a new version of an existing one.
 
@@ -869,37 +1025,106 @@ class ProductionBackend:
         an update never overwrites: prior versions remain visible via
         ``list_versions``. Returns metadata only — the heavy ``code`` is never
         echoed back (Smart Projection).
+
+        **התשובה מתארת את מה שנשמר, לא את מה שביקשו לשמור.** אחרי הכתיבה המסמך
+        נקרא חזרה לפי ה-``_id`` שה-insert החזיר (``find_version_by_id``: בלי קאש,
+        מה-primary, ורק של המשתמש הזה), עובר ב-:func:`_full` — ומשם
+        ``content_sha256`` — ומושווה ל-``code``, התוכן שהכלי התכוון לשמור: בשמירה
+        מה שנשלח, בעריכה הקובץ אחרי ההחלפה, ובהוספה התוכן הקודם, המפריד והתוספת.
+        לפי ``_id`` ולא לפי שם: אם הבוט או הוובאפ שמרו גרסה משלהם בין הכתיבה לקריאה,
+        "הגרסה האחרונה" הייתה התוכן **שלהם**, וההשוואה הייתה נדלקת על שינוי שהכלי לא עשה.
+
+        שלושה מצבים, וכולם ``ok: true`` — הכתיבה קרתה, וכשל שהיה גורם לסוכן לנסות
+        שוב היה יוצר גרסה כפולה:
+
+        - ``content_changed: false`` — מה שנשמר זהה למה שהכלי התכוון לשמור.
+        - ``content_changed: true`` — עם ``content_diff`` (:func:`_content_diff`) ושורת
+          ``WARNING`` אחת בלי תוכן. בלי השורה אף אחד חוץ מהסוכן לא יודע שהרשת תפסה
+          משהו: PostHog רושם תשובה מגוף כלי כהצלחה, ו-``$mcp_response`` נחסם בשער
+          הפרטיות (``mcp_server/analytics.py``).
+        - ``content_changed: null`` — הקריאה החוזרת נכשלה בשגיאת מסד, או לא מצאה את
+          המסמך. ``file`` מינימלי בלי hash (:func:`_unverified_saved_file`) ושורת
+          ``WARNING``. חריגה שאינה של המסד היא באג, ועולה הלאה.
+          **אין נפילה לחישוב hash מהקלט** — זה ה-hash שתמיד "תקין".
+
+        ``tool`` הוא שם הכלי בשורות הלוג. הוא פרמטר חובה, כדי שקורא חדש שישכח אותו
+        ייכשל מיד ולא ייצר שורות שלא אומרות מי כתב.
         """
         from database.models import CodeSnippet  # lazy heavy import (see _require_dbm)
 
         dbm = self._require_dbm()
+        # נקשרת **לפני** הכתיבה: מנהל מסד בלי הקריאה הזו נופל כאן, לפני שנכתב
+        # דבר. בתוך ה-try למטה אותו ``AttributeError`` היה הופך ל"קריאה חוזרת
+        # נכשלה" על כל שמירה — פגם קבוע שנראה כמו תקלה רגעית.
+        read_back = dbm.find_version_by_id
         # Captured before the save so we can report create vs. update honestly.
         prev = _latest_fresh(dbm, user_id, file_name)
-        ok = bool(
-            dbm.save_code_snippet(
-                CodeSnippet(
-                    user_id=int(user_id),
-                    file_name=file_name,
-                    code=code,
-                    programming_language=programming_language,
-                    description=description or "",
-                    tags=list(tags or []),
-                )
-            )
-        )
-        if not ok:
-            return {"ok": False, "error": "save_failed"}
-        # Re-fetch so the returned version/size are the authoritative DB values.
-        saved = _latest_fresh(dbm, user_id, file_name) or {}
-        cleaned = _clean(saved)
-        # רק אחרי שהשמירה הצליחה — ראו :meth:`_emit_push_event`.
-        self._emit_push_event(
-            user_id,
+        created = prev is None
+        snippet = CodeSnippet(
+            user_id=int(user_id),
             file_name=file_name,
-            file_id=str(cleaned.get("id") or ""),
-            created=prev is None,
+            code=code,
+            programming_language=programming_language,
+            description=description or "",
+            tags=list(tags or []),
         )
-        return {"ok": True, "created": prev is None, "file": cleaned}
+        inserted_id = dbm.save_code_snippet_returning_id(snippet)
+        if inserted_id is None:
+            return {"ok": False, "error": "save_failed"}
+        # ‏``Repository`` קבע את מספר הגרסה על ``snippet`` לפני שכתב אותו.
+        version = snippet.version
+        # רק אחרי שהשמירה הצליחה — ראו :meth:`_emit_push_event`. ולפני הקריאה
+        # החוזרת, כי כשל שלה אינו מבטל שמירה שכבר קרתה.
+        self._emit_push_event(
+            user_id, file_name=file_name, file_id=str(inserted_id), created=created
+        )
+        try:
+            stored = read_back(inserted_id, int(user_id))
+        except _PyMongoError:
+            # שגיאת מסד בלבד: ``find_version_by_id`` אינה בולעת, וחריגה של pymongo
+            # ממנה היא "לא הצלחתי לקרוא" — בדיוק המצב ש-``null`` מתאר. כל חריגה
+            # אחרת היא באג ועולה הלאה (ראו הייבוא של ``_PyMongoError``): דמה בלי
+            # ``with_options`` הייתה אחרת מדווחת ``null`` על כל שמירה, וטסט שבודק
+            # רק ``ok`` היה עובר עליה. ``exc_info`` נבדק מול pymongo 4.15.3 — לא
+            # סיסמה מכתובת החיבור ולא ערכי הסינון — ומקובע בטסט על הסיסמה ב-
+            # ``tests/test_mcp_content_changed_log.py``.
+            logger.warning(
+                "mcp write %s: could not read back the saved version (_id=%s version=%s)",
+                tool, inserted_id, version, exc_info=True,
+            )
+            stored = None
+        else:
+            if stored is None:
+                logger.warning(
+                    "mcp write %s: the saved version was not found on read-back (_id=%s version=%s)",
+                    tool, inserted_id, version,
+                )
+        if stored is None:
+            return {
+                "ok": True,
+                "created": created,
+                "file": _unverified_saved_file(inserted_id, file_name=file_name, version=version),
+                "content_changed": None,
+            }
+        out = _full(stored)
+        answer: dict[str, Any] = {"ok": True, "created": created, "file": _file_meta(out)}
+        if out["code"] == code:
+            answer["content_changed"] = False
+            return answer
+        diff = _content_diff(code, out["code"])
+        # בלי code points ובלי תוכן — רק מספרים ומיקום. השמות הם המפתחות של
+        # ``content_diff``, כדי שמי שקורא את הלוג ומי שקורא את התשובה ידברו באותן מילים.
+        logger.warning(
+            "mcp write %s: stored content differs from what the tool meant to save "
+            "(_id=%s version=%s line=%d offset_bytes=%d intended_bytes=%d stored_bytes=%d "
+            "intended_total_bytes=%d stored_total_bytes=%d)",
+            tool, inserted_id, version, diff["line"], diff["offset_bytes"],
+            diff["intended_bytes"], diff["stored_bytes"],
+            diff["intended_total_bytes"], diff["stored_total_bytes"],
+        )
+        answer["content_changed"] = True
+        answer["content_diff"] = diff
+        return answer
 
     def update_file_description(
         self, user_id: int, *, file_name: str, description: str
@@ -955,18 +1180,16 @@ class ProductionBackend:
                     "user_id": int(user_id),
                     "kind": "file_saved",
                     "file_name": file_name,
-                    # ‏file_id ו-created נגזרים משתי קריאות שעוטפות את השמירה
-                    # ומאתרות את הקובץ **לפי שמו**, לא לפי המזהה שנכתב. בשתי
-                    # שמירות מקבילות לאותו שם, ``file_id`` יכול להצביע על
-                    # הגרסה של הכותב האחר, ו-``created`` יכול לדווח "חדש" על
-                    # עדכון. שתיהן גרסאות של אותו קובץ ושל אותו משתמש, ולכן
-                    # הקישור בהתראה עדיין נוחת במקום הנכון והנזק הוא בכותרת.
+                    # ‏``file_id`` הוא בדיוק המזהה שה-insert כתב
+                    # (``save_code_snippet_returning_id``), ולכן הוא מצביע על
+                    # הגרסה של הכותב הזה גם כששני כותבים שומרים את אותו שם.
                     #
-                    # אין לזה תיקון בשכבה הזו: ``save_code_snippet`` מחזיר
-                    # ‏bool בלבד ואינו מוסר את המזהה שנכתב, כך שהאטומיות חייבת
-                    # לבוא משכבת המסד. ‏``save_file`` כבר מחזיר את שני הערכים
-                    # האלה ללקוח ה-MCP עם אותה חשיפה בדיוק — ההתראה אינה
-                    # מוסיפה אותה, והתיקון שייך שם ולא כאן.
+                    # ‏``created`` עדיין נגזר מקריאה **לפי שם** לפני השמירה: בשתי
+                    # שמירות מקבילות לאותו שם שתיהן יכולות לראות "אין קובץ"
+                    # ולדווח "חדש". שתיהן גרסאות של אותו קובץ ושל אותו משתמש,
+                    # ולכן הקישור בהתראה נוחת במקום הנכון והנזק הוא בכותרת.
+                    # ‏``save_file`` מחזיר את אותו ``created`` ללקוח ה-MCP עם
+                    # אותה חשיפה בדיוק — ההתראה אינה מוסיפה אותה.
                     "file_id": file_id,
                     "created": bool(created),
                     "created_at": _dt.datetime.now(_dt.timezone.utc),

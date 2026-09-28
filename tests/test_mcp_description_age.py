@@ -80,8 +80,11 @@ class _ManagerOnCollection:
 
         return Repository(self)
 
-    def save_code_snippet(self, snippet):
-        return self._repo().save_code_snippet(snippet)
+    def save_code_snippet_returning_id(self, snippet):
+        return self._repo().save_code_snippet_returning_id(snippet)
+
+    def find_version_by_id(self, doc_id, user_id):
+        return self._repo().find_version_by_id(doc_id, user_id)
 
     def get_latest_version(self, user_id, file_name):
         return self._repo().get_latest_version(user_id, file_name)

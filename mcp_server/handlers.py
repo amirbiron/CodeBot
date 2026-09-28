@@ -730,6 +730,7 @@ def save_file(
         code=code,
         programming_language=lang,
         description=(description or "").strip(),
+        tool="codekeeper_save_file",
     )
 
 
@@ -764,13 +765,16 @@ def _load_editable(backend: Any, user_id: int, name: str) -> tuple[dict[str, Any
 
 
 def _resave_edited(
-    backend: Any, user_id: int, *, name: str, doc: dict[str, Any], new_code: str
+    backend: Any, user_id: int, *, name: str, doc: dict[str, Any], new_code: str, tool: str
 ) -> dict[str, Any]:
     """Persist an edited body as a new version, preserving the file's metadata.
 
     Language, description and tags are carried over from the fetched version so
     an edit never resets them; the same size gate as ``save_file`` applies to
     the resulting body.
+
+    ``new_code`` הוא מה שהכלי **מתכוון** לשמור, וה-backend משווה אליו את מה שנשמר
+    בפועל (``content_changed``). ``tool`` הוא שם הכלי בשורת הלוג כשהשניים שונים.
     """
     max_size = max_code_size()
     if len(new_code) > max_size:
@@ -782,7 +786,28 @@ def _resave_edited(
         programming_language=str(doc.get("programming_language") or doc.get("language") or "text"),
         description=str(doc.get("description") or ""),
         tags=list(doc.get("tags") or []),
+        tool=tool,
     )
+
+
+#: מה שתשובת השמירה אומרת על **מה שנשמר**, ועובר כמות שהוא לתשובה של העריכה
+#: ושל ההוספה, לצד ``file`` (שנושא את ``content_sha256``).
+_SAVE_VERIFICATION_FIELDS = ("content_changed", "content_diff")
+
+
+def _resaved_answer(res: dict[str, Any], **fields: Any) -> dict[str, Any]:
+    """תשובת ההצלחה של עריכה ושל הוספה: השדות של הכלי, ``file``, ומה שהשמירה אימתה.
+
+    עוזר אחד לשני הכלים, כי התשובה שלהם נבנית ביד ולא מועברת כמו שהיא: שדה
+    שיתווסף לתשובת השמירה היה מגיע אחרת רק לכלי שמישהו זכר לעדכן. מפתח שתשובת
+    השמירה לא החזירה לא מומצא כאן — ``None`` שמופיע בלי שה-backend אמר אותו היה
+    נקרא "לא הצלחנו לאמת".
+    """
+    answer: dict[str, Any] = {"ok": True, **fields, "file": res.get("file")}
+    for key in _SAVE_VERIFICATION_FIELDS:
+        if key in res:
+            answer[key] = res[key]
+    return answer
 
 
 def edit_file(
@@ -817,10 +842,12 @@ def edit_file(
             out["occurrences"] = occurrences
             out["hint"] = "pass a longer unique old_string, or set replace_all=true"
         return out
-    res = _resave_edited(backend, user_id, name=name, doc=doc, new_code=new_code)
+    res = _resave_edited(
+        backend, user_id, name=name, doc=doc, new_code=new_code, tool="codekeeper_edit_file"
+    )
     if not res.get("ok"):
         return res
-    return {"ok": True, "replacements": occurrences, "file": res.get("file")}
+    return _resaved_answer(res, replacements=occurrences)
 
 
 def append_file(backend: Any, user_id: int, *, file_name: str, content: str) -> dict[str, Any]:
@@ -840,10 +867,17 @@ def append_file(backend: Any, user_id: int, *, file_name: str, content: str) -> 
     if code == "":
         return {"ok": False, "error": "empty_file"}
     sep = "" if code.endswith("\n") else "\n"
-    res = _resave_edited(backend, user_id, name=name, doc=doc, new_code=code + sep + content)
+    res = _resave_edited(
+        backend,
+        user_id,
+        name=name,
+        doc=doc,
+        new_code=code + sep + content,
+        tool="codekeeper_append_file",
+    )
     if not res.get("ok"):
         return res
-    return {"ok": True, "appended_chars": len(content), "file": res.get("file")}
+    return _resaved_answer(res, appended_chars=len(content))
 
 
 def update_file_description(

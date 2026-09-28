@@ -378,6 +378,40 @@ _DESCRIPTION_AGE_DOC = (
 )
 
 
+# ``content_sha256`` בתיאורי הכלים שמחזירים קובץ שמור בודד.
+#
+# **הנוסחה היא קבוע אחד, כי היא החוזה**: סוכן מריץ בדיוק את השורה הזו על העותק
+# שלו ומשווה. ``_content_sha256`` ב-``backend.py`` מחשב את אותו דבר, וטסט מריץ את
+# השורה מכאן ואת הפונקציה משם על אותו טקסט — כך שתיאור שיבטיח נוסחה אחרת ייפול.
+#
+# **ב-get_file המשפט קצר במכוון**, כי כל תו בתיאור הכלי מתחרה על התקרה ש-
+# ``_TOOL_DESCRIPTION_MAX_CHARS`` אוכף (``tests/test_mcp_server_build.py``). מה שנשאר
+# הוא מה שסוכן חייב כדי להשוות נכון: מה מגובב (בתים מדויקים, הגרסה כולה), שזה
+# נכון בכל מצב ולא רק לחלק שחזר, ואיך לחשב. ההסבר המלא ב-``docs/mcp-server.rst``
+# (``mcp-content-sha256``).
+_CONTENT_SHA256_CHECK = 'hashlib.sha256(text.encode("utf-8")).hexdigest()'
+
+_GET_FILE_SHA256_DOC = (
+    " file.content_sha256 is the SHA-256 hex of the exact UTF-8 bytes of the "
+    "whole stored version, in every mode (not of the part returned): "
+    + _CONTENT_SHA256_CHECK
+    + "."
+)
+
+# שלושת כלי הכתיבה חולקים משפט אחד: ה-hash הוא של מה שנקרא **חזרה** מהאחסון,
+# ו-``content_changed`` משווה אותו למה שהכלי התכוון לשמור. המשפט האחרון הוא
+# הגבול של הבדיקה: ה-SDK ממיר ארגומנטים לפני שגוף הכלי רץ, ולכן שינוי שקרה
+# בדרך אל הכלי נראה רק לסוכן שמשווה ל-hash שחישב בעצמו.
+_WRITE_SHA256_DOC = (
+    " file.content_sha256 is the SHA-256 hex of the exact UTF-8 bytes of the "
+    "version as read back from storage: " + _CONTENT_SHA256_CHECK + ". "
+    "content_changed is true when that differs from what this tool meant to "
+    "save (content_diff says where), null when it could not be read back (file "
+    "then carries no hash). That covers only tool-to-storage; comparing the hash "
+    "with your own is the only check of what reached the tool."
+)
+
+
 # תיאור הפרמטר ``query`` של ``codekeeper_get_file``.
 #
 # ``lines`` עונה על "תן לי את החלק הזה" ו-``query`` עונה על "איפה בקובץ זה
@@ -1830,6 +1864,7 @@ def build_mcp(
             + " For a Markdown file, pass toc=true for its heading map, or"
             ' section="<heading>" for one section with navigation — see the'
             " toc and section parameters."
+            + _GET_FILE_SHA256_DOC
             + _DESCRIPTION_AGE_DOC
         ),
         annotations=_READ_ONLY_TOOL,
@@ -1895,6 +1930,7 @@ def build_mcp(
             "refresh a stale description on a file that already exists, use "
             "codekeeper_update_file_description, which changes nothing else. "
             "Requires write permission."
+            + _WRITE_SHA256_DOC
         ),
         annotations=_WRITE_TOOL,
     )
@@ -1923,6 +1959,7 @@ def build_mcp(
             "old_string must match exactly, whitespace included; if it occurs more than "
             "once, pass a longer unique snippet or set replace_all=true. "
             "Requires write permission."
+            + _WRITE_SHA256_DOC
         ),
         annotations=_WRITE_TOOL,
     )
@@ -1949,6 +1986,7 @@ def build_mcp(
             "Append text to the end of an existing file without resending it (a newline "
             "separator is inserted first when the file doesn't end with one); saved as "
             "a new non-destructive version. Requires write permission."
+            + _WRITE_SHA256_DOC
         ),
         annotations=_WRITE_TOOL,
     )
@@ -1997,7 +2035,14 @@ def build_mcp(
 
     @mcp.tool(
         name="codekeeper_list_versions",
-        description="List all saved versions of a file by file_name (metadata only).",
+        # בלי hash לכל גרסה: רשימה מחזירה מטא-דאטה בלבד, ו-hash היה מחייב את התוכן
+        # של כל הגרסאות. ההפניה אומרת לסוכן איך מקבלים hash של גרסה אחת בזול.
+        description=(
+            "List all saved versions of a file by file_name (metadata only). No "
+            "content hash here: for one version's hash, call codekeeper_get_file "
+            "with version=N and lines=[1, 1] — file.content_sha256 covers the "
+            "whole version while one line comes back."
+        ),
         annotations=_READ_ONLY_TOOL,
     )
     def list_versions(ctx: Context, file_name: str) -> dict:
