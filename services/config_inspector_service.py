@@ -1919,7 +1919,7 @@ class ConfigService:
         "MCP_RATE_LIMIT_PER_MINUTE": ConfigDefinition(
             key="MCP_RATE_LIMIT_PER_MINUTE",
             services=("mcp",),
-            default="45",
+            default="40",
             description=(
                 "קריאות כלים לזהות אחת בדקה בשרת ה-MCP; קריאה מעבר לזה מחזירה rate_limited עם "
                 "retry_after_seconds. 0 מכבה במפורש (נרשם WARNING בעלייה); /healthz אינו נספר."

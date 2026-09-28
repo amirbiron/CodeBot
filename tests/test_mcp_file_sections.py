@@ -539,31 +539,34 @@ async def test_a_miss_gives_up_the_map_before_the_suggestions(monkeypatch):
 
 
 async def test_suggestions_are_cut_only_after_the_map_is_empty(monkeypatch):
-    """כשגם בלי מפה ההצעות לבדן גדולות מהתקציב — הן נחתכות מהסוף, ורק אז.
+    """קובץ עוין: 48 כותרות ארוכות שקרובות כולן לשאילתה ארוכה. **שתי הגנות פועלות** —
+    ``suggest`` נחתך בתקציב העבודה (``SUGGEST_WORK_BUDGET``, WARN-001), והמפה נחתכת
+    לפני ההצעות בהתאמת הבתים (דגלה דלוק — הוויתור עליה קדם).
 
-    48 כותרות ארוכות שקרובות כולן לשאילתה: פחות מהתקרה במספר הצעות, ולכן
-    ``suggestions_truncated`` דלוק כאן רק בגלל הבתים. המפה ריקה ודגלה דלוק — הוויתור
-    עליה קדם. על הקוד שלפני התיקון: 879,509 בתים.
-
-    מוטציה שמפילה: לחתוך ב-``_fit_lists`` רק את הרשימה הראשונה ב-``cuts``.
+    עד WARN-001 החיתוך של ``suggest`` על קלט כזה היה רק בבתים (879,509 בתים לפני
+    ``_fit_lists``); היום תקציב העבודה חוסם קודם — ``len(cand)·Q`` על כל מועמד
+    תואם-אורך עובר את התקציב כבר ב-48 כותרות ארוכות, ולכן ההצעות קטנות יותר והמפה
+    נחתכת חלקית ולא בהכרח מתרוקנת. סדר הוויתור (מפה לפני הצעות) נבדק ב-
+    ``test_a_miss_gives_up_the_map_before_the_suggestions``, וחיתוך רשימה שנייה
+    (מועמדים) ב-``test_candidates_are_cut_from_the_end_in_document_order``.
     """
     heading = _distinct_cjk(2000)
     text = "".join(f"# {heading} {i:02d}\n\nגוף.\n\n" for i in range(48))
     doc = md_parser.parse_document(text)
     query = heading + " zz"
     expected = doc_sections.suggest(doc, query, n=doc_sections.MAX_IDENTIFIER_SUGGESTIONS)
-    assert len(expected.titles) == 48 and not expected.truncated, "הנחת המקרה"
+    assert 0 < len(expected.titles) < 48 and expected.truncated, "תקציב העבודה חוסם את suggest"
     mcp = _build(monkeypatch, _Dbm(text))
 
     out, sent = await _call_sent(mcp, file_name=_MD_NAME, section=query)
 
     assert out["error"] == "section_not_found"
     assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
-    assert out["toc"] == [] and out["toc_truncated"] is True
+    assert out["toc_truncated"] is True                 # המפה נחתכה ראשונה (לחץ הבתים)
     kept = len(out["suggestions"])
     assert 0 < kept < 48
     assert out["suggestions"] == list(expected.titles[:kept])
-    assert out["suggestions_truncated"] is True
+    assert out["suggestions_truncated"] is True         # תקציב העבודה חסם את suggest
 
 
 async def test_candidates_are_cut_from_the_end_in_document_order(monkeypatch):

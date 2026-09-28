@@ -116,9 +116,12 @@ def test_the_documented_arithmetic_is_the_constants_arithmetic():
     """
     page = (_REPO / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
     rate = limits.DEFAULT_RATE_LIMIT_PER_MINUTE
-    worst = md_parser.WORST_CASE_CPU_SECONDS
+    # הגרוע-לקריאה אינו הפרסור לבדו: מסלול ה-not-found מוסיף suggest חסום, ולכן החשבון
+    # הוא ``rate × (WORST_CASE_CPU_SECONDS × _NOT_FOUND_CPU_FACTOR)`` — שני הקבועים, לא
+    # מספר מוקלד. עיגול לשתי ספרות כמו בתיעוד (WARN-001).
+    worst_call = round(md_parser.WORST_CASE_CPU_SECONDS * limits._NOT_FOUND_CPU_FACTOR, 2)
     available = _PRODUCTION_CPUS * _SECONDS_PER_MINUTE
-    rate_line = f"**{rate} × {worst:g} = {rate * worst:g} שניות-מעבד בדקה, מתוך {available:g}**"
+    rate_line = f"**{rate} × {worst_call:g} = {rate * worst_call:g} שניות-מעבד בדקה, מתוך {available:g}**"
     assert rate_line in page, f"החשבון של מגבלת הקצב אינו בתיעוד בצורה: {rate_line}"
 
     deadline = read_batch.DEADLINE_SECONDS

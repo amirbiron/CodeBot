@@ -483,6 +483,27 @@ MAX_IDENTIFIER_SUGGESTIONS = 50
 #: במפורש (ראו למעלה); ברירת המחדל כאן משרתת קורא ישיר שרוצה רמז קצר.
 DEFAULT_SUGGESTIONS = 5
 
+#: תקרת עבודה ל-:func:`suggest` — החסם העליון על מספר זוגות-התווים ש-``difflib``
+#: משווה בקריאה אחת. ``ratio(a, b)`` עולה ‏O(len(a)·len(b)), והוא רץ **רק** על מועמד
+#: תואם-אורך לשאילתה — ``real_quick_ratio ≥ 0.5`` פירושו ``len(cand) ∈ [Q/3, 3Q]``,
+#: משם :data:`_LEN_COMPATIBLE_LO`/:data:`_LEN_COMPATIBLE_HI` (מקור: ``difflib``
+#: ‏3.11, ‏``real_quick_ratio = 2·min/(la+lb)``). מחייבים ‏``len(cand)·Q`` על כל
+#: מועמד תואם-אורך, בסדר המסמך, ועוצרים כשעברנו — עם ``suggestions_truncated``.
+#:
+#: **בלי התקרה העלות לא הייתה חסומה מול תקציב המעבד.** נמדד (2026-09-28,
+#: ``scripts/measure_call_family.py`` בסקרפצ'פאד; difflib 3.11.15): שאילתה שאינה
+#: נמצאת על קובץ 512KB של כותרות עוינות (אלפבית ~100 ששורד את ה-autojunk של
+#: ``difflib``, כותרות באורך התקרה) עלתה ~1.5 שניות-מעבד — פי 2 מ-
+#: :data:`md_parser.WORST_CASE_CPU_SECONDS`, ובמשלב עם ציטוט עמוק פי 2.4. עם התקרה
+#: תוספת ה-``suggest`` למסלול ה-not-found יורדת ל-~0.09 שניות-מעבד (המיקס הגרוע),
+#: וממנה נגזר ``DEFAULT_RATE_LIMIT_PER_MINUTE`` (ראו שם).
+#:
+#: **הערך נבחר עם מרווח גדול מעל הקורפוס האמיתי.** המטען המקסימלי שנמדד על 242
+#: קובצי ה-RST וה-md בריפו, עם כל כותרת כשאילתה, הוא 99,674 — כלומר לתקציב הזה
+#: פי ~1,500 מרווח, ו-``suggestions_truncated`` אינו נדלק על אף קובץ אמיתי (אפס-דיף
+#: על ההצעות). הוא נדלק רק על קלט עוין: כותרות ארוכות רבות תואמות-אורך לשאילתה ארוכה.
+SUGGEST_WORK_BUDGET = 150_000_000
+
 
 class Suggestions(NamedTuple):
     """מה ש-:func:`suggest` מחזיר: הכותרות, והאם הרשימה נחתכה.
@@ -671,6 +692,33 @@ def build_toc(doc: Document) -> List[dict]:
     return toc
 
 
+#: הגבולות שבהם ``real_quick_ratio ≥ 0.5`` — כלומר שבהם ``ratio()`` **יכול** לרוץ.
+#: ‏``real_quick_ratio = 2·min(la, lb)/(la+lb)``; הצבת ``la=len(cand)``, ``lb=Q`` ופתרון
+#: ל-``≥ 0.5`` נותן ``Q/3 ≤ len(cand) ≤ 3·Q`` (מקור: ``difflib`` 3.11, ‏``SequenceMatcher
+#: .real_quick_ratio``). מחוץ לטווח difflib דוחה בזול, ולכן אין מה לחייב.
+_LEN_COMPATIBLE_LO = 1 / 3
+_LEN_COMPATIBLE_HI = 3
+
+
+def _within_work_budget(nquery: str, keys: List[str]) -> Tuple[List[str], bool]:
+    """המועמדים שנכנסים בתקציב :data:`SUGGEST_WORK_BUDGET`, ודגל אם נחתך — בסדר המסמך.
+
+    מחייבים ‏``len(k)·Q`` **רק** על מועמד תואם-אורך (``ratio()`` רץ רק עליו; ראו
+    :data:`_LEN_COMPATIBLE_LO`). מועמד לא-תואם עולה ‏O(1) ב-``real_quick_ratio`` ואינו
+    מחויב. שומרים לפחות אחד, כי ``get_close_matches`` זורק על רשימה ריקה.
+    """
+    q = len(nquery)
+    lo, hi = q * _LEN_COMPATIBLE_LO, q * _LEN_COMPATIBLE_HI
+    work, kept = 0, []
+    for k in keys:
+        if lo <= len(k) <= hi:
+            work += len(k) * q
+            if work > SUGGEST_WORK_BUDGET and kept:
+                return kept, True
+        kept.append(k)
+    return kept, False
+
+
 def suggest(doc: Document, query: str, n: int = DEFAULT_SUGGESTIONS) -> Suggestions:
     """כותרות קרובות לשאילתה שלא נמצאה, לשילוב ב-not-found.
 
@@ -733,12 +781,17 @@ def suggest(doc: Document, query: str, n: int = DEFAULT_SUGGESTIONS) -> Suggesti
         return Suggestions([], False)
 
     norm_map = {normalize_title(title): title for title in titles}
+    nquery = normalize_title(query)
+    # **תקרת עבודה לפני difflib** (ראו :data:`SUGGEST_WORK_BUDGET`): ``get_close_matches``
+    # מריץ את ``ratio()`` היקר על כל מועמד תואם-אורך, וקובץ עוין של כותרות ארוכות רבות
+    # הפך את הצעד הזה ליקר יותר מהפרסור עצמו. כאן חוסמים לפי סדר המסמך, ומסמנים
+    # ``suggestions_truncated`` כשנחתך. על קבצים אמיתיים כל המפתחות נכנסים והתוצאה זהה.
+    keys, budget_truncated = _within_work_budget(nquery, list(norm_map.keys()))
     # **כל** ההתאמות שמעל הסף, ואז חיתוך — ולא ``n=n``. ההבדל אינו במה
     # שחוזר אלא במה שאפשר לדעת: עם ``n=n`` אין דרך להבחין בין "היו חמש"
     # לבין "היו חמישים וחתכנו". החישוב זהה בשני המקרים, כי הדירוג נעשה
     # על כל האפשרויות ממילא ו-``n`` נכנס רק ל-``nlargest`` בשורה האחרונה.
-    close = get_close_matches(normalize_title(query), list(norm_map.keys()),
-                              n=len(norm_map), cutoff=0.5)
+    close = get_close_matches(nquery, keys, n=len(keys), cutoff=0.5)
     # שמור על סדר ייחודי
     out, seen = [], set()
     for c in close:
@@ -747,11 +800,12 @@ def suggest(doc: Document, query: str, n: int = DEFAULT_SUGGESTIONS) -> Suggesti
             seen.add(title)
             out.append(title)
     if out:
-        return Suggestions(out[:n], len(out) > n)
+        return Suggestions(out[:n], budget_truncated or len(out) > n)
 
     identifier = _identifier_query(query)
     if identifier is None:
-        return Suggestions([], False)
+        # השאילתה אינה מזהה: אם התקרה חתכה מועמדים, הדגל נשמר גם כשלא נמצאה הצעה.
+        return Suggestions([], budget_truncated)
 
     # ``n`` הוא בקשת הקורא, והקבוע הוא הגבול שהוא אינו יכול לחרוג ממנו.
     # הקטן מביניהם — אחרת פרמטר שנאכף במסלול אחד ומתעלמים ממנו בשני.
