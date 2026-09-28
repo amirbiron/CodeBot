@@ -1435,6 +1435,9 @@ async def test_two_headings_sharing_a_prefix_over_the_ceiling_are_ambiguous(monk
     ans = await _call(mcp, file_name=_MD_NAME, section=capped)
     assert ans["error"] == "ambiguous_section" and len(ans["candidates"]) >= 2
     assert all("line_range" in c for c in ans["candidates"])
+    # ושני המועמדים נושאים ``title_truncated`` — אחרת שתי כותרות שונות שחולקות
+    # קידומת מעל התקרה נראות זהות ובלי סימן שהשם חלקי (ממצא Greptile).
+    assert all(c.get("title_truncated") is True for c in ans["candidates"])
 
 
 @pytest.mark.parametrize("title", [
@@ -1450,6 +1453,74 @@ def test_the_ceiling_cut_is_safe_for_hebrew_cjk_and_emoji(title):
     assert 0 < len(cut) <= _CEIL
     cut.encode("utf-8")  # לא זורק — אין חצי-תו
     assert not doc_sections._is_dangling_mark(cut[-1])  # אין סימן צירוף/ZWJ תלוי בסוף
+
+
+async def test_subsections_and_neighbors_carry_the_truncation_flag(monkeypatch):
+    """``subsections`` ו-``neighbors`` נושאים ``title_truncated`` כשכותרתם נחתכה —
+    אותה מוסכמה כמו במפה ובתשובת הסעיף. בלעדיו ניווט דרכם מציג שם חתוך בלי סימן
+    שהוא חלקי, וכותרות שונות בעלות קידומת משותפת נראות זהות (ממצא Greptile).
+
+    מוטציה שמפילה (וזה גם הקוד שלפני התיקון): ``_section_ref`` בלי ``_title_flag``.
+    """
+    long_child = "ת" * (_CEIL + 300)
+    long_sib = "א" * (_CEIL + 300)
+    md = (f"# מסמך\n\n## הורה\n\nגוף.\n\n"
+          f"### {long_child}\n\nעומק.\n\n"
+          f"## {long_sib}\n\nאחרי.\n")
+    mcp = _build(monkeypatch, _Dbm(code=md))
+
+    out = await _call(mcp, file_name=_MD_NAME, section="הורה")
+
+    sub = out["subsections"][0]
+    assert len(sub["title"]) <= _CEIL and sub.get("title_truncated") is True
+    nxt = out["neighbors"]["next"]
+    assert len(nxt["title"]) <= _CEIL and nxt.get("title_truncated") is True
+
+
+async def test_a_truncated_breadcrumb_element_reads_like_the_heading_itself(monkeypatch):
+    """הדבקת **רכיב breadcrumb** של כותרת מקוצצת ל-``section=`` מתנהגת בדיוק כמו הדבקת
+    הכותרת עצמה — הן אותה מחרוזת, כי הקיצוב במקור (``_finalize``) קורה לפני בניית
+    ה-breadcrumb. אחרת יש שני מקורות לאותה מחרוזת עם שתי התנהגויות.
+
+    נועל-חוזה (guard): עובר על הקוד הנוכחי ומגן מפני דריפט עתידי — אינו תופס את באג
+    ה-Greptile, אלא מקבע את דרישת ה-round-trip.
+    """
+    parent = "ת" * (_CEIL + 500)
+    md = f"# {parent}\n\n## ילד\n\nגוף.\n"
+    mcp = _build(monkeypatch, _Dbm(code=md))
+
+    crumb = (await _call(mcp, file_name=_MD_NAME, section="ילד"))["breadcrumb"][0]
+    heading = next(e["title"] for e in
+                   (await _call(mcp, file_name=_MD_NAME, toc=True))["toc"]
+                   if e.get("title_truncated"))
+    assert crumb == heading  # רכיב ה-breadcrumb הוא אותה מחרוזת כמו הכותרת במפה
+
+    by_crumb = await _call(mcp, file_name=_MD_NAME, section=crumb)
+    by_heading = await _call(mcp, file_name=_MD_NAME, section=heading)
+    assert by_crumb == by_heading
+    assert by_crumb.get("status") == "section" and by_crumb.get("title_truncated") is True
+
+
+async def test_a_shared_truncated_breadcrumb_element_is_ambiguous_like_the_heading(monkeypatch):
+    """המשך אותו חוזה כשהמחרוזת המקוצצת משותפת לכמה אבות: הדבקת רכיב ה-breadcrumb
+    מחזירה ``ambiguous_section`` — בדיוק כמו הדבקת הכותרת מהמפה. "מתאימה, או מחזירה
+    מועמדים", ולשתי הדרכים אותה תשובה בדיוק.
+    """
+    shared = "ת" * (_CEIL + 200)
+    md = (f"# {shared} A\n\n## בן א\n\nx\n\n"
+          f"# {shared} B\n\n## בן ב\n\ny\n")
+    mcp = _build(monkeypatch, _Dbm(code=md))
+
+    crumb = (await _call(mcp, file_name=_MD_NAME, section="בן א"))["breadcrumb"][0]
+    heading = next(e["title"] for e in
+                   (await _call(mcp, file_name=_MD_NAME, toc=True))["toc"]
+                   if e.get("title_truncated"))
+    assert crumb == heading
+
+    by_crumb = await _call(mcp, file_name=_MD_NAME, section=crumb)
+    by_heading = await _call(mcp, file_name=_MD_NAME, section=heading)
+    assert by_crumb["error"] == "ambiguous_section"
+    assert by_crumb == by_heading
 
 
 # ---------------------------------------------------------------------------

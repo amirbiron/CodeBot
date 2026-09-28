@@ -345,7 +345,14 @@ _SECTION_PARAM_DOC = (
     "budget. A reply that does not fit even with every "
     "list empty is answer_too_large, with bytes and max. A section longer than "
     f"{docs_handlers.MAX_SECTION_CHARS} characters is refused as "
-    "section_too_long, with max_chars and actual_chars, before any matching."
+    "section_too_long, with max_chars and actual_chars, before any matching. "
+    "A stored heading longer than that ceiling is truncated on a character "
+    "boundary and flagged title_truncated wherever it appears — the map, the "
+    "section, and every candidate, subsection and neighbor; two different "
+    "headings that share a prefix past the ceiling then read as the same text, "
+    "so asking by it is ambiguous_section. Breadcrumb entries are those map "
+    "titles, truncated the same way; to tell whether one is partial, find that "
+    "heading in the map, where title_truncated sits on its own record."
 )
 
 

@@ -424,9 +424,23 @@ def _line_of(exc: BaseException) -> dict:
     return {}
 
 
+def _title_flag(sec: doc_sections.Section) -> dict:
+    """``{"title_truncated": True}`` כשכותרת הסעיף נחתכה ל-``MAX_TITLE_CHARS``, אחרת ``{}``.
+
+    בעלים אחד לדגל בכל צורות התשובה בצד ה-``mcp_server`` שנושאות כותרת של סעיף:
+    ``_section_ref`` (תת-סעיפים ושכנים), מועמדי ``ambiguous_section``, ותשובת הסעיף.
+    כך שם חתוך לעולם אינו מופיע בלי הסימן שהוא חלקי — אחרת שתי כותרות שחולקות קידומת
+    מעל התקרה נראות זהות. מותנה, ולא ``False`` תמידי: לכותרת אמיתית הוא אינו נדלק,
+    וכך אפס-הדיף נשמר. (``doc_sections.build_toc`` נושא עותק משלו של אותו דגל על
+    רשומות המפה — שכבת ``services`` אינה מייבאת מ-``mcp_server`` — וזהות הדגל בין
+    השניים נשמרת: אותו שם מפתח, אותו תנאי.)
+    """
+    return {"title_truncated": True} if sec.title_truncated else {}
+
+
 def _section_ref(sec: doc_sections.Section) -> dict:
     return {"title": sec.title, "level": sec.level,
-            "line_range": [sec.heading_line, sec.end_line]}
+            "line_range": [sec.heading_line, sec.end_line], **_title_flag(sec)}
 
 
 class DocsTarget(NamedTuple):
@@ -838,6 +852,7 @@ def _answer_from_document(
             "candidates": [{
                 "title": s.title, "breadcrumb": list(s.breadcrumb),
                 "level": s.level, "line_range": [s.heading_line, s.end_line],
+                **_title_flag(s),
             } for s in candidates],
         })
         if candidates_truncated:
@@ -884,11 +899,11 @@ def _answer_from_document(
     if subsections_truncated:
         # רק כשנחתכה — אותה מוסכמה של ``candidates_truncated`` ושל ``remaining_chars``.
         base["subsections_truncated"] = True
-    if sec.title_truncated:
-        # הכותרת עצמה נחתכה ל-``MAX_TITLE_CHARS`` (מקרה פתולוגי, לא בקורפוס). מופיע
-        # רק אז, ולכן אפס-דיף. ``section`` כאן הוא כבר הצורה החתוכה, וזו גם הצורה
-        # שמתאימה בהתאמה — כך שהדבקתה חזרה מוצאת את הסעיף.
-        base["title_truncated"] = True
+    # הכותרת עצמה נחתכה ל-``MAX_TITLE_CHARS`` (מקרה פתולוגי, לא בקורפוס). ``section``
+    # כאן הוא כבר הצורה החתוכה, וזו גם הצורה שמתאימה בהתאמה — כך שהדבקתה חזרה מוצאת
+    # את הסעיף. אותו ``_title_flag`` בדיוק כמו במועמדים, בתת-הסעיפים ובשכנים; מותנה,
+    # ולכן אפס-דיף לכותרת אמיתית.
+    base.update(_title_flag(sec))
     if truncated:
         base["remaining_chars"] = total - (offset + len(chunk))
         base["next_offset"] = offset + len(chunk)
