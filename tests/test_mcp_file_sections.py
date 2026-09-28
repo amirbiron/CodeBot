@@ -571,7 +571,7 @@ async def test_candidates_are_cut_from_the_end_in_document_order(monkeypatch):
 
     48 כותרות שנפתחות ב-``K7.``, כל אחת תחת הורה ארוך: פחות מ-``_CANDIDATES_MAX``,
     ולכן ``candidates_truncated`` דלוק רק בגלל הבתים. מה שחסר הוא תמיד הסוף — וזה
-    מה שהתיאור מבטיח — ומועמד שנחתך נמצא בשם הכותרת המלא, כמו שהתיאור אומר. בלי
+    מה שהתיאור מבטיח — ומועמד שנחתך נמצא בשם הכותרת המלא, שכאן אינו חוזר, כמו שהתיאור אומר. בלי
     זה חיתוך היה מעלים בדיוק את המועמד שחיפשו, בלי לומר איך מגיעים אליו. על הקוד
     שלפני התיקון: 297,484 בתים.
 
@@ -595,6 +595,110 @@ async def test_candidates_are_cut_from_the_end_in_document_order(monkeypatch):
 
     last = await _call(mcp, file_name=_MD_NAME, section=matches[-1].title)
     assert last["status"] == "section" and last["line_range"][0] == matches[-1].heading_line
+
+
+def _map_cut_before(tail: str) -> str:
+    """קובץ שהמפה שלו נחתכת ב-``_TOC_MAX`` בדיוק לפני ``tail`` — מה שב-``tail`` אינו במפה."""
+    return ("# ראשי\n\n"
+            + "".join(f"## פרק {i}\n\nגוף {i}.\n\n" for i in range(docs_handlers._TOC_MAX - 1))
+            + tail)
+
+
+async def test_a_repeated_heading_past_the_cut_is_read_by_its_candidates_line_range(monkeypatch):
+    """כותרת שנחתכה מהמפה ושמה חוזר: השם מחזיר ``ambiguous_section``, וטווח המועמד קורא אותה.
+
+    התרחיש מהריוויו: המפה נחתכת ב-``_TOC_MAX``, ושתי כותרות באותו שם יושבות אחרי החיתוך — אינן
+    במפה, ושאלה בשמן אינה מחזירה אף אחת מהן. זה בכוונה, הכלי אינו מנחש; אבל התיאור של ``toc``
+    הבטיח ש"כותרת שנחתכה נקראת בשמה", וכאן זה לא נכון. הדרך האמיתית היא ``line_range`` שכל מועמד
+    נושא, ו-``lines`` עליו מחזיר בדיוק את שורות הסעיף.
+
+    עוברת גם על הקוד שלפני תיקון התיאורים, בכוונה: ההתנהגות לא השתנתה — היא מה שהתיאורים מבטיחים
+    עכשיו, והבדיקה מחזיקה אותם לה. על הטקסט הישן נופלת בדיקת המשטחים,
+    ``test_every_surface_says_a_repeated_name_never_reaches_its_heading``.
+
+    מוטציה שמפילה: להסיר את ``line_range`` מהמועמדים ב-``_answer_from_document``.
+    """
+    text = _map_cut_before("## סיכום\n\nראשון.\n\n## סיכום\n\nשני.\n")
+    matches = doc_sections.find_sections(md_parser.parse_document(text), "סיכום")
+    mcp = _build(monkeypatch, _Dbm(text))
+
+    toc = await _call(mcp, file_name=_MD_NAME, toc=True)
+    assert toc["toc_truncated"] is True and toc["section_count"] == docs_handlers._TOC_MAX + 2
+    assert "סיכום" not in [item["title"] for item in toc["toc"]]
+
+    out = await _call(mcp, file_name=_MD_NAME, section="סיכום")
+    assert out["error"] == "ambiguous_section"
+    assert ([c["line_range"] for c in out["candidates"]]
+            == [[s.heading_line, s.end_line] for s in matches])
+    pages = [(await _call(mcp, file_name=_MD_NAME, lines=c["line_range"]))["file"]["code"]
+             for c in out["candidates"]]
+    assert pages == [_source(text, *c["line_range"]) for c in out["candidates"]]
+    assert [page.split("\n")[2] for page in pages] == ["ראשון.", "שני."]
+
+
+async def test_a_repeated_heading_missing_from_both_cut_lists_is_found_with_query(monkeypatch):
+    """כותרת שחסרה גם ברשימת המועמדים וגם במפה: ``query`` מוצא את השורה שלה, ו-``lines`` קורא אותה.
+
+    יותר מ-``_CANDIDATES_MAX`` כותרות באותו שם, כולן אחרי חיתוך המפה: האחרונה אינה באף רשימה,
+    ואף שם אינו מגיע אליה. התיאור מפנה כאן ל-``query``, שמחזיר את השורות שמחזיקות את הטקסט שלה —
+    והבדיקה מוודאת שהדרך הזו קיימת ומגיעה בדיוק לסעיף.
+
+    עוברת גם על הקוד שלפני תיקון התיאורים, מאותה סיבה כמו הבדיקה שמעליה.
+
+    מוטציה שמפילה: ``query`` שמתעלם מ-``max_results`` ומחזיר תמיד ``QUERY_RESULTS_DEFAULT`` שורות —
+    הכותרת האחרונה נשארת מחוץ לתשובה.
+    """
+    repeats = docs_handlers._CANDIDATES_MAX + 10
+    text = _map_cut_before("".join(f"## סיכום\n\nמספר {j}.\n\n" for j in range(repeats)))
+    matches = doc_sections.find_sections(md_parser.parse_document(text), "סיכום")
+    assert len(matches) == repeats, "הנחת המקרה"
+    assert handlers.QUERY_RESULTS_DEFAULT < repeats <= handlers.QUERY_RESULTS_MAX, "הנחת המקרה"
+    last = matches[-1]
+    mcp = _build(monkeypatch, _Dbm(text))
+
+    out = await _call(mcp, file_name=_MD_NAME, section="סיכום")
+    assert out["candidates_truncated"] is True
+    assert last.heading_line not in [c["line_range"][0] for c in out["candidates"]]
+    toc = await _call(mcp, file_name=_MD_NAME, toc=True)
+    assert last.heading_line not in [item["line_range"][0] for item in toc["toc"]]
+
+    found = await _call(mcp, file_name=_MD_NAME, query="## סיכום",
+                        max_results=handlers.QUERY_RESULTS_MAX)
+    assert last.heading_line in [row["line"] for row in found["results"]]
+    page = await _call(mcp, file_name=_MD_NAME, lines=[last.heading_line, last.end_line])
+    assert page["file"]["code"] == _source(text, last.heading_line, last.end_line)
+    assert f"מספר {repeats - 1}." in page["file"]["code"]
+
+
+async def test_a_repeated_heading_is_read_through_a_parent_named_in_its_breadcrumb(monkeypatch):
+    """בכלי התיעוד, בלי ``lines``: כותרת ששמה חוזר נקראת דרך ההורה שב-``breadcrumb`` שלה.
+
+    ``codekeeper_docs_get_section`` פתוח לכל משתמש, ו-``codekeeper_get_repo_file`` — שקורא טווח
+    שורות — לאדמין בלבד. וב-amir-bug-patterns אותה כותרת משנה חוזרת תחת דפוס אחרי דפוס. לכן
+    התיאור המשותף מציע גם דרך שאינה ``line_range``: ההורה שב-``breadcrumb`` של המועמד, שהתוכן
+    שלו כולל כברירת מחדל את תת-הסעיפים.
+
+    עוברת גם על הקוד שלפני תיקון התיאורים — ההתנהגות לא השתנתה.
+
+    מוטציה שמפילה: ``breadcrumb`` של מועמד בלי ההורים, רק הכותרת עצמה.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    text = ("# דפוסים\n\n## K1. ראשון\n\n### איך זה נראה\n\nאחד.\n\n"
+            "## K2. שני\n\n### איך זה נראה\n\nשניים.\n")
+    mcp = _build(monkeypatch, repo_backend=_RepoText(text))
+
+    async def docs(**arguments):
+        arguments = {"path": "x.md", "repo": "amir-bug-patterns", **arguments}
+        return _payload(await mcp.call_tool("codekeeper_docs_get_section", arguments))
+
+    out = await docs(section="איך זה נראה")
+    assert out["error"] == "ambiguous_section"
+    second = out["candidates"][1]
+    assert second["breadcrumb"] == ["דפוסים", "K2. שני", "איך זה נראה"]
+
+    parent = await docs(section=second["breadcrumb"][-2])
+    assert parent["mode"] == "section"
+    assert "### איך זה נראה\n\nשניים." in parent["content"]
 
 
 async def test_version_and_file_id_choose_the_version_the_section_is_read_from(monkeypatch):
@@ -1420,6 +1524,48 @@ def test_the_list_limits_in_the_section_doc_come_from_the_constants():
     assert (f"so the reply fits {repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent"
             in srv._SECTION_PARAM_DOC)
     assert docs_handlers.ANSWER_TOO_LARGE in srv._SECTION_PARAM_DOC
+
+
+#: הכלל "כותרת ששמה המלא חוזר אינה נענית בשמה", והדרך אליה — בכל משטח שהקורא רואה.
+#:
+#: **המשטחים הבטיחו את ההפך, וזה מה שהטסט שמתחתם קיים בשבילו.** התיאור של ``toc`` אמר "A heading
+#: past the cut is still readable by its name", והעמוד אמר אותו דבר — אבל שם שחוזר בקובץ מחזיר
+#: ``ambiguous_section`` תמיד, והמפה שנחתכה כבר אינה מראה את הטווח. קורא שסמך על המשפט נתקע בלי
+#: דרך כתובה. לכל משטח שני סמנים, באותה שיטה של ``_SUGGESTION_RULE_SURFACES`` ב-
+#: ``tests/test_mcp_server_build.py``: הפסוקית שהיא הכלל, והפסוקית שהיא הדרך — ולא מונח שמופיע
+#: בהסבר, כי מונח כזה שורד גם מחיקה של הכלל עצמו.
+_REPEATED_NAME_SURFACES = (
+    ("_SECTION_PARAM_DOC", "is never returned by that name", "read it by its line_range"),
+    ("_FILE_SECTION_DOC", "is never returned by that name", "a line_range is read with lines="),
+    ("_FILE_TOC_DOC", "when no other heading has that name",
+     "lines= reads the line_range each candidate carries"),
+    ("docs/mcp-server.rst", "לעולם אינה נענית בשמה", "שמחזיר בדיוק את טקסט הסעיף"),
+)
+
+
+def test_every_surface_says_a_repeated_name_never_reaches_its_heading():
+    """כל משטח אומר ששם שחוזר אינו מגיע לכותרת, ואיך כן מגיעים — ואינו יכול לחזור להבטחה הישנה בשקט.
+
+    נופלת על הטקסט שלפני התיקון: אף משטח לא נשא את הכלל. ההתנהגות שהסמנים מתארים נבדקת בשלוש
+    הבדיקות של כותרת שחוזרת, ליד ``test_candidates_are_cut_from_the_end_in_document_order``.
+
+    מוטציה שמפילה: להחזיר לתיאור של ``toc`` את המשפט "still readable by its name, and query
+    finds its line".
+    """
+    from pathlib import Path
+
+    from mcp_server import server as srv
+
+    texts = {
+        "_SECTION_PARAM_DOC": srv._SECTION_PARAM_DOC,
+        "_FILE_SECTION_DOC": srv._FILE_SECTION_DOC,
+        "_FILE_TOC_DOC": srv._FILE_TOC_DOC,
+        "docs/mcp-server.rst": (Path(__file__).resolve().parent.parent / "docs" / "mcp-server.rst")
+        .read_text(encoding="utf-8"),
+    }
+    for name, rule, way in _REPEATED_NAME_SURFACES:
+        assert rule in texts[name], f"{name}: חסר הכלל"
+        assert way in texts[name], f"{name}: חסרה הדרך"
 
 
 def test_the_byte_budget_has_one_measure_and_one_word():

@@ -828,7 +828,9 @@ def _answer_from_document(
             base, cuts=(("toc", "toc_truncated"), ("suggestions", "suggestions_truncated")),
             budget=budget, context=context, doc=doc)
 
-    # כותרת כפולה → כל המועמדים עם breadcrumb (בלי לנחש)
+    # כותרת כפולה → כל המועמדים עם breadcrumb (בלי לנחש). ``line_range`` ו-``breadcrumb``
+    # אינם קישוט: כותרת ששמה המלא חוזר לעולם אינה נענית בשמה, והם הדרך אליה — בטווח
+    # השורות, או דרך הורה. התיאור שהסוכן קורא על זה הוא ``_SECTION_PARAM_DOC``.
     if len(matches) > 1:
         candidates, candidates_truncated = _capped(matches, _CANDIDATES_MAX)
         base.update({
@@ -844,9 +846,9 @@ def _answer_from_document(
             # אפס-הדיף בלי ששום התנהגות השתנתה.
             base["candidates_truncated"] = True
         # **בסדר המסמך, והחיתוך מהסוף** — גם כאן וגם בתקרה שלמעלה. כך מה שחסר הוא
-        # תמיד המועמדים האחרונים, והדרך אליהם כתובה בתיאור הפרמטר: שם הכותרת המלא,
-        # או ``line_range`` מתוך המפה. בלי הסדר הקבוע חיתוך היה מעלים מועמד שרירותי,
-        # וסירוב שמסתיר את מה שחיפשו בלי לומר איך מגיעים אליו הוא סירוב מטעה.
+        # תמיד המועמדים האחרונים, והדרך אליהם כתובה במקום אחד, ``_SECTION_PARAM_DOC``
+        # ב-``server.py``. בלי הסדר הקבוע חיתוך היה מעלים מועמד שרירותי, וסירוב שמסתיר
+        # את מה שחיפשו בלי לומר איך מגיעים אליו הוא סירוב מטעה.
         return _fit_or_refuse(base, cuts=(("candidates", "candidates_truncated"),),
                               budget=budget, context=context, doc=doc)
 
