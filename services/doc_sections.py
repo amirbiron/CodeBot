@@ -692,12 +692,18 @@ def build_toc(doc: Document) -> List[dict]:
     return toc
 
 
-#: הגבולות שבהם ``real_quick_ratio ≥ 0.5`` — כלומר שבהם ``ratio()`` **יכול** לרוץ.
-#: ‏``real_quick_ratio = 2·min(la, lb)/(la+lb)``; הצבת ``la=len(cand)``, ``lb=Q`` ופתרון
-#: ל-``≥ 0.5`` נותן ``Q/3 ≤ len(cand) ≤ 3·Q`` (מקור: ``difflib`` 3.11, ‏``SequenceMatcher
-#: .real_quick_ratio``). מחוץ לטווח difflib דוחה בזול, ולכן אין מה לחייב.
-_LEN_COMPATIBLE_LO = 1 / 3
-_LEN_COMPATIBLE_HI = 3
+#: הסף של ``difflib`` בבחירת הצעות — **בעלים אחד** (R6): גם הקריאה ל-
+#: ``get_close_matches`` וגם גזירת טווח תואמי-האורך למטה נגזרות ממנו, אחרת שינוי הסף
+#: היה מסיט את השניים (עותק שני של כלל שנסחף).
+_SUGGEST_CUTOFF = 0.5
+
+#: הגבולות שבהם ``real_quick_ratio ≥ _SUGGEST_CUTOFF`` — כלומר שבהם ``ratio()`` **יכול**
+#: לרוץ. ‏``real_quick_ratio = 2·min(la, lb)/(la+lb)``; הצבת ``la=len(cand)``, ``lb=Q``
+#: ופתרון ל-``≥ c`` נותן ``c/(2-c) ≤ len(cand)/Q ≤ (2-c)/c`` (מקור: ``difflib`` 3.11,
+#: ‏``SequenceMatcher.real_quick_ratio``); ל-``c=0.5`` זה ``Q/3 ≤ len(cand) ≤ 3·Q``.
+#: מחוץ לטווח ``difflib`` דוחה בזול, ולכן אין מה לחייב.
+_LEN_COMPATIBLE_LO = _SUGGEST_CUTOFF / (2 - _SUGGEST_CUTOFF)
+_LEN_COMPATIBLE_HI = (2 - _SUGGEST_CUTOFF) / _SUGGEST_CUTOFF
 
 
 def _within_work_budget(nquery: str, keys: List[str]) -> Tuple[List[str], bool]:
@@ -791,7 +797,7 @@ def suggest(doc: Document, query: str, n: int = DEFAULT_SUGGESTIONS) -> Suggesti
     # שחוזר אלא במה שאפשר לדעת: עם ``n=n`` אין דרך להבחין בין "היו חמש"
     # לבין "היו חמישים וחתכנו". החישוב זהה בשני המקרים, כי הדירוג נעשה
     # על כל האפשרויות ממילא ו-``n`` נכנס רק ל-``nlargest`` בשורה האחרונה.
-    close = get_close_matches(nquery, keys, n=len(keys), cutoff=0.5)
+    close = get_close_matches(nquery, keys, n=len(keys), cutoff=_SUGGEST_CUTOFF)
     # שמור על סדר ייחודי
     out, seen = [], set()
     for c in close:
