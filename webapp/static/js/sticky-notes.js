@@ -943,7 +943,9 @@
       header.appendChild(actions); header.appendChild(drag);
 
       searchBtn.addEventListener('click', (ev) => {
-        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        // בלי ``try``: שתי הקריאות אינן זורקות (DOM Standard — הן רק מציבות
+        // דגל), ו-``try`` ריק סביבן היה בליעה בלי שום דבר לבלוע.
+        ev.stopPropagation(); ev.preventDefault();
         if (this._isNoteSearching(el)) this._closeNoteSearch(el, { returnFocus: true });
         else this._openNoteSearch(el);
       });
@@ -3042,7 +3044,8 @@
         // בפריים הזה, ופוקוס רגיל היה גולל את הלוח או את העמוד כדי לחשוף
         // אותה. מקור: MDN, ‏HTMLElement.focus() — ברירת המחדל גוללת.
         const input = entry.search.ui.input;
-        try { input.focus({ preventScroll: true }); input.select(); } catch(_) {}
+        input.focus({ preventScroll: true });
+        input.select();
       }
 
       /**
@@ -3072,7 +3075,7 @@
         this._syncSearchButton(el);
         if (opts && opts.returnFocus) {
           const btn = el.querySelector('.sticky-note-search-btn');
-          try { if (btn) btn.focus({ preventScroll: true }); } catch(_) {}
+          if (btn) btn.focus({ preventScroll: true });
         }
       }
 
@@ -3083,15 +3086,22 @@
         entry.search = null;
       }
 
-      /** מנתק את המשקיפים ומסיר את התיבה. */
+      /**
+       * מנתק את המשקיפים ומסיר את התיבה.
+       *
+       * **בלי ``try``, ובכוונה.** ‏``disconnect`` של שני המשקיפים ו-``remove``
+       * אינם זורקים — לפי המפרטים שלהם הם רק מרוקנים רשימות או מנתקים צומת,
+       * ו-``remove`` על צומת בלי הורה אינו עושה דבר (MDN, ‏Element.remove()).
+       * ``try`` ריק כאן לא היה מגן על כלום, רק מסתיר באג אמיתי אם יהיה.
+       */
       _teardownSearchUi(s){
         const ui = s && s.ui;
         if (!ui) return;
         s.ui = null;
-        try { if (ui.roomObserver) ui.roomObserver.disconnect(); } catch(_) {}
-        try { if (ui.sizeObserver) ui.sizeObserver.disconnect(); } catch(_) {}
-        try { ui.bar.remove(); } catch(_) {}
-        try { ui.room.remove(); } catch(_) {}
+        if (ui.roomObserver) ui.roomObserver.disconnect();
+        if (ui.sizeObserver) ui.sizeObserver.disconnect();
+        ui.bar.remove();
+        ui.room.remove();
       }
 
       /**
@@ -3142,16 +3152,18 @@
           this._applyNoteSearch(el, { activateFirst: true, reveal: true });
           s.justAutoFocused = s.active >= 0;
         });
+        // ``stopPropagation`` כאן ולמטה בלי ``try``: הוא רק מציב דגל ואינו
+        // זורק (DOM Standard).
         prev.addEventListener('click', (ev) => {
-          try { ev.stopPropagation(); } catch(_) {}
+          ev.stopPropagation();
           this._stepNoteSearch(el, -1);
         });
         next.addEventListener('click', (ev) => {
-          try { ev.stopPropagation(); } catch(_) {}
+          ev.stopPropagation();
           this._stepNoteSearch(el, 1);
         });
         close.addEventListener('click', (ev) => {
-          try { ev.stopPropagation(); } catch(_) {}
+          ev.stopPropagation();
           this._closeNoteSearch(el, { returnFocus: true });
         });
         // **מקשים בתיבה אינם מבעבעים** — לא למאזינים של הפתק ולא לאלה של
@@ -3159,7 +3171,7 @@
         // ‏``isComposing``/229: בזמן הקלדה במקלדת IME ה-Enter שייך
         // להרכבה ולא לנו. מקור: MDN, ‏Element: keydown event.
         bar.addEventListener('keydown', (ev) => {
-          try { ev.stopPropagation(); } catch(_) {}
+          ev.stopPropagation();
           if (ev.isComposing || ev.keyCode === 229) return;
           if (ev.key === 'Escape') {
             ev.preventDefault();
@@ -3169,8 +3181,8 @@
             this._stepNoteSearch(el, ev.shiftKey ? -1 : 1);
           }
         });
-        bar.addEventListener('keyup', (ev) => { try { ev.stopPropagation(); } catch(_) {} });
-        bar.addEventListener('keypress', (ev) => { try { ev.stopPropagation(); } catch(_) {} });
+        bar.addEventListener('keyup', (ev) => { ev.stopPropagation(); });
+        bar.addEventListener('keypress', (ev) => { ev.stopPropagation(); });
 
         const ui = { bar, input, count, room, roomObserver: null, sizeObserver: null };
         this._watchSearchRoom(el, ui);
@@ -3403,7 +3415,9 @@
         let timer = null, active = false, armed = false, touchLike = false;
         let startX = 0, startY = 0, row = null;
         const reset = () => {
-          try { clearTimeout(timer); } catch(_) {}
+          // בלי ``try``: ‏``clearTimeout`` על מזהה לא תקף (כולל ``null``) אינו
+          // עושה דבר ואינו זורק. מקור: MDN, ‏clearTimeout().
+          clearTimeout(timer);
           timer = null;
           if (row) row.classList.remove('is-press-armed');
           view.classList.remove('is-pressing');
