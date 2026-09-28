@@ -19,6 +19,7 @@
 """
 
 import functools
+import hashlib
 import json
 
 import pytest
@@ -207,9 +208,13 @@ def _distinct_cjk(length: int) -> str:
     return "".join(chr(0x4E00 + i) for i in range(length))
 
 
-def _meta(*, version: int = 2, doc_id: str = _DOC_ID, file_name: str = _MD_NAME,
-          language: str | None = "markdown") -> dict:
-    """המטא-דאטה שתשובה נושאת ב-``file``: המסמך בלי התוכן, עם הכינוי ``language``."""
+def _meta(*, code: str = _MD, version: int = 2, doc_id: str = _DOC_ID,
+          file_name: str = _MD_NAME, language: str | None = "markdown") -> dict:
+    """המטא-דאטה שתשובה נושאת ב-``file``: המסמך בלי התוכן, עם הכינוי ``language``.
+
+    ``content_sha256`` הוא של ``code`` — התוכן **המלא** של המסמך שנקרא, לא של המפה
+    או הסעיף שחזרו — ומחושב כאן ביד, ולא דרך הפונקציה של ``backend``.
+    """
     meta = {
         "id": doc_id,
         "user_id": _USER,
@@ -219,6 +224,7 @@ def _meta(*, version: int = 2, doc_id: str = _DOC_ID, file_name: str = _MD_NAME,
         "is_active": True,
     }
     meta["language"] = language
+    meta["content_sha256"] = hashlib.sha256(code.encode("utf-8")).hexdigest()
     return meta
 
 
@@ -715,7 +721,7 @@ async def test_version_and_file_id_choose_the_version_the_section_is_read_from(m
 
     old = await _call(mcp, file_name=_MD_NAME, version=1, section="K11")
     assert old["content"] == old_k11
-    assert old["file"] == _meta(version=1, doc_id=_OLD_DOC_ID)
+    assert old["file"] == _meta(code=_OLD_MD, version=1, doc_id=_OLD_DOC_ID)
 
     by_old_id = await _call(mcp, file_id=_OLD_DOC_ID, version=2, section="K11")
     assert by_old_id["content"] == old_k11 and by_old_id["file"]["version"] == 1
@@ -853,10 +859,10 @@ async def test_a_file_that_is_not_markdown_is_refused_and_not_returned_whole(
     מוטציה שמפילה: להסיר את בדיקת ``is_markdown_file`` מ-``_apply_sections_to_file``
     — הקובץ מפורסר כ-Markdown ומחזיר מפה.
     """
-    mcp = _build(monkeypatch, _Dbm("x = 1\n# לא כותרת\n", file_name=file_name,
-                                   language=language))
+    code = "x = 1\n# לא כותרת\n"
+    mcp = _build(monkeypatch, _Dbm(code, file_name=file_name, language=language))
     expected = {"ok": False, "error": handlers.NOT_MARKDOWN,
-                "file": _meta(file_name=file_name, language=language), "hint": _HINT}
+                "file": _meta(code=code, file_name=file_name, language=language), "hint": _HINT}
 
     assert await _call(mcp, file_name=file_name, toc=True) == expected
     assert await _call(mcp, file_name=file_name, section="לא כותרת") == expected
@@ -932,7 +938,7 @@ async def test_a_file_too_large_to_parse_is_refused_by_its_utf8_bytes_before_par
         "error": handlers.TOO_LARGE_FOR_SECTIONS,
         "bytes": len(hebrew.encode("utf-8")),
         "max": ceiling,
-        "file": _meta(),
+        "file": _meta(code=hebrew),
         "hint": _HINT,
     }
     assert parsed == []
@@ -978,7 +984,7 @@ async def test_a_file_over_the_line_ceiling_is_refused_with_the_count_and_a_poin
         "ok": False,
         "error": "too_many_lines",
         "max": md_parser.MAX_LINES,
-        "file": _meta(),
+        "file": _meta(code=text),
         "total_lines": text.count("\n") + 1,
         "hint": _HINT,
     }
@@ -1004,7 +1010,7 @@ async def test_a_file_over_the_token_ceiling_is_refused_with_the_line_it_reached
         "ok": False,
         "error": "too_many_tokens",
         "max": md_parser.MAX_TOKENS,
-        "file": _meta(),
+        "file": _meta(code=text),
         "line": expected_line,
         "hint": _HINT,
     }
@@ -1028,7 +1034,7 @@ async def test_mixed_line_endings_and_too_many_headings_are_refused_by_name(monk
     assert await _call(mcp, file_name=_MD_NAME, toc=True) == {
         "ok": False,
         "error": "inconsistent_line_endings",
-        "file": _meta(),
+        "file": _meta(code=mixed),
         "line": caught.value.args[0],
         "hint": _HINT,
     }
@@ -1043,7 +1049,7 @@ async def test_mixed_line_endings_and_too_many_headings_are_refused_by_name(monk
         "ok": False,
         "error": "too_many_sections",
         "max": doc_sections.MAX_SECTIONS,
-        "file": _meta(),
+        "file": _meta(code=many),
         "line": caught.value.args[0],
         "hint": _HINT,
     }
@@ -1092,7 +1098,7 @@ async def test_a_section_whose_headings_alone_do_not_fit_is_refused_with_its_lin
     out = await _call(mcp, file_name=_MD_NAME, section="שורש")
 
     assert out["ok"] is False and out["error"] == docs_handlers.SECTION_TOO_LARGE
-    assert out["file"] == _meta() and out["hint"] == _HINT
+    assert out["file"] == _meta(code=text) and out["hint"] == _HINT
     assert out["bytes"] > out["max"]
     assert out["max"] <= repo_handlers.OUTPUT_BYTE_BUDGET
     assert out["line_range"] == toc["toc"][0]["line_range"]
@@ -1139,7 +1145,11 @@ async def test_stored_content_that_is_not_a_string_fails_loudly(monkeypatch, sto
     עד היום שבו הוא נחוץ. ``_json_safe`` מעביר ``bytes`` ומספר כמו שהם, ולכן שניהם
     מגיעים לבדיקה. ההודעה נושאת את שם הטיפוס בלבד, בלי תוכן.
 
-    מוטציה שמפילה: להחליף את ה-``raise`` ב-``_apply_sections_to_file`` ב-``code = str(code)``.
+    הבדיקה יושבת ב-``_full``, ולכן חלה על כל מצבי הקריאה ועל העריכה וההוספה —
+    ``tests/test_mcp_content_sha256.py`` מכסה את השאר.
+
+    מוטציה שמפילה: להחליף את ה-``raise`` ב-``_full`` בהמרה
+    (``code = out["code"] = str(code)``) — מפה של משהו שאינו הקובץ חוזרת בלי חריגה.
     """
     from mcp.server.fastmcp.exceptions import ToolError
 
