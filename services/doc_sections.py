@@ -108,6 +108,20 @@ from typing import List, NamedTuple, Optional, Tuple
 #: מ-``mcp_server`` — הכיוון חד-סטרי ומנומק ב-``TooManySections``.
 MAX_SECTIONS = 50_000
 
+#: תקרת אורך לכותרת בודדת, בתווים. חלה על **כל מחרוזת כותרת שנכנסת לתשובה** —
+#: הכותרת עצמה, וכל עותק שלה ב-``breadcrumb`` של הצאצאים — כי היא נאכפת במקור,
+#: על ``sec.title``, לפני ש-:func:`_finalize` בונה את ה-breadcrumbs ממנו. זה
+#: חוסם את מגבר ה-breadcrumb בשורש: כותרת-אב ארוכה חוזרת בכל צאצא, ובלי תקרה
+#: עליה מפה של קובץ Markdown עוין תופחת ללא גבול (SEC-001, סקירת Han על #3470).
+#:
+#: **אותו מספר כמו ``mcp_server.docs_handlers.MAX_SECTION_CHARS``, ומאותה סיבה:**
+#: כותרת ארוכה ממנו אינה נגישה בשמה ממילא — ``section_too_long`` דוחה שאילתה כזו
+#: לפני ההתאמה — ולכן אין טעם לשמור ממנה יותר, ובדיוק באורך הזה כותרת חתוכה עדיין
+#: נגישה בשמה. ``services`` אינו מייבא מ-``mcp_server`` (הכיוון חד-סטרי, כמו
+#: ב-:data:`MAX_SECTIONS`), ולכן שני קבועים והשוויון מקובע בטסט
+#: ``test_the_title_ceiling_equals_the_section_query_ceiling``.
+MAX_TITLE_CHARS = 4_096
+
 
 def require_str(text: object) -> str:
     """בדיקת הכניסה של שני הפארסרים: ``text`` חייב להיות מחרוזת.
@@ -156,6 +170,10 @@ class Section:
     parent: Optional[int] = None
     children: List[int] = field(default_factory=list)
     breadcrumb: List[str] = field(default_factory=list)
+    #: ``True`` כשהכותרת נחתכה ל-:data:`MAX_TITLE_CHARS` (ראו :func:`_finalize`).
+    #: מופיע בתשובה רק כשהוא ``True`` — לכותרת אמיתית (הארוכה שנמדדה: 1,219 תווים
+    #: בקבצים שמורים, 71 ב-RST) הוא לעולם לא נדלק, ולכן אפס-דיף.
+    title_truncated: bool = False
 
 
 @dataclass
@@ -292,8 +310,48 @@ class TooManyTokens(Exception):
         self.limit = limit
 
 
+def _is_dangling_mark(ch: str) -> bool:
+    """תו שאסור שיישאר בסוף כותרת חתוכה, כי אינו עומד בפני עצמו.
+
+    סימן צירוף (קטגוריה ``M``: ניקוד עברי, טעמים), ``ZWJ`` שמצפה להמשך ברצף
+    אמוג'י, או בורר-וריאציה. חיתוך שמסתיים באחד מהם משאיר אשכול שבור.
+    """
+    if ch == "‍":
+        return True
+    if "︀" <= ch <= "️" or "\U000e0100" <= ch <= "\U000e01ef":
+        return True
+    return unicodedata.category(ch).startswith("M")
+
+
+def _truncate_title(title: str) -> str:
+    """כותרת חתוכה ל-:data:`MAX_TITLE_CHARS` תווים — על גבול תו, בלי שארית תלויה.
+
+    ‏Python חותך על גבול נקודת-קוד (``str`` הוא נקודות-קוד ולא יחידות UTF-16),
+    ולכן זוג surrogate או תו CJK/אימוג'י בודד לעולם אינו נחצה. מה שכן עלול
+    להיחצות הוא אשכול מרובה-קוד — אמוג'י עם ``ZWJ``/מודיפיקטור, אות עם ניקוד —
+    ולכן מסירים שארית תלויה מהסוף (:func:`_is_dangling_mark`). הכותרת החתוכה
+    היא גם מה שנשמר וגם מה שמוצג, ולכן שאילתה שמדביקה אותה מתאימה לעצמה.
+    """
+    cut = title[:MAX_TITLE_CHARS]
+    end = len(cut)
+    while end > 0 and _is_dangling_mark(cut[end - 1]):
+        end -= 1
+    return cut[:end] or cut
+
+
 def _finalize(sections: List[Section], total_lines: int) -> None:
-    """מחשב end_line, parent/children, ו-breadcrumb לכל סקשן."""
+    """מחשב end_line, parent/children, ו-breadcrumb לכל סקשן.
+
+    **תקרת הכותרת נאכפת כאן, במקור, לפני בניית ה-breadcrumbs.** ה-breadcrumb של
+    כל צאצא נבנה מ-``sec.title`` (למטה), ולכן קיצוץ הכותרת כאן מכסה בבת אחת את
+    הכותרת עצמה, כל עותק שלה ב-breadcrumb, את ``section`` בתשובה, את ``neighbors``
+    ואת ``subsections`` — בעלים אחד (ראו :data:`MAX_TITLE_CHARS`).
+    """
+    for sec in sections:
+        if len(sec.title) > MAX_TITLE_CHARS:
+            sec.title = _truncate_title(sec.title)
+            sec.title_truncated = True
+
     for idx, sec in enumerate(sections):
         end = total_lines
         for j in range(idx + 1, len(sections)):
@@ -599,13 +657,17 @@ def build_toc(doc: Document) -> List[dict]:
     toc = []
     for sec in doc.sections:
         approx = len("\n".join(doc.lines[sec.heading_line - 1:sec.end_line]).encode("utf-8"))
-        toc.append({
+        entry = {
             "title": sec.title,
             "level": sec.level,
             "breadcrumb": list(sec.breadcrumb),
             "line_range": [sec.heading_line, sec.end_line],
             "approx_bytes": approx,
-        })
+        }
+        # מותנה, ולא ``False`` תמידי — לכותרת אמיתית הוא לא נדלק, ואפס-דיף נשמר.
+        if sec.title_truncated:
+            entry["title_truncated"] = True
+        toc.append(entry)
     return toc
 
 

@@ -1372,6 +1372,87 @@ def test_fit_lists_never_serializes_more_than_the_budget_plus_one_item(monkeypat
 
 
 # ---------------------------------------------------------------------------
+# 3b. תקרת כותרת בודדת (SEC-001 שכבה 2) — חוסמת את מגבר ה-breadcrumb בשורש
+# ---------------------------------------------------------------------------
+
+_CEIL = doc_sections.MAX_TITLE_CHARS
+
+
+def test_the_title_ceiling_equals_the_section_query_ceiling():
+    """שני הקבועים שווים — ``services`` אינו מייבא מ-``mcp_server``, ולכן טסט ולא
+    ייבוא. דריפט ביניהם שובר את ה-round-trip: אילו תקרת הכותרת הייתה קטנה מתקרת
+    השאילתה, כותרת שנחתכה קצר יותר לא הייתה מתאימה לשאילתה שמדביקה אותה.
+    """
+    assert doc_sections.MAX_TITLE_CHARS == docs_handlers.MAX_SECTION_CHARS
+
+
+async def test_a_heading_over_the_ceiling_is_truncated_flagged_and_matches_itself(monkeypatch):
+    """כותרת מעל התקרה נחתכת במפה עם ``title_truncated``, וה-``line_range`` שלם —
+    והדבקת הכותרת כפי שהוצגה ל-``section=`` מוצאת את הסעיף (round-trip).
+
+    מוטציה שמפילה: להסיר את הקיצוב ב-``_finalize`` — הכותרת חוזרת במלואה בלי דגל,
+    וגם התשובה תופחת (זה בדיוק מה ששכבה 2 מונעת).
+    """
+    long_title = "ת" * (_CEIL + 500)
+    md = f"# מסמך\n\n## {long_title}\n\nגוף הסעיף.\n"
+    mcp = _build(monkeypatch, _Dbm(code=md))
+
+    toc = await _call(mcp, file_name=_MD_NAME, toc=True)
+    entry = next(e for e in toc["toc"] if e.get("title_truncated"))
+    assert len(entry["title"]) <= _CEIL and entry["title_truncated"] is True
+
+    ans = await _call(mcp, file_name=_MD_NAME, section=entry["title"])
+    assert ans.get("status") == "section"
+    assert ans["section"] == entry["title"] and ans.get("title_truncated") is True
+    assert ans["line_range"] == entry["line_range"]
+
+
+async def test_the_ceiling_applies_to_breadcrumb_copies_not_only_the_heading(monkeypatch):
+    """התקרה חלה גם על עותקי ה-breadcrumb: כותרת-אב ארוכה נחתכת גם בתוך ה-
+    breadcrumb של הילד, לא רק בשורה של עצמה — כי הקיצוב במקור, לפני בניית ה-
+    breadcrumb. זה מה שסוגר את מגבר ה-breadcrumb בשורש.
+    """
+    parent = "ת" * (_CEIL + 500)
+    md = f"# {parent}\n\n## ילד\n\nגוף.\n"
+    mcp = _build(monkeypatch, _Dbm(code=md))
+
+    toc = await _call(mcp, file_name=_MD_NAME, toc=True)
+    child = next(e for e in toc["toc"] if e["title"] == "ילד")
+    assert child["breadcrumb"][0] == parent[:_CEIL] and len(child["breadcrumb"][0]) <= _CEIL
+
+
+async def test_two_headings_sharing_a_prefix_over_the_ceiling_are_ambiguous(monkeypatch):
+    """כשכמה כותרות חולקות קידומת ארוכה מהתקרה, בקשה לפי הקידומת מחזירה מועמדים —
+    התנהגות חדשה שנולדת מהתקרה עצמה, לא מקלט המשתמש (מתועדת ב-mcp-server.rst).
+    שני המועמדים נושאים ``line_range`` כדי לקרוא אותם בפועל.
+    """
+    shared = "ת" * (_CEIL + 200)
+    md = f"# מסמך\n\n## {shared} ALPHA\n\na\n\n## {shared} BETA\n\nb\n"
+    mcp = _build(monkeypatch, _Dbm(code=md))
+
+    toc = await _call(mcp, file_name=_MD_NAME, toc=True)
+    capped = next(e["title"] for e in toc["toc"] if e.get("title_truncated"))
+    ans = await _call(mcp, file_name=_MD_NAME, section=capped)
+    assert ans["error"] == "ambiguous_section" and len(ans["candidates"]) >= 2
+    assert all("line_range" in c for c in ans["candidates"])
+
+
+@pytest.mark.parametrize("title", [
+    "אָ" * _CEIL,               # עברית עם ניקוד (בסיס + סימן צירוף)
+    "中" * (_CEIL + 50),             # CJK — נקודות-קוד בודדות
+    "👨‍👩‍👧" * _CEIL,      # אמוג'י משפחה עם ZWJ
+])
+def test_the_ceiling_cut_is_safe_for_hebrew_cjk_and_emoji(title):
+    """קיצוץ בטוח: על גבול תו, בלי שארית תלויה, ותמיד UTF-8 תקין — נבדק על שלושת
+    סוגי התוכן שבהם חיתוך נאיבי היה שובר אשכול (כמו במתאם העמוד לתקציב).
+    """
+    cut = doc_sections._truncate_title(title)
+    assert 0 < len(cut) <= _CEIL
+    cut.encode("utf-8")  # לא זורק — אין חצי-תו
+    assert not doc_sections._is_dangling_mark(cut[-1])  # אין סימן צירוף/ZWJ תלוי בסוף
+
+
+# ---------------------------------------------------------------------------
 # 4. תוספתיות
 # ---------------------------------------------------------------------------
 

@@ -884,6 +884,11 @@ def _answer_from_document(
     if subsections_truncated:
         # רק כשנחתכה — אותה מוסכמה של ``candidates_truncated`` ושל ``remaining_chars``.
         base["subsections_truncated"] = True
+    if sec.title_truncated:
+        # הכותרת עצמה נחתכה ל-``MAX_TITLE_CHARS`` (מקרה פתולוגי, לא בקורפוס). מופיע
+        # רק אז, ולכן אפס-דיף. ``section`` כאן הוא כבר הצורה החתוכה, וזו גם הצורה
+        # שמתאימה בהתאמה — כך שהדבקתה חזרה מוצאת את הסעיף.
+        base["title_truncated"] = True
     if truncated:
         base["remaining_chars"] = total - (offset + len(chunk))
         base["next_offset"] = offset + len(chunk)
