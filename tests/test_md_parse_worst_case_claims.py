@@ -54,16 +54,21 @@ def _wall_seconds_of_the_worst_parse() -> float:
 
 
 def test_one_identity_cannot_spend_more_cpu_than_the_service_has():
-    """``DEFAULT_RATE_LIMIT_PER_MINUTE × WORST_CASE_CPU_SECONDS`` לא עובר את שניות-המעבד בדקה.
+    """``DEFAULT_RATE_LIMIT_PER_MINUTE × (WORST_CASE_CPU_SECONDS × _NOT_FOUND_CPU_FACTOR)`` לא עובר את שניות-המעבד בדקה.
 
-    זו הטענה שבגללה המגבלה ירדה מ-60 ל-45: עם 60, זהות אחת שכל קריאותיה הן הקלט
-    הגרוע הייתה עוברת את המכסה — טענה שצריך להסביר במקום לבדוק.
+    זו הטענה שבגללה המגבלה ירדה מ-60: עם 60, זהות אחת שכל קריאותיה הן הקלט הגרוע
+    הייתה עוברת את המכסה — טענה שצריך להסביר במקום לבדוק. הגרוע-לקריאה אינו הפרסור
+    לבדו — מסלול ה-not-found מוסיף ``suggest`` חסום ובניית מפה — ולכן כאן מכפילים
+    ב-``_NOT_FOUND_CPU_FACTOR``, כמו החסם שב-docstring של ``DEFAULT_RATE_LIMIT_PER_MINUTE``.
+    בלי עיגול: זו בדיקת הבטיחות עצמה, ולא החשבון המעוגל שהתיעוד מציג לקריאה.
     """
-    spent = limits.DEFAULT_RATE_LIMIT_PER_MINUTE * md_parser.WORST_CASE_CPU_SECONDS
+    worst_call = md_parser.WORST_CASE_CPU_SECONDS * limits._NOT_FOUND_CPU_FACTOR
+    spent = limits.DEFAULT_RATE_LIMIT_PER_MINUTE * worst_call
     available = _PRODUCTION_CPUS * _SECONDS_PER_MINUTE
     assert spent <= available, (
-        f"{limits.DEFAULT_RATE_LIMIT_PER_MINUTE} קריאות × {md_parser.WORST_CASE_CPU_SECONDS} שניות "
-        f"= {spent:.1f} שניות-מעבד בדקה, מעל {available:g}"
+        f"{limits.DEFAULT_RATE_LIMIT_PER_MINUTE} קריאות × "
+        f"({md_parser.WORST_CASE_CPU_SECONDS} × {limits._NOT_FOUND_CPU_FACTOR}) "
+        f"= {spent:g} שניות-מעבד בדקה, מעל {available:g}"
     )
 
 
