@@ -301,8 +301,10 @@ def _apply_sections_to_file(
        המעטפת** (``reserve_bytes``) — כך שהתשובה כפי שהיא יוצאת מכאן נכנסת ב-
        ``OUTPUT_BYTE_BUDGET``, ולא רק מה שהיה לפני העטיפה. גודל המעטפת נמדד באותה
        פונקציה שמודדת את התשובה (``wire_json``), על המעטפת עצמה, ולא נספר ביד.
-       ``section_too_large`` — סעיף שגם עמוד ריק שלו אינו נכנס — מקבל את אותו
-       ``hint`` של שלב 3.
+       אותו תקציב חל על מפת הכותרות, שהרשימה שלה נחתכת מהסוף עד שהיא נכנסת.
+       ``section_too_large`` — סעיף שגם עמוד ריק שלו אינו נכנס — ו-``answer_too_large``
+       — תשובה שגם בלי אף פריט ברשימות שלה אינה נכנסת — מקבלים את אותו ``hint``
+       של שלב 3.
 
     ``context`` הוא ``{"file": <מטא-דאטה>}`` — המטא-דאטה בלי ``_HEAVY_FIELDS``, כמו
     ב-:func:`_apply_query_to_file` — ולכן כל תשובה, גם סירוב, אומרת איזה קובץ
@@ -354,7 +356,7 @@ def _apply_sections_to_file(
         **paging,
     )
     if answer.get("ok") is False:
-        if answer.get("error") == docs_handlers.SECTION_TOO_LARGE:
+        if answer.get("error") in (docs_handlers.SECTION_TOO_LARGE, docs_handlers.ANSWER_TOO_LARGE):
             answer["hint"] = SECTIONS_UNAVAILABLE_HINT
         # ``section_not_found`` / ``ambiguous_section`` — כמו שהם, עם ה-TOC וההצעות.
         return answer

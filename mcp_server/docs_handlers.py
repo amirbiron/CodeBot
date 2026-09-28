@@ -21,7 +21,7 @@ import os
 import posixpath
 from dataclasses import dataclass
 from types import MappingProxyType, ModuleType
-from typing import Any, Mapping, NamedTuple
+from typing import Any, Callable, Mapping, NamedTuple
 
 from services import doc_sections, md_parser, rst_parser
 from .handlers import _clamp
@@ -113,6 +113,25 @@ _CANDIDATES_MAX = doc_sections.MAX_IDENTIFIER_SUGGESTIONS
 #: הם תשובה שאינה נכנסת, ולא ``section_too_long``, שהוא השאילתה שנדחתה. מיוצא,
 #: כי ``codekeeper_get_file`` מוסיף לו את ההפניה ל-``lines``/``query``.
 SECTION_TOO_LARGE = "section_too_large"
+
+#: קוד הסירוב כשתשובה שנושאת רשימות — מפת הכותרות, ``section_not_found``
+#: או ``ambiguous_section`` — אינה נכנסת בתקציב הבתים **גם כשכל הרשימות שלה
+#: ריקות** (ראו :func:`_fit_lists`). מה שנשאר אז הוא החלק הקבוע של התשובה:
+#: ההקשר (המטא-דאטה של קובץ שמור, או ``repo``/``path``/``ref``), ``includes``
+#: ו-``requested``. ‏``requested`` חסום ב-:data:`MAX_SECTION_CHARS`, אבל שני
+#: האחרים אינם חסומים בקוד: ``update_file_metadata`` בודק שהתגיות הן רשימת
+#: מחרוזות ולא כמה או כמה ארוכות, לשם הקובץ אין תקרה בשכבת ה-MCP, והתיאור
+#: חסום ב-``FILE_DESCRIPTION_MAX_CHARS`` רק במסלול העדכון הזה; ו-``includes`` של
+#: עמוד RST חסום רק בגודל הקובץ. כלומר הענף **ניתן להגעה**,
+#: ולכן הוא סירוב מפורש ולא תנאי מת. בקבצים של היום הוא רחוק — המדידה על
+#: הקבצים השמורים, עם השאילתה שהריצה אותה, בגוף PR #3470.
+#:
+#: **הסירוב עצמו נושא את ההקשר, כמו כל תשובה של הכלי**, ולכן כשההקשר לבדו גדול
+#: מהתקציב גם הסירוב גדול ממנו — ושום חיתוך כאן אינו יכול לקצר את מה שהקובץ
+#: עצמו נושא. מה שהסירוב מבטיח הוא שהקורא יודע שקיבל פחות ממה שביקש, ולמה.
+#: ``_too_large`` כמו :data:`SECTION_TOO_LARGE`, ומיוצא מאותה סיבה:
+#: ``codekeeper_get_file`` מוסיף לו את ההפניה ל-``lines``/``query``.
+ANSWER_TOO_LARGE = "answer_too_large"
 
 #: ``truncation_reason`` של עמוד שתקציב הבתים — ולא ``max_chars`` — קיצר. אותה
 #: מילה כמו ב-``codekeeper_search_repo`` וב-``read_batch.UNREAD_BYTE_BUDGET``:
@@ -665,10 +684,11 @@ def answer_section(
     עותק שני. הוא אינו מעביר ``include_subsections``, ולכן תת-הסעיפים תמיד כלולים
     אצלו.
 
-    ``reserve_bytes`` — מה שהקורא עוד יוסיף סביב התשובה לפני שהיא נשלחת. עמוד
-    הסעיף נחתך אל ``OUTPUT_BYTE_BUDGET`` פחות זה (:func:`_fit_page`), כדי שהתשובה
-    **כפי שהיא יוצאת** תיכנס. ``codekeeper_get_file`` מוסיף ``found`` ו-``status``
-    ושומר להם מקום; הבאץ' אינו עוטף את התשובה אלא מקנן אותה, ומודד את זה בעצמו.
+    ``reserve_bytes`` — מה שהקורא עוד יוסיף סביב התשובה לפני שהיא נשלחת. כל צורה
+    של התשובה נחתכת אל ``OUTPUT_BYTE_BUDGET`` פחות זה — עמוד הסעיף ב-:func:`_fit_page`
+    והרשימות ב-:func:`_fit_lists` — כדי שהתשובה **כפי שהיא יוצאת** תיכנס.
+    ``codekeeper_get_file`` מוסיף ``found`` ו-``status`` ושומר להם מקום; הבאץ' אינו
+    עוטף את התשובה אלא מקנן אותה, ומודד את זה בעצמו.
     """
     max_chars, offset = _paging(max_chars, offset)
     return _answer_from_document(loaded.doc, context=loaded.context, section=section,
@@ -731,9 +751,23 @@ def _answer_from_document(
     שכל תשובה נושאת — או ``file`` כשהקורא הוא ``codekeeper_get_file``. ולפניהן
     סירוב חמישי, ``section_too_long`` (ראו :data:`MAX_SECTION_CHARS`).
 
-    ``budget`` חל על צורת ה-``section`` בלבד — היא היחידה שגדלה עם ``max_chars``,
-    ולכן היחידה שאפשר לקצר בלי לאבד דבר (:func:`_fit_page`). השאר חסומות במספר
-    פריטים (:data:`_TOC_MAX`, :data:`_CANDIDATES_MAX`, ``MAX_IDENTIFIER_SUGGESTIONS``).
+    **``budget`` חל על כל ארבע הצורות**, בבתים כפי שהתשובה נשלחת (``wire_json``),
+    ובשתי דרכים:
+
+    * **עמוד של סעיף** נגמר מוקדם יותר ואינו מאבד דבר, כי העימוד לפי ``offset``
+      ממשיך בדיוק משם (:func:`_fit_page`); ``truncation_reason`` אומר למה.
+    * **הרשימות של שלוש הצורות האחרות** — ``toc``, ‏``suggestions`` ו-``candidates``
+      — נחתכות מהסוף עד שהתשובה נכנסת (:func:`_fit_lists`). את אלה אי אפשר
+      לעמד, ולכן הדגל של כל רשימה (``toc_truncated``, ‏``suggestions_truncated``,
+      ‏``candidates_truncated``) נושא **שתי סיבות**: התקרה במספר פריטים
+      (:data:`_TOC_MAX`, ‏``MAX_IDENTIFIER_SUGGESTIONS``, :data:`_CANDIDATES_MAX`),
+      או התקציב — ואז נחתך מוקדם יותר. בשני המקרים הקורא עושה אותו דבר: מבקש
+      סעיף בשמו, או קורא טווח שורות. ב-``section_not_found`` המפה נחתכת לפני
+      ההצעות, כי המפה היא מלאי וההצעות הן התשובה לשאלה. המועמדים נשארים בסדר
+      המסמך, ולכן מה שחסר הוא תמיד הסוף.
+
+    תשובה שאינה נכנסת גם כשכל הרשימות שלה ריקות — :data:`ANSWER_TOO_LARGE`; ועמוד
+    שאינו נכנס גם בלי תוכן — :data:`SECTION_TOO_LARGE`.
     """
     # ``includes`` הוא שדה של פארסר: ``rst_parser`` ממלא אותו מיעדי
     # ``.. include::``, ול-Markdown אין צורה כזאת ולכן הוא **תמיד ריק**.
@@ -753,9 +787,12 @@ def _answer_from_document(
 
     # בלי section → עץ כותרות (הכלי משמש גם לניווט)
     if not (section or "").strip():
+        # ``section_count`` נשאר מספר הכותרות כולן גם כשהמפה נחתכת — כך הקורא יודע
+        # כמה חסר.
         base.update({"mode": "toc", "toc": toc_items, "toc_truncated": toc_truncated,
                      "section_count": len(doc.sections)})
-        return base
+        return _fit_or_refuse(base, cuts=(("toc", "toc_truncated"),),
+                              budget=budget, context=context, doc=doc)
 
     matches = doc_sections.find_sections(doc, section)
 
@@ -786,7 +823,10 @@ def _answer_from_document(
             # ``section_not_found`` היה משנה את הפלט על כל 208 קובצי ה-RST בלי ששום
             # התנהגות השתנתה, ושובר את הוכחת אפס-הדיף שהשינוי הזה נשען עליה.
             base["suggestions_truncated"] = True
-        return base
+        # המפה לפני ההצעות: המפה היא מלאי, וההצעות הן התשובה לשאלה שנשאלה.
+        return _fit_or_refuse(
+            base, cuts=(("toc", "toc_truncated"), ("suggestions", "suggestions_truncated")),
+            budget=budget, context=context, doc=doc)
 
     # כותרת כפולה → כל המועמדים עם breadcrumb (בלי לנחש)
     if len(matches) > 1:
@@ -803,7 +843,12 @@ def _answer_from_document(
             # שדה שקיים תמיד היה משנה כל תשובת ``ambiguous_section`` בתצלום
             # אפס-הדיף בלי ששום התנהגות השתנתה.
             base["candidates_truncated"] = True
-        return base
+        # **בסדר המסמך, והחיתוך מהסוף** — גם כאן וגם בתקרה שלמעלה. כך מה שחסר הוא
+        # תמיד המועמדים האחרונים, והדרך אליהם כתובה בתיאור הפרמטר: שם הכותרת המלא,
+        # או ``line_range`` מתוך המפה. בלי הסדר הקבוע חיתוך היה מעלים מועמד שרירותי,
+        # וסירוב שמסתיר את מה שחיפשו בלי לומר איך מגיעים אליו הוא סירוב מטעה.
+        return _fit_or_refuse(base, cuts=(("candidates", "candidates_truncated"),),
+                              budget=budget, context=context, doc=doc)
 
     # התאמה יחידה → הסקשן + ניווט (שכנים ותת-סקשנים)
     sec = matches[0]
@@ -910,10 +955,94 @@ def _longest_prefix_within(text: str, room: int) -> int:
     קידומת עולה עם אורכה — לכל תו יש עלות קבועה משלו — ולכן החיפוש נכון. והחיתוך
     הוא על גבול תו, כי מה שנחתך הוא ``str`` ולא בתים. ``room`` שלילי — אפס.
     """
-    lo, hi = 0, len(text)
+    return _longest_fitting_prefix(len(text), lambda keep: len(wire_json(text[:keep])) - 2 <= room)
+
+
+def _fit_or_refuse(
+    answer: dict[str, Any],
+    *,
+    cuts: tuple[tuple[str, str], ...],
+    budget: int,
+    context: dict[str, Any],
+    doc: doc_sections.Document,
+) -> dict[str, Any]:
+    """התשובה אחרי :func:`_fit_lists` — או :data:`ANSWER_TOO_LARGE` כשגם ריקה אינה נכנסת.
+
+    מקום אחד לצורת הסירוב, לשלוש הצורות שנושאות רשימות. הסירוב נושא את ההקשר
+    ואת ``includes`` כמו כל תשובה של הכלי, ואת ``bytes`` — גודל התשובה אחרי שכל
+    הרשימות רוקנו, כלומר כמה גם המינימום גדול — ואת ``max``, התקציב שחל עליה.
+    """
+    fitted, size = _fit_lists(answer, cuts=cuts, budget=budget)
+    if fitted is None:
+        return {"ok": False, **context, "includes": list(doc.includes),
+                "error": ANSWER_TOO_LARGE, "bytes": size, "max": budget}
+    return fitted
+
+
+def _fit_lists(
+    answer: dict[str, Any], *, cuts: tuple[tuple[str, str], ...], budget: int
+) -> tuple[dict[str, Any] | None, int]:
+    """התשובה בתוך ``budget`` בתים כפי שהיא נשלחת, בחיתוך רשימות מהסוף — וגודלה.
+
+    ``cuts`` הוא ``(מפתח הרשימה, מפתח הדגל)``, **בסדר שבו מוותרים עליהן**: רשימה
+    נחתכת רק אחרי שכל הקודמות לה רוקנו. בכל רשימה נשמרת הקידומת הארוכה ביותר
+    שנכנסת (:func:`_longest_fitting_prefix`), וכל ניסיון נמדד על **התשובה כולה**
+    ב-``wire_json`` — כולל הדגל עצמו, שמשנה את הגודל (``false`` ← ``true``, או
+    מפתח חדש). כך מה שנמדד הוא בדיוק מה שיישלח, ולא הערכה לפי פריט.
+
+    **הדגל נדלק רק כשבאמת נחתך פריט.** תשובה שנכנסת חוזרת כמו שהיא — אותו אובייקט —
+    ולכן כל תשובה שנכנסה עד היום לא משתנה בבית אחד (אפס-דיף). רשימה ריקה לא נחתכת
+    ולא מדליקה דגל.
+
+    ``(None, size)`` — כשגם אחרי שכל הרשימות רוקנו התשובה גדולה מהתקציב; ``size`` הוא
+    הגודל הזה. מה שנשאר אז הוא ההקשר, ``includes`` ו-``requested``, ואת אלה כאן אין
+    מה לחתוך (ראו :data:`ANSWER_TOO_LARGE`).
+
+    העלות: סריאליזציה אחת לתשובה שנכנסת (ה-SDK עושה אחת ממילא), ולתשובה שלא —
+    עוד כ-``log2`` של אורך הרשימה סריאליזציות לכל רשימה שנחתכת.
+    """
+    size = len(wire_json(answer))
+    if size <= budget:
+        return answer, size
+    fitted = answer
+    for key, flag in cuts:
+        if not fitted[key]:
+            continue
+        fitted = _cut_from_end(fitted, key=key, flag=flag, budget=budget)
+        size = len(wire_json(fitted))
+        if size <= budget:
+            return fitted, size
+    return None, size
+
+
+def _cut_from_end(answer: dict[str, Any], *, key: str, flag: str, budget: int) -> dict[str, Any]:
+    """``answer`` עם הקידומת הארוכה ביותר של ``answer[key]`` שנכנסת — ו-``flag`` דלוק.
+
+    לפחות פריט אחד נחתך: הפונקציה נקראת רק על תשובה שאינה נכנסת כשהרשימה מלאה.
+    אם גם בלי אף פריט היא אינה נכנסת, הרשימה חוזרת ריקה, והמעבר לרשימה הבאה
+    הוא של :func:`_fit_lists`.
+    """
+    items = answer[key]
+    trial = {**answer, flag: True}
+    keep = _longest_fitting_prefix(
+        len(items) - 1, lambda n: len(wire_json({**trial, key: items[:n]})) <= budget)
+    return {**trial, key: items[:keep]}
+
+
+def _longest_fitting_prefix(limit: int, fits: Callable[[int], bool]) -> int:
+    """הגדול מבין ``1..limit`` ש-``fits`` מקבל, או 0 — חיפוש בינארי.
+
+    **חיפוש אחד לשני הקוראים** (R6): :func:`_longest_prefix_within` מחפש כמה תווים
+    של מחרוזת נכנסים, ו-:func:`_cut_from_end` כמה פריטים של רשימה. שניהם מודדים
+    ב-``wire_json``, וכל אחד מביא את המדידה שלו כ-``fits``. ההנחה היחידה היא
+    ש-``fits`` מונוטוני — אם קידומת נכנסת, גם כל קידומת קצרה ממנה — וזה נכון לשניהם,
+    כי כל תו וכל פריט מוסיפים בתים ואף אחד לא מוריד. 0 חוזר גם כשאף קידומת לא
+    נכנסת, בלי לבדוק את 0 עצמו: הקורא בודק אותו, כי רק הוא יודע מה לעשות אז.
+    """
+    lo, hi = 0, limit
     while lo < hi:
         mid = (lo + hi + 1) // 2
-        if len(wire_json(text[:mid])) - 2 <= room:
+        if fits(mid):
             lo = mid
         else:
             hi = mid - 1

@@ -84,12 +84,14 @@ class _Dbm:
 
     def __init__(self, code: str = _MD, *, file_name: str = _MD_NAME,
                  language: str | None = "markdown", old_code: str | None = _OLD_MD,
-                 owner: int = _USER):
+                 owner: int = _USER, extra: dict | None = None):
         self._code = code
         self._file_name = file_name
         self._language = language
         self._old_code = old_code
         self._owner = owner
+        # שדות מטא-דאטה נוספים, כמו במסמך אמיתי (``tags``, ``description``) — ריק כברירת מחדל.
+        self._extra = dict(extra or {})
         self.calls: list[str] = []
 
     def _doc(self, code: str, version: int, doc_id: str) -> dict:
@@ -101,6 +103,7 @@ class _Dbm:
             "code": code,
             "programming_language": self._language,
             "is_active": True,
+            **self._extra,
         }
 
     def get_latest_version_fresh(self, user_id: int, file_name: str):
@@ -182,6 +185,26 @@ def _wide_lines(char: str, count: int, width: int = 80) -> str:
     """``count`` פעמים ``char``, בשורות של ``width`` — גוף של סעיף ארוך בתו אחד."""
     body = char * count
     return "\n".join(body[i:i + width] for i in range(0, len(body), width))
+
+
+def _deep_hebrew_map(count: int = docs_handlers._TOC_MAX, width: int = 120) -> str:
+    """``count`` כותרות עבריות ברוחב ``width``, בקינון שחוזר על עומק 1 עד 6.
+
+    המפה גדלה פי כמה מהקובץ, כי כל פריט בה נושא את כל ה-breadcrumb שלו — בעומק
+    שש אותה כותרת נכתבת שש פעמים. ובדיוק ``_TOC_MAX`` כותרות, כדי שהתקרה במספר
+    פריטים לא תחתוך כלום: מה שנחתך כאן, נחתך בגלל הבתים.
+    """
+    return "".join("#" * (1 + i % 6) + " " + (f"{i} " + "כותרת " * 40)[:width] + "\n\nפסקה.\n\n"
+                   for i in range(count))
+
+
+def _distinct_cjk(length: int) -> str:
+    """``length`` תווי CJK שונים זה מזה — כותרת ארוכה ש-``difflib`` לא יתעלם ממנה.
+
+    ל-``SequenceMatcher`` יש ``autojunk``: במחרוזת של יותר מ-200 תווים, תו שמופיע ביותר
+    מאחוז ממנה נחשב זבל. כותרת של תו אחד שחוזר הייתה מקבלת יחס נמוך ואפס הצעות.
+    """
+    return "".join(chr(0x4E00 + i) for i in range(length))
 
 
 def _meta(*, version: int = 2, doc_id: str = _DOC_ID, file_name: str = _MD_NAME,
@@ -458,6 +481,120 @@ async def test_subsections_are_capped_like_the_map(monkeypatch):
     out = await _call(mcp, file_name=_MD_NAME, section="שורש")
     assert len(out["subsections"]) == cap
     assert "subsections_truncated" not in out
+
+
+async def test_a_map_that_does_not_fit_is_cut_from_the_end_inside_the_budget(monkeypatch):
+    """מפה גדולה מהתקציב נחתכת מהסוף: קידומת של המפה המלאה, בסדר המסמך, בתוך התקציב.
+
+    ``_TOC_MAX`` כותרות עבריות בקינון עמוק — התקרה במספר פריטים אינה חותכת כלום, ולכן
+    ``toc_truncated`` דלוק כאן רק בגלל הבתים. ``section_count`` נשאר מספר הכותרות
+    כולן, כדי שהקורא יידע כמה חסר. והקידומת היא **הארוכה ביותר** שנכנסת: עוד כותרת
+    אחת הייתה עוברת את התקציב — אחרת חיתוך מוקדם מדי היה עובר את הבדיקה.
+    על הקוד שלפני התיקון המפה הזו — מקובץ של 93,906 בתים — יצאה שלמה, ב-472,517 בתים.
+
+    מוטציה שמפילה: להחזיר את תשובת המפה ב-``_answer_from_document`` בלי ``_fit_or_refuse``.
+    """
+    text = _deep_hebrew_map()
+    full = doc_sections.build_toc(md_parser.parse_document(text))
+    mcp = _build(monkeypatch, _Dbm(text))
+
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, toc=True)
+
+    assert out["found"] is True and out["status"] == "toc"
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    kept = len(out["toc"])
+    assert 0 < kept < len(full) == docs_handlers._TOC_MAX
+    assert out["toc"] == full[:kept]
+    assert out["toc_truncated"] is True
+    assert out["section_count"] == len(full)
+    one_more = {**out, "toc": full[:kept + 1]}
+    assert len(repo_handlers.wire_json(one_more)) > repo_handlers.OUTPUT_BYTE_BUDGET
+
+
+async def test_a_miss_gives_up_the_map_before_the_suggestions(monkeypatch):
+    """``section_not_found`` שאינו נכנס מקצר קודם את המפה — וההצעות נשארות כמו שהן.
+
+    המפה היא מלאי, וההצעות הן התשובה לשאלה שנשאלה; לכן המפה נחתכת ראשונה. ההצעות
+    כאן זהות למה ש-``suggest`` מחזיר בלי שום תקציב — כולל הדגל שלהן, שנדלק כבר בגלל
+    התקרה במספר פריטים ולא בגלל הבתים. על הקוד שלפני התיקון: 484,079 בתים.
+
+    מוטציה שמפילה: להפוך את סדר החיתוך ב-``section_not_found`` (הצעות לפני המפה).
+    """
+    text = _deep_hebrew_map()
+    doc = md_parser.parse_document(text)
+    full = doc_sections.build_toc(doc)
+    near = full[7]["title"] + "ק"
+    expected = doc_sections.suggest(doc, near, n=doc_sections.MAX_IDENTIFIER_SUGGESTIONS)
+    assert expected.titles, "הנחת המקרה: יש הצעות"
+    mcp = _build(monkeypatch, _Dbm(text))
+
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, section=near)
+
+    assert out["error"] == "section_not_found"
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["toc_truncated"] is True and len(out["toc"]) < len(full)
+    assert out["toc"] == full[:len(out["toc"])]
+    assert out["suggestions"] == list(expected.titles)
+    assert out.get("suggestions_truncated", False) is expected.truncated
+
+
+async def test_suggestions_are_cut_only_after_the_map_is_empty(monkeypatch):
+    """כשגם בלי מפה ההצעות לבדן גדולות מהתקציב — הן נחתכות מהסוף, ורק אז.
+
+    48 כותרות ארוכות שקרובות כולן לשאילתה: פחות מהתקרה במספר הצעות, ולכן
+    ``suggestions_truncated`` דלוק כאן רק בגלל הבתים. המפה ריקה ודגלה דלוק — הוויתור
+    עליה קדם. על הקוד שלפני התיקון: 879,509 בתים.
+
+    מוטציה שמפילה: לחתוך ב-``_fit_lists`` רק את הרשימה הראשונה ב-``cuts``.
+    """
+    heading = _distinct_cjk(2000)
+    text = "".join(f"# {heading} {i:02d}\n\nגוף.\n\n" for i in range(48))
+    doc = md_parser.parse_document(text)
+    query = heading + " zz"
+    expected = doc_sections.suggest(doc, query, n=doc_sections.MAX_IDENTIFIER_SUGGESTIONS)
+    assert len(expected.titles) == 48 and not expected.truncated, "הנחת המקרה"
+    mcp = _build(monkeypatch, _Dbm(text))
+
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, section=query)
+
+    assert out["error"] == "section_not_found"
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["toc"] == [] and out["toc_truncated"] is True
+    kept = len(out["suggestions"])
+    assert 0 < kept < 48
+    assert out["suggestions"] == list(expected.titles[:kept])
+    assert out["suggestions_truncated"] is True
+
+
+async def test_candidates_are_cut_from_the_end_in_document_order(monkeypatch):
+    """מועמדים שאינם נכנסים נחתכים מהסוף, בסדר המסמך — והדרך למי שנחתך עובדת.
+
+    48 כותרות שנפתחות ב-``K7.``, כל אחת תחת הורה ארוך: פחות מ-``_CANDIDATES_MAX``,
+    ולכן ``candidates_truncated`` דלוק רק בגלל הבתים. מה שחסר הוא תמיד הסוף — וזה
+    מה שהתיאור מבטיח — ומועמד שנחתך נמצא בשם הכותרת המלא, כמו שהתיאור אומר. בלי
+    זה חיתוך היה מעלים בדיוק את המועמד שחיפשו, בלי לומר איך מגיעים אליו. על הקוד
+    שלפני התיקון: 297,484 בתים.
+
+    מוטציה שמפילה: להחזיר את תשובת ``ambiguous_section`` בלי ``_fit_or_refuse``.
+    """
+    parent = _distinct_cjk(2000)
+    text = "".join(f"# {parent} {i:02d}\n\n## K7. כפול {i:02d}\n\nגוף.\n\n" for i in range(48))
+    doc = md_parser.parse_document(text)
+    matches = doc_sections.find_sections(doc, "K7")
+    assert len(matches) == 48 < docs_handlers._CANDIDATES_MAX, "הנחת המקרה"
+    mcp = _build(monkeypatch, _Dbm(text))
+
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="K7")
+
+    assert out["error"] == "ambiguous_section"
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    starts = [c["line_range"][0] for c in out["candidates"]]
+    assert 0 < len(starts) < len(matches)
+    assert starts == [s.heading_line for s in matches][:len(starts)]
+    assert out["candidates_truncated"] is True
+
+    last = await _call(mcp, file_name=_MD_NAME, section=matches[-1].title)
+    assert last["status"] == "section" and last["line_range"][0] == matches[-1].heading_line
 
 
 async def test_version_and_file_id_choose_the_version_the_section_is_read_from(monkeypatch):
@@ -855,6 +992,56 @@ async def test_a_section_whose_headings_alone_do_not_fit_is_refused_with_its_lin
     assert "content" not in out
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [{"toc": True}, {"section": "K99"}, {"section": "K12 כפול"}],
+    ids=["toc", "section_not_found", "ambiguous_section"],
+)
+async def test_an_answer_that_does_not_fit_even_with_empty_lists_is_refused(
+    monkeypatch, arguments,
+):
+    """``answer_too_large`` — כשגם אחרי שכל הרשימות רוקנו התשובה גדולה מהתקציב.
+
+    מה שנשאר אז הוא החלק הקבוע, וכאן זו המטא-דאטה של הקובץ: ``update_file_metadata``
+    אינו מגביל כמה תגיות ובאיזה אורך, ולכן הענף ניתן להגעה ואינו תנאי מת. זה סירוב מפורש ולא תשובה
+    גדולה בשקט — עם ``bytes`` מעל ``max``, עם ``file`` כמו כל תשובה, ועם ה-``hint``
+    של קובץ שמור. בשלוש הצורות שנושאות רשימות, כי כולן עוברות באותו מקום. על הקוד
+    שלפני התיקון שלושתן חזרו כרגיל, בכ-271,000 בתים ובלי שום סימן.
+
+    מוטציה שמפילה: להחזיר מ-``_fit_or_refuse`` את התשובה גם כש-``_fit_lists`` מחזיר ``None``.
+    """
+    tags = ["汉" * 90_000]
+    mcp = _build(monkeypatch, _Dbm(extra={"tags": tags}))
+
+    out = await _call(mcp, file_name=_MD_NAME, **arguments)
+
+    assert out["ok"] is False and out["error"] == docs_handlers.ANSWER_TOO_LARGE
+    assert out["bytes"] > out["max"]
+    assert out["max"] <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["hint"] == _HINT
+    assert out["file"]["id"] == _DOC_ID and out["file"]["tags"] == tags
+    assert not {"toc", "suggestions", "candidates", "requested"} & out.keys()
+
+
+@pytest.mark.parametrize("stored", [b"# bytes\n", 12345], ids=["bytes", "int"])
+async def test_stored_content_that_is_not_a_string_fails_loudly(monkeypatch, stored):
+    """תוכן שמור שאינו מחרוזת נופל בקול, ואינו מומר למחרוזת ומפורסר.
+
+    אין מסלול שמירה שכותב תוכן כזה — ב-1,100 מסמכי ה-Markdown השמורים אין אף אחד
+    (PR #3470) — ולכן זה חוזה שנשבר ולא קלט שנדחה, והענף הוא בדיוק ענף שאיש לא מריץ
+    עד היום שבו הוא נחוץ. ``_json_safe`` מעביר ``bytes`` ומספר כמו שהם, ולכן שניהם
+    מגיעים לבדיקה. ההודעה נושאת את שם הטיפוס בלבד, בלי תוכן.
+
+    מוטציה שמפילה: להחליף את ה-``raise`` ב-``_apply_sections_to_file`` ב-``code = str(code)``.
+    """
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    mcp = _build(monkeypatch, _Dbm(stored))
+
+    with pytest.raises(ToolError, match=f"stored file content is {type(stored).__name__}, not str"):
+        await mcp.call_tool("codekeeper_get_file", {"file_name": _MD_NAME, "toc": True})
+
+
 def test_the_request_nets_refuse_what_the_schema_would_have_stopped():
     """רשת מאחורי הסכימה, לקורא שאינו עובר בה — ``handlers`` ו-backend באותה פונקציה.
 
@@ -967,6 +1154,72 @@ async def test_the_docs_tool_fits_its_page_to_the_same_budget(monkeypatch):
     assert file_sent <= repo_handlers.OUTPUT_BYTE_BUDGET
     assert from_docs["truncation_reason"] == from_file["truncation_reason"] == "byte_budget"
     assert from_docs["content"].startswith(from_file["content"])
+
+
+async def test_the_docs_tool_fits_its_map_to_the_same_budget(monkeypatch):
+    """גם המפה של ``codekeeper_docs_get_section`` נחתכת — כי החיתוך ב-``_answer_from_document``.
+
+    מוטציה שמפילה: לחתוך את המפה רק ב-``_apply_sections_to_file`` ולא בפונקציה המשותפת.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    text = _deep_hebrew_map()
+    full = doc_sections.build_toc(md_parser.parse_document(text))
+    mcp = _build(monkeypatch, _Dbm(text), repo_backend=_RepoText(text))
+
+    out, sent = await _call_sent(mcp, "codekeeper_docs_get_section", path="x.md",
+                                 repo="amir-bug-patterns")
+
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["mode"] == "toc" and out["toc_truncated"] is True
+    assert 0 < len(out["toc"]) < len(full)
+    assert out["toc"] == full[:len(out["toc"])]
+
+
+def test_fit_lists_keeps_the_longest_prefix_and_gives_up_lists_in_order():
+    """``_fit_lists`` על תשובה מלאכותית — ארבעת המקרים, והגבול המדויק בכל אחד.
+
+    פונקציה טהורה, ולכן הקריאה הישירה היא הממשק שלה. התקציב נגזר מגודל התשובה עצמה,
+    כדי שכל מקרה ייפול בדיוק במקום שהוא בודק: (1) נכנסת — חוזרת כמו שהיא, בלי דגלים;
+    (2) מספיק לקצר את הרשימה הראשונה — השנייה שלמה; (3) גם ריקה הראשונה אינה מספיקה
+    — היא ריקה ודגלה דלוק, והשנייה מתקצרת; (4) גם שתיהן ריקות אינן מספיקות — ``None``;
+    (5) רשימה שכבר ריקה אינה "נחתכת" ואינה מדליקה דגל — הדגל אומר שחסר משהו.
+    ובכל חיתוך, פריט אחד נוסף כבר לא היה נכנס — הקידומת היא הארוכה ביותר.
+
+    מוטציה שמפילה: ``_longest_fitting_prefix`` שמחזיר ``lo - 1`` (חיתוך מוקדם מדי),
+    ``_fit_lists`` שממשיך לרשימה הבאה לפני שבדק את הקודמת, או בלי הדילוג על רשימה ריקה.
+    """
+    wire = repo_handlers.wire_json
+    cuts = (("a", "a_cut"), ("b", "b_cut"))
+    answer = {"ok": False, "a": [f"a{i}-" + "x" * 90 for i in range(10)],
+              "b": [f"b{i}-" + "y" * 90 for i in range(10)]}
+
+    def size(**changes):
+        return len(wire({**answer, **changes}))
+
+    same, measured = docs_handlers._fit_lists(answer, cuts=cuts, budget=size())
+    assert same is answer and measured == size()
+
+    budget = size(a=answer["a"][:4], a_cut=True)
+    out, measured = docs_handlers._fit_lists(answer, cuts=cuts, budget=budget)
+    assert out["a"] == answer["a"][:4] and out["a_cut"] is True
+    assert out["b"] == answer["b"] and "b_cut" not in out
+    assert measured == len(wire(out)) <= budget < size(a=answer["a"][:5], a_cut=True)
+
+    budget = size(a=[], a_cut=True, b=answer["b"][:6], b_cut=True)
+    out, measured = docs_handlers._fit_lists(answer, cuts=cuts, budget=budget)
+    assert out["a"] == [] and out["a_cut"] is True
+    assert out["b"] == answer["b"][:6] and out["b_cut"] is True
+    assert measured <= budget < size(a=[], a_cut=True, b=answer["b"][:7], b_cut=True)
+
+    floor = size(a=[], a_cut=True, b=[], b_cut=True)
+    out, measured = docs_handlers._fit_lists(answer, cuts=cuts, budget=floor - 1)
+    assert out is None and measured == floor
+
+    empty_first = {**answer, "a": []}
+    budget = len(wire({**empty_first, "b": answer["b"][:3], "b_cut": True}))
+    out, _ = docs_handlers._fit_lists(empty_first, cuts=cuts, budget=budget)
+    assert out["a"] == [] and "a_cut" not in out
+    assert out["b"] == answer["b"][:3] and out["b_cut"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -1136,16 +1389,37 @@ def test_the_paging_numbers_in_the_section_doc_come_from_the_constants(monkeypat
 def test_the_byte_budget_numbers_in_the_section_doc_come_from_the_constants(monkeypatch):
     """התקציב והתקרה על ``subsections`` נשתלים מהקבועים — כמו מספרי העימוד שמעל.
 
+    וגם בתיאור של ``toc``: שתי הסיבות של ``toc_truncated`` נוקבות בשני הקבועים.
+
     מוטציה שמפילה: לכתוב ``256000`` או ``400`` כטקסט ב-``_build_file_sections_docs``.
     """
     from mcp_server import server as srv
 
-    assert f"never exceeds {repo_handlers.OUTPUT_BYTE_BUDGET} bytes" in srv._FILE_SECTION_DOC
+    assert f"cut to fit {repo_handlers.OUTPUT_BYTE_BUDGET} bytes" in srv._FILE_SECTION_DOC
     monkeypatch.setattr(repo_handlers, "OUTPUT_BYTE_BUDGET", 1234)
     monkeypatch.setattr(docs_handlers, "_TOC_MAX", 56)
-    _, rebuilt = srv._build_file_sections_docs()
-    assert "never exceeds 1234 bytes" in rebuilt
+    toc_doc, rebuilt = srv._build_file_sections_docs()
+    assert "cut to fit 1234 bytes" in rebuilt
     assert "subsections lists at most 56," in rebuilt
+    assert "at 56 headings, or earlier so the reply fits 1234 bytes" in toc_doc
+
+
+def test_the_list_limits_in_the_section_doc_come_from_the_constants():
+    """תיאור ``section`` המשותף נוקב בתקרת המועמדים ובתקציב — מהקבועים, לא מוקלדים.
+
+    זה היה "at most 50" כטקסט; היום שני המספרים שווים, וביום שהקבוע ישתנה התיאור
+    היה מבטיח מספר אחר מהקוד. ``_SECTION_PARAM_DOC`` נבנה בזמן הייבוא, ולכן הבדיקה
+    היא על הערכים של היום — אותה צורה כמו הבדיקה על ``MAX_IDENTIFIER_SUGGESTIONS``.
+
+    מוטציה שמפילה: לכתוב ``50`` או ``256000`` כטקסט ולשנות את הקבוע.
+    """
+    from mcp_server import server as srv
+
+    assert (f"at most {docs_handlers._CANDIDATES_MAX}, and fewer when the reply would not "
+            f"fit {repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent") in srv._SECTION_PARAM_DOC
+    assert (f"so the reply fits {repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent"
+            in srv._SECTION_PARAM_DOC)
+    assert docs_handlers.ANSWER_TOO_LARGE in srv._SECTION_PARAM_DOC
 
 
 def test_the_byte_budget_has_one_measure_and_one_word():
