@@ -22,6 +22,7 @@ from typing import Any
 
 from .backend import _json_safe
 from .repo_handlers import (
+    MIRROR_REFRESH_NOTE,
     OUTLINE_PER_PAGE_DEFAULT,
     OUTLINE_PER_PAGE_MAX,
     OUTPUT_BYTE_BUDGET,
@@ -53,6 +54,20 @@ RANGE_READ_MAX_BYTES = 10 * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 SYNC_RETRY_AFTER_SECONDS = 30
+
+#: ההודעה של ``ref_not_mirrored``. **"לא במראה", ולא "לא קיים"**: המראה יודעת
+#: רק אילו refs היו ב-GitHub במשיכה האחרונה שלה, ולא אילו יש שם עכשיו — ענף
+#: שנדחף אחריה פשוט עוד לא הגיע. החצי השני נבנה מ-``MIRROR_REFRESH_NOTE``, ולא
+#: מנוסח כאן שוב.
+REF_NOT_MIRRORED_MESSAGE = (
+    "This ref is not in this host's mirror of the repo, which is not the same "
+    "as not existing on GitHub. " + MIRROR_REFRESH_NOTE
+)
+
+#: ההודעה של ``invalid_ref``: השם לא עבר את הבדיקה הבסיסית של שירות המראה,
+#: ולכן git לא נשאל עליו בכלל. זה הצד שהקורא יכול לתקן, בניגוד ל-
+#: ``ref_not_mirrored``.
+INVALID_REF_MESSAGE = "Not a valid ref name, so nothing was looked up."
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -138,11 +153,46 @@ def _outline_response(
     }
 
 
+def _with_section_redirect(
+    answer: dict[str, Any], *, repo: str, path: str, ref: str | None
+) -> dict[str, Any]:
+    """``no_outline`` על קובץ שכלי הסעיפים כן מגיש ← ההפניה אליו, עם הארגומנטים המדויקים.
+
+    ``codekeeper_get_repo_file`` עם ``outline=true`` על Markdown מחזיר
+    ``unsupported_language``, בזמן ש-``codekeeper_docs_get_section`` כבר מחזיר
+    את עץ הכותרות של אותו קובץ — והסוכן לא ידע את זה. **השמות מיושרים עם
+    ``item_too_large``** של ``codekeeper_read_batch``: ``read_with`` הוא שם הכלי,
+    ו-``read_with_arguments`` הם ה-``arguments`` של הקריאה אליו, כמו בקריאת כלי
+    של MCP עצמה (``name`` + ``arguments``).
+
+    **ההחלטה אם להפנות אינה כאן** — היא ב-``docs_handlers.section_read_arguments``,
+    שנגזרת מהשער של הכלי ההוא. ``no_outline`` נשאר ``status`` והתשובה נשארת
+    ``ok: true``: ההפניה היא שדה נוסף, לא שינוי של התשובה. ``too_many_symbols``
+    ו-``inconsistent_line_endings`` אינם מקבלים הפניה — שם הסיבה אינה שהפורמט
+    לא נתמך.
+
+    ה-import עצל, כמו ``repo_autosync`` ב-``_sync_running``: ``docs_handlers``
+    מושך את שני הפארסרים, וקריאה שאינה אאוטליין לא צריכה אותם.
+    """
+    if answer.get("status") != "no_outline" or answer.get("reason") != "unsupported_language":
+        return answer
+    from . import docs_handlers
+
+    arguments = docs_handlers.section_read_arguments(repo=repo, path=path, ref=ref)
+    if arguments is None:
+        return answer
+    return {**answer, "read_with": docs_handlers.SECTION_TOOL_NAME,
+            "read_with_arguments": arguments}
+
+
 #: קודי הכשל של קיבוע commit שאומרים "לא עכשיו" ולא "אין כזה". רק עליהם
-#: ``ReadSnapshot`` מתריע: ``invalid_ref``, ``repo_not_found`` ו-
-#: ``invalid_repo_name`` הם תשובות רגילות שהקריאה עצמה תחזיר לקורא בשמן
-#: (``not_found``, ``repo_not_mirrored``, ``invalid_input``), וסירוב רגיל אינו
-#: נרשם בלוג (SUGG-022).
+#: ``ReadSnapshot`` מתריע: ``invalid_ref``, ``ref_not_mirrored``,
+#: ``repo_not_found`` ו-``invalid_repo_name`` הם תשובות רגילות שהקריאה עצמה
+#: תחזיר לקורא בשמן (``invalid_ref``, ``ref_not_mirrored``,
+#: ``repo_not_mirrored``, ``invalid_input``), וסירוב רגיל אינו נרשם בלוג
+#: (SUGG-022). ``git_error`` (מראה שבורה) אינו כאן בכוונה: שירות המראה כבר
+#: רושם אותו כ-WARNING עם ה-stderr, והפריטים נכשלים אחריו על אותה מראה שבורה —
+#: כלומר אין פיצול בין commits שצריך להזהיר ממנו.
 _TRANSIENT_PIN_ERRORS = frozenset({"timeout", "internal_error"})
 
 
@@ -161,8 +211,9 @@ class ReadSnapshot:
     הבודד, כל עוד הענף לא זז.
 
     **כשהקיבוע נכשל, הקריאה ממשיכה בשם הענף — והכשל גלוי.** קוד שאומר "אין
-    כזה" (``invalid_ref``, ``repo_not_found``, ``invalid_repo_name``) יחזור
-    מהקריאה עצמה בשמו, בדיוק כמו בכלי הבודד, ולכן אין מה לרשום. קוד שאומר
+    כזה" (``invalid_ref``, ``ref_not_mirrored``, ``repo_not_found``,
+    ``invalid_repo_name``) יחזור מהקריאה עצמה בשמו, בדיוק כמו בכלי הבודד, ולכן
+    אין מה לרשום. קוד שאומר
     "לא עכשיו" (``timeout``, ``internal_error``) נרשם כ-WARNING, פעם אחת לכל
     ריפו: הפריטים של אותו ריפו נקראים אז לפי שם הענף, וכל אחד פותר אותו
     בנפרד, כך שהם **יכולים** להגיע מ-commits שונים. זו נפילה-לאחור למסלול
@@ -360,13 +411,23 @@ class RepoBackend:
             return False
 
     def _transient_error(
-        self, repo_name: str, fallback: str, snapshot: ReadSnapshot | None = None
+        self,
+        repo_name: str,
+        fallback: str,
+        snapshot: ReadSnapshot | None = None,
+        body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Map a failed read to sync_in_progress (retryable) when a sync runs.
 
         With a ``snapshot`` the sync status is asked once per repo for the whole
         call (:meth:`ReadSnapshot.sync_running`); without one, every failure
         asks again, as it always has.
+
+        ``body`` is what the ``fallback`` answer carries besides its code — the
+        ``ref`` and ``resolved_commit`` of ``not_found``, say. It goes only into
+        the fallback: while a sync runs the answer is ``sync_in_progress``
+        whatever the read said, because the read may have seen the mirror
+        mid-fetch.
         """
         running = (
             snapshot.sync_running(repo_name)
@@ -383,7 +444,54 @@ class RepoBackend:
                     "exist — retry after a short wait instead of assuming absence."
                 ),
             }
-        return {"ok": False, "error": fallback}
+        return {"ok": False, "error": fallback, **(body or {})}
+
+    def _unresolved_ref(
+        self,
+        error: str,
+        *,
+        repo: str,
+        ref: str,
+        where: dict[str, Any],
+        snapshot: ReadSnapshot | None = None,
+    ) -> dict[str, Any]:
+        """The answer when ``ref`` did not resolve to a commit — one mapping for every repo tool.
+
+        ``error`` is a failure code of ``GitMirrorService.resolve_commit`` (or of
+        the same check inside ``get_file_at_commit``); each one keeps its own
+        meaning instead of all of them becoming ``not_found``:
+
+        - ``invalid_repo_name`` → ``invalid_input``.
+        - ``repo_not_found`` → ``repo_not_mirrored``: this host has no copy of
+          the repo at all, an operator's matter.
+        - ``invalid_ref`` → ``invalid_ref``: the name is malformed, which the
+          caller can fix. Answered directly — a running sync cannot make a
+          malformed name valid.
+        - ``ref_not_mirrored`` → ``ref_not_mirrored``: a well-formed name this
+          mirror does not have, which is **not** the same as not existing on
+          GitHub (:data:`REF_NOT_MIRRORED_MESSAGE`).
+        - anything else (``git_error``, ``timeout``, ``internal_error``) →
+          ``read_failed``.
+
+        Every code but ``invalid_input`` and ``invalid_ref`` goes through
+        :meth:`_transient_error`, so ``sync_in_progress`` wins while a sync
+        runs. ``where`` is what the tool adds to name the target — ``path`` in
+        the tools that take one, nothing in ``search_repo``.
+        """
+        if error == "invalid_repo_name":
+            return {"ok": False, "error": "invalid_input"}
+        if error == "repo_not_found":
+            return self._transient_error(repo, "repo_not_mirrored", snapshot=snapshot)
+        if error == "invalid_ref":
+            return {"ok": False, "error": "invalid_ref", "repo": repo, "ref": ref,
+                    **where, "message": INVALID_REF_MESSAGE}
+        if error == "ref_not_mirrored":
+            return self._transient_error(
+                repo, "ref_not_mirrored", snapshot=snapshot,
+                body={"repo": repo, "ref": ref, **where,
+                      "message": REF_NOT_MIRRORED_MESSAGE},
+            )
+        return self._transient_error(repo, "read_failed", snapshot=snapshot)
 
     def _default_ref(self, repo_name: str) -> str:
         try:
@@ -428,26 +536,39 @@ class RepoBackend:
         include_stats: bool = False,
     ) -> dict[str, Any]:
         use_ref = ref or self._default_ref(repo)
+        prefix = (path or "").strip().strip("/")
         sizes: dict[str, int | None] = {}
+        # **הענף נפתר קודם, באותה בדיקה שכל כלי ריפו אחר עובר בה**
+        # (``resolve_commit``), והעץ נקרא מה-SHA שחזר. עד כאן ``ls-tree`` רץ
+        # ישירות על השם, וכל כשל — ריפו בלי מראה, שם פגום, ענף שלא במראה, מראה
+        # שבורה — החזיר ``None`` והפך לקוד אחד, ``repo_or_ref_not_found``. עכשיו
+        # כל מקרה נקרא בשמו (:meth:`_unresolved_ref`), ו-``ls-tree`` שנכשל אחרי
+        # שהענף נפתר הוא ``read_failed``, כמו ב-``get_file``.
         try:
             mirror = self._require_mirror()
+            pinned = mirror.resolve_commit(repo, use_ref)
+            if not pinned.get("ok"):
+                return self._unresolved_ref(
+                    str(pinned.get("error") or "internal_error"),
+                    repo=repo, ref=use_ref, where={"path": prefix or None},
+                )
+            commit = str(pinned["commit"])
             if include_stats:
                 # ``-l`` באותה קריאת ``ls-tree`` — הגודל מגיע בחינם.
-                entries = mirror.list_all_files_with_sizes(repo, use_ref)
+                entries = mirror.list_all_files_with_sizes(repo, commit)
                 if entries is None:
                     files = None
                 else:
                     files = [e["path"] for e in entries]
                     sizes = {e["path"]: e["size"] for e in entries}
             else:
-                files = mirror.list_all_files(repo, use_ref)
+                files = mirror.list_all_files(repo, commit)
         except Exception:
             logger.warning("list_tree read failed", exc_info=True)
             files = None
         if files is None:
-            return self._transient_error(repo, "repo_or_ref_not_found")
+            return self._transient_error(repo, "read_failed")
 
-        prefix = (path or "").strip().strip("/")
         if prefix:
             files = [f for f in files if f == prefix or f.startswith(prefix + "/")]
         files = [f for f in files if not is_denied(f)]  # policy: omit
@@ -489,6 +610,9 @@ class RepoBackend:
             "ok": True,
             "repo": repo,
             "ref": use_ref,
+            # איזה commit נקרא בפועל. בלעדיו ``total: 0`` על תיקייה לא אומר
+            # איפה חיפשו אותה.
+            "resolved_commit": commit,
             "path": prefix or None,
             "total": total,
             "page": page_i,
@@ -634,8 +758,11 @@ class RepoBackend:
             file_meta["encoding"] = res.get("encoding")
             content = res.get("content")
             if outline:
-                return _outline_response(file_meta, content or "", path,
-                                         symbol, page, per_page)
+                return _with_section_redirect(
+                    _outline_response(file_meta, content or "", path,
+                                      symbol, page, per_page),
+                    repo=repo, path=path, ref=ref,
+                )
             if bounds is not None:
                 sliced = apply_line_range(content or "", *bounds)
                 if isinstance(sliced, str):
@@ -657,22 +784,32 @@ class RepoBackend:
                 "file": {"path": path, "ref": use_ref, "size": res.get("size")},
                 "max": res.get("max_size"),
             }
-        if err == "file_not_in_commit":
-            return {"ok": False, "error": "not_found"}
         if err in ("invalid_repo_name", "invalid_file_path"):
             return {"ok": False, "error": "invalid_input"}
-        # repo_not_found / invalid_commit / git_error / timeout / internal_error:
-        # possibly a transient race with a running sync — say so if it is.
-        #
-        # A mirror the host does not have is its own code (#3432, SUGG-011):
-        # ``not_found`` invites the agent to try another file name, when what
-        # is missing is the whole repository — an operator's matter, not the
-        # caller's. ``invalid_commit`` stays ``not_found``: the repo is there,
-        # and the ref is what the caller can change.
-        if err == "repo_not_found":
-            return self._transient_error(repo, "repo_not_mirrored", snapshot=snapshot)
-        fallback = "not_found" if err == "invalid_commit" else "read_failed"
-        return self._transient_error(repo, fallback, snapshot=snapshot)
+        # The ref did not resolve — ``get_file_at_commit`` passes the code of its
+        # ``_validate_ref_with_git`` check through. Each outcome keeps its own
+        # name (:meth:`_unresolved_ref`). Until now all of them were
+        # ``not_found``: a branch the mirror has not fetched yet answered
+        # exactly like a file that does not exist, and the agent concluded
+        # the reference was broken. A mirror the host does not have at all was
+        # split off earlier (#3432, SUGG-011) for the same reason.
+        if err in ("repo_not_found", "invalid_ref", "ref_not_mirrored"):
+            return self._unresolved_ref(
+                err, repo=repo, ref=use_ref, where={"path": path}, snapshot=snapshot
+            )
+        # The ref resolved, and the file is not at that commit. ``ref`` and
+        # ``resolved_commit`` say where it was looked for; without them "not
+        # found" reads as "exists nowhere".
+        looked_at = {"ref": use_ref, "resolved_commit": res.get("resolved_commit")}
+        if err == "file_not_in_commit":
+            return {"ok": False, "error": "not_found", **looked_at}
+        # ``invalid_commit`` here is git failing to read a commit that had just
+        # resolved — the mirror moved under the read — and git_error / timeout /
+        # internal_error are reads that failed: possibly a transient race with a
+        # running sync, so say so if it is.
+        if err == "invalid_commit":
+            return self._transient_error(repo, "not_found", snapshot=snapshot, body=looked_at)
+        return self._transient_error(repo, "read_failed", snapshot=snapshot)
 
     def search(
         self,
@@ -737,6 +874,18 @@ class RepoBackend:
                     "query": query,
                     "message": str(res.get("message") or "")[:200],
                 }
+            # **הענף הראשי אינו במראה** (``search_with_git_grep`` עוצר עליו
+            # מיד), או **שלמארח אין מראה של הריפו בכלל** (``mirror_not_found``
+            # של המנוע). עד כאן שניהם הגיעו לכאן כ-``search_failed``, כלומר
+            # "ענף שעוד לא נמשך" ו"ריפו שאין לו עותק" נראו כמו חיפוש שנשבר.
+            # עכשיו כל אחד נקרא בשמו, באותה מפה של שאר כלי הריפו, ו-
+            # ``sync_in_progress`` גובר על שניהם.
+            if engine_error == "ref_not_mirrored":
+                return self._unresolved_ref(
+                    "ref_not_mirrored", repo=repo, ref=str(res.get("ref") or ""), where={}
+                )
+            if engine_error == "mirror_not_found":
+                return self._transient_error(repo, "repo_not_mirrored")
             if not res.get("results"):
                 return self._transient_error(repo, "search_failed")
             # **כשל באמצע הזרם, אחרי שכבר נאספו שורות.** המנוע מחזיר אותן

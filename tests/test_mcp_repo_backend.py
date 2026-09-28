@@ -59,11 +59,19 @@ class _DB:
 
 
 class _Mirror:
-    def __init__(self, files=None, file_result=None, sizes=None):
+    def __init__(self, files=None, file_result=None, sizes=None, resolved=None):
         self.files = files
         self.file_result = file_result or {}
         self.sizes = sizes or {}
+        # מה ש-``resolve_commit`` עונה. ברירת המחדל: הענף נפתר, והכשל (אם יש)
+        # הוא של ``ls-tree`` — ``files=None``.
+        self.resolved = resolved or {"ok": True, "commit": "c0ffee"}
         self.calls = []
+
+    def resolve_commit(self, repo, ref):
+        # ``list_tree`` פותר את הענף לפני ``ls-tree``, באותה בדיקה של כל כלי ריפו.
+        self.calls.append(("resolve", repo, ref))
+        return dict(self.resolved)
 
     def list_all_files(self, repo, ref):
         self.calls.append(("list", repo, ref))
@@ -229,10 +237,42 @@ def test_list_tree_sync_in_progress_when_read_fails_during_sync():
     assert out["retry_after"] == SYNC_RETRY_AFTER_SECONDS
 
 
-def test_list_tree_not_found_when_no_sync_running():
-    be = RepoBackend(db=_repos_db(), mirror=_Mirror(files=None), search_service=_Search())
-    out = be.list_tree(repo="alpha")
-    assert out == {"ok": False, "error": "repo_or_ref_not_found"}
+def test_list_tree_names_why_the_listing_failed_when_no_sync_runs():
+    """עד כאן כל אחד מהמקרים האלה היה ``repo_or_ref_not_found``.
+
+    הענף נפתר קודם (``resolve_commit``), וכל סיבה נקראת בשמה — אותה מפה כמו ב-
+    ``get_file``. ‏``ls-tree`` שנכשל **אחרי** שהענף נפתר הוא ``read_failed``.
+    """
+    cases = [
+        ({"ok": False, "error": "invalid_repo_name"}, {"ok": False, "error": "invalid_input"}),
+        ({"ok": False, "error": "repo_not_found"}, {"ok": False, "error": "repo_not_mirrored"}),
+        ({"ok": False, "error": "git_error"}, {"ok": False, "error": "read_failed"}),
+        ({"ok": False, "error": "timeout"}, {"ok": False, "error": "read_failed"}),
+    ]
+    for resolved, expected in cases:
+        mirror = _Mirror(files=["a.py"], resolved=resolved)
+        be = RepoBackend(db=_repos_db(), mirror=mirror, search_service=_Search())
+        assert be.list_tree(repo="alpha") == expected, resolved
+        # שום ``ls-tree`` על שם שלא נפתר.
+        assert [c[0] for c in mirror.calls] == ["resolve"]
+
+    not_in_mirror = RepoBackend(
+        db=_repos_db(), mirror=_Mirror(resolved={"ok": False, "error": "ref_not_mirrored"}),
+        search_service=_Search(),
+    ).list_tree(repo="alpha", path="src", ref="late")
+    assert not_in_mirror.pop("message")
+    assert not_in_mirror == {"ok": False, "error": "ref_not_mirrored", "repo": "alpha",
+                             "ref": "late", "path": "src"}
+
+    malformed = RepoBackend(
+        db=_repos_db(), mirror=_Mirror(resolved={"ok": False, "error": "invalid_ref"}),
+        search_service=_Search(),
+    ).list_tree(repo="alpha", ref="bad:ref")
+    assert malformed.pop("message")
+    assert malformed == {"ok": False, "error": "invalid_ref", "repo": "alpha", "ref": "bad:ref", "path": None}
+
+    listing_failed = RepoBackend(db=_repos_db(), mirror=_Mirror(files=None), search_service=_Search())
+    assert listing_failed.list_tree(repo="alpha") == {"ok": False, "error": "read_failed"}
 
 
 def test_get_file_ok_envelope():
@@ -270,9 +310,11 @@ def test_get_file_too_large_envelope():
 
 
 def test_get_file_not_found_and_denied():
-    res = {"error": "file_not_in_commit"}
+    res = {"error": "file_not_in_commit", "resolved_commit": "abc123"}
     be = RepoBackend(db=_repos_db(), mirror=_Mirror(file_result=res), search_service=_Search())
-    assert be.get_file(repo="alpha", path="nope.py") == {"ok": False, "error": "not_found"}
+    # ``not_found`` אומר איפה חיפש: ה-ref שנקרא (כאן הענף הראשי מהמטא-דאטה) וה-commit.
+    assert be.get_file(repo="alpha", path="nope.py") == {
+        "ok": False, "error": "not_found", "ref": "refs/heads/master", "resolved_commit": "abc123"}
     # policy blocks BEFORE touching the mirror
     mirror = _Mirror(file_result={"success": True})
     be2 = RepoBackend(db=_repos_db(), mirror=mirror, search_service=_Search())
@@ -280,36 +322,53 @@ def test_get_file_not_found_and_denied():
     assert mirror.calls == []
 
 
-def test_get_file_names_a_missing_mirror_and_keeps_not_found_for_a_bad_ref():
-    """‏``repo_not_found`` מהמראה הוא ``repo_not_mirrored`` — עניין של המפעיל, לא שם קובץ שגוי (#3432, SUGG-011).
+def test_get_file_names_a_missing_mirror_a_ref_the_mirror_lacks_and_a_malformed_ref_apart():
+    """שלוש סיבות שונות, שלושה קודים — ועד כאן שתיים מהן היו ``not_found``.
 
-    ‏``invalid_commit`` נשאר ``not_found``: הריפו קיים, וה-ref הוא מה שהקורא
-    יכול לשנות. ובזמן sync שניהם ``sync_in_progress``, כמו קודם.
+    ‏``repo_not_found`` מהמראה הוא ``repo_not_mirrored`` — עניין של המפעיל, לא שם
+    קובץ שגוי (#3432, SUGG-011). ‏``ref_not_mirrored`` עובר כמו שהוא: המראה לא
+    מכירה את הענף, וזה אינו "הקובץ לא קיים". ‏``invalid_ref`` הוא שם פגום, שהקורא
+    יכול לתקן. ובזמן sync שני הראשונים ``sync_in_progress``, כמו קודם.
     """
     no_mirror = RepoBackend(db=_repos_db(), mirror=_Mirror(file_result={"error": "repo_not_found"}),
                             search_service=_Search())
     assert no_mirror.get_file(repo="alpha", path="a.py") == {"ok": False, "error": "repo_not_mirrored"}
 
-    bad_ref = RepoBackend(db=_repos_db(), mirror=_Mirror(file_result={"error": "invalid_commit"}),
-                          search_service=_Search())
-    assert bad_ref.get_file(repo="alpha", path="a.py") == {"ok": False, "error": "not_found"}
+    lacks_ref = RepoBackend(db=_repos_db(), mirror=_Mirror(file_result={"error": "ref_not_mirrored"}),
+                            search_service=_Search()).get_file(repo="alpha", path="a.py", ref="late")
+    assert lacks_ref.pop("message")
+    assert lacks_ref == {"ok": False, "error": "ref_not_mirrored", "repo": "alpha", "ref": "late", "path": "a.py"}
+
+    malformed = RepoBackend(db=_repos_db(), mirror=_Mirror(file_result={"error": "invalid_ref"}),
+                            search_service=_Search()).get_file(repo="alpha", path="a.py", ref="bad:ref")
+    assert malformed["error"] == "invalid_ref" and malformed["ref"] == "bad:ref"
 
     syncing = _DB(repos=[{"repo_name": "alpha", "default_branch": "main"}],
                   jobs=[{"repo_name": "alpha", "status": "running"}])
-    mid_sync = RepoBackend(db=syncing, mirror=_Mirror(file_result={"error": "repo_not_found"}),
-                           search_service=_Search())
-    assert mid_sync.get_file(repo="alpha", path="a.py")["error"] == "sync_in_progress"
+    for code in ("repo_not_found", "ref_not_mirrored"):
+        mid_sync = RepoBackend(db=syncing, mirror=_Mirror(file_result={"error": code}),
+                               search_service=_Search())
+        assert mid_sync.get_file(repo="alpha", path="a.py")["error"] == "sync_in_progress", code
 
 
 def test_get_file_sync_in_progress_instead_of_not_found():
+    """‏``invalid_commit`` כאן הוא git שלא הצליח לקרוא commit שנפתר רגע קודם — המראה זזה.
+
+    ‏``not_found`` שהוא היה הופך אליו נושא את ``ref`` ו-``resolved_commit``, אבל בזמן
+    sync התשובה היא ``sync_in_progress``, כמו תמיד.
+    """
     db = _DB(
         repos=[{"repo_name": "alpha", "default_branch": "main"}],
         jobs=[{"repo_name": "alpha", "status": "running"}],
     )
-    res = {"error": "invalid_commit"}  # ref unresolvable mid-fetch
+    res = {"error": "invalid_commit", "resolved_commit": "abc123"}
     be = RepoBackend(db=db, mirror=_Mirror(file_result=res), search_service=_Search())
     out = be.get_file(repo="alpha", path="a.py")
     assert out["error"] == "sync_in_progress" and out["retry_after"] > 0
+
+    quiet = RepoBackend(db=_repos_db(), mirror=_Mirror(file_result=res), search_service=_Search())
+    assert quiet.get_file(repo="alpha", path="a.py") == {
+        "ok": False, "error": "not_found", "ref": "refs/heads/master", "resolved_commit": "abc123"}
 
 
 def test_search_caps_filters_and_snippets():

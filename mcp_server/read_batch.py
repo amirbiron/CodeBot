@@ -133,7 +133,7 @@ UNREAD_TIMEOUT = "timeout"
 
 #: לאן לשלוח פריט שגדול מהתקציב לבדו — הכלי הבודד שהפריט משקף.
 _SINGLE_TOOL = {
-    "section": "codekeeper_docs_get_section",
+    "section": docs_handlers.SECTION_TOOL_NAME,
     "file": "codekeeper_get_repo_file",
 }
 
@@ -326,8 +326,9 @@ def _commit_of(result: dict[str, Any]) -> str | None:
     """ה-commit שהתוכן של הפריט בא ממנו, כשהתשובה נושאת כזה.
 
     שני המקומות שהכלים הבודדים כותבים אותו בהם: ``resolved_commit`` בראש
-    תשובת סעיף, ו-``file.resolved_commit`` בתשובת קובץ. תשובה שלא נקרא בה
-    תוכן (סירוב של השער, קובץ שלא נמצא) אינה נושאת commit, ואין מה להמציא לה.
+    תשובת סעיף — ובראש ``not_found``, שאומר באיזה commit הקובץ לא נמצא — ו-
+    ``file.resolved_commit`` בתשובת קובץ. תשובה שלא הגיעה ל-commit (סירוב של
+    השער, ref שלא נפתר) אינה נושאת אחד, ואין מה להמציא לה.
     """
     commit = result.get("resolved_commit")
     if not isinstance(commit, str):

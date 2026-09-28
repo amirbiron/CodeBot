@@ -29,6 +29,12 @@ from .repo_handlers import NONEMPTY_LIST_BYTES, OUTPUT_BYTE_BUDGET, list_item_co
 
 logger = logging.getLogger(__name__)
 
+#: שם הכלי שהמודול הזה משרת. מקום אחד לשלושה שמשתמשים בו: הרישום של הכלי
+#: ב-``server.py``, ``read_with`` של ``item_too_large`` ב-``read_batch.py``,
+#: וההפניה מ-``outline`` ב-``RepoBackend.get_file`` (:func:`section_read_arguments`).
+#: הפניה עם שם שאינו רשום שולחת את הסוכן לכלי שאינו קיים.
+SECTION_TOOL_NAME = "codekeeper_docs_get_section"
+
 MAX_CHARS_DEFAULT = 12_000
 MAX_CHARS_MAX = 100_000
 MAX_CHARS_MIN = 500
@@ -517,6 +523,37 @@ def resolve_docs_target(*, path: str, repo: str | None = None) -> DocsTarget | d
     return DocsTarget(repo_name, resolved.path, resolved.suffix)
 
 
+def section_read_arguments(*, repo: str, path: str, ref: str | None = None) -> dict[str, Any] | None:
+    """הארגומנטים שבהם ``codekeeper_docs_get_section`` קורא **את אותו קובץ** — או ``None``.
+
+    הצרכן הוא ``outline`` של ``codekeeper_get_repo_file``: על קובץ שאין לו מפה
+    (``no_outline`` / ``unsupported_language``) התשובה מפנה לכלי הזה, שמחזיר את
+    עץ הכותרות של אותו קובץ — אבל רק כשהכלי הזה באמת מגיש אותו.
+
+    **נגזר מהשער של הכלי עצמו** (:func:`resolve_docs_target`), ולא מרשימה שנייה
+    או מכלל כמו "כל ``.md``": ב-CodeBot הכלי מגיש רק ``docs/*.rst``, והפניה
+    קבועה הייתה שולחת את הסוכן לכלי שיחזיר גם הוא "לא נמצא". כשהמדיניות תשתנה,
+    ההפניה משתנה איתה.
+
+    **ורק כשהשער מחזיר בדיוק את הריפו והנתיב שהתבקשו.** השער גם משלים: לנתיב
+    עם סיומת שאינה מוכרת הוא מוסיף את הסיומת של הריפו, ו-slug בלי ``/`` הוא
+    מעגן לשורש. ``.claude/hooks/codekeeper-primer.sh`` ב-``amir-bug-patterns``
+    היה נהיה ``...primer.sh.md`` — קובץ אחר — ולכן השוואה מלאה ולא "השער קיבל".
+
+    ``ref`` נכנס רק כשהקורא העביר אחד, וכמו שהוא: בלעדיו שני הכלים קוראים את
+    הענף הראשי, ואיתו הפניה בלי ``ref`` הייתה קוראת ענף אחר מזה שהתבקש.
+    """
+    target = resolve_docs_target(path=path, repo=repo)
+    if not isinstance(target, DocsTarget):
+        return None
+    if target.repo != repo or target.path != path:
+        return None
+    arguments: dict[str, Any] = {"repo": target.repo, "path": target.path}
+    if ref:
+        arguments["ref"] = ref
+    return arguments
+
+
 def load_document(
     backend: Any,
     target: DocsTarget,
@@ -551,7 +588,10 @@ def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocumen
     עותק.
     """
     if not res.get("ok"):
-        # not_found / invalid_input / path_denied / sync_in_progress — מוסיפים הקשר ומעבירים הלאה
+        # not_found / ref_not_mirrored / invalid_ref / invalid_input / path_denied /
+        # sync_in_progress — מוסיפים הקשר ומעבירים הלאה. ``ref`` ו-``resolved_commit``
+        # של ``not_found`` כבר באים מ-``RepoBackend.get_file``, כמו בכלי הקבצים, ולא
+        # נבנים כאן שוב.
         res.setdefault("repo", target.repo)
         res.setdefault("path", target.path)
         return res
