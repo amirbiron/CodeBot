@@ -86,8 +86,13 @@ def test_a_leading_bom_does_not_hide_the_headings():
     without = md_parser.parse_document(plain)
     assert [(s.level, s.heading_line, s.title) for s in with_bom.sections] == \
         [(s.level, s.heading_line, s.title) for s in without.sections]
-    assert with_bom.lines == without.lines, "ה-BOM חייב לרדת גם מ-lines[0]"
     assert len(with_bom.sections) == 2
+    # **ה-BOM יורד ממה שהפרסר רואה, ולא משורות המקור.** עד PR ג של "קריאה לפי
+    # סעיף" הוא ירד גם מ-``lines[0]``, ואז טקסט הסעיף הראשון לא היה זהה למה
+    # ש-``lines=`` מחזיר על אותו קובץ — ראו
+    # ``test_a_section_is_the_exact_source_text_even_in_crlf_and_after_a_bom``.
+    assert with_bom.lines == (_BOM + plain).split("\n")
+    assert with_bom.lines[1:] == without.lines[1:]
 
 
 def test_only_one_bom_and_only_at_the_start_is_removed():
@@ -96,10 +101,14 @@ def test_only_one_bom_and_only_at_the_start_is_removed():
     ושני BOM רצופים: רק הראשון הוא סימון קידוד. השני הוא כבר תו בגוף
     השורה — וזה מה ש-cmark עושה בפועל, נמדד.
     """
-    doc = md_parser.parse_document(_BOM + _BOM + "# A\n\ntext " + _BOM + "here\n")
-    assert doc.lines[0] == _BOM + "# A"
-    assert _BOM in doc.lines[2]
+    source = _BOM + _BOM + "# A\n\ntext " + _BOM + "here\n"
+    doc = md_parser.parse_document(source)
+    # מה ש**הפרסר** ראה הוא מה שהטסט הזה שואל עליו: אילו שני ה-BOM היו יורדים,
+    # ``# A`` היה כותרת. היא אינה — כלומר השני נשאר, והוא תו בגוף השורה.
     assert doc.sections == [], "BOM שני בראש השורה מונע כותרת — כמו ב-cmark"
+    # ושורות המקור נשארות המקור, כולל שני ה-BOM (ראו את הטסט הקודם).
+    assert doc.lines == source.split("\n")
+    assert _BOM in doc.lines[2]
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -137,13 +146,56 @@ def test_the_refusal_says_where_the_lone_cr_is(name, text, expected_line):
 
 
 def test_the_same_file_in_crlf_returns_the_same_line_numbers():
-    """CRLF אינו מושפע — זה המקרה הנפוץ, והוא חייב להמשיך לעבוד."""
+    """CRLF אינו מושפע — זה המקרה הנפוץ, והוא חייב להמשיך לעבוד.
+
+    **המפה זהה, והשורות הן של המקור.** עד PR ג של "קריאה לפי סעיף" הטסט הזה
+    דרש גם ``lf.lines == crlf.lines`` — כלומר ש-``lines`` יהיו מנורמלות — וזה
+    הפך את טקסט הסעיף בקובץ CRLF לשונה ממה ש-``lines=`` מחזיר. מה שנשאר זהה
+    הוא מה שאמור להישאר: הכותרות, הרמות ומספרי השורות.
+    """
+    crlf_text = _LF.replace("\n", "\r\n")
     lf = md_parser.parse_document(_LF)
-    crlf = md_parser.parse_document(_LF.replace("\n", "\r\n"))
+    crlf = md_parser.parse_document(crlf_text)
     assert [(s.level, s.heading_line, s.end_line, s.title) for s in lf.sections] == [
         (s.level, s.heading_line, s.end_line, s.title) for s in crlf.sections
     ]
-    assert lf.lines == crlf.lines
+    assert crlf.lines == crlf_text.split("\n")
+    assert [line.removesuffix("\r") for line in crlf.lines] == lf.lines
+
+
+def test_a_section_is_the_exact_source_text_even_in_crlf_and_after_a_bom():
+    """טקסט הסעיף הוא **בדיוק** מה ש-``lines=`` מחזיר על אותו טווח — גם ב-CRLF, וגם עם BOM.
+
+    **למה זה חוזה ולא נוחות.** ``codekeeper_get_file`` מחזיר סעיף מקובץ שמור,
+    והקורא הבא שלו הוא לא פעם ``codekeeper_edit_file``, שדורש ש-``old_string``
+    יתאים לתוכן השמור **במדויק**. טקסט שה-``\\r`` שלו נמחק היה נכשל שם על כל
+    קטע של יותר משורה אחת, בלי שום סימן שהבעיה בקריאה ולא בעריכה. ו-``lines=``
+    כבר מחזיר את הבתים כפי שהם (:ref:`mcp-line-range`), כך ששתי קריאות של אותו
+    טווח היו מחזירות שני טקסטים שונים.
+
+    **והאורקל כאן אינו המימוש.** הציפייה נגזרת מ-``apply_line_range`` — הפונקציה
+    שמאחורי ``lines=`` — ולא מ-``section_text``, כך שהטסט משווה בין שני מסלולי
+    קוד ולא בין מסלול לעצמו.
+
+    מוטציה שמפילה: לבנות את ``lines`` ב-``parse_document`` מ-``normalized`` (כמו
+    שהיה עד PR ג) — אז ה-``\\r`` וה-BOM נעלמים מטקסט הסעיף, וההשוואה נופלת.
+    """
+    from mcp_server.handlers import apply_line_range
+
+    source = "﻿# כותרת\r\nפתיחה\r\n\r\n## תת\r\nגוף\r\n"
+    doc = md_parser.parse_document(source)
+
+    assert [s.title for s in doc.sections] == ["כותרת", "תת"]
+    for sec in doc.sections:
+        start, end = doc_sections.section_bounds(doc, sec, True)
+        expected = apply_line_range(source, start, end)["text"]
+        assert doc_sections.section_text(doc, sec, True) == expected, sec.title
+        # ו-``approx_bytes`` הוא הגודל האמיתי של אותו קטע, לא של גרסה מנורמלת.
+        toc_row = next(r for r in doc_sections.build_toc(doc) if r["title"] == sec.title)
+        assert toc_row["approx_bytes"] == len(expected.encode("utf-8"))
+    # הבדיקה שאינה תלויה באף מימוש: התווים שהנרמול היה מוחק עדיין שם.
+    first = doc_sections.section_text(doc, doc.sections[0], True)
+    assert first.startswith("﻿# כותרת\r")
 
 
 def test_counting_lines_is_not_enough_to_catch_the_lone_cr():
