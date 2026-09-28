@@ -52,6 +52,41 @@ MAX_CHARS_MIN = 500
 #: ולא את מספר הבקשות.
 MAX_PATH_CHARS = 4096
 
+#: תקרת אורך ל-``section``, בתווים (``len`` של פייתון — נקודות קוד), כמו
+#: :data:`MAX_PATH_CHARS`. ארוך ממנה נדחה ב-``section_too_long`` עם
+#: ``max_chars`` ו-``actual_chars`` — אותם שמות שדות כמו ``path_too_long``.
+#:
+#: **מה נמדד (2026-09-28, על ``docs/mcp-server.rst``, 61 סעיפים):** ההתאמה של
+#: שאילתה שאינה נמצאת — השוואה מלאה, ואז ההצעות של ``difflib`` מול כל כותרת —
+#: גדלה עם אורך השאילתה, והשאילתה חוזרת במלואה ב-``requested``. ‏90 תווים:
+#: 1.7ms ותשובה של 21,048 בתים. ‏4,096: 2.8ms ו-25,054. ‏170,000 תווים עבריים:
+#: 82.8ms ו-360,958 בתים. ‏1,000,000 תווים: 321ms ו-1,020,958 בתים. גוף בקשה
+#: יכול לשאת את זה (``DEFAULT_MAX_REQUEST_BYTES`` הוא 1MiB), ושני דברים נשברים
+#: בלי התקרה: התשובה עוברת את ``OUTPUT_BYTE_BUDGET`` (256,000) שאף תשובה אחרת
+#: של כלי קריאה אינה עוברת, והטענה ש-``DEFAULT_RATE_LIMIT_PER_MINUTE`` שומר
+#: עליה — שקריאה אחת אינה עולה יותר מ-``WORST_CASE_CPU_SECONDS`` — מפסיקה
+#: להחזיק, כי ההתאמה מתווספת על הפרסור.
+#:
+#: **והמספר נגזר ממדידה ולא נבחר.** הכותרת הארוכה ביותר: 71 תווים בעמודי ה-RST
+#: של ``docs/``, ‏87 בקובצי ה-Markdown של הריפו הזה (623 ב-README מסופק תחת
+#: ``node_modules/`` — כותרת שנושאת קישור HTML), ו-90 ב-``amir-bug-patterns``.
+#: בקבצים השמורים (``code_snippets``, 1,082 מסמכי Markdown כולל סל המיחזור,
+#: קריאה בלבד) — כותרת ATX של עד 292 תווים, וחסם עליון שמרני של 1,219: הוא סופר
+#: גם רצף שורות לפני קו setext כאילו היה כותרת אחת, והרצפים המובילים שם הם בלוקי
+#: YAML ו-front matter ולא כותרות. 4,096 הוא פי 3.36 מהחסם השמרני — אפס כותרות
+#: אמיתיות נחסמות — ובו ההתאמה עולה 2.8ms והתשובה 25KB.
+#:
+#: **הבדיקה בפונקציה שבונה את התשובה** (:func:`_answer_from_document`), כדי ש-
+#: ``codekeeper_docs_get_section``, ``codekeeper_read_batch`` ו-
+#: ``codekeeper_get_file`` יקבלו אותה ממקום אחד. היא רצה אחרי הקריאה והפרסור:
+#: שניהם חסומים בתקרות משלהם ומתומחרים בחשבון של מגבלת הקצב, ומה שהתקרה הזו
+#: מונעת הוא העבודה שמתווספת **עליהם**. ו-``section`` ריק או רווחים בלבד אינו
+#: חריג: המבחן הוא האורך, לא התוכן.
+#:
+#: זו הקטנת משטח ולא תחליף להגבלת קצב: היא חוסמת את ההגברה לכל בקשה, ולא את
+#: מספר הבקשות.
+MAX_SECTION_CHARS = 4_096
+
 DEFAULT_DOCS_REPO = "CodeBot"
 _TOC_MAX = 400  # תקרת פריטי TOC בתשובה (הגנת גודל)
 
@@ -670,16 +705,24 @@ def _answer_from_document(
     ארבע הצורות: ``toc`` כשאין ``section``; ``section_not_found`` עם הצעות;
     ``ambiguous_section`` עם מועמדים; ו-``section`` עם התוכן, השכנים
     ותת-הסקשנים. ``context`` הוא ``repo``/``path``/``ref``/``resolved_commit``
-    שכל תשובה נושאת.
+    שכל תשובה נושאת — או ``file`` כשהקורא הוא ``codekeeper_get_file``. ולפניהן
+    סירוב חמישי, ``section_too_long`` (ראו :data:`MAX_SECTION_CHARS`).
     """
-    toc_items, toc_truncated = _toc(doc)
-
     # ``includes`` הוא שדה של פארסר: ``rst_parser`` ממלא אותו מיעדי
     # ``.. include::``, ול-Markdown אין צורה כזאת ולכן הוא **תמיד ריק**.
     # הוא נשאר ללא תנאי — אפס כאן אינו "לא בדקנו" אלא "אין מה לבדוק",
     # והשמטה הייתה שוברת קורא שכותב ``res["includes"]`` וגם הייתה מקום
     # שלישי שבו סמנטיקת הסיומת חיה.
     base: dict[str, Any] = {"ok": True, **context, "includes": list(doc.includes)}
+
+    # **לפני כל עבודה שגדלה עם ``section``** — ההתאמה, ההצעות, וההד ב-``requested``.
+    # בלי ``requested`` ובלי TOC: התשובה אינה מהדהדת את מה שנדחה בגלל גודלו.
+    if section is not None and len(section) > MAX_SECTION_CHARS:
+        base.update({"ok": False, "error": "section_too_long",
+                     "max_chars": MAX_SECTION_CHARS, "actual_chars": len(section)})
+        return base
+
+    toc_items, toc_truncated = _toc(doc)
 
     # בלי section → עץ כותרות (הכלי משמש גם לניווט)
     if not (section or "").strip():

@@ -661,6 +661,25 @@ async def test_mixed_line_endings_and_too_many_headings_are_refused_by_name(monk
     }
 
 
+async def test_a_section_longer_than_the_ceiling_is_refused_as_in_the_docs_tool(monkeypatch):
+    """``section_too_long`` מגיע גם לכאן, מאותה פונקציה — ``_answer_from_document``.
+
+    התשובה נושאת את ``file`` ולא ``hint``: היא סירוב של השאלה, לא של הקובץ, והקובץ
+    קריא בכל מצב. באורך התקרה בדיוק השאילתה מגיעה להתאמה.
+
+    מוטציה שמפילה: להסיר את בדיקת האורך מ-``_answer_from_document`` — התשובה היא
+    ``section_not_found`` עם הד של השאילתה.
+    """
+    mcp = _build(monkeypatch)
+    ceiling = docs_handlers.MAX_SECTION_CHARS
+
+    assert await _call(mcp, file_name=_MD_NAME, section="K" * (ceiling + 1)) == {
+        "ok": False, "file": _meta(), "includes": [], "error": "section_too_long",
+        "max_chars": ceiling, "actual_chars": ceiling + 1}
+    at_the_ceiling = await _call(mcp, file_name=_MD_NAME, section="K" * ceiling)
+    assert at_the_ceiling["error"] == "section_not_found"
+
+
 def test_the_request_nets_refuse_what_the_schema_would_have_stopped():
     """רשת מאחורי הסכימה, לקורא שאינו עובר בה — ``handlers`` ו-backend באותה פונקציה.
 

@@ -251,6 +251,9 @@ _IDENTITY_CASES = [
      ("codekeeper_docs_get_section", {"repo": _MD, "path": "../etc/passwd"})),
     ({"kind": "section", "repo": _MD, "path": "a" * 5000},
      ("codekeeper_docs_get_section", {"repo": _MD, "path": "a" * 5000})),
+    ({"kind": "section", "repo": _MD, "path": "CRITICAL-PATTERNS", "section": "K" * 5000},
+     ("codekeeper_docs_get_section",
+      {"repo": _MD, "path": "CRITICAL-PATTERNS", "section": "K" * 5000})),
     ({"kind": "section", "repo": "not-allowed", "path": "x"},
      ("codekeeper_docs_get_section", {"repo": "not-allowed", "path": "x"})),
     ({"kind": "section", "repo": _MD, "path": ""},
@@ -307,8 +310,9 @@ async def _assert_identical(world: _World, cases: list) -> None:
 async def test_every_section_item_is_byte_identical_to_the_single_tool(tmp_path, monkeypatch):
     """הצלחה, TOC, ``section_not_found``, ``ambiguous_section``, ``not_found``,
     ``path_denied``, ``suffix_not_allowed``, ``path_outside_root``, ``path_too_long``,
-    ``repo_not_allowed``, ``missing_path``, ``inconsistent_line_endings``, ריפו ברירת
-    המחדל, ו-RST — כולם באותו באץ', וכולם זהים לכלי הבודד.
+    ``section_too_long``, ``repo_not_allowed``, ``missing_path``,
+    ``inconsistent_line_endings``, ריפו ברירת המחדל, ו-RST — כולם באותו באץ', וכולם
+    זהים לכלי הבודד.
 
     **מוטציה שמפילה:** להפוך שגיאת פריט לשגיאה של הקריאה כולה — הבאץ' כולו היה
     חוזר ``ok: false`` בלי ``items``.

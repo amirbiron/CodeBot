@@ -1089,6 +1089,23 @@ async def test_the_docs_tool_description_names_both_formats_and_points_at_path()
     assert "docs/*.rst" not in description
 
 
+def test_the_section_param_doc_states_the_length_ceiling_from_the_constant():
+    """התיאור נוקב בתקרת האורך של ``section`` — נשתלת מ-``MAX_SECTION_CHARS``, לא מוקלדת.
+
+    אותה צורה כמו הבדיקה על ``MAX_IDENTIFIER_SUGGESTIONS`` למטה. והתיאור של
+    ``codekeeper_get_file`` משבץ את אותו טקסט, ולכן נושא אותה תקרה.
+
+    מוטציה שמפילה: לכתוב ``4096`` כטקסט בתיאור ולשנות את הקבוע.
+    """
+    from mcp_server import docs_handlers
+    from mcp_server.server import _FILE_SECTION_DOC, _SECTION_PARAM_DOC
+
+    stated = (f"longer than {docs_handlers.MAX_SECTION_CHARS} characters is refused as "
+              "section_too_long")
+    assert stated in _SECTION_PARAM_DOC
+    assert stated in _FILE_SECTION_DOC
+
+
 async def test_the_section_param_doc_covers_markdown_inline_markup_too():
     """הכלל "הכותרת חוזרת כטקסט מקור" נאמר לשני הפורמטים ולא רק ל-RST.
 

@@ -325,7 +325,9 @@ _SECTION_PARAM_DOC = (
     f"{doc_sections.MAX_IDENTIFIER_SUGGESTIONS}; "
     "suggestions_truncated says so when it was cut). So an identifier query "
     "can come back with a heading rather than with identifiers — do not read "
-    "the field as always being identifiers."
+    "the field as always being identifiers. A section longer than "
+    f"{docs_handlers.MAX_SECTION_CHARS} characters is refused as "
+    "section_too_long, with max_chars and actual_chars, before any matching."
 )
 
 
