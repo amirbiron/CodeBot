@@ -102,3 +102,19 @@ def test_insert_one_reports_the_inserted_id(coll):
     res = coll.insert_one({"a": 3})
     assert res.inserted_id is not None
     assert coll.find_one({"_id": res.inserted_id})["a"] == 3
+
+
+def test_with_options_reads_the_same_documents_and_takes_pymongos_keywords(coll):
+    """``with_options`` מחזיר מבט על **אותם** מסמכים, ומקבל רק את שמות הפרמטרים של pymongo.
+
+    הקריאה החוזרת אחרי שמירה (``Repository.find_version_by_id``) עוברת דרכו כדי לבקש
+    ``PRIMARY``. בלעדיו הדמה זרקה ``AttributeError``, ושם פרמטר שגוי היה עובר כאן
+    בשקט ונופל רק מול מונגו אמיתי.
+    """
+    from pymongo import ReadPreference
+
+    view = coll.with_options(read_preference=ReadPreference.PRIMARY)
+    res = coll.insert_one({"a": 3})
+    assert view.find_one({"_id": res.inserted_id})["a"] == 3
+    with pytest.raises(TypeError):
+        coll.with_options(readPreference=ReadPreference.PRIMARY)

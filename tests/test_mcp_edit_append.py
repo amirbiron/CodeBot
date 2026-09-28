@@ -18,13 +18,16 @@ class _EditBackend:
     def get_file(self, user_id, *, file_name, file_id=None, version=None):
         return self.doc
 
-    def save_file(self, user_id, *, file_name, code, programming_language, description, tags=None):
+    def save_file(
+        self, user_id, *, file_name, code, programming_language, description, tags=None, tool
+    ):
         self.saved = {
             "file_name": file_name,
             "code": code,
             "programming_language": programming_language,
             "description": description,
             "tags": tags,
+            "tool": tool,
         }
         return {"ok": True, "created": False, "file": {"file_name": file_name, "version": 4}}
 
@@ -83,6 +86,8 @@ def test_edit_file_replaces_and_preserves_metadata():
     assert be.saved["programming_language"] == "markdown"
     assert be.saved["description"] == "notes"
     assert be.saved["tags"] == ["t1"]
+    # The tool name the write is logged under when what was stored differs.
+    assert be.saved["tool"] == "codekeeper_edit_file"
 
 
 def test_edit_file_ambiguous_reports_occurrences_and_saves_nothing():
@@ -133,6 +138,7 @@ def test_append_inserts_newline_separator_when_missing():
     out = handlers.append_file(be, 7, file_name="notes.md", content="line two")
     assert out["ok"] is True and out["appended_chars"] == len("line two")
     assert be.saved["code"] == "line one\nline two"
+    assert be.saved["tool"] == "codekeeper_append_file"
 
 
 def test_append_no_double_newline_when_body_ends_with_one():

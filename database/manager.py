@@ -2875,6 +2875,14 @@ class DatabaseManager:
     def save_code_snippet(self, snippet) -> bool:
         return self._get_repo().save_code_snippet(snippet)
 
+    def save_code_snippet_returning_id(self, snippet) -> Optional[Any]:
+        """ה-``_id`` שנכתב, או ``None`` בכשל — ראו ``Repository``."""
+        return self._get_repo().save_code_snippet_returning_id(snippet)
+
+    def find_version_by_id(self, doc_id: Any, user_id: int) -> Optional[Dict]:
+        """מסמך הגרסה לפי ``_id`` ו-``user_id``, מה-primary ובלי קאש — ראו ``Repository``."""
+        return self._get_repo().find_version_by_id(doc_id, user_id)
+
     def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags: Optional[List[str]] = None) -> bool:
         return self._get_repo().save_file(user_id, file_name, code, programming_language, extra_tags)
 
