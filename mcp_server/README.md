@@ -38,7 +38,7 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 |-----|-------|
 | `codekeeper_list_files` | רשימת קבצים (מטא‑דאטה בלבד), עם עימוד |
 | `codekeeper_search_code` | חיפוש טקסט בקוד → מטא‑דאטה של קבצים תואמים |
-| `codekeeper_get_file` | תוכן מלא של קובץ לפי `file_name` או `file_id` (אופציונלי: גרסה). `lines=[start, end]` מחזיר רק את הטווח; `query="..."` מחזיר את **המופעים** של המחרוזת בקובץ במקום את התוכן, בצורת התשובה של `codekeeper_search_repo` (`count`/`total`/`results` עם `line` ו-`snippet`, ו-`context_lines`). שני הפרמטרים יחד נדחים כ-`query_and_lines` |
+| `codekeeper_get_file` | תוכן מלא של קובץ לפי `file_name` או `file_id` (אופציונלי: גרסה). `lines=[start, end]` מחזיר רק את הטווח; `query="..."` מחזיר את **המופעים** של המחרוזת בקובץ במקום את התוכן, בצורת התשובה של `codekeeper_search_repo` (`count`/`total`/`results` עם `line` ו-`snippet`, ו-`context_lines`). ובקובץ Markdown: `toc=true` מחזיר את מפת הכותרות, ו-`section="..."` סעיף אחד עם `breadcrumb`, טווח שורות, תת-סעיפים ושכנים (עימוד ב-`max_chars`/`offset`, וכל עמוד בתוך `OUTPUT_BYTE_BUDGET` בבתים — עמוד של תווים רחבים נגמר מוקדם, עם `truncation_reason: "byte_budget"`; והמפה, ההצעות והמועמדים נחתכים מהסוף לאותו תקציב, עם הדגל `*_truncated` שלהם) — אותן פונקציות של `codekeeper_docs_get_section`. ארבעת המצבים אינם מצטברים, וכל זוג נדחה בקוד משלו (`query_and_lines`, `toc_and_section`, `section_and_query` וכו'); קובץ שאינו Markdown — `not_markdown`, וקובץ מעל `MAX_FILE_SIZE_FOR_DISPLAY` בבתים של UTF-8 — `too_large_for_sections`. ראו `docs/mcp-server.rst` ("קריאה לפי סעיף בקובץ Markdown שמור") |
 | `codekeeper_save_file` | **כתיבה:** יצירת קובץ **חדש** בלבד — שם שכבר תפוס נדחה ב‑`file_exists`, ולעדכון קובץ קיים יש `codekeeper_edit_file`/`codekeeper_append_file` (תוכן) או `codekeeper_update_file_description` (תיאור). בכפוף ל‑`MAX_CODE_SIZE`, ברירת מחדל 100K תווים וניתן להגדלה. דורש `write` |
 | `codekeeper_edit_file` | **כתיבה:** מצא‑והחלף מדויק (`old_string`→`new_string`, אופציונלית `replace_all`) בלי לשלוח את כל הקובץ; גרסה חדשה, משמר שפה/תיאור/תגיות. דורש `write` |
 | `codekeeper_append_file` | **כתיבה:** הוספת טקסט לסוף קובץ קיים (מוסיף שורת‑הפרדה אם צריך); גרסה חדשה. דורש `write` |
@@ -59,7 +59,7 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_get_collection` | אוסף בודד לפי id |
 | `codekeeper_get_collection_items` | הקבצים בתוך אוסף (עם עימוד/סינון תיקייה) |
 | `codekeeper_add_to_collection` | **כתיבה:** שיוך קובץ שמור קיים לאוסף קיים. `save_file` **אינו** משייך — זו הקריאה השנייה שמשלימה אותו. נכשל במפורש כשהאוסף או הקובץ אינם קיימים. דורש `write` |
-| `codekeeper_docs_get_section` | סקשן בודד מקובץ תיעוד — RST (`docs/*.rst`) או Markdown (בריפו שמגיש `.md`, כמו `amir-bug-patterns`) — במקום קובץ שלם; בלי `section` מחזיר עץ כותרות. כולל breadcrumb/תת‑סקשנים/שכנים לניווט. **קובץ שלם:** `section` עם הכותרת הראשונה בעץ מחזיר את תת‑העץ שלה (תת‑הסקשנים כלולים כברירת מחדל; כל הקובץ כשהוא כולו תחת כותרת עליונה אחת, כמו קובצי `bugbot-rules`), מדופדף כמו כל סעיף — כל עוד `truncated` הוא `true` ממשיכים מ‑`next_offset` — או, לאדמין, `codekeeper_get_repo_file`. עדיף על `codekeeper_get_repo_file` לקריאת תיעוד לפי סעיפים |
+| `codekeeper_docs_get_section` | סקשן בודד מקובץ תיעוד — RST (`docs/*.rst`) או Markdown (בריפו שמגיש `.md`, כמו `amir-bug-patterns`) — במקום קובץ שלם; בלי `section` מחזיר עץ כותרות. כולל breadcrumb/תת‑סקשנים/שכנים לניווט. **קובץ שלם:** `section` עם הכותרת הראשונה בעץ מחזיר את תת‑העץ שלה (תת‑הסקשנים כלולים כברירת מחדל; כל הקובץ כשהוא כולו תחת כותרת עליונה אחת, כמו קובצי `bugbot-rules`), מדופדף כמו כל סעיף — כל עוד `truncated` הוא `true` ממשיכים מ‑`next_offset`, וכל עמוד בתוך `OUTPUT_BYTE_BUDGET` בבתים (וגם עץ הכותרות, ההצעות והמועמדים, שנחתכים מהסוף) — או, לאדמין, `codekeeper_get_repo_file`. עדיף על `codekeeper_get_repo_file` לקריאת תיעוד לפי סעיפים |
 
 > **היסטוריית פתקים.** כל עדכון **שמשנה** את ה‑`content` שומר את הגוף הקודם באוסף
 > `sticky_note_versions` **לפני** הדריסה — עד 20 גרסאות לפתק (עדכון עם תוכן זהה אינו
@@ -295,7 +295,7 @@ Health check:   /healthz
 - הארגומנטים והתוצאות של הכלים (`$mcp_parameters`, `$mcp_response`) **אינם** נשלחים בשום מסלול — `analytics.py` מחזיק רשימת היתר של מאפייני `$mcp_*`, ומחליף כל `$exception_list[*].value` בכל אירוע (כולל חריגות שנתפסות ב-`threading.excepthook`).
 - **כן** נשלחים שני שדות של טקסט חופשי, ורק כשהערך מחרוזת **ואחרי סינון סודות**: `$mcp_intent` (המשפט של הסוכן) ו-`$mcp_error_message` (הודעת החריגה, על כל סוג שגיאה). הסינון הוא `mcp_server/redaction.py` — אותה רשימת דפוסים שמסננת את הפריימר, במודול אחד ששניהם מייבאים. הוא תופס כל צורת סוד מוכרת בכל מקום במחרוזת, אבל הכלל לפי *שם* (`API_KEY=…`) מעוגן לתחילת שורה ולכן אינו יורה על הודעה חד-שורתית. הוא מצמצם חשיפה ואינו הופך את השדות לבטוחים — האזהרה המלאה והמדידה שמאחוריה: `docs/mcp-server.rst`.
 - `$mcp_intent_source` נאכף כתווית סגורה: `context_parameter` או `inferred`, ותו לא.
-- `ck_read_mode` הוא מאפיין משלנו: `outline` / `range` / `full`, נגזר מ**נוכחות** הפרמטרים ולא מערכיהם, ונאכף בשער מול קבוצה סגורה.
+- `ck_read_mode` הוא מאפיין משלנו: `outline` / `section` / `query` / `range` / `full`, נגזר מ**נוכחות** הפרמטרים ולא מערכיהם, ונאכף בשער מול קבוצה סגורה. `toc=true` של `codekeeper_get_file` מתויג `outline`. הדשבורד (`ck_mcp_navigation_cost_v2`) סופר את עמודות האאוטליין וקריאת התוכן רק ל-`codekeeper_get_repo_file`.
 
 ---
 

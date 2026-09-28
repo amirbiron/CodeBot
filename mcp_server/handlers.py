@@ -43,6 +43,11 @@ DEFAULT_MAX_CODE_SIZE = 100_000
 # — בלי ``prefixItems``, ולכן בלי סיכון תאימות מול לקוחות.
 StrictInt = Annotated[int, Field(strict=True)]
 StrictLines = Annotated[list[StrictInt], Field(strict=True)]
+# אותה הגנה לדגל בוליאני, מאותה סיבה. נמדד מול ``mcp 1.28.1`` ו-``pydantic 2.12.3``
+# דרך ``FastMCP.call_tool``: ``bool`` רגיל מקבל ``"true"``, ``"yes"`` ו-``1`` ומחזיר
+# ``True`` בשקט, ו-``strict`` דוחה את שלושתם בשגיאת ולידציה. הסכימה שהלקוח רואה
+# זהה בשתי הצורות — ``{"type": "boolean", "default": false}``.
+StrictBool = Annotated[bool, Field(strict=True)]
 
 # קודי השגיאה של קריאת טווח. אותם קודים בדיוק בשני הכלים.
 LINE_RANGE_INVALID = "invalid_line_range"
@@ -68,6 +73,62 @@ QUERY_MULTILINE = "query_multiline"
 # ולא אחד, כדי שהקורא ידע איזה משני הפרמטרים נדחה.
 CONTEXT_LINES_WITHOUT_QUERY = "context_lines_without_query"
 MAX_RESULTS_WITHOUT_QUERY = "max_results_without_query"
+
+# קודי השגיאה של קריאה לפי סעיף (``codekeeper_get_file`` עם ``section`` או
+# ``toc``). **קוד לכל זוג מצבים ולא קוד אחד לכולם**, מאותה סיבה ש-
+# ``QUERY_AND_LINES`` קיים: הקורא צריך לדעת **איזה** שניים מהפרמטרים שלו אינם
+# מצטברים, ולא רק ש"משהו התנגש". ארבעת מצבי הקריאה — ``toc``, ``section``,
+# ``query`` ו-``lines`` — אינם מצטברים אף אחד עם אחר.
+TOC_AND_SECTION = "toc_and_section"
+TOC_AND_QUERY = "toc_and_query"
+TOC_AND_LINES = "toc_and_lines"
+SECTION_AND_QUERY = "section_and_query"
+SECTION_AND_LINES = "section_and_lines"
+
+#: כל זוג מצבים שאינם מצטברים, **בסדר שבו הם נבדקים** — בקשה שנוקבת בשלושה
+#: מצבים מקבלת את הזוג הראשון כאן שתואם, ותמיד אותו אחד. ``QUERY_AND_LINES``
+#: אחרון, וזה לא משנה דבר לבקשה שנוקבת רק בשניהם: היא מקבלת אותו כמו קודם.
+_EXCLUSIVE_READ_MODES = (
+    ("toc", "section", TOC_AND_SECTION),
+    ("toc", "query", TOC_AND_QUERY),
+    ("toc", "lines", TOC_AND_LINES),
+    ("section", "query", SECTION_AND_QUERY),
+    ("section", "lines", SECTION_AND_LINES),
+    ("query", "lines", QUERY_AND_LINES),
+)
+
+# ``max_chars`` ו-``offset`` מעמדים **סעיף**, ובלי ``section`` אין מה לעמד — אותה
+# הכרעה בדיוק כמו ``CONTEXT_LINES_WITHOUT_QUERY``: פרמטר שהתקבל ונזרק הוא
+# התעלמות שקטה. שני קודים ולא אחד, כדי שהקורא ידע איזה מהשניים נדחה.
+MAX_CHARS_WITHOUT_SECTION = "max_chars_without_section"
+OFFSET_WITHOUT_SECTION = "offset_without_section"
+
+# ``section`` שאינו מחרוזת — רשת מאחורי הסכימה, כמו ``QUERY_INVALID``. ו-``section``
+# ריק או רווחים בלבד **אינו** "בלי ``section``": ב-``codekeeper_docs_get_section``
+# הוא מחזיר את מפת הכותרות, אבל כאן המפה היא מצב נפרד (``toc=true``), וקריאה
+# שביקשה סעיף ולא נקבה באף כותרת מקבלת סירוב שמפנה אליה — לא מפה בשקט.
+SECTION_INVALID = "invalid_section"
+SECTION_EMPTY = "empty_section"
+# ``toc`` שאינו ``bool`` — רשת מאחורי ``StrictBool``, לקורא שאינו עובר בסכימה.
+TOC_INVALID = "invalid_toc"
+
+# הסירובים שקורים **אחרי** קריאת הקובץ, כשהבקשה עצמה תקינה: הקובץ אינו Markdown,
+# או שהוא גדול מכדי לפרסר אותו. ``too_large_for_sections`` ולא ``too_large`` של
+# מראת הריפואים: שם ``status`` הוא הצלחה בלי תוכן, וכאן זה סירוב של המצב בלבד —
+# הקובץ עצמו קריא, בקריאה מלאה או ב-``lines``.
+NOT_MARKDOWN = "not_markdown"
+TOO_LARGE_FOR_SECTIONS = "too_large_for_sections"
+
+#: ההפניה שכל סירוב של מצב הסעיפים נושא כשהקובץ עצמו קריא — ``not_markdown``,
+#: ``too_large_for_sections`` וסירובי הפרסר. **בקובץ שמור אין ריפו לתקן בו**:
+#: ``inconsistent_line_endings`` ב-``codekeeper_docs_get_section`` מפנה בפועל
+#: לתיקון הקובץ, וכאן מה שהקורא יכול לעשות מיד הוא לקרוא בדרך אחרת.
+SECTIONS_UNAVAILABLE_HINT = 'read this file with lines=[start, end] or query="..." instead'
+
+#: הפניה לסירובי צורת הבקשה, רק היכן שיש לקורא צעד ברור אחד.
+_REQUEST_ERROR_HINTS = {
+    SECTION_EMPTY: "pass toc=true for the heading map, then one of its titles as section",
+}
 
 # התקרות של חיפוש בתוך קובץ. **אותם מספרים בדיוק** כמו ב-
 # ``repo_handlers.SEARCH_RESULTS_DEFAULT`` / ``SEARCH_RESULTS_MAX`` /
@@ -225,15 +286,43 @@ def file_query_error(query: Any) -> str | None:
     return None
 
 
-def file_query_request_error(
-    *, query: Any, lines: Any, context_lines: Any, max_results: Any
-) -> str | None:
-    """קוד השגיאה של **צורת הבקשה**, או ``None`` אם היא תקינה.
+def file_section_error(section: Any) -> str | None:
+    """קוד השגיאה של ``section`` עצמו, או ``None`` כשהוא שמיש.
 
-    כל הסירובים של משפחת ``query`` במקום אחד, כדי שיהיה להם בעל בית יחיד
-    ולא שני עותקים שיכולים להיפרד. שתי השכבות קוראות לה: ``get_file`` כאן,
-    ו-:meth:`ProductionBackend.get_file` בראש המתודה — כך שגם קורא שאינו
-    עובר דרך שכבת ה-handlers מקבל סירוב ולא התעלמות שקטה מאחד הפרמטרים.
+    אותו כיוון כמו :func:`file_query_error`, ומאותה סיבה ``isinstance`` ולא
+    הסתמכות על הסכימה — רשת לקורא שאינו עובר דרכה. ו-``section`` ריק או רווחים
+    בלבד נדחה, ולא נקרא כ"בלי ``section``": ראו ``SECTION_EMPTY``.
+
+    **מה שאינו כאן: תקרת האורך.** היא נבדקת בפונקציה המשותפת שעונה על הסעיף
+    (``mcp_server/docs_handlers.py``), כדי ש-``codekeeper_docs_get_section``,
+    ``codekeeper_read_batch`` וכלי הקבצים יקבלו אותה ממקום אחד.
+    """
+    if not isinstance(section, str):
+        return SECTION_INVALID
+    if not section.strip():
+        return SECTION_EMPTY
+    return None
+
+
+def file_read_request_error(
+    *,
+    query: Any,
+    lines: Any,
+    context_lines: Any,
+    max_results: Any,
+    section: Any = None,
+    toc: Any = False,
+    max_chars: Any = None,
+    offset: Any = None,
+) -> str | None:
+    """קוד השגיאה של **צורת הבקשה** של ``codekeeper_get_file``, או ``None`` אם היא תקינה.
+
+    כל הסירובים של צורת הבקשה — ``query``, ``lines``, ``section`` ו-``toc`` —
+    במקום אחד, כדי שיהיה להם בעל בית יחיד ולא שני עותקים שיכולים להיפרד.
+    שתי השכבות קוראות לה: ``get_file`` כאן, ו-:meth:`ProductionBackend.get_file`
+    בראש המתודה — כך שגם קורא שאינו עובר דרך שכבת ה-handlers מקבל סירוב ולא
+    התעלמות שקטה מאחד הפרמטרים. (עד PR ג של "קריאה לפי סעיף" היא נקראה
+    ``file_query_request_error``, כשהיא כיסתה רק את משפחת ``query``.)
 
     **הבדיקה הזו קודמת לשאלה איזה קובץ התבקש**, ובכוונה. בקשה פגומה פגומה
     בלי קשר לקובץ שהיא נוקבת בו, וקריאה בלי ``file_name`` ובלי ``file_id``
@@ -241,10 +330,32 @@ def file_query_request_error(
     וגם העביר ``query`` יחד עם ``lines`` היה מקבל "הקובץ אינו קיים" על קריאה
     שלא נקבה בשום קובץ, והולך לחפש קובץ במקום לתקן את הקריאה.
 
+    **הסדר, והוא אינו שרירותי:** זוגות מצבים שאינם מצטברים
+    (``_EXCLUSIVE_READ_MODES``), ואחריהם פרמטרים שבאו בלי המצב שלהם, ורק בסוף
+    הערך של כל מצב. זה הסדר שהיה כאן למשפחת ``query`` לפני שהמצבים האחרים
+    נוספו — ``query`` ריק יחד עם ``lines`` הוא ``query_and_lines`` ולא
+    ``query_too_short`` — ולכן אף בקשה שנשלחה לפני התוספת אינה מקבלת תשובה
+    אחרת. ``toc`` שאינו ``bool`` נדחה לפני כולם, כי בלעדיו אין איך לדעת אם
+    המצב התבקש.
+
     **מה שאינו כאן:** אימות ``lines`` לבדו. ``range_out_of_bounds`` נגזר
     מאורך הקובץ, כלומר דורש את המסמך, ופיצול אימות הטווח לשתי נקודות היה
-    גרוע משאיפתו למקום אחד. הוא נשאר ב-:func:`apply_line_range`.
+    גרוע משאיפתו למקום אחד. הוא נשאר ב-:func:`apply_line_range`. וגם מה
+    שנגזר מהקובץ עצמו — ``not_markdown``, ``too_large_for_sections`` וסירובי
+    הפרסר — נבדק ב-backend אחרי הקריאה.
     """
+    if not isinstance(toc, bool):
+        return TOC_INVALID
+    requested = {
+        "toc": toc,
+        "section": section is not None,
+        "query": query is not None,
+        "lines": lines is not None,
+    }
+    for first, second, code in _EXCLUSIVE_READ_MODES:
+        if requested[first] and requested[second]:
+            return code
+
     if query is None:
         # ``context_lines`` ו-``max_results`` מתארים **איך להציג מופעים**,
         # ובלי ``query`` אין מופעים. ``None`` פירושו "לא נשלח": ההצמדה
@@ -253,10 +364,32 @@ def file_query_request_error(
             return CONTEXT_LINES_WITHOUT_QUERY
         if max_results is not None:
             return MAX_RESULTS_WITHOUT_QUERY
-        return None
-    if lines is not None:
-        return QUERY_AND_LINES
-    return file_query_error(query)
+    if section is None:
+        # אותו היגיון בדיוק ל-``max_chars`` ול-``offset``: הם מעמדים סעיף.
+        if max_chars is not None:
+            return MAX_CHARS_WITHOUT_SECTION
+        if offset is not None:
+            return OFFSET_WITHOUT_SECTION
+
+    if query is not None:
+        return file_query_error(query)
+    if section is not None:
+        return file_section_error(section)
+    return None
+
+
+def file_read_refusal(code: str) -> dict[str, Any]:
+    """תשובת הסירוב על קוד שהחזירה :func:`file_read_request_error` — אותה צורה בשתי השכבות.
+
+    ``{"ok": False, "error": code}``, ועם ``hint`` רק כשיש לקורא צעד ברור אחד
+    (``_REQUEST_ERROR_HINTS``). פונקציה אחת ולא שני מילונים שנבנים ביד, כדי
+    שההפניה לא תופיע בשכבה אחת ותיעדר בשנייה.
+    """
+    refusal: dict[str, Any] = {"ok": False, "error": code}
+    hint = _REQUEST_ERROR_HINTS.get(code)
+    if hint:
+        refusal["hint"] = hint
+    return refusal
 
 
 def scan_file_query(
@@ -387,17 +520,28 @@ def get_file(
     query: Any = None,
     context_lines: Any = None,
     max_results: Any = None,
+    section: Any = None,
+    toc: Any = False,
+    max_chars: Any = None,
+    offset: Any = None,
 ) -> dict[str, Any] | None:
     # **צורת הבקשה נבדקת לפני השאלה איזה קובץ התבקש.** ראו
-    # :func:`file_query_request_error` — שם גם הנימוק, וגם מה שאינו שם.
+    # :func:`file_read_request_error` — שם גם הנימוק, וגם מה שאינו שם.
     # אותה פונקציה בדיוק נקראת שוב בראש ``ProductionBackend.get_file``,
     # כדי שקורא שאינו עובר דרך כאן יקבל את אותו סירוב; היא טהורה, ולכן
     # הקריאה הכפולה עולה השוואה אחת ולא נגיעה במסד.
-    request_error = file_query_request_error(
-        query=query, lines=lines, context_lines=context_lines, max_results=max_results
+    request_error = file_read_request_error(
+        query=query,
+        lines=lines,
+        context_lines=context_lines,
+        max_results=max_results,
+        section=section,
+        toc=toc,
+        max_chars=max_chars,
+        offset=offset,
     )
     if request_error:
-        return {"ok": False, "error": request_error}
+        return file_read_refusal(request_error)
     if not file_name and not file_id:
         return None
     # ההצמדה יושבת כאן ולא ב-backend, כמו כל שאר ההצמדות בשכבה הזו: ערך מחוץ
@@ -422,6 +566,14 @@ def get_file(
             if max_results is None
             else _clamp(max_results, 1, QUERY_RESULTS_MAX, QUERY_RESULTS_DEFAULT)
         ),
+        # ``max_chars`` ו-``offset`` עוברים **כמות שהם**, ובלי הצמדה כאן. הם נצמדים
+        # בפונקציה שעונה על הסעיף — ``docs_handlers.answer_section``, אותה אחת ש-
+        # ``codekeeper_docs_get_section`` עובר בה — והצמדה שנייה כאן הייתה עותק של
+        # אותם גבולות. ``None`` נשמר מאותה סיבה כמו ``context_lines``.
+        section=section,
+        toc=toc,
+        max_chars=max_chars,
+        offset=offset,
     )
 
 

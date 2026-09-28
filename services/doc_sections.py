@@ -108,6 +108,20 @@ from typing import List, NamedTuple, Optional, Tuple
 #: מ-``mcp_server`` — הכיוון חד-סטרי ומנומק ב-``TooManySections``.
 MAX_SECTIONS = 50_000
 
+#: תקרת אורך לכותרת בודדת, בתווים. חלה על **כל מחרוזת כותרת שנכנסת לתשובה** —
+#: הכותרת עצמה, וכל עותק שלה ב-``breadcrumb`` של הצאצאים — כי היא נאכפת במקור,
+#: על ``sec.title``, לפני ש-:func:`_finalize` בונה את ה-breadcrumbs ממנו. זה
+#: חוסם את מגבר ה-breadcrumb בשורש: כותרת-אב ארוכה חוזרת בכל צאצא, ובלי תקרה
+#: עליה מפה של קובץ Markdown עוין תופחת ללא גבול (SEC-001, סקירת Han על #3470).
+#:
+#: **אותו מספר כמו ``mcp_server.docs_handlers.MAX_SECTION_CHARS``, ומאותה סיבה:**
+#: כותרת ארוכה ממנו אינה נגישה בשמה ממילא — ``section_too_long`` דוחה שאילתה כזו
+#: לפני ההתאמה — ולכן אין טעם לשמור ממנה יותר, ובדיוק באורך הזה כותרת חתוכה עדיין
+#: נגישה בשמה. ``services`` אינו מייבא מ-``mcp_server`` (הכיוון חד-סטרי, כמו
+#: ב-:data:`MAX_SECTIONS`), ולכן שני קבועים והשוויון מקובע בטסט
+#: ``test_the_title_ceiling_equals_the_section_query_ceiling``.
+MAX_TITLE_CHARS = 4_096
+
 
 def require_str(text: object) -> str:
     """בדיקת הכניסה של שני הפארסרים: ``text`` חייב להיות מחרוזת.
@@ -156,6 +170,10 @@ class Section:
     parent: Optional[int] = None
     children: List[int] = field(default_factory=list)
     breadcrumb: List[str] = field(default_factory=list)
+    #: ``True`` כשהכותרת נחתכה ל-:data:`MAX_TITLE_CHARS` (ראו :func:`_finalize`).
+    #: מופיע בתשובה רק כשהוא ``True`` — לכותרת אמיתית (הארוכה שנמדדה: 1,219 תווים
+    #: בקבצים שמורים, 71 ב-RST) הוא לעולם לא נדלק, ולכן אפס-דיף.
+    title_truncated: bool = False
 
 
 @dataclass
@@ -292,8 +310,48 @@ class TooManyTokens(Exception):
         self.limit = limit
 
 
+def _is_dangling_mark(ch: str) -> bool:
+    """תו שאסור שיישאר בסוף כותרת חתוכה, כי אינו עומד בפני עצמו.
+
+    סימן צירוף (קטגוריה ``M``: ניקוד עברי, טעמים), ``ZWJ`` שמצפה להמשך ברצף
+    אמוג'י, או בורר-וריאציה. חיתוך שמסתיים באחד מהם משאיר אשכול שבור.
+    """
+    if ch == "‍":
+        return True
+    if "︀" <= ch <= "️" or "\U000e0100" <= ch <= "\U000e01ef":
+        return True
+    return unicodedata.category(ch).startswith("M")
+
+
+def _truncate_title(title: str) -> str:
+    """כותרת חתוכה ל-:data:`MAX_TITLE_CHARS` תווים — על גבול תו, בלי שארית תלויה.
+
+    ‏Python חותך על גבול נקודת-קוד (``str`` הוא נקודות-קוד ולא יחידות UTF-16),
+    ולכן זוג surrogate או תו CJK/אימוג'י בודד לעולם אינו נחצה. מה שכן עלול
+    להיחצות הוא אשכול מרובה-קוד — אמוג'י עם ``ZWJ``/מודיפיקטור, אות עם ניקוד —
+    ולכן מסירים שארית תלויה מהסוף (:func:`_is_dangling_mark`). הכותרת החתוכה
+    היא גם מה שנשמר וגם מה שמוצג, ולכן שאילתה שמדביקה אותה מתאימה לעצמה.
+    """
+    cut = title[:MAX_TITLE_CHARS]
+    end = len(cut)
+    while end > 0 and _is_dangling_mark(cut[end - 1]):
+        end -= 1
+    return cut[:end] or cut
+
+
 def _finalize(sections: List[Section], total_lines: int) -> None:
-    """מחשב end_line, parent/children, ו-breadcrumb לכל סקשן."""
+    """מחשב end_line, parent/children, ו-breadcrumb לכל סקשן.
+
+    **תקרת הכותרת נאכפת כאן, במקור, לפני בניית ה-breadcrumbs.** ה-breadcrumb של
+    כל צאצא נבנה מ-``sec.title`` (למטה), ולכן קיצוץ הכותרת כאן מכסה בבת אחת את
+    הכותרת עצמה, כל עותק שלה ב-breadcrumb, את ``section`` בתשובה, את ``neighbors``
+    ואת ``subsections`` — בעלים אחד (ראו :data:`MAX_TITLE_CHARS`).
+    """
+    for sec in sections:
+        if len(sec.title) > MAX_TITLE_CHARS:
+            sec.title = _truncate_title(sec.title)
+            sec.title_truncated = True
+
     for idx, sec in enumerate(sections):
         end = total_lines
         for j in range(idx + 1, len(sections)):
@@ -424,6 +482,27 @@ MAX_IDENTIFIER_SUGGESTIONS = 50
 #: מתוכו הם חמישה שרירותיים. הקורא היחיד בייצור יודע את ההבדל ומבקש
 #: במפורש (ראו למעלה); ברירת המחדל כאן משרתת קורא ישיר שרוצה רמז קצר.
 DEFAULT_SUGGESTIONS = 5
+
+#: תקרת עבודה ל-:func:`suggest` — החסם העליון על מספר זוגות-התווים ש-``difflib``
+#: משווה בקריאה אחת. ``ratio(a, b)`` עולה ‏O(len(a)·len(b)), והוא רץ **רק** על מועמד
+#: תואם-אורך לשאילתה — ``real_quick_ratio ≥ 0.5`` פירושו ``len(cand) ∈ [Q/3, 3Q]``,
+#: משם :data:`_LEN_COMPATIBLE_LO`/:data:`_LEN_COMPATIBLE_HI` (מקור: ``difflib``
+#: ‏3.11, ‏``real_quick_ratio = 2·min/(la+lb)``). מחייבים ‏``len(cand)·Q`` על כל
+#: מועמד תואם-אורך, בסדר המסמך, ועוצרים כשעברנו — עם ``suggestions_truncated``.
+#:
+#: **בלי התקרה העלות לא הייתה חסומה מול תקציב המעבד.** נמדד (2026-09-28,
+#: ``scripts/measure_call_family.py`` בסקרפצ'פאד; difflib 3.11.15): שאילתה שאינה
+#: נמצאת על קובץ 512KB של כותרות עוינות (אלפבית ~100 ששורד את ה-autojunk של
+#: ``difflib``, כותרות באורך התקרה) עלתה ~1.5 שניות-מעבד — פי 2 מ-
+#: :data:`md_parser.WORST_CASE_CPU_SECONDS`, ובמשלב עם ציטוט עמוק פי 2.4. עם התקרה
+#: תוספת ה-``suggest`` למסלול ה-not-found יורדת ל-~0.09 שניות-מעבד (המיקס הגרוע),
+#: וממנה נגזר ``DEFAULT_RATE_LIMIT_PER_MINUTE`` (ראו שם).
+#:
+#: **הערך נבחר עם מרווח גדול מעל הקורפוס האמיתי.** המטען המקסימלי שנמדד על 242
+#: קובצי ה-RST וה-md בריפו, עם כל כותרת כשאילתה, הוא 99,674 — כלומר לתקציב הזה
+#: פי ~1,500 מרווח, ו-``suggestions_truncated`` אינו נדלק על אף קובץ אמיתי (אפס-דיף
+#: על ההצעות). הוא נדלק רק על קלט עוין: כותרות ארוכות רבות תואמות-אורך לשאילתה ארוכה.
+SUGGEST_WORK_BUDGET = 150_000_000
 
 
 class Suggestions(NamedTuple):
@@ -599,14 +678,51 @@ def build_toc(doc: Document) -> List[dict]:
     toc = []
     for sec in doc.sections:
         approx = len("\n".join(doc.lines[sec.heading_line - 1:sec.end_line]).encode("utf-8"))
-        toc.append({
+        entry = {
             "title": sec.title,
             "level": sec.level,
             "breadcrumb": list(sec.breadcrumb),
             "line_range": [sec.heading_line, sec.end_line],
             "approx_bytes": approx,
-        })
+        }
+        # מותנה, ולא ``False`` תמידי — לכותרת אמיתית הוא לא נדלק, ואפס-דיף נשמר.
+        if sec.title_truncated:
+            entry["title_truncated"] = True
+        toc.append(entry)
     return toc
+
+
+#: הסף של ``difflib`` בבחירת הצעות — **בעלים אחד** (R6): גם הקריאה ל-
+#: ``get_close_matches`` וגם גזירת טווח תואמי-האורך למטה נגזרות ממנו, אחרת שינוי הסף
+#: היה מסיט את השניים (עותק שני של כלל שנסחף).
+_SUGGEST_CUTOFF = 0.5
+
+#: הגבולות שבהם ``real_quick_ratio ≥ _SUGGEST_CUTOFF`` — כלומר שבהם ``ratio()`` **יכול**
+#: לרוץ. ‏``real_quick_ratio = 2·min(la, lb)/(la+lb)``; הצבת ``la=len(cand)``, ``lb=Q``
+#: ופתרון ל-``≥ c`` נותן ``c/(2-c) ≤ len(cand)/Q ≤ (2-c)/c`` (מקור: ``difflib`` 3.11,
+#: ‏``SequenceMatcher.real_quick_ratio``); ל-``c=0.5`` זה ``Q/3 ≤ len(cand) ≤ 3·Q``.
+#: מחוץ לטווח ``difflib`` דוחה בזול, ולכן אין מה לחייב.
+_LEN_COMPATIBLE_LO = _SUGGEST_CUTOFF / (2 - _SUGGEST_CUTOFF)
+_LEN_COMPATIBLE_HI = (2 - _SUGGEST_CUTOFF) / _SUGGEST_CUTOFF
+
+
+def _within_work_budget(nquery: str, keys: List[str]) -> Tuple[List[str], bool]:
+    """המועמדים שנכנסים בתקציב :data:`SUGGEST_WORK_BUDGET`, ודגל אם נחתך — בסדר המסמך.
+
+    מחייבים ‏``len(k)·Q`` **רק** על מועמד תואם-אורך (``ratio()`` רץ רק עליו; ראו
+    :data:`_LEN_COMPATIBLE_LO`). מועמד לא-תואם עולה ‏O(1) ב-``real_quick_ratio`` ואינו
+    מחויב. שומרים לפחות אחד, כי ``get_close_matches`` זורק על רשימה ריקה.
+    """
+    q = len(nquery)
+    lo, hi = q * _LEN_COMPATIBLE_LO, q * _LEN_COMPATIBLE_HI
+    work, kept = 0, []
+    for k in keys:
+        if lo <= len(k) <= hi:
+            work += len(k) * q
+            if work > SUGGEST_WORK_BUDGET and kept:
+                return kept, True
+        kept.append(k)
+    return kept, False
 
 
 def suggest(doc: Document, query: str, n: int = DEFAULT_SUGGESTIONS) -> Suggestions:
@@ -671,12 +787,17 @@ def suggest(doc: Document, query: str, n: int = DEFAULT_SUGGESTIONS) -> Suggesti
         return Suggestions([], False)
 
     norm_map = {normalize_title(title): title for title in titles}
+    nquery = normalize_title(query)
+    # **תקרת עבודה לפני difflib** (ראו :data:`SUGGEST_WORK_BUDGET`): ``get_close_matches``
+    # מריץ את ``ratio()`` היקר על כל מועמד תואם-אורך, וקובץ עוין של כותרות ארוכות רבות
+    # הפך את הצעד הזה ליקר יותר מהפרסור עצמו. כאן חוסמים לפי סדר המסמך, ומסמנים
+    # ``suggestions_truncated`` כשנחתך. על קבצים אמיתיים כל המפתחות נכנסים והתוצאה זהה.
+    keys, budget_truncated = _within_work_budget(nquery, list(norm_map.keys()))
     # **כל** ההתאמות שמעל הסף, ואז חיתוך — ולא ``n=n``. ההבדל אינו במה
     # שחוזר אלא במה שאפשר לדעת: עם ``n=n`` אין דרך להבחין בין "היו חמש"
     # לבין "היו חמישים וחתכנו". החישוב זהה בשני המקרים, כי הדירוג נעשה
     # על כל האפשרויות ממילא ו-``n`` נכנס רק ל-``nlargest`` בשורה האחרונה.
-    close = get_close_matches(normalize_title(query), list(norm_map.keys()),
-                              n=len(norm_map), cutoff=0.5)
+    close = get_close_matches(nquery, keys, n=len(keys), cutoff=_SUGGEST_CUTOFF)
     # שמור על סדר ייחודי
     out, seen = [], set()
     for c in close:
@@ -685,11 +806,12 @@ def suggest(doc: Document, query: str, n: int = DEFAULT_SUGGESTIONS) -> Suggesti
             seen.add(title)
             out.append(title)
     if out:
-        return Suggestions(out[:n], len(out) > n)
+        return Suggestions(out[:n], budget_truncated or len(out) > n)
 
     identifier = _identifier_query(query)
     if identifier is None:
-        return Suggestions([], False)
+        # השאילתה אינה מזהה: אם התקרה חתכה מועמדים, הדגל נשמר גם כשלא נמצאה הצעה.
+        return Suggestions([], budget_truncated)
 
     # ``n`` הוא בקשת הקורא, והקבוע הוא הגבול שהוא אינו יכול לחרוג ממנו.
     # הקטן מביניהם — אחרת פרמטר שנאכף במסלול אחד ומתעלמים ממנו בשני.

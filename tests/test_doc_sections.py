@@ -638,6 +638,71 @@ def test_suggest_on_a_document_with_no_headings_returns_empty_instead_of_raising
     assert doc_sections.suggest(empty, "כל טקסט אחר") == doc_sections.Suggestions([], False)
 
 
+def _hostile_alphabet(n=100):
+    """``n`` תווים דו-בייטיים ששורדים את ה-autojunk של ``difflib`` (מופיעים ≤1%),
+    ואינם מתקפלים ב-``normalize_title`` — הבסיס לכותרת עוינת."""
+    return [chr(0x400 + i) for i in range(400)
+            if chr(0x400 + i).casefold() == chr(0x400 + i)][:n]
+
+
+def test_suggest_bounds_the_difflib_work_on_a_hostile_file(monkeypatch):
+    """‏``suggest`` אינו מריץ ``difflib`` על כל הכותרות של קובץ עוין — הוא חוסם ב-
+    :data:`SUGGEST_WORK_BUDGET` ומסמן ``truncated``. הצעד הזה עלה עד ~1.5 שניות-מעבד
+    בלי החסם (WARN-001, סקירת Han).
+
+    נופל על הקוד שלפני התיקון: שם ``get_close_matches`` מקבל את **כל** המפתחות.
+    """
+    hlen = 2048
+    base = "".join(_hostile_alphabet()[i % 100] for i in range(hlen))
+    titles = [base[:-1] + chr(0xE000 + k) for k in range(200)]   # ארוכות, תואמות-אורך, שונות
+    sections = [_section(t, 2, i + 1) for i, t in enumerate(titles)]
+    doc_sections._finalize(sections, len(titles) + 1)
+    doc = doc_sections.Document(lines=titles + ["x"], sections=sections)
+
+    seen = []
+    real = doc_sections.get_close_matches
+
+    def spy(word, possibilities, **kw):
+        poss = list(possibilities)
+        seen.append(len(poss))
+        return real(word, poss, **kw)
+
+    monkeypatch.setattr(doc_sections, "get_close_matches", spy)
+
+    res = doc_sections.suggest(doc, base[:-1] + "")     # near-miss, length-compatible
+
+    assert res.truncated is True
+    assert seen, "difflib לא נקרא"
+    # difflib ראה רק קידומת חסומה — לא את כל 200 הכותרות
+    assert seen[0] < len(titles)
+    # והחיתוך תואם את התקציב: כל מועמד עולה hlen·Q, ולכן ~budget/(hlen·Q) מועמדים
+    assert seen[0] <= doc_sections.SUGGEST_WORK_BUDGET // (hlen * hlen) + 2
+
+
+def test_suggest_does_not_cap_a_real_sized_file(monkeypatch):
+    """‏guard לאפס-דיף על ההצעות: על קובץ אמיתי (כותרות ושאילתה קצרות) התקרה אינה
+    נדלקת, ו-``difflib`` רואה את כל הכותרות — בדיוק כמו לפני התיקון.
+    """
+    titles = [f"סעיף מספר {k} על נושא כלשהו" for k in range(300)]
+    sections = [_section(t, 2, i + 1) for i, t in enumerate(titles)]
+    doc_sections._finalize(sections, len(titles) + 1)
+    doc = doc_sections.Document(lines=titles + ["x"], sections=sections)
+
+    seen = []
+    real = doc_sections.get_close_matches
+
+    def spy(word, possibilities, **kw):
+        poss = list(possibilities)
+        seen.append(len(poss))
+        return real(word, poss, **kw)
+
+    monkeypatch.setattr(doc_sections, "get_close_matches", spy)
+
+    doc_sections.suggest(doc, "סעיף מספר 999 על נושא כלשהו")
+
+    assert seen and seen[0] == len(titles)     # כל הכותרות נראו — התקציב לא נגע
+
+
 def test_a_query_with_a_trailing_dot_matches_a_heading_that_is_only_the_identifier():
     """הענף ה-``\\Z`` של הרגקס — הגבול שמגיעים אליו רק מכיוון אחד.
 

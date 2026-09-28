@@ -26,13 +26,28 @@ import uuid as _uuid
 from typing import Any, Callable
 
 from .handlers import (
+    NOT_MARKDOWN,
     QUERY_OUTPUT_BYTE_BUDGET,
     QUERY_RESULTS_DEFAULT,
+    SECTIONS_UNAVAILABLE_HINT,
+    TOO_LARGE_FOR_SECTIONS,
     apply_line_range,
-    file_query_request_error,
+    file_read_refusal,
+    file_read_request_error,
     normalize_line_range,
     scan_file_query,
 )
+# קריאה לפי סעיף בקובץ שמור עוברת **באותן פונקציות** של ``codekeeper_docs_get_section``
+# — המיפוי של סירובי הפרסר ובניית התשובה — ולא בעותק שלהן. כל הייבואים כאן קלים
+# במובן של ``mcp_server/__init__.py``: אין בהם מסד, רשת או קובץ בזמן ייבוא
+# (``services.md_parser`` בונה מופע ``markdown-it`` אחד ומחמם אותו, ו-``server.py``
+# כבר מייבא את כולם ממילא). התקרה מיובאת ולא מועתקת, כמו ב-``server.py``, ו-
+# ``wire_json`` הוא המדידה של תקציב הבתים — ממקום אחד עם ``read_batch``.
+from . import docs_handlers
+from .repo_handlers import wire_json
+from services import md_parser
+from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
+from services.markdown_files import is_markdown_file
 
 # מודול שורש טהור (``datetime`` ו-``typing`` בלבד), ולכן ייבוא ישיר ולא עצל:
 # הוא אינו גורר את שכבת המסד. ראו ``file_dates.py``.
@@ -258,6 +273,94 @@ def _apply_query_to_file(
     )
     meta = {key: val for key, val in out.items() if key not in _HEAVY_FIELDS}
     return {"found": True, "status": "query", "file": meta, "query": query, **found}
+
+
+def _apply_sections_to_file(
+    out: dict[str, Any], *, section: str | None, max_chars: Any, offset: Any
+) -> dict[str, Any]:
+    """מפת הכותרות (``section is None``) או סעיף אחד, במקום תוכן הקובץ.
+
+    **כל העבודה על המסמך היא של** ``codekeeper_docs_get_section``: הפרסור ומיפוי
+    הסירובים ב-``docs_handlers.parse_with_refusals``, והתאמת הכותרת, החיתוך,
+    העימוד ובניית התשובה ב-``docs_handlers.answer_section``. מה שנוסף כאן הוא רק
+    מה שייחודי לקובץ שמור, ובסדר הזה:
+
+    1. **רק Markdown** — לפי הכלל של הוובאפ (``services.markdown_files``). קובץ
+       אחר מקבל ``not_markdown`` שמפנה ל-``lines``/``query``, ולא את הקובץ המלא
+       בשקט: קורא שביקש מפה וקיבל תוכן לא היה יודע שמה שביקש לא קרה.
+    2. **תקרת גודל לפני הפרסור**, בבתים של UTF-8 מול ``MAX_FILE_SIZE_FOR_DISPLAY``
+       — אותה תקרה שמראת הריפואים אוכפת לפני שהיא מגישה קובץ לפרסור. מאגר הקריאות
+       מקצה לכל חוט את עלות הפרסור של הקלט הגדול ביותר שפרסור מקבל
+       (``_PARSE_COST_BYTES`` ב-``server.py``), ובלי הבדיקה הזו קובץ שמור גדול
+       ממנה היה הקלט הראשון שעובר אותו. בתים ולא תווים: העלות נמדדה לכל **בית**
+       קלט, ותו עברי הוא שני בתים — ספירת תווים הייתה מעבירה קובץ עברי כפול.
+    3. פרסור. סירוב של הפרסר חוזר כמו ב-docs, ועם ``hint`` שמפנה ל-``lines``/``query``:
+       בקובץ שמור אין ריפו לתקן בו.
+    4. **מקום למעטפת.** הצלחה עטופה ב-``found`` וב-``status`` (``toc`` או
+       ``section``), ו-``answer_section`` חותך את עמוד הסעיף אל התקציב **פחות
+       המעטפת** (``reserve_bytes``) — כך שהתשובה כפי שהיא יוצאת מכאן נכנסת ב-
+       ``OUTPUT_BYTE_BUDGET``, ולא רק מה שהיה לפני העטיפה. גודל המעטפת נמדד באותה
+       פונקציה שמודדת את התשובה (``wire_json``), על המעטפת עצמה, ולא נספר ביד.
+       אותו תקציב חל על מפת הכותרות, שהרשימה שלה נחתכת מהסוף עד שהיא נכנסת.
+       ``section_too_large`` — סעיף שגם עמוד ריק שלו אינו נכנס — ו-``answer_too_large``
+       — תשובה שגם בלי אף פריט ברשימות שלה אינה נכנסת — מקבלים את אותו ``hint``
+       של שלב 3.
+
+    ``context`` הוא ``{"file": <מטא-דאטה>}`` — המטא-דאטה בלי ``_HEAVY_FIELDS``, כמו
+    ב-:func:`_apply_query_to_file` — ולכן כל תשובה, גם סירוב, אומרת איזה קובץ
+    ואיזו גרסה נקראו. מעבר למעטפת, הפלט של ``answer_section`` נשאר כמו שהוא.
+    """
+    meta = {key: val for key, val in out.items() if key not in _HEAVY_FIELDS}
+    context = {"file": meta}
+    if not is_markdown_file(out.get("programming_language"), out.get("file_name")):
+        return {"ok": False, "error": NOT_MARKDOWN, **context, "hint": SECTIONS_UNAVAILABLE_HINT}
+
+    code = out.get("code") or ""
+    if not isinstance(code, str):
+        # אין מסלול שמירה שכותב תוכן שאינו מחרוזת, ולכן זה חוזה שנשבר ולא קלט
+        # שנדחה — ונופל בקול, כמו ``TypeError`` של הפרסר (ראו ``parse_with_refusals``),
+        # במקום להיות מומר למחרוזת ולהחזיר מפה של משהו שאינו הקובץ. ההודעה נושאת
+        # רק את שם הטיפוס, לא תוכן.
+        raise TypeError(f"stored file content is {type(code).__name__}, not str")
+    size = len(code.encode("utf-8"))
+    if size > MAX_FILE_SIZE_FOR_DISPLAY:
+        return {
+            "ok": False,
+            "error": TOO_LARGE_FOR_SECTIONS,
+            "bytes": size,
+            "max": MAX_FILE_SIZE_FOR_DISPLAY,
+            **context,
+            "hint": SECTIONS_UNAVAILABLE_HINT,
+        }
+
+    # המודול ולא ``md_parser.parse_document``: ``parse_with_refusals`` פותר את
+    # הפונקציה בזמן הקריאה, ולכן מי שמחליף אותה בטסט רואה את זה גם כאן.
+    parsed = docs_handlers.parse_with_refusals(md_parser, code, context)
+    if isinstance(parsed, dict):
+        parsed["hint"] = SECTIONS_UNAVAILABLE_HINT
+        return parsed
+
+    # רק מה שנשלח עובר הלאה; מה שלא — מקבל את ברירת המחדל של ``answer_section``,
+    # שהיא של ``codekeeper_docs_get_section``. ההצמדה היא שלה, במקום אחד.
+    paging = {
+        name: value
+        for name, value in (("max_chars", max_chars), ("offset", offset))
+        if value is not None
+    }
+    envelope = {"found": True, "status": "toc" if section is None else "section"}
+    reserve = len(wire_json({**envelope, "_": 0})) - len(wire_json({"_": 0}))
+    answer = docs_handlers.answer_section(
+        docs_handlers.LoadedDocument(parsed, context),
+        section=section,
+        reserve_bytes=reserve,
+        **paging,
+    )
+    if answer.get("ok") is False:
+        if answer.get("error") in (docs_handlers.SECTION_TOO_LARGE, docs_handlers.ANSWER_TOO_LARGE):
+            answer["hint"] = SECTIONS_UNAVAILABLE_HINT
+        # ``section_not_found`` / ``ambiguous_section`` — כמו שהם, עם ה-TOC וההצעות.
+        return answer
+    return {**envelope, **answer}
 
 
 def _full(doc: dict[str, Any]) -> dict[str, Any]:
@@ -573,17 +676,28 @@ class ProductionBackend:
         query: Any = None,
         context_lines: int | None = None,
         max_results: int | None = None,
+        section: str | None = None,
+        toc: bool = False,
+        max_chars: Any = None,
+        offset: Any = None,
     ) -> dict[str, Any] | None:
-        # שני מצבי קריאה שאינם מצטברים, ושניהם נבדקים **לפני** הקריאה למסד:
-        # שאילתה פסולה לא צריכה לשלם טעינת מסמך שלם רק כדי להיפסל בסוף. זו
+        # ארבעה מצבי קריאה שאינם מצטברים, וכולם נבדקים **לפני** הקריאה למסד:
+        # בקשה פסולה לא צריכה לשלם טעינת מסמך שלם רק כדי להיפסל בסוף. זו
         # אותה החלטה ואותו מיקום כמו ``outline_and_lines`` ב-``repo_backend``,
         # והיא יושבת ב-backend ולא ב-``handlers`` כדי שגם קורא שאינו עובר דרך
         # שכבת ה-handlers יקבל את הסירוב ולא התעלמות שקטה מאחד הפרמטרים.
-        request_error = file_query_request_error(
-            query=query, lines=lines, context_lines=context_lines, max_results=max_results
+        request_error = file_read_request_error(
+            query=query,
+            lines=lines,
+            context_lines=context_lines,
+            max_results=max_results,
+            section=section,
+            toc=toc,
+            max_chars=max_chars,
+            offset=offset,
         )
         if request_error:
-            return {"ok": False, "error": request_error}
+            return file_read_refusal(request_error)
         dbm = self._require_dbm()
         if file_id:
             doc = dbm.get_file_by_id(file_id)
@@ -608,6 +722,10 @@ class ProductionBackend:
                 context_lines=0 if context_lines is None else context_lines,
                 max_results=QUERY_RESULTS_DEFAULT if max_results is None else max_results,
             )
+        # ``toc`` ו-``section`` רצים **אחרי** בחירת המסמך, כמו ``query``: ``version``
+        # ו-``file_id`` בוחרים איזו גרסה, והמצב אומר מה להחזיר ממנה.
+        if toc or section is not None:
+            return _apply_sections_to_file(out, section=section, max_chars=max_chars, offset=offset)
         if lines is None:
             return out
         return _apply_range_to_file(out, lines)

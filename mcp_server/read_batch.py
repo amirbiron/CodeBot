@@ -70,7 +70,6 @@ import logging
 import time
 from typing import Annotated, Any, Literal, NamedTuple, Union
 
-import pydantic_core
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from . import docs_handlers, repo_handlers
@@ -295,31 +294,15 @@ def _plan(raw: Any) -> _Plan:
 # מדידה — בצורה שה-SDK שולח
 # ---------------------------------------------------------------------------
 
-#: מה שכל פריט מוסיף סביב עצמו כשהוא בתוך ``"items": [...]``: פסיק, שורה,
-#: וארבעה רווחים של שתי רמות הזחה (האובייקט העליון והרשימה).
-_ENTRY_FRAME_BYTES = len(",\n    ")
-#: ההזחה שכל שורה פנימית של פריט מקבלת כשהוא מקונן בעומק 2.
-_NESTED_INDENT_BYTES = 4
-#: ``"items": []`` הופך ל-``"items": [`` ... ``\n  ]`` כשיש בו פריט אחד לפחות.
-_NON_EMPTY_LIST_BYTES = len("\n  ")
-
-
-def _wire(value: Any) -> bytes:
-    """מה שה-SDK שולח על ``value`` — ``_convert_to_content`` ל-``dict`` (mcp 1.28.1)."""
-    return pydantic_core.to_json(value, fallback=str, indent=2)
-
-
-def _entry_cost(entry: dict[str, Any]) -> int:
-    """כמה בתים הפריט תופס בתשובה כפי שהיא נשלחת, כשהוא מקונן בתוך ``items``.
-
-    פריט שנמדד לבדו כתוב בעומק 0; בתוך התשובה כל אחת מהשורות הפנימיות שלו
-    מוזחת בארבעה רווחים נוספים, ולפניו פסיק ושורה חדשה. שורה חדשה בתוך
-    מחרוזת נכתבת כ-``\\n`` ולא כבית 10, ולכן כל בית 10 בטקסט הוא שורה של
-    המבנה. הנוסחה מחמירה בפסיק אחד (לפריט הראשון אין), ו-
-    ``tests/test_mcp_read_batch.py`` משווה אותה לתשובות שנבנו באמת.
-    """
-    text = _wire(entry)
-    return len(text) + _NESTED_INDENT_BYTES * text.count(b"\n") + _ENTRY_FRAME_BYTES
+#: מדידת העלות פר-פריט חיה עכשיו ב-``repo_handlers`` ליד ``wire_json`` ותקציב
+#: הבתים, כי גם ``docs_handlers`` מודד בה את רשימות התשובה (R6 — בעלים אחד, לא
+#: עותק שני). השמות המקומיים נשארים כאליאסים, כי ``scripts/measure_read_batch.py``
+#: והטסט שלו, ו-``_reserve`` כאן, קוראים אותם בשמם.
+_ENTRY_FRAME_BYTES = repo_handlers.LIST_ITEM_FRAME_BYTES
+_NESTED_INDENT_BYTES = repo_handlers.LIST_ITEM_INDENT_BYTES
+_NON_EMPTY_LIST_BYTES = repo_handlers.NONEMPTY_LIST_BYTES
+_wire = repo_handlers.wire_json
+_entry_cost = repo_handlers.list_item_cost
 
 
 def _reserve(count: int) -> int:

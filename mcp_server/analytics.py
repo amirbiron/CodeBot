@@ -213,14 +213,30 @@ _PAYLOAD_PROPERTIES = frozenset(
 # **למה מאפיין נגזר ולא הפרמטרים עצמם.** ההבחנה חיה ב-``$mcp_parameters``,
 # והוא חסום — ונשאר חסום, כי בכלי הכתיבה הוא הקובץ עצמו. לכן במקום לפתוח את
 # הארגומנטים, השרת מחשב בעצמו **תווית אחת מתוך קבוצה סגורה** ושולח אותה. מה
-# שיוצא הוא המילה ``outline``, ``query``, ``range`` או ``full`` — לעולם לא ערך
-# שהגיע מהקורא. הנגזרת נשענת על **נוכחות** הפרמטר, לא על תוכנו.
+# שיוצא הוא המילה ``outline``, ``section``, ``query``, ``range`` או ``full`` —
+# לעולם לא ערך שהגיע מהקורא. הנגזרת נשענת על **נוכחות** הפרמטר, לא על תוכנו.
+#
+# **מה סופר את התווית היום, ומה לא.** נקודת הקצה של הדשבורד,
+# ``ck_mcp_navigation_cost_v2``, סופרת ``outline_reads`` ו-``content_reads``
+# **רק** על ``codekeeper_get_repo_file`` (``countIf`` על שם הכלי — נקרא מהגדרת
+# נקודת הקצה ב-PostHog). כלומר התוויות של ``codekeeper_get_file`` אינן נכנסות
+# לאף עמודה בדשבורד, וגם לא "מנפחות" אותה. הן קיימות כדי שהאירוע עצמו יגיד את
+# האמת: בלעדיהן קריאה שהחזירה מפה או מופעים הייתה מסומנת ``full``, וכל שאילתה
+# על ``ck_read_mode`` — בדשבורד שייבנה מחר או ישירות מול האירועים — הייתה קוראת
+# קובץ מלא במקום שלא נקרא.
 CK_READ_MODE_KEY = "ck_read_mode"
+#: מפה במקום תוכן: ``outline=true`` של ``codekeeper_get_repo_file``, ו-``toc=true``
+#: של ``codekeeper_get_file``. **ערך אחד לשניהם ולא ``toc`` משלו**, כי זו אותה
+#: קריאה במשמעות — רשימת כותרות או סמלים עם טווחי שורות, בלי תוכן — ועמודה
+#: שסופרת מפות צריכה לספור את שתיהן. הכלי עצמו נמצא ממילא ב-``$mcp_tool_name``.
 READ_MODE_OUTLINE = "outline"
+#: ``codekeeper_get_file`` עם ``section`` — סעיף אחד במקום הקובץ. תווית משלו,
+#: ולא ``range`` ולא ``full``: הקורא לא נקב בטווח ולא ביקש את הקובץ, אלא בכותרת,
+#: וזו השאלה שהעמודה נבנתה כדי לענות עליה — איך הסוכן ניווט.
+READ_MODE_SECTION = "section"
 #: ``codekeeper_get_file`` עם ``query`` — מופעים במקום תוכן. תווית משלו ולא
 #: ``full``: זו קריאה **זולה** באותה משפחה של ``outline``, ובלי הערך הזה כל
-#: קריאה כזו הייתה נספרת כקריאת קובץ מלא — כלומר מנפחת בדיוק את העמודה
-#: שהמאפיין נבנה כדי למדוד.
+#: קריאה כזו הייתה מסומנת כקריאת קובץ מלא — ראו למעלה מה זה משנה ומה לא.
 READ_MODE_QUERY = "query"
 READ_MODE_RANGE = "range"
 READ_MODE_FULL = "full"
@@ -231,7 +247,7 @@ READ_MODE_FULL = "full"
 #: שיחזיר משהו אחר מפיל את הערך, לא מעביר אותו.
 _ALLOWED_CUSTOM_PROPERTIES: dict[str, frozenset[str]] = {
     CK_READ_MODE_KEY: frozenset(
-        {READ_MODE_OUTLINE, READ_MODE_QUERY, READ_MODE_RANGE, READ_MODE_FULL}
+        {READ_MODE_OUTLINE, READ_MODE_SECTION, READ_MODE_QUERY, READ_MODE_RANGE, READ_MODE_FULL}
     ),
 }
 
@@ -255,13 +271,13 @@ _ALLOWED_CUSTOM_PROPERTIES: dict[str, frozenset[str]] = {
 #: **איזה פרמטר קריאה שייך לאיזה כלי.** השאלה אינה "מה נשלח" אלא "מה הכלי
 #: הזה בכלל מקבל": הקולבק מקבל את מילון הארגומנטים **הגולמי**, לפני
 #: ש-pydantic מסלק ממנו מפתחות שאינם בסכימה של הכלי, ולכן מפתח של הכלי האחר
-#: מגיע לכאן ונקרא. ``outline`` קיים רק ב-``codekeeper_get_repo_file``
-#: ו-``query`` רק ב-``codekeeper_get_file``, ובלי השיוך הזה קריאה שנושאת
-#: מפתח תועה נספרת בעמודה הלא נכונה — בלי שגיאה, ובלי שמישהו יראה את זה.
-#: שתי העמודות האחרות יוצאות חסרות באותה מידה, וזה בדיוק המדד שהעמודה
-#: נבנתה כדי לספק.
+#: מגיע לכאן ונקרא. ``outline`` קיים רק ב-``codekeeper_get_repo_file``,
+#: ו-``toc``, ``section`` ו-``query`` רק ב-``codekeeper_get_file``, ובלי השיוך
+#: הזה קריאה שנושאת מפתח תועה נספרת בעמודה הלא נכונה — בלי שגיאה, ובלי
+#: שמישהו יראה את זה. שתי העמודות האחרות יוצאות חסרות באותה מידה, וזה בדיוק
+#: המדד שהעמודה נבנתה כדי לספק.
 _TOOL_READ_MODE_PARAMS: dict[str, frozenset[str]] = {
-    "codekeeper_get_file": frozenset({"query", "lines"}),
+    "codekeeper_get_file": frozenset({"toc", "section", "query", "lines"}),
     "codekeeper_get_repo_file": frozenset({"outline", "lines"}),
 }
 
@@ -315,29 +331,36 @@ def read_mode_properties(
 ) -> Optional[dict[str, str]]:
     """``event_properties`` callback: tag a file read with **how** it read.
 
-    Returns ``{"ck_read_mode": "outline" | "query" | "range" | "full"}`` for a
-    ``tools/call`` on one of :data:`FILE_READ_TOOLS`, and ``None`` for
+    Returns ``{"ck_read_mode": "outline" | "section" | "query" | "range" | "full"}``
+    for a ``tools/call`` on one of :data:`FILE_READ_TOOLS`, and ``None`` for
     everything else. That ``None`` is the interesting half. The SDK runs this
     callback on *every* auto-captured event — ``$mcp_initialize`` and
     ``$mcp_tools_list`` included — and a version that fell through to ``full``
     stamped a read mode on the handshake too (measured against
-    ``posthog 7.45.3``). Those events would then have been counted as full file
-    reads, so the column built to prove that ``outline`` replaced content reads
-    would have been inflated by traffic that read no file at all.
+    ``posthog 7.45.3``): events that read no file at all, carrying the label of
+    a full file read. (The dashboard's ``ck_mcp_navigation_cost_v2`` counts its
+    read columns only over ``$mcp_tool_call`` events of
+    ``codekeeper_get_repo_file``, so such a label would not have reached its
+    columns — the comment next to ``CK_READ_MODE_KEY`` says why the label must
+    still be true.)
 
     **Only presence is read, never a value.** ``lines`` carries line numbers,
-    ``query`` carries the caller's search string and ``outline`` carries a flag,
-    and none of them is echoed: the return value is one of four literals defined
-    in this module, and the gate rejects anything else. This is what makes the
-    split possible while ``$mcp_parameters`` stays blocked — and ``query`` is
-    exactly the parameter that makes it matter, because it is free text the
-    caller wrote.
+    ``query`` carries the caller's search string, ``section`` carries a heading
+    the caller typed, and ``outline`` and ``toc`` carry a flag; none of them is
+    echoed: the return value is one of five literals defined in this module, and
+    the gate rejects anything else. This is what makes the split possible while
+    ``$mcp_parameters`` stays blocked — and ``query`` and ``section`` are exactly
+    the parameters that make it matter, because they are free text the caller
+    wrote.
 
     The cheap modes are checked first, so a call passing two of them — which the
-    tool rejects as ``outline_and_lines`` or ``query_and_lines`` — is counted as
-    the cheap read. That call reads no content either way, so the cheap column is
-    the honest place for it. ``query`` is checked before ``lines`` for the same
-    reason: it returns match positions, not content.
+    tool rejects as ``outline_and_lines``, ``query_and_lines`` or one of the
+    ``toc_and_*`` / ``section_and_*`` codes — is counted as the cheap read. That
+    call reads no content either way, so the cheap column is the honest place
+    for it. The order is the map (``outline`` / ``toc``), then ``section``, then
+    ``query``, then ``lines`` — the same order in which the tool names the pair
+    it refuses (``_EXCLUSIVE_READ_MODES`` in ``mcp_server/handlers.py``), so a
+    refused call is labelled by the first mode in its refusal code.
 
     **Each parameter is read only for the tool that declares it**, per
     :data:`_TOOL_READ_MODE_PARAMS`. Two things follow. ``codekeeper_search_code``
@@ -374,6 +397,10 @@ def read_mode_properties(
             arguments = {}
         if "outline" in owned and arguments.get("outline"):
             return {CK_READ_MODE_KEY: READ_MODE_OUTLINE}
+        if "toc" in owned and arguments.get("toc"):
+            return {CK_READ_MODE_KEY: READ_MODE_OUTLINE}
+        if "section" in owned and arguments.get("section") is not None:
+            return {CK_READ_MODE_KEY: READ_MODE_SECTION}
         if "query" in owned and arguments.get("query") is not None:
             return {CK_READ_MODE_KEY: READ_MODE_QUERY}
         if "lines" in owned and arguments.get("lines") is not None:

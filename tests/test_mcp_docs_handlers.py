@@ -914,6 +914,88 @@ def test_the_refusals_are_mapped_whichever_parser_raised_them(monkeypatch):
     assert out["ok"] is False and out["error"] == "too_many_sections"
 
 
+# ---- תקרת האורך של section ----
+
+
+def test_a_section_longer_than_the_ceiling_is_refused_by_name_before_any_matching(
+        both_repos, monkeypatch):
+    """``section_too_long`` — בשמו, עם התקרה והאורך, בלי הד של מה שנדחה, ולפני ההתאמה.
+
+    ההתאמה והד ה-``requested`` הם מה שגדל עם אורך השאילתה (המדידה ליד
+    ``MAX_SECTION_CHARS``), ולכן ה-spy על ``find_sections`` הוא העדות שהסירוב
+    קדם להם. הגבול: באורך התקרה בדיוק ההתאמה רצה (כאן ``section_not_found``),
+    ותו אחד מעבר לה נדחה. ו-``section`` של רווחים בלבד מעל התקרה נדחה גם הוא —
+    המבחן הוא האורך, לא התוכן.
+
+    מוטציות שמפילות: להסיר את הבדיקה — התשובה היא ``section_not_found`` עם
+    הד של מיליון התווים; או להזיז אותה אל אחרי ``find_sections`` — ה-spy רואה
+    התאמה.
+    """
+    matched: list[int] = []
+    real = doc_sections.find_sections
+
+    def spy(doc, title):
+        matched.append(len(title))
+        return real(doc, title)
+
+    monkeypatch.setattr(docs_handlers.doc_sections, "find_sections", spy)
+    ceiling = docs_handlers.MAX_SECTION_CHARS
+
+    def ask(section):
+        return docs_handlers.docs_get_section(_TextBackend("# א\n\nגוף\n"), path="x.md",
+                                              repo="amir-bug-patterns", section=section)
+
+    assert ask("K" * (ceiling + 1)) == {
+        "ok": False, **_TEXT_CONTEXT, "includes": [], "error": "section_too_long",
+        "max_chars": ceiling, "actual_chars": ceiling + 1}
+    assert ask(" " * (ceiling + 1))["error"] == "section_too_long"
+    assert matched == []
+
+    at_the_ceiling = ask("K" * ceiling)
+    assert at_the_ceiling["error"] == "section_not_found"
+    assert matched == [ceiling]
+
+
+def test_the_docs_page_states_the_section_ceiling_the_code_enforces():
+    """המספר ש-``docs/mcp-server.rst`` נוקב בו לתקרה נגזר מהקבוע — בטבלה ובפרוזה.
+
+    קובץ RST אינו יכול לגזור דבר (``prose-restates-code-fact``), ולכן הערך המצופה
+    מחושב כאן, באותה צורה שהעמוד כותב (פסיקים באלפים) — כמו בטסטים המקבילים על
+    ``MAX_LINES`` ועל ``MAX_BATCH_ITEMS``. הפרוזה נבדקת בכל מקום שבו היא אומרת
+    "``section`` ארוך מ-N תווים", ולא רק במקום אחד.
+
+    מוטציה שמפילה: לשנות את ``MAX_SECTION_CHARS`` בלי העמוד, או להפך.
+    """
+    import re
+
+    page = (_ROOT / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
+    lines = page.splitlines()
+    expected = f"{docs_handlers.MAX_SECTION_CHARS:,}"
+
+    row = lines.index("   * - ``MAX_SECTION_CHARS``")
+    assert lines[row + 1].strip() == f"- {expected}"
+    stated = re.findall(r"``section`` ארוך מ-([\d,]+) תווים", page)
+    assert stated, "העמוד אינו נוקב עוד בתקרה בצורה שהטסט קורא"
+    assert set(stated) == {expected}
+
+
+def test_no_heading_in_the_docs_the_tool_serves_comes_near_the_section_ceiling():
+    """התקרה אינה חוסמת אף כותרת אמיתית — נבדק על כל עמודי ה-RST ב-``docs/``.
+
+    זה הצד השני של המדידה שמאחורי ``MAX_SECTION_CHARS``: הכותרת הארוכה ביותר
+    שם היא 71 תווים. ההשוואה היא מול התקרה ולא מול המספר, כדי שכותרת חדשה
+    ארוכה לא תפיל את הבדיקה — רק תקרה שירדה מתחת לכותרת שקיימת.
+
+    מוטציה שמפילה: ``MAX_SECTION_CHARS = 50``.
+    """
+    longest = max(
+        len(sec.title)
+        for page in sorted((_ROOT / "docs").rglob("*.rst"))
+        for sec in rst_parser.parse_document(page.read_text(encoding="utf-8")).sections
+    )
+    assert longest < docs_handlers.MAX_SECTION_CHARS
+
+
 # ---- תקרות: צורת הקריאה, והתקרה האפקטיבית של Markdown ----
 
 

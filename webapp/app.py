@@ -178,6 +178,12 @@ from utils import TimeUtils, detect_language_from_filename  # noqa: E402
 # פענוח ה-CRLF ששליחת טופס HTML מוסיפה לערך של textarea. זה לא ניקוי של תוכן:
 # הוובאפ שומר בדיוק את מה שהמשתמש כתב (ראו services/line_endings.py).
 from services.line_endings import decode_form_newlines  # noqa: E402
+# מה נחשב Markdown — הכלל של הוובאפ, שגם שרת ה-MCP קורא (ראו services/markdown_files.py).
+from services.markdown_files import (  # noqa: E402
+    MARKDOWN_FILE_SUFFIXES as _MARKDOWN_FILE_SUFFIXES,
+    MARKDOWN_LANGUAGES as _MARKDOWN_LANGUAGES,
+    is_markdown_file as _is_markdown_file_shared,
+)
 # אזהרה לצד קוד שמוצג, כשיש בו תווים שמשנים את סדר התצוגה (ראו services/code_service.py).
 from services.code_service import bidi_warning_for_display  # noqa: E402
 # כללי תאריכי קובץ — מודול שורש טהור. חייב להיות אחרי הכנת ה-sys.path
@@ -10924,13 +10930,14 @@ def format_file_size(size_bytes: float | int) -> str:
     return _format_file_size_shared(size_bytes)
 
 def _is_markdown_file(language: str | None, file_name: str | None) -> bool:
-    """בודק אם קובץ הוא Markdown לפי שפה או סיומת שם קובץ."""
-    lang = (language or '').lower()
-    if lang in ('markdown', 'md'):
-        return True
-    if isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown')):
-        return True
-    return False
+    """בודק אם קובץ הוא Markdown לפי שפה או סיומת שם קובץ.
+
+    הכלל עצמו יושב ב-``services/markdown_files.py`` — מקור אמת אחד, כי שרת
+    ה-MCP מחליט לפיו אם אפשר לקרוא קובץ לפי סעיף, ותצוגה שחולקת על המפה של
+    הסוכן על אותו קובץ היא בדיוק מה שעותק שני היה מייצר. השם נשאר כאן כי הוא
+    נקרא ממקומות רבים בקובץ הזה.
+    """
+    return _is_markdown_file_shared(language, file_name)
 
 
 def is_binary_file(content: str | bytes, filename: str = "") -> bool:
@@ -14478,7 +14485,7 @@ def _resolve_preview_mode(language: str, mode_hint: str) -> str:
     normalized_hint = (mode_hint or "").strip().lower()
     if normalized_hint in {"markdown", "html", "code"}:
         return normalized_hint
-    if language in {"markdown", "md"}:
+    if language in _MARKDOWN_LANGUAGES:
         return "markdown"
     if language in {"html", "htm"}:
         return "html"
@@ -15794,13 +15801,12 @@ def edit_file_page(file_id):
                 # תמונות ל-Markdown (כמו במסך יצירה): נשמרות כ-attachments לפי גרסה
                 # חשוב: ה-Frontend מאפשר לצרף תמונות גם כשנבחרה שפת Markdown ב-Dropdown,
                 # גם אם שם הקובץ לא מסתיים ב-.md/.markdown. כדי למנוע איבוד מידע, נאסוף תמונות גם לפי השפה.
-                is_md_extension = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
                 try:
                     lang_value = str(language or request.form.get('language') or '').strip().lower()
                 except Exception:
                     lang_value = ''
-                is_md_language = lang_value in ('markdown', 'md')
-                should_collect_images = is_md_extension or is_md_language
+                # הכלל "שפה או סיומת" עצמו — ``_is_markdown_file``, ולא עותק שלו כאן.
+                should_collect_images = _is_markdown_file(lang_value, file_name)
                 if not error and should_collect_images:
                     # נשאיל תמונות קיימות מהגרסה הנוכחית (אלא אם המשתמש סימן למחיקה)
                     carry_payloads: List[Dict[str, Any]] = []
@@ -17120,7 +17126,7 @@ def api_save_shared_file():
         name_path = Path(safe_name)
         if not name_path.suffix:
             safe_name = f"{safe_name}.md"
-        elif name_path.suffix.lower() not in {'.md', '.markdown'}:
+        elif name_path.suffix.lower() not in _MARKDOWN_FILE_SUFFIXES:
             safe_name = f"{name_path.stem}.md"
 
         language = (share_doc.get('language') or 'markdown').lower()
@@ -17788,13 +17794,12 @@ def upload_file_web():
                 # שמירה ישירה במסד (להימנע מתלות ב-BOT_TOKEN של שכבת הבוט)
                 # חשוב: ה-Frontend מאפשר לצרף תמונות כששפת הטופס היא Markdown, גם אם הסיומת אינה .md.
                 # כדי למנוע איבוד מידע, נאסוף תמונות גם לפי השפה שנשלחה בטופס.
-                is_md_extension = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
                 try:
                     lang_value = str(language or request.form.get('language') or '').strip().lower()
                 except Exception:
                     lang_value = ''
-                is_md_language = lang_value in ('markdown', 'md')
-                should_collect_images = is_md_extension or is_md_language
+                # הכלל "שפה או סיומת" עצמו — ``_is_markdown_file``, ולא עותק שלו כאן.
+                should_collect_images = _is_markdown_file(lang_value, file_name)
                 if not error and should_collect_images:
                     try:
                         incoming_images = request.files.getlist('md_images')
