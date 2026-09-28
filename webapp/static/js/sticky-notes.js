@@ -262,6 +262,14 @@
     ['rect', { x: '9', y: '9', width: '13', height: '13', rx: '2', ry: '2' }],
     ['path', { d: 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' }],
   ];
+  //: זכוכית מגדלת לכפתור החיפוש בכותרת. **קווים ולא אימוג'י, וזו החלטה:**
+  //: אימוג'י צבעוני מתעלם מ-``color``, ולכן כפתור מושבת היה נראה זמין בדיוק
+  //: כמו פעיל — בדיוק מה שההערה על כפתור הביטול אוסרת. קו ב-``currentColor``
+  //: מקבל את ``--note-ink-muted`` של ``.sticky-note-btn[disabled]``.
+  const SEARCH_ICON_SHAPES = [
+    ['circle', { cx: '10.5', cy: '10.5', r: '6.5' }],
+    ['path', { d: 'M15.5 15.5 21 21' }],
+  ];
 
   //: בונה SVG מקווקו מתוך מערך צורות. ``buildFabIcon`` מצייר צורות
   //: מלאות עם ``fill`` משלהן; כאן הקווים יורשים את צבע הכפתור דרך
@@ -376,6 +384,17 @@
   const INFINITE_PAD = 700;
   //: ובכיבוי, רק נשימה קטנה מתחת לפתק האחרון.
   const SURFACE_TAIL_PAD = 24;
+  //: **מהי לחיצה ממושכת — תשובה אחת לכל הפתק.** שני צרכנים קוראים את
+  //: שני הקבועים: ``_enableDrag`` (הכותרת) ו-``_enableViewLongPress``
+  //: (התצוגה בזמן חיפוש). תזוזה של יותר מ-``LONG_PRESS_SLOP_PX`` באחד
+  //: הצירים מבטלת את הלחיצה.
+  const LONG_PRESS_MS = 450;
+  const LONG_PRESS_SLOP_PX = 6;
+  //: המחלקה שעוטפת התאמה של החיפוש בתוך פתק. **לא** ``md-highlight``:
+  //: החיפוש של עמוד המסמך מנקה לפי המחלקה ההיא, והוא היה מוחק גם את שלנו.
+  const NOTE_SEARCH_HIT_CLASS = 'sticky-note-search-hit';
+  //: טקסט שהמנוע מייצר ואינו כתוב בפתק — ראו ``_markGenerated``.
+  const GENERATED_TEXT_CLASS = 'sticky-md-generated';
   const TASK_LINE_RE = /^([ \t]*[-*][ \t]\[)([ xX])(\].*)$/;
   //: מארקדאון קליל בפתקים. תת-קבוצה מוצהרת ומצומצמת — ראו
   //: docs/user/sticky_notes.rst. כל דפוס נבחר כי הוא נכנס בפתק קטן
@@ -910,9 +929,24 @@
         type: 'button', 'aria-label': 'עריכת שם הפתק', 'aria-pressed': 'false'
       });
       editBtn.textContent = '✎';
+      // חיפוש בתוך הפתק. **בשורת השם, ליד העיפרון, ולא בשורת הפעולות:**
+      // שורת הפעולות אינה נשברת, ובפתק צר היא כבר חתוכה — כפתור נוסף בה
+      // היה דוחף את כפתור המחיקה אל מחוץ לפתק גם ברוחב הרגיל. המצב
+      // (מושבת ולמה) נקבע ב-``_syncSearchButton``.
+      const searchBtn = createEl('button', 'sticky-note-btn sticky-note-search-btn', {
+        type: 'button', title: 'חיפוש בפתק', 'aria-label': 'חיפוש בתוך הפתק', 'aria-pressed': 'false'
+      });
+      searchBtn.appendChild(buildStrokeIcon(SEARCH_ICON_SHAPES));
       drag.appendChild(editBtn);
+      drag.appendChild(searchBtn);
       drag.appendChild(titleInput);
       header.appendChild(actions); header.appendChild(drag);
+
+      searchBtn.addEventListener('click', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        if (this._isNoteSearching(el)) this._closeNoteSearch(el, { returnFocus: true });
+        else this._openNoteSearch(el);
+      });
 
       editBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
@@ -1001,6 +1035,9 @@
       taskView.setAttribute('role', 'group');
       taskView.setAttribute('aria-label', 'תוכן הפתק — הקישו Enter כדי לערוך');
       taskView.addEventListener('keydown', (ev) => this._viewKeydown(el, ev));
+      // בזמן חיפוש לחיצה רגילה על התצוגה אינה נכנסת לעריכה, ולכן צריך
+      // דרך אחרת פנימה במגע ובעכבר. ראו שם.
+      this._enableViewLongPress(el, taskView);
 
       el.appendChild(header);
       el.appendChild(textarea);
@@ -1065,6 +1102,10 @@
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
         const nowMin = !el.classList.contains('is-minimized');
         el.classList.toggle('is-minimized');
+        // פתק ממוזער מסתיר את התצוגה, ולכן אין במה לחפש: החיפוש נסגר
+        // (כולל הבלוקים שהוא פתח) והכפתור מושבת עד שהפתק נפתח.
+        if (nowMin) this._closeNoteSearch(el);
+        this._syncSearchButton(el);
         this._queueSave(el, { is_minimized: nowMin });
         this._flushFor(el);
       });
@@ -2133,15 +2174,34 @@
         if (!m) return null;
         const type = m[2].toLowerCase();
         const custom = (m[3] || '').trim();
+        // ``generatedTitle``: הכותרת היא ברירת המחדל של המנוע ולא טקסט
+        // שהמשתמש כתב — ראו ``_markGenerated``.
         if (type === MD_DETAILS_TYPE){
           const fallback = window.DETAILS_DEFAULT_TITLE;
           if (typeof fallback !== 'string' || !fallback) return null;
-          return { markers: m[1].length, type, title: custom || fallback };
+          return { markers: m[1].length, type, title: custom || fallback, generatedTitle: !custom };
         }
         const titles = window.ADMONITION_TITLES;
         if (!titles || !Object.prototype.hasOwnProperty.call(titles, type)) return null;
         const fallback = typeof titles[type] === 'string' ? titles[type] : type;
-        return { markers: m[1].length, type, title: custom || fallback };
+        return { markers: m[1].length, type, title: custom || fallback, generatedTitle: !custom };
+      }
+
+      /**
+       * מסמן צומת שכל הטקסט בו **מיוצר על ידי המנוע** ואינו כתוב בפתק.
+       *
+       * שלושה מקרים: התבליט של רשימה לא ממוספרת (המשתמש כתב ``-``, והמסך
+       * מציג ``•``), תווית ברירת המחדל של אלרט, וכותרת ברירת המחדל של
+       * ``::: details``. החיפוש בתוך הפתק מדלג על הצמתים האלה: חיפוש
+       * "הערה" שמוצא מילה שלא כתובה בפתק מבלבל, והוא גם חוסר עקביות מול
+       * חיפוש הפתקים בשרת, שמחפש במקור.
+       *
+       * **מה שנגזר מילה במילה מהמקור אינו מסומן:** כותרת מותאמת של אלרט
+       * או של ``details``, תווית השפה של בלוק קוד (המילה הראשונה אחרי
+       * הגדר), והמספר שהוקלד ברשימה ממוספרת — כל אלה כתובים בפתק.
+       */
+      _markGenerated(node){
+        node.classList.add(GENERATED_TEXT_CLASS);
       }
 
       /** אורך המרקר אם השורה היא שורת סגירה של מכולה, ו-0 אחרת. */
@@ -2247,6 +2307,7 @@
           // אין בכלל מסלול שמחבר טקסט של משתמש למחרוזת HTML. זה גם למה
           // אין כאן את ה-``span`` שהאלרט צריך.
           summary.textContent = spec.title;
+          if (spec.generatedTitle) this._markGenerated(summary);
           const content = createEl('div', 'details-content');
           // **מצב הפתיחה שורד רינדור מחדש.** ההכרעה עצמה נעשית בקורא,
           // שהוא היחיד שמחזיק את מונה הבלוקים; כאן רק מחילים אותה. בלי זה
@@ -2267,6 +2328,7 @@
         // שאין מסלול קוד שמחבר אותה למחרוזת HTML.
         const label = createEl('span', 'sticky-md-alert-label');
         label.textContent = spec.title;
+        if (spec.generatedTitle) this._markGenerated(label);
         title.appendChild(label);
         const content = createEl('div', 'admonition-content');
         box.appendChild(title);
@@ -2483,10 +2545,18 @@
           // מחיקת הבלוק האחרון בפתק שממשיך להיות מרונדר מנקה את המטמון.
           // המקרה שהכלל הזה **אינו** מכסה מטופל ביציאה המוקדמת שמתחתיו.
           const entry = this._getEntry(el);
+          // **מה שהחיפוש פתח אינו נכנס לזיכרון** — הכרעה של המשתמש: בלוק
+          // שנפתח כדי להראות התאמה נסגר חזרה כשהחיפוש נסגר, ואינו נשאר
+          // פתוח לעריכות הבאות. בלוק כזה שהמשתמש סגר בעצמו חוזר להיות שלו.
+          const searchOpened = (entry && entry.search && entry.search.openedDetails) || null;
           let openDetails = (entry && entry.detailsOpen) || new Set();
           if (view.children.length) {
             openDetails = new Set();
             view.querySelectorAll('details.sticky-md-details').forEach((box, i) => {
+              if (searchOpened && searchOpened.has(i)) {
+                if (!box.open) searchOpened.delete(i);
+                return;
+              }
               if (box.open) openDetails.add(i);
             });
             // בלי ``entry`` (פתק שאינו רשום) המצב עדיין נכון בתוך הקריאה
@@ -2495,6 +2565,10 @@
             // לפני הסנכרון הראשון.
             if (entry) entry.detailsOpen = openDetails;
           }
+          // האם לפתק יש תצוגה מרונדרת בכלל — גם כשהוא בעריכה עכשיו. זו
+          // השאלה שכפתור החיפוש שואל: פתק טקסט רגיל נשאר ``textarea``, ואין
+          // בו במה לצבוע התאמה.
+          if (entry) entry.renderable = hasTask || wantMd;
           if (editing || (!hasTask && !wantMd)) {
             view.hidden = true;
             textarea.hidden = false;
@@ -2514,6 +2588,9 @@
             // חדש לגמרי, פתח את החדש. הבדיקה על ה-DOM שלמעלה אינה תופסת
             // את זה, כי המסלול הזה מוחק את התצוגה ויוצא לפניה.
             if (!editing && entry) entry.detailsOpen = new Set();
+            // בעריכה התיבה נשארת פתוחה וממתינה — ההדגשה חוזרת ביציאה.
+            // בפתק שאין לו מבנה בכלל אין במה לחפש, והחיפוש נסגר.
+            this._afterViewSync(el, editing ? 'editing' : 'plain');
             return;
           }
           view.textContent = '';
@@ -2731,6 +2808,7 @@
                 bullet.textContent = b.kind === 'ol'
                   ? b.marker
                   : MD_BULLETS[Math.min(depth, MD_BULLETS.length - 1)];
+                if (b.kind !== 'ol') this._markGenerated(bullet);
                 const body = createEl('span', 'sticky-md-li-body');
                 this._appendInline(body, b.content);
                 row.appendChild(bullet);
@@ -2750,22 +2828,51 @@
           }
           view.hidden = false;
           textarea.hidden = true;
+          this._afterViewSync(el, 'rendered');
         } catch(_) {}
       }
 
-      // לחיצה/הפעלה בתצוגה מחזירה לעריכה — **חוץ** מתיבת סימון (סימון)
-      // ומקישור מרונדר (פתיחת לשונית). מוחזר האם נכנסנו לעריכה, כדי
-      // שמסלול המקלדת יוכל להחליט. מתודה ולא סגור, כדי שאפשר לבדוק אותה.
-      _enterEditFromView(el, ev){
-        const t = ev && ev.target;
-        if (t && t.classList && t.classList.contains('sticky-task-box')) return false;
+      /**
+       * מה שרץ אחרי כל סנכרון של התצוגה, בכל שלושת הענפים: ``rendered``
+       * (התצוגה נבנתה מחדש), ``editing`` (הפתק בעריכה) ו-``plain`` (אין לו
+       * מבנה).
+       *
+       * **בתוך ``try`` משלו, ועם לוג.** ``_syncTaskView`` כולו עטוף ב-``try``
+       * אחד שבולע בשקט, והוא מוחק את התצוגה בתחילתו. מה שרץ כאן — הדגשת
+       * החיפוש ומצב הכפתור — הוא תוספת על תצוגה שכבר נבנתה ונחשפה, ולכן
+       * כשל בו אסור שיגיע לשם: הפתק היה נשאר בלי שום סימן לכשל. ובלי
+       * ``console.warn`` הוא היה בליעה שקטה שנייה.
+       */
+      _afterViewSync(el, phase){
+        try {
+          if (phase === 'plain') this._closeNoteSearch(el);
+          else if (phase === 'editing') this._pauseNoteSearch(el);
+          else this._applyNoteSearch(el, {});
+          this._syncSearchButton(el);
+        } catch (e) {
+          console.warn('sticky note: in-note search failed after render', e);
+        }
+      }
+
+      /**
+       * האם היעד הוא **פקד** בתוך התצוגה — אלמנט שיש לו פעולה משלו, ולכן
+       * לחיצה עליו (רגילה או ממושכת) אינה נכנסת לעריכה.
+       *
+       * תשובה אחת לשני הצרכנים: ``_enterEditFromView`` והלחיצה הממושכת של
+       * ``_enableViewLongPress``. רשימה שנייה הייתה נסחפת מהראשונה בדיוק
+       * בפקד הבא שיתווסף.
+       */
+      _isViewControl(t){
+        if (!t) return false;
+        if (t.classList && t.classList.contains('sticky-task-box')) return true;
+        if (!t.closest) return false;
         // לחיצה על קישור מרונדר פותחת לשונית — היא **לא** אמורה גם
         // להיכנס לעריכה, אחרת בחזרה ללשונית הפתק במצב עריכה במקום תצוגה.
-        if (t && t.closest && t.closest('a.sticky-md-link')) return false;
+        if (t.closest('a.sticky-md-link')) return true;
         // כפתור ההעתקה של בלוק קוד יושב **בתוך** שורת המקור (הכותרת),
         // ולכן בלי ההחרגה הזו כל לחיצה עליו הייתה גם מעתיקה וגם מפילה
         // את הפתק לעריכה — הכפתור עושה את עבודתו והתצוגה נעלמת.
-        if (t && t.closest && t.closest('.sticky-md-code-copy')) return false;
+        if (t.closest('.sticky-md-code-copy')) return true;
         // **לחיצה על ה-``summary`` מקפלת בלבד ואינה נכנסת לעריכה.**
         //
         // האנלוגיה היא אייקון ההעתקה שמעל — אבל היא אינה מדויקת, ושווה
@@ -2778,7 +2885,22 @@
         //
         // **וההיסט נשאר על ה-``summary`` בכל מקרה** — הוא אינו קיים בשביל
         // הקליק אלא בשביל המיפוי בין תצוגה למקור.
-        if (t && t.closest && t.closest('summary.sticky-md-details-summary')) return false;
+        if (t.closest('summary.sticky-md-details-summary')) return true;
+        return false;
+      }
+
+      // לחיצה/הפעלה בתצוגה מחזירה לעריכה — **חוץ** מתיבת סימון (סימון)
+      // ומקישור מרונדר (פתיחת לשונית). מוחזר האם נכנסנו לעריכה, כדי
+      // שמסלול המקלדת יוכל להחליט. מתודה ולא סגור, כדי שאפשר לבדוק אותה.
+      _enterEditFromView(el, ev){
+        const t = ev && ev.target;
+        if (this._isViewControl(t)) return false;
+        // **בזמן חיפוש לחיצה רגילה אינה נכנסת לעריכה** — הכרעה של המשתמש:
+        // לחיצות בטעות על התצוגה קורות הרבה, וכל אחת מהן הייתה מעלימה את
+        // ההדגשה באמצע חיפוש. הדרכים פנימה: לחיצה ממושכת
+        // (``_enableViewLongPress``), ו-Enter מהמקלדת — שם אין לחיצה ממושכת,
+        // ולכן מסלול המקלדת (``keydown``) אינו נחסם כאן.
+        if (ev && ev.type === 'click' && this._isNoteSearching(el)) return false;
         const row = (t && t.closest) ? t.closest('.sticky-task-line') : null;
         const offset = row ? parseInt(row.dataset.charOffset, 10) : NaN;
         this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
@@ -2829,6 +2951,493 @@
             try { textarea.selectionStart = textarea.selectionEnd = pos; } catch(_) {}
           }
         } catch(_) {}
+      }
+
+      // ── חיפוש בתוך פתק ──────────────────────────────────────────────
+      //
+      // **ההדגשה עצמה אינה כאן** אלא ב-``utils/text-highlight.js``, המשותף
+      // לחיפוש במסמך ולעמוד חיפוש הפתקים. כאן חי רק מה שנובע מהמנוע של
+      // הפתקים: תצוגה שנבנית מאפס, פתק בלי תצוגה, טקסט שהמנוע מייצר,
+      // ובלוקים מתקפלים.
+      //
+      // **המצב חי ברשומת הפתק (``entry.search``) ולא על האלמנט**, כי
+      // ``_syncTaskView`` מוחק ובונה את התצוגה בכל סימון צ'קבוקס ובכל
+      // יציאה מעריכה. המעבר על ההתאמות רץ בסוף כל בנייה
+      // (``_afterViewSync``), ולכן ההדגשה שורדת אותה. המצב אינו נשמר
+      // בשרת: סגירה או רענון מאפסים אותו.
+
+      /** האם החיפוש פתוח בפתק הזה. */
+      _isNoteSearching(el){
+        const entry = this._getEntry(el);
+        return !!(entry && entry.search && entry.search.open);
+      }
+
+      /**
+       * למה אי אפשר לחפש בפתק עכשיו — מחרוזת להצגה, או ריקה כשאפשר.
+       *
+       * שלוש סיבות. **מודול ההדגשה לא נטען** — היעדר יכולת קבוע לכל חיי
+       * העמוד, ולכן כפתור מושבת ולא נפילה (אותה הכרעה כמו ``window.RtlCode``
+       * ב-``_appendCodeBlock``). **הפתק ממוזער** — התצוגה מוסתרת. **לפתק אין
+       * תצוגה מרונדרת** — פתק טקסט רגיל נשאר ``textarea``, ובתוך ``textarea``
+       * אי אפשר לצבוע טקסט (הכרעה של המשתמש: החיפוש עובד רק על תצוגה
+       * מרונדרת).
+       */
+      _searchUnavailableReason(el){
+        if (!window.TextHighlight) {
+          if (!this._warnedNoHighlighter) {
+            this._warnedNoHighlighter = true;
+            console.warn('sticky notes: utils/text-highlight.js did not load; in-note search is disabled');
+          }
+          return 'החיפוש בפתק אינו זמין כרגע';
+        }
+        if (el.classList && el.classList.contains('is-minimized')) return 'הפתק ממוזער — פתחו אותו כדי לחפש בו';
+        const entry = this._getEntry(el);
+        if (entry && entry.renderable === false) return 'החיפוש עובד על פתק מעוצב (מארקדאון או משימות), ולא על טקסט רגיל';
+        return '';
+      }
+
+      /** מצב כפתור החיפוש: זמין, או מושבת עם הסבר ב-``title``. */
+      _syncSearchButton(el){
+        const btn = (el && el.querySelector) ? el.querySelector('.sticky-note-search-btn') : null;
+        if (!btn) return;
+        const open = this._isNoteSearching(el);
+        const reason = open ? '' : this._searchUnavailableReason(el);
+        btn.disabled = !!reason;
+        btn.title = reason || (open ? 'סגירת החיפוש' : 'חיפוש בפתק');
+        btn.setAttribute('aria-pressed', open ? 'true' : 'false');
+      }
+
+      /**
+       * פותח את תיבת החיפוש (או רק ממקד אותה, אם כבר פתוחה).
+       *
+       * **הכרעה של המשתמש: פתיחת חיפוש יוצאת מעריכה.** היציאה קורית כי
+       * הפוקוס עובר לשדה החיפוש, ולכן היא עוברת במסלול היחיד שקיים ליציאה
+       * מעריכה — ``blur`` של ה-``textarea`` — שהוא גם זה שמריץ ``_flushFor``
+       * (סעיף "סדר" במסמך הפיתוח). ההקלדה האחרונה נשמרת, והתצוגה נבנית
+       * מחדש. מסלול יציאה שני היה יכול לשכוח את השמירה.
+       */
+      _openNoteSearch(el){
+        const entry = this._getEntry(el);
+        const view = el.querySelector('.sticky-note-tasks');
+        const textarea = el.querySelector('.sticky-note-content');
+        if (!entry || !view || !textarea) return;
+        if (this._searchUnavailableReason(el)) return;
+        if (!entry.search) {
+          entry.search = {
+            open: true, term: '', active: -1, count: 0,
+            // כמו בחיפוש במסמך: אחרי הקלדה ההתאמה הראשונה כבר מסומנת,
+            // וה-Enter הראשון נשאר עליה במקום לדלג לשנייה.
+            justAutoFocused: false,
+            paused: false,
+            // סידורי הבלוקים המתקפלים שהחיפוש פתח — ראו ``_revealSearchHit``.
+            openedDetails: new Set(),
+            ui: null,
+          };
+          el.classList.add('is-searching');
+          entry.search.ui = this._buildSearchBar(el, entry.search);
+        }
+        this._syncSearchButton(el);
+        // ``preventScroll``: כשאין מקום מעל הפתק התיבה עוד לא עברה פנימה
+        // בפריים הזה, ופוקוס רגיל היה גולל את הלוח או את העמוד כדי לחשוף
+        // אותה. מקור: MDN, ‏HTMLElement.focus() — ברירת המחדל גוללת.
+        const input = entry.search.ui.input;
+        try { input.focus({ preventScroll: true }); input.select(); } catch(_) {}
+      }
+
+      /**
+       * סוגר את החיפוש: מנקה את ההדגשה, סוגר את הבלוקים שהחיפוש פתח,
+       * ומסיר את התיבה. ``returnFocus`` מחזיר את הפוקוס לכפתור החיפוש —
+       * לסגירה מהמקלדת (Escape) או מ-✕, כדי שמי שמנווט במקלדת לא יאבד את
+       * מקומו.
+       */
+      _closeNoteSearch(el, opts){
+        const entry = this._getEntry(el);
+        const s = entry && entry.search;
+        if (!s) return;
+        entry.search = null;
+        const view = el.querySelector('.sticky-note-tasks');
+        const highlighter = window.TextHighlight;
+        if (view && highlighter) highlighter.clearHighlights(view, NOTE_SEARCH_HIT_CLASS);
+        // **מה שהחיפוש פתח נסגר חזרה**, אחרת הבלוק היה נסגר מאוחר יותר
+        // "מתחת ליד" — בסימון הבא, כשהזיכרון (שהוא אינו חלק ממנו) יבנה
+        // את התצוגה מחדש.
+        if (view && s.openedDetails.size) {
+          const boxes = view.querySelectorAll('details.sticky-md-details');
+          s.openedDetails.forEach((i) => { if (boxes[i]) boxes[i].open = false; });
+        }
+        this._teardownSearchUi(s);
+        el.classList.remove('is-searching');
+        el.classList.remove('is-search-inside');
+        this._syncSearchButton(el);
+        if (opts && opts.returnFocus) {
+          const btn = el.querySelector('.sticky-note-search-btn');
+          try { if (btn) btn.focus({ preventScroll: true }); } catch(_) {}
+        }
+      }
+
+      /** לפתק שיורד מה-DOM (מחיקה, פירוק המנהל): מנתק בלי לגעת בתצוגה. */
+      _teardownNoteSearchOf(entry){
+        if (!entry || !entry.search) return;
+        this._teardownSearchUi(entry.search);
+        entry.search = null;
+      }
+
+      /** מנתק את המשקיפים ומסיר את התיבה. */
+      _teardownSearchUi(s){
+        const ui = s && s.ui;
+        if (!ui) return;
+        s.ui = null;
+        try { if (ui.roomObserver) ui.roomObserver.disconnect(); } catch(_) {}
+        try { if (ui.sizeObserver) ui.sizeObserver.disconnect(); } catch(_) {}
+        try { ui.bar.remove(); } catch(_) {}
+        try { ui.room.remove(); } catch(_) {}
+      }
+
+      /**
+       * בונה את התיבה ואת "חיישן המקום" שמעליה, ומחזיר את הרכיבים.
+       *
+       * **התיבה היא ילד של הפתק**, ולכן היא זזה איתו בגרירה ובשינוי גודל,
+       * בכל שלושת מצבי המיקום, ונמחקת איתו — בלי מעקב מיקום משלה. היא
+       * ממוקמת ``absolute`` מעל הפתק, ולכן אינה משנה את המלבן שלו:
+       * ``_notePayloadFromEl`` קורא את המיקום והגודל מהמלבן, ותיבה ששינתה
+       * אותו הייתה נשמרת כמיקום חדש בגרירה הבאה.
+       *
+       * **ובזמן חיפוש לפתק יש ``overflow: visible``** (``.is-searching`` ב-CSS)
+       * — אחרת הפתק עצמו היה חותך את התיבה שיושבת מחוץ לגבולותיו.
+       */
+      _buildSearchBar(el, s){
+        const bar = createEl('div', 'sticky-note-search', { role: 'search' });
+        const input = createEl('input', 'sticky-note-search-input', {
+          type: 'text', placeholder: 'חפש בפתק...', 'aria-label': 'חיפוש בתוך הפתק',
+          autocomplete: 'off', spellcheck: 'false'
+        });
+        const count = createEl('span', 'sticky-note-search-count', { 'aria-live': 'polite' });
+        const prev = createEl('button', 'sticky-note-btn sticky-note-search-prev',
+          { type: 'button', title: 'הקודם', 'aria-label': 'ההתאמה הקודמת' });
+        prev.textContent = '▲';
+        const next = createEl('button', 'sticky-note-btn sticky-note-search-next',
+          { type: 'button', title: 'הבא', 'aria-label': 'ההתאמה הבאה' });
+        next.textContent = '▼';
+        const close = createEl('button', 'sticky-note-btn sticky-note-search-close',
+          { type: 'button', title: 'סגירת החיפוש', 'aria-label': 'סגירת החיפוש' });
+        close.textContent = '✕';
+        bar.appendChild(input); bar.appendChild(count);
+        bar.appendChild(prev); bar.appendChild(next); bar.appendChild(close);
+        const room = createEl('div', 'sticky-note-search-room', { 'aria-hidden': 'true' });
+
+        // **מיד אחרי הכותרת**, ולא בסוף הפתק: כשאין מקום מעל הפתק התיבה
+        // עוברת לזרימה (``.is-search-inside``), והפתק הוא עמודת flex — כלומר
+        // המקום ב-DOM הוא המקום על המסך. מעל הפתק היא ``absolute`` והמקום
+        // ב-DOM אינו משנה דבר.
+        const header = el.querySelector('.sticky-note-header');
+        const anchor = header ? header.nextSibling : el.firstChild;
+        el.insertBefore(room, anchor);
+        el.insertBefore(bar, anchor);
+
+        input.addEventListener('input', () => {
+          s.term = String(input.value || '').trim();
+          s.active = -1;
+          this._applyNoteSearch(el, { activateFirst: true, reveal: true });
+          s.justAutoFocused = s.active >= 0;
+        });
+        prev.addEventListener('click', (ev) => {
+          try { ev.stopPropagation(); } catch(_) {}
+          this._stepNoteSearch(el, -1);
+        });
+        next.addEventListener('click', (ev) => {
+          try { ev.stopPropagation(); } catch(_) {}
+          this._stepNoteSearch(el, 1);
+        });
+        close.addEventListener('click', (ev) => {
+          try { ev.stopPropagation(); } catch(_) {}
+          this._closeNoteSearch(el, { returnFocus: true });
+        });
+        // **מקשים בתיבה אינם מבעבעים** — לא למאזינים של הפתק ולא לאלה של
+        // העמוד (בדפדפן הריפו, למשל, Escape ברמת העמוד סוגר חלוניות).
+        // ‏``isComposing``/229: בזמן הקלדה במקלדת IME ה-Enter שייך
+        // להרכבה ולא לנו. מקור: MDN, ‏Element: keydown event.
+        bar.addEventListener('keydown', (ev) => {
+          try { ev.stopPropagation(); } catch(_) {}
+          if (ev.isComposing || ev.keyCode === 229) return;
+          if (ev.key === 'Escape') {
+            ev.preventDefault();
+            this._closeNoteSearch(el, { returnFocus: true });
+          } else if (ev.key === 'Enter' && ev.target === input) {
+            ev.preventDefault();
+            this._stepNoteSearch(el, ev.shiftKey ? -1 : 1);
+          }
+        });
+        bar.addEventListener('keyup', (ev) => { try { ev.stopPropagation(); } catch(_) {} });
+        bar.addEventListener('keypress', (ev) => { try { ev.stopPropagation(); } catch(_) {} });
+
+        const ui = { bar, input, count, room, roomObserver: null, sizeObserver: null };
+        this._watchSearchRoom(el, ui);
+        return ui;
+      }
+
+      /**
+       * האם יש מקום לתיבה **מעל** הפתק — ואם לא, היא עוברת לתוכו.
+       *
+       * פתק בקצה העליון של המסך, של הלוח או של מכל הריפו היה משאיר את
+       * התיבה מחוץ למסך או חתוכה. ההכרעה נעשית על **חיישן**: אלמנט בלתי
+       * נראה שתמיד יושב מעל הפתק, בגובה התיבה. על התיבה עצמה אי אפשר
+       * להכריע — ברגע שהיא עוברת פנימה היא גלויה במלואה, וההכרעה הייתה
+       * מתהפכת בחזרה בלי סוף.
+       *
+       * ‏``IntersectionObserver`` ולא חישוב ידני, כי הוא סופר חיתוך של
+       * **כל** אב בשרשרת (משטח לוח עם ``overflow``, מכל הריפו), ולא רק של
+       * המסך. מקור: המפרט, W3C Intersection Observer — "compute the
+       * intersection", שמחיל את החיתוך של כל אב בשרשרת; ו-``observe`` מציב
+       * ‏``previousThresholdIndex = -1``, ולכן ההודעה הראשונה מגיעה מיד.
+       * נמדד בכרומיום: 0.29 כשהחיישן חתוך בחלקו על ידי אב, ו-1 אחרי
+       * שהפתק זז.
+       *
+       * **כשהתיבה בתוך הפתק היא דוחפת את התוכן, ואינה מכסה אותו.** תיבה
+       * ``absolute`` מתחת לכותרת הייתה מכסה את השורות הראשונות — ואולי
+       * בדיוק את ההתאמה — ובפתק שאינו נגלל לא הייתה דרך לחשוף אותן. בזרימה
+       * היא לוקחת את מקומה מגובה התצוגה, שממילא נגללת, והמלבן של הפתק לא
+       * משתנה. (הכרעה שהמשתמש ביקש.)
+       */
+      _watchSearchRoom(el, ui){
+        const syncHeight = () => { ui.room.style.height = ui.bar.offsetHeight + 'px'; };
+        syncHeight();
+        // התיבה נשברת לשתי שורות בפתק צר, ולכן גובה החיישן עוקב אחריה
+        // גם בשינוי גודל הפתק.
+        if (typeof ResizeObserver === 'function') {
+          ui.sizeObserver = new ResizeObserver(syncHeight);
+          ui.sizeObserver.observe(ui.bar);
+        }
+        if (typeof IntersectionObserver !== 'function') return;
+        ui.roomObserver = new IntersectionObserver((records) => {
+          const rec = records[records.length - 1];
+          el.classList.toggle('is-search-inside', !(rec && rec.intersectionRatio >= 1));
+        }, { threshold: [1] });
+        ui.roomObserver.observe(ui.room);
+      }
+
+      /**
+       * מעבר ההדגשה על התצוגה הנוכחית. רץ בסוף כל בנייה, ובכל הקלדה.
+       *
+       * **ההתאמה הפעילה נשמרת לפי מספר סידורי, ולא לפי היסט.** ההיסט אינו
+       * זהות ששורדת עריכה (הלקח מסעיף ה-``details``), ובסימון צ'קבוקס — הבנייה
+       * הנפוצה ביותר בזמן חיפוש — הטקסט המוצג זהה, ולכן הסידורי מדויק. אם
+       * ההתאמות פחתו, היא נצמדת לאחרונה. איפוס לראשונה היה מאבד את המקום
+       * בכל סימון.
+       *
+       * **ואין כאן גלילה אחרי בנייה:** נמדד שהגלילה הפנימית של הפתק שורדת
+       * את הבנייה מחדש (400 לפני, 400 אחרי), ולכן אין מה לתקן.
+       */
+      _applyNoteSearch(el, opts){
+        const entry = this._getEntry(el);
+        const s = entry && entry.search;
+        if (!s || !s.open) return;
+        const view = el.querySelector('.sticky-note-tasks');
+        const highlighter = window.TextHighlight;
+        if (!view || !highlighter) return;
+        s.paused = false;
+        // הבנייה יוצרת כל בלוק סגור, חוץ ממה שבזיכרון — ומה שהחיפוש פתח
+        // אינו בזיכרון. לכן הוא נפתח כאן שוב, לפני ההדגשה.
+        if (s.openedDetails.size) {
+          const boxes = view.querySelectorAll('details.sticky-md-details');
+          s.openedDetails.forEach((i) => {
+            if (boxes[i]) boxes[i].open = true;
+            else s.openedDetails.delete(i);
+          });
+        }
+        const hits = highlighter.highlightWithin(view, s.term, {
+          className: NOTE_SEARCH_HIT_CLASS,
+          skip: '.' + GENERATED_TEXT_CLASS,
+        });
+        s.count = hits.length;
+        if (s.active >= hits.length) s.active = hits.length - 1;
+        if (opts && opts.activateFirst && s.active < 0 && hits.length) s.active = 0;
+        if (s.active >= 0) {
+          hits[s.active].classList.add('is-active');
+          if (opts && opts.reveal) this._revealSearchHit(el, view, hits[s.active]);
+        }
+        this._renderSearchCount(el);
+      }
+
+      /** בזמן עריכה התצוגה ריקה: המונה נמחק, ולא מציג "אין תוצאות". */
+      _pauseNoteSearch(el){
+        const entry = this._getEntry(el);
+        const s = entry && entry.search;
+        if (!s || !s.open) return;
+        s.paused = true;
+        this._renderSearchCount(el);
+      }
+
+      /** המונה, באותה צורה כמו בחיפוש במסמך: "3/7", "7 תוצאות", "אין תוצאות". */
+      _renderSearchCount(el){
+        const entry = this._getEntry(el);
+        const s = entry && entry.search;
+        const countEl = s && s.ui && s.ui.count;
+        if (!countEl) return;
+        if (s.paused || !s.term) { countEl.textContent = ''; return; }
+        countEl.textContent = s.count > 0
+          ? (s.active >= 0 ? `${s.active + 1}/${s.count}` : `${s.count} תוצאות`)
+          : 'אין תוצאות';
+      }
+
+      /**
+       * מעבר להתאמה הבאה (``1``) או הקודמת (``-1``), במעגל.
+       *
+       * **אותה התנהגות כמו בחיפוש במסמך**, כולל ה-Enter הראשון שנשאר על
+       * ההתאמה שסומנה בהקלדה — כך שני החיפושים באפליקציה מגיבים לאותו מקש
+       * באותה צורה.
+       */
+      _stepNoteSearch(el, dir){
+        const entry = this._getEntry(el);
+        const s = entry && entry.search;
+        if (!s || !s.open || s.paused) return;
+        const view = el.querySelector('.sticky-note-tasks');
+        if (!view) return;
+        const hits = view.querySelectorAll('.' + NOTE_SEARCH_HIT_CLASS);
+        const n = hits.length;
+        if (!n) return;
+        if (dir > 0 && (s.justAutoFocused || s.active < 0)) {
+          s.active = 0;
+        } else {
+          const from = s.active < 0 ? 0 : s.active;
+          s.active = (from + dir + n) % n;
+        }
+        s.justAutoFocused = false;
+        for (let i = 0; i < n; i += 1) hits[i].classList.toggle('is-active', i === s.active);
+        this._revealSearchHit(el, view, hits[s.active]);
+        this._renderSearchCount(el);
+      }
+
+      /**
+       * מביא התאמה אל העין: פותח בלוק מתקפל סגור שהיא בתוכו, וגולל אליה.
+       *
+       * **הכרעה של המשתמש: בלוק סגור נפתח, והפתיחה אינה נכנסת לזיכרון
+       * הפתיחה.** לכן הסידור שלו נרשם ב-``openedDetails`` ולא
+       * ב-``entry.detailsOpen``, והבלוק נסגר חזרה כשהחיפוש נסגר. בלוק
+       * שההתאמה נמצאת ב-``summary`` שלו אינו נפתח — ה-``summary`` גלוי גם
+       * כשהבלוק סגור.
+       */
+      _revealSearchHit(el, view, hit){
+        const entry = this._getEntry(el);
+        const s = entry && entry.search;
+        let boxes = null;
+        for (let node = hit.parentElement; node && node !== view; node = node.parentElement) {
+          if (!node.matches('details.sticky-md-details') || node.open) continue;
+          const summary = node.querySelector(':scope > summary');
+          if (summary && summary.contains(hit)) continue;
+          node.open = true;
+          if (s) {
+            if (!boxes) boxes = view.querySelectorAll('details.sticky-md-details');
+            const i = Array.prototype.indexOf.call(boxes, node);
+            if (i >= 0) s.openedDetails.add(i);
+          }
+        }
+        this._scrollHitIntoView(view, hit);
+      }
+
+      /**
+       * גלילה אל ההתאמה **בתוך הפתק בלבד**.
+       *
+       * ‏``scrollIntoView`` גולל כל אב נגלל, ולכן בפתק מעוגן הוא היה מזיז את
+       * המסמך שמתחת לפתק, ובפתק על משטח — את המשטח. כאן נגללים רק
+       * האבות שבין ההתאמה לבין התצוגה (כולל): התצוגה עצמה, ועטיפה של טבלה
+       * רחבה. מכל שהוא ``overflow: hidden`` אינו נגלל — אחרת תוכן היה נעלם
+       * בלי שהמשתמש יוכל לגלול חזרה.
+       *
+       * גוללים רק כשההתאמה אינה גלויה במלואה, ואז ממרכזים אותה. החשבון הוא
+       * הפרש בין מלבנים, ו-``scrollLeft += הפרש`` נכון ב-RTL וב-LTR כאחד:
+       * ב-RTL ‏``scrollLeft`` מתחיל ב-0 בקצה הימני ושלילי לשמאל, ובשני
+       * הכיוונים הגדלתו מזיזה את החלון ימינה. מקור: MDN, ‏Element.scrollLeft.
+       * ‏``clientLeft`` כולל את פס הגלילה כשהוא בצד שמאל, כמו ב-RTL.
+       */
+      _scrollHitIntoView(view, hit){
+        for (let box = hit.parentElement; box; box = box.parentElement) {
+          const cs = getComputedStyle(box);
+          const canY = (cs.overflowY === 'auto' || cs.overflowY === 'scroll') && box.scrollHeight > box.clientHeight;
+          const canX = (cs.overflowX === 'auto' || cs.overflowX === 'scroll') && box.scrollWidth > box.clientWidth;
+          if (canY || canX) {
+            const h = hit.getBoundingClientRect();
+            const b = box.getBoundingClientRect();
+            const top = b.top + box.clientTop;
+            const left = b.left + box.clientLeft;
+            if (canY && (h.top < top || h.bottom > top + box.clientHeight)) {
+              box.scrollTop += (h.top + h.height / 2) - (top + box.clientHeight / 2);
+            }
+            if (canX && (h.left < left || h.right > left + box.clientWidth)) {
+              box.scrollLeft += (h.left + h.width / 2) - (left + box.clientWidth / 2);
+            }
+          }
+          if (box === view) break;
+        }
+      }
+
+      /**
+       * לחיצה ממושכת על התצוגה בזמן חיפוש — הדרך לעריכה במגע ובעכבר.
+       *
+       * **הכרעה של המשתמש:** בזמן חיפוש לחיצה רגילה אינה נכנסת לעריכה
+       * (``_enterEditFromView``), ולחיצה ממושכת כן. כשהחיפוש סגור אין כאן
+       * שום שינוי — הלחיצה הרגילה נכנסת לעריכה כמו תמיד.
+       *
+       * **הכניסה לעריכה קורית בשחרור, ולא כשהטיימר מסתיים.** הטיימר רק
+       * "דורך" (ומסמן את השורה), והשחרור מבצע. שתי סיבות: (1) נמדד בכרומיום
+       * במגע מדומה (``Input.synthesizeTapGesture`` עם ``duration``) שאחרי
+       * לחיצה ממושכת **אין** ``click`` — רק ``pointerup`` — ולכן המאזין
+       * הקיים של הלחיצה לא היה רץ; (2) ``pointerup`` של מגע הוא אירוע
+       * שמעניק לדף "פעולת משתמש", ובלעדיה דפדפן נייד עשוי למקד את
+       * ה-``textarea`` בלי לפתוח מקלדת. ‏``pointercancel`` אחרי דריכה —
+       * הדפדפן לקח את המחווה לעצמו — מכובד כשחרור.
+       *
+       * **בזמן הלחיצה (במגע בלבד) נחסמות בחירת הטקסט ותפריט ההקשר של
+       * הדפדפן**: ``user-select``/``-webkit-touch-callout`` דרך המחלקה
+       * ``is-pressing``, וביטול ``contextmenu`` ו-``selectstart``. בעכבר אין
+       * חסימה: שם אין תפריט על לחיצה ממושכת, וגרירה לבחירת טקסט מבטלת
+       * ממילא את הלחיצה הממושכת (תזוזה מעל ``LONG_PRESS_SLOP_PX``).
+       * מקורות: MDN, ‏Pointer events (``pointercancel``, ``pointerType``,
+       * ``button``), ‏user-select, ‏-webkit-touch-callout (Safari ב-iOS בלבד),
+       * ו-contextmenu/selectstart (שניהם ניתנים לביטול).
+       */
+      _enableViewLongPress(el, view){
+        let timer = null, active = false, armed = false, touchLike = false;
+        let startX = 0, startY = 0, row = null;
+        const reset = () => {
+          try { clearTimeout(timer); } catch(_) {}
+          timer = null;
+          if (row) row.classList.remove('is-press-armed');
+          view.classList.remove('is-pressing');
+          active = false; armed = false; touchLike = false; row = null;
+        };
+        const finish = () => {
+          if (!active) return;
+          const go = armed;
+          const target = row;
+          reset();
+          if (!go) return;
+          const offset = target ? parseInt(target.dataset.charOffset, 10) : NaN;
+          this._enterEditAt(el, Number.isFinite(offset) ? offset : null);
+        };
+        view.addEventListener('pointerdown', (ev) => {
+          reset();
+          if (!this._isNoteSearching(el) || ev.button !== 0) return;
+          if (this._isViewControl(ev.target)) return;
+          active = true;
+          touchLike = ev.pointerType !== 'mouse';
+          startX = ev.clientX; startY = ev.clientY;
+          row = (ev.target && ev.target.closest) ? ev.target.closest('.sticky-task-line') : null;
+          if (touchLike) view.classList.add('is-pressing');
+          timer = setTimeout(() => {
+            armed = true;
+            if (row) row.classList.add('is-press-armed');
+          }, LONG_PRESS_MS);
+        });
+        view.addEventListener('pointermove', (ev) => {
+          if (!active) return;
+          if (Math.abs(ev.clientX - startX) > LONG_PRESS_SLOP_PX || Math.abs(ev.clientY - startY) > LONG_PRESS_SLOP_PX) reset();
+        });
+        view.addEventListener('pointerup', finish);
+        view.addEventListener('pointercancel', finish);
+        // עכבר שיצא מהתצוגה באמצע לחיצה אינו מקבל ``pointerup`` כאן.
+        view.addEventListener('pointerleave', (ev) => { if (ev.pointerType === 'mouse') reset(); });
+        view.addEventListener('contextmenu', (ev) => { if (active && touchLike) ev.preventDefault(); });
+        view.addEventListener('selectstart', (ev) => { if (active && touchLike) ev.preventDefault(); });
       }
 
       // שם תפוס — מסומן על השדה עצמו, לפי **קוד השגיאה מהשרת** בלבד.
@@ -3578,7 +4187,6 @@
     _enableDrag(el, handle){
       let startX=0, startY=0, origLeft=0, origTop=0, startScrollX=0, startScrollY=0, dragging=false;
       let pressTimer=null, longPressHandled=false;
-      const LONG_PRESS_MS = 450;
       const onDown = (e)=>{
         if (this._isDragExempt(e.target)) return;
         dragging = true;
@@ -3612,7 +4220,7 @@
         if (!dragging) return;
         const ev = e.touches ? e.touches[0] : e;
         const dx = ev.clientX - startX; const dy = ev.clientY - startY;
-        if (Math.abs(dx) > 6 || Math.abs(dy) > 6) { try { clearTimeout(pressTimer); } catch(_) {} }
+        if (Math.abs(dx) > LONG_PRESS_SLOP_PX || Math.abs(dy) > LONG_PRESS_SLOP_PX) { try { clearTimeout(pressTimer); } catch(_) {} }
         const scroll = getScrollOffsets();
         const sx = scroll.x - startScrollX; const sy = scroll.y - startScrollY;
         let nx = Math.round(origLeft + dx + sx);
@@ -4237,6 +4845,8 @@
       // טיימר ההתפרצות מחזיק הפניה ל-``el`` ול-``entry``. בלי הניקוי הזה
       // הוא ימשיך לרוץ אחרי שהפתק ירד מה-DOM.
       this._clearUndoTimer(el);
+      // ומאותה סיבה המשקיפים של תיבת החיפוש, אם היא פתוחה.
+      this._teardownNoteSearchOf(this._getEntry(el));
       try { el.remove(); } catch(_) {}
       this.notes.delete(id);
       // אורך המשטח נגזר מהפתקים שעליו. בלי הקריאה הזו מחיקת הפתק התחתון
@@ -4556,6 +5166,7 @@
       try {
         if (!entry || !entry.el || !entry.el.classList.contains('is-minimized')) return;
         entry.el.classList.remove('is-minimized');
+        this._syncSearchButton(entry.el);
         // אותו מסלול שבו הכפתור בכותרת שומר, ולכן גם ``entry.data``
         // מתעדכן דרך ``_syncEntryFromFragment``.
         this._queueSave(entry.el, { is_minimized: false });
@@ -4760,6 +5371,7 @@
           // אותו נימוק כמו במחיקת פתק בודד: טיימר ההתפרצות מחזיק הפניה
           // ל-``entry``, והוא ימשיך לרוץ אחרי שהאלמנט ירד מה-DOM.
           try { if (entry && entry.el) this._clearUndoTimer(entry.el); } catch(_) {}
+          this._teardownNoteSearchOf(entry);
           try { entry && entry.el && entry.el.remove && entry.el.remove(); } catch(_) {}
         }
       } catch(_) {}

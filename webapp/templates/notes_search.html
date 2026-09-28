@@ -62,5 +62,8 @@
 {% endblock %}
 
 {% block extra_js %}
+{# ההדגשה המשותפת (גם למסמך ולחיפוש בתוך פתק). בלי defer ולפני הצרכן, כמו
+   ``utils/rtl-code.js`` בתבניות הפתקים. #}
+<script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/notes_search.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

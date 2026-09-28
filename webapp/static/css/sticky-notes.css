@@ -23,10 +23,13 @@
 .sticky-note{
   --note-ink: #2b3f6a;
   --note-ink-muted: #66739A;
+  /* טוקן ולא מספר: החיפוש בתוך פתק גוזר ממנו את הרדיוס הפנימי של ילדים
+     שחותכים את עצמם (``calc(var(--note-radius) - 1px)``, בגלל הגבול). */
+  --note-radius: 10px;
   position: fixed;
   z-index: 950;
   box-shadow: 0 8px 20px rgba(0,0,0,.25);
-  border-radius: 10px;
+  border-radius: var(--note-radius);
   border: 1px solid rgba(0,0,0,.12);
   background: #FFFFCC;
   overflow: hidden;
@@ -917,4 +920,205 @@
   font-size: .82rem;
   line-height: 1.2;
   text-align: center;
+}
+
+/* ===== חיפוש בתוך פתק ================================================
+ *
+ * **משטח קשיח, ולכן צבעים ליטרליים.** הנייר של הפתק אינו משתנה עם
+ * הערכה, ולכן טוקן ערכה כמו ``--search-highlight-bg`` (של עמוד חיפוש
+ * הפתקים) מכויל לרקע אחר לגמרי. נקודת המוצא היא ההדגשה של החיפוש במסמך
+ * (``.md-highlight`` — זהב וטקסט כהה), והערכים כאן נמדדו מולה ומול הנייר.
+ * המספרים והנימוק ב-``docs/dev/sticky_notes_extending.rst``, בסעיף על
+ * החיפוש בתוך פתק.
+ */
+
+/* כפתור הכותרת — קטן, כמו העיפרון שלידו: הוא שייך לשורת השם. */
+.sticky-note-search-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; padding: 0 2px; opacity: .75;
+}
+.sticky-note-search-btn svg { width: 13px; height: 13px; display: block; }
+.sticky-note-search-btn:hover,
+.sticky-note-search-btn[aria-pressed="true"] { opacity: 1; }
+.sticky-note-search-btn[aria-pressed="true"] {
+  color: var(--note-ink);
+  background: rgba(43, 63, 106, .12);
+  border-radius: 5px;
+}
+
+/* **בזמן חיפוש הפתק אינו חותך.** התיבה והחיישן שלה יושבים מעל הפתק,
+   מחוץ לגבולותיו, ו-``overflow: hidden`` של הפתק היה חותך את שניהם. בחיישן
+   זה גם תנאי למדידה: ``IntersectionObserver`` סופר חיתוך של כל אב, והפתק
+   הוא אב שלו — בלי הכלל הזה החיישן היה נמדד "חתוך" תמיד. */
+.sticky-note.is-searching { overflow: visible; }
+
+/* **ומה שהחיתוך הסתיר קודם — נחתך עכשיו על ידי הילדים עצמם.** נמדד
+   בכרומיום, פיקסל מול פיקסל, שלושה דברים שבלי החיתוך של הפתק יצאו החוצה:
+   שורת הכפתורים של פתק צר (היא אינה נשברת, ונחתכה בקצה הפתק — עכשיו
+   כפתורי המזעור והמחיקה צוירו **מחוץ** לפתק, מעל פתק שכן), רקע הכותרת
+   בפינות העליונות המעוגלות, והקצה המרובע של פס הגלילה (משמאל, ב-RTL)
+   בפינה התחתונה — גם בתצוגה וגם ב-textarea.
+
+   **כלל אחד לכל הילדים, ולא רשימה.** כל ילד ישיר של הפתק — חוץ מהתיבה
+   ומהחיישן, שקיימים כדי לצאת ממנו — נחתך לתיבה של עצמו. ילד שיתווסף
+   לפתק בעתיד מכוסה מאליו. ‏``:where`` מאפס את הספציפיות של הכלל, כדי
+   שהכללים המעוגלים שמתחתיו יגברו עליו בלי מלחמת בוררים.
+
+   **``clip-path`` ולא ``overflow`` או ``border-radius``, וגם זה נמדד.**
+   רדיוס על מכל גלילה **אינו** חותך את פס הגלילה שלו — הפיקסל הפינתי נשאר
+   בצבע המסילה עם רדיוס ובלעדיו — ו-``clip-path`` כן. הוא חותך גם את טבעת
+   הפוקוס שמחוץ לתיבה, ולכן לתצוגה יש בזמן חיפוש טבעת פנימית. הרדיוס של
+   הפינות הוא הפנימי של הפתק: ``--note-radius`` פחות הגבול. */
+.sticky-note.is-searching > :where(:not(.sticky-note-search, .sticky-note-search-room)) {
+  clip-path: inset(0);
+}
+.sticky-note.is-searching .sticky-note-tasks,
+.sticky-note.is-searching .sticky-note-content,
+.sticky-note.is-searching .sticky-note-warn {
+  clip-path: inset(0 round 0 0 calc(var(--note-radius) - 1px) calc(var(--note-radius) - 1px));
+}
+.sticky-note.is-search-inside .sticky-note-header {
+  clip-path: inset(0 round calc(var(--note-radius) - 1px) calc(var(--note-radius) - 1px) 0 0);
+}
+.sticky-note.is-searching .sticky-note-tasks:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: -2px;
+}
+/* כשהתיבה מעל הפתק, הפינות העליונות שלו ישרות: הלשונית והפתק הם צורה
+   אחת. פינות מעוגלות מתחת ללשונית ישרה השאירו שני חריצים לבנים. */
+.sticky-note.is-searching:not(.is-search-inside) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* בזמן חיפוש לחיצה רגילה על התצוגה אינה נכנסת לעריכה, והסמן אינו מבטיח
+   את זה. */
+.sticky-note.is-searching .sticky-note-tasks { cursor: default; }
+
+/* התיבה: לשונית בצבע הנייר, צמודה לפתק מלמעלה. ``background-color:
+   inherit`` לוקח את הצבע שהפתק קיבל inline מ-``note.color``, כך שאין כאן
+   עותק של הפלטה. ‏``-1px`` בצדדים כדי שהגבול יישב על הגבול של הפתק ולא
+   פיקסל פנימה ממנו (המיקום נמדד מקופסת הריפוד). */
+.sticky-note-search {
+  position: absolute;
+  inset-inline: -1px;
+  bottom: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+  background-color: inherit;
+  color: var(--note-ink, #2b3f6a);
+  border: 1px solid rgba(0, 0, 0, .12);
+  border-bottom: 0;
+  border-radius: var(--note-radius, 10px) var(--note-radius, 10px) 0 0;
+}
+
+/* **כשאין מקום מעל — בתוך הפתק, בזרימה, ודוחפת את התוכן.** התיבה יושבת
+   ב-DOM מיד אחרי הכותרת, והפתק הוא עמודת flex, ולכן ``static`` מציב אותה
+   בין הכותרת לתוכן. התצוגה מתכווצת בגובה התיבה ונגללת כרגיל; המלבן של
+   הפתק אינו משתנה. */
+.sticky-note.is-search-inside .sticky-note-search {
+  position: static;
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, .08);
+  border-radius: 0;
+  background: rgba(0, 0, 0, .04);
+}
+
+/* החיישן: תמיד מעל הפתק, בגובה התיבה (``_watchSearchRoom``), ובלתי נראה. */
+.sticky-note-search-room {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* **השדה מקבל כל ערך שכלל ערכה נוגע בו.** ``[data-theme="dark"] input``
+   צובע רקע, טקסט וגבול, וב-``:focus`` גם מתאר; בלי הדריסה השדה היה כהה
+   על נייר צהוב. ‏(0,2,0) גובר על (0,1,1), ו-``:focus`` שלנו (0,3,0) על
+   (0,2,1). בערכת הניגודיות הגבוהה הכלל שם הוא ``!important``, ושם הוא
+   מנצח במכוון — זו ערכת נגישות, והתוצאה נמדדה קריאה. */
+.sticky-note .sticky-note-search-input {
+  flex: 1 1 90px;
+  min-width: 70px;
+  font: inherit;
+  font-size: var(--sticky-note-font, 14px);
+  line-height: 1.3;
+  color: var(--note-ink, #2b3f6a);
+  /* **לבן אטום, ולא שקוף מעל הנייר.** מילוי שקוף לוקח את גוון הנייר, וה-
+     placeholder (בדיו העמום) ירד מתחת ל-4.5:1 בשלושה מתוך שבעת הניירות
+     (כתום, סגול, ורוד — 4.30 במקרה הגרוע). לבן אטום הוא תשובה אחת לכל
+     הניירות. */
+  background: #fff;
+  /* ``.7`` ולא פחות: הגבול הוא מה שמסמן את השדה מול הנייר. אותו ערך
+     שנמדד לגבול העיגולים בבורר הצבע. */
+  border: 1px solid rgba(43, 63, 106, .7);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.sticky-note .sticky-note-search-input::placeholder { color: var(--note-ink-muted, #66739A); opacity: 1; }
+.sticky-note .sticky-note-search-input:focus {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 1px;
+  border-color: rgba(43, 63, 106, .7);
+}
+
+.sticky-note-search-count {
+  font-size: 12px;
+  color: var(--note-ink, #2b3f6a);
+  min-width: 3.2em;
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sticky-note-search .sticky-note-btn { font-size: 13px; }
+
+/* **ההתאמה אינה משנה מידות של טקסט** — בלי ``padding`` ובלי שינוי משקל,
+   בשונה מ-``.md-highlight``. בפתק צר שינוי רוחב של מילה שובר את השורות
+   מחדש בכל הקלדה. גם ``outline`` של הפעילה אינו תופס מקום.
+
+   **``span`` ולא ``mark``**: לאפליקציה יש כללי ערכה על ``mark`` כאלמנט
+   (ראו ``.sticky-md-mark``), והמרקר של המשתמש הוא ``mark`` בעצמו. */
+.sticky-note-search-hit {
+  background: #ffd700;
+  color: #222;
+  border-radius: 2px;
+}
+.sticky-note-search-hit.is-active {
+  outline: 2px solid var(--note-ink, #2b3f6a);
+  outline-offset: 1px;
+}
+
+/* **ערכת הניגודיות הגבוהה: התיבה עוברת כולה לשחור.** הערכה כופה בכלל
+   ``!important`` על ``button`` ועל ``input`` רקע שחור, טקסט לבן, גבול לבן
+   של 2px וטבעת פוקוס צהובה של 3px — ואת זה אין לדרוס, זו ערכת נגישות.
+   על נייר צהוב זה נכשל בשני מקומות, בדגימת פיקסל: טבעת הפוקוס הצהובה מול
+   הנייר יצאה 1.04:1 (כמעט בלתי נראית), וה-placeholder שלנו על השחור
+   הכפוי 4.48:1. במקום להילחם בערכה, התיבה מצטרפת אליה: פס שחור שהפקדים
+   הכפויים יושבים בו, כמו בכל שאר הערכה. הערכים אחרי התיקון במסמך הפיתוח.
+   (0,3,0) כמו כלל ה-``is-search-inside`` שמעל, ולכן הסדר בקובץ הוא שמכריע
+   — ולכן הכלל הזה יושב אחריו. */
+[data-theme="high-contrast"] .sticky-note .sticky-note-search {
+  background: #000;
+  color: #fff;
+  border-color: #fff;
+}
+[data-theme="high-contrast"] .sticky-note .sticky-note-search-count { color: #fff; }
+[data-theme="high-contrast"] .sticky-note .sticky-note-search-input::placeholder { color: #d0d0d0; }
+
+/* לחיצה ממושכת על התצוגה בזמן חיפוש (``_enableViewLongPress``): השורה
+   מסומנת כשהלחיצה "נדרכה", והשחרור נכנס לעריכה. במגע בלבד, ורק בזמן
+   הלחיצה עצמה, נחסמות בחירת הטקסט והבועה של הדפדפן. */
+.sticky-note-tasks .sticky-task-line.is-press-armed {
+  background: rgba(43, 63, 106, .12);
+  border-radius: 4px;
+}
+.sticky-note-tasks.is-pressing {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
