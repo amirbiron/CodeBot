@@ -13,6 +13,10 @@
  * זהירות יתרה: התוכן הוא מה שהמשתמש הקליד בפתק, כלומר בדיוק הקלט
  * ש-``bugbot-rules/xss-innerhtml`` מתאר. ``escapeHtml`` של החיפוש
  * הגלובלי גם אינה מבריחה מרכאות, ולכן העתקה ממנה הייתה גוררת את הבעיה.
+ *
+ * **ההדגשה עצמה אינה כאן אלא ב-``utils/text-highlight.js``.** אותה ליבה
+ * משמשת גם את החיפוש במסמך ואת החיפוש בתוך פתק, וכך פתק שנמצא כאן מציג
+ * אותן התאמות כשמחפשים בתוכו.
  */
 (function () {
   'use strict';
@@ -31,56 +35,35 @@
     unknown: 'לא ידוע'
   };
 
-  /**
-   * בריחת תווי רג'קס — **שקולה ל-``re.escape`` שבשרת**.
-   *
-   * שני הצדדים חייבים להסכים מה ליטרלי: השרת מצא את הפתק לפי דפוס אחד,
-   * ואם הדגש כאן מפרש ``config.py`` אחרת, תוצאה שחזרה עם התאמה תוצג בלי
-   * הדגשה — כלומר תיראה כמו באג בשרת.
-   */
-  function escapeRegex(s) {
-    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
+  var warnedNoHighlighter = false;
 
   /**
    * מוסיף ל-``container`` את ``text`` כשכל מופע של ``query`` עטוף
-   * ב-``<mark>``. מחזיר **כמה מופעים סומנו**.
+   * ב-``<mark>``. מחזיר **כמה מופעים סומנו** — או ``null`` כשמודול
+   * ההדגשה לא נטען.
    *
    * ערך ההחזרה אינו קישוט: העמוד צריך לדעת אם באמת סומן משהו כדי להחליט
    * אם להציג "המילה מופיעה בהמשך הפתק". ספירה שהייתה מוסקת מחדש בחוץ היא
    * ספירה שיכולה לא להסכים עם מה שבאמת צויר.
+   *
+   * **ולכן ``null`` ולא ``0`` כשהמודול חסר.** זה היעדר יכולת קבוע לכל חיי
+   * העמוד (הסקריפט לא נטען), ולא כשל רגעי: הטקסט מוצג בלי הדגשה. אבל
+   * ``0`` היה אומר "המילה לא מופיעה כאן" ומדליק את הרמז על כל תוצאה —
+   * תשובה שגויה במקום תשובה חסרה. תג הטעינה עצמו נבדק
+   * ב-``tests/text-highlight.test.js``, יחד עם שאר הצרכנים.
    */
   function highlightInto(container, text, query) {
-    var value = String(text == null ? '' : text);
-    var needle = String(query == null ? '' : query);
-    if (!needle) {
-      container.appendChild(document.createTextNode(value));
-      return 0;
-    }
-
-    var re = new RegExp(escapeRegex(needle), 'gi');
-    var last = 0;
-    var hits = 0;
-    var m;
-    while ((m = re.exec(value)) !== null) {
-      if (m.index > last) {
-        container.appendChild(document.createTextNode(value.slice(last, m.index)));
+    var highlighter = window.TextHighlight;
+    if (!highlighter) {
+      if (!warnedNoHighlighter) {
+        warnedNoHighlighter = true;
+        console.warn('notes_search: utils/text-highlight.js did not load; results are shown without highlighting');
       }
-      var mark = document.createElement('mark');
-      mark.className = 'notes-search-mark';
-      mark.textContent = m[0];
-      container.appendChild(mark);
-      last = m.index + m[0].length;
-      hits += 1;
-      // מחט ריקה אינה אפשרית כאן (יש ``if (!needle)`` למעלה), אבל
-      // ``lastIndex`` שלא זז הוא לולאה אינסופית שמקפיאה את הלשונית —
-      // ולכן החסם נשאר.
-      if (m[0].length === 0) { re.lastIndex += 1; }
+      container.appendChild(document.createTextNode(String(text == null ? '' : text)));
+      return null;
     }
-    if (last < value.length) {
-      container.appendChild(document.createTextNode(value.slice(last)));
-    }
-    return hits;
+    return highlighter.appendHighlighted(container, text, query,
+      { tagName: 'mark', className: 'notes-search-mark' });
   }
 
   function setMessage(text, isError) {

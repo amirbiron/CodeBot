@@ -19,6 +19,11 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = fs.readFileSync(
   path.join(__dirname, '..', 'webapp', 'static', 'js', 'notes_search.js'), 'utf8');
+// **ההדגשה עצמה יושבת במודול המשותף, והוא נטען לפני הקובץ — כמו בתבנית.**
+// בלי הטעינה כאן ``highlightInto`` היה נופל למסלול "המודול חסר", וכל בדיקה
+// שמצפה לטקסט שלם הייתה עוברת בלי שום הדגשה — כלומר מהסיבה הלא נכונה.
+const HIGHLIGHT_SRC = fs.readFileSync(
+  path.join(__dirname, '..', 'webapp', 'static', 'js', 'utils', 'text-highlight.js'), 'utf8');
 
 let passed = 0, failed = 0;
 function check(name, fn) {
@@ -53,17 +58,23 @@ function makeDocument() {
   };
 }
 
-/** מחלץ את ``highlightInto`` מתוך הקובץ האמיתי, בלי להעתיק את גופה. */
-function loadHighlight() {
+/**
+ * מחלץ את ``highlightInto`` מתוך הקובץ האמיתי, בלי להעתיק את גופה.
+ *
+ * ``withModule: false`` מדמה עמוד שבו מודול ההדגשה לא נטען.
+ */
+function loadHighlight({ withModule = true } = {}) {
   const doc = makeDocument();
+  const warnings = [];
   const sandbox = {
     document: doc,
     window: { location: { search: '' }, history: { replaceState() {} } },
     URLSearchParams,
     CSS: { escape: (s) => String(s) },
     fetch: () => Promise.resolve({ json: () => Promise.resolve({}) }),
-    console,
+    console: { ...console, warn: (...args) => { warnings.push(args.join(' ')); } },
     __exported: null,
+    __warnings: warnings,
   };
   sandbox.window.document = doc;
   // הקובץ מחזיר מוקדם כשהאלמנטים אינם קיימים (``if (!form ...) return``),
@@ -71,16 +82,18 @@ function loadHighlight() {
   // בדיוק כפי שהוא — רק עטוף.
   const wrapped = SRC.replace(
     'if (!form || !input || !list) { return; }',
-    'if (!form || !input || !list) { __exported = { highlightInto: highlightInto, escapeRegex: escapeRegex }; return; }'
+    'if (!form || !input || !list) { __exported = { highlightInto: highlightInto }; return; }'
   );
   if (wrapped === SRC) { throw new Error('נקודת החילוץ לא נמצאה — הקובץ השתנה'); }
   vm.createContext(sandbox);
+  if (withModule) { vm.runInContext(HIGHLIGHT_SRC, sandbox); }
   vm.runInContext(wrapped, sandbox);
   if (!sandbox.__exported) { throw new Error('הפונקציות לא נחשפו'); }
   return sandbox;
 }
 
-const { highlightInto } = loadHighlight().__exported;
+const loaded = loadHighlight();
+const { highlightInto } = loaded.__exported;
 
 function run(text, query) {
   const box = new Node('SPAN');
@@ -90,10 +103,17 @@ function run(text, query) {
 
 // ---------------------------------------------------------------------------
 
+check('תנאי מקדים: המודול המשותף נטען בסנדבוקס', () => {
+  // בלי זה כל בדיקה למטה שבודקת טקסט שלם הייתה עוברת גם כשאין הדגשה בכלל.
+  eq(typeof loaded.window.TextHighlight, 'object', 'window.TextHighlight');
+});
+
 check('מסמן כל מופע ומחזיר את מספרם', () => {
   const r = run('פתק ועוד פתק ושוב פתק', 'פתק');
   eq(r.hits, 3, 'שלושה מופעים');
   eq(r.marks.length, 3, 'שלושה <mark>');
+  // המחלקה היא מה ש-``notes-search.css`` צובע; בלעדיה ה-``<mark>`` קיים ולא נראה כמו הדגשה של העמוד.
+  eq(r.marks.map(m => m.className), ['notes-search-mark', 'notes-search-mark', 'notes-search-mark'], 'המחלקה');
   eq(r.box.textContent, 'פתק ועוד פתק ושוב פתק', 'הטקסט נשמר במלואו');
 });
 
@@ -146,6 +166,19 @@ check('מופע בתחילת המחרוזת ובסופה', () => {
   const r = run('פתק באמצע פתק', 'פתק');
   eq(r.hits, 2, 'שניים');
   eq(r.box.children.map(c => c.tagName), ['MARK', '#text', 'MARK'], 'בלי צומת ריק בהתחלה');
+});
+
+check('בלי המודול: הטקסט מוצג, והספירה "לא ידוע" ולא אפס', () => {
+  // ``0`` היה מדליק את הרמז "המילה מופיעה בהמשך הפתק" על כל תוצאה —
+  // תשובה שגויה במקום תשובה חסרה. ``null`` אינו ``=== 0``, ולכן הרמז שותק.
+  const bare = loadHighlight({ withModule: false });
+  const box = new Node('SPAN');
+  const hits = bare.__exported.highlightInto(box, 'פתק ועוד פתק', 'פתק');
+  eq(hits, null, 'לא ידוע');
+  eq(box.textContent, 'פתק ועוד פתק', 'הטקסט שלם');
+  eq(box.children.map(c => c.tagName), ['#text'], 'בלי עטיפות');
+  bare.__exported.highlightInto(new Node('SPAN'), 'עוד', 'עוד');
+  eq(bare.__warnings.length, 1, 'אזהרה אחת לכל העמוד, ולא אחת לכל תוצאה');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);

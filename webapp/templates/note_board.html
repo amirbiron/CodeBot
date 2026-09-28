@@ -207,6 +207,8 @@
      ב-base.html: סקריפט דחוי רץ אחרי ניתוח המסמך ולכן אינו יכול לשמש
      תלות של מה שרץ בזמנו. -->
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
+<!-- הדגשת התאמות לחיפוש בתוך פתק — אותו שיקול בדיוק: לפני sticky-notes.js, ובלי defer. -->
+<script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script>
 (function () {

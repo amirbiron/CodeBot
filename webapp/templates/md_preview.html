@@ -2125,6 +2125,7 @@ input.md-task-checkbox {
 <script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/restore-version.js') }}?v={{ static_version }}"></script>
 <script>
@@ -2795,77 +2796,43 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       });
     } catch(_) {}
 
-    // חיפוש והדגשה בכל תוכן המסמך (טקסט + קוד) באמצעות סריקת text nodes
+    // חיפוש והדגשה בכל תוכן המסמך (טקסט + קוד) באמצעות סריקת text nodes.
+    // ההדגשה עצמה — איך מוצאים התאמה, מה מדלגים עליו, ואיך מנקים — היא
+    // ``utils/text-highlight.js``, המשותף גם לעמוד חיפוש הפתקים ולחיפוש בתוך
+    // פתק. כאן נשאר רק מה שייחודי לעמוד: המונה, הניווט והגלילה.
+    //
+    // **טקסט בתוך דיאגרמות אינו מודגש ואינו נספר.** הבדיקה הקודמת כאן
+    // השוותה ``tagName`` ל-``'SVG'``, אבל הדפדפן מחזיר ``'svg'`` — כלומר
+    // הדילוג לא פעל מעולם. נמדד בכרומיום עם mermaid אמיתי: חיפוש "fill"
+    // הציג 44 תוצאות, 43 מהן בתוך ה-CSS של הדיאגרמות, וצבע הצמתים הפך
+    // לשחור עד לניקוי; ומילה בתרשים רצף נעלמה מהדיאגרמה (רוחב 35px ← 0)
+    // בזמן שנספרה. המחיר: תווית של צומת בתרשים זרימה, שהייתה מודגשת
+    // בעבר, אינה מודגשת עוד.
     (function(){
       const input = document.getElementById('mdSearchInput');
       const clearBtn = document.getElementById('mdSearchClear');
       const nextBtn = document.getElementById('mdSearchNext');
       const countEl = document.getElementById('mdSearchCount');
       if (!input || !clearBtn || !countEl) return;
+      // היעדר המודול הוא היעדר יכולת קבוע לכל חיי העמוד (הסקריפט לא נטען),
+      // ולכן תיבה מושבתת עם הסבר — ולא "אין תוצאות" על כל הקלדה.
+      const highlighter = window.TextHighlight;
+      if (!highlighter) {
+        console.warn('md_preview: utils/text-highlight.js did not load; in-document search is disabled');
+        input.disabled = true;
+        input.title = 'החיפוש במסמך אינו זמין כרגע';
+        return;
+      }
+      const HIGHLIGHT_OPTS = { className: 'md-highlight' };
       let justAutoFocused = false;
 
       function restore() {
-        // הסרת כל ה-highlight spans ומיזוג text nodes חזרה
-        container.querySelectorAll('.md-highlight').forEach(span => {
-          try {
-            const parent = span.parentNode;
-            if (!parent) return;
-            const text = document.createTextNode(span.textContent);
-            parent.replaceChild(text, span);
-            parent.normalize();
-          } catch(_) {}
-        });
+        highlighter.clearHighlights(container, HIGHLIGHT_OPTS.className);
       }
 
       function highlightTerm(term) {
-        // סורק את כל ה-text nodes בתוך הקונטיינר ומדגיש התאמות
-        if (!term) return 0;
-        const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const rx = new RegExp(safe, 'gi');
-        let total = 0;
-        // אוסף את כל ה-text nodes – דילוג על style/script/svg כדי לא לשבור סגנונות ודיאגרמות
-        const SKIP_TAGS = new Set(['STYLE', 'SCRIPT', 'SVG', 'NOSCRIPT']);
-        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-          acceptNode: function(n) {
-            var p = n.parentNode;
-            while (p && p !== container) {
-              if (SKIP_TAGS.has(p.tagName)) return NodeFilter.FILTER_REJECT;
-              p = p.parentNode;
-            }
-            return NodeFilter.FILTER_ACCEPT;
-          }
-        });
-        const textNodes = [];
-        let node;
-        while ((node = walker.nextNode())) {
-          if (rx.test(node.textContent)) {
-            textNodes.push(node);
-          }
-          rx.lastIndex = 0;
-        }
-        textNodes.forEach(textNode => {
-          const text = textNode.textContent;
-          const fragment = document.createDocumentFragment();
-          let lastIndex = 0;
-          let match;
-          rx.lastIndex = 0;
-          while ((match = rx.exec(text)) !== null) {
-            if (match.index > lastIndex) {
-              fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
-            }
-            const span = document.createElement('span');
-            span.className = 'md-highlight';
-            span.textContent = match[0];
-            fragment.appendChild(span);
-            total++;
-            lastIndex = rx.lastIndex;
-          }
-          if (lastIndex < text.length) {
-            fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
-          }
-          textNode.parentNode.replaceChild(fragment, textNode);
-        });
-        return total;
+        // מנקה בעצמו הדגשה קודמת, ולכן אין צורך לקרוא ל-restore לפניו.
+        return highlighter.highlightWithin(container, term, HIGHLIGHT_OPTS).length;
       }
 
       function updateCount(n, term){
@@ -2903,7 +2870,6 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
 
       input.addEventListener('input', () => {
         const term = (input.value || '').trim();
-        restore();
         const n = highlightTerm(term);
         if (term && n > 0) {
           focusFirst();
