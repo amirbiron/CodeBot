@@ -615,7 +615,7 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
 
 **``unread_reason`` אינו ``truncation_reason``, ובכוונה.** תשובה של ``codekeeper_read_batch`` אינה חתוכה: כל פריט בה שלם, ומה שחסר בה הוא פריטים שלמים שלא נכנסו או שלא הגיעו אליהם בזמן. לכן אין בה ``truncated``, והסיבה נקראת בשם אחר — ``unread_reason``, שמופיע רק לצד ``unread`` (האינדקסים שלא נקראו) ולעולם לא בלעדיו. שני הערכים שלו לקוחים מאותו אוצר מילים: ``byte_budget`` ו-``timeout``. ראו :ref:`mcp-read-batch`.
 
-``content_sha256`` ו-``content_changed`` **אינם** ``status`` **ואינם** ``error``. ``content_sha256`` הוא שדה של ``file``, בכל תשובה של ``codekeeper_get_file`` ובתשובות של שלושת כלי הכתיבה. ``content_changed`` מופיע רק בתשובת כתיבה מוצלחת, ויש לו שלושה ערכים: ``false``; ``true``, ואז לצידו ``content_diff``; ו-``null``, כשהקריאה החוזרת לא הצליחה — והכתיבה עצמה כן קרתה. ראו :ref:`mcp-content-sha256`.
+``content_sha256`` ו-``content_changed`` **אינם** ``status`` **ואינם** ``error``. ``content_sha256`` הוא שדה של ``file``, בכל תשובה של ``codekeeper_get_file``, ובתשובה של כלי כתיבה — רק כשהקריאה החוזרת הצליחה. ``content_changed`` מופיע רק בתשובת כתיבה מוצלחת, ויש לו שלושה ערכים: ``false``; ``true``, ואז לצידו ``content_diff``; ו-``null``, כשהקריאה החוזרת לא הצליחה — הכתיבה עצמה כן קרתה, אבל ``file`` מינימלי ובלי ``content_sha256``. ראו :ref:`mcp-content-sha256`.
 
 .. note::
 
@@ -966,7 +966,7 @@ Push**: ההתראה אומרת שסוכן שמר קובץ, וכאן לא נשמ
 **איפה הוא מופיע.** תמיד בתוך אובייקט ``file``, ובשם הזה בכל הכלים:
 
 - ``codekeeper_get_file`` — בכל מצב קריאה: מלא, ``lines``, ``query``, ``toc`` ו-``section``, וגם בסירובים של מצבי הסעיף שנושאים ``file``. זה תמיד ה-hash של **הגרסה כולה**, ולא של החלק שחזר. עם ``version=N`` או ``file_id`` — של אותה גרסה.
-- ``codekeeper_save_file``, ``codekeeper_edit_file`` ו-``codekeeper_append_file`` — ה-hash של מה ש\ **נקרא חזרה מהאחסון** אחרי הכתיבה, ולא של מה שנשלח. hash שמחושב מהקלט היה תמיד "תקין", וזה בדיוק הכשל שבאנו לתפוס.
+- ``codekeeper_save_file``, ``codekeeper_edit_file`` ו-``codekeeper_append_file`` — ה-hash של מה ש\ **נקרא חזרה מהאחסון** אחרי הכתיבה, ולא של מה שנשלח. hash שמחושב מהקלט היה תמיד "תקין", וזה בדיוק הכשל שבאנו לתפוס. ולכן כשהקריאה החוזרת נכשלת אין hash בכלל, ו-``content_changed`` הוא ``null`` (בטבלה שבהמשך).
 - **רשימות** — ``codekeeper_list_files``, ``codekeeper_search_code``, ``codekeeper_list_versions`` ו-``codekeeper_get_collection_items`` — **בלי hash**. רשימה מחזירה מטא-דאטה בלבד, ו-hash לכל פריט היה מחייב את התוכן של כולם. hash של גרסה אחת בזול: ``codekeeper_get_file`` עם ``version=N`` ו-``lines=[1, 1]`` — ה-hash הוא של הגרסה המלאה, ובשיחה עוברת שורה אחת.
 
 **אותה גרסה מחזירה תמיד אותו hash.** hash שמשתנה בלי שהגרסה משתנה פירושו שמשהו כתב את המסמך **במקום**, במקום לשמור גרסה חדשה. זה עוד נימוק לחשב ולא לשמור (ראו למטה): hash שמור היה נשאר כמו שהוא גם אחרי כתיבה כזו, ומסתיר אותה.

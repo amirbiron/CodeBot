@@ -406,9 +406,9 @@ _WRITE_SHA256_DOC = (
     " file.content_sha256 is the SHA-256 hex of the exact UTF-8 bytes of the "
     "version as read back from storage: " + _CONTENT_SHA256_CHECK + ". "
     "content_changed is true when that differs from what this tool meant to "
-    "save (content_diff says where), null when it could not be read back. That "
-    "covers only tool-to-storage; comparing the hash with your own is the only "
-    "check of what reached the tool."
+    "save (content_diff says where), null when it could not be read back (file "
+    "then carries no hash). That covers only tool-to-storage; comparing the hash "
+    "with your own is the only check of what reached the tool."
 )
 
 
