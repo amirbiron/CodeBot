@@ -34,6 +34,11 @@ const ADMONITION_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'ad
 // יכולת", וכל בדיקת RTL הייתה מאשרת "לא התהפך" בלי שום קשר לקוד —
 // כלומר עוברת מהסיבה הלא נכונה, ולא מסוגלת ליפול.
 const RTL_CODE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'utils', 'rtl-code.js');
+// **וגם מודול ההדגשה, מאותה סיבה.** כפתור החיפוש שבכותרת נקבע לפי
+// ``window.TextHighlight``: בלי הטעינה כאן כל פתק היה נבנה עם כפתור מושבת
+// ("המודול לא נטען"), וכל בדיקה על מצב הכפתור הייתה בודקת את מסלול
+// היעדר-היכולת במקום את הכלל.
+const TEXT_HIGHLIGHT_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'utils', 'text-highlight.js');
 
 /** DOM מינימלי — רק מה ש-``_init`` נוגע בו לפני שהוא נכשל בשקט. */
 function makeSandbox() {
@@ -95,6 +100,7 @@ function makeSandbox() {
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(ADMONITION_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(RTL_CODE_PATH, 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(TEXT_HIGHLIGHT_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   return sandbox;
 }
@@ -3427,6 +3433,7 @@ function makeDomSandbox() {
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(ADMONITION_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(RTL_CODE_PATH, 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(TEXT_HIGHLIGHT_PATH, 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   return sandbox;
 }
@@ -3548,6 +3555,137 @@ check('פתק של משתמש קיים מסמן את הצהוב הקיים, ול
     .filter(s => s.getAttribute('aria-pressed') === 'true');
   eq(active.length, 1, 'הצבע הקיים מזוהה');
   eq(active[0].getAttribute('data-color-id'), 'yellow');
+});
+
+// ---------- חיפוש בתוך פתק ----------
+//
+// **מה נבדק כאן ומה בדפדפן.** בסנדבוקס אין ``TreeWalker`` ואין
+// ``childNodes``, ולכן ההדגשה עצמה, הגלילה והמיקום של התיבה נבדקים
+// ב-``tests/test_sticky_note_search_browser.py``. כאן — ההחלטות שאינן תלויות
+// ב-DOM אמיתי, ושחייבות לרוץ גם ב-CI, שם אין דפדפן ובדיקות הדפדפן מדולגות.
+
+check('חיפוש: תנאי מקדים — מודול ההדגשה נטען בסנדבוקס', () => {
+  // בלעדיו כל פתק היה "מושבת כי המודול חסר", וכל טענה על הכרעות הכפתור
+  // שלמטה הייתה בודקת את מסלול היעדר-היכולת במקום את הכלל.
+  eq(typeof sandbox.window.TextHighlight, 'object', 'window.TextHighlight');
+});
+
+check('חיפוש: בזמן חיפוש לחיצה רגילה אינה נכנסת לעריכה, ו-Enter כן', () => {
+  // **הכרעה של המשתמש.** לחיצות בטעות על התצוגה קורות הרבה, וכל אחת
+  // מהן הייתה מעלימה את ההדגשה באמצע חיפוש. מקלדת נשארת עם Enter, כי
+  // אין לה לחיצה ממושכת.
+  const parts = renderRegistered(mdMgr, 'srch-gate', '- [ ] אחת\n- [ ] שתיים');
+  const row = parts.view.querySelectorAll('.sticky-task-line')[1];
+  parts.entry.search = { open: true };
+  FakeEl.focused = null;
+  eq(mdMgr._enterEditFromView(parts.el, { type: 'click', target: row }), false, 'קליק לא נכנס');
+  eq(FakeEl.focused, null, 'וה-textarea לא קיבל פוקוס');
+  const ev = keyEvent('Enter', row);
+  ev.type = 'keydown';
+  mdMgr._viewKeydown(parts.el, ev);
+  eq(FakeEl.focused, parts.ta, 'Enter נכנס לעריכה');
+  // וכשהחיפוש סגור — לחיצה רגילה נכנסת, כמו תמיד.
+  parts.entry.search = null;
+  mdMgr._syncTaskView(parts.el);
+  FakeEl.focused = null;
+  const again = parts.view.querySelectorAll('.sticky-task-line')[1];
+  eq(mdMgr._enterEditFromView(parts.el, { type: 'click', target: again }), true, 'בלי חיפוש — נכנס');
+});
+
+check('חיפוש: פקד בתצוגה הוא פקד גם בזמן חיפוש', () => {
+  // ``_isViewControl`` היא התשובה היחידה, לקליק ולחיצה ממושכת כאחד.
+  const parts = renderRegistered(mdMgr, 'srch-ctl', '- [ ] משימה\n[קישור](https://example.com)');
+  const box = parts.view.querySelector('.sticky-task-box');
+  const link = parts.view.querySelector('a.sticky-md-link');
+  eq(mdMgr._isViewControl(box), true, 'תיבת סימון');
+  eq(mdMgr._isViewControl(link), true, 'קישור');
+  eq(mdMgr._isViewControl(parts.view.querySelectorAll('.sticky-task-line')[0]), false, 'שורה רגילה אינה פקד');
+});
+
+check('חיפוש: סיבת ההשבתה — פתק רגיל, ממוזער, ומודול חסר', () => {
+  const md = renderRegistered(mdMgr, 'srch-why-md', '# כותרת\nטקסט');
+  eq(mdMgr._searchUnavailableReason(md.el), '', 'פתק מעוצב — זמין');
+  const plain = renderRegistered(mdMgr, 'srch-why-plain', 'טקסט רגיל בלבד');
+  eq(/טקסט רגיל/.test(mdMgr._searchUnavailableReason(plain.el)), true, 'פתק רגיל — מושבת עם הסבר');
+  // **גם בזמן עריכה** — הכפתור שואל אם לפתק יש תצוגה, לא אם היא גלויה כרגע.
+  mdMgr._syncTaskView(md.el, { editing: true });
+  eq(mdMgr._searchUnavailableReason(md.el), '', 'פתק מעוצב בעריכה — עדיין זמין');
+  md.el.classList.add('is-minimized');
+  eq(/ממוזער/.test(mdMgr._searchUnavailableReason(md.el)), true, 'ממוזער');
+  md.el.classList.remove('is-minimized');
+  const saved = sandbox.window.TextHighlight;
+  const savedWarn = sandbox.console.warn;
+  const warnings = [];
+  const fresh = new StickyNotesManager({ board: 'srch-why-missing' });
+  const other = registerNote(fresh, 'srch-why-missing', '# כותרת');
+  fresh._syncTaskView(other.el);
+  try {
+    sandbox.window.TextHighlight = undefined;
+    sandbox.console = Object.assign({}, sandbox.console, { warn: (...a) => warnings.push(a.join(' ')) });
+    eq(/אינו זמין/.test(fresh._searchUnavailableReason(other.el)), true, 'מודול חסר');
+    fresh._searchUnavailableReason(other.el);
+    // היעדר קבוע לכל חיי העמוד: אזהרה אחת, ולא אחת לכל פתק ולכל סנכרון.
+    eq(warnings.filter((w) => w.includes('text-highlight.js')).length, 1, 'אזהרה אחת');
+  } finally {
+    sandbox.window.TextHighlight = saved;
+    sandbox.console = Object.assign({}, sandbox.console, { warn: savedWarn });
+  }
+});
+
+check('חיפוש: טקסט שהמנוע מייצר מסומן, וטקסט שנכתב לא', () => {
+  // **ההכרעה:** חיפוש "הערה" שמוצא מילה שלא כתובה בפתק מבלבל, והוא גם
+  // אינו מה שחיפוש הפתקים בשרת מוצא.
+  const has = (node) => !!node && node._classes.has('sticky-md-generated');
+  const { view } = renderMd(mdMgr,
+    '::: note\nגוף\n:::\n::: tip כותרת שלי\nגוף\n:::\n::: details\nגוף\n:::\n::: details משלי\nגוף\n:::\n- פריט\n1. ממוספר');
+  const labels = view.querySelectorAll('.sticky-md-alert-label');
+  eq(labels.map(has).join(','), 'true,false', 'תווית ברירת מחדל — כן; כותרת מותאמת — לא');
+  const summaries = detailsBoxes(view).map(summaryOf);
+  eq(summaries.map(has).join(','), 'true,false', 'כותרת ברירת מחדל של details — כן; מותאמת — לא');
+  const bullets = view.querySelectorAll('.sticky-md-bullet');
+  eq(bullets.map(has).join(','), 'true,false', 'תבליט — כן; המספר שהוקלד — לא');
+});
+
+check('חיפוש: בלוק שהחיפוש פתח אינו נכנס לזיכרון הפתיחה', () => {
+  // **הכרעה של המשתמש.** בלוק שנפתח כדי להראות התאמה נסגר חזרה כשהחיפוש
+  // נסגר, ואינו נשאר פתוח לעריכות הבאות.
+  const parts = renderRegistered(mdMgr, 'srch-mem',
+    'לפני\n::: details א\nגוף\n:::\n::: details ב\nגוף\n:::');
+  const boxes = detailsBoxes(parts.view);
+  boxes[0].open = true;            // נפתח על ידי החיפוש
+  boxes[1].open = true;            // נפתח על ידי המשתמש
+  parts.entry.search = { open: true, openedDetails: new Set([0]) };
+  mdMgr._syncTaskView(parts.el, { editing: true });
+  eq([...parts.entry.detailsOpen].join(','), '1', 'רק מה שהמשתמש פתח נזכר');
+  eq(parts.entry.search.openedDetails.has(0), true, 'ומה שהחיפוש פתח נשאר שלו');
+});
+
+check('חיפוש: בלוק שהחיפוש פתח והמשתמש סגר חוזר להיות של המשתמש', () => {
+  const parts = renderRegistered(mdMgr, 'srch-mem-2', '::: details א\nגוף\n:::');
+  parts.entry.search = { open: true, openedDetails: new Set([0]) };
+  detailsBoxes(parts.view)[0].open = false;   // המשתמש סגר
+  mdMgr._syncTaskView(parts.el, { editing: true });
+  eq(parts.entry.search.openedDetails.size, 0, 'יצא מרשימת החיפוש');
+  eq(parts.entry.detailsOpen.size, 0, 'ואינו בזיכרון');
+});
+
+check('חיפוש: פתק שאיבד את המבנה סוגר את החיפוש, ועריכה רק משהה אותו', () => {
+  const parts = renderRegistered(mdMgr, 'srch-plain', '# כותרת\nמילה');
+  parts.entry.search = { open: true, openedDetails: new Set(), ui: null, term: 'מילה', paused: false };
+  mdMgr._syncTaskView(parts.el, { editing: true });
+  eq(!!parts.entry.search && parts.entry.search.paused, true, 'בעריכה — מושהה ולא נסגר');
+  parts.ta.value = 'טקסט רגיל';
+  mdMgr._syncTaskView(parts.el);
+  eq(parts.entry.search, null, 'בלי מבנה — נסגר');
+});
+
+check('לחיצה ממושכת: קבוע אחד לכותרת ולתצוגה', () => {
+  // **תשובה אחת לשאלה "מהי לחיצה ממושכת".** שני מספרים מקומיים היו
+  // נסחפים זה מזה בתיקון הבא — בדיוק כמו שני העותקים של ההדגשה.
+  const src = fs.readFileSync(MODULE_PATH, 'utf8');
+  eq((src.match(/^\s*const LONG_PRESS_MS = \d+;/mg) || []).length, 1, 'מוגדר פעם אחת');
+  eq((src.match(/^\s*const LONG_PRESS_SLOP_PX = \d+;/mg) || []).length, 1, 'והסף — פעם אחת');
+  eq(/Math\.abs\([^)]*\) > 6\b/.test(src), false, 'אין עוד 6 מוקלד בבדיקת התזוזה');
 });
 
 (async () => {
