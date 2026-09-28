@@ -751,7 +751,7 @@ class Repository:
           שהקוד עצמו הכניס, אבל פונקציה ציבורית שמאתרת לפי ``_id`` בלבד היא בדיוק
           המבנה שמאפשר לקורא הבא, עם מזהה שהגיע מבחוץ, להגיע למסמך של משתמש אחר.
         - **בלי קאש.** ``find_one`` ישיר על האוסף — לא ``get_latest_version``, שעטופה
-          ב-``@cached`` ל-180 שניות.
+          ב-``@cached``.
         - **מה-primary, במפורש** (``ReadPreference.PRIMARY``, pymongo 4.15.3,
           ``Collection.with_options``). בלי זה הקריאה יורשת את ה-read preference של
           הלקוח, ו-``readPreference`` בכתובת החיבור היה יכול להפנות אותה למשני שעוד

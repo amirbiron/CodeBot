@@ -155,6 +155,30 @@ def test_every_write_tool_returns_the_hash_of_what_the_collection_holds(mcp, sto
     assert "code" not in res["file"]  # Smart Projection: התוכן לא חוזר בתשובת כתיבה
 
 
+@pytest.mark.parametrize("text", ["null", '["a", "b"]', '{"k": 1}', "true", "123"])
+def test_content_that_looks_like_json_reaches_the_tool_as_it_was_sent(mcp, store, text):
+    """מחרוזת שנראית כמו JSON מגיעה לכלי כמו שנשלחה, בשלושת כלי הכתיבה.
+
+    ה-SDK מריץ ``pre_parse_json`` על כל פרמטר שאינו מוצהר ``str`` בדיוק, ומפענח
+    בו ``null``, מערך ואובייקט לערך; מספר ובוליאני הוא משאיר כמחרוזת (נמדד על
+    ``mcp 1.28.1``, ובמוטציה ``code: str | None`` שלושת הראשונים נופלים והשניים
+    האחרונים עוברים). פרמטרי התוכן — ``code``,
+    ``old_string``, ``new_string`` ו-``content`` — מוצהרים ``str``, ולכן מדלגים עליהם,
+    וזה מה שמאפשר לסוכן להשוות את ``content_sha256`` ל-hash שחישב על מה ששלח. שדרוג
+    SDK שישנה את זה יפיל את הטסט הזה, ולא את הייצור.
+    """
+    saved = _call(mcp, "codekeeper_save_file", file_name=NAME, code=text + "\n")
+    edited = _call(mcp, "codekeeper_edit_file", file_name=NAME, old_string=text, new_string=text + "!")
+    appended = _call(mcp, "codekeeper_append_file", file_name=NAME, content=text)
+
+    assert _stored_by_id(store, saved["file"]["id"])["code"] == text + "\n"
+    assert _stored_by_id(store, edited["file"]["id"])["code"] == text + "!\n"
+    final = _stored_by_id(store, appended["file"]["id"])["code"]
+    assert final == text + "!\n" + text
+    assert appended["file"]["content_sha256"] == _sha(final)
+    assert saved["content_changed"] is edited["content_changed"] is appended["content_changed"] is False
+
+
 def test_a_file_at_the_size_ceiling_gets_its_hash_on_write_and_on_read(mcp, store):
     """קובץ בדיוק בתקרה של ``MAX_CODE_SIZE`` — עברית ותווים של ארבעה בתים."""
     from mcp_server import handlers

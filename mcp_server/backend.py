@@ -386,9 +386,11 @@ def _full(doc: dict[str, Any]) -> dict[str, Any]:
 
     **תוכן שאינו מחרוזת נופל בקול**, ב-``TypeError`` שנושא רק את שם הטיפוס. אין
     מסלול שמירה שכותב דבר כזה, ולכן זה חוזה שנשבר — ולא קלט שיתורגם בשקט ל"קובץ
-    ריק" עם hash של מחרוזת ריקה. זה חל גם על שדה חסר (``NoneType``): כל הכותבים
-    ל-``code_snippets`` כותבים ``code``, וכל שלוש הקריאות שמזינות את ``get_file``
-    מושכות את המסמך בלי היטלה.
+    ריק" עם hash של מחרוזת ריקה. זה חל גם על שדה חסר (``NoneType``): הכותבים ל-
+    ``code_snippets`` — ``Repository.save_code_snippet_returning_id`` והראוטים שכותבים
+    ``code_snippets.insert_one`` ב-``webapp/app.py`` — כותבים ``code``, והקריאות שמזינות
+    את ``get_file`` (``get_file_by_id``, ``get_version`` ו-``_fetch_latest_version`` ב-
+    ``Repository``) מושכות את המסמך בלי היטלה.
     """
     out = _clean(doc, include_code=True)
     if not out.get("code") and out.get("content"):
@@ -444,8 +446,9 @@ _DIFF_SCAN_BLOCK = 1 << 14
 def _common_prefix_len(a: str, b: str) -> int:
     """אורך הקידומת המשותפת: סריקה בבלוקים, ואז חיפוש בינארי בתוך הבלוק שנבדל.
 
-    כל השוואה היא השוואת slice שרצה ב-C. חיפוש בינארי על כל הקידומת היה משווה
-    בכל צעד את כל מה שלפני האמצע — נמדד פי 20 בערך על 300,000 תווים.
+    כל השוואה היא השוואת slice שרצה ב-C. חיפוש בינארי על כל הקידומת היה מעתיק
+    ומשווה בכל צעד את כל מה שלפני האמצע, כלומר עד הקובץ כולו בכל צעד; כאן כל
+    צעד של החיפוש נוגע בבלוק אחד בלבד.
     """
     n = min(len(a), len(b))
     start = 0
@@ -500,7 +503,8 @@ def _content_diff(intended: str, stored: str) -> dict[str, Any]:
     שינוי שאף אחד עוד לא חשב עליו. על ``str`` תקין זה שקול להשוואה בית מול בית.
 
     **הסיכום נושא קטעים מהתוכן, ולכן יוצא רק בתשובה לסוכן** — לעולם לא בחריגה
-    (הודעת חריגה יוצאת ל-PostHog) ולא בשורת הלוג.
+    (הודעת חריגה יוצאת ל-PostHog כ-``$mcp_error_message``, ``mcp_server/analytics.py``)
+    ולא בשורת הלוג.
     """
     prefix = _common_prefix_len(intended, stored)
     suffix = _common_suffix_len(intended, stored, min(len(intended), len(stored)) - prefix)
@@ -1037,7 +1041,7 @@ class ProductionBackend:
         - ``content_changed: true`` — עם ``content_diff`` (:func:`_content_diff`) ושורת
           ``WARNING`` אחת בלי תוכן. בלי השורה אף אחד חוץ מהסוכן לא יודע שהרשת תפסה
           משהו: PostHog רושם תשובה מגוף כלי כהצלחה, ו-``$mcp_response`` נחסם בשער
-          הפרטיות.
+          הפרטיות (``mcp_server/analytics.py``).
         - ``content_changed: null`` — הקריאה החוזרת נכשלה בשגיאת מסד, או לא מצאה את
           המסמך. ``file`` מינימלי בלי hash (:func:`_unverified_saved_file`) ושורת
           ``WARNING``. חריגה שאינה של המסד היא באג, ועולה הלאה.
@@ -1082,7 +1086,8 @@ class ProductionBackend:
             # אחרת היא באג ועולה הלאה (ראו הייבוא של ``_PyMongoError``): דמה בלי
             # ``with_options`` הייתה אחרת מדווחת ``null`` על כל שמירה, וטסט שבודק
             # רק ``ok`` היה עובר עליה. ``exc_info`` נבדק מול pymongo 4.15.3 — לא
-            # סיסמה מכתובת החיבור ולא ערכי הסינון.
+            # סיסמה מכתובת החיבור ולא ערכי הסינון — ומקובע בטסט על הסיסמה ב-
+            # ``tests/test_mcp_content_changed_log.py``.
             logger.warning(
                 "mcp write %s: could not read back the saved version (_id=%s version=%s)",
                 tool, inserted_id, version, exc_info=True,

@@ -88,8 +88,53 @@ print("PROBE-DONE", flush=True)
 """
 
 
-def _run(tmp_path) -> str:
-    script = textwrap.dedent(_PROBE).format(repo=REPO, secret=SECRET_WORD, file_name=FILE_NAME)
+#: כשל אמיתי של הקריאה החוזרת, דרך ``Repository.find_version_by_id`` ו-pymongo אמיתי,
+#: מול שרת שאינו קיים — עם סיסמה ושם משתמש בכתובת החיבור. בלי mongod: בחירת השרת
+#: נכשלת אחרי ``serverSelectionTimeoutMS``.
+_PASSWORD = "N0t-A-Real-Passw0rd-7f3a"
+_USERNAME = "probe-reader"
+
+_REAL_FAILURE_PROBE = """
+import os, sys
+sys.path.insert(0, {repo!r})
+os.environ["MCP_PUSH_NOTIFICATIONS_ENABLED"] = "false"
+try:
+    import mcp_server.app  # noqa: F401 — הגדרת הלוג של השירות, כמו ב-uvicorn
+except Exception:
+    pass
+
+from bson import ObjectId
+from pymongo import MongoClient
+from database.repository import Repository
+from mcp_server.backend import ProductionBackend
+
+client = MongoClient("mongodb://{username}:{password}@127.0.0.1:1/?serverSelectionTimeoutMS=300&connectTimeoutMS=300")
+
+
+class _Manager:
+    collection = client["probe"]["code_snippets"]
+
+    def get_latest_version_fresh(self, user_id, file_name):
+        return None
+
+    def save_code_snippet_returning_id(self, snippet):
+        snippet.version = 1
+        return ObjectId()
+
+    def find_version_by_id(self, doc_id, user_id):
+        return Repository(self).find_version_by_id(doc_id, user_id)
+
+
+res = ProductionBackend(db_manager=_Manager()).save_file(
+    5, file_name="k13.md", code="x\\n", programming_language="markdown", tool="codekeeper_save_file")
+assert res["content_changed"] is None, res
+print("PROBE-DONE", flush=True)
+"""
+
+
+def _run(tmp_path, probe: str = _PROBE) -> str:
+    script = textwrap.dedent(probe).format(repo=REPO, secret=SECRET_WORD, file_name=FILE_NAME,
+                                           username=_USERNAME, password=_PASSWORD)
     proc = subprocess.run(
         [sys.executable, "-B", "-c", script],
         capture_output=True,
@@ -151,3 +196,18 @@ def test_nothing_from_the_content_or_the_file_name_reaches_the_output(tmp_path):
     assert SECRET_WORD not in output, output
     assert "שורה ראשונה" not in output, output
     assert FILE_NAME not in output, output
+
+
+def test_a_real_read_back_failure_logs_its_traceback_without_the_connection_secrets(tmp_path):
+    """‏``exc_info`` על כשל הקריאה החוזרת בטוח — כי pymongo אינו מכניס לחריגה את הסיסמה
+    ואת שם המשתמש מכתובת החיבור. נבדק מול pymongo 4.15.3, והטסט מקבע את זה: שדרוג
+    שיתחיל להדפיס את הכתובת בחריגה יפיל אותו, ולא ידליף סוד ליומן (``CRITICAL-PATTERNS``
+    K13).
+
+    הטענה הראשונה היא הבקרה — ה-traceback **כן** הגיע לפלט, כלומר נבדק הערוץ שבו הסוד
+    היה דולף, ולא פלט שבמקרה ריק.
+    """
+    output = _run(tmp_path, _REAL_FAILURE_PROBE)
+    assert "ServerSelectionTimeoutError" in output and "could not read back" in output, output
+    assert _PASSWORD not in output
+    assert _USERNAME not in output
