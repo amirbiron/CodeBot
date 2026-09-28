@@ -490,6 +490,29 @@ def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocumen
     # ``target.suffix`` ולא גזירה שנייה מ-``target.path``: ראו :class:`_ResolvedPath`.
     parser = _PARSERS[target.suffix]  # לעולם לא KeyError: ראו _validate_policy_tables
 
+    parsed = parse_with_refusals(parser, content, context)
+    if isinstance(parsed, dict):
+        return parsed
+    return LoadedDocument(parsed, context)
+
+
+def parse_with_refusals(
+    parser: ModuleType, content: str, context: Mapping[str, Any]
+) -> doc_sections.Document | dict[str, Any]:
+    """פרסור אחד, וכל חריגות הסירוב של הפרסר ממופות לתשובת ``error`` — מקום אחד לשני הכלים.
+
+    ``codekeeper_docs_get_section`` מגיע לכאן דרך :func:`document_from_read`, ו-
+    ``codekeeper_get_file`` עם ``section`` או ``toc`` מגיע לכאן ישירות, על קובץ
+    שמור. **פונקציה אחת ולא שני עותקים של אותו מיפוי**, כי הסירובים הם חוזה עם
+    הקורא — אותם שמות, אותם שדות — וסירוב חדש שהפרסר ילמד להרים היה נכנס לעותק
+    אחד ונבלע בשני כשגיאה כללית. ``tests/test_mcp_file_sections.py`` מקבע ששני
+    הכלים באמת עוברים כאן.
+
+    ``context`` הוא מה שכל תשובה על הקובץ הזה נושאת, גם סירוב: ל-docs
+    ``repo``/``path``/``ref``/``resolved_commit``, ולקובץ שמור ``file`` — המטא-דאטה
+    שלו בלי התוכן. מה שנוסף לסירוב אחרי שחזר (הפניה ל-``lines``/``query`` בקובץ
+    שמור) הוא עניינו של הקורא, ולא נכנס לכאן.
+    """
     # **שני הפרסרים רצים על ברירת המחדל שלהם, והכלי אינו מעביר תקרה.**
     # ברירת המחדל של ``max_sections`` בשניהם היא ``doc_sections.MAX_SECTIONS``
     # (50,000; מיושרת מאז #3420 — בין #3429 ל-#3420 ברירת המחדל של
@@ -526,7 +549,9 @@ def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocumen
     # גם ``rst_parser`` מרים אותה, דרך ``doc_sections.require_str``) ו-
     # ``RuntimeError`` של ``md_parser``. שניהם אומרים "חוזה נשבר" ולא "הקלט
     # נדחה", ועטיפתם הייתה בדיוק ``widened-exception-scope``. ``content`` הוא
-    # תמיד מחרוזת במסלול הזה, כי ``binary`` ו-``too_large`` נחסמו למעלה.
+    # תמיד מחרוזת בשני המסלולים: ב-docs, כי ``binary`` ו-``too_large`` נחסמו
+    # ב-:func:`document_from_read`; ובקובץ שמור, כי הקורא מוודא ש-``code`` הוא
+    # מחרוזת לפני שהוא מגיע לכאן.
     #
     # תקרת המקביליות על הפרסור אינה כאן ואינה צריכה להיות: היא נגזרת מגודל
     # מאגר הקריאות, ומקומה ב-lifespan של השרת — נחת ב-#3429.
@@ -547,7 +572,7 @@ def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocumen
     # בשני המסלולים), ולשתי התקרות של ``md_parser`` — ``exc.limit``, התקרה
     # שהחריגה נבנתה איתה.
     try:
-        doc = parser.parse_document(content)
+        return parser.parse_document(content)
     except doc_sections.InconsistentLineEndings as exc:
         return {"ok": False, "error": "inconsistent_line_endings",
                 **context, **_line_of(exc)}
@@ -560,8 +585,6 @@ def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocumen
     except doc_sections.TooManySections as exc:
         return {"ok": False, "error": "too_many_sections",
                 "max": doc_sections.MAX_SECTIONS, **context, **_line_of(exc)}
-
-    return LoadedDocument(doc, context)
 
 
 def _paging(max_chars: Any, offset: Any) -> tuple[int, int]:
@@ -584,6 +607,12 @@ def answer_section(
     ופורסר פעם אחת לכל הפריטים מאותו קובץ. **ברירות המחדל הן של
     ``docs_get_section``**, כי פריט סעיף בבאץ' הוא בדיוק הכלי הבודד בלי
     הפרמטרים האלה; ``tests/test_mcp_read_batch.py`` מקבע ששתי החתימות לא נפרדו.
+
+    ו-``codekeeper_get_file`` עם ``section`` או ``toc`` קורא לזה על קובץ שמור
+    (``mcp_server/backend.py``), עם ``{"file": <מטא-דאטה>}`` כהקשר — כך שהתאמת
+    הכותרת, החיתוך, העימוד ובניית התשובה הם **אותה פונקציה** בשני הכלים, ולא
+    עותק שני. הוא אינו מעביר ``include_subsections``, ולכן תת-הסעיפים תמיד כלולים
+    אצלו.
     """
     max_chars, offset = _paging(max_chars, offset)
     return _answer_from_document(loaded.doc, context=loaded.context, section=section,

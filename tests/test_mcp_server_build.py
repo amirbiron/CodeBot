@@ -823,9 +823,11 @@ async def test_the_tool_description_points_at_the_parameters_that_carry_the_deta
 #: לקוח לא קרא עליהם.
 #:
 #: הבחירה ב-1,400: הכלי הארוך ביותר מבין 32 הכלים הוא
-#: ``codekeeper_get_repo_file`` ב-1,125 תווים. כלומר המספר נותן מרווח
+#: ``codekeeper_get_file`` ב-1,132 תווים. כלומר המספר נותן מרווח
 #: למשפט-שניים של גדילה טבעית, ונשאר הרבה מתחת לאזור שבו החיתוך נצפה
-#: בפועל.
+#: בפועל. (עד מצבי ``toc``/``section`` של ``codekeeper_get_file`` הארוך ביותר
+#: היה ``codekeeper_get_repo_file`` ב-1,125; ההפניה לשני הפרמטרים החדשים העבירה
+#: את ``codekeeper_get_file`` מעליו, והפירוט עצמו יושב בתיאורי הפרמטרים.)
 #:
 #: **שלושת המספרים בשורות האלה אינם פרוזה — הם מושווים לקוד בכל ריצה**
 #: ב-``test_the_ceiling_rationale_matches_what_the_tools_actually_carry``.

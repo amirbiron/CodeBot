@@ -52,7 +52,7 @@ from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
 from . import docs_handlers, handlers, read_batch, repo_handlers
 from .backend import LEAN_NOTE_FIELDS
-from .handlers import StrictInt, StrictLines
+from .handlers import StrictBool, StrictInt, StrictLines
 from .limits import (
     BODY_TOO_LARGE,
     DEFAULT_MAX_REQUEST_BYTES,
@@ -76,7 +76,9 @@ _INSTRUCTIONS = (
     "CodeKeeper. Use codekeeper_search_code / codekeeper_list_files to find files "
     "(metadata only), and codekeeper_get_file to read full contents — or, when "
     "you only need one part of a file, codekeeper_get_file with lines=[start, "
-    'end] for a range and query="..." for the lines that contain a string. Use '
+    'end] for a range and query="..." for the lines that contain a string — and '
+    "for a Markdown file toc=true for its heading map and "
+    'section="<heading>" for one section. Use '
     "codekeeper_save_file to create a NEW file — it refuses a name that is already "
     "taken — and codekeeper_edit_file / codekeeper_append_file to change an "
     "existing file, which is also cheaper because the whole file is not resent "
@@ -392,6 +394,63 @@ def _build_query_doc() -> str:
 
 
 _QUERY_DOC = _build_query_doc()
+
+
+# תיאורי הפרמטרים ``toc`` ו-``section`` של ``codekeeper_get_file``.
+#
+# **כלל ההתאמה של ``section`` אינו נכתב כאן שוב — ``_SECTION_PARAM_DOC`` משובץ
+# כמו שהוא.** שני הכלים עוברים באותה פונקציה בדיוק (``docs_handlers.answer_section``,
+# ומתחתיה ``doc_sections.find_sections``), ולכן לאותה התנהגות מגיע טקסט אחד: נוסח
+# שני היה נערך פעם אחת ונשאר מאחור בפעם הבאה. הטקסט נכון גם לקובץ Markdown כמו
+# שהוא — ``literal`` בשני בקטיקים הוא גם קטע קוד תקין ב-Markdown.
+#
+# **מה שנוסף סביבו הוא רק מה שייחודי לקובץ שמור**, והקריטי ראשון, מאותו נימוק
+# שכתוב ליד ``_SECTION_PARAM_DOC``: לקוח שמקצר תיאור פרמטר רואה רק את ההתחלה,
+# ולכן היא אומרת "רק Markdown" ו"קודם ``toc=true``". המספרים של העימוד נשתלים
+# מ-``docs_handlers`` ואינם נכתבים כטקסט, כמו ב-:func:`_build_query_doc`: בכלי הזה
+# ברירת המחדל בסכימה היא ``null`` ("לא נשלח"), ולכן התיאור הוא המקום היחיד שבו
+# הסוכן רואה אותה.
+def _build_file_sections_docs() -> tuple[str, str]:
+    """התיאורים שהסוכן קורא על ``toc`` ועל ``section``, בסדר הזה."""
+    refusals = (
+        " A file that is not Markdown — by its language, or by a .md / .markdown "
+        "name — is refused as not_markdown; a file too large to parse is "
+        "too_large_for_sections, with its bytes and the max; and a file the "
+        "parser refuses returns that refusal (too_many_lines, too_many_tokens, "
+        "inconsistent_line_endings, too_many_sections). Each of these carries a "
+        "hint to read the file with lines= or query= instead. file_name with "
+        "version reads that version; file_id reads the version it names and "
+        "ignores version."
+    )
+    toc_doc = (
+        "Markdown files only: pass toc=true to get the file's heading map "
+        "INSTEAD of the content — every heading with its level, breadcrumb, "
+        "line_range and approx_bytes (the size of its section), plus "
+        "section_count; toc_truncated says when the map was cut. Then read one "
+        'section with section="<its title>". toc is a mode of its own: with '
+        "section, query or lines it is refused as toc_and_section, "
+        "toc_and_query or toc_and_lines." + refusals
+    )
+    section_doc = (
+        "Markdown files only: return ONE section INSTEAD of the content — pass "
+        "toc=true first for the file's heading map. "
+        + _SECTION_PARAM_DOC
+        + " The reply carries the section's content with its subsections "
+        "included, its breadcrumb and line_range, its direct subsections and "
+        "its prev/next neighbors. A long section is paged: max_chars "
+        f"(default {docs_handlers.MAX_CHARS_DEFAULT}, "
+        f"{docs_handlers.MAX_CHARS_MIN}-{docs_handlers.MAX_CHARS_MAX}) caps "
+        "each reply, and while truncated is true, call again with "
+        "offset=next_offset. section with query or lines is refused as "
+        "section_and_query or section_and_lines; max_chars or offset without "
+        "section as max_chars_without_section or offset_without_section; and "
+        "an empty section as empty_section — the heading map is toc=true."
+        + refusals
+    )
+    return toc_doc, section_doc
+
+
+_FILE_TOC_DOC, _FILE_SECTION_DOC = _build_file_sections_docs()
 
 
 # תיאור הכלי ``codekeeper_read_batch`` ותיאור הפרמטר ``items`` שלו.
@@ -829,7 +888,9 @@ _NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
 #: ``markdown-it-py``), one parse per fresh process — the more expensive of
 #: the two parsers ``codekeeper_docs_get_section`` runs (``_PARSERS`` in
 #: ``mcp_server/docs_handlers.py``: ``services.rst_parser`` for ``.rst``,
-#: ``services.md_parser`` for ``.md``). The RST parser is far cheaper by the
+#: ``services.md_parser`` for ``.md``), and the only one
+#: ``codekeeper_get_file`` runs with ``toc`` or ``section`` (saved files are
+#: read by section only when they are Markdown). The RST parser is far cheaper by the
 #: same method (2026-09-27, with the reset, over the 40 layouts): the
 #: repository's RST corpus tiled to the read ceiling peaks at 2.0 bytes per
 #: input byte — the method before the reset showed nothing at all, the
@@ -897,16 +958,33 @@ _NON_PARSE_MARGIN_BYTES = 64 * 1024 * 1024
 #: looked) but on what the parser can be made to do with any file it accepts,
 #: and ``scripts/measure_md_parse_cost.py`` re-checks the bound whenever the
 #: parser or its ceilings change. The RST path keeps its own instrument, the
-#: section ceiling above.
+#: section ceiling above. **This is also what makes the saved-file path safe
+#: to add:** ``codekeeper_get_file`` with ``toc`` or ``section`` parses files
+#: that any user wrote, so for it the content is adversarial by definition —
+#: and it meets the same bound through the same ceilings, the byte ceiling of
+#: :data:`_PARSE_COST_BYTES` included. Re-measured after the parser's lines
+#: became the source lines (so a section's text is byte-identical to a
+#: ``lines=`` read, CRLF and BOM included): 67.74 bytes per byte of the
+#: ceiling, an upper bound of 34,680,832 bytes, 94.1% of the constant, the
+#: worst CPU run 0.645 seconds (2026-09-28, the script's full run on its 40
+#: layouts) — inside both, and below the highest run documented above.
 _PARSE_RSS_PER_INPUT_BYTE = 72
 
 #: What one parse can cost at most — the divisor of the memory budget. The
 #: largest input a parse can receive is
-#: :data:`~services.git_mirror_service.MAX_FILE_SIZE_FOR_DISPLAY`:
+#: :data:`~services.git_mirror_service.MAX_FILE_SIZE_FOR_DISPLAY`, and it has
+#: two consumers that each hold that line on their own.
 #: ``codekeeper_docs_get_section`` reads through ``RepoBackend.get_file``
 #: without ``lines`` and therefore without ``max_size``, and refuses
-#: ``too_large`` before it parses anything. Computed from the imported ceiling
-#: rather than copied, so a change to the read ceiling moves the budget with it.
+#: ``too_large`` before it parses anything. ``codekeeper_get_file`` with
+#: ``toc`` or ``section`` parses a saved file, which no mirror bounds, so it
+#: measures the file itself — its UTF-8 bytes, the unit this cost is priced
+#: in — against the same imported ceiling and refuses
+#: ``too_large_for_sections`` before parsing (``_apply_sections_to_file`` in
+#: ``mcp_server/backend.py``). Computed from the imported ceiling rather than
+#: copied, so a change to the read ceiling moves the budget, and both refusals,
+#: with it; ``tests/test_mcp_file_sections.py`` holds the saved-file side to
+#: the same number.
 #:
 #: **A decision, recorded (review of #3429): the divisor is priced by the
 #: parse, and the parse is not the largest thing a read thread holds.** The
@@ -1700,6 +1778,11 @@ def build_mcp(
             # ההפניה נאכפת בטסט, בשני קצותיה.
             + ' Or pass query="..." to get only the lines that contain a'
             " string, instead of the content — see the query parameter."
+            # אותה שרשרת גילוי ל-``toc`` ול-``section``: הפירוט בתיאורי הפרמטרים,
+            # וכאן רק ההפניה אליהם בשמם. נאכף בטסט, בשני הקצוות.
+            + " For a Markdown file, pass toc=true for its heading map, or"
+            ' section="<heading>" for one section with navigation — see the'
+            " toc and section parameters."
             + _DESCRIPTION_AGE_DOC
         ),
         annotations=_READ_ONLY_TOOL,
@@ -1713,6 +1796,14 @@ def build_mcp(
         query: Annotated[str | None, Field(description=_QUERY_DOC)] = None,
         context_lines: StrictInt | None = None,
         max_results: int | None = None,
+        toc: Annotated[StrictBool, Field(description=_FILE_TOC_DOC)] = False,
+        section: Annotated[str | None, Field(description=_FILE_SECTION_DOC)] = None,
+        # ``int`` ולא ``StrictInt``, **בדיוק** כמו ב-``codekeeper_docs_get_section``,
+        # שהעימוד שלו הוא העימוד כאן — אותה החלטת עקביות כמו ``max_results`` מול
+        # ``codekeeper_search_repo``. ``None`` ולא ברירת המחדל של שם, כי כאן
+        # "לא נשלח" נושא משמעות: ``max_chars`` בלי ``section`` נדחה.
+        max_chars: int | None = None,
+        offset: int | None = None,
     ) -> dict:
         doc = handlers.get_file(
             backend,
@@ -1724,6 +1815,10 @@ def build_mcp(
             query=query,
             context_lines=context_lines,
             max_results=max_results,
+            section=section,
+            toc=toc,
+            max_chars=max_chars,
+            offset=offset,
         )
         if doc is None:
             return {"found": False}
@@ -1731,13 +1826,14 @@ def build_mcp(
         # באותה צורה שבה ``codekeeper_get_repo_file`` מדווח על אותה שגיאה.
         if doc.get("ok") is False:
             return doc
-        # תשובת ``query`` היא כבר מעטפת שלמה — ``found`` ו-``file`` בתוכה,
-        # ולצידם המופעים. עטיפה נוספת הייתה קוברת אותה תחת ``file``.
+        # תשובת ``query``, ``toc`` או ``section`` היא כבר מעטפת שלמה — ``found``
+        # ו-``file`` בתוכה, ולצידם המופעים או הסעיף. עטיפה נוספת הייתה קוברת
+        # אותה תחת ``file``.
         #
         # התנאי הוא **מה שביקשנו** ולא צורת מה שחזר: בדיקה על
         # ``doc["status"]`` הייתה מסתעפת לפי שדה במסמך של המשתמש, ומסמך
         # שנושא במקרה שדה בשם הזה היה משנה את צורת התשובה.
-        if query is not None:
+        if query is not None or toc or section is not None:
             return doc
         return {"found": True, "file": doc}
 

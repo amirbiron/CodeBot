@@ -493,8 +493,10 @@ def test_a_query_read_is_not_counted_as_a_full_file_read():
     """‏``ck_read_mode`` — התווית שהעמודה של האנליטיקס נשענת עליה.
 
     מוטציה שמפילה: להסיר את ענף ה-``query`` מ-``read_mode_properties``.
-    הקריאה נופלת ל-``full``, כלומר קריאה שלא משכה תוכן כלל נספרת כקריאת
-    קובץ מלא — וזו בדיוק העמודה שהמאפיין נבנה כדי למדוד.
+    הקריאה נופלת ל-``full``, כלומר קריאה שלא משכה תוכן כלל מסומנת כקריאת
+    קובץ מלא — האירוע עצמו אומר דבר לא נכון. (הדשבורד ב-``/admin/mcp`` אינו
+    סופר את ``codekeeper_get_file`` בעמודות האלה בכלל — ראו ההערה ליד
+    ``CK_READ_MODE_KEY`` ב-``mcp_server/analytics.py``.)
     """
     request = {
         "method": "tools/call",
@@ -754,10 +756,14 @@ async def test_the_read_mode_map_matches_the_schemas_the_tools_declare(monkeypat
 
     ``lines`` הוא מה שמגדיר "קריאת תוכן קובץ", וזו אותה הגדרה שכבר משמשת
     את הבדיקה המקבילה על ``FILE_READ_TOOLS``.
+
+    ``toc`` ו-``section`` נכנסו לרשימה עם מצבי הסעיף של ``codekeeper_get_file``.
+    ``codekeeper_docs_get_section`` נושא ``section`` גם הוא, ואינו נספר כאן כי
+    אין לו ``lines`` — הוא אינו כלי קריאת קובץ במובן של העמודה.
     """
     mcp = _build(monkeypatch, _SAMPLE)
 
-    read_mode_params = {"outline", "query", "lines"}
+    read_mode_params = {"outline", "toc", "section", "query", "lines"}
     declared = {}
     for tool in await mcp.list_tools():
         owned = set((tool.inputSchema or {}).get("properties") or {}) & read_mode_params
@@ -845,7 +851,8 @@ async def test_a_malformed_request_is_refused_even_when_no_file_was_named(monkey
     התיקונים בקובץ הזה עוסקים בה.
 
     מוטציה שמפילה: להחזיר את בדיקת המזהה ב-``handlers.get_file`` לפני
-    הקריאה ל-``file_query_request_error``.
+    הקריאה ל-``file_read_request_error`` (עד PR ג של "קריאה לפי סעיף":
+    ``file_query_request_error``).
     """
     mcp = _build(monkeypatch, _SAMPLE)
 
@@ -895,5 +902,7 @@ def test_both_layers_refuse_through_the_same_function():
     }
     assert fake.called is False
 
-    # ושזו אותה פונקציה בדיוק, ולא שם זהה על שני מימושים.
-    assert backend_mod.file_query_request_error is handlers.file_query_request_error
+    # ושזו אותה פונקציה בדיוק, ולא שם זהה על שני מימושים — וכך גם מי שבונה
+    # את תשובת הסירוב, כדי שה-``hint`` לא יופיע בשכבה אחת ויחסר בשנייה.
+    assert backend_mod.file_read_request_error is handlers.file_read_request_error
+    assert backend_mod.file_read_refusal is handlers.file_read_refusal
