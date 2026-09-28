@@ -1046,7 +1046,11 @@
   flex: 1 1 90px;
   min-width: 70px;
   font: inherit;
-  font-size: var(--sticky-note-font, 14px);
+  /* **גודל קבוע של "מסגרת", כמו שדה השם (``.sticky-note-title``) — ולא
+     ``--sticky-note-font``.** הטוקן הוא גודל **התוכן** של הפתק, ויש לו שני
+     צרכנים בכוונה: תיבת העריכה והתצוגה. ‏``tests/board-handwriting.test.js``
+     שומר על זה, וצרכן נוסף מחייב החלטה מפורשת ולא שורה שנכתבה אגב. */
+  font-size: 13px;
   line-height: 1.3;
   color: var(--note-ink, #2b3f6a);
   /* **לבן אטום, ולא שקוף מעל הנייר.** מילוי שקוף לוקח את גוון הנייר, וה-
