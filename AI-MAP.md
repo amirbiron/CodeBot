@@ -91,7 +91,7 @@
 
 - `docs/workflows/index.rst` — **זרימות עבודה (Workflows)**: מסמכים אלה מתארים את הזרימות המרכזיות במערכת.
   - `docs/workflows/save-flow.rst` — **זרימת שמירת קוד (Save Flow)**: מצבי השמירה, מצב האיסוף הארוך, זיהוי סודות, טיפול בכפילויות, והניקוי המינימלי של קוד מודבק לפני השמירה.
-  - `docs/workflows/search-flow.rst` — **זרימת חיפוש (Search Flow)**: סוגי החיפוש בזרימת הבוט — טקסט, Regex, Fuzzy, פונקציות ותוכן — עם מבנה ה-SearchIndex, הפילטרים, הטיפול בשגיאות Regex ומיון התוצאות. החיפוש הסמנטי הוא מסלול נפרד ב-WebApp.
+  - `docs/workflows/search-flow.rst` — **זרימת חיפוש (Search Flow)**: הפרטים הפנימיים של מנוע החיפוש (search_engine.py) — מבנה ה-SearchIndex, הפילטרים, הטיפול בשגיאות Regex ומיון התוצאות, ורפי הציון של החיפוש הסמנטי. התיאור של כל סוג חיפוש נמצא בעמוד החיפוש הגלובלי.
   - `docs/workflows/refactor-flow.rst` — **זרימת רפקטורינג (Refactor Flow)**: מנוע הרפקטורינג מאפשר שינוי מבנה קוד בצורה בטוחה עם אימות לפני ואחרי.
   - `docs/workflows/backup-flow.rst` — **זרימת גיבוי ושחזור (Backup Flow)**: זרימת הגיבוי והשחזור מקצה לקצה: סוגי הגיבויים, יצירת גיבוי מלא, שחזור, העלאה ל-Google Drive, ניהול הגיבויים הקיימים, וייבוא ZIP חיצוני.
   - `docs/workflows/gist-flow.rst` — **זרימת שיתוף ב-Gist (Gist Flow)**: נקודות הכניסה לשיתוף ב-Gist, למה ה-Gist נוצר תחת חשבון ה-GitHub של המשתמש ולא של המערכת, מצבי auth_failed, וההתנהגות fail-closed בכל מסלול כשל.
@@ -124,6 +124,7 @@
 - `docs/webapp/mcp-analytics.rst` — **MCP Analytics (מדידת השימוש בכלי ה-MCP)**: מסך אדמין שמציג את נתוני השימוש בכלי ה-MCP מתוך PostHog — בריאות הכלים, עלות הניווט בריפו, ויכולות שסוכנים ביקשו — עם מצבי הכשל ומשתני הסביבה שהוא דורש.
 - `docs/webapp/static-checklist.rst` — **Static Performance & Security Checklist (gzip/br, Cache, SRI)**: להבטיח טעינה מהירה ובטוחה של נכסים סטטיים (CSS/JS/Images).
 - `docs/webapp/commands-catalog.rst` — **תחזוקת קטלוג הפקודות (``commands.json``)**: תחזוקת commands.json — הקטלוג שמזין את כרטיסי "קיצורי הדרך" בחיפוש הגלובלי. global_search.js טוען אותו רק בדפים שמכילים את globalSearchInput ואת searchBtn, ומוסיף כרטיסים לפי סוג (chatops/cli/playbook).
+- `docs/webapp/global-search.rst` — **חיפוש גלובלי — סוגי החיפוש**: על מה מחפש כל סוג בתיבת החיפוש הגלובלי בעמוד הקבצים, איך הוא מתאים ומדרג, מה קורה כשהמנוע לא מוצא כלום ועובר לגיבוי במונגו, ובמה זה שונה מהחיפוש לפי שם באותו עמוד ומ-/search בבוט.
 - `docs/webapp/code-execution.rst` — **הרצת קוד (Code Execution Playground)**: ב‑WebApp יש כלי שמאפשר להריץ קוד Python מתוך הדפדפן, דרך API ייעודי.
 - `docs/webapp/api-reference.rst` — **WebApp API Reference**: רפרנס ה-API של ה-WebApp: ה-endpoints, זרימת האימות מול Telegram, מבנה התשובה, וקודי השגיאה הנפוצים.
 - `docs/webapp/bulk-actions.rst` — **Bulk actions (בחירה מרובה)**: דף זה מתאר את יכולות הבחירה המרובה והפעולות הקבוצתיות בממשק הווב.
@@ -193,4 +194,4 @@
 
 ---
 
-עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 229.
+עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 230.
