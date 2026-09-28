@@ -59,6 +59,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | חיתוך או מדידת אורך של טקסט (`$substrBytes`, `$strLenBytes`, `encode()[a:b]`, תקרת אורך שנשלחת החוצה) | `BY-STACK/hebrew-source.md` H6 |
 | קבצי `docs/**/*.rst` | `bugbot-rules/line-number-coupling.md` |
 | טסטים עם סטאבים ידניים | `TESTING-PATTERNS.md` + `bugbot-rules/widened-exception-scope.md` |
+| `pytest.skip(` / `skipif(` / `pytestmark` שנשען על בדיקת חיבור (`ping`, `connect`, `server_info`, פונקציה שמחזירה bool על חיבור) — ובמיוחד כשסביבה `except Exception` | `TESTING-PATTERNS.md`, "דילוג שמסתיר שגיאת תצורה" — דילוג רק על "אין שירות" |
 | הרכבת URL/מחרוזת שמכילה סוד, הודעות חריגה, ניקוי לוגים/Sentry | `CRITICAL-PATTERNS.md` K13 + `bugbot-rules/secret-in-derived-text.md` |
 | מפתח/טוקן שמועבר כפרמטר URL (`params={"key": ...}`), או שינוי ברשימת דפוסי הניקוי | `CRITICAL-PATTERNS.md` K14 + `bugbot-rules/secret-in-url-query.md` |
 | מסיר שורת לוג, או עוטף אותה ב-guard שמונע הערכת ארגומנטים (הטריגר הנפוץ: תיקון PII) | `bugbot-rules/side-effect-riding-on-log-line.md` |
@@ -71,10 +72,11 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | CSP, כותרות תגובה, או עמוד שנגיש בלי התחברות | `BY-STACK/browser-policy.md` |
 | `create_index` — ובמיוחד `partialFilterExpression` או `sparse=True` | `BY-STACK/mongodb.md` דפוס 1 + `bugbot-rules/mongo-index-and-operator-traps.md` — אופרטורים שהפילטר החלקי לא מקבל, ואתחול שבולע את השגיאה |
 | `expireAfterSeconds` / `expire_after_seconds` / `unique=True` בהגדרת אינדקס, ‏`drop_index` / `drop_indexes`, ‏`create_index` בקובץ תחת `scripts/` או בפקודת אדמין, דיף שמוחק שורה מרשימת אינדקסים — או כתיבה של שדה תפוגה (`expires_at`, `expire_at`, `deleted_expires_at`) | `BY-STACK/mongodb.md` דפוס 9 + `bugbot-rules/mongo-index-and-operator-traps.md` §10 — מי מצהיר על האינדקס, ומי כותב |
-| צינור `aggregate` — `$project`, `$sort`, `$group` — או `find_one` בתוך לולאה | `RECURRING-PATTERNS.md` R8 + `bugbot-rules/work-disproportionate-to-answer.md` |
+| צינור `aggregate` — `$project`, `$addFields` / `$set`, `$sort`, `$group` — או `find_one` בתוך לולאה | `RECURRING-PATTERNS.md`, "עבודה ומטען שאינם פרופורציונליים לתשובה" + `bugbot-rules/work-disproportionate-to-answer.md` + `BY-STACK/mongodb.md`, "השדות הכבדים נגררים דרך המיון" |
 | `startswith` / `endswith` על נתיב, URL או דומיין | `CRITICAL-PATTERNS.md` K16 |
 | `replace(tzinfo=` · `datetime.now()` **בלי** אזור זמן · כל `date.today()` · הצגת תאריך למשתמש | `RECURRING-PATTERNS.md` R7 |
 | **ברמה העליונה של מודול** (מחוץ לכל פונקציה): `Thread(`, `.start()`, `scheduler`, `asyncio.create_task`, לקוח או חיבור שנבנה מ-`os.environ`, או קריאת רשת, מסד או קובץ | `bugbot-rules/import-time-side-effects.md` — מה רץ בזמן ייבוא. ואם מה שנבנה שם הוא מופע של ספרייה חיצונית שמשותף לחוטים — ראה גם את השורה על מופע של ספרייה חיצונית |
+| `spec_from_file_location` / `module_from_spec` / `exec_module` — טעינה של קובץ לפי נתיב (סקריפט, טסט, conftest) | `bugbot-rules/load-by-path-without-import-bookkeeping.md` |
 | שינוי שנעשה כדי לספק לינטר: הזזת `import`, ניקוי אזהרת escape, הרחבת `except` | `bugbot-rules/linter-fix-changes-runtime-behavior.md` |
 | מחיקה / שיתוף / שינוי שם לפי `_id` שהגיע מהממשק, `created_at`, או פעולה גורפת על `code_snippets` ו-`large_files` | `bugbot-rules/logical-entity-vs-version-document.md` |
 | שליחה לספק עם תקרת קלט (טוקנים, אורך שדה), או `value[:LIMIT]` לפני שמירה | `bugbot-rules/silent-truncation-at-sink.md` |
@@ -115,7 +117,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
    - שורת הטריגר בנוסח מלא.
    - לאילו פרויקטים השורה נכנסת.
 
-   המסמך מסתיים בשורה: **"לפני יישום: קרא את הסטיקי נוטס המצורפים למסמך הזה (`codekeeper_list_notes`). מה שכתוב בהם גובר על הטקסט. ואמת את הראיות מול הקוד של היום — המסמך נכתב בתאריך שלמעלה."**
+   המסמך מסתיים בשורה: **"לפני יישום: קרא את הסטיקי נוטס המצורפים למסמך הזה (`codekeeper_list_notes`). מה שכתוב בהם גובר על הטקסט."**
 3. **אל תוסיף את שורת הטריגר לטבלה כאן.** היא תפנה לקובץ שעוד לא קיים. הדפוס והשורה נכנסים יחד, אחרי אישור, ולכן הם עדיין צעד אחד.
 4. **אין גישה ל-CodeKeeper בסשן** → תן לי את המסמך המלא בגוף התשובה, בבלוק אחד להעתקה, תחת הכותרת "הצעה ל-amir-bug-patterns", ואמור לי במפורש שצריך לשמור אותו. לא מדלגים.
 5. **טריגר מזהה מה אתה מקליד, לא באיזה מצב אתה נמצא.** ‏`LOCK_FAIL_OPEN` ו-`0.0.0.0` רואים על המסך; "מסלול שרץ גם ברקע" ו"אחד מארבעת הנתיבים האלה" הם דברים שצריך **לדעת**. שורה שדורשת את הידע הזה כתנאי כניסה דורשת בדיוק את התשובה שהיא אמורה לתת, ולכן לא תידלק — התנאי שייך למסמך, לא לשורה. ומאותה סיבה: לתאר **מחלקה** ולא למנות מופעים, כי רשימה מתיישנת ברגע שנוסף המופע הבא.
