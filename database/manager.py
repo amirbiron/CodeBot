@@ -54,6 +54,9 @@ class CollectionLike(Protocol):
     def create_indexes(self, *args: Any, **kwargs: Any) -> Any: ...
     def list_indexes(self, *args: Any, **kwargs: Any) -> Any: ...
     def drop_index(self, *args: Any, **kwargs: Any) -> Any: ...
+    # ``Collection.with_options`` של pymongo: עותק של האוסף עם הגדרות אחרות, מעל אותם
+    # נתונים. ``Repository.find_version_by_id`` מבקש דרכו ``ReadPreference.PRIMARY``.
+    def with_options(self, *args: Any, **kwargs: Any) -> "CollectionLike": ...
 
 
 class DBLike(Protocol):
@@ -124,6 +127,10 @@ class _StubCollection:
 
     def distinct(self, *args: Any, **kwargs: Any) -> Any:
         return []
+
+    def with_options(self, *args: Any, **kwargs: Any) -> "_StubCollection":
+        # כמו ב-pymongo, אותם נתונים (כאן: אין נתונים) עם הגדרות אחרות — שאין להן משמעות בסטאב.
+        return self
 
 from config import config
 # מפרט אינדקס ה-TTL של סל המיחזור — מודול שורש טהור, כדי שגם הוובאפ יבדוק מולו.

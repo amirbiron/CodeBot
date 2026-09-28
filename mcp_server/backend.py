@@ -68,7 +68,7 @@ from file_description import DESCRIPTION_SET_AT_VERSION_FIELD, description_age_f
 # ``TypeError`` הם באג, ותפיסה שלהם הייתה מציגה באג קבוע כתקלה רגעית.
 try:  # type: ignore
     from pymongo.errors import DuplicateKeyError as _DuplicateKeyError  # type: ignore
-    from pymongo.errors import PyMongoError as _PyMongoError  # type: ignore
+    from pymongo.errors import PyMongoError as _PyMongoError
 except Exception:  # pragma: no cover
     class _DuplicateKeyError(Exception):  # type: ignore
         pass
