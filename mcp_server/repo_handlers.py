@@ -45,6 +45,34 @@ def wire_json(value: Any) -> bytes:
     return pydantic_core.to_json(value, fallback=str, indent=2)
 
 
+#: עלות של פריט שמקונן בתוך רשימה תחת מפתח בתשובה, בבתים **כפי שהתשובה נשלחת**
+#: (:func:`wire_json`, ``indent=2``). הפריט יושב בעומק 2 — אובייקט עליון, רשימה,
+#: פריט — ולכן כל שורה פנימית שלו מוזחת ב-4 רווחים, ולפניו פסיק ושורה. שני מקומות
+#: מודדים בדיוק את זה: ``codekeeper_read_batch`` (פריט תחת ``items``) ו-
+#: ``docs_handlers`` (פריט תחת ``toc``/``suggestions``/``candidates``). בעלים אחד
+#: למדידה, שקוראים לו משניהם (R6), במקום שני עותקים שיסחפו.
+LIST_ITEM_INDENT_BYTES = 4
+#: פסיק, שורה, וההזחה של עומק 2 שלפני הפריט הבא ברשימה.
+LIST_ITEM_FRAME_BYTES = len(",\n    ")
+#: ``[]`` הופך ל-``[`` ... ``\n  ]`` ברגע שיש בו פריט אחד לפחות (סגירה בעומק 1).
+NONEMPTY_LIST_BYTES = len("\n  ")
+
+
+def list_item_cost(item: Any) -> int:
+    """כמה בתים ``item`` מוסיף לתשובה כשהוא מקונן ברשימה בעומק 2 — כפי שהיא נשלחת.
+
+    הפריט נמדד לבדו בעומק 0 (:func:`wire_json`), וכל שורה פנימית שלו מקבלת
+    :data:`LIST_ITEM_INDENT_BYTES` רווחים נוספים כשהוא בעומק 2. שורה חדשה בתוך
+    מחרוזת נכתבת כ-``\\n`` ולא כבית 10, ולכן כל בית 10 בטקסט הוא שורה של המבנה.
+    הנוסחה **מחמירה בפסיק אחד** (לפריט הראשון ברשימה אין פסיק מוביל), ולכן סכום
+    על רשימה הוא חסם עליון על מה שהפריטים באמת מוסיפים — מה שמאפשר להחליט "נכנס"
+    בלי לבנות את התשובה המלאה. ``tests/test_mcp_read_batch.py`` משווה אותה
+    לתשובות שנבנו באמת.
+    """
+    text = wire_json(item)
+    return len(text) + LIST_ITEM_INDENT_BYTES * text.count(b"\n") + LIST_ITEM_FRAME_BYTES
+
+
 def list_repos(backend: Any, *, limit: int = REPOS_LIMIT_DEFAULT) -> dict[str, Any]:
     return backend.list_repos(limit=_clamp(limit, 1, REPOS_LIMIT_MAX, REPOS_LIMIT_DEFAULT))
 

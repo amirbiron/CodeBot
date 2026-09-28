@@ -1326,6 +1326,51 @@ def test_fit_lists_keeps_the_longest_prefix_and_gives_up_lists_in_order():
     assert out["b"] == answer["b"][:3] and out["b_cut"] is True
 
 
+def test_fit_lists_never_serializes_more_than_the_budget_plus_one_item(monkeypatch):
+    """שכבה 1 של SEC-001: המחרוזת הגדולה ביותר ש-``_fit_lists`` בונה אי-פעם היא
+    התקציב ועוד פריט בודד — לעולם לא התשובה המלאה.
+
+    זה מה שמסיר את ה-OOM: מפה שאינה נכנסת נחתכת **בלי** לסדרל אותה במלואה כדי
+    למדוד אותה. הספייה סופרת **כל** קריאת ``wire_json`` — גם אלה שבתוך
+    ``list_item_cost`` (לכן היא מחליפה את שני השמות) — ולוקחת את המקסימום. תקציב
+    זעיר וקלט זעיר: אין צורך בקובץ ענק כדי להוכיח שהצורה הישנה בנתה את התשובה
+    המלאה.
+
+    מוטציה שמפילה (וגם הקוד שלפני התיקון): ``len(wire_json(answer))`` על התשובה
+    המלאה בתחילת ``_fit_lists`` — המקסימום קופץ לגודל התשובה כולה, הרבה מעל
+    התקציב ועוד פריט, והאסרשן נופל.
+    """
+    budget = 2000
+    toc = [{"title": f"כותרת {i} " + "x" * 60, "level": 2,
+            "breadcrumb": ["מסמך", f"כותרת {i} " + "x" * 60],
+            "line_range": [i, i + 1], "approx_bytes": 80} for i in range(40)]
+    answer = {"ok": True, "file": {"id": "x"}, "includes": [], "mode": "toc",
+              "toc": toc, "toc_truncated": False, "section_count": len(toc)}
+
+    real_wire = repo_handlers.wire_json
+    largest_item = max(len(real_wire(item)) for item in toc)
+    # הנחת המקרה: התשובה המלאה גדולה בהרבה מהתקציב ועוד פריט — כך שהצורה הישנה,
+    # שסדרלה אותה במלואה, בונה מחרוזת מעל הסף שהטסט בודק.
+    assert len(real_wire(answer)) > budget + largest_item
+
+    sizes: list[int] = []
+
+    def spy(value):
+        out = real_wire(value)
+        sizes.append(len(out))
+        return out
+
+    monkeypatch.setattr(docs_handlers, "wire_json", spy)
+    monkeypatch.setattr(repo_handlers, "wire_json", spy)
+    fitted, size = docs_handlers._fit_lists(
+        answer, cuts=(("toc", "toc_truncated"),), budget=budget)
+
+    assert sizes, "הספייה לא נקראה — הטסט אינו בודק כלום"
+    assert max(sizes) <= budget + largest_item
+    assert fitted is not None and size <= budget and fitted["toc_truncated"] is True
+    assert fitted["toc"] == toc[:len(fitted["toc"])] and fitted["toc"]  # קידומת בסדר המסמך
+
+
 # ---------------------------------------------------------------------------
 # 4. תוספתיות
 # ---------------------------------------------------------------------------

@@ -25,7 +25,7 @@ from typing import Any, Callable, Mapping, NamedTuple
 
 from services import doc_sections, md_parser, rst_parser
 from .handlers import _clamp
-from .repo_handlers import OUTPUT_BYTE_BUDGET, wire_json
+from .repo_handlers import NONEMPTY_LIST_BYTES, OUTPUT_BYTE_BUDGET, list_item_cost, wire_json
 
 logger = logging.getLogger(__name__)
 
@@ -986,59 +986,95 @@ def _fit_lists(
 ) -> tuple[dict[str, Any] | None, int]:
     """התשובה בתוך ``budget`` בתים כפי שהיא נשלחת, בחיתוך רשימות מהסוף — וגודלה.
 
-    ``cuts`` הוא ``(מפתח הרשימה, מפתח הדגל)``, **בסדר שבו מוותרים עליהן**: רשימה
-    נחתכת רק אחרי שכל הקודמות לה רוקנו. בכל רשימה נשמרת הקידומת הארוכה ביותר
-    שנכנסת (:func:`_longest_fitting_prefix`), וכל ניסיון נמדד על **התשובה כולה**
-    ב-``wire_json`` — כולל הדגל עצמו, שמשנה את הגודל (``false`` ← ``true``, או
-    מפתח חדש). כך מה שנמדד הוא בדיוק מה שיישלח, ולא הערכה לפי פריט.
+    ``cuts`` הוא ``(מפתח הרשימה, מפתח הדגל)``, **בסדר שבו מוותרים עליהן**: הרשימה
+    הראשונה נחתכת מהסוף ראשונה, בזמן שכל המאוחרות לה מלאות, ורק אם היא רוקנה
+    לגמרי והתשובה עדיין גדולה עוברים לחתוך את הבאה. בכל רשימה נשמרת הקידומת
+    הארוכה ביותר שנכנסת — מה שנחתך הוא תמיד הסוף, כך שהמועמדים נשארים בסדר המסמך.
 
-    **הדגל נדלק רק כשבאמת נחתך פריט.** תשובה שנכנסת חוזרת כמו שהיא — אותו אובייקט —
-    ולכן כל תשובה שנכנסה עד היום לא משתנה בבית אחד (אפס-דיף). רשימה ריקה לא נחתכת
-    ולא מדליקה דגל.
+    **הדגל נדלק רק כשבאמת נחתך פריט מהרשימה שלו.** תשובה שנכנסת חוזרת כמו שהיא —
+    אותו אובייקט — ולכן כל תשובה שנכנסה עד היום לא משתנה בבית אחד (אפס-דיף).
+    רשימה ריקה לא נחתכת ולא מדליקה דגל.
 
     ``(None, size)`` — כשגם אחרי שכל הרשימות רוקנו התשובה גדולה מהתקציב; ``size`` הוא
-    הגודל הזה. מה שנשאר אז הוא ההקשר, ``includes`` ו-``requested``, ואת אלה כאן אין
-    מה לחתוך (ראו :data:`ANSWER_TOO_LARGE`).
+    גודל התשובה עם רשימות ריקות. מה שנשאר אז הוא ההקשר, ``includes`` ו-``requested``,
+    ואת אלה כאן אין מה לחתוך (ראו :data:`ANSWER_TOO_LARGE`).
 
-    העלות: סריאליזציה אחת לתשובה שנכנסת (ה-SDK עושה אחת ממילא), ולתשובה שלא —
-    עוד כ-``log2`` של אורך הרשימה סריאליזציות לכל רשימה שנחתכת.
+    **המדידה מצטברת, ולעולם לא מסדרלת את התשובה המלאה.** הצורה הקודמת קראה
+    ``wire_json(answer)`` על התשובה עם כל הפריטים כדי למדוד אותה — וזו בדיוק
+    המחרוזת הענקית שקובץ עוין יכול לנפח למאות מגה-בייט לפני החיתוך (ריוויו על
+    PR #3470; מפת כותרות שכל פריט בה נושא את כל ה-breadcrumb). במקום זה נמדדת
+    התשובה עם רשימות **ריקות** (קטנה), ועלות כל פריט נמדדת לבדה
+    (:func:`~mcp_server.repo_handlers.list_item_cost`, אותה מדידה של
+    ``codekeeper_read_batch``). הסכום הוא **חסם עליון** (העלות מחמירה בפסיק),
+    ולכן ``total <= budget`` מבטיח שהתשובה האמיתית נכנסת — ואז, ורק אז, מסדרלים
+    אותה פעם אחת (מחרוזת חסומה בתקציב). המחרוזת הגדולה ביותר שנבנית אי-פעם היא
+    התקציב ועוד פריט בודד, לא התשובה כולה.
+
+    **אפס-דיף.** כל תשובה שנכנסת חוזרת כאובייקט המקורי, ומספר הבתים שמוחזר הוא
+    ``wire_json(answer)`` המדויק — כך שכל תשובה שנכנסה עד היום זהה לבית. הקורפוס
+    כולו נכנס בפער גדול (המפה הגדולה שנמדדה ~132KB מול תקציב 256KB), ולכן חל עליו
+    המסלול הזה בלבד. החיתוך פועל רק על קלט שאינו בקורפוס, ושם הוא שמרני בפריט
+    אחד לכל היותר (חסם ה"תקציב ועוד פריט").
     """
-    size = len(wire_json(answer))
-    if size <= budget:
-        return answer, size
-    fitted = answer
+    list_keys = [key for key, _ in cuts]
+    flag_of = dict(cuts)
+    base = {**answer, **{key: [] for key in list_keys}}
+    base_size = len(wire_json(base))
+    item_costs = {key: [list_item_cost(item) for item in answer[key]] for key in list_keys}
+    total = base_size + sum(
+        NONEMPTY_LIST_BYTES + sum(item_costs[key]) for key in list_keys if answer[key]
+    )
+    # ``total`` מחמיר בפסיק אחד לכל רשימה לא-ריקה, ולכן ``total - real`` חסום ב-
+    # ``len(list_keys)``. מסדרלים את התשובה המלאה **רק** כשהיא בטווח הזה מהתקציב —
+    # כלומר קרובה אליו וקטנה. במקרה הענק ``total`` גדול מהתקציב בהרבה יותר מזה,
+    # ולכן לא בונים את המחרוזת הענקית: מדלגים ישר לחיתוך.
+    if total <= budget + len(list_keys):
+        real = len(wire_json(answer))
+        if real <= budget:
+            return answer, real
+
+    # לא נכנסת: חותכים מהסוף, רשימה-רשימה לפי סדר הוויתור, לפי חסם העלות בלבד —
+    # בלי לסדרל את התשובה המלאה. הדגלים אינם ב-``running``, ולכן זו הערכה; האימות
+    # המדויק בא מיד אחריה, על התשובה החתוכה שכבר חסומה בגודלה.
+    kept = {key: list(answer[key]) for key in list_keys}
+    flags: dict[str, bool] = {}
+    running = total
     for key, flag in cuts:
-        if not fitted[key]:
-            continue
-        fitted = _cut_from_end(fitted, key=key, flag=flag, budget=budget)
+        if running <= budget:
+            break
+        items, costs = kept[key], item_costs[key]
+        while items and running > budget:
+            running -= costs[len(items) - 1]
+            items.pop()
+            flags[flag] = True
+            if not items:
+                running -= NONEMPTY_LIST_BYTES
+
+    # אימות מדויק: הדגלים הוסיפו בתים שלא נספרו ב-``running``, ולכן ייתכן שצריך
+    # להוריד עוד פריט. כל מדידה כאן היא על תשובה שכבר חסומה בתקציב (ועוד פריט),
+    # לעולם לא על התשובה המלאה. מורידים מהרשימה הראשונה שעדיין נושאת פריט (אותו
+    # סדר ויתור), ועד שגם ריקות אינן נכנסות — ``answer_too_large``.
+    fitted = {**answer, **kept, **flags}
+    size = len(wire_json(fitted))
+    while size > budget:
+        trimmable = next((key for key in list_keys if kept[key]), None)
+        if trimmable is None:
+            return None, size
+        kept[trimmable].pop()
+        flags[flag_of[trimmable]] = True
+        fitted = {**answer, **kept, **flags}
         size = len(wire_json(fitted))
-        if size <= budget:
-            return fitted, size
-    return None, size
-
-
-def _cut_from_end(answer: dict[str, Any], *, key: str, flag: str, budget: int) -> dict[str, Any]:
-    """``answer`` עם הקידומת הארוכה ביותר של ``answer[key]`` שנכנסת — ו-``flag`` דלוק.
-
-    לפחות פריט אחד נחתך: הפונקציה נקראת רק על תשובה שאינה נכנסת כשהרשימה מלאה.
-    אם גם בלי אף פריט היא אינה נכנסת, הרשימה חוזרת ריקה, והמעבר לרשימה הבאה
-    הוא של :func:`_fit_lists`.
-    """
-    items = answer[key]
-    trial = {**answer, flag: True}
-    keep = _longest_fitting_prefix(
-        len(items) - 1, lambda n: len(wire_json({**trial, key: items[:n]})) <= budget)
-    return {**trial, key: items[:keep]}
+    return fitted, size
 
 
 def _longest_fitting_prefix(limit: int, fits: Callable[[int], bool]) -> int:
     """הגדול מבין ``1..limit`` ש-``fits`` מקבל, או 0 — חיפוש בינארי.
 
-    **חיפוש אחד לשני הקוראים** (R6): :func:`_longest_prefix_within` מחפש כמה תווים
-    של מחרוזת נכנסים, ו-:func:`_cut_from_end` כמה פריטים של רשימה. שניהם מודדים
-    ב-``wire_json``, וכל אחד מביא את המדידה שלו כ-``fits``. ההנחה היחידה היא
-    ש-``fits`` מונוטוני — אם קידומת נכנסת, גם כל קידומת קצרה ממנה — וזה נכון לשניהם,
-    כי כל תו וכל פריט מוסיפים בתים ואף אחד לא מוריד. 0 חוזר גם כשאף קידומת לא
+    הקורא הוא :func:`_longest_prefix_within`, שמחפש כמה תווים של תוכן העמוד נכנסים
+    בתקציב — כל ניסיון נמדד ב-``wire_json``, ומובא לכאן כ-``fits``. (חיתוך הרשימות
+    ב-:func:`_fit_lists` אינו עובר כאן: הוא מצטבר לפי עלות פר-פריט, בלי חיפוש.)
+    ההנחה היחידה היא ש-``fits`` מונוטוני — אם קידומת נכנסת, גם כל קידומת קצרה ממנה
+    — וזה נכון, כי כל תו מוסיף בתים ואף אחד לא מוריד. 0 חוזר גם כשאף קידומת לא
     נכנסת, בלי לבדוק את 0 עצמו: הקורא בודק אותו, כי רק הוא יודע מה לעשות אז.
     """
     lo, hi = 0, limit
