@@ -31,6 +31,8 @@ from urllib.parse import urlsplit
 
 import pytest
 
+from sticky_notes_target import NOTE_COLOR_ORDER
+
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
 from playwright.sync_api import sync_playwright  # noqa: E402
@@ -463,6 +465,23 @@ def test_details_opened_by_search_close_again_and_are_not_remembered(browser):
     np.page.click(np.sel("n", ".sticky-task-box"))
     np.page.wait_for_function("(sel) => !document.querySelector(sel + ' .sticky-task-box').checked", arg=np.sel("n"))
     assert boxes() == [False, True], "והוא לא נכנס לזיכרון הפתיחה"
+
+    # סגירה מתוך עריכה. הלחיצה על ✕ מזיזה קודם את הפוקוס, ולכן העריכה
+    # נסגרת והתצוגה נבנית מחדש **לפני** הסגירה — והסגירה עדיין סוגרת רק את
+    # מה שהחיפוש פתח. (הכלל עצמו, שמה שהחיפוש פתח לא נכנס לזיכרון, נבדק
+    # ישירות על הזיכרון ב-``tests/sticky-notes-target.test.js``: דרך הממשק
+    # הזיכרון נלכד מחדש מה-DOM בכל בנייה, ולכן אין מסלול שמראה אותו.)
+    np.open_search("n", "מילה")
+    assert boxes() == [True, True]
+    task = np.rect(np.sel("n", ".sticky-task-line .sticky-task-text"))
+    np.page.mouse.move(task["left"] + 5, task["top"] + task["height"] / 2)
+    np.page.mouse.down()
+    np.page.wait_for_timeout(650)
+    np.page.mouse.up()
+    assert np.state("n")["viewHidden"], "בעריכה"
+    np.page.click(np.sel("n", ".sticky-note-search-close"))
+    np.page.wait_for_function("(sel) => !document.querySelector(sel).hidden", arg=np.sel("n", ".sticky-note-tasks"))
+    assert boxes() == [False, True], "אחרי עריכה: רק הבלוק של המשתמש פתוח"
     assert np.errors == []
     np.close()
 
@@ -737,7 +756,9 @@ def test_deleting_a_note_with_open_search_disconnects_the_observers(browser):
 # צבעים — בדגימת פיקסל
 # ---------------------------------------------------------------------------
 
-PAPERS = ("yellow", "yellow_light", "green_light", "orange_light", "blue_light", "purple_light", "pink_light")
+#: הניירות נגזרים מהפלטה עצמה ולא מוקלדים כאן: צבע שיתווסף לפלטה נכנס
+#: לבדיקות הצבע מאליו, ורשימה שנייה הייתה מדלגת עליו בשקט.
+PAPERS = NOTE_COLOR_ORDER
 
 
 def _lum(c):
@@ -795,10 +816,15 @@ def test_highlight_colors_by_pixel_sampling(browser, paper):
     assert _contrast(ring, paper_px) >= 4.5
 
 
+@pytest.mark.parametrize("paper", PAPERS)
 @pytest.mark.parametrize("theme", [None, "high-contrast"])
-def test_the_bar_is_readable_in_every_theme(browser, theme):
-    """ב-high-contrast הערכה כופה ``!important`` על השדה ועל הכפתורים; התיבה מצטרפת אליה."""
-    np = NotePage(browser, [note("n", TASKS, w=300, color="pink_light")], theme=theme,
+def test_the_bar_is_readable_in_every_theme(browser, theme, paper):
+    """ב-high-contrast הערכה כופה ``!important`` על השדה ועל הכפתורים; התיבה מצטרפת אליה.
+
+    **על כל נייר**, כי התיבה לוקחת את צבע הפתק (``background-color: inherit``)
+    ומה שנכשל לפני התיקון נכשל רק בחלק מהניירות.
+    """
+    np = NotePage(browser, [note("n", TASKS, w=300, color=paper)], theme=theme,
                   viewport=(460, 420), context_opts={"device_scale_factor": 2})
     np.open_search("n")
     inp = np.rect(np.sel("n", ".sticky-note-search-input"))
