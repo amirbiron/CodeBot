@@ -18,7 +18,7 @@ from collections import Counter
 
 import pytest
 
-from mcp_server import repo_handlers
+from mcp_server import answer_size, repo_handlers
 from mcp_server.outline import extract_outline
 from mcp_server.outline_scanners import _ceiling
 
@@ -891,7 +891,7 @@ def test_an_oversized_page_is_rejected_and_never_silently_trimmed():
 
     assert out["ok"] is False
     assert out["error"] == "page_too_large"
-    assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["bytes"] > out["max"] == answer_size.OUTPUT_BYTE_BUDGET
 
 
 def test_a_smaller_page_of_the_same_file_succeeds_and_fits():
@@ -906,7 +906,7 @@ def test_a_smaller_page_of_the_same_file_succeeds_and_fits():
 
     assert out["status"] == "outline"
     serialized = json.dumps(out["symbols"], ensure_ascii=False).encode("utf-8")
-    assert len(serialized) <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert len(serialized) <= answer_size.OUTPUT_BYTE_BUDGET
 
 
 def test_a_long_name_keeps_its_identity_so_the_filter_still_finds_it():
@@ -3783,7 +3783,7 @@ def test_a_real_css_file_goes_through_the_tool_paginated_and_within_budget():
 
     serialized = json.dumps(first["symbols"], ensure_ascii=False).encode("utf-8")
 
-    assert len(serialized) <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert len(serialized) <= answer_size.OUTPUT_BYTE_BUDGET
 
     pages = -(-first["total"] // repo_handlers.OUTLINE_PER_PAGE_DEFAULT)
     walked = []
@@ -3816,7 +3816,7 @@ def test_a_widest_page_of_a_real_css_file_still_fits_the_budget():
 
     assert out["status"] == "outline"
     serialized = json.dumps(out["symbols"], ensure_ascii=False).encode("utf-8")
-    assert len(serialized) <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert len(serialized) <= answer_size.OUTPUT_BYTE_BUDGET
 
 
 @pytest.mark.parametrize(
@@ -4505,4 +4505,4 @@ class TestRstThroughTheToolItself:
             )
             worst = max(worst, len(json.dumps(out["symbols"], ensure_ascii=False).encode()))
 
-        assert worst < repo_handlers.OUTPUT_BYTE_BUDGET, worst
+        assert worst < answer_size.OUTPUT_BYTE_BUDGET, worst

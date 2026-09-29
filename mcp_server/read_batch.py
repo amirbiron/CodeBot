@@ -49,8 +49,9 @@
 indent=2)`` — ``_convert_to_content`` ב-``mcp/server/fastmcp/utilities/
 func_metadata.py`` (mcp 1.28.1) הופך תשובת ``dict`` בדיוק לזה. הצורה הזו לעולם
 אינה קטנה מהנוסחה של הריפו (``json.dumps`` בלי ``indent``): היא מוסיפה רק
-רווחים ושורות. כך התשובה נכנסת ב-``OUTPUT_BYTE_BUDGET`` בשתי המדידות, ו-
-:data:`MAX_RESULT_CHARS` יכול להבטיח ללקוח תקרה שהשרת באמת מקיים.
+רווחים ושורות. כך התשובה נכנסת ב-``OUTPUT_BYTE_BUDGET`` בשתי המדידות, והתקרה
+שהכלי מצהיר עליה ללקוח (``answer_size.DECLARED_MAX_RESULT_CHARS``) היא תקרה שהשרת
+באמת מקיים.
 
 **מה הכלי אינו עושה:** הפריטים **אינם** נקראים במקביל — חוט אחד של מאגר
 הקריאות, פריט אחרי פריט; ואין **חיתוך בתוך פריט** — פריט נכנס שלם או לא
@@ -72,9 +73,9 @@ from typing import Annotated, Any, Literal, NamedTuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from . import docs_handlers, repo_handlers
+from . import answer_fit, answer_size, docs_handlers, repo_handlers
+from .answer_size import OUTPUT_BYTE_BUDGET
 from .handlers import StrictLines
-from .repo_handlers import OUTPUT_BYTE_BUDGET
 
 logger = logging.getLogger(__name__)
 
@@ -113,22 +114,9 @@ MAX_BATCH_ITEMS = 20
 #: נשבר. (עד #3391 הפריט היקר לא היה חסום בכלל, והחשבון נשען על מדידה אחת שלו.)
 DEADLINE_SECONDS = 10.0
 
-#: ``_meta["anthropic/maxResultSizeChars"]`` שהכלי מצהיר עליו ב-``tools/list``.
-#:
-#: **בתים כתקרת תווים, ובכוונה.** Claude Code שומר לקובץ כל תשובת כלי שעוברת
-#: את הסף שלו (ברירת המחדל 25,000 טוקנים), ומחליף אותה בנתיב; כלי יכול להעלות
-#: את הסף לעצמו עד 500,000 **תווים** (``code.claude.com/docs/en/mcp.md``, "Raise
-#: the limit for a specific tool"). התשובה של הכלי הזה חסומה ב-
-#: ``OUTPUT_BYTE_BUDGET`` **בתים**, נמדדים בדיוק כפי שהיא נשלחת (ראו את
-#: ה-docstring של המודול). בכל טקסט UTF-8 מספר התווים אינו עולה על מספר
-#: הבתים — וגם לא מספר יחידות ה-UTF-16 שבהן JavaScript סופר אורך — ולכן
-#: מספר הבתים הוא חסם עליון בטוח על התווים, והתשובה לעולם אינה עוברת את מה
-#: שהוצהר. תוספת ה-``indent=2`` אינה מתווספת כאן, כי היא כבר בתוך המדידה.
-MAX_RESULT_CHARS = OUTPUT_BYTE_BUDGET
-
 #: הסיבות ל-``unread`` — ממוחזרות מאוצר המילים של ``truncation_reason``
-#: ב-``codekeeper_search_repo``, ולא שמות חדשים.
-UNREAD_BYTE_BUDGET = "byte_budget"
+#: ב-``codekeeper_search_repo``, ולא שמות חדשים: ``answer_size.BYTE_BUDGET_REASON``,
+#: או זו כשהדדליין עבר.
 UNREAD_TIMEOUT = "timeout"
 
 #: לאן לשלוח פריט שגדול מהתקציב לבדו — הכלי הבודד שהפריט משקף.
@@ -294,15 +282,9 @@ def _plan(raw: Any) -> _Plan:
 # מדידה — בצורה שה-SDK שולח
 # ---------------------------------------------------------------------------
 
-#: מדידת העלות פר-פריט חיה עכשיו ב-``repo_handlers`` ליד ``wire_json`` ותקציב
-#: הבתים, כי גם ``docs_handlers`` מודד בה את רשימות התשובה (R6 — בעלים אחד, לא
-#: עותק שני). השמות המקומיים נשארים כאליאסים, כי ``scripts/measure_read_batch.py``
-#: והטסט שלו, ו-``_reserve`` כאן, קוראים אותם בשמם.
-_ENTRY_FRAME_BYTES = repo_handlers.LIST_ITEM_FRAME_BYTES
-_NESTED_INDENT_BYTES = repo_handlers.LIST_ITEM_INDENT_BYTES
-_NON_EMPTY_LIST_BYTES = repo_handlers.NONEMPTY_LIST_BYTES
-_wire = repo_handlers.wire_json
-_entry_cost = repo_handlers.list_item_cost
+# מדידת העלות פר-פריט חיה ב-``answer_size`` ליד ``wire_json`` ותקציב הבתים, כי גם
+# ``docs_handlers`` מודד בה את רשימות התשובה (R6 — בעלים אחד, לא עותק שני). עד הריוויו
+# על #3492 נשארו כאן שמות מקומיים לאותן פונקציות; היום כל מי שמודד קורא להן בשמן שם.
 
 
 def _reserve(count: int) -> int:
@@ -317,9 +299,9 @@ def _reserve(count: int) -> int:
         "count": count,
         "items": [],
         "unread": list(range(count)),
-        "unread_reason": max((UNREAD_BYTE_BUDGET, UNREAD_TIMEOUT), key=len),
+        "unread_reason": max((answer_size.BYTE_BUDGET_REASON, UNREAD_TIMEOUT), key=len),
     }
-    return len(_wire(worst)) + _NON_EMPTY_LIST_BYTES
+    return len(answer_size.wire_json(worst)) + answer_size.NONEMPTY_LIST_BYTES
 
 
 def _commit_of(result: dict[str, Any]) -> str | None:
@@ -351,7 +333,7 @@ def _entry(index: int, plan: _Plan, result: dict[str, Any], per_item_max: int) -
     if commit is not None:
         entry["resolved_commit"] = commit
     entry["result"] = result
-    cost = _entry_cost(entry)
+    cost = answer_size.list_item_cost(entry)
     if cost <= per_item_max:
         return entry, cost
 
@@ -359,11 +341,11 @@ def _entry(index: int, plan: _Plan, result: dict[str, Any], per_item_max: int) -
     if plan.kind in _SINGLE_TOOL:
         too_large["read_with"] = _SINGLE_TOOL[plan.kind]
     entry = {"index": index, "request": plan.request, "result": too_large}
-    cost = _entry_cost(entry)
+    cost = answer_size.list_item_cost(entry)
     if cost <= per_item_max:
         return entry, cost
     entry = {"index": index, "result": too_large}
-    return entry, _entry_cost(entry)
+    return entry, answer_size.list_item_cost(entry)
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +384,13 @@ def _load_group(backend: Any, snapshot: Any, plans: list[_Plan], indices: list[i
 
 
 def _answer(plan: _Plan, read: Any, loaded: Any) -> dict[str, Any]:
+    # פריט קובץ עובר את אותו התאמה לתקציב של הכלי הבודד (``fit_file_answer``), כדי
+    # שהתשובה שלו תישאר זהה לה בית-בית — קריאה מלאה גדולה היא ``answer_too_large``
+    # עם ההפניה שלה, ולא ``item_too_large``. ``read`` עצמו אינו משתנה: פריט סעיף
+    # באותה קבוצה מפרסר אותו כולו.
     if plan.kind == "file":
-        return read
+        return repo_handlers.fit_file_answer(
+            read, ranged=plan.lines is not None, repo=plan.target[0], path=plan.target[1], ref=None)
     if isinstance(loaded, dict):
         return loaded
     return docs_handlers.answer_section(loaded, section=plan.section)
@@ -482,8 +469,15 @@ def _run_group(
     ready: dict[int, tuple[dict[str, Any], int]],
     cut: set[int],
     per_item_max: int,
+    trials: dict[int, answer_fit.Attempt],
 ) -> None:
-    """קורא את הקבוצה ``key`` ועונה על כל הפריטים שלה, בסדר האינדקסים. המסמך משתחרר ביציאה."""
+    """קורא את הקבוצה ``key`` ועונה על כל הפריטים שלה, בסדר האינדקסים. המסמך משתחרר ביציאה.
+
+    כל תשובה של פריט נבנית ב-``answer_fit.attempt`` משלה, כי בזמן שהיא נבנית עוד לא ידוע אם
+    היא תצא: ``_entry`` יכול להחליף אותה ב-``item_too_large``, ו-``_keep`` יכול להעביר אותה ל-
+    ``unread``. הניסיון נשמר ב-``trials`` רק כשהתשובה נכנסה לפריט כמו שהיא, ו-:func:`read_batch`
+    מעביר אותו לפנקס של הקריאה רק כשהפריט נכנס ל-``entries``.
+    """
     repo, path = key[0], key[1]
     try:
         read, loaded = _load_group(backend, snapshot, plans, indices)
@@ -506,12 +500,16 @@ def _run_group(
         if _lower_bound(used, ready, j) >= OUTPUT_BYTE_BUDGET:
             cut.add(j)
             continue
-        # בביטוי אחד, בלי משתנה מקומי שמחזיק את התשובה: תשובה ש-``_keep`` אינו
-        # שומר משתחררת מיד, ולא נשארת בזיכרון עד שהאיבר הבא בלולאה נבנה לצידה.
-        _keep(ready, cut, used, j, *_entry(
-            j, plans[j], _item_result(plans[j], read, loaded, failed=failed, index=j, repo=repo, path=path),
-            per_item_max,
-        ))
+        with answer_fit.attempt() as trial:
+            result = _item_result(plans[j], read, loaded, failed=failed, index=j, repo=repo, path=path)
+        entry, cost = _entry(j, plans[j], result, per_item_max)
+        if entry["result"] is result:
+            # ``item_too_large`` במקומה — מה שנחתך או סורב בה לא יצא, ולכן אין מה לשמור.
+            trials[j] = trial
+        _keep(ready, cut, used, j, entry, cost)
+        # בלי להחזיק את התשובה אחרי ``_keep``: תשובה שהוא אינו שומר משתחררת כאן, ולא נשארת
+        # בזיכרון עד שהאיבר הבא בלולאה נבנה לצידה.
+        del result, entry
 
 
 def _item_result(
@@ -575,6 +573,7 @@ def read_batch(
     used = reserve
     ready: dict[int, tuple[dict[str, Any], int]] = {}
     cut: set[int] = set()
+    trials: dict[int, answer_fit.Attempt] = {}
     for index, plan in enumerate(plans):
         if plan.immediate is not None:
             entry, cost = _entry(index, plan, plan.immediate, per_item_max)
@@ -594,17 +593,24 @@ def read_batch(
             key = group_of[index]
             _run_group(
                 backend, snapshot, plans, key, groups[key],
-                used=used, ready=ready, cut=cut, per_item_max=per_item_max,
+                used=used, ready=ready, cut=cut, per_item_max=per_item_max, trials=trials,
             )
         if index in cut:
-            stopped_at, reason = index, UNREAD_BYTE_BUDGET
+            stopped_at, reason = index, answer_size.BYTE_BUDGET_REASON
             break
         entry, cost = ready.pop(index)
         entries.append(entry)
+        trial = trials.pop(index, None)
+        if trial is not None:
+            # הפריט נכנס לתשובה: מה שנחתך או סורב בו עובר עכשיו לפנקס של הקריאה, ולא קודם.
+            trial.keep(entry)
         used += cost
 
     answer: dict[str, Any] = {"ok": True, "count": len(entries), "items": entries}
     if stopped_at is not None:
         answer["unread"] = list(range(stopped_at, count))
+        if reason == answer_size.BYTE_BUDGET_REASON:
+            # נרשם כאן, כשהחיתוך נכנס לתשובה שחוזרת (``answer_fit.cut``).
+            reason = answer_fit.cut(returned=len(entries), of=count)
         answer["unread_reason"] = reason
     return answer

@@ -46,7 +46,7 @@ from mcp.server.lowlevel.server import request_ctx  # noqa: E402
 from mcp.shared.context import RequestContext  # noqa: E402
 
 import mcp_server.server as srv  # noqa: E402
-from mcp_server import analytics, docs_handlers, read_batch, repo_handlers  # noqa: E402
+from mcp_server import analytics, answer_size, docs_handlers, read_batch, repo_handlers  # noqa: E402
 from mcp_server.repo_backend import RepoBackend  # noqa: E402
 from rate_limiter import RateLimiter  # noqa: E402
 from services import md_parser  # noqa: E402
@@ -693,7 +693,59 @@ async def _costs(world: _World, items: list[dict[str, Any]]) -> list[int]:
     """מה שכל פריט עולה בחשבון של הכלי — מתשובה שנבנתה באמת, בתקציב שאינו חוסם."""
     _, answer = await _batch(world.mcp, items)
     assert "unread" not in answer
-    return [read_batch._entry_cost(entry) for entry in answer["items"]]
+    return [answer_size.list_item_cost(entry) for entry in answer["items"]]
+
+
+def _logged_fits(monkeypatch: Any) -> list[tuple[str, list[Any]]]:
+    """מה ששורת ``answer_size_fit`` הייתה מדווחת — שם הכלי והפנקס — בלי ללכוד לוג."""
+    logged: list[tuple[str, list[Any]]] = []
+    monkeypatch.setattr(srv, "_log_fits", lambda name, arguments, fits: logged.append((name, list(fits))))
+    return logged
+
+
+@requires_git
+async def test_a_refusal_that_ends_up_unread_is_not_in_the_ledger(tmp_path, monkeypatch):
+    """פריט שנבנה, סורב בגודל — ואז עבר ל-``unread`` כי מה שלפניו מילא את התקציב.
+
+    הסירוב של הפריט (``answer_too_large`` של קריאה מלאה) נבנה ב-``fit_file_answer``, ו-``too_large``
+    רושם. אחר כך ``_keep`` מוצא שהוא אינו נכנס אחרי הפריט שלפניו, והלקוח מקבל אותו ב-``unread``
+    בלבד. עד הריוויו השני על #3492 הרישום נשאר, ושורת ``answer_size_fit`` דיווחה סירוב שלא
+    יצא. עכשיו כל פריט נבנה ב-``answer_fit.attempt`` משלו, שעובר לפנקס רק כשהפריט נכנס
+    לתשובה: בפנקס רק החיתוך של הבאץ' עצמו (``unread_reason``).
+
+    מוטציה שמפילה: ``trial.keep`` לכל פריט שנבנה, ולא רק למי שנכנס ל-``entries``.
+    """
+    world = _world(tmp_path, monkeypatch, extra={"big.md": "b" * 300_000})
+    items = [{"kind": "file", "repo": _MD, "path": "CRITICAL-PATTERNS.md"},
+             {"kind": "file", "repo": _MD, "path": "big.md"}]
+    costs = await _costs(world, items)
+    logged = _logged_fits(monkeypatch)
+    monkeypatch.setattr(read_batch, "OUTPUT_BYTE_BUDGET", read_batch._reserve(len(items)) + sum(costs) - 1)
+
+    _, answer = await _batch(world.mcp, items)
+
+    assert answer["count"] == 1 and answer["unread"] == [1], "הנחת המקרה: הסירוב עבר ל-unread"
+    assert logged == [(read_batch.TOOL_NAME, [("byte_budget", {"returned": 1, "of": 2})])]
+
+
+@requires_git
+async def test_a_cut_range_replaced_by_item_too_large_is_not_in_the_ledger(tmp_path, monkeypatch):
+    """טווח שנחתך בתקציב של הכלי הבודד, ואז הוחלף ב-``item_too_large`` כי הוא גדול מפריט.
+
+    ``fit_file_answer`` חותך את הטווח אל ``OUTPUT_BYTE_BUDGET`` כמו הכלי הבודד, ו-``cut`` רושם.
+    אבל פריט בבאץ' מוגבל ל-``OUTPUT_BYTE_BUDGET`` פחות המעטפת, ולכן ``_entry`` מחליף את התשובה
+    כולה ב-``item_too_large`` — והלקוח לא ראה שום טווח חתוך. בפנקס אין כלום, ושום שורה לא נכתבת.
+
+    מוטציה שמפילה: ``trial.keep`` גם כש-``_entry`` החליף את התשובה.
+    """
+    world = _world(tmp_path, monkeypatch, extra={"lines.md": ("a" * 100 + "\n") * 3_000})
+    logged = _logged_fits(monkeypatch)
+
+    _, answer = await _batch(world.mcp, [{"kind": "file", "repo": _MD, "path": "lines.md",
+                                          "lines": [1, 3_000]}])
+
+    assert answer["items"][0]["result"]["error"] == "item_too_large", "הנחת המקרה"
+    assert logged == []
 
 
 @requires_git
@@ -804,7 +856,7 @@ def test_the_accounting_never_undercounts_what_is_sent():
             answer["unread"] = list(range(kept, count))
             answer["unread_reason"] = rng.choice(["byte_budget", "timeout"])
         sent = len(_as_sent(answer).encode("utf-8"))
-        accounted = read_batch._reserve(count) + sum(read_batch._entry_cost(e) for e in entries)
+        accounted = read_batch._reserve(count) + sum(answer_size.list_item_cost(e) for e in entries)
         assert sent <= accounted <= sent + read_batch._reserve(count) + kept
 
 
@@ -988,7 +1040,7 @@ async def test_in_any_order_the_answer_is_the_longest_prefix_that_fits_and_nothi
         monkeypatch.setattr(read_batch, "OUTPUT_BYTE_BUDGET", real_budget)
         _, full = await _batch(world.mcp, items)
         assert "unread" not in full
-        costs = [read_batch._entry_cost(entry) for entry in full["items"]]
+        costs = [answer_size.list_item_cost(entry) for entry in full["items"]]
         reserve = read_batch._reserve(len(items))
         # לפחות הפריט הגדול ביותר נכנס לבדו — כך אף פריט אינו ``item_too_large``,
         # והמחירים בתקציב הקטן הם אותם מחירים.
@@ -1258,7 +1310,7 @@ async def test_the_advertised_item_schema_is_the_one_the_body_validates_with():
                                         read_batch.FileItem.model_json_schema()]}
     assert "$defs" not in json.dumps(tool.inputSchema) and "$ref" not in json.dumps(tool.inputSchema)
     assert str(read_batch.MAX_BATCH_ITEMS) in tool.description
-    assert str(repo_handlers.OUTPUT_BYTE_BUDGET) in items["description"]
+    assert str(answer_size.OUTPUT_BYTE_BUDGET) in items["description"]
 
 
 async def test_the_tool_declares_its_result_size_in_characters_as_the_byte_budget():
@@ -1266,8 +1318,8 @@ async def test_the_tool_declares_its_result_size_in_characters_as_the_byte_budge
     mcp = srv.build_mcp(object(), repo_backend=object())
     mcp._request_is_admin = lambda: True
     (tool,) = [t for t in await mcp.list_tools() if t.name == read_batch.TOOL_NAME]
-    assert tool.meta == {"anthropic/maxResultSizeChars": repo_handlers.OUTPUT_BYTE_BUDGET}
-    assert read_batch.MAX_RESULT_CHARS == repo_handlers.OUTPUT_BYTE_BUDGET
+    assert tool.meta == {"anthropic/maxResultSizeChars": answer_size.OUTPUT_BYTE_BUDGET}
+    assert answer_size.DECLARED_MAX_RESULT_CHARS == answer_size.OUTPUT_BYTE_BUDGET
 
 
 def test_a_section_item_uses_the_single_tools_defaults():
@@ -1321,7 +1373,7 @@ def test_the_documented_numbers_are_the_code_numbers():
 
     assert table_value("MAX_BATCH_ITEMS") == f"{read_batch.MAX_BATCH_ITEMS:,}"
     assert table_value("DEADLINE_SECONDS") == f"{read_batch.DEADLINE_SECONDS:g}"
-    assert table_value("MAX_RESULT_CHARS") == f"{read_batch.MAX_RESULT_CHARS:,}"
+    assert table_value("DECLARED_MAX_RESULT_CHARS") == f"{answer_size.DECLARED_MAX_RESULT_CHARS:,}"
 
     deadline = read_batch.DEADLINE_SECONDS
 

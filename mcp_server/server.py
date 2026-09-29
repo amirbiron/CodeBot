@@ -31,6 +31,7 @@ import contextlib
 import contextvars
 import functools
 import inspect
+import json
 import logging
 import os
 import pathlib
@@ -57,8 +58,8 @@ from services import doc_sections
 # pull anything heavy into the MCP process at import.
 from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
-from . import docs_handlers, handlers, read_batch, repo_handlers
-from .backend import LEAN_NOTE_FIELDS
+from . import answer_fit, answer_size, docs_handlers, handlers, read_batch, repo_handlers
+from .backend import LEAN_NOTE_FIELDS, file_read_answer
 from .handlers import StrictInt, StrictLines
 from .limits import (
     BODY_TOO_LARGE,
@@ -241,6 +242,12 @@ _RANGE_DOC = (
     "included) instead of the whole file; the reply then carries a `range` "
     "block with the file's total_lines so you know what you did not get. "
     "An `end` past the end of the file is clipped; a start past it is an error."
+    # **תקרת התשובה, במשפט אחד לשני הכלים** (#3460): הפירוט ב-``docs/mcp-server.rst``
+    # (``mcp-answer-size``), וה-``hint`` שבסירוב אומר מה לבקש. קצר בכוונה — כל תו כאן
+    # נספר פעמיים, בתיאור של ``codekeeper_get_file`` ושל ``codekeeper_get_repo_file``,
+    # מול ``_TOOL_DESCRIPTION_MAX_CHARS``.
+    " An answer too big for one reply is cut at a line (range.truncation_reason) "
+    "or refused with a hint."
 )
 
 # תיאור הפרמטר ``outline``, ותיאור הפרמטר ``symbol``.
@@ -320,8 +327,8 @@ _INCLUDE_CONTENT_PARAM_DOC = (
     "its body: only " + _LEAN_NOTE_FIELDS_DOC + ". content_bytes is the size of the "
     "stored body in UTF-8 BYTES (a Hebrew note is about twice its character count), "
     "which is exactly the size of the content codekeeper_get_note returns for it. "
-    "Use false on a board or file you have not read yet — a full listing of a large "
-    "board can exceed what a client shows — then read the notes you need one at a "
+    "Use false on a board or file you have not read yet — a full listing too big for "
+    "one reply is refused (answer_too_large) — then read the notes you need one at a "
     "time with codekeeper_get_note by id."
 )
 
@@ -460,7 +467,7 @@ _SECTION_PARAM_DOC = (
     "the file is ambiguous_section with candidates, like any duplicate "
     "heading — in document order, and cut from the END: at most "
     f"{docs_handlers._CANDIDATES_MAX}, and fewer when the reply would not "
-    f"fit {repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent; "
+    f"fit {answer_size.OUTPUT_BYTE_BUDGET} bytes as sent; "
     "candidates_truncated: true says either cut happened, so the heading you "
     "want may be missing. Every candidate carries its breadcrumb and "
     "line_range. A heading whose full name repeats in the file is never "
@@ -486,7 +493,7 @@ _SECTION_PARAM_DOC = (
     "can come back with a heading rather than with identifiers — do not read "
     "the field as always being identifiers. A miss also carries the heading "
     "map (toc). Every list in a reply — toc, suggestions, candidates — is cut "
-    f"from the end so the reply fits {repo_handlers.OUTPUT_BYTE_BUDGET} bytes "
+    f"from the end so the reply fits {answer_size.OUTPUT_BYTE_BUDGET} bytes "
     "as sent; a miss gives up the map before the suggestions. So "
     "toc_truncated, suggestions_truncated and candidates_truncated each have "
     "two causes: the list reached its cap, or was cut earlier to fit that "
@@ -645,11 +652,15 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "too_large_for_sections, with its bytes and the max; and a file the "
         "parser refuses returns that refusal (too_many_lines, too_many_tokens, "
         "inconsistent_line_endings, too_many_sections). Each of these carries a "
-        "hint to read the file with lines= or query= instead. Any refusal "
-        f"(ok: false) that would not fit {repo_handlers.OUTPUT_BYTE_BUDGET} "
-        "bytes as sent gives up file.tags first — from the end, with "
-        "file.tags_truncated: true — and only then its own lists; a successful "
-        "reply never cuts the file's metadata. file_name with "
+        "hint to read the file with lines= or query= instead. A reply that "
+        f"would not fit {answer_size.OUTPUT_BYTE_BUDGET} bytes as sent gives up "
+        "the file's metadata: file.tags first (file.tags_truncated: true), then "
+        "file.description whole (file.description_bytes says how big it was, and "
+        "hint names codekeeper_update_file_description, to replace it). A "
+        "refusal (ok: false) gives up its tags from the end, before its own "
+        "lists; a successful reply gives up its metadata only when that alone "
+        "keeps it from fitting whole, or when the metadata is bigger than all "
+        "the rest of a cut reply. file_name with "
         "version reads that version; file_id reads the version it names and "
         "ignores version."
     )
@@ -661,14 +672,14 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "section_count, which counts every heading even when the map is cut. "
         "toc_truncated: true means the map was cut from the end — at "
         f"{docs_handlers._TOC_MAX} headings, or earlier so the reply fits "
-        f"{repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent. A heading past the "
+        f"{answer_size.OUTPUT_BYTE_BUDGET} bytes as sent. A heading past the "
         "cut is still readable by its name when no other heading has that "
         "name; a repeated name is ambiguous_section, and lines= reads the "
         "line_range each candidate carries. And query finds the lines that "
         "hold any heading's text, for lines= to read from there. A map "
         "that does not fit even empty is answer_too_large, with bytes (what "
         "the reply needed with the map empty) and max "
-        f"({repo_handlers.OUTPUT_BYTE_BUDGET}). Then read one "
+        f"({answer_size.OUTPUT_BYTE_BUDGET}). Then read one "
         'section with section="<its title>". toc is a mode of its own: with '
         "section, query or lines it is refused as toc_and_section, "
         "toc_and_query or toc_and_lines." + refusals
@@ -692,7 +703,7 @@ def _build_file_sections_docs() -> tuple[str, str]:
         f"{docs_handlers.MAX_CHARS_MIN}-{docs_handlers.MAX_CHARS_MAX}) caps "
         "each reply, and while truncated is true, call again with "
         "offset=next_offset. A page is also cut to fit "
-        f"{repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent, so a page of "
+        f"{answer_size.OUTPUT_BYTE_BUDGET} bytes as sent, so a page of "
         "Hebrew, CJK or emoji text can end before max_chars — then "
         'truncation_reason is "byte_budget", and next_offset is where it '
         "really ended. subsections lists at most "
@@ -700,7 +711,7 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "more were cut; a section whose headings alone do not fit is "
         "section_too_large, with bytes (what the smallest page with any content "
         "needed), "
-        f"max ({repo_handlers.OUTPUT_BYTE_BUDGET}) and its line_range — read those "
+        f"max ({answer_size.OUTPUT_BYTE_BUDGET}) and its line_range — read those "
         "lines instead. section with query or lines is refused as "
         "section_and_query or section_and_lines; max_chars or offset without "
         "section as max_chars_without_section or offset_without_section; and "
@@ -759,7 +770,7 @@ def _build_read_batch_items_doc() -> str:
         "whose answer came from a commit carries it as resolved_commit. Any other "
         "key, or a value of the wrong type, answers invalid_item with the "
         "problems, for that item only. The whole answer is at most "
-        f"{repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent: items fill it in "
+        f"{answer_size.OUTPUT_BYTE_BUDGET} bytes as sent: items fill it in "
         "request order, the first one that does not fit stops the answer, and it "
         "and every item after it are listed in unread with unread_reason "
         "byte_budget. An item larger than that on its own answers item_too_large "
@@ -1785,6 +1796,74 @@ def _refusal_result(refusal: dict[str, Any]) -> CallToolResult:
     return CallToolResult(content=[TextContent(type="text", text=text)], isError=False)
 
 
+#: ההפניה של סירוב הרשת (``AdminAwareFastMCP._within_declared_size``). כללית בכוונה:
+#: הרשת אינה יודעת מה הכלי מחזיר, וכל כלי שמצהיר על תקרה נושא הפניה משלו בסירוב
+#: שלו — זו נשלחת רק כשהכלי לא תפס את החריגה בעצמו, כלומר כשיש בו באג.
+_NET_HINT = (
+    "This answer is larger than this tool declares it ever returns. Ask for less — a "
+    "line range, a smaller page (per_page), fewer results (max_results) or less context."
+)
+
+
+def _log_fits(name: str, arguments: Any, fits: list[answer_fit.Fit]) -> None:
+    """One INFO line per call whose answer was cut or refused to fit its budget (review of #3492, SUGG-004).
+
+    Without it nobody could tell whether ``OUTPUT_BYTE_BUDGET`` is too narrow for a
+    common workflow except from agents complaining. Only ``answer_too_large`` and
+    ``byte_budget`` cuts are recorded (``answer_fit.too_large``, ``answer_fit.cut``),
+    so an answer that fits leaves no line. The line carries the tool, the argument
+    **names** and the numbers — never an argument's value or the answer (K13): a
+    value can be a file name, a query or a note's text. ``answer_size_fit`` is its
+    fixed marker, next to the net's ``answer_size_net``. The standard library
+    logger, like the rest of ``mcp_server`` — not ``emit_event``, whose sampling
+    does not apply here. Every value is computed before the call, so nothing
+    rides on the log line itself.
+    """
+    names = ", ".join(sorted(str(key) for key in arguments)) if isinstance(arguments, dict) else ""
+    summary = answer_fit.format_fits(fits)
+    logger.info("answer_size_fit: %s args=[%s] %s", name, names, summary)
+
+
+def _sent_bytes(result: Any) -> int | None:
+    """כמה בתים יוצאים ללקוח על ``result`` — מה ש-``FastMCP.call_tool`` החזיר — או ``None``.
+
+    הצורות הן אלה שה-handler של ``tools/call`` מקבל (``Server.call_tool`` ב-
+    ``mcp/server/lowlevel/server.py``, mcp 1.28.1): ``CallToolResult`` כמו שהוא;
+    זוג ``(תוכן, structured)``; ``dict`` לבדו — שה-handler הופך לבלוק טקסט של
+    ``json.dumps(results, indent=2)`` **ועוד** ``structuredContent``; ורצף של בלוקי
+    תוכן. **כל** הבלוקים נספרים, לא רק הראשון ולא רק טקסט: בלוק טקסט בבתי ה-UTF-8
+    שלו — הטקסט שהלקוח מונה בו תווים, ובתים הם חסם עליון עליהם — ובלוק מסוג אחר
+    ו-``structuredContent`` בגודל ה-JSON שלהם. כל אחד מאלה הוא חלק ממה שנשלח.
+
+    ``None`` — צורה שאינה אחת מאלה (למשל ``CreateTaskResult``). הרשת אינה מנחשת את
+    גודלה, ומסרבת (fail-closed): כלי שמצהיר על תקרה ומחזיר משהו שאי אפשר למדוד לא
+    יכול להבטיח אותה.
+    """
+    structured: Any = None
+    if isinstance(result, CallToolResult):
+        blocks, structured = result.content, result.structuredContent
+    elif isinstance(result, tuple) and len(result) == 2:
+        blocks, structured = result
+    elif isinstance(result, dict):
+        blocks = [TextContent(type="text", text=json.dumps(result, indent=2))]
+        structured = result
+    elif isinstance(result, (list, tuple)):
+        blocks = result
+    else:
+        return None
+    total = 0
+    for block in blocks:
+        if isinstance(block, TextContent):
+            total += len(block.text.encode("utf-8"))
+        elif isinstance(block, BaseModel):
+            total += len(answer_size.wire_json(block.model_dump(mode="json", by_alias=True)))
+        else:
+            return None
+    if structured is not None:
+        total += len(answer_size.wire_json(structured))
+    return total
+
+
 # ---------------------------------------------------------------------------
 # String arguments reach the tool as they were sent (#3471).
 #
@@ -2021,7 +2100,35 @@ class AdminAwareFastMCP(FastMCP):
         for tool in self._tool_manager.list_tools():
             if tool.name not in known:
                 self._keep_string_arguments_raw(tool)
+                self._check_declared_size(tool)
         return registered
+
+    def _check_declared_size(self, tool: Tool) -> None:
+        """**The third guarantee made at registration: a declared answer ceiling is one the client honours.**
+
+        A tool declares its ceiling in ``meta`` (``answer_size.declared_size_meta``),
+        and ``FastMCP.list_tools`` sends that ``meta`` as the tool's ``_meta``
+        (mcp 1.28.1). Claude Code reads ``_meta["anthropic/maxResultSizeChars"]``
+        "up to a hard ceiling of 500,000 characters" (code.claude.com/docs/en/mcp.md,
+        read 2026-09-29). A value it cannot use — not an ``int``, a ``bool`` (an
+        ``int`` to Python, not a number to anyone reading it), zero or less, or past
+        that ceiling — would be a promise the client does not keep, while the net
+        in :meth:`_within_declared_size` holds the tool to it. So the server does
+        not start with one: the tool is removed and a ``TypeError`` names it, the
+        same answer :meth:`_keep_string_arguments_raw` gives.
+        """
+        meta = tool.meta or {}
+        if answer_size.DECLARED_SIZE_KEY not in meta:
+            return
+        value = meta[answer_size.DECLARED_SIZE_KEY]
+        if (isinstance(value, bool) or not isinstance(value, int)
+                or not 0 < value <= answer_size.CLIENT_CEILING_CHARS):
+            self.remove_tool(tool.name)
+            raise TypeError(
+                f"{tool.name!r}: {answer_size.DECLARED_SIZE_KEY} must be an int in "
+                f"1..{answer_size.CLIENT_CEILING_CHARS}, got {value!r}. Declare it with "
+                "answer_size.declared_size_meta()."
+            )
 
     def _keep_string_arguments_raw(self, tool: Tool) -> None:
         """Swap the tool's argument metadata for one that skips the pre-parse on strings.
@@ -2107,6 +2214,21 @@ class AdminAwareFastMCP(FastMCP):
         ``scripts/measure_read_batch.py``; the numbers live in
         ``docs/mcp-server.rst`` (``codekeeper_read_batch``) — and a refund would
         be a second mechanism with nothing today to justify it.
+
+        **Whatever the body returns passes :meth:`_within_declared_size` last**, on
+        both branches — the net that holds a tool to the answer ceiling it
+        declared. A rate-limit refusal does not: it is built here, not by a tool.
+
+        **And what the body cut or refused to fit its answer is logged here**
+        (:func:`_log_fits`): the body runs inside ``answer_fit.recording``, and
+        ``answer_too_large`` and every ``byte_budget`` cut write to it — from the
+        worker thread too, because ``asyncio.to_thread`` copies the context and the
+        list in it is the same object in both copies. This is the one place that
+        knows both the tool's name and its argument names. **Only what reached the
+        client is in it** (the rule beside ``answer_fit.attempt``): the body runs in
+        an attempt of its own, kept only when the net lets its answer through; when
+        the net replaces it, what the body cut went nowhere, and the net's own
+        refusal is what the line reports (next to its ``answer_size_net`` WARNING).
         """
         entered_at = read_batch.clock() if name == read_batch.TOOL_NAME else None
         user_id = self._caller_identity()
@@ -2121,13 +2243,69 @@ class AdminAwareFastMCP(FastMCP):
             refusal = await self._tool_rate_limiter.admit(user_id, weight=weight)
             if refusal is not None:
                 return _refusal_result(refusal)
-        if entered_at is None:
-            return await super().call_tool(name, arguments)
-        token = read_batch.ENTERED_AT.set(entered_at)
-        try:
-            return await super().call_tool(name, arguments)
-        finally:
-            read_batch.ENTERED_AT.reset(token)
+        with answer_fit.recording() as fits:
+            with answer_fit.attempt() as body:
+                if entered_at is None:
+                    result = await super().call_tool(name, arguments)
+                else:
+                    token = read_batch.ENTERED_AT.set(entered_at)
+                    try:
+                        result = await super().call_tool(name, arguments)
+                    finally:
+                        read_batch.ENTERED_AT.reset(token)
+            sent = self._within_declared_size(name, result)
+            if sent is result:
+                # The net let the body's answer through: what it cut or refused went out.
+                body.keep(sent)
+        if fits:
+            _log_fits(name, arguments, fits)
+        return sent
+
+    def _within_declared_size(self, name: str, result: Any) -> Any:
+        """The last-resort net: a tool never sends more than it declared in ``tools/list``.
+
+        **This is a net, not the fix — and a catch here is a bug in the tool, not
+        the system working.** Every tool that declares a ceiling fits its own
+        answer, where it knows what to cut and what to say: a line range that
+        ends early at a line boundary, ``page_too_large`` with the ``per_page``
+        that caused it, ``answer_too_large`` pointing at ``lines``/``outline``/
+        ``include_content=false``. A refusal from here knows none of that and
+        can only say "ask for less". It exists because the declaration is a
+        promise to the client — Claude Code lifts its own limit for the tool on
+        the strength of it (``answer_size.DECLARED_SIZE_KEY``) — and a promise
+        kept only by each tool remembering to keep it breaks the day one tool
+        forgets.
+
+        Every path to a tool body passes here, both branches of
+        :meth:`call_tool`, and it runs **above** ``FastMCP.call_tool`` — above the
+        PostHog wrapper on ``ToolManager.call_tool`` too — so what is measured is
+        exactly what the low-level handler sends (:func:`_sent_bytes`). The
+        ceiling is read off the tool's own registration (``Tool.meta``), the same
+        ``meta`` that ``tools/list`` sends, and not from a list kept beside it: a
+        tool that declares is held to what it declared, and one that does not is
+        left alone.
+
+        A refusal is logged as a WARNING that names the tool and the numbers only
+        — never the arguments or the answer (K13) — with a fixed marker,
+        ``answer_size_net``, to search for. ``$mcp_tool_call`` in PostHog is
+        captured **below** this method and records the tool's own answer, so the
+        log line is where a catch shows.
+        """
+        tool = self._tool_manager.get_tool(name)
+        declared = (tool.meta or {}).get(answer_size.DECLARED_SIZE_KEY) if tool is not None else None
+        if declared is None:
+            return result
+        sent = _sent_bytes(result)
+        if sent is not None and sent <= declared:
+            return result
+        logger.warning(
+            "answer_size_net: %s sent %s bytes over its declared %d; the tool did not fit its own "
+            "answer, refused here",
+            name, "unmeasurable" if sent is None else sent, declared,
+        )
+        refusal: dict[str, Any] = {"ok": False, **answer_fit.too_large(sent, budget=declared),
+                                   "hint": _NET_HINT}
+        return _refusal_result(refusal)
 
     def set_instructions(self, text: str) -> None:
         """Set the ``instructions`` every ``initialize`` answers with.
@@ -2307,6 +2485,8 @@ def build_mcp(
             + _DESCRIPTION_AGE_DOC
         ),
         annotations=_READ_ONLY_TOOL,
+        # תקרת התשובה, מוצהרת ב-``tools/list`` ואכופה בכלי עצמו (``answer_size``).
+        meta=answer_size.declared_size_meta(),
     )
     def get_file(
         ctx: Context,
@@ -2358,7 +2538,11 @@ def build_mcp(
         # שנושא במקרה שדה בשם הזה היה משנה את צורת התשובה.
         if query is not None or toc or section is not None:
             return doc
-        return {"found": True, "file": doc}
+        # קריאה מלאה או טווח: המעטפת ``{"found": true, "file": ...}`` נבנית שם, יחד
+        # עם תקציב הבתים — טווח שנגמר מוקדם על גבול שורה, או ``answer_too_large``. גם
+        # כאן לפי **מה שביקשנו** (``lines``), מאותו נימוק: מסמך עם שדה ``range`` משלו
+        # היה הופך קריאה מלאה לטווח, או קורס (ריוויו Han על #3492, WARN-002).
+        return file_read_answer({"found": True, "file": doc}, ranged=lines is not None)
 
     @mcp.tool(
         name="codekeeper_save_file",
@@ -2534,9 +2718,12 @@ def build_mcp(
             "color (hex) and color_id (palette id, or empty when not in the "
             "palette), anchored line, timestamps. Same notes shown in the web UI. "
             "include_content=false lists them without their bodies (with the size of "
-            "each), and codekeeper_get_note reads one note by its id."
+            "each), and codekeeper_get_note reads one note by its id. A full listing "
+            "too big for one reply is refused (answer_too_large) with that hint."
         ),
         annotations=_READ_ONLY_TOOL,
+        # תקרת התשובה, מוצהרת ב-``tools/list`` ואכופה בכלי עצמו (``answer_size``).
+        meta=answer_size.declared_size_meta(),
     )
     def list_notes(
         ctx: Context,
@@ -2594,12 +2781,14 @@ def build_mcp(
         description=(
             "List the sticky notes on one board (by board_id from codekeeper_list_boards). "
             "Same notes shown on the board page in the web UI. Use codekeeper_list_notes "
-            "instead for notes attached to a file. On a large board a full listing can "
-            "exceed what a client shows: pass include_content=false to list the notes "
+            "instead for notes attached to a file. On a large board a full listing is "
+            "refused (answer_too_large): pass include_content=false to list the notes "
             "without their bodies (" + _LEAN_NOTE_FIELDS_DOC + "), then read the "
             "ones you need with codekeeper_get_note by id."
         ),
         annotations=_READ_ONLY_TOOL,
+        # תקרת התשובה, מוצהרת ב-``tools/list`` ואכופה בכלי עצמו (``answer_size``).
+        meta=answer_size.declared_size_meta(),
     )
     def list_board_notes(
         ctx: Context,
@@ -2957,9 +3146,13 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "2,400-line one before reading it. `lines` comes from the code index "
             "and is null when a file was never indexed; `lines_commit_sha` says "
             "which commit it was counted at, because the index is refreshed by "
-            "the webapp's sync rather than by this service."
+            "the webapp's sync rather than by this service. A page that does not fit "
+            f"{answer_size.OUTPUT_BYTE_BUDGET} bytes as sent is refused whole as "
+            "page_too_large (bytes, max, per_page) — ask again with a smaller per_page."
         ),
         annotations=_READ_ONLY_TOOL,
+        # תקרת התשובה, מוצהרת ב-``tools/list`` ואכופה בכלי עצמו (``answer_size``).
+        meta=answer_size.declared_size_meta(),
     )
     def list_repo_tree(
         ctx: Context,
@@ -3029,6 +3222,8 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "Binary files return metadata only."
         ),
         annotations=_READ_ONLY_TOOL,
+        # תקרת התשובה, מוצהרת ב-``tools/list`` ואכופה בכלי עצמו (``answer_size``).
+        meta=answer_size.declared_size_meta(),
     )
     def get_repo_file(
         ctx: Context,
@@ -3042,7 +3237,7 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         per_page: int = repo_handlers.OUTLINE_PER_PAGE_DEFAULT,
     ) -> dict:
         require_admin(ctx)
-        return repo_handlers.get_repo_file(
+        read = repo_handlers.get_repo_file(
             repo_backend,
             repo=repo,
             path=path,
@@ -3053,6 +3248,9 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             page=page,
             per_page=per_page,
         )
+        # התקציב חל על התשובה ולא על הקריאה, שמשותפת לכלי הסעיפים ולבאץ'. אותה
+        # פונקציה עונה על פריט קובץ ב-``codekeeper_read_batch``.
+        return repo_handlers.fit_file_answer(read, ranged=lines is not None, repo=repo, path=path, ref=ref)
 
     @mcp.tool(
         name="codekeeper_search_repo",
@@ -3078,6 +3276,8 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "absent; include_vendored=true searches it too."
         ),
         annotations=_READ_ONLY_TOOL,
+        # תקרת התשובה, מוצהרת ב-``tools/list`` ואכופה בכלי עצמו (``answer_size``).
+        meta=answer_size.declared_size_meta(),
     )
     def search_repo(
         ctx: Context,
@@ -3147,8 +3347,8 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         annotations=_READ_ONLY_TOOL,
         # Claude Code שומר לקובץ תשובה שעוברת את הסף שלו ומחליף אותה בנתיב;
         # בלי ההצהרה הזו באץ' של סבב ריוויו היה מגיע כקובץ ולא להקשר. הערך
-        # והנימוק ליחידות — ליד ``read_batch.MAX_RESULT_CHARS``.
-        meta={"anthropic/maxResultSizeChars": read_batch.MAX_RESULT_CHARS},
+        # והנימוק ליחידות — ליד ``answer_size.DECLARED_MAX_RESULT_CHARS``.
+        meta=answer_size.declared_size_meta(),
     )
     def read_batch_items(
         ctx: Context,
@@ -3206,6 +3406,8 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "carry backticks."
         ),
         annotations=_READ_ONLY_TOOL,
+        # תקרת התשובה, מוצהרת ב-``tools/list`` ואכופה בכלי עצמו (``answer_size``).
+        meta=answer_size.declared_size_meta(),
     )
     def docs_get_section(
         ctx: Context,

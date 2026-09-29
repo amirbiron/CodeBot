@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import pydantic_core
-
+from .answer_fit import fit_read, too_large
+from .answer_size import OUTPUT_BYTE_BUDGET
 from .handlers import _clamp
 
 REPOS_LIMIT_DEFAULT = 50
@@ -31,7 +31,6 @@ CONTEXT_LINES_MAX = 10
 # הוא 1000, ועמוד כזה של סימבולים היה חוצה את תקציב הפלט לבדו.
 OUTLINE_PER_PAGE_DEFAULT = 100
 OUTLINE_PER_PAGE_MAX = 500
-OUTPUT_BYTE_BUDGET = 256_000
 
 #: מתי המראה של שירות ה-MCP נמשכת, במשפט שהסוכן קורא. מקור אחד לשני מקומות:
 #: תיאור הפרמטר ``ref`` בשלושת הכלים שמקבלים אותו (``server.py``), וההודעה של
@@ -49,79 +48,6 @@ MIRROR_REFRESH_NOTE = (
     "The mirror is refreshed only when the repo's default branch changes. "
     "A branch pushed after the last refresh is not in the mirror yet."
 )
-
-
-#: רווחי ההזחה של רמת קינון אחת בתשובה כפי שהיא נשלחת — ה-``indent=2`` ש-
-#: ``_convert_to_content`` של ה-SDK מעביר ל-``pydantic_core.to_json`` (mcp 1.28.1).
-#: :func:`wire_json` מסדרל בו, וכל עלות למטה נגזרת ממנו — כך שההזחה שנמדדת
-#: וההזחה שנשלחת הן מספר אחד ולא שניים.
-_WIRE_INDENT = 2
-
-
-def wire_json(value: Any) -> bytes:
-    """מה שה-SDK שולח על ``value`` — ``_convert_to_content`` ל-``dict`` (mcp 1.28.1).
-
-    המדידה של :data:`OUTPUT_BYTE_BUDGET` **כפי שהתשובה נשלחת**, ולכן היא יושבת
-    ליד התקציב ולא בכלי אחד: ``codekeeper_read_batch`` מודד בה את הבאץ', ו-
-    ``docs_handlers`` את תשובת הסעיף. הצורה הזו לעולם אינה קטנה מ-``json.dumps``
-    הדחוס (היא מוסיפה רק רווחים ושורות), ולכן תשובה שנכנסת בה נכנסת בשתיהן.
-    """
-    return pydantic_core.to_json(value, fallback=str, indent=_WIRE_INDENT)
-
-
-def _list_item_indent(depth: int) -> int:
-    """ההזחה של פריט ברשימה שיושבת ``depth`` רמות מתחת לאובייקט העליון של התשובה.
-
-    ``depth`` 0 — הרשימה היא ערך של האובייקט העליון (``toc``, ``items``), ולכן
-    הפריט בעומק 2: אובייקט עליון, רשימה, פריט. ``depth`` 1 — הרשימה היא ערך של
-    אובייקט שהוא עצמו ערך של העליון (``file.tags``), והפריט בעומק 3.
-    """
-    return _WIRE_INDENT * (2 + depth)
-
-
-#: עלות של פריט שמקונן בתוך רשימה תחת מפתח בראש התשובה (``depth`` 0 של
-#: :func:`list_item_cost`), בבתים **כפי שהתשובה נשלחת**: כל שורה פנימית שלו מוזחת
-#: ב-4 רווחים, ולפניו פסיק ושורה. שני מקומות מודדים בדיוק את זה:
-#: ``codekeeper_read_batch`` (פריט תחת ``items``) ו-``docs_handlers`` (פריט תחת
-#: ``toc``/``suggestions``/``candidates``). בעלים אחד למדידה, שקוראים לו משניהם
-#: (R6), במקום שני עותקים שיסחפו — ושלושת המספרים כאן נגזרים מאותה נוסחה של
-#: :func:`list_item_cost`, ולא מוקלדים לצידה.
-LIST_ITEM_INDENT_BYTES = _list_item_indent(0)
-#: פסיק, שורה, וההזחה של עומק 2 שלפני הפריט הבא ברשימה.
-LIST_ITEM_FRAME_BYTES = len(",\n") + LIST_ITEM_INDENT_BYTES
-
-
-def nonempty_list_bytes(depth: int = 0) -> int:
-    """מה ש-``[]`` מוסיף ברגע שיש בו פריט אחד לפחות: ``[`` ... ``\\n`` והזחת הסגירה.
-
-    הסוגר נסגר ברמה של המפתח שמחזיק את הרשימה — רמה 1 כשהרשימה בראש התשובה
-    (``depth`` 0), רמה 2 כשהיא בתוך אובייקט מקונן (``depth`` 1).
-    """
-    return len("\n") + _WIRE_INDENT * (1 + depth)
-
-
-#: :func:`nonempty_list_bytes` לרשימה בראש התשובה — ``\\n  ]`` במקום ``]``.
-NONEMPTY_LIST_BYTES = nonempty_list_bytes(0)
-
-
-def list_item_cost(item: Any, *, depth: int = 0) -> int:
-    """כמה בתים ``item`` מוסיף לתשובה כשהוא פריט ברשימה — כפי שהיא נשלחת.
-
-    ``depth`` הוא כמה רמות מתחת לאובייקט העליון יושבת הרשימה (ראו
-    :func:`_list_item_indent`); ברירת המחדל, 0, היא רשימה בראש התשובה, והמספרים
-    שלה הם :data:`LIST_ITEM_INDENT_BYTES` ו-:data:`LIST_ITEM_FRAME_BYTES`.
-
-    הפריט נמדד לבדו בעומק 0 (:func:`wire_json`), וכל שורה פנימית שלו מקבלת את
-    ההזחה של העומק שבו הוא יושב. שורה חדשה בתוך מחרוזת נכתבת כ-``\\n`` ולא כבית 10,
-    ולכן כל בית 10 בטקסט הוא שורה של המבנה. הנוסחה **מחמירה בפסיק אחד** (לפריט
-    הראשון ברשימה אין פסיק מוביל), ולכן סכום על רשימה הוא חסם עליון על מה שהפריטים
-    באמת מוסיפים — מה שמאפשר להחליט "נכנס" בלי לבנות את התשובה המלאה.
-    ``tests/test_mcp_read_batch.py`` משווה אותה לתשובות שנבנו באמת בעומק 0, ו-
-    ``tests/test_mcp_file_sections.py`` בעומק 1.
-    """
-    text = wire_json(item)
-    indent = _list_item_indent(depth)
-    return len(text) + indent * text.count(b"\n") + len(",\n") + indent
 
 
 def list_repos(backend: Any, *, limit: int = REPOS_LIMIT_DEFAULT) -> dict[str, Any]:
@@ -204,6 +130,94 @@ def get_repo_file(
         per_page=_clamp(per_page, 1, OUTLINE_PER_PAGE_MAX, OUTLINE_PER_PAGE_DEFAULT),
         **pinned,
     )
+
+
+#: ההפניה של קריאה מלאה שאינה נכנסת בתקציב. ``file.lines`` בסירוב הוא מספר השורות, ו-
+#: ``outline`` הוא המפה שממנה בוחרים טווח — אותה שרשרת שתיאור הכלי מלמד.
+_WHOLE_FILE_HINT = (
+    "The whole file does not fit in one answer. Read it in parts with lines=[start, end] "
+    "(file.lines is how many lines it has), or pass outline=true for a map of its "
+    "definitions with their line ranges."
+)
+#: קובץ שכלי הסעיפים מגיש: ההפניה אליו, עם הארגומנטים המדויקים ב-``read_with_arguments``.
+_WHOLE_FILE_SECTIONS_HINT = (
+    " It is also served by the section tool: read_with and read_with_arguments call it "
+    "for its heading map, then one section at a time."
+)
+#: שורה אחת שגם לבדה אינה נכנסת: אין טווח קטן יותר, אבל החיפוש מחזיר אותה כקטע חסום.
+_LINE_TOO_LARGE_HINT = (
+    "Line {line} alone does not fit in one answer. codekeeper_search_repo returns the "
+    "lines that match a string, each clipped to a short snippet."
+)
+
+
+def fit_file_answer(
+    read: dict[str, Any], *, ranged: bool, repo: str, path: str, ref: str | None
+) -> dict[str, Any]:
+    """התשובה של ``codekeeper_get_repo_file`` על קובץ, בתוך ``OUTPUT_BYTE_BUDGET`` בתים כפי שהיא נשלחת.
+
+    ``read`` הוא מה ש-:func:`get_repo_file` החזיר. **התקציב חל כאן ולא ב-
+    ``RepoBackend.get_file``**, כי אותה קריאה מזינה גם את כלי הסעיפים
+    (``docs_handlers.load_document``) ואת פריטי הסעיף של ``codekeeper_read_batch``,
+    שמפרסרים את הקובץ כולו — לא שולחים אותו. **ושני מקומות קוראים לפונקציה הזו,
+    ורק הם:** גוף הכלי, ופריט קובץ בבאץ' (``read_batch._answer``) — כך שהתשובה של
+    פריט קובץ נשארת זהה בית-בית לזו של הכלי הבודד. ``read`` עצמו אינו משתנה: הוא
+    משותף בבאץ' לפריט קובץ ולפריט סעיף של אותו קובץ.
+
+    * תשובה שאינה נושאת תוכן (אאוטליין, ``binary``, ``too_large``, סירוב) חוזרת כמו
+      שהיא. האאוטליין מתאים את עצמו לתקציב במקום שבו הוא נבנה (``page_too_large``).
+    * **טווח שאינו נכנס** נגמר מוקדם על גבול שורה (``answer_fit.fit_line_range``) —
+      ``range.end`` האמיתי, ``range.truncated`` ו-``range.truncation_reason:
+      "byte_budget"``, וממשיכים מ-``end + 1``. שורה ראשונה שגם לבדה אינה נכנסת —
+      ``answer_too_large``.
+    * **קריאה מלאה שאינה נכנסת** — ``answer_too_large`` עם ``bytes`` (התשובה שהייתה
+      נשלחת, נמדדת), ``max``, ``file`` והפניה ל-``lines`` ול-``outline``. קובץ שכלי
+      הסעיפים מגיש מקבל גם ``read_with``/``read_with_arguments`` אליו — אותם שמות של
+      ``no_outline`` ושל ``item_too_large``, והארגומנטים נגזרים מהשער של אותו כלי
+      (``docs_handlers.section_read_arguments``).
+
+    עד #3460 קריאה מלאה נחסמה רק ב-500KB של המראה, ו-``docs/mcp-server.rst`` בקריאה
+    מלאה יצא 299,038 בתים — מעל מה שהלקוח מקבל בלי לשמור לקובץ.
+
+    ``ranged`` הוא מה שהקורא ביקש (``lines is not None``) — ראו ``answer_fit.fit_read``,
+    השגרה האחת ששני כלי הקריאה עוברים בה. כאן, בניגוד לקובץ שמור, זה **לא** תיקון באג:
+    ה-``range`` נבנה ב-``RepoBackend.get_file`` ואין בו שדה של משתמש.
+    """
+    if read.get("ok") is not True or not isinstance(read.get("content"), str):
+        return read
+
+    def refuse(size: int, start: int | None) -> dict[str, Any]:
+        if start is not None:
+            return {"ok": False, **too_large(size), "file": read.get("file"),
+                    "hint": _LINE_TOO_LARGE_HINT.format(line=start)}
+        return _whole_file_refusal(read, size, repo=repo, path=path, ref=ref)
+
+    return fit_read(read, ranged=ranged, text_paths=(("content",),), range_path=("range",),
+                    refuse=refuse)
+
+
+def _whole_file_refusal(
+    read: dict[str, Any], size: int, *, repo: str, path: str, ref: str | None
+) -> dict[str, Any]:
+    """הסירוב על קריאה מלאה של קובץ ממראה: ``lines``/``outline``, ולקובץ שכלי הסעיפים מגיש — גם אליו."""
+    refusal: dict[str, Any] = {"ok": False, **too_large(size), "file": read.get("file"),
+                               "hint": _WHOLE_FILE_HINT}
+    # עצל, כמו ב-``repo_backend._with_section_redirect``: ``docs_handlers`` מושך את
+    # שני הפארסרים, וקריאה שנכנסת בתקציב אינה צריכה אותם.
+    from . import docs_handlers
+
+    # מנורמלים כמו ב-:func:`get_repo_file`, כדי שהכלי הבודד והבאץ' (שמקבץ לפי הנתיב
+    # המנורמל) יפנו באותם ארגומנטים. ``read`` מוצלח אומר שהנרמול כבר עבר.
+    target = file_target(repo, path)
+    if isinstance(target, dict):
+        return refusal
+    arguments = docs_handlers.section_read_arguments(
+        repo=target[0], path=target[1], ref=((ref or "").strip() or None))
+    if arguments is not None:
+        refusal["hint"] += _WHOLE_FILE_SECTIONS_HINT
+        refusal["read_with"] = docs_handlers.SECTION_TOOL_NAME
+        refusal["read_with_arguments"] = arguments
+    return refusal
 
 
 def search_repo(

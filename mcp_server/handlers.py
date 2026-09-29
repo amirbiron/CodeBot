@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import html
 import itertools
-import json
 import re
 from typing import Annotated, Any, NamedTuple
 
 from pydantic import Field
+
+from .answer_size import BYTE_BUDGET_REASON, list_item_cost
 
 # תקרת התוכן מיובאת ולא מוקלדת. עד היום MCP והוובאפ החזיקו כל אחד את המספר
 # שלו, כך ששינוי באחד היה משאיר את השני אוכף ערך אחר — ואז אותו פתק נדחה
@@ -185,13 +186,15 @@ _REQUEST_ERROR_HINTS = {
 
 # התקרות של חיפוש בתוך קובץ. **אותם מספרים בדיוק** כמו ב-
 # ``repo_handlers.SEARCH_RESULTS_DEFAULT`` / ``SEARCH_RESULTS_MAX`` /
-# ``CONTEXT_LINES_MAX`` / ``OUTPUT_BYTE_BUDGET``, כי ``query`` מחזיר את צורת
-# התשובה של ``codekeeper_search_repo`` — ושתי תקרות שונות לאותה צורת תשובה הן
-# בדיוק הסוג של הפער שמייצר באגים.
+# ``CONTEXT_LINES_MAX``, כי ``query`` מחזיר את צורת התשובה של
+# ``codekeeper_search_repo`` — ושתי תקרות שונות לאותה צורת תשובה הן בדיוק הסוג
+# של הפער שמייצר באגים.
 #
 # **משוכפלים כאן ולא מיובאים, וזו הגבלה אמיתית ולא העדפה:** ``repo_handlers``
 # מייבא ``_clamp`` מהמודול הזה, וייבוא הפוך היה מעגלי. אותה מוסכמה שכבר קיימת
-# בין ``analytics.py`` ל-``server.py``.
+# בין ``analytics.py`` ל-``server.py``. **תקציב הבתים כבר אינו ביניהם:** עד #3474
+# הוא היה עותק רביעי כאן (``QUERY_OUTPUT_BYTE_BUDGET``), ועכשיו שני החיפושים
+# מייבאים אותו מ-``answer_size``, המודול שאין לו תלויות פנימיות.
 #
 # **ומה שסוגר את הפער הוא אכיפה, לא זיכרון:**
 # ``tests/test_mcp_file_query.py`` משווה את שני העותקים **וגם** מעגן כל אחד
@@ -200,7 +203,10 @@ _REQUEST_ERROR_HINTS = {
 QUERY_RESULTS_DEFAULT = 50
 QUERY_RESULTS_MAX = 100
 QUERY_CONTEXT_LINES_MAX = 10
-QUERY_OUTPUT_BYTE_BUDGET = 256_000
+#: ``truncation_reason`` של תשובת ``query`` שנחתכה בתקרת המופעים שביקשו — אותה מילה
+#: של ``codekeeper_search_repo``. הסיבה השנייה היא ``byte_budget``
+#: (``answer_size.BYTE_BUDGET_REASON``), כשתקציב הבתים עצר לפני התקרה.
+MAX_RESULTS_REASON = "max_results"
 
 # תקרת הטקסט של רשומה אחת — **בבתים, ולא בתווים**.
 #
@@ -476,14 +482,21 @@ def scan_file_query(
     מחזיר ``{"count", "total", "results", "truncated"}`` — אותם שמות שדות, ולכל
     פגיעה ``line`` ו-``snippet``, ועם ``context_lines`` גם ``context_before``
     ו-``context_after``. ``total`` הוא כל המופעים בקובץ ו-``count`` הוא כמה
-    מהם הוחזרו בפועל — אותה משמעות בדיוק כמו שם.
+    מהם הוחזרו בפועל — אותה משמעות בדיוק כמו שם. כש-``truncated`` דלוק מצטרף
+    ``truncation_reason``: :data:`MAX_RESULTS_REASON` כשהתקרה שביקשו עצרה, ו-
+    ``byte_budget`` כשהתקציב עצר לפניה — אותו כלל של החיפוש בריפו.
+
+    **``byte_budget`` הוא המקום לרשומות בלבד**, כפי שהן יושבות ברשימה בראש
+    התשובה (``list_item_cost``). את המעטפת — הקובץ, השאילתה, המונים והדגלים —
+    הקורא בונה ומודד, ומוריד מהתקציב לפני שהוא קורא לכאן
+    (``backend._apply_query_to_file``). עד #3474 נמדדו כאן רשומות דחוסות מול
+    התקציב כולו, והתשובה שנשלחה עברה אותו.
 
     **ומה שאינו זהה, כדי שלא יוסק מהשורה שמעל:** כאן ``total`` קיים תמיד,
     כי סריקת קובץ בודד מסתיימת תמיד. ב-``codekeeper_search_repo`` הסריקה
     היא על ריפו שלם, ולכן יש לה תקרת ספירה ו-timeout — וכשהספירה נקטעת
-    חוזר שם ``total_at_least`` במקום ``total``, ועוד ``truncation_reason``.
-    שני השדות האלה אינם קיימים כאן, ואין להם מה לתאר. חסר כאן גם ``path``,
-    כי מדובר בקובץ אחד.
+    חוזר שם ``total_at_least`` במקום ``total``, עם סיבה משלה. ``total_at_least``
+    אינו קיים כאן, ואין לו מה לתאר. חסר כאן גם ``path``, כי מדובר בקובץ אחד.
 
     **הנחת כניסה:** ``query`` עבר את :func:`file_query_error`. השער יושב בקורא,
     לפני הקריאה למסד, כדי ששאילתה פסולה לא תשלם קריאת מסמך שלם.
@@ -510,6 +523,7 @@ def scan_file_query(
 
     results: list[dict[str, Any]] = []
     used = 0
+    stopped_by_budget = False
     # חריגה מתקרת המופעים היא התנהגות מוצהרת ולא חיתוך שקט: ``truncated``
     # נדלק לפני הלולאה, כי הוא נגזר מ-``total`` ולא ממה שהספיק להיכנס.
     truncated = total > max_results
@@ -524,21 +538,29 @@ def scan_file_query(
         if context_lines > 0:
             row["context_before"] = [_snippet(x) for x in lines[max(0, idx - context_lines) : idx]]
             row["context_after"] = [_snippet(x) for x in lines[idx + 1 : idx + 1 + context_lines]]
-        # נמדד על הסריאליזציה האמיתית ולא בספירת תווים ולא בהערכה פר-רשומה:
-        # ``ensure_ascii=False`` כי זה מה שיוצא בפועל, ובעברית ההבדל בין
-        # השניים הוא פי שלושה.
-        used += len(json.dumps(row, ensure_ascii=False).encode("utf-8"))
+        # נמדד כפי שהרשומה יושבת בתשובה שנשלחת — ``list_item_cost``, עם ההזחה
+        # והפסיק שלפניה — ולא ב-``json.dumps`` הדחוס. המדידה הדחוסה החטיאה את
+        # ההזחה של כל שורה פנימית ברשומה, ותשובה שנמדדה בתוך התקציב יצאה
+        # גדולה ממנו (#3474).
+        used += list_item_cost(row)
         if used > byte_budget:
             truncated = True
+            stopped_by_budget = True
             break
         results.append(row)
 
-    return {
+    answer: dict[str, Any] = {
         "count": len(results),
         "total": total,
         "results": results,
         "truncated": truncated,
     }
+    # הסיבה רק כשמשהו באמת נחתך, ותמיד כשכן — אותו כלל של ``codekeeper_search_repo``.
+    if truncated:
+        answer["truncation_reason"] = (
+            BYTE_BUDGET_REASON if stopped_by_budget else MAX_RESULTS_REASON
+        )
+    return answer
 
 
 def _snippet(line: str) -> str:

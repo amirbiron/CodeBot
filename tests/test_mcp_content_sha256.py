@@ -654,7 +654,7 @@ def test_a_toc_answer_near_the_budget_stays_within_it_with_the_hash(mcp, store):
     מוטציה שמפילה: לבנות את ``context`` ב-``_apply_sections_to_file`` בלי ה-hash,
     ולהוסיף אותו ל-``file`` של התשובה אחרי ``answer_section``.
     """
-    from mcp_server.repo_handlers import OUTPUT_BYTE_BUDGET
+    from mcp_server.answer_size import OUTPUT_BYTE_BUDGET
 
     text = "".join(f"# {i:03d} " + "t" * 300 + "\n\nbody\n\n" for i in range(400))
     margins = []
@@ -675,7 +675,7 @@ def test_a_section_page_packed_to_the_budget_stays_within_it_with_the_hash(mcp, 
     מוטציה שמפילה: אותה מוטציה כמו במפה — ה-hash נוסף אחרי ``answer_section``.
     """
     from mcp_server import docs_handlers
-    from mcp_server.repo_handlers import OUTPUT_BYTE_BUDGET
+    from mcp_server.answer_size import OUTPUT_BYTE_BUDGET
 
     text = "# S\n\n" + "\n".join(["汉" * 100] * 1100) + "\n"
     _seed(store, text)

@@ -19,7 +19,7 @@ import logging
 
 import pytest
 
-from mcp_server import analytics, handlers, repo_handlers
+from mcp_server import analytics, answer_size, handlers, repo_handlers
 
 pytest.importorskip("mcp")
 
@@ -302,7 +302,7 @@ async def test_the_output_byte_budget_stops_and_says_so(monkeypatch):
     assert out["count"] < 100
     assert out["truncated"] is True
     measured = len(json.dumps(out["results"], ensure_ascii=False).encode("utf-8"))
-    assert measured <= handlers.QUERY_OUTPUT_BYTE_BUDGET
+    assert measured <= answer_size.OUTPUT_BYTE_BUDGET
 
 
 # ===========================================================================
@@ -483,7 +483,10 @@ def test_the_query_ceilings_match_the_repo_tool_and_their_stated_values():
     assert handlers.QUERY_RESULTS_DEFAULT == repo_handlers.SEARCH_RESULTS_DEFAULT == 50
     assert handlers.QUERY_RESULTS_MAX == repo_handlers.SEARCH_RESULTS_MAX == 100
     assert handlers.QUERY_CONTEXT_LINES_MAX == repo_handlers.CONTEXT_LINES_MAX == 10
-    assert handlers.QUERY_OUTPUT_BYTE_BUDGET == repo_handlers.OUTPUT_BYTE_BUDGET == 256_000
+    # תקציב הבתים אינו משוכפל עוד: שני החיפושים מייבאים אותו מ-``answer_size``.
+    assert repo_handlers.OUTPUT_BYTE_BUDGET is answer_size.OUTPUT_BYTE_BUDGET
+    assert not hasattr(handlers, "QUERY_OUTPUT_BYTE_BUDGET")
+    assert answer_size.OUTPUT_BYTE_BUDGET == 256_000
     # תקרת ה-snippet היא המספר של ``codekeeper_search_repo`` ביחידה אחרת,
     # ולכן היא מעוגנת למספר בלבד — אין לה בן-זוג לייבא.
     assert handlers.QUERY_SNIPPET_MAX_BYTES == 500
