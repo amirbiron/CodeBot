@@ -27,7 +27,7 @@ import random
 import pytest
 from pydantic import ValidationError
 
-from mcp_server import analytics, docs_handlers, handlers, read_batch, repo_handlers
+from mcp_server import analytics, answer_size, docs_handlers, handlers, read_batch, repo_handlers
 from services import doc_sections, md_parser
 
 pytest.importorskip("mcp")
@@ -517,7 +517,7 @@ async def test_a_map_that_does_not_fit_is_cut_from_the_end_inside_the_budget(mon
     assert out["toc_truncated"] is True
     assert out["section_count"] == len(full)
     one_more = {**out, "toc": full[:kept + 1]}
-    assert len(repo_handlers.wire_json(one_more)) > repo_handlers.OUTPUT_BYTE_BUDGET
+    assert len(answer_size.wire_json(one_more)) > repo_handlers.OUTPUT_BYTE_BUDGET
 
 
 async def test_a_miss_gives_up_the_map_before_the_suggestions(monkeypatch):
@@ -1165,6 +1165,11 @@ async def test_an_answer_that_does_not_fit_even_with_empty_lists_is_refused(
     ``bytes`` מעל ``max``, עם ``file`` כמו כל תשובה, ועם ה-``hint`` של קובץ שמור. בשלוש
     הצורות שנושאות רשימות, כי כולן עוברות באותו מקום.
 
+    **והסירוב עצמו נכנס בתקציב** (#3460, #3489 בצד הקריאה): התיאור יורד ממנו שלם,
+    ובמקומו ``file.description_bytes`` — כמה בתים הוא היה. עד #3460 התיאור נשאר, והסירוב
+    עצמו עבר את התקציב. נופלת על הקוד שלפני: שם ``description`` בסירוב ו-``description_bytes``
+    אינו קיים.
+
     **ותגיות כבר אינן הדרך לכאן** (#3472, SUGG-002): רשימה שבתוך ``file`` מוותרת על
     פריטים בסירוב — ראו ``test_a_refusal_gives_up_the_file_tags_first_and_says_so``. עד
     #3472 הבדיקה הזו נשענה על תגית ענקית. וקובץ שאין לו ``tags`` בכלל אינו מקבל
@@ -1174,12 +1179,14 @@ async def test_an_answer_that_does_not_fit_even_with_empty_lists_is_refused(
     """
     mcp = _build(monkeypatch, _Dbm(extra={"description": _HUGE_DESCRIPTION}))
 
-    out = await _call(mcp, file_name=_MD_NAME, **arguments)
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, **arguments)
 
     assert out["ok"] is False and out["error"] == docs_handlers.ANSWER_TOO_LARGE
     assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
     assert out["hint"] == _HINT
-    assert out["file"]["id"] == _DOC_ID and out["file"]["description"] == _HUGE_DESCRIPTION
+    assert out["file"]["id"] == _DOC_ID and "description" not in out["file"]
+    assert out["file"]["description_bytes"] == len(_HUGE_DESCRIPTION.encode("utf-8"))
     assert "tags" not in out["file"] and "tags_truncated" not in out["file"]
     assert not {"toc", "suggestions", "candidates", "requested"} & out.keys()
 
@@ -1629,7 +1636,7 @@ def test_fit_lists_keeps_the_longest_prefix_and_gives_up_lists_in_order():
     מוטציה שמפילה: ``_longest_fitting_prefix`` שמחזיר ``lo - 1`` (חיתוך מוקדם מדי),
     ``_fit_lists`` שממשיך לרשימה הבאה לפני שבדק את הקודמת, או בלי הדילוג על רשימה ריקה.
     """
-    wire = repo_handlers.wire_json
+    wire = answer_size.wire_json
     cuts = (("a", "a_cut"), ("b", "b_cut"))
     answer = {"ok": False, "a": [f"a{i}-" + "x" * 90 for i in range(10)],
               "b": [f"b{i}-" + "y" * 90 for i in range(10)]}
@@ -1684,7 +1691,7 @@ def test_fit_lists_never_serializes_more_than_the_budget_plus_one_item(monkeypat
     answer = {"ok": True, "file": {"id": "x"}, "includes": [], "mode": "toc",
               "toc": toc, "toc_truncated": False, "section_count": len(toc)}
 
-    real_wire = repo_handlers.wire_json
+    real_wire = answer_size.wire_json
     largest_item = max(len(real_wire(item)) for item in toc)
     # הנחת המקרה: התשובה המלאה גדולה בהרבה מהתקציב ועוד פריט — כך שהצורה הישנה,
     # שסדרלה אותה במלואה, בונה מחרוזת מעל הסף שהטסט בודק.
@@ -1698,7 +1705,7 @@ def test_fit_lists_never_serializes_more_than_the_budget_plus_one_item(monkeypat
         return out
 
     monkeypatch.setattr(docs_handlers, "wire_json", spy)
-    monkeypatch.setattr(repo_handlers, "wire_json", spy)
+    monkeypatch.setattr(answer_size, "wire_json", spy)
     fitted, size = docs_handlers._fit_lists(
         answer, cuts=(("toc", "toc_truncated"),), budget=budget)
 
@@ -1716,7 +1723,7 @@ def _fit_lists_before_depth(answer, *, cuts, budget):
     ``list_item_cost``/``nonempty_list_bytes`` של היום. רק ``wire_json`` משותף — השינוי לא
     נגע בה, והיא הסריאליזציה ששתי הצורות מודדות.
     """
-    wire = repo_handlers.wire_json
+    wire = answer_size.wire_json
 
     def cost(item):
         text = wire(item)
@@ -1790,7 +1797,7 @@ def test_fit_lists_at_depth_zero_decides_exactly_as_before_the_depth_was_added()
     ``_WIRE_INDENT * (1 + depth)``.
     """
     rng = random.Random(3472)
-    wire = repo_handlers.wire_json
+    wire = answer_size.wire_json
     keys = ("toc", "suggestions", "candidates")
     compared = 0
     for _ in range(8):
@@ -1830,7 +1837,7 @@ def test_the_cost_of_a_list_item_is_measured_at_the_depth_it_sits():
     ``len("\\n") + _WIRE_INDENT * (2 + depth)``.
     """
     rng = random.Random(3489)
-    wire = repo_handlers.wire_json
+    wire = answer_size.wire_json
 
     def at_depth_0(items):
         return {"ok": False, "tags": items, "error": "e"}
@@ -1843,8 +1850,8 @@ def test_the_cost_of_a_list_item_is_measured_at_the_depth_it_sits():
         for depth, place in ((0, at_depth_0), (1, at_depth_1)):
             empty = len(wire(place([])))
             real = len(wire(place(items)))
-            estimate = empty + repo_handlers.nonempty_list_bytes(depth) + sum(
-                repo_handlers.list_item_cost(item, depth=depth) for item in items)
+            estimate = empty + answer_size.nonempty_list_bytes(depth) + sum(
+                answer_size.list_item_cost(item, depth=depth) for item in items)
             assert estimate == real + len(","), (depth, items)
 
 
@@ -2385,6 +2392,6 @@ def test_the_byte_budget_has_one_measure_and_one_word():
     מוטציה שמפילה: להחזיר ל-``read_batch`` פונקציה ``_wire`` משלו, או לאיית את
     הסיבה אחרת.
     """
-    assert read_batch._wire is repo_handlers.wire_json
-    assert docs_handlers.wire_json is repo_handlers.wire_json
+    assert read_batch._wire is answer_size.wire_json
+    assert docs_handlers.wire_json is answer_size.wire_json
     assert docs_handlers._BYTE_BUDGET_REASON == read_batch.UNREAD_BYTE_BUDGET == "byte_budget"

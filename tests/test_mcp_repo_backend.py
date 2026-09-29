@@ -207,12 +207,33 @@ def test_list_tree_filters_paginates_and_omits_denied():
     assert page2["paths"] == ["src/b.py"]
 
 
-def test_list_tree_byte_budget_truncates():
+def test_a_tree_page_over_the_budget_is_refused_whole_and_smaller_pages_lose_nothing():
+    """#3481: עמוד שאינו נכנס נדחה כולו, ו-``per_page`` קטן יותר מחזיר את כל הנתיבים.
+
+    עד #3481 עמוד כזה נחתך באמצע (``truncated: true``), והעמוד הבא התחיל אחרי
+    ``per_page`` המלא — כך שהנתיבים שבין נקודת החיתוך לסוף העמוד לא חזרו באף עמוד.
+    ``bytes`` הוא גודל התשובה כפי שהיא נשלחת, ולכן ``bytes > max``.
+
+    נופלת על הקוד שלפני: שם העמוד חוזר חתוך ו-``ok: true``.
+    """
+    from mcp_server.answer_size import wire_json
+
     files = [f"dir/file_{i}.py" for i in range(50)]
     be = RepoBackend(db=_repos_db(), mirror=_Mirror(files=files), search_service=_Search())
-    out = be.list_tree(repo="alpha", page=1, per_page=50, byte_budget=100)
-    assert out["truncated"] is True
-    assert 0 < len(out["paths"]) < 50
+    whole = be.list_tree(repo="alpha", page=1, per_page=50)
+    budget = len(wire_json(whole)) - 1
+
+    out = be.list_tree(repo="alpha", page=1, per_page=50, byte_budget=budget)
+    assert out == {"ok": False, "error": "page_too_large", "bytes": budget + 1,
+                   "max": budget, "per_page": 50}
+
+    collected: list[str] = []
+    for page in range(1, 6):
+        part = be.list_tree(repo="alpha", page=page, per_page=10, byte_budget=budget)
+        assert part["ok"] is True and part["truncated"] is False
+        assert len(wire_json(part)) <= budget
+        collected += part["paths"]
+    assert collected == files
 
 
 def test_list_tree_sync_in_progress_during_local_autosync(monkeypatch):

@@ -46,7 +46,7 @@ from mcp.server.lowlevel.server import request_ctx  # noqa: E402
 from mcp.shared.context import RequestContext  # noqa: E402
 
 import mcp_server.server as srv  # noqa: E402
-from mcp_server import analytics, docs_handlers, read_batch, repo_handlers  # noqa: E402
+from mcp_server import analytics, answer_size, docs_handlers, read_batch, repo_handlers  # noqa: E402
 from mcp_server.repo_backend import RepoBackend  # noqa: E402
 from rate_limiter import RateLimiter  # noqa: E402
 from services import md_parser  # noqa: E402
@@ -1267,7 +1267,7 @@ async def test_the_tool_declares_its_result_size_in_characters_as_the_byte_budge
     mcp._request_is_admin = lambda: True
     (tool,) = [t for t in await mcp.list_tools() if t.name == read_batch.TOOL_NAME]
     assert tool.meta == {"anthropic/maxResultSizeChars": repo_handlers.OUTPUT_BYTE_BUDGET}
-    assert read_batch.MAX_RESULT_CHARS == repo_handlers.OUTPUT_BYTE_BUDGET
+    assert answer_size.DECLARED_MAX_RESULT_CHARS == repo_handlers.OUTPUT_BYTE_BUDGET
 
 
 def test_a_section_item_uses_the_single_tools_defaults():
@@ -1321,7 +1321,7 @@ def test_the_documented_numbers_are_the_code_numbers():
 
     assert table_value("MAX_BATCH_ITEMS") == f"{read_batch.MAX_BATCH_ITEMS:,}"
     assert table_value("DEADLINE_SECONDS") == f"{read_batch.DEADLINE_SECONDS:g}"
-    assert table_value("MAX_RESULT_CHARS") == f"{read_batch.MAX_RESULT_CHARS:,}"
+    assert table_value("DECLARED_MAX_RESULT_CHARS") == f"{answer_size.DECLARED_MAX_RESULT_CHARS:,}"
 
     deadline = read_batch.DEADLINE_SECONDS
 

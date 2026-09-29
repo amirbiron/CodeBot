@@ -16,16 +16,21 @@ search skips, get blocks. Heavy content is returned only by ``get_file``
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
+from .answer_size import (
+    BYTE_BUDGET_REASON,
+    NONEMPTY_LIST_BYTES,
+    OUTPUT_BYTE_BUDGET,
+    list_item_cost,
+    wire_json,
+)
 from .backend import _json_safe
 from .repo_handlers import (
     MIRROR_REFRESH_NOTE,
     OUTLINE_PER_PAGE_DEFAULT,
     OUTLINE_PER_PAGE_MAX,
-    OUTPUT_BYTE_BUDGET,
     TREE_PER_PAGE_MAX,
 )
 from .handlers import apply_line_range, normalize_line_range
@@ -132,17 +137,11 @@ def _outline_response(
     # עימוד אריתמטי מאבד סימבולים: העמוד נעצר באמצע והבא מתחיל אחרי
     # ``per_page`` המלא. דחייה מפורשת עם ``max`` היא חסרת אובדן, דטרמיניסטית,
     # ואומרת לקורא בדיוק מה לעשות — במקום להחזיר תשובה שנראית שלמה.
-    payload_bytes = len(json.dumps(window, ensure_ascii=False).encode("utf-8"))
-    if payload_bytes > OUTPUT_BYTE_BUDGET:
-        return {
-            "ok": False,
-            "error": "page_too_large",
-            "bytes": payload_bytes,
-            "max": OUTPUT_BYTE_BUDGET,
-            "per_page": per_page_i,
-        }
-
-    return {
+    #
+    # **והמדידה היא של התשובה כולה, כפי שהיא נשלחת** (``wire_json``). עד #3460
+    # נמדד רק חלון הסימבולים, ב-``json.dumps`` דחוס — בלי ``file``, בלי המונים ובלי
+    # ההזחה של כל שורה פנימית — ועמוד שנמדד 247,684 בתים יצא 261,992.
+    answer = {
         "ok": True,
         "status": "outline",
         "file": file_meta,
@@ -151,6 +150,16 @@ def _outline_response(
         "page": page_i,
         "per_page": per_page_i,
     }
+    size = len(wire_json(answer))
+    if size > OUTPUT_BYTE_BUDGET:
+        return {
+            "ok": False,
+            "error": "page_too_large",
+            "bytes": size,
+            "max": OUTPUT_BYTE_BUDGET,
+            "per_page": per_page_i,
+        }
+    return answer
 
 
 def _with_section_redirect(
@@ -587,25 +596,6 @@ class RepoBackend:
         # מקבלת רשומה מוכנה או ``None``, ולא מסתעפת בגוף שלה.
         stats = self._stats_for_page(repo, page_items, sizes) if include_stats else {}
 
-        # Output byte budget: never let one page blow up the response.
-        out: list[str] = []
-        entries_out: list[dict[str, Any]] = []
-        used = 0
-        truncated = False
-        for item in page_items:
-            entry = stats.get(item)
-            cost = len(item.encode("utf-8")) + 8
-            if entry is not None:
-                # רשומה מועשרת שוקלת הרבה יותר מנתיב, ולכן היא נספרת כפי
-                # שהיא — אחרת העמוד היה חורג מהתקציב בלי שאיש ידע.
-                cost += len(str(entry).encode("utf-8"))
-            used += cost
-            if used > byte_budget:
-                truncated = True
-                break
-            out.append(item)
-            if entry is not None:
-                entries_out.append(entry)
         result: dict[str, Any] = {
             "ok": True,
             "repo": repo,
@@ -617,13 +607,33 @@ class RepoBackend:
             "total": total,
             "page": page_i,
             "per_page": per_page_i,
-            "paths": out,
-            "truncated": truncated,
+            "paths": page_items,
+            # **תמיד ``false`` מאז #3481**, והשדה נשאר כדי שצורת התשובה לא תשתנה. עד אז
+            # עמוד שעבר את התקציב נחתך באמצע, והעמוד הבא התחיל אחרי ``per_page`` המלא —
+            # כך שהנתיבים שבין נקודת החיתוך לסוף העמוד לא חזרו באף עמוד. עכשיו עמוד
+            # כזה נדחה כולו (``page_too_large`` למטה), ולכן עמוד שחזר הוא תמיד שלם.
+            "truncated": False,
         }
         if include_stats:
-            # נגזר מאותה לולאה ומאותה נקודת חיתוך כמו ``paths``, ולכן שתי
-            # הרשימות תמיד באותו אורך ובאותו סדר. ``tests`` אוכפים את זה.
-            result["entries"] = entries_out
+            # רשומה לכל נתיב בעמוד, באותו סדר — ``_stats_for_page`` בונה אחת לכל נתיב.
+            result["entries"] = [stats[item] for item in page_items]
+
+        # **עמוד שאינו נכנס בתקציב נדחה כולו, ולא נחתך** (#3481) — אותה החלטה של
+        # ``_outline_response``, מאותה סיבה: העימוד כאן אריתמטי, ולכן חיתוך באמצע עמוד
+        # מאבד את מה שבין נקודת החיתוך לסוף העמוד. הסירוב אומר כמה העמוד שקל, מה
+        # התקרה, ומה ה-``per_page`` שגרם לזה — וקריאה עם ``per_page`` קטן יותר מקבלת
+        # את אותם נתיבים בעמודים שלמים. **והמדידה היא של התשובה כולה, כפי שהיא
+        # נשלחת**: עד כאן נספרו הנתיב ועוד 8 בתים, ו-``str()`` של הרשומה, ועמוד שנמדד
+        # 219,187 בתים יצא 255,442.
+        size = len(wire_json(result))
+        if size > byte_budget:
+            return {
+                "ok": False,
+                "error": "page_too_large",
+                "bytes": size,
+                "max": byte_budget,
+                "per_page": per_page_i,
+            }
         return result
 
     def _stats_for_page(
@@ -921,31 +931,12 @@ class RepoBackend:
         # ``total`` was ``len(filtered)``, so it could never be true.
         capped = filtered[: max(0, _safe_int(max_results, 50))]
 
-        out: list[dict[str, Any]] = []
-        used = 0
-        budget_truncated = False
-        for r in capped:
-            row = {
-                "path": r.get("path"),
-                "line": r.get("line"),
-                "snippet": str(r.get("content") or "")[:500],
-            }
-            # שני המפתחות מתווספים אך ורק כשביקשו הקשר, כדי שתשובה ללא
-            # ``context_lines`` תישאר זהה בדיוק לזו של היום.
-            if context_lines > 0:
-                row["context_before"] = [str(x)[:500] for x in (r.get("context_before") or [])]
-                row["context_after"] = [str(x)[:500] for x in (r.get("context_after") or [])]
-            used += len(str(row).encode("utf-8"))
-            if used > byte_budget:
-                budget_truncated = True
-                break
-            out.append(row)
         payload: dict[str, Any] = {
             "ok": True,
             "repo": repo,
             "query": query,
-            "count": len(out),
-            "results": out,
+            "count": len(capped),
+            "results": [],
         }
         # Exactly one of the two, and never both: if ``total`` is there, it is
         # exact. ``total_at_least`` is the honest form of "we stopped counting".
@@ -968,6 +959,38 @@ class RepoBackend:
         elif "total_at_least" in res:
             payload["total_at_least"] = res["total_at_least"]
 
+        # **המקום לשורות הוא התקציב פחות המעטפת במקרה הגרוע שלה**, כפי שהתשובה
+        # נשלחת: ``count`` בגודל העמוד, הדגל דלוק, והסיבה הארוכה מבין אלה שיכולות
+        # להגיע לכאן. כל שורה נמדדת כפי שהיא יושבת ברשימה (``list_item_cost``). עד
+        # #3460 שורה נמדדה ב-``str()`` של המילון — ייצוג של פייתון, לא JSON — והמעטפת
+        # וההזחה לא נספרו כלל: עמוד שנמדד 248,234 בתים יצא 374,931.
+        possible_reasons = [BYTE_BUDGET_REASON, "policy_filtered", str(engine_error or ""),
+                            str(res.get("truncation_reason") or "")]
+        worst = {**payload, "truncated": True,
+                 "truncation_reason": max(possible_reasons, key=len)}
+        room = byte_budget - len(wire_json(worst)) - NONEMPTY_LIST_BYTES
+
+        out: list[dict[str, Any]] = []
+        used = 0
+        budget_truncated = False
+        for r in capped:
+            row = {
+                "path": r.get("path"),
+                "line": r.get("line"),
+                "snippet": str(r.get("content") or "")[:500],
+            }
+            # שני המפתחות מתווספים אך ורק כשביקשו הקשר, כדי שתשובה ללא
+            # ``context_lines`` תישאר זהה בדיוק לזו של היום.
+            if context_lines > 0:
+                row["context_before"] = [str(x)[:500] for x in (r.get("context_before") or [])]
+                row["context_after"] = [str(x)[:500] for x in (r.get("context_after") or [])]
+            used += list_item_cost(row)
+            if used > room:
+                budget_truncated = True
+                break
+            out.append(row)
+        payload["count"] = len(out)
+        payload["results"] = out
         # An invariant of the answer, stated once here: if fewer rows came back
         # than exist, this answer is not everything — whatever the engine
         # flagged. ``count`` below the count next to ``truncated: false`` would
@@ -1002,8 +1025,14 @@ class RepoBackend:
                 # The engine's own error code, so the caller sees the same word
                 # a full failure would have carried.
                 reason = str(engine_error)
-            elif not reason:
+            elif not reason or (budget_truncated and reason == "max_results"):
                 # Nothing upstream was cut, so what shortened the page is local.
-                reason = "byte_budget"
+                # **And the budget beats ``max_results``:** the engine stopping at
+                # the rows asked for is not what shortened a page that the budget
+                # cut before it reached them, and ``max_results`` sends the caller
+                # to raise a cap that would not help. A reason about the count
+                # (``timeout``, ``count_*``) still wins — it explains the missing
+                # ``total``, which the budget does not.
+                reason = BYTE_BUDGET_REASON
             payload["truncation_reason"] = reason
         return payload

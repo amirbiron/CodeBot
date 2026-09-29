@@ -27,14 +27,16 @@ import uuid as _uuid
 from typing import Any, Callable
 
 from .handlers import (
+    MAX_RESULTS_REASON,
     NOT_MARKDOWN,
-    QUERY_OUTPUT_BYTE_BUDGET,
     QUERY_RESULTS_DEFAULT,
     SECTIONS_UNAVAILABLE_HINT,
     TOO_LARGE_FOR_SECTIONS,
     apply_line_range,
+    count_lines,
     file_read_refusal,
     file_read_request_error,
+    fit_line_range,
     normalize_line_range,
     scan_file_query,
 )
@@ -43,9 +45,16 @@ from .handlers import (
 # במובן של ``mcp_server/__init__.py``: אין בהם מסד, רשת או קובץ בזמן ייבוא
 # (``services.md_parser`` בונה מופע ``markdown-it`` אחד ומחמם אותו, ו-``server.py``
 # כבר מייבא את כולם ממילא). התקרה מיובאת ולא מועתקת, כמו ב-``server.py``, ו-
-# ``wire_json`` הוא המדידה של תקציב הבתים — ממקום אחד עם ``read_batch``.
+# תקציב הבתים והמדידה שלו מגיעים מ-``answer_size`` — ממקום אחד עם ``read_batch``.
 from . import docs_handlers
-from .repo_handlers import wire_json
+from .answer_size import (
+    BYTE_BUDGET_REASON,
+    NONEMPTY_LIST_BYTES,
+    OUTPUT_BYTE_BUDGET,
+    envelope_bytes,
+    list_item_cost,
+    wire_json,
+)
 from services import md_parser
 from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 from services.markdown_files import is_markdown_file
@@ -252,6 +261,84 @@ def _apply_range_to_file(out: dict[str, Any], lines: Any) -> dict[str, Any]:
     return out
 
 
+#: ההפניה של סירוב על קריאה מלאה של קובץ שמור שאינו נכנס בתקציב, לפי סוג הקובץ.
+#: ב-Markdown הדרך הזולה היא המפה ואז סעיף; בכל קובץ — טווח שורות, או רק השורות שמכילות
+#: מחרוזת. ``range.total_lines`` בכל תשובת טווח אומר כמה שורות יש, ולכן אין צורך במספר כאן.
+_WHOLE_FILE_HINT_MARKDOWN = (
+    "The whole file does not fit in one answer. Read its heading map with toc=true, then "
+    "one section with section=\"...\"; or read it in parts with lines=[start, end] "
+    "(every answer says total_lines)."
+)
+_WHOLE_FILE_HINT = (
+    "The whole file does not fit in one answer. Read it in parts with lines=[start, end] "
+    "(every answer says total_lines), or only the lines that match a string with query=\"...\"."
+)
+#: שורה אחת שגם לבדה אינה נכנסת: אין טווח קטן יותר, אבל ``query`` מחזיר אותה כקטע חסום.
+_LINE_TOO_LARGE_HINT = (
+    "Line {line} alone does not fit in one answer, together with the file's metadata. "
+    "query=\"...\" returns the lines that match a string, each clipped to a short snippet."
+)
+#: ``query`` שגם מופע אחד שלו אינו נכנס — קורה רק כשהמטא-דאטה של הקובץ עצמה גדולה.
+_QUERY_TOO_LARGE_HINT = (
+    "Not even one match fits in one answer next to the file's metadata. Lower "
+    "context_lines, or read a line range with lines=[start, end]."
+)
+
+
+def file_read_answer(answer: dict[str, Any]) -> dict[str, Any]:
+    """התשובה של ``codekeeper_get_file`` על קריאה מלאה או על טווח — בתוך התקציב.
+
+    ``answer`` הוא ``{"found": true, "file": doc}`` שהכלי בונה (``server.py``), ו-
+    ``doc`` הוא מה ש-:meth:`ProductionBackend.get_file` מחזיר בשני המצבים האלה: הקובץ
+    עם התוכן, ובטווח גם ``range``. המעטפת נבנית שם ולא כאן, כי כאן — ב-backend — כל
+    ``file`` בלי תוכן נבנה ב-:func:`_file_meta` (``tests/test_mcp_content_sha256.py``
+    סורק את זה), ו-``file`` שיש בו תוכן הוא מה ש-:func:`_full` החזיר.
+
+    **התקציב חל כאן ולא ב-``get_file`` עצמו**, כי ``get_file`` הוא גם הקריאה ש-
+    ``edit_file`` ו-``append_file`` בונים עליה (``handlers._load_editable``), והם
+    צריכים את התוכן כולו — לא תשובה לסוכן.
+
+    * **תשובה שנכנסת** חוזרת כמו שהייתה עד היום, ``{"found": true, "file": doc}``,
+      בית-בית.
+    * **טווח שאינו נכנס** נגמר מוקדם על גבול שורה (``handlers.fit_line_range``):
+      ``range.end`` האמיתי, ``range.truncated`` ו-``range.truncation_reason:
+      "byte_budget"``, וממשיכים מ-``end + 1``. בקובץ גדול (``LargeFile``) התוכן יושב
+      גם ב-``code`` וגם ב-``content`` (:func:`_full`), ולכן שניהם נחתכים יחד ושניהם
+      נספרים. שורה ראשונה שגם לבדה אינה נכנסת — ``answer_too_large``.
+    * **קריאה מלאה שאינה נכנסת** — ``answer_too_large`` עם ``bytes`` (גודל התשובה
+      שהייתה נשלחת, נמדד ולא מוערך), ``max``, ``file`` (המטא-דאטה בלי התוכן, עם
+      ``content_sha256`` של הקובץ המלא) והפניה לפי סוג הקובץ. המדידה מסדרלת את
+      התשובה פעם אחת, וזה פרופורציונלי למה שכבר נעשה: המסמך נטען כולו מהמסד, ו-
+      ``_full`` כבר חישב hash על כל התוכן.
+
+    כל סירוב עובר ``docs_handlers.fit_refusal`` עם :data:`_FILE_REFUSAL_CUTS`, כמו כל
+    סירוב אחר על קובץ שמור.
+    """
+    doc = answer["file"]
+    rng = doc.get("range")
+    text_paths = tuple(
+        ("file", key) for key in ("code", "content") if isinstance(doc.get(key), str))
+    if isinstance(rng, dict) and text_paths:
+        fitted, size = fit_line_range(
+            answer, text_paths=text_paths, range_path=("file", "range"), budget=OUTPUT_BYTE_BUDGET)
+        if fitted is not None:
+            return fitted
+        # הסירוב מתאר את הקובץ, לא את הטווח שלא חזר.
+        described = {key: value for key, value in doc.items() if key != "range"}
+        hint = _LINE_TOO_LARGE_HINT.format(line=rng.get("start"))
+    else:
+        size = len(wire_json(answer))
+        if size <= OUTPUT_BYTE_BUDGET:
+            return answer
+        described = doc
+        markdown = is_markdown_file(doc.get("programming_language"), doc.get("file_name"))
+        hint = _WHOLE_FILE_HINT_MARKDOWN if markdown else _WHOLE_FILE_HINT
+    return docs_handlers.fit_refusal({
+        "ok": False, "error": docs_handlers.ANSWER_TOO_LARGE, "bytes": size,
+        "max": OUTPUT_BYTE_BUDGET, "file": _file_meta(described), "hint": hint,
+    }, _FILE_REFUSAL_CUTS)
+
+
 def _apply_query_to_file(
     out: dict[str, Any], query: str, *, context_lines: int, max_results: int
 ) -> dict[str, Any]:
@@ -274,31 +361,67 @@ def _apply_query_to_file(
     ב-``{"found": true, "file": ...}``; כאן המעטפת נבנית כאן, ולכן היא נושאת
     ``status`` שמסמן במפורש שזו תשובת מופעים. ``found`` נשאר במקומו כדי
     שצרכן קיים שמסתעף עליו ימשיך לעבוד.
+
+    **תקציב הבתים חל על התשובה כולה, כפי שהיא נשלחת** (#3474). המעטפת נמדדת קודם,
+    במקרה הגרוע שלה, והרשומות מקבלות רק את מה שנשאר — כל אחת כפי שהיא יושבת ברשימה
+    (``handlers.scan_file_query``). עד #3474 נמדדו רק הרשומות, דחוסות, מול התקציב
+    כולו, ותשובה שנמדדה בתוכו יצאה 259,168 בתים. כשגם מופע אחד אינו נכנס — מה
+    שקורה רק כשהמטא-דאטה של הקובץ עצמה גדולה — ``answer_too_large``, דרך
+    ``docs_handlers.fit_refusal`` כמו כל סירוב על קובץ שמור.
     """
+    code = out.get("code") or ""
+    head = {"found": True, "status": "query", "file": _file_meta(out), "query": query}
+    # **המעטפת במקרה הגרוע, לפני שנכנסת רשומה אחת** — אותה שמורה של ``read_batch._reserve``:
+    # ``count`` בתקרה, ``total`` בכל שורות הקובץ (אין יותר מופעים משורות), הדגל דלוק,
+    # והסיבה הארוכה מבין השתיים. כך המונים והדגלים האמיתיים לעולם אינם ארוכים ממה
+    # שנשמר, ומה שנשאר לרשומות נמדד מול התשובה כפי שהיא נשלחת (#3474).
+    worst = {**head, "count": max_results, "total": count_lines(code), "results": [],
+             "truncated": True,
+             "truncation_reason": max((BYTE_BUDGET_REASON, MAX_RESULTS_REASON), key=len)}
+    room = OUTPUT_BYTE_BUDGET - len(wire_json(worst)) - NONEMPTY_LIST_BYTES
     found = scan_file_query(
-        out.get("code") or "",
-        query,
-        max_results=max_results,
-        context_lines=context_lines,
-        byte_budget=QUERY_OUTPUT_BYTE_BUDGET,
-    )
-    return {"found": True, "status": "query", "file": _file_meta(out), "query": query, **found}
+        code, query, max_results=max_results, context_lines=context_lines, byte_budget=room)
+    answer = {**head, **found}
+    if found["results"] or not found["total"]:
+        size = len(wire_json(answer))
+        if size <= OUTPUT_BYTE_BUDGET:
+            return answer
+    else:
+        # יש מופעים ואף אחד מהם לא נכנס. תשובה עם ``count: 0`` ו-``truncated`` הייתה
+        # אומרת "יש, אבל לא אראה לך" בלי דרך להמשיך, ולכן זה סירוב — ו-``bytes`` הוא מה
+        # שהתשובה הקטנה ביותר שנושאת מופע הייתה צריכה, כמו ב-``section_too_large``.
+        first = scan_file_query(code, query, max_results=1, context_lines=context_lines,
+                                byte_budget=OUTPUT_BYTE_BUDGET)["results"]
+        size = len(wire_json(worst)) + NONEMPTY_LIST_BYTES + sum(map(list_item_cost, first))
+    return docs_handlers.fit_refusal({
+        "ok": False, "error": docs_handlers.ANSWER_TOO_LARGE, "bytes": size,
+        "max": OUTPUT_BYTE_BUDGET, "file": _file_meta(out), "query": query,
+        "hint": _QUERY_TOO_LARGE_HINT,
+    }, _FILE_REFUSAL_CUTS)
 
 
-#: הרשימות במטא-דאטה של קובץ שמור שסירוב של מצב הסעיפים מוותר עליהן כדי להיכנס ב-
-#: ``OUTPUT_BYTE_BUDGET`` — ``docs_handlers.fit_refusal``, דרך אותו ``_fit_lists`` של
-#: המפה וההצעות, עם ``tags_truncated`` לצד התגיות (#3472, SUGG-002).
+#: מה שסירוב על קובץ שמור מוותר עליו במטא-דאטה כדי להיכנס ב-``OUTPUT_BYTE_BUDGET``
+#: — ``docs_handlers.fit_refusal``, בסדר הזה:
 #:
-#: **רק ``tags``, כי זו הרשימה היחידה ב-``file``.** מה שעוד יכול להיות גדול שם הוא
-#: מחרוזות — ``description`` ו-``file_name`` — ואת אלה ``_fit_lists`` אינו חותך, בכוונה:
-#: חיתוך של מחרוזת בלי סימן הוא ``silent-truncation-at-sink``. ואף אחד מהם אינו גדול
-#: היום מסיבה טובה: ``upload_file_web`` ומסלולי העריכה בוובאפ אינם מגבילים תגיות, ו-
+#: * ``tags`` — נחתכות מהסוף, דרך אותו ``_fit_lists`` של המפה וההצעות, עם
+#:   ``tags_truncated`` לצד התגיות (#3472, SUGG-002).
+#: * ``description`` — **יורד שלם**, ובמקומו ``description_bytes``: מספר בתי ה-UTF-8
+#:   שלו. מחרוזת אינה נחתכת, כי חיתוך של מחרוזת בלי סימן הוא
+#:   ``silent-truncation-at-sink``, ושדה ה-``*_bytes`` מופיע רק כשהתיאור ירד — כך
+#:   שהוא הסימן. עד #3460 התיאור נשאר, וסירוב עם תיאור של 200,000 תווים עבריים
+#:   יצא 400,523 בתים.
+#:
+#: ``file_name`` אינו ברשימה: הוא הזהות של הסירוב. ושני הגדולים אינם גדולים היום
+#: מסיבה טובה: ``upload_file_web`` ומסלולי העריכה בוובאפ אינם מגבילים תגיות, ו-
 #: ``codekeeper_save_file`` אינו מגביל תיאור — השורש בכותבים, ב-#3489. הרשימה כאן היא
 #: הרשת שבצד הקריאה, והיא נשארת גם אחרי: מסמכים ישנים כבר שמורים.
 #:
-#: **ורק סירוב.** תשובה מוצלחת נושאת את המטא-דאטה כמו שהיא, כך שמה שנחתך מגיע לקורא
-#: תמיד עם סירוב ועם דגל — ולעולם לא כמטא-דאטה "רגילה" שחסר בה משהו.
-_FILE_REFUSAL_CUTS = ((("file", "tags"), "tags_truncated"),)
+#: **ורק סירוב.** תשובה מוצלחת נושאת את המטא-דאטה כמו שהיא, כך שמה שנחתך או ירד מגיע
+#: לקורא תמיד עם סירוב ועם סימן — ולעולם לא כמטא-דאטה "רגילה" שחסר בה משהו.
+_FILE_REFUSAL_CUTS = (
+    (("file", "tags"), "tags_truncated"),
+    (("file", "description"), "description_bytes"),
+)
 
 
 def _apply_sections_to_file(
@@ -326,7 +449,8 @@ def _apply_sections_to_file(
        ``section``), ו-``answer_section`` חותך את עמוד הסעיף אל התקציב **פחות
        המעטפת** (``reserve_bytes``) — כך שהתשובה כפי שהיא יוצאת מכאן נכנסת ב-
        ``OUTPUT_BYTE_BUDGET``, ולא רק מה שהיה לפני העטיפה. גודל המעטפת נמדד באותה
-       פונקציה שמודדת את התשובה (``wire_json``), על המעטפת עצמה, ולא נספר ביד.
+       פונקציה שמודדת את התשובה (``answer_size.envelope_bytes``, על ``wire_json``), על
+       המעטפת עצמה, ולא נספר ביד.
        אותו תקציב חל על מפת הכותרות, שהרשימה שלה נחתכת מהסוף עד שהיא נכנסת.
        ``section_too_large`` — סעיף שגם עמוד ריק שלו אינו נכנס — ו-``answer_too_large``
        — תשובה שגם בלי אף פריט ברשימות שלה אינה נכנסת — מקבלים את אותו ``hint``
@@ -379,7 +503,7 @@ def _apply_sections_to_file(
         if value is not None
     }
     envelope = {"found": True, "status": "toc" if section is None else "section"}
-    reserve = len(wire_json({**envelope, "_": 0})) - len(wire_json({"_": 0}))
+    reserve = envelope_bytes(envelope)
     answer = docs_handlers.answer_section(
         docs_handlers.LoadedDocument(parsed, context),
         section=section,
@@ -619,6 +743,19 @@ def _as_note_ref(doc: dict[str, Any] | None) -> dict[str, Any]:
     out["updated_at"] = _json_safe(doc.get("updated_at"))
     return out
 
+
+#: ההפניה של רשימת פתקים מלאה שאינה נכנסת בתקציב: המצב הרזה נכנס כמעט תמיד (עד
+#: ``MAX_NOTES_PER_BOARD`` פתקים עם כותרת בתקרה שלה), ואחריו פתק-פתק לפי מזהה.
+_NOTES_TOO_LARGE_HINT = (
+    "The notes do not fit in one answer with their bodies. Call again with "
+    "include_content=false to list them without bodies (content_bytes is each one's size), "
+    "then read the ones you need with codekeeper_get_note by id."
+)
+#: גם בלי גופים הרשימה אינה נכנסת — רק כשהתקרה הרכה על מספר הפתקים נפרצה.
+_LEAN_NOTES_TOO_LARGE_HINT = (
+    "Even without bodies the notes do not fit in one answer. Find the ones you need with "
+    "codekeeper_search_notes, then read each with codekeeper_get_note by id."
+)
 
 #: כמה שורות רשימת פתקים מחזירה לכל היותר — אותה תקרה בשלושת כלי הרשימה,
 #: ובצינור הרזה. מספר אחד ולא ארבעה ``limit(500)`` שמסונכרנים בתקווה.
@@ -1492,29 +1629,75 @@ class ProductionBackend:
         scope_id = make_scope_id(int(user_id), file_name)
         related = self._related_file_ids(user_id, file_name)
         query = _notes_scope_filter(user_id, scope_id, related)
-        notes = self._list_note_rows(query, include_content=include_content)
-        return {
-            "ok": True,
-            "file_name": file_name,
-            "count": len(notes),
-            "notes": notes,
-        }
+        return self._notes_answer(
+            {"ok": True, "file_name": file_name}, query, include_content=include_content)
+
+    def _notes_answer(
+        self, head: dict[str, Any], query: dict[str, Any], *, include_content: bool
+    ) -> dict[str, Any]:
+        """תשובת כלי רשימת פתקים (``list_notes`` / ``list_board_notes``), בתוך התקציב.
+
+        ``head`` הם השדות שלפני ``count`` ו-``notes`` — מי הקובץ או הלוח. התשובה נמדדת
+        כפי שהיא נשלחת: המעטפת במקרה הגרוע (``count`` בתקרת :data:`NOTES_LIST_LIMIT`),
+        ואחריה כל שורה כפי שהיא יושבת ברשימה (``list_item_cost``), תוך כדי הקריאה מהמסד.
+
+        **רשימה שאינה נכנסת — סירוב, לא חיתוך**, ו**הקריאה נעצרת** ברגע שהתקציב עבר:
+        אין סיבה למשוך מהמסד את שאר הגופים של תשובה שלא תישלח. חיתוך היה משאיר פתקים
+        בחוץ בלי שום דרך לבקש אותם, כי לכלים האלה אין עימוד — וזה בדיוק החסם ש-
+        ``codekeeper_get_note`` נבנה בשבילו. לכן ``answer_too_large`` עם ``bytes`` —
+        כמה התשובה שקלה **כשהקריאה נעצרה**, כלומר חסם תחתון על גודלה המלא, וגדול
+        מ-``max`` — והפניה: במצב המלא ל-``include_content=false`` ואז ``get_note``
+        לכל פתק; במצב הרזה — שגם הוא אינו נכנס רק כשהתקרה הרכה על מספר הפתקים נפרצה —
+        ל-``codekeeper_search_notes``.
+
+        ``list_repo_notes`` אינו עובר כאן, ואינו מצהיר על תקרת תשובה: אין לו מצב רזה,
+        ו-``MAX_NOTES_PER_REPO_FILE`` פתקים של ``MAX_NOTE_CHARS`` תווים כל אחד הם יותר
+        מהתקציב — סירוב היה חוסם אותו לגמרי. החשבון ב-``docs/mcp-server.rst``, בטבלת הקבועים.
+        """
+        worst = {**head, "count": NOTES_LIST_LIMIT, "notes": []}
+        room = OUTPUT_BYTE_BUDGET - len(wire_json(worst)) - NONEMPTY_LIST_BYTES
+        notes = self._list_note_rows(query, include_content=include_content, byte_budget=room)
+        if isinstance(notes, int):
+            return {
+                "ok": False, "error": docs_handlers.ANSWER_TOO_LARGE,
+                "bytes": notes + len(wire_json(worst)) + NONEMPTY_LIST_BYTES,
+                "max": OUTPUT_BYTE_BUDGET, **{k: v for k, v in head.items() if k != "ok"},
+                "hint": _NOTES_TOO_LARGE_HINT if include_content else _LEAN_NOTES_TOO_LARGE_HINT,
+            }
+        return {**head, "count": len(notes), "notes": notes}
 
     def _list_note_rows(
-        self, query: dict[str, Any], *, include_content: bool
-    ) -> list[dict[str, Any]]:
+        self, query: dict[str, Any], *, include_content: bool, byte_budget: int | None = None
+    ) -> list[dict[str, Any]] | int:
         """שורות רשימת פתקים, מסודרות לפי יצירה, עד :data:`NOTES_LIST_LIMIT`.
 
         המסלול המלא הוא ``find`` בלי היטלה — כלי הרשימה מחזירים את הגוף, וזו
         התנהגותם מאז ומתמיד. המסלול הרזה הוא :func:`_lean_notes_pipeline`, שבו
         הגוף נשאר במסד. שני המסלולים חולקים שאילתה, מיון ותקרה — כאן, פעם
         אחת, ולא בכל כלי רשימה בנפרד.
+
+        עם ``byte_budget`` — המקום לשורות ברשימה שבראש התשובה — כל שורה נמדדת כפי
+        שהיא נשלחת (``list_item_cost``), והקריאה מהסמן **נעצרת** בשורה שעוברת אותו:
+        אז חוזר מספר הבתים שנצברו עד שם (``int``) במקום הרשימה. ראו
+        :meth:`_notes_answer`.
         """
         coll = self._notes_coll()
         if include_content:
             rows = coll.find(query).sort("created_at", 1).limit(NOTES_LIST_LIMIT)
-            return [_as_note(r) for r in rows]
-        return [_as_note_summary(r) for r in coll.aggregate(_lean_notes_pipeline(query))]
+            serialize = _as_note
+        else:
+            rows = coll.aggregate(_lean_notes_pipeline(query))
+            serialize = _as_note_summary
+        notes: list[dict[str, Any]] = []
+        used = 0
+        for raw in rows:
+            note = serialize(raw)
+            if byte_budget is not None:
+                used += list_item_cost(note)
+                if used > byte_budget:
+                    return used
+            notes.append(note)
+        return notes
 
     def create_note(
         self,
@@ -1677,14 +1860,9 @@ class ProductionBackend:
 
         canonical = self._canonical_board_id(board)
         query = board_notes_filter(int(user_id), canonical)
-        notes = self._list_note_rows(query, include_content=include_content)
-        return {
-            "ok": True,
-            "board_id": canonical,
-            "board_name": str(board.get("name") or ""),
-            "count": len(notes),
-            "notes": notes,
-        }
+        return self._notes_answer(
+            {"ok": True, "board_id": canonical, "board_name": str(board.get("name") or "")},
+            query, include_content=include_content)
 
     def create_board_note(
         self,

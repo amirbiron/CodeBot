@@ -304,16 +304,27 @@ def test_list_tree_with_include_stats_adds_entries_without_touching_paths():
     ]
 
 
-def test_entries_stay_aligned_with_paths_even_when_the_budget_truncates():
-    """שתי הרשימות נגזרות מאותה נקודת חיתוך — נאכף, לא מובטח בהערה."""
-    files = [f"file{i:03d}.py" for i in range(50)]
-    res = _tree_backend(files, sizes={f: 100 for f in files}).list_tree(
-        repo="r", include_stats=True, byte_budget=400
-    )
+def test_entries_stay_aligned_with_paths_and_a_page_over_the_budget_is_refused_whole():
+    """שתי הרשימות באותו אורך ובאותו סדר — ועמוד שאינו נכנס אינו נחתך באף אחת מהן (#3481).
 
-    assert res["truncated"] is True
-    assert 0 < len(res["paths"]) < len(files)
-    assert len(res["entries"]) == len(res["paths"])
+    עד #3481 שתיהן נחתכו באותה נקודה באמצע העמוד. עכשיו עמוד כזה הוא ``page_too_large``
+    כולו, ועמוד שחזר שלם בשתיהן. ``entries`` נמדדות בתקציב יחד עם ``paths`` — עם
+    הסטטיסטיקה העמוד כבד יותר, ולכן תקציב שעמוד של 50 נתיבים נכנס בו בלעדיה אינו
+    מספיק לו איתה.
+    """
+    from mcp_server.answer_size import wire_json
+
+    files = [f"file{i:03d}.py" for i in range(50)]
+    backend = _tree_backend(files, sizes={f: 100 for f in files})
+    budget = len(wire_json(backend.list_tree(repo="r", per_page=50)))
+
+    res = backend.list_tree(repo="r", include_stats=True, per_page=50, byte_budget=budget)
+    assert res["ok"] is False and res["error"] == "page_too_large"
+    assert res["bytes"] > res["max"] == budget
+
+    res = backend.list_tree(repo="r", include_stats=True, per_page=5, byte_budget=budget)
+    assert res["truncated"] is False and len(res["paths"]) == 5
+    assert len(wire_json(res)) <= budget
     assert [e["path"] for e in res["entries"]] == res["paths"]
 
 

@@ -38,13 +38,13 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 |-----|-------|
 | `codekeeper_list_files` | רשימת קבצים (מטא‑דאטה בלבד), עם עימוד |
 | `codekeeper_search_code` | חיפוש טקסט בקוד → מטא‑דאטה של קבצים תואמים |
-| `codekeeper_get_file` | תוכן מלא של קובץ לפי `file_name` או `file_id` (אופציונלי: גרסה). `lines=[start, end]` מחזיר רק את הטווח; `query="..."` מחזיר את **המופעים** של המחרוזת בקובץ במקום את התוכן, בצורת התשובה של `codekeeper_search_repo` (`count`/`total`/`results` עם `line` ו-`snippet`, ו-`context_lines`). ובקובץ Markdown: `toc=true` מחזיר את מפת הכותרות, ו-`section="..."` סעיף אחד עם `breadcrumb`, טווח שורות, תת-סעיפים ושכנים (עימוד ב-`max_chars`/`offset`, וכל עמוד בתוך `OUTPUT_BYTE_BUDGET` בבתים — עמוד של תווים רחבים נגמר מוקדם, עם `truncation_reason: "byte_budget"`; והמפה, ההצעות והמועמדים נחתכים מהסוף לאותו תקציב, עם הדגל `*_truncated` שלהם) — אותן פונקציות של `codekeeper_docs_get_section`. ארבעת המצבים אינם מצטברים, וכל זוג נדחה בקוד משלו (`query_and_lines`, `toc_and_section`, `section_and_query` וכו'); קובץ שאינו Markdown — `not_markdown`, וקובץ מעל `MAX_FILE_SIZE_FOR_DISPLAY` בבתים של UTF-8 — `too_large_for_sections`. ראו `docs/mcp-server.rst` ("קריאה לפי סעיף בקובץ Markdown שמור") |
+| `codekeeper_get_file` | תוכן מלא של קובץ לפי `file_name` או `file_id` (אופציונלי: גרסה) — כשהתשובה נכנסת ב-`OUTPUT_BYTE_BUDGET`; אחרת `answer_too_large` עם הפניה ל-`lines`/`query` (וב-Markdown ל-`toc`/`section`). `lines=[start, end]` מחזיר רק את הטווח, וטווח שאינו נכנס נגמר מוקדם על גבול שורה (`range.truncation_reason: "byte_budget"`); `query="..."` מחזיר את **המופעים** של המחרוזת בקובץ במקום את התוכן, בצורת התשובה של `codekeeper_search_repo` (`count`/`total`/`results` עם `line` ו-`snippet`, ו-`context_lines`). ובקובץ Markdown: `toc=true` מחזיר את מפת הכותרות, ו-`section="..."` סעיף אחד עם `breadcrumb`, טווח שורות, תת-סעיפים ושכנים (עימוד ב-`max_chars`/`offset`, וכל עמוד בתוך `OUTPUT_BYTE_BUDGET` בבתים — עמוד של תווים רחבים נגמר מוקדם, עם `truncation_reason: "byte_budget"`; והמפה, ההצעות והמועמדים נחתכים מהסוף לאותו תקציב, עם הדגל `*_truncated` שלהם) — אותן פונקציות של `codekeeper_docs_get_section`. ארבעת המצבים אינם מצטברים, וכל זוג נדחה בקוד משלו (`query_and_lines`, `toc_and_section`, `section_and_query` וכו'); קובץ שאינו Markdown — `not_markdown`, וקובץ מעל `MAX_FILE_SIZE_FOR_DISPLAY` בבתים של UTF-8 — `too_large_for_sections`. ראו `docs/mcp-server.rst` ("קריאה לפי סעיף בקובץ Markdown שמור") |
 | `codekeeper_save_file` | **כתיבה:** יצירת קובץ **חדש** בלבד — שם שכבר תפוס נדחה ב‑`file_exists`, ולעדכון קובץ קיים יש `codekeeper_edit_file`/`codekeeper_append_file` (תוכן) או `codekeeper_update_file_description` (תיאור). בכפוף ל‑`MAX_CODE_SIZE`, ברירת מחדל 100K תווים וניתן להגדלה. דורש `write` |
 | `codekeeper_edit_file` | **כתיבה:** מצא‑והחלף מדויק (`old_string`→`new_string`, אופציונלית `replace_all`) בלי לשלוח את כל הקובץ; גרסה חדשה, משמר שפה/תיאור/תגיות. דורש `write` |
 | `codekeeper_append_file` | **כתיבה:** הוספת טקסט לסוף קובץ קיים (מוסיף שורת‑הפרדה אם צריך); גרסה חדשה. דורש `write` |
 | `codekeeper_update_file_description` | **כתיבה:** החלפת ה‑`description` של קובץ קיים בלי לגעת בתוכן. **אינו יוצר גרסה**, ולכן התיאור הקודם אינו נשמר בהיסטוריה (הוא מוחזר בתשובה) ורק הגרסה האחרונה מתעדכנת. תיאור בלבד, בלי תגיות. דורש `write` |
 | `codekeeper_list_versions` | היסטוריית גרסאות של קובץ (מטא‑דאטה) |
-| `codekeeper_list_notes` | פתקים דביקים של קובץ (לפי `file_name`) — אותם פתקים שמוצגים ב‑UI של הוובאפ. `include_content=false` מחזיר את השורות בלי הגוף, עם `content_bytes` (בבתים של UTF-8) |
+| `codekeeper_list_notes` | פתקים דביקים של קובץ (לפי `file_name`) — אותם פתקים שמוצגים ב‑UI של הוובאפ. `include_content=false` מחזיר את השורות בלי הגוף, עם `content_bytes` (בבתים של UTF-8). רשימה מלאה שאינה נכנסת ב-`OUTPUT_BYTE_BUDGET` — `answer_too_large` עם הפניה ל-`include_content=false`, ולא רשימה חתוכה |
 | `codekeeper_get_note` | פתק **בודד** לפי `note_id`: הגוף הנוכחי בדיוק כפי שהוא מאוחסן, כותרת, צבע, `version` (המספר שבו `get_note_version` מחזיר את הגוף הזה — עכשיו, או אחרי הדריסה הבאה **דרך השרת הזה**; עריכה מהוובאפ אינה נכנסת להיסטוריה; נקרא באותה קריאה תחומה כמו הגוף; `null` לגוף ריק) ואיפה הפתק יושב, בארגומנטים שכלי הרשימה המתאים דורש (`orphaned` על פתק ריפו כמו ב-`list_repo_notes`). פתק של משתמש אחר, ופתק ריפו למי שאינו אדמין — `not_found`; פתק שנערך ממש ברגע הקריאה — `conflict` |
 | `codekeeper_create_note` | **כתיבה:** יצירת פתק דביק על קובץ קיים; `line` אופציונלי מעגן לשורת מקור (בלעדיו הפתק צף). דורש `write` |
 | `codekeeper_update_note` | **כתיבה:** עדכון חלקי של פתק לפי `note_id` (תוכן/שורה/צבע/מוזער) — דורס במקום, אבל התוכן הקודם נשמר כגרסה. דורש `write` |
@@ -52,7 +52,7 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 | `codekeeper_list_note_versions` | הגרסאות הקודמות של פתק (מטא‑דאטה בלבד: מספר, זמן, ואורך **בתווים**, לא בבתים כמו `content_bytes`), החדשה תחילה |
 | `codekeeper_get_note_version` | תוכן של גרסה **קודמת** אחת; הגוף הנוכחי הוא `codekeeper_get_note`, שגם אומר באיזה מספר הוא ייקרא כאן כשיידרס דרך השרת הזה (עריכה מהוובאפ אינה נכנסת להיסטוריה). השחזור הוא `update_note` עם התוכן שנקרא |
 | `codekeeper_list_boards` | הלוחות של המשתמש — משטחים שנושאים פתקים שאינם שייכים לשום קובץ. מייצר את לוח ברירת המחדל בקריאה הראשונה |
-| `codekeeper_list_board_notes` | הפתקים שעל לוח יחיד (לפי `board_id` מ‑`codekeeper_list_boards`). `include_content=false` מחזיר אותם בלי הגוף, עם `content_bytes` — ואז `codekeeper_get_note` לפתק בודד; הזרימה ללוח גדול |
+| `codekeeper_list_board_notes` | הפתקים שעל לוח יחיד (לפי `board_id` מ‑`codekeeper_list_boards`). `include_content=false` מחזיר אותם בלי הגוף, עם `content_bytes` — ואז `codekeeper_get_note` לפתק בודד; הזרימה ללוח גדול. רשימה מלאה שאינה נכנסת בתקציב — `answer_too_large` שמפנה לזרימה הזו |
 | `codekeeper_create_board_note` | **כתיבה:** פתק חדש על לוח — בלי קובץ. `mode` הוא `surface` (יושב על הלוח, ברירת מחדל) או `screen` (צף מול המסך). `title` אופציונלי וייחודי בתוך הלוח. דורש `write` |
 | `codekeeper_search_notes` | חיפוש פתקים בשלושת המקומות שפתק יכול לשבת בהם — קובץ, לוח, או קובץ בריפו משוקף. לפי שם כברירת מחדל; `search_content=true` מרחיב גם לגוף הפתק, וזו הדרך למצוא פתק **בלי כותרת**. כל תוצאה מציינת איפה הפתק יושב ולעולם אינה נושאת תוכן — את הפתק קוראים ב-`codekeeper_get_note` לפי המזהה |
 | `codekeeper_list_collections` | האוספים של המשתמש |
@@ -68,6 +68,8 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 > שהמנגנון בא למנוע; דריסה שלא קרתה אחרי צילום שהצליח מוחקת את הצילום בחזרה.
 > `destructiveHint` נשאר `True` כי אחרי 20 עריכות המקור נדחף החוצה. אוסף נפרד ולא
 > מערך מוטבע — שלוש פונקציות הרשימה קוראות בלי פרויקציה.
+
+> **תקרת התשובה.** כלי שקורא תוכן — `codekeeper_get_file`, `codekeeper_list_notes`, `codekeeper_list_board_notes`, `codekeeper_docs_get_section`, וכלי הריפו — מצהיר ב-`tools/list` על `_meta["anthropic/maxResultSizeChars"]` (`OUTPUT_BYTE_BUDGET`, 256,000), כדי ש-Claude Code יכניס את התשובה להקשר ולא ישמור אותה לקובץ (#3460). כל כלי כזה מתאים את התשובה שלו בעצמו, ורשת ב-`AdminAwareFastMCP.call_tool` מסרבת לתשובה שעוברת את מה שהוצהר ורושמת `answer_size_net` בלוג — תפיסה שלה היא באג בכלי. `codekeeper_list_repo_notes` אינו מצהיר, בכוונה. ראו "תקרת התשובה" ב-`docs/mcp-server.rst`.
 
 > **טביעת אצבע לתוכן.** `file.content_sha256` הוא SHA-256 בהקס על בתי ה-UTF-8 של התוכן, בדיוק כפי ש-`codekeeper_get_file` מחזיר אותו (`hashlib.sha256(text.encode("utf-8")).hexdigest()`). ב-`codekeeper_get_file` הוא של הגרסה כולה בכל מצב קריאה, ובשלושת כלי הכתיבה הוא של מה שנקרא חזרה מהאחסון — לפי ה-`_id` שנכתב, בלי קאש. לצידו `content_changed`: `false`, או `true` עם `content_diff` ושורת `WARNING` בלי תוכן, או `null` כשהקריאה החוזרת נכשלה (ואז `file` מינימלי בלי hash). רשימות אינן נושאות hash. הפירוט ב-`docs/mcp-server.rst` ("טביעת אצבע לתוכן").
 
@@ -94,8 +96,8 @@ mirrors), ושלושה על פתקי ריפו שקוראים/כותבים ל‑`
 | כלי | תיאור |
 |-----|-------|
 | `codekeeper_list_repos` | רשימת הריפואים המשוקפים (מטא‑דאטה) |
-| `codekeeper_list_repo_tree` | נתיבי קבצים בריפו (עימוד, סינון תיקייה/ref; בלי תוכן) |
-| `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB לקובץ מלא, עד 10MB עם `lines`; בינארי ⇒ מטא‑דאטה בלבד) |
+| `codekeeper_list_repo_tree` | נתיבי קבצים בריפו (עימוד, סינון תיקייה/ref; בלי תוכן). עמוד שאינו נכנס בתקציב — `page_too_large`, ולא עמוד חתוך (#3481) |
+| `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB לקובץ מלא, עד 10MB עם `lines`; בינארי ⇒ מטא‑דאטה בלבד). התשובה עצמה חסומה ב-`OUTPUT_BYTE_BUDGET`: קריאה מלאה גדולה ממנו — `answer_too_large` עם הפניה ל-`lines`/`outline`, וטווח גדול ממנו נגמר מוקדם על גבול שורה (`range.truncation_reason: "byte_budget"`) |
 | `codekeeper_search_repo` | חיפוש טקסט בריפו (snippet קצר, עם תקרות) |
 | `codekeeper_list_repo_note_paths` | **מפת גילוי:** אילו קבצים בריפו נושאים פתקים, וכמה על כל אחד. בלעדיה `list_repo_notes` דורש לדעת את הנתיב מראש |
 | `codekeeper_list_repo_notes` | הפתקים שעל קובץ בודד בריפו משוקף (`repo_name` + `repo_path`) — אותם פתקים שמוצגים בדפדפן הריפו בוובאפ. מחזיר `orphaned: true` כשהנתיב כבר אינו בעץ, והפתקים חוזרים בכל מקרה |
@@ -318,6 +320,7 @@ Claude.ai → /authorize → provider יוצר txn → הפניה ל-webapp /oau
 | `token_store.py` | ניהול PAT מעל `mcp_tokens` |
 | `backend.py` | גישה לנתונים + סריאליזציה (Smart Projection, בדיקת בעלות) |
 | `handlers.py` | לוגיקת הכלים הטהורה — יעד הטסטים |
+| `answer_size.py` | תקציב התשובה (`OUTPUT_BYTE_BUDGET`), המדידה שלה כפי שהיא נשלחת (`wire_json`), וההצהרה ללקוח (`declared_size_meta`). בלי תלויות פנימיות — ראו "תקרת התשובה" ב-`docs/mcp-server.rst` |
 | `auth.py` | `current_user_id` (OAuth/PAT) + PAT middleware (fallback) + `authenticate_bearer` לראוטים שאינם `/mcp` |
 | `oauth_store.py` | אחסון clients/codes/tokens/txns (hash) |
 | `oauth_provider.py` | מימוש חוזה ה‑OAuth של ה‑SDK (כולל PAT מאוחד) |

@@ -78,7 +78,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from mcp_server import docs_handlers, read_batch  # noqa: E402
-from mcp_server.repo_handlers import OUTPUT_BYTE_BUDGET  # noqa: E402
+from mcp_server.answer_size import OUTPUT_BYTE_BUDGET  # noqa: E402
 
 #: הריפו שהסבב קרא ממנו — ברירת המחדל של ``--repo``.
 DEFAULT_REPO = "amir-bug-patterns"

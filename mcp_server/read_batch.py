@@ -49,8 +49,9 @@
 indent=2)`` — ``_convert_to_content`` ב-``mcp/server/fastmcp/utilities/
 func_metadata.py`` (mcp 1.28.1) הופך תשובת ``dict`` בדיוק לזה. הצורה הזו לעולם
 אינה קטנה מהנוסחה של הריפו (``json.dumps`` בלי ``indent``): היא מוסיפה רק
-רווחים ושורות. כך התשובה נכנסת ב-``OUTPUT_BYTE_BUDGET`` בשתי המדידות, ו-
-:data:`MAX_RESULT_CHARS` יכול להבטיח ללקוח תקרה שהשרת באמת מקיים.
+רווחים ושורות. כך התשובה נכנסת ב-``OUTPUT_BYTE_BUDGET`` בשתי המדידות, והתקרה
+שהכלי מצהיר עליה ללקוח (``answer_size.DECLARED_MAX_RESULT_CHARS``) היא תקרה שהשרת
+באמת מקיים.
 
 **מה הכלי אינו עושה:** הפריטים **אינם** נקראים במקביל — חוט אחד של מאגר
 הקריאות, פריט אחרי פריט; ואין **חיתוך בתוך פריט** — פריט נכנס שלם או לא
@@ -72,9 +73,9 @@ from typing import Annotated, Any, Literal, NamedTuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from . import docs_handlers, repo_handlers
+from . import answer_size, docs_handlers, repo_handlers
+from .answer_size import OUTPUT_BYTE_BUDGET
 from .handlers import StrictLines
-from .repo_handlers import OUTPUT_BYTE_BUDGET
 
 logger = logging.getLogger(__name__)
 
@@ -113,22 +114,9 @@ MAX_BATCH_ITEMS = 20
 #: נשבר. (עד #3391 הפריט היקר לא היה חסום בכלל, והחשבון נשען על מדידה אחת שלו.)
 DEADLINE_SECONDS = 10.0
 
-#: ``_meta["anthropic/maxResultSizeChars"]`` שהכלי מצהיר עליו ב-``tools/list``.
-#:
-#: **בתים כתקרת תווים, ובכוונה.** Claude Code שומר לקובץ כל תשובת כלי שעוברת
-#: את הסף שלו (ברירת המחדל 25,000 טוקנים), ומחליף אותה בנתיב; כלי יכול להעלות
-#: את הסף לעצמו עד 500,000 **תווים** (``code.claude.com/docs/en/mcp.md``, "Raise
-#: the limit for a specific tool"). התשובה של הכלי הזה חסומה ב-
-#: ``OUTPUT_BYTE_BUDGET`` **בתים**, נמדדים בדיוק כפי שהיא נשלחת (ראו את
-#: ה-docstring של המודול). בכל טקסט UTF-8 מספר התווים אינו עולה על מספר
-#: הבתים — וגם לא מספר יחידות ה-UTF-16 שבהן JavaScript סופר אורך — ולכן
-#: מספר הבתים הוא חסם עליון בטוח על התווים, והתשובה לעולם אינה עוברת את מה
-#: שהוצהר. תוספת ה-``indent=2`` אינה מתווספת כאן, כי היא כבר בתוך המדידה.
-MAX_RESULT_CHARS = OUTPUT_BYTE_BUDGET
-
 #: הסיבות ל-``unread`` — ממוחזרות מאוצר המילים של ``truncation_reason``
 #: ב-``codekeeper_search_repo``, ולא שמות חדשים.
-UNREAD_BYTE_BUDGET = "byte_budget"
+UNREAD_BYTE_BUDGET = answer_size.BYTE_BUDGET_REASON
 UNREAD_TIMEOUT = "timeout"
 
 #: לאן לשלוח פריט שגדול מהתקציב לבדו — הכלי הבודד שהפריט משקף.
@@ -294,15 +282,15 @@ def _plan(raw: Any) -> _Plan:
 # מדידה — בצורה שה-SDK שולח
 # ---------------------------------------------------------------------------
 
-#: מדידת העלות פר-פריט חיה עכשיו ב-``repo_handlers`` ליד ``wire_json`` ותקציב
-#: הבתים, כי גם ``docs_handlers`` מודד בה את רשימות התשובה (R6 — בעלים אחד, לא
-#: עותק שני). השמות המקומיים נשארים כאליאסים, כי ``scripts/measure_read_batch.py``
-#: והטסט שלו, ו-``_reserve`` כאן, קוראים אותם בשמם.
-_ENTRY_FRAME_BYTES = repo_handlers.LIST_ITEM_FRAME_BYTES
-_NESTED_INDENT_BYTES = repo_handlers.LIST_ITEM_INDENT_BYTES
-_NON_EMPTY_LIST_BYTES = repo_handlers.NONEMPTY_LIST_BYTES
-_wire = repo_handlers.wire_json
-_entry_cost = repo_handlers.list_item_cost
+#: מדידת העלות פר-פריט חיה ב-``answer_size`` ליד ``wire_json`` ותקציב הבתים, כי
+#: גם ``docs_handlers`` מודד בה את רשימות התשובה (R6 — בעלים אחד, לא עותק שני).
+#: השמות המקומיים נשארים כאליאסים, כי ``scripts/measure_read_batch.py`` והטסט
+#: שלו, ו-``_reserve`` כאן, קוראים אותם בשמם.
+_ENTRY_FRAME_BYTES = answer_size.LIST_ITEM_FRAME_BYTES
+_NESTED_INDENT_BYTES = answer_size.LIST_ITEM_INDENT_BYTES
+_NON_EMPTY_LIST_BYTES = answer_size.NONEMPTY_LIST_BYTES
+_wire = answer_size.wire_json
+_entry_cost = answer_size.list_item_cost
 
 
 def _reserve(count: int) -> int:
@@ -402,8 +390,12 @@ def _load_group(backend: Any, snapshot: Any, plans: list[_Plan], indices: list[i
 
 
 def _answer(plan: _Plan, read: Any, loaded: Any) -> dict[str, Any]:
+    # פריט קובץ עובר את אותו התאמה לתקציב של הכלי הבודד (``fit_file_answer``), כדי
+    # שהתשובה שלו תישאר זהה לה בית-בית — קריאה מלאה גדולה היא ``answer_too_large``
+    # עם ההפניה שלה, ולא ``item_too_large``. ``read`` עצמו אינו משתנה: פריט סעיף
+    # באותה קבוצה מפרסר אותו כולו.
     if plan.kind == "file":
-        return read
+        return repo_handlers.fit_file_answer(read, repo=plan.target[0], path=plan.target[1], ref=None)
     if isinstance(loaded, dict):
         return loaded
     return docs_handlers.answer_section(loaded, section=plan.section)
