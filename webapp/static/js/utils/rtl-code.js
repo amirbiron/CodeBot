@@ -37,19 +37,37 @@
    * הגולמי שכבר נגזר משורת הגדר (הפתקים בונים ``div`` ולא ``pre``,
    * ולכן אין להם מחלקה לקרוא). הרשימה נכתבת כאן פעם אחת והרג'קס נבנה
    * ממנה, כדי ששני הצרכנים לא יוכלו לענות תשובות שונות על אותו קלט.
+   *
+   * **``markdown`` ו-``md`` כאן אף שהם שפה שיש לה הדגשה.** השאלה אינה
+   * "האם יש ל-hljs דקדוק לשם הזה" אלא "האם הצהרה על השם הזה אומרת שזה
+   * קוד". בלוק מארקדאון הוא טקסט לקריאה — ובעברית הוא מתנהג כמו הערה,
+   * לא כמו קוד — ולכן הוא מועמד ליישור לימין כמו ``text``. שני השמות
+   * יחד כי בריפו הם אותה שפה (ראו ``isMarkdownLanguage`` ב-
+   * ``live-preview.js`` וב-``repo-browser.js``). ההדגשה עצמה אינה נפגעת:
+   * ההחלטה כאן נוגעת רק ביישור, ו-hljs ממשיך לקרוא את אותה מחלקה.
    */
-  var PLAIN_LANGUAGE_NAMES = ['plaintext', 'text', 'nohighlight', 'none', 'txt'];
+  var PLAIN_LANGUAGE_NAMES = ['plaintext', 'text', 'nohighlight', 'none', 'txt', 'markdown', 'md'];
 
-  // **חלופה אחת ששתי הצורות נבנות ממנה.** ה-``\b`` הוא חלק מהשאלה ולא
-  // קישוט: בלעדיו ``texture`` נבלע ב-``text``. וחשוב מכך, הוא מגדיר
-  // שהשאלה היא "**מתחיל** בשם פטור שנגמר בגבול" ולא "שווה לשם פטור" —
-  // ולכן ``text,`` הוא ``text``. רשימה משותפת בלי הסמנטיקה המשותפת
-  // הספיקה כדי ששתי הצורות יחלקו על שמונה קלטים.
+  // **חלופה אחת ששתי הצורות נבנות ממנה.** הגבול אחרי השם הוא חלק
+  // מהשאלה ולא קישוט: בלעדיו ``texture`` נבלע ב-``text``. וחשוב מכך, הוא
+  // מגדיר שהשאלה היא "**מתחיל** בשם פטור שנגמר בגבול" ולא "שווה לשם
+  // פטור" — ולכן ``text,`` הוא ``text``. רשימה משותפת בלי הסמנטיקה
+  // המשותפת הספיקה כדי ששתי הצורות יחלקו על שמונה קלטים.
+  //
+  // **הגבול הוא "אין אחריו אות, סימן צירוף, ספרה או קו תחתון" בכל כתב,
+  // ולא ``\b``.** ‏``\b`` ב-JavaScript מכיר רק ``[A-Za-z0-9_]`` כתווי מילה,
+  // וגם הדגל ``u`` לבדו אינו מרחיב את זה (MDN, "Word boundary assertion").
+  // לכן אות עברית אחרי השם נחשבה סוף מילה, ו-``mdעברית`` או ``textעברית``
+  // נחשבו "בלי שפה" ומתהפכים — אף שזה שם אחר. פיסוק ומקף עדיין נחשבים
+  // גבול, בדיוק כמו קודם, כך ש-``text,`` ו-``md-x`` לא זזו. ‏``\p{…}`` עובד
+  // רק עם הדגל ``u`` (MDN, "Unicode character class escape"), ולכן שני
+  // הרג'קסים נבנים איתו.
+  var NAME_END = '(?![\\p{L}\\p{M}\\p{N}_])';
   var PLAIN_LANGUAGE_PREFIX =
-    PLAIN_LANGUAGE_NAMES.map(function (n) { return n + '\\b'; }).join('|');
+    PLAIN_LANGUAGE_NAMES.map(function (n) { return n + NAME_END; }).join('|');
 
-  var EXPLICIT_LANGUAGE_RE = new RegExp('\\blanguage-(?!' + PLAIN_LANGUAGE_PREFIX + ')\\S+');
-  var PLAIN_LANGUAGE_NAME_RE = new RegExp('^(?:' + PLAIN_LANGUAGE_PREFIX + ')');
+  var EXPLICIT_LANGUAGE_RE = new RegExp('\\blanguage-(?!' + PLAIN_LANGUAGE_PREFIX + ')\\S+', 'u');
+  var PLAIN_LANGUAGE_NAME_RE = new RegExp('^(?:' + PLAIN_LANGUAGE_PREFIX + ')', 'u');
 
   /**
    * האם שם השפה **הגולמי** הוא שפה אמיתית — אותה שאלה, בלי DOM.
@@ -109,6 +127,11 @@
       hasExplicitLanguage: hasExplicitLanguage,
       hasExplicitLanguageName: hasExplicitLanguageName,
       applyRtlIfHebrew: applyRtlIfHebrew,
+      // **עותק קפוא ולא הרשימה עצמה.** הרג'קסים כבר נבנו ממנה, ולכן שינוי
+      // של המערך מבחוץ לא היה משנה אף החלטה — רק גורם לה להיראות אחרת
+      // ממה שנאכף. החשיפה קיימת כדי שעמוד המשתמש, שמונה את השמות, ייבדק
+      // מולה בטסט במקום להיסחף בשקט.
+      plainLanguageNames: Object.freeze(PLAIN_LANGUAGE_NAMES.slice()),
     };
   }
 })();
