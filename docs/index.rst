@@ -129,6 +129,7 @@ Code Keeper Bot - תיעוד API
    webapp/mcp-analytics
    webapp/static-checklist
    webapp/commands-catalog
+   webapp/global-search
    webapp/code-execution
    webapp/api-reference
    webapp/bulk-actions

@@ -9,12 +9,7 @@
 
 **תפקיד:** חיפוש מתקדם בקטעי קוד
 
-**סוגי חיפוש:**
-- Text Search - התאמת מחרוזת
-- Regex Search - ביטויים רגולריים
-- Fuzzy Search - התאמה משוערת
-- Content Search - חיפוש Full-Text
-- Function Search - חיפוש פונקציות
+**סוגי חיפוש:** ראו :ref:`global-search-types` — על מה כל סוג מחפש ואיך הוא מתאים.
 
 **רכיבים מרכזיים:**
 
