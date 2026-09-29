@@ -161,11 +161,13 @@ def test_content_that_looks_like_json_reaches_the_tool_as_it_was_sent(mcp, store
 
     ה-SDK מריץ ``pre_parse_json`` על כל פרמטר שאינו מוצהר ``str`` בדיוק, ומפענח
     בו ``null``, מערך ואובייקט לערך; מספר ובוליאני הוא משאיר כמחרוזת (נמדד על
-    ``mcp 1.28.1``, ובמוטציה ``code: str | None`` שלושת הראשונים נופלים והשניים
-    האחרונים עוברים). פרמטרי התוכן — ``code``,
-    ``old_string``, ``new_string`` ו-``content`` — מוצהרים ``str``, ולכן מדלגים עליהם,
-    וזה מה שמאפשר לסוכן להשוות את ``content_sha256`` ל-hash שחישב על מה ששלח. שדרוג
-    SDK שישנה את זה יפיל את הטסט הזה, ולא את הייצור.
+    ``mcp 1.28.1``). פרמטרי התוכן — ``code``, ``old_string``, ``new_string`` ו-
+    ``content`` — מוצהרים ``str``, ולכן ה-SDK מדלג עליהם בעצמו; ומאז #3471 גם
+    ``AdminAwareFastMCP`` מוציא מהפענוח כל פרמטר שמקבל מחרוזת (``_RawStringMetadata``
+    ב-``mcp_server/server.py``). לכן המוטציה ``code: str | None``, שלפני #3471
+    הפילה כאן את שלושת הראשונים, עוברת עכשיו (נמדד). זה מה שמאפשר לסוכן להשוות את
+    ``content_sha256`` ל-hash שחישב על מה ששלח. שדרוג SDK שישנה את זה יפיל את הטסט
+    הזה ואת ``tests/test_mcp_pre_parse_json.py``, ולא את הייצור.
     """
     saved = _call(mcp, "codekeeper_save_file", file_name=NAME, code=text + "\n")
     edited = _call(mcp, "codekeeper_edit_file", file_name=NAME, old_string=text, new_string=text + "!")

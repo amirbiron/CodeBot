@@ -11,7 +11,10 @@ moves each one onto a worker thread at registration — see
 from the container's **memory** quota (:func:`attach_read_pool`,
 :func:`_read_pool_size`), not from ``os.cpu_count()``; write tools go to
 :data:`_WRITE_POOL`, a pool of one worker, so exactly one write body runs at a
-time and the queue hands them over in the order they arrived.
+time and the queue hands them over in the order they arrived. The same
+registration takes the tool's string parameters out of the SDK's JSON
+pre-parse, so ``"null"`` sent as text arrives as text — see
+:class:`_RawStringMetadata` (#3471).
 
 Until #3379 this docstring claimed the SDK ran sync tools on a worker thread by
 itself. **It does not**, and that wrong belief is why nobody looked: measured
@@ -33,12 +36,15 @@ import os
 import pathlib
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Annotated, Any, NamedTuple
+from types import NoneType, UnionType
+from typing import Annotated, Any, NamedTuple, Union, get_args, get_origin
 
 import pydantic_core
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp.tools import Tool
+from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata
 from mcp.types import CallToolResult, TextContent
-from pydantic import Field
+from pydantic import BaseModel, Field
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -1619,9 +1625,187 @@ def _refusal_result(refusal: dict[str, Any]) -> CallToolResult:
     return CallToolResult(content=[TextContent(type="text", text=text)], isError=False)
 
 
+# ---------------------------------------------------------------------------
+# String arguments reach the tool as they were sent (#3471).
+#
+# Before validation, the SDK runs ``FuncMetadata.pre_parse_json``
+# (``mcp/server/fastmcp/utilities/func_metadata.py``, read from the installed
+# ``mcp 1.28.1``) over the arguments. For every argument that is a string and
+# whose field annotation is not **exactly** ``str``, it tries ``json.loads``;
+# a result that is a ``str``, ``int`` or ``float`` is thrown away and the
+# string kept, and anything else **replaces** the string. It exists for Claude
+# Desktop, which sends lists and objects as JSON text. On a parameter that is
+# free text and may be omitted — ``str | None`` — it is the bug: ``"null"``
+# became ``None``, that is "not sent", so ``query="null"`` returned the whole
+# file with no sign that anything happened, and ``"[1, 2]"`` or ``'{"a": 1}'``
+# became a list or a dict that validation then refused as "not a string".
+# Measured through ``call_tool`` on 28 parameters of 13 tools (``c11d428``);
+# the issue has the list, and ``tests/test_mcp_pre_parse_json.py`` walks the
+# registered tools rather than that list.
+#
+# Same class as ``StrictInt`` (#3316) and ``StrictBool`` (#3470): a conversion
+# at the boundary, before validation, that ``isinstance`` inside the tool can
+# never see. The check that makes the decision was read unchanged in the newest
+# releases of both lines, ``mcp 1.30.0`` and ``mcp 2.2.0`` (2026-09-29), so an
+# upgrade does not remove the need for this. In 2.x the module moved to
+# ``mcp.server.mcpserver``, and the import at the top of this file then fails
+# loudly rather than quietly bringing the bug back.
+# ---------------------------------------------------------------------------
+
+#: The alternatives a string may sit beside and still reach the tool as sent.
+#: For ``int``, ``float`` and ``bool`` nothing is lost by skipping the parse: a
+#: parse that yields one of them is the case the SDK already throws away
+#: (``bool`` is an ``int``). ``None`` is the one that must never be produced
+#: from a string — it is this bug.
+_SCALAR_MEMBERS = (NoneType, int, float, bool)
+
+#: What the pre-parse exists to produce from a string: the origin of a generic
+#: alias such as ``list[int]``, or the bare class. A model counts too — it is
+#: validated from the dict the pre-parse makes out of a JSON object.
+_PARSED_CONTAINERS = (list, dict, tuple, set, frozenset)
+
+
+def _union_members(annotation: Any) -> tuple[Any, ...]:
+    """The top-level alternatives of an annotation, with ``Annotated`` peeled off.
+
+    Top level only, because that is the only level ``pre_parse_json`` acts on:
+    it replaces the whole value or leaves it alone, so the ``Any`` inside
+    ``list[Any]`` is the list's business and not this rule's. Both spellings of
+    a union are handled — ``typing.Union`` (``Optional[X]``) and
+    ``types.UnionType`` (``X | None``) — and an ``Annotated`` inside a union
+    (``StrictLines | None``) is peeled as well.
+    """
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        return _union_members(get_args(annotation)[0])
+    if origin is Union or origin is UnionType:
+        return tuple(member for arg in get_args(annotation) for member in _union_members(arg))
+    return (annotation,)
+
+
+def _is_parsed_container(member: Any) -> bool:
+    """True for a member the pre-parse is there to build out of JSON text."""
+    origin = get_origin(member) or member
+    if origin in _PARSED_CONTAINERS:
+        return True
+    return isinstance(origin, type) and issubclass(origin, BaseModel)
+
+
+class _UndecidedParameter(Exception):
+    """A parameter shape the string-argument rule refuses to decide; the message says why."""
+
+
+def _keeps_raw_string(annotation: Any) -> bool:
+    """Whether a string sent to a parameter so annotated must reach the tool as sent.
+
+    ``True``: skip the pre-parse for it. ``False``: leave the SDK's pre-parse in
+    place. Every shape gets an explicit answer, and a shape without a right one
+    raises :class:`_UndecidedParameter` with the reason, which the registration
+    turns into a ``TypeError`` — refused rather than guessed:
+
+    * ``str``, alone or beside ``None``, ``int``, ``float`` or ``bool`` —
+      ``True``. Only the string alternative can take a string, so the string
+      is what the caller meant.
+    * no ``str`` at all — ``False``. ``lines: StrictLines | None`` and
+      ``items: list[Any]`` are exactly what the pre-parse is for: a list that
+      arrives as JSON text must still become a list.
+    * ``Any`` or ``object`` — refused: it takes a string and everything the
+      pre-parse builds out of one, so either answer is wrong for some caller.
+    * ``str`` beside a list, dict, tuple, set or model — refused, for the same
+      reason spelled out: skipping breaks a value sent as JSON text, parsing
+      brings #3471 back. Whoever adds such a parameter decides then, with a
+      test.
+    * a member none of the above names — refused. ``Literal``, an ``Enum``, a
+      ``str`` subclass or ``datetime`` each take some strings, and which of
+      them the pre-parse turns into something else is a question for that type,
+      not one to answer here by default. None of the registered tools has one
+      (checked 2026-09-29).
+
+    ``Any`` would be refused by the last rule too; it has its own, first,
+    because it is refused by decision and not for being unknown — relaxing the
+    last rule one day must not quietly start parsing it.
+    """
+    members = _union_members(annotation)
+    for member in members:
+        if member is Any or member is object:
+            raise _UndecidedParameter(
+                "takes a string and everything the pre-parse builds out of one"
+            )
+    others = [member for member in members if member is not str]
+    for member in others:
+        if member not in _SCALAR_MEMBERS and not _is_parsed_container(member):
+            raise _UndecidedParameter(f"{member!r} is not a shape this rule decides")
+    if len(others) == len(members):
+        return False
+    for member in others:
+        if _is_parsed_container(member):
+            raise _UndecidedParameter(
+                f"str beside {member!r}, which the pre-parse builds out of JSON "
+                "text: skipping breaks a value sent that way, parsing brings "
+                "#3471 back"
+            )
+    return True
+
+
+def _raw_string_keys(arg_model: type[BaseModel]) -> tuple[frozenset[str], list[str]]:
+    """The argument keys whose strings reach the tool as sent, and what was refused.
+
+    Read from ``arg_model.model_fields`` — the same ``FieldInfo.annotation``
+    that ``pre_parse_json`` reads, so the decision is derived from what the tool
+    already declares rather than from a list of parameter names. Keys are the
+    field name **and** its alias, because the pre-parse maps both: the SDK
+    renames a parameter that shadows a ``BaseModel`` method (``json`` becomes
+    the field ``field_json``, aliased ``json``), and the alias is what the
+    caller sends. Every refusal is collected before returning, so one error
+    names every parameter of the tool that needs a decision.
+    """
+    keys: set[str] = set()
+    refused: list[str] = []
+    for field_name, field_info in arg_model.model_fields.items():
+        try:
+            keep = _keeps_raw_string(field_info.annotation)
+        except _UndecidedParameter as undecided:
+            name = field_info.alias or field_name
+            refused.append(f"{name}: {field_info.annotation!r} ({undecided})")
+            continue
+        if keep:
+            keys.add(field_name)
+            if field_info.alias:
+                keys.add(field_info.alias)
+    return frozenset(keys), refused
+
+
+class _RawStringMetadata(FuncMetadata):
+    """``FuncMetadata`` whose pre-parse hands the string parameters over untouched.
+
+    Everything else is the SDK's: validation, the call, the result conversion,
+    and the pre-parse itself for every other key — which is what keeps a list
+    sent as JSON text working for ``lines`` and ``items``. The held keys are
+    taken out **before** the SDK's pre-parse runs rather than restored after it,
+    so a large text argument (a note body, say) is never run through
+    ``json.loads`` at all.
+
+    It relies on ``FuncMetadata.call_fn_with_arg_validation`` calling
+    ``self.pre_parse_json`` (``mcp 1.28.1``). A release that stops calling it
+    would bring the bug back without an error, so that is pinned by a test that
+    counts the calls, next to the one that compares the pinned version with the
+    installed one (``tests/test_mcp_pre_parse_json.py``).
+    """
+
+    raw_string_keys: frozenset[str] = frozenset()
+
+    def pre_parse_json(self, data: dict[str, Any]) -> dict[str, Any]:
+        held = {key: value for key, value in data.items() if key in self.raw_string_keys}
+        rest = {key: value for key, value in data.items() if key not in held}
+        parsed = super().pre_parse_json(rest)
+        parsed.update(held)
+        return parsed
+
+
 class AdminAwareFastMCP(FastMCP):
-    """FastMCP that hides the admin-only tools from non-admin tools/list, and
-    keeps every tool body off the event loop.
+    """FastMCP that hides the admin-only tools from non-admin tools/list, keeps
+    every tool body off the event loop, and hands a string argument to the tool
+    as it was sent (#3471).
 
     The SDK's tools/list is static (one ToolManager), but the auth context IS
     available inside the handler, so we filter per request. Fail-closed: any
@@ -1658,9 +1842,67 @@ class AdminAwareFastMCP(FastMCP):
         loop. The annotations are read through :func:`_annotations_of` rather
         than straight out of ``kwargs``, because the SDK accepts them
         positionally as well.
+
+        **The second guarantee made here: string arguments are not parsed as
+        JSON** (#3471). The SDK builds the tool's argument model inside
+        ``super().add_tool``, so the rule runs on the tool that call created —
+        found as the name that was not registered before it, so the SDK's own
+        naming (``name`` or the function's ``__name__``) is not re-derived
+        here, and a duplicate name, which the SDK answers by keeping the tool
+        it already has, adds nothing to process. See
+        :meth:`_keep_string_arguments_raw`.
         """
         serialize = _declares_write(_annotations_of(args, kwargs))
-        return super().add_tool(_offload_to_thread(fn, serialize=serialize), *args, **kwargs)
+        known = {tool.name for tool in self._tool_manager.list_tools()}
+        registered = super().add_tool(_offload_to_thread(fn, serialize=serialize), *args, **kwargs)
+        for tool in self._tool_manager.list_tools():
+            if tool.name not in known:
+                self._keep_string_arguments_raw(tool)
+        return registered
+
+    def _keep_string_arguments_raw(self, tool: Tool) -> None:
+        """Swap the tool's argument metadata for one that skips the pre-parse on strings.
+
+        Two refusals, both a ``TypeError`` at registration — the same answer
+        :func:`_offload_to_thread` gives an async write tool, because both are
+        a server that would otherwise start and quietly do the wrong thing:
+
+        * a parameter :func:`_keeps_raw_string` does not decide;
+        * metadata that is not exactly ``FuncMetadata``. The swap copies that
+          class's fields into :class:`_RawStringMetadata`; a subclass the SDK
+          started using would lose its own behaviour in the copy, with nothing
+          to show for it.
+
+        The refused tool is removed before raising, so a caller that catches
+        the error is left with the tool **not** registered — as it is when the
+        refusal comes from :func:`_offload_to_thread`, which runs before the SDK
+        ever sees the tool.
+        """
+        metadata = tool.fn_metadata
+        if type(metadata) is not FuncMetadata:
+            self.remove_tool(tool.name)
+            raise TypeError(
+                f"{tool.name!r}: the SDK built its argument metadata as "
+                f"{type(metadata).__name__}, not FuncMetadata. The string-argument "
+                "rule copies FuncMetadata's fields into a subclass of it, and would "
+                "drop whatever that class adds. Read the new class before "
+                "extending the rule to it (#3471)."
+            )
+        keys, refused = _raw_string_keys(metadata.arg_model)
+        if refused:
+            self.remove_tool(tool.name)
+            raise TypeError(
+                f"{tool.name!r}: cannot decide whether a string sent to "
+                f"{'; '.join(refused)} must reach the tool as sent or be parsed "
+                "as JSON first. Declare the parameter as text (str, optionally "
+                "with None, int, float or bool), or without str (a list sent as "
+                "JSON text is then still parsed), or extend _keeps_raw_string "
+                "with a test that decides this shape (#3471)."
+            )
+        tool.fn_metadata = _RawStringMetadata(
+            **{name: getattr(metadata, name) for name in FuncMetadata.model_fields},
+            raw_string_keys=keys,
+        )
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:  # type: ignore[override]
         """Decide the per-identity rate limit here, and nowhere else (#3431).
@@ -1817,9 +2059,13 @@ def build_mcp(
     mcp: FastMCP = AdminAwareFastMCP(
         name, tool_rate_limiter=ToolRateLimiter(rate_limit_per_minute), **kwargs
     )
-    # PostHog MCP analytics. Additive: no tool is changed and no tool schema is
-    # touched. Must run before ``streamable_http_app()`` below, which the same
-    # call also wraps. See ``mcp_server/analytics.py`` for the privacy gate.
+    # PostHog MCP analytics. **Not** schema-neutral when it runs: it adds a
+    # ``context`` string to every advertised tool schema and strips it again
+    # before the tool runs — what that costs is in the docstring of
+    # ``instrument_mcp_server``, and ``tests/test_mcp_pre_parse_json.py`` runs
+    # the tools with it switched on. Must run before ``streamable_http_app()``
+    # below, which the same call also wraps. See ``mcp_server/analytics.py``
+    # for the privacy gate.
     instrument_mcp_server(mcp)
 
     @mcp.tool(
