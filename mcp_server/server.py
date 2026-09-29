@@ -206,7 +206,20 @@ _OUTLINE_PARAM_DOC = (
     "itself — plus every .. _label: target as its own one-line symbol named "
     "_label, so a broken :ref: is findable by the name it points at. Any "
     "other suffix returns status no_outline."
+    # ההפניה נבנית ב-``repo_backend._with_section_redirect`` מהמדיניות של
+    # ``codekeeper_docs_get_section``, ולכן המשפט אינו מונה סיומות או ריפואים:
+    # רשימה כזו כאן הייתה עותק שני של המדיניות, והוא היה נסחף ממנה.
+    " When a no_outline answer carries read_with, call that tool with "
+    "read_with_arguments as given — it returns this file's heading tree."
 )
+
+#: תיאור הפרמטר ``ref`` בשלושת הכלים שמקבלים אותו: ``codekeeper_get_repo_file``,
+#: ``codekeeper_list_repo_tree`` ו-``codekeeper_docs_get_section``. בתיאור
+#: הפרמטר ולא בתיאור הכלי, כי תיאור הכלי כבר נחתך פעם אצל הלקוח. **המשפט עצמו
+#: אינו כתוב כאן:** הוא ``repo_handlers.MIRROR_REFRESH_NOTE``, אותו מקור שממנו
+#: נבנית ההודעה של ``ref_not_mirrored`` — ושם כתוב גם איזה קוד מגדיר את
+#: המדיניות שהוא מתאר, ואילו טסטים מקבעים אותה.
+_REF_PARAM_DOC = repo_handlers.MIRROR_REFRESH_NOTE
 
 # ``symbol=`` ישב בתוך המשפט של פייתון, ומיד אחריו בא המשפט שאומר ש-HTML
 # נותן שמות **שטוחים** — סוכן שקרא את זה קשר את הפילטר לשמות מנוקדים ולא
@@ -2507,7 +2520,7 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         ctx: Context,
         repo: str,
         path: str | None = None,
-        ref: str | None = None,
+        ref: Annotated[str | None, Field(description=_REF_PARAM_DOC)] = None,
         page: int = 1,
         per_page: int = 200,
         include_stats: bool = False,
@@ -2575,7 +2588,7 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         ctx: Context,
         repo: str,
         path: str,
-        ref: str | None = None,
+        ref: Annotated[str | None, Field(description=_REF_PARAM_DOC)] = None,
         lines: StrictLines | None = None,
         outline: Annotated[bool, Field(description=_OUTLINE_PARAM_DOC)] = False,
         symbol: Annotated[str | None, Field(description=_SYMBOL_PARAM_DOC)] = None,
@@ -2726,7 +2739,7 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
     """
 
     @mcp.tool(
-        name="codekeeper_docs_get_section",
+        name=docs_handlers.SECTION_TOOL_NAME,
         description=(
             "Read ONE section from a CodeKeeper documentation file — RST or "
             "Markdown — instead of the whole file. Prefer this over "
@@ -2756,7 +2769,7 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
         max_chars: int = 12000,
         offset: int = 0,
         repo: str | None = None,
-        ref: str | None = None,
+        ref: Annotated[str | None, Field(description=_REF_PARAM_DOC)] = None,
     ) -> dict:
         current_user_id(ctx)  # מזהה בלבד — public, בלי require_admin
         return docs_handlers.docs_get_section(

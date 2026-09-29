@@ -445,7 +445,9 @@ async def test_a_missing_file_and_a_missing_section_fail_only_themselves(tmp_pat
     results = [entry["result"] for entry in answer["items"]]
     assert answer["ok"] is True and answer["count"] == 4
     assert results[0]["mode"] == "section" and "גוף K11" in results[0]["content"]
-    assert results[1] == {"ok": False, "error": "not_found"}
+    # ``not_found`` אומר איפה חיפש: הענף הראשי, וה-commit שהבאץ' קובע אליו.
+    assert results[1] == {"ok": False, "error": "not_found", "ref": "refs/heads/main",
+                          "resolved_commit": _git("rev-parse", "main", cwd=world.md_work)}
     assert results[2]["error"] == "section_not_found"
     assert results[3]["status"] == "ok" and "גרסה ראשונה" in results[3]["content"]
 
@@ -662,7 +664,10 @@ async def test_a_transient_pin_failure_is_logged_once_and_each_item_names_its_co
 
 @requires_git
 async def test_a_ref_that_does_not_exist_is_not_logged_and_answers_like_the_single_tool(tmp_path, monkeypatch):
-    """``invalid_ref`` הוא תשובה רגילה ולא תקלה: בלי לוג, והפריט מקבל את מה שהכלי הבודד היה מחזיר."""
+    """``ref_not_mirrored`` הוא תשובה רגילה ולא תקלה: בלי לוג, והפריט מקבל את מה שהכלי הבודד היה מחזיר.
+
+    עד שהבדיקה הבחינה בין שם פגום לשם שאינו במראה, הקוד כאן היה ``invalid_ref``.
+    """
     world = _world(tmp_path, monkeypatch)
     world.backend._db["repo_metadata"].docs[0]["default_branch"] = "no-such-branch"
     with _records("mcp_server.repo_backend") as records:
@@ -1387,6 +1392,8 @@ def test_resolve_commit_answers_the_sha_or_names_why_not(tmp_path):
     work = _mirror(tmp_path, "r", {"a.md": "x\n"})
     mirror = GitMirrorService(base_path=str(tmp_path / "mirrors"))
     assert mirror.resolve_commit("r", "refs/heads/main") == {"ok": True, "commit": _git("rev-parse", "main", cwd=work)}
-    assert mirror.resolve_commit("r", "refs/heads/nope") == {"ok": False, "error": "invalid_ref"}
+    # שם תקין שהמראה אינה מכירה, מול שם פגום שאינו מגיע ל-git בכלל.
+    assert mirror.resolve_commit("r", "refs/heads/nope") == {"ok": False, "error": "ref_not_mirrored"}
+    assert mirror.resolve_commit("r", "bad:ref") == {"ok": False, "error": "invalid_ref"}
     assert mirror.resolve_commit("missing", "HEAD") == {"ok": False, "error": "repo_not_found"}
     assert mirror.resolve_commit("../r", "HEAD") == {"ok": False, "error": "invalid_repo_name"}

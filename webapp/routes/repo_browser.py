@@ -384,10 +384,14 @@ def get_file_history():
         )
 
         if "error" in result:
+            # קוד שחסר כאן הופך ל-500 (ברירת המחדל של ``get``). ``get_file_history``
+            # מעביר את קוד הבדיקה של ``_validate_ref_with_git`` כמות שהוא, ולכן
+            # כל קוד שהיא מחזירה חייב להופיע כאן.
             status_codes = {
                 "invalid_repo_name": 400,
                 "invalid_file_path": 400,
                 "invalid_ref": 400,
+                "ref_not_mirrored": 404,
                 "repo_not_found": 404,
                 "file_not_found": 404,
                 "timeout": 504,
@@ -449,10 +453,16 @@ def get_file_at_commit(commit):
         )
 
         if "error" in result:
+            # קוד שחסר כאן הופך ל-500 (ברירת המחדל של ``get``). מאז ש-
+            # ``get_file_at_commit`` מעביר את קוד הבדיקה של ``_validate_ref_with_git``
+            # כמות שהוא, ``invalid_ref`` ו-``ref_not_mirrored`` מגיעים לכאן — כל
+            # קוד שהבדיקה מחזירה חייב להופיע כאן.
             status_codes = {
                 "invalid_repo_name": 400,
                 "invalid_file_path": 400,
+                "invalid_ref": 400,
                 "invalid_commit": 400,
+                "ref_not_mirrored": 404,
                 "repo_not_found": 404,
                 "file_not_in_commit": 404,
                 "file_too_large": 413,

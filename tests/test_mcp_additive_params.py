@@ -247,6 +247,12 @@ def _tree_backend(files, sizes=None, indexed=None):
     from mcp_server.repo_backend import RepoBackend
 
     class _Mirror:
+        def resolve_commit(self, repo, ref):
+            # ``list_tree`` פותר את הענף לפני ``ls-tree``, כמו כל כלי ריפו
+            # אחר (``GitMirrorService.resolve_commit``). הדמה מרחיבה את החוזה —
+            # היא לא מכופפת את הקוד כדי שיעבוד בלעדיו.
+            return {"ok": True, "commit": "c0ffee"}
+
         def list_all_files(self, repo, ref):
             return list(files)
 
