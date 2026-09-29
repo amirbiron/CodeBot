@@ -264,3 +264,22 @@ async def test_a_block_over_the_cap_warns_with_the_tool_names_it_loses(monkeypat
         assert name in warnings[0], (name, warnings[0])
     # והשומר רואה אותם בדיוק כמו האזהרה: כל שם שנפל הוא כלי שאינו מכוסה.
     assert set(lost) <= _uncovered(instructions, listed)
+
+
+async def test_without_a_mirror_the_block_names_only_what_is_registered(monkeypatch):
+    """בלי ``repo_backend`` כלי המראה והתיעוד אינם נרשמים — והבלוק אינו נוקב בהם.
+
+    בייצור ``app.create_app`` מעביר תמיד מראה, אבל הכלל אינו תלוי בפריסה: שם בבלוק
+    שאינו רשום הוא הבטחה לכלי שאינו קיים. פתקי הריפו נרשמים גם בלי מראה (הם נשענים
+    על ``sticky_notes`` בלבד), ולכן הם נשארים בקבוצת האדמין.
+    """
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("MCP_DOCS_REPO", PRODUCTION_DOCS_REPOS)
+    monkeypatch.setattr(analytics, "_CLIENT", None)
+    monkeypatch.setattr(analytics, "_ANALYTICS", None)
+    mcp = srv.build_mcp(_Backend())
+    instructions, listed = await _client_view(mcp, monkeypatch, admin=True)
+
+    assert not _uncovered(instructions, listed), sorted(_uncovered(instructions, listed))
+    assert "codekeeper_list_repo_note_paths" in listed
+    assert "It serves" not in instructions

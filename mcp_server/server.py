@@ -129,15 +129,40 @@ def _serves_sentence(repos: list[str]) -> str:
 
 
 def build_instructions(
-    *, docs_repos: list[str], batch_item_cap: int, missing_capability_tool: str | None
+    *,
+    docs_repos: list[str],
+    batch_item_cap: int,
+    missing_capability_tool: str | None,
+    mirrored: bool = True,
 ) -> str:
-    """בלוק ה-``instructions`` — הנוסח הקבוע, ושלושת החלקים שנגזרים מהשרת שנבנה.
+    """בלוק ה-``instructions`` — הנוסח הקבוע, והחלקים שנגזרים מהשרת שנבנה.
 
     ``missing_capability_tool`` הוא שם הכלי הווירטואלי כשהוא **באמת** ב-``tools/list``,
-    ו-``None`` אחרת; בלוק שנוקב בכלי שאינו קיים הוא בדיוק מה שהשומר בא למנוע.
+    ו-``None`` אחרת; בלוק שנוקב בכלי שאינו קיים הוא בדיוק מה שהשומר בא למנוע. מאותה
+    סיבה ``mirrored=False`` — שרת בלי ``repo_backend`` — משמיט את כלי המראה ואת כלי
+    התיעוד, שאינם נרשמים אז (``_register_repo_tools``, ``_register_docs_tools``),
+    ומשאיר את פתקי הריפו, שנרשמים תמיד.
     """
     missing = (
         f" Missing a tool? Call {missing_capability_tool}." if missing_capability_tool else ""
+    )
+    docs = (
+        "Docs (all users): codekeeper_docs_get_section reads one section, not a page "
+        '(no section = headings; section="K11" works).'
+        + _serves_sentence(docs_repos)
+        + "\n"
+        "\n"
+        if mirrored
+        else ""
+    )
+    mirror = (
+        "- codekeeper_list_repos; codekeeper_list_repo_tree; codekeeper_search_repo "
+        "(literal, path+line), then codekeeper_get_repo_file with lines= around it, "
+        "or outline=true for a map.\n"
+        f"- codekeeper_read_batch reads up to {batch_item_cap} sections and files in "
+        "one call.\n"
+        if mirrored
+        else ""
     )
     return (
         "CodeKeeper: the user's saved files (code, Markdown), sticky notes and "
@@ -168,23 +193,15 @@ def build_instructions(
         "whole body. History: codekeeper_list_note_versions, "
         "codekeeper_get_note_version.\n"
         "\n"
-        "Docs (all users): codekeeper_docs_get_section reads one section, not a page "
-        '(no section = headings; section="K11" works).'
-        + _serves_sentence(docs_repos)
-        + "\n"
-        "\n"
-        "Failures: 502/503/dropped connection = mid-deploy; retry in a minute. "
+        + docs
+        + "Failures: 502/503/dropped connection = mid-deploy; retry in a minute. "
         "ok:false is an answer: act on its code."
         + missing
         + "\n"
         "\n"
         "Repos (admins only)\n"
-        "- codekeeper_list_repos; codekeeper_list_repo_tree; codekeeper_search_repo "
-        "(literal, path+line), then codekeeper_get_repo_file with lines= around it, "
-        "or outline=true for a map.\n"
-        f"- codekeeper_read_batch reads up to {batch_item_cap} sections and files in "
-        "one call.\n"
-        "- codekeeper_list_repo_note_paths, then codekeeper_list_repo_notes; "
+        + mirror
+        + "- codekeeper_list_repo_note_paths, then codekeeper_list_repo_notes; "
         "codekeeper_create_repo_note."
     )
 
@@ -2902,6 +2919,7 @@ def build_mcp(
         docs_repos=docs_handlers.served_docs_repos(),
         batch_item_cap=mcp.batch_item_cap(),
         missing_capability_tool=missing_tool,
+        mirrored=repo_backend is not None,
     )
     mcp.set_instructions(instructions)
     tool_names = {tool.name for tool in mcp._tool_manager.list_tools()}
