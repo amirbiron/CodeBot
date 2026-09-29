@@ -307,21 +307,27 @@ def test_the_parameters_listed_in_the_issue_are_among_those_covered(monkeypatch)
 async def test_a_list_sent_as_json_text_is_still_a_list_where_no_str_is_accepted(monkeypatch):
     """ה-SDK מפענח כי Claude Desktop שולח רשימות ומילונים כמחרוזות JSON.
 
-    ``lines`` (``StrictLines | None``) ו-``items`` (``list[Any]``) אינם מקבלים
-    ``str``, ולכן הפענוח שלהם נשאר. תיקון שמדלג על הפענוח לכל הפרמטרים היה עובר
-    את כל קבוצה 1 — וכאן ``lines`` היה מגיע כמחרוזת ונדחה בוולידציה.
+    ``lines`` (``StrictLines | None``), ``items`` ו-``edits`` (``list[Any]``) אינם
+    מקבלים ``str``, ולכן הפענוח שלהם נשאר. תיקון שמדלג על הפענוח לכל הפרמטרים היה
+    עובר את כל קבוצה 1 — וכאן ``lines`` היה מגיע כמחרוזת ונדחה בוולידציה.
+
+    ב-``edits`` גם מה שבתוך הזוג: ``"null"`` ו-``"[1, 2]"`` נשארים מחרוזות, כי
+    ``pre_parse_json`` מפענח רק את הארגומנט ברמה העליונה.
     """
     mcp = _build(monkeypatch, _NoBody(), repo_backend=_NoBody())
     received = _spy_on_bodies(mcp)
     items = [{"kind": "section", "path": "mcp-server"}, {"kind": "file", "repo": "r", "path": "p"}]
+    edits = [{"old_string": "a", "new_string": "b"}, {"old_string": "null", "new_string": "[1, 2]"}]
 
     await mcp.call_tool("codekeeper_get_file", {"file_name": DOC, "lines": "[5, 10]"})
     await mcp.call_tool("codekeeper_get_repo_file", {"repo": "r", "path": "p", "lines": "[5, 10]"})
     await mcp.call_tool("codekeeper_read_batch", {"items": json.dumps(items)})
+    await mcp.call_tool("codekeeper_multi_edit_file", {"file_name": DOC, "edits": json.dumps(edits)})
 
     assert received["codekeeper_get_file"]["lines"] == [5, 10]
     assert received["codekeeper_get_repo_file"]["lines"] == [5, 10]
     assert received["codekeeper_read_batch"]["items"] == items
+    assert received["codekeeper_multi_edit_file"]["edits"] == edits
 
 
 # ===========================================================================

@@ -7,6 +7,12 @@
 אם מה שנשלח, מה שבאוסף ומה ש-``get_file`` מחזיר הם אותה מחרוזת, ואם ה-hash בכל
 תשובה הוא ה-hash שלה.
 
+**אותה מטריצה עוברת גם ב-``codekeeper_multi_edit_file``**, שבו התווים הקשים יושבים גם
+ב-``old_string``: הזוג מוצא אותם רק אם הטקסט חזר מ-BSON בדיוק כמו שנשלח. ולידה שתי
+טענות שהדמה אינה יכולה להוכיח — זוג שנכשל אינו משאיר מסמך באוסף האמיתי, וכתיבה
+במקום (``update_one`` על ``code``, כמו ``check_file_sync`` ב-
+``database/bookmarks_manager.py``) נענית ``conflict`` בשער ``expected_content_sha256``.
+
 **בלי ``NOTE_FONTS_TEST_MONGO_URI`` הקובץ מדולג** (``wired_mongo`` ב-``tests/conftest.py``),
 וב-CI הוא מדולג. הפלט של ההרצה המקומית בגוף ה-PR.
 
@@ -130,6 +136,75 @@ def test_what_was_sent_what_is_stored_and_what_get_file_returns_are_one_string(m
     assert stored == sent
     assert read["code"] == stored and ranged["code"] == stored
     assert saved["file"]["content_sha256"] == read["content_sha256"] == ranged["content_sha256"] == _sha(stored)
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+def test_multi_edit_through_bson_stores_exactly_the_text_it_meant(mcp, mongo_db, case):
+    """הזוג הראשון מחפש את התווים הקשים עצמם; השני מחפש מה שקיים רק אחרי הראשון.
+
+    המחרוזת המיועדת מחושבת כאן, בפייתון, ומושווית לשלושה: מה שבאוסף, מה ש-
+    ``get_file`` מחזיר, וה-hash בשתי התשובות. וגרסה אחת נוספה — לא אחת לכל זוג.
+    """
+    from bson import ObjectId
+
+    sent = CASES[case]
+    file_name = f"me_{case}.txt"
+    assert _call(mcp, "codekeeper_save_file", file_name=file_name, code="start\n" + sent)["ok"] is True
+    intended = "start\n" + sent + "<>" + sent
+
+    res = _call(mcp, "codekeeper_multi_edit_file", file_name=file_name, edits=[
+        {"old_string": sent, "new_string": sent + "|" + sent},
+        {"old_string": "|", "new_string": "<>"},
+    ])
+    assert res["ok"] is True and res["content_changed"] is False, res
+    assert res["edits_applied"] == 2 and res["replacements"] == 2
+
+    stored = mongo_db.code_snippets.find_one({"_id": ObjectId(res["file"]["id"])})["code"]
+    read = _call(mcp, "codekeeper_get_file", file_name=file_name)["file"]
+
+    assert stored == intended
+    assert read["code"] == stored
+    assert res["file"]["content_sha256"] == read["content_sha256"] == _sha(stored)
+    assert mongo_db.code_snippets.count_documents({"user_id": USER, "file_name": file_name}) == 2
+
+
+def test_a_pair_that_fails_leaves_no_document_in_a_real_collection(mcp, mongo_db):
+    """זוג שלישי שאינו מתאים: אותו מספר מסמכים, אותו תוכן אחרון, ואפס אירועי התראה."""
+    file_name = "all_or_nothing.md"
+    assert _call(mcp, "codekeeper_save_file", file_name=file_name, code="alpha\nbeta\n")["ok"] is True
+    pushes = mongo_db.push_events.count_documents({})
+
+    res = _call(mcp, "codekeeper_multi_edit_file", file_name=file_name, edits=[
+        {"old_string": "alpha", "new_string": "ALPHA"},
+        {"old_string": "beta", "new_string": "BETA"},
+        {"old_string": "gamma", "new_string": "GAMMA"},
+    ])
+
+    assert res["ok"] is False and res["error"] == "no_match" and res["index"] == 2, res
+    docs = list(mongo_db.code_snippets.find({"user_id": USER, "file_name": file_name}))
+    assert len(docs) == 1 and docs[0]["code"] == "alpha\nbeta\n"
+    assert mongo_db.push_events.count_documents({}) == pushes
+
+
+@pytest.mark.parametrize("tool, arguments", [
+    ("codekeeper_edit_file", {"old_string": "beta", "new_string": "BETA"}),
+    ("codekeeper_append_file", {"content": "gamma\n"}),
+    ("codekeeper_multi_edit_file", {"edits": [{"old_string": "beta", "new_string": "BETA"}]}),
+])
+def test_a_write_in_place_on_a_real_collection_is_conflict(mcp, mongo_db, tool, arguments):
+    """``update_one`` על ``code`` באותו מסמך — הגרסה לא זזה, ה-hash כן, והשער תופס."""
+    file_name = "in_place.md"
+    saved = _call(mcp, "codekeeper_save_file", file_name=file_name, code="alpha\nbeta\n")
+    read = _sha("alpha\nbeta\n")
+    mongo_db.code_snippets.update_one({"user_id": USER, "file_name": file_name},
+                                      {"$set": {"code": "alpha\nbeta\nsynced\n"}})
+
+    res = _call(mcp, tool, file_name=file_name, expected_content_sha256=read, **arguments)
+
+    assert res["ok"] is False and res["error"] == "conflict", res
+    assert res["file"]["version"] == saved["file"]["version"]
+    assert res["file"]["content_sha256"] == _sha("alpha\nbeta\nsynced\n")
+    assert mongo_db.code_snippets.count_documents({"user_id": USER, "file_name": file_name}) == 1
 
 
 def test_find_version_by_id_returns_a_document_only_to_its_owner(mongo_db):

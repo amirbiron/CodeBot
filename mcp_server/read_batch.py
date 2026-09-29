@@ -75,7 +75,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from . import answer_fit, answer_size, docs_handlers, repo_handlers
 from .answer_size import OUTPUT_BYTE_BUDGET
-from .handlers import StrictLines
+from .handlers import StrictLines, validation_problems
 
 logger = logging.getLogger(__name__)
 
@@ -245,12 +245,13 @@ class _Plan(NamedTuple):
 
 
 def _invalid_item(exc: ValidationError) -> dict[str, Any]:
-    """פריט שאינו תואם לסכימה: איפה ומה, בלי להדהד את הערך שנשלח."""
-    problems = [
-        {"loc": list(err.get("loc") or ()), "msg": err.get("msg")}
-        for err in exc.errors(include_url=False, include_context=False, include_input=False)
-    ]
-    return {"ok": False, "error": "invalid_item", "problems": problems}
+    """פריט שאינו תואם לסכימה: איפה ומה, בלי להדהד את הערך שנשלח.
+
+    הרשימה נבנית ב-``handlers.validation_problems`` — אותה פונקציה שבונה את
+    ``invalid_edit`` של ``codekeeper_multi_edit_file``, כדי ששני הסירובים לא
+    יחזיקו שני נוסחים של "בלי להדהד".
+    """
+    return {"ok": False, "error": "invalid_item", "problems": validation_problems(exc)}
 
 
 def _plan(raw: Any) -> _Plan:

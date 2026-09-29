@@ -127,12 +127,14 @@ CASES = {
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
-@pytest.mark.parametrize("tool", ["codekeeper_save_file", "codekeeper_edit_file", "codekeeper_append_file"])
+@pytest.mark.parametrize("tool", ["codekeeper_save_file", "codekeeper_edit_file",
+                                  "codekeeper_multi_edit_file", "codekeeper_append_file"])
 def test_every_write_tool_returns_the_hash_of_what_the_collection_holds(mcp, store, tool, case):
     """ה-hash בתשובת הכתיבה שווה ל-sha256 של ``code`` כפי שהוא יושב באוסף.
 
-    לעריכה ולהוספה ה"כוונה" היא הקובץ שנבנה מהבסיס: אחרי ההחלפה, או הבסיס ועוד
-    התוספת (הבסיס נגמר ב-``\\n``, ולכן בלי מפריד).
+    לעריכה ולהוספה ה"כוונה" היא הקובץ שנבנה מהבסיס: אחרי ההחלפה (בעריכה של כמה
+    מקומות — אחרי כל הזוגות), או הבסיס ועוד התוספת (הבסיס נגמר ב-``\\n``, ולכן בלי
+    מפריד).
     """
     text = CASES[case]
     if tool == "codekeeper_save_file":
@@ -142,6 +144,13 @@ def test_every_write_tool_returns_the_hash_of_what_the_collection_holds(mcp, sto
         assert _call(mcp, "codekeeper_save_file", file_name=NAME, code="head\n" + text)["ok"] is True
         intended = "HEAD\n" + text
         res = _call(mcp, tool, file_name=NAME, old_string="head", new_string="HEAD")
+    elif tool == "codekeeper_multi_edit_file":
+        assert _call(mcp, "codekeeper_save_file", file_name=NAME, code="head\nmid\n" + text)["ok"] is True
+        intended = "HEAD\nMID\n" + text
+        res = _call(mcp, tool, file_name=NAME, edits=[
+            {"old_string": "head", "new_string": "HEAD"},
+            {"old_string": "mid", "new_string": "MID"},
+        ])
     else:
         assert _call(mcp, "codekeeper_save_file", file_name=NAME, code="head\n")["ok"] is True
         intended = "head\n" + text
@@ -157,7 +166,11 @@ def test_every_write_tool_returns_the_hash_of_what_the_collection_holds(mcp, sto
 
 @pytest.mark.parametrize("text", ["null", '["a", "b"]', '{"k": 1}', "true", "123"])
 def test_content_that_looks_like_json_reaches_the_tool_as_it_was_sent(mcp, store, text):
-    """מחרוזת שנראית כמו JSON מגיעה לכלי כמו שנשלחה, בשלושת כלי הכתיבה.
+    """מחרוזת שנראית כמו JSON מגיעה לכלי כמו שנשלחה, בכל כלי הכתיבה.
+
+    ב-``codekeeper_multi_edit_file`` המחרוזות יושבות **בתוך** זוג, ו-``pre_parse_json``
+    רץ על ארגומנטים ברמה העליונה בלבד (``FuncMetadata.pre_parse_json``, ``mcp 1.28.1``)
+    — כך שגם ``"null"`` בתוך זוג מגיע כמחרוזת, ולא רק כשהוא ארגומנט של הכלי.
 
     ה-SDK מריץ ``pre_parse_json`` על כל פרמטר שאינו מוצהר ``str`` בדיוק, ומפענח
     בו ``null``, מערך ואובייקט לערך; מספר ובוליאני הוא משאיר כמחרוזת (נמדד על
@@ -172,13 +185,19 @@ def test_content_that_looks_like_json_reaches_the_tool_as_it_was_sent(mcp, store
     saved = _call(mcp, "codekeeper_save_file", file_name=NAME, code=text + "\n")
     edited = _call(mcp, "codekeeper_edit_file", file_name=NAME, old_string=text, new_string=text + "!")
     appended = _call(mcp, "codekeeper_append_file", file_name=NAME, content=text)
+    multi = _call(mcp, "codekeeper_multi_edit_file", file_name=NAME,
+                  edits=[{"old_string": text + "!", "new_string": text + "?"}])
 
     assert _stored_by_id(store, saved["file"]["id"])["code"] == text + "\n"
     assert _stored_by_id(store, edited["file"]["id"])["code"] == text + "!\n"
-    final = _stored_by_id(store, appended["file"]["id"])["code"]
-    assert final == text + "!\n" + text
-    assert appended["file"]["content_sha256"] == _sha(final)
-    assert saved["content_changed"] is edited["content_changed"] is appended["content_changed"] is False
+    appended_code = _stored_by_id(store, appended["file"]["id"])["code"]
+    assert appended_code == text + "!\n" + text
+    assert appended["file"]["content_sha256"] == _sha(appended_code)
+    final = _stored_by_id(store, multi["file"]["id"])["code"]
+    assert final == text + "?\n" + text
+    assert multi["file"]["content_sha256"] == _sha(final)
+    assert saved["content_changed"] is edited["content_changed"] is False
+    assert appended["content_changed"] is multi["content_changed"] is False
 
 
 def test_a_file_at_the_size_ceiling_gets_its_hash_on_write_and_on_read(mcp, store):
@@ -290,7 +309,8 @@ def _lose_the_first_rlm_on_the_way(monkeypatch, collection):
     monkeypatch.setattr(collection, "insert_one", insert_one)
 
 
-@pytest.mark.parametrize("tool", ["codekeeper_save_file", "codekeeper_edit_file", "codekeeper_append_file"])
+@pytest.mark.parametrize("tool", ["codekeeper_save_file", "codekeeper_edit_file",
+                                  "codekeeper_multi_edit_file", "codekeeper_append_file"])
 def test_a_layer_that_changes_the_content_on_the_way_is_reported(mcp, store, monkeypatch, tool):
     """הטסט שמוכיח שהרשת תופסת: ``content_changed``, סיכום מדויק, ו-hash של מה שנשמר.
 
@@ -311,6 +331,16 @@ def test_a_layer_that_changes_the_content_on_the_way_is_reported(mcp, store, mon
         _lose_the_first_rlm_on_the_way(monkeypatch, store.code_snippets)
         intended = base.replace("טיוטה", "סופי")
         res = _call(mcp, tool, file_name=NAME, old_string="טיוטה", new_string="סופי")
+    elif tool == "codekeeper_multi_edit_file":
+        # ה"כוונה" היא הקובץ אחרי **כל** הזוגות — מה ש-``_resave_edited`` מעביר לשמירה.
+        base = "שורה ראשונה\nשם" + RLM + ": ערך\nטיוטה\nנספח\n"
+        assert _call(mcp, "codekeeper_save_file", file_name=NAME, code=base)["ok"] is True
+        _lose_the_first_rlm_on_the_way(monkeypatch, store.code_snippets)
+        intended = base.replace("טיוטה", "סופי").replace("נספח", "סוף")
+        res = _call(mcp, tool, file_name=NAME, edits=[
+            {"old_string": "טיוטה", "new_string": "סופי"},
+            {"old_string": "נספח", "new_string": "סוף"},
+        ])
     else:
         base = "שורה ראשונה\nשם" + RLM + ": ערך"  # בלי ירידת שורה בסוף: ההוספה מוסיפה מפריד
         assert _call(mcp, "codekeeper_save_file", file_name=NAME, code=base)["ok"] is True
@@ -491,9 +521,10 @@ def test_the_read_back_does_not_come_from_a_stale_cache(mcp, store, monkeypatch)
 
 
 def test_the_write_path_never_puts_a_version_in_the_cache(mcp, store):
-    """שלושת כלי הכתיבה לא משאירים מפתח ``latest_version`` בקאש — כמו ב-
+    """כלי הכתיבה לא משאירים מפתח ``latest_version`` בקאש — כמו ב-
     ``tests/test_edit_file_accumulates.py``: חזק מ"הקאש התפנה", כי הוא דורש שהערך
-    לא ייכנס לקאש מלכתחילה.
+    לא ייכנס לקאש מלכתחילה. כלי העריכה בונים את הגרסה החדשה על הבסיס שנקרא, ולכן
+    בסיס מקוּש היה עריכה על גרסה ישנה (``write-from-cached-read``).
     """
     import cache_manager
 
@@ -501,6 +532,8 @@ def test_the_write_path_never_puts_a_version_in_the_cache(mcp, store):
     assert _call(mcp, "codekeeper_save_file", file_name=NAME, code="א\n")["ok"] is True
     assert _call(mcp, "codekeeper_edit_file", file_name=NAME, old_string="א", new_string="ב")["ok"] is True
     assert _call(mcp, "codekeeper_append_file", file_name=NAME, content="ג\n")["ok"] is True
+    assert _call(mcp, "codekeeper_multi_edit_file", file_name=NAME,
+                 edits=[{"old_string": "ב", "new_string": "ד"}])["ok"] is True
 
     leftovers = [k for k in cache_manager._local_cache_store if "latest_version" in k]
     assert not leftovers, f"מסלול הכתיבה נשען על קאש גרסאות: {leftovers}"
@@ -619,8 +652,9 @@ def test_stored_content_that_is_not_a_string_fails_loudly_in_every_read_mode(
 @pytest.mark.parametrize(
     ("tool", "arguments"),
     [("codekeeper_edit_file", {"old_string": "a", "new_string": "b"}),
+     ("codekeeper_multi_edit_file", {"edits": [{"old_string": "a", "new_string": "b"}]}),
      ("codekeeper_append_file", {"content": "tail\n"})],
-    ids=["edit", "append"],
+    ids=["edit", "multi_edit", "append"],
 )
 def test_edit_and_append_on_content_that_is_not_a_string_fail_before_writing(
         mcp, store, tool, arguments):
@@ -807,7 +841,7 @@ def test_the_scanner_catches_every_form_it_claims_to():
 def test_the_formula_in_the_tool_descriptions_is_what_the_server_computes(monkeypatch):
     """הנוסחה שהסוכן מריץ, כפי שהיא כתובה בתיאורים, נותנת את מה ש-``_full`` מחזיר.
 
-    והיא יושבת בתיאור של ``get_file`` ושל שלושת כלי הכתיבה; ``list_versions``
+    והיא יושבת בתיאור של ``get_file`` ושל כל כלי כתיבה של קבצים; ``list_versions``
     מפנה ל-``version=N`` עם ``lines=[1, 1]``.
     """
     import mcp_server.server as srv
@@ -825,9 +859,10 @@ def test_the_formula_in_the_tool_descriptions_is_what_the_server_computes(monkey
 
     tools = {t.name: t.description for t in srv.build_mcp(_Nothing())._tool_manager.list_tools()}
     for name in ("codekeeper_get_file", "codekeeper_save_file", "codekeeper_edit_file",
-                 "codekeeper_append_file"):
+                 "codekeeper_multi_edit_file", "codekeeper_append_file"):
         assert srv._CONTENT_SHA256_CHECK in tools[name], name
-    for name in ("codekeeper_save_file", "codekeeper_edit_file", "codekeeper_append_file"):
+    for name in ("codekeeper_save_file", "codekeeper_edit_file", "codekeeper_multi_edit_file",
+                 "codekeeper_append_file"):
         assert "content_changed" in tools[name], name
     assert "version=N" in tools["codekeeper_list_versions"]
     assert "lines=[1, 1]" in tools["codekeeper_list_versions"]

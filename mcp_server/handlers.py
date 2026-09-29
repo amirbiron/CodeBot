@@ -15,7 +15,7 @@ import itertools
 import re
 from typing import Annotated, Any, NamedTuple
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from .answer_size import BYTE_BUDGET_REASON, list_item_cost
 
@@ -828,13 +828,31 @@ def save_file(
 
 
 def _apply_edit(
-    code: str, old_string: str, new_string: str, replace_all: bool
+    code: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool,
+    *,
+    max_size: int | None = None,
 ) -> tuple[str | None, int, str | None]:
     """Pure exact find-and-replace (native Edit-tool semantics).
 
     Returns ``(new_code, occurrences, error)`` — exactly one of new_code/error
     is set. ``occurrences`` is how many matches were found, so an
     ``ambiguous_match`` error can report the count.
+
+    **``max_size`` נבדק לפני שהתוצאה נבנית, ולא אחריה.** אורך התוצאה ידוע מראש:
+    ``str.count`` ו-``str.replace`` סופרים את אותם מופעים שאינם חופפים משמאל
+    לימין, ולכן הוא ``len(code) + count * (len(new_string) - len(old_string))``
+    בדיוק. בדיקה אחרי ``replace`` הייתה מגיעה מאוחר מדי: ``replace_all`` על
+    ``"a"`` עם ``new_string`` של אלף תווים, בקובץ של מאה אלף ``a``, בונה מחרוזת
+    של מאה מיליון תווים לפני שמישהו מודד אותה — בקשה של כמה קילובייטים שמכלה
+    את הזיכרון של תהליך ה-MCP כולו. ובבאץ' של ``codekeeper_multi_edit_file``
+    הזוגות מוחלים זה על תוצאת זה, כך שבלי הבדיקה כאן זוג שמחליף את ``"a"`` ב-
+    ``"aa"`` כופל את הטקסט בכל שלב. ``code_too_large`` כאן הוא אותו קוד ש-
+    :func:`_resave_edited` מחזיר על התוצאה הסופית, כי זו אותה תקרה.
+    ``None`` — בלי תקרה; ``note_str_replace`` קורא כך, והתקרה שלו נבדקת אחרי
+    ההחלפה (``MAX_NOTE_CONTENT``).
     """
     if old_string == "":
         return None, 0, "empty_old_string"
@@ -845,6 +863,8 @@ def _apply_edit(
         return None, 0, "no_match"
     if count > 1 and not replace_all:
         return None, count, "ambiguous_match"
+    if max_size is not None and len(code) + count * (len(new_string) - len(old_string)) > max_size:
+        return None, count, "code_too_large"
     return code.replace(old_string, new_string), count, None
 
 
@@ -883,24 +903,107 @@ def _resave_edited(
     )
 
 
-#: מה שתשובת השמירה אומרת על **מה שנשמר**, ועובר כמות שהוא לתשובה של העריכה
-#: ושל ההוספה, לצד ``file`` (שנושא את ``content_sha256``).
+#: מה שתשובת השמירה אומרת על **מה שנשמר**, ועובר כמות שהוא לתשובה של כל כלי
+#: עריכה, לצד ``file`` (שנושא את ``content_sha256``).
 _SAVE_VERIFICATION_FIELDS = ("content_changed", "content_diff")
 
 
 def _resaved_answer(res: dict[str, Any], **fields: Any) -> dict[str, Any]:
-    """תשובת ההצלחה של עריכה ושל הוספה: השדות של הכלי, ``file``, ומה שהשמירה אימתה.
+    """תשובת ההצלחה של כלי העריכה: השדות של הכלי, ``file``, ומה שהשמירה אימתה.
 
-    עוזר אחד לשני הכלים, כי התשובה שלהם נבנית ביד ולא מועברת כמו שהיא: שדה
-    שיתווסף לתשובת השמירה היה מגיע אחרת רק לכלי שמישהו זכר לעדכן. מפתח שתשובת
-    השמירה לא החזירה לא מומצא כאן — ``None`` שמופיע בלי שה-backend אמר אותו היה
-    נקרא "לא הצלחנו לאמת".
+    עוזר אחד לכל הכלים שעוברים ב-:func:`_resave_edited`, כי התשובה שלהם נבנית
+    ביד ולא מועברת כמו שהיא: שדה שיתווסף לתשובת השמירה היה מגיע אחרת רק לכלי
+    שמישהו זכר לעדכן. מפתח שתשובת השמירה לא החזירה לא מומצא כאן — ``None``
+    שמופיע בלי שה-backend אמר אותו היה נקרא "לא הצלחנו לאמת".
     """
     answer: dict[str, Any] = {"ok": True, **fields, "file": res.get("file")}
     for key in _SAVE_VERIFICATION_FIELDS:
         if key in res:
             answer[key] = res[key]
     return answer
+
+
+# ---------------------------------------------------------------------------
+# השער האופטימי של כלי העריכה — ``expected_content_sha256``.
+#
+# **מה הוא סוגר.** סוכן קורא קובץ (לפעמים בכמה שלבים: מפה, סעיף, טווח), בונה
+# עריכה, ושולח אותה. אם בינתיים נכתב הקובץ — סשן אחר, הוובאפ, הבוט — העריכה
+# נבנית על בסיס שהסוכן לא ראה, בלי שום סימן. עם הפרמטר, מה שהסוכן ראה מושווה
+# לגרסה שהעריכה עומדת להיבנות עליה, לפני שדבר מוחל.
+#
+# **למה hash ולא ``version``.** ה-hash משתנה בכל כתיבה לתוכן, גם כזו שאינה
+# מעלה גרסה: ``check_file_sync`` ב-``database/bookmarks_manager.py`` כותב
+# ``code`` במקום (``update_one``). ו-``codekeeper_get_file`` מחזיר אותו בכל מצב
+# קריאה — גם ``toc`` ו-``section`` — כך שסוכן שקרא בכמה שלבים מחזיק אותו.
+#
+# **מה הוא אינו סוגר, במפורש.** גוף הכלי רץ על העובד היחיד של תור הכתיבה
+# (``_WRITE_POOL`` ב-``mcp_server/server.py``), ולכן בין כותבי MCP הבדיקה
+# והכתיבה אינן משתלבות. כתיבה מהוובאפ או מהבוט — תהליכים אחרים — עדיין יכולה
+# לנחות בין הבדיקה ל-``insert``. זה מצמצם את החלון ואינו סוגר אותו; הסגירה
+# היא אינדקס ייחודי ועדכון מותנה, הכיוון שמתואר ב-#3391.
+# ---------------------------------------------------------------------------
+
+#: הצורה של ``hexdigest()`` של sha256: 64 ספרות הקס. טווחים מפורשים ולא ``\d``,
+#: כי ``\d`` על ``str`` תופס גם ספרות שאינן ASCII.
+_SHA256_HEX = re.compile(r"[0-9a-fA-F]{64}")
+
+
+def _invalid_expected_sha256(expected: Any) -> dict[str, Any] | None:
+    """סירוב על ``expected_content_sha256`` שאינו בצורת hash — או ``None``.
+
+    **קוד משלו ולא ``conflict``:** שגיאת כתיב הייתה נקראת אחרת כ"הקובץ השתנה",
+    והסוכן היה קורא אותו מחדש ושולח שוב את אותו ערך שגוי. נבדק לפני כל קריאה
+    מהמסד. ספרות הקס בשתי הרישיות מתקבלות — זה אותו מספר — וההשוואה ב-
+    :func:`_changed_since_read` אינה תלויה ברישיות. הערך עצמו אינו מוחזר.
+    """
+    if expected is None:
+        return None
+    if isinstance(expected, str) and _SHA256_HEX.fullmatch(expected):
+        return None
+    return {
+        "ok": False,
+        "error": "invalid_expected_content_sha256",
+        "hint": "pass file.content_sha256 exactly as codekeeper_get_file returned it: 64 hex "
+        "digits",
+    }
+
+
+def _changed_since_read(doc: dict[str, Any], expected: str | None) -> dict[str, Any] | None:
+    """``conflict`` כשהגרסה שהעריכה עומדת להיבנות עליה אינה זו שהסוכן קרא.
+
+    רץ מיד אחרי :func:`_load_editable`, לפני שדבר מוחל. ה-hash שמושווה הוא
+    ``content_sha256`` שה-backend כבר צירף ל-``doc`` — ``_full`` ב-
+    ``mcp_server/backend.py``, הנקודה האחת שמחשבת אותו, ואותה פונקציה שממנה
+    ``codekeeper_get_file`` מחזיר אותו — ולא חישוב שני כאן.
+
+    ``doc`` בלי ``content_sha256`` הוא backend שהפר את החוזה, ולא "אין מה
+    להשוות": ``TypeError`` בקול, כמו ``_full`` על תוכן שאינו מחרוזת. נפילה
+    ל"עבור בלי בדיקה" הייתה כותבת בדיוק במקרה שבו הסוכן ביקש שלא.
+
+    ``file`` בסירוב הוא המטא-דאטה בלי התוכן (``_file_meta`` — המקום היחיד שבונה
+    ``file`` כזה), עם ``version`` ו-``content_sha256`` הנוכחיים. הייבוא עצל כי
+    ``backend`` מייבא את המודול הזה בטעינה.
+    """
+    if expected is None:
+        return None
+    current = doc.get("content_sha256")
+    if not isinstance(current, str):
+        raise TypeError(
+            "the stored version carries no content_sha256, so expected_content_sha256 "
+            "cannot be checked"
+        )
+    if expected.lower() == current.lower():
+        return None
+    from .backend import _file_meta
+
+    return {
+        "ok": False,
+        "error": "conflict",
+        "file": _file_meta(doc),
+        "hint": "the file changed since you read it; nothing was written. Re-read it with "
+        "codekeeper_get_file (every mode carries file.content_sha256), rebuild the edit "
+        "on the current content, and send it again",
+    }
 
 
 def edit_file(
@@ -911,29 +1014,44 @@ def edit_file(
     old_string: str,
     new_string: str,
     replace_all: bool = False,
+    expected_content_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Server-side find-and-replace on the latest version of an existing file.
 
     The client sends only the changed snippet (old/new) — never the whole file.
     The result goes through the same append-only versioned save path, so the
     pre-edit version stays recoverable via ``list_versions``.
+
+    ``expected_content_sha256`` הוא השער האופטימי המשותף לכלי העריכה — ראו את
+    ההערה מעל :func:`_invalid_expected_sha256`. בלעדיו אין שום בדיקה נוספת.
     """
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
     if not isinstance(old_string, str) or not isinstance(new_string, str):
         return {"ok": False, "error": "invalid_arguments"}
+    bad_expected = _invalid_expected_sha256(expected_content_sha256)
+    if bad_expected is not None:
+        return bad_expected
     doc, code = _load_editable(backend, user_id, name)
     if doc is None:
         return {"ok": False, "error": "not_found"}
     if code == "":
         return {"ok": False, "error": "empty_file"}
-    new_code, occurrences, err = _apply_edit(code, old_string, new_string, bool(replace_all))
+    changed = _changed_since_read(doc, expected_content_sha256)
+    if changed is not None:
+        return changed
+    max_size = max_code_size()
+    new_code, occurrences, err = _apply_edit(
+        code, old_string, new_string, bool(replace_all), max_size=max_size
+    )
     if err is not None or new_code is None:
         out: dict[str, Any] = {"ok": False, "error": err or "edit_failed"}
         if err == "ambiguous_match":
             out["occurrences"] = occurrences
             out["hint"] = "pass a longer unique old_string, or set replace_all=true"
+        if err == "code_too_large":
+            out["max"] = max_size
         return out
     res = _resave_edited(
         backend, user_id, name=name, doc=doc, new_code=new_code, tool="codekeeper_edit_file"
@@ -943,22 +1061,37 @@ def edit_file(
     return _resaved_answer(res, replacements=occurrences)
 
 
-def append_file(backend: Any, user_id: int, *, file_name: str, content: str) -> dict[str, Any]:
+def append_file(
+    backend: Any,
+    user_id: int,
+    *,
+    file_name: str,
+    content: str,
+    expected_content_sha256: str | None = None,
+) -> dict[str, Any]:
     """Append ``content`` to the end of an existing file (as a new version).
 
     A newline separator is inserted when the current body doesn't end with one,
     so an appended section always starts on a fresh line.
+
+    ``expected_content_sha256`` — אותו שער כמו ב-:func:`edit_file`.
     """
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
     if not isinstance(content, str) or content == "":
         return {"ok": False, "error": "empty_content"}
+    bad_expected = _invalid_expected_sha256(expected_content_sha256)
+    if bad_expected is not None:
+        return bad_expected
     doc, code = _load_editable(backend, user_id, name)
     if doc is None:
         return {"ok": False, "error": "not_found"}
     if code == "":
         return {"ok": False, "error": "empty_file"}
+    changed = _changed_since_read(doc, expected_content_sha256)
+    if changed is not None:
+        return changed
     sep = "" if code.endswith("\n") else "\n"
     res = _resave_edited(
         backend,
@@ -971,6 +1104,215 @@ def append_file(backend: Any, user_id: int, *, file_name: str, content: str) -> 
     if not res.get("ok"):
         return res
     return _resaved_answer(res, appended_chars=len(content))
+
+
+# ---------------------------------------------------------------------------
+# ``codekeeper_multi_edit_file`` — כמה עריכות בקובץ אחד, בגרסה אחת.
+#
+# **הסמנטיקה היא של כמה קריאות עוקבות ל-``codekeeper_edit_file``, מקופלות
+# לשמירה אחת:** הזוגות מוחלים בסדר שנשלחו, כל זוג על התוצאה של קודמו, דרך אותו
+# :func:`_apply_edit`, ורק בסוף יש :func:`_resave_edited` אחד. "כולם או כלום"
+# אינו מנגנון נוסף אלא תוצאה של המבנה: כל התוצאה נבנית בזיכרון, ויש ``insert``
+# אחד — זוג שנכשל, או שמירה שמסרבת, משאירים את המסד כמו שהיה.
+# ---------------------------------------------------------------------------
+
+
+def validation_problems(exc: ValidationError) -> list[dict[str, Any]]:
+    """מה נכשל ואיפה — בלי להדהד את הערך שנשלח.
+
+    ``include_input=False`` הוא כל העניין: הערך יכול להיות תוכן של קובץ, ו-
+    ``str(exc)`` של pydantic **כן** נושא אותו (``input_value=...``) — ולכן
+    החריגה עצמה לעולם אינה יוצאת מכאן, רק הרשימה. ``loc`` נושא אינדקסים ושמות
+    שדות, ו-``msg`` את סוג הבעיה. משותף ל-``invalid_item`` של
+    ``codekeeper_read_batch`` ול-``invalid_edit`` כאן, כדי ששני הסירובים לא
+    יבנו את אותה רשימה בשני נוסחים.
+    """
+    return [
+        {"loc": list(err.get("loc") or ()), "msg": err.get("msg")}
+        for err in exc.errors(include_url=False, include_context=False, include_input=False)
+    ]
+
+
+# זוג עריכה אחד — הארגומנטים של ``codekeeper_edit_file`` בלי ``file_name``.
+#
+# ``extra="forbid"`` ו-``strict=True``, כמו ``SectionItem`` ב-``read_batch``: מפתח זר,
+# ``replace_all`` שאינו בוליאני של JSON (``"true"``, ``1``), או מחרוזת שאינה מחרוזת —
+# סירוב גלוי שמצביע על הזוג והשדה, ולא קריאה שגויה. זה שונה מהכלל של דגל ברמה העליונה
+# (ההערה מעל ``StrictInt``): שם ה-SDK ממיר ``"true"`` לבוליאני בכוונה, וכאן הטיפוס מוצהר
+# בתוך אובייקט JSON.
+#
+# **שטוח בכוונה** — בלי מודל מקונן ובלי ``Enum`` — כדי שהסכימה שלו לא תישא
+# ``$defs``/``$ref``, שאף כלי בשרת הזה אינו מפרסם.
+#
+# **ההסבר כאן ולא ב-docstring, כי ה-docstring מתפרסם.** ``model_json_schema`` מעתיק
+# אותו ל-``description`` של הסכימה שהלקוח רואה (נמדד, pydantic 2.12.3), ולכן הוא שורה
+# אחת שמיועדת לסוכן, באנגלית כמו שאר תיאורי הכלים.
+class EditPair(BaseModel):
+    """One edit: the arguments of codekeeper_edit_file without file_name."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    old_string: str
+    new_string: str
+    replace_all: bool = False
+
+
+#: המאמת של הרשימה כולה, בקריאה אחת — ולכן ``loc`` של כל שגיאה נפתח באינדקס
+#: הזוג, וכל הבעיות המבניות חוזרות בתשובה אחת.
+#:
+#: **נבנה בייבוא, ונבדק במקור שהשימוש הראשון אינו בונה דבר לא מוגן** (K15). ב-
+#: ``pydantic 2.12.3`` הבנאי קורא ל-``_init_core_attrs(force=False)``, ובלי
+#: ``defer_build`` בונה שם את ה-validator ומסמן ``pydantic_complete``, ו-
+#: ``validate_python`` רק קורא לו (``pydantic/type_adapter.py``). ב-``pydantic-core
+#: 2.41.4`` השדה העצל היחיד במסלול הזה הוא השם של ``ListValidator``, ‏
+#: ``OnceLock<String>`` שנבנה ב-``get_or_init`` (``src/validators/list.rs``) — ו-
+#: ``OnceLock`` של Rust מבטיח שרק מאתחל אחד רץ גם כשכמה חוטים ניגשים יחד.
+#: ב-``model.rs``, ‏``model_fields.rs``, ‏``string.rs`` ו-``bool.rs`` אין מצב עצל.
+_EDITS_ADAPTER: TypeAdapter[list[EditPair]] = TypeAdapter(list[EditPair])
+
+#: הסכימה שהלקוח רואה לזוג — **נגזרת מהמודל שהגוף מאמת לפיו**, כך שהחוזה
+#: המוצהר והאכיפה אינם יכולים להיפרד (כמו ``ITEM_JSON_SCHEMA`` ב-``read_batch``).
+EDIT_PAIR_JSON_SCHEMA: dict[str, Any] = EditPair.model_json_schema()
+
+#: כמה זוגות קריאה אחת נושאת. **נדחה ולא נחתך** (``too_many_edits``): באץ' שנחתך
+#: היה מחיל חלק מהעריכות ומדווח הצלחה — בדיוק החצי-מוחל שהכלי בא למנוע.
+#:
+#: **למה 50.** העבודה על כל זוג היא ``count`` ו-``replace`` על מחרוזת בזיכרון של
+#: עד ``max_code_size()`` תווים — לינארית במספר הזוגות ובגודל הקובץ — ותקרת גוף
+#: הבקשה (``limits.request_bytes_for``) כבר חוסמת את הקלט עצמו. הדיווח שהוליד את
+#: הכלי היה ארבע עריכות לעדכון לוגי אחד; 50 גבוה מכל עדכון כזה, ונמוך מספיק
+#: שאיש לא יבנה על הכלי מסלול כתיבה מלא. גם הצמיחה בין הזוגות חסומה: כל זוג
+#: נבדק מול ``max_code_size()`` לפני שהתוצאה שלו נבנית (:func:`_apply_edit`).
+#:
+#: **ובמגבלת הקצב הקריאה שוקלת 1, לא מספר הזוגות** — בניגוד ל-
+#: ``codekeeper_read_batch``, שנשקל כמספר הפריטים כי כל פריט שם הוא קריאה ופרסור.
+#: כאן יש קריאה אחת מהמסד ושמירה אחת, והזוגות הם פעולות מחרוזת. לכן אין לכלי
+#: הזה ענף ב-``AdminAwareFastMCP.call_tool``.
+MAX_EDIT_PAIRS = 50
+
+#: מה שכל סירוב של זוג אומר, מעבר לקוד שלו.
+_NOTHING_WRITTEN = (
+    "nothing was written: the batch is all or nothing. Fix this pair and send the whole "
+    "batch again"
+)
+
+
+def refuse_edits(edits: list[Any]) -> dict[str, Any] | None:
+    """הסירוב של הקריאה כולה על אורך הרשימה — או ``None``.
+
+    אותה צורה כמו ``refuse_items`` של ``codekeeper_read_batch``: רשימה ריקה היא
+    סירוב ולא באץ' ריק שהצליח, ורשימה מעל התקרה נדחית ולא נחתכת.
+    """
+    if not edits:
+        return {"ok": False, "error": "missing_edits"}
+    if len(edits) > MAX_EDIT_PAIRS:
+        return {"ok": False, "error": "too_many_edits", "count": len(edits), "max": MAX_EDIT_PAIRS}
+    return None
+
+
+def _pair_refusal(
+    index: int, err: str | None, occurrences: int, *, old_string: str, stored: str, max_size: int
+) -> dict[str, Any]:
+    """הסירוב של זוג שנכשל: הקוד של ``codekeeper_edit_file``, ``index``, והסבר.
+
+    ב-``no_match`` וב-``ambiguous_match`` שני מספרים, ולעולם לא טקסט:
+    ``occurrences`` — כמה פעמים ``old_string`` נמצא בטקסט **אחרי** הזוגות
+    שלפניו, ו-``occurrences_in_stored_version`` — כמה פעמים בגרסה כפי שנשמרה.
+    כשהם שונים, זוג קודם בבאץ' שינה את מה שהזוג הזה מחפש, וזה המקרה שסוכן יוצר
+    בטעות: הוא מקבל "לא נמצא" על מחרוזת שהוא בטוח שקיימת. ה-``count`` הנוסף רץ
+    רק כאן, במסלול הכשל.
+    """
+    out: dict[str, Any] = {"ok": False, "error": err or "edit_failed", "index": index}
+    hint = _NOTHING_WRITTEN
+    if err in ("no_match", "ambiguous_match"):
+        in_stored = stored.count(old_string)
+        out["occurrences"] = occurrences
+        out["occurrences_in_stored_version"] = in_stored
+        if occurrences != in_stored:
+            hint += (". An earlier pair in this batch changed the text this pair looks for: "
+                     "occurrences counts the text after the pairs before it, "
+                     "occurrences_in_stored_version the file as stored")
+        if err == "ambiguous_match":
+            hint += ". Pass a longer unique old_string, or set replace_all=true on this pair"
+    if err == "code_too_large":
+        out["max"] = max_size
+    out["hint"] = hint
+    return out
+
+
+def multi_edit_file(
+    backend: Any,
+    user_id: int,
+    *,
+    file_name: str,
+    edits: list[Any],
+    expected_content_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Several exact find-and-replace edits on one existing file, saved as ONE new version.
+
+    **הסדר, וזו כל ההכרעה:** כל מה שזול ומקומי רץ **לפני** הקריאה מהמסד —
+    ``missing_file_name``, אורך הרשימה, המבנה של **כל** הזוגות, והצורה של
+    ``expected_content_sha256`` — כך שקלט פגום אינו עולה קריאה, וזוג פגום
+    במקום השלישי נענה מיד, לפני שזוג ראשון מוחל. אחרי הקריאה: ``not_found``,
+    ``empty_file``, השער (צריך את התוכן), הזוגות בסדרם, ושמירה אחת. אותו סדר
+    כמו ב-:func:`edit_file`.
+
+    ``edits`` שאינו רשימה אינו נענה כאן: הסכימה של הכלי מבטיחה רשימה, וה-SDK
+    דוחה כל דבר אחר לפני שהגוף רץ — כמו ``items`` של ``codekeeper_read_batch``.
+    """
+    name = (file_name or "").strip()
+    if not name:
+        return {"ok": False, "error": "missing_file_name"}
+    if not isinstance(edits, list):
+        raise TypeError("edits must be a list; the tool's schema guarantees one")
+    refusal = refuse_edits(edits)
+    if refusal is not None:
+        return refusal
+    try:
+        pairs = _EDITS_ADAPTER.validate_python(edits)
+    except ValidationError as exc:
+        problems = validation_problems(exc)
+        # ``loc`` של כל בעיה נפתח באינדקס הזוג (הרשימה אומתה כולה); ``index`` הוא
+        # הזוג הראשון שנכשל, כמו בסירוב של זוג שלא התאים.
+        return {
+            "ok": False,
+            "error": "invalid_edit",
+            "index": min(problem["loc"][0] for problem in problems),
+            "problems": problems,
+        }
+    bad_expected = _invalid_expected_sha256(expected_content_sha256)
+    if bad_expected is not None:
+        return bad_expected
+    doc, stored = _load_editable(backend, user_id, name)
+    if doc is None:
+        return {"ok": False, "error": "not_found"}
+    if stored == "":
+        return {"ok": False, "error": "empty_file"}
+    changed = _changed_since_read(doc, expected_content_sha256)
+    if changed is not None:
+        return changed
+    max_size = max_code_size()
+    code = stored
+    replacements = 0
+    for index, pair in enumerate(pairs):
+        new_code, occurrences, err = _apply_edit(
+            code, pair.old_string, pair.new_string, pair.replace_all, max_size=max_size
+        )
+        if err is not None or new_code is None:
+            return _pair_refusal(
+                index, err, occurrences, old_string=pair.old_string, stored=stored,
+                max_size=max_size,
+            )
+        code = new_code
+        # החלפות בפועל ולא זוגות: זוג עם ``replace_all`` שפגע בשבעה מופעים תורם
+        # שבעה — בדיוק כמו ``replacements`` של ``codekeeper_edit_file``.
+        replacements += occurrences
+    res = _resave_edited(
+        backend, user_id, name=name, doc=doc, new_code=code, tool="codekeeper_multi_edit_file"
+    )
+    if not res.get("ok"):
+        return res
+    return _resaved_answer(res, edits_applied=len(pairs), replacements=replacements)
 
 
 def update_file_description(
