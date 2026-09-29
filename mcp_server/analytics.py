@@ -93,6 +93,9 @@ import logging
 import os
 from typing import Any, Optional
 
+from pydantic import TypeAdapter, ValidationError
+
+from .handlers import FILE_READ_MODES, ReadMode
 from .redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
@@ -268,20 +271,100 @@ _ALLOWED_CUSTOM_PROPERTIES: dict[str, frozenset[str]] = {
 #:
 #: אותה מוסכמה שכבר קיימת בין ``outline.py`` ל-``backend.py``.
 
-#: **איזה פרמטר קריאה שייך לאיזה כלי.** השאלה אינה "מה נשלח" אלא "מה הכלי
-#: הזה בכלל מקבל": הקולבק מקבל את מילון הארגומנטים **הגולמי**, לפני
-#: ש-pydantic מסלק ממנו מפתחות שאינם בסכימה של הכלי, ולכן מפתח של הכלי האחר
-#: מגיע לכאן ונקרא. ``outline`` קיים רק ב-``codekeeper_get_repo_file``,
-#: ו-``toc``, ``section`` ו-``query`` רק ב-``codekeeper_get_file``, ובלי השיוך
-#: הזה קריאה שנושאת מפתח תועה נספרת בעמודה הלא נכונה — בלי שגיאה, ובלי
-#: שמישהו יראה את זה. שתי העמודות האחרות יוצאות חסרות באותה מידה, וזה בדיוק
-#: המדד שהעמודה נבנתה כדי לספק.
+#: **איזה פרמטר קריאה שייך לאיזה כלי, ובאיזה סדר התווית נבחרת.** השאלה אינה "מה
+#: נשלח" אלא "מה הכלי הזה בכלל מקבל": הקולבק מקבל את מילון הארגומנטים **הגולמי**,
+#: לפני ש-pydantic מסלק ממנו מפתחות שאינם בסכימה של הכלי, ולכן מפתח של הכלי האחר
+#: מגיע לכאן ונקרא. ``outline`` קיים רק ב-``codekeeper_get_repo_file``, ו-``toc``,
+#: ``section`` ו-``query`` רק ב-``codekeeper_get_file``, ובלי השיוך הזה קריאה שנושאת
+#: מפתח תועה נספרת בעמודה הלא נכונה — בלי שגיאה, ובלי שמישהו יראה את זה. שתי
+#: העמודות האחרות יוצאות חסרות באותה מידה, וזה בדיוק המדד שהעמודה נבנתה כדי לספק.
+#:
+#: **והסדר של ``codekeeper_get_file`` אינו כתוב כאן — הוא ``FILE_READ_MODES`` של
+#: ``handlers``**, אותו מבנה שממנו הכלי גוזר את הזוגות שהוא דוחה (#3472, SUGG-005).
+#: כך קריאה שנדחתה כזוג מתויגת לפי המצב הראשון בקוד הסירוב שלה, בלי ששני מקומות
+#: צריכים לזכור אותו סדר. לכלי הריפו יש זוג אחד, ``outline_and_lines``
+#: (``RepoBackend.get_file``), והסדר שלו — ``outline`` ואז ``lines`` — כתוב כאן.
+_TOOL_READ_MODES: dict[str, tuple[ReadMode, ...]] = {
+    "codekeeper_get_file": FILE_READ_MODES,
+    "codekeeper_get_repo_file": (ReadMode("outline", flag=True), ReadMode("lines", flag=False)),
+}
+
+#: התווית של כל פרמטר קריאה. ``toc`` ו-``outline`` שניהם ``outline`` — ראו
+#: :data:`READ_MODE_OUTLINE`.
+_READ_MODE_LABELS: dict[str, str] = {
+    "outline": READ_MODE_OUTLINE,
+    "toc": READ_MODE_OUTLINE,
+    "section": READ_MODE_SECTION,
+    "query": READ_MODE_QUERY,
+    "lines": READ_MODE_RANGE,
+}
+
+#: כל כלי ← מצביו, בסדר, כל אחד עם התווית שלו. **נבנה בייבוא**, ולכן מצב שיתווסף ל-
+#: ``FILE_READ_MODES`` בלי תווית כאן מפיל את טעינת המודול (``KeyError``) — ולא נבלע
+#: ב-``except`` של הקולבק כאזהרה על כל אירוע.
+_TOOL_READ_LABELS: dict[str, tuple[tuple[ReadMode, str], ...]] = {
+    name: tuple((mode, _READ_MODE_LABELS[mode.param]) for mode in modes)
+    for name, modes in _TOOL_READ_MODES.items()
+}
+
+#: השיוך כקבוצות, נגזר מ-:data:`_TOOL_READ_MODES` ולא נכתב פעמיים. הטסטים משווים אותו
+#: לסכימות שהכלים הרשומים מצהירים עליהן.
 _TOOL_READ_MODE_PARAMS: dict[str, frozenset[str]] = {
-    "codekeeper_get_file": frozenset({"toc", "section", "query", "lines"}),
-    "codekeeper_get_repo_file": frozenset({"outline", "lines"}),
+    name: frozenset(mode.param for mode in modes) for name, modes in _TOOL_READ_MODES.items()
 }
 
 FILE_READ_TOOLS = frozenset(_TOOL_READ_MODE_PARAMS)
+
+#: **איך דגל נקרא — באותה המרה שהכלי מקבל**, ולא לפי אמת-שקר של פייתון (#3472).
+#: הקולבק רואה את הארגומנטים לפני הוולידציה, ו-``outline``/``toc`` הם ``bool`` רגיל
+#: בסכימה, שממיר מחרוזת: ``"false"``, ``"no"`` ו-``"0"`` הם ``False`` לכלי — והוא קורא
+#: את הקובץ המלא — אבל מחרוזת לא ריקה היא אמת בפייתון. עד #3472 קריאה כזו תויגה
+#: ``outline``. זה היה נכון כבר אז ב-``outline=false`` של ``codekeeper_get_repo_file``,
+#: ו-``toc`` הצטרף אליו כשהפסיק להיות strict (WARN-002).
+#:
+#: ``TypeAdapter(bool)`` הוא הוולידציה של שדה ``bool`` במצב הרגיל — המצב שבו ה-SDK
+#: מאמת את הארגומנטים (``ArgModelBase`` ב-``mcp 1.28.1`` אינו מגדיר ``strict``). **מופע
+#: אחד ברמת המודול, ונבדק במקור שהשימוש הראשון בו אינו בונה דבר** (K15): ב-``pydantic
+#: 2.12.3`` הבנאי קורא ל-``_init_core_attrs(force=False)``, ובלי ``defer_build`` הוא בונה
+#: שם את ה-validator ומסמן ``pydantic_complete`` (``pydantic/type_adapter.py``); וב-
+#: ``pydantic-core 2.41.4`` ה-validator של ``bool`` מחזיק שדה ``strict`` בלבד, והמופעים
+#: הסטטיים שלו יושבים ב-``LazyLock`` שעטוף ב-``OnceLock`` (``src/validators/bool.rs``,
+#: ``src/build_tools.rs``) — כלומר שום מצב אינו נבנה בקריאה, ושום מצב אינו משתנה בה.
+_FLAG = TypeAdapter(bool)
+
+
+def _flag_requested(value: Any) -> bool:
+    """האם דגל קריאה (``outline``, ``toc``) **שנשלח** התבקש — כפי שהכלי יקרא אותו.
+
+    ערך שהוולידציה ממירה — לפי ההמרה. וערך שהוולידציה **דוחה** נספר כבקשה: ``null``,
+    ``2``, ``"maybe"``, ``""``, רשימה. הכלי דוחה את הקריאה כולה, כלומר היא לא קראה תוכן,
+    וזו בדיוק ההכרעה של זוג מצבים שנדחה — הוא נספר במצב הזול שלו (ראו
+    :func:`read_mode_properties`). ``null`` בכלל הזה: הדגל הוא ``bool`` ולא
+    ``bool | None``, ולכן ``null`` שנשלח נדחה בוולידציה — בשונה מדגל **שלא נשלח**, שמקבל
+    את ברירת המחדל ``False`` (:func:`_mode_requested`).
+    """
+    try:
+        return _FLAG.validate_python(value)
+    except ValidationError:
+        # לא בליעה: זו התשובה המוצהרת ל"ערך שהכלי דוחה" — ראו ה-docstring.
+        return True
+
+
+def _mode_requested(mode: ReadMode, arguments: dict[str, Any]) -> bool:
+    """האם המצב התבקש, כפי שהכלי קורא את הפרמטר.
+
+    **מפתח שלא נשלח אינו בקשה, ו-``null`` שנשלח — לפי הטיפוס.** הקולבק רואה את מילון
+    הארגומנטים הגולמי (``build_tool_call_request`` ב-``posthog 7.45.3`` עוטף את מה ש-
+    FastMCP קיבל, בלי לגעת בו), ולכן ``{"toc": null}`` מגיע כאן כמפתח עם ``None`` ולא
+    כמפתח חסר. בדגל — :func:`_flag_requested`, שקורא ``null`` כמו הכלי. בשאר הפרמטרים
+    — ``str | None`` או ``list | None`` בסכימה — ``null`` הוא ברירת המחדל, כלומר "לא
+    נשלח", ולכן "התבקש" הוא ``is not None``, גם עם ערך שיידחה.
+    """
+    if mode.param not in arguments:
+        return False
+    value = arguments[mode.param]
+    return _flag_requested(value) if mode.flag else value is not None
+
 
 _TOOL_CALL_METHOD = "tools/call"
 _MCP_PROPERTY_PREFIX = "$mcp_"
@@ -344,23 +427,27 @@ def read_mode_properties(
     columns — the comment next to ``CK_READ_MODE_KEY`` says why the label must
     still be true.)
 
-    **Only presence is read, never a value.** ``lines`` carries line numbers,
-    ``query`` carries the caller's search string, ``section`` carries a heading
-    the caller typed, and ``outline`` and ``toc`` carry a flag; none of them is
-    echoed: the return value is one of five literals defined in this module, and
-    the gate rejects anything else. This is what makes the split possible while
-    ``$mcp_parameters`` stays blocked — and ``query`` and ``section`` are exactly
-    the parameters that make it matter, because they are free text the caller
-    wrote.
+    **No value is ever echoed.** ``lines`` carries line numbers, ``query`` carries
+    the caller's search string, ``section`` carries a heading the caller typed,
+    and ``outline`` and ``toc`` carry a flag; the return value is one of five
+    literals defined in this module, and the gate rejects anything else. This is
+    what makes the split possible while ``$mcp_parameters`` stays blocked — and
+    ``query`` and ``section`` are exactly the parameters that make it matter,
+    because they are free text the caller wrote. For those three, **presence**
+    decides — sent and not ``null``, which is their default. A flag is read the
+    way the tool reads it (:func:`_mode_requested`), because ``"false"`` is a full
+    read to the tool and a true string to Python, and a ``null`` flag is a call the
+    tool refuses, not one that left the flag out.
 
     The cheap modes are checked first, so a call passing two of them — which the
     tool rejects as ``outline_and_lines``, ``query_and_lines`` or one of the
     ``toc_and_*`` / ``section_and_*`` codes — is counted as the cheap read. That
     call reads no content either way, so the cheap column is the honest place
     for it. The order is the map (``outline`` / ``toc``), then ``section``, then
-    ``query``, then ``lines`` — the same order in which the tool names the pair
-    it refuses (``_EXCLUSIVE_READ_MODES`` in ``mcp_server/handlers.py``), so a
-    refused call is labelled by the first mode in its refusal code.
+    ``query``, then ``lines`` — and for ``codekeeper_get_file`` it is not written
+    here but taken from ``FILE_READ_MODES`` in ``mcp_server/handlers.py``, the
+    structure the tool derives the pairs it refuses from (``_EXCLUSIVE_READ_MODES``),
+    so a refused call is labelled by the first mode in its refusal code.
 
     **Each parameter is read only for the tool that declares it**, per
     :data:`_TOOL_READ_MODE_PARAMS`. Two things follow. ``codekeeper_search_code``
@@ -389,22 +476,15 @@ def read_mode_properties(
         # הנכונה לשם כלי שאינו מחרוזת היא פשוט ``None``.
         if not isinstance(name, str):
             return None
-        owned = _TOOL_READ_MODE_PARAMS.get(name)
-        if owned is None:
+        modes = _TOOL_READ_LABELS.get(name)
+        if modes is None:
             return None
         arguments = params.get("arguments")
         if not isinstance(arguments, dict):
             arguments = {}
-        if "outline" in owned and arguments.get("outline"):
-            return {CK_READ_MODE_KEY: READ_MODE_OUTLINE}
-        if "toc" in owned and arguments.get("toc"):
-            return {CK_READ_MODE_KEY: READ_MODE_OUTLINE}
-        if "section" in owned and arguments.get("section") is not None:
-            return {CK_READ_MODE_KEY: READ_MODE_SECTION}
-        if "query" in owned and arguments.get("query") is not None:
-            return {CK_READ_MODE_KEY: READ_MODE_QUERY}
-        if "lines" in owned and arguments.get("lines") is not None:
-            return {CK_READ_MODE_KEY: READ_MODE_RANGE}
+        for mode, label in modes:
+            if _mode_requested(mode, arguments):
+                return {CK_READ_MODE_KEY: label}
         return {CK_READ_MODE_KEY: READ_MODE_FULL}
     except Exception:
         logger.warning("read_mode_properties failed; the event ships without it", exc_info=True)

@@ -11,9 +11,10 @@ never pass a client-supplied user id here.
 from __future__ import annotations
 
 import html
+import itertools
 import json
 import re
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 from pydantic import Field
 
@@ -30,7 +31,8 @@ MAX_COLLECTIONS_LIMIT = 500
 DEFAULT_MAX_CODE_SIZE = 100_000
 
 
-# ``strict=True`` על טיפוסי הפרמטרים החדשים, ולא רק ``int``/``list[int]``.
+# ``strict=True`` על פרמטרים מסוג ``int`` ו-``list[int]`` — **ולא** על דגלים מסוג ``bool``;
+# למה לא, בהערה שמתחת ל-``StrictLines`` (#3472).
 #
 # נמדד מול Pydantic דרך FastMCP: ``list[int]`` **מקבל** ``[True, 5]`` וממיר
 # אותו ל-``[1, 5]``, וגם ``["3", "9"]`` ו-``[3.0, 9]`` עוברים. במצב כזה
@@ -43,11 +45,24 @@ DEFAULT_MAX_CODE_SIZE = 100_000
 # — בלי ``prefixItems``, ולכן בלי סיכון תאימות מול לקוחות.
 StrictInt = Annotated[int, Field(strict=True)]
 StrictLines = Annotated[list[StrictInt], Field(strict=True)]
-# אותה הגנה לדגל בוליאני, מאותה סיבה. נמדד מול ``mcp 1.28.1`` ו-``pydantic 2.12.3``
-# דרך ``FastMCP.call_tool``: ``bool`` רגיל מקבל ``"true"``, ``"yes"`` ו-``1`` ומחזיר
-# ``True`` בשקט, ו-``strict`` דוחה את שלושתם בשגיאת ולידציה. הסכימה שהלקוח רואה
-# זהה בשתי הצורות — ``{"type": "boolean", "default": false}``.
-StrictBool = Annotated[bool, Field(strict=True)]
+# **ולדגל בוליאני אין צורה strict כאן — בכוונה, וזו הכרעה ולא שכחה** (#3472, WARN-002).
+# ``toc`` היה ``StrictBool`` מ-#3470 ועד #3472 — הדגל היחיד בשרת שהוצהר strict — והוא
+# הוחזר ל-``bool`` רגיל כמו ``outline``. שתי עובדות, שתיהן נקראו במקור ונמדדו:
+#
+# * **ל-``bool`` אין קריאה שגויה מקבילה ל-``lines=[True, 5]``.** שם ה-strict מונע
+#   ערך שנקרא כמשהו אחר ממה שהתכוונו אליו — שורה 1 במקום ``True``. בדגל, ההמרה של
+#   pydantic נותנת בדיוק את המשמעות שהלקוח התכוון אליה: ``"true"``, ``"yes"``, ``1``
+#   ← ``True``; ``"false"``, ``"no"``, ``0`` ← ``False``; וכל השאר (``2``,
+#   ``"maybe"``) — שגיאת ולידציה (``pydantic 2.12.3``, נמדד).
+# * **``"true"`` מגיע לכלי כמחרוזת.** ``pre_parse_json`` של ה-SDK מפענח אותה ל-
+#   ``True``, ו-``True`` הוא ``int``, ולכן הוא זורק את הפענוח ומשאיר את המחרוזת
+#   (``mcp 1.28.1``, ``func_metadata.py``: ``isinstance(pre_parsed, str | int | float)``).
+#   כלומר strict על דגל אינו מונע קריאה שגויה אלא **חוסם לקוח ששולח בוליאני כמחרוזת**
+#   — וב-``toc`` זה חסם אותו בכניסה לפיצ'ר, בזמן ש-``outline=true`` אצלו עבד.
+#
+# מה שכן נשאר: רשת ``isinstance`` ב-:func:`file_read_request_error`, לקורא שעוקף את
+# הסכימה ומגיע עם משהו שאינו ``bool``. מי שמוסיף דגל חדש — ``bool`` רגיל, והנימוק
+# כאן ובמוסכמות ב-Handoff ("הערך שהכלי מקבל אינו תמיד הערך שנשלח").
 
 # קודי השגיאה של קריאת טווח. אותם קודים בדיוק בשני הכלים.
 LINE_RANGE_INVALID = "invalid_line_range"
@@ -85,16 +100,52 @@ TOC_AND_LINES = "toc_and_lines"
 SECTION_AND_QUERY = "section_and_query"
 SECTION_AND_LINES = "section_and_lines"
 
+
+class ReadMode(NamedTuple):
+    """מצב קריאה אחד של ``codekeeper_get_file``: שם הפרמטר, והאם הוא דגל.
+
+    ``flag`` קובע איך יודעים שהמצב התבקש: דגל — כשערכו אמת (``toc=false`` אינו
+    מצב); כל השאר — כשהפרמטר נשלח בכלל (``is not None``), גם עם ערך שיידחה.
+    """
+
+    param: str
+    flag: bool
+
+
+#: ארבעת מצבי הקריאה של ``codekeeper_get_file``, **בסדר שבו הם נבדקים**. זה המקור
+#: היחיד לסדר (#3472, SUGG-005): ממנו נגזרים גם הזוגות שנדחים (``_EXCLUSIVE_READ_MODES``
+#: למטה) וגם התווית באנליטיקס (``read_mode_properties`` ב-``mcp_server/analytics.py``,
+#: שמייבא את זה). עד #3472 הסדר היה כתוב פעמיים — כאן, ושרשרת ``if`` באנליטיקס —
+#: וסוכם ביניהם רק טסט; מצב חמישי שהיה נכנס לאחד מהם במקום אחר היה מתייג בשקט קריאה
+#: שנדחתה במצב הלא נכון.
+FILE_READ_MODES = (
+    ReadMode("toc", flag=True),
+    ReadMode("section", flag=False),
+    ReadMode("query", flag=False),
+    ReadMode("lines", flag=False),
+)
+
+#: הקוד של כל זוג מצבים שאינם מצטברים. **הטבלה אינה קובעת סדר** — הסדר נגזר מ-
+#: :data:`FILE_READ_MODES` — אלא רק איזה קוד שייך לאיזה זוג, כדי שהקודים יישארו
+#: קבועים שאפשר לחפש ב-``grep`` ולא מחרוזות שנבנות בזמן ריצה.
+_PAIR_CODES = {
+    ("toc", "section"): TOC_AND_SECTION,
+    ("toc", "query"): TOC_AND_QUERY,
+    ("toc", "lines"): TOC_AND_LINES,
+    ("section", "query"): SECTION_AND_QUERY,
+    ("section", "lines"): SECTION_AND_LINES,
+    ("query", "lines"): QUERY_AND_LINES,
+}
+
 #: כל זוג מצבים שאינם מצטברים, **בסדר שבו הם נבדקים** — בקשה שנוקבת בשלושה
-#: מצבים מקבלת את הזוג הראשון כאן שתואם, ותמיד אותו אחד. ``QUERY_AND_LINES``
-#: אחרון, וזה לא משנה דבר לבקשה שנוקבת רק בשניהם: היא מקבלת אותו כמו קודם.
-_EXCLUSIVE_READ_MODES = (
-    ("toc", "section", TOC_AND_SECTION),
-    ("toc", "query", TOC_AND_QUERY),
-    ("toc", "lines", TOC_AND_LINES),
-    ("section", "query", SECTION_AND_QUERY),
-    ("section", "lines", SECTION_AND_LINES),
-    ("query", "lines", QUERY_AND_LINES),
+#: מצבים מקבלת את הזוג הראשון כאן שתואם, ותמיד אותו אחד. הזוגות הם כל הצירופים של
+#: :data:`FILE_READ_MODES` בסדר שלו (``itertools.combinations`` שומר אותו), ולכן
+#: הזוג שבקשה מקבלת נפתח במצב שקודם בסדר — אותו מצב שהאנליטיקס רואה ראשון.
+#: ``QUERY_AND_LINES`` אחרון, וזה לא משנה דבר לבקשה שנוקבת רק בשניהם: היא מקבלת
+#: אותו כמו קודם. **מצב חדש בלי קוד בטבלה נופל בייבוא** (``KeyError``), ולא בבקשה.
+_EXCLUSIVE_READ_MODES = tuple(
+    (first.param, second.param, _PAIR_CODES[(first.param, second.param)])
+    for first, second in itertools.combinations(FILE_READ_MODES, 2)
 )
 
 # ``max_chars`` ו-``offset`` מעמדים **סעיף**, ובלי ``section`` אין מה לעמד — אותה
@@ -109,7 +160,9 @@ OFFSET_WITHOUT_SECTION = "offset_without_section"
 # שביקשה סעיף ולא נקבה באף כותרת מקבלת סירוב שמפנה אליה — לא מפה בשקט.
 SECTION_INVALID = "invalid_section"
 SECTION_EMPTY = "empty_section"
-# ``toc`` שאינו ``bool`` — רשת מאחורי ``StrictBool``, לקורא שאינו עובר בסכימה.
+# ``toc`` שאינו ``bool`` — רשת לקורא שאינו עובר בסכימה. דרך הסכימה ``toc`` הוא ``bool``
+# רגיל, שממיר ``"true"``/``"false"`` כמו כל דגל אחר (ראו ההערה מעל ``StrictInt``);
+# מי שעוקף אותה ומגיע עם מחרוזת נדחה כאן, ולא נקרא כמצב המפה.
 TOC_INVALID = "invalid_toc"
 
 # הסירובים שקורים **אחרי** קריאת הקובץ, כשהבקשה עצמה תקינה: הקובץ אינו Markdown,
@@ -296,11 +349,28 @@ def file_section_error(section: Any) -> str | None:
     **מה שאינו כאן: תקרת האורך.** היא נבדקת בפונקציה המשותפת שעונה על הסעיף
     (``mcp_server/docs_handlers.py``), כדי ש-``codekeeper_docs_get_section``,
     ``codekeeper_read_batch`` וכלי הקבצים יקבלו אותה ממקום אחד.
+
+    **ולכן "ריק" נבדק רק עד התקרה — קודם אורך, אחר כך תוכן** (#3472, SUGG-001). זה
+    הכלל המתועד של הבדיקה המשותפת ("המבחן הוא האורך, לא התוכן"), וב-
+    ``codekeeper_docs_get_section`` ``section`` של רווחים ארוך מהתקרה הוא
+    ``section_too_long``. עד #3472 הבדיקה כאן קדמה לה, ואותו קלט קיבל כאן
+    ``empty_section`` — שני כלים שחולקים את אותה פונקציית מענה, ושתי שגיאות לאותו
+    קלט. עכשיו רווחים שארוכים מהתקרה עוברים הלאה, ונדחים שם, כמו כל ``section``
+    ארוך: ``section_too_long``, עם המטא-דאטה של הקובץ. רווחים קצרים — ``empty_section``
+    כמו קודם, וזה ההבדל המכוון מכלי התיעוד (שם הם מפת הכותרות).
+
+    ``MAX_SECTION_CHARS`` מיובא **בתוך הפונקציה**: ``docs_handlers`` מייבא את ``_clamp``
+    מהמודול הזה, וייבוא ברמת המודול היה מעגלי. עותק שני של התקרה כאן — הדרך שבה
+    הפתרון בקבועי ``QUERY_*`` — היה עוד מספר שצריך לזכור לסנכרן; התקרה נחוצה כאן רק
+    בזמן ריצה, ורק על ``section`` של רווחים, ולכן ייבוא בזמן הקריאה פוטר מהעותק.
     """
     if not isinstance(section, str):
         return SECTION_INVALID
     if not section.strip():
-        return SECTION_EMPTY
+        from .docs_handlers import MAX_SECTION_CHARS
+
+        if len(section) <= MAX_SECTION_CHARS:
+            return SECTION_EMPTY
     return None
 
 
@@ -346,11 +416,12 @@ def file_read_request_error(
     """
     if not isinstance(toc, bool):
         return TOC_INVALID
+    # "התבקש" נגזר מ-``FILE_READ_MODES``, כמו הזוגות: דגל — כשהוא אמת, כל השאר — כשנשלח.
+    # מצב שיתווסף שם בלי ערך כאן נופל ב-``KeyError`` בכל קריאה, ולא נבלע.
+    sent = {"toc": toc, "section": section, "query": query, "lines": lines}
     requested = {
-        "toc": toc,
-        "section": section is not None,
-        "query": query is not None,
-        "lines": lines is not None,
+        mode.param: (sent[mode.param] is True) if mode.flag else (sent[mode.param] is not None)
+        for mode in FILE_READ_MODES
     }
     for first, second, code in _EXCLUSIVE_READ_MODES:
         if requested[first] and requested[second]:

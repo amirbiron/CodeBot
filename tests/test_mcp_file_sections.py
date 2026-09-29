@@ -20,9 +20,12 @@
 
 import functools
 import hashlib
+import itertools
 import json
+import random
 
 import pytest
+from pydantic import ValidationError
 
 from mcp_server import analytics, docs_handlers, handlers, read_batch, repo_handlers
 from services import doc_sections, md_parser
@@ -848,6 +851,39 @@ async def test_an_empty_section_is_refused_with_a_pointer_to_the_map(monkeypatch
     }
 
 
+async def test_a_blank_section_longer_than_the_ceiling_is_refused_for_its_length(monkeypatch):
+    """קודם אורך, אחר כך תוכן (#3472, SUGG-001) — כמו ב-``codekeeper_docs_get_section``.
+
+    ``section`` של רווחים בלבד, ארוך מ-``MAX_SECTION_CHARS``, היה ``empty_section`` כאן
+    ו-``section_too_long`` בכלי התיעוד — שני כלים שעונים באותה פונקציה, ושתי שגיאות לאותו
+    קלט. עכשיו הוא ``section_too_long`` בשניהם, עם המטא-דאטה של הקובץ כמו כל סירוב אחרי
+    הקריאה. ובאורך התקרה בדיוק — ``empty_section`` כמו קודם: זה ההבדל המכוון מכלי התיעוד,
+    ששם ``section`` ריק הוא המפה.
+
+    נופלת על הקוד שלפני התיקון: הקלט הארוך חוזר ``empty_section``.
+
+    מוטציה שמפילה: להחזיר ``SECTION_EMPTY`` מ-``file_section_error`` על כל ``section`` של
+    רווחים, בלי בדיקת האורך.
+    """
+    ceiling = docs_handlers.MAX_SECTION_CHARS
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    mcp = _build(monkeypatch, repo_backend=_RepoText(_MD))
+    blank = " " * (ceiling + 1)
+
+    from_file = await _call(mcp, file_name=_MD_NAME, section=blank)
+    from_docs = _payload(await mcp.call_tool(
+        "codekeeper_docs_get_section",
+        {"path": "x.md", "repo": "amir-bug-patterns", "section": blank}))
+
+    assert from_file == {"ok": False, "file": _meta(), "includes": [],
+                         "error": "section_too_long", "max_chars": ceiling,
+                         "actual_chars": ceiling + 1}
+    for key in ("ok", "error", "max_chars", "actual_chars"):
+        assert from_docs[key] == from_file[key], key
+    at_the_ceiling = await _call(mcp, file_name=_MD_NAME, section=" " * ceiling)
+    assert at_the_ceiling["error"] == handlers.SECTION_EMPTY
+
+
 @pytest.mark.parametrize(
     ("file_name", "language"),
     [("tool.py", "python"), ("notes.txt", "text"), ("notes.mdx", None)],
@@ -1099,10 +1135,19 @@ async def test_a_section_whose_headings_alone_do_not_fit_is_refused_with_its_lin
 
     assert out["ok"] is False and out["error"] == docs_handlers.SECTION_TOO_LARGE
     assert out["file"] == _meta(code=text) and out["hint"] == _HINT
-    assert out["bytes"] > out["max"]
-    assert out["max"] <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
     assert out["line_range"] == toc["toc"][0]["line_range"]
     assert "content" not in out
+
+
+#: תיאור ארוך מהתקציב כולו. **מחרוזת ולא רשימה**, ולכן אף אחד מהחיתוכים אינו נוגע בה:
+#: לא הרשימות של התשובה, ולא ``file.tags`` של סירוב. זו הדרך היחידה שנשארה ל-
+#: ``answer_too_large`` בקובץ שמור, והשורש שלה — כותבים שאינם אוכפים את התקרה — ב-#3489.
+_HUGE_DESCRIPTION = "汉" * 90_000
+
+#: תגית אחת שגם לבדה גדולה מהתקציב — הקלט של #3470. ``update_file_metadata_in`` אינו
+#: מגביל כמה תגיות ובאיזה אורך (#3489), ולכן זה קלט שאפשר לשמור.
+_HUGE_TAGS = ["汉" * 90_000]
 
 
 @pytest.mark.parametrize(
@@ -1115,25 +1160,258 @@ async def test_an_answer_that_does_not_fit_even_with_empty_lists_is_refused(
 ):
     """``answer_too_large`` — כשגם אחרי שכל הרשימות רוקנו התשובה גדולה מהתקציב.
 
-    מה שנשאר אז הוא החלק הקבוע, וכאן זו המטא-דאטה של הקובץ: ``update_file_metadata``
-    אינו מגביל כמה תגיות ובאיזה אורך, ולכן הענף ניתן להגעה ואינו תנאי מת. זה סירוב מפורש ולא תשובה
-    גדולה בשקט — עם ``bytes`` מעל ``max``, עם ``file`` כמו כל תשובה, ועם ה-``hint``
-    של קובץ שמור. בשלוש הצורות שנושאות רשימות, כי כולן עוברות באותו מקום. על הקוד
-    שלפני התיקון שלושתן חזרו כרגיל, בכ-271,000 בתים ובלי שום סימן.
+    מה שנשאר אז הוא החלק הקבוע, וכאן זה התיאור של הקובץ — מחרוזת, ולכן אין בה מה
+    לחתוך. הענף ניתן להגעה ואינו תנאי מת. זה סירוב מפורש ולא תשובה גדולה בשקט — עם
+    ``bytes`` מעל ``max``, עם ``file`` כמו כל תשובה, ועם ה-``hint`` של קובץ שמור. בשלוש
+    הצורות שנושאות רשימות, כי כולן עוברות באותו מקום.
+
+    **ותגיות כבר אינן הדרך לכאן** (#3472, SUGG-002): רשימה שבתוך ``file`` מוותרת על
+    פריטים בסירוב — ראו ``test_a_refusal_gives_up_the_file_tags_first_and_says_so``. עד
+    #3472 הבדיקה הזו נשענה על תגית ענקית. וקובץ שאין לו ``tags`` בכלל אינו מקבל
+    ``tags: []`` ודגל בגלל שהסירוב שלו גדול.
 
     מוטציה שמפילה: להחזיר מ-``_fit_or_refuse`` את התשובה גם כש-``_fit_lists`` מחזיר ``None``.
     """
-    tags = ["汉" * 90_000]
-    mcp = _build(monkeypatch, _Dbm(extra={"tags": tags}))
+    mcp = _build(monkeypatch, _Dbm(extra={"description": _HUGE_DESCRIPTION}))
 
     out = await _call(mcp, file_name=_MD_NAME, **arguments)
 
     assert out["ok"] is False and out["error"] == docs_handlers.ANSWER_TOO_LARGE
-    assert out["bytes"] > out["max"]
-    assert out["max"] <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
     assert out["hint"] == _HINT
-    assert out["file"]["id"] == _DOC_ID and out["file"]["tags"] == tags
+    assert out["file"]["id"] == _DOC_ID and out["file"]["description"] == _HUGE_DESCRIPTION
+    assert "tags" not in out["file"] and "tags_truncated" not in out["file"]
     assert not {"toc", "suggestions", "candidates", "requested"} & out.keys()
+
+
+async def _bytes_at(mcp, arguments, dbm_for):
+    """שלוש תשובות: תיאור ארוך בהרבה מהתקציב, התיאור שבו ``bytes`` הוא ``budget + 1``, ואחד פחות.
+
+    ``bytes`` לינארי באורך תיאור ב-ASCII — כל תו הוא בית אחד, ושום שדה אחר בסירוב אינו
+    תלוי בו. לכן מדידה אחת בתיאור ארוך נותנת את האורך שבו ``bytes`` הוא ``budget + 1``
+    בדיוק, **בלי לחשב את המעטפת בטסט**. **והתשובה בתו אחד פחות היא העוגן:** האורך נגזר
+    מ-``bytes`` עצמו, ולכן לבדו הוא מעגלי — ``bytes`` שמוזז בקבוע היה מזיז איתו את
+    האורך, והכול היה עובר. התשובה שמתחתיו מראה איפה **ההחלטה** נופלת: אם שם אין סירוב,
+    האורך הזה הוא הסף האמיתי, ו-``bytes`` בו הוא בדיוק מה שהושווה לתקציב.
+    """
+    far = 300_000
+    first = await _call(mcp(dbm_for(far)), file_name=_MD_NAME, **arguments)
+    length = far - (first["bytes"] - (repo_handlers.OUTPUT_BYTE_BUDGET + 1))
+    window = await _call(mcp(dbm_for(length)), file_name=_MD_NAME, **arguments)
+    below = await _call(mcp(dbm_for(length - 1)), file_name=_MD_NAME, **arguments)
+    return first, window, below
+
+
+#: קובץ בלי מזהים: שאילתה שאין לה כותרת קרובה מקבלת בו ``suggestions`` ריק (ראו
+#: ``_SECTION_PARAM_DOC``). במקרה החלון זה מה שנחוץ — ראו הבדיקה שמתחת.
+_NO_IDENTIFIERS = "# אלפא\n\nגוף.\n\n## בטא\n\nעוד.\n"
+#: סעיף שגופו ארוך מכל שדות החיתוך שעמוד ריק נושא (``truncated``, הסיבה, ``next_offset``).
+_ONE_LONG_SECTION = "# גדול\n\n" + "y" * 5_000 + "\n"
+
+
+@pytest.mark.parametrize(
+    ("code_text", "arguments", "error"),
+    [
+        (_MD, {"toc": True}, docs_handlers.ANSWER_TOO_LARGE),
+        (_NO_IDENTIFIERS, {"section": "zzzz"}, docs_handlers.ANSWER_TOO_LARGE),
+        (_MD, {"section": "K12 כפול"}, docs_handlers.ANSWER_TOO_LARGE),
+        (_ONE_LONG_SECTION, {"section": "גדול"}, docs_handlers.SECTION_TOO_LARGE),
+    ],
+    ids=["toc", "section_not_found", "ambiguous_section", "section"],
+)
+async def test_every_budget_refusal_reports_bytes_over_the_documented_max(
+    monkeypatch, code_text, arguments, error,
+):
+    """``bytes > max`` בכל סירוב שנולד מהתקציב, ו-``max`` הוא ``OUTPUT_BYTE_BUDGET`` עצמו.
+
+    עד #3472 (SUGG-008) ``max`` היה התקציב פחות המעטפת של ``found``/``status`` —
+    255,964 במצב ``toc`` ו-255,960 במצב ``section`` — מספר שאינו כתוב בשום תיעוד. עכשיו
+    ``max`` הוא המספר המתועד, ו-``bytes`` כולל את המעטפת, כך ש-``bytes > max`` הוא בדיוק
+    ההחלטה שנפלה.
+
+    **והמקרה שבסף** — ``bytes`` שהוא ``budget + 1`` בדיוק, ותו אחד פחות בתיאור אין
+    סירוב: זה הסף שבו ההחלטה נופלת, ובו התשובה בלי המעטפת **כן** נכנסת בתקציב — המעטפת
+    היא שמוציאה אותה. זה המקרה שמוטציה "``bytes`` בלי המעטפת" מפילה: שם ``bytes`` היה
+    ``max`` או פחות. **והוא מה שמצא באג בסירוב של העמוד** (#3472): ``section_too_large``
+    מדד את ``bytes`` על צורה קצרה בכמה בתים מזו שההחלטה מדדה, ובלי התו הראשון, ולכן
+    בסף שלו אמר ``bytes`` קטן מ-``max`` — 255,997 מול 256,000 כאן, ו-255,957 מול 255,960
+    ב-main. ראו :func:`~mcp_server.docs_handlers._fit_page`.
+
+    **הקבצים נבחרו כך שהסף קיים.** ``bytes`` הוא גודל התשובה כשכל הרשימות ריקות **ועם
+    הדגלים שלהן** — ודגל עולה בתים. בקובץ עם מזהים, ``section_not_found`` נושא הצעות
+    קצרות, ורשימה של שתי הצעות זולה מהדגל שמחליף אותה: תשובה בגודל הזה נכנסת כשהמפה
+    ריקה וההצעות שלמות, ולכן אינה סירוב. ועמוד של סעיף קצר קטן מעמוד ריק שנושא את שדות
+    החיתוך. שני המקרים הם התנהגות נכונה של החיתוך, ולא של ``bytes``.
+
+    נופלת על הקוד שלפני התיקון: ``max`` יוצא קטן מ-``OUTPUT_BYTE_BUDGET``, ובסעיף גם הסף.
+
+    מוטציות שמפילות: ``"bytes": size`` במקום ``size + reserve_bytes`` ב-``_fit_or_refuse``
+    או בסירוב ``section_too_large`` של ``_answer_from_document``; ו-``_fit_page`` שמחזיר
+    בסירוב את גודל העמוד הריק בלי התו הראשון.
+    """
+    budget = repo_handlers.OUTPUT_BYTE_BUDGET
+
+    def mcp(dbm):
+        return _build(monkeypatch, dbm)
+
+    def dbm_for(length):
+        return _Dbm(code_text, extra={"description": "x" * length})
+
+    far, at_threshold, below = await _bytes_at(mcp, arguments, dbm_for)
+
+    for out in (far, at_threshold):
+        assert out["ok"] is False and out["error"] == error
+        assert out["max"] == budget
+        assert out["bytes"] > out["max"]
+    assert at_threshold["bytes"] == budget + 1
+    assert below.get("error") != error, "תו אחד פחות עדיין נדחה — האורך אינו הסף"
+
+
+async def test_the_docs_tool_reports_its_budget_refusal_against_the_same_max(monkeypatch):
+    """``codekeeper_docs_get_section`` — אותו ``max``, ו-``bytes`` מעליו. אין לו מעטפת.
+
+    אותו קלט של ``test_a_section_whose_headings_alone_do_not_fit_is_refused_with_its_lines``:
+    כותרות באורך של פסקאות, שגם עמוד ריק שלהן אינו נכנס.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    title = "汉" * 240
+    text = "# שורש\n" + "".join(f"## {title} {i}\n" for i in range(docs_handlers._TOC_MAX))
+    mcp = _build(monkeypatch, repo_backend=_RepoText(text))
+
+    out = _payload(await mcp.call_tool(
+        "codekeeper_docs_get_section",
+        {"path": "x.md", "repo": "amir-bug-patterns", "section": "שורש"}))
+
+    assert out["ok"] is False and out["error"] == docs_handlers.SECTION_TOO_LARGE
+    assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
+
+
+def _huge_tags_cases():
+    """כל סירוב שנושא את ``file``, עם הקלט שמביא אליו. ``(id, dbm, arguments, setup)``."""
+    mixed = "# א\n\n## ב\rטקסט\n\n## ג\n"
+    return [
+        ("toc", {}, {"toc": True}, None),
+        ("section", {}, {"section": "K11"}, None),
+        ("section_not_found", {}, {"section": "K99"}, None),
+        ("ambiguous_section", {}, {"section": "K12 כפול"}, None),
+        ("section_too_long", {}, {"section": "K" * (docs_handlers.MAX_SECTION_CHARS + 1)}, None),
+        ("not_markdown", {"code": "x = 1\n", "file_name": "tool.py", "language": "python"},
+         {"toc": True}, None),
+        ("too_large_for_sections", {}, {"toc": True}, "shrink_ceiling"),
+        ("inconsistent_line_endings", {"code": mixed}, {"toc": True}, None),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("dbm_kwargs", "arguments", "setup"),
+    [case[1:] for case in _huge_tags_cases()],
+    ids=[case[0] for case in _huge_tags_cases()],
+)
+async def test_a_refusal_gives_up_the_file_tags_first_and_says_so(
+    monkeypatch, dbm_kwargs, arguments, setup,
+):
+    """סירוב שנושא ``file`` נכנס בתקציב — בוויתור על ``file.tags`` מהסוף, עם דגל (SUGG-002).
+
+    עד #3472 כל סירוב נשא את המטא-דאטה כמו שהיא, ותגית ענקית שלחה סירוב של כ-270KB —
+    מעל ``OUTPUT_BYTE_BUDGET``, בלי שום סימן. עכשיו כל סירוב יוצא דרך ``fit_refusal``, עם
+    ``file.tags`` כרשימה שמותר לוותר עליה: ``file.tags: []`` ו-``file.tags_truncated: true``.
+
+    **בסירוב שהיה קורה בכל מקרה, זה ההבדל היחיד** — התשובה זהה לזו של אותו קובץ עם תגית
+    קטנה, פרט לתגיות. וב-``section_not_found`` וב-``ambiguous_section`` זה אומר שהתגיות
+    נחתכות **ראשונות**: המפה, ההצעות והמועמדים נשארים שלמים. במפה ובסעיף — שהיו תשובה
+    מוצלחת עם תגית קטנה — התגית היא מה שלא נכנס, והתשובה היא הסירוב של התקציב, עם אותו
+    ויתור.
+
+    נופלת על הקוד שלפני התיקון: התגית חוזרת שלמה, והתשובה כפי שנשלחה מעל התקציב.
+
+    מוטציות שמפילות: ``_FILE_REFUSAL_CUTS = ()``; להחזיר את ``not_markdown`` ישירות, בלי
+    ``refuse``; ו-``refusal_cuts`` **אחרי** המפה וההצעות ב-``section_not_found`` — המפה
+    מתרוקנת לפני התגיות.
+    """
+    from mcp_server import backend as backend_mod
+
+    if setup == "shrink_ceiling":
+        monkeypatch.setattr(backend_mod, "MAX_FILE_SIZE_FOR_DISPLAY", 40)
+
+    small_mcp = _build(monkeypatch, _Dbm(**dbm_kwargs, extra={"tags": ["קטן"]}))
+    small = await _call(small_mcp, file_name=_meta_name(dbm_kwargs), **arguments)
+    huge_mcp = _build(monkeypatch, _Dbm(**dbm_kwargs, extra={"tags": _HUGE_TAGS}))
+
+    out, sent = await _call_sent(huge_mcp, file_name=_meta_name(dbm_kwargs), **arguments)
+
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["ok"] is False
+    assert out["file"]["tags"] == [] and out["file"]["tags_truncated"] is True
+    without_tags = {k: v for k, v in out["file"].items() if k not in ("tags", "tags_truncated")}
+    assert without_tags == {k: v for k, v in small["file"].items() if k != "tags"}
+    if small["ok"] is False:
+        assert out == {**small, "file": {**small["file"], "tags": [], "tags_truncated": True}}
+    else:
+        expected = (docs_handlers.ANSWER_TOO_LARGE if "toc" in arguments
+                    else docs_handlers.SECTION_TOO_LARGE)
+        assert out["error"] == expected and out["hint"] == _HINT
+        assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
+
+
+def _meta_name(dbm_kwargs):
+    """השם שהדמה שומרת את הקובץ בו — ברירת המחדל, או מה שהמקרה ביקש."""
+    return dbm_kwargs.get("file_name", _MD_NAME)
+
+
+@pytest.mark.parametrize(
+    ("text", "arguments", "cut"),
+    [
+        (_deep_hebrew_map(), {"toc": True}, ("toc_truncated", True)),
+        ("# רחב\n\n" + _wide_lines("汉", 120_000) + "\n",
+         {"section": "רחב", "max_chars": docs_handlers.MAX_CHARS_MAX},
+         ("truncation_reason", "byte_budget")),
+    ],
+    ids=["toc", "section"],
+)
+async def test_a_successful_reply_carries_the_file_metadata_whole(
+    monkeypatch, text, arguments, cut,
+):
+    """תשובה מוצלחת אינה מוותרת על מטא-דאטה — גם כשהיא צריכה לחתוך את עצמה כדי להיכנס.
+
+    תגיות של כ-60KB, ומפה או עמוד שלא נכנסים גם בלעדיהן: המפה נחתכת מהסוף והעמוד נגמר
+    מוקדם, והתגיות נשארות שלמות. הוויתור על ``file.tags`` שמור לסירוב, שבו התשובה עצמה
+    כבר אינה מה שביקשו (SUGG-002). התשובה כפי שנשלחה בתוך התקציב.
+
+    זה הגבול של התיקון ולא התיקון עצמו, ולכן עובר גם על הקוד שלפני #3472 — שם שום דבר
+    לא חתך תגיות.
+
+    מוטציה שמפילה: להעביר את ``refusal_cuts`` גם ל-``cuts`` של המפה ב-
+    ``_answer_from_document`` — התגיות נחתכות לפני המפה.
+    """
+    tags = ["汉" * 20_000]
+    mcp = _build(monkeypatch, _Dbm(text, extra={"tags": tags}))
+
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, **arguments)
+
+    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    key, value = cut
+    assert out["ok"] is True and out[key] == value
+    assert out["file"]["tags"] == tags and "tags_truncated" not in out["file"]
+
+
+async def test_a_miss_and_a_repeated_name_carry_no_hint(monkeypatch):
+    """ה-``hint`` שמפנה ל-``lines``/``query`` אינו ב-``section_not_found`` וב-``ambiguous_section``.
+
+    הוא שייך לסירובים שבהם הקובץ אינו קריא לפי סעיפים (``not_markdown``, סירובי הפרסר,
+    ``section_too_large``, ``answer_too_large``). כאן הקובץ קריא, והתשובה עצמה נושאת את
+    הדרך הלאה — המפה וההצעות, או המועמדים עם ``line_range``. הפניה ל-``lines`` הייתה
+    שולחת את הקורא לקרוא את הקובץ כולו במקום לבחור כותרת. (וכשהתגיות נחתכו בסירוב
+    כזה — אותו דבר: ``test_a_refusal_gives_up_the_file_tags_first_and_says_so`` משווה את
+    התשובה כולה לזו של אותו קובץ עם תגית קטנה.)
+
+    זה מקבע החלטה קיימת ולא תיקון (#3472, SUGG-011), ולכן עובר גם על הקוד שלפני #3472.
+
+    מוטציה שמפילה: להוסיף את ה-``hint`` לכל סירוב ב-``_apply_sections_to_file``.
+    """
+    mcp = _build(monkeypatch)
+    for section in ("K99", "K12 כפול"):
+        out = await _call(mcp, file_name=_MD_NAME, section=section)
+        assert out["ok"] is False and "hint" not in out, section
 
 
 @pytest.mark.parametrize("stored", [b"# bytes\n", 12345], ids=["bytes", "int"])
@@ -1162,8 +1440,11 @@ async def test_stored_content_that_is_not_a_string_fails_loudly(monkeypatch, sto
 def test_the_request_nets_refuse_what_the_schema_would_have_stopped():
     """רשת מאחורי הסכימה, לקורא שאינו עובר בה — ``handlers`` ו-backend באותה פונקציה.
 
-    מוטציה שמפילה: להסיר את ``isinstance`` על ``toc`` — ``"false"`` (מחרוזת לא
-    ריקה) נקרא כמצב המפה.
+    ב-``toc`` הסכימה אינה עוצרת ``"false"`` אלא ממירה אותו ל-``False`` (#3472, WARN-002).
+    קורא שעוקף אותה אינו מקבל את ההמרה, ובלי הרשת ``"false"`` — מחרוזת לא ריקה — היה
+    נקרא אצלו כמצב המפה. לכן הרשת דוחה כל מה שאינו ``bool``, ואינה ממירה בעצמה.
+
+    מוטציה שמפילה: להסיר את ``isinstance`` על ``toc`` — ``"false"`` נקרא כמצב המפה.
     """
     from mcp_server.backend import ProductionBackend
 
@@ -1182,24 +1463,45 @@ def test_the_request_nets_refuse_what_the_schema_would_have_stopped():
         "ok": False, "error": handlers.TOC_INVALID}
 
 
-async def test_the_schema_rejects_a_toc_that_is_not_a_boolean(monkeypatch):
-    """``StrictBool``: ``"true"``, ``"yes"`` ו-``1`` נדחים בגבול, ולא הופכים ל-``True`` בשקט.
+async def test_toc_is_read_like_every_other_flag_and_only_nonsense_is_refused(monkeypatch):
+    """``toc`` הוא ``bool`` רגיל, כמו ``outline`` (#3472, WARN-002).
 
-    נמדד מול ``mcp 1.28.1`` ו-``pydantic 2.12.3``. ``ToolError`` ולא ``Exception``:
-    מה שנבדק הוא ולידציית הסכימה, ו-``Exception`` היה עובר גם על כל תקלה אחרת.
+    ``"true"``, ``"yes"``, ``"1"`` ו-``1`` נותנים **בדיוק** את המפה של ``toc=true``;
+    ``"false"``, ``"no"``, ``"0"`` ו-``0`` — בדיוק את הקובץ המלא של קריאה בלי ``toc``. עד
+    #3472 ``toc`` היה ``StrictBool``, והמחרוזת ``"true"`` — שמגיעה לכלי כמו שהיא, כי
+    ``pre_parse_json`` זורק פענוח שנותן ``int`` — נדחתה בשגיאת ולידציה: לקוח ששולח דגלים
+    כמחרוזות נחסם בכניסה לפיצ'ר, בזמן ש-``outline="true"`` אצלו עבד. מה שאינו בוליאני
+    בשום קריאה — ``"maybe"``, ``2``, ``null``, ``""`` — עדיין נדחה, ו-``section`` שאינו
+    מחרוזת גם. ``ToolError`` ולא ``Exception``: מה שנבדק הוא ולידציית הסכימה. ובסכימה
+    ``toc`` נראה בדיוק כמו ``outline``.
 
-    מוטציה שמפילה: ``toc: bool`` במקום ``StrictBool`` ב-``server.py``.
+    נופלת על הקוד שלפני התיקון: ``"true"`` זורק.
+
+    מוטציה שמפילה: להחזיר ``StrictBool`` ל-``toc`` ב-``server.py``.
     """
     from mcp.server.fastmcp.exceptions import ToolError
 
     mcp = _build(monkeypatch)
+    as_map = await _call(mcp, file_name=_MD_NAME, toc=True)
+    whole = await _call(mcp, file_name=_MD_NAME)
+    assert as_map["status"] == "toc" and whole["file"]["code"] == _MD
 
-    for bad in ("true", "yes", 1):
+    for sent in ("true", "yes", "1", 1):
+        assert await _call(mcp, file_name=_MD_NAME, toc=sent) == as_map, sent
+    for sent in ("false", "no", "0", 0):
+        assert await _call(mcp, file_name=_MD_NAME, toc=sent) == whole, sent
+    for bad in ("maybe", 2, None, ""):
         with pytest.raises(ToolError, match="validation error"):
             await _call(mcp, file_name=_MD_NAME, toc=bad)
     for bad in (5, ["K11"]):
         with pytest.raises(ToolError, match="validation error"):
             await _call(mcp, file_name=_MD_NAME, section=bad)
+
+    def shape(tool, name):
+        prop = mcp._tool_manager.get_tool(tool).parameters["properties"][name]
+        return {k: v for k, v in prop.items() if k not in ("title", "description")}
+
+    assert shape("codekeeper_get_file", "toc") == shape("codekeeper_get_repo_file", "outline")
 
 
 # ---------------------------------------------------------------------------
@@ -1245,6 +1547,28 @@ async def test_both_tools_answer_through_the_same_functions(monkeypatch):
     for key in ("mode", "section", "breadcrumb", "level", "line_range", "content",
                 "include_subsections", "offset", "truncated", "subsections", "neighbors"):
         assert from_file[key] == from_docs[key], key
+
+
+def test_the_file_metadata_drops_heavy_fields_through_the_one_function():
+    """``_file_meta`` מסיר את השדות הכבדים דרך ``_strip_heavy`` — לא בעותק משלו (SUGG-006).
+
+    עד #3472 היו שני נוסחים של אותה הסרה: ``_file_meta`` שטוח, ו-``_strip_heavy`` רקורסיבי.
+    על מסמך של היום הם זהים, ולכן ההבדל נראה רק בשדה כבד בתוך אובייקט מקונן — מה שנוסח
+    שטוח היה מפספס בשקט ביום שיתווסף.
+
+    נופלת על הקוד שלפני התיקון: ``code`` המקונן נשאר.
+
+    מוטציה שמפילה: להחזיר ל-``_file_meta`` את ההסרה השטוחה.
+    """
+    from mcp_server import backend as backend_mod
+
+    heavy = sorted(backend_mod._HEAVY_FIELDS)[0]
+    out = {"id": "x", heavy: "full text", "nested": {heavy: "deep", "kept": 1}, "tags": ["a"]}
+
+    meta = backend_mod._file_meta(out)
+
+    assert meta == backend_mod._strip_heavy(out)
+    assert heavy not in meta and meta["nested"] == {"kept": 1} and meta["tags"] == ["a"]
 
 
 async def test_the_docs_tool_fits_its_page_to_the_same_budget(monkeypatch):
@@ -1382,6 +1706,146 @@ def test_fit_lists_never_serializes_more_than_the_budget_plus_one_item(monkeypat
     assert max(sizes) <= budget + largest_item
     assert fitted is not None and size <= budget and fitted["toc_truncated"] is True
     assert fitted["toc"] == toc[:len(fitted["toc"])] and fitted["toc"]  # קידומת בסדר המסמך
+
+
+def _fit_lists_before_depth(answer, *, cuts, budget):
+    """``_fit_lists`` כפי שהיה ב-main ב-``7d4c874``, לפני שלמד לרדת רמה (#3472) — **עותק קפוא**.
+
+    אורקל, ולכן הוא אינו קורא לשום דבר שהשינוי נגע בו: עלות הפריט ועלות הרשימה הלא-ריקה
+    כתובות כאן כמו שהיו אז, במספרים (``4``, ``",\\n    "``, ``"\\n  "``), ולא דרך
+    ``list_item_cost``/``nonempty_list_bytes`` של היום. רק ``wire_json`` משותף — השינוי לא
+    נגע בה, והיא הסריאליזציה ששתי הצורות מודדות.
+    """
+    wire = repo_handlers.wire_json
+
+    def cost(item):
+        text = wire(item)
+        return len(text) + 4 * text.count(b"\n") + len(",\n    ")
+
+    nonempty = len("\n  ")
+    list_keys = [key for key, _ in cuts]
+    flag_of = dict(cuts)
+    base = {**answer, **{key: [] for key in list_keys}}
+    item_costs = {key: [cost(item) for item in answer[key]] for key in list_keys}
+    total = len(wire(base)) + sum(
+        nonempty + sum(item_costs[key]) for key in list_keys if answer[key])
+    if total <= budget + len(list_keys):
+        real = len(wire(answer))
+        if real <= budget:
+            return answer, real
+    kept = {key: list(answer[key]) for key in list_keys}
+    flags = {}
+    running = total
+    for key, flag in cuts:
+        if running <= budget:
+            break
+        items, costs = kept[key], item_costs[key]
+        while items and running > budget:
+            running -= costs[len(items) - 1]
+            items.pop()
+            flags[flag] = True
+            if not items:
+                running -= nonempty
+    fitted = {**answer, **kept, **flags}
+    size = len(wire(fitted))
+    while size > budget:
+        trimmable = next((key for key in list_keys if kept[key]), None)
+        if trimmable is None:
+            return None, size
+        kept[trimmable].pop()
+        flags[flag_of[trimmable]] = True
+        fitted = {**answer, **kept, **flags}
+        size = len(wire(fitted))
+    return fitted, size
+
+
+def _random_value(rng, depth=0):
+    """ערך JSON אקראי — מחרוזות בעברית, CJK, אימוג'י ותווי בקרה, ומבנים מקוננים.
+
+    מבנים מקוננים הם מה שנותן לפריט שורות פנימיות, ושם עלות ההזחה לפי העומק נמדדת.
+    """
+    atoms = ["", "x", "שלום", "汉字", "😀", "\x01", 'a"b', "a\nb", 0, 7, None, True, 2.5]
+    roll = rng.random()
+    if depth > 2 or roll < 0.35:
+        return rng.choice(atoms)
+    if roll < 0.7:
+        return {f"k{i}": _random_value(rng, depth + 1) for i in range(rng.randint(0, 3))}
+    return [_random_value(rng, depth + 1) for _ in range(rng.randint(0, 3))]
+
+
+def test_fit_lists_at_depth_zero_decides_exactly_as_before_the_depth_was_added():
+    """בעומק 0 — כל הקוראים עד #3472 — ``_fit_lists`` מחליט בדיוק כמו לפני שלמד לרדת רמה.
+
+    אותם קלטים בדיוק דרך הצורה של היום ודרך העותק הקפוא של הצורה הקודמת
+    (:func:`_fit_lists_before_depth`), על **כל** תקציב בין הקטן מהמינימום לגדול מהתשובה
+    המלאה, בית אחרי בית: אותה תשובה (אותו אובייקט כשנכנסה, אותם בתים כשנחתכה), אותו
+    גודל, ואותו ``None``. תקציב שנופל בין שתי החלטות הוא בדיוק המקום שבו עלות שגויה בבית
+    אחד משנה החלטה — ולכן הסריקה בית-בית, ולא דגימה.
+
+    זו בדיקת שקילות ולא בדיקה של תיקון: הצורה הקודמת היא האורקל, ולכן היא עוברת גם על
+    הקוד שלפני #3472. הכוח שלה במוטציות.
+
+    מוטציות שמפילות: ``list_item_cost(item, depth=len(path))`` במקום ``len(path) - 1`` ב-
+    ``_fit_lists``; ``nonempty_list_bytes(len(path))``; ``_list_item_indent`` שמחזיר
+    ``_WIRE_INDENT * (1 + depth)``.
+    """
+    rng = random.Random(3472)
+    wire = repo_handlers.wire_json
+    keys = ("toc", "suggestions", "candidates")
+    compared = 0
+    for _ in range(8):
+        chosen = keys[:rng.randint(1, 3)]
+        answer = {"ok": rng.choice([True, False]), "file": {"id": "x", "tags": ["a"]},
+                  "includes": []}
+        for key in chosen:
+            answer[key] = [_random_value(rng) for _ in range(rng.randint(0, 6))]
+        cuts = tuple((key, f"{key}_truncated") for key in chosen)
+        full = len(wire(answer))
+        smallest = len(wire({**answer, **{key: [] for key in chosen},
+                             **{flag: True for _, flag in cuts}}))
+        for budget in range(smallest - 3, full + 3):
+            now, now_size = docs_handlers._fit_lists(answer, cuts=cuts, budget=budget)
+            before, before_size = _fit_lists_before_depth(answer, cuts=cuts, budget=budget)
+            assert now_size == before_size, budget
+            assert (now is None) == (before is None), budget
+            assert (now is answer) == (before is answer), budget
+            if now is not None:
+                assert wire(now) == wire(before), budget
+            compared += 1
+    assert compared > 500, "הסריקה לא רצה — הטסט אינו בודק כלום"
+
+
+def test_the_cost_of_a_list_item_is_measured_at_the_depth_it_sits():
+    """עלות רשימה שיושבת רמה אחת פנימה — ``file.tags`` — מדויקת כמו בראש התשובה.
+
+    ``list_item_cost`` עם ``depth`` ועוד ``nonempty_list_bytes`` של אותו עומק, מעל גודל
+    התשובה עם הרשימה ריקה, הם **בדיוק** גודל התשובה האמיתי ועוד פסיק אחד — בעומק 0 ובעומק
+    1. הפסיק הוא החסם העליון שהנוסחה מתעדת (לפריט הראשון אין פסיק מוביל), ושום דבר מעבר
+    לו: עלות גבוהה מדי הייתה חותכת פריטים שנכנסים, ונמוכה מדי — מבטיחה "נכנס" על תשובה
+    שאינה נכנסת. פריטים מקוננים, כי ההזחה של שורה פנימית היא מה שתלוי בעומק.
+
+    נופלת על הקוד שלפני #3472: אין ``depth`` ואין ``nonempty_list_bytes``.
+
+    מוטציות שמפילות: ``list_item_cost`` שמתעלם מ-``depth``; ``nonempty_list_bytes`` שמחזיר
+    ``len("\\n") + _WIRE_INDENT * (2 + depth)``.
+    """
+    rng = random.Random(3489)
+    wire = repo_handlers.wire_json
+
+    def at_depth_0(items):
+        return {"ok": False, "tags": items, "error": "e"}
+
+    def at_depth_1(items):
+        return {"ok": False, "file": {"id": "x", "tags": items, "version": 2}, "error": "e"}
+
+    for _ in range(300):
+        items = [_random_value(rng) for _ in range(rng.randint(1, 6))]
+        for depth, place in ((0, at_depth_0), (1, at_depth_1)):
+            empty = len(wire(place([])))
+            real = len(wire(place(items)))
+            estimate = empty + repo_handlers.nonempty_list_bytes(depth) + sum(
+                repo_handlers.list_item_cost(item, depth=depth) for item in items)
+            assert estimate == real + len(","), (depth, items)
 
 
 # ---------------------------------------------------------------------------
@@ -1613,6 +2077,11 @@ def _read_mode(arguments):
         # ``toc=false`` אינו מפה.
         ({"toc": False}, analytics.READ_MODE_FULL),
         ({"toc": False, "lines": [1, 2]}, analytics.READ_MODE_RANGE),
+        # דגל במחרוזת נקרא כמו שהכלי קורא אותו (#3472): ``"false"`` הוא קריאה מלאה.
+        ({"toc": "true"}, analytics.READ_MODE_OUTLINE),
+        ({"toc": "false"}, analytics.READ_MODE_FULL),
+        ({"toc": "0", "lines": [1, 2]}, analytics.READ_MODE_RANGE),
+        ({"toc": "no", "section": "K11"}, analytics.READ_MODE_SECTION),
     ],
 )
 def test_a_toc_or_section_read_is_labelled_by_its_mode_and_not_as_full(arguments, expected):
@@ -1622,6 +2091,95 @@ def test_a_toc_or_section_read_is_labelled_by_its_mode_and_not_as_full(arguments
     — הקריאה מסומנת ``full``, כלומר האירוע אומר "קובץ מלא" על קריאה שלא משכה אותו.
     """
     assert _read_mode(arguments) == {analytics.CK_READ_MODE_KEY: expected}
+
+
+#: ערכים גולמיים של דגל, כמו שהם יכולים להגיע בארגומנטים — כל צורה שהוולידציה ממירה,
+#: וכל צורה שהיא דוחה. ``"null"`` ו-``"[]"`` הם מחרוזות ש-``pre_parse_json`` מפענח למשהו
+#: שאינו סקלר, ולכן כאן הוא כן מחליף את המחרוזת.
+_RAW_FLAG_VALUES = (
+    True, False, "true", "false", "True", "FALSE", "yes", "No", "1", "0", 1, 0, 1.0, 0.0,
+    "on", "off", "t", "f", "y", "n", None, 2, 0.5, "maybe", "", [], {}, "null", "[]",
+)
+
+
+@pytest.mark.parametrize(
+    ("tool", "flag", "required"),
+    [("codekeeper_get_file", "toc", {}),
+     ("codekeeper_get_repo_file", "outline", {"repo": "CodeBot", "path": "a.py"})],
+)
+async def test_the_read_mode_reads_a_flag_the_way_the_tool_validates_it(
+    monkeypatch, tool, flag, required,
+):
+    """התווית נגזרת מאותה קריאה של הדגל שהכלי עושה — לכל ערך, ובשני הכלים (#3472).
+
+    האורקל הוא הכלי עצמו: ``pre_parse_json`` ו-``arg_model`` של הכלי הרשום — אותן שתי
+    קריאות ש-``call_fn_with_arg_validation`` עושה (``mcp 1.28.1``), כולל ה-``pre_parse_json``
+    של השרת. ערך שנקרא ``True`` — מפה (``outline``); ``False`` — קריאה מלאה (``full``);
+    ונדחה — קריאה שלא קראה דבר, ולכן במצב הזול (``outline``), כמו זוג מצבים שנדחה. וב-
+    ``codekeeper_get_file`` האורקל עצמו נבדק מול קריאה אמיתית לכלי.
+
+    **הבאג קיים מלפני #3472 ב-``outline``:** ``outline="false"`` קורא את הקובץ המלא,
+    והאנליטיקס — שבדק אמת-שקר של פייתון — תייג אותו ``outline``. ``toc`` הצטרף אליו כשהפסיק
+    להיות strict. ו-``null`` בדגל נדחה בכלי, בשונה ממפתח שלא נשלח.
+
+    נופלת על הקוד שלפני התיקון: ``"false"`` מתויג ``outline``.
+
+    מוטציות שמפילות: ``return bool(value)`` ב-``_flag_requested``; ``arguments.get`` במקום
+    הבדיקה ``not in arguments`` ב-``_mode_requested`` — ``null`` מתויג ``full``.
+    """
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    mcp = _build(monkeypatch)
+    meta = mcp._tool_manager.get_tool(tool).fn_metadata
+    whole = await _call(mcp, file_name=_MD_NAME)
+
+    for sent in _RAW_FLAG_VALUES:
+        try:
+            read = getattr(meta.arg_model.model_validate(
+                meta.pre_parse_json({**required, flag: sent})), flag)
+        except ValidationError:
+            read = None
+        expected = analytics.READ_MODE_FULL if read is False else analytics.READ_MODE_OUTLINE
+        label = analytics.read_mode_properties(
+            {"method": "tools/call", "params": {"name": tool, "arguments": {flag: sent}}})
+        assert label == {analytics.CK_READ_MODE_KEY: expected}, sent
+
+        if tool == "codekeeper_get_file":
+            if read is None:
+                with pytest.raises(ToolError, match="validation error"):
+                    await _call(mcp, file_name=_MD_NAME, toc=sent)
+            else:
+                out = await _call(mcp, file_name=_MD_NAME, toc=sent)
+                assert (out.get("status") == "toc") if read else (out == whole), sent
+
+    absent = analytics.read_mode_properties(
+        {"method": "tools/call", "params": {"name": tool, "arguments": dict(required)}})
+    assert absent == {analytics.CK_READ_MODE_KEY: analytics.READ_MODE_FULL}
+
+
+def test_the_pairs_and_the_label_order_come_from_one_structure():
+    """הזוגות שהכלי דוחה והסדר שבו האנליטיקס מתייג — שניהם מ-``FILE_READ_MODES`` (SUGG-005).
+
+    עד #3472 הסדר היה כתוב פעמיים — ``_EXCLUSIVE_READ_MODES`` ושרשרת ``if`` באנליטיקס —
+    וטסט הוא שסיכם ביניהם. עכשיו האנליטיקס מקבל **את אותו אובייקט**, הזוגות הם הצירופים
+    שלו בסדר שלו, וכל קוד זוג נפתח במצב שקודם בסדר. ולכן קריאה שנדחתה כזוג מתויגת לפי
+    המצב הראשון בקוד הסירוב שלה — לכל אחד מששת הזוגות, ולא רק לאלה שבטבלה למעלה.
+
+    נופלת על הקוד שלפני התיקון: אין ``FILE_READ_MODES``.
+
+    מוטציה שמפילה: לתת לאנליטיקס עותק משלו של הסדר, או לכתוב את ``_EXCLUSIVE_READ_MODES``
+    שוב כטבלה.
+    """
+    order = [mode.param for mode in handlers.FILE_READ_MODES]
+    sample = {"toc": True, "section": "K11", "query": "x", "lines": [1, 2]}
+
+    assert analytics._TOOL_READ_MODES["codekeeper_get_file"] is handlers.FILE_READ_MODES
+    assert ([(first, second) for first, second, _ in handlers._EXCLUSIVE_READ_MODES]
+            == list(itertools.combinations(order, 2)))
+    for first, second, code in handlers._EXCLUSIVE_READ_MODES:
+        assert code == f"{first}_and_{second}"
+        pair = {first: sample[first], second: sample[second]}
+        assert _read_mode(pair) == _read_mode({first: sample[first]}), code
 
 
 def test_the_section_label_passes_the_gate_and_the_other_tool_does_not_own_it():
@@ -1652,10 +2210,14 @@ async def test_the_tool_points_at_toc_and_section_and_the_parameters_carry_the_d
     ‏``"toc" in description`` לבדו אינו מספיק — הוא עובר גם על הדוגמה ``toc=true``.
     הבדיקה היא על ההפניה לשם הפרמטרים.
 
-    וכלל ההתאמה בתיאור של ``section`` הוא **``_SECTION_PARAM_DOC`` כמו שהוא** —
-    אותו טקסט של ``codekeeper_docs_get_section``, כי זו אותה פונקציה.
+    **וכלל ההתאמה של ``section`` אינו מועתק — יש אליו הפניה** (#3472, YAGNI-002). עד #3472
+    ``_SECTION_PARAM_DOC`` שובץ כאן כמו שהוא, כ-3,000 תווים שנסעו בכל ``tools/list``. שני
+    הקצוות של ההפניה נאכפים, כמו בכלים האחים ב-``tests/test_mcp_server_build.py``: שהתיאור
+    מפנה לפרמטר ``section`` של ``codekeeper_docs_get_section`` בשמו — השם נשתל מהקבוע — ושאותו
+    כלי רשום **באותו שרת**, והפרמטר שלו נושא את הכלל.
 
-    מוטציה שמפילה: למחוק את משפט ההפניה מתיאור הכלי ב-``server.py``.
+    מוטציות שמפילות: למחוק את משפט ההפניה מתיאור הכלי ב-``server.py``; לשבץ שוב את
+    ``_SECTION_PARAM_DOC`` בתיאור של ``section``; למחוק את ההפניה לכלי האח.
     """
     from mcp_server import server as srv
 
@@ -1669,16 +2231,46 @@ async def test_the_tool_points_at_toc_and_section_and_the_parameters_carry_the_d
     toc_doc = props["toc"]["description"]
     for marker in ("Markdown files only", "approx_bytes", "toc_and_section",
                    "toc_and_query", "toc_and_lines", "not_markdown",
-                   "too_large_for_sections", "ignores version"):
+                   "too_large_for_sections", "ignores version", "tags_truncated"):
         assert marker in toc_doc, marker
 
     section_doc = props["section"]["description"]
-    assert section_doc.startswith("Markdown files only")
-    assert srv._SECTION_PARAM_DOC in section_doc
-    for marker in ("section_and_query", "section_and_lines", "max_chars_without_section",
-                   "offset_without_section", "empty_section", "next_offset",
-                   "not_markdown", "too_large_for_sections", "too_many_tokens"):
+    assert srv._SECTION_PARAM_DOC not in section_doc
+    assert f"`section` parameter of {docs_handlers.SECTION_TOOL_NAME}" in section_doc
+    sibling = mcp._tool_manager.get_tool(docs_handlers.SECTION_TOOL_NAME)
+    assert sibling is not None, "ההפניה היא לכלי שאינו רשום בשרת הזה"
+    assert sibling.parameters["properties"]["section"]["description"] == srv._SECTION_PARAM_DOC
+    for marker in ("Markdown files only", "section_and_query", "section_and_lines",
+                   "max_chars_without_section", "offset_without_section", "empty_section",
+                   "next_offset", "not_markdown", "too_large_for_sections", "too_many_tokens",
+                   "tags_truncated"):
         assert marker in section_doc, marker
+
+
+def test_both_mode_docs_open_with_the_instruction_to_pin_the_version():
+    """``toc`` ו-``section`` נפתחים בהוראה להעביר ``file_id`` בקריאות ההמשך (#3472, WARN-003).
+
+    קריאה בכמה שלבים — מפה, סעיף, העמוד הבא, ``lines`` על ``line_range`` — לפי
+    ``file_name`` קוראת בכל שלב את הגרסה האחרונה, וגרסה ששמר סשן אחר באמצע נותנת עמוד
+    שנפתח באמצע מילה. **בתחילת** התיאור ולא בסופו: ההערה ליד ``_TOOL_DESCRIPTION_MAX_CHARS``
+    ב-``server.py`` מתעדת לקוח שמקצר תיאור פרמטר לכ-120 תווים, ולכן ההוראה עצמה — עד
+    ``file_id=file.id`` — נכנסת בהם. וגם עמוד התיעוד אומר אותו דבר.
+
+    נופלת על הקוד שלפני התיקון: המשפט אינו קיים.
+
+    מוטציה שמפילה: להעביר את ``_FILE_ID_FOLLOW_UP`` לסוף אחד התיאורים.
+    """
+    from pathlib import Path
+
+    from mcp_server import server as srv
+
+    instruction = "should pass file_id=file.id"
+    for doc in (srv._FILE_TOC_DOC, srv._FILE_SECTION_DOC):
+        assert doc.startswith(srv._FILE_ID_FOLLOW_UP)
+        assert doc.index(instruction) + len(instruction) <= 120
+    page = (Path(__file__).resolve().parent.parent / "docs" / "mcp-server.rst").read_text(
+        encoding="utf-8")
+    assert "``file_id=file.id``" in page
 
 
 def test_the_paging_numbers_in_the_section_doc_come_from_the_constants(monkeypatch):
@@ -1744,9 +2336,14 @@ def test_the_list_limits_in_the_section_doc_come_from_the_constants():
 #: דרך כתובה. לכל משטח שני סמנים, באותה שיטה של ``_SUGGESTION_RULE_SURFACES`` ב-
 #: ``tests/test_mcp_server_build.py``: הפסוקית שהיא הכלל, והפסוקית שהיא הדרך — ולא מונח שמופיע
 #: בהסבר, כי מונח כזה שורד גם מחיקה של הכלל עצמו.
+#:
+#: **``_FILE_SECTION_DOC`` נושא מאז #3472 הפניה לכלל, ולא את הכלל** (YAGNI-002): הכלל כתוב
+#: פעם אחת, ב-``_SECTION_PARAM_DOC``, והסמן של המשטח הזה הוא ש"repeated names" נמנה בהפניה
+#: לשם. שני הקצוות של ההפניה נאכפים ב-
+#: ``test_the_tool_points_at_toc_and_section_and_the_parameters_carry_the_detail``.
 _REPEATED_NAME_SURFACES = (
     ("_SECTION_PARAM_DOC", "is never returned by that name", "read it by its line_range"),
-    ("_FILE_SECTION_DOC", "is never returned by that name", "a line_range is read with lines="),
+    ("_FILE_SECTION_DOC", "repeated names", "a line_range is read with lines="),
     ("_FILE_TOC_DOC", "when no other heading has that name",
      "lines= reads the line_range each candidate carries"),
     ("docs/mcp-server.rst", "לעולם אינה נענית בשמה", "שמחזיר בדיוק את טקסט הסעיף"),

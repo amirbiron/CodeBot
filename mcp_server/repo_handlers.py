@@ -51,6 +51,13 @@ MIRROR_REFRESH_NOTE = (
 )
 
 
+#: רווחי ההזחה של רמת קינון אחת בתשובה כפי שהיא נשלחת — ה-``indent=2`` ש-
+#: ``_convert_to_content`` של ה-SDK מעביר ל-``pydantic_core.to_json`` (mcp 1.28.1).
+#: :func:`wire_json` מסדרל בו, וכל עלות למטה נגזרת ממנו — כך שההזחה שנמדדת
+#: וההזחה שנשלחת הן מספר אחד ולא שניים.
+_WIRE_INDENT = 2
+
+
 def wire_json(value: Any) -> bytes:
     """מה שה-SDK שולח על ``value`` — ``_convert_to_content`` ל-``dict`` (mcp 1.28.1).
 
@@ -59,35 +66,62 @@ def wire_json(value: Any) -> bytes:
     ``docs_handlers`` את תשובת הסעיף. הצורה הזו לעולם אינה קטנה מ-``json.dumps``
     הדחוס (היא מוסיפה רק רווחים ושורות), ולכן תשובה שנכנסת בה נכנסת בשתיהן.
     """
-    return pydantic_core.to_json(value, fallback=str, indent=2)
+    return pydantic_core.to_json(value, fallback=str, indent=_WIRE_INDENT)
 
 
-#: עלות של פריט שמקונן בתוך רשימה תחת מפתח בתשובה, בבתים **כפי שהתשובה נשלחת**
-#: (:func:`wire_json`, ``indent=2``). הפריט יושב בעומק 2 — אובייקט עליון, רשימה,
-#: פריט — ולכן כל שורה פנימית שלו מוזחת ב-4 רווחים, ולפניו פסיק ושורה. שני מקומות
-#: מודדים בדיוק את זה: ``codekeeper_read_batch`` (פריט תחת ``items``) ו-
-#: ``docs_handlers`` (פריט תחת ``toc``/``suggestions``/``candidates``). בעלים אחד
-#: למדידה, שקוראים לו משניהם (R6), במקום שני עותקים שיסחפו.
-LIST_ITEM_INDENT_BYTES = 4
+def _list_item_indent(depth: int) -> int:
+    """ההזחה של פריט ברשימה שיושבת ``depth`` רמות מתחת לאובייקט העליון של התשובה.
+
+    ``depth`` 0 — הרשימה היא ערך של האובייקט העליון (``toc``, ``items``), ולכן
+    הפריט בעומק 2: אובייקט עליון, רשימה, פריט. ``depth`` 1 — הרשימה היא ערך של
+    אובייקט שהוא עצמו ערך של העליון (``file.tags``), והפריט בעומק 3.
+    """
+    return _WIRE_INDENT * (2 + depth)
+
+
+#: עלות של פריט שמקונן בתוך רשימה תחת מפתח בראש התשובה (``depth`` 0 של
+#: :func:`list_item_cost`), בבתים **כפי שהתשובה נשלחת**: כל שורה פנימית שלו מוזחת
+#: ב-4 רווחים, ולפניו פסיק ושורה. שני מקומות מודדים בדיוק את זה:
+#: ``codekeeper_read_batch`` (פריט תחת ``items``) ו-``docs_handlers`` (פריט תחת
+#: ``toc``/``suggestions``/``candidates``). בעלים אחד למדידה, שקוראים לו משניהם
+#: (R6), במקום שני עותקים שיסחפו — ושלושת המספרים כאן נגזרים מאותה נוסחה של
+#: :func:`list_item_cost`, ולא מוקלדים לצידה.
+LIST_ITEM_INDENT_BYTES = _list_item_indent(0)
 #: פסיק, שורה, וההזחה של עומק 2 שלפני הפריט הבא ברשימה.
-LIST_ITEM_FRAME_BYTES = len(",\n    ")
-#: ``[]`` הופך ל-``[`` ... ``\n  ]`` ברגע שיש בו פריט אחד לפחות (סגירה בעומק 1).
-NONEMPTY_LIST_BYTES = len("\n  ")
+LIST_ITEM_FRAME_BYTES = len(",\n") + LIST_ITEM_INDENT_BYTES
 
 
-def list_item_cost(item: Any) -> int:
-    """כמה בתים ``item`` מוסיף לתשובה כשהוא מקונן ברשימה בעומק 2 — כפי שהיא נשלחת.
+def nonempty_list_bytes(depth: int = 0) -> int:
+    """מה ש-``[]`` מוסיף ברגע שיש בו פריט אחד לפחות: ``[`` ... ``\\n`` והזחת הסגירה.
 
-    הפריט נמדד לבדו בעומק 0 (:func:`wire_json`), וכל שורה פנימית שלו מקבלת
-    :data:`LIST_ITEM_INDENT_BYTES` רווחים נוספים כשהוא בעומק 2. שורה חדשה בתוך
-    מחרוזת נכתבת כ-``\\n`` ולא כבית 10, ולכן כל בית 10 בטקסט הוא שורה של המבנה.
-    הנוסחה **מחמירה בפסיק אחד** (לפריט הראשון ברשימה אין פסיק מוביל), ולכן סכום
-    על רשימה הוא חסם עליון על מה שהפריטים באמת מוסיפים — מה שמאפשר להחליט "נכנס"
-    בלי לבנות את התשובה המלאה. ``tests/test_mcp_read_batch.py`` משווה אותה
-    לתשובות שנבנו באמת.
+    הסוגר נסגר ברמה של המפתח שמחזיק את הרשימה — רמה 1 כשהרשימה בראש התשובה
+    (``depth`` 0), רמה 2 כשהיא בתוך אובייקט מקונן (``depth`` 1).
+    """
+    return len("\n") + _WIRE_INDENT * (1 + depth)
+
+
+#: :func:`nonempty_list_bytes` לרשימה בראש התשובה — ``\\n  ]`` במקום ``]``.
+NONEMPTY_LIST_BYTES = nonempty_list_bytes(0)
+
+
+def list_item_cost(item: Any, *, depth: int = 0) -> int:
+    """כמה בתים ``item`` מוסיף לתשובה כשהוא פריט ברשימה — כפי שהיא נשלחת.
+
+    ``depth`` הוא כמה רמות מתחת לאובייקט העליון יושבת הרשימה (ראו
+    :func:`_list_item_indent`); ברירת המחדל, 0, היא רשימה בראש התשובה, והמספרים
+    שלה הם :data:`LIST_ITEM_INDENT_BYTES` ו-:data:`LIST_ITEM_FRAME_BYTES`.
+
+    הפריט נמדד לבדו בעומק 0 (:func:`wire_json`), וכל שורה פנימית שלו מקבלת את
+    ההזחה של העומק שבו הוא יושב. שורה חדשה בתוך מחרוזת נכתבת כ-``\\n`` ולא כבית 10,
+    ולכן כל בית 10 בטקסט הוא שורה של המבנה. הנוסחה **מחמירה בפסיק אחד** (לפריט
+    הראשון ברשימה אין פסיק מוביל), ולכן סכום על רשימה הוא חסם עליון על מה שהפריטים
+    באמת מוסיפים — מה שמאפשר להחליט "נכנס" בלי לבנות את התשובה המלאה.
+    ``tests/test_mcp_read_batch.py`` משווה אותה לתשובות שנבנו באמת בעומק 0, ו-
+    ``tests/test_mcp_file_sections.py`` בעומק 1.
     """
     text = wire_json(item)
-    return len(text) + LIST_ITEM_INDENT_BYTES * text.count(b"\n") + LIST_ITEM_FRAME_BYTES
+    indent = _list_item_indent(depth)
+    return len(text) + indent * text.count(b"\n") + len(",\n") + indent
 
 
 def list_repos(backend: Any, *, limit: int = REPOS_LIMIT_DEFAULT) -> dict[str, Any]:
