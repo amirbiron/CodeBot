@@ -58,7 +58,7 @@ from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
 from . import docs_handlers, handlers, read_batch, repo_handlers
 from .backend import LEAN_NOTE_FIELDS
-from .handlers import StrictBool, StrictInt, StrictLines
+from .handlers import StrictInt, StrictLines
 from .limits import (
     BODY_TOO_LARGE,
     DEFAULT_MAX_REQUEST_BYTES,
@@ -478,18 +478,36 @@ _QUERY_DOC = _build_query_doc()
 
 # תיאורי הפרמטרים ``toc`` ו-``section`` של ``codekeeper_get_file``.
 #
-# **כלל ההתאמה של ``section`` אינו נכתב כאן שוב — ``_SECTION_PARAM_DOC`` משובץ
-# כמו שהוא.** שני הכלים עוברים באותה פונקציה בדיוק (``docs_handlers.answer_section``,
-# ומתחתיה ``doc_sections.find_sections``), ולכן לאותה התנהגות מגיע טקסט אחד: נוסח
-# שני היה נערך פעם אחת ונשאר מאחור בפעם הבאה. הטקסט נכון גם לקובץ Markdown כמו
-# שהוא — ``literal`` בשני בקטיקים הוא גם קטע קוד תקין ב-Markdown.
+# **כלל ההתאמה של ``section`` אינו כתוב כאן — יש אליו הפניה** (#3472, YAGNI-002). עד
+# #3472 ``_SECTION_PARAM_DOC`` שובץ כאן כמו שהוא, כ-3,000 תווים שנוסעים בכל ``tools/list``
+# של כל סשן, גם אצל מי שלא קורא Markdown לעולם. שני הכלים עוברים באותה פונקציה בדיוק
+# (``docs_handlers.answer_section``, ומתחתיה ``doc_sections.find_sections``), ושני התיאורים
+# יושבים באותה רשימת כלים — ``codekeeper_docs_get_section`` ציבורי, ונרשם בכל פריסה שיש
+# לה מראה, כלומר תמיד בייצור (``app.create_app``). לכן הפניה בשם הכלי והפרמטר, כששם הכלי
+# נשתל מ-``docs_handlers.SECTION_TOOL_NAME`` ולא מוקלד. **מתי לחזור לשיבוץ:** כשיתברר
+# שלקוח אינו טוען את הסכימה של הכלי האח, ולכן אינו רואה את הכללים שם.
 #
-# **מה שנוסף סביבו הוא רק מה שייחודי לקובץ שמור**, והקריטי ראשון, מאותו נימוק
-# שכתוב ליד ``_SECTION_PARAM_DOC``: לקוח שמקצר תיאור פרמטר רואה רק את ההתחלה,
-# ולכן היא אומרת "רק Markdown" ו"קודם ``toc=true``". המספרים של העימוד נשתלים
-# מ-``docs_handlers`` ואינם נכתבים כטקסט, כמו ב-:func:`_build_query_doc`: בכלי הזה
-# ברירת המחדל בסכימה היא ``null`` ("לא נשלח"), ולכן התיאור הוא המקום היחיד שבו
-# הסוכן רואה אותה.
+# **מה שנשאר כאן הוא רק מה שייחודי לקובץ שמור**, והקריטי ראשון, מהנימוק שכתוב ליד
+# ``_SECTION_PARAM_DOC``: לקוח שמקצר תיאור פרמטר לכ-120 תווים רואה רק את ההתחלה. ולכן
+# שני התיאורים **נפתחים** ב-:data:`_FILE_ID_FOLLOW_UP` (WARN-003), ומיד אחריו "רק
+# Markdown". המספרים של העימוד נשתלים מ-``docs_handlers`` ואינם נכתבים כטקסט, כמו ב-
+# :func:`_build_query_doc`: בכלי הזה ברירת המחדל בסכימה היא ``null`` ("לא נשלח"), ולכן
+# התיאור הוא המקום היחיד שבו הסוכן רואה אותה.
+
+#: **קריאה בכמה שלבים חייבת לנקוב בגרסה** (#3472, WARN-003). מפה ← סעיף ← העמוד הבא ←
+#: ``lines`` על ``line_range`` שחזר: לפי ``file_name`` כל שלב קורא את הגרסה **האחרונה**
+#: (``_latest_fresh``, בכוונה), וגרסה ששמר סשן אחר באמצע נותנת עמוד שנפתח באמצע מילה או
+#: חיבור של שתי גרסאות — בלי שום סימן חוץ מ-``file.version`` שהשתנה. ``file_id`` קורא את
+#: המסמך של הגרסה שהוא נוקב בו (``get_file_by_id``), ולכן כל השלבים קוראים את אותה גרסה.
+#: שומר ברמת הקוד הוא שינוי גדול ונפרד; כאן זה המשפט, **בתחילת** שני התיאורים — ההוראה
+#: עצמה בתוך 120 התווים הראשונים — ובעמוד התיעוד.
+_FILE_ID_FOLLOW_UP = (
+    "Follow-up calls (a section, the next page, lines= on a returned line_range) "
+    "should pass file_id=file.id from this reply, so all of them read this one "
+    "version — by file_name every call reads the latest. "
+)
+
+
 def _build_file_sections_docs() -> tuple[str, str]:
     """התיאורים שהסוכן קורא על ``toc`` ועל ``section``, בסדר הזה."""
     refusals = (
@@ -498,12 +516,17 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "too_large_for_sections, with its bytes and the max; and a file the "
         "parser refuses returns that refusal (too_many_lines, too_many_tokens, "
         "inconsistent_line_endings, too_many_sections). Each of these carries a "
-        "hint to read the file with lines= or query= instead. file_name with "
+        "hint to read the file with lines= or query= instead. Any refusal "
+        f"(ok: false) that would not fit {repo_handlers.OUTPUT_BYTE_BUDGET} "
+        "bytes as sent gives up file.tags first — from the end, with "
+        "file.tags_truncated: true — and only then its own lists; a successful "
+        "reply never cuts the file's metadata. file_name with "
         "version reads that version; file_id reads the version it names and "
         "ignores version."
     )
     toc_doc = (
-        "Markdown files only: pass toc=true to get the file's heading map "
+        _FILE_ID_FOLLOW_UP
+        + "Markdown files only: pass toc=true to get the file's heading map "
         "INSTEAD of the content — every heading with its level, breadcrumb, "
         "line_range and approx_bytes (the size of its section), plus "
         "section_count, which counts every heading even when the map is cut. "
@@ -514,16 +537,22 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "name; a repeated name is ambiguous_section, and lines= reads the "
         "line_range each candidate carries. And query finds the lines that "
         "hold any heading's text, for lines= to read from there. A map "
-        "that does not fit even empty is answer_too_large, with bytes and max. "
-        "Then read one "
+        "that does not fit even empty is answer_too_large, with bytes (what "
+        "the reply needed with the map empty) and max "
+        f"({repo_handlers.OUTPUT_BYTE_BUDGET}). Then read one "
         'section with section="<its title>". toc is a mode of its own: with '
         "section, query or lines it is refused as toc_and_section, "
         "toc_and_query or toc_and_lines." + refusals
     )
     section_doc = (
-        "Markdown files only: return ONE section INSTEAD of the content — pass "
-        "toc=true first for the file's heading map. "
-        + _SECTION_PARAM_DOC
+        _FILE_ID_FOLLOW_UP
+        + "Markdown files only: return ONE section INSTEAD of the content — pass "
+        "toc=true first for the file's heading map. How a heading is matched — "
+        "full equality, identifier shortcuts such as K11, headings written with "
+        "backticks, repeated names, suggestions, what is cut to fit and the "
+        "length ceiling — is exactly the `section` parameter of "
+        f"{docs_handlers.SECTION_TOOL_NAME}: one function answers both tools, so "
+        "the rules are read there."
         + " In this tool a line_range is read with lines=, and a heading that "
         "neither a cut candidate list nor a cut map shows is found with query, "
         "which returns the lines that hold its text."
@@ -540,7 +569,9 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "really ended. subsections lists at most "
         f"{docs_handlers._TOC_MAX}, with subsections_truncated: true when "
         "more were cut; a section whose headings alone do not fit is "
-        "section_too_large, with bytes, max and its line_range — read those "
+        "section_too_large, with bytes (what the smallest page with any content "
+        "needed), "
+        f"max ({repo_handlers.OUTPUT_BYTE_BUDGET}) and its line_range — read those "
         "lines instead. section with query or lines is refused as "
         "section_and_query or section_and_lines; max_chars or offset without "
         "section as max_chars_without_section or offset_without_section; and "
@@ -1643,11 +1674,14 @@ def _refusal_result(refusal: dict[str, Any]) -> CallToolResult:
 # the issue has the list, and ``tests/test_mcp_pre_parse_json.py`` walks the
 # registered tools rather than that list.
 #
-# Same class as ``StrictInt`` (#3316) and ``StrictBool`` (#3470): a conversion
-# at the boundary, before validation, that ``isinstance`` inside the tool can
-# never see. The check that makes the decision was read unchanged in the newest
-# releases of both lines, ``mcp 1.30.0`` and ``mcp 2.2.0`` (2026-09-29), so an
-# upgrade does not remove the need for this. In 2.x the module moved to
+# Same class as ``StrictInt`` (#3316): a conversion at the boundary, before
+# validation, that ``isinstance`` inside the tool can never see. (``toc`` was a
+# ``StrictBool`` from #3470 until #3472, and was put back to a plain ``bool``: for
+# a flag the conversion reads what the caller meant, and the pre-parse below keeps
+# ``"true"`` a string — see the comment above ``StrictInt`` in ``handlers.py``.)
+# The check that makes the decision was read unchanged in the newest releases of
+# both lines, ``mcp 1.30.0`` and ``mcp 2.2.0`` (2026-09-29), so an upgrade does
+# not remove the need for this. In 2.x the module moved to
 # ``mcp.server.mcpserver``, and the import at the top of this file then fails
 # loudly rather than quietly bringing the bug back.
 # ---------------------------------------------------------------------------
@@ -2137,7 +2171,9 @@ def build_mcp(
         query: Annotated[str | None, Field(description=_QUERY_DOC)] = None,
         context_lines: StrictInt | None = None,
         max_results: int | None = None,
-        toc: Annotated[StrictBool, Field(description=_FILE_TOC_DOC)] = False,
+        # ``bool`` רגיל, כמו ``outline`` וכל דגל אחר כאן — לא strict. הנימוק, ומה
+        # שנשאר מאחורי הסכימה, מעל ``StrictInt`` ב-``handlers.py`` (#3472, WARN-002).
+        toc: Annotated[bool, Field(description=_FILE_TOC_DOC)] = False,
         section: Annotated[str | None, Field(description=_FILE_SECTION_DOC)] = None,
         # ``int`` ולא ``StrictInt``, **בדיוק** כמו ב-``codekeeper_docs_get_section``,
         # שהעימוד שלו הוא העימוד כאן — אותה החלטת עקביות כמו ``max_results`` מול

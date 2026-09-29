@@ -285,6 +285,22 @@ def _apply_query_to_file(
     return {"found": True, "status": "query", "file": _file_meta(out), "query": query, **found}
 
 
+#: הרשימות במטא-דאטה של קובץ שמור שסירוב של מצב הסעיפים מוותר עליהן כדי להיכנס ב-
+#: ``OUTPUT_BYTE_BUDGET`` — ``docs_handlers.fit_refusal``, דרך אותו ``_fit_lists`` של
+#: המפה וההצעות, עם ``tags_truncated`` לצד התגיות (#3472, SUGG-002).
+#:
+#: **רק ``tags``, כי זו הרשימה היחידה ב-``file``.** מה שעוד יכול להיות גדול שם הוא
+#: מחרוזות — ``description`` ו-``file_name`` — ואת אלה ``_fit_lists`` אינו חותך, בכוונה:
+#: חיתוך של מחרוזת בלי סימן הוא ``silent-truncation-at-sink``. ואף אחד מהם אינו גדול
+#: היום מסיבה טובה: ``upload_file_web`` ומסלולי העריכה בוובאפ אינם מגבילים תגיות, ו-
+#: ``codekeeper_save_file`` אינו מגביל תיאור — השורש בכותבים, ב-#3489. הרשימה כאן היא
+#: הרשת שבצד הקריאה, והיא נשארת גם אחרי: מסמכים ישנים כבר שמורים.
+#:
+#: **ורק סירוב.** תשובה מוצלחת נושאת את המטא-דאטה כמו שהיא, כך שמה שנחתך מגיע לקורא
+#: תמיד עם סירוב ועם דגל — ולעולם לא כמטא-דאטה "רגילה" שחסר בה משהו.
+_FILE_REFUSAL_CUTS = ((("file", "tags"), "tags_truncated"),)
+
+
 def _apply_sections_to_file(
     out: dict[str, Any], *, section: str | None, max_chars: Any, offset: Any
 ) -> dict[str, Any]:
@@ -315,6 +331,9 @@ def _apply_sections_to_file(
        ``section_too_large`` — סעיף שגם עמוד ריק שלו אינו נכנס — ו-``answer_too_large``
        — תשובה שגם בלי אף פריט ברשימות שלה אינה נכנסת — מקבלים את אותו ``hint``
        של שלב 3.
+    5. **כל סירוב יוצא דרך** ``docs_handlers.fit_refusal`` **עם**
+       :data:`_FILE_REFUSAL_CUTS` — אחרי שה-``hint`` כבר בתוכו, כדי שגם הוא נמדד
+       בתקציב. תשובה מוצלחת אינה עוברת שם: היא נושאת את המטא-דאטה כמו שהיא.
 
     ``context`` הוא ``{"file": <מטא-דאטה>}`` — :func:`_file_meta`, כמו ב-
     :func:`_apply_query_to_file` — ולכן כל תשובה, גם סירוב, אומרת איזה קובץ ואיזו
@@ -325,27 +344,32 @@ def _apply_sections_to_file(
     תוכן שאינו מחרוזת לא מגיע לכאן: :func:`_full` כבר נפל עליו בקול.
     """
     context = {"file": _file_meta(out)}
+
+    def refuse(refusal: dict[str, Any]) -> dict[str, Any]:
+        return docs_handlers.fit_refusal(refusal, _FILE_REFUSAL_CUTS)
+
     if not is_markdown_file(out.get("programming_language"), out.get("file_name")):
-        return {"ok": False, "error": NOT_MARKDOWN, **context, "hint": SECTIONS_UNAVAILABLE_HINT}
+        return refuse(
+            {"ok": False, "error": NOT_MARKDOWN, **context, "hint": SECTIONS_UNAVAILABLE_HINT})
 
     code = out["code"]
     size = len(code.encode("utf-8"))
     if size > MAX_FILE_SIZE_FOR_DISPLAY:
-        return {
+        return refuse({
             "ok": False,
             "error": TOO_LARGE_FOR_SECTIONS,
             "bytes": size,
             "max": MAX_FILE_SIZE_FOR_DISPLAY,
             **context,
             "hint": SECTIONS_UNAVAILABLE_HINT,
-        }
+        })
 
     # המודול ולא ``md_parser.parse_document``: ``parse_with_refusals`` פותר את
     # הפונקציה בזמן הקריאה, ולכן מי שמחליף אותה בטסט רואה את זה גם כאן.
     parsed = docs_handlers.parse_with_refusals(md_parser, code, context)
     if isinstance(parsed, dict):
         parsed["hint"] = SECTIONS_UNAVAILABLE_HINT
-        return parsed
+        return refuse(parsed)
 
     # רק מה שנשלח עובר הלאה; מה שלא — מקבל את ברירת המחדל של ``answer_section``,
     # שהיא של ``codekeeper_docs_get_section``. ההצמדה היא שלה, במקום אחד.
@@ -360,13 +384,15 @@ def _apply_sections_to_file(
         docs_handlers.LoadedDocument(parsed, context),
         section=section,
         reserve_bytes=reserve,
+        refusal_cuts=_FILE_REFUSAL_CUTS,
         **paging,
     )
     if answer.get("ok") is False:
         if answer.get("error") in (docs_handlers.SECTION_TOO_LARGE, docs_handlers.ANSWER_TOO_LARGE):
             answer["hint"] = SECTIONS_UNAVAILABLE_HINT
-        # ``section_not_found`` / ``ambiguous_section`` — כמו שהם, עם ה-TOC וההצעות.
-        return answer
+        # ``section_not_found`` / ``ambiguous_section`` — כמו שהם, עם ה-TOC וההצעות. שוב
+        # דרך ``refuse`` כי ה-``hint`` נוסף אחרי ש-``answer_section`` כבר התאים אותו.
+        return refuse(answer)
     return {**envelope, **answer}
 
 
@@ -419,8 +445,13 @@ def _file_meta(out: dict[str, Any]) -> dict[str, Any]:
     ותשובות הכתיבה עוברים כאן, ולכן ``content_sha256`` — ש-``_full`` כבר חישב על
     הקובץ המלא — נשאר בכולם. ``tests/test_mcp_content_sha256.py`` נופל על ``file``
     שנבנה ב-backend בדרך אחרת.
+
+    **וההסרה עצמה היא :func:`_strip_heavy`, ולא עותק שלה** (#3472, SUGG-006): עד
+    #3472 הפונקציה הזו החזיקה נוסח שטוח משלה של אותה שורה. על מסמך קובץ של היום — שדות
+    שטוחים, ו-``tags`` רשימת מחרוזות — שתי הצורות מחזירות אותו דבר בדיוק; מה שנוסף
+    הוא ששדה כבד שיתווסף מחר בתוך אובייקט מקונן יורד גם מכאן.
     """
-    return {key: val for key, val in out.items() if key not in _HEAVY_FIELDS}
+    return _strip_heavy(out)
 
 
 def _unverified_saved_file(inserted_id: Any, *, file_name: str, version: Any) -> dict[str, Any]:
