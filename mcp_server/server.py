@@ -34,6 +34,7 @@ import inspect
 import logging
 import os
 import pathlib
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from types import NoneType, UnionType
@@ -67,7 +68,11 @@ from .limits import (
     BodySizeLimitMiddleware,
     ToolRateLimiter,
 )
-from .analytics import attach_shutdown_drain, instrument_mcp_server
+from .analytics import (
+    MISSING_CAPABILITY_TOOL_NAME,
+    attach_shutdown_drain,
+    instrument_mcp_server,
+)
 from .auth import (
     PATAuthMiddleware,
     current_user_id,
@@ -77,31 +82,155 @@ from .auth import (
 )
 from .primer import agent_primer_route
 
-_INSTRUCTIONS = (
-    "Access the current user's private code files and collections stored in "
-    "CodeKeeper. Use codekeeper_search_code / codekeeper_list_files to find files "
-    "(metadata only), and codekeeper_get_file to read full contents — or, when "
-    "you only need one part of a file, codekeeper_get_file with lines=[start, "
-    'end] for a range and query="..." for the lines that contain a string — and '
-    "for a Markdown file toc=true for its heading map and "
-    'section="<heading>" for one section. Use '
-    "codekeeper_save_file to create a NEW file — it refuses a name that is already "
-    "taken — and codekeeper_edit_file / codekeeper_append_file to change an "
-    "existing file, which is also cheaper because the whole file is not resent "
-    "(write tools require write permission). "
-    "Sticky notes live on a file, on a board (a surface that belongs to no file), or "
-    "on a file inside a mirrored repository. "
-    "codekeeper_list_notes reads a file's notes; codekeeper_list_boards and "
-    "codekeeper_list_board_notes read boards. codekeeper_create_note / "
-    "codekeeper_create_board_note / codekeeper_update_note add or change them (write "
-    "permission; notes appear in the CodeKeeper web UI). "
-    "codekeeper_search_notes finds a note across all three — by title, or with "
-    "search_content=true also by body text, which is how untitled notes (most notes) "
-    "are found — and codekeeper_get_note reads ONE note by its id: the way to reach a "
-    "note a search found, and the read to repeat when codekeeper_note_str_replace "
-    "answers conflict. "
-    "All data is scoped to the authenticated user."
-)
+# ---------------------------------------------------------------------------
+# בלוק ה-``instructions`` שהשרת מחזיר ב-``initialize``.
+#
+# **הוא השילוט בכניסה, לא המדריך.** עם טעינת כלים מושהית זה מה שהסוכן רואה
+# בתחילת הסשן, לצד שמות הכלים — התיאורים נטענים רק כשהוא מחפש כלי. כלי שהבלוק
+# אינו מזכיר כמעט לא מתגלה: 16 קריאות במקום באץ', קובץ של 800KB במקום מפה. לכן
+# נכנסים אליו רק ניתוב בין כלים אחים, פרוטוקולים חוצי-כלים ועובדות מפתיעות,
+# מקובצים לפי משימה; פרטי פרמטרים, קודי שגיאה ותקרות נשארים בתיאורי הכלים.
+#
+# **והתקרה של הלקוח קובעת את האורך, לא הרצון.** :data:`CLIENT_INSTRUCTIONS_MAX_CHARS`
+# — מה שמעבר לה אינו מגיע לסוכן כלל. טיוטה של 3,976 תווים נחתכה אצל Claude Code
+# באמצע המשפט על ``not idempotent``, ו-11 מ-32 הכלים נפלו אחרי החיתוך.
+#
+# **שלושה חלקים נבנים ולא מוקלדים:** רשימת הריפואים שהכלי מגיש
+# (``docs_handlers.served_docs_repos``), תקרת הבאץ' של השרת הזה
+# (``AdminAwareFastMCP.batch_item_cap``), והמשפט על הכלי הווירטואלי — רק כשהוא
+# באמת ברשימה (``analytics.instrument_mcp_server``). מי שמוסיף כלי מוסיף אותו
+# גם כאן: ``tests/test_mcp_instructions.py`` משווה את השמות שבתוך התקרה ל-
+# ``tools/list`` של אדמין, ונופל על כלי שחסר או על שם שאינו רשום.
+# ---------------------------------------------------------------------------
+
+#: כמה תווים מבלוק ה-``instructions`` הלקוח מעביר לסוכן. **מקור אחד** לאזהרה
+#: בעליית השרת (:func:`_warn_if_instructions_exceed_cap`) ולטסט.
+#:
+#: **הלקוח:** Claude Code. **המקור:** ``code.claude.com/docs/en/mcp``, הסעיף "For MCP
+#: server authors", נקרא ב-2026-09-29: *"Claude Code truncates each tool description
+#: and each server's instructions at 2,048 characters by default."* המשתנה
+#: ``CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`` (מ-v2.1.280) משנה אותה בצד הלקוח, לכל
+#: השרתים בסשן. **הגרסה:** בסביבה שבה זה נכתב רץ Claude Code 2.1.284, והבינארי שלו
+#: נושא את שם המשתנה — **את הערך 2,048 עצמו לא נמדד בלקוח**; הוא מהתיעוד. שורת
+#: הסיכום בלקוחות אחרים לא נבדקה, ו-claude.ai כנראה אינו מעביר את השדה כלל
+#: (``anthropics/claude-ai-mcp#93``, פתוח, לא תיעוד רשמי).
+CLIENT_INSTRUCTIONS_MAX_CHARS = 2_048
+
+
+def _serves_sentence(repos: list[str]) -> str:
+    """``" It serves A and B."`` — רשימה באנגלית רגילה, או ``""`` כשאין ריפו מוגש."""
+    if not repos:
+        return ""
+    if len(repos) == 1:
+        listed = repos[0]
+    else:
+        listed = ", ".join(repos[:-1]) + " and " + repos[-1]
+    return f" It serves {listed}."
+
+
+def build_instructions(
+    *,
+    docs_repos: list[str],
+    batch_item_cap: int,
+    missing_capability_tool: str | None,
+    mirrored: bool = True,
+) -> str:
+    """בלוק ה-``instructions`` — הנוסח הקבוע, והחלקים שנגזרים מהשרת שנבנה.
+
+    ``missing_capability_tool`` הוא שם הכלי הווירטואלי כשהוא **באמת** ב-``tools/list``,
+    ו-``None`` אחרת; בלוק שנוקב בכלי שאינו קיים הוא בדיוק מה שהשומר בא למנוע. מאותה
+    סיבה ``mirrored=False`` — שרת בלי ``repo_backend`` — משמיט את כלי המראה ואת כלי
+    התיעוד, שאינם נרשמים אז (``_register_repo_tools``, ``_register_docs_tools``),
+    ומשאיר את פתקי הריפו, שנרשמים תמיד.
+    """
+    missing = (
+        f" Missing a tool? Call {missing_capability_tool}." if missing_capability_tool else ""
+    )
+    docs = (
+        "Docs (all users): codekeeper_docs_get_section reads one section, not a page "
+        '(no section = headings; section="K11" works).'
+        + _serves_sentence(docs_repos)
+        + "\n"
+        "\n"
+        if mirrored
+        else ""
+    )
+    mirror = (
+        "- codekeeper_list_repos; codekeeper_list_repo_tree; codekeeper_search_repo "
+        "(literal, path+line), then codekeeper_get_repo_file with lines= around it, "
+        "or outline=true for a map.\n"
+        f"- codekeeper_read_batch reads up to {batch_item_cap} sections and files in "
+        "one call.\n"
+        if mirrored
+        else ""
+    )
+    return (
+        "CodeKeeper: the user's saved files (code, Markdown), sticky notes and "
+        "collections; admins also get mirrored GitHub repos. Writes need write "
+        "permission.\n"
+        "\n"
+        "Files\n"
+        "- Find: codekeeper_search_code matches whole words only (`handof` misses "
+        "`handoff`); codekeeper_list_files lists all.\n"
+        '- Read: codekeeper_get_file, whole only when needed; else lines=[a, b], '
+        'query="..." (substring) or, on Markdown, toc=true then section="...". '
+        "Pass file_id between steps (same version).\n"
+        "- Write: codekeeper_save_file for new names only; codekeeper_edit_file / "
+        "codekeeper_append_file keep versions (codekeeper_list_versions); stale "
+        "description: codekeeper_update_file_description.\n"
+        "- Collections: codekeeper_list_collections, codekeeper_get_collection, "
+        "codekeeper_get_collection_items; saving adds to none, "
+        "codekeeper_add_to_collection does.\n"
+        "\n"
+        "Notes\n"
+        "- codekeeper_search_notes with search_content=true (most are untitled); "
+        "codekeeper_get_note reads one by id.\n"
+        "- codekeeper_list_notes (file); codekeeper_list_boards, then "
+        "codekeeper_list_board_notes with include_content=false.\n"
+        "- codekeeper_create_note / codekeeper_create_board_note; "
+        "codekeeper_note_str_replace for a small edit (not idempotent: on conflict "
+        "re-read with codekeeper_get_note); codekeeper_update_note replaces the "
+        "whole body. History: codekeeper_list_note_versions, "
+        "codekeeper_get_note_version.\n"
+        "\n"
+        + docs
+        + "Failures: 502/503/dropped connection = mid-deploy; retry in a minute. "
+        "ok:false is an answer: act on its code."
+        + missing
+        + "\n"
+        "\n"
+        "Repos (admins only)\n"
+        + mirror
+        + "- codekeeper_list_repo_note_paths, then codekeeper_list_repo_notes; "
+        "codekeeper_create_repo_note."
+    )
+
+
+#: מזהה בטקסט — אסימון שלם, כדי ש-``codekeeper_get_note`` לא "יימצא" בתוך
+#: ``codekeeper_get_note_version``.
+_IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+
+
+def _warn_if_instructions_exceed_cap(text: str, tool_names: set[str]) -> None:
+    """אזהרה אחת בעליית השרת כשהבלוק ארוך מהתקרה — **עם שמות הכלים שנפלו מעבר לה**.
+
+    הלקוח חותך בשקט, ולכן זה המקום היחיד שבו החיתוך נראה. הטסט מחזיק את תצורת
+    הייצור מתחת לתקרה; האזהרה היא למה שהטסט אינו רואה — פריסה עם רשימת ריפואים
+    ארוכה יותר, או מכסת קצב אחרת.
+    """
+    if len(text) <= CLIENT_INSTRUCTIONS_MAX_CHARS:
+        return
+    head = set(_IDENTIFIER.findall(text[:CLIENT_INSTRUCTIONS_MAX_CHARS]))
+    named = set(_IDENTIFIER.findall(text)) & tool_names
+    lost = sorted(named - head)
+    logger.warning(
+        "mcp instructions are %d characters, over the %d a client shows by default "
+        "(CLIENT_INSTRUCTIONS_MAX_CHARS); tool names past the cut: %s",
+        len(text),
+        CLIENT_INSTRUCTIONS_MAX_CHARS,
+        ", ".join(lost) or "none",
+    )
+
 
 # תיאור הפרמטר ``lines``, משותף לשני הכלים שתומכים בקריאת טווח.
 # מוגדר פעם אחת כדי ששני הכלים לא יתארו את אותה סמנטיקה בשתי גרסאות —
@@ -2000,6 +2129,20 @@ class AdminAwareFastMCP(FastMCP):
         finally:
             read_batch.ENTERED_AT.reset(token)
 
+    def set_instructions(self, text: str) -> None:
+        """Set the ``instructions`` every ``initialize`` answers with.
+
+        ``FastMCP.instructions`` is a read-only property over the low-level
+        server's plain ``instructions`` attribute, which
+        ``Server.create_initialization_options`` reads on every call — once per
+        request in stateless HTTP (``_handle_stateless_request`` in
+        ``mcp/server/streamable_http_manager.py``, ``mcp 1.28.1``). So setting it
+        before the app serves anything is the same as passing it to the
+        constructor. :func:`build_mcp` needs it later than that because the text
+        depends on what ``instrument_mcp_server`` installed.
+        """
+        self._mcp_server.instructions = text
+
     def batch_item_cap(self) -> int:
         """How many items one ``codekeeper_read_batch`` call may carry on this server.
 
@@ -2081,7 +2224,6 @@ def build_mcp(
     rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
 ) -> FastMCP:
     kwargs: dict[str, Any] = {
-        "instructions": _INSTRUCTIONS,
         "stateless_http": True,
         "transport_security": _transport_security(),
     }
@@ -2100,7 +2242,7 @@ def build_mcp(
     # the tools with it switched on. Must run before ``streamable_http_app()``
     # below, which the same call also wraps. See ``mcp_server/analytics.py``
     # for the privacy gate.
-    instrument_mcp_server(mcp)
+    lists_missing_capability_tool = instrument_mcp_server(mcp)
 
     @mcp.tool(
         name="codekeeper_list_files",
@@ -2121,8 +2263,8 @@ def build_mcp(
         # ``$text`` של מונגו, והוא מתאים מילים שלמות. נמדד: ``handof``
         # מחזיר אפס בזמן ש-``handoff`` מחזיר שלוש תוצאות.
         description=(
-            "Search the user's saved files by text; returns file metadata "
-            "(no content). Matching is by whole words, not substrings: "
+            "Find saved files by whole-word text match (no substrings); returns "
+            "metadata only. Matching is by whole words, not substrings: "
             "`handof` does not find `handoff`, and a query of punctuation "
             "alone — `**`, `[`, `()` — matches nothing at all, because "
             "punctuation is not indexed as a word. This is the one search "
@@ -2142,21 +2284,25 @@ def build_mcp(
     @mcp.tool(
         name="codekeeper_get_file",
         description=(
-            "Get a file's full content by name or id (optional version number). "
+            "Read a saved file whole, or only a line range (lines), the lines "
+            "matching a string (query), or one Markdown section (toc, section). "
+            "Pick the file by name or id (optional version number). "
             + _RANGE_DOC
             # **הפירוט על ``query`` יושב בתיאור הפרמטר ולא כאן**, מאותה סיבה
             # שהפירוט על ``outline`` ועל ``symbol`` עבר משם: צירופו לכאן הביא
             # את התיאור ל-1,726 תווים, מעל התקרה שהלקוח מגיש. מה שנשאר כאן
             # הוא **ההפניה** — סוכן שלא יֵדע ש-``query`` קיים לא יפתח את סכמת
             # הפרמטרים כדי לגלות אותו, וזה בדיוק הפיצ'ר שאף אחד לא קורא לו.
-            # ההפניה נאכפת בטסט, בשני קצותיה.
-            + ' Or pass query="..." to get only the lines that contain a'
-            " string, instead of the content — see the query parameter."
-            # אותה שרשרת גילוי ל-``toc`` ול-``section``: הפירוט בתיאורי הפרמטרים,
-            # וכאן רק ההפניה אליהם בשמם. נאכף בטסט, בשני הקצוות.
-            + " For a Markdown file, pass toc=true for its heading map, or"
-            ' section="<heading>" for one section with navigation — see the'
-            " toc and section parameters."
+            # ההפניה נאכפת בטסט, בשני קצותיה. אותה שרשרת גילוי ל-``toc`` ול-``section``.
+            #
+            # **משפט הפניה אחד ולא שניים, מאז שהמשפט הראשון נוקב בשלושת המצבים.** עד
+            # אז שני משפטים כאן הסבירו כל מצב במילים ("Or pass query=... to get only
+            # the lines", "For a Markdown file, pass toc=true..."), והמשפט הראשון
+            # החדש אומר את אותו הדבר — כלומר עותק שני, שגם הביא את התיאור ל-1,437
+            # תווים, מעל התקרה בטסטים. מה שנשאר כאן הוא מה שאין במשפט הראשון:
+            # **שהפירוט יושב בפרמטרים**, בשמם.
+            + " The query parameter, and the toc and section parameters, say"
+            " how each mode works."
             + _GET_FILE_SHA256_DOC
             + _DESCRIPTION_AGE_DOC
         ),
@@ -2765,6 +2911,22 @@ def build_mcp(
         _register_repo_tools(mcp, repo_backend)
         _register_docs_tools(mcp, repo_backend)
 
+    # **אחרי ההתקנה והרישום, ולא בבנאי**: אם הכלי הווירטואלי ברשימה ידוע רק
+    # אחרי ``instrument_mcp_server``. ה-SDK קורא את הערך בכל ``initialize``
+    # (``create_initialization_options``), וכאן עוד לא הוגשה אף בקשה.
+    missing_tool = MISSING_CAPABILITY_TOOL_NAME if lists_missing_capability_tool else None
+    instructions = build_instructions(
+        docs_repos=docs_handlers.served_docs_repos(),
+        batch_item_cap=mcp.batch_item_cap(),
+        missing_capability_tool=missing_tool,
+        mirrored=repo_backend is not None,
+    )
+    mcp.set_instructions(instructions)
+    tool_names = {tool.name for tool in mcp._tool_manager.list_tools()}
+    if missing_tool:
+        tool_names.add(missing_tool)
+    _warn_if_instructions_exceed_cap(instructions, tool_names)
+
     return mcp
 
 
@@ -2787,8 +2949,9 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
     @mcp.tool(
         name="codekeeper_list_repo_tree",
         description=(
-            "[Admin] List file paths in a mirrored repo (paginated; optional "
-            "subdirectory/ref filter; paths only, no content). Set "
+            "[Admin] List paths in a mirrored repo; include_stats=true adds size "
+            "and line count. Paginated, with an optional subdirectory/ref filter; "
+            "paths only, no content. Set "
             "include_stats=true to also get an `entries` list with each path's "
             "byte size and line count, so you can tell a 40-line file from a "
             "2,400-line one before reading it. `lines` comes from the code index "
@@ -2821,7 +2984,8 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
     @mcp.tool(
         name="codekeeper_get_repo_file",
         description=(
-            "[Admin] Read one file from a mirrored repo. On sync_in_progress, "
+            "[Admin] Read a mirrored repo file: a line range (lines), a symbol "
+            "map (outline), or the whole file. On sync_in_progress, "
             "retry after retry_after seconds — the file may exist. " + _RANGE_DOC
             # התקרה יושבת בסוף, אחרי הסבר הטווח, ולא לפניו — וכשהיא הופיעה
             # ראשונה היא נקראה יחד עם "instead of the whole file" כאילו הטווח
