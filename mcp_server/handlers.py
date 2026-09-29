@@ -320,6 +320,12 @@ def fit_line_range(
     שני בתים (``\\n`` כתוב כשני תווים) בין כל שתיים. רק כשכל השורות נכנסות
     התשובה המקורית נמדדת כולה — ואז היא ממילא חסומה בתקציב.
 
+    **ותשובה שנכנסת כמו שהיא אינה נחתכת.** השמורה של המקרה הגרוע גדולה מה-``range``
+    של תשובה שאינה נחתכת בדגל ובסיבה, ולכן כשהספירה הגרועה נעצרת לפני הסוף נבדק
+    פעם אחת גם ה-``range`` האמיתי: אם בו כל השורות נכנסות, התשובה חוזרת בית-בית.
+    עד שזה נוסף (ריוויו על PR #3492, דרך טסט על מקרים אקראיים) תשובה שנכנסה בתקציב
+    עד כדי כמה עשרות בתים נחתכה בשורה האחרונה שלה.
+
     ``(None, size)`` — כשגם השורה הראשונה לבדה אינה נכנסת. ``size`` הוא מה
     שהושווה לתקציב: התשובה הקטנה ביותר שנושאת תוכן, כלומר השורה הראשונה בלבד.
     לכן ``size > budget`` תמיד כאן, והקורא בונה ממנו את הסירוב.
@@ -332,18 +338,34 @@ def fit_line_range(
              "truncation_reason": BYTE_BUDGET_REASON}
     base = with_values(answer, {range_path: worst, **{path: "" for path in text_paths}})
     copies = len(text_paths)
-    size = len(wire_json(base))
+
+    def cost(i: int) -> int:
+        return copies * (len(wire_json(lines[i])) - 2 + (2 if i else 0))
+
+    worst_base = len(wire_json(base))
+    size = worst_base
     kept = 0
-    for i, line in enumerate(lines):
-        cost = copies * (len(wire_json(line)) - 2 + (2 if i else 0))
-        if size + cost > budget:
-            if not kept:
-                return None, size + cost
-            break
-        size += cost
+    while kept < len(lines) and size + cost(kept) <= budget:
+        size += cost(kept)
         kept += 1
+    if kept < len(lines):
+        # **השמורה של המקרה הגרוע אינה סיבה לחתוך תשובה שנכנסת.** ``range`` במקרה
+        # הגרוע נושא ``truncated: true`` וסיבה, ותשובה שאינה נחתכת אינה נושאת אותם —
+        # ולכן תשובה שנכנסת בתקציב עד כדי כמה עשרות בתים הייתה נחתכת בשורה האחרונה
+        # שלה. כאן נבדק פעם אחת אם התשובה **כמו שהיא** נכנסת: ה-``range`` האמיתי, ושאר
+        # השורות באותה עלות. הבדיקה נעצרת ברגע שהתקציב עבר, ולכן היא חסומה בו.
+        real = len(wire_json(with_values(answer, {path: "" for path in text_paths})))
+        real += size - worst_base
+        for i in range(kept, len(lines)):
+            real += cost(i)
+            if real > budget:
+                break
+        else:
+            kept = len(lines)
     if kept == len(lines):
         return answer, len(wire_json(answer))
+    if not kept:
+        return None, worst_base + cost(0)
     fitted = with_values(answer, {
         range_path: {**rng, "end": start + kept - 1, "truncated": True,
                      "truncation_reason": BYTE_BUDGET_REASON},

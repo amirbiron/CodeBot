@@ -533,6 +533,48 @@ async def test_a_range_over_the_budget_ends_at_a_line_and_continuing_rebuilds_th
     _assert_net_silent(net_log)
 
 
+def test_the_line_cost_is_exactly_what_the_joined_string_costs_as_sent():
+    """העלות של ``fit_line_range`` היא בדיוק העלות של המחרוזת **האחת** שהשורות מחוברות בה.
+
+    השורות אינן רשימה בתשובה — הן מחרוזת אחת (``"code": "a\\nb"``). ``wire_json(line) - 2``
+    הוא השורה בלי המירכאות שלה, ו-``+ 2`` בין שתי שורות הוא ה-``\\n`` שנכתב בתוך המחרוזת
+    כשני תווים; המירכאות של המחרוזת כולה כבר בתשובה הבסיסית, כ-``""``. ה-escaping של
+    JSON הוא לפי תו, ולכן הסכום מדויק ולא הערכה — על עברית, מירכאות, לוכסן, תווי בקרה,
+    ``\\r`` ואימוג'י. (ריוויו על PR #3492 טען שהנוסחה מניחה רשימה ומחטיאה בעברית.)
+
+    **ותשובה שנכנסת בתקציב בדיוק חוזרת כמו שהיא** — הטסט הזה מצא שהשמורה של המקרה הגרוע
+    (``truncated`` וסיבה) חתכה תשובה כזו בשורה האחרונה שלה, ו-``fit_line_range`` בודק עכשיו
+    גם את ה-``range`` האמיתי לפני שהוא חותך.
+
+    מוטציות שמפילות: בלי ה-``+ 2`` בין שורות; ``len(line.encode())`` במקום ``wire_json``;
+    בלי הבדיקה של ה-``range`` האמיתי.
+    """
+    import random
+
+    rng = random.Random(3492)
+    alphabet = ["א", "b", '"', "\\", "\t", "\u0001", "汉", "😀", " ", "/", "\r"]
+    for _ in range(3000):
+        lines = ["".join(rng.choice(alphabet) for _ in range(rng.randint(0, 30)))
+                 for _ in range(rng.randint(1, 12))]
+        text = "\n".join(lines)
+        answer = {"ok": True, "content": text,
+                  "range": {"start": 1, "end": len(lines), "total_lines": len(lines), "truncated": False}}
+        whole = len(answer_size.wire_json(answer))
+        fitted, size = handlers.fit_line_range(
+            answer, text_paths=(("content",),), range_path=("range",), budget=whole)
+        assert fitted is answer and size == whole, lines
+        # בית אחד פחות: או טווח מקוצר שנכנס — קידומת של שורות, בגודל שנמדד — או ``None``
+        # כשאין כזה (תשובה מקוצרת נושאת דגל וסיבה, ובתשובה זעירה היא גדולה מהשלמה).
+        fitted, size = handlers.fit_line_range(
+            answer, text_paths=(("content",),), range_path=("range",), budget=whole - 1)
+        if fitted is None:
+            assert size > whole - 1, lines
+        else:
+            assert size == len(answer_size.wire_json(fitted)) <= whole - 1, lines
+            assert fitted["range"]["end"] < len(lines)
+            assert fitted["content"] == "\n".join(lines[:fitted["range"]["end"]])
+
+
 async def test_a_single_line_larger_than_the_budget_is_refused_and_named(monkeypatch, net_log):
     mcp, _ = _saved(monkeypatch, _Dbm(code="קצר\n" + "ש" * 200_000 + "\nקצר"))
     answer, sent = await _call(mcp, "codekeeper_get_file", {"file_name": "big.txt", "lines": [2, 3]})
