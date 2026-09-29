@@ -48,16 +48,26 @@
    */
   var PLAIN_LANGUAGE_NAMES = ['plaintext', 'text', 'nohighlight', 'none', 'txt', 'markdown', 'md'];
 
-  // **חלופה אחת ששתי הצורות נבנות ממנה.** ה-``\b`` הוא חלק מהשאלה ולא
-  // קישוט: בלעדיו ``texture`` נבלע ב-``text``. וחשוב מכך, הוא מגדיר
-  // שהשאלה היא "**מתחיל** בשם פטור שנגמר בגבול" ולא "שווה לשם פטור" —
-  // ולכן ``text,`` הוא ``text``. רשימה משותפת בלי הסמנטיקה המשותפת
-  // הספיקה כדי ששתי הצורות יחלקו על שמונה קלטים.
+  // **חלופה אחת ששתי הצורות נבנות ממנה.** הגבול אחרי השם הוא חלק
+  // מהשאלה ולא קישוט: בלעדיו ``texture`` נבלע ב-``text``. וחשוב מכך, הוא
+  // מגדיר שהשאלה היא "**מתחיל** בשם פטור שנגמר בגבול" ולא "שווה לשם
+  // פטור" — ולכן ``text,`` הוא ``text``. רשימה משותפת בלי הסמנטיקה
+  // המשותפת הספיקה כדי ששתי הצורות יחלקו על שמונה קלטים.
+  //
+  // **הגבול הוא "אין אחריו אות, סימן צירוף, ספרה או קו תחתון" בכל כתב,
+  // ולא ``\b``.** ‏``\b`` ב-JavaScript מכיר רק ``[A-Za-z0-9_]`` כתווי מילה,
+  // וגם הדגל ``u`` לבדו אינו מרחיב את זה (MDN, "Word boundary assertion").
+  // לכן אות עברית אחרי השם נחשבה סוף מילה, ו-``mdעברית`` או ``textעברית``
+  // נחשבו "בלי שפה" ומתהפכים — אף שזה שם אחר. פיסוק ומקף עדיין נחשבים
+  // גבול, בדיוק כמו קודם, כך ש-``text,`` ו-``md-x`` לא זזו. ‏``\p{…}`` עובד
+  // רק עם הדגל ``u`` (MDN, "Unicode character class escape"), ולכן שני
+  // הרג'קסים נבנים איתו.
+  var NAME_END = '(?![\\p{L}\\p{M}\\p{N}_])';
   var PLAIN_LANGUAGE_PREFIX =
-    PLAIN_LANGUAGE_NAMES.map(function (n) { return n + '\\b'; }).join('|');
+    PLAIN_LANGUAGE_NAMES.map(function (n) { return n + NAME_END; }).join('|');
 
-  var EXPLICIT_LANGUAGE_RE = new RegExp('\\blanguage-(?!' + PLAIN_LANGUAGE_PREFIX + ')\\S+');
-  var PLAIN_LANGUAGE_NAME_RE = new RegExp('^(?:' + PLAIN_LANGUAGE_PREFIX + ')');
+  var EXPLICIT_LANGUAGE_RE = new RegExp('\\blanguage-(?!' + PLAIN_LANGUAGE_PREFIX + ')\\S+', 'u');
+  var PLAIN_LANGUAGE_NAME_RE = new RegExp('^(?:' + PLAIN_LANGUAGE_PREFIX + ')', 'u');
 
   /**
    * האם שם השפה **הגולמי** הוא שפה אמיתית — אותה שאלה, בלי DOM.
