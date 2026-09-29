@@ -36,7 +36,7 @@ from mcp.server.lowlevel.server import request_ctx  # noqa: E402
 from mcp.shared.context import RequestContext  # noqa: E402
 
 import mcp_server.server as srv  # noqa: E402
-from mcp_server import analytics, answer_size, docs_handlers, handlers, read_batch, repo_handlers  # noqa: E402
+from mcp_server import analytics, answer_fit, answer_size, docs_handlers, handlers, read_batch  # noqa: E402
 from mcp_server.backend import ProductionBackend  # noqa: E402
 from mcp_server.repo_backend import RepoBackend  # noqa: E402
 from services.git_mirror_service import GitMirrorService  # noqa: E402
@@ -560,12 +560,12 @@ def test_the_line_cost_is_exactly_what_the_joined_string_costs_as_sent():
         answer = {"ok": True, "content": text,
                   "range": {"start": 1, "end": len(lines), "total_lines": len(lines), "truncated": False}}
         whole = len(answer_size.wire_json(answer))
-        fitted, size = handlers.fit_line_range(
+        fitted, size = answer_fit.fit_line_range(
             answer, text_paths=(("content",),), range_path=("range",), budget=whole)
         assert fitted is answer and size == whole, lines
         # בית אחד פחות: או טווח מקוצר שנכנס — קידומת של שורות, בגודל שנמדד — או ``None``
         # כשאין כזה (תשובה מקוצרת נושאת דגל וסיבה, ובתשובה זעירה היא גדולה מהשלמה).
-        fitted, size = handlers.fit_line_range(
+        fitted, size = answer_fit.fit_line_range(
             answer, text_paths=(("content",),), range_path=("range",), budget=whole - 1)
         if fitted is None:
             assert size > whole - 1, lines
@@ -573,6 +573,49 @@ def test_the_line_cost_is_exactly_what_the_joined_string_costs_as_sent():
             assert size == len(answer_size.wire_json(fitted)) <= whole - 1, lines
             assert fitted["range"]["end"] < len(lines)
             assert fitted["content"] == "\n".join(lines[:fitted["range"]["end"]])
+
+
+def test_a_range_from_the_middle_with_two_text_copies_fits_at_the_boundary():
+    """SUGG-005 (T3): הגבול של ``fit_line_range`` כשהטווח מתחיל אחרי שורה 1 והטקסט יושב פעמיים.
+
+    כך נראית קריאת המשך של קובץ גדול שמור (``LargeFile``): ``start`` רב-ספרתי, והטקסט גם
+    ב-``code`` וגם ב-``content``. הטסט שמעליו מכסה רק ``start=1`` ועותק אחד. כאן: בתקציב
+    המדויק התשובה חוזרת כמו שהיא, ובכל תקציב קטן ממנו — קידומת של שורות שנכנסת, בגודל
+    שנמדד, עם ``end == start + kept - 1`` ושני העותקים שווים. בהרצה על הקוד שלפני הפיצול
+    לא נמצאה אף תשובה שגויה (127,261 תשובות חתוכות); הטסט מקבע את זה.
+    """
+    import random
+
+    from mcp_server import answer_fit
+
+    rng = random.Random(3492_2)
+    alphabet = ["א", "b", '"', "\\", "\t", "\u0001", "汉", "😀", " ", "/", "\r"]
+    paths = (("file", "code"), ("file", "content"))
+    for _ in range(600):
+        total = rng.randint(3, 15)
+        start = rng.randint(2, total)
+        lines = ["".join(rng.choice(alphabet) for _ in range(rng.randint(0, 30)))
+                 for _ in range(total - start + 1)]
+        text = "\n".join(lines)
+        answer = {"found": True, "file": {
+            "code": text, "content": text, "description": "ת" * rng.randint(0, 40),
+            "range": {"start": start, "end": total, "total_lines": total, "truncated": False}}}
+        whole = len(answer_size.wire_json(answer))
+        fitted, size = answer_fit.fit_line_range(
+            answer, text_paths=paths, range_path=("file", "range"), budget=whole)
+        assert fitted is answer and size == whole, lines
+        for budget in range(whole - 1, whole - 40, -1):
+            fitted, size = answer_fit.fit_line_range(
+                answer, text_paths=paths, range_path=("file", "range"), budget=budget)
+            if fitted is None:
+                assert size > budget, lines
+                break
+            kept = fitted["file"]["code"]
+            assert size == len(answer_size.wire_json(fitted)) <= budget, lines
+            assert fitted["file"]["content"] == kept, lines
+            assert kept == "\n".join(lines[:kept.count("\n") + 1]), lines
+            assert fitted["file"]["range"]["end"] == start + kept.count("\n"), lines
+            assert fitted["file"]["range"]["truncation_reason"] == answer_size.BYTE_BUDGET_REASON
 
 
 async def test_a_single_line_larger_than_the_budget_is_refused_and_named(monkeypatch, net_log):
@@ -627,20 +670,122 @@ async def test_a_query_cut_by_the_count_says_max_results(monkeypatch, net_log):
     _assert_net_silent(net_log)
 
 
-async def test_a_refusal_drops_a_huge_description_whole_and_says_how_big_it_was(monkeypatch, net_log):
-    """#3489 בצד הקריאה: תיאור של 200,000 תווים עבריים. על main הסירוב עצמו יצא 400,523 בתים.
+#: תיאור של 200,000 תווים עבריים — 400,000 בתים, יותר מהתקציב כולו. הצורה של #3489.
+_HUGE_DESCRIPTION = "ת" * 200_000
+_UPDATE_DESCRIPTION = "codekeeper_update_file_description"
 
-    עכשיו התיאור יורד מהסירוב שלם, ו-``description_bytes`` אומר כמה הוא היה — בכל צורה
-    של הכלי: מפה, ``query``, קריאה מלאה וטווח. מוטציה שמפילה: להשאיר את התיאור.
+
+async def test_a_huge_description_leaves_the_file_readable_in_every_mode(monkeypatch, net_log):
+    """WARN-001 בריוויו Han על PR #3492: תיאור ענק נעל את הקובץ בכל צורה של הכלי.
+
+    קריאה מלאה, ``lines``, ``query`` ו-``toc`` נדחו כולם ב-``answer_too_large``, וההפניות
+    שלהם הובילו זו לזו. עכשיו התיאור יורד **גם מתשובה מוצלחת** כשרק הוא דוחף אותה מעל
+    התקציב: התוכן חוזר, ``file.description_bytes`` אומר כמה התיאור היה, וה-``hint`` מפנה
+    לכלי שמתקן אותו. נופלת על הקוד שלפני: שם ארבע הקריאות הן סירוב.
     """
-    description = "ת" * 200_000
-    mcp, _ = _saved(monkeypatch, _Dbm(code="# a\n\ntext\n\n## b\n\nmore\n", name="big.md",
-                                      language="markdown", description=description))
-    for arguments in ({"toc": True}, {"query": "text"}, {}, {"lines": [1, 3]}):
+    code = "# a\n\n" + "\n".join(f"line {i}" for i in range(1, 50))
+    mcp, _ = _saved(monkeypatch, _Dbm(code=code, name="big.md", language="markdown",
+                                      description=_HUGE_DESCRIPTION))
+    checks = (
+        ({"lines": [1, 3]}, lambda a: a["file"]["code"] == "\n".join(code.split("\n")[:3])),
+        ({}, lambda a: a["file"]["code"] == code),
+        ({"query": "line 7"}, lambda a: a["count"] >= 1),
+        ({"toc": True}, lambda a: bool(a["toc"])),
+    )
+    for arguments, delivered in checks:
         answer, sent = await _call(mcp, "codekeeper_get_file", {"file_name": "big.md", **arguments})
-        assert answer["error"] == "answer_too_large" and sent <= BUDGET, arguments
+        assert answer.get("ok") is not False and answer["found"] is True, (arguments, answer)
+        assert delivered(answer) and sent <= BUDGET, arguments
         assert "description" not in answer["file"], arguments
-        assert answer["file"]["description_bytes"] == len(description.encode("utf-8")), arguments
+        assert answer["file"]["description_bytes"] == len(_HUGE_DESCRIPTION.encode("utf-8")), arguments
+        assert _UPDATE_DESCRIPTION in answer["hint"], arguments
+    _assert_net_silent(net_log)
+
+
+async def test_a_description_that_outweighs_the_content_is_dropped_from_a_cut_range(monkeypatch, net_log):
+    """המקרה שבין (ב) ל-(ג): תיאור של 220,000 בתים משאיר לשורות בערך 36,000 בתים בתשובה.
+
+    הקריאה לא הייתה נחסמת, אבל כל תשובה הייתה נושאת בעיקר את התיאור — והסוכן לא היה יודע
+    למה. כשהמטא-דאטה שאפשר לוותר עליה גדולה מכל שאר התשובה, היא יורדת, עם הסימן והרמז
+    של הסירוב. נופלת על הקוד שלפני: שם התיאור נשאר, ואין ``description_bytes`` ואין ``hint``.
+    """
+    description = "ת" * 110_000
+    mcp, _ = _saved(monkeypatch, _Dbm(code=_BIG_HEBREW, description=description))
+    answer, sent = await _call(mcp, "codekeeper_get_file", {"file_name": "big.txt", "lines": [1, 10_000_000]})
+    assert sent <= BUDGET and answer["file"]["range"]["truncation_reason"] == "byte_budget"
+    assert "description" not in answer["file"]
+    assert answer["file"]["description_bytes"] == len(description.encode("utf-8"))
+    assert _UPDATE_DESCRIPTION in answer["hint"]
+    assert len(answer["file"]["code"].encode("utf-8")) > len(description.encode("utf-8"))
+    _assert_net_silent(net_log)
+
+
+async def test_a_short_description_stays_on_a_cut_range(monkeypatch, net_log):
+    """הצד השני של הכלל: קריאת המשך רגילה של קובץ גדול עם תיאור קצר אינה משתנה.
+
+    ``range`` נחתך בתקציב והתיאור נשאר כמו שהוא — בלי ``description_bytes`` ובלי ``hint``.
+    הכלל "מטא-דאטה לעולם לא דוחקת תוכן" היה מוריד גם אותו, ולכן הוא לא הכלל.
+    """
+    mcp, _ = _saved(monkeypatch, _Dbm(code=_BIG_HEBREW, description="תיאור קצר"))
+    answer, sent = await _call(mcp, "codekeeper_get_file", {"file_name": "big.txt", "lines": [1, 10_000_000]})
+    assert sent <= BUDGET and answer["file"]["range"]["truncation_reason"] == "byte_budget"
+    assert answer["file"]["description"] == "תיאור קצר" and "description_bytes" not in answer["file"]
+    assert "hint" not in answer
+    _assert_net_silent(net_log)
+
+
+async def test_a_refusal_drops_a_huge_description_whole_and_points_at_its_fix(monkeypatch, net_log):
+    """#3489 בצד הקריאה, בסירוב שנשאר סירוב: התוכן עצמו גדול מדי, או שהצורה אינה קיימת.
+
+    התיאור יורד מהסירוב שלם, ``description_bytes`` אומר כמה הוא היה, וה-``hint`` מפנה ל-
+    ``codekeeper_update_file_description`` — אחרת סירוב שמפנה לסירוב אחר הוא מעגל. על main
+    הסירוב עצמו יצא 400,523 בתים. נופלת על הקוד שלפני: שם ה-``hint`` אינו מזכיר את הכלי.
+    """
+    mcp, _ = _saved(monkeypatch, _Dbm(code=_BIG_HEBREW, description=_HUGE_DESCRIPTION))
+    for arguments, error in (({"toc": True}, "not_markdown"), ({}, "answer_too_large")):
+        answer, sent = await _call(mcp, "codekeeper_get_file", {"file_name": "big.txt", **arguments})
+        assert answer["ok"] is False and answer["error"] == error and sent <= BUDGET, arguments
+        assert "description" not in answer["file"], arguments
+        assert answer["file"]["description_bytes"] == len(_HUGE_DESCRIPTION.encode("utf-8")), arguments
+        assert _UPDATE_DESCRIPTION in answer["hint"], arguments
+    _assert_net_silent(net_log)
+
+
+async def test_a_refusal_with_huge_tags_and_a_huge_description_gives_up_both_and_fits(monkeypatch, net_log):
+    """SUGG-005 (T1): שני החיתוכים באותה תשובה — הרשימה קודם, ואז המחרוזת.
+
+    כל אחד מהם נבדק לבד; יחד הם עוברים באותה לולאה של ``fit_refusal``: התגיות מתרוקנות
+    ומסומנות, ורק כשגם בלי אף תגית הסירוב גדול מדי התיאור יורד. ההתנהגות נכונה היום, והטסט
+    מקבע אותה.
+    """
+    tags = [f"תג-{i}-" + "ת" * 100 for i in range(3000)]
+    mcp, _ = _saved(monkeypatch, _Dbm(code="a\n", tags=tags, description=_HUGE_DESCRIPTION))
+    answer, sent = await _call(mcp, "codekeeper_get_file", {"file_name": "big.txt", "toc": True})
+    assert answer["error"] == "not_markdown" and sent <= BUDGET
+    assert answer["file"]["tags"] == [] and answer["file"]["tags_truncated"] is True
+    assert answer["file"]["description_bytes"] == len(_HUGE_DESCRIPTION.encode("utf-8"))
+    assert "description" not in answer["file"]
+    _assert_net_silent(net_log)
+
+
+@pytest.mark.parametrize("stored", [
+    {"start": 1},
+    {"note": "a field a user saved"},
+    {"start": 1, "end": 1, "total_lines": 3, "truncated": False},
+], ids=["partial", "foreign", "range-shaped"])
+async def test_a_stored_field_named_range_does_not_turn_a_full_read_into_a_range(monkeypatch, net_log, stored):
+    """WARN-002: קריאה מלאה הסתעפה לפי שדה ``range`` **במסמך השמור**, ולא לפי הבקשה.
+
+    ``_clean`` מעביר הלאה כל שדה שבמסמך, ולכן ``range`` שמשתמש שמר היה שולח קריאה מלאה ל-
+    ``fit_line_range`` — שם ``{"start": 1}`` קרס ב-``KeyError: 'total_lines'`` (``ToolError``
+    גולמי, בלי סירוב מוסבר), ו-``range`` בצורה של טווח היה הופך קריאה מלאה לטווח. הכלל
+    כבר כתוב ב-``server.py`` ליד ``get_file``: מסתעפים לפי מה שביקשו. אף כותב היום אינו
+    שומר שדה כזה. נופלת על הקוד שלפני בשני המקרים הראשונים.
+    """
+    code = "a\nb\nc"
+    mcp, _ = _saved(monkeypatch, _Dbm(code=code, range=stored))
+    answer, _ = await _call(mcp, "codekeeper_get_file", {"file_name": "big.txt"})
+    assert answer["found"] is True and answer["file"]["code"] == code
     _assert_net_silent(net_log)
 
 
@@ -670,6 +815,41 @@ async def test_a_whole_repo_file_over_the_budget_is_refused_with_its_ways_in(tmp
     answer, sent = await _call(mcp, "codekeeper_get_repo_file", {"repo": _MD_REPO, "path": "big.md"})
     assert answer["error"] == "answer_too_large" and sent <= BUDGET
     assert answer["read_with"] == docs_handlers.SECTION_TOOL_NAME
+    toc, _ = await _call(mcp, answer["read_with"], answer["read_with_arguments"])
+    assert toc["ok"] is True and toc["toc"]
+    _assert_net_silent(net_log)
+
+
+@requires_git
+async def test_a_refusal_on_a_branch_points_the_section_tool_at_that_branch(tmp_path, monkeypatch, net_log):
+    """SUGG-005 (T2): ``ref`` עובר ל-``read_with_arguments``, מנוקה מרווחים.
+
+    בלעדיו, מי שהולך אחרי ההפניה קורא את הענף הראשי, כלומר גרסה אחרת של הקובץ. הקובץ
+    הגדול קיים **רק** בענף ``feature``, ולכן ההפניה שעובדת מוכיחה שהיא קוראת אותו ענף.
+    """
+    _repos(tmp_path, monkeypatch, {})  # סביבה, אדמין ומדיניות; המראה נבנית כאן, עם שני ענפים
+    work = tmp_path / "work" / _MD_REPO
+    work.mkdir(parents=True)
+    _git("init", "-q", "-b", "main", ".", cwd=work)
+    (work / "small.md").write_bytes("# קטן\n".encode("utf-8"))
+    _git("add", "-A", cwd=work)
+    _git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "main", cwd=work)
+    _git("checkout", "-q", "-b", "feature", cwd=work)
+    (work / "big.md").write_bytes(_BIG_MD.encode("utf-8"))
+    _git("add", "-A", cwd=work)
+    _git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "feature", cwd=work)
+    mirrors = tmp_path / "mirrors"
+    mirrors.mkdir(exist_ok=True)
+    _git("clone", "-q", "--mirror", str(work), str(mirrors / f"{_MD_REPO}.git"), cwd=tmp_path)
+    db = _Db({"repo_metadata": _Collection([{"repo_name": _MD_REPO, "default_branch": "main"}]),
+              "sync_jobs": _Collection([]), "repo_files": _Collection([])})
+    backend = RepoBackend(db=db, mirror=GitMirrorService(base_path=str(mirrors)))
+    mcp = srv.build_mcp(object(), repo_backend=backend, rate_limit_per_minute=0)
+
+    answer, sent = await _call(mcp, "codekeeper_get_repo_file",
+                               {"repo": _MD_REPO, "path": "big.md", "ref": "  feature "})
+    assert answer["error"] == "answer_too_large" and sent <= BUDGET
+    assert answer["read_with_arguments"] == {"repo": _MD_REPO, "path": "big.md", "ref": "feature"}
     toc, _ = await _call(mcp, answer["read_with"], answer["read_with_arguments"])
     assert toc["ok"] is True and toc["toc"]
     _assert_net_silent(net_log)
@@ -769,6 +949,10 @@ async def test_a_tree_page_over_the_budget_is_refused_whole_through_the_tool(mon
 
     answer, _ = await _call(mcp, "codekeeper_list_repo_tree", {"repo": "r", "per_page": 1000, "include_stats": True})
     assert answer["error"] == "page_too_large" and answer["bytes"] > answer["max"] == BUDGET
+    # SUGG-003: הסירוב אומר מה לעשות, ותיאור הכלי אומר שהוא קיים — כמו בשאר הסירובים.
+    assert "per_page" in answer["hint"]
+    description = mcp._tool_manager.get_tool("codekeeper_list_repo_tree").description
+    assert "page_too_large" in description
     seen: list[str] = []
     for page in range(1, 5):
         answer, sent = await _call(mcp, "codekeeper_list_repo_tree",
@@ -937,12 +1121,60 @@ async def test_the_largest_section_page_of_wide_characters_fits(tmp_path, monkey
 
 def test_one_word_for_each_size_outcome():
     """הקודים והסיבות של תשובה גדולה — מילה אחת כל אחד, מבעלים אחד (``answer_size``)."""
-    assert docs_handlers.ANSWER_TOO_LARGE is answer_size.ANSWER_TOO_LARGE == "answer_too_large"
-    assert repo_handlers.ANSWER_TOO_LARGE is answer_size.ANSWER_TOO_LARGE
-    assert docs_handlers._BYTE_BUDGET_REASON is answer_size.BYTE_BUDGET_REASON == "byte_budget"
-    assert read_batch.UNREAD_BYTE_BUDGET is answer_size.BYTE_BUDGET_REASON
-    assert repo_handlers.OUTPUT_BYTE_BUDGET is answer_size.OUTPUT_BYTE_BUDGET
+    assert answer_size.ANSWER_TOO_LARGE == "answer_too_large"
+    assert answer_size.BYTE_BUDGET_REASON == "byte_budget"
     assert answer_size.DECLARED_MAX_RESULT_CHARS == answer_size.OUTPUT_BYTE_BUDGET
+
+
+def test_every_module_takes_the_size_words_straight_from_the_leaf():
+    """SUGG-002 בריוויו Han על PR #3492: "בעלים אחד" נאכף, ולא רק כתוב.
+
+    ה-docstring של ``answer_size`` אומר שכל מודול שמודד תשובה מייבא ממנו. ההצהרה נשברה
+    בשלוש צורות, וכל אחת נבדקת כאן בכל מודול של ``mcp_server`` ובסקריפט המדידה:
+
+    * **המספר מוקלד** — ``256_000`` כברירת מחדל ב-``repo_backend``;
+    * **כינוי** — שם שני לאותו ערך ברמת המודול (``ANSWER_TOO_LARGE = _ANSWER_TOO_LARGE``,
+      ``UNREAD_BYTE_BUDGET = answer_size.BYTE_BUDGET_REASON``), או ``import ... as``;
+    * **ייצוא-משנה** — ``repo_handlers.OUTPUT_BYTE_BUDGET`` ב-``server.py``, שם שנפתר רק
+      כי ``repo_handlers`` במקרה מייבא אותו, וייבוא מסודר יותר שם היה שובר אותו בשקט.
+
+    הרשימה של מה ש-``answer_size`` מחזיק נקראת מהמודול עצמו, ולא מוקלדת כאן.
+    """
+    import ast
+
+    owned = {
+        name for name, value in vars(answer_size).items()
+        if not name.startswith("_") and (
+            name.isupper() or getattr(value, "__module__", None) == answer_size.__name__)
+    }
+    package = Path(answer_size.__file__).resolve().parent
+    sources = sorted(package.glob("*.py")) + [package.parent / "scripts" / "measure_read_batch.py"]
+    problems: list[str] = []
+    for path in sources:
+        if path.name == "answer_size.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        where = path.name
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant) and type(node.value) is int
+                    and node.value == answer_size.OUTPUT_BYTE_BUDGET):
+                problems.append(f"{where}:{node.lineno}: the budget typed as a number")
+            if isinstance(node, ast.ImportFrom):
+                leaf = (node.module or "").rsplit(".", 1)[-1] == "answer_size"
+                for alias in node.names:
+                    if alias.name in owned and not leaf:
+                        problems.append(f"{where}:{node.lineno}: {alias.name} from {node.module}")
+                    if alias.name in owned and alias.asname:
+                        problems.append(f"{where}:{node.lineno}: {alias.name} renamed {alias.asname}")
+            if (isinstance(node, ast.Attribute) and node.attr in owned
+                    and not (isinstance(node.value, ast.Name) and node.value.id == "answer_size")):
+                problems.append(f"{where}:{node.lineno}: {ast.unparse(node)}")
+        for node in tree.body:
+            value = node.value if isinstance(node, (ast.Assign, ast.AnnAssign)) else None
+            if (isinstance(value, ast.Name) and value.id in owned) or (
+                    isinstance(value, ast.Attribute) and value.attr in owned):
+                problems.append(f"{where}:{node.lineno}: a second name for {ast.unparse(value)}")
+    assert problems == [], "\n".join(problems)
 
 
 def test_the_leaf_imports_nothing_from_the_package():

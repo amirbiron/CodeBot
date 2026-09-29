@@ -69,7 +69,7 @@ Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיב
 > `destructiveHint` נשאר `True` כי אחרי 20 עריכות המקור נדחף החוצה. אוסף נפרד ולא
 > מערך מוטבע — שלוש פונקציות הרשימה קוראות בלי פרויקציה.
 
-> **תקרת התשובה.** כלי שקורא תוכן — `codekeeper_get_file`, `codekeeper_list_notes`, `codekeeper_list_board_notes`, `codekeeper_docs_get_section`, וכלי הריפו — מצהיר ב-`tools/list` על `_meta["anthropic/maxResultSizeChars"]` (`OUTPUT_BYTE_BUDGET`, 256,000), כדי ש-Claude Code יכניס את התשובה להקשר ולא ישמור אותה לקובץ (#3460). כל כלי כזה מתאים את התשובה שלו בעצמו, ורשת ב-`AdminAwareFastMCP.call_tool` מסרבת לתשובה שעוברת את מה שהוצהר ורושמת `answer_size_net` בלוג — תפיסה שלה היא באג בכלי. `codekeeper_list_repo_notes` אינו מצהיר, בכוונה. ראו "תקרת התשובה" ב-`docs/mcp-server.rst`.
+> **תקרת התשובה.** כלי שקורא תוכן — `codekeeper_get_file`, `codekeeper_list_notes`, `codekeeper_list_board_notes`, `codekeeper_docs_get_section`, וכלי הריפו — מצהיר ב-`tools/list` על `_meta["anthropic/maxResultSizeChars"]` (`OUTPUT_BYTE_BUDGET`, 256,000), כדי ש-Claude Code יכניס את התשובה להקשר ולא ישמור אותה לקובץ (#3460). כל כלי כזה מתאים את התשובה שלו בעצמו, ורשת ב-`AdminAwareFastMCP.call_tool` מסרבת לתשובה שעוברת את מה שהוצהר ורושמת `answer_size_net` בלוג — תפיסה שלה היא באג בכלי. חיתוך או סירוב שהכלי עצמו עשה נרשם ברמת INFO כ-`answer_size_fit` (שם הכלי, שמות הארגומנטים, מספרים). תגיות ותיאור ענקיים של קובץ שמור יורדים גם מתשובה מוצלחת כשהם מה שלא נכנס, עם הפניה ל-`codekeeper_update_file_description`. `codekeeper_list_repo_notes` אינו מצהיר, בכוונה. ראו "תקרת התשובה" ב-`docs/mcp-server.rst`.
 
 > **טביעת אצבע לתוכן.** `file.content_sha256` הוא SHA-256 בהקס על בתי ה-UTF-8 של התוכן, בדיוק כפי ש-`codekeeper_get_file` מחזיר אותו (`hashlib.sha256(text.encode("utf-8")).hexdigest()`). ב-`codekeeper_get_file` הוא של הגרסה כולה בכל מצב קריאה, ובשלושת כלי הכתיבה הוא של מה שנקרא חזרה מהאחסון — לפי ה-`_id` שנכתב, בלי קאש. לצידו `content_changed`: `false`, או `true` עם `content_diff` ושורת `WARNING` בלי תוכן, או `null` כשהקריאה החוזרת נכשלה (ואז `file` מינימלי בלי hash). רשימות אינן נושאות hash. הפירוט ב-`docs/mcp-server.rst` ("טביעת אצבע לתוכן").
 
@@ -321,6 +321,7 @@ Claude.ai → /authorize → provider יוצר txn → הפניה ל-webapp /oau
 | `backend.py` | גישה לנתונים + סריאליזציה (Smart Projection, בדיקת בעלות) |
 | `handlers.py` | לוגיקת הכלים הטהורה — יעד הטסטים |
 | `answer_size.py` | תקציב התשובה (`OUTPUT_BYTE_BUDGET`), המדידה שלה כפי שהיא נשלחת (`wire_json`), וההצהרה ללקוח (`declared_size_meta`). בלי תלויות פנימיות — ראו "תקרת התשובה" ב-`docs/mcp-server.rst` |
+| `answer_fit.py` | מה עושים כשתשובה אינה נכנסת: ליבת הסירוב `answer_too_large` (`too_large`), השגרה האחת של קריאת קובץ (`fit_read`), טווח שורות (`fit_line_range`), חיתוך רשימות ומחרוזות בהקשר (`fit_lists`, `fit_refusal`), והרישום לשורת `answer_size_fit` בלוג. תלוי רק ב-`answer_size` |
 | `auth.py` | `current_user_id` (OAuth/PAT) + PAT middleware (fallback) + `authenticate_bearer` לראוטים שאינם `/mcp` |
 | `oauth_store.py` | אחסון clients/codes/tokens/txns (hash) |
 | `oauth_provider.py` | מימוש חוזה ה‑OAuth של ה‑SDK (כולל PAT מאוחד) |

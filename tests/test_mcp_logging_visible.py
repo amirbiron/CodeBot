@@ -180,6 +180,55 @@ def test_the_write_queue_wait_is_printed_at_a_level_that_survives():
     assert "queued" in output and "ran" in output, output
 
 
+_FIT_FROM_A_WORKER = """
+import threading
+from mcp_server import answer_fit, answer_size
+
+
+async def fit_probe():
+    mcp = AdminAwareFastMCP("probe")
+
+    def reader(ctx: Context, lines: str = "", secret_arg: str = "") -> dict:
+        print(f"IN-WORKER={threading.current_thread() is not threading.main_thread()}", flush=True)
+        answer_fit.cut(returned=3, of=40)
+        return {"ok": False, **answer_fit.too_large(999_999), "hint": "h"}
+
+    mcp.add_tool(reader, name="probe_read", annotations={"readOnlyHint": True},
+                 meta=answer_size.declared_size_meta())
+    await mcp.call_tool("probe_read", {"lines": "1-2", "secret_arg": "S3CR3T-VALUE"})
+
+
+asyncio.run(fit_probe())
+print("FIT-PROBE-DONE", flush=True)
+"""
+
+
+def test_a_fitted_answer_is_logged_from_the_worker_thread_by_argument_names_only():
+    """SUGG-004: ``answer_too_large`` וחיתוך ב-``byte_budget`` נרשמים — גם כשהגוף רץ בחוט עובד.
+
+    הגוף של כלי קריאה רץ ב-``asyncio.to_thread`` (``_offload_to_thread``), והפנקס שאליו
+    בונה הסירוב ונקודת החיתוך כותבים נפתח ב-``call_tool``, על הלולאה. הוא מגיע לחוט רק
+    כי ``to_thread`` מעתיק את ה-``Context``, והפנקס עצמו הוא אותו אובייקט בשני העותקים.
+    אם זה נשבר, הפנקס נשאר ריק בשקט ואין שום שורה — ולכן זה נבדק כאן, בתהליך נקי ולא ב-
+    ``caplog``, דרך ``call_tool`` ובכלי שמוכיח שרץ בחוט עובד. השורה נושאת את שם הכלי,
+    **שמות** הארגומנטים והמספרים, ולא אף ערך (K13).
+    """
+    from mcp_server.answer_size import OUTPUT_BYTE_BUDGET
+
+    # rich שובר שורה לפי רוחב הקונסולה, שנקרא מ-``COLUMNS`` כשהיא נבנית (rich 14.2.0,
+    # ``Console.__init__``). כאן נבדק **מה** בשורה, ולכן היא לא נשברת באמצע.
+    wide = "import os\nos.environ['COLUMNS'] = '1000'\n"
+    output = _run(_PRELUDE.format(repo=REPO), wide, _BUILD_AND_WRITE, _FIT_FROM_A_WORKER)
+    assert "FIT-PROBE-DONE" in output and "IN-WORKER=True" in output, output
+    lines = [line for line in output.splitlines() if "answer_size_fit" in line]
+    assert len(lines) == 1, output
+    (line,) = lines
+    assert "probe_read" in line and "lines" in line and "secret_arg" in line, line
+    assert f"answer_too_large bytes=999999 max={OUTPUT_BYTE_BUDGET}" in line, line
+    assert "byte_budget returned=3 of=40" in line, line
+    assert "S3CR3T-VALUE" not in output and "1-2" not in line, line
+
+
 def test_a_line_emitted_before_logging_is_configured_is_lost():
     """The control: the trap that produced the original bug, reproduced.
 

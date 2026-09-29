@@ -17,7 +17,7 @@ from typing import Annotated, Any, NamedTuple
 
 from pydantic import Field
 
-from .answer_size import BYTE_BUDGET_REASON, list_item_cost, wire_json, with_values
+from .answer_size import BYTE_BUDGET_REASON, list_item_cost
 
 # תקרת התוכן מיובאת ולא מוקלדת. עד היום MCP והוובאפ החזיקו כל אחד את המספר
 # שלו, כך ששינוי באחד היה משאיר את השני אוכף ערך אחר — ואז אותו פתק נדחה
@@ -289,96 +289,6 @@ def apply_line_range(text: str, start: int, end: int) -> dict[str, Any] | str:
             "truncated": clipped_end < end,
         },
     }
-
-
-def fit_line_range(
-    answer: dict[str, Any],
-    *,
-    text_paths: tuple[tuple[str, ...], ...],
-    range_path: tuple[str, ...],
-    budget: int,
-) -> tuple[dict[str, Any] | None, int]:
-    """תשובת טווח שורות בתוך ``budget`` בתים **כפי שהיא נשלחת** — וגודלה.
-
-    ``answer`` הוא תשובה שכבר נושאת טווח מ-:func:`apply_line_range`: הטקסט החתוך
-    בכל מסלול ב-``text_paths`` (בקובץ שמור גדול הוא יושב גם ב-``code`` וגם ב-
-    ``content``, ולכן יש כמה), ובלוק ה-``range`` ב-``range_path``. שני הכלים —
-    ``codekeeper_get_file`` ו-``codekeeper_get_repo_file`` — עוברים כאן, כמו
-    שהם עוברים ב-:func:`normalize_line_range` וב-:func:`apply_line_range`.
-
-    **טווח שאינו נכנס נגמר מוקדם, על גבול שורה — ולא נדחה.** זה חיתוך בלי אובדן:
-    ``range.end`` הוא השורה האחרונה שבאמת חזרה, ``range.truncated`` נדלק, ו-
-    ``range.truncation_reason`` הוא ``byte_budget``. הקריאה הבאה מתחילה ב-
-    ``end + 1``, ושום שורה אינה חוזרת פעמיים או הולכת לאיבוד. ``truncated`` בלי
-    סיבה נשאר מה שהיה: ``end`` שביקשו מעבר לסוף הקובץ, וקוצץ אליו.
-
-    **המדידה מצטברת, ולא מסדרלת את הטקסט כולו** (קריאת טווח במראה יכולה להגיע
-    ל-10MB): נמדדת התשובה עם טקסט ריק ועם בלוק ``range`` במקרה הגרוע שלו —
-    ``end`` בגודל ``total_lines``, והדגל והסיבה כבר בתוכו — ואז עלות כל שורה
-    לבדה, עד שהתקציב נגמר. העלות מדויקת ולא הערכה: ה-escaping של מחרוזת JSON הוא
-    לפי תו, ולכן מחרוזת של שורות מחוברות ב-``\\n`` עולה בדיוק את סכום השורות ועוד
-    שני בתים (``\\n`` כתוב כשני תווים) בין כל שתיים. רק כשכל השורות נכנסות
-    התשובה המקורית נמדדת כולה — ואז היא ממילא חסומה בתקציב.
-
-    **ותשובה שנכנסת כמו שהיא אינה נחתכת.** השמורה של המקרה הגרוע גדולה מה-``range``
-    של תשובה שאינה נחתכת בדגל ובסיבה, ולכן כשהספירה הגרועה נעצרת לפני הסוף נבדק
-    פעם אחת גם ה-``range`` האמיתי: אם בו כל השורות נכנסות, התשובה חוזרת בית-בית.
-    עד שזה נוסף (ריוויו על PR #3492, דרך טסט על מקרים אקראיים) תשובה שנכנסה בתקציב
-    עד כדי כמה עשרות בתים נחתכה בשורה האחרונה שלה.
-
-    ``(None, size)`` — כשגם השורה הראשונה לבדה אינה נכנסת. ``size`` הוא מה
-    שהושווה לתקציב: התשובה הקטנה ביותר שנושאת תוכן, כלומר השורה הראשונה בלבד.
-    לכן ``size > budget`` תמיד כאן, והקורא בונה ממנו את הסירוב.
-    """
-    rng = _value_at(answer, range_path)
-    text = _value_at(answer, text_paths[0])
-    lines = text.split("\n")
-    start = rng["start"]
-    worst = {**rng, "end": rng["total_lines"], "truncated": True,
-             "truncation_reason": BYTE_BUDGET_REASON}
-    base = with_values(answer, {range_path: worst, **{path: "" for path in text_paths}})
-    copies = len(text_paths)
-
-    def cost(i: int) -> int:
-        return copies * (len(wire_json(lines[i])) - 2 + (2 if i else 0))
-
-    worst_base = len(wire_json(base))
-    size = worst_base
-    kept = 0
-    while kept < len(lines) and size + cost(kept) <= budget:
-        size += cost(kept)
-        kept += 1
-    if kept < len(lines):
-        # **השמורה של המקרה הגרוע אינה סיבה לחתוך תשובה שנכנסת.** ``range`` במקרה
-        # הגרוע נושא ``truncated: true`` וסיבה, ותשובה שאינה נחתכת אינה נושאת אותם —
-        # ולכן תשובה שנכנסת בתקציב עד כדי כמה עשרות בתים הייתה נחתכת בשורה האחרונה
-        # שלה. כאן נבדק פעם אחת אם התשובה **כמו שהיא** נכנסת: ה-``range`` האמיתי, ושאר
-        # השורות באותה עלות. הבדיקה נעצרת ברגע שהתקציב עבר, ולכן היא חסומה בו.
-        real = len(wire_json(with_values(answer, {path: "" for path in text_paths})))
-        real += size - worst_base
-        for i in range(kept, len(lines)):
-            real += cost(i)
-            if real > budget:
-                break
-        else:
-            kept = len(lines)
-    if kept == len(lines):
-        return answer, len(wire_json(answer))
-    if not kept:
-        return None, worst_base + cost(0)
-    fitted = with_values(answer, {
-        range_path: {**rng, "end": start + kept - 1, "truncated": True,
-                     "truncation_reason": BYTE_BUDGET_REASON},
-        **{path: "\n".join(lines[:kept]) for path in text_paths},
-    })
-    return fitted, len(wire_json(fitted))
-
-
-def _value_at(answer: dict[str, Any], path: tuple[str, ...]) -> Any:
-    node: Any = answer
-    for key in path:
-        node = node[key]
-    return node
 
 
 def clip_to_bytes(text: str, max_bytes: int) -> str:

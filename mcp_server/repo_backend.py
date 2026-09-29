@@ -26,6 +26,7 @@ from .answer_size import (
     list_item_cost,
     wire_json,
 )
+from .answer_fit import cut
 from .backend import _json_safe
 from .repo_handlers import (
     MIRROR_REFRESH_NOTE,
@@ -73,6 +74,13 @@ REF_NOT_MIRRORED_MESSAGE = (
 #: ולכן git לא נשאל עליו בכלל. זה הצד שהקורא יכול לתקן, בניגוד ל-
 #: ``ref_not_mirrored``.
 INVALID_REF_MESSAGE = "Not a valid ref name, so nothing was looked up."
+
+#: ההפניה של ``page_too_large`` בעץ (#3481): עמוד שלם שאינו נכנס — מבקשים עמודים קטנים
+#: יותר, ומקבלים את אותם נתיבים. ``include_stats`` הוא מה שמגדיל כל נתיב ברשומה משלו.
+_TREE_PAGE_TOO_LARGE_HINT = (
+    "This page does not fit in one answer. Ask again with a smaller per_page — the same "
+    "paths come back in whole pages — or without include_stats."
+)
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -541,7 +549,7 @@ class RepoBackend:
         ref: str | None = None,
         page: int = 1,
         per_page: int = 200,
-        byte_budget: int = 256_000,
+        byte_budget: int = OUTPUT_BYTE_BUDGET,
         include_stats: bool = False,
     ) -> dict[str, Any]:
         use_ref = ref or self._default_ref(repo)
@@ -633,6 +641,9 @@ class RepoBackend:
                 "bytes": size,
                 "max": byte_budget,
                 "per_page": per_page_i,
+                # כמו כל סירוב אחר של תקציב התשובה: מה עושים עכשיו (ריוויו Han על #3492,
+                # SUGG-003). בלעדיו הקורא היה צריך לנחש מ-``bytes``/``max``/``per_page``.
+                "hint": _TREE_PAGE_TOO_LARGE_HINT,
             }
         return result
 
@@ -828,7 +839,7 @@ class RepoBackend:
         query: str,
         file_pattern: str | None = None,
         max_results: int = 50,
-        byte_budget: int = 256_000,
+        byte_budget: int = OUTPUT_BYTE_BUDGET,
         context_lines: int = 0,
         regex: bool = False,
         case_sensitive: bool = False,
@@ -1034,5 +1045,12 @@ class RepoBackend:
                 # (``timeout``, ``count_*``) still wins — it explains the missing
                 # ``total``, which the budget does not.
                 reason = BYTE_BUDGET_REASON
+            if reason == BYTE_BUDGET_REASON:
+                # Recorded here, where the cut enters the answer that goes back
+                # (``answer_fit.cut``), not where the engine's rows were measured.
+                counts = {"returned": payload["count"]}
+                if isinstance(known, int):
+                    counts["of"] = known
+                reason = cut(**counts)
             payload["truncation_reason"] = reason
         return payload

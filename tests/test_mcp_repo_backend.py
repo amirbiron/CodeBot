@@ -2,7 +2,7 @@
 
 import logging
 
-from mcp_server.repo_backend import SYNC_RETRY_AFTER_SECONDS, RepoBackend
+from mcp_server.repo_backend import _TREE_PAGE_TOO_LARGE_HINT, SYNC_RETRY_AFTER_SECONDS, RepoBackend
 
 
 class _Cursor:
@@ -225,7 +225,7 @@ def test_a_tree_page_over_the_budget_is_refused_whole_and_smaller_pages_lose_not
 
     out = be.list_tree(repo="alpha", page=1, per_page=50, byte_budget=budget)
     assert out == {"ok": False, "error": "page_too_large", "bytes": budget + 1,
-                   "max": budget, "per_page": 50}
+                   "max": budget, "per_page": 50, "hint": _TREE_PAGE_TOO_LARGE_HINT}
 
     collected: list[str] = []
     for page in range(1, 6):

@@ -125,8 +125,8 @@ def with_values(answer: dict[str, Any], values: Mapping[tuple[str, ...], Any]) -
     בדיוק — אותו מקום לכל מפתח קיים, ומפתח חדש בסוף — ולכן אותה תשובה בבית.
 
     כאן ולא ב-``docs_handlers``, שבו נולדה: כל מי שמתאים תשובה לתקציב בונה בה את
-    התשובה המותאמת — הרשימות והסירובים שם, וטווח השורות ב-``handlers.fit_line_range``
-    — ו-``handlers`` אינו יכול לייבא את ``docs_handlers`` (ייבוא מעגלי).
+    התשובה המותאמת — ``answer_fit`` (הרשימות, הסירובים וטווח השורות) ו-``docs_handlers``
+    — ו-``answer_fit`` אינו מייבא אף מודול בחבילה מלבד העלה הזה.
     """
     out = dict(answer)
     for path, value in values.items():

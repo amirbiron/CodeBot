@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .answer_size import ANSWER_TOO_LARGE, OUTPUT_BYTE_BUDGET, wire_json
-from .handlers import _clamp, fit_line_range
+from .answer_fit import fit_read, too_large
+from .answer_size import OUTPUT_BYTE_BUDGET
+from .handlers import _clamp
 
 REPOS_LIMIT_DEFAULT = 50
 REPOS_LIMIT_MAX = 200
@@ -150,7 +151,9 @@ _LINE_TOO_LARGE_HINT = (
 )
 
 
-def fit_file_answer(read: dict[str, Any], *, repo: str, path: str, ref: str | None) -> dict[str, Any]:
+def fit_file_answer(
+    read: dict[str, Any], *, ranged: bool, repo: str, path: str, ref: str | None
+) -> dict[str, Any]:
     """התשובה של ``codekeeper_get_repo_file`` על קובץ, בתוך ``OUTPUT_BYTE_BUDGET`` בתים כפי שהיא נשלחת.
 
     ``read`` הוא מה ש-:func:`get_repo_file` החזיר. **התקציב חל כאן ולא ב-
@@ -163,7 +166,7 @@ def fit_file_answer(read: dict[str, Any], *, repo: str, path: str, ref: str | No
 
     * תשובה שאינה נושאת תוכן (אאוטליין, ``binary``, ``too_large``, סירוב) חוזרת כמו
       שהיא. האאוטליין מתאים את עצמו לתקציב במקום שבו הוא נבנה (``page_too_large``).
-    * **טווח שאינו נכנס** נגמר מוקדם על גבול שורה (``handlers.fit_line_range``) —
+    * **טווח שאינו נכנס** נגמר מוקדם על גבול שורה (``answer_fit.fit_line_range``) —
       ``range.end`` האמיתי, ``range.truncated`` ו-``range.truncation_reason:
       "byte_budget"``, וממשיכים מ-``end + 1``. שורה ראשונה שגם לבדה אינה נכנסת —
       ``answer_too_large``.
@@ -175,23 +178,29 @@ def fit_file_answer(read: dict[str, Any], *, repo: str, path: str, ref: str | No
 
     עד #3460 קריאה מלאה נחסמה רק ב-500KB של המראה, ו-``docs/mcp-server.rst`` בקריאה
     מלאה יצא 299,038 בתים — מעל מה שהלקוח מקבל בלי לשמור לקובץ.
+
+    ``ranged`` הוא מה שהקורא ביקש (``lines is not None``) — ראו ``answer_fit.fit_read``,
+    השגרה האחת ששני כלי הקריאה עוברים בה. כאן, בניגוד לקובץ שמור, זה **לא** תיקון באג:
+    ה-``range`` נבנה ב-``RepoBackend.get_file`` ואין בו שדה של משתמש.
     """
     if read.get("ok") is not True or not isinstance(read.get("content"), str):
         return read
-    rng = read.get("range")
-    if isinstance(rng, dict):
-        fitted, size = fit_line_range(
-            read, text_paths=(("content",),), range_path=("range",), budget=OUTPUT_BYTE_BUDGET)
-        if fitted is not None:
-            return fitted
-        return {"ok": False, "error": ANSWER_TOO_LARGE, "bytes": size, "max": OUTPUT_BYTE_BUDGET,
-                "file": read.get("file"),
-                "hint": _LINE_TOO_LARGE_HINT.format(line=rng.get("start"))}
-    size = len(wire_json(read))
-    if size <= OUTPUT_BYTE_BUDGET:
-        return read
-    refusal: dict[str, Any] = {"ok": False, "error": ANSWER_TOO_LARGE, "bytes": size,
-                               "max": OUTPUT_BYTE_BUDGET, "file": read.get("file"),
+
+    def refuse(size: int, start: int | None) -> dict[str, Any]:
+        if start is not None:
+            return {"ok": False, **too_large(size), "file": read.get("file"),
+                    "hint": _LINE_TOO_LARGE_HINT.format(line=start)}
+        return _whole_file_refusal(read, size, repo=repo, path=path, ref=ref)
+
+    return fit_read(read, ranged=ranged, text_paths=(("content",),), range_path=("range",),
+                    refuse=refuse)
+
+
+def _whole_file_refusal(
+    read: dict[str, Any], size: int, *, repo: str, path: str, ref: str | None
+) -> dict[str, Any]:
+    """הסירוב על קריאה מלאה של קובץ ממראה: ``lines``/``outline``, ולקובץ שכלי הסעיפים מגיש — גם אליו."""
+    refusal: dict[str, Any] = {"ok": False, **too_large(size), "file": read.get("file"),
                                "hint": _WHOLE_FILE_HINT}
     # עצל, כמו ב-``repo_backend._with_section_redirect``: ``docs_handlers`` מושך את
     # שני הפארסרים, וקריאה שנכנסת בתקציב אינה צריכה אותם.

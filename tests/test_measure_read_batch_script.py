@@ -129,8 +129,8 @@ def test_every_measurement_runs_end_to_end_and_the_bytes_are_what_the_tool_sends
     assert chosen == [f"docs/big-{n}.md" for n in range(5)]
     # הסיבה היא מה שהכלי עצמו עונה על אותו נתיב — לא מחרוזת שהטסט ניחש.
     # (``data.json`` בלי ``/`` הוא slug, ולכן הכלי מחפש ``data.json.md``.)
-    from mcp_server import docs_handlers, read_batch
-    from mcp_server.repo_handlers import OUTPUT_BYTE_BUDGET
+    from mcp_server import answer_size, docs_handlers, read_batch
+    from mcp_server.answer_size import OUTPUT_BYTE_BUDGET
 
     monkeypatch.setenv("MCP_DOCS_REPO", _NAME)
     backend = script._backend(mirrors)
@@ -149,7 +149,7 @@ def test_every_measurement_runs_end_to_end_and_the_bytes_are_what_the_tool_sends
     # הבתים שהסקריפט מדווח הם התשובה שהכלי עצמו בונה על אותם פריטים, בצורה שנשלחת.
     answer = read_batch.read_batch(
         backend, script.items_for("round", _NAME, []), item_cap=read_batch.MAX_BATCH_ITEMS)
-    assert round_line["wire_bytes"] == len(read_batch._wire(answer))
+    assert round_line["wire_bytes"] == len(answer_size.wire_json(answer))
     assert round_line["share_of_budget"] == round(round_line["wire_bytes"] / OUTPUT_BYTE_BUDGET, 4)
 
     interleaved = lines["interleaved_largest"]

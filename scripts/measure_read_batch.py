@@ -15,7 +15,7 @@
 
 מה נמדד, ולמה דווקא כך:
 
-- **בתים** — ``read_batch._wire``: בדיוק מה שה-SDK שולח, ובדיוק מה שהכלי
+- **בתים** — ``answer_size.wire_json``: בדיוק מה שה-SDK שולח, ובדיוק מה שהכלי
   עצמו מודד מול ``OUTPUT_BYTE_BUDGET``. לא נוסחה מקבילה. **מה שכן שונה
   מהפרודקשן הוא ``ref``:** כל פריט שנקרא נושא את שם הענף, ובלי מונגו
   ``RepoBackend._default_ref`` מחזיר ``HEAD`` במקום ``refs/heads/<ענף>``
@@ -78,7 +78,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from mcp_server import docs_handlers, read_batch  # noqa: E402
-from mcp_server.answer_size import OUTPUT_BYTE_BUDGET  # noqa: E402
+from mcp_server.answer_size import OUTPUT_BYTE_BUDGET, wire_json  # noqa: E402
 
 #: הריפו שהסבב קרא ממנו — ברירת המחדל של ``--repo``.
 DEFAULT_REPO = "amir-bug-patterns"
@@ -229,7 +229,7 @@ def measure(case: str, mirror_root: Path, repo: str, largest: list[dict[str, Any
     started = time.perf_counter()
     answer = run()
     wall = time.perf_counter() - started
-    sent = len(read_batch._wire(answer))
+    sent = len(wire_json(answer))
     result: dict[str, Any] = {
         "case": case,
         "wall_ms": round(wall * 1000, 1),

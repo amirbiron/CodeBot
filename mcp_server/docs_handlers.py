@@ -33,19 +33,12 @@ import os
 import posixpath
 from dataclasses import dataclass
 from types import MappingProxyType, ModuleType
-from typing import Any, Callable, Literal, Mapping, NamedTuple, overload
+from typing import Any, Callable, Mapping, NamedTuple
 
 from services import doc_sections, md_parser, rst_parser
 from .handlers import _clamp
-from .answer_size import ANSWER_TOO_LARGE as _ANSWER_TOO_LARGE
-from .answer_size import (
-    BYTE_BUDGET_REASON,
-    OUTPUT_BYTE_BUDGET,
-    list_item_cost,
-    nonempty_list_bytes,
-    wire_json,
-    with_values,
-)
+from .answer_size import BYTE_BUDGET_REASON, OUTPUT_BYTE_BUDGET, wire_json
+from .answer_fit import Cut, cut, fit_lists, fit_refusal, too_large
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +133,7 @@ _CANDIDATES_MAX = doc_sections.MAX_IDENTIFIER_SUGGESTIONS
 #: כי ``codekeeper_get_file`` מוסיף לו את ההפניה ל-``lines``/``query``.
 #:
 #: **``bytes`` ו-``max`` באותה יחידה, ולכן ``bytes > max`` תמיד** (כך גם ב-
-#: :data:`ANSWER_TOO_LARGE`): ``max`` הוא ``OUTPUT_BYTE_BUDGET`` עצמו — המספר
+#: ``answer_too_large``): ``max`` הוא ``OUTPUT_BYTE_BUDGET`` עצמו — המספר
 #: המתועד, ואותו מספר בכל כלי ובכל מצב — ו-``bytes`` הוא מה שהושווה לתקציב: מה
 #: שהעמוד הקטן ביותר שנושא תוכן — תו אחד — היה צריך, במדידה של ההחלטה
 #: (:func:`_fit_page`), כולל מה שהקורא מוסיף סביבו (``reserve_bytes`` של
@@ -153,7 +146,7 @@ SECTION_TOO_LARGE = "section_too_large"
 
 #: קוד הסירוב כשתשובה שנושאת רשימות — מפת הכותרות, ``section_not_found``
 #: או ``ambiguous_section`` — אינה נכנסת בתקציב הבתים **גם כשכל הרשימות שלה
-#: ריקות** (ראו :func:`_fit_lists`). מה שמונע ממנה להיכנס אז הוא החלק הקבוע של
+#: ריקות** (ראו ``answer_fit.fit_lists``). מה שמונע ממנה להיכנס אז הוא החלק הקבוע של
 #: **התשובה**: ההקשר (המטא-דאטה של קובץ שמור, או ``repo``/``path``/``ref``),
 #: ``includes`` ו-``requested``. ‏``requested`` חסום ב-:data:`MAX_SECTION_CHARS`,
 #: אבל שני האחרים אינם חסומים בקוד: ``update_file_metadata_in`` בודק שהתגיות הן
@@ -177,25 +170,15 @@ SECTION_TOO_LARGE = "section_too_large"
 #: **ההקשר נוסע גם על הסירוב, ולכן גם בו יש מה לקצר.** רשימה שיושבת בתוך ההקשר
 #: ונמסרה ב-``refusal_cuts`` של :func:`answer_section` — בקובץ שמור ``file.tags``
 #: — מוותרת על פריטים מהסוף עד שהסירוב נכנס, עם הדגל שלה לצידה (``file.tags_truncated``),
-#: באותו :func:`_fit_lists` (#3472, SUGG-002). מחרוזת בהקשר אינה נחתכת: כשהסירוב עדיין
-#: גדול, תיאור של קובץ שמור יורד שלם ובמקומו ``file.description_bytes`` (:func:`fit_refusal`);
-#: השורש, כותבים שאינם אוכפים תקרה, ב-#3489. שם קובץ אינו יורד — הוא הזהות של הסירוב.
-#: ``_too_large`` כמו :data:`SECTION_TOO_LARGE`, ומיוצא מאותה סיבה:
+#: באותו ``answer_fit.fit_lists`` (#3472, SUGG-002). מחרוזת בהקשר אינה נחתכת: כשהסירוב
+#: עדיין גדול, תיאור של קובץ שמור יורד שלם ובמקומו ``file.description_bytes``
+#: (``answer_fit.fit_refusal``); השורש, כותבים שאינם אוכפים תקרה, ב-#3489. שם קובץ אינו
+#: יורד — הוא הזהות של הסירוב. ``_too_large`` כמו :data:`SECTION_TOO_LARGE`:
 #: ``codekeeper_get_file`` מוסיף לו את ההפניה ל-``lines``/``query``. **והוא גם הקוד של
 #: כל סירוב אחר על תשובה שאינה נכנסת בתקציב** — קריאה מלאה של קובץ, רשימת פתקים, והרשת
-#: שב-``AdminAwareFastMCP.call_tool`` — ולכן המילה עצמה מוגדרת ב-``answer_size``, ונקראת
-#: כאן בשמה המוכר.
-ANSWER_TOO_LARGE = _ANSWER_TOO_LARGE
-
-#: ``truncation_reason`` של עמוד שתקציב הבתים — ולא ``max_chars`` — קיצר. המילה
-#: של ``answer_size``, אחת לכל הכלים (``docs/mcp-server.rst``, אוצר המילים).
-_BYTE_BUDGET_REASON = BYTE_BUDGET_REASON
-
-#: רשימה אחת ב-``cuts`` של :func:`_fit_lists` — ``(הרשימה, מפתח הדגל)``. הרשימה
-#: היא מפתח בראש התשובה (``"toc"``), או מסלול לרשימה אחת פנימה (``("file", "tags")``).
-#: ב-:func:`fit_refusal` המסלול יכול להוביל גם למחרוזת (``("file", "description")``),
-#: ואז המפתח השני הוא השדה שמקבל את הגודל שלה כשהיא יורדת (``description_bytes``).
-_Cut = tuple[str | tuple[str, ...], str]
+#: שב-``AdminAwareFastMCP.call_tool`` — ולכן המילה מוגדרת ב-``answer_size``, והליבה של
+#: הסירוב (``error``/``bytes``/``max``) נבנית ב-``answer_fit.too_large``. כל מודול
+#: מייבא אותם משם בשמם, בלי שם שני (``tests/test_mcp_answer_size.py`` אוכף).
 
 #: הסיומת ← **המודול** שמפרסר אותה. זהו המקום היחיד שאומר איזה פורמט הכלי
 #: יודע לקרוא בכלל, ו-``DOCS_PATH_POLICY`` למטה אומר מי מהם מוגש בכל ריפו.
@@ -805,7 +788,8 @@ def answer_section(
     max_chars: int = MAX_CHARS_DEFAULT,
     offset: int = 0,
     reserve_bytes: int = 0,
-    refusal_cuts: tuple[_Cut, ...] = (),
+    refusal_cuts: tuple[Cut, ...] = (),
+    refusal_notes: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """מה ש-:func:`docs_get_section` עונה על ``section``, מתוך מסמך שכבר נקרא ופורסר.
 
@@ -822,10 +806,10 @@ def answer_section(
 
     ``reserve_bytes`` — מה שהקורא עוד יוסיף סביב התשובה לפני שהיא נשלחת. כל צורה
     של התשובה נחתכת אל ``OUTPUT_BYTE_BUDGET`` פחות זה — עמוד הסעיף ב-:func:`_fit_page`
-    והרשימות ב-:func:`_fit_lists` — כדי שהתשובה **כפי שהיא יוצאת** תיכנס.
+    והרשימות ב-``answer_fit.fit_lists`` — כדי שהתשובה **כפי שהיא יוצאת** תיכנס.
     ``codekeeper_get_file`` מוסיף ``found`` ו-``status`` ושומר להם מקום; הבאץ' אינו
     עוטף את התשובה אלא מקנן אותה, ומודד את זה בעצמו. ובסירובים שנולדים מהתקציב
-    (:data:`SECTION_TOO_LARGE`, :data:`ANSWER_TOO_LARGE`) ``bytes`` כולל אותו, ו-``max``
+    (:data:`SECTION_TOO_LARGE`, ``answer_too_large``) ``bytes`` כולל אותו, ו-``max``
     הוא ``OUTPUT_BYTE_BUDGET`` — אותה יחידה.
 
     ``refusal_cuts`` — רשימות בתוך ``context`` שסירוב מוותר עליהן כדי להיכנס בתקציב
@@ -839,7 +823,8 @@ def answer_section(
     return _answer_from_document(loaded.doc, context=loaded.context, section=section,
                                  include_subsections=include_subsections,
                                  max_chars=max_chars, offset=offset,
-                                 reserve_bytes=reserve_bytes, refusal_cuts=refusal_cuts)
+                                 reserve_bytes=reserve_bytes, refusal_cuts=refusal_cuts,
+                                 refusal_notes=refusal_notes)
 
 
 def docs_get_section(
@@ -879,7 +864,8 @@ def _answer_from_document(
     max_chars: int,
     offset: int,
     reserve_bytes: int = 0,
-    refusal_cuts: tuple[_Cut, ...] = (),
+    refusal_cuts: tuple[Cut, ...] = (),
+    refusal_notes: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """ארבע צורות התשובה של הכלי, מתוך מסמך שכבר נפרסר.
 
@@ -908,7 +894,7 @@ def _answer_from_document(
     * **עמוד של סעיף** נגמר מוקדם יותר ואינו מאבד דבר, כי העימוד לפי ``offset``
       ממשיך בדיוק משם (:func:`_fit_page`); ``truncation_reason`` אומר למה.
     * **הרשימות של שלוש הצורות האחרות** — ``toc``, ‏``suggestions`` ו-``candidates``
-      — נחתכות מהסוף עד שהתשובה נכנסת (:func:`_fit_lists`). את אלה אי אפשר
+      — נחתכות מהסוף עד שהתשובה נכנסת (``answer_fit.fit_lists``). את אלה אי אפשר
       לעמד, ולכן הדגל של כל רשימה (``toc_truncated``, ‏``suggestions_truncated``,
       ‏``candidates_truncated``) נושא **שתי סיבות**: התקרה במספר פריטים
       (:data:`_TOC_MAX`, ‏``MAX_IDENTIFIER_SUGGESTIONS``, :data:`_CANDIDATES_MAX`),
@@ -917,7 +903,7 @@ def _answer_from_document(
       ההצעות, כי המפה היא מלאי וההצעות הן התשובה לשאלה. המועמדים נשארים בסדר
       המסמך, ולכן מה שחסר הוא תמיד הסוף.
 
-    תשובה שאינה נכנסת גם כשכל הרשימות שלה ריקות — :data:`ANSWER_TOO_LARGE`; ועמוד
+    תשובה שאינה נכנסת גם כשכל הרשימות שלה ריקות — ``answer_too_large``; ועמוד
     שאינו נכנס גם בלי תוכן — :data:`SECTION_TOO_LARGE`.
     """
     # ``includes`` הוא שדה של פארסר: ``rst_parser`` ממלא אותו מיעדי
@@ -928,14 +914,14 @@ def _answer_from_document(
     base: dict[str, Any] = {"ok": True, **context, "includes": list(doc.includes)}
     budget = OUTPUT_BYTE_BUDGET - reserve_bytes
     fitting = {"budget": budget, "reserve_bytes": reserve_bytes, "context": context,
-               "doc": doc, "refusal_cuts": refusal_cuts}
+               "doc": doc, "refusal_cuts": refusal_cuts, "refusal_notes": refusal_notes}
 
     # **לפני כל עבודה שגדלה עם ``section``** — ההתאמה, ההצעות, וההד ב-``requested``.
     # בלי ``requested`` ובלי TOC: התשובה אינה מהדהדת את מה שנדחה בגלל גודלו.
     if section is not None and len(section) > MAX_SECTION_CHARS:
         base.update({"ok": False, "error": "section_too_long",
                      "max_chars": MAX_SECTION_CHARS, "actual_chars": len(section)})
-        return fit_refusal(base, refusal_cuts)
+        return fit_refusal(base, refusal_cuts, refusal_notes)
 
     toc_items, toc_truncated = _toc(doc)
 
@@ -1060,7 +1046,7 @@ def _answer_from_document(
             {"ok": False, **context, "includes": list(doc.includes),
              "error": SECTION_TOO_LARGE, "bytes": size + reserve_bytes,
              "max": OUTPUT_BYTE_BUDGET, "line_range": [sec.heading_line, sec.end_line]},
-            refusal_cuts)
+            refusal_cuts, refusal_notes)
     return page
 
 
@@ -1118,14 +1104,14 @@ def _fit_page(
     content = page["content"]
     offset = page["offset"]
     fitted = {**page, "content": "", "truncated": True, "remaining_chars": total,
-              "next_offset": total, "truncation_reason": _BYTE_BUDGET_REASON}
+              "next_offset": total, "truncation_reason": BYTE_BUDGET_REASON}
     measured = len(wire_json(fitted))
     keep = _longest_prefix_within(content, budget - measured)
     if not keep:
         return None, measured + len(wire_json(content[:1])) - 2
     end = offset + keep
     fitted.update({"content": content[:keep], "remaining_chars": total - end,
-                   "next_offset": end})
+                   "next_offset": end, "truncation_reason": cut(returned=keep, of=total - offset)})
     return fitted, len(wire_json(fitted))
 
 
@@ -1143,218 +1129,29 @@ def _longest_prefix_within(text: str, room: int) -> int:
 def _fit_or_refuse(
     answer: dict[str, Any],
     *,
-    cuts: tuple[_Cut, ...],
+    cuts: tuple[Cut, ...],
     budget: int,
     reserve_bytes: int,
     context: dict[str, Any],
     doc: doc_sections.Document,
-    refusal_cuts: tuple[_Cut, ...],
+    refusal_cuts: tuple[Cut, ...],
+    refusal_notes: Mapping[str, str] | None,
 ) -> dict[str, Any]:
-    """התשובה אחרי :func:`_fit_lists` — או :data:`ANSWER_TOO_LARGE` כשגם ריקה אינה נכנסת.
+    """התשובה אחרי ``answer_fit.fit_lists`` — או ``answer_too_large`` כשגם ריקה אינה נכנסת.
 
     מקום אחד לצורת הסירוב, לשלוש הצורות שנושאות רשימות. הסירוב נושא את ההקשר
     ואת ``includes`` כמו כל תשובה של הכלי, ואת ``bytes`` — גודל התשובה אחרי שכל
     הרשימות רוקנו, ועוד ``reserve_bytes``: כמה גם המינימום גדול, במספר שהושווה
-    לתקציב (ראו :data:`ANSWER_TOO_LARGE`) — ואת ``max``, שהוא ``OUTPUT_BYTE_BUDGET``:
+    לתקציב (ראו ``answer_too_large``) — ואת ``max``, שהוא ``OUTPUT_BYTE_BUDGET``:
     אותה יחידה, ולכן ``bytes > max`` תמיד. ``requested`` והרשימות אינם בו. והסירוב
     עצמו עובר :func:`fit_refusal`, כמו כל סירוב שנושא את ההקשר.
     """
-    fitted, size = _fit_lists(answer, cuts=cuts, budget=budget)
+    fitted, size = fit_lists(answer, cuts=cuts, budget=budget, record=True)
     if fitted is None:
         return fit_refusal(
-            {"ok": False, **context, "includes": list(doc.includes),
-             "error": ANSWER_TOO_LARGE, "bytes": size + reserve_bytes,
-             "max": OUTPUT_BYTE_BUDGET},
-            refusal_cuts)
+            {"ok": False, **context, "includes": list(doc.includes), **too_large(size + reserve_bytes)},
+            refusal_cuts, refusal_notes)
     return fitted
-
-
-def fit_refusal(refusal: dict[str, Any], cuts: tuple[_Cut, ...]) -> dict[str, Any]:
-    """סירוב שנושא את ההקשר, בתוך ``OUTPUT_BYTE_BUDGET`` — ב-:func:`_fit_lists`, לא בעותק.
-
-    ``cuts`` הם השדות שבתוך ההקשר שמותר לוותר עליהם, כמו שהקורא מסר אותם ל-
-    :func:`answer_section` (``refusal_cuts``); בקובץ שמור — ``file.tags`` ו-
-    ``file.description``, בכלי התיעוד — אף אחד, ואז הסירוב חוזר כמו שהוא.
-
-    **רשימה נחתכת קודם, ובלי חיתוך משלו כאן:** זה אותו :func:`_fit_lists` שחותך את
-    המפה ואת ההצעות, עם הדגל ``*_truncated`` לצד הרשימה שנחתכה, ו-``floor`` אומר לו
-    מה לעשות כשגם ריקה הרשימה אינה מספיקה — להחזיר את הסירוב כשהיא ריקה ומסומנת.
-
-    **ומחרוזת יורדת שלמה, עם הגודל שלה במקומה** (#3489, בצד הקריאה). מחרוזת אינה
-    נחתכת — חיתוך בלי סימן הוא ``silent-truncation-at-sink``, ותיאור שנחתך באמצע
-    נקרא כתיאור שלם. לכן כשגם אחרי הרשימות הסירוב גדול מהתקציב, המחרוזות שב-``cuts``
-    יורדות אחת אחרי השנייה, בסדר שלהן, וכל אחת מוחלפת בשדה שכתוב לצידה ב-``cuts``
-    — ``file.description_bytes``, מספר בתי ה-UTF-8 של מה שירד. שדה ה-``*_bytes``
-    מופיע **רק** כשהמחרוזת ירדה, ולכן נוכחותו היא הסימן. עד כאן סירוב כזה נשא את
-    התיאור כולו, ותיאור של 200,000 תווים עבריים הביא את הסירוב ל-400,523 בתים —
-    בדיוק ברגע שבו הקורא הכי צריך תשובה קריאה. השורש — כותבים שאינם אוכפים תקרה על
-    התיאור ועל התגיות — ב-#3489, והמנגנון הזה נשאר גם אחריו: מסמכים ישנים כבר שמורים.
-
-    התקציב הוא ``OUTPUT_BYTE_BUDGET`` בלי שמורה: סירוב חוזר מ-``codekeeper_get_file``
-    כמו שהוא, בלי ``found``/``status`` סביבו.
-    """
-    if not cuts:
-        return refusal
-    fitted, size = _fit_lists(refusal, cuts=cuts, budget=OUTPUT_BYTE_BUDGET, floor=True)
-    for key, size_key in cuts:
-        if size <= OUTPUT_BYTE_BUDGET:
-            break
-        path = _as_path(key)
-        parent = _dict_at(fitted, path[:-1])
-        value = parent.get(path[-1]) if parent is not None else None
-        if not isinstance(value, str):
-            continue
-        smaller = {name: item for name, item in parent.items() if name != path[-1]}
-        smaller[size_key] = len(value.encode("utf-8"))
-        fitted = with_values(fitted, {path[:-1]: smaller}) if path[:-1] else smaller
-        size = len(wire_json(fitted))
-    return fitted
-
-
-def _dict_at(answer: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any] | None:
-    """האובייקט שבמסלול (``()`` — התשובה עצמה), או ``None`` כשאין שם אובייקט."""
-    node: Any = answer
-    for key in path:
-        if not isinstance(node, dict):
-            return None
-        node = node.get(key)
-    return node if isinstance(node, dict) else None
-
-
-def _as_path(key: str | tuple[str, ...]) -> tuple[str, ...]:
-    """מפתח של רשימה ב-``cuts`` כמסלול: ``"toc"`` הוא ``("toc",)``."""
-    return key if isinstance(key, tuple) else (key,)
-
-
-def _list_at(answer: dict[str, Any], path: tuple[str, ...]) -> list | None:
-    """הרשימה שבמסלול, או ``None`` כשאין שם רשימה.
-
-    **ובלי רשימה — אין מה לחתוך, ואין מה לגעת בו.** מסלול כזה יוצא מהחיתוך כולו,
-    והערך שבו — חסר, ``None``, מחרוזת — נשאר בתשובה כמו שהוא. זה חשוב ב-``file.tags``,
-    שמגיע מהמסד ולא מהקוד שלנו: מסמך בלי ``tags``, או עם ``tags: null``, אינו מקבל
-    ``tags: []`` ודגל בגלל שהסירוב שלו גדול.
-    """
-    node: Any = answer
-    for key in path:
-        if not isinstance(node, dict):
-            return None
-        node = node.get(key)
-    return node if isinstance(node, list) else None
-
-
-@overload
-def _fit_lists(
-    answer: dict[str, Any], *, cuts: tuple[_Cut, ...], budget: int, floor: Literal[True]
-) -> tuple[dict[str, Any], int]: ...
-
-
-@overload
-def _fit_lists(
-    answer: dict[str, Any], *, cuts: tuple[_Cut, ...], budget: int, floor: Literal[False] = ...
-) -> tuple[dict[str, Any] | None, int]: ...
-
-
-def _fit_lists(
-    answer: dict[str, Any], *, cuts: tuple[_Cut, ...], budget: int, floor: bool = False
-) -> tuple[dict[str, Any] | None, int]:
-    """התשובה בתוך ``budget`` בתים כפי שהיא נשלחת, בחיתוך רשימות מהסוף — וגודלה.
-
-    ``cuts`` הוא ``(הרשימה, מפתח הדגל)``, **בסדר שבו מוותרים עליהן**: הרשימה
-    הראשונה נחתכת מהסוף ראשונה, בזמן שכל המאוחרות לה מלאות, ורק אם היא רוקנה
-    לגמרי והתשובה עדיין גדולה עוברים לחתוך את הבאה. בכל רשימה נשמרת הקידומת
-    הארוכה ביותר שנכנסת — מה שנחתך הוא תמיד הסוף, כך שהמועמדים נשארים בסדר המסמך.
-
-    **הרשימה היא מפתח בראש התשובה, או מסלול לרשימה אחת פנימה.** ``"toc"`` הוא
-    רשימה בראש התשובה (עומק 0, כל הקוראים עד #3472); ``("file", "tags")`` היא
-    רשימה בתוך האובייקט ``file`` (עומק 1, :func:`fit_refusal`). הדגל יושב **לצד
-    הרשימה**, באותו אובייקט — ``toc_truncated`` בראש התשובה, ``file.tags_truncated``
-    בתוך ``file``. העלות של כל פריט נמדדת בעומק שבו הוא יושב
-    (:func:`~mcp_server.answer_size.list_item_cost` עם ``depth``), ובעומק 0 היא
-    בדיוק המספרים שהיו כאן לפני שהעומק נוסף — ``tests/test_mcp_file_sections.py``
-    מריץ את אותם קלטים דרך הצורה הקודמת ומשווה החלטה-החלטה. מסלול שאין בו רשימה
-    אינו נחתך ואינו נוגע בתשובה (:func:`_list_at`).
-
-    **הדגל נדלק רק כשבאמת נחתך פריט מהרשימה שלו.** תשובה שנכנסת חוזרת כמו שהיא —
-    אותו אובייקט — ולכן כל תשובה שנכנסה עד היום לא משתנה בבית אחד (אפס-דיף).
-    רשימה ריקה לא נחתכת ולא מדליקה דגל.
-
-    ``(None, size)`` — כשגם אחרי שכל הרשימות רוקנו התשובה גדולה מהתקציב; ``size`` הוא
-    גודל התשובה עם רשימות ריקות. מה שנשאר אז הוא מה שאינו רשימה, ואת זה כאן אין מה
-    לחתוך (ראו :data:`ANSWER_TOO_LARGE`). **ועם ``floor``** — במקום ``None``, התשובה
-    כשכל הרשימות ריקות ומסומנות: הקטנה ביותר שהפונקציה הזו יכולה לתת, בשביל סירוב
-    שאין לו לאן לסרב הלאה (:func:`fit_refusal`).
-
-    **המדידה מצטברת, ולעולם לא מסדרלת את התשובה המלאה.** הצורה הקודמת קראה
-    ``wire_json(answer)`` על התשובה עם כל הפריטים כדי למדוד אותה — וזו בדיוק
-    המחרוזת הענקית שקובץ עוין יכול לנפח למאות מגה-בייט לפני החיתוך (ריוויו על
-    PR #3470; מפת כותרות שכל פריט בה נושא את כל ה-breadcrumb). במקום זה נמדדת
-    התשובה עם רשימות **ריקות** (קטנה), ועלות כל פריט נמדדת לבדה
-    (:func:`~mcp_server.answer_size.list_item_cost`, אותה מדידה של
-    ``codekeeper_read_batch``). הסכום הוא **חסם עליון** (העלות מחמירה בפסיק),
-    ולכן ``total <= budget`` מבטיח שהתשובה האמיתית נכנסת — ואז, ורק אז, מסדרלים
-    אותה פעם אחת (מחרוזת חסומה בתקציב). המחרוזת הגדולה ביותר שנבנית אי-פעם היא
-    התקציב ועוד פריט בודד, לא התשובה כולה.
-
-    **אפס-דיף.** כל תשובה שנכנסת חוזרת כאובייקט המקורי, ומספר הבתים שמוחזר הוא
-    ``wire_json(answer)`` המדויק — כך שכל תשובה שנכנסה עד היום זהה לבית. הקורפוס
-    כולו נכנס בפער גדול (המפה הגדולה שנמדדה ~132KB מול תקציב 256KB), ולכן חל עליו
-    המסלול הזה בלבד. החיתוך פועל רק על קלט שאינו בקורפוס, ושם הוא שמרני בפריט
-    אחד לכל היותר (חסם ה"תקציב ועוד פריט").
-    """
-    paths = [_as_path(key) for key, _ in cuts]
-    flag_of = {path: path[:-1] + (flag,) for path, (_, flag) in zip(paths, cuts, strict=True)}
-    found = {path: _list_at(answer, path) for path in paths}
-    lists = {path: items for path, items in found.items() if items is not None}
-    live = [path for path in paths if path in lists]
-    base = with_values(answer, {path: [] for path in live})
-    base_size = len(wire_json(base))
-    item_costs = {path: [list_item_cost(item, depth=len(path) - 1) for item in lists[path]]
-                  for path in live}
-    total = base_size + sum(
-        nonempty_list_bytes(len(path) - 1) + sum(item_costs[path]) for path in live if lists[path]
-    )
-    # ``total`` מחמיר בפסיק אחד לכל רשימה לא-ריקה, ולכן ``total - real`` חסום ב-
-    # ``len(live)``. מסדרלים את התשובה המלאה **רק** כשהיא בטווח הזה מהתקציב —
-    # כלומר קרובה אליו וקטנה. במקרה הענק ``total`` גדול מהתקציב בהרבה יותר מזה,
-    # ולכן לא בונים את המחרוזת הענקית: מדלגים ישר לחיתוך.
-    if total <= budget + len(live):
-        real = len(wire_json(answer))
-        if real <= budget:
-            return answer, real
-
-    # לא נכנסת: חותכים מהסוף, רשימה-רשימה לפי סדר הוויתור, לפי חסם העלות בלבד —
-    # בלי לסדרל את התשובה המלאה. הדגלים אינם ב-``running``, ולכן זו הערכה; האימות
-    # המדויק בא מיד אחריה, על התשובה החתוכה שכבר חסומה בגודלה.
-    kept = {path: list(lists[path]) for path in live}
-    flags: dict[tuple[str, ...], bool] = {}
-    running = total
-    for path in live:
-        if running <= budget:
-            break
-        items, costs = kept[path], item_costs[path]
-        while items and running > budget:
-            running -= costs[len(items) - 1]
-            items.pop()
-            flags[flag_of[path]] = True
-            if not items:
-                running -= nonempty_list_bytes(len(path) - 1)
-
-    # אימות מדויק: הדגלים הוסיפו בתים שלא נספרו ב-``running``, ולכן ייתכן שצריך
-    # להוריד עוד פריט. כל מדידה כאן היא על תשובה שכבר חסומה בתקציב (ועוד פריט),
-    # לעולם לא על התשובה המלאה. מורידים מהרשימה הראשונה שעדיין נושאת פריט (אותו
-    # סדר ויתור), ועד שגם ריקות אינן נכנסות — ``answer_too_large``, או עם ``floor``
-    # התשובה הריקה עצמה.
-    fitted = with_values(answer, {**kept, **flags})
-    size = len(wire_json(fitted))
-    while size > budget:
-        trimmable = next((path for path in live if kept[path]), None)
-        if trimmable is None:
-            return (fitted if floor else None), size
-        kept[trimmable].pop()
-        flags[flag_of[trimmable]] = True
-        fitted = with_values(answer, {**kept, **flags})
-        size = len(wire_json(fitted))
-    return fitted, size
 
 
 def _longest_fitting_prefix(limit: int, fits: Callable[[int], bool]) -> int:
@@ -1362,7 +1159,7 @@ def _longest_fitting_prefix(limit: int, fits: Callable[[int], bool]) -> int:
 
     הקורא הוא :func:`_longest_prefix_within`, שמחפש כמה תווים של תוכן העמוד נכנסים
     בתקציב — כל ניסיון נמדד ב-``wire_json``, ומובא לכאן כ-``fits``. (חיתוך הרשימות
-    ב-:func:`_fit_lists` אינו עובר כאן: הוא מצטבר לפי עלות פר-פריט, בלי חיפוש.)
+    ב-``answer_fit.fit_lists`` אינו עובר כאן: הוא מצטבר לפי עלות פר-פריט, בלי חיפוש.)
     ההנחה היחידה היא ש-``fits`` מונוטוני — אם קידומת נכנסת, גם כל קידומת קצרה ממנה
     — וזה נכון, כי כל תו מוסיף בתים ואף אחד לא מוריד. 0 חוזר גם כשאף קידומת לא
     נכנסת, בלי לבדוק את 0 עצמו: הקורא בודק אותו, כי רק הוא יודע מה לעשות אז.

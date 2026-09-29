@@ -58,7 +58,7 @@ from services import doc_sections
 # pull anything heavy into the MCP process at import.
 from services.git_mirror_service import MAX_FILE_SIZE_FOR_DISPLAY
 
-from . import answer_size, docs_handlers, handlers, read_batch, repo_handlers
+from . import answer_fit, answer_size, docs_handlers, handlers, read_batch, repo_handlers
 from .backend import LEAN_NOTE_FIELDS, file_read_answer
 from .handlers import StrictInt, StrictLines
 from .limits import (
@@ -467,7 +467,7 @@ _SECTION_PARAM_DOC = (
     "the file is ambiguous_section with candidates, like any duplicate "
     "heading — in document order, and cut from the END: at most "
     f"{docs_handlers._CANDIDATES_MAX}, and fewer when the reply would not "
-    f"fit {repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent; "
+    f"fit {answer_size.OUTPUT_BYTE_BUDGET} bytes as sent; "
     "candidates_truncated: true says either cut happened, so the heading you "
     "want may be missing. Every candidate carries its breadcrumb and "
     "line_range. A heading whose full name repeats in the file is never "
@@ -493,7 +493,7 @@ _SECTION_PARAM_DOC = (
     "can come back with a heading rather than with identifiers — do not read "
     "the field as always being identifiers. A miss also carries the heading "
     "map (toc). Every list in a reply — toc, suggestions, candidates — is cut "
-    f"from the end so the reply fits {repo_handlers.OUTPUT_BYTE_BUDGET} bytes "
+    f"from the end so the reply fits {answer_size.OUTPUT_BYTE_BUDGET} bytes "
     "as sent; a miss gives up the map before the suggestions. So "
     "toc_truncated, suggestions_truncated and candidates_truncated each have "
     "two causes: the list reached its cap, or was cut earlier to fit that "
@@ -653,7 +653,7 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "parser refuses returns that refusal (too_many_lines, too_many_tokens, "
         "inconsistent_line_endings, too_many_sections). Each of these carries a "
         "hint to read the file with lines= or query= instead. Any refusal "
-        f"(ok: false) that would not fit {repo_handlers.OUTPUT_BYTE_BUDGET} "
+        f"(ok: false) that would not fit {answer_size.OUTPUT_BYTE_BUDGET} "
         "bytes as sent gives up file.tags first — from the end, with "
         "file.tags_truncated: true — and only then its own lists; a successful "
         "reply never cuts the file's metadata. file_name with "
@@ -668,14 +668,14 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "section_count, which counts every heading even when the map is cut. "
         "toc_truncated: true means the map was cut from the end — at "
         f"{docs_handlers._TOC_MAX} headings, or earlier so the reply fits "
-        f"{repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent. A heading past the "
+        f"{answer_size.OUTPUT_BYTE_BUDGET} bytes as sent. A heading past the "
         "cut is still readable by its name when no other heading has that "
         "name; a repeated name is ambiguous_section, and lines= reads the "
         "line_range each candidate carries. And query finds the lines that "
         "hold any heading's text, for lines= to read from there. A map "
         "that does not fit even empty is answer_too_large, with bytes (what "
         "the reply needed with the map empty) and max "
-        f"({repo_handlers.OUTPUT_BYTE_BUDGET}). Then read one "
+        f"({answer_size.OUTPUT_BYTE_BUDGET}). Then read one "
         'section with section="<its title>". toc is a mode of its own: with '
         "section, query or lines it is refused as toc_and_section, "
         "toc_and_query or toc_and_lines." + refusals
@@ -699,7 +699,7 @@ def _build_file_sections_docs() -> tuple[str, str]:
         f"{docs_handlers.MAX_CHARS_MIN}-{docs_handlers.MAX_CHARS_MAX}) caps "
         "each reply, and while truncated is true, call again with "
         "offset=next_offset. A page is also cut to fit "
-        f"{repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent, so a page of "
+        f"{answer_size.OUTPUT_BYTE_BUDGET} bytes as sent, so a page of "
         "Hebrew, CJK or emoji text can end before max_chars — then "
         'truncation_reason is "byte_budget", and next_offset is where it '
         "really ended. subsections lists at most "
@@ -707,7 +707,7 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "more were cut; a section whose headings alone do not fit is "
         "section_too_large, with bytes (what the smallest page with any content "
         "needed), "
-        f"max ({repo_handlers.OUTPUT_BYTE_BUDGET}) and its line_range — read those "
+        f"max ({answer_size.OUTPUT_BYTE_BUDGET}) and its line_range — read those "
         "lines instead. section with query or lines is refused as "
         "section_and_query or section_and_lines; max_chars or offset without "
         "section as max_chars_without_section or offset_without_section; and "
@@ -766,7 +766,7 @@ def _build_read_batch_items_doc() -> str:
         "whose answer came from a commit carries it as resolved_commit. Any other "
         "key, or a value of the wrong type, answers invalid_item with the "
         "problems, for that item only. The whole answer is at most "
-        f"{repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent: items fill it in "
+        f"{answer_size.OUTPUT_BYTE_BUDGET} bytes as sent: items fill it in "
         "request order, the first one that does not fit stops the answer, and it "
         "and every item after it are listed in unread with unread_reason "
         "byte_budget. An item larger than that on its own answers item_too_large "
@@ -1801,6 +1801,25 @@ _NET_HINT = (
 )
 
 
+def _log_fits(name: str, arguments: Any, fits: list[answer_fit.Fit]) -> None:
+    """One INFO line per call whose answer was cut or refused to fit its budget (review of #3492, SUGG-004).
+
+    Without it nobody could tell whether ``OUTPUT_BYTE_BUDGET`` is too narrow for a
+    common workflow except from agents complaining. Only ``answer_too_large`` and
+    ``byte_budget`` cuts are recorded (``answer_fit.too_large``, ``answer_fit.cut``),
+    so an answer that fits leaves no line. The line carries the tool, the argument
+    **names** and the numbers — never an argument's value or the answer (K13): a
+    value can be a file name, a query or a note's text. ``answer_size_fit`` is its
+    fixed marker, next to the net's ``answer_size_net``. The standard library
+    logger, like the rest of ``mcp_server`` — not ``emit_event``, whose sampling
+    does not apply here. Every value is computed before the call, so nothing
+    rides on the log line itself.
+    """
+    names = ", ".join(sorted(str(key) for key in arguments)) if isinstance(arguments, dict) else ""
+    summary = answer_fit.format_fits(fits)
+    logger.info("answer_size_fit: %s args=[%s] %s", name, names, summary)
+
+
 def _sent_bytes(result: Any) -> int | None:
     """כמה בתים יוצאים ללקוח על ``result`` — מה ש-``FastMCP.call_tool`` החזיר — או ``None``.
 
@@ -2195,6 +2214,13 @@ class AdminAwareFastMCP(FastMCP):
         **Whatever the body returns passes :meth:`_within_declared_size` last**, on
         both branches — the net that holds a tool to the answer ceiling it
         declared. A rate-limit refusal does not: it is built here, not by a tool.
+
+        **And what the body cut or refused to fit its answer is logged here**
+        (:func:`_log_fits`): the body runs inside ``answer_fit.recording``, and
+        ``answer_too_large`` and every ``byte_budget`` cut write to it — from the
+        worker thread too, because ``asyncio.to_thread`` copies the context and the
+        list in it is the same object in both copies. This is the one place that
+        knows both the tool's name and its argument names.
         """
         entered_at = read_batch.clock() if name == read_batch.TOOL_NAME else None
         user_id = self._caller_identity()
@@ -2209,15 +2235,19 @@ class AdminAwareFastMCP(FastMCP):
             refusal = await self._tool_rate_limiter.admit(user_id, weight=weight)
             if refusal is not None:
                 return _refusal_result(refusal)
-        if entered_at is None:
-            result = await super().call_tool(name, arguments)
-        else:
-            token = read_batch.ENTERED_AT.set(entered_at)
-            try:
+        with answer_fit.recording() as fits:
+            if entered_at is None:
                 result = await super().call_tool(name, arguments)
-            finally:
-                read_batch.ENTERED_AT.reset(token)
-        return self._within_declared_size(name, result)
+            else:
+                token = read_batch.ENTERED_AT.set(entered_at)
+                try:
+                    result = await super().call_tool(name, arguments)
+                finally:
+                    read_batch.ENTERED_AT.reset(token)
+        result = self._within_declared_size(name, result)
+        if fits:
+            _log_fits(name, arguments, fits)
+        return result
 
     def _within_declared_size(self, name: str, result: Any) -> Any:
         """The last-resort net: a tool never sends more than it declared in ``tools/list``.
@@ -2261,10 +2291,8 @@ class AdminAwareFastMCP(FastMCP):
             "answer, refused here",
             name, "unmeasurable" if sent is None else sent, declared,
         )
-        refusal: dict[str, Any] = {"ok": False, "error": answer_size.ANSWER_TOO_LARGE}
-        if sent is not None:
-            refusal["bytes"] = sent
-        refusal.update({"max": declared, "hint": _NET_HINT})
+        refusal: dict[str, Any] = {"ok": False, **answer_fit.too_large(sent, budget=declared),
+                                   "hint": _NET_HINT}
         return _refusal_result(refusal)
 
     def set_instructions(self, text: str) -> None:
@@ -2499,8 +2527,10 @@ def build_mcp(
         if query is not None or toc or section is not None:
             return doc
         # קריאה מלאה או טווח: המעטפת ``{"found": true, "file": ...}`` נבנית שם, יחד
-        # עם תקציב הבתים — טווח שנגמר מוקדם על גבול שורה, או ``answer_too_large``.
-        return file_read_answer({"found": True, "file": doc})
+        # עם תקציב הבתים — טווח שנגמר מוקדם על גבול שורה, או ``answer_too_large``. גם
+        # כאן לפי **מה שביקשנו** (``lines``), מאותו נימוק: מסמך עם שדה ``range`` משלו
+        # היה הופך קריאה מלאה לטווח, או קורס (ריוויו Han על #3492, WARN-002).
+        return file_read_answer({"found": True, "file": doc}, ranged=lines is not None)
 
     @mcp.tool(
         name="codekeeper_save_file",
@@ -3104,7 +3134,9 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "2,400-line one before reading it. `lines` comes from the code index "
             "and is null when a file was never indexed; `lines_commit_sha` says "
             "which commit it was counted at, because the index is refreshed by "
-            "the webapp's sync rather than by this service."
+            "the webapp's sync rather than by this service. A page that does not fit "
+            f"{answer_size.OUTPUT_BYTE_BUDGET} bytes as sent is refused whole as "
+            "page_too_large (bytes, max, per_page) — ask again with a smaller per_page."
         ),
         annotations=_READ_ONLY_TOOL,
         # תקרת התשובה, מוצהרת ב-``tools/list`` ואכופה בכלי עצמו (``answer_size``).
@@ -3206,7 +3238,7 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         )
         # התקציב חל על התשובה ולא על הקריאה, שמשותפת לכלי הסעיפים ולבאץ'. אותה
         # פונקציה עונה על פריט קובץ ב-``codekeeper_read_batch``.
-        return repo_handlers.fit_file_answer(read, repo=repo, path=path, ref=ref)
+        return repo_handlers.fit_file_answer(read, ranged=lines is not None, repo=repo, path=path, ref=ref)
 
     @mcp.tool(
         name="codekeeper_search_repo",

@@ -73,7 +73,7 @@ from typing import Annotated, Any, Literal, NamedTuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from . import answer_size, docs_handlers, repo_handlers
+from . import answer_fit, answer_size, docs_handlers, repo_handlers
 from .answer_size import OUTPUT_BYTE_BUDGET
 from .handlers import StrictLines
 
@@ -115,8 +115,8 @@ MAX_BATCH_ITEMS = 20
 DEADLINE_SECONDS = 10.0
 
 #: הסיבות ל-``unread`` — ממוחזרות מאוצר המילים של ``truncation_reason``
-#: ב-``codekeeper_search_repo``, ולא שמות חדשים.
-UNREAD_BYTE_BUDGET = answer_size.BYTE_BUDGET_REASON
+#: ב-``codekeeper_search_repo``, ולא שמות חדשים: ``answer_size.BYTE_BUDGET_REASON``,
+#: או זו כשהדדליין עבר.
 UNREAD_TIMEOUT = "timeout"
 
 #: לאן לשלוח פריט שגדול מהתקציב לבדו — הכלי הבודד שהפריט משקף.
@@ -282,15 +282,9 @@ def _plan(raw: Any) -> _Plan:
 # מדידה — בצורה שה-SDK שולח
 # ---------------------------------------------------------------------------
 
-#: מדידת העלות פר-פריט חיה ב-``answer_size`` ליד ``wire_json`` ותקציב הבתים, כי
-#: גם ``docs_handlers`` מודד בה את רשימות התשובה (R6 — בעלים אחד, לא עותק שני).
-#: השמות המקומיים נשארים כאליאסים, כי ``scripts/measure_read_batch.py`` והטסט
-#: שלו, ו-``_reserve`` כאן, קוראים אותם בשמם.
-_ENTRY_FRAME_BYTES = answer_size.LIST_ITEM_FRAME_BYTES
-_NESTED_INDENT_BYTES = answer_size.LIST_ITEM_INDENT_BYTES
-_NON_EMPTY_LIST_BYTES = answer_size.NONEMPTY_LIST_BYTES
-_wire = answer_size.wire_json
-_entry_cost = answer_size.list_item_cost
+# מדידת העלות פר-פריט חיה ב-``answer_size`` ליד ``wire_json`` ותקציב הבתים, כי גם
+# ``docs_handlers`` מודד בה את רשימות התשובה (R6 — בעלים אחד, לא עותק שני). עד הריוויו
+# על #3492 נשארו כאן שמות מקומיים לאותן פונקציות; היום כל מי שמודד קורא להן בשמן שם.
 
 
 def _reserve(count: int) -> int:
@@ -305,9 +299,9 @@ def _reserve(count: int) -> int:
         "count": count,
         "items": [],
         "unread": list(range(count)),
-        "unread_reason": max((UNREAD_BYTE_BUDGET, UNREAD_TIMEOUT), key=len),
+        "unread_reason": max((answer_size.BYTE_BUDGET_REASON, UNREAD_TIMEOUT), key=len),
     }
-    return len(_wire(worst)) + _NON_EMPTY_LIST_BYTES
+    return len(answer_size.wire_json(worst)) + answer_size.NONEMPTY_LIST_BYTES
 
 
 def _commit_of(result: dict[str, Any]) -> str | None:
@@ -339,7 +333,7 @@ def _entry(index: int, plan: _Plan, result: dict[str, Any], per_item_max: int) -
     if commit is not None:
         entry["resolved_commit"] = commit
     entry["result"] = result
-    cost = _entry_cost(entry)
+    cost = answer_size.list_item_cost(entry)
     if cost <= per_item_max:
         return entry, cost
 
@@ -347,11 +341,11 @@ def _entry(index: int, plan: _Plan, result: dict[str, Any], per_item_max: int) -
     if plan.kind in _SINGLE_TOOL:
         too_large["read_with"] = _SINGLE_TOOL[plan.kind]
     entry = {"index": index, "request": plan.request, "result": too_large}
-    cost = _entry_cost(entry)
+    cost = answer_size.list_item_cost(entry)
     if cost <= per_item_max:
         return entry, cost
     entry = {"index": index, "result": too_large}
-    return entry, _entry_cost(entry)
+    return entry, answer_size.list_item_cost(entry)
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +389,8 @@ def _answer(plan: _Plan, read: Any, loaded: Any) -> dict[str, Any]:
     # עם ההפניה שלה, ולא ``item_too_large``. ``read`` עצמו אינו משתנה: פריט סעיף
     # באותה קבוצה מפרסר אותו כולו.
     if plan.kind == "file":
-        return repo_handlers.fit_file_answer(read, repo=plan.target[0], path=plan.target[1], ref=None)
+        return repo_handlers.fit_file_answer(
+            read, ranged=plan.lines is not None, repo=plan.target[0], path=plan.target[1], ref=None)
     if isinstance(loaded, dict):
         return loaded
     return docs_handlers.answer_section(loaded, section=plan.section)
@@ -589,7 +584,7 @@ def read_batch(
                 used=used, ready=ready, cut=cut, per_item_max=per_item_max,
             )
         if index in cut:
-            stopped_at, reason = index, UNREAD_BYTE_BUDGET
+            stopped_at, reason = index, answer_size.BYTE_BUDGET_REASON
             break
         entry, cost = ready.pop(index)
         entries.append(entry)
@@ -598,5 +593,8 @@ def read_batch(
     answer: dict[str, Any] = {"ok": True, "count": len(entries), "items": entries}
     if stopped_at is not None:
         answer["unread"] = list(range(stopped_at, count))
+        if reason == answer_size.BYTE_BUDGET_REASON:
+            # נרשם כאן, כשהחיתוך נכנס לתשובה שחוזרת (``answer_fit.cut``).
+            reason = answer_fit.cut(returned=len(entries), of=count)
         answer["unread_reason"] = reason
     return answer

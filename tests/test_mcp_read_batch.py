@@ -693,7 +693,7 @@ async def _costs(world: _World, items: list[dict[str, Any]]) -> list[int]:
     """מה שכל פריט עולה בחשבון של הכלי — מתשובה שנבנתה באמת, בתקציב שאינו חוסם."""
     _, answer = await _batch(world.mcp, items)
     assert "unread" not in answer
-    return [read_batch._entry_cost(entry) for entry in answer["items"]]
+    return [answer_size.list_item_cost(entry) for entry in answer["items"]]
 
 
 @requires_git
@@ -804,7 +804,7 @@ def test_the_accounting_never_undercounts_what_is_sent():
             answer["unread"] = list(range(kept, count))
             answer["unread_reason"] = rng.choice(["byte_budget", "timeout"])
         sent = len(_as_sent(answer).encode("utf-8"))
-        accounted = read_batch._reserve(count) + sum(read_batch._entry_cost(e) for e in entries)
+        accounted = read_batch._reserve(count) + sum(answer_size.list_item_cost(e) for e in entries)
         assert sent <= accounted <= sent + read_batch._reserve(count) + kept
 
 
@@ -988,7 +988,7 @@ async def test_in_any_order_the_answer_is_the_longest_prefix_that_fits_and_nothi
         monkeypatch.setattr(read_batch, "OUTPUT_BYTE_BUDGET", real_budget)
         _, full = await _batch(world.mcp, items)
         assert "unread" not in full
-        costs = [read_batch._entry_cost(entry) for entry in full["items"]]
+        costs = [answer_size.list_item_cost(entry) for entry in full["items"]]
         reserve = read_batch._reserve(len(items))
         # לפחות הפריט הגדול ביותר נכנס לבדו — כך אף פריט אינו ``item_too_large``,
         # והמחירים בתקציב הקטן הם אותם מחירים.
@@ -1258,7 +1258,7 @@ async def test_the_advertised_item_schema_is_the_one_the_body_validates_with():
                                         read_batch.FileItem.model_json_schema()]}
     assert "$defs" not in json.dumps(tool.inputSchema) and "$ref" not in json.dumps(tool.inputSchema)
     assert str(read_batch.MAX_BATCH_ITEMS) in tool.description
-    assert str(repo_handlers.OUTPUT_BYTE_BUDGET) in items["description"]
+    assert str(answer_size.OUTPUT_BYTE_BUDGET) in items["description"]
 
 
 async def test_the_tool_declares_its_result_size_in_characters_as_the_byte_budget():
@@ -1266,8 +1266,8 @@ async def test_the_tool_declares_its_result_size_in_characters_as_the_byte_budge
     mcp = srv.build_mcp(object(), repo_backend=object())
     mcp._request_is_admin = lambda: True
     (tool,) = [t for t in await mcp.list_tools() if t.name == read_batch.TOOL_NAME]
-    assert tool.meta == {"anthropic/maxResultSizeChars": repo_handlers.OUTPUT_BYTE_BUDGET}
-    assert answer_size.DECLARED_MAX_RESULT_CHARS == repo_handlers.OUTPUT_BYTE_BUDGET
+    assert tool.meta == {"anthropic/maxResultSizeChars": answer_size.OUTPUT_BYTE_BUDGET}
+    assert answer_size.DECLARED_MAX_RESULT_CHARS == answer_size.OUTPUT_BYTE_BUDGET
 
 
 def test_a_section_item_uses_the_single_tools_defaults():

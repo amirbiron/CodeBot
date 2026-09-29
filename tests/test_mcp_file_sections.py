@@ -27,7 +27,7 @@ import random
 import pytest
 from pydantic import ValidationError
 
-from mcp_server import analytics, answer_size, docs_handlers, handlers, read_batch, repo_handlers
+from mcp_server import analytics, answer_fit, answer_size, docs_handlers, handlers, read_batch
 from services import doc_sections, md_parser
 
 pytest.importorskip("mcp")
@@ -176,6 +176,22 @@ def _payload(result):
 
 async def _call(mcp, **arguments):
     return _payload(await mcp.call_tool("codekeeper_get_file", arguments))
+
+
+def _sections_only(dbm: _Dbm, *, toc: bool = False, section: str | None = None):
+    """``_apply_sections_to_file`` על הגרסה האחרונה של הדמה — **בלי** ``_fit_with_file_meta`` מעליו.
+
+    מאז ריוויו Han על #3492 (WARN-001) הכלי אינו מחזיר סירוב שהמטא-דאטה לבדה גרמה לו: הוא
+    מנסה שוב בלעדיה. החשבון של הסירוב (``bytes = size + reserve_bytes``) עדיין רץ בניסיון
+    הראשון, והטסטים שבודקים אותו קוראים לו כאן ישירות, עם התיאור כמנוף. ``toc`` כאן רק
+    אומר "בלי ``section``", כמו בכלי. מחזיר את התשובה ואת הבתים שלה כפי שהכלי היה שולח.
+    """
+    from mcp_server import backend as backend_mod
+
+    assert toc != (section is not None), "toc או section, כמו בכלי"
+    out = backend_mod._full(dbm._doc(dbm._code, 2, _DOC_ID))
+    answer = backend_mod._apply_sections_to_file(out, section=section, max_chars=None, offset=None)
+    return answer, len(answer_size.wire_json(answer))
 
 
 async def _call_sent(mcp, tool="codekeeper_get_file", **arguments):
@@ -383,7 +399,7 @@ async def test_a_page_of_wide_characters_ends_early_inside_the_byte_budget(monke
     out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="רחב",
                                  max_chars=docs_handlers.MAX_CHARS_MAX)
 
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
     assert out["truncated"] is True and out["truncation_reason"] == "byte_budget"
     assert 0 < len(out["content"]) < docs_handlers.MAX_CHARS_MAX
     assert out["content"] == full[:len(out["content"])]
@@ -409,7 +425,7 @@ async def test_paging_by_bytes_loses_nothing(monkeypatch):
     while True:
         out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="רחב", offset=offset,
                                      max_chars=docs_handlers.MAX_CHARS_MAX)
-        assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+        assert sent <= answer_size.OUTPUT_BYTE_BUDGET
         assert out["offset"] == offset
         pages.append(out["content"])
         if not out["truncated"]:
@@ -440,8 +456,8 @@ async def test_the_page_leaves_room_for_found_and_status(monkeypatch):
 
     assert out["found"] is True and out["status"] == "section"
     assert out["truncation_reason"] == "byte_budget"
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
-    assert repo_handlers.OUTPUT_BYTE_BUDGET - sent < 16
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
+    assert answer_size.OUTPUT_BYTE_BUDGET - sent < 16
 
 
 async def test_a_page_that_fits_is_left_exactly_as_it_was(monkeypatch):
@@ -459,7 +475,7 @@ async def test_a_page_that_fits_is_left_exactly_as_it_was(monkeypatch):
     out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="עברית",
                                  max_chars=docs_handlers.MAX_CHARS_MAX)
 
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
     assert len(out["content"]) == docs_handlers.MAX_CHARS_MAX
     assert out["next_offset"] == docs_handlers.MAX_CHARS_MAX
     assert "truncation_reason" not in out
@@ -481,7 +497,7 @@ async def test_subsections_are_capped_like_the_map(monkeypatch):
 
     out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="שורש")
 
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
     assert [s["title"] for s in out["subsections"]] == [f"כותרת {i:04d}" for i in range(cap)]
     assert out["subsections_truncated"] is True
 
@@ -510,14 +526,14 @@ async def test_a_map_that_does_not_fit_is_cut_from_the_end_inside_the_budget(mon
     out, sent = await _call_sent(mcp, file_name=_MD_NAME, toc=True)
 
     assert out["found"] is True and out["status"] == "toc"
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
     kept = len(out["toc"])
     assert 0 < kept < len(full) == docs_handlers._TOC_MAX
     assert out["toc"] == full[:kept]
     assert out["toc_truncated"] is True
     assert out["section_count"] == len(full)
     one_more = {**out, "toc": full[:kept + 1]}
-    assert len(answer_size.wire_json(one_more)) > repo_handlers.OUTPUT_BYTE_BUDGET
+    assert len(answer_size.wire_json(one_more)) > answer_size.OUTPUT_BYTE_BUDGET
 
 
 async def test_a_miss_gives_up_the_map_before_the_suggestions(monkeypatch):
@@ -540,7 +556,7 @@ async def test_a_miss_gives_up_the_map_before_the_suggestions(monkeypatch):
     out, sent = await _call_sent(mcp, file_name=_MD_NAME, section=near)
 
     assert out["error"] == "section_not_found"
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
     assert out["toc_truncated"] is True and len(out["toc"]) < len(full)
     assert out["toc"] == full[:len(out["toc"])]
     assert out["suggestions"] == list(expected.titles)
@@ -570,7 +586,7 @@ async def test_suggestions_are_cut_only_after_the_map_is_empty(monkeypatch):
     out, sent = await _call_sent(mcp, file_name=_MD_NAME, section=query)
 
     assert out["error"] == "section_not_found"
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
     assert out["toc_truncated"] is True                 # המפה נחתכה ראשונה (לחץ הבתים)
     kept = len(out["suggestions"])
     assert 0 < kept < 48
@@ -599,7 +615,7 @@ async def test_candidates_are_cut_from_the_end_in_document_order(monkeypatch):
     out, sent = await _call_sent(mcp, file_name=_MD_NAME, section="K7")
 
     assert out["error"] == "ambiguous_section"
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
     starts = [c["line_range"][0] for c in out["candidates"]]
     assert 0 < len(starts) < len(matches)
     assert starts == [s.heading_line for s in matches][:len(starts)]
@@ -1135,7 +1151,7 @@ async def test_a_section_whose_headings_alone_do_not_fit_is_refused_with_its_lin
 
     assert out["ok"] is False and out["error"] == docs_handlers.SECTION_TOO_LARGE
     assert out["file"] == _meta(code=text) and out["hint"] == _HINT
-    assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["bytes"] > out["max"] == answer_size.OUTPUT_BYTE_BUDGET
     assert out["line_range"] == toc["toc"][0]["line_range"]
     assert "content" not in out
 
@@ -1155,9 +1171,7 @@ _HUGE_TAGS = ["汉" * 90_000]
     [{"toc": True}, {"section": "K99"}, {"section": "K12 כפול"}],
     ids=["toc", "section_not_found", "ambiguous_section"],
 )
-async def test_an_answer_that_does_not_fit_even_with_empty_lists_is_refused(
-    monkeypatch, arguments,
-):
+def test_an_answer_that_does_not_fit_even_with_empty_lists_is_refused(arguments):
     """``answer_too_large`` — כשגם אחרי שכל הרשימות רוקנו התשובה גדולה מהתקציב.
 
     מה שנשאר אז הוא החלק הקבוע, וכאן זה התיאור של הקובץ — מחרוזת, ולכן אין בה מה
@@ -1175,23 +1189,30 @@ async def test_an_answer_that_does_not_fit_even_with_empty_lists_is_refused(
     #3472 הבדיקה הזו נשענה על תגית ענקית. וקובץ שאין לו ``tags`` בכלל אינו מקבל
     ``tags: []`` ודגל בגלל שהסירוב שלו גדול.
 
-    מוטציה שמפילה: להחזיר מ-``_fit_or_refuse`` את התשובה גם כש-``_fit_lists`` מחזיר ``None``.
+    **והכלי עצמו כבר אינו מחזיר את הסירוב הזה** (ריוויו Han על #3492, WARN-001): כשהתיאור
+    לבדו הוא מה שלא נכנס, הוא יורד גם מהתשובה המוצלחת — ראו
+    ``test_a_huge_description_leaves_the_file_readable_in_every_mode`` ב-
+    ``tests/test_mcp_answer_size.py``. הסירוב עדיין נבנה בניסיון הראשון, ולכן הוא נבדק
+    כאן ישירות (:func:`_sections_only`).
+
+    מוטציה שמפילה: להחזיר מ-``_fit_or_refuse`` את התשובה גם כש-``fit_lists`` מחזיר ``None``.
     """
-    mcp = _build(monkeypatch, _Dbm(extra={"description": _HUGE_DESCRIPTION}))
+    from mcp_server import backend as backend_mod
 
-    out, sent = await _call_sent(mcp, file_name=_MD_NAME, **arguments)
+    out, sent = _sections_only(_Dbm(extra={"description": _HUGE_DESCRIPTION}), **arguments)
 
-    assert out["ok"] is False and out["error"] == docs_handlers.ANSWER_TOO_LARGE
-    assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
-    assert out["hint"] == _HINT
+    assert out["ok"] is False and out["error"] == answer_size.ANSWER_TOO_LARGE
+    assert out["bytes"] > out["max"] == answer_size.OUTPUT_BYTE_BUDGET
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
+    # התיאור ירד, ולכן הסירוב מפנה גם לכלי שמתקן אותו (ריוויו Han על #3492).
+    assert out["hint"] == answer_fit.with_note(_HINT, backend_mod._DESCRIPTION_LEFT_OUT)
     assert out["file"]["id"] == _DOC_ID and "description" not in out["file"]
     assert out["file"]["description_bytes"] == len(_HUGE_DESCRIPTION.encode("utf-8"))
     assert "tags" not in out["file"] and "tags_truncated" not in out["file"]
     assert not {"toc", "suggestions", "candidates", "requested"} & out.keys()
 
 
-async def _bytes_at(mcp, arguments, dbm_for):
+def _bytes_at(arguments, dbm_for):
     """שלוש תשובות: תיאור ארוך בהרבה מהתקציב, התיאור שבו ``bytes`` הוא ``budget + 1``, ואחד פחות.
 
     ``bytes`` לינארי באורך תיאור ב-ASCII — כל תו הוא בית אחד, ושום שדה אחר בסירוב אינו
@@ -1202,10 +1223,10 @@ async def _bytes_at(mcp, arguments, dbm_for):
     האורך הזה הוא הסף האמיתי, ו-``bytes`` בו הוא בדיוק מה שהושווה לתקציב.
     """
     far = 300_000
-    first = await _call(mcp(dbm_for(far)), file_name=_MD_NAME, **arguments)
-    length = far - (first["bytes"] - (repo_handlers.OUTPUT_BYTE_BUDGET + 1))
-    window = await _call(mcp(dbm_for(length)), file_name=_MD_NAME, **arguments)
-    below = await _call(mcp(dbm_for(length - 1)), file_name=_MD_NAME, **arguments)
+    first = _sections_only(dbm_for(far), **arguments)[0]
+    length = far - (first["bytes"] - (answer_size.OUTPUT_BYTE_BUDGET + 1))
+    window = _sections_only(dbm_for(length), **arguments)[0]
+    below = _sections_only(dbm_for(length - 1), **arguments)[0]
     return first, window, below
 
 
@@ -1219,16 +1240,14 @@ _ONE_LONG_SECTION = "# גדול\n\n" + "y" * 5_000 + "\n"
 @pytest.mark.parametrize(
     ("code_text", "arguments", "error"),
     [
-        (_MD, {"toc": True}, docs_handlers.ANSWER_TOO_LARGE),
-        (_NO_IDENTIFIERS, {"section": "zzzz"}, docs_handlers.ANSWER_TOO_LARGE),
-        (_MD, {"section": "K12 כפול"}, docs_handlers.ANSWER_TOO_LARGE),
+        (_MD, {"toc": True}, answer_size.ANSWER_TOO_LARGE),
+        (_NO_IDENTIFIERS, {"section": "zzzz"}, answer_size.ANSWER_TOO_LARGE),
+        (_MD, {"section": "K12 כפול"}, answer_size.ANSWER_TOO_LARGE),
         (_ONE_LONG_SECTION, {"section": "גדול"}, docs_handlers.SECTION_TOO_LARGE),
     ],
     ids=["toc", "section_not_found", "ambiguous_section", "section"],
 )
-async def test_every_budget_refusal_reports_bytes_over_the_documented_max(
-    monkeypatch, code_text, arguments, error,
-):
+def test_every_budget_refusal_reports_bytes_over_the_documented_max(code_text, arguments, error):
     """``bytes > max`` בכל סירוב שנולד מהתקציב, ו-``max`` הוא ``OUTPUT_BYTE_BUDGET`` עצמו.
 
     עד #3472 (SUGG-008) ``max`` היה התקציב פחות המעטפת של ``found``/``status`` —
@@ -1256,15 +1275,14 @@ async def test_every_budget_refusal_reports_bytes_over_the_documented_max(
     או בסירוב ``section_too_large`` של ``_answer_from_document``; ו-``_fit_page`` שמחזיר
     בסירוב את גודל העמוד הריק בלי התו הראשון.
     """
-    budget = repo_handlers.OUTPUT_BYTE_BUDGET
-
-    def mcp(dbm):
-        return _build(monkeypatch, dbm)
+    budget = answer_size.OUTPUT_BYTE_BUDGET
 
     def dbm_for(length):
         return _Dbm(code_text, extra={"description": "x" * length})
 
-    far, at_threshold, below = await _bytes_at(mcp, arguments, dbm_for)
+    # ישירות, בלי ``_fit_with_file_meta``: בכלי תיאור כזה יורד וההחלטה אינה נופלת כאן
+    # (ריוויו Han על #3492, WARN-001) — ראו :func:`_sections_only`.
+    far, at_threshold, below = _bytes_at(arguments, dbm_for)
 
     for out in (far, at_threshold):
         assert out["ok"] is False and out["error"] == error
@@ -1290,7 +1308,7 @@ async def test_the_docs_tool_reports_its_budget_refusal_against_the_same_max(mon
         {"path": "x.md", "repo": "amir-bug-patterns", "section": "שורש"}))
 
     assert out["ok"] is False and out["error"] == docs_handlers.SECTION_TOO_LARGE
-    assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out["bytes"] > out["max"] == answer_size.OUTPUT_BYTE_BUDGET
 
 
 def _huge_tags_cases():
@@ -1317,19 +1335,20 @@ def _huge_tags_cases():
 async def test_a_refusal_gives_up_the_file_tags_first_and_says_so(
     monkeypatch, dbm_kwargs, arguments, setup,
 ):
-    """סירוב שנושא ``file`` נכנס בתקציב — בוויתור על ``file.tags`` מהסוף, עם דגל (SUGG-002).
+    """תגית ענקית יורדת מהתשובה — ``file.tags: []`` ו-``file.tags_truncated: true`` — ושאר התשובה שלמה.
 
     עד #3472 כל סירוב נשא את המטא-דאטה כמו שהיא, ותגית ענקית שלחה סירוב של כ-270KB —
-    מעל ``OUTPUT_BYTE_BUDGET``, בלי שום סימן. עכשיו כל סירוב יוצא דרך ``fit_refusal``, עם
-    ``file.tags`` כרשימה שמותר לוותר עליה: ``file.tags: []`` ו-``file.tags_truncated: true``.
+    מעל ``OUTPUT_BYTE_BUDGET``, בלי שום סימן. #3472 (SUGG-002) הוריד את התגיות מהסירוב,
+    והמפה והסעיף — שהיו תשובה מוצלחת עם תגית קטנה — הפכו לסירוב של התקציב. **מאז ריוויו Han
+    על #3492 (WARN-001) גם הם מוותרים על התגיות ולא על התשובה:** התגית לבדה היא מה שלא נכנס,
+    ולכן המפה והסעיף חוזרים, עם אותו ויתור ואותו סימן.
 
-    **בסירוב שהיה קורה בכל מקרה, זה ההבדל היחיד** — התשובה זהה לזו של אותו קובץ עם תגית
-    קטנה, פרט לתגיות. וב-``section_not_found`` וב-``ambiguous_section`` זה אומר שהתגיות
-    נחתכות **ראשונות**: המפה, ההצעות והמועמדים נשארים שלמים. במפה ובסעיף — שהיו תשובה
-    מוצלחת עם תגית קטנה — התגית היא מה שלא נכנס, והתשובה היא הסירוב של התקציב, עם אותו
-    ויתור.
+    **ובכל צורה זה ההבדל היחיד** — התשובה זהה לזו של אותו קובץ עם תגית קטנה, פרט לתגיות.
+    ב-``section_not_found`` וב-``ambiguous_section`` זה אומר שהתגיות יורדות **ראשונות**:
+    המפה, ההצעות והמועמדים נשארים שלמים.
 
-    נופלת על הקוד שלפני התיקון: התגית חוזרת שלמה, והתשובה כפי שנשלחה מעל התקציב.
+    נופלת על הקוד שלפני #3472: התגית חוזרת שלמה, והתשובה כפי שנשלחה מעל התקציב. ועל הקוד
+    שלפני WARN-001: המפה והסעיף הם ``answer_too_large``/``section_too_large``.
 
     מוטציות שמפילות: ``_FILE_REFUSAL_CUTS = ()``; להחזיר את ``not_markdown`` ישירות, בלי
     ``refuse``; ו-``refusal_cuts`` **אחרי** המפה וההצעות ב-``section_not_found`` — המפה
@@ -1346,18 +1365,9 @@ async def test_a_refusal_gives_up_the_file_tags_first_and_says_so(
 
     out, sent = await _call_sent(huge_mcp, file_name=_meta_name(dbm_kwargs), **arguments)
 
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
-    assert out["ok"] is False
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
     assert out["file"]["tags"] == [] and out["file"]["tags_truncated"] is True
-    without_tags = {k: v for k, v in out["file"].items() if k not in ("tags", "tags_truncated")}
-    assert without_tags == {k: v for k, v in small["file"].items() if k != "tags"}
-    if small["ok"] is False:
-        assert out == {**small, "file": {**small["file"], "tags": [], "tags_truncated": True}}
-    else:
-        expected = (docs_handlers.ANSWER_TOO_LARGE if "toc" in arguments
-                    else docs_handlers.SECTION_TOO_LARGE)
-        assert out["error"] == expected and out["hint"] == _HINT
-        assert out["bytes"] > out["max"] == repo_handlers.OUTPUT_BYTE_BUDGET
+    assert out == {**small, "file": {**small["file"], "tags": [], "tags_truncated": True}}
 
 
 def _meta_name(dbm_kwargs):
@@ -1378,11 +1388,12 @@ def _meta_name(dbm_kwargs):
 async def test_a_successful_reply_carries_the_file_metadata_whole(
     monkeypatch, text, arguments, cut,
 ):
-    """תשובה מוצלחת אינה מוותרת על מטא-דאטה — גם כשהיא צריכה לחתוך את עצמה כדי להיכנס.
+    """תשובה מוצלחת אינה מוותרת על מטא-דאטה כשהתוכן עצמו הוא מה שגדול — היא חותכת את עצמה.
 
     תגיות של כ-60KB, ומפה או עמוד שלא נכנסים גם בלעדיהן: המפה נחתכת מהסוף והעמוד נגמר
-    מוקדם, והתגיות נשארות שלמות. הוויתור על ``file.tags`` שמור לסירוב, שבו התשובה עצמה
-    כבר אינה מה שביקשו (SUGG-002). התשובה כפי שנשלחה בתוך התקציב.
+    מוקדם, והתגיות נשארות שלמות. מאז ריוויו Han על #3492 (WARN-001) תשובה מוצלחת מוותרת
+    על התגיות רק כשהן לבדן דוחפות אותה מעל התקציב, או כשהן גדולות מכל שאר התשובה — וכאן
+    אף אחד מהשניים אינו נכון. התשובה כפי שנשלחה בתוך התקציב.
 
     זה הגבול של התיקון ולא התיקון עצמו, ולכן עובר גם על הקוד שלפני #3472 — שם שום דבר
     לא חתך תגיות.
@@ -1395,7 +1406,7 @@ async def test_a_successful_reply_carries_the_file_metadata_whole(
 
     out, sent = await _call_sent(mcp, file_name=_MD_NAME, **arguments)
 
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
     key, value = cut
     assert out["ok"] is True and out[key] == value
     assert out["file"]["tags"] == tags and "tags_truncated" not in out["file"]
@@ -1598,8 +1609,8 @@ async def test_the_docs_tool_fits_its_page_to_the_same_budget(monkeypatch):
         mcp, "codekeeper_docs_get_section", path="x.md", repo="amir-bug-patterns",
         section="רחב", max_chars=docs_handlers.MAX_CHARS_MAX)
 
-    assert docs_sent <= repo_handlers.OUTPUT_BYTE_BUDGET
-    assert file_sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert docs_sent <= answer_size.OUTPUT_BYTE_BUDGET
+    assert file_sent <= answer_size.OUTPUT_BYTE_BUDGET
     assert from_docs["truncation_reason"] == from_file["truncation_reason"] == "byte_budget"
     assert from_docs["content"].startswith(from_file["content"])
 
@@ -1617,7 +1628,7 @@ async def test_the_docs_tool_fits_its_map_to_the_same_budget(monkeypatch):
     out, sent = await _call_sent(mcp, "codekeeper_docs_get_section", path="x.md",
                                  repo="amir-bug-patterns")
 
-    assert sent <= repo_handlers.OUTPUT_BYTE_BUDGET
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
     assert out["mode"] == "toc" and out["toc_truncated"] is True
     assert 0 < len(out["toc"]) < len(full)
     assert out["toc"] == full[:len(out["toc"])]
@@ -1644,28 +1655,28 @@ def test_fit_lists_keeps_the_longest_prefix_and_gives_up_lists_in_order():
     def size(**changes):
         return len(wire({**answer, **changes}))
 
-    same, measured = docs_handlers._fit_lists(answer, cuts=cuts, budget=size())
+    same, measured = answer_fit.fit_lists(answer, cuts=cuts, budget=size())
     assert same is answer and measured == size()
 
     budget = size(a=answer["a"][:4], a_cut=True)
-    out, measured = docs_handlers._fit_lists(answer, cuts=cuts, budget=budget)
+    out, measured = answer_fit.fit_lists(answer, cuts=cuts, budget=budget)
     assert out["a"] == answer["a"][:4] and out["a_cut"] is True
     assert out["b"] == answer["b"] and "b_cut" not in out
     assert measured == len(wire(out)) <= budget < size(a=answer["a"][:5], a_cut=True)
 
     budget = size(a=[], a_cut=True, b=answer["b"][:6], b_cut=True)
-    out, measured = docs_handlers._fit_lists(answer, cuts=cuts, budget=budget)
+    out, measured = answer_fit.fit_lists(answer, cuts=cuts, budget=budget)
     assert out["a"] == [] and out["a_cut"] is True
     assert out["b"] == answer["b"][:6] and out["b_cut"] is True
     assert measured <= budget < size(a=[], a_cut=True, b=answer["b"][:7], b_cut=True)
 
     floor = size(a=[], a_cut=True, b=[], b_cut=True)
-    out, measured = docs_handlers._fit_lists(answer, cuts=cuts, budget=floor - 1)
+    out, measured = answer_fit.fit_lists(answer, cuts=cuts, budget=floor - 1)
     assert out is None and measured == floor
 
     empty_first = {**answer, "a": []}
     budget = len(wire({**empty_first, "b": answer["b"][:3], "b_cut": True}))
-    out, _ = docs_handlers._fit_lists(empty_first, cuts=cuts, budget=budget)
+    out, _ = answer_fit.fit_lists(empty_first, cuts=cuts, budget=budget)
     assert out["a"] == [] and "a_cut" not in out
     assert out["b"] == answer["b"][:3] and out["b_cut"] is True
 
@@ -1706,7 +1717,7 @@ def test_fit_lists_never_serializes_more_than_the_budget_plus_one_item(monkeypat
 
     monkeypatch.setattr(docs_handlers, "wire_json", spy)
     monkeypatch.setattr(answer_size, "wire_json", spy)
-    fitted, size = docs_handlers._fit_lists(
+    fitted, size = answer_fit.fit_lists(
         answer, cuts=(("toc", "toc_truncated"),), budget=budget)
 
     assert sizes, "הספייה לא נקראה — הטסט אינו בודק כלום"
@@ -1811,7 +1822,7 @@ def test_fit_lists_at_depth_zero_decides_exactly_as_before_the_depth_was_added()
         smallest = len(wire({**answer, **{key: [] for key in chosen},
                              **{flag: True for _, flag in cuts}}))
         for budget in range(smallest - 3, full + 3):
-            now, now_size = docs_handlers._fit_lists(answer, cuts=cuts, budget=budget)
+            now, now_size = answer_fit.fit_lists(answer, cuts=cuts, budget=budget)
             before, before_size = _fit_lists_before_depth(answer, cuts=cuts, budget=budget)
             assert now_size == before_size, budget
             assert (now is None) == (before is None), budget
@@ -2308,8 +2319,10 @@ def test_the_byte_budget_numbers_in_the_section_doc_come_from_the_constants(monk
     """
     from mcp_server import server as srv
 
-    assert f"cut to fit {repo_handlers.OUTPUT_BYTE_BUDGET} bytes" in srv._FILE_SECTION_DOC
-    monkeypatch.setattr(repo_handlers, "OUTPUT_BYTE_BUDGET", 1234)
+    assert f"cut to fit {answer_size.OUTPUT_BYTE_BUDGET} bytes" in srv._FILE_SECTION_DOC
+    # העלה ולא ``repo_handlers``: התיאור קורא את התקציב מ-``answer_size`` עצמו (ריוויו Han
+    # על #3492, SUGG-002) — עד אז הטסט הזה החליף ערך בייצוא-משנה ועבר בזכותו.
+    monkeypatch.setattr(answer_size, "OUTPUT_BYTE_BUDGET", 1234)
     monkeypatch.setattr(docs_handlers, "_TOC_MAX", 56)
     toc_doc, rebuilt = srv._build_file_sections_docs()
     assert "cut to fit 1234 bytes" in rebuilt
@@ -2329,10 +2342,10 @@ def test_the_list_limits_in_the_section_doc_come_from_the_constants():
     from mcp_server import server as srv
 
     assert (f"at most {docs_handlers._CANDIDATES_MAX}, and fewer when the reply would not "
-            f"fit {repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent") in srv._SECTION_PARAM_DOC
-    assert (f"so the reply fits {repo_handlers.OUTPUT_BYTE_BUDGET} bytes as sent"
+            f"fit {answer_size.OUTPUT_BYTE_BUDGET} bytes as sent") in srv._SECTION_PARAM_DOC
+    assert (f"so the reply fits {answer_size.OUTPUT_BYTE_BUDGET} bytes as sent"
             in srv._SECTION_PARAM_DOC)
-    assert docs_handlers.ANSWER_TOO_LARGE in srv._SECTION_PARAM_DOC
+    assert answer_size.ANSWER_TOO_LARGE in srv._SECTION_PARAM_DOC
 
 
 #: הכלל "כותרת ששמה המלא חוזר אינה נענית בשמה", והדרך אליה — בכל משטח שהקורא רואה.
@@ -2390,8 +2403,9 @@ def test_the_byte_budget_has_one_measure_and_one_word():
     היא אותה מילה של ``unread_reason`` בבאץ' ושל ``truncation_reason`` בחיפוש.
 
     מוטציה שמפילה: להחזיר ל-``read_batch`` פונקציה ``_wire`` משלו, או לאיית את
-    הסיבה אחרת.
+    הסיבה אחרת. **ששני המודולים מייבאים אותן ישירות מ-``answer_size``, בלי שם שני**,
+    נאכף ב-``tests/test_mcp_answer_size.py`` על כל מודול בחבילה (ריוויו Han על #3492).
     """
-    assert read_batch._wire is answer_size.wire_json
+    assert read_batch.answer_size.wire_json is answer_size.wire_json
     assert docs_handlers.wire_json is answer_size.wire_json
-    assert docs_handlers._BYTE_BUDGET_REASON == read_batch.UNREAD_BYTE_BUDGET == "byte_budget"
+    assert answer_size.BYTE_BUDGET_REASON == "byte_budget"
