@@ -652,11 +652,15 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "too_large_for_sections, with its bytes and the max; and a file the "
         "parser refuses returns that refusal (too_many_lines, too_many_tokens, "
         "inconsistent_line_endings, too_many_sections). Each of these carries a "
-        "hint to read the file with lines= or query= instead. Any refusal "
-        f"(ok: false) that would not fit {answer_size.OUTPUT_BYTE_BUDGET} "
-        "bytes as sent gives up file.tags first — from the end, with "
-        "file.tags_truncated: true — and only then its own lists; a successful "
-        "reply never cuts the file's metadata. file_name with "
+        "hint to read the file with lines= or query= instead. A reply that "
+        f"would not fit {answer_size.OUTPUT_BYTE_BUDGET} bytes as sent gives up "
+        "the file's metadata: file.tags first (file.tags_truncated: true), then "
+        "file.description whole (file.description_bytes says how big it was, and "
+        "hint names codekeeper_update_file_description, to replace it). A "
+        "refusal (ok: false) gives up its tags from the end, before its own "
+        "lists; a successful reply gives up its metadata only when that alone "
+        "keeps it from fitting whole, or when the metadata is bigger than all "
+        "the rest of a cut reply. file_name with "
         "version reads that version; file_id reads the version it names and "
         "ignores version."
     )
@@ -2220,7 +2224,11 @@ class AdminAwareFastMCP(FastMCP):
         ``answer_too_large`` and every ``byte_budget`` cut write to it — from the
         worker thread too, because ``asyncio.to_thread`` copies the context and the
         list in it is the same object in both copies. This is the one place that
-        knows both the tool's name and its argument names.
+        knows both the tool's name and its argument names. **Only what reached the
+        client is in it** (the rule beside ``answer_fit.attempt``): the body runs in
+        an attempt of its own, kept only when the net lets its answer through; when
+        the net replaces it, what the body cut went nowhere, and the net's own
+        refusal is what the line reports (next to its ``answer_size_net`` WARNING).
         """
         entered_at = read_batch.clock() if name == read_batch.TOOL_NAME else None
         user_id = self._caller_identity()
@@ -2236,18 +2244,22 @@ class AdminAwareFastMCP(FastMCP):
             if refusal is not None:
                 return _refusal_result(refusal)
         with answer_fit.recording() as fits:
-            if entered_at is None:
-                result = await super().call_tool(name, arguments)
-            else:
-                token = read_batch.ENTERED_AT.set(entered_at)
-                try:
+            with answer_fit.attempt() as body:
+                if entered_at is None:
                     result = await super().call_tool(name, arguments)
-                finally:
-                    read_batch.ENTERED_AT.reset(token)
-        result = self._within_declared_size(name, result)
+                else:
+                    token = read_batch.ENTERED_AT.set(entered_at)
+                    try:
+                        result = await super().call_tool(name, arguments)
+                    finally:
+                        read_batch.ENTERED_AT.reset(token)
+            sent = self._within_declared_size(name, result)
+            if sent is result:
+                # The net let the body's answer through: what it cut or refused went out.
+                body.keep(sent)
         if fits:
             _log_fits(name, arguments, fits)
-        return result
+        return sent
 
     def _within_declared_size(self, name: str, result: Any) -> Any:
         """The last-resort net: a tool never sends more than it declared in ``tools/list``.

@@ -625,6 +625,44 @@ async def test_candidates_are_cut_from_the_end_in_document_order(monkeypatch):
     assert last["status"] == "section" and last["line_range"][0] == matches[-1].heading_line
 
 
+def _miss_on_a_deep_map() -> tuple[str, str, str]:
+    text = _deep_hebrew_map()
+    full = doc_sections.build_toc(md_parser.parse_document(text))
+    return text, full[7]["title"] + "ק", "toc_truncated"
+
+
+def _ambiguous_on_long_parents() -> tuple[str, str, str]:
+    parent = _distinct_cjk(2000)
+    text = "".join(f"# {parent} {i:02d}\n\n## K7. כפול {i:02d}\n\nגוף.\n\n" for i in range(48))
+    return text, "K7", "candidates_truncated"
+
+
+@pytest.mark.parametrize("case", [_miss_on_a_deep_map, _ambiguous_on_long_parents],
+                         ids=["section_not_found", "ambiguous_section"])
+async def test_a_small_tag_on_a_miss_whose_list_is_cut_anyway_answers_the_miss(monkeypatch, case):
+    """תגית אחת קטנה, וסירוב שהרשימה שלו נחתכת גם אחרי שהתגית ירדה — חוזר הסירוב עצמו.
+
+    ב-``section_not_found`` וב-``ambiguous_section`` התגיות נחתכות **ראשונות** (``refusal_cuts``
+    קודמות למפה ולמועמדים), ולכן ב-``file`` של התשובה כבר אין מה לוותר. ``_fit_with_file_meta``
+    מנסה שוב בלי התגית, הרשימה עדיין נחתכת, והשאלה האחרונה — האם המטא-דאטה גדולה משאר
+    התשובה (``_metadata_outweighs``) — נשאלה על ה-``file`` שכבר הותאם. עד התיקון היא חישבה
+    את השלבים מחדש עליו, קיבלה רשימה ריקה, ו-``[-1]`` זרק ``IndexError``: הכלי החזיר
+    ``ToolError`` גולמי על קובץ Markdown רגיל עם תגית אחת (ריוויו על #3492). עכשיו: מטא-דאטה
+    שכבר אינה בתשובה שוקלת אפס, והסירוב חוזר כמו שהוא — התגית ירדה ממנו עם הסימן שלה.
+
+    מוטציה שמפילה: להסיר את ``if not levels: return False`` ב-``_metadata_outweighs``.
+    """
+    text, asked, truncated_flag = case()
+    mcp = _build(monkeypatch, _Dbm(text, extra={"tags": ["x"]}))
+
+    out, sent = await _call_sent(mcp, file_name=_MD_NAME, section=asked)
+
+    assert out["error"] in ("section_not_found", "ambiguous_section")
+    assert sent <= answer_size.OUTPUT_BYTE_BUDGET
+    assert out[truncated_flag] is True, "הנחת המקרה: הרשימה נחתכת גם בלי התגית"
+    assert out["file"]["tags"] == [] and out["file"]["tags_truncated"] is True
+
+
 def _map_cut_before(tail: str) -> str:
     """קובץ שהמפה שלו נחתכת ב-``_TOC_MAX`` בדיוק לפני ``tail`` — מה שב-``tail`` אינו במפה."""
     return ("# ראשי\n\n"
@@ -2289,6 +2327,27 @@ def test_both_mode_docs_open_with_the_instruction_to_pin_the_version():
     page = (Path(__file__).resolve().parent.parent / "docs" / "mcp-server.rst").read_text(
         encoding="utf-8")
     assert "``file_id=file.id``" in page
+
+
+def test_the_toc_and_section_docs_say_when_the_file_metadata_is_given_up():
+    """התיאור שהסוכן קורא על ``toc`` ועל ``section`` אומר מה באמת קורה למטא-דאטה.
+
+    עד הריוויו השני על #3492 הוא אמר "a successful reply never cuts the file's metadata",
+    ומאז WARN-001 זה לא נכון: גם תשובה מוצלחת מוותרת על התגיות ואז על התיאור, כשהן לבדן
+    מה שעומד בינה לבין התקציב (``backend._fit_with_file_meta``). והוא לא אמר שסירוב מוריד
+    גם את התיאור (``description_bytes``), מאז #3460. הבדיקה על שמות השדות והכלי — מה
+    שהסוכן מחפש בתשובה — ולא על ניסוח.
+
+    נופלת על הקוד שלפני התיקון: המשפט הישן שם, ו-``description_bytes`` אינו.
+    """
+    from mcp_server import server as srv
+
+    for doc in (srv._FILE_TOC_DOC, srv._FILE_SECTION_DOC):
+        assert "never cuts the file's metadata" not in doc
+        for name in ("file.tags_truncated", "file.description_bytes",
+                     "codekeeper_update_file_description"):
+            assert name in doc, name
+        assert "successful" in doc and "refusal" in doc
 
 
 def test_the_paging_numbers_in_the_section_doc_come_from_the_constants(monkeypatch):

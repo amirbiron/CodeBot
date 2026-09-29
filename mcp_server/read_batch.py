@@ -469,8 +469,15 @@ def _run_group(
     ready: dict[int, tuple[dict[str, Any], int]],
     cut: set[int],
     per_item_max: int,
+    trials: dict[int, answer_fit.Attempt],
 ) -> None:
-    """קורא את הקבוצה ``key`` ועונה על כל הפריטים שלה, בסדר האינדקסים. המסמך משתחרר ביציאה."""
+    """קורא את הקבוצה ``key`` ועונה על כל הפריטים שלה, בסדר האינדקסים. המסמך משתחרר ביציאה.
+
+    כל תשובה של פריט נבנית ב-``answer_fit.attempt`` משלה, כי בזמן שהיא נבנית עוד לא ידוע אם
+    היא תצא: ``_entry`` יכול להחליף אותה ב-``item_too_large``, ו-``_keep`` יכול להעביר אותה ל-
+    ``unread``. הניסיון נשמר ב-``trials`` רק כשהתשובה נכנסה לפריט כמו שהיא, ו-:func:`read_batch`
+    מעביר אותו לפנקס של הקריאה רק כשהפריט נכנס ל-``entries``.
+    """
     repo, path = key[0], key[1]
     try:
         read, loaded = _load_group(backend, snapshot, plans, indices)
@@ -493,12 +500,16 @@ def _run_group(
         if _lower_bound(used, ready, j) >= OUTPUT_BYTE_BUDGET:
             cut.add(j)
             continue
-        # בביטוי אחד, בלי משתנה מקומי שמחזיק את התשובה: תשובה ש-``_keep`` אינו
-        # שומר משתחררת מיד, ולא נשארת בזיכרון עד שהאיבר הבא בלולאה נבנה לצידה.
-        _keep(ready, cut, used, j, *_entry(
-            j, plans[j], _item_result(plans[j], read, loaded, failed=failed, index=j, repo=repo, path=path),
-            per_item_max,
-        ))
+        with answer_fit.attempt() as trial:
+            result = _item_result(plans[j], read, loaded, failed=failed, index=j, repo=repo, path=path)
+        entry, cost = _entry(j, plans[j], result, per_item_max)
+        if entry["result"] is result:
+            # ``item_too_large`` במקומה — מה שנחתך או סורב בה לא יצא, ולכן אין מה לשמור.
+            trials[j] = trial
+        _keep(ready, cut, used, j, entry, cost)
+        # בלי להחזיק את התשובה אחרי ``_keep``: תשובה שהוא אינו שומר משתחררת כאן, ולא נשארת
+        # בזיכרון עד שהאיבר הבא בלולאה נבנה לצידה.
+        del result, entry
 
 
 def _item_result(
@@ -562,6 +573,7 @@ def read_batch(
     used = reserve
     ready: dict[int, tuple[dict[str, Any], int]] = {}
     cut: set[int] = set()
+    trials: dict[int, answer_fit.Attempt] = {}
     for index, plan in enumerate(plans):
         if plan.immediate is not None:
             entry, cost = _entry(index, plan, plan.immediate, per_item_max)
@@ -581,13 +593,17 @@ def read_batch(
             key = group_of[index]
             _run_group(
                 backend, snapshot, plans, key, groups[key],
-                used=used, ready=ready, cut=cut, per_item_max=per_item_max,
+                used=used, ready=ready, cut=cut, per_item_max=per_item_max, trials=trials,
             )
         if index in cut:
             stopped_at, reason = index, answer_size.BYTE_BUDGET_REASON
             break
         entry, cost = ready.pop(index)
         entries.append(entry)
+        trial = trials.pop(index, None)
+        if trial is not None:
+            # הפריט נכנס לתשובה: מה שנחתך או סורב בו עובר עכשיו לפנקס של הקריאה, ולא קודם.
+            trial.keep(entry)
         used += cost
 
     answer: dict[str, Any] = {"ok": True, "count": len(entries), "items": entries}

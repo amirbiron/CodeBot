@@ -480,16 +480,25 @@ def _file_meta_levels(doc: dict[str, Any]) -> list[tuple[dict[str, Any], str | N
     return levels
 
 
-def _metadata_outweighs(answer: dict[str, Any], levels: list[tuple[dict[str, Any], str | None]]) -> bool:
-    """האם המטא-דאטה שמותר לוותר עליה גדולה בתשובה **מכל שאר התשובה**.
+def _metadata_outweighs(answer: dict[str, Any]) -> bool:
+    """האם המטא-דאטה שמותר לוותר עליה, **כפי שהיא בתשובה**, גדולה מכל שאר התשובה.
 
     תשובה שנחתכה בתקציב ממלאת אותו, ולכן מה שהמטא-דאטה תופסת נלקח מהתוכן. כשהיא גדולה
     משאר התשובה כולה — התוכן שחזר קטן ממנה — התשובה היא בעיקר מטא-דאטה, והקריאה כמעט
     חסרת ערך: תיאור של 220,000 בתים השאיר בערך 36,000 לשורות. תיאור קצר רחוק מזה מאוד,
     ולכן קריאת המשך רגילה של קובץ גדול אינה משתנה. המדידה על התשובה עצמה (חסומה בתקציב):
-    המטא-דאטה של ``file`` שבה, מוחלפת בשלב האחרון של :func:`_file_meta_levels`.
+    ה-``file`` שבה, מוחלף בשלב האחרון של :func:`_file_meta_levels` **עליו**.
+
+    **ה-``file`` הזה כבר הותאם, ולא בהכרח נושא את המטא-דאטה של המסמך.** ב-``section_not_found``
+    וב-``ambiguous_section`` התגיות נחתכות ראשונות (``refusal_cuts``), וסירוב יכול להוריד גם את
+    התיאור — ואז אין בו שום שלב. מטא-דאטה שכבר אינה בתשובה שוקלת בה אפס, ולכן ``False``. עד
+    הריוויו השני על #3492 הפונקציה לקחה ``[-1]`` בלי לבדוק, וקובץ Markdown עם תגית אחת ומפה
+    גדולה החזיר ``IndexError`` גולמי במקום ``section_not_found``.
     """
-    stripped_file = _file_meta_levels(answer["file"])[-1][0]
+    levels = _file_meta_levels(answer["file"])
+    if not levels:
+        return False
+    stripped_file = levels[-1][0]
     whole = len(wire_json(answer))
     rest = len(wire_json(with_values(answer, {("file",): stripped_file})))
     return whole - rest > rest
@@ -528,7 +537,7 @@ def _fit_with_file_meta(
             alternative = build(level_doc, note)
         if not other.cut and not (alternative.get("ok") is False and alternative.get("error") in _SIZE_REFUSALS):
             return other.keep(alternative)  # (ב)
-    if refused or _metadata_outweighs(answer, levels):
+    if refused or _metadata_outweighs(answer):
         return other.keep(alternative)  # (ג)
     return first.keep(answer)
 

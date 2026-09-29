@@ -696,6 +696,58 @@ async def _costs(world: _World, items: list[dict[str, Any]]) -> list[int]:
     return [answer_size.list_item_cost(entry) for entry in answer["items"]]
 
 
+def _logged_fits(monkeypatch: Any) -> list[tuple[str, list[Any]]]:
+    """מה ששורת ``answer_size_fit`` הייתה מדווחת — שם הכלי והפנקס — בלי ללכוד לוג."""
+    logged: list[tuple[str, list[Any]]] = []
+    monkeypatch.setattr(srv, "_log_fits", lambda name, arguments, fits: logged.append((name, list(fits))))
+    return logged
+
+
+@requires_git
+async def test_a_refusal_that_ends_up_unread_is_not_in_the_ledger(tmp_path, monkeypatch):
+    """פריט שנבנה, סורב בגודל — ואז עבר ל-``unread`` כי מה שלפניו מילא את התקציב.
+
+    הסירוב של הפריט (``answer_too_large`` של קריאה מלאה) נבנה ב-``fit_file_answer``, ו-``too_large``
+    רושם. אחר כך ``_keep`` מוצא שהוא אינו נכנס אחרי הפריט שלפניו, והלקוח מקבל אותו ב-``unread``
+    בלבד. עד הריוויו השני על #3492 הרישום נשאר, ושורת ``answer_size_fit`` דיווחה סירוב שלא
+    יצא. עכשיו כל פריט נבנה ב-``answer_fit.attempt`` משלו, שעובר לפנקס רק כשהפריט נכנס
+    לתשובה: בפנקס רק החיתוך של הבאץ' עצמו (``unread_reason``).
+
+    מוטציה שמפילה: ``trial.keep`` לכל פריט שנבנה, ולא רק למי שנכנס ל-``entries``.
+    """
+    world = _world(tmp_path, monkeypatch, extra={"big.md": "b" * 300_000})
+    items = [{"kind": "file", "repo": _MD, "path": "CRITICAL-PATTERNS.md"},
+             {"kind": "file", "repo": _MD, "path": "big.md"}]
+    costs = await _costs(world, items)
+    logged = _logged_fits(monkeypatch)
+    monkeypatch.setattr(read_batch, "OUTPUT_BYTE_BUDGET", read_batch._reserve(len(items)) + sum(costs) - 1)
+
+    _, answer = await _batch(world.mcp, items)
+
+    assert answer["count"] == 1 and answer["unread"] == [1], "הנחת המקרה: הסירוב עבר ל-unread"
+    assert logged == [(read_batch.TOOL_NAME, [("byte_budget", {"returned": 1, "of": 2})])]
+
+
+@requires_git
+async def test_a_cut_range_replaced_by_item_too_large_is_not_in_the_ledger(tmp_path, monkeypatch):
+    """טווח שנחתך בתקציב של הכלי הבודד, ואז הוחלף ב-``item_too_large`` כי הוא גדול מפריט.
+
+    ``fit_file_answer`` חותך את הטווח אל ``OUTPUT_BYTE_BUDGET`` כמו הכלי הבודד, ו-``cut`` רושם.
+    אבל פריט בבאץ' מוגבל ל-``OUTPUT_BYTE_BUDGET`` פחות המעטפת, ולכן ``_entry`` מחליף את התשובה
+    כולה ב-``item_too_large`` — והלקוח לא ראה שום טווח חתוך. בפנקס אין כלום, ושום שורה לא נכתבת.
+
+    מוטציה שמפילה: ``trial.keep`` גם כש-``_entry`` החליף את התשובה.
+    """
+    world = _world(tmp_path, monkeypatch, extra={"lines.md": ("a" * 100 + "\n") * 3_000})
+    logged = _logged_fits(monkeypatch)
+
+    _, answer = await _batch(world.mcp, [{"kind": "file", "repo": _MD, "path": "lines.md",
+                                          "lines": [1, 3_000]}])
+
+    assert answer["items"][0]["result"]["error"] == "item_too_large", "הנחת המקרה"
+    assert logged == []
+
+
 @requires_git
 async def test_an_answer_that_fits_exactly_is_whole_and_one_byte_less_leaves_the_last_item_unread(
     tmp_path, monkeypatch

@@ -91,6 +91,122 @@ def initialize_pillow_codecs():
     Image.init()
 
 
+# ── הפנקס של תקרת התשובה: נרשם רק מה שהלקוח קיבל ────────────────────────
+
+
+def _sent_answers(result):
+    """התשובות כפי שנשלחו — בלוקי הטקסט של JSON, ו-``structuredContent`` כשאין בלוק כזה."""
+    content, structured = result, None
+    if isinstance(result, tuple):
+        content, structured = result[0], result[1]
+    elif hasattr(result, "content"):  # ``CallToolResult``
+        content, structured = result.content, getattr(result, "structuredContent", None)
+    elif isinstance(result, dict):
+        return [result]
+    answers = []
+    for block in content or ():
+        try:
+            answers.append(json.loads(getattr(block, "text", "")))
+        except ValueError:
+            continue  # בלוק שאינו JSON אינו תשובה של הכלים האלה, ואין בו מה לספור
+    if not answers and isinstance(structured, dict):
+        answers.append(structured)
+    return answers
+
+
+def _answer_size_markers(node, too_large, counts):
+    """``answer_too_large`` (``bytes``, ``max``) שבתשובה, ומספר סימני החיתוך בתקציב שבה."""
+    if isinstance(node, dict):
+        if node.get("error") == "answer_too_large":
+            too_large.append((node.get("bytes"), node.get("max")))
+        for key, value in node.items():
+            if key.endswith("_truncated") and value is True:
+                counts["flags"] += 1
+            _answer_size_markers(value, too_large, counts)
+    elif isinstance(node, list):
+        for value in node:
+            _answer_size_markers(value, too_large, counts)
+    elif node == "byte_budget":
+        counts["reasons"] += 1
+
+
+def _check_fits_against_sent(name, fits, result):
+    """האינווריאנט של ``answer_fit``: הפנקס של הקריאה מתאר את התשובה שיצאה — ולא אחרת.
+
+    * כל ``answer_too_large`` בפנקס הוא סירוב שנשלח, באותם ``bytes`` ו-``max`` — וכל סירוב
+      כזה שנשלח נמצא בפנקס. אחד לאחד.
+    * כל חיתוך ``byte_budget`` בפנקס נושא סימן בתשובה: ``"byte_budget"`` כערך
+      (``truncation_reason``, ``unread_reason``) או דגל ``*_truncated`` דלוק — ``fit_lists``
+      מסמן ברשימה עצמה. וכל ``"byte_budget"`` שנשלח נמצא בפנקס. דגלים אינם נספרים בכיוון
+      הזה: חלקם נדלקים מתקרה במספר פריטים, או מ-``fit_refusal``, שאינם נרשמים.
+    """
+    too_large, counts = [], {"flags": 0, "reasons": 0}
+    for answer in _sent_answers(result):
+        _answer_size_markers(answer, too_large, counts)
+    recorded = sorted(((numbers.get("bytes"), numbers.get("max")) for code, numbers in fits
+                       if code == "answer_too_large"), key=repr)
+    assert recorded == sorted(too_large, key=repr), (
+        f"{name}: the ledger's answer_too_large {recorded} is not what was sent {too_large}")
+    cuts = sum(1 for code, _ in fits if code == "byte_budget")
+    assert counts["reasons"] <= cuts <= counts["reasons"] + counts["flags"], (
+        f"{name}: {cuts} byte_budget cut(s) in the ledger, but the answer that went out carries "
+        f"{counts['reasons']} byte_budget reason(s) and {counts['flags']} *_truncated flag(s)")
+
+
+@pytest.fixture(autouse=True)
+def answer_fits_match_what_was_sent():
+    """כל ``call_tool`` בטסטים נבדק מול הכלל של ``answer_fit.attempt``: נרשם רק מה שיצא.
+
+    הפנקס של קריאה (``answer_fit.recording``) הוא מה ששורת ``answer_size_fit`` מדווחת, והכלל
+    כתוב ליד ``answer_fit.attempt``: מה שנחתך או סורב בתשובה שאחר כך נזרקה — ניסיון של
+    ``_fit_with_file_meta``, פריט באץ' שעבר ל-``unread`` או הוחלף ב-``item_too_large``, תשובה
+    שהרשת החליפה — אינו נכנס אליו. מסלול חדש שכותב לפנקס לפני שידוע אם התשובה יוצאת נופל
+    כאן, בכל טסט שעובר בו, ולא רק בטסט שנכתב עליו. פעיל רק כששרת ה-MCP כבר מיובא — שאר
+    הטסטים אינם נוגעים בו.
+
+    **``MonkeyPatch`` פרטי, ולא הפיקסצ'ר ``monkeypatch``.** פיקסצ'ר אוטומטי שמבקש את
+    ``monkeypatch`` יוצר אותו לפני כל פיקסצ'ר אוטומטי של מודול, ולכן גם משחזר אחריהם — והסדר
+    הזה משתנה לכל הטסטים. ``test_measure_md_parse_cost_script.py`` נפל על זה: ``_cpu_mask_restored``
+    קרא ל-``os.sched_setaffinity`` לפני שה-``monkeypatch`` של הטסט החזיר אותה.
+    """
+    srv = sys.modules.get("mcp_server.server")
+    if srv is None:
+        yield
+        return
+    import contextlib
+    import contextvars
+
+    from mcp_server import answer_fit
+
+    ledgers = contextvars.ContextVar("test_answer_fit_ledgers", default=None)
+    real_recording = answer_fit.recording
+    real_call_tool = srv.AdminAwareFastMCP.call_tool
+
+    @contextlib.contextmanager
+    def watched_recording():
+        with real_recording() as fits:
+            holder = ledgers.get()
+            if holder is not None:
+                holder.append(fits)
+            yield fits
+
+    async def checked_call_tool(self, name, arguments, *args, **kwargs):
+        holder = []
+        token = ledgers.set(holder)
+        try:
+            result = await real_call_tool(self, name, arguments, *args, **kwargs)
+        finally:
+            ledgers.reset(token)
+        for fits in holder:
+            _check_fits_against_sent(name, fits, result)
+        return result
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(answer_fit, "recording", watched_recording)
+        patch.setattr(srv.AdminAwareFastMCP, "call_tool", checked_call_tool)
+        yield
+
+
 # ── מונגו ייעודי לבדיקות שמריצות את הראוטים באמת ─────────────────────────
 
 

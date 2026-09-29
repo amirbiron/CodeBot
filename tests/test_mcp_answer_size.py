@@ -275,6 +275,33 @@ async def test_a_tool_registered_past_add_tool_is_still_held_to_its_meta(monkeyp
     assert len(net_log()) == 1
 
 
+async def test_when_the_net_replaces_an_answer_the_ledger_has_the_net_refusal_only(monkeypatch):
+    """הכלי חתך משהו, והרשת זרקה את כל התשובה שלו — בפנקס רק הסירוב של הרשת.
+
+    הפנקס של קריאה הוא מה ששורת ``answer_size_fit`` מדווחת, והכלל (ליד ``answer_fit.attempt``)
+    הוא שנרשם רק מה שהלקוח קיבל. עד הריוויו השני על #3492 הגוף רשם לפנקס ישירות, והרשת רצה
+    אחרי שהוא נסגר: השורה דיווחה את החיתוך של תשובה שנזרקה, ואת הסירוב שבאמת יצא — לא. עכשיו
+    הגוף רץ ב-``attempt`` שעובר לפנקס רק כשהרשת לא החליפה את התשובה, והסירוב שלה נרשם.
+
+    מוטציות שמפילות: ``body.keep`` גם כשהרשת החליפה; הרשת מחוץ לפנקס.
+    """
+    mcp = _toy_server(monkeypatch)
+    logged: list[tuple[str, list[Any]]] = []
+    monkeypatch.setattr(srv, "_log_fits", lambda name, arguments, fits: logged.append((name, list(fits))))
+    body = {"body": "x" * 500}
+
+    @mcp.tool(name="toy_cut_then_caught", meta={answer_size.DECLARED_SIZE_KEY: 100})
+    def toy_cut_then_caught() -> dict:
+        answer_fit.cut(returned=1, of=2)
+        return body
+
+    answer, _ = _sent(await mcp.call_tool("toy_cut_then_caught", {}))
+
+    assert answer["error"] == "answer_too_large" and answer["max"] == 100
+    assert logged == [("toy_cut_then_caught",
+                       [("answer_too_large", {"bytes": len(answer_size.wire_json(body)), "max": 100})])]
+
+
 @requires_git
 async def test_the_net_holds_the_batch_branch_too(tmp_path, monkeypatch, net_log):
     """``codekeeper_read_batch`` עובר בענף אחר של ``call_tool`` (``ENTERED_AT``) — והרשת גם שם.
