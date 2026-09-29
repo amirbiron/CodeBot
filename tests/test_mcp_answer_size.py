@@ -314,6 +314,44 @@ def test_every_block_of_what_is_sent_is_counted():
     assert srv._sent_bytes([object()]) is None
 
 
+async def test_each_shape_is_counted_the_way_the_handler_actually_sends_it():
+    """``_sent_bytes`` מודד כל צורה כפי שהיא **מגיעה ללקוח** — דרך session אמיתי, ולא לפי נוסחה.
+
+    שתי הצורות מסודרות בשני סריאלייזרים שונים, וזה העיקר כאן:
+
+    * ``dict`` חשוף — ה-handler של ``tools/call`` בונה את הטקסט ב-``json.dumps(results,
+      indent=2)`` (``mcp/server/lowlevel/server.py``, mcp 1.28.1), כלומר ``ensure_ascii``: תו
+      עברי הוא ``\\uXXXX``, שישה בתים ולא שניים. מדידה ב-``wire_json`` שם הייתה מראה לרשת
+      פחות משליש ממה שנשלח (הצעה כזו עלתה בריוויו על PR #3492).
+    * כלי של FastMCP — ``dict`` שהוא מחזיר עובר ``_convert_to_content``, כלומר ``wire_json``,
+      ומגיע לרשת כבלוק טקסט שנמדד בבתים שלו.
+
+    מוטציות שמפילות: ``wire_json`` במקום ``json.dumps`` בענף ה-``dict``; התעלמות מ-
+    ``structuredContent``.
+    """
+    from mcp.server.lowlevel import Server
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    payload = {"שדה": "תוכן עברי " * 50, "n": 1}
+    server = Server("bare-dict")
+
+    @server.list_tools()
+    async def list_tools():
+        return [mcp_types.Tool(name="bare", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name, arguments):
+        return payload
+
+    async with create_connected_server_and_client_session(server) as session:
+        result = await session.call_tool("bare", {})
+    (block,) = result.content
+    arrived = len(block.text.encode("utf-8")) + len(answer_size.wire_json(result.structuredContent))
+    assert srv._sent_bytes(payload) == arrived
+    assert len(answer_size.wire_json(payload)) * 2 < len(block.text.encode("utf-8")), (
+        "הנחת המקרה: בעברית שני הסריאלייזרים רחוקים זה מזה — אחרת הטסט אינו מבחין ביניהם")
+
+
 def test_what_cannot_be_measured_is_refused(monkeypatch, net_log):
     """fail-closed: כלי שמצהיר ומחזיר צורה שאי אפשר למדוד — סירוב, ולא מעבר בשקט."""
     mcp = _toy_server(monkeypatch)
