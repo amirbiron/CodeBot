@@ -1927,6 +1927,20 @@ check('RTL: שפות שאינן שפות אינן חוסמות', () => {
   });
 });
 
+check('RTL: בלוק מארקדאון מתהפך כמו בלוק בלי שפה', () => {
+  // ``markdown`` הוא שם שיש לו דקדוק הדגשה, ובכל זאת אינו מצהיר על קוד:
+  // בלוק כזה הוא טקסט לקריאה. ``md`` איתו, כי בריפו שניהם אותה שפה.
+  eq(fenceIsRtl('```markdown\n' + HEB + '\n```'), true, 'markdown אינו חוסם');
+  eq(fenceIsRtl('```md\n' + HEB + '\n```'), true, 'md אינו חוסם');
+  // והתוכן עדיין מכריע — מארקדאון באנגלית נשאר משמאל.
+  eq(fenceIsRtl('```markdown\n# Title\nsome english text\n```'), false, 'מארקדאון באנגלית');
+  // הגבול נשמר גם כאן: ``mdx`` הוא שפה אחרת ולא ``md``, ו-``Markdown``
+  // נחשב שם שפה, בדיוק כמו ``Text``.
+  eq(fenceIsRtl('```mdx\n' + HEB + '\n```'), false, 'mdx הוא שפה');
+  eq(fenceIsRtl('```markdowny\n' + HEB + '\n```'), false, 'markdowny הוא שפה');
+  eq(fenceIsRtl('```Markdown\n' + HEB + '\n```'), false, 'Markdown נחשב שפה');
+});
+
 check('RTL: שם שמתחיל בשם פטור אינו פטור בעצמו', () => {
   // ``\b`` בכל איבר של הרשימה. בלעדיו ``texture`` היה נבלע ב-``text``
   // ומתהפך — בדיוק מה שבניית הרג'קס מחדש עלולה לאבד בשקט.
@@ -1956,6 +1970,7 @@ check('RTL: שתי הצורות של "האם יש שפה" עונות אותה ת
   const R = sandbox.window.RtlCode;
   ['plaintext', 'text', 'nohighlight', 'none', 'txt', 'python', 'js',
    'texture', 'Text', 'TXT', 'textual',
+   'markdown', 'md', 'Markdown', 'MD', 'mdx', 'markdowny', 'markdown,', 'md.', 'md-x',
    // שם פטור ואחריו תו שאינו אות — כאן נפתח הפער
    'text,', 'text.', 'text-', 'text;', 'text)', 'text.js',
    'plaintext:', 'txt,', 'none.', 'nohighlight-x',
@@ -1984,6 +1999,8 @@ check('RTL: תשובות הצורה עם ה-class נעולות — תצוגת ה
    ['language-Text', true], ['language-!!!', true], ['language--x', true],
    ['language-text', false], ['language-plaintext', false], ['language-txt', false],
    ['language-none', false], ['language-nohighlight', false],
+   ['language-markdown', false], ['language-md', false], ['language-markdown,', false],
+   ['language-mdx', true], ['language-Markdown', true], ['language-markdowny', true],
    ['language-text,', false], ['language-text.js', false], ['language-none.', false],
    ['language-', false], ['', false], ['hljs', false]].forEach(([cls, want]) => {
     eq(R.hasExplicitLanguage({ className: cls }), want, 'class ' + JSON.stringify(cls));
@@ -2824,6 +2841,24 @@ check('details: הפתק מספק ערך לכל טוקן שהרכיב המשות
   const bgDecl = /--summary-bg\s*:\s*([^;]+);/.exec(sticky);
   eq(!!bgDecl, true, 'יש הצהרה ל---summary-bg');
   eq(/gradient/i.test(bgDecl[1]), false, 'הרקע בפתק שטוח, לא גרדיאנט');
+});
+
+check('תיעוד: עמוד המשתמש מונה בדיוק את השמות שאינם חוסמים יישור לימין', () => {
+  // אותו נימוק כמו בבדיקה שאחרי זו על סוגי האלרט: הרשימה בעמוד המשתמש
+  // אינה נגזרת מהקוד בזמן ריצה, ולכן רק כאן היא יכולה להיסחף — שם שנוסף
+  // ל-``PLAIN_LANGUAGE_NAMES`` ולא לעמוד, או שם שנשאר בעמוד אחרי שהוסר.
+  const doc = fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'user', 'sticky_notes.rst'), 'utf8');
+  const line = doc.split('\n').find((l) => l.startsWith('**בלוק בעברית מיושר לימין.**'));
+  eq(!!line, true, 'נמצאה פסקת היישור לימין בעמוד המשתמש');
+  // **רק הקטע של הרשימה.** באותה פסקה מופיע גם ``python`` כדוגמה לשם
+  // שחוסם, וחילוץ מכל השורה היה מכניס אותו לרשימה.
+  const m = /שמות שאינם מצהירים על קוד — (.*?) — נחשבים/.exec(line);
+  eq(!!m, true, 'נמצא קטע הרשימה בפסקה');
+  const listed = (m[1].match(/``([^`]+)``/g) || []).map((x) => x.slice(2, -2));
+  eq(listed.slice().sort().join(','),
+     Array.from(sandbox.window.RtlCode.plainLanguageNames).sort().join(','),
+     'הרשימה בתיעוד זהה לרשימה בקוד');
 });
 
 check('תיעוד: עמוד המשתמש מונה בדיוק את הסוגים שקיימים במפה', () => {
