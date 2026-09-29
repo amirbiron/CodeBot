@@ -171,12 +171,16 @@ def build_instructions(
         "permission.\n"
         "\n"
         "Files\n"
-        "- Find: codekeeper_search_code matches whole words only (`handof` misses "
-        "`handoff`); codekeeper_list_files lists all.\n"
+        # בלי הדוגמה ``handof`` / ``handoff`` שישבה כאן: היא הועתקה מתיאור הכלי, ששם היא
+        # נשארת, והמקום שהתפנה הוא מה שהכניס את ``codekeeper_multi_edit_file`` לתקרה
+        # (``CLIENT_INSTRUCTIONS_MAX_CHARS``). הכלל עצמו — מילים שלמות — נשאר כאן.
+        "- Find: codekeeper_search_code matches whole words only; codekeeper_list_files "
+        "lists all.\n"
         '- Read: codekeeper_get_file, whole only when needed; else lines=[a, b], '
         'query="..." (substring) or, on Markdown, toc=true then section="...". '
         "Pass file_id between steps (same version).\n"
         "- Write: codekeeper_save_file for new names only; codekeeper_edit_file / "
+        "codekeeper_multi_edit_file (several edits, one version) / "
         "codekeeper_append_file keep versions (codekeeper_list_versions); stale "
         "description: codekeeper_update_file_description.\n"
         "- Collections: codekeeper_list_collections, codekeeper_get_collection, "
@@ -565,6 +569,74 @@ _WRITE_SHA256_DOC = (
     "then carries no hash). That covers only tool-to-storage; comparing the hash "
     "with your own is the only check of what reached the tool."
 )
+
+# השער האופטימי של כלי העריכה (``expected_content_sha256``) — **משפט אחד בתיאור הכלי
+# ותיאור אחד לפרמטר, משותפים ל-``codekeeper_edit_file``, ל-``codekeeper_append_file``
+# ול-``codekeeper_multi_edit_file``**, מאותו נימוק שמאחורי ``_WRITE_SHA256_DOC``: שלושה
+# נוסחים לאותו שער היו נסחפים זה מזה. המשפט בתיאור הכלי הוא הגילוי — בלעדיו סוכן לא
+# יפתח את סכמת הפרמטרים כדי למצוא אותו — והפירוט בתיאור הפרמטר, שהמשפט הראשון שלו
+# נושא את הכלל כי לקוח שמקצר תיאור פרמטר לכ-120 תווים רואה רק את ההתחלה. המנגנון
+# ומה הוא אינו סוגר — מעל ``_invalid_expected_sha256`` ב-``handlers.py``.
+_EXPECTED_SHA256_TOOL_DOC = (
+    " Pass expected_content_sha256 (the file.content_sha256 you read) to refuse with "
+    "conflict, writing nothing, if the file changed since."
+)
+
+_EXPECTED_SHA256_PARAM_DOC = (
+    "The file.content_sha256 you read last; if the file changed since, the call is "
+    "refused with conflict and nothing is written. codekeeper_get_file returns it in "
+    "every mode (lines=[1, 1] included). It catches any write to the content, including "
+    "one that added no version. conflict carries the current file (version, "
+    "content_sha256): re-read, rebuild the edit on the current content, and send it again. "
+    "Writes through this server run one at a time, so none of them can land between the "
+    "check and the save; a write from the web app or the bot still can. 64 hex digits, "
+    "either case; anything else is refused as invalid_expected_content_sha256. Omitted: no "
+    "check."
+)
+
+
+def _build_multi_edit_docs() -> tuple[str, str]:
+    """התיאור של ``codekeeper_multi_edit_file`` ושל הפרמטר ``edits``, בסדר הזה.
+
+    **בתיאור הכלי רק מה שסוכן חייב לדעת לפני שהוא בוחר בו** — שזו כתיבה אחת
+    במקום כמה, בסדר, כולם או כלום, ומה נספר בתשובה. הפירוט — הקודים, שני
+    מוני המופעים, סירובי המבנה והתקרה — ב-``edits``, מאותו נימוק שמעל
+    ``_OUTLINE_PARAM_DOC``. והמשפט הראשון של ``edits`` נושא את הכלל כולו, כי לקוח
+    שמקצר תיאור פרמטר לכ-120 תווים רואה רק אותו. התקרה נשתלת מ-
+    ``handlers.MAX_EDIT_PAIRS`` ואינה מוקלדת (``prose-restates-code-fact``).
+    """
+    description = (
+        "Apply several exact find-and-replace edits (old_string -> new_string) to ONE "
+        "existing file and save them as ONE new non-destructive version, instead of one "
+        "codekeeper_edit_file call and one version per edit. The edits run in order, each "
+        "on the result of the ones before it, all or nothing: an edit that does not apply "
+        "refuses the whole call with its index, and nothing is written. edits_applied "
+        "counts edits; replacements counts the replacements made (a replace_all edit that "
+        "hit seven places counts seven). The edits parameter has the details."
+        + _EXPECTED_SHA256_TOOL_DOC
+        + " Requires write permission."
+        + _WRITE_SHA256_DOC
+    )
+    edits_doc = (
+        "Edits applied in order, each to the result of the one before, all or nothing, "
+        "saved as one version. Each is {old_string, new_string, replace_all?}, exactly as "
+        "in codekeeper_edit_file. An edit that does not apply refuses the whole call with "
+        "the code codekeeper_edit_file gives (no_match, ambiguous_match, empty_old_string, "
+        "old_and_new_identical, or code_too_large when the text would outgrow the file "
+        "size limit, with max) plus index, its 0-based position; nothing is written. "
+        "no_match and ambiguous_match also carry occurrences (in the text after the "
+        "earlier edits) and occurrences_in_stored_version (in the file as stored): when "
+        "they differ, an earlier edit changed what this one looks for. A malformed edit (an "
+        "unknown key, a missing new_string, a value of the wrong type, a replace_all that "
+        "is not a JSON true or false) is invalid_edit with index and problems, each with "
+        "loc = [index, field]; values are never echoed. An empty list is missing_edits; "
+        f"more than {handlers.MAX_EDIT_PAIRS} edits is too_many_edits with max, refused "
+        "and not cut."
+    )
+    return description, edits_doc
+
+
+_MULTI_EDIT_DESCRIPTION, _EDITS_PARAM_DOC = _build_multi_edit_docs()
 
 
 # תיאור הפרמטר ``query`` של ``codekeeper_get_file``.
@@ -2582,8 +2654,10 @@ def build_mcp(
             "Edit an existing file by exact find-and-replace (old_string -> new_string) "
             "without resending the whole file; saved as a new non-destructive version. "
             "old_string must match exactly, whitespace included; if it occurs more than "
-            "once, pass a longer unique snippet or set replace_all=true. "
-            "Requires write permission."
+            "once, pass a longer unique snippet or set replace_all=true. For several "
+            "places in one file, codekeeper_multi_edit_file saves them as one version."
+            + _EXPECTED_SHA256_TOOL_DOC
+            + " Requires write permission."
             + _WRITE_SHA256_DOC
         ),
         annotations=_WRITE_TOOL,
@@ -2594,6 +2668,9 @@ def build_mcp(
         old_string: str,
         new_string: str,
         replace_all: bool = False,
+        expected_content_sha256: Annotated[
+            str | None, Field(description=_EXPECTED_SHA256_PARAM_DOC)
+        ] = None,
     ) -> dict:
         require_write(ctx)  # reject a read-only token before touching anything
         return handlers.edit_file(
@@ -2603,6 +2680,49 @@ def build_mcp(
             old_string=old_string,
             new_string=new_string,
             replace_all=replace_all,
+            expected_content_sha256=expected_content_sha256,
+        )
+
+    @mcp.tool(
+        name="codekeeper_multi_edit_file",
+        description=_MULTI_EDIT_DESCRIPTION,
+        # כלי כתיבה: ``_WRITE_TOOL`` הוא מה ש-``_declares_write`` קורא, ולכן הגוף רץ
+        # בתור הכתיבה של העובד היחיד — וזה גם מה שהופך את ``expected_content_sha256``
+        # לאטומי מול כותבי MCP אחרים.
+        annotations=_WRITE_TOOL,
+    )
+    def multi_edit_file(
+        ctx: Context,
+        file_name: str,
+        edits: Annotated[
+            list[Any],
+            Field(
+                description=_EDITS_PARAM_DOC,
+                # **``list[Any]`` ולא ``list[EditPair]``, כמו ``items`` של
+                # ``codekeeper_read_batch``.** ה-SDK מאמת את כל הארגומנטים לפני שהגוף
+                # רץ, ומכשיל את הקריאה ב-``ToolError`` שנושא את ``str()`` של שגיאת
+                # pydantic — כולל ``input_value``, כלומר תוכן הזוג, אל
+                # ``$mcp_error_message`` — בלי ``index``. כאן ה-SDK בודק רק שזו רשימה,
+                # והגוף מאמת כל זוג ב-``handlers.EditPair`` ועונה ``invalid_edit``.
+                # הסכימה שהלקוח רואה נגזרת מאותו מודל. ובלי ``str`` ב-annotation,
+                # ``_RawStringMetadata`` משאיר את המפתח לפענוח של ה-SDK, ורשימה שנשלחה
+                # כמחרוזת JSON (Claude Desktop) עדיין נהיית רשימה.
+                json_schema_extra={"items": handlers.EDIT_PAIR_JSON_SCHEMA},
+            ),
+        ],
+        expected_content_sha256: Annotated[
+            str | None, Field(description=_EXPECTED_SHA256_PARAM_DOC)
+        ] = None,
+    ) -> dict:
+        # ``def`` ולא ``async def``, בכוונה: כלי כתיבה אסינכרוני נופל ברישום
+        # (``_offload_to_thread``), כי הוא היה עוקף את תור הכתיבה.
+        require_write(ctx)  # reject a read-only token before touching anything
+        return handlers.multi_edit_file(
+            backend,
+            current_user_id(ctx),
+            file_name=file_name,
+            edits=edits,
+            expected_content_sha256=expected_content_sha256,
         )
 
     @mcp.tool(
@@ -2610,15 +2730,28 @@ def build_mcp(
         description=(
             "Append text to the end of an existing file without resending it (a newline "
             "separator is inserted first when the file doesn't end with one); saved as "
-            "a new non-destructive version. Requires write permission."
+            "a new non-destructive version."
+            + _EXPECTED_SHA256_TOOL_DOC
+            + " Requires write permission."
             + _WRITE_SHA256_DOC
         ),
         annotations=_WRITE_TOOL,
     )
-    def append_file(ctx: Context, file_name: str, content: str) -> dict:
+    def append_file(
+        ctx: Context,
+        file_name: str,
+        content: str,
+        expected_content_sha256: Annotated[
+            str | None, Field(description=_EXPECTED_SHA256_PARAM_DOC)
+        ] = None,
+    ) -> dict:
         require_write(ctx)  # reject a read-only token before touching anything
         return handlers.append_file(
-            backend, current_user_id(ctx), file_name=file_name, content=content
+            backend,
+            current_user_id(ctx),
+            file_name=file_name,
+            content=content,
+            expected_content_sha256=expected_content_sha256,
         )
 
     @mcp.tool(
