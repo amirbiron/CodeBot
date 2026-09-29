@@ -344,8 +344,12 @@ def test_a_malformed_pair_is_invalid_edit_with_its_index_and_without_its_value(m
     הזוג הפגום יושב במקום 3, אחרי שלושה תקינים: הוולידציה המבנית עוברת על כל הרשימה
     לפני שזוג ראשון מוחל, ולכן הסירוב מצביע עליו מיד ושום דבר אינו נכתב.
 
-    **המוטציה שחייבת להפיל אותו — ``include_input=True`` ב-``validation_problems``:** אז
-    ה-``problems`` נושא את הערך שנשלח, וה-``SECRET`` מופיע בתשובה.
+    **המוטציות שחייבות להפיל אותו — העברת הרשומות של pydantic כמו שהן, עם הערך**
+    (``{**err}`` מ-``exc.errors()`` בלי ``include_input=False``), **או ``str(exc)``
+    בתשובה**: בשתיהן ה-``SECRET`` מופיע. ``include_input=True`` לבדו אינו מפיל אותו,
+    ובצדק — ``validation_problems`` מעתיק רק ``loc`` ו-``msg`` (נמדד). ובמקרים של
+    ``replace_all`` הערך שנכשל הוא ``"true"`` או ``1``, לא ``SECRET``, ולכן שם הבדיקה
+    היא רק שהערך של שדה אחר אינו נגרר לתשובה.
     """
     _seed(mcp, "a\nb\nc\n")
     before = _snapshot(store)
