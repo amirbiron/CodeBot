@@ -329,6 +329,25 @@ def _allowed_docs_repos() -> list[str]:
     return repos or [DEFAULT_DOCS_REPO]
 
 
+def served_docs_repos() -> list[str]:
+    """הריפואים ש-``codekeeper_docs_get_section`` מגיש בפועל, בסדר של ``MCP_DOCS_REPO``.
+
+    **שני השערים של הכלי, ולא אחד מהם:** ריפו חייב להיות גם מותר בסביבה
+    (:func:`_allowed_docs_repos`) וגם מוכר ל-:data:`DOCS_PATH_POLICY` — ריפו
+    שמותר ואין לו מדיניות נדחה ב-``repo_not_configured`` (:func:`resolve_docs_target`),
+    ולכן אינו "מוגש". הצרכן הוא בלוק ה-``instructions`` של השרת
+    (``server.build_instructions``), שמונה את הריפואים האלה בשמם; רשימה שהייתה
+    נגזרת מהסביבה בלבד הייתה מבטיחה לסוכן ריפו שהכלי מסרב לו.
+
+    הסביבה נקראת בכל קריאה, כמו בכלי עצמו. כפילות ברשימה נספרת פעם אחת.
+    """
+    served: list[str] = []
+    for repo in _allowed_docs_repos():
+        if repo in DOCS_PATH_POLICY and repo not in served:
+            served.append(repo)
+    return served
+
+
 def _resolve_docs_repo(repo: str | None) -> str | None:
     """ברירת מחדל = הריפו הראשון ב-allowlist; repo מפורש מותר רק אם ב-allowlist (אחרת None).
 

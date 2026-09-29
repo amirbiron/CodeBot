@@ -366,6 +366,13 @@ def _mode_requested(mode: ReadMode, arguments: dict[str, Any]) -> bool:
     return _flag_requested(value) if mode.flag else value is not None
 
 
+#: שם הכלי הווירטואלי של ``report_missing``. **שלנו, ומועבר ל-SDK במפורש**
+#: (``missing_capability_tool_name``) — ברירת המחדל של ``posthog.mcp`` היא אותו שם
+#: (``GET_MORE_TOOLS_NAME`` ב-``posthog/mcp/tools.py``, ``posthog 7.45.3``), אבל בלוק
+#: ה-``instructions`` נוקב בשם הזה, ושם שהבלוק מקליד בזמן שה-SDK מחליט עליו הוא
+#: עותק שני שנסחף בשקט (``prose-restates-code-fact``).
+MISSING_CAPABILITY_TOOL_NAME = "get_more_tools"
+
 _TOOL_CALL_METHOD = "tools/call"
 _MCP_PROPERTY_PREFIX = "$mcp_"
 _EXCEPTION_LIST_KEY = "$exception_list"
@@ -650,8 +657,38 @@ def _report_missing_configuration() -> None:
     logger.warning(message)
 
 
-def instrument_mcp_server(server: Any) -> None:
+def _list_tools_handler(server: Any) -> Any:
+    """The low-level ``tools/list`` handler of a FastMCP server, or ``None`` when it has none.
+
+    ``request_handlers`` is the public handler table of the low-level server in
+    ``mcp`` 1.x (``mcp/server/lowlevel/server.py``), keyed by request class;
+    ``FastMCP`` keeps that server on ``_mcp_server`` — the same seam
+    ``posthog.mcp`` wraps (``_wrap_list_tools_handler`` in
+    ``posthog/mcp/_instrument_fastmcp.py``, ``posthog 7.45.3``). ``None`` means the
+    question cannot be answered, and :func:`instrument_mcp_server` then reports
+    the virtual tool as absent — fail-closed, because a block that names a tool
+    the server does not list is the failure being avoided.
+    """
+    from mcp.types import ListToolsRequest
+
+    handlers = getattr(getattr(server, "_mcp_server", None), "request_handlers", None)
+    if not isinstance(handlers, dict):
+        return None
+    return handlers.get(ListToolsRequest)
+
+
+def instrument_mcp_server(server: Any) -> bool:
     """Wrap the MCP server so tool calls are captured. Idempotent.
+
+    **Returns whether** :data:`MISSING_CAPABILITY_TOOL_NAME` **is now listed** —
+    read off the server, not assumed from the call. ``instrument()`` does not
+    raise when it fails: it "degrades to a no-op handle on any failure"
+    (``posthog/mcp/__init__.py``, ``posthog 7.45.3``), so the ``except`` below
+    catches only what happens before it (K11). The virtual tool is appended by
+    the wrapper ``posthog.mcp`` installs over the low-level ``tools/list``
+    handler, and the answer is whether that handler was replaced. The server's
+    ``instructions`` name the tool only when this is ``True``
+    (``server.build_instructions``).
 
     Must run **before** ``streamable_http_app()`` is built: ``instrument()``
     also wraps that factory, to carry one ``$session_id`` across a stateless
@@ -677,7 +714,7 @@ def instrument_mcp_server(server: Any) -> None:
 
     if _CLIENT is None:
         _report_missing_configuration()
-        return
+        return False
 
     try:
         from posthog.mcp import instrument
@@ -686,8 +723,9 @@ def instrument_mcp_server(server: Any) -> None:
         logger.warning(
             "posthog.mcp is not importable; MCP analytics disabled", exc_info=True
         )
-        return
+        return False
 
+    handler_before = _list_tools_handler(server)
     try:
         _ANALYTICS = instrument(
             server,
@@ -704,6 +742,7 @@ def instrument_mcp_server(server: Any) -> None:
                 # report a capability this server does not offer. Additive to
                 # the listing; it touches no existing tool.
                 report_missing=True,
+                missing_capability_tool_name=MISSING_CAPABILITY_TOOL_NAME,
                 # Adds a `conversation_id` argument *and* appends an instruction
                 # to every tool result asking the agent to echo it back. The
                 # result text is the tool's contract with its caller, and
@@ -720,6 +759,17 @@ def instrument_mcp_server(server: Any) -> None:
             "PostHog MCP instrumentation failed; the server runs without analytics",
             exc_info=True,
         )
+        return False
+
+    handler_after = _list_tools_handler(server)
+    if handler_after is None or handler_after is handler_before:
+        logger.warning(
+            "PostHog MCP instrumentation did not wrap tools/list; %s is not listed "
+            "and the server instructions do not name it",
+            MISSING_CAPABILITY_TOOL_NAME,
+        )
+        return False
+    return True
 
 
 async def _drain() -> None:
