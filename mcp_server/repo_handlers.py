@@ -33,6 +33,23 @@ OUTLINE_PER_PAGE_DEFAULT = 100
 OUTLINE_PER_PAGE_MAX = 500
 OUTPUT_BYTE_BUDGET = 256_000
 
+#: מתי המראה של שירות ה-MCP נמשכת, במשפט שהסוכן קורא. מקור אחד לשני מקומות:
+#: תיאור הפרמטר ``ref`` בשלושת הכלים שמקבלים אותו (``server.py``), וההודעה של
+#: ``ref_not_mirrored`` (``repo_backend.py``).
+#:
+#: **המשפט מתאר מדיניות שמוגדרת במקום אחר**, ולכן הוא נכון רק כל עוד היא לא
+#: משתנה. הבעלים: ``handle_push_event`` ב-``webapp/routes/webhooks.py`` מסנכרן
+#: רק push לענף הראשי, ו-``refresh_once`` ב-``mcp_server/repo_autosync.py``
+#: מושך רק כשה-SHA של הענף הראשי במונגו שונה מזה שבמראה. שני טסטים מקבעים את
+#: שני החצאים: ``test_the_refresh_note_matches_the_webhook_policy`` ב-
+#: ``tests/test_mcp_ref_not_mirrored.py``, ו-``test_equal_shas_skip_fetch`` /
+#: ``test_sha_drift_triggers_fetch`` ב-``tests/test_mcp_repo_autosync.py``. מי
+#: שמשנה את המדיניות ורואה אותם נופלים — מעדכן גם את המשפט הזה.
+MIRROR_REFRESH_NOTE = (
+    "The mirror is refreshed only when the repo's default branch changes. "
+    "A branch pushed after the last refresh is not in the mirror yet."
+)
+
 
 def wire_json(value: Any) -> bytes:
     """מה שה-SDK שולח על ``value`` — ``_convert_to_content`` ל-``dict`` (mcp 1.28.1).

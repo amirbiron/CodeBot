@@ -1284,7 +1284,17 @@ class GitMirrorService:
                 אלא ייגרע ממנו.
 
         Returns:
-            Dict עם resolved_sha או error
+            ``{"valid": True, "resolved_sha": ...}``, או ``{"valid": False,
+            "error": ...}`` כשהקוד הוא אחד מאלה, וכל אחד אומר דבר אחר:
+
+            - ``invalid_ref`` — השם לא עבר את ``BASIC_REF_PATTERN``, ולכן git
+              לא הורץ בכלל.
+            - ``ref_not_mirrored`` — השם תקין, והמראה הזו לא מכירה אותו. זה
+              **לא** "לא קיים": המראה יודעת רק מה היה ב-GitHub במשיכה
+              האחרונה שלה.
+            - ``git_error`` — git עצמו נכשל (מראה חסרה או שבורה), ונרשם
+              WARNING עם ה-stderr. זו תקלה של המארח, לא תשובה על ה-ref.
+            - ``timeout`` / ``internal_error`` — לא הגענו לתשובה.
         """
         safe_ref: Optional[str] = None
         if ref == 'HEAD':
@@ -1315,11 +1325,42 @@ class GitMirrorService:
                 timeout=timeout
             )
 
-            if result.returncode != 0:
+            # **קוד היציאה הוא שמבדיל, ולא "כל מה שאינו 0".** עם ``--verify
+            # --quiet``, שם שאינו נפתר לרוויזיה אחת יוצא ב-1
+            # (``die_no_single_rev`` ב-``builtin/rev-parse.c``), וכל תקלה
+            # אחרת עוברת דרך ``die()`` ויוצאת ב-128 (``die_builtin`` ב-
+            # ``usage.c``) — שניהם ב-git v2.43.0. נמדד על 2.43.0: ענף או
+            # SHA שאינם במראה ← 1, בלי stderr; תיקיית מראה שנמחקה, תיקייה
+            # שאינה ריפו, ``HEAD`` פגום ו-``packed-refs`` פגום ← 128, עם
+            # stderr. עד כאן כל יציאה שאינה 0 נקראה "לא נמצא", כלומר מראה
+            # שבורה נראתה בדיוק כמו ענף שלא נמשך.
+            #
+            # מה ש-1 **כן** מכסה מעבר לשם חסר (נמדד, ומתועד כאן כדי שלא
+            # יתגלה מחדש): ref שקיים אבל מצביע על אובייקט שאינו commit
+            # (תגית של עץ), ו-ref שהאובייקט שלו חסר במאגר. בשני המקרים
+            # ה-commit אכן אינו במראה, והתשובה נשארת ``ref_not_mirrored``.
+            if result.returncode == 1:
                 return {
                     "valid": False,
-                    "error": "invalid_ref",
-                    "message": f"Reference '{safe_ref}' לא נמצא"
+                    "error": "ref_not_mirrored",
+                    "message": f"Reference '{safe_ref}' לא נמצא במראה"
+                }
+            if result.returncode != 0:
+                # ה-stderr עובר ``_sanitize_output`` **לפני** שהוא נכנס ללוג:
+                # זה פלט של תהליך חיצוני, ונקודת ההרכבה היא המקום לנקות בו
+                # (K13), גם כשהפקודה מקומית. החיתוך ל-500 הוא של שורת לוג
+                # בלבד, כמו ב-``_run_git_command``.
+                self.logger.warning(
+                    "git rev-parse failed for %s in %s (exit %s): %s",
+                    safe_ref,
+                    repo_name,
+                    result.returncode,
+                    self._sanitize_output(result.stderr or "")[:500],
+                )
+                return {
+                    "valid": False,
+                    "error": "git_error",
+                    "message": "שגיאת git באימות ה-ref"
                 }
 
             return {
@@ -1360,8 +1401,9 @@ class GitMirrorService:
         מחזיר ``{"ok": True, "commit": <sha>}`` או ``{"ok": False, "error": ...}``,
         כש-``error`` הוא ``invalid_repo_name``, ``repo_not_found``, או קוד
         הכשל של ``_validate_ref_with_git`` כמות שהוא (``invalid_ref``,
-        ``timeout``, ``internal_error``). **ערוץ הכשל הוא ערך ההחזרה בלבד** —
-        המתודה אינה זורקת, ומי שקורא לה בודק ``ok``.
+        ``ref_not_mirrored``, ``git_error``, ``timeout``, ``internal_error`` —
+        מה כל אחד אומר כתוב שם). **ערוץ הכשל הוא ערך ההחזרה בלבד** — המתודה
+        אינה זורקת, ומי שקורא לה בודק ``ok``.
         """
         if not self._validate_repo_name(repo_name):
             return {"ok": False, "error": "invalid_repo_name"}
@@ -1673,16 +1715,46 @@ class GitMirrorService:
         if not mirror_path.exists():
             return {"error": "repo_not_found", "message": "ריפו לא נמצא"}
 
-        # וולידציה של commit
+        # וולידציה של commit.
+        # **קוד הכשל עובר כמות שהוא**, כמו ב-``get_file_history``. עד כאן כל
+        # כשל כאן הפך ל-``invalid_commit`` — ref פגום, ref שאינו במראה, מראה
+        # שבורה, ואפילו ``timeout`` — ולכן אף צרכן לא יכול היה לומר לקורא
+        # מה באמת קרה. מה כל קוד אומר: ``_validate_ref_with_git``.
         ref_validation = self._validate_ref_with_git(repo_name, commit)
         if not ref_validation.get("valid"):
-            return {
-                "error": "invalid_commit",
-                "message": ref_validation.get("message", "Commit לא תקין")
-            }
+            failure = {key: value for key, value in ref_validation.items() if key != "valid"}
+            # החוזה של ``_validate_ref_with_git`` הוא ``error`` בכל כשל; זו
+            # רק רשת, כדי שהפרה שלו לא תיראה לצרכן כתשובה בלי שגיאה.
+            failure.setdefault("error", "internal_error")
+            return failure
 
         resolved_commit = ref_validation["resolved_sha"]
+        result = self._read_at_resolved_commit(
+            mirror_path, file_path, safe_file_path, commit, resolved_commit, max_size
+        )
+        if "error" in result:
+            # **כל** כשל אחרי שהשם נפתר נושא את הקומיט שנבדק, בנקודה אחת —
+            # ולא בכל אחת מיציאות הכשל של ``_read_at_resolved_commit``, שכל אחת
+            # הייתה צריכה לזכור אותו. בלעדיו "הקובץ לא נמצא" לא אומר באיזה
+            # קומיט חיפשו.
+            result["resolved_commit"] = resolved_commit
+        return result
 
+    def _read_at_resolved_commit(
+        self,
+        mirror_path: Path,
+        file_path: str,
+        safe_file_path: str,
+        commit: str,
+        resolved_commit: str,
+        max_size: int,
+    ) -> Dict[str, Any]:
+        """הקריאה עצמה, אחרי ש-``commit`` כבר נפתר ל-SHA — החצי השני של :meth:`get_file_at_commit`.
+
+        נפרדת רק כדי שלכשלים שלה תהיה נקודת יציאה אחת אצל הקורא (שמצרף להם
+        את ``resolved_commit``). הקלטים כבר נבדקו שם: ``safe_file_path`` עבר
+        ``_get_safe_file_path``, ו-``resolved_commit`` הוא SHA מ-``rev-parse``.
+        """
         try:
             # **הגודל נבדק מול מאגר האובייקטים לפני שנקרא בית אחד של תוכן (#3433).**
             # עד כאן ``git show`` נטען כולו לזיכרון (``capture_output=True``) ורק
@@ -2387,9 +2459,13 @@ class GitMirrorService:
         # ``total`` היה יכול לתאר עץ אחר מזה שהתוצאות הגיעו ממנו — ובמקרה
         # הקיצון להיות **קטן** ממספר התוצאות, כלומר תשובה שסותרת את עצמה.
         #
-        # כשל בקיבוע אינו מפיל את החיפוש: ממשיכים עם ה-ref כמו שהוא, וגיט
-        # ידווח על ref פסול בדיוק כמו קודם. זו נפילה-לאחור על **היעדר**
-        # (אין קומיט כזה) ולא על כשל חולף, והיא מותירה את ההתנהגות הקודמת.
+        # **ref שהמראה אינה מכירה עונה מיד, בשמו** (``ref_not_mirrored``): אין
+        # על מה לחפש. עד כאן החיפוש המשיך עם השם, ``git grep`` נכשל עליו ב-
+        # "unable to resolve revision", והקורא קיבל כשל כללי של המנוע — כלומר
+        # "ה-ref לא במראה" נראה כמו "החיפוש נשבר". כל כשל **אחר** בקיבוע
+        # (timeout, מראה שבורה) עדיין אינו מפיל את החיפוש: ממשיכים עם ה-ref
+        # כמו שהוא, וגיט ידווח עליו כמו קודם. מראה שבורה כבר נרשמה כ-WARNING
+        # ב-``_validate_ref_with_git``, ולכן ההמשך כאן אינו שקט.
         #
         # **והשעון מתחיל כאן, לפניו.** ‏``rev-parse`` הוא תת-תהליך, ועד
         # עכשיו הוא רץ עם timeout משלו **מחוץ** לתקציב של החיפוש — כלומר
@@ -2421,6 +2497,13 @@ class GitMirrorService:
         resolved_sha = resolved.get("resolved_sha") if resolved.get("valid") else None
         if resolved_sha:
             ref = resolved_sha
+        elif resolved.get("error") == "ref_not_mirrored":
+            return {
+                "error": "ref_not_mirrored",
+                "ref": ref,
+                "message": str(resolved.get("message") or ""),
+                "results": [],
+            }
         else:
             logger.debug("search: could not pin ref %r for %s", ref, repo_name)
 

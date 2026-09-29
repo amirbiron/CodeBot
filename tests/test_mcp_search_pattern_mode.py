@@ -156,16 +156,56 @@ def test_a_pattern_git_rejects_returns_an_error_and_not_zero_results(tmp_path, q
 
 @requires_git
 def test_an_engine_failure_is_not_blamed_on_the_pattern(tmp_path):
-    """‏ref שאינו קיים יוצא גם הוא ב-128, והוא אינו באשמת הדפוס.
+    """‏``git grep`` שנכשל ב-128 על מראה שבורה אינו באשמת הדפוס.
+
+    הענף נפתר (אובייקט ה-commit קיים), והעץ שלו נמחק מהמראה — ולכן ``git grep``
+    עצמו יוצא ב-128 ("unable to read tree"). עד שהחיפוש התחיל לענות על ענף שאינו
+    במראה לפני ``git grep``, ref חסר היה הטריגר כאן; היום הוא אינו מגיע ל-``git grep``
+    בכלל (``test_a_ref_the_mirror_lacks_is_named_before_git_grep_runs``).
 
     **מוטציה שמפילה:** לסווג כל קוד יציאה גדול מ-1 כ-``invalid_pattern``.
     """
     svc = _build_mirror(tmp_path, {"sample.py": _SAMPLE})
+    mirror = tmp_path / "repo.git"
+    tree = subprocess.run([_GIT, "rev-parse", "HEAD^{tree}"], cwd=str(mirror), check=True,
+                          capture_output=True, text=True).stdout.strip()
+    loose = mirror / "objects" / tree[:2] / tree[2:]
+    # ‏``clone --mirror`` מקומי מקשר את האובייקטים הרופפים (hardlink), ולכן
+    # המחיקה כאן אינה נוגעת בריפו העובד. בלי הקובץ הזה הטסט לא היה שובר כלום.
+    assert loose.is_file(), "אובייקט העץ אינו רופף — הטסט לא היה מגיע ל-git grep שנכשל"
+    loose.unlink()
 
-    res = _search(svc, "dict", ref="refs/heads/no-such-branch", regex=True)
+    res = _search(svc, "dict", regex=True)
 
     assert res.get("error") == "search_failed"
     assert res.get("error") != "invalid_pattern"
+
+
+@requires_git
+def test_a_ref_the_mirror_lacks_is_named_before_git_grep_runs(tmp_path, monkeypatch):
+    """‏ref שהמראה אינה מכירה עונה ``ref_not_mirrored``, בלי להריץ את ``git grep`` בכלל.
+
+    עד כאן החיפוש המשיך עם השם, ``git grep`` נכשל עליו ב-"unable to resolve
+    revision", והקורא קיבל כשל כללי של המנוע.
+    """
+    from services import git_mirror_service
+
+    svc = _build_mirror(tmp_path, {"sample.py": _SAMPLE})
+    started: list[list[str]] = []
+    real_popen = subprocess.Popen
+
+    class _Recording(real_popen):  # type: ignore[misc, valid-type]
+        def __init__(self, args, *a, **k):
+            started.append([str(x) for x in args])
+            super().__init__(args, *a, **k)
+
+    monkeypatch.setattr(git_mirror_service.subprocess, "Popen", _Recording)
+
+    res = _search(svc, "dict", ref="refs/heads/no-such-branch")
+
+    assert res["error"] == "ref_not_mirrored"
+    assert res["ref"] == "refs/heads/no-such-branch" and res["results"] == []
+    assert not [argv for argv in started if "grep" in argv], started
 
 
 # --------------------------------------------------------------------------

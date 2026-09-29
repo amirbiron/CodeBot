@@ -333,10 +333,15 @@ def test_a_file_under_the_cap_is_read_exactly_as_before(tmp_path, monkeypatch):
 
 
 def test_a_missing_path_is_still_file_not_in_commit_through_the_probe(tmp_path):
-    """git מדפיס את אותה הודעה ל-``cat-file -s`` ול-``show`` על נתיב חסר, והמפה אחת לשתיהן."""
-    svc, _ = _bare_mirror(tmp_path, {"a.txt": b"x"})
+    """git מדפיס את אותה הודעה ל-``cat-file -s`` ול-``show`` על נתיב חסר, והמפה אחת לשתיהן.
+
+    ‏``resolved_commit`` נוסף לכל כשל שקורה אחרי שהשם נפתר: "הקובץ לא קיים" אומר
+    עכשיו גם באיזה commit חיפשו.
+    """
+    svc, sha = _bare_mirror(tmp_path, {"a.txt": b"x"})
     out = svc.get_file_at_commit("probe", "nope.txt", "HEAD")
-    assert out == {"error": "file_not_in_commit", "message": "הקובץ לא קיים ב-commit זה"}
+    assert out == {"error": "file_not_in_commit", "message": "הקובץ לא קיים ב-commit זה",
+                   "resolved_commit": sha}
 
 
 def test_both_commands_name_the_same_resolved_commit(tmp_path, monkeypatch):
