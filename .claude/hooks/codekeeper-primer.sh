@@ -336,7 +336,24 @@ answered)
 			0)
 				# המקרה התקין. הגוף הוא ההוראות עצמן — מדפיסים אותו כפי שהוא, בלי
 				# מסגור ובלי כותרת: הפריימר מנוסח כדי להיקרא ישירות על ידי המודל.
-				cat -- "$body_file" || log_diagnostic "cat failed"
+				#
+				# הגוף נקרא כולו לזיכרון, ורק אז מודפס: cat ישר ל-stdout שנכשל באמצע
+				# היה משאיר בהקשר חצי פריימר, בלי שורת אבחון. ה-x בסוף שומר על ירידות
+				# השורה שבסוף הגוף, שהחלפת פקודה מורידה. והחלפת פקודה גם משמיטה תווי
+				# NUL (נמדד: "a\0b" נהיה "ab") — ולכן גוף שיש בו NUL, שאינו טקסט ממילא,
+				# נדחה במפורש לפני הקריאה, ולא נחתך בשקט.
+				if ! nul_bytes="$(LC_ALL=C tr -dc '\000' <"$body_file" | wc -c)"; then
+					log_diagnostic "reading the body failed: tr"
+					echo "[CodeKeeper] ההוראות לסוכן לא נטענו — לא הצלחתי לקרוא את התשובה מהקובץ הזמני."
+				elif ((nul_bytes > 0)); then
+					log_diagnostic "200 but the body has NUL bytes"
+					echo "[CodeKeeper] ההוראות לסוכן לא נטענו — השרת החזיר 200, אבל הגוף אינו טקסט (יש בו תו NUL)."
+				elif ! primer_text="$(cat -- "$body_file" && printf x)"; then
+					log_diagnostic "reading the body failed: cat"
+					echo "[CodeKeeper] ההוראות לסוכן לא נטענו — לא הצלחתי לקרוא את התשובה מהקובץ הזמני."
+				else
+					printf '%s' "${primer_text%x}"
+				fi
 				;;
 			1)
 				log_diagnostic "200 with a blank body"
@@ -358,7 +375,9 @@ answered)
 		echo "[CodeKeeper] הטוקן נדחה (${http_code}). ההוראות לסוכן לא נטענו — ייתכן שה-PAT פג או בוטל. אפשר להנפיק חדש דרך /connect_claude בבוט."
 		;;
 	404)
-		echo "[CodeKeeper] האנדפוינט לא נמצא (404) בכתובת ${PRIMER_URL} — סביר שה-URL מצביע על הוובאפ במקום על ה-MCP host. ההוראות לסוכן לא נטענו."
+		# בלי הכתובת עצמה: היא מגיעה מהסביבה, ושורת האבחון נכנסת להקשר של המודל —
+		# סוד בשורת השאילתה או ב-userinfo היה נכנס איתה (נמדד). שם המשתנה מספיק.
+		echo "[CodeKeeper] ההוראות לסוכן לא נטענו — האנדפוינט לא נמצא (404), כנראה כי הכתובת מצביעה על הוובאפ במקום על ה-MCP host. בדקו את CODEKEEPER_PRIMER_URL."
 		;;
 	*)
 		echo "[CodeKeeper] השרת החזיר ${http_code}. ההוראות לסוכן לא נטענו."

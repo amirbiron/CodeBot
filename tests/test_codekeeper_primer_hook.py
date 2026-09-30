@@ -427,7 +427,62 @@ def test_a_leftover_body_from_an_earlier_attempt_never_reaches_stdout(primer_ser
     assert run.stdout == _PRIMER
 
 
+def test_a_body_with_a_nul_byte_is_refused_not_trimmed(primer_server, tmp_path):
+    """תו NUL אינו טקסט, וגם אינו שורד את הקריאה לזיכרון (bash משמיט אותו).
+
+    ולכן הגוף נדחה במפורש, ולא נחתך בשקט.
+    """
+    primer_server.script = [(200, _PLAIN, "הוראות\x00 נסתרות\n")]
+
+    run = _run_hook(tmp_path, _url(primer_server))
+
+    assert run.returncode == 0
+    assert len(run.lines) == 1, run.stdout
+    assert "יש בו תו NUL" in run.lines[0]
+    assert "נסתרות" not in run.stdout
+
+
+def test_a_read_that_fails_midway_leaves_no_half_primer(primer_server, tmp_path):
+    """cat שנכשל באמצע הקריאה — כמו שגיאת I/O — אינו משאיר בהקשר חצי פריימר, אלא שורת אבחון.
+
+    שגיאת קריאה אמיתית על הקובץ הזמני אי אפשר לייצר בנקודה הזו, ולכן ה-cat מזויף: הוא מדפיס
+    את תחילת הקובץ ויוצא בשגיאה. כל שאר הכלים אמיתיים.
+    """
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir()
+    fake_cat = bin_dir / "cat"
+    fake_cat.write_text(
+        '#!/bin/sh\n[ "$1" = "--" ] && shift\nhead -c 14 "$1"\nexit 1\n', encoding="utf-8"
+    )
+    fake_cat.chmod(0o755)
+    primer_server.script = [(200, _PLAIN, "PARTIAL-MARKER and the rest of the primer\n")]
+
+    run = _run_hook(tmp_path, _url(primer_server), path_prefix=str(bin_dir))
+
+    assert run.returncode == 0
+    assert "PARTIAL-MARKER" not in run.stdout
+    assert len(run.lines) == 1 and "לא הצלחתי לקרוא את התשובה" in run.lines[0], run.stdout
+
+
 # ── מה שמגיע מהסביבה ───────────────────────────────────────────────────────────
+
+
+def test_a_404_does_not_put_the_url_in_the_context(primer_server, tmp_path):
+    """הכתובת מגיעה מהסביבה ושורת האבחון נכנסת להקשר — ולכן שורת ה-404 אינה מעתיקה אותה.
+
+    סוד בשורת השאילתה או ב-userinfo היה נכנס איתה להקשר של המודל (נמדד על הגרסה הקודמת).
+    """
+    primer_server.script = [(404, _PLAIN, "not found")]
+    port = primer_server.server_port
+    url = f"http://user:PASSWORD-IN-URL@127.0.0.1:{port}/api/agent/primer?key=SECRET-IN-QUERY"
+
+    run = _run_hook(tmp_path, url)
+
+    assert run.returncode == 0
+    assert len(run.lines) == 1, run.stdout
+    assert "404" in run.lines[0] and "CODEKEEPER_PRIMER_URL" in run.lines[0]
+    for secret in ("SECRET-IN-QUERY", "PASSWORD-IN-URL"):
+        assert secret not in run.stdout and secret not in run.log
 
 
 def test_seconds_inherited_from_the_environment_does_not_eat_the_budget(primer_server, tmp_path):
