@@ -23,6 +23,7 @@
 
 - **FOUC** – ודאו ש־`<html data-theme>` נקבע לפני טעינת CSS (ראו הסקריפט ב‑`base.html`).  
 - **Live Preview** – טוען `--md-*` + `--split-*` גם כאשר Theme בהיר.  
+- **Live Preview – תוכן Markdown** – `--split-preview-blockquote-*` ו‑`--split-preview-table-*` נגזרים מ‑`--split-preview-text`/`--split-preview-bg` ומוגדרים פעם אחת ב‑`:root` של `split-view.css` (High Contrast דורס רק את הקווים, לצבע הטקסט), ולכן אין להם תא לכל ערכה בטבלה שלמעלה. `tests/test_live_preview_blockquote_browser.py` מודד ציטוט, רשימה וטבלה בדפדפן בכל ערכה. ראו `docs/webapp/theming_and_css.rst`, סעיף "Markdown Viewer ו‑Split View".
 - **High Contrast** – אסור להשתמש ב־`rgba` מלבד הערכים המוגדרים בקובץ הייעודי.  
 - **Custom Theme** – ברגע שמזריקים ערכים ל‑``<style id="user-custom-theme">`` חובה לכסות את הטוקנים מהרשימה לעיל.
 - **משטח קשיח שמספק טוקנים לרכיב שבתוכו** – ``--details-*``/``--summary-*`` (בבעלות ``markdown-enhanced.css``) אינם בטבלה שלמעלה, ואין להם "כיסוי" לבדוק פר-ערכה. מה שכן צריך לוודא: ש-``sticky-notes.css`` ממשיך להצהיר עליהם על ``.sticky-note``. הפתק הוא נייר בהיר קבוע שאינו עוקב אחרי הערכה, ורכיב שמרונדר בתוכו וקורא טוקן ערכה מקבל ערך שנבחר לרקע אחר — נמדד 1.09:1 בגוף הבלוק בערכה מיובאת כהה. ``tests/sticky-notes-target.test.js`` אוכף את הכיסוי, וטוקן שביעי שיתווסף לרכיב מפיל אותו. ראו `docs/webapp/theming_and_css.rst` בסעיף החריגים.

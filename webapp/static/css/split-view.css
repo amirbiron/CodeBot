@@ -40,6 +40,15 @@
   --split-preview-loading-bg: rgba(27, 30, 36, 0.85);
   --split-preview-loading-text: #f0f0f0;
 
+  /* Blockquote (`>`) – נגזר מטוקני הרקע והטקסט של התצוגה, ולכן עובד בכל ערכה
+     (כולל מותאמת/משותפת) בלי override לכל אחת. ההפניות נפתרות על <html>,
+     שם כבר חל הבלוק של הערכה הפעילה. */
+  --split-preview-blockquote-bg: color-mix(in srgb, var(--split-preview-text) 8%, var(--split-preview-bg));
+  --split-preview-blockquote-border: color-mix(in srgb, var(--split-preview-text) 45%, var(--split-preview-bg));
+  --split-preview-blockquote-text: var(--split-preview-text);
+  --split-preview-table-border: color-mix(in srgb, var(--split-preview-text) 30%, var(--split-preview-bg));
+  --split-preview-table-header-bg: color-mix(in srgb, var(--split-preview-text) 8%, var(--split-preview-bg));
+
   /* Error */
   --split-error-bg: rgba(220, 38, 38, 0.1);
   --split-error-border: rgba(220, 38, 38, 0.35);
@@ -202,6 +211,9 @@
   --split-preview-meta: #ffffff;
   --split-preview-loading-bg: #000000;
   --split-preview-loading-text: #ffffff;
+  /* קווים מלאים בצבע הטקסט: הגוון המעורבב של ברירת המחדל יוצא אפור כהה על שחור */
+  --split-preview-blockquote-border: var(--split-preview-text);
+  --split-preview-table-border: var(--split-preview-text);
   --split-error-bg: #330000;
   --split-error-border: #ff0000;
   --split-error-text: #ff6666;
@@ -531,6 +543,80 @@ html[dir="rtl"] .split-preview-content pre.rtl-code,
 html[dir="rtl"] .split-preview-content pre.rtl-code code {
   direction: rtl;
   text-align: right;
+}
+
+/* ==============================================
+   תוכן Markdown בתצוגה החיה
+   כלל האיפוס `*` שבבלוק ה-<style> של base.html מאפס margin ו-padding לכל
+   אלמנט, ועיצוב התוכן של md_preview.html יושב ב-<style> הפנימי שלו ואינו
+   נטען בעמודי העריכה. בלי הכללים כאן ציטוט נראה כמו פסקה, לרשימה אין
+   תבליטים (אין להם מקום), לטבלה אין קווים, ופסקאות נדבקות זו לזו.
+
+   הסקופ הוא ה-canvas במצב markdown (data-mode נקבע ב-setMarkdownContext
+   שב-live-preview.js), כדי לא לגעת בשורת הסטטוס ובמציין המקום.
+   הוא עטוף ב-:where() בכוונה: הספציפיות יורדת לזו של האלמנט לבדו, כך שהכללים
+   גוברים רק על האיפוס, וכל כלל ממוקד יותר — למשל של האדמוניציות
+   ב-markdown-enhanced.css — ממשיך לנצח כמו היום.
+   ============================================== */
+:where(.split-preview-canvas[data-mode="markdown"]) p {
+  margin: 0.75rem 0;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) > :first-child {
+  margin-top: 0;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) :is(ul, ol) {
+  margin-block: 0 1rem;
+  padding-inline-start: 1.25rem;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) li {
+  margin: 0.25rem 0;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) li > :is(ul, ol) {
+  margin-block: 0.25rem 0.5rem;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) table {
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  /* טבלה רחבה נגללת בתוך עצמה ולא מרחיבה את כל התצוגה */
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) :is(th, td) {
+  border: 1px solid var(--split-preview-table-border);
+  padding: 0.4rem 0.75rem;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) thead {
+  background: var(--split-preview-table-header-bg);
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) blockquote {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--split-preview-blockquote-bg);
+  border-inline-start: 4px solid var(--split-preview-blockquote-border);
+  color: var(--split-preview-blockquote-text);
+  overflow-wrap: anywhere;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) blockquote > :first-child {
+  margin-top: 0;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) blockquote > :last-child {
+  margin-bottom: 0;
 }
 
 .split-preview-placeholder {
