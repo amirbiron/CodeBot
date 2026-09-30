@@ -153,15 +153,31 @@ _NOTE_FIELDS = (
     "board_id", "mode", "title", "repo_name", "repo_path",
 )
 
-class _NoteIndex(_enum.Enum):
+class _EnforcedIndex(_enum.Enum):
     """זהות אינדקס אכיפה — במקום שם מחרוזתי שנפתר ב-``getattr``.
 
-    הערך הוא גם התווית שמופיעה בלוגים, כך שאין שני מקורות אמת לשם.
+    הערך הוא זוג: התווית שמופיעה בלוגים, ומה קורה כל עוד האינדקס לא אומת. שניהם
+    כאן כדי שאין שני מקורות אמת לשם, ושאף אינדקס לא יירשם בלי שנאמר מה המחיר של
+    היעדרו — ההודעה המשותפת הקודמת ("falling back to a code check") הייתה נכונה
+    לאינדקסי השם בלבד, ונרשמה כך גם על גרסאות הפתקים, שבהן הצילום פשוט נדחה.
+
+    **השם אינו "של פתקים", ובכוונה.** המנוע נכתב לפתקים, וגם העלאות ה-MCP נשענות
+    עליו (``UPLOAD_TTL``): שם שמצהיר על תחום אחד היה מזמין שינוי לצורכי פתקים
+    שמשנה בשקט גם את ההעלאות.
     """
 
-    BOARD_TITLE = "one_title_per_board"
-    REPO_TITLE = "one_title_per_repo_file"
-    NOTE_VERSIONS = "one_number_per_note_version"
+    BOARD_TITLE = ("one_title_per_board", "falling back to a code check")
+    REPO_TITLE = ("one_title_per_repo_file", "falling back to a code check")
+    NOTE_VERSIONS = ("one_number_per_note_version", "note snapshots are refused")
+    UPLOAD_TTL = ("uploads_expire_on_time", "uploads are refused (503)")
+
+    @property
+    def label(self) -> str:
+        return self.value[0]
+
+    @property
+    def meanwhile(self) -> str:
+        return self.value[1]
 
 
 class _IndexGate:
@@ -1591,25 +1607,35 @@ class ProductionBackend:
         return coll
 
     #: כמה להמתין בין ניסיונות בנייה כושלים, בשניות
-    _TITLE_INDEX_RETRY_SECONDS = 60.0
+    _INDEX_RETRY_SECONDS = 60.0
 
-    def _ensure_note_index(
-        self, coll: Any, which: _NoteIndex, builder: Callable[[Any], bool]
+    def _ensure_enforced_index(
+        self, coll: Any, which: _EnforcedIndex, builder: Callable[[Any], bool]
     ) -> bool:
-        """המנוע המשותף לשני אינדקסי השם. מחזיר האם האילוץ **חי** כרגע.
+        """המנוע המשותף לאינדקסי האכיפה. מחזיר האם האילוץ **חי** כרגע.
 
         לכל אינדקס :class:`_IndexGate` משלו, כלומר זוג דגלים **עצמאי**. זה
         לא סגנון: דגל משותף היה נותן לכשל של האחד לחסום את הניסיון של
         השני, ולהצלחה של האחד להדליק אכיפה שלא אומתה עבור השני — כלומר
         ``duplicate_title`` שמובטח ולא קיים.
 
-        **הזהות היא ``_NoteIndex`` והבנאי הוא פונקציה**, ולא שמות
+        **הזהות היא ``_EnforcedIndex`` והבנאי הוא פונקציה**, ולא שמות
         מחרוזתיים שנפתרים ב-``getattr``. ההבדל אינו קוסמטי: שם מוטעה של
         דגל היה נקרא כ-``False`` לתמיד, כלומר האינדקס היה נבנה מחדש בכל
         קירור — דרדור שקט לכל חיי התהליך במקום שגיאת תכנות. עכשיו טעות
         בשם היא ``NameError`` באתר הקריאה.
+
+        **בלי נעילה, ובכוונה.** ``retry_at`` נקבע **לפני** הבנייה, ולכן קורא
+        שמגיע בזמן שחוט אחר בונה מקבל ``False`` מיד — "לא מאומת עדיין" — ואינו
+        ממתין. זו הבחירה ההפוכה מנעילה סביב הבדיקה והבנייה, והיא נובעת מהתקלה
+        שבגללה הפתקים קיבלו דגלי מוכנות: בנייה של אינדקסים במסלול הבקשה, תחת
+        מנעול משותף, שהבקשות הצטברו מאחוריו (``docs/performance-sticky-notes.rst``).
+        כאן זה היה חוט שממתין לכל אורך בנייה איטית — ובראוט ההעלאה, חוט מהמאגר
+        של anyio, שמשרת גם את אימות ה-PAT. המחיר: בקשה מקבילה לבנייה הראשונה
+        נדחית (fail-closed) במקום להמתין לתוצאה. היא אינה משתמשת באילוץ שלא
+        אומת, ולכן אין כאן פרסום של שומר לפני ערך — יש סירוב מוקדם.
         """
-        gates = self.__dict__.setdefault("_note_index_gates", {})
+        gates = self.__dict__.setdefault("_enforced_index_gates", {})
         gate = gates.get(which)
         if gate is None:
             gate = gates[which] = _IndexGate()
@@ -1619,21 +1645,21 @@ class ProductionBackend:
         now = _time.monotonic()
         if now < gate.retry_at:
             return False
-        gate.retry_at = now + self._TITLE_INDEX_RETRY_SECONDS
+        gate.retry_at = now + self._INDEX_RETRY_SECONDS
         try:
             gate.ok = bool(builder(coll))
         except Exception:
             gate.ok = False
-            logger.error("%s index creation failed", which.value, exc_info=True)
+            logger.error("%s index creation failed", which.label, exc_info=True)
         if not gate.ok:
-            logger.error("%s index not confirmed — falling back to a code check", which.value)
+            logger.error("%s index not confirmed — %s", which.label, which.meanwhile)
         return gate.ok
 
     def _ensure_title_index(self, coll: Any) -> bool:
         """בונה ומאמת את אינדקס שם-פתק-בלוח. מחזיר האם האילוץ **חי** כרגע."""
         from sticky_notes_target import ensure_title_index
 
-        return self._ensure_note_index(coll, _NoteIndex.BOARD_TITLE, ensure_title_index)
+        return self._ensure_enforced_index(coll, _EnforcedIndex.BOARD_TITLE, ensure_title_index)
 
     def _ensure_repo_title_index(self, coll: Any) -> bool:
         """אח מקביל לפתקי ריפו — "שם אחד לכל קובץ בריפו".
@@ -1645,7 +1671,7 @@ class ProductionBackend:
         """
         from sticky_notes_target import ensure_repo_title_index
 
-        return self._ensure_note_index(coll, _NoteIndex.REPO_TITLE, ensure_repo_title_index)
+        return self._ensure_enforced_index(coll, _EnforcedIndex.REPO_TITLE, ensure_repo_title_index)
 
     # -- מסלול היצירה המשותף ---------------------------------------------
     #
@@ -2425,12 +2451,12 @@ class ProductionBackend:
         האינדקס הייחודי אינו קוסמטי: הוא מה שהופך מספר גרסה כפול משתי
         כתיבות מקבילות לשגיאה שנתפסת — ו-``_snapshot_note`` מתרגם אותה
         לניסיון חוזר עם המספר הבא. ולכן הבנייה עוברת דרך
-        ``_ensure_note_index``, **לא** דרך דגל "ניסינו" חד-פעמי: דגל
+        ``_ensure_enforced_index``, **לא** דרך דגל "ניסינו" חד-פעמי: דגל
         שנדלק לפני הניסיון הופך כשל רשת חולף אחד בעליית התהליך לתהליך
         שלם שכותב גרסאות בלי האילוץ שההבטחה נשענת עליו.
         """
         coll = self._raw_mongo()["sticky_note_versions"]
-        self._ensure_note_index(coll, _NoteIndex.NOTE_VERSIONS, self._ensure_versions_index)
+        self._ensure_enforced_index(coll, _EnforcedIndex.NOTE_VERSIONS, self._ensure_versions_index)
         return coll
 
     #: כמה פעמים לנסות שוב כששני צילומים מקבילים התנגשו על אותו מספר גרסה
@@ -2470,7 +2496,7 @@ class ProductionBackend:
         # החוזר וההשהיה שלו) היא fail-closed, באותו היגיון שבו כשל צילום
         # עוצר את הדריסה. קריאות (רשימה/שליפה/גיזום) אינן חסומות — הן
         # אינן זקוקות לאילוץ.
-        if not self._ensure_note_index(coll, _NoteIndex.NOTE_VERSIONS, self._ensure_versions_index):
+        if not self._ensure_enforced_index(coll, _EnforcedIndex.NOTE_VERSIONS, self._ensure_versions_index):
             logger.error("note snapshot refused: unique version index unconfirmed")
             return False, None
         nid = str(note.get("_id"))
