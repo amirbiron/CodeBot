@@ -747,7 +747,7 @@ def _both_sent(param: str) -> dict[str, Any]:
     return {
         "ok": False,
         "error": f"{param}_and_upload_id",
-        "hint": f"send the content either in {param} or as upload_id, not both",
+        "hint": f"pass either the {param} parameter or upload_id, not both",
     }
 
 
@@ -874,7 +874,7 @@ def save_file(
         return {
             "ok": False,
             "error": "empty_code",
-            "hint": "send the content in code, or upload the file first and pass upload_id",
+            "hint": "send the content in the code parameter, or upload the file first and pass upload_id",
         }
 
     # Reject oversize content (the large-file path is non-versioned; out of scope
@@ -1259,7 +1259,7 @@ def append_file(
         return {
             "ok": False,
             "error": "empty_content",
-            "hint": "send the text in content, or upload the file first and pass upload_id",
+            "hint": "send the text in the content parameter, or upload the file first and pass upload_id",
         }
     bad_expected = _invalid_expected_sha256(expected_content_sha256)
     if bad_expected is not None:

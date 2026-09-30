@@ -600,17 +600,27 @@ def _upload_id_param_doc(instead_of: str, upload_url: str) -> str:
 
     ``upload_url`` — מ-:func:`mcp_server.uploads.upload_url_for`: הכתובת של השירות
     כשהיא ידועה, ו-``<mcp-host>`` כשלא.
+
+    **בלי רשימת הסירובים, בכוונה.** התיאור נקרא בכל שיחה שבה הכלים נטענים — גם
+    ב-Claude.ai, שאינו יכול להעלות בכלל — והסירובים רלוונטיים רק אחרי כשל. ואז כל
+    אחד מהם כבר נושא ``hint`` משלו (``_both_sent``, ``_invalid_upload_id`` ו-
+    ``_upload_not_found`` ב-``mcp_server/handlers.py``; הטסט
+    ``test_every_upload_refusal_carries_a_hint_that_names_the_parameter`` מקבע).
+    מה שצריך לדעת **לפני** הקריאה — או זה או זה, חד-פעמי, והתוקף מ-
+    ``UPLOAD_TTL_SECONDS`` — כתוב כאן.
+
+    **שם הפרמטר נקרא כשם פרמטר.** ``content`` הוא גם שם עצם, ו-"send the content in
+    content" יצא משפט עקום. לכן "the content parameter" — ובמשפט הראשון, שתקרת
+    האורך שלו לא משאירה מקום לזה, "text" לתוכן עצמו.
     """
     return (
-        f"Instead of {instead_of}, for content already in a file in your environment: "
+        f"Instead of {instead_of}, for text already in a file in your environment: "
         "single-use, and the size ceiling still applies. Upload the file "
         'first: curl -sS -T report.md -H "Authorization: Bearer $CODEKEEPER_PAT" '
         f"{upload_url} — the reply carries upload_id, valid for {UPLOAD_TTL_SECONDS // 60} "
         "minutes, and content_sha256, which file.content_sha256 matches after the save. "
-        "Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), send the "
-        f"content in {instead_of} as usual. Refusals: upload_not_found (expired, already "
-        "used, or never yours — upload again), invalid_upload_id, and "
-        f"{instead_of}_and_upload_id when both are sent."
+        "Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), use the "
+        f"{instead_of} parameter as usual."
     )
 
 

@@ -801,7 +801,7 @@ def test_the_descriptions_carry_the_rule_first_the_minutes_and_the_ceiling(monke
         # סיכום רואה רק אותו.
         rule = upload_doc.split(". ", 1)[0]
         assert len(rule) <= 120, rule
-        assert rule.startswith(f"Instead of {instead_of}, for content already in a file")
+        assert rule.startswith(f"Instead of {instead_of}, for text already in a file")
         assert "single-use" in rule and "size ceiling still applies" in rule
         assert "valid for 10 minutes" in upload_doc
         assert "https://mcp.example.com/api/agent/upload" in upload_doc
@@ -810,6 +810,49 @@ def test_the_descriptions_carry_the_rule_first_the_minutes_and_the_ceiling(monke
         assert "upload_id" in props[instead_of]["description"]
         assert instead_of not in tools.get_tool(name).parameters.get("required", [])
         assert "upload_id" in tools.get_tool(name).description
+
+
+def test_the_upload_id_description_names_the_parameter_and_leaves_refusals_to_their_hints():
+    """מה שהלקוח מקבל ב-``tools/list``: בלי רשימת הסירובים, ושם הפרמטר נקרא כשם פרמטר.
+
+    הסירובים רלוונטיים רק אחרי כשל, ואז כל אחד נושא ``hint`` משלו (הטסט שאחרי זה);
+    התיאור נקרא בכל שיחה שבה הכלים נטענים, גם ב-Claude.ai. ו-``content`` הוא גם שם
+    עצם: הנוסח הקודם יצא "send the content in content as usual".
+    """
+    import mcp_server.server as srv
+
+    listed = asyncio.run(srv.build_mcp(_backend()[0], public_url="https://mcp.example.com").list_tools())
+    tools = {tool.name: tool for tool in listed}
+    for name, param in (("codekeeper_save_file", "code"), ("codekeeper_append_file", "content")):
+        doc = tools[name].inputSchema["properties"]["upload_id"]["description"]
+        assert doc.endswith(
+            f"Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), use the {param} parameter as usual."
+        ), doc
+        for word in ("Refusals", "upload_not_found", "invalid_upload_id", f"{param}_and_upload_id"):
+            assert word not in doc, word
+        assert f"{param} in {param}" not in doc and f"{param}, for {param}" not in doc
+
+
+@pytest.mark.parametrize("tool, param", [("codekeeper_save_file", "code"), ("codekeeper_append_file", "content")])
+def test_every_upload_refusal_carries_a_hint_that_names_the_parameter(store, backend, call, tool, param):
+    """התיאור אינו מונה את הסירובים, ולכן ההסבר שבכל סירוב הוא ההסבר היחיד שהסוכן מקבל."""
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+    upload_id = _create(backend, "tail\n")
+
+    both = call(tool, file_name="log.md", upload_id=upload_id, **{param: "inline\n"})
+    assert both["error"] == f"{param}_and_upload_id"
+    assert both["hint"] == f"pass either the {param} parameter or upload_id, not both"
+
+    neither = call(tool, file_name="log.md")
+    assert neither["error"] == f"empty_{param}"
+    assert f"in the {param} parameter, or upload the file first and pass upload_id" in neither["hint"]
+
+    for bad_id, error in (("../../etc/passwd", "invalid_upload_id"), (mcp_uploads.new_upload_id(), "upload_not_found")):
+        res = call(tool, file_name="log.md", upload_id=bad_id)
+        assert res["error"] == error
+        assert isinstance(res.get("hint"), str) and res["hint"].strip(), res
+
+    assert len(store.uploads.docs) == 1
 
 
 # ---------------------------------------------------------------------------
