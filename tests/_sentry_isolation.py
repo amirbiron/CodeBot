@@ -55,18 +55,49 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ.pop(DSN_ENV, None)
 
 
-def restore_sentry_isolation() -> list[str]:
-    """מחזיר את Sentry למצב כבוי, ומחזיר מה היה צריך לתקן — רשימה ריקה כשהכול היה תקין.
+def shut_down_sentry() -> bool:
+    """מכבה כל לקוח Sentry שרשום באחד משלושת ה-scopes, ומחזיר האם היה לקוח פעיל.
 
-    כל מה שכאן נקרא בקוד של sentry-sdk 2.42.1. הלקוח מנותק מכל שלושת ה-scopes,
-    כי ``Scope.get_client`` (``sentry_sdk/scope.py``) מחזיר את הלקוח הפעיל הראשון
-    ב-current, אחר כך ב-isolation ורק אז ב-global, ו-``sentry_sdk.init`` שם אותו
-    ב-global בלבד — אבל קוד אחר יכול לשים לקוח גם בשניים האחרים.
-    ``Scope.set_client(None)`` שם במקומו ``NonRecordingClient``, שאינו פעיל.
-    ``close(timeout=0)`` עוצר את החוטים של הלקוח בלי להמתין: ``flush`` עם אפס אינו
-    ממתין, ו-``kill`` חוזר מיד (``sentry_sdk/transport.py``, ``sentry_sdk/worker.py``).
-    מה שכבר עמד בתור לשליחה עשוי עדיין לצאת.
+    זה הניקוי שבדיקה שחייבת לקוח אמיתי קוראת לו בסופה, וזה מה שהשומר עושה
+    כשבדיקה לא ניקתה. כל מה שכאן נקרא בקוד של sentry-sdk 2.42.1:
+
+    - **``close()`` לבדו אינו מספיק.** ``_Client.is_active`` מחזיר ``True`` תמיד
+      (``sentry_sdk/client.py``), ולכן לקוח סגור שעדיין רשום ב-scope ממשיך להיחשב
+      פעיל עבור ``get_client``. רק ``Scope.set_client(None)`` מכבה אותו — הוא שם
+      במקומו ``NonRecordingClient``, שאינו פעיל (``sentry_sdk/scope.py``).
+    - **כל שלושת ה-scopes, וכל לקוח שנמצא בהם.** ``Scope.get_client`` מחזיר רק את
+      הלקוח הפעיל הראשון — ב-current, אחר כך ב-isolation ורק אז ב-global — ו-
+      ``sentry_sdk.init`` שם לקוח ב-global בלבד. אבל קוד אחר יכול לשים לקוחות
+      שונים ב-scopes שונים, וסגירה של "הלקוח" בלבד הייתה משאירה את האחרים פתוחים,
+      עם החוטים שלהם. לכן הלקוחות נאספים מכל ה-scopes, כל אחד נסגר פעם אחת גם
+      כשהוא רשום בכמה מהם, וכל ה-scopes מנותקים.
+    - ``close(timeout=0)`` עוצר את החוטים של הלקוח בלי להמתין: ``flush`` עם אפס
+      אינו ממתין, ו-``kill`` חוזר מיד (``sentry_sdk/transport.py``,
+      ``sentry_sdk/worker.py``). מה שכבר עמד בתור לשליחה עשוי עדיין לצאת.
     """
+    if sentry_sdk is None:
+        return False
+    scopes = (
+        sentry_sdk.get_current_scope(),
+        sentry_sdk.get_isolation_scope(),
+        sentry_sdk.get_global_scope(),
+    )
+    live: list = []
+    for scope in scopes:
+        client = scope.client
+        if client.is_active() and not any(client is seen for seen in live):
+            live.append(client)
+    if not live:
+        return False
+    for scope in scopes:
+        scope.set_client(None)
+    for client in live:
+        client.close(timeout=0)
+    return True
+
+
+def restore_sentry_isolation() -> list[str]:
+    """מחזיר את Sentry למצב כבוי, ומחזיר מה היה צריך לתקן — רשימה ריקה כשהכול היה תקין."""
     problems: list[str] = []
     if os.environ.pop(DSN_ENV, None) is not None:
         problems.append(
@@ -74,20 +105,13 @@ def restore_sentry_isolation() -> list[str]:
             "ו-monkeypatch.delenv אחרי השמה ישירה אינו ניקוי: הוא זוכר את הערך שמצא ומחזיר אותו "
             "בסוף הבדיקה."
         )
-    if sentry_sdk is not None:
-        client = sentry_sdk.get_client()
-        if client.is_active():
-            problems.append(
-                "לקוח Sentry חי נשאר דלוק. בדיקה שבודקת את האתחול מחליפה את sentry_sdk או את "
-                "sentry_sdk.init בדמה דרך monkeypatch, ובדיקה שחייבת לקוח אמיתי סוגרת אותו בסופה."
-            )
-            for scope in (
-                sentry_sdk.get_current_scope(),
-                sentry_sdk.get_isolation_scope(),
-                sentry_sdk.get_global_scope(),
-            ):
-                scope.set_client(None)
-            client.close(timeout=0)
+    if shut_down_sentry():
+        problems.append(
+            "לקוח Sentry חי נשאר דלוק. בדיקה שבודקת את האתחול מחליפה את sentry_sdk או את "
+            "sentry_sdk.init בדמה דרך monkeypatch, ובדיקה שחייבת לקוח אמיתי קוראת בסופה ל-"
+            "_sentry_isolation.shut_down_sentry(), שמנתקת אותו מכל ה-scopes וסוגרת אותו. "
+            "close() לבדו אינו מספיק: לקוח סגור שעדיין רשום ב-scope נחשב פעיל."
+        )
     return problems
 
 

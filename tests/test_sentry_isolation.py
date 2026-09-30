@@ -90,22 +90,105 @@ def test_next_one_starts_without_a_client():
 """ % (_FAKE_DSN,)
 
 
+#: שני לקוחות אמיתיים, כל אחד ב-scope אחר. ``Scope.get_client`` מחזיר רק את
+#: הראשון מביניהם (current קודם ל-global), ולכן שומר שסוגר את "הלקוח" היה
+#: משאיר את השני פתוח, עם החוטים שלו.
+_TWO_CLIENTS = """
+import sentry_sdk
+from sentry_sdk.transport import Transport
+
+_CLIENTS = []
+
+
+class _Drop(Transport):
+    def capture_envelope(self, envelope):
+        pass
+
+
+def _client():
+    return sentry_sdk.Client(
+        dsn=%r,
+        transport=_Drop(),
+        default_integrations=False,
+        auto_enabling_integrations=False,
+    )
+
+
+def test_leaves_two_clients_in_two_scopes():
+    current, global_ = _client(), _client()
+    _CLIENTS.extend([current, global_])
+    sentry_sdk.get_current_scope().set_client(current)
+    sentry_sdk.get_global_scope().set_client(global_)
+
+
+def test_next_one_finds_both_closed():
+    assert len(_CLIENTS) == 2
+    assert [c.transport for c in _CLIENTS] == [None, None]
+    assert not sentry_sdk.get_client().is_active()
+""" % (_FAKE_DSN,)
+
+#: הניקוי שהתיעוד ממליץ עליו, מול ``close()`` לבדו. לקוח סגור שעדיין רשום
+#: ב-scope ממשיך להיחשב פעיל, ולכן רק הראשון עובר.
+_CLEANUP_WAYS = """
+import sentry_sdk
+from sentry_sdk.transport import Transport
+
+import _sentry_isolation
+
+
+class _Drop(Transport):
+    def capture_envelope(self, envelope):
+        pass
+
+
+def _init():
+    sentry_sdk.init(
+        dsn=%r,
+        transport=_Drop(),
+        default_integrations=False,
+        auto_enabling_integrations=False,
+    )
+
+
+def test_cleans_up_with_shut_down_sentry():
+    _init()
+    _sentry_isolation.shut_down_sentry()
+
+
+def test_only_closes():
+    _init()
+    sentry_sdk.get_client().close()
+
+
+def test_next_one_starts_without_a_client():
+    assert not sentry_sdk.get_client().is_active()
+""" % (_FAKE_DSN,)
+
+
+def _inner_env(env_extra: dict[str, str] | None = None) -> dict[str, str]:
+    """הסביבה לריצה הפנימית: בלי משתני ``PYTEST_*`` של הריצה החיצונית, ובלי כתובת.
+
+    ``PYTEST_ADDOPTS`` היה משנה את הדגלים, ו-``PYTEST_XDIST_WORKER`` ודומיו היו
+    מציגים לריצה הפנימית תהליך xdist שאינו קיים. כתובת נכנסת רק דרך ``env_extra``.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
+    env.pop(_sentry_isolation.DSN_ENV, None)
+    env.update(env_extra or {})
+    return env
+
+
 def _run_inner(workdir: Path, body: str, *, with_guard: bool, env_extra: dict[str, str] | None = None) -> str:
     """מריץ את ``body`` כקובץ בדיקות בסשן pytest נפרד, ומחזיר את כל הפלט.
 
     ``-B`` כדי שהפייתון הפנימי לא יכתוב ``__pycache__`` לתוך ``tests/`` כשהוא
-    מייבא משם את הפלאגין. ``PYTEST_ADDOPTS`` מוסר כדי שדגלים של הריצה החיצונית
-    לא ישנו את הפנימית.
+    מייבא משם את הפלאגין.
     """
     workdir.mkdir(parents=True, exist_ok=True)
     (workdir / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     (workdir / "test_inner.py").write_text(body, encoding="utf-8")
 
-    env = dict(os.environ)
-    env.pop("PYTEST_ADDOPTS", None)
-    env.pop(_sentry_isolation.DSN_ENV, None)
+    env = _inner_env(env_extra)
     env["PYTHONPATH"] = os.pathsep.join(p for p in (str(_TESTS_DIR), env.get("PYTHONPATH", "")) if p)
-    env.update(env_extra or {})
 
     args = [sys.executable, "-B", "-m", "pytest", "-q", "-rA", "-p", "no:cacheprovider"]
     if with_guard:
@@ -182,6 +265,41 @@ def test_without_the_guard_a_live_client_does_reach_the_next_test(tmp_path):
     )
 
 
+def test_two_clients_in_two_scopes_are_both_closed(tmp_path):
+    """כל לקוח ששייך לאחד משלושת ה-scopes נסגר, ולא רק זה ש-``get_client`` מחזיר."""
+    output = _run_inner(tmp_path, _TWO_CLIENTS, with_guard=True)
+
+    assert "ERROR test_inner.py::test_leaves_two_clients_in_two_scopes" in output, (
+        f"הבדיקה שהשאירה שני לקוחות לא נכשלה בשמה:\n{output}"
+    )
+    assert "PASSED test_inner.py::test_next_one_finds_both_closed" in output, (
+        f"אחד הלקוחות נותק ולא נסגר, או נשאר פעיל:\n{output}"
+    )
+
+
+def test_the_recommended_cleanup_passes_and_close_alone_does_not(tmp_path):
+    """הניקוי שבתיעוד ובהודעת הכישלון — ``shut_down_sentry`` — באמת מספיק, ו-``close()`` לבדו לא.
+
+    ``_Client.is_active`` מחזיר ``True`` תמיד (sentry-sdk 2.42.1), ולכן לקוח
+    סגור שעדיין רשום ב-scope נשאר "פעיל" בעיני ``get_client``. הבדיקה מקבעת את
+    ההנחיה עצמה: אילו היא הייתה שגויה, מי שהולך לפיה היה נכשל בשומר.
+    """
+    output = _run_inner(tmp_path, _CLEANUP_WAYS, with_guard=True)
+
+    assert "PASSED test_inner.py::test_cleans_up_with_shut_down_sentry" in output, (
+        f"הניקוי המומלץ לא עבר:\n{output}"
+    )
+    assert "ERROR test_inner.py::test_cleans_up_with_shut_down_sentry" not in output, (
+        f"השומר תפס בדיקה שניקתה בדרך המומלצת:\n{output}"
+    )
+    assert "ERROR test_inner.py::test_only_closes" in output, (
+        f"close() לבדו עבר — כלומר ההבדל שהתיעוד מסביר אינו קיים:\n{output}"
+    )
+    assert "PASSED test_inner.py::test_next_one_starts_without_a_client" in output, (
+        f"הבדיקה הבאה ירשה לקוח חי:\n{output}"
+    )
+
+
 def test_a_dsn_from_the_outer_environment_never_reaches_the_tests(tmp_path):
     """כתובת אמיתית מהמעטפת של מי שמריץ — או מסוד ב-CI — אינה מגיעה לאף בדיקה."""
     body = "import os\n" + _NEXT_STARTS_CLEAN
@@ -196,6 +314,40 @@ def test_a_dsn_from_the_outer_environment_never_reaches_the_tests(tmp_path):
     assert "FAILED test_inner.py::test_next_one_starts_clean" in without_guard, (
         f"בלי הפלאגין הכתובת לא הגיעה — התרחיש אינו משחזר את המצב:\n{without_guard}"
     )
+
+
+def test_no_dsn_is_in_the_environment_while_tests_run():
+    """בריצה רגילה זה נכון מאליו, כי אין כתובת. המשמעות היא כשמריצים את הבדיקה
+    הזו עם ``SENTRY_DSN`` בסביבה — וזה בדיוק מה שהבדיקה הבאה עושה."""
+    assert _sentry_isolation.DSN_ENV not in os.environ
+
+
+def test_through_the_real_conftest_a_dsn_from_the_outer_environment_is_removed(tmp_path):
+    """ההסרה בתחילת הריצה עובדת גם במסלול שבו הפלאגין נרשם בפועל — מתוך ``tests/conftest.py``.
+
+    הבדיקה שמעליה טוענת את הפלאגין ב-``-p``, כלומר לפני ``pytest_configure``.
+    בריצה האמיתית הוא נרשם **בתוך** ``pytest_configure`` של ה-conftest, והטענה
+    שה-``pytest_configure`` שלו רץ גם אז נשענת על כך ש-pluggy מריץ hook
+    היסטורי על פלאגין שנרשם אחרי הקריאה (``HookCaller.call_historic`` ו-
+    ``_maybe_apply_history``, pluggy 1.6.0). כאן זה נמדד ולא מונח: pytest רץ
+    מתוך שורש הריפו, עם ה-conftest-ים האמיתיים וכתובת בסביבה.
+
+    ``-B`` ו-``cache_dir`` ב-``tmp_path`` כדי שהריצה לא תכתוב לתוך הריפו, ו-
+    ``addopts`` ריק כדי שלא תמדוד כיסוי.
+    """
+    target = "tests/test_sentry_isolation.py::test_no_dsn_is_in_the_environment_while_tests_run"
+    finished = subprocess.run(
+        [sys.executable, "-B", "-m", "pytest", "-q", "-rA", "-o", "addopts=",
+         "-o", f"cache_dir={tmp_path / 'pytest_cache'}", target],
+        cwd=_TESTS_DIR.parent,
+        env=_inner_env({_sentry_isolation.DSN_ENV: _FAKE_DSN}),
+        capture_output=True,
+        text=True,
+        timeout=_OUTER_BUDGET,
+    )
+    output = finished.stdout + finished.stderr
+
+    assert f"PASSED {target}" in output, f"הכתובת מהסביבה החיצונית הגיעה לבדיקה בריצה האמיתית:\n{output}"
 
 
 def test_when_the_teardown_itself_fails_the_finding_rides_on_its_error(tmp_path):
