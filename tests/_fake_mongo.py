@@ -52,6 +52,10 @@ class _Res:
         # ``Repository.save_code_snippet`` reads ``inserted_id`` to decide the
         # save happened; a result without it reads as a failed insert.
         self.inserted_id = inserted
+        # ``ProductionBackend.create_upload`` refuses an unacknowledged insert
+        # (``w=0``) — pymongo's ``_WriteResult.acknowledged``, ``False`` only
+        # there (``pymongo/results.py``, 4.15.3). The fake's writes all happen.
+        self.acknowledged = True
 
 
 #: What the matcher and the writer implement. Anything else raises instead of

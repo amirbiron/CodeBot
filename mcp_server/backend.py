@@ -63,7 +63,17 @@ from services.markdown_files import is_markdown_file
 
 # מודול שורש טהור (``datetime`` ו-``typing`` בלבד), ולכן ייבוא ישיר ולא עצל:
 # הוא אינו גורר את שכבת המסד. ראו ``file_dates.py``.
-from file_dates import version_created_at
+from file_dates import as_utc, version_created_at
+
+# המפרט של העלאות ה-MCP — אותו סוג מודול שורש טהור, ומאותה סיבה ייבוא ישיר.
+from mcp_uploads import (
+    MCP_UPLOADS_COLLECTION,
+    UPLOAD_EXPIRES_FIELD,
+    UPLOAD_TTL_SECONDS,
+    UploadStorageUnavailable,
+    is_upload_ttl_index,
+    new_upload_id,
+)
 
 # גיל התיאור — אותו סוג מודול שורש טהור בדיוק, ולכן אותו ייבוא ישיר.
 from file_description import DESCRIPTION_SET_AT_VERSION_FIELD, description_age_field
@@ -153,15 +163,31 @@ _NOTE_FIELDS = (
     "board_id", "mode", "title", "repo_name", "repo_path",
 )
 
-class _NoteIndex(_enum.Enum):
+class _EnforcedIndex(_enum.Enum):
     """זהות אינדקס אכיפה — במקום שם מחרוזתי שנפתר ב-``getattr``.
 
-    הערך הוא גם התווית שמופיעה בלוגים, כך שאין שני מקורות אמת לשם.
+    הערך הוא זוג: התווית שמופיעה בלוגים, ומה קורה כל עוד האינדקס לא אומת. שניהם
+    כאן כדי שאין שני מקורות אמת לשם, ושאף אינדקס לא יירשם בלי שנאמר מה המחיר של
+    היעדרו — ההודעה המשותפת הקודמת ("falling back to a code check") הייתה נכונה
+    לאינדקסי השם בלבד, ונרשמה כך גם על גרסאות הפתקים, שבהן הצילום פשוט נדחה.
+
+    **השם אינו "של פתקים", ובכוונה.** המנוע נכתב לפתקים, וגם העלאות ה-MCP נשענות
+    עליו (``UPLOAD_TTL``): שם שמצהיר על תחום אחד היה מזמין שינוי לצורכי פתקים
+    שמשנה בשקט גם את ההעלאות.
     """
 
-    BOARD_TITLE = "one_title_per_board"
-    REPO_TITLE = "one_title_per_repo_file"
-    NOTE_VERSIONS = "one_number_per_note_version"
+    BOARD_TITLE = ("one_title_per_board", "falling back to a code check")
+    REPO_TITLE = ("one_title_per_repo_file", "falling back to a code check")
+    NOTE_VERSIONS = ("one_number_per_note_version", "note snapshots are refused")
+    UPLOAD_TTL = ("uploads_expire_on_time", "uploads are refused (503)")
+
+    @property
+    def label(self) -> str:
+        return self.value[0]
+
+    @property
+    def meanwhile(self) -> str:
+        return self.value[1]
 
 
 class _IndexGate:
@@ -689,6 +715,32 @@ def _content_sha256(text: str) -> str:
     קידוד BSON ולכן לא נשמרת, וכאן היא הייתה נופלת ולא מגובבת חלקית.
     """
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _live_upload(user_id: int, upload_id: str) -> dict[str, Any]:
+    """המסנן של העלאה **חיה** של משתמש: המזהה, הבעלים, ו-``expires_at > now``.
+
+    **מסנן אחד, לשליפה ולמחיקה.** שער חד-פעמיות שמסנן אחרת מהשליפה שלפניו היה
+    מוחק — או לא מוחק — משהו אחר ממה שנבדק. ``expires_at`` נבדק כאן ולא רק
+    במונגו, כי המחיקה של TTL עצלה (``mcp_uploads.UPLOAD_TTL_EXPIRE_AFTER_SECONDS``),
+    ו-``now`` טרי בכל קריאה: העלאה שפקעה בין השליפה למחיקה אינה נצרכת.
+    """
+    return {
+        "upload_id": upload_id,
+        "user_id": int(user_id),
+        UPLOAD_EXPIRES_FIELD: {"$gt": _dt.datetime.now(_dt.timezone.utc)},
+    }
+
+
+def _upload_storage_error(operation: str) -> UploadStorageUnavailable:
+    """רושם שגיאת pymongo של אחסון ההעלאות ומחזיר את החריגה שהקוראים תופסים.
+
+    נקרא רק מתוך ``except _PyMongoError``, ולכן ``exc_info`` הוא החריגה ההיא.
+    ``exc_info`` של pymongo נבדק מול 4.15.3 — בלי סיסמה מכתובת החיבור (ראו
+    ``save_file``). בלי מזהה ההעלאה ובלי התוכן.
+    """
+    logger.warning("mcp upload storage: could not %s", operation, exc_info=True)
+    return UploadStorageUnavailable(operation)
 
 
 def _file_meta(out: dict[str, Any]) -> dict[str, Any]:
@@ -1523,6 +1575,155 @@ class ProductionBackend:
             result["items"] = [_strip_heavy(item) for item in result["items"]]
         return result
 
+    # -- העלאות ממתינות (``PUT /api/agent/upload``) -------------------------
+    #
+    # הראוט (``mcp_server/uploads.py``) כותב, ו-``codekeeper_save_file`` /
+    # ``codekeeper_append_file`` צורכים. המפרט — ``mcp_uploads.py``.
+    #
+    # **ערוץ הכשל: ``UploadStorageUnavailable``.** שגיאת pymongo בלבד מתורגמת
+    # אליה, ונרשמת כאן פעם אחת; כל חריגה אחרת היא באג ועולה כמו שהיא — אותה
+    # הכרעה של הקריאה החוזרת ב-``save_file``, ומאותה סיבה: באג שמוצג כתקלה
+    # רגעית נראה כמו משהו שיעבור מעצמו.
+    def _uploads_coll(self) -> Any:
+        return self._raw_mongo()[MCP_UPLOADS_COLLECTION]
+
+    def _confirm_upload_ttl(self, coll: Any) -> bool:
+        """הבנאי של שער ``UPLOAD_TTL``: בונה דרך ההצהרה היחידה, ומאמת בקריאה חוזרת.
+
+        ``ensure_mcp_uploads_indexes`` היא אותה פונקציה שרצה בכל עלייה, ולכן אין
+        כאן מפרט שני. **ערך ההחזרה שלה אינו ההכרעה**, בכוונה: כשל שלה כבר יצא
+        שם כאירוע ברמת error, וההכרעה היא ``list_indexes`` — הדגל נדלק רק כשהמסד
+        עצמו מראה TTL במפרט, ולא כי פונקציה אמרה שבנתה אותו
+        (``docs/performance-sticky-notes.rst``, "הדגל נכתב רק אחרי אימות בקריאה
+        חוזרת"; ``_ensure_versions_index`` עושה אותו דבר).
+        """
+        self._require_dbm().ensure_mcp_uploads_indexes()
+        return any(is_upload_ttl_index(row) for row in coll.list_indexes())
+
+    def upload_storage_ready(self) -> bool:
+        """האם מותר לקבל העלאה: ה-TTL שמוחק העלאות שלא נצרכו **אומת** במסד.
+
+        בלעדיו "חמש העלאות ממתינות" הוא חסם על הנייר — הספירה מדלגת על מה
+        שפקע, והתוכן נשאר לצמיתות. לכן fail-closed, עם ניסיון בנייה חוזר אחרי
+        ``_INDEX_RETRY_SECONDS`` — אותו מנוע ואותה הכרעה של צילומי הפתקים
+        (``snapshot_failed``). אחרי שאומת פעם אחת בתהליך, זו בדיקת דגל בלבד.
+        """
+        return self._ensure_enforced_index(
+            self._uploads_coll(), _EnforcedIndex.UPLOAD_TTL, self._confirm_upload_ttl
+        )
+
+    def pending_upload_expiries(self, user_id: int, *, limit: int) -> list[_dt.datetime]:
+        """מועדי הפקיעה של ההעלאות החיות של המשתמש, מהקרוב לרחוק — עד ``limit``.
+
+        שאילתה אחת לשתי השאלות של מכסת הממתינות: האם הגענו לתקרה (חזרו
+        ``limit`` מועדים), ומתי יתפנה מקום (הראשון). נשען על האינדקס
+        ``(user_id, expires_at)``: שוויון, ואז טווח ומיון על אותו שדה.
+        """
+        query = {
+            "user_id": int(user_id),
+            UPLOAD_EXPIRES_FIELD: {"$gt": _dt.datetime.now(_dt.timezone.utc)},
+        }
+        try:
+            docs = list(
+                self._uploads_coll()
+                .find(query, {UPLOAD_EXPIRES_FIELD: 1, "_id": 0})
+                .sort(UPLOAD_EXPIRES_FIELD, 1)
+                .limit(int(limit))
+            )
+        except _PyMongoError as exc:
+            raise _upload_storage_error("count pending uploads") from exc
+        return [as_utc(doc[UPLOAD_EXPIRES_FIELD]) for doc in docs]
+
+    def create_upload(self, user_id: int, *, text: str, size_bytes: int) -> dict[str, Any]:
+        """שומר העלאה ומחזיר ``{"upload_id", "content_sha256"}``.
+
+        ``content_sha256`` מחושב ב-:func:`_content_sha256` — ההגדרה של
+        ``file.content_sha256``, ולכן ה-hash שהסוכן מקבל עכשיו הוא מה ש-
+        ``file.content_sha256`` יהיה אחרי השמירה. ``size_bytes`` הוא אורך הבתים
+        שהגיעו; פענוח UTF-8 קפדני מחזיר בדיוק אותם בתים בקידוד חוזר, ולכן זה
+        גם האורך של ``text`` ב-UTF-8.
+
+        שורת ה-``INFO`` כאן היא הנראות היחידה של העלאה בייצור: PostHog אינו רואה
+        ראוטים, וסירובים אינם נרשמים (#3432). בלי המזהה ובלי התוכן.
+        """
+        now = _dt.datetime.now(_dt.timezone.utc)
+        upload_id = new_upload_id()
+        content_sha256 = _content_sha256(text)
+        try:
+            result = self._uploads_coll().insert_one(
+                {
+                    "upload_id": upload_id,
+                    "user_id": int(user_id),
+                    "text": text,
+                    "bytes": int(size_bytes),
+                    "chars": len(text),
+                    "content_sha256": content_sha256,
+                    "created_at": now,
+                    # מועד המחיקה עצמו — ``expireAfterSeconds`` הוא 0, ולכן משך
+                    # החיים מוגדר רק כאן (ראו ``mcp_uploads.UPLOAD_EXPIRES_FIELD``).
+                    UPLOAD_EXPIRES_FIELD: now + _dt.timedelta(seconds=UPLOAD_TTL_SECONDS),
+                }
+            )
+        except _PyMongoError as exc:
+            raise _upload_storage_error("store an upload") from exc
+        # כתיבה שלא אושרה (``w=0``) אינה עדות שנשמר דבר, ומזהה שיימסר עליה היה
+        # נענה ``upload_not_found`` בצריכה. ``acknowledged`` הוא ``False`` רק שם
+        # (``pymongo/results.py``, ``_WriteResult.acknowledged``).
+        if not result.acknowledged:
+            logger.warning("mcp upload storage: the insert was not acknowledged (w=0)")
+            raise UploadStorageUnavailable("store an upload: the write was not acknowledged")
+        logger.info(
+            "mcp upload: stored %d bytes, %d chars for user %s", int(size_bytes), len(text), user_id
+        )
+        return {"upload_id": upload_id, "content_sha256": content_sha256}
+
+    def find_upload(self, user_id: int, upload_id: str) -> dict[str, Any] | None:
+        """ההעלאה החיה של המשתמש — ``{"text", "bytes"}`` — או ``None``.
+
+        ``None`` אחד לשלושה מצבים — פגה, נצרכה, של משתמש אחר — **בלי לגלות
+        איזה**, כמו ``get_note`` על פתק של אחר. אינה צורכת: ``file_exists`` ו-
+        ``existence_check_unavailable`` שבאים אחריה אינם שורפים את ההעלאה.
+
+        טקסט שאינו מחרוזת נופל בקול (``TypeError``, עם שם הטיפוס בלבד), כמו
+        ``_full``: אין כותב שכותב דבר כזה, ולכן זה חוזה שנשבר.
+        """
+        try:
+            doc = self._uploads_coll().find_one(
+                _live_upload(user_id, upload_id), {"text": 1, "bytes": 1, "_id": 0}
+            )
+        except _PyMongoError as exc:
+            raise _upload_storage_error("read an upload") from exc
+        if doc is None:
+            return None
+        text = doc.get("text")
+        if not isinstance(text, str):
+            raise TypeError(f"stored upload text is {type(text).__name__}, not str")
+        return {"text": text, "bytes": int(doc.get("bytes") or 0)}
+
+    def consume_upload(
+        self, user_id: int, upload_id: str, *, tool: str, size_bytes: int, chars: int
+    ) -> bool:
+        """מוחק את ההעלאה — **השער לחד-פעמיות**. ``True`` רק כשהמחיקה הזו מחקה אותה.
+
+        ``delete_one`` אטומי במסד, ולכן משתי צריכות מקבילות של אותו מזהה רק אחת
+        רואה ``deleted_count == 1``; השנייה רואה 0 ואינה שומרת. זה נכון גם מחוץ
+        לתור הכתיבה של התהליך. אותו מסנן של :meth:`find_upload` (:func:`_live_upload`).
+
+        ``tool``, ``size_bytes`` ו-``chars`` הם לשורת ה-``INFO`` בלבד.
+        """
+        try:
+            consumed = self._uploads_coll().delete_one(_live_upload(user_id, upload_id)).deleted_count == 1
+        except _PyMongoError as exc:
+            # כולל ``InvalidOperation`` על כתיבה שלא אושרה — ``deleted_count``
+            # אינו זמין שם (``pymongo/results.py``), ולכן אין כאן עדות למחיקה.
+            raise _upload_storage_error("consume an upload") from exc
+        if consumed:
+            logger.info(
+                "mcp upload: consumed by %s (%d bytes, %d chars) for user %s",
+                tool, int(size_bytes), int(chars), user_id,
+            )
+        return consumed
+
     # -- sticky notes ------------------------------------------------------
     def _raw_mongo(self) -> Any:
         mongo = self._mongo if self._mongo is not None else getattr(self._require_dbm(), "db", None)
@@ -1591,25 +1792,35 @@ class ProductionBackend:
         return coll
 
     #: כמה להמתין בין ניסיונות בנייה כושלים, בשניות
-    _TITLE_INDEX_RETRY_SECONDS = 60.0
+    _INDEX_RETRY_SECONDS = 60.0
 
-    def _ensure_note_index(
-        self, coll: Any, which: _NoteIndex, builder: Callable[[Any], bool]
+    def _ensure_enforced_index(
+        self, coll: Any, which: _EnforcedIndex, builder: Callable[[Any], bool]
     ) -> bool:
-        """המנוע המשותף לשני אינדקסי השם. מחזיר האם האילוץ **חי** כרגע.
+        """המנוע המשותף לאינדקסי האכיפה. מחזיר האם האילוץ **חי** כרגע.
 
         לכל אינדקס :class:`_IndexGate` משלו, כלומר זוג דגלים **עצמאי**. זה
         לא סגנון: דגל משותף היה נותן לכשל של האחד לחסום את הניסיון של
         השני, ולהצלחה של האחד להדליק אכיפה שלא אומתה עבור השני — כלומר
         ``duplicate_title`` שמובטח ולא קיים.
 
-        **הזהות היא ``_NoteIndex`` והבנאי הוא פונקציה**, ולא שמות
+        **הזהות היא ``_EnforcedIndex`` והבנאי הוא פונקציה**, ולא שמות
         מחרוזתיים שנפתרים ב-``getattr``. ההבדל אינו קוסמטי: שם מוטעה של
         דגל היה נקרא כ-``False`` לתמיד, כלומר האינדקס היה נבנה מחדש בכל
         קירור — דרדור שקט לכל חיי התהליך במקום שגיאת תכנות. עכשיו טעות
         בשם היא ``NameError`` באתר הקריאה.
+
+        **בלי נעילה, ובכוונה.** ``retry_at`` נקבע **לפני** הבנייה, ולכן קורא
+        שמגיע בזמן שחוט אחר בונה מקבל ``False`` מיד — "לא מאומת עדיין" — ואינו
+        ממתין. זו הבחירה ההפוכה מנעילה סביב הבדיקה והבנייה, והיא נובעת מהתקלה
+        שבגללה הפתקים קיבלו דגלי מוכנות: בנייה של אינדקסים במסלול הבקשה, תחת
+        מנעול משותף, שהבקשות הצטברו מאחוריו (``docs/performance-sticky-notes.rst``).
+        כאן זה היה חוט שממתין לכל אורך בנייה איטית — ובראוט ההעלאה, חוט מהמאגר
+        של anyio, שמשרת גם את אימות ה-PAT. המחיר: בקשה מקבילה לבנייה הראשונה
+        נדחית (fail-closed) במקום להמתין לתוצאה. היא אינה משתמשת באילוץ שלא
+        אומת, ולכן אין כאן פרסום של שומר לפני ערך — יש סירוב מוקדם.
         """
-        gates = self.__dict__.setdefault("_note_index_gates", {})
+        gates = self.__dict__.setdefault("_enforced_index_gates", {})
         gate = gates.get(which)
         if gate is None:
             gate = gates[which] = _IndexGate()
@@ -1619,21 +1830,21 @@ class ProductionBackend:
         now = _time.monotonic()
         if now < gate.retry_at:
             return False
-        gate.retry_at = now + self._TITLE_INDEX_RETRY_SECONDS
+        gate.retry_at = now + self._INDEX_RETRY_SECONDS
         try:
             gate.ok = bool(builder(coll))
         except Exception:
             gate.ok = False
-            logger.error("%s index creation failed", which.value, exc_info=True)
+            logger.error("%s index creation failed", which.label, exc_info=True)
         if not gate.ok:
-            logger.error("%s index not confirmed — falling back to a code check", which.value)
+            logger.error("%s index not confirmed — %s", which.label, which.meanwhile)
         return gate.ok
 
     def _ensure_title_index(self, coll: Any) -> bool:
         """בונה ומאמת את אינדקס שם-פתק-בלוח. מחזיר האם האילוץ **חי** כרגע."""
         from sticky_notes_target import ensure_title_index
 
-        return self._ensure_note_index(coll, _NoteIndex.BOARD_TITLE, ensure_title_index)
+        return self._ensure_enforced_index(coll, _EnforcedIndex.BOARD_TITLE, ensure_title_index)
 
     def _ensure_repo_title_index(self, coll: Any) -> bool:
         """אח מקביל לפתקי ריפו — "שם אחד לכל קובץ בריפו".
@@ -1645,7 +1856,7 @@ class ProductionBackend:
         """
         from sticky_notes_target import ensure_repo_title_index
 
-        return self._ensure_note_index(coll, _NoteIndex.REPO_TITLE, ensure_repo_title_index)
+        return self._ensure_enforced_index(coll, _EnforcedIndex.REPO_TITLE, ensure_repo_title_index)
 
     # -- מסלול היצירה המשותף ---------------------------------------------
     #
@@ -2425,12 +2636,12 @@ class ProductionBackend:
         האינדקס הייחודי אינו קוסמטי: הוא מה שהופך מספר גרסה כפול משתי
         כתיבות מקבילות לשגיאה שנתפסת — ו-``_snapshot_note`` מתרגם אותה
         לניסיון חוזר עם המספר הבא. ולכן הבנייה עוברת דרך
-        ``_ensure_note_index``, **לא** דרך דגל "ניסינו" חד-פעמי: דגל
+        ``_ensure_enforced_index``, **לא** דרך דגל "ניסינו" חד-פעמי: דגל
         שנדלק לפני הניסיון הופך כשל רשת חולף אחד בעליית התהליך לתהליך
         שלם שכותב גרסאות בלי האילוץ שההבטחה נשענת עליו.
         """
         coll = self._raw_mongo()["sticky_note_versions"]
-        self._ensure_note_index(coll, _NoteIndex.NOTE_VERSIONS, self._ensure_versions_index)
+        self._ensure_enforced_index(coll, _EnforcedIndex.NOTE_VERSIONS, self._ensure_versions_index)
         return coll
 
     #: כמה פעמים לנסות שוב כששני צילומים מקבילים התנגשו על אותו מספר גרסה
@@ -2470,7 +2681,7 @@ class ProductionBackend:
         # החוזר וההשהיה שלו) היא fail-closed, באותו היגיון שבו כשל צילום
         # עוצר את הדריסה. קריאות (רשימה/שליפה/גיזום) אינן חסומות — הן
         # אינן זקוקות לאילוץ.
-        if not self._ensure_note_index(coll, _NoteIndex.NOTE_VERSIONS, self._ensure_versions_index):
+        if not self._ensure_enforced_index(coll, _EnforcedIndex.NOTE_VERSIONS, self._ensure_versions_index):
             logger.error("note snapshot refused: unique version index unconfirmed")
             return False, None
         nid = str(note.get("_id"))

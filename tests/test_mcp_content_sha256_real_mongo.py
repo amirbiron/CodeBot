@@ -13,13 +13,22 @@
 במקום (``update_one`` על ``code``, כמו ``check_file_sync`` ב-
 ``database/bookmarks_manager.py``) נענית ``conflict`` בשער ``expected_content_sha256``.
 
+**ואותה מטריצה עוברת גם בהעלאה** — ``PUT /api/agent/upload`` ואז ``codekeeper_save_file``
+עם ``upload_id``: הטקסט עובר שם פעמיים דרך BSON, באוסף ההעלאות ובאוסף הקבצים, ושלושה
+hash-ים — של הבתים, של תשובת ההעלאה ושל הקובץ — חייבים להיות אחד. לידה ההצהרה על
+אינדקסי ההעלאות מול ``mongod`` אמיתי, ו-``delete_one`` אמיתי כשער החד-פעמיות.
+
 **בלי ``NOTE_FONTS_TEST_MONGO_URI`` הקובץ מדולג** (``wired_mongo`` ב-``tests/conftest.py``),
 וב-CI הוא מדולג. הפלט של ההרצה המקומית בגוף ה-PR.
 
 אין כאן קלט או פלט לדיסק; כל מה שנכתב הולך למסד הזמני שהפיקסצ'ר יוצר ומוחק.
 
-הרצה מקומית::
+הרצה מקומית — **``MONGODB_URL`` לאותו שרת**, ולא רק המשתנה הייעודי: ``tests/conftest.py``
+קובע לו ברירת מחדל של ``localhost:27017``, ניסיון חיבור שנכשל שם מדליק את חלון הצינון
+של ``get_db`` ב-``webapp/app.py``, ובתוכו ``wired_mongo.get_db()`` מחזיר ``None`` (נמדד
+ב-2026-09-30, מול mongod 8.0.15 על פורט אחר)::
 
+    MONGODB_URL='mongodb://127.0.0.1:27017/cktest_import' \\
     NOTE_FONTS_TEST_MONGO_URI='mongodb://127.0.0.1:27017' \\
         pytest tests/test_mcp_content_sha256_real_mongo.py -v
 """
@@ -59,10 +68,24 @@ CASES = {
 class _ManagerOnCollection:
     """``DatabaseManager`` מינימלי מעל ה-collection של מסד הבדיקה, שמאציל ל-``Repository``
     **האמיתי** — כמו ב-``tests/test_mcp_description_age.py``, ומאותה סיבה: המנהל האמיתי
-    מתחבר לפי הקונפיג הגלובלי, ואי אפשר להפנות אותו למסד הזמני."""
+    מתחבר לפי הקונפיג הגלובלי, ואי אפשר להפנות אותו למסד הזמני.
 
-    def __init__(self, collection):
+    ``db`` — המסד הזמני, בשביל ההצהרה על אינדקסי ההעלאות: ``safe_create_index``
+    ו-``_create_mcp_uploads_indexes`` האמיתיים, מול ``mongod`` אמיתי."""
+
+    def __init__(self, collection, db=None):
         self.collection = collection
+        self.db = db
+
+    def safe_create_index(self, *args, **kwargs):
+        from database.manager import DatabaseManager
+
+        return DatabaseManager.safe_create_index(self, *args, **kwargs)
+
+    def ensure_mcp_uploads_indexes(self):
+        from database.manager import DatabaseManager
+
+        return DatabaseManager.ensure_mcp_uploads_indexes(self)
 
     def _repo(self):
         from database.repository import Repository
@@ -89,6 +112,7 @@ class _ManagerOnCollection:
 def mongo_db(wired_mongo):
     db = wired_mongo.get_db()
     db.code_snippets.delete_many({})
+    db.mcp_uploads.delete_many({})
     return db
 
 
@@ -97,16 +121,21 @@ def mcp(monkeypatch, mongo_db):
     import mcp.server.auth.middleware.auth_context as auth_context
 
     import mcp_server.server as srv
-    from mcp_server.backend import ProductionBackend
 
     load_production_config(monkeypatch)
     clear_local_cache()
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setattr(srv, "current_user_id", lambda ctx=None: USER)
     monkeypatch.setattr(auth_context, "get_access_token", lambda: SimpleNamespace(scopes=["read", "write"]))
-    yield srv.build_mcp(ProductionBackend(db_manager=_ManagerOnCollection(mongo_db.code_snippets),
-                                          mongo_db=mongo_db))
+    yield srv.build_mcp(_backend(mongo_db))
     clear_local_cache()
+
+
+def _backend(mongo_db):
+    from mcp_server.backend import ProductionBackend
+
+    return ProductionBackend(db_manager=_ManagerOnCollection(mongo_db.code_snippets, mongo_db),
+                             mongo_db=mongo_db)
 
 
 def _call(mcp, tool: str, **args) -> dict:
@@ -215,3 +244,75 @@ def test_find_version_by_id_returns_a_document_only_to_its_owner(mongo_db):
 
     assert manager.find_version_by_id(inserted.inserted_id, USER)["code"] == "שלי\n"
     assert manager.find_version_by_id(inserted.inserted_id, USER + 1) is None
+
+
+# ---------------------------------------------------------------------------
+# העלאה (``PUT /api/agent/upload``) ושמירה לפי ``upload_id`` — דרך BSON והדרייבר
+# ---------------------------------------------------------------------------
+
+
+def _upload(mongo_db, raw: bytes) -> dict:
+    """הבתים דרך הראוט האמיתי, על האפליקציה המלאה במצב PAT, מול אותו מסד."""
+    from starlette.testclient import TestClient
+
+    from _mcp_apps import PatTokens, app_in_mode
+
+    tokens = PatTokens({"ckmcp_rt": {"user_id": USER, "scopes": ["read"]}})
+    with TestClient(app_in_mode("pat", _backend(mongo_db), tokens=tokens)) as client:
+        response = client.put("/api/agent/upload", content=raw, headers={"authorization": "Bearer ckmcp_rt"})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+def test_an_upload_through_bson_is_saved_as_the_bytes_that_were_sent(mcp, mongo_db, case):
+    """שלושה hash-ים שווים — ``hashlib`` על הבתים, תשובת ההעלאה, ו-``file.content_sha256``
+    בשמירה ובקריאה — והמחרוזת באוסף היא בדיוק מה שנשלח. הטקסט עובר כאן פעמיים דרך
+    BSON: באוסף ההעלאות, ובאוסף הקבצים."""
+    from bson import ObjectId
+
+    sent = CASES[case]
+    raw = sent.encode("utf-8")
+    uploaded = _upload(mongo_db, raw)
+    file_name = f"up_{case}.txt"
+
+    saved = _call(mcp, "codekeeper_save_file", file_name=file_name, upload_id=uploaded["upload_id"])
+    assert saved["ok"] is True and saved["content_changed"] is False, saved
+    stored = mongo_db.code_snippets.find_one({"_id": ObjectId(saved["file"]["id"])})["code"]
+    read = _call(mcp, "codekeeper_get_file", file_name=file_name)["file"]
+
+    local = hashlib.sha256(raw).hexdigest()
+    assert stored == sent and read["code"] == sent
+    assert uploaded["content_sha256"] == saved["file"]["content_sha256"] == read["content_sha256"] == local
+    assert mongo_db.mcp_uploads.count_documents({}) == 0
+
+
+def test_the_upload_indexes_are_built_and_the_gate_reads_them_back_from_a_real_server(mongo_db):
+    """ההצהרה האמיתית מול ``mongod``: TTL על ``expires_at`` בחלון 0, ייחודי על המזהה,
+    ושער המוכנות נפתח על מה ש-``list_indexes`` מחזיר."""
+    from mcp_uploads import is_upload_ttl_index
+
+    assert _backend(mongo_db).upload_storage_ready() is True
+    rows = {row["name"]: row for row in mongo_db.mcp_uploads.list_indexes()}
+    assert is_upload_ttl_index(rows["mcp_uploads_ttl"])
+    assert rows["mcp_uploads_ttl"]["expireAfterSeconds"] == 0
+    assert rows["mcp_uploads_upload_id"]["unique"] is True
+    assert dict(rows["mcp_uploads_user_expires"]["key"]) == {"user_id": 1, "expires_at": 1}
+
+
+def test_a_real_delete_is_the_gate_and_an_expired_upload_is_gone_before_the_monitor(mongo_db):
+    """``deleted_count`` של ``delete_one`` אמיתי הוא השער; ופקיעה נאכפת בשאילתה, בלי
+    לחכות למוניטור ה-TTL, שרץ בערך פעם בדקה."""
+    from datetime import datetime, timedelta, timezone
+
+    backend = _backend(mongo_db)
+    first = backend.create_upload(USER, text="אחת\n", size_bytes=len("אחת\n".encode("utf-8")))["upload_id"]
+    assert backend.consume_upload(USER, first, tool="t", size_bytes=1, chars=1) is True
+    assert backend.consume_upload(USER, first, tool="t", size_bytes=1, chars=1) is False
+
+    old = backend.create_upload(USER, text="ישן\n", size_bytes=len("ישן\n".encode("utf-8")))["upload_id"]
+    mongo_db.mcp_uploads.update_one(
+        {"upload_id": old}, {"$set": {"expires_at": datetime.now(timezone.utc) - timedelta(seconds=5)}})
+    assert backend.find_upload(USER, old) is None
+    assert backend.consume_upload(USER, old, tool="t", size_bytes=1, chars=1) is False
+    assert backend.pending_upload_expiries(USER, limit=5) == []

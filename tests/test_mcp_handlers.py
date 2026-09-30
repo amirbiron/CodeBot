@@ -113,11 +113,16 @@ def test_save_file_rejects_missing_name():
 
 
 def test_save_file_rejects_empty_code():
+    """תוכן ריק ובלי ``upload_id`` — "אף אחד מהשניים": אותה שגיאה, ורמז שמזכיר את ההעלאה.
+
+    עד ההעלאות התשובה הייתה שני שדות בדיוק. ``hint`` נוסף כי ``empty_code`` הוא
+    עכשיו גם התשובה לקריאה בלי ``code`` בכלל (``code: str = ""``), והסוכן צריך
+    לדעת שיש דרך שנייה להעביר תוכן.
+    """
     be = _RecordingBackend()
-    assert handlers.save_file(be, 7, file_name="a.py", code="") == {
-        "ok": False,
-        "error": "empty_code",
-    }
+    res = handlers.save_file(be, 7, file_name="a.py", code="")
+    assert res == {"ok": False, "error": "empty_code", "hint": res["hint"]}
+    assert "upload_id" in res["hint"]
     assert be.calls == []
 
 

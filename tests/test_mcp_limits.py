@@ -41,10 +41,8 @@ from mcp_server.limits import BodySizeLimitMiddleware, ToolRateLimiter, limit_fr
 from mcp_server.server import _READ_ONLY_TOOL, build_app, build_mcp  # noqa: E402
 from rate_limiter import RateLimiter  # noqa: E402
 
-try:  # local `tests` pkg can be shadowed by an unrelated top-level `tests` on sys.path
-    from tests._fake_mongo import FakeDB  # noqa: E402
-except ImportError:  # fall back to the sibling module (tests/ is on sys.path under pytest)
-    from _fake_mongo import FakeDB  # noqa: E402
+# ‏``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
+from _mcp_apps import oauth_app  # noqa: E402
 
 _REPO = Path(__file__).resolve().parent.parent
 
@@ -405,28 +403,13 @@ def test_on_the_real_app_the_401_comes_before_the_413_and_the_413_names_its_reas
 
 
 def _oauth_app(backend, **kwargs):
-    """האפליקציה במצב OAuth — הייצור — כפי ש-``tests/test_mcp_oauth_e2e.py`` בונה אותה."""
-    from pydantic import AnyHttpUrl
+    """האפליקציה במצב OAuth — הייצור — כפי ש-``tests/test_mcp_oauth_e2e.py`` בונה אותה.
 
-    from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
-    from mcp_server.oauth_provider import CodeKeeperOAuthProvider
-    from mcp_server.oauth_routes import oauth_consent_routes
-    from mcp_server.oauth_store import OAuthStore
-
-    base = "https://mcp.test"
-    store = OAuthStore(FakeDB())
-    provider = CodeKeeperOAuthProvider(
-        store=store, pat_verify=lambda t: None,
-        identify_url=f"{base}/fake-identify", consent_url=f"{base}/oauth/consent",
-    )
-    settings = AuthSettings(
-        issuer_url=AnyHttpUrl(base), resource_server_url=AnyHttpUrl(base),
-        client_registration_options=ClientRegistrationOptions(
-            enabled=True, valid_scopes=["read", "write"], default_scopes=["read"]),
-        revocation_options=RevocationOptions(enabled=True), required_scopes=[],
-    )
-    return build_app(backend, auth_provider=provider, auth_settings=settings,
-                     consent_routes=oauth_consent_routes(store, "e2e-secret"), **kwargs)
+    הבנייה עצמה ב-``tests/_mcp_apps.py``, ששם היא גם מקבלת PATs שהספק מאמת
+    (``tokens=``) — ראו שם למה. כאן בלי ``tokens``, כמו עד היום: הטסטים בקובץ הזה
+    בודקים מה קורה **לפני** אימות, ואף טוקן אינו אמור לעבור בהם.
+    """
+    return oauth_app(backend, **kwargs)
 
 
 async def test_in_oauth_mode_an_anonymous_post_is_a_401_before_a_byte_of_its_body_is_read():

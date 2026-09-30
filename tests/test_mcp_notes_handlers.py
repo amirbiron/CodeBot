@@ -5,7 +5,7 @@
 """
 
 from mcp_server import handlers
-from mcp_server.backend import _as_note, _NoteIndex, _notes_scope_filter
+from mcp_server.backend import _as_note, _EnforcedIndex, _notes_scope_filter
 from mcp_server.handlers import (
     DEFAULT_NOTE_COLOR,
     MAX_NOTE_CONTENT,
@@ -604,7 +604,7 @@ def _verified(b, *which):
     """
     from mcp_server.backend import _IndexGate
 
-    gates = b.__dict__.setdefault("_note_index_gates", {})
+    gates = b.__dict__.setdefault("_enforced_index_gates", {})
     for w in which:
         gate = gates.setdefault(w, _IndexGate())
         gate.ok = True
@@ -645,7 +645,7 @@ def test_a_failed_index_build_is_retried_only_after_the_cooldown(monkeypatch):
     assert b._ensure_title_index(coll) is False
     assert len(attempts) == 1, f"נוסה {len(attempts)} פעמים בתוך חלון ההמתנה"
 
-    clock["now"] += b._TITLE_INDEX_RETRY_SECONDS + 1
+    clock["now"] += b._INDEX_RETRY_SECONDS + 1
     assert b._ensure_title_index(coll) is False
     assert len(attempts) == 2, "אחרי ההשהיה לא נוסה שוב"
 
@@ -999,7 +999,7 @@ def _repo_backend(db, monkeypatch, *, admin=False):
     b = ProductionBackend.__new__(ProductionBackend)
     b._notes_idx_done = True
     # האינדקס מאומת ← בלי מסלול הגיבוי
-    _verified(b, _NoteIndex.REPO_TITLE, _NoteIndex.BOARD_TITLE)
+    _verified(b, _EnforcedIndex.REPO_TITLE, _EnforcedIndex.BOARD_TITLE)
     b._raw_mongo = lambda: db
     monkeypatch.setitem(__import__("sys").modules, "user_roles",
                         type("M", (), {"is_admin": staticmethod(lambda uid: admin)}))
@@ -1326,7 +1326,7 @@ def _mcp_built_indexes():
     coll = _Coll()
     b = ProductionBackend.__new__(ProductionBackend)
     b._notes_idx_done = False
-    _verified(b, _NoteIndex.BOARD_TITLE)   # אינדקס השם כבר מאומת — לא נבדק כאן
+    _verified(b, _EnforcedIndex.BOARD_TITLE)   # אינדקס השם כבר מאומת — לא נבדק כאן
     b._raw_mongo = lambda: {"sticky_notes": coll}
     b._notes_coll()
     return {name: keys for keys, name in built}
@@ -1404,7 +1404,7 @@ def test_one_failing_index_does_not_block_the_others():
 
     b = ProductionBackend.__new__(ProductionBackend)
     b._notes_idx_done = False
-    _verified(b, _NoteIndex.BOARD_TITLE)
+    _verified(b, _EnforcedIndex.BOARD_TITLE)
     b._raw_mongo = lambda: {"sticky_notes": _Coll()}
     b._notes_coll()
 
@@ -1436,9 +1436,9 @@ def test_the_two_title_indexes_retry_independently(monkeypatch):
 
     assert b._ensure_title_index(coll) is True
     assert b._ensure_repo_title_index(coll) is False
-    gates = b.__dict__["_note_index_gates"]
-    assert gates[_NoteIndex.BOARD_TITLE].ok is True
-    assert gates[_NoteIndex.REPO_TITLE].ok is False
+    gates = b.__dict__["_enforced_index_gates"]
+    assert gates[_EnforcedIndex.BOARD_TITLE].ok is True
+    assert gates[_EnforcedIndex.REPO_TITLE].ok is False
     # ...וההשהיה של הכושל אינה חוסמת את המוצלח, ולהפך
     assert b._ensure_title_index(coll) is True
 
@@ -1458,7 +1458,7 @@ def test_the_repo_title_index_is_not_built_on_every_read(monkeypatch):
 
     b = ProductionBackend.__new__(ProductionBackend)
     b._notes_idx_done = False
-    _verified(b, _NoteIndex.BOARD_TITLE)
+    _verified(b, _EnforcedIndex.BOARD_TITLE)
     b._raw_mongo = lambda: {"sticky_notes": _Coll()}
     b._ensure_repo_title_index = lambda coll: calls.append("repo") or True
     b._notes_coll()
@@ -1782,7 +1782,7 @@ def _note_backend(db):
     b = ProductionBackend.__new__(ProductionBackend)
     b._notes_idx_done = True
     # שני האינדקסים מאומתים ← בלי מסלול הגיבוי, ובלי שהצילום יסרב.
-    _verified(b, _NoteIndex.BOARD_TITLE, _NoteIndex.NOTE_VERSIONS)
+    _verified(b, _EnforcedIndex.BOARD_TITLE, _EnforcedIndex.NOTE_VERSIONS)
     b._raw_mongo = lambda: db
     return b
 

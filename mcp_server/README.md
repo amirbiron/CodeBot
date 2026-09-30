@@ -147,6 +147,13 @@ merge ל-main → GitHub webhook → הוובאפ מסנכרן את הדיסק �
 > ל‑`app.router.routes` (כמו `/healthz`) מוגש **בלי אימות**. כל ראוט חדש שאסור שיהיה
 > ציבורי חייב לקרוא ל‑`authenticate_bearer` בגוף שלו. ראו `auth.py` ו‑`primer.py`.
 
+**שני ראוטים מאמתים בעצמם, עם אותו מאמת של `/mcp`:**
+
+- `GET /api/agent/primer` — טוקן תקין, בכל scope (במצב PAT המידלוור עונה לפניו).
+- `PUT /api/agent/upload` — טוקן תקין, **ולא** `write`: הראוט רק מחזיק טקסט לעשר דקות, והכתיבה לקובץ נשארת קריאת כלי שדורשת `write`. במצב PAT הנתיב פטור מ‑`PATAuthMiddleware`, כדי שה‑401 יהיה של הראוט — עם `Connection: close` — בשני המצבים. ראו "העלאת תוכן" למטה.
+
+`tests/test_mcp_uploads.py` מחזיק כל ראוט רשום ל‑401 בלי טוקן, חוץ מרשימה סגורה (`/healthz`, נקודות ה‑OAuth ועמוד ההסכמה).
+
 ---
 
 ## פריימר לסוכן — `GET /api/agent/primer`
@@ -220,6 +227,26 @@ curl -sS -H "Authorization: Bearer $CODEKEEPER_PAT" \
 הכלל `Bash(curl:*)` אינו נדרש כאן ואינו מוגדר בכוונה: הוקים מורצים על ידי המעטפת
 ואינם עוברים דרך מנגנון ההרשאות של כלי ה‑Bash. הוספתו הייתה מרחיבה את מה שהמודל
 עצמו רשאי להריץ — עם `CODEKEEPER_PAT` בסביבה, זו דרך לשלוח את הטוקן ליעד שרירותי.
+
+---
+
+## העלאת תוכן בלי לעבור דרך המודל — `PUT /api/agent/upload`
+
+תוכן שכבר קיים כקובץ בסביבת הסוכן (דוח, ניתוח, handoff) עולה בקריאת `curl` אחת, ו‑`codekeeper_save_file` / `codekeeper_append_file` מקבלים את `upload_id` במקום `code` / `content` — בלי לקרוא את הקובץ להקשר ולכתוב אותו שוב בקריאת הכלי:
+
+```bash
+curl -sS -T report.md -H "Authorization: Bearer $CODEKEEPER_PAT" \
+  https://<MCP-HOST>/api/agent/upload
+```
+
+- **תשובה `201`:** `{"upload_id", "bytes", "chars", "content_sha256", "expires_in_seconds"}`. ה‑`content_sha256` הוא מה ש‑`file.content_sha256` יהיה אחרי השמירה.
+- **חד‑פעמי, לעשר דקות** (`UPLOAD_TTL_SECONDS`), ועד `MAX_PENDING_UPLOADS` העלאות ממתינות למשתמש. **אינו מעלה את תקרת התוכן** — `max_code_size()` חל כמו על `code`.
+- **אותה מכסת קצב של קריאות הכלים:** העלאה ושמירה הן שתי קריאות.
+- **כל סירוב נושא `Connection: close`**, באוצר המילים של תשובות HTTP של השירות (`{"error": ...}` בלי `ok`).
+- הפקודה רצה בכלי ה‑Bash של הסוכן, עם אישור הרשאה רגיל — `Bash(curl:*)` נשאר לא מוגדר, מאותה סיבה שלמעלה.
+- בלי bash, בלי רשת או בלי `CODEKEEPER_PAT` (Claude.ai) — `code` כרגיל.
+
+הקוד ב‑`uploads.py` (הראוט) וב‑`mcp_uploads.py` בשורש (האוסף, הקבועים והאינדקסים). הפירוט המלא — הסדר בראוט, "המחיקה היא השער", שער המוכנות על ה‑TTL ואוצר המילים — ב‑`docs/mcp-server.rst`, "העלאת תוכן בלי לעבור דרך המודל".
 
 ---
 
@@ -334,6 +361,7 @@ Claude.ai → /authorize → provider יוצר txn → הפניה ל-webapp /oau
 | `oauth_identity.py` | חתימת/אימות זהות HMAC (משותף עם הוובאפ) |
 | `oauth_routes.py` | מסך ה‑consent + הנפקת code |
 | `primer.py` | `GET /api/agent/primer` — פריימר טקסט לסוכן (24KB, cache 60ש׳, סינון סודות) |
+| `uploads.py` | `PUT /api/agent/upload` — העלאת תוכן שנשמר אחר כך לפי `upload_id`. המפרט של האוסף ב‑`mcp_uploads.py` בשורש |
 | `server.py` | חיווט FastMCP: כלים + OAuth + ASGI |
 | `analytics.py` | PostHog MCP analytics + שער הפרטיות (`before_send` עם רשימת היתר) |
 | `app.py` | נקודת כניסה: בוחר PAT/OAuth לפי ENV |

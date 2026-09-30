@@ -170,9 +170,12 @@ def create_app():
             name=name,
             max_request_bytes=max_request_bytes,
             rate_limit_per_minute=rate_limit_per_minute,
+            public_url=mcp_base,
         )
 
     # Fallback: PAT-only (Claude Code/Desktop) — runs without OAuth config.
+    # ``MCP_SERVER_URL`` may still be set here without ``WEBAPP_URL``; when it is,
+    # the upload command in the tool descriptions names the real host.
     return build_app(
         backend,
         MCPTokenStore(mongo),
@@ -180,6 +183,7 @@ def create_app():
         name=name,
         max_request_bytes=max_request_bytes,
         rate_limit_per_minute=rate_limit_per_minute,
+        public_url=mcp_base or None,
     )
 
 

@@ -141,6 +141,7 @@ from file_deletion import (
     RECYCLE_BIN_TTL_INDEX_NAME,
     RECYCLE_BIN_TTL_PARTIAL_FILTER,
 )
+from mcp_uploads import MCP_UPLOADS_COLLECTION, mcp_uploads_indexes
 try:
     # Structured logging events
     from observability import emit_event
@@ -2332,6 +2333,49 @@ class DatabaseManager:
         """הכניסה מבחוץ לאותה פונקציה — ``/recycle_backfill`` מדווח לפיה."""
         return DatabaseManager._create_recycle_bin_ttl_indexes(self, self.safe_create_index)
 
+    def _create_mcp_uploads_indexes(self, safe_create_index) -> Dict[str, bool]:
+        """האינדקסים של ``mcp_uploads`` — ההעלאות הממתינות של ``PUT /api/agent/upload``.
+
+        ה-TTL הוא אינדקס של **התנהגות**, כמו זה של סל המיחזור שמעל: אף שורת קוד
+        שלנו אינה מוחקת העלאה שלא נצרכה. לכן הוא כאן, במסלול שרץ בכל עלייה —
+        וגם בעליית שירות ה-MCP, שהוא הכותב היחיד לאוסף. המפרט יושב ב-
+        ``mcp_uploads.py``.
+
+        ``safe_create_index`` אינו זורק; כשל חוזר כ-``False`` (דפוס K11), ולכן
+        כשל של אינדקס ``required`` יוצא כאירוע ברמת error. **השירות אינו סומך על
+        התוצאה הזו כדי לקבל העלאות:** ``ProductionBackend.upload_storage_ready``
+        קורא לפונקציה הזו ואז מאמת את ה-TTL בקריאה חוזרת של ``list_indexes``.
+
+        Returns:
+            ``{שם אינדקס: האם הוא במצב המבוקש בסוף הקריאה}``.
+        """
+        results: Dict[str, bool] = {}
+        for spec in mcp_uploads_indexes():
+            ok = bool(
+                safe_create_index(
+                    MCP_UPLOADS_COLLECTION,
+                    list(spec["keys"]),
+                    name=spec["name"],
+                    unique=bool(spec.get("unique", False)),
+                    background=True,
+                    enforce=bool(spec.get("enforce", False)),
+                    expire_after_seconds=spec.get("expire_after_seconds"),
+                )
+            )
+            if not ok and spec.get("required"):
+                emit_event(
+                    "db_mcp_uploads_index_missing",
+                    severity="error",
+                    collection=MCP_UPLOADS_COLLECTION,
+                    index_name=spec["name"],
+                )
+            results[spec["name"]] = ok
+        return results
+
+    def ensure_mcp_uploads_indexes(self) -> Dict[str, bool]:
+        """הכניסה מבחוץ לאותה פונקציה — שער המוכנות של שירות ה-MCP קורא לה."""
+        return DatabaseManager._create_mcp_uploads_indexes(self, self.safe_create_index)
+
     def _create_indexes(self):
         """צור *רק* את האינדקסים הקריטיים (ברקע) למניעת COLLSCAN.
 
@@ -2425,6 +2469,10 @@ class DatabaseManager:
             enforce=True,
             expire_after_seconds=7 * 24 * 60 * 60,
         )
+
+        # mcp_uploads - העלאות ממתינות של שירות ה-MCP. כמו push_events, את האוסף
+        # כותב שירות ה-MCP, ולכן ההצהרה כאן, במסלול שכל שירות עובר בעלייה.
+        DatabaseManager._create_mcp_uploads_indexes(self, safe_create_index)
 
         # service_metrics
         DatabaseManager._create_metrics_indexes(self, safe_create_index)

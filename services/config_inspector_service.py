@@ -1840,7 +1840,9 @@ class ConfigService:
             default="",
             description=(
                 "ה-URL הציבורי (https) של שירות ה-MCP. בבוט: בניית פקודת /connect_claude. "
-                "בשירות ה-MCP: issuer של OAuth (מדליק מצב OAuth יחד עם WEBAPP_URL). "
+                "בשירות ה-MCP: issuer של OAuth (מדליק מצב OAuth יחד עם WEBAPP_URL), "
+                "וה-host בפקודת ההעלאה שתיאורי הכלים מציגים (PUT /api/agent/upload; "
+                "בלעדיו, או כשאינו כתובת http/https נקייה — <mcp-host>, והמקרה השני עם WARNING בעלייה). "
                 "בוובאפ: שער open-redirect ב-/oauth/identify."
             ),
             category="mcp",
