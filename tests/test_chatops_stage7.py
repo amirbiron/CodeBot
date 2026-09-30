@@ -1,4 +1,3 @@
-import os
 import types
 import asyncio
 import pytest
@@ -38,10 +37,10 @@ async def test_errors_command_windows_and_examples(monkeypatch):
     app = _App()
     adv = AdvancedBotHandlers(app)
     upd = _Update()
-    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    monkeypatch.setenv("ADMIN_USER_IDS", str(upd.effective_user.id))
     # Sentry UI env for links
-    os.environ["SENTRY_DSN"] = "https://o123.ingest.sentry.io/1"
-    os.environ["SENTRY_ORG_SLUG"] = "acme"
+    monkeypatch.setenv("SENTRY_DSN", "https://o123.ingest.sentry.io/1")
+    monkeypatch.setenv("SENTRY_ORG_SLUG", "acme")
 
     # Stub recent errors with ISO timestamps
     from datetime import datetime, timezone, timedelta
@@ -64,7 +63,7 @@ async def test_errors_command_windows_and_examples(monkeypatch):
 
     # Now test examples subcommand
     upd2 = _Update()
-    os.environ["ADMIN_USER_IDS"] = str(upd2.effective_user.id)
+    monkeypatch.setenv("ADMIN_USER_IDS", str(upd2.effective_user.id))
     ctx2 = _Context(args=["examples", "sigA"])
     await adv.errors_command(upd2, ctx2)
     out2 = "\n".join(upd2.message.texts)
@@ -77,7 +76,7 @@ async def test_status_command_extended(monkeypatch):
     adv = AdvancedBotHandlers(app)
     upd = _Update()
     ctx = _Context()
-    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    monkeypatch.setenv("ADMIN_USER_IDS", str(upd.effective_user.id))
 
     # Ensure DB check passes
     import importlib
@@ -85,10 +84,10 @@ async def test_status_command_extended(monkeypatch):
     monkeypatch.setattr(mod, "check_db_connection", lambda: asyncio.sleep(0, result=True), raising=False)
 
     # Env flags for Sentry and OTEL
-    os.environ["SENTRY_DSN"] = "https://o123.ingest.sentry.io/1"
-    os.environ["SENTRY_AUTH_TOKEN"] = "t"
-    os.environ["SENTRY_ORG"] = "acme"
-    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:4317"
+    monkeypatch.setenv("SENTRY_DSN", "https://o123.ingest.sentry.io/1")
+    monkeypatch.setenv("SENTRY_AUTH_TOKEN", "t")
+    monkeypatch.setenv("SENTRY_ORG", "acme")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 
     await adv.status_command(upd, ctx)
     out = "\n".join(upd.message.texts)
