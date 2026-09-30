@@ -2790,6 +2790,8 @@
    נערך מהדפדפן ב-``/settings`` ונשמר ב-``user_preferences``, לא ב-ENV.
    ראו :doc:`mcp-server`.
 
+   ההוק שמושך את הפריימר בפתיחת סשן (``.claude/hooks/codekeeper-primer.sh``) קורא משתנים משלו — בסביבה של סשן Claude Code, לא בשירות, ולכן הם אינם בטבלאות של העמוד הזה: ``CODEKEEPER_PAT``, ``CODEKEEPER_PRIMER_URL``, ושתי דריסות לטסטים בלבד, ``CODEKEEPER_PRIMER_RETRY_INTERVAL_SECONDS`` ו-``CODEKEEPER_PRIMER_RETRY_BUDGET_SECONDS``. ראו :ref:`agent-primer`.
+
 דגלי בדיקות ופיתוח
 -------------------
 

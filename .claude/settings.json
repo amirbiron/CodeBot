@@ -7,8 +7,8 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/codekeeper-primer.sh",
-            "timeout": 25,
-            "statusMessage": "טוען הוראות סוכן מ-CodeKeeper..."
+            "timeout": 120,
+            "statusMessage": "טוען הוראות סוכן מ-CodeKeeper (עד דקה וחצי אם השרת בדיפלוי)..."
           }
         ]
       }
