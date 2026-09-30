@@ -215,6 +215,7 @@ Markdown Viewer ו‑Split View
   1. הוספת המחלקה בקובץ התבנית.
   2. יצירת טוקן חדש ברמת Level 3 (``--split-sepia-bg``) אם נדרש.
   3. בדיקות ניגודיות ב‑High Contrast.
+- **שכבת התוכן של Live Preview.** עיצוב התוכן של ``md_preview.html`` (ציטוט, רשימות, טבלאות, ריווח פסקאות) יושב ב‑``<style>`` הפנימי שלו ואינו נטען בעמודי העריכה, וכלל האיפוס ``*`` שבבלוק ה‑``<style>`` של ``base.html`` מוחק את ה‑margin וה‑padding של האלמנטים האלה — עד התיקון ציטוט נראה שם כמו פסקה רגילה, ורשימה בלי תבליטים. לכן ל‑``split-view.css`` יש בלוק תוכן משלו, מוגבל ל‑``.split-preview-canvas[data-mode="markdown"]`` (כדי לא לגעת בשורת הסטטוס) ועטוף ב‑``:where()``, כך שהוא גובר רק על האיפוס וכל כלל ממוקד יותר — למשל של האדמוניציות ב‑``markdown-enhanced.css`` — ממשיך לנצח. הצבעים שלו, ``--split-preview-blockquote-*`` ו‑``--split-preview-table-*``, נגזרים ב‑``color-mix`` מ‑``--split-preview-text`` ומ‑``--split-preview-bg`` ומוגדרים פעם אחת ב‑``:root``, ולכן כל ערכה — כולל מותאמת ומשותפת — מקבלת אותם בלי override משלה; החריג היחיד הוא High Contrast, שבה הקווים בצבע הטקסט המלא. ``tests/test_live_preview_blockquote_browser.py`` מודד את זה בדפדפן, בכל ערכה שברשימת ``THEMES`` שבו.
 - ``theme_preview.html`` ו‑Reader modes ב‑``md_preview.html`` נשארים Hardcoded לצורכי תצוגת פלטות – אין להמיר אותם ל‑`var()` כדי לשמור על נאמנות ל‑brand colors.
 
 הנחיות למפתחים (Best Practices)
