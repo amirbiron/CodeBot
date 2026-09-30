@@ -787,24 +787,34 @@ def _upload_storage_unavailable() -> dict[str, Any]:
     }
 
 
-def _load_upload(
-    backend: Any, user_id: int, upload_id: Any
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """``(העלאה, None)`` או ``(None, סירוב)``. בודקת צורה ושולפת — **אינה צורכת**."""
+class _PendingUpload(NamedTuple):
+    """העלאה שנשלפה ועוד לא נצרכה — מה ש-:func:`_load_upload` מחזיר כשאין סירוב."""
+
+    upload_id: str
+    text: str
+    size_bytes: int
+
+
+def _load_upload(backend: Any, user_id: int, upload_id: Any) -> _PendingUpload | dict[str, Any]:
+    """ההעלאה, או הסירוב שיש להחזיר — לעולם לא שניהם. בודקת צורה ושולפת — **אינה צורכת**.
+
+    שני טיפוסים שונים ולא זוג ``(העלאה, סירוב)``: הקורא מבחין ביניהם ב-``isinstance``,
+    ולכן אין מצב שבו שניהם ``None`` או ששניהם קיימים.
+    """
     bad = _invalid_upload_id(upload_id)
     if bad is not None:
-        return None, bad
+        return bad
     try:
-        upload = backend.find_upload(user_id, upload_id)
+        found = backend.find_upload(user_id, upload_id)
     except UploadStorageUnavailable:
-        return None, _upload_storage_unavailable()
-    if upload is None:
-        return None, _upload_not_found()
-    return upload, None
+        return _upload_storage_unavailable()
+    if found is None:
+        return _upload_not_found()
+    return _PendingUpload(upload_id=upload_id, text=found["text"], size_bytes=found["bytes"])
 
 
 def _consume_upload(
-    backend: Any, user_id: int, upload_id: str, *, upload: dict[str, Any], tool: str
+    backend: Any, user_id: int, upload: _PendingUpload, *, tool: str
 ) -> dict[str, Any] | None:
     """השער: ``None`` כשההעלאה נצרכה עכשיו, בקריאה הזו — אחרת הסירוב, ולא שומרים.
 
@@ -812,7 +822,7 @@ def _consume_upload(
     """
     try:
         consumed = backend.consume_upload(
-            user_id, upload_id, tool=tool, size_bytes=upload["bytes"], chars=len(upload["text"])
+            user_id, upload.upload_id, tool=tool, size_bytes=upload.size_bytes, chars=len(upload.text)
         )
     except UploadStorageUnavailable:
         return _upload_storage_unavailable()
@@ -851,14 +861,15 @@ def save_file(
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
-    upload: dict[str, Any] | None = None
+    upload: _PendingUpload | None = None
     if upload_id is not None:
         if isinstance(code, str) and code != "":
             return _both_sent("code")
-        upload, refusal = _load_upload(backend, user_id, upload_id)
-        if refusal is not None:
-            return refusal
-        code = upload["text"]
+        loaded = _load_upload(backend, user_id, upload_id)
+        if isinstance(loaded, dict):
+            return loaded
+        upload = loaded
+        code = upload.text
     if not isinstance(code, str) or code == "":
         return {
             "ok": False,
@@ -943,9 +954,7 @@ def save_file(
         }
 
     if upload is not None:
-        refusal = _consume_upload(
-            backend, user_id, upload_id, upload=upload, tool="codekeeper_save_file"
-        )
+        refusal = _consume_upload(backend, user_id, upload, tool="codekeeper_save_file")
         if refusal is not None:
             return refusal
     res = backend.save_file(
@@ -1237,14 +1246,15 @@ def append_file(
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
-    upload: dict[str, Any] | None = None
+    upload: _PendingUpload | None = None
     if upload_id is not None:
         if isinstance(content, str) and content != "":
             return _both_sent("content")
-        upload, refusal = _load_upload(backend, user_id, upload_id)
-        if refusal is not None:
-            return refusal
-        content = upload["text"]
+        loaded = _load_upload(backend, user_id, upload_id)
+        if isinstance(loaded, dict):
+            return loaded
+        upload = loaded
+        content = upload.text
     if not isinstance(content, str) or content == "":
         return {
             "ok": False,
@@ -1272,9 +1282,7 @@ def append_file(
         tool="codekeeper_append_file",
         consume=None
         if upload is None
-        else functools.partial(
-            _consume_upload, backend, user_id, upload_id, upload=upload, tool="codekeeper_append_file"
-        ),
+        else functools.partial(_consume_upload, backend, user_id, upload, tool="codekeeper_append_file"),
     )
     if not res.get("ok"):
         return res

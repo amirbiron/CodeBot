@@ -92,8 +92,9 @@ MongoDB Indexing Cookbook
 ולכן:
 
 - אינדקס כזה מוצהר **במסלול שרץ בכל עלייה** (``DatabaseManager._create_indexes``), ולא רק בסקריפט חד-פעמי או בפקודת אדמין. מסד חדש, או שחזור אחרי הפלת חירום, מקבלים רק את מה שהעלייה יוצרת.
-- ``safe_create_index`` אינו זורק; כשל חוזר כ-``False``. באינדקס של התנהגות בודקים את הערך ומדווחים עליו, כמו ``_create_recycle_bin_ttl_indexes`` ששולח ``db_recycle_bin_ttl_index_missing``.
-- טסט מקבע שמסלול העלייה מבקש את האינדקס במפרט המלא — ראו ``tests/test_recycle_bin_ttl_index.py``.
+- ``safe_create_index`` אינו זורק; כשל חוזר כ-``False``. באינדקס של התנהגות בודקים את הערך ומדווחים עליו, כמו ``_create_recycle_bin_ttl_indexes`` ששולח ``db_recycle_bin_ttl_index_missing``, ו-``_create_mcp_uploads_indexes`` ששולח ``db_mcp_uploads_index_missing``.
+- טסט מקבע שמסלול העלייה מבקש את האינדקס במפרט המלא — ראו ``tests/test_recycle_bin_ttl_index.py``, ו-``tests/test_mcp_uploads.py`` להעלאות.
+- **ומי שמסרב לעבוד בלי האינדקס — בודק אותו בקריאה חוזרת, לא בערך ההחזרה.** ההעלאות של שירות ה-MCP (``mcp_uploads``) אינן מתקבלות עד שה-TTL שלהן אומת: ``ProductionBackend.upload_storage_ready`` מריץ את אותה הצהרה ואז קורא את ``list_indexes`` ומחפש TTL במפרט (``mcp_uploads.is_upload_ttl_index``, מעל ``ttl_index.is_ttl_index`` — אותה בדיקה שמשרתת את הסל). ראו :ref:`mcp-uploads`.
 - מי שמצמצם את רשימת האינדקסים "לאופטימלית" שואל איזו שאילתה כל אחד מאיץ. ל-TTL ול-``unique`` אין שאילתה, ולכן הם הראשונים שנופלים מרשימה כזו. כך נעלם אינדקס ה-TTL של סל המיחזור, והסל הפסיק להתרוקן.
 - **ביצירה ראשונה של TTL — וגם אחרי כל פער שבו הוא חסר — מונגו מוחק בבת אחת את כל מה שכבר פג** (`TTL Indexes <https://www.mongodb.com/docs/manual/core/index-ttl/>`_). ההחלטה אם זה רצוי נכתבת בקוד, ליד היצירה.
 
