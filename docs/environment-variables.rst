@@ -2535,7 +2535,7 @@
      - ``mongodb://localhost:27017`` / ``my_db``
      - Scripts
    * - ``MCP_SERVER_URL``
-     - ה-URL הציבורי (https) של שירות ה-MCP. בבוט: בניית פקודת ``/connect_claude``. בשירות ה-MCP: issuer של OAuth (מדליק מצב OAuth יחד עם ``WEBAPP_URL``), וה-host בפקודת ההעלאה שתיאורי הכלים מציגים (``PUT /api/agent/upload``; בלעדיו — ``<mcp-host>``). בוובאפ: שער open-redirect ב-``/oauth/identify``.
+     - ה-URL הציבורי (https) של שירות ה-MCP. בבוט: בניית פקודת ``/connect_claude``. בשירות ה-MCP: issuer של OAuth (מדליק מצב OAuth יחד עם ``WEBAPP_URL``), וה-host בפקודת ההעלאה שתיאורי הכלים מציגים (``PUT /api/agent/upload``; בלעדיו, או כשאינו כתובת ``http``/``https`` נקייה — ``<mcp-host>``, והמקרה השני עם WARNING בעלייה). בוובאפ: שער open-redirect ב-``/oauth/identify``.
      - לא
      - ``https://YOUR-MCP-HOST``
      - ``https://code-keeper-mcp.onrender.com``

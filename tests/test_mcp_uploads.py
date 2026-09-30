@@ -780,6 +780,9 @@ def test_a_refusal_over_the_wire_says_connection_close(tmp_path):
     ("ftp://mcp.example.com", "https://<mcp-host>/api/agent/upload"),
     ("https://[::1", "https://<mcp-host>/api/agent/upload"),
     ("mcp.example.com", "https://<mcp-host>/api/agent/upload"),
+    ("https://mcp.example.com:8443", "https://mcp.example.com:8443/api/agent/upload"),
+    ("https://mcp.example.com:abc", "https://<mcp-host>/api/agent/upload"),
+    ("https://mcp.example.com:99999", "https://<mcp-host>/api/agent/upload"),
 ])
 def test_the_upload_url_in_the_descriptions_is_the_configured_host_or_a_placeholder(public_url, expected):
     """‏``MCP_SERVER_URL`` נכנס לתיאור שכל לקוח מקבל — בלי סיסמה ובלי query (K13)."""
@@ -1075,16 +1078,20 @@ def test_upload_save_and_read_agree_on_one_hash_and_one_push(store, backend, cal
 # 5. נראות — בתהליך נקי, לא ב-``caplog``
 # ---------------------------------------------------------------------------
 
-_LOG_PROBE = """
+#: הגדרת הלוג של השירות, כמו ב-uvicorn — **בלי** ``try``: ייבוא שנכשל היה משאיר את
+#: הלוגר בברירת המחדל של פייתון, שמדפיסה WARNING ומעלה גם בלי שום הגדרה, וטסט
+#: של שורת WARNING היה עובר בלי לבדוק את מה שרץ בייצור. הסביבה שהייבוא צריך
+#: (``BOT_TOKEN``, ``MONGODB_URL``) עוברת לתהליך מ-``tests/conftest.py``.
+_SERVICE_LOGGING = """
 import os, sys
 sys.path.insert(0, {repo!r})
 sys.path.insert(0, {tests!r})
 os.environ["MCP_PUSH_NOTIFICATIONS_ENABLED"] = "false"
-try:
-    import mcp_server.app  # noqa: F401 — הגדרת הלוג של השירות, כמו ב-uvicorn
-except Exception:
-    pass
+import mcp_server.app  # noqa: F401
+print("SERVICE-LOGGING-READY", flush=True)
+"""
 
+_LOG_PROBE = _SERVICE_LOGGING + """
 from _uploads_harness import UploadsDbm, upload_storage
 from mcp_server.backend import ProductionBackend
 
@@ -1121,3 +1128,46 @@ def test_a_stored_and_a_consumed_upload_each_leave_one_info_line_without_the_id_
     assert len(stored) == 1 and f"{size} bytes, {len(text)} chars for user 4242" in stored[0], log
     assert len(consumed) == 1 and "codekeeper_save_file" in consumed[0] and "user 4242" in consumed[0], log
     assert upload_id not in log and secret not in log
+
+
+_URL_PROBE = _SERVICE_LOGGING + """
+from mcp_server.uploads import upload_url_for
+
+for public_url in (None, "https://mcp.example.com", {rejected!r}):
+    print("URL", upload_url_for(public_url), flush=True)
+print("PROBE-DONE", flush=True)
+"""
+
+
+def test_a_configured_url_that_is_rejected_leaves_one_warning_without_the_url(tmp_path):
+    """‏``MCP_SERVER_URL`` שהוגדר ונדחה — WARNING אחד עם הסיבה, בלי הכתובת עצמה (K13).
+
+    "לא הוגדר" ו"הוגדר ונדחה" נותנים אותו ``<mcp-host>`` בתיאור, ורק השורה הזו
+    מבדילה ביניהם. כתובת שלא הוגדרה, וכתובת תקינה, אינן משאירות שורה.
+
+    ``MCP_SERVER_URL`` מוסר מהסביבה של התהליך: ייבוא האפליקציה בונה את הכלים, וערך
+    שדלף מהסביבה של מי שמריץ את הטסט היה מוסיף שורה משלו.
+    """
+    rejected = "https://ops:hunter2@mcp.example.com"
+    script = textwrap.dedent(_URL_PROBE).format(repo=str(REPO), tests=str(REPO / "tests"), rejected=rejected)
+    env = {key: value for key, value in os.environ.items() if key != "MCP_SERVER_URL"}
+    proc = subprocess.run(
+        [sys.executable, "-B", "-c", script], capture_output=True, text=True, timeout=180,
+        cwd=str(tmp_path), env={**env, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert "SERVICE-LOGGING-READY" in proc.stdout and "PROBE-DONE" in proc.stdout, (
+        f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+    )
+    urls = [line.split(" ", 1)[1] for line in proc.stdout.splitlines() if line.startswith("URL ")]
+    assert urls == [
+        "https://<mcp-host>/api/agent/upload",
+        "https://mcp.example.com/api/agent/upload",
+        "https://<mcp-host>/api/agent/upload",
+    ]
+
+    log = proc.stderr + proc.stdout
+    warnings = [line for line in log.splitlines() if "MCP_SERVER_URL not used" in line]
+    assert len(warnings) == 1, log
+    assert "WARNING" in warnings[0] and "carries a user name or password" in warnings[0], log
+    assert "<mcp-host>" in warnings[0], log
+    assert "hunter2" not in log and "ops:" not in log
