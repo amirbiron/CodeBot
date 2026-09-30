@@ -83,6 +83,27 @@ except ModuleNotFoundError:
             raise
 
 
+def pytest_configure(config):
+    """רושם את בידוד ה-Sentry (``tests/_sentry_isolation.py``) לכל הבדיקות בריצה.
+
+    הקובץ הזה נטען בכל ריצה שאוספת בדיקות מתוך ``tests/``, כולל הריצה המלאה.
+
+    **פלאגין רשום ולא hook שכתוב כאן.** hook שמוגדר ב-conftest שאינו בשורש חל
+    רק על בדיקות שמתחת לתיקייה שלו — ``Session.gethookproxy`` מסנן את השאר
+    (pytest 8.4.2) — ובריצה הזאת נאספות גם בדיקות מחוץ ל-``tests/``, כי
+    ``testpaths`` ב-``pytest.ini`` כולל את ``.``. פלאגין שנרשם ב-
+    ``pluginmanager.register`` חל על כל בדיקה.
+
+    ``tests/`` נמצאת ב-``sys.path`` כי pytest מכניס אותה לפני שהוא טוען את
+    הקובץ הזה (מצב הייבוא ``prepend``), ומאותה סיבה הבדיקות מייבאות את
+    ``_fake_mongo`` בשמו.
+    """
+    import _sentry_isolation
+
+    if not config.pluginmanager.is_registered(_sentry_isolation):
+        config.pluginmanager.register(_sentry_isolation, "codebot-sentry-isolation")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def initialize_pillow_codecs():
     """מניעת Race Condition בטעינת פורמטים (PNG) בזמן ריצה מקבילית."""

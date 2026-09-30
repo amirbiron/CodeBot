@@ -1,4 +1,3 @@
-import os
 import types
 import sys
 import pytest
@@ -17,7 +16,7 @@ async def test_check_db_connection_returns_false_when_uri_missing(monkeypatch):
 @pytest.mark.asyncio
 async def test_check_db_connection_motor_success(monkeypatch):
     # Provide fake motor that succeeds
-    os.environ['MONGODB_URL'] = 'mongodb://example'
+    monkeypatch.setenv('MONGODB_URL', 'mongodb://example')
 
     motor_pkg = types.ModuleType('motor')
     motor_pkg.__path__ = []  # mark as package
@@ -44,7 +43,7 @@ async def test_check_db_connection_motor_success(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_check_db_connection_motor_fails_pymongo_succeeds(monkeypatch):
-    os.environ['MONGODB_URL'] = 'mongodb://example'
+    monkeypatch.setenv('MONGODB_URL', 'mongodb://example')
 
     # Motor that fails on client init
     motor_pkg = types.ModuleType('motor')
@@ -80,7 +79,7 @@ async def test_check_db_connection_motor_fails_pymongo_succeeds(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_check_db_connection_both_engines_fail(monkeypatch):
-    os.environ['MONGODB_URL'] = 'mongodb://example'
+    monkeypatch.setenv('MONGODB_URL', 'mongodb://example')
 
     # Motor fails
     motor_pkg = types.ModuleType('motor')
@@ -141,14 +140,11 @@ async def test_sen_command_with_dashboard_url(monkeypatch):
     adv = bh.AdvancedBotHandlers(app)
     upd = _Update()
     ctx = _Context()
-    os.environ['ADMIN_USER_IDS'] = str(upd.effective_user.id)
-    os.environ['SENTRY_DASHBOARD_URL'] = 'https://sentry.io/organizations/acme/issues/'
-    try:
-        await adv.sentry_command(upd, ctx)
-        out = "\n".join(upd.message.texts)
-        assert 'Sentry:' in out and 'acme' in out
-    finally:
-        monkeypatch.delenv('SENTRY_DASHBOARD_URL', raising=False)
+    monkeypatch.setenv('ADMIN_USER_IDS', str(upd.effective_user.id))
+    monkeypatch.setenv('SENTRY_DASHBOARD_URL', 'https://sentry.io/organizations/acme/issues/')
+    await adv.sentry_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert 'Sentry:' in out and 'acme' in out
 
 
 @pytest.mark.asyncio
@@ -157,19 +153,18 @@ async def test_sen_command_derives_from_dsn_and_org(monkeypatch):
     adv = bh.AdvancedBotHandlers(app)
     upd = _Update()
     ctx = _Context()
-    os.environ['ADMIN_USER_IDS'] = str(upd.effective_user.id)
+    monkeypatch.setenv('ADMIN_USER_IDS', str(upd.effective_user.id))
     # ודא שאין קישור דאשבורד מפורש שמאפיל על הגזירה מ-DSN/ORG
     monkeypatch.delenv('SENTRY_DASHBOARD_URL', raising=False)
     monkeypatch.delenv('SENTRY_PROJECT_URL', raising=False)
-    os.environ['SENTRY_DSN'] = 'https://abc123@o123.ingest.sentry.io/1'
-    os.environ['SENTRY_ORG'] = 'myorg'
-    try:
-        await adv.sentry_command(upd, ctx)
-        out = "\n".join(upd.message.texts)
-        assert 'Sentry:' in out and 'organizations/myorg' in out
-    finally:
-        monkeypatch.delenv('SENTRY_DSN', raising=False)
-        monkeypatch.delenv('SENTRY_ORG', raising=False)
+    # ‏setenv ולא os.environ + delenv ב-finally: delenv זוכר את הערך שמצא ומחזיר אותו
+    # בסוף הבדיקה, וכך SENTRY_DSN נשאר לכל הריצה — ובדיקה שטוענת מחדש את main
+    # הדליקה ממנו Sentry אמיתי. ראו tests/_sentry_isolation.py.
+    monkeypatch.setenv('SENTRY_DSN', 'https://abc123@o123.ingest.sentry.io/1')
+    monkeypatch.setenv('SENTRY_ORG', 'myorg')
+    await adv.sentry_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert 'Sentry:' in out and 'organizations/myorg' in out
 
 
 @pytest.mark.asyncio
@@ -178,7 +173,7 @@ async def test_sen_command_not_configured(monkeypatch):
     adv = bh.AdvancedBotHandlers(app)
     upd = _Update()
     ctx = _Context()
-    os.environ['ADMIN_USER_IDS'] = str(upd.effective_user.id)
+    monkeypatch.setenv('ADMIN_USER_IDS', str(upd.effective_user.id))
     monkeypatch.delenv('SENTRY_DASHBOARD_URL', raising=False)
     monkeypatch.delenv('SENTRY_DSN', raising=False)
     await adv.sentry_command(upd, ctx)
