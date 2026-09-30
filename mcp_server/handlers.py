@@ -10,10 +10,11 @@ never pass a client-supplied user id here.
 
 from __future__ import annotations
 
+import functools
 import html
 import itertools
 import re
-from typing import Annotated, Any, NamedTuple
+from typing import Annotated, Any, Callable, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
@@ -24,6 +25,9 @@ from .answer_size import BYTE_BUDGET_REASON, list_item_cost
 # בערוץ אחד ומתקבל בשני.
 from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CONTENT
 from sticky_notes_target import DEFAULT_NOTE_COLOR_ID, resolve_note_color
+
+# המפרט של העלאות ה-MCP — מודול שורש טהור, בלי מסד ובלי MCP, ולכן מותר כאן.
+from mcp_uploads import UPLOAD_TTL_SECONDS, UploadStorageUnavailable, is_upload_id
 
 MAX_PER_PAGE = 200
 MAX_SEARCH_LIMIT = 100
@@ -721,25 +725,146 @@ def max_code_size() -> int:
         return DEFAULT_MAX_CODE_SIZE
 
 
+# ---------------------------------------------------------------------------
+# ``upload_id`` — תוכן שעלה ב-``PUT /api/agent/upload`` (``mcp_server/uploads.py``)
+# במקום לעבור inline דרך המודל.
+#
+# **הסדר בגוף הכלי:** שם הקובץ ← בדיוק אחד מהשניים (התוכן או ``upload_id``) ←
+# צורת המזהה ← **שליפה**, שאינה צורכת ← המסלול הקיים כמו שהוא על הטקסט (תוכן
+# ריק, התקרה, זיהוי שפה, ``file_exists``) ← **מחיקה, והיא השער** ← ורק אז השמירה.
+#
+# **המחיקה היא השער לחד-פעמיות.** ``delete_one`` אטומי, ולכן משתי צריכות של
+# אותו מזהה — גם מקבילות, גם מחוץ לתור הכתיבה — רק אחת שומרת. ומכיוון שהשער בא
+# אחרי כל הבדיקות, ``file_exists`` ו-``existence_check_unavailable`` אינם שורפים
+# את ההעלאה. **המחיר**, בכוונה: כשל של השמירה עצמה אחרי המחיקה שורף אותה, והתשובה
+# אומרת זאת (``upload_consumed``). החלופה — למחוק אחרי שמירה — משאירה העלאה חיה
+# אחרי שמירה שהצליחה, ו-``append_file`` שנשלח שוב כי התשובה אבדה בדרך היה מוסיף
+# את התוכן פעמיים, בשקט.
+# ---------------------------------------------------------------------------
+
+
+def _both_sent(param: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": f"{param}_and_upload_id",
+        "hint": f"send the content either in {param} or as upload_id, not both",
+    }
+
+
+def _invalid_upload_id(upload_id: Any) -> dict[str, Any] | None:
+    """סירוב על ``upload_id`` שאינו בצורת מזהה — או ``None``. בלי להדהד את הערך."""
+    if is_upload_id(upload_id):
+        return None
+    return {
+        "ok": False,
+        "error": "invalid_upload_id",
+        "hint": "pass upload_id exactly as PUT /api/agent/upload returned it",
+    }
+
+
+def _upload_not_found() -> dict[str, Any]:
+    """תשובה אחת לפגה, לנצרכה ולשל משתמש אחר — בלי לגלות איזו (כמו ``get_note``)."""
+    return {
+        "ok": False,
+        "error": "upload_not_found",
+        "hint": (
+            "no pending upload with this id: an upload lasts "
+            f"{UPLOAD_TTL_SECONDS // 60} minutes and the first save that uses it uses it up. "
+            "Nothing was written. Upload the file again, or send the content inline."
+        ),
+    }
+
+
+def _upload_storage_unavailable() -> dict[str, Any]:
+    """אחסון ההעלאות לא ענה. אותה מילה של הראוט (503), כי זה אותו מצב."""
+    return {
+        "ok": False,
+        "error": "upload_storage_unavailable",
+        "hint": (
+            "the upload storage did not answer; nothing was written. Retry in a minute — "
+            "if it answers upload_not_found, upload the file again — or send the content inline."
+        ),
+    }
+
+
+def _load_upload(
+    backend: Any, user_id: int, upload_id: Any
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """``(העלאה, None)`` או ``(None, סירוב)``. בודקת צורה ושולפת — **אינה צורכת**."""
+    bad = _invalid_upload_id(upload_id)
+    if bad is not None:
+        return None, bad
+    try:
+        upload = backend.find_upload(user_id, upload_id)
+    except UploadStorageUnavailable:
+        return None, _upload_storage_unavailable()
+    if upload is None:
+        return None, _upload_not_found()
+    return upload, None
+
+
+def _consume_upload(
+    backend: Any, user_id: int, upload_id: str, *, upload: dict[str, Any], tool: str
+) -> dict[str, Any] | None:
+    """השער: ``None`` כשההעלאה נצרכה עכשיו, בקריאה הזו — אחרת הסירוב, ולא שומרים.
+
+    ``False`` מהמחיקה פירושו שמישהו צרך אותה בין השליפה לכאן, או שפקעה בינתיים.
+    """
+    try:
+        consumed = backend.consume_upload(
+            user_id, upload_id, tool=tool, size_bytes=upload["bytes"], chars=len(upload["text"])
+        )
+    except UploadStorageUnavailable:
+        return _upload_storage_unavailable()
+    return None if consumed else _upload_not_found()
+
+
+def _upload_used_up(res: dict[str, Any]) -> dict[str, Any]:
+    """תשובת שמירה שנכשלה **אחרי** שהשער עבר: ההעלאה נשרפה, והתשובה אומרת זאת."""
+    note = "this attempt used up the upload: upload the file again before you retry"
+    hint = res.get("hint")
+    return {
+        **res,
+        "upload_consumed": True,
+        "hint": f"{hint}; {note}" if isinstance(hint, str) and hint else note,
+    }
+
+
 def save_file(
     backend: Any,
     user_id: int,
     *,
     file_name: str,
-    code: str,
+    code: str = "",
     language: str | None = None,
     description: str = "",
+    upload_id: str | None = None,
 ) -> dict[str, Any]:
     """Validate + normalize a save request, then delegate to the backend.
 
     All app imports are lazy/guarded so this module stays trivially importable
     (and unit-testable) without the config/services stack.
+
+    ``upload_id`` — התוכן מהעלאה במקום ``code``; הסדר והשער — בהערה שמעל
+    :func:`_both_sent`. התוכן עובר את **אותו** מסלול בדיוק: שום מסלול מקביל.
     """
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
+    upload: dict[str, Any] | None = None
+    if upload_id is not None:
+        if isinstance(code, str) and code != "":
+            return _both_sent("code")
+        upload, refusal = _load_upload(backend, user_id, upload_id)
+        if refusal is not None:
+            return refusal
+        code = upload["text"]
     if not isinstance(code, str) or code == "":
-        return {"ok": False, "error": "empty_code"}
+        return {
+            "ok": False,
+            "error": "empty_code",
+            "hint": "send the content in code, or upload the file first and pass upload_id",
+        }
 
     # Reject oversize content (the large-file path is non-versioned; out of scope
     # here). Mirror the app's own gate, which counts characters, not bytes.
@@ -817,7 +942,13 @@ def save_file(
             ),
         }
 
-    return backend.save_file(
+    if upload is not None:
+        refusal = _consume_upload(
+            backend, user_id, upload_id, upload=upload, tool="codekeeper_save_file"
+        )
+        if refusal is not None:
+            return refusal
+    res = backend.save_file(
         user_id,
         file_name=name,
         code=code,
@@ -825,6 +956,9 @@ def save_file(
         description=(description or "").strip(),
         tool="codekeeper_save_file",
     )
+    if upload is not None and not res.get("ok"):
+        return _upload_used_up(res)
+    return res
 
 
 def _apply_edit(
@@ -878,7 +1012,14 @@ def _load_editable(backend: Any, user_id: int, name: str) -> tuple[dict[str, Any
 
 
 def _resave_edited(
-    backend: Any, user_id: int, *, name: str, doc: dict[str, Any], new_code: str, tool: str
+    backend: Any,
+    user_id: int,
+    *,
+    name: str,
+    doc: dict[str, Any],
+    new_code: str,
+    tool: str,
+    consume: Callable[[], dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     """Persist an edited body as a new version, preserving the file's metadata.
 
@@ -888,11 +1029,19 @@ def _resave_edited(
 
     ``new_code`` הוא מה שהכלי **מתכוון** לשמור, וה-backend משווה אליו את מה שנשמר
     בפועל (``content_changed``). ``tool`` הוא שם הכלי בשורת הלוג כשהשניים שונים.
+
+    ``consume`` — שער החד-פעמיות של ``upload_id`` (:func:`_consume_upload`): רץ
+    אחרי בדיקת התקרה ולפני השמירה, כך שהעלאה שהתוצאה שלה גדולה מדי אינה נשרפת.
+    סירוב שלו חוזר כמו שהוא, ושמירה שנכשלת אחריו אומרת שההעלאה נצרכה.
     """
     max_size = max_code_size()
     if len(new_code) > max_size:
         return {"ok": False, "error": "code_too_large", "max": max_size}
-    return backend.save_file(
+    if consume is not None:
+        refusal = consume()
+        if refusal is not None:
+            return refusal
+    res = backend.save_file(
         user_id,
         file_name=name,
         code=new_code,
@@ -901,6 +1050,9 @@ def _resave_edited(
         tags=list(doc.get("tags") or []),
         tool=tool,
     )
+    if consume is not None and not res.get("ok"):
+        return _upload_used_up(res)
+    return res
 
 
 #: מה שתשובת השמירה אומרת על **מה שנשמר**, ועובר כמות שהוא לתשובה של כל כלי
@@ -1066,8 +1218,9 @@ def append_file(
     user_id: int,
     *,
     file_name: str,
-    content: str,
+    content: str = "",
     expected_content_sha256: str | None = None,
+    upload_id: str | None = None,
 ) -> dict[str, Any]:
     """Append ``content`` to the end of an existing file (as a new version).
 
@@ -1075,12 +1228,29 @@ def append_file(
     so an appended section always starts on a fresh line.
 
     ``expected_content_sha256`` — אותו שער כמו ב-:func:`edit_file`.
+
+    ``upload_id`` — הטקסט מהעלאה במקום ``content``, באותו סדר של
+    :func:`save_file`; השער רץ בתוך :func:`_resave_edited`, אחרי בדיקת התקרה על
+    הקובץ המלא. **כאן החד-פעמיות היא ההבטחה עצמה:** הוספה שנשלחה שוב כי התשובה
+    אבדה בדרך נענית ``upload_not_found``, והקובץ מכיל את הטקסט פעם אחת.
     """
     name = (file_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_file_name"}
+    upload: dict[str, Any] | None = None
+    if upload_id is not None:
+        if isinstance(content, str) and content != "":
+            return _both_sent("content")
+        upload, refusal = _load_upload(backend, user_id, upload_id)
+        if refusal is not None:
+            return refusal
+        content = upload["text"]
     if not isinstance(content, str) or content == "":
-        return {"ok": False, "error": "empty_content"}
+        return {
+            "ok": False,
+            "error": "empty_content",
+            "hint": "send the text in content, or upload the file first and pass upload_id",
+        }
     bad_expected = _invalid_expected_sha256(expected_content_sha256)
     if bad_expected is not None:
         return bad_expected
@@ -1100,6 +1270,11 @@ def append_file(
         doc=doc,
         new_code=code + sep + content,
         tool="codekeeper_append_file",
+        consume=None
+        if upload is None
+        else functools.partial(
+            _consume_upload, backend, user_id, upload_id, upload=upload, tool="codekeeper_append_file"
+        ),
     )
     if not res.get("ok"):
         return res

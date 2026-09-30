@@ -63,7 +63,17 @@ from services.markdown_files import is_markdown_file
 
 # מודול שורש טהור (``datetime`` ו-``typing`` בלבד), ולכן ייבוא ישיר ולא עצל:
 # הוא אינו גורר את שכבת המסד. ראו ``file_dates.py``.
-from file_dates import version_created_at
+from file_dates import as_utc, version_created_at
+
+# המפרט של העלאות ה-MCP — אותו סוג מודול שורש טהור, ומאותה סיבה ייבוא ישיר.
+from mcp_uploads import (
+    MCP_UPLOADS_COLLECTION,
+    UPLOAD_EXPIRES_FIELD,
+    UPLOAD_TTL_SECONDS,
+    UploadStorageUnavailable,
+    is_upload_ttl_index,
+    new_upload_id,
+)
 
 # גיל התיאור — אותו סוג מודול שורש טהור בדיוק, ולכן אותו ייבוא ישיר.
 from file_description import DESCRIPTION_SET_AT_VERSION_FIELD, description_age_field
@@ -705,6 +715,32 @@ def _content_sha256(text: str) -> str:
     קידוד BSON ולכן לא נשמרת, וכאן היא הייתה נופלת ולא מגובבת חלקית.
     """
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _live_upload(user_id: int, upload_id: str) -> dict[str, Any]:
+    """המסנן של העלאה **חיה** של משתמש: המזהה, הבעלים, ו-``expires_at > now``.
+
+    **מסנן אחד, לשליפה ולמחיקה.** שער חד-פעמיות שמסנן אחרת מהשליפה שלפניו היה
+    מוחק — או לא מוחק — משהו אחר ממה שנבדק. ``expires_at`` נבדק כאן ולא רק
+    במונגו, כי המחיקה של TTL עצלה (``mcp_uploads.UPLOAD_TTL_EXPIRE_AFTER_SECONDS``),
+    ו-``now`` טרי בכל קריאה: העלאה שפקעה בין השליפה למחיקה אינה נצרכת.
+    """
+    return {
+        "upload_id": upload_id,
+        "user_id": int(user_id),
+        UPLOAD_EXPIRES_FIELD: {"$gt": _dt.datetime.now(_dt.timezone.utc)},
+    }
+
+
+def _upload_storage_error(operation: str) -> UploadStorageUnavailable:
+    """רושם שגיאת pymongo של אחסון ההעלאות ומחזיר את החריגה שהקוראים תופסים.
+
+    נקרא רק מתוך ``except _PyMongoError``, ולכן ``exc_info`` הוא החריגה ההיא.
+    ``exc_info`` של pymongo נבדק מול 4.15.3 — בלי סיסמה מכתובת החיבור (ראו
+    ``save_file``). בלי מזהה ההעלאה ובלי התוכן.
+    """
+    logger.warning("mcp upload storage: could not %s", operation, exc_info=True)
+    return UploadStorageUnavailable(operation)
 
 
 def _file_meta(out: dict[str, Any]) -> dict[str, Any]:
@@ -1538,6 +1574,155 @@ class ProductionBackend:
         if isinstance(result, dict) and isinstance(result.get("items"), list):
             result["items"] = [_strip_heavy(item) for item in result["items"]]
         return result
+
+    # -- העלאות ממתינות (``PUT /api/agent/upload``) -------------------------
+    #
+    # הראוט (``mcp_server/uploads.py``) כותב, ו-``codekeeper_save_file`` /
+    # ``codekeeper_append_file`` צורכים. המפרט — ``mcp_uploads.py``.
+    #
+    # **ערוץ הכשל: ``UploadStorageUnavailable``.** שגיאת pymongo בלבד מתורגמת
+    # אליה, ונרשמת כאן פעם אחת; כל חריגה אחרת היא באג ועולה כמו שהיא — אותה
+    # הכרעה של הקריאה החוזרת ב-``save_file``, ומאותה סיבה: באג שמוצג כתקלה
+    # רגעית נראה כמו משהו שיעבור מעצמו.
+    def _uploads_coll(self) -> Any:
+        return self._raw_mongo()[MCP_UPLOADS_COLLECTION]
+
+    def _confirm_upload_ttl(self, coll: Any) -> bool:
+        """הבנאי של שער ``UPLOAD_TTL``: בונה דרך ההצהרה היחידה, ומאמת בקריאה חוזרת.
+
+        ``ensure_mcp_uploads_indexes`` היא אותה פונקציה שרצה בכל עלייה, ולכן אין
+        כאן מפרט שני. **ערך ההחזרה שלה אינו ההכרעה**, בכוונה: כשל שלה כבר יצא
+        שם כאירוע ברמת error, וההכרעה היא ``list_indexes`` — הדגל נדלק רק כשהמסד
+        עצמו מראה TTL במפרט, ולא כי פונקציה אמרה שבנתה אותו
+        (``docs/performance-sticky-notes.rst``, "הדגל נכתב רק אחרי אימות בקריאה
+        חוזרת"; ``_ensure_versions_index`` עושה אותו דבר).
+        """
+        self._require_dbm().ensure_mcp_uploads_indexes()
+        return any(is_upload_ttl_index(row) for row in coll.list_indexes())
+
+    def upload_storage_ready(self) -> bool:
+        """האם מותר לקבל העלאה: ה-TTL שמוחק העלאות שלא נצרכו **אומת** במסד.
+
+        בלעדיו "חמש העלאות ממתינות" הוא חסם על הנייר — הספירה מדלגת על מה
+        שפקע, והתוכן נשאר לצמיתות. לכן fail-closed, עם ניסיון בנייה חוזר אחרי
+        ``_INDEX_RETRY_SECONDS`` — אותו מנוע ואותה הכרעה של צילומי הפתקים
+        (``snapshot_failed``). אחרי שאומת פעם אחת בתהליך, זו בדיקת דגל בלבד.
+        """
+        return self._ensure_enforced_index(
+            self._uploads_coll(), _EnforcedIndex.UPLOAD_TTL, self._confirm_upload_ttl
+        )
+
+    def pending_upload_expiries(self, user_id: int, *, limit: int) -> list[_dt.datetime]:
+        """מועדי הפקיעה של ההעלאות החיות של המשתמש, מהקרוב לרחוק — עד ``limit``.
+
+        שאילתה אחת לשתי השאלות של מכסת הממתינות: האם הגענו לתקרה (חזרו
+        ``limit`` מועדים), ומתי יתפנה מקום (הראשון). נשען על האינדקס
+        ``(user_id, expires_at)``: שוויון, ואז טווח ומיון על אותו שדה.
+        """
+        query = {
+            "user_id": int(user_id),
+            UPLOAD_EXPIRES_FIELD: {"$gt": _dt.datetime.now(_dt.timezone.utc)},
+        }
+        try:
+            docs = list(
+                self._uploads_coll()
+                .find(query, {UPLOAD_EXPIRES_FIELD: 1, "_id": 0})
+                .sort(UPLOAD_EXPIRES_FIELD, 1)
+                .limit(int(limit))
+            )
+        except _PyMongoError as exc:
+            raise _upload_storage_error("count pending uploads") from exc
+        return [as_utc(doc[UPLOAD_EXPIRES_FIELD]) for doc in docs]
+
+    def create_upload(self, user_id: int, *, text: str, size_bytes: int) -> dict[str, Any]:
+        """שומר העלאה ומחזיר ``{"upload_id", "content_sha256"}``.
+
+        ``content_sha256`` מחושב ב-:func:`_content_sha256` — ההגדרה של
+        ``file.content_sha256``, ולכן ה-hash שהסוכן מקבל עכשיו הוא מה ש-
+        ``file.content_sha256`` יהיה אחרי השמירה. ``size_bytes`` הוא אורך הבתים
+        שהגיעו; פענוח UTF-8 קפדני מחזיר בדיוק אותם בתים בקידוד חוזר, ולכן זה
+        גם האורך של ``text`` ב-UTF-8.
+
+        שורת ה-``INFO`` כאן היא הנראות היחידה של העלאה בייצור: PostHog אינו רואה
+        ראוטים, וסירובים אינם נרשמים (#3432). בלי המזהה ובלי התוכן.
+        """
+        now = _dt.datetime.now(_dt.timezone.utc)
+        upload_id = new_upload_id()
+        content_sha256 = _content_sha256(text)
+        try:
+            result = self._uploads_coll().insert_one(
+                {
+                    "upload_id": upload_id,
+                    "user_id": int(user_id),
+                    "text": text,
+                    "bytes": int(size_bytes),
+                    "chars": len(text),
+                    "content_sha256": content_sha256,
+                    "created_at": now,
+                    # מועד המחיקה עצמו — ``expireAfterSeconds`` הוא 0, ולכן משך
+                    # החיים מוגדר רק כאן (ראו ``mcp_uploads.UPLOAD_EXPIRES_FIELD``).
+                    UPLOAD_EXPIRES_FIELD: now + _dt.timedelta(seconds=UPLOAD_TTL_SECONDS),
+                }
+            )
+        except _PyMongoError as exc:
+            raise _upload_storage_error("store an upload") from exc
+        # כתיבה שלא אושרה (``w=0``) אינה עדות שנשמר דבר, ומזהה שיימסר עליה היה
+        # נענה ``upload_not_found`` בצריכה. ``acknowledged`` הוא ``False`` רק שם
+        # (``pymongo/results.py``, ``_WriteResult.acknowledged``).
+        if not result.acknowledged:
+            logger.warning("mcp upload storage: the insert was not acknowledged (w=0)")
+            raise UploadStorageUnavailable("store an upload: the write was not acknowledged")
+        logger.info(
+            "mcp upload: stored %d bytes, %d chars for user %s", int(size_bytes), len(text), user_id
+        )
+        return {"upload_id": upload_id, "content_sha256": content_sha256}
+
+    def find_upload(self, user_id: int, upload_id: str) -> dict[str, Any] | None:
+        """ההעלאה החיה של המשתמש — ``{"text", "bytes"}`` — או ``None``.
+
+        ``None`` אחד לשלושה מצבים — פגה, נצרכה, של משתמש אחר — **בלי לגלות
+        איזה**, כמו ``get_note`` על פתק של אחר. אינה צורכת: ``file_exists`` ו-
+        ``existence_check_unavailable`` שבאים אחריה אינם שורפים את ההעלאה.
+
+        טקסט שאינו מחרוזת נופל בקול (``TypeError``, עם שם הטיפוס בלבד), כמו
+        ``_full``: אין כותב שכותב דבר כזה, ולכן זה חוזה שנשבר.
+        """
+        try:
+            doc = self._uploads_coll().find_one(
+                _live_upload(user_id, upload_id), {"text": 1, "bytes": 1, "_id": 0}
+            )
+        except _PyMongoError as exc:
+            raise _upload_storage_error("read an upload") from exc
+        if doc is None:
+            return None
+        text = doc.get("text")
+        if not isinstance(text, str):
+            raise TypeError(f"stored upload text is {type(text).__name__}, not str")
+        return {"text": text, "bytes": int(doc.get("bytes") or 0)}
+
+    def consume_upload(
+        self, user_id: int, upload_id: str, *, tool: str, size_bytes: int, chars: int
+    ) -> bool:
+        """מוחק את ההעלאה — **השער לחד-פעמיות**. ``True`` רק כשהמחיקה הזו מחקה אותה.
+
+        ``delete_one`` אטומי במסד, ולכן משתי צריכות מקבילות של אותו מזהה רק אחת
+        רואה ``deleted_count == 1``; השנייה רואה 0 ואינה שומרת. זה נכון גם מחוץ
+        לתור הכתיבה של התהליך. אותו מסנן של :meth:`find_upload` (:func:`_live_upload`).
+
+        ``tool``, ``size_bytes`` ו-``chars`` הם לשורת ה-``INFO`` בלבד.
+        """
+        try:
+            consumed = self._uploads_coll().delete_one(_live_upload(user_id, upload_id)).deleted_count == 1
+        except _PyMongoError as exc:
+            # כולל ``InvalidOperation`` על כתיבה שלא אושרה — ``deleted_count``
+            # אינו זמין שם (``pymongo/results.py``), ולכן אין כאן עדות למחיקה.
+            raise _upload_storage_error("consume an upload") from exc
+        if consumed:
+            logger.info(
+                "mcp upload: consumed by %s (%d bytes, %d chars) for user %s",
+                tool, int(size_bytes), int(chars), user_id,
+            )
+        return consumed
 
     # -- sticky notes ------------------------------------------------------
     def _raw_mongo(self) -> Any:

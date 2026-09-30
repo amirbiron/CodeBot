@@ -11,7 +11,8 @@ hash שמחושב מהקלט, וזה בדיוק הכשל שהשדה בא לתפ�
 
 שש קבוצות:
 
-1. **התאמה** — כל כלי כתיבה וכל מצב של ``get_file`` מחזירים את ה-hash של מה שבאוסף.
+1. **התאמה** — כל כלי כתיבה וכל מצב של ``get_file`` מחזירים את ה-hash של מה שבאוסף;
+   וגם כשהתוכן הגיע בהעלאה (``upload_id``) ולא inline.
 2. **הרשת תופסת (T2)** — שכבה שמשנה את התוכן בדרך לאוסף מדליקה ``content_changed``,
    עם סיכום מדויק, וה-hash הוא של מה שנשמר ולא של מה שנשלח.
 3. **הקריאה החוזרת** — לפי ``_id`` ולא לפי שם, לא מהקאש, רק של המשתמש, מה-primary,
@@ -198,6 +199,46 @@ def test_content_that_looks_like_json_reaches_the_tool_as_it_was_sent(mcp, store
     assert multi["file"]["content_sha256"] == _sha(final)
     assert saved["content_changed"] is edited["content_changed"] is False
     assert appended["content_changed"] is multi["content_changed"] is False
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+@pytest.mark.parametrize("tool", ["codekeeper_save_file", "codekeeper_append_file"])
+def test_content_that_came_by_upload_is_stored_as_the_bytes_that_were_sent(mcp, store, monkeypatch, tool, case):
+    """אותם שישה מקרים, כשהתוכן עלה ב-``PUT /api/agent/upload`` ונשמר לפי ``upload_id``.
+
+    הבתים עוברים דרך הראוט האמיתי (פענוח UTF-8 קפדני, בלי נרמול) ודרך האחסון
+    הזמני, ולכן כאן נמדד שה-BOM, ה-CRLF והתווים של ארבעה בתים חוזרים משם בלי
+    שינוי: ה-hash בתשובת ההעלאה הוא של הבתים, ובתשובת השמירה — של מה שבאוסף.
+    """
+    from starlette.testclient import TestClient
+
+    from _mcp_apps import PatTokens, app_in_mode
+    from _uploads_harness import install_upload_storage
+    from mcp_server.backend import ProductionBackend
+
+    install_upload_storage(monkeypatch, store)
+    raw = CASES[case].encode("utf-8")
+    tokens = PatTokens({"ckmcp_sha": {"user_id": USER, "scopes": ["read"]}})
+    app = app_in_mode("pat", ProductionBackend(db_manager=store.dbm, mongo_db=store.raw), tokens=tokens)
+    with TestClient(app) as client:
+        uploaded = client.put("/api/agent/upload", content=raw,
+                              headers={"authorization": "Bearer ckmcp_sha"}).json()
+    assert uploaded["content_sha256"] == hashlib.sha256(raw).hexdigest()
+
+    if tool == "codekeeper_save_file":
+        intended = CASES[case]
+    else:
+        assert _call(mcp, "codekeeper_save_file", file_name=NAME, code="head\n")["ok"] is True
+        intended = "head\n" + CASES[case]
+    res = _call(mcp, tool, file_name=NAME, upload_id=uploaded["upload_id"])
+
+    assert res["ok"] is True, res
+    stored = _stored_by_id(store, res["file"]["id"])["code"]
+    assert stored == intended
+    assert res["file"]["content_sha256"] == _sha(stored)
+    assert res["content_changed"] is False and "content_diff" not in res
+    if tool == "codekeeper_save_file":
+        assert res["file"]["content_sha256"] == uploaded["content_sha256"]
 
 
 def test_a_file_at_the_size_ceiling_gets_its_hash_on_write_and_on_read(mcp, store):

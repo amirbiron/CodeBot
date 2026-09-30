@@ -39,7 +39,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from types import NoneType, UnionType
-from typing import Annotated, Any, NamedTuple, Union, get_args, get_origin
+from typing import Annotated, Any, NamedTuple, Union, get_args, get_origin, get_type_hints
 
 import pydantic_core
 from mcp.server.fastmcp import Context, FastMCP
@@ -75,6 +75,7 @@ from .analytics import (
     instrument_mcp_server,
 )
 from .auth import (
+    EXEMPT_PATHS,
     PATAuthMiddleware,
     current_user_id,
     is_admin_user,
@@ -82,6 +83,8 @@ from .auth import (
     require_write,
 )
 from .primer import agent_primer_route
+from .uploads import UPLOAD_PATH, agent_upload_route, upload_url_for
+from mcp_uploads import MAX_PENDING_UPLOADS, UPLOAD_TTL_SECONDS
 
 # ---------------------------------------------------------------------------
 # בלוק ה-``instructions`` שהשרת מחזיר ב-``initialize``.
@@ -581,6 +584,85 @@ _EXPECTED_SHA256_TOOL_DOC = (
     " Pass expected_content_sha256 (the file.content_sha256 you read) to refuse with "
     "conflict, writing nothing, if the file changed since."
 )
+
+# העלאה במקום תוכן inline (``PUT /api/agent/upload``, ``mcp_server/uploads.py``) —
+# **אותו מבנה של השער שמתחת:** משפט אחד בתיאור הכלי, שהוא הגילוי, והפירוט בתיאור
+# הפרמטר, שהמשפט הראשון שלו נושא את הכלל, כי לקוח שמקצר תיאור פרמטר לכ-120 תווים
+# רואה רק את ההתחלה. שני כלים, נוסח אחד — פרט לשם הפרמטר שההעלאה באה במקומו.
+_UPLOAD_ID_TOOL_DOC = (
+    " Content that already exists as a file in your environment can go by upload_id "
+    "instead, without reading it into your context first."
+)
+
+
+def _upload_id_param_doc(instead_of: str, upload_url: str) -> str:
+    """תיאור ``upload_id``. נבנה ברישום: הדקות מ-``UPLOAD_TTL_SECONDS``, ה-host מהתצורה.
+
+    ``upload_url`` — מ-:func:`mcp_server.uploads.upload_url_for`: הכתובת של השירות
+    כשהיא ידועה, ו-``<mcp-host>`` כשלא.
+    """
+    return (
+        f"Instead of {instead_of}, for content already in a file in your environment: "
+        "single-use, and the size ceiling still applies. Upload the file "
+        'first: curl -sS -T report.md -H "Authorization: Bearer $CODEKEEPER_PAT" '
+        f"{upload_url} — the reply carries upload_id, valid for {UPLOAD_TTL_SECONDS // 60} "
+        "minutes, and content_sha256, which file.content_sha256 matches after the save. "
+        "Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), send the "
+        f"content in {instead_of} as usual. Refusals: upload_not_found (expired, already "
+        "used, or never yours — upload again), invalid_upload_id, and "
+        f"{instead_of}_and_upload_id when both are sent."
+    )
+
+
+def _described_at_registration(**docs: str) -> Any:
+    """מצמיד ``Field(description=...)`` לפרמטרים של כלי **כשהתיאור נבנה ברישום**.
+
+    ``from __future__ import annotations`` הופך כל הערת טיפוס בקובץ הזה למחרוזת, וה-
+    SDK מעריך אותה מול המשתנים **הגלובליים** של המודול (``inspect.signature(func,
+    eval_str=True)`` ב-``mcp/server/fastmcp/utilities/func_metadata.py``, mcp 1.28.1).
+    תיאור שנבנה מתוך ``build_mcp`` — התקרה מ-``max_code_size()``, ה-host מ-``public_url``
+    — יושב במשתנה מקומי שאינו שם, והרישום נופל ב-``InvalidSignature``. ערך שאינו
+    מחרוזת עובר את ההערכה כמו שהוא (``inspect.get_annotations``), ולכן הדקורטור
+    הזה, שרץ **לפני** ה-``@mcp.tool`` שמעליו, כותב את ההערה כאובייקט.
+
+    הטיפוס נלקח מהחתימה עצמה (``get_type_hints``), ולא מועתק לכאן: החתימה נשארת
+    המקור היחיד שלו, והדקורטור רק מוסיף את התיאור. שם שאינו פרמטר — ``KeyError``
+    ברישום, ולא תיאור שנעלם בשקט.
+    """
+
+    def apply(fn: Any) -> Any:
+        hints = get_type_hints(fn, include_extras=True)
+        for name, doc in docs.items():
+            fn.__annotations__[name] = Annotated[hints[name], Field(description=doc)]
+        return fn
+
+    return apply
+
+
+def _code_param_doc(limit: int) -> str:
+    """תיאור ``code`` של ``codekeeper_save_file``. **התקרה מהתצורה שהשירות רץ איתה**
+    (``max_code_size()`` ברישום), ולא מספר מוקלד שמתיישן מול ``MAX_CODE_SIZE``.
+
+    **"פצלו ל-``codekeeper_append_file``" אינו חלופה לתוכן ארוך מהתקרה**, ולכן הוא
+    אינו כאן כזו: אותה תקרה חלה על הקובץ כולו אחרי ההוספה (``_resave_edited``).
+    """
+    return (
+        f"The file's content, saved exactly as sent. At most {limit:,} characters: the "
+        "ceiling this server runs with, for the whole file, so codekeeper_append_file cannot "
+        "grow a file past it either. Longer content: split it into several files, or send it "
+        "to the bot as a document (kept as a large file, which these tools do not read). "
+        "Content that already exists as a file in your environment: send upload_id instead."
+    )
+
+
+def _content_param_doc(limit: int) -> str:
+    """תיאור ``content`` של ``codekeeper_append_file`` — אותה תקרה, על התוצאה."""
+    return (
+        f"The text to add, saved exactly as sent. The whole file after the append must stay "
+        f"within {limit:,} characters. Text that already exists as a file in your "
+        "environment: send upload_id instead."
+    )
+
 
 _EXPECTED_SHA256_PARAM_DOC = (
     "The file.content_sha256 you read last; if the file changed since, the call is "
@@ -2471,8 +2553,24 @@ def build_mcp(
     auth_provider: Any = None,
     auth_settings: Any = None,
     repo_backend: Any = None,
-    rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
+    rate_limit_per_minute: int | None = None,
+    tool_rate_limiter: ToolRateLimiter | None = None,
+    public_url: str | None = None,
 ) -> FastMCP:
+    """``rate_limit_per_minute`` או ``tool_rate_limiter`` — אחד מהשניים, לא שניהם.
+
+    ``tool_rate_limiter`` הוא הדרך של ``build_app``: הוא בונה מופע אחד ומעביר אותו
+    גם לכאן וגם לראוט ההעלאה, כדי שהעלאה ושמירה יהיו שתי קריאות מאותה מכסה.
+    שניהם יחד הם ``TypeError`` ולא העדפה שקטה של אחד — מספר שנשלח ונבלע היה
+    נראה כמו מגבלה שחלה. בלי אף אחד — ``DEFAULT_RATE_LIMIT_PER_MINUTE``, כמו עד
+    היום. ``public_url`` — ``MCP_SERVER_URL``, ל-host שבפקודת ההעלאה בתיאורים.
+    """
+    if tool_rate_limiter is not None and rate_limit_per_minute is not None:
+        raise TypeError("pass rate_limit_per_minute or tool_rate_limiter, not both")
+    if tool_rate_limiter is None:
+        tool_rate_limiter = ToolRateLimiter(
+            DEFAULT_RATE_LIMIT_PER_MINUTE if rate_limit_per_minute is None else rate_limit_per_minute
+        )
     kwargs: dict[str, Any] = {
         "stateless_http": True,
         "transport_security": _transport_security(),
@@ -2482,9 +2580,10 @@ def build_mcp(
         # register) plus the auth layer that calls provider.load_access_token.
         kwargs["auth_server_provider"] = auth_provider
         kwargs["auth"] = auth_settings
-    mcp: FastMCP = AdminAwareFastMCP(
-        name, tool_rate_limiter=ToolRateLimiter(rate_limit_per_minute), **kwargs
-    )
+    mcp: FastMCP = AdminAwareFastMCP(name, tool_rate_limiter=tool_rate_limiter, **kwargs)
+    # נבנים ברישום ולא בייבוא: התקרה היא זו שהשירות רץ איתה, וה-host מהתצורה.
+    code_limit = handlers.max_code_size()
+    upload_url = upload_url_for(public_url)
     # PostHog MCP analytics. **Not** schema-neutral when it runs: it adds a
     # ``context`` string to every advertised tool schema and strips it again
     # before the tool runs — what that costs is in the docstring of
@@ -2627,16 +2726,25 @@ def build_mcp(
             "refresh a stale description on a file that already exists, use "
             "codekeeper_update_file_description, which changes nothing else. "
             "Requires write permission."
+            + _UPLOAD_ID_TOOL_DOC
             + _WRITE_SHA256_DOC
         ),
         annotations=_WRITE_TOOL,
     )
+    @_described_at_registration(
+        code=_code_param_doc(code_limit),
+        upload_id=_upload_id_param_doc("code", upload_url),
+    )
     def save_file(
         ctx: Context,
         file_name: str,
-        code: str,
+        # ``str = ""`` ולא ``str | None``: לתוכן ריק כבר יש סירוב (``empty_code``),
+        # ולכן "לא נשלח" ו"נשלח ריק" מקבלים אותה תשובה והחוזה לא משתנה. ובלי
+        # ``null`` בסכימה, לקוח אינו ממיר את המילה ``null`` בתוכן ל-``null``.
+        code: str = "",
         language: str | None = None,
         description: str = "",
+        upload_id: str | None = None,
     ) -> dict:
         require_write(ctx)  # reject a read-only token before touching anything
         return handlers.save_file(
@@ -2646,6 +2754,7 @@ def build_mcp(
             code=code,
             language=language,
             description=description,
+            upload_id=upload_id,
         )
 
     @mcp.tool(
@@ -2733,17 +2842,24 @@ def build_mcp(
             "a new non-destructive version."
             + _EXPECTED_SHA256_TOOL_DOC
             + " Requires write permission."
+            + _UPLOAD_ID_TOOL_DOC
             + _WRITE_SHA256_DOC
         ),
         annotations=_WRITE_TOOL,
     )
+    @_described_at_registration(
+        content=_content_param_doc(code_limit),
+        upload_id=_upload_id_param_doc("content", upload_url),
+    )
     def append_file(
         ctx: Context,
         file_name: str,
-        content: str,
+        # ``str = ""`` ולא ``str | None`` — מאותו נימוק של ``code`` ב-``save_file``.
+        content: str = "",
         expected_content_sha256: Annotated[
             str | None, Field(description=_EXPECTED_SHA256_PARAM_DOC)
         ] = None,
+        upload_id: str | None = None,
     ) -> dict:
         require_write(ctx)  # reject a read-only token before touching anything
         return handlers.append_file(
@@ -2752,6 +2868,7 @@ def build_mcp(
             file_name=file_name,
             content=content,
             expected_content_sha256=expected_content_sha256,
+            upload_id=upload_id,
         )
 
     @mcp.tool(
@@ -3580,6 +3697,7 @@ def build_app(
     name: str = "CodeKeeper",
     max_request_bytes: int = DEFAULT_MAX_REQUEST_BYTES,
     rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
+    public_url: str | None = None,
 ):
     """Build the authenticated Streamable-HTTP ASGI app.
 
@@ -3588,15 +3706,24 @@ def build_app(
       endpoints and verifies via provider.load_access_token — which also accepts
       PATs, so Claude Code and Claude.ai both work. ``consent_routes`` are mounted.
     - PAT-only (fallback): the custom ``PATAuthMiddleware`` guards the app.
+
+    ``public_url`` — the service's public base (``MCP_SERVER_URL``), for the host
+    in the upload command that the tool descriptions show.
     """
     oauth = auth_provider is not None and auth_settings is not None
+    # **One limiter for the service.** Built here, once, and handed both to the
+    # MCP transport (``call_tool``) and to ``PUT /api/agent/upload``: an upload and
+    # the save that consumes it are two calls from the same per-identity quota. A
+    # second instance for the route would have doubled what one identity may send.
+    rate_limiter = ToolRateLimiter(rate_limit_per_minute)
     mcp = build_mcp(
         backend,
         name=name,
         auth_provider=auth_provider if oauth else None,
         auth_settings=auth_settings if oauth else None,
         repo_backend=repo_backend,
-        rate_limit_per_minute=rate_limit_per_minute,
+        tool_rate_limiter=rate_limiter,
+        public_url=public_url,
     )
     app = mcp.streamable_http_app()  # Starlette app exposing POST/GET /mcp
     # Drain analytics on ASGI shutdown, before uvicorn's event loop closes.
@@ -3626,6 +3753,21 @@ def build_app(
             auth_provider=auth_provider if oauth else None,
         )
     )
+    # PUT /api/agent/upload — the primer's twin: it authenticates inside its own
+    # handler too (a valid token; not the ``write`` scope — the docstring of
+    # ``mcp_server/uploads.py`` says why), with the same verifier, and draws on the
+    # same rate limiter as the tools. In PAT mode its path is exempt from
+    # ``PATAuthMiddleware`` below, so that a 401 there is the route's own — with
+    # ``Connection: close`` — in both modes. ``tests/test_mcp_uploads.py`` holds
+    # every registered route to a 401 without a token, except a closed list.
+    app.router.routes.append(
+        agent_upload_route(
+            backend,
+            token_store=token_store,
+            auth_provider=auth_provider if oauth else None,
+            rate_limiter=rate_limiter,
+        )
+    )
     # Request-body cap for every route, in both auth modes (#3431). Added
     # before ``PATAuthMiddleware`` on purpose: ``add_middleware`` inserts at the
     # front of the stack (``starlette/applications.py``, Starlette 1.6.0), so the
@@ -3645,13 +3787,19 @@ def build_app(
         for route in consent_routes or []:
             app.router.routes.append(route)
     else:
-        app.add_middleware(PATAuthMiddleware, token_store=token_store)
+        app.add_middleware(
+            PATAuthMiddleware, token_store=token_store, exempt_paths=EXEMPT_PATHS | {UPLOAD_PATH}
+        )
     logger.info(
         "mcp request limits: body <= %d bytes (413 %s), tool calls <= %s per identity "
-        "per minute (%s); /healthz sits outside both",
+        "per minute (%s); /healthz sits outside both; uploads (%s) count against the same "
+        "quota, <= %d pending per identity, each kept %ds",
         max_request_bytes,
         BODY_TOO_LARGE,
         rate_limit_per_minute if rate_limit_per_minute > 0 else "unlimited",
         RATE_LIMITED,
+        UPLOAD_PATH,
+        MAX_PENDING_UPLOADS,
+        UPLOAD_TTL_SECONDS,
     )
     return app
