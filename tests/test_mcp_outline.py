@@ -4510,7 +4510,7 @@ class TestRstThroughTheToolItself:
             whole = _rst(text)
             size = len(json.dumps(whole["symbols"], ensure_ascii=False).encode())
             assert size < answer_size.OUTPUT_BYTE_BUDGET, (path.name, size)
-            if whole["total"] < repo_handlers.OUTLINE_PER_PAGE_DEFAULT:
+            if whole["total"] <= repo_handlers.OUTLINE_PER_PAGE_DEFAULT:
                 continue
 
             crossed.append(path.name)
