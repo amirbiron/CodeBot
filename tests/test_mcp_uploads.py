@@ -12,8 +12,8 @@
 4. **הכלים** — ``codekeeper_save_file`` ו-``codekeeper_append_file`` עם
    ``upload_id``, דרך ``call_tool`` מעל שכבת השמירה האמיתית
    (``tests/_save_layer_harness.py``), וחד-פעמיות בשני חוטים דרך ה-handler; ובדיקת
-   השלמות שלפני המחיקה (``upload_corrupted``), עם שומר מבני על המקור שאין דרך
-   צריכה אחרת.
+   השלמות (``upload_corrupted``), שרצה עם השליפה ולפני כל שער שמחליט לפי הטקסט, עם
+   שומר מבני על המקור שאין דרך שליפה או צריכה אחרת.
 5. **נראות** — שורות ה-``INFO``, בתהליך נקי ולא ב-``caplog``.
 
 **בלי ``sleep``:** הדדליין מוקטן, השעון של השער מוזז, והתפוגה נכתבת למסמך.
@@ -1216,6 +1216,102 @@ def test_an_upload_that_does_not_match_its_hash_writes_nothing_and_is_gone(store
     assert store.uploads.docs == []
 
 
+def _seed_log(call) -> None:
+    assert call("codekeeper_save_file", file_name="log.md", code="head\n")["ok"] is True
+
+
+def _no_setup(call, backend, monkeypatch) -> dict:
+    return {}
+
+
+def _tiny_ceiling(call, backend, monkeypatch) -> dict:
+    _ceiling(monkeypatch, 3)
+    return {}
+
+
+def _existence_unanswered(call, backend, monkeypatch) -> dict:
+    monkeypatch.setattr(backend, "file_exists", lambda *args, **kwargs: None)
+    return {}
+
+
+def _log_exists(call, backend, monkeypatch) -> dict:
+    _seed_log(call)
+    return {}
+
+
+def _log_and_malformed_expected(call, backend, monkeypatch) -> dict:
+    _seed_log(call)
+    return {"expected_content_sha256": "not-a-hash"}
+
+
+def _log_and_stale_expected(call, backend, monkeypatch) -> dict:
+    _seed_log(call)
+    return {"expected_content_sha256": hashlib.sha256(b"what the agent read before").hexdigest()}
+
+
+def _log_and_tiny_ceiling(call, backend, monkeypatch) -> dict:
+    _seed_log(call)
+    _ceiling(monkeypatch, 6)
+    return {}
+
+
+#: כל שער שבא בגוף הכלי אחרי השליפה ומחליט לפי הטקסט: ``(הכלי, הסירוב של השער, הטקסט
+#: כמו שהוא שמור, ההכנה שמפילה את השער)``. ההכנה מחזירה ארגומנטים נוספים לכלי.
+_GATES_AFTER_THE_READ = [
+    ("codekeeper_save_file", "empty_code", "", _no_setup),
+    ("codekeeper_save_file", "code_too_large", "tall\n", _tiny_ceiling),
+    ("codekeeper_save_file", "existence_check_unavailable", "tall\n", _existence_unanswered),
+    ("codekeeper_save_file", "file_exists", "tall\n", _log_exists),
+    ("codekeeper_append_file", "empty_content", "", _log_exists),
+    ("codekeeper_append_file", "invalid_expected_content_sha256", "tall\n", _log_and_malformed_expected),
+    ("codekeeper_append_file", "not_found", "tall\n", _no_setup),
+    ("codekeeper_append_file", "conflict", "tall\n", _log_and_stale_expected),
+    ("codekeeper_append_file", "code_too_large", "tall\n", _log_and_tiny_ceiling),
+]
+
+
+@pytest.mark.parametrize(
+    "tool, gate, stored_text, prepare", _GATES_AFTER_THE_READ, ids=[f"{t}-{g}" for t, g, _, _ in _GATES_AFTER_THE_READ]
+)
+def test_a_corrupted_upload_is_refused_before_the_gates_that_read_its_text(
+    store, backend, call, monkeypatch, tool, gate, stored_text, prepare
+):
+    """השלמות נבדקת עם השליפה, לפני כל שער שמחליט לפי הטקסט — ולא רק לפני המחיקה.
+
+    **הבקרה** — אותו טקסט שמור, הפעם עם ה-hash שלו: השער עונה את הסירוב שלו, וההעלאה
+    נשארת (השער בא לפני הצריכה). כך הטסט אינו יכול לעבור על הכנה שלא מגיעה לשער.
+
+    **ההעלאה המשובשת** — אותו טקסט שמור, עם ה-hash של מה שהגיע: ``upload_corrupted``,
+    ``discard_upload`` פעם אחת עם הכלי והסיבה (ומשם שורת ה-``ERROR``), ההעלאה הזו
+    בלבד נעלמה, ושום דבר לא נכתב. כשהבדיקה ישבה רק לפני המחיקה, כל אחד מהמקרים ענה
+    את הסירוב של השער — החלטה על טקסט שלא נשלח — וההעלאה נשארה חיה, בלי לוג, עד שפקעה.
+    """
+    extra = prepare(call, backend, monkeypatch)
+    intact = _create(backend, stored_text)
+    control = call(tool, file_name="log.md", upload_id=intact, **extra)
+    assert control.get("error") == gate, control
+    versions = len(store.code_snippets.docs)
+    pushes = len(store.raw["push_events"].docs)
+
+    corrupted = _create(backend, "tail\n")
+    (doc,) = [d for d in store.uploads.docs if d["upload_id"] == corrupted]
+    doc["text"] = stored_text
+    discarded: list[tuple[str, str]] = []
+    discard = backend.discard_upload
+
+    def recorded(user_id, upload_id, **kwargs):
+        discarded.append((kwargs["tool"], kwargs["reason"]))
+        return discard(user_id, upload_id, **kwargs)
+
+    monkeypatch.setattr(backend, "discard_upload", recorded)
+    res = call(tool, file_name="log.md", upload_id=corrupted, **extra)
+    assert res["ok"] is False and res["error"] == "upload_corrupted", res
+    assert discarded == [(tool, "hash_mismatch")], discarded
+    assert [d["upload_id"] for d in store.uploads.docs] == [intact]
+    assert len(store.code_snippets.docs) == versions
+    assert len(store.raw["push_events"].docs) == pushes
+
+
 def test_a_corrupted_upload_is_corrupted_even_when_its_deletion_finds_nothing(store, backend, call, monkeypatch):
     """הבדיקה באה **לפני** המחיקה, ולכן התשובה אינה תלויה בתוצאה שלה.
 
@@ -1240,7 +1336,8 @@ def test_a_corrupted_upload_is_corrupted_even_when_its_deletion_finds_nothing(st
 def test_two_consumers_of_one_corrupted_upload_both_refuse_and_nothing_is_saved(store, backend):
     """במקביל, בשני חוטים שעוברים יחד את השליפה (``_Racing``): שניהם ``upload_corrupted``.
 
-    אחד מוחק ואחד מוצא שכבר נמחקה, והתשובה של שניהם זהה — כי הבדיקה באה לפני המחיקה.
+    אחד מוחק ואחד מוצא שכבר נמחקה, והתשובה של שניהם זהה — כי הבדיקה באה עם השליפה,
+    לפני המחיקה.
     על הקוד שלפני הבדיקה אחד שמר את הטקסט המשובש; במוטציה שמשווה אחרי המחיקה, השני
     עונה ``upload_not_found``.
     """
@@ -1327,13 +1424,13 @@ def _owners(tree: ast.AST) -> dict[int, str]:
     return owners
 
 
-#: מי רשאי לקרוא לשיטות ההעלאה של ה-backend. שליפה רק דרך ``_load_upload``, ומחיקה
-#: — צריכה או השלכה של העלאה משובשת — רק דרך ``_consume_upload``, שבודק את השלמות
-#: לפני שהוא מוחק.
+#: מי רשאי לקרוא לשיטות ההעלאה של ה-backend. שליפה רק דרך ``_load_upload``, שבודק את
+#: השלמות מיד אחרי השליפה ומשליך שם העלאה משובשת; וצריכה רק דרך ``_consume_upload``,
+#: השער.
 _UPLOAD_METHOD_CALLERS = {
     "find_upload": "_load_upload",
+    "discard_upload": "_load_upload",
     "consume_upload": "_consume_upload",
-    "discard_upload": "_consume_upload",
 }
 
 #: פעולות שכותבות או מוחקות באוסף. מחיקה מותרת רק במקום אחד; עדכון — בשום מקום,
@@ -1344,15 +1441,17 @@ _COLLECTION_WRITES = {
 }
 
 
-def test_every_upload_is_consumed_through_the_one_helper_that_checks_it():
-    """שומר מבני: כל כלי שמקבל ``upload_id`` צורך דרך ``_consume_upload``, ואין אתר צריכה אחר.
+def test_every_upload_is_checked_as_it_is_read_and_consumed_at_one_gate():
+    """שומר מבני: כל כלי שמקבל ``upload_id`` שולף דרך ``_load_upload`` וצורך דרך ``_consume_upload``.
 
-    **מה זה שומר.** בדיקת השלמות חיה כולה ב-``_consume_upload``, לפני המחיקה. כלי
-    שלישי שיקבל ``upload_id`` ויקרא ל-``backend.consume_upload`` ישירות — או שיטת
-    backend שתמחק העלאה בעצמה — ישמור טקסט שלא נבדק, וכל הטסטים ההתנהגותיים ימשיכו
-    לעבור, כי הם מכסים את שני הכלים של היום ולא את זה שייכתב. לכן הבדיקה על המקור,
-    באותו נימוק של השומר על תקרת הסורקים ב-``tests/test_mcp_outline.py``, ודרך ``ast``
-    ולא רג'קס: שם שמופיע ב-docstring אינו קריאה.
+    **מה זה שומר.** בדיקת השלמות חיה ב-``_load_upload``, מיד אחרי השליפה ולפני כל
+    שער, והצריכה ב-``_consume_upload``. כלי שלישי שיקבל ``upload_id`` ויקרא ל-
+    ``backend.find_upload`` או ל-``backend.consume_upload`` ישירות — או שיבנה
+    ``_PendingUpload`` בעצמו, או שיטת backend שתמחק העלאה בעצמה — יחליט וישמור לפי
+    טקסט שלא נבדק, וכל הטסטים ההתנהגותיים ימשיכו לעבור, כי הם מכסים את שני הכלים של
+    היום ולא את זה שייכתב. לכן הבדיקה על המקור, באותו נימוק של השומר על תקרת הסורקים
+    ב-``tests/test_mcp_outline.py``, ודרך ``ast`` ולא רג'קס: שם שמופיע ב-docstring
+    אינו קריאה.
 
     רשימת הכלים נגזרת מהרישום האמיתי (``list_tools``), ולא מרשימה בטסט: כלי חדש
     עם ``upload_id`` נכנס לבדיקה בלי שמישהו יזכור להוסיף אותו.
@@ -1389,6 +1488,22 @@ def test_every_upload_is_consumed_through_the_one_helper_that_checks_it():
                     and not (method == "delete_one" and owner == "ProductionBackend._delete_live_upload")
                 ):
                     offenders.append(f"{where} {method} על אוסף ההעלאות מתוך {owner}")
+            # ``_PendingUpload(...)`` מחוץ ל-``_load_upload`` — העלאה שלא עברה את בדיקת
+            # השלמות, ושכל שער אחריה יקבל כאילו עברה.
+            if (
+                isinstance(node, ast.Call)
+                and (
+                    (isinstance(node.func, ast.Name) and node.func.id == "_PendingUpload")
+                    or (
+                        isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "_make"
+                        and isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "_PendingUpload"
+                    )
+                )
+                and not (name == "mcp_server/handlers.py" and owner.split(".")[-1] == "_load_upload")
+            ):
+                offenders.append(f"{where} _PendingUpload נבנית מתוך {owner or '<module>'}")
             # ``db[MCP_UPLOADS_COLLECTION]`` מחוץ ל-``_uploads_coll`` — דרך שנייה לאוסף.
             if (
                 isinstance(node, ast.Subscript)
@@ -1445,8 +1560,8 @@ def test_every_upload_is_consumed_through_the_one_helper_that_checks_it():
                 offenders.append(f"{tool} ← handlers.{target}, שאינו עובר ב-_consume_upload")
 
     assert offenders == [], (
-        "מסלול שצורך העלאה בלי בדיקת השלמות של _consume_upload. אם הוא באמת נחוץ — "
-        f"הוא צריך את הבדיקה לידו במפורש: {offenders}"
+        "מסלול ששולף או צורך העלאה בלי _load_upload (שבודק את השלמות) או בלי השער של "
+        f"_consume_upload. אם הוא באמת נחוץ — הוא צריך את הבדיקה לידו במפורש: {offenders}"
     )
 
 
@@ -1517,8 +1632,7 @@ text = {text!r}
 stored = backend.create_upload(4242, text=text, size_bytes=len(text.encode("utf-8")))
 print("UPLOAD-ID", stored["upload_id"], flush=True)
 uploads.docs[0]["text"] = text.replace("שורה", "שורא")
-pending = handlers._load_upload(backend, 4242, stored["upload_id"])
-answer = handlers._consume_upload(backend, 4242, pending, tool="codekeeper_save_file")
+answer = handlers.save_file(backend, 4242, file_name="a.md", upload_id=stored["upload_id"])
 print("ANSWER", answer["error"], flush=True)
 print("PROBE-DONE", flush=True)
 """

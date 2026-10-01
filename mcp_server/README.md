@@ -240,7 +240,7 @@ curl -sS -T report.md -H "Authorization: Bearer $CODEKEEPER_PAT" \
 ```
 
 - **תשובה `201`:** `{"upload_id", "bytes", "chars", "content_sha256", "expires_in_seconds"}`. ה‑`content_sha256` הוא מה ש‑`file.content_sha256` יהיה אחרי `codekeeper_save_file`. אחרי `codekeeper_append_file`, ‏`file.content_sha256` הוא של הקובץ כולו, ומה שמראה שהטקסט נכנס בשלמותו הוא `content_changed: false`.
-- **בדיקת שלמות לפני הצריכה:** ה‑hash של הטקסט שנשלף מושווה לזה שנשמר עם ההעלאה כשהגיעה (`_consume_upload` ב‑`handlers.py`). לא תואם ← `upload_corrupted`: שום דבר לא נכתב, ההעלאה נמחקת, ומעלים שוב.
+- **בדיקת שלמות עם השליפה:** ה‑hash של הטקסט שנשלף מושווה לזה שנשמר עם ההעלאה כשהגיעה (`_load_upload` ב‑`handlers.py`), לפני כל בדיקה אחרת של הכלי. לא תואם ← `upload_corrupted`: שום דבר לא נכתב, ההעלאה נמחקת (או פוקעת ב‑TTL, אם האחסון לא ענה למחיקה), ומעלים שוב.
 - **חד‑פעמי, לעשר דקות** (`UPLOAD_TTL_SECONDS`), ועד `MAX_PENDING_UPLOADS` העלאות ממתינות למשתמש. **אינו מעלה את תקרת התוכן** — `max_code_size()` חל כמו על `code`.
 - **אותה מכסת קצב של קריאות הכלים:** העלאה ושמירה הן שתי קריאות.
 - **כל סירוב נושא `Connection: close`**, באוצר המילים של תשובות HTTP של השירות (`{"error": ...}` בלי `ok`).
