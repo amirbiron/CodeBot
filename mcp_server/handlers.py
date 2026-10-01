@@ -730,8 +730,9 @@ def max_code_size() -> int:
 # במקום לעבור inline דרך המודל.
 #
 # **הסדר בגוף הכלי:** שם הקובץ ← בדיוק אחד מהשניים (התוכן או ``upload_id``) ←
-# צורת המזהה ← **שליפה**, שאינה צורכת ← המסלול הקיים כמו שהוא על הטקסט (תוכן
-# ריק, התקרה, זיהוי שפה, ``file_exists``) ← **מחיקה, והיא השער** ← ורק אז השמירה.
+# צורת המזהה ← **שליפה ובדיקת שלמות**, שאינן צורכות (העלאה משובשת מושלכת כאן,
+# ונענית ``upload_corrupted``) ← המסלול הקיים כמו שהוא על הטקסט (תוכן ריק, התקרה,
+# זיהוי שפה, ``file_exists``) ← **מחיקה, והיא השער** ← ורק אז השמירה.
 #
 # **המחיקה היא השער לחד-פעמיות.** ``delete_one`` אטומי, ולכן משתי צריכות של
 # אותו מזהה — גם מקבילות, גם מחוץ לתור הכתיבה — רק אחת שומרת. ומכיוון שהשער בא
@@ -787,19 +788,60 @@ def _upload_storage_unavailable() -> dict[str, Any]:
     }
 
 
+def _upload_corrupted() -> dict[str, Any]:
+    """הטקסט שנשלף אינו מה שהגיע, ולכן לא נכתב כלום — ההחלטה של :func:`_load_upload`.
+
+    ה-hint אינו טוען שההעלאה נמחקה: המחיקה היא ניקיון שתוצאתו לא תמיד ידועה
+    (``ProductionBackend.discard_upload``), ומה שהסוכן צריך הוא מה שכן ודאי.
+    """
+    return {
+        "ok": False,
+        "error": "upload_corrupted",
+        "hint": (
+            "the stored upload does not match the hash taken when it arrived, so it was not "
+            "used and nothing was written: upload the file again."
+        ),
+    }
+
+
 class _PendingUpload(NamedTuple):
-    """העלאה שנשלפה ועוד לא נצרכה — מה ש-:func:`_load_upload` מחזיר כשאין סירוב."""
+    """העלאה שנשלפה **ונבדקה** ועוד לא נצרכה — מה ש-:func:`_load_upload` מחזיר כשאין סירוב.
+
+    נבנית רק שם, ורק אחרי שה-hash של ``text`` הושווה ל-hash שנשמר כשההעלאה הגיעה.
+    לכן כל מה שבא אחריה בגוף הכלי — התקרה, ``file_exists``, ``conflict``, השער —
+    רואה טקסט שכבר אומת. ``test_every_upload_is_checked_as_it_is_read_and_consumed_at_one_gate``
+    מקבע שאין מקום אחר שבונה אותה.
+    """
 
     upload_id: str
     text: str
     size_bytes: int
 
 
-def _load_upload(backend: Any, user_id: int, upload_id: Any) -> _PendingUpload | dict[str, Any]:
-    """ההעלאה, או הסירוב שיש להחזיר — לעולם לא שניהם. בודקת צורה ושולפת — **אינה צורכת**.
+def _load_upload(
+    backend: Any, user_id: int, upload_id: Any, *, tool: str
+) -> _PendingUpload | dict[str, Any]:
+    """ההעלאה, או הסירוב שיש להחזיר — לעולם לא שניהם. בודקת צורה, שולפת ומוודאת שלמות — **אינה צורכת**.
 
     שני טיפוסים שונים ולא זוג ``(העלאה, סירוב)``: הקורא מבחין ביניהם ב-``isinstance``,
     ולכן אין מצב שבו שניהם ``None`` או ששניהם קיימים.
+
+    **השלמות נבדקת כאן, ברגע שהטקסט חוזר מהאחסון — לפני כל החלטה שנשענת עליו.**
+    ``content_changed`` משווה את הטקסט שנשלף למה שנכתב, ולכן אינו רואה טקסט שהשתבש
+    באחסון הזמני: שניהם כבר משובשים. כאן ה-hash של מה שנשלף מושווה לזה שחושב
+    כשההעלאה הגיעה (:func:`_upload_integrity_problem`). הבדיקה הייתה קודם רק לפני
+    המחיקה, אחרי השערים של הכלי, ושם טקסט משובש קיבל מהם תשובה על טקסט שלא נשלח
+    (``code_too_large`` על אורך שאינו של ההעלאה, ``file_exists``, ``conflict``),
+    וההעלאה נשארה חיה, בלי שורת לוג, עד שפקעה.
+
+    **זה לא TOCTOU:** הבדיקה והשימוש הם על אותו עותק בזיכרון — מה שנשמר לבסוף הוא
+    ``text`` שנבדק כאן — והשער (:func:`_consume_upload`) מכריע רק שההעלאה נצרכת
+    פעם אחת, לא איזה טקסט נכתב.
+
+    העלאה שאינה תואמת מושלכת (``discard_upload`` — ניקיון, לא השער), והתשובה
+    ``upload_corrupted`` — בלי קשר למה שהמחיקה עשתה: העלאה משובשת נשארת משובשת גם
+    אם צורך מקביל מחק אותה בינתיים, וגם אם האחסון לא ענה והיא תפקע ב-TTL. ``tool``
+    הוא לשורת ה-``ERROR`` שלה.
     """
     bad = _invalid_upload_id(upload_id)
     if bad is not None:
@@ -810,7 +852,38 @@ def _load_upload(backend: Any, user_id: int, upload_id: Any) -> _PendingUpload |
         return _upload_storage_unavailable()
     if found is None:
         return _upload_not_found()
-    return _PendingUpload(upload_id=upload_id, text=found["text"], size_bytes=found["bytes"])
+    text = found["text"]
+    size_bytes = found["bytes"]
+    problem = _upload_integrity_problem(text, found["content_sha256"])
+    if problem is not None:
+        backend.discard_upload(
+            user_id, upload_id, tool=tool, reason=problem, size_bytes=size_bytes, chars=len(text)
+        )
+        return _upload_corrupted()
+    return _PendingUpload(upload_id=upload_id, text=text, size_bytes=size_bytes)
+
+
+def _upload_integrity_problem(text: str, stored_sha256: object) -> str | None:
+    """למה ``text`` שנשלף אינו מה שהגיע — או ``None`` כשהוא כן.
+
+    ``stored_sha256`` — מה שנשמר עם ההעלאה כשהגיעה, **כמו שנקרא מהמסד ובלי בדיקה**:
+    שם יכול לשבת כל דבר. הוא חושב בראוט על הטקסט שהגיע
+    (``ProductionBackend.create_upload``), באותה פונקציה שמחשבת כאן,
+    ``_content_sha256`` — ההגדרה של ``file.content_sha256``.
+    ``"stored_hash_invalid"``: מה שנשמר אינו 64 ספרות הקס, ולכן אין מול מה לבדוק.
+    ``"hash_mismatch"``: הטקסט שנשלף שונה ממה שהגיע. **ההשוואה מדויקת**, בלי רישיות:
+    הערך נכתב רק ב-``create_upload``, מ-``hexdigest`` — כלומר תמיד באותיות קטנות — ומה
+    שנשמר בצורה אחרת לא נכתב שם.
+    """
+    # ``backend`` מייבא את המודול הזה ברמה העליונה, ולכן הייבוא ההפוך בתוך הפונקציה —
+    # כמו ``_file_meta`` למטה.
+    from .backend import _content_sha256
+
+    if not (isinstance(stored_sha256, str) and _SHA256_HEX.fullmatch(stored_sha256)):
+        return "stored_hash_invalid"
+    if stored_sha256 != _content_sha256(text):
+        return "hash_mismatch"
+    return None
 
 
 def _consume_upload(
@@ -818,7 +891,11 @@ def _consume_upload(
 ) -> dict[str, Any] | None:
     """השער: ``None`` כשההעלאה נצרכה עכשיו, בקריאה הזו — אחרת הסירוב, ולא שומרים.
 
+    הטקסט כבר אומת ב-:func:`_load_upload`, ו-:class:`_PendingUpload` נבנית רק שם.
     ``False`` מהמחיקה פירושו שמישהו צרך אותה בין השליפה לכאן, או שפקעה בינתיים.
+
+    **זו הדרך היחידה לצרוך העלאה**, וכל כלי שמקבל ``upload_id`` עובר בה:
+    ``test_every_upload_is_checked_as_it_is_read_and_consumed_at_one_gate`` מקבע.
     """
     try:
         consumed = backend.consume_upload(
@@ -865,7 +942,7 @@ def save_file(
     if upload_id is not None:
         if isinstance(code, str) and code != "":
             return _both_sent("code")
-        loaded = _load_upload(backend, user_id, upload_id)
+        loaded = _load_upload(backend, user_id, upload_id, tool="codekeeper_save_file")
         if isinstance(loaded, dict):
             return loaded
         upload = loaded
@@ -1250,7 +1327,7 @@ def append_file(
     if upload_id is not None:
         if isinstance(content, str) and content != "":
             return _both_sent("content")
-        loaded = _load_upload(backend, user_id, upload_id)
+        loaded = _load_upload(backend, user_id, upload_id, tool="codekeeper_append_file")
         if isinstance(loaded, dict):
             return loaded
         upload = loaded
