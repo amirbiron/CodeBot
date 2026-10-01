@@ -1639,7 +1639,10 @@ class ProductionBackend:
 
         ``content_sha256`` מחושב ב-:func:`_content_sha256` — ההגדרה של
         ``file.content_sha256``, ולכן ה-hash שהסוכן מקבל עכשיו הוא מה ש-
-        ``file.content_sha256`` יהיה אחרי השמירה. ``size_bytes`` הוא אורך הבתים
+        ``file.content_sha256`` יהיה אחרי שמירה ב-``codekeeper_save_file``. אחרי הוספה
+        ``file.content_sha256`` הוא של הקובץ כולו (``_UPLOAD_HASH_AFTER_APPEND`` ב-
+        ``server.py``). והוא נשמר עם ההעלאה: ``_consume_upload`` ב-``handlers.py``
+        משווה אליו את הטקסט שנשלף, לפני המחיקה. ``size_bytes`` הוא אורך הבתים
         שהגיעו; פענוח UTF-8 קפדני מחזיר בדיוק אותם בתים בקידוד חוזר, ולכן זה
         גם האורך של ``text`` ב-UTF-8.
 
@@ -1678,7 +1681,7 @@ class ProductionBackend:
         return {"upload_id": upload_id, "content_sha256": content_sha256}
 
     def find_upload(self, user_id: int, upload_id: str) -> dict[str, Any] | None:
-        """ההעלאה החיה של המשתמש — ``{"text", "bytes"}`` — או ``None``.
+        """ההעלאה החיה של המשתמש — ``{"text", "bytes", "content_sha256"}`` — או ``None``.
 
         ``None`` אחד לשלושה מצבים — פגה, נצרכה, של משתמש אחר — **בלי לגלות
         איזה**, כמו ``get_note`` על פתק של אחר. אינה צורכת: ``file_exists`` ו-
@@ -1686,10 +1689,15 @@ class ProductionBackend:
 
         טקסט שאינו מחרוזת נופל בקול (``TypeError``, עם שם הטיפוס בלבד), כמו
         ``_full``: אין כותב שכותב דבר כזה, ולכן זה חוזה שנשבר.
+
+        ``content_sha256`` — מה שנשמר עם ההעלאה כשהגיעה, **כמו שנקרא ובלי בדיקה**,
+        ``None`` כשהשדה חסר. ההשוואה שלו לטקסט היא של ``_consume_upload`` ב-
+        ``handlers.py``, לפני המחיקה, ושם hash פגום הוא העלאה פסולה ולא חוזה שנשבר:
+        התשובה היא ``upload_corrupted``, כמו על טקסט שהשתבש.
         """
         try:
             doc = self._uploads_coll().find_one(
-                _live_upload(user_id, upload_id), {"text": 1, "bytes": 1, "_id": 0}
+                _live_upload(user_id, upload_id), {"text": 1, "bytes": 1, "content_sha256": 1, "_id": 0}
             )
         except _PyMongoError as exc:
             raise _upload_storage_error("read an upload") from exc
@@ -1698,31 +1706,63 @@ class ProductionBackend:
         text = doc.get("text")
         if not isinstance(text, str):
             raise TypeError(f"stored upload text is {type(text).__name__}, not str")
-        return {"text": text, "bytes": int(doc.get("bytes") or 0)}
+        return {"text": text, "bytes": int(doc.get("bytes") or 0), "content_sha256": doc.get("content_sha256")}
+
+    def _delete_live_upload(self, user_id: int, upload_id: str, *, operation: str) -> bool:
+        """**המקום היחיד שמוחק העלאה.** ``True`` רק כשהמחיקה הזו מחקה אותה.
+
+        ``delete_one`` אטומי במסד, ולכן משתי מחיקות מקבילות של אותו מזהה רק אחת
+        רואה ``deleted_count == 1``. אותו מסנן של :meth:`find_upload`
+        (:func:`_live_upload`). ``operation`` הוא לשורת ה-WARNING של שגיאת מסד.
+        """
+        try:
+            return self._uploads_coll().delete_one(_live_upload(user_id, upload_id)).deleted_count == 1
+        except _PyMongoError as exc:
+            # כולל ``InvalidOperation`` על כתיבה שלא אושרה — ``deleted_count``
+            # אינו זמין שם (``pymongo/results.py``), ולכן אין כאן עדות למחיקה.
+            raise _upload_storage_error(operation) from exc
 
     def consume_upload(
         self, user_id: int, upload_id: str, *, tool: str, size_bytes: int, chars: int
     ) -> bool:
         """מוחק את ההעלאה — **השער לחד-פעמיות**. ``True`` רק כשהמחיקה הזו מחקה אותה.
 
-        ``delete_one`` אטומי במסד, ולכן משתי צריכות מקבילות של אותו מזהה רק אחת
-        רואה ``deleted_count == 1``; השנייה רואה 0 ואינה שומרת. זה נכון גם מחוץ
-        לתור הכתיבה של התהליך. אותו מסנן של :meth:`find_upload` (:func:`_live_upload`).
+        משתי צריכות מקבילות של אותו מזהה רק אחת רואה ``True``; השנייה רואה ``False``
+        ואינה שומרת. זה נכון גם מחוץ לתור הכתיבה של התהליך, כי המחיקה אטומית במסד
+        (:meth:`_delete_live_upload`).
 
         ``tool``, ``size_bytes`` ו-``chars`` הם לשורת ה-``INFO`` בלבד.
         """
-        try:
-            consumed = self._uploads_coll().delete_one(_live_upload(user_id, upload_id)).deleted_count == 1
-        except _PyMongoError as exc:
-            # כולל ``InvalidOperation`` על כתיבה שלא אושרה — ``deleted_count``
-            # אינו זמין שם (``pymongo/results.py``), ולכן אין כאן עדות למחיקה.
-            raise _upload_storage_error("consume an upload") from exc
+        consumed = self._delete_live_upload(user_id, upload_id, operation="consume an upload")
         if consumed:
             logger.info(
                 "mcp upload: consumed by %s (%d bytes, %d chars) for user %s",
                 tool, int(size_bytes), int(chars), user_id,
             )
         return consumed
+
+    def discard_upload(
+        self, user_id: int, upload_id: str, *, tool: str, reason: str, size_bytes: int, chars: int
+    ) -> None:
+        """מוחק העלאה שהטקסט השמור שלה אינו מה שהגיע — ניקיון, **לא** השער.
+
+        ``_consume_upload`` ב-``handlers.py`` כבר החליט שההעלאה פסולה, והתשובה לסוכן
+        (``upload_corrupted``) אינה תלויה במה שקורה כאן. לכן שגיאת מסד אינה עולה: היא
+        נרשמת כבר ב-:func:`_upload_storage_error`, השורה כאן אומרת "deleted: unknown",
+        וההעלאה פוקעת ב-TTL. באג — כל חריגה שאינה של pymongo — עולה כמו שהוא.
+
+        שורת ``ERROR`` אחת, בלי המזהה ובלי התוכן — כמו שורות ה-``INFO`` של העלאה ושל
+        צריכה. בלעדיה אחסון שמשבש העלאות נראה בדיוק כמו סוכן שהעלה שוב. ``consumed``
+        אינו נרשם, כי ההעלאה לא נצרכה לשמירה.
+        """
+        try:
+            deleted = "yes" if self._delete_live_upload(user_id, upload_id, operation="discard an upload") else "no"
+        except UploadStorageUnavailable:
+            deleted = "unknown (the upload storage did not answer; the upload expires with its TTL)"
+        logger.error(
+            "mcp upload: %s refused a corrupted upload (%s; %d bytes, %d chars) for user %s — deleted: %s",
+            tool, reason, int(size_bytes), int(chars), user_id, deleted,
+        )
 
     # -- sticky notes ------------------------------------------------------
     def _raw_mongo(self) -> Any:

@@ -787,12 +787,34 @@ def _upload_storage_unavailable() -> dict[str, Any]:
     }
 
 
+def _upload_corrupted() -> dict[str, Any]:
+    """הטקסט שנשלף אינו מה שהגיע, ולכן לא נכתב כלום — ההחלטה של :func:`_consume_upload`.
+
+    ה-hint אינו טוען שההעלאה נמחקה: המחיקה היא ניקיון שתוצאתו לא תמיד ידועה
+    (``ProductionBackend.discard_upload``), ומה שהסוכן צריך הוא מה שכן ודאי.
+    """
+    return {
+        "ok": False,
+        "error": "upload_corrupted",
+        "hint": (
+            "the stored upload does not match the hash taken when it arrived, so it was not "
+            "used and nothing was written: upload the file again."
+        ),
+    }
+
+
 class _PendingUpload(NamedTuple):
-    """העלאה שנשלפה ועוד לא נצרכה — מה ש-:func:`_load_upload` מחזיר כשאין סירוב."""
+    """העלאה שנשלפה ועוד לא נצרכה — מה ש-:func:`_load_upload` מחזיר כשאין סירוב.
+
+    ``stored_sha256`` — ה-``content_sha256`` שנשמר עם ההעלאה כשהגיעה, **כמו שנקרא
+    מהמסד ובלי בדיקה**: שם יכול לשבת כל דבר, והבדיקה — מול ה-hash של ``text`` — היא
+    של :func:`_consume_upload`, לפני המחיקה.
+    """
 
     upload_id: str
     text: str
     size_bytes: int
+    stored_sha256: object
 
 
 def _load_upload(backend: Any, user_id: int, upload_id: Any) -> _PendingUpload | dict[str, Any]:
@@ -810,7 +832,34 @@ def _load_upload(backend: Any, user_id: int, upload_id: Any) -> _PendingUpload |
         return _upload_storage_unavailable()
     if found is None:
         return _upload_not_found()
-    return _PendingUpload(upload_id=upload_id, text=found["text"], size_bytes=found["bytes"])
+    return _PendingUpload(
+        upload_id=upload_id,
+        text=found["text"],
+        size_bytes=found["bytes"],
+        stored_sha256=found["content_sha256"],
+    )
+
+
+def _upload_integrity_problem(upload: _PendingUpload) -> str | None:
+    """למה הטקסט שנשלף אינו מה שהגיע — או ``None`` כשהוא כן.
+
+    ``stored_sha256`` חושב בראוט על הטקסט שהגיע (``ProductionBackend.create_upload``),
+    באותה פונקציה שמחשבת כאן, ``_content_sha256`` — ההגדרה של ``file.content_sha256``.
+    ``"stored_hash_invalid"``: מה שנשמר אינו 64 ספרות הקס, ולכן אין מול מה לבדוק.
+    ``"hash_mismatch"``: הטקסט שנשלף שונה ממה שהגיע. **ההשוואה מדויקת**, בלי רישיות:
+    הערך נכתב רק ב-``create_upload``, מ-``hexdigest`` — כלומר תמיד באותיות קטנות — ומה
+    שנשמר בצורה אחרת לא נכתב שם.
+    """
+    # ``backend`` מייבא את המודול הזה ברמה העליונה, ולכן הייבוא ההפוך בתוך הפונקציה —
+    # כמו ``_file_meta`` למטה.
+    from .backend import _content_sha256
+
+    stored = upload.stored_sha256
+    if not (isinstance(stored, str) and _SHA256_HEX.fullmatch(stored)):
+        return "stored_hash_invalid"
+    if stored != _content_sha256(upload.text):
+        return "hash_mismatch"
+    return None
 
 
 def _consume_upload(
@@ -818,8 +867,30 @@ def _consume_upload(
 ) -> dict[str, Any] | None:
     """השער: ``None`` כשההעלאה נצרכה עכשיו, בקריאה הזו — אחרת הסירוב, ולא שומרים.
 
-    ``False`` מהמחיקה פירושו שמישהו צרך אותה בין השליפה לכאן, או שפקעה בינתיים.
+    **קודם השלמות, ורק אז המחיקה.** ``content_changed`` משווה את הטקסט שנשלף למה
+    שנכתב, ולכן אינו רואה טקסט שהשתבש באחסון הזמני: שניהם כבר משובשים. כאן ה-hash של
+    מה שנשלף מושווה לזה שחושב כשההעלאה הגיעה (:func:`_upload_integrity_problem`).
+    העלאה שאינה תואמת מושלכת (``discard_upload``, באותה מחיקה), והתשובה
+    ``upload_corrupted`` — בלי קשר למה שהמחיקה עשתה: העלאה משובשת נשארת משובשת גם
+    אם צורך מקביל מחק אותה בינתיים, וגם אם האחסון לא ענה והיא תפקע ב-TTL.
+
+    ``False`` מהמחיקה של העלאה תקינה פירושו שמישהו צרך אותה בין השליפה לכאן, או
+    שפקעה בינתיים.
+
+    **זו הדרך היחידה לצרוך העלאה**, וכל כלי שמקבל ``upload_id`` עובר בה:
+    ``test_every_upload_is_consumed_through_the_one_helper_that_checks_it`` מקבע.
     """
+    problem = _upload_integrity_problem(upload)
+    if problem is not None:
+        backend.discard_upload(
+            user_id,
+            upload.upload_id,
+            tool=tool,
+            reason=problem,
+            size_bytes=upload.size_bytes,
+            chars=len(upload.text),
+        )
+        return _upload_corrupted()
     try:
         consumed = backend.consume_upload(
             user_id, upload.upload_id, tool=tool, size_bytes=upload.size_bytes, chars=len(upload.text)

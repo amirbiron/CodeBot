@@ -588,14 +588,29 @@ _EXPECTED_SHA256_TOOL_DOC = (
 # העלאה במקום תוכן inline (``PUT /api/agent/upload``, ``mcp_server/uploads.py``) —
 # **אותו מבנה של השער שמתחת:** משפט אחד בתיאור הכלי, שהוא הגילוי, והפירוט בתיאור
 # הפרמטר, שהמשפט הראשון שלו נושא את הכלל, כי לקוח שמקצר תיאור פרמטר לכ-120 תווים
-# רואה רק את ההתחלה. שני כלים, נוסח אחד — פרט לשם הפרמטר שההעלאה באה במקומו.
+# רואה רק את ההתחלה. שני כלים, נוסח אחד — פרט לשם הפרמטר שההעלאה באה במקומו, ולמה
+# שה-hash של ההעלאה מוכיח אחרי הכתיבה, שאינו אותו דבר בשניהם (שני הקבועים שמתחת).
 _UPLOAD_ID_TOOL_DOC = (
     " Content that already exists as a file in your environment can go by upload_id "
     "instead, without reading it into your context first."
 )
 
+# מה ה-``content_sha256`` שבתשובת ההעלאה אומר אחרי הכתיבה — **לכל כלי בנפרד**. בשמירה
+# הקובץ הוא ההעלאה, ולכן ``file.content_sha256`` שווה לו. בהוספה ``file.content_sha256``
+# הוא של הקובץ כולו אחרי ההוספה, ומה שמראה שהטקסט נכנס בשלמותו הוא
+# ``content_changed: false``: הוא משווה את הטקסט שנשלף מההעלאה למה שנכתב, אחרי
+# ש-``_consume_upload`` ב-``handlers.py`` וידא שמה שנשלף הוא מה שהגיע. בגרסה הראשונה
+# (#3502) המשפט היה משותף והבטיח את הראשון גם בהוספה — וסוכן שבודק לפיו היה מסיק
+# שההוספה נכשלה, מעלה שוב, ומוסיף את הטקסט פעמיים. כל אחד מהמשפטים נבדק מול מה שהכלי
+# מחזיר: ``test_what_the_upload_id_description_says_about_the_hash_is_what_the_tool_returns``.
+_UPLOAD_HASH_AFTER_SAVE = "and content_sha256, which file.content_sha256 matches after the save."
+_UPLOAD_HASH_AFTER_APPEND = (
+    "and content_sha256 of the uploaded text. After the append file.content_sha256 is the hash of "
+    "the whole file; content_changed: false is what shows the text went in whole."
+)
 
-def _upload_id_param_doc(instead_of: str, upload_url: str) -> str:
+
+def _upload_id_param_doc(instead_of: str, upload_url: str, hash_after_write: str) -> str:
     """תיאור ``upload_id``. נבנה ברישום: הדקות מ-``UPLOAD_TTL_SECONDS``, ה-host מהתצורה.
 
     ``upload_url`` — מ-:func:`mcp_server.uploads.upload_url_for`: הכתובת של השירות
@@ -612,13 +627,16 @@ def _upload_id_param_doc(instead_of: str, upload_url: str) -> str:
     **שם הפרמטר נקרא כשם פרמטר.** ``content`` הוא גם שם עצם, ו-"send the content in
     content" יצא משפט עקום. לכן "the content parameter" — ובמשפט הראשון, שתקרת
     האורך שלו לא משאירה מקום לזה, "text" לתוכן עצמו.
+
+    **ומה ה-hash מוכיח — מכל כלי בנפרד** (``hash_after_write``): ``_UPLOAD_HASH_AFTER_SAVE``
+    או ``_UPLOAD_HASH_AFTER_APPEND``, והנימוק מעליהם.
     """
     return (
         f"Instead of {instead_of}, for text already in a file in your environment: "
         "single-use, and the size ceiling still applies. Upload the file "
         'first: curl -sS -T report.md -H "Authorization: Bearer $CODEKEEPER_PAT" '
         f"{upload_url} — the reply carries upload_id, valid for {UPLOAD_TTL_SECONDS // 60} "
-        "minutes, and content_sha256, which file.content_sha256 matches after the save. "
+        f"minutes, {hash_after_write} "
         "Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), use the "
         f"{instead_of} parameter as usual."
     )
@@ -2743,7 +2761,7 @@ def build_mcp(
     )
     @_described_at_registration(
         code=_code_param_doc(code_limit),
-        upload_id=_upload_id_param_doc("code", upload_url),
+        upload_id=_upload_id_param_doc("code", upload_url, _UPLOAD_HASH_AFTER_SAVE),
     )
     def save_file(
         ctx: Context,
@@ -2859,7 +2877,7 @@ def build_mcp(
     )
     @_described_at_registration(
         content=_content_param_doc(code_limit),
-        upload_id=_upload_id_param_doc("content", upload_url),
+        upload_id=_upload_id_param_doc("content", upload_url, _UPLOAD_HASH_AFTER_APPEND),
     )
     def append_file(
         ctx: Context,

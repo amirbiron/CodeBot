@@ -15,8 +15,11 @@
 
 **ואותה מטריצה עוברת גם בהעלאה** — ``PUT /api/agent/upload`` ואז ``codekeeper_save_file``
 עם ``upload_id``: הטקסט עובר שם פעמיים דרך BSON, באוסף ההעלאות ובאוסף הקבצים, ושלושה
-hash-ים — של הבתים, של תשובת ההעלאה ושל הקובץ — חייבים להיות אחד. לידה ההצהרה על
-אינדקסי ההעלאות מול ``mongod`` אמיתי, ו-``delete_one`` אמיתי כשער החד-פעמיות.
+hash-ים — של הבתים, של תשובת ההעלאה ושל הקובץ — חייבים להיות אחד. **וגם בהוספה
+מהעלאה**, שבה ``file.content_sha256`` הוא של הקובץ כולו, ו-``content_changed: false``
+הוא מה שמראה שהטקסט נכנס בשלמותו. לידה ההצהרה על אינדקסי ההעלאות מול ``mongod``
+אמיתי, ``delete_one`` אמיתי כשער החד-פעמיות, והעלאה שהשתנתה באוסף האמיתי — הטקסט
+או ה-hash שנשמר איתה — שנענית ``upload_corrupted``.
 
 **בלי ``NOTE_FONTS_TEST_MONGO_URI`` הקובץ מדולג** (``wired_mongo`` ב-``tests/conftest.py``),
 וב-CI הוא מדולג. הפלט של ההרצה המקומית בגוף ה-PR.
@@ -284,6 +287,51 @@ def test_an_upload_through_bson_is_saved_as_the_bytes_that_were_sent(mcp, mongo_
     local = hashlib.sha256(raw).hexdigest()
     assert stored == sent and read["code"] == sent
     assert uploaded["content_sha256"] == saved["file"]["content_sha256"] == read["content_sha256"] == local
+    assert mongo_db.mcp_uploads.count_documents({}) == 0
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+def test_an_upload_appended_through_bson_is_the_whole_file_hash_with_content_changed_false(mcp, mongo_db, case):
+    """הוספה מהעלאה: ``file.content_sha256`` הוא של הקובץ כולו — הקודם, ירידת שורה,
+    והטקסט שהועלה, מחושב כאן — ולא של ההעלאה; ``content_changed: false`` הוא מה שמראה
+    שהטקסט נכנס בשלמותו. אותה מטריצה של תווים קשים, כי הטקסט עובר פעמיים דרך BSON."""
+    from bson import ObjectId
+
+    sent = CASES[case]
+    file_name = f"ap_{case}.txt"
+    assert _call(mcp, "codekeeper_save_file", file_name=file_name, code="head")["ok"] is True
+    uploaded = _upload(mongo_db, sent.encode("utf-8"))
+
+    appended = _call(mcp, "codekeeper_append_file", file_name=file_name, upload_id=uploaded["upload_id"])
+    assert appended["ok"] is True and appended["content_changed"] is False, appended
+    whole = "head" + "\n" + sent
+    assert mongo_db.code_snippets.find_one({"_id": ObjectId(appended["file"]["id"])})["code"] == whole
+    assert appended["file"]["content_sha256"] == hashlib.sha256(whole.encode("utf-8")).hexdigest()
+    assert appended["file"]["content_sha256"] != uploaded["content_sha256"]
+    assert mongo_db.mcp_uploads.count_documents({}) == 0
+
+
+@pytest.mark.parametrize("tamper", ["text", "content_sha256"])
+@pytest.mark.parametrize("tool, seed", [("codekeeper_save_file", None), ("codekeeper_append_file", "head")])
+def test_an_upload_that_changed_in_the_real_collection_writes_nothing(mcp, mongo_db, tool, seed, tamper):
+    """העלאה שהשתנתה באוסף האמיתי אחרי שהגיעה — הטקסט, או ה-hash שנשמר איתה — נענית
+    ``upload_corrupted``: שום גרסה חדשה, שום התראה, וההעלאה נמחקה. ``update_one`` אמיתי
+    הוא מה שמשבש כאן, והשליפה שאחריו — דרך BSON והדרייבר — היא מה שנבדק."""
+    file_name = f"corrupt_{tool}_{tamper}.txt"
+    if seed is not None:
+        assert _call(mcp, "codekeeper_save_file", file_name=file_name, code=seed)["ok"] is True
+    versions = mongo_db.code_snippets.count_documents({"file_name": file_name})
+    pushes = mongo_db.push_events.count_documents({})
+    uploaded = _upload(mongo_db, "tail\n".encode("utf-8"))
+    changed = {"text": "tall\n", "content_sha256": "0" * 64}[tamper]
+    assert mongo_db.mcp_uploads.update_one(
+        {"upload_id": uploaded["upload_id"]}, {"$set": {tamper: changed}}
+    ).modified_count == 1
+
+    res = _call(mcp, tool, file_name=file_name, upload_id=uploaded["upload_id"])
+    assert res["ok"] is False and res["error"] == "upload_corrupted", res
+    assert mongo_db.code_snippets.count_documents({"file_name": file_name}) == versions
+    assert mongo_db.push_events.count_documents({}) == pushes
     assert mongo_db.mcp_uploads.count_documents({}) == 0
 
 
