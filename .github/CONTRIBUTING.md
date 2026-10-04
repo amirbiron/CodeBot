@@ -115,8 +115,10 @@ EOF
 | בדיקה | תיאור |
 |-------|--------|
 | 🔍 **Code Quality & Security** | בדיקת איכות קוד ופרצות אבטחה |
-| 🧪 **Unit Tests (3.11)** | טסטים על Python 3.11 |
-| 🧪 **Unit Tests (3.12)** | טסטים על Python 3.12 |
+| 🧪 **Unit Tests (3.11)** | כל הטסטים חוץ מ-`md_heavy`, על Python 3.11 |
+| 🧪 **Unit Tests (3.12)** | כל הטסטים חוץ מ-`md_heavy`, על Python 3.12 |
+| 🧪 **Unit Tests md-heavy (3.11)** | טסטי ה-Markdown הכבדים (`md_heavy`), על Python 3.11 |
+| 🧪 **Unit Tests md-heavy (3.12)** | טסטי ה-Markdown הכבדים (`md_heavy`), על Python 3.12 |
 
 ---
 

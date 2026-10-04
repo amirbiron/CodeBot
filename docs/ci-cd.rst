@@ -16,12 +16,18 @@ CI/CD Guide
 - 🔍 Code Quality & Security
 - Unit Tests (3.11)
 - Unit Tests (3.12)
+- Unit Tests md-heavy (3.11)
+- Unit Tests md-heavy (3.12)
+
+שמות הסטטוסים של ``Unit Tests`` נבנים מהמטריצה של הג'וב ``unit-tests`` ב-``.github/workflows/ci.yml`` (``label`` ו-``python-version``). אותם שמות כתובים גם ב-``.github/pull_request_template.md``, ב-``.github/CONTRIBUTING.md`` וב-``.github/agents/my-agent.agent.md``, ו-``tests/test_required_checks_are_listed.py`` משווה את כל הרשימות האלה, וגם את הרשימה כאן, למטריצה.
+
+**סטטוס חדש אינו חוסם מיזוג עד שמסמנים אותו כבדיקת חובה** בכלל שמגן על ``main`` בהגדרות של GitHub (Require status checks to pass before merging). GitHub מציע לבחירה רק בדיקה שעברה בהצלחה בריפו בשבעת הימים האחרונים (GitHub Docs, "Troubleshooting required status checks"), ולכן מסמנים אותה אחרי שה-CI של ה-PR שהוסיף אותה עבר.
 
 ריכוז CI (Overview)
 --------------------
 
 - **Code Quality & Security** – בדיקות סטטיות ואבטחה
-- **Unit Tests (3.11/3.12)** – טסטי יחידה במטריצת גרסאות
+- **Unit Tests (3.11/3.12)** ו-**Unit Tests md-heavy (3.11/3.12)** – טסטי היחידה, בשני מסלולים לכל גרסת פייתון שרצים במקביל. ``Unit Tests`` מריץ את כל הטסטים חוץ מאלה שמסומנים ``md_heavy``, ו-``Unit Tests md-heavy`` מריץ רק אותם: טסטי פרסר ה-Markdown הכבדים (ראו :doc:`testing`). כל מסלול מדווח סטטוס חובה משלו, והמסלול ``md-heavy`` אינו מרים את MongoDB ואת Redis (``services`` של ``unit-tests``).
 - **JS Tests (node)** – טסטי הצד-לקוח שב-``tests/*.test.js``. כל קובץ הוא סקריפט עצמאי שמריץ את עצמו ויוצא עם קוד שגיאה בכשל, בלי רץ טסטים חיצוני. ``repo-history.test.js`` מדולג במפורש: הוא כתוב בסגנון ``describe``/``it`` ואין בפרויקט רץ שמספק אותם. **אינו סטטוס נדרש** – הכשל מופיע ב-PR אך אינו חוסם מיזוג.
 - **Performance Tests** – טסטי ביצועים (ברירת מחדל: הכל; Draft + ``perf-light``: רק קלים). דוחות זמני ריצה נשמרים כארטיפקטים.
 
