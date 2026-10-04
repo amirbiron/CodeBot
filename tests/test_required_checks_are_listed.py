@@ -11,6 +11,15 @@
 אינו כאן. קובץ שכן מחזיק עותק בלי להיות ב-``LISTS`` נתפס ב-
 ``test_every_file_that_names_a_unit_tests_status_is_checked``, שמחפש שמות של סטטוסים
 בכל הקבצים שבמעקב של git — כי גם ``LISTS`` נכתבת ביד, ועותק שנשכח ממנה לא היה נבדק.
+
+ובנוסף, שני דברים שהמסלולים עצמם נשענים עליהם:
+
+- **הביטויים של המסלולים משלימים זה את זה** (``marker`` במטריצה). טסט שאף מסלול לא
+  בוחר אינו רץ ב-CI בכלל, ואיש לא מקבל על כך הודעה.
+- **מסלול שלא נבחר בו אף טסט נכשל.** זה מה שתופס שם סימון ששונה ב-``ci.yml`` בלי
+  הטסטים, או בכל הטסטים בלי ``ci.yml``: המסלול הכבד היה בוחר אפס טסטים. pytest יוצא אז
+  בקוד ``ExitCode.NO_TESTS_COLLECTED``, וה-CI נשען על זה, ולכן זה מקובע כאן ולא רק כתוב.
+  טסט בודד שהסימון שלו חסר או שגוי אינו נתפס כך, וגם לא צריך: הוא רץ במסלול הרגיל.
 """
 
 from __future__ import annotations
@@ -18,8 +27,10 @@ from __future__ import annotations
 import itertools
 import re
 import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -49,6 +60,12 @@ _MATRIX_EXPRESSION = re.compile(r"\$\{\{\s*matrix\.([\w-]+)\s*\}\}")
 #: אינה שם של סטטוס, ולכן אינה נתפסת כאן.
 _UNIT_STATUS = re.compile(r"Unit Tests(?: [\w-]+)? \(\d+\.\d+\)")
 
+#: השורה בסקריפט של צעד דיווח ששולחת את ``STATUS_CONTEXT`` כשם הסטטוס.
+_SENDS_STATUS_CONTEXT = re.compile(r"\bcontext:\s*process\.env\.STATUS_CONTEXT\b")
+
+#: ביטוי ``-m`` שהוא שם של סימון אחד, בלי ``not``, ``and`` או סוגריים.
+_BARE_MARKER = re.compile(r"\w+")
+
 
 def _unit_tests_job() -> dict:
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
@@ -59,14 +76,25 @@ def _status_template(job: dict) -> str:
     """התבנית של שם הסטטוס, כפי שכתובה ב-``STATUS_CONTEXT`` של צעדי הדיווח.
 
     כל צעדי הדיווח חייבים להשתמש באותה תבנית, ובתבנית של ``name`` של הג'וב: אחרת
-    מסלול אחד היה מדווח בשם שהרשימות אינן מכירות.
+    מסלול אחד היה מדווח בשם שהרשימות אינן מכירות. וכל צעד חייב גם לשלוח אותה:
+    ``STATUS_CONTEXT`` ב-env שהסקריפט לא קורא הוא קישוט, וסקריפט שבונה את השם בעצמו מגרסת
+    הפייתון בלבד (כמו שהיה כאן לפני המסלולים) היה כותב מכל המסלולים של אותה גרסה על אותו
+    סטטוס. צעד שחסר לו אחד מהשניים נכשל בהודעה שאומרת מה חסר בו, ולא ב-``KeyError``.
     """
-    templates = {
-        step["env"]["STATUS_CONTEXT"]
-        for step in job["steps"]
-        if str(step.get("name", "")).startswith("Report required status")
-    }
-    assert templates, "לא נמצאו צעדי 'Report required status' עם STATUS_CONTEXT ב-unit-tests"
+    steps = [
+        step for step in job["steps"] if str(step.get("name", "")).startswith("Report required status")
+    ]
+    assert steps, "לא נמצאו צעדי 'Report required status' ב-unit-tests"
+    templates = set()
+    for step in steps:
+        env = step.get("env") or {}
+        assert "STATUS_CONTEXT" in env, f"לצעד {step['name']!r} אין STATUS_CONTEXT ב-env"
+        script = str((step.get("with") or {}).get("script", ""))
+        assert _SENDS_STATUS_CONTEXT.search(script), (
+            f"הצעד {step['name']!r} אינו שולח את STATUS_CONTEXT כשם הסטטוס "
+            "(context: process.env.STATUS_CONTEXT)"
+        )
+        templates.add(env["STATUS_CONTEXT"])
     assert len(templates) == 1, f"צעדי הדיווח בונים את שם הסטטוס בתבניות שונות: {sorted(templates)}"
     template = templates.pop()
     assert template == job["name"], (
@@ -110,6 +138,20 @@ def _expected_statuses() -> set[str]:
     return names
 
 
+def _lane_markers() -> dict[str, str]:
+    """ביטוי ה-``-m`` של כל מסלול (``matrix.marker``), לפי ``suite``."""
+    markers = {}
+    for combination in _matrix_combinations(_unit_tests_job()):
+        assert "marker" in combination, f"למסלול {combination['suite']!r} אין marker במטריצה"
+        markers[combination["suite"]] = combination["marker"]
+    return markers
+
+
+def _bare_lane_markers(markers: dict[str, str]) -> list[str]:
+    """הביטויים שהם סימון אחד בלבד — כלומר מסלול שבוחר טסטים לפי סימון, ולא לפי היעדרו."""
+    return sorted({marker for marker in markers.values() if _BARE_MARKER.fullmatch(marker)})
+
+
 def _tracked_files_naming_a_unit_tests_status() -> set[Path]:
     """כל קובץ במעקב של git שמופיע בו שם של סטטוס ``Unit Tests``.
 
@@ -118,16 +160,23 @@ def _tracked_files_naming_a_unit_tests_status() -> set[Path]:
     בתחביר של git. הדגלים, לפי ``Documentation/git-grep.txt`` ב-git 2.43: ``-l`` שמות
     הקבצים בלבד, ``-z`` כל שם מסתיים ב-``\\0`` ומודפס כמו שהוא, ``-I`` בלי קבצים בינאריים,
     ``-F`` מחרוזת ולא ביטוי. קוד היציאה הוא ``!hit`` (``builtin/grep.c``), כלומר 1 הוא
-    "אף קובץ". כל קוד אחר — למשל 128 מחוץ לעבודה של git — הוא כשל ולא תשובה, ולכן
-    הטסט נכשל ולא מדלג: בלי git הוא לא בדק כלום.
+    "אף קובץ". כל קוד אחר — למשל 128 מחוץ לעבודה של git — הוא כשל ולא תשובה. וכש-git
+    לא מותקן בכלל, ``subprocess`` מעלה ``FileNotFoundError`` עם שם התוכנה (``_execute_child``
+    ב-``Lib/subprocess.py`` של CPython 3.12). בשני המקרים הטסט נכשל ולא מדלג, בהודעה
+    שאומרת מה חסר: בלי git הוא לא בדק כלום.
     """
-    proc = subprocess.run(
-        ["git", "grep", "-z", "-l", "-I", "-F", "Unit Tests"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "grep", "-z", "-l", "-I", "-F", "Unit Tests"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except FileNotFoundError as exc:
+        raise AssertionError(
+            f"git לא נמצא ({exc}). הטסט מוצא את העותקים של הרשימה דרך git grep, ובלעדיו לא בדק כלום"
+        ) from exc
     assert proc.returncode in (0, 1), f"git grep נכשל (קוד {proc.returncode}): {proc.stderr.strip()}"
     found = set()
     for name in proc.stdout.split("\0"):
@@ -190,3 +239,61 @@ def test_every_file_that_names_a_unit_tests_status_is_checked():
     )
     dead = sorted(path.as_posix() for path in set(SNAPSHOTS) - found)
     assert not dead, "פטורים לקבצים שכבר לא מזכירים אף סטטוס — הסירו אותם מ-SNAPSHOTS:\n" + "\n".join(dead)
+
+
+def test_the_lanes_split_the_suite_into_two_complementary_halves():
+    """טסט שאף מסלול לא בוחר אינו רץ ב-CI בכלל, ואיש לא מקבל על כך הודעה.
+
+    לכן נדרשת הצורה היחידה שהטסט יודע לבדוק: שני מסלולים, אחד בוחר סימון אחד והשני בוחר
+    בדיוק ``not`` אותו סימון. כך כל טסט נבחר במסלול אחד בדיוק. מי שמשנה את הצורה — מסלול
+    שלישי, ביטוי מורכב — מעדכן כאן את בדיקת החלוקה, ולא רק את ``ci.yml``.
+    """
+    markers = _lane_markers()
+    bare = _bare_lane_markers(markers)
+    assert len(markers) == 2 and len(bare) == 1 and set(markers.values()) == {bare[0], f"not {bare[0]}"}, (
+        "הביטויים של המסלולים אינם שני חצאים משלימים (X ו-not X), ולכן טסט יכול להישאר בלי "
+        f"מסלול ולא לרוץ ב-CI בכלל: {markers}"
+    )
+
+
+#: ``1 deselected`` בסיכום של ריצה בלי ``-n`` מראה שהטסט נאסף ואז סונן, ולכן קוד היציאה
+#: בא מהסינון ולא מקובץ שאין בו טסטים. תחת ``-n`` ה-controller מסכם ``no tests ran`` בלי
+#: לספור את מה שסונן ב-workers (נמדד ב-pytest-xdist 3.8.0), ושם אותו קובץ ואותו ביטוי
+#: מספיקים: הריצה בלי ``-n`` כבר הראתה שיש בו טסט שנאסף.
+_SERIAL_SUMMARY = "1 deselected"
+
+
+@pytest.mark.parametrize(
+    ("workers", "summary"), [([], _SERIAL_SUMMARY), (["-n", "2"], None)], ids=["serial", "xdist"]
+)
+def test_a_lane_whose_marker_selects_no_test_fails(tmp_path, workers, summary):
+    """pytest יוצא ב-``ExitCode.NO_TESTS_COLLECTED`` כש-``-m`` סינן את כל הטסטים, וגם תחת ``-n``.
+
+    על זה נשען ה-CI כשהמסלול הכבד בוחר אפס טסטים. נמדד ב-pytest 8.4.2: ``_main`` ב-
+    ``_pytest/main.py`` מחזיר את הקוד הזה כש-``testscollected`` הוא 0, והוא נקבע אחרי הסינון
+    (ותחת ``-n`` ב-``xdist/dsession.py``, ממה שה-workers אספו). הסימון נלקח מהמטריצה, כך שזה
+    הביטוי שהמסלול באמת מריץ. הריצה הפנימית היא ב-``tmp_path`` עם ``pytest.ini`` משלה, ולכן
+    ה-``conftest`` וה-``addopts`` של הריפו אינם נטענים בה.
+    """
+    if workers:
+        pytest.importorskip("xdist")
+    bare = _bare_lane_markers(_lane_markers())
+    assert len(bare) == 1, f"אין למסלול הכבד סימון אחד שבוחרים בו לבד: {bare}"
+    marker = bare[0]
+    (tmp_path / "pytest.ini").write_text(f"[pytest]\nmarkers =\n    {marker}: inner\n", encoding="utf-8")
+    (tmp_path / "test_inner.py").write_text("def test_unmarked():\n    pass\n", encoding="utf-8")
+
+    finished = subprocess.run(
+        [sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", *workers, "-m", marker, "test_inner.py"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    output = finished.stdout + finished.stderr
+
+    assert finished.returncode == pytest.ExitCode.NO_TESTS_COLLECTED, (
+        f"מסלול שלא נבחר בו אף טסט יצא בקוד {finished.returncode}, ולכן היה עובר ריק:\n{output}"
+    )
+    if summary is not None:
+        assert summary in output, f"הטסט הפנימי לא נאסף ואז סונן, ולכן הקוד לא הוכיח כלום:\n{output}"
