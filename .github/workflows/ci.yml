@@ -165,20 +165,39 @@ jobs:
             });
 
   unit-tests:
-    name: "Unit Tests (${{ matrix.python-version }})"
+    # שני מסלולים לכל גרסת פייתון, שרצים במקביל. ``main`` מריץ את כל הטסטים חוץ
+    # מאלה שמסומנים ``md_heavy`` (הרישום ב-``pytest.ini``), ו-``md-heavy`` מריץ רק
+    # אותם. הם במסלול משלהם כי הם מפרסרים קלט ענק בתקרות של פרסר ה-Markdown, וכך
+    # הם אינם מאריכים את המסלול שכל PR מחכה לו. ראו docs/ci-cd.rst.
+    #
+    # כל מסלול מדווח סטטוס חובה משלו בשם ``<label> (<python-version>)``. שמות
+    # הסטטוסים כתובים גם ברשימות של בדיקות החובה בתיעוד ובתבניות, ו-
+    # ``tests/test_required_checks_are_listed.py`` משווה אותן למטריצה הזו.
+    name: "${{ matrix.label }} (${{ matrix.python-version }})"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         python-version: [ '3.11', '3.12' ]
+        suite: ['main', 'md-heavy']
+        include:
+          - suite: main
+            label: 'Unit Tests'
+            marker: 'not md_heavy'
+          - suite: md-heavy
+            label: 'Unit Tests md-heavy'
+            marker: 'md_heavy'
     services:
+      # המסלול ``md-heavy`` אינו צריך מסד: ``image`` ריק אומר ל-runner לא להרים את
+      # השירות (``jobs.<job_id>.services.<service_id>.image`` בתיעוד של GitHub
+      # Actions).
       mongodb:
         # 8.0 ולא 6.0, כי הפרודקשן רץ על MongoDB Atlas 8.0 — בדיקה שרצה מול
         # מסד אמיתי צריכה לבדוק את אותו מנוע. בפרט ``queryShapeHash`` בפלט של
         # ``explain`` קיים רק מ-8.0 ומעלה, ו-tests/test_profiler_projection_mongo.py
         # נשען עליו. ראו docs/testing.rst.
-        image: mongo:8.0
+        image: ${{ matrix.suite == 'main' && 'mongo:8.0' || '' }}
         env:
           MONGO_INITDB_ROOT_USERNAME: test
           MONGO_INITDB_ROOT_PASSWORD: test123
@@ -189,7 +208,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redis:
-        image: redis:7-alpine
+        image: ${{ matrix.suite == 'main' && 'redis:7-alpine' || '' }}
         # Avoid host port binding; job connects via service hostname
         options: >-
           --health-cmd "redis-cli ping"
@@ -217,6 +236,10 @@ jobs:
       - name: 🔎 Dependency integrity (pip check)
         run: pip check || true
 
+      # שם הסטטוס נבנה מהמטריצה, באותה צורה כמו ``name`` של הג'וב, כך שכל מסלול
+      # כותב רק לסטטוס שלו. GitHub קובע את מצב הסטטוס לפי הדיווח האחרון לכל שם
+      # (REST, "Commit statuses"), ולכן שני מסלולים שכותבים לאותו שם היו דורסים זה
+      # את זה — והצלחה של אחד הייתה מסתירה כשל של השני.
       - name: Report required status (pending)
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -225,19 +248,20 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
-            const ver = process.env.PYV || '${{ matrix.python-version }}';
             await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
               owner: context.repo.owner,
               repo: context.repo.repo,
               sha,
               state: 'pending',
-              context: `Unit Tests (${ver})`,
+              context: process.env.STATUS_CONTEXT,
               description: 'Job queued/running',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
         env:
-          PYV: ${{ matrix.python-version }}
+          STATUS_CONTEXT: "${{ matrix.label }} (${{ matrix.python-version }})"
+      # בדיקת תחביר על כל הריפו — לא תלויה במסלול, ולכן רצה פעם אחת לכל גרסה.
       - name: 🧪 Smoke compile (exclude .restore)
+        if: matrix.suite == 'main'
         run: |
           find . -type f -name "*.py" -not -path "./.restore/*" -print0 | xargs -0 -n1 -P 4 python -m py_compile
       - name: 🧪 Run Tests
@@ -267,8 +291,15 @@ jobs:
           REQUESTS_RETRIES: '0'
           REQUESTS_RETRY_BACKOFF: '0'
           AIOHTTP_TIMEOUT_TOTAL: '6'
+        # ``-m`` בוחר את הטסטים של המסלול (``matrix.marker``). מסלול שלא נבחר בו אף
+        # טסט נכשל ולא עובר בשקט: pytest יוצא בקוד 5 כשלא נאסף אף טסט, גם כשכולם
+        # סוננו ב-``-m`` (נמדד ב-pytest 8.4.2, עם ``-n`` ובלעדיו). כך שם סימון ששונה
+        # כאן ולא בטסטים, או בכל הטסטים ולא כאן, מפיל את המסלול ``md-heavy``. טסט בודד
+        # שהסימון שלו חסר או שגוי פשוט רץ במסלול הרגיל. את קוד היציאה, ואת זה ששני
+        # הביטויים משלימים זה את זה, מקבע ``tests/test_required_checks_are_listed.py``.
         run: |
-          pytest -n auto --dist=loadscope -v -o addopts="" --cov=. --cov-report=xml --cov-report=term \
+          pytest -n auto --dist=loadscope -v -o addopts="" -m "${{ matrix.marker }}" \
+                 --cov=. --cov-report=xml --cov-report=term \
                  --durations=0 --json-report --json-report-file=unit-durations.json
 
       - name: Upload coverage to Codecov
@@ -285,7 +316,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-durations-${{ matrix.python-version }}-${{ github.run_id }}
+          # שם ייחודי לכל מסלול: ``upload-artifact@v4`` אינו מאפשר שתי העלאות לאותו
+          # שם. הקידומת ``unit-durations-`` נשארת, כי ``notify-post-merge-issue.yml``
+          # מחפש לפיה את הדוחות שבהם נספרים טסטים שנכשלו.
+          name: unit-durations-${{ matrix.suite }}-${{ matrix.python-version }}-${{ github.run_id }}
           path: |
             unit-durations.json
           if-no-files-found: ignore
@@ -298,18 +332,17 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
-            const ver = process.env.PYV || '${{ matrix.python-version }}';
             await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
               owner: context.repo.owner,
               repo: context.repo.repo,
               sha,
               state: 'success',
-              context: `Unit Tests (${ver})`,
+              context: process.env.STATUS_CONTEXT,
               description: 'Tests passed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
         env:
-          PYV: ${{ matrix.python-version }}
+          STATUS_CONTEXT: "${{ matrix.label }} (${{ matrix.python-version }})"
 
       - name: Report required status (failure)
         if: ${{ failure() }}
@@ -319,18 +352,17 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
-            const ver = process.env.PYV || '${{ matrix.python-version }}';
             await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
               owner: context.repo.owner,
               repo: context.repo.repo,
               sha,
               state: 'failure',
-              context: `Unit Tests (${ver})`,
+              context: process.env.STATUS_CONTEXT,
               description: 'Tests failed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
         env:
-          PYV: ${{ matrix.python-version }}
+          STATUS_CONTEXT: "${{ matrix.label }} (${{ matrix.python-version }})"
 
       - name: Report required status (cancelled)
         if: ${{ cancelled() }}
@@ -340,18 +372,17 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
-            const ver = process.env.PYV || '${{ matrix.python-version }}';
             await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
               owner: context.repo.owner,
               repo: context.repo.repo,
               sha,
               state: 'failure',
-              context: `Unit Tests (${ver})`,
+              context: process.env.STATUS_CONTEXT,
               description: 'Job cancelled',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
         env:
-          PYV: ${{ matrix.python-version }}
+          STATUS_CONTEXT: "${{ matrix.label }} (${{ matrix.python-version }})"
 
   js-tests:
     name: "JS Tests (node)"

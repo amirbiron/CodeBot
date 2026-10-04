@@ -76,6 +76,8 @@ pull_request_template: |
   - 🔍 Code Quality & Security
   - Unit Tests (3.11)
   - Unit Tests (3.12)
+  - Unit Tests md-heavy (3.11)
+  - Unit Tests md-heavy (3.12)
 
   ## 📝 סוג שינוי
   - [ ] feat: פיצ'ר חדש
@@ -134,6 +136,8 @@ guards:
       - "🔍 Code Quality & Security"
       - "Unit Tests (3.11)"
       - "Unit Tests (3.12)"
+      - "Unit Tests md-heavy (3.11)"
+      - "Unit Tests md-heavy (3.12)"
     description: "כל ה-Required Checks חייבים להיות ירוקים"
 
 style_guide:

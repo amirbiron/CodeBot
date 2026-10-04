@@ -14,7 +14,7 @@
   <li>סיכוני Rollback אם יש</li>
   <li>קישור ל-Docs Preview אם רלוונטי</li>
   <li>השפעה על Deploy (אם יש)</li>
-  <li>CI Required Checks: 🔍 Code Quality & Security; Unit Tests (3.11); Unit Tests (3.12)</li>
+  <li>CI Required Checks: 🔍 Code Quality & Security; Unit Tests (3.11); Unit Tests (3.12); Unit Tests md-heavy (3.11); Unit Tests md-heavy (3.12)</li>
   <li>אין סודות/PII בקוד</li>
   <li>אין מחיקות מסוכנות (ראו .cursorrules)</li>
 </ul>
@@ -44,6 +44,8 @@
 - 🔍 Code Quality & Security
 - Unit Tests (3.11)
 - Unit Tests (3.12)
+- Unit Tests md-heavy (3.11)
+- Unit Tests md-heavy (3.12)
 
 ## 📝 סוג שינוי
 - [ ] feat: פיצ'ר חדש

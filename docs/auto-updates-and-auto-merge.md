@@ -40,11 +40,7 @@
    - סמן:
      - Require a pull request before merging
      - Require status checks to pass before merging
-       - בחר את הסטטוסים שמגיעים מ־ci.yml:
-        - "Unit Tests (3.9)"
-        - "Unit Tests (3.10)"
-        - "Unit Tests (3.11)"
-         - "🔍 Code Quality & Security"
+       - בחר את הסטטוסים הנדרשים שמגיעים מ־ci.yml. הרשימה נמצאת ב-`docs/ci-cd.rst`, ולא מועתקת לכאן כדי שלא תתיישן.
        - מומלץ: Require branches to be up to date before merging
      - Require conversation resolution before merging (מומלץ)
    
@@ -86,7 +82,7 @@
 ### פתרון תקלות
 - "No checks have been added" בכללי ההגנה:
   - ודא שיש לפחות ריצה אחת של ה־CI על PR (גם Draft מספיק).
-  - רענן את העמוד ואז בחר את 4 הסטטוסים מרשימת ה־checks (Unit Tests 3 גרסאות + Code Quality).
+  - רענן את העמוד ואז בחר את הסטטוסים הנדרשים מרשימת ה־checks (הרשימה ב-`docs/ci-cd.rst`).
 
 - "There isn’t anything to compare" כשפותחים PR:
   - ודא שה־base הוא `main` וה־compare הוא הענף שלך.
@@ -100,7 +96,7 @@
   
 
 ### צ'ק־ליסט מהיר
-- [ ] הגדרת Branch protection ל־`main` עם 4 הסטטוסים מ־ci.yml
+- [ ] הגדרת Branch protection ל־`main` עם הסטטוסים הנדרשים מ־ci.yml (הרשימה ב-`docs/ci-cd.rst`)
 - [ ] הפעלת "Allow auto‑merge" (Settings → General → Pull requests)
 - [ ] הוספת Secret: `DEPENDABOT_AUTOMERGE`=true (כשרוצים אוטומרג׳ ל־patch)
 - [ ] לשקול כיבוי זמני של Auto Deploy ב־Render לפני מיזוגים ל־`main`

@@ -20,6 +20,11 @@ import pytest
 
 pytest.importorskip("markdown_it")
 
+#: הקובץ כולו במסלול ``md-heavy`` של ``unit-tests`` ב-``.github/workflows/ci.yml``: הסקריפט
+#: שהוא בודק מודד את שיא הזיכרון ואת זמן המעבד של פרסור, כולל הקלט היקר ביותר בתקרות.
+#: הסימון מוגדר ב-``pytest.ini``.
+pytestmark = pytest.mark.md_heavy
+
 _REPO = Path(__file__).resolve().parent.parent
 
 
