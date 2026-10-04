@@ -3,6 +3,12 @@ import pytest
 import importlib
 from datetime import datetime, timezone, timedelta
 
+# הטסטים כאן לא עושים ``importlib.reload`` ל-``user_stats``. ``_get_files_facade_or_none`` ב-``user_stats.py``
+# מייבא את ה-facade בכל קריאה, ולכן ה-stub שהטסט שם ב-``sys.modules`` נקלט גם בלי reload. ו-reload
+# היה בונה מופע חדש של ``user_stats.user_stats``, בזמן ש-``main.py`` ממשיך להחזיק את הקודם
+# (``from user_stats import user_stats``): טסט שרץ אחר כך באותו תהליך ומחליף את ``log_user`` במופע
+# החדש לא היה מגיע לקוד של ``main``. כך נכשלו ``test_log_user_activity_*`` ב-CI של PR #3524.
+
 
 def _make_fake_mongo(docs_holder):
     class FakeUsersCollection:
@@ -69,8 +75,7 @@ async def test_log_user_updates_and_increments(monkeypatch):
         types.SimpleNamespace(get_files_facade=lambda: facade),
     )
 
-    # Import module under test (reload to bind our mocked database)
-    us_mod = importlib.reload(importlib.import_module("user_stats"))
+    us_mod = importlib.import_module("user_stats")
     stats = us_mod.UserStats()
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -110,7 +115,7 @@ def test_get_weekly_stats_filters_and_sorts(monkeypatch):
     )
 
     import importlib
-    us_mod = importlib.reload(importlib.import_module("user_stats"))
+    us_mod = importlib.import_module("user_stats")
     stats = us_mod.UserStats()
 
     out = stats.get_weekly_stats()
@@ -133,7 +138,7 @@ def test_get_all_time_stats_counts(monkeypatch):
         types.SimpleNamespace(get_files_facade=lambda: facade),
     )
 
-    us_mod = importlib.reload(importlib.import_module("user_stats"))
+    us_mod = importlib.import_module("user_stats")
     stats = us_mod.UserStats()
 
     out = stats.get_all_time_stats()
