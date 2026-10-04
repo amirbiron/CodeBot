@@ -179,19 +179,17 @@ def scrub_stored_credentials(service: "GitMirrorService") -> Dict[str, Any]:
 
     רץ בעליית כל שירות, כי מראה שאינה נמשכת לעולם לא מגיעה לניקוי שב-
     ``fetch_updates``, וצילום דיסק משוחזר מחזיר config ישן. כל תיקייה ``*.git``
-    נבדקת, גם כזו שאינה מראה תקינה — היא תיספר כ-``failed`` עם הסיבה, לא תדולג
-    בשקט. **השורה מאמתת שהמראות נקיות רק כש-``failed=0``**: מראה שנכשלה עדיין
-    עלולה להחזיק את הטוקן, וה-fetch שלה נחסם עד שהניקוי יצליח.
+    (``GitMirrorService.list_mirror_names``) נבדקת, גם כזו שאינה מראה תקינה —
+    היא תיספר כ-``failed`` עם הסיבה, לא תדולג בשקט. **השורה מאמתת שהמראות נקיות
+    רק כש-``failed=0``**: מראה שנכשלה עדיין עלולה להחזיק את הטוקן, וה-fetch שלה
+    נחסם עד שהניקוי יצליח.
 
     ``sources``: לכל מראה, מאיפה יגיע הטוקן שלה אם הריפו ידרוש הזדהות —
     ``map``/``global``/``explicit``/``none``, או ``unknown`` כשה-URL לא ידוע.
     """
     stats = {"checked": 0, "had_credentials": 0, "cleaned": 0, "failed": 0}
     sources: Dict[str, str] = {}
-    for path in sorted(service.base_path.glob("*.git")):
-        if not path.is_dir():
-            continue
-        name = path.name[: -len(".git")]
+    for name in service.list_mirror_names():
         stats["checked"] += 1
         res = ensure_clean_remote(service, name)
         if res["had_credentials"]:

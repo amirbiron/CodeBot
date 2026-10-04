@@ -81,6 +81,31 @@ def test_init_mirror_existing_invalid_mirror_is_cleaned_and_recloned(service, tm
     assert calls["clone"] == 1
 
 
+def test_list_mirror_names_is_the_inverse_of_get_repo_path(service, tmp_path):
+    """כל תיקייה ``<name>.git`` ישירות תחת ``base_path`` — ושום דבר אחר."""
+    (tmp_path / "alpha.git").mkdir()
+    (tmp_path / "beta.git").mkdir()
+    (tmp_path / "x.y.git").mkdir()  # _validate_repo_name דוחה את השם; ההחלטה על כך היא של הקורא
+    (tmp_path / "link.git").symlink_to(tmp_path / "alpha.git", target_is_directory=True)
+    (tmp_path / "notes.git").write_text("a file, not a directory\n", encoding="utf-8")
+    (tmp_path / "plain-dir").mkdir()
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "deep.git").mkdir()
+
+    names = service.list_mirror_names()
+
+    assert names == ["alpha", "beta", "link", "x.y"]
+    assert all(service._get_repo_path(name).is_dir() for name in names)
+
+
+def test_list_mirror_names_of_a_missing_directory_is_empty(tmp_path):
+    """מה שה-docstring מבטיח: תיקיית בסיס שנעלמה מחזירה רשימה ריקה, לא חריגה."""
+    svc = GitMirrorService(base_path=str(tmp_path / "mirrors"))
+    (tmp_path / "mirrors").rmdir()
+
+    assert svc.list_mirror_names() == []
+
+
 def test_sanitize_output_masks_https_credentials(service):
     raw = "fatal: unable to access 'https://oauth2:SECRET_TOKEN@github.com/org/repo.git/': 403\n"
     sanitized = service._sanitize_output(raw)

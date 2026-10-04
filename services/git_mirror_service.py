@@ -392,6 +392,11 @@ class GitMirrorService:
     # שם ריפו: a-z, 0-9, -, _ בלבד, 1-100 תווים
     REPO_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$')
 
+    # המראה של ריפו היא התיקייה ``<name>.git`` ישירות תחת ``base_path``.
+    # ``_get_repo_path`` בונה את הנתיב מהשם ו-``list_mirror_names`` הולך בכיוון
+    # ההפוך, ושניהם קוראים את הסיומת מכאן כדי שלא ייפרדו.
+    MIRROR_DIR_SUFFIX = ".git"
+
     # נתיב קובץ - ללא path traversal
     # מאפשר: a-z, A-Z, 0-9, ., _, -, /, רווח (space)
     # אוסר: //, leading/trailing /, leading/trailing space, NUL,
@@ -670,7 +675,24 @@ class GitMirrorService:
 
     def _get_repo_path(self, repo_name: str) -> Path:
         """נתיב ל-mirror של ריפו ספציפי"""
-        return self.base_path / f"{repo_name}.git"
+        return self.base_path / f"{repo_name}{self.MIRROR_DIR_SUFFIX}"
+
+    def list_mirror_names(self) -> List[str]:
+        """השמות של כל המראות שבדיסק: כל תיקייה ``<name>.git`` שיושבת ישירות תחת ``base_path``.
+
+        זה ההיפוך של ``_get_repo_path``. קישור סמלי לתיקייה נכלל, כי ``Path.is_dir``
+        עוקב אחריו. קובץ שנגמר ב-``.git``, ותיקייה בלי הסיומת, אינם נכללים.
+
+        **השמות אינם מסוננים לפי ``_validate_repo_name``.** כשמופיע שם שאינו עובר
+        אותה, כל קורא מחליט בעצמו מה לעשות בו: לדווח עליו, או לא לגעת בו.
+
+        תיקיית בסיס שאינה קיימת, או שאין הרשאה לקרוא אותה, מחזירה רשימה ריקה ולא
+        זורקת. כך עובד ``Path.glob`` (``_WildcardSelector._select_from`` ב-``pathlib``
+        של Python 3.11), ולכן רשימה ריקה אינה ראיה שאין מראות. ``OSError`` מכל סוג
+        אחר כן עולה לקורא.
+        """
+        suffix = self.MIRROR_DIR_SUFFIX
+        return [p.name[: -len(suffix)] for p in sorted(self.base_path.glob(f"*{suffix}")) if p.is_dir()]
 
     def _get_mirror_path(self, repo_name: str) -> Path:
         """Alias לשם אחיד במדריך (mirror path)."""

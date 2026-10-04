@@ -2571,7 +2571,7 @@
      - ``*.sqlite, private/*``
      - MCP
    * - ``MCP_REPO_AUTOSYNC``
-     - רענון אוטומטי של ה-mirrors המקומיים בשירות ה-MCP (thread רקע, כמו ה-worker בוובאפ): משכפל ריפו חסר מ-``repo_metadata.repo_url`` ומריץ fetch כשה-``last_synced_sha`` ב-Mongo שונה מהמקומי. ``0`` מכבה.
+     - רענון אוטומטי של ה-mirrors המקומיים בשירות ה-MCP (thread רקע, כמו ה-worker בוובאפ): משכפל ריפו חסר מ-``repo_metadata.repo_url``, מריץ fetch כשה-``last_synced_sha`` ב-Mongo שונה מהמקומי, ומוחק מראה מקומית שאין לה רשומה ב-``repo_metadata`` (ראו :ref:`mcp-repo-autosync`). ``0`` מכבה את שלושתם.
      - לא
      - ``1`` (פעיל)
      - ``1``

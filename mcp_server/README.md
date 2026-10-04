@@ -121,6 +121,7 @@ merge ל-main → GitHub webhook → הוובאפ מסנכרן את הדיסק �
 
 - ריפו שקיים ב‑`repo_metadata` אך חסר בדיסק המקומי — **משוכפל אוטומטית** מ‑`repo_url`
   (אין צורך ב‑`initial_import` ידני בצד ה‑MCP).
+- מראה בדיסק המקומי שאין לה רשומה ב‑`repo_metadata` — **נמחקת** בסוף המעבר (`_prune_orphans` ב‑`repo_autosync.py`). כך ריפו שהוסר בוובאפ יוצא גם מהדיסק של ה‑MCP. לא נמחק כלום כשהשאילתה נכשלה או כשאין ב‑`repo_metadata` אף שם, וגם לא תיקייה ששמה אינו שם מראה, קישור סמלי, או ריפו באמצע clone/fetch. הפירוט ב‑`docs/mcp-server.rst`, "רענון אוטומטי".
 - שליטה: `MCP_REPO_AUTOSYNC` (ברירת מחדל פעיל; `0` מכבה), `MCP_REPO_AUTOSYNC_INTERVAL`
   (ברירת מחדל 300ש'). בזמן clone/fetch מקומי הכלים מחזירים `sync_in_progress`.
 - **ENV נדרשים בשירות ה‑MCP:** `REPO_MIRROR_PATH` (+דיסק מצורף — ב‑Render דיסק הוא
