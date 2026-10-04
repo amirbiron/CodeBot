@@ -334,7 +334,7 @@ def test_an_edit_that_empties_the_note_is_refused():
     assert [c[0] for c in b.calls] == ["get_note"]
 
 
-def test_a_result_over_the_ceiling_is_the_same_refusal_as_before():
+def test_a_result_over_the_ceiling_that_is_not_only_whitespace_is_the_same_refusal_as_before():
     """``content_too_long`` עם ``max`` — בדיוק התשובה שהייתה לפני #3495, ושום דבר אינו נכתב.
 
     #3495 הקדים את הבדיקה לפני שהתוצאה נבנית (``max_size`` של ``_apply_edit``), ולא
