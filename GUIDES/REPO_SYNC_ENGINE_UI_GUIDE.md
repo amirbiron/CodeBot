@@ -138,7 +138,7 @@
             </span>
             {% if metadata %}
             <span class="repo-stats">
-                <i class="bi bi-file-code"></i> {{ metadata.total_files | default(0) }} files
+                <i class="bi bi-file-code"></i> <span data-repo-stat="total_files">{{ metadata.total_files | default(0) }}</span> files
             </span>
             {% endif %}
         </div>
@@ -174,9 +174,7 @@
             <div class="sidebar-footer">
                 {% if metadata %}
                 <div class="stats-mini">
-                    <span title="Python files"><i class="bi bi-filetype-py"></i> {{ metadata.get('file_types', {}).get('.py', 0) }}</span>
-                    <span title="JavaScript files"><i class="bi bi-filetype-js"></i> {{ metadata.get('file_types', {}).get('.js', 0) }}</span>
-                    <span title="Total"><i class="bi bi-files"></i> {{ metadata.total_files | default(0) }}</span>
+                    <span title="Total files"><i class="bi bi-files"></i> <span data-repo-stat="total_files">{{ metadata.total_files | default(0) }}</span> files</span>
                 </div>
                 {% endif %}
             </div>
@@ -1067,6 +1065,8 @@
 
 צור קובץ `webapp/static/js/repo-browser.js`:
 
+**הערה:** הקטע המלא של הקוד כולל גם פונקציות לעדכון מונים דינמיים. ראה סעיף נפרד בהמשך.
+
 ```javascript
 /**
  * Repo Browser - Main JavaScript Module
@@ -1732,6 +1732,63 @@ document.getElementById('collapse-all')?.addEventListener('click', () => {
 
 ---
 
+## עדכון מונים דינמיים
+
+המונים בדפדפן הקוד (למשל: "1529 files") מתעדכנים כשמחליפים ריפו.
+
+### פונקציות עיקריות
+
+```javascript
+/**
+ * renderRepoStats(repoName)
+ * ממלא את מוני הריפו לפי הסימון data-repo-stat שבתבנית.
+ * 
+ * נקראת מתוך updateRepoDisplay() כדי לסנכרן מונים בהחלפת ריפו.
+ * הערכים נלקחים מ-repoMetadataByName שכבר בזיכרון, ולכן העדכון סינכרוני.
+ * 
+ * מונה חדש דורש: סימון data-repo-stat בתבנית ומיפוי ב-values כאן.
+ */
+function renderRepoStats(repoName) {
+    if (!repoMetadataByName[repoName]) {
+        return;
+    }
+    const values = { total_files: getRepoTotalFiles(repoName) };
+    document.querySelectorAll('[data-repo-stat]').forEach(el => {
+        const value = values[el.dataset.repoStat];
+        el.textContent = (value === null || value === undefined) ? '—' : String(value);
+    });
+}
+
+/**
+ * getRepoTotalFiles(repoName)
+ * מחזיר את מספר הקבצים הכולל של הריפו, או null אם הערך לא תקין.
+ * 
+ * בדיקת הטיפוס חשובה: Number(null), Number(false), Number('') כולם 0,
+ * ו-Number.isFinite מאשר אותם, מה שהיה מציג "0 files" עבור ריפו שסונכרן חלקית.
+ */
+function getRepoTotalFiles(repoName) {
+    const meta = repoMetadataByName[repoName];
+    const total = meta ? meta.total_files : undefined;
+    return typeof total === 'number' && Number.isFinite(total) ? total : null;
+}
+```
+
+### שילוב ב-updateRepoDisplay
+
+```javascript
+function updateRepoDisplay(repoName) {
+    // עדכון dropdown ושם ריפו
+    // ...
+    
+    // עדכון המונים — חלק מאותה פעולה לוגית
+    renderRepoStats(repoName);
+    
+    // שאר הקוד
+}
+```
+
+---
+
 ## API Endpoints נוספים
 
 עדכן את `webapp/routes/repo_browser.py`:
@@ -1767,20 +1824,6 @@ def repo_index():
     
     metadata = db.repo_metadata.find_one({"repo_name": repo_name})
     mirror_info = git_service.get_mirror_info(repo_name)
-    
-    # Get file type stats
-    if metadata:
-        file_types = {}
-        cursor = db.repo_files.aggregate([
-            {"$match": {"repo_name": repo_name}},
-            {"$group": {"_id": "$language", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
-            {"$limit": 10}
-        ])
-        for doc in cursor:
-            if doc["_id"]:
-                file_types[doc["_id"]] = doc["count"]
-        metadata["file_types"] = file_types
     
     return render_template(
         'repo/index.html',
