@@ -18,7 +18,8 @@ async def test_apply_rate_limit_delay_respects_backoff(monkeypatch):
     user_id = 123
 
     # Seed last call now
-    h.last_api_call[user_id] = time.time()
+    seeded = time.time()
+    h.last_api_call[user_id] = seeded
 
     # Stub github_backoff_state.get().is_active() -> True
     class _Info:
@@ -36,12 +37,13 @@ async def test_apply_rate_limit_delay_respects_backoff(monkeypatch):
     monkeypatch.setenv("GITHUB_API_BASE_DELAY", "0")
     # Reduce backoff delay to keep test fast, while still asserting >=1s
     monkeypatch.setenv("GITHUB_BACKOFF_DELAY", "1.0")
-    start = time.time()
     await h.apply_rate_limit_delay(user_id)
-    elapsed = time.time() - start
+    since_seed = time.time() - seeded
 
-    # Under backoff, the wait is GITHUB_BACKOFF_DELAY minus the time since the seeded call
-    assert elapsed >= 1.0  # at least some wait was applied
+    # תחת backoff הקריאה חוזרת רק אחרי ש-GITHUB_BACKOFF_DELAY עבר מהקריאה הקודמת, כלומר מהרגע
+    # שנזרע כאן, ולכן מודדים ממנו. מדידה מתחילת הקריאה מפספסת את הזמן שעבר מאז הזריעה, ובמכונה
+    # איטית, או בעצירה של GC באמצע, היא יוצאת קצרה משנייה גם כשההמתנה נכונה.
+    assert since_seed >= 1.0, f"הקריאה הייתה אמורה לחזור שנייה אחרי הקריאה הקודמת, וחזרה אחרי {since_seed:.3f} שנ'"
 
 
 @pytest.mark.asyncio
