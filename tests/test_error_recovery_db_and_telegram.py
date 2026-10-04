@@ -42,7 +42,13 @@ async def test_db_disconnect_during_batch_sets_failed(monkeypatch):
 async def test_telegram_retry_after_and_message_not_modified(monkeypatch):
     # Use a small slice of handler that edits messages via safe edit path
     import sys
-    sys.modules.pop('github_menu_handler', None)
+    # ייבוא טרי של המודול לטסט הזה. אם המודול כבר היה טעון, ``monkeypatch.delitem`` רושם אותו
+    # ומחזיר אותו ל-``sys.modules`` בסוף הטסט (pytest 8.4.2: ``delitem`` ו-``undo`` ב-
+    # ``_pytest/monkeypatch.py``). ה-``sys.modules.pop`` שהיה כאן השאיר אחריו מודול אחר, וטסט
+    # שרץ אחריו באותו תהליך והחזיק מחלקה מהמודול הקודם פאץ' משתנה במודול שהקוד שלו לא קורא —
+    # כך נכשל ``test_apply_rate_limit_delay_respects_backoff`` שב-
+    # ``tests/test_github_menu_backoff_delay.py``, ב-CI של PR #3524.
+    monkeypatch.delitem(sys.modules, 'github_menu_handler', raising=False)
     import github_menu_handler as gh
 
     handler = gh.GitHubMenuHandler()
