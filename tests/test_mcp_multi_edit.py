@@ -3,6 +3,9 @@
 **הכלי:** כמה עריכות מדויקות בקובץ אחד, בגרסה אחת. הזוגות מוחלים בסדר שנשלחו,
 כל זוג על התוצאה של קודמו, וכולם או כלום. **השער:** ``expected_content_sha256``
 בשלושת כלי העריכה — הכתיבה מסורבת ב-``conflict`` כשהקובץ השתנה מאז שהסוכן קרא.
+**והתקרה לפני הבנייה** (סעיף 6): כל כלי שמחליף טקסט דרך ``_apply_edit`` נבדק בשיא
+ההקצאה ולא רק בתשובה — גם ``codekeeper_edit_file``, וגם ``codekeeper_note_str_replace``,
+שהפתק שלו יושב באוסף ``sticky_notes`` של אותה דמה.
 
 **כל בדיקה עוברת דרך ``call_tool``** על שרת MCP אמיתי (``build_mcp``), מעל
 ``ProductionBackend``, ``DatabaseManager`` ו-``Repository`` אמיתיים, עם ``config.py``
@@ -35,6 +38,8 @@ from _save_layer_harness import clear_local_cache, install_fake_collections, lat
 pytest.importorskip("mcp")
 
 from mcp.server.fastmcp.exceptions import ToolError  # noqa: E402
+
+from mcp_server.handlers import MAX_NOTE_CONTENT  # noqa: E402
 
 USER = 6363
 NAME = "handoff.md"
@@ -566,6 +571,48 @@ def test_a_single_replace_all_is_checked_before_its_result_is_built(mcp, store, 
 
     assert answers[0] == {"ok": False, "error": "code_too_large", "max": 100_000}
     assert peak < 5_000_000, f"שיא הקצאה של {peak:,} בתים — התוצאה נבנתה לפני שנבדקה"
+
+
+#: פתק לוח אחד, שנכתב ישירות לאוסף: הכלי שיוצר פתק דורש לוח קיים ומכסה, ואף אחד
+#: מהם אינו מה שנמדד כאן.
+NOTE_ID = "6a8cfe7e35f97a799c443651"
+
+
+@pytest.mark.parametrize("occurrences", [2_000, MAX_NOTE_CONTENT], ids=["issue_3495", "full_note"])
+def test_a_note_replace_all_is_checked_before_its_result_is_built(mcp, store, backend, monkeypatch, occurrences):
+    """אותה בדיקה ב-``codekeeper_note_str_replace``, מול ``MAX_NOTE_CONTENT`` (#3495).
+
+    עד #3495 הפתק נבדק אחרי ההחלפה: 2,000 מופעים של ``"a"`` כפול ``new_string`` של
+    10,000 תווים הם 20 מיליון תווים שנבנו לפני ``content_too_long`` — ובפתק מלא עד
+    התקרה, פי עשרה. **הגבול כאן אינו תלוי במספר המופעים**: עשרים פעם גודל הבקשה —
+    מרווח רחב לעותקים המעטים שהבקשה עוברת בדרך (ה-SDK, הנרמול של הפתק), ורחוק בסדרי
+    גודל ממכפלה במספר המופעים — ולכן אותו גבול חל על שני הפתקים. מה שגדל עם המופעים
+    הוא רק ``count`` על גוף הפתק, שאינו מקצה.
+
+    **המוטציות שחייבות להפיל אותו — ``note_str_replace`` שמעביר תקרה גבוהה מ-
+    ``MAX_NOTE_CONTENT``, או הסרת הבדיקה החזויה ב-``_apply_edit``.** בשתיהן התשובה
+    זהה; רק השיא מספר שהתוצאה נבנתה.
+    """
+    from bson import ObjectId
+
+    # אינדקס שם-הפתק-בלוח אינו מה שנמדד: לאוסף המזויף אין ``index_information``, והשער
+    # היה רושם ERROR עם traceback — הקצאה שאינה של הכלי, בתוך החלון שנמדד.
+    monkeypatch.setattr(backend, "_ensure_title_index", lambda coll: True)
+    notes = store.raw["sticky_notes"]
+    notes.insert_one({"_id": ObjectId(NOTE_ID), "user_id": USER, "board_id": "b" * 24,
+                      "content": "a" * occurrences, "color": "yellow"})
+    arguments = {"note_id": NOTE_ID, "old_string": "a", "new_string": "b" * 10_000, "replace_all": True}
+    request_bytes = len(json.dumps(arguments).encode("utf-8"))
+
+    answers: list[dict] = []
+    peak = _peak_bytes(lambda: answers.append(_call(mcp, "codekeeper_note_str_replace", **arguments)))
+
+    assert answers[0] == {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+    assert peak < 20 * request_bytes, (
+        f"שיא הקצאה של {peak:,} בתים על בקשה של {request_bytes:,} — התוצאה נבנתה לפני שנבדקה"
+    )
+    assert notes.docs[0]["content"] == "a" * occurrences
+    assert store.raw["sticky_note_versions"].docs == []
 
 
 # ---------------------------------------------------------------------------
