@@ -23,6 +23,7 @@ Env:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -159,6 +160,47 @@ def refresh_once(db: Any, mirror: Any) -> dict[str, int]:
         finally:
             _mark(name, False)
     return stats
+
+
+def attach_credential_sweep(app: Any) -> bool:
+    """Run the mirror credential sweep (#3480) once, when the ASGI app starts.
+
+    **At server startup, never at import.** ``mcp_server/app.py`` builds the app
+    at module level (``app = create_app()``), so anything ``create_app`` starts
+    directly also starts on every ``import mcp_server.app`` — in tests, tooling,
+    a REPL — and this sweep rewrites ``remote.origin.url`` on every mirror under
+    ``REPO_MIRROR_PATH``. Wrapping ``router.lifespan_context`` is the seam the
+    service already uses for startup work (:func:`mcp_server.server.attach_read_pool`,
+    :func:`mcp_server.analytics.attach_shutdown_drain`): uvicorn enters the
+    lifespan when it serves, an import does not.
+
+    The sweep itself runs on a daemon thread
+    (:func:`services.mirror_credentials.start_credential_sweep`), so startup
+    does not wait for it. Returns False — and says so — when the app has no
+    lifespan to attach to; then the sweep does not run here, and the missing
+    ``mirror credential sweep:`` log line is the signal.
+    """
+    router = getattr(app, "router", None)
+    original = getattr(router, "lifespan_context", None)
+    if router is None or original is None:
+        logger.warning("no lifespan on the ASGI app; the mirror credential sweep will not run")
+        return False
+
+    @contextlib.asynccontextmanager
+    async def _lifespan_with_credential_sweep(scope_app: Any):
+        try:
+            from services.mirror_credentials import start_credential_sweep  # lazy: only when serving
+
+            start_credential_sweep()
+        except Exception:
+            # The service must still come up; fetches stay guarded by
+            # transfer.credentialsInUrl=die and the per-fetch cleaning.
+            logger.warning("mirror credential sweep failed to start", exc_info=True)
+        async with original(scope_app) as state:
+            yield state
+
+    router.lifespan_context = _lifespan_with_credential_sweep
+    return True
 
 
 def start_autosync(db: Any, *, interval: int | None = None) -> bool:

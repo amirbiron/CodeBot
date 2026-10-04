@@ -255,7 +255,7 @@ def test_token_source_per_owner_and_header_env(service, monkeypatch):
     """מקור הטוקן לכל בעלים, והכותרת שנבנית ממנו — ממוקדת ל-origin של GitHub ובלי טוקן ב-URL (#3480)."""
     import base64
 
-    from services import git_mirror_service as gms
+    from services import mirror_credentials as creds
 
     monkeypatch.setenv("GITHUB_TOKENS", "Campaign-AI4U=ghp_AAA")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_GLOBAL")
@@ -265,13 +265,13 @@ def test_token_source_per_owner_and_header_env(service, monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN")
     assert service._token_and_source_for_url("https://github.com/Zzz/repo.git") == (None, "none")
 
-    env = gms.GitMirrorService._network_env("ghp_AAA")
+    env = creds.network_env("ghp_AAA")
     pairs = {env[f"GIT_CONFIG_KEY_{i}"]: env[f"GIT_CONFIG_VALUE_{i}"] for i in range(int(env["GIT_CONFIG_COUNT"]))}
     expected = "Authorization: Basic " + base64.b64encode(b"oauth2:ghp_AAA").decode()
     assert pairs["http.https://github.com/.extraHeader"] == expected
     assert pairs["transfer.credentialsInUrl"] == "die"
     # בלי טוקן — אין כותרת בכלל, רק השומר
-    bare = gms.GitMirrorService._network_env(None)
+    bare = creds.network_env(None)
     assert bare["GIT_CONFIG_COUNT"] == "1"
 
 

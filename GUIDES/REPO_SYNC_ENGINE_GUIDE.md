@@ -152,7 +152,7 @@ print(f"Disk writable: {os.access(mirror_path, os.W_OK)}")
 
 ## מימוש GitMirrorService
 
-> ⚠️ **מיושן באימות מול GitHub (#3480).** הקוד שלמטה מזריק את הטוקן ל-URL (`_get_authenticated_url`), ו-git שומר את ה-URL הזה בטקסט גלוי בקובץ ה-`config` של המראה. הפונקציה הוסרה מהקוד: הטוקן עובר היום ככותרת דרך משתני הסביבה של git, וה-URL השמור נקי. המימוש הנוכחי — `_network_env`, `_run_network_git` ו-`ensure_clean_remote` ב-`services/git_mirror_service.py`; ההסבר — העמוד `docs/mcp-server.rst`, הסעיף "אימות מול GitHub — הטוקן לא נשמר במראה". אל תעתיקו את דפוס ההזרקה מכאן.
+> ℹ️ **אימות מול GitHub (#3480).** הקוד שלמטה הוא המדריך המקורי, והוא אינו מסונכרן עם הקוד בכל פרט. בחלק של האימות הוא עודכן: הטוקן לא נכנס ל-URL, כי git שומר את ה-URL בטקסט גלוי בקובץ ה-`config` של המראה. המימוש — `services/mirror_credentials.py` ו-`GitMirrorService._run_network_git`; ההסבר — `docs/mcp-server.rst`, הסעיף "אימות מול GitHub — הטוקן לא נשמר במראה".
 
 צור קובץ `services/git_mirror_service.py`:
 
@@ -222,38 +222,11 @@ class GitMirrorService:
         )
         self._ensure_base_path()
     
-    def _get_authenticated_url(self, url: str) -> str:
-        """
-        הזרקת GitHub Token ל-URL לתמיכה ב-Private Repos
-        
-        Args:
-            url: URL מקורי של הריפו
-            
-        Returns:
-            URL עם token (אם קיים) או URL מקורי
-        
-        Note:
-            לא לרשום את ה-URL המאומת ללוגים!
-        """
-        token = os.getenv("GITHUB_TOKEN")
-        
-        if not token:
-            return url
-        
-        # תמיכה ב-HTTPS URLs בלבד
-        if url.startswith("https://github.com/"):
-            # https://github.com/user/repo.git
-            # -> https://oauth2:TOKEN@github.com/user/repo.git
-            return url.replace(
-                "https://github.com/",
-                f"https://oauth2:{token}@github.com/"
-            )
-        elif url.startswith("https://"):
-            # Generic HTTPS URL
-            return url.replace("https://", f"https://oauth2:{token}@")
-        
-        return url
-    
+    # אימות מול GitHub — **לא** בתוך ה-URL (#3480): git שומר את ה-URL שה-clone
+    # נעשה ממנו ב-config של המראה, בטקסט גלוי. הטוקן עובר לכל clone/fetch ככותרת,
+    # דרך משתני הסביבה של git. המימוש: services/mirror_credentials.py
+    # (network_env, ensure_clean_remote) ו-GitMirrorService._run_network_git.
+
     def _sanitize_output(self, text: str) -> str:
         """
         מחיקת טוקנים רגישים מפלט/לוגים
@@ -400,13 +373,13 @@ class GitMirrorService:
         # לוג ללא ה-token!
         logger.info(f"Creating mirror: {repo_url} -> {repo_path}")
         
-        # הזרקת token ל-Private Repos
-        auth_url = self._get_authenticated_url(repo_url)
-        
-        # Clone as bare mirror
-        result = self._run_git_command(
-            ["git", "clone", "--mirror", auth_url, str(repo_path)],
-            timeout=timeout
+        # Clone as bare mirror, מה-URL הנקי — הוא שנשמר ב-remote.origin.url.
+        # ריפו פרטי מקבל את הטוקן ככותרת בלבד (_run_network_git, #3480).
+        result, auth_used = self._run_network_git(
+            ["git", "clone", "--mirror", "--", repo_url, str(repo_path)],
+            repo_url,
+            timeout=timeout,
+            retry_cleanup=repo_path,
         )
         
         if result.success:

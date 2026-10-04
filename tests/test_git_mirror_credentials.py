@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-from services import git_mirror_service as gms
+from services import mirror_credentials as creds
 from services.git_mirror_service import GitCommandResult, GitMirrorService
 
 MAP_TOKEN = "ghp_TESTMAP0123456789abcdefghijABCDEFGH"
@@ -178,7 +178,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     for key, value in settings.items():
         monkeypatch.setenv(key, value)
     server = _GitServer(tmp_path / "srv")
-    monkeypatch.setattr(gms, "GITHUB_HTTPS_ORIGIN", server.origin)
+    monkeypatch.setattr(creds, "GITHUB_HTTPS_ORIGIN", server.origin)
     try:
         yield _World(tmp_path, server, dict(os.environ))
     finally:
@@ -356,7 +356,7 @@ def test_set_url_that_reports_success_without_cleaning_is_not_counted_as_cleaned
 
     monkeypatch.setattr(world.svc, "_run_git_command", set_url_lies)
 
-    assert world.svc.ensure_clean_remote("liar")["status"] == "failed"
+    assert creds.ensure_clean_remote(world.svc, "liar")["status"] == "failed"
     assert world.svc.fetch_updates("liar")["error_type"] == "mirror_url_not_clean"
     assert world.server.take() == []
     assert MAP_TOKEN in (mirror / "config").read_text()
@@ -387,8 +387,8 @@ def test_sweep_cleans_every_mirror_and_logs_counts_and_sources(world, monkeypatc
     assert world.svc.init_mirror(f"{world.server.origin}/unmapped/fresh.git", "fresh")["success"]
     (world.mirrors / "junk.git").mkdir()
 
-    with caplog.at_level(logging.INFO, logger="services.git_mirror_service"):
-        stats = world.svc.scrub_stored_credentials()
+    with caplog.at_level(logging.INFO, logger="services.mirror_credentials"):
+        stats = creds.scrub_stored_credentials(world.svc)
 
     assert {k: stats[k] for k in ("checked", "had_credentials", "cleaned", "failed")} == {
         "checked": 3,
@@ -413,7 +413,7 @@ def test_sweep_never_touches_a_repository_above_the_mirrors_dir(world):
     nested = GitMirrorService(base_path=str(parent / "mirrors"))
     (parent / "mirrors" / "junk.git").mkdir()
 
-    stats = nested.scrub_stored_credentials()
+    stats = creds.scrub_stored_credentials(nested)
 
     assert stats["failed"] == 1 and stats["cleaned"] == 0
     assert world.git("config", "--get", "remote.origin.url", cwd=parent) == secret_url
@@ -422,7 +422,7 @@ def test_sweep_never_touches_a_repository_above_the_mirrors_dir(world):
 def test_module_sweep_does_not_create_a_missing_mirror_dir(tmp_path, monkeypatch):
     missing = tmp_path / "no-mirrors-here"
     monkeypatch.setenv("REPO_MIRROR_PATH", str(missing))
-    assert gms.sweep_stored_credentials() is None
+    assert creds.sweep_stored_credentials() is None
     assert not missing.exists()
 
 
@@ -515,3 +515,105 @@ def test_initial_import_of_a_master_only_repo(world, monkeypatch):
 
     assert out.get("status") == "completed", out
     assert _Metadata.saved["default_branch"] == "master"
+
+
+# ---------------------------------------------------------------------------
+# מקרי קצה שהריוויו של PR #3519 העלה — כל אחד נמדד לפני התיקון
+# ---------------------------------------------------------------------------
+
+
+def test_sweep_survives_an_unparseable_url_and_cleans_the_rest(world, monkeypatch):
+    """``urlsplit`` זורק ``ValueError`` על ``https://[::1/x.git`` — זה לא עוצר את המעבר."""
+    monkeypatch.setenv("GITHUB_TOKENS", f"mapped={MAP_TOKEN}")
+    world.make_origin("mapped", "good")
+    world.legacy_mirror("mapped", "good", MAP_TOKEN)
+    broken = world.mirrors / "broken.git"
+    world.git("init", "-q", "--bare", str(broken))
+    world.git("remote", "add", "origin", "https://[::1/x.git", cwd=broken)
+
+    stats = creds.scrub_stored_credentials(world.svc)
+
+    assert (stats["checked"], stats["cleaned"], stats["failed"]) == (2, 1, 1)
+    assert creds.ensure_clean_remote(world.svc, "broken")["reason"] == "unparseable_url"
+
+
+def test_cleaning_works_with_a_relative_mirrors_path(world, monkeypatch):
+    """``base_path`` יחסי: ``GIT_DIR`` יחסי היה נפתר מתוך המראה עצמה ונכשל."""
+    monkeypatch.setenv("GITHUB_TOKENS", f"mapped={MAP_TOKEN}")
+    world.make_origin("mapped", "rel")
+    mirror = world.legacy_mirror("mapped", "rel", MAP_TOKEN)
+    monkeypatch.chdir(world.tmp)
+    relative = GitMirrorService(base_path="mirrors")
+
+    assert creds.ensure_clean_remote(relative, "rel")["status"] == "cleaned"
+    assert MAP_TOKEN not in (mirror / "config").read_text()
+
+
+def test_detect_default_branch_accepts_names_git_accepts(world):
+    """``_main`` הוא שם ענף תקין ב-git; הבדיקה היא על ``refs/heads/_main``, כמו אצל הצרכנים."""
+    url = world.make_origin("openorg", "underscore", branch="_main")
+    assert world.svc.init_mirror(url, "underscore")["success"]
+    assert world.svc.detect_default_branch("underscore") == {"branch": "_main", "reason": None}
+
+
+_SWEEP_PROBE = """
+import asyncio, sys, time, types
+sys.path.insert(0, {tests!r})
+sys.path.insert(0, {repo!r})
+from _fake_mongo import FakeDB
+
+fake_database = types.ModuleType("database")
+fake_database.db = types.SimpleNamespace(db=FakeDB())
+sys.modules["database"] = fake_database
+
+config = {config!r}
+
+def token_left():
+    with open(config, encoding="utf-8") as fh:
+        return {token!r} in fh.read()
+
+import mcp_server.app as app_module
+time.sleep(1.0)
+print("AFTER-IMPORT=" + str(token_left()), flush=True)
+
+async def serve():
+    async with app_module.app.router.lifespan_context(app_module.app):
+        deadline = time.monotonic() + 20
+        while token_left() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+
+asyncio.run(serve())
+print("AFTER-LIFESPAN=" + str(token_left()), flush=True)
+"""
+
+
+def test_importing_the_mcp_app_does_not_sweep_but_serving_it_does(world, tmp_path):
+    """ייבוא של ``mcp_server.app`` (טסטים, כלים, REPL) לא נוגע במראות; עליית השרת כן.
+
+    בתהליך נקי, כמו ש-uvicorn מייבא: ``create_app`` רץ בייבוא, ולכן ניקוי
+    שמופעל ממנו ישירות היה כותב ל-config של כל מראה גם בייבוא סתמי.
+    """
+    pytest.importorskip("mcp")
+    import pathlib
+
+    repo = str(pathlib.Path(__file__).resolve().parents[1])
+    tests_dir = str(pathlib.Path(__file__).resolve().parent)
+    mirrors = tmp_path / "probe-mirrors"
+    mirrors.mkdir()
+    origin = world.make_origin("openorg", "served")
+    target = mirrors / "served.git"
+    # כמו מראה מלפני #3480, עם כתובת GitHub אמיתית — הניקוי מקומי ואינו פונה לרשת
+    world.git("clone", "-q", "--mirror", "--", origin, str(target))
+    world.git("remote", "set-url", "origin", f"https://oauth2:{MAP_TOKEN}@github.com/openorg/served.git", cwd=target)
+
+    env = dict(world.env)
+    env.update({"REPO_MIRROR_PATH": str(mirrors), "MCP_REPO_AUTOSYNC": "0"})
+    for key in ("MCP_SERVER_URL", "WEBAPP_URL"):
+        env.pop(key, None)
+    probe = _SWEEP_PROBE.format(repo=repo, tests=tests_dir, config=str(target / "config"), token=MAP_TOKEN)
+    proc = subprocess.run(
+        [sys.executable, "-B", "-c", probe], capture_output=True, text=True, timeout=120, cwd=repo, env=env
+    )
+
+    assert "AFTER-IMPORT=True" in proc.stdout, proc.stdout + proc.stderr
+    assert "AFTER-LIFESPAN=False" in proc.stdout, proc.stdout + proc.stderr
