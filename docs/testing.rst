@@ -221,6 +221,7 @@ Mocking HTTP ב‑github_menu_handler
 --------------------------
 
 - הפרויקט מגדיר ``pytest-cov`` ב-``pytest.ini``. אם חסר, התקינו: ``pip install pytest-cov``.
+- ב-CI הוא נמדד רק בחלק מהמסלולים של ``unit-tests`` — ראו :doc:`ci-cd`.
 - דוחות:
 
 .. code-block:: bash
