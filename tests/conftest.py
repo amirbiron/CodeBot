@@ -40,6 +40,27 @@ os.environ.setdefault('MONGODB_URL', 'mongodb://localhost:27017/test')
 os.environ.setdefault('REDIS_CONNECT_TIMEOUT', '0.25')
 os.environ.setdefault('REDIS_SOCKET_TIMEOUT', '0.25')
 
+# אותו עיקרון להמתנות שקוד הייצור עושה בכוונה: rate limit בין קריאות ל-GitHub
+# (``apply_rate_limit_delay`` ב-``github_menu_handler.py``), retry עם backoff
+# (``resilience.py``, ``http_sync.py``), ותקרת ההמתנה לתשובה ב-``http_async.py``. טסט שעובר
+# בהן ממתין באמת ועובר, ואיש לא רואה — עד שמישהו קורא דוח זמנים. הערכים נקבעים כאן, ולא ב-env של
+# workflow, כדי שיחולו על כל הרצה: ``ci.yml``, ``deploy.yml`` והרצה מקומית. הם לפני ייבוא
+# ה-stubs, כי ``resilience.py`` קורא את שלו כבר בזמן הייבוא (``DEFAULT_RETRY_POLICY``).
+#
+# המתנה אמיתית גם מסתירה באגים, ולא רק עולה זמן: טסט שבודק התנהגות "באותה שנייה" לא מגיע
+# אליה כשכל קריאה ממתינה. טסט שהנושא שלו הוא ההשהיה עצמה קובע אותה בעצמו
+# (``monkeypatch.setenv``), כמו ב-``tests/test_github_menu_backoff_delay.py``. והשהיה חדשה
+# בקוד הייצור מקבלת כאן ערך בדיקה באותו PR, ולא נטרול בקובץ הטסטים שבמקרה שם לב אליה.
+os.environ.setdefault('GITHUB_API_BASE_DELAY', '0')
+os.environ.setdefault('GITHUB_BACKOFF_DELAY', '0')
+os.environ.setdefault('HTTP_RESILIENCE_MAX_ATTEMPTS', '1')
+os.environ.setdefault('HTTP_RESILIENCE_BACKOFF_BASE', '0')
+os.environ.setdefault('HTTP_RESILIENCE_BACKOFF_MAX', '0')
+os.environ.setdefault('HTTP_RESILIENCE_JITTER', '0')
+os.environ.setdefault('REQUESTS_RETRIES', '0')
+os.environ.setdefault('REQUESTS_RETRY_BACKOFF', '0')
+os.environ.setdefault('AIOHTTP_TIMEOUT_TOTAL', '6')
+
 # Import stubs so any import of `telegram` succeeds in tests
 try:
     import tests._telegram_stubs  # noqa: F401

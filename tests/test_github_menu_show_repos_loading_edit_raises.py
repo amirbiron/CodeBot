@@ -9,11 +9,6 @@ async def test_show_repos_loading_edit_raises_then_final_succeeds(monkeypatch):
     handler = gh.GitHubMenuHandler()
     monkeypatch.setattr(handler, "get_user_token", lambda uid: "token")
 
-    # avoid real delay
-    async def _no_delay(user_id: int):
-        return None
-    monkeypatch.setattr(handler, "apply_rate_limit_delay", _no_delay)
-
     class _RateCore:
         remaining = 5000
         limit = 5000

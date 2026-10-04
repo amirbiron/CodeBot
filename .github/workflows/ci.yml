@@ -283,14 +283,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TEST_GITHUB_TOKEN }}
           PASTEBIN_API_KEY: ${{ secrets.TEST_PASTEBIN_KEY }}
           FEATURE_MY_COLLECTIONS: '1'
-          # Minimize retry/backoff delays during tests to avoid long waits
-          HTTP_RESILIENCE_MAX_ATTEMPTS: '1'
-          HTTP_RESILIENCE_BACKOFF_BASE: '0'
-          HTTP_RESILIENCE_BACKOFF_MAX: '0'
-          HTTP_RESILIENCE_JITTER: '0'
-          REQUESTS_RETRIES: '0'
-          REQUESTS_RETRY_BACKOFF: '0'
-          AIOHTTP_TIMEOUT_TOTAL: '6'
+          # ערכי הבדיקה של ההמתנות שקוד הייצור עושה בכוונה — rate limit, retry, backoff —
+          # נקבעים ב-tests/conftest.py ולא כאן, כדי שיחולו על כל הרצה של הטסטים: גם
+          # deploy.yml וגם הרצה מקומית. ראו docs/testing.rst.
         # ``-m`` בוחר את הטסטים של המסלול (``matrix.marker``). מסלול שלא נבחר בו אף
         # טסט נכשל ולא עובר בשקט: pytest יוצא בקוד 5 כשלא נאסף אף טסט, גם כשכולם
         # סוננו ב-``-m`` (נמדד ב-pytest 8.4.2, עם ``-n`` ובלעדיו). כך שם סימון ששונה
