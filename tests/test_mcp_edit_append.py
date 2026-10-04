@@ -4,8 +4,14 @@ These cover the pure `_apply_edit` semantics and the full handler flows
 (fetch -> apply -> size gate -> metadata-preserving save) with a fake backend.
 """
 
+import pytest
+
 from mcp_server import handlers
 from mcp_server.handlers import _apply_edit
+
+#: ``max_size`` הוא חובה ב-``_apply_edit`` (#3495). הטסטים של הסמנטיקה אינם על
+#: הגודל, ולכן הם מעבירים תקרה שרחוקה מכל קלט כאן; התקרה עצמה נבדקת לחוד, למטה.
+_ROOMY = 1_000
 
 
 class _EditBackend:
@@ -46,31 +52,47 @@ def _doc(code="alpha\nbeta\ngamma\n", lang="markdown", desc="notes", tags=("t1",
 
 
 def test_apply_edit_single_replacement():
-    new, n, err = _apply_edit("a b c", "b", "B", False)
+    new, n, err = _apply_edit("a b c", "b", "B", False, max_size=_ROOMY)
     assert (new, n, err) == ("a B c", 1, None)
 
 
 def test_apply_edit_no_match():
-    new, n, err = _apply_edit("a b c", "zzz", "B", False)
+    new, n, err = _apply_edit("a b c", "zzz", "B", False, max_size=_ROOMY)
     assert new is None and err == "no_match"
 
 
 def test_apply_edit_ambiguous_without_replace_all():
-    new, n, err = _apply_edit("x y x", "x", "z", False)
+    new, n, err = _apply_edit("x y x", "x", "z", False, max_size=_ROOMY)
     assert new is None and err == "ambiguous_match" and n == 2
 
 
 def test_apply_edit_replace_all():
-    new, n, err = _apply_edit("x y x", "x", "z", True)
+    new, n, err = _apply_edit("x y x", "x", "z", True, max_size=_ROOMY)
     assert (new, n, err) == ("z y z", 2, None)
 
 
 def test_apply_edit_rejects_empty_old():
-    assert _apply_edit("abc", "", "z", False)[2] == "empty_old_string"
+    assert _apply_edit("abc", "", "z", False, max_size=_ROOMY)[2] == "empty_old_string"
 
 
 def test_apply_edit_rejects_identical_strings():
-    assert _apply_edit("abc", "b", "b", False)[2] == "old_and_new_identical"
+    assert _apply_edit("abc", "b", "b", False, max_size=_ROOMY)[2] == "old_and_new_identical"
+
+
+def test_apply_edit_ceiling_is_the_exact_length_of_the_result():
+    """שלושה ``"a"`` ← ``"bb"``: התוצאה בת שישה תווים בדיוק, ולכן 6 עובר ו-5 נדחה.
+
+    ``code_too_large`` נושא את מספר המופעים, ובלי תוצאה — היא לא נבנתה. **המוטציה
+    שחייבת להפיל אותו — ``>=`` במקום ``>``, או הערכה במקום החשבון המדויק.**
+    """
+    assert _apply_edit("aaa", "a", "bb", True, max_size=6) == ("bbbbbb", 3, None)
+    assert _apply_edit("aaa", "a", "bb", True, max_size=5) == (None, 3, "code_too_large")
+
+
+def test_apply_edit_has_no_default_ceiling():
+    """קורא ששוכח את התקרה נופל בקריאה, ולא בונה תוצאה בלי תקרה (#3495)."""
+    with pytest.raises(TypeError, match="max_size"):
+        _apply_edit("aaa", "a", "bb", True)  # type: ignore[call-arg]
 
 
 # -- edit_file --------------------------------------------------------------

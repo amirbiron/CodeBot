@@ -65,8 +65,14 @@ jobs:
           # תופסים רק שורות "error:" אמיתיות. ב-mypy חדש יש שורות "note:" כמו
           # 'Error code ... not covered by "type: ignore[attr-defined]" comment'
           # שמכילות את הסוגריים אבל אינן שגיאה.
-          if grep -E ': error:.*\[(attr-defined|return-value)\]' mypy-output.txt; then
-            echo "Found mypy attr-defined/return-value errors above"
+          #
+          # ``call-arg`` — קריאה שחסר בה ארגומנט חובה, או שיש בה ארגומנט שאינו
+          # קיים. בפייתון זה ``TypeError`` בזמן הקריאה ולא בייבוא, ולכן אתר קריאה
+          # בלי כיסוי טסט נופל רק בייצור. ``max_size`` של ``_apply_edit``
+          # (``mcp_server/handlers.py``) הוא חובה בדיוק כדי שקורא ששכח ייתפס כאן
+          # (#3495).
+          if grep -E ': error:.*\[(attr-defined|return-value|call-arg)\]' mypy-output.txt; then
+            echo "Found mypy attr-defined/return-value/call-arg errors above"
             exit 1
           fi
       - name: 🔒 Security Scan (Bandit)

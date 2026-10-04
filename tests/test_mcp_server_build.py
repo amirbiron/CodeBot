@@ -512,11 +512,12 @@ async def test_str_replace_is_not_advertised_as_idempotent():
     המעשית ב-``idempotentHint`` שגוי היא לקוח שמנסה שוב אחרי timeout
     ומכפיל את ההחלפה על גוף שכבר הוחלף.
     """
-    from mcp_server.handlers import _apply_edit
+    from mcp_server.handlers import MAX_NOTE_CONTENT, _apply_edit
 
     body = "a"
     for _ in range(2):
-        body, _n, err = _apply_edit(body, "a", "aa", True)
+        # התקרה שהכלי עצמו מעביר — ``max_size`` הוא חובה (#3495).
+        body, _n, err = _apply_edit(body, "a", "aa", True, max_size=MAX_NOTE_CONTENT)
         assert err is None
     assert body == "aaaa", body  # ראיה: קריאה חוזרת משנה את המצב שוב
 

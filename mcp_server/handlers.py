@@ -1053,7 +1053,7 @@ def _apply_edit(
     new_string: str,
     replace_all: bool,
     *,
-    max_size: int | None = None,
+    max_size: int,
 ) -> tuple[str | None, int, str | None]:
     """Pure exact find-and-replace (native Edit-tool semantics).
 
@@ -1064,15 +1064,23 @@ def _apply_edit(
     **``max_size`` נבדק לפני שהתוצאה נבנית, ולא אחריה.** אורך התוצאה ידוע מראש:
     ``str.count`` ו-``str.replace`` סופרים את אותם מופעים שאינם חופפים משמאל
     לימין, ולכן הוא ``len(code) + count * (len(new_string) - len(old_string))``
-    בדיוק. בדיקה אחרי ``replace`` הייתה מגיעה מאוחר מדי: ``replace_all`` על
-    ``"a"`` עם ``new_string`` של אלף תווים, בקובץ של מאה אלף ``a``, בונה מחרוזת
-    של מאה מיליון תווים לפני שמישהו מודד אותה — בקשה של כמה קילובייטים שמכלה
-    את הזיכרון של תהליך ה-MCP כולו. ובבאץ' של ``codekeeper_multi_edit_file``
-    הזוגות מוחלים זה על תוצאת זה, כך שבלי הבדיקה כאן זוג שמחליף את ``"a"`` ב-
-    ``"aa"`` כופל את הטקסט בכל שלב. ``code_too_large`` כאן הוא אותו קוד ש-
-    :func:`_resave_edited` מחזיר על התוצאה הסופית, כי זו אותה תקרה.
-    ``None`` — בלי תקרה; ``note_str_replace`` קורא כך, והתקרה שלו נבדקת אחרי
-    ההחלפה (``MAX_NOTE_CONTENT``).
+    בדיוק — וזה גם החשבון שלפיו ``str.replace`` עצמו מקצה את התוצאה (``replace``
+    ב-``Objects/unicodeobject.c``, נקרא ב-CPython 3.11.15). בדיקה אחרי ``replace``
+    הייתה מגיעה מאוחר מדי: ``replace_all`` על ``"a"`` עם ``new_string`` של אלף
+    תווים, בקובץ של מאה אלף ``a``, בונה מחרוזת של מאה מיליון תווים לפני שמישהו
+    מודד אותה — בקשה של כמה קילובייטים שמכלה את הזיכרון של תהליך ה-MCP כולו.
+    ובבאץ' של ``codekeeper_multi_edit_file`` הזוגות מוחלים זה על תוצאת זה, כך
+    שבלי הבדיקה כאן זוג שמחליף את ``"a"`` ב-``"aa"`` כופל את הטקסט בכל שלב.
+    ``code_too_large`` כאן הוא אותו קוד ש-:func:`_resave_edited` מחזיר על
+    התוצאה הסופית, כי זו אותה תקרה; קורא שהתקרה שלו אחרת מתרגם אותו לקוד שלו.
+
+    **``max_size`` הוא חובה, בלי ברירת מחדל** (#3495). כשהבדיקה נוספה (#3494)
+    הוא היה אופציונלי, ו-``None`` פירושו היה "בלי תקרה" — ו-``note_str_replace``
+    נשאר הקורא שלא העביר אותו, ובנה את התוצאה לפני שמדד אותה. עכשיו קורא ששכח
+    נכשל בקריאה עצמה, ו-mypy מסמן אותו ב-``call-arg`` לפני שהקוד רץ (נמדד ב-1.18.2
+    וב-2.4.0) — קוד שהשער של mypy ב-``.github/workflows/ci.yml`` חוסם עליו. כל
+    קורא מעביר את התקרה שלו: ``max_code_size()`` בכלי הקבצים, ``MAX_NOTE_CONTENT``
+    ב-``note_str_replace``.
     """
     if old_string == "":
         return None, 0, "empty_old_string"
@@ -1083,7 +1091,7 @@ def _apply_edit(
         return None, 0, "no_match"
     if count > 1 and not replace_all:
         return None, count, "ambiguous_match"
-    if max_size is not None and len(code) + count * (len(new_string) - len(old_string)) > max_size:
+    if len(code) + count * (len(new_string) - len(old_string)) > max_size:
         return None, count, "code_too_large"
     return code.replace(old_string, new_string), count, None
 
@@ -2064,6 +2072,15 @@ def note_str_replace(
     ישן שווה לחדש — ואלה בדיוק המקרים שבהם ההבדל עולה בנתונים. גם נוסחי
     השגיאה זהים, כדי שסוכן שלמד אחד יכיר את השני.
 
+    **התקרה נבדקת לפני שהתוצאה נבנית** — ``max_size=MAX_NOTE_CONTENT``, ו-
+    ``code_too_large`` שחוזר מ-:func:`_apply_edit` נענה ``content_too_long`` עם
+    ``max``, התשובה שהכלי נתן גם לפני #3495 על תוצאה ארוכה מדי שאינה רווחים בלבד.
+    הבדיקה שאחרי ההחלפה נשארת כרשת על מה שנכתב, ואינה ההגנה: :func:`_apply_edit`
+    מחשב את אורך התוצאה בדיוק, ולכן גוף שחוזר ממנו כבר בתוך התקרה. ומכאן הסדר בין
+    שני הסירובים, וזה השינוי היחיד בתשובה: תוצאה של רווחים בלבד שארוכה מהתקרה היא
+    ``content_too_long`` (עד #3495 — ``empty_content``, כי בדיקת הריקות רצה
+    ראשונה), ורק בתוך התקרה ``empty_content``.
+
     הקריאה עוברת דרך ``update_note``, ולכן היא יורשת את הצילום שנשמר
     לפני הדריסה — וזו הסיבה שהסדר בין השניים אינו הפיך: ``str_replace``
     בלי היסטוריה היה מוסיף עוד מסלול שדורס בלי ממה לשחזר.
@@ -2092,7 +2109,12 @@ def note_str_replace(
     # לא היה תופס גוף שנשמר עם ``\n`` בלבד.
     old_clean = _sanitize_note_text(old_string)
     new_clean = _sanitize_note_text(new_string)
-    new_body, occurrences, err = _apply_edit(body, old_clean, new_clean, bool(replace_all))
+    new_body, occurrences, err = _apply_edit(
+        body, old_clean, new_clean, bool(replace_all), max_size=MAX_NOTE_CONTENT
+    )
+    if err == "code_too_large":
+        # אותה תקרה בקוד של הפתקים — התשובה של כל כלי פתק שמקבל תוכן ארוך מדי.
+        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
     if err is not None or new_body is None:
         out: dict[str, Any] = {"ok": False, "error": err or "edit_failed"}
         if err == "ambiguous_match":
@@ -2101,6 +2123,9 @@ def note_str_replace(
         return out
     if not new_body.strip():
         return {"ok": False, "error": "empty_content"}
+    # רשת על מה שנכתב, כמו אצל כל כותב פתקים כאן: ``backend.update_note`` אינו
+    # בודק אורך. היא אינה ההגנה — ``_apply_edit`` כבר סירב לפני שהתוצאה נבנתה,
+    # וכל עוד החשבון שם מדויק השורה הזו אינה נדלקת.
     if len(new_body) > MAX_NOTE_CONTENT:
         return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
 

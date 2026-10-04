@@ -6994,12 +6994,15 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 name="predictive_sampler",
             )
         except Exception:
-            # בסביבות שבהן ה-JobQueue לא זמין (למשל חלק מהטסטים), הרץ פעם אחת מידית
-            class _Ctx:
+            # בסביבות שבהן ה-JobQueue לא זמין (למשל חלק מהטסטים), הרץ פעם אחת מידית.
+            # שם משלו, כמו ``_CtxMaint`` ו-``_CtxBkp``: ``_Ctx`` כבר מוגדר באותה
+            # פונקציה (הדוח השבועי), ו-mypy בודק את הקריאה מול ההגדרה הראשונה —
+            # שגיאת ``call-arg`` שהשער ב-``.github/workflows/ci.yml`` חוסם עליה.
+            class _CtxPredictive:
                 def __init__(self, app):
                     self.application = app
             try:
-                await _predictive_sampler_job(_Ctx(application))
+                await _predictive_sampler_job(_CtxPredictive(application))
             except Exception:
                 pass
     except Exception:

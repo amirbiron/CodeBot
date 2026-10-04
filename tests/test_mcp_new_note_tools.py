@@ -334,6 +334,71 @@ def test_an_edit_that_empties_the_note_is_refused():
     assert [c[0] for c in b.calls] == ["get_note"]
 
 
+def test_a_result_over_the_ceiling_that_is_not_only_whitespace_is_the_same_refusal_as_before():
+    """``content_too_long`` עם ``max`` — בדיוק התשובה שהייתה לפני #3495, ושום דבר אינו נכתב.
+
+    #3495 הקדים את הבדיקה לפני שהתוצאה נבנית (``max_size`` של ``_apply_edit``), ולא
+    שינה את מה שהסוכן מקבל על תוצאה כזו: אותו קוד, אותו ``max``, ובלי שדות נוספים.
+    (תוצאה של רווחים בלבד היא הקצה היחיד שהתשובה שלו השתנתה —
+    ``test_whitespace_only_over_the_ceiling_is_content_too_long``.) ולכן הטסט עובר
+    גם על הקוד שלפני התיקון — הוא מקבע את החוזה, והטסט על שיא ההקצאה
+    (``test_a_note_replace_all_is_checked_before_its_result_is_built`` ב-
+    ``tests/test_mcp_multi_edit.py``) מקבע את הרגע שבו הסירוב מגיע.
+    """
+    b = _with_note("a" * 100)
+    res = handlers.note_str_replace(
+        b, 7, note_id=_OID, old_string="a", new_string="b" * (MAX_NOTE_CONTENT // 100 + 1),
+        replace_all=True,
+    )
+    assert res == {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+    assert [c[0] for c in b.calls] == ["get_note"]
+
+
+def test_a_result_exactly_at_the_ceiling_is_written_and_one_char_more_is_refused():
+    """התקרה כוללת את עצמה: תוצאה באורך ``MAX_NOTE_CONTENT`` נכתבת, ותו אחד יותר נדחה.
+
+    הגבול עבר מ-``len(new_body) > MAX_NOTE_CONTENT`` אחרי ההחלפה לחישוב מראש ב-
+    ``_apply_edit``, ולכן כאן נבדק שהוא לא זז בתו: **המוטציה שחייבת להפיל אותו —
+    ``>=`` במקום ``>`` בבדיקה החזויה**, או תקרה נמוכה מ-``MAX_NOTE_CONTENT``. (תקרה
+    גבוהה ממנה אינה מפילה אותו — הרשת שאחרי ההחלפה עונה נכון — ואותה תופס הטסט על
+    שיא ההקצאה.)
+    """
+    body = "x" + "c" * (MAX_NOTE_CONTENT - 10)
+
+    at_cap = _with_note(body)
+    res = handlers.note_str_replace(at_cap, 7, note_id=_OID, old_string="x", new_string="y" * 10)
+    assert res["ok"] is True, res
+    assert len(at_cap.last["fields"]["content"]) == MAX_NOTE_CONTENT
+
+    over = _with_note(body)
+    res = handlers.note_str_replace(over, 7, note_id=_OID, old_string="x", new_string="y" * 11)
+    assert res == {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+    assert [c[0] for c in over.calls] == ["get_note"]
+
+
+def test_whitespace_only_over_the_ceiling_is_content_too_long():
+    """הכרעה ב-#3495: תוצאה של רווחים בלבד שארוכה מהתקרה — ``content_too_long``.
+
+    עד התיקון היא הייתה ``empty_content``, כי בדיקת הריקות רצה לפני בדיקת האורך, ושתיהן
+    רצו על תוצאה שכבר נבנתה. עכשיו האורך נבדק לפני שהתוצאה קיימת, ולכן הוא ראשון. שני
+    הסירובים אינם כותבים דבר, ומתחת לתקרה רווחים בלבד הם עדיין ``empty_content``.
+    """
+    over = _with_note("a" * 100)
+    res = handlers.note_str_replace(
+        over, 7, note_id=_OID, old_string="a", new_string=" " * (MAX_NOTE_CONTENT // 100 + 1),
+        replace_all=True,
+    )
+    assert res == {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+    assert [c[0] for c in over.calls] == ["get_note"]
+
+    under = _with_note("a" * 100)
+    res = handlers.note_str_replace(
+        under, 7, note_id=_OID, old_string="a", new_string=" ", replace_all=True
+    )
+    assert res == {"ok": False, "error": "empty_content"}
+    assert [c[0] for c in under.calls] == ["get_note"]
+
+
 def test_crlf_in_the_needle_still_matches_a_body_stored_with_newlines():
     """הקלט מנורמל כמו שהתוכן נורמל בכתיבה."""
     b = _with_note("a\nb")
