@@ -154,6 +154,18 @@ def create_app():
 
         logging.getLogger(__name__).warning("repo autosync failed to start", exc_info=True)
 
+    # מראות שנוצרו לפני #3480 נושאות את טוקן ה-GitHub ב-remote.origin.url. ניקוי
+    # אחד בעלייה, **בלי תלות ב-MCP_REPO_AUTOSYNC**: מראה שלא נמשכת לא תגיע
+    # לניקוי שב-fetch_updates. השורה "mirror credential sweep:" בלוג היא האימות.
+    try:
+        from services.git_mirror_service import start_credential_sweep
+
+        start_credential_sweep()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("mirror credential sweep failed to start", exc_info=True)
+
     mcp_base = (os.getenv("MCP_SERVER_URL") or "").rstrip("/")
     webapp_base = (os.getenv("WEBAPP_URL") or "").rstrip("/")
 

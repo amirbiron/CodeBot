@@ -152,6 +152,8 @@ print(f"Disk writable: {os.access(mirror_path, os.W_OK)}")
 
 ## מימוש GitMirrorService
 
+> ⚠️ **מיושן באימות מול GitHub (#3480).** הקוד שלמטה מזריק את הטוקן ל-URL (`_get_authenticated_url`), ו-git שומר את ה-URL הזה בטקסט גלוי בקובץ ה-`config` של המראה. הפונקציה הוסרה מהקוד: הטוקן עובר היום ככותרת דרך משתני הסביבה של git, וה-URL השמור נקי. המימוש הנוכחי — `_network_env`, `_run_network_git` ו-`ensure_clean_remote` ב-`services/git_mirror_service.py`; ההסבר — העמוד `docs/mcp-server.rst`, הסעיף "אימות מול GitHub — הטוקן לא נשמר במראה". אל תעתיקו את דפוס ההזרקה מכאן.
+
 צור קובץ `services/git_mirror_service.py`:
 
 ```python

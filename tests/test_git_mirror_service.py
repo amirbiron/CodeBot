@@ -15,20 +15,38 @@ def test_init_mirror(service, monkeypatch):
             self.stdout = ""
             self.stderr = ""
 
-    def _fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None):
+    seen = {}
+
+    def _fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None, env=None):
         # Basic sanity that we run the expected command shape
         assert cmd[0:3] == ["git", "clone", "--mirror"]
+        seen["cmd"], seen["env"] = cmd, env
         return _Res()
 
     monkeypatch.setattr("services.git_mirror_service.subprocess.run", _fake_run)
 
     result = service.init_mirror("https://github.com/octocat/Hello-World.git", "test-repo")
     assert result["success"] is True
+    # ה-clone נעשה מה-URL הנקי — הוא שנשמר ב-remote.origin.url (#3480)
+    assert "https://github.com/octocat/Hello-World.git" in seen["cmd"]
+    # פקודת רשת: בלי הנחיות מסוף, ועם השומר שעוצר URL עם credentials
+    assert seen["env"]["GIT_TERMINAL_PROMPT"] == "0"
+    assert ("transfer.credentialsInUrl", "die") in {
+        (seen["env"][f"GIT_CONFIG_KEY_{i}"], seen["env"][f"GIT_CONFIG_VALUE_{i}"])
+        for i in range(int(seen["env"]["GIT_CONFIG_COUNT"]))
+    }
 
 
 def test_should_classify_errors(service):
     assert service._classify_git_error("Could not resolve host") == "network_error"
     assert service._classify_git_error("Authentication failed") == "auth_error"
+    # מה ש-git עונה מאז #3480 כשריפו דורש הזדהות ואין טוקן (נמדד מול github.com)
+    assert (
+        service._classify_git_error(
+            "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+        )
+        == "auth_error"
+    )
 
 
 def test_init_mirror_existing_invalid_mirror_is_cleaned_and_recloned(service, tmp_path, monkeypatch):
@@ -45,7 +63,7 @@ def test_init_mirror_existing_invalid_mirror_is_cleaned_and_recloned(service, tm
             self.stdout = stdout
             self.stderr = stderr
 
-    def _fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None):
+    def _fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None, env=None):
         if cmd[:3] == ["git", "rev-parse", "--is-bare-repository"]:
             calls["rev_parse"] += 1
             return _Res(returncode=1, stdout="", stderr="fatal: not a git repository")
@@ -233,14 +251,35 @@ def test_invalid_json_token_map_is_ignored(service, monkeypatch):
     assert service._token_for_url("https://github.com/Campaign-AI4U/campaign-ai.git") == "ghp_GLOBAL"
 
 
-def test_authenticated_url_injects_per_owner_token(service, monkeypatch):
+def test_token_source_per_owner_and_header_env(service, monkeypatch):
+    """מקור הטוקן לכל בעלים, והכותרת שנבנית ממנו — ממוקדת ל-origin של GitHub ובלי טוקן ב-URL (#3480)."""
+    import base64
+
+    from services import git_mirror_service as gms
+
     monkeypatch.setenv("GITHUB_TOKENS", "Campaign-AI4U=ghp_AAA")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_GLOBAL")
-    url = service._get_authenticated_url("https://github.com/Campaign-AI4U/campaign-ai.git")
-    assert url == "https://oauth2:ghp_AAA@github.com/Campaign-AI4U/campaign-ai.git"
+    assert service._token_and_source_for_url("https://github.com/Campaign-AI4U/campaign-ai.git") == ("ghp_AAA", "map")
     # ארגון לא ממופה → הטוקן הגלובלי
-    url2 = service._get_authenticated_url("https://github.com/Zzz/repo.git")
-    assert url2 == "https://oauth2:ghp_GLOBAL@github.com/Zzz/repo.git"
+    assert service._token_and_source_for_url("https://github.com/Zzz/repo.git") == ("ghp_GLOBAL", "global")
+    monkeypatch.delenv("GITHUB_TOKEN")
+    assert service._token_and_source_for_url("https://github.com/Zzz/repo.git") == (None, "none")
+
+    env = gms.GitMirrorService._network_env("ghp_AAA")
+    pairs = {env[f"GIT_CONFIG_KEY_{i}"]: env[f"GIT_CONFIG_VALUE_{i}"] for i in range(int(env["GIT_CONFIG_COUNT"]))}
+    expected = "Authorization: Basic " + base64.b64encode(b"oauth2:ghp_AAA").decode()
+    assert pairs["http.https://github.com/.extraHeader"] == expected
+    assert pairs["transfer.credentialsInUrl"] == "die"
+    # בלי טוקן — אין כותרת בכלל, רק השומר
+    bare = gms.GitMirrorService._network_env(None)
+    assert bare["GIT_CONFIG_COUNT"] == "1"
+
+
+def test_https_branch_for_any_host_is_gone(service):
+    """עד #3480 הייתה הזרקה של טוקן GitHub לכל כתובת HTTPS. הכתובת עצמה כבר לא נוגעת בטוקן."""
+    assert not hasattr(service, "_get_authenticated_url")
+    assert not service._validate_repo_url("https://github.com.evil.net/o/r.git")
+    assert not service._validate_repo_url("https://oauth2:x@github.com/o/r.git")
 
 
 def test_constructor_token_overrides_map(tmp_path, monkeypatch):

@@ -93,10 +93,11 @@ class _StubGitService:
     def _get_repo_path(self, repo_name: str):
         return f"/tmp/{repo_name}.git"
 
+    def detect_default_branch(self, repo_name: str):
+        # הזיהוי האמיתי נבדק מול git אמיתי ב-tests/test_git_mirror_credentials.py
+        return {"branch": self._head_branch, "reason": None}
+
     def _run_git_command(self, cmd, cwd=None, timeout=60):
-        # HEAD branch detection
-        if cmd[:3] == ["git", "symbolic-ref", "--short"]:
-            return _GitCommandResult(success=True, stdout=self._head_branch)
         # SHA resolution fallback
         if cmd[:2] == ["git", "rev-parse"]:
             # return a stable SHA for tests
