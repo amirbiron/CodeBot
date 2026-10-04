@@ -16,6 +16,13 @@ the MCP side. Private repos need ``GITHUB_TOKENS``/``GITHUB_TOKEN`` set here.
 While a repo is being cloned/fetched, ``is_refreshing(repo)`` is True and the
 read tools report ``sync_in_progress`` + ``retry_after`` instead of "not found".
 
+The other direction is pruning: a mirror on THIS disk whose repo has no
+``repo_metadata`` record is deleted at the end of the pass
+(:func:`_prune_orphans`). Removing a repo in the webapp (``unmirror_repo`` in
+``services/repo_sync_service.py``) deletes the webapp's own mirror and the
+records, and nothing there can reach this service's disk — so before this step
+the removed repo stayed here for good, and the read tools kept serving it.
+
 Env:
 - ``MCP_REPO_AUTOSYNC``          — "0"/"false" disables (default: enabled).
 - ``MCP_REPO_AUTOSYNC_INTERVAL`` — seconds between passes (default 300, min 30).
@@ -29,9 +36,32 @@ import os
 import re
 import threading
 import time
-from typing import Any
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
+
+
+class LocalMirrors(Protocol):
+    """What :func:`refresh_once` needs from the mirror service (``GitMirrorService``).
+
+    Pruning lists the disk only through ``list_managed_mirror_names``, deletes
+    only through ``delete_mirror`` and checks the result with ``mirror_exists``:
+    which directories are mirrors this service may delete is the mirror
+    service's decision, not this module's.
+    """
+
+    def mirror_exists(self, repo_name: str) -> bool: ...
+
+    def init_mirror(self, repo_url: str, repo_name: str) -> dict[str, Any]: ...
+
+    def get_current_sha(self, repo_name: str, branch: str) -> str | None: ...
+
+    def fetch_updates(self, repo_name: str) -> dict[str, Any]: ...
+
+    def list_managed_mirror_names(self) -> list[str]: ...
+
+    def delete_mirror(self, repo_name: str) -> dict[str, Any]: ...
+
 
 # Log redaction (defense-in-depth): the engine already sanitizes its own git
 # stderr at the source (_run_git_command → _sanitize_output), but we log
@@ -93,17 +123,32 @@ def _interval_seconds() -> int:
         return DEFAULT_INTERVAL_SECONDS
 
 
-def refresh_once(db: Any, mirror: Any) -> dict[str, int]:
+def refresh_once(db: Any, mirror: LocalMirrors) -> dict[str, int]:
     """One refresh pass over every repo in ``repo_metadata``. Never raises.
 
     Per repo: missing mirror + known URL ⇒ clone; existing mirror whose local
     SHA differs from the webapp-written ``last_synced_sha`` (or when either SHA
-    is unknown) ⇒ delta fetch; identical SHAs ⇒ skip.
+    is unknown) ⇒ delta fetch; identical SHAs ⇒ skip. Then every local mirror
+    without a record in that same read is deleted (:func:`_prune_orphans`). A
+    failed read returns before both steps, so it deletes nothing.
+
+    The read goes to the primary, explicitly (``ReadPreference.PRIMARY``, the
+    convention of ``Repository.find_version_by_id``): pruning trusts it to name
+    every repo, and with a ``readPreference`` in the connection string a
+    secondary that has not caught up could leave a repo out — and its mirror
+    would be deleted, to be cloned again a pass later.
+
+    Logs one ``repo autosync pass:`` line when the pass cloned, fetched,
+    pruned or failed anything.
     """
-    stats = {"checked": 0, "cloned": 0, "fetched": 0, "skipped": 0, "errors": 0}
+    stats = {"checked": 0, "cloned": 0, "fetched": 0, "skipped": 0, "pruned": 0, "errors": 0}
     try:
+        from pymongo import ReadPreference  # lazy, like Repository.find_version_by_id
+
         repos = list(
-            db["repo_metadata"].find(
+            db["repo_metadata"]
+            .with_options(read_preference=ReadPreference.PRIMARY)
+            .find(
                 {},
                 {
                     "_id": 0,
@@ -118,10 +163,14 @@ def refresh_once(db: Any, mirror: Any) -> dict[str, int]:
         logger.warning("repo autosync: repo_metadata query failed", exc_info=True)
         return stats
 
+    known: set[str] = set()
     for meta in repos:
         name = str(meta.get("repo_name") or "").strip()
         if not name:
             continue
+        # Before anything that can fail: a repo whose clone or fetch fails in
+        # this pass still has a record, and its mirror must survive the pruning.
+        known.add(name)
         stats["checked"] += 1
         _mark(name, True)
         try:
@@ -159,7 +208,94 @@ def refresh_once(db: Any, mirror: Any) -> dict[str, int]:
             logger.warning("repo autosync: refresh failed for %s", name, exc_info=True)
         finally:
             _mark(name, False)
+
+    _prune_orphans(mirror, known, stats)
+    if stats["cloned"] or stats["fetched"] or stats["pruned"] or stats["errors"]:
+        logger.info("repo autosync pass: %s", stats)
     return stats
+
+
+def _prune_orphans(mirror: LocalMirrors, known: set[str], stats: dict[str, int]) -> None:
+    """Delete every local mirror whose repo has no ``repo_metadata`` record.
+
+    ``known`` holds the names from the read the pass just worked from, and its
+    age does not matter: on this service's disk ``init_mirror`` is called only
+    from :func:`refresh_once`, and only for names in that read, so no mirror
+    made since the read is missing from it. A record removed during the pass
+    is pruned one pass later; a record added during the pass for an old
+    leftover mirror of the same name costs one clone in the next pass.
+
+    Never deleted:
+
+    - anything at all while the read names none of the mirrors on disk. An
+      empty read, records whose names cannot name a mirror, and the wrong
+      database all look like this, and none of them is a reason to delete
+      every mirror. Checking for an empty read alone was not enough: one record
+      with an unusable name made it non-empty, and every mirror went. The
+      warning is logged only when there are mirrors on disk to spare;
+    - a directory that is not a mirror this service creates — the mirror
+      service decides that (``list_managed_mirror_names``: a name
+      ``init_mirror`` would refuse, or a symbolic link);
+    - a repo that :func:`is_refreshing` reports, i.e. one being cloned or fetched.
+
+    Deletion goes through ``delete_mirror`` (``_safe_rmtree``, confined to the
+    mirror directory). A mirror counts as ``pruned`` only after
+    ``mirror_exists`` says it is gone. A failure — a delete, or a mirror
+    directory that cannot be listed — counts in ``errors`` and is logged; the
+    mirror stays until the next pass, and the loop moves on to the next one.
+    """
+    try:
+        on_disk = mirror.list_managed_mirror_names()
+    except OSError:
+        stats["errors"] += 1
+        logger.warning("repo autosync: could not list the local mirrors; nothing pruned", exc_info=True)
+        return
+    if on_disk and not known.intersection(on_disk):
+        logger.warning(
+            "repo autosync: repo_metadata names none of the %d local mirror(s); not pruning — "
+            "a read that recognizes nothing on disk points at the wrong database, or at unusable "
+            "names, more often than at every repo being removed",
+            len(on_disk),
+        )
+        return
+
+    for name in on_disk:
+        if name in known:
+            continue
+        try:
+            if is_refreshing(name):
+                logger.info(
+                    "repo autosync: %s has no repo_metadata record but is being cloned or fetched; "
+                    "not pruned this pass",
+                    name,
+                )
+                continue
+            res = mirror.delete_mirror(name) or {}
+            if not res.get("success"):
+                stats["errors"] += 1
+                logger.warning(
+                    "repo autosync: could not prune the local mirror of %s: %s",
+                    name,
+                    _redact(res.get("message")),
+                )
+                continue
+            # The state, not the report: the count and the log line below are
+            # what the operator reads to know the directory is gone.
+            if mirror.mirror_exists(name):
+                stats["errors"] += 1
+                logger.warning(
+                    "repo autosync: delete_mirror reported the mirror of %s deleted, but it is still on disk",
+                    name,
+                )
+                continue
+            if res.get("existed"):
+                stats["pruned"] += 1
+                logger.info("repo autosync: pruned the local mirror of %s (no repo_metadata record)", name)
+            # ``existed`` false: the directory went away between the listing and
+            # the delete, so nothing was deleted here and there is nothing to count.
+        except Exception:
+            stats["errors"] += 1
+            logger.warning("repo autosync: pruning the local mirror of %s failed", name, exc_info=True)
 
 
 def attach_credential_sweep(app: Any) -> bool:
@@ -224,9 +360,7 @@ def start_autosync(db: Any, *, interval: int | None = None) -> bool:
                 try:
                     from services.git_mirror_service import get_mirror_service  # lazy heavy import
 
-                    stats = refresh_once(db, get_mirror_service())
-                    if stats["cloned"] or stats["fetched"] or stats["errors"]:
-                        logger.info("repo autosync pass: %s", stats)
+                    refresh_once(db, get_mirror_service())  # logs its own summary line
                 except Exception:
                     logger.warning("repo autosync pass failed", exc_info=True)
                 time.sleep(interval or _interval_seconds())

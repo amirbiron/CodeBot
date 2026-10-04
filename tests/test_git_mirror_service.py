@@ -81,6 +81,57 @@ def test_init_mirror_existing_invalid_mirror_is_cleaned_and_recloned(service, tm
     assert calls["clone"] == 1
 
 
+def test_list_mirror_names_is_the_inverse_of_get_repo_path(service, tmp_path):
+    """כל תיקייה ``<name>.git`` ישירות תחת ``base_path`` — ושום דבר אחר."""
+    (tmp_path / "alpha.git").mkdir()
+    (tmp_path / "beta.git").mkdir()
+    (tmp_path / "x.y.git").mkdir()  # _validate_repo_name דוחה את השם; ההחלטה על כך היא של הקורא
+    (tmp_path / "link.git").symlink_to(tmp_path / "alpha.git", target_is_directory=True)
+    (tmp_path / "notes.git").write_text("a file, not a directory\n", encoding="utf-8")
+    (tmp_path / "plain-dir").mkdir()
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "deep.git").mkdir()
+
+    names = service.list_mirror_names()
+
+    assert names == ["alpha", "beta", "link", "x.y"]
+    assert all(service._get_repo_path(name).is_dir() for name in names)
+    # מה שמותר למחוק: בלי שם ש-init_mirror היה דוחה, ובלי קישור סמלי
+    assert service.list_managed_mirror_names() == ["alpha", "beta"]
+
+
+def test_a_missing_mirror_directory_raises_and_is_not_an_empty_list(tmp_path):
+    """רשימה ריקה פירושה "אין מראות". תיקייה שנעלמה היא כשל, ולכן זורקת."""
+    svc = GitMirrorService(base_path=str(tmp_path / "mirrors"))
+    (tmp_path / "mirrors").rmdir()
+
+    with pytest.raises(FileNotFoundError):
+        svc.list_mirror_names()
+    with pytest.raises(FileNotFoundError):
+        svc.list_managed_mirror_names()
+
+
+def test_an_unreadable_mirror_directory_raises_and_is_not_an_empty_list(service, tmp_path, monkeypatch):
+    """``Path.glob`` בלע את ``PermissionError`` והחזיר ``[]``. ההרשאה נכשלת כאן רק לתיקיית
+    המראות: טסט שרץ כ-root לא יכול לחסום אותה ב-``chmod``."""
+    import os
+
+    (tmp_path / "alpha.git").mkdir()
+    real_scandir = os.scandir
+
+    def scandir(path="."):
+        if os.fspath(path) == str(tmp_path):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+
+    with pytest.raises(PermissionError):
+        service.list_mirror_names()
+    with pytest.raises(PermissionError):
+        service.list_managed_mirror_names()
+
+
 def test_sanitize_output_masks_https_credentials(service):
     raw = "fatal: unable to access 'https://oauth2:SECRET_TOKEN@github.com/org/repo.git/': 403\n"
     sanitized = service._sanitize_output(raw)

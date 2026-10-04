@@ -392,6 +392,11 @@ class GitMirrorService:
     # שם ריפו: a-z, 0-9, -, _ בלבד, 1-100 תווים
     REPO_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$')
 
+    # המראה של ריפו היא התיקייה ``<name>.git`` ישירות תחת ``base_path``.
+    # ``_get_repo_path`` בונה את הנתיב מהשם ו-``_scan_mirror_dirs`` הולך בכיוון
+    # ההפוך, ושניהם קוראים את הסיומת מכאן כדי שלא ייפרדו.
+    MIRROR_DIR_SUFFIX = ".git"
+
     # נתיב קובץ - ללא path traversal
     # מאפשר: a-z, A-Z, 0-9, ., _, -, /, רווח (space)
     # אוסר: //, leading/trailing /, leading/trailing space, NUL,
@@ -670,7 +675,54 @@ class GitMirrorService:
 
     def _get_repo_path(self, repo_name: str) -> Path:
         """נתיב ל-mirror של ריפו ספציפי"""
-        return self.base_path / f"{repo_name}.git"
+        return self.base_path / f"{repo_name}{self.MIRROR_DIR_SUFFIX}"
+
+    def list_mirror_names(self) -> List[str]:
+        """השמות של כל המראות שבדיסק: כל תיקייה ``<name>.git`` שיושבת ישירות תחת ``base_path``.
+
+        זה ההיפוך של ``_get_repo_path``. קישור סמלי לתיקייה נכלל, כי ``DirEntry.is_dir``
+        עוקב אחריו. קובץ שנגמר ב-``.git``, ותיקייה בלי הסיומת, אינם נכללים.
+
+        **השמות אינם מסוננים לפי ``_validate_repo_name``.** זו הרשימה של מי שצריך לראות
+        הכול, ולדווח על שם כזה. מי שעומד למחוק קורא את :meth:`list_managed_mirror_names`.
+
+        **רשימה ריקה פירושה שאין מראות.** תיקייה שחסרה, או שאי אפשר לקרוא, זורקת
+        ``OSError`` (:meth:`_scan_mirror_dirs`).
+        """
+        return [name for name, _is_link in self._scan_mirror_dirs()]
+
+    def list_managed_mirror_names(self) -> List[str]:
+        """המראות שהשירות הזה יוצר — ולכן רק הן מועמדות למחיקה כשאין להן רשומה.
+
+        מתוך :meth:`list_mirror_names` נשארים רק שמות שעוברים ``_validate_repo_name``,
+        אותה בדיקה ש-``init_mirror`` עושה לפני clone, ורק תיקיות אמיתיות. קישור סמלי
+        אינו נכלל, כי ``delete_mirror`` מוחק דרך ``_safe_rmtree``, שעושה ``resolve`` לפני
+        המחיקה: הוא היה מוחק את התיקייה שהקישור מצביע עליה, ומשאיר את הקישור עצמו.
+
+        תיקייה שחסרה, או שאי אפשר לקרוא, זורקת ``OSError``, כמו ב-:meth:`list_mirror_names`.
+        """
+        return [name for name, is_link in self._scan_mirror_dirs() if not is_link and self._validate_repo_name(name)]
+
+    def _scan_mirror_dirs(self) -> List[Tuple[str, bool]]:
+        """``(name, is_symlink)`` לכל תיקייה ``<name>.git`` ישירות תחת ``base_path``, ממוין לפי שם התיקייה.
+
+        **``os.scandir`` ולא ``Path.glob``.** ``glob`` של ``pathlib`` בולע ``PermissionError``
+        על התיקייה ומחזיר רשימה ריקה (``_WildcardSelector._select_from`` ב-Python 3.11),
+        כלומר "אין מראות" ו"אי אפשר לקרוא את התיקייה" נראו אותו דבר. ``os.scandir``
+        פותח את התיקייה ב-``opendir()`` (``Doc/library/os.rst``, Python 3.11), וכשל
+        בפתיחה עולה כ-``OSError`` — למשל ``FileNotFoundError`` לתיקייה שחסרה,
+        ``PermissionError`` לתיקייה שאי אפשר לקרוא. ``DirEntry.is_dir`` עוקב אחרי קישורים
+        כברירת מחדל, ו-``DirEntry.is_symlink`` אומר אם הרשומה עצמה היא קישור.
+        """
+        suffix = self.MIRROR_DIR_SUFFIX
+        found: List[Tuple[str, bool]] = []
+        with os.scandir(self.base_path) as entries:
+            for entry in entries:
+                # סיומת של שם רשומה בתוך התיקייה, ולא גבול של נתיב: ב-``entry.name`` אין ``/``.
+                if entry.name.endswith(suffix) and entry.is_dir():
+                    found.append((entry.name, entry.is_symlink()))
+        found.sort()
+        return [(dir_name[: -len(suffix)], is_link) for dir_name, is_link in found]
 
     def _get_mirror_path(self, repo_name: str) -> Path:
         """Alias לשם אחיד במדריך (mirror path)."""

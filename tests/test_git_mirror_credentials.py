@@ -426,6 +426,29 @@ def test_module_sweep_does_not_create_a_missing_mirror_dir(tmp_path, monkeypatch
     assert not missing.exists()
 
 
+def test_sweep_of_an_unreadable_mirror_dir_raises_and_logs_no_clean_line(tmp_path, monkeypatch, caplog):
+    """``checked=0 failed=0`` על תיקייה שלא נקראה היה נראה כמו "הכול נקי".
+
+    ``Path.glob`` בלע את ``PermissionError`` והחזיר רשימה ריקה. ההרשאה נכשלת כאן
+    רק לתיקיית המראות, כי טסט שרץ כ-root לא יכול לחסום אותה ב-``chmod``.
+    """
+    mirrors = tmp_path / "mirrors"
+    svc = GitMirrorService(base_path=str(mirrors))
+    real_scandir = os.scandir
+
+    def scandir(path="."):
+        if os.fspath(path) == str(mirrors):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+
+    with caplog.at_level(logging.INFO, logger="services.mirror_credentials"):
+        with pytest.raises(PermissionError):
+            creds.scrub_stored_credentials(svc)
+    assert "mirror credential sweep: checked=" not in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # רשימת הפקודות המותרות: רק שתי צורות של ``git remote``
 # ---------------------------------------------------------------------------
