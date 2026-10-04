@@ -83,6 +83,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | `clientX` בחיסור, `left`/`right`, גרירה, שינוי גודל, או הצמדה ל-viewport | `BY-STACK/hebrew-source.md` H7 + `bugbot-rules/rtl-geometry-and-clamp.md` |
 | `EWMA` / `_ewma`, `anomaly_detected`, `cooldown`, `first_ts`, `adaptive_*_threshold_*` | `RECURRING-PATTERNS.md` R9 + `BY-STACK/observability.md` |
 | הרצה ראשונה של ג'וב סנכרון: `baseline`, `last_*_check_time`, `if not last_seen` | `BY-STACK/cron-jobs.md` דפוס 10 — מה ההרצה הראשונה שולחת |
+| ג'וב או לולאה שיוצרים עותק ממקור אמת "אם חסר" — `if not ...exists(` ואחריו clone / create / `upsert` / אינדוקס — או שלב שמוחק מה שהמקור כבר לא מכיר (`prune`, `orphan`, `janitor`, `reconcile`) | `BY-STACK/cron-jobs.md`, "סנכרון חד-כיווני" + `bugbot-rules/one-way-sync-orphans.md` — מי מוחק את העותק כשהמקור מפסיק לרשום אותו, ומה עוצר מחיקה של הכול |
 | תגית `<script>` / `<link>` חדשה בתבנית, או כתיבת `Cache-Control` | `BY-STACK/browser-policy.md` B4–B5 + `bugbot-rules/stale-asset-cache-policy.md` |
 | **לפני כתיבת פונקציה חדשה** שמפרמטת, מסננת, מחשבת או ממפה — גודל, תאריך, אייקון, שם שפה, רשימת ערכים, שאילתה | `RECURRING-PATTERNS.md` R6: `grep` על שם התופעה לפני שכותבים. יש עותק — מאחדים |
 | `except TypeError` / `except AttributeError` סביב קריאה ל-SDK חיצוני | `bugbot-rules/dead-parameter-external-api.md` |
