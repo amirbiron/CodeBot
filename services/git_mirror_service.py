@@ -12,6 +12,7 @@ Git Mirror Service - ניהול מראה Git מקומי על Render Disk
 from __future__ import annotations
 
 import codecs
+import functools
 import json
 import logging
 import os
@@ -24,7 +25,10 @@ import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+# אימות מול GitHub בלי טוקן ב-URL, וניקוי מראות ישנות (#3480)
+from services import mirror_credentials as _creds
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +123,10 @@ _PATTERN_ERROR_MARKERS = (
     "parentheses not balanced",
 )
 
+
+def _default_mirror_base_path() -> Path:
+    """תיקיית המראות כשלא הועבר נתיב: ``REPO_MIRROR_PATH``, ואחרת ``/var/data/repos``."""
+    return Path(os.getenv("REPO_MIRROR_PATH", "/var/data/repos"))
 
 def _looks_like_git_sha(text: str) -> bool:
     t = (text or "").strip()
@@ -376,7 +384,9 @@ class GitMirrorService:
         content = service.get_file_content("repo", "src/main.py")
 
     תמיכה ב-Private Repos:
-        הגדר GITHUB_TOKEN בסביבה, והשירות יזריק אותו אוטומטית ל-URL.
+        טוקן לפי בעלים ב-``GITHUB_TOKENS``, ו-``GITHUB_TOKEN`` לבעלים שאינו במפה
+        (``_token_and_source_for_url``). הטוקן לעולם אינו נכנס ל-URL: הוא נשלח
+        ככותרת בכל פקודת רשת, ורק לריפו שדורש הזדהות (``_run_network_git``).
     """
 
     # שם ריפו: a-z, 0-9, -, _ בלבד, 1-100 תווים
@@ -408,12 +418,21 @@ class GitMirrorService:
         r'^[a-zA-Z0-9][a-zA-Z0-9._/^~-]{0,150}$'
     )
 
-    _GITHUB_HTTPS_RE = re.compile(r"^https://github\.com/[^/\s]+/[^/\s]+(?:\.git)?/?$", re.IGNORECASE)
+    # הצורות של HTTPS נגזרות מ-``mirror_credentials.GITHUB_HTTPS_ORIGIN`` (``_https_patterns``).
     _GITHUB_SSH_RE = re.compile(r"^git@github\.com:[^/\s]+/[^/\s]+(?:\.git)?$", re.IGNORECASE)
 
     # חילוץ בעלים (owner/org) מתוך URL של GitHub – לבחירת טוקן פר-ארגון
-    _OWNER_HTTPS_RE = re.compile(r"^https://github\.com/([^/\s]+)/", re.IGNORECASE)
     _OWNER_SSH_RE = re.compile(r"^git@github\.com:([^/\s]+)/", re.IGNORECASE)
+
+
+    @staticmethod
+    @functools.lru_cache(maxsize=8)
+    def _https_patterns(origin: str) -> Tuple["re.Pattern[str]", "re.Pattern[str]"]:
+        """(כתובת ריפו מלאה, חילוץ בעלים) עבור ה-origin הנתון."""
+        o = re.escape(origin.rstrip("/"))
+        repo = re.compile(rf"^{o}/[^/\s]+/[^/\s]+(?:\.git)?/?$", re.IGNORECASE)
+        owner = re.compile(rf"^{o}/([^/\s]+)/", re.IGNORECASE)
+        return repo, owner
 
     def __init__(
         self,
@@ -424,9 +443,9 @@ class GitMirrorService:
         """
         Args:
             base_path: נתיב בסיסי לאחסון mirrors.
-                       ברירת מחדל: REPO_MIRROR_PATH או /var/data/repos
+                       ברירת מחדל: ``_default_mirror_base_path()``
         """
-        self.base_path = Path(mirrors_base_path or base_path or os.getenv("REPO_MIRROR_PATH", "/var/data/repos"))
+        self.base_path = Path(mirrors_base_path or base_path or _default_mirror_base_path())
         self.github_token = github_token
         self.logger = logger
         self._ensure_base_path()
@@ -467,7 +486,8 @@ class GitMirrorService:
             return False
         if url.startswith("-"):
             return False
-        return bool(self._GITHUB_HTTPS_RE.fullmatch(url) or self._GITHUB_SSH_RE.fullmatch(url))
+        https_repo, _ = self._https_patterns(_creds.GITHUB_HTTPS_ORIGIN)
+        return bool(https_repo.fullmatch(url) or self._GITHUB_SSH_RE.fullmatch(url))
 
     @staticmethod
     def _load_github_token_map() -> Dict[str, str]:
@@ -521,58 +541,71 @@ class GitMirrorService:
         if not isinstance(url, str):
             return ""
         u = url.strip()
-        m = self._OWNER_HTTPS_RE.match(u) or self._OWNER_SSH_RE.match(u)
+        _, https_owner = self._https_patterns(_creds.GITHUB_HTTPS_ORIGIN)
+        m = https_owner.match(u) or self._OWNER_SSH_RE.match(u)
         return m.group(1) if m else ""
 
     def _token_for_url(self, url: str) -> Optional[str]:
+        """הטוקן שמוגדר ל-URL, או ``None``. המקור והסדר: ``_token_and_source_for_url``."""
+        return self._token_and_source_for_url(url)[0]
+
+    def _token_and_source_for_url(self, url: str) -> Tuple[Optional[str], str]:
         """
-        בוחר את הטוקן המתאים ל-URL לפי סדר עדיפויות:
-        1. טוקן שהוזרק במפורש ל-constructor (override).
-        2. טוקן פר-בעלים מתוך ``GITHUB_TOKENS`` (לפי הארגון של הריפו).
-        3. ``GITHUB_TOKEN`` הגלובלי כברירת מחדל.
+        בוחר את הטוקן המתאים ל-URL, ומחזיר גם **מאיפה** הוא הגיע:
+
+        1. ``explicit`` — טוקן שהוזרק במפורש ל-constructor (טסטים וסקריפטים).
+        2. ``map`` — טוקן פר-בעלים מתוך ``GITHUB_TOKENS`` (לפי הארגון של הריפו).
+        3. ``global`` — ``GITHUB_TOKEN``, לבעלים שאינו במפה.
+        4. ``none`` — אין טוקן.
+
+        המקור נכתב לשורת הלוג של הניקוי (``scrub_stored_credentials``), כדי
+        שאפשר יהיה לראות אילו מראות נשענות על הטוקן הגלובלי. הטוקן עצמו לא.
         """
         if self.github_token:
-            return self.github_token
+            return self.github_token, "explicit"
 
         owner = self._extract_owner(url)
         if owner:
             token_map = self._load_github_token_map()
             token = token_map.get(owner.lower())
             if token:
-                return token
+                return token, "map"
 
-        return os.getenv("GITHUB_TOKEN") or None
+        token = os.getenv("GITHUB_TOKEN") or None
+        return (token, "global") if token else (None, "none")
 
-    def _get_authenticated_url(self, url: str) -> str:
+    def _run_network_git(
+        self,
+        cmd: List[str],
+        url: str,
+        cwd: Optional[Path] = None,
+        timeout: int = 60,
+        retry_cleanup: Optional[Path] = None,
+    ) -> Tuple[GitCommandResult, str]:
+        """מריץ clone/fetch, ומחזיר גם איזה טוקן נשלח בפועל: ``none``/``map``/``global``/``explicit``.
+
+        **קודם בלי טוקן.** ריפו ציבורי לא מקבל טוקן אף פעם. רק אם git נכשל כי
+        השרת דרש הזדהות, ויש טוקן מוגדר לבעלים — ניסיון שני עם הכותרת. ריפו
+        פרטי עולה בקשה אחת שנכשלת מיד (``GIT_TERMINAL_PROMPT=0``).
+
+        **אין מסלול שמכניס את הטוקן ל-URL**, גם לא כשהכותרת נכשלת — זה בדיוק
+        מה ש-#3480 הוציא. ``transfer.credentialsInUrl=die`` בשני הניסיונות.
+
+        ``retry_cleanup``: תיקייה שהקורא יוצר בפקודה (יעד ה-clone ב-``init_mirror``)
+        ושיש להסיר לפני הניסיון השני, אם הראשון השאיר אותה. הקורא מעביר אותה
+        במפורש — הפונקציה אינה מפענחת את ``cmd``.
         """
-        הזרקת GitHub Token ל-URL לתמיכה ב-Private Repos
-
-        Args:
-            url: URL מקורי של הריפו
-
-        Returns:
-            URL עם token (אם קיים) או URL מקורי
-
-        Note:
-            לא לרשום את ה-URL המאומת ללוגים!
-            בחירת הטוקן נעשית לפי הבעלים של הריפו (ראו _token_for_url),
-            כדי לתמוך בסנכרון ריפואים ממספר ארגונים עם טוקנים שונים.
-        """
-        token = self._token_for_url(url)
-
+        result = self._run_git_command(cmd, cwd=cwd, timeout=timeout, extra_env=_creds.network_env(None))
+        if result.success or not _creds.needs_auth(result.stderr):
+            return result, "none"
+        token, source = self._token_and_source_for_url(url)
         if not token:
-            return url
-
-        # תמיכה ב-HTTPS URLs בלבד
-        if url.startswith("https://github.com/"):
-            # https://github.com/user/repo.git
-            # -> https://oauth2:TOKEN@github.com/user/repo.git
-            return url.replace("https://github.com/", f"https://oauth2:{token}@github.com/")
-        elif url.startswith("https://"):
-            # Generic HTTPS URL
-            return url.replace("https://", f"https://oauth2:{token}@")
-
-        return url
+            return result, "none"
+        if retry_cleanup is not None and retry_cleanup.exists() and not self._safe_rmtree(retry_cleanup):
+            # הניסיון השני ייכשל על "already exists", והכשל הזה יחזור לקורא
+            logger.warning("Could not remove %s before the authenticated retry", retry_cleanup)
+        result = self._run_git_command(cmd, cwd=cwd, timeout=timeout, extra_env=_creds.network_env(token))
+        return result, source
 
     def _sanitize_output(self, output: str) -> str:
         """הסרת מידע רגיש מפלט Git."""
@@ -681,7 +714,26 @@ class GitMirrorService:
         except Exception:
             return False
 
-    def _run_git_command(self, cmd: List[str], cwd: Optional[Path] = None, timeout: int = 60) -> GitCommandResult:
+    def _is_allowed_remote_command(self, cmd: List[str]) -> bool:
+        """``git remote`` מותר רק כ-``get-url origin`` או כ-``set-url origin <url נקי>``.
+
+        ה-URL ב-``set-url`` חייב לעבור את ``_validate_repo_url``, שמקבלת רק
+        ``<origin>/<owner>/<repo>`` — כלומר URL עם credentials לא יכול להיכתב
+        דרך הנתיב הזה.
+        """
+        if tuple(cmd[1:4]) == _creds.REMOTE_GET_URL and len(cmd) == 4:
+            return True
+        if tuple(cmd[1:4]) == _creds.REMOTE_SET_URL and len(cmd) == 5:
+            return self._validate_repo_url(str(cmd[4]))
+        return False
+
+    def _run_git_command(
+        self,
+        cmd: List[str],
+        cwd: Optional[Path] = None,
+        timeout: int = 60,
+        extra_env: Optional[Dict[str, str]] = None,
+    ) -> GitCommandResult:
         """
         הרצת פקודת Git בצורה בטוחה
 
@@ -689,6 +741,8 @@ class GitMirrorService:
             cmd: פקודת Git כרשימה
             cwd: תיקיית עבודה
             timeout: timeout בשניות
+            extra_env: משתני סביבה שמתווספים לסביבת התהליך (פקודות רשת בלבד —
+                ``mirror_credentials.network_env``). בלעדיו git יורש את הסביבה כמו קודם.
 
         Returns:
             GitCommandResult עם התוצאות
@@ -702,17 +756,26 @@ class GitMirrorService:
                 return GitCommandResult(success=False, stdout="", stderr="Invalid git command", return_code=-2)
             if cmd[0] != "git":
                 return GitCommandResult(success=False, stdout="", stderr="Refusing to run non-git command", return_code=-2)
-            if len(cmd) < 2 or cmd[1] not in self._allowed_git_subcommands:
+            if len(cmd) < 2:
+                return GitCommandResult(success=False, stdout="", stderr="Unsupported git subcommand", return_code=-2)
+            if cmd[1] == "remote":
+                if not self._is_allowed_remote_command(cmd):
+                    return GitCommandResult(success=False, stdout="", stderr="Unsupported git subcommand", return_code=-2)
+            elif cmd[1] not in self._allowed_git_subcommands:
                 return GitCommandResult(success=False, stdout="", stderr="Unsupported git subcommand", return_code=-2)
             if any("\x00" in str(part) for part in cmd):
                 return GitCommandResult(success=False, stdout="", stderr="Invalid NUL in command", return_code=-2)
 
+            run_kwargs: Dict[str, Any] = {}
+            if extra_env:
+                run_kwargs["env"] = {**os.environ, **extra_env}
             result = subprocess.run(
                 cmd,
                 cwd=str(cwd) if cwd else None,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                **run_kwargs,
             )
 
             success = result.returncode == 0
@@ -771,7 +834,8 @@ class GitMirrorService:
             dict עם success, path, message
 
         Note:
-            תומך ב-Private Repos אם GITHUB_TOKEN מוגדר בסביבה.
+            ה-clone נעשה מה-URL הנקי, וזה ה-URL שנשמר במראה. ריפו פרטי מקבל את
+            הטוקן ככותרת בלבד (``_run_network_git``).
         """
         repo_url = str(repo_url or "").strip()
         repo_name = str(repo_name or "").strip()
@@ -799,12 +863,15 @@ class GitMirrorService:
         # לוג ללא ה-token!
         logger.info(f"Creating mirror: {self._sanitize_output(repo_url)} -> {repo_path}")
 
-        # הזרקת token ל-Private Repos
-        auth_url = self._get_authenticated_url(repo_url)
-
-        # Clone as bare mirror
+        # Clone as bare mirror, מה-URL הנקי — הוא שנשמר ב-remote.origin.url
         # שימוש ב-"--" כדי למנוע פרשנות של URL/נתיב כ-flag במקרה קצה
-        result = self._run_git_command(["git", "clone", "--mirror", "--", auth_url, str(repo_path)], timeout=timeout)
+        result, auth_used = self._run_network_git(
+            ["git", "clone", "--mirror", "--", repo_url, str(repo_path)],
+            repo_url,
+            timeout=timeout,
+            retry_cleanup=repo_path,
+        )
+        logger.info("Mirror clone for %s: success=%s auth_used=%s", repo_name, result.success, auth_used)
 
         if result.success:
             logger.info(f"Mirror created successfully: {repo_path}")
@@ -813,6 +880,7 @@ class GitMirrorService:
                 "path": str(repo_path),
                 "message": "Mirror created successfully",
                 "already_existed": False,
+                "auth_used": auth_used,
             }
         else:
             logger.error(f"Failed to create mirror: {result.stderr}")
@@ -852,15 +920,36 @@ class GitMirrorService:
                 "action_needed": "init_mirror",
             }
 
+        # מראה שנוצרה לפני #3480 נושאת את הטוקן ב-remote.origin.url. מנקים לפני
+        # כל fetch; אם הניקוי לא אומת — לא מושכים בכלל (וגם השומר של git היה
+        # עוצר את ה-fetch לפני בקשת רשת).
+        cleaning = _creds.ensure_clean_remote(self, repo_name)
+        if cleaning["status"] == "failed":
+            logger.error(
+                "Refusing to fetch %s: stored remote URL is not verified clean (%s)",
+                repo_name,
+                cleaning["reason"],
+            )
+            return {
+                "success": False,
+                "error_type": "mirror_url_not_clean",
+                "message": f"Stored remote URL could not be cleaned: {cleaning['reason']}",
+                "retry_recommended": False,
+            }
+
         logger.info(f"Fetching updates for {repo_name}")
 
-        result = self._run_git_command(["git", "fetch", "--all", "--prune"], cwd=repo_path, timeout=timeout)
+        result, auth_used = self._run_network_git(
+            ["git", "fetch", "--all", "--prune"], cleaning["url"], cwd=repo_path, timeout=timeout
+        )
+        logger.info("Mirror fetch for %s: success=%s auth_used=%s", repo_name, result.success, auth_used)
 
         if result.success:
             return {
                 "success": True,
                 "message": "Fetch completed",
                 "output": result.stdout[:500] if result.stdout else "No output",
+                "auth_used": auth_used,
             }
         else:
             # זיהוי סוגי שגיאות
@@ -878,7 +967,9 @@ class GitMirrorService:
 
         if "could not resolve host" in stderr_lower:
             return "network_error"
-        elif "authentication failed" in stderr_lower:
+        elif _creds.needs_auth(stderr_lower):
+            # כולל "could not read Username ... terminal prompts disabled": כך
+            # git עונה מאז #3480 כשריפו דורש הזדהות ואין טוקן מוגדר לבעלים
             return "auth_error"
         elif "repository not found" in stderr_lower:
             return "repo_not_found"
@@ -961,6 +1052,46 @@ class GitMirrorService:
         }
 
     # ========== SHA & Commits ==========
+
+    def detect_default_branch(self, repo_name: str) -> Dict[str, Optional[str]]:
+        """הענף הראשי של המראה: מה ש-HEAD מצביע עליו, **ורק אם הענף קיים** (#3479).
+
+        מחזיר ``{"branch": <שם>, "reason": None}``, או ``{"branch": None, "reason": <קוד>}``.
+
+        שתי הפקודות הן ``rev-parse``, שכבר ברשימה המותרת — בלי להרחיב אותה.
+        ``clone --mirror`` מציב את HEAD של המראה על הענף הראשי ב-GitHub.
+
+        **מלכודת שנמדדה (git 2.43):** כש-HEAD מצביע על ענף שאינו קיים,
+        ``rev-parse --symbolic-full-name HEAD`` מדפיס ``HEAD`` עם קוד יציאה 0.
+        לכן מתקבל רק פלט שמתחיל ב-``refs/heads/``, ואחריו בדיקת קיום נפרדת.
+        """
+        repo_name = str(repo_name or "").strip()
+        if not self._validate_repo_name(repo_name):
+            return {"branch": None, "reason": "invalid_repo_name"}
+        repo_path = self._get_repo_path(repo_name)
+        head = self._run_git_command(
+            ["git", "rev-parse", "--symbolic-full-name", "HEAD"], cwd=repo_path, timeout=10
+        )
+        if not head.success:
+            return {"branch": None, "reason": "head_unreadable"}
+        full = head.stdout.strip()
+        prefix = "refs/heads/"
+        if not full.startswith(prefix):
+            return {"branch": None, "reason": "head_not_a_branch"}
+        branch = full[len(prefix):]
+        # הבדיקה על ה-ref **המלא**, כמו שהצרכנים בהמשך בודקים אותו (``list_all_files``
+        # מקבל ``refs/heads/<branch>`` ומריץ עליו ``_validate_basic_ref``). בדיקה על
+        # השם לבדו דחתה שמות ש-git מקבל, כמו ``_main``.
+        if not branch or branch == "HEAD" or not self._validate_basic_ref(full):
+            return {"branch": None, "reason": "unsupported_branch_name"}
+        exists = self._run_git_command(
+            ["git", "rev-parse", "--verify", "--quiet", f"{prefix}{branch}^{{commit}}"],
+            cwd=repo_path,
+            timeout=10,
+        )
+        if not exists.success:
+            return {"branch": None, "reason": "head_branch_missing"}
+        return {"branch": branch, "reason": None}
 
     def get_current_sha(self, repo_name: str, branch: str = "main") -> Optional[str]:
         """

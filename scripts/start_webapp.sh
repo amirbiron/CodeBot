@@ -126,4 +126,29 @@ warmup() {
 }
 
 warmup || true
+
+# מראות שנוצרו לפני #3480 נושאות את טוקן ה-GitHub ב-remote.origin.url. ניקוי אחד
+# בכל עלייה, ברקע ואחרי ש-Gunicorn כבר מאזין — כדי לא לעכב את העלייה. השורה
+# "mirror credential sweep:" בלוג היא האימות. כשל כאן לא מפיל את השירות: fetch
+# של מראה שלא נוקתה נעצר בעצמו (transfer.credentialsInUrl=die).
+sweep_mirror_credentials() {
+  local py
+  py="$(command -v python3 || command -v python || true)"
+  if [ -z "$py" ]; then
+    log "Mirror credential sweep skipped: no python interpreter on PATH"
+    return 0
+  fi
+  # תקרה של 5 דקות: כל מראה היא כמה קריאות git מקומיות של שניות בודדות
+  local runner=("$py")
+  if command -v timeout >/dev/null 2>&1; then
+    runner=(timeout 300 "$py")
+  fi
+  if (cd "$ROOT_DIR" && "${runner[@]}" scripts/sweep_mirror_credentials.py); then
+    log "Mirror credential sweep finished"
+  else
+    log "Mirror credential sweep reported failures (see 'mirror credential sweep' lines above)"
+  fi
+}
+
+sweep_mirror_credentials &
 wait "$APP_PID"

@@ -161,7 +161,7 @@ def create_app():
         provider, settings, consent = _build_oauth(
             mongo, mcp_base=mcp_base, webapp_base=webapp_base
         )
-        return build_app(
+        app = build_app(
             backend,
             auth_provider=provider,
             auth_settings=settings,
@@ -172,11 +172,12 @@ def create_app():
             rate_limit_per_minute=rate_limit_per_minute,
             public_url=mcp_base,
         )
+        return _with_credential_sweep(app)
 
     # Fallback: PAT-only (Claude Code/Desktop) — runs without OAuth config.
     # ``MCP_SERVER_URL`` may still be set here without ``WEBAPP_URL``; when it is,
     # the upload command in the tool descriptions names the real host.
-    return build_app(
+    app = build_app(
         backend,
         MCPTokenStore(mongo),
         repo_backend=repo_backend,
@@ -185,6 +186,22 @@ def create_app():
         rate_limit_per_minute=rate_limit_per_minute,
         public_url=mcp_base or None,
     )
+    return _with_credential_sweep(app)
+
+
+def _with_credential_sweep(app):
+    """מראות שנוצרו לפני #3480 נושאות את טוקן ה-GitHub ב-remote.origin.url — ניקוי אחד בעליית השרת.
+
+    **ב-lifespan, לא כאן:** ``create_app`` רץ בייבוא (השורה ``app = create_app()``
+    למטה), ולכן כל מה שהוא מפעיל ישירות רץ גם בכל ``import mcp_server.app``.
+    ``attach_credential_sweep`` מצמיד את הניקוי לעליית ה-ASGI, שקורית רק כש-uvicorn
+    מגיש. **בלי תלות ב-``MCP_REPO_AUTOSYNC``:** מראה שלא נמשכת לא תגיע לניקוי שב-
+    ``fetch_updates``. השורה ``mirror credential sweep:`` בלוג היא האימות.
+    """
+    from .repo_autosync import attach_credential_sweep
+
+    attach_credential_sweep(app)
+    return app
 
 
 app = create_app()

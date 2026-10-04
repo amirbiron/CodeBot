@@ -609,85 +609,20 @@ def initial_import(repo_url: str, repo_name: str, db: Any) -> Dict[str, Any]:
 
     repo_path = git_service._get_repo_path(repo_name)
 
-    # 2. זיהוי ה-Default Branch האמיתי
-    # ב-Mirror, HEAD מצביע על ה-default branch של origin
-    def _strip_origin_prefix(ref: str) -> str:
-        ref = str(ref or "").strip()
-        if ref.startswith("refs/remotes/origin/"):
-            return ref[len("refs/remotes/origin/"):]
-        if ref.startswith("origin/"):
-            return ref.split("/", 1)[1]
-        return ref
-
-    def _ref_exists(ref: str) -> bool:
-        result = git_service._run_git_command(
-            ["git", "show-ref", "--verify", "--quiet", ref],
-            cwd=repo_path,
-        )
-        return result.success
-
-    def _branch_exists(branch: str) -> bool:
-        if not branch:
-            return False
-        return _ref_exists(f"refs/heads/{branch}") or _ref_exists(f"refs/remotes/origin/{branch}")
-    default_branch = ""
-    branch_result = git_service._run_git_command(["git", "symbolic-ref", "--short", "HEAD"], cwd=repo_path)
-    if branch_result.success:
-        default_branch = _strip_origin_prefix(branch_result.stdout.strip())
-        if not _branch_exists(default_branch):
-            logger.info(f"HEAD pointed to missing branch: {default_branch}")
-            default_branch = ""
-
-    # אם HEAD לא תקין, נסה origin/HEAD (נוצר ב-mirror)
+    # 2. זיהוי ה-Default Branch האמיתי — מה ש-HEAD של המראה מצביע עליו.
+    # **בלי ניחוש:** עד #3479 כל ניסיון כאן נדחה ב-``_run_git_command`` ("Unsupported
+    # git subcommand") והזיהוי נפל תמיד ל-``main``. כשאין ענף מאומת — כשל עם שם.
+    detected = git_service.detect_default_branch(repo_name)
+    default_branch = detected.get("branch")
     if not default_branch:
-        head_result = git_service._run_git_command(
-            ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-            cwd=repo_path,
+        logger.error(
+            "Could not detect default branch for %s (%s)", repo_name, detected.get("reason")
         )
-        if head_result.success:
-            default_branch = _strip_origin_prefix(head_result.stdout.strip())
-            if not _branch_exists(default_branch):
-                logger.info(f"origin/HEAD pointed to missing branch: {default_branch}")
-                default_branch = ""
-
-    # Fallback: בחר ברנץ' ראשון מ-origin (עדיף main/master)
-    if not default_branch:
-        refs_result = git_service._run_git_command(
-            ["git", "for-each-ref", "--format=%(refname)", "refs/remotes/origin"],
-            cwd=repo_path,
-        )
-        refs = [r.strip() for r in (refs_result.stdout or "").splitlines() if r.strip()]
-        preferred = (
-            next((r for r in refs if r.endswith("/main")), "")
-            or next((r for r in refs if r.endswith("/master")), "")
-        )
-        if not preferred:
-            preferred = next((r for r in refs if not r.endswith("/HEAD")), "")
-        default_branch = _strip_origin_prefix(preferred)
-
-    # Fallback 2: ב-mirror אין refs/remotes/origin - חפש ישירות ב-refs/heads
-    if not default_branch:
-        logger.info("No refs/remotes/origin found, checking refs/heads directly (mirror mode)")
-        refs_result = git_service._run_git_command(
-            ["git", "for-each-ref", "--format=%(refname)", "refs/heads"],
-            cwd=repo_path,
-        )
-        refs = [r.strip() for r in (refs_result.stdout or "").splitlines() if r.strip()]
-        logger.info(f"Available refs/heads: {refs}")
-        preferred = (
-            next((r for r in refs if r.endswith("/main")), "")
-            or next((r for r in refs if r.endswith("/master")), "")
-        )
-        if not preferred:
-            preferred = next((r for r in refs if r.strip()), "")
-        if preferred:
-            # refs/heads/main -> main
-            default_branch = preferred.replace("refs/heads/", "")
-            logger.info(f"Found branch in refs/heads: {default_branch}")
-
-    if not default_branch:
-        logger.warning("Could not detect any branch, falling back to 'main'")
-        default_branch = "main"
+        return {
+            "error": "default_branch_undetected",
+            "details": detected.get("reason"),
+            "repo_name": repo_name,
+        }
 
     logger.info(f"Detected default branch: {default_branch}")
 

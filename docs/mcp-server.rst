@@ -1739,6 +1739,25 @@ Claude Desktop
   ``MCP_REPO_AUTOSYNC_INTERVAL``
   (ברירת מחדל 300 שניות).
 
+.. _mcp-mirror-credentials:
+
+אימות מול GitHub — הטוקן לא נשמר במראה
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**מראה חדשה נוצרת עם URL נקי, ומראה ישנה מנוקה.** עד #3480 הטוקן הוזרק ל-URL של ה-clone, ו-git שמר אותו בטקסט גלוי ב-``remote.origin.url`` שבקובץ ``config`` של המראה — על הדיסק של הוובאפ, על הדיסק של שירות ה-MCP, ובצילומי הדיסק של Render. היום ה-clone נעשה מה-URL הנקי, והטוקן עובר לכל ``clone``/``fetch`` בנפרד ככותרת ``Authorization``, דרך משתני הסביבה ``GIT_CONFIG_COUNT``/``GIT_CONFIG_KEY_<n>``/``GIT_CONFIG_VALUE_<n>`` ולא בשורת הפקודה (``network_env`` ב-``services/mirror_credentials.py``). הכותרת ממוקדת ל-``GITHUB_HTTPS_ORIGIN`` בלבד. מראה ישנה נשארת עם הטוקן בדיסק **עד שהניקוי שלה מצליח** — ראו למטה; עד אז ה-fetch שלה חסום.
+
+**איזה טוקן, ולמי.** הטוקן נבחר לפי בעלי הריפו: מהמפה ב-``GITHUB_TOKENS``, ובעלים שאינו במפה מקבל את ``GITHUB_TOKEN`` (``_token_and_source_for_url``). כל פקודת רשת נשלחת קודם **בלי** טוקן, ורק כש-GitHub עונה שהריפו דורש הזדהות היא נשלחת שוב עם הכותרת — כך שריפו ציבורי לא מקבל טוקן אף פעם (``_run_network_git``). שורות הלוג ``Mirror clone``/``Mirror fetch`` מציינות ``auth_used``: ``none``, ``map``, ``global`` או ``explicit``.
+
+**ניקוי מראות ישנות.** ``ensure_clean_remote`` מוציא credentials מה-URL השמור ב-``git remote set-url``, ומאמת בקריאה חוזרת של ה-URL — לא לפי קוד היציאה. הוא רץ לפני כל ``fetch_updates`` (אם הניקוי לא אומת, ה-fetch לא רץ ומוחזר ``mirror_url_not_clean``), וגם על כל המראות בעליית כל שירות: בשירות ה-MCP מה-lifespan של האפליקציה (``attach_credential_sweep`` ב-``mcp_server/repo_autosync.py`` — לא בייבוא של ``mcp_server.app``), ובוובאפ מתוך ``scripts/start_webapp.sh``. שורת הלוג של המעבר הזה היא האימות:
+
+.. code-block:: text
+
+   mirror credential sweep: checked=<n> had_credentials=<n> cleaned=<n> failed=<n> sources={"<repo>": "map", ...}
+
+**המראות נקיות רק כש-``failed=0``.** מראה שנספרה ב-``failed`` עלולה עדיין להחזיק את הטוקן ב-``config``; לכל אחת מהן יש שורת ``mirror credential sweep: <repo> failed (<reason>)`` עם הסיבה, והניסיון חוזר לפני ה-fetch הבא שלה ובעלייה הבאה. ``sources`` אומר לכל מראה מאיפה יגיע הטוקן שלה אם הריפו ידרוש הזדהות, בלי הטוקן עצמו — כך רואים אילו מראות נשענות על ``GITHUB_TOKEN``. שורה שלא מופיעה בלוג של אחד השירותים פירושה שהמעבר לא רץ שם.
+
+**שומר.** כל פקודת רשת רצה עם ``transfer.credentialsInUrl=die``: מראה שעדיין נושאת credentials ב-URL נכשלת לפני בקשת רשת, ו-git עצמו מסתיר את הסיסמה בהודעה. ``git remote`` מותר ב-``_run_git_command`` רק בשתי הצורות ``get-url origin`` ו-``set-url origin <url>``, וה-URL חייב לעבור את ``_validate_repo_url``.
+
 .. _mcp-repo-read-misses:
 
 ענף שלא במראה, מול קובץ שלא קיים
