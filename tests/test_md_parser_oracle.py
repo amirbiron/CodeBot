@@ -67,6 +67,11 @@ from mdit_py_plugins.front_matter import front_matter_plugin
 
 from services.md_parser import parse_document
 
+#: הקובץ כולו במסלול ``md-heavy`` של ``unit-tests`` ב-``.github/workflows/ci.yml``: הוא
+#: מפרסר את משפחות הצורות של האורקל בשני הפארסרים, כולל טבלאות בתקרת ההשלמה של
+#: ``markdown-it-py``. הסימון מוגדר ב-``pytest.ini``.
+pytestmark = pytest.mark.md_heavy
+
 _REPO = Path(__file__).resolve().parents[1]
 
 #: מכלים שכותרת בתוכם אינה סעיף במסמך. ``blockquote`` ו-``li`` הם מה

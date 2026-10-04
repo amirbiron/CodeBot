@@ -652,6 +652,9 @@ def test_the_new_defaults_are_the_documented_constants():
     assert params["max_tokens"].default is md_parser.MAX_TOKENS
 
 
+# שני הטסטים הבאים מפרסרים קלט שעובר את שתי התקרות, ולכן הם במסלול ``md-heavy`` של
+# ``unit-tests`` ב-``.github/workflows/ci.yml``. שאר הקובץ נשאר במסלול הרגיל.
+@pytest.mark.md_heavy
 def test_the_two_ceilings_can_be_turned_off_explicitly():
     """``None`` מכבה כל אחת מהן — על קלט שעובר את שתי ברירות המחדל."""
     text = "- a\n" * 10_000
@@ -666,6 +669,7 @@ def test_the_two_ceilings_can_be_turned_off_explicitly():
     assert len(doc.lines) == 10_001
 
 
+@pytest.mark.md_heavy
 def test_the_measuring_entries_count_past_the_ceilings():
     """``token_count`` ו-``front_matter_end`` רצים בלי תקרות, בכוונה.
 

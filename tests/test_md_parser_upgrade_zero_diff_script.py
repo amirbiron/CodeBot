@@ -20,6 +20,11 @@ import pytest
 
 pytest.importorskip("cmarkgfm")
 
+#: הקובץ כולו במסלול ``md-heavy`` של ``unit-tests`` ב-``.github/workflows/ci.yml``: הסקריפט
+#: שהוא בודק מצלם את פלט הפארסרים על קורפוס, על קלטים מעל התקרות ועל משפחות האורקל.
+#: הסימון מוגדר ב-``pytest.ini``.
+pytestmark = pytest.mark.md_heavy
+
 _REPO = Path(__file__).resolve().parent.parent
 
 #: משפחה אחת מ-``_COMPARED_FAMILIES`` ומשפחה אחת של שורה ב-``_KNOWN_DIVERGENCES`` —
