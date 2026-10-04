@@ -91,7 +91,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | עבודה **כבדת-זיכרון** בתוך handler או ג'וב — פרסור מסמך שלם, בניית ZIP, עיבוד תמונה, אמבדינג — או קביעת רוחב של מאגר או מספר עובדים: `max_workers`, `--workers`, `WEB_CONCURRENCY`, `Semaphore(n)`, `os.cpu_count()`, `os.process_cpu_count()` | `bugbot-rules/host-metric-in-container.md` — ממה גוזרים כמה עותקים רצים במקביל |
 | מידלוור ASGI/Starlette עם `await receive()` בתוך `__call__`, ‏`await request.body()` ב-`BaseHTTPMiddleware`, או `app.add_middleware(` של מידלוור שקורא, מפענח או מפרסר גוף בקשה | `bugbot-rules/body-read-outside-cheap-reject.md` — מי דוחה בזול לפניו, והאם הוא באמת לפניו |
 | לולאה או שרשרת שמחכה לצד השני — `await receive()`, `reader.read()`, שרשרת דגימה (`setTimeout` / `setInterval` עם `fetch`) — ובמיוחד כשמשהו מוחזק בזמן ההמתנה: דגל `inFlight`, חיץ, נעילה | `bugbot-rules/wait-without-own-deadline.md` — מי מגביל את ההמתנה הזו |
-| כותב ב-docstring, בהערה או בעמוד תיעוד **ערך או התנהגות שמוגדרים במקום אחר** — ברירת מחדל, קבוע עם המספר שלו, ספירה, קוד שגיאה, מה רכיב אחר עושה — או **משנה** ערך או התנהגות כאלה | `bugbot-rules/prose-restates-code-fact.md` — עותק של עובדה בתוך פרוזה |
+| כותב ב-docstring, בהערה, בעמוד תיעוד, בתיאור ה-PR או בשם של טסט **ערך או התנהגות שמוגדרים במקום אחר** — ברירת מחדל, קבוע עם המספר שלו, ספירה, קוד שגיאה, מה רכיב אחר עושה — או **משנה** ערך או התנהגות כאלה | `bugbot-rules/prose-restates-code-fact.md` — עותק של עובדה בתוך פרוזה |
 
 
 ### תמיד, בלי קשר לטבלה
