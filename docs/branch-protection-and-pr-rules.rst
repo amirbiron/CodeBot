@@ -17,9 +17,7 @@ Branch Protection & PR Rules
 
 CI – Required Checks
 --------------------
-- "🔍 Code Quality & Security"
-- "Unit Tests (3.11)"
-- "Unit Tests (3.12)"
+- אילו סטטוסים ה-PR חייב לעבור, ומתי סטטוס חדש מתחיל לחסום מיזוג — ב-:doc:`ci-cd`. העמוד הזה מפנה לשם במקום להחזיק עותק של הרשימה.
 
 קישורים
 -------

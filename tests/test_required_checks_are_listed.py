@@ -7,14 +7,17 @@
 את התבנית שלהם — ובודק כל רשימה בשני הכיוונים: שכל שם מופיע בה, ושאין בה שם של
 ``Unit Tests`` שהמטריצה כבר לא מייצרת.
 
-``docs/testing.rst`` אינו ברשימת הקבצים בכוונה: הוא מפנה ל-``docs/ci-cd.rst`` במקום
-להחזיק עותק משלו.
+עמוד שרק צריך להזכיר את הרשימה מפנה ל-``docs/ci-cd.rst`` במקום להחזיק עותק, ולכן
+אינו כאן. קובץ שכן מחזיק עותק בלי להיות ב-``LISTS`` נתפס ב-
+``test_every_file_that_names_a_unit_tests_status_is_checked``, שמחפש שמות של סטטוסים
+בכל הקבצים שבמעקב של git — כי גם ``LISTS`` נכתבת ביד, ועותק שנשכח ממנה לא היה נבדק.
 """
 
 from __future__ import annotations
 
 import itertools
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -28,7 +31,16 @@ LISTS = (
     Path(".github") / "pull_request_template.md",
     Path(".github") / "CONTRIBUTING.md",
     Path(".github") / "agents" / "my-agent.agent.md",
+    Path(".cursorrules"),
 )
+
+#: קבצים שמזכירים שמות של סטטוסים בלי להיות רשימה שפועלים לפיה, ולכן אינם נבדקים מול
+#: המטריצה. לכל קובץ הסיבה שלו.
+SNAPSHOTS = {
+    Path("FEATURE_SUGGESTIONS") / "DOCUMENTATION_NEEDS.md": (
+        "מסמך הצעות לתוכן של אתר התיעוד: הרשימות בו הן הטקסט שהוצע בזמנו, לא מקור שפועלים לפיו"
+    ),
+}
 
 #: ביטוי של GitHub Actions שקורא ערך מהמטריצה, כמו ``${{ matrix.label }}``.
 _MATRIX_EXPRESSION = re.compile(r"\$\{\{\s*matrix\.([\w-]+)\s*\}\}")
@@ -98,8 +110,36 @@ def _expected_statuses() -> set[str]:
     return names
 
 
+def _tracked_files_naming_a_unit_tests_status() -> set[Path]:
+    """כל קובץ במעקב של git שמופיע בו שם של סטטוס ``Unit Tests``.
+
+    ``git grep`` על הקידומת שמשותפת לכל השמות רק בוחר מועמדים, וההכרעה היא של
+    ``_UNIT_STATUS`` — כך שהצורה של שם סטטוס מוגדרת במקום אחד, ולא פעם בפייתון ופעם
+    בתחביר של git. הדגלים, לפי ``Documentation/git-grep.txt`` ב-git 2.43: ``-l`` שמות
+    הקבצים בלבד, ``-z`` כל שם מסתיים ב-``\\0`` ומודפס כמו שהוא, ``-I`` בלי קבצים בינאריים,
+    ``-F`` מחרוזת ולא ביטוי. קוד היציאה הוא ``!hit`` (``builtin/grep.c``), כלומר 1 הוא
+    "אף קובץ". כל קוד אחר — למשל 128 מחוץ לעבודה של git — הוא כשל ולא תשובה, ולכן
+    הטסט נכשל ולא מדלג: בלי git הוא לא בדק כלום.
+    """
+    proc = subprocess.run(
+        ["git", "grep", "-z", "-l", "-I", "-F", "Unit Tests"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode in (0, 1), f"git grep נכשל (קוד {proc.returncode}): {proc.stderr.strip()}"
+    found = set()
+    for name in proc.stdout.split("\0"):
+        # errors="replace": מחפשים שם שכולו ASCII, ובית שאינו UTF-8 במקום אחר בקובץ לא
+        # משנה את ההתאמה.
+        if name and _UNIT_STATUS.search((ROOT / name).read_text(encoding="utf-8", errors="replace")):
+            found.add(Path(name))
+    return found
+
+
 def test_the_status_names_come_from_the_matrix_of_unit_tests():
-    """הבסיס לשני הטסטים שאחריו: כל מסלול מקבל שם משלו, ושמות של ``Unit Tests``."""
+    """הבסיס לטסטים שאחריו: כל מסלול מקבל שם משלו, ו-``_UNIT_STATUS`` מזהה כל שם."""
     job = _unit_tests_job()
     names = _expected_statuses()
     assert len(names) == len(_matrix_combinations(job)), f"שני מסלולים מדווחים באותו שם: {sorted(names)}"
@@ -130,3 +170,23 @@ def test_no_list_of_required_checks_names_a_unit_tests_status_that_ci_does_not_r
             if match.group(0) not in expected
         )
     assert not stale, "שמות שה-CI אינו מדווח:\n" + "\n".join(stale)
+
+
+def test_every_file_that_names_a_unit_tests_status_is_checked():
+    """עותק של הרשימה בקובץ שאינו ב-``LISTS`` היה מתיישן בלי שאיש ידע.
+
+    כך בדיוק קרה כשהמסלול ``md-heavy`` נוסף: הקבצים של ``LISTS`` נאספו בחיפוש ידני,
+    וחלק מהעותקים לא עלו בו. לכן הטסט מחפש בעצמו, בכל הקבצים שבמעקב. קובץ שנמצא צריך
+    אחד משלושה: להיכנס ל-``LISTS`` ולהיבדק, להפנות ל-``docs/ci-cd.rst`` במקום להחזיק
+    עותק, או — כשהוא תמונת מצב ולא רשימה שפועלים לפיה — להיכנס ל-``SNAPSHOTS`` עם
+    הסיבה. ובכיוון ההפוך: פטור לקובץ שכבר לא מזכיר אף סטטוס הוא פטור מת.
+    """
+    found = _tracked_files_naming_a_unit_tests_status()
+    unchecked = sorted(path.as_posix() for path in found - set(LISTS) - set(SNAPSHOTS))
+    assert not unchecked, (
+        "קבצים שמזכירים סטטוס של Unit Tests ואינם נבדקים מול המטריצה. הוסיפו אותם ל-LISTS, "
+        "החליפו את העותק בהפניה ל-docs/ci-cd.rst, או — אם זו תמונת מצב — הוסיפו אותם "
+        "ל-SNAPSHOTS עם הסיבה:\n" + "\n".join(unchecked)
+    )
+    dead = sorted(path.as_posix() for path in set(SNAPSHOTS) - found)
+    assert not dead, "פטורים לקבצים שכבר לא מזכירים אף סטטוס — הסירו אותם מ-SNAPSHOTS:\n" + "\n".join(dead)

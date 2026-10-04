@@ -19,7 +19,7 @@ CI/CD Guide
 - Unit Tests md-heavy (3.11)
 - Unit Tests md-heavy (3.12)
 
-שמות הסטטוסים של ``Unit Tests`` נבנים מהמטריצה של הג'וב ``unit-tests`` ב-``.github/workflows/ci.yml`` (``label`` ו-``python-version``). אותם שמות כתובים גם ב-``.github/pull_request_template.md``, ב-``.github/CONTRIBUTING.md`` וב-``.github/agents/my-agent.agent.md``, ו-``tests/test_required_checks_are_listed.py`` משווה את כל הרשימות האלה, וגם את הרשימה כאן, למטריצה.
+שמות הסטטוסים של ``Unit Tests`` נבנים מהמטריצה של הג'וב ``unit-tests`` ב-``.github/workflows/ci.yml`` (``label`` ו-``python-version``). אותם שמות כתובים ביד גם בקבצים אחרים בריפו, ו-``tests/test_required_checks_are_listed.py`` משווה למטריצה כל קובץ כזה שרשום בו (``LISTS``), כולל העמוד הזה. הוא נכשל גם כשעותק מופיע בקובץ שאינו רשום בו, אלא אם הקובץ מסומן שם כתמונת מצב ולא כרשימה שפועלים לפיה (``SNAPSHOTS``). עמוד שרק צריך להזכיר את הרשימה מפנה לכאן במקום להעתיק אותה.
 
 **סטטוס חדש אינו חוסם מיזוג עד שמסמנים אותו כבדיקת חובה** בכלל שמגן על ``main`` בהגדרות של GitHub (Require status checks to pass before merging). GitHub מציע לבחירה רק בדיקה שעברה בהצלחה בריפו בשבעת הימים האחרונים (GitHub Docs, "Troubleshooting required status checks"), ולכן מסמנים אותה אחרי שה-CI של ה-PR שהוסיף אותה עבר.
 
