@@ -338,7 +338,9 @@ def test_a_result_over_the_ceiling_is_the_same_refusal_as_before():
     """``content_too_long`` עם ``max`` — בדיוק התשובה שהייתה לפני #3495, ושום דבר אינו נכתב.
 
     #3495 הקדים את הבדיקה לפני שהתוצאה נבנית (``max_size`` של ``_apply_edit``), ולא
-    שינה את מה שהסוכן מקבל: אותו קוד, אותו ``max``, ובלי שדות נוספים. ולכן הטסט עובר
+    שינה את מה שהסוכן מקבל על תוצאה כזו: אותו קוד, אותו ``max``, ובלי שדות נוספים.
+    (תוצאה של רווחים בלבד היא הקצה היחיד שהתשובה שלו השתנתה —
+    ``test_whitespace_only_over_the_ceiling_is_content_too_long``.) ולכן הטסט עובר
     גם על הקוד שלפני התיקון — הוא מקבע את החוזה, והטסט על שיא ההקצאה
     (``test_a_note_replace_all_is_checked_before_its_result_is_built`` ב-
     ``tests/test_mcp_multi_edit.py``) מקבע את הרגע שבו הסירוב מגיע.
