@@ -21,6 +21,19 @@ from services.git_mirror_service import GitMirrorService
 class _Coll:
     def __init__(self, docs):
         self.docs = list(docs)
+        self.asked = []
+
+    def with_options(self, codec_options=None, read_preference=None, write_concern=None, read_concern=None):
+        # pymongo's keyword names (4.15.3, ``Collection.with_options``), as in
+        # ``tests/_fake_mongo.py``: a misspelled option fails here as it would there.
+        passed = {
+            "codec_options": codec_options,
+            "read_preference": read_preference,
+            "write_concern": write_concern,
+            "read_concern": read_concern,
+        }
+        self.asked.append({key: value for key, value in passed.items() if value is not None})
+        return self
 
     def find(self, q, projection=None):
         return [dict(d) for d in self.docs]
@@ -60,10 +73,14 @@ class _Mirror:
             return {"success": False, "message": "boom"}
         return {"success": True}
 
-    def list_mirror_names(self):
+    def list_managed_mirror_names(self):
         # This stub has no disk, so the pruning step finds nothing to compare.
         # Pruning is tested against real mirrors, further down.
         return []
+
+    def delete_mirror(self, name):
+        self.calls.append(("delete", name))
+        return {"success": True, "existed": True}
 
 
 def _meta(name="alpha", url="https://github.com/o/alpha", sha="abc", branch="main"):
@@ -103,6 +120,20 @@ def test_unknown_sha_triggers_fetch():
     mirror = _Mirror(exists=True, local_sha=None)
     stats = refresh_once(_DB([_meta(sha="new")]), mirror)
     assert stats["fetched"] == 1
+
+
+def test_repo_metadata_is_read_from_the_primary():
+    """Pruning trusts this read to name every repo; a lagging secondary could leave one out.
+
+    ``ReadPreference.PRIMARY`` explicitly, whatever ``readPreference`` the
+    connection string carries. Mutation that fails it: the ``find`` without
+    ``with_options``.
+    """
+    from pymongo import ReadPreference
+
+    db = _DB([_meta()])
+    refresh_once(db, _Mirror())
+    assert db._repos.asked == [{"read_preference": ReadPreference.PRIMARY}]
 
 
 def test_errors_are_contained_and_flag_cleared():
@@ -248,14 +279,22 @@ def test_mirror_without_a_record_is_pruned_and_the_others_stay(disk, caplog):
 
 @pytest.mark.parametrize(
     "records",
-    [[], [{"repo_name": ""}, {"repo_name": None}, {"repo_url": "https://github.com/o/x"}]],
-    ids=["no-records", "records-without-a-name"],
+    [
+        [],
+        [{"repo_name": ""}, {"repo_name": None}, {"repo_url": "https://github.com/o/x"}],
+        [{"repo_name": "not a mirror"}, {"repo_name": {"x": 1}}, {"repo_name": "a.b"}],
+        [{"repo_name": "other-repo"}],
+    ],
+    ids=["no-records", "records-without-a-name", "names-no-mirror-can-have", "a-different-database"],
 )
-def test_no_repo_names_prunes_nothing_and_warns(disk, caplog, records):
-    """An empty answer points at the wrong database, not at every repo being removed.
+def test_a_read_that_names_none_of_the_mirrors_prunes_nothing_and_warns(disk, caplog, records):
+    """A read that recognizes nothing on disk is no reason to delete every mirror.
 
-    Records without a name are the same answer: none of them protects a mirror,
-    so pruning on them would delete every mirror on the disk.
+    An empty answer, records without a name, records whose names no mirror can
+    carry, and a database with other repos all look the same from here. The
+    third case is the one an empty-only check let through: the names made the
+    read non-empty, and every mirror went. None of the records has a
+    ``repo_url``, so the pass never reaches the network.
     """
     disk.make("alpha")
     disk.make("beta")
@@ -265,12 +304,23 @@ def test_no_repo_names_prunes_nothing_and_warns(disk, caplog, records):
 
     assert disk.has("alpha") and disk.has("beta")
     assert stats["pruned"] == 0
-    assert "not pruning 2 local mirror(s)" in caplog.text
+    assert "names none of the 2 local mirror(s)" in caplog.text
+
+
+def test_no_warning_when_there_is_no_mirror_to_spare(disk, caplog):
+    with caplog.at_level(logging.WARNING, logger="mcp_server.repo_autosync"):
+        stats = refresh_once(_DB([]), disk.svc)
+
+    assert "local mirror(s)" not in caplog.text
+    assert stats["pruned"] == 0 and stats["errors"] == 0
 
 
 class _BrokenDB:
     def __getitem__(self, name):
         assert name == "repo_metadata"
+        return self
+
+    def with_options(self, **options):
         return self
 
     def find(self, *args, **kwargs):
@@ -369,17 +419,27 @@ def test_a_delete_that_leaves_the_directory_is_not_counted_as_pruned(disk, caplo
     assert "still on disk" in caplog.text
 
 
-def test_an_unlistable_mirror_directory_prunes_nothing(disk, caplog):
+def test_an_unreadable_mirror_directory_prunes_nothing_and_counts_an_error(disk, caplog, monkeypatch):
+    """The real listing, with the directory unreadable: an error, not an empty disk.
+
+    ``Path.glob`` turned this into ``[]`` and the pass looked clean. The listing
+    fails only for the mirror directory itself — a test running as root could
+    not make it unreadable with ``chmod``.
+    """
     alpha = disk.make("alpha")
     disk.make("orphan")
+    real_scandir = os.scandir
 
-    class _Unlistable(GitMirrorService):
-        def list_mirror_names(self):
-            raise OSError(5, "Input/output error")
+    def scandir(path="."):
+        if os.fspath(path) == str(disk.base):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
 
     with caplog.at_level(logging.WARNING, logger="mcp_server.repo_autosync"):
-        stats = refresh_once(_DB([_meta("alpha", sha=alpha)]), _Unlistable(base_path=str(disk.base)))
+        stats = refresh_once(_DB([_meta("alpha", sha=alpha)]), disk.svc)
 
     assert disk.has("orphan")
-    assert stats["pruned"] == 0
+    assert stats["pruned"] == 0 and stats["errors"] == 1
     assert "could not list the local mirrors" in caplog.text
