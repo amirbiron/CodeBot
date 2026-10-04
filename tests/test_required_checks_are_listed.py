@@ -118,7 +118,11 @@ def _matrix_combinations(job: dict) -> list[dict]:
     בניחוש. מאותה סיבה הטסט גם אינו פורש ``exclude``, ונכשל עליו.
     """
     matrix = job["strategy"]["matrix"]
-    assert "exclude" not in matrix, "המטריצה של unit-tests משתמשת ב-exclude, והטסט אינו יודע לפרוש אותו"
+    assert "exclude" not in matrix, (
+        "המטריצה של unit-tests משתמשת ב-exclude, והטסט אינו יודע לפרוש אותו. לפני שמוסיפים "
+        "exclude, הוסיפו ל-_matrix_combinations את הכלל של GitHub: הצירופים ש-exclude מתאר מוסרים, "
+        "ורק אחר כך include מעובד"
+    )
     axes = {key: values for key, values in matrix.items() if key != "include"}
     for key, values in axes.items():
         assert isinstance(values, list), f"ציר המטריצה {key!r} אינו רשימה של ערכים: {values!r}"

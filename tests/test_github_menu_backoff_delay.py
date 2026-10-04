@@ -3,12 +3,18 @@ import time
 import types
 import pytest
 
-from github_menu_handler import GitHubMenuHandler
+# הטסטים כאן משנים את ``github_backoff_state`` במודול, ולכן בונים את ``GitHubMenuHandler``
+# מאותו אובייקט מודול שהם משנים, ולא ממחלקה שיובאה בזמן האיסוף. טסט שמייבא את
+# ``github_menu_handler`` מחדש ולא מחזיר את הקודם משאיר ב-``sys.modules`` מודול אחר, והשינוי
+# נוחת אז במודול שהקוד שרץ לא קורא ממנו. כך היה עם ``tests/test_error_recovery_db_and_telegram.py``
+# עד PR #3524.
 
 
 @pytest.mark.asyncio
 async def test_apply_rate_limit_delay_respects_backoff(monkeypatch):
-    h = GitHubMenuHandler()
+    import github_menu_handler as mod
+
+    h = mod.GitHubMenuHandler()
     user_id = 123
 
     # Seed last call now
@@ -22,7 +28,6 @@ async def test_apply_rate_limit_delay_respects_backoff(monkeypatch):
         def get(self):
             return _Info()
     # Patch services.github_backoff_state reference inside module
-    import github_menu_handler as mod
     monkeypatch.setattr(mod, "github_backoff_state", _State(), raising=False)
 
     # ההשהיה הבסיסית מאופסת כאן במפורש, כדי שכל ההמתנה תבוא מה-backoff. כשהיא רצה
@@ -43,8 +48,8 @@ async def test_apply_rate_limit_delay_respects_backoff(monkeypatch):
 async def test_apply_rate_limit_delay_waits_the_base_delay_between_two_calls(monkeypatch):
     """שתי קריאות צמודות של אותו משתמש: הראשונה עוברת מיד, והשנייה ממתינה את ההשהיה הבסיסית.
 
-    ``tests/conftest.py`` מאפס את ``GITHUB_API_BASE_DELAY`` לכל הטסטים, ולכן זה הטסט שעובר
-    דרך ההמתנה האמיתית. הוא קובע ערך קטן משלו, ומנטרל את מצב ה-backoff הגלובלי, כדי שההמתנה
+    ``tests/conftest.py`` מאפס את ``GITHUB_API_BASE_DELAY`` לכל הטסטים, ולכן הטסט הזה קובע ערך
+    קטן משלו, כדי לעבור דרך ההמתנה האמיתית. הוא גם מנטרל את מצב ה-backoff הגלובלי, כדי שההמתנה
     תבוא רק מההשהיה הבסיסית.
     """
     import github_menu_handler as mod
@@ -52,7 +57,7 @@ async def test_apply_rate_limit_delay_waits_the_base_delay_between_two_calls(mon
     delay = 0.3
     monkeypatch.setattr(mod, "github_backoff_state", None, raising=False)
     monkeypatch.setenv("GITHUB_API_BASE_DELAY", str(delay))
-    h = GitHubMenuHandler()
+    h = mod.GitHubMenuHandler()
 
     start = time.monotonic()
     await h.apply_rate_limit_delay(7)
@@ -60,5 +65,8 @@ async def test_apply_rate_limit_delay_waits_the_base_delay_between_two_calls(mon
     await h.apply_rate_limit_delay(7)
     second = time.monotonic() - start - first
 
-    assert first < delay / 2, f"הקריאה הראשונה לא אמורה להמתין, והמתינה {first:.3f} שנ'"
-    assert second >= delay * 0.8, f"הקריאה השנייה הייתה אמורה להמתין כ-{delay} שנ', והמתינה {second:.3f}"
+    # סף אחד בין "המתינה" ל"לא המתינה": קריאה שממתינה את ההשהיה עוברת אותו, וקריאה שלא
+    # ממתינה נשארת רחוק מתחתיו גם במכונה עמוסה.
+    waited = delay * 0.8
+    assert first < waited, f"הקריאה הראשונה לא אמורה להמתין, והמתינה {first:.3f} שנ'"
+    assert second >= waited, f"הקריאה השנייה הייתה אמורה להמתין כ-{delay} שנ', והמתינה {second:.3f}"

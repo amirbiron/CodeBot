@@ -51,15 +51,19 @@ os.environ.setdefault('REDIS_SOCKET_TIMEOUT', '0.25')
 # אליה כשכל קריאה ממתינה. טסט שהנושא שלו הוא ההשהיה עצמה קובע אותה בעצמו
 # (``monkeypatch.setenv``), כמו ב-``tests/test_github_menu_backoff_delay.py``. והשהיה חדשה
 # בקוד הייצור מקבלת כאן ערך בדיקה באותו PR, ולא נטרול בקובץ הטסטים שבמקרה שם לב אליה.
-os.environ.setdefault('GITHUB_API_BASE_DELAY', '0')
-os.environ.setdefault('GITHUB_BACKOFF_DELAY', '0')
-os.environ.setdefault('HTTP_RESILIENCE_MAX_ATTEMPTS', '1')
-os.environ.setdefault('HTTP_RESILIENCE_BACKOFF_BASE', '0')
-os.environ.setdefault('HTTP_RESILIENCE_BACKOFF_MAX', '0')
-os.environ.setdefault('HTTP_RESILIENCE_JITTER', '0')
-os.environ.setdefault('REQUESTS_RETRIES', '0')
-os.environ.setdefault('REQUESTS_RETRY_BACKOFF', '0')
-os.environ.setdefault('AIOHTTP_TIMEOUT_TOTAL', '6')
+#
+# השמה ולא ``setdefault`` כמו בשאר הבלוק: כאן אין ערך מבחוץ שהטסטים צריכים לכבד, ו-
+# ``setdefault`` היה משאיר ערך שהמעטפת מייצאת — למשל כשמריצים באותה מעטפת גם את הבוט —
+# ומחזיר בשקט את ההמתנה האמיתית.
+os.environ['GITHUB_API_BASE_DELAY'] = '0'
+os.environ['GITHUB_BACKOFF_DELAY'] = '0'
+os.environ['HTTP_RESILIENCE_MAX_ATTEMPTS'] = '1'
+os.environ['HTTP_RESILIENCE_BACKOFF_BASE'] = '0'
+os.environ['HTTP_RESILIENCE_BACKOFF_MAX'] = '0'
+os.environ['HTTP_RESILIENCE_JITTER'] = '0'
+os.environ['REQUESTS_RETRIES'] = '0'
+os.environ['REQUESTS_RETRY_BACKOFF'] = '0'
+os.environ['AIOHTTP_TIMEOUT_TOTAL'] = '6'
 
 # Import stubs so any import of `telegram` succeeds in tests
 try:

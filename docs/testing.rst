@@ -130,7 +130,7 @@ Mocking HTTP ב‑github_menu_handler
 השהיות של קוד הייצור בטסטים
 ---------------------------
 
-**קוד הייצור ממתין בכוונה, והטסטים לא ממתינים איתו.** ה-rate limit בין קריאות ל-GitHub (``apply_rate_limit_delay`` ב-``github_menu_handler.py``), ה-retry עם backoff (``resilience.py``, ``http_sync.py``) ותקרת ההמתנה לתשובה ב-``http_async.py`` ממתינים באמת, וטסט שעובר בהם ממתין ועובר בלי שאיש יראה. לכן ``tests/conftest.py`` קובע להם ערכי בדיקה פעם אחת, בבלוק משתני הסביבה שבראש הקובץ. הערכים חלים על כל הרצה: ``ci.yml``, ``deploy.yml`` והרצה מקומית, ולכן הם לא נקבעים ב-env של workflow.
+**קוד הייצור ממתין בכוונה, והטסטים לא ממתינים איתו.** ה-rate limit בין קריאות ל-GitHub (``apply_rate_limit_delay`` ב-``github_menu_handler.py``), ה-retry עם backoff (``resilience.py``, ``http_sync.py``) ותקרת ההמתנה לתשובה ב-``http_async.py`` ממתינים באמת, וטסט שעובר בהם ממתין ועובר בלי שאיש יראה. לכן ``tests/conftest.py`` קובע להם ערכי בדיקה פעם אחת, בבלוק משתני הסביבה שלו. הוא קובע אותם בהשמה ולא ב-``setdefault``, ולכן הם חלים על כל הרצה — ``ci.yml``, ``deploy.yml`` והרצה מקומית — גם כשהמעטפת מייצאת ערך אחר, ומאותה סיבה הם לא נקבעים ב-env של workflow.
 
 - **טסט שהנושא שלו הוא ההשהיה עצמה קובע אותה בעצמו** ב-``monkeypatch.setenv``, ולא נשען על ברירת המחדל של הייצור או של ``tests/conftest.py``. כך עושים ``tests/test_github_menu_backoff_delay.py`` ו-``tests/test_http_sync_adapter_retries.py``.
 - **השהיה חדשה בקוד הייצור מקבלת ערך בדיקה באותו בלוק, באותו PR.** לא מנטרלים אותה בקובץ הטסטים שבמקרה שם לב אליה, כי הקובץ הבא לא יידע על כך.
