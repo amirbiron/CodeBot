@@ -715,12 +715,19 @@ def _save_description_param_doc(limit: int) -> str:
 
 
 def _update_description_param_doc(limit: int) -> str:
-    """תיאור ``description`` של ``codekeeper_update_file_description``."""
+    """תיאור ``description`` של ``codekeeper_update_file_description``.
+
+    החריג ("accepted at any length") נושא את **הסיבה**, באותן מילים של תיאור הכלי ("says
+    it still fits") ושל ``docs/mcp-server.rst`` ("אישור שהוא עדיין מתאים"): בלעדיה, מי
+    שקורא רק את הפרמטר רואה כלל וחריג, ומי שקורא רק את הכלי רואה סימון "נבדק" — ורק
+    מי שקורא את שניהם מבין שזה אותו מנגנון. "only" לא נכתב כאן בכוונה: שליחה חוזרת
+    חותמת גם ``updated_at`` (``update_file_metadata_in``), ולכן היא לא "רק" סימון.
+    """
     return (
         f"At most {limit:,} characters (characters, not bytes). A longer one is refused as "
         "description_too_long, with max_chars and actual_chars, and nothing is written; "
-        "resending the text already stored is accepted at any length. An empty string "
-        "clears the description."
+        "resending the text already stored is accepted at any length: that is not a new "
+        "description but a check that it still fits. An empty string clears the description."
     )
 
 
@@ -2956,8 +2963,16 @@ def build_mcp(
         # מהקבוע ברישום); כאן רק שמות שדות הסירוב, כדי שסוכן יידע מה לקרוא בו.
         # כדי להישאר בתקרה המקומית של הכלי (``tests/test_mcp_update_file_description.py``)
         # המשפט נכנס במקום מילים, לא לצידן — אף עובדה לא יצאה.
+        #
+        # **"existing" נשאר, ובכוונה.** הכלי אינו יוצר קובץ, ו-"Replace a file's
+        # description" אינו אומר את זה; בקיצור הראשון המילה יצאה, וחזרה על חשבון
+        # "without changing its content" ← "not its content" (אותה עובדה). טסט מקבע.
+        # עובדה חדשה על **ערך** הפרמטר שייכת ל-``_update_description_param_doc`` ולא
+        # לכאן — אבל אחרי המשפט הראשון שלו היא לא תגיע ללקוח שמקצר תיאורי פרמטרים
+        # לכ-120 תווים (האזהרה ליד ``_TOOL_DESCRIPTION_MAX_CHARS``), ולכן מה שכל סוכן
+        # חייב לראות נשאר כאן, במקום משפט אחר.
         description=(
-            "Replace a file's description without changing its content. Use it "
+            "Replace an existing file's description, not its content. Use it "
             "when the stored one no longer matches the file: codekeeper_save_file "
             "sets one only on a new file, and edits keep the old one. No new "
             "version is created, so the previous description is not kept in "

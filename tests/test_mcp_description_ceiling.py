@@ -584,6 +584,30 @@ def test_both_tools_open_their_description_parameter_with_the_ceiling(mcp):
         assert field in update.description, (field, update.description)
 
 
+def test_the_update_tool_says_the_file_must_already_exist(mcp):
+    """``codekeeper_update_file_description`` אינו יוצר קובץ, והתיאור שלו אומר את זה.
+
+    המילה "existing" יצאה בקיצור שפינה מקום לשדות הסירוב, ו-"Replace a file's
+    description" אינו רומז שהקובץ חייב להיות קיים. נופלת אם קיצור הבא יוריד אותה שוב.
+    """
+    update = _schemas(mcp)["codekeeper_update_file_description"]
+    assert update.description.startswith("Replace an existing file's description"), update.description
+
+
+def test_the_resend_exception_gives_its_reason_in_the_words_of_the_tool(mcp):
+    """שליחה חוזרת של הטקסט השמור — אותו מנגנון, באותן מילים, בפרמטר ובכלי.
+
+    תיאור הפרמטר אומר שהטקסט השמור "accepted at any length", ותיאור הכלי אומר
+    ששליחה חוזרת "says it still fits". שניהם נכונים, אבל רק מי שקורא את שניהם מבין
+    שזה אותו דבר — ולכן הפרמטר נותן את הסיבה, באותו "still fits".
+    """
+    update = _schemas(mcp)["codekeeper_update_file_description"]
+    param = _description_param(update)
+    assert "accepted at any length" in param, param
+    assert "still fits" in param, param
+    assert "still fits" in update.description, update.description
+
+
 def test_the_descriptions_are_built_from_the_constant_the_tools_enforce(monkeypatch, store):
     """הקבוע זז — התיאורים **והאכיפה** זזים איתו, לאותו מספר.
 
