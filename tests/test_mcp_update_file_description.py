@@ -193,10 +193,10 @@ async def test_the_description_changes_while_content_and_version_stay_put(wired_
 
 
 async def test_the_reply_reports_the_unchanged_version_and_the_lost_previous_value(wired_mongo):
-    """התשובה נושאת את התיאור הקודם — **המקום היחיד שבו הוא עוד קיים**.
+    """התשובה נושאת את התיאור הקודם — **הקריאה עצמה לא שומרת ממנו עותק**.
 
-    זה לא נוחות: אין גרסה חדשה, ולכן הערך הקודם אינו נשמר בשום מקום
-    ואינו ניתן לשחזור אחרי הקריאה הזו. ``version_created: False`` נאמר
+    זה לא נוחות: אין גרסה חדשה, ולכן אחרי הקריאה הזו הערך הקודם קיים בתשובה,
+    ובגרסה קודמת רק אם הוא הועתק ממנה לאחרונה. ``version_created: False`` נאמר
     במפורש כדי שסוכן לא יסיק מהצלחה שנוצרה גרסה שאפשר לחזור אליה.
     """
     collection = _seed(wired_mongo)
@@ -377,13 +377,19 @@ async def test_a_read_only_token_is_refused_and_nothing_is_written(wired_mongo):
 
 
 async def test_an_over_long_description_is_refused_instead_of_truncated(wired_mongo):
-    """תיאור ארוך מדי נדחה, ואינו נחתך בשקט.
+    """תיאור ארוך מדי נדחה, ואינו נחתך בשקט — והסירוב אומר באיזו יחידה.
 
     **זו ההבחנה בין שני הערוצים.** הראוט בוובאפ חותך, כי אדם רואה את
     התוצאה. סוכן אינו רואה אותה, וחיתוך שקט הוא טקסט שאבד בלי שיידע —
     לכן כאן זו שגיאה שנושאת את המגבלה, והמסד נשאר על הערך הישן.
+
+    **``max_chars`` ו-``actual_chars``, ולא ``max``** (#3489): עד היום הסירוב נשא
+    מספר בלי יחידה ובלי האורך שנשלח, וסוכן עם 413 תווים עבריים (625 בתים) לא יכול
+    היה לדעת ממנו אם הטקסט המקוצר שלו נכנס. ``max`` יצא, כדי שלא יהיו שני שדות
+    שאומרים את אותו דבר. ``message`` נוקב ביחידה במילים. נופלת על הקוד שלפני: שם
+    הסירוב נשא ``max`` בלבד.
     """
-    from database.repository import FILE_DESCRIPTION_MAX_CHARS
+    from file_description import FILE_DESCRIPTION_MAX_CHARS
 
     collection = _seed(wired_mongo)
     mcp = _build_mcp(collection)
@@ -393,7 +399,10 @@ async def test_an_over_long_description_is_refused_instead_of_truncated(wired_mo
 
     assert result["ok"] is False
     assert result["error"] == "description_too_long", result
-    assert result["max"] == FILE_DESCRIPTION_MAX_CHARS
+    assert result["max_chars"] == FILE_DESCRIPTION_MAX_CHARS
+    assert result["actual_chars"] == FILE_DESCRIPTION_MAX_CHARS + 1
+    assert "max" not in result, result
+    assert "characters, not bytes" in result["message"], result
     doc = collection.find_one({"user_id": USER_ID, "file_name": FILE_NAME})
     assert doc["description"] == OLD_DESCRIPTION, "נכתב תיאור חתוך"
 
@@ -503,9 +512,12 @@ async def test_the_tool_description_stays_short_enough_to_be_read():
     פרטים שאינם משנים בזמן הבחירה — מה הוובאפ מציע, שאין התראה, שתגיות
     אינן נוגעות, וכן הלאה. הקיצור הוריד אותו מ-1,001 ל-451.
 
-    600 הוא תקרה מקומית לכלי הזה בלבד, ונבחרה עם מרווח של כשליש מעל
-    הניסוח הנוכחי: מספיק למשפט או שניים של גדילה טבעית, ולא מספיק
-    לחזרה לצורה שממנה קיצרנו.
+    600 הוא תקרה מקומית לכלי הזה בלבד. היא נבחרה כשהניסוח היה 451 תווים,
+    עם מרווח של כשליש — מספיק למשפט או שניים של גדילה טבעית, ולא מספיק
+    לחזרה לצורה שממנה קיצרנו. שני המשפטים האלה כבר באו: גיל התיאור,
+    ושדות הסירוב על תיאור ארוך (#3489), שנכנס במקום מילים בניסוח הקיים ולא
+    לצידן. משפט נוסף מכאן מחליף משפט, ולא מצטרף אליו — או מנמק כאן למה
+    התקרה זזה.
     """
     from mcp_server.server import build_mcp
 

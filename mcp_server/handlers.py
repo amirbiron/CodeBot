@@ -29,6 +29,11 @@ from sticky_notes_target import DEFAULT_NOTE_COLOR_ID, resolve_note_color
 # המפרט של העלאות ה-MCP — מודול שורש טהור, בלי מסד ובלי MCP, ולכן מותר כאן.
 from mcp_uploads import UPLOAD_TTL_SECONDS, UploadStorageUnavailable, is_upload_id
 
+# תקרת האורך של תיאור קובץ — מודול שורש טהור (``typing`` בלבד), ולכן מותר כאן. עד
+# #3489 הקבוע ישב ב-``database.repository``, והמודול הזה לא יכול היה לייבא אותו
+# בלי לגרור את חבילת המסד — ולכן ``codekeeper_save_file`` לא אכף אותו כלל.
+from file_description import description_length_error
+
 MAX_PER_PAGE = 200
 MAX_SEARCH_LIMIT = 100
 MAX_COLLECTIONS_LIMIT = 500
@@ -917,6 +922,63 @@ def _upload_used_up(res: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _over_the_description_ceiling(refusal: dict[str, int]) -> str:
+    """החצי המשותף של שתי ההודעות על תיאור ארוך מהתקרה — המספרים והיחידה.
+
+    משפט אחד לשני הערוצים (הסימון של ``codekeeper_save_file`` והסירוב של
+    ``codekeeper_update_file_description``), כי "תווים, לא בתים" הוא בדיוק מה שהיה חסר
+    בסירוב עד #3489: סוכן עם 413 תווים עבריים (625 בתים) לא ידע מ-``max`` לבדו אם
+    הטקסט המקוצר שלו נכנס. המספרים — מהמילון שהחזירה ``description_length_error``.
+    את נושא המשפט ("the description is", "which is") מוסיף מי שקורא לפונקציה,
+    כי כל הודעה פותחת אחרת.
+    """
+    return (
+        f"{refusal['actual_chars']:,} characters, over the "
+        f"{refusal['max_chars']:,}-character ceiling (characters, not bytes)"
+    )
+
+
+def _description_not_saved(refusal: dict[str, int]) -> dict[str, Any]:
+    """מה ש-``codekeeper_save_file`` מוסיף כשהתיאור ארוך מהתקרה: הקובץ נשמר, התיאור לא.
+
+    **סימון ולא סירוב**, באותה תבנית של ``content_changed``: הכתיבה קרתה, ו-``ok:
+    false`` היה שולח את הסוכן לשלוח שוב את כל התוכן — עד ``MAX_CODE_SIZE`` תווים —
+    בגלל מטא-דאטה, ולהתנגש ב-``file_exists`` על הקובץ שכבר נשמר. ולכן גם ההפניה היא
+    לכלי שמעדכן תיאור בלבד, ולא לשמירה חוזרת.
+
+    ``max_chars`` ו-``actual_chars`` מהפונקציה המשותפת, באותם שמות של הסירוב של
+    ``codekeeper_update_file_description`` — ערוץ אחד לא אמור לדבר אחרת מהשני על
+    אותה תקרה.
+    """
+    return {
+        "description_saved": False,
+        **refusal,
+        "message": "The file was saved without this description, which is "
+        + _over_the_description_ceiling(refusal) + ".",
+        "hint": (
+            f"Shorten it to at most {refusal['max_chars']:,} characters and set it with "
+            "codekeeper_update_file_description; the file itself does not need to be saved again."
+        ),
+    }
+
+
+def _saved_description(res: dict[str, Any], sent: str) -> dict[str, Any]:
+    """``description_saved`` של שמירה שהתיאור שלה **נשלח** לכתיבה — לפי מה שנקרא חזרה.
+
+    **קרא את המצב, אל תהדהד את הבקשה** (K11 ב-``amir-bug-patterns``): ה-backend קרא
+    את המסמך שנכתב לפי ה-``_id`` שה-insert החזיר, ו-``file.description`` הוא מה
+    שנשמר בפועל. ``content_changed: null`` הוא הסימן שהקריאה החוזרת לא הצליחה
+    (``ProductionBackend.save_file``) — ואז גם על התיאור אין מה לומר, ו-``null``
+    כאן הוא אותו "לא ידוע", ולא ``true`` שנגזר מהבקשה. ``false`` כאן — בלי שדות
+    התקרה — פירושו שמה שנקרא חזרה אינו מה שנשלח: עדכון תיאור מקביל שנחת בין
+    הכתיבה לקריאה, או שכבה בדרך שמשנה אותו; ``file.description`` אומר מה כן נשמר.
+    """
+    if res.get("content_changed") is None:
+        return {"description_saved": None}
+    stored = (res.get("file") or {}).get("description")
+    return {"description_saved": stored == sent}
+
+
 def save_file(
     backend: Any,
     user_id: int,
@@ -934,6 +996,15 @@ def save_file(
 
     ``upload_id`` — התוכן מהעלאה במקום ``code``; הסדר והשער — בהערה שמעל
     :func:`_both_sent`. התוכן עובר את **אותו** מסלול בדיוק: שום מסלול מקביל.
+
+    **תקרת התיאור (#3489).** תיאור ארוך מ-``FILE_DESCRIPTION_MAX_CHARS`` תווים אינו
+    נשמר, והקובץ כן: התשובה נושאת ``description_saved: false`` עם ``max_chars``,
+    ``actual_chars``, ``message`` ו-``hint`` (:func:`_description_not_saved`). תיאור
+    שנשלח לכתיבה נושא ``description_saved`` לפי מה שנקרא חזרה (:func:`_saved_description`).
+    בלי תיאור — אין שדה, כי אין על מה לדווח. **ואין כאן תיאור קודם להשוות אליו**, כי
+    הכלי יוצר קובץ חדש בלבד — שם תפוס נדחה ב-``file_exists`` עוד לפני שמגיעים לכאן.
+    בשמירה מקבילה שעוקפת את הבדיקה (ראו "החסימה היא מעקה" למטה) התיאור ייפול גם
+    כשהוא זהה לזה של הגרסה שנכתבה באמצע — הכיוון הזהיר, והתשובה אומרת אותו.
     """
     name = (file_name or "").strip()
     if not name:
@@ -1034,17 +1105,29 @@ def save_file(
         refusal = _consume_upload(backend, user_id, upload, tool="codekeeper_save_file")
         if refusal is not None:
             return refusal
+    # ``strip`` — אותה נורמליזציה של ``codekeeper_update_file_description`` ושל הראוט
+    # בוובאפ, והתקרה נמדדת על מה שייכתב, כלומר אחריה. תיאור ארוך מהתקרה אינו
+    # עוצר את השמירה: הקובץ נשמר בלי תיאור, והתשובה אומרת זאת (ה-docstring).
+    # בלי ``previous_description``: הכלי יוצר רק קובץ חדש (שם תפוס נדחה ב-``file_exists``
+    # למעלה), ולכן אין תיאור קודם שזהות אליו תתיר תיאור ארוך.
+    sent_description = (description or "").strip()
+    description_refusal = description_length_error(sent_description)
     res = backend.save_file(
         user_id,
         file_name=name,
         code=code,
         programming_language=lang,
-        description=(description or "").strip(),
+        description=sent_description if description_refusal is None else "",
         tool="codekeeper_save_file",
     )
     if upload is not None and not res.get("ok"):
         return _upload_used_up(res)
-    return res
+    # בשמירה שנכשלה אין מה לומר על התיאור — ``ok: false`` כבר אומר ששום דבר לא נשמר.
+    if not res.get("ok") or not sent_description:
+        return res
+    if description_refusal is not None:
+        return {**res, **_description_not_saved(description_refusal)}
+    return {**res, **_saved_description(res, sent_description)}
 
 
 def _apply_edit(
@@ -1596,11 +1679,13 @@ def update_file_description(
     description says all three out loud:
 
     - No version is created, so ``codekeeper_list_versions`` will not show this
-      change and the **previous description is not recoverable** from anywhere.
-      It is returned in the response precisely because that is the only place it
-      will ever appear again.
-    - Earlier versions keep the old description. Reading one back by number
-      returns what it carried at the time.
+      change and the call itself keeps **no copy of the previous description**.
+      It is returned in the response for that reason: an earlier version carries
+      the same text only if the description reached the latest version by being
+      copied from it, and one set on the latest version itself survives only in
+      the response.
+    - Earlier versions keep the description each one carried. Reading one back
+      by number returns what it carried at the time.
     - The file's content and version number do not move.
 
     **It also stamps the description as checked.** The write sets
@@ -1615,12 +1700,15 @@ def update_file_description(
     inferred. Clearing the description removes the stamp instead of
     zeroing it — a file with no description has no age.
 
-    **The length ceiling is not enforced here.** It lives on the field, in
-    ``database/repository.py`` (``FILE_DESCRIPTION_MAX_CHARS``), and comes back
-    as ``description_too_long`` with its ``max``. Re-stating the number in this
-    module would put it in two places, and the copy that drifts is the one that
-    rejects text the other accepts. Importing it would drag the whole database
-    layer into a module that is deliberately importable without it.
+    **The length ceiling is enforced in the write, not here** (#3489). It is
+    ``FILE_DESCRIPTION_MAX_CHARS`` in ``file_description.py``, and
+    ``update_file_metadata_in`` refuses a longer description as
+    ``description_too_long`` with ``max_chars`` and ``actual_chars`` — **unless it
+    is the text already stored**, which passes at any length and resets the
+    stamp like any identical text does. "Already stored" has to be decided
+    against the document being updated, in the same atomic write, so it cannot
+    be decided here; this handler only adds the ``message`` that names the unit
+    (:func:`_over_the_description_ceiling`), the half the agent was missing.
 
     Rejecting rather than clipping is the same call :func:`_sanitize_note_text`
     makes: an agent does not see the stored result, so a silent truncation is
@@ -1650,7 +1738,13 @@ def update_file_description(
         # הזו היא מה שמפריד בין "עודכן" לבין "לא נזרקה חריגה"
         # (``CRITICAL-PATTERNS.md`` K11). ``isinstance`` כלול כי backend
         # שמחזיר ``None`` היה עובר ``.get`` בחריגה ולא בקוד שגיאה.
-        return res if isinstance(res, dict) else {"ok": False, "error": "update_failed"}
+        if not isinstance(res, dict):
+            return {"ok": False, "error": "update_failed"}
+        if res.get("error") == "description_too_long":
+            # המספרים מהכתיבה עצמה; ההודעה — היחידה, שהסוכן לא יכול לנחש.
+            return {**res, "message": "Nothing was written: the description is "
+                    + _over_the_description_ceiling(res) + "."}
+        return res
     previous_description = (res.get("previous") or {}).get("description")
     return {
         "ok": True,

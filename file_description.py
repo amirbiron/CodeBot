@@ -1,4 +1,4 @@
-"""גיל התיאור — מקור אמת יחיד לכלל שאחרת היה מפוזר בשישה אתרי כתיבה.
+"""התיאור של קובץ — הגיל שלו ותקרת האורך שלו, כל אחד מקור אמת יחיד.
 
 ב-Ck כל "גרסה" של קובץ היא מסמך חדש באוסף, וה-``description`` מועתק
 מהגרסה הקודמת לחדשה. זו ברירת מחדל נכונה — עריכת שורת קוד אינה מבטלת את
@@ -10,6 +10,13 @@
 היא צד הכתיבה ו-:func:`description_age_versions` הוא צד הקריאה; פיצול
 שלהם לשני מודולים היה מאפשר לשניים לסטות, וסטייה כזאת לא הייתה מתגלה
 בשגיאה אלא במספר שנראה סביר.
+
+**ותקרת האורך יושבת כאן מאותה סיבה** (#3489): :data:`FILE_DESCRIPTION_MAX_CHARS`
+ו-:func:`description_length_error`. האכיפה יושבת בשכבת המסד
+(``update_file_metadata_in``) ובשכבת ה-MCP (``handlers.save_file``), והתיאורים של
+כלי ה-MCP נבנים מאותו קבוע — שלוש שכבות שקוראות הגדרה אחת. ``mcp_server/handlers``
+בנוי להיות ניתן לייבוא בלי שכבת המסד, ולכן הקבוע לא יכול היה להישאר ב-
+``database.repository``.
 
 המודול טהור בכוונה — ``typing`` ותו לא, בלי Flask, בלי מסד ובלי
 ``bson``. זה מה שמאפשר גם ל-``database/repository``, גם ל-``webapp/app``
@@ -33,6 +40,37 @@ DESCRIPTION_SET_AT_VERSION_FIELD = "description_set_at_version"
 
 #: שם השדה ה**מחושב** שמוחזר ללקוחות ה-MCP. אינו נשמר באף מסמך.
 DESCRIPTION_AGE_FIELD = "description_age_versions"
+
+#: התקרה המעשית לאורך ``description`` של קובץ, **בתווים**.
+#:
+#: המספר עצמו אינו חדש — הראוט ``quick-update`` בוובאפ חתך ב-500 מאז שנכתב.
+#: מה שחדש הוא שיש לו שם אחד: משנוסף ``codekeeper_update_file_description``
+#: ב-MCP, ``500`` קשיח בשני קבצים היה נעשה מספר שרק אחד משני המקומות יקבל
+#: את העדכון הבא שלו, ותיאור שנכתב דרך הכלי היה נחתך בשקט ברגע שמישהו
+#: עורך אותו בדפדפן.
+#:
+#: **תווים ולא בייטים, וזה מכוון.** ``len()`` בפייתון סופר תווים, ובעברית
+#: כל אות היא שני בייטים ב-UTF-8 — תקרה שנמדדת בבייטים הייתה חותכת תיאור
+#: עברי בחצי האורך, ובגבול עצמו באמצע אות. ראו H6 ב-``BY-STACK/hebrew-source.md``
+#: שבריפו ``amir-bug-patterns`` (לא בריפו הזה). מכאן גם ``max_chars`` ו-``actual_chars``
+#: בתשובות: עד #3489 הסירוב נשא רק ``max``, וסוכן עם 413 תווים עבריים (625 בתים)
+#: לא יכול היה לדעת ממנו אם הטקסט שלו נכנס.
+#:
+#: **איפה הוא נאכף, ומה כל ערוץ עושה איתו — בכוונה לא אותו דבר.** הוא נאכף
+#: רק על תיאור **שנמסר מבחוץ**, ולעולם לא על תיאור שמועתק לגרסה חדשה
+#: (:func:`description_length_error`):
+#:
+#: - ``codekeeper_update_file_description`` — סירוב ``description_too_long``,
+#:   כי שם התיאור הוא כל הבקשה (``update_file_metadata_in``).
+#: - ``codekeeper_save_file`` — הקובץ נשמר והתיאור לא, עם ``description_saved:
+#:   false`` (``mcp_server/handlers.py``): סירוב היה שולח את הסוכן לשלוח שוב את
+#:   כל התוכן בגלל מטא-דאטה.
+#: - הראוט ``quick-update`` בוובאפ **חותך** לפני הכתיבה, כי שם אדם רואה את
+#:   הטקסט בתיבה לפני השליחה ואחריה — ולכן לעולם אינו מגיע לסירוב.
+#: - **הבוט, טפסי הוובאפ שכותבים גרסה, ומסלולי ההעתקה אינם אוכפים** — הבוט
+#:   והטפסים עוד לא (#3489, חלק שלא בסבב הזה), וההעתקות בכוונה. קובץ יכול
+#:   לכן לשאת תיאור ארוך מהתקרה, וזה מצב שהקוד חייב להמשיך לתמוך בו.
+FILE_DESCRIPTION_MAX_CHARS = 500
 
 
 def description_stamp_for_new_version(
@@ -190,6 +228,46 @@ def description_age_field(doc: Any) -> dict:
     if normalized_version(doc.get("version")) is None:
         return {}
     return {DESCRIPTION_AGE_FIELD: description_age_versions(doc)}
+
+
+def description_length_error(
+    description: str,
+    previous_description: Any = None,
+) -> dict[str, int] | None:
+    """``None`` כשהתיאור מותר; אחרת ``{"max_chars": ..., "actual_chars": ...}``.
+
+    **מותר** פירושו אחד משניים: באורך של עד :data:`FILE_DESCRIPTION_MAX_CHARS`
+    תווים, **או זהה לתיאור הקודם** — בכל אורך. הכלל השני הוא מה שמבדיל תיאור
+    שנמסר מבחוץ מתיאור שמועתק: קובץ שנשמר עם תיאור ארוך (לפני שהתקרה נאכפה,
+    או בערוץ שעוד אינו אוכף אותה — מי אוכף ואיך, ליד :data:`FILE_DESCRIPTION_MAX_CHARS`)
+    חייב להישאר ניתן לעריכה, לשחזור,
+    ולסימון "נבדק" ב-``codekeeper_update_file_description`` עם אותו טקסט.
+    אותה הבחנה כבר קיימת בכלל החותמת — ראו :func:`description_stamp_for_new_version`,
+    "התיאור זהה לקודם".
+
+    **הפונקציה טהורה ואינה קוראת כלום.** ``previous_description`` מגיע מהקורא,
+    כי רק הקורא יודע מאיזה מסמך הוא נקרא — וכשהוא צריך שההשוואה תהיה אטומית
+    עם הכתיבה, היא חייבת לשבת בתוך הכתיבה ולא כאן (``update_file_metadata_in``
+    עושה בדיוק את זה, ומשתמש בפונקציה כדי לקבוע אם לכתוב בתנאי ואם הכתיבה
+    חלה). ``None`` או ערך שאינו מחרוזת פירושו "אין תיאור קודם שאפשר להשוות
+    אליו", ולא "זהה".
+
+    **המספרים הם תווים ולא בתים** (``len``), ושמות השדות אומרים זאת — אותו
+    אוצר מילים של ``path_too_long`` ו-``section_too_long`` בכלי ה-MCP. המדידה
+    היא על הערך שייכתב, כלומר אחרי כל נרמול שהקורא עושה (``strip`` ב-MCP).
+
+    ``TypeError`` על תיאור שאינו מחרוזת, ולא ``None``: הקוראים בודקים טיפוס
+    לפני כן ומחזירים קוד שגיאה משלהם (``invalid_description``), ולכן ערך כזה
+    כאן הוא באג אצל קורא — ורשימה של מחרוזת אחת ארוכה הייתה עוברת את
+    ``len`` בשקט כ"קצרה" (``bugbot-rules/external-input-isinstance.md`` ב-``amir-bug-patterns``).
+    """
+    if not isinstance(description, str):
+        raise TypeError(f"description must be str, not {type(description).__name__}")
+    if len(description) <= FILE_DESCRIPTION_MAX_CHARS:
+        return None
+    if isinstance(previous_description, str) and description == previous_description:
+        return None
+    return {"max_chars": FILE_DESCRIPTION_MAX_CHARS, "actual_chars": len(description)}
 
 
 def normalized_version(value: Any) -> int | None:

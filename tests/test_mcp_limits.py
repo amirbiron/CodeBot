@@ -824,9 +824,11 @@ def test_a_hebrew_file_at_the_size_ceiling_fits_under_the_cap_with_its_envelope(
     ``json.dumps`` בברירת המחדל (``ensure_ascii=True``) כותב כל תו עברי כ-``\\uXXXX``
     — שישה בתים — וזה מה שלקוח שמקודד כך שולח. המעטפת: JSON-RPC, שם הכלי, שם
     הקובץ, שפה, ותיאור בתקרתו (``FILE_DESCRIPTION_MAX_CHARS``); לשם הקובץ אין
-    תקרה בשכבה הזאת, ולכן נלקח שם ארוך מהמקובל.
+    תקרה בשכבה הזאת, ולכן נלקח שם ארוך מהמקובל. התקרה מ-``file_description``,
+    המודול שהיא יושבת בו מאז #3489 — ומאז היא גם תקרת הבקשה הלגיטימית, כי
+    ``codekeeper_save_file`` אינו שומר תיאור ארוך ממנה.
     """
-    from database.repository import FILE_DESCRIPTION_MAX_CHARS
+    from file_description import FILE_DESCRIPTION_MAX_CHARS
 
     request = {
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
