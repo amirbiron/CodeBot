@@ -314,6 +314,9 @@
    # Level 3 - Global Search
    --search-suggestion-text-override
 
+   # Level 3 - Repo Browser (Markdown preview)
+   --repo-md-code-block-bg-override, --repo-md-code-block-border-override
+
 .. _theme-variables-override-hook:
 
 דריסת טוקן שאין לו מקבילה ב-VS Code
@@ -370,6 +373,28 @@
 .. warning::
 
    הערך נשמר ב-MongoDB **בזמן הייבוא**. ערכה שכבר קיימת בחשבון אינה מכירה טוקן שנוסף אחריה — צריך לייבא אותה מחדש. זו הסיבה הראשונה לבדוק כשההצהרה נוספה ולא נראה שינוי.
+
+.. _theme-variables-repo-md-code-block-hook:
+
+בלוקי הקוד בתצוגת ה-Markdown של דפדפן הריפו
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``--repo-md-code-block-bg-override`` ו-``--repo-md-code-block-border-override`` הם שני ווים מאותו סוג, לרקע ולגבול של בלוקי הקוד בתצוגת ה-Markdown של דפדפן הריפו. בערכה מיובאת, ``webapp/static/css/repo-browser.css`` צובע את המעטפת של התצוגה ב-``--bg-tertiary``, את הבלוק ב-``--code-bg`` ואת הגבול שלו ב-``--border-color``. ``VSCODE_TO_CSS_MAP`` גוזר כל אחד מהשלושה ממפתחות אחרים של VS Code, ולכן ערכה שבה שלושתם יוצאים באותו צבע מקבלת בלוק שאינו נבדל מהטקסט שסביבו — בלי רקע אחר ובלי גבול נראה. כך קורה ב-Cobalt Next.
+
+הדריסה היא בשני טוקנים חדשים ולא ב-``--code-bg`` עצמו, כי ``--code-bg`` צובע גם רכיבי קוד אחרים — למשל את תצוגת הקוד ב-``/file`` ואת קטעי הקוד בחיפוש הגלובלי — ודריסה שלו בערכה הייתה משנה גם אותם. ההצהרה נראית זהה לשני הווים הקודמים, וכולם יכולים לחיות באותו בלוק:
+
+.. code-block:: json
+
+   "variables": {
+     "--collections-link-override": "#2e6161",
+     "--search-suggestion-text-override": "#2e6161",
+     "--repo-md-code-block-bg-override": "#21313a",
+     "--repo-md-code-block-border-override": "#374751"
+   }
+
+.. note::
+
+   ערכה שאינה מצהירה על הטוקנים מרונדרת ללא שינוי: הרקע נופל ל-``var(--code-bg, var(--bg-secondary, #1e1e1e))`` והגבול ל-``var(--border-color)``, מה שנצבע שם גם קודם. שני הטוקנים נקראים בכלל הקיים שצובע את הבלוק בערכות מיובאות ומשותפות, ולא בכלל חדש, כך שהמפל של ערכה שאינה מצהירה נשאר זהה. הגבול נקבע ב-``border-color`` בלבד, והעובי והסגנון נשארים של הכלל הכללי ``.markdown-preview-content pre``. ``tests/services/test_theme_variables_repo_md_code_block_hook.py`` נועל את החוזה הזה. וגם כאן, ערכה שכבר קיימת בחשבון מקבלת את הטוקנים רק אחרי ייבוא מחדש.
 
 הדגשת תחביר (Syntax Highlighting)
 ----------------------------------
