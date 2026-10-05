@@ -86,6 +86,13 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     # ב---primary על רקע לבן קבוע. ראו את וו הדריסה ב-
     # webapp/static/css/global_search.css.
     "--search-suggestion-text-override",
+
+    # Level 3 - Repo Browser (Markdown preview)
+    # מאפשר לערכה בודדת לקבוע את הרקע ואת הגבול של בלוקי הקוד בתצוגת ה-Markdown של
+    # דפדפן הריפו, בלי שהדבר ישפיע על ערכות אחרות. ראו את וו הדריסה ב-
+    # webapp/static/css/repo-browser.css.
+    "--repo-md-code-block-bg-override",
+    "--repo-md-code-block-border-override",
 ])
 
 
