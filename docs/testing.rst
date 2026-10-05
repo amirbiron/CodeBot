@@ -1,6 +1,6 @@
 Testing Guide
 =============
-:summary: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, mocking של HTTP, בדיקות מול מונגו אמיתי, ואימות ביטוי aggregation מול גרסת הייצור בקריאה בלבד.
+:summary: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, mocking של HTTP, בדיקות מול מונגו אמיתי, ואימות ביטוי aggregation או סינון מול גרסת הייצור בקריאה בלבד.
 
 🚀 Quickstart לטסטים
 --------------------
@@ -224,12 +224,12 @@ Mocking HTTP ב‑github_menu_handler
 
 הפסקה על גרסת השרת למעלה קובעת 8.0 בכל הסביבות, אבל לא את גרסת המשנה: זו שבייצור לא בהכרח זהה לזו שרצה מקומית, ולפעמים אין שרת מקומי בכלל. כשהנכונות של שינוי תלויה באופן שבו השרת מחשב ביטוי aggregation — ``$cond`` בתוך update ב-pipeline, אופרטור שנוסף בגרסה מסוימת, או ``$strLenCP`` מול ``$strLenBytes`` — אפשר לבדוק את הביטוי על אשכול הייצור עצמו, **בקריאה בלבד**, דרך הכלי ``aggregate`` של MongoDB Atlas MCP. את גרסת האשכול מחזיר הכלי ``atlas-list-clusters``, בשדה ``mongoDBVersion``.
 
-הצורה: ``aggregate`` על אוסף קיים, שה-``$match`` הראשון שלו לא מחזיר אף מסמך אמיתי, ואחריו ``$unionWith`` בלי ``coll``, שה-``pipeline`` שלו נפתח ב-``$documents`` — מסמכים סינתטיים שעוברים דרך השלבים שבודקים. מה שחוזר הוא המסמכים הסינתטיים בלבד, אחרי השלבים, ושום דבר לא נכתב:
+הצורה: ``aggregate`` על אוסף קיים, שה-``$match`` הראשון שלו לא מעביר אף מסמך מהאוסף, ואחריו ``$unionWith`` בלי ``coll``, שה-``pipeline`` שלו נפתח ב-``$documents`` — מסמכים סינתטיים שעוברים דרך השלבים שבודקים. מה שחוזר הוא המסמכים הסינתטיים בלבד, אחרי השלבים, ושום דבר לא נכתב:
 
 .. code-block:: json
 
    [
-     {"$match": {"_id": "no-such-document"}},
+     {"$match": {"_id": {"$in": []}}},
      {"$unionWith": {"pipeline": [
        {"$documents": [
          {"case": "same text", "description": "abc", "stored": "abc"},
@@ -242,7 +242,11 @@ Mocking HTTP ב‑github_menu_handler
 
 על אשכול הייצור (MongoDB 8.0.34, דרך ``aggregate`` של MongoDB Atlas MCP, 5.10.2026) זה החזיר את שלושת המסמכים הסינתטיים בלבד, עם ``applied`` שהוא ``true``, ``false`` ו-``true``.
 
-**למה דווקא הצורה הזו.** ``$documents`` מותר רק כשלב הראשון של אגרגציה ברמת המסד (`התיעוד של $documents <https://www.mongodb.com/docs/manual/reference/operator/aggregation/documents/>`_), אבל ``$unionWith`` שמשמיט את ``coll`` מקבל ``pipeline`` שנפתח ב-``$documents`` (`התיעוד של $unionWith <https://www.mongodb.com/docs/manual/reference/operator/aggregation/unionWith/>`_), וכך אפשר לעבוד דרך אגרגציה של אוסף. אגרגציה ברמת המסד — הכלי ``aggregate-db`` — נדחתה בחיבור שלנו, כי אין לו הרשאת ``changeStream`` (5.10.2026).
+**למה דווקא הצורה הזו.** ``$documents`` מותר רק כשלב הראשון של אגרגציה ברמת המסד (`התיעוד של $documents <https://www.mongodb.com/docs/v8.0/reference/operator/aggregation/documents/>`_), אבל ``$unionWith`` שמשמיט את ``coll`` מקבל ``pipeline`` שנפתח ב-``$documents`` (`התיעוד של $unionWith <https://www.mongodb.com/docs/v8.0/reference/operator/aggregation/unionWith/>`_), וכך אפשר לעבוד דרך אגרגציה של אוסף. אגרגציה ברמת המסד — הכלי ``aggregate-db`` — נדחתה בחיבור שלנו, כי אין לו הרשאת ``changeStream`` (5.10.2026).
+
+**ולמה רשימה ריקה בשלב הראשון.** שום ערך אינו נמצא ברשימה ריקה, ולכן ``{"_id": {"$in": []}}`` לא מעביר אף מסמך, בכל אוסף ומה שלא יהיה בו. ``_id`` שנבחר כי "אין כזה", כמו ``"no-such-document"``, לא מבטיח את זה: אם יש באוסף מסמך כזה, הוא חוזר לצד המסמכים הסינתטיים. ``{"$expr": false}`` ו-``{"$expr": {"$eq": [1, 0]}}`` כן שקריים תמיד, אבל השרת לא מזהה את זה מראש: הוא קורא את כל האוסף ובודק את התנאי מסמך אחר מסמך, בזמן שב-``$in`` ריק הוא מזהה מראש שאף מסמך לא יעבור, ולא קורא אף אחד. נמדד ב-``explain``: על הייצור (8.0.34, 5.10.2026, במצב ``queryPlanner``, שאינו מריץ את השאילתה) התוכנית של ``$in`` ריק היא ``EOF`` ושל שני ה-``$expr`` היא ``COLLSCAN``; ומקומית (8.0.32, במצב ``executionStats``) שני ה-``$expr`` בדקו כל מסמך באוסף, ו-``$in`` ריק אף לא אחד.
+
+גם אופרטור של שאילתה נבדק כך: ``$match`` אחרי ``$documents`` מחזיר רק את המסמכים הסינתטיים שהוא תופס. כך אפשר לבדוק טענה על סמנטיקה של סינון — למשל אם ``$nin: [null, ""]`` תופס מסמך שאין בו את השדה — עם מסמך שיש בו את השדה, מסמך בלעדיו ומסמך שבו הוא ``null``. על הייצור (8.0.34, 5.10.2026) נתפס רק הראשון מהשלושה. זה הפוך ממה שמשתמע מ-`התיעוד של $nin <https://www.mongodb.com/docs/v8.0/reference/operator/query/nin/>`_, שלפיו הוא בוחר גם מסמך שהשדה לא קיים בו, ומתיישב עם `התיעוד של null ושדות חסרים <https://www.mongodb.com/docs/v8.0/tutorial/query-for-null-fields/>`_: השוואה ל-``null`` תופסת גם שדה חסר, ולכן ``null`` ברשימה פוסל גם אותו. ``$documents`` לא מוחק שדה שערכו ``null`` — בלי ה-``$match``, ``$type`` החזיר ``null`` למסמך השלישי ו-``missing`` לשני — כך שאלה באמת שני מקרים נפרדים.
 
 שני דברים שצריך לשמור עליהם:
 
