@@ -90,14 +90,14 @@ def test_ensure_folder_reuse_and_create(monkeypatch):
     files.folders[("A", None)] = "root_A"
 
     service = _ServiceStub(files)
-    monkeypatch.setattr(gds, "get_drive_service", lambda uid: service, raising=True)
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid, *, owner: service, raising=True)
 
     # Reuse existing
-    fid_a = gds.ensure_folder(7, "A", None)
+    fid_a = gds.ensure_folder(7, "A", None, owner="bot")
     assert fid_a == "root_A"
 
     # Create under parent
-    fid_b = gds.ensure_folder(7, "B", parent_id=fid_a)
+    fid_b = gds.ensure_folder(7, "B", parent_id=fid_a, owner="bot")
     assert fid_b and fid_b.startswith("fid_")
     # Ensure it was created with correct parent
     assert ("B", fid_a) in files.folders
@@ -107,19 +107,22 @@ def test_ensure_path_updates_prefs_with_last_folder(monkeypatch):
     gds = _import_gds()
 
     # Track saved prefs
-    calls = {"prefs": []}
+    calls = {"prefs": [], "owners": set()}
     class _DB:
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            calls["owners"].add(owner)
             calls["prefs"].append((user_id, dict(prefs)))
             return True
     monkeypatch.setattr(gds, "db", _DB(), raising=True)
 
     # Stub ensure_folder to return deterministic ids in sequence A->B
     seq = iter(["idA", "idB"])
-    monkeypatch.setattr(gds, "ensure_folder", lambda uid, name, parent=None: next(seq), raising=True)
+    monkeypatch.setattr(gds, "ensure_folder", lambda uid, name, parent=None, *, owner: next(seq), raising=True)
 
-    out = gds.ensure_path(5, "A/B")
+    out = gds.ensure_path(5, "A/B", owner="bot")
     assert out == "idB"
+    # התיקייה נשמרת בהעדפות של השירות שביקש אותה בלבד
+    assert calls["owners"] == {"bot"}
     # Last call should persist target_folder_id=idB
     merged = {}
     for _, p in calls["prefs"]:
@@ -134,9 +137,9 @@ def test_get_or_create_default_folder_recreates_when_trashed(monkeypatch):
     class _DB:
         def __init__(self):
             self.saved = []
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
             return {"target_folder_id": "old_trashed"}
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
             self.saved.append(prefs)
             return True
     db = _DB()
@@ -144,13 +147,13 @@ def test_get_or_create_default_folder_recreates_when_trashed(monkeypatch):
 
     files = _FilesStub()
     service = _ServiceStub(files)
-    monkeypatch.setattr(gds, "get_drive_service", lambda uid: service, raising=True)
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid, *, owner: service, raising=True)
 
     # When old is trashed, ensure_folder should be called to create default root
     # Stub ensure_folder to return 'new_root'
-    monkeypatch.setattr(gds, "ensure_folder", lambda uid, name, parent=None: "new_root", raising=True)
+    monkeypatch.setattr(gds, "ensure_folder", lambda uid, name, parent=None, *, owner: "new_root", raising=True)
 
-    fid = gds.get_or_create_default_folder(3)
+    fid = gds.get_or_create_default_folder(3, owner="bot")
     assert fid == "new_root"
     # And prefs were updated with the new target folder id
     merged = {}
@@ -166,22 +169,22 @@ def test_ensure_subpath_does_not_override_target_prefs(monkeypatch):
     class _DB:
         def __init__(self):
             self.saved = []
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
             return {"target_folder_id": "root"}
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
             self.saved.append(prefs)
             return True
     db = _DB()
     monkeypatch.setattr(gds, "db", db, raising=True)
 
     # Return root without writing prefs
-    monkeypatch.setattr(gds, "_get_root_folder", lambda uid: "root", raising=True)
+    monkeypatch.setattr(gds, "_get_root_folder", lambda uid, *, owner: "root", raising=True)
 
     # ensure_folder returns nested ids for subfolders
     seq = iter(["subA", "subB"])  # A -> subA, then B under subA -> subB
-    monkeypatch.setattr(gds, "ensure_folder", lambda uid, name, parent=None: next(seq), raising=True)
+    monkeypatch.setattr(gds, "ensure_folder", lambda uid, name, parent=None, *, owner: next(seq), raising=True)
 
-    out = gds.ensure_subpath(11, "A/B")
+    out = gds.ensure_subpath(11, "A/B", owner="bot")
     assert out == "subB"
     # No new prefs saves should occur (target_folder_id must not be overridden to subB)
     assert not db.saved

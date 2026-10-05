@@ -64,6 +64,21 @@ class DBLike(Protocol):
     def __getattr__(self, name: str) -> CollectionLike: ...
 
 
+def _noop_update_result() -> SimpleNamespace:
+    """תוצאת ``update_one`` / ``update_many`` כשאין מסד: עדכון שלא תאם אף מסמך, עם כל התכונות של ``pymongo.results.UpdateResult``.
+
+    קוראים בודקים ``matched_count`` ו-``upserted_id`` כדי לדעת אם משהו נכתב, ותוצאה בלי השדות האלה הפילה אותם ב-``AttributeError`` במקום תשובת השגיאה שהם מחזירים כשלא נכתב כלום. ``tests/test_database_noop.py`` משווה את השדות לתכונות של ``UpdateResult`` בגרסה המותקנת.
+    """
+    return SimpleNamespace(
+        acknowledged=True,
+        matched_count=0,
+        modified_count=0,
+        upserted_id=None,
+        did_upsert=False,
+        raw_result={"n": 0, "nModified": 0},
+    )
+
+
 class _StubCollection:
     """מימוש מינימלי שתואם את PyMongo לצורך אתחול מוקדם והימנעות מ-None."""
 
@@ -86,10 +101,10 @@ class _StubCollection:
         return SimpleNamespace(inserted_id=None)
 
     def update_one(self, *args: Any, **kwargs: Any) -> Any:
-        return SimpleNamespace(acknowledged=True, modified_count=0)
+        return _noop_update_result()
 
     def update_many(self, *args: Any, **kwargs: Any) -> Any:
-        return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
+        return _noop_update_result()
 
     def delete_one(self, *args: Any, **kwargs: Any) -> Any:
         return SimpleNamespace(deleted_count=0)
@@ -142,6 +157,7 @@ from file_deletion import (
     RECYCLE_BIN_TTL_PARTIAL_FILTER,
 )
 from mcp_uploads import MCP_UPLOADS_COLLECTION, mcp_uploads_indexes
+from drive_owner import WEBAPP as DRIVE_OWNER_WEBAPP, drive_fields
 try:
     # Structured logging events
     from observability import emit_event
@@ -1039,9 +1055,9 @@ class NoOpCollection:
     def insert_one(self, *args, **kwargs):
         return SimpleNamespace(inserted_id=None)
     def update_one(self, *args, **kwargs):
-        return SimpleNamespace(acknowledged=True, modified_count=0)
+        return _noop_update_result()
     def update_many(self, *args, **kwargs):
-        return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
+        return _noop_update_result()
     def delete_one(self, *args, **kwargs):
         return SimpleNamespace(deleted_count=0)
     def delete_many(self, *args, **kwargs):
@@ -2541,6 +2557,14 @@ class DatabaseManager:
             [("drive_prefs.schedule", ASCENDING)],
             name="users_drive_schedule",
         )
+        # users — הסריקה של גיבויי ה-Drive של הוובאפ (``_drive_claim_filter`` ב-webapp/backup_scheduler.py) רצה כל כמה דקות.
+        # שוויון קודם (schedule_key, ``$in``) וטווח אחריו (schedule_next_at). tests/test_webapp_drive_scan_index.py משווה בין השניים.
+        _webapp_drive_prefs = drive_fields(DRIVE_OWNER_WEBAPP).prefs
+        safe_create_index(
+            "users",
+            [(f"{_webapp_drive_prefs}.schedule_key", ASCENDING), (f"{_webapp_drive_prefs}.schedule_next_at", ASCENDING)],
+            name="users_webapp_drive_schedule",
+        )
         safe_create_index(
             "users",
             [("user_id", ASCENDING)],
@@ -3146,24 +3170,24 @@ class DatabaseManager:
             return None
         return doc if isinstance(doc, dict) else None
 
-    # Google Drive tokens & preferences
-    def save_drive_tokens(self, user_id: int, token_data: Dict[str, Any]) -> bool:
-        return self._get_repo().save_drive_tokens(user_id, token_data)
+    # Google Drive tokens & preferences — ``owner`` הוא השירות (ראו drive_owner.py), בלי ברירת מחדל
+    def save_drive_tokens(self, user_id: int, token_data: Dict[str, Any], *, owner: str) -> bool:
+        return self._get_repo().save_drive_tokens(user_id, token_data, owner=owner)
 
-    def get_drive_tokens(self, user_id: int) -> Optional[Dict[str, Any]]:
-        return self._get_repo().get_drive_tokens(user_id)
+    def get_drive_tokens(self, user_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        return self._get_repo().get_drive_tokens(user_id, owner=owner)
 
-    def delete_drive_tokens(self, user_id: int) -> bool:
-        return self._get_repo().delete_drive_tokens(user_id)
+    def delete_drive_tokens(self, user_id: int, *, owner: str, prefs: Optional[Dict[str, Any]] = None) -> bool:
+        return self._get_repo().delete_drive_tokens(user_id, owner=owner, prefs=prefs)
 
-    def save_drive_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
-        return self._get_repo().save_drive_prefs(user_id, prefs)
+    def save_drive_prefs(self, user_id: int, prefs: Dict[str, Any], *, owner: str) -> bool:
+        return self._get_repo().save_drive_prefs(user_id, prefs, owner=owner)
 
-    def get_drive_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
-        return self._get_repo().get_drive_prefs(user_id)
+    def get_drive_prefs(self, user_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        return self._get_repo().get_drive_prefs(user_id, owner=owner)
 
     def get_users_with_active_drive_schedule(self) -> List[Dict[str, Any]]:
-        """Return all users who have an active drive backup schedule."""
+        """Return all users who have an active drive backup schedule (של הבוט בלבד)."""
         return self._get_repo().get_users_with_active_drive_schedule()
 
     # Image generation preferences (Telegram /image)

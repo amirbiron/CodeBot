@@ -49,24 +49,35 @@ class DummyContext:
 
 
 class FacadeStub:
+    """``owner`` חובה כמו ב-FilesFacade האמיתי, ונרשם: תפריט הבוט חייב לעבוד רק על החיבור של הבוט.
+
+    התפריט עוטף את רוב הקריאות ב-try/except, ולכן קריאה בלי owner הייתה נבלעת ונראית כמו "אין חיבור" —
+    הטסטים בודקים את ``owners`` כדי שתוצאה כזו לא תעבור כהצלחה.
+    """
+
     def __init__(self, tokens=None, prefs=None):
         self.tokens = dict(tokens or {})
         self.prefs = dict(prefs or {})
         self.saved = []
         self.deleted_tokens = False
+        self.owners = []
 
-    def get_drive_tokens(self, user_id):
+    def get_drive_tokens(self, user_id, *, owner):
+        self.owners.append(owner)
         return dict(self.tokens)
 
-    def get_drive_prefs(self, user_id):
+    def get_drive_prefs(self, user_id, *, owner):
+        self.owners.append(owner)
         return dict(self.prefs)
 
-    def save_drive_prefs(self, user_id, update_prefs):
+    def save_drive_prefs(self, user_id, update_prefs, *, owner):
+        self.owners.append(owner)
         self.prefs.update(dict(update_prefs or {}))
         self.saved.append(dict(update_prefs or {}))
         return True
 
-    def delete_drive_tokens(self, user_id):
+    def delete_drive_tokens(self, user_id, *, owner):
+        self.owners.append(owner)
         self.deleted_tokens = True
         self.tokens = {}
         return True
@@ -91,6 +102,8 @@ async def test_drive_menu_not_connected(monkeypatch):
     ctx = DummyContext()
     await handler.menu(upd, ctx)
     assert any("לא מחובר" in t for t in upd.message.sent)
+    # "לא מחובר" נקבע מקריאה אמיתית לחיבור של הבוט — לא מקריאה שנכשלה ונבלעה
+    assert f.owners == ["bot"]
 
 
 @pytest.mark.asyncio
@@ -105,6 +118,7 @@ async def test_drive_select_zip_saves_pref(monkeypatch):
     ctx = DummyContext()
     await handler.handle_callback(upd, ctx)
     assert any(d.get("last_selected_category") == "zip" for d in f.saved)
+    assert f.owners and set(f.owners) == {"bot"}
 
 
 @pytest.mark.asyncio
@@ -117,6 +131,7 @@ async def test_drive_select_all_saves_pref(monkeypatch):
     ctx = DummyContext()
     await handler.handle_callback(upd, ctx)
     assert any(d.get("last_selected_category") == "all" for d in f.saved)
+    assert f.owners and set(f.owners) == {"bot"}
 
 
 @pytest.mark.asyncio
@@ -130,4 +145,6 @@ async def test_drive_logout_do(monkeypatch):
     await handler.handle_callback(upd, ctx)
     assert f.deleted_tokens is True
     assert any("נותקת" in t for t in upd.callback_query.edits)
+    # ניתוק מהבוט מוחק רק את החיבור של הבוט
+    assert f.owners == ["bot"]
 

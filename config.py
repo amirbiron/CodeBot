@@ -382,9 +382,6 @@ class BotConfig(BaseSettings):
         default="https://www.googleapis.com/auth/drive.file",
         description="OAuth scopes for Google Drive",
     )
-    GOOGLE_TOKEN_REFRESH_MARGIN_SECS: int = Field(
-        default=120, ge=30, le=3600, description="Refresh token margin (seconds)"
-    )
 
     # דגלים ותיעוד
     DRIVE_MENU_V2: bool = Field(default=True, description="Enable Drive menu v2")

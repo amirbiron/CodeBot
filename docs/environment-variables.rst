@@ -934,18 +934,12 @@
      - ``https://www.googleapis.com/auth/drive.file``
      - ``...``
      - Integrations
-   * - ``GOOGLE_TOKEN_REFRESH_MARGIN_SECS``
-     - מרווח חידוש טוקן בטרם פקיעה (שניות)
-     - לא
-     - ``120``
-     - ``300``
-     - Integrations
    * - ``DRIVE_MENU_V2``
-     - הפעלת תפריט Drive v2
+     - הפעלת תפריט ה-Drive של הבוט (V2)
      - לא
      - ``true``
      - ``false``
-     - WebApp
+     - Bot
    * - ``DOCUMENTATION_URL``
      - קישור לאתר התיעוד הרשמי
      - לא

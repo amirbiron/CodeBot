@@ -36,8 +36,8 @@ def test_upload_bytes_resumable_success(monkeypatch):
             return _Files()
 
     # Stub get_drive_service + folder resolution
-    monkeypatch.setattr(gds, "get_drive_service", lambda uid: _Svc(), raising=True)
-    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub: "folder123", raising=True)
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid, *, owner: _Svc(), raising=True)
+    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub, *, owner: "folder123", raising=True)
 
     # Dummy MediaIoBaseUpload to capture args
     class _MediaIoBaseUpload:
@@ -47,7 +47,7 @@ def test_upload_bytes_resumable_success(monkeypatch):
             self.chunksize = chunksize
     monkeypatch.setattr(gds, "MediaIoBaseUpload", _MediaIoBaseUpload, raising=True)
 
-    fid = gds.upload_bytes(7, "file.zip", b"ZIPDATA", sub_path="zip")
+    fid = gds.upload_bytes(7, "file.zip", b"ZIPDATA", sub_path="zip", owner="bot")
     assert fid == "fid123"
 
 
@@ -76,8 +76,8 @@ def test_upload_file_resumable_success(tmp_path, monkeypatch):
         def files(self):
             return _Files()
 
-    monkeypatch.setattr(gds, "get_drive_service", lambda uid: _Svc(), raising=True)
-    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub: "folder123", raising=True)
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid, *, owner: _Svc(), raising=True)
+    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub, *, owner: "folder123", raising=True)
 
     class _MediaFileUpload:
         def __init__(self, file_path, mimetype=None, resumable=False, chunksize=None):
@@ -86,7 +86,7 @@ def test_upload_file_resumable_success(tmp_path, monkeypatch):
             self.chunksize = chunksize
     monkeypatch.setattr(gds, "MediaFileUpload", _MediaFileUpload, raising=True)
 
-    fid = gds.upload_file(9, "BKP.zip", str(p), sub_path="zip")
+    fid = gds.upload_file(9, "BKP.zip", str(p), sub_path="zip", owner="bot")
     assert fid == "fid-file"
 
 
@@ -114,16 +114,18 @@ def test_upload_all_saved_zip_backups_prefers_file_then_fallback(tmp_path, monke
     monkeypatch.setattr(gds, "backup_manager", SimpleNamespace(list_backups=lambda uid: backups), raising=True)
 
     # Avoid Drive listing (so existing_md5 is None path), and provide folder resolution
-    monkeypatch.setattr(gds, "get_drive_service", lambda uid: None, raising=True)
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid, *, owner: None, raising=True)
     monkeypatch.setattr(gds, "compute_subpath", lambda cat, repo=None: "zip", raising=True)
-    monkeypatch.setattr(gds, "compute_friendly_name", lambda uid, cat, entity, rating=None, content_sample=None: f"{entity}.zip", raising=True)
+    monkeypatch.setattr(gds, "compute_friendly_name", lambda uid, cat, entity, rating=None, content_sample=None, *, owner: f"{entity}.zip", raising=True)
 
     # upload_file first returns None (to force fallback), then returns id
-    calls = {"file": [], "bytes": []}
-    def _upload_file(uid, filename, file_path, folder_id=None, sub_path=None):
+    calls = {"file": [], "bytes": [], "owners": set()}
+    def _upload_file(uid, filename, file_path, folder_id=None, sub_path=None, *, owner):
+        calls["owners"].add(owner)
         calls["file"].append(filename)
         return None if len(calls["file"]) == 1 else "fid2"
-    def _upload_bytes(uid, filename, data, folder_id=None, sub_path=None):
+    def _upload_bytes(uid, filename, data, folder_id=None, sub_path=None, *, owner):
+        calls["owners"].add(owner)
         calls["bytes"].append(filename)
         return "fid1"
     monkeypatch.setattr(gds, "upload_file", _upload_file, raising=True)
@@ -133,13 +135,15 @@ def test_upload_all_saved_zip_backups_prefers_file_then_fallback(tmp_path, monke
     class _DB:
         def get_backup_rating(self, user_id, b_id):
             return None
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
             return {}
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
             return True
     monkeypatch.setattr(gds, "db", _DB(), raising=True)
 
-    uploaded, ids = gds.upload_all_saved_zip_backups(11)
+    uploaded, ids = gds.upload_all_saved_zip_backups(11, owner="bot")
     # First item fell back to bytes, second used file upload
     assert uploaded == 2 and len(ids) == 2
     assert calls["bytes"] and calls["file"]
+    # שתי דרכי ההעלאה קיבלו את החיבור של מי שביקש
+    assert calls["owners"] == {"bot"}

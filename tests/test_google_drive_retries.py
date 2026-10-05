@@ -69,8 +69,8 @@ def test_upload_bytes_retries_on_429_then_success(monkeypatch):
         def files(self):
             return _Files()
 
-    monkeypatch.setattr(gds, "get_drive_service", lambda uid: _Svc(), raising=True)
-    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub: "folder123", raising=True)
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid, *, owner: _Svc(), raising=True)
+    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub, *, owner: "folder123", raising=True)
 
     class _MediaIoBaseUpload:
         def __init__(self, fh, mimetype=None, resumable=False, chunksize=None):
@@ -79,18 +79,19 @@ def test_upload_bytes_retries_on_429_then_success(monkeypatch):
             self.chunksize = chunksize
     monkeypatch.setattr(gds, "MediaIoBaseUpload", _MediaIoBaseUpload, raising=True)
 
-    fid = gds.upload_bytes(1, "file.zip", b"ZIPDATA", sub_path="zip")
+    fid = gds.upload_bytes(1, "file.zip", b"ZIPDATA", sub_path="zip", owner="bot")
     assert fid == "fid-429-ok"
 
 
 def test_upload_bytes_retries_on_401_forced_refresh_then_success(monkeypatch):
     gds = _import_fresh()
 
-    calls = {"svc": 0, "refresh": 0}
+    calls = {"svc": 0, "refresh": 0, "refresh_owners": []}
 
-    # Force-refresh should be invoked once on 401
-    def _refresh(uid):
+    # Force-refresh should be invoked once on 401 — על החיבור של אותו שירות
+    def _refresh(uid, *, owner):
         calls["refresh"] += 1
+        calls["refresh_owners"].append(owner)
         return True
     monkeypatch.setattr(gds, "_force_refresh_credentials", _refresh, raising=True)
 
@@ -115,12 +116,12 @@ def test_upload_bytes_retries_on_401_forced_refresh_then_success(monkeypatch):
         def files(self):
             return self._files
 
-    def _get_svc(uid):
+    def _get_svc(uid, *, owner):
         calls["svc"] += 1
         return _Svc(_Req401 if calls["svc"] == 1 else _ReqOK)
 
     monkeypatch.setattr(gds, "get_drive_service", _get_svc, raising=True)
-    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub: "folder123", raising=True)
+    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub, *, owner: "folder123", raising=True)
 
     class _MediaIoBaseUpload:
         def __init__(self, fh, mimetype=None, resumable=False, chunksize=None):
@@ -129,9 +130,10 @@ def test_upload_bytes_retries_on_401_forced_refresh_then_success(monkeypatch):
             self.chunksize = chunksize
     monkeypatch.setattr(gds, "MediaIoBaseUpload", _MediaIoBaseUpload, raising=True)
 
-    fid = gds.upload_bytes(1, "file.zip", b"ZIPDATA", sub_path="zip")
+    fid = gds.upload_bytes(1, "file.zip", b"ZIPDATA", sub_path="zip", owner="webapp")
     assert fid == "fid-401-ok"
     assert calls["refresh"] == 1
+    assert calls["refresh_owners"] == ["webapp"]
     assert calls["svc"] >= 2
 
 
@@ -140,9 +142,9 @@ def test_perform_scheduled_backup_zip_no_local_zip_is_ok(monkeypatch):
 
     # Force zip category
     class _DB:
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
             return {"schedule_category": "zip"}
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
             return True
     monkeypatch.setattr(gds, "db", _DB(), raising=True)
 
@@ -150,9 +152,9 @@ def test_perform_scheduled_backup_zip_no_local_zip_is_ok(monkeypatch):
     monkeypatch.setattr(gds.backup_manager, "list_backups", lambda uid: [SimpleNamespace(file_path="a.txt")], raising=True)
 
     # Should not call Drive at all when nothing to upload
-    monkeypatch.setattr(gds, "get_drive_service", lambda uid: (_ for _ in ()).throw(AssertionError("should not call Drive")), raising=True)
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid, *, owner: (_ for _ in ()).throw(AssertionError("should not call Drive")), raising=True)
 
-    result = gds.perform_scheduled_backup(123)
+    result = gds.perform_scheduled_backup(123, owner="bot")
     assert result.ok is True
     assert result.uploaded == 0
 
@@ -221,11 +223,11 @@ def test_upload_file_retries_on_transport_then_success(tmp_path, monkeypatch):
             assert os.path.exists(file_path)
             self.resumable = resumable
             self.chunksize = chunksize
-    monkeypatch.setattr(gds, "get_drive_service", lambda uid: _Svc(), raising=True)
-    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub: "folder123", raising=True)
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid, *, owner: _Svc(), raising=True)
+    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub, *, owner: "folder123", raising=True)
     monkeypatch.setattr(gds, "MediaFileUpload", _MediaFileUpload, raising=True)
 
-    fid = gds.upload_file(9, "BKP.zip", str(p), sub_path="zip")
+    fid = gds.upload_file(9, "BKP.zip", str(p), sub_path="zip", owner="bot")
     assert fid == "fid-tx"
 
 
@@ -254,11 +256,11 @@ def test_upload_file_nonretryable_http_error_returns_none(tmp_path, monkeypatch)
             self.resumable = resumable
             self.chunksize = chunksize
 
-    monkeypatch.setattr(gds, "get_drive_service", lambda uid: _Svc(), raising=True)
-    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub: "folder123", raising=True)
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid, *, owner: _Svc(), raising=True)
+    monkeypatch.setattr(gds, "ensure_subpath", lambda uid, sub, *, owner: "folder123", raising=True)
     monkeypatch.setattr(gds, "MediaFileUpload", _MediaFileUpload, raising=True)
 
-    fid = gds.upload_file(7, "X.zip", str(p), sub_path="zip")
+    fid = gds.upload_file(7, "X.zip", str(p), sub_path="zip", owner="bot")
     assert fid is None
 
 
@@ -266,7 +268,7 @@ def test_ensure_valid_credentials_refresh_retry_and_invalid_grant(monkeypatch):
     gds = _import_fresh()
 
     # tokens present
-    monkeypatch.setattr(gds, "_load_tokens", lambda uid: {"access_token": "t", "refresh_token": "r", "scope": "s"}, raising=True)
+    monkeypatch.setattr(gds, "_load_tokens", lambda uid, *, owner: {"access_token": "t", "refresh_token": "r", "scope": "s"}, raising=True)
 
     # Supply a Request class so the code won't early-return
     class _ReqCls:
@@ -274,8 +276,12 @@ def test_ensure_valid_credentials_refresh_retry_and_invalid_grant(monkeypatch):
             return object()
     monkeypatch.setattr(gds, "Request", _ReqCls, raising=True)
 
-    saved = {"calls": 0}
-    monkeypatch.setattr(gds, "save_tokens", lambda uid, t: saved.__setitem__("calls", saved["calls"] + 1) or True, raising=True)
+    saved = {"calls": 0, "owners": set()}
+    def _save_tokens(uid, t, *, owner):
+        saved["calls"] += 1
+        saved["owners"].add(owner)
+        return True
+    monkeypatch.setattr(gds, "save_tokens", _save_tokens, raising=True)
 
     # Case 1: transient failure twice then success
     class _Creds1:
@@ -296,8 +302,10 @@ def test_ensure_valid_credentials_refresh_retry_and_invalid_grant(monkeypatch):
             self.token = "t2"
     monkeypatch.setattr(gds, "_credentials_from_tokens", lambda tok: _Creds1(), raising=True)
 
-    c = gds._ensure_valid_credentials(5)
+    c = gds._ensure_valid_credentials(5, owner="bot")
     assert c is not None and saved["calls"] >= 1
+    # הטוקן המרוענן נשמר לחיבור שממנו נטען
+    assert saved["owners"] == {"bot"}
 
     # Case 2: invalid_grant → early None and no save_tokens
     saved["calls"] = 0
@@ -313,5 +321,5 @@ def test_ensure_valid_credentials_refresh_retry_and_invalid_grant(monkeypatch):
             raise RuntimeError("invalid_grant: expired")
     monkeypatch.setattr(gds, "_credentials_from_tokens", lambda tok: _Creds2(), raising=True)
 
-    c2 = gds._ensure_valid_credentials(6)
+    c2 = gds._ensure_valid_credentials(6, owner="bot")
     assert c2 is None and saved["calls"] == 0

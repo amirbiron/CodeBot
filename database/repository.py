@@ -68,6 +68,8 @@ from file_deletion import (
 )
 # ירושת סימון המועדף — מודול שורש בלי חיבור משלו, אותו כלל שכותבי הוובאפ מריצים.
 from file_favorite import favorite_fields_for_new_version
+# חיבור Drive לכל שירות — מודול שורש טהור, אותו מיפוי שהוובאפ משתמש בו.
+from drive_owner import BOT, drive_fields
 from config import config
 try:
     from observability import emit_event
@@ -556,6 +558,19 @@ def _sync_in_memory_user_field(collection: Any, field_name: str, merged: Dict[st
             return
         container[field_name] = dict(merged)
         return
+
+
+def _drive_prefs_set_paths(prefs_field: str, prefs: Dict[str, Any]) -> Dict[str, Any]:
+    """הופך העדפות Drive לנתיבי ``$set`` (``<prefs_field>.<key>``), כך שכל כתיבה משנה רק את המפתחות שלה.
+
+    המפתח נכנס לנתיב העדכון, ולכן מפתח שאינו מחרוזת, ריק, מכיל נקודה או מתחיל ב-``$`` נדחה ב-``ValueError``: נקודה הייתה הופכת אותו לנתיב מקונן, ו-``$`` לאופרטור. המפתחות מגיעים גם מגיבוי אישי ששוחזר (``PersonalBackupService._restore_drive_prefs``), כלומר מקלט חיצוני. מפתח עליון בלבד — ערך שהוא מילון נכתב כמו שהוא.
+    """
+    paths: Dict[str, Any] = {}
+    for key, value in prefs.items():
+        if not isinstance(key, str) or not key or "." in key or key.startswith("$"):
+            raise ValueError(f"invalid Drive prefs key (type {type(key).__name__})")
+        paths[f"{prefs_field}.{key}"] = value
+    return paths
 
 
 class Repository:
@@ -2538,7 +2553,11 @@ class Repository:
             return False
 
     # --- Google Drive tokens & preferences ---
-    def save_drive_tokens(self, user_id: int, token_data: Dict[str, Any]) -> bool:
+    # לכל שירות (הבוט, הוובאפ) חיבור והעדפות משלו — ``owner`` בוחר את השדות דרך
+    # ``drive_owner.drive_fields`` ואין לו ברירת מחדל. השדות נקבעים לפני ה-``try``,
+    # כדי ש-``owner`` לא מוכר יעלה כ-``ValueError`` ולא ייבלע כשגיאת מסד.
+    def save_drive_tokens(self, user_id: int, token_data: Dict[str, Any], *, owner: str) -> bool:
+        field = drive_fields(owner).tokens
         try:
             users_collection = self.manager.db.users
             # Encrypt sensitive fields
@@ -2556,21 +2575,22 @@ class Repository:
             }
             result = users_collection.update_one(
                 {"user_id": user_id},
-                {"$set": {"drive_tokens": stored, "updated_at": datetime.now(timezone.utc)}},
+                {"$set": {field: stored, "updated_at": datetime.now(timezone.utc)}},
                 upsert=True,
             )
             return bool(result.acknowledged)
         except Exception as e:
-            emit_event("db_save_drive_tokens_error", severity="error", error=str(e))
+            emit_event("db_save_drive_tokens_error", severity="error", error=str(e), owner=owner)
             return False
 
-    def get_drive_tokens(self, user_id: int) -> Optional[Dict[str, Any]]:
+    def get_drive_tokens(self, user_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        field = drive_fields(owner).tokens
         try:
             users_collection = self.manager.db.users
             user = users_collection.find_one({"user_id": user_id})
             if not user:
                 return None
-            data = user.get("drive_tokens")
+            data = user.get(field)
             if not data:
                 return None
             # Decrypt
@@ -2586,53 +2606,66 @@ class Repository:
                 out["refresh_token"] = ref_dec
             return out
         except Exception as e:
-            emit_event("db_get_drive_tokens_error", severity="error", error=str(e))
+            emit_event("db_get_drive_tokens_error", severity="error", error=str(e), owner=owner)
             return None
 
-    def delete_drive_tokens(self, user_id: int) -> bool:
+    def delete_drive_tokens(self, user_id: int, *, owner: str, prefs: Optional[Dict[str, Any]] = None) -> bool:
+        """מוחק את החיבור של ``owner``.
+
+        ``prefs``, כשניתן, נכתב להעדפות של אותו שירות **באותה כתיבה** (נתיבים מ-``_drive_prefs_set_paths``): ניתוק שגם מכבה תזמון לא יכול להיעצר באמצע ולהשאיר תזמון בלי חיבור. מפתח לא תקין ב-``prefs`` עולה כ-``ValueError`` לפני הכתיבה; כשל מסד מוחזר כ-``False``.
+        """
+        fields = drive_fields(owner)
+        prefs_paths = _drive_prefs_set_paths(fields.prefs, prefs or {})
         try:
             users_collection = self.manager.db.users
             res = users_collection.update_one(
-                {"user_id": user_id}, {"$unset": {"drive_tokens": ""}, "$set": {"updated_at": datetime.now(timezone.utc)}}
+                {"user_id": user_id},
+                {"$unset": {fields.tokens: ""}, "$set": {**prefs_paths, "updated_at": datetime.now(timezone.utc)}},
             )
             return bool(res.acknowledged)
         except Exception as e:
-            emit_event("db_delete_drive_tokens_error", severity="error", error=str(e))
+            emit_event("db_delete_drive_tokens_error", severity="error", error=str(e), owner=owner)
             return False
 
-    def save_drive_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
+    def save_drive_prefs(self, user_id: int, prefs: Dict[str, Any], *, owner: str) -> bool:
+        """כותב את המפתחות שב-``prefs`` להעדפות ה-Drive של ``owner``, ומשאיר את שאר ההעדפות כמו שהן.
+
+        כל מפתח נכתב בנתיב משלו (``$set`` על ``<field>.<key>``, דרך ``_drive_prefs_set_paths``), בלי לקרוא קודם את ההעדפות: כתיבה שקוראת את כולן וכותבת את כולן חזרה דורסת עדכון שנכתב ביניהן — למשל תזמון שנקבע בזמן שגיבוי רץ. מפתח לא תקין עולה כ-``ValueError`` לפני הכתיבה; כשל מסד מוחזר כ-``False``.
+        """
+        field = drive_fields(owner).prefs
+        prefs_paths = _drive_prefs_set_paths(field, prefs or {})
         try:
             users_collection = self.manager.db.users
-            # merge with existing prefs
-            existing = users_collection.find_one({"user_id": user_id}) or {}
-            merged = dict(existing.get("drive_prefs") or {})
-            merged.update(prefs or {})
             res = users_collection.update_one(
                 {"user_id": user_id},
-                {"$set": {"drive_prefs": merged, "updated_at": datetime.now(timezone.utc)}},
+                {"$set": {**prefs_paths, "updated_at": datetime.now(timezone.utc)}},
                 upsert=True,
             )
             return bool(res.acknowledged)
         except Exception as e:
-            emit_event("db_save_drive_prefs_error", severity="error", error=str(e))
+            emit_event("db_save_drive_prefs_error", severity="error", error=str(e), owner=owner)
             return False
 
-    def get_drive_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
+    def get_drive_prefs(self, user_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        field = drive_fields(owner).prefs
         try:
             users_collection = self.manager.db.users
             user = users_collection.find_one({"user_id": user_id})
             if not user:
                 return None
-            return user.get("drive_prefs")
+            return user.get(field)
         except Exception as e:
-            emit_event("db_get_drive_prefs_error", severity="error", error=str(e))
+            emit_event("db_get_drive_prefs_error", severity="error", error=str(e), owner=owner)
             return None
 
     def get_users_with_active_drive_schedule(self) -> List[Dict[str, Any]]:
         """
         Return all users who have an active drive backup schedule.
         Used by the rescheduler to restore jobs after restart.
+
+        התזמון של הבוט בלבד (``drive_owner.BOT``): את התזמון של הוובאפ מריץ ``webapp/backup_scheduler.py`` מהשדות שלו.
         """
+        prefs_field = drive_fields(BOT).prefs
         sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
 
         def _has_active_schedule(drive_prefs: Any) -> bool:
@@ -2668,10 +2701,10 @@ class Repository:
             users_collection = self.manager.db.users
             # במקום $or כבד (שגורם ל-COLLSCAN), נביא "קנדידטים" בצורה רחבה
             # ונבצע את סינון ה-JSON המדויק בפייתון.
-            wide_query = {"drive_prefs": {"$exists": True, "$ne": None}}
-            projection = {"user_id": 1, "drive_prefs": 1}
+            wide_query = {prefs_field: {"$exists": True, "$ne": None}}
+            projection = {"user_id": 1, prefs_field: 1}
             wide_results = list(users_collection.find(wide_query, projection))
-            filtered = [doc for doc in wide_results if _has_active_schedule((doc or {}).get("drive_prefs"))]
+            filtered = [doc for doc in wide_results if _has_active_schedule((doc or {}).get(prefs_field))]
             logger.info(
                 "get_users_with_active_drive_schedule candidates=%s active=%s",
                 len(wide_results),

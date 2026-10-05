@@ -52,7 +52,9 @@ def test_compute_friendly_name_increments_and_flags(monkeypatch):
     monkeypatch.setattr(gds, "_date_str_ddmmyyyy", lambda: "26-08-2025", raising=True)
     # control version counter
     seq = {"zip:CodeBot": 6}
-    def _next(user_id, key):
+    owners = []
+    def _next(user_id, key, *, owner):
+        owners.append(owner)
         seq[key] = seq.get(key, 0) + 1
         return seq[key]
     monkeypatch.setattr(gds, "_next_version", _next, raising=True)
@@ -61,8 +63,10 @@ def test_compute_friendly_name_increments_and_flags(monkeypatch):
     from config import config
     monkeypatch.setattr(config, "DRIVE_ADD_HASH", True, raising=False)
 
-    name1 = gds.compute_friendly_name(7, "zip", "CodeBot", None, b"abc")
-    name2 = gds.compute_friendly_name(7, "zip", "CodeBot", "🏆", b"abc")
+    name1 = gds.compute_friendly_name(7, "zip", "CodeBot", None, b"abc", owner="bot")
+    name2 = gds.compute_friendly_name(7, "zip", "CodeBot", "🏆", b"abc", owner="bot")
+    # מונה הגרסה נספר בהעדפות של השירות שביקש את השם
+    assert owners == ["bot", "bot"]
 
     assert name1.startswith("BKP_zip_CodeBot_v7_") and name1.endswith(".zip")
     # hash is 8 hex chars — ensure present (between underscores)
@@ -99,32 +103,44 @@ def test_get_drive_service_none_without_build_or_creds(monkeypatch):
     gds = _import_module_fresh("services.google_drive_service")
     # no build available
     monkeypatch.setattr(gds, "build", None, raising=True)
-    monkeypatch.setattr(gds, "_ensure_valid_credentials", lambda uid: None, raising=True)
-    assert gds.get_drive_service(1) is None
+    monkeypatch.setattr(gds, "_ensure_valid_credentials", lambda uid, *, owner: None, raising=True)
+    assert gds.get_drive_service(1, owner="bot") is None
 
 
 def test_perform_scheduled_backup_all_updates_prefs(monkeypatch):
     gds = _import_module_fresh("services.google_drive_service")
 
     # stub db
-    calls = {"save_prefs": []}
+    calls = {"save_prefs": [], "owners": []}
     class _DB:
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            calls["owners"].append(owner)
             return {"schedule_category": "all"}
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            calls["owners"].append(owner)
             calls["save_prefs"].append(prefs)
             return True
     monkeypatch.setattr(gds, "db", _DB(), raising=True)
 
     # stub zip creation and upload
-    monkeypatch.setattr(gds, "create_full_backup_zip_bytes", lambda uid, category="all": ("f.zip", b"ZIP"), raising=True)
-    monkeypatch.setattr(gds, "compute_friendly_name", lambda uid, cat, label, content_sample=None: "BKP_zip_CodeBot_v1_26-08-2025.zip", raising=True)
-    monkeypatch.setattr(gds, "compute_subpath", lambda cat, repo=None: "zip", raising=True)
-    monkeypatch.setattr(gds, "upload_bytes", lambda uid, filename, data, folder_id=None, sub_path=None: "fid1", raising=True)
+    def _upload(uid, filename, data, folder_id=None, sub_path=None, *, owner):
+        calls["owners"].append(owner)
+        return "fid1"
 
-    result = gds.perform_scheduled_backup(9)
+    def _friendly(uid, cat, label, content_sample=None, *, owner):
+        calls["owners"].append(owner)
+        return "BKP_zip_CodeBot_v1_26-08-2025.zip"
+
+    monkeypatch.setattr(gds, "create_full_backup_zip_bytes", lambda uid, category="all": ("f.zip", b"ZIP"), raising=True)
+    monkeypatch.setattr(gds, "compute_friendly_name", _friendly, raising=True)
+    monkeypatch.setattr(gds, "compute_subpath", lambda cat, repo=None: "zip", raising=True)
+    monkeypatch.setattr(gds, "upload_bytes", _upload, raising=True)
+
+    result = gds.perform_scheduled_backup(9, owner="bot")
     assert result.ok is True
     assert result.uploaded == 1
+    # כל קריאה לאחסון ולהעלאה הלכה לחיבור של הבוט — ולא של שירות אחר
+    assert calls["owners"] and set(calls["owners"]) == {"bot"}
     # last_backup_at and last_full_backup_at should be set in one of the calls
     merged = {}
     for p in calls["save_prefs"]:
@@ -156,9 +172,12 @@ def test_upload_all_saved_zip_backups_counts_and_marks(monkeypatch, tmp_path):
     class _DB:
         def __init__(self):
             self.prefs = {}
-        def get_drive_prefs(self, user_id):
+            self.owners = set()
+        def get_drive_prefs(self, user_id, *, owner):
+            self.owners.add(owner)
             return dict(self.prefs)
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            self.owners.add(owner)
             self.prefs.update(prefs)
             return True
     db = _DB()
@@ -168,12 +187,14 @@ def test_upload_all_saved_zip_backups_counts_and_marks(monkeypatch, tmp_path):
     monkeypatch.setattr(gds, "backup_manager", SimpleNamespace(list_backups=lambda uid: backups), raising=True)
 
     # avoid Google API paths
-    monkeypatch.setattr(gds, "get_drive_service", lambda uid: None, raising=True)
-    monkeypatch.setattr(gds, "compute_friendly_name", lambda uid, cat, entity, rating=None, content_sample=None: f"{entity}.zip", raising=True)
+    monkeypatch.setattr(gds, "get_drive_service", lambda uid, *, owner: None, raising=True)
+    monkeypatch.setattr(gds, "compute_friendly_name", lambda uid, cat, entity, rating=None, content_sample=None, *, owner: f"{entity}.zip", raising=True)
     monkeypatch.setattr(gds, "compute_subpath", lambda cat, repo=None: "zip", raising=True)
-    monkeypatch.setattr(gds, "upload_bytes", lambda uid, filename, data, folder_id=None, sub_path=None: "fid", raising=True)
+    # בלי שירות Drive upload_file מחזיר None, וההעלאה נופלת ל-upload_bytes — רק עם החיבור של הבוט
+    monkeypatch.setattr(gds, "upload_bytes", lambda uid, filename, data, folder_id=None, sub_path=None, *, owner: "fid" if owner == "bot" else None, raising=True)
 
-    count, ids = gds.upload_all_saved_zip_backups(7)
+    count, ids = gds.upload_all_saved_zip_backups(7, owner="bot")
     assert count == 2 and len(ids) == 2
+    assert db.owners == {"bot"}
     # uploaded_backup_ids should be persisted in prefs
     assert set(db.prefs.get("uploaded_backup_ids", [])) == {"b1", "b2"}

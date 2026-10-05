@@ -231,16 +231,16 @@ def test_many_repository_errors_emit_events(monkeypatch):
         db=types.SimpleNamespace(users=_Users2())
     )
     r = repo_mod.Repository(mgr2)
-    assert r.save_drive_tokens(uid, {"access_token": "x"}) is False
-    assert any(e[0] == "db_save_drive_tokens_error" for e in cap["events"]) 
-    assert r.get_drive_tokens(uid) is None
-    assert any(e[0] == "db_get_drive_tokens_error" for e in cap["events"]) 
-    assert r.delete_drive_tokens(uid) is False
-    assert any(e[0] == "db_delete_drive_tokens_error" for e in cap["events"]) 
-    assert r.save_drive_prefs(uid, {"a": 1}) is False
-    assert any(e[0] == "db_save_drive_prefs_error" for e in cap["events"]) 
-    assert r.get_drive_prefs(uid) is None
-    assert any(e[0] == "db_get_drive_prefs_error" for e in cap["events"]) 
+    assert r.save_drive_tokens(uid, {"access_token": "x"}, owner="bot") is False
+    assert any(e[0] == "db_save_drive_tokens_error" for e in cap["events"])
+    assert r.get_drive_tokens(uid, owner="bot") is None
+    assert any(e[0] == "db_get_drive_tokens_error" for e in cap["events"])
+    assert r.delete_drive_tokens(uid, owner="bot") is False
+    assert any(e[0] == "db_delete_drive_tokens_error" for e in cap["events"])
+    assert r.save_drive_prefs(uid, {"a": 1}, owner="bot") is False
+    assert any(e[0] == "db_save_drive_prefs_error" for e in cap["events"])
+    assert r.get_drive_prefs(uid, owner="bot") is None
+    assert any(e[0] == "db_get_drive_prefs_error" for e in cap["events"])
 
     # 25) backup ratings/notes
     class _BRColl:

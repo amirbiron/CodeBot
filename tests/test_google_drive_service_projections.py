@@ -45,7 +45,7 @@ def test_create_repo_grouped_zip_bytes_includes_tags_and_code(monkeypatch):
     # פנימי משתמש ב-import מקומי: נחטוף בפנים
     monkeypatch.setitem(__import__('sys').modules, 'database', types.SimpleNamespace(db=fake_db))
 
-    out = gds.create_repo_grouped_zip_bytes(1)
+    out = gds.create_repo_grouped_zip_bytes(1, owner="bot")
     assert out, "expected at least one repo zip"
     repo, suggested, data = out[0]
     files = _extract_zip_entries(data)

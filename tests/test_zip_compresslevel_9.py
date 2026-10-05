@@ -112,7 +112,7 @@ def test_gds_create_repo_grouped_zip_bytes_uses_level_9(monkeypatch):
 
     captured = _capture_zipfile(monkeypatch, gds)
 
-    results = gds.create_repo_grouped_zip_bytes(7)
+    results = gds.create_repo_grouped_zip_bytes(7, owner="bot")
     assert results and results[0][2].startswith(b"PK")
 
     assert any(c["mode"] == 'w' and c["compresslevel"] == 9 for c in captured["calls"]) \

@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from drive_owner import drive_fields
+
 
 logger = logging.getLogger(__name__)
 
@@ -381,31 +383,38 @@ class FilesFacade:
         except Exception:
             return False
 
-    def get_drive_tokens(self, user_id: int) -> Optional[Dict[str, Any]]:
+    # Drive: ``owner`` הוא השירות שהחיבור שלו (ראו drive_owner.py), בלי ברירת מחדל.
+    # ``drive_fields(owner)`` נקרא לפני ה-``try``: owner לא מוכר הוא באג של הקורא,
+    # ואסור שייבלע כאן ויחזור כ"אין חיבור".
+    def get_drive_tokens(self, user_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        drive_fields(owner)
         try:
             db = self._get_db()
-            return db.get_drive_tokens(user_id) or {}
+            return db.get_drive_tokens(user_id, owner=owner) or {}
         except Exception:
             return {}
 
-    def get_drive_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
+    def get_drive_prefs(self, user_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        drive_fields(owner)
         try:
             db = self._get_db()
-            return db.get_drive_prefs(user_id) or {}
+            return db.get_drive_prefs(user_id, owner=owner) or {}
         except Exception:
             return {}
 
-    def save_drive_prefs(self, user_id: int, update_prefs: Dict[str, Any]) -> bool:
+    def save_drive_prefs(self, user_id: int, update_prefs: Dict[str, Any], *, owner: str) -> bool:
+        drive_fields(owner)
         try:
             db = self._get_db()
-            return bool(db.save_drive_prefs(user_id, update_prefs))
+            return bool(db.save_drive_prefs(user_id, update_prefs, owner=owner))
         except Exception:
             return False
 
-    def delete_drive_tokens(self, user_id: int) -> bool:
+    def delete_drive_tokens(self, user_id: int, *, owner: str) -> bool:
+        drive_fields(owner)
         try:
             db = self._get_db()
-            return bool(db.delete_drive_tokens(user_id))
+            return bool(db.delete_drive_tokens(user_id, owner=owner))
         except Exception:
             return False
 

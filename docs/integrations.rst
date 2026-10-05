@@ -25,21 +25,12 @@ GitHub API
 Google Drive (OAuth Flow)
 -------------------------
 
-.. code-block:: python
+לבוט ולוובאפ יש חיבור Drive נפרד, כל אחד ב-OAuth flow אחר, והם לא חולקים טוקנים — ראו :ref:`drive-owner`:
 
-   from google_auth_oauthlib.flow import Flow
-   from googleapiclient.discovery import build
+- **הבוט** — Device Flow (RFC 8628): ``start_device_authorization`` מבקש קוד מ-``DEVICE_CODE_URL`` ומחזיר אותו למשתמש, שמקליד אותו בדף של גוגל, ו-``poll_device_token`` מחליף את ה-device code בטוקנים מול ``TOKEN_URL`` (``services/google_drive_service.py``). אין כאן redirect URI.
+- **הוובאפ** — הפניה בדפדפן (Authorization Code, RFC 6749 סעיף 4.1): ``/api/drive/auth`` מפנה ל-``GOOGLE_AUTH_URL`` עם state שנשמר בשרת, ו-``/api/drive/callback`` מחליף את ה-code בטוקנים מול ``GOOGLE_TOKEN_URL`` (``webapp/drive_auth.py``). ה-redirect URI נבנה ב-``_get_redirect_uri`` — ראו :ref:`drive-webapp-connect`.
 
-   flow = Flow.from_client_secrets_file(
-       'credentials.json',
-       scopes=['https://www.googleapis.com/auth/drive.file'],
-       redirect_uri='http://localhost:5000/oauth2callback'
-   )
-   authorization_url, state = flow.authorization_url(
-       access_type='offline',
-       include_granted_scopes='true'
-   )
-   # ...
+כל שירות מוגדר במשתני הסביבה שלו: ``GOOGLE_CLIENT_ID`` / ``GOOGLE_CLIENT_SECRET`` ל-client, ו-``GOOGLE_OAUTH_SCOPES`` להרשאות — ראו :doc:`environment-variables`.
 
 Telegram Webhooks vs Polling
 ----------------------------
