@@ -159,22 +159,24 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
     return tokens
 
 
-def save_tokens(user_id: int, tokens: Dict[str, Any]) -> bool:
+def save_tokens(user_id: int, tokens: Dict[str, Any], *, owner: str) -> bool:
     """Save OAuth tokens, preserving existing refresh_token if missing.
 
     Some OAuth exchanges (and refreshes) do not return refresh_token again.
     We merge with existing tokens to avoid wiping the refresh_token.
+
+    ``owner`` הוא השירות שהחיבור שלו (``drive_owner.BOT`` / ``drive_owner.WEBAPP``): המיזוג נעשה רק מול הטוקנים של אותו שירות, ולכן refresh_token של שירות אחד לא נכנס לחיבור של השני (נבדק בשני הכיוונים ב-``tests/test_drive_connection_separation.py``).
     """
-    existing = _load_tokens(user_id) or {}
+    existing = _load_tokens(user_id, owner=owner) or {}
     merged: Dict[str, Any] = dict(existing)
     merged.update(tokens or {})
     if not merged.get("refresh_token") and existing.get("refresh_token"):
         merged["refresh_token"] = existing["refresh_token"]
-    return db.save_drive_tokens(user_id, merged)
+    return db.save_drive_tokens(user_id, merged, owner=owner)
 
 
-def _load_tokens(user_id: int) -> Optional[Dict[str, Any]]:
-    return db.get_drive_tokens(user_id)
+def _load_tokens(user_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+    return db.get_drive_tokens(user_id, owner=owner)
 
 
 def _credentials_from_tokens(tokens: Dict[str, Any]) -> Credentials:
@@ -199,8 +201,8 @@ def _credentials_from_tokens(tokens: Dict[str, Any]) -> Credentials:
     )
 
 
-def _ensure_valid_credentials(user_id: int) -> Optional[Credentials]:
-    tokens = _load_tokens(user_id)
+def _ensure_valid_credentials(user_id: int, *, owner: str) -> Optional[Credentials]:
+    tokens = _load_tokens(user_id, owner=owner)
     if not tokens:
         logging.getLogger(__name__).warning("Drive creds missing for user; need login")
         return None
@@ -225,7 +227,7 @@ def _ensure_valid_credentials(user_id: int) -> Optional[Credentials]:
                     "expires_in": int((creds.expiry - _now_utc()).total_seconds()) if creds.expiry else 3600,
                     "expiry": creds.expiry.isoformat() if creds.expiry else (_now_utc() + timedelta(hours=1)).isoformat(),
                 }
-                save_tokens(user_id, updated)
+                save_tokens(user_id, updated, owner=owner)
                 break
             except Exception as e:
                 attempts += 1
@@ -245,19 +247,26 @@ def _ensure_valid_credentials(user_id: int) -> Optional[Credentials]:
     return creds
 
 
-_SERVICE_CACHE: Dict[int, Tuple[Any, float]] = {}
+# המפתח הוא (שירות, משתמש): לכל שירות חיבור משלו, ושירות Drive שנבנה מהטוקנים של אחד אסור שיוחזר לשני.
+_SERVICE_CACHE: Dict[Tuple[str, int], Tuple[Any, float]] = {}
 
 
-def get_drive_service(user_id: int):
+def _service_cache_key(user_id: int, *, owner: str) -> Tuple[str, int]:
+    """המפתח היחיד של ``_SERVICE_CACHE`` — גם הכתיבה וגם הביטול עוברים כאן, כדי שביטול לא יחטיא את המפתח שנכתב."""
+    return (owner, int(user_id))
+
+
+def get_drive_service(user_id: int, *, owner: str):
     if build is None:
         return None
-    creds = _ensure_valid_credentials(user_id)
+    creds = _ensure_valid_credentials(user_id, owner=owner)
     if not creds:
         return None
     # נסה להשתמש בשירות קיים עד 5 דקות כדי למנוע יצירה חוזרת ושקעים פתוחים
     now_ts = time.time()
+    cache_key = _service_cache_key(user_id, owner=owner)
     try:
-        cached = _SERVICE_CACHE.get(user_id)
+        cached = _SERVICE_CACHE.get(cache_key)
         if cached and (now_ts - float(cached[1])) < 300:
             return cached[0]
     except Exception:
@@ -265,7 +274,7 @@ def get_drive_service(user_id: int):
     try:
         svc = build("drive", "v3", credentials=creds, cache_discovery=False)
         try:
-            _SERVICE_CACHE[user_id] = (svc, now_ts)
+            _SERVICE_CACHE[cache_key] = (svc, now_ts)
         except Exception:
             pass
         return svc
@@ -281,9 +290,9 @@ def _get_file_metadata(service, file_id: str, fields: str = "id, name, trashed, 
         return None
 
 
-def ensure_folder(user_id: int, name: str, parent_id: Optional[str] = None) -> Optional[str]:
+def ensure_folder(user_id: int, name: str, parent_id: Optional[str] = None, *, owner: str) -> Optional[str]:
     for auth_attempt in range(0, 2):
-        service = get_drive_service(user_id)
+        service = get_drive_service(user_id, owner=owner)
         if not service:
             return None
         try:
@@ -305,7 +314,7 @@ def ensure_folder(user_id: int, name: str, parent_id: Optional[str] = None) -> O
             folder = service.files().create(body=metadata, fields="id").execute()
             return folder.get("id")
         except HttpError as e:
-            if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id):
+            if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id, owner=owner):
                 continue
             return None
         except Exception:
@@ -313,12 +322,12 @@ def ensure_folder(user_id: int, name: str, parent_id: Optional[str] = None) -> O
     return None
 
 
-def get_or_create_default_folder(user_id: int) -> Optional[str]:
-    prefs = db.get_drive_prefs(user_id) or {}
+def get_or_create_default_folder(user_id: int, *, owner: str) -> Optional[str]:
+    prefs = db.get_drive_prefs(user_id, owner=owner) or {}
     folder_id = prefs.get("target_folder_id")
     # Validate existing folder id is not trashed/deleted
     try:
-        service = get_drive_service(user_id)
+        service = get_drive_service(user_id, owner=owner)
     except Exception:
         service = None
     if service and folder_id:
@@ -331,35 +340,35 @@ def get_or_create_default_folder(user_id: int) -> Optional[str]:
         # No service to validate — optimistically return; upload will validate again
         return folder_id
     # Create or find non-trashed default root folder at Drive
-    fid = ensure_folder(user_id, "גיבויי_קודלי", None)
+    fid = ensure_folder(user_id, "גיבויי_קודלי", None, owner=owner)
     if fid:
-        db.save_drive_prefs(user_id, {"target_folder_id": fid})
+        db.save_drive_prefs(user_id, {"target_folder_id": fid}, owner=owner)
     return fid
 
 
-def ensure_path(user_id: int, path: str) -> Optional[str]:
+def ensure_path(user_id: int, path: str, *, owner: str) -> Optional[str]:
     """Ensure nested folders path like "Parent/Sub1/Sub2" exists; returns last folder id."""
     if not path:
-        return get_or_create_default_folder(user_id)
+        return get_or_create_default_folder(user_id, owner=owner)
     parts = [p.strip() for p in path.split('/') if p.strip()]
     parent: Optional[str] = None
     for part in parts:
-        parent = ensure_folder(user_id, part, parent)
+        parent = ensure_folder(user_id, part, parent, owner=owner)
         if not parent:
             return None
     # Save as target folder
-    db.save_drive_prefs(user_id, {"target_folder_id": parent})
+    db.save_drive_prefs(user_id, {"target_folder_id": parent}, owner=owner)
     return parent
 
 
-def _get_root_folder(user_id: int) -> Optional[str]:
+def _get_root_folder(user_id: int, *, owner: str) -> Optional[str]:
     """Return user's target root folder id, validating it's active; create default if needed."""
-    return get_or_create_default_folder(user_id)
+    return get_or_create_default_folder(user_id, owner=owner)
 
 
-def ensure_subpath(user_id: int, sub_path: str) -> Optional[str]:
+def ensure_subpath(user_id: int, sub_path: str, *, owner: str) -> Optional[str]:
     """Ensure nested subfolders under the user's root. Does not change prefs."""
-    root_id = _get_root_folder(user_id)
+    root_id = _get_root_folder(user_id, owner=owner)
     if not root_id:
         return None
     if not sub_path:
@@ -367,7 +376,7 @@ def ensure_subpath(user_id: int, sub_path: str) -> Optional[str]:
     parts = [p.strip() for p in sub_path.split('/') if p.strip()]
     parent = root_id
     for part in parts:
-        parent = ensure_folder(user_id, part, parent)
+        parent = ensure_folder(user_id, part, parent, owner=owner)
         if not parent:
             return None
     return parent
@@ -383,12 +392,12 @@ def _date_str_ddmmyyyy() -> str:
     return f"{now.day:02d}-{now.month:02d}-{now.year:04d}"
 
 
-def _next_version(user_id: int, key: str) -> int:
-    prefs = db.get_drive_prefs(user_id) or {}
+def _next_version(user_id: int, key: str, *, owner: str) -> int:
+    prefs = db.get_drive_prefs(user_id, owner=owner) or {}
     counters = dict(prefs.get("drive_version_counters") or {})
     current = int(counters.get(key, 0) or 0) + 1
     counters[key] = current
-    db.save_drive_prefs(user_id, {"drive_version_counters": counters})
+    db.save_drive_prefs(user_id, {"drive_version_counters": counters}, owner=owner)
     return current
 
 
@@ -461,17 +470,19 @@ def _sanitize_drive_filename_component(text: str) -> str:
         return "file"
 
 
-def compute_friendly_name(user_id: int, category: str, entity_name: str, rating: Optional[str] = None, content_sample: Optional[bytes] = None) -> str:
+def compute_friendly_name(user_id: int, category: str, entity_name: str, rating: Optional[str] = None, content_sample: Optional[bytes] = None, *, owner: str) -> str:
     """Return a friendly filename per spec using underscores.
 
     Pattern examples:
     - BKP_zip_CodeBot_v7_26-08-2025.zip
     - BKP_zip_CodeBot_v7_🏆_26-08-2025.zip
+
+    מספר הגרסה נספר בהעדפות של ``owner`` (``drive_version_counters``), כלומר לכל שירות מונה משלו.
     """
     label = _category_label(category)
     date_str = _date_str_ddmmyyyy()
     key = f"{category}:{entity_name}"
-    v = _next_version(user_id, key)
+    v = _next_version(user_id, key, owner=owner)
     emoji = _rating_to_emoji(rating)
     base = f"BKP_{label}_{entity_name}_v{v}"
     # Add short content hash if available to reduce collisions when many zips are generated in a row
@@ -523,14 +534,14 @@ def _is_auth_http_error(err: Exception) -> bool:
     return bool(status == 401)
 
 
-def _clear_service_cache(user_id: int) -> None:
+def _clear_service_cache(user_id: int, *, owner: str) -> None:
     try:
-        _SERVICE_CACHE.pop(int(user_id), None)
+        _SERVICE_CACHE.pop(_service_cache_key(user_id, owner=owner), None)
     except Exception:
         pass
 
 
-def _force_refresh_credentials(user_id: int) -> bool:
+def _force_refresh_credentials(user_id: int, *, owner: str) -> bool:
     """Force-refresh access token using refresh_token.
 
     Used on mid-flight 401 failures where local expiry tracking may be stale.
@@ -538,7 +549,7 @@ def _force_refresh_credentials(user_id: int) -> bool:
     """
     if Credentials is None or Request is None:
         return False
-    tokens = _load_tokens(user_id) or {}
+    tokens = _load_tokens(user_id, owner=owner) or {}
     if not tokens or not tokens.get("refresh_token"):
         return False
     try:
@@ -563,11 +574,11 @@ def _force_refresh_credentials(user_id: int) -> bool:
             "expires_in": int((creds.expiry - _now_utc()).total_seconds()) if creds.expiry else 3600,
             "expiry": creds.expiry.isoformat() if creds.expiry else (_now_utc() + timedelta(hours=1)).isoformat(),
         }
-        save_tokens(user_id, updated)
+        save_tokens(user_id, updated, owner=owner)
     except Exception:
         # Refresh succeeded even if persistence failed; try to proceed anyway
         pass
-    _clear_service_cache(user_id)
+    _clear_service_cache(user_id, owner=owner)
     return True
 
 
@@ -619,19 +630,19 @@ def _sleep_backoff(attempt: int, retry_after_s: Optional[float] = None) -> None:
         pass
 
 
-def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None) -> Optional[str]:
+def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None, *, owner: str) -> Optional[str]:
     if MediaIoBaseUpload is None:
         return None
     for auth_attempt in range(0, 2):
-        service = get_drive_service(user_id)
+        service = get_drive_service(user_id, owner=owner)
         if not service:
             return None
 
         folder_id_eff = folder_id
         if sub_path:
-            folder_id_eff = ensure_subpath(user_id, sub_path)
+            folder_id_eff = ensure_subpath(user_id, sub_path, owner=owner)
         if not folder_id_eff:
-            folder_id_eff = _get_root_folder(user_id)
+            folder_id_eff = _get_root_folder(user_id, owner=owner)
         if not folder_id_eff:
             return None
 
@@ -652,7 +663,7 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
         try:
             request = service.files().create(body=body, media_body=media, fields="id")
         except HttpError as e:
-            if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id):
+            if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id, owner=owner):
                 continue
             return None
         except Exception:
@@ -670,7 +681,7 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
                 consecutive_failures = 0  # reset on progress
             except HttpError as e:  # retryable Drive errors
                 # Auth failure: force refresh and restart upload once
-                if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id):
+                if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id, owner=owner):
                     auth_retry = True
                     break
                 should_retry, retry_after = _is_retryable_http_error(e)
@@ -699,6 +710,8 @@ def upload_file(
     file_path: str,
     folder_id: Optional[str] = None,
     sub_path: Optional[str] = None,
+    *,
+    owner: str,
 ) -> Optional[str]:
     """Upload a local file to Drive using a resumable, chunked upload.
 
@@ -707,15 +720,15 @@ def upload_file(
     if MediaFileUpload is None:
         return None
     for auth_attempt in range(0, 2):
-        service = get_drive_service(user_id)
+        service = get_drive_service(user_id, owner=owner)
         if not service:
             return None
 
         folder_id_eff = folder_id
         if sub_path:
-            folder_id_eff = ensure_subpath(user_id, sub_path)
+            folder_id_eff = ensure_subpath(user_id, sub_path, owner=owner)
         if not folder_id_eff:
-            folder_id_eff = _get_root_folder(user_id)
+            folder_id_eff = _get_root_folder(user_id, owner=owner)
         if not folder_id_eff:
             return None
 
@@ -732,7 +745,7 @@ def upload_file(
                 body["parents"] = [folder_id_eff]
             request = service.files().create(body=body, media_body=media, fields="id")
         except HttpError as e:
-            if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id):
+            if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id, owner=owner):
                 continue
             return None
         except Exception:
@@ -747,7 +760,7 @@ def upload_file(
                 _status, response = request.next_chunk()
                 consecutive_failures = 0
             except HttpError as e:
-                if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id):
+                if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id, owner=owner):
                     auth_retry = True
                     break
                 should_retry, retry_after = _is_retryable_http_error(e)
@@ -786,7 +799,7 @@ class UploadSavedZipResult:
     skipped_dedup: int
 
 
-def _upload_all_saved_zip_backups_detailed(user_id: int) -> UploadSavedZipResult:
+def _upload_all_saved_zip_backups_detailed(user_id: int, *, owner: str) -> UploadSavedZipResult:
     """Upload ZIP backups and return detailed stats (for scheduler semantics)."""
     backups = backup_manager.list_backups(user_id)
     uploaded = 0
@@ -798,7 +811,7 @@ def _upload_all_saved_zip_backups_detailed(user_id: int) -> UploadSavedZipResult
 
     # Load previously uploaded backup ids
     try:
-        prefs = db.get_drive_prefs(user_id) or {}
+        prefs = db.get_drive_prefs(user_id, owner=owner) or {}
         uploaded_set = set(prefs.get('uploaded_backup_ids') or [])
     except Exception:
         prefs = {}
@@ -807,23 +820,23 @@ def _upload_all_saved_zip_backups_detailed(user_id: int) -> UploadSavedZipResult
     # Resolve/validate root; if it changed, drop uploaded_set to allow re‑upload
     old_root_id = prefs.get('target_folder_id')
     try:
-        current_root_id = _get_root_folder(user_id)
+        current_root_id = _get_root_folder(user_id, owner=owner)
     except Exception:
         current_root_id = old_root_id
     if current_root_id and old_root_id and current_root_id != old_root_id:
         uploaded_set = set()
         try:
-            db.save_drive_prefs(user_id, {"uploaded_backup_ids": []})
+            db.save_drive_prefs(user_id, {"uploaded_backup_ids": []}, owner=owner)
         except Exception:
             pass
 
     # Also deduplicate by content hash against existing files in Drive (folder: zip)
     existing_md5: Optional[set[str]] = set()
     try:
-        service = get_drive_service(user_id)
+        service = get_drive_service(user_id, owner=owner)
         if service is not None:
             sub_path = compute_subpath("zip")
-            folder_id = ensure_subpath(user_id, sub_path)
+            folder_id = ensure_subpath(user_id, sub_path, owner=owner)
             if folder_id:
                 page_token: Optional[str] = None
                 while True:
@@ -924,7 +937,7 @@ def _upload_all_saved_zip_backups_detailed(user_id: int) -> UploadSavedZipResult
                 rating = None
 
             # Build friendly filename once (stable across fallbacks)
-            fname = compute_friendly_name(user_id, "zip", entity, rating, content_sample=content_sample)
+            fname = compute_friendly_name(user_id, "zip", entity, rating, content_sample=content_sample, owner=owner)
             sub_path = compute_subpath("zip")
 
             attempted += 1
@@ -932,14 +945,14 @@ def _upload_all_saved_zip_backups_detailed(user_id: int) -> UploadSavedZipResult
             # Prefer streaming from file when possible; fall back to bytes if needed
             fid: Optional[str] = None
             try:
-                fid = upload_file(user_id, filename=fname, file_path=path, sub_path=sub_path)
+                fid = upload_file(user_id, filename=fname, file_path=path, sub_path=sub_path, owner=owner)
             except Exception:
                 fid = None
             if not fid:
                 try:
                     with open(path, "rb") as f_bytes:
                         data_bytes = f_bytes.read()
-                    fid = upload_bytes(user_id, filename=fname, data=data_bytes, sub_path=sub_path)
+                    fid = upload_bytes(user_id, filename=fname, data=data_bytes, sub_path=sub_path, owner=owner)
                 except Exception:
                     fid = None
             if fid:
@@ -958,7 +971,7 @@ def _upload_all_saved_zip_backups_detailed(user_id: int) -> UploadSavedZipResult
         try:
             all_ids = list(uploaded_set.union(new_uploaded))
             now_iso = _now_utc().isoformat()
-            db.save_drive_prefs(user_id, {"uploaded_backup_ids": all_ids, "last_backup_at": now_iso})
+            db.save_drive_prefs(user_id, {"uploaded_backup_ids": all_ids, "last_backup_at": now_iso}, owner=owner)
         except Exception:
             pass
 
@@ -972,12 +985,12 @@ def _upload_all_saved_zip_backups_detailed(user_id: int) -> UploadSavedZipResult
     )
 
 
-def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
+def upload_all_saved_zip_backups(user_id: int, *, owner: str) -> Tuple[int, List[str]]:
     """Upload only ZIP backups that were not uploaded before for this user.
 
-    Uses db.drive_prefs.uploaded_backup_ids (set) to deduplicate uploads.
+    Uses uploaded_backup_ids in the Drive prefs of ``owner`` (set) to deduplicate uploads.
     """
-    res = _upload_all_saved_zip_backups_detailed(user_id)
+    res = _upload_all_saved_zip_backups_detailed(user_id, owner=owner)
     return res.uploaded, list(res.ids)
 
 
@@ -1036,8 +1049,11 @@ def _db_runtime():
     return None
 
 
-def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
-    """Return zips grouped by repo: (repo_name, suggested_name, zip_bytes)."""
+def create_repo_grouped_zip_bytes(user_id: int, *, owner: str) -> List[Tuple[str, str, bytes]]:
+    """Return zips grouped by repo: (repo_name, suggested_name, zip_bytes).
+
+    ``owner`` נדרש בשביל מונה הגרסה בשם הקובץ (``compute_friendly_name``), שנשמר בהעדפות של אותו שירות.
+    """
     # נדרש גם tags ו-code לקיבוץ ולכתיבה ל־ZIP
     _db = _db_runtime()
     files = (_db.get_user_files(
@@ -1067,7 +1083,7 @@ def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
         buf.seek(0)
         data_bytes = buf.getvalue()
         try:
-            friendly = compute_friendly_name(user_id, "by_repo", repo, content_sample=data_bytes[:1024])
+            friendly = compute_friendly_name(user_id, "by_repo", repo, content_sample=data_bytes[:1024], owner=owner)
         except Exception:
             # Fail-open: אם יש תלות ב-db להפקת שם ידידותי, חזור לשם פשוט
             safe_repo = _sanitize_drive_filename_component(repo)
@@ -1131,12 +1147,12 @@ def create_full_backup_zip_bytes(user_id: int, category: str = "all") -> Tuple[s
     return f"{backup_id}.zip", buf.getvalue()
 
 
-def perform_scheduled_backup(user_id: int) -> ScheduledBackupResult:
+def perform_scheduled_backup(user_id: int, *, owner: str) -> ScheduledBackupResult:
     """Runs a scheduled backup to Drive according to user's selected category.
 
-    Category resolution priority:
-    1) drive_prefs.schedule_category (explicit)
-    2) drive_prefs.last_selected_category (UI selection)
+    Category resolution priority (in the Drive prefs of ``owner``):
+    1) schedule_category (explicit)
+    2) last_selected_category (UI selection)
     3) fallback to "all"
 
     Updates last_backup_at on any successful scheduled upload.
@@ -1146,7 +1162,7 @@ def perform_scheduled_backup(user_id: int) -> ScheduledBackupResult:
     When there is nothing to back up, ok=True but uploaded=0.
     """
     try:
-        prefs = db.get_drive_prefs(user_id) or {}
+        prefs = db.get_drive_prefs(user_id, owner=owner) or {}
     except Exception:
         prefs = {}
     category = str(prefs.get("schedule_category") or prefs.get("last_selected_category") or "all").strip() or "all"
@@ -1168,37 +1184,37 @@ def perform_scheduled_backup(user_id: int) -> ScheduledBackupResult:
             if not has_zip:
                 return ScheduledBackupResult(ok=True, uploaded=0)
             # Upload any saved ZIP backups that were not uploaded yet
-            res = _upload_all_saved_zip_backups_detailed(user_id)
+            res = _upload_all_saved_zip_backups_detailed(user_id, owner=owner)
             ok = bool(res.failed == 0)
             uploaded = res.uploaded
             if ok and res.uploaded > 0:
                 try:
-                    db.save_drive_prefs(user_id, {"last_backup_at": now_iso})
+                    db.save_drive_prefs(user_id, {"last_backup_at": now_iso}, owner=owner)
                 except Exception:
                     pass
         elif category == "by_repo":
-            grouped = create_repo_grouped_zip_bytes(user_id)
+            grouped = create_repo_grouped_zip_bytes(user_id, owner=owner)
             ok_any = False
             for repo_name, suggested, data_bytes in grouped:
                 # Use suggested friendly name and by_repo subpath
                 sub_path = compute_subpath("by_repo", repo_name)
-                fid = upload_bytes(user_id, suggested, data_bytes, sub_path=sub_path)
+                fid = upload_bytes(user_id, suggested, data_bytes, sub_path=sub_path, owner=owner)
                 if fid:
                     ok_any = True
                     uploaded += 1
             ok = ok_any
             if ok:
                 try:
-                    db.save_drive_prefs(user_id, {"last_backup_at": now_iso})
+                    db.save_drive_prefs(user_id, {"last_backup_at": now_iso}, owner=owner)
                 except Exception:
                     pass
         else:
             # all / large / other -> single ZIP according to category
             fn, data = create_full_backup_zip_bytes(user_id, category=category)
             from config import config as _cfg
-            friendly = compute_friendly_name(user_id, category, getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data[:1024])
+            friendly = compute_friendly_name(user_id, category, getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data[:1024], owner=owner)
             sub_path = compute_subpath(category)
-            fid = upload_bytes(user_id, friendly, data, sub_path=sub_path)
+            fid = upload_bytes(user_id, friendly, data, sub_path=sub_path, owner=owner)
             ok = bool(fid)
             if ok:
                 uploaded = 1
@@ -1206,7 +1222,7 @@ def perform_scheduled_backup(user_id: int) -> ScheduledBackupResult:
                 if category == "all":
                     update["last_full_backup_at"] = now_iso
                 try:
-                    db.save_drive_prefs(user_id, update)
+                    db.save_drive_prefs(user_id, update, owner=owner)
                 except Exception:
                     pass
     except Exception:

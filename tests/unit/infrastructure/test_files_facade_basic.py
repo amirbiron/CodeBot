@@ -12,6 +12,7 @@ class DummyDB:
         self.saved_large = []
         self.saved_prefs = {}
         self.tokens = {"access_token": "t"}
+        self.drive_owners = []
         self.regular_files = [
             {"file_name": "a.py", "programming_language": "python"},
             {"file_name": "b.py", "programming_language": "text"},
@@ -106,17 +107,21 @@ class DummyDB:
         self.saved_prefs["selected_repo"] = repo_full
         return True
 
-    def get_drive_tokens(self, user_id):
+    def get_drive_tokens(self, user_id, *, owner):
+        self.drive_owners.append(owner)
         return dict(self.tokens)
 
-    def get_drive_prefs(self, user_id):
+    def get_drive_prefs(self, user_id, *, owner):
+        self.drive_owners.append(owner)
         return dict(self.saved_prefs)
 
-    def save_drive_prefs(self, user_id, update_prefs):
+    def save_drive_prefs(self, user_id, update_prefs, *, owner):
+        self.drive_owners.append(owner)
         self.saved_prefs.update(dict(update_prefs or {}))
         return True
 
-    def delete_drive_tokens(self, user_id):
+    def delete_drive_tokens(self, user_id, *, owner):
+        self.drive_owners.append(owner)
         self.tokens = {}
         return True
 
@@ -200,12 +205,18 @@ def test_files_facade_basic_wrappers(monkeypatch):
 
     # Drive / Repo
     assert fac.save_selected_repo(1, "me/repo")
-    tok = fac.get_drive_tokens(1)
+    tok = fac.get_drive_tokens(1, owner="bot")
     assert tok.get("access_token") == "t"
-    prefs = fac.get_drive_prefs(1)
+    prefs = fac.get_drive_prefs(1, owner="bot")
     assert prefs.get("selected_repo") == "me/repo"
-    assert fac.save_drive_prefs(1, {"schedule": "daily"})
-    assert fac.delete_drive_tokens(1) is True
+    assert fac.save_drive_prefs(1, {"schedule": "daily"}, owner="bot")
+    assert fac.delete_drive_tokens(1, owner="bot") is True
+    # ה-facade מעביר את ה-owner כמו שהוא — לא מחליף אותו ולא מוסיף ברירת מחדל
+    assert dummy_db.drive_owners == ["bot", "bot", "bot", "bot"]
+    # owner לא מוכר נכשל לפני ה-try של ה-facade, ולא נבלע כ"אין טוקנים"
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        fac.get_drive_tokens(1, owner="nobody")
 
 
 def test_files_facade_pagination_and_recycle(monkeypatch):

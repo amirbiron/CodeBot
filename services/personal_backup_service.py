@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, Callable, Dict, List, Optional, Set
 
+from drive_owner import WEBAPP as DRIVE_OWNER_WEBAPP
 from file_dates import as_utc
 
 logger = logging.getLogger(__name__)
@@ -541,9 +542,9 @@ class PersonalBackupService:
             return {}
 
     def _export_drive_prefs(self, user_id: int) -> Dict[str, Any]:
-        """מייצא העדפות Drive."""
+        """מייצא העדפות Drive — של הוובאפ, השירות היחיד שמריץ את הגיבוי האישי (ראו drive_owner.py)."""
         try:
-            prefs = self.db.get_drive_prefs(user_id)
+            prefs = self.db.get_drive_prefs(user_id, owner=DRIVE_OWNER_WEBAPP)
             return prefs if isinstance(prefs, dict) else {}
         except Exception:
             return {}
@@ -1554,11 +1555,12 @@ class PersonalBackupService:
         """משחזר העדפות Drive.
 
         משתמש ב-save_drive_prefs שעושה merge עם הקיים (לא דריסה מלאה).
+        השחזור כותב להעדפות של הוובאפ בלבד — שחזור שרץ בוובאפ לא נוגע בתזמון של הבוט.
         """
         try:
             if not prefs:
                 return False
-            return self.db.save_drive_prefs(user_id, prefs)
+            return self.db.save_drive_prefs(user_id, prefs, owner=DRIVE_OWNER_WEBAPP)
         except Exception as e:
             try:
                 logger.exception("שגיאה בשחזור העדפות Drive", exc_info=True)

@@ -3,6 +3,8 @@ Webapp Backup Scheduler — גיבויים אוטומטיים ל-Drive ולדי�
 
 Thread daemon שרץ ברקע וסורק כל כמה דקות אם יש משתמשים
 שצריכים גיבוי אוטומטי (לפי schedule_next_at).
+
+גיבויי ה-Drive כאן הם של הוובאפ בלבד: הסריקה קוראת וכותבת רק את ההעדפות של הוובאפ, וההעלאה משתמשת בחיבור שלו (``drive_owner.WEBAPP``). את התזמון של הבוט מריץ הבוט — ראו drive_owner.py.
 """
 from __future__ import annotations
 
@@ -13,6 +15,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Optional
+
+from drive_owner import WEBAPP as DRIVE_OWNER, drive_fields
 
 logger = logging.getLogger(__name__)
 
@@ -73,17 +77,17 @@ def _perform_drive_backup(user_id: int) -> bool:
         ts = _now_utc().strftime("%Y%m%d_%H%M%S")
         filename = f"codebot_full_backup_{user_id}_{ts}.zip"
 
-        file_id = upload_bytes(int(user_id), filename, zip_bytes)
+        file_id = upload_bytes(int(user_id), filename, zip_bytes, owner=DRIVE_OWNER)
         if file_id:
             logger.info("Drive full backup uploaded for user %s (%d bytes)", user_id, len(zip_bytes))
             # עדכון last_backup_at — best-effort, כשל DB לא אמור לגרום לretry ושכפול גיבוי
             try:
                 db.db.users.update_one(
                     {"user_id": int(user_id)},
-                    {"$set": {"drive_prefs.last_backup_at": _now_utc().isoformat()}},
+                    {"$set": {f"{drive_fields(DRIVE_OWNER).prefs}.last_backup_at": _now_utc().isoformat()}},
                 )
             except Exception:
-                pass
+                logger.warning("Failed to update Drive last_backup_at for user %s", user_id, exc_info=True)
             return True
         else:
             logger.warning("Drive full backup upload failed for user %s", user_id)
@@ -193,40 +197,35 @@ def _scan_and_run():
 
 
 def _scan_drive_backups(db, now_iso: str):
-    """סורק ומריץ גיבויי Drive עם atomic claiming."""
+    """סורק ומריץ גיבויי Drive עם atomic claiming — רק תזמונים של הוובאפ.
+
+    הוובאפ כותב את התזמון שלו כ-``schedule_key`` (``/api/drive/schedule``) ומחזיר אותו מאותו שדה (``/api/drive/status``), ולכן התפיסה מסננת עליו בלבד, כמו בגיבויי הדיסק. הצורות האחרות (``schedule``, ``schedule.key`` וכו') הן של הבוט — הבוט כותב ``schedule`` (``handlers/drive/menu.py``) ומריץ את התזמון שלו בעצמו — וסריקה שתפסה גם אותן היא שגרמה לשני המתזמנים להריץ את אותו תזמון. העדפות ששוחזרו מגיבוי אישי (``PersonalBackupService._restore_drive_prefs``) נכתבות כמו שהן; תזמון שנשמר שם בצורה של הבוט לא ירוץ כאן, וגם ``/api/drive/status`` לא יחזיר אותו.
+    """
     valid_keys = list(SCHEDULE_INTERVALS.keys())
+    prefs_field = drive_fields(DRIVE_OWNER).prefs
+    next_at_field = f"{prefs_field}.schedule_next_at"
     processed = 0
     while processed < MAX_BACKUPS_PER_SCAN:
         # תפוס אטומית משתמש שהגיע זמנו — מזיז schedule_next_at קדימה
         # כך ש-worker אחר לא יתפוס אותו
         claimed = db.db.users.find_one_and_update(
             {
-                "drive_prefs.schedule_next_at": {"$lte": now_iso, "$ne": None},
-                "drive_prefs.schedule_key": {"$ne": "off"},
-                "$or": [
-                    {"drive_prefs.schedule_key": {"$in": valid_keys}},
-                    {"drive_prefs.schedule.key": {"$in": valid_keys}},
-                    {"drive_prefs.schedule.value": {"$in": valid_keys}},
-                    {"drive_prefs.schedule": {"$in": valid_keys}},
-                ],
+                f"{prefs_field}.schedule_key": {"$in": valid_keys},
+                next_at_field: {"$lte": now_iso, "$ne": None},
             },
-            # מזיז את next_at רחוק קדימה (1 שעה) כ-placeholder עד שנחשב את הזמן האמיתי
-            {"$set": {"drive_prefs.schedule_next_at": _sentinel_value()}},
-            projection={"user_id": 1, "drive_prefs": 1},
+            # מזיז את next_at קדימה כ-placeholder עד שנחשב את הזמן האמיתי
+            {"$set": {next_at_field: _sentinel_value()}},
+            projection={"user_id": 1, prefs_field: 1},
         )
         if not claimed:
             break  # אין עוד משתמשים שצריכים גיבוי Drive
         processed += 1
 
         uid = claimed.get("user_id")
-        prefs = claimed.get("drive_prefs") or {}
-        try:
-            schedule_key = _extract_schedule_key(prefs)
-        except Exception:
-            logger.exception("Error extracting schedule key for user %s", uid)
-            schedule_key = None
-        if not uid or not schedule_key:
-            # החזרת sentinel — אחרת הגיבוי תקוע לנצח ב-2099
+        prefs = claimed.get(prefs_field) or {}
+        schedule_key = prefs.get("schedule_key") if isinstance(prefs, dict) else None
+        if not uid or not isinstance(schedule_key, str) or schedule_key not in SCHEDULE_INTERVALS:
+            # החזרת sentinel — אחרת הגיבוי תקוע עד שה-sentinel פג
             _reset_drive_schedule(db, claimed)
             continue
 
@@ -240,17 +239,17 @@ def _scan_drive_backups(db, now_iso: str):
                 new_next = _retry_next_at()
             db.db.users.update_one(
                 {"user_id": uid},
-                {"$set": {"drive_prefs.schedule_next_at": new_next}},
+                {"$set": {next_at_field: new_next}},
             )
         except Exception:
             logger.exception("Error processing Drive schedule for user %s", uid)
             try:
                 db.db.users.update_one(
                     {"user_id": uid},
-                    {"$set": {"drive_prefs.schedule_next_at": _retry_next_at()}},
+                    {"$set": {next_at_field: _retry_next_at()}},
                 )
             except Exception:
-                pass
+                logger.exception("Failed to reschedule Drive backup for user %s", uid)
 
 
 def _scan_disk_backups(db, now_iso: str):
@@ -304,13 +303,13 @@ def _scan_disk_backups(db, now_iso: str):
 
 
 def _reset_drive_schedule(db, claimed: dict):
-    """מחזיר schedule_next_at מ-sentinel ל-retry delay (Drive)."""
+    """מחזיר schedule_next_at מ-sentinel ל-retry delay (Drive, התזמון של הוובאפ)."""
     try:
         uid = claimed.get("user_id")
         if uid:
             db.db.users.update_one(
                 {"user_id": uid},
-                {"$set": {"drive_prefs.schedule_next_at": _retry_next_at()}},
+                {"$set": {f"{drive_fields(DRIVE_OWNER).prefs}.schedule_next_at": _retry_next_at()}},
             )
     except Exception:
         logger.exception("Failed to reset Drive sentinel for user %s", claimed.get("user_id"))
@@ -327,32 +326,6 @@ def _reset_disk_schedule(db, claimed: dict):
             )
     except Exception:
         logger.exception("Failed to reset Disk sentinel for user %s", claimed.get("user_id"))
-
-
-def _extract_schedule_key(drive_prefs: dict) -> Optional[str]:
-    """מחלץ את ה-schedule key מתוך drive_prefs (תואם לפורמטים שונים).
-
-    משתמש בפונקציה המשותפת מ-handlers/drive/utils.py כדי להבטיח
-    עקביות בסדר שדות וכיסוי פורמטים (camelCase, name, וכו').
-    """
-    # אם המשתמש כיבה מפורשות — לא ליפול לשדות legacy
-    if drive_prefs.get("schedule_key") == "off":
-        return None
-    try:
-        from handlers.drive.utils import extract_schedule_key
-        raw = extract_schedule_key(drive_prefs)
-    except Exception:
-        # fallback מקומי — אם ה-import נכשל, בודקים ישירות
-        raw = drive_prefs.get("schedule_key") or drive_prefs.get("scheduleKey")
-        if not isinstance(raw, str):
-            val = drive_prefs.get("schedule")
-            if isinstance(val, str):
-                raw = val
-            elif isinstance(val, dict):
-                raw = val.get("key") or val.get("value") or val.get("name")
-    if isinstance(raw, str) and raw in SCHEDULE_INTERVALS:
-        return raw
-    return None
 
 
 def _scheduler_loop():
@@ -385,8 +358,8 @@ def start_backup_scheduler():
 def trigger_drive_backup_now(user_id: int) -> dict:
     """מבצע גיבוי מיידי ל-Drive.
 
-    הערה: perform_scheduled_backup כבר מעדכן last_backup_at דרך save_drive_prefs,
-    אז לא מעדכנים שוב כאן כדי להימנע מ-race condition.
+    הערה: ``_perform_drive_backup`` כבר מעדכן את last_backup_at של הוובאפ אחרי העלאה מוצלחת,
+    אז לא מעדכנים שוב כאן.
     """
     ok = _perform_drive_backup(user_id)
     return {"ok": ok}

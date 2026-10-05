@@ -145,6 +145,9 @@
 גיבוי ל-Google Drive
 ---------------------
 
+.. note::
+   לבוט ולוובאפ יש חיבור Drive נפרד, ולכל אחד תזמון ומתזמן משלו — ראו :ref:`drive-owner`. התרשים והקוד שבסעיף הזה הם המחשה ולא הקוד בפועל: ``handle_google_drive_backup``, ‏``upload_backup``, ‏``SCHEDULED_BACKUP_INTERVALS``, ‏``get_users_with_drive_enabled`` ו-``scheduled_job`` אינם קיימים בקוד. הפונקציות האמיתיות מתועדות ב-:doc:`/services/google_drive_service`.
+
 .. mermaid::
 
    sequenceDiagram

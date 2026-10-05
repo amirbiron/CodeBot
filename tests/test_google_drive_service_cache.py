@@ -22,7 +22,13 @@ async def test_get_drive_service_caches_by_user(monkeypatch):
 
     # Pretend credentials are valid
     monkeypatch.setattr(gds, "build", _fake_build, raising=True)
-    monkeypatch.setattr(gds, "_ensure_valid_credentials", lambda uid: object(), raising=True)
+    owners = []
+
+    def _fake_credentials(uid, *, owner):
+        owners.append(owner)
+        return object()
+
+    monkeypatch.setattr(gds, "_ensure_valid_credentials", _fake_credentials, raising=True)
 
     # Clear cache
     try:
@@ -30,9 +36,10 @@ async def test_get_drive_service_caches_by_user(monkeypatch):
     except Exception:
         gds._SERVICE_CACHE = {}
 
-    s1 = gds.get_drive_service(7)
-    s2 = gds.get_drive_service(7)
-    s3 = gds.get_drive_service(8)
+    s1 = gds.get_drive_service(7, owner="bot")
+    s2 = gds.get_drive_service(7, owner="bot")
+    s3 = gds.get_drive_service(8, owner="bot")
+    assert set(owners) == {"bot"}
 
     # Same user returns cached object; different user builds a new one
     assert isinstance(s1, _Svc)
@@ -44,11 +51,8 @@ async def test_get_drive_service_caches_by_user(monkeypatch):
     assert builds["count"] == 2
 
     # Expire cache by adjusting timestamp and ensure rebuild
-    # Move user 7 cache time to older than 5 minutes
-    try:
-        gds._SERVICE_CACHE[7] = (s1, time.time() - 4000)
-    except Exception:
-        pass
-    s4 = gds.get_drive_service(7)
+    # Move user 7 cache time to older than 5 minutes — under the same key get_drive_service uses
+    gds._SERVICE_CACHE[gds._service_cache_key(7, owner="bot")] = (s1, time.time() - 4000)
+    s4 = gds.get_drive_service(7, owner="bot")
     assert s4 is not s1
     assert builds["count"] == 3

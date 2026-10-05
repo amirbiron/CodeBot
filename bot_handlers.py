@@ -4737,8 +4737,11 @@ class AdvancedBotHandlers:
                 # העלאה ל-Drive
                 try:
                     from services.google_drive_service import upload_bytes  # type: ignore
-                    fid = upload_bytes(user_id, filename=f"{file_name}.png", data=img, sub_path="code_images")
+                    from drive_owner import BOT as _DRIVE_OWNER  # החיבור של הבוט — ראו drive_owner.py
+                    fid = upload_bytes(user_id, filename=f"{file_name}.png", data=img, sub_path="code_images", owner=_DRIVE_OWNER)
                 except Exception:
+                    # המשתמש מקבל הודעת כשל למטה; הלוג שומר את הסיבה, שאחרת הייתה נעלמת
+                    logger.warning("drive_code_image_upload_failed", exc_info=True)
                     fid = None
                 if fid:
                     await self._edit_message_with_media_fallback(

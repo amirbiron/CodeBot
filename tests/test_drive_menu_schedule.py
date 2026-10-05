@@ -4,6 +4,26 @@ import types
 import pytest
 
 
+# כל ה-owner שתפריט הבוט העביר לאחסון ולשירות ה-Drive בטסט הנוכחי. הבדיקה רצה ב-teardown
+# ולא בתוך הדמויות, כי רוב הקריאות בתפריט עטופות ב-try/except שהיה בולע AssertionError.
+_DRIVE_OWNERS: list = []
+
+
+@pytest.fixture(autouse=True)
+def _menu_touches_only_the_bot_drive_connection():
+    _DRIVE_OWNERS.clear()
+    yield
+    assert set(_DRIVE_OWNERS) <= {"bot"}, f"תפריט הבוט נגע בחיבור Drive של שירות אחר: {_DRIVE_OWNERS}"
+
+
+def _bot_drive_call(fn):
+    """עוטף דמות של פונקציה ב-``gdrive``: ``owner`` חובה (כמו בקוד האמיתי), ונרשם."""
+    def _wrapper(*args, owner, **kwargs):
+        _DRIVE_OWNERS.append(owner)
+        return fn(*args, **kwargs)
+    return _wrapper
+
+
 def _set_facade(monkeypatch, facade):
     module_name = "src.infrastructure.composition"
     module = sys.modules.get(module_name)
@@ -57,9 +77,11 @@ async def test_ensure_schedule_job_sets_next_and_emits_events(monkeypatch):
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return dict(self.prefs)
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            _DRIVE_OWNERS.append(owner)
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
@@ -104,9 +126,11 @@ async def test_ensure_schedule_job_falls_back_when_persistent_unavailable(monkey
     class _Facade:
         def __init__(self):
             self.prefs = {"schedule": "daily"}
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return dict(self.prefs)
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            _DRIVE_OWNERS.append(owner)
             self.prefs.update(prefs)
             return True
     _set_facade(monkeypatch, _Facade())
@@ -149,7 +173,8 @@ async def test_drive_status_does_not_create_job(monkeypatch):
     import handlers.drive.menu as dm
 
     class _Facade:
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return {"schedule": "daily"}
     _set_facade(monkeypatch, _Facade())
 
@@ -206,10 +231,12 @@ async def test_ensure_schedule_job_if_missing_runs_only_when_needed(monkeypatch)
         def __init__(self):
             self.prefs = {"schedule": "daily"}
 
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return dict(self.prefs)
 
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            _DRIVE_OWNERS.append(owner)
             self.prefs.update(prefs)
             return True
 
@@ -251,9 +278,11 @@ async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeyp
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return dict(self.prefs)
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            _DRIVE_OWNERS.append(owner)
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
@@ -262,7 +291,7 @@ async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeyp
 
     # stub Drive scheduled backup to succeed
     from services.google_drive_service import ScheduledBackupResult
-    monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", lambda uid: ScheduledBackupResult(ok=True, uploaded=1), raising=True)
+    monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", _bot_drive_call(lambda uid: ScheduledBackupResult(ok=True, uploaded=1)), raising=True)
 
     # prepare a scheduled callback via _ensure_schedule_job
     scheduled = {}
@@ -307,20 +336,23 @@ async def test_scheduled_backup_callback_failure_prompts_reauth(monkeypatch):
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return dict(self.prefs)
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            _DRIVE_OWNERS.append(owner)
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
-        def get_drive_tokens(self, user_id):
+        def get_drive_tokens(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return {"access_token": "t", "refresh_token": "r"}
     _set_facade(monkeypatch, _Facade())
 
     # Drive backup fails and service is None → triggers re-auth message
     from services.google_drive_service import ScheduledBackupResult
-    monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", lambda uid: ScheduledBackupResult(ok=False, uploaded=0), raising=True)
-    monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: None, raising=True)
+    monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", _bot_drive_call(lambda uid: ScheduledBackupResult(ok=False, uploaded=0)), raising=True)
+    monkeypatch.setattr(dm.gdrive, "get_drive_service", _bot_drive_call(lambda uid: None), raising=True)
 
     # Prepare scheduled callback through _ensure_schedule_job
     scheduled = {}
@@ -361,9 +393,11 @@ async def test_manual_all_updates_next_and_triggers_reschedule(monkeypatch):
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return dict(self.prefs)
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            _DRIVE_OWNERS.append(owner)
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
@@ -371,11 +405,11 @@ async def test_manual_all_updates_next_and_triggers_reschedule(monkeypatch):
     _set_facade(monkeypatch, facade)
 
     # stub Drive service and upload path
-    monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: object(), raising=True)
+    monkeypatch.setattr(dm.gdrive, "get_drive_service", _bot_drive_call(lambda uid: object()), raising=True)
     monkeypatch.setattr(dm.gdrive, "create_full_backup_zip_bytes", lambda uid, category="all": ("f.zip", b"ZIP"), raising=True)
-    monkeypatch.setattr(dm.gdrive, "compute_friendly_name", lambda uid, cat, label, content_sample=None: "BKP.zip", raising=True)
+    monkeypatch.setattr(dm.gdrive, "compute_friendly_name", _bot_drive_call(lambda uid, cat, label, content_sample=None: "BKP.zip"), raising=True)
     monkeypatch.setattr(dm.gdrive, "compute_subpath", lambda cat: "all", raising=True)
-    monkeypatch.setattr(dm.gdrive, "upload_bytes", lambda uid, filename, data, folder_id=None, sub_path=None: "fid", raising=True)
+    monkeypatch.setattr(dm.gdrive, "upload_bytes", _bot_drive_call(lambda uid, filename, data, folder_id=None, sub_path=None: "fid"), raising=True)
 
     # make to_thread run inline
     async def _inline(fn, *a, **k):
@@ -445,9 +479,11 @@ async def test_adv_by_repo_updates_next_when_uploaded(monkeypatch):
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return dict(self.prefs)
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            _DRIVE_OWNERS.append(owner)
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
@@ -455,11 +491,11 @@ async def test_adv_by_repo_updates_next_when_uploaded(monkeypatch):
     _set_facade(monkeypatch, facade)
 
     # stub Drive
-    monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: object(), raising=True)
-    monkeypatch.setattr(dm.gdrive, "create_repo_grouped_zip_bytes", lambda uid: [("repo1", "name.zip", b"data")], raising=True)
-    monkeypatch.setattr(dm.gdrive, "compute_friendly_name", lambda uid, cat, name, content_sample=None: "name.zip", raising=True)
+    monkeypatch.setattr(dm.gdrive, "get_drive_service", _bot_drive_call(lambda uid: object()), raising=True)
+    monkeypatch.setattr(dm.gdrive, "create_repo_grouped_zip_bytes", _bot_drive_call(lambda uid: [("repo1", "name.zip", b"data")]), raising=True)
+    monkeypatch.setattr(dm.gdrive, "compute_friendly_name", _bot_drive_call(lambda uid, cat, name, content_sample=None: "name.zip"), raising=True)
     monkeypatch.setattr(dm.gdrive, "compute_subpath", lambda cat, repo=None: "by_repo/repo1", raising=True)
-    monkeypatch.setattr(dm.gdrive, "upload_bytes", lambda *a, **k: "fid", raising=True)
+    monkeypatch.setattr(dm.gdrive, "upload_bytes", _bot_drive_call(lambda *a, **k: "fid"), raising=True)
 
     # Update/Context stubs
     class _Msg:
@@ -508,9 +544,11 @@ async def test_manual_zip_updates_next_and_triggers_reschedule(monkeypatch):
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return dict(self.prefs)
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            _DRIVE_OWNERS.append(owner)
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
@@ -518,14 +556,14 @@ async def test_manual_zip_updates_next_and_triggers_reschedule(monkeypatch):
     _set_facade(monkeypatch, facade)
 
     # Ensure Drive service and existing saved zips
-    monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: object(), raising=True)
+    monkeypatch.setattr(dm.gdrive, "get_drive_service", _bot_drive_call(lambda uid: object()), raising=True)
     class _B:
         def __init__(self, p):
             self.file_path = p
     monkeypatch.setattr(dm.backup_manager, "list_backups", lambda uid: [_B("a.zip")], raising=True)
 
     # Make upload_all_saved_zip_backups return uploaded count
-    monkeypatch.setattr(dm.gdrive, "upload_all_saved_zip_backups", lambda uid: (2, ["b1", "b2"]), raising=True)
+    monkeypatch.setattr(dm.gdrive, "upload_all_saved_zip_backups", _bot_drive_call(lambda uid: (2, ["b1", "b2"])), raising=True)
 
     # inline to_thread
     async def _inline(fn, *a, **k):
@@ -589,9 +627,11 @@ async def test_manual_zip_no_new_uploads_does_not_update_next(monkeypatch):
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
-        def get_drive_prefs(self, user_id):
+        def get_drive_prefs(self, user_id, *, owner):
+            _DRIVE_OWNERS.append(owner)
             return dict(self.prefs)
-        def save_drive_prefs(self, user_id, prefs):
+        def save_drive_prefs(self, user_id, prefs, *, owner):
+            _DRIVE_OWNERS.append(owner)
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
@@ -599,14 +639,14 @@ async def test_manual_zip_no_new_uploads_does_not_update_next(monkeypatch):
     _set_facade(monkeypatch, facade)
 
     # Ensure Drive service and saved zips
-    monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: object(), raising=True)
+    monkeypatch.setattr(dm.gdrive, "get_drive_service", _bot_drive_call(lambda uid: object()), raising=True)
     class _B:
         def __init__(self, p):
             self.file_path = p
     monkeypatch.setattr(dm.backup_manager, "list_backups", lambda uid: [_B("a.zip")], raising=True)
 
     # No new uploads
-    monkeypatch.setattr(dm.gdrive, "upload_all_saved_zip_backups", lambda uid: (0, []), raising=True)
+    monkeypatch.setattr(dm.gdrive, "upload_all_saved_zip_backups", _bot_drive_call(lambda uid: (0, [])), raising=True)
 
     async def _inline(fn, *a, **k):
         return fn(*a, **k)

@@ -49,7 +49,7 @@
   - `docs/handlers/drive_menu.rst` — **Drive Menu V2**: תפריט הגיבוי ל‑Google Drive (גרסת V2) כולל בחירה מהירה (קבצי גיבוי/הכל/מתקדם), בחירת תיקיית יעד (אוטומטי/ברירת מחדל/מותאם), תזמון גיבוי, וטיפול שגיאות ברור.
   - `docs/handlers/document-flow.rst` — **זרימת הטיפול במסמכים (Document Flow)**: המפה בין הרכיבים שמטפלים בקובץ שנשלח לבוט, מצבי upload_mode, התלויות שמוזרקות ל-DocumentHandler, ושכבת האחסון (FilesFacade מול ה-DB הישן).
 - `docs/services/index.rst` — **Services**: תיעוד של שירותי הליבה של המערכת.
-  - `docs/services/google_drive_service.rst` — **Google Drive Service**: שירות Google Drive: אימות ב-Device Flow, ניהול טוקנים, יצירת ZIP והעלאה לתיקיות לפי קטגוריה (ובקטגוריית 'לפי ריפו' גם תת-תיקייה לשם הריפו). התאריך והגרסה נכנסים לשם קובץ ה-ZIP, לא למבנה התיקיות.
+  - `docs/services/google_drive_service.rst` — **Google Drive Service**: שירות Google Drive: חיבור נפרד לבוט ולוובאפ (``owner``), אימות ב-Device Flow ובהפניה בדפדפן, ניהול טוקנים, יצירת ZIP והעלאה לתיקיות לפי קטגוריה. התאריך והגרסה נכנסים לשם קובץ ה-ZIP, לא למבנה התיקיות.
 - `docs/database/index.rst` — **Database**: תיעוד של מערכת מסד הנתונים והמודלים.
   - `docs/database/bookmarks-manager.rst` — **מנהל סימניות – BookmarksManager**: database.bookmarks_manager.BookmarksManager הוא שכבת ה-DB הראשית שמאחורי פיצ'ר הסימניות. הוא דואג לולידציה, לאכיפת מגבלות, ליצירת אינדקסים ולסנכרון הסימניות מול שינויים בקבצי הקוד.
   - `docs/database/collections-manager.rst` — **מנהל אוספים – CollectionsManager**: פיצ'ר "הקולקציות שלי" נשען על database.collections_manager.CollectionsManager – שכבת שירות שמספקת CRUD מלא, חוקים חכמים, שיתוף ציבורי, ניהול פריטים ופעילות שיתופים. העמוד מסכם את המבנה כדי שיהיה קל לחבר פיצ'רים חדשים.
@@ -186,7 +186,7 @@
 
 ## Observability – Advanced
 
-- `docs/observability/events_catalog.rst` — **קטלוג אירועים קנוניים**: הקטלוג הקנוני של שמות האירועים — GitHub, שיתוף ווב, התראות, Repo Analyzer ואירועי ביזנס — עם הכלל לשמות ב-snake_case ובלי PII.
+- `docs/observability/events_catalog.rst` — **קטלוג אירועים קנוניים**: הקטלוג הקנוני של שמות האירועים — GitHub, שיתוף ווב, התראות, Google Drive, Repo Analyzer ואירועי ביזנס — עם הכלל לשמות ב-snake_case ובלי PII.
 - `docs/observability/error_codes.rst` — **מילון קודי שגיאה (Error Codes)**: הקודים הקנוניים, דוגמאות מיפוי מחריגה לקוד, והנחיות לשימוש בהם.
 - `docs/observability/tracing_hotspots.rst` — **Tracing ממוקד בנקודות חמות**: מדריך קצר להתמקדות ב‑Tracing בנקודות בעלות השפעה גבוהה (Hotspots) בבוט וב‑WebApp.
 - `docs/observability/metrics_promql.rst` — **שאילתות PromQL שימושיות**: שאילתות מוכנות לזמן תגובה, לשיעור שגיאות ולאירועי ביזנס.

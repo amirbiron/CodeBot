@@ -3146,24 +3146,24 @@ class DatabaseManager:
             return None
         return doc if isinstance(doc, dict) else None
 
-    # Google Drive tokens & preferences
-    def save_drive_tokens(self, user_id: int, token_data: Dict[str, Any]) -> bool:
-        return self._get_repo().save_drive_tokens(user_id, token_data)
+    # Google Drive tokens & preferences — ``owner`` הוא השירות (ראו drive_owner.py), בלי ברירת מחדל
+    def save_drive_tokens(self, user_id: int, token_data: Dict[str, Any], *, owner: str) -> bool:
+        return self._get_repo().save_drive_tokens(user_id, token_data, owner=owner)
 
-    def get_drive_tokens(self, user_id: int) -> Optional[Dict[str, Any]]:
-        return self._get_repo().get_drive_tokens(user_id)
+    def get_drive_tokens(self, user_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        return self._get_repo().get_drive_tokens(user_id, owner=owner)
 
-    def delete_drive_tokens(self, user_id: int) -> bool:
-        return self._get_repo().delete_drive_tokens(user_id)
+    def delete_drive_tokens(self, user_id: int, *, owner: str) -> bool:
+        return self._get_repo().delete_drive_tokens(user_id, owner=owner)
 
-    def save_drive_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
-        return self._get_repo().save_drive_prefs(user_id, prefs)
+    def save_drive_prefs(self, user_id: int, prefs: Dict[str, Any], *, owner: str) -> bool:
+        return self._get_repo().save_drive_prefs(user_id, prefs, owner=owner)
 
-    def get_drive_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
-        return self._get_repo().get_drive_prefs(user_id)
+    def get_drive_prefs(self, user_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        return self._get_repo().get_drive_prefs(user_id, owner=owner)
 
     def get_users_with_active_drive_schedule(self) -> List[Dict[str, Any]]:
-        """Return all users who have an active drive backup schedule."""
+        """Return all users who have an active drive backup schedule (של הבוט בלבד)."""
         return self._get_repo().get_users_with_active_drive_schedule()
 
     # Image generation preferences (Telegram /image)

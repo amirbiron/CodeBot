@@ -17,6 +17,12 @@ attribute access like a real ``Database`` handle.
 jobs code awaits its writes and drains ``find`` with ``to_list``. It delegates,
 so there is one matcher and one set of write semantics, not two that drift.
 
+Dotted paths (``"prefs.schedule_key"``) are resolved into nested documents in
+filters, ``$set`` and ``$unset`` — as Mongo does — because the webapp's Drive
+code writes and claims single fields inside a sub-document. ``find_one_and_update``
+runs under the collection's lock, so a test that fires it from several threads
+measures what Mongo guarantees for a single document: one caller wins the match.
+
 Usage::
 
     from tests._fake_mongo import FakeDB
@@ -26,7 +32,42 @@ Usage::
 from __future__ import annotations
 
 import copy
+import threading
 from typing import Any
+
+_MISSING = object()
+
+
+def _get_path(doc: dict, key: str) -> Any:
+    """The value at ``key`` — a dotted path walks sub-documents — or ``_MISSING``."""
+    current: Any = doc
+    for part in str(key).split("."):
+        if not isinstance(current, dict) or part not in current:
+            return _MISSING
+        current = current[part]
+    return current
+
+
+def _set_path(doc: dict, key: str, value: Any) -> None:
+    parts = str(key).split(".")
+    current = doc
+    for part in parts[:-1]:
+        nxt = current.get(part)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            current[part] = nxt
+        current = nxt
+    current[parts[-1]] = value
+
+
+def _unset_path(doc: dict, key: str) -> None:
+    parts = str(key).split(".")
+    current: Any = doc
+    for part in parts[:-1]:
+        current = current.get(part) if isinstance(current, dict) else None
+        if not isinstance(current, dict):
+            return
+    current.pop(parts[-1], None)
 
 
 class _Res:
@@ -80,6 +121,8 @@ class FakeCollection:
     def __init__(self) -> None:
         self.docs: list[dict] = []
         self._id = 0
+        # writes that read-then-modify one document hold it, like Mongo's per-document atomicity
+        self._lock = threading.RLock()
 
     def create_index(self, *a, **k):
         return "i"
@@ -110,7 +153,8 @@ class FakeCollection:
         if top:  # $or / $and / $expr / $where …
             raise _unsupported("query operator(s)", top)
         for k, v in q.items():
-            actual = doc.get(k)
+            found = _get_path(doc, k)
+            actual = None if found is _MISSING else found
             if isinstance(v, dict) and any(str(op).startswith("$") for op in v):
                 unknown = [op for op in v if str(op).startswith("$") and op not in QUERY_OPERATORS]
                 if unknown:
@@ -122,7 +166,7 @@ class FakeCollection:
                     return False
                 if "$nin" in v and actual in v["$nin"]:
                     return False
-                if "$exists" in v and bool(k in doc) is not bool(v["$exists"]):
+                if "$exists" in v and bool(found is not _MISSING) is not bool(v["$exists"]):
                     return False
                 if "$lte" in v and not (actual is not None and actual <= v["$lte"]):
                     return False
@@ -194,9 +238,10 @@ class FakeCollection:
         unknown = [op for op in u if op not in UPDATE_OPERATORS]
         if unknown:  # $inc / $addToSet / $setOnInsert / $pull …
             raise _unsupported("update operator(s)", unknown)
-        doc.update(u.get("$set", {}))
+        for field, value in u.get("$set", {}).items():
+            _set_path(doc, field, value)
         for field in u.get("$unset", {}):
-            doc.pop(field, None)
+            _unset_path(doc, field)
         for field, spec in (u.get("$push") or {}).items():
             current = list(doc.get(field) or [])
             if isinstance(spec, dict) and "$each" in spec:
@@ -214,20 +259,45 @@ class FakeCollection:
             doc[field] = current
 
     def update_one(self, q, u, upsert=False):
-        for d in self.docs:
-            if self._match(d, q):
-                self._apply(d, u)
-                return _Res(modified=1, matched=1)
-        if upsert:
-            self._id += 1
-            nd = {"_id": self._id}
-            for k, v in q.items():
-                if not isinstance(v, dict):
-                    nd[k] = v
-            self._apply(nd, u)
-            self.docs.append(nd)
-            return _Res(upserted=self._id, matched=0)
-        return _Res(matched=0)
+        with self._lock:
+            for d in self.docs:
+                if self._match(d, q):
+                    self._apply(d, u)
+                    return _Res(modified=1, matched=1)
+            if upsert:
+                self._id += 1
+                nd = {"_id": self._id}
+                for k, v in q.items():
+                    if not isinstance(v, dict):
+                        _set_path(nd, k, v)
+                self._apply(nd, u)
+                self.docs.append(nd)
+                return _Res(upserted=self._id, matched=0)
+            return _Res(matched=0)
+
+    def find_one_and_update(self, q, u, projection=None, sort=None, upsert=False,
+                            return_document=False, **_kw):
+        """pymongo's shape (4.15.3, ``synchronous/collection.py``): ``None`` when nothing
+        matches and no upsert, the document **before** the update by default, the one
+        after when ``return_document`` is ``ReturnDocument.AFTER`` (``True``).
+
+        The match and the write happen under one lock, so two threads racing for the
+        same document cannot both match it — the guarantee a single-use claim relies on.
+        """
+        if sort:
+            raise _unsupported("find_one_and_update option(s)", ["sort"])
+        with self._lock:
+            for d in self.docs:
+                if self._match(d, q):
+                    before = copy.deepcopy(d)
+                    self._apply(d, u)
+                    chosen = copy.deepcopy(d) if return_document else before
+                    return self._project([chosen], projection)[0]
+            if not upsert:
+                return None
+            res = self.update_one(q, u, upsert=True)
+            created = next(d for d in self.docs if d.get("_id") == res.upserted_id)
+            return self._project([copy.deepcopy(created)], projection)[0] if return_document else None
 
     def delete_one(self, q):
         for i, d in enumerate(self.docs):

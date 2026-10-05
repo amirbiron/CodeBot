@@ -102,8 +102,16 @@ async def test_save_to_drive_success(monkeypatch):
     # Stub drive upload without importing heavy module
     import sys, types
     fake = types.ModuleType('services.google_drive_service')
-    setattr(fake, 'upload_bytes', lambda uid, filename, data, sub_path=None: 'fid123')
-    sys.modules['services.google_drive_service'] = fake
+    upload_owners = []
+
+    def _upload_bytes(uid, filename, data, sub_path=None, *, owner):
+        upload_owners.append(owner)
+        return 'fid123'
+
+    setattr(fake, 'upload_bytes', _upload_bytes)
+    # דרך monkeypatch כדי שהמודול האמיתי יחזור בסוף הטסט: טסט שמייבא את השירות אחר כך
+    # (למשל ``harness`` ב-test_webapp_drive_oauth_state.py) היה מקבל את הדמה הזו בלי ``db``
+    monkeypatch.setitem(sys.modules, 'services.google_drive_service', fake)
 
     captured = {}
     h = H(_App())
@@ -115,6 +123,8 @@ async def test_save_to_drive_success(monkeypatch):
     assert 'edit' in captured
     args, kwargs = captured['edit']
     assert 'fid123' in (args[0] if args else '') or 'fid123' in (kwargs.get('text', '') if kwargs else '')
+    # תמונת קוד נשמרת בחיבור של הבוט — זה הכפתור שלו
+    assert upload_owners == ["bot"]
 
 
 @pytest.mark.asyncio

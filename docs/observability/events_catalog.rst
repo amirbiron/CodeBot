@@ -1,6 +1,6 @@
 קטלוג אירועים קנוניים
 ======================
-:summary: הקטלוג הקנוני של שמות האירועים — GitHub, שיתוף ווב, התראות, Repo Analyzer ואירועי ביזנס — עם הכלל לשמות ב-snake_case ובלי PII.
+:summary: הקטלוג הקנוני של שמות האירועים — GitHub, שיתוף ווב, התראות, Google Drive, Repo Analyzer ואירועי ביזנס — עם הכלל לשמות ב-snake_case ובלי PII.
 
 .. admonition:: עיקרון
    :class: tip
@@ -107,6 +107,47 @@ Jobs
 .. code-block:: json
 
    {"event":"job_runs_reconciled","severity":"warn","count":3,"skipped":0,"truncated":false,"job_ids_sample":["cache_warming","drive_sync"]}
+
+.. _drive-events:
+
+Google Drive
+------------
+
+לבוט ולוובאפ יש חיבור Drive נפרד (ראו :ref:`drive-owner`).
+
+חיבור, ניתוק ותזמון בוובאפ (``webapp/drive_auth.py``, ‏``webapp/drive_backup_api.py``):
+
+- ``webapp_drive_connected`` — החיבור של הוובאפ נשמר, אחרי חזרה תקינה מגוגל.
+- ``webapp_drive_disconnected`` — החיבור של הוובאפ נמחק. החיבור של הבוט לא משתנה.
+- ``webapp_drive_schedule_set`` — נקבע תזמון גיבוי לוובאפ (``schedule``).
+- ``webapp_drive_auth_failed`` — חיבור לא התחיל, כי ה-state לא נשמר במסד (``reason``: ``state_store_failed``). המשתמש מקבל שגיאה ולא נשלח לגוגל.
+- ``webapp_drive_callback_rejected`` — חזרה מגוגל שנדחתה. ``reason`` אומר למה, ו-``user_id`` מצורף כשיש משתמש ב-session. ‏state, ‏code, טוקנים וגוף התשובה של גוגל לא נרשמים — ``tests/test_webapp_drive_oauth_state.py`` בודק את זה אחרי כל טסט בקובץ.
+
+הסיבות ב-``webapp_drive_callback_rejected`` (הרשימה מושווית לקוד ב-``tests/test_webapp_drive_oauth_state.py``):
+
+.. drive-rejection-reasons:start
+
+- ``session_missing`` — אין משתמש מחובר ב-session.
+- ``state_missing`` — החזרה הגיעה בלי state.
+- ``state_check_failed`` — שגיאת מסד בבדיקת ה-state.
+- ``state_not_found_or_expired`` — ה-state לא שייך למשתמש הזה, כבר נוצל, או שפג תוקפו.
+- ``google_error`` — גוגל החזיר שגיאה. הקוד שלה ב-``google_error``, או ``unrecognized`` כשהוא לא בצורה של קוד OAuth.
+- ``code_missing`` — החזרה הגיעה בלי code.
+- ``token_exchange_failed`` — החלפת ה-code בטוקנים נכשלה: ``error_type`` כשלא הגענו לגוגל, או ``http_status`` ו-``google_error`` כשגוגל ענה בשגיאה.
+- ``token_response_invalid`` — תשובת הטוקנים אינה JSON (``http_status``).
+- ``no_access_token`` — בתשובת הטוקנים אין ``access_token``.
+- ``save_failed`` — שמירת הטוקנים במסד נכשלה.
+
+.. drive-rejection-reasons:end
+
+.. code-block:: json
+
+   {"event":"webapp_drive_callback_rejected","severity":"warn","reason":"token_exchange_failed","user_id":123456789,"http_status":400,"google_error":"invalid_grant"}
+
+שגיאות מסד בחיבור ובהעדפות, של שני השירותים (``database/repository.py``):
+
+- ``db_save_drive_tokens_error`` / ``db_get_drive_tokens_error`` / ``db_delete_drive_tokens_error`` / ``db_save_drive_prefs_error`` / ``db_get_drive_prefs_error`` — ``owner`` אומר של איזה שירות החיבור (``bot`` או ``webapp``).
+- ``db_get_users_with_active_drive_schedule_error`` — שגיאת מסד בשליפת המשתמשים שיש להם תזמון פעיל. השליפה היא של התזמון של הבוט בלבד.
 
 Repo Analyzer
 -------------
