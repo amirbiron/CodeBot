@@ -19,7 +19,7 @@ permissions:
 jobs:
   open-issue-on-failure:
     name: Open issue and mention on failure
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # נריץ תמיד על ריצות push ל-main, ונחליט בתוך הסקריפט אם יש כשלונות אמיתיים
     if: >
       github.event_name == 'workflow_run' &&
@@ -150,7 +150,7 @@ jobs:
 
   close-issue-on-success:
     name: Close issue on success
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: >
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'push' &&
@@ -229,7 +229,7 @@ jobs:
 
   test-issue:
     name: Manual test – open/close issue and mention
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event_name == 'workflow_dispatch'
     steps:
       - name: Open/Close TEST issue

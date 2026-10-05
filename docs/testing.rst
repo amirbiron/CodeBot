@@ -190,7 +190,7 @@ Mocking HTTP ב‑github_menu_handler
 כולם **מדלגים** כשהמשתנה שלהם ריק או כשהשרת אינו נגיש, כך שהרצה מקומית רגילה נשארת מהירה. **שרת שכן נגיש אבל בגרסה נמוכה מדי הוא מקרה אחר לגמרי** — שם הבדיקה נכשלת ואינה מדלגת, ראו את הפסקה על גרסת השרת למטה.
 
 .. warning::
-   **ב-CI של ה-PR הן אינן רצות.** הג'וב ``Unit Tests`` ב-``.github/workflows/ci.yml`` אמנם מרים ``mongo:8.0`` כשירות, אבל הוא ``runs-on: ubuntu-latest`` **בלי** ``container:``, והשירות מוגדר **בלי** ``ports:``. לפי `תיעוד GitHub Actions <https://docs.github.com/en/actions/using-containerized-services/about-service-containers>`_, גישה לפי שם השירות עובדת רק כשהג'וב עצמו רץ בקונטיינר; אחרת צריך למפות פורטים ולפנות ל-``127.0.0.1:<port>``. בלי זה המארח ``mongodb`` אינו נפתר כלל (``[Errno -3] Temporary failure in name resolution``), והבדיקות מדלגות בשקט.
+   **ב-CI של ה-PR הן אינן רצות.** הג'וב ``Unit Tests`` ב-``.github/workflows/ci.yml`` אמנם מרים ``mongo:8.0`` כשירות, אבל הוא רץ ישירות על ה-runner, **בלי** ``container:``, והשירות מוגדר **בלי** ``ports:``. לפי `תיעוד GitHub Actions <https://docs.github.com/en/actions/using-containerized-services/about-service-containers>`_, גישה לפי שם השירות עובדת רק כשהג'וב עצמו רץ בקונטיינר; אחרת צריך למפות פורטים ולפנות ל-``127.0.0.1:<port>``. בלי זה המארח ``mongodb`` אינו נפתר כלל (``[Errno -3] Temporary failure in name resolution``), והבדיקות מדלגות בשקט.
 
    התיקון הוא ``ports:`` על השירות ומעבר ל-``127.0.0.1`` — בדיוק כפי שהג'וב ``alembic-migrations`` באותו קובץ כבר עושה עבור postgres. הוא מוצא לסבב נפרד, כי הוא **יעיר** את הבדיקות האלה ואי אפשר לדעת מראש אילו מהן עוברות.
 
