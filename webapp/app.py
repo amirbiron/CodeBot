@@ -200,6 +200,7 @@ from file_dates import (  # noqa: E402
 # webapp.app`` בסביבה בלי ``MONGODB_URL``, ויש טסט שאוכף את זה.
 from file_description import (  # noqa: E402
     DESCRIPTION_SET_AT_VERSION_FIELD,
+    FILE_DESCRIPTION_MAX_CHARS,
     description_stamp_for_new_version,
     normalized_version,
 )
@@ -14714,11 +14715,10 @@ def api_file_quick_update(file_id):
         #
         # ובלי ``try/except`` סביבו, בניגוד לאותו projection: קבוע אפשר
         # לשכפל ועדיין לקבל התנהגות נכונה, ופונקציה — לא. כשל ייבוא כאן
-        # יגיע כ-500, ולא כ"נשמר" על כתיבה שלא קרתה.
-        from database.repository import (
-            FILE_DESCRIPTION_MAX_CHARS,
-            update_file_metadata_in,
-        )
+        # יגיע כ-500, ולא כ"נשמר" על כתיבה שלא קרתה. התקרה עצמה
+        # (``FILE_DESCRIPTION_MAX_CHARS``) מיובאת ברמת המודול מ-
+        # ``file_description``, המודול הטהור שהיא יושבת בו מאז #3489.
+        from database.repository import update_file_metadata_in
 
         user_id = session['user_id']
 

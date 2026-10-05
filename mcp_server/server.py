@@ -85,6 +85,9 @@ from .auth import (
 from .primer import agent_primer_route
 from .uploads import UPLOAD_PATH, agent_upload_route, upload_url_for
 from mcp_uploads import MAX_PENDING_UPLOADS, UPLOAD_TTL_SECONDS
+# המודול ולא השם: התקרה נקראת ב-``build_mcp``, ברישום (``description_limit``), מאותו
+# מקום שהאכיפה קוראת אותה בזמן הקריאה — ``description_length_error`` באותו מודול.
+import file_description
 
 # ---------------------------------------------------------------------------
 # בלוק ה-``instructions`` שהשרת מחזיר ב-``initialize``.
@@ -689,6 +692,35 @@ def _content_param_doc(limit: int) -> str:
         f"The text to add, saved exactly as sent. The whole file after the append must stay "
         f"within {limit:,} characters. Text that already exists as a file in your "
         "environment: send upload_id instead."
+    )
+
+
+# תיאורי ``description`` בשני הכלים שמקבלים אותו מבחוץ (#3489). **התקרה נבנית ברישום מ-
+# ``file_description.FILE_DESCRIPTION_MAX_CHARS``**, אותו קבוע ש-``description_length_error``
+# אוכף, ולא מוקלדת (``prose-restates-code-fact``): "עד 500" בתיאור של כלי שמקבל 5,000
+# היה תיעוד שמשקר — ולכן התיאור נכתב רק אחרי שהתקרה נאכפה בשני הכלים. **המשפט הראשון
+# נושא את הכלל**, כי לקוח שמקצר תיאור פרמטר לכ-120 תווים רואה רק אותו (האזהרה ליד
+# ``_TOOL_DESCRIPTION_MAX_CHARS`` ב-``tests/test_mcp_server_build.py``); "תווים, לא בתים"
+# בתוכו, כי עברית היא כפליים בבתים, וזה בדיוק מה שסוכן לא יכול היה לדעת מהסירוב הישן.
+# ההמשך שונה בין הכלים, כי מה שקורה לתיאור ארוך שונה: ב-``codekeeper_save_file`` הקובץ
+# נשמר בלי התיאור, וב-``codekeeper_update_file_description`` הבקשה כולה נדחית.
+def _save_description_param_doc(limit: int) -> str:
+    """תיאור ``description`` של ``codekeeper_save_file``."""
+    return (
+        f"At most {limit:,} characters (characters, not bytes). A longer description is not "
+        "saved, but the file still is: the reply says description_saved: false, with "
+        "max_chars, actual_chars and a hint to set a shorter one with "
+        "codekeeper_update_file_description."
+    )
+
+
+def _update_description_param_doc(limit: int) -> str:
+    """תיאור ``description`` של ``codekeeper_update_file_description``."""
+    return (
+        f"At most {limit:,} characters (characters, not bytes). A longer one is refused as "
+        "description_too_long, with max_chars and actual_chars, and nothing is written; "
+        "resending the text already stored is accepted at any length. An empty string "
+        "clears the description."
     )
 
 
@@ -2612,6 +2644,9 @@ def build_mcp(
     # נבנים ברישום ולא בייבוא: התקרה היא זו שהשירות רץ איתה, וה-host מהתצורה.
     code_limit = handlers.max_code_size()
     upload_url = upload_url_for(public_url)
+    # תקרת התיאור — קבוע בקוד ולא תצורה, ובכל זאת נקראת כאן, מהמודול ולא משם
+    # שיובא בייבוא: כך התיאורים נבנים מאותו ערך שהאכיפה קוראת באותו רגע.
+    description_limit = file_description.FILE_DESCRIPTION_MAX_CHARS
     # PostHog MCP analytics. **Not** schema-neutral when it runs: it adds a
     # ``context`` string to every advertised tool schema and strips it again
     # before the tool runs — what that costs is in the docstring of
@@ -2761,6 +2796,7 @@ def build_mcp(
     )
     @_described_at_registration(
         code=_code_param_doc(code_limit),
+        description=_save_description_param_doc(description_limit),
         upload_id=_upload_id_param_doc("code", upload_url, _UPLOAD_HASH_AFTER_SAVE),
     )
     def save_file(
@@ -2906,26 +2942,35 @@ def build_mcp(
         # הוובאפ מציע (הוא לא שם), ש-``codekeeper_list_versions`` לא יראה
         # את השינוי (נגזר מ"לא נוצרת גרסה"), מה תחזיר קריאה של גרסה ישנה
         # (פירוט יתר של המשפט על הגרסה האחרונה), שתגיות אינן נוגעות (שם
-        # הכלי אומר ``description``), שאין התראה (לא קיים בעולם של הסוכן),
-        # ושתיאור ארוך נדחה עם המגבלה (הודעת השגיאה אומרת זאת כשהיא
-        # מגיעה, ולפני כן היא רעש).
+        # הכלי אומר ``description``), ושאין התראה (לא קיים בעולם של הסוכן).
         #
         # מה שנשאר הוא מה שמשנה **בזמן הבחירה**: מה הכלי עושה, מתי לבחור
         # בו על פני האחרים, ומה בלתי הפיך. הפירוט המלא חי ב-
         # ``docs/mcp-server.rst`` (``mcp-update-description``) — שם יש מקום,
         # וכאן כל משפט מתחרה על תשומת הלב של הסוכן.
+        #
+        # **והתקרה חזרה לכאן, בכוונה (#3489).** בקיצור הקודם גם המשפט על תיאור
+        # ארוך יצא, כרעש עד שהשגיאה מגיעה — וסוכנים דיווחו שגילו את התקרה רק
+        # מקריאה שנכשלה, ושהסירוב לא אמר אם היא בתווים או בבתים. המספר עצמו
+        # בתיאור הפרמטר ``description`` (``_update_description_param_doc``, נבנה
+        # מהקבוע ברישום); כאן רק שמות שדות הסירוב, כדי שסוכן יידע מה לקרוא בו.
+        # כדי להישאר בתקרה המקומית של הכלי (``tests/test_mcp_update_file_description.py``)
+        # המשפט נכנס במקום מילים, לא לצידן — אף עובדה לא יצאה.
         description=(
-            "Replace an existing file's description without changing its "
-            "content. Use it when the stored description no longer matches the "
-            "file: codekeeper_save_file sets a description only on a new file, "
-            "and the edit tools keep the old one. No new version is created, so "
-            "the previous description is not kept in history. The reply returns "
-            "it, and that is the only copy. Only the latest version is updated. "
-            "An empty description clears it. Calling it marks the description "
-            "as checked and resets description_age_versions to 0, so sending "
-            "the same text says it still fits. Requires write permission."
+            "Replace a file's description without changing its content. Use it "
+            "when the stored one no longer matches the file: codekeeper_save_file "
+            "sets one only on a new file, and edits keep the old one. No new "
+            "version is created, so the previous description is not kept in "
+            "history; the reply returns it, the only copy. Only the latest version "
+            "is updated. An empty description clears it. It marks the description "
+            "as checked, resetting description_age_versions to 0, so resending the "
+            "same text says it still fits. Too long: description_too_long, with "
+            "max_chars and actual_chars. Requires write permission."
         ),
         annotations=_UPDATE_IN_PLACE_TOOL,
+    )
+    @_described_at_registration(
+        description=_update_description_param_doc(description_limit),
     )
     def update_file_description(ctx: Context, file_name: str, description: str) -> dict:
         require_write(ctx)  # reject a read-only token before touching anything

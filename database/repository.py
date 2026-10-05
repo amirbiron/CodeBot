@@ -55,9 +55,10 @@ from .manager import (
 )
 # תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
 from file_dates import VERSION_CREATED_AT_FIELD, inherited_created_at
-# גיל התיאור — מודול שורש טהור, ראו file_description.py
+# גיל התיאור ותקרת האורך שלו — מודול שורש טהור, ראו file_description.py
 from file_description import (
     DESCRIPTION_SET_AT_VERSION_FIELD,
+    description_length_error,
     description_stamp_for_new_version,
 )
 # מחיקה רכה — מודול שורש טהור, אותה שאילתה שהוובאפ מריץ על חיבור משלו.
@@ -106,23 +107,10 @@ HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PRO
 #: "נקה את התיאור" — שתי בקשות שונות שגם ``None`` וגם ``""`` היו מאחדות.
 _UNSET: Any = object()
 
-#: התקרה המעשית לאורך ``description`` של קובץ, **בתווים**.
-#:
-#: המספר עצמו אינו חדש — הראוט ``quick-update`` בוובאפ חתך ב-500 מאז שנכתב.
-#: מה שחדש הוא שיש לו שם אחד: משנוסף ``codekeeper_update_file_description``
-#: ב-MCP, ``500`` קשיח בשני קבצים היה נעשה מספר שרק אחד משני המקומות יקבל
-#: את העדכון הבא שלו, ותיאור שנכתב דרך הכלי היה נחתך בשקט ברגע שמישהו
-#: עורך אותו בדפדפן.
-#:
-#: **תווים ולא בייטים, וזה מכוון.** ``len()`` בפייתון סופר תווים, ובעברית
-#: כל אות היא שני בייטים ב-UTF-8 — תקרה שנמדדת בבייטים הייתה חותכת תיאור
-#: עברי בחצי האורך, ובגבול עצמו באמצע אות. ראו ``BY-STACK/hebrew-source.md``
-#: H6.
-#:
-#: **שתי המדיניויות שנשענות עליו שונות, בכוונה.** הוובאפ חותך, כי שם אדם
-#: רואה את הטקסט בתיבה לפני השליחה ואחריה. ה-MCP דוחה, כי סוכן אינו רואה
-#: את התוצאה וחיתוך שקט הוא אובדן טקסט שלא ידווח לו.
-FILE_DESCRIPTION_MAX_CHARS = 500
+# תקרת האורך של ``description`` (``FILE_DESCRIPTION_MAX_CHARS``) יושבת ב-
+# ``file_description.py`` מאז #3489, ולא כאן: גם ``mcp_server/handlers.py`` אוכף
+# אותה וגם תיאורי כלי ה-MCP נבנים ממנה, והשכבה ההיא בנויה להיות ניתנת לייבוא
+# בלי חבילת ה-database. כאן נאכף הכלל דרך ``description_length_error``.
 
 
 def update_file_metadata_in(
@@ -166,11 +154,27 @@ def update_file_metadata_in(
     הוא הדרך היחידה להבדיל בינה לבין "השדה לא נשלח".
 
     **הנורמליזציה שייכת לקורא, לא לכאן.** הוובאפ חותך תיאור ארוך
-    (``[:500]``) ושכבת ה-MCP דוחה אותו, כי סוכן שמקבל חיתוך שקט אינו
-    יודע שאיבד טקסט. שתי המדיניויות נכונות לממשק שלהן, ואיחוד שלהן כאן
-    היה מכריע עבור שניהם. מה שכן נבדק כאן הוא **טיפוס**: ערך שאינו
-    מחרוזת (או רשימת מחרוזות, לתגיות) נדחה בקוד שגיאה ואינו מומר בשקט —
-    ראו ``bugbot-rules/external-input-isinstance.md``.
+    (``[:FILE_DESCRIPTION_MAX_CHARS]``) לפני הקריאה, כי אדם רואה את התיבה,
+    ושכבת ה-MCP מעבירה אותו כמו שהוא, כי סוכן שמקבל חיתוך שקט אינו יודע
+    שאיבד טקסט. מה שכן נבדק כאן הוא **טיפוס**: ערך שאינו מחרוזת (או רשימת
+    מחרוזות, לתגיות) נדחה בקוד שגיאה ואינו מומר בשקט — ראו
+    ``bugbot-rules/external-input-isinstance.md``.
+
+    **ותקרת האורך — כאן, כי היא עובדה על השדה, ובתוך הכתיבה ולא לפניה.**
+    תיאור ארוך מ-``FILE_DESCRIPTION_MAX_CHARS`` (``file_description.py``) נדחה
+    ב-``description_too_long`` עם ``max_chars`` ו-``actual_chars`` — **אלא אם הוא
+    זהה לתיאור שכבר שמור**, ואז הקריאה עושה את מה שהיא עושה לכל טקסט זהה:
+    מאפסת את החותמת (#3489). "זהה" נבדק מול המסמך שמתעדכן, **באותה פעולה
+    אטומית**: כל שדה שנכתב עטוף ב-``$cond`` על ``$description`` של המסמך, כך
+    שכשהתיאור השמור אחר, כל שדה מקבל את הערך שכבר יש לו, ושום דבר אינו זז —
+    מונגו מדווח עליה ``modified_count`` 0, ושדה שחסר במסמך אינו נוסף כ-``null``
+    (נמדד: הכתיבה מול MongoDB 8.0.32 מקומי; הביטויים של השלב גם מול אשכול
+    הייצור, 8.0.34, באגרגציה לקריאה בלבד על מסמכים סינתטיים). קריאה של התיאור
+    לפני הכתיבה הייתה מחזירה את חלון ה-TOCTOU ש-``find_one_and_update`` נבחר
+    כדי לסגור, ו"זהה" בפילטר לא היה
+    עובד: עם המיון לפי גרסה הוא היה תופס גרסה **ישנה** שנושאת את אותו טקסט,
+    כשהאחרונה כבר נושאת אחר. הוובאפ חותך לפני הקריאה, ולכן לעולם אינו מגיע
+    לענף הזה.
 
     **``find_one_and_update`` ולא בדיקת בעלות ואז ``update_one``.** הצורה
     השנייה היא מה שהראוט בוובאפ עשה, ויש בה חלון TOCTOU: בין ה-``find_one``
@@ -192,21 +196,17 @@ def update_file_metadata_in(
     בכך שלא נזרקה חריגה (``CRITICAL-PATTERNS.md`` K11).
     """
     updates: Dict[str, Any] = {}
+    # ``None`` — התיאור בתקרה, או שלא נשלח תיאור. אחרת — הסירוב, אם יתברר
+    # שהתיאור השמור אינו זהה לזה (ראו "ותקרת האורך" למעלה).
+    over_ceiling: Optional[Dict[str, int]] = None
     if description is not _UNSET:
         if not isinstance(description, str):
             return {"ok": False, "error": "invalid_description"}
-        if len(description) > FILE_DESCRIPTION_MAX_CHARS:
-            # **דחייה ולא חיתוך, וזה לא סותר את "הנורמליזציה שייכת לקורא".**
-            # התקרה היא עובדה על השדה ולכן היא נאכפת כאן, פעם אחת; מה
-            # שנשאר לקורא הוא **מה לעשות איתה**. הוובאפ חותך לפני הקריאה
-            # ולכן לעולם אינו מגיע לענף הזה — ההתנהגות שלו לא זזה. שכבת
-            # ה-MCP אינה חותכת, ולכן היא מקבלת את הדחייה ומעבירה אותה
-            # לסוכן עם המספר, במקום לאבד לו טקסט בשקט.
-            return {
-                "ok": False,
-                "error": "description_too_long",
-                "max": FILE_DESCRIPTION_MAX_CHARS,
-            }
+        # **דחייה ולא חיתוך, וזה לא סותר את "הנורמליזציה שייכת לקורא".**
+        # התקרה היא עובדה על השדה ולכן היא נאכפת כאן, פעם אחת; מה שנשאר
+        # לקורא הוא **מה לעשות איתה**. בלי תיאור קודם: האם הטקסט ארוך מהתקרה.
+        # ההשוואה לתיאור השמור קורית בכתיבה עצמה, למטה.
+        over_ceiling = description_length_error(description)
         updates["description"] = description
     if tags is not _UNSET:
         if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
@@ -246,6 +246,14 @@ def update_file_metadata_in(
     #
     # ``tags``-בלבד אינו נוגע בחותמת כלל, מאותה סיבה שהוא אינו חותם
     # ``updated_at``: הוא אינו נגיעה בתיאור.
+    #
+    # **תיאור ארוך מהתקרה — כל שדה בתנאי אחד:** ``$description`` של המסמך
+    # שמתעדכן שווה לטקסט שנשלח. כשכן — אותם ערכים כמו לכל טקסט זהה, כלומר
+    # החותמת מתאפסת; כשלא — כל שדה מקבל את הערך שכבר יש לו (``"$" + key``),
+    # ומעל הכתיבה עולה הסירוב. תנאי אחד לכל השדות, כי התיאור, החותמת שלו,
+    # ``updated_at`` והתגיות זזים יחד או לא זזים בכלל
+    # (``bugbot-rules/linked-field-atomicity.md``). התיאור שנשלח אינו ריק כאן
+    # (הוא ארוך מהתקרה), ולכן ``$$REMOVE`` לעולם אינו בתוך התנאי.
     update: Any
     if "description" in updates:
         stage: Dict[str, Any] = {
@@ -255,6 +263,12 @@ def update_file_metadata_in(
         stage[DESCRIPTION_SET_AT_VERSION_FIELD] = (
             "$version" if updates["description"] else "$$REMOVE"
         )
+        if over_ceiling is not None:
+            unchanged_text = {"$eq": ["$description", {"$literal": updates["description"]}]}
+            stage = {
+                key: {"$cond": [unchanged_text, value, "$" + key]}
+                for key, value in stage.items()
+            }
         update = [{"$set": stage}]
     else:
         update = {"$set": updates}
@@ -295,6 +309,15 @@ def update_file_metadata_in(
 
     if not previous:
         return {"ok": False, "error": "not_found"}
+
+    # ``previous`` הוא המסמך **שלפני** אותה פעולה אטומית, כלומר בדיוק המסמך
+    # שה-``$cond`` נבדק מולו — ולכן ההכרעה כאן היא ההכרעה שם, ולא קריאה שנייה
+    # שיכולה כבר לראות מצב אחר. תיאור שמור שאינו הטקסט הזה ← שום שדה לא זז,
+    # ואין גם מה לנקות בקאש.
+    if over_ceiling is not None and description_length_error(
+        updates["description"], previous.get("description")
+    ) is not None:
+        return {"ok": False, "error": "description_too_long", **over_ceiling}
 
     doc_id = str(previous.get("_id"))
     try:
