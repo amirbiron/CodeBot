@@ -508,6 +508,21 @@ def test_auth_does_not_send_the_user_to_google_when_the_state_was_not_stored(har
     assert [(e, f["reason"]) for e, _s, f in h.events] == [("webapp_drive_auth_failed", "state_store_failed")]
 
 
+def test_connecting_while_the_database_is_in_noop_mode_answers_with_the_planned_error(harness, monkeypatch):
+    """כשמונגו לא זמין בעלייה, ``DatabaseManager`` עובר ל-``NoOpDB`` (``db_connection_fallback_noop``) ושום כתיבה לא נכתבת. ``_store_oauth_state`` בודק ``matched_count`` / ``upserted_id`` — ובלי השדות בתוצאה של ה-no-op נפל ב-``AttributeError``, שאינו ``PyMongoError``, ו"חבר" החזיר 500 לא מטופל בלי האירוע."""
+    from database.manager import NoOpDB
+
+    h = harness
+    monkeypatch.setattr(h.da, "_get_db", lambda: SimpleNamespace(db=NoOpDB()))
+    cookie = _login(h)
+    resp = h.client.get("/api/drive/auth", headers=_cookie(cookie))
+
+    assert resp.status_code == 500
+    assert resp.get_json()["ok"] is False
+    assert "Location" not in resp.headers
+    assert [(e, f["reason"]) for e, _s, f in h.events] == [("webapp_drive_auth_failed", "state_store_failed")]
+
+
 # --- קטלוג האירועים מול הקוד ---
 
 

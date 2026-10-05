@@ -1,6 +1,6 @@
 """סיום ההתחברות ל-Drive בבוט: "✅ הושלם" רק כשהטוקנים באמת נשמרו.
 
-שלושה מסלולים מסיימים התחברות ב-Device Flow בתפריט (``handlers/drive/menu.py``): הבדיקה ברקע (``_poll_once``), הכפתור "🔄 בדוק חיבור" (``drive_poll_once``), והדבקת קוד (``handle_text``). ``gdrive.save_tokens`` לא זורק בכשל מסד — הוא מחזיר ``False`` (``Repository.save_drive_tokens``) — ושני המסלולים הראשונים לא בדקו את הערך: הם הודיעו "✅ חיבור ל‑Drive הושלם!" ועצרו את הבדיקה גם כשהשמירה נכשלה. המסלול השלישי שמר כטוקנים גם תשובת שגיאה של גוגל (``{"error": "access_denied"}``) והודיע "✅" עליה.
+שלושה מסלולים מסיימים התחברות ב-Device Flow בתפריט (``handlers/drive/menu.py``): הבדיקה ברקע (``_poll_once``), הכפתור "🔄 בדוק חיבור" (``drive_poll_once``), והדבקת קוד (``handle_text``). ``gdrive.save_tokens`` לא זורק בכשל מסד — הוא מחזיר ``False`` (``Repository.save_drive_tokens``) — ושני המסלולים הראשונים לא בדקו את הערך: הם הודיעו "✅ חיבור ל‑Drive הושלם!" ועצרו את הבדיקה גם כשהשמירה נכשלה. המסלול השלישי שמר כטוקנים גם תשובת שגיאה של גוגל (``{"error": "access_denied"}``) והודיע "✅" עליה. והבדיקה ברקע התעלמה משגיאה סופית של גוגל — המשיכה לבדוק עד שתוקף הבקשה פג, בלי לומר כלום.
 
 התפריט אמיתי; גוגל והשמירה מוחלפים בדמויות.
 """
@@ -152,3 +152,66 @@ async def test_pasting_the_code_does_not_save_an_error_answer_from_google_as_tok
 
     assert saves.calls == []
     assert len(replies) == 1 and replies[0].startswith("❌ שגיאה: access_denied")
+
+
+DEVICE_FLOW = {"device_code": "dc-1", "user_code": "ABCD", "verification_url": "https://www.google.com/device", "interval": 5, "expires_in": 1800}
+
+
+async def _background_poll_once(monkeypatch, poll_result):
+    """מתחיל התחברות בתפריט האמיתי, ומריץ סבב אחד של הבדיקה ברקע מול תשובה נתונה של גוגל."""
+    monkeypatch.setattr(dm.gdrive, "start_device_authorization", lambda uid: dict(DEVICE_FLOW))
+    monkeypatch.setattr(dm.gdrive, "poll_device_token", lambda dc: dict(poll_result))
+    handler = GoogleDriveMenuHandler()
+    queue = _JobQueue()
+    context = _context(queue)
+    await handler.handle_callback(types.SimpleNamespace(callback_query=_Query("drive_auth"), effective_user=types.SimpleNamespace(id=USER_ID)), context)
+    (poll_once, job), = queue.callbacks
+    bot = _Bot()
+    await poll_once(types.SimpleNamespace(job=job, bot=bot, bot_data={}))
+    return handler, context, job, bot
+
+
+async def test_a_final_google_error_stops_the_background_check_and_shows_the_error(monkeypatch, saves):
+    """RFC 8628 §3.5: על קוד שגיאה של OAuth שאינו ``authorization_pending`` / ``slow_down`` הלקוח *"MUST stop polling"*. הבדיקה ברקע התעלמה מתשובה כזו והמשיכה לפנות לגוגל עד שתוקף הבקשה פג — ואז הודיעה "פג תוקף" על בקשה שהמשתמש סירב לה."""
+    denied = {"error": "access_denied", "error_description": "The user denied the request."}
+
+    handler, context, job, bot = await _background_poll_once(monkeypatch, denied)
+
+    assert job.removed is True
+    assert "device_code" not in handler._session(USER_ID)
+    assert USER_ID not in context.bot_data["drive_auth_jobs"]
+    assert bot.edits == [dm._auth_error_text(denied)]
+    assert bot.edits[0].startswith("❌ שגיאה: access_denied")
+    assert saves.calls == []
+
+
+async def test_a_temporary_google_error_keeps_the_background_check_running(monkeypatch, saves):
+    """תשובת שגיאה בלי קוד של OAuth (``poll_device_token`` מסמן אותה ``http_<status>``) אינה הכרעה של גוגל: הבדיקה ממשיכה ושום דבר לא נסגר. בקרה לטסט שמעליו — מגינה מפני עצירה על כל שגיאה."""
+    handler, context, job, bot = await _background_poll_once(monkeypatch, {"error": "http_503", "error_description": "token endpoint error"})
+
+    assert job.removed is False
+    assert handler._session(USER_ID).get("device_code") == "dc-1"
+    assert context.bot_data["drive_auth_jobs"].get(USER_ID) is job
+    assert bot.edits == []
+    assert saves.calls == []
+
+
+@pytest.mark.parametrize(
+    "result, closes",
+    [
+        (None, False),
+        ({}, False),
+        ({"error": None}, False),
+        ({"error": ["access_denied"]}, False),
+        ({"error": "authorization_pending"}, False),
+        ({"error": "slow_down"}, False),
+        ({"error": "http_503", "error_description": "token endpoint error"}, False),
+        ({"error": "access_denied"}, True),
+        ({"error": "expired_token"}, True),
+        ({"error": "invalid_grant"}, True),
+        ({"error": "unsupported_grant_type"}, True),
+    ],
+)
+def test_only_an_oauth_error_other_than_pending_or_slow_down_closes_the_request(result, closes):
+    """RFC 8628 §3.5: ``authorization_pending`` ו-``slow_down`` אומרים להמשיך לבדוק, וכל קוד שגיאה אחר של OAuth סוגר את הבקשה. ערך שאינו מחרוזת אינו קוד."""
+    assert dm.gdrive.is_terminal_device_flow_error(result) is closes

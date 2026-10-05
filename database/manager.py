@@ -64,6 +64,21 @@ class DBLike(Protocol):
     def __getattr__(self, name: str) -> CollectionLike: ...
 
 
+def _noop_update_result() -> SimpleNamespace:
+    """תוצאת ``update_one`` / ``update_many`` כשאין מסד: עדכון שלא תאם אף מסמך, עם כל התכונות של ``pymongo.results.UpdateResult``.
+
+    קוראים בודקים ``matched_count`` ו-``upserted_id`` כדי לדעת אם משהו נכתב, ותוצאה בלי השדות האלה הפילה אותם ב-``AttributeError`` במקום תשובת השגיאה שהם מחזירים כשלא נכתב כלום. ``tests/test_database_noop.py`` משווה את השדות לתכונות של ``UpdateResult`` בגרסה המותקנת.
+    """
+    return SimpleNamespace(
+        acknowledged=True,
+        matched_count=0,
+        modified_count=0,
+        upserted_id=None,
+        did_upsert=False,
+        raw_result={"n": 0, "nModified": 0},
+    )
+
+
 class _StubCollection:
     """מימוש מינימלי שתואם את PyMongo לצורך אתחול מוקדם והימנעות מ-None."""
 
@@ -86,10 +101,10 @@ class _StubCollection:
         return SimpleNamespace(inserted_id=None)
 
     def update_one(self, *args: Any, **kwargs: Any) -> Any:
-        return SimpleNamespace(acknowledged=True, modified_count=0)
+        return _noop_update_result()
 
     def update_many(self, *args: Any, **kwargs: Any) -> Any:
-        return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
+        return _noop_update_result()
 
     def delete_one(self, *args: Any, **kwargs: Any) -> Any:
         return SimpleNamespace(deleted_count=0)
@@ -1040,9 +1055,9 @@ class NoOpCollection:
     def insert_one(self, *args, **kwargs):
         return SimpleNamespace(inserted_id=None)
     def update_one(self, *args, **kwargs):
-        return SimpleNamespace(acknowledged=True, modified_count=0)
+        return _noop_update_result()
     def update_many(self, *args, **kwargs):
-        return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
+        return _noop_update_result()
     def delete_one(self, *args, **kwargs):
         return SimpleNamespace(deleted_count=0)
     def delete_many(self, *args, **kwargs):

@@ -72,7 +72,7 @@ def _log_drive_call_failed(op: str, user_id: int, *, owner: str, error: Optional
     status: Optional[int] = None
     reason: Optional[str] = None
     if error is not None:
-        status, raw_reason = _parse_http_error_status_reason(error)
+        status, raw_reason = _parse_http_error_status_reason(error, include_message=False)
         if raw_reason is not None:
             reason = raw_reason if _DRIVE_ERROR_CODE_RE.fullmatch(raw_reason) else "unrecognized"
     logging.getLogger(__name__).warning(
@@ -185,6 +185,19 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
     return tokens
 
 
+def is_terminal_device_flow_error(result: Any) -> bool:
+    """האם תשובה של ``poll_device_token`` סוגרת את בקשת ההתחברות, ולכן צריך להפסיק לבדוק.
+
+    לפי RFC 8628 §3.5 רק ``authorization_pending`` ו-``slow_down`` אומרים להמשיך (ועליהם ``poll_device_token`` מחזיר ``None``); על כל קוד שגיאה אחר של OAuth הלקוח *"MUST stop polling"* — למשל ``access_denied`` כשהמשתמש סירב, או ``expired_token``. תשובת שגיאה בלי קוד של OAuth, ש-``poll_device_token`` מסמן ``http_<status>`` (למשל 503 מגוגל), אינה הכרעה של שרת ההרשאה, ולכן היא לא סוגרת את הבקשה.
+    """
+    if not isinstance(result, dict):
+        return False
+    error = result.get("error")
+    if not isinstance(error, str) or not error or error in {"authorization_pending", "slow_down"}:
+        return False
+    return not error.startswith("http_")
+
+
 def save_tokens(user_id: int, tokens: Dict[str, Any], *, owner: str) -> bool:
     """Save OAuth tokens, preserving existing refresh_token if missing.
 
@@ -227,6 +240,32 @@ def _credentials_from_tokens(tokens: Dict[str, Any]) -> Credentials:
     )
 
 
+def _save_refreshed_credentials(user_id: int, creds: Any, *, owner: str) -> bool:
+    """שומר את הטוקן שהתקבל מרענון, ומחזיר ``True`` רק אם הוא נשמר. משותף לשני מסלולי הרענון (``_ensure_valid_credentials``, ‏``_force_refresh_credentials``).
+
+    ``creds.expiry`` של google-auth הוא UTC נאיבי — ``_helpers.utcnow()`` מסיר את אזור הזמן, ו-``_parse_expiry`` מוסיף לו את ``expires_in`` (google-auth 2.41.1) — ולכן הוא מתויג כאן ב-UTC לפני החישוב מול ``_now_utc()``. בלי התיוג החיסור זורק ``TypeError``, וב-``_force_refresh_credentials`` הוא נבלע: הרענון הצליח, והטוקן החדש לא נשמר אף פעם.
+
+    ``save_tokens`` מחזיר ``False`` בכשל מסד ולא זורק, ולכן התוצאה נבדקת כאן ונרשמת בשורת ``drive_refresh_not_saved``: הקריאה הנוכחית ממשיכה עם הטוקן החדש, והבאה תטען מהמסד את הקודם.
+    """
+    expiry = creds.expiry
+    if expiry is not None and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    if expiry is None:
+        expiry = _now_utc() + timedelta(hours=1)
+    updated = {
+        "access_token": creds.token,
+        "refresh_token": creds.refresh_token,
+        "token_type": "Bearer",
+        "scope": " ".join(creds.scopes or []),
+        "expires_in": int((expiry - _now_utc()).total_seconds()),
+        "expiry": expiry.isoformat(),
+    }
+    saved = bool(save_tokens(user_id, updated, owner=owner))
+    if not saved:
+        logging.getLogger(__name__).warning("drive_refresh_not_saved owner=%s user_id=%s", owner, user_id)
+    return saved
+
+
 def _ensure_valid_credentials(user_id: int, *, owner: str) -> Optional[Credentials]:
     tokens = _load_tokens(user_id, owner=owner)
     if not tokens:
@@ -245,16 +284,7 @@ def _ensure_valid_credentials(user_id: int, *, owner: str) -> Optional[Credentia
         while attempts < 3:
             try:
                 creds.refresh(Request())  # type: ignore[misc]
-                # Persist updated access token and expiry
-                updated = {
-                    "access_token": creds.token,
-                    "refresh_token": creds.refresh_token,
-                    "token_type": "Bearer",
-                    "scope": " ".join(creds.scopes or []),
-                    "expires_in": int((creds.expiry - _now_utc()).total_seconds()) if creds.expiry else 3600,
-                    "expiry": creds.expiry.isoformat() if creds.expiry else (_now_utc() + timedelta(hours=1)).isoformat(),
-                }
-                save_tokens(user_id, updated, owner=owner)
+                _save_refreshed_credentials(user_id, creds, owner=owner)
                 break
             except Exception as e:
                 attempts += 1
@@ -547,7 +577,11 @@ def compute_friendly_name(user_id: int, category: str, entity_name: str, rating:
     return f"{base}_{date_str}.zip"
 
 # ===== Upload retry helpers =====
-def _parse_http_error_status_reason(err: Exception) -> Tuple[Optional[int], Optional[str]]:
+def _parse_http_error_status_reason(err: Exception, *, include_message: bool = True) -> Tuple[Optional[int], Optional[str]]:
+    """סטטוס ה-HTTP וקוד השגיאה מגוף התשובה של ``HttpError``: ``errors[0].reason``, אחריו ``error.status``, ובהיעדר שניהם ``error.message``.
+
+    ``error.message`` הוא טקסט חופשי של גוגל, ולכן ``include_message=False`` מוותר עליו — כך קורא ``_log_drive_call_failed``, שרושם קוד ולא טקסט. ``_is_retryable_http_error`` קורא עם ברירת המחדל, ומקבל גם את ``error.message``.
+    """
     try:
         status = getattr(getattr(err, 'resp', None), 'status', None)
     except Exception:
@@ -560,11 +594,10 @@ def _parse_http_error_status_reason(err: Exception) -> Tuple[Optional[int], Opti
             try:
                 payload = json.loads(content.decode('utf-8', errors='ignore'))
                 # Typical Drive error shape
-                reason = (
-                    (payload.get('error', {}) or {}).get('errors', [{}])[0].get('reason')
-                    or (payload.get('error', {}) or {}).get('status')
-                    or (payload.get('error', {}) or {}).get('message')
-                )
+                error_obj = payload.get('error', {}) or {}
+                reason = error_obj.get('errors', [{}])[0].get('reason') or error_obj.get('status')
+                if not reason and include_message:
+                    reason = error_obj.get('message')
             except Exception:
                 reason = None
     except Exception:
@@ -610,19 +643,8 @@ def _force_refresh_credentials(user_id: int, *, owner: str) -> bool:
             return False
         logging.getLogger(__name__).warning("Drive forced refresh failed: %s", str(e))
         return False
-    try:
-        updated = {
-            "access_token": creds.token,
-            "refresh_token": creds.refresh_token,
-            "token_type": "Bearer",
-            "scope": " ".join(creds.scopes or []),
-            "expires_in": int((creds.expiry - _now_utc()).total_seconds()) if creds.expiry else 3600,
-            "expiry": creds.expiry.isoformat() if creds.expiry else (_now_utc() + timedelta(hours=1)).isoformat(),
-        }
-        save_tokens(user_id, updated, owner=owner)
-    except Exception:
-        # Refresh succeeded even if persistence failed; try to proceed anyway
-        pass
+    # הרענון הצליח, ולכן ממשיכים איתו גם כשהשמירה נכשלה — ``_save_refreshed_credentials`` רושם אותה
+    _save_refreshed_credentials(user_id, creds, owner=owner)
     _clear_service_cache(user_id, owner=owner)
     return True
 

@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 _AUTH_NOT_SAVED_TEXT = "❌ לא ניתן לשמור את החיבור ל‑Drive. נסה להתחבר שוב."
 
 
+def _auth_error_text(result: Dict[str, Any]) -> str:
+    """ההודעה למשתמש כשגוגל ענה בשגיאה על בקשת ההתחברות — אחת לשלושת המסלולים: הבדיקה ברקע, "🔄 בדוק חיבור" והדבקת קוד."""
+    desc = result.get("error_description") or "בקשה נדחתה. נא לאשר בדפדפן ולנסות שוב."
+    return f"❌ שגיאה: {result.get('error')}\n{desc}"
+
+
 # Observability events (best-effort)
 try:
     from observability import emit_event  # type: ignore
@@ -561,16 +567,21 @@ class GoogleDriveMenuHandler:
                     dc = s.get("device_code")
                     if not dc:
                         return
-                    # Expiry guard: stop polling and notify
-                    import time as _t
-                    exp = s.get("auth_expires_at") or 0
-                    if exp and _t.time() > exp:
+
+                    def _stop_polling() -> None:
+                        # סוגר את בקשת ההתחברות ועוצר את הבדיקה ברקע. הסרה שנכשלה אינה מזיקה: בלי device_code הסבב הבא חוזר מיד
                         try:
                             ctx.job.schedule_removal()
                         except Exception:
                             pass
-                        ctx.bot_data.setdefault("drive_auth_jobs", {}).pop(uid, None)
+                        jobs.pop(uid, None)
                         s.pop("device_code", None)
+
+                    # Expiry guard: stop polling and notify
+                    import time as _t
+                    exp = s.get("auth_expires_at") or 0
+                    if exp and _t.time() > exp:
+                        _stop_polling()
                         try:
                             await ctx.bot.edit_message_text(
                                 chat_id=chat_id,
@@ -582,17 +593,26 @@ class GoogleDriveMenuHandler:
                             pass
                         return
                     tokens = gdrive.poll_device_token(dc)
-                    # None => עדיין ממתינים; dict עם error => לא לשמור, להמתין
-                    if not tokens or (isinstance(tokens, dict) and tokens.get("error")):
+                    if not tokens:
+                        return  # עדיין ממתינים לאישור בדפדפן
+                    if isinstance(tokens, dict) and tokens.get("error"):
+                        if not gdrive.is_terminal_device_flow_error(tokens):
+                            return  # תקלה זמנית בלי קוד שגיאה של OAuth — ממשיכים לבדוק עד שתוקף הבקשה פג
+                        # גוגל סגר את הבקשה (למשל המשתמש סירב): מפסיקים לבדוק ומציגים את השגיאה, כמו בשני המסלולים הידניים
+                        _stop_polling()
+                        try:
+                            await ctx.bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text=_auth_error_text(tokens),
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]),
+                            )
+                        except Exception as e:
+                            logger.warning("drive_auth_poll_notify_failed user_id=%s error_type=%s", uid, type(e).__name__)
                         return
                     # הטוקנים התקבלו וה-device code נוצל, ולכן הבדיקה נעצרת בכל מקרה — גם כשהשמירה נכשלה
                     saved = self._save_auth_tokens(uid, tokens)
-                    try:
-                        ctx.job.schedule_removal()
-                    except Exception:
-                        pass
-                    jobs.pop(uid, None)
-                    s.pop("device_code", None)
+                    _stop_polling()
                     try:
                         if saved:
                             await ctx.bot.edit_message_text(
@@ -675,15 +695,13 @@ class GoogleDriveMenuHandler:
                 )
                 return
             if isinstance(tokens, dict) and tokens.get("error"):
-                err = tokens.get("error")
-                desc = tokens.get("error_description") or "בקשה נדחתה. נא לאשר בדפדפן ולנסות שוב."
                 kb = [
                     [InlineKeyboardButton("🔄 בדוק חיבור", callback_data="drive_poll_once")],
                     [InlineKeyboardButton("❌ בטל", callback_data="drive_cancel_auth")],
                 ]
                 await TelegramUtils.safe_edit_message_text(
                     query,
-                    f"❌ שגיאה: {err}\n{desc}",
+                    _auth_error_text(tokens),
                     reply_markup=InlineKeyboardMarkup(kb),
                 )
                 return
@@ -1288,8 +1306,7 @@ class GoogleDriveMenuHandler:
                 return True
             if isinstance(tokens, dict) and tokens.get("error"):
                 # גוגל דחה את הבקשה (poll_device_token מחזיר את השגיאה כמילון) — אין כאן טוקנים לשמור
-                desc = tokens.get("error_description") or "בקשה נדחתה. נא לאשר בדפדפן ולנסות שוב."
-                await update.message.reply_text(f"❌ שגיאה: {tokens.get('error')}\n{desc}")
+                await update.message.reply_text(_auth_error_text(tokens))
                 return True
             if self._save_auth_tokens(update.effective_user.id, tokens):
                 await update.message.reply_text("✅ חיבור ל‑Drive הושלם! שלח /drive כדי להתחיל לגבות.")

@@ -72,9 +72,21 @@ def test_a_failed_upload_logs_the_status_and_the_drive_reason_and_not_the_error_
     assert UPLOAD_URI not in everything and QUOTA_MESSAGE not in everything
 
 
-def test_a_drive_reason_that_is_free_text_is_logged_as_unrecognized(monkeypatch, caplog):
-    # בלי errors[].reason ובלי error.status, הסיבה היא ה-message של גוגל — טקסט חופשי
-    error = _http_error(400, b'{"error": {"code": 400, "message": "Invalid value for owner someone@example.com"}}')
+@pytest.mark.parametrize("message", ["Invalid value for owner someone@example.com", "PrivateName"])
+def test_a_drive_error_without_a_code_logs_no_reason_and_never_the_message(monkeypatch, caplog, message):
+    # בלי errors[].reason ובלי error.status אין קוד שגיאה. error.message הוא טקסט חופשי של גוגל — גם כשהוא מילה אחת, שהייתה עוברת את בדיקת הצורה של קוד
+    error = _http_error(400, b'{"error": {"code": 400, "message": "%s"}}' % message.encode())
+
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert _upload_with_failing_chunk(monkeypatch, error) is None
+
+    (line,) = _drive_logs(caplog)
+    assert line.endswith("http_status=400 drive_reason=None")
+    assert message not in line
+
+
+def test_a_drive_code_that_is_not_one_word_is_logged_as_unrecognized(monkeypatch, caplog):
+    error = _http_error(400, b'{"error": {"code": 400, "errors": [{"reason": "bad value for someone@example.com"}]}}')
 
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         assert _upload_with_failing_chunk(monkeypatch, error) is None

@@ -28,7 +28,7 @@ Google Drive Service
 - הבוט (``handlers/drive/menu.py``, ‏``bot_handlers.py``) עובד עם ``drive_owner.BOT``, על השדות ההיסטוריים.
 - הוובאפ (``webapp/drive_auth.py``, ‏``webapp/drive_backup_api.py``, ‏``webapp/backup_scheduler.py``) והגיבוי האישי (``services/personal_backup_service.py``, שרץ רק בוובאפ) עובדים עם ``drive_owner.WEBAPP``.
 - מטמון השירותים (``_SERVICE_CACHE``) שמור לפי ``(owner, user_id)``, ולכן שירות אחד לא מקבל אובייקט שנבנה מהטוקנים של השני. שירות מוחזר מהמטמון רק אם נבנה מהטוקנים שבמסד עכשיו (``_credentials_fingerprint``), כך שאחרי חיבור מחדש או רענון שנשמר נבנה שירות חדש.
-- ``Repository.save_drive_prefs`` כותב רק את המפתחות שקיבל, כל אחד בנתיב משלו (``<field>.<key>``), בלי לקרוא קודם ולכתוב את כל ההעדפות חזרה — כך כתיבה אחת לא דורסת עדכון שנכתב במקביל, למשל תזמון שנקבע בזמן שגיבוי רץ. מפתח עם נקודה או ``$`` נדחה ב-``ValueError`` (``_drive_prefs_set_paths``).
+- ``Repository.save_drive_prefs`` כותב רק את המפתחות שקיבל, כל אחד בנתיב משלו (``<field>.<key>``), בלי לקרוא קודם ולכתוב את כל ההעדפות חזרה — כך כתיבה אחת לא דורסת עדכון שנכתב במקביל, למשל תזמון שנקבע בזמן שגיבוי רץ. מפתח עם נקודה, או שמתחיל ב-``$``, נדחה ב-``ValueError`` (``_drive_prefs_set_paths``).
 - ניתוק בוובאפ מוחק את הטוקנים ומכבה את התזמון באותה כתיבה (``delete_drive_tokens`` עם ``prefs``), כך שכשל לא משאיר תזמון בלי חיבור.
 
 ``tests/test_drive_connection_separation.py`` בודק גם את המבנה: כל קריאה בריפו לפונקציה שדורשת ``owner`` מעבירה אותו, וכל שירות נוקב רק בשמות השדות שלו.
@@ -54,12 +54,12 @@ Google Drive Service
 הערות OAuth
 ------------
 - שימור refresh_token: בשמירה מתמזג עם הטוקנים הקיימים של אותו שירות (``owner``), כדי לא למחוק refresh token שלא הוחזר ברענון.
-- רענון טוקן: ניסיון רענון עם טיפול כשלים שקט.
+- רענון טוקן: בשני מסלולי הרענון (``_ensure_valid_credentials``, ‏``_force_refresh_credentials``) הטוקן שהתקבל נשמר דרך ``_save_refreshed_credentials``. שמירה שנכשלה נרשמת בשורת ``drive_refresh_not_saved``, והקריאה הנוכחית ממשיכה עם הטוקן החדש.
 - **מלכודת: רענון שנכשל אינו** ``HttpError``. כשה-API עונה 401, ‏``google_auth_httplib2.AuthorizedHttp`` מרענן את הטוקן בעצמו, ואם הרענון נכשל (למשל ``invalid_grant`` — refresh token שבוטל, שפג או שהונפק ל-client אחר, RFC 6749 סעיף 5.2) נזרקת ``google.auth.exceptions.RefreshError`` (google-auth-httplib2 0.4.4, ``AuthorizedHttp.request``). בפונקציות ההעלאה הענף של 401 (``_is_auth_http_error`` ← ``_force_refresh_credentials``) נמצא תחת ``except HttpError``, ולכן הוא לא רץ על כשל כזה: החריגה נתפסת ב-``except Exception`` הכללי כתקלת רשת, וההעלאה מחזירה ``None``. בלוג נרשמת שורת ``drive_call_failed`` עם ``error_type=RefreshError``, אבל למשתמש אין סימן שצריך להתחבר מחדש. קוד שמטפל בכשלי אימות של Drive צריך לתפוס גם את ``RefreshError``.
 
 כשלים שמוחזרים כ-``None``
 --------------------------
-``upload_bytes`` ו-``upload_file`` מחזירים ``None`` כשההעלאה נכשלת, והקורא בודק את הערך. כל ``return None`` בהן נרשם בשורת לוג אחת, ``drive_call_failed`` (``_log_drive_call_failed``): הפעולה שנכשלה (``op``, למשל ``upload_bytes.chunk``), השירות, המשתמש, סוג החריגה, סטטוס ה-HTTP וקוד השגיאה של Drive (``drive_reason``, למשל ``storageQuotaExceeded``). גם ``ensure_folder``, ובניית השירות ב-``get_drive_service``, רושמים כך חריגה שהם בולעים. כשהעלאה נכשלת כי אין שירות או אין תיקייה (``upload_bytes.no_service``, ‏``upload_bytes.no_folder``), הסיבה שמאחוריה נמצאת בשורה של השלב שנכשל: טוקנים חסרים או רענון שנכשל (השורות של ``_ensure_valid_credentials``), בניית השירות, או ``ensure_folder``. הטקסט של החריגה לא נרשם: ב-``HttpError`` הוא כתובת הבקשה והודעת השגיאה של גוגל כמו שהיא, וקוד שגיאה שאינו מילה אחת נרשם כ-``unrecognized``.
+``upload_bytes`` ו-``upload_file`` מחזירים ``None`` כשההעלאה נכשלת, והקורא בודק את הערך. כל ``return None`` בהן נרשם בשורת לוג אחת, ``drive_call_failed`` (``_log_drive_call_failed``): הפעולה שנכשלה (``op``, למשל ``upload_bytes.chunk``), השירות, המשתמש, סוג החריגה, סטטוס ה-HTTP וקוד השגיאה של Drive (``drive_reason``, למשל ``storageQuotaExceeded``). גם ``ensure_folder``, ובניית השירות ב-``get_drive_service``, רושמים כך חריגה שהם בולעים. כשהעלאה נכשלת כי אין שירות או אין תיקייה (``upload_bytes.no_service``, ‏``upload_bytes.no_folder``), הסיבה שמאחוריה נמצאת בשורה של השלב שנכשל: טוקנים חסרים או רענון שנכשל (השורות של ``_ensure_valid_credentials``), בניית השירות, או ``ensure_folder``. ``drive_reason`` הוא קוד בלבד — ``errors[0].reason`` או ``error.status``. כשאין קוד הוא ריק, והודעת השגיאה של גוגל (``error.message``) לא נרשמת גם אז (``_parse_http_error_status_reason`` עם ``include_message=False``). הטקסט של החריגה לא נרשם: ב-``HttpError`` הוא כתובת הבקשה והודעת השגיאה של גוגל כמו שהיא, וקוד שגיאה שאינו מילה אחת נרשם כ-``unrecognized``.
 
 מבני קבצים
 -----------

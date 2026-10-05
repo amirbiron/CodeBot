@@ -330,6 +330,23 @@ def test_backup_now_is_not_started_for_a_user_who_is_not_connected_at_the_time_o
     assert "manual_backup_status" not in (dbm._repo.get_drive_prefs(USER_ID, owner=drive_owner.WEBAPP) or {})
 
 
+def test_schedule_and_backup_now_answer_not_connected_when_the_database_is_in_noop_mode(webapp, monkeypatch):
+    """במצב ``NoOpDB`` (מונגו לא זמין בעלייה) ``update_one`` לא כותב כלום. התזמון ו"גבה עכשיו" יודעים אם המשתמש מחובר לפי ``matched_count``, ולכן הם צריכים לענות "לא מחובר" — לא ליפול על תוצאה בלי השדה (בתזמון: 500 לא מטופל; ב"גבה עכשיו": שגיאה כללית)."""
+    from database.manager import NoOpDB
+    import webapp.drive_backup_api as dba
+
+    submitted = []
+    monkeypatch.setattr(dba, "_get_db", lambda: SimpleNamespace(db=NoOpDB()))
+    monkeypatch.setattr(dba._backup_executor, "submit", lambda *a, **k: submitted.append(a))
+
+    schedule = webapp.post("/api/drive/schedule", json={"schedule": "daily"})
+    backup_now = webapp.post("/api/drive/backup-now")
+
+    assert (schedule.status_code, (schedule.get_json() or {}).get("error")) == (400, dba._NOT_CONNECTED_ERROR)
+    assert (backup_now.status_code, (backup_now.get_json() or {}).get("error")) == (400, dba._NOT_CONNECTED_ERROR)
+    assert submitted == []
+
+
 def test_webapp_disconnect_is_a_single_write(webapp, dbm, monkeypatch):
     """מחיקת הטוקנים וכיבוי התזמון יוצאים באותה כתיבה — אין רגע שבו אחד קרה והשני לא."""
     _connect_webapp(webapp)
