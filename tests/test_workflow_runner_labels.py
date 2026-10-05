@@ -2,11 +2,17 @@
 
 שני כללים נאכפים:
 
-1. **אף תווית אינה ``-latest``.** ``ubuntu-latest`` אינו גרסה אלא מצביע ש-GitHub מזיזים
-   בלוח הזמנים שלהם, והמעבר שלו הדרגתי — במשך כמה שבועות חלק מהג'ובים רצים על הגרסה הישנה
-   וחלק על החדשה.
+1. **כל תווית היא תווית אובונטו שנוקבת בגרסה** (``PINNED_LABEL``). ``ubuntu-latest`` אינו
+   גרסה אלא מצביע ש-GitHub מזיזים בלוח הזמנים שלהם, והמעבר שלו הדרגתי — במשך כמה שבועות חלק
+   מהג'ובים רצים על הגרסה הישנה וחלק על החדשה.
 2. **כל הג'ובים, בכל הקבצים, רצים על אותה תווית.** כך שדרוג הוא החלפה אחת, ולא מצב ביניים
    שבו ה-CI של PR בודק גרסה אחת והפריסה רצה על אחרת.
+
+**הכלל הראשון בודק את הצורה שחייבת להתקיים, ולא רשימה של צורות אסורות** — רשימה כזו לעולם
+אינה שלמה. בגרסה הראשונה שלו הוא בדק רק שהתווית אינה מסתיימת ב-``-latest``, ולכן עברו אותו
+שלוש תוויות שזזות לבד באותה מידה: ``Ubuntu-LATEST`` (GitHub משווים תוויות בלי הבדל בין
+אותיות גדולות לקטנות — ראו ``PINNED_LABEL``), ``ubuntu-slim`` (תווית רשמית של GitHub בלי
+גרסה, בטבלת התמונות ב-README של ``actions/runner-images``), ו-``self-hosted``.
 
 הנימוק המלא, ואיך משדרגים: ``docs/ci-cd.rst``, הסעיף "תווית ה-runner".
 
@@ -20,6 +26,7 @@ runner for a job"), וצורה כזו **נכשלת** כאן בהודעה שאו�
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -27,6 +34,16 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
+
+#: תווית שנוקבת בגרסת אובונטו, כמו בעמודת "YAML Label" ב-README של ``actions/runner-images``.
+#: נבדקת ב-``fullmatch`` ובאותיות קטנות בלבד. GitHub משווים תוויות בלי הבדל בין אותיות גדולות
+#: לקטנות (תיעוד GitHub, "Using labels with self-hosted runners": "Labels are
+#: case-insensitive"; ‏actionlint 1.7.12 מקטין את התווית ב-``strings.ToLower`` לפני שהוא מחפש
+#: אותה ברשימת התוויות של GitHub), כך ש-``Ubuntu-LATEST`` הוא ``ubuntu-latest``. כתיב אחד
+#: לכל תווית גם שומר על הכלל השני מדויק, כי הוא משווה מחרוזות בין ג'ובים.
+#: מעבר מכוון לתווית מסוג אחר (``self-hosted``, ‏``-arm``) הוא שינוי מדיניות: משנים כאן, וגם
+#: את ``docs/ci-cd.rst``.
+PINNED_LABEL = re.compile(r"ubuntu-\d{2}\.\d{2}")
 
 
 def _runner_labels(workflows: Path) -> dict[str, str]:
@@ -57,18 +74,51 @@ def _runner_labels(workflows: Path) -> dict[str, str]:
     return labels
 
 
-def test_no_job_runs_on_a_moving_latest_label():
-    """אף ג'וב אינו רץ על תווית ``-latest``, שמשנה גרסה בלי שאף שורה בריפו משתנה."""
-    moving = {
-        where: label
-        for where, label in _runner_labels(WORKFLOWS).items()
-        if label.endswith("-latest")
-    }
-    assert not moving, (
-        "ג'ובים שרצים על תווית שזזה לבד. כתבו את התווית שכל שאר הג'ובים רצים עליה "
-        "(ראו docs/ci-cd.rst, 'תווית ה-runner'):\n"
-        + "\n".join(f"{where}: {label}" for where, label in sorted(moving.items()))
+def _unpinned(labels: dict[str, str]) -> dict[str, str]:
+    """הג'ובים שהתווית שלהם אינה בצורה של ``PINNED_LABEL``."""
+    return {where: label for where, label in labels.items() if not PINNED_LABEL.fullmatch(label)}
+
+
+def test_every_job_runs_on_a_label_that_names_an_ubuntu_version():
+    """כל ג'וב רץ על תווית אובונטו עם גרסה (``PINNED_LABEL``), ולא על תווית שזזה לבד."""
+    unpinned = _unpinned(_runner_labels(WORKFLOWS))
+    assert not unpinned, (
+        "ג'ובים שהתווית שלהם אינה נוקבת בגרסת אובונטו, ולכן יכולה לזוז בלי שאף שורה בריפו "
+        "תשתנה. כתבו את התווית שכל שאר הג'ובים רצים עליה, באותיות קטנות (ראו docs/ci-cd.rst, "
+        "'תווית ה-runner'; ואם תווית מסוג אחר מכוונת — PINNED_LABEL):\n"
+        + "\n".join(f"{where}: {label}" for where, label in sorted(unpinned.items()))
     )
+
+
+@pytest.mark.parametrize(
+    "label, pinned",
+    [
+        ("ubuntu-24.04", True),
+        ("ubuntu-26.04", True),
+        ("ubuntu-latest", False),
+        # אותה תווית כמו ubuntu-latest, כי GitHub משווים בלי הבדל בין אותיות גדולות לקטנות.
+        ("Ubuntu-LATEST", False),
+        # תווית רשמית של GitHub בלי גרסה, וגם בלי -latest.
+        ("ubuntu-slim", False),
+        # runner של הבעלים: אין בתווית גרסה, ומה שמותקן עליו נקבע מחוץ לריפו.
+        ("self-hosted", False),
+        # גרסה נכונה בכתיב אחר: GitHub היו מקבלים אותה, אבל הכלל השני משווה מחרוזות.
+        ("UBUNTU-24.04", False),
+        # שגיאת הקלדה, ולא תווית שקיימת.
+        ("ubuntu-24.4", False),
+    ],
+)
+def test_the_version_rule_accepts_only_a_lowercase_ubuntu_label_with_a_version(label, pinned):
+    """הכלל הראשון מקבל רק את הכתיב של ``PINNED_LABEL``.
+
+    .. note::
+
+       **הטסט הזה אינו נופל על ה-workflows של היום, וזה מכוון.** הוא שומר על ``_unpinned``:
+       בגרסה הראשונה, שבדקה רק סיומת ``-latest``, ``Ubuntu-LATEST``, ‏``ubuntu-slim``,
+       ‏``self-hosted``, ‏``UBUNTU-24.04`` ו-``ubuntu-24.4`` עברו כולן, והטסט על ה-workflows
+       היה נשאר ירוק עליהן.
+    """
+    assert (_unpinned({"w.yml:job": label}) == {}) is pinned
 
 
 def test_every_job_runs_on_the_same_label():
