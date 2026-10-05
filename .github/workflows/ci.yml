@@ -188,6 +188,13 @@ jobs:
           - suite: md-heavy
             label: 'Unit Tests md-heavy'
             marker: 'md_heavy'
+          # coverage נמדד בגרסה אחת בלבד, כדי לא לשלם פעמיים על ההאטה שהוא מוסיף לטסטים.
+          # 3.11, כי זו הגרסה שהפרודקשן רץ עליה (Dockerfile). הרשומה מוסיפה את
+          # ``coverage: true`` לכל המסלולים של הגרסה הזו: רשומת include מתווספת לכל צירוף
+          # שהיא לא דורסת בו ערך מקורי של המטריצה
+          # (``jobs.<job_id>.strategy.matrix.include`` בתיעוד של GitHub Actions).
+          - python-version: '3.11'
+            coverage: true
     services:
       # המסלול ``md-heavy`` אינו צריך מסד: ``image`` ריק אומר ל-runner לא להרים את
       # השירות (``jobs.<job_id>.services.<service_id>.image`` בתיעוד של GitHub
@@ -283,27 +290,29 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TEST_GITHUB_TOKEN }}
           PASTEBIN_API_KEY: ${{ secrets.TEST_PASTEBIN_KEY }}
           FEATURE_MY_COLLECTIONS: '1'
-          # Minimize retry/backoff delays during tests to avoid long waits
-          HTTP_RESILIENCE_MAX_ATTEMPTS: '1'
-          HTTP_RESILIENCE_BACKOFF_BASE: '0'
-          HTTP_RESILIENCE_BACKOFF_MAX: '0'
-          HTTP_RESILIENCE_JITTER: '0'
-          REQUESTS_RETRIES: '0'
-          REQUESTS_RETRY_BACKOFF: '0'
-          AIOHTTP_TIMEOUT_TOTAL: '6'
+          # ערכי הבדיקה של ההמתנות שקוד הייצור עושה בכוונה — rate limit, retry, backoff —
+          # נקבעים ב-tests/conftest.py ולא כאן, כדי שיחולו על כל הרצה של הטסטים: גם
+          # deploy.yml וגם הרצה מקומית. ראו docs/testing.rst.
         # ``-m`` בוחר את הטסטים של המסלול (``matrix.marker``). מסלול שלא נבחר בו אף
         # טסט נכשל ולא עובר בשקט: pytest יוצא בקוד 5 כשלא נאסף אף טסט, גם כשכולם
         # סוננו ב-``-m`` (נמדד ב-pytest 8.4.2, עם ``-n`` ובלעדיו). כך שם סימון ששונה
         # כאן ולא בטסטים, או בכל הטסטים ולא כאן, מפיל את המסלול ``md-heavy``. טסט בודד
         # שהסימון שלו חסר או שגוי פשוט רץ במסלול הרגיל. את קוד היציאה, ואת זה ששני
         # הביטויים משלימים זה את זה, מקבע ``tests/test_required_checks_are_listed.py``.
+        #
+        # דגלי ה-coverage עוברים רק במסלולים ש-``matrix.coverage`` דלוק בהם. בשאר המסלולים
+        # המאפיין לא מוגדר, ומאפיין שלא קיים מחזיר מחרוזת ריקה (contexts בתיעוד של GitHub
+        # Actions); ``&&`` ו-``||`` מחזירים את הערך עצמו ולא true/false (``And.cs`` ו-``Or.cs``
+        # ב-actions/runner), ולכן שם הביטוי ריק. אותו טסט בודק שאין ``--cov`` מחוץ לביטוי.
         run: |
           pytest -n auto --dist=loadscope -v -o addopts="" -m "${{ matrix.marker }}" \
-                 --cov=. --cov-report=xml --cov-report=term \
+                 ${{ matrix.coverage && '--cov=. --cov-report=xml --cov-report=term' || '' }} \
                  --durations=0 --json-report --json-report-file=unit-durations.json
 
       - name: Upload coverage to Codecov
-        if: always()
+        # רק במסלולים שמדדו coverage. Codecov ממזג את ההעלאות של אותו קומיט, ובלי
+        # ``after_n_builds`` ב-codecov.yml הוא לא מחכה למספר מסוים שלהן.
+        if: ${{ always() && matrix.coverage }}
         uses: codecov/codecov-action@v4
         with:
           files: coverage.xml

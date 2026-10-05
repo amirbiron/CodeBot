@@ -7,11 +7,6 @@ async def test_show_repos_resources_high_rate_loads_and_lists(monkeypatch):
     gh = __import__('github_menu_handler')
     handler = gh.GitHubMenuHandler()
 
-    # speed up
-    async def _no_delay(uid: int):
-        return None
-    monkeypatch.setattr(handler, "apply_rate_limit_delay", _no_delay)
-
     # ensure token exists
     monkeypatch.setattr(handler, "get_user_token", lambda uid: "t")
 
@@ -68,10 +63,6 @@ async def test_show_repos_unknown_rate_structure_still_proceeds(monkeypatch):
     gh = __import__('github_menu_handler')
     handler = gh.GitHubMenuHandler()
 
-    # speed up
-    async def _no_delay(uid: int):
-        return None
-    monkeypatch.setattr(handler, "apply_rate_limit_delay", _no_delay)
     monkeypatch.setattr(handler, "get_user_token", lambda uid: "t")
 
     class _User:

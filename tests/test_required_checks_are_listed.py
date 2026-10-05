@@ -12,7 +12,7 @@
 ``test_every_file_that_names_a_unit_tests_status_is_checked``, שמחפש שמות של סטטוסים
 בכל הקבצים שבמעקב של git — כי גם ``LISTS`` נכתבת ביד, ועותק שנשכח ממנה לא היה נבדק.
 
-ובנוסף, שני דברים שהמסלולים עצמם נשענים עליהם:
+ובנוסף, מה שהמסלולים עצמם נשענים עליו:
 
 - **הביטויים של המסלולים משלימים זה את זה** (``marker`` במטריצה). טסט שאף מסלול לא
   בוחר אינו רץ ב-CI בכלל, ואיש לא מקבל על כך הודעה.
@@ -20,6 +20,8 @@
   הטסטים, או בכל הטסטים בלי ``ci.yml``: המסלול הכבד היה בוחר אפס טסטים. pytest יוצא אז
   בקוד ``ExitCode.NO_TESTS_COLLECTED``, וה-CI נשען על זה, ולכן זה מקובע כאן ולא רק כתוב.
   טסט בודד שהסימון שלו חסר או שגוי אינו נתפס כך, וגם לא צריך: הוא רץ במסלול הרגיל.
+- **לכל מסלול יש גרסה שמודדת coverage**, ודגלי ה-coverage וההעלאה ל-Codecov תלויים שניהם
+  במפתח ``coverage`` של המטריצה. Codecov אינו בדיקת חובה, ולכן כיסוי שנעלם לא היה מפיל דבר.
 """
 
 from __future__ import annotations
@@ -66,6 +68,9 @@ _SENDS_STATUS_CONTEXT = re.compile(r"\bcontext:\s*process\.env\.STATUS_CONTEXT\b
 #: ביטוי ``-m`` שהוא שם של סימון אחד, בלי ``not``, ``and`` או סוגריים.
 _BARE_MARKER = re.compile(r"\w+")
 
+#: הביטוי בפקודת ה-pytest שמוסיף את דגלי ה-coverage רק כש-``matrix.coverage`` דלוק.
+_COVERAGE_FLAGS = re.compile(r"\$\{\{\s*matrix\.coverage\s*&&\s*'([^']*)'\s*\|\|\s*''\s*\}\}")
+
 
 def _unit_tests_job() -> dict:
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
@@ -106,25 +111,32 @@ def _status_template(job: dict) -> str:
 def _matrix_combinations(job: dict) -> list[dict]:
     """כל צירוף של המטריצה, עם המפתחות ש-``include`` מוסיף לו.
 
-    ב-``include`` כל רשומה נקשרת למסלול אחד לפי ``suite`` ומוסיפה לו מפתחות. זה
-    המקרה היחיד שהטסט יודע לפרוש, ולכן הוא מוודא שזה המבנה ולא מנחש.
+    לפי הכלל של GitHub (``jobs.<job_id>.strategy.matrix.include`` ב-``workflow-syntax.md``):
+    רשומה מתווספת לכל צירוף שאף זוג מפתח-ערך שלה אינו דורס בו ערך מקורי של המטריצה, ומפתח
+    שרשומה קודמת הוסיפה מותר לדרוס. רשומה שאינה מתאימה לאף צירוף יוצרת אצל GitHub צירוף
+    חדש — מסלול שלם, שאין לו שם ברשימות של בדיקות החובה — ולכן כאן היא נכשלת ולא נפרשת
+    בניחוש. מאותה סיבה הטסט גם אינו פורש ``exclude``, ונכשל עליו.
     """
     matrix = job["strategy"]["matrix"]
-    versions = matrix["python-version"]
-    suites = matrix["suite"]
-    by_suite = {}
-    for entry in matrix["include"]:
-        assert entry.get("suite") in suites, f"רשומת include בלי suite מוכר: {entry!r}"
-        assert "python-version" not in entry, f"רשומת include שמשנה גרסה: {entry!r}"
-        assert entry["suite"] not in by_suite, f"שתי רשומות include לאותו suite: {entry!r}"
-        by_suite[entry["suite"]] = entry
-    assert set(by_suite) == set(suites), (
-        f"לכל suite צריכה להיות רשומת include: יש {sorted(by_suite)}, צריך {sorted(suites)}"
+    assert "exclude" not in matrix, (
+        "המטריצה של unit-tests משתמשת ב-exclude, והטסט אינו יודע לפרוש אותו. לפני שמוסיפים "
+        "exclude, הוסיפו ל-_matrix_combinations את הכלל של GitHub: הצירופים ש-exclude מתאר מוסרים, "
+        "ורק אחר כך include מעובד"
     )
-    return [
-        {**by_suite[suite], "python-version": version, "suite": suite}
-        for version, suite in itertools.product(versions, suites)
-    ]
+    axes = {key: values for key, values in matrix.items() if key != "include"}
+    for key, values in axes.items():
+        assert isinstance(values, list), f"ציר המטריצה {key!r} אינו רשימה של ערכים: {values!r}"
+    combinations = [dict(zip(axes, values)) for values in itertools.product(*axes.values())]
+    for entry in matrix.get("include", []):
+        targets = [
+            combination
+            for combination in combinations
+            if all(combination[key] == value for key, value in entry.items() if key in axes)
+        ]
+        assert targets, f"רשומת include שאינה מתאימה לאף צירוף, ולכן הייתה יוצרת מסלול חדש: {entry!r}"
+        for combination in targets:
+            combination.update({key: value for key, value in entry.items() if key not in axes})
+    return combinations
 
 
 def _expected_statuses() -> set[str]:
@@ -132,6 +144,8 @@ def _expected_statuses() -> set[str]:
     template = _status_template(job)
     names = set()
     for combination in _matrix_combinations(job):
+        missing = sorted(set(_MATRIX_EXPRESSION.findall(template)) - set(combination))
+        assert not missing, f"למסלול {combination!r} אין במטריצה את מה ששם הסטטוס בנוי ממנו: {missing}"
         name = _MATRIX_EXPRESSION.sub(lambda match: combination[match.group(1)], template)
         assert "${{" not in name, f"נשאר ביטוי שהטסט אינו יודע לפרוש: {name!r}"
         names.add(name)
@@ -253,6 +267,43 @@ def test_the_lanes_split_the_suite_into_two_complementary_halves():
     assert len(markers) == 2 and len(bare) == 1 and set(markers.values()) == {bare[0], f"not {bare[0]}"}, (
         "הביטויים של המסלולים אינם שני חצאים משלימים (X ו-not X), ולכן טסט יכול להישאר בלי "
         f"מסלול ולא לרוץ ב-CI בכלל: {markers}"
+    )
+
+
+def test_coverage_is_measured_in_every_suite_and_only_where_the_matrix_says():
+    """coverage נמדד רק בחלק מהמסלולים, ו-Codecov אינו בדיקת חובה — כיסוי שנעלם לא מפיל דבר.
+
+    המפתח ``coverage`` במטריצה קובע איפה הוא נמדד, ושני צעדים קוראים אותו: פקודת ה-pytest
+    (הדגלים ``--cov``) וההעלאה ל-Codecov. הטסט בודק את שלושתם יחד: שלכל suite יש מסלול
+    שמודד coverage, אחרת הטסטים שלו אינם בדוח; שהדגלים נמצאים רק בתוך הביטוי שתלוי
+    ב-``matrix.coverage``; ושההעלאה תלויה בו. ערך שאינו ``true``/``false`` נכשל גם הוא: מחרוזת
+    כמו ``'false'`` אינה בין הערכים ש-GitHub מחשיב כשקר (expressions בתיעוד של GitHub
+    Actions), ולכן הייתה מדליקה את ה-coverage.
+    """
+    job = _unit_tests_job()
+    combinations = _matrix_combinations(job)
+    for combination in combinations:
+        assert isinstance(combination.get("coverage", False), bool), (
+            f"coverage במטריצה אינו true/false: {combination!r}"
+        )
+    suites = {combination["suite"] for combination in combinations}
+    covered = {combination["suite"] for combination in combinations if combination.get("coverage")}
+    assert covered == suites, f"מסלולים שאין להם אף גרסה שמודדת coverage: {sorted(suites - covered)}"
+
+    runs = [str(step["run"]) for step in job["steps"] if "pytest" in str(step.get("run", ""))]
+    assert len(runs) == 1, f"צפוי צעד אחד שמריץ pytest ב-unit-tests, נמצאו {len(runs)}"
+    flags = _COVERAGE_FLAGS.findall(runs[0])
+    assert len(flags) == 1 and "--cov=" in flags[0] and "--cov-report=xml" in flags[0], (
+        f"דגלי ה-coverage אינם בביטוי אחד שתלוי ב-matrix.coverage ומפיק coverage.xml:\n{runs[0]}"
+    )
+    assert "--cov" not in _COVERAGE_FLAGS.sub("", runs[0]), (
+        f"--cov מחוץ לביטוי של matrix.coverage, ולכן נמדד בכל המסלולים:\n{runs[0]}"
+    )
+
+    uploads = [step for step in job["steps"] if str(step.get("uses", "")).startswith("codecov/codecov-action")]
+    assert len(uploads) == 1, f"צפוי צעד העלאה אחד ל-Codecov ב-unit-tests, נמצאו {len(uploads)}"
+    assert "matrix.coverage" in str(uploads[0].get("if", "")), (
+        f"ההעלאה ל-Codecov אינה תלויה ב-matrix.coverage: {uploads[0].get('if')!r}"
     )
 
 
