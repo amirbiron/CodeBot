@@ -1,6 +1,6 @@
 Testing Guide
 =============
-:summary: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, ו-mocking של HTTP.
+:summary: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, mocking של HTTP, בדיקות מול מונגו אמיתי, ואימות ביטוי aggregation מול גרסת הייצור בקריאה בלבד.
 
 🚀 Quickstart לטסטים
 --------------------
@@ -216,6 +216,40 @@ Mocking HTTP ב‑github_menu_handler
 
 .. warning::
    כל הקבצים האלה יוצרים מסד ייעודי משלהם ואינם נוגעים במסד ברירת המחדל: ``test_note_boards_mongo.py`` מגריל שם עם התחילית ``codebot_notes_it_``, ``test_profiler_projection_mongo.py`` עם התחילית ``codebot_profiler_it_``, ``test_recycle_bin_ttl_index_mongo.py`` עם התחילית ``codebot_recycle_ttl_it_``, ו-``wired_mongo`` בונה ``cktest_<שם קובץ הבדיקה>``. ה-teardown של כל קובץ שמגריל שם מוודא שהשם תואם לתחילית **לפני** ``drop_database``. עם זאת — אל תכוונו את אף אחד משני המשתנים למסד שיש בו נתונים אמיתיים.
+
+.. _testing-mongo-expression-on-production:
+
+אימות ביטוי מול גרסת הייצור, בלי לכתוב
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+הפסקה על גרסת השרת למעלה קובעת 8.0 בכל הסביבות, אבל לא את גרסת המשנה: זו שבייצור לא בהכרח זהה לזו שרצה מקומית, ולפעמים אין שרת מקומי בכלל. כשהנכונות של שינוי תלויה באופן שבו השרת מחשב ביטוי aggregation — ``$cond`` בתוך update ב-pipeline, אופרטור שנוסף בגרסה מסוימת, או ``$strLenCP`` מול ``$strLenBytes`` — אפשר לבדוק את הביטוי על אשכול הייצור עצמו, **בקריאה בלבד**, דרך הכלי ``aggregate`` של MongoDB Atlas MCP. את גרסת האשכול מחזיר הכלי ``atlas-list-clusters``, בשדה ``mongoDBVersion``.
+
+הצורה: ``aggregate`` על אוסף קיים, שה-``$match`` הראשון שלו לא מחזיר אף מסמך אמיתי, ואחריו ``$unionWith`` בלי ``coll``, שה-``pipeline`` שלו נפתח ב-``$documents`` — מסמכים סינתטיים שעוברים דרך השלבים שבודקים. מה שחוזר הוא המסמכים הסינתטיים בלבד, אחרי השלבים, ושום דבר לא נכתב:
+
+.. code-block:: json
+
+   [
+     {"$match": {"_id": "no-such-document"}},
+     {"$unionWith": {"pipeline": [
+       {"$documents": [
+         {"case": "same text", "description": "abc", "stored": "abc"},
+         {"case": "different text", "description": "abc", "stored": "xyz"},
+         {"case": "text that starts with $", "description": {"$literal": "$abc"}, "stored": {"$literal": "$abc"}}
+       ]},
+       {"$set": {"applied": {"$eq": ["$description", "$stored"]}}}
+     ]}}
+   ]
+
+על אשכול הייצור (MongoDB 8.0.34, דרך ``aggregate`` של MongoDB Atlas MCP, 5.10.2026) זה החזיר את שלושת המסמכים הסינתטיים בלבד, עם ``applied`` שהוא ``true``, ``false`` ו-``true``.
+
+**למה דווקא הצורה הזו.** ``$documents`` מותר רק כשלב הראשון של אגרגציה ברמת המסד (`התיעוד של $documents <https://www.mongodb.com/docs/manual/reference/operator/aggregation/documents/>`_), אבל ``$unionWith`` שמשמיט את ``coll`` מקבל ``pipeline`` שנפתח ב-``$documents`` (`התיעוד של $unionWith <https://www.mongodb.com/docs/manual/reference/operator/aggregation/unionWith/>`_), וכך אפשר לעבוד דרך אגרגציה של אוסף. אגרגציה ברמת המסד — הכלי ``aggregate-db`` — נדחתה בחיבור שלנו, כי אין לו הרשאת ``changeStream`` (5.10.2026).
+
+שני דברים שצריך לשמור עליהם:
+
+- **מחרוזת שמתחילה בסימן דולר** בתוך ``$documents`` נקראת כביטוי ולא כטקסט, וביטוי שאינו מתפרש מול מסמך נוכחי נכשל (לפי התיעוד של ``$documents`` שלמעלה). טקסט כזה עוטפים ב-``{"$literal": ...}``, כמו במסמך השלישי בדוגמה.
+- **רק קריאה.** בלי ``$out`` ובלי ``$merge``, שכותבים, ובלי אף כלי כתיבה של MongoDB Atlas MCP מול הייצור.
+
+**מה זה בודק, ומה לא.** זה בודק את הביטוי — האופרטורים, נתיבי השדות והתנאים — על הגרסה שרצה בייצור. זה **לא** בודק את הכתיבה עצמה: מה ``find_one_and_update`` מחזיר, את ``modified_count``, או אילו מסמכים הכתיבה תתפוס. את אלה מודדים מול ``mongod`` מקומי, בגרסה הקרובה ביותר שאפשר, כמו בפסקאות שלמעלה. כך נבדק ה-``$cond`` של ``update_file_metadata_in`` ב-#3526: הכתיבה נמדדה מול ``mongod`` 8.0.32 מקומי, והביטויים — גם על 8.0.34 של הייצור.
 
 כיסוי בדיקות (pytest-cov)
 --------------------------
