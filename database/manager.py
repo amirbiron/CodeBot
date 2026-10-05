@@ -142,6 +142,7 @@ from file_deletion import (
     RECYCLE_BIN_TTL_PARTIAL_FILTER,
 )
 from mcp_uploads import MCP_UPLOADS_COLLECTION, mcp_uploads_indexes
+from drive_owner import WEBAPP as DRIVE_OWNER_WEBAPP, drive_fields
 try:
     # Structured logging events
     from observability import emit_event
@@ -2541,6 +2542,14 @@ class DatabaseManager:
             [("drive_prefs.schedule", ASCENDING)],
             name="users_drive_schedule",
         )
+        # users — הסריקה של גיבויי ה-Drive של הוובאפ (``_drive_claim_filter`` ב-webapp/backup_scheduler.py) רצה כל כמה דקות.
+        # שוויון קודם (schedule_key, ``$in``) וטווח אחריו (schedule_next_at). tests/test_webapp_drive_scan_index.py משווה בין השניים.
+        _webapp_drive_prefs = drive_fields(DRIVE_OWNER_WEBAPP).prefs
+        safe_create_index(
+            "users",
+            [(f"{_webapp_drive_prefs}.schedule_key", ASCENDING), (f"{_webapp_drive_prefs}.schedule_next_at", ASCENDING)],
+            name="users_webapp_drive_schedule",
+        )
         safe_create_index(
             "users",
             [("user_id", ASCENDING)],
@@ -3153,8 +3162,8 @@ class DatabaseManager:
     def get_drive_tokens(self, user_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
         return self._get_repo().get_drive_tokens(user_id, owner=owner)
 
-    def delete_drive_tokens(self, user_id: int, *, owner: str) -> bool:
-        return self._get_repo().delete_drive_tokens(user_id, owner=owner)
+    def delete_drive_tokens(self, user_id: int, *, owner: str, prefs: Optional[Dict[str, Any]] = None) -> bool:
+        return self._get_repo().delete_drive_tokens(user_id, owner=owner, prefs=prefs)
 
     def save_drive_prefs(self, user_id: int, prefs: Dict[str, Any], *, owner: str) -> bool:
         return self._get_repo().save_drive_prefs(user_id, prefs, owner=owner)

@@ -134,7 +134,7 @@ Google Drive
 - ``google_error`` — גוגל החזיר שגיאה. הקוד שלה ב-``google_error``, או ``unrecognized`` כשהוא לא בצורה של קוד OAuth.
 - ``code_missing`` — החזרה הגיעה בלי code.
 - ``token_exchange_failed`` — החלפת ה-code בטוקנים נכשלה: ``error_type`` כשלא הגענו לגוגל, או ``http_status`` ו-``google_error`` כשגוגל ענה בשגיאה.
-- ``token_response_invalid`` — תשובת הטוקנים אינה JSON (``http_status``).
+- ``token_response_invalid`` — תשובת הטוקנים אינה אובייקט JSON: לא JSON בכלל, או JSON שאינו אובייקט (``http_status``).
 - ``no_access_token`` — בתשובת הטוקנים אין ``access_token``.
 - ``save_failed`` — שמירת הטוקנים במסד נכשלה.
 
@@ -143,6 +143,27 @@ Google Drive
 .. code-block:: json
 
    {"event":"webapp_drive_callback_rejected","severity":"warn","reason":"token_exchange_failed","user_id":123456789,"http_status":400,"google_error":"invalid_grant"}
+
+גיבוי בוובאפ (``webapp/backup_scheduler.py``):
+
+- ``webapp_drive_backup_failed`` — גיבוי Drive של הוובאפ, מתוזמן או "גבה עכשיו", לא הועלה. ``reason``: ``upload_failed`` כשההעלאה לא החזירה מזהה קובץ — הסיבה בשורת הלוג ``drive_call_failed`` של ``services/google_drive_service.py`` — או ``exception``, עם ``error_type``. ברמת ``warn``: גיבוי מתוזמן שנכשל מנוסה שוב בסריקה הבאה (``_retry_next_at``), ואירוע ``error`` היה חוזר כל כמה דקות על חיבור שבוטל.
+
+התפריט והגיבוי המתוזמן בבוט (``handlers/drive/menu.py``, ‏``main.py``):
+
+- ``drive_handler_ready`` — ה-handler של תפריט ה-Drive (``GoogleDriveMenuHandler``) נוצר ונשמר ב-``bot_data`` בעליית הבוט.
+- ``drive_schedule_job_set`` — נוצר job של גיבוי מתוזמן למשתמש (``_ensure_schedule_job``): ``key`` התזמון, ``interval_s`` המרווח, ``first_s`` השניות עד ההרצה הראשונה ו-``planned_next`` מועד ההרצה.
+- ``drive_schedule_job_persistent_fallback`` — יצירת ה-job ב-jobstore הקבוע נכשלה (``error``), והוא נוצר בזיכרון בלבד. job כזה לא שורד עלייה מחדש, ו-``drive_reschedule`` מחזיר אותו.
+- ``drive_schedule_job_setup_failed`` — יצירת ה-job נכשלה (``key``, ``error``).
+- ``drive_schedule_job_cancelled`` — המשתמש כיבה את התזמון בתפריט.
+- ``drive_schedule_job_missing`` — למשתמש יש תזמון פעיל בהעדפות ואין לו job בזיכרון, וה-job נוצר מחדש (``ensure_schedule_job_if_missing``).
+- ``drive_reschedule_jobs_run`` — סיכום הרצה של ``drive_reschedule`` ב-``main.py``, שמשחזר את ה-jobs של התזמונים הפעילים: ``scanned``, ‏``total`` (עם תזמון תקף), ‏``recreated``, ‏``skipped``.
+- ``drive_reschedule_handler_restored`` — ה-handler חסר ב-``bot_data`` ושוחזר מהעותק שעל ה-application (``source``).
+- ``drive_scheduled_backup_start`` — גיבוי מתוזמן התחיל.
+- ``drive_scheduled_backup_result`` — תוצאת הגיבוי המתוזמן (``ok``), ברמת ``warn`` כשהוא נכשל.
+- ``drive_scheduled_backup_auth_required`` — הגיבוי המתוזמן נכשל, ואי אפשר לבנות שירות Drive מהטוקנים השמורים; המשתמש קיבל בקשה להתחבר מחדש.
+- ``drive_scheduled_backup_update_prefs`` — נשלח אחרי כל גיבוי מתוזמן, עם הזמנים שנשלחו לשמירה בהעדפות של הבוט (``next_at``, ``last_at``, ``last_full_at``). התוצאה של השמירה עצמה לא נבדקת שם, ולכן האירוע אינו ראיה שהזמנים נשמרו.
+- ``drive_scheduled_backup_update_prefs_failed`` — חריגה בבלוק שמעדכן את הזמנים (``error``).
+- ``drive_scheduled_backup_error`` — חריגה לא צפויה בהרצת הגיבוי המתוזמן (``error``); ה-traceback בלוג.
 
 שגיאות מסד בחיבור ובהעדפות, של שני השירותים (``database/repository.py``):
 

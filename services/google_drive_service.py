@@ -60,6 +60,32 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# קוד שגיאה של Drive בגוף התשובה (``errors[0].reason`` או ``error.status``) הוא מילה אחת — ``storageQuotaExceeded``, ``PERMISSION_DENIED``. טקסט חופשי (``error.message``) לא נרשם.
+_DRIVE_ERROR_CODE_RE = re.compile(r"[A-Za-z_]{1,64}")
+
+
+def _log_drive_call_failed(op: str, user_id: int, *, owner: str, error: Optional[Exception] = None) -> None:
+    """רושם פעולת Drive שנכשלה ומחזירה ``None`` בלי לזרוק, כדי שהסיבה לא תיעלם יחד עם החריגה שנבלעה.
+
+    נרשמים שם הפעולה, השירות, המשתמש, סוג החריגה, סטטוס ה-HTTP וקוד השגיאה של גוגל — ולא הטקסט של החריגה: הטקסט של ``HttpError`` הוא כתובת הבקשה והודעת השגיאה של גוגל כמו שהיא (``HttpError.__repr__``, google-api-python-client 2.185.0). קוד שגיאה שאינו מילה אחת נרשם כ-``unrecognized``.
+    """
+    status: Optional[int] = None
+    reason: Optional[str] = None
+    if error is not None:
+        status, raw_reason = _parse_http_error_status_reason(error)
+        if raw_reason is not None:
+            reason = raw_reason if _DRIVE_ERROR_CODE_RE.fullmatch(raw_reason) else "unrecognized"
+    logging.getLogger(__name__).warning(
+        "drive_call_failed op=%s owner=%s user_id=%s error_type=%s http_status=%s drive_reason=%s",
+        op,
+        owner,
+        user_id,
+        type(error).__name__ if error is not None else None,
+        status,
+        reason,
+    )
+
+
 def start_device_authorization(user_id: int) -> Dict[str, Any]:
     """Starts OAuth Device Authorization flow for Google Drive.
 
@@ -208,7 +234,8 @@ def _ensure_valid_credentials(user_id: int, *, owner: str) -> Optional[Credentia
         return None
     try:
         creds = _credentials_from_tokens(tokens)
-    except Exception:
+    except Exception as e:
+        _log_drive_call_failed("credentials", user_id, owner=owner, error=e)
         return None
     if creds.expired and creds.refresh_token:
         if Request is None:
@@ -248,12 +275,24 @@ def _ensure_valid_credentials(user_id: int, *, owner: str) -> Optional[Credentia
 
 
 # המפתח הוא (שירות, משתמש): לכל שירות חיבור משלו, ושירות Drive שנבנה מהטוקנים של אחד אסור שיוחזר לשני.
-_SERVICE_CACHE: Dict[Tuple[str, int], Tuple[Any, float]] = {}
+# הערך הוא (שירות, זמן בנייה, טביעת האישורים שהוא נבנה מהם) — ראו ``_credentials_fingerprint``.
+_SERVICE_CACHE: Dict[Tuple[str, int], Tuple[Any, float, str]] = {}
 
 
 def _service_cache_key(user_id: int, *, owner: str) -> Tuple[str, int]:
     """המפתח היחיד של ``_SERVICE_CACHE`` — גם הכתיבה וגם הביטול עוברים כאן, כדי שביטול לא יחטיא את המפתח שנכתב."""
     return (owner, int(user_id))
+
+
+def _credentials_fingerprint(creds: Any) -> str:
+    """טביעה של האישורים שמהם נבנה שירות: SHA-256 של ה-access token וה-refresh token, ולא הטוקנים עצמם.
+
+    ``get_drive_service`` משווה אותה לאישורים שנטענו עכשיו מהמסד, ולכן שירות שנבנה מטוקנים שהוחלפו — חיבור מחדש, או רענון שנשמר — לא מוחזר מהמטמון. ההשוואה נעשית בזמן הקריאה ולא בביטול בזמן הכתיבה: ביטול ב-``save_tokens`` היה מחטיא קריאה שטענה את הטוקנים הישנים לפני הכתיבה ושמרה את השירות שלה אחריה.
+
+    ``creds`` הוא ``google.oauth2.credentials.Credentials``: ``token`` ו-``refresh_token`` מוגדרים בו תמיד (google-auth 2.41.1, ``google/auth/_credentials_base.py`` ו-``google/oauth2/credentials.py``).
+    """
+    material = f"{creds.token or ''}\0{creds.refresh_token or ''}"
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
 def get_drive_service(user_id: int, *, owner: str):
@@ -262,23 +301,27 @@ def get_drive_service(user_id: int, *, owner: str):
     creds = _ensure_valid_credentials(user_id, owner=owner)
     if not creds:
         return None
-    # נסה להשתמש בשירות קיים עד 5 דקות כדי למנוע יצירה חוזרת ושקעים פתוחים
+    # נסה להשתמש בשירות קיים עד 5 דקות כדי למנוע יצירה חוזרת ושקעים פתוחים — רק אם נבנה מאותם אישורים
     now_ts = time.time()
     cache_key = _service_cache_key(user_id, owner=owner)
+    fingerprint = _credentials_fingerprint(creds)
     try:
         cached = _SERVICE_CACHE.get(cache_key)
-        if cached and (now_ts - float(cached[1])) < 300:
+        if cached and cached[2] == fingerprint and (now_ts - float(cached[1])) < 300:
             return cached[0]
     except Exception:
+        # רשומה פגומה במטמון היא החטאה: בונים שירות חדש ודורסים אותה
         pass
     try:
         svc = build("drive", "v3", credentials=creds, cache_discovery=False)
         try:
-            _SERVICE_CACHE[cache_key] = (svc, now_ts)
+            _SERVICE_CACHE[cache_key] = (svc, now_ts, fingerprint)
         except Exception:
+            # בלי מטמון השירות נבנה מחדש בקריאה הבאה — איטי יותר, לא שגוי
             pass
         return svc
-    except Exception:
+    except Exception as e:
+        _log_drive_call_failed("build_service", user_id, owner=owner, error=e)
         return None
 
 
@@ -316,8 +359,10 @@ def ensure_folder(user_id: int, name: str, parent_id: Optional[str] = None, *, o
         except HttpError as e:
             if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id, owner=owner):
                 continue
+            _log_drive_call_failed("ensure_folder", user_id, owner=owner, error=e)
             return None
-        except Exception:
+        except Exception as e:
+            _log_drive_call_failed("ensure_folder", user_id, owner=owner, error=e)
             return None
     return None
 
@@ -631,11 +676,17 @@ def _sleep_backoff(attempt: int, retry_after_s: Optional[float] = None) -> None:
 
 
 def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None, *, owner: str) -> Optional[str]:
+    """מעלה ``data`` כקובץ ל-Drive של ``owner`` ומחזיר את המזהה שלו.
+
+    העלאה שנכשלה מחזירה ``None``, וכל ``return None`` כאן נרשם (``_log_drive_call_failed``) — הקורא בודק את הערך, והסיבה נמצאת בלוג.
+    """
     if MediaIoBaseUpload is None:
+        _log_drive_call_failed("upload_bytes.unavailable", user_id, owner=owner)
         return None
     for auth_attempt in range(0, 2):
         service = get_drive_service(user_id, owner=owner)
         if not service:
+            _log_drive_call_failed("upload_bytes.no_service", user_id, owner=owner)
             return None
 
         folder_id_eff = folder_id
@@ -644,6 +695,7 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
         if not folder_id_eff:
             folder_id_eff = _get_root_folder(user_id, owner=owner)
         if not folder_id_eff:
+            _log_drive_call_failed("upload_bytes.no_folder", user_id, owner=owner)
             return None
 
         # Use resumable upload with chunks to improve reliability for larger files
@@ -665,8 +717,10 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
         except HttpError as e:
             if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id, owner=owner):
                 continue
+            _log_drive_call_failed("upload_bytes.create", user_id, owner=owner, error=e)
             return None
-        except Exception:
+        except Exception as e:
+            _log_drive_call_failed("upload_bytes.create", user_id, owner=owner, error=e)
             return None
 
         response = None
@@ -689,18 +743,23 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
                     _sleep_backoff(consecutive_failures, retry_after)
                     consecutive_failures += 1
                     continue
+                _log_drive_call_failed("upload_bytes.chunk", user_id, owner=owner, error=e)
                 return None
-            except Exception:
+            except Exception as e:
                 # Network/transport hiccups — retry a couple of times
                 if consecutive_failures < 3:
                     _sleep_backoff(consecutive_failures)
                     consecutive_failures += 1
                     continue
+                _log_drive_call_failed("upload_bytes.chunk", user_id, owner=owner, error=e)
                 return None
 
         if auth_retry:
             continue
-        return response.get("id") if isinstance(response, dict) else None
+        file_id = response.get("id") if isinstance(response, dict) else None
+        if not file_id:
+            _log_drive_call_failed("upload_bytes.response", user_id, owner=owner)
+        return file_id
     return None
 
 
@@ -715,13 +774,15 @@ def upload_file(
 ) -> Optional[str]:
     """Upload a local file to Drive using a resumable, chunked upload.
 
-    Falls back to None if Drive libraries are unavailable.
+    העלאה שנכשלה מחזירה ``None`` — גם כשספריות ה-Drive אינן מותקנות — וכל ``return None`` כאן נרשם (``_log_drive_call_failed``).
     """
     if MediaFileUpload is None:
+        _log_drive_call_failed("upload_file.unavailable", user_id, owner=owner)
         return None
     for auth_attempt in range(0, 2):
         service = get_drive_service(user_id, owner=owner)
         if not service:
+            _log_drive_call_failed("upload_file.no_service", user_id, owner=owner)
             return None
 
         folder_id_eff = folder_id
@@ -730,6 +791,7 @@ def upload_file(
         if not folder_id_eff:
             folder_id_eff = _get_root_folder(user_id, owner=owner)
         if not folder_id_eff:
+            _log_drive_call_failed("upload_file.no_folder", user_id, owner=owner)
             return None
 
         # Chunked, resumable upload
@@ -747,8 +809,10 @@ def upload_file(
         except HttpError as e:
             if auth_attempt == 0 and _is_auth_http_error(e) and _force_refresh_credentials(user_id, owner=owner):
                 continue
+            _log_drive_call_failed("upload_file.create", user_id, owner=owner, error=e)
             return None
-        except Exception:
+        except Exception as e:
+            _log_drive_call_failed("upload_file.create", user_id, owner=owner, error=e)
             return None
 
         response = None
@@ -768,17 +832,22 @@ def upload_file(
                     _sleep_backoff(consecutive_failures, retry_after)
                     consecutive_failures += 1
                     continue
+                _log_drive_call_failed("upload_file.chunk", user_id, owner=owner, error=e)
                 return None
-            except Exception:
+            except Exception as e:
                 if consecutive_failures < 3:
                     _sleep_backoff(consecutive_failures)
                     consecutive_failures += 1
                     continue
+                _log_drive_call_failed("upload_file.chunk", user_id, owner=owner, error=e)
                 return None
 
         if auth_retry:
             continue
-        return response.get("id") if isinstance(response, dict) else None
+        file_id = response.get("id") if isinstance(response, dict) else None
+        if not file_id:
+            _log_drive_call_failed("upload_file.response", user_id, owner=owner)
+        return file_id
     return None
 
 

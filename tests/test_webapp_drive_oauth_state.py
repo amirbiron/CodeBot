@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 import re
 import sys
 import threading
@@ -48,8 +49,8 @@ class _DBM:
     def save_drive_tokens(self, user_id, token_data, *, owner):
         return self._repo.save_drive_tokens(user_id, token_data, owner=owner)
 
-    def delete_drive_tokens(self, user_id, *, owner):
-        return self._repo.delete_drive_tokens(user_id, owner=owner)
+    def delete_drive_tokens(self, user_id, *, owner, prefs=None):
+        return self._repo.delete_drive_tokens(user_id, owner=owner, prefs=prefs)
 
     def get_drive_prefs(self, user_id, *, owner):
         return self._repo.get_drive_prefs(user_id, owner=owner)
@@ -475,6 +476,22 @@ def test_a_successful_connect_logs_no_rejection_and_no_secret(harness):
     _assert_no_secrets(h, state, AUTH_CODE, ACCESS_TOKEN, REFRESH_TOKEN)
 
 
+def test_an_error_answer_for_the_account_email_is_logged_with_its_status(harness, caplog):
+    """המייל לתצוגה בלבד, ולכן כשל בו לא מבטל את החיבור — אבל תשובת שגיאה מגוגל נרשמת עם הסטטוס שלה, ולא נקראת כאילו היא פרטי החשבון."""
+    h = harness
+    h.google["userinfo"] = _GoogleResponse(401, {"error": {"code": 401, "status": "UNAUTHENTICATED"}})
+    cookie = _login(h)
+    _auth, state = _start_auth(h, cookie)
+
+    with caplog.at_level(logging.WARNING, logger="webapp.drive_auth"):
+        resp = _callback(h, cookie, state=state, code=AUTH_CODE)
+
+    assert _outcome(resp) == "connected"
+    assert "drive_email" not in (h.dbm.get_drive_prefs(USER_ID, owner="webapp") or {})
+    logged = [r.getMessage() for r in caplog.records if r.name == "webapp.drive_auth"]
+    assert logged == ["webapp_drive_userinfo_failed error_type=HTTPError http_status=401"]
+
+
 def test_auth_does_not_send_the_user_to_google_when_the_state_was_not_stored(harness, monkeypatch):
     h = harness
 
@@ -522,18 +539,37 @@ def test_the_events_catalog_lists_exactly_the_rejection_reasons_in_the_code():
     assert in_catalog == in_code
 
 
-def test_the_events_catalog_lists_every_drive_event_this_change_emits():
+#: כל הקבצים שפולטים אירועי Drive — של הבוט ושל הוובאפ. קובץ חדש שפולט אירוע כזה נכנס לכאן.
+_DRIVE_EVENT_SOURCES = (
+    "webapp/drive_auth.py",
+    "webapp/drive_backup_api.py",
+    "webapp/backup_scheduler.py",
+    "database/repository.py",
+    "handlers/drive/menu.py",
+    "main.py",
+)
+
+
+def _reason_constants(call):
+    return {kw.value.value for kw in call.keywords if kw.arg == "reason" and isinstance(kw.value, ast.Constant)}
+
+
+def test_the_events_catalog_lists_every_drive_event_the_code_emits():
     import webapp.drive_auth as da
 
     names = {da._REJECTED_EVENT}
     reasons = set()
-    for path in ("webapp/drive_auth.py", "webapp/drive_backup_api.py", "database/repository.py"):
+    for path in _DRIVE_EVENT_SOURCES:
         for call in _calls(path, "emit_event"):
             name = _first_str_arg(call)
             if name and "drive" in name:
                 names.add(name)
-                reasons |= {kw.value.value for kw in call.keywords if kw.arg == "reason" and isinstance(kw.value, ast.Constant)}
-    assert len(names) > 1, "לא נמצאו אירועי Drive — הסריקה התיישנה"
+                reasons |= _reason_constants(call)
+        # עוטף שמקבל את הסיבה ומעביר אותה ל-emit_event
+        for call in _calls(path, "_emit_drive_backup_failed"):
+            reasons |= _reason_constants(call)
+    assert {"drive_handler_ready", "webapp_drive_backup_failed"} <= names, "לא נמצאו אירועי Drive של הבוט ושל הוובאפ — הסריקה התיישנה"
+    assert {"upload_failed", "exception"} <= reasons, "הסיבות של webapp_drive_backup_failed לא נמצאו — הסריקה התיישנה"
 
     catalog = _catalog()
     missing = sorted(n for n in names | reasons if f"``{n}``" not in catalog)

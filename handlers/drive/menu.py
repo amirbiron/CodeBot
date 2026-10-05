@@ -25,6 +25,9 @@ from utils import TelegramUtils
 
 logger = logging.getLogger(__name__)
 
+# ההודעה למשתמש כשההתחברות הסתיימה והטוקנים לא נשמרו — אחת לכל מסלולי סיום ההתחברות (ראו ``_save_auth_tokens``)
+_AUTH_NOT_SAVED_TEXT = "❌ לא ניתן לשמור את החיבור ל‑Drive. נסה להתחבר שוב."
+
 
 # Observability events (best-effort)
 try:
@@ -57,6 +60,16 @@ class GoogleDriveMenuHandler:
             self._session(user_id)["uploading"] = False
         except Exception:
             pass
+
+    def _save_auth_tokens(self, user_id: int, tokens: Dict[str, Any]) -> bool:
+        """שומר את הטוקנים שהתקבלו בסוף ההתחברות, ומחזיר אם נשמרו.
+
+        ``gdrive.save_tokens`` לא זורק בכשל מסד — הוא מחזיר ``False`` (``Repository.save_drive_tokens``) — ולכן כל מסלול שמסיים התחברות בודק את הערך הזה לפני שהוא מודיע שהחיבור הושלם.
+        """
+        saved = bool(gdrive.save_tokens(user_id, tokens, owner=_DRIVE_OWNER))
+        if not saved:
+            logger.warning("drive_auth_tokens_not_saved user_id=%s", user_id)
+        return saved
 
     async def _ensure_schedule_job(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, sched_key: str) -> None:
         seconds = self._interval_seconds(sched_key)
@@ -539,6 +552,7 @@ class GoogleDriveMenuHandler:
                 except Exception:
                     pass
             async def _poll_once(ctx: ContextTypes.DEFAULT_TYPE):
+                uid = None
                 try:
                     uid = ctx.job.data.get("user_id")
                     chat_id = ctx.job.data.get("chat_id")
@@ -571,8 +585,8 @@ class GoogleDriveMenuHandler:
                     # None => עדיין ממתינים; dict עם error => לא לשמור, להמתין
                     if not tokens or (isinstance(tokens, dict) and tokens.get("error")):
                         return
-                    # הצלחה: שמירה והודעה
-                    gdrive.save_tokens(uid, tokens, owner=_DRIVE_OWNER)  # type: ignore[arg-type]
+                    # הטוקנים התקבלו וה-device code נוצל, ולכן הבדיקה נעצרת בכל מקרה — גם כשהשמירה נכשלה
+                    saved = self._save_auth_tokens(uid, tokens)
                     try:
                         ctx.job.schedule_removal()
                     except Exception:
@@ -580,15 +594,25 @@ class GoogleDriveMenuHandler:
                     jobs.pop(uid, None)
                     s.pop("device_code", None)
                     try:
-                        await ctx.bot.edit_message_text(
-                            chat_id=chat_id,
-                            message_id=message_id,
-                            text="✅ חיבור ל‑Drive הושלם!"
-                        )
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
+                        if saved:
+                            await ctx.bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text="✅ חיבור ל‑Drive הושלם!"
+                            )
+                        else:
+                            await ctx.bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text=_AUTH_NOT_SAVED_TEXT,
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]),
+                            )
+                    except Exception as e:
+                        # ההודעה היא משוב בלבד — מה שנשמר או לא נשמר כבר נקבע למעלה
+                        logger.warning("drive_auth_poll_notify_failed user_id=%s error_type=%s", uid, type(e).__name__)
+                except Exception as e:
+                    # הבדיקה רצה שוב בעוד כמה שניות, עד שתוקף ה-device code פג; בלי השורה הזו כשל חוזר היה שקט לגמרי
+                    logger.warning("drive_auth_poll_failed user_id=%s error_type=%s", uid, type(e).__name__)
             try:
                 job = context.application.job_queue.run_repeating(
                     _poll_once,
@@ -663,8 +687,9 @@ class GoogleDriveMenuHandler:
                     reply_markup=InlineKeyboardMarkup(kb),
                 )
                 return
-            gdrive.save_tokens(user_id, tokens, owner=_DRIVE_OWNER)
-            # cancel background job if exists
+            saved = self._save_auth_tokens(user_id, tokens)
+            # הטוקנים התקבלו וה-device code נוצל: עוצרים את הבדיקה ברקע בכל מקרה — גם כשהשמירה נכשלה
+            sess.pop("device_code", None)
             jobs = context.bot_data.setdefault("drive_auth_jobs", {})
             job = jobs.pop(user_id, None)
             if job:
@@ -672,6 +697,10 @@ class GoogleDriveMenuHandler:
                     job.schedule_removal()
                 except Exception:
                     pass
+            if not saved:
+                kb = [[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]
+                await TelegramUtils.safe_edit_message_text(query, _AUTH_NOT_SAVED_TEXT, reply_markup=InlineKeyboardMarkup(kb))
+                return
             __import__('logging').getLogger(__name__).warning(f"Drive: auth completed for user {user_id}")
             await TelegramUtils.safe_edit_message_text(query, "✅ חיבור ל‑Drive הושלם!")
             await self.menu(update, context)
@@ -1257,11 +1286,15 @@ class GoogleDriveMenuHandler:
                 await update.message.reply_text("⌛ עדיין ממתינים לאישור. אשר בדפדפן ונסה שוב לשלוח את הקוד.")
                 context.user_data["waiting_for_drive_code"] = True
                 return True
-            saved = gdrive.save_tokens(update.effective_user.id, tokens, owner=_DRIVE_OWNER)
-            if saved:
+            if isinstance(tokens, dict) and tokens.get("error"):
+                # גוגל דחה את הבקשה (poll_device_token מחזיר את השגיאה כמילון) — אין כאן טוקנים לשמור
+                desc = tokens.get("error_description") or "בקשה נדחתה. נא לאשר בדפדפן ולנסות שוב."
+                await update.message.reply_text(f"❌ שגיאה: {tokens.get('error')}\n{desc}")
+                return True
+            if self._save_auth_tokens(update.effective_user.id, tokens):
                 await update.message.reply_text("✅ חיבור ל‑Drive הושלם! שלח /drive כדי להתחיל לגבות.")
             else:
-                await update.message.reply_text("❌ לא ניתן לשמור את החיבור.")
+                await update.message.reply_text(_AUTH_NOT_SAVED_TEXT)
             return True
         if context.user_data.get("waiting_for_drive_folder_path"):
             context.user_data["waiting_for_drive_folder_path"] = False

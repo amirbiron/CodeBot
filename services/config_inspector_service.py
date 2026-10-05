@@ -1138,13 +1138,6 @@ class ConfigService:
             description="מרחבי ההרשאה שמבוקשים ב-OAuth של Drive",
             category="external",
         ),
-        "GOOGLE_TOKEN_REFRESH_MARGIN_SECS": ConfigDefinition(
-            key="GOOGLE_TOKEN_REFRESH_MARGIN_SECS",
-            services=("webapp", "bot", "webserver"),
-            default="120",
-            description="כמה שניות לפני פקיעת טוקן ה-Drive מתבצע חידוש",
-            category="external",
-        ),
         "DRIVE_ADD_HASH": ConfigDefinition(
             key="DRIVE_ADD_HASH",
             services=("webapp", "bot", "webserver"),
@@ -2711,9 +2704,9 @@ class ConfigService:
         ),
         "DRIVE_MENU_V2": ConfigDefinition(
             key="DRIVE_MENU_V2",
-            services=("webapp", "bot"),
+            services=("bot",),
             default="true",
-            description="הפעלת תפריט Drive v2",
+            description="הפעלת תפריט ה-Drive של הבוט (V2)",
             category="features",
         ),
         "RECYCLE_TTL_DAYS": ConfigDefinition(

@@ -4740,7 +4740,8 @@ class AdvancedBotHandlers:
                     from drive_owner import BOT as _DRIVE_OWNER  # החיבור של הבוט — ראו drive_owner.py
                     fid = upload_bytes(user_id, filename=f"{file_name}.png", data=img, sub_path="code_images", owner=_DRIVE_OWNER)
                 except Exception:
-                    # המשתמש מקבל הודעת כשל למטה; הלוג שומר את הסיבה, שאחרת הייתה נעלמת
+                    # כשל רגיל של העלאה לא מגיע לכאן: upload_bytes מחזיר None ורושם את הסיבה בעצמו (drive_call_failed).
+                    # מכאן עוברת רק חריגה שיצאה ממנו — והמשתמש מקבל הודעת כשל למטה בשני המקרים.
                     logger.warning("drive_code_image_upload_failed", exc_info=True)
                     fid = None
                 if fid:

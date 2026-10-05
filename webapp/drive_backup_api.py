@@ -58,6 +58,17 @@ def _get_db():
 # ==================== Drive API ====================
 # כל נקודות הקצה כאן עובדות על החיבור וההעדפות של הוובאפ בלבד (``drive_owner.WEBAPP``),
 # כך שתזמון או גיבוי מהוובאפ לא נוגעים בחיבור של הבוט — ראו drive_owner.py.
+_DRIVE_FIELDS = drive_fields(DRIVE_OWNER)
+_NOT_CONNECTED_ERROR = "יש לחבר Google Drive קודם"
+
+
+def _connected_user_filter(user_id: int) -> dict:
+    """פילטר שתואם את מסמך המשתמש רק כשיש לו חיבור Drive של הוובאפ (``access_token`` שמור ולא ריק).
+
+    התנאי הזה יושב בפילטר של העדכון עצמו, ולא בקריאה שלפניו: ניתוק שנכנס בין בדיקה לכתיבה היה משאיר תזמון או גיבוי בלי חיבור. כשהעדכון לא תאם אף מסמך (``matched_count`` אפס), המשתמש לא מחובר.
+    """
+    return {"user_id": user_id, f"{_DRIVE_FIELDS.tokens}.access_token": {"$nin": [None, ""]}}
+
 
 @drive_backup_bp.route("/api/drive/schedule", methods=["POST"])
 @_require_auth
@@ -77,30 +88,25 @@ def set_drive_schedule():
     if not isinstance(schedule, str) or schedule not in VALID_SCHEDULES:
         return jsonify({"ok": False, "error": "תדירות לא חוקית"}), 400
 
-    # בדוק שיש חיבור Drive (get_drive_tokens אינו זורק: בכשל מסד הוא מחזיר None)
-    if schedule != "off":
-        tokens = db.get_drive_tokens(user_id, owner=DRIVE_OWNER)
-        if not tokens or not tokens.get("access_token"):
-            return jsonify({"ok": False, "error": "יש לחבר Google Drive קודם"}), 400
-
     from webapp.backup_scheduler import _compute_next_at
-    prefs_field = drive_fields(DRIVE_OWNER).prefs
     next_at = _compute_next_at(schedule) if schedule != "off" else None
+    # הפעלת תזמון דורשת חיבור, ולכן היא נכתבת רק למסמך של משתמש מחובר; כיבוי נכתב תמיד
+    query = _connected_user_filter(user_id) if schedule != "off" else {"user_id": user_id}
     try:
         # $set ישיר על שדות ספציפיים — לא read-modify-write שיכול לדרוס sentinel
         res = db.db.users.update_one(
-            {"user_id": user_id},
+            query,
             {"$set": {
-                f"{prefs_field}.schedule_key": schedule,
-                f"{prefs_field}.schedule_next_at": next_at,
+                f"{_DRIVE_FIELDS.prefs}.schedule_key": schedule,
+                f"{_DRIVE_FIELDS.prefs}.schedule_next_at": next_at,
             }},
         )
     except PyMongoError:
         logger.exception("Error setting Drive schedule")
         return jsonify({"ok": False, "error": "שגיאה בהגדרת תזמון"}), 500
     if not res.matched_count and schedule != "off":
-        # בלי מסמך משתמש התזמון לא נשמר — אסור לענות "נשמר". כיבוי בלי מסמך הוא כבר המצב המבוקש.
-        return jsonify({"ok": False, "error": "שגיאה בהגדרת תזמון"}), 500
+        # אין מסמך של משתמש מחובר — התזמון לא נשמר. כיבוי בלי מסמך הוא כבר המצב המבוקש.
+        return jsonify({"ok": False, "error": _NOT_CONNECTED_ERROR}), 400
 
     emit_event("webapp_drive_schedule_set", user_id=user_id, schedule=schedule)
     return jsonify({"ok": True, "schedule": schedule})
@@ -117,14 +123,13 @@ def _run_drive_backup_bg(user_id: int):
         ok = False
 
     # עדכון סטטוס — ה-UI עושה polling דרך backup-status
-    prefs_field = drive_fields(DRIVE_OWNER).prefs
     try:
         db = _get_db()
         db.db.users.update_one(
             {"user_id": user_id},
             {"$set": {
-                f"{prefs_field}.manual_backup_status": "done" if ok else "error",
-                f"{prefs_field}.manual_backup_finished_at": datetime.now(timezone.utc).isoformat(),
+                f"{_DRIVE_FIELDS.prefs}.manual_backup_status": "done" if ok else "error",
+                f"{_DRIVE_FIELDS.prefs}.manual_backup_finished_at": datetime.now(timezone.utc).isoformat(),
             }},
         )
     except PyMongoError:
@@ -139,24 +144,21 @@ def drive_backup_now():
     user_id = int(session["user_id"])
     db = _get_db()
 
-    # וידוא חיבור (get_drive_tokens אינו זורק: בכשל מסד הוא מחזיר None)
-    tokens = db.get_drive_tokens(user_id, owner=DRIVE_OWNER)
-    if not tokens or not tokens.get("access_token"):
-        return jsonify({"ok": False, "error": "יש לחבר Google Drive קודם"}), 400
-
-    # סימון "running" ב-DB והפעלה ברקע
-    prefs_field = drive_fields(DRIVE_OWNER).prefs
+    # סימון "running" ב-DB והפעלה ברקע — רק למשתמש מחובר (``_connected_user_filter``)
     try:
-        db.db.users.update_one(
-            {"user_id": user_id},
+        res = db.db.users.update_one(
+            _connected_user_filter(user_id),
             {"$set": {
-                f"{prefs_field}.manual_backup_status": "running",
-                f"{prefs_field}.manual_backup_finished_at": None,
+                f"{_DRIVE_FIELDS.prefs}.manual_backup_status": "running",
+                f"{_DRIVE_FIELDS.prefs}.manual_backup_finished_at": None,
             }},
         )
+        if not res.matched_count:
+            # לא סומן "running" ולא נשלח לרקע: בלי חיבור אין מה להעלות
+            return jsonify({"ok": False, "error": _NOT_CONNECTED_ERROR}), 400
         _backup_executor.submit(_run_drive_backup_bg, user_id)
         return jsonify({"ok": True, "status": "running"})
-    except Exception as e:
+    except Exception:
         logger.exception("Error triggering Drive backup")
         return jsonify({"ok": False, "error": "שגיאה בהפעלת גיבוי"}), 500
 

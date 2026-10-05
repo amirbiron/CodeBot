@@ -20,6 +20,13 @@ from drive_owner import WEBAPP as DRIVE_OWNER, drive_fields
 
 logger = logging.getLogger(__name__)
 
+try:
+    from observability import emit_event
+except Exception:
+    # כמו בשאר מודולי הוובאפ: בלי מודול התצפית המתזמן ממשיך לרוץ, וכל כשל גיבוי עדיין נרשם בלוג של המודול
+    def emit_event(event: str, severity: str = "info", **fields):
+        return None
+
 # תדירויות (בשניות)
 SCHEDULE_INTERVALS: Dict[str, int] = {
     "daily": 86400,
@@ -63,8 +70,19 @@ def _retry_next_at() -> str:
     return (_now_utc() + timedelta(seconds=SCAN_INTERVAL_SECONDS)).isoformat()
 
 
+def _emit_drive_backup_failed(user_id: int, *, reason: str, error_type: Optional[str] = None) -> None:
+    """אירוע ``webapp_drive_backup_failed`` — גיבוי Drive של הוובאפ (מתוזמן או "גבה עכשיו") שלא הועלה.
+
+    ``reason``: ``upload_failed`` כשההעלאה החזירה ``None`` (הסיבה בשורת ``drive_call_failed`` של ``services/google_drive_service.py``), או ``exception`` עם ``error_type``. רמת ``warn`` ולא ``error``: גיבוי מתוזמן שנכשל מנוסה שוב בסריקה הבאה (``_retry_next_at``), ולכן חיבור שבוטל היה ממלא את רשימת השגיאות באירוע כל כמה דקות.
+    """
+    if error_type is None:
+        emit_event("webapp_drive_backup_failed", severity="warn", user_id=int(user_id), reason=reason)
+    else:
+        emit_event("webapp_drive_backup_failed", severity="warn", user_id=int(user_id), reason=reason, error_type=error_type)
+
+
 def _perform_drive_backup(user_id: int) -> bool:
-    """מבצע גיבוי מלא אישי ל-Drive (קבצים, אוספים, סימניות, הגדרות)."""
+    """מבצע גיבוי מלא אישי ל-Drive (קבצים, אוספים, סימניות, הגדרות). כל כשל נשלח גם כאירוע (``_emit_drive_backup_failed``)."""
     try:
         from services.personal_backup_service import PersonalBackupService
         from services.google_drive_service import upload_bytes
@@ -91,9 +109,11 @@ def _perform_drive_backup(user_id: int) -> bool:
             return True
         else:
             logger.warning("Drive full backup upload failed for user %s", user_id)
+            _emit_drive_backup_failed(user_id, reason="upload_failed")
             return False
-    except Exception:
+    except Exception as e:
         logger.exception("Drive backup error for user %s", user_id)
+        _emit_drive_backup_failed(user_id, reason="exception", error_type=type(e).__name__)
         return False
 
 
@@ -196,12 +216,23 @@ def _scan_and_run():
         logger.exception("Error scanning Disk schedules")
 
 
+def _drive_claim_filter(now_iso: str) -> dict:
+    """הפילטר שבו הסריקה תופסת משתמש שהגיע זמן גיבוי ה-Drive שלו: תזמון של הוובאפ (``schedule_key``) ש-``schedule_next_at`` שלו עבר.
+
+    הסריקה רצה כל ``SCAN_INTERVAL_SECONDS`` על אוסף המשתמשים, ולכן יש לה אינדקס משלה ב-``DatabaseManager._create_indexes`` — על שני השדות האלה, בסדר הזה: ``schedule_key`` (שוויון, ``$in``) ואחריו ``schedule_next_at`` (טווח). ``tests/test_webapp_drive_scan_index.py`` משווה בין השניים.
+    """
+    prefs_field = drive_fields(DRIVE_OWNER).prefs
+    return {
+        f"{prefs_field}.schedule_key": {"$in": list(SCHEDULE_INTERVALS.keys())},
+        f"{prefs_field}.schedule_next_at": {"$lte": now_iso, "$ne": None},
+    }
+
+
 def _scan_drive_backups(db, now_iso: str):
     """סורק ומריץ גיבויי Drive עם atomic claiming — רק תזמונים של הוובאפ.
 
     הוובאפ כותב את התזמון שלו כ-``schedule_key`` (``/api/drive/schedule``) ומחזיר אותו מאותו שדה (``/api/drive/status``), ולכן התפיסה מסננת עליו בלבד, כמו בגיבויי הדיסק. הצורות האחרות (``schedule``, ``schedule.key`` וכו') הן של הבוט — הבוט כותב ``schedule`` (``handlers/drive/menu.py``) ומריץ את התזמון שלו בעצמו — וסריקה שתפסה גם אותן היא שגרמה לשני המתזמנים להריץ את אותו תזמון. העדפות ששוחזרו מגיבוי אישי (``PersonalBackupService._restore_drive_prefs``) נכתבות כמו שהן; תזמון שנשמר שם בצורה של הבוט לא ירוץ כאן, וגם ``/api/drive/status`` לא יחזיר אותו.
     """
-    valid_keys = list(SCHEDULE_INTERVALS.keys())
     prefs_field = drive_fields(DRIVE_OWNER).prefs
     next_at_field = f"{prefs_field}.schedule_next_at"
     processed = 0
@@ -209,10 +240,7 @@ def _scan_drive_backups(db, now_iso: str):
         # תפוס אטומית משתמש שהגיע זמנו — מזיז schedule_next_at קדימה
         # כך ש-worker אחר לא יתפוס אותו
         claimed = db.db.users.find_one_and_update(
-            {
-                f"{prefs_field}.schedule_key": {"$in": valid_keys},
-                next_at_field: {"$lte": now_iso, "$ne": None},
-            },
+            _drive_claim_filter(now_iso),
             # מזיז את next_at קדימה כ-placeholder עד שנחשב את הזמן האמיתי
             {"$set": {next_at_field: _sentinel_value()}},
             projection={"user_id": 1, prefs_field: 1},

@@ -65,6 +65,44 @@ def _bot_snapshot(dbm, user_id=USER_ID):
 # --- שכבת המסד ---
 
 
+def test_saving_prefs_writes_only_the_given_keys_and_never_rewrites_the_rest(dbm, monkeypatch):
+    """``save_drive_prefs`` כותב רק את המפתחות שקיבל. כאן קריאה של מסמך המשתמש מחזירה תמונה ישנה — כמו קריאה שרצה רגע לפני שנקבע תזמון — והתזמון שבמסד נשאר כמו שהוא."""
+    schedule = {"schedule_key": "daily", "schedule_next_at": "2026-10-06T00:00:00+00:00"}
+    assert dbm.save_drive_prefs(USER_ID, dict(schedule), owner=drive_owner.WEBAPP)
+    stale = copy.deepcopy(dbm.user_doc())
+    stale.pop("webapp_drive_prefs")
+    real_find_one = dbm.db.users.find_one
+    monkeypatch.setattr(dbm.db.users, "find_one", lambda *a, **k: copy.deepcopy(stale))
+
+    assert dbm.save_drive_prefs(USER_ID, {"target_folder_id": "web-folder"}, owner=drive_owner.WEBAPP)
+
+    monkeypatch.setattr(dbm.db.users, "find_one", real_find_one)
+    assert dbm.get_drive_prefs(USER_ID, owner=drive_owner.WEBAPP) == {**schedule, "target_folder_id": "web-folder"}
+
+
+@pytest.mark.parametrize("bad_key", ["schedule.key", "$set", "", 7])
+def test_a_prefs_key_that_would_become_a_path_or_an_operator_is_refused_before_anything_is_written(dbm, bad_key):
+    """המפתח נכנס לנתיב העדכון (``<field>.<key>``): נקודה הייתה הופכת אותו לנתיב מקונן, ו-``$`` לאופרטור. הוא נדחה לפני הכתיבה — גם שאר המפתחות לא נכתבים."""
+    before = copy.deepcopy(dbm.user_doc())
+
+    with pytest.raises(ValueError):
+        dbm.save_drive_prefs(USER_ID, {"schedule_key": "daily", bad_key: "x"}, owner=drive_owner.WEBAPP)
+
+    assert dbm.user_doc() == before
+
+
+def test_restoring_drive_prefs_with_a_key_that_is_not_a_plain_name_is_reported_as_an_error(dbm):
+    """ההעדפות בגיבוי אישי הן קלט חיצוני (קובץ ZIP). מפתח לא תקין שם לא נכתב, והשחזור מדווח שגיאה במקום "שוחזר"."""
+    from services.personal_backup_service import PersonalBackupService
+
+    errors = []
+
+    assert PersonalBackupService(dbm)._restore_drive_prefs(USER_ID, {"schedule_key": "daily", "x.y": 1}, errors) is False
+
+    assert errors == ["שגיאה בשחזור העדפות Drive"]
+    assert dbm.get_drive_prefs(USER_ID, owner=drive_owner.WEBAPP) is None
+
+
 def test_each_owner_reads_and_writes_only_its_own_fields(dbm):
     assert dbm.save_drive_tokens(USER_ID, {"access_token": "ya29.web-access"}, owner=drive_owner.WEBAPP)
     assert dbm.save_drive_prefs(USER_ID, {"schedule_key": "daily"}, owner=drive_owner.WEBAPP)
@@ -139,7 +177,8 @@ def test_the_service_cache_is_per_owner_and_invalidation_hits_the_written_key(mo
 
     monkeypatch.setattr(gds, "_SERVICE_CACHE", {})
     monkeypatch.setattr(gds, "build", _build)
-    monkeypatch.setattr(gds, "_ensure_valid_credentials", lambda uid, *, owner: object())
+    # השדות ש-get_drive_service קורא מ-Credentials; אותם טוקנים לשני השירותים, כדי שרק המפתח יפריד ביניהם
+    monkeypatch.setattr(gds, "_ensure_valid_credentials", lambda uid, *, owner: SimpleNamespace(token="access", refresh_token="refresh"))
 
     bot_svc = gds.get_drive_service(USER_ID, owner=drive_owner.BOT)
     assert gds.get_drive_service(USER_ID, owner=drive_owner.BOT) is bot_svc
@@ -261,16 +300,77 @@ def test_webapp_disconnect_removes_only_the_webapp_connection(webapp, dbm):
     assert _bot_snapshot(dbm) == before
 
 
-def test_webapp_disconnect_turns_the_schedule_off_before_deleting_the_tokens(webapp, dbm, monkeypatch):
-    # כשל במחיקת הטוקנים משאיר "מחובר בלי תזמון" — ולא תזמון שהמתזמן ינסה להריץ בלי חיבור
+def test_a_schedule_is_not_written_for_a_user_who_is_not_connected_at_the_time_of_the_write(webapp, dbm, monkeypatch):
+    """התנאי "מחובר" הוא חלק מהכתיבה עצמה. כאן קריאת החיבור עונה "מחובר" — כמו בדיקה שרצה רגע לפני ניתוק — ובמסמך אין חיבור של הוובאפ: התזמון לא נכתב, ולא נשאר תזמון בלי חיבור."""
+    monkeypatch.setattr(dbm, "get_drive_tokens", lambda uid, *, owner: {"access_token": "ya29.web-access"}, raising=False)
+
+    resp = webapp.post("/api/drive/schedule", json={"schedule": "daily"})
+
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "יש לחבר Google Drive קודם"
+    assert "schedule_key" not in (dbm._repo.get_drive_prefs(USER_ID, owner=drive_owner.WEBAPP) or {})
+
+
+def test_turning_the_schedule_off_does_not_need_a_connection(webapp, dbm):
+    assert webapp.post("/api/drive/schedule", json={"schedule": "off"}).get_json() == {"ok": True, "schedule": "off"}
+    assert dbm.get_drive_prefs(USER_ID, owner=drive_owner.WEBAPP)["schedule_key"] == "off"
+
+
+def test_backup_now_is_not_started_for_a_user_who_is_not_connected_at_the_time_of_the_write(webapp, dbm, monkeypatch):
+    import webapp.drive_backup_api as dba
+
+    submitted = []
+    monkeypatch.setattr(dba._backup_executor, "submit", lambda *a, **k: submitted.append(a))
+    monkeypatch.setattr(dbm, "get_drive_tokens", lambda uid, *, owner: {"access_token": "ya29.web-access"}, raising=False)
+
+    resp = webapp.post("/api/drive/backup-now")
+
+    assert resp.status_code == 400
+    assert submitted == []
+    assert "manual_backup_status" not in (dbm._repo.get_drive_prefs(USER_ID, owner=drive_owner.WEBAPP) or {})
+
+
+def test_webapp_disconnect_is_a_single_write(webapp, dbm, monkeypatch):
+    """מחיקת הטוקנים וכיבוי התזמון יוצאים באותה כתיבה — אין רגע שבו אחד קרה והשני לא."""
     _connect_webapp(webapp)
     assert webapp.post("/api/drive/schedule", json={"schedule": "daily"}).get_json()["ok"] is True
-    monkeypatch.setattr(dbm._repo, "delete_drive_tokens", lambda *a, **k: False)
+    writes = []
+    real_update_one = dbm.db.users.update_one
+
+    def _recording_update_one(query, update, *args, **kwargs):
+        writes.append(update)
+        return real_update_one(query, update, *args, **kwargs)
+
+    monkeypatch.setattr(dbm.db.users, "update_one", _recording_update_one)
+
+    assert webapp.post("/api/drive/disconnect").get_json() == {"ok": True}
+
+    assert len(writes) == 1
+    assert writes[0]["$unset"] == {drive_owner.drive_fields(drive_owner.WEBAPP).tokens: ""}
+    prefs_field = drive_owner.drive_fields(drive_owner.WEBAPP).prefs
+    assert writes[0]["$set"][f"{prefs_field}.schedule_key"] == "off"
+
+
+def test_a_failed_webapp_disconnect_leaves_the_connection_and_its_schedule_as_they_were(webapp, dbm, monkeypatch):
+    """כשהכתיבה של הניתוק נכשלת לא משתנה כלום: המשתמש נשאר מחובר עם התזמון שלו. מה שאסור הוא חצי ניתוק — תזמון כבוי עם חיבור, או תזמון בלי חיבור."""
+    from pymongo.errors import PyMongoError
+
+    _connect_webapp(webapp)
+    assert webapp.post("/api/drive/schedule", json={"schedule": "daily"}).get_json()["ok"] is True
+    real_update_one = dbm.db.users.update_one
+
+    def _failing_token_delete(query, update, *args, **kwargs):
+        if "$unset" in update:
+            raise PyMongoError("simulated write failure")
+        return real_update_one(query, update, *args, **kwargs)
+
+    monkeypatch.setattr(dbm.db.users, "update_one", _failing_token_delete)
 
     resp = webapp.post("/api/drive/disconnect")
 
     assert resp.status_code == 500
-    assert dbm.get_drive_prefs(USER_ID, owner=drive_owner.WEBAPP)["schedule_key"] == "off"
+    assert dbm.get_drive_tokens(USER_ID, owner=drive_owner.WEBAPP)["access_token"] == "ya29.web-access"
+    assert dbm.get_drive_prefs(USER_ID, owner=drive_owner.WEBAPP)["schedule_key"] == "daily"
 
 
 # --- מתזמן הוובאפ ---
@@ -314,6 +414,32 @@ def test_a_scheduled_webapp_backup_uploads_with_the_webapp_connection(dbm, monke
     assert uploads == [drive_owner.WEBAPP]
     assert dbm.get_drive_prefs(USER_ID, owner=drive_owner.WEBAPP)["last_backup_at"]
     assert _bot_snapshot(dbm) == bot_before
+
+
+@pytest.mark.parametrize("failure", ["upload_failed", "exception"])
+def test_a_webapp_drive_backup_that_was_not_uploaded_is_sent_as_an_event(dbm, monkeypatch, failure):
+    """כשל גיבוי של הוובאפ — מתוזמן או "גבה עכשיו", שניהם עוברים ב-``_perform_drive_backup`` — נשלח כאירוע, ולא רק כשורת לוג."""
+    import services.google_drive_service as gds
+    import services.personal_backup_service as pbs
+    import webapp.backup_scheduler as bs
+
+    events = []
+    monkeypatch.setattr(bs, "emit_event", lambda event, severity="info", **fields: events.append((event, severity, fields)))
+    monkeypatch.setattr(pbs.PersonalBackupService, "export_user_data", lambda self, uid: io.BytesIO(b"PK-zip"))
+    monkeypatch.setitem(__import__("sys").modules, "database", SimpleNamespace(db=dbm))
+    if failure == "upload_failed":
+        monkeypatch.setattr(gds, "upload_bytes", lambda uid, filename, data, folder_id=None, sub_path=None, *, owner: None)
+        expected = {"user_id": USER_ID, "reason": "upload_failed"}
+    else:
+        def _network_down(*_a, **_k):
+            raise ConnectionError("network down")
+
+        monkeypatch.setattr(gds, "upload_bytes", _network_down)
+        expected = {"user_id": USER_ID, "reason": "exception", "error_type": "ConnectionError"}
+
+    assert bs._perform_drive_backup(USER_ID) is False
+
+    assert events == [("webapp_drive_backup_failed", "warn", expected)]
 
 
 # --- הגיבוי האישי (רץ רק בוובאפ) ---

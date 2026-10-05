@@ -170,11 +170,15 @@ def _fetch_google_email(req, access_token: str) -> Optional[str]:
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=10,
         )
+        # תשובת שגיאה (4xx/5xx) נרשמת עם הסטטוס שלה, ולא נקראת כאילו היא פרטי החשבון
+        resp.raise_for_status()
         info = resp.json()
     except req.RequestException as e:
-        # כולל גוף שאינו JSON: requests.exceptions.JSONDecodeError יורש מ-RequestException (requests 2.32.5).
-        # רק סוג החריגה — בלי ההודעה, כדי ששום דבר מהבקשה לא ייכנס ללוג
-        logger.warning("webapp_drive_userinfo_failed error_type=%s", type(e).__name__)
+        # כולל תשובת שגיאה וגוף שאינו JSON: HTTPError ו-requests.exceptions.JSONDecodeError יורשים מ-RequestException,
+        # ו-response של החריגה הוא None כשלא התקבלה תשובה (requests 2.32.5, exceptions.py).
+        # רק סוג החריגה והסטטוס — בלי ההודעה, כדי ששום דבר מהבקשה לא ייכנס ללוג
+        status = e.response.status_code if e.response is not None else None
+        logger.warning("webapp_drive_userinfo_failed error_type=%s http_status=%s", type(e).__name__, status)
         return None
     email = info.get("email") if isinstance(info, dict) else None
     return email if isinstance(email, str) and email else None
@@ -342,24 +346,16 @@ def drive_disconnect():
     """מנתק את חיבור ה-Drive של הוובאפ (החיבור של הבוט לא משתנה)."""
     user_id = int(session["user_id"])
     db = _get_db()
-    prefs_field = drive_fields(DRIVE_OWNER).prefs
 
-    # קודם מכבים את התזמון ורק אחר כך מוחקים את הטוקנים: כשל באמצע משאיר "מחובר בלי תזמון",
-    # ולא "תזמון בלי חיבור" שהמתזמן ינסה להריץ שוב ושוב.
-    try:
-        db.db.users.update_one(
-            {"user_id": user_id},
-            {"$set": {
-                f"{prefs_field}.schedule_key": "off",
-                f"{prefs_field}.schedule_next_at": None,
-                f"{prefs_field}.drive_email": None,
-            }},
-        )
-    except PyMongoError:
-        logger.exception("webapp_drive_disconnect_prefs_failed")
-        return jsonify({"ok": False, "error": "שגיאה בניתוק Drive"}), 500
+    # הטוקנים נמחקים והתזמון כבה באותה כתיבה (``prefs`` של delete_drive_tokens), כך שכשל לא יכול להשאיר
+    # "תזמון בלי חיבור" שהמתזמן ינסה להריץ שוב ושוב.
     # delete_drive_tokens אינו זורק בכשל מסד — הוא מחזיר False, ולכן נבדק הערך
-    if not db.delete_drive_tokens(user_id, owner=DRIVE_OWNER):
+    disconnected = db.delete_drive_tokens(
+        user_id,
+        owner=DRIVE_OWNER,
+        prefs={"schedule_key": "off", "schedule_next_at": None, "drive_email": None},
+    )
+    if not disconnected:
         return jsonify({"ok": False, "error": "שגיאה בניתוק Drive"}), 500
     emit_event("webapp_drive_disconnected", user_id=user_id)
     return jsonify({"ok": True})
