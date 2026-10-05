@@ -2964,10 +2964,31 @@ html[dir="rtl"] .diff-view-toggle {
     color: #cf222e;
 }
 
-/* תמות מותאמות אישית - שימוש במשתני CSS */
+/* תמות מותאמות אישית - שימוש במשתני CSS.
+
+   וו דריסה לערכה מיובאת או משותפת: היא יכולה לקבוע לבדה את הרקע ואת הגבול של
+   בלוקי הקוד בתצוגה הזו, על ידי הצהרה על --repo-md-code-block-bg-override ועל
+   --repo-md-code-block-border-override ב-variables שלה.
+
+   למה זה נדרש: המעטפת (.markdown-preview-container) צבועה ב---bg-tertiary, הבלוק
+   ב---code-bg והגבול שלו ב---border-color — שלושה טוקנים נפרדים, ש-
+   VSCODE_TO_CSS_MAP גוזר כל אחד ממפתחות אחרים של VS Code. ערכה שבה שלושתם יוצאים
+   באותו צבע (Cobalt Next) מקבלת בלוק שאינו נבדל מהטקסט שסביבו: בלי רקע אחר ובלי
+   גבול נראה.
+
+   ה-fallback של כל אחד מהשניים הוא בדיוק מה שנצבע כאן עד היום: הרקע מהכלל הזה
+   עצמו, והגבול מ---border-color שבכלל .markdown-preview-content pre שלמעלה.
+   הטוקנים מכוונים להיות חסרי ברירת מחדל בכל מקום, ולכן ערכה שאינה מצהירה
+   מרונדרת זהה לחלוטין.
+
+   הקריאה יושבת בכלל הזה ולא בכלל חדש עם [data-theme-type="custom"], כי זה הכלל
+   שצובע היום את הבלוק בערכה מיובאת — (0,2,1) גובר על .markdown-preview-content pre
+   שהוא (0,1,1) — ובורר זהה פירושו מפל זהה. הגבול נקבע ב-border-color ולא ב-border
+   המלא, כדי שהעובי והסגנון יישארו בבעלות הכלל הכללי. */
 [data-theme="custom"] .markdown-preview-content pre,
 [data-theme^="shared:"] .markdown-preview-content pre {
-    background: var(--code-bg, var(--bg-secondary, #1e1e1e));
+    background: var(--repo-md-code-block-bg-override, var(--code-bg, var(--bg-secondary, #1e1e1e)));
+    border-color: var(--repo-md-code-block-border-override, var(--border-color));
 }
 
 [data-theme="custom"] .markdown-preview-content pre code,
