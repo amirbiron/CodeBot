@@ -697,7 +697,8 @@ def _content_param_doc(limit: int) -> str:
 
 # תיאורי ``description`` בשני הכלים שמקבלים אותו מבחוץ (#3489). **התקרה נבנית ברישום מ-
 # ``file_description.FILE_DESCRIPTION_MAX_CHARS``**, אותו קבוע ש-``description_length_error``
-# אוכף, ולא מוקלדת (``prose-restates-code-fact``): "עד 500" בתיאור של כלי שמקבל 5,000
+# אוכף, ולא מוקלדת (``prose-restates-code-fact`` ב-``amir-bug-patterns``): "עד 500" בתיאור
+# של כלי שמקבל 5,000
 # היה תיעוד שמשקר — ולכן התיאור נכתב רק אחרי שהתקרה נאכפה בשני הכלים. **המשפט הראשון
 # נושא את הכלל**, כי לקוח שמקצר תיאור פרמטר לכ-120 תווים רואה רק אותו (האזהרה ליד
 # ``_TOOL_DESCRIPTION_MAX_CHARS`` ב-``tests/test_mcp_server_build.py``); "תווים, לא בתים"
@@ -2976,7 +2977,7 @@ def build_mcp(
             "when the stored one no longer matches the file: codekeeper_save_file "
             "sets one only on a new file, and edits keep the old one. No new "
             "version is created, so the previous description is not kept in "
-            "history; the reply returns it, the only copy. Only the latest version "
+            "history; the reply returns it. Only the latest version "
             "is updated. An empty description clears it. It marks the description "
             "as checked, resetting description_age_versions to 0, so resending the "
             "same text says it still fits. Too long: description_too_long, with "

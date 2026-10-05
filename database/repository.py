@@ -158,7 +158,7 @@ def update_file_metadata_in(
     ושכבת ה-MCP מעבירה אותו כמו שהוא, כי סוכן שמקבל חיתוך שקט אינו יודע
     שאיבד טקסט. מה שכן נבדק כאן הוא **טיפוס**: ערך שאינו מחרוזת (או רשימת
     מחרוזות, לתגיות) נדחה בקוד שגיאה ואינו מומר בשקט — ראו
-    ``bugbot-rules/external-input-isinstance.md``.
+    ``bugbot-rules/external-input-isinstance.md`` ב-``amir-bug-patterns``.
 
     **ותקרת האורך — כאן, כי היא עובדה על השדה, ובתוך הכתיבה ולא לפניה.**
     תיאור ארוך מ-``FILE_DESCRIPTION_MAX_CHARS`` (``file_description.py``) נדחה
@@ -252,8 +252,8 @@ def update_file_metadata_in(
     # החותמת מתאפסת; כשלא — כל שדה מקבל את הערך שכבר יש לו (``"$" + key``),
     # ומעל הכתיבה עולה הסירוב. תנאי אחד לכל השדות, כי התיאור, החותמת שלו,
     # ``updated_at`` והתגיות זזים יחד או לא זזים בכלל
-    # (``bugbot-rules/linked-field-atomicity.md``). התיאור שנשלח אינו ריק כאן
-    # (הוא ארוך מהתקרה), ולכן ``$$REMOVE`` לעולם אינו בתוך התנאי.
+    # (``bugbot-rules/linked-field-atomicity.md`` ב-``amir-bug-patterns``). התיאור
+    # שנשלח אינו ריק כאן (הוא ארוך מהתקרה), ולכן ``$$REMOVE`` לעולם אינו בתוך התנאי.
     update: Any
     if "description" in updates:
         stage: Dict[str, Any] = {

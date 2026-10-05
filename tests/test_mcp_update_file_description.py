@@ -193,10 +193,10 @@ async def test_the_description_changes_while_content_and_version_stay_put(wired_
 
 
 async def test_the_reply_reports_the_unchanged_version_and_the_lost_previous_value(wired_mongo):
-    """התשובה נושאת את התיאור הקודם — **המקום היחיד שבו הוא עוד קיים**.
+    """התשובה נושאת את התיאור הקודם — **הקריאה עצמה לא שומרת ממנו עותק**.
 
-    זה לא נוחות: אין גרסה חדשה, ולכן הערך הקודם אינו נשמר בשום מקום
-    ואינו ניתן לשחזור אחרי הקריאה הזו. ``version_created: False`` נאמר
+    זה לא נוחות: אין גרסה חדשה, ולכן אחרי הקריאה הזו הערך הקודם קיים בתשובה,
+    ובגרסה קודמת רק אם הוא הועתק ממנה לאחרונה. ``version_created: False`` נאמר
     במפורש כדי שסוכן לא יסיק מהצלחה שנוצרה גרסה שאפשר לחזור אליה.
     """
     collection = _seed(wired_mongo)

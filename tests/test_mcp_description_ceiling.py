@@ -634,7 +634,8 @@ def test_the_descriptions_are_built_from_the_constant_the_tools_enforce(monkeypa
 def test_the_documented_ceiling_is_the_code_ceiling():
     """טבלת הקבועים ב-``docs/mcp-server.rst`` נוקבת ב-``FILE_DESCRIPTION_MAX_CHARS`` ובמודול שלו.
 
-    קובץ RST אינו יכול לגזור דבר (``prose-restates-code-fact``), ולכן הערך המצופה מחושב
+    קובץ RST אינו יכול לגזור דבר (``prose-restates-code-fact`` ב-``amir-bug-patterns``),
+    ולכן הערך המצופה מחושב
     כאן מהקבוע, באותה צורה שהטבלה כותבת — כמו הטסט על ``MAX_EDIT_PAIRS`` ב-
     ``tests/test_mcp_multi_edit.py``. מוטציה שמפילה: לשנות את הקבוע בלי הטבלה, או להפך.
     """

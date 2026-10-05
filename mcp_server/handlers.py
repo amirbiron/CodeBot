@@ -965,7 +965,7 @@ def _description_not_saved(refusal: dict[str, int]) -> dict[str, Any]:
 def _saved_description(res: dict[str, Any], sent: str) -> dict[str, Any]:
     """``description_saved`` של שמירה שהתיאור שלה **נשלח** לכתיבה — לפי מה שנקרא חזרה.
 
-    **קרא את המצב, אל תהדהד את הבקשה** (``CRITICAL-PATTERNS.md`` K11): ה-backend קרא
+    **קרא את המצב, אל תהדהד את הבקשה** (K11 ב-``amir-bug-patterns``): ה-backend קרא
     את המסמך שנכתב לפי ה-``_id`` שה-insert החזיר, ו-``file.description`` הוא מה
     שנשמר בפועל. ``content_changed: null`` הוא הסימן שהקריאה החוזרת לא הצליחה
     (``ProductionBackend.save_file``) — ואז גם על התיאור אין מה לומר, ו-``null``
@@ -1108,6 +1108,8 @@ def save_file(
     # ``strip`` — אותה נורמליזציה של ``codekeeper_update_file_description`` ושל הראוט
     # בוובאפ, והתקרה נמדדת על מה שייכתב, כלומר אחריה. תיאור ארוך מהתקרה אינו
     # עוצר את השמירה: הקובץ נשמר בלי תיאור, והתשובה אומרת זאת (ה-docstring).
+    # בלי ``previous_description``: הכלי יוצר רק קובץ חדש (שם תפוס נדחה ב-``file_exists``
+    # למעלה), ולכן אין תיאור קודם שזהות אליו תתיר תיאור ארוך.
     sent_description = (description or "").strip()
     description_refusal = description_length_error(sent_description)
     res = backend.save_file(
@@ -1677,11 +1679,13 @@ def update_file_description(
     description says all three out loud:
 
     - No version is created, so ``codekeeper_list_versions`` will not show this
-      change and the **previous description is not recoverable** from anywhere.
-      It is returned in the response precisely because that is the only place it
-      will ever appear again.
-    - Earlier versions keep the old description. Reading one back by number
-      returns what it carried at the time.
+      change and the call itself keeps **no copy of the previous description**.
+      It is returned in the response for that reason: an earlier version carries
+      the same text only if the description reached the latest version by being
+      copied from it, and one set on the latest version itself survives only in
+      the response.
+    - Earlier versions keep the description each one carried. Reading one back
+      by number returns what it carried at the time.
     - The file's content and version number do not move.
 
     **It also stamps the description as checked.** The write sets
