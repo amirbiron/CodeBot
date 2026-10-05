@@ -77,6 +77,22 @@ class GoogleDriveMenuHandler:
             logger.warning("drive_auth_tokens_not_saved user_id=%s", user_id)
         return saved
 
+    def _close_auth_request(self, bot_data: Dict[str, Any], user_id: int) -> None:
+        """סוגר את בקשת ההתחברות של המשתמש: מוחק את ה-device code ועוצר את הבדיקה ברקע.
+
+        סגירה במקום אחד, כדי שמסלול שמסיים בקשה לא ישאיר מאחוריו בדיקה ברקע שממשיכה לפנות לגוגל עם קוד סגור. לפי RFC 8628 §3.5, אחרי שגיאה סופית (``gdrive.is_terminal_device_flow_error``) הלקוח *"MUST stop polling"*.
+
+        ``bot_data`` הוא ``application.bot_data``: בהקשר של ה-job הוא אותו מילון כמו בהקשר של הכפתורים (python-telegram-bot 22.5, ``CallbackContext.bot_data``).
+        """
+        self._session(user_id).pop("device_code", None)
+        job = bot_data.setdefault("drive_auth_jobs", {}).pop(user_id, None)
+        if job is not None:
+            try:
+                job.schedule_removal()
+            except Exception:
+                # ההסרה נכשלת כשה-job כבר לא מתוזמן (APScheduler זורק JobLookupError), ואז אין מה לעצור. וגם אם הוא עוד ירוץ, בלי device_code הוא חוזר בלי לפנות לגוגל
+                pass
+
     async def _ensure_schedule_job(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, sched_key: str) -> None:
         seconds = self._interval_seconds(sched_key)
 
@@ -545,18 +561,13 @@ class GoogleDriveMenuHandler:
                 )
                 return
             sess = self._session(user_id)
+            # בקשה קודמת שעוד פתוחה נסגרת לפני שנפתחת חדשה
+            self._close_auth_request(context.bot_data, user_id)
             sess["device_code"] = flow.get("device_code")
             sess["interval"] = max(3, int(flow.get("interval", 5)))
             sess["auth_expires_at"] = int(__import__('time').time()) + int(flow.get("expires_in", 1800))
             # schedule polling job
             jobs = context.bot_data.setdefault("drive_auth_jobs", {})
-            # cancel old if exists
-            old = jobs.get(user_id)
-            if old:
-                try:
-                    old.schedule_removal()
-                except Exception:
-                    pass
             async def _poll_once(ctx: ContextTypes.DEFAULT_TYPE):
                 uid = None
                 try:
@@ -568,20 +579,11 @@ class GoogleDriveMenuHandler:
                     if not dc:
                         return
 
-                    def _stop_polling() -> None:
-                        # סוגר את בקשת ההתחברות ועוצר את הבדיקה ברקע. הסרה שנכשלה אינה מזיקה: בלי device_code הסבב הבא חוזר מיד
-                        try:
-                            ctx.job.schedule_removal()
-                        except Exception:
-                            pass
-                        jobs.pop(uid, None)
-                        s.pop("device_code", None)
-
                     # Expiry guard: stop polling and notify
                     import time as _t
                     exp = s.get("auth_expires_at") or 0
                     if exp and _t.time() > exp:
-                        _stop_polling()
+                        self._close_auth_request(ctx.bot_data, uid)
                         try:
                             await ctx.bot.edit_message_text(
                                 chat_id=chat_id,
@@ -599,7 +601,7 @@ class GoogleDriveMenuHandler:
                         if not gdrive.is_terminal_device_flow_error(tokens):
                             return  # תקלה זמנית בלי קוד שגיאה של OAuth — ממשיכים לבדוק עד שתוקף הבקשה פג
                         # גוגל סגר את הבקשה (למשל המשתמש סירב): מפסיקים לבדוק ומציגים את השגיאה, כמו בשני המסלולים הידניים
-                        _stop_polling()
+                        self._close_auth_request(ctx.bot_data, uid)
                         try:
                             await ctx.bot.edit_message_text(
                                 chat_id=chat_id,
@@ -612,7 +614,7 @@ class GoogleDriveMenuHandler:
                         return
                     # הטוקנים התקבלו וה-device code נוצל, ולכן הבדיקה נעצרת בכל מקרה — גם כשהשמירה נכשלה
                     saved = self._save_auth_tokens(uid, tokens)
-                    _stop_polling()
+                    self._close_auth_request(ctx.bot_data, uid)
                     try:
                         if saved:
                             await ctx.bot.edit_message_text(
@@ -695,10 +697,15 @@ class GoogleDriveMenuHandler:
                 )
                 return
             if isinstance(tokens, dict) and tokens.get("error"):
-                kb = [
-                    [InlineKeyboardButton("🔄 בדוק חיבור", callback_data="drive_poll_once")],
-                    [InlineKeyboardButton("❌ בטל", callback_data="drive_cancel_auth")],
-                ]
+                if gdrive.is_terminal_device_flow_error(tokens):
+                    # גוגל סגר את הבקשה: סוגרים אותה גם כאן, אחרת הבדיקה ברקע ממשיכה לפנות לגוגל עם הקוד הסגור. "בדוק חיבור" כבר לא רלוונטי
+                    self._close_auth_request(context.bot_data, user_id)
+                    kb = [[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]
+                else:
+                    kb = [
+                        [InlineKeyboardButton("🔄 בדוק חיבור", callback_data="drive_poll_once")],
+                        [InlineKeyboardButton("❌ בטל", callback_data="drive_cancel_auth")],
+                    ]
                 await TelegramUtils.safe_edit_message_text(
                     query,
                     _auth_error_text(tokens),
@@ -706,15 +713,8 @@ class GoogleDriveMenuHandler:
                 )
                 return
             saved = self._save_auth_tokens(user_id, tokens)
-            # הטוקנים התקבלו וה-device code נוצל: עוצרים את הבדיקה ברקע בכל מקרה — גם כשהשמירה נכשלה
-            sess.pop("device_code", None)
-            jobs = context.bot_data.setdefault("drive_auth_jobs", {})
-            job = jobs.pop(user_id, None)
-            if job:
-                try:
-                    job.schedule_removal()
-                except Exception:
-                    pass
+            # הטוקנים התקבלו וה-device code נוצל: סוגרים את הבקשה בכל מקרה — גם כשהשמירה נכשלה
+            self._close_auth_request(context.bot_data, user_id)
             if not saved:
                 kb = [[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]
                 await TelegramUtils.safe_edit_message_text(query, _AUTH_NOT_SAVED_TEXT, reply_markup=InlineKeyboardMarkup(kb))
@@ -724,15 +724,7 @@ class GoogleDriveMenuHandler:
             await self.menu(update, context)
             return
         if data == "drive_cancel_auth":
-            sess = self._session(user_id)
-            sess.pop("device_code", None)
-            jobs = context.bot_data.setdefault("drive_auth_jobs", {})
-            job = jobs.pop(user_id, None)
-            if job:
-                try:
-                    job.schedule_removal()
-                except Exception:
-                    pass
+            self._close_auth_request(context.bot_data, user_id)
             await TelegramUtils.safe_edit_message_text(query, "ביטלת את ההתחברות ל‑Drive.")
             return
         if data == "drive_backup_now":
@@ -1306,9 +1298,14 @@ class GoogleDriveMenuHandler:
                 return True
             if isinstance(tokens, dict) and tokens.get("error"):
                 # גוגל דחה את הבקשה (poll_device_token מחזיר את השגיאה כמילון) — אין כאן טוקנים לשמור
+                if gdrive.is_terminal_device_flow_error(tokens):
+                    self._close_auth_request(context.bot_data, update.effective_user.id)
                 await update.message.reply_text(_auth_error_text(tokens))
                 return True
-            if self._save_auth_tokens(update.effective_user.id, tokens):
+            saved = self._save_auth_tokens(update.effective_user.id, tokens)
+            # הטוקנים התקבלו וה-device code נוצל: סוגרים את הבקשה בכל מקרה — גם כשהשמירה נכשלה
+            self._close_auth_request(context.bot_data, update.effective_user.id)
+            if saved:
                 await update.message.reply_text("✅ חיבור ל‑Drive הושלם! שלח /drive כדי להתחיל לגבות.")
             else:
                 await update.message.reply_text(_AUTH_NOT_SAVED_TEXT)

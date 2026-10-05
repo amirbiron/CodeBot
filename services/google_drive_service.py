@@ -245,7 +245,7 @@ def _save_refreshed_credentials(user_id: int, creds: Any, *, owner: str) -> bool
 
     ``creds.expiry`` של google-auth הוא UTC נאיבי — ``_helpers.utcnow()`` מסיר את אזור הזמן, ו-``_parse_expiry`` מוסיף לו את ``expires_in`` (google-auth 2.41.1) — ולכן הוא מתויג כאן ב-UTC לפני החישוב מול ``_now_utc()``. בלי התיוג החיסור זורק ``TypeError``, וב-``_force_refresh_credentials`` הוא נבלע: הרענון הצליח, והטוקן החדש לא נשמר אף פעם.
 
-    ``save_tokens`` מחזיר ``False`` בכשל מסד ולא זורק, ולכן התוצאה נבדקת כאן ונרשמת בשורת ``drive_refresh_not_saved``: הקריאה הנוכחית ממשיכה עם הטוקן החדש, והבאה תטען מהמסד את הקודם.
+    ``save_tokens`` מחזיר ``False`` בכשל מסד ולא זורק, ולכן התוצאה נבדקת כאן, מוחזרת לקורא, ונרשמת בשורת ``drive_refresh_not_saved`` כשהשמירה נכשלה. ``_force_refresh_credentials`` צריך אותה כדי לדעת אילו טוקנים יש עכשיו במסד.
     """
     expiry = creds.expiry
     if expiry is not None and expiry.tzinfo is None:
@@ -305,24 +305,42 @@ def _ensure_valid_credentials(user_id: int, *, owner: str) -> Optional[Credentia
 
 
 # המפתח הוא (שירות, משתמש): לכל שירות חיבור משלו, ושירות Drive שנבנה מהטוקנים של אחד אסור שיוחזר לשני.
-# הערך הוא (שירות, זמן בנייה, טביעת האישורים שהוא נבנה מהם) — ראו ``_credentials_fingerprint``.
+# הערך הוא (שירות, זמן בנייה, טביעת הטוקנים שבמסד שהשירות עונה עליהם) — ראו ``_credentials_fingerprint``.
 _SERVICE_CACHE: Dict[Tuple[str, int], Tuple[Any, float, str]] = {}
 
 
 def _service_cache_key(user_id: int, *, owner: str) -> Tuple[str, int]:
-    """המפתח היחיד של ``_SERVICE_CACHE`` — גם הכתיבה וגם הביטול עוברים כאן, כדי שביטול לא יחטיא את המפתח שנכתב."""
+    """המפתח היחיד של ``_SERVICE_CACHE`` — הכתיבה (``_publish_drive_service``) והקריאה (``get_drive_service``) עוברות כאן, כדי שהקריאה תמצא בדיוק את המפתח שנכתב."""
     return (owner, int(user_id))
 
 
 def _credentials_fingerprint(creds: Any) -> str:
-    """טביעה של האישורים שמהם נבנה שירות: SHA-256 של ה-access token וה-refresh token, ולא הטוקנים עצמם.
+    """טביעה של טוקנים: SHA-256 של ה-access token וה-refresh token, ולא הטוקנים עצמם.
 
-    ``get_drive_service`` משווה אותה לאישורים שנטענו עכשיו מהמסד, ולכן שירות שנבנה מטוקנים שהוחלפו — חיבור מחדש, או רענון שנשמר — לא מוחזר מהמטמון. ההשוואה נעשית בזמן הקריאה ולא בביטול בזמן הכתיבה: ביטול ב-``save_tokens`` היה מחטיא קריאה שטענה את הטוקנים הישנים לפני הכתיבה ושמרה את השירות שלה אחריה.
+    ``get_drive_service`` מחשב אותה מהטוקנים שנטענו עכשיו מהמסד, ומחזיר שירות מהמטמון רק אם נשמר לידו אותה טביעה — כלומר רק שירות שעונה על הטוקנים שבמסד עכשיו. בדרך כלל זה השירות שנבנה מהם, ולכן שירות שנבנה מטוקנים שהוחלפו — חיבור מחדש, או רענון שנשמר — לא מוחזר. החריג הוא רענון כפוי שלא נשמר: השירות שנבנה מהטוקן המרוענן נשמר עם הטביעה של הטוקנים שהוא מחליף, כי אותם ימשיכו לטעון מהמסד (``_force_refresh_credentials``). ההשוואה נעשית בזמן הקריאה ולא בביטול בזמן הכתיבה: ביטול ב-``save_tokens`` היה מחטיא קריאה שטענה את הטוקנים הישנים לפני הכתיבה ושמרה את השירות שלה אחריה.
 
     ``creds`` הוא ``google.oauth2.credentials.Credentials``: ``token`` ו-``refresh_token`` מוגדרים בו תמיד (google-auth 2.41.1, ``google/auth/_credentials_base.py`` ו-``google/oauth2/credentials.py``).
     """
     material = f"{creds.token or ''}\0{creds.refresh_token or ''}"
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _publish_drive_service(user_id: int, creds: Any, fingerprint: str, *, owner: str):
+    """בונה שירות Drive מ-``creds``, שומר אותו ב-``_SERVICE_CACHE`` עם ``fingerprint`` ומחזיר אותו. בנייה שנכשלה מחזירה ``None`` ונרשמת (``_log_drive_call_failed``).
+
+    ``fingerprint`` הוא הטביעה של הטוקנים שבמסד שהשירות עונה עליהם — מה ש-``get_drive_service`` ישווה אליו בקריאה הבאה (ראו ``_credentials_fingerprint``).
+    """
+    try:
+        svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+    except Exception as e:
+        _log_drive_call_failed("build_service", user_id, owner=owner, error=e)
+        return None
+    try:
+        _SERVICE_CACHE[_service_cache_key(user_id, owner=owner)] = (svc, time.time(), fingerprint)
+    except Exception:
+        # בלי מטמון השירות נבנה מחדש בקריאה הבאה — איטי יותר, לא שגוי
+        pass
+    return svc
 
 
 def get_drive_service(user_id: int, *, owner: str):
@@ -331,28 +349,17 @@ def get_drive_service(user_id: int, *, owner: str):
     creds = _ensure_valid_credentials(user_id, owner=owner)
     if not creds:
         return None
-    # נסה להשתמש בשירות קיים עד 5 דקות כדי למנוע יצירה חוזרת ושקעים פתוחים — רק אם נבנה מאותם אישורים
+    # נסה להשתמש בשירות קיים עד 5 דקות כדי למנוע יצירה חוזרת ושקעים פתוחים — רק אם הוא עונה על הטוקנים שבמסד עכשיו
     now_ts = time.time()
-    cache_key = _service_cache_key(user_id, owner=owner)
     fingerprint = _credentials_fingerprint(creds)
     try:
-        cached = _SERVICE_CACHE.get(cache_key)
+        cached = _SERVICE_CACHE.get(_service_cache_key(user_id, owner=owner))
         if cached and cached[2] == fingerprint and (now_ts - float(cached[1])) < 300:
             return cached[0]
     except Exception:
         # רשומה פגומה במטמון היא החטאה: בונים שירות חדש ודורסים אותה
         pass
-    try:
-        svc = build("drive", "v3", credentials=creds, cache_discovery=False)
-        try:
-            _SERVICE_CACHE[cache_key] = (svc, now_ts, fingerprint)
-        except Exception:
-            # בלי מטמון השירות נבנה מחדש בקריאה הבאה — איטי יותר, לא שגוי
-            pass
-        return svc
-    except Exception as e:
-        _log_drive_call_failed("build_service", user_id, owner=owner, error=e)
-        return None
+    return _publish_drive_service(user_id, creds, fingerprint, owner=owner)
 
 
 def _get_file_metadata(service, file_id: str, fields: str = "id, name, trashed, mimeType, parents") -> Optional[Dict[str, Any]]:
@@ -612,18 +619,14 @@ def _is_auth_http_error(err: Exception) -> bool:
     return bool(status == 401)
 
 
-def _clear_service_cache(user_id: int, *, owner: str) -> None:
-    try:
-        _SERVICE_CACHE.pop(_service_cache_key(user_id, owner=owner), None)
-    except Exception:
-        pass
-
-
 def _force_refresh_credentials(user_id: int, *, owner: str) -> bool:
     """Force-refresh access token using refresh_token.
 
     Used on mid-flight 401 failures where local expiry tracking may be stale.
-    Returns True when refresh succeeded.
+
+    הקורא מנסה שוב דרך ``get_drive_service``, שטוען את הטוקנים מהמסד. לכן השירות שנבנה מהטוקן המרוענן נשמר במטמון עם הטביעה של מה שיש במסד אחרי ניסיון השמירה: של הטוקן המרוענן כשהוא נשמר, ושל הטוקנים שהוא מחליף כשהשמירה נכשלה. כך הניסיון החוזר מקבל את הטוקן המרוענן גם כשהשמירה נכשלה, ולא את הטוקן שגוגל דחה.
+
+    מחזיר ``True`` רק כשהרענון הצליח והשירות שלו מחכה במטמון לניסיון החוזר. כשבניית השירות נכשלה (נרשם כ-``build_service``) אין עם מה לנסות שוב, והקורא רושם את ה-401 ומוותר.
     """
     if Credentials is None or Request is None:
         return False
@@ -634,6 +637,8 @@ def _force_refresh_credentials(user_id: int, *, owner: str) -> bool:
         creds = _credentials_from_tokens(tokens)
     except Exception:
         return False
+    # הטביעה של הטוקנים שבמסד עכשיו: אם השמירה תיכשל, את אלה ``get_drive_service`` ימשיך לטעון
+    stored_fingerprint = _credentials_fingerprint(creds)
     try:
         creds.refresh(Request())  # type: ignore[misc]
     except Exception as e:
@@ -643,10 +648,8 @@ def _force_refresh_credentials(user_id: int, *, owner: str) -> bool:
             return False
         logging.getLogger(__name__).warning("Drive forced refresh failed: %s", str(e))
         return False
-    # הרענון הצליח, ולכן ממשיכים איתו גם כשהשמירה נכשלה — ``_save_refreshed_credentials`` רושם אותה
-    _save_refreshed_credentials(user_id, creds, owner=owner)
-    _clear_service_cache(user_id, owner=owner)
-    return True
+    saved = _save_refreshed_credentials(user_id, creds, owner=owner)
+    return _publish_drive_service(user_id, creds, _credentials_fingerprint(creds) if saved else stored_fingerprint, owner=owner) is not None
 
 
 def _is_retryable_http_error(err: Exception) -> Tuple[bool, Optional[float]]:

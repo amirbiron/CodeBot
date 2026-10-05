@@ -166,14 +166,17 @@ def test_save_tokens_keeps_the_refresh_token_of_the_same_owner_only(owner, other
     assert d.get_drive_tokens(USER_ID, owner=other)["refresh_token"] == "1//other-refresh"
 
 
-def test_the_service_cache_is_per_owner_and_invalidation_hits_the_written_key(monkeypatch):
+def test_the_service_cache_is_per_owner_and_a_forced_refresh_replaces_only_its_owners_entry(monkeypatch):
     import services.google_drive_service as gds
 
-    built = []
+    def _build(*_a, credentials=None, **_k):
+        return SimpleNamespace(token=credentials.token)
 
-    def _build(*_a, **_k):
-        built.append(object())
-        return built[-1]
+    class _Creds:
+        token, refresh_token = "access", "refresh"
+
+        def refresh(self, _request):
+            self.token = "access-refreshed"
 
     monkeypatch.setattr(gds, "_SERVICE_CACHE", {})
     monkeypatch.setattr(gds, "build", _build)
@@ -185,8 +188,14 @@ def test_the_service_cache_is_per_owner_and_invalidation_hits_the_written_key(mo
     web_svc = gds.get_drive_service(USER_ID, owner=drive_owner.WEBAPP)
     assert web_svc is not bot_svc
 
-    gds._clear_service_cache(USER_ID, owner=drive_owner.WEBAPP)
-    assert gds.get_drive_service(USER_ID, owner=drive_owner.WEBAPP) is not web_svc
+    # רענון כפוי של הוובאפ שלא נשמר: השירות המרוענן נכתב לרשומה של הוובאפ בלבד
+    monkeypatch.setattr(gds, "_load_tokens", lambda uid, *, owner: {"access_token": "access", "refresh_token": "refresh"})
+    monkeypatch.setattr(gds, "_credentials_from_tokens", lambda tokens: _Creds())
+    monkeypatch.setattr(gds, "Request", lambda: None)
+    monkeypatch.setattr(gds, "_save_refreshed_credentials", lambda uid, creds, *, owner: False)
+    assert gds._force_refresh_credentials(USER_ID, owner=drive_owner.WEBAPP) is True
+
+    assert gds.get_drive_service(USER_ID, owner=drive_owner.WEBAPP).token == "access-refreshed"
     assert gds.get_drive_service(USER_ID, owner=drive_owner.BOT) is bot_svc
 
 

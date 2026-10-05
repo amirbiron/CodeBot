@@ -27,7 +27,7 @@ Google Drive Service
 
 - הבוט (``handlers/drive/menu.py``, ‏``bot_handlers.py``) עובד עם ``drive_owner.BOT``, על השדות ההיסטוריים.
 - הוובאפ (``webapp/drive_auth.py``, ‏``webapp/drive_backup_api.py``, ‏``webapp/backup_scheduler.py``) והגיבוי האישי (``services/personal_backup_service.py``, שרץ רק בוובאפ) עובדים עם ``drive_owner.WEBAPP``.
-- מטמון השירותים (``_SERVICE_CACHE``) שמור לפי ``(owner, user_id)``, ולכן שירות אחד לא מקבל אובייקט שנבנה מהטוקנים של השני. שירות מוחזר מהמטמון רק אם נבנה מהטוקנים שבמסד עכשיו (``_credentials_fingerprint``), כך שאחרי חיבור מחדש או רענון שנשמר נבנה שירות חדש.
+- מטמון השירותים (``_SERVICE_CACHE``) שמור לפי ``(owner, user_id)``, ולכן שירות אחד לא מקבל אובייקט שנבנה מהטוקנים של השני. שירות מוחזר מהמטמון רק אם הוא עונה על הטוקנים שבמסד עכשיו (``_credentials_fingerprint``), כך שאחרי חיבור מחדש או רענון שנשמר נבנה שירות חדש. אחרי רענון כפוי שלא נשמר, השירות של הטוקן המרוענן נשמר עם הטביעה של הטוקנים שעדיין במסד (``_force_refresh_credentials``).
 - ``Repository.save_drive_prefs`` כותב רק את המפתחות שקיבל, כל אחד בנתיב משלו (``<field>.<key>``), בלי לקרוא קודם ולכתוב את כל ההעדפות חזרה — כך כתיבה אחת לא דורסת עדכון שנכתב במקביל, למשל תזמון שנקבע בזמן שגיבוי רץ. מפתח עם נקודה, או שמתחיל ב-``$``, נדחה ב-``ValueError`` (``_drive_prefs_set_paths``).
 - ניתוק בוובאפ מוחק את הטוקנים ומכבה את התזמון באותה כתיבה (``delete_drive_tokens`` עם ``prefs``), כך שכשל לא משאיר תזמון בלי חיבור.
 
@@ -54,7 +54,7 @@ Google Drive Service
 הערות OAuth
 ------------
 - שימור refresh_token: בשמירה מתמזג עם הטוקנים הקיימים של אותו שירות (``owner``), כדי לא למחוק refresh token שלא הוחזר ברענון.
-- רענון טוקן: בשני מסלולי הרענון (``_ensure_valid_credentials``, ‏``_force_refresh_credentials``) הטוקן שהתקבל נשמר דרך ``_save_refreshed_credentials``. שמירה שנכשלה נרשמת בשורת ``drive_refresh_not_saved``, והקריאה הנוכחית ממשיכה עם הטוקן החדש.
+- רענון טוקן: בשני מסלולי הרענון (``_ensure_valid_credentials``, ‏``_force_refresh_credentials``) הטוקן שהתקבל נשמר דרך ``_save_refreshed_credentials``. שמירה שנכשלה נרשמת בשורת ``drive_refresh_not_saved``, והקריאה הנוכחית ממשיכה עם הטוקן החדש. אחרי 401, הניסיון החוזר מקבל מהמטמון את השירות של הטוקן המרוענן, ולכן גם כשהשמירה נכשלה הוא לא חוזר לטוקן שגוגל דחה.
 - **מלכודת: רענון שנכשל אינו** ``HttpError``. כשה-API עונה 401, ‏``google_auth_httplib2.AuthorizedHttp`` מרענן את הטוקן בעצמו, ואם הרענון נכשל (למשל ``invalid_grant`` — refresh token שבוטל, שפג או שהונפק ל-client אחר, RFC 6749 סעיף 5.2) נזרקת ``google.auth.exceptions.RefreshError`` (google-auth-httplib2 0.4.4, ``AuthorizedHttp.request``). בפונקציות ההעלאה הענף של 401 (``_is_auth_http_error`` ← ``_force_refresh_credentials``) נמצא תחת ``except HttpError``, ולכן הוא לא רץ על כשל כזה: החריגה נתפסת ב-``except Exception`` הכללי כתקלת רשת, וההעלאה מחזירה ``None``. בלוג נרשמת שורת ``drive_call_failed`` עם ``error_type=RefreshError``, אבל למשתמש אין סימן שצריך להתחבר מחדש. קוד שמטפל בכשלי אימות של Drive צריך לתפוס גם את ``RefreshError``.
 
 כשלים שמוחזרים כ-``None``
