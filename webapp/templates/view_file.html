@@ -97,6 +97,14 @@
     border-radius: 12px;
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
+}
+
+/* הסרגל נצמד לראש המסך רק בזמן חיפוש, כלומר כשיש טקסט בתיבה. בלי חיפוש הוא
+   נגלל עם העמוד, כדי שלא יסתיר את ראש הקוד לאורך כל הגלילה. התנאי נשען על
+   ה-placeholder של #codeSearchInput, כי הבורר :placeholder-shown מתקיים רק כשיש
+   placeholder והתיבה ריקה (גם כשמנקים אותה מקוד), ובלעדיו הסרגל היה נצמד תמיד.
+   דפדפן שלא מכיר את :has() מדלג על הכלל כולו, והסרגל פשוט לא נצמד. */
+.editor-toolbar:has(#codeSearchInput:not(:placeholder-shown)) {
     position: sticky;
     top: 0;
     z-index: 5;

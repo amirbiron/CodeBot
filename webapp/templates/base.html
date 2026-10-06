@@ -491,9 +491,23 @@
             padding: 1rem 0;
             position: static;
             top: auto;
-            z-index: 1000;
             transform: translateY(0);
             transition: transform 0.24s ease, background 0.2s ease, box-shadow 0.2s ease, backdrop-filter 0.2s ease;
+        }
+
+        /* תפריט פתוח מעלה את הסרגל מעל תוכן העמוד — רק בזמן שהוא פתוח.
+           החלוניות של הסרגל יוצאות מתחת לגבולות שלו, אל השטח של .main-content, שהוא
+           ממוקם עם z-index משלו ולכן מצויר מעל הסרגל. ה-z-index של החלונית עצמה לא
+           עוזר: ה-transform וה-backdrop-filter של .navbar כולאים את כל מה שבתוכו
+           בשכבה של הסרגל. ו-z-index פועל רק על אלמנט ממוקם — ומכאן ה-position.
+           למה לא לתמיד: כפתורים וחלונות צפים שיושבים בתוך .main-content (כמו
+           #toggleBookmarksBtn בתצוגת קובץ, וחלונות שנפתחים על כל המסך) נשענים על כך
+           שהסרגל מתחתם, וסרגל שמורם תמיד מסתיר אותם בראש העמוד — נמדד.
+           המצב נקרא מה-.active שמציג כל תפריט, ולא מדגל נפרד שצריך לזכור לאפס בכל
+           דרך סגירה. תפריט צף חדש בסרגל נכנס לרשימה הזו. */
+        .navbar:has(.nav-menu.active, .quick-access-dropdown.active, .fun-mode-dropdown.active) {
+            position: relative;
+            z-index: 1000;
         }
 
 
@@ -799,6 +813,9 @@
                 max-height: 70vh;
                 opacity: 1;
                 transform: translateY(0);
+                /* פתוחה, הרשימה לא חותכת: חלונית האפקטים נפתחת מתחת לשרביט ויוצאת
+                   ממנה. החיתוך נחוץ רק לאנימציית הקיפול, והוא חוזר מיד בסגירה. */
+                overflow: visible;
             }
 
             .mobile-menu-toggle {
@@ -1016,7 +1033,11 @@
         .fun-mode-dropdown {
             position: absolute;
             top: 100%;
-            right: 0;
+            /* השרביט הוא הפריט השמאלי בסרגל, ולכן החלונית מעוגנת לקצה השמאלי שלו
+               ונפתחת ימינה, אל תוך המסך — מעוגנת לימין, היא יצאה מהמסך משמאל. צד
+               פיזי ולא inset-inline-end: לחלונית יש direction: ltr משלה, וצד לוגי
+               מתורגם אצלה בחזרה ל-right (נמדד). */
+            left: 0;
             transform: translateY(6px);
             background: var(--quick-dropdown-bg, var(--card-bg, #ffffff));
             border-radius: 12px;
