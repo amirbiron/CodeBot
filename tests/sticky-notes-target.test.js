@@ -93,6 +93,12 @@ function makeSandbox() {
     // ההגדרה כאן הוא זרק ``ReferenceError`` שנבלע ב-try/catch של
     // ``_applyPositionMode`` — כלומר חלק מהפונקציה לא רץ, בשקט.
     HTMLElement: function HTMLElement() {},
+    // ``_surfaceReach`` קורא את הכיוון של הגולל מה-CSS המחושב, כמו בדפדפן,
+    // שבו ``getComputedStyle`` הוא מתודה של ``window`` (MDN,
+    // ‏Window.getComputedStyle). בלי ההגדרה כאן אותו ``ReferenceError``
+    // נבלע באותו try/catch, וענף הטווח לא רץ. אלמנט מדומה מצהיר על כיוון
+    // ב-``__dir``.
+    getComputedStyle: (node) => ({ direction: (node && node.__dir) || 'ltr' }),
     setTimeout, clearTimeout, setInterval, clearInterval,
     MutationObserver: undefined, ResizeObserver: undefined,
   };
@@ -3326,6 +3332,153 @@ check('refreshPinned ממקם מחדש את הפתקים הנעוצים', () => 
 
   // הגולל מתחיל 40 מתחת לקונטיינר ונגלל 250 ⇒ 400 + (40-250) = 190
   eq(el.style.top, '190px', 'המיקום חושב מחדש לפי הגולל הנוכחי');
+});
+
+// -- דפדפן הריפו: המשטח הוא התוכן של הגולל, לא הקונטיינר ------------------
+//
+// שלוש החלטות גאומטריה נלקחו מהקונטיינר גם בדפדפן הריפו, שבו המשטח הוא
+// התוכן של הגולל הפנימי: איפה פתק חדש נולד, כמה המשטח "גדל", ועד איפה מותר
+// לפתק לשבת לרוחב. ההתנהגות עצמה — מגע, פריסה, ``CodeMirror`` — נמדדת
+// ב-``tests/test_repo_notes_browser.py``, שאינו רץ ב-CI; כאן ננעל ההיגיון.
+
+/** ``makeRepoContainer`` עם שורות רחבות: לגולל יש עודף לגלילה הצידה, וכיוון. */
+function makeWideRepoContainer({ scrollTop = 0, scrollLeft = 0, scrollWidth = 3000, dir = 'ltr' } = {}) {
+  const container = makeRepoContainer(scrollTop);
+  Object.assign(container.__scroller, { scrollLeft, scrollWidth, clientWidth: 900, clientLeft: 0, clientTop: 0, __dir: dir });
+  return container;
+}
+
+/** פתק נעוץ שה-``top`` שלו כבר נכתב — מה ש-``_applySurfaceExtent`` קורא. */
+function pinnedAt(top) {
+  return { style: { top: `${top}px` }, dataset: {},
+           classList: { add() {}, remove() {}, contains: (c) => c === 'is-pinned' },
+           getBoundingClientRect: () => ({ left: 0, top, width: 260, height: 200, bottom: top + 200 }) };
+}
+
+check('ריפו: פתק חדש נשמר בתוך מה שהגולל מראה עכשיו, בשני הצירים', async () => {
+  // נופל על הנוסחה הקודמת, ``_containerScrolledPast() + inset``: הקונטיינר של
+  // דפדפן הריפו אינו נגלל, ולכן היא נתנה את אותו מיקום בכל עומק גלילה —
+  // ראש הקובץ ותחילת השורה.
+  const sb = makeSandbox();
+  const container = makeWideRepoContainer({ scrollTop: 5000, scrollLeft: 300 });
+  const m = new sb.window.StickyNotesManager({ repo: 'CodeBot', path: 'a.py', container,
+                                               scroller: () => container.__scroller });
+  m._renderNote = () => {};   // נבדק כאן מה **נשלח**; הרינדור נמדד בדפדפן
+  let sent = null;
+  sb.fetch = async (_url, opts) => {
+    sent = JSON.parse(opts.body);
+    return { json: async () => ({ ok: true, id: 'n1' }) };
+  };
+  await m.createNote();
+
+  // הפינה הנראית היא הפינה של הגולל, ובמרחב התוכן היא (scrollLeft, scrollTop).
+  // הפתק יושב ``inset`` ממנה — 120 בחלון שאינו צר (``innerWidth`` 1024 בסנדבוקס).
+  eq(sent && sent.position.x, 300 + 120, 'x — בתוך מה שנגלל לרוחב');
+  eq(sent && sent.position.y, 5000 + 120, 'y — בתוך מה שנגלל לעומק');
+});
+
+check('ריפו: בחלונית צרה, מה שנשלח הוא המיקום שיוצג אחרי ההצמדה', async () => {
+  // הפינה הנראית ועוד ``inset`` יוצאת כאן מחוץ לטווח: המסגרת והגולל ברוחב
+  // 300 בלי עודף, והפתק ברוחב 260 — כלומר ``x`` המקסימלי הוא 40.
+  // ``_applyPositionMode`` יצמיד ל-40 ברינדור; אילו נשלח 120, השרת היה
+  // שומר מיקום שאינו המוצג. נופל בלי ההצמדה ב-``_newNotePosition``.
+  const sb = makeSandbox();
+  const container = makeWideRepoContainer({ scrollTop: 800 });
+  Object.assign(container, { clientWidth: 300,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 300, height: 680, bottom: 680 }) });
+  Object.assign(container.__scroller, { clientWidth: 300, scrollWidth: 300,
+    getBoundingClientRect: () => ({ left: 0, top: 40, width: 300, height: 600, bottom: 640 }) });
+  const m = new sb.window.StickyNotesManager({ repo: 'CodeBot', path: 'a.py', container,
+                                               scroller: () => container.__scroller });
+  m._renderNote = () => {};
+  let sent = null;
+  sb.fetch = async (_url, opts) => {
+    sent = JSON.parse(opts.body);
+    return { json: async () => ({ ok: true, id: 'n1' }) };
+  };
+  await m.createNote();
+  eq(sent && sent.position.x, 300 - 260, 'x — מוצמד למסגרת');
+  eq(sent && sent.position.y, 800 + 120, 'y');
+});
+
+check('ריפו: הקונטיינר אינו "גדל" עם הפתקים — לא נכתב עליו min-height', () => {
+  // נופל בלי ``this.repoTarget`` בשער של ``_applySurfaceExtent``: שם נכתב
+  // ``min-height`` אינליין שגבר על ``min-height: 0`` של הקונטיינר, והעורך
+  // נמתח מעבר להורה — סוף הקובץ נחתך.
+  const sb = makeSandbox();
+  const container = makeRepoContainer(0);
+  const m = new sb.window.StickyNotesManager({ repo: 'CodeBot', path: 'a.py', container,
+                                               scroller: () => container.__scroller });
+  m.notes.set('deep', { el: pinnedAt(2400), data: { mode: 'surface' } });
+  m._applySurfaceExtent();
+  eq(container.style.minHeight, undefined, 'min-height על הקונטיינר של דפדפן הריפו');
+});
+
+check('לוח: המשטח עדיין גדל עם הפתקים שלו', () => {
+  // הצד השני של אותה בדיקה: התיקון לריפו אינו מוציא את הלוח מהמסלול.
+  // 2400 + 200 (גובה הפתק) + ``SURFACE_TAIL_PAD``.
+  const sb = makeSandbox();
+  const container = makeRepoContainer(0);
+  const m = new sb.window.StickyNotesManager({ board: 'b1', container, anchorHost: null });
+  m.notes.set('deep', { el: pinnedAt(2400), data: { mode: 'surface' } });
+  m._applySurfaceExtent();
+  eq(container.style.minHeight, 'max(var(--board-fill, 0px), 2624px)', 'min-height של הלוח');
+});
+
+check('ריפו: הטווח האופקי הוא המסגרת על כל מיקומי הגלילה — מתרחב ימינה ב-ltr בלבד', () => {
+  // ב-``rtl`` העודף נמצא במיקומים שליליים, שהשרת מצמיד ל-0 — ולכן שם הטווח
+  // אינו מתרחב, אחרת מה שמוצג לא היה מה שנשמר. נופל אם הענפים מתחלפים.
+  const sb = makeSandbox();
+  for (const [dir, right] of [['ltr', 3000], ['rtl', 900]]) {
+    const container = makeWideRepoContainer({ dir });
+    const m = new sb.window.StickyNotesManager({ repo: 'CodeBot', path: 'a.py', container,
+                                                 scroller: () => container.__scroller });
+    const reach = m._surfaceReach();
+    eq(reach && reach.left, 0, `${dir}: הקצה השמאלי`);
+    eq(reach && reach.right, right, `${dir}: הקצה הימני`);
+  }
+});
+
+check('ריפו: פתק מעבר לרוחב הקונטיינר נשאר במקומו כשהשורות רחבות', () => {
+  // נופל על ההצמדה הקודמת, לרוחב הקונטיינר: פתק שנשמר ב-1500 נדחף ל-640
+  // (900 פחות רוחב הפתק) — כלומר זז בלי שנגעו בו, בכל גלילה.
+  const sb = makeSandbox();
+  const container = makeWideRepoContainer({ scrollLeft: 1200 });
+  const m = new sb.window.StickyNotesManager({ repo: 'CodeBot', path: 'a.py', container,
+                                               scroller: () => container.__scroller });
+  const el = { style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
+               querySelector: () => null, querySelectorAll: () => [],
+               getBoundingClientRect: () => ({ left: 0, top: 0, width: 260, height: 200, bottom: 200 }) };
+  m._applyPositionMode(el, { mode: 'surface', position: { x: 1500, y: 100 }, size: { width: 260, height: 200 } });
+
+  // ההיסט האופקי הוא 0-1200 ⇒ 1500 בתוכן מרונדר ב-300
+  eq(el.style.left, '300px', 'המיקום השמור נשמר');
+});
+
+check('ריפו: פתק שהונח בקצה המסגרת נשאר שם גם כשהגולל צר ממנה', () => {
+  // תצוגת ה-Markdown של דפדפן הריפו, במידות שנמדדו בכרומיום (אוקטובר 2026,
+  // 1280×800): הגולל יושב בתוך המסגרת עם ``margin: 8px`` ו-``border: 1px`` של
+  // ``.markdown-preview-container`` ב-``repo-browser.css``, ולכן הקופסה שלו
+  // (912) צרה מהמסגרת (930) שהגרירה מצמידה אליה. פתק שנגרר אל הקצה הימני
+  // נשמר ב-930 פחות 260 פחות ההיסט (8), כלומר 662. נופל על טווח שנגזר
+  // מהקופסה של הגולל (913): הפתק זז ל-653, 9 פיקסלים שמאלה. המספרים כאן
+  // מדגמים את הפריסה; את ההפרש עצמו מודדת בעמוד האמיתי
+  // ``test_a_note_dropped_at_the_right_edge_of_the_markdown_preview_stays_there``.
+  const sb = makeSandbox();
+  const container = makeRepoContainer(0);
+  Object.assign(container, { clientWidth: 930,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 930, height: 680, bottom: 680 }) });
+  Object.assign(container.__scroller, { clientLeft: 1, clientWidth: 912, scrollWidth: 912, scrollLeft: 0, __dir: 'rtl',
+    getBoundingClientRect: () => ({ left: 8, top: 40, width: 914, height: 600, bottom: 640 }) });
+  const m = new sb.window.StickyNotesManager({ repo: 'CodeBot', path: 'a.md', container,
+                                               scroller: () => container.__scroller });
+  const el = { style: {}, dataset: {}, classList: { add() {}, remove() {}, contains: () => false },
+               querySelector: () => null, querySelectorAll: () => [],
+               getBoundingClientRect: () => ({ left: 0, top: 0, width: 260, height: 200, bottom: 200 }) };
+  m._applyPositionMode(el, { mode: 'surface', position: { x: 662, y: 100 }, size: { width: 260, height: 200 } });
+
+  // ההיסט האופקי הוא 8 ⇒ 662 בתוכן מרונדר ב-670, הקצה של המסגרת
+  eq(el.style.left, '670px', 'הפתק נשאר בקצה המסגרת');
 });
 
 // -- פלטת הצבעים: הצלבה בין שלושת הצרכנים ------------------------------
