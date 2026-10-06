@@ -16,6 +16,11 @@
 נשבר מאותה סיבה, ואחרי שהוא נצמד, כותרת שגוללים אליה צריכה לנחות מתחתיו ולא
 מאחוריו. ההסבר: ``--md-toolbar-h`` ב-``md_preview.html``.
 
+**וסבב שני: הסרגלים נצמדים רק בזמן חיפוש.** אחרי התיקון של תקלה 1 הסרגל נצמד גם בלי
+חיפוש, והסתיר את ראש התוכן לאורך כל הגלילה. עכשיו הוא נצמד רק כשיש טקסט בתיבה, בשתי
+התצוגות. ההסבר: ``.editor-toolbar:has(...)`` ב-``view_file.html`` ו-
+``.md-editor-toolbar:has(...)`` ב-``md_preview.html``.
+
 **למה דפדפן, ולמה העמוד האמיתי.** כל התקלות הן גאומטריה של פריסה: מי גולל, מי
 קופסת הגלילה של מי, ואיפה נגמר אלמנט ביחס לקצה המסך. השרת הוא הוובאפ האמיתי
 (``admin_live_server``) מול מונגו אמיתי (``wired_mongo``), עם ``base.html``, ה-CSS
@@ -33,13 +38,12 @@
 from __future__ import annotations
 
 import contextlib
-from urllib.parse import urlsplit
 
 import pytest
 from bson import ObjectId
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _browser_harness import Touch, poll
+from _browser_harness import open_admin_page, poll, tap_on
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
@@ -99,27 +103,6 @@ def md_file_id(wired_mongo):
     return _insert(wired_mongo, "long_doc.md", markdown_text(), "markdown")
 
 
-#: מרכז האלמנט, ומה הדפדפן מוצא בנקודה הזו. ``ok`` רק כשאף אנימציה אינה מזיזה
-#: אותו: הכותרות של ``md_preview.html`` נכנסות באנימציה (``#md-content > *``), והקישור
-#: שליד כותרת זז ומשנה גודל בזמנה — נגיעה שנמדדה באמצעה פספסה אותו.
-CENTER_JS = """([sel, index]) => {
-  const el = document.querySelectorAll(sel)[index];
-  const moving = document.getAnimations().some(a => a.effect && a.effect.target && a.effect.target.contains(el));
-  const r = el.getBoundingClientRect();
-  const x = r.left + r.width / 2, y = r.top + r.height / 2;
-  const onScreen = y >= 0 && y <= innerHeight && x >= 0 && x <= innerWidth;
-  const hit = onScreen ? document.elementFromPoint(x, y) : null;
-  return {ok: !moving, x, y, onScreen, hitsIt: !!hit && (hit === el || el.contains(hit))};
-}"""
-
-
-def tap_on(page, touch, sel: str, index: int = 0) -> None:
-    """נגיעה באלמנט שעל המסך, כשהוא כבר לא זז. אלמנט שאינו על המסך הוא כישלון הבדיקה, לא דילוג."""
-    c = poll(page, CENTER_JS, f"{sel}[{index}] הפסיק לזוז", [sel, index])
-    assert c["onScreen"] and c["hitsIt"], f"{sel}[{index}] אינו על המסך במקום שאפשר לגעת בו: {c}"
-    touch.tap(c["x"], c["y"])
-
-
 @contextlib.contextmanager
 def tablet_page(server, executable, path: str, *, view_mode: str = "basic", viewport=None):
     """עמוד אמיתי במגע של טאבלט — **המקום היחיד שמרים דפדפן כאן**.
@@ -137,32 +120,13 @@ def tablet_page(server, executable, path: str, *, view_mode: str = "basic", view
         except PlaywrightError as exc:  # pragma: no cover - תלוי בסביבה
             pytest.skip(f"אין Chromium זמין: {exc}")
         try:
-            context = browser.new_context(
-                viewport=vp, device_scale_factor=2, is_mobile=True, has_touch=True, locale="he-IL",
-            )
-            context.add_cookies([{
-                "name": "session", "value": server.session_cookie,
-                "domain": "127.0.0.1", "path": "/",
-            }])
-            page = context.new_page()
-            page.add_init_script(
-                "try{localStorage.setItem('welcomeModalSeen','1');"
-                "localStorage.setItem('onboarding_completed','1');"
-                f"localStorage.setItem('ck_view_mode','{view_mode}');}}catch(e){{}}"
-            )
-            page.route("**/*", lambda route: route.abort()
-                       if urlsplit(route.request.url).hostname != "127.0.0.1" else route.continue_())
-            page.goto(f"{server.base_url}{path}", wait_until="load")
-            # מודאל הפתיחה מכסה את העמוד ובולע נגיעות.
-            page.evaluate(
-                "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
-                " #welcomeModal').forEach(e => e.remove())"
-            )
+            page, touch = open_admin_page(browser, server, path, viewport=vp,
+                                          local_storage={"ck_view_mode": view_mode})
             if view_mode == "advanced":
                 poll(page, "() => !!document.querySelector('#codeMirrorContainer .cm-editor')"
                            " && !document.getElementById('codeMirrorContainer').hidden",
                      "התצוגה המתקדמת (CodeMirror) עלתה")
-            yield page, Touch(context.new_cdp_session(page))
+            yield page, touch
         finally:
             browser.close()
 
@@ -199,6 +163,15 @@ ACTIVE_MATCH_JS = """() => {
 BAR_PINNED_JS = """() => {
   const top = document.getElementById('code-search').getBoundingClientRect().top;
   return {ok: Math.abs(top) <= 1, barTop: Math.round(top)};
+}"""
+
+#: הסרגל נגלל עם העמוד ויצא מהמסך — כלומר **אינו** צמוד. העמוד גלול מעבר למקום
+#: הטבעי של הסרגל, ולכן סרגל צמוד היה יושב ב-0 ולא מעל המסך.
+BAR_SCROLLED_AWAY_JS = """() => {
+  const r = document.getElementById('code-search').getBoundingClientRect();
+  return {ok: r.bottom < 0, barTop: Math.round(r.top), barBottom: Math.round(r.bottom),
+          scrolled: Math.round(document.body.scrollTop),
+          value: document.getElementById('codeSearchInput').value};
 }"""
 
 
@@ -266,26 +239,84 @@ def test_basic_fullscreen_reaches_the_last_line(code_file_id, admin_live_server,
         }""", "השורה האחרונה בתוך המסך", LINES)
 
 
-@pytest.mark.parametrize("viewport", [TABLET, PHONE], ids=["tablet", "phone"])
-def test_markdown_search_bar_is_pinned_and_a_heading_lands_below_it(
-        md_file_id, admin_live_server, chromium_executable, viewport):
-    """הסרגל של תצוגת ה-Markdown נצמד, וכותרת שגוללים אליה נוחתת מתחתיו.
+@pytest.mark.parametrize("view_mode", ["basic", "advanced"])
+def test_code_search_bar_is_pinned_only_while_the_box_has_text(
+        code_file_id, admin_live_server, chromium_executable, view_mode):
+    """בלי טקסט בתיבה הסרגל נגלל עם העמוד; עם טקסט הוא נצמד; ✕ משחרר אותו.
 
-    הדרך לכותרת היא הקישור הקבוע שלידה (``.header-anchor``), כמו אצל משתמש. בטלפון
+    ✕ מנקה את התיבה מקוד — ובתצוגה המתקדמת דרך מאזין משלה ב-``view-codemirror-toggle.js``
+    — ולכן נבדק שגם ניקוי כזה משחרר את הסרגל, בשתי התצוגות. הגלילה בשלבי ההכנה
+    נעשית בקוד: מה שנבדק הוא איפה הסרגל במיקום גלילה נתון, לא איך הגיעו אליו.
+
+    **ולא דרך הקפיצה לתוצאה, וזה מכוון.** נמדד שבתצוגה הבסיסית הקלדה אות אחר אות בתיבה
+    שקיבלה פוקוס בנגיעה לא גוללת את העמוד לתוצאה הראשונה, ורק מילוי של כל המחרוזת
+    בבת אחת (``page.fill``) גולל — גם לפני השינוי הזה. בדיקה שנשענת על הקפיצה הייתה
+    בודקת את ``fill`` ולא את מה שמשתמש עושה.
+    """
+    with tablet_page(admin_live_server, chromium_executable, f"/file/{code_file_id}",
+                     view_mode=view_mode) as (page, touch):
+        page.evaluate("document.body.scrollTop = 900")
+        poll(page, BAR_SCROLLED_AWAY_JS, "בלי טקסט בתיבה, הסרגל נגלל עם העמוד ויצא מהמסך")
+
+        page.evaluate("document.body.scrollTop = 0")
+        tap_on(page, touch, "#codeSearchInput")
+        page.keyboard.type(TERM)
+        page.evaluate("document.body.scrollTop = 900")
+        poll(page, BAR_PINNED_JS, "עם טקסט בתיבה, הסרגל צמוד לראש המסך")
+
+        tap_on(page, touch, "#closeSearchBtn")
+        poll(page, f"""() => {{
+          const s = ({BAR_SCROLLED_AWAY_JS})();
+          return {{...s, ok: s.ok && s.value === ''}};
+        }}""", "אחרי ✕ התיבה ריקה, והסרגל נגלל שוב עם העמוד")
+
+
+#: המצב בתצוגת ה-Markdown אחרי נגיעה בקישור הקבוע של הכותרת השישית.
+MD_LANDING_JS = """() => {
+  const bar = document.getElementById('md-search').getBoundingClientRect();
+  const h = document.querySelectorAll('#md-content h2')[5].getBoundingClientRect();
+  return {barTop: Math.round(bar.top), barBottom: Math.round(bar.bottom), headingTop: Math.round(h.top)};
+}"""
+
+
+def _tap_the_sixth_heading_link(page, touch) -> None:
+    """הדרך לכותרת היא הקישור הקבוע שלידה (``.header-anchor``), כמו אצל משתמש."""
+    poll(page, "() => document.querySelectorAll('#md-content h2 .header-anchor').length === 8",
+         "המסמך רונדר עם קישור ליד כל כותרת")
+    # הכנה: הכותרת השישית בתחתית המסך, כאילו המשתמש גלל אליה. בתחתית ולא באמצע,
+    # כי בטלפון תוכן העניינים הצף (``#mdToc``) מכסה את החלק העליון של המסך.
+    page.evaluate("document.querySelectorAll('#md-content h2')[5]"
+                  ".scrollIntoView({block: 'end', behavior: 'instant'})")
+    tap_on(page, touch, "#md-content h2 .header-anchor", 5)
+
+
+@pytest.mark.parametrize("viewport", [TABLET, PHONE], ids=["tablet", "phone"])
+def test_markdown_search_bar_is_pinned_only_while_searching(
+        md_file_id, admin_live_server, chromium_executable, viewport):
+    """בלי חיפוש הסרגל נגלל עם המסמך והכותרת נוחתת בראש המסך; בחיפוש — מתחתיו.
+
+    הרווח מעל כותרת (``scroll-margin-top``) חל רק כשהסרגל צמוד, באותו תנאי. בטלפון
     הסרגל גבוה בהרבה, ולכן שני הגדלים.
+
+    **עמוד נפרד לכל מצב, וזה מכוון.** הקישור הקבוע מעתיק ללוח וגולל רק אחרי
+    ש-``navigator.clipboard.writeText`` מסתיים. נמדד שנגיעה שנייה באותו קישור, באותו
+    עמוד, לא תמיד גוללת בדפדפן הבדיקה. למה ההעתקה השנייה לא מסתיימת שם — לא אומת.
     """
     with tablet_page(admin_live_server, chromium_executable, f"/md/{md_file_id}",
                      viewport=viewport) as (page, touch):
-        poll(page, "() => document.querySelectorAll('#md-content h2 .header-anchor').length === 8",
-             "המסמך רונדר עם קישור ליד כל כותרת")
-        # הכנה: הכותרת השישית בתחתית המסך, כאילו המשתמש גלל אליה. בתחתית ולא באמצע,
-        # כי בטלפון תוכן העניינים הצף (``#mdToc``) מכסה את החלק העליון של המסך.
-        page.evaluate("document.querySelectorAll('#md-content h2')[5]"
-                      ".scrollIntoView({block: 'end', behavior: 'instant'})")
-        tap_on(page, touch, "#md-content h2 .header-anchor", 5)
-        poll(page, """() => {
-          const bar = document.getElementById('md-search').getBoundingClientRect();
-          const h = document.querySelectorAll('#md-content h2')[5].getBoundingClientRect();
-          return {ok: Math.abs(bar.top) <= 1 && h.top >= bar.bottom && h.top <= bar.bottom + 40,
-                  barTop: Math.round(bar.top), barBottom: Math.round(bar.bottom), headingTop: Math.round(h.top)};
-        }""", "הסרגל צמוד, והכותרת נחתה ממש מתחתיו")
+        _tap_the_sixth_heading_link(page, touch)
+        poll(page, f"""() => {{
+          const s = ({MD_LANDING_JS})();
+          return {{...s, ok: s.barBottom < 0 && Math.abs(s.headingTop) <= 1}};
+        }}""", "בלי חיפוש: הסרגל נגלל עם המסמך, והכותרת נחתה בראש המסך")
+
+    with tablet_page(admin_live_server, chromium_executable, f"/md/{md_file_id}",
+                     viewport=viewport) as (page, touch):
+        tap_on(page, touch, "#mdSearchInput")
+        page.keyboard.type("Section")
+        _tap_the_sixth_heading_link(page, touch)
+        poll(page, f"""() => {{
+          const s = ({MD_LANDING_JS})();
+          return {{...s, ok: Math.abs(s.barTop) <= 1 && s.headingTop >= s.barBottom
+                                && s.headingTop <= s.barBottom + 40}};
+        }}""", "בחיפוש: הסרגל צמוד, והכותרת נחתה ממש מתחתיו")

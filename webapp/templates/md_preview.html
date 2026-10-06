@@ -628,6 +628,11 @@
   border-radius: 12px;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+}
+
+/* כמו .editor-toolbar ב-view_file.html: נצמד רק בזמן חיפוש — כשיש טקסט ב-#mdSearchInput,
+   שה-placeholder שלו הוא מה שמאפשר את התנאי — ובלי חיפוש נגלל עם המסמך. */
+.md-editor-toolbar:has(#mdSearchInput:not(:placeholder-shown)) {
   position: sticky;
   top: 0;
   z-index: 5;
@@ -1301,16 +1306,11 @@ input.md-task-checkbox {
 }
 
 /* כותרת או עוגן שגוללים אליהם (תוכן העניינים, קישור לכותרת, עוגן מפורש) נוחתים
-   מתחת לסרגל העליון, שצמוד לראש המסך. --md-toolbar-h הוא הגובה שנמדד בפועל
-   (publishMdToolbarHeight); 72px הוא רק ברירת מחדל עד שהמדידה רצה, ויחד עם 8px
-   הרווח הוא ה-80px שעמד כאן קודם לעוגנים המפורשים. */
-#md-content h1,
-#md-content h2,
-#md-content h3,
-#md-content h4,
-#md-content h5,
-#md-content h6,
-#md-content .md-explicit-anchor {
+   מתחת לסרגל העליון כשהוא צמוד — כלומר בזמן חיפוש, באותו תנאי של
+   .md-editor-toolbar:has(...). בלי חיפוש הסרגל נגלל עם המסמך, ואין מה לפנות לו
+   מקום: היעד נוחת בראש המסך. --md-toolbar-h הוא הגובה שנמדד בפועל
+   (publishMdToolbarHeight); 72px הוא רק ברירת מחדל עד שהמדידה רצה. */
+#mdCard:has(#mdSearchInput:not(:placeholder-shown)) #md-content :is(h1, h2, h3, h4, h5, h6, .md-explicit-anchor) {
   scroll-margin-top: calc(var(--md-toolbar-h, 72px) + 8px);
 }
 
@@ -2183,10 +2183,10 @@ if (saveSharedButton) {
   });
 }
 
-// גובה הסרגל העליון (#md-search) כמשתנה CSS בשם --md-toolbar-h. הסרגל צמוד
-// לראש המסך (position: sticky), וכותרת או עוגן שגוללים אליהם צריכים לנחות
-// מתחתיו — ראו את scroll-margin-top של כותרות #md-content. הגובה נמדד ולא נקבע
-// ביד, כי הסרגל נשבר לכמה שורות במסכים צרים.
+// גובה הסרגל העליון (#md-search) כמשתנה CSS בשם --md-toolbar-h. בזמן חיפוש
+// הסרגל צמוד לראש המסך (position: sticky), וכותרת או עוגן שגוללים אליהם צריכים
+// לנחות מתחתיו — ראו את scroll-margin-top של כותרות #md-content. הגובה נמדד ולא
+// נקבע ביד, כי הסרגל נשבר לכמה שורות במסכים צרים.
 (function publishMdToolbarHeight(){
   const bar = document.getElementById('md-search');
   if (!bar) return;
