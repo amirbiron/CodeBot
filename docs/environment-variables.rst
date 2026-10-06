@@ -1928,7 +1928,7 @@
      - ``true``
      - Bot/WebApp
    * - ``METRICS_DB_ENABLED``
-     - **Legacy**: מפעיל כתיבה של metrics ל-MongoDB (``monitoring/metrics_storage.py``). כיום הכתיבה מושבתת בפרודקשן ברמת הקוד ונשארה בעיקר לטסטים/תאימות.
+     - מפעיל כתיבה של מדדי בקשות ל-MongoDB (``monitoring/metrics_storage.py``) בכל שירות שמגדיר אותו — מסמך מסכם לכל נתיב בכל חלון של ``METRICS_ROLLUP_SECONDS``, ולא מסמך לכל בקשה. ``DISABLE_METRICS_WRITES`` ו-``DISABLE_DB`` גוברים עליו. מה הכותב עושה כשכתיבה נכשלת: ``_flush_once`` באותו מודול.
      - לא
      - ``false``
      - ``true``
@@ -1946,7 +1946,7 @@
      - ``200``
      - Bot/Observability
    * - ``METRICS_FLUSH_INTERVAL_SEC``
-     - כל כמה שניות לרוקן את הבאפר של metrics.
+     - כל כמה שניות לרוקן את הבאפר של metrics — וגם כמה זמן לחכות אחרי כתיבה שנכשלה, לפני הניסיון הבא.
      - לא
      - ``5``
      - ``10``
