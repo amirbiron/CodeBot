@@ -20,30 +20,23 @@
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
 
-CSS_PATH = Path(__file__).resolve().parent.parent / "webapp/static/css/sticky-notes.css"
+# ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``. הפרסור משותף:
+# ההערות מוסרות שם לפני הפרסור, כי ההסבר בקובץ מזכיר את הצירוף האסור בכוונה.
+from _css_rules import css_rules
 
-# מסירים הערות לפני הפרסור: ההסבר בקובץ מזכיר את הצירוף האסור בכוונה,
-# ובלי ההסרה הבדיקה הייתה נכשלת על התיעוד של עצמה.
-_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
-_RULE = re.compile(r"([^{}]+)\{([^{}]*)\}", re.DOTALL)
+CSS_PATH = Path(__file__).resolve().parent.parent / "webapp/static/css/sticky-notes.css"
 
 
 def _rules_declaring_touch_action():
-    css = _COMMENT.sub("", CSS_PATH.read_text(encoding="utf-8"))
-    out = []
-    for selector, body in _RULE.findall(css):
-        for decl in body.split(";"):
-            if ":" not in decl:
-                continue
-            prop, _, value = decl.partition(":")
-            if prop.strip() == "touch-action":
-                out.append((" ".join(selector.split()), value.strip()))
-    return out
+    return [
+        (selector, declarations["touch-action"])
+        for selector, declarations in css_rules(CSS_PATH.read_text(encoding="utf-8"))
+        if "touch-action" in declarations
+    ]
 
 
 def test_css_file_exists():

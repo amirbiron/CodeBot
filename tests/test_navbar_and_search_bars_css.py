@@ -22,19 +22,13 @@ from pathlib import Path
 
 import pytest
 
+# ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
+from _css_rules import css_rules, template_css
+
 _TEMPLATES = Path(__file__).resolve().parent.parent / "webapp/templates"
 BASE_HTML = _TEMPLATES / "base.html"
 VIEW_FILE_HTML = _TEMPLATES / "view_file.html"
 MD_PREVIEW_HTML = _TEMPLATES / "md_preview.html"
-
-_STYLE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.DOTALL)
-# Jinja יכול להופיע בתוך בלוק סגנון, והסוגריים המסולסלים שלו היו נקראים ככלל CSS.
-_JINJA = re.compile(r"\{\{.*?\}\}|\{%.*?%\}|\{#.*?#\}", re.DOTALL)
-# הערות מוסרות לפני הפרסור: ההסברים בתבניות מזכירים בכוונה את הצורות הפסולות
-# (``right``, ``inset-inline-end``), ובלי ההסרה השומר היה נכשל על התיעוד של עצמו.
-_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
-# הכלל הפנימי ביותר. כלל שבתוך ``@media`` נמצא כמו כל כלל, והתנאי של ה-``@media`` נבלע.
-_RULE = re.compile(r"([^{}]+)\{([^{}]*)\}", re.DOTALL)
 
 #: התפריטים שנפתחים מהסרגל. תפריט צף חדש בסרגל נכנס גם לכלל ב-``base.html`` וגם לכאן.
 NAVBAR_MENUS = (".nav-menu.active", ".quick-access-dropdown.active", ".fun-mode-dropdown.active")
@@ -46,39 +40,10 @@ SEARCH_BARS = {
 }
 
 
-def _split_selector_list(selector: str) -> list[str]:
-    """פיצול רשימת בוררים בפסיקים שמחוץ לסוגריים — ``:has(a, b)`` הוא בורר אחד."""
-    parts: list[str] = []
-    current: list[str] = []
-    depth = 0
-    for ch in selector:
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-        if ch == "," and depth == 0:
-            parts.append("".join(current).strip())
-            current = []
-        else:
-            current.append(ch)
-    parts.append("".join(current).strip())
-    return parts
-
-
 def _rules(path: Path) -> list[tuple[str, dict[str, str]]]:
-    """כל כללי ה-CSS שבבלוקי ה-``<style>`` של התבנית: (בורר בודד, {מאפיין: ערך})."""
-    styles = "\n".join(_STYLE.findall(path.read_text(encoding="utf-8")))
-    css = _COMMENT.sub("", _JINJA.sub("", styles))
-    out = []
-    for selector_list, body in _RULE.findall(css):
-        declarations = {}
-        for declaration in body.split(";"):
-            prop, sep, value = declaration.partition(":")
-            if sep:
-                declarations[prop.strip()] = " ".join(value.split())
-        for selector in _split_selector_list(" ".join(selector_list.split())):
-            out.append((selector, declarations))
-    return out
+    """כללי ה-CSS שבבלוקי ה-``<style>`` של התבנית. ההערות מוסרות לפני הפרסור: ההסברים
+    בתבניות מזכירים בכוונה את הצורות הפסולות (``right``, ``inset-inline-end``)."""
+    return css_rules(template_css(path))
 
 
 def _declarations_of(path: Path, selector: str) -> list[dict[str, str]]:
