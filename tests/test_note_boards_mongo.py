@@ -87,26 +87,28 @@ def mongo_db():
 
 @pytest.fixture
 def indexed_db(mongo_db, monkeypatch):
-    """מריץ את ``_ensure_indexes`` האמיתי מול המסד הזמני."""
+    """מריץ את ``_ensure_indexes`` האמיתי מול המסד הזמני.
+
+    **בלי איפוס של דגלים כאן.** מצב "האינדקסים מוכנים" — הדגל בזיכרון, הדגל
+    המשותף בקאש, ומועד הניסיון הבא אחרי כשל — מתאפס לפני כל בדיקה בפיקסצ'ר
+    האוטומטי ב-``conftest.py`` שבשורש, דרך ``reset_index_state_for_tests``.
+    הרשימה שהייתה כאן איפסה את השומרים שהכירה ולא את ``_INDEX_RETRY_AFTER``,
+    ולכן אחרי ``tests/test_sticky_note_reminders.py`` באותו תהליך הבנייה יצאה
+    מוקדם, ובדיקות האינדקסים כאן נפלו על מסד בלי אינדקסים.
+
+    **ובודקים שהבנייה הושלמה, לא רק שנקראה.** ``_ensure_indexes`` מחזיר ``None``
+    בכל מקרה, גם כשהוא יוצא מוקדם. ``_INDEX_READY`` נדלק בשני מקרים בלבד: כשהבנייה
+    אימתה את שני אינדקסי השם מול המסד, או כש-``_cache_flag_ready`` מצא את הדגל
+    המשותף — והקאש כבוי בכל בדיקה (``_reset_cache_manager_state_between_tests``),
+    ולכן כאן נשאר רק הראשון. כך כשל נקרא בשמו כבר כאן, במקום בדיקות שנופלות אחר
+    כך על ``DID NOT RAISE``.
+    """
     from webapp import sticky_notes_api
 
     monkeypatch.setattr(sticky_notes_api, "get_db", lambda: mongo_db)
-    # הדגלים שמונעים בנייה כפולה — מאפסים כדי שהבנייה באמת תרוץ
-    monkeypatch.setattr(sticky_notes_api, "_INDEX_READY", False, raising=False)
-    monkeypatch.setattr(sticky_notes_api, "_INDEX_CACHE_LAST_CHECK", 0.0, raising=False)
-    # ...וגם את הדגל **המשותף** ברדיס.
-    #
-    # ``_ensure_indexes`` יוצא מוקדם גם על ``_cache_flag_ready()``, שקורא דגל
-    # מ-``cache_manager``. ב-CI רדיס פעיל (``REDIS_URL`` מוגדר בג'וב), ולכן דגל
-    # שנשאר מהרצה קודמת היה הופך את הבנייה ל-no-op — והבדיקות כאן היו נופלות
-    # על מסד ריק, מסיבה שאין לה שום קשר לקוד שנבדק.
-    #
-    # אירוניה קטנה: איפוס ``_INDEX_CACHE_LAST_CHECK`` ל-0 דווקא **פותח** את
-    # הדלת לקריאת הקאש, כי הוא מבטל את חלון 30 השניות. שוחזר בפועל — בלי
-    # השורה הבאה נוצרו אפס אינדקסים.
-    monkeypatch.setattr(sticky_notes_api, "_cache_flag_ready", lambda: False, raising=False)
 
     sticky_notes_api._ensure_indexes()
+    assert sticky_notes_api._INDEX_READY, "הבנייה של _ensure_indexes לא הושלמה מול מסד הבדיקה"
     return mongo_db
 
 

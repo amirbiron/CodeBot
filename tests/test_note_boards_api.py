@@ -1070,15 +1070,11 @@ def test_a_missing_index_does_not_mark_the_warmup_as_done(monkeypatch):
 
     marked = []
     monkeypatch.setattr(sticky_notes_api, "get_db", lambda: _StubDB())
-    monkeypatch.setattr(sticky_notes_api, "_INDEX_READY", False, raising=False)
-    monkeypatch.setattr(sticky_notes_api, "_cache_flag_ready", lambda: False, raising=False)
     monkeypatch.setattr(sticky_notes_api, "ensure_title_index", lambda coll: False)
     monkeypatch.setattr(sticky_notes_api, "_mark_indexes_ready", lambda **kw: marked.append(kw))
     # ``_ensure_indexes`` כותב ל-``_TITLE_INDEX_OK`` ול-``_INDEX_RETRY_AFTER``
-    # דרך ``global``. בלי monkeypatch עליהם הכתיבה שורדת את הבדיקה ודולפת
-    # לבאות אחריה — שם היא נראית ככשל אקראי שתלוי בסדר ההרצה.
-    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", sticky_notes_api._TITLE_INDEX_OK, raising=False)
-    monkeypatch.setattr(sticky_notes_api, "_INDEX_RETRY_AFTER", 0.0, raising=False)
+    # דרך ``global``, ו-``monkeypatch`` אינו רואה את זה. את המצב הזה מאפס לפני
+    # כל טסט ואחריו הפיקסצ'ר האוטומטי ב-``conftest.py`` שבשורש.
 
     sticky_notes_api._ensure_indexes()
 
@@ -1100,10 +1096,6 @@ def test_a_failing_build_is_not_retried_on_every_request(monkeypatch):
     calls = []
     clock = {"now": 1000.0}
     monkeypatch.setattr(sticky_notes_api, "get_db", lambda: _StubDB())
-    monkeypatch.setattr(sticky_notes_api, "_INDEX_READY", False, raising=False)
-    monkeypatch.setattr(sticky_notes_api, "_cache_flag_ready", lambda: False, raising=False)
-    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
-    monkeypatch.setattr(sticky_notes_api, "_INDEX_RETRY_AFTER", 0.0, raising=False)
     monkeypatch.setattr(sticky_notes_api.time, "monotonic", lambda: clock["now"])
     monkeypatch.setattr(
         sticky_notes_api, "ensure_title_index",
@@ -1139,10 +1131,10 @@ def test_the_shared_cache_flag_also_confirms_the_title_index(monkeypatch):
             return {"ready": True, "ts": 1}
 
     monkeypatch.setattr(sticky_notes_api, "cache", _Cache(), raising=False)
-    monkeypatch.setattr(sticky_notes_api, "_INDEX_READY", False, raising=False)
-    monkeypatch.setattr(sticky_notes_api, "_INDEX_CACHE_LAST_CHECK", 0.0, raising=False)
-    monkeypatch.setattr(sticky_notes_api, "_TITLE_INDEX_OK", False, raising=False)
-    monkeypatch.setattr(sticky_notes_api, "_REPO_TITLE_INDEX_OK", False, raising=False)
+    # התנאי המקדים, ולא איפוס: המצב ההתחלתי מגיע מהפיקסצ'ר האוטומטי ב-
+    # ``conftest.py`` שבשורש. בלי הבדיקה הזו, דגלים שדלפו דלוקים היו מעבירים
+    # את הטסט גם כש-``_cache_flag_ready`` אינו מדליק אותם.
+    assert not sticky_notes_api._TITLE_INDEX_OK and not sticky_notes_api._REPO_TITLE_INDEX_OK
 
     assert sticky_notes_api._cache_flag_ready() is True
     assert sticky_notes_api._TITLE_INDEX_OK is True

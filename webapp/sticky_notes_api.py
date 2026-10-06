@@ -142,6 +142,60 @@ _INDEX_RETRY_AFTER = 0.0
 #: כמה להמתין בין ניסיונות בנייה כושלים, בשניות.
 _INDEX_RETRY_SECONDS = 60.0
 
+
+def reset_index_state_for_tests() -> None:
+    """מחזיר את מצב "האינדקסים מוכנים" למצב של תהליך שזה עתה עלה. **לטסטים בלבד.**
+
+    ``_ensure_indexes`` זוכר את מה שגילה בגלובלים של המודול, והם חיים כל עוד
+    התהליך חי: ``_INDEX_READY``, ``_TITLE_INDEX_OK`` ו-``_REPO_TITLE_INDEX_OK``,
+    מועד הניסיון הבא ``_INDEX_RETRY_AFTER``, החלון ``_INDEX_CACHE_LAST_CHECK``
+    של קריאת הדגל המשותף, ו-``_WARMUP_TRIGGERED`` של חימום העלייה. בפרודקשן זו
+    כל הכוונה. בטסטים תהליך אחד מריץ בדיקות רבות ברצף, ובדיקה שהריצה את הבנייה
+    מול stub שאינו מאמת את אינדקס השם משאירה את ``_INDEX_RETRY_AFTER`` פתוח למשך
+    ``_INDEX_RETRY_SECONDS`` — ובדיקה שבאה אחריה באותו תהליך מקבלת מ-
+    ``_ensure_indexes`` יציאה מוקדמת, בלי שאף אינדקס נבנה.
+
+    **רשימה אחת, ליד המצב.** עד כאן כל קובץ טסט החזיק רשימה משלו של מה לאפס,
+    והרשימות נסחפו: ``indexed_db`` ב-``tests/test_note_boards_mongo.py`` איפס
+    את השומרים שהכיר, ולא את ``_INDEX_RETRY_AFTER``. מי שמוסיף כאן מצב מוסיף
+    אותו גם לפונקציה הזו, ו-``tests/test_sticky_notes_index_state.py`` נופל
+    אם לא. בקוד הייצור אין לה קורא; בין בדיקות קורא לה הפיקסצ'ר האוטומטי ב-
+    ``conftest.py`` שבשורש הריפו, לפני כל בדיקה ואחריה.
+
+    **הדגל המשותף נמחק, ונקרא בחזרה.** ``_cache_flag_ready`` קורא אותו מהקאש —
+    Redis, או קאש מדומה של בדיקה — ולכן איפוס של הזיכרון לבדו אינו מספיק.
+    המחיקה נעשית מול אותו ערוץ שהוא קורא (``_shared_cache``), ואחריה קריאה
+    חוזרת: ``CacheManager.delete`` מחזיר ``False`` גם כשהמפתח לא היה וגם כשהמחיקה
+    נכשלה, ולכן ערך ההחזרה שלו אינו עדות.
+
+    **ערוץ הכשל הוא חריגה.** דגל ששרד את המחיקה זורק ``RuntimeError``: איפוס
+    שנכשל וממשיך בשקט היה מחזיר בדיוק את מה שהוא בא לתקן — בנייה שיוצאת מוקדם,
+    ובדיקות שנופלות על מסד ריק מסיבה שאין לה קשר לקוד שהן בודקות.
+
+    הכול תחת ``_INDEX_READY_LOCK``, כדי שבנייה שרצה באותו רגע בחוט אחר
+    (``kickoff_index_warmup``) לא תפרסם את התוצאה שלה אחרי האיפוס.
+    """
+    global _INDEX_READY, _TITLE_INDEX_OK, _REPO_TITLE_INDEX_OK, _INDEX_RETRY_AFTER, _INDEX_CACHE_LAST_CHECK
+    with _INDEX_READY_LOCK:
+        # קודם הדגל המשותף ורק אחריו הזיכרון: בסדר ההפוך, קורא שנכנס בין שני
+        # השלבים היה מוצא את הדגל הישן ומדליק מחדש את מה שזה עתה כובה.
+        cache_obj = _shared_cache()
+        if cache_obj is not None:
+            cache_obj.delete(_INDEX_READY_CACHE_KEY)
+            if cache_obj.get(_INDEX_READY_CACHE_KEY):
+                raise RuntimeError(
+                    f"{_INDEX_READY_CACHE_KEY} survived the reset: the shared cache "
+                    f"{type(cache_obj).__name__} still returns it after delete(), so "
+                    "_ensure_indexes would skip the index build in the next test"
+                )
+        _INDEX_READY = False
+        _TITLE_INDEX_OK = False
+        _REPO_TITLE_INDEX_OK = False
+        _INDEX_RETRY_AFTER = 0.0
+        _INDEX_CACHE_LAST_CHECK = 0.0
+        _WARMUP_TRIGGERED.clear()
+
+
 #: **מפרט שבעת אינדקסי השאילתה של** ``sticky_notes`` **— מקור אמת אחד.**
 #:
 #: שלושת הצרכנים — המסלול המהיר (``create_indexes``), מסלול הגיבוי
@@ -193,6 +247,19 @@ def _emit_index_event(stage: str, duration_ms: Optional[int] = None, error: Opti
         pass
 
 
+def _shared_cache() -> Any:
+    """הקאש שהדגל המשותף נקרא ממנו ונכתב אליו, או ``None`` כשהוא כבוי.
+
+    מקור אחד לשלושה צרכנים — הקורא (``_cache_flag_ready``), הכותב
+    (``_mark_cache_flag``) והאיפוס (``reset_index_state_for_tests``) — כי
+    איפוס שמוחק מערוץ אחר מזה שהקורא קורא ממנו משאיר את הדגל במקום.
+    """
+    cache_obj = cache if 'cache' in globals() else None
+    if cache_obj is None or not getattr(cache_obj, "is_enabled", False):
+        return None
+    return cache_obj
+
+
 def _cache_flag_ready() -> bool:
     """Check shared cache flag (best-effort) to avoid duplicate index builds.
 
@@ -207,8 +274,8 @@ def _cache_flag_ready() -> bool:
     global _INDEX_READY, _INDEX_CACHE_LAST_CHECK, _TITLE_INDEX_OK, _REPO_TITLE_INDEX_OK
     if _INDEX_READY:
         return True
-    cache_obj = cache if 'cache' in globals() else None
-    if cache_obj is None or not getattr(cache_obj, "is_enabled", False):
+    cache_obj = _shared_cache()
+    if cache_obj is None:
         return False
     now = time.time()
     if now - _INDEX_CACHE_LAST_CHECK < 30.0:
@@ -227,8 +294,8 @@ def _cache_flag_ready() -> bool:
 
 
 def _mark_cache_flag() -> None:
-    cache_obj = cache if 'cache' in globals() else None
-    if cache_obj is None or not getattr(cache_obj, "is_enabled", False):
+    cache_obj = _shared_cache()
+    if cache_obj is None:
         return
     try:
         cache_obj.set(
