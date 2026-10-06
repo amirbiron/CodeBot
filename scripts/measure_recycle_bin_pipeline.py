@@ -1,19 +1,32 @@
 #!/usr/bin/env python3
-"""כמה מסמכים צינור שורות הסל נוגע בהם — ולמה ``$expr`` גורף עולה ביוקר.
+"""מה שני שלבי ה-``$lookup`` בצינור הסל עולים — ומה בדיוק מייקר אותם.
 
 ``file_deletion.recycle_bin_rows_pipeline`` מצרף לכל שורה בסל שני שלבי
-``$lookup`` שבודקים אם לשם הזה יש גרסה **פעילה**. הסקריפט הזה מודד את
-אותו צינור בשתי צורות של אותו תנאי:
+``$lookup`` שבודקים אם לשם הזה יש גרסה **פעילה**. הסקריפט מודד את אותו
+צינור בשלוש צורות של אותו תנאי:
 
-- **``expr_all``** — כל התנאים בתוך ``$expr`` אחד, כולל ``user_id``
-  ו-``is_active``. זו הצורה הראשונה שנכתבה, והיא גם הצורה שמתבקשת
-  כשצריך גם להשוות את מסמן הקולקציה (``$$src``).
-- **``plain_eq``** — ``user_id`` ו-``is_active`` כשוויונות רגילים, ורק
-  השם דרך ``$expr``. זו הצורה שבקוד.
+- **``expr_all + $$src``** — כל התנאים בתוך ``$expr`` אחד, **ועוד** השוואה
+  בין מסמן הקולקציה של השורה (``$$src``) לשם הקולקציה. זו הצורה הראשונה
+  שנכתבה.
+- **``expr_all, no $$src``** — אותם שלושה תנאים בתוך ``$expr``, בלי איבר
+  ה-``$$src``.
+- **``plain_eq (בקוד)``** — ``user_id`` ו-``is_active`` כשוויונות רגילים,
+  ורק השם דרך ``$expr``. זו הצורה שבקוד.
 
-ההבדל אינו סגנוני: ב-``expr_all`` אין תנאי שיכול לבחור את תחילית
-האינדקס, ולכן מונגו סורק את כל המסמכים הפעילים של המשתמש **לכל שורה
-בסל**. המספרים שה-docstring בקוד מצטט נמדדו בדיוק כאן.
+**מה שמייקר הוא איבר ה-``$$src``, לא ה-``$expr``.** לפי התיעוד של
+``$lookup``, ``$eq`` בתוך ``$expr`` **כן** משתמש באינדקס של אוסף ה-``from``
+כשה-``let`` נפתר לקבוע (https://www.mongodb.com/docs/manual/reference/operator/aggregation/lookup/),
+והמדידה כאן מראה את זה: שתי הצורות בלי ``$$src`` זהות. ``$$src`` הוא
+השוואה בין שני קבועים, בלי שדה. בשורות שבהן הוא שקר — שורה של האוסף
+האחר — כל ה-``$and`` שקר, ומונגו סורק את האוסף כולו לשורה הזו
+(``collectionScans``). בשורות שבהן הוא אמת, האינדקס משמש כרגיל.
+
+**מה קוראים בפלט:** ``totalKeysExamined`` הוא המדד המכריע — כשהשם בגבולות
+האינדקס הוא שווה למספר ההתאמות, ובלי זה הוא היה כמספר המסמכים הפעילים של
+המשתמש לכל שורה. ``collectionScans`` מראה סריקות שלמות שה-``indexesUsed``
+מסתיר: האינדקס מופיע שם ברגע שהוא שימש **לחלק** מהשורות. לכן הזרע כולל
+שמות בסל **שיש להם** גרסה פעילה — בלי התאמות, "אפס מסמכים" אינו מבדיל בין
+"האינדקס תחם" ל"לא היה מה למצוא".
 
 הרצה::
 
@@ -82,6 +95,12 @@ LIVE_FILES = 100
 LIVE_VERSIONS = 4
 LARGE_FILES = 20
 LARGE_COPIES = 2
+LIVE_LARGE_FILES = 50
+#: כמה מהשמות שבסל **יש להם** גרסה פעילה באותו אוסף — רוויזיות של קובץ חי.
+#: אלה השורות שה-``$lookup`` מוצא, ובלעדיהן המדידה לא מבדילה בין אינדקס
+#: שתוחם את השם לבין כזה שלא.
+MATCHED_TRASHED_FILES = 30
+MATCHED_LARGE_FILES = 10
 #: עתידי בכוונה — ראו ה-docstring של המודול.
 STAMP = datetime(2027, 2, 1, tzinfo=timezone.utc)
 
@@ -103,7 +122,7 @@ def _seed(db) -> None:
                 "deleted_at": STAMP + timedelta(minutes=index),
                 "deleted_expires_at": STAMP + timedelta(days=30),
             })
-    # הגרסאות הפעילות הן מה שה-``$lookup`` סורק כשאין לו אינדקס לבחור.
+    # גרסאות פעילות בשמות אחרים — מה שסריקה בלי השם בגבולות הייתה קוראת.
     for index in range(LIVE_FILES):
         for version in range(1, LIVE_VERSIONS + 1):
             snippets.append({
@@ -115,6 +134,16 @@ def _seed(db) -> None:
                 "version": version,
                 "is_active": True,
             })
+    for index in range(MATCHED_TRASHED_FILES):
+        snippets.append({
+            "_id": ObjectId(),
+            "user_id": USER_ID,
+            "file_name": f"trashed{index}.py",
+            "code": "x" * 2000,
+            "programming_language": "python",
+            "version": TRASHED_VERSIONS + 1,
+            "is_active": True,
+        })
     db.code_snippets.insert_many(snippets)
 
     larges: List[Dict[str, Any]] = []
@@ -129,33 +158,45 @@ def _seed(db) -> None:
                 "deleted_at": STAMP + timedelta(minutes=copy),
                 "deleted_expires_at": STAMP + timedelta(days=30),
             })
+    for index in range(LIVE_LARGE_FILES):
+        larges.append({"_id": ObjectId(), "user_id": USER_ID,
+                       "file_name": f"livebig{index}.md", "content": "z" * 5000,
+                       "is_active": True})
+    for index in range(MATCHED_LARGE_FILES):
+        larges.append({"_id": ObjectId(), "user_id": USER_ID,
+                       "file_name": f"big{index}.md", "content": "z" * 5000,
+                       "is_active": True})
     db.large_files.insert_many(larges)
 
 
-def _expr_all_lookups(user_id: int) -> List[dict]:
-    """הצורה שנמדדת כנגד: כל התנאים בתוך ``$expr``, כולל ``$$src``."""
+def _expr_all_lookups(user_id: int, *, with_src: bool) -> List[dict]:
+    """הצורות שנמדדות כנגד: כל התנאים בתוך ``$expr`` — עם איבר ``$$src`` ובלעדיו."""
     from file_deletion import RECYCLE_BIN_COLLECTIONS
 
-    return [
-        {
+    lookups = []
+    for name in RECYCLE_BIN_COLLECTIONS:
+        conditions = [
+            {"$eq": ["$user_id", user_id]},
+            {"$eq": ["$file_name", "$$n"]},
+            {"$eq": ["$is_active", True]},
+        ]
+        let = {"n": "$_id.name"}
+        if with_src:
+            conditions.append({"$eq": ["$$src", name]})
+            let["src"] = "$_id.src"
+        lookups.append({
             "$lookup": {
                 "from": name,
-                "let": {"n": "$_id.name", "src": "$_id.src"},
+                "let": let,
                 "pipeline": [
-                    {"$match": {"$expr": {"$and": [
-                        {"$eq": ["$user_id", user_id]},
-                        {"$eq": ["$file_name", "$$n"]},
-                        {"$eq": ["$is_active", True]},
-                        {"$eq": ["$$src", name]},
-                    ]}}},
+                    {"$match": {"$expr": {"$and": conditions}}},
                     {"$limit": 1},
                     {"$project": {"_id": 1}},
                 ],
                 "as": "_alive_" + name,
             }
-        }
-        for name in RECYCLE_BIN_COLLECTIONS
-    ]
+        })
+    return lookups
 
 
 def _lookup_stats(plan: dict) -> List[Dict[str, Any]]:
@@ -164,7 +205,9 @@ def _lookup_stats(plan: dict) -> List[Dict[str, Any]]:
         if "$lookup" in stage:
             out.append({
                 "as": stage["$lookup"].get("as"),
+                "keys_examined": stage.get("totalKeysExamined"),
                 "docs_examined": stage.get("totalDocsExamined"),
+                "collection_scans": stage.get("collectionScans"),
                 "indexes": stage.get("indexesUsed"),
             })
     return out
@@ -215,9 +258,11 @@ def main() -> int:
             }},
         ]
         variants = {
-            "expr_all": shared + _expr_all_lookups(USER_ID),
+            "expr_all + $$src": shared + _expr_all_lookups(USER_ID, with_src=True),
+            "expr_all, no $$src": shared + _expr_all_lookups(USER_ID, with_src=False),
             "plain_eq (בקוד)": recycle_bin_rows_pipeline(USER_ID) + tail,
         }
+        print(f"שרת: mongod {client.admin.command('buildInfo').get('version')}")
 
         for label, pipeline in variants.items():
             plan = db.command({
@@ -228,16 +273,19 @@ def main() -> int:
             blob = json.dumps(plan, default=str)
             print(f"\n== {label}")
             for row in _lookup_stats(plan):
-                print(f"   {row['as']}: totalDocsExamined={row['docs_examined']} "
+                print(f"   {row['as']}: totalKeysExamined={row['keys_examined']} "
+                      f"totalDocsExamined={row['docs_examined']} "
+                      f"collectionScans={row['collection_scans']} "
                       f"indexesUsed={row['indexes']}")
             print(f"   COLLSCAN: {'COLLSCAN' in blob}")
             used_disk = set(re.findall(r'"usedDisk":\s*(\w+)', blob))
             print(f"   usedDisk: {used_disk}")
 
-        rows = list(db.code_snippets.aggregate(
-            recycle_bin_rows_pipeline(USER_ID) + tail))
-        print(f"\nשורות בעמוד הראשון: {len(rows)} "
-              f"(מתוך {TRASHED_FILES + LARGE_FILES} קבצים בסל)")
+        rows = list(db.code_snippets.aggregate(recycle_bin_rows_pipeline(USER_ID)))
+        print(f"\nשורות בסל: {len(rows)} — {TRASHED_FILES + LARGE_FILES} קבצים, פחות "
+              f"{MATCHED_TRASHED_FILES + MATCHED_LARGE_FILES} שיש להם גרסה פעילה ולכן מוסתרים")
+        print(f"התאמות שה-$lookup אמור למצוא: code_snippets={MATCHED_TRASHED_FILES} "
+              f"large_files={MATCHED_LARGE_FILES}")
         print(f"מסמכים: code_snippets={db.code_snippets.count_documents({})} "
               f"large_files={db.large_files.count_documents({})}")
         return 0

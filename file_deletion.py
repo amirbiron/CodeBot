@@ -38,6 +38,7 @@ from typing import Any, Iterable, List, Mapping, Sequence, Tuple
 from ttl_index import is_ttl_index
 
 __all__ = [
+    "LARGE_FILES_COLLECTION",
     "RECYCLE_BIN_COLLECTIONS",
     "RECYCLE_BIN_GROUPED_FIELDS",
     "RECYCLE_BIN_TTL_EXPIRE_AFTER_SECONDS",
@@ -69,9 +70,14 @@ __all__ = [
 # בודק מולו. הוא כאן ולא תחת ``database/`` מאותה סיבה שהמחיקה עצמה כאן:
 # הוובאפ מייבא אותו בלי לגרור את ``database/__init__.py``.
 
+#: אוסף הקבצים הגדולים, בשמו. כלל שתלוי בזהות האוסף נכתב מולו ולא מול מיקום
+#: ב-:data:`RECYCLE_BIN_COLLECTIONS` — סדר חדש של הטאפל היה מחיל בשקט את
+#: הכלל על האוסף הלא נכון (ראו :data:`SINGLE_ACTIVE_COLLECTIONS`).
+LARGE_FILES_COLLECTION = "large_files"
+
 #: הקולקציות שהסל יושב בהן. קובץ יכול לשבת בכל אחת מהן, ולכן כל פעולה על
 #: הסל מונה את שתיהן.
-RECYCLE_BIN_COLLECTIONS: Tuple[str, ...] = ("code_snippets", "large_files")
+RECYCLE_BIN_COLLECTIONS: Tuple[str, ...] = ("code_snippets", LARGE_FILES_COLLECTION)
 
 RECYCLE_BIN_TTL_INDEX_NAME = "deleted_ttl"
 
@@ -326,9 +332,9 @@ def recycle_bin_rows_pipeline(user_id: int) -> List[dict]:
     **וההוצאה היא לפי הקולקציה של השורה.** אותו שם יכול לחיות ב-
     ``code_snippets`` ולהיות מחוק ב-``large_files``; בדיקה לפי שם לבדו
     הייתה מעלימה את השורה המחוקה. התנאי הזה יושב ב-``$set`` שאחרי שני
-    ה-``$lookup`` ולא **בתוכם**, כי בתוכם הוא כפה ``$expr`` גורף — וזה
-    מה שחסם את האינדקס. הפירוט והמספרים בהערה שם, והסקריפט שמדד הוא
-    ``scripts/measure_recycle_bin_pipeline.py``.
+    ה-``$lookup`` ולא **בתוכם**: בתוכם הוא השוואה בין משתנה לקבוע, ובשורות
+    שבהן היא שקר מונגו סורק את האוסף כולו. הפירוט והמספרים בהערה שם,
+    והסקריפט שמדד הוא ``scripts/measure_recycle_bin_pipeline.py``.
     """
     return [
         *recycle_bin_group_stages(user_id, source=RECYCLE_BIN_COLLECTIONS[0]),
@@ -344,14 +350,20 @@ def recycle_bin_rows_pipeline(user_id: int) -> List[dict]:
         # מחיקה. ה-``let`` נדרש כי בתוך ``pipeline`` של ``$lookup`` אין
         # גישה לשדות המסמך החיצוני אלא דרכו.
         #
-        # ‏``user_id`` ו-``is_active`` הם שוויונות **רגילים** ולא איברים
-        # ב-``$expr``, ורק השם עובר דרכו. זה לא סידור קוסמטי: ``$expr``
-        # שעוטף את כל התנאים מונע מהם לבחור את תחילית האינדקס, ומונגו סורק
-        # את כל המסמכים הפעילים של המשתמש **לכל שורה בסל**. נמדד מקומית
-        # על mongod 7.0.14 (6.10.2026), 580 מסמכים ו-80 שורות סל:
-        # ‏``totalDocsExamined`` ירד מ-11,600 ל-0 (האינדקס ענה בלי fetch),
-        # וב-``large_files`` מ-2,400 ל-0. הסקריפט שמדד יושב ב-
-        # ``scripts/measure_recycle_bin_pipeline.py``.
+        # ‏``user_id`` ו-``is_active`` הם שוויונות רגילים, והשם עובר דרך
+        # ``$expr`` כי הוא מגיע מה-``let``. **האינדקס משמש גם את השם:** לפי
+        # התיעוד של ``$lookup``, ``$eq`` בתוך ``$expr`` משתמש באינדקס של אוסף
+        # ה-``from`` כשה-``let`` נפתר לקבוע, והאינדקס אינו multikey, חלקי או
+        # sparse (https://www.mongodb.com/docs/manual/reference/operator/aggregation/lookup/).
+        # שני האינדקסים כאן — ``idx_snippets_latest_version`` ו-
+        # ``idx_large_files_user_active_name`` — אינם אף אחד מהשלושה. גם צורה
+        # שבה שלושת התנאים בתוך ``$expr`` נמדדה זהה.
+        #
+        # מה שאסור כאן הוא **השוואה בין משתנה לקבוע** — ראו ההערה על ה-``$set``
+        # שאחרי. נמדד ב-6.10.2026 על mongod 7.0.14 ועל 8.0.30, באינדקסים של
+        # הפרודקשן, בזרע של ``scripts/measure_recycle_bin_pipeline.py`` (שמות
+        # בסל שלחלקם יש גרסה פעילה): ‏``totalKeysExamined`` שווה בדיוק למספר
+        # ההתאמות, ו-``collectionScans`` הוא 0.
         *(
             {
                 "$lookup": {
@@ -374,9 +386,13 @@ def recycle_bin_rows_pipeline(user_id: int) -> List[dict]:
             for collection_name in RECYCLE_BIN_COLLECTIONS
         ),
         # כל שורה נמדדת מול הקולקציה **שלה**. התנאי הזה היה בתוך שני
-        # ה-``$lookup`` (``$eq: ["$$src", <הקולקציה>]``), ושם הוא גם מה
-        # שכפה את ``$expr`` הגורף על כל השאר. ``$lookup`` רץ בכל מקרה גם
-        # כשהתנאי כבוי, ולכן אין בהוצאתו מכאן עלות נוספת.
+        # ה-``$lookup`` (``$eq: ["$$src", <הקולקציה>]``) — השוואה בין משתנה
+        # לקבוע, בלי שדה. בשורה של האוסף **האחר** היא שקר, כל ה-``$and``
+        # שקר, ומונגו סרק את האוסף כולו לשורה הזו. באותה מדידה: 20 סריקות
+        # אוסף ב-``code_snippets`` ו-60 ב-``large_files`` — אחת לכל שורה
+        # מהאוסף האחר — ו-``indexesUsed`` עדיין הציג את האינדקס, כי הוא שימש
+        # את שאר השורות. ``$lookup`` רץ בכל מקרה, ולכן אין בהוצאת התנאי לכאן
+        # עלות נוספת.
         {
             "$set": {
                 "_alive": {
@@ -493,7 +509,7 @@ def _trashed_ids_for_names(
 #: הקובץ: ``Repository.save_large_file`` מוריד את הקודם לסל בכל שמירה מחדש,
 #: והקוראים (``get_large_file``, ``get_user_large_files``) מניחים פעיל אחד —
 #: שניים היו מציגים את הקובץ פעמיים ומגישים רוויזיה שרירותית.
-SINGLE_ACTIVE_COLLECTIONS: frozenset = frozenset({RECYCLE_BIN_COLLECTIONS[1]})
+SINGLE_ACTIVE_COLLECTIONS: frozenset = frozenset({LARGE_FILES_COLLECTION})
 
 
 class RestoreConflict(Exception):
@@ -575,11 +591,15 @@ def _restore_latest_revision(
 def restore_files_by_names(
     collection: Any, user_id: int, file_names: Iterable[str], *, source: str
 ) -> Tuple[List[str], List[Any]]:
-    r"""מחזיר מהסל את **כל** הגרסאות של כל שם קובץ ברשימה.
+    r"""מחזיר מהסל את הקבצים שברשימה — ומה "מחזיר" תלוי באוסף, לפי ``source``:
 
-    זה ההופכי של :func:`soft_delete_files_by_names`, ובמכוון: המחיקה מורידה
-    את כל הגרסאות יחד, ולכן שחזור שמחזיר אחת היה משאיר קובץ עם היסטוריה
-    קטועה — התאום ההפוך של הבאג שהמחיקה תוקנה ממנו.
+    - **``code_snippets``** — **כל** הגרסאות שבסל. זה ההופכי של
+      :func:`soft_delete_files_by_names`, ובמכוון: המחיקה מורידה את כל
+      הגרסאות יחד, ולכן שחזור שמחזיר אחת היה משאיר קובץ עם היסטוריה קטועה —
+      התאום ההפוך של הבאג שהמחיקה תוקנה ממנו.
+    - **אוסף שב-:data:`SINGLE_ACTIVE_COLLECTIONS`** (``large_files``) —
+      **רוויזיה אחת** לכל שם, זו שנמחקה אחרונה; השאר נשארות בסל. ראו
+      :func:`_restore_latest_revision`.
 
     מחזיר ``(restored_names, restored_ids)``, והמזהים הם של כל המסמכים
     שחזרו — הם נדרשים לקורא, אבל **לא** כדי לסמן את כולם לאינדוקס סמנטי
