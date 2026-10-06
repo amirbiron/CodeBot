@@ -684,7 +684,10 @@ class ConfigService:
             key="METRICS_DB_ENABLED",
             services=("webapp", "bot", "webserver"),
             default="false",
-            description="Legacy: הפעלת כתיבת מדדים למונגו. כיום הכתיבה מושבתת בפרודקשן ברמת הקוד ונשארה לתאימות ולטסטים",
+            description=(
+                "הפעלת כתיבת מדדי בקשות למונגו (monitoring/metrics_storage.py) בכל שירות שמגדיר אותו — "
+                "מסמך מסכם לכל נתיב בכל חלון של METRICS_ROLLUP_SECONDS. DISABLE_METRICS_WRITES ו-DISABLE_DB גוברים עליו"
+            ),
             category="metrics",
         ),
         "METRICS_COLLECTION": ConfigDefinition(
@@ -712,7 +715,7 @@ class ConfigService:
             key="METRICS_FLUSH_INTERVAL_SEC",
             services=("webapp", "bot", "webserver"),
             default="5",
-            description="כל כמה שניות מתרוקן באפר המדדים",
+            description="כל כמה שניות מתרוקן באפר המדדים, וגם כמה זמן מחכים אחרי כתיבה שנכשלה לפני הניסיון הבא",
             category="metrics",
         ),
         "METRICS_MAX_BUFFER": ConfigDefinition(

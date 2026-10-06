@@ -13,18 +13,20 @@ Environment variables:
 - DATABASE_NAME: Database name (default: code_keeper_bot)
 - METRICS_COLLECTION: Collection name (default: service_metrics)
 - METRICS_BATCH_SIZE: Batch size threshold (default: 50)
-- METRICS_FLUSH_INTERVAL_SEC: Time-based flush threshold (default: 5 seconds)
+- METRICS_FLUSH_INTERVAL_SEC: Flush interval, also the wait before retrying a failed write (default: 5)
 - METRICS_MAX_BUFFER: Max queued items in memory (default: 5000)
 - METRICS_ROLLUP_SECONDS: Rollup bucket size in seconds for DB writes (default: 60)
 - METRICS_TTL_DAYS: Retention window for the collection (default: 30)
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 import sys
 import time
 from collections import deque
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from threading import Event, Lock, Thread
 from typing import Any, Dict, List, Optional, Tuple
@@ -35,6 +37,40 @@ try:  # pragma: no cover
 except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields: Any) -> None:  # type: ignore
         return None
+
+# חריגות הכתיבה של pymongo, בייבוא עמיד כמו ``MongoClient`` ב-``_get_collection``:
+# המודול חייב להיטען גם בלי pymongo (fail-open, וסביבות stub בטסטים). מחלקה מקומית
+# שלא תיזרק לעולם עדיפה על ייבוא שמפיל את המודול — בלי pymongo, ``_get_collection``
+# מחזיר ``None`` לפני שמגיעים לאף ``except`` שתופס אותן.
+try:  # pragma: no cover
+    from pymongo.errors import BulkWriteError, ConnectionFailure, ExecutionTimeout
+except Exception:  # pragma: no cover
+    class BulkWriteError(Exception):  # type: ignore[no-redef]
+        pass
+
+    class ConnectionFailure(Exception):  # type: ignore[no-redef]
+        pass
+
+    class ExecutionTimeout(Exception):  # type: ignore[no-redef]
+        pass
+
+logger = logging.getLogger(__name__)
+
+#: החריגות שאחריהן אי אפשר לדעת אם הבאצ' נכתב — החיבור נפל אחרי השליחה, או שלא
+#: נמצא שרת לכתוב אליו — ורק אחריהן הבאצ' חוזר לתור. הניסיון החוזר בטוח, כי כל
+#: מסמך יוצא עם ``_id`` משלו כבר בניסיון הראשון (``_flush_once``): מה שנכתב יחזור
+#: ככפילות על ``_id``, ו-``_bulk_write_outcome`` יספור אותו ככתוב.
+#:
+#: ב-pymongo 4.15.3 (``pymongo/errors.py``, נבדק ב-``__mro__``) תת-העץ של
+#: ``ConnectionFailure`` הוא ``AutoReconnect``, ``NetworkTimeout``, ``NotPrimaryError``,
+#: ``ServerSelectionTimeoutError``, ``WaitQueueTimeoutError`` ו-``_OperationCancelled``
+#: — "operation cancelled", תשובה שנקטעה בהחלפת primary, הכשל שפתח את הלולאה של
+#: 6.10.2026. ``ExecutionTimeout`` הוא מגבלת הזמן של השרת (קוד 50). כולם נבדקים ב-
+#: ``tests/test_metrics_storage_write_outcomes.py``, כך ששדרוג שמזיז אחד מהם יפיל את ה-CI.
+#:
+#: כל חריגה אחרת — ``OperationFailure`` שאינה מכאן, ``InvalidDocument``, באג — לא
+#: תשתנה בניסיון הבא, וניסיון חוזר עליה הוא הלולאה עצמה.
+_OUTCOME_UNKNOWN_ERRORS = (ConnectionFailure, ExecutionTimeout)
 
 
 def _is_true(val: Optional[str]) -> bool:
@@ -85,7 +121,12 @@ _write_disabled = False  # True when writes are intentionally disabled (not a fa
 _buf: deque[Dict[str, Any]] = deque()
 _agg: Dict[Tuple[int, str, str], Dict[str, Any]] = {}
 _lock = Lock()
-_last_flush_ts: float = time.time()
+
+#: מתי התחיל ניסיון הכתיבה האחרון — בין שהצליח ובין שנכשל. ``flush`` ממתין
+#: ``METRICS_FLUSH_INTERVAL_SEC`` ממנו, ולכן כתיבה שנכשלת מנוסה שוב פעם במרווח
+#: ולא על כל בקשה: ``enqueue_request_metric`` מעיר את ``_worker_loop`` על כל בקשה.
+#: עד 6.10.2026 החותמת נקבעה רק בהצלחה, ובזמן תקלה כל בקשה הפעילה ניסיון כתיבה.
+_last_write_attempt_ts: float = time.time()
 
 # Background flush worker (to avoid blocking request path)
 _worker_started = False
@@ -130,7 +171,9 @@ def _worker_loop() -> None:  # pragma: no cover
         try:
             flush(force=False)
         except Exception:
-            pass
+            # הלולאה חייבת לשרוד — אבל לא בשקט: חוט שנכשל בכל סבב בלי לוג נראה בדיוק
+            # כמו חוט שאין לו מה לכתוב.
+            logger.exception("metrics flush loop failed; retrying on the next wake")
 
 
 def _build_time_match(start_dt: Optional[datetime], end_dt: Optional[datetime]) -> Dict[str, Any]:
@@ -347,6 +390,74 @@ def _get_collection(*, for_read: bool = True):  # pragma: no cover - exercised i
         return None
 
 
+def _error_code_label(code: Any) -> str:
+    """קוד שגיאה מתשובת השרת כמחרוזת לספירה, או ``"unknown"`` כשאינו מספר שלם."""
+    if isinstance(code, int) and not isinstance(code, bool):
+        return str(code)
+    return "unknown"
+
+
+def _bulk_write_outcome(details: Any, batch_size: int) -> Dict[str, Any]:
+    """מה השרת עשה עם כל מסמך בבאצ' שנענה ב-``BulkWriteError``.
+
+    הכתיבה היא ``ordered=False``, ולכן השרת ניסה כל מסמך והתשובה מתארת את כולם:
+    ``nInserted`` נכתבו עכשיו, ולכל מסמך אחר יש רשומה משלו ב-``writeErrors``.
+
+    - **כפילות על** ``_id`` (קוד 11000, ``keyPattern`` שהוא ``{"_id": 1}``) — המסמך
+      כבר שמור: ניסיון קודם כתב אותו והתשובה אבדה. ה-``_id`` נוצר אצלנו לפני
+      הניסיון הראשון (``_flush_once``), ולכן הוא לא של מסמך אחר.
+    - **כל שגיאת כתיבה אחרת** — כולל כפילות על אינדקס ייחודי אחר — המסמך נזרק
+      ונספר לפי הקוד. לא מנסים שוב: ניסיון חוזר על שגיאה שלא סווגה הוא הלולאה
+      שהתיקון הזה סוגר. אם השגיאה הייתה חולפת, המחיר הוא המסמכים האלה, והקוד בלוג.
+    - **מסמך שהתשובה לא מזכירה** — לא בספירה ולא בשגיאות — נספר כנזרק תחת
+      ``unknown``, מאותה סיבה.
+    - ``writeConcernErrors`` — המסמכים נכתבו ל-primary והאישור על השכפול לא הגיע.
+      הם נספרים ככתובים, והקודים נרשמים.
+
+    התשובה מגיעה מהשרת, ולכן כל שדה נבדק לפני שימוש. הפלט מכיל רק מספרים וקודים:
+    pymongo מצרף לכל שגיאה את המסמך עצמו (``op``, ‏``pymongo/bulk_shared.py``), ובו
+    נתיב הבקשה — כולל טוקן של קישור שיתוף.
+    """
+    if not isinstance(details, Mapping):
+        details = {}
+    inserted = details.get("nInserted")
+    if not isinstance(inserted, int) or isinstance(inserted, bool) or inserted < 0:
+        inserted = 0
+
+    already_stored = 0
+    dropped_codes: Dict[str, int] = {}
+    write_errors = details.get("writeErrors")
+    for error in write_errors if isinstance(write_errors, list) else []:
+        error = error if isinstance(error, Mapping) else {}
+        key_pattern = error.get("keyPattern")
+        if (
+            error.get("code") == 11000
+            and isinstance(key_pattern, Mapping)
+            and list(key_pattern) == ["_id"]
+        ):
+            already_stored += 1
+            continue
+        label = _error_code_label(error.get("code"))
+        dropped_codes[label] = dropped_codes.get(label, 0) + 1
+
+    unaccounted = batch_size - (inserted + already_stored + sum(dropped_codes.values()))
+    if unaccounted > 0:
+        dropped_codes["unknown"] = dropped_codes.get("unknown", 0) + unaccounted
+
+    concern_errors = details.get("writeConcernErrors")
+    write_concern_codes = [
+        _error_code_label(error.get("code") if isinstance(error, Mapping) else None)
+        for error in (concern_errors if isinstance(concern_errors, list) else [])
+    ]
+    return {
+        "inserted": inserted,
+        "already_stored": already_stored,
+        "dropped": sum(dropped_codes.values()),
+        "dropped_codes": dropped_codes,
+        "write_concern_codes": write_concern_codes,
+    }
+
+
 def _flush_once(now_ts: float) -> bool:
     coll = _get_collection(for_read=False)  # Writing metrics requires write access
     if coll is None:
@@ -398,18 +509,67 @@ def _flush_once(now_ts: float) -> bool:
     if not items:
         return False
 
+    # מכאן הבאצ' כבר מחוץ לתור, ולכן כל מה שיכול להיכשל יושב בתוך ה-``try``: חריגה
+    # שהייתה עוקפת את הסיווג הייתה מאבדת את הבאצ' בלי אירוע, ובלי לקדם את החותמת —
+    # וכל בקשה הייתה מעירה את הכותב לשלוף ולאבד באצ' נוסף.
+    global _last_write_attempt_ts
+    with _lock:
+        _last_write_attempt_ts = now_ts
+
     try:
+        # מזהה הכתיבה הוא שלנו: כל מסמך מקבל ``_id`` לפני הניסיון הראשון, ושומר אותו
+        # כשהוא חוזר לתור. כך ניסיון חוזר אחרי תוצאה לא ידועה לא יכול לכתוב מסמך פעמיים —
+        # השרת יענה בכפילות על ``_id``. pymongo מוסיף ``_id`` בעצמו (``insert_many``,
+        # pymongo 4.15.3), אבל רק למילון שהוא מקבל ביד; עותק בדרך היה הופך כל ניסיון
+        # חוזר למסמך שני, בלי שום שגיאה.
+        from bson import ObjectId  # כמו MongoClient: נדרש רק כשיש אוסף
+
+        for it in items:
+            if "_id" not in it:
+                it["_id"] = ObjectId()
         coll.insert_many(items, ordered=False)  # type: ignore[attr-defined]
-        global _last_flush_ts
-        with _lock:
-            _last_flush_ts = now_ts
+    except BulkWriteError as e:
+        # השרת ענה על כל מסמך — אין כאן תוצאה לא ידועה, ושום דבר לא חוזר לתור.
+        outcome = _bulk_write_outcome(getattr(e, "details", None), len(items))
+        # כל שדה בשמו ולא ``**outcome``: מפתח במטען ששמו כשם פרמטר של ``emit_event``
+        # היה מפיל את הקריאה ב-``TypeError`` (``tests/test_event_alert_dispatch.py``).
+        emit_event(
+            "metrics_db_batch_resolved",
+            severity="warn" if outcome["dropped"] or outcome["write_concern_codes"] else "info",
+            count=len(items),
+            inserted=outcome["inserted"],
+            already_stored=outcome["already_stored"],
+            dropped=outcome["dropped"],
+            dropped_codes=outcome["dropped_codes"],
+            write_concern_codes=outcome["write_concern_codes"],
+        )
         return True
-    except Exception as e:  # Re-queue on failure
+    except _OUTCOME_UNKNOWN_ERRORS as e:
         with _lock:
             for it in reversed(items):
                 _buf.appendleft(it)
-        emit_event("metrics_db_batch_insert_error", severity="warn", error=str(e), count=len(items))
+        # ‏``str(e)`` לא נושא את הסיסמה שב-URI: ההודעה בנויה מ-host:port ומתיאור
+        # הטופולוגיה (``pymongo/pool_shared.py``, ``_raise_connection_failure``; ``topology.py``).
+        emit_event(
+            "metrics_db_batch_insert_error",
+            severity="warn",
+            error_type=type(e).__name__,
+            error=str(e),
+            count=len(items),
+        )
         return False
+    except Exception as e:
+        # גבול: הכותב רץ בחוט רקע, וחריגה כאן אסור שתפיל אותו — וגם לא שתחזור לתור,
+        # כי היא לא תשתנה בניסיון הבא (R10). הבאצ' נזרק, ברמת error ועם traceback.
+        logger.exception("metrics batch dropped: unexpected error while writing to MongoDB")
+        emit_event(
+            "metrics_db_batch_dropped",
+            severity="error",
+            error_type=type(e).__name__,
+            count=len(items),
+        )
+        return False
+    return True
 
 
 def flush(force: bool = False) -> None:
@@ -424,8 +584,8 @@ def flush(force: bool = False) -> None:
         interval = int(os.getenv("METRICS_FLUSH_INTERVAL_SEC", "5") or "5")
     except Exception:
         interval = 5
-    # Time-based threshold
-    if not force and (now_ts - _last_flush_ts) < max(1, interval):
+    # Time-based threshold, from the last write attempt — successful or not
+    if not force and (now_ts - _last_write_attempt_ts) < max(1, interval):
         return
     # Flush multiple batches best-effort (useful for force=True and for draining the queue)
     for _ in range(100):
