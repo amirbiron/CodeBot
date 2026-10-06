@@ -1300,13 +1300,26 @@ input.md-task-checkbox {
   opacity: 1;
 }
 
+/* כותרת או עוגן שגוללים אליהם (תוכן העניינים, קישור לכותרת, עוגן מפורש) נוחתים
+   מתחת לסרגל העליון, שצמוד לראש המסך. --md-toolbar-h הוא הגובה שנמדד בפועל
+   (publishMdToolbarHeight); 72px הוא רק ברירת מחדל עד שהמדידה רצה, ויחד עם 8px
+   הרווח הוא ה-80px שעמד כאן קודם לעוגנים המפורשים. */
+#md-content h1,
+#md-content h2,
+#md-content h3,
+#md-content h4,
+#md-content h5,
+#md-content h6,
+#md-content .md-explicit-anchor {
+  scroll-margin-top: calc(var(--md-toolbar-h, 72px) + 8px);
+}
+
 /* יעד עוגן מפורש שנוצר מ-<a id="..."></a> שבמקור ה-Markdown (ראו js/md-anchors.js).
-   בלתי-נראה לחלוטין; scroll-margin-top מונע מהכותרת להיעצר מתחת לסרגל העליון. */
+   בלתי-נראה לחלוטין. */
 #md-content .md-explicit-anchor {
   display: block;
   height: 0;
   overflow: hidden;
-  scroll-margin-top: 80px;
 }
 
 /* ──── כפתור צף "העתק כמארקדאון" ──── */
@@ -2169,6 +2182,22 @@ if (saveSharedButton) {
     }
   });
 }
+
+// גובה הסרגל העליון (#md-search) כמשתנה CSS בשם --md-toolbar-h. הסרגל צמוד
+// לראש המסך (position: sticky), וכותרת או עוגן שגוללים אליהם צריכים לנחות
+// מתחתיו — ראו את scroll-margin-top של כותרות #md-content. הגובה נמדד ולא נקבע
+// ביד, כי הסרגל נשבר לכמה שורות במסכים צרים.
+(function publishMdToolbarHeight(){
+  const bar = document.getElementById('md-search');
+  if (!bar) return;
+  const publish = () => {
+    document.documentElement.style.setProperty('--md-toolbar-h', bar.offsetHeight + 'px');
+  };
+  publish();
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(publish).observe(bar);
+  }
+})();
 
 // תוכן ה-Markdown מועבר בבטחה JSON-encoded
 const MD_TEXT = (function(){

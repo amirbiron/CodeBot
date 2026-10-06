@@ -7,16 +7,19 @@
 }
 .cm-editor { min-height: 400px; max-height: 60vh; font-family: 'Fira Code','Consolas',monospace; }
 
-/* View Mode (view_file.html): allow page-level scrolling (auto height) */
-#codeCard:not(:fullscreen) .codemirror-container.cm-autoheight {
+/* View Mode (view_file.html): CodeMirror בגובה התוכן, ומי שגולל הוא מי שמחזיק אותו —
+   במסך רגיל העמוד, ובמסך מלא קופסת הקוד (#codeCard:fullscreen .code-container ב-
+   view_file.html). גם במסך מלא, בכוונה: שם ה-height: 100% של העורך נפל ל-auto,
+   כי להורה שלו אין גובה מוגדר (CSS 2.1, סעיף 10.5), ושום דבר לא גלל. */
+#codeCard .codemirror-container.cm-autoheight {
   overflow: visible;
 }
-#codeCard:not(:fullscreen) .codemirror-container.cm-autoheight .cm-editor {
+#codeCard .codemirror-container.cm-autoheight .cm-editor {
   height: auto;
   min-height: 0;
   max-height: none;
 }
-#codeCard:not(:fullscreen) .codemirror-container.cm-autoheight .cm-scroller {
+#codeCard .codemirror-container.cm-autoheight .cm-scroller {
   height: auto;
   overflow: visible;
 }

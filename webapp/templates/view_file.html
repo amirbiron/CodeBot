@@ -220,9 +220,20 @@
     }
 }
 
-/* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה */
+/* במסך מלא הכרטיס הוא עמודה: הכותרת והסרגל למעלה, וקופסת הקוד ממלאת בדיוק את
+   מה שנשאר וגוללת — בתצוגה הבסיסית ובמתקדמת כאחד. הגובה נגזר מהפריסה ולא מנוחש:
+   הנוסחה הקודמת, calc(100vh - 120px), הניחה גובה קבוע לכותרת ולסרגל, ובפועל הם
+   גבוהים יותר — כך שתחתית הקופסה ישבה מתחת לקצה המסך, והשורות האחרונות לא היו
+   נגישות בשום גלילה (לפי גליון הסגנונות במפרט ה-Fullscreen, הכרטיס במסך מלא הוא
+   fixed בגובה המסך, בלי overflow). */
+#codeCard:fullscreen {
+    display: flex;
+    flex-direction: column;
+}
+
 #codeCard:fullscreen .code-container {
-    height: calc(100vh - 120px);
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: auto;
 }
 
@@ -231,17 +242,12 @@
     width: 100%;
 }
 
-#codeCard.is-advanced .code-container {
+/* במסך רגיל העמוד הוא שגולל, ו-CodeMirror בגובה התוכן (cm-autoheight ב-
+   codemirror-custom.css). במסך מלא הגוללת היא קופסת הקוד, ולכן הכלל לא חל שם:
+   בלי not(:fullscreen) הוא שווה בספציפיות לכלל של המסך המלא שלמעלה, גובר עליו
+   רק כי הוא כתוב אחריו — ושום דבר במסך המלא לא היה גולל. */
+#codeCard.is-advanced:not(:fullscreen) .code-container {
     overflow: visible;
-}
-
-#codeCard:fullscreen #codeMirrorContainer .cm-editor {
-    height: 100%;
-    max-height: none;
-}
-
-#codeCard:fullscreen #codeMirrorContainer .cm-scroller {
-    height: 100%;
 }
 
 .file-header {
