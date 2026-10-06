@@ -1,116 +1,90 @@
+"""עמוד הסל בוובאפ: המסלול המלא של קובץ בגרסה אחת.
+
+**למה מונגו אמיתי ולא סטאב.** עד אוקטובר 2026 העמוד עשה ``find`` ומיין
+בפייתון, ולכן סטאב ידני עם ``find``/``update_many``/``delete_many`` הספיק.
+העמוד מריץ עכשיו אגרגציה אחת עם ``$unionWith``, שני ``$lookup`` ו-``$group``
+(``file_deletion.recycle_bin_rows_pipeline``), ואין לסטאב ידני דרך לענות
+עליה בלי לממש מחדש מנוע אגרגציה — כלומר להמציא תוצאות. הבדיקה הזו רצה
+מול מונגו, ו-``wired_mongo`` מדלג כשאין אחד.
+
+הקיבוץ עצמו, הבוט, העימוד והפעולות נבדקים ב-``tests/test_trash_one_row_per_file.py``.
+כאן נשמר דווקא המקרה שהסטאב תיאר: קובץ בגרסה **אחת**, שלא אמור לקבל שום
+badge של מספר גרסאות, לאורך מחיקה ← שחזור ← מחיקה סופית.
+"""
+
 import types
+from datetime import datetime, timedelta, timezone
 
-
+import pytest
 from bson import ObjectId
 from webapp import app as webapp_app
 from services.db_health_service import CollectionStat
 
+pytest.importorskip("flask")
+pytest.importorskip("pymongo")
 
-class _StubCollection:
-    def __init__(self, docs):
-        self.docs = list(docs)
-
-    def find(self, query, projection=None):
-        uid = query.get("user_id")
-        active = query.get("is_active")
-        out = []
-        for d in self.docs:
-            if d.get("user_id") == uid and d.get("is_active") == active:
-                out.append(dict(d))
-        return out
-
-    def update_many(self, flt, upd):
-        modified = 0
-        for d in self.docs:
-            if d.get("_id") != flt.get("_id"):
-                continue
-            if d.get("user_id") != flt.get("user_id"):
-                continue
-            if d.get("is_active") != flt.get("is_active"):
-                continue
-            for k, v in (upd.get("$set") or {}).items():
-                d[k] = v
-            for k in (upd.get("$unset") or {}).keys():
-                d.pop(k, None)
-            modified += 1
-        return types.SimpleNamespace(modified_count=modified)
-
-    def delete_many(self, flt):
-        before = len(self.docs)
-        self.docs = [
-            d for d in self.docs
-            if not (d.get("_id") == flt.get("_id") and d.get("user_id") == flt.get("user_id") and d.get("is_active") == flt.get("is_active"))
-        ]
-        return types.SimpleNamespace(deleted_count=(before - len(self.docs)))
+USER_ID = 123
+FILE = "deleted.py"
+DELETED_AT = datetime(2026, 5, 4, 12, 0, tzinfo=timezone.utc)
 
 
-class _StubDB:
-    def __init__(self, docs):
-        self.code_snippets = _StubCollection(docs)
+def _client(wa):
+    client = wa.app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = USER_ID
+        sess["user_data"] = {"id": USER_ID, "first_name": "Test"}
+    return client
 
 
-def _stub_cache():
-    class _Cache:
-        def invalidate_user_cache(self, *a, **k):
-            return 0
-        def delete_pattern(self, *a, **k):
-            return 0
-    return _Cache()
+def _seed_one_trashed_version(wa):
+    oid = ObjectId()
+    wa.get_db().code_snippets.insert_one({
+        "_id": oid,
+        "user_id": USER_ID,
+        "file_name": FILE,
+        "code": "print(1)",
+        "programming_language": "python",
+        "version": 1,
+        "is_active": False,
+        "created_at": DELETED_AT - timedelta(days=1),
+        "deleted_at": DELETED_AT,
+        "deleted_expires_at": DELETED_AT + timedelta(days=30),
+    })
+    return oid
 
 
-def test_trash_page_lists_items_and_restore_purge(monkeypatch):
-    file_oid = ObjectId("0123456789abcdef01234567")
-    stub_db = _StubDB([
-        {
-            "_id": file_oid,
-            "user_id": 123,
-            "file_name": "deleted.py",
-            "programming_language": "python",
-            "is_active": False,
-        }
-    ])
-    monkeypatch.setattr(webapp_app, "get_db", lambda: stub_db)
-    monkeypatch.setattr(webapp_app, "cache", _stub_cache())
+def test_trash_page_lists_items_and_restore_purge(wired_mongo):
+    db = wired_mongo.get_db()
+    db.code_snippets.delete_many({})
+    db.large_files.delete_many({})
+    oid = _seed_one_trashed_version(wired_mongo)
+    client = _client(wired_mongo)
 
-    flask_app = webapp_app.app
-    with flask_app.test_client() as client:
-        with client.session_transaction() as sess:
-            sess["user_id"] = 123
-            sess["user_data"] = {"id": 123, "first_name": "Test"}
+    resp = client.get("/trash")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "סל מחזור" in html
+    assert FILE in html
+    # גרסה אחת אינה "N גרסאות" — ה-badge מופיע רק כשיש יותר מאחת.
+    # (המילה עצמה מופיעה גם בתפריט של ``base.html``, ולכן הבדיקה היא על
+    # הטקסט של ה-badge.)
+    assert "1 גרסאות" not in html
 
-        resp = client.get("/trash")
-        assert resp.status_code == 200
-        html = resp.get_data(as_text=True)
-        assert "סל מחזור" in html
-        assert "deleted.py" in html
+    restored = client.post(f"/api/trash/{oid}/restore", json={})
+    assert restored.status_code == 200, restored.data
+    assert restored.get_json().get("ok") is True
+    assert db.code_snippets.count_documents(
+        {"user_id": USER_ID, "file_name": FILE, "is_active": True}) == 1
+    assert FILE not in client.get("/trash").get_data(as_text=True)
 
-        # Restore
-        resp2 = client.post(f"/api/trash/{str(file_oid)}/restore", json={})
-        assert resp2.status_code == 200
-        payload = resp2.get_json()
-        assert payload and payload.get("ok") is True
-
-        # After restore it should disappear from list (no longer is_active=False)
-        resp3 = client.get("/trash")
-        assert resp3.status_code == 200
-        assert "deleted.py" not in resp3.get_data(as_text=True)
-
-        # Put it back into trash and purge
-        stub_db.code_snippets.docs.append({
-            "_id": file_oid,
-            "user_id": 123,
-            "file_name": "deleted.py",
-            "programming_language": "python",
-            "is_active": False,
-        })
-        resp4 = client.post(f"/api/trash/{str(file_oid)}/purge", json={})
-        assert resp4.status_code == 200
-        payload2 = resp4.get_json()
-        assert payload2 and payload2.get("ok") is True
-
-        resp5 = client.get("/trash")
-        assert resp5.status_code == 200
-        assert "deleted.py" not in resp5.get_data(as_text=True)
+    # חזרה לסל, ואז מחיקה סופית — דרך הראוטים, ובקריאה מהמסד.
+    db.code_snippets.delete_many({})
+    oid = _seed_one_trashed_version(wired_mongo)
+    purged = client.post(f"/api/trash/{oid}/purge", json={})
+    assert purged.status_code == 200, purged.data
+    assert purged.get_json().get("ok") is True
+    assert db.code_snippets.count_documents({"user_id": USER_ID}) == 0
+    assert FILE not in client.get("/trash").get_data(as_text=True)
 
 
 def test_db_health_collections_endpoint_rate_limited(monkeypatch):

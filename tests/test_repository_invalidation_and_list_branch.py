@@ -50,12 +50,24 @@ def test_purge_file_by_id_invalidate_exception(monkeypatch):
     from database.repository import Repository as RepoMod
     import database.repository as repo_mod
 
+    oid = ObjectId()
+
     class Coll:
+        """‏``code_snippets`` בלי המסמך — מה שמאלץ את המעבר ל-``large_files``."""
+
+        def find(self, *_a, **_k):
+            return []
         def delete_many(self, *_a, **_k):
             return types.SimpleNamespace(deleted_count=0)
+
     class LColl:
+        def find(self, query, projection=None, *_a, **_k):
+            # המזהה מתורגם לשם, ואז נאספים מזהי כל גרסאות הסל של אותו שם.
+            return [{"_id": oid, "user_id": 3, "file_name": "big.txt",
+                     "is_active": False}]
         def delete_many(self, *_a, **_k):
             return types.SimpleNamespace(deleted_count=1)
+
     class Mgr:
         def __init__(self):
             self.collection = Coll()
@@ -63,7 +75,8 @@ def test_purge_file_by_id_invalidate_exception(monkeypatch):
     repo = RepoMod(Mgr())
 
     monkeypatch.setattr(repo_mod.cache, "invalidate_user_cache", lambda *_: (_ for _ in ()).throw(RuntimeError("inv")))
-    assert repo.purge_file_by_id(3, str(ObjectId())) is True
+    # כשל באינוולידציית הקאש אינו הופך מחיקה שבוצעה לכשל.
+    assert repo.purge_file_by_id(3, str(oid)) is True
 
 
 def test_get_user_large_files_list_fallback():
