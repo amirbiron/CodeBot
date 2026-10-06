@@ -26,7 +26,7 @@
 ``_require_query_shape_hash_support``.
 
 ב-CI של ה-PR זה אינו קורה: הג'וב ``Unit Tests`` ב-``.github/workflows/ci.yml``
-רץ ``runs-on: ubuntu-latest`` בלי ``container:``, והשירות ``mongodb`` מוגדר
+רץ ישירות על ה-runner, בלי ``container:``, והשירות ``mongodb`` מוגדר
 בלי ``ports:``, ולכן שם השירות אינו נפתר כלל והבדיקה מדלגת בשקט. **אחרי
 מיזוג זה כן קורה:** ``.github/workflows/deploy.yml`` מריץ את אותה חבילה על
 push ל-``main``, ושם לשירות יש ``ports:`` וה-``MONGODB_URL`` מצביע

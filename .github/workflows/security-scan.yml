@@ -16,7 +16,7 @@ concurrency:
 jobs:
   security-scan:
     name: "🛡️ Security Analysis (heavy)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
     permissions:
       security-events: write
