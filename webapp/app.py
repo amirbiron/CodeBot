@@ -208,8 +208,16 @@ from file_description import (  # noqa: E402
 from file_deletion import (  # noqa: E402
     RECYCLE_BIN_COLLECTIONS,
     RECYCLE_BIN_TTL_FIELD,
+    SINGLE_ACTIVE_COLLECTIONS,
+    RestoreConflict,
     is_recycle_bin_ttl_index,
+    purge_files_by_names,
+    recycle_bin_count_stages,
+    recycle_bin_page_stages,
+    recycle_bin_rows_pipeline,
     resolve_owned_file_names,
+    resolve_trashed_file_names,
+    restore_files_by_names,
     soft_delete_files_by_names as _soft_delete_files_by_names,
 )
 # ירושת סימון המועדף לגרסה חדשה — מודול שורש בלי חיבור משלו, אותו כלל
@@ -13398,7 +13406,17 @@ def files():
 @login_required
 @traced("files.recycle_bin_page")
 def trash_page():
-    """דף סל מחזור בווב-אפ (קבצים עם is_active=False)."""
+    """דף סל המיחזור — שורה אחת לכל **קובץ**, לא לכל מסמך גרסה.
+
+    עד אוקטובר 2026 כאן נשלף כל הסל משתי הקולקציות, מוין בפייתון ונחתך
+    ב-``combined[start:end]``. הקיבוץ, האיחוד והעימוד יושבים עכשיו
+    ב-``recycle_bin_rows_pipeline`` שבשורש, ואותו קוד בדיוק מריץ גם הבוט
+    דרך ``Repository.list_deleted_files`` — שני העותקים שהיו כאן כבר
+    הספיקו לסטות זה מזה.
+
+    הכשל אינו סל ריק: שאילתה שנפלה מרנדרת מצב שגיאה ונרשמת, כדי שתקלה
+    לא תיראה למשתמש כמו "מחקתי הכול".
+    """
     db = get_db()
     user_id = session['user_id']
 
@@ -13409,81 +13427,41 @@ def trash_page():
     page = max(1, page)
     per_page = 20
 
-    match = {'user_id': user_id, 'is_active': False}
-
-    reg_docs: list[dict] = []
+    pipeline = recycle_bin_rows_pipeline(user_id)
+    failed = False
+    rows: list[dict] = []
+    total_count = 0
     try:
-        reg_docs = list(db.code_snippets.find(
-            match,
-            {
-                'file_name': 1,
-                'programming_language': 1,
-                'deleted_at': 1,
-                'deleted_expires_at': 1,
-                'updated_at': 1,
-                'created_at': 1,
-                'version': 1,
-            },
-        ))
+        counted = list(_aggregate_snippets(db, pipeline + recycle_bin_count_stages()))
+        # ``$count`` אינו מחזיר שורה כשאין תוצאות.
+        total_count = int((counted[0] or {}).get('total', 0)) if counted else 0
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+        page = max(1, min(page, total_pages))
+        rows = list(_aggregate_snippets(
+            db, pipeline + recycle_bin_page_stages(page=page, per_page=per_page)))
     except Exception:
-        reg_docs = []
-
-    large_docs: list[dict] = []
-    large_coll = getattr(db, 'large_files', None)
-    if large_coll is not None:
-        try:
-            large_docs = list(large_coll.find(
-                match,
-                {
-                    'file_name': 1,
-                    'programming_language': 1,
-                    'deleted_at': 1,
-                    'deleted_expires_at': 1,
-                    'updated_at': 1,
-                    'created_at': 1,
-                },
-            ))
-        except Exception:
-            large_docs = []
-
-    combined: list[dict] = []
-    for d in reg_docs:
-        if isinstance(d, dict):
-            d['_is_large'] = False
-            combined.append(d)
-    for d in large_docs:
-        if isinstance(d, dict):
-            d['_is_large'] = True
-            combined.append(d)
-
-    def _sort_key(doc: dict):
-        dt = doc.get('deleted_at') or doc.get('updated_at') or doc.get('created_at')
-        if isinstance(dt, datetime):
-            return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
-        return datetime.min.replace(tzinfo=timezone.utc)
-
-    combined.sort(key=_sort_key, reverse=True)
-
-    total_count = len(combined)
-    total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
-    page = max(1, min(page, total_pages))
-    start = (page - 1) * per_page
-    end = start + per_page
-    page_docs = combined[start:end]
+        logger.exception("trash.list_failed")
+        failed = True
+        total_pages = 1
+        page = 1
 
     items: list[dict] = []
-    for doc in page_docs:
+    for doc in rows:
         fname = str(doc.get('file_name') or '')
-        lang_display = resolve_file_language(doc.get('programming_language'), fname)
-        is_large = bool(doc.get('_is_large', False))
+        lang_display = resolve_file_language(doc.get('language'), fname)
+        is_large = doc.get('source') == RECYCLE_BIN_COLLECTIONS[1]
         items.append({
             'id': str(doc.get('_id') or ''),
             'file_name': fname,
             'language': lang_display,
-            'icon': get_language_icon(lang_display),
             'deleted_at': format_datetime_display(doc.get('deleted_at')),
-            'expires_at': format_datetime_display(doc.get('deleted_expires_at')),
-            'version': (doc.get('version') if not is_large else None),
+            'expires_at': format_datetime_display(doc.get('expires_at')),
+            # מספר מסמכי הגרסה **שבסל**, ולא מספר הגרסאות של הקובץ:
+            # לקובץ שחלקו עוד פעיל יש גם גרסאות שאינן כאן. ובקובץ גדול 0 —
+            # אלה רוויזיות, והשחזור מחזיר אחת מהן בלבד
+            # (``file_deletion.SINGLE_ACTIVE_COLLECTIONS``), ולכן השורה לא
+            # מצהירה על מספר שהכפתור לא מקיים.
+            'versions': 0 if is_large else int(doc.get('versions') or 0),
             'kind': ('גדול' if is_large else 'רגיל'),
         })
 
@@ -13497,6 +13475,7 @@ def trash_page():
         has_prev=page > 1,
         has_next=page < total_pages,
         recycle_ttl_days=RECYCLE_TTL_DAYS,
+        load_failed=failed,
     )
 
 
@@ -15180,7 +15159,12 @@ def api_file_move_to_trash(file_id):
 @login_required
 @traced("files.recycle_bin_restore")
 def api_recycle_bin_restore(file_id: str):
-    """שחזור פריט מסל המחזור לפי מזהה מסמך (קוד רגיל או קובץ גדול)."""
+    """שחזור **קובץ** מסל המיחזור — כל גרסאותיו שבסל.
+
+    המזהה הוא ידית לשורה ולא כתובת הפעולה: השורה מייצגת קובץ, ולכן
+    המזהה מתורגם לשם לפני השחזור. שחזור של גרסה אחת היה מחזיר קובץ עם
+    היסטוריה קטועה — התאום ההפוך של הבאג שהמחיקה תוקנה ממנו.
+    """
     db = get_db()
     user_id = session['user_id']
     try:
@@ -15188,51 +15172,59 @@ def api_recycle_bin_restore(file_id: str):
     except Exception:
         return jsonify({'ok': False, 'error': 'Invalid file id'}), 400
 
-    modified = 0
+    for coll_name in RECYCLE_BIN_COLLECTIONS:
+        collection = getattr(db, coll_name, None)
+        if collection is None:
+            continue
+        try:
+            names, _found = resolve_trashed_file_names(collection, user_id, [oid])
+            if not names:
+                continue
+            restored, restored_ids = restore_files_by_names(
+                collection, user_id, names, source=coll_name)
+        except RestoreConflict:
+            # לפני ה-``except Exception``: זה סירוב צפוי ולא תקלה. לשם כבר
+            # יש קובץ פעיל, ושחזור היה יוצר עותק שני שלו.
+            return jsonify({'ok': False, 'error': 'קיים כבר קובץ פעיל בשם הזה'}), 409
+        except Exception:
+            logger.exception("trash.restore_failed")
+            return jsonify({'ok': False, 'error': 'שגיאה בשחזור'}), 500
+        if not restored:
+            continue
 
-    try:
-        res = db.code_snippets.update_many(
-            {'_id': oid, 'user_id': user_id, 'is_active': False},
-            {'$set': {'is_active': True},
-             '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
-        )
-        modified += int(getattr(res, 'modified_count', 0) or 0)
-    except Exception:
-        pass
+        # מזהה **אחד** ולא כולם: ``services/embedding_worker`` מוותר על כל
+        # גרסה שאינה האחרונה ומסיים אותה באפס צ'אנקים, ולכן סימון של N
+        # גרסאות קונה N סבבי worker ואפס תוצאה. הראשון הוא הגבוה —
+        # ``restore_files_by_names`` ממיין. ובאוסף של פעיל-אחד-לכל-שם אין מה
+        # לסמן: הסימון מעדכן את ``code_snippets`` בלבד.
+        if coll_name not in SINGLE_ACTIVE_COLLECTIONS:
+            _mark_snippets_for_reindex(restored_ids[:1])
+        try:
+            cache.invalidate_user_cache(int(user_id))
+            cache.delete_pattern(f"collections_*:{int(user_id)}:*")
+        except Exception:
+            pass
+        # ``restored`` נספר בקבצים ו-``versions`` במסמכים — אותה הפרדה
+        # שה-API של המחיקה המרובה כבר מצהיר עליה.
+        return jsonify({
+            'ok': True,
+            'files': len(restored),
+            'file_name': restored[0],
+            'restored': len(restored_ids),
+        })
 
-    if modified == 0:
-        large_coll = getattr(db, 'large_files', None)
-        if large_coll is not None:
-            try:
-                res2 = large_coll.update_many(
-                    {'_id': oid, 'user_id': user_id, 'is_active': False},
-                    {'$set': {'is_active': True},
-                     '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
-                )
-                modified += int(getattr(res2, 'modified_count', 0) or 0)
-            except Exception:
-                pass
-
-    if modified == 0:
-        return jsonify({'ok': False, 'error': 'not_found'}), 404
-
-    # הצ'אנקים נמחקו בהעברה לסל; ה-worker יבנה אותם מחדש.
-    _mark_snippets_for_reindex([oid])
-
-    try:
-        cache.invalidate_user_cache(int(user_id))
-        cache.delete_pattern(f"collections_*:{int(user_id)}:*")
-    except Exception:
-        pass
-
-    return jsonify({'ok': True, 'restored': modified})
+    return jsonify({'ok': False, 'error': 'not_found'}), 404
 
 
 @app.route('/api/trash/<file_id>/purge', methods=['POST'])
 @login_required
 @traced("files.recycle_bin_purge")
 def api_recycle_bin_purge(file_id: str):
-    """מחיקה סופית מפריט בסל המחזור לפי מזהה מסמך."""
+    """מחיקה סופית של **קובץ** מסל המיחזור — כל גרסאותיו שבסל.
+
+    ``is_active: False`` נשאר במסנן בתוך ``purge_files_by_names``, והוא מה
+    שמגן על הגרסאות הפעילות של קובץ שחלקו עוד חי.
+    """
     db = get_db()
     user_id = session['user_id']
     try:
@@ -15240,34 +15232,39 @@ def api_recycle_bin_purge(file_id: str):
     except Exception:
         return jsonify({'ok': False, 'error': 'Invalid file id'}), 400
 
-    deleted = 0
-    try:
-        res = db.code_snippets.delete_many({'_id': oid, 'user_id': user_id, 'is_active': False})
-        deleted += int(getattr(res, 'deleted_count', 0) or 0)
-    except Exception:
-        pass
+    for coll_name in RECYCLE_BIN_COLLECTIONS:
+        collection = getattr(db, coll_name, None)
+        if collection is None:
+            continue
+        try:
+            names, _found = resolve_trashed_file_names(collection, user_id, [oid])
+            if not names:
+                continue
+            purged, purged_ids = purge_files_by_names(collection, user_id, names)
+        except Exception:
+            logger.exception("trash.purge_failed")
+            return jsonify({'ok': False, 'error': 'שגיאה במחיקה'}), 500
+        if not purged:
+            continue
 
-    if deleted == 0:
-        large_coll = getattr(db, 'large_files', None)
-        if large_coll is not None:
-            try:
-                res2 = large_coll.delete_many({'_id': oid, 'user_id': user_id, 'is_active': False})
-                deleted += int(getattr(res2, 'deleted_count', 0) or 0)
-            except Exception:
-                pass
+        # ‏``snippet_ids`` ולא ``file_names``: הצורה שלפי שם מתרגמת שם
+        # למזהים בשאילתה משלה **בלי** לסנן ``is_active``, ולכן בקובץ שחלק
+        # מגרסאותיו פעילות היא הייתה מוחקת גם את הצ'אנקים שלהן.
+        _delete_snippet_chunks(int(user_id), snippet_ids=list(purged_ids))
+        try:
+            cache.invalidate_user_cache(int(user_id))
+            cache.delete_pattern(f"collections_*:{int(user_id)}:*")
+        except Exception:
+            pass
+        return jsonify({
+            'ok': True,
+            'files': len(purged),
+            'file_name': purged[0],
+            'deleted': len(purged_ids),
+        })
 
-    if deleted == 0:
-        return jsonify({'ok': False, 'error': 'not_found'}), 404
+    return jsonify({'ok': False, 'error': 'not_found'}), 404
 
-    _delete_snippet_chunks(int(user_id), snippet_ids=[oid])
-
-    try:
-        cache.invalidate_user_cache(int(user_id))
-        cache.delete_pattern(f"collections_*:{int(user_id)}:*")
-    except Exception:
-        pass
-
-    return jsonify({'ok': True, 'deleted': deleted})
 
 @app.route('/api/files/recent')
 @login_required

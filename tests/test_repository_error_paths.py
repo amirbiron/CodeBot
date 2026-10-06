@@ -1,5 +1,7 @@
 import types
 
+import pytest
+
 
 def test_repo_helpers_error_paths(monkeypatch):
     from database.repository import Repository
@@ -26,9 +28,10 @@ def test_repo_helpers_error_paths(monkeypatch):
     assert repo.get_user_file_names_by_repo(1, "repo:me/x") == []
     assert repo.get_user_file_names(1, limit=5) == []
     assert repo.get_user_tags_flat(1) == []
-    # list_deleted_files errors
-    items, total = repo.list_deleted_files(1, page=1, per_page=10)
-    assert items == [] and total == 0
+    # list_deleted_files — כשל עולה, לא ``([], 0)``: זה סל ריק אמיתי, והבוט
+    # היה מציג "0 קבצים" במקום ❌.
+    with pytest.raises(RuntimeError, match="agg fail"):
+        repo.list_deleted_files(1, page=1, per_page=10)
     # github token helpers on errors
     assert repo.save_github_token(1, "tok") is False
     assert repo.get_github_token(1) is None

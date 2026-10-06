@@ -13,12 +13,13 @@
     </div>
 </div>
 
+{% if not load_failed %}
 <div class="glass-card" style="margin-top: 1rem;">
     <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap;">
         <div style="opacity:0.9;">
-            🗑️ יש כרגע <strong>{{ total_count }}</strong> פריטים בסל
+            🗑️ יש כרגע <strong>{{ total_count }}</strong> קבצים בסל
             {% if recycle_ttl_days %}
-            <span style="opacity:0.85;">| פריטים נמחקים אוטומטית אחרי ~{{ recycle_ttl_days }} ימים</span>
+            <span style="opacity:0.85;">| קבצים נמחקים אוטומטית אחרי ~{{ recycle_ttl_days }} ימים</span>
             {% endif %}
         </div>
         {% if total_pages > 1 %}
@@ -26,8 +27,19 @@
         {% endif %}
     </div>
 </div>
+{% endif %}
 
-{% if items %}
+{% if load_failed %}
+<div class="glass-card" style="margin-top: 1rem; text-align:center; padding: 3rem 1.5rem;">
+    <div style="font-size: 3rem; margin-bottom: 1rem;">⚠️</div>
+    <h2 style="margin:0;">לא הצלחנו לטעון את הסל</h2>
+    <p style="margin: 0.75rem 0 0; opacity:0.85;">שום דבר לא נמחק — זו תקלה בטעינה בלבד. נסו לרענן בעוד רגע.</p>
+    <a href="/trash" class="btn btn-primary btn-icon" style="margin-top: 1.25rem;">
+        <i class="fas fa-rotate-right" aria-hidden="true"></i>
+        רענון
+    </a>
+</div>
+{% elif items %}
 <div class="glass-card" style="margin-top: 1rem; overflow:hidden;">
     <div style="overflow-x:auto;">
         <table style="width:100%; border-collapse: collapse;">
@@ -49,8 +61,8 @@
                                 <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{{ it.file_name }}">{{ it.file_name }}</div>
                                 <div style="opacity:0.8; font-size:0.9rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
                                     <span class="lang-badge" data-lang="{{ it.language|lower }}">{{ it.language }}</span>
-                                    {% if it.version %}
-                                    <span class="badge" style="opacity:0.9;">v{{ it.version }}</span>
+                                    {% if it.versions and it.versions > 1 %}
+                                    <span class="badge" style="opacity:0.9;" title="מספר הגרסאות של הקובץ שנמצאות בסל">{{ it.versions }} גרסאות</span>
                                     {% endif %}
                                     {% if it.kind %}
                                     <span class="badge" style="opacity:0.9;">{{ it.kind }}</span>
@@ -65,13 +77,13 @@
                         <button type="button"
                                 class="btn btn-secondary btn-icon"
                                 onclick="restoreTrashed('{{ it.id }}')"
-                                title="שחזר">
+                                title="שחזר את הקובץ">
                             ♻️ <span class="btn-text">שחזר</span>
                         </button>
                         <button type="button"
                                 class="btn btn-danger btn-icon"
-                                onclick="purgeTrashed('{{ it.id }}')"
-                                title="מחיקה סופית">
+                                onclick="purgeTrashed('{{ it.id }}', {{ it.versions or 0 }})"
+                                title="מחק סופית את הקובץ וכל גרסאותיו שבסל">
                             🧨 <span class="btn-text">מחיקה סופית</span>
                         </button>
                     </td>
@@ -133,9 +145,13 @@ async function restoreTrashed(fileId) {
     }
 }
 
-async function purgeTrashed(fileId) {
+async function purgeTrashed(fileId, versions) {
     if (!fileId) return;
-    if (!confirm('למחוק לצמיתות? אי אפשר לשחזר אחרי זה.')) return;
+    // הפעולה חלה על הקובץ, ולכן האישור נוקב במספר הגרסאות שיימחקו.
+    const many = (Number(versions) > 1)
+        ? ` כל ${Number(versions)} הגרסאות שבסל יימחקו.`
+        : '';
+    if (!confirm(`למחוק לצמיתות?${many} אי אפשר לשחזר אחרי זה.`)) return;
     try {
         const res = await fetch(`/api/trash/${encodeURIComponent(fileId)}/purge`, {
             method: 'POST',
