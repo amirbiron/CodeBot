@@ -3612,7 +3612,9 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "`truncation_reason` instead. Vendored and compiled code "
             "(node_modules, *.bundle.js, *.min.js, *.min.css, *.map) is "
             "skipped by default, so zero results does not mean the string is "
-            "absent; include_vendored=true searches it too."
+            "absent; include_vendored=true searches it too. A folder that is "
+            "not skipped by default can be left out with "
+            "file_pattern=\":(exclude)<folder>\"."
         ),
         annotations=_READ_ONLY_TOOL,
         # תקרת התשובה, מוצהרת ב-``tools/list`` ואכופה בכלי עצמו (``answer_size``).
@@ -3622,7 +3624,34 @@ def _register_repo_tools(mcp: FastMCP, repo_backend: Any) -> None:
         ctx: Context,
         repo: str,
         query: str,
-        file_pattern: str | None = None,
+        # **כל משפט כאן הוא טענה על גיט, לא על הקוד שלנו.** הערך עובר כמו
+        # שהוא ל-``git grep`` כ-pathspec אחד (``search_with_git_grep``), ולכן
+        # הבעלים של ההתנהגות הוא גיט. המקור: ערך ``pathspec`` ב-
+        # ``Documentation/glossary-content.txt`` של git ``v2.43.0`` — "'*'
+        # and '?' _can_ match directory separators", ו-``**`` מיוחד רק תחת
+        # ``:(glob)``. כל צורה שהתיאור נוקב בה, כולל ``docs/**/*.html`` שמחמיץ,
+        # נמדדה על git 2.43.0 ומקובעת מול מראה אמיתית ב-
+        # ``tests/test_mcp_search_total.py`` (הסעיף על ``file_pattern``), כדי
+        # ששדרוג גיט שמשנה אותה יפיל את ה-CI ולא את הסוכנים.
+        file_pattern: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "One git pathspec that narrows which paths are searched, "
+                    "from the repo root. A folder path covers everything under "
+                    "it: \"docs\". `*` crosses folders: \"*.html\" finds .html "
+                    "files at any depth, and \"docs/*.html\" finds them anywhere "
+                    "under docs. `**` is not special here, so \"docs/**/*.html\" "
+                    "misses files directly in docs. \":(exclude)assets/vendor\" "
+                    "searches everything except that folder. The query ignores "
+                    "case by default, but this pattern does not: use "
+                    "\":(icase)*.html\" to ignore it. One pattern per call. It "
+                    "only narrows: vendored code and secret paths stay out even "
+                    "when the pattern matches them (include_vendored=true brings "
+                    "vendored code back)."
+                )
+            ),
+        ] = None,
         max_results: int = 50,
         context_lines: StrictInt = 0,
         case_sensitive: Annotated[
