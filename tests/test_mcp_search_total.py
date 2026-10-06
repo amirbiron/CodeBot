@@ -980,6 +980,130 @@ async def test_case_sensitive_does_not_reopen_a_denied_or_vendored_path(tmp_path
 
 
 # ===========================================================================
+# 3ג. ``file_pattern`` — מה שהתיאור מבטיח בשם גיט
+# ===========================================================================
+#
+# הפרמטר עבר תמיד כמו שהוא ל-``git grep`` כ-pathspec אחד, אבל לא היה לו
+# תיאור, וסוכן שרצה להחריג תיקייה ביקש כלי חדש במקום להשתמש בו. התיאור
+# שנוסף מבטיח התנהגויות **של גיט**, ולכן הסעיף הזה עושה שני דברים: בודק
+# שהתיאור נוקב בכל צורה בטבלה, ומריץ כל צורה מול מראה אמיתית ובודק את
+# התוצאה שנמדדה לה על git 2.43.0. שדרוג גיט שמשנה צורה כלשהי יפיל את
+# הטסטים האלה, במקום שהתיאור ימשיך להבטיח אותה לסוכנים.
+
+# קובץ אחד בכל מקום שהצורות נבדלות בו: ישירות תחת ``docs``, בעומק תחתיה,
+# בתיקייה שמחריגים, מחוץ לכל אלה, וסיומת באותיות גדולות. מופע אחד בכל
+# קובץ, כדי ש-``total`` יגיד בדיוק כמה קבצים נכנסו.
+_PATHSPEC_TREE = {
+    "docs/a.html": _lines(1),
+    "docs/deep/b.html": _lines(1),
+    "assets/vendor/lib.js": _lines(1),
+    "src/app.js": _lines(1),
+    "top.HTML": _lines(1),
+}
+
+#: כל צורה שתיאור הפרמטר נוקב בה, והקבצים שנמדד שהיא מחזירה (git 2.43.0).
+#: החיפוש עצמו רץ כאן בברירת המחדל, כלומר עם ``-i`` — ולכן ``*.html`` שלא
+#: תופס את ``top.HTML`` הוא בדיוק הטענה "השאילתה מתעלמת מרישיות, התבנית לא".
+_FILE_PATTERN_FORMS = (
+    ("docs", {"docs/a.html", "docs/deep/b.html"}),
+    ("*.html", {"docs/a.html", "docs/deep/b.html"}),
+    ("docs/*.html", {"docs/a.html", "docs/deep/b.html"}),
+    # ``**`` אינו מיוחד בלי ``:(glob)``, והלוכסן שאחריו דורש תיקייה נוספת —
+    # ולכן ``docs/a.html`` נשאר בחוץ, בלי שגיאה. זו המלכודת שהתיאור מזהיר ממנה.
+    ("docs/**/*.html", {"docs/deep/b.html"}),
+    (":(exclude)assets/vendor", {"docs/a.html", "docs/deep/b.html", "src/app.js", "top.HTML"}),
+    (":(icase)*.html", {"docs/a.html", "docs/deep/b.html", "top.HTML"}),
+)
+
+
+@requires_git
+async def test_the_file_pattern_description_names_every_form_that_is_tested(tmp_path, monkeypatch):
+    """התיאור, כפי שהלקוח מקבל אותו ב-``tools/list``, נוקב בכל צורה בטבלה.
+
+    **דרך ``list_tools`` ולא דרך הקובץ.** זה מה שהסוכן קורא, וכוכבית שנבלעה
+    בדרך — טקסט עם ``*`` שעבר במקום שפירש אותו כ-Markdown — הייתה מגיעה
+    לסוכן כתבנית אחרת. ותיאור הכלי מפנה לפרמטר, כי סוכן שלא יודע שאפשר
+    להחריג תיקייה לא יחפש את זה בתיאור של ``file_pattern``.
+    """
+    mcp = _build(tmp_path, {"src/a.py": _lines(1)}, monkeypatch)
+
+    tool = {t.name: t for t in await mcp.list_tools()}["codekeeper_search_repo"]
+    described = tool.inputSchema["properties"]["file_pattern"].get("description") or ""
+
+    for pattern, _found in _FILE_PATTERN_FORMS:
+        assert f'"{pattern}"' in described, pattern
+    assert 'file_pattern=":(exclude)' in tool.description
+
+
+@requires_git
+@pytest.mark.parametrize(("pattern", "found"), _FILE_PATTERN_FORMS, ids=[p for p, _ in _FILE_PATTERN_FORMS])
+async def test_each_described_file_pattern_returns_what_was_measured(tmp_path, monkeypatch, pattern, found):
+    """כל צורה מהתיאור מחזירה בדיוק את הקבצים שנמדדו לה — בתוצאות ובספירה."""
+    mcp = _build(tmp_path, _PATHSPEC_TREE, monkeypatch)
+
+    out = await _search(mcp, max_results=50, file_pattern=pattern)
+
+    assert {r["path"] for r in out["results"]} == found
+    assert out["total"] == len(found)
+
+
+@requires_git
+async def test_a_file_pattern_is_matched_from_the_repo_root(tmp_path, monkeypatch):
+    """‏``from the repo root``: תיקייה מקוננת נמצאת רק בנתיב המלא שלה."""
+    mcp = _build(tmp_path, _PATHSPEC_TREE, monkeypatch)
+
+    assert (await _search(mcp, max_results=50, file_pattern="deep"))["total"] == 0
+    nested = await _search(mcp, max_results=50, file_pattern="docs/deep")
+    assert [r["path"] for r in nested["results"]] == ["docs/deep/b.html"]
+
+
+@requires_git
+async def test_one_file_pattern_per_call_a_list_sent_as_text_is_one_path(tmp_path, monkeypatch):
+    """‏``One pattern per call``: רשימה שנשלחה כמחרוזת אינה מתפצלת לשתי תבניות.
+
+    היא מגיעה לגיט כנתיב אחד ששמו הוא הטקסט כולו, ולכן אינה תופסת כלום —
+    לא ``docs`` ולא ``src``. ובדרך זה גם שומר על #3471 לפרמטר הזה: אילו
+    ה-pre-parse של ה-SDK היה הופך את הטקסט לרשימה, הוולידציה הייתה מסרבת
+    ולא מחזירה תשובה עם ``total``.
+    """
+    mcp = _build(tmp_path, _PATHSPEC_TREE, monkeypatch)
+
+    out = await _search(mcp, max_results=50, file_pattern='["docs", "src"]')
+
+    assert out["ok"] is True
+    assert out["total"] == 0
+
+
+@requires_git
+async def test_a_file_pattern_only_narrows_and_never_reopens_an_excluded_path(tmp_path, monkeypatch):
+    """תבנית שמתאימה לקוד חיצוני או לסוד אינה מחזירה אותם.
+
+    ההחרגות נכנסות לאותה פקודה כ-pathspec שלילי, וגיט מריץ כל נתיב שהתאים
+    דרך כל ההחרגות. כלומר אפס כאן אינו "אין קובץ כזה" — ובדיוק בגלל זה
+    התיאור אומר את זה. ``include_vendored`` מחזיר את הקוד החיצוני, והסוד
+    נשאר בחוץ גם אז.
+    """
+    mcp = _build(
+        tmp_path,
+        {
+            "src/a.py": _lines(1),
+            "static/lib.min.js": _lines(1),
+            "config/.env": _lines(1),
+        },
+        monkeypatch,
+    )
+
+    assert (await _search(mcp, max_results=50, file_pattern="static/lib.min.js"))["total"] == 0
+    assert (await _search(mcp, max_results=50, file_pattern="config/.env"))["total"] == 0
+
+    vendored = await _search(mcp, max_results=50, file_pattern="static/lib.min.js", include_vendored=True)
+    assert [r["path"] for r in vendored["results"]] == ["static/lib.min.js"]
+    secret = await _search(mcp, max_results=50, file_pattern="config/.env", include_vendored=True)
+    assert secret["total"] == 0
+    assert secret["results"] == []
+
+
+# ===========================================================================
 # 4. הספירה אינה נגזרת ממה שביקשו להחזיר
 # ===========================================================================
 
