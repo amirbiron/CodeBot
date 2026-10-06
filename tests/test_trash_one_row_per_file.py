@@ -590,3 +590,193 @@ def test_the_bot_restore_brings_back_every_version(bot_on_test_db, monkeypatch):
 
     assert _active(bot_on_test_db) == 3, "השחזור בבוט החזיר גרסה אחת"
     assert _in_trash(bot_on_test_db) == 0
+
+
+# ── סבב הריוויו: אינדוקס אחרי שחזור, קבצים גדולים, כשל בבוט ─────────────
+
+
+@pytest.fixture
+def reindex_lands_in_test_db(wired_mongo, monkeypatch):
+    """הסימון לאינדוקס מחדש נכתב במסד הבדיקה, ולא נבלע.
+
+    ‏``mark_snippets_for_reindex`` כותב דרך ``database.manager._get_raw_db``,
+    שבטסטים מחזיר NoOp (``DISABLE_DB=1`` ב-``tests/conftest.py``). בלי ההפניה
+    הדגל לא מגיע לשום מקום, והטסט היה נופל גם על קוד תקין. אותה הפניה כמו
+    ``tests/test_manager_snippet_queue.py``.
+    """
+    import importlib
+
+    manager_mod = sys.modules.get("database.manager") or importlib.import_module("database.manager")
+    monkeypatch.setattr(manager_mod, "_get_raw_db", lambda: wired_mongo.get_db())
+    return wired_mongo
+
+
+def _marked_for_reindex(wa, file_name=FILE):
+    return [d["_id"] for d in wa.get_db().code_snippets.find(
+        {"user_id": USER_ID, "file_name": file_name, "needs_embedding": True}, {"_id": 1})]
+
+
+def test_restore_marks_the_latest_version_for_reindex(reindex_lands_in_test_db):
+    """הגרסה **האחרונה** היא זו שמסומנת — לא הראשונה בסדר הטבעי.
+
+    ה-worker מסיים כל גרסה שאינה האחרונה באפס צ'אנקים ומנקה את הדגל
+    (``is_latest_active_snippet``). הצ'אנקים של כל הגרסאות נמחקו בהעברה
+    לסל, ולכן סימון של v1 משאיר את הקובץ המשוחזר מחוץ לחיפוש הסמנטי
+    לצמיתות. הגרסאות מוכנסות v1 ← v3, כך ש-v1 הוא הראשון בסדר הטבעי.
+    """
+    wa = reindex_lands_in_test_db
+    _reset(wa)
+    ids = _seed_trashed(wa, versions=3)
+
+    resp = _client(wa).post(f"/api/trash/{ids[1]}/restore", json={})
+
+    assert resp.status_code == 200, resp.data
+    assert _marked_for_reindex(wa) == [ids[2]], (
+        "סומנה גרסה שאינה האחרונה — הקובץ לא יחזור לחיפוש הסמנטי")
+
+
+def test_the_bot_restore_marks_the_latest_version_too(reindex_lands_in_test_db, monkeypatch):
+    """אותה טענה במסלול של הבוט, שעובר דרך ``Repository.restore_file_by_id``."""
+    import asyncio
+
+    import conversation_handlers as ch
+
+    wa = reindex_lands_in_test_db
+    repo = _repo_for(wa)
+    module = types.ModuleType("database")
+
+    class _DB:
+        def _get_repo(self):
+            return repo
+
+    module.db = _DB()
+    monkeypatch.setitem(sys.modules, "database", module)
+    _reset(wa)
+    ids = _seed_trashed(wa, versions=3)
+
+    async def _fake_edit(query, text, reply_markup=None, parse_mode=None):
+        return None
+
+    monkeypatch.setattr(ch.TelegramUtils, "safe_edit_message_text", _fake_edit)
+
+    class _Q:
+        def __init__(self):
+            self.data = f"recycle_restore:{ids[1]}"
+            self.message = types.SimpleNamespace()
+
+        async def answer(self, *a, **k):
+            return None
+
+    class _U:
+        def __init__(self):
+            self.callback_query = _Q()
+            self.effective_user = types.SimpleNamespace(id=USER_ID)
+
+    asyncio.run(ch.recycle_restore(_U(), types.SimpleNamespace(user_data={})))
+
+    assert _active(wa) == 3
+    assert _marked_for_reindex(wa) == [ids[2]]
+
+
+def _seed_large_revisions(wa, file_name="big.md"):
+    """שתי רוויזיות בסל של אותו קובץ גדול, ש-``deleted_at`` ו-``updated_at``
+    **חולקים** עליהן: הראשונה נמחקה ראשונה אבל נושאת ``updated_at`` מאוחר.
+
+    זה המצב ששחזור מגיבוי יוצר — ``updated_at`` היסטורי עובר כמו שהוא דרך
+    ``save_large_file``. בלי המחלוקת, מיון לפי השדה הלא נכון היה עובר כאן
+    דרך שובר השוויון ולא נתפס.
+    """
+    db = wa.get_db()
+    first, last = ObjectId(), ObjectId()
+    db.large_files.insert_one({
+        "_id": first, "user_id": USER_ID, "file_name": file_name, "content": "ישן",
+        "is_active": False,
+        "updated_at": DELETED_AT + timedelta(days=9),
+        "deleted_at": DELETED_AT,
+        "deleted_expires_at": EXPIRES_AT,
+    })
+    db.large_files.insert_one({
+        "_id": last, "user_id": USER_ID, "file_name": file_name, "content": "חדש",
+        "is_active": False,
+        "updated_at": DELETED_AT - timedelta(days=9),
+        "deleted_at": DELETED_AT + timedelta(hours=1),
+        "deleted_expires_at": EXPIRES_AT,
+    })
+    return first, last
+
+
+def _active_large(wa, file_name="big.md"):
+    return list(wa.get_db().large_files.find(
+        {"user_id": USER_ID, "file_name": file_name, "is_active": True}, {"_id": 1, "content": 1}))
+
+
+def test_restoring_a_large_file_brings_back_one_revision(wired_mongo):
+    """ב-``large_files`` מסמך הוא הקובץ — שחזור של כולם היה יוצר כפילות.
+
+    ‏``get_user_large_files`` היה מציג את הקובץ פעמיים, ו-``get_large_file``
+    (``find_one`` בלי מיון) היה מגיש רוויזיה שרירותית — אולי הישנה.
+    """
+    _reset(wired_mongo)
+    first, last = _seed_large_revisions(wired_mongo)
+
+    resp = _client(wired_mongo).post(f"/api/trash/{first}/restore", json={})
+
+    assert resp.status_code == 200, resp.data
+    active = _active_large(wired_mongo)
+    assert len(active) == 1, f"{len(active)} עותקים פעילים של אותו קובץ גדול"
+    assert active[0]["_id"] == last, "חזרה רוויזיה שאינה זו שנמחקה אחרונה"
+    assert active[0]["content"] == "חדש"
+    # השנייה נשארת בסל — מוסתרת, כי לשם יש עכשיו קובץ פעיל — וה-TTL מנקה.
+    assert wired_mongo.get_db().large_files.count_documents(
+        {"_id": first, "is_active": False}) == 1
+    assert "big.md" not in _trash_html(wired_mongo)
+
+
+def test_restoring_over_a_live_large_file_is_refused(wired_mongo):
+    """רוויזיה בסל של קובץ גדול **חי** — המצב שכל שמירה מחדש משאירה.
+
+    הצינור מסתיר שורה כזו, אבל עמוד ישן או קריאה ישירה ל-API עדיין שולחים
+    את המזהה.
+    """
+    _reset(wired_mongo)
+    first, _last = _seed_large_revisions(wired_mongo)
+    alive = ObjectId()
+    wired_mongo.get_db().large_files.insert_one({
+        "_id": alive, "user_id": USER_ID, "file_name": "big.md", "content": "חי",
+        "is_active": True,
+    })
+
+    resp = _client(wired_mongo).post(f"/api/trash/{first}/restore", json={})
+
+    assert resp.status_code == 409, resp.data
+    assert resp.get_json().get("ok") is False
+    assert [d["_id"] for d in _active_large(wired_mongo)] == [alive]
+
+
+def test_a_large_file_row_does_not_promise_versions(wired_mongo):
+    """השורה לא מצהירה "N גרסאות" כשהכפתור מחזיר אחת."""
+    _reset(wired_mongo)
+    _seed_large_revisions(wired_mongo)
+
+    html = _trash_html(wired_mongo)
+
+    assert _rows(html) == 1
+    assert "2 גרסאות" not in html
+
+
+def test_a_failed_trash_query_in_the_bot_is_an_error_and_not_zero_files(
+        bot_on_test_db, monkeypatch):
+    """כשל במסד מוצג ❌, ולא "0 קבצים" — שנראה בדיוק כמו סל ריק."""
+    _reset(bot_on_test_db)
+    _seed_trashed(bot_on_test_db, versions=2)
+    repo = sys.modules["database"].db._get_repo()
+
+    def _boom(*a, **k):
+        raise RuntimeError("aggregate_failed")
+
+    monkeypatch.setattr(repo.manager.collection, "aggregate", _boom, raising=False)
+
+    text, markup = _bot_screen(monkeypatch)
+
+    assert "שגיאה בטעינת סל המיחזור" in text, text
+    assert "קבצים" not in text, text

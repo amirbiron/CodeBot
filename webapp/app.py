@@ -208,6 +208,8 @@ from file_description import (  # noqa: E402
 from file_deletion import (  # noqa: E402
     RECYCLE_BIN_COLLECTIONS,
     RECYCLE_BIN_TTL_FIELD,
+    SINGLE_ACTIVE_COLLECTIONS,
+    RestoreConflict,
     is_recycle_bin_ttl_index,
     purge_files_by_names,
     recycle_bin_count_stages,
@@ -13455,8 +13457,11 @@ def trash_page():
             'deleted_at': format_datetime_display(doc.get('deleted_at')),
             'expires_at': format_datetime_display(doc.get('expires_at')),
             # מספר מסמכי הגרסה **שבסל**, ולא מספר הגרסאות של הקובץ:
-            # לקובץ שחלקו עוד פעיל יש גם גרסאות שאינן כאן.
-            'versions': int(doc.get('versions') or 0),
+            # לקובץ שחלקו עוד פעיל יש גם גרסאות שאינן כאן. ובקובץ גדול 0 —
+            # אלה רוויזיות, והשחזור מחזיר אחת מהן בלבד
+            # (``file_deletion.SINGLE_ACTIVE_COLLECTIONS``), ולכן השורה לא
+            # מצהירה על מספר שהכפתור לא מקיים.
+            'versions': 0 if is_large else int(doc.get('versions') or 0),
             'kind': ('גדול' if is_large else 'רגיל'),
         })
 
@@ -15175,7 +15180,12 @@ def api_recycle_bin_restore(file_id: str):
             names, _found = resolve_trashed_file_names(collection, user_id, [oid])
             if not names:
                 continue
-            restored, restored_ids = restore_files_by_names(collection, user_id, names)
+            restored, restored_ids = restore_files_by_names(
+                collection, user_id, names, source=coll_name)
+        except RestoreConflict:
+            # לפני ה-``except Exception``: זה סירוב צפוי ולא תקלה. לשם כבר
+            # יש קובץ פעיל, ושחזור היה יוצר עותק שני שלו.
+            return jsonify({'ok': False, 'error': 'קיים כבר קובץ פעיל בשם הזה'}), 409
         except Exception:
             logger.exception("trash.restore_failed")
             return jsonify({'ok': False, 'error': 'שגיאה בשחזור'}), 500
@@ -15184,8 +15194,11 @@ def api_recycle_bin_restore(file_id: str):
 
         # מזהה **אחד** ולא כולם: ``services/embedding_worker`` מוותר על כל
         # גרסה שאינה האחרונה ומסיים אותה באפס צ'אנקים, ולכן סימון של N
-        # גרסאות קונה N סבבי worker ואפס תוצאה.
-        _mark_snippets_for_reindex(restored_ids[:1])
+        # גרסאות קונה N סבבי worker ואפס תוצאה. הראשון הוא הגבוה —
+        # ``restore_files_by_names`` ממיין. ובאוסף של פעיל-אחד-לכל-שם אין מה
+        # לסמן: הסימון מעדכן את ``code_snippets`` בלבד.
+        if coll_name not in SINGLE_ACTIVE_COLLECTIONS:
+            _mark_snippets_for_reindex(restored_ids[:1])
         try:
             cache.invalidate_user_cache(int(user_id))
             cache.delete_pattern(f"collections_*:{int(user_id)}:*")

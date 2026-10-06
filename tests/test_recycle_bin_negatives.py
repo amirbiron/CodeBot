@@ -141,7 +141,12 @@ def test_repository_restore_and_purge_paths(monkeypatch):
     repo = Repository(mgr)
     assert repo.purge_file_by_id(user_id=5, file_id=str(docs[0]["_id"])) is True
     assert mgr.collection.docs == []
-    assert "_id" not in mgr.collection.delete_calls[-1]
+    # המסנן לפי שם, ותחום ל**כל** מזהי הקובץ שבסל — לא למזהה הבודד שהגיע
+    # מהממשק. התחימה ל-``_id`` היא מה שמאפשר להשוות ``deleted_count`` למה
+    # שנאסף (``purge_files_by_names``).
+    flt = mgr.collection.delete_calls[-1]
+    assert flt["file_name"] == {"$in": ["b.py"]}, flt
+    assert set(flt["_id"]["$in"]) == {d["_id"] for d in docs}, flt
 
 
 def test_an_id_that_is_not_in_the_trash_is_not_a_success(monkeypatch):

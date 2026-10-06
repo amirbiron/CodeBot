@@ -40,9 +40,33 @@ class _FakeCollection:
         return _Result(modified=self.modified)
 
     def delete_many(self, query):
-        return _Result(deleted=self.deleted)
+        """מוחקת באמת את מה שהמסנן תופס — ``deleted = 0`` מדמה "לא נמחק כלום".
 
-    def find(self, query, projection=None):
+        ‏``purge_files_by_names`` משווה את ``deleted_count`` למספר המזהים
+        שאסף, וכשהוא קצר קורא מה **עוד קיים**. דמה שמדווחת מחיקה בלי למחוק
+        הייתה מציגה לו שורד מקבילי שאינו קיים.
+        """
+        if not self.deleted:
+            return _Result(deleted=0)
+        hits = [d for d in self.docs if self._matches(d, query)]
+        self.docs = [d for d in self.docs if d not in hits]
+        return _Result(deleted=len(hits))
+
+    @staticmethod
+    def _matches(doc, query):
+        ids = (query.get("_id") or {}).get("$in") if isinstance(query.get("_id"), dict) else None
+        names = (query.get("file_name") or {}).get("$in") if isinstance(query.get("file_name"), dict) else None
+        if "user_id" in query and doc.get("user_id") != query.get("user_id"):
+            return False
+        if "is_active" in query and doc.get("is_active") is not query.get("is_active"):
+            return False
+        if ids is not None and doc.get("_id") not in ids:
+            return False
+        if names is not None and doc.get("file_name") not in names:
+            return False
+        return True
+
+    def find(self, query, projection=None, *args, sort=None, **kwargs):
         """מכבדת את המסננים, כי בלעדיהם אין מה שהבדיקה בודקת.
 
         מסלולי השחזור וה-purge מתרגמים מזהה ← שם קובץ ואז אוספים את מזהי
@@ -50,20 +74,16 @@ class _FakeCollection:
         שאילתה לא יכולה להבדיל בין "מצאתי" ל"לא מצאתי", ודמה שמחזירה
         מסמך בלי ``file_name`` מחזירה רשימת שמות ריקה — כלומר ``False``
         בלי שום רמז למה.
+
+        ‏``sort`` מכובד כמו ב-pymongo (``Cursor(sort=...)``): ``_trashed_ids_for_names``
+        ממיין כדי שהמזהה הראשון יהיה הגרסה האחרונה, ודמה שמתעלמת מהמיון
+        הייתה מחזירה את הסדר הטבעי — בדיוק הבאג שהטסט צריך לתפוס.
         """
-        ids = (query.get("_id") or {}).get("$in") if isinstance(query.get("_id"), dict) else None
-        names = (query.get("file_name") or {}).get("$in") if isinstance(query.get("file_name"), dict) else None
-        out = []
-        for doc in self.docs:
-            if "user_id" in query and doc.get("user_id") != query.get("user_id"):
-                continue
-            if "is_active" in query and doc.get("is_active") is not query.get("is_active"):
-                continue
-            if ids is not None and doc.get("_id") not in ids:
-                continue
-            if names is not None and doc.get("file_name") not in names:
-                continue
-            out.append(dict(doc))
+        out = [dict(doc) for doc in self.docs if self._matches(doc, query)]
+        # מיון יציב, מהמפתח האחרון לראשון. שדה חסר נמוך מכל ערך, כמו ב-BSON.
+        for key, direction in reversed(list(sort or [])):
+            out.sort(key=lambda d: (d.get(key) is not None, d.get(key) if d.get(key) is not None else 0),
+                     reverse=direction == -1)
         return out
 
     def distinct(self, key, filter=None, *a, **k):
@@ -223,6 +243,33 @@ class TestPurge:
         assert repository.purge_file_by_id(7, str(FILE_ID)) is True
         assert calls["delete"], "purge_file_by_id left the semantic chunks behind"
 
+    def test_a_version_restored_mid_purge_keeps_its_chunks(self, repo):
+        """שחזור מקביל בין איסוף המזהים למחיקה.
+
+        המזהים נאספים לפני ``delete_many``. גרסה ששוחזרה ביניהם אינה נמחקת —
+        המסנן תחום ל-``is_active: False`` — אבל המזהה שלה כבר ברשימה, והרשימה
+        הולכת ל-``delete_snippet_chunks``. כלומר מחיקה של הצ'אנקים של גרסה
+        **חיה**. הרשימה שחוזרת חייבת להיות מה שבאמת נמחק.
+        """
+        repository, calls = repo
+        coll = repository.manager.collection
+        survivor = max(coll.docs, key=lambda d: d["version"])
+        real_delete_many = coll.delete_many
+
+        def _restore_then_delete(query):
+            # השחזור המקביל נוחת בדיוק כאן: אחרי האיסוף, לפני המחיקה.
+            survivor["is_active"] = True
+            return real_delete_many(query)
+
+        coll.delete_many = _restore_then_delete
+
+        assert repository.purge_file_by_id(7, str(FILE_ID)) is True
+
+        assert any(d["_id"] == survivor["_id"] for d in coll.docs), "הגרסה החיה נמחקה"
+        sent = calls["delete"][-1]["snippet_ids"]
+        assert survivor["_id"] not in sent, "הצ'אנקים של גרסה ששוחזרה נשלחו למחיקה"
+        assert sent == [FILE_ID], sent
+
     def test_purge_that_found_nothing_cleans_nothing(self, repo):
         repository, calls = repo
         repository.manager.collection.deleted = 0
@@ -237,9 +284,16 @@ class TestRestore:
         """הצ'אנקים נמחקו בהעברה לסל; בלי הסימון הזה הקובץ המשוחזר לא היה
         חוזר לחיפוש הסמנטי לעולם."""
         repository, calls = repo
+        latest = max(repository.manager.collection.docs, key=lambda d: d["version"])
+
+        # המזהה שנשלח הוא של v1 — זה ש-``FILE_ID`` מחזיק, והראשון בסדר הטבעי.
         assert repository.restore_file_by_id(7, str(FILE_ID)) is True
         assert calls["reindex"], "restored file was never queued for re-embedding"
-        assert len(calls["reindex"][-1]) == 1
+        # **איזה** מזהה, ולא כמה. ה-worker מסיים כל גרסה שאינה האחרונה באפס
+        # צ'אנקים (``is_latest_active_snippet``), ולכן סימון של v1 היה משאיר
+        # את הקובץ המשוחזר מחוץ לחיפוש הסמנטי לצמיתות. בדיקה של האורך בלבד
+        # עברה על הקוד ששלח את v1.
+        assert calls["reindex"][-1] == [latest["_id"]], calls["reindex"][-1]
 
     def test_restore_that_found_nothing_marks_nothing(self, repo):
         repository, calls = repo

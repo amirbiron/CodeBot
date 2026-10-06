@@ -24,7 +24,13 @@
 תצורה שאף שירות אינו קורא.
 
 הסקריפט כותב **רק** למסד שהוא יוצר לעצמו (``ckmeasure_recycle_bin``),
-מוחק אותו בהתחלה ובסוף, ואינו נוגע בשום קולקציה אחרת. ``deleted_expires_at``
+מוחק אותו בהתחלה ובסוף, ואינו נוגע בשום קולקציה אחרת. זה דורש עבודה, כי
+``database.manager`` נטען דרך ``database/__init__.py``, שבונה בזמן הייבוא
+``DatabaseManager()`` גלובלי — והוא מתחבר ויוצר את כל האינדקסים במסד של
+ברירת המחדל, בשרת שבכתובת. ראו :func:`_isolate_from_bot_config`.
+
+הכתובת עצמה אינה מודפסת ואינה נכנסת לסביבה: היא יכולה לשאת סיסמה.
+``deleted_expires_at``
 מוזרע **בעתיד** בכוונה: אינדקס ה-TTL של הסל מוחק מסמכים שעבר זמנם, והזרעה
 עם תאריך שחלף רוקנה את מסד המדידה באמצע הריצה הראשונה.
 """
@@ -49,10 +55,24 @@ def _uri() -> str:
     return args[0] if args else DEFAULT_URI
 
 
-# ``database.manager`` מייבא את ``config``, שדורש ``MONGODB_URL`` בטעינה.
-# ‏``setdefault`` ולא השמה: סביבה שהגדירה אותו כבר אינה נדרסת, והמסד שנוצר
-# הוא ``DB_NAME`` שלמטה ולא זה שבכתובת.
-os.environ.setdefault("MONGODB_URL", _uri())
+def _isolate_from_bot_config() -> None:
+    """מה שחייב לקרות **לפני** ``from database.manager import ...``.
+
+    אותה צורה של ``tests/conftest.py``, ומאותן סיבות:
+
+    - ``DISABLE_DB`` — **השמה ולא** ``setdefault``: המופע הגלובלי שבונה
+      ``database/__init__.py`` לא מתחבר (``DatabaseManager.connect``), ולכן
+      לא יוצר אינדקסים במסד של ברירת המחדל בשרת הנמדד. האינדקסים שהמדידה
+      צריכה נוצרים במפורש, על מסד המדידה בלבד.
+    - ``BOT_TOKEN`` ו-``MONGODB_URL`` — ``config`` דורש את שניהם בטעינה, ובלי
+      ``.env`` בתיקייה הייבוא קורס. ערכי דמה, ב-``setdefault``: אף אחד מהם
+      לא משמש כאן. **הכתובת הנמדדת לא נכנסת לשם בכוונה** — כשל אימות של
+      ``config`` מדפיס את ערכי השדות, וכתובת יכולה לשאת סיסמה.
+    """
+    os.environ["DISABLE_DB"] = "1"
+    os.environ.setdefault("BOT_TOKEN", "measure-recycle-bin-pipeline")
+    os.environ.setdefault("MONGODB_URL", DEFAULT_URI)
+
 
 DB_NAME = "ckmeasure_recycle_bin"
 USER_ID = 5
@@ -157,6 +177,7 @@ def main() -> int:
         print("pymongo אינו מותקן")
         return 2
 
+    _isolate_from_bot_config()
     from database.manager import DatabaseManager
     from file_deletion import (
         recycle_bin_group_stages,
@@ -170,7 +191,8 @@ def main() -> int:
     try:
         client.admin.command("ping")
     except Exception as exc:
-        print(f"אין מונגו ב-{uri}: {exc}")
+        # סוג החריגה בלבד: הכתובת וגוף ההודעה יכולים לשאת סיסמה.
+        print(f"אין חיבור למונגו בכתובת שנמסרה ({type(exc).__name__})")
         return 2
 
     client.drop_database(DB_NAME)

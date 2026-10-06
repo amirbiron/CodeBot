@@ -150,7 +150,13 @@ def test_a_document_without_deleted_at_still_comes_back(wired_mongo):
 
 
 def test_a_failed_query_is_reported_and_not_an_empty_list(wired_mongo, monkeypatch):
-    """ערוץ הכשל נשמר ``([], 0)`` — אבל נרשם, ומהסיבה הנכונה."""
+    """כשל עולה כחריגה, ולא חוזר כ-``([], 0)``.
+
+    ‏``([], 0)`` הוא סל ריק אמיתי. כשל שחוזר בצורה הזו עובר את
+    ``FilesFacade.list_deleted_files`` ואת ``show_recycle_bin`` כאילו הכול
+    תקין, והבוט מציג "0 קבצים". חריגה הופכת ב-``_call_files_api`` ל-``None``,
+    והבוט מציג ❌.
+    """
     _reset(wired_mongo)
     _seed(wired_mongo, "code_snippets", "a.py", deleted_at=NOW)
     repo = _repo(wired_mongo)
@@ -160,4 +166,5 @@ def test_a_failed_query_is_reported_and_not_an_empty_list(wired_mongo, monkeypat
 
     monkeypatch.setattr(repo.manager.collection, "aggregate", _boom, raising=False)
 
-    assert repo.list_deleted_files(USER_ID, page=1, per_page=20) == ([], 0)
+    with pytest.raises(RuntimeError, match="aggregate_failed"):
+        repo.list_deleted_files(USER_ID, page=1, per_page=20)

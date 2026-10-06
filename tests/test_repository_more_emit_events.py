@@ -158,13 +158,17 @@ def test_many_repository_errors_emit_events(monkeypatch):
     assert r.delete_large_file_by_id("id") is False
     assert any(e[0] == "db_delete_large_file_by_id_error" for e in cap["events"]) 
 
-    # 19) list_deleted_files error
+    # 19) list_deleted_files error — נרשם **וזורק**. ``([], 0)`` הוא סל ריק
+    # אמיתי, ולכן כשל שחוזר כך נראה בבוט כמו "0 קבצים"; ה-facade מעביר את
+    # החריגה, והבוט מציג ❌. הסטאב מפיל את ``aggregate`` — זו הקריאה שהפונקציה
+    # עושה — ו-``pytest.raises`` צר: סטאב בלי המתודה היה זורק
+    # ``AttributeError``, ובדיקה רחבה הייתה עוברת עליו.
     class _ListBoom:
-        def find(self, *a, **k):
-            raise RuntimeError("find fail")
+        def aggregate(self, *a, **k):
+            raise RuntimeError("aggregate fail")
     r = _repo_with_collections(coll=_ListBoom(), lcoll=_ListBoom())
-    files, total = r.list_deleted_files(uid)
-    assert files == [] and total == 0
+    with pytest.raises(RuntimeError, match="aggregate fail"):
+        r.list_deleted_files(uid)
     # Verify the structured event is emitted on failure
     assert any(e[0] == "db_list_deleted_files_error" for e in cap["events"]) 
 

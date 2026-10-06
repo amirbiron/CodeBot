@@ -44,6 +44,8 @@ from i18n.strings_he import BTN_BACKUP_ZIPS
 from handlers.pagination import build_pagination_row
 from config import config
 from urllib.parse import quote_plus
+# מודול שורש טהור (בלי חיבור משלו): איזה אוסף מחזיק פעיל אחד לכל שם.
+from file_deletion import SINGLE_ACTIVE_COLLECTIONS
 
 DEFAULT_WEBAPP_URL = "https://code-keeper-webapp.onrender.com"
 
@@ -2280,8 +2282,10 @@ async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 versions = 0
             # עד אוקטובר 2026 קובץ בן שש גרסאות תפס שש שורות כפתורים
             # זהות לחלוטין. השורה היא קובץ, ולכן היא מצהירה כמה מגרסאותיו
-            # נמצאות בסל — ולא איזו גרסה היא.
-            suffix = f" ({versions} גרסאות)" if versions > 1 else ""
+            # נמצאות בסל — ולא איזו גרסה היא. בקובץ גדול לא: אלה רוויזיות,
+            # והשחזור מחזיר אחת בלבד (``file_deletion.SINGLE_ACTIVE_COLLECTIONS``).
+            single_active = it.get('source') in SINGLE_ACTIVE_COLLECTIONS
+            suffix = f" ({versions} גרסאות)" if versions > 1 and not single_active else ""
             keyboard.append([
                 InlineKeyboardButton(f"♻️ שחזר: {name}{suffix}", callback_data=f"recycle_restore:{fid}"),
                 InlineKeyboardButton("🧨 מחיקה סופית", callback_data=f"recycle_purge:{fid}")

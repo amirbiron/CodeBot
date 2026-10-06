@@ -44,10 +44,15 @@ __all__ = [
     "RECYCLE_BIN_TTL_FIELD",
     "RECYCLE_BIN_TTL_INDEX_NAME",
     "RECYCLE_BIN_TTL_PARTIAL_FILTER",
+    "RestoreConflict",
+    "SINGLE_ACTIVE_COLLECTIONS",
     "SoftDeleteResult",
     "is_recycle_bin_ttl_index",
     "purge_files_by_names",
+    "recycle_bin_count_stages",
     "recycle_bin_group_stages",
+    "recycle_bin_page_stages",
+    "recycle_bin_rows_pipeline",
     "resolve_owned_file_names",
     "resolve_trashed_file_names",
     "restore_files_by_names",
@@ -465,18 +470,110 @@ def _trashed_ids_for_names(
     נאספים **לפני** הפעולה: אחרי ``delete_many`` אין מה לאסוף, ואחרי
     ``update_many`` המסמכים כבר אינם ``is_active: False``. הם נדרשים כדי
     שניקוי הצ'אנקים והסימון לאינדוקס מחדש יקבלו את כל הגרסאות ולא אחת.
+
+    **ממוינים, והראשון הוא הגרסה האחרונה.** הסדר הוא של
+    ``database.manager.is_latest_active_snippet`` — הבעלים של "מי הגרסה
+    האחרונה", ושם גם ה-worker מכריע אם לעבד מסמך. ``restore_files_by_names``
+    מבטיח לקורא שהמזהה הראשון הוא זה שכדאי לסמן; בלי המיון זה היה המסמך
+    הראשון בסדר הטבעי — בדרך כלל הגרסה **הישנה**, שה-worker מסיים באפס
+    צ'אנקים, והקובץ המשוחזר לא היה חוזר לחיפוש הסמנטי לעולם.
     """
     return [
         doc["_id"]
         for doc in collection.find(
             {"user_id": user_id, "file_name": {"$in": list(names)}, "is_active": False},
             {"_id": 1},
+            sort=[("version", -1), ("updated_at", -1), ("_id", -1)],
         )
     ]
 
 
+#: אוספים שבהם לכל שם קובץ יש **לכל היותר מסמך פעיל אחד**. ב-``code_snippets``
+#: כל גרסה היא מסמך פעיל, והשחזור מחזיר את כולן. ב-``large_files`` מסמך הוא
+#: הקובץ: ``Repository.save_large_file`` מוריד את הקודם לסל בכל שמירה מחדש,
+#: והקוראים (``get_large_file``, ``get_user_large_files``) מניחים פעיל אחד —
+#: שניים היו מציגים את הקובץ פעמיים ומגישים רוויזיה שרירותית.
+SINGLE_ACTIVE_COLLECTIONS: frozenset = frozenset({RECYCLE_BIN_COLLECTIONS[1]})
+
+
+class RestoreConflict(Exception):
+    """לשם הזה כבר יש מסמך פעיל באוסף שמחזיק פעיל אחד לכל שם.
+
+    ערוץ נפרד מ"לא נמצא מה לשחזר" (``([], [])``), כי לקורא יש מה לומר
+    עליו: הקובץ קיים, והשחזור היה יוצר עותק שני שלו. ראו
+    :data:`SINGLE_ACTIVE_COLLECTIONS`.
+    """
+
+    def __init__(self, file_name: str) -> None:
+        super().__init__(file_name)
+        self.file_name = file_name
+
+
+def _restore_latest_revision(
+    collection: Any, user_id: int, names: Sequence[str]
+) -> Tuple[List[str], List[Any]]:
+    """שחזור באוסף של פעיל-אחד-לכל-שם: הרוויזיה שהייתה חיה אחרונה, לכל שם.
+
+    **הבדיקה לפני כל כתיבה:** שם אחד שכבר פעיל עוצר את כולם, כדי ששחזור
+    של כמה שמות לא ייעצר באמצע.
+
+    **``deleted_at`` ולא ``updated_at``.** שחזור מגיבוי מעביר ``updated_at``
+    היסטורי (``services/personal_backup_service.py`` ← ``save_large_file``,
+    שמרענן אותו רק כשיש קובץ פעיל), ולכן קובץ שנמחק, שוחזר מגיבוי ישן ונמחק
+    שוב היה נבחר לפי התוכן הלא נכון. כל מסלול העברה לסל כותב ``deleted_at``,
+    והרוויזיה שנמחקה אחרונה היא זו שהייתה חיה אחרונה. ``created_at`` אינו
+    מבחין בכלל: הוא עובר בירושה בין רוויזיות.
+
+    השאר נשארות בסל. הצינור מסתיר אותן מרגע שלשם יש מסמך פעיל
+    (:func:`recycle_bin_rows_pipeline`), וה-TTL מוחק אותן כרגיל.
+
+    **חלון שנשאר פתוח, וסגירתו מתוכננת ל-PR המשך:** שמירה מקבילה של אותו
+    שם בין הבדיקה לעדכון עדיין יכולה ליצור שני פעילים, כי הבדיקה כאן היא
+    בקוד. הסגירה מהשורש היא במסד: אינדקס ייחודי חלקי על ``large_files`` —
+    ייחודי על ``(user_id, file_name)`` עם ``partialFilterExpression`` של
+    ``{"is_active": True}`` — שדוחה עותק פעיל שני בכל מסלול כתיבה, לא רק
+    כאן. אותו מנגנון כבר קיים בלוחות הפתקים (``one_default_per_user`` ב-
+    ``webapp/sticky_notes_api.py``). לפני שהוא נוצר, שני תנאים:
+
+    1. שאילתה לקריאה בלבד שסופרת אם כבר יש היום ב-``large_files`` שמות עם
+       יותר ממסמך פעיל אחד — אינדקס ייחודי לא נוצר על נתונים שמפרים אותו.
+    2. היצירה נבדקת **בקריאה חוזרת** של האינדקסים: ``safe_create_index``
+       מחזיר ``False`` ואינו זורק, ולכן אינדקס שנכשל בגלל כפילויות קיימות
+       פשוט לא ייווצר, בשקט (``BY-STACK/mongodb.md`` דפוס 9 ב-
+       ``amir-bug-patterns``).
+    """
+    for name in names:
+        alive = collection.find_one(
+            {"user_id": user_id, "file_name": name, "is_active": True}, {"_id": 1}
+        )
+        if alive is not None:
+            raise RestoreConflict(name)
+
+    restored_names: List[str] = []
+    restored_ids: List[Any] = []
+    for name in names:
+        latest = collection.find_one(
+            {"user_id": user_id, "file_name": name, "is_active": False},
+            {"_id": 1},
+            sort=[("deleted_at", -1), ("_id", -1)],
+        )
+        if latest is None:
+            continue
+        res = collection.update_one(
+            {"_id": latest["_id"], "user_id": user_id, "is_active": False},
+            {
+                "$set": {"is_active": True},
+                "$unset": {"deleted_at": "", RECYCLE_BIN_TTL_FIELD: ""},
+            },
+        )
+        if int(getattr(res, "modified_count", 0) or 0):
+            restored_names.append(name)
+            restored_ids.append(latest["_id"])
+    return restored_names, restored_ids
+
+
 def restore_files_by_names(
-    collection: Any, user_id: int, file_names: Iterable[str]
+    collection: Any, user_id: int, file_names: Iterable[str], *, source: str
 ) -> Tuple[List[str], List[Any]]:
     r"""מחזיר מהסל את **כל** הגרסאות של כל שם קובץ ברשימה.
 
@@ -488,13 +585,22 @@ def restore_files_by_names(
     שחזרו — הם נדרשים לקורא, אבל **לא** כדי לסמן את כולם לאינדוקס סמנטי
     מחדש. ``services/embedding_worker`` בודק ``is_latest_active_snippet``
     ומסיים כל גרסה שאינה האחרונה עם אפס צ'אנקים, ולכן סימון של N גרסאות
-    קונה N סבבי worker ואפס תוצאה. הקורא מסמן את הגרסה הגבוהה בלבד.
+    קונה N סבבי worker ואפס תוצאה. הקורא מסמן את הגרסה הגבוהה בלבד — והיא
+    ``restored_ids[0]``, כי :func:`_trashed_ids_for_names` ממיין.
 
-    ערוץ הכשל: זריקה. רשימה ריקה פירושה "לא נמצא מה לשחזר" ותו לא.
+    ``source`` הוא שם האוסף, מתוך :data:`RECYCLE_BIN_COLLECTIONS`, והוא
+    **חובה**: באוסף שב-:data:`SINGLE_ACTIVE_COLLECTIONS` חוזרת רוויזיה אחת
+    בלבד, ראו :func:`_restore_latest_revision`.
+
+    ערוץ הכשל: זריקה — ובכללה :class:`RestoreConflict`, כשלשם כבר יש מסמך
+    פעיל באוסף כזה. רשימה ריקה פירושה "לא נמצא מה לשחזר" ותו לא.
     """
     names = [n for n in dict.fromkeys(str(n or "").strip() for n in file_names) if n]
     if not names:
         return [], []
+
+    if source in SINGLE_ACTIVE_COLLECTIONS:
+        return _restore_latest_revision(collection, user_id, names)
 
     ids = _trashed_ids_for_names(collection, user_id, names)
     if not ids:
@@ -512,7 +618,8 @@ def restore_files_by_names(
     )
     if not int(getattr(res, "modified_count", 0) or 0):
         # נמצאו מסמכים בסל ובכל זאת לא שונה דבר — לא לדווח שחזור שלא קרה.
-        # ראו ``return-value-failure-unchecked`` §4.
+        # ראו ``bugbot-rules/return-value-failure-unchecked.md`` §4
+        # ב-``amir-bug-patterns``.
         return [], []
     return names, ids
 
@@ -526,7 +633,7 @@ def purge_files_by_names(
     מוחקת קובץ פעיל, ואין ממנה חזרה.
 
     מחזיר ``(purged_names, purged_ids)``, והמזהים נאספים לפני המחיקה כדי
-    שניקוי הצ'אנקים יוכל לרוץ עליהם אחריה.
+    שניקוי הצ'אנקים יוכל לרוץ עליהם אחריה — ומוחזרים רק אלה שבאמת נמחקו.
 
     ⚠️ **הקורא חייב להעביר אותם ל-**\ ``delete_snippet_chunks`` **כ-**\
     ``snippet_ids``\ **, לא כ-**\ ``file_names``\ **.** הצורה שלפי שם
@@ -544,9 +651,28 @@ def purge_files_by_names(
     if not ids:
         return [], []
 
+    # ``_id`` במסנן: המחיקה תחומה למסמכים שנאספו, ולכן ``deleted_count``
+    # משתווה ל-``len(ids)`` בדיוק כשכולם נמחקו.
     res = collection.delete_many(
-        {"user_id": user_id, "file_name": {"$in": names}, "is_active": False}
+        {
+            "_id": {"$in": ids},
+            "user_id": user_id,
+            "file_name": {"$in": names},
+            "is_active": False,
+        }
     )
-    if not int(getattr(res, "deleted_count", 0) or 0):
+    deleted = int(getattr(res, "deleted_count", 0) or 0)
+    if not deleted:
         return [], []
+    if deleted < len(ids):
+        # מזהה שלא נמחק — גרסה ששוחזרה בין האיסוף למחיקה — **אינו** מוחזר:
+        # הקורא שולח את הרשימה ל-``delete_snippet_chunks``, ושם הוא היה מוחק
+        # את הצ'אנקים של גרסה חיה. קוראים מה עוד קיים, ולא מניחים.
+        survivors = {
+            doc["_id"]
+            for doc in collection.find({"_id": {"$in": ids}}, {"_id": 1})
+        }
+        ids = [oid for oid in ids if oid not in survivors]
+        if not ids:
+            return [], []
     return names, ids

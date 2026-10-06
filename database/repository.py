@@ -64,6 +64,8 @@ from file_description import (
 # מחיקה רכה — מודול שורש טהור, אותה שאילתה שהוובאפ מריץ על חיבור משלו.
 from file_deletion import (
     RECYCLE_BIN_COLLECTIONS,
+    SINGLE_ACTIVE_COLLECTIONS,
+    RestoreConflict,
     SoftDeleteResult,
     purge_files_by_names,
     recycle_bin_count_stages,
@@ -1786,8 +1788,8 @@ class Repository:
 
         שלושתם חיסלו את אותם שלושה מפתחות בשלושה עותקים שכבר הספיקו לסטות
         זה מזה. הכשלים נבלעים בכוונה: זו מחיקה אופורטוניסטית, ומפתח שאינו
-        קיים אינו כשל (ראו ``return-value-failure-unchecked`` §4 — שם
-        ההבחנה בין 0 שהוא כשל ל-0 שהוא תקין).
+        קיים אינו כשל (ראו ``bugbot-rules/return-value-failure-unchecked.md``
+        §4 ב-``amir-bug-patterns`` — שם ההבחנה בין 0 שהוא כשל ל-0 שהוא תקין).
         """
         try:
             cache.invalidate_user_cache(user_id)
@@ -2199,8 +2201,11 @@ class Repository:
         שהייתה כאן החזירה ``None`` למסמך בלי ``deleted_at``, ההשוואה
         ל-``datetime`` זרקה, וה-``except`` החזיר סל **ריק**.
 
-        הכשל נשאר כשל: חריגה נרשמת ומוחזר ``([], 0)`` כמו קודם, אבל
-        מהסיבה הנכונה — והקורא בבוט מציג ❌ ולא "הסל ריק".
+        **ערוץ הכשל: זריקה.** החריגה נרשמת כאירוע ועולה הלאה. ‏``([], 0)``
+        הוא סל ריק אמיתי, ולכן כשל שהיה חוזר בצורה הזו נראה בבוט כמו "0
+        קבצים". ה-facade (``FilesFacade.list_deleted_files``) מעביר חריגות
+        בכוונה, ``_call_files_api`` בבוט הופך אותן ל-``None``, ו-
+        ``show_recycle_bin`` מציג ❌.
         """
         try:
             pipeline = recycle_bin_rows_pipeline(user_id)
@@ -2214,7 +2219,7 @@ class Repository:
             return rows, total
         except Exception as e:
             emit_event("db_list_deleted_files_error", severity="error", error=str(e))
-            return [], 0
+            raise
 
     def restore_file_by_id(self, user_id: int, file_id: str) -> bool:
         """מחזיר מהסל את הקובץ שהמזהה שייך לו — **כל** גרסאותיו.
@@ -2228,14 +2233,24 @@ class Repository:
             resolved = self._resolve_recycled(user_id, file_id)
             if resolved is None:
                 return False
-            _name, collection, file_name = resolved
-            restored, restored_ids = restore_files_by_names(collection, user_id, [file_name])
+            source, collection, file_name = resolved
+            try:
+                restored, restored_ids = restore_files_by_names(
+                    collection, user_id, [file_name], source=source)
+            except RestoreConflict:
+                # לא כשל של המסד אלא סירוב צפוי: לשם כבר יש קובץ פעיל, ושחזור
+                # היה יוצר עותק שני שלו. אין מה לרשום — הסירוב חוזר לבוט,
+                # שמציג על ``False`` את "❌ שגיאת שחזור".
+                return False
             if not restored:
                 return False
             # מזהה **אחד** ולא כולם: ``services/embedding_worker`` מוותר על
             # כל גרסה שאינה האחרונה ומסיים אותה באפס צ'אנקים, ולכן סימון
-            # של N גרסאות קונה N סבבי worker ואפס תוצאה.
-            mark_snippets_for_reindex(restored_ids[:1])
+            # של N גרסאות קונה N סבבי worker ואפס תוצאה. הראשון הוא הגבוה —
+            # ``restore_files_by_names`` ממיין. ובאוסף של פעיל-אחד-לכל-שם אין
+            # מה לסמן: הסימון מעדכן את ``code_snippets`` בלבד.
+            if source not in SINGLE_ACTIVE_COLLECTIONS:
+                mark_snippets_for_reindex(restored_ids[:1])
             self._invalidate_after_soft_delete(user_id, list(restored))
             return True
         except Exception as e:
