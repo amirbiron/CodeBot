@@ -142,6 +142,15 @@ _INDEX_RETRY_AFTER = 0.0
 #: כמה להמתין בין ניסיונות בנייה כושלים, בשניות.
 _INDEX_RETRY_SECONDS = 60.0
 
+#: הדור של מצב "האינדקסים מוכנים". רק ``reset_index_state_for_tests`` מקדם אותו,
+#: ולכן בפרודקשן הוא נשאר על ערך הטעינה שלו לכל חיי התהליך.
+#:
+#: כל קריאה ל-``_ensure_indexes`` שייכת לדור שבו התחילה — בקשה לוכדת אותו
+#: בכניסה, וחימום העלייה ברגע ש-``kickoff_index_warmup`` נקרא — ובודקת אותו
+#: **תחת** ``_INDEX_READY_LOCK`` לפני שהיא בונה או כותבת. כך עבודה שהתחילה לפני
+#: איפוס ומגיעה לנעילה אחריו יוצאת בלי לגעת במצב של הבדיקה הבאה.
+_INDEX_STATE_GENERATION = 0
+
 
 def reset_index_state_for_tests() -> None:
     """מחזיר את מצב "האינדקסים מוכנים" למצב של תהליך שזה עתה עלה. **לטסטים בלבד.**
@@ -162,32 +171,63 @@ def reset_index_state_for_tests() -> None:
     אם לא. בקוד הייצור אין לה קורא; בין בדיקות קורא לה הפיקסצ'ר האוטומטי ב-
     ``conftest.py`` שבשורש הריפו, לפני כל בדיקה ואחריה.
 
-    **הדגל המשותף נמחק, ונקרא בחזרה.** ``_cache_flag_ready`` קורא אותו מהקאש —
-    Redis, או קאש מדומה של בדיקה — ולכן איפוס של הזיכרון לבדו אינו מספיק.
-    המחיקה נעשית מול אותו ערוץ שהוא קורא (``_shared_cache``), ואחריה קריאה
-    חוזרת: ``CacheManager.delete`` מחזיר ``False`` גם כשהמפתח לא היה וגם כשהמחיקה
-    נכשלה, ולכן ערך ההחזרה שלו אינו עדות.
+    **הדגל המשותף נמחק, ונקרא בחזרה — מהלקוח עצמו.** ``_cache_flag_ready`` קורא
+    אותו מהקאש של המודול (``_shared_cache``) — Redis, או קאש מדומה של בדיקה —
+    ולכן איפוס של הזיכרון לבדו אינו מספיק. המחיקה והקריאה החוזרת אינן עוברות
+    דרך ``CacheManager``: ``get`` שלו מחזיר ``None`` גם כשאין מפתח וגם כש-Redis
+    לא ענה, ו-``delete`` מחזיר ``False`` גם כשהמפתח לא היה וגם כשהמחיקה נכשלה,
+    ולכן אף אחד מהם אינו עדות. הלקוח שמאחוריו (``redis_client``) מחזיר ``None``
+    רק על מפתח שאינו קיים, וזורק כשהוא אינו עונה — לפי קוד המקור של redis-py
+    7.0.0: ה-docstring של ``get`` ב-``redis/commands/core.py``, ו-``raise
+    error`` בסוף ``Retry.call_with_retry`` ב-``redis/retry.py``.
 
-    **ערוץ הכשל הוא חריגה.** דגל ששרד את המחיקה זורק ``RuntimeError``: איפוס
-    שנכשל וממשיך בשקט היה מחזיר בדיוק את מה שהוא בא לתקן — בנייה שיוצאת מוקדם,
-    ובדיקות שנופלות על מסד ריק מסיבה שאין לה קשר לקוד שהן בודקות.
+    **ערוץ הכשל הוא חריגה.** דגל ששרד את המחיקה זורק ``RuntimeError``, ושגיאה של
+    הלקוח עולה כמו שהיא: איפוס שנכשל וממשיך בשקט היה מחזיר בדיוק את מה שהוא בא
+    לתקן — בנייה שיוצאת מוקדם, ובדיקות שנופלות על מסד ריק מסיבה שאין לה קשר
+    לקוד שהן בודקות.
 
-    הכול תחת ``_INDEX_READY_LOCK``, כדי שבנייה שרצה באותו רגע בחוט אחר
-    (``kickoff_index_warmup``) לא תפרסם את התוצאה שלה אחרי האיפוס.
+    **עבודה שהתחילה לפני האיפוס אינה כותבת אחריו.** האיפוס מקדם את
+    ``_INDEX_STATE_GENERATION`` תחת ``_INDEX_READY_LOCK``. בנייה שכבר בתוך הנעילה
+    מסתיימת קודם — כולל הקביעה של ``_INDEX_RETRY_AFTER`` כשהיא נכשלת — והאיפוס
+    מנקה את מה שהיא פרסמה. קריאה שהתחילה לפני האיפוס ומגיעה לנעילה אחריו —
+    בקשה שהמתינה לה, או חימום של ``kickoff_index_warmup`` שתוזמן ועוד ישן —
+    יוצאת בלי לבנות ובלי לכתוב.
+
+    **ומה שאינו מכוסה, בכוונה:** בדיקת המוכנוּת של ``_ensure_indexes`` — הדגל
+    בזיכרון והדגל המשותף — רצה לפני הנעילה, כדי שבקשה רגילה תצא בלי לגעת בה
+    (``docs/performance-sticky-notes.rst``). ``_cache_flag_ready`` שרץ באותו רגע
+    עצמו בחוט אחר יכול עדיין לכתוב אחרי האיפוס: לאמץ דגל משותף שקרא לפני
+    המחיקה ולהדליק את מה שכובה, או לקדם את ``_INDEX_CACHE_LAST_CHECK``; וכך גם
+    הבדיקה וההדלקה של ``_WARMUP_TRIGGERED`` ב-``kickoff_index_warmup``. בין
+    בדיקות, זה דורש חוט שעדיין רץ אחרי שהבדיקה שלו הסתיימה, ושנמצא בתוך הקטע
+    הזה בדיוק ברגע האיפוס.
     """
     global _INDEX_READY, _TITLE_INDEX_OK, _REPO_TITLE_INDEX_OK, _INDEX_RETRY_AFTER, _INDEX_CACHE_LAST_CHECK
+    global _INDEX_STATE_GENERATION
     with _INDEX_READY_LOCK:
-        # קודם הדגל המשותף ורק אחריו הזיכרון: בסדר ההפוך, קורא שנכנס בין שני
-        # השלבים היה מוצא את הדגל הישן ומדליק מחדש את מה שזה עתה כובה.
+        # הדור לפני הכול: מרגע זה קריאה שהתחילה קודם — גם כזו שעוד לא הגיעה
+        # לנעילה — כבר אינה הדור הנוכחי, ותצא כשתבדוק.
+        _INDEX_STATE_GENERATION += 1
+        # הדגל המשותף לפני הזיכרון: בסדר ההפוך, קורא שנכנס בין שני השלבים היה
+        # מוצא את הדגל הישן ומדליק מחדש את מה שזה עתה כובה.
         cache_obj = _shared_cache()
         if cache_obj is not None:
-            cache_obj.delete(_INDEX_READY_CACHE_KEY)
-            if cache_obj.get(_INDEX_READY_CACHE_KEY):
-                raise RuntimeError(
-                    f"{_INDEX_READY_CACHE_KEY} survived the reset: the shared cache "
-                    f"{type(cache_obj).__name__} still returns it after delete(), so "
-                    "_ensure_indexes would skip the index build in the next test"
-                )
+            # ``CacheManager`` מחזיק את הלקוח ב-``redis_client``; קאש מדומה בלי
+            # לקוח הוא המאגר עצמו.
+            store = getattr(cache_obj, "redis_client", cache_obj)
+            # מאגר בלי ``get`` — ובהם ``CacheManager`` שאין לו לקוח — אינו יכול
+            # להחזיק דגל ש-``_cache_flag_ready`` יאמץ: הקריאה שלו נכשלת שם תמיד,
+            # והכשל נבלע לתוך "אין דגל". אז גם אין מה למחוק. הבדיקה היא על
+            # יכולת קבועה של האובייקט, לא על כשל בזמן ריצה.
+            read = getattr(store, "get", None)
+            if read is not None and read(_INDEX_READY_CACHE_KEY) is not None:
+                store.delete(_INDEX_READY_CACHE_KEY)
+                if read(_INDEX_READY_CACHE_KEY) is not None:
+                    raise RuntimeError(
+                        f"{_INDEX_READY_CACHE_KEY} survived the reset: "
+                        f"{type(store).__name__}.get still returns it after delete(), so "
+                        "_ensure_indexes would skip the index build in the next test"
+                    )
         _INDEX_READY = False
         _TITLE_INDEX_OK = False
         _REPO_TITLE_INDEX_OK = False
@@ -316,6 +356,9 @@ def _mark_indexes_ready(duration_ms: Optional[int] = None) -> None:
 
 def kickoff_index_warmup(*, background: bool = True, delay_seconds: float = 0.0) -> None:
     """Run index warmup once during startup so requests won't block on it."""
+    # הדור נלכד לפני התנאים שלמטה: חימום שהתחיל לפני איפוס שייך לדור הישן גם
+    # אם תוזמן אחריו, ולכן ``_ensure_indexes`` לא יבנה בשבילו.
+    generation = _INDEX_STATE_GENERATION
     if _INDEX_READY or _cache_flag_ready() or _WARMUP_TRIGGERED.is_set():
         return
     _WARMUP_TRIGGERED.set()
@@ -326,7 +369,7 @@ def kickoff_index_warmup(*, background: bool = True, delay_seconds: float = 0.0)
                 time.sleep(delay_seconds)
             except Exception:
                 pass
-        _ensure_indexes()
+        _ensure_indexes(generation=generation)
 
     if background:
         try:
@@ -345,20 +388,34 @@ def kickoff_index_warmup(*, background: bool = True, delay_seconds: float = 0.0)
     else:
         _job()
 
-def _ensure_indexes() -> None:
+def _ensure_indexes(generation: Optional[int] = None) -> None:
     global _TITLE_INDEX_OK, _REPO_TITLE_INDEX_OK, _INDEX_RETRY_AFTER
+    # **הדור שהקריאה שייכת אליו** (``_INDEX_STATE_GENERATION``): בקשה נלכדת כאן,
+    # בכניסה; חימום העלייה מעביר את הדור שבו ``kickoff_index_warmup`` נקרא.
+    if generation is None:
+        generation = _INDEX_STATE_GENERATION
+    elif generation != _INDEX_STATE_GENERATION:
+        # עבודה מדור קודם יוצאת עוד לפני המסלול המהיר, כדי שלא תקרא את הקאש
+        # המשותף של הבדיקה הבאה ולא תזיז לה את ``_INDEX_CACHE_LAST_CHECK``.
+        # זו יציאה מוקדמת בלבד; ההכרעה היא הבדיקה שתחת הנעילה.
+        return
     if _INDEX_READY or _cache_flag_ready():
         return
     # החסם נבדק **לפני** הנעילה: בקשה שנקלעה לחלון ההמתנה לא צריכה
     # להמתין גם לנעילה כדי לגלות שאין לה מה לעשות.
     if time.monotonic() < _INDEX_RETRY_AFTER:
         return
-    try:
-        with _INDEX_READY_LOCK:
-            if _INDEX_READY or _cache_flag_ready():
-                return
-            if time.monotonic() < _INDEX_RETRY_AFTER:
-                return
+    failure: Optional[Exception] = None
+    with _INDEX_READY_LOCK:
+        # הדור ראשון: קריאה שהתחילה לפני איפוס ומגיעה לנעילה אחריו יוצאת כאן,
+        # לפני שהיא קוראת את הדגל המשותף, בונה או כותבת משהו.
+        if generation != _INDEX_STATE_GENERATION:
+            return
+        if _INDEX_READY or _cache_flag_ready():
+            return
+        if time.monotonic() < _INDEX_RETRY_AFTER:
+            return
+        try:
             started = time.perf_counter()
             db = get_db()
             coll = db.sticky_notes
@@ -523,9 +580,17 @@ def _ensure_indexes() -> None:
                 _INDEX_RETRY_AFTER = time.monotonic() + _INDEX_RETRY_SECONDS
                 which = "one_title_per_board" if not _TITLE_INDEX_OK else "one_title_per_repo_file"
                 _emit_index_event("failed", error=f"{which} not confirmed")
-    except Exception as exc:
-        _INDEX_RETRY_AFTER = time.monotonic() + _INDEX_RETRY_SECONDS
-        _emit_index_event("failed", error=str(exc))
+        except Exception as exc:
+            # ההשמה תחת הנעילה, כמו כל שאר הכתיבות של הבנייה: מחוץ לה, איפוס
+            # שממתין לנעילה יכול להיכנס בין השחרור להשמה, וחלון ההמתנה נפתח
+            # מחדש אחריו.
+            _INDEX_RETRY_AFTER = time.monotonic() + _INDEX_RETRY_SECONDS
+            failure = exc
+    if failure is not None:
+        # האירוע נשלח אחרי שחרור הנעילה: ``emit_event`` על שגיאה עושה עבודה
+        # משלו — סיווג, Sentry, ולפי ``ALERT_EACH_ERROR`` גם התראה — ובקשות
+        # שממתינות לנעילה לא צריכות להמתין גם לה.
+        _emit_index_event("failed", error=str(failure))
 
 # --- Helpers ---
 
