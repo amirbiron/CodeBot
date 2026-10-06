@@ -257,7 +257,9 @@ def test_concurrent_first_occurrences_keep_a_single_line(monkeypatch):
 
     monkeypatch.setattr(obs, "_INFO_SAMPLE_LAST_KEPT", _SlowGetDict())
     workers = 8
-    barrier = threading.Barrier(workers)
+    # ‏timeout משלו: אם אחד החוטים לא עולה, האחרים נשברים ב-BrokenBarrierError ויוצאים,
+    # במקום לחכות לו לנצח ולהשאיר את תהליך הטסטים תלוי בסוף הריצה.
+    barrier = threading.Barrier(workers, timeout=10)
     results = []
 
     def _worker():
@@ -276,15 +278,25 @@ def test_concurrent_first_occurrences_keep_a_single_line(monkeypatch):
 
 @pytest.fixture
 def structlog_pipeline(monkeypatch):
-    """מגדיר את שרשרת ה-processors האמיתית (``setup_structlog_logging``) ומחזיר את הקודמת בסוף."""
+    """מגדיר את שרשרת ה-processors האמיתית (``setup_structlog_logging``) ומחזיר את הקודמת בסוף.
+
+    גם ההקשר של structlog (contextvars) מתחיל ריק ומשוחזר בסוף. ``merge_contextvars``
+    מוסיף לכל שורה את מה שמוצמד בהקשר, וה-``before_request`` של הוובאפ מצמיד
+    ``request_id`` ולא מנקה אותו — כך שטסט קודם באותו worker שעבר דרך ה-test client
+    השאיר ``request_id``, וההגרלה של כל החזרות כאן הפכה ליציבה לפי ה-hash שלו.
+    """
     previous = structlog.get_config()
+    previous_context = structlog.contextvars.get_contextvars()
     root_level = logging.getLogger().level
+    structlog.contextvars.clear_contextvars()
     monkeypatch.setenv("LOG_FORMAT", "json")
     monkeypatch.delenv("DEBUG", raising=False)
     monkeypatch.delenv("LOG_AGGREGATOR_ENABLED", raising=False)
     obs.setup_structlog_logging("INFO")
     yield
     structlog.configure(**previous)
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(**previous_context)
     logging.getLogger().setLevel(root_level)
 
 
