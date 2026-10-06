@@ -73,7 +73,18 @@ NAVIGATION_SORT_FETCH_LIMIT = 500
 #: ולכן ``has_more`` הוא מה שאומר שנחתך.
 TOOL_FAILURES_LIMIT = 25
 
-TOTAL_COLUMN = "total_sessions"
+#: עמודת הספירה הכוללת של כל אנדפוינט שנחתך בתקרה, לפי שם האנדפוינט. כל אחת
+#: נגזרת בשאילתה עצמה ב-``count() OVER ()``, ולכן היא סופרת את כל השורות
+#: שעברו את הסינון ולא רק את מה שהוחזר. אנדפוינט שאינו כאן — או שהשאילתה שלו
+#: עוד לא מחזירה את העמודה — מקבל ``total=None``, והעמוד נופל לספירת השורות.
+#:
+#: ``ck_mcp_missing_capabilities`` נחתך ב-``LIMIT 50`` שכתוב בשאילתה עצמה
+#: ב-PostHog. בלי עמודת הספירה, הטאב שלו ספר את השורות שחזרו, ולכן נתקע על
+#: התקרה ולא עלה גם כשהגיעו דיווחים חדשים.
+TOTAL_COLUMNS: dict[str, str] = {
+    ENDPOINT_NAVIGATION_COST: "total_sessions",
+    ENDPOINT_MISSING_CAPABILITIES: "total_reports",
+}
 
 #: נתיבי ה-UI של PostHog עצמו. שני דברים שהעמוד הזה **אינו יכול** להביא —
 #: סיכום כוונה לסשן ואשכולות כוונות — הם כלי API של PostHog ולא שאילתות
@@ -712,8 +723,12 @@ class McpAnalyticsService:
             return EndpointResult(error_code="bad_payload", error_detail=parse_error)
 
         total = None
-        if rows and isinstance(rows[0].get(TOTAL_COLUMN), int):
-            total = rows[0][TOTAL_COLUMN]
+        total_column = TOTAL_COLUMNS.get(name)
+        if total_column and rows:
+            raw_total = rows[0].get(total_column)
+            # ``bool`` הוא תת-מחלקה של ``int`` בפייתון, ו-``True`` אינו ספירה.
+            if isinstance(raw_total, int) and not isinstance(raw_total, bool):
+                total = raw_total
 
         return EndpointResult(
             rows=rows,

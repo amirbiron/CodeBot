@@ -696,7 +696,7 @@
     <button type="button" class="mcp-tab{% if active_tab == 'missing' %} active{% endif %}" data-panel="missing" role="tab" aria-selected="{{ 'true' if active_tab == 'missing' else 'false' }}" aria-controls="mcpPanelMissing">
       <i class="fas fa-lightbulb" aria-hidden="true"></i>
       כלים חסרים
-      {%- if missing_capabilities.ok %}<span class="mcp-tab-count">({{ missing_capabilities.rows | length }})</span>{% endif -%}
+      {%- if missing_capabilities.ok %}<span class="mcp-tab-count">({{ missing_capabilities.total if missing_capabilities.total is not none else missing_capabilities.rows | length }})</span>{% endif -%}
     </button>
   </div>
 
@@ -1040,6 +1040,13 @@
               {% endfor %}
             </tbody>
           </table>
+          {#- הספירה בטאב היא של כל הדיווחים, והטבלה נחתכת בתקרה של השאילתה —
+              בלי השורה הזו הטאב אומר מספר אחד והטבלה מראה מספר אחר. -#}
+          {% if missing_capabilities.total is not none and missing_capabilities.total > missing_capabilities.rows | length %}
+            <p class="mcp-meta" style="margin-top:0.8rem;">
+              מוצגים {{ missing_capabilities.rows | length }} מתוך {{ missing_capabilities.total }} דיווחים, החדשים תחילה.
+            </p>
+          {% endif %}
         {% else %}
           <div class="mcp-state">
             <i class="fas fa-inbox" aria-hidden="true"></i>
