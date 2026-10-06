@@ -209,9 +209,9 @@
         
         <!-- Paste Input Areas -->
         <form id="paste-compare-form">
-            <div class="paste-input-grid">
+            <div class="paste-input-grid compare-sides">
                 <!-- Left Code Input -->
-                <div class="paste-area-wrapper left-area">
+                <div class="paste-area-wrapper left-area compare-side">
                     <label for="paste-left">
                         <i class="fas fa-file-code text-danger"></i>
                         קוד מקורי / ישן
@@ -242,7 +242,7 @@
                 </div>
                 
                 <!-- Right Code Input -->
-                <div class="paste-area-wrapper right-area">
+                <div class="paste-area-wrapper right-area compare-side">
                     <label for="paste-right">
                         <i class="fas fa-file-code text-success"></i>
                         קוד חדש / משונה
@@ -314,7 +314,7 @@
     <!-- Diff Container (hidden until comparison) -->
     <div id="diff-container" class="diff-container glass-card d-none">
         <!-- Side by Side View -->
-        <div id="side-by-side-view" class="diff-view active">
+        <div id="side-by-side-view" class="diff-view compare-sides active">
             <div class="diff-pane left-pane">
                 <div class="pane-header">
                     <span class="file-label" id="left-file-label">קוד מקורי</span>
