@@ -2491,14 +2491,20 @@ class ConfigService:
             key="LOG_INFO_SAMPLE_RATE",
             services=("webapp", "bot", "mcp", "webserver"),
             default="1.0",
-            description="שיעור דגימת לוגים ברמת INFO",
+            description=(
+                "שיעור דגימת לוגים ברמת INFO (0–1). אירוע שאף שורה שלו לא נשמרה ב-INFO_SAMPLE_WINDOW_SECONDS "
+                "האחרונות נשמר בלי הגרלה, ו-0 מכבה את כל ה-INFO שאינו ב-allowlist"
+            ),
             category="logging",
         ),
         "LOG_INFO_SAMPLE_ALLOWLIST": ConfigDefinition(
             key="LOG_INFO_SAMPLE_ALLOWLIST",
             services=("webapp", "bot", "mcp", "webserver"),
             default="",
-            description="רשימת אירועים שלא יידגמו (מופרדים בפסיקים)",
+            description=(
+                "אירועים נוספים שלא יידגמו (מופרדים בפסיקים), בנוסף ל-INFO_SAMPLE_BUILTIN_ALLOWLIST "
+                "שב-observability.py — המשתנה מוסיף עליה ואינו מחליף אותה"
+            ),
             category="logging",
         ),
         "ALERT_QUICK_FIX_PATH": ConfigDefinition(
