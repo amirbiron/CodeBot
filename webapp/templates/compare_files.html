@@ -340,9 +340,9 @@
         
         <!-- File Selection Grid -->
         <form id="compare-form">
-            <div class="file-selection-grid">
+            <div class="file-selection-grid compare-sides">
                 <!-- Left File -->
-                <div class="file-select-column">
+                <div class="file-select-column compare-side">
                     <div class="file-select-wrapper">
                         <label for="file-left">
                             <i class="fas fa-file-code me-1 text-danger"></i>
@@ -385,7 +385,7 @@
                 </div>
                 
                 <!-- Right File -->
-                <div class="file-select-column">
+                <div class="file-select-column compare-side">
                     <div class="file-select-wrapper">
                         <label for="file-right">
                             <i class="fas fa-file-code me-1 text-success"></i>
@@ -469,7 +469,7 @@
     <!-- Diff Container (hidden until comparison) -->
     <div id="diff-container" class="diff-container glass-card d-none">
         <!-- Side by Side View -->
-        <div id="side-by-side-view" class="diff-view active">
+        <div id="side-by-side-view" class="diff-view compare-sides active">
             <div class="diff-pane left-pane">
                 <div class="pane-header">
                     <span class="file-label" id="left-file-label">קובץ שמאלי</span>
