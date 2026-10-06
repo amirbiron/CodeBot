@@ -2638,6 +2638,19 @@ class DatabaseManager:
             name="idx_snippets_version_any_state",
         )
 
+        # large_files - אותו מפתח שמשרת את "הגרסה האחרונה לכל קובץ" ב-
+        # ``code_snippets``, כאן בלי ``version``: ל-``LargeFile`` אין שדה כזה
+        # (``database/models.py``). המפתח הזה משרת את שני הצדדים של צינור
+        # הסל (``recycle_bin_rows_pipeline`` ב-``file_deletion.py``): את
+        # ה-``$match`` על ``is_active: False`` עם המיון לפי ``file_name``
+        # בענף ה-``$unionWith``, ואת ה-``$lookup`` שמחפש גרסה **פעילה**
+        # באותו שם. בלעדיו ה-``$lookup`` הוא סריקת קולקציה לכל שורה בסל.
+        safe_create_index(
+            "large_files",
+            [("user_id", ASCENDING), ("is_active", ASCENDING), ("file_name", ASCENDING)],
+            name="idx_large_files_user_active_name",
+        )
+
         # פקיעת סל המיחזור, ב-code_snippets וב-large_files. אינדקס של התנהגות
         # ולא של ביצועים — מי שמצמצם את הרשימה הזו, שלא יוריד אותו. ההסבר המלא
         # ב-docstring של הפונקציה.

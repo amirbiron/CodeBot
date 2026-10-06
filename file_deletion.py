@@ -39,13 +39,18 @@ from ttl_index import is_ttl_index
 
 __all__ = [
     "RECYCLE_BIN_COLLECTIONS",
+    "RECYCLE_BIN_GROUPED_FIELDS",
     "RECYCLE_BIN_TTL_EXPIRE_AFTER_SECONDS",
     "RECYCLE_BIN_TTL_FIELD",
     "RECYCLE_BIN_TTL_INDEX_NAME",
     "RECYCLE_BIN_TTL_PARTIAL_FILTER",
     "SoftDeleteResult",
     "is_recycle_bin_ttl_index",
+    "purge_files_by_names",
+    "recycle_bin_group_stages",
     "resolve_owned_file_names",
+    "resolve_trashed_file_names",
+    "restore_files_by_names",
     "soft_delete_files_by_names",
 ]
 
@@ -203,3 +208,345 @@ def soft_delete_files_by_names(
         # מחיקה שלא קרתה. ראו K11 §4.
         return SoftDeleteResult()
     return SoftDeleteResult(file_names=list(live), versions=versions)
+
+
+# --- תצוגת הסל: שורה אחת לכל קובץ -----------------------------------------
+#
+# אותה זהות שהמחיקה עובדת לפיה, גם בקריאה. עד אוקטובר 2026 שני מסכי הסל
+# הציגו שורה לכל **מסמך גרסה**: קובץ בן שש גרסאות תפס שש שורות עם אותו שם,
+# אותו תאריך מחיקה ואותו תאריך תפוגה. ולקבצים גדולים אין ``version`` כלל
+# (``database/models.py``, ``LargeFile``), ולכן השורות שלהם היו חסרות כל
+# מבדיל — ו-``Repository.save_large_file`` מוריד את הקודם לסל בכל שמירה
+# מחדש, כך שזה המצב הרגיל ולא קצה.
+
+#: השדות שהשורה המקובצת מצהירה עליהם, והשדות שנדרשים כדי לחשב אותם.
+#: ההיטלה היא **הכללה** ומונה אותם במפורש, ולא החרגה של הכבדים: רשימה
+#: מפורשת אינה מכניסה שדה חדש לתשובה מעצמה כשהסכימה גדלה.
+RECYCLE_BIN_GROUPED_FIELDS: Tuple[str, ...] = (
+    "file_name",
+    "programming_language",
+    "deleted_at",
+    RECYCLE_BIN_TTL_FIELD,
+    "version",
+)
+
+
+def recycle_bin_group_stages(user_id: int, *, source: str) -> List[dict]:
+    r"""שלבי "שורה אחת לכל קובץ בסל", לקולקציה אחת.
+
+    מחזיר שלבים בלבד — בלי ``$sort`` סופי, ``$skip`` או ``$limit`` — כדי
+    שהקורא יוסיף את הזנב שלו, בדיוק כמו ``_latest_version_per_file_stages``
+    ב-``webapp/app.py``. ``source`` הוא שם הקולקציה, מתוך
+    :data:`RECYCLE_BIN_COLLECTIONS`.
+
+    **סדר השלבים הוא כל העניין, ומאותה סיבה שם: רק** ``$match`` **רשאי לבוא
+    לפני ההיטלה.** שלב אחר באמצע — ``$addFields`` למשל — משאיר את ההיטלה
+    כשלב בצינור, והמיון והקיבוץ שאחריה עדיין נספרים על המסמכים המלאים.
+    הנימוק, והמדידה על הקלאסטר שמאחוריו, יושבים ב-docstring של
+    ``_latest_version_per_file_stages`` ב-``webapp/app.py`` — שם הבעלים
+    של הכלל הזה, ואין טעם בעותק שני של אותם מספרים. ולכן גם מסמן
+    הקולקציה נכנס **בתוך** ההיטלה ולא בשלב נפרד, ודווקא כ-``$literal``:
+    מחרוזת חשופה ב-``$project`` נקראת כשם שדה ולא כערך.
+
+    מה שנמדד כאן, מקומית על mongod 7.0.14 (6.10.2026): ה-``$match``
+    נתפס על ``idx_snippets_latest_version`` ב-``IXSCAN``, והצינור כולו
+    סיים ב-``usedDisk: false``. המודד הוא
+    ``scripts/measure_recycle_bin_pipeline.py``. גודל המיון **לא** נמדד
+    כאן בצורה עקבית, ולכן אין עליו טענה — המדידה הקנונית היא זו
+    שב-``webapp/app.py``.
+
+    **ובלי** ``$first: "$$ROOT"``\ **, בניגוד למסכי הקבצים.** ``$$ROOT`` נוגע
+    בכל השדות, ולכן הורדת השדות הכבדים לפניו הייתה משנה את התוצאה במקום
+    להקטין אותה. האקומולטורים כאן מפורשים, וכל אחד מהם מצהיר בדיוק מה
+    השורה אומרת — וזה גם מה שמאפשר להוריד את גוף הקובץ כבר ב-``$match``.
+
+    **למה ה-**\ ``_id``\ ** מורכב משם ומקולקציה.** אותו ``file_name`` יכול
+    לשבת גם ב-``code_snippets`` וגם ב-``large_files`` — אלה שתי ישויות
+    נפרדות, ועם מפתח של שם לבד הן היו נדחסות לשורה אחת.
+
+    **ולמה** ``$min`` **על שני התאריכים.** אינדקס ה-TTL מוחק **מסמך-מסמך**
+    (ראו :data:`RECYCLE_BIN_TTL_PARTIAL_FILTER`), ואין בו שום מושג של קובץ.
+    כשגרסאות של אותו שם נמחקו בזמנים שונים — מה שקורה ב-
+    ``Repository.save_large_file`` וברצף מחיקה-שמירה-מחיקה — התאריך
+    **המוקדם** הוא הרגע שבו הקובץ מפסיק להיות שלם, ולכן הוא מה שהשורה
+    מצהירה. ``$max`` היה מבטיח שחזור מלא עד תאריך שבו חלק מההיסטוריה כבר
+    נמחקה.
+    """
+    projection: dict = {field_name: 1 for field_name in RECYCLE_BIN_GROUPED_FIELDS}
+    projection["_source"] = {"$literal": source}
+    return [
+        {"$match": {"user_id": user_id, "is_active": False}},
+        {"$project": projection},
+        # נותן ל-``$first`` תוצאה דטרמיניסטית: הגרסה הגבוהה מייצגת את הקובץ.
+        # ל-``large_files`` אין ``version``, וחסר ממוין לפני כל ערך — כלומר
+        # שם הסדר נקבע ב-``_id``, שהוא עדיין יציב בין קריאות.
+        {"$sort": {"file_name": 1, "version": -1, "_id": -1}},
+        {
+            "$group": {
+                "_id": {"name": "$file_name", "src": "$_source"},
+                "versions": {"$sum": 1},
+                "deleted_at": {"$min": "$deleted_at"},
+                "expires_at": {"$min": "$" + RECYCLE_BIN_TTL_FIELD},
+                "language": {"$first": "$programming_language"},
+                # הכתובת שהשורה נושאת. מזהה של גרסה מייצגת, שהשרת מתרגם
+                # בחזרה לשם — ראו ``resolve_trashed_file_names``. שם קובץ
+                # ב-``callback_data`` של טלגרם היה חורג מהמכסה ומתנגש
+                # בתו ההפרדה.
+                "action_id": {"$first": "$_id"},
+            }
+        },
+    ]
+
+
+def recycle_bin_rows_pipeline(user_id: int) -> List[dict]:
+    r"""הצינור המלא של שורות הסל — שתי הקולקציות, מקובצות, בקריאה אחת.
+
+    ``$unionWith`` מצרף את ``large_files``, וכל ענף נושא את זוג
+    ``$match``\ +\ ``$project`` שלו — כך הצמידות נשמרת בשניהם ולא רק
+    בשורש. אין dedup ואין דרישה ל-``_id`` ייחודי בין הקולקציות, וזה בסדר:
+    ``_id`` אינו מפתח הקיבוץ.
+
+    **רוויזיה של קובץ שקיים אינה מוצגת.** ``Repository.save_large_file``
+    מוריד את הגרסה הקודמת לסל בכל שמירה מחדש, ולכן לקובץ גדול **חי** יש
+    דרך קבע מסמכים בסל. סל מיחזור מציג קבצים שנמחקו, לא היסטוריית
+    רוויזיות, ולכן השלבים האחרונים מוציאים כל שם שיש לו גרסה פעילה.
+    ה-TTL מנקה אותן מהמסד כרגיל — ההסתרה היא בתצוגה בלבד, ואינה מוחקת
+    דבר.
+
+    ההוצאה הזו עושה עוד שתי עבודות: היא מייתרת את השאלה מה עושה שחזור
+    כשכבר קיים קובץ פעיל באותו שם — מצב שבו ``get_large_file`` היה בוחר
+    שרירותית בין שני מסמכים פעילים, בלי שגיאה — והיא מסתירה גם רוויזיות
+    של ``code_snippets`` שנוצרו ממסלול חריג כזה.
+
+    **וההוצאה היא לפי הקולקציה של השורה.** אותו שם יכול לחיות ב-
+    ``code_snippets`` ולהיות מחוק ב-``large_files``; בדיקה לפי שם לבדו
+    הייתה מעלימה את השורה המחוקה. התנאי הזה יושב ב-``$set`` שאחרי שני
+    ה-``$lookup`` ולא **בתוכם**, כי בתוכם הוא כפה ``$expr`` גורף — וזה
+    מה שחסם את האינדקס. הפירוט והמספרים בהערה שם, והסקריפט שמדד הוא
+    ``scripts/measure_recycle_bin_pipeline.py``.
+    """
+    return [
+        *recycle_bin_group_stages(user_id, source=RECYCLE_BIN_COLLECTIONS[0]),
+        {
+            "$unionWith": {
+                "coll": RECYCLE_BIN_COLLECTIONS[1],
+                "pipeline": recycle_bin_group_stages(
+                    user_id, source=RECYCLE_BIN_COLLECTIONS[1]
+                ),
+            }
+        },
+        # יש לשם הזה גרסה פעילה באותה קולקציה? אם כן — זו היסטוריה ולא
+        # מחיקה. ה-``let`` נדרש כי בתוך ``pipeline`` של ``$lookup`` אין
+        # גישה לשדות המסמך החיצוני אלא דרכו.
+        #
+        # ‏``user_id`` ו-``is_active`` הם שוויונות **רגילים** ולא איברים
+        # ב-``$expr``, ורק השם עובר דרכו. זה לא סידור קוסמטי: ``$expr``
+        # שעוטף את כל התנאים מונע מהם לבחור את תחילית האינדקס, ומונגו סורק
+        # את כל המסמכים הפעילים של המשתמש **לכל שורה בסל**. נמדד מקומית
+        # על mongod 7.0.14 (6.10.2026), 580 מסמכים ו-80 שורות סל:
+        # ‏``totalDocsExamined`` ירד מ-11,600 ל-0 (האינדקס ענה בלי fetch),
+        # וב-``large_files`` מ-2,400 ל-0. הסקריפט שמדד יושב ב-
+        # ``scripts/measure_recycle_bin_pipeline.py``.
+        *(
+            {
+                "$lookup": {
+                    "from": collection_name,
+                    "let": {"n": "$_id.name"},
+                    "pipeline": [
+                        {
+                            "$match": {
+                                "user_id": user_id,
+                                "is_active": True,
+                                "$expr": {"$eq": ["$file_name", "$$n"]},
+                            }
+                        },
+                        {"$limit": 1},
+                        {"$project": {"_id": 1}},
+                    ],
+                    "as": "_alive_" + collection_name,
+                }
+            }
+            for collection_name in RECYCLE_BIN_COLLECTIONS
+        ),
+        # כל שורה נמדדת מול הקולקציה **שלה**. התנאי הזה היה בתוך שני
+        # ה-``$lookup`` (``$eq: ["$$src", <הקולקציה>]``), ושם הוא גם מה
+        # שכפה את ``$expr`` הגורף על כל השאר. ``$lookup`` רץ בכל מקרה גם
+        # כשהתנאי כבוי, ולכן אין בהוצאתו מכאן עלות נוספת.
+        {
+            "$set": {
+                "_alive": {
+                    "$size": {
+                        "$cond": [
+                            {"$eq": ["$_id.src", RECYCLE_BIN_COLLECTIONS[0]]},
+                            "$_alive_" + RECYCLE_BIN_COLLECTIONS[0],
+                            "$_alive_" + RECYCLE_BIN_COLLECTIONS[1],
+                        ]
+                    }
+                }
+            }
+        },
+        {"$match": {"_alive": 0}},
+        {
+            "$project": {
+                "_id": "$action_id",
+                "file_name": "$_id.name",
+                "source": "$_id.src",
+                "language": 1,
+                "versions": 1,
+                "deleted_at": 1,
+                "expires_at": 1,
+                # שדה חסר משתווה ל-``null``, ו-``null`` נמוך מ-``Date``
+                # בסדר ההשוואה של BSON — ולכן שורה בלי ``deleted_at``
+                # הייתה שוקעת מתחת לכולן. מפתח מיון מפורש, כמו
+                # ``_timeline_latest_files`` בוובאפ.
+                "sort_at": {"$ifNull": ["$deleted_at", datetime.min.replace(tzinfo=timezone.utc)]},
+            }
+        },
+    ]
+
+
+def recycle_bin_page_stages(*, page: int, per_page: int) -> List[dict]:
+    """זנב העימוד — בשאילתה ולא בפייתון.
+
+    שני מסכי הסל שלפו עד אוקטובר 2026 את **כל** הסל לזיכרון, מיינו שם
+    וחתכו ``combined[start:end]``. ``$skip`` שלילי הוא שגיאת שרת ולא 0
+    שקט, ולכן ההצמדה כאן ולא אצל הקורא.
+    """
+    page = max(1, int(page))
+    per_page = max(1, int(per_page))
+    return [
+        {"$sort": {"sort_at": -1, "_id": -1}},
+        {"$skip": (page - 1) * per_page},
+        {"$limit": per_page},
+    ]
+
+
+def recycle_bin_count_stages() -> List[dict]:
+    """ספירת **קבצים**, לא מסמכי גרסה.
+
+    אותה תבנית שעמוד הקבצים מריץ: אותם שלבים בדיוק ועוד ``$count``, כדי
+    שהמספר שהכותרת מציגה יספור את מה שמוצג.
+    """
+    return [{"$count": "total"}]
+
+
+def resolve_trashed_file_names(
+    collection: Any, user_id: int, object_ids: Sequence[Any]
+) -> Tuple[List[str], List[Any]]:
+    r"""כמו :func:`resolve_owned_file_names`, אבל על מה שיושב בסל.
+
+    מחזיר ``(file_names, found_ids)``. הבעלות **ו**\ ``is_active: False``
+    נאכפים בשאילתה: מזהה של משתמש אחר, או של קובץ פעיל, פשוט אינו חוזר —
+    ולכן ``found_ids`` קצר מהקלט והקורא יכול להחזיר 404. התיחום ל"בסל" הוא
+    מה שמונע מפעולת סל לגעת בקובץ חי.
+    """
+    ids = list(dict.fromkeys(object_ids))
+    if not ids:
+        return [], []
+
+    names: List[str] = []
+    found: List[Any] = []
+    for doc in collection.find(
+        {"_id": {"$in": ids}, "user_id": user_id, "is_active": False},
+        {"_id": 1, "file_name": 1},
+    ):
+        found.append(doc.get("_id"))
+        name = (doc.get("file_name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+    return names, found
+
+
+def _trashed_ids_for_names(
+    collection: Any, user_id: int, names: Sequence[str]
+) -> List[Any]:
+    """מזהי **כל** מסמכי הסל של השמות האלה.
+
+    נאספים **לפני** הפעולה: אחרי ``delete_many`` אין מה לאסוף, ואחרי
+    ``update_many`` המסמכים כבר אינם ``is_active: False``. הם נדרשים כדי
+    שניקוי הצ'אנקים והסימון לאינדוקס מחדש יקבלו את כל הגרסאות ולא אחת.
+    """
+    return [
+        doc["_id"]
+        for doc in collection.find(
+            {"user_id": user_id, "file_name": {"$in": list(names)}, "is_active": False},
+            {"_id": 1},
+        )
+    ]
+
+
+def restore_files_by_names(
+    collection: Any, user_id: int, file_names: Iterable[str]
+) -> Tuple[List[str], List[Any]]:
+    r"""מחזיר מהסל את **כל** הגרסאות של כל שם קובץ ברשימה.
+
+    זה ההופכי של :func:`soft_delete_files_by_names`, ובמכוון: המחיקה מורידה
+    את כל הגרסאות יחד, ולכן שחזור שמחזיר אחת היה משאיר קובץ עם היסטוריה
+    קטועה — התאום ההפוך של הבאג שהמחיקה תוקנה ממנו.
+
+    מחזיר ``(restored_names, restored_ids)``, והמזהים הם של כל המסמכים
+    שחזרו — הם נדרשים לקורא, אבל **לא** כדי לסמן את כולם לאינדוקס סמנטי
+    מחדש. ``services/embedding_worker`` בודק ``is_latest_active_snippet``
+    ומסיים כל גרסה שאינה האחרונה עם אפס צ'אנקים, ולכן סימון של N גרסאות
+    קונה N סבבי worker ואפס תוצאה. הקורא מסמן את הגרסה הגבוהה בלבד.
+
+    ערוץ הכשל: זריקה. רשימה ריקה פירושה "לא נמצא מה לשחזר" ותו לא.
+    """
+    names = [n for n in dict.fromkeys(str(n or "").strip() for n in file_names) if n]
+    if not names:
+        return [], []
+
+    ids = _trashed_ids_for_names(collection, user_id, names)
+    if not ids:
+        return [], []
+
+    res = collection.update_many(
+        {"user_id": user_id, "file_name": {"$in": names}, "is_active": False},
+        {
+            "$set": {"is_active": True},
+            # התאריכים מוסרים, ולא רק מתעלמים מהם: אינדקס ה-TTL מסנן
+            # ``is_active: False``, אבל השארת ``deleted_expires_at`` על קובץ
+            # פעיל היא מלכודת למסלול הבא שישכח את המסנן.
+            "$unset": {"deleted_at": "", RECYCLE_BIN_TTL_FIELD: ""},
+        },
+    )
+    if not int(getattr(res, "modified_count", 0) or 0):
+        # נמצאו מסמכים בסל ובכל זאת לא שונה דבר — לא לדווח שחזור שלא קרה.
+        # ראו ``return-value-failure-unchecked`` §4.
+        return [], []
+    return names, ids
+
+
+def purge_files_by_names(
+    collection: Any, user_id: int, file_names: Iterable[str]
+) -> Tuple[List[str], List[Any]]:
+    r"""מוחק לצמיתות את **כל** הגרסאות של כל שם קובץ ברשימה.
+
+    ‏``is_active: False`` במסנן הוא שומר ולא קישוט: בלעדיו הפעולה הזו הייתה
+    מוחקת קובץ פעיל, ואין ממנה חזרה.
+
+    מחזיר ``(purged_names, purged_ids)``, והמזהים נאספים לפני המחיקה כדי
+    שניקוי הצ'אנקים יוכל לרוץ עליהם אחריה.
+
+    ⚠️ **הקורא חייב להעביר אותם ל-**\ ``delete_snippet_chunks`` **כ-**\
+    ``snippet_ids``\ **, לא כ-**\ ``file_names``\ **.** הצורה שלפי שם
+    מתרגמת שם למזהים בשאילתה משלה **בלי** לסנן ``is_active``, ולכן בקובץ
+    שחלק מגרסאותיו פעילות היא הייתה מוחקת גם את הצ'אנקים של הגרסאות
+    החיות. המזהים שכאן מתוחמים ל"בסל" בשאילתה.
+
+    ערוץ הכשל: זריקה.
+    """
+    names = [n for n in dict.fromkeys(str(n or "").strip() for n in file_names) if n]
+    if not names:
+        return [], []
+
+    ids = _trashed_ids_for_names(collection, user_id, names)
+    if not ids:
+        return [], []
+
+    res = collection.delete_many(
+        {"user_id": user_id, "file_name": {"$in": names}, "is_active": False}
+    )
+    if not int(getattr(res, "deleted_count", 0) or 0):
+        return [], []
+    return names, ids

@@ -2269,10 +2269,21 @@ async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         total_pages = (total + RECYCLE_PAGE_SIZE - 1) // RECYCLE_PAGE_SIZE if total > 0 else 1
         keyboard = []
         for it in items:
+            # המזהה הוא ידית לשורה: הוא של גרסה מייצגת, והשרת מתרגם אותו
+            # לשם הקובץ. כך ``callback_data`` נשאר 24 תווי hex ולא שם
+            # קובץ, שיכול להיות ארוך ולהכיל ``:`` — המפריד של הפקודה.
             fid = str(it.get('_id') or '')
             name = it.get('file_name', 'file')
+            try:
+                versions = int(it.get('versions') or 0)
+            except (TypeError, ValueError):
+                versions = 0
+            # עד אוקטובר 2026 קובץ בן שש גרסאות תפס שש שורות כפתורים
+            # זהות לחלוטין. השורה היא קובץ, ולכן היא מצהירה כמה מגרסאותיו
+            # נמצאות בסל — ולא איזו גרסה היא.
+            suffix = f" ({versions} גרסאות)" if versions > 1 else ""
             keyboard.append([
-                InlineKeyboardButton(f"♻️ שחזר: {name}", callback_data=f"recycle_restore:{fid}"),
+                InlineKeyboardButton(f"♻️ שחזר: {name}{suffix}", callback_data=f"recycle_restore:{fid}"),
                 InlineKeyboardButton("🧨 מחיקה סופית", callback_data=f"recycle_purge:{fid}")
             ])
         nav = []
@@ -2284,8 +2295,10 @@ async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             keyboard.append(nav)
         keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
         reply_markup = InlineKeyboardMarkup(keyboard)
+        # ``total`` סופר **קבצים**, כי זה מה שהשורות מציגות. קודם הוא
+        # ספר מסמכי גרסה, ולכן הכותרת הצהירה על מספר גדול מזה שנראה.
         header = (
-            f"🗑️ <b>סל מיחזור</b> — {total} פריטים\n"
+            f"🗑️ <b>סל מיחזור</b> — {total} קבצים\n"
             f"📄 עמוד {page} מתוך {total_pages}"
         )
         await TelegramUtils.safe_edit_message_text(query, header, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
@@ -2308,7 +2321,7 @@ async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return ConversationHandler.END
         ok = bool(_call_repo_api("restore_file_by_id", user_id, fid))
         if ok:
-            await _maybe_await(_safe_answer(query, "♻️ שוחזר", show_alert=False))
+            await _maybe_await(_safe_answer(query, "♻️ הקובץ שוחזר", show_alert=False))
         else:
             await _maybe_await(_safe_answer(query, "❌ שגיאת שחזור", show_alert=True))
         return await show_recycle_bin(update, context)
@@ -2331,7 +2344,7 @@ async def recycle_purge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             return ConversationHandler.END
         ok = bool(_call_repo_api("purge_file_by_id", user_id, fid))
         if ok:
-            await _maybe_await(_safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False))
+            await _maybe_await(_safe_answer(query, "🧨 הקובץ נמחק לצמיתות", show_alert=False))
         else:
             await _maybe_await(_safe_answer(query, "❌ שגיאת מחיקה סופית", show_alert=True))
         return await show_recycle_bin(update, context)

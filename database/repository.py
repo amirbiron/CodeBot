@@ -63,8 +63,15 @@ from file_description import (
 )
 # מחיקה רכה — מודול שורש טהור, אותה שאילתה שהוובאפ מריץ על חיבור משלו.
 from file_deletion import (
+    RECYCLE_BIN_COLLECTIONS,
     SoftDeleteResult,
+    purge_files_by_names,
+    recycle_bin_count_stages,
+    recycle_bin_page_stages,
+    recycle_bin_rows_pipeline,
     resolve_owned_file_names,
+    resolve_trashed_file_names,
+    restore_files_by_names,
     soft_delete_files_by_names as _shared_soft_delete_by_names,
 )
 # ירושת סימון המועדף — מודול שורש בלי חיבור משלו, אותו כלל שכותבי הוובאפ מריצים.
@@ -2149,117 +2156,113 @@ class Repository:
             return False
 
     # --- Recycle bin operations ---
+    def _recycle_bin_collections(self) -> Dict[str, Any]:
+        """שתי הקולקציות שהסל יושב בהן, לפי שם.
+
+        מילון ולא שני פרמטרים, ובמכוון: ``logical-entity-vs-version-document``
+        §4 — פעולה גורפת חייבת למנות **במפורש** את כל האחסונים. לולאה על
+        :data:`RECYCLE_BIN_COLLECTIONS` הופכת את "כיסית את שתיהן?" לדבר
+        שהקוד אומר, ולא לדבר שהקורא צריך לזכור. זה גם מה שמחליף את התבנית
+        "נסה את הראשונה, ואם 0 נסה את השנייה" — שמאחדת "המזהה לא נמצא" עם
+        "נמצא ולא השתנה דבר".
+        """
+        return {
+            RECYCLE_BIN_COLLECTIONS[0]: self.manager.collection,
+            RECYCLE_BIN_COLLECTIONS[1]: self.manager.large_files_collection,
+        }
+
+    def _resolve_recycled(self, user_id: int, file_id: str):
+        """מזהה גרסה ← ``(שם הקולקציה, ה-collection, שם הקובץ)``.
+
+        המזהה שהממשק מחזיק הוא **ידית** לשורה, לא כתובת הפעולה: השורה
+        מייצגת קובץ, ולכן הפעולה מתורגמת לשם לפני שהיא רצה. אותו תפקיד
+        בדיוק שהמזהה ממלא ב-``resolve_owned_file_names`` במסלול המחיקה.
+
+        מחזיר ``None`` כשהמזהה אינו של מסמך שבסל של המשתמש הזה — בעלות
+        ו"בסל" נאכפים בשאילתה, ולא בבדיקה שאפשר לשכוח.
+        """
+        oid = ObjectId(file_id)
+        for name, collection in self._recycle_bin_collections().items():
+            names, _found = resolve_trashed_file_names(collection, user_id, [oid])
+            if names:
+                return name, collection, names[0]
+        return None
+
+    # --- Recycle bin operations ---
     def list_deleted_files(self, user_id: int, page: int = 1, per_page: int = 20) -> Tuple[List[Dict], int]:
+        """שורה אחת לכל **קובץ** בסל, בעימוד של המסד.
+
+        עד אוקטובר 2026 כאן נשלף **כל** הסל לזיכרון משתי הקולקציות, מוזג,
+        מוין בפייתון ונחתך ב-``combined[start:end]`` — שורה לכל מסמך גרסה.
+        הקיבוץ, האיחוד והעימוד יושבים עכשיו ב-``recycle_bin_rows_pipeline``,
+        שגם הוובאפ מריץ, כי שני העותקים כבר הספיקו לסטות: פונקציית המיון
+        שהייתה כאן החזירה ``None`` למסמך בלי ``deleted_at``, ההשוואה
+        ל-``datetime`` זרקה, וה-``except`` החזיר סל **ריק**.
+
+        הכשל נשאר כשל: חריגה נרשמת ומוחזר ``([], 0)`` כמו קודם, אבל
+        מהסיבה הנכונה — והקורא בבוט מציג ❌ ולא "הסל ריק".
+        """
         try:
-            # Combine soft-deleted regular and large files, sorted by deleted_at desc (then updated_at)
-            match = {"user_id": user_id, "is_active": False}
-            # Fetch all and merge-sort in Python for simplicity and correctness across two collections
-            try:
-                try:
-                    reg_docs = list(self.manager.collection.find(match, dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)))
-                except TypeError:
-                    reg_docs = list(self.manager.collection.find(match))
-            except Exception as e:
-                # Emit per-source failure to help diagnostics
-                try:
-                    emit_event("db_list_deleted_files_error", severity="error", error=str(e), stage="regular")
-                except Exception:
-                    pass
-                reg_docs = []
-            try:
-                try:
-                    large_docs = list(self.manager.large_files_collection.find(match, dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)))
-                except TypeError:
-                    large_docs = list(self.manager.large_files_collection.find(match))
-            except Exception as e:
-                try:
-                    emit_event("db_list_deleted_files_error", severity="error", error=str(e), stage="large")
-                except Exception:
-                    pass
-                large_docs = []
-
-            def _key(doc: Dict[str, Any]):
-                dt = doc.get("deleted_at") or doc.get("updated_at") or doc.get("created_at")
-                # Normalize to sortable value; newer first, so we invert by using timestamp
-                try:
-                    import datetime as _dt
-                    if isinstance(dt, _dt.datetime):
-                        return (dt, doc.get("updated_at") or dt)
-                except Exception:
-                    pass
-                return (None, None)
-
-            combined = reg_docs + large_docs
-            combined.sort(key=_key, reverse=True)
-
-            total = len(combined)
-            if page < 1:
-                page = 1
-            if per_page < 1:
-                per_page = 20
-            start = (page - 1) * per_page
-            end = start + per_page
-            return combined[start:end], int(total)
+            pipeline = recycle_bin_rows_pipeline(user_id)
+            collection = self.manager.collection
+            rows = list(collection.aggregate(
+                pipeline + recycle_bin_page_stages(page=page, per_page=per_page)))
+            counted = list(collection.aggregate(pipeline + recycle_bin_count_stages()))
+            # ``$count`` אינו מחזיר שורה כשאין תוצאות, ולכן ``[0]`` ישר
+            # היה זורק על סל ריק.
+            total = int((counted[0] or {}).get("total", 0)) if counted else 0
+            return rows, total
         except Exception as e:
             emit_event("db_list_deleted_files_error", severity="error", error=str(e))
             return [], 0
 
     def restore_file_by_id(self, user_id: int, file_id: str) -> bool:
+        """מחזיר מהסל את הקובץ שהמזהה שייך לו — **כל** גרסאותיו.
+
+        המחיקה מורידה את כל הגרסאות יחד, ולכן שחזור של גרסה אחת היה
+        מחזיר קובץ עם היסטוריה קטועה: התאום ההפוך של הבאג שהמחיקה תוקנה
+        ממנו. החתימה נשמרת ``(user_id, file_id) -> bool`` כי היא חוזה עם
+        ``files_facade`` ועם הראוטים.
+        """
         try:
-            res = self.manager.collection.update_many(
-                {"_id": ObjectId(file_id), "user_id": user_id, "is_active": False},
-                {"$set": {"is_active": True},
-                 "$unset": {"deleted_at": "", "deleted_expires_at": ""}},
-            )
-            modified = int(res.modified_count or 0)
-            if modified == 0:
-                # Try large files collection
-                res2 = self.manager.large_files_collection.update_many(
-                    {"_id": ObjectId(file_id), "user_id": user_id, "is_active": False},
-                    {"$set": {"is_active": True},
-                     "$unset": {"deleted_at": "", "deleted_expires_at": ""}},
-                )
-                modified += int(res2.modified_count or 0)
-            if modified > 0:
-                # הצ'אנקים נמחקו כשהקובץ הועבר לסל, ולכן קובץ משוחזר חוזר
-                # לחיפוש הסמנטי רק אחרי ש-``EmbeddingWorker`` יבנה אותם מחדש.
-                # השאילתה שמזינה את ה-worker מתעדפת דגלים מפורשים על פני
-                # ה-backlog, כך שקובץ משוחזר לא נתקע מאחורי re-index מלא.
-                mark_snippets_for_reindex([ObjectId(file_id)])
-                cache.invalidate_user_cache(user_id)
-                try:
-                    uid = str(user_id)
-                    cache.delete_pattern(f"collections_*:{uid}:*")
-                except Exception:
-                    pass
-                return True
-            return False
+            resolved = self._resolve_recycled(user_id, file_id)
+            if resolved is None:
+                return False
+            _name, collection, file_name = resolved
+            restored, restored_ids = restore_files_by_names(collection, user_id, [file_name])
+            if not restored:
+                return False
+            # מזהה **אחד** ולא כולם: ``services/embedding_worker`` מוותר על
+            # כל גרסה שאינה האחרונה ומסיים אותה באפס צ'אנקים, ולכן סימון
+            # של N גרסאות קונה N סבבי worker ואפס תוצאה.
+            mark_snippets_for_reindex(restored_ids[:1])
+            self._invalidate_after_soft_delete(user_id, list(restored))
+            return True
         except Exception as e:
             emit_event("db_restore_file_by_id_error", severity="error", error=str(e))
             return False
 
     def purge_file_by_id(self, user_id: int, file_id: str) -> bool:
+        """מוחק לצמיתות את הקובץ שהמזהה שייך לו — כל גרסאותיו.
+
+        ``is_active: False`` נשאר במסנן בתוך ``purge_files_by_names``, והוא
+        מה שמגן על הגרסאות הפעילות של קובץ שחלקו עוד חי.
+        """
         try:
-            res = self.manager.collection.delete_many({"_id": ObjectId(file_id), "user_id": user_id, "is_active": False})
-            deleted = int(res.deleted_count or 0)
-            if deleted == 0:
-                res2 = self.manager.large_files_collection.delete_many({"_id": ObjectId(file_id), "user_id": user_id, "is_active": False})
-                deleted += int(res2.deleted_count or 0)
-            ok = bool(deleted and deleted > 0)
-            if ok:
-                # גם אם המחיקה נעשתה מ-``large_files`` (שאינו נחתך לצ'אנקים)
-                # הקריאה בטוחה: אין צ'אנקים עם ה-``snippetId`` הזה ולא יימחק דבר.
-                delete_snippet_chunks(int(user_id), snippet_ids=[ObjectId(file_id)])
-                try:
-                    cache.invalidate_user_cache(int(user_id))
-                except Exception:
-                    pass
-                try:
-                    uid = str(user_id)
-                    cache.delete_pattern(f"collections_*:{uid}:*")
-                except Exception:
-                    pass
-            return ok
+            resolved = self._resolve_recycled(user_id, file_id)
+            if resolved is None:
+                return False
+            _name, collection, file_name = resolved
+            purged, purged_ids = purge_files_by_names(collection, user_id, [file_name])
+            if not purged:
+                return False
+            # ‏``snippet_ids`` ולא ``file_names``: הצורה שלפי שם מתרגמת שם
+            # למזהים בשאילתה משלה **בלי** לסנן ``is_active``, ולכן בקובץ
+            # שחלק מגרסאותיו פעילות היא הייתה מוחקת גם את הצ'אנקים שלהן.
+            # ב-``large_files`` הקריאה היא no-op בלתי-מזיק.
+            delete_snippet_chunks(int(user_id), snippet_ids=list(purged_ids))
+            self._invalidate_after_soft_delete(user_id, list(purged))
+            return True
         except Exception as e:
             emit_event("db_purge_file_by_id_error", severity="error", error=str(e))
             return False
