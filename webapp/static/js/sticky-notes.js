@@ -619,23 +619,64 @@
     get _hasAnchorHost(){ return !!this._anchorHost; }
 
     /**
-     * כמה מהקונטיינר כבר נגלל אל מעל לקצה העליון של החלון, בפיקסלים.
+     * הפינה השמאלית-עליונה של מה שהמשתמש רואה כרגע מהמשטח, בקואורדינטות
+     * החלון. זו התשובה לשאלה "איפה המשתמש נמצא" ש-``createNote`` שואל.
      *
-     * זה מה שצריך להוסיף למיקום ``absolute`` יחסית לקונטיינר כדי שהפתק
-     * ייצא במקום שנראה כרגע. במשטח שנגלל עם העמוד התוצאה שווה לגלילת
-     * העמוד; בפאנל בגובה קבוע היא 0. נופל חזרה לגלילת העמוד אם אי אפשר
-     * למדוד — ההתנהגות ההיסטורית.
+     * **החיתוך של עד שלוש מסגרות:** החלון, הקונטיינר (כשהוא אינו ה-body,
+     * בדיוק כמו ב-``_positionOrigin``), והגולל הפנימי של דפדפן הריפו. כל
+     * מסגרת נמדדת מקופסת ה-client שלה — מתחת לגבול, שם מתחיל מה שנראה.
+     *
+     * **למה לא "כמה מהקונטיינר נגלל מעל החלון".** זו הייתה השאלה כאן עד
+     * היום (``_containerScrolledPast``), והיא נכונה רק כשהקונטיינר נגלל
+     * יחד עם העמוד — הלוח והקובץ. בדפדפן הריפו הקונטיינר אינו זז כלל,
+     * והגלילה קורית בתוך ``CodeMirror``; התשובה הייתה 0 בכל עומק גלילה,
+     * ופתק חדש נשמר ב-``inset`` מראש הקובץ. נמדד בדף האמיתי, במגע
+     * (``tests/test_repo_notes_browser.py``, אוקטובר 2026): בתחתית קובץ
+     * ארוך הפתק החדש נרשם הרחק מעל הגולל ונשאר מוסתר — כלומר הנגיעה
+     * בכפתור לא הראתה כלום. מה שהשאלה החדשה משנה בלוח ובקובץ — ``createNote``
+     * מפרט.
      */
-    _containerScrolledPast(){
-      try {
-        const el = this.container;
-        if (el && el !== (typeof document !== 'undefined' ? document.body : null)
-            && typeof el.getBoundingClientRect === 'function') {
-          const top = el.getBoundingClientRect().top;
-          if (Number.isFinite(top)) return Math.max(0, -top);
-        }
-      } catch(_) {}
-      return getScrollOffsets().y;
+    _visibleTopLeft(){
+      let x = 0, y = 0;
+      const clipTo = (box) => {
+        const r = box.getBoundingClientRect();
+        x = Math.max(x, r.left + (box.clientLeft || 0));
+        y = Math.max(y, r.top + (box.clientTop || 0));
+      };
+      const c = this.container;
+      if (c && c !== document.body && c !== document.documentElement) clipTo(c);
+      // אותו תנאי כמו ההיסט ב-``_positionOrigin``: הגולל הפנימי הוא
+      // המשטח רק בדפדפן הריפו.
+      const sc = this.repoTarget ? this._innerScroller() : null;
+      if (sc) clipTo(sc);
+      return { x, y };
+    }
+
+    /**
+     * המיקום שפתק חדש נשמר בו — **במרחב האחסון, דרך אותה נקודת המרה
+     * שכל מסלולי השמירה עוברים בה.**
+     *
+     * ``_notePayloadFromEl`` הופך מלבן שעל המסך למיקום שמור: המלבן פחות
+     * ``_positionOrigin``. כאן ההפך: נקודה שעל המסך (``inset`` מהפינה של
+     * מה שרואים, ``_visibleTopLeft``) ועוד אותו ``_positionOrigin``. כך
+     * המיקום של פתק חדש עובר באותה המרה כמו גרירה ונעיצה, ולא בנוסחה
+     * משלו — הנוסחה הנפרדת היא בדיוק מה שהפריד ביניהם בדפדפן הריפו.
+     *
+     * **וההצמדה רצה כבר כאן, ולא רק ברינדור.** ``_applyPositionMode``
+     * מריץ את ``_clampToSurface`` על כל פתק משטח; הרצה של אותה פונקציה,
+     * עם אותו טווח, לפני השליחה, היא מה שמבטיח שהערך שנשלח לשרת הוא
+     * הערך שיוצג. קריאה חוזרת מהמלבן אחרי הרינדור אינה תחליף: הפתק נכנס
+     * באנימציית ``noteAppear`` (``sticky-notes.css``), שמשנה את קנה המידה
+     * שלו, והמלבן שלו זז בזמן הזה.
+     */
+    _newNotePosition(note, inset){
+      const mode = this._resolveMode(note);
+      const seen = this._visibleTopLeft();
+      const origin = this._positionOrigin(null, mode);
+      const x = Math.round(seen.x + inset - origin.x);
+      const y = Math.round(seen.y + inset - origin.y);
+      if (mode !== 'surface' || !this._surfaceTarget) return { x, y };
+      return this._clampToSurface(null, x, y, note, this._surfaceReach());
     }
 
     async _init(){
@@ -779,37 +820,20 @@
     async createNote(){
       try {
         const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
-        const scroll = getScrollOffsets();
+        // המרחק מהפינה של מה שרואים. הנחתה קלה למובייל כדי למנוע קפיצה עם
+        // הופעת מקלדת.
         const inset = isMobile ? 80 : 120;
-        const noteX = inset;
-        // **הפתק נולד מול העיניים — נמדד יחסית לקונטיינר, לא לעמוד.**
-        //
-        // ``scroll.y`` נכון רק כשהקונטיינר נגלל יחד עם העמוד. זה המצב
-        // בלוח ובפתקי קובץ (הקונטיינר הוא ה-body או משטח שמתחיל בראשו),
-        // ובדפדפן הריפו זה נכון **במקרה**: ``.repo-browser-container``
-        // הוא ``100vh`` עם ``overflow: hidden``, כלומר העמוד לא נגלל
-        // בכלל ו-``scroll.y`` הוא 0. כלומר היום שתי הנוסחאות מסכימות,
-        // ולא ניתן לראות כאן באג.
-        //
-        // המדידה כאן מסירה את התלות הזו: כמה מהקונטיינר כבר נגלל מעל
-        // הקצה העליון של החלון. במשטח שנגלל עם העמוד זה יוצא בדיוק
-        // ``scroll.y`` (ההתנהגות בלוח ובקובץ נשארת ביט-זהה), ובפאנל שאינו
-        // נגלל זה 0. שינוי עתידי בפריסה שיאפשר גלילת עמוד לא ידחוף פתקים
-        // אל מתחת לתחתית הפאנל.
-        const noteY = this._containerScrolledPast() + inset;
+        const size = { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 };
 
         const payload = this._surfaceTarget ? {
           content: '',
-          position: { x: noteX, y: noteY },
-          size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
+          size,
           color: DEFAULT_NOTE_COLOR_ID,
           // ברירת המחדל בלוח: מוצמד למשטח. הלוח *הוא* המשטח.
           mode: 'surface'
         } : {
           content: '',
-          // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
-          position: { x: noteX, y: noteY },
-          size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
+          size,
           color: DEFAULT_NOTE_COLOR_ID,
           // **פתק חדש צף עם המשתמש.** זו זרימת העבודה: כותבים פתק תוך עיון
           // בקובץ, גוללים למטה, וממשיכים לכתוב — ורק בסוף נועצים אותו במקום
@@ -827,6 +851,26 @@
           anchor_id: FLOATING_SENTINEL,
           anchor_text: undefined
         };
+        // **הפתק נולד מול העיניים**, ומה שנשמר הוא מה שמוצג — ראו
+        // ``_newNotePosition``. המיקום נקבע אחרי שאר השדות, כי מצב המיקום
+        // (``mode`` או הסנטינל) הוא שקובע באיזה מרחב הוא נמדד.
+        //
+        // **מה זה משנה לכל יעד, מול הנוסחה הקודמת** (``_containerScrolledPast() + inset``):
+        //
+        // - **קובץ**: הקונטיינר הוא ה-body, ולכן ``_visibleTopLeft`` הוא
+        //   פינת החלון, והמרחב של פתק צף הוא המסמך. יוצא ``inset`` ועוד
+        //   הגלילה בכל ציר. הנוסחה הקודמת לא ספרה את הגלילה האופקית ולא
+        //   עיגלה, ולכן הערך זהה לקודם עד עיגול, בעמוד שאין בו גלילה
+        //   אופקית — ובעמוד המסמך אין (ראו ההערה על ``scroll.x`` בענף
+        //   ה-``anchored`` של ``_applyPositionMode``).
+        // - **לוח**: המשטח נגלל עם העמוד. יוצא ``inset`` מתחת לקצה העליון
+        //   הנראה של המשטח, כמו קודם — אבל נמדד עכשיו **מתוך** הגבול של
+        //   ``.board-surface`` ולא מהקצה החיצוני שלו, ולכן כשהמשטח כבר
+        //   נגלל מעל החלון הפתק יושב גבוה יותר ברוחב הגבול של
+        //   ``.board-surface``. והערך מעוגל, כמו בכל מסלולי השמירה האחרים.
+        // - **ריפו**: זה התיקון. הקונטיינר אינו נגלל, והגלילה קורית בתוך
+        //   הגולל הפנימי — בשני הצירים, כי שורות ארוכות נגללות לרוחב.
+        payload.position = this._newNotePosition(payload, inset);
         const resp = await fetch(this._scopeUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withContentB64(payload))
         });
@@ -1434,6 +1478,59 @@
       }
 
       /**
+       * הטווח האופקי, במרחב האחסון, שבו פתק משטח בדפדפן הריפו נשאר במקום
+       * שבו הונח — או ``null``, ואז ``_clampToSurface`` מצמיד לרוחב הקונטיינר.
+       *
+       * **בלוח המשטח הוא הקונטיינר**, והוא אינו נגלל לרוחב: פתק מעבר לקצה
+       * אבוד, ולכן רוחב הקונטיינר הוא הגבול הנכון שם. **בדפדפן הריפו המשטח
+       * הוא התוכן של הגולל הפנימי**, ושורה ארוכה נגללת לרוחב — פתק מעל
+       * סוף שורה ארוכה נגיש, כי גוללים אליו. ההצמדה במרחב האחסון השתמשה
+       * ברוחב הקונטיינר גם כאן, ולכן פתק שנגרר בזמן גלילה אופקית קפץ
+       * בגלילה הבאה, ופתק חדש בתוכן שנגלל ימינה נחסם אל מחוץ למה שרואים
+       * (שניהם נמדדים ב-``tests/test_repo_notes_browser.py``).
+       *
+       * **הטווח הוא כל מה שהגרירה מסוגלת להניח, בכל מיקום גלילה.** הגרירה
+       * מצמידה את ``style.left`` דרך ``_clampToSurface`` בלי טווח, כלומר
+       * למסגרת: ``[0, clientWidth]`` של הקונטיינר. מיקום שמור ``x`` מרונדר
+       * ב-``x + shift.x``, כש-``shift.x`` הוא ``d`` (המרחק של הגולל
+       * מהקונטיינר) פחות ``scrollLeft`` (``_surfaceScrollShift``). האיחוד של
+       * המסגרת על כל מיקומי הגלילה, במרחב האחסון, הוא הטווח. גבול צר מזה
+       * מזיז בגלילה הבאה פתק שהמשתמש הניח בתוך המסגרת: קופסת ה-client של
+       * הגולל עצמו צרה מהמסגרת בתצוגת ה-Markdown (ה-``margin`` וה-``border``
+       * של ``.markdown-preview-container`` ב-``repo-browser.css``), ופתק
+       * שנגרר אל הקצה הימני — שם הטקסט העברי מתחיל — קפץ שמאלה ברוחב שלהם
+       * (נמדד באותו קובץ בדיקה).
+       *
+       * **הכיוון קובע לאיזה צד יש עודף.** בגולל ``rtl`` ה-``scrollLeft``
+       * הוא 0 בקצה הימני ונעשה שלילי בגלילה שמאלה (MDN, ‏Element.scrollLeft),
+       * כלומר העודף נמצא במיקומים שליליים. השרת מצמיד מיקום שלילי ל-0
+       * (``_coerce_int`` ב-``webapp/sticky_notes_api.py``), ולכן בכיוון
+       * הזה הטווח אינו מתרחב — אחרת מה שמוצג לא היה מה שנשמר. בגולל
+       * ``ltr`` — ``CodeMirror``, שהקוד בו משמאל לימין — העודף מימין.
+       * ומאותה סיבה הקצה השמאלי של הטווח אינו שלילי לעולם, גם כשהמסגרת
+       * מתחילה לפני ראשית האחסון — בתצוגת ה-Markdown, ברוחב השוליים
+       * השמאליים. פתק שנגרר אל השוליים האלה עדיין זז מהם בגלילה הבאה,
+       * כפי שזז לפני הטווח הזה: הגרירה אינה מכירה את הגבול של השרת.
+       *
+       * ``scroller`` ו-``shift`` מגיעים מ-``_updatePinnedForScroll``, שכבר
+       * מחזיק אותם; בלעדיהם הם נמדדים כאן.
+       */
+      _surfaceReach(scroller, shift){
+        if (!this.repoTarget) return null;
+        const sc = scroller || this._innerScroller();
+        const c = this.container;
+        if (!sc || !c) return null;
+        const frame = c.clientWidth;
+        // מסגרת שעוד אין לה רוחב (לא נפרסה) אינה מגדירה טווח — אותו נימוק
+        // כמו הבדיקה על הקונטיינר ב-``_clampToSurface``.
+        if (!(Number.isFinite(frame) && frame > 0)) return null;
+        const d = (shift || this._surfaceScrollShift()).x + (sc.scrollLeft || 0);
+        const slack = Math.max(0, (Number(sc.scrollWidth) || 0) - (Number(sc.clientWidth) || 0));
+        const rtl = getComputedStyle(sc).direction === 'rtl';
+        return { left: Math.max(0, -d - (rtl ? slack : 0)), right: frame - d + (rtl ? 0 : slack) };
+      }
+
+      /**
        * מסתיר פתק נעוץ שנגלל אל מחוץ לתחום הנראה של הגולל.
        *
        * בלי זה הפתק היה ממשיך לצוף מעל שורת הכפתורים והכותרת כשגוללים
@@ -1476,8 +1573,14 @@
           if (!sc) return;
           // **שני חישובי פריסה לאירוע, לא שניים לכל פתק.** קריאת
           // ``getBoundingClientRect`` מכריחה את הדפדפן לחשב פריסה, ובגלילה
-          // רציפה זה קורה בכל פריים.
-          const posCtx = { shift: this._surfaceScrollShift(), scrollerRect: sc.getBoundingClientRect() };
+          // רציפה זה קורה בכל פריים. מאותה סיבה גם הטווח האופקי נמדד כאן
+          // פעם אחת, ולא בכל פתק.
+          const shift = this._surfaceScrollShift();
+          const posCtx = {
+            shift,
+            scrollerRect: sc.getBoundingClientRect(),
+            reach: this._surfaceReach(sc, shift),
+          };
           this._reapplyPinnedLayout(posCtx);
         } catch(_) {}
       }
@@ -1730,10 +1833,24 @@
         });
       }
 
+      // הכותב היחיד של ``min-height`` על המשטח, לכל מי שקורא ל-``_updateSurfaceExtent``.
+      //
+      // **ובדפדפן הריפו אין משטח שגדל, ולכן אין כאן מה לכתוב.** המשטח שם
+      // הוא התוכן של הגולל הפנימי, ואת אורכו קובע ``CodeMirror`` לפי הקובץ.
+      // הקונטיינר (``#code-viewer-container``) הוא מסגרת קבועה: עמודת flex
+      // עם ``min-height: 0`` ו-``overflow: hidden`` ב-``repo-browser.css``, בתוך ``.repo-content``
+      // שגם הוא ``overflow: hidden``. ``min-height`` שנכתב כאן גבר על ה-CSS
+      // (סגנון אינליין), הקונטיינר גדל מעבר להורה, העורך נמתח איתו, וטווח
+      // הגלילה שלו התקצר בדיוק בכמה שנחתך — כלומר סוף הקובץ לא היה נגיש
+      // בשום גלילה. וגם הערך עצמו לא תיאר את המשטח: ``style.top`` של פתק
+      // ריפו הוא במרחב הרינדור, כולל היסט הגלילה, ולכן אותו פתק הוליד
+      // גובה אחר לפי המקום שבו המשתמש עמד כשהחישוב רץ — טעינה, גרירה,
+      // שינוי גודל, סיבוב, ואפילו גרירה של פתק ``screen``. נמדד ב-
+      // ``tests/test_repo_notes_browser.py``.
       _applySurfaceExtent(){
         try {
           const surface = this.container;
-          if (!this._surfaceTarget || !surface || !surface.style) return;
+          if (!this._surfaceTarget || this.repoTarget || !surface || !surface.style) return;
           let bottom = 0;
           this.notes.forEach((entry) => {
             const el = entry && entry.el;
@@ -1755,7 +1872,13 @@
         this._updateSurfaceExtent();
       }
 
-      _clampToSurface(el, x, y, note){
+      // ``reach`` הוא הטווח האופקי, במרחב של ``x``. בלעדיו — ברירת המחדל —
+      // זה רוחב הקונטיינר: נכון בלוח, שבו המרחב של האחסון ושל הרינדור אחד,
+      // ונכון בגרירה, שמודדת ב-``el.style`` כלומר במרחב הרינדור, מול
+      // המסגרת שהמשתמש רואה. ``_applyPositionMode`` מעביר את
+      // ``_surfaceReach`` — אותה מסגרת, על כל מיקומי הגלילה, במרחב התוכן —
+      // כי שם ``x`` הוא מיקום שמור.
+      _clampToSurface(el, x, y, note, reach){
         try {
           const parent = this.container;
           if (!parent || typeof parent.clientWidth !== 'number' || parent.clientWidth <= 0) {
@@ -1766,10 +1889,11 @@
           // הפתק למקום שנכון לגודל אחר. שתי הנקודות נגזרות מאותה פונקציה
           // ולכן אינן יכולות להיסחף.
           const w = this._resolveDisplaySize(el, note, { width: parent.clientWidth }).fitted.width;
-          const maxX = Math.max(0, parent.clientWidth - w);
+          const minX = reach ? reach.left : 0;
+          const maxX = Math.max(minX, (reach ? reach.right : parent.clientWidth) - w);
           // ציר ה-Y נחסם מלמטה בלבד: המשטח גליל, וגרירה כלפי מטה מגדילה
           // אותו — כלומר פתק "רחוק" עדיין נגיש, בניגוד לפתק מעל הקצה.
-          return { x: clamp(Math.round(x), 0, maxX), y: Math.max(0, Math.round(y)) };
+          return { x: clamp(Math.round(x), minX, maxX), y: Math.max(0, Math.round(y)) };
         } catch(_) { return { x, y }; }
       }
 
@@ -3936,6 +4060,11 @@
             let targetY = (typeof note.position?.y === 'number') ? note.position.y : currentAbsY;
             if (!Number.isFinite(targetX)) targetX = currentAbsX;
             if (!Number.isFinite(targetY)) targetY = currentAbsY;
+            // ``opts.posCtx`` מגיע מ-``_updatePinnedForScroll``, שמחשב את
+            // ההיסט, את מלבן הגולל ואת הטווח האופקי **פעם אחת** לכל אירוע
+            // גלילה. בלעדיו כל פתק היה מכריח חישובי פריסה משלו, בכל פריים
+            // של גלילה.
+            const ctx = (opts && opts.posCtx) || null;
             if (this._surfaceTarget) {
               // **רוחב בלבד.** המשטח גליל וגדל כלפי מטה, ולכן פתק גבוה
               // עדיין נגיש — בעוד שפתק רחב מהמשטח גולש ואין דרך להגיע
@@ -3948,15 +4077,15 @@
                 el.style.width = fitted.width + 'px';
                 el.style.height = fitted.height + 'px';
               }
-              const clamped = this._clampToSurface(el, targetX, targetY, note);
+              // ``targetX`` הוא מיקום שמור, ולכן הגבול הוא של מרחב האחסון:
+              // בריפו — כל מה שהמסגרת מראה מהתוכן, בכל מיקום גלילה
+              // (``_surfaceReach``).
+              const reach = ctx ? ctx.reach : this._surfaceReach();
+              const clamped = this._clampToSurface(el, targetX, targetY, note, reach);
               targetX = clamped.x; targetY = clamped.y;
             }
             // ההמרה ההפוכה ל-``_positionOrigin``: המיקום נשמר במרחב
             // התוכן, ומרונדר במרחב הקונטיינר. בלוח ובקובץ ההיסט אפס.
-            // ``opts.posCtx`` מגיע מ-``_updatePinnedForScroll``, שמחשב את
-            // ההיסט ואת מלבן הגולל **פעם אחת** לכל אירוע גלילה. בלעדיו כל
-            // פתק היה מכריח שני חישובי פריסה משלו, בכל פריים של גלילה.
-            const ctx = (opts && opts.posCtx) || null;
             const shift = ctx ? ctx.shift
               : (this.repoTarget ? this._surfaceScrollShift() : { x: 0, y: 0 });
             el.style.left = (targetX + shift.x) + 'px';
