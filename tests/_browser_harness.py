@@ -64,9 +64,17 @@ class Touch:
 #: אותו: הכותרות של ``md_preview.html`` נכנסות באנימציה (``#md-content > *``), והקישור
 #: שליד כותרת זז ומשנה גודל בזמנה — נגיעה שנמדדה באמצעה פספסה אותו. גם חלוניות
 #: התפריטים של הסרגל העליון נפתחות במעבר, ותוכן ההמבורגר נפתח בגובה שגדל.
+#:
+#: **"מזיזה" היא אנימציה שרצה**, ולא כל מה ש-``getAnimations()`` מחזיר: אנימציה
+#: שהסתיימה עם ``forwards`` נשארת ברשימה במצב ``finished``. כך כרטיסי עמוד הקבצים
+#: (``.stagger-feed > *`` ב-``animations.css``): נמדד ``slideUpFade`` במצב ``finished``
+#: גם שנייה וחצי אחרי הטעינה, ובלי הבדיקה הזו אף כפתור בכרטיס לא היה מקבל נגיעה.
+#: ``paused`` ו-``finished`` הם המצבים שבהם ``currentTime`` אינו מתקדם (MDN,
+#: ``Animation.playState``).
 CENTER_JS = """([sel, index]) => {
   const el = document.querySelectorAll(sel)[index];
-  const moving = document.getAnimations().some(a => a.effect && a.effect.target && a.effect.target.contains(el));
+  const moving = document.getAnimations().some(a => a.playState === 'running'
+    && a.effect && a.effect.target && a.effect.target.contains(el));
   const r = el.getBoundingClientRect();
   const x = r.left + r.width / 2, y = r.top + r.height / 2;
   const onScreen = y >= 0 && y <= innerHeight && x >= 0 && x <= innerWidth;

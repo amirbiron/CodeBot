@@ -35,13 +35,9 @@ KNOWN_MISSING = {
     ("base.html", "icons/apple-touch-icon-180.png"),
     ("bookmarks_snippet.html", "css/bookmarks.css"),
     ("bookmarks_snippet.html", "js/bookmarks.js"),
-    ("collections.html", "css/card-preview.css"),
-    ("collections.html", "js/card-preview.js"),
     ("files.html", "css/multi-select.css"),
-    ("files.html", "css/card-preview.css"),
     ("files.html", "js/multi-select.js"),
     ("files.html", "js/bulk-actions.js"),
-    ("files.html", "js/card-preview.js"),
     ("reader_mode.html", "css/reader.css"),
     ("repo/base_repo.html", "js/repo-history.js"),
     ("repo/base_repo.html", "js/utils/safe-highlight.js"),
@@ -90,3 +86,21 @@ def test_the_compare_and_markdown_pages_are_versioned():
     for template in ("compare.html", "compare_files.html", "compare_paste.html",
                      "md_preview.html", "view_file.html"):
         assert template not in offenders, f"{template} מגיש נכס בלי מזהה גרסה"
+
+
+def test_the_card_preview_assets_carry_a_version_id_on_both_pages():
+    """התצוגה המקדימה בכרטיס נטענת מעמוד הקבצים ומעמוד האוספים — בשניהם עם מזהה גרסה.
+
+    שינוי ב-``card-preview.js`` — למשל ההעתקה של כל הקובץ מהתצוגה — לא היה מגיע
+    בלי זה למי שכבר ביקר באחד העמודים. הבדיקה ישירה ולא דרך ההפרש, כמו זו
+    שמעליה, כדי שמי שיחזיר את התגיות ל-allowlist ייפול כאן. והיא דורשת שהתגית
+    **קיימת** עם מזהה, ולא רק שאין תגית בלעדיו: תגית שנמחקה הייתה עוברת את השני.
+    """
+    for template in ("files.html", "collections.html"):
+        text = (TEMPLATES / template).read_text(encoding="utf-8")
+        for asset in ("js/card-preview.js", "css/card-preview.css"):
+            tags = [m for m in _TAG.finditer(text)
+                    if (n := _FILENAME.search(m.group(0))) and n.group(1) == asset]
+            assert tags, f"{template} אינו טוען את {asset}"
+            for tag in tags:
+                assert "v=" in tag.group(1), f"{template} מגיש את {asset} בלי מזהה גרסה"

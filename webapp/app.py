@@ -14174,6 +14174,60 @@ def _file_version_context(
         'saved_at': format_datetime_display(version_created_at(doc)),
     }
 
+
+def _latest_file_doc_by_id(
+    db_ref,
+    user_id: int,
+    file_id: str,
+) -> Tuple[Optional[Dict[str, Any]], str, str]:
+    """המסמך שמחזיק את התוכן העדכני של **הקובץ** ש-``file_id`` שייך אליו.
+
+    ``file_id`` הוא ``_id`` של מסמך, וכל שמירה של קובץ רגיל יוצרת מסמך חדש
+    עם ``_id`` חדש. מזהה שנכתב לדף כשהדף נטען — בכרטיס בעמוד הקבצים, או
+    בשורה באוסף — מצביע לכן על הגרסה שהייתה האחרונה **אז**, ומאז ייתכן
+    שנשמרה גרסה חדשה (מהבוט, מטאב אחר, מסוכן דרך ה-MCP). מי ששואל "מה יש
+    בקובץ" — התצוגה המקדימה בכרטיס וההעתקה ממנה — צריך את הגרסה הפעילה
+    האחרונה, ולכן המזהה משמש כאן רק כדי לגזור את שם הקובץ, כמו ב-
+    ``api_toggle_favorite``.
+
+    מחזיר ``(doc, kind, problem)``:
+
+    * ``problem`` ריק — ``doc`` הוא המסמך העדכני, ו-``kind`` כמו ב-
+      ``_get_user_any_file_by_id``.
+    * ``'in_recycle_bin'`` — המסמך שבמזהה אינו פעיל, ואין לקובץ גרסה פעילה.
+    * ``'not_found'`` — אין למשתמש מסמך כזה. גם כשל של המסד בשליפה הראשונה
+      מגיע לכאן, כי ``_get_user_any_file_by_id`` בולע אותו ומחזיר "לא נמצא".
+
+    ``large_files`` נשמר במקום ואין בו גרסאות, ולכן שם המסמך הוא הקובץ.
+    מסמך שאינו בסל ושאין בשמו גרסה פעילה — למשל מסמך ישן בלי השדה
+    ``is_active`` — הוא הקובץ עצמו, כמו ב-``_file_version_context``.
+
+    כשל בשליפת הגרסה האחרונה **עולה** (``PyMongoError`` מ-
+    ``_latest_active_version_doc``): החלופה — להחזיר את המסמך שבמזהה — היא
+    בדיוק התוכן הישן שהפונקציה הזו קיימת כדי לא להחזיר.
+    """
+    doc, kind = _get_user_any_file_by_id(db_ref, user_id, file_id)
+    if not doc:
+        return None, "", "not_found"
+    if kind != "regular":
+        return doc, kind, ""
+
+    file_name = (doc.get('file_name') or '').strip()
+    latest = _latest_active_version_doc(db_ref, user_id, file_name, {'_id': 1})
+    if latest is None:
+        if doc.get('is_active') is False:
+            return None, "", "in_recycle_bin"
+        return doc, kind, ""
+    if latest.get('_id') == doc.get('_id'):
+        return doc, kind, ""
+
+    fresh = db_ref.code_snippets.find_one({'_id': latest.get('_id'), 'user_id': user_id})
+    if not isinstance(fresh, dict):
+        # הגרסה נמחקה בין שתי השאילתות.
+        return None, "", "not_found"
+    return fresh, kind, ""
+
+
 _LIVE_PREVIEW_MAX_BYTES = 200 * 1024  # 200KB כדי למנוע תקיעות ברינדור
 _LIVE_PREVIEW_ALLOWED_SCHEMES = {"http", "https", "mailto", "tel"}
 _LIVE_PREVIEW_ALLOWED_DATA_PREFIXES = ("data:image/",)
@@ -14558,14 +14612,23 @@ def file_preview(file_id):
     """מחזיר preview (עד 20 שורות ראשונות) של קובץ קוד כ-HTML מודגש.
 
     שימושי להצגה מהירה בתוך כרטיס בעמוד הקבצים, ללא ניווט לעמוד מלא.
+
+    התצוגה היא של הגרסה הפעילה האחרונה של הקובץ, גם כש-``file_id`` שייך
+    לגרסה ישנה יותר — ראו ``_latest_file_doc_by_id``. התשובה מחזירה את
+    ``version`` ואת ``file_id`` של מה שהוצג, כדי שהכרטיס יאמר איזו גרסה
+    זו ו"פתח דף מלא" יפתח אותה.
     """
     db = get_db()
+    if db is None:
+        # ``get_db`` מחזיר ``None`` כשאין חיבור. בלי הבדיקה, ``_get_user_any_file_by_id``
+        # היה מחזיר "לא נמצא" על קובץ שקיים.
+        return jsonify({'ok': False, 'error': 'service_unavailable'}), 503
     user_id = session['user_id']
 
     # שליפת הקובץ למשתמש הנוכחי (רגיל או large_files)
     try:
-        file, kind = _get_user_any_file_by_id(db, user_id, file_id)
-    except Exception as e:
+        file, kind, problem = _latest_file_doc_by_id(db, user_id, file_id)
+    except PyMongoError as e:
         logger.exception("DB error fetching file preview", extra={
             "file_id": file_id,
             "user_id": user_id,
@@ -14574,7 +14637,7 @@ def file_preview(file_id):
         return jsonify({'ok': False, 'error': 'Database error'}), 500
 
     if not file:
-        return jsonify({'ok': False, 'error': 'File not found'}), 404
+        return jsonify({'ok': False, 'error': problem}), 404
 
     code = (file.get('code') or file.get('content') or '') or ''
     language = (file.get('programming_language') or 'text').lower()
@@ -14651,7 +14714,46 @@ def file_preview(file_id):
         'preview_lines': preview_lines,
         'language': language,
         'has_more': total_lines > preview_lines,
+        'file_id': str(file.get('_id')),
+        'version': normalized_version(file.get('version')) if kind == 'regular' else None,
     })
+
+
+@app.route('/api/file/<file_id>/content')
+@login_required
+@traced("file.content")
+def api_file_content(file_id):
+    """התוכן המלא של הקובץ — של הגרסה הפעילה האחרונה, בשביל העתקה ללוח.
+
+    הצרכן הוא כפתור ההעתקה בתצוגה המקדימה של כרטיס
+    (``webapp/static/js/card-preview.js``). הוא קורא לכאן **ברגע הלחיצה** עם
+    המזהה שבכרטיס, ומקבל את מה ששמור עכשיו — גם אם התצוגה נפתחה לפני שנשמרה
+    גרסה חדשה. למה המזהה לבדו אינו מספיק: ``_latest_file_doc_by_id``.
+
+    ``Cache-Control: no-store``: זה התוכן הפרטי של הקובץ, ותשובה שנשמרה
+    במטמון הייתה מחזירה את מה ששמור **אז**.
+    """
+    db = get_db()
+    if db is None:
+        return jsonify({'ok': False, 'error': 'service_unavailable'}), 503
+    user_id = session['user_id']
+
+    try:
+        doc, kind, problem = _latest_file_doc_by_id(db, user_id, file_id)
+    except PyMongoError:
+        logger.exception("DB error resolving the latest version for copy", extra={"file_id": file_id})
+        return jsonify({'ok': False, 'error': 'db_error'}), 500
+
+    if not doc:
+        return jsonify({'ok': False, 'error': problem}), 404
+
+    resp = jsonify({
+        'ok': True,
+        'code': (doc.get('code') or doc.get('content') or ''),
+        'version': normalized_version(doc.get('version')) if kind == 'regular' else None,
+    })
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 @app.route('/api/file/<file_id>/quick-update', methods=['POST'])
