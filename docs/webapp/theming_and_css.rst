@@ -236,6 +236,7 @@ Markdown Viewer ו‑Split View
 - Inline styles ב‑HTML/JS: צרו מחלקה ב‑CSS שמפנה ל‑``var()``. אם חייבים Inject דינמי (למשל Sticky Notes) – חשבו צבעים דרך טוקנים קיימים (`--text-on-primary`, `--danger-bg`).
 - `color-mix()` (אופציונלי): עדיף על שקיפות ידנית כאשר צריך לשלב צבעים קיימים.
 - ``[data-theme="..."]`` הוא הסלקטור היחיד לשינוי Theme. אין להשתמש שוב ב‑``prefers-color-scheme`` מלבד בקוד Legacy שכבר קיים ב‑``markdown-enhanced.css`` (TODO לעדכן).
+- **אין Bootstrap ב-WebApp.** מחלקה בשם של Bootstrap (``d-none``, ``row``, ``d-flex`` וכו') עובדת רק אם ה-CSS של האפליקציה מגדיר אותה. לפני שמשתמשים בה בתבנית — ראו :ref:`webapp-css-no-bootstrap`.
 
 .. important::
 
