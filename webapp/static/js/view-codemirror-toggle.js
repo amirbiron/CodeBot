@@ -161,6 +161,21 @@
       // Read-only but still interactive (selection/folding)
       EditorState.readOnly.of(true),
       (viewMod && viewMod.EditorView && viewMod.EditorView.editable) ? viewMod.EditorView.editable.of(false) : EditorView.editable.of(false),
+      // גלילה של טווח לתצוגה עוברת ל-scrollIntoView של הדפדפן.
+      // האלגוריתם של CodeMirror עצמו (scrollRectIntoView ב-@codemirror/view, נקרא
+      // ב-6.38.6 שבבנדל) מניח שכשהוא מגיע ל-body זה החלון, וקורא ל-window.scrollBy.
+      // כאן העמוד נגלל בתוך body ולא בחלון (הכלל html, body ב-base.html; #3534), ולכן
+      // הקריאה ההיא לא הזיזה כלום — ו-▼ בחיפוש לא הגיע להתאמה. scrollIntoView של
+      // הדפדפן גולל כל קופסה שצריך: את body במסך רגיל, את קופסת הקוד במסך מלא.
+      // ערכי y/x של CodeMirror ("nearest" | "start" | "end" | "center") הם בדיוק
+      // ערכי block/inline של הדפדפן. חריגה כאן נרשמת ב-logException של CodeMirror,
+      // שעובר אז לאלגוריתם שלו — לא נבלעת. ה-facet קיים מ-@codemirror/view 6.26.
+      EditorView.scrollHandler.of(function (view, range, options) {
+        const at = view.domAtPos(range.head);
+        const el = at.node.nodeType === 1 ? at.node : at.node.parentElement;
+        el.scrollIntoView({ block: options.y, inline: options.x });
+        return true;
+      }),
     ];
 
     const state = EditorState.create({
@@ -247,11 +262,16 @@
         viewInstance.focus();
       } catch (_) {}
       try {
+        // למרכז ולא "הכי קרוב" — כמו החיפוש בתצוגה הבסיסית (scrollIntoView עם
+        // block: 'center'), ומאותה סיבה: סרגל החיפוש צמוד לראש המסך, והתאמה
+        // שנגללת לקצה העליון הייתה נוחתת מתחתיו.
         viewInstance.dispatch({
           selection: { anchor: m.from, head: m.to },
-          scrollIntoView: true,
+          effects: window.CodeMirror6.EditorView.scrollIntoView(m.from, { y: 'center' }),
         });
-      } catch (_) {}
+      } catch (e) {
+        console.error('view-codemirror-toggle: failed to select search match', e);
+      }
       updateCmCount();
     }
 

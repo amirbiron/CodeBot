@@ -1,0 +1,291 @@
+"""גלילה וחיפוש בתצוגת קובץ — בכרומיום אמיתי, בעמוד ``/file/<id>`` האמיתי, במגע של טאבלט.
+
+**ארבע התקלות שהקובץ הזה נולד מהן**, ולכל אחת בדיקה אחת. ההסבר המלא יושב ליד
+כל תיקון, וכאן רק ההפניה אליו:
+
+1. **מסך רגיל: סרגל החיפוש לא נשאר על המסך.** אחרי קפיצה לתוצאה, ``#code-search``
+   נגלל עם העמוד אל מעל המסך, ולא היה על מה ללחוץ כדי להמשיך. ההסבר: הכלל
+   ``.main-content, .container`` ב-``base.html``.
+2. **מתקדם, מסך רגיל: ▼ לא גולל לתוצאה.** ההסבר: ``EditorView.scrollHandler``
+   ב-``view-codemirror-toggle.js``.
+3. **מתקדם, מסך מלא: אין גלילה בכלל.**
+4. **בסיסי, מסך מלא: סוף הקובץ חתוך.** ההסבר לשתיהן: ``#codeCard:fullscreen``
+   ב-``view_file.html``.
+
+ובנוסף, הצד השני של תקלה 1: **סרגל החיפוש של תצוגת ה-Markdown** (``#md-search``)
+נשבר מאותה סיבה, ואחרי שהוא נצמד, כותרת שגוללים אליה צריכה לנחות מתחתיו ולא
+מאחוריו. ההסבר: ``--md-toolbar-h`` ב-``md_preview.html``.
+
+**למה דפדפן, ולמה העמוד האמיתי.** כל התקלות הן גאומטריה של פריסה: מי גולל, מי
+קופסת הגלילה של מי, ואיפה נגמר אלמנט ביחס לקצה המסך. השרת הוא הוובאפ האמיתי
+(``admin_live_server``) מול מונגו אמיתי (``wired_mongo``), עם ``base.html``, ה-CSS
+וה-JS מהדיסק, ו-CodeMirror מהחבילה המקומית. בקשות לכל מארח אחר נקטעות.
+
+**המגע אמיתי** (``Touch`` ב-``tests/_browser_harness.py``), והדפדפן מורם עם
+``--window-size`` ששווה לאזור התצוגה, מהסיבה שנמדדה ב-``tests/test_repo_notes_browser.py``.
+
+**מה לא נבדק כאן:** מכשיר אנדרואיד אמיתי — זו אמולציית מגע בכרומיום. גם לא שורת
+הכתובת שמתכווצת, מסך מלא עם פסי המערכת, והמקלדת הווירטואלית.
+
+מדולג כשאין Chromium (וב-CI אין: ראו ``docs/testing.rst``).
+"""
+
+from __future__ import annotations
+
+import contextlib
+from urllib.parse import urlsplit
+
+import pytest
+from bson import ObjectId
+
+# ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
+from _browser_harness import Touch, poll
+
+pytest.importorskip("playwright", reason="playwright אינו מותקן")
+
+from playwright.sync_api import Error as PlaywrightError  # noqa: E402
+from playwright.sync_api import sync_playwright  # noqa: E402
+
+#: ``admin_live_server`` בונה session למשתמש 1, ולכן הקבצים שלו.
+USER_ID = 1
+
+#: מחרוזת שמופיעה רק בשורות האלה. ההתאמה הראשונה רחוקה מראש הקובץ, כדי שהקפיצה
+#: אליה תגלול את העמוד הרבה מעבר למקום הטבעי של הסרגל.
+TERM = "zebra_marker"
+MATCH_LINES = (60, 150, 280)
+LINES = 300
+
+#: טאבלט 12 אינץ' לרוחב, בפיקסלים לוגיים — המכשיר שהתקלות נמצאו בו.
+TABLET = {"width": 1280, "height": 800}
+#: טלפון לאורך. שם הסרגל של ה-Markdown נשבר לכמה שורות, ולכן הוא גבוה בהרבה.
+PHONE = {"width": 390, "height": 844}
+
+
+def code_text() -> str:
+    lines = []
+    for i in range(1, LINES + 1):
+        if i in MATCH_LINES:
+            lines.append(f"value_{i:04d} = '{TERM}'  # line {i}")
+        else:
+            lines.append(f"value_{i:04d} = {i} * 2  # plain line")
+    return "\n".join(lines) + "\n"
+
+
+def markdown_text() -> str:
+    parts = []
+    for h in range(1, 9):
+        parts.append(f"## Section {h}\n")
+        parts.extend(f"paragraph {h}.{i} lorem ipsum dolor sit amet.\n" for i in range(1, 25))
+    return "\n".join(parts)
+
+
+def _insert(wired_mongo, file_name: str, code: str, language: str) -> str:
+    """``wired_mongo`` מתחיל ממסד ריק בכל בדיקה, ולכן אין כאן ניקוי."""
+    oid = ObjectId()
+    wired_mongo.get_db().code_snippets.insert_one({
+        "_id": oid, "user_id": USER_ID, "file_name": file_name, "code": code,
+        "programming_language": language, "version": 1, "is_active": True,
+    })
+    return str(oid)
+
+
+@pytest.fixture
+def code_file_id(wired_mongo):
+    return _insert(wired_mongo, "long_module.py", code_text(), "python")
+
+
+@pytest.fixture
+def md_file_id(wired_mongo):
+    return _insert(wired_mongo, "long_doc.md", markdown_text(), "markdown")
+
+
+#: מרכז האלמנט, ומה הדפדפן מוצא בנקודה הזו. ``ok`` רק כשאף אנימציה אינה מזיזה
+#: אותו: הכותרות של ``md_preview.html`` נכנסות באנימציה (``#md-content > *``), והקישור
+#: שליד כותרת זז ומשנה גודל בזמנה — נגיעה שנמדדה באמצעה פספסה אותו.
+CENTER_JS = """([sel, index]) => {
+  const el = document.querySelectorAll(sel)[index];
+  const moving = document.getAnimations().some(a => a.effect && a.effect.target && a.effect.target.contains(el));
+  const r = el.getBoundingClientRect();
+  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  const onScreen = y >= 0 && y <= innerHeight && x >= 0 && x <= innerWidth;
+  const hit = onScreen ? document.elementFromPoint(x, y) : null;
+  return {ok: !moving, x, y, onScreen, hitsIt: !!hit && (hit === el || el.contains(hit))};
+}"""
+
+
+def tap_on(page, touch, sel: str, index: int = 0) -> None:
+    """נגיעה באלמנט שעל המסך, כשהוא כבר לא זז. אלמנט שאינו על המסך הוא כישלון הבדיקה, לא דילוג."""
+    c = poll(page, CENTER_JS, f"{sel}[{index}] הפסיק לזוז", [sel, index])
+    assert c["onScreen"] and c["hitsIt"], f"{sel}[{index}] אינו על המסך במקום שאפשר לגעת בו: {c}"
+    touch.tap(c["x"], c["y"])
+
+
+@contextlib.contextmanager
+def tablet_page(server, executable, path: str, *, view_mode: str = "basic", viewport=None):
+    """עמוד אמיתי במגע של טאבלט — **המקום היחיד שמרים דפדפן כאן**.
+
+    ``ck_view_mode`` נזרע לפני הטעינה, ולכן ``view-codemirror-toggle.js`` עולה ישר
+    בתצוגה המבוקשת, כמו אצל משתמש שבחר בה בעבר. כל הניקוי ב-``finally``.
+    """
+    vp = viewport or TABLET
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(
+                executable_path=executable,
+                args=[f"--window-size={vp['width']},{vp['height']}"],
+            )
+        except PlaywrightError as exc:  # pragma: no cover - תלוי בסביבה
+            pytest.skip(f"אין Chromium זמין: {exc}")
+        try:
+            context = browser.new_context(
+                viewport=vp, device_scale_factor=2, is_mobile=True, has_touch=True, locale="he-IL",
+            )
+            context.add_cookies([{
+                "name": "session", "value": server.session_cookie,
+                "domain": "127.0.0.1", "path": "/",
+            }])
+            page = context.new_page()
+            page.add_init_script(
+                "try{localStorage.setItem('welcomeModalSeen','1');"
+                "localStorage.setItem('onboarding_completed','1');"
+                f"localStorage.setItem('ck_view_mode','{view_mode}');}}catch(e){{}}"
+            )
+            page.route("**/*", lambda route: route.abort()
+                       if urlsplit(route.request.url).hostname != "127.0.0.1" else route.continue_())
+            page.goto(f"{server.base_url}{path}", wait_until="load")
+            # מודאל הפתיחה מכסה את העמוד ובולע נגיעות.
+            page.evaluate(
+                "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
+                " #welcomeModal').forEach(e => e.remove())"
+            )
+            if view_mode == "advanced":
+                poll(page, "() => !!document.querySelector('#codeMirrorContainer .cm-editor')"
+                           " && !document.getElementById('codeMirrorContainer').hidden",
+                     "התצוגה המתקדמת (CodeMirror) עלתה")
+            yield page, Touch(context.new_cdp_session(page))
+        finally:
+            browser.close()
+
+
+def enter_fullscreen(page, touch) -> None:
+    """כפתור המסך המלא, בנגיעה — ``requestFullscreen`` דורש מחווה אמיתית של המשתמש."""
+    tap_on(page, touch, "#fullscreenBtn")
+    poll(page, "() => !!document.fullscreenElement && document.fullscreenElement.id === 'codeCard'",
+         "הכרטיס עבר למסך מלא")
+
+
+#: ההתאמה הפעילה: איזו היא, האם היא על המסך, והאם הסרגל מכסה אותה. בתצוגה
+#: המתקדמת זו הבחירה של CodeMirror, ובבסיסית ההדגשה הפעילה.
+ACTIVE_MATCH_JS = """() => {
+  const bar = document.getElementById('code-search').getBoundingClientRect();
+  let r = null, which = null;
+  const v = window.__ck_view_cm_view;
+  if (v && !document.getElementById('codeMirrorContainer').hidden) {
+    which = v.state.selection.main.from;
+    r = v.coordsAtPos(which);
+  } else {
+    const all = Array.from(document.querySelectorAll('#codeCard .md-highlight'));
+    const el = document.querySelector('#codeCard .md-highlight.is-active');
+    if (el) { which = all.indexOf(el); r = el.getBoundingClientRect(); }
+  }
+  const onScreen = !!r && r.top >= 0 && r.bottom <= innerHeight;
+  const underBar = !!r && r.top < bar.bottom && r.bottom > bar.top;
+  return {ok: onScreen && !underBar, which,
+          match: r ? [Math.round(r.top), Math.round(r.bottom)] : null,
+          bar: [Math.round(bar.top), Math.round(bar.bottom)], innerHeight};
+}"""
+
+#: הסרגל צמוד לראש המסך.
+BAR_PINNED_JS = """() => {
+  const top = document.getElementById('code-search').getBoundingClientRect().top;
+  return {ok: Math.abs(top) <= 1, barTop: Math.round(top)};
+}"""
+
+
+def test_basic_view_search_bar_stays_on_screen_after_jumping_to_a_match(
+        code_file_id, admin_live_server, chromium_executable):
+    """תקלה 1: אחרי קפיצה לתוצאה, הסרגל צמוד לראש המסך, ואפשר לגעת ב-▼ שעליו.
+
+    הבדיקה אינה נשענת על **לאיזו** התאמה ▼ מוביל: מה שהנגיעה הראשונה אחרי חיפוש
+    עושה הוא ממצא 1 ב-#3477, שיתוקן בנפרד. לכן נבדק שהנגיעה הגיעה לכפתור, ושההתאמה
+    הפעילה אחריה על המסך ולא מתחת לסרגל.
+    """
+    with tablet_page(admin_live_server, chromium_executable, f"/file/{code_file_id}") as (page, touch):
+        page.fill("#codeSearchInput", TERM)
+        poll(page, ACTIVE_MATCH_JS, "הקפיצה הביאה את ההתאמה הראשונה למסך")
+        poll(page, BAR_PINNED_JS, "הסרגל צמוד לראש המסך אחרי הקפיצה")
+        page.evaluate("""() => {
+          window.__nextTaps = 0;
+          document.getElementById('nextMatchBtn').addEventListener('click', () => { window.__nextTaps += 1; });
+        }""")
+        tap_on(page, touch, "#nextMatchBtn")
+        poll(page, "() => window.__nextTaps === 1", "הנגיעה הגיעה ל-▼")
+        poll(page, ACTIVE_MATCH_JS, "ההתאמה הפעילה על המסך, לא מתחת לסרגל")
+        poll(page, BAR_PINNED_JS, "הסרגל עדיין צמוד, ואפשר להמשיך")
+
+
+def test_advanced_view_next_arrow_brings_the_next_match_on_screen(
+        code_file_id, admin_live_server, chromium_executable):
+    """תקלה 2: ▼ בתצוגה המתקדמת עובר להתאמה הבאה ומביא אותה למסך, ולא מתחת לסרגל."""
+    with tablet_page(admin_live_server, chromium_executable, f"/file/{code_file_id}",
+                     view_mode="advanced") as (page, touch):
+        page.fill("#codeSearchInput", TERM)
+        first = poll(page, ACTIVE_MATCH_JS, "ההתאמה הראשונה על המסך")["which"]
+        tap_on(page, touch, "#nextMatchBtn")
+        poll(page, f"""() => {{
+          const s = ({ACTIVE_MATCH_JS})();
+          return {{...s, ok: s.ok && s.which !== {first}}};
+        }}""", "ההתאמה הבאה על המסך, לא מתחת לסרגל")
+
+
+def test_advanced_fullscreen_scrolls_by_touch(code_file_id, admin_live_server, chromium_executable):
+    """תקלה 3: במסך מלא בתצוגה המתקדמת, החלקה מזיזה את הקוד."""
+    with tablet_page(admin_live_server, chromium_executable, f"/file/{code_file_id}",
+                     view_mode="advanced") as (page, touch):
+        enter_fullscreen(page, touch)
+        # ``.cm-content`` תמיד ב-DOM, גם כשהשורות שבראשו כבר אינן מרונדרות.
+        content_top = "document.querySelector('#codeMirrorContainer .cm-content').getBoundingClientRect().top"
+        before = page.evaluate(f"() => {content_top}")
+        touch.swipe(TABLET["width"] / 2, TABLET["height"] * 0.8, 0, -TABLET["height"] * 0.5)
+        poll(page, f"""(before) => {{
+          const top = {content_top};
+          return {{ok: top <= before - 100, before: Math.round(before), now: Math.round(top)}};
+        }}""", "הקוד זז למעלה אחרי ההחלקה", before)
+
+
+def test_basic_fullscreen_reaches_the_last_line(code_file_id, admin_live_server, chromium_executable):
+    """תקלה 4: במסך מלא בתצוגה הבסיסית, השורה האחרונה נכנסת למסך כשגוללים עד הסוף."""
+    with tablet_page(admin_live_server, chromium_executable, f"/file/{code_file_id}") as (page, touch):
+        enter_fullscreen(page, touch)
+        poll(page, """(lastLine) => {
+          const box = document.querySelector('#codeCard .code-container');
+          box.scrollTop = box.scrollHeight;
+          // כל שורה של Pygments נפתחת בעוגן line-N, והאלמנט שאחריו הוא הטוקן הראשון בשורה.
+          const r = document.getElementById('line-' + lastLine).nextElementSibling.getBoundingClientRect();
+          return {ok: r.bottom <= innerHeight, lastLineBottom: Math.round(r.bottom), innerHeight};
+        }""", "השורה האחרונה בתוך המסך", LINES)
+
+
+@pytest.mark.parametrize("viewport", [TABLET, PHONE], ids=["tablet", "phone"])
+def test_markdown_search_bar_is_pinned_and_a_heading_lands_below_it(
+        md_file_id, admin_live_server, chromium_executable, viewport):
+    """הסרגל של תצוגת ה-Markdown נצמד, וכותרת שגוללים אליה נוחתת מתחתיו.
+
+    הדרך לכותרת היא הקישור הקבוע שלידה (``.header-anchor``), כמו אצל משתמש. בטלפון
+    הסרגל גבוה בהרבה, ולכן שני הגדלים.
+    """
+    with tablet_page(admin_live_server, chromium_executable, f"/md/{md_file_id}",
+                     viewport=viewport) as (page, touch):
+        poll(page, "() => document.querySelectorAll('#md-content h2 .header-anchor').length === 8",
+             "המסמך רונדר עם קישור ליד כל כותרת")
+        # הכנה: הכותרת השישית בתחתית המסך, כאילו המשתמש גלל אליה. בתחתית ולא באמצע,
+        # כי בטלפון תוכן העניינים הצף (``#mdToc``) מכסה את החלק העליון של המסך.
+        page.evaluate("document.querySelectorAll('#md-content h2')[5]"
+                      ".scrollIntoView({block: 'end', behavior: 'instant'})")
+        tap_on(page, touch, "#md-content h2 .header-anchor", 5)
+        poll(page, """() => {
+          const bar = document.getElementById('md-search').getBoundingClientRect();
+          const h = document.querySelectorAll('#md-content h2')[5].getBoundingClientRect();
+          return {ok: Math.abs(bar.top) <= 1 && h.top >= bar.bottom && h.top <= bar.bottom + 40,
+                  barTop: Math.round(bar.top), barBottom: Math.round(bar.bottom), headingTop: Math.round(h.top)};
+        }""", "הסרגל צמוד, והכותרת נחתה ממש מתחתיו")

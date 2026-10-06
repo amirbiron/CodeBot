@@ -369,24 +369,6 @@
     align-items: start;
 }
 
-@media (max-width: 1200px) {
-    .theme-builder-layout {
-        grid-template-columns: 240px 1fr;
-    }
-    .theme-builder-preview {
-        grid-column: 1 / -1;
-    }
-}
-
-@media (max-width: 768px) {
-    .theme-builder-layout {
-        grid-template-columns: 1fr;
-    }
-    .theme-builder-sidebar {
-        order: -1;
-    }
-}
-
 .theme-builder-controls {
     position: sticky;
     top: 1rem;
@@ -400,6 +382,35 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+}
+
+/* ההצמדה שלמעלה נכונה רק בפריסת שלוש העמודות, שבה הסרגל, הבקרים והתצוגה
+   המקדימה יושבים זה לצד זה. בפריסות הצרות התצוגה המקדימה (ובטלפון גם הבקרים)
+   יושבת מתחת לאלמנט הצמוד, והוא החליק מעליה וכיסה אותה — נמדד בכרומיום: הוא נע
+   בתוך כל .theme-builder-layout ולא רק בתוך התא שלו בגריד. לכן הכללים האלה
+   כתובים אחרי כללי ההצמדה, וה-media query הזה הוא המקום היחיד שמגדיר את נקודת
+   השבירה. עד שבוטל ה-overflow-x: hidden של .container ב-base.html, ההצמדה
+   ממילא לא פעלה באף פריסה. */
+@media (max-width: 1200px) {
+    .theme-builder-layout {
+        grid-template-columns: 240px 1fr;
+    }
+    .theme-builder-preview {
+        grid-column: 1 / -1;
+    }
+    .theme-builder-controls,
+    .theme-builder-sidebar {
+        position: static;
+    }
+}
+
+@media (max-width: 768px) {
+    .theme-builder-layout {
+        grid-template-columns: 1fr;
+    }
+    .theme-builder-sidebar {
+        order: -1;
+    }
 }
 
 /* (הגלריה והייבוא עברו לדף ייעודי: /settings/theme-gallery) */

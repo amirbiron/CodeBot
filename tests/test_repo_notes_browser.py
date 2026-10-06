@@ -45,6 +45,9 @@ from urllib.parse import unquote, urlsplit
 
 import pytest
 
+# ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
+from _browser_harness import WAIT_S, Touch, poll
+
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
 from playwright.sync_api import sync_playwright  # noqa: E402
@@ -58,10 +61,6 @@ MD_PATH = "docs/long_doc.md"
 #: טאבלט 12 אינץ' בכרום אנדרואיד, בפיקסלים לוגיים, בשני הכיוונים.
 LANDSCAPE = {"width": 1280, "height": 800}
 PORTRAIT = {"width": 800, "height": 1280}
-
-#: כמה הדף מחכה לתנאי שתלוי ברשת או ברינדור. ``wait_for_function`` חסום:
-#: ה-CSP של העמוד אוסר ``unsafe-eval``, ולכן תנאים נדגמים מכאן.
-WAIT_S = 15.0
 
 
 def code_file(lines: int, width: int = 0) -> str:
@@ -135,41 +134,6 @@ class FakeRepoApi:
             self._json(route, {"ok": True, "updated_at": "2026-10-05T00:00:00Z"})
         else:
             route.continue_()
-
-
-def poll(page, js: str, what: str, arg=None):
-    """דוגם תנאי בדף עד שהוא מתקיים, או נכשל עם ``what`` — לעולם לא תלוי לנצח."""
-    deadline = time.monotonic() + WAIT_S
-    while True:
-        value = page.evaluate(js, arg)
-        if value:
-            return value
-        if time.monotonic() > deadline:
-            raise AssertionError(f"לא התקיים תוך {WAIT_S} שניות: {what}")
-        time.sleep(0.1)
-
-
-class Touch:
-    """מגע דרך צינור הקלט של הדפדפן.
-
-    מקור: ``Input.dispatchTouchEvent`` בהגדרות הפרוטוקול שנשלחות עם
-    Playwright 1.49 (``driver/package/types/protocol.d.ts``): ``touchEnd`` חייב
-    להגיע בלי נקודות מגע, ו-``x``/``y`` הם פיקסלי CSS ביחס לאזור התצוגה.
-    """
-
-    def __init__(self, cdp):
-        self.cdp = cdp
-
-    def swipe(self, x, y, dx, dy, steps=8):
-        self.cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
-        for i in range(1, steps + 1):
-            self.cdp.send("Input.dispatchTouchEvent", {
-                "type": "touchMove", "touchPoints": [{"x": x + dx * i / steps, "y": y + dy * i / steps}]})
-        self.cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-
-    def tap(self, x, y):
-        self.cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
-        self.cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
 
 
 @contextlib.contextmanager

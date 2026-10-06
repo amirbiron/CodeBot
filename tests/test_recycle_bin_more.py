@@ -77,62 +77,132 @@ async def test_recycle_pagination_and_invalid_actions(monkeypatch):
 
 
 def test_repository_delete_by_id_and_large_files(monkeypatch):
+    """מחיקה, שחזור ומחיקה סופית לפי מזהה — כולן לפי **שם** בשאילתה.
+
+    הסטאב מחזיק מסמכים ומכבד את המסננים. קודם הוא החזיר הצלחה לכל
+    שאילתה, ולכן לא היה יכול להבדיל בין "כל הגרסאות" לבין "הגרסה
+    שנשלחה" — בדיוק ההבדל שהבאג חי בו.
+    """
     from database.repository import Repository
     from datetime import datetime
     from bson import ObjectId
 
     class DummyCollection:
-        def __init__(self):
+        def __init__(self, docs=()):
+            self.docs = [dict(d) for d in docs]
             self.updated = None
             self.deleted = None
+            self.pipelines = []
+
+        def _matching(self, flt):
+            def _in(value):
+                return value.get("$in") if isinstance(value, dict) else None
+
+            ids = _in(flt.get("_id"))
+            names = _in(flt.get("file_name"))
+            name = flt.get("file_name") if isinstance(flt.get("file_name"), str) else None
+            out = []
+            for d in self.docs:
+                if "user_id" in flt and d.get("user_id") != flt.get("user_id"):
+                    continue
+                if "is_active" in flt and d.get("is_active") is not flt.get("is_active"):
+                    continue
+                if ids is not None and d.get("_id") not in ids:
+                    continue
+                if names is not None and d.get("file_name") not in names:
+                    continue
+                if name is not None and d.get("file_name") != name:
+                    continue
+                out.append(d)
+            return out
+
+        def find(self, query, projection=None, *a, **k):
+            # חתימה כמו של pymongo: ההיטלה היא הארגומנט הפוזיציוני השני.
+            return [dict(d) for d in self._matching(query)]
+
         def update_many(self, flt, upd):
             self.updated = (flt, upd)
-            return types.SimpleNamespace(modified_count=1)
+            hits = self._matching(flt)
+            for d in hits:
+                d.update(upd.get("$set") or {})
+                for key in (upd.get("$unset") or {}):
+                    d.pop(key, None)
+            return types.SimpleNamespace(modified_count=len(hits))
+
         def delete_many(self, flt):
             self.deleted = flt
-            return types.SimpleNamespace(deleted_count=1)
-        def count_documents(self, *a, **k):
-            return 1
-        def aggregate(self, *a, **k):
-            return [{"_id": "z", "file_name": "z.py"}]
-        def find(self, query, projection=None, *a, **k):
-            # מזהי הגרסה ← שם הקובץ שלהן. חתימה כמו של pymongo:
-            # ההיטלה היא הארגומנט הפוזיציוני השני.
-            ids = (query.get("_id") or {}).get("$in") or []
-            return [{"_id": oid, "file_name": "z.py"} for oid in ids]
+            hits = self._matching(flt)
+            for d in hits:
+                self.docs.remove(d)
+            return types.SimpleNamespace(deleted_count=len(hits))
+
+        def count_documents(self, flt=None, *a, **k):
+            return len(self._matching(flt or {}))
+
+        def aggregate(self, pipeline, *a, **k):
+            # ‏``$count`` ו-``$limit`` הם שני צינורות שונים על אותו קלט,
+            # ולכן סטאב שמחזיר את אותה שורה לשניהם מדווח ``total`` שגוי.
+            self.pipelines.append(pipeline)
+            rows = [{"_id": d["_id"], "file_name": d["file_name"], "versions": 1}
+                    for d in self.docs if d.get("is_active") is False]
+            if any("$count" in stage for stage in pipeline):
+                return [{"total": len(rows)}] if rows else []
+            return rows
+
         def distinct(self, key, filter=None, *a, **k):
-            return ["z.py"]
+            return sorted({d[key] for d in self._matching(filter or {}) if key in d})
+
+    def _versions(file_name, count, *, user_id, is_active):
+        return [{"_id": ObjectId(), "user_id": user_id, "file_name": file_name,
+                 "version": v, "is_active": is_active}
+                for v in range(1, count + 1)]
 
     class DummyManager:
-        def __init__(self):
-            self.collection = DummyCollection()
-            self.large_files_collection = DummyCollection()
-
-    repo = Repository(DummyManager())
+        def __init__(self, docs=(), large=()):
+            self.collection = DummyCollection(docs)
+            self.large_files_collection = DummyCollection(large)
 
     # מחיקה לפי מזהה — המסנן שיוצא הוא **לפי שם**, כי המזהה מסמן גרסה
     # אחת בלבד והמחיקה היא של הקובץ כולו.
-    valid_id = str(ObjectId())
-    rc = repo.soft_delete_files_by_ids(1, [valid_id])
-    assert rc == {"files": 1, "versions": 1, "missing": 0}, rc
-    _flt, _upd = repo.manager.collection.updated
+    active = _versions("z.py", 3, user_id=1, is_active=True)
+    mgr = DummyManager(active)
+    repo = Repository(mgr)
+    rc = repo.soft_delete_files_by_ids(1, [str(active[-1]["_id"])])
+    assert rc == {"files": 1, "versions": 3, "missing": 0}, rc
+    _flt, _upd = mgr.collection.updated
     assert "_id" not in _flt, _flt
     assert _flt["file_name"]["$in"] == ["z.py"], _flt
     assert _upd["$set"]["is_active"] is False
     assert isinstance(_upd["$set"]["deleted_at"], datetime)
     assert isinstance(_upd["$set"]["deleted_expires_at"], datetime)
+    assert all(d["is_active"] is False for d in mgr.collection.docs)
 
-    # large files delete (by name and by id)
-    ok1 = repo.delete_large_file(user_id=3, file_name="big.txt")
-    from bson import ObjectId as _OID
-    ok2 = repo.delete_large_file_by_id(str(_OID()))
-    assert ok1 and ok2
+    # קבצים גדולים — לפי שם ולפי מזהה. שני מסמכים ולא אחד: שתי הפעולות
+    # מסננות ``is_active: True``, ולכן השנייה על אותו מסמך אינה מוצאת כלום.
+    by_name = _versions("big.txt", 1, user_id=3, is_active=True)
+    by_id = _versions("other.txt", 1, user_id=3, is_active=True)
+    mgr_large = DummyManager(large=by_name + by_id)
+    repo_large = Repository(mgr_large)
+    assert repo_large.delete_large_file(user_id=3, file_name="big.txt") is True
+    assert repo_large.delete_large_file_by_id(str(by_id[0]["_id"])) is True
+    assert all(d["is_active"] is False for d in mgr_large.large_files_collection.docs)
 
-    # list_deleted_files
-    items, total = repo.list_deleted_files(user_id=1, page=1, per_page=10)
+    # רשימת הסל — ``total`` סופר קבצים, ו-``$count`` הוא צינור נפרד
+    trashed = _versions("t.py", 2, user_id=1, is_active=False)
+    mgr_list = DummyManager(trashed)
+    items, total = Repository(mgr_list).list_deleted_files(user_id=1, page=1, per_page=10)
     assert isinstance(items, list) and isinstance(total, int)
+    assert total == len(items), (total, items)
 
-    # restore and purge with valid ObjectId
-    oid2 = str(ObjectId())
-    assert repo.restore_file_by_id(user_id=1, file_id=oid2) is True
-    assert repo.purge_file_by_id(user_id=1, file_id=oid2) is True
+    # שחזור ומחיקה סופית — כל הגרסאות, דרך מזהה של אחת מהן
+    trashed = _versions("t.py", 2, user_id=1, is_active=False)
+    mgr_r = DummyManager(trashed)
+    repo_r = Repository(mgr_r)
+    assert repo_r.restore_file_by_id(user_id=1, file_id=str(trashed[0]["_id"])) is True
+    assert all(d["is_active"] is True for d in mgr_r.collection.docs)
+
+    trashed = _versions("t.py", 2, user_id=1, is_active=False)
+    mgr_p = DummyManager(trashed)
+    repo_p = Repository(mgr_p)
+    assert repo_p.purge_file_by_id(user_id=1, file_id=str(trashed[1]["_id"])) is True
+    assert mgr_p.collection.docs == []
