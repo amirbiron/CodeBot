@@ -405,7 +405,7 @@ def _ensure_indexes(generation: Optional[int] = None) -> None:
     # להמתין גם לנעילה כדי לגלות שאין לה מה לעשות.
     if time.monotonic() < _INDEX_RETRY_AFTER:
         return
-    failure: Optional[Exception] = None
+    failure: Optional[str] = None
     with _INDEX_READY_LOCK:
         # הדור ראשון: קריאה שהתחילה לפני איפוס ומגיעה לנעילה אחריו יוצאת כאן,
         # לפני שהיא קוראת את הדגל המשותף, בונה או כותבת משהו.
@@ -579,18 +579,20 @@ def _ensure_indexes(generation: Optional[int] = None) -> None:
             else:
                 _INDEX_RETRY_AFTER = time.monotonic() + _INDEX_RETRY_SECONDS
                 which = "one_title_per_board" if not _TITLE_INDEX_OK else "one_title_per_repo_file"
-                _emit_index_event("failed", error=f"{which} not confirmed")
+                failure = f"{which} not confirmed"
         except Exception as exc:
             # ההשמה תחת הנעילה, כמו כל שאר הכתיבות של הבנייה: מחוץ לה, איפוס
             # שממתין לנעילה יכול להיכנס בין השחרור להשמה, וחלון ההמתנה נפתח
             # מחדש אחריו.
             _INDEX_RETRY_AFTER = time.monotonic() + _INDEX_RETRY_SECONDS
-            failure = exc
+            failure = str(exc)
     if failure is not None:
-        # האירוע נשלח אחרי שחרור הנעילה: ``emit_event`` על שגיאה עושה עבודה
-        # משלו — סיווג, Sentry, ולפי ``ALERT_EACH_ERROR`` גם התראה — ובקשות
-        # שממתינות לנעילה לא צריכות להמתין גם לה.
-        _emit_index_event("failed", error=str(failure))
+        # שני מסלולי הכשל — חריגה, ואינדקס שם שלא אומת — שולחים את האירוע
+        # אחרי שחרור הנעילה: ``emit_event`` על שגיאה עושה עבודה משלו — סיווג,
+        # Sentry, ולפי ``ALERT_EACH_ERROR`` גם התראה — ובקשות שממתינות לנעילה
+        # לא צריכות להמתין גם לה. ``is not None`` ולא אמת בוליאנית: חריגה בלי
+        # הודעה נותנת מחרוזת ריקה, וגם עליה נשלח אירוע.
+        _emit_index_event("failed", error=failure)
 
 # --- Helpers ---
 

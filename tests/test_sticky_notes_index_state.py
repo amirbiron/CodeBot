@@ -492,32 +492,59 @@ def test_a_build_that_fails_while_the_reset_waits_does_not_reopen_the_retry_wind
     assert api._INDEX_RETRY_AFTER == 0.0, "בנייה שנכשלה בזמן שהאיפוס המתין פתחה אחריו את חלון ההמתנה"
 
 
-def test_a_build_that_raises_sends_its_failed_event_after_releasing_the_lock(monkeypatch):
-    """בנייה שזורקת — חלון ההמתנה נקבע, והאירוע ``failed`` נשלח רק אחרי שחרור הנעילה.
+def _db_that_raises(monkeypatch):
+    def _get_db():
+        raise RuntimeError("mongo is not answering")
 
-    ``emit_event`` על שגיאה עושה עבודה משלו — סיווג, Sentry, ולפי
-    ``ALERT_EACH_ERROR`` גם התראה — ובקשות שממתינות לנעילה לא צריכות להמתין גם
-    לה. נופלת אם השליחה תזוז אל תוך הנעילה, יחד עם ההשמה של
-    ``_INDEX_RETRY_AFTER``.
+    monkeypatch.setattr(api, "get_db", _get_db)
+
+
+def _db_that_raises_without_a_message(monkeypatch):
+    def _get_db():
+        raise RuntimeError()
+
+    monkeypatch.setattr(api, "get_db", _get_db)
+
+
+def _title_index_not_confirmed(monkeypatch):
+    monkeypatch.setattr(api, "get_db", _RecordingDB)
+    monkeypatch.setattr(api, "ensure_title_index", lambda coll: False)
+    monkeypatch.setattr(api, "ensure_repo_title_index", lambda coll: True)
+
+
+@pytest.mark.parametrize(
+    ("break_the_build", "message"),
+    [
+        (_db_that_raises, "mongo is not answering"),
+        (_db_that_raises_without_a_message, ""),
+        (_title_index_not_confirmed, "one_title_per_board not confirmed"),
+    ],
+    ids=["raises", "raises-without-a-message", "title-index-not-confirmed"],
+)
+def test_a_failed_build_sends_its_failed_event_after_releasing_the_lock(break_the_build, message, monkeypatch):
+    """בנייה שנכשלה — חלון ההמתנה נקבע, והאירוע ``failed`` נשלח פעם אחת, עם אותה הודעה, אחרי שחרור הנעילה.
+
+    שני מסלולי הכשל — חריגה, ואינדקס שם שלא אומת — שולחים דרך אותה קריאה
+    אחרי הנעילה. ``emit_event`` על שגיאה עושה עבודה משלו — סיווג, Sentry,
+    ולפי ``ALERT_EACH_ERROR`` גם התראה — ובקשות שממתינות לנעילה לא צריכות
+    להמתין גם לה. וחריגה בלי הודעה עדיין שולחת אירוע, עם מחרוזת ריקה. נופלת
+    אם אחד המסלולים ישלח בתוך הנעילה, אם הודעה תשתנה, או אם הבדיקה שלפני
+    השליחה תהפוך לאמת בוליאנית.
     """
     lock = _OwnedLock()
     monkeypatch.setattr(api, "_INDEX_READY_LOCK", lock)
-
-    def _db_that_raises():
-        raise RuntimeError("mongo is not answering")
-
-    monkeypatch.setattr(api, "get_db", _db_that_raises)
-    sent_under_the_lock = {}
+    break_the_build(monkeypatch)
+    sent = []
 
     def _record(stage, duration_ms=None, error=None):
-        sent_under_the_lock[stage] = lock.owner == threading.get_ident()
+        sent.append((stage, error, lock.owner == threading.get_ident()))
 
     monkeypatch.setattr(api, "_emit_index_event", _record)
 
     api._ensure_indexes()
 
     assert api._INDEX_RETRY_AFTER > time.monotonic(), "הבנייה שנכשלה לא קבעה את חלון ההמתנה"
-    assert sent_under_the_lock == {"failed": False}, "האירוע failed נשלח בזמן שהבנייה עוד מחזיקה בנעילה"
+    assert sent == [("failed", message, False)], "האירוע failed לא נשלח פעם אחת, עם ההודעה שלו, אחרי שחרור הנעילה"
 
 
 # ---------- הפיקסצ'ר: הזוג שמשחזר את הדליפה ----------
