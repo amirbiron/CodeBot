@@ -39,7 +39,13 @@ export ASSET_VERSION="${ASSET_VERSION:-$(resolve_asset_version)}"
 log "Using ASSET_VERSION=${ASSET_VERSION}"
 
 PORT="${PORT:-5000}"
-APP_MODULE="${WEBAPP_WSGI_APP:-app:app}"
+# ‏webapp/app.py נטען בשם אחד, ‏webapp.app — זה השם שכל הקוד מייבא ממנו. טעינה
+# בשם הקצר (app:app) טענה את הקובץ פעם שנייה ברגע שמישהו ביקש webapp.app, עם כל
+# מה שרץ בו בזמן טעינה, ועכשיו app.py עוצר בה בשגיאה (הבלוק שבראש הקובץ).
+# תיקיית העבודה נשארת webapp/: ‏BotConfig ‏(config.py) קורא ‎.env‎ יחסית אליה, וה-‎.env‎
+# שבשורש הריפו נמצא בגיט — מהשורש הוא היה ממלא בשקט כל משתנה שלא הוגדר בסביבה.
+# ‏--pythonpath (למטה) מכניס את השורש לנתיב החיפוש לפני שגוניקורן טוען את המודול.
+APP_MODULE="${WEBAPP_WSGI_APP:-webapp.app:app}"
 log "Starting Gunicorn (${APP_MODULE}) on 0.0.0.0:${PORT}"
 
 cd "$APP_DIR"
@@ -67,6 +73,7 @@ GUNICORN_KEEPALIVE="$(trim "${WEBAPP_GUNICORN_KEEPALIVE:-2}")"
 
 GUNICORN_ARGS=(
   "$APP_MODULE"
+  --pythonpath "$ROOT_DIR"
   --bind "0.0.0.0:${PORT}"
   --workers "${GUNICORN_WORKERS}"
   --worker-class "${GUNICORN_WORKER_CLASS}"

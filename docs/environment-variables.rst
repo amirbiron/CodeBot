@@ -281,10 +281,16 @@
      - ``https://code-keeper-webapp.onrender.com``
      - WebApp
    * - ``WEBAPP_WSGI_APP``
-     - מודול ה-WSGI של Flask עבור Gunicorn (בשימוש ``scripts/start_webapp.sh``)
+     - היעד ש-Gunicorn טוען ב-``scripts/start_webapp.sh``, שמריץ אותו מתוך ``webapp/`` ועם ``--pythonpath`` לשורש הריפו. היעד חייב לטעון את ``webapp/app.py`` בשם ``webapp.app``, ויעד כמו ``app:app`` נעצר בעלייה בשגיאה: בשם אחר, כל ייבוא של ``webapp.app`` היה טוען את הקובץ פעם נוספת
      - לא
-     - ``app:app``
-     - ``app:app``
+     - ``webapp.app:app``
+     - ``webapp.app:app``
+     - WebApp
+   * - ``WEBAPP_DEV_HOST``
+     - כתובת ההאזנה של שרת הפיתוח בהרצה ישירה של ``webapp/app.py`` (``python app.py``). ריק = ``127.0.0.1``; ``0.0.0.0`` פותח אותו לרשת, כולל הדיבאגר של Werkzeug כש-``DEBUG=true``. בגוניקורן אינו נקרא
+     - לא
+     - ריק (``127.0.0.1``)
+     - ``0.0.0.0``
      - WebApp
    * - ``WEB_CONCURRENCY``
      - מספר ה-workers של Gunicorn ב-WebApp. אם מוגדר, גובר על ברירת המחדל של ``scripts/start_webapp.sh`` ומקטין ``queue_delay`` תחת עומס.

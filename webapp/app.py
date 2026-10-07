@@ -55,6 +55,33 @@ import traceback
 import asyncio
 
 
+# --- שם אחד למודול ---
+# הקובץ הזה הוא המודול ``webapp.app``, וכך מייבאים אותו בכל הקוד (``from webapp.app import get_db``
+# ועוד). פייתון מזהה מודול לפי השם שלו ולא לפי הקובץ, ולכן קובץ שנטען בשם אחר — ``app`` מתוך
+# ``webapp/``, או ``__main__`` בהרצה ישירה — נטען שוב במלואו ברגע שמישהו מבקש ``webapp.app``, וכל
+# מה שרץ כאן בזמן טעינה רץ פעמיים: תהליכי הרקע, התראת העלייה, רישום ה-jobs. מכאן והלאה שום דבר
+# לא רץ בעותק שנטען בשם אחר, וייבוא ממודול שבשורש הריפו לא עולה מעל הבלוק הזה: בהרצה ישירה
+# השורש נכנס לנתיב החיפוש רק בתוכו.
+if __name__ == "__main__":
+    # ``python app.py`` / ``python webapp/app.py``: טוענים את הקובץ פעם אחת, בשמו, ומריצים ממנו
+    # את שרת הפיתוח. ההמשך של העותק הזה, ``__main__``, לא רץ.
+    _repo_root = str(Path(__file__).resolve().parents[1])
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
+    # דרך importlib ולא ``from webapp.app import run_dev_server``: ייבוא של שם מתוך הקובץ שבו הוא
+    # מוגדר, בהמשך אותו קובץ, נראה ל-mypy כשם שלא קיים ([attr-defined], ששלב ה-mypy ב-CI נכשל עליו).
+    import importlib
+
+    importlib.import_module("webapp.app").run_dev_server()
+    raise SystemExit(0)
+if __name__ != "webapp.app":
+    raise ImportError(
+        f"webapp/app.py נטען בשם {__name__!r} ולא כ-'webapp.app', ולכן כל ייבוא של webapp.app היה טוען "
+        "אותו פעם נוספת. בגוניקורן: webapp.app:app עם --pythonpath לשורש הריפו, כמו ש-scripts/start_webapp.sh "
+        "מפעיל — ו-WEBAPP_WSGI_APP לא מוגדר ל-app:app. בהרצה מקומית: python app.py."
+    )
+
+
 # Cache עבור בדיקות persistent login
 _persistent_login_cache = {}
 _persistent_login_cache_lock = threading.Lock()
@@ -148,12 +175,10 @@ else:
     _root_logger.setLevel(_WEBAPP_LOG_LEVEL)
 
 
-# הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
+# שורש הריפו, לנתיבי קבצים (OPENAPI_SPEC_PATH). הוא כבר בנתיב החיפוש: ``webapp.app`` נטען
+# רק כשהשורש בנתיב, וההרצה הישירה מכניסה אותו בבלוק שבראש הקובץ.
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
 
-# After ROOT_DIR is in sys.path, we can safely import project modules.
 # Best-effort: keep redaction + structlog level in sync with LOG_LEVEL.
 try:
     from utils import install_sensitive_filter  # noqa: E402
@@ -166,11 +191,10 @@ try:
 except Exception:
     pass
 
-# מייבא לאחר הוספת ROOT_DIR ל-PYTHONPATH כדי למנוע כשל ייבוא בדיפלוי
 from http_sync import request as http_request  # noqa: E402
 
-# תקרת אורך פתק, לשימוש בתבניות. חייב לשבת כאן ולא בראש הקובץ —
-# ראו tests/test_webapp_import_paths.py, ששומר על הכלל ונופל אם הוא מופר.
+# תקרת אורך פתק, לשימוש בתבניות. כמו כל ייבוא ממודול שבשורש הריפו, לא עולה מעל בלוק השם
+# שבראש הקובץ — tests/test_webapp_import_paths.py נופל אם כן.
 from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  # noqa: E402
 from note_reminder_state import active_reminder_filter  # noqa: E402
 
@@ -21431,16 +21455,25 @@ def check_configuration():
     
     return len(missing) == 0
 
-if __name__ == '__main__':
+
+def run_dev_server() -> None:
+    """שרת הפיתוח של Flask, להרצה ישירה של הקובץ (``python app.py``).
+
+    בלוק השם שבראש הקובץ קורא לפונקציה הזו מתוך ``webapp.app``, אחרי שהקובץ נטען פעם אחת בשמו.
+    השרת מאזין ל-``127.0.0.1``: עם ``DEBUG=true`` הוא מגיש גם את הדיבאגר של Werkzeug, ולכן פתיחה
+    לרשת דורשת ``WEBAPP_DEV_HOST`` מפורש. בגוניקורן הפונקציה לא נקראת — כתובת ההאזנה שם נקבעת
+    ב-``scripts/start_webapp.sh``.
+    """
     logger.info("Starting Code Keeper Web App...")
     logger.info("BOT_USERNAME: %s", BOT_USERNAME)
     logger.info("DATABASE_NAME: %s", DATABASE_NAME)
     logger.info("WEBAPP_URL: %s", WEBAPP_URL)
-    
+
     if check_configuration():
         logger.info("Configuration check passed")
     else:
         logger.warning("Configuration issues detected")
-    
+
+    host = (os.getenv("WEBAPP_DEV_HOST") or "").strip() or "127.0.0.1"
     port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=os.getenv('DEBUG', 'false').lower() == 'true')
+    app.run(host=host, port=port, debug=os.getenv('DEBUG', 'false').lower() == 'true')
