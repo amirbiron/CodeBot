@@ -60,7 +60,7 @@ summary: למה השמירה שומרת בדיוק את מה שנשלח, איפ�
 - **הדף הציבורי של אוסף משותף**, `shared_collection_page` ב-`webapp/collections_ui.py`, שמציג קבצים מ-`get_shared_file` ב-`webapp/collections_api.py`.
 - **קטעים קצרים מתוך קוד**: תוצאות החיפוש הגלובלי, `api_search_global` (`/api/search/global`), והשורה שנשמרת עם סימנייה (`line_text_preview`).
 
-לא ברשימה, כי הם לא מציגים את הקובץ כקוד: הורדות, ייצוא ל-ZIP, ו-`raw_html`, `svg_preview` ו-`raw_svg`, שמרנדרים את הקובץ עצמו.
+לא ברשימה, כי הם לא מציגים את הקובץ כקוד: הורדות, ייצוא ל-ZIP, ההעתקה ללוח מהתצוגה המקדימה בכרטיס, `api_file_content` (`/api/file/<file_id>/content`), ו-`raw_html`, `svg_preview` ו-`raw_svg`, שמרנדרים את הקובץ עצמו.
 
 `tests/test_bidi_warning_pages_match_the_doc.py` משווה את שתי הרשימות לקוד: הראוטים ב"איפה מוצגת אזהרה" הם בדיוק אלה שקוראים ל-`_bidi_warning_for_highlighted_code`, אף ראוט ב"איפה עדיין אין אזהרה" לא קורא לה, והכתובות הן אלה שב-`@app.route` של כל ראוט. עמוד שלא מופיע באף רשימה — הטסט לא יודע עליו.
 

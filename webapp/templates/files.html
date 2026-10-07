@@ -4,7 +4,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/multi-select.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/card-preview.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/card-preview.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block content %}
@@ -626,7 +626,7 @@
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/multi-select.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/bulk-actions.js') }}" defer></script>
-<script src="{{ url_for('static', filename='js/card-preview.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/card-preview.js') }}?v={{ static_version }}" defer></script>
 <script>
     // ---- UI קטן לבחירת שפות לחיפוש ----
     (function languageFilterUI(){

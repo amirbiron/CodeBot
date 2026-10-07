@@ -3,7 +3,7 @@
 
 {% block extra_css %}
 {{ super() }}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/card-preview.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/card-preview.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block content %}
@@ -20,5 +20,5 @@
 {% block extra_js %}
 {{ super() }}
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
-<script src="{{ url_for('static', filename='js/card-preview.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/card-preview.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}
