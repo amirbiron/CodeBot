@@ -1,0 +1,65 @@
+name: Telegram message
+description: >-
+  שולחת הודעת טקסט לטלגרם דרך Bot API. הצעד נכשל כשההודעה לא נשלחה, כדי שכשל
+  בשליחה לא יעבור בשקט. מי שלא רוצה שכשל כזה יפיל את הג'וב שם על הצעד שלו
+  continue-on-error.
+
+inputs:
+  bot-token:
+    description: טוקן הבוט. מעבירים מסוד, למשל secrets.TELEGRAM_BOT_TOKEN.
+    required: true
+  chat-id:
+    description: מזהה הצ'אט שאליו נשלחת ההודעה. מעבירים מסוד, למשל secrets.TELEGRAM_CHAT_ID.
+    required: true
+  text:
+    description: גוף ההודעה, כטקסט רגיל (בלי parse_mode).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Send the message
+      shell: bash
+      # הערכים עוברים דרך env ולא נכתבים לתוך הסקריפט, כדי שתוכן ההודעה לא יתפרש כפקודה.
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ inputs.bot-token }}
+        TELEGRAM_CHAT_ID: ${{ inputs.chat-id }}
+        TELEGRAM_TEXT: ${{ inputs.text }}
+      run: |
+        set -euo pipefail
+        if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
+          echo "::error title=Telegram::TELEGRAM_BOT_TOKEN או TELEGRAM_CHAT_ID ריקים, וההודעה לא נשלחה"
+          exit 1
+        fi
+        response="$(mktemp)"
+        trap 'rm -f "${response}"' EXIT
+        # הטוקן הוא חלק מהכתובת, כי רק כך Bot API מקבל אותו
+        # (https://core.telegram.org/bots/api#making-requests). לכן הכתובת לא מודפסת
+        # בשום מקום: בלי set -x ובלי curl -v. ו-max-time הוא התקרה של ההמתנה לשרת.
+        if ! status="$(curl --silent --show-error --max-time 30 \
+            --output "${response}" --write-out '%{http_code}' \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${TELEGRAM_TEXT}" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage")"; then
+          echo "::error title=Telegram::השליחה לטלגרם נכשלה לפני שהגיעה תשובה"
+          exit 1
+        fi
+        # הצלחה היא HTTP 200 עם "ok": true בגוף התשובה. כל תשובה אחרת היא כשל.
+        python3 - "${response}" "${status}" <<'PY'
+        import json
+        import sys
+
+        path, status = sys.argv[1], sys.argv[2]
+        try:
+            with open(path, encoding="utf-8") as stream:
+                answer = json.load(stream)
+        except ValueError:
+            answer = None
+        if status == "200" and isinstance(answer, dict) and answer.get("ok") is True:
+            print("ההודעה נשלחה לטלגרם.")
+            sys.exit(0)
+        description = answer.get("description") if isinstance(answer, dict) else None
+        # repr ולא הטקסט עצמו: שורה חדשה בתשובה לא תיפתח כפקודה חדשה של GitHub Actions.
+        print(f"::error title=Telegram::Bot API ענה {status}: {description!r}")
+        sys.exit(1)
+        PY
