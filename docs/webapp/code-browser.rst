@@ -46,7 +46,7 @@
       * - **Secret**
         - אותו ערך שמוגדר ב-``GITHUB_WEBHOOK_SECRET`` בסביבה שלכם
       * - **Events**
-        - בחרו **Just the push event**
+        - בחרו **Just the push event**. בריפו של CodeBot עצמו בחרו **Let me select individual events**, וסמנו גם את ``deployment_status`` לצד ``push``: הוא מפעיל את אינדקס התיעוד אחרי כל פריסה של האתר (:ref:`docs-index`)
 
 4. לחצו **Add webhook**
 

@@ -30,6 +30,27 @@ Gemini API אין משפט מקביל.
 * ``long  + autoTruncate:false`` → 4xx. זו הראיה שהחיתוך השקט אכן כובה.
 * ``long  + autoTruncate:true``  → 200 (וזה בדיוק החיתוך השקט שבעטיו
   נפתח האישו).
+
+אחרי שלושת אלה רץ גם החלק של ``batchEmbedContents``, שהלקוח הסינכרוני
+(``SyncEmbeddingClient`` ב-``services/embedding_service.py``) נשען עליו:
+
+* ``outputDimensionality`` ברמה העליונה של הבקשה מול בתוך ``embedContentConfig`` —
+  כמה מימדים חוזרים בכל אחד. מה שנמדד ב-7.10.2026: 768 ברמה העליונה, ו-3,072 בתוך
+  הבלוק, כלומר שם הוא נבלע.
+* אצווה בגודל ``GEMINI_MAX_BATCH_REQUESTS`` ובגודל אחד יותר — מה התקרה בפועל.
+* ``countTokens`` על הקלט הגדול ביותר שכל מסלול הטמעה שולח (``_largest_inputs``), בכמה סוגי
+  תוכן צפוף: נתח של התיעוד, ששביל הכותרות כבר כלול בו, והטקסט של סניפט — נתח ועוד מטא-דאטה
+  ומפריד (``create_embedding_text``), כלומר גדול מתקציב הנתח. שורה שעוברת את
+  ``INPUT_TOKEN_LIMIT`` מסומנת. מה שנמדד ב-7.10.2026:
+
+  - **תיעוד:** הצפוף ביותר הוא ספרות ונתיב SVG — 1,949 טוקנים ל-1,966 בתים, כמעט טוקן לכל
+    בית. כל הסוגים מתחת לתקרה, במרווח קטן שנשען על הנחה שלא מצאתי לה מקור כתוב של Google:
+    שאין יותר מטוקן אחד לכל בית.
+  - **סניפטים:** ספרות, סימנים ונתיב SVG מדולגים (``is_low_information_chunk``), אבל hex
+    ורשימת UUID עוברים את הסינון, והקלט האפקטיבי שלהם (2,451 בתים) מגיע ל-2,152 ול-2,129
+    טוקנים — **מעל התקרה**. ``autoTruncate: false`` לא עוצר את זה (הבלוק נבלע, למעלה), ולכן
+    Gemini חותך בשקט את סוף הנתח. זה המסלול של ה-worker של הסניפטים, מלפני אינדקס התיעוד, וה-
+    docstring של ``create_embedding_text`` מתעד בו פער רק לתוכן צפוף-סימנים.
 """
 
 from __future__ import annotations
@@ -101,6 +122,11 @@ DEFAULT_MODEL, DEFAULT_API_VERSION, DEFAULT_DIMENSIONS = _resolve_target()
 LONG_TEXT = "def handle_request(payload):\n    return payload\n" * 850
 SHORT_TEXT = "def handle_request(payload):\n    return payload\n"
 
+# תקרת הקלט של ``gemini-embedding-001``: "Input token limit 2,048"
+# (https://ai.google.dev/gemini-api/docs/embeddings). מה שמעליה נחתך בשקט — ראו את הפסקה על
+# ``autoTruncate`` למעלה.
+INPUT_TOKEN_LIMIT = 2048
+
 
 def _probe(client: httpx.Client, *, text: str, auto_truncate: bool, label: str) -> int:
     """מריץ פרוב אחד ומחזיר את קוד הסטטוס (``0`` = לא הגיע לשרת)."""
@@ -140,6 +166,169 @@ def _probe(client: httpx.Client, *, text: str, auto_truncate: bool, label: str) 
     return int(response.status_code)
 
 
+def _batch_dims(client: httpx.Client, requests: list) -> str:
+    """שולח ``batchEmbedContents`` ומחזיר תיאור קצר: מספר המימדים, או הקוד וההודעה."""
+    url = (
+        f"https://generativelanguage.googleapis.com/{DEFAULT_API_VERSION}"
+        f"/models/{DEFAULT_MODEL}:batchEmbedContents"
+    )
+    try:
+        response = client.post(url, json={"requests": requests})
+    except Exception as exc:
+        return f"transport error: {type(exc).__name__}"
+    if response.status_code != 200:
+        try:
+            message = json.loads(response.text).get("error", {}).get("message", "")
+        except Exception:
+            message = ""
+        return f"HTTP {response.status_code}: {str(message).strip()[:200]}"
+    try:
+        embeddings = response.json()["embeddings"]
+        return f"HTTP 200, {len(embeddings)} vectors, dims={sorted({len(e['values']) for e in embeddings})}"
+    except Exception:
+        return "HTTP 200 but no embeddings"
+
+
+def _probe_batch_contract(client: httpx.Client) -> None:
+    """מה ש-``SyncEmbeddingClient`` נשען עליו: איפה המימד נאכף, ומה תקרת האצווה והטוקנים.
+
+    הבקשה "הנכונה" נבנית ב-``build_embed_content_request`` — אותה פונקציה שהלקוחות משתמשים
+    בה — כדי שהפרוב יבדוק את מה שבאמת נשלח, ולא עותק שלו.
+    """
+    import random
+
+    from services.embedding_service import (  # noqa: E402
+        GEMINI_MAX_BATCH_REQUESTS,
+        build_embed_content_request,
+    )
+
+    def shaped(text: str) -> dict:
+        return build_embed_content_request(text, model=DEFAULT_MODEL, dimensions=DEFAULT_DIMENSIONS)
+
+    in_config = {
+        "model": f"models/{DEFAULT_MODEL}",
+        "content": {"parts": [{"text": SHORT_TEXT}]},
+        "embedContentConfig": {"outputDimensionality": DEFAULT_DIMENSIONS},
+    }
+    print(f"{'batch, dims at the top (as sent)':34s} -> {_batch_dims(client, [shaped(SHORT_TEXT)])}")
+    print(f"{'batch, dims inside embedContentConfig':34s} -> {_batch_dims(client, [in_config])}")
+    for size in (GEMINI_MAX_BATCH_REQUESTS, GEMINI_MAX_BATCH_REQUESTS + 1):
+        requests = [shaped(f"t{i}") for i in range(size)]
+        print(f"{f'batch of {size}':34s} -> {_batch_dims(client, requests)}")
+
+    # ``chunking_service`` טוען את קונפיג האפליקציה (``config.py``), ולכן החלק הזה דורש את
+    # משתני הסביבה שלה (``BOT_TOKEN``, ``MONGODB_URL``). הוא רץ אחרון, כך שבלעדיהם החלקים
+    # שלמעלה כבר הודפסו לפני שהשגיאה עולה.
+    url = (
+        f"https://generativelanguage.googleapis.com/{DEFAULT_API_VERSION}"
+        f"/models/{DEFAULT_MODEL}:countTokens"
+    )
+    print(f"countTokens on the largest input each embedding path sends (input limit {INPUT_TOKEN_LIMIT:,}):")
+    for path, kind, text in _largest_inputs(random.Random(7)):
+        label = f"  {path:13s} {kind:12s}"
+        if text is None:
+            print(f"{label} -> dropped by is_low_information_chunk, never sent")
+            continue
+        try:
+            response = client.post(url, json={"contents": [{"parts": [{"text": text}]}]})
+        except Exception as exc:
+            print(f"{label} -> transport error: {type(exc).__name__}")
+            continue
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        tokens = body.get("totalTokens") if response.status_code == 200 and isinstance(body, dict) else None
+        over = " <- OVER the limit: Gemini cuts the tail silently" if (
+            isinstance(tokens, int) and tokens > INPUT_TOKEN_LIMIT
+        ) else ""
+        print(f"{label} bytes={len(text.encode('utf-8')):5d} -> HTTP {response.status_code}, "
+              f"totalTokens={tokens}{over}")
+
+
+#: סוגי תוכן צפוף — מה שמכניס הכי הרבה טוקנים לכל בית. ``dense code`` הוא שתי אותיות על כל שבעה
+#: סימנים או ספרות: היחס 7/9 נמוך מ-``LOW_INFORMATION_RATIO``, כך שנתח כזה **עובר** את הסינון של
+#: הסניפטים. גם ``hex`` ו-``uuid list`` עוברים אותו, כי הסינון סופר רק ספרות וסימנים, והאותיות
+#: a–f אינן כאלה. ספרות, סימנים ונתיב SVG נשלחים רק במסלול של התיעוד, שאין בו סינון כזה.
+DENSE_KINDS = ("punctuation", "digits", "svg path", "dense code", "hex", "uuid list")
+
+
+def _dense_line(kind: str, rng) -> str:
+    """שורה אחת של 80 תווים מהסוג ``kind``."""
+    import string
+
+    if kind == "punctuation":
+        return "".join(rng.choice(string.punctuation) for _ in range(80))
+    if kind == "digits":
+        line = ""
+        while len(line) < 80:
+            line += f"{rng.randint(0, 9999)}.{rng.randint(0, 99):02d}, "
+        return line[:80]
+    if kind == "svg path":
+        line = ""
+        while len(line) < 80:
+            x, y = rng.randint(0, 9999), rng.randint(0, 9999)
+            line += f"{rng.choice('MLCQ')}{x // 10}.{x % 10},{y // 10}.{y % 10}"
+        return line[:80]
+    if kind == "hex":
+        return "".join(rng.choice("0123456789abcdef") for _ in range(80))
+    if kind == "uuid list":
+        line = ""
+        while len(line) < 80:
+            h = "".join(rng.choice("0123456789abcdef") for _ in range(32))
+            line += f'"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}", '
+        return line[:80]
+    if kind == "dense code":
+        line = ""
+        while len(line) < 80:
+            unit = [rng.choice(string.ascii_letters) for _ in range(2)]
+            unit += [rng.choice(string.digits + string.punctuation) for _ in range(7)]
+            rng.shuffle(unit)
+            line += "".join(unit)
+        return line[:80]
+    raise ValueError(f"unknown dense kind {kind!r}")
+
+
+def _largest_inputs(rng) -> list[tuple[str, str, str | None]]:
+    """הקלט הגדול ביותר שכל מסלול הטמעה שולח, לכל סוג תוכן — **נבנה בפונקציות שבונות אותו בייצור**,
+    כדי למדוד את מה שבאמת נשלח ולא את תקציב הבתים לבדו:
+
+    * **תיעוד** (``SyncEmbeddingClient``, מעבר האינדוקס): הנתח עצמו, ששביל הכותרות כבר כלול בו, עד
+      ``CHUNK_MAX_BYTES`` (``_chunk_texts`` ב-``services/docs_index_service.py``).
+    * **סניפט** (``EmbeddingService``, ה-worker): לנתח של ``split_code_to_chunks`` מתווספים מטא-דאטה
+      ומפריד (``create_embedding_text``), כך שהקלט האפקטיבי גדול מהנתח. המטא-דאטה כאן ממלאת את
+      ``EMBEDDING_METADATA_MAX_BYTES``. נתח שה-worker מדלג עליו (``is_low_information_chunk``) חוזר
+      עם ``None``.
+    """
+    from services.chunking_service import (  # noqa: E402
+        create_embedding_text,
+        is_low_information_chunk,
+        split_code_to_chunks,
+    )
+    from services.docs_index_service import _chunk_texts  # noqa: E402
+
+    inputs: list[tuple[str, str, str | None]] = []
+    for kind in DENSE_KINDS:
+        body = "\n".join(_dense_line(kind, rng) for _ in range(100))
+        docs_text = max(_chunk_texts(("עמוד", "סעיף"), body), key=lambda text: len(text.encode("utf-8")))
+        inputs.append(("docs chunk", kind, docs_text))
+    for kind in DENSE_KINDS:
+        body = "\n".join(_dense_line(kind, rng) for _ in range(100))
+        chunk = max((part.content for part in split_code_to_chunks(body)), key=lambda text: len(text.encode("utf-8")))
+        if is_low_information_chunk(chunk):
+            inputs.append(("snippet text", kind, None))
+            continue
+        snippet_text = create_embedding_text(
+            code_chunk=chunk,
+            title="bundle.min.js",
+            description=body[:1000],
+            tags=["minified", "generated"],
+            language="javascript",
+        )
+        inputs.append(("snippet text", kind, snippet_text))
+    return inputs
+
+
 def main() -> int:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
@@ -161,6 +350,9 @@ def main() -> int:
         long_on = _probe(
             client, text=LONG_TEXT, auto_truncate=True, label="long  + autoTruncate:true"
         )
+
+        print()
+        _probe_batch_contract(client)
 
     print()
     if short_off != 200:

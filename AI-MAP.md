@@ -124,7 +124,7 @@
 - `docs/webapp/mcp-analytics.rst` — **MCP Analytics (מדידת השימוש בכלי ה-MCP)**: מסך אדמין שמציג את נתוני השימוש בכלי ה-MCP מתוך PostHog — בריאות הכלים, עלות הניווט בריפו, ויכולות שסוכנים ביקשו — עם מצבי הכשל ומשתני הסביבה שהוא דורש.
 - `docs/webapp/static-checklist.rst` — **Static Performance & Security Checklist (gzip/br, Cache, SRI)**: להבטיח טעינה מהירה ובטוחה של נכסים סטטיים (CSS/JS/Images).
 - `docs/webapp/commands-catalog.rst` — **תחזוקת קטלוג הפקודות (``commands.json``)**: תחזוקת commands.json — הקטלוג שמזין את כרטיסי "קיצורי הדרך" בחיפוש הגלובלי. global_search.js טוען אותו רק בדפים שמכילים את globalSearchInput ואת searchBtn, ומוסיף כרטיסים לפי סוג (chatops/cli/playbook).
-- `docs/webapp/global-search.rst` — **חיפוש גלובלי — סוגי החיפוש**: על מה מחפש כל סוג בתיבת החיפוש הגלובלי בעמוד הקבצים, איך הוא מתאים ומדרג, מה קורה כשהמנוע לא מוצא כלום ועובר לגיבוי במונגו, ובמה זה שונה מהחיפוש לפי שם באותו עמוד ומ-/search בבוט.
+- `docs/webapp/global-search.rst` — **חיפוש גלובלי — סוגי החיפוש**: על מה מחפש כל סוג בתיבת החיפוש הגלובלי בעמוד הקבצים, איך הוא מתאים ומדרג, מה קורה כשהמנוע לא מוצא כלום ועובר לגיבוי במונגו, ובמה זה שונה מהחיפוש לפי שם באותו עמוד ומ-/search בבוט. ובנוסף: איך נבנה אינדקס החיפוש בתיעוד,…
 - `docs/webapp/code-execution.rst` — **הרצת קוד (Code Execution Playground)**: ב‑WebApp יש כלי שמאפשר להריץ קוד Python מתוך הדפדפן, דרך API ייעודי.
 - `docs/webapp/api-reference.rst` — **WebApp API Reference**: רפרנס ה-API של ה-WebApp: ה-endpoints, זרימת האימות מול Telegram, מבנה התשובה, וקודי השגיאה הנפוצים.
 - `docs/webapp/bulk-actions.rst` — **Bulk actions (בחירה מרובה)**: דף זה מתאר את יכולות הבחירה המרובה והפעולות הקבוצתיות בממשק הווב.

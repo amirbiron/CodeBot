@@ -1,7 +1,13 @@
 """
 GitHub Webhook Handler
 
-מטפל באירועי push מ-GitHub ומפעיל סנכרון
+מטפל באירועי push מ-GitHub ומפעיל סנכרון, ובאירועי ``deployment_status`` של אתר התיעוד ומפעיל
+מעבר אינדוקס (``services/docs_index_service.py``). push לענף הראשי של ריפו המקור מבקש גם מעבר
+שבודק את הקובץ הראשי של האתר — רשת הביטחון של האינדקס (``_request_docs_index_check``).
+
+ה-Blueprint מוחרג מהמגבלה הגורפת של ``Flask-Limiter`` (``webapp/app.py``, אחרי יצירת המגביל): ה-
+webhook מגיע מכמה כתובות קבועות של GitHub, והמגבלה לפי IP הייתה חוסמת אותו ב-429 כשמספר המשלוחים
+עובר אותה — ולכל פריסה של האתר יש כמה סטטוסים. כל בקשה כאן נבדקת בחתימה לפני כל עבודה.
 """
 
 from __future__ import annotations
@@ -51,8 +57,9 @@ def handle_github_webhook():
     Endpoint לקבלת webhooks מ-GitHub
 
     Events supported:
-    - push: סנכרון שינויים
+    - push: סנכרון שינויים (ובריפו המקור גם רשת הביטחון של אינדקס התיעוד)
     - ping: בדיקת תקינות
+    - deployment_status: מעבר אינדוקס של אתר התיעוד
     """
     # אימות חתימה
     signature = request.headers.get("X-Hub-Signature-256", "")
@@ -77,6 +84,13 @@ def handle_github_webhook():
         if not isinstance(payload, dict):
             return jsonify({"error": "Invalid JSON payload", "delivery_id": delivery_id}), 400
         return handle_push_event(payload, delivery_id)
+
+    # פריסה של אתר התיעוד
+    if event_type == "deployment_status":
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Invalid JSON payload", "delivery_id": delivery_id}), 400
+        return handle_deployment_status_event(payload, delivery_id)
 
     # אירועים אחרים - מתעלמים
     return jsonify({"message": f"Event '{event_type}' ignored", "delivery_id": delivery_id}), 200
@@ -147,22 +161,97 @@ def handle_push_event(payload: dict, delivery_id: str):
             delivery_id=delivery_id,
         )
 
-        return (
-            jsonify(
-                {
-                    "status": "queued",
-                    "job_id": job_id,
-                    "repo": repo_name,
-                    "sha": new_sha[:7],
-                    "delivery_id": delivery_id,
-                }
-            ),
-            202,
-        )
+        response = {
+            "status": "queued",
+            "job_id": job_id,
+            "repo": repo_name,
+            "sha": new_sha[:7],
+            "delivery_id": delivery_id,
+        }
+        from services.docs_search_contract import SOURCE_REPO_FULL_NAME
+
+        if repo.get("full_name") == SOURCE_REPO_FULL_NAME:
+            response["docs_index"] = _request_docs_index_check()
+        return jsonify(response), 202
 
     except Exception as e:
         logger.exception(f"Failed to process push event: {e}")
         return jsonify({"error": "Processing failed", "delivery_id": delivery_id}), 500
+
+
+def _request_docs_index_check() -> str:
+    """רשת הביטחון של אינדקס התיעוד: מעבר שבודק את הקובץ הראשי של האתר, ב-push לענף הראשי של ריפו המקור.
+
+    הבדיקה לא תלויה בסנכרון של המראה — היא קוראת את הקובץ מהאתר — ולכן היא כאן, בשכבה שמנתבת את
+    אירועי GitHub לפי ריפו, ליד ה-webhook של הפריסה, ולא בסוף הסנכרון הכללי. בזמן ה-push הבנייה שלו
+    עוד לא נפרסה, כך שהיא תופסת פריסה **קודמת** שה-webhook שלה לא הגיע; בדרך כלל היא נגמרת ב-304.
+
+    מחזיר את מה ש-``request_pass`` מחזיר, או ``database_unavailable``: הסנכרון כבר בתור, ולכן מסד שאינו
+    זמין לא משנה את התשובה עליו, והוא מדווח בשדה ``docs_index``. חריגה אחרת היא באג, ועולה.
+    """
+    from pymongo.errors import PyMongoError
+
+    from database.db_manager import get_db
+    from services import docs_index_service as docs_index
+
+    db = get_db()
+    if db is None:
+        return "database_unavailable"
+    try:
+        return docs_index.request_pass(db, trigger=docs_index.TRIGGER_PUSH)
+    except PyMongoError:
+        logger.exception("docs index: the push safety net could not request a pass")
+        return "database_unavailable"
+
+
+def handle_deployment_status_event(payload: dict, delivery_id: str):
+    """פריסה מוצלחת של אתר התיעוד ← מעבר אינדוקס לפי הקומיט שלה.
+
+    GitHub שולח כמה סטטוסים לכל פריסה (``deployment_status.state``; נמדד: waiting, queued,
+    in_progress, success), וגם לפריסות של ריפו או סביבה אחרים אם ה-webhook מוגדר עליהם. רק
+    ``success`` של ``github-pages`` בריפו המקור מפעיל מעבר; כל השאר חוזרים ב-200 עם הסיבה, כדי
+    שיומן המשלוחים ב-GitHub יאמר למה. ה-sha נכנס לכתובת של הקובץ, ולכן הוא נבדק בדקדוק לפני הכול.
+
+    המעבר רץ ברקע (``request_pass``), והתשובה חוזרת מיד: ל-gevent אין תקרה על משך בקשה.
+    """
+    from pymongo.errors import PyMongoError
+
+    from services import docs_index_service as docs_index
+    from services import docs_search_contract as contract
+
+    deployment = payload.get("deployment")
+    status = payload.get("deployment_status")
+    repository = payload.get("repository")
+    if not (isinstance(deployment, dict) and isinstance(status, dict) and isinstance(repository, dict)):
+        return jsonify({"error": "Invalid deployment_status payload", "delivery_id": delivery_id}), 400
+
+    if repository.get("full_name") != contract.SOURCE_REPO_FULL_NAME:
+        reason = "other_repository"
+    elif deployment.get("environment") != contract.PAGES_ENVIRONMENT:
+        reason = "other_environment"
+    elif status.get("state") != "success":
+        reason = "not_success"
+    else:
+        reason = ""
+    if reason:
+        return jsonify({"message": "ignored", "reason": reason, "delivery_id": delivery_id}), 200
+
+    sha = deployment.get("sha")
+    if not contract.is_commit_sha(sha):
+        return jsonify({"error": "Invalid deployment sha", "delivery_id": delivery_id}), 400
+
+    from database.db_manager import get_db
+
+    db = get_db()
+    if db is None:
+        return jsonify({"error": "database_unavailable", "delivery_id": delivery_id}), 503
+    try:
+        result = docs_index.request_pass(db, trigger=docs_index.TRIGGER_DEPLOY, commit=sha)
+    except PyMongoError:
+        logger.exception("docs index: could not request a pass for deployment %s", sha[:7])
+        return jsonify({"error": "database_unavailable", "delivery_id": delivery_id}), 503
+    logger.info("docs index: deployment %s %s a pass", sha[:7], result)
+    return jsonify({"status": result, "sha": sha[:7], "delivery_id": delivery_id}), 202
 
 
 @webhooks_bp.route("/github/test", methods=["POST"])

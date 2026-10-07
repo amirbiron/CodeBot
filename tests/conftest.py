@@ -64,6 +64,10 @@ os.environ['HTTP_RESILIENCE_JITTER'] = '0'
 os.environ['REQUESTS_RETRIES'] = '0'
 os.environ['REQUESTS_RETRY_BACKOFF'] = '0'
 os.environ['AIOHTTP_TIMEOUT_TOTAL'] = '6'
+# השער המשותף לקריאות Gemini ב-``services/embedding_service.py`` — המרווח בין בקשות וה-cooldown
+# אחרי 429 — שגם ``SyncEmbeddingClient`` עובר בו. נקראים בזמן הייבוא.
+os.environ['EMBEDDING_MIN_INTERVAL_SECONDS'] = '0'
+os.environ['EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS'] = '0'
 
 # Import stubs so any import of `telegram` succeeds in tests
 try:
