@@ -357,6 +357,45 @@ def _reset_cache_manager_state_between_tests(_reset_cache_manager_stub_before_te
 
 
 @pytest.fixture(autouse=True)
+def _reset_sticky_notes_index_state_between_tests(_reset_cache_manager_state_between_tests) -> None:
+    """מאפס את מצב בניית האינדקסים של הפתקים הדביקים לפני כל טסט ואחריו.
+
+    ``webapp/sticky_notes_api.py`` זוכר בגלובלים אם האינדקסים נבנו, ואחרי בנייה
+    שנכשלה גם מתי מותר לנסות שוב (``_INDEX_RETRY_AFTER``). טסט שמריץ ראוט של
+    פתקים מול stub משאיר את המצב הזה אחריו, וטסט שבא אחריו באותו תהליך מקבל מ-
+    ``_ensure_indexes`` יציאה מוקדמת. כך נפלו בדיקות האינדקסים ב-
+    ``tests/test_note_boards_mongo.py`` כשרצו אחרי ``tests/test_sticky_note_reminders.py``
+    בתוך ``_INDEX_RETRY_SECONDS``. הרשימה של מה לאפס חיה ליד המצב, ב-
+    ``reset_index_state_for_tests``; כאן רק קוראים לה.
+
+    **רק מודול שכבר יובא.** ייבוא לצורך האיפוס היה מושך את Flask ואת שכבת התצפית
+    לכל טסט בריפו, גם לכאלה שאינם נוגעים בפתקים; ומודול שעוד לא יובא נמצא ממילא
+    במצב ההתחלתי.
+
+    **אחרי הקאש.** התלות ב-``_reset_cache_manager_state_between_tests`` קובעת את
+    הסדר: ההקמה שלו רצה לפני שלנו והפירוק שלו אחרי שלנו. בהקמה, לכן, הקאש כבר
+    כבוי, והאיפוס אינו נוגע ב-Redis ש-``cache_manager.cache`` אולי התחבר אליו
+    בטעינה. בפירוק האיפוס רואה את הקאש כפי שהבדיקה השאירה אותו: לקוח שהיא
+    התקינה ישירות על ``cache_manager.cache`` עוד במקומו, והדגל המשותף נמחק ממנו
+    לפני שהקאש מכובה; קאש שהיא החליפה ב-``monkeypatch`` כבר הוסר, כי הפירוק של
+    ``monkeypatch`` רץ לפני שלנו. האיפוס עובר דרך ``cache`` שהמודול של הפתקים
+    ייבא, ולכן אחרי ``importlib.reload(cache_manager)`` — שחלק מבדיקות הקאש עושות —
+    הוא כבר אינו אותו אובייקט כמו ``cache_manager.cache``. הסדר נקבע בתלות ולא
+    במיקום בקובץ, כי בין פיקסצ'רים אוטומטיים של אותו conftest pytest מסדר לפי
+    שם (``FixtureManager.parsefactories`` עובר על ``dir()``, pytest 8.4.2).
+    """
+
+    def _reset() -> None:
+        mod = sys.modules.get("webapp.sticky_notes_api")
+        if mod is not None:
+            mod.reset_index_state_for_tests()
+
+    _reset()
+    yield
+    _reset()
+
+
+@pytest.fixture(autouse=True)
 def _reset_telegram_modules_between_tests() -> None:
     """מנקה stubs שדלפו ל-telegram בין טסטים.
 

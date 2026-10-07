@@ -165,7 +165,12 @@ def test_metrics_storage_batch_insert_failure_emits_event(monkeypatch):
     # Force flush to trigger insert and failure
     ms.flush(force=True)
 
-    assert any(e[0] == "metrics_db_batch_insert_error" for e in events)
+    # ‏RuntimeError אינה תקלת רשת: הבאצ' נזרק עם אירוע משלו ואינו חוזר לתור —
+    # ניסיון חוזר עליה היה חוזר על עצמו לנצח. התקלות שכן חוזרות לתור:
+    # ``tests/test_metrics_storage_write_outcomes.py``.
+    assert any(e[0] == "metrics_db_batch_dropped" and e[1] == "error" for e in events)
+    assert not any(e[0] == "metrics_db_batch_insert_error" for e in events)
+    assert len(ms._buf) == 0
 
 
 def test_metrics_storage_caps_buffer_when_unavailable(monkeypatch):

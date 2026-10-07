@@ -153,7 +153,7 @@
 - `docs/api/ai_explain.md` — **🧠 Observability AI Explain API**: שירות ה-AI שמתרגם הקשר של התראה להסבר קצר בשפה טבעית: הבקשה והתגובה של POST /api/ai/explain, האימות והבקרות, וקודי השגיאה.
 - `docs/rate-limiting.rst` — **Rate Limiting**: מערכת הגבלת קצב אחודה לבוט ולווב, עם Shadow Mode, Soft‑Warning ב‑80% ועקיפת מנהלים.
 - `docs/observability/guidelines.md` — **📊 הנחיות Observability ואירועים**: מטרה: לקבוע תבנית ברורה ללוגים ולאירועים, להפחית רעש, ולאפשר תחקור מהיר בעזרת request_id.
-- `docs/logging_schema.rst` — **סכמת לוגים**: סכמת הלוגים: שדות החובה והשדות המומלצים בכל רשומה, דוגמה מלאה, וטקסונומיית קודי השגיאה.
+- `docs/logging_schema.rst` — **סכמת לוגים**: שדות החובה והשדות המומלצים בכל רשומה, דוגמה מלאה, איך עובדת דגימת לוגי ה-info ומה אומר היעדר של שורה בלוג, טשטוש שדות רגישים, וטקסונומיית קודי השגיאה.
 - `docs/metrics.rst` — **מדדים (Metrics)**: המדדים שהמערכת חושפת ב-/metrics: המטריקות הקיימות, מדדי ה-handlers והפקודות, מטריקות OpenTelemetry, ודוגמאות PromQL ו-SLO.
 - `docs/resilience.rst` — **Resilience לשירותים חיצוניים**: שכבת Retry ו-Circuit Breaker לקריאות חוץ. היא חלה על קריאות שעוברות דרך http_sync.py ו-http_async.py; שירותים שקוראים ישירות ל-requests, httpx או aiohttp אינם מכוסים עדיין.
 - `docs/alerts.rst` — **התראות (Alerts)**: מערכת ההתראות: חוקי ברירת המחדל, איך מתאימים אותם, מדדי Health ו-Startup ל-Prometheus, קונפיגורציית alert_manager, ובדיקת הזרימה מקצה לקצה.

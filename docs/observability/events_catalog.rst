@@ -34,6 +34,21 @@ DB
 
    {"event":"db_get_latest_version_error","severity":"error","request_id":"a3f2c891","error":"not found"}
 
+Metrics (DB)
+------------
+
+כתיבת מדדי הבקשות ל-``service_metrics`` (``_flush_once`` ב-``monitoring/metrics_storage.py``). כל באצ' מסתיים באחד מהאירועים האלה, או בלי אירוע כשהכתיבה הצליחה:
+
+- ``metrics_db_batch_resolved`` — השרת ענה על כל מסמך בבאצ' (``BulkWriteError``), ושום דבר לא חוזר לתור. ``inserted`` נכתבו עכשיו; ``already_stored`` היו שמורים כבר מניסיון קודם שהתשובה שלו אבדה (כפילות על ``_id``); ``dropped`` נזרקו, ו-``dropped_codes`` סופר אותם לפי קוד השגיאה של השרת — ``unknown`` הוא מסמך שהתשובה לא הסבירה; ``write_concern_codes`` הם שגיאות write concern. ברמת ``info`` כששום דבר לא נזרק, ו-``warn`` אחרת.
+- ``metrics_db_batch_insert_error`` — הכתיבה נכשלה בתקלה שאחריה אי אפשר לדעת אם נכתבה: ניתוק, אין primary, מגבלת זמן של השרת (``_OUTCOME_UNKNOWN_ERRORS``). הבאצ' חוזר לתור עם ה-``_id`` שלו, כך שהניסיון הבא לא יכתוב פעמיים, והניסיון הבא מגיע אחרי ``METRICS_FLUSH_INTERVAL_SEC``. ``error_type`` הוא שם החריגה.
+- ``metrics_db_batch_dropped`` — חריגה מחוץ לתקלות האלה: באג, הרשאה חסרה, מסמך שאי אפשר לקודד. הבאצ' נזרק ולא מנוסה שוב, ברמת ``error``; ``error_type`` בשדה, וה-traceback בשורת לוג נפרדת.
+
+אף אחד מהם אינו מכיל את המסמכים עצמם, רק מספרים וקודים: נתיב הבקשה שבמסמך יכול לשאת טוקן של קישור שיתוף.
+
+.. code-block:: json
+
+   {"event":"metrics_db_batch_resolved","severity":"info","count":8,"inserted":3,"already_stored":5,"dropped":0,"dropped_codes":{},"write_concern_codes":[]}
+
 Web/Share
 ---------
 

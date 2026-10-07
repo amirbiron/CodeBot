@@ -684,7 +684,10 @@ class ConfigService:
             key="METRICS_DB_ENABLED",
             services=("webapp", "bot", "webserver"),
             default="false",
-            description="Legacy: הפעלת כתיבת מדדים למונגו. כיום הכתיבה מושבתת בפרודקשן ברמת הקוד ונשארה לתאימות ולטסטים",
+            description=(
+                "הפעלת כתיבת מדדי בקשות למונגו (monitoring/metrics_storage.py) בכל שירות שמגדיר אותו — "
+                "מסמך מסכם לכל נתיב בכל חלון של METRICS_ROLLUP_SECONDS. DISABLE_METRICS_WRITES ו-DISABLE_DB גוברים עליו"
+            ),
             category="metrics",
         ),
         "METRICS_COLLECTION": ConfigDefinition(
@@ -712,7 +715,7 @@ class ConfigService:
             key="METRICS_FLUSH_INTERVAL_SEC",
             services=("webapp", "bot", "webserver"),
             default="5",
-            description="כל כמה שניות מתרוקן באפר המדדים",
+            description="כל כמה שניות מתרוקן באפר המדדים, וגם כמה זמן מחכים אחרי כתיבה שנכשלה לפני הניסיון הבא",
             category="metrics",
         ),
         "METRICS_MAX_BUFFER": ConfigDefinition(
@@ -2488,14 +2491,20 @@ class ConfigService:
             key="LOG_INFO_SAMPLE_RATE",
             services=("webapp", "bot", "mcp", "webserver"),
             default="1.0",
-            description="שיעור דגימת לוגים ברמת INFO",
+            description=(
+                "שיעור דגימת לוגים ברמת INFO (0–1). אירוע שאף שורה שלו לא נשמרה ב-INFO_SAMPLE_WINDOW_SECONDS "
+                "האחרונות נשמר בלי הגרלה, ו-0 מכבה את כל ה-INFO שאינו ב-allowlist"
+            ),
             category="logging",
         ),
         "LOG_INFO_SAMPLE_ALLOWLIST": ConfigDefinition(
             key="LOG_INFO_SAMPLE_ALLOWLIST",
             services=("webapp", "bot", "mcp", "webserver"),
             default="",
-            description="רשימת אירועים שלא יידגמו (מופרדים בפסיקים)",
+            description=(
+                "אירועים נוספים שלא יידגמו (מופרדים בפסיקים), בנוסף ל-INFO_SAMPLE_BUILTIN_ALLOWLIST "
+                "שב-observability.py — המשתנה מוסיף עליה ואינו מחליף אותה"
+            ),
             category="logging",
         ),
         "ALERT_QUICK_FIX_PATH": ConfigDefinition(

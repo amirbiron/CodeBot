@@ -869,15 +869,15 @@
      - ``json``
      - Bot/WebApp
    * - ``LOG_INFO_SAMPLE_RATE``
-     - שיעור דגימה ללוגים ברמת ``INFO`` (0.0–1.0)
+     - שיעור דגימה ללוגים ברמת ``INFO`` (0.0–1.0). אירוע שאף שורה שלו לא נשמרה ב-``INFO_SAMPLE_WINDOW_SECONDS`` האחרונות נשמר בלי הגרלה, ו-``0`` מכבה את כל ה-``INFO`` שאינו ב-allowlist — ראו :doc:`logging_schema`
      - לא
      - ``1.0``
      - ``0.1``
      - Bot/WebApp
    * - ``LOG_INFO_SAMPLE_ALLOWLIST``
-     - אירועים שלא נדגמים לעולם (מופרדים בפסיקים)
+     - אירועים נוספים שלא נדגמים לעולם (מופרדים בפסיקים). המשתנה **מוסיף** על ``INFO_SAMPLE_BUILTIN_ALLOWLIST`` שב-``observability.py`` ואינו מחליף אותה — ראו :doc:`logging_schema`
      - לא
-     - ``business_metric,performance,github_sync``
+     - ריק
      - ``event_a,event_b``
      - Bot/WebApp
    * - ``ENVIRONMENT``
@@ -1928,7 +1928,7 @@
      - ``true``
      - Bot/WebApp
    * - ``METRICS_DB_ENABLED``
-     - **Legacy**: מפעיל כתיבה של metrics ל-MongoDB (``monitoring/metrics_storage.py``). כיום הכתיבה מושבתת בפרודקשן ברמת הקוד ונשארה בעיקר לטסטים/תאימות.
+     - מפעיל כתיבה של מדדי בקשות ל-MongoDB (``monitoring/metrics_storage.py``) בכל שירות שמגדיר אותו — מסמך מסכם לכל נתיב בכל חלון של ``METRICS_ROLLUP_SECONDS``, ולא מסמך לכל בקשה. ``DISABLE_METRICS_WRITES`` ו-``DISABLE_DB`` גוברים עליו. מה הכותב עושה כשכתיבה נכשלת: ``_flush_once`` באותו מודול.
      - לא
      - ``false``
      - ``true``
@@ -1946,7 +1946,7 @@
      - ``200``
      - Bot/Observability
    * - ``METRICS_FLUSH_INTERVAL_SEC``
-     - כל כמה שניות לרוקן את הבאפר של metrics.
+     - כל כמה שניות לרוקן את הבאפר של metrics — וגם כמה זמן לחכות אחרי כתיבה שנכשלה, לפני הניסיון הבא.
      - לא
      - ``5``
      - ``10``
