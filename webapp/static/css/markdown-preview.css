@@ -13,11 +13,18 @@
 
 /* Container לתצוגת Markdown */
 .markdown-preview-container {
+    /* טוקנים של הרכיב. --border-color ו---accent-blue מוגדרים בפלטה שב-:root של repo-browser.css
+       ולא ב-base.html, ולכן בעמוד שלא טוען את repo-browser.css (עמוד הקבצים) הם מגיעים מה-fallback
+       כאן — אותה פלטה (tests/test_markdown_preview_tokens.py משווה). ערכה שמגדירה אותם, כמו ערכה
+       מיובאת עם --border-color, גוברת בכל עמוד. כללי התצוגה קוראים את הטוקנים האלה ולא את השניים
+       ישירות; ומכיוון שהם מוצהרים על המעטפת, תוכן מחוץ ל-.markdown-preview-container לא מקבל אותם. */
+    --md-preview-border: var(--border-color, #313244);
+    --md-preview-accent: var(--accent-blue, #89b4fa);
     flex: 1;
     overflow: auto;
     padding: 24px 32px;
     background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--md-preview-border);
     border-radius: 8px;
     margin: 8px;
     direction: rtl; /* תמיכה בעברית */
@@ -47,19 +54,19 @@
 
 .markdown-preview-content h1 {
     font-size: 2em;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--md-preview-border);
     padding-bottom: 0.3em;
 }
 
 .markdown-preview-content h2 {
     font-size: 1.5em;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--md-preview-border);
     padding-bottom: 0.3em;
 }
 
 /* קישורים */
 .markdown-preview-content a {
-    color: var(--accent-blue);
+    color: var(--md-preview-accent);
     text-decoration: none;
 }
 
@@ -70,7 +77,7 @@
 /* בלוקי קוד */
 .markdown-preview-content pre {
     background: var(--code-bg, #22272e);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--md-preview-border);
     border-radius: 6px;
     padding: 16px;
     overflow-x: auto;
@@ -296,7 +303,7 @@
 [data-theme="custom"] .markdown-preview-content pre,
 [data-theme^="shared:"] .markdown-preview-content pre {
     background: var(--repo-md-code-block-bg-override, var(--code-bg, var(--bg-secondary, #1e1e1e)));
-    border-color: var(--repo-md-code-block-border-override, var(--border-color));
+    border-color: var(--repo-md-code-block-border-override, var(--md-preview-border));
 }
 
 [data-theme="custom"] .markdown-preview-content pre code,
@@ -423,7 +430,7 @@
 
 .markdown-preview-content th,
 .markdown-preview-content td {
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--md-preview-border);
     padding: 8px 12px;
     text-align: right;
 }
@@ -461,7 +468,7 @@
 
 /* ציטוטים */
 .markdown-preview-content blockquote {
-    border-right: 4px solid var(--accent-blue);
+    border-right: 4px solid var(--md-preview-accent);
     border-left: none;
     margin: 1em 0;
     padding: 0.5em 1em;
@@ -480,7 +487,7 @@
 /* קו הפרדה */
 .markdown-preview-content hr {
     border: none;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--md-preview-border);
     margin: 2em 0;
 }
 
@@ -503,7 +510,7 @@
 .markdown-preview-content .node circle,
 .markdown-preview-content .node ellipse {
     fill: var(--bg-secondary, #2d333b) !important;
-    stroke: var(--accent-blue, #539bf5) !important;
+    stroke: var(--md-preview-accent) !important;
 }
 
 /* Node labels */
@@ -538,7 +545,7 @@
 /* Sequence diagram: actors */
 .markdown-preview-content .actor {
     fill: var(--bg-secondary, #2d333b) !important;
-    stroke: var(--accent-blue, #539bf5) !important;
+    stroke: var(--md-preview-accent) !important;
 }
 
 .markdown-preview-content text.actor,
@@ -559,7 +566,7 @@
 /* Notes */
 .markdown-preview-content .note {
     fill: var(--bg-tertiary, #373e47) !important;
-    stroke: var(--border-color, #444c56) !important;
+    stroke: var(--md-preview-border) !important;
 }
 
 .markdown-preview-content .noteText {
@@ -569,7 +576,7 @@
 /* Clusters / subgraphs */
 .markdown-preview-content .cluster rect {
     fill: var(--bg-tertiary, #373e47) !important;
-    stroke: var(--border-color, #444c56) !important;
+    stroke: var(--md-preview-border) !important;
 }
 
 .markdown-preview-content .cluster text {

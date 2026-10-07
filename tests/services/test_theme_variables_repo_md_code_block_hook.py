@@ -81,7 +81,9 @@ def test_the_imported_theme_rule_reads_both_tokens_with_todays_fallbacks():
     body = _rule_body(_css(), HOOK_SELECTORS)
     assert body is not None, "הכלל של הערכות המיובאות לבלוקי קוד לא נמצא"
     assert f"background: var({BG_TOKEN}, var(--code-bg, var(--bg-secondary, #1e1e1e)));" in body, body
-    assert f"border-color: var({BORDER_TOKEN}, var(--border-color));" in body, body
+    # ``--md-preview-border`` קורא את ``--border-color`` של הערכה (markdown-preview.css), ולכן בערכה
+    # מיובאת שאינה מצהירה על הווו הגבול הוא עדיין הגבול של הערכה, כמו לפני הווו.
+    assert f"border-color: var({BORDER_TOKEN}, var(--md-preview-border));" in body, body
 
 
 def test_the_border_fallback_is_what_the_general_rule_paints():
