@@ -51,6 +51,20 @@ GUARDED = (
     # שתי התגיות האלה נטענו בכתובת קבועה, בדיוק כמו נכסי הפתקים.
     "js/repo-browser.js",
     "css/repo-browser.css",
+    # תצוגת ה-Markdown, שנטענת גם בדפדפן הריפו וגם בכרטיסי התיעוד בעמוד הקבצים. אותו נכס
+    # משני עמודים, אחד עם מזהה ואחד בלעדיו, היה עובד בעמוד אחד בלבד אחרי דיפלוי.
+    # ``markdown-deps.js`` גוזר מה-``?v=`` של התגית שלו גם את הכתובת של הבאנדל, ולכן
+    # תגית שלו בלי מזהה הייתה מגישה באנדל ישן. ``md_preview.html`` מרכיב את כתובת הבאנדל
+    # בתוך מחרוזת JS, ו-``URL_FOR_RE`` תופס גם אותה.
+    "js/markdown-deps.js",
+    "js/md_preview.bundle.js",
+    "css/md_preview.bundle.css",
+    "js/live-preview.js",
+    "js/md-anchors.js",
+    "js/md-mark-plugin.js",
+    "js/utils/safe-highlight.js",
+    "js/utils/rtl-code.js",
+    "js/admonition-icons.js",
 )
 
 
@@ -84,10 +98,10 @@ def _offenders():
     return out
 
 
-def test_sticky_notes_assets_are_cache_busted():
+def test_guarded_assets_are_cache_busted():
     offenders = _offenders()
     assert not offenders, (
-        "נכסי פתקים בלי ?v={{ static_version }} — הדפדפן ימשיך להגיש עותק "
+        "נכסים שמורים בלי ?v={{ static_version }} — הדפדפן ימשיך להגיש עותק "
         "ישן עד שנה:\n  " + "\n  ".join(offenders)
     )
 
@@ -136,7 +150,7 @@ CASES = [
     ),
     (
         "נכס אחר לגמרי — לא בתחום השמירה",
-        """<script src="{{ url_for('static', filename='js/md-anchors.js') }}"></script>""",
+        """<script src="{{ url_for('static', filename='js/bulk-actions.js') }}"></script>""",
         False,
     ),
 ]

@@ -40,10 +40,6 @@ KNOWN_MISSING = {
     ("files.html", "js/bulk-actions.js"),
     ("reader_mode.html", "css/reader.css"),
     ("repo/base_repo.html", "js/repo-history.js"),
-    ("repo/base_repo.html", "js/utils/safe-highlight.js"),
-    ("repo/base_repo.html", "js/md-anchors.js"),
-    ("repo/base_repo.html", "js/md-mark-plugin.js"),
-    ("repo/base_repo.html", "js/live-preview.js"),
 }
 
 

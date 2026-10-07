@@ -1,6 +1,6 @@
 """וו הדריסה של בלוקי הקוד בתצוגת ה-Markdown של דפדפן הריפו.
 
-בערכה מיובאת, ``webapp/static/css/repo-browser.css`` צובע את המעטפת
+בערכה מיובאת, ``webapp/static/css/markdown-preview.css`` צובע את המעטפת
 (``.markdown-preview-container``) ב-``--bg-tertiary``, את בלוק הקוד ב-``--code-bg``
 ואת הגבול שלו ב-``--border-color`` — שלושה טוקנים ש-``VSCODE_TO_CSS_MAP`` גוזר כל
 אחד ממפתחות אחרים של VS Code. בערכה שבה שלושתם יוצאים באותו צבע (Cobalt Next)
@@ -27,7 +27,7 @@ BORDER_TOKEN = "--repo-md-code-block-border-override"
 TOKENS = (BG_TOKEN, BORDER_TOKEN)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CSS_PATH = REPO_ROOT / "webapp/static/css/repo-browser.css"
+CSS_PATH = REPO_ROOT / "webapp/static/css/markdown-preview.css"
 
 #: הכלל שצובע היום את בלוק הקוד בערכה מיובאת או משותפת. הטוקנים נקראים בו ולא
 #: בכלל חדש, כדי שהמפל של ערכה שאינה מצהירה יישאר זהה.
