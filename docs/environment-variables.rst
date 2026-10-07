@@ -869,15 +869,15 @@
      - ``json``
      - Bot/WebApp
    * - ``LOG_INFO_SAMPLE_RATE``
-     - שיעור דגימה ללוגים ברמת ``INFO`` (0.0–1.0)
+     - שיעור דגימה ללוגים ברמת ``INFO`` (0.0–1.0). אירוע שאף שורה שלו לא נשמרה ב-``INFO_SAMPLE_WINDOW_SECONDS`` האחרונות נשמר בלי הגרלה, ו-``0`` מכבה את כל ה-``INFO`` שאינו ב-allowlist — ראו :doc:`logging_schema`
      - לא
      - ``1.0``
      - ``0.1``
      - Bot/WebApp
    * - ``LOG_INFO_SAMPLE_ALLOWLIST``
-     - אירועים שלא נדגמים לעולם (מופרדים בפסיקים)
+     - אירועים נוספים שלא נדגמים לעולם (מופרדים בפסיקים). המשתנה **מוסיף** על ``INFO_SAMPLE_BUILTIN_ALLOWLIST`` שב-``observability.py`` ואינו מחליף אותה — ראו :doc:`logging_schema`
      - לא
-     - ``business_metric,performance,github_sync``
+     - ריק
      - ``event_a,event_b``
      - Bot/WebApp
    * - ``ENVIRONMENT``

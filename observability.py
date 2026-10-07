@@ -10,6 +10,7 @@ Structured logging, correlation IDs, and optional Sentry initialization.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import uuid
 from typing import Any, Dict, Mapping, Optional
@@ -444,40 +445,128 @@ def _choose_renderer():
     return structlog.processors.JSONRenderer()
 
 
+# --- דגימת לוגי info ---
+#
+# הדגימה נועדה לדלל אירועים שחוזרים שוב ושוב. עד 6.10.2026 היא הגרילה כל הופעה
+# בנפרד, ולכן גם אירוע שקורה פעם אחת בחיי התהליך — ``metrics_db_initialized``,
+# ‏``db_connected`` — נזרק באותו סיכוי: עם ``LOG_INFO_SAMPLE_RATE=0.3`` השורה
+# ‏``db_connected`` נעדרה מרוב העליות של הוובאפ באותו יום, והיעדר
+# ‏``metrics_db_initialized`` הוביל למסקנה, בלי ראיה, שכותב המדדים לא עולה. זריקה של
+# אירוע נדיר כמעט לא חוסכת נפח, ומוחקת את הראיה היחידה לכך שהמצב השתנה. מאז,
+# כשהדגימה פעילה, כל שם אירוע שאף שורה שלו לא נשמרה ב-``INFO_SAMPLE_WINDOW_SECONDS``
+# האחרונות נשמר בלי הגרלה, ורק החזרות שבתוך החלון נדגמות.
+#
+# ‏``LOG_INFO_SAMPLE_ALLOWLIST`` מוסיף על ``INFO_SAMPLE_BUILTIN_ALLOWLIST`` ואינו
+# מחליף אותה. עד אותו יום הוא החליף אותה, ובייצור הוגדר בו בדיוק מה שהתיעוד הציג
+# כברירת מחדל — בלי ``access_logs`` — כך ששורות הגישה נדגמו בלי שאיש התכוון לזה.
+
+# docs:info-sampling-constants:start — הקטע מוטמע בתיעוד (docs/logging_schema.rst); אל תסיר את הסימון
+#: אירועי info שלא נדגמים לעולם. השמות ב-``LOG_INFO_SAMPLE_ALLOWLIST`` מתווספים עליהם.
+INFO_SAMPLE_BUILTIN_ALLOWLIST: frozenset[str] = frozenset(
+    {"business_metric", "performance", "github_sync", "access_logs"}
+)
+#: אירוע info שאף שורה שלו לא נשמרה בחלון הזה (בשניות) נשמר בלי הגרלה.
+INFO_SAMPLE_WINDOW_SECONDS = 600.0
+# docs:info-sampling-constants:end
+
+#: תקרה למספר שמות האירועים שהחלון זוכר. השמות בקוד קבועים, והתקרה היא רשת לשם
+#: שנבנה מנתונים. כשמגיעים אליה הזיכרון מתרוקן, ושם שנשכח מקבל את ההופעה הבאה שלו
+#: כשורה ראשונה — כלומר השכחה יכולה רק להוסיף שורה, לא להעלים אחת.
+_INFO_SAMPLE_MAX_TRACKED_EVENTS = 4096
+#: שם אירוע ← מתי (``time.monotonic``) נשמרה השורה האחרונה שלו, בזכות החלון או בהגרלה.
+#: שורה שנזרקה לא נרשמת כאן: מצב דיכוי שנכתב גם על מה שדוכא היה דוחה את השורה הבאה
+#: בלי סוף (הדפוס של ``first_ts`` ב-``LogEventAggregator``, PR #1193).
+_INFO_SAMPLE_LAST_KEPT: Dict[str, float] = {}
+#: הבדיקה מול החלון והרישום בו הם פעולה אחת: בלי הנעילה, חוטים שמגיעים יחד עם אותו
+#: שם היו רואים כולם "אין שורה" ושומרים כמה.
+_INFO_SAMPLE_LOCK = threading.Lock()
+
+
+def _remember_info_sample_kept_unlocked(ev: str, now: float) -> bool:
+    """רושם ש-``ev`` נשמר ב-``now``. מחזיר ``True`` כשהזיכרון התרוקן בדרך. נקרא תחת ``_INFO_SAMPLE_LOCK``."""
+    forgot = False
+    if ev not in _INFO_SAMPLE_LAST_KEPT and len(_INFO_SAMPLE_LAST_KEPT) >= _INFO_SAMPLE_MAX_TRACKED_EVENTS:
+        _INFO_SAMPLE_LAST_KEPT.clear()
+        forgot = True
+    _INFO_SAMPLE_LAST_KEPT[ev] = now
+    return forgot
+
+
+def _warn_info_sample_memory_cleared() -> None:
+    # ‏stdlib ולא structlog: שורת structlog מכאן הייתה עוברת שוב בשרשרת שקוראת לנו.
+    # נרשמים רק המספרים, בלי שמות האירועים.
+    LOGGER.warning(
+        "info log sampling forgot its tracked event names after reaching %d; "
+        "an info event name is probably built from data",
+        _INFO_SAMPLE_MAX_TRACKED_EVENTS,
+    )
+
+
+def _claim_info_sample_window(ev: str, now: float) -> bool:
+    """``True`` כשאף שורה של ``ev`` לא נשמרה ב-``INFO_SAMPLE_WINDOW_SECONDS`` שלפני ``now``.
+
+    במקרה הזה השורה נשמרת, ונרשמת כאן כשמורה.
+    """
+    with _INFO_SAMPLE_LOCK:
+        last = _INFO_SAMPLE_LAST_KEPT.get(ev)
+        if last is not None and (now - last) < INFO_SAMPLE_WINDOW_SECONDS:
+            return False
+        forgot = _remember_info_sample_kept_unlocked(ev, now)
+    if forgot:
+        _warn_info_sample_memory_cleared()
+    return True
+
+
+def _note_info_sample_kept(ev: str, now: float) -> None:
+    """חזרה שנשמרה בהגרלה מתחילה חלון חדש, כמו שורה שנשמרה בזכות החלון."""
+    with _INFO_SAMPLE_LOCK:
+        forgot = _remember_info_sample_kept_unlocked(ev, now)
+    if forgot:
+        _warn_info_sample_memory_cleared()
+
+
 def _maybe_sample_info(logger, method, event_dict: Dict[str, Any]):
     """Drop a fraction of info-level logs based on sampling.
 
-    - Controlled via env LOG_INFO_SAMPLE_RATE (float 0..1, default 1.0)
+    - Controlled via env LOG_INFO_SAMPLE_RATE (float 0..1, default 1.0; a value that is
+      not a number, including nan, counts as 1.0)
     - Always keep warn/error (sampling applies to info only)
-    - Always keep events in allowlist (comma-separated names in LOG_INFO_SAMPLE_ALLOWLIST)
-    - Sampling decision is stable per-request by hashing request_id when present
+    - Always keep INFO_SAMPLE_BUILTIN_ALLOWLIST, plus the comma-separated names in
+      LOG_INFO_SAMPLE_ALLOWLIST, which are added to it and do not replace it
+    - At 0.0 or below, every other info event is dropped; from 0.999 up, all are kept
+    - In between: an event with no kept line in the last INFO_SAMPLE_WINDOW_SECONDS is
+      kept without a draw. A repeat inside the window is sampled, stable per request by
+      hashing request_id when present and random otherwise.
     """
     try:
         level = (event_dict.get("level") or "").lower()
         if level != "info":
             return event_dict
 
-        # Allowlist of events that should never be sampled
-        raw_allow = (os.getenv("LOG_INFO_SAMPLE_ALLOWLIST") or "").strip()
-        allowlist = {x.strip() for x in raw_allow.split(",") if x.strip()} or {
-            # sensible defaults
-            "business_metric",
-            "performance",
-            "github_sync",
-            "access_logs",
-        }
         ev = str(event_dict.get("event") or "")
-        if ev in allowlist:
+        if ev in INFO_SAMPLE_BUILTIN_ALLOWLIST:
+            return event_dict
+        raw_allow = (os.getenv("LOG_INFO_SAMPLE_ALLOWLIST") or "").strip()
+        if ev in {x.strip() for x in raw_allow.split(",") if x.strip()}:
             return event_dict
 
         try:
             rate = float(os.getenv("LOG_INFO_SAMPLE_RATE", "1.0"))
         except Exception:
             rate = 1.0
+        # ‏NaN נכשל בכל השוואה, ולכן בלי הבדיקה הוא היה זורק כל אירוע info. כמו ערך
+        # שאינו מספר בכלל — ברירת המחדל, בלי דגימה. אינסוף עובר בהשוואות שלמטה כמו
+        # כל מספר: ‏``inf`` שומר הכול, ו-``-inf`` זורק כמו כל ערך שלילי.
+        if math.isnan(rate):
+            rate = 1.0
         if rate >= 0.999:  # keep all
             return event_dict
         if rate <= 0.0:
             raise structlog.DropEvent
+
+        now = time.monotonic()
+        if _claim_info_sample_window(ev, now):
+            return event_dict
 
         # Stable per-request sampling using request_id when present
         req_id = str(event_dict.get("request_id") or "")
@@ -488,6 +577,7 @@ def _maybe_sample_info(logger, method, event_dict: Dict[str, Any]):
         else:
             val = random.random()
         if val <= rate:
+            _note_info_sample_kept(ev, now)
             return event_dict
         raise structlog.DropEvent
     except structlog.DropEvent:
