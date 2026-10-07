@@ -32,7 +32,7 @@ Do:
 ## Run the webapp
 Option A (simple local):
 - `cd webapp`
-- `python app.py`
+- `python app.py` (the listen address comes from `WEBAPP_DEV_HOST`; see `docs/environment-variables.rst`)
 
 Option B (Render/production-friendly wrapper):
 - `./scripts/start_webapp.sh`

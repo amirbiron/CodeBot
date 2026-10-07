@@ -108,6 +108,7 @@ scripts/migrate_workspace_collections.py
 ---------------------------
 
 - מעטפת ל-Gunicorn עבור `webapp/` עם הפקת ``ASSET_VERSION`` אוטומטית והפעלת warmup best-effort ל-``/healthz``.
+- טוען את ``webapp.app:app`` מתוך ``webapp/``, עם ``--pythonpath`` לשורש הריפו. כך ``webapp/app.py`` נטען בשם האחד שכל הקוד מייבא ממנו, ותיקיית העבודה נשארת ``webapp/`` — ``BotConfig`` קורא ``.env`` יחסית אליה. יעד שטוען את הקובץ בשם אחר נעצר בעלייה; ראו ``WEBAPP_WSGI_APP`` ב-:doc:`/environment-variables`.
 - מכבד ``PORT`` (ברירת מחדל 5000), ``WEBAPP_WSGI_APP`` ופרמטרי warmup (``WEBAPP_ENABLE_WARMUP`` / ``WEBAPP_WARMUP_URL`` / ``WEBAPP_WARMUP_MAX_ATTEMPTS`` / ``WEBAPP_WARMUP_DELAY_SECONDS``).
 - ברירת המחדל היא worker יחיד עם ``gevent``; ניתן לשלוט ב-``WEB_CONCURRENCY``/``WEBAPP_GUNICORN_WORKERS``, ``WEBAPP_GUNICORN_WORKER_CLASS``, ``WEBAPP_GUNICORN_WORKER_CONNECTIONS`` (ל-``gevent``) ו-``WEBAPP_GUNICORN_THREADS`` (ל-``gthread``).
 - משמש להפעלה מקומית או ב-Render/Heroku כאשר אין Supervisor חיצוני.

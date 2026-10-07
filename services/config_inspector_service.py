@@ -1524,6 +1524,16 @@ class ConfigService:
             description="סביבת Flask (development/production). משפיע יחד עם FLASK_DEBUG על התנהגות הפיתוח",
             category="dev",
         ),
+        "WEBAPP_DEV_HOST": ConfigDefinition(
+            key="WEBAPP_DEV_HOST",
+            services=("webapp",),
+            default="",
+            description=(
+                "כתובת ההאזנה של שרת הפיתוח בהרצה ישירה של webapp/app.py (python app.py). ריק = 127.0.0.1; "
+                "0.0.0.0 פותח אותו לרשת, כולל הדיבאגר של Werkzeug כש-DEBUG=true. בגוניקורן אינו נקרא"
+            ),
+            category="dev",
+        ),
         "PUSH_LEGACY_SCAN_ENABLED": ConfigDefinition(
             key="PUSH_LEGACY_SCAN_ENABLED",
             services=("webapp",),
@@ -2063,8 +2073,11 @@ class ConfigService:
         ),
         "WEBAPP_WSGI_APP": ConfigDefinition(
             key="WEBAPP_WSGI_APP",
-            default="app:app",
-            description="מודול ה-WSGI של Flask עבור Gunicorn",
+            default="webapp.app:app",
+            description=(
+                "היעד ש-Gunicorn טוען ב-scripts/start_webapp.sh, מתוך webapp/ ועם --pythonpath לשורש הריפו. "
+                "חייב לטעון את webapp/app.py בשם webapp.app — app:app נעצר בעלייה בשגיאה"
+            ),
             category="warmup",
         ),
         "WEB_CONCURRENCY": ConfigDefinition(

@@ -6,7 +6,6 @@ UI לגלישה בקוד הריפו עם API מתקדם
 
 import logging
 import re
-import sys
 from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for, current_app, session
 from functools import lru_cache
 
@@ -31,25 +30,14 @@ def get_git_service():
         current_app.extensions['git_mirror_service'] = service
     return service
 
-def _resolve_admin_helpers():
-    """מאתר את ``is_admin``/``is_impersonating_safe`` בלי לטעון מודול פעמיים.
 
-    האפליקציה עשויה להיטען כחבילה (``webapp.app``) או כמודול שטוח (``app``),
-    תלוי בפקודת ההרצה. ייבוא ישיר של השם ה"לא נכון" מייצר מופע שני של
-    app.py — אתחול מלא נוסף עם ה-side effects שלו — ולכן קודם מחפשים את
-    המודול שכבר נטען ב-``sys.modules`` ורק אחר כך נופלים לייבוא.
+def _resolve_admin_helpers():
+    """מחזיר את ``is_admin``/``is_impersonating_safe`` מ-``webapp.app``.
+
+    ייבוא עצל: ``webapp.app`` רושם את ה-Blueprint הזה בזמן שהוא עצמו נטען. אין שם
+    שני לחפש — ``webapp/app.py`` נטען רק כ-``webapp.app`` (בלוק השם שבראש הקובץ).
     """
-    for name in ('webapp.app', 'app'):
-        mod = sys.modules.get(name)
-        # שני ה-helpers נדרשים: מודול שנמצא באמצע טעינה עלול להחזיק כבר את
-        # ‎is_admin‎ ועדיין לא את ‎is_impersonating_safe‎, ואז ניגש לאטריביוט
-        # חסר ונחסום גם אדמין. אם אחד חסר — ממשיכים לחפש/לייבא.
-        if mod is not None and hasattr(mod, 'is_admin') and hasattr(mod, 'is_impersonating_safe'):
-            return mod.is_admin, mod.is_impersonating_safe
-    try:
-        from webapp.app import is_admin, is_impersonating_safe
-    except ImportError:
-        from app import is_admin, is_impersonating_safe  # type: ignore
+    from webapp.app import is_admin, is_impersonating_safe
     return is_admin, is_impersonating_safe
 
 

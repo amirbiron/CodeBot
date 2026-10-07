@@ -85,7 +85,7 @@ db.delete_file(user_id, file_name)                 # מחיקה רכה (recycle 
 הסודות המשותפים בין הבוט לוובאפ: `BOT_TOKEN`, `SECRET_KEY`, `WEBAPP_LOGIN_SECRET`, `MONGODB_URL`.
 
 ### 2.4 פריסה
-- הוובאפ רץ תחת **gunicorn + gevent** (WSGI), מודול `app:app`, worker יחיד כברירת מחדל (רגיש לזיכרון ב‑Render). ראו `scripts/start_webapp.sh`.
+- הוובאפ רץ תחת **gunicorn + gevent** (WSGI), מודול `webapp.app:app`, worker יחיד כברירת מחדל (רגיש לזיכרון ב‑Render). ראו `scripts/start_webapp.sh`.
 - בתלויות כבר יש `uvicorn==0.38.0` ו‑`asgiref==3.8.1` (מתאים ל‑ASGI/Streamable‑HTTP).
 - הבוט הוא תהליך נפרד (`python main.py`); יש גם push‑worker (Node).
 

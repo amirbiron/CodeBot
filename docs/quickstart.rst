@@ -34,6 +34,8 @@
    # אופציונלי: הרצת ה‑WebApp בחלון נפרד
    cd webapp && python app.py
 
+כתובת ההאזנה של שרת הפיתוח נקבעת ב-``WEBAPP_DEV_HOST`` (ראו :doc:`environment-variables`).
+
 מה הלאה?
 ---------
 

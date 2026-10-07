@@ -106,8 +106,9 @@ cp .env.example .env
 3. **הפעל את האפליקציה:**
 ```bash
 python app.py
-# או עם gunicorn:
-gunicorn app:app --bind 0.0.0.0:5000
+# כתובת ההאזנה של שרת הפיתוח: WEBAPP_DEV_HOST (docs/environment-variables.rst)
+# או עם gunicorn, באותה טעינה כמו בפרודקשן (scripts/start_webapp.sh):
+gunicorn webapp.app:app --pythonpath .. --bind 127.0.0.1:5000
 ```
 
 4. **פתח בדפדפן:**
