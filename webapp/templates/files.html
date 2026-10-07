@@ -5,6 +5,12 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/multi-select.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/card-preview.css') }}?v={{ static_version }}">
+{% if user_is_admin %}
+{# כרטיסי החיפוש בתיעוד: אותה תצוגת Markdown כמו בדפדפן הריפו. האייקונים של Bootstrap משמשים
+   את כפתור ההעתקה שבבלוקי הקוד (live-preview.js), כמו ב-repo/base_repo.html. #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-preview.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -61,6 +67,13 @@
               <option value="regex">Regex</option>
               <option value="fuzzy">מטושטש</option>
               <option value="function">פונקציות</option>
+              {# אדמין אפקטיבי בלבד: ``user_is_admin`` שקר בזמן התחזות. הכתובות מגיעות מ-url_for,
+                 ו-global_search.js קורא אותן מכאן. #}
+              {% if user_is_admin %}
+              <option value="docs"
+                      data-search-url="{{ url_for('api_search_docs') }}"
+                      data-admin-url="{{ url_for('admin_docs_index_page') }}">תיעוד</option>
+              {% endif %}
             </select>
 
             <select id="resultsPerPage" class="form-control form-control-sm">
@@ -627,6 +640,18 @@
 <script src="{{ url_for('static', filename='js/multi-select.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/bulk-actions.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/card-preview.js') }}?v={{ static_version }}" defer></script>
+{% if user_is_admin %}
+{# הרינדור של כרטיסי התיעוד. ``admonition-icons.js`` לפני ``live-preview.js``, שקורא ממנו את
+   האייקונים בזמן הטעינה. ``markdown-deps.js`` טוען את הבאנדל רק בחיפוש הראשון בתיעוד, ממיקום
+   ועם ``?v=`` שנגזרים מהתגית שלו. #}
+<script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/live-preview.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/markdown-deps.js') }}?v={{ static_version }}" defer></script>
+{% endif %}
 <script>
     // ---- UI קטן לבחירת שפות לחיפוש ----
     (function languageFilterUI(){

@@ -113,7 +113,7 @@
 ## WebApp
 
 - `docs/webapp/overview.rst` — **המיני Web App (סקירה)**: מאוגוסט 2026 האייקונים אינם אמוג'ים אלא אייקונים מצוירים (SVG) בסגנון אחיד, שנשלפים מספרייט אחד. המבנה המלא, הגדלים, אופן ההוספה והמלכודות מתועדים בנפרד: language-icons.
-- `docs/webapp/code-browser.rst` — **דפדפן קוד (Code Browser)**: דפדפן הקוד מאפשר צפייה וניווט בריפוזיטורים מ-GitHub ישירות בממשק ה-WebApp.
+- `docs/webapp/code-browser.rst` — **דפדפן קוד (Code Browser)**: ייבוא של ריפו מ-GitHub לצפייה ולניווט בוובאפ, סנכרון אוטומטי שלו דרך webhook, ותצוגת ה-Markdown של קבצים: מאיפה נטענות הספריות שלה, והעיצוב המשותף עם כרטיסי החיפוש בתיעוד.
 - `docs/webapp/user-interfaces.rst` — **ממשקי משתמשים (Web)**: אוסף המסכים והתהליכים האינטראקטיביים ב-WebApp, איפה כל אחד נמצא, ומה הוא עושה.
 - `docs/webapp/snippet-library.rst` — **ספריית סניפטים (Web)**: גלריית קטעי קוד קצרים עם הדגשת תחביר, מאפייני ה-UI, והפעולות שאפשר לבצע עליה.
 - `docs/webapp/onboarding.md` — **🧭 WebApp Onboarding – Welcome Modal, Interactive Tour & Theme Wizard**: תהליך ה-Onboarding ב-WebApp: Welcome Modal, סיור אינטראקטיבי מבוסס Driver.js, ואשף בחירת ערכת הנושא — כולל מנגנוני האיפוס והנקודות למפתחים.
