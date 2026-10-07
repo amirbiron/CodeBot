@@ -19,7 +19,7 @@ import pytest
 from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 
 # ‏``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _docs_index_harness import SHA_A, make_world, site_pages
+from _docs_index_harness import SHA_A, admin_app_for, make_world, site_pages
 from _fake_mongo import FakeCollection, FakeDB
 
 from services import docs_index_service as svc
@@ -273,24 +273,9 @@ class _SearchNotEnabled(FakeCollection):
 
 @pytest.fixture
 def admin_app(monkeypatch):
-    import webapp.app as wa
-
     db = FakeDB()
     db.c[contract.CHUNKS_COLLECTION] = _SearchNotEnabled()
-    world = make_world(monkeypatch, db)
-    audits = []
-    monkeypatch.setattr(wa, "get_db", lambda: db)
-    monkeypatch.setattr(wa, "emit_event", lambda name, severity="info", **fields: audits.append((name, fields)))
-    monkeypatch.setenv("ADMIN_USER_IDS", "1")
-    monkeypatch.setitem(wa.app.config, "SECRET_KEY", "docs-index-tests")
-    client = wa.app.test_client()
-
-    def login(user_id):
-        with client.session_transaction() as sess:
-            sess["user_id"] = user_id
-            sess["user_data"] = {"id": user_id, "is_admin": user_id == 1, "is_premium": False}
-
-    return SimpleNamespace(wa=wa, db=db, world=world, client=client, login=login, audits=audits)
+    return admin_app_for(monkeypatch, db, make_world(monkeypatch, db))
 
 
 _API = [
@@ -299,6 +284,7 @@ _API = [
     ("POST", "/api/docs-index/start"),
     ("POST", "/api/docs-index/check"),
     ("POST", "/api/docs-index/stop"),
+    ("POST", "/api/search/docs"),
 ]
 
 
