@@ -13,6 +13,9 @@ on:
     paths:
       - '**.py'
       - 'docs/**'
+      # ייצוא הסעיפים קורא את הגרסה של playwright מ-requirements/base.txt
+      - 'requirements/*.txt'
+      - '.github/workflows/documentation.yml'
   schedule:
     - cron: '0 2 * * *'
   release:
@@ -83,6 +86,7 @@ jobs:
           docs-doctrees-
 
     - name: 🔨 Build docs (PR single-version)
+      id: sphinx_pr
       if: github.event_name == 'pull_request'
       run: |
         cd docs
@@ -93,11 +97,61 @@ jobs:
         MONGODB_URL: mongodb://localhost:27017/test
 
     - name: 🔨 Build docs (single-version for stability)
+      id: sphinx_main
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         cd docs
         DISABLE_DB=1 python -m sphinx -b html . _build/html --keep-going -j auto
-    
+
+    # ייצוא הסעיפים של האתר שנבנה ל-_export/sections.json, עם הממיר של כפתור ההעתקה
+    # (scripts/docs_export_sections.py). כשל כאן לא מפיל את בניית האתר: האתר נפרס בלי
+    # הקובץ, נכתבת אזהרה, וב-main נשלחת גם התראה לטלגרם.
+    - name: 🧭 Install Playwright for the sections export
+      id: export_setup
+      if: steps.sphinx_pr.outcome == 'success' || steps.sphinx_main.outcome == 'success'
+      continue-on-error: true
+      timeout-minutes: 10
+      run: |
+        # הגרסה נקראת מ-requirements/base.txt ולא מוקלדת כאן, כדי שלא יהיו שני עותקים שנסחפים.
+        if ! requirement="$(grep -x -E 'playwright==[0-9][0-9.]*' requirements/base.txt)" \
+            || [ "$(printf '%s\n' "${requirement}" | wc -l)" -ne 1 ]; then
+          echo "::error::requirements/base.txt must pin playwright on exactly one line of the form playwright==<version>"
+          exit 1
+        fi
+        python -m pip install "${requirement}"
+        python -m playwright install --with-deps --only-shell chromium
+
+    - name: 🧭 Export doc sections
+      id: export_sections
+      if: steps.export_setup.outcome == 'success'
+      continue-on-error: true
+      timeout-minutes: 10
+      env:
+        DOCS_SITE_URL: https://amirbiron.github.io/CodeBot/
+        SOURCE_COMMIT: ${{ github.sha }}
+      run: >-
+        python scripts/docs_export_sections.py "${SPHINX_BUILD_DIR}"
+        --site-url "${DOCS_SITE_URL}" --source-commit "${SOURCE_COMMIT}" --source-root docs
+
+    - name: ⚠️ Report a failed sections export
+      if: ${{ !cancelled() && (steps.sphinx_pr.outcome == 'success' || steps.sphinx_main.outcome == 'success') && steps.export_sections.outcome != 'success' }}
+      continue-on-error: true
+      run: |
+        echo "::warning title=Sections export::The sections export failed, so the site is deployed without _export/sections.json. See the export steps above."
+        echo "⚠️ ייצוא הסעיפים נכשל, והאתר ייפרס בלי \`_export/sections.json\`." >> "$GITHUB_STEP_SUMMARY"
+
+    - name: 📨 Alert Telegram about a failed sections export
+      if: ${{ !cancelled() && steps.sphinx_main.outcome == 'success' && steps.export_sections.outcome != 'success' }}
+      continue-on-error: true
+      uses: ./.github/actions/telegram-message
+      with:
+        bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+        text: |
+          ⚠️ ייצוא הסעיפים של אתר התיעוד נכשל, והאתר ייפרס בלי _export/sections.json.
+          ${{ github.repository }} @ ${{ github.sha }}
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
     - name: 📊 Generate documentation coverage report
       if: github.event_name == 'pull_request'
       continue-on-error: true

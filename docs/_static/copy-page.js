@@ -608,13 +608,28 @@
     return normalized ? `${normalized}\n` : '';
   };
 
+  /**
+   * ממיר אלמנט למארקדאון: עותק, ניקוי, Turndown עם הכללים שלמעלה, ונרמול.
+   * זו ההמרה של הכפתור, והיא נחשפת גם על window (ראו DocCopyPage למטה),
+   * כדי שהייצוא בבניית האתר (scripts/docs_export_sections.py) ימיר כל סעיף
+   * באותם כללים בדיוק ולא יחזיק עותק שני שלהם.
+   *
+   * בלי נפילה לטקסט: אם הממיר לא נטען, או שההמרה נכשלה, הפונקציה זורקת.
+   * הנפילה לטקסט שטוח שייכת לכפתור בלבד (extractArticleContent). ייצוא שהיה
+   * מקבל טקסט שטוח היה כותב לקובץ משהו שנראה כמו מארקדאון ואינו.
+   */
+  const elementToMarkdown = (node) => {
+    if (!markdownService) {
+      throw new Error('doc copy page: markdown converter unavailable');
+    }
+    const clone = cleanupArticleClone(node.cloneNode(true));
+    return normalizeMarkdown(markdownService.turndown(clone.innerHTML));
+  };
+
   const extractArticleContent = (articleNode) => {
-    const clone = cleanupArticleClone(articleNode.cloneNode(true));
     if (markdownService) {
       try {
-        const markdown = normalizeMarkdown(
-          markdownService.turndown(clone.innerHTML)
-        );
+        const markdown = elementToMarkdown(articleNode);
         if (markdown) {
           return markdown;
         }
@@ -622,6 +637,7 @@
         console.warn('doc copy page: markdown conversion failed, using text', error);
       }
     }
+    const clone = cleanupArticleClone(articleNode.cloneNode(true));
     const rawText = clone.innerText || clone.textContent || '';
     return normalizeText(rawText);
   };
@@ -681,6 +697,15 @@
     }
     attachHandler(article);
   };
+
+  // הממשק לייצוא הסעיפים בבניית האתר (scripts/docs_export_sections.py).
+  // נקבע כבר בטעינת הסקריפט, ולא ב-init, כדי שיהיה קיים לפני DOMContentLoaded.
+  if (typeof window !== 'undefined') {
+    window.DocCopyPage = {
+      articleSelector: ARTICLE_SELECTOR,
+      toMarkdown: elementToMarkdown,
+    };
+  }
 
   // init מבצע את הלכידה בעצמו בשני המסלולים (DOMContentLoaded או מיידי),
   // ולכן אין צורך בסריקת DOM נוספת כאן.
