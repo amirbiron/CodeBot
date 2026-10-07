@@ -94,9 +94,9 @@ MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2.0
 REQUEST_TIMEOUT = 30.0
 
-# Global throttling across all callers (prevents hammering Gemini's quota).
-# MIN_INTERVAL enforces a minimum spacing between requests.
-# On 429 we extend the global cooldown so *all* concurrent callers back off.
+# שער הקצב של קריאות ההטמעה: מרווח מינימלי בין בקשות, ואחרי 429 הוא נדחף קדימה כך שכל
+# הקוראים נסוגים יחד. **השער הוא של התהליך, ולא של המערכת:** הבוט (ה-worker של הסניפטים)
+# והוובאפ (מעבר התיעוד) הם שני תהליכים, וכל אחד מהם סופר לעצמו ולא יודע על השני.
 EMBEDDING_MIN_INTERVAL_SECONDS = float(
     os.getenv("EMBEDDING_MIN_INTERVAL_SECONDS", "1.2") or 1.2
 )
@@ -113,14 +113,23 @@ _throttle_lock = threading.Lock()
 _next_allowed_ts: float = 0.0
 
 
-def _reserve_throttle_slot() -> float:
-    """שומר את החריץ הבא בשער המשותף, ומחזיר כמה שניות לחכות לו (אפס = עכשיו)."""
+def _reserve_throttle_slot(max_wait: float = math.inf) -> Optional[float]:
+    """שומר את החריץ הבא בשער המשותף, ומחזיר כמה שניות לחכות לו (אפס = עכשיו).
+
+    עם ``max_wait`` השמירה מותנית: כשההמתנה לחריץ אינה קצרה ממנו, השער לא משתנה והתשובה היא
+    ``None``. קורא ששומר חריץ ורק אחר כך מוותר עליו — כי הדדליין שלו לא מכיל את ההמתנה — דוחה
+    את כל שאר הקוראים בתהליך במרווח שלם, בלי שנשלחה שום בקשה. לכן הבדיקה והשמירה קורות באותה
+    נעילה. בלי ``max_wait`` החריץ נשמר תמיד.
+    """
     global _next_allowed_ts
     with _throttle_lock:
         now = time.monotonic()
         slot = _next_allowed_ts if _next_allowed_ts > now else now
+        wait = slot - now
+        if wait >= max_wait:
+            return None
         _next_allowed_ts = slot + EMBEDDING_MIN_INTERVAL_SECONDS
-        return slot - now
+        return wait
 
 
 def _push_cooldown_after_429() -> None:
@@ -140,7 +149,7 @@ async def _acquire_throttle_slot() -> None:
     ``_extend_cooldown_after_429`` from updating the gate promptly.
     """
     wait = _reserve_throttle_slot()
-    if wait > 0:
+    if wait:
         await asyncio.sleep(wait)
 
 
@@ -908,8 +917,8 @@ class SyncEmbeddingClient:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None, 0, EMBEDDING_DETAIL_DEADLINE_EXCEEDED
-            wait = _reserve_throttle_slot()
-            if wait >= remaining:
+            wait = _reserve_throttle_slot(max_wait=remaining)
+            if wait is None:
                 return None, 0, EMBEDDING_DETAIL_DEADLINE_EXCEEDED
             if wait > 0:
                 time.sleep(wait)

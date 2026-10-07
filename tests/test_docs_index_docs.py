@@ -30,7 +30,7 @@ def _section(path: Path, label: str) -> str:
     "module,name",
     [
         ("services.docs_index_service", "run_pass"),
-        ("services.docs_index_service", "request_pass_after_sync"),
+        ("webapp.routes.webhooks", "handle_push_event"),
         ("services.docs_index_service", "is_links_only"),
         ("services.docs_index_service", "APPROVAL_THRESHOLD_CHUNKS"),
         ("services.docs_index_service", "PASS_DEADLINE_SECONDS"),

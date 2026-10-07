@@ -1,7 +1,7 @@
-"""מה שמפעיל את אינדקס התיעוד ומה שמציג אותו: ה-webhook של הפריסה, רשת הביטחון אחרי סנכרון,
+"""מה שמפעיל את אינדקס התיעוד ומה שמציג אותו: ה-webhook של הפריסה, רשת הביטחון ב-webhook של push,
 ההחרגה מהמגבלה הגורפת, וה-API והעמוד של האדמין.
 
-ה-webhook נבדק דרך הנתיב האמיתי, עם payload בצורה של ``deployment_status`` וחתימת HMAC תקפה. ה-API
+ה-webhooks נבדקים דרך הנתיב האמיתי, עם payload בצורה של ``deployment_status`` ושל ``push`` וחתימת HMAC תקפה. ה-API
 נבדק דרך ``webapp.app`` עצמו — עם ``admin_api_required`` האמיתי — מול ``_fake_mongo`` והאתר המדומה
 של ``_docs_index_harness``, כך ש"בדוק עכשיו" ו"אשר והתחל" מריצים מעבר שלם בתוך הבקשה.
 """
@@ -167,64 +167,95 @@ def test_the_github_webhook_is_exempt_from_the_global_rate_limit():
 
 
 # ---------------------------------------------------------------------------
-# רשת הביטחון אחרי סנכרון
+# רשת הביטחון: push לענף הראשי של ריפו המקור
 # ---------------------------------------------------------------------------
 
 
-class _Git:
-    def mirror_exists(self, repo_name):
-        return True
-
-    def fetch_updates(self, repo_name):
-        return {"success": True}
-
-    def get_changed_files(self, repo_name, old_sha, new_sha):
-        return {"added": [], "modified": [], "removed": [], "renamed": []}
-
-    def get_file_content(self, repo_name, file_path, ref="HEAD"):
-        return ""
+def _push(full_name=contract.SOURCE_REPO_FULL_NAME, ref="refs/heads/main", after="a" * 40):
+    """הצורה של ``push``: ``repository`` הוא אובייקט הריפו, ו-``full_name`` ו-``default_branch`` שדות חובה בו
+    (``payload-schemas/api.github.com/push/event.schema.json`` ו-``common/repository.schema.json`` ב-octokit/webhooks).
+    """
+    return {
+        "ref": ref,
+        "before": "b" * 40,
+        "after": after,
+        "repository": {"name": full_name.split("/")[-1], "full_name": full_name, "default_branch": "main"},
+    }
 
 
-class _Indexer:
-    def remove_files(self, repo_name, paths):
-        return 0
+@pytest.fixture
+def queued(monkeypatch):
+    """הסנכרון של המראה, בלי git: מה שה-webhook העביר ל-``trigger_sync``."""
+    from services import repo_sync_service
 
-    def remove_file(self, repo_name, path):
-        return None
-
-    def should_index(self, path):
-        return True
-
-    def index_file(self, repo_name, path, content, sha):
-        return True
+    calls = []
+    monkeypatch.setattr(repo_sync_service, "trigger_sync", lambda **kwargs: calls.append(kwargs) or "job-1")
+    return calls
 
 
-@pytest.mark.parametrize("repo_name", [contract.SOURCE_REPO_NAME, "SomeOtherRepo"])
-def test_a_sync_asks_for_a_docs_check_only_for_the_source_repo(monkeypatch, repo_name):
-    from services import repo_sync_service as rss
+def test_a_push_to_the_source_repo_queues_the_sync_and_asks_for_a_docs_check(hook, queued):
+    response = hook.deliver(_push(), event="push")
 
-    asked = []
-    monkeypatch.setattr(svc, "request_pass", lambda db, **kwargs: asked.append(kwargs) or svc.REQUEST_QUEUED)
+    assert response.status_code == 202
+    body = response.get_json()
+    assert (body["status"], body["docs_index"]) == ("queued", svc.REQUEST_STARTED)
+    assert [call["repo_name"] for call in queued] == [contract.SOURCE_REPO_NAME]
+    pending = svc.read_state(hook.db)["pending"]
+    assert (pending["trigger"], pending["commit"]) == (svc.TRIGGER_PUSH, None)
+    assert len(hook.started) == 1
+    assert hook.deliver(_push(), event="push").get_json()["docs_index"] == svc.REQUEST_QUEUED
 
-    out = rss._run_sync_logic(_Git(), _Indexer(), FakeDB(), repo_name, "n" * 40, "o" * 40)
 
-    assert out["status"] == "synced"
-    expected = [{"trigger": svc.TRIGGER_POST_SYNC}] if repo_name == contract.SOURCE_REPO_NAME else []
-    assert asked == expected
+@pytest.mark.parametrize(
+    "payload,status,synced",
+    [
+        # אותו שם ריפו, בעלים אחר: מסתנכרן כרגיל, אבל אינו המקור של האתר
+        (_push(full_name="someone/CodeBot"), 202, True),
+        (_push(ref="refs/heads/feature"), 200, False),
+        (_push(after="0" * 40), 200, False),  # מחיקה של הענף
+    ],
+)
+def test_a_push_that_is_not_a_new_commit_on_the_source_main_branch_asks_for_no_docs_check(
+    hook, queued, payload, status, synced
+):
+    response = hook.deliver(payload, event="push")
+
+    assert response.status_code == status
+    assert "docs_index" not in response.get_json()
+    assert bool(queued) is synced
+    assert svc.read_state(hook.db) is None and hook.started == []
 
 
-def test_a_failing_docs_check_does_not_change_the_sync_result(monkeypatch, caplog):
-    from services import repo_sync_service as rss
+def test_a_push_without_a_database_still_answers_with_the_queued_sync(hook, queued, monkeypatch):
+    monkeypatch.setattr(hook.db_manager, "get_db", lambda: None)
 
-    def unreachable(db, **kwargs):
-        raise ServerSelectionTimeoutError("no primary available")
+    response = hook.deliver(_push(), event="push")
 
-    monkeypatch.setattr(svc, "request_pass", unreachable)
+    assert response.status_code == 202
+    assert response.get_json()["docs_index"] == "database_unavailable"
+    assert len(queued) == 1
 
-    out = rss._run_sync_logic(_Git(), _Indexer(), FakeDB(), contract.SOURCE_REPO_NAME, "n" * 40, "o" * 40)
 
-    assert out["status"] == "synced"
-    assert "post-sync check could not be requested" in caplog.text
+def test_a_database_failure_while_asking_for_the_docs_check_does_not_fail_the_push(hook, queued, caplog):
+    hook.db.c[contract.STATE_COLLECTION] = _StateUnreachable()
+
+    response = hook.deliver(_push(), event="push")
+
+    assert response.status_code == 202
+    assert response.get_json()["docs_index"] == "database_unavailable"
+    assert len(queued) == 1 and hook.started == []
+    assert "the push safety net could not request a pass" in caplog.text
+
+
+def test_a_bug_in_the_docs_check_is_not_disguised_as_a_database_failure(hook, queued, monkeypatch):
+    def broken(db, **kwargs):
+        raise ValueError("unknown trigger 'push'")
+
+    monkeypatch.setattr(svc, "request_pass", broken)
+
+    response = hook.deliver(_push(), event="push")
+
+    assert response.status_code == 500
 
 
 # ---------------------------------------------------------------------------

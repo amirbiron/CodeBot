@@ -110,7 +110,7 @@ def test_one_of_many_concurrent_requests_takes_the_lease(world, monkeypatch):
 
     def ask():
         barrier.wait()
-        results.append(svc.request_pass(world.db, trigger=svc.TRIGGER_POST_SYNC))
+        results.append(svc.request_pass(world.db, trigger=svc.TRIGGER_PUSH))
 
     threads = [threading.Thread(target=ask) for _ in range(16)]
     for thread in threads:

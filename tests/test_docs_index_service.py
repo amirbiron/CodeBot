@@ -91,7 +91,7 @@ def test_a_section_that_fits_is_one_chunk_led_by_its_breadcrumb():
     types = sections[1]
     [chunk] = [c for c in chunks if c.section_id == types.id]
     assert chunk.text == "חיפוש גלובלי › סוגי החיפוש\n\n| סוג | מה |\n| --- | --- |\n| תוכן | טקסט |"
-    assert (chunk.part, chunk.parts) == (0, 1)
+    assert chunk.part == 0
     assert chunk.content_sha == hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()
     assert (types.page_path, types.source_path, types.page_title, types.anchor) == (
         "webapp/global-search.html", "docs/webapp/global-search.rst", "חיפוש גלובלי", "global-search-types",
@@ -107,7 +107,6 @@ def test_a_long_section_is_split_within_the_byte_budget_breadcrumb_included():
     assert all(c.text.startswith(prefix) for c in chunks)
     assert max(len(c.text.encode("utf-8")) for c in chunks) <= CHUNK_MAX_BYTES
     assert [c.part for c in chunks] == list(range(len(chunks)))
-    assert {c.parts for c in chunks} == {len(chunks)}
     covered = "\n".join(c.text[len(prefix):] for c in chunks)
     assert all(f"שורה {n}:" in covered for n in range(200))
 
@@ -254,11 +253,11 @@ def test_the_main_file_is_not_downloaded_again_when_it_did_not_change(world):
     fill(world)
     # ה-ETag הוא של הכתובת שממנה הגיע: אחרי מעבר לפי קומיט אין עדיין ETag של הקובץ הראשי.
     assert _state(world)["export_etag"] is None
-    first = run_request(world, svc.TRIGGER_POST_SYNC)
+    first = run_request(world, svc.TRIGGER_PUSH)
     assert first["status"] == svc.STATUS_UNCHANGED
     assert _state(world)["export_etag"]
 
-    second = run_request(world, svc.TRIGGER_POST_SYNC)
+    second = run_request(world, svc.TRIGGER_PUSH)
 
     assert (second["status"], second["detail"]) == (
         svc.STATUS_UNCHANGED, "the export did not change since the last pass"
@@ -409,6 +408,34 @@ def test_only_what_changed_is_embedded_and_what_was_removed_is_deleted(world):
     assert len(after) == 4 and len(set(before) & set(after)) == 3
     assert removed_title not in {s["title"] for s in _sections(world)}
     assert _state(world)["indexed_source_commit"] == SHA_B
+
+
+def _long_section_pages(lines: int):
+    body = "\n".join(f"שורה {n}: " + "מילה " * 30 for n in range(lines))
+    return [page("a.html", "docs/a.rst", section("a", "עמוד", "סעיף ארוך", markdown=body))]
+
+
+def _stored_chunks(world):
+    """מסמכי הנתחים בלי מה שמשתנה בכל כתיבה: הווקטור (המטמיע המדומה תלוי במקום באצווה) והחותמת."""
+    volatile = {contract.VECTOR_FIELD, "updated_at"}
+    return {c["_id"]: {k: v for k, v in c.items() if k not in volatile} for c in _chunks(world)}
+
+
+def test_a_section_that_grows_leaves_the_chunks_a_fresh_fill_would_store(world, monkeypatch):
+    """מעבר שמאריך סעיף לא כותב מחדש את הנתחים שלא השתנו, ולכן אסור שיישמר בהם שדה שתלוי בסעיף
+    כולו (כמו כמה חלקים יש לו). ההשוואה היא למה שמילוי מאפס של אותו קובץ כותב."""
+    fill(world, pages=_long_section_pages(40))
+    world.site.publish(SHA_B, _long_section_pages(60))
+
+    run = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+
+    assert run["status"] == svc.STATUS_COMPLETE, run
+    assert 0 < run["plan"]["chunks_to_embed"] < len(_chunks(world)), "some chunks must stay as they were"
+    incremental = _stored_chunks(world)
+
+    fresh = make_world(monkeypatch, FakeDB())
+    fill(fresh, pages=_long_section_pages(60), commit=SHA_B)
+    assert incremental == _stored_chunks(fresh)
 
 
 def test_an_anchor_change_updates_the_card_without_embedding(world):
@@ -568,6 +595,80 @@ def test_the_deadline_stops_the_pass_between_batches(world, monkeypatch):
     assert _state(world)["indexed_source_commit"] is None
 
 
+def _after_the_first_call(monkeypatch, collection, method, action):
+    """עוטף מתודה של אוסף בדמה: אחרי הקריאה הראשונה רץ ``action`` (עצירה, שעון). מחזיר את מספר הקריאות."""
+    original = getattr(collection, method)
+    calls = []
+
+    def wrapper(*args, **kwargs):
+        result = original(*args, **kwargs)
+        calls.append(method)
+        if len(calls) == 1:
+            action()
+        return result
+
+    monkeypatch.setattr(collection, method, wrapper)
+    return calls
+
+
+def _every_anchor_moved():
+    pages = site_pages()
+    for item in pages:
+        for entry in item["sections"]:
+            entry["anchor"] += "-moved"
+    return pages
+
+
+def test_a_stop_between_section_writes_stops_a_pass_with_nothing_to_embed(world, monkeypatch):
+    """עצירה היא גם בלם, ולא רק חיסכון בהטמעות: מעבר שכולו כתיבות למסד נעצר לפני האצווה הבאה."""
+    fill(world)
+    monkeypatch.setattr(svc, "DB_BATCH_SIZE", 1)
+    world.site.publish(SHA_B, _every_anchor_moved())
+    world.embed_calls.clear()
+    sections = world.db[contract.SECTIONS_COLLECTION]
+    calls = _after_the_first_call(monkeypatch, sections, "bulk_write", lambda: svc.request_stop(world.db))
+
+    run = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+
+    assert (run["status"], run["code"]) == (svc.STATUS_STOPPED, None)
+    assert (run["plan"]["chunks_to_embed"], run["plan"]["sections_to_upsert"]) == (0, 4)
+    assert len(calls) == 1 and world.embed_calls == []
+    assert sum(s["anchor"].endswith("-moved") for s in _sections(world)) == 1
+    assert _state(world)["indexed_source_commit"] is None
+
+
+def test_a_stop_between_deletions_stops_them_and_reports_what_was_deleted(world, monkeypatch):
+    fill(world)
+    monkeypatch.setattr(svc, "DB_BATCH_SIZE", 1)
+    world.site.publish(SHA_B, site_pages()[:1])
+    chunks = world.db[contract.CHUNKS_COLLECTION]
+    _after_the_first_call(monkeypatch, chunks, "delete_many", lambda: svc.request_stop(world.db))
+
+    run = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+
+    assert (run["status"], run["code"]) == (svc.STATUS_STOPPED, None)
+    assert (run["plan"]["chunks_to_delete"], run["plan"]["sections_to_delete"]) == (2, 2)
+    assert run["deleted"] == {"chunks": 1, "sections": 0}
+    assert (len(_chunks(world)), len(_sections(world))) == (3, 4)
+    assert _state(world)["indexed_source_commit"] is None
+
+
+def test_the_deadline_is_checked_between_database_batches_too(world, monkeypatch):
+    fill(world)
+    monkeypatch.setattr(svc, "DB_BATCH_SIZE", 1)
+    world.site.publish(SHA_B, _every_anchor_moved())
+    sections = world.db[contract.SECTIONS_COLLECTION]
+    _after_the_first_call(
+        monkeypatch, sections, "bulk_write",
+        lambda: world.clock.__setitem__(0, svc.PASS_DEADLINE_SECONDS + 1.0),
+    )
+
+    run = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+
+    assert (run["status"], run["code"]) == (svc.STATUS_FAILED, svc.CODE_DEADLINE_EXCEEDED)
+    assert sum(s["anchor"].endswith("-moved") for s in _sections(world)) == 1
+
+
 def test_a_pass_that_lost_its_lease_writes_nothing_more(world, monkeypatch):
     monkeypatch.setattr(svc, "GEMINI_MAX_BATCH_REQUESTS", 2)
     world.site.publish(SHA_A, site_pages())
@@ -693,7 +794,7 @@ def test_a_database_error_while_planning_is_named_and_deletes_nothing(world):
 def test_unreadable_settings_fail_the_pass_before_any_download(world):
     world.db.c["system_config"] = _Unreachable()
 
-    run = run_request(world, svc.TRIGGER_POST_SYNC)
+    run = run_request(world, svc.TRIGGER_PUSH)
 
     assert (run["status"], run["code"]) == (svc.STATUS_FAILED, svc.CODE_SETTINGS_UNAVAILABLE)
     assert world.site.requests == []
@@ -757,7 +858,7 @@ def test_a_request_while_a_pass_runs_waits_and_runs_after_it(world, monkeypatch)
     monkeypatch.setattr(svc, "_runner_factory", started.append)
     world.site.publish(SHA_A, site_pages())
 
-    assert svc.request_pass(world.db, trigger=svc.TRIGGER_POST_SYNC) == svc.REQUEST_STARTED
+    assert svc.request_pass(world.db, trigger=svc.TRIGGER_PUSH) == svc.REQUEST_STARTED
     assert svc.request_pass(world.db, trigger=svc.TRIGGER_DEPLOY, commit=SHA_A) == svc.REQUEST_QUEUED
     assert len(started) == 1
     started[0]()
@@ -780,7 +881,7 @@ def test_a_request_that_arrives_just_before_the_release_is_not_lost(world, monke
     monkeypatch.setattr(svc, "_release", release_with_a_request_racing_in)
     world.site.publish(SHA_A, site_pages())
 
-    run = run_request(world, svc.TRIGGER_POST_SYNC)
+    run = run_request(world, svc.TRIGGER_PUSH)
 
     assert run["trigger"] == svc.TRIGGER_DEPLOY
     assert _state(world)["pending"] is None
@@ -800,7 +901,7 @@ def test_one_of_many_concurrent_requests_takes_the_lease(world, monkeypatch):
 
     def ask():
         barrier.wait()
-        results.append(svc.request_pass(world.db, trigger=svc.TRIGGER_POST_SYNC))
+        results.append(svc.request_pass(world.db, trigger=svc.TRIGGER_PUSH))
 
     threads = [threading.Thread(target=ask) for _ in range(8)]
     for thread in threads:
@@ -821,9 +922,9 @@ def test_an_expired_lease_is_taken_over_and_a_live_one_is_not(world, monkeypatch
          "pending": None, "stop_requested": False}
     )
 
-    assert svc.request_pass(world.db, trigger=svc.TRIGGER_POST_SYNC) == svc.REQUEST_STARTED
+    assert svc.request_pass(world.db, trigger=svc.TRIGGER_PUSH) == svc.REQUEST_STARTED
     assert _state(world)["lease_holder"] not in (None, "dead-runner")
-    assert svc.request_pass(world.db, trigger=svc.TRIGGER_POST_SYNC) == svc.REQUEST_QUEUED
+    assert svc.request_pass(world.db, trigger=svc.TRIGGER_PUSH) == svc.REQUEST_QUEUED
     assert len(started) == 1
 
 
@@ -834,12 +935,12 @@ def test_a_runner_that_cannot_start_gives_the_lease_back_and_keeps_the_request(w
     monkeypatch.setattr(svc, "_runner_factory", cannot_start)
 
     with pytest.raises(RuntimeError):
-        svc.request_pass(world.db, trigger=svc.TRIGGER_POST_SYNC)
+        svc.request_pass(world.db, trigger=svc.TRIGGER_PUSH)
 
     state = _state(world)
     assert state["lease_holder"] is None
     assert state["lease_expires_at"] < datetime.now(timezone.utc)
-    assert state["pending"]["trigger"] == svc.TRIGGER_POST_SYNC
+    assert state["pending"]["trigger"] == svc.TRIGGER_PUSH
 
 
 def test_a_runner_whose_lease_was_taken_over_stops_without_running(world):

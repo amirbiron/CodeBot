@@ -32,7 +32,7 @@ from typing import Any, Dict, TypeGuard
 SITE_URL = "https://amirbiron.github.io/CodeBot/"
 
 #: הריפו שממנו האתר נבנה ונפרס. השם הוא גם ``repo_name`` של המראה שלו בוובאפ (``repo_metadata``),
-#: וכך רשת הביטחון אחרי סנכרון מזהה אותו.
+#: ולפיו עמוד האדמין מציג את ה-HEAD של המראה.
 SOURCE_REPO_OWNER = "amirbiron"
 SOURCE_REPO_NAME = "CodeBot"
 

@@ -104,10 +104,10 @@ STATE_ID = "docs"
 
 # הטריגרים — מי ביקש את המעבר.
 TRIGGER_DEPLOY = "deploy"              # webhook של פריסת האתר, עם הקומיט
-TRIGGER_POST_SYNC = "post_sync"        # רשת ביטחון אחרי סנכרון של המראה
+TRIGGER_PUSH = "push"                  # רשת ביטחון: webhook של push לענף הראשי של ריפו המקור
 TRIGGER_MANUAL_CHECK = "manual_check"  # הכפתור "בדוק עכשיו" — כמו מעבר אוטומטי
 TRIGGER_APPROVED = "approved"          # הכפתור "התחל" בעמוד האדמין, עם טביעת האצבע שאושרה
-TRIGGERS = frozenset({TRIGGER_DEPLOY, TRIGGER_POST_SYNC, TRIGGER_MANUAL_CHECK, TRIGGER_APPROVED})
+TRIGGERS = frozenset({TRIGGER_DEPLOY, TRIGGER_PUSH, TRIGGER_MANUAL_CHECK, TRIGGER_APPROVED})
 
 # הסטטוסים של מעבר.
 STATUS_RUNNING = "running"
@@ -209,12 +209,16 @@ class SectionRecord:
 
 @dataclass(frozen=True)
 class ChunkRecord:
-    """נתח שמוטמע: הטקסט, ה-sha שלו, ולאיזה סעיף הוא שייך."""
+    """נתח שמוטמע: הטקסט, ה-sha שלו, ולאיזה סעיף הוא שייך.
+
+    כל השדות שנשמרים במסמך הנתח נקבעים מה-``_id`` שלו או מהטקסט, ולכן נתח שלא נכתב מחדש לא יכול
+    להתיישן. מה שתלוי בסעיף כולו — למשל כמה חלקים יש לו — לא נשמר כאן: הוא משתנה כשהסעיף מתארך,
+    בלי שהנתחים הישנים שלו נכתבים, וסופרים אותו לפי ``section_id`` כשצריך.
+    """
 
     id: str
     section_id: str
     part: int
-    parts: int
     text: str
     content_sha: str
 
@@ -287,7 +291,6 @@ def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[C
                         id=_stable_id(section_id, part),
                         section_id=section_id,
                         part=part,
-                        parts=len(texts),
                         text=text,
                         content_sha=compute_content_hash(text),
                     )
@@ -912,6 +915,12 @@ def _run_steps(
         return _outcome(STATUS_AWAITING_APPROVAL, plan.approval_reason)
 
     if plan.has_changes:
+
+        def checkpoint() -> None:
+            # לפני כל אצווה שכותבת — הטמעה, כתיבת סעיפים או מחיקה. עצירה היא גם בלם: מעבר שמוחק
+            # מה שלא היה צריך להימחק נעצר באצווה הבאה, ולא רק מעבר שמוציא כסף על הטמעות.
+            _checkpoint(db, holder, ctx, deadline, run)
+
         embedder_scope = (
             ctx.embed_client_factory() if plan.chunks_to_embed else contextlib.nullcontext(None)
         )
@@ -924,14 +933,20 @@ def _run_steps(
                 db, holder,
                 {"indexed_source_commit": None, "applied_built_at": plan.built_at, "approval": None},
             )
-            _write_sections(db, plan.sections_to_upsert)
+            _write_sections(db, plan.sections_to_upsert, checkpoint)
             if embedder is not None:
                 run["progress"] = {"embedded": 0, "to_embed": len(plan.chunks_to_embed)}
-                _embed_all(db, holder, ctx, deadline, run, plan, settings, dimensions, embedder)
-        run["deleted"] = {
-            "chunks": _delete_ids(db, contract.CHUNKS_COLLECTION, plan.chunk_ids_to_delete),
-            "sections": _delete_ids(db, contract.SECTIONS_COLLECTION, plan.section_ids_to_delete),
-        }
+                _embed_all(db, checkpoint, deadline, run, plan, settings, dimensions, embedder)
+        # הספירה מתעדכנת אחרי כל אצווה, כך שמעבר שנעצר באמצע מדווח כמה כבר נמחק.
+        deleted = run["deleted"] = {"chunks": 0, "sections": 0}
+        for key, name, ids in (
+            ("chunks", contract.CHUNKS_COLLECTION, plan.chunk_ids_to_delete),
+            ("sections", contract.SECTIONS_COLLECTION, plan.section_ids_to_delete),
+        ):
+            for count in _delete_ids(db, name, ids, checkpoint):
+                deleted[key] += count
+        # הכתיבות הסתיימו: ההתקדמות האחרונה נרשמת, וה-lease מתחדש לקריאה החוזרת שאחריהן.
+        _heartbeat(db, holder, run)
 
     verified = _verify(db, plan)
     run["verified"] = verified
@@ -1013,9 +1028,10 @@ def _await_approval(db: Any, holder: str, plan: IndexPlan, reason: str, *, by_co
     )
 
 
-def _write_sections(db: Any, sections: Sequence[SectionRecord]) -> None:
+def _write_sections(db: Any, sections: Sequence[SectionRecord], checkpoint: Callable[[], None]) -> None:
     now = _now()
     for batch in _batches(sections, DB_BATCH_SIZE):
+        checkpoint()
         operations = [
             ReplaceOne({"_id": section.id}, dict(section.document(), updated_at=now), upsert=True)
             for section in batch
@@ -1026,8 +1042,7 @@ def _write_sections(db: Any, sections: Sequence[SectionRecord]) -> None:
 
 def _embed_all(
     db: Any,
-    holder: str,
-    ctx: PassContext,
+    checkpoint: Callable[[], None],
     deadline: float,
     run: Dict[str, Any],
     plan: IndexPlan,
@@ -1037,7 +1052,7 @@ def _embed_all(
 ) -> None:
     """מטמיע את :attr:`IndexPlan.chunks_to_embed` באצוות, וכותב כל אצווה מיד אחרי שהיא חוזרת."""
     for batch in _batches(plan.chunks_to_embed, GEMINI_MAX_BATCH_REQUESTS):
-        _checkpoint(db, holder, ctx, deadline, run)
+        checkpoint()
         vectors, status, detail = embedder.embed_batch(
             [chunk.text for chunk in batch],
             model=settings.model,
@@ -1055,7 +1070,6 @@ def _embed_all(
                     "_id": chunk.id,
                     "section_id": chunk.section_id,
                     "part": chunk.part,
-                    "parts": chunk.parts,
                     "text": chunk.text,
                     "content_sha": chunk.content_sha,
                     contract.VECTOR_FIELD: vector,
@@ -1076,9 +1090,6 @@ def _embed_all(
             "embedded": run["progress"]["embedded"] + len(batch),
             "to_embed": len(plan.chunks_to_embed),
         }
-    # ההטמעה הסתיימה: רק רישום ההתקדמות וחידוש ה-lease למחיקות ולאימות — עצירה או דדליין
-    # כאן היו זורקים עבודה שכבר נעשתה ומשלמת.
-    _heartbeat(db, holder, run)
 
 
 def _embedding_failure(status: int, detail: str) -> _PassAborted:
@@ -1108,14 +1119,13 @@ def _check_written(result: Any, expected: int, what: str) -> None:
         raise _PassAborted(STATUS_FAILED, CODE_WRITE_MISMATCH, f"{what}: wrote {touched} of {expected}")
 
 
-def _delete_ids(db: Any, name: str, ids: Sequence[str]) -> int:
-    """מוחק לפי ``_id``, וסופר כמחוק רק את מה שקריאה חוזרת לא מוצאת עוד (K11)."""
+def _delete_ids(db: Any, name: str, ids: Sequence[str], checkpoint: Callable[[], None]) -> Iterator[int]:
+    """מוחק לפי ``_id`` באצוות, ומחזיר אחרי כל אצווה כמה ממנה נמחק — רק מה שקריאה חוזרת לא מוצאת
+    עוד (K11)."""
     for batch in _batches(ids, DB_BATCH_SIZE):
+        checkpoint()
         db[name].delete_many({"_id": {"$in": list(batch)}})
-    remaining = 0
-    for batch in _batches(ids, DB_BATCH_SIZE):
-        remaining += _primary(db, name).count_documents({"_id": {"$in": list(batch)}})
-    return len(ids) - remaining
+        yield len(batch) - _primary(db, name).count_documents({"_id": {"$in": list(batch)}})
 
 
 def _verify(db: Any, plan: IndexPlan) -> Dict[str, Any]:
@@ -1225,18 +1235,6 @@ def plan_for_admin(db: Any, *, context: Optional[PassContext] = None) -> Dict[st
     with ctx.http_client_factory() as http:
         fetched = fetch_export(http)
     return compute_plan(db, _document_of(fetched), model_key=model_key).summary()
-
-
-def request_pass_after_sync(db: Any, repo_name: str) -> Optional[str]:
-    """רשת הביטחון: אחרי סנכרון של המראה של ריפו המקור, מעבר שבודק את הקובץ הראשי.
-
-    בדרך כלל הוא נגמר ב-304, כי ה-webhook של הפריסה כבר עשה את העבודה. הוא תופס פריסה שה-webhook
-    שלה לא הגיע — אבל רק בסנכרון הבא: בזמן הסנכרון של push, הבנייה של אותו push עוד לא נפרסה.
-    מחזיר את מה ש-:func:`request_pass` מחזיר, או ``None`` לריפו אחר.
-    """
-    if repo_name != contract.SOURCE_REPO_NAME:
-        return None
-    return request_pass(db, trigger=TRIGGER_POST_SYNC)
 
 
 # ---------------------------------------------------------------------------

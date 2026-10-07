@@ -263,6 +263,58 @@ def test_waiting_for_the_gate_past_the_deadline_sends_nothing(monkeypatch):
     assert time.monotonic() - started < 1, "the client slept before refusing"
 
 
+def test_a_refused_wait_leaves_the_gate_where_it_was(monkeypatch):
+    """קורא שהדדליין שלו לא מכיל את ההמתנה לא שומר חריץ: אחרת כל שאר הקוראים בתהליך היו נדחים
+    במרווח שלם, בלי שנשלחה שום בקשה."""
+    monkeypatch.setattr(svc, "EMBEDDING_MIN_INTERVAL_SECONDS", 5.0)
+    busy_until = time.monotonic() + 120
+    monkeypatch.setattr(svc, "_next_allowed_ts", busy_until)
+    client, seen = _client([(200, _embeddings(1))])
+
+    assert _embed(client, ["x"], deadline=time.monotonic() + 1) == (None, 0, "deadline_exceeded")
+    assert seen == []
+    assert svc._next_allowed_ts == busy_until
+
+
+def test_callers_that_cannot_wait_do_not_push_the_gate_even_together(monkeypatch):
+    """אותו דבר כשכמה threads מסרבים בבת אחת — הבדיקה והשמירה באותה נעילה."""
+    monkeypatch.setattr(svc, "EMBEDDING_MIN_INTERVAL_SECONDS", 5.0)
+    busy_until = time.monotonic() + 120
+    monkeypatch.setattr(svc, "_next_allowed_ts", busy_until)
+    callers = 8
+    barrier = threading.Barrier(callers)
+    results: list = []
+    guard = threading.Lock()
+
+    def call():
+        client, _seen = _client([(200, _embeddings(1))])
+        barrier.wait()
+        result = _embed(client, ["x"], deadline=time.monotonic() + 1)
+        with guard:
+            results.append(result)
+
+    threads = [threading.Thread(target=call) for _ in range(callers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert results == [(None, 0, "deadline_exceeded")] * callers
+    assert svc._next_allowed_ts == busy_until
+
+
+def test_a_caller_that_can_wait_still_takes_exactly_one_slot(monkeypatch):
+    monkeypatch.setattr(svc, "EMBEDDING_MIN_INTERVAL_SECONDS", 5.0)
+    slot = time.monotonic() + 0.05
+    monkeypatch.setattr(svc, "_next_allowed_ts", slot)
+    client, seen = _client([(200, _embeddings(1))])
+
+    vectors, status, _detail = _embed(client, ["x"], deadline=time.monotonic() + 5)
+
+    assert status == 200 and vectors is not None and len(seen) == 1
+    assert svc._next_allowed_ts == slot + 5.0
+
+
 def test_each_request_gets_only_the_time_left_until_the_deadline():
     captured = {}
 
