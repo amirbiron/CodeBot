@@ -100,7 +100,6 @@ exclude_patterns = [
     'api/get-pip.rst',  # exclude from toctree; module is not needed in RTD
     '_templates/**',  # exclude RST templates not in toctree
     # הימנעות מכפילויות ותוכן שלא בתוכן העניינים כאשר MyST פעיל
-    'logging_schema.rst',  # יש גם logging_schema.md שמוכלל
     'AGENTS_FAQ.md', 'AGENTS_FAQ.md.rst',
     'DEPENDENCY_LOCKING.md', 'DEPENDENCY_LOCKING.md.rst',
     'DOCUMENTATION_GUIDE.md', 'DOCUMENTATION_GUIDE.md.rst',
