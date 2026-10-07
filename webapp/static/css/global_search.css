@@ -300,6 +300,71 @@
   box-shadow:0 0 6px var(--search-highlight-glow);
 }
 
+/* כרטיס תוצאה מהחיפוש בתיעוד: אותו כרטיס, מימין לשמאל, ובמקום קטע הקוד — הסעיף עצמו, בתצוגת
+   ה-Markdown של דפדפן הריפו (markdown-preview.css), על אותו משטח (.markdown-preview-container). */
+.search-result-card--docs{
+  direction:rtl;
+}
+
+.search-result-card--docs .result-card-footer{
+  direction:rtl;
+  text-align:right;
+}
+
+.docs-result-heading{
+  display:flex;
+  flex-direction:column;
+  gap:0.25rem;
+  min-width:0;
+  flex:1;
+}
+
+.docs-result-trail{
+  color: var(--search-meta-text);
+  font-size:0.9rem;
+  overflow-wrap:anywhere;
+}
+
+.docs-result-title{
+  color: var(--text-primary);
+  font-weight:600;
+  font-size:1.15rem;
+  overflow-wrap:anywhere;
+}
+
+.docs-result-score{
+  color: var(--search-meta-text);
+}
+
+/* בדפדפן הריפו המשטח מקבל מרווח מהפאנלים שסביבו. בכרטיס הוא מתיישר עם הראש ועם התחתית. */
+.search-result-card--docs .docs-result-surface{
+  margin:0 0 1.15rem;
+}
+
+/* מקופל: גובה קבוע, והתוכן דוהה בתחתית. mask משנה רק שקיפות, ולכן אינו תלוי בצבע המשטח —
+   וזה מה שגרדיאנט בצבע הרקע לא יכול להבטיח, כי בחלק מהערכות המשטח עצמו שקוף למחצה. */
+.docs-result-clip.is-collapsed{
+  max-height:22rem;
+  overflow:hidden;
+  -webkit-mask-image:linear-gradient(to bottom, black 75%, transparent);
+  mask-image:linear-gradient(to bottom, black 75%, transparent);
+}
+
+.docs-result-actions{
+  gap:0.6rem;
+}
+
+.docs-result-render-note{
+  color: var(--search-meta-text);
+  font-size:0.9rem;
+}
+
+.docs-result-source{
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  font-family:'Fira Code',Consolas,Monaco,'Courier New',monospace;
+}
+
 /* מיכל ראשי לחיפוש ופילטרים */
 .search-and-filters{
   width:100%;

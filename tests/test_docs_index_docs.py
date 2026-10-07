@@ -1,4 +1,4 @@
-"""התיעוד של אינדקס התיעוד מול הקוד: שמות שהוא נוקב בהם קיימים, והאירועים שהוא מונה הם אלה שנשלחים.
+"""התיעוד של אינדקס התיעוד ושל החיפוש בו מול הקוד: שמות שהוא נוקב בהם קיימים, והאירועים שהוא מונה הם אלה שנשלחים.
 
 העמודים נוקבים בשמות של קבועים ופונקציות במקום להעתיק את הערכים שלהם (``prose-restates-code-fact``
 ב-amir-bug-patterns). שם שהשתנה בקוד היה משאיר את הפרוזה מפנה למשהו שלא קיים, והטסטים כאן הם מה
@@ -14,6 +14,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 GLOBAL_SEARCH = ROOT / "docs" / "webapp" / "global-search.rst"
+CODE_BROWSER = ROOT / "docs" / "webapp" / "code-browser.rst"
 EVENTS_CATALOG = ROOT / "docs" / "observability" / "events_catalog.rst"
 EMITTERS = (ROOT / "services" / "docs_index_service.py", ROOT / "webapp" / "app.py")
 
@@ -40,6 +41,15 @@ def _section(path: Path, label: str) -> str:
         ("services.chunking_service", "split_code_to_chunks"),
         ("webapp.routes.webhooks", "handle_deployment_status_event"),
         ("webapp.app", "admin_api_required"),
+        ("webapp.app", "api_search_docs"),
+        ("webapp.app", "_is_rate_limit_exempt_user"),
+        ("services.docs_search_service", "search_docs"),
+        ("services.docs_search_service", "QUERY_EMBED_DEADLINE_SECONDS"),
+        ("services.docs_search_service", "SEARCH_DB_TIMEOUT_SECONDS"),
+        ("services.docs_search_service", "QUERY_MAX_BYTES"),
+        ("services.docs_search_service", "DEFAULT_LIMIT"),
+        ("services.docs_search_service", "CHUNKS_PER_RESULT"),
+        ("services.docs_search_service", "MAX_NUM_CANDIDATES"),
     ],
 )
 def test_a_name_the_docs_cite_exists_in_the_code(module, name):
@@ -56,6 +66,33 @@ def test_the_values_the_docs_spell_out_are_the_codes_in_the_code():
     section = _section(GLOBAL_SEARCH, "docs-index")
     assert f"``{svc.CODE_OLDER_EXPORT}``" in section
     assert f"``{svc.STATUS_PAUSED_QUOTA}``" in section
+
+
+@pytest.mark.parametrize(
+    "script,name",
+    [
+        ("webapp/static/js/markdown-deps.js", "BUNDLE_DEADLINE_MS"),
+        ("webapp/static/js/live-preview.js", "MarkdownLiveRenderer"),
+        ("webapp/static/js/global_search.js", "DOCS_SEARCH_DEADLINE_MS"),
+    ],
+)
+def test_a_script_name_the_docs_cite_exists_in_the_script(script, name):
+    assert re.search(rf"\b(?:const|let|var|function)\s+{name}\b", (ROOT / script).read_text(encoding="utf-8")), (
+        f"{name} אינו מוגדר עוד ב-{script}"
+    )
+    pages = GLOBAL_SEARCH.read_text(encoding="utf-8") + CODE_BROWSER.read_text(encoding="utf-8")
+    assert f"``{name}``" in pages, f"{name} אינו מוזכר עוד בתיעוד — הסירו אותו מהרשימה"
+
+
+def test_the_codes_the_search_section_spells_out_are_the_ones_the_api_returns():
+    from services import docs_search_service as docs_search
+
+    section = _section(GLOBAL_SEARCH, "global-search-docs")
+    # תו של שני בתים: כמה תווים כמו התקרה הם פי שניים ממנה בבתים.
+    with pytest.raises(docs_search.DocsSearchError) as too_long:
+        docs_search.validated_query("א" * docs_search.QUERY_MAX_BYTES)
+    assert f"``{too_long.value.code}``" in section
+    assert f"``{docs_search._unavailable('not_indexed').code}``" in section
 
 
 def test_the_catalog_lists_exactly_the_events_that_are_emitted():

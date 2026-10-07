@@ -205,6 +205,28 @@ def make_world(monkeypatch, db: Any) -> SimpleNamespace:
     return world
 
 
+def admin_app_for(monkeypatch, db: Any, world: SimpleNamespace) -> SimpleNamespace:
+    """הוובאפ האמיתי מול ``db``: לקוח בדיקה, ``login(user_id)`` (1 הוא האדמין) והאירועים שנשלחו.
+
+    ``webapp.app`` מיובא כאן ולא בראש הקובץ, כדי שטסטים של השירות לבד לא יטענו את הוובאפ.
+    """
+    import webapp.app as wa
+
+    audits: List[Any] = []
+    monkeypatch.setattr(wa, "get_db", lambda: db)
+    monkeypatch.setattr(wa, "emit_event", lambda name, severity="info", **fields: audits.append((name, fields)))
+    monkeypatch.setenv("ADMIN_USER_IDS", "1")
+    monkeypatch.setitem(wa.app.config, "SECRET_KEY", "docs-index-tests")
+    client = wa.app.test_client()
+
+    def login(user_id: int) -> None:
+        with client.session_transaction() as sess:
+            sess["user_id"] = user_id
+            sess["user_data"] = {"id": user_id, "is_admin": user_id == 1, "is_premium": False}
+
+    return SimpleNamespace(wa=wa, db=db, world=world, client=client, login=login, audits=audits)
+
+
 def run_request(world: SimpleNamespace, trigger: str = svc.TRIGGER_MANUAL_CHECK, **kwargs: Any) -> Dict[str, Any]:
     """מבקש מעבר, מריץ אותו עד הסוף, ומחזיר את ה-``run`` שנרשם. ה-lease חייב להשתחרר בסוף."""
     assert svc.request_pass(world.db, trigger=trigger, **kwargs) == svc.REQUEST_STARTED

@@ -502,6 +502,21 @@ def read_state(db: Any) -> Optional[Dict[str, Any]]:
     return _primary(db, contract.STATE_COLLECTION).find_one({"_id": STATE_ID})
 
 
+def is_index_complete(state: Dict[str, Any], model_key: str) -> bool:
+    """האם האינדקס נכון לקובץ האחרון שנקרא, במודל ``model_key``.
+
+    שלושה תנאים: קריאה חוזרת אימתה את הכתיבות של המעבר האחרון (``indexed_source_commit`` נקבע רק
+    אחריה), הקומיט שאומת הוא של הקובץ האחרון שנקרא, והמפתח של המודל הוא זה שהתבקש. המעבר שואל
+    לפני שהוא קורא את הקובץ, והחיפוש שואל כדי לומר אם התוצאות מהמצב העדכני.
+    """
+    indexed = state.get("indexed_source_commit")
+    return (
+        indexed is not None
+        and indexed == state.get("export_commit")
+        and state.get("indexed_model_key") == model_key
+    )
+
+
 def _put_pending(db: Any, request: Dict[str, Any]) -> None:
     """שומר את הבקשה ב-``pending`` (האחרונה גוברת), ויוצר את מסמך המצב אם הוא חסר."""
     now = _now()
@@ -845,11 +860,7 @@ def _run_steps(
         api_version=settings.api_version, model=settings.model, dimensions=dimensions
     )
     state = read_state(db) or {}
-    complete = (
-        state.get("indexed_source_commit") is not None
-        and state.get("indexed_source_commit") == state.get("export_commit")
-        and state.get("indexed_model_key") == model_key
-    )
+    complete = is_index_complete(state, model_key)
 
     # מאיפה הקובץ:
     # * פריסה — הקובץ של הקומיט שלה (מטמון האתר מתעלם מ-query, ראו ``export_path_for_commit``).

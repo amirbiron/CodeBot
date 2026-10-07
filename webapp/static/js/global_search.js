@@ -6,12 +6,25 @@
   // הם בשלוש שפות ואי אפשר לחלוק ביניהם קבוע, ולכן ההערה הזו היא הקישור.
   const DEFAULT_RESULTS_PER_PAGE = '10';
 
+  // החיפוש בתיעוד (``POST /api/search/docs``, אדמין בלבד). השרת מגביל כל שלב משלו: שני החלקים
+  // מול המסד (``SEARCH_DB_TIMEOUT_SECONDS`` כל אחד) והטמעת השאלה (``QUERY_EMBED_DEADLINE_SECONDS``),
+  // ב-``services/docs_search_service.py``. הדדליין כאן ארוך מסכומם, כדי שיעצור רק בקשה שנתקעה
+  // בדרך ולא חיפוש שהשרת עוד עונה עליו. ``tests/test_docs_search_files_page.py`` משווה ביניהם.
+  const DOCS_SEARCH_DEADLINE_MS = 30000;
+
   let currentSearchQuery = '';
   let currentSearchPage = 1;
   let suggestionsTimeout = null;
   let shortcutCatalog = null;
   let shortcutCatalogPromise = null;
   let lastShortcutQuery = '';
+  // מונה החיפושים: רק החיפוש האחרון מציג תוצאות ומחזיר את הכפתור למצבו. חיפוש בתיעוד נמשך
+  // כמה שניות, ו-Enter, הצעה או מעבר עמוד מתחילים חיפוש חדש גם כשהכפתור מושבת. בלי המונה,
+  // התשובה שמגיעה אחרונה הייתה נכתבת, גם כשהיא של החיפוש הישן.
+  let searchSeq = 0;
+  let searchButtonHtml = null;
+  // הסעיפים של החיפוש האחרון בתיעוד. "העתק כמארקדאון" מפנה לכאן לפי מספר הכרטיס.
+  let docsResults = [];
   const META_ICONS = {
     score: '<svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>',
     size: '<svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
@@ -93,8 +106,29 @@
       if (!copyBtn) return;
       e.preventDefault();
       const text = copyBtn.getAttribute('data-command-copy') || '';
-      copyCommandShortcut(text, copyBtn);
+      copyToClipboard(text, copyBtn, 'לא הצלחתי להעתיק את הפקודה ללוח');
     });
+    document.addEventListener('click', function(e){
+      const copyBtn = e.target.closest('button[data-docs-copy]');
+      if (!copyBtn) return;
+      e.preventDefault();
+      const result = docsResults[Number(copyBtn.getAttribute('data-docs-copy'))];
+      if (result) copyToClipboard(result.markdown, copyBtn, 'לא הצלחתי להעתיק את הסעיף ללוח');
+    });
+    document.addEventListener('click', function(e){
+      const expandBtn = e.target.closest('button[data-docs-expand]');
+      if (!expandBtn) return;
+      e.preventDefault();
+      const card = expandBtn.closest('.search-result-card--docs');
+      const clip = card ? card.querySelector('[data-docs-clip]') : null;
+      if (!clip) return;
+      const collapsed = clip.classList.toggle('is-collapsed');
+      expandBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      expandBtn.querySelector('.btn-text').textContent = collapsed ? ' הצג את כל הסעיף' : ' כווץ את הסעיף';
+    });
+    const typeSelect = $('searchType');
+    if (typeSelect) typeSelect.addEventListener('change', syncFiltersWithSearchType);
+    syncFiltersWithSearchType();
     // Initialize clear button visibility + behavior
     try { if (clearBtn) clearBtn.style.display = (input.value && input.value.trim().length) ? 'inline-flex' : 'none'; } catch(_) {}
     if (clearBtn) {
@@ -129,6 +163,8 @@
       try { const el = document.getElementById('searchType'); if (el) el.value = 'content'; } catch(_){}
       try { const el = document.getElementById('resultsPerPage'); if (el) el.value = DEFAULT_RESULTS_PER_PAGE; } catch(_){}
       try { const el = document.getElementById('sortOrder'); if (el) el.value = 'relevance'; } catch(_){}
+      // שינוי ``value`` בקוד אינו שולח ``change``, ולכן הסינון מוחזר כאן במפורש.
+      syncFiltersWithSearchType();
 
       // נקה פילטרי שפה (UI חדש עם צ'קבוקסים + badge)
       try {
@@ -155,6 +191,10 @@
       // עדכן מצב פנימי
       currentSearchQuery = '';
       currentSearchPage = 1;
+      docsResults = [];
+      // חיפוש שעוד באוויר לא יכתוב תוצאות אחרי הניקוי. הוא גם לא יחזיר את הכפתור, ולכן כאן.
+      searchSeq += 1;
+      resetSearchButton();
     } catch (e) {
       // לא להשתיק, אבל לא להפיל את הדף
       try { console.warn('clearSearch failed', e); } catch(_) {}
@@ -189,8 +229,17 @@
     currentSearchQuery = q;
     currentSearchPage = page;
 
-    const original = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מחפש...';
+    const seq = ++searchSeq;
+    // הכפתור נשמר כשהוא במנוחה. חיפוש שמתחיל בזמן שאחר באוויר היה שומר את "מחפש..." ומחזיר אותו.
+    if (searchButtonHtml === null) searchButtonHtml = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מחפש...';
     try{
+      // ענף משלו, בלי נפילה לחיפוש בקבצים: ``/api/search/global`` הופך סוג שאינו מכיר ל"תוכן",
+      // ותוצאות של קבצים היו מוצגות כאילו הן תשובה על התיעוד.
+      if (($('searchType')?.value || 'content') === 'docs') {
+        await performDocsSearch(q, seq);
+        return;
+      }
       const payload = {
         query: q,
         search_type: ($('searchType')?.value || 'content'),
@@ -208,6 +257,7 @@
         const language = (languages && languages.length) ? languages[0] : null;
         try {
           const semanticData = await performSemanticSearch(q, { limit: totalLimit, language });
+          if (seq !== searchSeq) return;
           const semanticResults = Array.isArray(semanticData.results) ? semanticData.results : [];
           const startIdx = (page - 1) * perPage;
           const endIdx = startIdx + perPage;
@@ -232,6 +282,7 @@
           });
           return;
         } catch (err) {
+          if (seq !== searchSeq) return;
           console.error('Semantic search error:', err);
           // fallback to standard search
         }
@@ -243,6 +294,7 @@
         credentials: 'same-origin',
         body: JSON.stringify(payload)
       });
+      if (seq !== searchSeq) return;
 
       if (res.status === 401 || res.redirected) {
         window.location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search + location.hash);
@@ -260,19 +312,282 @@
       }
 
       const data = await res.json();
+      if (seq !== searchSeq) return;
       if (res.ok && data && data.success){
         displayResults(data);
       } else {
         alert(data.error || 'אירעה שגיאה בחיפוש');
       }
     } catch (e){
+      if (seq !== searchSeq) return;
       console.error('search error', e);
       alert('אירעה שגיאה בחיפוש');
     } finally {
-      btn.disabled = false; btn.innerHTML = original; hideSuggestions();
+      if (seq === searchSeq) { resetSearchButton(); hideSuggestions(); }
     }
   }
   window.performGlobalSearch = performGlobalSearch;
+
+  function resetSearchButton(){
+    const btn = $('searchBtn');
+    if (!btn || searchButtonHtml === null) return;
+    btn.disabled = false;
+    btn.innerHTML = searchButtonHtml;
+  }
+
+  // החיפוש בתיעוד מחזיר את הסעיפים המובילים: בלי עמודים, בלי מיון ובלי סינון לפי שפה. הפקדים
+  // האלה מושבתים כשהוא נבחר, כדי שבחירה בהם לא תיראה כאילו השפיעה.
+  function syncFiltersWithSearchType(){
+    const isDocs = ($('searchType')?.value === 'docs');
+    ['resultsPerPage', 'sortOrder', 'languageFilterBtn'].forEach(function(id){
+      const el = $(id);
+      if (el) el.disabled = isDocs;
+    });
+  }
+
+  // ── חיפוש בתיעוד ─────────────────────────────────────────────────────────
+
+  // הסיבות של ``index_unavailable`` (``services/docs_search_service.py``). לכל אחת מהן יש מה לעשות
+  // בעמוד הניהול של האינדקס, ולכן ההודעה מקשרת אליו.
+  const DOCS_INDEX_PROBLEMS = {
+    not_indexed: 'האינדקס של התיעוד עוד לא נבנה.',
+    vector_search_unavailable: 'המסד לא תומך בחיפוש וקטורי.',
+    vector_index_missing: 'האינדקס הווקטורי של התיעוד לא קיים ב-Atlas.',
+    vector_index_error: 'האינדקס הווקטורי של התיעוד במצב שגיאה ב-Atlas.',
+    vector_index_not_queryable: 'האינדקס הווקטורי של התיעוד עוד לא מוכן לחיפוש.',
+    vector_index_dimensions_mismatch: 'המימד של האינדקס הווקטורי שונה מהמימד שהתיעוד הוטמע בו.'
+  };
+
+  const DOCS_SEARCH_PROBLEMS = {
+    embedding_unavailable: 'אין מפתח ל-Gemini, ולכן אי אפשר להטמיע את השאלה.',
+    embedding_timeout: 'הטמעת השאלה לקחה יותר מדי זמן. נסו שוב.',
+    embedding_quota: 'Gemini הגביל את קצב הבקשות. נסו שוב בעוד רגע.',
+    embedding_failed: 'הטמעת השאלה נכשלה.',
+    search_timeout: 'החיפוש במסד לקח יותר מדי זמן. נסו שוב.',
+    search_failed: 'החיפוש הווקטורי נכשל.',
+    database_unavailable: 'המסד לא זמין כרגע.',
+    empty_query: 'נא להזין שאלה.',
+    query_too_long: 'השאלה ארוכה מדי.',
+    admin_only: 'החיפוש בתיעוד זמין לאדמינים בלבד.',
+    impersonation_active: 'החיפוש בתיעוד לא זמין בזמן התחזות.',
+    timeout: 'החיפוש לא הסתיים בזמן. נסו שוב.',
+    network: 'לא הצלחתי להגיע לשרת.'
+  };
+
+  function docsOption(){
+    const select = $('searchType');
+    return select ? select.querySelector('option[value="docs"]') : null;
+  }
+
+  async function performDocsSearch(query, seq){
+    const option = docsOption();
+    const searchUrl = option ? option.dataset.searchUrl : '';
+    const adminUrl = option ? option.dataset.adminUrl : '';
+    let res;
+    let data = null;
+    try {
+      res = await fetch(searchUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ query }),
+        signal: AbortSignal.timeout(DOCS_SEARCH_DEADLINE_MS)
+      });
+      if (res.status === 401 || res.redirected) {
+        window.location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search + location.hash);
+        return;
+      }
+      if ((res.headers.get('content-type') || '').includes('application/json')) {
+        data = await res.json();
+      }
+    } catch (err) {
+      if (seq !== searchSeq) return;
+      console.warn('docs search failed', err);
+      // ``AbortSignal.timeout`` מבטל עם ``DOMException`` בשם ``TimeoutError``
+      // (https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static).
+      showDocsProblem(err && err.name === 'TimeoutError' ? 'timeout' : 'network', '', adminUrl);
+      return;
+    }
+    if (seq !== searchSeq) return;
+    if (!res.ok || !data || data.ok !== true || !Array.isArray(data.results)) {
+      const code = data && typeof data.error === 'string' ? data.error : 'http_' + res.status;
+      const reason = data && typeof data.reason === 'string' ? data.reason : '';
+      showDocsProblem(code, reason, adminUrl);
+      return;
+    }
+    await renderDocsResults(query, data, adminUrl, seq);
+  }
+
+  function adminLinkHtml(adminUrl){
+    return adminUrl ? ' <a href="' + escapeHtml(adminUrl) + '">לעמוד הניהול של האינדקס</a>' : '';
+  }
+
+  function showDocsProblem(code, reason, adminUrl){
+    const container = $('searchResultsContainer');
+    const info = $('searchInfo');
+    const results = $('searchResults');
+    const pagination = $('searchPagination');
+    if (!container || !info || !results || !pagination) return;
+    const indexProblem = code === 'index_unavailable';
+    const message = indexProblem
+      ? (DOCS_INDEX_PROBLEMS[reason] || 'האינדקס של התיעוד לא זמין.')
+      : (DOCS_SEARCH_PROBLEMS[code] || 'החיפוש בתיעוד נכשל.');
+    const detail = escapeHtml(indexProblem && reason ? reason : code);
+    info.innerHTML = '<div class="alert alert-warning" data-testid="docs-search-problem">' +
+      escapeHtml(message) + ' <code>' + detail + '</code>' + (indexProblem ? adminLinkHtml(adminUrl) : '') +
+      '</div>';
+    renderCommandShortcuts('');
+    results.innerHTML = '';
+    pagination.innerHTML = '';
+    docsResults = [];
+    container.style.display = 'block';
+  }
+
+  function docsStatusHtml(query, count, data, adminUrl){
+    const commit = typeof data.source_commit === 'string' && data.source_commit
+      ? 'האינדקס נכון לקומיט <code>' + escapeHtml(data.source_commit.slice(0, 7)) + '</code>.'
+      : 'אין קומיט שהאינדקס הושלם עבורו.';
+    const complete = data.index_complete === true;
+    return '<div class="alert ' + (complete ? 'alert-info' : 'alert-warning') + '" data-testid="docs-search-status">' +
+      'נמצאו <strong>' + count + '</strong> סעיפים בתיעוד עבור "' + escapeHtml(query) + '". ' + commit +
+      (complete ? '' : ' האינדקס לא מעודכן לפריסה האחרונה של האתר, וייתכן שחסרים בו סעיפים.') +
+      adminLinkHtml(adminUrl) +
+      '</div>';
+  }
+
+  // כתובת הסעיף באתר נבנית בשרת מחלקים שנבדקו (``section_url`` ב-``services/docs_search_contract.py``).
+  // כאן רק מוודאים שהיא https לפני שהיא נכנסת ל-``href``, בלי לסמוך על צורת המחרוזת.
+  function docsSiteUrl(value){
+    try {
+      const url = new URL(String(value || ''));
+      return url.protocol === 'https:' ? url.href : '';
+    } catch (_) {
+      // לא כתובת מלאה: הכרטיס יוצג בלי כפתור לאתר.
+      return '';
+    }
+  }
+
+  function renderDocsCard(r, index){
+    const trail = Array.isArray(r.breadcrumb) ? r.breadcrumb.filter(function(part){ return typeof part === 'string'; }) : [];
+    const path = trail.slice(0, -1);
+    const title = typeof r.title === 'string' && r.title ? r.title : (trail[trail.length - 1] || '');
+    const score = typeof r.score === 'number' && isFinite(r.score) ? r.score.toFixed(2) : '—';
+    const siteUrl = docsSiteUrl(r.url);
+    return (
+      '<article class="search-result-card search-result-card--docs glass-card" role="listitem" dir="rtl" data-testid="docs-result">' +
+        '<div class="result-card-header">' +
+          '<div class="docs-result-heading">' +
+            (path.length ? '<div class="docs-result-trail">' + path.map(escapeHtml).join(' ← ') + '</div>' : '') +
+            '<div class="docs-result-title">' + escapeHtml(title) + '</div>' +
+          '</div>' +
+          '<div class="meta-item docs-result-score">' + META_ICONS.score + '<span>ציון: ' + score + '</span></div>' +
+        '</div>' +
+        '<div class="markdown-preview-container docs-result-surface">' +
+          '<div class="docs-result-clip is-collapsed" data-docs-clip>' +
+            '<div class="markdown-preview-content markdown-body" data-docs-body="' + index + '"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="result-card-footer docs-result-actions">' +
+          '<button type="button" class="btn btn-secondary btn-icon" data-docs-expand aria-expanded="false" hidden>' +
+            '<i class="fas fa-up-right-and-down-left-from-center"></i><span class="btn-text"> הצג את כל הסעיף</span>' +
+          '</button>' +
+          (siteUrl
+            ? '<a class="btn btn-primary btn-icon" href="' + escapeHtml(siteUrl) + '" target="_blank" rel="noopener">' +
+                '<i class="fas fa-book-open"></i><span class="btn-text"> פתח באתר התיעוד</span>' +
+              '</a>'
+            : '') +
+          '<button type="button" class="btn btn-secondary btn-icon" data-docs-copy="' + index + '">' +
+            '<i class="fas fa-copy"></i><span class="btn-text"> העתק כמארקדאון</span>' +
+          '</button>' +
+        '</div>' +
+      '</article>'
+    );
+  }
+
+  async function renderDocsResults(query, data, adminUrl, seq){
+    const container = $('searchResultsContainer');
+    const info = $('searchInfo');
+    const results = $('searchResults');
+    const pagination = $('searchPagination');
+    if (!container || !info || !results || !pagination) return;
+
+    docsResults = data.results.map(function(r){
+      return Object.assign({}, r, { markdown: typeof r.markdown === 'string' ? r.markdown : '' });
+    });
+    info.innerHTML = docsStatusHtml(query, docsResults.length, data, adminUrl);
+    renderCommandShortcuts('');
+    pagination.innerHTML = '';
+    if (!docsResults.length) {
+      results.innerHTML = '<p class="text-muted">לא נמצאו סעיפים</p>';
+      container.style.display = 'block';
+      return;
+    }
+    results.innerHTML = '<div class="results-container"><div class="global-search-results stagger-feed" role="list">' +
+      docsResults.map(renderDocsCard).join('') + '</div></div>';
+    container.style.display = 'block';
+    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    let renderer = null;
+    try {
+      if (typeof window.loadMarkdownDependencies !== 'function' || typeof window.MarkdownLiveRenderer === 'undefined') {
+        throw new Error('markdown_scripts_missing');
+      }
+      await window.loadMarkdownDependencies();
+      if (!window.MarkdownLiveRenderer.isSupported()) throw new Error('markdown_renderer_unsupported');
+      renderer = window.MarkdownLiveRenderer;
+    } catch (err) {
+      console.warn('Markdown dependencies failed to load', err);
+    }
+    if (seq !== searchSeq) return;
+
+    const bodies = results.querySelectorAll('[data-docs-body]');
+    for (let i = 0; i < bodies.length; i += 1) {
+      await renderDocsBody(bodies[i], docsResults[i].markdown, i, renderer);
+      if (seq !== searchSeq) return;
+    }
+  }
+
+  // סעיף אחד: אותו רינדור כמו בדפדפן הריפו (``renderWithAnchors`` ואז ``enhance``). כשהרינדור לא
+  // זמין, מוצג המקור עם הודעה גלויה, ולא כרטיס ריק או רינדור חלקי שנראה תקין.
+  async function renderDocsBody(body, markdown, index, renderer){
+    if (renderer) {
+      try {
+        const rendered = await renderer.renderWithAnchors(markdown);
+        body.innerHTML = rendered.html;
+        scopeIds(body, 'docs-result-' + index + '-');
+        await renderer.enhance(body, rendered.anchors);
+      } catch (err) {
+        console.warn('docs section render failed', err);
+        renderer = null;
+      }
+    }
+    if (!renderer) {
+      body.innerHTML = '<p class="docs-result-render-note">התצוגה המעוצבת לא נטענה, ולכן מוצג המקור.</p>' +
+        '<pre class="docs-result-source" dir="auto">' + escapeHtml(markdown) + '</pre>';
+    }
+    const clip = body.closest('[data-docs-clip]');
+    const card = body.closest('.search-result-card--docs');
+    const expandBtn = card ? card.querySelector('[data-docs-expand]') : null;
+    if (!clip || !expandBtn) return;
+    if (clip.scrollHeight > clip.clientHeight) {
+      expandBtn.hidden = false;
+    } else {
+      clip.classList.remove('is-collapsed');
+    }
+  }
+
+  // מזהים בתוך כרטיס מקבלים קידומת משלו. שני סעיפים עם אותה כותרת היו נותנים אותו ``id``, וקישור
+  // ¶ או הערת שוליים בכרטיס אחד היו קופצים לכרטיס אחר. רץ לפני ``enhance``, כי התרשימים של
+  // Mermaid נשענים על המזהים שהם יוצרים בעצמם.
+  function scopeIds(root, prefix){
+    root.querySelectorAll('[id]').forEach(function(el){ el.id = prefix + el.id; });
+    root.querySelectorAll('a[href^="#"]').forEach(function(a){
+      const target = a.getAttribute('href').slice(1);
+      if (target && root.querySelector('[id="' + CSS.escape(prefix + target) + '"]')) {
+        a.setAttribute('href', '#' + prefix + target);
+      }
+    });
+  }
 
   function getSelectedLanguages(){
     // תמיכה ב־UI חדש: תפריט קטן שנפתח עם צ'קבוקסים
@@ -609,7 +924,8 @@
     return map[t] || { label: 'Command', icon: '⚡' };
   }
 
-  async function copyCommandShortcut(text, btn){
+  // משותף לכפתור ההעתקה של קיצורי הפקודות ול"העתק כמארקדאון" בכרטיסי התיעוד. רק ההודעה בכשל שונה.
+  async function copyToClipboard(text, btn, failureMessage){
     const value = String(text || '').trim();
     if (!value) return;
     const previous = btn ? btn.innerHTML : '';
@@ -625,7 +941,7 @@
         fallbackCopy(value);
         showCopyFeedback(btn, previous);
       } catch (copyErr){
-        alert('לא הצלחתי להעתיק את הפקודה ללוח');
+        alert(failureMessage);
       }
     }
   }

@@ -487,7 +487,7 @@ def test_a_note_dropped_at_the_right_edge_of_the_markdown_preview_stays_there(ad
     """גרירה אל הקצה הימני של תצוגת ה-Markdown, ואז גלילה של פיקסל — הפתק אינו זז.
 
     הגרירה מצמידה את הפתק למסגרת — הקונטיינר — והגולל של ה-Markdown צר ממנה:
-    ה-``margin`` וה-``border`` של ``.markdown-preview-container`` ב-``repo-browser.css``.
+    ה-``margin`` וה-``border`` של ``.markdown-preview-container`` ב-``markdown-preview.css``.
     הבקרה הראשונה מודדת את ההפרש בעמוד, ולא סומכת על הערכים בקובץ ה-CSS.
     טווח שנגזר מהקופסה של הגולל ולא מהמסגרת הזיז את הפתק
     בגלילה הבאה שמאלה ברוחב שלהם, בדיוק בצד שבו הטקסט העברי מתחיל. בקוד

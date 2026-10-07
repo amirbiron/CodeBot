@@ -47,10 +47,11 @@ Gemini API אין משפט מקביל.
     בית. כל הסוגים מתחת לתקרה, במרווח קטן שנשען על הנחה שלא מצאתי לה מקור כתוב של Google:
     שאין יותר מטוקן אחד לכל בית.
   - **סניפטים:** ספרות, סימנים ונתיב SVG מדולגים (``is_low_information_chunk``), אבל hex
-    ורשימת UUID עוברים את הסינון, והקלט האפקטיבי שלהם (2,451 בתים) מגיע ל-2,152 ול-2,129
-    טוקנים — **מעל התקרה**. ``autoTruncate: false`` לא עוצר את זה (הבלוק נבלע, למעלה), ולכן
-    Gemini חותך בשקט את סוף הנתח. זה המסלול של ה-worker של הסניפטים, מלפני אינדקס התיעוד, וה-
-    docstring של ``create_embedding_text`` מתעד בו פער רק לתוכן צפוף-סימנים.
+    ורשימת UUID עוברים את הסינון. כשגם התיאור צפוף (``snippet text``), הקלט האפקטיבי שלהם (2,451
+    בתים) מגיע ל-2,152 ול-2,129 טוקנים — **מעל התקרה**. ``autoTruncate: false`` לא עוצר את זה
+    (הבלוק נבלע, למעלה), ולכן Gemini חותך בשקט את סוף הנתח. עם תיאור בפרוזה (``snippet+prose``)
+    אותם נתחים נשארים מתחת לתקרה: 1,830 ו-1,818 טוקנים. זה המסלול של ה-worker של הסניפטים,
+    מלפני אינדקס התיעוד, והפער מתועד ב-docstring של ``create_embedding_text``.
 """
 
 from __future__ import annotations
@@ -289,6 +290,14 @@ def _dense_line(kind: str, rng) -> str:
     raise ValueError(f"unknown dense kind {kind!r}")
 
 
+#: משפט של תיאור בפרוזה, כמו שמשתמש כותב לסניפט. ``_largest_inputs`` חוזר עליו עד שהתיאור ממלא את
+#: ``EMBEDDING_METADATA_MAX_BYTES``, כמו התיאור הצפוף, כך שההבדל בין שתי השורות הוא רק התוכן של התיאור.
+PROSE_DESCRIPTION_SENTENCE = (
+    "Release checksums for the nightly build: each line pairs a digest with the archive it covers, "
+    "so a download can be verified before it is unpacked. "
+)
+
+
 def _largest_inputs(rng) -> list[tuple[str, str, str | None]]:
     """הקלט הגדול ביותר שכל מסלול הטמעה שולח, לכל סוג תוכן — **נבנה בפונקציות שבונות אותו בייצור**,
     כדי למדוד את מה שבאמת נשלח ולא את תקציב הבתים לבדו:
@@ -297,16 +306,21 @@ def _largest_inputs(rng) -> list[tuple[str, str, str | None]]:
       ``CHUNK_MAX_BYTES`` (``_chunk_texts`` ב-``services/docs_index_service.py``).
     * **סניפט** (``EmbeddingService``, ה-worker): לנתח של ``split_code_to_chunks`` מתווספים מטא-דאטה
       ומפריד (``create_embedding_text``), כך שהקלט האפקטיבי גדול מהנתח. המטא-דאטה כאן ממלאת את
-      ``EMBEDDING_METADATA_MAX_BYTES``. נתח שה-worker מדלג עליו (``is_low_information_chunk``) חוזר
-      עם ``None``.
+      ``EMBEDDING_METADATA_MAX_BYTES``, בשתי גרסאות: ``snippet text`` — תיאור מאותו תוכן צפוף, המקרה
+      הגרוע; ``snippet+prose`` — תיאור בפרוזה (``PROSE_DESCRIPTION_SENTENCE``), המקרה הרגיל. נתח
+      שה-worker מדלג עליו (``is_low_information_chunk``) חוזר פעם אחת, עם ``None``.
     """
     from services.chunking_service import (  # noqa: E402
+        EMBEDDING_METADATA_MAX_BYTES,
         create_embedding_text,
         is_low_information_chunk,
         split_code_to_chunks,
     )
     from services.docs_index_service import _chunk_texts  # noqa: E402
 
+    prose = PROSE_DESCRIPTION_SENTENCE * (
+        EMBEDDING_METADATA_MAX_BYTES // len(PROSE_DESCRIPTION_SENTENCE.encode("utf-8")) + 1
+    )
     inputs: list[tuple[str, str, str | None]] = []
     for kind in DENSE_KINDS:
         body = "\n".join(_dense_line(kind, rng) for _ in range(100))
@@ -318,14 +332,15 @@ def _largest_inputs(rng) -> list[tuple[str, str, str | None]]:
         if is_low_information_chunk(chunk):
             inputs.append(("snippet text", kind, None))
             continue
-        snippet_text = create_embedding_text(
-            code_chunk=chunk,
-            title="bundle.min.js",
-            description=body[:1000],
-            tags=["minified", "generated"],
-            language="javascript",
-        )
-        inputs.append(("snippet text", kind, snippet_text))
+        for path, description in (("snippet text", body[:1000]), ("snippet+prose", prose)):
+            snippet_text = create_embedding_text(
+                code_chunk=chunk,
+                title="bundle.min.js",
+                description=description,
+                tags=["minified", "generated"],
+                language="javascript",
+            )
+            inputs.append((path, kind, snippet_text))
     return inputs
 
 

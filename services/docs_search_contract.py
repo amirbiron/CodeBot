@@ -87,6 +87,20 @@ PAGE_PATH_RE = re.compile(rf"(?:{_SEGMENT}/)*{_SEGMENT}\.html")
 #: קובץ המקור של עמוד, יחסית לשורש הריפו (למשל ``docs/webapp/global-search.rst``).
 SOURCE_PATH_RE = re.compile(rf"(?:{_SEGMENT}/)*{_SEGMENT}\.(?:rst|md)")
 
+
+def section_url(page_path: object, anchor: object) -> str:
+    """הכתובת של סעיף באתר: :data:`SITE_URL`, נתיב העמוד והעוגן, אחרי שכל חלק נבדק בדקדוק שלו.
+
+    המעבר בודק את שניהם לפני שהוא שומר (``services/docs_export_client.py``), ולכן ערך שנכשל כאן
+    הגיע למסד ממקור אחר. ``ValueError``, כמו ב-:func:`export_path_for_commit`, כי הוא נכנס לכתובת.
+    """
+    if not (isinstance(page_path, str) and PAGE_PATH_RE.fullmatch(page_path)):
+        raise ValueError(f"not a page path: {page_path!r}")
+    if not (isinstance(anchor, str) and ANCHOR_RE.fullmatch(anchor)):
+        raise ValueError(f"not an anchor: {anchor!r}")
+    return f"{SITE_URL}{page_path}#{anchor}"
+
+
 # ---------------------------------------------------------------------------
 # המסד
 # ---------------------------------------------------------------------------

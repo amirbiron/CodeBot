@@ -6974,6 +6974,33 @@ def api_docs_index_stop():
     return jsonify({'ok': True, 'status': 'stop_requested'}), 202
 
 
+@app.route('/api/search/docs', methods=['POST'])
+@admin_api_required
+def api_search_docs():
+    """חיפוש בתיעוד, לאדמין: גוף ``{"query": ..., "limit": ...}``, ותשובה עם הסעיפים הקרובים.
+
+    הלוגיקה והקודים ב-``services/docs_search_service.py``. אין כאן מגבלת קצב: אדמינים פטורים מכל
+    מגבלה באפליקציה (``_rate_limit_exempt_filter``), ואת הקצב מול Gemini מגביל השער של התהליך.
+    """
+    from services import docs_index_service as docs_index
+    from services import docs_search_service as docs_search
+
+    body, failure = _docs_index_json_body()
+    if failure is not None:
+        return failure
+    db, failure = _docs_index_db()
+    if failure is not None:
+        return failure
+    try:
+        result = docs_search.search_docs(db, body.get('query'), limit=body.get('limit', docs_search.DEFAULT_LIMIT))
+    except docs_search.DocsSearchError as exc:
+        return jsonify(exc.payload()), exc.http_status
+    except PyMongoError:
+        logger.exception("docs search: the database failed")
+        return jsonify({'ok': False, 'error': 'database_unavailable'}), 503
+    return jsonify({'ok': True, **docs_index.jsonable(result)}), 200
+
+
 @app.route('/admin/cache-inspector')
 def admin_cache_inspector_page():
     """

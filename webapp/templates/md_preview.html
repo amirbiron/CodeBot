@@ -2220,8 +2220,8 @@ const taskState = loadTaskState();
 
 // טעינת bundle מקומי (ללא CDN)
 const BUNDLE = {
-  js: "{{ url_for('static', filename='js/md_preview.bundle.js') }}",
-  css: "{{ url_for('static', filename='css/md_preview.bundle.css') }}"
+  js: "{{ url_for('static', filename='js/md_preview.bundle.js') }}?v={{ static_version }}",
+  css: "{{ url_for('static', filename='css/md_preview.bundle.css') }}?v={{ static_version }}"
 };
 
 // תאימות לאחור: מפה "CDN" לערכים מקומיים כך שלא נדרש רשת
