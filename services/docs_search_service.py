@@ -49,13 +49,22 @@ QUERY_EMBED_DEADLINE_SECONDS = 10.0
 #: כי התיעוד של ``$vectorSearch`` לא אומר אם ``maxTimeMS`` חל עליו.
 SEARCH_DB_TIMEOUT_SECONDS = 5.0
 
-#: כמה נתחים לבקש לכל סעיף שמוחזר: סעיף ארוך מחולק לכמה נתחים, והנתחים המובילים מתקבצים לעתים
-#: באותו סעיף.
+#: המכסה של הסבב הראשון: כמה נתחים לבקש לכל סעיף שמוחזר. סעיף ארוך מחולק לכמה נתחים, והנתחים
+#: המובילים מתקבצים לעתים באותו סעיף; כשהם נופלים בפחות סעיפים ממה שהתבקש, ``_ranked_section_ids``
+#: מכפיל את המכסה.
 CHUNKS_PER_RESULT = 5
 
 #: ההמלצה בתיעוד של ``$vectorSearch``: ``numCandidates`` פי 20 לפחות מ-``limit``
 #: (https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-stage/).
 NUM_CANDIDATES_FACTOR = 20
+
+#: התקרה של Atlas על ``numCandidates`` — "Value must be less than or equal to (``<=``) ``10000``" — ו-``limit``
+#: "can't exceed the value of ``numCandidates``"
+#: (https://www.mongodb.com/docs/vector-search/query/aggregation-stages/vector-search-stage/). לכן זו גם התקרה
+#: על מכסת הנתחים. זה עותק שני, מוצהר, של ``SEMANTIC_NUM_CANDIDATES_HARD_MAX`` ב-``search_engine.py``, שנמדד
+#: שם מול האשכול: ייבוא משם היה מושך את כל מנוע החיפוש של הסניפטים, עם המופע שהוא בונה ברמת המודול.
+#: ``tests/test_docs_search_service.py`` משווה בין השניים.
+MAX_NUM_CANDIDATES = 10_000
 
 _SECTION_FIELDS = {"page_path": 1, "page_title": 1, "anchor": 1, "title": 1, "breadcrumb": 1, "markdown": 1}
 
@@ -168,34 +177,67 @@ def _embed_query(
 
 
 def _ranked_section_ids(db: Any, vector: List[float], model_key: str, limit: int) -> List[Tuple[str, float]]:
-    """הסעיפים של הנתחים הקרובים לשאלה, עם הציון של הנתח הטוב בכל סעיף, מהגבוה לנמוך.
+    """עד ``limit`` הסעיפים של הנתחים הקרובים לשאלה, עם הציון של הנתח הטוב בכל סעיף, מהגבוה לנמוך.
+
+    ``$vectorSearch`` מחזיר נתחים, והתשובה היא סעיפים — וסעיף ארוך יכול למלא לבדו את מכסת הנתחים
+    ולהשאיר פחות סעיפים מ-``limit``, גם כשבאינדקס יש עוד. לכן הסבב הראשון מבקש
+    ``limit * CHUNKS_PER_RESULT`` נתחים, וכל עוד הם נופלים בפחות מ-``limit`` סעיפים והחיפוש מילא את המכסה,
+    המכסה מוכפלת: עד שיש ``limit`` סעיפים, עד שהחיפוש מחזיר פחות נתחים ממה שביקשנו (אין עוד מועמדים), או
+    עד ``MAX_NUM_CANDIDATES``. הסעיפים שנמצאים כך הם ה-``limit`` המובילים, בגבולות הקירוב של ANN: הנתח הטוב
+    של סעיף שאין לו אף נתח בתוך המכסה נמוך מכל נתח שבתוכה. כל הסבבים רצים בתוך
+    ``pymongo.timeout(SEARCH_DB_TIMEOUT_SECONDS)`` של ``search_docs``, שהוא דדליין אחד לבלוק כולו.
+    """
+    chunk_limit = min(limit * CHUNKS_PER_RESULT, MAX_NUM_CANDIDATES)
+    while True:
+        ranked, groups, chunks = _ranked_round(db, vector, model_key, limit, chunk_limit)
+        # פחות מ-``limit`` קבוצות פירושו ש-``$limit`` לא חתך דבר, ולכן ``chunks`` הוא כל מה שהחיפוש החזיר.
+        if groups >= limit or chunks < chunk_limit:
+            return ranked
+        if chunk_limit >= MAX_NUM_CANDIDATES:
+            logger.warning(
+                "docs search: %d chunks at the Atlas ceiling fell in %d sections, fewer than the %d asked",
+                chunk_limit, groups, limit,
+            )
+            return ranked
+        chunk_limit = min(chunk_limit * 2, MAX_NUM_CANDIDATES)
+
+
+def _ranked_round(
+    db: Any, vector: List[float], model_key: str, limit: int, chunk_limit: int
+) -> Tuple[List[Tuple[str, float]], int, int]:
+    """סבב אחד: ``chunk_limit`` הנתחים הקרובים, מקובצים לסעיפים. מחזיר את הסעיפים התקינים, כמה קבוצות חזרו,
+    וכמה נתחים היו בהן.
 
     הווקטור והטקסט של הנתח לא יוצאים מהשלב הראשון: ``$project`` מיד אחריו (``mongodb.md``,
     "השדות הכבדים נגררים דרך המיון").
     """
-    chunk_limit = limit * CHUNKS_PER_RESULT
     pipeline = [
         {
             "$vectorSearch": {
                 "index": contract.VECTOR_INDEX_NAME,
                 "path": contract.VECTOR_FIELD,
                 "queryVector": vector,
-                "numCandidates": chunk_limit * NUM_CANDIDATES_FACTOR,
+                "numCandidates": min(chunk_limit * NUM_CANDIDATES_FACTOR, MAX_NUM_CANDIDATES),
                 "limit": chunk_limit,
                 "filter": {contract.MODEL_KEY_FIELD: model_key},
             }
         },
         {"$project": {"_id": 0, "section_id": 1, "score": {"$meta": "vectorSearchScore"}}},
-        {"$group": {"_id": "$section_id", "score": {"$max": "$score"}}},
+        {"$group": {"_id": "$section_id", "score": {"$max": "$score"}, "chunks": {"$sum": 1}}},
         {"$sort": {"score": -1, "_id": 1}},
         {"$limit": limit},
     ]
     ranked: List[Tuple[str, float]] = []
+    groups = chunks = 0
     for row in db[contract.CHUNKS_COLLECTION].aggregate(pipeline):
+        groups += 1
+        count = row.get("chunks")
+        if isinstance(count, int) and not isinstance(count, bool):
+            chunks += count
         section_id, score = row.get("_id"), row.get("score")
         if isinstance(section_id, str) and isinstance(score, (int, float)) and not isinstance(score, bool):
             ranked.append((section_id, float(score)))
-    return ranked
+    return ranked, groups, chunks
 
 
 def _results(db: Any, ranked: List[Tuple[str, float]]) -> List[Dict[str, Any]]:

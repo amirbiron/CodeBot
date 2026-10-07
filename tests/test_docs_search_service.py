@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 
 import pytest
@@ -53,19 +54,23 @@ class _Atlas(FakeCollection):
         assert [next(iter(stage)) for stage in pipeline] == ["$vectorSearch", "$project", "$group", "$sort", "$limit"]
         stage = pipeline[0]["$vectorSearch"]
         assert (stage["index"], stage["path"]) == (contract.VECTOR_INDEX_NAME, contract.VECTOR_FIELD)
-        assert stage["numCandidates"] >= 20 * stage["limit"]
+        # האילוצים של Atlas: ``numCandidates`` עד 10000 ולא פחות מ-``limit``; וההמלצה, פי 20 מ-``limit``,
+        # כל עוד התקרה מאפשרת.
+        assert stage["limit"] <= stage["numCandidates"] <= 10_000
+        assert stage["numCandidates"] >= min(20 * stage["limit"], search.MAX_NUM_CANDIDATES)
         assert pipeline[1]["$project"] == {"_id": 0, "section_id": 1, "score": {"$meta": "vectorSearchScore"}}
-        assert pipeline[2]["$group"] == {"_id": "$section_id", "score": {"$max": "$score"}}
+        assert pipeline[2]["$group"] == {"_id": "$section_id", "score": {"$max": "$score"}, "chunks": {"$sum": 1}}
         assert pipeline[3]["$sort"] == {"score": -1, "_id": 1}
         # ציון של Atlas ל-cosine הוא (1 + cos) / 2, בטווח 0 עד 1.
         scored = sorted(
             ((1 + _cosine(stage["queryVector"], doc[contract.VECTOR_FIELD])) / 2, doc["section_id"])
             for doc in self.find(stage["filter"])
         )[::-1][: stage["limit"]]
-        best = {}
+        best, counts = {}, {}
         for score, section_id in scored:
             best[section_id] = max(score, best.get(section_id, 0.0))
-        rows = sorted(({"_id": key, "score": value} for key, value in best.items()),
+            counts[section_id] = counts.get(section_id, 0) + 1
+        rows = sorted(({"_id": key, "score": value, "chunks": counts[key]} for key, value in best.items()),
                       key=lambda row: (-row["score"], row["_id"]))
         return iter(rows[: pipeline[4]["$limit"]])
 
@@ -94,9 +99,11 @@ def _unit(index):
     return [1.0 if position == index else 0.0 for position in range(DIMENSIONS)]
 
 
-def _pages():
+def _pages(long_lines=80):
     """ארבעה סעיפים, ואחד מהם ארוך — נתח אחד לא מספיק לו."""
-    long_body = "\n".join(f"שורה {n} בהסבר הארוך על חיפוש בתיעוד, עם מספיק מילים כדי למלא נתח." for n in range(80))
+    long_body = "\n".join(
+        f"שורה {n} בהסבר הארוך על חיפוש בתיעוד, עם מספיק מילים כדי למלא נתח." for n in range(long_lines)
+    )
     return [
         page("webapp/search.html", "docs/webapp/search.rst",
              section("search-basics", "חיפוש", "יסודות"),
@@ -121,9 +128,9 @@ def world(monkeypatch):
     return world
 
 
-def _filled(world):
+def _filled(world, pages=None):
     """מילוי, ואחריו וקטור יחידה לכל סעיף — לפי הסדר של המזהים — ומפה מעוגן לאינדקס שלו."""
-    fill(world, pages=_pages())
+    fill(world, pages=pages if pages is not None else _pages())
     sections = sorted(world.db[contract.SECTIONS_COLLECTION].find({}), key=lambda doc: doc["_id"])
     position = {doc["_id"]: index for index, doc in enumerate(sections)}
     for chunk in list(world.atlas.find({})):
@@ -205,6 +212,86 @@ def test_a_section_that_would_build_a_bad_link_is_left_out_and_logged(world, cap
 
     assert "themes-dark" not in [result["anchor"] for result in found["results"]]
     assert "no valid page path or anchor" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# סעיף ארוך ומכסת הנתחים
+# ---------------------------------------------------------------------------
+
+
+def _chunk_quotas(world):
+    return [pipeline[0]["$vectorSearch"]["limit"] for pipeline in world.atlas.pipelines]
+
+
+def test_a_long_section_does_not_crowd_the_other_sections_out(world):
+    """הנתחים של סעיף ארוך ממלאים את כל המכסה של הסבב הראשון — והסעיפים האחרים עדיין חוזרים.
+
+    עד התיקון המכסה הייתה קבועה, ``limit * CHUNKS_PER_RESULT``, וכאן חזר סעיף אחד במקום שלושה.
+    """
+    anchors = _filled(world, pages=_pages(long_lines=400))
+    long_id = world.db[contract.SECTIONS_COLLECTION].find_one({"anchor": "search-long"})["_id"]
+    long_chunks = len(list(world.atlas.find({"section_id": long_id})))
+    assert long_chunks > 3 * search.CHUNKS_PER_RESULT
+    world.query_vector = _unit(anchors["search-long"])
+
+    found = world.search(limit=3)
+
+    anchors_found = [result["anchor"] for result in found["results"]]
+    assert anchors_found[0] == "search-long"
+    assert len(anchors_found) == len(set(anchors_found)) == 3
+    # שלושה סעיפים הם כל הנתחים של הארוך ועוד שניים, כי הציון של כל נתח אחר נמוך מכל נתח שלו. המכסה
+    # מוכפלת עד שהיא מכילה אותם — ולא סבב אחד יותר.
+    quotas = [3 * search.CHUNKS_PER_RESULT]
+    while quotas[-1] < long_chunks + 2:
+        quotas.append(quotas[-1] * 2)
+    assert len(quotas) >= 2
+    assert _chunk_quotas(world) == quotas
+
+
+def test_an_ordinary_search_asks_atlas_once(world):
+    """כשהנתחים של המכסה הראשונה נופלים במספיק סעיפים אין סבב שני: אותה עבודה כמו לפני ההרחבה."""
+    anchors = _filled(world)
+    world.query_vector = _unit(anchors["themes-dark"])
+
+    found = world.search(limit=2)
+
+    assert len(found["results"]) == 2
+    assert _chunk_quotas(world) == [2 * search.CHUNKS_PER_RESULT]
+
+
+def test_when_atlas_returns_fewer_chunks_than_asked_there_is_nothing_more_to_ask_for(world):
+    """אינדקס קטן מהמכסה: פחות סעיפים מ-``limit``, בסבב אחד ולא בהכפלות עד התקרה."""
+    _filled(world)
+
+    found = world.search(limit=search.MAX_LIMIT)
+
+    assert len(found["results"]) == 4
+    assert _chunk_quotas(world) == [search.MAX_LIMIT * search.CHUNKS_PER_RESULT]
+
+
+def test_the_widening_stops_at_the_atlas_ceiling(world, monkeypatch, caplog):
+    """התקרה חלה גם על ``limit`` וגם על ``numCandidates``; בתקרה החיפוש מחזיר את מה שמצא, עם שורת לוג."""
+    anchors = _filled(world, pages=_pages(long_lines=400))
+    world.query_vector = _unit(anchors["search-long"])
+    ceiling = 4 * search.CHUNKS_PER_RESULT
+    monkeypatch.setattr(search, "MAX_NUM_CANDIDATES", ceiling)
+
+    with caplog.at_level(logging.WARNING, logger=search.__name__):
+        found = world.search(limit=3)
+
+    assert [result["anchor"] for result in found["results"]] == ["search-long"]
+    stages = [pipeline[0]["$vectorSearch"] for pipeline in world.atlas.pipelines]
+    assert [stage["limit"] for stage in stages] == [3 * search.CHUNKS_PER_RESULT, ceiling]
+    assert [stage["numCandidates"] for stage in stages] == [ceiling, ceiling]
+    assert "fewer than the 3 asked" in caplog.text
+
+
+def test_the_atlas_ceiling_is_the_number_measured_for_the_semantic_search():
+    """``MAX_NUM_CANDIDATES`` ו-``SEMANTIC_NUM_CANDIDATES_HARD_MAX`` הם אותה תקרה של Atlas, מוקלדת פעמיים —
+    ראו את ההערה מעל ``MAX_NUM_CANDIDATES``. בלי הטסט הזה, תיקון של אחד היה משאיר את השני מאחור בשקט."""
+    import search_engine
+
+    assert search.MAX_NUM_CANDIDATES == search_engine.SEMANTIC_NUM_CANDIDATES_HARD_MAX
 
 
 # ---------------------------------------------------------------------------

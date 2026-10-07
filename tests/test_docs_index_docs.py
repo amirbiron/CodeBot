@@ -48,6 +48,8 @@ def _section(path: Path, label: str) -> str:
         ("services.docs_search_service", "SEARCH_DB_TIMEOUT_SECONDS"),
         ("services.docs_search_service", "QUERY_MAX_BYTES"),
         ("services.docs_search_service", "DEFAULT_LIMIT"),
+        ("services.docs_search_service", "CHUNKS_PER_RESULT"),
+        ("services.docs_search_service", "MAX_NUM_CANDIDATES"),
     ],
 )
 def test_a_name_the_docs_cite_exists_in_the_code(module, name):
