@@ -455,7 +455,24 @@ def _run_sync_logic(
 
     logger.info(f"Sync completed: {stats}")
 
+    _request_docs_index_check(db, repo_name)
+
     return {"status": "synced", "old_sha": old_sha[:7], "new_sha": new_sha[:7], "stats": stats}
+
+
+def _request_docs_index_check(db: Any, repo_name: str) -> None:
+    """רשת הביטחון של אינדקס התיעוד: אחרי סנכרון של ריפו המקור, מעבר שבודק את הקובץ של האתר.
+
+    הסנכרון כבר הושלם ונרשם, ולכן כשל כאן לא משנה את התוצאה שלו — הוא נרשם בלוג, והמעבר הבא
+    (webhook של פריסה, סנכרון הבא או הכפתור בעמוד האדמין) מכסה אותו. ראו
+    ``request_pass_after_sync`` ב-``services/docs_index_service.py``.
+    """
+    try:
+        from services.docs_index_service import request_pass_after_sync
+
+        request_pass_after_sync(db, repo_name)
+    except Exception:  # noqa: BLE001 — גבול בין שני רכיבים: תוצאת הסנכרון לא תלויה בבדיקה הזאת
+        logger.exception("docs index: the post-sync check could not be requested for %s", repo_name)
 
 
 def unmirror_repo(repo_name: str, db: Any) -> Dict[str, Any]:

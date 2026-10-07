@@ -7,7 +7,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -54,6 +56,16 @@ EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))  # fallback
 # **אינו רשת ביטחון**. ההגנה היחידה היא תקציב הבייטים ב-
 # ``services/chunking_service.py``. הדגל נשאר ברירת מחדל ``true`` (בלי שינוי
 # התנהגות) כי השדה תקף וייתכן שגוגל תממש אותו בעתיד — אבל אין להסתמך עליו.
+#
+# 3. **והבלוק כולו לא נאכף, לא רק ``autoTruncate``.** התיעוד מסמן את
+#    ``outputDimensionality`` ברמה העליונה כ-deprecated לטובת
+#    ``EmbedContentConfig``, אבל ב-API החי ``outputDimensionality`` בתוך
+#    ``embedContentConfig`` נבלע: בקשה ל-768 מימדים חוזרת עם 3,072, כמו
+#    בקשה בלי השדה בכלל; ברמה העליונה היא חוזרת עם 768. נמדד ב-7.10.2026 על
+#    ``gemini-embedding-001`` (``scripts/probe_embedding_limits.py``, החלק של
+#    ``batchEmbedContents``). לכן ``outputDimensionality`` נשאר ברמה העליונה
+#    (:func:`build_embed_content_request`), ו"תיקון" שמזיז אותו לפי התיעוד היה
+#    משנה בשקט את גודל הווקטור ושובר את האינדקס.
 EMBEDDING_AUTO_TRUNCATE = str(
     os.getenv("EMBEDDING_AUTO_TRUNCATE", "true") or "true"
 ).strip().lower() in {"1", "true", "yes", "on"}
@@ -91,8 +103,33 @@ EMBEDDING_MIN_INTERVAL_SECONDS = float(
 EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS = float(
     os.getenv("EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS", "30") or 30
 )
-_throttle_lock = asyncio.Lock()
+# ``threading.Lock`` ולא ``asyncio.Lock``: אותו שער משמש גם את
+# :class:`SyncEmbeddingClient`, שרץ בוובאפ מ-thread או מ-greenlet ולא מלולאה.
+# ``asyncio.Lock`` נקשר ללולאה שהמתינה עליו ראשונה, ושחרור מ-thread אחר אינו מעיר
+# את מי שממתין לו (נקרא במקור של ``asyncio/locks.py`` ב-CPython 3.11). בקטע הקריטי
+# אין ``await`` ואין I/O — רק חישוב של החריץ הבא — ולכן נעילה רגילה אינה חוסמת את
+# הלולאה בפועל, והשינה עצמה נשארת מחוץ לנעילה.
+_throttle_lock = threading.Lock()
 _next_allowed_ts: float = 0.0
+
+
+def _reserve_throttle_slot() -> float:
+    """שומר את החריץ הבא בשער המשותף, ומחזיר כמה שניות לחכות לו (אפס = עכשיו)."""
+    global _next_allowed_ts
+    with _throttle_lock:
+        now = time.monotonic()
+        slot = _next_allowed_ts if _next_allowed_ts > now else now
+        _next_allowed_ts = slot + EMBEDDING_MIN_INTERVAL_SECONDS
+        return slot - now
+
+
+def _push_cooldown_after_429() -> None:
+    """Push the global gate forward so all callers back off after a 429."""
+    global _next_allowed_ts
+    with _throttle_lock:
+        target = time.monotonic() + EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS
+        if target > _next_allowed_ts:
+            _next_allowed_ts = target
 
 
 async def _acquire_throttle_slot() -> None:
@@ -102,23 +139,119 @@ async def _acquire_throttle_slot() -> None:
     (e.g. user-facing search query embeddings) and also prevent
     ``_extend_cooldown_after_429`` from updating the gate promptly.
     """
-    global _next_allowed_ts
-    async with _throttle_lock:
-        now = time.monotonic()
-        slot = _next_allowed_ts if _next_allowed_ts > now else now
-        _next_allowed_ts = slot + EMBEDDING_MIN_INTERVAL_SECONDS
-        wait = slot - now
+    wait = _reserve_throttle_slot()
     if wait > 0:
         await asyncio.sleep(wait)
 
 
 async def _extend_cooldown_after_429() -> None:
     """Push the global gate forward so all callers back off after a 429."""
-    global _next_allowed_ts
-    async with _throttle_lock:
-        target = time.monotonic() + EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS
-        if target > _next_allowed_ts:
-            _next_allowed_ts = target
+    _push_cooldown_after_429()
+
+
+# ---------------------------------------------------------------------------
+# סיווג הכשל של קריאת הטמעה — נקודת המיפוי היחידה בריפו
+# ---------------------------------------------------------------------------
+
+FAILURE_TRANSIENT = "transient"   # timeout / רשת / 5xx — כדאי לנסות שוב
+FAILURE_PERMANENT = "permanent"   # 400 / קלט ארוך מדי — ניסיון חוזר לא יעזור
+FAILURE_QUOTA = "quota"           # 429
+FAILURE_MODEL_MISSING = "model_missing"   # 404 — המודל נעלם, צריך self-heal
+FAILURE_UNKNOWN = "unknown"       # סטטוס שאין לו משמעות מוגדרת כאן — כל צרכן מחליט במפורש
+
+#: הסטטוסים שהם זמניים בלי תלות בצרכן, מלבד כל ``5xx``. ‏``0`` = הבקשה לא קיבלה
+#: תשובת HTTP (timeout או רשת). ‏``401``/``403`` הם קונפיג שאפשר לתקן בלי לשנות את הקלט.
+_TRANSIENT_STATUSES = frozenset({0, 401, 403, 408})
+
+
+def classify_embedding_status(status: int) -> str:
+    """ממפה סטטוס של קריאת הטמעה לסוג כשל.
+
+    * ``404`` — המודל שבקונפיג לא קיים. לא כשל של הקלט אלא של ההגדרה.
+    * ``400`` — הבקשה עצמה פסולה; ``413`` — הקלט חרג מהתקרה שלנו
+      (``EMBEDDING_STATUS_INPUT_TOO_LONG``). ניסיון חוזר יחזיר אותה תשובה.
+    * ``429`` — מכסה.
+    * ``0`` (timeout/רשת), ``401``/``403``/``408`` וכל ``5xx`` — זמניים.
+    * **כל השאר — ``FAILURE_UNKNOWN``**, ולא "זמני" כברירת מחדל. ענף ברירת מחדל שמחזיר
+      את הסוג ה"בטוח" נותן לבאג (תשובה לא צפויה, סטטוס פנימי חדש) את התווית של תקלה
+      חולפת; כאן הצרכן מחליט מה לעשות בו, ובמפורש. ה-worker של הסניפטים מחזיר אותו
+      לתור כמו זמני (``_classify_status`` ב-``services/embedding_worker.py``), ומעבר
+      התיעוד עוצר עליו.
+
+    עד 7.10.2026 הפונקציה חיה ב-``embedding_worker.py``, שמייבא את ``database`` ברמת
+    המודול; היא עברה לכאן כדי שגם מעבר התיעוד ישתמש באותו מיפוי בלי לייבא את ה-worker.
+    """
+    if status == 404:
+        return FAILURE_MODEL_MISSING
+    if status == 429:
+        return FAILURE_QUOTA
+    if status in (400, 413):
+        return FAILURE_PERMANENT
+    if status in _TRANSIENT_STATUSES or 500 <= status <= 599:
+        return FAILURE_TRANSIENT
+    return FAILURE_UNKNOWN
+
+
+# התיאורים הפנימיים בחוזה ``(הטמעה | None, סטטוס, תיאור)`` — כשאין תשובת HTTP שמסבירה את
+# הכשל, התיאור הוא שמזהה אותו. קבועים, כדי שצרכן ישווה אליהם ולא יחזיק עותק של המחרוזת.
+
+#: אין מפתח API. מגיע עם הסטטוס ``0``.
+EMBEDDING_DETAIL_MISSING_API_KEY = "missing_api_key"
+
+#: הדדליין של הקורא עבר לפני שהתקבלה תשובה. מגיע עם הסטטוס ``0``, מ-:class:`SyncEmbeddingClient`.
+EMBEDDING_DETAIL_DEADLINE_EXCEEDED = "deadline_exceeded"
+
+#: הוקטור שחזר במימד שונה מהמבוקש. מגיע עם הסטטוס הפנימי ``422``, ואחריו ``expected=`` ו-``actual=``.
+EMBEDDING_DETAIL_DIMENSION_MISMATCH = "dimension_mismatch"
+
+
+def is_dimension_mismatch(status: int, body: object) -> bool:
+    """האם הכשל הוא מימד שונה מהמבוקש: הסטטוס הפנימי ``422``, עם התיאור שלו.
+
+    ‏``422`` לבדו אינו מספיק, כי גם הספק יכול להחזיר אותו, ובמשמעות אחרת. הבדיקה הזאת
+    חזרה עד 7.10.2026 כמחרוזת בכל צרכן (ה-self-heal כאן, ‏``services/embedding_worker.py``).
+    """
+    return int(status or 0) == 422 and EMBEDDING_DETAIL_DIMENSION_MISMATCH in str(body or "")
+
+
+#: ה-host היחיד שהלקוחות כאן פונים אליו. המפתח יושב על הלקוח ככותרת ברירת מחדל, ולכן
+#: יעד נוסף ללקוח היה שולח אליו את המפתח — יעד אחר מקבל לקוח משלו.
+GEMINI_API_HOST = "https://generativelanguage.googleapis.com"
+
+#: כמה בקשות נכנסות לקריאה אחת ל-``batchEmbedContents``. התיעוד אינו נוקב בתקרה; ה-API
+#: החי מקבל 100 ודוחה 101 ב-``400 INVALID_ARGUMENT`` עם ההודעה "at most 100 requests
+#: can be in one batch". נמדד ב-7.10.2026 (``scripts/probe_embedding_limits.py``).
+GEMINI_MAX_BATCH_REQUESTS = 100
+
+
+def gemini_models_base_url(api_version: str) -> str:
+    """הכתובת של ``/models`` בגרסת ה-API המבוקשת; גרסה לא מוכרת נופלת ל-``v1beta``."""
+    av = str(api_version or "").strip().lstrip("/") or "v1beta"
+    if av not in {"v1", "v1beta"}:
+        av = "v1beta"
+    return f"{GEMINI_API_HOST}/{av}/models"
+
+
+def build_embed_content_request(text: str, *, model: str, dimensions: int) -> Dict[str, Any]:
+    """בקשת הטמעה אחת: הגוף של ``embedContent``, וגם פריט אחד ב-``requests`` של ``batchEmbedContents``.
+
+    ``outputDimensionality`` ברמה העליונה ולא בתוך ``embedContentConfig`` — ראו את ההערה
+    ליד :data:`EMBEDDING_AUTO_TRUNCATE`: שם הוא נבלע. ``dimensions`` שאינו חיובי משמיט
+    את השדה, ואז הספק מחזיר את המימד שלו כברירת מחדל.
+    """
+    model_n = normalize_model_name(model)
+    payload: Dict[str, Any] = {
+        "model": f"models/{model_n}",
+        "content": {"parts": [{"text": text}]},
+    }
+    if int(dimensions or 0) > 0:
+        payload["outputDimensionality"] = int(dimensions)
+    if not EMBEDDING_AUTO_TRUNCATE:
+        # מקור: https://ai.google.dev/api/embeddings — ``EmbedContentConfig`` מכיל
+        # ``autoTruncate`` (boolean). נמדד שהוא לא משנה דבר (ההערה ליד
+        # :data:`EMBEDDING_AUTO_TRUNCATE`), ונשלח רק כשמכבים אותו במפורש.
+        payload["embedContentConfig"] = {"autoTruncate": False}
+    return payload
 
 
 class EmbeddingError(Exception):
@@ -182,10 +315,7 @@ class EmbeddingService:
         return bool(self.api_key)
 
     def _base_url(self, api_version: str) -> str:
-        av = str(api_version or "").strip().lstrip("/") or "v1beta"
-        if av not in {"v1", "v1beta"}:
-            av = "v1beta"
-        return f"https://generativelanguage.googleapis.com/{av}/models"
+        return gemini_models_base_url(api_version)
 
     async def generate_embedding_with_status(
         self,
@@ -200,7 +330,7 @@ class EmbeddingService:
         Intended for health-check / upgrade logic.
         """
         if not self.is_available():
-            return None, 0, "missing_api_key"
+            return None, 0, EMBEDDING_DETAIL_MISSING_API_KEY
 
         if not text or not text.strip():
             return None, 0, "empty_text"
@@ -230,21 +360,8 @@ class EmbeddingService:
 
         base_url = self._base_url(api_version)
         url = f"{base_url}/{model_n}:embedContent"
-        payload: Dict[str, Any] = {
-            "model": f"models/{model_n}",
-            "content": {"parts": [{"text": text}]},
-        }
         # outputDimensionality optional. If <=0, omit and accept provider default dimension.
-        if int(dim or 0) > 0:
-            payload["outputDimensionality"] = int(dim)
-        if not EMBEDDING_AUTO_TRUNCATE:
-            # מקור: https://ai.google.dev/api/embeddings — ``EmbedContentConfig``
-            # מכיל ``autoTruncate`` (boolean). השדות ברמה העליונה
-            # (``taskType``/``title``/``outputDimensionality``) מסומנים שם
-            # deprecated לטובת ``EmbedContentConfig``, אבל ``outputDimensionality``
-            # ברמה העליונה עובד היום ולכן לא מוזז — שינוי מיקומו הוא שינוי
-            # התנהגות שלא נדרש כאן.
-            payload["embedContentConfig"] = {"autoTruncate": False}
+        payload = build_embed_content_request(text, model=model_n, dimensions=dim)
 
         last_body = ""
         for attempt in range(MAX_RETRIES):
@@ -274,7 +391,12 @@ class EmbeddingService:
                                     str(api_version),
                                 )
                                 # Use internal status code to allow upgrade logic to react.
-                                return None, 422, f"dimension_mismatch expected={int(dim)} actual={int(len(embedding))}"
+                                return (
+                                    None,
+                                    422,
+                                    f"{EMBEDDING_DETAIL_DIMENSION_MISMATCH} expected={int(dim)} "
+                                    f"actual={int(len(embedding))}",
+                                )
                         except Exception:
                             pass
                         return embedding, 200, last_body
@@ -484,7 +606,7 @@ class EmbeddingService:
                     dimensions=int(preferred_dimensions or 0),
                 )
                 # If candidate exists but dimensionality differs, retry without requesting a fixed dimension.
-                if (not emb) and int(status or 0) == 422 and "dimension_mismatch" in str(body or ""):
+                if (not emb) and is_dimension_mismatch(status, body):
                     logger.info("Self-heal: dimension mismatch for %s/%s, retrying without fixed dim",
                                 candidate, api_version)
                     emb2, status_b, body_b = await self.generate_embedding_with_status(
@@ -652,3 +774,206 @@ def get_embedding_service() -> EmbeddingService:
 def compute_content_hash(content: str) -> str:
     """Compute a hash of content for change tracking."""
     return hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# לקוח סינכרוני — לקוד שרץ בוובאפ תחת WSGI
+# ---------------------------------------------------------------------------
+
+#: אורך מרבי לכל שדה בתיאור של תשובת שגיאה (הסטטוס של Google וההודעה שלו). התיאור נכנס
+#: ללוג ולמסמך המצב, ולכן יש לו תקרה; זו קטיעה של טקסט אבחוני, לא של נתונים.
+_ERROR_FIELD_MAX_CHARS = 300
+
+
+def _error_summary(response: httpx.Response) -> str:
+    """תיאור קצר של תשובת שגיאה מ-Gemini: הקוד, ושדות ``error.status`` ו-``error.message``.
+
+    לא גוף התשובה כמו שהוא ולא הכותרות של הבקשה: מה שחוזר מכאן נרשם בלוג ובמסמך המצב.
+    """
+    parts = [f"http {response.status_code}"]
+    try:
+        data = response.json()
+    except ValueError:
+        return parts[0]
+    error = data.get("error") if isinstance(data, dict) else None
+    if isinstance(error, dict):
+        for field in ("status", "message"):
+            value = error.get(field)
+            if isinstance(value, str) and value:
+                parts.append(value[:_ERROR_FIELD_MAX_CHARS])
+    return ": ".join(parts)
+
+
+class SyncEmbeddingClient:
+    """לקוח הטמעות סינכרוני, באצוות של ``batchEmbedContents``, לקוד שרץ בוובאפ.
+
+    **למה לא :class:`EmbeddingService`.** הוא אסינכרוני, ובוובאפ (gunicorn עם worker של
+    gevent) אי אפשר להריץ לולאת asyncio בבטחה מקוד סינכרוני — ראו
+    ``docs/observability/asyncio-loop-safety.rst``. כל מה שאינו התעבורה עצמה משותף לשניהם:
+    הכתובת (:func:`gemini_models_base_url`), צורת הבקשה (:func:`build_embed_content_request`),
+    השער המשותף לקצב ול-cooldown אחרי 429, והסיווג (:func:`classify_embedding_status`).
+
+    **המפתח** בכותרת ``x-goog-api-key`` שעל הלקוח, והלקוח פונה ל-:data:`GEMINI_API_HOST`
+    בלבד — אותו אינווריאנט כמו ב-:attr:`EmbeddingService.client`.
+
+    **ההמתנה מוגבלת.** הקורא מעביר ``deadline`` (ערך של ``time.monotonic``) בכל קריאה. הוא
+    נבדק לפני כל ניסיון ולפני השינה בשער, וה-timeout של כל בקשה הוא הקטן מבין
+    :data:`REQUEST_TIMEOUT` ומה שנשאר עד הדדליין; בתוך בקשה אחת httpx מחיל אותו על כל שלב
+    (חיבור, כתיבה, קריאה) בנפרד.
+
+    **החוזה** של :meth:`embed_batch` הוא החוזה של
+    :meth:`EmbeddingService.generate_embedding_with_status`: ``(וקטורים | None, סטטוס, תיאור)``.
+    ‏429 חוזר מיד, בלי ניסיון חוזר — הקורא מחליט — ודוחף את השער המשותף קדימה.
+
+    מופע אחד לכל מעבר, ונסגר בסופו (``with``); אין מופע משותף ברמת המודול.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        *,
+        transport: Optional[httpx.BaseTransport] = None,
+    ) -> None:
+        # ``None`` = "קח מהסביבה", מחרוזת ריקה = "אין מפתח" — כמו ב-:class:`EmbeddingService`.
+        self.api_key = GEMINI_API_KEY if api_key is None else api_key
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["x-goog-api-key"] = self.api_key
+        # ``follow_redirects`` נשאר כבוי (ברירת המחדל של httpx). בהפניה ל-origin אחר httpx
+        # מסיר רק את ``Authorization`` ומשאיר כותרות אחרות (``_redirect_headers`` ב-
+        # ``httpx/_client.py``, ‏0.28.1), כלומר בקשה שהייתה עוקבת אחרי הפניה הייתה לוקחת
+        # את כותרת המפתח ליעד אחר.
+        self._client = httpx.Client(timeout=REQUEST_TIMEOUT, headers=headers, transport=transport)
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> "SyncEmbeddingClient":
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.close()
+
+    def embed_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        model: str,
+        api_version: str,
+        dimensions: int,
+        deadline: float,
+    ) -> Tuple[Optional[List[List[float]]], int, str]:
+        """מטמיע עד :data:`GEMINI_MAX_BATCH_REQUESTS` טקסטים בקריאה אחת.
+
+        מחזיר ``(וקטורים, 200, "")`` בהצלחה — וקטור לכל טקסט, באותו סדר. בכשל:
+        ``(None, סטטוס, תיאור)``, כשהסטטוס הוא קוד ה-HTTP, או אחד הפנימיים: ``0`` (אין
+        מפתח, הדדליין עבר, או שהבקשה לא קיבלה תשובה), ``413``
+        (:data:`EMBEDDING_STATUS_INPUT_TOO_LONG`), ``422`` (מימד שונה מהמבוקש), ו-``200``
+        בלי וקטורים (תשובה שאינה בצורה הצפויה).
+
+        ``texts`` ריק, או ארוך מהתקרה, הוא שימוש שגוי ונדחה ב-``ValueError``.
+        """
+        items = list(texts)
+        if not items or len(items) > GEMINI_MAX_BATCH_REQUESTS:
+            raise ValueError(
+                f"embed_batch takes 1..{GEMINI_MAX_BATCH_REQUESTS} texts, got {len(items)}"
+            )
+        if not self.is_available():
+            return None, 0, EMBEDDING_DETAIL_MISSING_API_KEY
+        for index, text in enumerate(items):
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError(f"text {index} is empty")
+            text_bytes = len(text.encode("utf-8"))
+            if text_bytes > EMBEDDING_MAX_INPUT_BYTES:
+                return (
+                    None,
+                    EMBEDDING_STATUS_INPUT_TOO_LONG,
+                    f"input_too_long index={index} bytes={text_bytes} max={EMBEDDING_MAX_INPUT_BYTES}",
+                )
+
+        model_n = normalize_model_name(model)
+        dim = int(dimensions or 0)
+        url = f"{gemini_models_base_url(api_version)}/{model_n}:batchEmbedContents"
+        body = {
+            "requests": [
+                build_embed_content_request(text, model=model_n, dimensions=dim) for text in items
+            ]
+        }
+
+        last = ""
+        for attempt in range(MAX_RETRIES):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None, 0, EMBEDDING_DETAIL_DEADLINE_EXCEEDED
+            wait = _reserve_throttle_slot()
+            if wait >= remaining:
+                return None, 0, EMBEDDING_DETAIL_DEADLINE_EXCEEDED
+            if wait > 0:
+                time.sleep(wait)
+            timeout = min(REQUEST_TIMEOUT, deadline - time.monotonic())
+            if timeout <= 0:
+                return None, 0, EMBEDDING_DETAIL_DEADLINE_EXCEEDED
+            try:
+                response = self._client.post(url, json=body, timeout=timeout)
+            except httpx.TransportError as exc:
+                # רשת או timeout: אין תשובת HTTP. רק תת-העץ של התעבורה — חריגה אחרת היא
+                # באג, ועולה הלאה.
+                last = f"transport_error: {type(exc).__name__}"
+                logger.warning("Embedding batch attempt %s failed: %s", attempt + 1, last)
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(max(0.0, min(RETRY_DELAY_SECONDS, deadline - time.monotonic())))
+                    continue
+                return None, 0, last
+
+            if response.status_code == 200:
+                return self._parse_batch(response, count=len(items), dim=dim)
+
+            summary = _error_summary(response)
+            if response.status_code == 429:
+                _push_cooldown_after_429()
+                return None, 429, summary
+            if (
+                classify_embedding_status(response.status_code) == FAILURE_TRANSIENT
+                and attempt < MAX_RETRIES - 1
+            ):
+                last = summary
+                logger.warning("Embedding batch attempt %s failed: %s", attempt + 1, summary)
+                time.sleep(max(0.0, min(RETRY_DELAY_SECONDS, deadline - time.monotonic())))
+                continue
+            return None, int(response.status_code), summary
+
+        return None, 0, last
+
+    @staticmethod
+    def _parse_batch(
+        response: httpx.Response, *, count: int, dim: int
+    ) -> Tuple[Optional[List[List[float]]], int, str]:
+        """בודק את צורת התשובה לפני שמשהו ממנה נשמר: רשימה באורך הבקשה, ומספרים סופיים."""
+        try:
+            data = response.json()
+        except ValueError:
+            return None, 200, "malformed_response: not json"
+        embeddings = data.get("embeddings") if isinstance(data, dict) else None
+        if not isinstance(embeddings, list) or len(embeddings) != count:
+            return None, 200, f"malformed_response: expected {count} embeddings"
+        vectors: List[List[float]] = []
+        for index, item in enumerate(embeddings):
+            values = item.get("values") if isinstance(item, dict) else None
+            if (
+                not isinstance(values, list)
+                or not values
+                # ``type`` ולא ``isinstance``: ‏``True`` הוא ``int`` בפייתון.
+                or not all(type(v) in (int, float) and math.isfinite(v) for v in values)
+            ):
+                return None, 200, f"malformed_response: embedding {index}"
+            if dim > 0 and len(values) != dim:
+                return (
+                    None,
+                    422,
+                    f"{EMBEDDING_DETAIL_DIMENSION_MISMATCH} expected={dim} actual={len(values)}",
+                )
+            vectors.append([float(v) for v in values])
+        return vectors, 200, ""

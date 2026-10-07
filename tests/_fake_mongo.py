@@ -4,9 +4,10 @@ Repo convention is hand-rolled fakes (no mongomock). Several suites need the
 same duck-typed stand-in, so the collection semantics — filter matching
 (``$ne``, ``$in``, ``$nin``, ``$exists`` and the range operators), inclusion
 projections, ``find_one`` with pymongo's positional projection and ``sort``,
-upsert, ``$push`` with ``$each``/``$slice``, ``$unset``, ``update_many``,
-counting, and the matched/modified/deleted counts and ``inserted_id`` the
-callers read — live here in one place. An operator outside those sets raises
+upsert with ``$setOnInsert``, ``$push`` with ``$each``/``$slice``, ``$unset``,
+``update_many``, ``delete_many``, ``bulk_write`` of ``ReplaceOne``, counting, and
+the matched/modified/upserted/deleted counts and ``inserted_id`` the callers
+read — live here in one place. An operator outside those sets raises
 ``NotImplementedError`` rather than matching everything or ignoring the
 write. ``FakeTrackerDB`` is the ``DatabaseManager``
 shape the job tracker reaches its collection through. The migration-script tests reach the DB as
@@ -99,11 +100,24 @@ class _Res:
         self.acknowledged = True
 
 
+class _BulkRes:
+    """pymongo's ``BulkWriteResult`` counts that the callers read (4.15.3, ``pymongo/results.py``)."""
+
+    def __init__(self, matched: int = 0, upserted: int = 0, deleted: int = 0) -> None:
+        self.matched_count = matched
+        # The fake replaces whole documents, so every matched replacement counts as modified.
+        self.modified_count = matched
+        self.upserted_count = upserted
+        self.deleted_count = deleted
+        self.inserted_count = 0
+        self.acknowledged = True
+
+
 #: What the matcher and the writer implement. Anything else raises instead of
 #: silently matching everything (or silently doing nothing): a test that reaches
 #: the fake with ``$regex`` must fail loudly, not pass for the wrong reason.
 QUERY_OPERATORS = frozenset({"$ne", "$in", "$nin", "$exists", "$lt", "$lte", "$gt", "$gte"})
-UPDATE_OPERATORS = frozenset({"$set", "$unset", "$push"})
+UPDATE_OPERATORS = frozenset({"$set", "$unset", "$push", "$setOnInsert"})
 PUSH_MODIFIERS = frozenset({"$each", "$slice"})
 
 
@@ -234,10 +248,15 @@ class FakeCollection:
         return self._project([copy.deepcopy(matches[0])], projection)[0]
 
     @staticmethod
-    def _apply(doc, u):
+    def _apply(doc, u, inserting=False):
+        """``$setOnInsert`` writes only when the update inserts (an upsert that matched
+        nothing), as in Mongo; on an existing document it is a no-op."""
         unknown = [op for op in u if op not in UPDATE_OPERATORS]
-        if unknown:  # $inc / $addToSet / $setOnInsert / $pull …
+        if unknown:  # $inc / $addToSet / $pull …
             raise _unsupported("update operator(s)", unknown)
+        if inserting:
+            for field, value in u.get("$setOnInsert", {}).items():
+                _set_path(doc, field, value)
         for field, value in u.get("$set", {}).items():
             _set_path(doc, field, value)
         for field in u.get("$unset", {}):
@@ -270,9 +289,9 @@ class FakeCollection:
                 for k, v in q.items():
                     if not isinstance(v, dict):
                         _set_path(nd, k, v)
-                self._apply(nd, u)
+                self._apply(nd, u, inserting=True)
                 self.docs.append(nd)
-                return _Res(upserted=self._id, matched=0)
+                return _Res(upserted=nd["_id"], matched=0)
             return _Res(matched=0)
 
     def find_one_and_update(self, q, u, projection=None, sort=None, upsert=False,
@@ -305,6 +324,43 @@ class FakeCollection:
                 self.docs.pop(i)
                 return _Res(deleted=1)
         return _Res()
+
+    def delete_many(self, q):
+        with self._lock:
+            kept = [d for d in self.docs if not self._match(d, q)]
+            deleted = len(self.docs) - len(kept)
+            self.docs[:] = kept
+        return _Res(deleted=deleted)
+
+    def bulk_write(self, requests, ordered=True, **_kw):
+        """pymongo's ``bulk_write``, for ``ReplaceOne`` — the operation this repo's writers send.
+
+        The fields are read from pymongo's own operation object (``_filter``, ``_doc``,
+        ``_upsert`` — ``pymongo/operations.py``, 4.15.3), so a test builds the request
+        exactly as production does. Any other operation type raises.
+        """
+        from pymongo import ReplaceOne
+
+        matched = upserted = 0
+        with self._lock:
+            for op in requests:
+                if not isinstance(op, ReplaceOne):
+                    raise _unsupported("bulk_write operation(s)", [type(op).__name__])
+                replacement = copy.deepcopy(op._doc)
+                for index, doc in enumerate(self.docs):
+                    if self._match(doc, op._filter):
+                        replacement.setdefault("_id", doc["_id"])
+                        self.docs[index] = replacement
+                        matched += 1
+                        break
+                else:
+                    if op._upsert:
+                        if "_id" not in replacement:
+                            self._id += 1
+                            replacement["_id"] = op._filter.get("_id", self._id)
+                        self.docs.append(replacement)
+                        upserted += 1
+        return _BulkRes(matched=matched, upserted=upserted)
 
 
 class _FakeCursor:

@@ -1997,6 +1997,15 @@ if _LIMITER_AVAILABLE:
 else:
     limiter = None
 
+# ה-webhook של GitHub מוחרג מהמגבלה הגורפת (blanket-policy-silent-block §7). המפתח של המגביל הוא
+# ה-IP, ו-GitHub שולח מכמה כתובות קבועות: בלי ההחרגה, משלוחים של push ושל סטטוסי פריסה נספרים יחד
+# מול "50 per hour" ונחסמים ב-429 — וסנכרון או אינדוקס מתפספסים בלי שום עקבה אצלנו. כל בקשה שם
+# נבדקת בחתימה לפני כל עבודה. בבלוק נפרד ולא בתוך ה-``try`` שלמעלה, כדי שכשל כאן לא יאפס את המגביל.
+# ה-Blueprint נרשם למעלה בתוך ``try`` משלו; כשהוא לא נרשם, אין מה להחריג.
+_github_webhooks_bp = app.blueprints.get("webhooks")
+if limiter is not None and _github_webhooks_bp is not None:
+    limiter.exempt(_github_webhooks_bp)
+
 # הגדרות
 MONGODB_URL = _cfg_or_env('MONGODB_URL')
 DATABASE_NAME = _cfg_or_env('DATABASE_NAME', default='code_keeper_bot')
@@ -4940,6 +4949,30 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
+def admin_api_required(f):
+    """אותה הרשאה כמו :func:`admin_required`, לראוטים שמחזירים JSON.
+
+    סירוב חוזר כ-JSON עם קוד, ולא כהפניה לעמוד ההתחברות או כעמוד שגיאה — ``fetch`` שמקבל
+    הפניה היה עוקב אחריה ומקבל HTML. במצב התחזות הסירוב הוא ``403`` (בלי ``flash``), ו-
+    ``?force_admin=1`` עוקף אותו כמו בעמודים, דרך :func:`is_impersonating_safe`.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'ok': False, 'error': 'login_required'}), 401
+        try:
+            uid = int(session['user_id'])
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'admin_only'}), 403
+        if not is_admin(uid):
+            return jsonify({'ok': False, 'error': 'admin_only'}), 403
+        if is_impersonating_safe():
+            return jsonify({'ok': False, 'error': 'impersonation_active'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 def premium_or_admin_required(f):
     """דקורטור לבדיקת הרשאות Premium או אדמין"""
     @wraps(f)
@@ -6773,6 +6806,172 @@ def admin_config_inspector_page():
         selected_status=status,
         statuses=[s.value for s in ConfigStatus],
     )
+
+
+# ---------------------------------------------------------------------------
+# אינדקס התיעוד — העמוד וה-API שלו (``services/docs_index_service.py``)
+#
+# העמוד הוא שלד, והנתונים נטענים מ-``/api/docs-index``. כל ראוט API עובר ב-``admin_api_required``
+# (חוסם גם התחזות), ופעולה שמשנה מצב היא ``POST`` עם גוף JSON בלבד.
+# ---------------------------------------------------------------------------
+
+
+@app.route('/admin/docs-index')
+@admin_required
+def admin_docs_index_page():
+    """עמוד האדמין של אינדקס החיפוש בתיעוד: מצב, קומיטים, Atlas, תוכנית, ואישור או עצירה."""
+    from services import docs_index_service as docs_index
+
+    return render_template(
+        'admin_docs_index.html',
+        approval_threshold=docs_index.APPROVAL_THRESHOLD_CHUNKS,
+    )
+
+
+def _docs_index_db():
+    """המסד לראוטי האינדקס, או תשובת 503. ``get_db`` מחזיר ``None`` בזמן צינון אחרי כשל חיבור."""
+    db = get_db()
+    if db is None:
+        return None, (jsonify({'ok': False, 'error': 'database_unavailable'}), 503)
+    return db, None
+
+
+def _docs_index_json_body():
+    """גוף JSON של בקשת ``POST``, או תשובת סירוב.
+
+    ‏``Content-Type`` של JSON הוא חובה: בקשה כזאת מאתר אחר עוברת preflight ונעצרת שם (אין CORS),
+    וטופס רגיל לא יכול לשלוח אותה. אין כאן הגנת CSRF אחרת.
+    """
+    if not request.is_json:
+        return None, (jsonify({'ok': False, 'error': 'json_required'}), 415)
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return None, (jsonify({'ok': False, 'error': 'invalid_json'}), 400)
+    return body, None
+
+
+def _docs_index_audit(action: str, result: str) -> None:
+    """אירוע לכל פעולה של אדמין בעמוד, עם מזהה המשתמש."""
+    emit_event(
+        'docs_index_admin_action',
+        severity='info',
+        action=action,
+        result=result,
+        user_id=int(session['user_id']),
+    )
+
+
+@app.route('/api/docs-index', methods=['GET'])
+@admin_api_required
+def api_docs_index_status():
+    """המצב שהעמוד מציג. קריאה בלבד; בלי רשת חוץ מ-Atlas (``list_search_indexes``)."""
+    from services import docs_index_service as docs_index
+
+    db, failure = _docs_index_db()
+    if failure is not None:
+        return failure
+    try:
+        status = docs_index.status_for_admin(db)
+    except PyMongoError:
+        logger.exception("docs index: could not read the status")
+        return jsonify({'ok': False, 'error': 'database_unavailable'}), 503
+    return jsonify({'ok': True, **docs_index.jsonable(status)})
+
+
+@app.route('/api/docs-index/plan', methods=['GET'])
+@admin_api_required
+def api_docs_index_plan():
+    """תוכנית "יבשה" מהקובץ הראשי: מה מעבר יעשה, בלי Gemini ובלי כתיבה."""
+    from services import docs_index_service as docs_index
+    from services.docs_export_client import ExportFetchError
+
+    db, failure = _docs_index_db()
+    if failure is not None:
+        return failure
+    try:
+        plan = docs_index.plan_for_admin(db)
+    except ExportFetchError as exc:
+        return jsonify({'ok': False, 'error': exc.code, 'detail': exc.detail}), 502
+    except PyMongoError:
+        logger.exception("docs index: could not compute a plan")
+        return jsonify({'ok': False, 'error': 'database_unavailable'}), 503
+    return jsonify({'ok': True, 'plan': docs_index.jsonable(plan)})
+
+
+@app.route('/api/docs-index/start', methods=['POST'])
+@admin_api_required
+def api_docs_index_start():
+    """מאשר תוכנית ומריץ אותה. ``fingerprint`` הוא טביעת האצבע שהאדמין ראה, והמעבר רץ רק אם
+    התוכנית שהוא מחשב מחדש זהה לה (או כשהיא השתנתה לתוכנית שאינה דורשת אישור)."""
+    from services import docs_index_service as docs_index
+
+    body, failure = _docs_index_json_body()
+    if failure is not None:
+        return failure
+    fingerprint = body.get('fingerprint')
+    if not docs_index.is_fingerprint(fingerprint):
+        return jsonify({'ok': False, 'error': 'fingerprint_invalid'}), 400
+    db, failure = _docs_index_db()
+    if failure is not None:
+        return failure
+    try:
+        result = docs_index.request_pass(
+            db,
+            trigger=docs_index.TRIGGER_APPROVED,
+            approved_fingerprint=fingerprint,
+            requested_by=int(session['user_id']),
+        )
+    except PyMongoError:
+        logger.exception("docs index: could not request an approved pass")
+        return jsonify({'ok': False, 'error': 'database_unavailable'}), 503
+    _docs_index_audit('start', result)
+    return jsonify({'ok': True, 'status': result}), 202
+
+
+@app.route('/api/docs-index/check', methods=['POST'])
+@admin_api_required
+def api_docs_index_check():
+    """"בדוק עכשיו": מעבר כמו המעבר האוטומטי — עם שומר העלות, ומהקובץ הראשי."""
+    from services import docs_index_service as docs_index
+
+    _body, failure = _docs_index_json_body()
+    if failure is not None:
+        return failure
+    db, failure = _docs_index_db()
+    if failure is not None:
+        return failure
+    try:
+        result = docs_index.request_pass(
+            db, trigger=docs_index.TRIGGER_MANUAL_CHECK, requested_by=int(session['user_id'])
+        )
+    except PyMongoError:
+        logger.exception("docs index: could not request a check")
+        return jsonify({'ok': False, 'error': 'database_unavailable'}), 503
+    _docs_index_audit('check', result)
+    return jsonify({'ok': True, 'status': result}), 202
+
+
+@app.route('/api/docs-index/stop', methods=['POST'])
+@admin_api_required
+def api_docs_index_stop():
+    """עוצר את המעבר לפני האצווה הבאה, ומוחק את הבקשה שממתינה אחריו. ``409`` — אין מעבר חי."""
+    from services import docs_index_service as docs_index
+
+    _body, failure = _docs_index_json_body()
+    if failure is not None:
+        return failure
+    db, failure = _docs_index_db()
+    if failure is not None:
+        return failure
+    try:
+        stopped = docs_index.request_stop(db)
+    except PyMongoError:
+        logger.exception("docs index: could not request a stop")
+        return jsonify({'ok': False, 'error': 'database_unavailable'}), 503
+    _docs_index_audit('stop', 'requested' if stopped else 'no_live_pass')
+    if not stopped:
+        return jsonify({'ok': False, 'error': 'no_live_pass'}), 409
+    return jsonify({'ok': True, 'status': 'stop_requested'}), 202
 
 
 @app.route('/admin/cache-inspector')

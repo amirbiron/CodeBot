@@ -185,6 +185,23 @@ Google Drive
 - ``db_save_drive_tokens_error`` / ``db_get_drive_tokens_error`` / ``db_delete_drive_tokens_error`` / ``db_save_drive_prefs_error`` / ``db_get_drive_prefs_error`` — ``owner`` אומר של איזה שירות החיבור (``bot`` או ``webapp``).
 - ``db_get_users_with_active_drive_schedule_error`` — שגיאת מסד בשליפת המשתמשים שיש להם תזמון פעיל. השליפה היא של התזמון של הבוט בלבד.
 
+.. _docs-index-events:
+
+אינדקס התיעוד
+-------------
+
+מעבר האינדוקס של אתר התיעוד (``services/docs_index_service.py``, ראו :ref:`docs-index`) ועמוד האדמין שלו. השדות של מעבר הם של המעבר הזה בלבד, ולא מצטברים: ``run_id``; ‏``trigger`` — מי ביקש אותו (``TRIGGERS`` במודול); ‏``status`` ו-``code`` (``STATUS_*``, ומהקובץ ``EXPORT_*`` של ``services/docs_export_client.py``, או ``CODE_*`` של המעבר); ‏``source_commit`` של הקובץ שנקרא; ‏``embedded`` — כמה נתחים הוטמעו; ‏``deleted_chunks`` ו-``deleted_sections`` — כמה נמחקו, לפי קריאה חוזרת; ‏``deletions_spared`` — מחיקות שנחסכו כי הקובץ לא הכיר אף רשומה במסד; ‏``chunk_count`` — כמה נתחים במסד אחרי המעבר; ו-``user_id`` כשאדמין ביקש את המעבר.
+
+- ``docs_index_pass`` — כל מעבר שהסתיים, בכל סטטוס.
+- ``docs_index_awaiting_approval`` — מעבר אוטומטי עצר לאישור: מילוי ראשון או החלפת מודל, יותר מ-``APPROVAL_THRESHOLD_CHUNKS`` נתחים להטמעה, או תוכנית שהשתנתה מאז שאושרה. ``code`` אומר איזה מהם.
+- ``docs_index_quota_paused`` — Gemini החזיר 429, והמעבר עצר. ``detail`` הוא הסטטוס וההודעה של Google, בתקרת אורך. ברמת ``warning``.
+- ``docs_index_failed`` — מעבר נכשל, ברמת ``error``. ``code`` הוא הסיבה ו-``detail`` הפירוט. שני מקרים נשלחים עם שדות אחרים: ``lease_lost`` — ה-lease עבר למריץ אחר, והמעבר עצר בלי לכתוב עוד; ברמת ``warning``, ועם ``run_id`` בלבד. ``unexpected_error`` — חריגה שהמעבר לא צפה; ``detail`` הוא שם המחלקה בלבד, וההודעה וה-traceback בלוג.
+- ``docs_index_admin_action`` — פעולה בעמוד האדמין: ``action`` הוא הכפתור, ``result`` מה שחזר, ו-``user_id`` מי לחץ.
+
+.. code-block:: json
+
+   {"event":"docs_index_pass","severity":"info","run_id":"5f0c1d2e","trigger":"deploy","status":"complete","code":null,"source_commit":"990a666a91fd2c821c6718f8f655e245eb80fc90","embedded":12,"deleted_chunks":1,"deleted_sections":1,"deletions_spared":0,"chunk_count":2310}
+
 Repo Analyzer
 -------------
 

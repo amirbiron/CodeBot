@@ -150,6 +150,13 @@ def test_every_content_section_is_exported_on_its_own(chromium_executable, tmp_p
     assert returned == stored
     # קובץ שמוגש באתר: קריא לכולם, כמו שאר הקבצים ש-Sphinx כותב.
     assert (site / export.EXPORT_PATH).stat().st_mode & 0o777 == 0o644
+    # העותק בשם של הקומיט — אותם בתים בדיוק, ואותן הרשאות.
+    commit_copy = site / "_export" / f"sections-{COMMIT}.json"
+    assert commit_copy.read_bytes() == (site / export.EXPORT_PATH).read_bytes()
+    assert commit_copy.stat().st_mode & 0o777 == 0o644
+    assert sorted(path.name for path in commit_copy.parent.iterdir()) == sorted(
+        ["sections.json", f"sections-{COMMIT}.json"]
+    )
     assert stored["schema_version"] == export.SCHEMA_VERSION
     assert stored["source_commit"] == COMMIT
     assert stored["site_url"] == SITE_URL
@@ -230,6 +237,9 @@ def test_a_broken_page_fails_the_whole_export_and_leaves_no_file(chromium_execut
     site = _site(tmp_path)
     stale = site / export.EXPORT_PATH
     _write(stale, '{"schema_version": 1}')
+    # עותק לפי קומיט מהרצה קודמת, וגם עותק של הקומיט הנוכחי: שניהם חייבים להיעלם.
+    _write(site / "_export" / f"sections-{'f' * 40}.json", '{"schema_version": 1}')
+    _write(site / "_export" / f"sections-{COMMIT}.json", '{"schema_version": 1}')
     # עמוד שלא טוען את copy-page.js: אין לו DocCopyPage, ולכן אין ממה לייצא.
     _write(site / "broken.html", _page(0, _OTHER_BODY, with_copy_page=False))
     _write(site / "_sources" / "broken.rst.txt", "שבור\n====\n")
@@ -256,4 +266,6 @@ def test_the_cli_runs_the_export_end_to_end(chromium_executable, tmp_path, capsy
 
     stored = json.loads((site / export.EXPORT_PATH).read_text(encoding="utf-8"))
     assert stored["section_count"] == 5
-    assert str(site / export.EXPORT_PATH) in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert str(site / export.EXPORT_PATH) in out
+    assert str(site / "_export" / f"sections-{COMMIT}.json") in out

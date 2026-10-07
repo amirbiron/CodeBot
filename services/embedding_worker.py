@@ -15,7 +15,17 @@ from database.manager import (
     save_snippet_chunks,
     update_snippet_embedding_status,
 )
-from services.embedding_service import get_embedding_service, compute_content_hash
+from services.embedding_service import (
+    FAILURE_MODEL_MISSING,
+    FAILURE_PERMANENT,
+    FAILURE_QUOTA,
+    FAILURE_TRANSIENT,
+    FAILURE_UNKNOWN,
+    classify_embedding_status,
+    compute_content_hash,
+    get_embedding_service,
+    is_dimension_mismatch,
+)
 from services.chunking_service import (
     CHUNKER_VERSION,
     create_embedding_text,
@@ -43,42 +53,32 @@ MAX_ERRORS_BEFORE_PAUSE = 5
 # שנגמרה, קצר מספיק כדי לא לעצור עבודה אחרי חלון קצר של rate limiting.
 QUOTA_PAUSE_SECONDS = int(os.getenv("EMBEDDING_QUOTA_PAUSE_SECONDS", "900") or 900)
 
-# סוגי כשל בהטמעת צ'אנק בודד.
+# סוגי כשל בהטמעת צ'אנק בודד (``FAILURE_*``, מיובאים מ-``services/embedding_service.py``).
 #
 # ההבחנה הזו היא הליבה: עד כה **כל** כשל בצ'אנק אחד סימן את הקובץ כולו
 # ב-``needs_embedding=True``, כלומר הוא נשלף שוב כל 300 שניות וכל הצ'אנקים
 # שלו נשלחו מחדש — לנצח. כל עוד Gemini חתך בשקט זה כמעט לא קרה; ברגע
 # שמפסיקים את החיתוך השקט, זה הופך למסלול הראשי.
-FAILURE_TRANSIENT = "transient"   # timeout / רשת / 5xx — כדאי לנסות שוב
-FAILURE_PERMANENT = "permanent"   # 400 / קלט ארוך מדי — ניסיון חוזר לא יעזור
-FAILURE_QUOTA = "quota"           # 429 אחרי מיצוי ה-retries
-FAILURE_MODEL_MISSING = "model_missing"   # 404 — המודל נעלם, צריך self-heal
 
 
 def _classify_status(status: int) -> str:
-    """ממפה קוד סטטוס לסוג כשל. **נקודת המיפוי היחידה בקובץ.**
+    """ממפה קוד סטטוס לסוג כשל, כפי שה-worker פועל לפיו. **נקודת המיפוי היחידה בקובץ.**
 
-    * ``404`` — המודל שבקונפיג לא קיים. לא כשל של הצ'אנק אלא של ההגדרה,
-      והתגובה הנכונה היא self-heal ולא retry.
-    * ``400`` — הבקשה עצמה פסולה; ``413`` — הקלט חרג מהתקרה שלנו
-      (``EMBEDDING_STATUS_INPUT_TOO_LONG``). בשני המקרים ניסיון חוזר יחזיר
-      בדיוק את אותה תשובה.
-    * ``429`` — מכסה. עוצר את הבאץ' כולו.
-    * ``0`` (timeout/רשת), ``401``/``403`` (קונפיג שאפשר לתקן), ``5xx`` —
-      כולם זמניים, ולכן הקובץ חוזר לתור.
+    המיפוי עצמו הוא ``classify_embedding_status`` ב-``services/embedding_service.py``,
+    המשותף לכל צרכני ההטמעה. מה שנקבע כאן הוא רק מה ה-worker עושה בסטטוס שאין לו
+    משמעות מוגדרת שם (``FAILURE_UNKNOWN``): הוא מחזיר את הקובץ לתור, כמו בכשל זמני —
+    כך הוא נהג בכל סטטוס כזה גם לפני שהמיפוי עבר, ולכן ההכרעה כתובה כאן במפורש ולא
+    נשארת בענף ברירת מחדל.
 
-    למה הכול כאן ולא מפוזר: אותו נתיב (ניסיון חוזר אחרי 422) נשבר **פעמיים
+    למה הכול במקום אחד ולא מפוזר: אותו נתיב (ניסיון חוזר אחרי 422) נשבר **פעמיים
     ברצף** בשתי דרכים שונות — קודם הסטטוס השני נזרק לגמרי, ואז הוא נשמר אבל
     404 בו טופל כזמני. שתי התקלות אפשריות רק כשהמיפוי חי בשני מקומות. כאן
     יש מקום אחד, ו-``_act_on_status`` הוא הפעולה היחידה שנגזרת ממנו.
     """
-    if status == 404:
-        return FAILURE_MODEL_MISSING
-    if status == 429:
-        return FAILURE_QUOTA
-    if status in (400, 413):
-        return FAILURE_PERMANENT
-    return FAILURE_TRANSIENT
+    failure = classify_embedding_status(status)
+    if failure == FAILURE_UNKNOWN:
+        return FAILURE_TRANSIENT
+    return failure
 
 
 class EmbeddingQuotaExhausted(Exception):
@@ -249,7 +249,7 @@ class EmbeddingWorker:
                 return None, FAILURE_QUOTA
 
             # Dimension mismatch (best-effort): retry without fixed dimensionality.
-            if status == 422 and "dimension_mismatch" in str(body or ""):
+            if is_dimension_mismatch(status, body):
                 try:
                     emb2, status2, _b2 = await self.embedding_service.generate_embedding_with_status(
                         text,

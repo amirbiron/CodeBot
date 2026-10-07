@@ -209,15 +209,42 @@ def test_a_missing_site_folder_is_a_usage_error(tmp_path, capsys):
     assert "missing" in capsys.readouterr().err
 
 
-def test_a_failed_export_removes_the_file_of_a_previous_run(tmp_path, capsys):
-    """ייצוא שנכשל לא משאיר קובץ ישן שנראה עדכני — גם כשהכשל קורה לפני הדפדפן."""
+def test_a_failed_export_removes_the_files_of_a_previous_run(tmp_path, capsys):
+    """ייצוא שנכשל לא משאיר קובץ ישן שנראה עדכני — גם כשהכשל קורה לפני הדפדפן.
+
+    נמחקים הקובץ הראשי וכל עותק לפי קומיט, ורק הם: קובץ אחר באותה תיקייה, ושם שרק דומה
+    לעותק, נשארים.
+    """
+    export_dir = tmp_path / "_export"
     stale = tmp_path / export.EXPORT_PATH
     _touch(stale, '{"schema_version": 1}')
+    for sha in (COMMIT, "f" * 40):
+        _touch(export_dir / f"sections-{sha}.json", '{"schema_version": 1}')
+    for unrelated in ("notes.txt", "sections-abc.json", f"sections-{'A' * 40}.json"):
+        _touch(export_dir / unrelated)
 
     assert export.main(_args(tmp_path)) == 1
 
     assert not stale.exists()
+    assert sorted(path.name for path in export_dir.iterdir()) == sorted(
+        ["notes.txt", "sections-abc.json", f"sections-{'A' * 40}.json"]
+    )
     assert "no content pages" in capsys.readouterr().err
+
+
+def test_the_commit_copy_is_named_after_the_commit():
+    assert export.export_path_for_commit(COMMIT) == PurePosixPath(f"_export/sections-{COMMIT}.json")
+    assert export.export_path_for_commit(COMMIT).parent == export.EXPORT_PATH.parent
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "0123456", COMMIT.upper(), COMMIT + "0", "../" + COMMIT[3:], None, 1234],
+)
+def test_the_commit_copy_refuses_anything_but_a_full_sha(value):
+    """ה-sha נכנס לשם קובץ ולכתובת באתר, ולכן כל ערך אחר נדחה."""
+    with pytest.raises(ValueError):
+        export.export_path_for_commit(value)
 
 
 def test_importing_the_script_does_not_import_playwright():

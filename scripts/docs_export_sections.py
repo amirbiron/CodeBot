@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 """ייצוא כל הסעיפים של אתר התיעוד שנבנה, כמארקדאון, לקובץ JSON אחד שנפרס עם האתר.
 
-**מה יוצא.** הקובץ ``_export/sections.json`` בתוך תיקיית האתר שנבנתה (:data:`EXPORT_PATH`).
+**מה יוצא.** הקובץ ``_export/sections.json`` בתוך תיקיית האתר שנבנתה (:data:`EXPORT_PATH`),
+ועותק זהה שלו בשם שתלוי בקומיט (:func:`export_path_for_commit`).
 לכל עמוד תוכן: הנתיב שלו באתר, קובץ המקור שלו והכותרת. לכל סעיף בעמוד: המזהה שלו
 (העוגן בכתובת), הכותרת, שביל הכותרות מראש העמוד, הרמה, והתוכן של הסעיף עצמו כמארקדאון
 — בלי תתי-הסעיפים שלו, שיוצאים כסעיפים נפרדים. הקובץ נועד לחיפוש בתיעוד מתוך הוובאפ,
 ולכן הוא חוזה בין שני רכיבים: :data:`SCHEMA_VERSION` עולה בכל שינוי במבנה.
+
+**למה עותק בשם של הקומיט.** האתר מוגש מאחורי מטמון (CDN) ששומר כל קובץ עד עשר דקות
+(``cache-control: max-age=600``), ומפתח המטמון שלו אינו כולל את ה-query. נמדד מול הקובץ
+החי ב-7.10.2026: בקשות עם ``?v=`` אקראי חדש חזרו ``x-cache: HIT`` עם אותו ``age`` כמו
+בקשה בלי query, וגם ``Cache-Control: no-cache`` בבקשה לא עקף את המטמון. כלומר מי שמבקש
+את ``sections.json`` מיד אחרי פריסה עלול לקבל את הקובץ של הפריסה הקודמת. לשם שתלוי
+בקומיט אין עותק במטמון, ולכן הוובאפ, שיודע את הקומיט מה-webhook של הפריסה, מבקש בדיוק
+את הקובץ של אותה בנייה.
 
 **למה מהאתר שנבנה, ולא מקובצי ה-rst.** המזהה של סעיף שהכותרת שלו בעברית ואין לו תווית
 הוא מספר רץ שנותן Sphinx (``id1``, ``id2``…), והוא זז כשמוסיפים סעיף מעליו. קישור
@@ -29,10 +38,11 @@
 מלאה באתר, כדי שקישור בתוך כרטיס בוובאפ יוביל לאתר. ותמונה הופכת לקישור "תמונה: …",
 כי ה-CSP של הוובאפ (``_add_default_csp`` ב-``webapp/app.py``) לא מתיר תמונות מהאתר.
 
-**שלמות.** עמוד אחד שנכשל מכשיל את כל הייצוא, ואז לא נשאר קובץ בכלל: קובץ ישן מוסר
-כבר בתחילת ההרצה, והחדש נכתב לקובץ זמני ומוחלף בשם הסופי רק בסוף. גם ייצוא בלי עמודים
-או בלי סעיפים נכשל. אחרי הכתיבה הקובץ נקרא מחדש מהדיסק, והספירות בו נבדקות מול מה
-שהסקריפט ספר בעצמו.
+**שלמות.** עמוד אחד שנכשל מכשיל את כל הייצוא, ואז לא נשאר קובץ בכלל: קבצים מהרצה
+קודמת (הראשי וכל עותק לפי קומיט) מוסרים כבר בתחילת ההרצה, והחדשים נכתבים לקבצים זמניים
+ומוחלפים בשמות הסופיים רק בסוף. גם ייצוא בלי עמודים או בלי סעיפים נכשל. אחרי הכתיבה
+הקובץ נקרא מחדש מהדיסק, והספירות בו נבדקות מול מה שהסקריפט ספר בעצמו; והעותק נבדק
+שהוא זהה לו בית-בבית.
 
 **ההמתנה מוגבלת בשתי שכבות.** כל ניווט מוגבל ב-:data:`NAVIGATION_TIMEOUT_MS`. את
 ההרצה כולה מגביל ``timeout-minutes`` של הצעד ב-``.github/workflows/documentation.yml``,
@@ -79,6 +89,23 @@ SOURCE_SUFFIXES = (".rst", ".md")
 NAVIGATION_TIMEOUT_MS = 30_000
 
 _SHA_RE = re.compile(r"[0-9a-f]{40}")
+
+#: שם של עותק לפי קומיט, כדי להסיר בתחילת הרצה רק את מה שהסקריפט עצמו כותב.
+_COMMIT_EXPORT_NAME_RE = re.compile(
+    re.escape(f"{EXPORT_PATH.stem}-") + _SHA_RE.pattern + re.escape(EXPORT_PATH.suffix)
+)
+
+
+def export_path_for_commit(source_commit: str) -> PurePosixPath:
+    """מיקום העותק של הקובץ בשם שתלוי בקומיט, יחסית לתיקיית האתר: ``_export/sections-<sha>.json``.
+
+    ה-sha נכנס לשם קובץ ולכתובת באתר, ולכן כל ערך שאינו sha מלא של 40 תווי hex נדחה
+    ב-``ValueError``.
+    """
+    if not isinstance(source_commit, str) or not _SHA_RE.fullmatch(source_commit):
+        raise ValueError(f"expected a 40-character commit sha, got {source_commit!r}")
+    return EXPORT_PATH.with_name(f"{EXPORT_PATH.stem}-{source_commit}{EXPORT_PATH.suffix}")
+
 
 #: מה שרץ בתוך כל עמוד. מקבל את הכתובת של העמוד באתר, ומחזיר את הסעיפים שלו.
 #: הבחירה של אלמנט המאמר וההמרה עצמה באות מ-``window.DocCopyPage``, ולא מוגדרות כאן
@@ -252,14 +279,16 @@ def export_sections(
     source_root: PurePosixPath,
     chromium_executable: str | None = None,
 ) -> dict[str, Any]:
-    """מייצא את כל עמודי התוכן, כותב את הקובץ, ומחזיר את מה שנקרא ממנו מחדש.
+    """מייצא את כל עמודי התוכן, כותב את הקובץ ואת העותק שלו, ומחזיר את מה שנקרא מהקובץ מחדש.
 
-    זורק :class:`ExportError` על כל כשל, ואז אין קובץ ב-:data:`EXPORT_PATH`.
+    זורק :class:`ExportError` על כל כשל, ואז אין קובץ ב-:data:`EXPORT_PATH` ואין עותק לפי
+    קומיט.
     """
     out_path = html_dir / EXPORT_PATH
-    # קובץ מהרצה קודמת לא נשאר: ייצוא שנכשל חייב להשאיר אתר בלי קובץ, ולא עם קובץ ישן
+    commit_path = html_dir / export_path_for_commit(source_commit)
+    # קבצים מהרצה קודמת לא נשארים: ייצוא שנכשל חייב להשאיר אתר בלי קובץ, ולא עם קובץ ישן
     # שנראה עדכני.
-    out_path.unlink(missing_ok=True)
+    _remove_previous_exports(out_path.parent)
 
     pages = content_pages(html_dir)
     if not pages:
@@ -307,12 +336,37 @@ def export_sections(
         finally:
             browser.close()
 
-    for entry in exported_pages:
-        # הכותרת של העמוד היא הכותרת של הסעיף הראשון בו, כמו ש-Sphinx קובע כותרת למסמך.
-        entry["title"] = entry["sections"][0]["breadcrumb"][0]
+    document = build_document(exported_pages, site_url=site_url, source_commit=source_commit)
 
+    # סריאליזציה אחת לשני הקבצים, כדי שהעותק יהיה זהה בית-בבית ולא רק "אותו תוכן".
+    data = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _write_atomically(out_path, data)
+        _write_atomically(commit_path, data)
+        stored = _read_back(out_path, document)
+        if commit_path.read_bytes() != out_path.read_bytes():
+            raise ExportError(f"{commit_path}: the commit copy differs from {out_path}")
+    except BaseException:
+        # אחד בלי השני הוא מצב שאיש לא מצפה לו: הוובאפ מבקש את העותק לפי הקומיט ממסלול אחד
+        # ואת הראשי ממסלול אחר.
+        out_path.unlink(missing_ok=True)
+        commit_path.unlink(missing_ok=True)
+        raise
+    return stored
+
+
+def build_document(
+    exported_pages: list[dict[str, Any]], *, site_url: str, source_commit: str
+) -> dict[str, Any]:
+    """המסמך שנכתב לקובץ, מהעמודים שיוצאו (כל אחד עם ``path``, ``source_path`` ו-``sections``).
+
+    פונקציה נפרדת ולא חלק מ-:func:`export_sections`, כדי שאפשר יהיה להריץ אותה בלי דפדפן:
+    ``tests/test_docs_search_contract.py`` מעביר את מה שהיא בונה דרך הקורא של הוובאפ
+    (``services/docs_export_client.parse_export``), וכך מבנה הקובץ נבדק משני צדי החוזה.
+    """
     section_count = sum(len(entry["sections"]) for entry in exported_pages)
-    document = {
+    return {
         "schema_version": SCHEMA_VERSION,
         "source_commit": source_commit,
         "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -323,29 +377,38 @@ def export_sections(
             {
                 "path": entry["path"],
                 "source_path": entry["source_path"],
-                "title": entry["title"],
+                # הכותרת של העמוד היא הכותרת של הסעיף הראשון בו, כמו ש-Sphinx קובע כותרת למסמך.
+                "title": entry["sections"][0]["breadcrumb"][0],
                 "sections": entry["sections"],
             }
             for entry in exported_pages
         ],
     }
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(
-        prefix=".sections-", suffix=".json.tmp", dir=out_path.parent
-    )
+
+def _remove_previous_exports(export_dir: Path) -> None:
+    """מסיר את הקובץ הראשי ואת כל העותקים לפי קומיט שבתיקייה, ולא נוגע בשום קובץ אחר."""
+    (export_dir / EXPORT_PATH.name).unlink(missing_ok=True)
+    if not export_dir.is_dir():
+        return
+    for path in export_dir.iterdir():
+        if _COMMIT_EXPORT_NAME_RE.fullmatch(path.name):
+            path.unlink()
+
+
+def _write_atomically(path: Path, data: bytes) -> None:
+    """כותב לקובץ זמני באותה תיקייה ומחליף בשם הסופי, כך שאין רגע שבו קיים קובץ חצי כתוב."""
+    handle, temporary = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".tmp", dir=path.parent)
     try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump(document, stream, ensure_ascii=False, separators=(",", ":"))
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(data)
         # ``mkstemp`` יוצר קובץ שרק הבעלים יכול לקרוא (0600). הקובץ הזה הוא חלק מאתר שמוגש
         # לכולם, ולכן הוא מקבל את ההרשאות ש-Sphinx נותן לשאר הקבצים באתר (0644).
         os.chmod(temporary, 0o644)
-        os.replace(temporary, out_path)
+        os.replace(temporary, path)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
         raise
-
-    return _read_back(out_path, document)
 
 
 def _read_back(out_path: Path, written: dict[str, Any]) -> dict[str, Any]:
@@ -454,6 +517,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{out_path}: {stored['page_count']} עמודים, {stored['section_count']} סעיפים, "
         f"{out_path.stat().st_size} בתים, {time.monotonic() - started:.1f} שניות"
     )
+    print(f"{html_dir / export_path_for_commit(args.source_commit)}: עותק זהה בשם של הקומיט")
     return 0
 
 

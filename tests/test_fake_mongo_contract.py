@@ -41,7 +41,6 @@ def test_an_unimplemented_query_operator_raises_instead_of_matching_everything(c
     [
         {"$inc": {"a": 1}},
         {"$addToSet": {"tags": "z"}},
-        {"$setOnInsert": {"a": 9}},
         {"$push": {"tags": {"$each": ["z"], "$position": 0}}},
     ],
 )
@@ -118,3 +117,45 @@ def test_with_options_reads_the_same_documents_and_takes_pymongos_keywords(coll)
     assert view.find_one({"_id": res.inserted_id})["a"] == 3
     with pytest.raises(TypeError):
         coll.with_options(readPreference=ReadPreference.PRIMARY)
+
+
+def test_set_on_insert_writes_only_when_the_upsert_inserts(coll):
+    """כמו במונגו: ``$setOnInsert`` נכתב רק כשה-upsert יוצר מסמך, ועל מסמך קיים הוא לא עושה כלום."""
+    coll.update_one({"a": 1}, {"$setOnInsert": {"b": "new"}}, upsert=True)
+    assert "b" not in coll.find_one({"a": 1})
+
+    res = coll.update_one({"a": 9}, {"$setOnInsert": {"b": "new"}, "$set": {"c": 1}}, upsert=True)
+    created = coll.find_one({"a": 9})
+    assert (created["b"], created["c"]) == ("new", 1)
+    assert res.upserted_id == created["_id"]
+
+
+def test_delete_many_removes_every_match_and_counts_them(coll):
+    res = coll.delete_many({"a": {"$in": [1, 2, 3]}})
+    assert res.deleted_count == 2
+    assert coll.count_documents({}) == 0
+
+
+def test_bulk_write_replaces_or_upserts_like_pymongo(coll):
+    """``ReplaceOne`` של pymongo עצמו: מחליף מסמך קיים, יוצר כשאין (עם ``upsert``), וסופר."""
+    from pymongo import ReplaceOne
+
+    existing = coll.find_one({"a": 1})["_id"]
+    res = coll.bulk_write(
+        [
+            ReplaceOne({"_id": existing}, {"a": 10}, upsert=True),
+            ReplaceOne({"_id": "new"}, {"_id": "new", "a": 11}, upsert=True),
+            ReplaceOne({"_id": "missing"}, {"a": 12}),
+        ]
+    )
+    assert (res.matched_count, res.upserted_count) == (1, 1)
+    assert coll.find_one({"_id": existing}) == {"_id": existing, "a": 10}
+    assert coll.find_one({"_id": "new"})["a"] == 11
+    assert coll.count_documents({"a": 12}) == 0
+
+
+def test_bulk_write_refuses_an_operation_it_does_not_implement(coll):
+    from pymongo import UpdateOne
+
+    with pytest.raises(NotImplementedError, match="does not implement"):
+        coll.bulk_write([UpdateOne({"a": 1}, {"$set": {"b": 1}})])

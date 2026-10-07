@@ -216,6 +216,29 @@ def _settings_from_doc(doc: Dict[str, Any]) -> Optional[EmbeddingSettings]:
     )
 
 
+def get_embedding_settings(raw_db: Any) -> EmbeddingSettings:
+    """ההגדרות הפעילות, ישר מהמסד ובלי קאש — למי שכותב לפיהן.
+
+    מעבר האינדוקס של התיעוד שומר ליד כל וקטור את המודל והמימד שבהם הוא נוצר, ולכן הוא
+    קורא את ההגדרות מכאן ולא מ-:func:`get_embedding_settings_cached`, מסיבה כפולה:
+
+    * **קאש.** הערך שם עשוי להיות בן :data:`_CACHE_TTL_SECONDS`, ומעבר שהתחיל רגע אחרי
+      החלפת מודל היה כותב וקטורים בשם המודל הקודם.
+    * **נפילה שקטה.** שם כל חריגה בקריאה נופלת להגדרות של ה-ENV — כלומר תקלת מסד חולפת
+      הופכת בשקט למודל אחר. כאן חריגת מסד **עולה**, והמעבר נכשל בשמה.
+
+    מה שזהה לשתי הדרכים: כשאין מסמך הגדרות בכלל, או שאין בו מודל, ההגדרות הן של ה-ENV
+    (:meth:`EmbeddingSettings.from_env`) — זה מצב קבוע של ההתקנה, לא תקלה. הקריאה מה-primary,
+    כמו כל קריאה שמחליטה על כתיבה.
+    """
+    from pymongo import ReadPreference
+
+    coll = raw_db[SYSTEM_CONFIG_COLLECTION].with_options(read_preference=ReadPreference.PRIMARY)
+    doc = coll.find_one({"_id": SYSTEM_CONFIG_ID})
+    settings = _settings_from_doc(doc) if isinstance(doc, dict) else None
+    return settings if settings is not None else EmbeddingSettings.from_env()
+
+
 def get_embedding_settings_cached(*, allow_db: bool = True) -> EmbeddingSettings:
     """
     Sync getter with in-memory cache (for hot paths).

@@ -30,6 +30,16 @@ Gemini API אין משפט מקביל.
 * ``long  + autoTruncate:false`` → 4xx. זו הראיה שהחיתוך השקט אכן כובה.
 * ``long  + autoTruncate:true``  → 200 (וזה בדיוק החיתוך השקט שבעטיו
   נפתח האישו).
+
+אחרי שלושת אלה רץ גם החלק של ``batchEmbedContents``, שהלקוח הסינכרוני
+(``SyncEmbeddingClient`` ב-``services/embedding_service.py``) נשען עליו:
+
+* ``outputDimensionality`` ברמה העליונה של הבקשה מול בתוך ``embedContentConfig`` —
+  כמה מימדים חוזרים בכל אחד. מה שנמדד ב-7.10.2026: 768 ברמה העליונה, ו-3,072 בתוך
+  הבלוק, כלומר שם הוא נבלע.
+* אצווה בגודל ``GEMINI_MAX_BATCH_REQUESTS`` ובגודל אחד יותר — מה התקרה בפועל.
+* ``countTokens`` על טקסט צפוף בגודל ``CHUNK_MAX_BYTES`` (סימני פיסוק אקראיים, המקרה
+  שבו לכל בית יש הכי מעט "מילה") — כמה רחוק תקציב הבתים מתקרת הטוקנים.
 """
 
 from __future__ import annotations
@@ -140,6 +150,78 @@ def _probe(client: httpx.Client, *, text: str, auto_truncate: bool, label: str) 
     return int(response.status_code)
 
 
+def _batch_dims(client: httpx.Client, requests: list) -> str:
+    """שולח ``batchEmbedContents`` ומחזיר תיאור קצר: מספר המימדים, או הקוד וההודעה."""
+    url = (
+        f"https://generativelanguage.googleapis.com/{DEFAULT_API_VERSION}"
+        f"/models/{DEFAULT_MODEL}:batchEmbedContents"
+    )
+    try:
+        response = client.post(url, json={"requests": requests})
+    except Exception as exc:
+        return f"transport error: {type(exc).__name__}"
+    if response.status_code != 200:
+        try:
+            message = json.loads(response.text).get("error", {}).get("message", "")
+        except Exception:
+            message = ""
+        return f"HTTP {response.status_code}: {str(message).strip()[:200]}"
+    try:
+        embeddings = response.json()["embeddings"]
+        return f"HTTP 200, {len(embeddings)} vectors, dims={sorted({len(e['values']) for e in embeddings})}"
+    except Exception:
+        return "HTTP 200 but no embeddings"
+
+
+def _probe_batch_contract(client: httpx.Client) -> None:
+    """מה ש-``SyncEmbeddingClient`` נשען עליו: איפה המימד נאכף, ומה תקרת האצווה והטוקנים.
+
+    הבקשה "הנכונה" נבנית ב-``build_embed_content_request`` — אותה פונקציה שהלקוחות משתמשים
+    בה — כדי שהפרוב יבדוק את מה שבאמת נשלח, ולא עותק שלו.
+    """
+    import random
+
+    from services.embedding_service import (  # noqa: E402
+        GEMINI_MAX_BATCH_REQUESTS,
+        build_embed_content_request,
+    )
+
+    def shaped(text: str) -> dict:
+        return build_embed_content_request(text, model=DEFAULT_MODEL, dimensions=DEFAULT_DIMENSIONS)
+
+    in_config = {
+        "model": f"models/{DEFAULT_MODEL}",
+        "content": {"parts": [{"text": SHORT_TEXT}]},
+        "embedContentConfig": {"outputDimensionality": DEFAULT_DIMENSIONS},
+    }
+    print(f"{'batch, dims at the top (as sent)':34s} -> {_batch_dims(client, [shaped(SHORT_TEXT)])}")
+    print(f"{'batch, dims inside embedContentConfig':34s} -> {_batch_dims(client, [in_config])}")
+    for size in (GEMINI_MAX_BATCH_REQUESTS, GEMINI_MAX_BATCH_REQUESTS + 1):
+        requests = [shaped(f"t{i}") for i in range(size)]
+        print(f"{f'batch of {size}':34s} -> {_batch_dims(client, requests)}")
+
+    # ``chunking_service`` טוען את קונפיג האפליקציה (``config.py``), ולכן החלק הזה דורש את
+    # משתני הסביבה שלה (``BOT_TOKEN``, ``MONGODB_URL``). הוא רץ אחרון, כך שבלעדיהם החלקים
+    # שלמעלה כבר הודפסו לפני שהשגיאה עולה.
+    from services.chunking_service import CHUNK_MAX_BYTES  # noqa: E402
+
+    rng = random.Random(7)
+    dense = "".join(rng.choice("!@#$%^&*()_+-=[]{};':\",./<>?\\|`~") for _ in range(CHUNK_MAX_BYTES))
+    url = (
+        f"https://generativelanguage.googleapis.com/{DEFAULT_API_VERSION}"
+        f"/models/{DEFAULT_MODEL}:countTokens"
+    )
+    try:
+        response = client.post(url, json={"contents": [{"parts": [{"text": dense}]}]})
+        tokens = response.json().get("totalTokens") if response.status_code == 200 else None
+        print(
+            f"{'countTokens, dense text':34s} bytes={len(dense.encode('utf-8')):6d} "
+            f"-> HTTP {response.status_code}, totalTokens={tokens} (input limit 2,048)"
+        )
+    except Exception as exc:
+        print(f"{'countTokens, dense text':34s} -> transport error: {type(exc).__name__}")
+
+
 def main() -> int:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
@@ -161,6 +243,9 @@ def main() -> int:
         long_on = _probe(
             client, text=LONG_TEXT, auto_truncate=True, label="long  + autoTruncate:true"
         )
+
+        print()
+        _probe_batch_contract(client)
 
     print()
     if short_off != 200:
