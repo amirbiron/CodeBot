@@ -1,4 +1,5 @@
 import ast
+import logging
 import pytest
 import sys
 from pathlib import Path
@@ -285,6 +286,52 @@ class TestRepoBrowserIsAdminOnly:
         """אף route ב-blueprint לא עוקף את הבדיקה — כולל כאלה שיתווספו."""
         guards = app.before_request_funcs.get('repo', [])
         assert repo_browser._require_admin_for_repo_browser in guards
+
+
+#: שלוש הדרכים שבהן ``from webapp.app import is_admin, is_impersonating_safe`` נכשל: המודול לא
+#: זמין, או שהוא באמצע טעינה ועדיין חסר בו אחד מהשניים.
+_BROKEN_ADMIN_HELPERS = ("module_unavailable", "is_admin", "is_impersonating_safe")
+
+
+def _break_admin_helpers(monkeypatch, broken: str) -> None:
+    if broken == "module_unavailable":
+        # None ב-sys.modules: הייבוא נעצר ב-ModuleNotFoundError
+        monkeypatch.setitem(sys.modules, "webapp.app", None)
+    else:
+        # מודול באמצע טעינה: אחד מהשניים כבר הוגדר, והשני עוד לא
+        monkeypatch.delattr(sys.modules["webapp.app"], broken)
+
+
+class TestAdminCheckFailsClosed:
+    """כשאי אפשר לטעון את עוזרי ההרשאה מ-``webapp.app``, דפדפן הקוד נסגר — גם לאדמין מחובר.
+
+    ``_resolve_admin_helpers`` מייבא את שניהם בייבוא אחד, ולכן כל אחת משלוש הדרכים היא
+    ``ImportError``. ``_is_repo_browser_admin`` תופס אותו, רושם אותו ללוג ועונה "לא אדמין". שינוי
+    שיחזיר במקום זה ברירת מחדל מתירה — למשל ``is_impersonating_safe`` חסר שנחשב "לא מתחזה" — היה
+    פותח את הכלי, והטסטים כאן נופלים עליו. כל טסט מתחיל מאדמין שעובר את הבדיקה, כדי שה-403 יבוא
+    מהכשל ולא מסשן חסר.
+    """
+
+    @pytest.mark.parametrize("broken", _BROKEN_ADMIN_HELPERS)
+    def test_admin_gets_json_403_and_the_failure_is_logged(self, client, monkeypatch, caplog, broken):
+        assert client.get('/repo/api/repos').status_code == 200
+        _break_admin_helpers(monkeypatch, broken)
+
+        with caplog.at_level(logging.ERROR, logger=repo_browser.logger.name):
+            response = client.get('/repo/api/repos')
+
+        assert response.status_code == 403
+        assert response.get_json() == {"success": False, "error": "admin_only"}
+        failures = [r for r in caplog.records if r.getMessage() == "repo browser: could not resolve admin helpers"]
+        assert len(failures) == 1, caplog.text
+        assert failures[0].exc_info is not None and issubclass(failures[0].exc_info[0], ImportError)
+
+    @pytest.mark.parametrize("broken", _BROKEN_ADMIN_HELPERS)
+    def test_admin_gets_403_on_page(self, client, monkeypatch, broken):
+        assert client.get('/repo/api/repos').status_code == 200
+        _break_admin_helpers(monkeypatch, broken)
+
+        assert client.get('/repo/').status_code == 403
 
 
 class TestMultiRepoSupport:
