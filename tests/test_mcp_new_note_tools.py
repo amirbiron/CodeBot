@@ -187,6 +187,26 @@ def test_two_empty_needles_raise_instead_of_building_a_broken_query():
         note_search_filter(7, "")
 
 
+@pytest.mark.parametrize(
+    "needle, content_needle, search_content",
+    [
+        ("a\x00b", None, False),
+        ("a\x00b", None, True),
+        ("ok", "a\x00b", True),
+        ("", "a\x00b", True),
+        ("a\x00b", "ok", True),
+    ],
+)
+def test_a_needle_that_cannot_become_a_regex_never_reaches_the_query(needle, content_needle, search_content):
+    """NUL באחת המחטים — ``ValueError`` כאן, ולא ``$regex`` שהמסד דוחה ב-``BadValue``.
+
+    נקודות הכניסה בודקות את השאילתה שהגיעה, אבל ``backend.search_notes`` מקבל מחט תוכן
+    נפרדת (``content_query``), ולכן הבונה עצמו בודק כל מחט שהוא הופך ל-``$regex``.
+    """
+    with pytest.raises(ValueError):
+        note_search_filter(7, needle, search_content=search_content, content_needle=content_needle)
+
+
 def test_each_predicate_gets_the_needle_its_field_was_stored_with():
     """**מחט לכל יעד.** שם נשמר מכווץ; תוכן נשמר כפי שהוא.
 

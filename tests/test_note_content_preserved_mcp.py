@@ -32,7 +32,7 @@ from _save_layer_harness import clear_local_cache, install_fake_collections, loa
 pytest.importorskip("mcp")
 
 USER = 6161
-RLM = "‏"
+RLM = "\u200f"
 
 #: כל אחד מהם השתנה בשמירה עד אוקטובר 2026.
 CASES = {
@@ -200,3 +200,74 @@ def test_a_body_of_whitespace_only_is_refused_and_nothing_is_written(mcp, store)
     }
     assert store.raw["sticky_notes"].count_documents({}) == notes_before
     assert _stored(store, note_id) == "real"
+
+
+@pytest.fixture
+def admin_mcp(monkeypatch, store):
+    """כמו ``mcp``, עם כלי הריפו: ``repo_backend`` רשום, והקורא אדמין.
+
+    ``codekeeper_create_repo_note`` נרשם רק כשיש ``repo_backend`` (``_REPO_BROWSER_TOOLS``
+    ב-``mcp_server/server.py``), ונקרא רק לאדמין (``require_admin``). ``object()`` מספיק:
+    ההרשמה בונה סגורים בלבד, והכלי כותב דרך ה-backend של הפתקים ולא דרך ``repo_backend``.
+    """
+    import mcp.server.auth.middleware.auth_context as auth_context
+
+    import mcp_server.server as srv
+    from mcp_server.backend import ProductionBackend
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setattr(srv, "current_user_id", lambda ctx=None: USER)
+    monkeypatch.setattr(srv, "require_admin", lambda ctx=None: USER)
+    monkeypatch.setattr(auth_context, "get_access_token", lambda: SimpleNamespace(scopes=["read", "write"]))
+    server = srv.build_mcp(ProductionBackend(db_manager=store.dbm, mongo_db=store.raw), repo_backend=object())
+    server._request_is_admin = lambda: True
+    return server
+
+
+def _note_write_tools(server) -> set:
+    """כל כלי פתק שאינו ``readOnlyHint`` — נגזר מהשרת, כדי שכלי כתיבה חדש לא יחמוק מהטסט."""
+    names = set()
+    for tool in asyncio.run(server.list_tools()):
+        hints = tool.annotations
+        read_only = hints.get("readOnlyHint") if isinstance(hints, dict) else getattr(hints, "readOnlyHint", None)
+        if "note" in tool.name and read_only is False:
+            names.add(tool.name)
+    return names
+
+
+def test_every_note_write_tool_checks_the_body_in_note_content_error(monkeypatch, admin_mcp, store):
+    """כל כלי שכותב גוף של פתק עובר ב-``_note_content_error`` — גם ``note_str_replace``, על הגוף שבנה.
+
+    ``docs/quality/code-normalization.md`` מבטיח את זה על כל כותבי הפתקים ב-MCP, ולכן
+    הרשימה נגזרת מהשרת: כלי כתיבה חדש שלא נוסף ל-``sent`` מפיל את הטסט. הבדיקה עצמה
+    מוחלפת בדמה שמסרבת, וכל כלי צריך להחזיר את הסירוב שלה בלי לכתוב דבר. עד שהממצא
+    הזה תוקן, ``note_str_replace`` החזיק עותק משלו של בדיקת הריקנות ושל בדיקת האורך.
+    """
+    from mcp_server import handlers
+
+    board = _board(admin_mcp)
+    note_id = _call(admin_mcp, "codekeeper_create_board_note", board_id=board, content="MARK")["note"]["id"]
+    assert _call(admin_mcp, "codekeeper_save_file", file_name="a.md", code="x").get("ok") is True
+    sent = {
+        "codekeeper_create_note": {"file_name": "a.md", "content": "body"},
+        "codekeeper_create_board_note": {"board_id": board, "content": "body"},
+        "codekeeper_create_repo_note": {"repo_name": "repo", "repo_path": "a.py", "content": "body"},
+        "codekeeper_update_note": {"note_id": note_id, "content": "body"},
+        "codekeeper_note_str_replace": {"note_id": note_id, "old_string": "MARK", "new_string": "body"},
+    }
+    assert set(sent) == _note_write_tools(admin_mcp)
+
+    checked = []
+
+    def refuse(content):
+        checked.append(content)
+        return {"ok": False, "error": "refused_by_the_shared_check"}
+
+    monkeypatch.setattr(handlers, "_note_content_error", refuse)
+    notes_before = store.raw["sticky_notes"].count_documents({})
+
+    for tool, args in sent.items():
+        assert _call(admin_mcp, tool, **args) == {"ok": False, "error": "refused_by_the_shared_check"}, tool
+    assert checked == ["body"] * len(sent)
+    assert store.raw["sticky_notes"].count_documents({}) == notes_before
+    assert _stored(store, note_id) == "MARK"

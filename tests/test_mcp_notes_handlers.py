@@ -128,7 +128,11 @@ def test_create_note_rejects_empty_and_whitespace_only_content():
 
 
 def test_create_note_keeps_a_body_of_control_characters():
-    """ריקנות נבדקת על עותק אחרי ``strip``, ותווי בקרה אינם רווח — הגוף נשמר כמו שנשלח.
+    """ריקנות נבדקת על עותק אחרי ``strip``, שמסיר רק מה ש-``str.isspace`` מחשיב לרווח.
+
+    U+0001 ו-U+0002 אינם כאלה, ולכן הגוף נשמר כמו שנשלח. תווי הבקרה של ASCII
+    ש-``isspace`` כן מחשיב לרווח הם U+0009 עד U+000D (ובהם ``\\t``, ``\\n`` ו-``\\r``) ו-U+001C עד
+    U+001F, וגוף שכולו מהם נדחה.
 
     עד אוקטובר 2026 הניקוי מחק אותם, והגוף הזה נדחה כ-``empty_content``.
     """
@@ -1301,6 +1305,22 @@ def test_search_is_scoped_to_the_caller_and_escaped():
 
     assert coll.query["user_id"] == 7
     assert coll.query["title"]["$regex"] == "a\\.py"   # הנקודה מנוטרלת
+
+
+def test_a_content_query_with_a_nul_never_reaches_the_database():
+    """מחט התוכן מגיעה ל-``search_notes`` בנפרד, ולכן הבדיקה של ה-handler אינה מכסה אותה.
+
+    ``note_search_filter`` בודק כל מחט שהוא הופך ל-``$regex`` ומעלה ``ValueError`` לפני
+    ``find`` — ולא ``BadValue`` מהמסד באמצע הקריאה.
+    """
+    import pytest as _pytest
+
+    coll = _SearchColl()
+    with _pytest.raises(ValueError):
+        _search_backend(coll).search_notes(
+            7, query="ok", limit=10, search_content=True, content_query="a\x00b"
+        )
+    assert coll.query is None
 
 
 def test_search_asks_for_one_row_beyond_the_limit():

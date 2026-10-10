@@ -2176,8 +2176,9 @@ def note_str_replace(
     **התקרה נבדקת לפני שהתוצאה נבנית** — ``max_size=MAX_NOTE_CONTENT``, ו-
     ``code_too_large`` שחוזר מ-:func:`_apply_edit` נענה ``content_too_long`` עם
     ``max``, התשובה שהכלי נתן גם לפני #3495 על תוצאה ארוכה מדי שאינה רווחים בלבד.
-    הבדיקה שאחרי ההחלפה נשארת כרשת על מה שנכתב, ואינה ההגנה: :func:`_apply_edit`
-    מחשב את אורך התוצאה בדיוק, ולכן גוף שחוזר ממנו כבר בתוך התקרה. ומכאן הסדר בין
+    הבדיקה שאחרי ההחלפה היא :func:`_note_content_error`, של כל כלי שכותב פתק, ונשארת
+    כרשת על מה שנכתב, ואינה ההגנה: :func:`_apply_edit` מחשב את אורך התוצאה בדיוק,
+    ולכן גוף שחוזר ממנו כבר בתוך התקרה. ומכאן הסדר בין
     שני הסירובים, וזה השינוי היחיד בתשובה: תוצאה של רווחים בלבד שארוכה מהתקרה היא
     ``content_too_long`` (עד #3495 — ``empty_content``, כי בדיקת הריקות רצה
     ראשונה), ורק בתוך התקרה ``empty_content``.
@@ -2222,13 +2223,13 @@ def note_str_replace(
             out["occurrences"] = occurrences
             out["hint"] = "pass a longer unique old_string, or set replace_all=true"
         return out
-    if not new_body.strip():
-        return {"ok": False, "error": "empty_content"}
-    # רשת על מה שנכתב, כמו אצל כל כותב פתקים כאן: ``backend.update_note`` אינו
-    # בודק אורך. היא אינה ההגנה — ``_apply_edit`` כבר סירב לפני שהתוצאה נבנתה,
-    # וכל עוד החשבון שם מדויק השורה הזו אינה נדלקת.
-    if len(new_body) > MAX_NOTE_CONTENT:
-        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+    # הגוף שנבנה עובר באותה בדיקה של כל כלי שכותב פתק, ``_note_content_error``, ולא
+    # בעותק שלה: ריקנות על עותק אחרי ``strip``, ואורך כרשת על מה שנכתב, כי
+    # ``backend.update_note`` אינו בודק אורך. האורך אינו ההגנה כאן — ``_apply_edit``
+    # כבר סירב לפני שהתוצאה נבנתה, וכל עוד החשבון שם מדויק הוא אינו נדלק.
+    refused = _note_content_error(new_body)
+    if refused:
+        return refused
 
     res = backend.update_note(
         user_id, note_id=nid, fields={"content": new_body}, expected_content=body
