@@ -2,7 +2,7 @@
 Note Boards API — יצירה, שינוי שם, ומחיקה של לוחות פתקים.
 
 ראוטי **הפתקים** של הלוח חיים ב-``webapp/sticky_notes_api`` ולא כאן, כי שם
-כבר יושבים ``require_auth``, ``notes_rate_limit``, ``_sanitize_text``,
+כבר יושבים ``require_auth``, ``notes_rate_limit``, ``_note_content_from_request``,
 ``_decode_content_b64``, ``_coerce_int`` ו-``_as_note_response``. שכפול שלהם
 לקובץ שני הוא בדיוק סוג הסטייה ש-``sticky_notes_scope`` נוצר כדי למנוע.
 

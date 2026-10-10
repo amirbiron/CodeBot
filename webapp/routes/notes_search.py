@@ -36,6 +36,10 @@ def notes_search_page():
     # — ובמקביל מחריג את הפתקים מהערכה במפורש. שתי הדרישות מתקיימות יחד
     # רק כשהערך זורם מהפייתון.
     from sticky_notes_target import NOTE_COLORS, NOTE_COLOR_ORDER
+    # **וגם תקרת השדה.** ה-API דוחה מחט ארוכה ממנה ב-``query_too_long``, ולכן
+    # ``maxlength`` מוקלד בתבנית היה תקרה שנייה שנסחפת מהראשונה — ופער ביניהן
+    # היה מגיע למשתמש כשגיאה על מה שהשדה עצמו הרשה להקליד.
+    from webapp.sticky_notes_api import NOTE_SEARCH_MAX_NEEDLE
 
     palette = [
         {
@@ -45,4 +49,6 @@ def notes_search_page():
         }
         for color_id in NOTE_COLOR_ORDER
     ]
-    return render_template('notes_search.html', note_palette=palette)
+    return render_template(
+        'notes_search.html', note_palette=palette, note_search_max_needle=NOTE_SEARCH_MAX_NEEDLE,
+    )
