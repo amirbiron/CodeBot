@@ -667,6 +667,30 @@ def test_clicking_a_panel_item_acks_the_occurrence_it_listed(chromium_executable
     assert json.loads(body) == {"note_id": "n1", "remind_at": OCCURRENCE}, body
 
 
+def test_a_preview_shows_the_note_text_exactly_as_the_note_holds_it(chromium_executable):
+    """התצוגה המקדימה נכנסת ב-``textContent``: ``&amp;`` שבפתק מוצג כ-``&amp;``, ותגית — כטקסט.
+
+    עד אוקטובר 2026 השורה נבנתה ב-``innerHTML`` עם בריחה של ``<`` ו-``>`` בלבד, ולכן הדפדפן
+    פענח כל ישות: ``&amp; &lt;div&gt; &quot;`` הוצג כ-``& <div> "``. ומזהה הפתק נכתב לתוך
+    התכונה בלי בריחה; היום הוא ``ObjectId`` של 24 תווי הקס ולכן זה לא נוצל, אבל הבנייה בצמתים
+    כבר אינה תלויה בזה.
+    """
+    preview = "&amp; &lt;div&gt; &quot; <b>bold</b>"
+    listing = {"ok": True, "count": 1, "items": [
+        {"note_id": 'n"1', "file_id": "f1", "preview": preview, "remind_at": OCCURRENCE},
+    ]}
+    due = _summary(**_DUE)
+    with _chain(chromium_executable, _polling_script(), __status=200, __reply=due, __listReply=listing) as page:
+        page.wait_for_function("!!document.querySelector('.notif-bubble[data-kind=\"reminder\"]')", timeout=8000)
+        pop = _click_bubble_and_read_popover(page)
+        assert pop["links"] == 1, pop
+        link = page.evaluate("""() => {
+          const a = document.querySelector('.notif-popover a.reminder-link');
+          return {text: a.textContent, noteId: a.getAttribute('data-note-id'), elements: a.children.length};
+        }""")
+    assert link == {"text": "• " + preview + "...", "noteId": 'n"1', "elements": 0}, link
+
+
 def test_falling_back_to_an_empty_list_breaks_the_test(chromium_executable):
     """ריצת בקרה: ההתנהגות הישנה — 500 מוצג כ"0 פתקים", עם כפתור דחייה."""
     old_fallback = "openPopover(target, (lj && lj.ok) ? lj : { items: [], count: 0 });"
