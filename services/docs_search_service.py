@@ -66,7 +66,9 @@ NUM_CANDIDATES_FACTOR = 20
 #: ``tests/test_docs_search_service.py`` משווה בין השניים.
 MAX_NUM_CANDIDATES = 10_000
 
-_SECTION_FIELDS = {"page_path": 1, "page_title": 1, "anchor": 1, "title": 1, "breadcrumb": 1, "markdown": 1}
+_SECTION_FIELDS = {
+    "page_path": 1, "source_path": 1, "page_title": 1, "anchor": 1, "title": 1, "breadcrumb": 1, "markdown": 1,
+}
 
 
 class DocsSearchError(Exception):
@@ -267,6 +269,9 @@ def _results(db: Any, ranked: List[Tuple[str, float]]) -> List[Dict[str, Any]]:
                 if isinstance(breadcrumb, list) else [],
                 "page_title": doc.get("page_title") if isinstance(doc.get("page_title"), str) else "",
                 "page_path": doc["page_path"],
+                # קובץ המקור בריפו (``docs/webapp/search.rst``), שהכרטיס מציג. הוא נבדק מול
+                # ``SOURCE_PATH_RE`` כשקובץ הייצוא של האתר נקרא, ונכנס לכרטיס כטקסט בלבד ולא לקישור.
+                "source_path": doc.get("source_path") if isinstance(doc.get("source_path"), str) else "",
                 "anchor": doc["anchor"],
                 "url": url,
                 "markdown": doc.get("markdown") if isinstance(doc.get("markdown"), str) else "",
