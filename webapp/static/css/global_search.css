@@ -319,6 +319,8 @@
   flex:1;
 }
 
+/* קובץ המקור של הסעיף (.docs-result-file) ושביל הכותרות שמתחתיו: שתי שורות משנה מעל הכותרת. */
+.docs-result-file,
 .docs-result-trail{
   color: var(--search-meta-text);
   font-size:0.9rem;

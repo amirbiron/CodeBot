@@ -123,8 +123,12 @@
       const clip = card ? card.querySelector('[data-docs-clip]') : null;
       if (!clip) return;
       const collapsed = clip.classList.toggle('is-collapsed');
-      expandBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      expandBtn.querySelector('.btn-text').textContent = collapsed ? ' הצג את כל הסעיף' : ' כווץ את הסעיף';
+      syncDocsExpandButton(expandBtn, clip);
+      // הסעיף התקצר מעל הכפתור, והגלילה זזה רק בחלק מהקיצור, ולכן ראש הכרטיס נשאר הרבה מעל המסך. המסך
+      // חוזר לראש הכרטיס — קובץ המקור והכותרת — גם כשהכרטיס המכווץ גבוה מהמסך, שם ``nearest`` היה מיישר
+      // את התחתית וחותך את הראש. כרטיס שראשו על המסך לא זז. ``scrollIntoView`` גולל את מי שבאמת מחזיק את
+      // הכרטיס, ובעמוד הזה זה ``body`` ולא החלון (Issue #3534, ``theming_and_css``).
+      if (collapsed && card.getBoundingClientRect().top < 0) card.scrollIntoView({ block: 'start' });
     });
     const typeSelect = $('searchType');
     if (typeSelect) typeSelect.addEventListener('change', syncFiltersWithSearchType);
@@ -471,12 +475,15 @@
     const trail = Array.isArray(r.breadcrumb) ? r.breadcrumb.filter(function(part){ return typeof part === 'string'; }) : [];
     const path = trail.slice(0, -1);
     const title = typeof r.title === 'string' && r.title ? r.title : (trail[trail.length - 1] || '');
+    const sourcePath = typeof r.source_path === 'string' ? r.source_path : '';
     const score = typeof r.score === 'number' && isFinite(r.score) ? r.score.toFixed(2) : '—';
     const siteUrl = docsSiteUrl(r.url);
     return (
       '<article class="search-result-card search-result-card--docs glass-card" role="listitem" dir="rtl" data-testid="docs-result">' +
         '<div class="result-card-header">' +
           '<div class="docs-result-heading">' +
+            // נתיב נקרא משמאל לימין גם בכרטיס מימין לשמאל, כמו ``.file-path`` בדפדפן הריפו.
+            (sourcePath ? '<div class="docs-result-file"><span dir="ltr">' + escapeHtml(sourcePath) + '</span></div>' : '') +
             (path.length ? '<div class="docs-result-trail">' + path.map(escapeHtml).join(' ← ') + '</div>' : '') +
             '<div class="docs-result-title">' + escapeHtml(title) + '</div>' +
           '</div>' +
@@ -488,9 +495,8 @@
           '</div>' +
         '</div>' +
         '<div class="result-card-footer docs-result-actions">' +
-          '<button type="button" class="btn btn-secondary btn-icon" data-docs-expand aria-expanded="false" hidden>' +
-            '<i class="fas fa-up-right-and-down-left-from-center"></i><span class="btn-text"> הצג את כל הסעיף</span>' +
-          '</button>' +
+          // התוכן והמצב נקבעים ב-``syncDocsExpandButton`` כשהכפתור נחשף.
+          '<button type="button" class="btn btn-secondary btn-icon" data-docs-expand hidden></button>' +
           (siteUrl
             ? '<a class="btn btn-primary btn-icon" href="' + escapeHtml(siteUrl) + '" target="_blank" rel="noopener">' +
                 '<i class="fas fa-book-open"></i><span class="btn-text"> פתח באתר התיעוד</span>' +
@@ -570,10 +576,24 @@
     const expandBtn = card ? card.querySelector('[data-docs-expand]') : null;
     if (!clip || !expandBtn) return;
     if (clip.scrollHeight > clip.clientHeight) {
+      syncDocsExpandButton(expandBtn, clip);
       expandBtn.hidden = false;
     } else {
       clip.classList.remove('is-collapsed');
     }
+  }
+
+  // המצב של סעיף בכרטיס הוא ``is-collapsed`` על החלון שלו, וכל מה שכפתור ההרחבה מראה נגזר ממנו כאן,
+  // ביחד: הטקסט, האייקון ו-``aria-expanded``. כשהלחיצה עדכנה רק את הטקסט ואת ``aria-expanded``, האייקון
+  // נשאר "הרחב" גם אחרי שהסעיף נפתח — והאייקון הוא מה שרואים, כי ``.btn .btn-text`` ב-``base.html``
+  // מסתיר את הטקסט כשהאייקונים נטענו. שני האייקונים מוגדרים ב-``all.min.css`` של Font Awesome 6.4.0,
+  // שנטען ב-``base.html``.
+  function syncDocsExpandButton(button, clip){
+    const expanded = !clip.classList.contains('is-collapsed');
+    button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    button.innerHTML = expanded
+      ? '<i class="fas fa-down-left-and-up-right-to-center"></i><span class="btn-text"> כווץ את הסעיף</span>'
+      : '<i class="fas fa-up-right-and-down-left-from-center"></i><span class="btn-text"> הצג את כל הסעיף</span>';
   }
 
   // מזהים בתוך כרטיס מקבלים קידומת משלו. שני סעיפים עם אותה כותרת היו נותנים אותו ``id``, וקישור

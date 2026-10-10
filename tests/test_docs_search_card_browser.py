@@ -2,9 +2,10 @@
 
 **מה נבדק.** אדמין בוחר "תיעוד", מחפש, ומקבל לכל סעיף כרטיס מימין לשמאל, שבתוכו הסעיף מרונדר
 כמו בתצוגת ה-Markdown של דפדפן הריפו: הערה (``::: note``) ותרשים Mermaid, דרך
-``MarkdownLiveRenderer`` והבאנדל שהטוען המשותף מביא. סביב זה: הקישור לאתר, ההעתקה כמארקדאון,
-הקיפול של סעיף ארוך, שורת המצב, ההודעה כשהאינדקס לא זמין, ושומר הרצף — תשובה של חיפוש ישן
-שמגיעה אחרונה לא דורסת את החדש.
+``MarkdownLiveRenderer`` והבאנדל שהטוען המשותף מביא. סביב זה: קובץ המקור בראש הכרטיס, הקישור
+לאתר, ההעתקה כמארקדאון, הקיפול של סעיף ארוך — כפתור שמראה את המצב שהסעיף בו, וחזרה לכרטיס אחרי
+כיווץ — שורת המצב, ההודעה כשהאינדקס לא זמין, ושומר הרצף — תשובה של חיפוש ישן שמגיעה אחרונה לא
+דורסת את החדש.
 
 **מה מזויף.** רק התשובה של ``POST /api/search/docs``, דרך ``page.route``: היא נבדקת לבד ב-
 ``tests/test_docs_search_service.py``, וכאן נבדק מה הדפדפן עושה איתה. השאר אמיתי — התבנית,
@@ -33,6 +34,8 @@ from playwright.sync_api import Error as PlaywrightError  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 TABLET = {"width": 1280, "height": 800}
+#: מסך נמוך, שהכרטיס המכווץ של ``LONG_SECTION`` גבוה ממנו (הטסטים שמשתמשים בו בודקים את זה).
+SHORT_SCREEN = {"width": 1280, "height": 560}
 COMMIT = "990a666b" + "0" * 32
 
 #: סעיף ארוך מהגובה המקופל, עם הערה, תרשים, כותרת שחוזרת גם בסעיף השני, וקוד.
@@ -69,6 +72,7 @@ RESULTS = [
         "breadcrumb": ["חיפוש גלובלי", "סוגי החיפוש"],
         "page_title": "חיפוש גלובלי",
         "page_path": "webapp/global-search.html",
+        "source_path": "docs/webapp/global-search.rst",
         "anchor": "global-search-types",
         "url": "https://amirbiron.github.io/CodeBot/webapp/global-search.html#global-search-types",
         "markdown": LONG_SECTION,
@@ -80,6 +84,7 @@ RESULTS = [
         "breadcrumb": ["חיפוש גלובלי", "אינדקס התיעוד"],
         "page_title": "חיפוש גלובלי",
         "page_path": "webapp/global-search.html",
+        "source_path": "docs/webapp/global-search.rst",
         "anchor": "docs-index",
         "url": "https://amirbiron.github.io/CodeBot/webapp/global-search.html#docs-index",
         "markdown": SHORT_SECTION,
@@ -122,7 +127,7 @@ class DocsApi:
 
 
 @contextlib.contextmanager
-def files_page(server, executable, api: DocsApi):
+def files_page(server, executable, api: DocsApi, viewport=TABLET):
     """עמוד הקבצים של האדמין עם הלוח מאושר — **המקום היחיד שמרים דפדפן כאן**."""
     with sync_playwright() as pw:
         try:
@@ -130,7 +135,7 @@ def files_page(server, executable, api: DocsApi):
         except PlaywrightError as exc:  # pragma: no cover - תלוי בסביבה
             pytest.skip(f"אין Chromium זמין: {exc}")
         try:
-            page, _touch = open_admin_page(browser, server, "/files", viewport=TABLET)
+            page, _touch = open_admin_page(browser, server, "/files", viewport=viewport)
             page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=server.base_url)
             # נרשם אחרי הראוט הכללי של ``open_admin_page``, ולכן גובר עליו בכתובת הזו.
             page.route(re.compile(r".*/api/search/docs$"), api.handle)
@@ -146,16 +151,18 @@ def search_docs(page, query: str) -> None:
     page.click("#searchBtn")
 
 
-#: הכרטיסים מרונדרים עד הסוף: שני כרטיסים, והתרשים של הראשון כבר SVG.
-RENDERED_JS = """() => {
+#: הכרטיסים מרונדרים עד הסוף: כל הכרטיסים, התרשים של הראשון כבר SVG, וגוף הכרטיס האחרון —
+#: שמרונדר אחרון — כבר לא ריק.
+RENDERED_JS = """(count) => {
   const cards = document.querySelectorAll('[data-testid="docs-result"]');
   const svg = cards.length ? cards[0].querySelectorAll('.mermaid-diagram svg').length : 0;
-  return {ok: cards.length === 2 && svg === 1, cards: cards.length, svg};
+  const last = cards.length ? cards[cards.length - 1].querySelector('[data-docs-body]').childElementCount : 0;
+  return {ok: cards.length === count && svg === 1 && last > 0, cards: cards.length, svg, last};
 }"""
 
 
-def wait_rendered(page) -> None:
-    poll(page, RENDERED_JS, "שני כרטיסים, והתרשים בראשון כבר מרונדר")
+def wait_rendered(page, cards: int = 2) -> None:
+    poll(page, RENDERED_JS, f"{cards} כרטיסים, התרשים בראשון כבר מרונדר והאחרון כבר מלא", cards)
 
 
 def test_a_section_is_rendered_in_its_card_right_to_left_like_in_the_repo_browser(
@@ -168,6 +175,7 @@ def test_a_section_is_rendered_in_its_card_right_to_left_like_in_the_repo_browse
           const card = document.querySelector('[data-testid="docs-result"]');
           const body = card.querySelector('.markdown-preview-content');
           const link = card.querySelector('a[target="_blank"]');
+          const file = card.querySelector('.docs-result-file span');
           return {
             direction: getComputedStyle(card).direction,
             bodyDirection: getComputedStyle(body).direction,
@@ -175,6 +183,11 @@ def test_a_section_is_rendered_in_its_card_right_to_left_like_in_the_repo_browse
             admonition: !!body.querySelector('.admonition.admonition-note .admonition-title'),
             diagram: !!body.querySelector('.mermaid-diagram svg'),
             highlighted: !!body.querySelector('pre code.hljs'),
+            file: file && file.textContent,
+            fileDirection: file && getComputedStyle(file).direction,
+            // הנתיב מתחיל מימין, כמו שאר השורות בראש הכרטיס.
+            fileFromRight: file && (card.querySelector('.docs-result-heading').getBoundingClientRect().right
+                                    - file.getBoundingClientRect().right),
             trail: card.querySelector('.docs-result-trail').textContent,
             title: card.querySelector('.docs-result-title').textContent,
             href: link && link.getAttribute('href'),
@@ -191,6 +204,8 @@ def test_a_section_is_rendered_in_its_card_right_to_left_like_in_the_repo_browse
     assert card["direction"] == "rtl" and card["bodyDirection"] == "rtl", card
     assert card["surface"], "הסעיף אינו על המשטח של תצוגת ה-Markdown"
     assert card["admonition"] and card["diagram"] and card["highlighted"], card
+    assert (card["file"], card["fileDirection"]) == (RESULTS[0]["source_path"], "ltr"), card
+    assert abs(card["fileFromRight"]) < 1, card
     assert (card["trail"], card["title"]) == ("חיפוש גלובלי", "סוגי החיפוש"), card
     assert card["href"] == RESULTS[0]["url"]
     assert "noopener" in card["rel"].split(), card["rel"]
@@ -248,6 +263,139 @@ def test_a_long_section_is_collapsed_until_asked_and_a_short_one_is_not(
     assert long_card == {"collapsed": True, "cut": True, "button": True, "expanded": "false"}, long_card
     assert short_card["collapsed"] is False and short_card["button"] is False, short_card
     assert after[0]["collapsed"] is False and after[0]["cut"] is False and after[0]["expanded"] == "true", after[0]
+
+
+#: מה שכפתור ההרחבה של הכרטיס הראשון מראה, לצד המצב של הסעיף עצמו.
+EXPAND_BUTTON_JS = """() => {
+  const card = document.querySelector('[data-testid="docs-result"]');
+  const button = card.querySelector('[data-docs-expand]');
+  const icon = button.querySelector('i');
+  return {collapsed: card.querySelector('[data-docs-clip]').classList.contains('is-collapsed'),
+          expanded: button.getAttribute('aria-expanded'), icon: icon && icon.className,
+          text: button.textContent.trim()};
+}"""
+
+
+#: איפה הכרטיס הראשון ביחס למסך, ומיקום הגלילה של העמוד — ``body`` ולא החלון (Issue #3534).
+CARD_ON_SCREEN_JS = """() => {
+  const rect = document.querySelector('[data-testid="docs-result"]').getBoundingClientRect();
+  return {ok: rect.top >= 0 && rect.bottom <= window.innerHeight, top: rect.top, bottom: rect.bottom,
+          screen: window.innerHeight, scrollTop: document.body.scrollTop};
+}"""
+
+#: מיקום הגלילה זהה בכמה דגימות רצופות — גלילה חלקה שהתחילה, למשל לראש התוצאות, כבר הסתיימה.
+SCROLL_SETTLED_JS = """async () => {
+  const samples = [];
+  for (let i = 0; i < 5; i += 1) {
+    samples.push(document.body.scrollTop);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+  return {ok: samples.every((value) => value === samples[0]), samples};
+}"""
+
+
+@pytest.mark.parametrize("viewport", [TABLET, SHORT_SCREEN], ids=["tablet", "short-screen"])
+def test_the_expand_button_shows_the_state_of_the_section_both_ways(
+        admin_live_server, chromium_executable, wired_mongo, viewport):
+    """הטקסט, האייקון ו-``aria-expanded`` מתחלפים יחד, בהרחבה ובכיווץ. עד התיקון הלחיצה החליפה רק את
+    הטקסט ואת ``aria-expanded``, והאייקון נשאר של הרחבה גם כשהסעיף פתוח. וההרחבה לא גוללת: הסעיף
+    נפתח כלפי מטה, והגלילה שייכת רק לכיווץ — גם במסך נמוך, שבו ראש הכרטיס המכווץ כבר מעל המסך
+    כשמגיעים לכפתור."""
+    api = DocsApi((200, ok_response()))
+    with files_page(admin_live_server, chromium_executable, api, viewport=viewport) as page:
+        search_docs(page, "הרחבה")
+        wait_rendered(page)
+        button = page.locator('[data-testid="docs-result"] [data-docs-expand]').first
+        button.scroll_into_view_if_needed()
+        poll(page, SCROLL_SETTLED_JS, "הגלילה אל הכפתור הסתיימה")
+        states = [page.evaluate(EXPAND_BUTTON_JS)]
+        before_expand = page.evaluate(CARD_ON_SCREEN_JS)
+        button.click()
+        states.append(page.evaluate(EXPAND_BUTTON_JS))
+        scroll_after_expand = page.evaluate(CARD_ON_SCREEN_JS)["scrollTop"]
+        button.click()
+        states.append(page.evaluate(EXPAND_BUTTON_JS))
+
+    collapsed = {"collapsed": True, "expanded": "false", "icon": "fas fa-up-right-and-down-left-from-center",
+                 "text": "הצג את כל הסעיף"}
+    expanded = {"collapsed": False, "expanded": "true", "icon": "fas fa-down-left-and-up-right-to-center",
+                "text": "כווץ את הסעיף"}
+    assert states == [collapsed, expanded, collapsed], states
+    assert scroll_after_expand == before_expand["scrollTop"], (before_expand, scroll_after_expand)
+    # המקרה שכל גודל מסך מייצג: בטאבלט ראש הכרטיס על המסך כשלוחצים, ובמסך הנמוך הוא כבר מעליו.
+    assert (before_expand["top"] >= 0) == (viewport is TABLET), before_expand
+
+
+#: ראש הכרטיס הראשון בראש המסך.
+CARD_AT_TOP_JS = """() => {
+  const rect = document.querySelector('[data-testid="docs-result"]').getBoundingClientRect();
+  return {ok: Math.abs(rect.top) < 1, top: rect.top, bottom: rect.bottom, screen: window.innerHeight};
+}"""
+
+
+@pytest.mark.parametrize("viewport", [TABLET, SHORT_SCREEN], ids=["tablet", "short-screen"])
+def test_collapsing_brings_the_top_of_the_card_back_on_screen(
+        admin_live_server, chromium_executable, wired_mongo, viewport):
+    """כפתור הכיווץ בתחתית הסעיף הפתוח, ולכן מגיעים אליו בגלילה. עד התיקון הסעיף התקצר מעל הכפתור
+    והגלילה זזה רק בחלק מהקיצור, כך שהכרטיס כולו נשאר מעל המסך, ועל המסך היה תוכן אחר. עכשיו המסך
+    חוזר לראש הכרטיס. במסך נמוך הכרטיס המכווץ גבוה מהמסך, וגם אז הראש — קובץ המקור והכותרת — הוא
+    שחוזר, ולא התחתית (שם ``block: 'nearest'`` היה חותך את הראש)."""
+    api = DocsApi((200, ok_response()))
+    with files_page(admin_live_server, chromium_executable, api, viewport=viewport) as page:
+        search_docs(page, "כיווץ")
+        wait_rendered(page)
+        button = page.locator('[data-testid="docs-result"] [data-docs-expand]').first
+        button.click()
+        button.scroll_into_view_if_needed()
+        poll(page, SCROLL_SETTLED_JS, "הגלילה אל הכפתור הסתיימה")
+        before = page.evaluate(CARD_ON_SCREEN_JS)
+        button.click()
+        after = poll(page, CARD_AT_TOP_JS, "ראש הכרטיס המכווץ בראש המסך")
+
+    # התנאי שבלעדיו הטסט לא בודק כלום: ליד הכפתור, ראש הכרטיס הפתוח כבר מעל המסך.
+    assert before["top"] < 0, before
+    # והמקרה שכל גודל מסך מייצג: בטאבלט הכרטיס המכווץ נכנס במסך, ובמסך הנמוך הוא גבוה ממנו.
+    fits = after["bottom"] - after["top"] <= after["screen"]
+    assert fits == (viewport is TABLET), after
+
+
+def test_collapsing_a_card_that_is_all_on_screen_does_not_scroll(admin_live_server, chromium_executable, wired_mongo):
+    """כרטיס פתוח שכולו על המסך נשאר במקומו כשמכווצים אותו: הגלילה רק כשראש הכרטיס מעל המסך, ו-``start``
+    בלי התנאי היה מקפיץ אותו לראש המסך בלי סיבה. המסך גבוה כדי שהסעיף הפתוח ייכנס בו, ויש מספיק
+    כרטיסים מתחתיו כדי שהעמוד יוכל לגלול — אחרת גם קפיצה לא הייתה זזה, והטסט לא היה מבחין."""
+    others = [dict(RESULTS[1], section_id=f"webapp/x.html#more-{n}", anchor=f"more-{n}", title=f"עוד סעיף {n}")
+              for n in range(6)]
+    api = DocsApi((200, ok_response(RESULTS + others)))
+    with files_page(admin_live_server, chromium_executable, api, viewport={"width": 1280, "height": 2400}) as page:
+        search_docs(page, "כיווץ במקום")
+        wait_rendered(page, cards=2 + len(others))
+        poll(page, SCROLL_SETTLED_JS, "הגלילה לראש התוצאות הסתיימה")
+        page.click('[data-testid="docs-result"] [data-docs-expand]')
+        before = poll(page, CARD_ON_SCREEN_JS, "הכרטיס הפתוח כולו על המסך")
+        page.click('[data-testid="docs-result"] [data-docs-expand]')
+        poll(page, SCROLL_SETTLED_JS, "אין גלילה באוויר")
+        after = page.evaluate(CARD_ON_SCREEN_JS)
+        room = page.evaluate("() => document.body.scrollHeight - document.body.clientHeight - document.body.scrollTop")
+
+    # שני התנאים שבלעדיהם הטסט לא מבחין: הכרטיס לא בראש המסך, והעמוד יכול לגלול עד שיהיה שם.
+    assert before["top"] > 10 and room >= before["top"], (before, room)
+    assert (after["top"], after["scrollTop"]) == (before["top"], before["scrollTop"]), (before, after)
+
+
+def test_the_file_name_is_shown_as_text_and_not_as_markup(admin_live_server, chromium_executable, wired_mongo):
+    """הנתיב מגיע מהמסד ונכנס לכרטיס כטקסט (``escapeHtml``), כמו שמות קבצים בכל הממשק (``docs/security.rst``)."""
+    hostile = 'docs/<img src="x" onerror="window.__docsPathRan = 1">.rst'
+    api = DocsApi((200, ok_response([dict(RESULTS[0], source_path=hostile), RESULTS[1]])))
+    with files_page(admin_live_server, chromium_executable, api) as page:
+        search_docs(page, "נתיב")
+        wait_rendered(page)
+        shown = page.evaluate("""() => {
+          const line = document.querySelector('[data-testid="docs-result"] .docs-result-file');
+          return line ? {text: line.textContent, images: line.querySelectorAll('img').length,
+                         ran: window.__docsPathRan === 1} : null;
+        }""")
+
+    assert shown == {"text": hostile, "images": 0, "ran": False}, shown
 
 
 def test_ids_inside_a_card_do_not_collide_with_another_card(admin_live_server, chromium_executable, wired_mongo):

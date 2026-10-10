@@ -74,6 +74,7 @@ def test_the_values_the_docs_spell_out_are_the_codes_in_the_code():
         ("webapp/static/js/markdown-deps.js", "BUNDLE_DEADLINE_MS"),
         ("webapp/static/js/live-preview.js", "MarkdownLiveRenderer"),
         ("webapp/static/js/global_search.js", "DOCS_SEARCH_DEADLINE_MS"),
+        ("webapp/static/js/global_search.js", "syncDocsExpandButton"),
     ],
 )
 def test_a_script_name_the_docs_cite_exists_in_the_script(script, name):

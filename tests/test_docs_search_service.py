@@ -157,6 +157,7 @@ def test_the_closest_sections_come_back_first_with_their_markdown_and_link(world
     first = found["results"][0]
     assert first["url"] == contract.SITE_URL + "webapp/themes.html#themes-dark"
     assert (first["title"], first["breadcrumb"], first["page_title"]) == ("כהה", ["ערכות", "כהה"], "ערכות")
+    assert first["source_path"] == "docs/webapp/themes.rst"
     assert first["markdown"] == "טקסט של הסעיף."
     assert 0 < found["results"][1]["score"] < first["score"] <= 1
     assert (found["source_commit"], found["index_complete"]) == (SHA_A, True)
@@ -199,6 +200,18 @@ def test_a_section_deleted_between_the_two_reads_is_left_out(world):
 
     assert "themes-light" not in [result["anchor"] for result in found["results"]]
     assert len(found["results"]) == 3
+
+
+@pytest.mark.parametrize("stored", [None, 7, ["docs/webapp/themes.rst"]])
+def test_a_source_path_that_is_not_text_comes_back_empty(world, stored):
+    """המעבר שומר רק נתיב שנבדק; ערך אחר הגיע ממקור אחר, והכרטיס מקבל מחרוזת ריקה ולא אותו."""
+    anchors = _filled(world)
+    world.query_vector = _unit(anchors["themes-dark"])
+    world.db[contract.SECTIONS_COLLECTION].update_one({"anchor": "themes-dark"}, {"$set": {"source_path": stored}})
+
+    found = world.search(limit=1)
+
+    assert [(result["anchor"], result["source_path"]) for result in found["results"]] == [("themes-dark", "")]
 
 
 def test_a_section_that_would_build_a_bad_link_is_left_out_and_logged(world, caplog):
@@ -444,7 +457,9 @@ def test_the_route_returns_the_results_as_json(app):
     assert response.status_code == 200
     body = response.get_json()
     assert body["ok"] is True
-    assert [result["anchor"] for result in body["results"]] == ["search-basics"]
+    assert [(result["anchor"], result["source_path"]) for result in body["results"]] == [
+        ("search-basics", "docs/webapp/search.rst")
+    ]
     assert (body["source_commit"], body["index_complete"]) == (SHA_A, True)
 
 
