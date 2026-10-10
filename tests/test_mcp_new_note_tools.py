@@ -222,17 +222,43 @@ def test_a_title_needle_too_long_for_any_title_is_dropped_not_fatal_in_content_m
     assert b.last["content_query"] == long_q  # ענף התוכן חי
 
 
-def test_both_needles_gone_after_the_drops_is_empty_query_not_a_crash():
-    """שאילתה של 81 תווי בקרה: מחט השם מושמטת (ארוכה מ-80) ומחט התוכן
-    מתרוקנת בניקוי. בדיקת ריקנות שרצה **לפני** ההשמטות הייתה מעבירה את
-    הזוג הריק לבונה השאילתה ומפילה את הכלי, במקום להיענות ב-``empty_query``.
+def test_control_characters_in_the_query_are_a_real_content_needle():
+    """שאילתה של 81 תווי בקרה: מחט השם מושמטת (ארוכה מ-80), ומחט התוכן נשלחת כמו שהיא.
+
+    תוכן פתק נשמר כמו שנשלח, כולל תווי בקרה, ולכן גם המחט אינה מנוקה. עד אוקטובר
+    2026 הניקוי מחק אותם מהמחט, והשאילתה הזו נענתה ב-``empty_query``.
     """
     from sticky_notes_target import MAX_NOTE_TITLE
 
     b = _Recorder()
-    res = handlers.search_notes(b, 7, query="\x07" * (MAX_NOTE_TITLE + 1), search_content=True)
-    assert res == {"ok": False, "error": "empty_query"}
-    assert b.calls == []
+    query = "\x07" * (MAX_NOTE_TITLE + 1)
+    res = handlers.search_notes(b, 7, query=query, search_content=True)
+    assert res["ok"] is True
+    assert b.last["query"] == ""
+    assert b.last["content_query"] == query
+
+
+@pytest.mark.parametrize("query", ["", "   ", " \n\t "])
+def test_a_query_of_whitespace_only_is_empty_query_in_both_modes(query):
+    """ריקנות נבדקת על המחטים אחרי ``strip`` — אותו כלל של גוף הפתק."""
+    for search_content in (False, True):
+        b = _Recorder()
+        res = handlers.search_notes(b, 7, query=query, search_content=search_content)
+        assert res == {"ok": False, "error": "empty_query"}
+        assert b.calls == []
+
+
+def test_a_query_with_a_nul_is_invalid_query_before_the_backend():
+    """מונגו דוחה ``$regex`` עם NUL בחריגה — כאן זה ``invalid_query``, כמו בוובאפ.
+
+    ``note_search_needle_error`` הוא הבדיקה המשותפת. עד אוקטובר 2026 הניקוי מחק את
+    ה-NUL מהמחט, ולכן איש לא ראה את הדחייה של המסד.
+    """
+    for search_content in (False, True):
+        b = _Recorder()
+        res = handlers.search_notes(b, 7, query="a\x00b", search_content=search_content)
+        assert res == {"ok": False, "error": "invalid_query"}
+        assert b.calls == []
 
 
 def test_the_title_path_still_canonicalizes():
@@ -399,12 +425,43 @@ def test_whitespace_only_over_the_ceiling_is_content_too_long():
     assert [c[0] for c in under.calls] == ["get_note"]
 
 
-def test_crlf_in_the_needle_still_matches_a_body_stored_with_newlines():
-    """הקלט מנורמל כמו שהתוכן נורמל בכתיבה."""
-    b = _with_note("a\nb")
-    assert handlers.note_str_replace(
-        b, 7, note_id=_OID, old_string="a\r\nb", new_string="c"
-    )["ok"] is True
+def test_old_and_new_string_are_used_as_sent_like_edit_file():
+    """``old_string`` ו-``new_string`` כמו שנשלחו, כמו ב-``edit_file``.
+
+    הגוף נשמר כמו שנשלח, ולכן אין צורה אחרת להשוות אליה: CRLF תופס גוף שנשמר עם
+    CRLF ולא גוף עם ``\\n`` בלבד, ו-``&amp;`` ב-``new_string`` נכתב כ-``&amp;``. עד
+    אוקטובר 2026 שניהם עברו קיפול CRLF ו-``html.unescape``.
+    """
+    crlf = _with_note("a\r\nb &amp; c")
+    res = handlers.note_str_replace(crlf, 7, note_id=_OID, old_string="a\r\nb", new_string="x &lt;y&gt;")
+    assert res["ok"] is True, res
+    assert crlf.last["fields"] == {"content": "x &lt;y&gt; &amp; c"}
+
+    lf = _with_note("a\nb")
+    res = handlers.note_str_replace(lf, 7, note_id=_OID, old_string="a\r\nb", new_string="c")
+    assert res == {"ok": False, "error": "no_match"}
+    assert [c[0] for c in lf.calls] == ["get_note"]
+
+
+def test_the_write_verdict_of_the_backend_reaches_the_agent():
+    """``content_changed`` ו-``content_diff`` עוברים כמו שה-backend מדד אותם.
+
+    ה-handler אינו מחשב אותם: הם מהמסמך שהכתיבה השאירה (``ProductionBackend.update_note``).
+    """
+    diff = {"line": 1, "offset_bytes": 0}
+    b = _Recorder(
+        get_note={"ok": True, "note": {"id": _OID, "content": "alpha"}},
+        update_note={
+            "ok": True, "note": {"id": _OID, "content": "beta", "content_sha256": "h"},
+            "content_changed": True, "content_diff": diff,
+        },
+    )
+    res = handlers.note_str_replace(b, 7, note_id=_OID, old_string="alpha", new_string="beta")
+    assert res == {
+        "ok": True, "replacements": 1,
+        "note": {"id": _OID, "content": "beta", "content_sha256": "h"},
+        "content_changed": True, "content_diff": diff,
+    }
 
 
 def test_a_missing_note_never_reaches_the_write():
@@ -456,9 +513,8 @@ def _board_note(**over):
         "ok": True,
         "note": {
             "id": _OID, "content": 'a "b"', "title": "t", "board_id": _BOARD,
-            "repo_name": None, "repo_path": None,
+            "repo_name": None, "repo_path": None, "content_sha256": "sha-of-the-board-body",
         },
-        "stored_content": 'a "b"',
         "version": 1,
         "target": "board",
         "board_id": _BOARD,
@@ -472,9 +528,8 @@ def _repo_note(**over):
         "ok": True,
         "note": {
             "id": _OID, "content": "secret", "title": None, "board_id": None,
-            "repo_name": "CodeBot", "repo_path": "a.py",
+            "repo_name": "CodeBot", "repo_path": "a.py", "content_sha256": "sha-of-the-repo-body",
         },
-        "stored_content": "secret",
         "version": 1,
         "target": "repo",
         "repo_name": "CodeBot",
@@ -529,7 +584,6 @@ def test_a_half_repo_document_is_gated_like_a_repo_note():
             "id": _OID, "content": "secret", "title": None, "board_id": None,
             "repo_name": "CodeBot", "repo_path": None,
         },
-        "stored_content": "secret",
         "target": "unknown",
     }
     b = _Recorder(get_note=half)
@@ -551,7 +605,6 @@ def test_a_repo_note_is_readable_by_the_admin_with_its_target_and_orphan_state()
     assert (res["target"], res["repo_name"], res["repo_path"]) == ("repo", "CodeBot", "a.py")
     assert res["version"] == 3
     assert res["orphaned"] is True
-    assert "stored_content" not in res
     # והיתמות נשאלת על אותו זוג בדיוק.
     assert b.calls[-1] == (
         "repo_path_orphaned", None, {"repo_name": "CodeBot", "repo_path": "a.py"},
@@ -588,7 +641,6 @@ def test_a_file_note_carries_the_file_name_the_list_tool_takes():
             "id": _OID, "content": "x", "title": None, "board_id": None,
             "repo_name": None, "repo_path": None,
         },
-        "stored_content": "x",
         "target": "file", "file_name": "notes.md", "file_id": "f" * 24,
     })
 
@@ -597,25 +649,27 @@ def test_a_file_note_carries_the_file_name_the_list_tool_takes():
     assert (res["target"], res["file_name"], res["file_id"]) == ("file", "notes.md", "f" * 24)
 
 
-def test_the_body_comes_back_exactly_as_stored_not_decoded():
-    """**הגוף המאוחסן, לא המפוענח.** כלי הרשימה מציגים ``"`` על פתק ישן
-    שנשמר עם ``&quot;``; ``get_note`` מחזיר את ``&quot;`` — כמו
-    ``get_note_version``, כדי שהשוואה בין גרסה קודמת לגוף הנוכחי תהיה
-    בית-בית. נופל אם ה-handler יחזור להעביר את ``note["content"]`` כמות שהוא.
+def test_the_body_and_its_hash_pass_through_untouched():
+    """``note.content`` ו-``note.content_sha256`` חוזרים בדיוק כמו שה-backend נתן אותם.
+
+    ה-backend מחזיר את הגוף כמו שהוא שמור (``_as_note_hashed``), וה-handler אינו
+    מפענח ואינו מחליף דבר. עד אוקטובר 2026 ה-handler החליף כאן את הגוף ב-
+    ``stored_content``, כי כלי הרשימה פענחו ישויות.
     """
-    b = _Recorder(get_note=_board_note(stored_content='a &quot;b&quot;'))
+    note = {**_board_note()["note"], "content": 'a &quot;b&quot; &amp;copy=1'}
+    b = _Recorder(get_note=_board_note(note=note))
 
     res = handlers.get_note(b, 7, note_id=_OID, is_admin=False)
 
-    assert res["note"]["content"] == 'a &quot;b&quot;'
-    assert "stored_content" not in res
+    assert res["note"]["content"] == 'a &quot;b&quot; &amp;copy=1'
+    assert res["note"]["content_sha256"] == "sha-of-the-board-body"
 
 
 def test_a_non_string_stored_body_keeps_the_list_tools_shape():
     """אף כותב אינו שומר גוף שאינו מחרוזת; אם יש כזה, הכלי מציג אותו בדיוק
     כמו כלי הרשימה במקום להמציא לו מחרוזת."""
     note = {**_board_note()["note"], "content": None}
-    b = _Recorder(get_note=_board_note(note=note, stored_content=None))
+    b = _Recorder(get_note=_board_note(note=note))
 
     assert handlers.get_note(b, 7, note_id=_OID, is_admin=False)["note"]["content"] is None
 
@@ -629,7 +683,7 @@ def test_the_version_is_the_number_the_backend_reports():
 def test_an_empty_body_carries_a_null_version_not_a_made_up_one():
     """גוף ריק אינו מצולם לעולם, ולכן אין מספר שיחזיר אותו — ``null``, לא ``1``."""
     note = {**_board_note()["note"], "content": ""}
-    b = _Recorder(get_note=_board_note(note=note, stored_content="", version=None))
+    b = _Recorder(get_note=_board_note(note=note, version=None))
 
     res = handlers.get_note(b, 7, note_id=_OID, is_admin=False)
 

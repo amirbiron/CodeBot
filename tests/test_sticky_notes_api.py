@@ -13,39 +13,16 @@ if str(ROOT) not in sys.path:
 
 import importlib
 sticky_mod = importlib.import_module('webapp.sticky_notes_api')
-from webapp.sticky_notes_api import _as_note_response, _resolve_scope, _sanitize_text, _decode_content_b64
-
-
-class TestStickyNotesSanitize(unittest.TestCase):
-    def test_sanitize_preserves_quotes_and_text(self):
-        text = '"לפי ריפו"'
-        self.assertEqual(_sanitize_text(text), '"לפי ריפו"')
-
-    def test_sanitize_unescapes_html_entities(self):
-        text = '&quot;בדיקה &amp; ועוד&quot;'
-        self.assertEqual(_sanitize_text(text), '"בדיקה & ועוד"')
-
-    def test_sanitize_handles_long_notes_without_trimming_short_content(self):
-        long_text = "א" * 6000
-        out = _sanitize_text(long_text)
-        self.assertEqual(len(out), 6000)
-
-    def test_sanitize_caps_extreme_length(self):
-        very_long = "ב" * 25000
-        out = _sanitize_text(very_long)
-        self.assertEqual(len(out), 20000)
-
-    def test_sanitize_strips_control_chars(self):
-        dirty = "טקסט\x00\x07ניקוי"
-        self.assertEqual(_sanitize_text(dirty), "טקסטניקוי")
+from webapp.sticky_notes_api import _as_note_response, _resolve_scope, _decode_content_b64
 
 
 class TestNoteResponse(unittest.TestCase):
-    def test_as_note_response_unescapes_content(self):
+    def test_as_note_response_returns_the_content_as_stored(self):
+        """בלי פענוח: ``&quot;`` שבמסד חוזר כ-``&quot;``. עד אוקטובר 2026 חזר ``"``."""
         doc = {
             '_id': '1',
             'file_id': 'file',
-            'content': '&quot;שלום&quot;',
+            'content': '&quot;שלום&quot; &amp; ?a=1&copy=2',
             'position_x': 120,
             'position_y': 260,
             'width': 300,
@@ -58,7 +35,7 @@ class TestNoteResponse(unittest.TestCase):
             'anchor_text': None,
         }
         note = _as_note_response(doc)
-        self.assertEqual(note['content'], '"שלום"')
+        self.assertEqual(note['content'], '&quot;שלום&quot; &amp; ?a=1&copy=2')
         self.assertEqual(note['size']['width'], 300)
         self.assertEqual(note['size']['height'], 200)
 
@@ -227,6 +204,52 @@ class TestStickyNotesApiContentB64(unittest.TestCase):
         self.assertTrue(r.get_json()["ok"])
         self.assertEqual(self.db.sticky_notes._docs[-1]["content"], content)
 
+
+    #: מה שהדפדפן שולח כשמשתמש מקליד את הטקסט הזה בפתק: ישויות בטקסט, בקוד בשורה
+    #: ובבלוק קוד, URL עם שם legacy בלי נקודה-פסיק, CRLF, תו בקרה, ורווחים בקצוות.
+    TYPED = (
+        "&amp; &lt;div&gt; &quot;\n"
+        "`&amp; &lt;div&gt; &quot;`\n"
+        "```\n&amp; &lt;div&gt; &quot;\n```\n"
+        "https://x.test/?a=1&copy=2&params=3\r\n"
+        "bell\x07  \n"
+    )
+
+    @staticmethod
+    def _b64(text):
+        return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+    def test_create_stores_the_content_exactly_as_typed(self):
+        """עד אוקטובר 2026 נשמר כאן ``& <div> "`` — כבר בשמירה הראשונה."""
+        self._login()
+        r = self.client.post(f"/api/sticky-notes/{self.file_id}", json={"content_b64": self._b64(self.TYPED)})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        self.assertEqual(self.db.sticky_notes._docs[-1]["content"], self.TYPED)
+
+    def test_update_stores_the_content_exactly_as_typed(self):
+        self._login()
+        oid = sticky_mod.ObjectId(self.note_id)
+        self.db.sticky_notes._docs.append({"_id": oid, "user_id": self.user_id, "file_id": self.file_id, "updated_at": None})
+        r = self.client.put(f"/api/sticky-notes/note/{self.note_id}", json={"content_b64": self._b64(self.TYPED)})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(self.db.sticky_notes._docs[-1]["content"], self.TYPED)
+
+    def test_content_that_is_not_a_string_is_refused(self):
+        """U3: עד אוקטובר 2026 ``str()`` שמר מילון כ-``"{'a': 1}"``. היום — 400, ושום דבר לא נכתב."""
+        self._login()
+        for bad in ({"a": 1}, ["x"], 5):
+            r = self.client.post(f"/api/sticky-notes/{self.file_id}", json={"content": bad})
+            self.assertEqual(r.status_code, 400, bad)
+            self.assertEqual(r.get_json(), {"ok": False, "error": "invalid_content"})
+        self.assertEqual(self.db.sticky_notes._docs, [])
+
+    def test_content_over_the_ceiling_is_refused_not_clipped(self):
+        self._login()
+        long_text = "א" * (sticky_mod.MAX_NOTE_CHARS + 1)
+        r = self.client.post(f"/api/sticky-notes/{self.file_id}", json={"content_b64": self._b64(long_text)})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json(), {"ok": False, "error": "content_too_long", "max": sticky_mod.MAX_NOTE_CHARS})
+        self.assertEqual(self.db.sticky_notes._docs, [])
 
 class TestSyncStickyNotesOnRename(unittest.TestCase):
     """בדיקות ל-sync_sticky_notes_on_rename מ-sticky_notes_scope."""

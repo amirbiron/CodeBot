@@ -567,13 +567,32 @@ _GET_FILE_SHA256_DOC = (
 # ו-``content_changed`` משווה אותו למה שהכלי התכוון לשמור. המשפט האחרון הוא
 # הגבול של הבדיקה: ה-SDK ממיר ארגומנטים לפני שגוף הכלי רץ, ולכן שינוי שקרה
 # בדרך אל הכלי נראה רק לסוכן שמשווה ל-hash שחישב בעצמו.
+_WRITE_HASH_SCOPE_DOC = (
+    "That covers only tool-to-storage; comparing the hash "
+    "with your own is the only check of what reached the tool."
+)
 _WRITE_SHA256_DOC = (
     " file.content_sha256 is the SHA-256 hex of the exact UTF-8 bytes of the "
     "version as read back from storage: " + _CONTENT_SHA256_CHECK + ". "
     "content_changed is true when that differs from what this tool meant to "
     "save (content_diff says where), null when it could not be read back (file "
-    "then carries no hash). That covers only tool-to-storage; comparing the hash "
-    "with your own is the only check of what reached the tool."
+    "then carries no hash). " + _WRITE_HASH_SCOPE_DOC
+)
+
+# אותו חוזה בכלי הפתקים (``_note_write_answer`` ב-``backend.py``): משפט אחד לכל כלי
+# שכותב גוף של פתק, ומשפט אחד ל-``codekeeper_get_note``. ה-hash הוא של מה שנשמר:
+# בעדכון — מהמסמך שהכתיבה עצמה החזירה; ביצירה — מקריאה חוזרת לפי ה-``_id``, ולכן
+# רק שם יש ``null``. ההסבר המלא ב-``docs/mcp-server.rst`` (``mcp-content-sha256``).
+_NOTE_WRITE_SHA256_DOC = (
+    " note.content_sha256 is the SHA-256 hex of the exact UTF-8 bytes of the body as "
+    "stored: " + _CONTENT_SHA256_CHECK + ". When the call wrote a body, content_changed "
+    "is true if the stored body differs from what this tool meant to save (content_diff "
+    "says where), null if a new note could not be read back (note then carries only its "
+    "id). " + _WRITE_HASH_SCOPE_DOC
+)
+_GET_NOTE_SHA256_DOC = (
+    " note.content_sha256 is the SHA-256 hex of the exact UTF-8 bytes of content: "
+    + _CONTENT_SHA256_CHECK + "."
 )
 
 # השער האופטימי של כלי העריכה (``expected_content_sha256``) — **משפט אחד בתיאור הכלי
@@ -3080,6 +3099,7 @@ def build_mcp(
             "a 1-indexed source line (as read via codekeeper_get_file); without line the "
             "note floats at a default position. Notes appear in the CodeKeeper web UI. "
             "Requires write permission."
+            + _NOTE_WRITE_SHA256_DOC
         ),
         annotations=_WRITE_TOOL,
     )
@@ -3145,6 +3165,7 @@ def build_mcp(
             "codekeeper_create_note this needs no file. mode is 'surface' (sits on the "
             "board, default) or 'screen' (floats against the viewport). An optional title "
             "labels the note and must be unique on that board. Requires write permission."
+            + _NOTE_WRITE_SHA256_DOC
         ),
         annotations=_WRITE_TOOL,
     )
@@ -3176,6 +3197,7 @@ def build_mcp(
             "when the content changes, the previous body is kept as a version (up to a "
             "fixed number of recent revisions), readable with "
             "codekeeper_list_note_versions. Requires write permission."
+            + _NOTE_WRITE_SHA256_DOC
         ),
         annotations=_UPDATE_IN_PLACE_TOOL,
     )
@@ -3250,6 +3272,7 @@ def build_mcp(
             "in CodeKeeper and never touches the mirror or the GitHub repo. mode is "
             "'surface' (default) or 'screen'. An optional title labels the note and must "
             "be unique on that file. Requires write permission."
+            + _NOTE_WRITE_SHA256_DOC
         ),
         annotations=_WRITE_TOOL,
     )
@@ -3318,6 +3341,7 @@ def build_mcp(
             "is kept as a version, readable with codekeeper_list_note_versions. NOT "
             "idempotent — do not blindly retry: a repeated call re-applies the "
             "replacement to the already-edited body. Requires write permission."
+            + _NOTE_WRITE_SHA256_DOC
         ),
         annotations=_REPLACE_IN_PLACE_TOOL,
     )
@@ -3393,6 +3417,7 @@ def build_mcp(
             "conflict. A note you do not own answers not_found, and so does a note on a "
             "mirrored repository unless you are the admin; a note being edited right now "
             "answers conflict — read it again."
+            + _GET_NOTE_SHA256_DOC
         ),
         annotations=_READ_ONLY_TOOL,
     )
