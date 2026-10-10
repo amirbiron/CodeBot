@@ -79,11 +79,14 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | `spec_from_file_location` / `module_from_spec` / `exec_module` — טעינה של קובץ לפי נתיב (סקריפט, טסט, conftest) | `bugbot-rules/load-by-path-without-import-bookkeeping.md` |
 | שינוי שנעשה כדי לספק לינטר: הזזת `import`, ניקוי אזהרת escape, הרחבת `except` | `bugbot-rules/linter-fix-changes-runtime-behavior.md` |
 | מחיקה / שיתוף / שינוי שם לפי `_id` שהגיע מהממשק, `created_at`, או פעולה גורפת על `code_snippets` ו-`large_files` | `bugbot-rules/logical-entity-vs-version-document.md` |
+| `find_one(` / `LIMIT 1` / `.first()` / `[0]` / `[:1]` **על מסנן שאינו אינדקס ייחודי**, בלי `sort` / `ORDER BY` | `bugbot-rules/unsorted-representative.md` — איזו שורה נבחרה, ומי קבע |
+| `$set` / `SET` של `is_active`, `is_default`, `is_current`, `is_primary` ל-true — בשחזור, `undelete`, הפעלה מחדש — או `is_active = 0` ואחריו `INSERT`, או הכנסה (`INSERT` / `insert_one`) של רשומה פעילה בלי כיבוי הקודם לפניה | `bugbot-rules/single-active-invariant-in-code.md` — כמה פעילים זה יכול להשאיר, ומי במסד מונע את השני |
 | שליחה לספק עם תקרת קלט (טוקנים, אורך שדה), או `value[:LIMIT]` לפני שמירה | `bugbot-rules/silent-truncation-at-sink.md` |
 | `clientX` בחיסור, `left`/`right`, גרירה, שינוי גודל, או הצמדה ל-viewport | `BY-STACK/hebrew-source.md` H7 + `bugbot-rules/rtl-geometry-and-clamp.md` |
 | `EWMA` / `_ewma`, `anomaly_detected`, `cooldown`, `first_ts`, `adaptive_*_threshold_*` | `RECURRING-PATTERNS.md` R9 + `BY-STACK/observability.md` |
 | הרצה ראשונה של ג'וב סנכרון: `baseline`, `last_*_check_time`, `if not last_seen` | `BY-STACK/cron-jobs.md` דפוס 10 — מה ההרצה הראשונה שולחת |
 | תגית `<script>` / `<link>` חדשה בתבנית, או כתיבת `Cache-Control` | `BY-STACK/browser-policy.md` B4–B5 + `bugbot-rules/stale-asset-cache-policy.md` |
+| כותב ל-`session[...]` ערך שבקשה אחרת חייבת למצוא — state של OAuth, `code_verifier`, nonce, יעד חזרה, דגל "פעם אחת" — או צורך ערך כזה ב-`session.pop(` או ב-`session.clear(` | `bugbot-rules/cookie-session-last-write-wins.md` — כל תשובה מקבילה מחזירה את ה-cookie שלפני הכתיבה, והאחרונה מנצחת |
 | **לפני כתיבת פונקציה חדשה** שמפרמטת, מסננת, מחשבת או ממפה — גודל, תאריך, אייקון, שם שפה, רשימת ערכים, שאילתה | `RECURRING-PATTERNS.md` R6: `grep` על שם התופעה לפני שכותבים. יש עותק — מאחדים |
 | `except TypeError` / `except AttributeError` סביב קריאה ל-SDK חיצוני | `bugbot-rules/dead-parameter-external-api.md` |
 | route ב-`GET` שגופו מוחק, מאפס או מריץ פעולה בלתי הפיכה | `bugbot-rules/auth-before-irreversible-action.md` §5 |
