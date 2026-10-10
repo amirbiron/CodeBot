@@ -11,7 +11,6 @@ never pass a client-supplied user id here.
 from __future__ import annotations
 
 import functools
-import html
 import itertools
 import re
 from typing import Annotated, Any, Callable, NamedTuple
@@ -1710,7 +1709,7 @@ def update_file_description(
     be decided here; this handler only adds the ``message`` that names the unit
     (:func:`_over_the_description_ceiling`), the half the agent was missing.
 
-    Rejecting rather than clipping is the same call :func:`_sanitize_note_text`
+    Rejecting rather than clipping is the same call :func:`_note_content_error`
     makes: an agent does not see the stored result, so a silent truncation is
     data loss it will never learn about.
     """
@@ -1780,8 +1779,6 @@ DEFAULT_NOTE_COLOR = DEFAULT_NOTE_COLOR_ID
 NOTE_FLOATING_ANCHOR = "__floating__"
 
 _NOTE_ID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
-# עותק של webapp/sticky_notes_api.py:_CONTROL_CHARS_RE — לשמור מסונכרן
-_NOTE_CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
 
 
 def _clean_note_id(note_id: Any) -> str | None:
@@ -1830,21 +1827,36 @@ def _note_color_or_error(color: str | None, *, default: str | None) -> Any:
     return resolved
 
 
-def _sanitize_note_text(text: Any) -> str:
-    """Normalize note text like the webapp does — without truncating.
+def _note_content_error(content: Any) -> dict[str, Any] | None:
+    """The refusal for a note body sent to be written — or ``None``: then it is
+    saved **exactly as sent**.
 
-    Length is the caller's decision (reject, not clip): silent clipping is data
-    loss an agent won't notice.
+    **No cleaning, the same rule as files** (``docs/quality/code-normalization.md``).
+    Until October 2026 every body went through ``html.unescape``, CRLF folding,
+    control-character removal and ``.strip()``, so ``&amp;`` typed by the user was
+    stored as ``&`` and ``&copy=`` inside a URL became ``©=``. The escape belongs
+    to whoever displays the text.
+
+    **Emptiness is judged on a stripped copy, and the original is what is stored.**
+    A body of whitespace only is still refused (``empty_content``), but leading
+    and trailing whitespace of a real body is kept. The length is measured on what
+    is stored, not on the copy.
+
+    Rejecting rather than clipping: an agent does not see the stored result, so a
+    silent truncation is data loss it will never learn about.
     """
-    if text is None:
-        return ""
-    try:
-        s = str(text)
-    except Exception:
-        return ""
-    s = html.unescape(s)
-    s = s.replace("\r\n", "\n").replace("\r", "\n")
-    return _NOTE_CONTROL_CHARS_RE.sub("", s)
+    if not isinstance(content, str):
+        # Through MCP this never happens: FastMCP validates ``content: str`` against
+        # the tool signature before the handler runs, and refuses a number, an
+        # object or ``null`` (mcp 1.28.1, ``func_metadata.call_fn_with_arg_validation``;
+        # measured). The check is for a direct caller of the handler, which would
+        # otherwise fail on ``.strip()`` — and it answers with the webapp's code.
+        return {"ok": False, "error": "invalid_content"}
+    if not content.strip():
+        return {"ok": False, "error": "empty_content"}
+    if len(content) > MAX_NOTE_CONTENT:
+        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+    return None
 
 
 def _valid_note_line(line: Any) -> int | None:
@@ -1859,8 +1871,9 @@ def _valid_note_line(line: Any) -> int | None:
 
 
 def _clean_anchor_text(anchor_text: Any) -> str | None:
-    text = _sanitize_note_text(anchor_text).strip()
-    # קיטום קוסמטי בלבד (פריטת הוובאפ) — לא תוכן משתמש שאסור לאבד
+    # בדיוק מה שהוובאפ עושה: ``strip`` וקיטום קוסמטי — זו תווית ולא תוכן משתמש
+    # שאסור לאבד. בלי פענוח: עד אוקטובר 2026 עברה כאן ``html.unescape``.
+    text = anchor_text.strip() if isinstance(anchor_text, str) else ""
     return text[:MAX_ANCHOR_TEXT] or None
 
 
@@ -1899,11 +1912,9 @@ def create_note(
     if not name:
         return {"ok": False, "error": "missing_file_name"}
 
-    clean = _sanitize_note_text(content).strip()
-    if not clean:
-        return {"ok": False, "error": "empty_content"}
-    if len(clean) > MAX_NOTE_CONTENT:
-        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+    refused = _note_content_error(content)
+    if refused:
+        return refused
 
     line_i: int | None = None
     if line is not None:
@@ -1920,7 +1931,7 @@ def create_note(
     return backend.create_note(
         user_id,
         file_name=name,
-        content=clean,
+        content=content,
         line=line_i,
         color=color_s,
         anchor_text=_clean_anchor_text(anchor_text),
@@ -1976,11 +1987,9 @@ def create_board_note(
     if not _BOARD_ID_RE.match(bid):
         return {"ok": False, "error": "invalid_board_id"}
 
-    clean = _sanitize_note_text(content).strip()
-    if not clean:
-        return {"ok": False, "error": "empty_content"}
-    if len(clean) > MAX_NOTE_CONTENT:
-        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+    refused = _note_content_error(content)
+    if refused:
+        return refused
 
     if mode is not None and not is_valid_board_mode(mode):
         return {"ok": False, "error": "invalid_mode", "allowed": ["surface", "screen"]}
@@ -1993,7 +2002,7 @@ def create_board_note(
     return backend.create_board_note(
         user_id,
         board_id=bid,
-        content=clean,
+        content=content,
         color=color_s,
         mode=normalize_mode(mode, DEFAULT_BOARD_MODE),
         title=normalize_note_title(title),
@@ -2079,11 +2088,9 @@ def create_repo_note(
     if not path:
         return {"ok": False, "error": "invalid_repo_path"}
 
-    clean = _sanitize_note_text(content).strip()
-    if not clean:
-        return {"ok": False, "error": "empty_content"}
-    if len(clean) > MAX_NOTE_CONTENT:
-        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+    refused = _note_content_error(content)
+    if refused:
+        return refused
 
     if mode is not None and not is_valid_board_mode(mode):
         return {"ok": False, "error": "invalid_mode", "allowed": ["surface", "screen"]}
@@ -2096,7 +2103,7 @@ def create_repo_note(
         user_id,
         repo_name=name,
         repo_path=path,
-        content=clean,
+        content=content,
         color=color_s,
         mode=normalize_mode(mode, DEFAULT_BOARD_MODE),
         title=normalize_note_title(title),
@@ -2169,8 +2176,9 @@ def note_str_replace(
     **התקרה נבדקת לפני שהתוצאה נבנית** — ``max_size=MAX_NOTE_CONTENT``, ו-
     ``code_too_large`` שחוזר מ-:func:`_apply_edit` נענה ``content_too_long`` עם
     ``max``, התשובה שהכלי נתן גם לפני #3495 על תוצאה ארוכה מדי שאינה רווחים בלבד.
-    הבדיקה שאחרי ההחלפה נשארת כרשת על מה שנכתב, ואינה ההגנה: :func:`_apply_edit`
-    מחשב את אורך התוצאה בדיוק, ולכן גוף שחוזר ממנו כבר בתוך התקרה. ומכאן הסדר בין
+    הבדיקה שאחרי ההחלפה היא :func:`_note_content_error`, של כל כלי שכותב פתק, ונשארת
+    כרשת על מה שנכתב, ואינה ההגנה: :func:`_apply_edit` מחשב את אורך התוצאה בדיוק,
+    ולכן גוף שחוזר ממנו כבר בתוך התקרה. ומכאן הסדר בין
     שני הסירובים, וזה השינוי היחיד בתשובה: תוצאה של רווחים בלבד שארוכה מהתקרה היא
     ``content_too_long`` (עד #3495 — ``empty_content``, כי בדיקת הריקות רצה
     ראשונה), ורק בתוך התקרה ``empty_content``.
@@ -2199,12 +2207,12 @@ def note_str_replace(
     if body == "":
         return {"ok": False, "error": "empty_note"}
 
-    # הקלט מנורמל כמו שהתוכן נורמל בכתיבה — אחרת ``old_string`` עם CRLF
-    # לא היה תופס גוף שנשמר עם ``\n`` בלבד.
-    old_clean = _sanitize_note_text(old_string)
-    new_clean = _sanitize_note_text(new_string)
+    # ``old_string`` ו-``new_string`` כמו שנשלחו, בדיוק כמו ב-``edit_file``: הגוף
+    # נשמר כמו שנשלח, ולכן אין צורה אחרת שצריך להשוות אליה. עד אוקטובר 2026
+    # שניהם עברו ``html.unescape`` וקיפול CRLF, ו-``new_string`` עם ``&amp;``
+    # נשמר כ-``&``.
     new_body, occurrences, err = _apply_edit(
-        body, old_clean, new_clean, bool(replace_all), max_size=MAX_NOTE_CONTENT
+        body, old_string, new_string, bool(replace_all), max_size=MAX_NOTE_CONTENT
     )
     if err == "code_too_large":
         # אותה תקרה בקוד של הפתקים — התשובה של כל כלי פתק שמקבל תוכן ארוך מדי.
@@ -2215,13 +2223,13 @@ def note_str_replace(
             out["occurrences"] = occurrences
             out["hint"] = "pass a longer unique old_string, or set replace_all=true"
         return out
-    if not new_body.strip():
-        return {"ok": False, "error": "empty_content"}
-    # רשת על מה שנכתב, כמו אצל כל כותב פתקים כאן: ``backend.update_note`` אינו
-    # בודק אורך. היא אינה ההגנה — ``_apply_edit`` כבר סירב לפני שהתוצאה נבנתה,
-    # וכל עוד החשבון שם מדויק השורה הזו אינה נדלקת.
-    if len(new_body) > MAX_NOTE_CONTENT:
-        return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
+    # הגוף שנבנה עובר באותה בדיקה של כל כלי שכותב פתק, ``_note_content_error``, ולא
+    # בעותק שלה: ריקנות על עותק אחרי ``strip``, ואורך כרשת על מה שנכתב, כי
+    # ``backend.update_note`` אינו בודק אורך. האורך אינו ההגנה כאן — ``_apply_edit``
+    # כבר סירב לפני שהתוצאה נבנתה, וכל עוד החשבון שם מדויק הוא אינו נדלק.
+    refused = _note_content_error(new_body)
+    if refused:
+        return refused
 
     res = backend.update_note(
         user_id, note_id=nid, fields={"content": new_body}, expected_content=body
@@ -2231,7 +2239,11 @@ def note_str_replace(
             res = dict(res)
             res["hint"] = "the note changed since it was read — re-read it and retry"
         return res
-    return {"ok": True, "replacements": occurrences, "note": res.get("note")}
+    # ``content_changed`` (ו-``content_diff`` כשהוא נדלק) עוברים כמו שה-backend
+    # מדד אותם על המסמך שהכתיבה השאירה — ראו ``ProductionBackend.update_note``.
+    out = {"ok": True, "replacements": occurrences, "note": res.get("note")}
+    out.update({k: res[k] for k in ("content_changed", "content_diff") if k in res})
+    return out
 
 
 def get_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dict[str, Any]:
@@ -2252,8 +2264,10 @@ def get_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dic
     נופל בקריאה, לא לצד המתיר. ורק ``True`` ממש פותח — ערך "אמיתי" שאינו
     בוליאני נשאר סגור, כמו ``_declares_write``.
 
-    **הגוף חוזר בדיוק כפי שהוא מאוחסן** (``stored_content``), ולא הגוף
-    המפוענח שכלי הרשימה מציגים; הנימוק המלא ב-``ProductionBackend.get_note``.
+    **הגוף חוזר בדיוק כפי שהוא מאוחסן** — כמו בכל כלי פתקים, מאז שאף אחד מהם
+    אינו מפענח (עד אוקטובר 2026 כלי הרשימה הריצו ``html.unescape``, והכלי הזה
+    עקף זאת בשדה ``stored_content`` שנמחק). ``note.content_sha256`` הוא ה-hash
+    של הגוף הזה, באותה הגדרה של ``file.content_sha256``.
     ``version`` הוא מספר הגוף **הנוכחי** — המספר ש-``get_note_version``
     יקרא אותו בו — ומגיע **מאותה קריאה** של הגוף (``with_version=True``):
     ה-backend מוכיח ששום כתיבה לא נגעה בפתק בין קריאת הגוף לקריאת
@@ -2284,16 +2298,10 @@ def get_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dic
     if is_repo_note and is_admin is not True:
         return {"ok": False, "error": "not_found"}
 
-    stored = current.get("stored_content")
-    if isinstance(stored, str):
-        # רק מחרוזת מחליפה את הגוף המפוענח; גוף שאינו מחרוזת (אף כותב אינו
-        # שומר כזה) נשאר כפי ש-``_as_note`` הציג אותו, זהה לכלי הרשימה.
-        note["content"] = stored
-
     out: dict[str, Any] = {"ok": True, "note": note}
     # היעד, בדיוק בארגומנטים שכלי הרשימה המתאים דורש — כמו פגיעת חיפוש;
     # ו-``version`` שנקרא באותה קריאה תחומה כמו הגוף.
-    out.update({k: v for k, v in current.items() if k not in ("ok", "note", "stored_content")})
+    out.update({k: v for k, v in current.items() if k not in ("ok", "note")})
     if is_repo_note and backend.repo_path_orphaned(
         repo_name=str(note.get("repo_name") or ""), repo_path=str(note.get("repo_path") or "")
     ):
@@ -2349,22 +2357,24 @@ def search_notes(
 
     ``limit`` **נחתך ולא נדחה**: מספר גדול מדי הוא בקשה לרוחב, לא שגיאה.
     """
-    from sticky_notes_target import MAX_NOTE_TITLE, canonical_title_text
+    from sticky_notes_target import MAX_NOTE_TITLE, canonical_title_text, note_search_needle_error
 
     # **מחט לכל יעד, כי היעדים נשמרו אחרת.**
     #
     # שם עובר ``canonical_title_text`` בכתיבה: כיווץ רצפי רווחים ואיחוד
-    # לשורה אחת. תוכן עובר ``_sanitize_note_text``, ש**משמר** את שניהם.
-    # מחט אחת לשני הפרדיקטים שוברת בדיוק אחד מהם: מחט קנונית מפספסת
-    # תוכן רב-שורתי, ומחט גולמית מפספסת שם שנשמר מכווץ — כלומר הדלקת
-    # הדגל הייתה **מורידה** התאמות-שם במקום רק להוסיף התאמות-גוף. זה
-    # בדיוק הכשל השקט ש-``repo_notes_filter`` מתעד: נכתב בצורה אחת,
-    # מחופש בצורה אחרת.
+    # לשורה אחת. תוכן נשמר כמו שנשלח (``_note_content_error``), ולכן מחט
+    # התוכן היא השאילתה אחרי ``strip`` בלבד — בלי פענוח, שאחרת ``&amp;``
+    # היה מחפש ``&``. מחט אחת לשני הפרדיקטים שוברת בדיוק אחד מהם: מחט
+    # קנונית מפספסת תוכן רב-שורתי, ומחט גולמית מפספסת שם שנשמר מכווץ —
+    # כלומר הדלקת הדגל הייתה **מורידה** התאמות-שם במקום רק להוסיף
+    # התאמות-גוף. זה בדיוק הכשל השקט ש-``repo_notes_filter`` מתעד: נכתב
+    # בצורה אחת, מחופש בצורה אחרת.
     #
     # **בלי קיצוץ** באף מחט, כי אחריו בדיקת האורך שמתחת הייתה תמיד
     # שקרית: ``normalize_note_title`` כבר חתך ל-80.
-    title_needle = canonical_title_text(query)
-    content_needle = _sanitize_note_text(query).strip() if search_content else ""
+    raw_query = query if isinstance(query, str) else ""
+    title_needle = canonical_title_text(raw_query)
+    content_needle = raw_query.strip() if search_content else ""
     # מחט השם נבדקת מול תקרת השם; ארוכה ממנה — אין שם כזה, והענף מושמט
     # (בחיפוש-שם-בלבד זו שאילתה שלעולם לא תתפוס, ולכן שגיאה מפורשת).
     if len(title_needle) > MAX_NOTE_TITLE:
@@ -2373,12 +2383,18 @@ def search_notes(
         title_needle = ""
     if search_content and len(content_needle) > MAX_NOTE_CONTENT:
         return {"ok": False, "error": "query_too_long", "max": MAX_NOTE_CONTENT}
-    # בדיקת הריקנות רצה **אחרי** ההשמטות, לא לפניהן: שאילתה שמחט-השם שלה
-    # הושמטה (ארוכה מדי) ומחט-התוכן שלה התרוקנה בניקוי הייתה עוברת בדיקה
-    # מוקדמת — ומפילה את בונה השאילתה על שתי מחטים ריקות במקום להיענות
-    # ב-``empty_query``.
+    # בדיקת הריקנות רצה **אחרי** ההשמטות, ועל המחטים שבאמת יישלחו. היום שתיהן
+    # נגזרות מאותה שאילתה אחרי ``strip``, ולכן מחט שם שהושמטה כי היא ארוכה
+    # משאירה תמיד מחט תוכן לא ריקה. עד אוקטובר 2026 מחט התוכן עברה ניקוי שיכול
+    # היה לרוקן אותה (שאילתה של תווי בקרה), ובדיקה מוקדמת הייתה מפילה את בונה
+    # השאילתה על שתי מחטים ריקות במקום להיענות ב-``empty_query``.
     if not title_needle and not content_needle:
         return {"ok": False, "error": "empty_query"}
+    # שאילתה שאי אפשר להפוך ל-``$regex`` (NUL) — אותה בדיקה ואותו קוד כמו
+    # בחיפוש של הוובאפ, ולפני שהמסד דוחה אותה בחריגה.
+    needle_error = note_search_needle_error(raw_query)
+    if needle_error:
+        return {"ok": False, "error": needle_error}
 
     return backend.search_notes(
         user_id,
@@ -2407,12 +2423,10 @@ def update_note(
 
     fields: dict[str, Any] = {}
     if content is not None:
-        clean = _sanitize_note_text(content).strip()
-        if not clean:
-            return {"ok": False, "error": "empty_content"}
-        if len(clean) > MAX_NOTE_CONTENT:
-            return {"ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT}
-        fields["content"] = clean
+        refused = _note_content_error(content)
+        if refused:
+            return refused
+        fields["content"] = content
     if line is not None:
         line_i = _valid_note_line(line)
         if line_i is None:

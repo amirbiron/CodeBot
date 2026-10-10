@@ -10,7 +10,7 @@ from mcp_server.handlers import (
     DEFAULT_NOTE_COLOR,
     MAX_NOTE_CONTENT,
     NOTE_FLOATING_ANCHOR,
-    _sanitize_note_text,
+    _note_content_error,
 )
 
 
@@ -53,18 +53,49 @@ class _NotesBackend:
         return self.calls[-1][2]
 
 
-# -- sanitizer --------------------------------------------------------------
+# -- גוף הפתק: בלי ניקוי ----------------------------------------------------
+#
+# הגוף נשמר כמו שנשלח, אותו כלל של קבצים (``docs/quality/code-normalization.md``).
+# עד אוקטובר 2026 ``_sanitize_note_text`` הריצה עליו ``html.unescape``, קיפול CRLF
+# ומחיקת תווי בקרה, וה-handlers הוסיפו ``.strip()``.
+
+#: גופים שכל אחת מהשכבות ההן הייתה משנה: ישויות בטקסט, בקוד בשורה ובבלוק קוד, URL
+#: עם שם legacy בלי נקודה-פסיק (``&copy`` הפך ל-``©``), CRLF, תו בקרה, ורווחים בקצוות.
+AS_SENT = (
+    "&amp; &lt;div&gt; &quot;",
+    "`&amp; &lt;div&gt; &quot;`",
+    "```\n&amp; &lt;div&gt; &quot;\n```",
+    "https://x.test/?a=1&copy=2&params=3",
+    "line one\r\nline two\r\n",
+    "bell\x07 between words",
+    "  edge whitespace kept  \n",
+)
 
 
-def test_sanitize_normalizes_crlf_and_strips_control_chars():
-    assert _sanitize_note_text("a\r\nb\rc") == "a\nb\nc"
-    assert _sanitize_note_text("xyz") == "xyz"
-    assert _sanitize_note_text("שלום\tעולם") == "שלום\tעולם"  # טאב מותר, כמו בוובאפ
+def test_a_body_that_has_text_is_not_refused():
+    for body in AS_SENT:
+        assert _note_content_error(body) is None, repr(body)
 
 
-def test_sanitize_unescapes_html_entities_and_handles_none():
-    assert _sanitize_note_text("&quot;ציטוט&quot;") == '"ציטוט"'
-    assert _sanitize_note_text(None) == ""
+def test_emptiness_is_judged_on_a_stripped_copy():
+    """הסייג: פתק שכולו רווחים נדחה, גם בלי ``.strip()`` על מה שנשמר."""
+    for body in ("", " ", "\n\t \r\n"):
+        assert _note_content_error(body) == {"ok": False, "error": "empty_content"}, repr(body)
+
+
+def test_a_body_that_is_not_a_string_is_invalid_content():
+    """FastMCP דוחה את זה לפני ה-handler; זו הרשת לקורא ישיר, עם הקוד של הוובאפ."""
+    for body in (None, 123, {"a": 1}, ["x"]):
+        assert _note_content_error(body) == {"ok": False, "error": "invalid_content"}, body
+
+
+def test_the_length_is_measured_on_what_is_stored():
+    """רווחים בקצוות נספרים: הם חלק ממה שנשמר."""
+    body = " " + "x" * (MAX_NOTE_CONTENT - 1)
+    assert _note_content_error(body) is None
+    assert _note_content_error(body + " ") == {
+        "ok": False, "error": "content_too_long", "max": MAX_NOTE_CONTENT,
+    }
 
 
 # -- list_notes -------------------------------------------------------------
@@ -89,11 +120,25 @@ def test_list_notes_strips_name_and_delegates():
 # -- create_note ------------------------------------------------------------
 
 
-def test_create_note_rejects_empty_and_control_only_content():
+def test_create_note_rejects_empty_and_whitespace_only_content():
     be = _NotesBackend()
-    assert handlers.create_note(be, 7, file_name="a.md", content="  ")["error"] == "empty_content"
-    assert handlers.create_note(be, 7, file_name="a.md", content="")["error"] == "empty_content"
+    for body in ("", "  ", "\n\t \r\n"):
+        assert handlers.create_note(be, 7, file_name="a.md", content=body)["error"] == "empty_content"
     assert be.calls == []
+
+
+def test_create_note_keeps_a_body_of_control_characters():
+    """ריקנות נבדקת על עותק אחרי ``strip``, שמסיר רק מה ש-``str.isspace`` מחשיב לרווח.
+
+    U+0001 ו-U+0002 אינם כאלה, ולכן הגוף נשמר כמו שנשלח. תווי הבקרה של ASCII
+    ש-``isspace`` כן מחשיב לרווח הם U+0009 עד U+000D (ובהם ``\\t``, ``\\n`` ו-``\\r``) ו-U+001C עד
+    U+001F, וגוף שכולו מהם נדחה.
+
+    עד אוקטובר 2026 הניקוי מחק אותם, והגוף הזה נדחה כ-``empty_content``.
+    """
+    be = _NotesBackend()
+    handlers.create_note(be, 7, file_name="a.md", content="\x01\x02")
+    assert be.last_kwargs["content"] == "\x01\x02"
 
 
 def test_create_note_rejects_oversize_content():
@@ -103,10 +148,12 @@ def test_create_note_rejects_oversize_content():
     assert be.calls == []
 
 
-def test_create_note_sanitizes_content():
-    be = _NotesBackend()
-    handlers.create_note(be, 7, file_name="a.md", content="a\r\nb&quot;c")
-    assert be.last_kwargs["content"] == 'a\nb"c'
+def test_create_note_passes_the_body_exactly_as_sent():
+    """עד אוקטובר 2026 ``a\\r\\nb&quot;c`` הגיע ל-backend כ-``a\\nb"c``."""
+    for body in AS_SENT + ("a\r\nb&quot;c",):
+        be = _NotesBackend()
+        handlers.create_note(be, 7, file_name="a.md", content=body)
+        assert be.last_kwargs["content"] == body, repr(body)
 
 
 def test_create_note_invalid_line_rejected():
@@ -351,7 +398,7 @@ def test_as_note_serialization():
     }
     out = _as_note(doc)
     assert out["id"] == "OID"
-    assert out["content"] == 'a "b"'  # פתקי legacy עם entities משוחזרים
+    assert out["content"] == "a &quot;b&quot;"  # כמו שהוא שמור; עד אוקטובר 2026 פוענח
     assert out["line_start"] == 3
     assert out["created_at"].startswith("2026-01-01")
     assert out["updated_at"].startswith("2026-01-02")
@@ -569,6 +616,7 @@ class _IndexSpyColl:
         self.inserted = []
         self.result = True
         self.raises = False
+        self.read_preferences = []
 
     # -- מה ש-``ensure_title_index`` המדומה תצרוך --
     def create_index(self, *a, **k):
@@ -586,12 +634,26 @@ class _IndexSpyColl:
         return None
 
     def insert_one(self, doc):
+        # כמו pymongo (4.15.3, ``synchronous/collection.py``, ``insert_one``): ``_id``
+        # נוסף למסמך כשאין בו, וזה ה-``inserted_id`` שחוזר. בלי זה הקריאה החוזרת
+        # של היצירה לפי ``_id`` לא הייתה מוצאת את מה שנכתב.
+        doc.setdefault("_id", len(self.inserted) + 1)
         self.inserted.append(dict(doc))
 
         class _R:
-            inserted_id = len(self.inserted)
+            inserted_id = doc["_id"]
 
         return _R()
+
+    def with_options(self, codec_options=None, read_preference=None, write_concern=None,
+                     read_concern=None):
+        """``Collection.with_options`` של pymongo (4.15.3): אותם מסמכים, אותו אוסף.
+
+        שמות הפרמטרים של pymongo, כך שטעות בשם נופלת כאן כמו מול אוסף אמיתי. הקריאה
+        החוזרת של יצירת פתק מבקשת דרכו ``ReadPreference.PRIMARY``; בזיכרון אין משני.
+        """
+        self.read_preferences.append(read_preference)
+        return self
 
     def count_documents(self, *a, **k):
         return len(self.inserted)
@@ -1245,6 +1307,22 @@ def test_search_is_scoped_to_the_caller_and_escaped():
     assert coll.query["title"]["$regex"] == "a\\.py"   # הנקודה מנוטרלת
 
 
+def test_a_content_query_with_a_nul_never_reaches_the_database():
+    """מחט התוכן מגיעה ל-``search_notes`` בנפרד, ולכן הבדיקה של ה-handler אינה מכסה אותה.
+
+    ``note_search_filter`` בודק כל מחט שהוא הופך ל-``$regex`` ומעלה ``ValueError`` לפני
+    ``find`` — ולא ``BadValue`` מהמסד באמצע הקריאה.
+    """
+    import pytest as _pytest
+
+    coll = _SearchColl()
+    with _pytest.raises(ValueError):
+        _search_backend(coll).search_notes(
+            7, query="ok", limit=10, search_content=True, content_query="a\x00b"
+        )
+    assert coll.query is None
+
+
 def test_search_asks_for_one_row_beyond_the_limit():
     """**``truncated`` הוא עובדה ולא ניחוש.**
 
@@ -1603,11 +1681,6 @@ def _oid(text):
     return ObjectId(text)
 
 
-class _MatchResult:
-    def __init__(self, matched):
-        self.matched_count = matched
-
-
 def _matches(doc, query):
     """התאמה מספיקה לשאילתות הפתק: שוויון, ``$or`` של שאילתת הקובץ, ו-``$in``."""
     for key, want in query.items():
@@ -1623,7 +1696,7 @@ def _matches(doc, query):
 
 
 class _NoteColl(_IndexSpyColl):
-    """``sticky_notes`` מזויף שמבין גם ``update_one`` ו-``aggregate`` — כדי
+    """``sticky_notes`` מזויף שמבין גם ``find_one_and_update`` ו-``aggregate`` — כדי
     לסגור מסלול עריכה שלם ואת המסלול הרזה.
 
     ``find_one`` יורש את ההתאמה של ``_IndexSpyColl`` (כל מפתח שאינו מילון
@@ -1659,12 +1732,18 @@ class _NoteColl(_IndexSpyColl):
         rows.sort(key=lambda r: r.get("created_at"))
         return iter(rows[: pipeline[-1]["$limit"]])
 
-    def update_one(self, filt, update, upsert=False):
+    def find_one_and_update(self, filt, update, projection=None, sort=None, upsert=False,
+                            return_document=False, **_kw):
+        """בצורה של pymongo (4.15.3, ``synchronous/collection.py``): ``None`` כשאין
+        התאמה, המסמך **לפני** העדכון כברירת מחדל, וזה שאחריו עם
+        ``ReturnDocument.AFTER`` (``True``). עותק, כמו מסמך שחזר מהמסד."""
+        assert not upsert and sort is None and projection is None, "לא בשימוש בפתקים"
         for doc in self.inserted:
             if _matches(doc, filt):
+                before = dict(doc)
                 doc.update(update.get("$set", {}))
-                return _MatchResult(1)
-        return _MatchResult(0)
+                return dict(doc) if return_document else before
+        return None
 
 
 class _MovingNoteColl(_NoteColl):
@@ -1950,15 +2029,25 @@ def test_get_note_scopes_the_lookup_to_the_owner_inside_the_filter():
     assert all(q.get("user_id") in (7, 8) for q in coll.find_calls)
 
 
-def test_get_note_returns_the_stored_body_beside_the_decoded_one_and_the_target():
+def test_get_note_returns_the_body_as_stored_with_its_hash_and_the_target():
+    """הגוף כמו שהוא שמור, ו-``note.content_sha256`` שלו — בלי ``stored_content``.
+
+    עד אוקטובר 2026 ``note.content`` עבר ``html.unescape`` ב-``_as_note``, והגוף
+    האמיתי חזר בשדה נפרד, ``stored_content``. ``&amp;copy=`` הוא URL שהפענוח היה
+    הופך ל-``©=``.
+    """
+    import hashlib
+
+    stored = 'a &quot;b&quot; ?x=1&amp;copy=2'
     coll = _NoteColl()
-    coll.inserted.append(_stored_note('a &quot;b&quot;', board_id=_VALID_BOARD))
+    coll.inserted.append(_stored_note(stored, board_id=_VALID_BOARD))
     b = _note_backend(_NoteDb(coll))
 
     res = b.get_note(7, note_id=_NOTE_OID)
 
-    assert res["note"]["content"] == 'a "b"'          # מה שכלי הרשימה מציגים
-    assert res["stored_content"] == 'a &quot;b&quot;'  # מה שבמסד, בית-בית
+    assert res["note"]["content"] == stored
+    assert res["note"]["content_sha256"] == hashlib.sha256(stored.encode("utf-8")).hexdigest()
+    assert "stored_content" not in res
     assert (res["target"], res["board_id"]) == ("board", _VALID_BOARD)
     assert "file_name" not in res and "repo_name" not in res
 
@@ -2087,7 +2176,7 @@ def test_the_body_and_the_version_describe_the_same_moment():
     res = b.get_note(7, note_id=_NOTE_OID, with_version=True)
 
     assert res["ok"] is True
-    assert res["stored_content"] == "new"
+    assert res["note"]["content"] == "new"
     assert res["version"] == 1
     assert coll.reads == 3  # R1 (old) ← R3 (זז: new) ← R3' (יציב: new)
 
@@ -2109,7 +2198,7 @@ def test_a_note_that_keeps_moving_is_a_conflict_not_a_guess():
 
     assert res["ok"] is False and res["error"] == "conflict"
     assert "read it again" in res["hint"]
-    assert "stored_content" not in res and "note" not in res
+    assert "note" not in res
     assert coll.reads == 1 + retries  # הקריאה הראשונה, ואחריה קריאה חוזרת לכל ניסיון
     assert coll.writes == []          # כל הכתיבות נצרכו — הפתק זז לפני כל קריאה
 
@@ -2170,20 +2259,21 @@ def test_repo_path_orphaned_is_true_only_on_an_explicit_missing_file(monkeypatch
     assert unknown.repo_path_orphaned(repo_name="CodeBot", repo_path="a.py") is False
 
 
-@pytest.mark.parametrize("old_string", ['&quot;hi&quot;', '"hi"'])
-def test_the_read_edit_loop_closes_on_a_legacy_note_with_html_entities(old_string):
-    """פתק ישן עם ישות HTML: ``get_note`` מחזיר את הגוף כפי שהוא מאוחסן,
-    ו-``note_str_replace`` עם ``old_string`` שהועתק ממנו **מצליח** — והמצב
-    במסד באמת השתנה (נקרא מהאוסף, לא מערך ההחזרה).
+def test_the_read_edit_loop_keeps_entities_exactly_as_typed():
+    """פתק שגופו מכיל ישויות HTML, כמו שהמשתמש הקליד אותן, עובר את כל הלולאה בלי פענוח.
 
-    שתי הצורות של ``old_string`` תופסות, וזה ממצא ולא הנחה: ``note_str_replace``
-    מפענח את ``old_string`` (``_sanitize_note_text``) ומשווה אותו לגוף
-    המפוענח — כלומר ההתאמה רצה במרחב אחד, וגם המחרוזת הגולמית שהועתקה
-    מ-``get_note`` וגם המפוענחת שהועתקה מכלי רשימה מגיעות אליו. מה
-    ש-``get_note`` הגולמי כן מוסיף הוא השוואה בית-בית מול ``get_note_version``,
-    שגם הוא מחזיר את הצורה המאוחסנת — וזה החלק השני של הטסט.
+    ``get_note`` מחזיר את הגוף כמו שהוא שמור. ``note_str_replace`` עם ``old_string``
+    שהועתק ממנו מצליח, ``new_string`` נכתב כמו שנשלח, והחלק שאיש לא נגע בו נשאר
+    כמו שהיה — כל זה נקרא מהאוסף, לא מערך ההחזרה. הגרסה הקודמת בהיסטוריה זהה
+    בית-בית לגוף שדווח כגרסה 1.
+
+    עד אוקטובר 2026 גם ``old_string`` וגם ``new_string`` פוענחו, ``"hi"`` תפס את
+    ``&quot;hi&quot;``, והגוף כולו נכתב בחזרה מפוענח — גם ``a &lt; b`` שאיש לא ביקש
+    לשנות הפך ל-``a < b``.
     """
-    stored = 'say &quot;hi&quot;'
+    import hashlib
+
+    stored = 'say &quot;hi&quot; — keep: a &lt; b'
     coll = _NoteColl()
     coll.inserted.append(_stored_note(stored, board_id=_VALID_BOARD))
     db = _NoteDb(coll)
@@ -2193,15 +2283,295 @@ def test_the_read_edit_loop_closes_on_a_legacy_note_with_html_entities(old_strin
     assert before["note"]["content"] == stored
     assert before["version"] == 1
 
+    decoded = handlers.note_str_replace(b, 7, note_id=_NOTE_OID, old_string='"hi"', new_string='"bye"')
+    assert decoded == {"ok": False, "error": "no_match"}
+    assert coll.inserted[0]["content"] == stored
+
     res = handlers.note_str_replace(
-        b, 7, note_id=_NOTE_OID, old_string=old_string, new_string='"bye"'
+        b, 7, note_id=_NOTE_OID, old_string="&quot;hi&quot;", new_string="&quot;bye&quot; &amp;"
     )
 
-    assert res["ok"] is True and res["replacements"] == 1
-    assert coll.inserted[0]["content"] == 'say "bye"'      # המצב, לא ערך ההחזרה
+    expected = 'say &quot;bye&quot; &amp; — keep: a &lt; b'
+    assert res["ok"] is True and res["replacements"] == 1, res
+    assert coll.inserted[0]["content"] == expected      # המצב, לא ערך ההחזרה
+    assert res["content_changed"] is False
+    assert res["note"]["content"] == expected
+    assert res["note"]["content_sha256"] == hashlib.sha256(expected.encode("utf-8")).hexdigest()
 
     after = handlers.get_note(b, 7, note_id=_NOTE_OID, is_admin=False)
-    assert after["note"]["content"] == 'say "bye"'
+    assert after["note"]["content"] == expected
     assert after["version"] == 2
     # הגוף שדווח כגרסה 1 הוא בית-בית מה ש-get_note_version(1) מחזיר עכשיו.
     assert b.get_note_version(7, note_id=_NOTE_OID, version=1)["content"] == stored
+
+
+# ==========================================================================
+# תשובת הכתיבה של פתק — ממה שנשמר, לא ממה שביקשו לשמור
+#
+# אותו חוזה של ``save_file`` בקבצים: ``note.content_sha256`` מהגוף ששמור, ו-
+# ``content_changed`` שמשווה אותו למה שהכלי התכוון לשמור. בעדכון — מהמסמך ש-
+# ``find_one_and_update`` החזיר; ביצירה — מקריאה חוזרת לפי ה-``_id``. עד אוקטובר
+# 2026 התשובה הייתה הד של הבקשה (``_as_note({**note, **updates})``), ולכן שכבה
+# ששינתה את הגוף בדרך — כמו ``html.unescape`` — לא נראתה בה.
+#
+# שורת ה-``WARNING`` נבדקת כאן ב-``caplog``, כלומר שהרשומה נוצרת, עם המספרים ובלי
+# התוכן. שהיא גם מגיעה לפלט של השירות נבדק בתהליך נקי ב-
+# ``tests/test_mcp_content_changed_log.py`` — אותה פונקציה, ``_content_verdict``.
+
+
+def _sha(text):
+    import hashlib
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _unescape(text):
+    """השכבה שהייתה בדרך עד אוקטובר 2026."""
+    import html
+
+    return html.unescape(text)
+
+
+class _LayerColl(_NoteColl):
+    """``sticky_notes`` שבו שכבה בדרך משנה את הגוף לפני שהוא נכתב — מה שהרשת נועדה לתפוס."""
+
+    def __init__(self, rewrite):
+        super().__init__()
+        self.rewrite = rewrite
+
+    def insert_one(self, doc):
+        written = {**doc, "content": self.rewrite(doc["content"])}
+        res = super().insert_one(written)
+        doc["_id"] = written["_id"]  # כמו pymongo, שמוסיף את ה-``_id`` למסמך של הקורא
+        return res
+
+    def find_one_and_update(self, filt, update, **kw):
+        sets = dict(update.get("$set", {}))
+        if "content" in sets:
+            sets["content"] = self.rewrite(sets["content"])
+        return super().find_one_and_update(filt, {**update, "$set": sets}, **kw)
+
+
+class _ReadBackColl(_NoteColl):
+    """הכתיבה מצליחה; הקריאה החוזרת לפי ``_id`` זורקת את ``error``, או לא מוצאת כלום."""
+
+    def __init__(self, error=None):
+        super().__init__()
+        self.error = error
+
+    def find_one(self, query, projection=None):
+        if any(d.get("_id") == query.get("_id") for d in self.inserted):
+            if self.error is not None:
+                raise self.error
+            return None
+        return super().find_one(query, projection)
+
+
+class _OrderColl(_NoteColl):
+    """מקליט את סדר הקריאות — כדי לראות שהאוסף לקריאה החוזרת נקשר לפני ה-insert."""
+
+    def __init__(self):
+        super().__init__()
+        self.events = []
+
+    def with_options(self, **kw):
+        self.events.append("with_options")
+        return super().with_options(**kw)
+
+    def insert_one(self, doc):
+        self.events.append("insert_one")
+        return super().insert_one(doc)
+
+
+class _LateWriterColl(_NoteColl):
+    """כתיבה של הוובאפ שנוחתת **מיד אחרי** הכתיבה שלנו, לפני שמישהו קורא שוב."""
+
+    def __init__(self, late_body):
+        super().__init__()
+        self.late_body = late_body
+
+    def find_one_and_update(self, filt, update, **kw):
+        after = super().find_one_and_update(filt, update, **kw)
+        for doc in self.inserted:
+            doc["content"] = self.late_body
+        return after
+
+
+def _board_backend(coll, monkeypatch):
+    b = _backend_with(coll, monkeypatch, {"now": 500.0})
+    monkeypatch.setattr(b, "_notes_coll", lambda: coll)
+    monkeypatch.setattr(b, "_canonical_board_id", lambda board: "b1", raising=False)
+    monkeypatch.setattr(b, "_owned_board", lambda uid, bid: {"_id": "b1"}, raising=False)
+    return b
+
+
+def _create_board_note(b, content):
+    return b.create_board_note(7, board_id="b1", content=content, color="yellow", mode="surface")
+
+
+def test_a_create_answers_from_the_read_back_with_the_hash_of_the_stored_body(monkeypatch):
+    """ההצלחה התקינה: ``content_changed: false``, וה-hash של מה שבאוסף.
+
+    והקריאה החוזרת מבקשת את ה-primary — אחרת משני שעוד לא ראה את הכתיבה היה עונה "לא נמצא".
+    """
+    from pymongo import ReadPreference
+
+    sent = "&amp; &lt;div&gt; &quot;\n`&amp;`\n"
+    coll = _NoteColl()
+    b = _board_backend(coll, monkeypatch)
+
+    res = _create_board_note(b, sent)
+
+    assert res["ok"] is True and res["content_changed"] is False, res
+    assert "content_diff" not in res
+    assert coll.inserted[0]["content"] == sent
+    assert res["note"]["content"] == sent
+    assert res["note"]["content_sha256"] == _sha(sent)
+    assert res["note"]["id"] == str(coll.inserted[0]["_id"])
+    assert coll.read_preferences == [ReadPreference.PRIMARY]
+
+
+def test_a_layer_that_changes_the_body_on_create_is_reported_not_echoed(monkeypatch, caplog):
+    """שכבה שמפענחת בדרך: התשובה מתארת את מה שנשמר, ומסמנת שהוא שונה.
+
+    ``a &amp; b`` מול ``a & b``: הקידומת המשותפת ``a &`` (3 בתים), החלון ``amp;`` (4
+    בתים) מול כלום, והסיומת המשותפת `` b``.
+    """
+    import logging
+
+    coll = _LayerColl(_unescape)
+    b = _board_backend(coll, monkeypatch)
+
+    with caplog.at_level(logging.WARNING, logger="mcp_server.backend"):
+        res = _create_board_note(b, "a &amp; b")
+
+    stored = coll.inserted[0]["content"]
+    assert stored == "a & b"
+    assert res["ok"] is True and res["content_changed"] is True, res
+    assert res["note"]["content"] == stored
+    assert res["note"]["content_sha256"] == _sha(stored)
+    diff = res["content_diff"]
+    assert (diff["line"], diff["offset_bytes"], diff["intended_bytes"], diff["stored_bytes"]) == (1, 3, 4, 0)
+    assert (diff["intended_total_bytes"], diff["stored_total_bytes"]) == (9, 5)
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, warnings
+    assert "mcp write create_board_note: stored content differs" in warnings[0]
+    assert "offset_bytes=3" in warnings[0] and "intended_bytes=4" in warnings[0]
+    assert "&amp;" not in warnings[0] and "a & b" not in warnings[0]
+
+
+@pytest.mark.parametrize("found", ["db_error", "nothing"])
+def test_a_create_whose_read_back_fails_is_still_ok_with_content_changed_null(monkeypatch, caplog, found):
+    """הכתיבה קרתה, ולכן ``ok: true`` — ``ok: false`` היה גורם לסוכן ליצור פתק שני.
+
+    ``note`` נושא רק ``id``, בלי hash: hash מהקלט הוא ה-hash שתמיד "תקין".
+    """
+    import logging
+
+    from pymongo.errors import AutoReconnect
+
+    coll = _ReadBackColl(AutoReconnect("primary went away") if found == "db_error" else None)
+    b = _board_backend(coll, monkeypatch)
+
+    with caplog.at_level(logging.WARNING, logger="mcp_server.backend"):
+        res = _create_board_note(b, "שלום")
+
+    assert len(coll.inserted) == 1
+    assert res == {"ok": True, "note": {"id": str(coll.inserted[0]["_id"])}, "content_changed": None}
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
+    expected = "could not read back" if found == "db_error" else "was not found on read-back"
+    assert expected in warnings[0].getMessage()
+    assert "שלום" not in warnings[0].getMessage()
+
+
+def test_a_bug_in_the_read_back_is_raised_not_reported_as_null(monkeypatch):
+    """רק שגיאת מסד היא "לא הצלחתי לקרוא". ``TypeError`` הוא באג — ``null`` היה מסתיר אותו."""
+    coll = _ReadBackColl(TypeError("a bug, not the database"))
+    b = _board_backend(coll, monkeypatch)
+
+    with pytest.raises(TypeError):
+        _create_board_note(b, "שלום")
+
+
+def test_the_read_back_collection_is_bound_before_the_insert(monkeypatch):
+    """אוסף בלי ``with_options`` נופל לפני שנכתב דבר — לא אחרי שהפתק כבר נוצר."""
+    coll = _OrderColl()
+    b = _board_backend(coll, monkeypatch)
+
+    assert _create_board_note(b, "שלום")["ok"] is True
+
+    assert coll.events == ["with_options", "insert_one"]
+
+
+def test_an_update_answers_from_the_document_the_write_returned(monkeypatch):
+    """``find_one_and_update`` עם ``ReturnDocument.AFTER`` — המצב שהכתיבה **הזו** השאירה.
+
+    הוובאפ כותב לאותו פתק מיד אחרי. קריאה נפרדת אחרי הכתיבה הייתה רואה את הגוף שלו,
+    ומדווחת ``content_changed: true`` על שינוי שהכלי לא עשה.
+    """
+    coll = _LateWriterColl(late_body="the web app's body")
+    coll.inserted.append(_stored_note("old", board_id=_VALID_BOARD))
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.update_note(7, note_id=_NOTE_OID, fields={"content": "new &amp; body"})
+
+    assert coll.inserted[0]["content"] == "the web app's body"  # הכתיבה המאוחרת נחתה
+    assert res["ok"] is True and res["content_changed"] is False, res
+    assert res["note"]["content"] == "new &amp; body"
+    assert res["note"]["content_sha256"] == _sha("new &amp; body")
+
+
+def test_a_layer_that_changes_the_body_on_update_is_reported(monkeypatch):
+    coll = _LayerColl(_unescape)
+    coll.inserted.append(_stored_note("old", board_id=_VALID_BOARD))
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.update_note(7, note_id=_NOTE_OID, fields={"content": "x &lt;y&gt;"})
+
+    assert coll.inserted[0]["content"] == "x <y>"
+    assert res["ok"] is True and res["content_changed"] is True, res
+    assert res["note"]["content"] == "x <y>"
+    assert res["note"]["content_sha256"] == _sha("x <y>")
+    assert res["content_diff"]["offset_bytes"] == 2
+
+
+def test_an_update_that_writes_no_body_has_a_hash_and_no_verdict(monkeypatch):
+    """צבע בלבד: אין גוף שהכלי התכוון לשמור, ולכן אין ``content_changed`` — רק ה-hash."""
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("body &amp;", board_id=_VALID_BOARD))
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.update_note(7, note_id=_NOTE_OID, fields={"color": "pink_light"})
+
+    assert res["ok"] is True, res
+    assert "content_changed" not in res and "content_diff" not in res
+    assert res["note"]["content_sha256"] == _sha("body &amp;")
+    assert coll.inserted[0]["color"] == "pink_light"
+
+
+def test_an_update_whose_written_body_comes_back_as_no_string_raises(monkeypatch):
+    """הכתיבה שלנו שמה שם מחרוזת. מסמך שחזר ממנה בלי מחרוזת הוא חוזה שנשבר, לא ``content_changed``."""
+    coll = _LayerColl(lambda text: None)
+    coll.inserted.append(_stored_note("old", board_id=_VALID_BOARD))
+    b = _note_backend(_NoteDb(coll))
+
+    with pytest.raises(TypeError):
+        b.update_note(7, note_id=_NOTE_OID, fields={"content": "new"})
+
+
+def test_the_expected_content_gate_compares_the_stored_body_only(monkeypatch):
+    """``expected_content`` מושווה לגוף כמו שהוא שמור. עד אוקטובר 2026 גם הגרסה המפוענחת
+    שלו עברה את השער, כי ``_as_note`` פענח את מה שהקורא קיבל."""
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("say &quot;hi&quot;", board_id=_VALID_BOARD))
+    b = _note_backend(_NoteDb(coll))
+
+    decoded = b.update_note(7, note_id=_NOTE_OID, fields={"content": "x"}, expected_content='say "hi"')
+    assert decoded == {"ok": False, "error": "conflict"}
+    assert coll.inserted[0]["content"] == "say &quot;hi&quot;"
+
+    stored = b.update_note(7, note_id=_NOTE_OID, fields={"content": "x"}, expected_content="say &quot;hi&quot;")
+    assert stored["ok"] is True and stored["content_changed"] is False, stored
+    assert coll.inserted[0]["content"] == "x"

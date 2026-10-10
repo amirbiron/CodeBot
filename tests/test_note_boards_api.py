@@ -801,6 +801,51 @@ def test_batch_rejects_the_item_without_touching_the_note(client):
     assert doc["content"] == "המקורי"
 
 
+# -- התוכן נשמר כמו שהוקלד: יצירה בלוח, batch, ורשימת הלוח --
+#
+# עד אוקטובר 2026 כל תוכן עבר בשרת ``html.unescape``, ולכן ``&amp;`` שמשתמש הקליד
+# בפתק נשמר כ-``&`` כבר בשמירה הראשונה — ובקריאה הרשימה פענחה פעם נוספת. הטקסט
+# כאן הוא מה ש-``sticky-notes.js`` שולח ב-``content_b64`` כשמקלידים אותו בפתק.
+
+TYPED = (
+    "&amp; &lt;div&gt; &quot;\n"
+    "`&amp; &lt;div&gt; &quot;`\n"
+    "```\n&amp; &lt;div&gt; &quot;\n```\n"
+    "https://x.test/?a=1&copy=2&params=3\r\n"
+)
+
+
+def test_a_board_note_keeps_the_typed_text_on_create_and_in_the_list(client):
+    client.db.note_boards.docs.append({"_id": 1, "user_id": 7, "name": "לוח", "is_default": True})
+
+    res = client.post("/api/sticky-notes/board/1", json={"content_b64": _b64(TYPED)})
+
+    assert res.status_code == 201, res.get_json()
+    assert client.db.sticky_notes.docs[-1]["content"] == TYPED
+    listed = client.get("/api/sticky-notes/board/1").get_json()["notes"]
+    assert [n["content"] for n in listed] == [TYPED]
+
+
+def test_the_batch_route_keeps_the_typed_text(client):
+    """זה המסלול הרגיל של שמירה בלוח — ``_queueSave`` מנקז אליו."""
+    doc = _board_note(client, content="ישן")
+
+    res = client.post("/api/sticky-notes/batch", json={"updates": [{"id": "1", "content_b64": _b64(TYPED)}]})
+
+    assert res.get_json()["results"][0]["ok"] is True, res.get_json()
+    assert doc["content"] == TYPED
+
+
+def test_the_batch_route_refuses_content_that_is_not_a_string(client):
+    """U3: עד אוקטובר 2026 ``str()`` הפך מילון לטקסט ``"{'a': 1}"`` ושמר אותו."""
+    doc = _board_note(client, content="ישן")
+
+    res = client.post("/api/sticky-notes/batch", json={"updates": [{"id": "1", "content": {"a": 1}}]})
+
+    result = res.get_json()["results"][0]
+    assert (result["ok"], result["status"], result["error"]) == (False, 400, "invalid_content")
+    assert doc["content"] == "ישן"
+
 # -- דלף מידע דרך טקסט של חריגה (CodeQL code-scanning/620) --
 
 

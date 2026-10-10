@@ -3,8 +3,13 @@
 עד ספטמבר 2026 ``Repository.save_code_snippet`` ועוד שתי פונקציות שמירה הריצו
 ``normalize_code`` על כל קובץ, מכל כניסה, ושכתבו תוכן של משתמשים בלי שאיש ידע.
 הניקוי שייך רק לקוד שמודבק בבוט (``code_service.clean_pasted_code``). הטסט
-נופל אם מודול כלשהו תחת ``database/``, ``webapp/`` או ``mcp_server/`` מייבא,
-קורא או ניגש בשמו לאחת מפונקציות הניקוי — הנוכחית או אלה שנמחקו.
+נופל אם מודול כלשהו תחת ``database/``, ``webapp/`` או ``mcp_server/`` — או אחד
+המודולים בשורש שפתקים עוברים בהם (``GUARDED_ROOT_MODULES``) — מייבא, קורא או
+ניגש בשמו לאחת מפונקציות הניקוי — הנוכחית או אלה שנמחקו.
+
+**ו-``unescape``, בכל צורה** (``html.unescape``, ``from html import unescape``):
+עד אוקטובר 2026 פתקים עברו אותו בשמירה ובקריאה, בוובאפ וב-MCP, ו-``&amp;`` שמשתמש
+הקליד נשמר כ-``&``. escape ופענוח שייכים לשלב ההצגה, בדפדפן, ולא לשכבות האלה.
 
 **``decode_form_newlines`` מותר במכוון:** הוא לא מנקה תוכן אלא מבטל את ה-CRLF
 ששליחת טופס HTML מוסיפה (``services/line_endings.py``).
@@ -21,8 +26,15 @@ from typing import Iterable, List, Tuple
 ROOT = Path(__file__).resolve().parents[1]
 GUARDED_DIRS = ("database", "webapp", "mcp_server")
 
-#: הפונקציה של היום, והשמות שנמחקו איתה — כדי שלא יחזרו בשם הישן.
-FORBIDDEN = frozenset({"clean_pasted_code", "normalize_code", "CodeNormalizer", "strip_hidden_escapes"})
+#: מודולים בשורש שמסלולי הכתיבה והקריאה של פתקים עוברים בהם, מהוובאפ ומה-MCP.
+GUARDED_ROOT_MODULES = ("sticky_notes_target.py", "sticky_notes_scope.py", "sticky_notes_tasks.py", "note_boards.py")
+
+#: הפונקציה של היום, והשמות שנמחקו איתה — כדי שלא יחזרו בשם הישן. ``unescape`` הוא
+#: מה שפתקים עברו עד אוקטובר 2026, ו-``_sanitize_note_text`` הפונקציה שהריצה אותו ב-MCP.
+FORBIDDEN = frozenset({
+    "clean_pasted_code", "normalize_code", "CodeNormalizer", "strip_hidden_escapes",
+    "unescape", "_sanitize_note_text",
+})
 
 
 def _offences(source: str, filename: str) -> List[Tuple[int, str]]:
@@ -46,11 +58,14 @@ def _offences(source: str, filename: str) -> List[Tuple[int, str]]:
 def _guarded_files() -> Iterable[Path]:
     for directory in GUARDED_DIRS:
         yield from sorted((ROOT / directory).rglob("*.py"))
+    for name in GUARDED_ROOT_MODULES:
+        yield ROOT / name
 
 
 def test_no_content_cleaning_in_the_save_layer_webapp_or_mcp():
     files = list(_guarded_files())
     assert any(p.parts[-2:] == ("database", "repository.py") for p in files), "הסריקה לא הגיעה ל-database/repository.py"
+    assert all((ROOT / name).is_file() for name in GUARDED_ROOT_MODULES), "מודול שמור בשורש זז או נמחק"
     offences = [
         f"{path.relative_to(ROOT)}:{line}: {name}"
         for path in files
@@ -68,6 +83,9 @@ def test_the_scanner_catches_every_form_it_claims_to():
         "code_service.clean_pasted_code(text, name)",
         "fn = getattr(utils, 'normalize_code')",
         "from src.domain.services.code_normalizer import strip_hidden_escapes",
+        "import html\ntext = html.unescape(text)",
+        "from html import unescape",
+        "from html import unescape as decode",
     ]
     for snippet in caught:
         assert _offences(snippet, "<snippet>"), snippet

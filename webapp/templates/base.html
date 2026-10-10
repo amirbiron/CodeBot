@@ -4625,20 +4625,38 @@
     const title = isUnauthorized
       ? '🔔 ההתחברות פגה. התחברו מחדש כדי לראות את התזכורות.'
       : (isError ? '🔔 לא הצלחתי לבדוק את התזכורות כרגע.' : `🔔 יש לך ${count} פתקים שממתינים:`);
-    const listHtml = items.map(it => {
-      const prev = (it.preview || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      return `<li style="list-style:none; margin:4px 0;"><a href="#" data-note-id="${String(it.note_id || '')}" data-file-id="${String(it.file_id || '')}" data-remind-at="${String(it.remind_at || '').replace(/[^0-9T:+.Z-]/g, '')}" class="reminder-link" style="text-decoration:none; color:inherit;">• ${prev || 'פתק ללא כותרת'}...</a></li>`;
-    }).join('');
     pop.innerHTML = `
-      <div class="notif-popover__title">${title}</div>
+      <div class="notif-popover__title"></div>
       <div class="notif-popover__body">
-        <ul style="padding:0; margin:0; max-width: 30ch;">${listHtml}</ul>
+        <ul style="padding:0; margin:0; max-width: 30ch;"></ul>
         <div class="notif-popover__actions">
           ${isError ? '' : '<button type="button" class="btn btn-secondary" data-action="snooze-ui">דחה לאחר"כ</button>'}
           <button type="button" class="btn btn-primary" data-action="close-ui">סגור</button>
         </div>
       </div>
     `;
+    pop.querySelector('.notif-popover__title').textContent = title;
+    // השורות נבנות מצמתים, והתצוגה המקדימה נכנסת ב-textContent, כמו בפתק עצמו
+    // וב-notes_search.js: היא תוכן הפתק כמו שנשמר, ו-&amp; שהוקלד מוצג כ-&amp;.
+    // עד אוקטובר 2026 השורה נבנתה ב-innerHTML עם בריחה של < ו-> בלבד, והדפדפן
+    // פענח כל ישות — אותו באג שהשרת עשה בשמירה, רק בתצוגה.
+    const list = pop.querySelector('.notif-popover__body ul');
+    items.forEach(it => {
+      const li = document.createElement('li');
+      li.style.listStyle = 'none';
+      li.style.margin = '4px 0';
+      const a = document.createElement('a');
+      a.href = '#';
+      a.className = 'reminder-link';
+      a.setAttribute('data-note-id', String(it.note_id || ''));
+      a.setAttribute('data-file-id', String(it.file_id || ''));
+      a.setAttribute('data-remind-at', String(it.remind_at || '').replace(/[^0-9T:+.Z-]/g, ''));
+      a.style.textDecoration = 'none';
+      a.style.color = 'inherit';
+      a.textContent = '• ' + (it.preview || 'פתק ללא כותרת') + '...';
+      li.appendChild(a);
+      list.appendChild(li);
+    });
     pop.setAttribute('data-open','true');
     pop.setAttribute('aria-hidden','false');
     activeReminderPopover = pop;

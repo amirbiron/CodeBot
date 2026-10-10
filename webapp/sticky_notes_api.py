@@ -10,7 +10,6 @@ from functools import wraps
 from typing import Any, Dict, List, Optional, Tuple, cast
 from datetime import datetime, timezone, timedelta
 import time
-import html
 import re
 import base64
 import hashlib
@@ -36,6 +35,7 @@ from sticky_notes_target import (
     resolve_note_color,
     note_color_hex,
     note_color_id,
+    note_search_needle_error,
 )
 # מצב התזכורת — אותה שכבה טהורה, ומאותה סיבה: שלושה מודולים שואלים "האם
 # התזכורת פעילה", והתשובה חייבת להיות אחת.
@@ -747,36 +747,12 @@ def notes_rate_limit(key: str, max_per_minute: int):
     return _decorator
 
 
-_CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
-
-
-def _sanitize_text(text: Any, max_length: int = 20000) -> str:
-    """Normalize user text without HTML escaping.
-
-    שומר על טקסט כפי שהמשתמש הזין (כולל מרכאות וסימנים אחרים) תוך הסרת תווים לא
-    מודפסים והגבלת אורך סבירה כדי למנוע פגיעה בבסיס הנתונים.
-    """
-    if text is None:
-        return ""
-    try:
-        s = str(text)
-    except Exception:
-        s = ""
-    # החזרת מחרוזות שהשתמרו כ-html entities (כמו &quot;)
-    s = html.unescape(s)
-    # נרמול קפיצות שורה והסרת תווים שאינם מודפסים
-    s = s.replace("\r\n", "\n").replace("\r", "\n")
-    s = _CONTROL_CHARS_RE.sub("", s)
-    if max_length and max_length > 0:
-        s = s[:max_length]
-    return s
-
-
-def _decode_content_b64(value: Any, *, max_decoded_chars: int = MAX_NOTE_CHARS, max_b64_len: int = 120000) -> str:
-    """Decode Base64 UTF-8 content safely.
+def _decode_content_b64(value: Any, *, max_b64_len: int = 120000) -> str:
+    """Decode Base64 UTF-8 content — **והטקסט שיוצא הוא בדיוק מה שקודד**.
 
     מיועד ל-`content_b64` כדי למנוע חסימות/פילטרים על מילים "חשודות" בזמן העברה.
-    הטקסט שנשמר ב-DB הוא תמיד טקסט רגיל אחרי sanitize.
+    הפענוח הוא של ההעברה בלבד: ה-base64 מוסר, והתוכן עצמו אינו משתנה בשום
+    צורה — ראו :func:`_note_content_from_request`.
     """
     if value is None:
         return ""
@@ -787,15 +763,13 @@ def _decode_content_b64(value: Any, *, max_decoded_chars: int = MAX_NOTE_CHARS, 
         return ""
     # Best-effort safety: avoid decoding extremely large blobs.
     # Note: Base64 is ~4/3 expansion. UTF-8 can be up to 4 bytes per char.
-    # We keep this limit comfortably above the 5k-char sticky-note cap to avoid
-    # rejecting valid UTF-8 (e.g., emoji-heavy notes).
+    # The limit stays above a full ``MAX_NOTE_CHARS`` note of emoji — the
+    # arithmetic is in its docstring in ``sticky_notes_target``.
     if max_b64_len and len(s) > int(max_b64_len):
         raise ValueError("content_b64 too large")
-    # Remove whitespace and normalize urlsafe variants
-    try:
-        s = "".join(s.split())
-    except Exception:
-        s = s.replace(" ", "")
+    # Remove whitespace and normalize urlsafe variants — של מחרוזת ה-base64,
+    # לא של התוכן.
+    s = "".join(s.split())
     s = s.replace("-", "+").replace("_", "/")
     # Fix missing padding (common in transport layers)
     pad = (-len(s)) % 4
@@ -806,10 +780,9 @@ def _decode_content_b64(value: Any, *, max_decoded_chars: int = MAX_NOTE_CHARS, 
     except Exception as exc:
         raise ValueError("invalid base64") from exc
     try:
-        text = raw.decode("utf-8", errors="strict")
+        return raw.decode("utf-8", errors="strict")
     except Exception as exc:
         raise ValueError("invalid utf-8") from exc
-    return _sanitize_text(text, int(max_decoded_chars or MAX_NOTE_CHARS))
 
 
 def _coerce_int(value: Any, default: int, min_v: Optional[int] = None, max_v: Optional[int] = None) -> int:
@@ -858,8 +831,26 @@ class _InvalidContentB64(ValueError):
     """``content_b64`` פגום ואין ``content`` לנפול אליו."""
 
 
+class _InvalidContent(ValueError):
+    """``content`` שאינו מחרוזת."""
+
+
+def _content_field(value: Any) -> str:
+    """הערך של ``content`` כמו שנשלח — או :class:`_InvalidContent`.
+
+    ``None`` הוא "אין תוכן", כמו שהיה תמיד. **כל מה שאינו מחרוזת נדחה**: עד
+    היום ``str()`` הפך מילון ל-``"{'a': 1}"`` ושמר אותו כטקסט, ובלעדיו הוא היה
+    נשמר כתת-מסמך בשדה שכל הקוראים מצפים בו למחרוזת.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise _InvalidContent()
+    return value
+
+
 def _note_content_from_request(data: Dict[str, Any]) -> str:
-    """התוכן שיישמר, מ-``content_b64`` או מ-``content``.
+    """התוכן שיישמר, מ-``content_b64`` או מ-``content`` — **בדיוק כמו שנשלח**.
 
     **מקום אחד שמחליט.** לפני כן ההמרה הייתה משוכפלת בחמישה ראוטים, וכל
     אחד מהם הקליד את התקרה בעצמו.
@@ -868,25 +859,31 @@ def _note_content_from_request(data: Dict[str, Any]) -> str:
     מידע — הדבקה של 16,291 תווים נשמרה כ-5,000 והשרת החזיר 200 OK, כלומר
     "נשמר". ``mcp_server/handlers`` דוחה כבר היום; הוובאפ היה החריג.
 
+    **ואין כאן ניקוי.** עד אוקטובר 2026 כל תוכן עבר כאן ``html.unescape``,
+    המרה של CRLF ל-LF ומחיקה של תווי בקרה. כך ``&amp;`` שהמשתמש הקליד נשמר
+    כבר בשמירה הראשונה כ-``&``, וגם ``&copy=`` בתוך כתובת הפך ל-``©=``. הכלל
+    הוא הכלל של הקבצים, ``docs/quality/code-normalization.md``: מה שנשלח הוא
+    מה שנשמר, וה-escape שייך לתצוגה. ``tests/test_content_cleaning_stays_in_the_bot.py``
+    נופל אם ``unescape`` חוזר לוובאפ.
+
     **זהות השגיאה חיה בסוג החריגה ולא בטקסט שלה.** ``str(exc)`` בתשובה
     ל-HTTP הוא דלף ממתין: ``raise`` עתידי שמשרשר נתיב או שאילתה מוצא אותם
     ללקוח, ו-CodeQL מסמן בדיוק את הזרימה הזו. מי שתופס כאן מחזיר ליטרל.
 
     :raises _ContentTooLong: התוכן ארוך מ-:data:`MAX_NOTE_CHARS`.
     :raises _InvalidContentB64: ``content_b64`` פגום ואין ``content``.
+    :raises _InvalidContent: ``content`` שאינו מחרוזת.
     """
     if 'content_b64' in data:
         try:
-            # חסם של תו אחד מעל התקרה: מספיק כדי לזהות חריגה במדויק,
-            # ובלי להחזיק בזיכרון תוכן גדול לחינם.
-            text = _decode_content_b64(data.get('content_b64'), max_decoded_chars=MAX_NOTE_CHARS + 1)
+            text = _decode_content_b64(data.get('content_b64'))
         except ValueError:
             # תאימות לאחור: ``content`` רגיל, אם נשלח לצד ה-b64
             if 'content' not in data:
                 raise _InvalidContentB64()
-            text = _sanitize_text(data.get('content'), MAX_NOTE_CHARS + 1)
+            text = _content_field(data.get('content'))
     else:
-        text = _sanitize_text(data.get('content', ''), MAX_NOTE_CHARS + 1)
+        text = _content_field(data.get('content', ''))
     if len(text) > MAX_NOTE_CHARS:
         raise _ContentTooLong()
     return text
@@ -945,13 +942,16 @@ def _resolve_scope(db, user_id: int, file_id: Any) -> Tuple[Optional[str], Optio
 
 
 def _coerce_content_from_doc(value: Any) -> str:
+    """התוכן שבמסמך כמחרוזת — **בלי פענוח**, כמו שהוא שמור.
+
+    עד אוקטובר 2026 עבר כאן ``html.unescape``. הוא נועד לפתקים שהוובאפ שמר
+    מקודדים, בין 23.10 ל-3.11.2025, וכשהוסר לא נשאר במסד אף פתק כזה — המדידה
+    ברשומה של 10.10.2026 ב-``docs/whats-new.rst``. כל עוד הוא היה כאן, כל
+    ``&amp;`` שמשתמש הקליד הוצג כ-``&``. ה-escape שייך לשכבת התצוגה, לא לכאן.
+    """
     if value is None:
         return ""
-    try:
-        s = str(value)
-    except Exception:
-        s = ""
-    return html.unescape(s)
+    return str(value)
 
 
 def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -1426,18 +1426,15 @@ def reminders_list():
         items = []
 
         def _first_n_words(text: str, n: int = 6) -> str:
-            try:
-                s = _sanitize_text(text or '', MAX_NOTE_CHARS)
-                words = [w for w in s.strip().split() if w]
-                if not words:
-                    return ''
-                head = words[:max(1, n)]
-                out = ' '.join(head)
-                if len(words) > n:
-                    out += '…'
-                return out
-            except Exception:
+            # המילים כמו שהן שמורות — בלי פענוח. עד אוקטובר 2026 הטקסט עבר כאן
+            # ``html.unescape`` בפעם השנייה (הראשונה ב-``_coerce_content_from_doc``).
+            words = str(text or '').split()
+            if not words:
                 return ''
+            out = ' '.join(words[:max(1, n)])
+            if len(words) > n:
+                out += '…'
+            return out
 
         for r in reminders:
             try:
@@ -1574,6 +1571,8 @@ def create_note(file_id: str):
             return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
         except _InvalidContentB64:
             return jsonify({'ok': False, 'error': 'invalid_content_b64'}), 400
+        except _InvalidContent:
+            return jsonify({'ok': False, 'error': 'invalid_content'}), 400
         title = normalize_note_title(data.get('title'))
         pos = data.get('position') or {}
         size = data.get('size') or {}
@@ -1663,6 +1662,8 @@ def update_note(note_id: str):
                 return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
             except _InvalidContentB64:
                 return jsonify({'ok': False, 'error': 'invalid_content_b64'}), 400
+            except _InvalidContent:
+                return jsonify({'ok': False, 'error': 'invalid_content'}), 400
         if 'position' in data and isinstance(data.get('position'), dict):
             pos = data['position']
             updates['position_x'] = _coerce_int(pos.get('x'), 100, 0, 100000)
@@ -1902,6 +1903,10 @@ def batch_update_notes():
                     except _InvalidContentB64:
                         results.append({'id': note_id, 'ok': False, 'status': 400,
                                         'error': 'invalid_content_b64'})
+                        continue
+                    except _InvalidContent:
+                        results.append({'id': note_id, 'ok': False, 'status': 400,
+                                        'error': 'invalid_content'})
                         continue
                 if 'position' in fragment and isinstance(fragment.get('position'), dict):
                     pos = fragment['position']
@@ -2148,6 +2153,8 @@ def create_board_note(board_id: str):
             return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
         except _InvalidContentB64:
             return jsonify({'ok': False, 'error': 'invalid_content_b64'}), 400
+        except _InvalidContent:
+            return jsonify({'ok': False, 'error': 'invalid_content'}), 400
         title = normalize_note_title(data.get('title'))
 
         # תקרות — ולפני הכתיבה, לא אחריה. ``_count_or_none`` מבחין בין אפס
@@ -2361,6 +2368,8 @@ def create_repo_note(repo_name: str, repo_path: str):
             return jsonify({'ok': False, 'error': 'content_too_long', 'max': MAX_NOTE_CHARS}), 400
         except _InvalidContentB64:
             return jsonify({'ok': False, 'error': 'invalid_content_b64'}), 400
+        except _InvalidContent:
+            return jsonify({'ok': False, 'error': 'invalid_content'}), 400
         title = normalize_note_title(data.get('title'))
 
         # **ה-cap לקובץ נאכף גם על אדמין, במכוון.** דפדפן הריפו חסום
@@ -2855,16 +2864,25 @@ def search_notes():
         _ensure_indexes()
         user_id = int(session['user_id'])
 
-        # ``.strip()`` אחרי הסניטציה, ובכוונה: ``_sanitize_text`` מסירה תווי
-        # בקרה ולא רווחים, ולכן ``?q=%20%20`` היה עובר כמחט "לא ריקה"
-        # ומתורגם לרג'קס שתופס כל פתק שיש בו שני רווחים — כלומר בדיוק
-        # ה"הכול" שהבדיקה למטה נועדה למנוע.
-        needle = _sanitize_text(request.args.get('q', ''), NOTE_SEARCH_MAX_NEEDLE).strip()
+        # המחט היא מה שהוקלד, אחרי ``strip`` בלבד — בלי פענוח, כי הפילטר משווה
+        # אותה לגוף כמו שהוא שמור (``_note_content_from_request``). ה-``strip``
+        # נשאר בכוונה: ``?q=%20%20`` היה אחרת מחט "לא ריקה" שמתורגמת לרג'קס
+        # שתופס כל פתק שיש בו שני רווחים — כלומר בדיוק ה"הכול" שהבדיקה למטה
+        # נועדה למנוע.
+        needle = str(request.args.get('q', '') or '').strip()
         if not needle:
             # **ולא "הכול".** שאילתה ריקה על פילטר רג'קס תופסת כל פתק, כלומר
             # משיבה תשובה לשאלה שלא נשאלה. אותה הכרעה כבר מקודדת
             # ב-``note_search_filter``, שמעלה ``ValueError`` על מחט ריקה.
             return jsonify({'ok': False, 'error': 'empty_query'}), 400
+        if len(needle) > NOTE_SEARCH_MAX_NEEDLE:
+            # **סירוב, לא חיתוך.** מחט שנחתכה מחפשת את הקידומת שלה, כלומר עונה
+            # על שאלה אחרת מזו שנשאלה — ו-``codekeeper_search_notes`` כבר עונה
+            # כאן ``query_too_long``. שדה החיפוש בעמוד מוגבל לאותה תקרה.
+            return jsonify({'ok': False, 'error': 'query_too_long', 'max': NOTE_SEARCH_MAX_NEEDLE}), 400
+        needle_error = note_search_needle_error(needle)
+        if needle_error:
+            return jsonify({'ok': False, 'error': needle_error}), 400
 
         color_id = str(request.args.get('color', '') or '').strip().lower()
         if color_id:

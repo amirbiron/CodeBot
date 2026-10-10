@@ -18,7 +18,6 @@ from __future__ import annotations
 import datetime as _dt
 import enum as _enum
 import hashlib
-import html
 import os
 import threading
 import time as _time
@@ -864,6 +863,38 @@ def _content_diff(intended: str, stored: str) -> dict[str, Any]:
     }
 
 
+def _content_verdict(intended: str, stored: str, *, op: str, where: str) -> dict[str, Any]:
+    """``content_changed`` של תשובת כתיבה, ו-``content_diff`` כשהגוף שנשמר שונה.
+
+    **המקום היחיד שמכריע את זה, לקבצים ולפתקים** (``save_file`` ו-
+    :func:`_note_write_answer`), כדי שהחוזה לא ייסחף בין שני סוגי הכתיבה.
+
+    ``stored`` הוא הגוף כפי שנקרא מהמסד אחרי הכתיבה, ו-``intended`` הוא מה
+    שהכלי התכוון לשמור. כשהם זהים תו-בתו — ``content_changed: false``. אחרת
+    ``true``, עם :func:`_content_diff` ושורת ``WARNING`` אחת בלי תוכן. בלי
+    השורה אף אחד חוץ מהסוכן לא יודע שהרשת תפסה משהו: PostHog רושם תשובה מגוף
+    כלי כהצלחה, ו-``$mcp_response`` נחסם בשער הפרטיות (``mcp_server/analytics.py``).
+
+    ``op`` הוא מי שכתב: שם הכלי בקבצים, שם הפעולה ב-backend בפתקים. ``where``
+    מזהה את המסמך בשורה: ``_id``, ובקבצים גם הגרסה. המצב השלישי, ``null``, אינו
+    כאן: הוא של הקורא, כשאין מסמך שנקרא חזרה.
+    """
+    if stored == intended:
+        return {"content_changed": False}
+    diff = _content_diff(intended, stored)
+    # בלי code points ובלי תוכן — רק מספרים ומיקום. השמות הם המפתחות של
+    # ``content_diff``, כדי שמי שקורא את הלוג ומי שקורא את התשובה ידברו באותן מילים.
+    logger.warning(
+        "mcp write %s: stored content differs from what the tool meant to save "
+        "(%s line=%d offset_bytes=%d intended_bytes=%d stored_bytes=%d "
+        "intended_total_bytes=%d stored_total_bytes=%d)",
+        op, where, diff["line"], diff["offset_bytes"],
+        diff["intended_bytes"], diff["stored_bytes"],
+        diff["intended_total_bytes"], diff["stored_total_bytes"],
+    )
+    return {"content_changed": True, "content_diff": diff}
+
+
 def _strip_heavy(value: Any) -> Any:
     """Recursively drop heavy content fields from an already-serialized value."""
     if isinstance(value, dict):
@@ -879,9 +910,10 @@ def _as_note(doc: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {"id": str(doc.get("_id") or "")}
     for key in _NOTE_FIELDS:
         out[key] = _json_safe(doc.get(key))
-    # פתקי legacy נשמרו עם HTML entities — משחזרים טקסט כמו שהוובאפ עושה בקריאה
-    if isinstance(out.get("content"), str):
-        out["content"] = html.unescape(out["content"])
+    # ``content`` חוזר **כמו שהוא שמור**, בלי פענוח. עד אוקטובר 2026 עבר כאן
+    # ``html.unescape``, בשביל פתקים שהוובאפ שמר מקודדים ב-2025; כשהוסר לא
+    # נשאר במסד אף פתק כזה (המדידה ב-``docs/whats-new.rst``, 10.10.2026), והוא
+    # הציג כל ``&amp;`` שהוקלד כ-``&``.
     # **הצבע נגזר ואינו מועתק גולמי — אותו חוזה בדיוק כמו
     # ``webapp/sticky_notes_api._as_note_response``.**
     #
@@ -902,6 +934,50 @@ def _as_note(doc: dict[str, Any]) -> dict[str, Any]:
     out["created_at"] = _json_safe(doc.get("created_at"))
     out["updated_at"] = _json_safe(doc.get("updated_at"))
     return out
+
+
+def _as_note_hashed(doc: dict[str, Any]) -> dict[str, Any]:
+    """:func:`_as_note` ועוד ``content_sha256`` — לפתק בודד: ``get_note`` ותשובות הכתיבה.
+
+    ה-hash הוא :func:`_content_sha256` של הגוף כמו שהוא שמור, אותה פונקציה של
+    ``file.content_sha256`` בקבצים. כלי הרשימה אינם נושאים אותו: הם מחזירים
+    פתקים רבים, ו-hash לכל אחד הוא עבודה שאיש לא ביקש. גוף שאינו מחרוזת אינו
+    מקבל hash.
+    """
+    note = _as_note(doc)
+    body = (doc or {}).get("content")
+    if isinstance(body, str):
+        note["content_sha256"] = _content_sha256(body)
+    return note
+
+
+def _note_write_answer(stored: dict[str, Any], *, intended: str | None, op: str) -> dict[str, Any]:
+    """תשובת כתיבה של פתק — **ממה שנשמר**, לא ממה שביקשו לשמור.
+
+    ``stored`` הוא המסמך כפי שהמסד מחזיק אותו אחרי הכתיבה: בעדכון — מה ש-
+    ``find_one_and_update`` החזיר עם ``ReturnDocument.AFTER``, כלומר המצב
+    שהכתיבה **הזו** השאירה, גם כשהוובאפ כותב לאותו פתק במקביל; ביצירה — קריאה
+    חוזרת לפי ה-``_id`` שה-insert החזיר (:meth:`ProductionBackend._created_note_answer`).
+    ``intended`` הוא הגוף שהכלי התכוון לשמור, או ``None`` כשהכתיבה לא נגעה
+    בגוף (צבע, שורה) — ואז אין מה להשוות.
+
+    אותו חוזה של קבצים (``save_file``): ``note`` הוא :func:`_as_note_hashed` של
+    המסמך ששמור, כלומר עם ``content_sha256``, ו-``content_changed`` (ו-
+    ``content_diff``) באים מ-:func:`_content_verdict`, אותה פונקציה שקבצים
+    עוברים בה. המצב השלישי, ``null``, נבנה אצל הקורא כשאין מסמך שנקרא חזרה.
+
+    כשהכתיבה **כתבה** גוף והמסמך שחזר ממנה נושא גוף שאינו מחרוזת —
+    ``TypeError``: הכתיבה שלנו שמה שם מחרוזת, ו-``content_changed`` היה מכסה על
+    חוזה שנשבר.
+    """
+    answer: dict[str, Any] = {"ok": True, "note": _as_note_hashed(stored)}
+    if intended is None:
+        return answer
+    body = stored.get("content")
+    if not isinstance(body, str):
+        raise TypeError(f"stored note content is {type(body).__name__}, not str")
+    answer.update(_content_verdict(intended, body, op=op, where=f"_id={stored.get('_id')}"))
+    return answer
 
 
 def _as_note_ref(doc: dict[str, Any] | None) -> dict[str, Any]:
@@ -1392,7 +1468,8 @@ class ProductionBackend:
 
         - ``content_changed: false`` — מה שנשמר זהה למה שהכלי התכוון לשמור.
         - ``content_changed: true`` — עם ``content_diff`` (:func:`_content_diff`) ושורת
-          ``WARNING`` אחת בלי תוכן. בלי השורה אף אחד חוץ מהסוכן לא יודע שהרשת תפסה
+          ``WARNING`` אחת בלי תוכן, שתיהן מ-:func:`_content_verdict`, המקום שמכריע את זה
+          גם לפתקים. בלי השורה אף אחד חוץ מהסוכן לא יודע שהרשת תפסה
           משהו: PostHog רושם תשובה מגוף כלי כהצלחה, ו-``$mcp_response`` נחסם בשער
           הפרטיות (``mcp_server/analytics.py``).
         - ``content_changed: null`` — הקריאה החוזרת נכשלה בשגיאת מסד, או לא מצאה את
@@ -1461,22 +1538,9 @@ class ProductionBackend:
             }
         out = _full(stored)
         answer: dict[str, Any] = {"ok": True, "created": created, "file": _file_meta(out)}
-        if out["code"] == code:
-            answer["content_changed"] = False
-            return answer
-        diff = _content_diff(code, out["code"])
-        # בלי code points ובלי תוכן — רק מספרים ומיקום. השמות הם המפתחות של
-        # ``content_diff``, כדי שמי שקורא את הלוג ומי שקורא את התשובה ידברו באותן מילים.
-        logger.warning(
-            "mcp write %s: stored content differs from what the tool meant to save "
-            "(_id=%s version=%s line=%d offset_bytes=%d intended_bytes=%d stored_bytes=%d "
-            "intended_total_bytes=%d stored_total_bytes=%d)",
-            tool, inserted_id, version, diff["line"], diff["offset_bytes"],
-            diff["intended_bytes"], diff["stored_bytes"],
-            diff["intended_total_bytes"], diff["stored_total_bytes"],
+        answer.update(
+            _content_verdict(code, out["code"], op=tool, where=f"_id={inserted_id} version={version}")
         )
-        answer["content_changed"] = True
-        answer["content_diff"] = diff
         return answer
 
     def update_file_description(
@@ -1988,6 +2052,66 @@ class ProductionBackend:
             "updated_at": now,
         }
 
+    @staticmethod
+    def _primary_reader(coll: Any) -> Any:
+        """``coll`` לקריאה מה-primary — לקריאה החוזרת של :meth:`_created_note_answer`.
+
+        ``ReadPreference.PRIMARY`` דרך ``Collection.with_options`` (pymongo 4.15.3), כמו
+        ``Repository.find_version_by_id``. בלי זה הקריאה יורשת את ה-read preference
+        של הלקוח, ומשני שעוד לא ראה את הכתיבה היה עונה "לא נמצא".
+
+        **נקשר לפני ה-insert, באותו נימוק של ``read_back`` ב-``save_file``:** אוסף בלי
+        ``with_options`` נופל כאן, לפני שנכתב דבר. אחרי ה-insert אותה חריגה הייתה
+        נראית לסוכן כיצירה שנכשלה, והוא היה יוצר פתק שני.
+        """
+        from pymongo import ReadPreference
+
+        return coll.with_options(read_preference=ReadPreference.PRIMARY)
+
+    @staticmethod
+    def _created_note_answer(
+        read_back: Any, user_id: int, note: dict[str, Any], res: Any, *, op: str
+    ) -> dict[str, Any]:
+        """תשובת יצירה של פתק — **מקריאה חוזרת** לפי ה-``_id`` שה-insert החזיר.
+
+        עד כאן היצירה החזירה את ``note`` — המסמך שביקשנו לכתוב — ולכן שכבה
+        שהייתה משנה את הגוף בדרך לא הייתה נראית בתשובה. התשובה נבנית ב-
+        :func:`_note_write_answer` ממה שנקרא; ``op`` הוא שם הפעולה בשורת הלוג,
+        ו-``read_back`` הוא האוסף מ-:meth:`_primary_reader`.
+
+        **למה כאן קריאה נפרדת, ובעדכון לא:** ``insert_one`` מחזיר רק את ה-``_id``,
+        ולא את המסמך. זו אותה קריאה חוזרת של ``save_file`` בקבצים: לפי ``_id``
+        ו-``user_id``, מה-primary. כתיבה מקבילה לאותו פתק, בחלון שבין ה-insert
+        לקריאה, אפשרית רק ממי שכבר קיבל את המזהה שלו מרשימה. ואם היא בכל זאת
+        קרתה, ``content_changed: true`` מתאר נכון את מה שיושב במסד.
+
+        **כשהקריאה החוזרת נכשלת בשגיאת מסד, או לא מוצאת את הפתק,** הכתיבה
+        עדיין קרתה, ולכן ``ok: true`` — סוכן שהיה מקבל ``ok: false`` היה יוצר
+        פתק שני. ``note`` נושא אז רק ``id``, ``content_changed`` הוא ``null``,
+        ונרשמת שורת ``WARNING``. **אין hash מהקלט** — hash כזה תמיד "תקין".
+        חריגה שאינה של המסד היא באג ועולה הלאה.
+        """
+        inserted_id = res.inserted_id
+        try:
+            stored = read_back.find_one({"_id": inserted_id, "user_id": int(user_id)})
+        except _PyMongoError:
+            # שגיאת מסד בלבד — "לא הצלחתי לקרוא", בדיוק המצב ש-``null`` מתאר.
+            # ``exc_info`` של pymongo אינו נושא את ערכי הסינון (ראו ``save_file``).
+            logger.warning(
+                "mcp write %s: could not read back the created note (_id=%s)",
+                op, inserted_id, exc_info=True,
+            )
+            stored = None
+        else:
+            if stored is None:
+                logger.warning(
+                    "mcp write %s: the created note was not found on read-back (_id=%s)",
+                    op, inserted_id,
+                )
+        if stored is None:
+            return {"ok": True, "note": {"id": str(inserted_id)}, "content_changed": None}
+        return _note_write_answer(stored, intended=note["content"], op=op)
+
     def _related_file_ids(self, user_id: int, file_name: str) -> list[str]:
         """כל מזהי הגרסאות של השם הזה — לפריטת שאילתת הוובאפ (פתקי legacy בלי scope_id)."""
         try:
@@ -2142,9 +2266,9 @@ class ProductionBackend:
             "created_at": now,
             "updated_at": now,
         }
+        read_back = self._primary_reader(coll)
         res = coll.insert_one(note)
-        note["_id"] = getattr(res, "inserted_id", None)
-        return {"ok": True, "note": _as_note(note)}
+        return self._created_note_answer(read_back, user_id, note, res, op="create_note")
 
     # -- note boards -------------------------------------------------------
     #
@@ -2310,6 +2434,7 @@ class ProductionBackend:
             if title_is_taken(coll, user_id=int(user_id), board_id=canonical, title=title):
                 return {"ok": False, "error": "duplicate_title"}
 
+        read_back = self._primary_reader(coll)
         try:
             res = coll.insert_one(note)
         except _DuplicateKeyError:
@@ -2320,8 +2445,7 @@ class ProductionBackend:
             # DuplicateKeyError בתוכה — אינה נתפסת כאן בשום שיטה, וגם
             # ההשוואה לשם לא הייתה תופסת אותה.)
             return {"ok": False, "error": "duplicate_title"}
-        note["_id"] = getattr(res, "inserted_id", None)
-        return {"ok": True, "note": _as_note(note)}
+        return self._created_note_answer(read_back, user_id, note, res, op="create_board_note")
 
     # -- פתקי ריפו: היעד השלישי ------------------------------------------
     def list_repo_notes(self, user_id: int, *, repo_name: str, repo_path: str) -> dict[str, Any]:
@@ -2464,12 +2588,12 @@ class ProductionBackend:
             ):
                 return {"ok": False, "error": "duplicate_title"}
 
+        read_back = self._primary_reader(coll)
         try:
             res = coll.insert_one(note)
         except _DuplicateKeyError:
             return {"ok": False, "error": "duplicate_title"}
-        note["_id"] = getattr(res, "inserted_id", None)
-        return {"ok": True, "note": _as_note(note)}
+        return self._created_note_answer(read_back, user_id, note, res, op="create_repo_note")
 
     #: השדות שמעידים שכתיבה כלשהי נגעה בפתק. **שלושתם יחד**, ומאותו נימוק
     #: שכתוב במסלול הכשל של :meth:`update_note`: תוכן לבדו הוא ABA (כותב
@@ -2515,21 +2639,18 @@ class ProductionBackend:
         ``codekeeper_get_note``, שמבקש גם ``with_version``.
 
         התשובה נושאת, לצד ``note`` (הסריאליזציה של :func:`_as_note`, שבה
-        ``content`` עבר ``html.unescape`` כמו בכלי הרשימה), שני דברים שאין
-        ב-``_as_note``:
+        ``content`` הוא הגוף כמו שהוא שמור), שני דברים שאין ב-``_as_note``:
 
         - **היעד**, בצורה של :func:`sticky_notes_target.note_target_ref` —
           ``target`` ואיתו בדיוק הארגומנטים של כלי הרשימה המתאים, אותה
           מוסכמה של פגיעת חיפוש. פתק קובץ ישן שנושא ``file_id`` בלבד מקבל
           ``file_name`` דרך :meth:`_backfill_file_names`, מאותה סיבה שהחיפוש
           עושה זאת: פגיעה בלי ``file_name`` היא מבוי סתום.
-        - ``stored_content`` — הגוף **בדיוק כפי שהוא מאוחסן**, בלי פענוח
-          ישויות. ``codekeeper_get_note`` מחזיר את זה ולא את הגוף המפוענח:
-          ``get_note_version`` מחזיר גרסאות קודמות בצורה המאוחסנת, ורק כך
-          "הגוף של גרסה N" ו"הגוף הנוכחי" ניתנים להשוואה בית-בית.
-          ``note_str_replace`` ממשיך לעבוד על ``note["content"]`` המפוענח,
-          כי הוא מפענח גם את ``old_string`` (``_sanitize_note_text``) ומשווה
-          במרחב אחד — שתי הצורות מגיעות אליו ותופסות.
+        - ``note.content_sha256`` — :func:`_content_sha256` של הגוף ששמור, אותו
+          hash שתשובות הכתיבה נושאות (:func:`_note_write_answer`). כך סוכן יכול
+          לוודא שהגוף שקרא הוא הגוף שכתב, בלי להשוות את כל הטקסט. עד אוקטובר
+          2026 עמד כאן ``stored_content``, הגוף בלי הפענוח שעבר אז ב-``_as_note``;
+          כשהפענוח הוסר הוא נעשה זהה ל-``note.content``, ונמחק.
 
         **``with_version`` — הגוף והגרסה מתארים את אותו רגע, וזה נאכף ולא
         מונח.** הגרסה יושבת באוסף אחר (``sticky_note_versions``), ולכן היא
@@ -2577,8 +2698,7 @@ class ProductionBackend:
         self._backfill_file_names(int(user_id), [row])
         out: dict[str, Any] = {
             "ok": True,
-            "note": _as_note(row),
-            "stored_content": _json_safe(row.get("content")),
+            "note": _as_note_hashed(row),
             **_json_safe(note_target_ref(row)),
         }
         if with_version:
@@ -3034,8 +3154,14 @@ class ProductionBackend:
         מדווחות הצלחה ועריכה אחת נעלמת. עם השער, המפסידה מקבלת
         ``conflict`` מפורש במקום ניצחון שקרי. ``update_note`` הכללי
         (עדכון-שדות, לא read-modify-write) אינו משתמש בו בכוונה.
+
+        **התשובה מתארת את מה שנשמר** (:func:`_note_write_answer`): ``note`` נבנה
+        מהמסמך שהכתיבה עצמה החזירה, עם ``note.content_sha256``. וכשהעדכון כתב
+        גוף, גם ``content_changed`` — השוואה בין הגוף ששמור לבין
+        ``fields["content"]``.
         """
         from bson import ObjectId  # lazy heavy import
+        from pymongo import ReturnDocument
 
         try:
             oid = ObjectId(str(note_id))
@@ -3047,19 +3173,15 @@ class ProductionBackend:
         if not note:
             return {"ok": False, "error": "not_found"}
 
-        # **ההשוואה במרחב של הקורא; המסנן במרחב של המסד.** הגוף שהקורא
-        # קיבל עבר ``html.unescape`` ב-``_as_note`` (פתקי legacy נשמרו עם
-        # ישויות HTML), ולכן ``expected_content`` מושווה גם מול הערך
-        # הגולמי וגם מול פענוחו — השוואה מול הגולמי בלבד הייתה נועלת כל
-        # פתק legacy ב-``conflict`` נצחי. מסנן הכתיבה, לעומת זאת, נושא את
-        # הערך **הגולמי** שנשלף הרגע: זה מה שבאמת יושב במסד, וזה מה שסוגר
-        # את חלון המרוץ שבין הקריאה לכתיבה.
+        # **``expected_content`` מושווה לגוף כמו שהוא שמור, ומסנן הכתיבה נושא
+        # את אותו ערך.** הקורא קיבל את הגוף בדיוק כך, כי ``_as_note`` אינו
+        # מפענח אותו. עד אוקטובר 2026 ההשוואה קיבלה גם את הגרסה אחרי
+        # ``html.unescape``, כי זה מה ש-``_as_note`` החזיר אז. המסנן נושא את
+        # הערך שנשלף הרגע, וזה מה שסוגר את חלון המרוץ שבין הקריאה לכתיבה.
         raw_stored = note.get("content")
-        if expected_content is not None:
-            decoded = html.unescape(raw_stored) if isinstance(raw_stored, str) else raw_stored
-            if expected_content != raw_stored and expected_content != decoded:
-                # הפתק כבר השתנה מאז שהקורא קרא אותו — עוד לפני שצילמנו.
-                return {"ok": False, "error": "conflict"}
+        if expected_content is not None and expected_content != raw_stored:
+            # הפתק כבר השתנה מאז שהקורא קרא אותו — עוד לפני שצילמנו.
+            return {"ok": False, "error": "conflict"}
 
         # **הצילום לפני הדריסה, וכשל בו עוצר אותה.** זו הנקודה שאכלה פתק
         # בפועל: העדכון מחליף את התוכן כולו, ועד היום לא היה ממה לשחזר.
@@ -3113,9 +3235,17 @@ class ProductionBackend:
         write_filter: dict[str, Any] = {"_id": oid, "user_id": int(user_id)}
         if expected_content is not None:
             write_filter["content"] = raw_stored
+        # **התשובה נבנית מהמסמך שהכתיבה עצמה מחזירה, ולא מקריאה אחריה.**
+        # ``find_one_and_update`` עם ``ReturnDocument.AFTER`` מחזיר, באותה פעולה
+        # אטומית, את המסמך כפי שהכתיבה הזו השאירה אותו, ו-``None`` כשהמסנן לא
+        # התאים לאף מסמך. הפקודה רצה תמיד מול ה-primary (pymongo 4.15.3,
+        # ``synchronous/collection.py``, ``_find_and_modify``). קריאה נפרדת אחרי
+        # הכתיבה הייתה יכולה לתפוס כתיבה מקבילה של הוובאפ לאותו פתק, ולדווח
+        # עליה כאילו זה מה שהכלי שמר.
         try:
-            res = coll.update_one(write_filter, {"$set": updates})
-            matched = int(getattr(res, "matched_count", 0) or 0)
+            stored = coll.find_one_and_update(
+                write_filter, {"$set": updates}, return_document=ReturnDocument.AFTER
+            )
         except Exception:
             # **חריגה אינה ראיה שהכתיבה לא קרתה.** כשל רשת יכול ליפול אחרי
             # שהשרת כבר כתב — ומחיקת הצילום אז משאירה תוכן חדש בלי גרסה
@@ -3151,7 +3281,7 @@ class ProductionBackend:
             except Exception:
                 logger.warning("post-failure note verification failed; keeping snapshot")
             raise
-        if matched == 0:
+        if stored is None:
             # הפתק השתנה או נעלם בין הקריאה לכתיבה. בלי הבדיקה הזו היינו
             # מחזירים ``ok`` על כתיבה שלא כתבה דבר, ומשאירים גרסה יתומה.
             self._discard_snapshot(snap_ref)
@@ -3159,4 +3289,8 @@ class ProductionBackend:
                 "ok": False,
                 "error": "conflict" if expected_content is not None else "not_found",
             }
-        return {"ok": True, "note": _as_note({**note, **updates})}
+        return _note_write_answer(
+            stored,
+            intended=fields["content"] if "content" in fields else None,
+            op="update_note",
+        )

@@ -621,6 +621,26 @@ def repo_notes_filter(user_id: int, repo_name: Any, repo_path: Any) -> Dict[str,
     }
 
 
+def note_search_needle_error(query: str) -> Optional[str]:
+    """הסיבה שמחרוזת חיפוש אינה יכולה להפוך ל-``$regex``, כקוד שגיאה — או ``None``.
+
+    **NUL.** ``$regex`` של מונגו דוחה ביטוי שיש בו NUL (``BadValue``: "Regular
+    expression cannot contain an embedded null byte" — נמדד מול 8.0.32 מקומי),
+    ו-``re.escape`` אינו מבריח אותו. עד אוקטובר 2026 הכותבים מחקו תווי בקרה
+    גם מהמחט, וזו הייתה ההגנה היחידה מפני השגיאה הזו — בלי שאיש התכוון לה.
+    מאז שהתוכן והמחט נשמרים כמו שנשלחו, השאלה נשאלת כאן, לפני שהשאילתה
+    נבנית, ובשני הצרכנים של :func:`note_search_filter` — ``400`` בוובאפ
+    ו-``ok: false`` ב-MCP — במקום ``500`` מהמסד. שם היא נבדקת על המחרוזת
+    שהגיעה, שממנה נגזרות שתי המחטים. ו-:func:`note_search_filter` שואל אותה
+    שוב על כל מחט שהוא הופך ל-``$regex``, ומעלה ``ValueError``, כי
+    ``backend.search_notes`` מקבל מחט תוכן נפרדת (``content_query``), וקורא
+    שמעביר אותה בלי לבדוק היה מגיע למסד.
+    """
+    if "\x00" in query:
+        return "invalid_query"
+    return None
+
+
 def note_search_filter(
     user_id: int,
     needle: Any,
@@ -687,20 +707,35 @@ def note_search_filter(
     מ-:func:`note_color_query`.
 
     .. note::
-       פתקי legacy נשמרו עם ישויות HTML (``&quot;`` במקום ``"``);
-       ``_sanitize`` מנקה רק בכתיבה חדשה. חיפוש תוכן על תו כזה יפספס
-       אותם. זו מגבלת נתונים היסטוריים, לא של השאילתה.
+       התוכן נשמר בדיוק כמו שנשלח, והמחט מגיעה לכאן כמו שהוקלדה — ולכן
+       ``&amp;`` מוצא פתק שבו הוקלד ``&amp;``, ולא פתק שבו הוקלד ``&``. עד
+       אוקטובר 2026 שני הצדדים עברו ``html.unescape``, ואי אפשר היה לחפש
+       ישות בכלל. מחרוזת שאי אפשר להפוך ל-``$regex`` נדחית לפני שמגיעים
+       לכאן (:func:`note_search_needle_error`), ומחט כזו שבכל זאת הגיעה מעלה
+       ``ValueError`` — כמו שתי מחטים ריקות: שגיאת קורא, ולא שאילתה שהמסד ידחה.
     """
     title_needle = str(needle or "")
+    body_needle = (
+        str(content_needle if content_needle is not None else title_needle or "")
+        if search_content
+        else ""
+    )
+    # כל מחט שנהיית ``$regex`` נבדקת כאן, ולא רק השאילתה בנקודת הכניסה: מחט התוכן
+    # יכולה להגיע בנפרד (``content_query`` של ``backend.search_notes``). בלי השם
+    # ובלי התוכן בהודעה — היא מגיעה ללוג ולאירוע של הקורא.
+    for value in (title_needle, body_needle):
+        if note_search_needle_error(value):
+            raise ValueError(
+                "note_search_filter: a needle that cannot become a $regex reached the "
+                "builder (check it with note_search_needle_error first)"
+            )
     clauses: List[Dict[str, Any]] = []
     if title_needle:
         clauses.append(
             {"title": {"$exists": True, "$regex": re.escape(title_needle), "$options": "i"}}
         )
-    if search_content:
-        body_needle = str(content_needle if content_needle is not None else title_needle or "")
-        if body_needle:
-            clauses.append({"content": {"$regex": re.escape(body_needle), "$options": "i"}})
+    if body_needle:
+        clauses.append({"content": {"$regex": re.escape(body_needle), "$options": "i"}})
     if not clauses:
         raise ValueError("note_search_filter: both needles are empty")
 
