@@ -127,6 +127,46 @@ def test_anchors_outside_the_grammar(anchor):
 
 
 @pytest.mark.parametrize(
+    "text,encoded",
+    [
+        # מקף, פסיק ו-& הם התחביר של ההנחיה, ולכן מקודדים; ‏``quote`` לבדו משאיר את המקף.
+        ("fix: א-ב, ג&ד", "fix%3A%20%D7%90%2D%D7%91%2C%20%D7%92%26%D7%93"),
+        ("a_b.c~d", "a_b.c~d"),
+    ],
+)
+def test_a_jump_to_text_encodes_what_the_directive_reserves(text, encoded):
+    assert contract.text_fragment(text) == ":~:text=" + encoded
+
+
+def test_a_jump_to_text_decodes_back_to_the_text():
+    from urllib.parse import unquote
+
+    text = "docs (MCP): בלוק ה-``instructions`` — ו-%20, & ,"
+    value = contract.text_fragment(text).removeprefix(":~:text=")
+    assert unquote(value) == text
+    assert not set("-,& ") & set(value)
+
+
+def test_a_section_url_jumps_to_its_text_only_when_there_is_one():
+    assert contract.section_url("whats-new.html", "id9") == contract.SITE_URL + "whats-new.html#id9"
+    assert contract.section_url("whats-new.html", "id9", "fix: א") == (
+        contract.SITE_URL + "whats-new.html#id9:~:text=fix%3A%20%D7%90"
+    )
+
+
+@pytest.mark.parametrize("text", ["", "   ", None, 7])
+def test_an_empty_or_non_text_jump_is_refused(text):
+    with pytest.raises(ValueError):
+        contract.text_fragment(text)
+
+
+@pytest.mark.parametrize("text", [None, 7, ["fix: א"]])
+def test_a_section_url_refuses_a_jump_that_is_not_text(text):
+    with pytest.raises(ValueError):
+        contract.section_url("whats-new.html", "id9", text)
+
+
+@pytest.mark.parametrize(
     "path",
     ["index.html", "webapp/global-search.html", "observability/events_catalog.html", "dev/A_B-c.html"],
 )

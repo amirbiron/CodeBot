@@ -214,6 +214,40 @@ def test_a_source_path_that_is_not_text_comes_back_empty(world, stored):
     assert [(result["anchor"], result["source_path"]) for result in found["results"]] == [("themes-dark", "")]
 
 
+def test_an_update_in_an_update_log_is_its_own_result_and_its_link_jumps_to_it(world):
+    """הכרטיס של עדכון ב-What's New: הפתיח ככותרת, שאר העדכון כגוף, והקישור קופץ לפתיח בתוך היום."""
+    day = "-   **fix: הכרטיס מציג את העדכון.** הסיבה: היום כולו היה כרטיס.\n    \n-   **feat: עדכון שני.** עוד."
+    pages = [
+        page("whats-new.html", "docs/whats-new.rst", section("what-s-new", "What’s New", markdown=""),
+             section("id9", "What’s New", "2026-09-29", markdown=day)),
+        page("webapp/themes.html", "docs/webapp/themes.rst",
+             section("themes-dark", "ערכות", "כהה"), section("themes-light", "ערכות", "בהירה")),
+    ]
+    _filled(world, pages=pages)
+    headline = "fix: הכרטיס מציג את העדכון."
+    stored = sorted(world.db[contract.SECTIONS_COLLECTION].find({}), key=lambda doc: doc["_id"])
+    world.query_vector = _unit(next(index for index, doc in enumerate(stored) if doc["title"] == headline))
+
+    [result] = world.search(limit=1)["results"]
+
+    assert (result["title"], result["breadcrumb"], result["markdown"]) == (
+        headline, ["What’s New", "2026-09-29", headline], "הסיבה: היום כולו היה כרטיס."
+    )
+    assert result["url"] == contract.SITE_URL + "whats-new.html#id9" + contract.text_fragment(headline)
+
+
+@pytest.mark.parametrize("stored", [None, 7, "", "   ", ["fix: א"]])
+def test_a_link_text_that_is_not_text_leads_to_the_anchor_only(world, stored):
+    """הקישור נשאר נכון, רק בלי הקפיצה — ולא נשמט מהתוצאות."""
+    anchors = _filled(world)
+    world.query_vector = _unit(anchors["themes-dark"])
+    world.db[contract.SECTIONS_COLLECTION].update_one({"anchor": "themes-dark"}, {"$set": {"link_text": stored}})
+
+    [result] = world.search(limit=1)["results"]
+
+    assert result["url"] == contract.SITE_URL + "webapp/themes.html#themes-dark"
+
+
 def test_a_section_that_would_build_a_bad_link_is_left_out_and_logged(world, caplog):
     anchors = _filled(world)
     world.query_vector = _unit(anchors["themes-dark"])
