@@ -188,6 +188,239 @@ def test_the_section_sha_covers_every_field_the_card_shows():
 
 
 # ---------------------------------------------------------------------------
+# יומן עדכונים
+# ---------------------------------------------------------------------------
+#
+# המארקדאון בטסטים כתוב כמו שכפתור ההעתקה ממיר את העמוד (Turndown, ``docs/_static/copy-page.js``):
+# בולט הוא ``-   ``, שורות בתוכו מוזחות בארבעה רווחים, ובין בולטים שורה של רווחים — כמו בקובץ הייצוא
+# של What's New. ``test_an_update_headline_is_the_text_on_the_page_and_its_link_jumps_to_it`` ב-
+# ``tests/test_docs_export_sections_browser.py`` עובר באותה שרשרת עם הממיר עצמו, ובדפדפן.
+
+WHATS_NEW = "docs/whats-new.rst"
+TOP = "What’s New"
+
+
+def _log_page(*days, source_path=WHATS_NEW):
+    """עמוד יומן עדכונים: הסעיף העליון ריק, ואחריו יום לכל ``(עוגן, תאריך, מארקדאון)``."""
+    return page(
+        "whats-new.html", source_path, section("what-s-new", TOP, markdown=""),
+        *(section(anchor, TOP, date, markdown=markdown) for anchor, date, markdown in days),
+    )
+
+
+def _updates(*lines):
+    return "\n    \n".join(f"-   {line}" for line in lines)
+
+
+def test_each_update_in_an_update_log_is_a_record_titled_by_its_headline():
+    day = _updates(
+        "**fix (WebApp): הקובץ מוצג כמו שהוא בריפו.** הסיבה: הצנזור רץ גם על התוכן.",
+        "**feat (MCP): בלוק ה-instructions נכתב מחדש.** הוא נכנס בתקרה של הלקוח.",
+    )
+    sections, chunks = _records([_log_page(("id9", "2026-09-29", day))])
+
+    first, second = "fix (WebApp): הקובץ מוצג כמו שהוא בריפו.", "feat (MCP): בלוק ה-instructions נכתב מחדש."
+    assert [(s.title, s.breadcrumb, s.anchor, s.level, s.markdown, s.link_text) for s in sections] == [
+        (first, (TOP, "2026-09-29", first), "id9", 3, "הסיבה: הצנזור רץ גם על התוכן.", first),
+        (second, (TOP, "2026-09-29", second), "id9", 3, "הוא נכנס בתקרה של הלקוח.", second),
+    ]
+    assert [c.text for c in chunks] == [
+        f"{TOP} › 2026-09-29 › {first}\n\nהסיבה: הצנזור רץ גם על התוכן.",
+        f"{TOP} › 2026-09-29 › {second}\n\nהוא נכנס בתקרה של הלקוח.",
+    ]
+
+
+def test_a_page_that_is_not_an_update_log_keeps_one_record_per_section():
+    day = _updates("**fix: א.** טקסט.", "**fix: ב.** טקסט.")
+    sections, chunks = _records([_log_page(("id1", "2026-10-01", day), source_path="docs/other.rst")])
+
+    assert [(s.title, s.breadcrumb, s.markdown, s.link_text) for s in sections] == [
+        ("2026-10-01", (TOP, "2026-10-01"), day, "")
+    ]
+    assert len(chunks) == 1
+
+
+def test_every_chunk_of_a_long_update_starts_with_its_headline():
+    """ההקשר של עדכון ארוך לא נשאר רק בנתח הראשון: הפתיח בשביל, והשביל בראש כל נתח."""
+    body = " ".join(f"מילה{n}" for n in range(700))
+    sections, chunks = _records([_log_page(("id21", "2026-09-10", _updates(f"**feat: עדכון ארוך.** {body}")))])
+
+    prefix = f"{TOP} › 2026-09-10 › feat: עדכון ארוך.\n\n"
+    assert len(sections) == 1 and len(chunks) > 1
+    assert all(c.text.startswith(prefix) for c in chunks)
+    assert max(len(c.text.encode("utf-8")) for c in chunks) <= CHUNK_MAX_BYTES
+    assert "מילה0 " in chunks[0].text and chunks[-1].text.endswith("מילה699")
+
+
+@pytest.mark.parametrize(
+    "update,title,body",
+    [
+        # rst לא מקנן סימון, ולכן קוד בתוך פתיח נכתב כהדגשה שמפוצלת סביבו — צמוד, או עם רווחים.
+        (
+            "**docs: תוקנה סתירה בין התיעוד לקוד ב-**`POST /api/themes/import`**.** העמוד תיעד גוף אחר.",
+            "docs: תוקנה סתירה בין התיעוד לקוד ב-POST /api/themes/import.",
+            "העמוד תיעד גוף אחר.",
+        ),
+        (
+            "**fix:** `page/per_page` **היה הפיצ’ר היחיד בלי טסט.** הוא הוחזר לתיאור.",
+            "fix: page/per_page היה הפיצ’ר היחיד בלי טסט.",
+            "הוא הוחזר לתיאור.",
+        ),
+        # קוד אחרי ההדגשה האחרונה כבר שייך לגוף.
+        ("**fix: בדיקת הגודל** `MAX_BYTES` רצה עכשיו ראשונה.", "fix: בדיקת הגודל", "`MAX_BYTES` רצה עכשיו ראשונה."),
+        (
+            "**change: מימוש אחד לגודל** (`size-format.js`, נטען בכל עמוד).",
+            "change: מימוש אחד לגודל",
+            "(`size-format.js`, נטען בכל עמוד).",
+        ),
+        ("**refactor: המנתב לפי סיומת**, והלוגיקה בקובץ משלה.", "refactor: המנתב לפי סיומת", ", והלוגיקה בקובץ משלה."),
+    ],
+)
+def test_the_headline_is_the_bold_run_that_opens_the_update(update, title, body):
+    [record], _chunks = _records([_log_page(("id3", "2026-10-07", _updates(update)))])
+    assert (record.title, record.markdown, record.link_text) == (title, body, title)
+
+
+@pytest.mark.parametrize(
+    "update,title",
+    [
+        # Turndown מוסיף לוכסן לפני ` * _ [ ] \ — והעמוד מציג את התו עצמו.
+        (
+            r"**docs (MCP): בלוק ה-\`\`instructions\`\` מזכיר את \`\`x\_y\`\`.** עוד.",
+            "docs (MCP): בלוק ה-``instructions`` מזכיר את ``x_y``.",
+        ),
+        (r"**fix: \*\*\* במקום הערך, ו-\[x\] בסוף.** עוד.", "fix: *** במקום הערך, ו-[x] בסוף."),
+        (r"**fix: נתיב C:\\x נקרא נכון.** עוד.", "fix: נתיב C:\\x נקרא נכון."),
+        # ישות נשארת כמו שהיא: כך היא כתובה בעמוד, ו-Turndown לא מוסיף escape ל-&.
+        (r"**fix: \`\`&lt;div&gt;\`\` נשמר כמו שהוקלד.** עוד.", "fix: ``&lt;div&gt;`` נשמר כמו שהוקלד."),
+    ],
+)
+def test_the_headline_is_the_text_the_page_shows(update, title):
+    [record], _chunks = _records([_log_page(("id2", "2026-10-10", _updates(update)))])
+    assert record.title == record.link_text == title
+
+
+def test_a_headline_that_repeats_on_the_page_is_a_label_and_its_update_goes_under_its_day():
+    """"מגבלה ידועה:" היא תווית ולא שם של עדכון, וקפיצה אליה הייתה מגיעה להופעה הראשונה שלה."""
+    pages = [
+        _log_page(
+            (
+                "id25",
+                "2026-09-06",
+                _updates("**מגבלה ידועה:** החיפוש איטי בזמן ה-re-index.", "**feat: חלון זמן אחד.** עוד."),
+            ),
+            ("id28", "2026-08-31", _updates("**מגבלה ידועה:** אין מיגרציה.")),
+        )
+    ]
+    sections, _chunks = _records(pages)
+
+    assert [(s.title, s.breadcrumb, s.markdown, s.link_text) for s in sections] == [
+        ("2026-09-06", (TOP, "2026-09-06"), "**מגבלה ידועה:** החיפוש איטי בזמן ה-re-index.", ""),
+        ("feat: חלון זמן אחד.", (TOP, "2026-09-06", "feat: חלון זמן אחד."), "עוד.", "feat: חלון זמן אחד."),
+        ("2026-08-31", (TOP, "2026-08-31"), "**מגבלה ידועה:** אין מיגרציה.", ""),
+    ]
+
+
+def test_a_headline_quoted_in_another_update_is_not_unique_either():
+    day = _updates("**fix: הקאש ממופתח לפי החלון.** עוד.", "ראו את ”fix: הקאש ממופתח לפי החלון.“ למעלה.")
+    sections, _chunks = _records([_log_page(("id25", "2026-09-06", day))])
+    assert [s.link_text for s in sections] == ["", ""]
+
+
+def test_an_update_without_a_headline_goes_under_its_day_without_a_jump():
+    update = "feat (פרופיילר): הדשבורד קיבל מיון. וקודם כול — **חלון זמן אחד**: שלושה מספרים על אותו מסך."
+    [record], [chunk] = _records([_log_page(("id25", "2026-09-06", _updates(update)))])
+
+    assert (record.title, record.breadcrumb, record.markdown, record.link_text) == (
+        "2026-09-06", (TOP, "2026-09-06"), update, ""
+    )
+    assert chunk.text == f"{TOP} › 2026-09-06\n\n{update}"
+
+
+def test_text_outside_the_updates_is_one_record_under_its_day():
+    day = _updates("docs: Runbooks – צ’קליסט Incident חדש.") + "\n    \n\nקישורים ל‑Issues רלוונטיים: `#1198`, `#1239`."
+    sections, _chunks = _records([_log_page(("id34", "2025-11-06", day))])
+
+    assert [(s.title, s.markdown) for s in sections] == [
+        ("2025-11-06", "docs: Runbooks – צ’קליסט Incident חדש."),
+        ("2025-11-06", "קישורים ל‑Issues רלוונטיים: `#1198`, `#1239`."),
+    ]
+    assert len({s.id for s in sections}) == 2
+
+
+def test_a_code_block_outside_the_updates_is_not_split_into_updates():
+    """שורה בבלוק קוד שמתחילה כמו בולט אינה עדכון — הגבולות הם של הפרסר, לא של כלל על שורות."""
+    day = _updates("**feat: הגדרה חדשה.** דוגמה למטה.") + "\n\n```yaml\n-   not an update\n```"
+    sections, _chunks = _records([_log_page(("id5", "2026-10-05", day))])
+
+    assert [(s.title, s.markdown) for s in sections] == [
+        ("feat: הגדרה חדשה.", "דוגמה למטה."),
+        ("2026-10-05", "```yaml\n-   not an update\n```"),
+    ]
+
+
+def test_an_update_with_a_nested_list_and_code_is_one_update():
+    day = (
+        "-   **feat: א.** טקסט.\n    \n    -   תת-בולט\n    \n    ```python\n    x = 1\n    ```\n"
+        "-   **fix: ב.** עוד."
+    )
+    sections, _chunks = _records([_log_page(("id6", "2026-10-04", day))])
+
+    assert [(s.title, s.markdown) for s in sections] == [
+        ("feat: א.", "טקסט.\n\n-   תת-בולט\n\n```python\nx = 1\n```"),
+        ("fix: ב.", "עוד."),
+    ]
+
+
+def test_an_unclosed_backtick_does_not_swallow_text_past_its_own_block():
+    """לפי CommonMark קטע קוד לא חוצה גבול של בלוק. בלי זה, גרש יתום "בולע" טקסט עד הגרש הבא, ושם escape
+    אינו מתבטל — ופתיח של עדכון אחר נעלם מהטקסט של העמוד, או נשאר בו פעם אחת פחות מדי."""
+    across = _updates("**fix: א.** גרש ` יתום בשורה הזו.", r"**fix: x\_y.** עוד `קוד`.")
+    sections, _chunks = _records([_log_page(("id1", "2026-10-11", across))])
+    assert [s.link_text for s in sections] == ["fix: א.", "fix: x_y."]
+
+    # בתוך עדכון אחד: הפסקה השנייה מצטטת את הפתיח של העדכון הבא, ולכן הוא אינו ייחודי.
+    within = (
+        "-   **fix: ג.** גרש ` יתום.\n    \n    ראו **fix: x\\_y.** למטה, וגם `קוד`.\n-   "
+        + r"**fix: x\_y.** עוד."
+    )
+    sections, _chunks = _records([_log_page(("id1", "2026-10-11", within))])
+    assert [s.link_text for s in sections] == ["fix: ג.", ""]
+
+
+def test_windows_line_endings_give_the_same_updates():
+    """markdown-it מנרמל ``\\r\\n`` לפני הפרסור, ולכן גם החיתוך לשורות — אחרת השורות שהוא מחזיר לא היו
+    השורות שנחתכות מהטקסט, ו-``\\r`` היה נשאר בגוף של עדכון."""
+    day = "-   **feat: א.** טקסט.\n    \n    שורה שנייה.\n-   **fix: ב.** עוד."
+    expected = _records([_log_page(("id1", "2026-10-11", day))])
+
+    assert _records([_log_page(("id1", "2026-10-11", day.replace("\n", "\r\n")))]) == expected
+    assert expected[0][0].markdown == "טקסט.\n\nשורה שנייה."
+
+
+def test_a_headline_over_the_title_ceiling_is_not_cut_and_its_update_goes_under_its_day(caplog):
+    headline = "fix: " + "א" * 200  # מעל MAX_TITLE_BYTES
+    with caplog.at_level(logging.WARNING, logger=svc.__name__):
+        [record], _chunks = _records([_log_page(("id1", "2026-10-11", _updates(f"**{headline}** עוד.")))])
+
+    assert (record.title, record.link_text) == ("2026-10-11", "")
+    assert record.markdown == f"**{headline}** עוד."
+    assert "whats-new.html#id1" in caplog.text and "over MAX_TITLE_BYTES" in caplog.text
+
+
+def test_a_new_update_does_not_change_the_keys_of_the_others():
+    """עדכון נוסף בראש היום (המקום הרגיל שלו) לא משנה את המפתחות של השאר, ולכן לא שולח אותם להטמעה."""
+    older = ["**fix: א.** טקסט.", "**feat: ב.** טקסט.", "docs: בלי פתיח."]
+    before_sections, before_chunks = _records([_log_page(("id1", "2026-10-11", _updates(*older)))])
+    after_sections, after_chunks = _records(
+        [_log_page(("id1", "2026-10-11", _updates("**fix: חדש.** טקסט.", *older)))]
+    )
+
+    assert [s.id for s in after_sections[1:]] == [s.id for s in before_sections]
+    assert [(c.id, c.content_sha) for c in after_chunks[1:]] == [(c.id, c.content_sha) for c in before_chunks]
+
+
+# ---------------------------------------------------------------------------
 # מילוי ראשון ואישור
 # ---------------------------------------------------------------------------
 
@@ -264,6 +497,34 @@ def test_the_main_file_is_not_downloaded_again_when_it_did_not_change(world):
     )
     assert world.site.requests[-1].headers.get("If-None-Match")
     assert "export" not in second
+
+
+def test_an_index_built_by_other_record_rules_is_not_complete():
+    state = {
+        "indexed_source_commit": SHA_A, "export_commit": SHA_A, "indexed_model_key": MODEL_KEY,
+        "indexed_records_version": svc.RECORDS_VERSION,
+    }
+    assert svc.is_index_complete(state, MODEL_KEY) is True
+    assert svc.is_index_complete({**state, "indexed_records_version": svc.RECORDS_VERSION - 1}, MODEL_KEY) is False
+    del state["indexed_records_version"]  # אינדקס מלפני שהגרסה נשמרה
+    assert svc.is_index_complete(state, MODEL_KEY) is False
+
+
+def test_after_the_record_rules_change_a_check_reads_the_export_again_and_records_the_new_rules(world):
+    """בלי זה, כללים חדשים על אותו קובץ לא היו מגיעים לאינדקס: הבדיקה הייתה נעצרת על 304."""
+    fill(world)
+    run_request(world, svc.TRIGGER_PUSH)  # שומר את ה-ETag של הקובץ הראשי
+    assert _state(world)["indexed_records_version"] == svc.RECORDS_VERSION
+    world.db[contract.STATE_COLLECTION].update_one(
+        {"_id": svc.STATE_ID}, {"$set": {"indexed_records_version": svc.RECORDS_VERSION - 1}}
+    )
+
+    run = run_request(world, svc.TRIGGER_MANUAL_CHECK)
+
+    assert world.site.requests[-1].headers.get("If-None-Match") is None
+    assert run["status"] == svc.STATUS_COMPLETE
+    assert _state(world)["indexed_records_version"] == svc.RECORDS_VERSION
+    assert svc.is_index_complete(_state(world), MODEL_KEY)
 
 
 def test_the_dry_run_plan_writes_nothing_and_can_be_approved(world):

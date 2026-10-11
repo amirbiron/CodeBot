@@ -14,6 +14,12 @@
 לשביל שחוזר באותו עמוד, ונתח לפי הסעיף ומספר החלק. עוגן שזז (מספר רץ של Sphinx) מעדכן את רשומת
 הסעיף בלבד, בלי הטמעה מחדש. ``sha256`` של טקסט הנתח קובע אם צריך הטמעה.
 
+**יומן עדכונים** (:data:`UPDATE_LOG_SOURCES`, היום What's New): ביומן כזה היחידה היא עדכון אחד ולא יום
+שלם — כל פריט ברשימה ברמה העליונה של סעיף הוא רשומה משלו. הכותרת שלה היא הפתיח המודגש של העדכון,
+השביל הוא שביל היום ועוד הפתיח, והכתובת שלה קופצת לפתיח בתוך היום (``link_text``). הפרטים
+ב-:func:`_update_log_units`. כש*כללים* כאלה משתנים — מה שהופך את הקובץ לרשומות — עולה
+:data:`RECORDS_VERSION`, והאינדקס נחשב לא שלם עד שמעבר בונה אותו מחדש.
+
 **המעבר** (:func:`run_pass`) משווה את הרצוי (מהקובץ) לקיים (מהמסד, מה-primary, בלי הווקטורים),
 ומיישר: מטמיע רק מה שחדש או השתנה, ומוחק מה שהקובץ כבר לא מכיר. מחיקה נעשית רק כשהקובץ מכיר
 לפחות רשומה אחת מהקיימות (``one-way-sync-orphans`` ב-amir-bug-patterns: בדיקת חפיפה, בלי סף
@@ -50,6 +56,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, TypeGuard
 
+from markdown_it import MarkdownIt
 from pymongo import ReadPreference, ReplaceOne, ReturnDocument
 from pymongo.errors import OperationFailure, PyMongoError
 
@@ -58,6 +65,10 @@ from services import docs_search_contract as contract
 from services.chunking_service import CHUNK_MAX_BYTES, split_code_to_chunks
 from services.docs_export_client import (
     BREADCRUMB_SEPARATOR,
+    MAX_BREADCRUMB_BYTES,
+    MAX_TITLE_BYTES,
+    DocPage,
+    DocSection,
     ExportDocument,
     ExportFetch,
     ExportFetchError,
@@ -88,6 +99,17 @@ logger = logging.getLogger(__name__)
 #: מעל כמה נתחים להטמעה מעבר אוטומטי עוצר ומחכה לאישור. הערך שאושר בתוכנית (7.10.2026):
 #: הרבה מעל מה שקומיט תיעוד רגיל משנה, והרבה מתחת למילוי של האתר כולו.
 APPROVAL_THRESHOLD_CHUNKS = 300
+
+#: עמודים שהם יומן עדכונים, לפי קובץ המקור (``source_path`` בקובץ הייצוא): בהם כל עדכון — פריט ברשימה
+#: ברמה העליונה של סעיף — נכנס לאינדקס כרשומה משלו (:func:`_update_log_units`). הצהרה מפורשת ולא זיהוי
+#: לפי מבנה הטקסט: עמוד רגיל שיש בו רשימה לא מתפרק לפריטים.
+UPDATE_LOG_SOURCES = frozenset({"docs/whats-new.rst"})
+
+#: הגרסה של הכללים שהופכים את הקובץ לרשומות (:func:`build_records`). עולה בכל שינוי שגורם לאותו קובץ
+#: לתת רשומות או נתחים אחרים. היא נשמרת במסמך המצב כשמעבר מסתיים (``indexed_records_version``), ו-
+#: :func:`is_index_complete` דורש אותה — ולכן אחרי פריסה של כללים חדשים מעבר אוטומטי אינו נעצר על
+#: "הקובץ לא השתנה" (304), אלא בונה את התוכנית מחדש. 2 — רשומה לכל עדכון ביומן עדכונים.
+RECORDS_VERSION = 2
 
 #: תקרה למעבר כולו. נבדקת לפני כל אצווה, ומועברת ללקוח ההטמעות כדדליין של כל בקשה.
 PASS_DEADLINE_SECONDS = 20 * 60
@@ -184,6 +206,9 @@ class SectionRecord:
     breadcrumb: Tuple[str, ...]
     level: int
     markdown: str
+    #: טקסט בתוך הסעיף שהקישור לרשומה קופץ אליו (``section_url`` ב-``services/docs_search_contract.py``):
+    #: הפתיח של עדכון ביומן עדכונים. ריק — הקישור מוביל לעוגן בלבד.
+    link_text: str = ""
 
     def content(self) -> Dict[str, Any]:
         """השדות שהכרטיס מציג. רשימה אחת, שממנה נבנים גם המסמך וגם :attr:`record_sha` —
@@ -197,6 +222,7 @@ class SectionRecord:
             "breadcrumb": list(self.breadcrumb),
             "level": self.level,
             "markdown": self.markdown,
+            "link_text": self.link_text,
         }
 
     @property
@@ -270,6 +296,8 @@ def _stable_id(*parts: Any) -> str:
 def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[ChunkRecord]]:
     """הסעיפים והנתחים הרצויים, לפי סדר הקובץ. סעיף ריק או של קישורים בלבד מדולג.
 
+    בעמוד של :data:`UPDATE_LOG_SOURCES` הרשומות הן העדכונים ולא הסעיפים (:func:`_update_log_units`).
+
     זורק ``ValueError`` כשתקציב הנתח קטן מהשביל (``CHUNK_MAX_BYTES`` שהוגדר נמוך מדי), או
     כשנתח יוצא גדול מהתקציב — שניהם תקלות תצורה או באג, לא קלט.
     """
@@ -277,14 +305,23 @@ def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[C
     chunks: List[ChunkRecord] = []
     for page in document.pages:
         seen: Dict[Tuple[str, ...], int] = {}
-        for section in page.sections:
-            ordinal = seen.get(section.breadcrumb, 0)
-            seen[section.breadcrumb] = ordinal + 1
-            body = section.markdown.strip("\n")
-            if not _has_text(body) or is_links_only(body):
+        units = (
+            _update_log_units(page)
+            if page.source_path in UPDATE_LOG_SOURCES
+            else (
+                _RecordUnit(section, section.breadcrumb, section.title, section.markdown)
+                for section in page.sections
+            )
+        )
+        for unit in units:
+            ordinal = seen.get(unit.breadcrumb, 0)
+            seen[unit.breadcrumb] = ordinal + 1
+            body = unit.markdown.strip("\n")
+            # לעדכון עם פתיח יש טקסט גם כשאין לו גוף: הפתיח הוא בשביל, וממנו בראש כל נתח.
+            if not unit.link_text and (not _has_text(body) or is_links_only(body)):
                 continue
-            section_id = _stable_id(page.source_path, list(section.breadcrumb), ordinal)
-            texts = _chunk_texts(section.breadcrumb, body)
+            section_id = _stable_id(page.source_path, list(unit.breadcrumb), ordinal)
+            texts = _chunk_texts(unit.breadcrumb, body)
             for part, text in enumerate(texts):
                 chunks.append(
                     ChunkRecord(
@@ -301,14 +338,225 @@ def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[C
                     page_path=page.path,
                     source_path=page.source_path,
                     page_title=page.title,
-                    anchor=section.anchor,
-                    title=section.title,
-                    breadcrumb=section.breadcrumb,
-                    level=section.level,
-                    markdown=section.markdown,
+                    anchor=unit.section.anchor,
+                    title=unit.title,
+                    breadcrumb=unit.breadcrumb,
+                    level=len(unit.breadcrumb),
+                    markdown=unit.markdown,
+                    link_text=unit.link_text,
                 )
             )
     return sections, chunks
+
+
+@dataclass(frozen=True)
+class _RecordUnit:
+    """מה שהופך לרשומה אחת: סעיף שלם, או עדכון אחד מתוך סעיף ביומן עדכונים (``section`` הוא הסעיף
+    שהוא בתוכו, ומשם העוגן)."""
+
+    section: DocSection
+    breadcrumb: Tuple[str, ...]
+    title: str
+    markdown: str
+    link_text: str = ""
+
+
+def _update_log_units(page: DocPage) -> Iterator[_RecordUnit]:
+    """הרשומות של עמוד שהוא יומן עדכונים: רשומה לכל עדכון, ורשומה אחת לכל מה שבסעיף מחוץ לעדכונים.
+
+    * **עדכון עם פתיח** (:func:`_headline`) — הכותרת היא הפתיח, השביל הוא שביל היום ועוד הפתיח (ולכן
+      הוא בראש כל נתח, גם של עדכון ארוך שמתחלק), הגוף הוא שאר העדכון — כמו שסעיף נשמר בלי הכותרת
+      שלו — והקישור קופץ לפתיח.
+    * **עדכון בלי פתיח, או שהפתיח שלו אינו שמיש** — רשומה בשם של היום, עם העדכון כולו ובלי קפיצה.
+      פתיח אינו שמיש כשהוא חוזר בעמוד: אז הוא תווית ("מגבלה ידועה:") ולא שם של עדכון אחד, וקפיצה
+      אליו הייתה מגיעה להופעה הראשונה שלו. ולא כשהוא ארוך מהתקרות של כותרת ושל שביל בקובץ הייצוא
+      (``MAX_TITLE_BYTES``, ``MAX_BREADCRUMB_BYTES``) — זה נרשם בלוג, ולא נחתך.
+    * **מה שמחוץ לרשימות** (פסקה אחרי הבולטים) — רשומה אחת בשם של היום.
+    """
+    split = [(section, *_split_updates(section.markdown)) for section in page.sections]
+    shown = "\n".join(
+        _shown_text(block)
+        for _section, updates, outside in split
+        for text in (*updates, outside)
+        for block in _BLANK_LINE_RE.split(text)
+        if block.strip()
+    )
+    for section, updates, outside in split:
+        for update in updates:
+            title, rest = _headline(update)
+            if title is not None and _usable_headline(page, section, title, shown):
+                yield _RecordUnit(section, section.breadcrumb + (title,), title, rest, title)
+            else:
+                yield _RecordUnit(section, section.breadcrumb, section.title, update)
+        if outside:
+            yield _RecordUnit(section, section.breadcrumb, section.title, outside)
+
+
+def _usable_headline(page: DocPage, section: DocSection, title: str, shown: str) -> bool:
+    size = len(title.encode("utf-8"))
+    crumb_size = len(BREADCRUMB_SEPARATOR.join(section.breadcrumb + (title,)).encode("utf-8"))
+    if size > MAX_TITLE_BYTES or crumb_size > MAX_BREADCRUMB_BYTES:
+        logger.warning(
+            "docs index: an update headline in %s#%s is %d bytes (breadcrumb %d), over MAX_TITLE_BYTES or "
+            "MAX_BREADCRUMB_BYTES; the update is indexed under its day",
+            page.path, section.anchor, size, crumb_size,
+        )
+        return False
+    return shown.count(title) == 1
+
+
+#: ``\r\n`` ו-``\r`` בודד ← ``\n``: מה ש-markdown-it עושה לקלט לפני הפרסור (``NEWLINES_RE`` ב-
+#: ``markdown_it/rules_core/normalize.py``, 4.2.0). כאן הוא נעשה לפני, כדי שמספרי השורות שהפרסר
+#: מחזיר יצביעו על אותן שורות שנחתכות מהטקסט.
+_NEWLINES_RE = re.compile(r"\r\n?")
+
+#: שורה ריקה בין שני בלוקים.
+_BLANK_LINE_RE = re.compile(r"\n[ \t]*\n")
+
+#: הסימן בתחילת פריט ברשימה, כמו ש-CommonMark מגדיר אותו: עד שלושה רווחים, ``-``/``*``/``+`` או מספר עם
+#: ``.``/``)``, ואחריו רווח או סוף השורה. לא ``_LIST_MARKER_RE`` של :func:`is_links_only`, שבודק שורה שאולי
+#: אינה פריט, ומצפה לרווח אחרי הסימן.
+_ITEM_MARKER_RE = re.compile(r" {0,3}(?:[-*+]|\d{1,9}[.)])(?=[ \t]|$)[ \t]*")
+
+
+def _split_updates(markdown: str) -> Tuple[List[str], str]:
+    """העדכונים בסעיף של יומן עדכונים, ומה שבסעיף מחוץ להם.
+
+    עדכון הוא פריט ברשימה ברמה העליונה של הסעיף, בלי סימן הרשימה ובלי ההזחה של השורות שמתחתיו. מה
+    שמחוץ לרשימות (פסקה, בלוק קוד) חוזר כטקסט אחד, הבלוקים לפי הסדר.
+
+    הגבולות נקבעים בפרסר של markdown-it-py, אותה ספרייה של ``services/md_parser.py``, ולא בכלל על
+    שורות: כלל כמו "שורה שמתחילה ב-``-   ``" נשען על הצורה שכפתור ההעתקה כותב (``bulletListMarker``
+    ב-``docs/_static/copy-page.js``), ובלוק קוד שאינו בתוך עדכון, עם שורה שמתחילה במקף, היה נחתך
+    באמצע. לפי המקור של markdown-it-py 4.2.0: ``map`` של ``list_item_open`` הוא השורה הראשונה של
+    הפריט והשורה שאחריו (``rules_block/list.py``), ו-``level`` של בלוק ברמה העליונה הוא 0, וכך גם של
+    הסוגר שלו (``StateBlock.push``).
+    """
+    text = _NEWLINES_RE.sub("\n", markdown)
+    lines = text.split("\n")
+    tokens = MarkdownIt("commonmark").parse(text)
+    updates: List[str] = []
+    outside: List[str] = []
+    index = 0
+    while index < len(tokens):
+        opening = tokens[index]
+        closing = index
+        if opening.nesting == 1:
+            closing = next(
+                (at for at in range(index + 1, len(tokens)) if tokens[at].level == 0 and tokens[at].nesting == -1),
+                -1,
+            )
+            if closing == -1:
+                raise RuntimeError(f"markdown-it never closed the block {opening.type!r}")
+        if opening.type in ("bullet_list_open", "ordered_list_open"):
+            for token in tokens[index:closing]:
+                if token.type == "list_item_open" and token.level == 1 and token.map:
+                    update = _item_text(lines[token.map[0]:token.map[1]])
+                    if update:
+                        updates.append(update)
+        elif opening.map:
+            block = "\n".join(lines[opening.map[0]:opening.map[1]]).strip("\n")
+            if block.strip():
+                outside.append(block)
+        index = closing + 1
+    return updates, "\n\n".join(outside)
+
+
+def _item_text(lines: Sequence[str]) -> str:
+    """פריט ברשימה בלי הסימן שלו, ובלי ההזחה של השורות שמתחתיו (עד רוחב הסימן)."""
+    marker = _ITEM_MARKER_RE.match(lines[0]) if lines else None
+    width = marker.end() if marker else 0
+    body = [lines[0][width:]] if lines else []
+    for line in lines[1:]:
+        indent = len(line) - len(line.lstrip(" "))
+        body.append(line[min(indent, width):])
+    return "\n".join(body).strip("\n").rstrip()
+
+
+#: חלק של פתיח, כמו ש-Turndown כותב אותו: הדגשה (``**...**``; בתוכה אין ``*`` חשוף, כי Turndown מוסיף
+#: escape לכל כוכבית בטקסט), או קטע קוד בגרש אחד.
+_STRONG = r"\*\*(?:\\.|[^\\*])+\*\*"
+_CODE_SPAN = r"`[^`\n]+`"
+_HEADLINE_PART_RE = re.compile(rf"{_STRONG}|{_CODE_SPAN}")
+
+#: פתיח: הדגשה בתחילת העדכון, ואחריה עוד הדגשות וקטעי קוד, עם רווח ביניהם או בלעדיו — כך גם פתיח
+#: שה-rst מפצל סביב קוד (rst לא מקנן סימון, ולכן ``**...ב-**\ ``x``\ **.**``) נשאר שלם.
+_HEADLINE_RE = re.compile(rf"{_STRONG}(?:[ \t]*(?:{_STRONG}|{_CODE_SPAN}))*")
+
+
+def _headline(update: str) -> Tuple[Optional[str], str]:
+    """הפתיח של עדכון, כטקסט שהעמוד מציג (:func:`_shown_text`), ושאר העדכון בלעדיו. בלי פתיח —
+    ``(None, update)``.
+
+    הפתיח הוא :data:`_HEADLINE_RE` בתחילת השורה הראשונה, עד ההדגשה האחרונה שבו: קטע קוד אחרי ההדגשה
+    האחרונה כבר שייך לגוף (``**fix:** `x` נכשל`` — הפתיח הוא ``fix:``).
+    """
+    first, newline, tail = update.partition("\n")
+    match = _HEADLINE_RE.match(first)
+    if match is None:
+        return None, update
+    end = max(
+        part.end() for part in _HEADLINE_PART_RE.finditer(match.group(0)) if part.group(0).startswith("**")
+    )
+    title = _shown_text(first[:end])
+    if not title:
+        return None, update
+    return title, (first[end:].lstrip(" \t") + newline + tail).strip("\n")
+
+
+#: קישור במארקדאון של Turndown, ``[טקסט](כתובת)`` או תמונה — אותה צורה כמו ``_MD_LINK``, עם הטקסט כקבוצה.
+_MD_LINK_TEXT_RE = re.compile(r"!?\[([^\]\n]*)\]\([^)\s]+\)")
+
+
+def _shown_text(markdown: str) -> str:
+    """הטקסט שהעמוד מציג במקום המארקדאון ש-Turndown כתב, ברווחים מכווצים: escape ← התו עצמו, קטע קוד ←
+    התוכן שלו כמו שהוא, ``**`` ← כלום, וקישור ← הטקסט שלו.
+
+    זה ההפך של ``escape`` ב-Turndown 7.2.2 (``docs/_static/vendor/turndown.umd.js``): Turndown מוסיף לוכסן
+    לפני תווים מרשימה סגורה, ולוכסן שבטקסט עצמו הוא כותב כ-``\\\\`` — ולכן כל לוכסן מחוץ לקוד הוא escape
+    של התו שאחריו. בתוך קטע קוד אין escape. ישות כמו ``&lt;`` נשארת כמו שהיא: Turndown לא מוסיף escape
+    ל-``&``, ובעמוד היא מוצגת כך. הקורא מעביר בלוק אחד בכל פעם: לפי CommonMark קטע קוד לא חוצה גבול של
+    בלוק, וגרש שלא נסגר בתוך הבלוק הוא תו רגיל — אחרת הוא היה "בולע" טקסט עד בלוק אחר.
+    """
+    text = _MD_LINK_TEXT_RE.sub(lambda link: link.group(1), markdown)
+    out: List[str] = []
+    index, size = 0, len(text)
+    while index < size:
+        char = text[index]
+        if char == "\\" and index + 1 < size:
+            out.append(text[index + 1])
+            index += 2
+        elif char == "`":
+            fence_end = index
+            while fence_end < size and text[fence_end] == "`":
+                fence_end += 1
+            fence = text[index:fence_end]
+            closing = _closing_fence(text, fence, fence_end)
+            if closing == -1:
+                out.append(fence)
+                index = fence_end
+            else:
+                out.append(text[fence_end:closing])
+                index = closing + len(fence)
+        elif text.startswith("**", index):
+            index += 2
+        else:
+            out.append(char)
+            index += 1
+    return " ".join("".join(out).split())
+
+
+def _closing_fence(text: str, fence: str, start: int) -> int:
+    """המקום של רצף גרשים באורך ``fence`` בדיוק, מ-``start`` והלאה, או ``-1``."""
+    at = text.find(fence, start)
+    while at != -1:
+        after = at + len(fence)
+        if (after >= len(text) or text[after] != "`") and (at == 0 or text[at - 1] != "`"):
+            return at
+        while after < len(text) and text[after] == "`":
+            after += 1
+        at = text.find(fence, after)
+    return -1
 
 
 def _chunk_texts(breadcrumb: Sequence[str], body: str) -> List[str]:
@@ -503,17 +751,19 @@ def read_state(db: Any) -> Optional[Dict[str, Any]]:
 
 
 def is_index_complete(state: Dict[str, Any], model_key: str) -> bool:
-    """האם האינדקס נכון לקובץ האחרון שנקרא, במודל ``model_key``.
+    """האם האינדקס נכון לקובץ האחרון שנקרא, במודל ``model_key`` ובכללים של הקוד שרץ.
 
-    שלושה תנאים: קריאה חוזרת אימתה את הכתיבות של המעבר האחרון (``indexed_source_commit`` נקבע רק
-    אחריה), הקומיט שאומת הוא של הקובץ האחרון שנקרא, והמפתח של המודל הוא זה שהתבקש. המעבר שואל
-    לפני שהוא קורא את הקובץ, והחיפוש שואל כדי לומר אם התוצאות מהמצב העדכני.
+    ארבעה תנאים: קריאה חוזרת אימתה את הכתיבות של המעבר האחרון (``indexed_source_commit`` נקבע רק
+    אחריה), הקומיט שאומת הוא של הקובץ האחרון שנקרא, המפתח של המודל הוא זה שהתבקש, והרשומות נבנו
+    בכללים של :data:`RECORDS_VERSION`. המעבר שואל לפני שהוא קורא את הקובץ, והחיפוש שואל כדי לומר אם
+    התוצאות מהמצב העדכני.
     """
     indexed = state.get("indexed_source_commit")
     return (
         indexed is not None
         and indexed == state.get("export_commit")
         and state.get("indexed_model_key") == model_key
+        and state.get("indexed_records_version") == RECORDS_VERSION
     )
 
 
@@ -975,6 +1225,7 @@ def _run_steps(
         {
             "indexed_source_commit": plan.source_commit,
             "indexed_model_key": plan.model_key,
+            "indexed_records_version": RECORDS_VERSION,
             "indexed_built_at": plan.built_at,
             "indexed_at": _now(),
             "applied_built_at": plan.built_at,

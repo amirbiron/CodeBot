@@ -68,6 +68,7 @@ MAX_NUM_CANDIDATES = 10_000
 
 _SECTION_FIELDS = {
     "page_path": 1, "source_path": 1, "page_title": 1, "anchor": 1, "title": 1, "breadcrumb": 1, "markdown": 1,
+    "link_text": 1,
 }
 
 
@@ -254,8 +255,13 @@ def _results(db: Any, ranked: List[Tuple[str, float]]) -> List[Dict[str, Any]]:
         doc = found.get(section_id)
         if doc is None:
             continue
+        # הטקסט שהקישור קופץ אליו — הפתיח של עדכון ביומן עדכונים. ערך שאינו טקסט מוביל לעוגן בלבד:
+        # הקישור נשאר נכון, רק בלי הקפיצה.
+        link_text = doc.get("link_text")
+        if not isinstance(link_text, str) or not link_text.strip():
+            link_text = ""
         try:
-            url = contract.section_url(doc.get("page_path"), doc.get("anchor"))
+            url = contract.section_url(doc.get("page_path"), doc.get("anchor"), link_text)
         except ValueError:
             # המעבר בודק את שניהם לפני שהוא שומר — ערך כזה הגיע ממקור אחר, ואסור לו להיכנס לקישור.
             logger.warning("docs search: section %s has no valid page path or anchor; skipped", section_id)

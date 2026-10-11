@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Dict, TypeGuard
+from urllib.parse import quote
 
 # ---------------------------------------------------------------------------
 # האתר והקובץ
@@ -88,17 +89,44 @@ PAGE_PATH_RE = re.compile(rf"(?:{_SEGMENT}/)*{_SEGMENT}\.html")
 SOURCE_PATH_RE = re.compile(rf"(?:{_SEGMENT}/)*{_SEGMENT}\.(?:rst|md)")
 
 
-def section_url(page_path: object, anchor: object) -> str:
+def text_fragment(text: object) -> str:
+    """החלק בכתובת שמקפיץ את הדף אל טקסט בתוכו: ``:~:text=`` והטקסט, מקודד.
+
+    התחביר הוא של URL Fragment Text Directives (https://wicg.github.io/scroll-to-text-fragment/):
+    ``-``, ``&`` ו-``,`` הם תחביר של ההנחיה, ולכן בתוך הטקסט הם מקודדים ("Dash (-), ampersand (&), and
+    comma (,) characters in text parameters are percent-encoded"). ``quote`` מקודד את ``&`` ואת ``,``,
+    אבל משאיר את ``-`` כמו שהוא (``_ALWAYS_SAFE`` ב-``urllib.parse``), ולכן המקף מוחלף כאן. בלעדיו
+    הדפדפן קורא את המקף כחלק מההנחיה, ולא מוצא טקסט כמו "ולא את ה-DOM." (נמדד ב-Chromium על העמוד של
+    What's New, 11.10.2026; ``test_an_update_headline_is_the_text_on_the_page_and_its_link_jumps_to_it`` ב-
+    ``tests/test_docs_export_sections_browser.py`` קופץ גם לפתיח עם מקף).
+
+    הדפדפן מחפש את הטקסט בכל הדף. כשהוא לא מוצא אותו (למשל כי הדף השתנה אחרי שהקישור נבנה), הוא עובר
+    לעוגן שלפני ``:~:``, כמו בכתובת בלי ההנחיה — לפי התקן, "If the user agent finishes searching for a text
+    directive, ensure it tries the regular fragment as a fallback". ב-Chromium 141 וב-131 זה קורה אחרי
+    שהחיפוש נכשל, ולא מיד (נמדד 11.10.2026; אותו טסט מחכה לזה). דפדפן שאינו מכיר את התחביר לא נמדד.
+    טקסט ריק אינו הנחיה, ונדחה ב-``ValueError``.
+    """
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"not a text to jump to: {text!r}")
+    return ":~:text=" + quote(text, safe="").replace("-", "%2D")
+
+
+def section_url(page_path: object, anchor: object, text: object = "") -> str:
     """הכתובת של סעיף באתר: :data:`SITE_URL`, נתיב העמוד והעוגן, אחרי שכל חלק נבדק בדקדוק שלו.
 
     המעבר בודק את שניהם לפני שהוא שומר (``services/docs_export_client.py``), ולכן ערך שנכשל כאן
     הגיע למסד ממקור אחר. ``ValueError``, כמו ב-:func:`export_path_for_commit`, כי הוא נכנס לכתובת.
+
+    ``text`` — טקסט בתוך הסעיף שהכתובת קופצת אליו (:func:`text_fragment`), למשל הפתיח של עדכון אחד
+    בתוך יום ב-What's New. ריק — הכתובת מובילה לעוגן בלבד.
     """
     if not (isinstance(page_path, str) and PAGE_PATH_RE.fullmatch(page_path)):
         raise ValueError(f"not a page path: {page_path!r}")
     if not (isinstance(anchor, str) and ANCHOR_RE.fullmatch(anchor)):
         raise ValueError(f"not an anchor: {anchor!r}")
-    return f"{SITE_URL}{page_path}#{anchor}"
+    if not isinstance(text, str):
+        raise ValueError(f"not a text to jump to: {text!r}")
+    return f"{SITE_URL}{page_path}#{anchor}" + (text_fragment(text) if text else "")
 
 
 # ---------------------------------------------------------------------------
