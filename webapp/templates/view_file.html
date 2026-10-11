@@ -488,9 +488,13 @@
     transform: translateY(0);
 }
 
-/* ב-theme custom: הכפתורים "ערוך" + "העתק קוד" משתמשים בצבע הראשי לטקסט/אייקון */
+/* ב-theme custom: הכפתורים "ערוך" + "העתק קוד" משתמשים בצבע הראשי לטקסט/אייקון.
+   --btn-primary-text-override הוא וו דריסה לערכה בודדת, בלי ערך ברירת מחדל בשום מקום, ולכן
+   ערכה שאינה מצהירה עליו מקבלת את var(--primary) כמו קודם. הכלל הזה צובע גם ב-:hover, כי
+   הוא ספציפי יותר מכלל הריחוף של הקישורים ב-dark-mode.css. ראו
+   docs/webapp/custom_themes_guide.rst, theme-variables-btn-primary-text-hook. */
 :root[data-theme-type="custom"] .file-actions .file-primary-action {
-    color: var(--primary);
+    color: var(--btn-primary-text-override, var(--primary));
 }
 :root[data-theme-type="custom"] .file-actions .file-primary-action .fas,
 :root[data-theme-type="custom"] .file-actions .file-primary-action i,
