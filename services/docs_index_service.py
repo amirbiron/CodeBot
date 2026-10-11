@@ -51,6 +51,7 @@ import math
 import re
 import threading
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -368,9 +369,10 @@ def _update_log_units(page: DocPage) -> Iterator[_RecordUnit]:
       הוא בראש כל נתח, גם של עדכון ארוך שמתחלק), הגוף הוא שאר העדכון — כמו שסעיף נשמר בלי הכותרת
       שלו — והקישור קופץ לפתיח.
     * **עדכון בלי פתיח, או שהפתיח שלו אינו שמיש** — רשומה בשם של היום, עם העדכון כולו ובלי קפיצה.
-      פתיח אינו שמיש כשהוא חוזר בעמוד: אז הוא תווית ("מגבלה ידועה:") ולא שם של עדכון אחד, וקפיצה
-      אליו הייתה מגיעה להופעה הראשונה שלו. ולא כשהוא ארוך מהתקרות של כותרת ושל שביל בקובץ הייצוא
-      (``MAX_TITLE_BYTES``, ``MAX_BREADCRUMB_BYTES``) — זה נרשם בלוג, ולא נחתך.
+      פתיח אינו שמיש כשהוא חוזר בעמוד, בהשוואה של הדפדפן (:func:`_match_key`): אז הוא תווית ("מגבלה
+      ידועה:") ולא שם של עדכון אחד, וקפיצה אליו הייתה מגיעה להופעה הראשונה שלו. הוא אינו שמיש גם כשהוא
+      ארוך מהתקרות של כותרת ושל שביל בקובץ הייצוא (``MAX_TITLE_BYTES``, ``MAX_BREADCRUMB_BYTES``). רק
+      המקרה הזה נרשם בלוג, והפתיח לא נחתך.
     * **מה שמחוץ לרשימות** (פסקה אחרי הבולטים) — רשומה אחת בשם של היום.
     """
     split = [(section, *_split_updates(section.markdown)) for section in page.sections]
@@ -402,7 +404,22 @@ def _usable_headline(page: DocPage, section: DocSection, title: str, shown: str)
             page.path, section.anchor, size, crumb_size,
         )
         return False
-    return shown.count(title) == 1
+    return _match_key(shown).count(_match_key(title)) == 1
+
+
+def _match_key(text: str) -> str:
+    """הטקסט כמו שהדפדפן משווה אותו כשהוא מחפש את הקפיצה: בלי הבדל בין אותיות גדולות לקטנות, ובלי סימנים
+    (ניקוד, טעמים, אקסנטים).
+
+    לפי התקן: "The string search must be performed using a base character comparison, or the primary level,
+    as defined in UTS10" (https://wicg.github.io/scroll-to-text-fragment/, "find a range from a node list").
+    כאן זה קירוב: פירוק ב-NFKD, השמטת תווי צירוף (קטגוריה ``M``), ו-``casefold``. נמדד ב-Chromium 131
+    וב-141 (11.10.2026): ``fix: the parser`` קופץ ל-``Fix: The Parser``, ‏``cafe`` ל-``Café`` ו-``שלום`` ל-``שָׁלוֹם``.
+    ולכן פתיח נחשב ייחודי רק אם גם בהשוואה הזו הוא מופיע בעמוד פעם אחת. אחרת הקפיצה הייתה מגיעה להופעה
+    הראשונה שלו, ולא לעדכון.
+    """
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(char for char in decomposed if not unicodedata.category(char).startswith("M")).casefold()
 
 
 #: ``\r\n`` ו-``\r`` בודד ← ``\n``: מה ש-markdown-it עושה לקלט לפני הפרסור (``NEWLINES_RE`` ב-
@@ -504,8 +521,11 @@ def _headline(update: str) -> Tuple[Optional[str], str]:
     return title, (first[end:].lstrip(" \t") + newline + tail).strip("\n")
 
 
-#: קישור במארקדאון של Turndown, ``[טקסט](כתובת)`` או תמונה — אותה צורה כמו ``_MD_LINK``, עם הטקסט כקבוצה.
-_MD_LINK_TEXT_RE = re.compile(r"!?\[([^\]\n]*)\]\([^)\s]+\)")
+#: מה שבא אחרי ``]`` של קישור ש-Turndown 7.2.2 כותב: ``(`` כתובת ``)``, ואם לקישור יש ``title`` — גם הוא,
+#: ``(כתובת "title")``. בכתובת Turndown מוסיף escape לסוגריים, וב-``title`` ל-``"`` (``rules.inlineLink`` ב-
+#: ``docs/_static/vendor/turndown.umd.js``). Sphinx נותן ``title`` למשל להפניה ל-``:py:mod:``. כתובת בלי
+#: רווחים, כמו ב-``_MD_LINK``.
+_LINK_TARGET_RE = re.compile(r'\((?:\\.|[^\\()\s])+(?: "(?:\\.|[^"\\])*")?\)')
 
 
 def _shown_text(markdown: str) -> str:
@@ -517,29 +537,43 @@ def _shown_text(markdown: str) -> str:
     של התו שאחריו. בתוך קטע קוד אין escape. ישות כמו ``&lt;`` נשארת כמו שהיא: Turndown לא מוסיף escape
     ל-``&``, ובעמוד היא מוצגת כך. הקורא מעביר בלוק אחד בכל פעם: לפי CommonMark קטע קוד לא חוצה גבול של
     בלוק, וגרש שלא נסגר בתוך הבלוק הוא תו רגיל — אחרת הוא היה "בולע" טקסט עד בלוק אחר.
+
+    קישור מזוהה באותה סריקה, ולכן רק מחוץ לקטע קוד ורק בסוגר מרובע בלי escape: Turndown מוסיף escape
+    ל-``[`` ול-``]`` שבטקסט, כך שסוגר מרובע אחר הוא תמיד חלק מקישור. ``[טקסט](כתובת)`` בתוך קוד, או
+    ``\\[טקסט\\](כתובת)`` בטקסט, מוצגים בעמוד כמו שהם. ``!`` לפני קישור הוא תו בטקסט ולא תמונה: סקריפט
+    הייצוא מחליף כל תמונה בקישור "תמונה: …" לפני ההמרה (``scripts/docs_export_sections.py``).
     """
-    text = _MD_LINK_TEXT_RE.sub(lambda link: link.group(1), markdown)
     out: List[str] = []
-    index, size = 0, len(text)
+    #: המקום בפלט של כל ``[`` שעוד לא נסגר. ``[`` שלא נסגר בקישור נשאר בטקסט כמו שהוא.
+    opened: List[int] = []
+    index, size = 0, len(markdown)
     while index < size:
-        char = text[index]
+        char = markdown[index]
         if char == "\\" and index + 1 < size:
-            out.append(text[index + 1])
+            out.append(markdown[index + 1])
             index += 2
         elif char == "`":
             fence_end = index
-            while fence_end < size and text[fence_end] == "`":
+            while fence_end < size and markdown[fence_end] == "`":
                 fence_end += 1
-            fence = text[index:fence_end]
-            closing = _closing_fence(text, fence, fence_end)
+            fence = markdown[index:fence_end]
+            closing = _closing_fence(markdown, fence, fence_end)
             if closing == -1:
                 out.append(fence)
                 index = fence_end
             else:
-                out.append(text[fence_end:closing])
+                out.append(markdown[fence_end:closing])
                 index = closing + len(fence)
-        elif text.startswith("**", index):
+        elif markdown.startswith("**", index):
             index += 2
+        elif char == "[":
+            opened.append(len(out))
+            out.append(char)
+            index += 1
+        elif char == "]" and opened and (target := _LINK_TARGET_RE.match(markdown, index + 1)) is not None:
+            # סוף קישור: הטקסט שלו כבר בפלט, ונשאר רק להוריד את ה-``[`` שפתח אותו.
+            del out[opened.pop()]
+            index = target.end()
         else:
             out.append(char)
             index += 1

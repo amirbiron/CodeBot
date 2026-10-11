@@ -293,6 +293,15 @@ def test_the_headline_is_the_bold_run_that_opens_the_update(update, title, body)
         (r"**fix: נתיב C:\\x נקרא נכון.** עוד.", "fix: נתיב C:\\x נקרא נכון."),
         # ישות נשארת כמו שהיא: כך היא כתובה בעמוד, ו-Turndown לא מוסיף escape ל-&.
         (r"**fix: \`\`&lt;div&gt;\`\` נשמר כמו שהוקלד.** עוד.", "fix: ``&lt;div&gt;`` נשמר כמו שהוקלד."),
+        # קישור ← הטקסט שלו, גם עם title (Sphinx נותן אותו להפניה ל-:py:mod:) וגם עם סוגריים בכתובת.
+        (
+            r'**ראו [services.code\_service](https://x.example/a.html#m "services.code_service") '
+            r"ו-[ב](https://x.example/\(b\)).** עוד.",
+            "ראו services.code_service ו-ב.",
+        ),
+        # תחביר של קישור בתוך קוד, או עם escape, מוצג בעמוד כמו שהוא.
+        ("**fix: התחביר** `[טקסט](כתובת)` **נשמר.** עוד.", "fix: התחביר [טקסט](כתובת) נשמר."),
+        (r"**fix: \[טקסט\](כתובת) נשמר.** עוד.", "fix: [טקסט](כתובת) נשמר."),
     ],
 )
 def test_the_headline_is_the_text_the_page_shows(update, title):
@@ -323,6 +332,22 @@ def test_a_headline_that_repeats_on_the_page_is_a_label_and_its_update_goes_unde
 
 def test_a_headline_quoted_in_another_update_is_not_unique_either():
     day = _updates("**fix: הקאש ממופתח לפי החלון.** עוד.", "ראו את ”fix: הקאש ממופתח לפי החלון.“ למעלה.")
+    sections, _chunks = _records([_log_page(("id25", "2026-09-06", day))])
+    assert [s.link_text for s in sections] == ["", ""]
+
+
+@pytest.mark.parametrize(
+    "headline,elsewhere",
+    [
+        ("fix: the parser keeps order.", "FIX: The Parser Keeps Order."),
+        ("fix: שלום עולם.", "fix: שָׁלוֹם עוֹלָם."),
+        ("fix: café crème.", "fix: cafe creme."),
+    ],
+)
+def test_a_headline_that_differs_elsewhere_only_in_case_or_marks_is_not_unique(headline, elsewhere):
+    """הדפדפן מחפש את הקפיצה בלי הבדל בין אותיות גדולות לקטנות ובלי ניקוד ואקסנטים (נמדד ב-Chromium), ולכן
+    הופעה כזו בעדכון אחר מקדימה את הפתיח בעמוד, והקפיצה הייתה מגיעה אליה."""
+    day = _updates(f"ראו {elsewhere} למטה.", f"**{headline}** עוד.")
     sections, _chunks = _records([_log_page(("id25", "2026-09-06", day))])
     assert [s.link_text for s in sections] == ["", ""]
 
