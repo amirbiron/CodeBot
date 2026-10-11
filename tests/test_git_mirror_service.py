@@ -12,8 +12,8 @@ def test_init_mirror(service, monkeypatch):
     class _Res:
         def __init__(self):
             self.returncode = 0
-            self.stdout = ""
-            self.stderr = ""
+            self.stdout = b""
+            self.stderr = b""
 
     seen = {}
 
@@ -58,7 +58,7 @@ def test_init_mirror_existing_invalid_mirror_is_cleaned_and_recloned(service, tm
     calls = {"rev_parse": 0, "clone": 0}
 
     class _Res:
-        def __init__(self, returncode=0, stdout="", stderr=""):
+        def __init__(self, returncode=0, stdout=b"", stderr=b""):
             self.returncode = returncode
             self.stdout = stdout
             self.stderr = stderr
@@ -66,10 +66,10 @@ def test_init_mirror_existing_invalid_mirror_is_cleaned_and_recloned(service, tm
     def _fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None, env=None):
         if cmd[:3] == ["git", "rev-parse", "--is-bare-repository"]:
             calls["rev_parse"] += 1
-            return _Res(returncode=1, stdout="", stderr="fatal: not a git repository")
+            return _Res(returncode=1, stdout=b"", stderr=b"fatal: not a git repository")
         if cmd[:3] == ["git", "clone", "--mirror"]:
             calls["clone"] += 1
-            return _Res(returncode=0, stdout="", stderr="")
+            return _Res(returncode=0, stdout=b"", stderr=b"")
         raise AssertionError(f"Unexpected git command: {cmd}")
 
     monkeypatch.setattr("services.git_mirror_service.subprocess.run", _fake_run)
@@ -141,7 +141,7 @@ def test_sanitize_output_masks_https_credentials(service):
 
 def test_get_file_content_strips_ref_and_path(service, monkeypatch):
     class _Res:
-        def __init__(self, returncode=0, stdout="", stderr=""):
+        def __init__(self, returncode=0, stdout=b"", stderr=b""):
             self.returncode = returncode
             self.stdout = stdout
             self.stderr = stderr
@@ -150,7 +150,7 @@ def test_get_file_content_strips_ref_and_path(service, monkeypatch):
 
     def _fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None):
         seen["cmd"] = cmd
-        return _Res(returncode=0, stdout="ok", stderr="")
+        return _Res(returncode=0, stdout=b"ok", stderr=b"")
 
     monkeypatch.setattr("services.git_mirror_service.subprocess.run", _fake_run)
 
@@ -367,7 +367,8 @@ def _bare_mirror(tmp_path, files, message="init"):
         target.write_bytes(data)
     env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t", "PATH": __import__("os").environ["PATH"]}
-    for cmd in (["git", "init", "-q"], ["git", "add", "-A"], ["git", "commit", "-qm", message]):
+    for cmd in (["git", "init", "-q"], ["git", "-c", "core.autocrlf=false", "add", "-A"],
+                ["git", "commit", "-qm", message]):
         subprocess.run(cmd, cwd=src, check=True, env=env, capture_output=True)
     sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=src, check=True, env=env,
                          capture_output=True, text=True).stdout.strip()
@@ -518,26 +519,29 @@ import logging  # noqa: E402
 from services import mirror_credentials as _creds  # noqa: E402
 
 #: שתי הדוגמאות מהפרודקשן; שורה עם כתובת שיש בה סיסמה, שאותה שינה החלק של
-#: ``_sanitize_output`` שמסתיר credentials ב-URL; ושם קובץ שיש בו ``key=``.
+#: ``_sanitize_output`` שמסתיר credentials ב-URL; שם קובץ שיש בו ``key=``; וקובץ Windows,
+#: עם CRLF ועם CR בודד, ש-``text=True`` של ``subprocess`` החליף ב-LF.
 _AS_IN_THE_REPO = {
     "ttl_index.py": 'def ttl_key(index_info):\n    key = index_info.get("key")\n    return key\n',
     "TESTS_LANGUAGE_DETECTION_EDIT_VIEW.md": "# === Bot Configuration ===\nBOT_TOKEN=\nOWNER_CHAT_ID=\n",
     "docs/clone.md": "git clone https://user:password@example.com/repo.git\n",
     "docs/key=value.md": "x\n",
+    "windows.txt": "line one\r\nline two\r\nold mac\rend\n",
 }
 
 
 def test_a_file_comes_back_exactly_as_it_is_in_the_repo(tmp_path):
-    """``get_file_content`` מחזיר את הקובץ תו בתו, וזהה ל-``get_file_at_commit``.
+    """``get_file_content`` מחזיר את הקובץ תו בתו, כולל סופי השורות, וזהה ל-``get_file_at_commit``.
 
     ``get_file_content`` הוא מה שדפדפן הקוד, "ערוך / העתק" (``/upload/from-repo``) והאינדקס
     של הריפו קוראים. ``get_file_at_commit`` — המסלול של ה-MCP ושל תצוגת ההיסטוריה — קורא
     את הבתים בלי ``_run_git_command``, ולכן מעולם לא עבר בניקוי. עד התיקון אותו קובץ הוצג
-    בשני המסלולים אחרת.
+    בשני המסלולים אחרת. הזהות כאן היא לקובץ UTF-8 בלי BOM: ``get_file_at_commit`` מפענח
+    ב-``_try_decode_content``, שמסיר BOM ומציג גם קובץ שאינו UTF-8, ושם המסלולים עדיין שונים.
     """
     svc, sha = _bare_mirror(tmp_path, {p: t.encode("utf-8") for p, t in _AS_IN_THE_REPO.items()})
 
-    for path in ("ttl_index.py", "TESTS_LANGUAGE_DETECTION_EDIT_VIEW.md", "docs/clone.md"):
+    for path in ("ttl_index.py", "TESTS_LANGUAGE_DETECTION_EDIT_VIEW.md", "docs/clone.md", "windows.txt"):
         expected = _AS_IN_THE_REPO[path]
         assert svc.get_file_content("probe", path, ref=sha) == expected, path
         assert svc.get_file_at_commit("probe", path, sha)["content"] == expected, path

@@ -32,10 +32,12 @@ _GIT = shutil.which("git")
 requires_git = pytest.mark.skipif(_GIT is None, reason="git is not installed")
 
 #: שתי הדוגמאות מהפרודקשן. ``key = index_info.get("key")`` הוצג ``key=***``, ובקובץ השני
-#: ``OWNER_CHAT_ID=`` נבלע לתוך ``BOT_TOKEN=***``, כך שהקובץ הוצג בשורה אחת פחות.
+#: ``OWNER_CHAT_ID=`` נבלע לתוך ``BOT_TOKEN=***``, כך שהקובץ הוצג בשורה אחת פחות. והשלישי
+#: קובץ Windows: ``text=True`` של ``subprocess`` החליף את ה-CRLF וה-CR הבודד שבו ב-LF.
 _FILES = {
     "ttl_index.py": 'def ttl_key(index_info):\n    key = index_info.get("key")\n    return key\n',
     "TESTS_LANGUAGE_DETECTION_EDIT_VIEW.md": "# === Bot Configuration ===\nBOT_TOKEN=\nOWNER_CHAT_ID=\n",
+    "windows.txt": "line one\r\nline two\r\nold mac\rend\n",
 }
 
 _ADMIN_ID = 999
@@ -45,7 +47,8 @@ _USER_ID = 2
 def _git(*args: str, cwd: Path) -> str:
     assert _GIT is not None, "הטסטים שקוראים לכאן מסומנים ב-requires_git"
     done = subprocess.run(
-        (_GIT, "-c", "user.email=t@t", "-c", "user.name=t", *args),
+        # ``core.autocrlf=false``: בלעדיו git עלול לנרמל את ה-CRLF כבר ב-``add``
+        (_GIT, "-c", "user.email=t@t", "-c", "user.name=t", "-c", "core.autocrlf=false", *args),
         cwd=str(cwd), check=True, capture_output=True, text=True,
     )
     return done.stdout.strip()

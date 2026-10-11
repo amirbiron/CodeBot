@@ -808,6 +808,10 @@ class GitMirrorService:
             ב-whats-new). ה-stderr והפקודה הם ערוצי האבחון, והם נכנסים ללוג ולהודעות שגיאה:
             שם git מדפיס את ה-URL כשפקודת רשת נכשלת, ובשבילם הניקוי נכתב.
 
+            **"כמו שהוא" כולל את סופי השורות.** הפלט נקרא כבתים ומפוענח ב-UTF-8, כי במצב טקסט
+            ``subprocess`` מחליף CRLF ו-CR בודד ב-LF, וקובץ Windows הגיע לדפדפן הקוד בלעדיהם.
+            פלט שאינו UTF-8 נכשל: ``get_file_content`` מחזיר עליו ``None``.
+
             **פקודה שה-stdout שלה יכול לשאת את הטוקן של השירות מנוקה אצל מי שקורא לה.** ברשימה
             המותרת זו רק ``remote get-url origin``, שמחזירה את ה-URL השמור של מראה מלפני #3480.
             הקורא היחיד שלה, ``mirror_credentials.ensure_clean_remote``, מחזיר את ה-URL רק אחרי
@@ -834,20 +838,23 @@ class GitMirrorService:
             run_kwargs: Dict[str, Any] = {}
             if extra_env:
                 run_kwargs["env"] = {**os.environ, **extra_env}
+            # בתים ולא ``text=True``: במצב טקסט ``subprocess`` מחליף CRLF ו-CR בודד ב-LF
+            # (``Popen._translate_newlines``, ב-CPython 3.11 וב-3.12), כלומר משנה את הנתונים.
             result = subprocess.run(
                 cmd,
                 cwd=str(cwd) if cwd else None,
                 capture_output=True,
-                text=True,
                 timeout=timeout,
                 **run_kwargs,
             )
+            stdout = result.stdout.decode("utf-8")
+            stderr = result.stderr.decode("utf-8")
 
             success = result.returncode == 0
 
             # הניקוי חל על ערוצי האבחון בלבד — ה-stderr והפקודה, שנכנסים ללוג ולהודעות
             # שגיאה. ה-stdout הוא הנתונים שהפקודה החזירה, והוא חוזר כמו שהוא (ה-docstring).
-            safe_stderr = self._sanitize_output(result.stderr)
+            safe_stderr = self._sanitize_output(stderr)
             safe_cmd = self._sanitize_output(" ".join(cmd))  # הפקודה יכולה להכיל את ה-URL עם הטוקן!
 
             if not success:
@@ -858,7 +865,7 @@ class GitMirrorService:
 
             return GitCommandResult(
                 success=success,
-                stdout=result.stdout,
+                stdout=stdout,
                 stderr=safe_stderr,
                 return_code=result.returncode,
             )
