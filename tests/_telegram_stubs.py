@@ -118,10 +118,6 @@ class InlineQueryHandler:
     def __init__(self, callback=None, *args, **kwargs):
         self.callback = callback or kwargs.get('callback')
 
-class PicklePersistence:
-    def __init__(self, *a, **k):
-        pass
-
 class ContextTypes:
     DEFAULT_TYPE = object
 
@@ -185,7 +181,6 @@ te.CallbackQueryHandler = CallbackQueryHandler
 te.CommandHandler = CommandHandler
 te.MessageHandler = MessageHandler
 te.InlineQueryHandler = InlineQueryHandler
-te.PicklePersistence = PicklePersistence
 te.ContextTypes = ContextTypes
 te.Defaults = Defaults
 te.Application = Application

@@ -1234,13 +1234,6 @@ class ConfigService:
             description="כל כמה שניות נדגם serverStatus של מונגו לצורך ספי ההתראות (מינימום אפקטיבי 1)",
             category="database",
         ),
-        "APSCHEDULER_COLLECTION": ConfigDefinition(
-            key="APSCHEDULER_COLLECTION",
-            services=("bot",),
-            default="scheduler_jobs",
-            description="שם האוסף שבו APScheduler שומר את המשימות המתוזמנות",
-            category="database",
-        ),
         # --- ChatOps והבוט ---
         "ALLOWED_CHAT_IDS": ConfigDefinition(
             key="ALLOWED_CHAT_IDS",

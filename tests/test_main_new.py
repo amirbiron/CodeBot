@@ -21,7 +21,6 @@ def _install_telegram_stubs():
         Defaults=object,
         ConversationHandler=object,
         CallbackQueryHandler=object,
-        PicklePersistence=object,
         InlineQueryHandler=object,
         ApplicationHandlerStop=Exception,
         TypeHandler=object,

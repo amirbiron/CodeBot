@@ -2259,12 +2259,6 @@
      - ``900``
      - ``300``
      - Bot
-   * - ``APSCHEDULER_COLLECTION``
-     - שם קולקשן ברירת המחדל עבור משימות APScheduler כאשר נשמרות ב-MongoDB.
-     - לא
-     - ``scheduler_jobs``
-     - ``scheduler_jobs_eu``
-     - Bot
    * - ``WEEKLY_REPORT_DELAY_SECS``
      - כמה זמן להמתין אחרי עלייה לפני הפעלת job הדו"חות השבועיים.
      - לא

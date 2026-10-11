@@ -4,11 +4,6 @@ import pytest
 import main as m
 
 
-class _DummyPersistence:
-    def __init__(self, *a, **k):
-        pass
-
-
 class _DummyDefaults:
     def __init__(self, *a, **k):
         pass
@@ -36,7 +31,6 @@ class DummyConv:
 @pytest.mark.asyncio
 async def test_conversation_fallbacks_include_cancel(monkeypatch):
     # Stub telegram app and handlers
-    monkeypatch.setattr(m, 'PicklePersistence', _DummyPersistence, raising=False)
     monkeypatch.setattr(m, 'Defaults', _DummyDefaults, raising=False)
     monkeypatch.setattr(m, 'Application', _BuilderFail, raising=True)
     monkeypatch.setattr(m, 'CallbackQueryHandler', _Cbq, raising=False)
