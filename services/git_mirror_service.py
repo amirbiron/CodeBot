@@ -800,7 +800,24 @@ class GitMirrorService:
             GitCommandResult עם התוצאות
 
         Note:
-            stdout/stderr מנוקים מטוקנים רגישים!
+            **ה-stdout חוזר כמו שהוא, וה-stderr והפקודה עוברים ``_sanitize_output``.** ה-stdout
+            הוא הנתונים שהפקודה החזירה: תוכן קובץ (``show``), שמות קבצים (``ls-tree``) והודעת
+            קומיט (``log``). כל שינוי בו משנה את מה שדפדפן הקוד, "ערוך / העתק", האינדקס של
+            הריפו וכלי הריפו של ה-MCP מציגים. עד אוקטובר 2026 גם הוא עבר בניקוי, והביטוי
+            לפי שמות שב-``_sanitize_output`` הציג ``key = x.get("key")`` כ-``key=***`` (הרשומה
+            ב-whats-new). ה-stderr והפקודה הם ערוצי האבחון, והם נכנסים ללוג ולהודעות שגיאה:
+            שם git מדפיס את ה-URL כשפקודת רשת נכשלת, ובשבילם הניקוי נכתב.
+
+            **"כמו שהוא" כולל את סופי השורות.** הפלט נקרא כבתים ומפוענח ב-UTF-8, כי במצב טקסט
+            ``subprocess`` מחליף CRLF ו-CR בודד ב-LF, וקובץ Windows הגיע לדפדפן הקוד בלעדיהם.
+            פלט שאינו UTF-8 נכשל: ``get_file_content`` מחזיר עליו ``None``.
+
+            **פקודה שה-stdout שלה יכול לשאת את הטוקן של השירות מנוקה אצל מי שקורא לה.** ברשימה
+            המותרת זו רק ``remote get-url origin``, שמחזירה את ה-URL השמור של מראה מלפני #3480.
+            הקורא היחיד שלה, ``mirror_credentials.ensure_clean_remote``, מחזיר את ה-URL רק אחרי
+            ``strip_userinfo``. מי שמוסיף לרשימה תת-פקודה כזו (``config``, למשל) מנקה את הפלט
+            שלה אצל הקורא. סוד שמישהו הכניס לריפו עצמו הוא חלק מהנתונים, ומוצג כמו שהוא — מי
+            רשאי לראות אותו נקבע בהרשאות (``docs/webapp/code-browser.rst``), לא בניקוי.
         """
         try:
             # hardening: לא מאפשרים להריץ פקודה שאינה git או תת-פקודה לא צפויה
@@ -821,20 +838,23 @@ class GitMirrorService:
             run_kwargs: Dict[str, Any] = {}
             if extra_env:
                 run_kwargs["env"] = {**os.environ, **extra_env}
+            # בתים ולא ``text=True``: במצב טקסט ``subprocess`` מחליף CRLF ו-CR בודד ב-LF
+            # (``Popen._translate_newlines``, ב-CPython 3.11 וב-3.12), כלומר משנה את הנתונים.
             result = subprocess.run(
                 cmd,
                 cwd=str(cwd) if cwd else None,
                 capture_output=True,
-                text=True,
                 timeout=timeout,
                 **run_kwargs,
             )
+            stdout = result.stdout.decode("utf-8")
+            stderr = result.stderr.decode("utf-8")
 
             success = result.returncode == 0
 
-            # ניקוי טוקנים מהפלט וגם מהפקודה! (אבטחה קריטית!)
-            safe_stdout = self._sanitize_output(result.stdout)
-            safe_stderr = self._sanitize_output(result.stderr)
+            # הניקוי חל על ערוצי האבחון בלבד — ה-stderr והפקודה, שנכנסים ללוג ולהודעות
+            # שגיאה. ה-stdout הוא הנתונים שהפקודה החזירה, והוא חוזר כמו שהוא (ה-docstring).
+            safe_stderr = self._sanitize_output(stderr)
             safe_cmd = self._sanitize_output(" ".join(cmd))  # הפקודה יכולה להכיל את ה-URL עם הטוקן!
 
             if not success:
@@ -845,8 +865,8 @@ class GitMirrorService:
 
             return GitCommandResult(
                 success=success,
-                stdout=safe_stdout,  # פלט נקי
-                stderr=safe_stderr,  # שגיאה נקייה
+                stdout=stdout,
+                stderr=safe_stderr,
                 return_code=result.returncode,
             )
 

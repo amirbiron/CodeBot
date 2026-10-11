@@ -1,7 +1,7 @@
 """הוובאפ שומר את מה שהמשתמש כתב — דרך הטופס, כמו שהדפדפן שולח אותו.
 
-**הטופס נגזר מה-HTML שהשרת מחזיר** (T1): הטסט טוען את ``/edit/<id>`` ואת
-``/upload``, קורא מה-``<form>`` את ``method``, ``enctype``, ``action`` ואת שמות
+**הטופס נגזר מה-HTML שהשרת מחזיר** (T1): הטסט טוען את ``/edit/<id>``, את
+``/upload`` ואת ``/upload/from-repo``, קורא מה-``<form>`` את ``method``, ``enctype``, ``action`` ואת שמות
 השדות, ושולח את הערכים שהם מחזיקים — וב-textarea את מה שהמשתמש "הקליד".
 
 **ושולח כמו דפדפן, לא כמו ה-test client.** werkzeug כותב ערך טקסט כמו שהוא
@@ -31,6 +31,7 @@ from bson import ObjectId
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
 from _fake_mongo import FakeDB
 
+from services import git_mirror_service
 from webapp import app as webapp_app
 
 USER_ID = 616
@@ -243,6 +244,26 @@ def test_an_uploaded_file_is_saved_byte_for_byte(db, client):
     )
     assert resp.status_code in (200, 302), resp.status_code
     assert _newest(db, "from_disk.py")["code"] == raw.decode("utf-8")
+
+
+def test_save_on_the_edit_from_repo_page_saves_the_file(monkeypatch, db, client):
+    """"ערוך / העתק" בדפדפן הקוד פותח את ``/upload/from-repo``, שמרנדר את אותו טופס עם הקובץ מהריפו.
+
+    עד אוקטובר 2026 לטופס לא היה ``action``, ולכן הדפדפן שלח אותו לכתובת של העמוד —
+    ``/upload/from-repo``, שמקבל GET בלבד — ו"שמור" החזיר 405 (נמדד בכרומיום).
+    """
+    monkeypatch.setenv("ADMIN_USER_IDS", str(USER_ID))  # הראוט לאדמין בלבד
+
+    class _Mirror:
+        def get_file_content(self, repo_name: str, file_path: str, ref: str = "HEAD") -> Optional[str]:
+            return "x = 1\n"
+
+    # הראוט מייבא את ``get_mirror_service`` מהמודול בזמן הבקשה
+    monkeypatch.setattr(git_mirror_service, "get_mirror_service", lambda: _Mirror())
+
+    resp = _submit_like_a_browser(client, "/upload/from-repo?path=src/app.py&repo=probe", "uploadForm", {})
+    assert resp.status_code in (200, 302), resp.status_code
+    assert _newest(db, "app.py")["code"] == "x = 1\n"
 
 
 def test_whitespace_only_code_is_still_refused(db, client):
