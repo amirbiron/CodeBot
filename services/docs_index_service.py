@@ -376,17 +376,21 @@ def _update_log_units(page: DocPage) -> Iterator[_RecordUnit]:
     * **מה שמחוץ לרשימות** (פסקה אחרי הבולטים) — רשומה אחת בשם של היום.
     """
     split = [(section, *_split_updates(section.markdown)) for section in page.sections]
-    shown = "\n".join(
-        _shown_text(block)
-        for _section, updates, outside in split
-        for text in (*updates, outside)
-        for block in _BLANK_LINE_RE.split(text)
-        if block.strip()
+    # הטקסט שהעמוד מציג, בהשוואה של הדפדפן — פעם אחת לעמוד, ולא לכל עדכון: ``_match_key`` עובר על כל תו
+    # בפייתון, וכשהוא רץ על העמוד כולו בכל בדיקה, ``build_records`` על הייצוא של 11.10.2026 לקח 7.1 שניות.
+    shown_key = _match_key(
+        "\n".join(
+            _shown_text(block)
+            for _section, updates, outside in split
+            for text in (*updates, outside)
+            for block in _BLANK_LINE_RE.split(text)
+            if block.strip()
+        )
     )
     for section, updates, outside in split:
         for update in updates:
             title, rest = _headline(update)
-            if title is not None and _usable_headline(page, section, title, shown):
+            if title is not None and _usable_headline(page, section, title, shown_key):
                 yield _RecordUnit(section, section.breadcrumb + (title,), title, rest, title)
             else:
                 yield _RecordUnit(section, section.breadcrumb, section.title, update)
@@ -394,7 +398,8 @@ def _update_log_units(page: DocPage) -> Iterator[_RecordUnit]:
             yield _RecordUnit(section, section.breadcrumb, section.title, outside)
 
 
-def _usable_headline(page: DocPage, section: DocSection, title: str, shown: str) -> bool:
+def _usable_headline(page: DocPage, section: DocSection, title: str, shown_key: str) -> bool:
+    """האם הפתיח שמיש ככותרת וכיעד לקפיצה. ``shown_key`` — הטקסט שהעמוד מציג, כבר אחרי :func:`_match_key`."""
     size = len(title.encode("utf-8"))
     crumb_size = len(BREADCRUMB_SEPARATOR.join(section.breadcrumb + (title,)).encode("utf-8"))
     if size > MAX_TITLE_BYTES or crumb_size > MAX_BREADCRUMB_BYTES:
@@ -404,7 +409,7 @@ def _usable_headline(page: DocPage, section: DocSection, title: str, shown: str)
             page.path, section.anchor, size, crumb_size,
         )
         return False
-    return _match_key(shown).count(_match_key(title)) == 1
+    return shown_key.count(_match_key(title)) == 1
 
 
 def _match_key(text: str) -> str:

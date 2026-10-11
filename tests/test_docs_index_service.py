@@ -352,6 +352,27 @@ def test_a_headline_that_differs_elsewhere_only_in_case_or_marks_is_not_unique(h
     assert [s.link_text for s in sections] == ["", ""]
 
 
+def test_the_page_text_is_normalized_once_and_not_once_per_update(monkeypatch):
+    """``_match_key`` עובר על כל תו בפייתון, ולכן על הטקסט של העמוד כולו הוא רץ פעם אחת. כשהוא רץ מחדש בבדיקה
+    של כל עדכון, ``build_records`` על הייצוא של 11.10.2026 לקח 7.1 שניות. נבדק המבנה ולא הזמן, שתלוי במכונה."""
+    lengths = []
+    real = svc._match_key
+
+    def counting(text):
+        lengths.append(len(text))
+        return real(text)
+
+    monkeypatch.setattr(svc, "_match_key", counting)
+    day = _updates(*(f"**fix: עדכון מספר {n}.** גוף העדכון, ארוך יותר מהפתיח שלו." for n in range(20)))
+
+    sections, _chunks = _records([_log_page(("id1", "2026-10-11", day))])
+
+    assert sum(1 for record in sections if record.link_text) == 20
+    page = max(lengths)
+    assert lengths.count(page) == 1, lengths
+    assert sum(lengths) < 2 * page, lengths
+
+
 def test_an_update_without_a_headline_goes_under_its_day_without_a_jump():
     update = "feat (פרופיילר): הדשבורד קיבל מיון. וקודם כול — **חלון זמן אחד**: שלושה מספרים על אותו מסך."
     [record], [chunk] = _records([_log_page(("id25", "2026-09-06", _updates(update)))])
