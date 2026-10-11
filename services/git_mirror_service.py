@@ -800,7 +800,20 @@ class GitMirrorService:
             GitCommandResult עם התוצאות
 
         Note:
-            stdout/stderr מנוקים מטוקנים רגישים!
+            **ה-stdout חוזר כמו שהוא, וה-stderr והפקודה עוברים ``_sanitize_output``.** ה-stdout
+            הוא הנתונים שהפקודה החזירה: תוכן קובץ (``show``), שמות קבצים (``ls-tree``) והודעת
+            קומיט (``log``). כל שינוי בו משנה את מה שדפדפן הקוד, "ערוך / העתק", האינדקס של
+            הריפו וכלי הריפו של ה-MCP מציגים. עד אוקטובר 2026 גם הוא עבר בניקוי, והביטוי
+            לפי שמות שב-``_sanitize_output`` הציג ``key = x.get("key")`` כ-``key=***`` (הרשומה
+            ב-whats-new). ה-stderr והפקודה הם ערוצי האבחון, והם נכנסים ללוג ולהודעות שגיאה:
+            שם git מדפיס את ה-URL כשפקודת רשת נכשלת, ובשבילם הניקוי נכתב.
+
+            **פקודה שה-stdout שלה יכול לשאת את הטוקן של השירות מנוקה אצל מי שקורא לה.** ברשימה
+            המותרת זו רק ``remote get-url origin``, שמחזירה את ה-URL השמור של מראה מלפני #3480.
+            הקורא היחיד שלה, ``mirror_credentials.ensure_clean_remote``, מחזיר את ה-URL רק אחרי
+            ``strip_userinfo``. מי שמוסיף לרשימה תת-פקודה כזו (``config``, למשל) מנקה את הפלט
+            שלה אצל הקורא. סוד שמישהו הכניס לריפו עצמו הוא חלק מהנתונים, ומוצג כמו שהוא — מי
+            רשאי לראות אותו נקבע בהרשאות (``docs/webapp/code-browser.rst``), לא בניקוי.
         """
         try:
             # hardening: לא מאפשרים להריץ פקודה שאינה git או תת-פקודה לא צפויה
@@ -832,8 +845,8 @@ class GitMirrorService:
 
             success = result.returncode == 0
 
-            # ניקוי טוקנים מהפלט וגם מהפקודה! (אבטחה קריטית!)
-            safe_stdout = self._sanitize_output(result.stdout)
+            # הניקוי חל על ערוצי האבחון בלבד — ה-stderr והפקודה, שנכנסים ללוג ולהודעות
+            # שגיאה. ה-stdout הוא הנתונים שהפקודה החזירה, והוא חוזר כמו שהוא (ה-docstring).
             safe_stderr = self._sanitize_output(result.stderr)
             safe_cmd = self._sanitize_output(" ".join(cmd))  # הפקודה יכולה להכיל את ה-URL עם הטוקן!
 
@@ -845,8 +858,8 @@ class GitMirrorService:
 
             return GitCommandResult(
                 success=success,
-                stdout=safe_stdout,  # פלט נקי
-                stderr=safe_stderr,  # שגיאה נקייה
+                stdout=result.stdout,
+                stderr=safe_stderr,
                 return_code=result.returncode,
             )
 

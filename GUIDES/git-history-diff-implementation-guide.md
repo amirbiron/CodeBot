@@ -2779,6 +2779,8 @@ function escapeHtml(text) {
 
 ### 4.1: וולידציות Backend
 
+> ℹ️ **`_sanitize_output` חל על ה-stderr ועל הפקודה שבלוג בלבד (אוקטובר 2026).** בקוד האמיתי `_run_git_command` מחזיר את ה-stdout של git כמו שהוא: ה-stdout הוא תוכן הקובץ, שמות הקבצים והודעת הקומיט, והביטוי לפי שמות שבפונקציה שלמטה הציג בדפדפן הקוד `key = x.get("key")` כ-`key=***`, ובלע את השורה שאחרי `BOT_TOKEN=` ריק. מי שמעתיק את הפונקציה מכאן — לא להחיל אותה על נתונים. ההסבר — ה-docstring של `_run_git_command`, והרשומה של 11.10.2026 ב-`docs/whats-new.rst`.
+
 ```python
 # webapp/services/git_mirror_service.py
 

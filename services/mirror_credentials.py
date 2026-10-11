@@ -15,7 +15,9 @@
 כל המראות. ב-``GitMirrorService`` נשארים רק בחירת הטוקן לפי בעלים
 (``_token_and_source_for_url``) והרצת clone/fetch (``_run_network_git``), כי הם חלק
 מהרצת הפקודות שהשירות כבר מחזיק. כל מה שכאן מריץ git דרך
-``GitMirrorService._run_git_command`` — אותה רשימת פקודות מותרות ואותו ניקוי פלט.
+``GitMirrorService._run_git_command`` — אותה רשימת פקודות מותרות, ואותו ניקוי של ה-stderr
+ושל הפקודה שבלוג. ה-stdout חוזר משם כמו שהוא, ולכן ה-URL של ``remote get-url`` מגיע לכאן
+גולמי (``ensure_clean_remote``).
 
 **מתי המעבר על כל המראות רץ.** בעליית כל שירות, מנקודת הכניסה שלו ולא בייבוא:
 בשירות ה-MCP מה-lifespan של האפליקציה (``attach_credential_sweep`` ב-
@@ -133,8 +135,11 @@ def ensure_clean_remote(service: "GitMirrorService", repo_name: str) -> Dict[str
       נקי וזהה למה שנכתב. קוד היציאה של ``set-url`` לבדו אינו ראיה.
     - ``failed`` — אחד השלבים לא אומת; ``reason`` אומר איזה. ``url`` הוא ``None``.
 
-    ה-URL נקרא דרך ``_run_git_command``, שמעביר את הפלט ב-``_sanitize_output``,
-    ולכן הטוקן אינו מגיע לשום דבר שהפונקציה מחזירה או רושמת.
+    **ה-URL הגולמי לא יוצא מהפונקציה.** ``_run_git_command`` מחזיר את ה-stdout כמו שהוא,
+    ולכן ה-URL שנקרא כאן עדיין יכול לשאת את הטוקן של מראה ישנה. מה שהפונקציה מחזירה הוא
+    ה-URL אחרי ``strip_userinfo``, כשל מחזיר ``reason`` בלי URL, ושום דבר כאן לא רושם את
+    ה-URL. ``test_cleaning_a_legacy_https_remote_returns_and_logs_no_credentials`` מקבע את זה,
+    על ``https://github.com`` כמו בייצור.
     """
     repo_name = str(repo_name or "").strip()
     if not service._validate_repo_name(repo_name):

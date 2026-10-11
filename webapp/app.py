@@ -17826,9 +17826,14 @@ def pwa_share_target():
 
 
 @app.route('/upload/from-repo')
-@login_required
+@admin_required
 def upload_from_repo():
-    """פתיחת עמוד העלאה עם תוכן קובץ מהריפו - לעריכה מהירה או העתקת קטעים."""
+    """פתיחת עמוד העלאה עם תוכן קובץ מהריפו - לעריכה מהירה או העתקת קטעים.
+
+    **אדמין בלבד, כמו דפדפן הקוד שמקשר לכאן.** הראוט קורא מאותן מראות, וכל קובץ בהן נגיש
+    לפי שם ריפו ונתיב. עד אוקטובר 2026 הוא היה מוגן ב-``login_required`` בלבד, ומשתמש מחובר
+    שאינו אדמין קיבל כאן קבצים שדפדפן הקוד חוסם בפניו.
+    """
     from services.git_mirror_service import get_mirror_service
 
     file_path = request.args.get('path', '').strip()
