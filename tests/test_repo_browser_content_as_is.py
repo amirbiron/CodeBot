@@ -59,7 +59,8 @@ def _mirror(tmp_path: Path) -> Tuple[GitMirrorService, str]:
     work = tmp_path / "work"
     work.mkdir()
     for name, text in _FILES.items():
-        (work / name).write_text(text, encoding="utf-8")
+        # בתים ולא ``write_text``: במצב טקסט כל ``\n`` נכתב כ-``os.linesep``, ובווינדוס ``\r\n`` היה נכתב ``\r\r\n``
+        (work / name).write_bytes(text.encode("utf-8"))
     _git("init", "-q", "-b", "main", ".", cwd=work)
     _git("add", "-A", cwd=work)
     _git("commit", "-qm", "init", cwd=work)

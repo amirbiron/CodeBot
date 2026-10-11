@@ -41,7 +41,9 @@
     }
   } %}
 
+  {# ``action`` מפורש: גם ``/upload/from-repo`` מרנדר את הטופס הזה, ובלעדיו הדפדפן שולח אותו לכתובת העמוד #}
   <form id="uploadForm"
+        action="{{ url_for('upload_file_web') }}"
         method="post"
         enctype="multipart/form-data"
         data-file-form-config='{{ ffm_config | tojson }}'
