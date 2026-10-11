@@ -318,6 +318,9 @@
    # Level 3 - Repo Browser (Markdown preview)
    --repo-md-code-block-bg-override, --repo-md-code-block-border-override
 
+   # Level 3 - Primary buttons
+   --btn-primary-text-override
+
 .. _theme-variables-override-hook:
 
 דריסת טוקן שאין לו מקבילה ב-VS Code
@@ -396,6 +399,41 @@
 .. note::
 
    ערכה שאינה מצהירה על הטוקנים מרונדרת ללא שינוי: הרקע נופל ל-``var(--code-bg, var(--bg-secondary, #1e1e1e))`` והגבול ל-``var(--md-preview-border)`` — הטוקן של התצוגה, שקורא את ``--border-color`` של הערכה — מה שנצבע שם גם קודם. שני הטוקנים נקראים בכלל הקיים שצובע את הבלוק בערכות מיובאות ומשותפות, ולא בכלל חדש, כך שהמפל של ערכה שאינה מצהירה נשאר זהה. הגבול נקבע ב-``border-color`` בלבד, והעובי והסגנון נשארים של הכלל הכללי ``.markdown-preview-content pre``. ``tests/services/test_theme_variables_repo_md_code_block_hook.py`` נועל את החוזה הזה. וגם כאן, ערכה שכבר קיימת בחשבון מקבלת את הטוקנים רק אחרי ייבוא מחדש.
+
+.. _theme-variables-btn-primary-text-hook:
+
+הטקסט בכפתורי primary
+~~~~~~~~~~~~~~~~~~~~~~
+
+``--btn-primary-text-override`` הוא וו מאותו סוג, לצבע הטקסט של כפתור primary. בערכה מיובאת או משותפת הטקסט הזה נצבע ב-``--primary`` בכמה מקומות:
+
+- כפתור שהוא קישור, ``<a class="btn btn-primary">`` — למשל הלשונית הנבחרת בעמוד הקבצים והכפתורים בעמוד ההגדרות — נצבע דרך ``[data-theme="custom"] a`` שב-``webapp/static/css/dark-mode.css``, ובריחוף דרך ``a:hover`` שם, ב-``--primary-dark``.
+- "ערוך" ו"העתק קוד" בעמוד הקובץ נצבעים דרך ``.file-primary-action`` שב-``webapp/templates/view_file.html``, גם בריחוף.
+- מצבי הפוקוס, הלחיצה וההשבתה של כל כפתור primary, וכל כפתור primary בערכה משותפת, נצבעים דרך כללי ה-``!important`` שבבלוק ``primary-btn-states-custom-type`` ב-``webapp/templates/base.html``.
+
+``--primary`` נגזר ממפתחות VS Code אחרים מאלה שקובעים את רקע הכפתור (``button.background``), ולכן השניים יכולים לצאת קרובים. ב-Everforest Dark ``--primary`` הוא ``#7fbbb3`` — ``notificationsInfoIcon.foreground`` ממופה אליו אחרי ``focusBorder`` ב-``VSCODE_TO_CSS_MAP``, ולכן הוא שקובע — על רקע ``#a7c080``, כלומר ניגודיות 1.09 לפי WCAG. כפתור primary שהוא ``<button>``, כמו "חפש", אינו מושפע במצב רגיל: הוא נצבע ב-``--btn-primary-color``, שהערכה קובעת דרך ``button.foreground``.
+
+.. code-block:: json
+
+   {
+     "name": "Everforest Dark",
+     "type": "dark",
+     "colors": {
+       "editor.background": "#2d353b",
+       "button.background": "#a7c080",
+       "button.foreground": "#2d353b",
+       "focusBorder": "#2d353b00",
+       "notificationsInfoIcon.foreground": "#7fbbb3"
+     },
+     "tokenColors": [],
+     "variables": {
+       "--btn-primary-text-override": "#232a2e"
+     }
+   }
+
+.. note::
+
+   ערכה שאינה מצהירה על הטוקן מרונדרת ללא שינוי, בכל מצב: כל כלל נופל לערך שהוא צבע עד היום — ``var(--primary)``, ובריחוף של קישור ``var(--primary-dark)``. בכללים הקיימים הטוקן נקרא בלי לשנות את הבורר. לקישורים נוספו ב-``dark-mode.css`` שני כללים, רגיל וריחוף, עם הבוררים של כללי הקישורים עצמם ועם ``:where(.btn-primary)``: ``:where()`` אינו מוסיף ספציפיות, והכללים כתובים מיד אחרי כללי הקישורים, ולכן הם חלים בדיוק במקום שבו כללי הקישורים צובעים היום. הבורר הוא ``[data-theme="custom"]`` ולא ``[data-theme-type="custom"]``, בכוונה: ``previewTheme`` ב-``base.html`` מחליף את ``data-theme`` לערכה מובנית ומשאיר את ``data-theme-type``, וכלל שנשען עליו היה משנה את התצוגה המקדימה. ``tests/services/test_theme_variables_btn_primary_text_hook.py`` נועל את החוזה, וגם כאן ערכה שכבר קיימת בחשבון מקבלת את הטוקן רק אחרי ייבוא מחדש.
 
 הדגשת תחביר (Syntax Highlighting)
 ----------------------------------

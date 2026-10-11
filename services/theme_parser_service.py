@@ -93,6 +93,14 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     # webapp/static/css/markdown-preview.css.
     "--repo-md-code-block-bg-override",
     "--repo-md-code-block-border-override",
+
+    # Level 3 - Primary buttons
+    # מאפשר לערכה בודדת לקבוע את צבע הטקסט של כפתור primary בכל מקום שבו הוא נצבע
+    # היום ב---primary: כפתור שהוא <a> (דרך [data-theme="custom"] a), הכפתורים "ערוך"
+    # ו"העתק קוד", ומצבי פוקוס/לחיצה. ראו את וו הדריסה ב-webapp/static/css/dark-mode.css,
+    # בבלוק primary-btn-states-custom-type ב-webapp/templates/base.html, וב-
+    # webapp/templates/view_file.html.
+    "--btn-primary-text-override",
 ])
 
 

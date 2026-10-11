@@ -261,6 +261,24 @@
     opacity: 0.9;
 }
 
+/* וו דריסה לערכה בודדת: הטקסט של כפתור primary שהוא קישור (<a class="btn-primary">).
+   שני הכללים שמעל צובעים אותו בערכה מיובאת ב---primary וב---primary-dark, ואלה יוצאים
+   לעיתים קרובים לרקע הכפתור. --btn-primary-text-override מוגדר רק בערכה שמצהירה עליו,
+   ובכוונה אין לו ערך ברירת מחדל בשום מקום — כך ה-fallback הוא בדיוק מה שנצבע היום.
+   הבוררים הם הבוררים של שני הכללים שמעל, ו-:where() אינו מוסיף ספציפיות. המיקום אחריהם
+   הוא שמכריע, ולכן הכללים האלה חלים בדיוק במקום שבו כללי הקישורים צובעים היום: כלל ספציפי
+   יותר (למשל .file-primary-action ב-view_file.html) ממשיך לנצח. ראו
+   docs/webapp/custom_themes_guide.rst, theme-variables-btn-primary-text-hook. */
+[data-theme="custom"] a:where(.btn-primary),
+[data-theme^="shared:"] a:where(.btn-primary) {
+    color: var(--btn-primary-text-override, var(--primary));
+}
+
+[data-theme="custom"] a:where(.btn-primary):hover,
+[data-theme^="shared:"] a:where(.btn-primary):hover {
+    color: var(--btn-primary-text-override, var(--primary-dark));
+}
+
 [data-theme="nebula"] .logo,
 [data-theme="nebula"] .logo:hover {
     color: var(--text-primary);
