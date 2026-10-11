@@ -531,13 +531,16 @@ _AS_IN_THE_REPO = {
 
 
 def test_a_file_comes_back_exactly_as_it_is_in_the_repo(tmp_path):
-    """``get_file_content`` מחזיר את הקובץ תו בתו, כולל סופי השורות, וזהה ל-``get_file_at_commit``.
+    """``get_file_content`` מחזיר את הקובץ תו בתו, כולל סופי השורות, וזהה ל-``get_file_at_commit`` על הקבצים שכאן.
 
     ``get_file_content`` הוא מה שדפדפן הקוד, "ערוך / העתק" (``/upload/from-repo``) והאינדקס
     של הריפו קוראים. ``get_file_at_commit`` — המסלול של ה-MCP ושל תצוגת ההיסטוריה — קורא
     את הבתים בלי ``_run_git_command``, ולכן מעולם לא עבר בניקוי. עד התיקון אותו קובץ הוצג
-    בשני המסלולים אחרת. הזהות כאן היא לקובץ UTF-8 בלי BOM: ``get_file_at_commit`` מפענח
-    ב-``_try_decode_content``, שמסיר BOM ומציג גם קובץ שאינו UTF-8, ושם המסלולים עדיין שונים.
+    בשני המסלולים אחרת. הזהות כאן היא לקובץ UTF-8 בלי BOM, שאינו בינארי ואינו גדול מדי:
+    ``get_file_at_commit`` מחזיר בלי טקסט קובץ ש-``_detect_binary_content`` מסווג כבינארי
+    (למשל עם בית NUL), דוחה קובץ גדול מ-``MAX_FILE_SIZE_FOR_DISPLAY`` ב-``file_too_large``,
+    ומפענח ב-``_try_decode_content``, שמסיר BOM ומציג גם קובץ שאינו UTF-8 — ושם המסלולים
+    עדיין שונים.
     """
     svc, sha = _bare_mirror(tmp_path, {p: t.encode("utf-8") for p, t in _AS_IN_THE_REPO.items()})
 
