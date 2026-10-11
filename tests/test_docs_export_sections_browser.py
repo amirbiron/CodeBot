@@ -15,13 +15,19 @@
 
 from __future__ import annotations
 
+import functools
+import http.server
 import json
 import shutil
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 import pytest
+
+# ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
+from _browser_harness import poll
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
@@ -32,6 +38,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts import docs_export_sections as export  # noqa: E402  (אחרי sys.path.insert, כמו בשאר טסטי הריפו)
+from services import docs_index_service as index  # noqa: E402
+from services import docs_search_contract as contract  # noqa: E402
+from services.docs_export_client import parse_export  # noqa: E402
 
 STATIC = ROOT / "docs" / "_static"
 SITE_URL = "https://docs.example.test/CodeBot/"
@@ -269,3 +278,170 @@ def test_the_cli_runs_the_export_end_to_end(chromium_executable, tmp_path, capsy
     out = capsys.readouterr().out
     assert str(site / export.EXPORT_PATH) in out
     assert str(site / "_export" / f"sections-{COMMIT}.json") in out
+
+
+# ---------------------------------------------------------------------------
+# יומן עדכונים: מהעמוד, דרך הייצוא והאינדקס, אל הקישור — בדפדפן
+# ---------------------------------------------------------------------------
+
+
+def _code(text: str) -> str:
+    """קוד בשורה, כמו ש-Sphinx בונה אותו: ``<span class="pre">`` לכל מילה, ורווח ביניהן."""
+    words = " ".join(f'<span class="pre">{word}</span>' for word in text.split(" "))
+    return f'<code class="docutils literal notranslate">{words}</code>'
+
+
+def _update_log_body() -> str:
+    """עמוד What's New בצורה ש-Sphinx בונה (הקטעים נלקחו מהעמוד החי, 11.10.2026): יום עם עדכונים רבים,
+    כך שעדכון בסוף היום רחוק מהעוגן של היום, ואחריו יום נוסף."""
+    filler = "".join(
+        f"<li><p><strong>fix: מילוי מספר {n}.</strong> טקסט שממלא את היום, כדי שהעדכונים שבסופו יהיו "
+        f"רחוקים מהכותרת שלו.</p></li>\n"
+        for n in range(30)
+    )
+    targets = "\n".join(
+        f"<li><p>{inner}</p></li>"
+        for inner in (
+            f"<strong>docs: תוקנה סתירה בין התיעוד לקוד ב-</strong>{_code('POST /api/themes/import')}"
+            "<strong>.</strong> העמוד תיעד גוף בקשה אחר.",
+            "<strong>ההעתקה קוראת את המקור ולא את ה-DOM.</strong> שורה ריקה מרונדרת כרווח.",
+            "<strong>docs (MCP): בלוק ה-``instructions`` מזכיר את ``x_y`` ו-*.</strong> עוד.",
+            "<strong>fix: ``&amp;lt;div&amp;gt;`` נשמר כמו שהוקלד.</strong> עוד.",
+            f"<strong>fix:</strong> {_code('page/per_page')} <strong>היה הפיצ’ר היחיד בלי טסט.</strong> הוחזר.",
+            "<strong>מגבלה ידועה:</strong> אין מיגרציה.",
+            "feat (פרופיילר): בלי פתיח מודגש. וקודם כול — <strong>חלון זמן אחד</strong>.",
+        )
+    )
+    return f"""<section id="what-s-new">
+<h1>What’s New<a class="headerlink" href="#what-s-new" title="Link to this heading">¶</a></h1>
+<section id="id1">
+<h2>2026-10-07<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+{filler}{targets}
+</ul>
+<p>קישורים ל‑Issues רלוונטיים: <cite>#1198</cite>, <cite>#1239</cite>.</p>
+</section>
+<section id="id2">
+<h2>2026-10-06<a class="headerlink" href="#id2" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>מגבלה ידועה:</strong> החיפוש איטי בזמן ה-re-index.</p></li>
+</ul>
+</section>
+</section>"""
+
+
+class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args) -> None:  # noqa: D401 — שקט בפלט של pytest
+        pass
+
+
+#: הטקסט שהעמוד מציג בפתיח של כל עדכון: ההדגשה הראשונה, ואחריה הדגשות וקטעי קוד צמודים או מופרדים
+#: ברווח, עד ההדגשה האחרונה — אותו כלל של ``_headline`` ב-``services/docs_index_service.py``, על ה-DOM.
+_DOM_HEADLINES = r"""
+() => Array.from(document.querySelectorAll('section[id] > ul > li')).map((li) => {
+  const p = li.querySelector(':scope > p') || li;
+  const run = [];
+  for (const node of p.childNodes) {
+    const tag = node.nodeType === Node.ELEMENT_NODE ? node.tagName : null;
+    if (tag === 'STRONG' || (run.length && (tag === 'CODE'
+        || (node.nodeType === Node.TEXT_NODE && /^[ \t]*$/.test(node.textContent))))) {
+      run.push(node);
+      continue;
+    }
+    break;
+  }
+  while (run.length && run[run.length - 1].tagName !== 'STRONG') run.pop();
+  return run.map((node) => node.textContent).join('').replace(/\s+/g, ' ').trim();
+})
+"""
+
+_IN_VIEW = r"""
+(needle) => {
+  const norm = (text) => text.replace(/\s+/g, ' ').trim();
+  const li = Array.from(document.querySelectorAll('section[id] > ul > li'))
+    .find((item) => norm(item.textContent).startsWith(needle));
+  const box = li.getBoundingClientRect();
+  return box.bottom > 0 && box.top < window.innerHeight;
+}
+"""
+
+
+def test_an_update_headline_is_the_text_on_the_page_and_its_link_jumps_to_it(chromium_executable, tmp_path):
+    """השרשרת כולה, מול הצרכן האמיתי: העמוד ← הממיר של כפתור ההעתקה ← הרשומות של האינדקס ← הקישור.
+
+    הכותרת של עדכון חייבת להיות בדיוק הטקסט שהעמוד מציג — אחרת הקפיצה (``text_fragment``) לא מוצאת
+    אותו. והקפיצה היא מה שמביא את העדכון למסך: בלעדיה, הקישור מגיע לראש היום, רחוק מהעדכון. וכשהטקסט
+    כבר אינו בעמוד (עדכון שנערך אחרי שהאינדקס נבנה), הקישור מגיע לראש היום, כמו קישור בלי קפיצה.
+    """
+    site = tmp_path / "html"
+    for name in ("copy-page.js", "vendor/turndown.umd.js", "vendor/turndown-plugin-gfm.js"):
+        target = site / "_static" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(STATIC / name, target)
+    _write(site / "whats-new.html", _page(0, _update_log_body()))
+    _write(site / "_sources" / "whats-new.rst.txt", "What's New\n==========\n")
+
+    exported = _export(site, chromium_executable)
+    records, _chunks = index.build_records(parse_export(json.dumps(exported).encode("utf-8")))
+    jumps = {record.link_text: record for record in records if record.link_text}
+    expected = [
+        "docs: תוקנה סתירה בין התיעוד לקוד ב-POST /api/themes/import.",
+        "ההעתקה קוראת את המקור ולא את ה-DOM.",
+        "docs (MCP): בלוק ה-``instructions`` מזכיר את ``x_y`` ו-*.",
+        "fix: ``&lt;div&gt;`` נשמר כמו שהוקלד.",
+        "fix: page/per_page היה הפיצ’ר היחיד בלי טסט.",
+    ]
+    assert all(title in jumps for title in expected), sorted(jumps)
+    # תווית שחוזרת בעמוד, ועדכון בלי פתיח — בשם של היום, ובלי קפיצה.
+    unlabeled = [(record.title, record.markdown.split(" ")[0]) for record in records if not record.link_text]
+    assert unlabeled == [
+        ("2026-10-07", "**מגבלה"), ("2026-10-07", "feat"), ("2026-10-07", "קישורים"), ("2026-10-06", "**מגבלה"),
+    ]
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(_QuietHandler, directory=site))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}/whats-new.html"
+    try:
+        with sync_playwright() as p:
+            try:
+                browser = (
+                    p.chromium.launch(executable_path=chromium_executable)
+                    if chromium_executable
+                    # בלי נתיב, Playwright 1.49 מרים במצב headless את chromium-headless-shell (``getExecutableName``
+                    # ב-``playwright/driver/package/lib/server/chromium/chromium.js``), ושם הקפיצה לטקסט לא קורית:
+                    # הדף מגיע לעוגן בלבד (נמדד על build 1148, 11.10.2026). ``channel="chromium"`` הוא ה-Chromium
+                    # המלא, שקופץ.
+                    else p.chromium.launch(channel="chromium")
+                )
+            except Exception as exc:  # noqa: BLE001 — כל כשל השקה פירושו אין דפדפן
+                pytest.skip(f"אין Chromium זמין: {exc}")
+            try:
+                page = browser.new_page(viewport={"width": 1280, "height": 400})
+                page.goto(base)
+                on_page = set(page.evaluate(_DOM_HEADLINES))
+                assert set(expected) <= on_page
+                for title in expected:
+                    record = jumps[title]
+                    page.goto("about:blank")
+                    page.goto(f"{base}#{record.anchor}")
+                    assert page.evaluate(_IN_VIEW, title) is False, f"בלי הקפיצה, העדכון כבר על המסך: {title}"
+                    page.goto("about:blank")
+                    page.goto(f"{base}#{record.anchor}{contract.text_fragment(title)}")
+                    poll(page, _IN_VIEW, f"הקפיצה מביאה את העדכון למסך: {title}", title)
+
+                # טקסט שאינו בעמוד: הדפדפן עובר לעוגן שלפני ``:~:``, אבל רק אחרי שהחיפוש נכשל (ב-Chromium 141,
+                # 300ms אחרי הטעינה הדף עוד היה בראש העמוד — נמדד 11.10.2026). לכן מחכים ל-``:target``.
+                day = next(record.anchor for record in records if record.title == "2026-10-06")
+                page.goto("about:blank")
+                page.goto(f"{base}#{day}")
+                at_day = page.evaluate("() => window.scrollY")
+                assert at_day > 0, "היום השני כבר בראש העמוד, ואז אין הבדל בין מעבר לעוגן לבין הישארות בראש העמוד"
+                page.goto("about:blank")
+                page.goto(f"{base}#{day}{contract.text_fragment('עדכון שכבר אינו בעמוד')}")
+                poll(page, "(day) => document.querySelector(':target')?.id === day", f"הדפדפן עובר לעוגן {day}", day)
+                assert page.evaluate("() => window.scrollY") == at_day
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
