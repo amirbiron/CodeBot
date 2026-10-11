@@ -89,11 +89,12 @@ async def test_ensure_schedule_job_sets_next_and_emits_events(monkeypatch):
     facade = _Facade()
     _set_facade(monkeypatch, facade)
 
-    # job queue stub that records the scheduled callback and returns a job object
+    # job queue stub that records the scheduled callback and returns a job object.
+    # החתימה כמו של ``JobQueue.run_repeating`` ב-PTB 22.5, כולל ``job_kwargs`` שהתפריט מעביר.
     scheduled = {}
     class _JQ:
-        def run_repeating(self, cb, interval, first, name=None, data=None):
-            scheduled.update({"cb": cb, "interval": interval, "first": first, "name": name, "data": data})
+        def run_repeating(self, cb, interval, first, name=None, data=None, job_kwargs=None):
+            scheduled.update({"cb": cb, "interval": interval, "first": first, "name": name, "data": data, "job_kwargs": job_kwargs})
             return types.SimpleNamespace(schedule_removal=lambda: None)
 
     class _App:
@@ -110,61 +111,10 @@ async def test_ensure_schedule_job_sets_next_and_emits_events(monkeypatch):
     # job stored in bot_data and next_t set
     job = ctx.bot_data.get("drive_schedule_jobs", {}).get(123)
     assert job is not None
+    # זהות קבועה ב-APScheduler, כדי ש-job חדש של אותו משתמש יחליף את הקודם
+    assert scheduled["job_kwargs"] == {"id": "drive_123", "replace_existing": True}
     # event about job creation should be emitted
     assert any(ev[0] == "drive_schedule_job_set" for ev in events)
-
-
-@pytest.mark.asyncio
-async def test_ensure_schedule_job_falls_back_when_persistent_unavailable(monkeypatch):
-    _stub_requests(monkeypatch)
-    import handlers.drive.menu as dm
-
-    # stub events collector
-    events = []
-    monkeypatch.setattr(dm, "emit_event", lambda e, severity="info", **f: events.append((e, severity, f)), raising=True)
-
-    class _Facade:
-        def __init__(self):
-            self.prefs = {"schedule": "daily"}
-        def get_drive_prefs(self, user_id, *, owner):
-            _DRIVE_OWNERS.append(owner)
-            return dict(self.prefs)
-        def save_drive_prefs(self, user_id, prefs, *, owner):
-            _DRIVE_OWNERS.append(owner)
-            self.prefs.update(prefs)
-            return True
-    _set_facade(monkeypatch, _Facade())
-
-    # job_queue stub: first call with job_kwargs present raises TypeError, second without succeeds
-    calls = {"count": 0, "last_kwargs": None}
-    class _Scheduler:
-        # Advertise that 'persistent' exists to force first attempt with job_kwargs
-        jobstores = {"default": object(), "persistent": object()}
-    class _JQ:
-        def __init__(self):
-            self.scheduler = _Scheduler()
-        def run_repeating(self, *a, **k):
-            calls["count"] += 1
-            calls["last_kwargs"] = dict(k)
-            # If job_kwargs is present — simulate environment that does not support it
-            if "job_kwargs" in k:
-                raise TypeError("unexpected keyword 'job_kwargs'")
-            return types.SimpleNamespace(schedule_removal=lambda: None)
-    class _App:
-        def __init__(self):
-            self.job_queue = _JQ()
-
-    ctx = types.SimpleNamespace(application=_App(), bot_data={})
-
-    handler = dm.GoogleDriveMenuHandler()
-    await handler._ensure_schedule_job(ctx, user_id=99, sched_key="daily")
-
-    # Expect two calls: first with job_kwargs failed, second fallback without
-    assert calls["count"] == 2
-    # Last call should not include job_kwargs
-    assert "job_kwargs" not in (calls["last_kwargs"] or {})
-    # Fallback event emitted
-    assert any(ev[0] == "drive_schedule_job_persistent_fallback" for ev in events)
 
 
 @pytest.mark.asyncio
@@ -245,9 +195,6 @@ async def test_ensure_schedule_job_if_missing_runs_only_when_needed(monkeypatch)
     calls = {"count": 0}
 
     class _JQ:
-        def __init__(self):
-            self.scheduler = types.SimpleNamespace(jobstores={})
-
         def run_repeating(self, *a, **k):
             calls["count"] += 1
             return types.SimpleNamespace(schedule_removal=lambda: None)
@@ -296,7 +243,7 @@ async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeyp
     # prepare a scheduled callback via _ensure_schedule_job
     scheduled = {}
     class _JQ:
-        def run_repeating(self, cb, interval, first, name=None, data=None):
+        def run_repeating(self, cb, interval, first, name=None, data=None, job_kwargs=None):
             scheduled.update({"cb": cb, "interval": interval, "first": first, "name": name, "data": data})
             return types.SimpleNamespace(schedule_removal=lambda: None)
     class _App:
@@ -357,7 +304,7 @@ async def test_scheduled_backup_callback_failure_prompts_reauth(monkeypatch):
     # Prepare scheduled callback through _ensure_schedule_job
     scheduled = {}
     class _JQ:
-        def run_repeating(self, cb, interval, first, name=None, data=None):
+        def run_repeating(self, cb, interval, first, name=None, data=None, job_kwargs=None):
             scheduled.update({"cb": cb, "interval": interval, "first": first, "name": name, "data": data})
             return types.SimpleNamespace(schedule_removal=lambda: None)
     class _App:

@@ -76,7 +76,7 @@ from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKe
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
                           MessageHandler, filters, Defaults, ConversationHandler, CallbackQueryHandler,
-                          PicklePersistence, InlineQueryHandler, ApplicationHandlerStop, TypeHandler)
+                          InlineQueryHandler, ApplicationHandlerStop, TypeHandler)
 
 from config import config
 try:
@@ -2870,14 +2870,10 @@ class CodeKeeperBot:
                     pass
             return builder
 
-        # יצירת תיקייה זמנית עם הרשאות כתיבה
-        DATA_DIR = "/tmp"
-        if not os.path.exists(DATA_DIR):
-            os.makedirs(DATA_DIR, exist_ok=True)
-            
-        # יצירת persistence לשמירת נתונים בין הפעלות
-        persistence = PicklePersistence(filepath=f"{DATA_DIR}/bot_data.pickle")
-        
+        # בלי persistence, בכוונה. ``bot_data`` מחזיק אובייקטים חיים — handlers, לקוחות מסד, נעילות — ו-PTB
+        # (22.5) מעתיק אותו ב-``deepcopy`` בכל שמירה ובסגירה, ובעלייה מחליף אותו בתוכן השמור. נתון שצריך
+        # לשרוד ריסטארט נשמר במסד. למה הוסר: ``docs/whats-new.rst``, 2026-10-11.
+        #
         # במצב בדיקות/CI, חלק מתלויות הטלגרם (Updater פנימי) עלולות להיכשל.
         # נשתמש בבנאי הרגיל, ואם נכשל – נבנה Application מינימלי עם טוקן דמה.
         try:
@@ -2885,14 +2881,13 @@ class CodeKeeperBot:
                 Application.builder()
                 .token(config.BOT_TOKEN)
                 .defaults(Defaults(parse_mode=ParseMode.HTML))
-                .persistence(persistence)
                 .post_init(setup_bot_data)
             )
             _builder = _apply_ptb_timeouts(_builder)
             self.application = _builder.build()
         except Exception:
             dummy_token = os.getenv("DUMMY_BOT_TOKEN", "dummy_token")
-            # נסה לבנות ללא persistence/post_init כדי לעקוף Updater פנימי
+            # נסה לבנות ללא post_init כדי לעקוף Updater פנימי
             try:
                 _builder = (
                     Application.builder()
@@ -5643,7 +5638,7 @@ def main() -> None:
             pass
         if 'db' in globals():
             db.close_connection()
-        # Scheduler/Webapp thread-safety: close the scheduler-dedicated Mongo clients (best-effort)
+        # Scheduler/Webapp thread-safety: close the scheduler-dedicated Motor client (best-effort)
         try:
             app_obj = bot if "bot" in locals() else None
             # CodeKeeperBot שומר את PTB Application תחת bot.application
@@ -5653,14 +5648,10 @@ def main() -> None:
                 motor_client = bot_data.get("_scheduler_motor_client")
                 if motor_client is not None and hasattr(motor_client, "close"):
                     motor_client.close()
-                pymongo_client = bot_data.get("_scheduler_pymongo_client")
-                if pymongo_client is not None and hasattr(pymongo_client, "close"):
-                    pymongo_client.close()
                 # ניקוי best-effort כדי למנוע שימוש חוזר באובייקטים סגורים
                 try:
                     bot_data.pop("_scheduler_motor_client", None)
                     bot_data.pop("_scheduler_motor_db", None)
-                    bot_data.pop("_scheduler_pymongo_client", None)
                     bot_data.pop("_scheduler_motor_lock", None)
                 except Exception:
                     pass
@@ -5795,33 +5786,6 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 except Exception:
                     pass
                 return None
-
-    def _get_scheduler_pymongo_client(app: Application):
-        """PyMongo client פרטי ל-APScheduler jobstore (best-effort)."""
-        if _scheduler_db_disabled():
-            return None
-        mongo_url = (os.getenv("MONGODB_URL") or "").strip()
-        if not mongo_url:
-            return None
-        try:
-            from pymongo import MongoClient  # type: ignore
-        except Exception:
-            return None
-
-        bot_data = getattr(app, "bot_data", None)
-        if not isinstance(bot_data, dict):
-            return None
-
-        existing = bot_data.get("_scheduler_pymongo_client")
-        if existing is not None:
-            return existing
-
-        try:
-            client = MongoClient(mongo_url, serverSelectionTimeoutMS=3000)
-            bot_data["_scheduler_pymongo_client"] = client
-            return client
-        except Exception:
-            return None
 
     # Jobs Monitor: זיהוי הרצות "תקועות" (job_stuck)
     try:
@@ -6098,31 +6062,6 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # Fail-open
         pass
 
-    # הגדרת JobStore מתמיד ל-APScheduler (MongoDB) אם אפשרי
-    try:
-        jq = getattr(application, "job_queue", None)
-        scheduler = getattr(jq, "scheduler", None)
-        if scheduler is not None:
-            client = _get_scheduler_pymongo_client(application)
-            db_name = (os.getenv("DATABASE_NAME") or "code_keeper_bot").strip() or "code_keeper_bot"
-            # אל תגדיר כשאין חיבור
-            if client is not None and db_name:
-                try:
-                    # הוסף JobStore בשם 'persistent' לשימוש ע"י משימות הגיבוי
-                    scheduler.add_jobstore(
-                        'mongodb',
-                        alias='persistent',
-                        client=client,
-                        database=db_name,
-                        collection=os.getenv('APSCHEDULER_COLLECTION', 'scheduler_jobs'),
-                    )
-                    logger.info("✅ APScheduler persistent jobstore registered (MongoDB)")
-                except Exception as e:  # pragma: no cover — fail‑open בסביבות טסט/ללא DB
-                    logger.warning(f"APS persistent jobstore not available: {e}")
-    except Exception:
-        # Fail-open: אין להפיל את ה-setup אם שכבת APScheduler אינה זמינה
-        pass
-    
     # הגדרת פקודת stats רק למנהל (אמיר בירון)
     AMIR_ID = 6865105071  # ה-ID של אמיר בירון
     
@@ -6447,6 +6386,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             except Exception as exc:
                 logger.warning("Failed to schedule %s: %s", name, exc)
 
+        # ה-jobs של ה-JobQueue חיים בזיכרון בלבד, ולכן ``drive_reschedule`` בונה מחדש את ה-jobs של הגיבוי
+        # המתוזמן מהתזמון השמור במסד — בעלייה, ושוב בכל סבב. jobstore של APScheduler במסד אינו חלופה: job
+        # של PTB 22.5 אינו עובר pickle (``weakref``). ה-jobstore ``persistent`` שהיה ב-``setup_bot_data`` הוסר —
+        # ``docs/whats-new.rst``, 2026-10-11.
         bootstrap_delay = int(os.getenv("DRIVE_RESCHEDULE_BOOTSTRAP_DELAY", "5") or 5)
         keepalive_interval = int(os.getenv("DRIVE_RESCHEDULE_INTERVAL", "900") or 900)
         keepalive_first = int(os.getenv("DRIVE_RESCHEDULE_FIRST_DELAY", "60") or 60)

@@ -4,11 +4,6 @@ import pytest
 import main as m
 
 
-class _DummyPersistence:
-    def __init__(self, *a, **k):
-        pass
-
-
 class _DummyDefaults:
     def __init__(self, *a, **k):
         pass
@@ -40,7 +35,6 @@ class _Cbq:
 @pytest.mark.asyncio
 async def test_main_registers_back_and_cancel_handlers(monkeypatch):
     # Stub dependencies so CodeKeeperBot uses internal _MiniApp
-    monkeypatch.setattr(m, 'PicklePersistence', _DummyPersistence, raising=False)
     monkeypatch.setattr(m, 'Defaults', _DummyDefaults, raising=False)
     monkeypatch.setattr(m, 'Application', _BuilderFail, raising=True)
     monkeypatch.setattr(m, 'CommandHandler', _Cmd, raising=False)

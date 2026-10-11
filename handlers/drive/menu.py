@@ -392,43 +392,16 @@ class GoogleDriveMenuHandler:
                     planned_next = now_dt + timedelta(seconds=seconds)
             delta_secs = int((planned_next - now_dt).total_seconds())
             first_seconds = max(10, delta_secs)
-            # בנה פרמטרים ל-Job עם זהות יציבה; הוסף persistent רק אם קיים JobStore מתאים
-            job_kwargs = {"id": f"drive_{user_id}", "replace_existing": True}
-            try:
-                scheduler = getattr(context.application.job_queue, "scheduler", None)
-                stores = getattr(scheduler, "jobstores", None)
-                if isinstance(stores, dict) and "persistent" in stores:
-                    job_kwargs["jobstore"] = "persistent"
-            except Exception:
-                # אם לא הצלחנו לזהות — נמשיך ללא הצמדה לג'ובסטור ספציפי
-                pass
-            # נסה עם job_kwargs; אם הספרייה/עטיפה לא תומכת או הג'ובסטור חסר — ניפול חזרה להרצה ללא job_kwargs
-            try:
-                job = context.application.job_queue.run_repeating(
-                    _scheduled_backup_cb,
-                    interval=seconds,
-                    first=first_seconds,
-                    name=f"drive_{user_id}",
-                    data={"user_id": user_id},
-                    job_kwargs=job_kwargs,
-                )
-            except Exception as e:
-                # לוג + אירוע למעקב, ואז נפילה חזרה להרצת ברירת המחדל (in-memory)
-                try:
-                    logger.warning("drive_schedule_job_persistent_fallback user_id=%s error=%s", user_id, str(e))
-                except Exception:
-                    pass
-                try:
-                    emit_event("drive_schedule_job_persistent_fallback", severity="warn", user_id=int(user_id), error=str(e))
-                except Exception:
-                    pass
-                job = context.application.job_queue.run_repeating(
-                    _scheduled_backup_cb,
-                    interval=seconds,
-                    first=first_seconds,
-                    name=f"drive_{user_id}",
-                    data={"user_id": user_id},
-                )
+            # ה-job חי בזיכרון בלבד, ואחרי ריסטארט ``drive_reschedule`` ב-``main.py`` בונה אותו מחדש מהתזמון
+            # השמור. ``id`` קבוע עם ``replace_existing`` מחליף ב-APScheduler job קודם של אותו משתמש, במקום להוסיף שני.
+            job = context.application.job_queue.run_repeating(
+                _scheduled_backup_cb,
+                interval=seconds,
+                first=first_seconds,
+                name=f"drive_{user_id}",
+                data={"user_id": user_id},
+                job_kwargs={"id": f"drive_{user_id}", "replace_existing": True},
+            )
             jobs[user_id] = job
             # עדכן next_t על האובייקט עצמו כדי לאפשר תצוגה מדויקת ב-status
             try:

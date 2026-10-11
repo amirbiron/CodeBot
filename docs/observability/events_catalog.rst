@@ -164,11 +164,10 @@ Google Drive
 
 - ``webapp_drive_backup_failed`` — גיבוי Drive של הוובאפ, מתוזמן או "גבה עכשיו", לא הועלה. ``reason``: ``upload_failed`` כשההעלאה לא החזירה מזהה קובץ — הסיבה בשורת הלוג ``drive_call_failed`` של ``services/google_drive_service.py`` — או ``exception``, עם ``error_type``. ברמת ``warn``: גיבוי מתוזמן שנכשל מנוסה שוב בסריקה הבאה (``_retry_next_at``), ואירוע ``error`` היה חוזר כל כמה דקות על חיבור שבוטל.
 
-התפריט והגיבוי המתוזמן בבוט (``handlers/drive/menu.py``, ‏``main.py``):
+התפריט והגיבוי המתוזמן בבוט (``handlers/drive/menu.py``, ‏``main.py``). ה-jobs של הגיבוי המתוזמן נוצרים בזיכרון בלבד, ו-``drive_reschedule`` ב-``main.py`` בונה מחדש מהתזמון השמור במסד כל job שחסר — בכל עלייה, כשכולם חסרים, ושוב בכל סבב שלו:
 
 - ``drive_handler_ready`` — ה-handler של תפריט ה-Drive (``GoogleDriveMenuHandler``) נוצר ונשמר ב-``bot_data`` בעליית הבוט.
 - ``drive_schedule_job_set`` — נוצר job של גיבוי מתוזמן למשתמש (``_ensure_schedule_job``): ``key`` התזמון, ``interval_s`` המרווח, ``first_s`` השניות עד ההרצה הראשונה ו-``planned_next`` מועד ההרצה.
-- ``drive_schedule_job_persistent_fallback`` — יצירת ה-job ב-jobstore הקבוע נכשלה (``error``), והוא נוצר בזיכרון בלבד. job כזה לא שורד עלייה מחדש, ו-``drive_reschedule`` מחזיר אותו.
 - ``drive_schedule_job_setup_failed`` — יצירת ה-job נכשלה (``key``, ``error``).
 - ``drive_schedule_job_cancelled`` — המשתמש כיבה את התזמון בתפריט.
 - ``drive_schedule_job_missing`` — למשתמש יש תזמון פעיל בהעדפות ואין לו job בזיכרון, וה-job נוצר מחדש (``ensure_schedule_job_if_missing``).
