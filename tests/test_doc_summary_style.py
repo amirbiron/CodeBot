@@ -139,7 +139,7 @@ def test_the_reader_is_the_maps_reader_and_not_a_second_parser(tmp_path):
     ``:summary: ``. על שני העמודים שלמטה היא נותנת תשובה אחרת מהמפה:
 
     * ``late.rst`` — ``:summary:`` באמצע הגוף. סריקת-קובץ הייתה אוספת
-      אותו; המפה לא מציגה אותו, כי הוא אינו רשימת השדות שמתחת לכותרת.
+      אותו; המפה לא מציגה אותו, כי הוא אינו רשימת השדות שפותחת את הקובץ.
     * ``wrapped.rst`` — הצהרה שנמשכת לשורה שנייה. סריקת-קובץ הייתה
       עוצרת בשורה הראשונה ובודקת חצי תקציר.
 
@@ -151,7 +151,7 @@ def test_the_reader_is_the_maps_reader_and_not_a_second_parser(tmp_path):
         "כותרת\n=====\n\nפסקה בגוף.\n\n:summary: לא הצהרה.\n", encoding="utf-8"
     )
     (docs / "wrapped.rst").write_text(
-        "כותרת\n=====\n:summary: שורה ראשונה\n   והמשכה.\n\nגוף.\n", encoding="utf-8"
+        ":summary: שורה ראשונה\n   והמשכה.\n\nכותרת\n=====\n\nגוף.\n", encoding="utf-8"
     )
 
     got = _declared_summaries(docs)

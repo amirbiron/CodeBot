@@ -1,6 +1,7 @@
+:summary: שכבת Retry ו-Circuit Breaker לקריאות חוץ. היא חלה על קריאות שעוברות דרך http_sync.py ו-http_async.py; שירותים שקוראים ישירות ל-requests, httpx או aiohttp אינם מכוסים עדיין.
+
 Resilience לשירותים חיצוניים
 =============================
-:summary: שכבת Retry ו-Circuit Breaker לקריאות חוץ. היא חלה על קריאות שעוברות דרך http_sync.py ו-http_async.py; שירותים שקוראים ישירות ל-requests, httpx או aiohttp אינם מכוסים עדיין.
 
 למה שכבה מרוכזת?
 -----------------

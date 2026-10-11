@@ -1,6 +1,7 @@
+:summary: עימוד, Projection, כוונון Connection Pooling ו-Timeouts, לוגי איטיות לאיתור צווארי בקבוק, והנחיות לפי סביבה.
+
 ביצועים והרחבה (Performance & Scaling)
 =======================================
-:summary: עימוד, Projection, כוונון Connection Pooling ו-Timeouts, לוגי איטיות לאיתור צווארי בקבוק, והנחיות לפי סביבה.
 
 עימוד (Pagination)
 -------------------

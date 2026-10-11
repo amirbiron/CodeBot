@@ -1,6 +1,7 @@
+:summary: הקטלוג הקנוני של שמות האירועים — GitHub, שיתוף ווב, התראות, Google Drive, Repo Analyzer ואירועי ביזנס — עם הכלל לשמות ב-snake_case ובלי PII.
+
 קטלוג אירועים קנוניים
 ======================
-:summary: הקטלוג הקנוני של שמות האירועים — GitHub, שיתוף ווב, התראות, Google Drive, Repo Analyzer ואירועי ביזנס — עם הכלל לשמות ב-snake_case ובלי PII.
 
 .. admonition:: עיקרון
    :class: tip

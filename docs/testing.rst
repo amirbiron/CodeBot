@@ -1,6 +1,7 @@
+:summary: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, mocking של HTTP, בדיקות מול מונגו אמיתי, ואימות ביטוי aggregation או סינון מול גרסת הייצור בקריאה בלבד.
+
 Testing Guide
 =============
-:summary: Quickstart להרצת טסטים, ההנחיות הקריטיות, טעינת ה-stubs לטלגרם, עבודה עם tmp_path ומתכון מחיקה מוגבל ל-allowlist, mocking של HTTP, בדיקות מול מונגו אמיתי, ואימות ביטוי aggregation או סינון מול גרסת הייצור בקריאה בלבד.
 
 🚀 Quickstart לטסטים
 --------------------

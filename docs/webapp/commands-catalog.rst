@@ -1,6 +1,7 @@
+:summary: תחזוקת commands.json — הקטלוג שמזין את כרטיסי "קיצורי הדרך" בחיפוש הגלובלי. global_search.js טוען אותו רק בדפים שמכילים את globalSearchInput ואת searchBtn, ומוסיף כרטיסים לפי סוג (chatops/cli/playbook).
+
 תחזוקת קטלוג הפקודות (``commands.json``)
 =========================================
-:summary: תחזוקת commands.json — הקטלוג שמזין את כרטיסי "קיצורי הדרך" בחיפוש הגלובלי. global_search.js טוען אותו רק בדפים שמכילים את globalSearchInput ואת searchBtn, ומוסיף כרטיסים לפי סוג (chatops/cli/playbook).
 
 מבוא
 ----
