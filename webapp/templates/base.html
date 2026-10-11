@@ -1955,6 +1955,7 @@
 
     <!-- Primary Button States - force theme colors on all interaction states (custom + shared) -->
     <!-- 🔧 תיקון: כפתורים בערכות shared משתמשים ב-var(--primary) כמו בערכות custom (כדי לשמור על צבע link) -->
+    <!-- וו דריסה לערכה בודדת: --btn-primary-text-override נקרא בכל color כאן, עם fallback ל-var(--primary) שנצבע היום. בכוונה אין לו ערך ברירת מחדל בשום מקום. ראו docs/webapp/custom_themes_guide.rst, theme-variables-btn-primary-text-hook -->
     <style id="primary-btn-states-custom-type">
         [data-theme-type="custom"] .btn-primary:active,
         [data-theme-type="custom"] .btn-primary:focus,
@@ -1965,18 +1966,18 @@
         [data-theme^="shared:"] .btn-primary:disabled,
         [data-theme^="shared:"] .btn-primary.disabled {
             background-color: var(--btn-primary-bg) !important;
-            color: var(--primary) !important;
+            color: var(--btn-primary-text-override, var(--primary)) !important;
             opacity: 0.8;
         }
         /* Shared theme button base styles - שימוש ב-var(--primary) כמו בערכות custom */
         [data-theme^="shared:"] .btn-primary {
             background-color: var(--btn-primary-bg) !important;
-            color: var(--primary) !important;
+            color: var(--btn-primary-text-override, var(--primary)) !important;
             border-color: var(--btn-primary-border, var(--btn-primary-bg)) !important;
         }
         [data-theme^="shared:"] .btn-primary:hover {
             background-color: var(--btn-primary-hover-bg, var(--btn-primary-bg)) !important;
-            color: var(--primary) !important;
+            color: var(--btn-primary-text-override, var(--primary)) !important;
         }
     </style>
     {% if can_impersonate %}

@@ -158,7 +158,9 @@
         originalPreviewStyles = {};
         const computedStyle = getComputedStyle(preview);
 
-        // רשימה מסונכרנת עם ALLOWED_VARIABLES_WHITELIST
+        // המשתנים שהתצוגה המקדימה שומרת לפני preview ומסירה ב-revertPreview. זו אינה העתקה של
+        // ALLOWED_VARIABLES_WHITELIST: ווי הדריסה (‏--*-override) ומשתני ה-Markdown המורחבים
+        // (‏--md-inline-code-*, ‏--md-table-*, ‏--md-mermaid-bg) נמצאים שם ולא כאן.
         const varsToSave = [
             '--bg-primary', '--bg-secondary', '--bg-tertiary',
             '--text-primary', '--text-secondary', '--text-muted',
