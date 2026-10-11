@@ -14,11 +14,14 @@
 - **מסונן מכנית.** עמודים שהם פיגום autodoc בלבד (הוראת automodule בלי
   שום תוכן משלהם) לא נכללים — התוכן שלהם נוצר רק בזמן בנייה, ומהריפו
   אין בהם כלום. הם נספרים בשורת סיכום כדי שההשמטה תהיה גלויה.
-- **התקציר מוצהר, לא מנוחש.** ב-``.rst`` שדה ``:summary:`` ברשימת השדות
-  שמיד אחרי הכותרת; ב-``.md`` המפתח ``summary`` ב-front matter. אין
-  הצהרה — שורת המפה מציגה כותרת בלבד, ו-``--check`` מתריע. הגרסה
-  הקודמת חילצה את פסקת הפרוזה הראשונה, וכדי לעשות זאת מימשה חלקים
-  מ-GFM ומ-RST ביד; ארבעה סבבי ריוויו מצאו שם מקרי קצה.
+- **התקציר מוצהר, לא מנוחש.** בשני הפורמטים ההצהרה היא הדבר הראשון
+  בקובץ: ב-``.md`` המפתח ``summary`` ב-front matter, וב-``.rst`` שדה
+  ``:summary:`` ברשימת השדות שפותחת את הקובץ, לפני הכותרת. משני
+  המקומות Sphinx מעביר אותה למידע על העמוד ולא מציג אותה (ראו ההסבר ליד
+  :data:`_SUMMARY_FIELD_RE`). אין הצהרה — שורת המפה מציגה כותרת בלבד,
+  ו-``--check`` מתריע. הגרסה הקודמת חילצה את פסקת הפרוזה הראשונה, וכדי
+  לעשות זאת מימשה חלקים מ-GFM ומ-RST ביד; ארבעה סבבי ריוויו מצאו שם
+  מקרי קצה.
 
 בלי --out המפה מודפסת ל-stdout ושום קובץ לא נכתב; --out קובע מתי ולאן.
 ה-workflow מעביר --out AI-MAP.md בשורש הריפו ולא ב-docs/, כי MyST פעיל
@@ -48,35 +51,32 @@ SUMMARY_CAP = 220
 _DIRECTIVE_RE = re.compile(r"^\.\. ")
 _UNDERLINE_RE = re.compile(r"^([=\-~^\"'#*+.`:_])\1{2,}\s*$")
 _FIELD_RE = re.compile(r"^:[\w-]+:")
-# שדה ההצהרה, בעמודה 0 בדיוק — שדה מוזח שייך לבלוק שמעליו
+# שדה ההצהרה, בעמודה 0 בדיוק — שדה מוזח שייך לבלוק שמעליו.
+#
+# **איפה ההצהרה יושבת ב-``.rst``, ולמה דווקא שם.** ברשימת השדות שפותחת את
+# הקובץ, לפני הכותרת. זה המנגנון ש-Sphinx מגדיר לזה (בתיעוד שלו: "File-wide
+# metadata"): רשימת שדות שקודמת לכל markup אחר עוברת למידע על העמוד ואינה
+# מוצגת. בקוד, כפי שנקרא ב-Sphinx 8.2.3 וב-docutils 0.21.2: ``DocInfo``
+# (``docutils/transforms/frontmatter.py``) הופך את רשימת השדות לבלוק
+# ``docinfo`` כשהיא הילד הראשון של המסמך שאינו ``PreBibliographic``, ו-
+# ``MetadataCollector.process_doc`` (``sphinx/environment/collectors/metadata.py``)
+# מעביר את השדות ל-``env.metadata`` ומוציא את הבלוק מהעמוד. באותה דרך בדיוק
+# ה-front matter של עמודי ``.md`` נשאר מחוץ לעמוד.
+#
+# עד אוקטובר 2026 השדה ישב מתחת לכותרת. שם אין קידום — Sphinx מכבה את
+# ``doctitle_xform``, הכותרת נשארת בתוך ``<section>``, ורשימת השדות אינה
+# הילד הראשון של המסמך — ולכן הוא הוצג בעמוד, ומשם הגיע לכפתור "העתק",
+# לקובץ הייצוא ולכרטיסי החיפוש בתיעוד, בזמן שהוא נועד רק למפה הזו.
+#
+# **למה "הדבר הראשון בקובץ" ולא "אחרי מה שמותר לדלג עליו".** תווית
+# (``.. _x:``) שקודמת לרשימת השדות נצמדת אליה ולא לכותרת, וכש-Sphinx מוציא
+# את הבלוק התווית נשברת בשקט: קישור אליה מקבל את הטקסט "summary", העוגן
+# לא קיים בעמוד, ואין שום אזהרה (נמדד ב-Sphinx 8.2.3, 11.10.2026). לכן אין
+# כאן רשימה של "מה מותר לפני ההצהרה": מותרות רק שורות ריקות. כל ``:summary:``
+# אחר בעמודה 0 מדווח ב-:func:`_misplaced_rst_summaries`, והטסט
+# ``test_no_rst_page_has_a_summary_away_from_the_top_of_the_file`` מפיל
+# עליו את ה-CI.
 _SUMMARY_FIELD_RE = re.compile(r"^:summary:[ \t]*(.*)$")
-# מה מדלגים עליו בדרך אל ההצהרה, ולמה זה כלל אחד ולא רשימת שמות.
-#
-# גרסה קודמת כאן מידלה את ``DocInfo`` של docutils — הטרנספורם שמקדם
-# רשימת שדות ל-``<docinfo>`` ומתעלם בדרך מ-``nodes.PreBibliographic``.
-# אימות מול הצרכן הראה שהטרנספורם הזה כלל אינו רץ כאן: Sphinx מכבה
-# ``doctitle_xform`` (``sphinx/environment/__init__.py``, שורה 66:
-# ``'doctitle_xform': False``), הכותרת נשארת בתוך ``<section>``,
-# ``DocInfo`` לא מוצא רשימת שדות כילד ראשון של המסמך — ואין קידום. בבנייה
-# מלאה של האתר יש **אפס** בלוקי ``docinfo``, ו-``:summary:`` מרונדר כמו
-# שהוא: ``<dl class="field-list simple">`` במקום שבו הוא כתוב.
-#
-# מהמודל המת ההוא נולדה שאלה שאין לה תשובה יציבה: "אילו directives
-# שקופים?". שלושה סבבי ריוויו רצופים נפלו עליה — פעם ``.. note::``, פעם
-# ``.. py:function::``, פעם ``.. raw::``, פעם ``.. default-role::``. כל
-# תשובה הייתה רשימת שמות שמישהו ניחש, וכל directive חדש בסביבה הפיל
-# אותה שוב.
-#
-# הכלל כאן מוותר על השאלה. אין קידום ל-docinfo, ולכן אין הבדל בין
-# "שקוף" ל"מרנדר": בשני המקרים השדה מרונדר בעמוד, והוא ההצהרה של הכותב.
-# מדלגים על **כל** explicit markup — הערה, יעד, directive, על גופו המוזח
-# — וההצהרה היא רשימת השדות הראשונה שנפגשת. תוכן שאינו explicit markup
-# ואינו שדה (פרוזה, רשימה, טבלה) עוצר את החיפוש, כי ממנו והלאה כבר לא
-# מדובר בראש העמוד.
-#
-# ``Body.patterns['explicit_markup']`` ב-``docutils/parsers/rst/states.py``
-# הוא ``\.\.( +|$)`` — רווחים בלבד, לא טאב.
-_EXPLICIT_MARKUP_RE = re.compile(r"^\.\.( +|$)")
 _TOCTREE_ENTRY_RE = re.compile(r"^\s{3,}(\S.*)$")
 
 _AUTODOC_RE = re.compile(r"^\.\. auto(module|class|function)::")
@@ -177,10 +177,9 @@ def _declared_summary(lines: list[str], path: Path) -> str:
 
     שני תחבירים, כל אחד הסטנדרטי בפורמט שלו — ולא שלישי:
 
-    * ``.rst`` — שדה ``:summary:`` מתחת לכותרת. ב-Sphinx אין קידום
-      ל-``<docinfo>`` (ראו ההסבר ליד :data:`_EXPLICIT_MARKUP_RE`), והשדה
-      מרונדר בדיוק במקומו: ``<dl class="field-list simple">`` מתחת ל-H1.
-      זה מה שרואים בעמוד, וזה מה שנכנס למפה.
+    * ``.rst`` — שדה ``:summary:`` ברשימת השדות שפותחת את הקובץ, לפני
+      הכותרת. Sphinx מעביר אותה למידע על העמוד ולא מציג אותה (ראו ההסבר
+      ליד :data:`_SUMMARY_FIELD_RE`).
     * ``.md`` — ``summary`` ב-front matter. נקרא ב-``yaml.safe_load``,
       בדיוק כמו ש-MyST קורא אותו (``myst_parser/mdit_to_docutils/base.py``:
       ``data = yaml.safe_load(token.content)``).
@@ -222,70 +221,22 @@ def _front_matter_summary(lines: list[str]) -> str:
     return " ".join(str(value).split()) if value else ""
 
 
-def _consume_indented_body(lines: list[str], i: int) -> int:
-    """מדלג על הגוף המוזח של explicit markup שהתחיל בשורה הקודמת.
+def _rst_summary_declaration(lines: list[str]) -> tuple[int, str]:
+    """האינדקס של שורת ``:summary:`` והתקציר, מרשימת השדות שפותחת את הקובץ — או ``(-1, "")``.
 
-    זה בדיוק המקום שבו כבר היה באג פעם אחת: קידום של שורה אחת נעצר על
-    הגוף המוזח, הכותרת לא נמצאה, והתקציר יצא ריק.
-
-    למה רק כאן ולא גם ב-:func:`_is_autodoc_scaffold`: שם הלולאה מדלגת
-    ממילא על כל שורה מוזחת, בשומר ``raw[:1].isspace()`` שבראשה. קריאה
-    לפרימיטיב הזה משם הייתה נכונה אבל חסרת השפעה — מוטציה שביטלה אותה
-    לא הפילה אף בדיקה — וקוד שאי אפשר להפיל אי אפשר גם לשמור עליו.
-    """
-    n = len(lines)
-    while i < n and (not lines[i].strip() or lines[i][:1].isspace()):
-        i += 1
-    return i
-
-
-def _skip_explicit_markup(lines: list[str], i: int) -> int:
-    """מדלג על שורות ריקות ועל כל explicit markup — כולל הגוף המוזח.
-
-    הגוף המוזח הוא העיקר: directive או הערה רב-שורות נפרסים על כמה
-    שורות, וקידום של שורה אחת בלבד נעצר על הגוף המוזח — ואז הכותרת לא
-    נמצאת והתקציר יוצא ריק.
-    """
-    n = len(lines)
-    while i < n:
-        if not lines[i].strip():
-            i += 1
-            continue
-        if not _EXPLICIT_MARKUP_RE.match(lines[i]):
-            return i
-        i = _consume_indented_body(lines, i + 1)
-    return i
-
-
-def _rst_field_summary(lines: list[str]) -> str:
-    """שדה ``:summary:`` מרשימת השדות הראשונה שאחרי כותרת המסמך.
-
-    ההצהרה היא מה שרואים בראש העמוד. לכן מדלגים על explicit markup —
-    לפני הכותרת ואחריה — ולוקחים את רשימת השדות הראשונה שנפגשת. פרוזה,
-    רשימה או טבלה עוצרות: ``:summary:`` שמופיע אחריהן או בתוך סעיף כבר
-    אינו הצהרה בראש העמוד, וחיפוש בכל הקובץ היה מציג אותו ככזה במפה.
+    לפני רשימת השדות מותרות שורות ריקות בלבד; כל דבר אחר שם — כותרת,
+    תווית, הערה — אומר שהקובץ לא נפתח בהצהרה (ראו ההסבר ליד
+    :data:`_SUMMARY_FIELD_RE`). רשימת השדות נגמרת בשורה ריקה או בשורה שאינה
+    שדה, ושורות המשך מוזחות שייכות לשדה שמעליהן.
     """
     i, n = 0, len(lines)
-    i = _skip_explicit_markup(lines, i)
-    # הכותרת עצמה: טקסט + קו, או קו + טקסט + קו
-    if i < n and _UNDERLINE_RE.match(lines[i]):
-        i += 1  # overline
-    if i + 1 < n and lines[i].strip() and _UNDERLINE_RE.match(lines[i + 1]):
-        i += 2
-    else:
-        return ""  # אין כותרת מסמך — אין מיקום להצהרה
-    # גם **אחרי** הכותרת מדלגים: יעד, הערה או directive בין הכותרת לשדה
-    # אינם מזיזים את ההצהרה מראש העמוד, והקוד כאן דילג פעם רק על שורות
-    # ריקות — כך שהם הסתירו תקציר תקין לגמרי.
-    i = _skip_explicit_markup(lines, i)
-    summary = ""
-    while i < n:
-        line = lines[i]
-        if not line.strip():
-            break  # שורה ריקה סוגרת את רשימת השדות
-        if not _FIELD_RE.match(line):
-            break  # תוכן רגיל — רשימת השדות נגמרה
-        m = _SUMMARY_FIELD_RE.match(line)
+    while i < n and not lines[i].strip():
+        i += 1
+    while i < n and lines[i].strip():
+        if not _FIELD_RE.match(lines[i]):
+            break  # תוכן רגיל: רשימת השדות נגמרה, או שהקובץ לא נפתח בה
+        m = _SUMMARY_FIELD_RE.match(lines[i])
+        start = i
         parts = [m.group(1)] if m else []
         i += 1
         while i < n and lines[i].strip() and lines[i][:1].isspace():
@@ -293,9 +244,25 @@ def _rst_field_summary(lines: list[str]) -> str:
                 parts.append(lines[i].strip())
             i += 1
         if m:
-            summary = " ".join(" ".join(parts).split())
-            break
-    return summary
+            return start, " ".join(" ".join(parts).split())
+    return -1, ""
+
+
+def _rst_field_summary(lines: list[str]) -> str:
+    """התקציר שעמוד ``.rst`` מצהיר עליו, או מחרוזת ריקה (:func:`_rst_summary_declaration` בלי האינדקס)."""
+    return _rst_summary_declaration(lines)[1]
+
+
+def _misplaced_rst_summaries(lines: list[str]) -> list[int]:
+    """מספרי השורות (מ-1) של ``:summary:`` בעמודה 0 שאינם ההצהרה שבראש הקובץ.
+
+    מתחת לכותרת (כמו שהיה עד אוקטובר 2026) או בגוף העמוד, שדה כזה מוצג
+    בעמוד; אחרי תווית בראש הקובץ הוא לא מוצג, אבל שובר את התווית. בכל
+    המקרים המפה לא קוראת אותו. עמודה 0 בלבד, כמו ב-:data:`_SUMMARY_FIELD_RE`:
+    שורה מוזחת שייכת לבלוק שמעליה, למשל דוגמה בתוך ``.. code-block::``.
+    """
+    declared, _ = _rst_summary_declaration(lines)
+    return [i + 1 for i, line in enumerate(lines) if i != declared and _SUMMARY_FIELD_RE.match(line)]
 
 
 def _is_autodoc_scaffold(lines: list[str], path: Path) -> bool:

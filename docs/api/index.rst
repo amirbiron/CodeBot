@@ -1,6 +1,7 @@
+:summary: תיעוד מלא של ה-API של Code Keeper Bot.
+
 API Reference
 =============
-:summary: תיעוד מלא של ה-API של Code Keeper Bot.
 
 .. toctree::
    :maxdepth: 2

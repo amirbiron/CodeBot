@@ -1,6 +1,7 @@
+:summary: המדדים שהמערכת חושפת ב-/metrics: המטריקות הקיימות, מדדי ה-handlers והפקודות, מטריקות OpenTelemetry, ודוגמאות PromQL ו-SLO.
+
 מדדים (Metrics)
 ================
-:summary: המדדים שהמערכת חושפת ב-/metrics: המטריקות הקיימות, מדדי ה-handlers והפקודות, מטריקות OpenTelemetry, ודוגמאות PromQL ו-SLO.
 
 נקודת קצה
 ---------

@@ -1,8 +1,9 @@
+:summary: להבטיח טעינה מהירה ובטוחה של נכסים סטטיים (CSS/JS/Images).
+
 .. _static-checklist:
 
 Static Performance & Security Checklist (gzip/br, Cache, SRI)
 =============================================================
-:summary: להבטיח טעינה מהירה ובטוחה של נכסים סטטיים (CSS/JS/Images).
 
 דחיסה (br/gzip)
 ----------------

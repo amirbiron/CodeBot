@@ -144,30 +144,37 @@ def test_cli_check_exit_codes(tmp_path):
 
 
 def test_declared_summary_reads_an_rst_field():
-    """שדה ``:summary:`` מתחת לכותרת נקרא, כולל שורות המשך מוזחות.
+    """שדה ``:summary:`` ברשימת השדות שפותחת את הקובץ נקרא, כולל שורות המשך מוזחות.
 
-    המיקום הוא רשימת השדות הראשונה שאחרי כותרת המסמך. Sphinx מכבה את
-    ``doctitle_xform``, ולכן אין קידום ל-``<docinfo>``: השדה נשאר מוצג
-    כ-``field-list`` מתחת ל-H1, במקום שבו הוא כתוב.
+    המיקום הוא לפני הכותרת: משם Sphinx מעביר את רשימת השדות למידע על
+    העמוד ולא מציג אותה (ההסבר ליד ``_SUMMARY_FIELD_RE`` במחולל).
     """
     g = _load_generator()
-    page = ["כותרת העמוד", "===========", ":summary: התקציר המוצהר של העמוד.", "", "גוף."]
+    page = [":summary: התקציר המוצהר של העמוד.", "", "כותרת העמוד", "===========", "", "גוף."]
     assert g._declared_summary(page, Path("x.rst")) == "התקציר המוצהר של העמוד."
 
-    wrapped = ["כותרת העמוד", "===========",
-               ":summary: שורה ראשונה של התקציר", "   והמשך מוזח שלה.", "", "גוף."]
+    wrapped = [":summary: שורה ראשונה של התקציר", "   והמשך מוזח שלה.", "",
+               "כותרת העמוד", "===========", "", "גוף."]
     assert g._declared_summary(wrapped, Path("x.rst")) == "שורה ראשונה של התקציר והמשך מוזח שלה."
 
 
 def test_declared_summary_ignores_an_indented_field():
-    """``:summary:`` מוזח אינו הצהרה — הוא תוכן של בלוק אחר.
+    """``:summary:`` מוזח אינו הצהרה — הוא תוכן של בלוק אחר — וגם לא מדווח כהצהרה במקום הלא נכון.
 
     עמודה 0 בדיוק היא מה ש-``docutils`` מפרש כשדה ברמת המסמך; בלי הכלל
-    הזה שורה בתוך ``.. note::`` או בתוך בלוק קוד הייתה נחשבת תקציר.
+    הזה שורה בתוך ``.. note::`` או בתוך בלוק קוד — כמו הדוגמה שב-
+    ``docs/doc-authoring.rst`` — הייתה נחשבת תקציר, או מפילה את
+    ``test_no_rst_page_has_a_summary_away_from_the_top_of_the_file``.
     """
     g = _load_generator()
     page = ["כותרת", "=====", "", ".. note::", "   :summary: לא הצהרה.", "", "גוף."]
     assert g._declared_summary(page, Path("x.rst")) == ""
+    assert g._misplaced_rst_summaries(page) == []
+
+    # מוזח גם בראש הקובץ: זה ציטוט (block quote), לא רשימת שדות
+    quoted = ["   :summary: לא הצהרה.", "", "כותרת", "=====", "", "גוף."]
+    assert g._declared_summary(quoted, Path("x.rst")) == ""
+    assert g._misplaced_rst_summaries(quoted) == []
 
 
 def test_declared_summary_reads_markdown_front_matter():
@@ -198,7 +205,7 @@ def test_declared_summary_is_capped():
     """
     g = _load_generator()
     long = "מילה " * 200
-    page = ["כותרת", "=====", f":summary: {long}", "", "גוף."]
+    page = [f":summary: {long}", "", "כותרת", "=====", "", "גוף."]
     got = g._declared_summary(page, Path("x.rst"))
     assert len(got) <= g.SUMMARY_CAP, len(got)
     assert got.endswith("…")
@@ -279,22 +286,21 @@ def test_a_summary_that_only_repeats_the_title_is_dropped(tmp_path):
         encoding="utf-8",
     )
     (docs / "echo.rst").write_text(
-        "ניהול גיבויים\n=============\n:summary: ניהול גיבויים\n\nגוף.\n",
+        ":summary: ניהול גיבויים\n\nניהול גיבויים\n=============\n\nגוף.\n",
         encoding="utf-8",
     )
     # אותו מקרה, אבל הכותב סיים בשלוש נקודות — ה-rstrip הוא שמזהה אותו
     (docs / "ellipsis.rst").write_text(
-        "ניהול הרשאות\n============\n:summary: ניהול הרשאות…\n\nגוף.\n",
+        ":summary: ניהול הרשאות…\n\nניהול הרשאות\n============\n\nגוף.\n",
         encoding="utf-8",
     )
     # הכלה חלקית: תקציר קצר שהוא תת-מחרוזת של כותרת ארוכה יותר
     (docs / "partial.rst").write_text(
-        "מדריך התקנה והרצה מקומית\n========================\n"
-        ":summary: התקנה\n\nגוף.\n",
+        ":summary: התקנה\n\nמדריך התקנה והרצה מקומית\n========================\n\nגוף.\n",
         encoding="utf-8",
     )
     (docs / "real.rst").write_text(
-        "ניהול תבניות\n============\n:summary: איך מוסיפים תבנית חדשה.\n\nגוף.\n",
+        ":summary: איך מוסיפים תבנית חדשה.\n\nניהול תבניות\n============\n\nגוף.\n",
         encoding="utf-8",
     )
     g.ROOT, g.DOCS = tmp_path, docs
@@ -313,93 +319,65 @@ def test_a_summary_that_only_repeats_the_title_is_dropped(tmp_path):
     )
 
 
-def test_summary_field_must_sit_at_the_top_of_the_page():
-    """``:summary:`` אחרי פרוזה או בתוך סעיף אינו התקציר של המסמך.
+def test_only_the_field_list_that_opens_the_file_is_the_declaration():
+    """``:summary:`` בכל מקום אחר אינו ההצהרה — ו-``_misplaced_rst_summaries`` מדווח עליו.
 
-    ההצהרה היא מה שרואים בראש העמוד. שדה שמופיע אחרי פסקה או בתוך סעיף
-    מרונדר במקומו, עמוק בעמוד, והצגתו כתקציר במפה מייצגת משהו שהקורא
-    לא רואה שם.
+    מתחת לכותרת — המקום שבו השדה ישב עד אוקטובר 2026 — הוא מוצג בעמוד;
+    אחרי תווית בראש הקובץ הוא שובר את התווית בשקט; ובגוף העמוד הוא סתם
+    מוצג. הערה לפני ההצהרה לא הייתה מזיקה ב-Sphinx, אבל גם היא נדחית: הכלל
+    הוא "הדבר הראשון בקובץ", בלי רשימה של מה מותר לפניו (ההסבר ליד
+    ``_SUMMARY_FIELD_RE`` במחולל).
     """
     g = _load_generator()
+    cases = {
+        "under_title": (["כותרת", "=====", ":summary: מתחת לכותרת.", "", "גוף."], [3]),
+        "after_label": ([".. _label:", "", ":summary: אחרי תווית.", "", "כותרת", "=====", "", "גוף."], [3]),
+        "after_comment": ([".. הערה", "", ":summary: אחרי הערה.", "", "כותרת", "=====", "", "גוף."], [3]),
+        "in_body": (["כותרת", "=====", "", "פסקה.", "", "סעיף", "-----", "", ":summary: בגוף.", "", "עוד."], [9]),
+        # בלי שורה ריקה בין פסקה לשדה, השדה הוא שורת המשך של הפסקה ומוצג כטקסט
+        "glued_to_text": (["פסקה ראשונה", ":summary: דבוק לפסקה.", "", "כותרת", "=====", "", "גוף."], [2]),
+    }
+    for name, (page, misplaced) in cases.items():
+        assert g._declared_summary(page, Path("x.rst")) == "", name
+        assert g._misplaced_rst_summaries(page) == misplaced, name
 
-    late = ["כותרת", "=====", "", "פסקה רגילה שפותחת את העמוד.", "",
-            "סעיף", "-----", "", ":summary: לא התקציר של המסמך.", "", "עוד."]
-    assert g._declared_summary(late, Path("x.rst")) == ""
-
-    after_blank = ["כותרת", "=====", "", "פסקה.", "", ":summary: גם לא.", ""]
-    assert g._declared_summary(after_blank, Path("x.rst")) == ""
-
-    # והמיקום התקין ממשיך לעבוד, גם עם יעד לפני הכותרת ועם שדה נוסף
-    ok = [".. _label:", "", "כותרת", "=====", ":orphan:",
-          ":summary: זה כן התקציר.", "", "גוף."]
-    assert g._declared_summary(ok, Path("x.rst")) == "זה כן התקציר."
+    # עותק שנשאר מתחת לכותרת אחרי שההצהרה עברה לראש הקובץ: ההצהרה נקראת, והעותק מדווח
+    both = [":summary: ההצהרה.", "", "כותרת", "=====", ":summary: עותק שנשכח.", "", "גוף."]
+    assert g._declared_summary(both, Path("x.rst")) == "ההצהרה."
+    assert g._misplaced_rst_summaries(both) == [5]
 
 
-def test_a_declared_summary_means_the_page_is_not_a_scaffold():
-    """עמוד עם הצהרת תקציר אינו פיגום autodoc, גם בלי פרוזה בגוף.
+def test_the_declaration_may_share_its_field_list_and_come_before_any_markup():
+    """המיקום התקין: שורות ריקות לפניה, שדה נוסף באותה רשימה, ואחריה תווית, הערה או directive.
 
-    רגרסיה: כשהוסרו פסקאות פתיחה שהיו כפילות של ההצהרה, ``docs/modules/index.rst``
-    נשאר עם כותרות והוראות ``automodule`` בלבד — ולכן סווג כפיגום ונשר מהמפה
-    בשקט. הצהרה היא תוכן שמישהו כתב, וזה בדיוק מה שהמסנן אמור לחפש.
+    תווית שבאה אחרי ההצהרה נשארת צמודה לכותרת — כך נמדד ב-Sphinx 8.2.3 —
+    ולכן זה הסדר בעמודים שיש להם תווית מעל הכותרת. גם הכותרת נמצאת: הבדיקה
+    נופלת אם ``_title`` יקרא את שורת השדה, או גוף מוזח של directive, ככותרת.
     """
     g = _load_generator()
-    scaffold = ["מודולים", "========", "", "חלק", "----", "",
-                ".. automodule:: x", "   :members:"]
-    assert g._is_autodoc_scaffold(scaffold, Path("x.rst")) is True
-
-    declared = ["מודולים", "========", ":summary: תיעוד המודולים הראשיים.", "",
-                "חלק", "----", "", ".. automodule:: x", "   :members:"]
-    assert g._is_autodoc_scaffold(declared, Path("x.rst")) is False
-
-
-def test_multiline_directive_before_the_title_is_consumed():
-    """directive רב-שורות לפני הכותרת נצרך כולו, כולל הגוף המוזח.
-
-    רגרסיה: לולאת הדילוג קידמה שורה אחת בלבד ונעצרה על הגוף המוזח של
-    ``.. meta::``. מאותו רגע הכותרת לא נמצאה, ``_rst_field_summary``
-    החזיר "", והעמוד הופיע במפה בלי תקציר — למרות שהוא מצהיר עליו.
-    """
-    g = _load_generator()
-    page = [
-        ".. meta::",
-        "   :description: תיאור כלשהו",
-        "   :keywords: א, ב",
-        "",
-        "כותרת העמוד",
-        "===========",
-        ":summary: התקציר המוצהר.",
-        "",
-        "גוף.",
-    ]
-    assert g._declared_summary(page, Path("x.rst")) == "התקציר המוצהר."
+    pages = {
+        "label": ["", ":orphan:", ":summary: זה כן התקציר.", "", ".. _label:", "",
+                  "כותרת", "=====", "", "גוף."],
+        "meta": [":summary: זה כן התקציר.", "", ".. meta::", "   :description: תיאור כלשהו",
+                 "   :keywords: א, ב", "", "כותרת", "=====", "", "גוף."],
+        "comment": [":summary: זה כן התקציר.", "", ".. הערה רב-שורות", "   המשך ההערה", "",
+                    "כותרת", "=====", "", "גוף."],
+    }
+    for name, page in pages.items():
+        assert g._declared_summary(page, Path("x.rst")) == "זה כן התקציר.", name
+        assert g._misplaced_rst_summaries(page) == [], name
+        assert g._title(page, Path("x.rst")) == "כותרת", name
 
 
-def test_markup_between_title_and_field_is_skipped():
-    """יעד או הערה בין הכותרת לשדה אינם מסתירים את התקציר.
+def test_anything_before_the_field_list_means_there_is_no_declaration():
+    """כל צורה שקודמת לרשימת השדות — explicit markup, פרוזה, רשימה, טבלה או קו — מבטלת את ההצהרה.
 
-    הקוד דילג עליהם רק לפני הכותרת. אף עמוד בריפו אינו במצב הזה כרגע —
-    הבדיקה מונעת את הפער, לא מתקנת עמוד קיים.
-    """
-    g = _load_generator()
-    target = ["כותרת", "=====", "", ".. _some-label:", "", ":summary: התקציר.", "", "גוף."]
-    assert g._declared_summary(target, Path("x.rst")) == "התקציר."
-
-    comment = ["כותרת", "=====", "", ".. הערה פנימית", "", ":summary: התקציר.", "", "גוף."]
-    assert g._declared_summary(comment, Path("x.rst")) == "התקציר."
-
-
-def test_every_explicit_markup_form_is_skipped_before_the_field_list():
-    """כל explicit markup מדולג — בלי רשימת שמות ובלי שאלת "מי שקוף".
-
-    זו הבדיקה שמחליפה שלוש קודמות, שכל אחת מהן שאלה על directive אחר
-    (``note``, ``py:function``, ``raw``, ``default-role``) אם הוא "שקוף".
-    השאלה נבעה ממודל ``DocInfo`` שאינו רץ ב-Sphinx: אין קידום ל-docinfo,
-    השדה מרונדר במקומו בכל מקרה, והוא ההצהרה של הכותב. לכן אין הבדל בין
-    הצורות, ורשימת שמות מנוחשת אינה נדרשת.
-
-    ``py:function`` נשאר ברשימה כמקרה בוחן: שם directive עם ``:`` פנימי
-    הוא ``Inliner.simplename`` חוקי (``docutils/parsers/rst/states.py``,
-    שורה 673), וניסוח קודם סיווג אותו לא נכון.
+    זה ההיפוך של הבדיקה שהייתה כאן עד אוקטובר 2026, ששאלה אם כל explicit
+    markup **מדולג** בדרך אל השדה שמתחת לכותרת. רשימת הצורות נשארה, ובה גם
+    ``py:function``: שם directive עם ``:`` פנימי הוא ``Inliner.simplename``
+    חוקי (``docutils/parsers/rst/states.py``), וניסוח קודם סיווג אותו לא
+    נכון. אין כאן צורה שמותרת, והבדיקה נופלת אם מישהו יחזיר "דילוג על מה
+    שקוף" לפני ההצהרה.
     """
     g = _load_generator()
 
@@ -418,25 +396,32 @@ def test_every_explicit_markup_form_is_skipped_before_the_field_list():
         ".. role:: hl(literal)",
         ".. index:: מונח",
         ".. toctree::",
+        "פסקת פתיחה.",
+        "- פריט ברשימה",
+        "| טור | טור |",
+        "====",
     )
     for form in forms:
-        page = ["כותרת", "=====", "", form, "   גוף מוזח", "",
-                ":summary: התקציר.", "", "גוף."]
-        assert g._declared_summary(page, Path("x.rst")) == "התקציר.", form
+        page = [form, "   גוף מוזח", "", ":summary: לא הצהרה.", "", "כותרת", "=====", "", "גוף."]
+        assert g._declared_summary(page, Path("x.rst")) == "", form
+        assert g._misplaced_rst_summaries(page) == [4], form
 
 
-def test_prose_stops_the_search_for_the_declaration():
-    """פרוזה עוצרת — משם והלאה זה כבר לא ראש העמוד.
+def test_a_declared_summary_means_the_page_is_not_a_scaffold():
+    """עמוד עם הצהרת תקציר אינו פיגום autodoc, גם בלי פרוזה בגוף.
 
-    זה הגבול שמחליף את טקסונומיית הנראוּת: לא "אילו directives שקופים",
-    אלא "עד היכן נמשך ראש העמוד". הבדיקה נופלת אם הדילוג יורחב לכל שורה
-    ולא רק ל-explicit markup.
+    רגרסיה: כשהוסרו פסקאות פתיחה שהיו כפילות של ההצהרה, ``docs/modules/index.rst``
+    נשאר עם כותרות והוראות ``automodule`` בלבד — ולכן סווג כפיגום ונשר מהמפה
+    בשקט. הצהרה היא תוכן שמישהו כתב, וזה בדיוק מה שהמסנן אמור לחפש.
     """
     g = _load_generator()
+    scaffold = ["מודולים", "========", "", "חלק", "----", "",
+                ".. automodule:: x", "   :members:"]
+    assert g._is_autodoc_scaffold(scaffold, Path("x.rst")) is True
 
-    for blocker in ("פסקת פתיחה.", "- פריט ברשימה", "| טור | טור |", "===="):
-        page = ["כותרת", "=====", "", blocker, "", ":summary: לא הצהרה.", ""]
-        assert g._declared_summary(page, Path("x.rst")) == "", blocker
+    declared = [":summary: תיעוד המודולים הראשיים.", "", "מודולים", "========", "",
+                "חלק", "----", "", ".. automodule:: x", "   :members:"]
+    assert g._is_autodoc_scaffold(declared, Path("x.rst")) is False
 
 
 def test_scaffold_detection_handles_a_multiline_directive_first():
@@ -447,14 +432,28 @@ def test_scaffold_detection_handles_a_multiline_directive_first():
     assert g._is_autodoc_scaffold(page, Path("x.rst")) is True
 
 
-def test_a_multiline_comment_before_the_title_does_not_hide_the_summary():
-    """הגוף המוזח של הערה רב-שורות נצרך, ולכן הכותרת שאחריה נמצאת.
+def test_no_rst_page_has_a_summary_away_from_the_top_of_the_file():
+    """אף עמוד ``.rst`` בריפו אינו מחזיק ``:summary:`` במקום שבו הוא מוצג או שובר תווית.
 
-    זו הבדיקה שמגנה על ``_consume_indented_body``: מוטציה שמחליפה אותו
-    ב-``i += 1`` מפילה אותה, כי הסריקה נעצרת על שורת הגוף המוזחת,
-    הכותרת לא נמצאת, ו-``_rst_field_summary`` מחזיר מחרוזת ריקה.
+    זה השומר על הכלל שההסבר ליד ``_SUMMARY_FIELD_RE`` במחולל מפרט: ההצהרה
+    היא רשימת השדות שפותחת את הקובץ. שדה מתחת לכותרת — ההרגל עד אוקטובר
+    2026 — היה מוצג שוב בעמוד, ומשם בכפתור "העתק", בייצוא ובכרטיסי החיפוש;
+    שדה אחרי תווית בראש הקובץ היה שובר אותה. Sphinx לא מתריע על אף אחד מהם
+    (נמדד ב-8.2.3), ולכן הבדיקה כאן ולא בבניית האתר.
     """
     g = _load_generator()
-    page = [".. הערה רב-שורות", "   המשך ההערה כאן", "", "כותרת", "=====", "",
-            ":summary: התקציר.", "", "גוף."]
-    assert g._declared_summary(page, Path("x.rst")) == "התקציר."
+    pages = sorted((ROOT / "docs").rglob("*.rst"))
+    declared = [p for p in pages if g._rst_field_summary(g._read(p))]
+    # שומר אי-ריקנות: בלעדיו הבדיקה הייתה עוברת גם על סריקה שלא מצאה אף הצהרה
+    assert len(declared) > 100, len(declared)
+
+    offenders = [
+        f"{p.relative_to(ROOT).as_posix()}:{line_no}"
+        for p in pages
+        for line_no in g._misplaced_rst_summaries(g._read(p))
+    ]
+    assert not offenders, (
+        "שדה :summary: שלא בראש הקובץ: הוא יוצג בעמוד, ואם הוא אחרי תווית הוא ישבור אותה. "
+        "העבירו אותו לשורה הראשונה של הקובץ, לפני הכותרת ולפני תוויות "
+        "(docs/doc-authoring.rst, \"הצהרת תקציר בראש העמוד\"):\n  " + "\n  ".join(offenders)
+    )

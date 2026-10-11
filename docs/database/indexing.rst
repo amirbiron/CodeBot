@@ -1,8 +1,9 @@
+:summary: ספר מתכונים לאינדקסים ב-MongoDB: אילו אינדקסים מומלצים, מתכוני PyMongo, קריאת explain, ובדיקת קיום אינדקסים.
+
 .. _db-indexing-cookbook:
 
 MongoDB Indexing Cookbook
 =========================
-:summary: ספר מתכונים לאינדקסים ב-MongoDB: אילו אינדקסים מומלצים, מתכוני PyMongo, קריאת explain, ובדיקת קיום אינדקסים.
 
 למה?
 -----

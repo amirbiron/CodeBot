@@ -1,8 +1,9 @@
+:summary: ברוכים הבאים לתיעוד ה-API של Code Keeper Bot!
+
 .. Code Keeper Bot documentation master file
 
 Code Keeper Bot - תיעוד API
 ============================
-:summary: ברוכים הבאים לתיעוד ה-API של Code Keeper Bot!
 
 בוט זה מספק ממשק טלגרם מתקדם לניהול ושמירת קטעי קוד, עם תמיכה בשפות תכנות מרובות,
 אינטגרציה עם GitHub, וכלי ניהול מתקדמים.
