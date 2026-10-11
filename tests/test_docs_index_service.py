@@ -352,6 +352,23 @@ def test_a_headline_that_differs_elsewhere_only_in_case_or_marks_is_not_unique(h
     assert [s.link_text for s in sections] == ["", ""]
 
 
+@pytest.mark.parametrize(
+    "earlier",
+    [
+        # הטה באמצע: בעמוד מוצג "fix: parser order.", והקפיצה הייתה מגיעה לכאן ולא לעדכון.
+        "ראו fix: *parser* order. בהמשך.",
+        # הטה סביב המשפט כולו: המשפט נשאר בטקסט כמו שהוא.
+        "ראו *fix: parser order.* בהמשך.",
+    ],
+)
+def test_a_headline_shown_earlier_in_italics_is_not_unique(earlier):
+    """Turndown כותב הטה ב-``*`` (``emDelimiter`` ב-``docs/_static/copy-page.js``). בעמוד הסימן לא מוצג, ולכן
+    גם לא בטקסט שהייחודיות נבדקת מולו."""
+    day = _updates(earlier, "**fix: parser order.** גוף העדכון.")
+    sections, _chunks = _records([_log_page(("id25", "2026-09-06", day))])
+    assert [s.link_text for s in sections] == ["", ""]
+
+
 def test_the_page_text_is_normalized_once_and_not_once_per_update(monkeypatch):
     """``_match_key`` עובר על כל תו בפייתון, ולכן על הטקסט של העמוד כולו הוא רץ פעם אחת. כשהוא רץ מחדש בבדיקה
     של כל עדכון, ``build_records`` על הייצוא של 11.10.2026 לקח 7.1 שניות. נבדק המבנה ולא הזמן, שתלוי במכונה."""

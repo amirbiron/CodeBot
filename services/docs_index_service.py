@@ -535,7 +535,7 @@ _LINK_TARGET_RE = re.compile(r'\((?:\\.|[^\\()\s])+(?: "(?:\\.|[^"\\])*")?\)')
 
 def _shown_text(markdown: str) -> str:
     """הטקסט שהעמוד מציג במקום המארקדאון ש-Turndown כתב, ברווחים מכווצים: escape ← התו עצמו, קטע קוד ←
-    התוכן שלו כמו שהוא, ``**`` ← כלום, וקישור ← הטקסט שלו.
+    התוכן שלו כמו שהוא, ``**`` ו-``*`` (הדגשה והטה) ← כלום, וקישור ← הטקסט שלו.
 
     זה ההפך של ``escape`` ב-Turndown 7.2.2 (``docs/_static/vendor/turndown.umd.js``): Turndown מוסיף לוכסן
     לפני תווים מרשימה סגורה, ולוכסן שבטקסט עצמו הוא כותב כ-``\\\\`` — ולכן כל לוכסן מחוץ לקוד הוא escape
@@ -569,8 +569,10 @@ def _shown_text(markdown: str) -> str:
             else:
                 out.append(markdown[fence_end:closing])
                 index = closing + len(fence)
-        elif markdown.startswith("**", index):
-            index += 2
+        elif char == "*":
+            # סימן של הדגשה (``**``) או של הטה (``*``, ``emDelimiter`` ב-``docs/_static/copy-page.js``): Turndown
+            # מוסיף escape לכל ``*`` שבטקסט, ולכן ``*`` בלי escape מחוץ לקוד אינו טקסט בעמוד.
+            index += 1
         elif char == "[":
             opened.append(len(out))
             out.append(char)
