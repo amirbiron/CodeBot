@@ -1,4 +1,4 @@
-"""דפדפן הקוד, "ערוך / העתק" והאינדקס של הריפו מקבלים את הקובץ כמו שהוא בריפו — ו"ערוך / העתק" פתוח לאדמין בלבד.
+"""דפדפן הקוד, "ערוך / העתק" והאינדקס של הריפו מקבלים מהמראה את הקובץ כמו שהוא בריפו — ו"ערוך / העתק" פתוח לאדמין בלבד.
 
 הטסטים עוברים בממשק שהצרכן משתמש בו: ``/repo/api/file/<path>``, שממנו ``repo-browser.js``
 טוען את הקובץ; ``/upload/from-repo``, שהקישור "ערוך / העתק קטעים" בדפדפן הקוד פותח; ו-
@@ -154,7 +154,11 @@ def upload(tmp_path, monkeypatch):
 
 
 def _code_field(page: str) -> str:
-    """התוכן של ה-textarea ``codeTextarea`` — מה שנשמר אם לוחצים "שמור"."""
+    """התוכן ש-``codeTextarea`` נושא ב-HTML שהשרת שלח, לפני שהדפדפן מפרסר אותו.
+
+    בדפדפן ערך של textarea לא מחזיק CR (``docs/quality/code-normalization.md``), ולכן בקובץ עם
+    CRLF או CR בודד הטופס עצמו מחזיק LF.
+    """
     match = re.search(r'<textarea id="codeTextarea"[^>]*>(.*?)</textarea>', page, re.S)
     assert match, "אין textarea של קוד בעמוד"
     return html.unescape(match.group(1))
@@ -162,7 +166,8 @@ def _code_field(page: str) -> str:
 
 @requires_git
 @pytest.mark.parametrize("path", sorted(_FILES))
-def test_edit_from_repo_fills_the_form_with_the_file_exactly_as_in_the_repo(upload, path):
+def test_edit_from_repo_puts_the_file_into_the_page_exactly_as_in_the_repo(upload, path):
+    """השרת שם את הקובץ ב-HTML של הטופס תו בתו. מה שהטופס מחזיק בדפדפן — ראו ``_code_field``."""
     response = upload(path, _ADMIN_ID)
 
     assert response.status_code == 200
