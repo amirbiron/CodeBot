@@ -3843,6 +3843,18 @@ def test_a_pathological_input_stays_linear(label, text):
     assert elapsed < 2.0, f"{label}: {elapsed:.2f} שניות"
 
 
+#: פי כמה מותר לזמן הסריקה לגדול כשהקלט גדל פי ארבעה, בטסט של בלוקי
+#: ה-``<style>``. סריקה לינארית גדלה בערך פי ארבעה, וחיפוש שמתעלם מ-``stop``
+#: גדל הרבה יותר, ולכן הסף באמצע. נמדד ב-12.10.2026 באותה מדידה שהטסט עושה,
+#: על Python 3.11 — עם coverage ובלי, וגם בעומס: ארבע הרצות במקביל ועוד שני
+#: תהליכים שמתחרים על המעבד, או חוט רקע באותו תהליך — ועל 3.12 בלי coverage,
+#: כמו המסלול שלו ב-CI. בקוד של היום: פי 3.4–4.9. וכשהחיפוש מתעלם מ-``stop``
+#: (ב-``read_blocks`` וב-``_jinja_span``, כמו לפני החסימה): פי 12.3–17.0. את
+#: הקצה התחתון נותן coverage: הוא מאט את הסריקה בפייתון, ולא את ``str.find``
+#: שבתוך הסריקה הריבועית.
+_STYLE_BLOCKS_GROWTH_LIMIT = 8.0
+
+
 @pytest.mark.parametrize(
     ("label", "unterminated"),
     [("comment", "/* open"), ("jinja-tag", "{% if x"), ("jinja-expression", "{{ x")],
@@ -3854,27 +3866,44 @@ def test_many_style_blocks_with_an_unterminated_region_stay_linear(label, unterm
     בקובץ ``.css`` שלם הוא עולה סריקה אחת עד סוף הקובץ ונגמר. אבל
     ``html.py`` קורא ל-``read_blocks`` **פעם אחת לכל בלוק** ``<style>``,
     עם ``start`` ו-``stop`` של אותו בלוק — וחיפוש שמתעלם מ-``stop`` סורק
-    בכל קריאה את כל שאר הקובץ. נמדד על תבנית של 1MB: 5.7 שניות לפני
-    חסימת החיפוש ו-0.27 אחריה.
+    בכל קריאה את כל שאר הקובץ. **וזה הטסט היחיד שתופס את החסימה הזאת**,
+    כי הפלט זהה איתה ובלעדיה — ההבדל הוא בזמן בלבד.
 
-    הסף רחב בכוונה, כמו בטסט הלינאריות של הלקסר: הוא מפריד בין לינארי
-    לריבועי ואינו מודד ביצועים. **וזה הטסט היחיד שתופס את החסימה הזאת**,
-    כי הפלט זהה איתה ובלעדיה — הפרש הוא בזמן בלבד.
+    **הטסט משווה זמן לזמן, ולא לתקרה בשניות.** הוא מריץ את אותה סריקה על
+    רבע מהקלט ועל כולו, ובודק שהזמן גדל פחות מ-``_STYLE_BLOCKS_GROWTH_LIMIT``.
+    תקרה בשניות, שהייתה כאן עד 12.10.2026, נכשלה ב-CI על קוד תקין: היא
+    כוילה בלי coverage, והמסלול שמודד coverage מאט את הסריקה פי ארבעה
+    בערך, על מחשבים שהמהירות שלהם משתנה. מחשב איטי ו-coverage מאטים את
+    שתי המדידות באותה מידה, ולכן היחס ביניהן לא זז.
+
+    ושני דברים שומרים על היחס מרעש. **זמן המעבד של החוט**
+    (``time.thread_time``), ולא זמן השעון: הוא לא סופר את הזמן שבו התהליך
+    חיכה למעבד או לחוט אחר. ו**שלושה סבבים לסירוגין**, עם הזמן הקצר ביותר
+    לכל גודל, כדי שהאטה רגעית לא תיפול רק על אחד הגדלים.
     """
     # **הבלוק ריק מכללי CSS בכוונה, וזה לא קוסמטיקה.** העבודה
     # הריבועית גדלה עם **מספר הבלוקים**, ולכן צריך כמה שיותר; אבל כל
-    # כלל בתוך בלוק הוא שורה נוספת, ומעל 50,000 שורות התקרה יורה
-    # והטסט מודד אותה במקום את הלינאריות. בלוק בלי כללים נותן שורה
-    # אחת — התווית — ולכן אפשר גם המון בלוקים וגם להישאר מתחת לתקרה.
+    # כלל בתוך בלוק הוא שורה נוספת, ומעל ``_ceiling.MAX_SYMBOLS`` שורות
+    # התקרה יורה והטסט מודד אותה במקום את הלינאריות. בלוק בלי כללים נותן
+    # שורה אחת — התווית — ולכן אפשר גם המון בלוקים וגם להישאר מתחת לתקרה.
     block = f"<style>{unterminated}\n</style>\n"
-    text = block * (1_000_000 // len(block))
+    count = 1_000_000 // len(block)
+    texts = (block * (count // 4), block * count)
 
-    started = time.perf_counter()
-    result = extract_outline(text, "page.html")
-    elapsed = time.perf_counter() - started
+    fastest = [float("inf"), float("inf")]
+    for _ in range(3):
+        for slot, text in enumerate(texts):
+            started = time.thread_time()
+            result = extract_outline(text, "page.html")
+            fastest[slot] = min(fastest[slot], time.thread_time() - started)
+            assert result["status"] == "ok"
 
-    assert result["status"] == "ok"
-    assert elapsed < 2.0, f"{label}: {elapsed:.2f} שניות על {len(text) / 1e6:.2f}MB"
+    quarter, full = fastest
+    growth = full / quarter
+    assert growth < _STYLE_BLOCKS_GROWTH_LIMIT, (
+        f"{label}: הזמן גדל פי {growth:.1f} כשהקלט גדל פי 4 "
+        f"(רבע: {quarter:.3f}, מלא: {full:.3f} שניות מעבד)"
+    )
 
 
 def test_a_block_without_a_name_is_not_a_symbol():
