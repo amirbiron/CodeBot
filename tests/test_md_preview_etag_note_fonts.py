@@ -84,7 +84,7 @@ def test_the_etag_differs_between_font_sizes(wired_mongo):
     etag_normal = client.get(f"/md/{file_id}").headers.get("ETag")
 
     wired_mongo.get_db().users.update_one(
-        {"user_id": 7}, {"$set": {"ui_prefs.note_font_size": "lg"}})
+        {"user_id": 7}, {"$set": {"ui_prefs.note_font_size": "large"}})
     etag_large = client.get(f"/md/{file_id}").headers.get("ETag")
 
     assert etag_normal and etag_normal != etag_large, f"אותו ETag לשני גדלים: {etag_normal}"
@@ -103,11 +103,11 @@ def test_a_changed_size_returns_a_fresh_body_and_not_304(wired_mongo):
     assert unchanged.status_code == 304, "הוולידטור אינו עובד כלל"
 
     wired_mongo.get_db().users.update_one(
-        {"user_id": 7}, {"$set": {"ui_prefs.note_font_size": "mid"}})
+        {"user_id": 7}, {"$set": {"ui_prefs.note_font_size": "xlarge"}})
 
     after = client.get(f"/md/{file_id}", headers={"If-None-Match": etag})
     assert after.status_code == 200, "הוחזר 304 עם הגודל הישן"
-    assert 'STICKY_NOTE_FONT_SIZE = "mid"' in after.get_data(as_text=True)
+    assert 'STICKY_NOTE_FONT_SIZE = "xlarge"' in after.get_data(as_text=True)
 
 
 def test_the_board_surface_does_not_carry_the_settings_size(wired_mongo):
@@ -118,10 +118,10 @@ def test_the_board_surface_does_not_carry_the_settings_size(wired_mongo):
     """
     client, file_id = _seed(wired_mongo, "000")
     wired_mongo.get_db().users.update_one(
-        {"user_id": 7}, {"$set": {"ui_prefs.note_font_size": "lg"}})
+        {"user_id": 7}, {"$set": {"ui_prefs.note_font_size": "large"}})
 
     md_html = client.get(f"/md/{file_id}").get_data(as_text=True)
-    assert 'STICKY_NOTE_FONT_SIZE = "lg"' in md_html, "העמוד לא קיבל את הגודל"
+    assert 'STICKY_NOTE_FONT_SIZE = "large"' in md_html, "העמוד לא קיבל את הגודל"
 
     board = client.get("/boards/507f1f77bcf86cd799439011")
     assert board.status_code == 200

@@ -49,8 +49,13 @@ function inlineScript(src, where) {
  * הבלוק המקומי של הלוח (שקורא את ההעדפה לכל לוח).
  *
  * ``fromSettings`` הוא מה שהשרת מזריק — ההגדרה הגלובלית של המשטח.
+ *
+ * ``between`` רץ בין שני הסקריפטים, כלומר אחרי שההכללה הגדירה את המפה
+ * ואת התפריטים ולפני שהלוח קורא אותם. הוא קיים בשביל בדיקה אחת: המסנן
+ * של הלוח מול התפריט שלו נבדק רק כשהמפה מכילה גודל שהלוח אינו מציע,
+ * והתבנית עצמה אינה מייצרת מצב כזה כששני התפריטים זהים.
  */
-function headScript(boardId, fromSettings = false) {
+function headScript(boardId, fromSettings = false, between = '') {
   const blockAt = SRC.indexOf('{% block extra_head %}');
   if (blockAt < 0) throw new Error('הבלוק extra_head לא נמצא בתבנית');
   //
@@ -72,7 +77,7 @@ function headScript(boardId, fromSettings = false) {
     );
   const local = inlineScript(SRC.slice(blockAt), 'note_board.html extra_head')
     .replaceAll('{{ board_id | tojson }}', JSON.stringify(boardId));
-  return shared + '\n' + local;
+  return shared + '\n' + between + '\n' + local;
 }
 
 /** מחלץ את בלוק כתב-היד מגוף העמוד. */
@@ -89,7 +94,7 @@ function bodyScript() {
  * הראש. ``preset`` הוא מצב ה-localStorage *לפני* טעינת העמוד — כך
  * מדמים משתמש שכבר הדליק את ההעדפה בביקור קודם.
  */
-function loadBoard(boardId, preset, fromSettings = false, fontPreset = undefined) {
+function loadBoard(boardId, preset, fromSettings = false, fontPreset = undefined, between = '') {
   const store = new Map();
   if (preset !== undefined) store.set('board-handwriting:' + boardId, preset);
   if (fontPreset !== undefined) store.set('board-font-size:' + boardId, fontPreset);
@@ -126,7 +131,7 @@ function loadBoard(boardId, preset, fromSettings = false, fontPreset = undefined
   };
   vm.createContext(sandbox);
   sandbox.window = sandbox;               // בדפדפן ``window`` הוא הגלובל
-  vm.runInContext(headScript(boardId, fromSettings), sandbox);
+  vm.runInContext(headScript(boardId, fromSettings, between), sandbox);
   return sandbox;
 }
 
@@ -375,18 +380,18 @@ check('גודל: ברירת המחדל אינה מחילה מחלקה ואינה
 
 check('גודל: ערך שמור מוחל כבר בטעינת העמוד', () => {
   // **לפני הציור, לא ב-DOMContentLoaded.** החלה מאוחרת הייתה מציירת
-  // את הפתקים ב-14px ואז מקפיצה אותם.
-  const s = loadFontSize('bf2', 'lg');
-  eq(sizeClasses(s).join(','), 'sticky-font-lg', 'המחלקה הוחלה בסקריפט הראש');
+  // את הפתקים בגודל ברירת המחדל ואז מקפיצה אותם.
+  const s = loadFontSize('bf2', 'large');
+  eq(sizeClasses(s).join(','), 'sticky-font-large', 'המחלקה הוחלה בסקריפט הראש');
 });
 
 check('גודל: מעבר בין גדלים מסיר את הקודם', () => {
   // בלי הניקוי שתי המחלקות היו יושבות יחד על ``<html>``, ואז מנצח
   // הכלל שמופיע אחרון בקובץ — ולא זה שנבחר.
-  const s = loadFontSize('bf3', 'xl');
-  eq(sizeClasses(s).join(','), 'sticky-font-xl', 'התחלנו ב-xl');
-  s.window.applyStickyNoteFontSize('lg');
-  eq(sizeClasses(s).join(','), 'sticky-font-lg', 'ונשארה רק lg');
+  const s = loadFontSize('bf3', 'xlarge');
+  eq(sizeClasses(s).join(','), 'sticky-font-xlarge', 'התחלנו ב-xlarge');
+  s.window.applyStickyNoteFontSize('large');
+  eq(sizeClasses(s).join(','), 'sticky-font-large', 'ונשארה רק large');
   s.window.applyStickyNoteFontSize('normal');
   eq(sizeClasses(s).length, 0, 'ו-normal מנקה הכל');
 });
@@ -395,7 +400,7 @@ check('גודל: ערך פגום באחסון נופל לברירת מחדל ו�
   // **``localStorage`` הוא קלט חיצוני.** ערך שנערך ביד, נשאר מגרסה
   // אחרת, או הוזרק — לא משנה. הרכבה ישירה של שם מחלקה מהערך
   // (``'sticky-font-' + size``) הייתה מכניסה כל מחרוזת ל-``classList``.
-  ['evil', 'sticky-font-lg', '', 'lg xl', '__proto__', 'constructor', '99'].forEach((bad) => {
+  ['evil', 'sticky-font-large', '', 'large xlarge', '__proto__', 'constructor', '99'].forEach((bad) => {
     const s = loadFontSize('bf4', bad);
     eq(sizeClasses(s).length, 0, 'הערך ' + JSON.stringify(bad) + ' לא הוחל');
     eq([...s.__classes].length, 0, 'ושום מחלקה אחרת לא נוספה');
@@ -404,16 +409,16 @@ check('גודל: ערך פגום באחסון נופל לברירת מחדל ו�
 
 check('גודל: בחירת ברירת המחדל מוחקת את המפתח ואינה כותבת "normal"', () => {
   // אותה החלטה כמו מתג המארקדאון: המצב שכל לוח מתחיל בו אינו נכתב.
-  const s = loadFontSize('bf5', 'xl');
+  const s = loadFontSize('bf5', 'xlarge');
   eq(s.__store.size, 1, 'התחלנו עם מפתח');
   s.__api.writeNoteFontSize('normal');
   eq(s.__store.size, 0, 'והמפתח נמחק');
 });
 
 check('גודל: לוחות אינם דולפים זה לזה', () => {
-  const a = loadFontSize('bf-a', 'lg');
+  const a = loadFontSize('bf-a', 'large');
   const b = loadFontSize('bf-b');
-  eq(sizeClasses(a).join(','), 'sticky-font-lg', 'ללוח א יש גודל');
+  eq(sizeClasses(a).join(','), 'sticky-font-large', 'ללוח א יש גודל');
   eq(sizeClasses(b).length, 0, 'וללוח ב אין');
 });
 
@@ -421,7 +426,7 @@ check('גודל: אחסון חסום אינו מפיל את הלוח', () => {
   const s = loadFontSize('bf6');
   s.localStorage.setItem = () => { throw new Error('blocked'); };
   s.localStorage.getItem = () => { throw new Error('blocked'); };
-  s.__api.writeNoteFontSize('lg');            // לא זורק
+  s.__api.writeNoteFontSize('large');         // לא זורק
   eq(s.__api.readNoteFontSize(), 'normal', 'נופל לברירת המחדל');
 });
 
@@ -430,9 +435,10 @@ check('גודל: אפשרויות הבורר בתבנית זהות לתפריט 
   // שנשארה — משתמש צריך לראות שמות בעברית — ולכן היא נשמרת בבדיקה
   // ולא בהבטחה. גודל שיתווסף לתפריט בלי אפשרות בבורר, או להפך, מפיל כאן.
   //
-  // **מול ``STICKY_NOTE_FONT_MENUS.board`` ולא מול המפה.** מאז שעמוד
-  // ההגדרות מציע גדלים משלו, המפה גדולה מכל תפריט בנפרד; השוואה אליה
-  // הייתה דורשת מהלוח להציע גם את מה ששייך לעמוד ההגדרות.
+  // **מול ``STICKY_NOTE_FONT_MENUS.board`` ולא מול המפה.** המפה יכולה
+  // להיות גדולה מתפריט (כך היה עד אוקטובר 2026, כשעמוד ההגדרות הציע
+  // גדלים משלו); השוואה אליה הייתה דורשת מהלוח להציע גם את מה ששייך
+  // לתפריט אחר.
   const selectAt = SRC.indexOf('id="noteFontSizeSelect"');
   eq(selectAt > 0, true, 'הבורר קיים בתבנית');
   const end = SRC.indexOf('</select>', selectAt);
@@ -456,15 +462,72 @@ check('גודל: כל טוקן בשני התפריטים קיים במפה', () 
   });
 });
 
-check('גודל: ערך ששייך לעמוד ההגדרות אינו מרוקן את הבורר שבלוח', () => {
-  // ``mid`` קיים במפה אבל לא בתפריט הלוח. הצבה שלו על ``<select>`` שאין
-  // לו ``<option>`` כזה מרוקנת אותו במקום ליפול ל"רגיל" — ולכן הלוח
-  // מאמת מול התפריט שלו ולא מול המפה.
-  const s = loadFontSize('bf9', 'mid');
-  eq(s.window.STICKY_NOTE_FONT_MENUS.board.indexOf('mid'), -1, 'mid אינו בתפריט הלוח');
-  eq(Object.prototype.hasOwnProperty.call(s.window.STICKY_NOTE_FONT_SIZES, 'mid'), true,
-     'אבל כן קיים במפה');
+/**
+ * מחלץ את הצבת הבורר שבמודאל — הקוד שמחליט איזו אפשרות מסומנת כשהעמוד
+ * נטען — ומריץ אותו בהקשר של לוח שכבר נטען.
+ *
+ * **למה בנפרד מ-``fontSizeBlock``:** הוא יושב אחרי חיווט המודאלים, הרחק
+ * מהקריאה והכתיבה. ``readNoteFontSize`` ו-``writeNoteFontSize`` מוצהרות
+ * ב-``const`` בבלוק הגוף, ולכן מחוברות כאן מפורשות — באותה צורה כמו
+ * ``toggleWiring``, ומאותה סיבה.
+ */
+function fontSizeSelectWiring() {
+  const start = SRC.indexOf('const fontSizeSelect');
+  if (start < 0) throw new Error('הצבת הבורר לא נמצאה בתבנית');
+  const end = SRC.indexOf('const handwritingToggle', start);
+  if (end < 0) throw new Error('סוף הצבת הבורר לא נמצא — העוגן השתנה');
+  return '(function(){\n'
+       + 'const readNoteFontSize = this.__api.readNoteFontSize,'
+       + ' writeNoteFontSize = this.__api.writeNoteFontSize;\n'
+       + SRC.slice(start, end)
+       + '\n}).call(this);';
+}
+
+/** הערך שהבורר מקבל בטעינת העמוד, כשבאחסון שמור ``fontPreset``. */
+function selectedOnLoad(boardId, fontPreset) {
+  const s = loadFontSize(boardId, fontPreset);
+  const el = { value: '', addEventListener() {} };
+  s.document.getElementById = (id) => (id === 'noteFontSizeSelect' ? el : null);
+  vm.runInContext(fontSizeSelectWiring(), s);
+  return { s, value: el.value };
+}
+
+check('גודל: גודל שקיים במפה אבל הלוח אינו מציע — אינו מוחל על הלוח', () => {
+  // **המסנן של הלוח מול התפריט שלו, ולא רק מול המפה.** הצבה של ערך שאין
+  // לו ``<option>`` מרוקנת את הבורר במקום ליפול ל"רגיל", ולכן תצוגה
+  // שמחילה אותו מציגה דבר אחד בזמן שהבורר מציג אחר.
+  //
+  // עד אוקטובר 2026 המצב הזה נוצר מעצמו: ``mid`` היה במפה ורק בתפריט של
+  // עמוד ההגדרות. היום שני התפריטים זהים, ולכן הבדיקה יוצרת אותו בעצמה —
+  // מוציאה ``xlarge`` מהתפריט של הלוח אחרי שההכללה בנתה אותו. ריצת הבקרה
+  // באותה בדיקה מראה שבלי ההוצאה אותו ערך **כן** מוחל, כלומר שההבדל הוא
+  // המסנן ולא משהו אחר.
+  const control = loadBoard('bf9', undefined, false, 'xlarge');
+  eq(sizeClasses(control).join(','), 'sticky-font-xlarge', 'בקרה: בלי ההוצאה הגודל מוחל');
+
+  const s = loadBoard('bf9', undefined, false, 'xlarge',
+    "window.STICKY_NOTE_FONT_MENUS.board = window.STICKY_NOTE_FONT_MENUS.board"
+    + ".filter(function (t) { return t !== 'xlarge'; });");
+  eq(Object.prototype.hasOwnProperty.call(s.window.STICKY_NOTE_FONT_SIZES, 'xlarge'), true,
+     'xlarge קיים במפה');
+  eq(s.window.STICKY_NOTE_FONT_MENUS.board.indexOf('xlarge'), -1, 'אבל לא בתפריט הלוח');
   eq(sizeClasses(s).length, 0, 'ולכן לא הוחל שום גודל על הלוח');
+});
+
+check('גודל: בחירה מהסולם הקודם נופלת ל"רגיל" — בתצוגה ובבורר', () => {
+  // **``lg`` ו-``xl`` יצאו משימוש באוקטובר 2026, ונשארו ב-``localStorage``
+  // של לוחות קיימים.** אילו השם הישן היה חוזר עם גודל חדש, בחירה שמורה
+  // הייתה מקבלת בשקט גודל אחר. כאן הם אינם מוכרים: שום מחלקה אינה
+  // מוחלת, והבורר מציג "רגיל" — שני החצאים, כי תצוגה ב"רגיל" עם בורר
+  // ריק היא בדיוק הסתירה שהמסנן נועד למנוע. ``mid`` היה רק בעמוד
+  // ההגדרות ולא נשמר בלוח; הוא כאן כדי שגם הוא לא יחזור עם משמעות חדשה.
+  ['lg', 'xl', 'mid'].forEach((old) => {
+    const { s, value } = selectedOnLoad('bf-old-' + old, old);
+    eq(sizeClasses(s).length, 0, 'הערך הישן ' + old + ' לא הוחל');
+    eq(value, 'normal', 'והבורר מציג "רגיל" עבור ' + old);
+  });
+  // ובקרה: ערך שהלוח כן מציע מגיע לבורר כמו שהוא.
+  eq(selectedOnLoad('bf-new', 'xlarge').value, 'xlarge', 'ערך מוכר מוצב כמו שהוא');
 });
 
 check('גודל: לכל מחלקה שבמפה יש כלל ב-CSS', () => {
@@ -483,21 +546,42 @@ check('גודל: לכל מחלקה שבמפה יש כלל ב-CSS', () => {
   });
 });
 
-check('גודל: ה-CSS קורא מהטוקן בשני הצרכנים, ואין 14px שנשאר מאחור', () => {
+check('גודל: ה-CSS קורא מהטוקן בשני הצרכנים, ואין מספר קשיח שנשאר מאחור', () => {
   const css = fs.readFileSync(
     path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
   const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');
   // שני הצרכנים — תיבת העריכה והתצוגה — קוראים מאותו טוקן.
   eq((decls.match(/font-size:\s*var\(--sticky-note-font/g) || []).length, 2,
      'שני צרכנים קוראים מהטוקן');
-  // ואף אחד מהם לא נשאר עם המספר הקשיח, שהיה הופך את הטוקן לחסר השפעה.
-  eq(/\.sticky-note-(content|tasks)[^{]*\{[^}]*font-size:\s*14px/.test(decls), false,
+  // ואף אחד מהם לא נשאר עם מספר קשיח, שהיה הופך את הטוקן לחסר השפעה.
+  // כל מספר בפיקסלים, ולא ערך אחד מסוים: ברירת המחדל עצמה משתנה.
+  eq(/\.sticky-note-(content|tasks)[^{]*\{[^}]*font-size:\s*[\d.]+px/.test(decls), false,
      'אין font-size קשיח שנשאר על אחד הצרכנים');
   // המחלקות עצמן, ובערכים מוחלטים: ``em`` כאן נפתר מול ההורה ולא מול
   // הבסיס — זו בדיוק התקלה שכבר תועדה בקובץ.
-  eq(/:root\.sticky-font-lg\s*\{[^}]*--sticky-note-font:\s*\d+px/.test(decls), true, 'lg בפיקסלים');
-  eq(/:root\.sticky-font-xl\s*\{[^}]*--sticky-note-font:\s*\d+px/.test(decls), true, 'xl בפיקסלים');
+  const map = loadFontSize('bfpx').window.STICKY_NOTE_FONT_SIZES;
+  Object.keys(map).forEach((token) => {
+    if (!map[token]) return;
+    const px = new RegExp(':root\\.' + map[token] + '\\s*\\{[^}]*--sticky-note-font:\\s*\\d+px');
+    eq(px.test(decls), true, token + ' בפיקסלים');
+  });
   eq(/--sticky-note-font:\s*[\d.]+em/.test(decls), false, 'ואין em על הבסיס');
+});
+
+check('גודל: ברירת המחדל מוצהרת פעם אחת, על :root, ואין לה עותק ב-var()', () => {
+  // **עד אוקטובר 2026 ברירת המחדל ישבה כ-fallback בשני הצרכנים** —
+  // ``var(--sticky-note-font, 14px)`` פעמיים, כלומר אותו מספר בשני מקומות.
+  // שינוי של "רגיל" היה צריך לזכור את שניהם, ושום דבר לא אכף שיישארו
+  // שווים. עכשיו יש הצהרה אחת על ``:root`` בלי מחלקה, והצרכנים קוראים
+  // ``var()`` בלי fallback: עותק שם היה נראה כמו ברירת המחדל בלי להיות
+  // היא.
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8');
+  const decls = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // ``:root`` ואחריו ``{`` — לא ``:root.sticky-font-*``, שהן ההגדלות.
+  const defaults = decls.match(/:root\s*\{[^}]*--sticky-note-font\s*:\s*\d+px/g) || [];
+  eq(defaults.length, 1, 'הצהרת ברירת מחדל אחת בדיוק, על :root ובפיקסלים');
+  eq(/var\(--sticky-note-font\s*,/.test(decls), false, 'אין fallback בתוך var()');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);
