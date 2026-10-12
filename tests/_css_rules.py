@@ -59,3 +59,32 @@ def css_rules(css: str) -> list[tuple[str, dict[str, str]]]:
 def template_css(path: Path) -> str:
     """כל בלוקי ה-``<style>`` של תבנית, מחוברים, בלי Jinja."""
     return _JINJA.sub("", "\n".join(_STYLE.findall(path.read_text(encoding="utf-8"))))
+
+
+_WHERE = re.compile(r":where\((?:[^()]|\([^()]*\))*\)")
+_ATTRIBUTE = re.compile(r"\[[^\]]*\]")
+# ``:before`` ו-``:after`` בנקודתיים אחת הם פסאודו-אלמנטים לכל דבר, ולא פסאודו-מחלקות.
+_PSEUDO_ELEMENT = re.compile(r"::[\w-]+|:(?:before|after|first-line|first-letter)(?![\w-])")
+
+
+def specificity(selector: str) -> tuple[int, int, int]:
+    """המשקל של בורר בודד: ``(מזהים, מחלקות+מאפיינים+פסאודו-מחלקות, טיפוסים+פסאודו-אלמנטים)``.
+
+    לפי Selectors 4, הסעיף "Calculating a selector's specificity". ``:where()`` שוקל אפס, ולכן
+    הוא מוסר לפני הספירה. **כל פסאודו-מחלקה אחרת עם סוגריים נדחית** (``ValueError``):
+    ``:is()``/``:not()``/``:has()`` שוקלים את הארגומנט הכבד ביותר שלהם, ו-``:nth-child(… of S)``
+    שוקל גם את ``S`` — וזה לא ממומש כאן. משקל שגוי היה עובר בשקט; בורר שנדחה מכריח החלטה.
+    """
+    s = _WHERE.sub("", selector)
+    attributes = len(_ATTRIBUTE.findall(s))
+    # ערך של מאפיין יכול להכיל ``:``, ``.``, ``#`` ורווח — ``[data-theme^="shared:"]``.
+    s = _ATTRIBUTE.sub("", s)
+    if "(" in s:
+        raise ValueError(f"בורר שהפונקציה אינה יודעת לשקלל: {selector}")
+    pseudo_elements = len(_PSEUDO_ELEMENT.findall(s))
+    s = _PSEUDO_ELEMENT.sub("", s)
+    ids = len(re.findall(r"#[\w-]+", s))
+    classes = len(re.findall(r"\.[\w-]+", s))
+    pseudo_classes = len(re.findall(r":[\w-]+", s))
+    types = len(re.findall(r"(?:^|[\s>+~])[a-zA-Z][\w-]*", s))
+    return (ids, classes + attributes + pseudo_classes, types + pseudo_elements)
