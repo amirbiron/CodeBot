@@ -1050,6 +1050,9 @@ async def test_handle_clone_direct_prefers_id(monkeypatch):
     class _Facade:
         def save_code_snippet(self, **kwargs):
             return True
+        def get_latest_version_fresh(self, _u, name):
+            # המקור ובדיקת השם הפנוי נקראים טרי, לפני השמירה — והעותק עוד לא קיים.
+            return {'_id': 'SRC', 'file_name': name, 'code': 'x'} if name == 'src.py' else None
         def get_latest_version(self, _u, name):
             return {'_id': 'NEWID', 'file_name': name}
     monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))

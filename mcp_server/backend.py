@@ -1137,13 +1137,17 @@ def _latest_fresh(dbm: Any, user_id: int, file_name: str) -> dict[str, Any] | No
 
     Edits are read-modify-write: a cached body would make every edit rebuild
     from a stale base, and a cached version number would hand two versions the
-    same value. Falls back to the cached getter for DB managers that predate
-    ``get_latest_version_fresh`` so an older injection never breaks the server.
+    same value.
+
+    **No fallback to the cached getter.** A DB manager without
+    ``get_latest_version_fresh`` fails here with ``AttributeError``. Falling back
+    to ``get_latest_version`` turned this into a cached read without a trace —
+    in production the real manager has the method, so the fallback only ever
+    ran against an old test double, which then tested exactly the stale path
+    this function exists to avoid (``silent-fallback-to-worse-path`` in
+    amir-bug-patterns).
     """
-    getter = getattr(dbm, "get_latest_version_fresh", None)
-    if callable(getter):
-        return getter(user_id, file_name)
-    return dbm.get_latest_version(user_id, file_name)
+    return dbm.get_latest_version_fresh(user_id, file_name)
 
 
 class ProductionBackend:
@@ -2221,7 +2225,10 @@ class ProductionBackend:
         from .handlers import MAX_NOTES_PER_SCOPE
         from sticky_notes_scope import make_scope_id
 
-        doc = self._require_dbm().get_latest_version(int(user_id), file_name)
+        # Fresh, not the cached getter: the note is bound to the name and the
+        # ``_id`` read here, and a cached hit still points at a file the webapp
+        # has renamed or saved a newer version of since.
+        doc = _latest_fresh(self._require_dbm(), int(user_id), file_name)
         if not doc:
             return {
                 "ok": False,

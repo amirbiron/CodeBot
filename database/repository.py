@@ -1407,8 +1407,6 @@ class Repository:
             return None
 
     @cached(expire_seconds=120, key_prefix="user_files")
-    @traced("db.get_user_files")
-    @_instrument_db("db.get_user_files")
     def get_user_files(
         self,
         user_id: int,
@@ -1417,7 +1415,25 @@ class Repository:
         skip: int = 0,
         projection: Optional[Dict[str, int]] = None,
     ) -> List[Dict]:
-        """החזרת גרסה אחרונה לכל `file_name` של המשתמש עם תמיכה בעימוד והקרנה.
+        """הגרסה האחרונה של כל קובץ של המשתמש, דרך קאש קצר — ``_fetch_user_files`` בלי הקאש.
+
+        לתצוגה בלבד, כמו ``get_latest_version``. מסלול שמוחק או כותב לפי הרשימה קורא
+        ל-``_fetch_user_files``: קובץ שנוצר בוובאפ אחרי שהרשימה נכנסה לקאש אינו בה עד
+        שהקאש פג, וכתיבה לפיה מדלגת עליו בלי שום סימן.
+        """
+        return self._fetch_user_files(user_id, limit, skip=skip, projection=projection)
+
+    @traced("db.get_user_files")
+    @_instrument_db("db.get_user_files")
+    def _fetch_user_files(
+        self,
+        user_id: int,
+        limit: int = 50,
+        *,
+        skip: int = 0,
+        projection: Optional[Dict[str, int]] = None,
+    ) -> List[Dict]:
+        """החזרת גרסה אחרונה לכל `file_name` של המשתמש עם תמיכה בעימוד והקרנה — ישירות מה-DB, בלי קאש.
 
         - limit: מספר פריטים מקסימלי להחזרה.
         - skip: דילוג על מספר פריטים לאחר קיבוץ לפי `file_name` (עימוד אמיתי).
@@ -1958,7 +1974,10 @@ class Repository:
 
     def rename_file(self, user_id: int, old_name: str, new_name: str) -> bool:
         try:
-            existing = self.get_latest_version(user_id, new_name)
+            # "השם תפוס" נשאל את המסד ולא את ``get_latest_version``: הקאש אינו
+            # שומר ``None``, ולכן "תפוס" שנמחק או ששמו שונה בוובאפ היה נשאר "תפוס"
+            # עד שהקאש פג — וסירוב לשם פנוי.
+            existing = self._fetch_latest_version(user_id, new_name)
             if existing and new_name != old_name:
                 logger.warning(f"File {new_name} already exists for user {user_id}")
                 try:

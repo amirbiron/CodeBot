@@ -23,7 +23,9 @@ class _FakeDbManager:
     def get_file_by_id(self, file_id):
         return self._by_id.get(file_id)
 
-    def get_latest_version(self, user_id, file_name):
+    def get_latest_version_fresh(self, user_id, file_name):
+        """The backend reads only through the fresh door (``_latest_fresh``); there is
+        no cached getter here, so a path that drifts back to it fails instead of passing."""
         return next((f for f in self._files if f.get("file_name") == file_name), None)
 
     def get_version(self, user_id, file_name, version):
@@ -45,7 +47,7 @@ class _FakeDbManager:
         self.saved = snippet  # capture the real CodeSnippet for assertions
         if self._fail_save:
             return None
-        prev = self.get_latest_version(snippet.user_id, snippet.file_name)
+        prev = self.get_latest_version_fresh(snippet.user_id, snippet.file_name)
         snippet.version = (prev.get("version", 0) + 1) if prev else 1
         doc_id = f"{snippet.file_name}@v{snippet.version}"
         # Replace the same-name entry so the post-save re-fetch sees the new version.

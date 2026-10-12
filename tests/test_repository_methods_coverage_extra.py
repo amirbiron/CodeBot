@@ -180,16 +180,17 @@ def test_rename_file_success_and_conflict(monkeypatch):
             self.large_files_collection = types.SimpleNamespace()
     repo = Repository(Mgr())
 
+    # "השם תפוס" נשאל את המסד (``_fetch_latest_version``) ולא את הגטר המקוּש.
     # success path: no existing new_name
-    monkeypatch.setattr(repo, "get_latest_version", lambda *_: None)
+    monkeypatch.setattr(repo, "_fetch_latest_version", lambda *_: None)
     assert repo.rename_file(7, "old.py", "new.py") is True
 
     # conflict path: existing found and name differs -> False
-    monkeypatch.setattr(repo, "get_latest_version", lambda *_: {"_id": 1})
+    monkeypatch.setattr(repo, "_fetch_latest_version", lambda *_: {"_id": 1})
     assert repo.rename_file(7, "old.py", "other.py") is False
 
     # same name path: still attempts update; ensure bool return handled
-    monkeypatch.setattr(repo, "get_latest_version", lambda *_: None)
+    monkeypatch.setattr(repo, "_fetch_latest_version", lambda *_: None)
     assert isinstance(repo.rename_file(7, "same.py", "same.py"), bool)
 
 

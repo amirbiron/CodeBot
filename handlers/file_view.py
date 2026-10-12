@@ -595,14 +595,14 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         file_name = context.user_data.pop('editing_note_file')
         user_id = update.effective_user.id
         try:
-            # שליפת גרסה אחרונה דרך Facade, עדכון הערה דרך save_code_snippet
-            try:
-                from src.infrastructure.composition import get_files_facade  # type: ignore
-                _facade = get_files_facade()
-                doc = _facade.get_latest_version(user_id, file_name)
-            except Exception:
-                _facade = None  # type: ignore
-                doc = None
+            # שליפת גרסה אחרונה דרך Facade, עדכון הערה דרך save_code_snippet.
+            # טרי ולא דרך ``get_latest_version``: הקוד והשפה שנקראים כאן **נכתבים**
+            # לגרסה החדשה, והגרסה המקוּשה יכולה להיות מלפני עריכה בוובאפ.
+            # כשל כאן עולה ל-``except`` שלמטה, שרושם אותו ועונה "שגיאה" — ולא
+            # מוצג כ"הקובץ לא נמצא".
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            _facade = get_files_facade()
+            doc = _facade.get_latest_version_fresh(user_id, file_name)
             if not doc:
                 await update.message.reply_text("❌ הקובץ לא נמצא לעדכון הערה")
                 return ConversationHandler.END
@@ -1432,6 +1432,37 @@ async def handle_edit_note_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
     return ConversationHandler.END
 
 
+def _suggest_clone_name(facade, user_id: int, name: str) -> str:
+    """שם פנוי לעותק של ``name``: ``<stem> (copy)<ext>``, ואחריו ``(copy 2)`` עד ``(copy 99)``.
+
+    "פנוי" נשאל את המסד דרך ``get_latest_version_fresh`` ולא את הקאש: השם נבחר כדי לכתוב אליו,
+    והקאש אינו שומר ``None`` — שם שנמחק או ששונה בוובאפ היה נשאר "תפוס" עד שהקאש פג. שגיאה
+    עולה לקורא, ואינה נחשבת "פנוי".
+    """
+    name = str(name)
+    dot = name.rfind('.')
+    stem, ext = (name[:dot], name[dot:]) if dot > 0 else (name, '')
+    candidate = f"{stem} (copy){ext}"
+    if not facade.get_latest_version_fresh(user_id, candidate):
+        return candidate
+    for i in range(2, 100):
+        candidate = f"{stem} (copy {i}){ext}"
+        if not facade.get_latest_version_fresh(user_id, candidate):
+            return candidate
+    return f"{stem} (copy {int(datetime.now(timezone.utc).timestamp())}){ext}"
+
+
+def _clone_fields(source: dict):
+    """(קוד, שפה, תיאור, תגיות) שהעותק מקבל — ממסמך המקור שנקרא מהמסד, לא מרשימת הבוט ולא מהקאש."""
+    tags = source.get('tags')
+    return (
+        source.get('code', ''),
+        source.get('programming_language', 'text'),
+        source.get('description', '') or '',
+        list(tags) if isinstance(tags, (list, tuple)) else [],
+    )
+
+
 async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -1442,58 +1473,19 @@ async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if not file_data:
             await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ לשכפול")
             return ConversationHandler.END
+        # הרשומה ברשימה מזהה את הקובץ, ותו לא. את התוכן קוראים מהמסד: ``files_cache`` הוא מה
+        # שהיה כשהרשימה הוצגה, בלי שום תוקף, ושכפול ממנו העתיק את מה שהרשימה זכרה ולא את
+        # הקובץ — וקובץ שכבר נמחק היה נבנה ממנה מחדש.
         original_name = file_data.get('file_name', 'file.txt')
-        code = file_data.get('code', '')
-        language = file_data.get('programming_language', 'text')
-        description = file_data.get('description', '') or ''
-        try:
-            tags = list(file_data.get('tags') or [])
-        except Exception:
-            tags = []
         user_id = update.effective_user.id
-
-        if not code:
-            try:
-                from src.infrastructure.composition import get_files_facade  # type: ignore
-                latest_doc = get_files_facade().get_latest_version(user_id, original_name)
-            except Exception:
-                latest_doc = None
-            if latest_doc:
-                code = latest_doc.get('code', '') or code
-                language = latest_doc.get('programming_language', language) or language
-                description = latest_doc.get('description', description) or description
-                try:
-                    tags = list(latest_doc.get('tags') or tags or [])
-                except Exception:
-                    pass
-
-        def _suggest_clone_name(name: str) -> str:
-            try:
-                dot = name.rfind('.')
-                stem = name[:dot] if dot > 0 else name
-                ext = name[dot:] if dot > 0 else ''
-            except Exception:
-                stem, ext = name, ''
-            candidate = f"{stem} (copy){ext}"
-            try:
-                from src.infrastructure.composition import get_files_facade  # type: ignore
-                exists = get_files_facade().get_latest_version(user_id, candidate)
-            except Exception:
-                exists = None
-            if not exists:
-                return candidate
-            for i in range(2, 100):
-                candidate = f"{stem} (copy {i}){ext}"
-                try:
-                    from src.infrastructure.composition import get_files_facade  # type: ignore
-                    exists2 = get_files_facade().get_latest_version(user_id, candidate)
-                except Exception:
-                    exists2 = None
-                if not exists2:
-                    return candidate
-            return f"{stem} (copy {int(datetime.now(timezone.utc).timestamp())}){ext}"
-
-        new_name = _suggest_clone_name(original_name)
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        facade = get_files_facade()
+        source = facade.get_latest_version_fresh(user_id, original_name)
+        if not source:
+            await TelegramUtils.safe_edit_message_text(query, "❌ הקובץ לא נמצא לשכפול")
+            return ConversationHandler.END
+        code, language, description, tags = _clone_fields(source)
+        new_name = _suggest_clone_name(facade, user_id, original_name)
         try:
             from src.infrastructure.composition import get_files_facade  # type: ignore
             ok = bool(get_files_facade().save_code_snippet(
@@ -1555,49 +1547,17 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
     try:
         file_name = query.data.replace("clone_direct_", "")
         user_id = update.effective_user.id
-        try:
-            from src.infrastructure.composition import get_files_facade  # type: ignore
-            file_data = get_files_facade().get_latest_version(user_id, file_name)
-        except Exception:
-            file_data = None
+        # המקור נקרא מהמסד ולא דרך ``get_latest_version`` המקוּשה: מה שנקרא כאן **נכתב**
+        # לעותק, והגרסה המקוּשה יכולה להיות מלפני עריכה בוובאפ. כשל עולה ל-``except``
+        # שלמטה ונרשם — ואינו מוצג כ"הקובץ לא נמצא".
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        facade = get_files_facade()
+        file_data = facade.get_latest_version_fresh(user_id, file_name)
         if not file_data:
             await query.edit_message_text("❌ הקובץ לא נמצא לשכפול")
             return ConversationHandler.END
-        code = file_data.get('code', '')
-        language = file_data.get('programming_language', 'text')
-        description = file_data.get('description', '') or ''
-        try:
-            tags = list(file_data.get('tags') or [])
-        except Exception:
-            tags = []
-
-        def _suggest_clone_name(name: str) -> str:
-            try:
-                dot = name.rfind('.')
-                stem = name[:dot] if dot > 0 else name
-                ext = name[dot:] if dot > 0 else ''
-            except Exception:
-                stem, ext = name, ''
-            candidate = f"{stem} (copy){ext}"
-            try:
-                from src.infrastructure.composition import get_files_facade  # type: ignore
-                exists = get_files_facade().get_latest_version(user_id, candidate)
-            except Exception:
-                exists = None
-            if not exists:
-                return candidate
-            for i in range(2, 100):
-                candidate = f"{stem} (copy {i}){ext}"
-                try:
-                    from src.infrastructure.composition import get_files_facade  # type: ignore
-                    exists2 = get_files_facade().get_latest_version(user_id, candidate)
-                except Exception:
-                    exists2 = None
-                if not exists2:
-                    return candidate
-            return f"{stem} (copy {int(datetime.now(timezone.utc).timestamp())}){ext}"
-
-        new_name = _suggest_clone_name(file_name)
+        code, language, description, tags = _clone_fields(file_data)
+        new_name = _suggest_clone_name(facade, user_id, file_name)
         # יצירת snippet לשמירה דרך Facade
         try:
             from src.infrastructure.composition import get_files_facade  # type: ignore

@@ -3005,6 +3005,20 @@ class DatabaseManager:
     ) -> List[Dict]:
         return self._get_repo().get_user_files(user_id, limit, skip=skip, projection=projection)
 
+    def get_user_files_fresh(
+        self,
+        user_id: int,
+        limit: int = 50,
+        *,
+        skip: int = 0,
+        projection: Optional[Dict[str, int]] = None,
+    ) -> List[Dict]:
+        """רשימת הקבצים ישירות מה-DB, בלי קאש — כמו ``get_latest_version_fresh``.
+
+        לכל מסלול שמוחק או כותב לפי הרשימה: מה שהקאש זוכר יכול להחסיר קובץ שנוצר בינתיים.
+        """
+        return self._get_repo()._fetch_user_files(user_id, limit, skip=skip, projection=projection)
+
     def get_latest_versions_by_names(
         self,
         user_id: int,

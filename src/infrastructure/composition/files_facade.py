@@ -75,6 +75,20 @@ class FilesFacade:
                 raise
         return None
 
+    def get_latest_version_fresh(self, user_id: int, file_name: str) -> Optional[Dict[str, Any]]:
+        """הגרסה האחרונה ישירות מה-DB, בלי הקאש של ``get_latest_version``.
+
+        לכל מסלול שכותב לפי מה שקרא: מעתיק שדה לגרסה חדשה, או מחליט לפיו מה קיים.
+        ``get_latest_version`` מקוּשה, וכמה ממסלולי הכתיבה של הוובאפ אינם מבטלים את הקאש
+        הזה, ולכן כתיבה לפיה יכולה להחזיר בשקט את מה ששונה בוובאפ. היא נשארת למסלולי תצוגה.
+
+        **בלי נפילה לגטר המקוּש**, במכוון: מנהל מסד שאין לו את המתודה נופל כאן
+        ב-``AttributeError``. נפילה ל-``get_latest_version`` הייתה הופכת את הדלת הטרייה
+        למקוּשה בלי שאיש יראה — ובבדיקות, דמות ישנה הייתה בודקת בדיוק את המסלול שהדלת
+        הזו נועדה למנוע.
+        """
+        return self._get_db().get_latest_version_fresh(user_id, file_name)
+
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict[str, Any]]:
         """
         Legacy alias used by some flows/tests.
@@ -140,6 +154,20 @@ class FilesFacade:
             return list(db.get_user_files(user_id) or [])
         except Exception:
             return []
+
+    def get_user_files_fresh(
+        self,
+        user_id: int,
+        limit: int = 50,
+        *,
+        skip: int = 0,
+        projection: Optional[Dict[str, int]] = None,
+    ) -> List[Dict[str, Any]]:
+        """רשימת הקבצים ישירות מה-DB, בלי הקאש של ``get_user_files`` — לכל מסלול שמוחק או כותב לפיה.
+
+        בלי נפילה לגטר המקוּש ובלי ניסיונות חתימה ישנה, מאותה סיבה כמו ``get_latest_version_fresh``.
+        """
+        return list(self._get_db().get_user_files_fresh(user_id, limit, skip=skip, projection=projection) or [])
 
     def get_all_user_files_combined(
         self,

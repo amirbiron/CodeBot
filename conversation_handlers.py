@@ -2607,8 +2607,10 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         file_name = context.user_data.pop('editing_note_file')
         user_id = update.effective_user.id
         try:
-            # שלוף את המסמך האחרון ועדכן תיאור
-            doc = _call_files_api("get_latest_version", user_id, file_name)
+            # טרי ולא דרך ``get_latest_version``: הקוד, השפה והתגיות שנקראים כאן
+            # **נכתבים** לגרסה החדשה, והגרסה המקוּשה יכולה להיות מלפני עריכה בוובאפ —
+            # שינוי הערה היה מחזיר בשקט את הקוד הישן.
+            doc = _call_files_api("get_latest_version_fresh", user_id, file_name)
             if not doc:
                 await update.message.reply_text("❌ הקובץ לא נמצא לעדכון הערה")
                 return ConversationHandler.END

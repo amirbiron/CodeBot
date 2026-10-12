@@ -1759,8 +1759,9 @@ class GitHubMenuHandler:
                         if saved >= IMPORT_MAX_FILES:
                             continue
                         lang = detect_language_from_filename(rel_path)
-                        # בדוק אם קיים כבר עבור אותו ריפו (לפי תגית repo:)
-                        prev_doc = facade.get_latest_version(user_id, rel_path)
+                        # בדוק אם קיים כבר עבור אותו ריפו (לפי תגית repo:) — מהמסד ולא מהקאש,
+                        # כמו כל קריאה שקודמת לכתיבה: המונה "עודכנו / חדשים" נגזר ממנה.
+                        prev_doc = facade.get_latest_version_fresh(user_id, rel_path)
                         prev_tags = (prev_doc.get('tags') or []) if isinstance(prev_doc, dict) else []
                         existed_for_repo = any((isinstance(t, str) and t == repo_tag) for t in prev_tags)
                         # מדידת ביצוע עבור שמירה בודדת

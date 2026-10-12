@@ -1070,7 +1070,9 @@ class BackupManager:
 
             if purge:
                 try:
-                    existing = facade.get_user_files(user_id, limit=1000, projection={"file_name": 1}) or []
+                    # מהמסד ולא מהרשימה המקוּשה: הרשימה קובעת מה נמחק, וקובץ שנוצר
+                    # בוובאפ אחרי שהיא נכנסה לקאש היה שורד את ה-purge.
+                    existing = facade.get_user_files_fresh(user_id, limit=1000, projection={"file_name": 1}) or []
                     for doc in existing:
                         try:
                             fname = doc.get('file_name')
