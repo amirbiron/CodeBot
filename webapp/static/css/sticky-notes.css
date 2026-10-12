@@ -23,6 +23,10 @@
 .sticky-note{
   --note-ink: #2b3f6a;
   --note-ink-muted: #66739A;
+  /* צבע הקישורים בפתק. **הגוון נבחר בכוונה, בבדיקה בעין על הפתקים** — לא
+     בחישוב ניגודיות, ואין להחליף אותו בגלל חישוב כזה. למה הכלל שצובע בו
+     צריך גם ``!important`` וגם ``.sticky-note`` לפניו — ליד ``.sticky-md-link``. */
+  --note-link: #777abc;
   /* טוקן ולא מספר: החיפוש בתוך פתק גוזר ממנו את הרדיוס הפנימי של ילדים
      שחותכים את עצמם (``calc(var(--note-radius) - 1px)``, בגלל הגבול). */
   --note-radius: 10px;
@@ -245,8 +249,9 @@
 .sticky-note.is-task-pending { opacity: .85; }
 
 /* ---------- מארקדאון קליל בפתקים ---------- */
-/* כל צבע נגזר מ-``--note-ink``/``--note-ink-muted`` שכבר מוגדרים על
-   ``.sticky-note`` — דיו קבוע, בלתי תלוי בערכה, בדיוק כמו שם הפתק. */
+/* הצבעים נגזרים מהטוקנים שכבר מוגדרים על ``.sticky-note`` —
+   ``--note-ink``/``--note-ink-muted``, ולקישור ``--note-link`` — דיו קבוע,
+   בלתי תלוי בערכה, בדיוק כמו שם הפתק. */
 
 /* אינליין */
 .sticky-md-bold   { font-weight: 700; }
@@ -258,7 +263,45 @@
   background: color-mix(in srgb, var(--note-ink, #2b3f6a) 12%, transparent);
   padding: .05em .3em; border-radius: 4px;
 }
-.sticky-md-link { color: var(--note-ink, #2b3f6a); text-decoration: underline; }
+/* קישור — ``--note-link``, אותו צבע בכל ערכה ובכל מצב.
+ *
+ * **קבצי הערכות צובעים ``a`` כאלמנט, וגברו על הכלל שהיה כאן:**
+ * ``[data-theme="dark"] a`` ב-``dark-mode.css`` (וכמותו ``dim``, ``nebula``,
+ * ``custom`` ו-``shared:``) צובע ב-``--primary``, ו-``[data-theme="high-contrast"] a``
+ * ב-``high-contrast.css`` צובע צהוב — בלתי נראה על הנייר.
+ *
+ * **``!important`` לבדו אינו מספיק כאן, בשונה מ-``.sticky-md-mark``.** שם
+ * כללי הערכה אינם ``!important``, ולכן כל הצהרה חשובה מנצחת אותם. כאן הכלל
+ * של ``high-contrast`` הוא ``!important`` בעצמו, ובין שתי הצהרות חשובות מאותו
+ * מקור מכריעה הספציפיות (CSS Cascade 5, §6.1): ``.sticky-md-link`` לבדו הוא
+ * (0,1,0) ומפסיד ל-(0,1,1) של ``[data-theme] a``. ``.sticky-note`` לפניו
+ * מעלה ל-(0,2,0), ו-``:hover``/``:focus`` מקבלים בורר משלהם כי ``a:hover`` ו-
+ * ``a:focus`` של ``high-contrast`` הם (0,2,1), גם הם ``!important``.
+ * ``.sticky-note`` הוא גם האלמנט שמצהיר על הטוקן, ולכן אין fallback
+ * ב-``var()``: עותק שני של הצבע היה נראה כמו ברירת המחדל בלי להיות היא.
+ *
+ * **ההכרעה בספציפיות ולא בסדר הטעינה, כי הסדר אינו אחיד.** ``note_board.html``
+ * (ב-``extra_css``) ו-``repo/base_repo.html`` (ב-``extra_head``) טוענים את
+ * הקובץ הזה לפני קבצי הערכות שב-``base.html``, ו-``md_preview.html`` טוען אותו
+ * בגוף העמוד, אחריהם. בספציפיות שווה הצבע היה תלוי במשטח.
+ *
+ * ``tests/test_sticky_notes_link_color.py`` גוזר את כללי ה-``a`` מקבצי הערכות
+ * ודורש שכל אחד מהם יפסיד כאן — גם כלל שעוד לא נכתב, כמו ``a:visited``. */
+.sticky-note .sticky-md-link,
+.sticky-note .sticky-md-link:hover,
+.sticky-note .sticky-md-link:focus { color: var(--note-link) !important; }
+.sticky-md-link { text-decoration: underline; }
+
+/* ריחוף: הקו מתעבה, ושום דבר אחר אינו משתנה — בכל ערכה.
+ *
+ * ``opacity: 1`` מבטל את ה-``opacity`` של ``a:hover`` ב-``dark-mode.css``,
+ * שהבהיר את הקישור רק בערכות שהוא חל עליהן. ``!important`` על העובי, כי
+ * ``[data-theme="high-contrast"] a`` כותב ``text-decoration`` כקיצור
+ * ``!important``, והקיצור מאפס גם את ``text-decoration-thickness`` (CSS Text
+ * Decoration 4; ב-BCD ‏``css.properties.text-decoration.includes_thickness``:
+ * כרומיום 87, ‏Firefox 70, ‏Safari 26.2). בלעדיו הריחוף בערכה הזו לא הראה
+ * כלום. */
+.sticky-note .sticky-md-link:hover { opacity: 1; text-decoration-thickness: 2px !important; }
 
 /* ``==מרקר==``.
  *
@@ -331,7 +374,6 @@
   padding: .05em .3em;
   border-radius: 2px;
 }
-.sticky-md-link:hover { text-decoration-thickness: 2px; }
 
 /* כותרות — גודל ומשקל, בלי קפיצות ענק שיאכלו את הפתק הקטן */
 .sticky-md-h { font-weight: 700; line-height: 1.25; margin: .15em 0 .05em; }
