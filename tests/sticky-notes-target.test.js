@@ -19,6 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import vm from 'vm';
 import { fileURLToPath } from 'url';
+import MarkdownIt from 'markdown-it';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MODULE_PATH = path.join(__dirname, '..', 'webapp', 'static', 'js', 'sticky-notes.js');
@@ -871,10 +872,18 @@ check('גרירה: כפתור ושם בעריכה מוחרגים, שאר הכו�
 
 // ---------- מארקדאון: פרסר אינליין טהור ----------
 
+// עיצוב נושא ``children`` — טקסט וקוד. טקסט מודפס כמו שהוא וקוד כ-``code(...)``,
+// ולכן ``bold(מ)`` נשאר ``bold(מ)``, ו-``**א `ב` ג**`` יוצא ``bold(א code(ב) ג)``.
+function inlineInner(children){
+  return children.map((c) => (c.type === 'text' ? c.text : `${c.type}(${c.text})`)).join('');
+}
+
 function inlineDump(mgr, text){
-  return mgr._parseInline(text).map(s =>
-    s.type === 'link' ? `link(${s.text}|${s.href})` : `${s.type}(${s.text})`
-  ).join(' ');
+  return mgr._parseInline(text).map((s) => {
+    if (s.type === 'link') return `link(${inlineInner(s.children)}|${s.href})`;
+    if (Array.isArray(s.children)) return `${s.type}(${inlineInner(s.children)})`;
+    return `${s.type}(${s.text})`;
+  }).join(' ');
 }
 
 check('אינליין: מודגש, נטוי, קוד, חוצה', () => {
@@ -964,6 +973,230 @@ check('אינליין: מפרידן לא-סגור נשאר טקסט', () => {
   eq(inlineDump(fileMgr, 'a ** b'), 'text(a ** b)');
 });
 
+// ---------- מארקדאון: קוד בשורה קודם לכל מפריד ----------
+//
+// ב-markdown-it, שמרנדר את תצוגת המסמך, קוד בשורה נקבע לפני ההדגשות ונצרך
+// כיחידה אחת (``lib/rules_inline/backticks.mjs``). הבדיקות כאן עוברות על
+// הכלל מכל צד, וההשוואה הישירה מול markdown-it נמצאת אחריהן.
+
+check('אינליין: קוד בתוך מודגש — הפתק שבו הבאג דווח', () => {
+  // הטקסט המדויק של הפתק. ``**`` מתחיל לפני הגרש, ורג'קס שבחר את מה
+  // שמתחיל ראשון בשורה בלע את הקוד כטקסט, עם הגרשיים. שני הגרשיים שבסוף
+  // הם רצף בלי סוגר, ולכן הם טקסט — גם בתצוגת המסמך.
+  eq(inlineDump(fileMgr, ',**מילים עם `קוד` בתוך הדגשה** -  לא מתרנדר, התווים `` מוצגים גולמי'),
+     'text(,) bold(מילים עם code(קוד) בתוך הדגשה) text( -  לא מתרנדר, התווים `` מוצגים גולמי)');
+});
+
+check('אינליין: קוד בתוך כל עיצוב, ולא רק במודגש', () => {
+  eq(inlineDump(fileMgr, '*א `ב` ג*'), 'italic(א code(ב) ג)');
+  eq(inlineDump(fileMgr, '~~א `ב` ג~~'), 'strike(א code(ב) ג)');
+  eq(inlineDump(fileMgr, '==א `ב` ג=='), 'mark(א code(ב) ג)');
+  eq(inlineDump(fileMgr, '[א `ב` ג](https://x.com)'), 'link(א code(ב) ג|https://x.com)');
+  eq(inlineDump(fileMgr, '**`קוד`**'), 'bold(code(קוד))', 'מודגש שכולו קוד');
+});
+
+check('אינליין: מפריד בתוך קוד אינו מפריד', () => {
+  // התו שסוגר את העיצוב יושב בתוך הקוד, ולכן הוא שייך לקוד. בלי זה
+  // ``**a `*` b**`` היה נשבר: הכוכבית שבתוך הקוד סגרה נטוי.
+  eq(inlineDump(fileMgr, '**a `*` b**'), 'bold(a code(*) b)');
+  eq(inlineDump(fileMgr, '**a `**` b**'), 'bold(a code(**) b)');
+  eq(inlineDump(fileMgr, '*a `*` b*'), 'italic(a code(*) b)');
+  eq(inlineDump(fileMgr, '~~a `~~` b~~'), 'strike(a code(~~) b)');
+  eq(inlineDump(fileMgr, '==a `==` b=='), 'mark(a code(==) b)');
+  eq(inlineDump(fileMgr, '[a `]` b](https://x.com)'), 'link(a code(]) b|https://x.com)', 'גם סוגר של תווית');
+});
+
+check('אינליין: קוד שממשיך מעבר לסוגר — הקוד גובר', () => {
+  // הקוד נקבע לפי הגרשיים בלבד, בלי קשר למה שנפתח לפניו. הסוגר של
+  // המודגש יושב בתוך הקוד, ולכן אין מודגש — יש קוד.
+  eq(inlineDump(fileMgr, '**a `b** c`'), 'text(**a ) code(b** c)');
+  eq(inlineDump(fileMgr, '==a `b== c`'), 'text(==a ) code(b== c)');
+  // הדוגמה של CommonMark: הקוד גובר גם על הסוגר של תווית קישור.
+  eq(inlineDump(fileMgr, '[not a `link](https://x.com/foo`)'), 'text([not a ) code(link](https://x.com/foo) text())');
+});
+
+check('אינליין: רצף גרשיים נסגר רק ברצף באותו אורך בדיוק', () => {
+  eq(inlineDump(fileMgr, '``a`b``'), 'code(a`b)', 'גרש בודד בתוך קוד של שניים');
+  eq(inlineDump(fileMgr, '``a`'), 'text(``a`)', 'אין סוגר של שניים — טקסט');
+  eq(inlineDump(fileMgr, '`a``'), 'text(`a``)', 'שניים אינם סוגרים אחד');
+  // רצף בלי סוגר נשאר טקסט, והקוד שאחריו עדיין נמצא.
+  eq(inlineDump(fileMgr, '``a `b`'), 'text(``a ) code(b)');
+});
+
+check('אינליין: רווח אחד בכל קצה של קוד נחתך', () => {
+  // כך כותבים קוד שמתחיל או נגמר בגרש: שני גרשיים, רווח, התוכן, רווח
+  // ושני גרשיים.
+  eq(inlineDump(fileMgr, '`` `a` ``'), 'code(`a`)');
+  eq(inlineDump(fileMgr, '` a `'), 'code(a)');
+  eq(inlineDump(fileMgr, '`  a  `'), 'code( a )', 'רק רווח אחד מכל צד');
+  eq(inlineDump(fileMgr, '` `'), 'code( )', 'רווח בודד נשאר — אין ביניהם כלום');
+});
+
+check('אינליין: קוד בתווית של קישור שאינו http — הקוד נשאר קוד', () => {
+  // הכתובת אינה קישור ומוצגת כמו שהוקלדה, אבל הקוד בתווית אינו נבלע בה.
+  eq(inlineDump(fileMgr, '[`x`](javascript:y)'), 'text([) code(x) text(](javascript:y))');
+  eq(inlineDump(fileMgr, '[`app.py`](./app.py)'), 'text([) code(app.py) text(](./app.py))');
+});
+
+check('אינליין: גרש בתוך כתובת של קישור אינו פותח קוד', () => {
+  // היעד נצרך יחד עם הקישור, ולכן הגרש שבו אינו מגיע לסריקת הקוד.
+  eq(inlineDump(fileMgr, '[x](https://a/`b) `c`'), 'link(x|https://a/`b) text( ) code(c)');
+});
+
+check('פתיחה: קוד בשורה פותח את התצוגה, וגרשיים בלי סוגר לא', () => {
+  // השער נגזר מאותו פרסר, ולכן הוא מסכים איתו גם כאן.
+  eq(fileMgr._lineHasInline('**א `ב` ג**'), true);
+  eq(fileMgr._lineHasInline('[`x`](javascript:y)'), true, 'הקוד בתווית מוצג כקוד');
+  eq(fileMgr._lineHasInline('``a`'), false, 'רצף בלי סוגר הוא טקסט');
+});
+
+// ---------- מארקדאון: קוד בשורה מול markdown-it ----------
+//
+// markdown-it מרנדר את תצוגת המסמך, ולכן הוא הצרכן שהפתק צריך להסכים איתו על
+// קוד בשורה. הבדיקות כאן מריצות את שניהם על אותם קלטים, כך ששדרוג שלו שמשנה
+// את כלל הגרשיים מפיל את ה-CI ולא מתגלה בפתק.
+//
+// **האפשרויות נקראות מ-``md_preview.html``** ולא מוקלדות כאן: עותק נוסף שלהן
+// היה יכול לסטות בשקט ממה שהעמוד באמת מריץ.
+function docViewMarkdownIt(){
+  const tpl = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'templates', 'md_preview.html'), 'utf8');
+  const start = tpl.indexOf('window.markdownit ? window.markdownit');
+  if (start < 0) throw new Error('לא נמצאה יצירת markdown-it ב-md_preview.html');
+  const call = tpl.slice(start, tpl.indexOf('});', start));
+  const options = {};
+  for (const key of ['breaks', 'linkify', 'typographer', 'html']){
+    const m = new RegExp(`\\b${key}:\\s*(true|false)`).exec(call);
+    if (!m) throw new Error(`האפשרות ${key} לא נמצאה ב-md_preview.html`);
+    options[key] = m[1] === 'true';
+  }
+  const markSandbox = { window: {} };
+  vm.createContext(markSandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', 'md-mark-plugin.js'), 'utf8'), markSandbox);
+  return new MarkdownIt(options).use(markSandbox.window.MdMarkPlugin);
+}
+
+const mdDoc = docViewMarkdownIt();
+
+// הקטעים של הפתק כ-HTML בצורה ש-markdown-it פולט, כדי שאפשר יהיה להשוות
+// מחרוזות. הבריחה זהה לזו שלו (``&``, ``<``, ``>``, ``"``). הקו החוצה הוא
+// ``del`` בפתק ו-``s`` במסמך, וזה אינו מה שנבדק כאן.
+const escapeLikeMarkdownIt = (s) => String(s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const DOC_TAGS = { bold: 'strong', italic: 'em', strike: 's', mark: 'mark' };
+
+function inlineHtml(segs){
+  return segs.map((s) => {
+    if (s.type === 'text') return escapeLikeMarkdownIt(s.text);
+    if (s.type === 'code') return `<code>${escapeLikeMarkdownIt(s.text)}</code>`;
+    const inner = inlineHtml(s.children);
+    if (s.type === 'link') return `<a href="${escapeLikeMarkdownIt(s.href)}">${inner}</a>`;
+    return `<${DOC_TAGS[s.type]}>${inner}</${DOC_TAGS[s.type]}>`;
+  }).join('');
+}
+
+check('markdown-it: קוד בשורה יוצא בדיוק כמו בתצוגת המסמך', () => {
+  // קלטים שבהם הפתק אמור להסכים עם המסמך **על כל ה-HTML**: קוד בתוך כל
+  // עיצוב, מפרידים בתוך קוד, קוד שחוצה סוגר, ואורכי רצפים. עיצוב בתוך
+  // עיצוב, ``\`` כתו בריחה, כתובות חשופות ומרכאות טיפוגרפיות אינם כאן —
+  // בהם הפתק שונה מהמסמך בכוונה.
+  const corpus = [
+    ',**מילים עם `קוד` בתוך הדגשה** -  לא מתרנדר, התווים `` מוצגים גולמי',
+    '**a `b` c**', '*a `b` c*', '~~a `b` c~~', '==a `b` c==', '[a `b` c](https://x.com)', '**`code`**',
+    '**a `*` b**', '**a `**` b**', '*a `*` b*', '~~a `~~` b~~', '==a `==` b==', '[a `]` b](https://x.com)',
+    '**a `b** c`', '*a `b* c`', '~~a `b~~ c`', '==a `b== c`', '[not a `link](https://x.com/foo`)',
+    '``a`b``', '`` `a` ``', '``a`', '`a``', '` a `', '`  a  `', '`` ` ``', '``` ``', '``a `b`', '` `',
+    '`a` and `b`', '**bold** and `code`', '`a*b*c`', '`a==b==c`', '==`a=b`==', '**`a`**`b`',
+    '[`]`](https://x.com)',
+  ];
+  for (const src of corpus){
+    eq(inlineHtml(fileMgr._parseInline(src)), mdDoc.renderInline(src), `קלט: ${src}`);
+  }
+});
+
+check('markdown-it: אותם קטעי קוד בכל השורות הקצרות', () => {
+  // כל המחרוזות שיש בהן גרש, מעל ``alphabet`` ועד ``maxLength``. משווים
+  // את קטעי הקוד בלבד ובסדרם, כי ה-HTML המלא אינו אמור להיות זהה: עיצוב
+  // בתוך עיצוב אינו נתמך בפתק (ההערה מעל ``MD_CODE_TRIM_RE``). סוגריים
+  // אינם כאן: אחרי ``[`` שלא נסגר, markdown-it מציג לפעמים גרשיים במקום
+  // קוד, וזה הבדל מתועד — ראו ``docs/dev/sticky_notes_extending.rst``, בסעיף
+  // "קוד בשורה: יחידה אחת, שקודמת לכל מפריד".
+  const alphabet = ['`', '*', '=', '~', 'a', ' '];
+  const maxLength = 6;
+  const codes = (html) => (html.match(/<code>[\s\S]*?<\/code>/g) || []).join('|');
+  let checked = 0;
+  const walk = (prefix) => {
+    if (prefix.includes('`')){
+      checked += 1;
+      const ours = codes(inlineHtml(fileMgr._parseInline(prefix)));
+      const theirs = codes(mdDoc.renderInline(prefix));
+      if (ours !== theirs) throw new Error(`קלט ${JSON.stringify(prefix)}: בפתק ${ours}, במסמך ${theirs}`);
+    }
+    if (prefix.length === maxLength) return;
+    for (const c of alphabet) walk(prefix + c);
+  };
+  walk('');
+  // כל מחרוזת שיש בה גרש לפחות: כולן, פחות אלה שכל תו בהן מחמשת האחרים.
+  let expected = 0;
+  for (let k = 1; k <= maxLength; k += 1) expected += alphabet.length ** k - (alphabet.length - 1) ** k;
+  eq(checked, expected, 'כל הקלטים נבדקו');
+});
+
+// ---------- מארקדאון: הסריקה האינלינית לינארית ----------
+
+//: פי כמה מותר לזמן הפרסור לגדול כשהשורה גדלה פי ארבעה, בבדיקת הלינאריות
+//: שלמטה. סריקה לינארית גדלה בערך פי ארבעה, וסריקה שחוזרת על עצמה מכל ``[``
+//: בערך פי שש-עשרה, ולכן הסף באמצע. נמדד ב-12.10.2026 בבדיקה עצמה, כל הרצה
+//: בתהליך node משלה כמו ב-CI, על node 22 ועל node 24 (שעליה רץ ה-CI ביום
+//: המדידה): בקוד של היום פי 2.9–5.6 (12 הרצות לכל גרסה). כשהזיכרון של
+//: ``_firstOutsideCode`` מנוטרל, הסוגריים הפותחים גדלים פי 21.1–25.9; וכש-
+//: ``_linkDestStop`` סורק מחדש בכל קריאה, הקישורים שלא נסגרים גדלים פי
+//: 14.3–19.3 (3 הרצות לכל אחת, בכל גרסה). כל שורה למטה תופסת את אחת משתי
+//: המוטציות, ורק אותה.
+const INLINE_LINEAR_GROWTH_LIMIT = 12;
+
+check('אינליין: הסריקה לינארית בשורה באורך תקרת הפתק', () => {
+  // כל ``[`` מחפש ``]`` עד סוף השורה, וכל ``](`` מחפש את סוף היעד. בשורה של
+  // הרבה פותחים שלא נסגרים, בלי הזיכרון של ``_firstOutsideCode`` ושל
+  // ``_linkDestStop`` כל אחד מהם סורק מחדש את כל ההמשך — וזה ריבועי. הפלט
+  // זהה עם הזיכרון ובלעדיו, ולכן רק הזמן תופס.
+  //
+  // **משווים זמן לזמן, ולא לתקרה בשניות** — שורה באורך התקרה מול רבע ממנה.
+  // זו הצורה שבדיקת הלינאריות של סורק ה-CSS עברה אליה אחרי שנכשלה ב-CI על
+  // תקרה קבועה (``docs/whats-new.rst``, 12.10.2026): **זמן מעבד**
+  // (``process.cpuUsage``) ולא זמן שעון, וסבבים לסירוגין עם הזמן הקצר ביותר
+  // לכל גודל, כדי שהאטה רגעית לא תיפול רק על אחד מהם. **ארבעה פרסורים לכל
+  // דגימה**: פרסור בודד ברבע מהתקרה נמשך פחות מאלפית שנייה, ובגודל כזה
+  // הרעש של המדידה עצמה כבר מזיז את היחס.
+  //
+  // השורות דלות בהקצאות בכוונה — כמעט הכול טקסט אחד. שורה שמייצרת אלפי
+  // קטעים (``[`א` `` שחוזר על עצמו) נמדדה עד פי 13.2 על הקוד של היום, בשורה
+  // פי ארבעה מהתקרה — ופי 4.9–5.8 כשהזיכרון הצעיר של המנוע הוגדל
+  // (``--max-semi-space-size=128``). כלומר איסוף הזבל, ולא הסריקה.
+  const cap = Number(/^MAX_NOTE_CHARS\s*=\s*([\d_]+)/m
+    .exec(fs.readFileSync(path.join(__dirname, '..', 'sticky_notes_target.py'), 'utf8'))[1].replace(/_/g, ''));
+  const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
+  const lines = {
+    'סוגריים פותחים': (n) => '['.repeat(n - 1) + ']',
+    'קישורים שלא נסגרים': (n) => '[a](b'.repeat(Math.floor(n / 5)),
+  };
+  for (const [name, line] of Object.entries(lines)){
+    const texts = [line(Math.floor(cap / 4)), line(cap)];
+    const fastest = [Infinity, Infinity];
+    for (let round = 0; round < 5; round += 1){
+      texts.forEach((text, slot) => {
+        const started = cpuMs();
+        for (let k = 0; k < 4; k += 1) fileMgr._parseInline(text);
+        fastest[slot] = Math.min(fastest[slot], cpuMs() - started);
+      });
+    }
+    const growth = fastest[1] / fastest[0];
+    if (!(growth < INLINE_LINEAR_GROWTH_LIMIT)){
+      throw new Error(`${name}: הזמן גדל פי ${growth.toFixed(1)} כשהשורה גדלה פי 4 `
+        + `(רבע: ${fastest[0].toFixed(2)}, מלאה: ${fastest[1].toFixed(2)} אלפיות שנייה של מעבד, לארבעה פרסורים)`);
+    }
+  }
+});
+
 // ---------- מארקדאון: סיווג בלוק ----------
 
 check('בלוק: כותרות 1-3, ומעבר לרגיל', () => {
@@ -1045,6 +1278,35 @@ check('רינדור: קישור מקבל rel ו-target', () => {
   eq(a.getAttribute('href'), 'https://x.com');
   eq(a.getAttribute('target'), '_blank');
   eq(a.getAttribute('rel'), 'noopener noreferrer');
+});
+
+check('רינדור: קוד בתוך מודגש נבנה כ-code בתוך strong', () => {
+  const { view } = renderMd(mdMgr, ',**מילים עם `קוד` בתוך הדגשה** -  לא מתרנדר');
+  const bold = view.querySelector('.sticky-md-bold');
+  eq(!!bold, true, 'יש מודגש');
+  const code = bold && bold.querySelector('.sticky-md-code');
+  eq(!!code, true, 'הקוד בתוך המודגש');
+  eq(code && String(code.tagName).toLowerCase(), 'code', 'האלמנט code');
+  eq(code && code.textContent, 'קוד', 'תוכן הקוד, בלי הגרשיים');
+  eq(bold && bold.textContent, 'מילים עם קוד בתוך הדגשה', 'ובמודגש אין גרשיים');
+});
+
+check('רינדור: קוד בתוך קישור — הקישור נשאר קישור', () => {
+  const { view } = renderMd(mdMgr, 'ראה [את `app.py`](https://x.com)');
+  const a = view.querySelector('.sticky-md-link');
+  eq(a.getAttribute('href'), 'https://x.com');
+  eq(a.getAttribute('target'), '_blank');
+  eq(a.getAttribute('rel'), 'noopener noreferrer');
+  eq(!!a.querySelector('.sticky-md-code'), true, 'הקוד בתוך הקישור');
+  eq(a.textContent, 'את app.py');
+});
+
+check('רינדור: קוד בתווית של קישור פסול — קוד, ובלי קישור', () => {
+  const { view } = renderMd(mdMgr, '[`x`](javascript:alert(1))');
+  eq(!!view.querySelector('.sticky-md-link'), false, 'אין קישור');
+  const code = view.querySelector('.sticky-md-code');
+  eq(code && code.textContent, 'x', 'הקוד מוצג כקוד');
+  eq(view.textContent.includes('[x](javascript:alert(1))'), true, 'והשאר כפי שהוקלד');
 });
 
 check('רינדור: בלוק קוד — הגדרות אינן מוצגות, התוכן ליטרלי', () => {
