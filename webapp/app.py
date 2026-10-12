@@ -2569,7 +2569,14 @@ def _resolve_note_fonts(
 # הערכים הם הטוקנים ש-``STICKY_NOTE_FONT_MENUS.settings`` מציע
 # ב-``_note_fonts_head.html``, ומי ששומר על שני המקורות מיושרים הוא
 # בדיקה שמשווה ביניהם — בדיוק כמו הבורר שבמודאל הלוח מול המפה.
-NOTE_FONT_SIZE_VALUES = ("normal", "mid", "lg")
+#
+# **``mid`` ו-``lg`` אינם כאן בכוונה.** הם גדלים מהסולם שלפני אוקטובר
+# 2026, ויש משתמשים ששמרו אותם — ב-``ui_prefs.note_font_size`` וב-cookie
+# ``ui_note_font_size``. כאן הם נדחים כמו כל ערך לא מוכר: ``_decode_note_font_size``
+# מחזירה ``None``, ושמירה חדשה שלהם נענית 400. cookie כזה במצב ``device``
+# נופל לבחירה המשותפת שבמסד, ושדה כזה במסד — לברירת המחדל. הנימוק
+# לשמות החדשים, ולמה אין להחזיר את הישנים, ליד ``STICKY_NOTE_FONT_SIZES``.
+NOTE_FONT_SIZE_VALUES = ("normal", "large", "xlarge")
 NOTE_FONT_SIZE_DEFAULT = NOTE_FONT_SIZE_VALUES[0]
 
 

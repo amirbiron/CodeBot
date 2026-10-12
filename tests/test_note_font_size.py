@@ -119,7 +119,7 @@ def test_every_offered_token_decodes_to_itself():
         assert _decode_note_font_size(token) == token
 
 
-@pytest.mark.parametrize("bad", [None, 1, 1.5, True, [], {}, b"lg", ("lg",)])
+@pytest.mark.parametrize("bad", [None, 1, 1.5, True, [], {}, b"large", ("large",)])
 def test_a_non_string_decodes_to_none_and_does_not_raise(bad):
     """**בדיקת הטיפוס לפני כל נגיעה בערך.**
 
@@ -132,38 +132,42 @@ def test_a_non_string_decodes_to_none_and_does_not_raise(bad):
     assert _decode_note_font_size(bad) is None
 
 
-@pytest.mark.parametrize("bad", ["", "  ", "XL", "LG", "sticky-font-lg",
-                                 "__proto__", "constructor", "lg lg", "15px"])
+@pytest.mark.parametrize("bad", ["", "  ", "XLARGE", "Large", "sticky-font-large",
+                                 "__proto__", "constructor", "large large", "18px"])
 def test_a_corrupt_string_decodes_to_none(bad):
     from webapp.app import _decode_note_font_size
 
     assert _decode_note_font_size(bad) is None
 
 
-def test_a_size_that_only_boards_offer_is_rejected():
-    """``xl`` קיים במפה שב-``_note_fonts_head.html``, אבל **לא** כאן.
+@pytest.mark.parametrize("old", ["mid", "lg", "xl"])
+def test_a_size_name_from_the_old_scale_is_rejected(old):
+    """שמות מהסולם שלפני אוקטובר 2026 אינם מוכרים, ובכוונה.
 
-    המפה עונה על "אילו גדלים קיימים"; עמוד ההגדרות מציע שלושה מהם.
-    קבלה של ``xl`` הייתה שומרת גודל שאין דרך לבחור בממשק, ואז הבורר
-    היה מציג משהו אחר ממה שמוצג בפתק.
+    ``mid`` ו-``lg`` היו בחירות חוקיות בעמוד ההגדרות, והם עדיין שמורים
+    אצל משתמשים — במסד וב-cookie. אילו "גדול" החדש היה נקרא ``lg``, כל
+    בחירה ישנה הייתה מקבלת בשקט גודל אחר. כשהשם אינו מוכר, ערך כזה
+    מטופל כמו ערך פגום, והבחירה חוזרת ל"רגיל" (ראו
+    ``test_a_size_saved_on_the_old_scale_falls_back``). ``xl`` היה רק בלוח
+    ומעולם לא התקבל כאן; הוא ברשימה כדי שלא יחזור עם משמעות חדשה.
     """
     from webapp.app import _decode_note_font_size
 
-    assert _decode_note_font_size("xl") is None
+    assert _decode_note_font_size(old) is None
 
 
 # ── הכרעת התחולה ────────────────────────────────────────────────────────
 
 def test_the_device_cookie_wins_only_in_device_scope(app):
     got, scope = resolve(app, {"ui_note_font_size_scope": "device",
-                               "ui_note_font_size": "lg"}, _doc("mid"))
-    assert (got, scope) == ("lg", "device")
+                               "ui_note_font_size": "xlarge"}, _doc("large"))
+    assert (got, scope) == ("xlarge", "device")
 
 
 def test_in_global_scope_the_database_wins_over_the_cookie(app):
     got, scope = resolve(app, {"ui_note_font_size_scope": "global",
-                               "ui_note_font_size": "lg"}, _doc("mid"))
-    assert (got, scope) == ("mid", "global")
+                               "ui_note_font_size": "xlarge"}, _doc("large"))
+    assert (got, scope) == ("large", "global")
 
 
 def test_a_device_with_nothing_stored_falls_back_to_the_shared_value(app):
@@ -172,14 +176,33 @@ def test_a_device_with_nothing_stored_falls_back_to_the_shared_value(app):
     מכשיר במצב ``device`` שעדיין לא בחר גודל ממשיך להציג את הבחירה
     המשותפת. פענוח שהיה מחזיר ברירת מחדל במקום ``None`` היה מאפס אותה.
     """
-    got, _ = resolve(app, {"ui_note_font_size_scope": "device"}, _doc("lg"))
-    assert got == "lg"
+    got, _ = resolve(app, {"ui_note_font_size_scope": "device"}, _doc("xlarge"))
+    assert got == "xlarge"
 
 
 def test_a_corrupt_device_cookie_falls_back_to_the_shared_value(app):
     got, _ = resolve(app, {"ui_note_font_size_scope": "device",
-                           "ui_note_font_size": "zzz"}, _doc("mid"))
-    assert got == "mid"
+                           "ui_note_font_size": "zzz"}, _doc("large"))
+    assert got == "large"
+
+
+@pytest.mark.parametrize("old", ["mid", "lg"])
+def test_a_size_saved_on_the_old_scale_falls_back(app, old):
+    """בחירה מלפני אוקטובר 2026 חוזרת ל"רגיל" — בלי מיגרציה.
+
+    שני המקומות שבהם היא שמורה, ושניהם עוברים באותו פענוח: שדה במסד
+    שאין לו cookie שגובר עליו נופל לברירת המחדל; ו-cookie של מכשיר
+    במצב ``device`` נופל לבחירה המשותפת שבמסד — בדיוק כמו cookie פגום.
+    הצד השני של ההחלטה בדיקה מעל: השמות הישנים אינם מוכרים.
+    """
+    from webapp.app import NOTE_FONT_SIZE_DEFAULT
+
+    got, _ = resolve(app, {}, _doc(old))
+    assert got == NOTE_FONT_SIZE_DEFAULT, "שדה ישן במסד לא חזר לברירת המחדל"
+
+    got, scope = resolve(app, {"ui_note_font_size_scope": "device",
+                               "ui_note_font_size": old}, _doc("large"))
+    assert (got, scope) == ("large", "device"), "cookie ישן גבר על הבחירה המשותפת"
 
 
 def test_the_two_scopes_are_independent(app):
@@ -190,8 +213,8 @@ def test_the_two_scopes_are_independent(app):
     """
     got, scope = resolve(app, {"ui_note_fonts_scope": "device",
                                "ui_note_fonts": "111",
-                               "ui_note_font_size": "lg"}, _doc("mid"))
-    assert (got, scope) == ("mid", "global"), "תחולת כתב היד אינה מכריעה כאן"
+                               "ui_note_font_size": "xlarge"}, _doc("large"))
+    assert (got, scope) == ("large", "global"), "תחולת כתב היד אינה מכריעה כאן"
 
 
 def test_a_guest_gets_the_default(app):
@@ -232,10 +255,10 @@ def test_the_etag_key_changes_with_the_size(app):
 
     with app.test_request_context("/"):
         normal = _note_fonts_etag_key(7, user_doc=_doc("normal"))
-        mid = _note_fonts_etag_key(7, user_doc=_doc("mid"))
-        big = _note_fonts_etag_key(7, user_doc=_doc("lg"))
+        large = _note_fonts_etag_key(7, user_doc=_doc("large"))
+        xlarge = _note_fonts_etag_key(7, user_doc=_doc("xlarge"))
 
-    assert normal != mid != big and normal != big, (normal, mid, big)
+    assert normal != large != xlarge and normal != xlarge, (normal, large, xlarge)
 
 
 def test_the_etag_key_still_changes_with_the_handwriting_setting(app):
@@ -243,9 +266,9 @@ def test_the_etag_key_still_changes_with_the_handwriting_setting(app):
     from webapp.app import _note_fonts_etag_key
 
     off = {"ui_prefs": {"note_fonts": {"repo": False, "md": False, "board": False},
-                        "note_font_size": "mid"}}
+                        "note_font_size": "large"}}
     on = {"ui_prefs": {"note_fonts": {"repo": False, "md": True, "board": False},
-                       "note_font_size": "mid"}}
+                       "note_font_size": "large"}}
     with app.test_request_context("/"):
         assert _note_fonts_etag_key(7, user_doc=off) != _note_fonts_etag_key(7, user_doc=on)
 
@@ -259,7 +282,7 @@ def test_the_etag_projection_carries_the_size_field(app):
     """
     from webapp.app import ETAG_USER_PROJECTION, _resolve_note_font_size
 
-    full = {"user_id": 7, "ui_prefs": {"theme": "classic", "note_font_size": "lg",
+    full = {"user_id": 7, "ui_prefs": {"theme": "classic", "note_font_size": "xlarge",
                                        "editor": "codemirror"}}
 
     def project(doc, projection):
@@ -279,7 +302,7 @@ def test_the_etag_projection_carries_the_size_field(app):
     projected = project(full, ETAG_USER_PROJECTION)
     with app.test_request_context("/"):
         got, _ = _resolve_note_font_size(7, projected)
-    assert got == "lg", f"הגודל לא שרד את הפרויקציה: {projected}"
+    assert got == "xlarge", f"הגודל לא שרד את הפרויקציה: {projected}"
 
 
 def test_the_database_is_not_skipped_while_the_size_still_depends_on_it(app):
@@ -300,7 +323,7 @@ def test_the_database_is_not_skipped_while_the_size_still_depends_on_it(app):
         assert _etag_needs_user_doc() is True, "דילג על המסד בזמן שהגודל תלוי בו"
 
     everything = dict(decided_but_not_size,
-                      **{"ui_note_font_size_scope": "device", "ui_note_font_size": "lg"})
+                      **{"ui_note_font_size_scope": "device", "ui_note_font_size": "large"})
     header = "; ".join(f"{k}={v}" for k, v in everything.items())
     with app.test_request_context("/", headers={"Cookie": header}):
         assert _etag_needs_user_doc() is False, "הכול הוכרע מ-cookie ובכל זאת נשלף"
@@ -354,32 +377,35 @@ def test_the_cookie_is_sent_even_when_nothing_is_written_to_the_database(monkeyp
     ולכן הטענה היא על ה-cookie **בתגובה עצמה**; בדיקה שהסתפקה בסטטוס
     200 הייתה עוברת על הבאג במלואו.
     """
-    res, users = _post_pref(monkeypatch, {"note_font_size": "lg",
+    res, users = _post_pref(monkeypatch, {"note_font_size": "large",
                                           "note_font_size_scope": "device"})
 
     assert res.status_code == 200
-    assert _cookie(res, "ui_note_font_size") == "lg", "הקוקי לא נשלח"
+    assert _cookie(res, "ui_note_font_size") == "large", "הקוקי לא נשלח"
     assert _cookie(res, "ui_note_font_size_scope") == "device"
     assert not users.writes, f"מצב device כתב ל-DB: {users.writes}"
 
 
 def test_a_global_save_writes_the_field_and_sets_the_cookie(monkeypatch):
-    res, users = _post_pref(monkeypatch, {"note_font_size": "mid",
+    res, users = _post_pref(monkeypatch, {"note_font_size": "xlarge",
                                           "note_font_size_scope": "global"})
 
     assert res.status_code == 200
-    assert _cookie(res, "ui_note_font_size") == "mid"
+    assert _cookie(res, "ui_note_font_size") == "xlarge"
     written = [w.get("$set", {}).get("ui_prefs.note_font_size") for w in users.writes]
-    assert "mid" in written, f"השדה לא נכתב: {users.writes}"
+    assert "xlarge" in written, f"השדה לא נכתב: {users.writes}"
 
 
-@pytest.mark.parametrize("bad", ["xl", "zzz", "", 5, None, ["lg"], {"v": "lg"}, True])
+@pytest.mark.parametrize("bad", ["mid", "lg", "xl", "zzz", "", 5, None,
+                                 ["large"], {"v": "large"}, True])
 def test_an_invalid_size_is_rejected_before_anything_is_written(monkeypatch, bad):
     """דחייה ולא המרה, ולא 500.
 
     טוקן לא מוכר אינו מוחל בדפדפן — ההחלה מאמתת מול המפה — ולכן שמירה
     שקטה שלו הייתה מציגה למשתמש "נשמר" על גודל שלא ישתנה לעולם. וערך
-    שאינו מחרוזת חייב להיעצר בוולידציה, לא לזרוק.
+    שאינו מחרוזת חייב להיעצר בוולידציה, לא לזרוק. השמות מהסולם הקודם
+    (``mid``, ``lg``, ``xl``) נדחים כאן כמו כל טוקן לא מוכר — דף הגדרות
+    ישן שעוד פתוח בדפדפן אחרי פריסה שולח את ``mid`` ואת ``lg``.
     """
     res, users = _post_pref(monkeypatch, {"note_font_size": bad,
                                           "note_font_size_scope": "global"})
@@ -432,14 +458,14 @@ def test_a_global_write_reaches_the_database(wired_mongo):
     users = wired_mongo.get_db().users
     users.delete_many({"user_id": 7})
 
-    res = _post(_client(wired_mongo), {"note_font_size": "mid",
+    res = _post(_client(wired_mongo), {"note_font_size": "xlarge",
                                        "note_font_size_scope": "global"})
     assert res.status_code == 200
 
     # קריאה חוזרת מהמסד, ולא ערך ההחזרה של הראוט
     doc = users.find_one({"user_id": 7}) or {}
-    assert doc.get("ui_prefs", {}).get("note_font_size") == "mid"
-    assert _cookie(res, "ui_note_font_size") == "mid"
+    assert doc.get("ui_prefs", {}).get("note_font_size") == "xlarge"
+    assert _cookie(res, "ui_note_font_size") == "xlarge"
 
 
 def test_a_device_write_sets_the_cookie_and_stays_out_of_the_database(wired_mongo):
@@ -455,28 +481,29 @@ def test_a_device_write_sets_the_cookie_and_stays_out_of_the_database(wired_mong
     users = wired_mongo.get_db().users
     users.delete_many({"user_id": 7})
 
-    res = _post(_client(wired_mongo), {"note_font_size": "lg",
+    res = _post(_client(wired_mongo), {"note_font_size": "large",
                                        "note_font_size_scope": "device"})
     assert res.status_code == 200
-    assert _cookie(res, "ui_note_font_size") == "lg", "הקוקי לא נשלח"
+    assert _cookie(res, "ui_note_font_size") == "large", "הקוקי לא נשלח"
     assert _cookie(res, "ui_note_font_size_scope") == "device"
 
     doc = users.find_one({"user_id": 7}) or {}
     assert "note_font_size" not in doc.get("ui_prefs", {}), "מצב device כתב ל-DB"
 
 
-@pytest.mark.parametrize("bad", ["xl", "zzz", "", 5, None, ["lg"], {"v": "lg"}, True])
+@pytest.mark.parametrize("bad", ["mid", "lg", "xl", "zzz", "", 5, None,
+                                 ["large"], {"v": "large"}, True])
 def test_an_invalid_size_is_rejected_and_nothing_is_written(wired_mongo, bad):
     users = wired_mongo.get_db().users
     users.delete_many({"user_id": 7})
-    users.insert_one({"user_id": 7, "ui_prefs": {"note_font_size": "mid"}})
+    users.insert_one({"user_id": 7, "ui_prefs": {"note_font_size": "large"}})
 
     res = _post(_client(wired_mongo), {"note_font_size": bad,
                                        "note_font_size_scope": "global"})
     assert res.status_code == 400, f"{bad!r} התקבל"
 
     doc = users.find_one({"user_id": 7}) or {}
-    assert doc.get("ui_prefs", {}).get("note_font_size") == "mid", "הערך הקיים נדרס"
+    assert doc.get("ui_prefs", {}).get("note_font_size") == "large", "הערך הקיים נדרס"
 
 
 def test_the_size_and_the_handwriting_are_saved_in_one_request(wired_mongo):
@@ -487,13 +514,13 @@ def test_the_size_and_the_handwriting_are_saved_in_one_request(wired_mongo):
     res = _post(_client(wired_mongo), {
         "note_fonts": {"repo": True, "md": False, "board": False},
         "note_fonts_scope": "global",
-        "note_font_size": "lg",
+        "note_font_size": "large",
         "note_font_size_scope": "global",
     })
     assert res.status_code == 200
 
     prefs = (users.find_one({"user_id": 7}) or {}).get("ui_prefs", {})
-    assert prefs.get("note_font_size") == "lg"
+    assert prefs.get("note_font_size") == "large"
     assert prefs.get("note_fonts") == {"repo": True, "md": False, "board": False}
 
 
@@ -505,7 +532,7 @@ def test_each_scope_only_moves_its_own_value(wired_mongo):
     res = _post(_client(wired_mongo), {
         "note_fonts": {"repo": True, "md": True, "board": False},
         "note_fonts_scope": "global",
-        "note_font_size": "mid",
+        "note_font_size": "xlarge",
         "note_font_size_scope": "device",
     })
     assert res.status_code == 200
@@ -513,7 +540,7 @@ def test_each_scope_only_moves_its_own_value(wired_mongo):
     prefs = (users.find_one({"user_id": 7}) or {}).get("ui_prefs", {})
     assert prefs.get("note_fonts") == {"repo": True, "md": True, "board": False}
     assert "note_font_size" not in prefs, "הגודל נכתב ל-DB למרות device"
-    assert _cookie(res, "ui_note_font_size") == "mid"
+    assert _cookie(res, "ui_note_font_size") == "xlarge"
 
 
 # ── הבורר בעמוד ההגדרות ─────────────────────────────────────────────────
@@ -552,9 +579,13 @@ def _selected_option(html, select_id):
 @pytest.mark.parametrize("stored,expected", [
     (None, "normal"),
     ("normal", "normal"),
-    ("mid", "mid"),
-    ("lg", "lg"),
-    ("xl", "normal"),        # קיים במפה, לא מוצע כאן
+    ("large", "large"),
+    ("xlarge", "xlarge"),
+    # השמות מהסולם שלפני אוקטובר 2026: הבחירה חוזרת ל"רגיל", והבורר
+    # מציג את מה שהפתק מציג.
+    ("mid", "normal"),
+    ("lg", "normal"),
+    ("xl", "normal"),
     ("garbage", "normal"),
 ])
 def test_the_settings_select_reflects_the_saved_size(monkeypatch, stored, expected):
