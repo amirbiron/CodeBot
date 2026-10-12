@@ -190,11 +190,11 @@ await acheck('שינוי התחולה שולח גם את הערכים', async ()
 
 await acheck('הבקשה נושאת את הגודל ואת התחולה הנפרדת שלו', async () => {
   const h = load();
-  h.sizeSel.value = 'mid';
+  h.sizeSel.value = 'xlarge';
   await h.sizeSel.__fire('change');
 
   eq(h.sent.length, 1, 'מספר בקשות');
-  eq(h.sent[0].note_font_size, 'mid', 'הגודל');
+  eq(h.sent[0].note_font_size, 'xlarge', 'הגודל');
   eq(h.sent[0].note_font_size_scope, 'global', 'התחולה של הגודל');
 });
 
@@ -214,17 +214,17 @@ await acheck('שינוי כתב היד שולח גם את הגודל, ולהפך
   // נשלחות יחד. שליחה חלקית הייתה משאירה את השרת עם שני מצבים
   // שנשמרו בזמנים שונים.
   const h = load();
-  h.sizeSel.value = 'lg';
+  h.sizeSel.value = 'large';
   h.selects[0].value = '1';
   await h.selects[0].__fire('change');
 
-  eq(h.sent[0].note_font_size, 'lg', 'הגודל נסע יחד עם כתב היד');
+  eq(h.sent[0].note_font_size, 'large', 'הגודל נסע יחד עם כתב היד');
   eq(h.sent[0].note_fonts.repo, true, 'וגם כתב היד עצמו');
 });
 
 await acheck('כשל שמירה מחזיר גם את בורר הגודל, לא רק את כתב היד', async () => {
   const h = load(async () => ({ ok: false, status: 500, body: { ok: false } }));
-  h.sizeSel.value = 'lg';
+  h.sizeSel.value = 'large';
   await h.sizeSel.__fire('change');
   eq(h.sizeSel.value, 'normal', 'הבורר הוחזר למצב שהשרת אישר');
 });

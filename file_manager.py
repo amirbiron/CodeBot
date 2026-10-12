@@ -19,6 +19,15 @@ try:
 except Exception:  # pragma: no cover
     gridfs = None  # type: ignore[assignment]
 
+# ``PyMongoError`` — מה ש-``FilesFacade.get_user_files_fresh`` זורק כשהמסד נכשל, והסיכון שה-purge
+# ב-``restore_from_backup`` מתייג "purge listing failed". בלי pymongo, מחלקה שלא תיזרק לעולם — אותה
+# תבנית כמו ב-``github_menu_handler.py``.
+try:
+    from pymongo.errors import PyMongoError as _PyMongoError
+except ModuleNotFoundError:  # pragma: no cover - optional dependency in minimal/test envs
+    class _PyMongoError(Exception):  # type: ignore[no-redef]
+        pass
+
 logger = logging.getLogger(__name__)
 
 # Transitional: access persistence only via facade (avoid direct database imports)
@@ -1070,16 +1079,25 @@ class BackupManager:
 
             if purge:
                 try:
-                    existing = facade.get_user_files(user_id, limit=1000, projection={"file_name": 1}) or []
-                    for doc in existing:
-                        try:
-                            fname = doc.get('file_name')
-                            if fname:
-                                facade.delete_file(user_id, fname)
-                        except Exception as e:
-                            results["errors"].append(f"purge failed for {doc.get('file_name')}: {e}")
-                except Exception as e:
-                    results["errors"].append(f"purge listing failed: {e}")
+                    # מהמסד ולא מהרשימה המקוּשה: הרשימה קובעת מה נמחק, וקובץ שנוצר
+                    # בוובאפ אחרי שהיא נכנסה לקאש היה שורד את ה-purge.
+                    existing = facade.get_user_files_fresh(user_id, limit=1000, projection={"file_name": 1}) or []
+                except _PyMongoError:
+                    # רשימה שלא נקראה אינה "אין קבצים" — הדלת זורקת. שחזור מלא שלא יכול למחוק
+                    # היה הופך למיזוג שקט עם הקבצים הקיימים, ולכן הוא לא מתחיל. בלי טקסט החריגה
+                    # בתוצאה: של pymongo כולל כתובות שרתים, והוא נשמר בלוג. רק כשל של המסד מקבל
+                    # את התווית "purge listing failed"; באג עולה ל-``except`` שבסוף הפונקציה עם
+                    # הטקסט שלו, וגם שם השחזור לא מתחיל.
+                    logger.warning("restore_from_backup: listing for purge failed; restore not started", exc_info=True)
+                    results["errors"].append("purge listing failed")
+                    return results
+                for doc in existing:
+                    try:
+                        fname = doc.get('file_name')
+                        if fname:
+                            facade.delete_file(user_id, fname)
+                    except Exception as e:
+                        results["errors"].append(f"purge failed for {doc.get('file_name')}: {e}")
 
             with zipfile.ZipFile(backup_path, 'r') as zf:
                 names = [n for n in zf.namelist() if not n.endswith('/') and n != 'metadata.json']

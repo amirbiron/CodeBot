@@ -1234,9 +1234,9 @@
             aria-label="גודל הטקסט בפתקים"
             style="padding: 0.45rem 0.65rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-primary);"
           >
-            <option value="normal" {% if note_font_size != 'mid' and note_font_size != 'lg' %}selected{% endif %}>רגיל</option>
-            <option value="mid" {% if note_font_size == 'mid' %}selected{% endif %}>בינוני</option>
-            <option value="lg" {% if note_font_size == 'lg' %}selected{% endif %}>גדול</option>
+            <option value="normal" {% if note_font_size != 'large' and note_font_size != 'xlarge' %}selected{% endif %}>רגיל</option>
+            <option value="large" {% if note_font_size == 'large' %}selected{% endif %}>גדול</option>
+            <option value="xlarge" {% if note_font_size == 'xlarge' %}selected{% endif %}>גדול מאוד</option>
           </select>
         </div>
 

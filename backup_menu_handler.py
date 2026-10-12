@@ -815,9 +815,15 @@ class BackupMenuHandler:
                 results = backup_manager.restore_from_backup(user_id=user_id, backup_path=match.file_path, overwrite=True, purge=True)
             restored = results.get('restored_files', 0)
             errors = results.get('errors', [])
-            msg = f"✅ שוחזרו {restored} קבצים בהצלחה מגיבוי {backup_id}"
-            if errors:
-                msg += f"\n⚠️ שגיאות: {len(errors)}"
+            if errors and not restored:
+                # ``restore_from_backup`` מדווח כשל בתוך ``errors`` ולא בזריקה — למשל שחזור
+                # מלא שלא התחיל כי רשימת הקבצים למחיקה לא נקראה. "✅ שוחזרו 0" היה אישור על
+                # פעולה שלא קרתה.
+                msg = f"❌ לא שוחזר אף קובץ מגיבוי {backup_id} (שגיאות: {len(errors)})"
+            else:
+                msg = f"✅ שוחזרו {restored} קבצים בהצלחה מגיבוי {backup_id}"
+                if errors:
+                    msg += f"\n⚠️ שגיאות: {len(errors)}"
             await query.edit_message_text(msg)
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בשחזור: {e}")

@@ -47,7 +47,7 @@ async def test_import_repo_allows_zip_over_content_limit(monkeypatch):
     saved = {"n": 0}
 
     class _Facade:
-        def get_latest_version(self, user_id, file_name):
+        def get_latest_version_fresh(self, user_id, file_name):
             return None
 
         def save_file(self, **kwargs):

@@ -398,6 +398,51 @@ async def test_download_and_restore_not_found(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("results, expected_start", [
+    pytest.param({"restored_files": 0, "errors": ["purge listing failed"]}, "❌", id="nothing-restored"),
+    pytest.param({"restored_files": 2, "errors": ["save failed for a.py"]}, "✅", id="partly-restored"),
+    pytest.param({"restored_files": 2, "errors": []}, "✅", id="restored"),
+])
+async def test_a_restore_that_restored_nothing_is_not_reported_as_success(monkeypatch, tmp_path, results, expected_start):
+    """``restore_from_backup`` מדווח כשל בתוך ``errors`` ולא בזריקה — למשל שחזור מלא שלא התחיל, כי
+    רשימת הקבצים למחיקה לא נקראה. "✅ שוחזרו 0" היה אישור על פעולה שלא קרתה."""
+    import backup_menu_handler as bmh
+
+    handler = bmh.BackupMenuHandler()
+    archive = tmp_path / "b1.zip"
+    archive.write_bytes(b"zip")
+    infos = [_make_backup_info(backup_id="b1", file_path=str(archive))]
+
+    class _Mgr:
+        def list_backups(self, user_id):
+            return infos
+
+        def restore_from_backup(self, *a, **k):
+            return dict(results)
+
+    monkeypatch.setattr(bmh, "backup_manager", _Mgr())
+
+    class _Q:
+        def __init__(self):
+            self.data = "backup_restore_id:b1"
+            self.from_user = types.SimpleNamespace(id=8)
+            self.last_text = None
+
+        async def answer(self, *a, **k):
+            return None
+
+        async def edit_message_text(self, text, **kwargs):
+            self.last_text = text
+
+    upd = types.SimpleNamespace(callback_query=_Q(), effective_user=types.SimpleNamespace(id=8))
+    ctx = types.SimpleNamespace(user_data={})
+
+    await handler.handle_callback_query(upd, ctx)
+
+    assert upd.callback_query.last_text.startswith(expected_start), upd.callback_query.last_text
+
+
+@pytest.mark.asyncio
 async def test_show_backup_details_and_note_prompt(monkeypatch):
     import backup_menu_handler as bmh
 
