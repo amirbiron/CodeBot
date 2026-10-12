@@ -33,11 +33,8 @@ pip install markdown bleach pygments
 Markdown text
    │
    ▼
-preprocess_markdown        # ::: note/warning/... → <div class="alert ...">
-   │
-   ▼
 markdown.Markdown.convert  # fenced_code, tables, nl2br, toc, codehilite, attr_list
-   │
+   │                       # + מעבד בלוקים למכולות ::: (תיבות הסבר ו-details)
    ▼
 regex strip <script>/<style>
    │
@@ -100,39 +97,12 @@ ALLOWED_ATTRS = {
 ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
 
 
-# ---------- Preprocess: ::: note / warning / ... ----------
-
-_ADMONITION_RE = re.compile(
-    r"^:::\s*(note|info|warning|important|danger|success|tip)\b[^\n]*\n(.*?)\n:::$",
-    flags=re.DOTALL | re.MULTILINE,
-)
-
-_TYPE_MAP = {
-    "note": "info", "info": "info", "tip": "success", "success": "success",
-    "warning": "warning", "important": "warning", "danger": "danger",
-}
-
-
-def preprocess_markdown(text: str) -> str:
-    """ממיר בלוקי `::: type ... :::` ל־<div class='alert alert-*'>."""
-    if not text:
-        return ""
-
-    def _replace(match: re.Match) -> str:
-        kind = match.group(1).lower()
-        body = match.group(2).strip()
-        css_class = _TYPE_MAP.get(kind, "info")
-        inner = markdown.markdown(body, extensions=["nl2br"])
-        clean_inner = bleach.clean(
-            inner,
-            tags=ALLOWED_TAGS,
-            attributes=ALLOWED_ATTRS,
-            protocols=ALLOWED_PROTOCOLS,
-            strip=True,
-        )
-        return f'<div class="alert alert-{css_class}">{clean_inner}</div>'
-
-    return _ADMONITION_RE.sub(_replace, text)
+# ---------- מכולות ::: (תיבות הסבר ו-details) ----------
+# לא מועתק לכאן בכוונה: הקוד חי ב-services/styled_export_service.py —
+# ADMONITION_TYPES, _ContainerBlockProcessor ו-_ContainerExtension — ומעתיקים
+# אותו משם. עותק כאן היה מתיישן בתיקון הבא, כמו שקרה לגרסה הקודמת של
+# המדריך. כדי להשתמש בו: _ContainerExtension() לרשימת ה-extensions שלמטה,
+# ו-"details" ו-"summary" ל-ALLOWED_TAGS. ההסבר בסעיף "מכולות :::" למטה.
 
 
 # ---------- Main API ----------
@@ -144,8 +114,6 @@ def markdown_to_html(text: str, include_toc: bool = False) -> Tuple[str, str]:
     """
     if not text:
         return "", ""
-
-    processed = preprocess_markdown(text)
 
     md = markdown.Markdown(
         extensions=[
@@ -169,7 +137,7 @@ def markdown_to_html(text: str, include_toc: bool = False) -> Tuple[str, str]:
         },
     )
 
-    raw = md.convert(processed)
+    raw = md.convert(text)
 
     # נפילת ביטחון: מסיר script/style גם אם נשתחלו דרך allow‑list של bleach
     raw = re.sub(
@@ -253,10 +221,8 @@ page = f"""<!doctype html>
 
 ## הסברים – למה כל חלק קיים
 
-### 1. Preprocessing של אדמוניציות (`:::`)
-Python‑Markdown לא מכיר ב־`::: warning ... :::` כברירת מחדל. הוספנו preprocess קצר שמייצר `<div class="alert alert-warning">…</div>` ושומר על Markdown פנימי (כותרת, רשימה, **bold**). שים לב שאת ה־HTML הפנימי כבר מנקים מיד עם bleach – זה מחסום הגנה כפול.
-
-> חלופה: אפשר להשתמש ב־extension המובנה `admonition` במקום ה־preprocess. עשינו preprocess כי תחביר `:::` יותר נפוץ במסמכים שלנו.
+### 1. מכולות `:::` — תיבות הסבר ו־`details`
+Python‑Markdown לא מכיר ב־`::: warning ... :::`. בייצוא של CodeBot הן מטופלות במעבד בלוקים, `_ContainerBlockProcessor` ב־`services/styled_export_service.py`, באותה צורה של התוסף המובנה `admonition` (שמשתמש בתחביר אחר, `!!!` עם הזחה). מעבד בלוקים ולא החלפה על הטקסט הגולמי לפני ההמרה, כי הוא רץ אחרי ש־`fenced_code` כבר הוציא את בלוקי הקוד: דוגמה של `::: note` בתוך בלוק קוד נשארת קוד — גרסה קודמת, שהחליפה על הטקסט הגולמי, הפכה אותה ל־`<div>` בתוך הקוד. ותוכן התיבה עובר דרך אותו פרסר כמו שאר המסמך: קוד, טבלאות ותיבות בתוך תיבות. הסוגים, כללי הפתיחה והסגירה והתוויות הם אלה של תצוגת ה־Markdown בוובאפ, ו־`tests/test_styled_export_containers_parity.py` משווה את רשימת הסוגים לוובאפ.
 
 ### 2. ה־extensions החיוניים
 - `fenced_code` – בלוקי \`\`\`lang.
@@ -708,92 +674,7 @@ extensions=[..., "pymdownx.blocks.details"]
 
 (שים לב: `///` ולא `:::`. זה התחביר הרשמי של pymdownx.blocks.)
 
-אם אתה רוצה לשמור על אחידות עם `:::` כמו בלקוח – הנה preprocess קטן בסגנון של `preprocess_markdown` הקיים:
-
-```python
-import re
-import markdown
-import bleach
-
-_DETAILS_RE = re.compile(
-    r"^:::\s*details\s+([^\n]*)\n(.*?)\n:::$",
-    flags=re.DOTALL | re.MULTILINE,
-)
-
-def preprocess_details(text: str) -> str:
-    def repl(m):
-        title = (m.group(1) or "").strip() or "לחצו להצגה"
-        body  = m.group(2).strip()
-        inner = markdown.markdown(body, extensions=["nl2br", "fenced_code", "tables"])
-        clean_inner = bleach.clean(
-            inner, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS,
-            protocols=ALLOWED_PROTOCOLS, strip=True,
-        )
-        # escape ל־title כדי למנוע XSS דרך הכותרת
-        safe_title = (title.replace("&", "&amp;").replace("<", "&lt;")
-                            .replace(">", "&gt;").replace('"', "&quot;"))
-        return (f'<details class="markdown-details">'
-                f'<summary class="markdown-summary">{safe_title}</summary>'
-                f'<div class="details-content">{clean_inner}</div>'
-                f'</details>')
-    return _DETAILS_RE.sub(repl, text)
-```
-
-הפעלה לפני `md.convert(...)`, ביחד עם `preprocess_markdown` הקיים:
-
-```python
-processed = preprocess_markdown(text)
-processed = preprocess_details(processed)
-html = md.convert(processed)
-```
-
-**חשוב:** הוסף `details` ו־`summary` ל־`ALLOWED_TAGS` כדי שה־bleach לא יזרוק אותם:
-
-```python
-ALLOWED_TAGS = list(bleach.sanitizer.ALLOWED_TAGS) + [
-    # ... הקיימים ...
-    "details", "summary",
-]
-
-ALLOWED_ATTRS = {
-    # ... הקיימים ...
-    "details": ["open", "class"],
-    "summary": ["class"],
-}
-```
-
-עיצוב:
-
-```css
-details.markdown-details {
-  border: 1px solid var(--border-color, #d0d7de);
-  border-radius: 6px;
-  padding: 8px 12px;
-  margin: 12px 0;
-  background: var(--bg-secondary, #f6f8fa);
-}
-details.markdown-details > summary.markdown-summary {
-  cursor: pointer;
-  font-weight: 600;
-  list-style: none;          /* מסתיר את ה־▶ הדיפולטיבי */
-  padding: 4px 0;
-}
-details.markdown-details > summary.markdown-summary::-webkit-details-marker { display: none; }
-details.markdown-details > summary.markdown-summary::before {
-  content: "▶";
-  display: inline-block;
-  margin-inline-end: 8px;
-  transition: transform .15s ease;
-}
-details.markdown-details[open] > summary.markdown-summary::before {
-  transform: rotate(90deg);
-}
-details.markdown-details > .details-content {
-  padding-top: 8px;
-}
-```
-
-(זו פחות או יותר אותה מערכת CSS שיש ב־`md_preview.html` שורות 535–565, מותאמת לשימוש כללי.)
+אם אתה רוצה לשמור על אחידות עם `:::` כמו בלקוח — כך עושה הייצוא של CodeBot: `::: details` מטופל באותו מעבד בלוקים של התיבות (הסעיף "מכולות `:::`" שתחת "הסברים", `_ContainerBlockProcessor` ב־`services/styled_export_service.py`), עם המבנה של הוובאפ — `details.markdown-details`, `summary.markdown-summary` ו־`div.details-content` — ו־`details` ו־`summary` ברשימה הלבנה של bleach. העיצוב שלו בייצוא נמצא ב־`webapp/templates/export/styled_document.html`. גרסה קודמת של המדריך הציעה כאן preprocess על הטקסט הגולמי, והוא נפגע מאותה בעיה של בלוקי קוד שמתוארת שם.
 
 ---
 
@@ -803,7 +684,7 @@ details.markdown-details > .details-content {
 |---|---|---|
 | `~~strikethrough~~` | ✅ ברירת מחדל | `pymdownx.tilde` |
 | `==highlight==` | `markdown-it-mark` *או* פלאגין מותאם (מצורף) | `pymdownx.mark` |
-| `::: details כותרת ... :::` | `markdown-it-container` עם render מותאם (מצורף) | `pymdownx.blocks.details` (תחביר `///`) *או* preprocess מותאם (מצורף) |
+| `::: details כותרת ... :::` | `markdown-it-container` עם render מותאם (מצורף) | מעבד הבלוקים של הייצוא, `_ContainerBlockProcessor` *או* `pymdownx.blocks.details` (תחביר `///`) |
 
 ---
 

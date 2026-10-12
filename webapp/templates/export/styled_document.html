@@ -285,6 +285,44 @@
             background: var(--alert-danger-bg, rgba(231, 76, 60, 0.08));
         }
 
+        /* הקבוצה האפורה של הוובאפ: quote, deprecated, abstract */
+        .alert-neutral {
+            border-color: var(--text-secondary, var(--text-primary));
+            background: var(--bg-secondary, rgba(255, 255, 255, 0.03));
+        }
+
+        /* שורת הכותרת של התיבה — מה שנכתב אחרי הסוג, או ברירת המחדל שלו.
+           בצבע הטקסט ולא בצבע התיבה: צבעי המצב (--warning ודומיו) נבחרו
+           לגבול ולרקע, ובערכה בהירה צהוב על לבן אינו קריא. */
+        .alert-title {
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        /* ============================================
+         * Details (::: details)
+         * ============================================ */
+        details.markdown-details {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            margin: 1.5rem 0;
+            background: var(--card-bg, var(--bg-secondary));
+        }
+
+        summary.markdown-summary {
+            cursor: pointer;
+            font-weight: 700;
+            padding: 0.75rem 1.25rem;
+        }
+
+        .details-content {
+            padding: 0 1.25rem 1rem;
+        }
+
+        .details-content p:last-child {
+            margin-bottom: 0;
+        }
+
         /* ============================================
          * Blockquotes
          * ============================================ */
