@@ -41,7 +41,8 @@ async def test_clone_direct_creates_unique_name(monkeypatch):
 	class _Facade:
 		def __init__(self):
 			self.saved = []
-		def get_latest_version(self, user_id, file_name):
+		# המקור ובדיקת השם הפנוי נקראים מהמסד, לא דרך הגטר המקוּש
+		def get_latest_version_fresh(self, user_id, file_name):
 			if file_name == "hello.py":
 				return {"file_name": file_name, "code": "print('x')", "programming_language": "python", "description": "", "tags": []}
 			if file_name == "hello (copy).py":
@@ -67,8 +68,9 @@ async def test_clone_direct_creates_unique_name(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_clone_from_list_uses_cache_and_succeeds(monkeypatch):
-	# Arrange cache item
+async def test_clone_from_list_identifies_the_file_by_the_list_and_copies_it_from_the_database(monkeypatch):
+	# הרשומה ברשימה מזהה את הקובץ בלבד. העותק מקבל את מה שיש במסד, ולא את מה שהרשימה
+	# זוכרת — אין לה תוקף, והיא יכולה להיות מלפני עריכה בוובאפ.
 	import handlers.file_view as fv
 	upd = _Update()
 	ctx = _Context()
@@ -79,11 +81,19 @@ async def test_clone_from_list_uses_cache_and_succeeds(monkeypatch):
 
 	class _Facade:
 		def __init__(self):
-			self.saved = False
-		def get_latest_version(self, user_id, file_name):
+			self.saved = None
+		def get_latest_version_fresh(self, user_id, file_name):
+			if file_name == "a.txt":
+				return {"file_name": "a.txt", "code": "hi from db", "programming_language": "markdown", "description": "note from db", "tags": ["y"]}
 			return None
 		def save_code_snippet(self, *, user_id, file_name, code, programming_language, description, tags):
-			self.saved = True
+			self.saved = {
+				"file_name": file_name,
+				"code": code,
+				"programming_language": programming_language,
+				"description": description,
+				"tags": list(tags or []),
+			}
 			return True
 
 	facade = _Facade()
@@ -95,8 +105,13 @@ async def test_clone_from_list_uses_cache_and_succeeds(monkeypatch):
 	monkeypatch.setattr(fv.TelegramUtils, "safe_edit_message_text", _safe_edit)
 
 	await fv.handle_clone(upd, ctx)
-	# If no exception, and we reached end, test passes
-	assert facade.saved is True
+	assert facade.saved == {
+		"file_name": "a (copy).txt",
+		"code": "hi from db",
+		"programming_language": "markdown",
+		"description": "note from db",
+		"tags": ["y"],
+	}
 
 
 @pytest.mark.asyncio
@@ -112,7 +127,7 @@ async def test_clone_from_list_fetches_code_when_missing(monkeypatch):
 	class _Facade:
 		def __init__(self):
 			self.saved = None
-		def get_latest_version(self, user_id, file_name):
+		def get_latest_version_fresh(self, user_id, file_name):
 			return {
 				"file_name": file_name,
 				"code": "print('server')",

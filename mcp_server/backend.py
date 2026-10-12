@@ -1137,13 +1137,27 @@ def _latest_fresh(dbm: Any, user_id: int, file_name: str) -> dict[str, Any] | No
 
     Edits are read-modify-write: a cached body would make every edit rebuild
     from a stale base, and a cached version number would hand two versions the
-    same value. Falls back to the cached getter for DB managers that predate
-    ``get_latest_version_fresh`` so an older injection never breaks the server.
+    same value.
+
+    **No fallback to the cached getter.** A DB manager without
+    ``get_latest_version_fresh`` fails here with ``AttributeError``. Falling back
+    to ``get_latest_version`` turned this into a cached read without a trace —
+    in production the real manager has the method, so the fallback only ever
+    ran against an old test double, which then tested exactly the stale path
+    this function exists to avoid (``silent-fallback-to-worse-path`` in
+    amir-bug-patterns).
+
+    A failed query does not raise here: this calls the door with its default,
+    and ``Repository._fetch_latest_version`` then returns ``None`` both for a
+    missing file and for a query that failed. Each of the four callers reads
+    that ``None`` as a missing file — ``create_note`` and
+    ``add_to_collection`` answer ``file_not_found``, ``get_file`` finds nothing,
+    and ``save_file`` reports ``created`` for a file that exists. The bot's
+    facade passes ``raise_on_error=True``. Doing the same here needs an MCP
+    error code of its own and a refusal that does not carry pymongo's message,
+    which names the database hosts.
     """
-    getter = getattr(dbm, "get_latest_version_fresh", None)
-    if callable(getter):
-        return getter(user_id, file_name)
-    return dbm.get_latest_version(user_id, file_name)
+    return dbm.get_latest_version_fresh(user_id, file_name)
 
 
 class ProductionBackend:
@@ -2221,7 +2235,10 @@ class ProductionBackend:
         from .handlers import MAX_NOTES_PER_SCOPE
         from sticky_notes_scope import make_scope_id
 
-        doc = self._require_dbm().get_latest_version(int(user_id), file_name)
+        # Fresh, not the cached getter: the note is bound to the name and the
+        # ``_id`` read here, and a cached hit still points at a file the webapp
+        # has renamed or saved a newer version of since.
+        doc = _latest_fresh(self._require_dbm(), int(user_id), file_name)
         if not doc:
             return {
                 "ok": False,
