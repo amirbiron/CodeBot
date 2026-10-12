@@ -431,29 +431,35 @@
   //: שכל תאיה מקפים, עם יישור אופציונלי. בלי הזוג הזה כל שורה שמכילה
   //: מקף אנכי — נתיב, פקודה, ביטוי לוגי — הייתה נבלעת לטבלה.
   const MD_TABLE_SEP_RE = /^[ \t]*\|?[ \t]*:?-{1,}:?[ \t]*(\|[ \t]*:?-{1,}:?[ \t]*)*\|?[ \t]*$/;
-  //: סדר החלופות = עדיפות במיקום נתון: קוד (תוכנו ליטרלי) ← קישור ←
-  //: מודגש ← חוצה ← נטוי. הקו התחתון **אינו** נטוי, בכוונה: ``note_id``
-  //: ו-``user_id`` נפוצים מדי בכלי שכולו על קוד.
-  // **חלופת ה-``==`` נספחת בסוף, ולא באמצע.** ``_parseInline`` קורא את
-  // הקבוצות לפי אינדקס מספרי, ולכן הוספה באמצע הייתה מזיזה את כל מה
-  // שאחריה בשקט — הנטייה הייתה הופכת למחיקה. הסדר גם אינו משנה כאן
-  // מבחינת קדימות: ``=`` אינו מתנגש עם גרש, כוכבית, טילדה או קישור.
-  //
-  // **``[^=\s]`` בשני הקצוות אינו קישוט**, ושני התווים שהוא פוסל נפסלו
-  // מסיבות שונות:
-  //
-  // ``\s`` — בלעדיו ``a == b == c``, שרשור השוואות נפוץ בפייתון, היה
-  // מזהה את ``" b "`` כמרקר וצובע אותו. הדרישה שהתו הצמוד למפריד לא
-  // יהיה רווח מבטלת את כל המשפחה: ``1 == 1 == True``, ``if x == y == z:``.
-  //
-  // ``=`` — בלעדיו **שורת מפריד של סימני שווה נתפסת כמרקר**. ``=====``
-  // התפרק ל-``==`` ‏+ ``=`` ‏+ ``==`` והצביע תו אחד ורוד; ``==========``
-  // הצביע שניים. זה לא תיאורטי — מפריד ASCII הוא שימוש רגיל בפתק.
-  // ``====`` ומטה ניצלו רק במקרה, כי לא נשארו בהם מספיק תווים.
-  //
-  // מה ש**כן** נתפס ובכוונה: ``a==b==c`` בלי רווחים, בדיוק כמו ש-``~~``
-  // מתנהג — ולזה הפתרון הוא גרשיים, שכבר גוברים על המרקר בסדר החלופות.
-  const MD_INLINE_RE  = /(`+)([\s\S]+?)\1|\[([^\]\n]*?)\]\(([^)\s]+?)\)|\*\*([^*\n]+?)\*\*|~~([^~\n]+?)~~|\*([^*\n]+?)\*|==([^=\s](?:[^=\n]*?[^=\s])?)==/g;
+  //: **מארקדאון בתוך שורה: קוד בשורה קודם, וכל השאר אחריו.** זה הסדר של
+  //: ``markdown-it@14.1.0``, שמרנדר את תצוגת המסמך. ``lib/parser_inline.mjs``
+  //: שלו מריץ את ``backticks`` לפני ``strikethrough``, ``emphasis`` ו-``link``,
+  //: וקטע קוד שנמצא נצרך כיחידה אחת — מפריד שבתוכו אינו מפריד. את ה-``**``
+  //: הוא אינו סוגר במקום: הוא מסמן אותם ומזווג רק בשלב שני
+  //: (``lib/rules_inline/balance_pairs.mjs``). לכן ``**מילים עם `קוד` בתוך**``
+  //: הוא מודגש שבתוכו קוד. כשכל זה היה רג'קס אחד, נבחר מה שמתחיל ראשון
+  //: בשורה, וה-``**`` בלע את הגרשיים כטקסט. המדידה מול markdown-it והנימוק
+  //: המלא: ``docs/dev/sticky_notes_extending.rst``, בסעיף "קוד בשורה: יחידה
+  //: אחת, שקודמת לכל מפריד".
+  //:
+  //: **רק השלב הראשון הועתק.** הזיווג של ``**``/``*``/``~~``/``==`` נשאר הכלל
+  //: שלנו: הסוגר הוא הראשון שמחוץ לקוד, ועיצוב אינו מכיל עיצוב אחר — ולכן
+  //: ``==**x**==`` עדיין מציג את הכוכביות. זה נושא נפרד: מה שפותר אותו הוא
+  //: ``balance_pairs``, והוא משנה הרבה יותר מקוד בשורה.
+  //:
+  //: הקו התחתון **אינו** נטוי, בכוונה: ``note_id`` ו-``user_id`` נפוצים מדי
+  //: בכלי שכולו על קוד.
+  //:
+  //: רווח אחד בכל קצה של קוד בשורה נחתך, אם יש ביניהם משהו — מילה במילה
+  //: מ-``lib/rules_inline/backticks.mjs``.
+  const MD_CODE_TRIM_RE = /^ (.+) $/;
+  //: התווים היחידים שיכולים לפתוח משהו בשורה. כל השאר טקסט, והסריקה קופצת
+  //: עליו בבת אחת.
+  const MD_INLINE_START_RE = /[`[*~=]/g;
+  //: התו שמסיים יעד של קישור: הסוגר, או רווח — ורווח פוסל את הקישור.
+  const MD_LINK_DEST_STOP_RE = /[)\s]/;
+  //: מרקר אינו נצמד לרווח — ראו ``_matchInlineMark``.
+  const MD_MARK_EDGE_SPACE_RE = /\s/;
   //: קישור נפתח בלשונית חדשה, ולכן רק ``http``/``https``. כל סכימה אחרת
   //: — ``javascript:``, ``data:`` — מרונדרת כטקסט, לא כקישור.
   const MD_SAFE_LINK  = /^https?:\/\//i;
@@ -1965,25 +1971,43 @@
       // אינו יכול להפוך לתגית בשום מצב. זה מה שהופך רינדור של תוכן שנכתב
       // מרחוק לבטוח, ולכן אין כאן ספרייה שפולטת מחרוזת HTML.
 
-      // מפרק שורה למערך קטעים: {type,text} או {type:'link',text,href}.
-      // טהור — לא נוגע ב-DOM, ולכן נבדק ישירות.
+      /**
+       * מפרק שורה למערך קטעים. טהור — לא נוגע ב-DOM, ולכן נבדק ישירות.
+       *
+       * ``{type:'text'|'code', text}`` הם עלים. ``bold``/``italic``/``strike``/
+       * ``mark`` ו-``link`` (שנושא גם ``href``) מחזיקים ``children`` — טקסט
+       * וקוד בלבד, כי עיצוב בתוך עיצוב אינו נתמך (ההערה מעל
+       * ``MD_CODE_TRIM_RE``).
+       *
+       * הסריקה עוברת על השורה פעם אחת, מתחילתה לסופה. בכל תו שיכול לפתוח
+       * משהו: רצף גרשיים נבדק ראשון ונצרך כקטע קוד שלם, ואחרת מנסים את
+       * העיצוב שמתחיל בתו הזה — ``**`` לפני ``*``. ניסיון שנכשל מתקדם בתו
+       * אחד, ומה שנמצא נצרך כולו והסריקה ממשיכה אחריו.
+       */
       _parseInline(text){
         const src = String(text == null ? '' : text);
+        const state = this._inlineScanState(src);
         const out = [];
-        let last = 0, m;
-        MD_INLINE_RE.lastIndex = 0;
-        while ((m = MD_INLINE_RE.exec(src)) !== null){
-          if (m.index > last) out.push({ type: 'text', text: src.slice(last, m.index) });
-          if (m[1] !== undefined)      out.push({ type: 'code', text: m[2] });
-          else if (m[3] !== undefined) {
-            if (MD_SAFE_LINK.test(m[4])) out.push({ type: 'link', text: m[3] || m[4], href: m[4] });
-            else out.push({ type: 'text', text: m[0] });
+        let i = 0, last = 0;
+        while (i < src.length){
+          MD_INLINE_START_RE.lastIndex = i;
+          const hit = MD_INLINE_START_RE.exec(src);
+          if (!hit) break;
+          i = hit.index;
+          let found;
+          if (src[i] === '`'){
+            const code = this._inlineCodeAt(state, i);
+            // רצף בלי סוגר באותו אורך הוא טקסט, והסריקה ממשיכה **אחריו** —
+            // כמו ב-``backticks.mjs``, שמוסיף את הרצף כולו לטקסט ומתקדם.
+            if (code.text === null){ i = code.end; continue; }
+            found = { end: code.end, segs: [{ type: 'code', text: code.text }] };
+          } else {
+            found = this._matchInlineAt(state, i);
+            if (!found){ i += 1; continue; }
           }
-          else if (m[5] !== undefined) out.push({ type: 'bold', text: m[5] });
-          else if (m[6] !== undefined) out.push({ type: 'strike', text: m[6] });
-          else if (m[7] !== undefined) out.push({ type: 'italic', text: m[7] });
-          else if (m[8] !== undefined) out.push({ type: 'mark', text: m[8] });
-          last = MD_INLINE_RE.lastIndex;
+          if (i > last) out.push({ type: 'text', text: src.slice(last, i) });
+          out.push(...found.segs);
+          i = last = found.end;
         }
         if (last < src.length) out.push({ type: 'text', text: src.slice(last) });
         // איחוד קטעי טקסט צמודים — קישור שנדחה מותיר ליטרל מפוצל.
@@ -1997,13 +2021,230 @@
         return merged;
       }
 
+      /**
+       * מה שהסריקה של שורה אחת זוכרת: כל רצפי הגרשיים, ותשובות שכבר נמצאו.
+       *
+       * **לכל רצף — הרצף הבא שאורכו זהה בדיוק.** זה כל הכלל של
+       * ``lib/rules_inline/backticks.mjs``: רצף של N גרשיים נסגר ברצף הבא של
+       * N בדיוק, בכל מקום בהמשך השורה, ורצף ארוך או קצר יותר אינו סוגר.
+       * markdown-it מחפש את הסוגר מחדש מכל פותח ומחזיק מטמון כדי לא לסרוק
+       * פעמיים; כאן התשובה מחושבת פעם אחת לכל השורה, מהסוף להתחלה.
+       *
+       * ``firsts`` ו-``destStops`` הם הזיכרון שמחזיק את הסריקה לינארית —
+       * ראו ``_firstOutsideCode`` ו-``_linkDestStop``. כל אחד מהם נבנה רק
+       * כשמישהו שואל אותו.
+       */
+      _inlineScanState(src){
+        const runs = new Map();
+        const ordered = [];
+        for (let i = src.indexOf('`'); i !== -1; i = src.indexOf('`', i)){
+          const start = i;
+          while (i < src.length && src.charCodeAt(i) === 0x60) i += 1;
+          const run = { start, end: i, close: null };
+          runs.set(start, run);
+          ordered.push(run);
+        }
+        const nextOfLength = new Map();
+        for (let k = ordered.length - 1; k >= 0; k -= 1){
+          const run = ordered[k];
+          const length = run.end - run.start;
+          run.close = nextOfLength.get(length) || null;
+          nextOfLength.set(length, run);
+        }
+        return { src, runs, firsts: new Map(), destStops: null };
+      }
+
+      /**
+       * רצף הגרשיים שמתחיל ב-``pos``: ``{ end, text }`` לקטע קוד, או
+       * ``{ end, text: null }`` כשאין לו סוגר — ואז הרצף הוא טקסט.
+       *
+       * **``pos`` הוא תמיד תחילת רצף**, ולא אמצע שלו: כל מי שמגיע לכאן מגיע
+       * אחרי תו שאינו גרש — תחילת השורה, מפריד, או סוף של רצף או של קטע
+       * קוד, ושניהם מסתיימים בתו שאינו גרש.
+       *
+       * רווח אחד בכל קצה של התוכן נחתך, כמו ב-``backticks.mjs``
+       * (``MD_CODE_TRIM_RE``). שם גם ירידת שורה הופכת לרווח, כי פסקה שם היא
+       * כמה שורות; כאן כל קריאה היא שורה אחת, ואין ירידת שורה להחליף.
+       */
+      _inlineCodeAt(state, pos){
+        const run = state.runs.get(pos);
+        if (!run.close) return { end: run.end, text: null };
+        const text = state.src.slice(run.end, run.close.start).replace(MD_CODE_TRIM_RE, '$1');
+        return { end: run.close.end, text };
+      }
+
+      // היכן נגמר מה שמתחיל ברצף הגרשיים ב-``pos`` — קטע קוד או רצף שהוא
+      // טקסט. מי שרק מדלג על הקוד אינו צריך את התוכן, ולכן גם לא בונה אותו.
+      _inlineCodeEnd(state, pos){
+        const run = state.runs.get(pos);
+        return run.close ? run.close.end : run.end;
+      }
+
+      /**
+       * המיקום של ``ch`` הראשון מ-``from`` והלאה שאינו בתוך קטע קוד, או -1.
+       *
+       * **זו הנקודה שבה קוד גובר על כל מפריד.** קטע קוד שהסריקה פוגשת נצרך
+       * כולו, ולכן ``*`` או ``]`` שבתוכו אינם יכולים לסגור דבר — וזה נכון גם
+       * כשהקוד ממשיך מעבר למקום שבו העיצוב היה נסגר: ב-``**א `ב** ג`` אין
+       * מודגש, יש קוד.
+       *
+       * **התשובה נזכרת לכל נקודה שהסריקה עברה בה**, וזה מה שמחזיק את
+       * הפרסר לינארי. סריקה מנקודה שאינה בתוך קוד תלויה רק בנקודה עצמה,
+       * ולכן כל סריקה שמגיעה לנקודה שכבר נסרקה לוקחת את התשובה משם. בלי
+       * זה שורה של ``[`א` `` חוזרת על עצמה סרקה את כל ההמשך מכל ``[``.
+       */
+      _firstOutsideCode(state, from, ch){
+        const src = state.src;
+        let memo = state.firsts.get(ch);
+        if (!memo){
+          memo = new Int32Array(src.length).fill(-2);
+          state.firsts.set(ch, memo);
+        }
+        const visited = [];
+        let j = from, found = -1;
+        while (j < src.length){
+          if (memo[j] !== -2){ found = memo[j]; break; }
+          visited.push(j);
+          const c = src[j];
+          if (c === ch){ found = j; break; }
+          if (c === '`'){ j = this._inlineCodeEnd(state, j); continue; }
+          j += 1;
+        }
+        for (const k of visited) memo[k] = found;
+        return found;
+      }
+
+      /**
+       * הסוגר של עיצוב שתוכנו מתחיל ב-``from``: ה-``ch`` הראשון מחוץ לקוד,
+       * ובמפריד כפול (``**``, ``~~``, ``==``) גם התו שאחריו. תו המפריד אינו
+       * יכול להופיע בתוכן עצמו, ולכן ``*`` בודד בתוך ``**...**`` פוסל את
+       * המודגש במקום להיבלע בו.
+       */
+      _inlineCloser(state, from, ch, double){
+        const j = this._firstOutsideCode(state, from, ch);
+        if (j < 0) return -1;
+        if (double && state.src[j + 1] !== ch) return -1;
+        return j;
+      }
+
+      /**
+       * סוף יעד הקישור: הסוגר הראשון או הרווח הראשון מ-``from``, או -1.
+       * ביעד אין קוד — הוא נצרך כטקסט יחד עם הקישור, ולכן גרש בתוך כתובת
+       * אינו פותח קטע. מחושב פעם אחת לכל השורה, מהסוף להתחלה, כדי שהרבה
+       * סוגריים פותחים לא יסרקו כל אחד את אותו יעד.
+       */
+      _linkDestStop(state, from){
+        if (!state.destStops){
+          const src = state.src;
+          const stops = new Int32Array(src.length + 1);
+          stops[src.length] = -1;
+          for (let k = src.length - 1; k >= 0; k -= 1){
+            stops[k] = MD_LINK_DEST_STOP_RE.test(src[k]) ? k : stops[k + 1];
+          }
+          state.destStops = stops;
+        }
+        return state.destStops[from];
+      }
+
+      /**
+       * התוכן שבין ``from`` ל-``to`` כקטעי טקסט וקוד. הגבולות מגיעים תמיד
+       * מ-``_inlineCloser``, ולכן אף קטע קוד אינו חוצה את ``to``.
+       */
+      _inlineTextAndCode(state, from, to){
+        const src = state.src;
+        const out = [];
+        let last = from;
+        for (let j = src.indexOf('`', from); j !== -1 && j < to; ){
+          const code = this._inlineCodeAt(state, j);
+          if (code.text !== null){
+            if (j > last) out.push({ type: 'text', text: src.slice(last, j) });
+            out.push({ type: 'code', text: code.text });
+            last = code.end;
+          }
+          j = src.indexOf('`', code.end);
+        }
+        if (last < to) out.push({ type: 'text', text: src.slice(last, to) });
+        return out;
+      }
+
+      /** העיצוב שמתחיל ב-``i``, או ``null``. ``**`` נבדק לפני ``*``. */
+      _matchInlineAt(state, i){
+        const c = state.src[i];
+        if (c === '[') return this._matchInlineLink(state, i);
+        if (c === '*') return this._matchInlinePair(state, i, '**', 'bold') || this._matchInlinePair(state, i, '*', 'italic');
+        if (c === '~') return this._matchInlinePair(state, i, '~~', 'strike');
+        if (c === '=') return this._matchInlineMark(state, i);
+        return null;
+      }
+
+      /**
+       * ``open`` + תוכן לא ריק + ``open``, כשהתוכן הוא טקסט וקוד. ``accept``
+       * הוא תנאי נוסף על גבולות התוכן, אם יש; הילדים נבנים רק אחרי שהכול
+       * עבר, כי ניסיון שנכשל אינו צריך אותם.
+       */
+      _matchInlinePair(state, i, open, type, accept){
+        if (!state.src.startsWith(open, i)) return null;
+        const from = i + open.length;
+        const close = this._inlineCloser(state, from, open[0], open.length === 2);
+        if (close <= from) return null;
+        if (accept && !accept(from, close)) return null;
+        return { end: close + open.length, segs: [{ type, children: this._inlineTextAndCode(state, from, close) }] };
+      }
+
+      /**
+       * ``==מרקר==``. מעבר לכלל של כל זוג, **התו הצמוד למפריד אינו רווח** —
+       * בשני הקצוות. בלי זה ``a == b == c``, שרשור השוואות נפוץ בפייתון, היה
+       * מזהה את ``" b "`` כמרקר וצובע אותו; הדרישה מבטלת את כל המשפחה:
+       * ``1 == 1 == True``, ``if x == y == z:``.
+       *
+       * **ו-``=`` אינו יכול להופיע בתוכן**, כי הסוגר הוא ה-``=`` הראשון אחרי
+       * הפותח. זה מה ששומר על **שורת מפריד של סימני שווה**: פעם ``=====``
+       * התפרק ל-``==`` ‏+ ``=`` ‏+ ``==`` וצבע תו אחד ורוד, ו-``==========``
+       * צבע שניים — מפריד ASCII הוא שימוש רגיל בפתק.
+       *
+       * מה ש**כן** נתפס ובכוונה: ``a==b==c`` בלי רווחים, בדיוק כמו ש-``~~``
+       * מתנהג — ולזה הפתרון הוא גרשיים, שגוברים על כל מפריד.
+       */
+      _matchInlineMark(state, i){
+        const src = state.src;
+        return this._matchInlinePair(state, i, '==', 'mark', (from, close) =>
+          !MD_MARK_EDGE_SPACE_RE.test(src[from]) && !MD_MARK_EDGE_SPACE_RE.test(src[close - 1]));
+      }
+
+      /**
+       * ``[תווית](כתובת)``. התווית יכולה להכיל קוד, ו-``]`` שבתוך קוד אינו
+       * סוגר אותה — ``parseLinkLabel`` של markdown-it מדלג על קוד באותה צורה.
+       * היעד הוא רצף בלי רווחים עד ה-``)`` הראשון.
+       *
+       * **כתובת שאינה ``http``/``https`` אינה קישור** (``MD_SAFE_LINK``), והיא
+       * מוצגת כמו שהוקלדה — אבל הקוד שבתווית שלה מוצג כקוד, כמו בכל מקום
+       * אחר בשורה. כך ``[`app.py`](./app.py)`` אינו מסתיר את הקוד.
+       */
+      _matchInlineLink(state, i){
+        const src = state.src;
+        const close = this._inlineCloser(state, i + 1, ']', false);
+        if (close < 0 || src[close + 1] !== '(') return null;
+        const destStart = close + 2;
+        const stop = this._linkDestStop(state, destStart);
+        if (stop <= destStart || src[stop] !== ')') return null;
+        const href = src.slice(destStart, stop);
+        const end = stop + 1;
+        const label = this._inlineTextAndCode(state, i + 1, close);
+        if (MD_SAFE_LINK.test(href)){
+          // תווית ריקה מציגה את הכתובת — אחרת הקישור היה בלתי נראה.
+          return { end, segs: [{ type: 'link', href, children: label.length ? label : [{ type: 'text', text: href }] }] };
+        }
+        return { end, segs: [{ type: 'text', text: '[' }, ...label, { type: 'text', text: src.slice(close, end) }] };
+      }
+
       // מסווג בלוק לשורה בודדת. קוד רב-שורי מטופל בלולאה, לא כאן.
       //
       // **שורת רשימה מחזירה גם את הסמן ואת הרווחים שאחריו**, ולא רק את
       // התוכן — מהם נגזרת עמודת התוכן, וממנה עומק הקינון. הערכים מוחזרים
       // **בשדות בשם** ולא נקראים כקבוצות רג'קס אצל הקורא: זו בדיוק
-      // המלכודת שההערה מעל ``MD_INLINE_RE`` מתעדת — קבוצה שנוספת מזיזה
-      // בשקט את כל האינדקסים שאחריה.
+      // המלכודת שנשכה ב-``MD_INLINE_RE``, הרג'קס שקרא פעם את המארקדאון
+      // בשורה — הוספת חלופה באמצע הייתה מזיזה בשקט את כל אינדקסי הקבוצות
+      // שאחריה.
       //
       // **ההזחה עצמה אינה מוחזרת מכאן בכוונה.** היא נענית ב-
       // ``_lineIndentCols`` על השורה הגולמית, כי גם שורת גדר צריכה אותה
@@ -2107,17 +2348,14 @@
       }
 
       // האם יש מארקדאון שכדאי לרנדר — כדי לא להפוך פתק טקסט רגיל לתצוגה.
+      //
+      // **התשובה נגזרת מהפרסר עצמו**: יש מה לרנדר אם הוא החזיר משהו שאינו
+      // טקסט. סורק שני היה יכול לחלוק עליו — לפתוח תצוגה לשורה שהפרסר
+      // מציג כטקסט, או להשאיר כתיבה גולמית לשורה שיש בה קוד. קישור פסול
+      // הוא טקסט, ולכן ``[x](javascript:y)`` לבדו אינו פותח את התצוגה, ו-
+      // ``[x](javascript:y) **מ**`` כן — בזכות המודגש.
       _lineHasInline(content){
-        // סורק את **כל** ההתאמות: קישור פסול אינו מארקדאון, אבל אסור
-        // שיסתיר מבנה תקין שאחריו באותה שורה. ``[x](javascript:y) **מ**``
-        // עדיין נחשב מארקדאון בזכות המודגש.
-        MD_INLINE_RE.lastIndex = 0;
-        let m;
-        while ((m = MD_INLINE_RE.exec(content)) !== null){
-          if (m[3] !== undefined && !MD_SAFE_LINK.test(m[4])) continue;
-          return true;
-        }
-        return false;
+        return this._parseInline(content).some((seg) => seg.type !== 'text');
       }
       /**
        * סורק שורת טבלה ומחזיר ``{ cells, delimiters }``.
@@ -2608,7 +2846,13 @@
 
       // בונה את הקטעים לתוך ``container``, צומת אחר צומת. אפס innerHTML.
       _appendInline(container, text){
-        for (const seg of this._parseInline(text)){
+        this._appendInlineSegments(container, this._parseInline(text));
+      }
+
+      // עיצוב נבנה עם הילדים שלו — טקסט וקוד — ולא ממחרוזת אחת, ולכן קוד
+      // בתוך מודגש יוצא ``strong > code`` ולא גרשיים בתוך מודגש.
+      _appendInlineSegments(container, segs){
+        for (const seg of segs){
           if (seg.type === 'text'){ container.appendChild(document.createTextNode(seg.text)); continue; }
           let node;
           if (seg.type === 'bold')        node = createEl('strong', 'sticky-md-bold');
@@ -2628,7 +2872,8 @@
             node.setAttribute('rel', 'noopener noreferrer');
           }
           else node = document.createTextNode(seg.text);
-          if (node.nodeType !== 3) node.textContent = seg.text;
+          if (seg.type === 'code') node.textContent = seg.text;
+          else if (node.nodeType !== 3) this._appendInlineSegments(node, seg.children);
           container.appendChild(node);
         }
       }
