@@ -13,10 +13,17 @@ import base64
 import hashlib
 import logging
 import re
-from typing import Optional
+import xml.etree.ElementTree as etree
+from typing import TYPE_CHECKING, NamedTuple, Optional
 
 import bleach
 import markdown
+from markdown.blockprocessors import BlockProcessor
+from markdown.extensions import Extension
+from markdown.util import AtomicString, nearing_recursion_limit
+
+if TYPE_CHECKING:  # pragma: no cover
+    from markdown.blockparser import BlockParser
 
 # Pygments for dynamic syntax highlighting CSS
 try:
@@ -111,6 +118,8 @@ ALLOWED_TAGS = list(bleach.sanitizer.ALLOWED_TAGS) + [
     "sub",
     "mark",
     "nav",  # עבור TOC wrapper
+    "details",  # עבור ::: details
+    "summary",
 ]
 
 # רשימה לבנה של attributes מותרים
@@ -130,60 +139,207 @@ ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
 
 
 # ============================================
-# Markdown Preprocessing
+# 📦 מכולות ::: — תיבות הסבר ו-details
 # ============================================
+# התחביר נקבע בוובאפ: ``md_preview.html`` ו-``live-preview.js`` רושמים את
+# ``markdown-it-container`` לכל סוג, והתוויות של הסוגים יושבות ב-
+# ``webapp/static/js/admonition-icons.js``. הייצוא רץ בשרת, ב-Python-Markdown,
+# ולכן הטבלה כאן היא עותק של הרשימה ההיא. ``tests/test_styled_export_containers_parity.py``
+# משווה אותה לשלושת המקורות, כך שסוג שנוסף בוובאפ ולא כאן מפיל את ה-CI
+# במקום לצאת בייצוא כטקסט גולמי.
 
-def preprocess_markdown(text: str) -> str:
+
+class AdmonitionType(NamedTuple):
+    """סוג של תיבת הסבר בייצוא."""
+
+    css_class: str  # מחלקת הצבע בתבנית הייצוא: ``alert-<css_class>``
+    title: str  # הכותרת כשלא נכתבה כותרת — ``ADMONITION_TITLES`` ב-admonition-icons.js
+
+
+#: סוג ← (צבע בייצוא, כותרת ברירת מחדל). הצבעים הולכים אחרי הקבוצות של
+#: ``markdown-enhanced.css`` בוובאפ, ככל שלתבנית הייצוא יש צבע מתאים: לסגול של
+#: ``important`` ו-``question`` אין מקבילה בערכות הייצוא, ולכן שניהם ``warning``,
+#: כמו ש-``important`` היה בייצוא תמיד. הקבוצה האפורה של הוובאפ היא ``neutral``.
+ADMONITION_TYPES: dict[str, AdmonitionType] = {
+    "note": AdmonitionType("info", "הערה"),
+    "info": AdmonitionType("info", "מידע"),
+    "example": AdmonitionType("info", "דוגמה"),
+    "todo": AdmonitionType("info", "משימות לביצוע"),
+    "tip": AdmonitionType("success", "טיפ"),
+    "success": AdmonitionType("success", "הצלחה"),
+    "warning": AdmonitionType("warning", "אזהרה"),
+    "experimental": AdmonitionType("warning", "ניסוי"),
+    "important": AdmonitionType("warning", "חשוב"),
+    "question": AdmonitionType("warning", "שאלה"),
+    "danger": AdmonitionType("danger", "סכנה"),
+    "quote": AdmonitionType("neutral", "ציטוט"),
+    "deprecated": AdmonitionType("neutral", "לא מומלץ"),
+    "abstract": AdmonitionType("neutral", "תקציר"),
+}
+
+#: הכותרת של ``::: details`` שלא נכתבה לו כותרת — ``DETAILS_DEFAULT_TITLE``
+#: ב-admonition-icons.js. ``details`` אינו תיבת הסבר, ולכן הוא לא בטבלה שמעל.
+DETAILS_DEFAULT_TITLE = "לחץ להצגה"
+
+#: כמה מכולות אפשר לקנן זו בתוך זו. שורת פתיחה עמוקה יותר נשארת טקסט.
+#: זה המספר של הוובאפ: ``maxNesting: 100`` ב-markdown-it 14.1.0
+#: (``lib/presets/default.mjs``), ושם מכולה עמוקה יותר כבר לא מוצגת. התקרה
+#: נחוצה גם בלי קשר לוובאפ: בשלב ה-inline של Python-Markdown העלות של כל
+#: שבירת שורה גדלה עם עומק הקינון, ומכולה שלא נסגרה נסגרת רק בסוף המסמך —
+#: כך ששורות ``:::`` רבות שלא נסגרו מקננות זו בתוך זו עד הסוף.
+MAX_CONTAINER_NESTING = 100
+
+# הכללים של markdown-it-container 4.0.0 (``index.mjs``, שהבאנדל של הוובאפ זהה
+# לו), כדי שאותו מסמך ייראה אותו דבר בשני הצדדים:
+# פתיחה — עד שלושה רווחים, שלוש נקודתיים או יותר, ואחריהן הפרמטרים. ארבעה
+# רווחים ומעלה הם בלוק קוד, או המשך של פסקה, גם ב-markdown-it.
+_CONTAINER_OPEN_RE = re.compile(r"^ {0,3}(?P<fence>:{3,})(?P<params>.*)$")
+# סגירה — לפחות אותו מספר נקודתיים, ואחריהן רק רווחים וטאבים (``skipSpaces``).
+_CONTAINER_CLOSE_RE = re.compile(r"^ {0,3}(?P<fence>:{3,})[ \t]*$")
+# הסוג הוא המילה הראשונה בפרמטרים, בלי רגישות לרישיות, וכל מה שאחריה הוא
+# הכותרת — כמו ``/^note\b\s*(.*)$/i`` בוובאפ. ``re.ASCII`` כי ``\w`` ו-``\b`` של
+# JS מכירים רק אותיות לטיניות: בוובאפ ``::: noteכותרת`` הוא תיבת ``note`` עם
+# הכותרת "כותרת", ובלי הדגל ``\w`` של פייתון היה בולע גם את העברית ומפספס את הסוג.
+_CONTAINER_KIND_RE = re.compile(r"(?P<kind>\w+)(?P<title>.*)", re.ASCII)
+
+
+def _parse_container_opening(line: str) -> tuple[int, str, str] | None:
+    """``(אורך הגדר, סוג, כותרת)`` לשורת פתיחה של מכולה מוכרת, ו-``None`` לכל שורה אחרת."""
+    opening = _CONTAINER_OPEN_RE.match(line)
+    if opening is None:
+        return None
+    kind_match = _CONTAINER_KIND_RE.match(opening.group("params").strip())
+    if kind_match is None:
+        return None
+    kind = kind_match.group("kind").lower()
+    if kind != "details" and kind not in ADMONITION_TYPES:
+        return None
+    return len(opening.group("fence")), kind, kind_match.group("title").strip()
+
+
+class _ContainerBlockProcessor(BlockProcessor):
+    """ממיר מכולות ``:::`` לתיבות הסבר ול-``details``, בתוך הפרסר של Python-Markdown.
+
+    **למה מעבד בלוקים ולא החלפה על הטקסט.** ביטוי רגולרי שרץ על הטקסט הגולמי,
+    לפני ש-Python-Markdown קורא אותו — כך זה נעשה קודם — לא יודע איפה יש בלוק
+    קוד: דוגמה של ``::: note`` בתוך בלוק קוד הפכה ל-``<div>`` בתוך הקוד. מעבד בלוקים
+    רץ אחרי ש-``fenced_code`` (preprocessor) כבר החליף כל בלוק קוד בממלא מקום,
+    ותוכן התיבה עובר דרך אותו פרסר כמו שאר המסמך — קוד, טבלאות ותיבות בתוך
+    תיבות. זו הצורה של ``admonition``, התוסף המובנה של Python-Markdown.
+
+    **התוצאה היא המבנה של הוובאפ:** ``div.alert`` עם ``div.alert-title``, ו-
+    ``details.markdown-details`` עם ``summary.markdown-summary`` ו-
+    ``div.details-content``. הכותרת היא ``AtomicString``: היא לא עוברת עיבוד
+    Markdown, וה-serializer מבריח אותה, כמו ``escapeHtml`` בוובאפ.
+
+    **קינון.** הסגירה היא השורה הראשונה שיש בה לפחות אותו מספר נקודתיים, ולכן
+    מקננים בגדר ארוכה יותר בחוץ (``::::`` סביב ``:::``). בגדר שווה, ה-``:::``
+    של התיבה הפנימית סוגר את החיצונית — כך זה גם בוובאפ. מכולה שלא נסגרה נסגרת
+    בסוף ההורה שלה: בסוף המסמך, או בסוף התיבה שמכילה אותה.
     """
-    עיבוד מקדים של Markdown לפני המרה ל-HTML.
 
-    ממיר סינטקס מיוחד:
-    - ::: note/info/warning/important/danger/success/tip → <div class="alert alert-*">
-    """
-    if not text:
-        return ""
+    def __init__(self, parser: BlockParser) -> None:
+        super().__init__(parser)
+        self._depth = 0
 
-    # Pattern for ::: type ... :::
-    # הסוגר ::: חייב להופיע בתחילת שורה (אחרי newline או בסוף) כדי למנוע חיתוך מוקדם
-    # אם התוכן מכיל ::: באמצע, זה לא יתפוס כסוגר
-    # תומך גם ב-title אופציונלי אחרי הסוג (מושלך) כדי לא לשבור שימושים עתידיים:
-    # ::: warning כותרת
-    # תוכן...
-    # :::
-    pattern = r"^:::\s*(note|info|warning|important|danger|success|tip)\b[^\n]*\n(.*?)\n:::$"
+    @staticmethod
+    def _find_opening(block: str) -> tuple[int, int, str, str] | None:
+        """``(מספר השורה, אורך הגדר, סוג, כותרת)`` של שורת הפתיחה הראשונה בבלוק."""
+        for index, line in enumerate(block.split("\n")):
+            opening = _parse_container_opening(line)
+            if opening is not None:
+                return (index, *opening)
+        return None
 
-    def replacer(match):
-        alert_type = match.group(1).lower()
-        content = match.group(2).strip()
-
-        # מיפוי סוגים ל-CSS classes
-        type_map = {
-            "note": "info",
-            "tip": "success",
-            "info": "info",
-            "warning": "warning",
-            "important": "warning",
-            "danger": "danger",
-            "success": "success",
-        }
-        css_class = type_map.get(alert_type, "info")
-
-        # המרת תוכן פנימי ל-HTML (תומך ב-Markdown בתוך alerts)
-        inner_html = markdown.markdown(content, extensions=["nl2br"])
-
-        # 🔒 סניטציה מיידית ל-HTML הפנימי כדי לצמצם תלות בשלבי עיבוד מאוחרים
-        clean_inner_html = bleach.clean(
-            inner_html,
-            tags=ALLOWED_TAGS,
-            attributes=ALLOWED_ATTRS,
-            protocols=ALLOWED_PROTOCOLS,
-            strip=True,
+    def test(self, parent: etree.Element, block: str) -> bool:
+        # השורה יכולה להיות באמצע הבלוק: מכולה קוטעת פסקה, רשימה או ציטוט
+        # בלי שורה ריקה לפניה, כמו ב-markdown-it-container. ובקרבת תקרת
+        # הרקורסיה — מוותרים, כמו ``BlockQuoteProcessor`` של Python-Markdown.
+        return (
+            self._depth < MAX_CONTAINER_NESTING
+            and self._find_opening(block) is not None
+            and not nearing_recursion_limit()
         )
 
-        return f'<div class="alert alert-{css_class}">{clean_inner_html}</div>'
+    def run(self, parent: etree.Element, blocks: list[str]) -> None:
+        block = blocks.pop(0)
+        found = self._find_opening(block)
+        if found is None:
+            # ``parseBlocks`` קורא ל-``run`` עם הבלוק ש-``test`` אישר זה עתה, ו-
+            # ``_find_opening`` אינה תלויה בשום מצב — אז זו הפרה של החוזה, ולא
+            # מקרה שמטפלים בו בשקט.
+            raise RuntimeError("export_container: run() קיבל בלוק בלי שורת פתיחה")
+        index, fence_len, kind, title = found
+        lines = block.split("\n")
+        if index > 0:
+            self.parser.parseBlocks(parent, ["\n".join(lines[:index])])
 
-    # MULTILINE כדי ש-^ ו-$ יתאימו לתחילת/סוף שורה, DOTALL כדי ש-. יתפוס newlines
-    return re.sub(pattern, replacer, text, flags=re.DOTALL | re.MULTILINE)
+        # התוכן נאסף כבלוקים, כמו שהפרסר פיצל אותו לפי שורות ריקות, עד שורת
+        # הסגירה — גם כשהיא בבלוק מאוחר יותר. מה שאחריה חוזר לתור.
+        content: list[str] = []
+        remaining = lines[index + 1 :]
+        while True:
+            close_at = next(
+                (
+                    i
+                    for i, line in enumerate(remaining)
+                    if (closing := _CONTAINER_CLOSE_RE.match(line)) is not None
+                    and len(closing.group("fence")) >= fence_len
+                ),
+                None,
+            )
+            if close_at is not None:
+                if close_at > 0:
+                    content.append("\n".join(remaining[:close_at]))
+                rest = "\n".join(remaining[close_at + 1 :])
+                if rest:
+                    blocks.insert(0, rest)
+                break
+            if remaining:
+                content.append("\n".join(remaining))
+            if not blocks:
+                break  # לא נסגרה — נסגרת בסוף ההורה
+            remaining = blocks.pop(0).split("\n")
+
+        body = self._build_container(parent, kind, title)
+        self._depth += 1
+        try:
+            self.parser.parseBlocks(body, content)
+        finally:
+            self._depth -= 1
+
+    @staticmethod
+    def _build_container(parent: etree.Element, kind: str, title: str) -> etree.Element:
+        """בונה את המכולה מתחת ל-``parent`` ומחזיר את האלמנט שהתוכן נכנס אליו."""
+        if kind == "details":
+            details = etree.SubElement(parent, "details")
+            details.set("class", "markdown-details")
+            summary = etree.SubElement(details, "summary")
+            summary.set("class", "markdown-summary")
+            summary.text = AtomicString(title or DETAILS_DEFAULT_TITLE)
+            body = etree.SubElement(details, "div")
+            body.set("class", "details-content")
+            return body
+        admonition = ADMONITION_TYPES[kind]
+        box = etree.SubElement(parent, "div")
+        box.set("class", f"alert alert-{admonition.css_class}")
+        heading = etree.SubElement(box, "div")
+        heading.set("class", "alert-title")
+        heading.text = AtomicString(title or admonition.title)
+        return box
+
+
+class _ContainerExtension(Extension):
+    """רושם את ``_ContainerBlockProcessor`` במופע של Python-Markdown."""
+
+    def extendMarkdown(self, md: markdown.Markdown) -> None:
+        # 95: אחרי ``empty`` (100), שמסיר שורות ריקות בראש בלוק, ולפני כל מעבד
+        # שהיה לוקח את הבלוק שבו יושבת שורת הפתיחה — מ-``indent`` (90) ועד
+        # ``paragraph`` (10). כך המכולה קוטעת אותם ולא נבלעת בהם.
+        # (העדיפויות: ``build_block_parser`` ב-markdown/blockprocessors.py, Markdown 3.9.)
+        md.parser.blockprocessors.register(
+            _ContainerBlockProcessor(md.parser), "export_container", 95
+        )
 
 
 def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
@@ -203,9 +359,6 @@ def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
     if not text:
         return ("", "")
 
-    # עיבוד מקדים
-    processed = preprocess_markdown(text)
-
     # יצירת אובייקט Markdown (לא פונקציה) כדי לגשת ל-TOC
     md = markdown.Markdown(
         extensions=[
@@ -215,6 +368,7 @@ def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
             "toc",  # תוכן עניינים
             "codehilite",  # הדגשת קוד (עם Pygments)
             "attr_list",  # attributes על אלמנטים
+            _ContainerExtension(),  # מכולות ::: — תיבות הסבר ו-details
         ],
         extension_configs={
             "codehilite": {
@@ -230,7 +384,7 @@ def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
     )
 
     # המרה ל-HTML
-    html_raw = md.convert(processed)
+    html_raw = md.convert(text)
     # 🔒 אבטחה: הסרת בלוקים מסוכנים יחד עם התוכן (script/style)
     html_raw = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", "", html_raw, flags=re.IGNORECASE | re.DOTALL)
 
