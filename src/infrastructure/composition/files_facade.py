@@ -87,10 +87,12 @@ class FilesFacade:
         למקוּשה בלי שאיש יראה — ובבדיקות, דמות ישנה הייתה בודקת בדיוק את המסלול שהדלת
         הזו נועדה למנוע.
 
-        **ערוץ הכשל הוא של ``_fetch_latest_version``:** ``None`` גם כשאין קובץ כזה וגם כשהשאילתה
-        נכשלה. חריגה עולה מכאן רק מכשל מחוץ לה, למשל מנהל בלי המתודה.
+        **קריאה שנכשלה זורקת, ו-``None`` אומר רק "אין קובץ כזה".** הדלת מבקשת
+        ``raise_on_error=True`` מ-``Repository._fetch_latest_version``, וערוץ הכשל מתועד שם.
+        מי שקורא כאן מחליט לפיו מה לכתוב, וכשל שנקרא כ"אין" היה נותן לו לכתוב בשם תפוס או
+        לענות "לא נמצא" על קובץ קיים.
         """
-        return self._get_db().get_latest_version_fresh(user_id, file_name)
+        return self._get_db().get_latest_version_fresh(user_id, file_name, raise_on_error=True)
 
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict[str, Any]]:
         """
@@ -169,9 +171,15 @@ class FilesFacade:
         """רשימת הקבצים ישירות מה-DB, בלי הקאש של ``get_user_files`` — לכל מסלול שמוחק או כותב לפיה.
 
         בלי נפילה לגטר המקוּש ובלי ניסיונות חתימה ישנה, מאותה סיבה כמו ``get_latest_version_fresh``.
-        ערוץ הכשל הוא של ``_fetch_user_files``: ``[]`` גם כשאין קבצים וגם כשהשאילתה נכשלה.
+        וכמוה, קריאה שנכשלה זורקת (``raise_on_error=True`` ל-``Repository._fetch_user_files``),
+        ו-``[]`` אומר רק "אין קבצים": רשימה שקובעת מה נמחק אסור לה לבלבל בין השניים.
         """
-        return list(self._get_db().get_user_files_fresh(user_id, limit, skip=skip, projection=projection) or [])
+        return list(
+            self._get_db().get_user_files_fresh(
+                user_id, limit, skip=skip, projection=projection, raise_on_error=True
+            )
+            or []
+        )
 
     def get_all_user_files_combined(
         self,

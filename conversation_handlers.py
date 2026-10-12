@@ -2610,7 +2610,15 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             # טרי ולא דרך ``get_latest_version``: הקוד, השפה והתגיות שנקראים כאן
             # **נכתבים** לגרסה החדשה, והגרסה המקוּשה יכולה להיות מלפני עריכה בוובאפ —
             # שינוי הערה היה מחזיר בשקט את הקוד הישן.
-            doc = _call_files_api("get_latest_version_fresh", user_id, file_name)
+            # ישירות דרך ה-facade ולא דרך ``_call_files_api``: העוזר מחזיר ``None`` על כל
+            # חריגה, ומכאן ``None`` נקרא "הקובץ לא נמצא". הדלת הטרייה זורקת כשהקריאה נכשלה,
+            # והחריגה צריכה להגיע ל-``except`` שלמטה, שרושם אותה ועונה "שגיאה".
+            facade = _get_files_facade_or_none()
+            if facade is None:
+                logger.error("Error updating note: files facade unavailable")
+                await update.message.reply_text("❌ שגיאה בעדכון ההערה")
+                return ConversationHandler.END
+            doc = facade.get_latest_version_fresh(user_id, file_name)
             if not doc:
                 await update.message.reply_text("❌ הקובץ לא נמצא לעדכון הערה")
                 return ConversationHandler.END

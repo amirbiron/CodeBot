@@ -1339,16 +1339,22 @@ class Repository:
             emit_event("db_max_version_error", severity="error", error=str(e))
             return None
 
-    def _fetch_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
+    def _fetch_latest_version(
+        self, user_id: int, file_name: str, *, raise_on_error: bool = False
+    ) -> Optional[Dict]:
         """קריאה ישירה מה-DB, בלי קאש.
 
         מספר גרסה הוא בדיוק סוג הנתון שאסור לקחת מקאש: ערך ישן מייצר שתי
         גרסאות עם אותו מספר, והקובץ הפעיל נבחר לפי המספר הגבוה ביותר.
 
-        **בכשל לא זורקת:** רושמת אירוע ``db_get_latest_version_error`` ומחזירה ``None`` —
-        אותו ערך כמו לקובץ שאינו קיים. קורא שצריך להבחין בין השניים לא יכול לעשות
-        זאת דרכה.
+        **ערוץ הכשל.** בכל מקרה נרשם אירוע ``db_get_latest_version_error``. כברירת מחדל
+        הפונקציה מחזירה אז ``None`` — אותו ערך כמו לקובץ שאינו קיים — וכך נשארים הגטר
+        המקוּש ושאר הקוראים הוותיקים. עם ``raise_on_error=True`` החריגה עולה הלאה כמו
+        שהיא (``PyMongoError`` מהשאילתה), ו-``None`` אומר רק "אין קובץ כזה". מסלול שכותב
+        או מחליט לפי התשובה ("השם תפוס") צריך את המצב הזה: אצלו כשל שנקרא כ"אין" הוא
+        הרשאה לכתוב בשם תפוס.
         """
+        failure: Optional[Exception] = None
         try:
             # Fast-path for in-memory collections in tests
             docs_list = getattr(self.manager.collection, 'docs', None)
@@ -1375,10 +1381,14 @@ class Repository:
                 )
             except Exception as e:
                 emit_event("db_get_latest_version_error", severity="error", error=str(e), stage="db_fallback")
-                return None
+                failure = e
         except Exception as e:
             emit_event("db_get_latest_version_error", severity="error", error=str(e), stage="outer")
-            return None
+            failure = e
+        # מחוץ ל-``try`` החיצוני: זריקה מתוך הפנימי הייתה נתפסת בו ונרשמת פעם שנייה.
+        if raise_on_error and failure is not None:
+            raise failure
+        return None
 
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict]:
         try:
@@ -1436,6 +1446,7 @@ class Repository:
         *,
         skip: int = 0,
         projection: Optional[Dict[str, int]] = None,
+        raise_on_error: bool = False,
     ) -> List[Dict]:
         """החזרת גרסה אחרונה לכל `file_name` של המשתמש עם תמיכה בעימוד והקרנה — ישירות מה-DB, בלי קאש.
 
@@ -1443,8 +1454,10 @@ class Repository:
         - skip: דילוג על מספר פריטים לאחר קיבוץ לפי `file_name` (עימוד אמיתי).
         - projection: מילון שדות להחזרה (1/0). אם לא סופק, יוחזר המסמך המלא.
 
-        **בכשל לא זורקת:** רושמת אירוע ``db_get_user_files_error`` ומחזירה ``[]`` — אותו
-        ערך כמו למשתמש בלי קבצים.
+        **ערוץ הכשל** — כמו ב-``_fetch_latest_version``: בכל מקרה נרשם אירוע
+        ``db_get_user_files_error``. כברירת מחדל מוחזר אז ``[]``, אותו ערך כמו למשתמש בלי
+        קבצים. עם ``raise_on_error=True`` החריגה עולה הלאה, ו-``[]`` אומר רק "אין קבצים" —
+        מה שמסלול שמוחק לפי הרשימה צריך.
         """
         try:
             eff_limit = max(1, int(limit or 50))
@@ -1483,6 +1496,8 @@ class Repository:
             return rows
         except Exception as e:
             emit_event("db_get_user_files_error", severity="error", error=str(e))
+            if raise_on_error:
+                raise
             return []
 
     @traced("db.get_latest_versions_by_names")
@@ -1983,8 +1998,10 @@ class Repository:
         try:
             # "השם תפוס" נשאל את המסד ולא את ``get_latest_version``: הקאש אינו
             # שומר ``None``, ולכן "תפוס" שנמחק או ששמו שונה בוובאפ היה נשאר "תפוס"
-            # עד שהקאש פג — וסירוב לשם פנוי.
-            existing = self._fetch_latest_version(user_id, new_name)
+            # עד שהקאש פג — וסירוב לשם פנוי. ``raise_on_error``: בדיקה שנכשלה אינה
+            # "פנוי". החריגה מגיעה ל-``except`` שבסוף, שרושם ``db_rename_file_error``
+            # ומחזיר ``False`` — לפני ``update_many``, שאחרת היה מצרף את הקובץ לשם תפוס.
+            existing = self._fetch_latest_version(user_id, new_name, raise_on_error=True)
             if existing and new_name != old_name:
                 logger.warning(f"File {new_name} already exists for user {user_id}")
                 try:

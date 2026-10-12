@@ -1147,9 +1147,15 @@ def _latest_fresh(dbm: Any, user_id: int, file_name: str) -> dict[str, Any] | No
     this function exists to avoid (``silent-fallback-to-worse-path`` in
     amir-bug-patterns).
 
-    A failed query does not raise: the failure channel is
-    ``Repository._fetch_latest_version``'s, which returns ``None`` both for a
-    missing file and for a query that failed.
+    A failed query does not raise here: this calls the door with its default,
+    and ``Repository._fetch_latest_version`` then returns ``None`` both for a
+    missing file and for a query that failed. Each of the four callers reads
+    that ``None`` as a missing file — ``create_note`` and
+    ``add_to_collection`` answer ``file_not_found``, ``get_file`` finds nothing,
+    and ``save_file`` reports ``created`` for a file that exists. The bot's
+    facade passes ``raise_on_error=True``. Doing the same here needs an MCP
+    error code of its own and a refusal that does not carry pymongo's message,
+    which names the database hosts.
     """
     return dbm.get_latest_version_fresh(user_id, file_name)
 

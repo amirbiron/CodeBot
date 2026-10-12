@@ -2978,13 +2978,20 @@ class DatabaseManager:
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         return self._get_repo().get_latest_version(user_id, file_name)
 
-    def get_latest_version_fresh(self, user_id: int, file_name: str) -> Optional[Dict]:
+    def get_latest_version_fresh(
+        self, user_id: int, file_name: str, *, raise_on_error: bool = False
+    ) -> Optional[Dict]:
         """גרסה אחרונה ישירות מה-DB, בלי קאש.
 
         לשימוש בכל read-modify-write (עריכה, הוספה לסוף) ובכל מקום שמדווח
         ללקוח מה נשמר בפועל — שם ערך מקאש הוא פשוט תשובה שגויה.
+
+        ``raise_on_error`` עובר כמו שהוא ל-``Repository._fetch_latest_version``, וערוץ הכשל
+        מתועד שם. ה-facade של הבוט מבקש ``True``; ``_latest_fresh`` ב-MCP קורא בברירת המחדל.
         """
-        return self._get_repo()._fetch_latest_version(user_id, file_name)
+        return self._get_repo()._fetch_latest_version(
+            user_id, file_name, raise_on_error=raise_on_error
+        )
 
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict]:
         return self._get_repo().get_file(user_id, file_name)
@@ -3012,12 +3019,16 @@ class DatabaseManager:
         *,
         skip: int = 0,
         projection: Optional[Dict[str, int]] = None,
+        raise_on_error: bool = False,
     ) -> List[Dict]:
         """רשימת הקבצים ישירות מה-DB, בלי קאש — כמו ``get_latest_version_fresh``.
 
         לכל מסלול שמוחק או כותב לפי הרשימה: מה שהקאש זוכר יכול להחסיר קובץ שנוצר בינתיים.
+        ``raise_on_error`` עובר כמו שהוא ל-``Repository._fetch_user_files``, וערוץ הכשל מתועד שם.
         """
-        return self._get_repo()._fetch_user_files(user_id, limit, skip=skip, projection=projection)
+        return self._get_repo()._fetch_user_files(
+            user_id, limit, skip=skip, projection=projection, raise_on_error=raise_on_error
+        )
 
     def get_latest_versions_by_names(
         self,

@@ -100,6 +100,14 @@ try:
 except Exception:  # pragma: no cover
     def track_github_sync(*a, **k):  # type: ignore
         return None
+# ``PyMongoError`` הוא הבסיס של כל שגיאות pymongo (רשת, בחירת שרת, פקודה שנכשלה) — הסיכון
+# שהייבוא מ-ZIP עוצר עליו. אותה תבנית ייבוא עמיד כמו ב-``mcp_server/backend.py``: בלי
+# pymongo, מחלקה שלא תיזרק לעולם עדיפה על ייבוא שמפיל את המודול כולו.
+try:
+    from pymongo.errors import PyMongoError as _PyMongoError
+except ModuleNotFoundError:  # pragma: no cover - optional dependency in minimal/test envs
+    class _PyMongoError(Exception):  # type: ignore[no-redef]
+        pass
 
 def _get_files_facade():
     """Lazy facade accessor to avoid import-order issues in tests."""
@@ -1717,6 +1725,9 @@ class GitHubMenuHandler:
             if facade is None:
                 await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין לייבוא")
                 return
+            # נקשרת לפני הלולאה, כמו ``read_back`` ב-``mcp_server/backend.py``: facade בלי
+            # הדלת הטרייה נופל כאן, לפני שנכתב קובץ כלשהו.
+            read_latest = facade.get_latest_version_fresh
             from utils import detect_language_from_filename
             repo_tag = f"repo:{repo_full}"
             source_tag = "source:github"
@@ -1739,43 +1750,48 @@ class GitHubMenuHandler:
                         # קרא כ-bytes ובדוק בינארי/גודל
                         with open(file_path, 'rb') as fh:
                             raw = fh.read(IMPORT_MAX_FILE_BYTES + 1)
-                        if len(raw) > IMPORT_MAX_FILE_BYTES:
-                            skipped += 1
-                            continue
-                        # heuristic: אם יש אפס-בייטים רבים → כנראה בינארי
-                        if b"\x00" in raw:
-                            skipped += 1
-                            continue
-                        try:
-                            text = raw.decode('utf-8')
-                        except Exception:
-                            try:
-                                text = raw.decode('latin-1')
-                            except Exception:
-                                skipped += 1
-                                continue
-                        if total_bytes + len(raw) > IMPORT_MAX_TOTAL_BYTES:
-                            continue
-                        if saved >= IMPORT_MAX_FILES:
-                            continue
-                        lang = detect_language_from_filename(rel_path)
-                        # בדוק אם קיים כבר עבור אותו ריפו (לפי תגית repo:) — מהמסד ולא מהקאש,
-                        # כמו כל קריאה שקודמת לכתיבה: המונה "עודכנו / חדשים" נגזר ממנה.
-                        prev_doc = facade.get_latest_version_fresh(user_id, rel_path)
-                        prev_tags = (prev_doc.get('tags') or []) if isinstance(prev_doc, dict) else []
-                        existed_for_repo = any((isinstance(t, str) and t == repo_tag) for t in prev_tags)
-                        # מדידת ביצוע עבור שמירה בודדת
-                        with track_performance("github_import_save_file"):
-                            ok = facade.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
-                        if ok:
-                            if existed_for_repo:
-                                updated += 1
-                            else:
-                                saved += 1
-                            total_bytes += len(raw)
-                        else:
-                            skipped += 1
+                    except OSError:
+                        # קובץ שאי אפשר לקרוא מהדיסק (הרשאה, קישור שבור) מדלגים עליו, כמו על קובץ בינארי
+                        # או גדול מדי. ה-``try`` עוטף רק את הקריאה הזו: כשל במסד ובאג בהמשך אינם "הקובץ
+                        # הזה לא מתאים לייבוא" — הם עולים, ולא נספרים בשקט כדילוג.
+                        logger.warning("github import: skipped unreadable file %s", rel_path, exc_info=True)
+                        skipped += 1
+                        continue
+                    if len(raw) > IMPORT_MAX_FILE_BYTES:
+                        skipped += 1
+                        continue
+                    # heuristic: אם יש אפס-בייטים רבים → כנראה בינארי
+                    if b"\x00" in raw:
+                        skipped += 1
+                        continue
+                    try:
+                        text = raw.decode('utf-8')
                     except Exception:
+                        try:
+                            text = raw.decode('latin-1')
+                        except Exception:
+                            skipped += 1
+                            continue
+                    if total_bytes + len(raw) > IMPORT_MAX_TOTAL_BYTES:
+                        continue
+                    if saved >= IMPORT_MAX_FILES:
+                        continue
+                    lang = detect_language_from_filename(rel_path)
+                    # בדוק אם קיים כבר עבור אותו ריפו (לפי תגית repo:) — מהמסד ולא מהקאש,
+                    # כמו כל קריאה שקודמת לכתיבה: המונה "עודכנו / חדשים" נגזר ממנה.
+                    prev_doc = read_latest(user_id, rel_path)
+                    prev_tags = (prev_doc.get('tags') or []) if isinstance(prev_doc, dict) else []
+                    existed_for_repo = any((isinstance(t, str) and t == repo_tag) for t in prev_tags)
+                    # מדידת ביצוע עבור שמירה בודדת
+                    with track_performance("github_import_save_file"):
+                        ok = facade.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
+                    if ok:
+                        if existed_for_repo:
+                            updated += 1
+                        else:
+                            saved += 1
+                        total_bytes += len(raw)
+                    else:
                         skipped += 1
             try:
                 track_github_sync(user_id=user_id, files_count=saved + updated, success=True)
@@ -1788,6 +1804,16 @@ class GitHubMenuHandler:
                 f"ℹ️ זהו ייבוא תוכן — לא נוצר גיבוי ZIP.\n"
                 f"תוכל למצוא את הקבצים ב׳🗂 לפי ריפו׳.",
                 parse_mode="HTML",
+            )
+        except _PyMongoError as e:
+            # הקריאה הטרייה זורקת כשהמסד נכשל, במקום לענות "אין קובץ". עוצרים ולא ממשיכים בשקט
+            # לקובץ הבא: "✅ ייבוא הושלם" על ייבוא שחלק ממנו לא נקרא הוא בדיוק הדיווח שאסור לתת.
+            # בלי טקסט החריגה: של pymongo כולל כתובות שרתים. הפרטים נרשמים באירוע של הקריאה
+            # עצמה (``db_get_latest_version_error``).
+            emit_event("github_import_repo_error", severity="error", error=type(e).__name__, repo=repo_full, branch=branch)
+            await query.edit_message_text(
+                f"❌ קריאה מהמסד נכשלה, והייבוא נעצר. עד עכשיו: {saved} חדשים, {updated} עודכנו, "
+                f"{skipped} דילוגים. אפשר לייבא שוב."
             )
         except Exception as e:
             try:
