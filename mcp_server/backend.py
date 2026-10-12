@@ -1146,6 +1146,10 @@ def _latest_fresh(dbm: Any, user_id: int, file_name: str) -> dict[str, Any] | No
     ran against an old test double, which then tested exactly the stale path
     this function exists to avoid (``silent-fallback-to-worse-path`` in
     amir-bug-patterns).
+
+    A failed query does not raise: the failure channel is
+    ``Repository._fetch_latest_version``'s, which returns ``None`` both for a
+    missing file and for a query that failed.
     """
     return dbm.get_latest_version_fresh(user_id, file_name)
 

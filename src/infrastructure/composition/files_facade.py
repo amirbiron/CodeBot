@@ -86,6 +86,9 @@ class FilesFacade:
         ב-``AttributeError``. נפילה ל-``get_latest_version`` הייתה הופכת את הדלת הטרייה
         למקוּשה בלי שאיש יראה — ובבדיקות, דמות ישנה הייתה בודקת בדיוק את המסלול שהדלת
         הזו נועדה למנוע.
+
+        **ערוץ הכשל הוא של ``_fetch_latest_version``:** ``None`` גם כשאין קובץ כזה וגם כשהשאילתה
+        נכשלה. חריגה עולה מכאן רק מכשל מחוץ לה, למשל מנהל בלי המתודה.
         """
         return self._get_db().get_latest_version_fresh(user_id, file_name)
 
@@ -166,6 +169,7 @@ class FilesFacade:
         """רשימת הקבצים ישירות מה-DB, בלי הקאש של ``get_user_files`` — לכל מסלול שמוחק או כותב לפיה.
 
         בלי נפילה לגטר המקוּש ובלי ניסיונות חתימה ישנה, מאותה סיבה כמו ``get_latest_version_fresh``.
+        ערוץ הכשל הוא של ``_fetch_user_files``: ``[]`` גם כשאין קבצים וגם כשהשאילתה נכשלה.
         """
         return list(self._get_db().get_user_files_fresh(user_id, limit, skip=skip, projection=projection) or [])
 

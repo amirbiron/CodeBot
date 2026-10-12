@@ -598,8 +598,9 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             # שליפת גרסה אחרונה דרך Facade, עדכון הערה דרך save_code_snippet.
             # טרי ולא דרך ``get_latest_version``: הקוד והשפה שנקראים כאן **נכתבים**
             # לגרסה החדשה, והגרסה המקוּשה יכולה להיות מלפני עריכה בוובאפ.
-            # כשל כאן עולה ל-``except`` שלמטה, שרושם אותו ועונה "שגיאה" — ולא
-            # מוצג כ"הקובץ לא נמצא".
+            # חריגה מהקריאה עולה ל-``except`` שלמטה, שרושם אותה ועונה "שגיאה" — היא לא
+            # נבלעת ל"הקובץ לא נמצא". שגיאת מסד בתוך השאילתה אינה חריגה כאן:
+            # ``_fetch_latest_version`` מחזירה בה ``None``, כמו לקובץ שאינו קיים.
             from src.infrastructure.composition import get_files_facade  # type: ignore
             _facade = get_files_facade()
             doc = _facade.get_latest_version_fresh(user_id, file_name)
@@ -1436,8 +1437,9 @@ def _suggest_clone_name(facade, user_id: int, name: str) -> str:
     """שם פנוי לעותק של ``name``: ``<stem> (copy)<ext>``, ואחריו ``(copy 2)`` עד ``(copy 99)``.
 
     "פנוי" נשאל את המסד דרך ``get_latest_version_fresh`` ולא את הקאש: השם נבחר כדי לכתוב אליו,
-    והקאש אינו שומר ``None`` — שם שנמחק או ששונה בוובאפ היה נשאר "תפוס" עד שהקאש פג. שגיאה
-    עולה לקורא, ואינה נחשבת "פנוי".
+    והקאש אינו שומר ``None`` — שם שנמחק או ששונה בוובאפ היה נשאר "תפוס" עד שהקאש פג. חריגה
+    עולה לקורא, ואינה נחשבת "פנוי". שגיאת מסד בתוך השאילתה אינה חריגה: ``_fetch_latest_version``
+    מחזירה בה ``None``, ולכן השם נחשב בה פנוי.
     """
     name = str(name)
     dot = name.rfind('.')
@@ -1548,8 +1550,9 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
         file_name = query.data.replace("clone_direct_", "")
         user_id = update.effective_user.id
         # המקור נקרא מהמסד ולא דרך ``get_latest_version`` המקוּשה: מה שנקרא כאן **נכתב**
-        # לעותק, והגרסה המקוּשה יכולה להיות מלפני עריכה בוובאפ. כשל עולה ל-``except``
-        # שלמטה ונרשם — ואינו מוצג כ"הקובץ לא נמצא".
+        # לעותק, והגרסה המקוּשה יכולה להיות מלפני עריכה בוובאפ. חריגה מהקריאה עולה
+        # ל-``except`` שלמטה ונרשמת — היא לא נבלעת ל"הקובץ לא נמצא". שגיאת מסד בתוך
+        # השאילתה אינה חריגה כאן: ``_fetch_latest_version`` מחזירה בה ``None``.
         from src.infrastructure.composition import get_files_facade  # type: ignore
         facade = get_files_facade()
         file_data = facade.get_latest_version_fresh(user_id, file_name)
