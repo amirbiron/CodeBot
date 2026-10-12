@@ -361,12 +361,12 @@ graph TB
     end
     
     subgraph "Command Handlers"
-        DP --> SH[/status Handler]
-        DP --> EH[/errors Handler]
-        DP --> LH[/latency Handler]
-        DP --> RH[/rate_limit Handler]
-        DP --> TH[/triage Handler]
-        DP --> DH[/dashboard Handler]
+        DP --> SH["/status Handler"]
+        DP --> EH["/errors Handler"]
+        DP --> LH["/latency Handler"]
+        DP --> RH["/rate_limit Handler"]
+        DP --> TH["/triage Handler"]
+        DP --> DH["/dashboard Handler"]
     end
     
     subgraph "Services Layer"
