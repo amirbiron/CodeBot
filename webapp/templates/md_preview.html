@@ -2815,6 +2815,24 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       }
     } catch(_) { }
 
+    // קוד בתוך בלוק עברי (גדר פנימית, כמו ```python) מוצג משמאל לימין.
+    // *אחרי* ההדגשה, שבונה את תוכן הבלוק מחדש ומוחקת עטיפה שנוספה לפניה,
+    // ולפני שמירת data-original-html, כדי שהעותק יתאר את ה-DOM הסופי.
+    // ראו wrapInnerFences ב-utils/rtl-code.js.
+    // try לכל בלוק, ורחב בכוונה: אין כאן תקלה צפויה — חריגה היא באג, והיא
+    // נרשמת במלואה. בלי התפיסה היא הייתה מגיעה ל-catch החיצוני של הרינדור,
+    // שמחליף את כל המסמך ב"שגיאה ברינדור Markdown"; איתה רק הבלוק הזה נשאר
+    // בלי עטיפה. tests/test_rtl_inner_fences_browser.py בודק את זה.
+    if (window.RtlCode) {
+      container.querySelectorAll('pre.rtl-code code').forEach(function(block) {
+        try {
+          window.RtlCode.wrapInnerFences(block);
+        } catch (err) {
+          console.warn('md_preview: wrapInnerFences failed', err);
+        }
+      });
+    }
+
     // אחרי הדגשת hljs – נשמור מקור רק לכל בלוק קוד (לא לכל הקונטיינר)
     try {
       const blocks = container.querySelectorAll('pre code');
@@ -3122,7 +3140,11 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
               <span class="sr-only">העתק קוד</span>
             `;
             btn.addEventListener('click', async () => {
-              const code = pre.querySelector('code')?.innerText || pre.innerText;
+              // textContent ולא innerText: innerText נגזר מהפריסה, ומוסיף ירידת
+              // שורה בכל גבול של אלמנט בלוק. בבלוק עברי עם קוד פנימי, העטיפה של
+              // wrapInnerFences היא אלמנט בלוק, ו-innerText הוסיף שורה ריקה לפני
+              // הקטע ואחריו (נמדד ב-Chromium 141). textContent הוא התווים עצמם.
+              const code = pre.querySelector('code')?.textContent || pre.textContent;
               try {
                 await navigator.clipboard.writeText(code);
                 showCopySuccess(btn);

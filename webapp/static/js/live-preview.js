@@ -262,6 +262,18 @@
           if (window.SafeHighlight) {
             window.SafeHighlight.highlightBlock(block);
           }
+          // קוד בתוך בלוק עברי משמאל לימין — *אחרי* ההדגשה, שבונה את הבלוק
+          // מחדש. ראו wrapInnerFences ב-utils/rtl-code.js.
+          // try משלו, ורחב בכוונה: אין כאן תקלה צפויה — חריגה היא באג, והיא
+          // נרשמת במלואה. בלעדיו היא הייתה נתפסת למטה בתווית "hljs highlight
+          // failed", ומבטלת את כפתור ההעתקה של הבלוק.
+          if (window.RtlCode) {
+            try {
+              window.RtlCode.wrapInnerFences(block);
+            } catch (err) {
+              console.warn('wrapInnerFences failed', err);
+            }
+          }
           if (parent) {
             parent.style.position = 'relative';
 

@@ -409,6 +409,18 @@ function enhanceMarkdownFallback(root) {
             if (window.SafeHighlight) {
                 window.SafeHighlight.highlightBlock(block);
             }
+            // קוד בתוך בלוק עברי משמאל לימין — *אחרי* ההדגשה, כמו ב-
+            // highlightBlocks של live-preview.js, שהוא המסלול הרגיל כאן.
+            // try משלו, ורחב בכוונה, מאותה סיבה כמו שם: חריגה היא באג, והיא
+            // נרשמת במלואה. בלעדיו היא הייתה נתפסת למטה בתווית "enhance
+            // failed", ומבטלת את כפתור ההעתקה של הבלוק.
+            if (window.RtlCode) {
+                try {
+                    window.RtlCode.wrapInnerFences(block);
+                } catch (err) {
+                    console.warn('wrapInnerFences failed', err);
+                }
+            }
             const parent = block.closest('pre');
             if (parent) {
                 parent.style.position = 'relative';
