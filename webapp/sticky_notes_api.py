@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request, session
 from functools import wraps
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from datetime import datetime, timezone, timedelta
 import time
 import re
@@ -47,13 +47,20 @@ from note_reminder_state import (
     seconds_until as _seconds_until,
     snoozed_fields,
 )
-# ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק. ייבוא עמיד, באותה
-# תבנית של ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק
-# לעולם עדיפה על ייבוא שמפיל את המודול כולו.
+# שרשורי התגובות — הכללים, המסמך וכל כתיבה לאוסף, משותפים עם שירות ה-MCP.
+import note_threads as nt
+from file_dates import as_utc
+# ``DuplicateKeyError`` נדרש לאכיפת שם ייחודי לפתק, ו-``PyMongoError`` לכשלי
+# מסד שמסלולי השרשורים מטפלים בהם במפורש. ייבוא עמיד, באותה תבנית של
+# ObjectId — בסביבות stub אין pymongo, ומחלקה מקומית שלא תיזרק לעולם עדיפה על
+# ייבוא שמפיל את המודול כולו.
 try:  # type: ignore
-    from pymongo.errors import DuplicateKeyError  # type: ignore
+    from pymongo.errors import DuplicateKeyError, PyMongoError  # type: ignore
 except Exception:  # pragma: no cover
     class DuplicateKeyError(Exception):  # type: ignore
+        pass
+
+    class PyMongoError(Exception):  # type: ignore
         pass
 
 
@@ -1029,7 +1036,10 @@ def list_notes(file_id: str):
                     db.sticky_notes.update_many({'_id': {'$in': missing_ids}}, {'$set': update_payload})
                 except Exception:
                     pass
-        resp = jsonify({'ok': True, 'notes': notes, 'count': len(notes)})
+        payload: Dict[str, Any] = {'ok': True, 'notes': notes, 'count': len(notes)}
+        if not _with_thread_summaries(db, user_id, notes):
+            payload['threads_unavailable'] = True
+        resp = jsonify(payload)
         # מניעת קאשינג בדפדפן/פרוקסי כדי שלא תוחזר גרסה ישנה של פתקים
         try:
             resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
@@ -1810,8 +1820,23 @@ def delete_note(note_id: str):
         res = db.sticky_notes.delete_one({'_id': oid, 'user_id': user_id})
         if int(getattr(res, 'deleted_count', 0) or 0) <= 0:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
+        # **השרשורים — רק עכשיו, אחרי שהפתק באמת נמחק.** בסדר ההפוך, מחיקה שנכשלה (פתק של
+        # משתמש אחר, מזהה שכבר נמחק) הייתה מוחקת שרשורים של פתק שנשאר. ``str(oid)`` הוא
+        # ה-``note_id`` הקנוני שהשרשורים נשמרים תחתיו. כשל כאן אינו מחזיר את הפתק: הוא כבר
+        # נמחק, ושרשור יתום אינו מוצג בשום מקום — כל קורא מגיע לשרשורים דרך פתק קיים (ראו
+        # בראש ``note_threads``). לכן לוג, בלי גופים, ולא כשל של הבקשה.
+        threads_deleted: Optional[int] = None
         try:
-            emit_event("sticky_note_deleted", severity="info", user_id=int(user_id), note_id=str(note_id))
+            threads_deleted = nt.delete_note_threads(
+                db[nt.NOTE_THREADS_COLLECTION], user_id=user_id, note_id=str(oid)
+            )
+        except PyMongoError:
+            logger.warning("sticky notes: deleting the threads of deleted note %s failed", oid, exc_info=True)
+        try:
+            emit_event(
+                "sticky_note_deleted", severity="info", user_id=int(user_id), note_id=str(note_id),
+                threads_deleted=threads_deleted,
+            )
         except Exception:
             pass
         resp = jsonify({'ok': True})
@@ -2100,7 +2125,10 @@ def list_board_notes(board_id: str):
         raw_docs = list(cursor) if cursor is not None else []
         notes = [_as_note_response(doc) for doc in raw_docs if isinstance(doc, dict)]
 
-        resp = jsonify({'ok': True, 'notes': notes, 'count': len(notes)})
+        payload: Dict[str, Any] = {'ok': True, 'notes': notes, 'count': len(notes)}
+        if not _with_thread_summaries(db, user_id, notes):
+            payload['threads_unavailable'] = True
+        resp = jsonify(payload)
         try:
             resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
             resp.headers['Pragma'] = 'no-cache'
@@ -2275,6 +2303,8 @@ def list_repo_notes(repo_name: str, repo_path: str):
         payload: Dict[str, Any] = {'ok': True, 'notes': notes, 'count': len(notes)}
         if exists is False:
             payload['orphaned'] = True
+        if not _with_thread_summaries(db, user_id, notes):
+            payload['threads_unavailable'] = True
 
         resp = jsonify(payload)
         try:
@@ -2709,6 +2739,404 @@ def toggle_note_task(note_id: str):
         except Exception:
             pass
         return jsonify({'ok': False, 'error': 'Failed to toggle task'}), 500
+
+
+# ---------------------------------------------------------------------------
+# שרשורי תגובות על פתקים
+#
+# הכללים, צורת המסמך וכל כתיבה לאוסף יושבים ב-``note_threads`` (מודול שורש, משותף עם
+# שירות ה-MCP), ו-``tests/test_note_threads_single_writer.py`` נופל על כתיבה לאוסף מכאן.
+# מה שיש כאן: ההרשאה — הפתק שייך למשתמש, **לפני** כל קריאה למודול — קריאת הקלט, והתשובה,
+# שנבנית ממה שהמסד החזיר (``result["thread"]``, ``nt.stored_comment``) ולא ממה שנשלח.
+#
+# **אין כאן שער אדמין לפתקי ריפו, בעקביות עם שאר ראוטי הפתקים בוובאפ.** שרשור תמיד שייך
+# לפתק של המשתמש עצמו (``user_id`` מה-session בכל פילטר), ולכן אין דרך להגיע לשרשור של
+# מישהו אחר. ב-MCP פתק ריפו פתוח רק לאדמין (``is_repo_note`` ב-``mcp_server/handlers.py``);
+# ההבדל הוא החלטה, וראוטי פתקי הריפו בוובאפ ממילא אינם בודקים אדמין.
+# ---------------------------------------------------------------------------
+
+#: סטטוס HTTP לכל קוד סירוב של ``note_threads`` — סירוב פירושו שלא נכתב דבר. גוף שאינו
+#: תקין ← 400; שרשור שאינו קיים בפתק הזה ← 404; מצב שאינו מאפשר את הפעולה (מלא, כבר נפתר,
+#: לא נפתר, התנגשות) ← 409. שלושת הקודים של ``working_on`` אינם יכולים להגיע מכאן (כותב
+#: משתמש אינו נושא ``working_on``), והם כאן כדי שהמיפוי יכסה את כל הקודים של המודול —
+#: ``tests/test_note_threads_webapp.py`` משווה מול המקור.
+_THREAD_ERROR_STATUS = {
+    'invalid_body': 400,
+    'empty_body': 400,
+    'body_too_long': 400,
+    'invalid_thread_id': 400,
+    'working_on_required': 400,
+    'invalid_working_on': 400,
+    'working_on_too_long': 400,
+    'thread_not_found': 404,
+    'thread_full': 409,
+    'thread_too_long': 409,
+    'already_resolved': 409,
+    'not_resolved': 409,
+    'conflict': 409,
+}
+
+#: הגוון של תגובת סוכן בחלונית, לפי שם הלקוח. **המפתחות הם בדיוק המפתחות של**
+#: ``nt.AGENT_CLIENT_LABELS``, וטסט משווה ביניהם: לקוח שיתווסף שם בלי גוון כאן היה מקבל
+#: בשקט את הגוון של "סוכן אחר" (R6). הצבעים עצמם ב-CSS, לפי ``data-tone``.
+_AGENT_CLIENT_TONES = {
+    'claude-code': 'cc',
+    'Anthropic/ClaudeAI': 'claude',
+    'Gemini': 'gemini',
+}
+
+#: השם שמוצג ליד תגובה של המשתמש כשאין לו ``first_name`` ב-session.
+_THREAD_USER_FALLBACK_NAME = 'אני'
+
+
+def _iso_utc(value: Any) -> Optional[str]:
+    """זמן כ-ISO עם היסט UTC מפורש — או ``None``.
+
+    הלקוח מחשב מזה "לפני 20 דק׳". **בלי היסט הדפדפן היה קורא את הערך כשעון מקומי** (R7),
+    ו-``as_utc`` מבטיח היסט גם כשהלקוח של המסד אינו ``tz_aware``.
+    """
+    return as_utc(value).isoformat() if isinstance(value, datetime) else None
+
+
+def _thread_user_name() -> str:
+    """השם שמוצג ליד תגובה של המשתמש: ``first_name`` מה-session.
+
+    הפיצ'ר פתוח לכל המשתמשים ("אמיר" באפיון הוא דוגמה), ולכן השם הוא של המשתמש המחובר.
+    הערך הגיע מ-Telegram בהתחברות, ואין הבטחה שהוא מחרוזת לא ריקה (U3).
+    """
+    data = session.get('user_data')
+    name = data.get('first_name') if isinstance(data, dict) else None
+    name = name.strip() if isinstance(name, str) else ''
+    return name or _THREAD_USER_FALLBACK_NAME
+
+
+def _author_initials(label: str, *, is_user: bool) -> str:
+    """ראשי התיבות שבעיגול ליד התגובה, לפי העיצוב: משתמש — שתי האותיות הראשונות של השם
+    ("אמ"); סוכן — השם כולו כשהוא עד שני תווים ("CC"), ואחרת האות הראשונה ("C", "G")."""
+    text = ''.join(str(label or '').split())
+    if not text:
+        return '?'
+    if is_user:
+        return text[:2]
+    return text if len(text) <= 2 else text[:1].upper()
+
+
+def _author_tone(author: Any) -> str:
+    """``data-tone`` של התגובה: ``user``, גוון של לקוח מוכר, או ``agent`` לכל סוכן אחר."""
+    if not isinstance(author, dict):
+        return 'agent'
+    if author.get('kind') == nt.AUTHOR_USER:
+        return 'user'
+    client = author.get('client')
+    return _AGENT_CLIENT_TONES.get(client, 'agent') if isinstance(client, str) else 'agent'
+
+
+def _comment_out(comment: Any, *, user_name: str) -> Optional[Dict[str, Any]]:
+    """תגובה כפי שהיא נשמרה, בצורה שהחלונית מציגה. השם נקבע ב-``nt.author_label`` — מקום אחד."""
+    if not isinstance(comment, dict):
+        return None
+    raw_author = comment.get('author')
+    author: Dict[str, Any] = raw_author if isinstance(raw_author, dict) else {}
+    is_user = author.get('kind') == nt.AUTHOR_USER
+    label = nt.author_label(author, user_name=user_name)
+    working_on = author.get('working_on')
+    body = comment.get('body')
+    return {
+        'id': str(comment.get('id') or ''),
+        'author_kind': nt.AUTHOR_USER if is_user else nt.AUTHOR_AGENT,
+        'author_label': label,
+        'author_initials': _author_initials(label, is_user=is_user),
+        'author_tone': _author_tone(author),
+        'working_on': working_on if isinstance(working_on, str) else '',
+        'body': body if isinstance(body, str) else '',
+        'created_at': _iso_utc(comment.get('created_at')),
+    }
+
+
+def _thread_summary_out(row: Dict[str, Any]) -> Dict[str, Any]:
+    """תקציר שרשור — מה שבועה שמעל הפתק צריכה. ``row`` מ-``nt.list_threads`` /
+    ``nt.list_threads_for_notes``, ולכן הוא נושא ``number``."""
+    number = row.get('number')
+    count = row.get('comment_count')
+    return {
+        'id': str(row.get('_id')),
+        'number': number if isinstance(number, int) else None,
+        'status': nt.STATUS_RESOLVED if row.get('status') == nt.STATUS_RESOLVED else nt.STATUS_OPEN,
+        'comment_count': count if isinstance(count, int) else 0,
+        'awaits_user': nt.awaits_user(row),
+    }
+
+
+def _thread_state_out(row: Dict[str, Any], *, number: Any, user_name: str) -> Dict[str, Any]:
+    """התקציר, ועוד מי סגר ומתי — מה שהחלונית של שרשור פתוח מציגה בכותרת ובשורת "נפתר"."""
+    out = _thread_summary_out({**row, 'number': number})
+    resolved_by = row.get('resolved_by')
+    out['resolved_by_label'] = (
+        nt.author_label(resolved_by, user_name=user_name) if isinstance(resolved_by, dict) else ''
+    )
+    out['resolved_at'] = _iso_utc(row.get('resolved_at'))
+    return out
+
+
+def _with_thread_summaries(db: Any, user_id: int, notes: List[Dict[str, Any]]) -> bool:
+    """מצרף לכל פתק ברשימה את תקצירי השרשורים שלו (``threads``) — שאילתה אחת לכל הרשימה.
+
+    **``False`` כשהשאילתה נכשלה.** הפתקים עדיין מוחזרים, בלי ``threads``, והקורא מוסיף
+    לתשובה ``threads_unavailable`` — כדי שהלקוח יבחין בין "אין שרשורים" לבין "לא נטענו", ולא
+    יציג פתק בלי בועות כאילו אין עליו שיחה (``silent-fallback-to-worse-path``). רק
+    ``PyMongoError`` נתפס: זה הסיכון שהמצב הזה הוצהר בשבילו, ובאג אחר עולה (``widened-
+    exception-scope``). רשימה בלי פתקים אינה ניגשת לאוסף בכלל.
+    """
+    ids = [note['id'] for note in notes if nt.is_canonical_note_id(note.get('id'))]
+    by_note: Dict[str, List[Dict[str, Any]]] = {}
+    if ids:
+        try:
+            by_note = nt.list_threads_for_notes(
+                db[nt.NOTE_THREADS_COLLECTION], user_id=user_id, note_ids=ids
+            )
+        except PyMongoError:
+            logger.warning("sticky notes: loading thread summaries for %d notes failed", len(ids), exc_info=True)
+            return False
+    for note in notes:
+        note['threads'] = [_thread_summary_out(row) for row in by_note.get(str(note.get('id')), [])]
+    return True
+
+
+def _owned_note_id(db: Any, user_id: int, note_id: str) -> Union[str, Tuple[Any, int]]:
+    """``note_id`` קנוני (``str``) של פתק שבבעלות המשתמש — או תשובת שגיאה מוכנה, ושום דבר לא נכתב.
+
+    זו ההרשאה של כל ראוטי השרשורים, והיא קודמת לכל קריאה ל-``note_threads``: פתק של משתמש
+    אחר ופתק שאינו קיים עונים אותו 404 — מבחוץ אי אפשר להבחין ביניהם (IDOR). ``str(oid)`` הוא
+    הצורה שהשרשורים נשמרים תחתיה (hex באותיות קטנות). הקורא מבחין בין השניים ב-``isinstance``.
+    """
+    try:
+        oid = ObjectId(str(note_id))
+    except InvalidId:
+        return jsonify({'ok': False, 'error': 'invalid_note_id'}), 400
+    if not db.sticky_notes.find_one({'_id': oid, 'user_id': int(user_id)}, {'_id': 1}):
+        return jsonify({'ok': False, 'error': 'note_not_found'}), 404
+    return str(oid)
+
+
+def _no_store(resp: Any) -> Any:
+    """תשובה שאסור לשמור בקאש — כמו כל תשובה של ראוטי הפתקים."""
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+def _thread_refusal(result: Dict[str, Any]):
+    """סירוב של ``note_threads`` כתשובת HTTP — הקוד כמו שהוא, עם התקרה כשהיא חלק ממנו."""
+    code = str(result.get('error') or '')
+    body: Dict[str, Any] = {'ok': False, 'error': code}
+    for key in ('max', 'max_bytes'):
+        if key in result:
+            body[key] = result[key]
+    return _no_store(jsonify(body)), _THREAD_ERROR_STATUS.get(code, 400)
+
+
+def _thread_written(db: Any, user_id: int, note_id: str, result: Dict[str, Any], *, status: int = 200):
+    """התשובה לכתיבה שהצליחה — **ממה שהמסד החזיר**, לא ממה שנשלח.
+
+    ``thread`` הוא המצב שהכתיבה הזו השאירה (``ReturnDocument.AFTER``, או הקריאה החוזרת אחרי
+    יצירה), ``comment`` הוא התגובה שנכתבה כפי שנשמרה (``nt.stored_comment``), ו-``threads`` הם
+    תקצירי כל השרשורים של הפתק, נקראים אחרי הכתיבה: בשביל הבועות, וכדי שהמספר של שרשור חדש
+    ("שרשור N") יגיע מהמקום היחיד שמחשב אותו.
+
+    **כשל בקריאה החוזרת אינו כשל של הכתיבה** — היא כבר קרתה. ``threads: None`` (או ``thread:
+    None`` כשהקריאה שאחרי היצירה נכשלה) אומר ללקוח "לא ידוע, קרא שוב", ולא "אין שרשורים".
+    """
+    user_name = _thread_user_name()
+    rows: Optional[List[Dict[str, Any]]]
+    try:
+        rows = nt.list_threads(db[nt.NOTE_THREADS_COLLECTION], user_id=user_id, note_id=note_id)
+    except PyMongoError:
+        logger.warning(
+            "sticky notes: reading the threads back after %s failed (note=%s)",
+            result.get('action'), note_id, exc_info=True,
+        )
+        rows = None
+    thread_id = result.get('thread_id')
+    number = next((row.get('number') for row in rows or [] if str(row.get('_id')) == thread_id), None)
+    stored = result.get('thread')
+    comment = nt.stored_comment(result)
+    return _no_store(jsonify({
+        'ok': True,
+        'action': result.get('action'),
+        'thread_id': thread_id,
+        'thread': (
+            _thread_state_out(stored, number=number, user_name=user_name) if isinstance(stored, dict) else None
+        ),
+        'comment': _comment_out(comment, user_name=user_name) if comment else None,
+        'threads': [_thread_summary_out(row) for row in rows] if rows is not None else None,
+    })), status
+
+
+@sticky_notes_bp.route('/note/<note_id>/threads', methods=['GET'])
+@require_auth
+@notes_rate_limit('thread_read', 180)
+@traced("sticky_notes.threads_list")
+def list_note_threads(note_id: str):
+    """תקצירי השרשורים של פתק, בלי התגובות — לרענון הבועות."""
+    try:
+        user_id = int(session['user_id'])
+        db = get_db()
+        nid = _owned_note_id(db, user_id, note_id)
+        if not isinstance(nid, str):
+            return nid
+        rows = nt.list_threads(db[nt.NOTE_THREADS_COLLECTION], user_id=user_id, note_id=nid)
+        return _no_store(jsonify({'ok': True, 'threads': [_thread_summary_out(row) for row in rows]}))
+    except Exception:
+        return _failed('threads_list')
+
+
+@sticky_notes_bp.route('/note/<note_id>/threads/<thread_id>', methods=['GET'])
+@require_auth
+@notes_rate_limit('thread_read', 180)
+@traced("sticky_notes.thread_get")
+def get_note_thread(note_id: str, thread_id: str):
+    """שרשור אחד עם כל התגובות שלו — מה שהחלונית מציגה.
+
+    **שרשור אחד בכל פעם, ולא כל שרשורי הפתק:** שרשור יכול להגיע ל-
+    ``nt.MAX_THREAD_BODY_BYTES``, ומספר השרשורים על פתק אינו מוגבל. התקצירים של כולם (בלי
+    תגובות) חוזרים יחד איתו, בשביל המספור והבועות.
+    """
+    try:
+        user_id = int(session['user_id'])
+        db = get_db()
+        nid = _owned_note_id(db, user_id, note_id)
+        if not isinstance(nid, str):
+            return nid
+        tid = nt.parse_thread_id(thread_id)
+        if tid is None:
+            return _thread_refusal({'error': 'invalid_thread_id'})
+        coll = db[nt.NOTE_THREADS_COLLECTION]
+        rows = nt.list_threads(coll, user_id=user_id, note_id=nid)
+        row = next((r for r in rows if str(r.get('_id')) == tid), None)
+        if row is None:
+            return _thread_refusal({'error': 'thread_not_found'})
+        comments = nt.load_comments(coll, user_id=user_id, note_id=nid, thread_ids=[tid]).get(tid, [])
+        user_name = _thread_user_name()
+        thread = _thread_state_out(row, number=row.get('number'), user_name=user_name)
+        thread['comments'] = [out for out in (_comment_out(c, user_name=user_name) for c in comments) if out]
+        return _no_store(jsonify({
+            'ok': True,
+            'thread': thread,
+            'threads': [_thread_summary_out(r) for r in rows],
+        }))
+    except Exception:
+        return _failed('thread_get')
+
+
+@sticky_notes_bp.route('/note/<note_id>/threads', methods=['POST'])
+@require_auth
+@notes_rate_limit('thread_write', 60)
+@traced("sticky_notes.thread_create")
+def create_note_thread(note_id: str):
+    """שרשור חדש על פתק, עם התגובה הראשונה שלו. גוף: ``{"body": "..."}``.
+
+    השרשור נוצר רק עם תגובה — "השרשור נשמר עם שליחת התגובה הראשונה" (העיצוב). ``201``.
+    """
+    try:
+        user_id = int(session['user_id'])
+        db = get_db()
+        nid = _owned_note_id(db, user_id, note_id)
+        if not isinstance(nid, str):
+            return nid
+        payload = _json_object()
+        if payload is None:
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
+        result = nt.create_thread(
+            db[nt.NOTE_THREADS_COLLECTION], user_id=user_id, note_id=nid,
+            author=nt.user_author(), body=payload.get('body'),
+        )
+        if not result.get('ok'):
+            return _thread_refusal(result)
+        return _thread_written(db, user_id, nid, result, status=201)
+    except Exception:
+        return _failed('thread_create')
+
+
+@sticky_notes_bp.route('/note/<note_id>/threads/<thread_id>/comments', methods=['POST'])
+@require_auth
+@notes_rate_limit('thread_write', 60)
+@traced("sticky_notes.thread_reply")
+def reply_note_thread(note_id: str, thread_id: str):
+    """תשובה בשרשור. גוף: ``{"body": "...", "reopen": true|false}``.
+
+    ``reopen`` (ברירת מחדל ``true``) — תשובה על שרשור שנפתר פותחת אותו באותה כתיבה; ``false``
+    עונה ומשאיר אותו נפתר ("שליחה בלי פתיחה", לפי ההחלטה שבפתק על האפיון). ``reopen`` שאינו
+    בוליאני ← 400 ``invalid_reopen``: אחרת ``"false"`` כמחרוזת היה נקרא כאמת ופותח שרשור.
+    """
+    try:
+        user_id = int(session['user_id'])
+        db = get_db()
+        nid = _owned_note_id(db, user_id, note_id)
+        if not isinstance(nid, str):
+            return nid
+        payload = _json_object()
+        if payload is None:
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
+        reopen = payload.get('reopen', True)
+        if not isinstance(reopen, bool):
+            return jsonify({'ok': False, 'error': 'invalid_reopen'}), 400
+        result = nt.add_comment(
+            db[nt.NOTE_THREADS_COLLECTION], user_id=user_id, note_id=nid, thread_id=thread_id,
+            author=nt.user_author(), body=payload.get('body'), reopen=reopen,
+        )
+        if not result.get('ok'):
+            return _thread_refusal(result)
+        return _thread_written(db, user_id, nid, result)
+    except Exception:
+        return _failed('thread_reply')
+
+
+@sticky_notes_bp.route('/note/<note_id>/threads/<thread_id>/resolve', methods=['POST'])
+@require_auth
+@notes_rate_limit('thread_write', 60)
+@traced("sticky_notes.thread_resolve")
+def resolve_note_thread(note_id: str, thread_id: str):
+    """סגירת שרשור. גוף: ``{}``, או ``{"body": "..."}`` — משפט סיכום שנשמר כתגובה אחרונה
+    **באותה כתיבה** (כפתור "✓ נפתר" כשיש טקסט בתיבה, כמו ``resolve`` עם ``body`` ב-MCP)."""
+    try:
+        user_id = int(session['user_id'])
+        db = get_db()
+        nid = _owned_note_id(db, user_id, note_id)
+        if not isinstance(nid, str):
+            return nid
+        payload = _json_object()
+        if payload is None:
+            return jsonify({'ok': False, 'error': 'invalid_payload'}), 400
+        result = nt.resolve_thread(
+            db[nt.NOTE_THREADS_COLLECTION], user_id=user_id, note_id=nid, thread_id=thread_id,
+            author=nt.user_author(), body=payload.get('body'),
+        )
+        if not result.get('ok'):
+            return _thread_refusal(result)
+        return _thread_written(db, user_id, nid, result)
+    except Exception:
+        return _failed('thread_resolve')
+
+
+@sticky_notes_bp.route('/note/<note_id>/threads/<thread_id>/reopen', methods=['POST'])
+@require_auth
+@notes_rate_limit('thread_write', 60)
+@traced("sticky_notes.thread_reopen")
+def reopen_note_thread(note_id: str, thread_id: str):
+    """פתיחה מחדש של שרשור שנפתר, בלי תגובה — הכפתור "פתיחה מחדש"."""
+    try:
+        user_id = int(session['user_id'])
+        db = get_db()
+        nid = _owned_note_id(db, user_id, note_id)
+        if not isinstance(nid, str):
+            return nid
+        result = nt.reopen_thread(
+            db[nt.NOTE_THREADS_COLLECTION], user_id=user_id, note_id=nid, thread_id=thread_id,
+        )
+        if not result.get('ok'):
+            return _thread_refusal(result)
+        return _thread_written(db, user_id, nid, result)
+    except Exception:
+        return _failed('thread_reopen')
 
 
 #: כמה תוצאות מוחזרות כשלא נתבקש אחרת, וכמה הכי הרבה אפשר לבקש.

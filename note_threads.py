@@ -29,10 +29,12 @@
 :func:`resolve_thread` ו-:func:`reopen_thread` (כולל הקריאה שמסווגת למה העדכון לא תפס),
 :func:`list_threads`, :func:`load_comments` ו-:func:`delete_note_threads`. זה נכון גם כשיש
 ``_id`` של שרשור: מזהה שרשור של משתמש אחר, או של פתק אחר של אותו משתמש, הוא "לא נמצא".
-**שתי קריאות עוברות על כמה פתקים, ולכן אינן תחומות לפתק אחד — בכוונה:**
+**ארבע קריאות עוברות על כמה פתקים, ולכן אינן תחומות לפתק אחד — בכוונה:**
 :func:`open_thread_counts` סופרת בשאילתה אחת את השרשורים הפתוחים בפתקים שהקורא העביר
-(``note_id`` מתוך הרשימה שלו), ו-:func:`pending_for_agent` עוברת על כל הפתקים של המשתמש,
-בשביל שורת הפריימר.
+(``note_id`` מתוך הרשימה שלו), :func:`list_threads_for_notes` מחזירה בשאילתה אחת את תקצירי
+השרשורים של הפתקים שהקורא העביר (הבועות ברשימת הפתקים בוובאפ), :func:`comments_by_ref`
+שולפת תגובות לפי מזהה בשביל שולח הפוש, ו-:func:`pending_for_agent` עוברת על כל הפתקים של
+המשתמש, בשביל שורת הפריימר.
 
 **ההרשאה עצמה אינה כאן**, אלא אצל הקורא. בפעולה על פתק אחד היא נבדקת **לפני** הקריאה
 לפונקציה כאן: הפתק שייך לקורא, ופתק ריפו פתוח רק לאדמין — ב-MCP זה השער המשותף של
@@ -43,9 +45,12 @@
 
 **מחיקת פתק.** מחיקת פתק בוובאפ היא מחיקה קשה (``delete_one``), ואין לפתקים סל מחזור,
 ולכן שרשורים אינם "חוזרים" עם פתק משוחזר — גיבוי משחזר פתק עם ``_id`` חדש.
-:func:`delete_note_threads` מוחקת את שרשורי הפתק, בשביל ראוט המחיקה בוובאפ — **שעוד אינו
-קורא לה**: החיבור מגיע עם ה-PR של הוובאפ, ועד אז שרשור של פתק שנמחק נשאר במסד. כל
-הקוראים כאן עמידים לשרשור יתום: הם מגיעים לשרשורים דרך פתק קיים.
+:func:`delete_note_threads` מוחקת את שרשורי הפתק, וראוט המחיקה בוובאפ
+(``webapp/sticky_notes_api.py:delete_note``) קורא לה **רק אחרי** שמחיקת הפתק עצמו הצליחה
+(``deleted_count == 1``) — בסדר ההפוך, מחיקה שנכשלה הייתה מוחקת שרשורים של פתק שנשאר.
+שרשור יתום עדיין אפשרי: כשמחיקת השרשורים נכשלת אחרי שהפתק נמחק, או כשסוכן מגיב בדיוק
+ברגע שהפתק נמחק (הבדיקה שהפתק קיים קודמת לכתיבה). כל הקוראים כאן עמידים לו: הם מגיעים
+לשרשורים דרך פתק קיים.
 """
 
 from __future__ import annotations
@@ -74,17 +79,21 @@ __all__ = [
     "NOTE_THREADS_PENDING_INDEX",
     "STATUS_OPEN",
     "STATUS_RESOLVED",
+    "THREAD_SUMMARY_FIELDS",
     "UNKNOWN_AGENT_LABEL",
     "add_comment",
     "agent_author",
     "author_label",
+    "awaits_user",
     "body_wire_bytes",
     "comment_body_error",
+    "comments_by_ref",
     "create_thread",
     "delete_note_threads",
     "display_order",
     "is_canonical_note_id",
     "list_threads",
+    "list_threads_for_notes",
     "load_comments",
     "normalize_client_name",
     "note_comment_push_event",
@@ -168,6 +177,12 @@ _AUTHOR_FIELDS = ("kind", "client", "working_on")
 #: שדות היעד של פתק שאירוע ההתראה נושא — ``note_target_ref`` של ``sticky_notes_target``.
 _PUSH_TARGET_FIELDS = ("target", "file_name", "file_id", "board_id", "repo_name", "repo_path")
 
+#: השדות של **תקציר** שרשור — מה שהבועות שמעל הפתק צריכות: המספר שבבועה (``comment_count``),
+#: הסטטוס, "מחכה לך" (``last_author_kind``), והסדר (``created_at``). בלי התגובות, ובלי
+#: ``body_bytes`` / ``resolved_by`` שרק חלונית פתוחה צריכה. היטלת **הכללה** ולא החרגה: שדה
+#: שיתווסף למסמך בעתיד לא ייגרר מעצמו לכל טעינת לוח (``work-disproportionate-to-answer`` §5).
+THREAD_SUMMARY_FIELDS = ("note_id", "status", "comment_count", "last_author_kind", "created_at")
+
 
 # -- גדלים, מזהים וקלט ------------------------------------------------------
 
@@ -193,16 +208,21 @@ def body_wire_bytes(body: str) -> int:
     return len(json.dumps(body, ensure_ascii=False).encode("utf-8"))
 
 
+def _hex_id(value: Any) -> str | None:
+    """מזהה בצורת ``str(ObjectId)`` — 24 תווי hex באותיות קטנות — או ``None``."""
+    text = value.strip() if isinstance(value, str) else ""
+    if not _HEX_ID_RE.match(text):
+        return None
+    return text.lower()
+
+
 def parse_thread_id(value: Any) -> str | None:
     """מזהה שרשור בצורתו הקנונית (24 תווי hex באותיות קטנות) — או ``None``.
 
     הערך מגיע מהלקוח, ולכן נבדק לפני כל המרה (``external-input-isinstance``). קטנות
     ולא גדולות: ``str(ObjectId)`` היא תמיד קטנה, וזו הצורה שכל קורא אחר יחפש.
     """
-    text = value.strip() if isinstance(value, str) else ""
-    if not _HEX_ID_RE.match(text):
-        return None
-    return text.lower()
+    return _hex_id(value)
 
 
 def is_canonical_note_id(value: Any) -> bool:
@@ -629,27 +649,121 @@ def stored_comment(result: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def delete_note_threads(coll: Any, *, user_id: int, note_id: str) -> int:
-    """מוחק את כל השרשורים של פתק, בשביל ראוט המחיקה בוובאפ (עוד אינו קורא לה — ראו בראש
-    המודול). מחזיר כמה נמחקו."""
+    """מוחק את כל השרשורים של פתק, ומחזיר כמה נמחקו.
+
+    הקורא היחיד הוא ראוט המחיקה בוובאפ, **אחרי** שמחיקת הפתק עצמו הצליחה — ראו בראש המודול.
+    כשל של המסד עולה לקורא.
+    """
     return int(coll.delete_many(thread_scope(user_id, note_id)).deleted_count)
 
 
 # -- קריאה ---------------------------------------------------------------------
 
 
-def list_threads(coll: Any, *, user_id: int, note_id: str) -> list[dict[str, Any]]:
-    """כל השרשורים של פתק, **בלי התגובות**, ממוספרים לפי סדר היצירה.
+def _numbered(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """מוסיף לכל שורה ``number`` — "שרשור N" שבעיצוב: המקום ברשימה ועוד אחד.
 
-    ``number`` הוא "שרשור N" שבעיצוב: המקום לפי ``(created_at, _id)`` ועוד אחד. ``_id`` שובר
-    שוויון באותה אלפית שנייה, כך שהסדר קבוע בין קריאות (``unsorted-representative``).
-    המספר אינו נשמר — הוא נגזר בכל קריאה מאותו סדר.
+    השורות מגיעות ממוינות ``(created_at, _id)`` מהמסד; ``_id`` שובר שוויון באותה אלפית שנייה,
+    כך שהסדר קבוע בין קריאות (``unsorted-representative``). המספר אינו נשמר — הוא נגזר בכל
+    קריאה מאותו סדר, ולכן יש לו מקום אחד: כאן, לשני הקוראים (:func:`list_threads` ו-
+    :func:`list_threads_for_notes`).
     """
-    rows = list(
-        coll.find(thread_scope(user_id, note_id), {"comments": 0}).sort([("created_at", 1), ("_id", 1)])
-    )
     for number, row in enumerate(rows, start=1):
         row["number"] = number
     return rows
+
+
+def list_threads(coll: Any, *, user_id: int, note_id: str) -> list[dict[str, Any]]:
+    """כל השרשורים של פתק, **בלי התגובות**, ממוספרים לפי סדר היצירה (:func:`_numbered`)."""
+    return _numbered(list(
+        coll.find(thread_scope(user_id, note_id), {"comments": 0}).sort([("created_at", 1), ("_id", 1)])
+    ))
+
+
+def list_threads_for_notes(
+    coll: Any, *, user_id: int, note_ids: Iterable[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """תקצירי השרשורים של כמה פתקים, ממוספרים — **שאילתה אחת** לכל הרשימה, לא קריאה לכל פתק.
+
+    בשביל רשימת הפתקים בוובאפ (לוח, קובץ, ריפו): כל פתק מגיע עם הבועות שלו. המספור זהה לזה
+    של :func:`list_threads` — אותו מיון ``(created_at, _id)`` בתוך כל פתק, ואותו :func:`_numbered`.
+    כל שורה נושאת רק את :data:`THREAD_SUMMARY_FIELDS` ואת ``_id``.
+
+    תחומה למשתמש ולפתקים שהקורא העביר (``note_id`` מתוך רשימה שהוא קרא בשאילתה שתחומה
+    למשתמש). פתק בלי שרשורים אינו במילון. כשל של המסד עולה לקורא, שמחליט מה "לא ידוע" אצלו.
+    """
+    ids = sorted({_canonical_note_id(nid) for nid in note_ids})
+    if not ids:
+        return {}
+    rows = coll.find(
+        {"user_id": int(user_id), "note_id": {"$in": ids}},
+        {field: 1 for field in THREAD_SUMMARY_FIELDS},
+    ).sort([("note_id", 1), ("created_at", 1), ("_id", 1)])
+    by_note: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_note.setdefault(row["note_id"], []).append(row)
+    for group in by_note.values():
+        _numbered(group)
+    return by_note
+
+
+def awaits_user(row: Mapping[str, Any]) -> bool:
+    """"מחכה לך" — הנקודה האדומה בעיצוב: שרשור פתוח שהתגובה האחרונה בו של סוכן.
+
+    הצד השני של :func:`pending_for_agent`, שם — פתוח והאחרונה של המשתמש.
+    """
+    return row.get("status") == STATUS_OPEN and row.get("last_author_kind") == AUTHOR_AGENT
+
+
+def comments_by_ref(
+    coll: Any, *, user_id: int, refs: Iterable[tuple[Any, Any]]
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """התגובות שמבוקשות לפי ``(thread_id, comment_id)`` — **שאילתה אחת** לכל הרשימה.
+
+    בשביל שולח הפוש: אירוע ``note_comment`` נושא מזהים בלבד, והגוף נקרא טרי בזמן השליחה.
+    הסינון של התגובות קורה **במסד** — ``$filter`` ב-``$project`` שצמוד ל-``$match`` — ולכן רק
+    התגובות שנשאלו יוצאות ממנו, ולא השרשור כולו (עד :data:`MAX_THREAD_BODY_BYTES`). כל תגובה
+    חוזרת עם ``note_id`` של השרשור שלה, כדי שהקורא יוודא שהיא שייכת לפתק שהאירוע מתאר.
+
+    תחומה למשתמש. זוג עם מזהה פגום מדולג, וזוג שלא נמצא (שרשור שנמחק, משתמש אחר) אינו
+    במילון. כשל של המסד עולה לקורא.
+
+    **מזהה תגובה נבדק לצורתו לפני שהוא נכנס לביטוי**, כמו מזהה שרשור: הוא יושב במערך ליטרלי
+    בתוך ``$in`` של אגרגציה, ושם מחרוזת שמתחילה ב-``$`` היא נתיב שדה ולא ערך. מזהה תגובה הוא
+    ``str(ObjectId())`` (:func:`_new_comment`), ולכן הצורה ידועה.
+    """
+    wanted: set[tuple[str, str]] = set()
+    oids: dict[str, Any] = {}
+    for thread_id, comment_id in refs:
+        oid = _thread_oid(thread_id)
+        clean_comment_id = _hex_id(comment_id)
+        if oid is None or clean_comment_id is None:
+            continue
+        oids[str(oid)] = oid
+        wanted.add((str(oid), clean_comment_id))
+    if not wanted:
+        return {}
+    comment_ids = sorted({comment_id for _tid, comment_id in wanted})
+    rows = coll.aggregate([
+        {"$match": {"user_id": int(user_id), "_id": {"$in": list(oids.values())}}},
+        {"$project": {
+            "note_id": 1,
+            "comments": {"$filter": {
+                "input": "$comments", "as": "c", "cond": {"$in": ["$$c.id", comment_ids]},
+            }},
+        }},
+    ])
+    found: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        thread_id = str(row["_id"])
+        for comment in row.get("comments") or []:
+            comment_id = comment.get("id") if isinstance(comment, Mapping) else None
+            if not isinstance(comment_id, str):
+                continue
+            key = (thread_id, comment_id)
+            if key in wanted:
+                found[key] = {**comment, "note_id": row.get("note_id")}
+    return found
 
 
 def load_comments(
