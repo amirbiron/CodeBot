@@ -409,6 +409,15 @@ function enhanceMarkdownFallback(root) {
             if (window.SafeHighlight) {
                 window.SafeHighlight.highlightBlock(block);
             }
+            // קוד בתוך בלוק עברי משמאל לימין — *אחרי* ההדגשה, כמו ב-
+            // highlightBlocks של live-preview.js, שהוא המסלול הרגיל כאן.
+            if (window.RtlCode) {
+                try {
+                    window.RtlCode.wrapInnerFences(block);
+                } catch (err) {
+                    console.warn('wrapInnerFences failed', err);
+                }
+            }
             const parent = block.closest('pre');
             if (parent) {
                 parent.style.position = 'relative';

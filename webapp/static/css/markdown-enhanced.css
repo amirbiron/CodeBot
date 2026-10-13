@@ -267,6 +267,21 @@
 [dir="rtl"] .markdown-summary::before { margin-left: 0; margin-right: 0.5rem; transform: scaleX(-1); }
 [dir="rtl"] .markdown-details[open] .markdown-summary::before { transform: scaleX(-1) rotate(90deg); }
 
+/* קטע קוד פנימי בבלוק קוד עברי: מהגדר הפותחת ועד הסוגרת, כולל שתיהן. את
+   העטיפה יוצרת wrapInnerFences ב-utils/rtl-code.js, אחרי ההדגשה. הכלל כאן
+   ולא בקבצים של כל משטח, כי הקובץ נטען מ-base.html, ושלושת המשטחים — תצוגת
+   ה-Markdown, התצוגה החיה ודפדפן הריפו — הם עמודים שיורשים ממנו.
+   overflow-x אינו קוסמטי. בלי גלילה משלו, שורת קוד ארוכה בקטע LTR בתוך pre
+   RTL גולשת ימינה, לצד שה-pre אינו גולל אליו, והסוף שלה אינו נגיש בשום
+   גלילה. נמדד בשלושת המשטחים, ב-test_a_long_inner_line_starts_visible_and_its_end_is_reachable
+   שב-tests/test_rtl_inner_fences_browser.py. */
+pre.rtl-code .rtl-code-ltr {
+  display: block;
+  direction: ltr;
+  text-align: left;
+  overflow-x: auto;
+}
+
 /* === מובייל === */
 @media (max-width: 768px) {
   .markdown-details, .admonition { margin: 0.75rem -0.5rem; border-radius: 0; }

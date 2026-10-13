@@ -262,6 +262,16 @@
           if (window.SafeHighlight) {
             window.SafeHighlight.highlightBlock(block);
           }
+          // קוד בתוך בלוק עברי משמאל לימין — *אחרי* ההדגשה, שבונה את הבלוק
+          // מחדש. try משלו: כשל כאן לא אמור לבטל את כפתור ההעתקה שאחריו.
+          // ראו wrapInnerFences ב-utils/rtl-code.js.
+          if (window.RtlCode) {
+            try {
+              window.RtlCode.wrapInnerFences(block);
+            } catch (err) {
+              console.warn('wrapInnerFences failed', err);
+            }
+          }
           if (parent) {
             parent.style.position = 'relative';
 
