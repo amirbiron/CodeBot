@@ -622,9 +622,9 @@ _GET_NOTE_THREAD_ID_PARAM_DOC = (
 )
 _WORKING_ON_PARAM_DOC = (
     "The task you are working on right now, in one short sentence — not the conversation's "
-    "title and not a summary of the session. Required on every comment, up to "
-    f"{note_threads.MAX_WORKING_ON_CHARS} characters; it is saved with this comment only and "
-    "shown next to your name."
+    "title and not a summary of the session. Required on every call, also when closing a "
+    f"thread without a body; up to {note_threads.MAX_WORKING_ON_CHARS} characters. It is saved "
+    "with this comment (or with the close) and shown next to your name."
 )
 _COMMENT_BODY_PARAM_DOC = (
     f"The comment, up to {note_threads.MAX_COMMENT_CHARS} characters, saved exactly as sent. "
@@ -3497,7 +3497,8 @@ def build_mcp(
             "note without editing it. Without thread_id: start a new thread (body required). With "
             "thread_id: answer in that thread; answering a resolved thread reopens it unless "
             "reopen=false. thread_id + resolve=true: close the thread, with an optional closing "
-            "summary in body. working_on is required on every comment — the task you are on now. "
+            "summary in body. working_on is required on every call, closing included — the task "
+            "you are on now. "
             "Your name is not a parameter: it comes from your connection. Read the threads with "
             'codekeeper_get_note (part="threads" for every thread in full). A note you cannot '
             "read answers not_found and nothing is written. A thread holds up to "

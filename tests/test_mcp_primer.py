@@ -5,6 +5,7 @@
 כשאין קבצים).
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -214,6 +215,29 @@ def test_recent_files_failure_still_serves_the_instructions():
     resp = _client(_Broken("ההוראות שלי")).get("/api/agent/primer", headers=_auth())
     assert resp.status_code == 200
     assert "ההוראות שלי" in resp.text
+
+
+def test_a_bug_in_the_pending_comments_line_still_serves_the_instructions(caplog):
+    """שורת התגובות היא תוספת, כמו שורת הקבצים: באג בשליפה שלה אינו מפיל את הפריימר.
+
+    שגיאת מסד נתפסת בתוך ה-backend וחוזרת כ-``None``; כאן ה-backend זורק חריגה אחרת — באג.
+    ההוראות מוגשות בלי השורה, והבאג נרשם ב-ERROR עם ה-traceback שלו, ולא בתווית של כשל המסד.
+    על הקוד שלפני התיקון החריגה יצאה מהראוט: 500, וההוראות אבדו.
+    """
+
+    class _Broken(_FakeBackend):
+        def pending_note_threads(self, user_id, *, limit, include_repo_notes, preview_chars):
+            raise RuntimeError("a bug in the pending path")
+
+    caplog.set_level(logging.WARNING, logger="mcp_server.primer")
+    resp = _client(_Broken("ההוראות שלי")).get("/api/agent/primer", headers=_auth())
+
+    assert resp.status_code == 200
+    assert "ההוראות שלי" in resp.text
+    assert "תגובות שממתינות לסוכן" not in resp.text
+    (record,) = [r for r in caplog.records if r.name == "mcp_server.primer"]
+    assert record.levelno == logging.ERROR
+    assert record.exc_info is not None and record.exc_info[0] is RuntimeError
 
 
 # --------------------------------------------------------------- תקרת 24KB

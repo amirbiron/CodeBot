@@ -241,6 +241,30 @@ async def test_working_on_missing_or_too_long_is_refused_and_writes_nothing(serv
     assert server.threads() == [] and server.events() == []
 
 
+async def test_working_on_is_required_on_every_kind_of_call(server, db):
+    """``working_on`` נבדק לפני כל פיצול לפי סוג הקריאה, ולכן הוא חובה בכל ארבע הצורות —
+    גם בסגירה בלי תגובה, שבה הוא נשמר ב-``resolved_by``. התיעוד והתיאור של הכלי אומרים
+    "בכל קריאה", וטענה כזו נבדקת על כל המקרים שהיא מכסה, לא על אחד מהם."""
+    note = _board_note(db)
+    thread = await _new_thread(server, note)
+    threads, events = server.threads(), server.events()
+    calls = {
+        "new thread": {"body": "x"},
+        "answer": {"thread_id": thread, "body": "x"},
+        "close with a summary": {"thread_id": thread, "resolve": True, "body": "x"},
+        "close without a body": {"thread_id": thread, "resolve": True},
+    }
+
+    for kind, arguments in calls.items():
+        missing = await server.call("codekeeper_comment_note", note_id=note, **arguments)
+        blank = await server.call("codekeeper_comment_note", note_id=note, working_on=" ", **arguments)
+        assert "working_on" in missing.get("tool_error", ""), (kind, missing)
+        assert blank == {"ok": False, "error": "working_on_required",
+                         "max": nt.MAX_WORKING_ON_CHARS}, (kind, blank)
+
+    assert server.threads() == threads and server.events() == events
+
+
 async def test_the_write_arguments_are_checked_before_anything_is_read(server, db):
     note = _board_note(db)
     assert (await server.call("codekeeper_comment_note", note_id=note, working_on="x"))["error"] == "body_required"

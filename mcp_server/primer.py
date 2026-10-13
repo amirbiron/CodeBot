@@ -364,15 +364,27 @@ def _load_primer_sync(backend: Any, user_id: int) -> str:
         # שורת המצב היא תוספת. אם היא נכשלה — עדיין מגישים את ההוראות.
         logger.warning("primer: failed to read recent files", exc_info=True)
         files = []
-    # שורת התגובות. כשל של המסד חוזר כ-``None`` ("לא ידוע") מתוך ה-backend, שתופס רק
-    # שגיאות מסד — ואז אין שורה, וההוראות מוגשות. פתקי ריפו נספרים רק לאדמין: אותו שער
-    # של ``codekeeper_get_note``, כדי שהשורה לא תפנה לפתק שהסוכן לא יוכל לקרוא.
-    pending = backend.pending_note_threads(
-        int(user_id),
-        limit=PENDING_THREADS_COUNT,
-        include_repo_notes=is_admin_user(int(user_id)),
-        preview_chars=PENDING_LABEL_CHARS,
-    )
+    # שורת התגובות היא תוספת, כמו שורת הקבצים: כשל בה אינו מפיל את ההוראות. שני סוגי
+    # הכשל נפרדים בכוונה (R10). שגיאת מסד נתפסת בתוך ``pending_note_threads`` ונרשמת שם
+    # ב-WARNING: בקריאה העיקרית (השרשורים והפתקים) הוא מחזיר ``None`` ("לא ידוע") והשורה
+    # אינה מוצגת, ובקישוטים (שמות לוחות וקבצים) השורה מוצגת בלעדיהם — ולכן ה-``except`` כאן
+    # אינו רואה אותה. כל חריגה אחרת היא באג במסלול החדש, ולכן היא נרשמת כאן ב-ERROR עם
+    # traceback מלא — לא בתווית של כשל המסד — וההוראות מוגשות בלי השורה. בלי זה הראוט היה
+    # מחזיר 500, וההוראות היו הולכות לאיבוד לכל משתמש. פתקי ריפו נספרים רק לאדמין: אותו
+    # שער של ``codekeeper_get_note``, כדי שהשורה לא תפנה לפתק שהסוכן לא יוכל לקרוא.
+    try:
+        pending = backend.pending_note_threads(
+            int(user_id),
+            limit=PENDING_THREADS_COUNT,
+            include_repo_notes=is_admin_user(int(user_id)),
+            preview_chars=PENDING_LABEL_CHARS,
+        )
+    except Exception:
+        logger.exception(
+            "primer: reading the notes that wait for an agent failed unexpectedly; "
+            "serving the instructions without the pending-comments line"
+        )
+        pending = None
     return build_primer(instructions, files, pending=pending)
 
 

@@ -317,15 +317,43 @@ def test_a_thread_of_another_user_or_another_note_is_not_found_and_untouched(col
 
 
 def test_reads_never_cross_users(coll):
+    """כל קריאה כאן מסננת ``user_id`` — כולן, ולא רק אחת: ה-docstring בראש המודול אומר "כל
+    שאילתה", וטענה כזו נבדקת על כל הפונקציות שהיא מכסה."""
     note = _note()
-    _create(coll, note, user_id=OTHER, author=nt.user_author())
+    theirs = _create(coll, note, user_id=OTHER, author=nt.user_author())
     mine = _create(coll, note)
 
     assert [str(t["_id"]) for t in nt.list_threads(coll, user_id=USER, note_id=note)] == [mine]
+    assert list(nt.load_comments(coll, user_id=USER, note_id=note, thread_ids=[theirs, mine])) == [mine]
     assert nt.open_thread_counts(coll, user_id=USER, note_ids=[note]) == {note: 1}
     assert nt.pending_for_agent(coll, user_id=USER) == []  # של OTHER ממתין, לא של USER
     assert nt.delete_note_threads(coll, user_id=USER, note_id=note) == 1
     assert coll.count_documents({"user_id": OTHER}) == 1
+
+
+def test_reads_and_delete_of_one_note_never_reach_another_note_of_the_same_user(coll):
+    """הפעולות על פתק אחד תחומות גם ל-``note_id``: מזהה שרשור של פתק אחר של אותו משתמש אינו
+    חוזר, ושרשורי הפתק האחר אינם נמחקים. (הכתיבות על שרשור — בטסט שמעל.)"""
+    note, other_note = _note(), _note()
+    here = _create(coll, note)
+    elsewhere = _create(coll, other_note)
+
+    assert [str(t["_id"]) for t in nt.list_threads(coll, user_id=USER, note_id=note)] == [here]
+    assert list(nt.load_comments(coll, user_id=USER, note_id=note, thread_ids=[here, elsewhere])) == [here]
+    assert nt.delete_note_threads(coll, user_id=USER, note_id=note) == 1
+    assert [str(t["_id"]) for t in nt.list_threads(coll, user_id=USER, note_id=other_note)] == [elsewhere]
+
+
+def test_the_count_and_the_primer_query_span_notes_by_design(coll):
+    """שתי הקריאות שעוברות על כמה פתקים תחומות למשתמש ולא לפתק אחד: הספירה סופרת בדיוק את
+    הפתקים שהועברו לה, ושורת הפריימר רואה את כל הפתקים של המשתמש."""
+    note, other_note = _note(), _note()
+    _create(coll, note, author=nt.user_author())
+    _create(coll, other_note, author=nt.user_author())
+
+    assert nt.open_thread_counts(coll, user_id=USER, note_ids=[note]) == {note: 1}
+    assert nt.open_thread_counts(coll, user_id=USER, note_ids=[note, other_note]) == {note: 1, other_note: 1}
+    assert sorted(row["note_id"] for row in nt.pending_for_agent(coll, user_id=USER)) == sorted([note, other_note])
 
 
 # -- קריאה ---------------------------------------------------------------------------------
