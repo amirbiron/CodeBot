@@ -40,11 +40,14 @@ class _FakeStore:
 
 
 class _FakeBackend:
-    def __init__(self, instructions="", files=None):
+    def __init__(self, instructions="", files=None, pending=None):
         self.instructions = instructions
         self.files = files or []
         self.instruction_calls = 0
         self.file_calls = 0
+        # שורת התגובות: ברירת המחדל — אין פתק שממתינה בו תגובה לסוכן.
+        self.pending = pending if pending is not None else {"total": 0, "items": []}
+        self.pending_calls = []
 
     def get_agent_instructions(self, user_id):
         self.instruction_calls += 1
@@ -57,6 +60,12 @@ class _FakeBackend:
         if isinstance(self.files, dict):
             return self.files.get(int(user_id), [])[:limit]
         return self.files[:limit]
+
+    def pending_note_threads(self, user_id, *, limit, include_repo_notes, preview_chars):
+        self.pending_calls.append({"user_id": int(user_id), "limit": limit,
+                                   "include_repo_notes": include_repo_notes,
+                                   "preview_chars": preview_chars})
+        return self.pending
 
 
 def _client(backend, *, store=None, cache=None):

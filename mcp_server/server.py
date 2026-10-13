@@ -82,12 +82,15 @@ from .auth import (
     require_admin,
     require_write,
 )
+from .client_identity import connected_client_name
 from .primer import agent_primer_route
 from .uploads import UPLOAD_PATH, agent_upload_route, upload_url_for
 from mcp_uploads import MAX_PENDING_UPLOADS, UPLOAD_TTL_SECONDS
 # המודול ולא השם: התקרה נקראת ב-``build_mcp``, ברישום (``description_limit``), מאותו
 # מקום שהאכיפה קוראת אותה בזמן הקריאה — ``description_length_error`` באותו מודול.
 import file_description
+# שרשורי התגובות על פתקים — התקרות שתיאורי הפרמטרים נוקבים בהן, מהמקור שאוכף אותן.
+import note_threads
 
 # ---------------------------------------------------------------------------
 # בלוק ה-``instructions`` שהשרת מחזיר ב-``initialize``.
@@ -113,15 +116,19 @@ import file_description
 #: כמה תווים מבלוק ה-``instructions`` הלקוח מעביר לסוכן. **מקור אחד** לאזהרה
 #: בעליית השרת (:func:`_warn_if_instructions_exceed_cap`) ולטסט.
 #:
-#: **הלקוח:** Claude Code. **המקור:** ``code.claude.com/docs/en/mcp``, הסעיף "For MCP
-#: server authors", נקרא ב-2026-09-29: *"Claude Code truncates each tool description
-#: and each server's instructions at 2,048 characters by default."* המשתנה
-#: ``CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`` (מ-v2.1.280) משנה אותה בצד הלקוח, לכל
-#: השרתים בסשן. **הגרסה:** בסביבה שבה זה נכתב רץ Claude Code 2.1.284, והבינארי שלו
-#: נושא את שם המשתנה — **את הערך 2,048 עצמו לא נמדד בלקוח**; הוא מהתיעוד. שורת
-#: הסיכום בלקוחות אחרים לא נבדקה, ו-claude.ai כנראה אינו מעביר את השדה כלל
-#: (``anthropics/claude-ai-mcp#93``, פתוח, לא תיעוד רשמי).
-CLIENT_INSTRUCTIONS_MAX_CHARS = 2_048
+#: **הלקוח:** Claude Code. **המקור:** ה-changelog של Claude Code, גרסה 2.1.296 (2026-10-09):
+#: *"Changed the default limit on MCP tool descriptions sent up front and on MCP server
+#: instructions from 2,048 to 4,096 characters"* (``code.claude.com/docs/en/changelog``,
+#: נקרא ב-2026-10-13). עד הגרסה הזו התקרה הייתה 2,048 (``code.claude.com/docs/en/mcp``,
+#: הסעיף "For MCP server authors", נקרא ב-2026-09-29). **סתירה בין שני המקורות:** בקריאה
+#: ב-2026-10-13 העמוד ההוא עדיין אומר 2,048 — הוא לא עודכן אחרי ה-changelog, שהוא המקור
+#: המאוחר והתלוי-גרסה. המשתנה ``CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`` (מ-v2.1.280) משנה
+#: את התקרה בצד הלקוח, לכל השרתים בסשן. **לקוח ישן מ-2.1.296 עדיין חותך ב-2,048**, ובלוק
+#: ארוך מזה מגיע אליו בלי סופו — ולכן הבלוק נשאר קצר ככל האפשר, והחלק האחרון בו הוא כלי
+#: הריפו של האדמין. **את הערך עצמו לא נמדד בלקוח**; הוא מהתיעוד. שורת הסיכום בלקוחות
+#: אחרים לא נבדקה, ו-claude.ai כנראה אינו מעביר את השדה כלל (``anthropics/claude-ai-mcp#93``,
+#: פתוח, לא תיעוד רשמי).
+CLIENT_INSTRUCTIONS_MAX_CHARS = 4_096
 
 
 def _serves_sentence(repos: list[str]) -> str:
@@ -203,6 +210,8 @@ def build_instructions(
         "re-read with codekeeper_get_note); codekeeper_update_note replaces the "
         "whole body. History: codekeeper_list_note_versions, "
         "codekeeper_get_note_version.\n"
+        "- Threads: codekeeper_comment_note comments on a note; codekeeper_get_note reads its "
+        "threads.\n"
         "\n"
         + docs
         + "Failures: 502/503/dropped connection = mid-deploy; retry in a minute. "
@@ -337,6 +346,7 @@ _INCLUDE_CONTENT_PARAM_DOC = (
     "its body: only " + _LEAN_NOTE_FIELDS_DOC + ". content_bytes is the size of the "
     "stored body in UTF-8 BYTES (a Hebrew note is about twice its character count), "
     "which is exactly the size of the content codekeeper_get_note returns for it. "
+    "open_threads is how many open comment threads the note has (null: not counted). "
     "Use false on a board or file you have not read yet — a full listing too big for "
     "one reply is refused (answer_too_large) — then read the notes you need one at a "
     "time with codekeeper_get_note by id."
@@ -593,6 +603,41 @@ _NOTE_WRITE_SHA256_DOC = (
 _GET_NOTE_SHA256_DOC = (
     " note.content_sha256 is the SHA-256 hex of the exact UTF-8 bytes of content: "
     + _CONTENT_SHA256_CHECK + "."
+)
+
+# -- שרשורי תגובות על פתקים (``note_threads``) ------------------------------------
+#
+# תיאורי הפרמטרים של ``codekeeper_get_note`` (``part``, ``thread_id``) ושל
+# ``codekeeper_comment_note``. ברמת המודול ולא בתוך ``build_mcp``: ההערות בחתימה מוערכות
+# מול המשתנים הגלובליים (ראו ``_param_docs``). המספרים נגזרים מהקבועים שאוכפים אותם —
+# ``note_threads`` ו-``handlers`` — ולא מוקלדים, כדי שתיאור לא ינקוב בתקרה שהשתנתה.
+_NOTE_PART_PARAM_DOC = (
+    '"all" (the default) returns the note and then its comment threads: each open thread with '
+    f"its latest {handlers.NOTE_THREAD_DEFAULT_TAIL} comments (earlier_comments counts the "
+    'rest), each resolved thread as one collapsed line. "threads" returns every thread in '
+    "full, resolved ones included, without the note body — for a long note you already read."
+)
+_GET_NOTE_THREAD_ID_PARAM_DOC = (
+    'Only with part="threads": just this thread (an id from threads[].id), in full.'
+)
+_WORKING_ON_PARAM_DOC = (
+    "The task you are working on right now, in one short sentence — not the conversation's "
+    "title and not a summary of the session. Required on every comment, up to "
+    f"{note_threads.MAX_WORKING_ON_CHARS} characters; it is saved with this comment only and "
+    "shown next to your name."
+)
+_COMMENT_BODY_PARAM_DOC = (
+    f"The comment, up to {note_threads.MAX_COMMENT_CHARS} characters, saved exactly as sent. "
+    "Required to start or answer a thread; with resolve=true it is optional — a closing summary."
+)
+_COMMENT_THREAD_ID_PARAM_DOC = (
+    "The thread to answer, or with resolve=true to close — an id from codekeeper_get_note's "
+    "threads. Omit it to start a new thread on the note."
+)
+_RESOLVE_PARAM_DOC = "true closes the thread given in thread_id; body then becomes optional."
+_REOPEN_PARAM_DOC = (
+    "Answering a resolved thread reopens it (true, the default); false answers it and leaves "
+    "it resolved."
 )
 
 # השער האופטימי של כלי העריכה (``expected_content_sha256``) — **משפט אחד בתיאור הכלי
@@ -3418,16 +3463,73 @@ def build_mcp(
             "mirrored repository unless you are the admin; a note being edited right now "
             "answers conflict — read it again."
             + _GET_NOTE_SHA256_DOC
+            + " After the note come its comment threads (threads; see part) — answer them "
+            "with codekeeper_comment_note."
         ),
         annotations=_READ_ONLY_TOOL,
+        # עם השרשורים התשובה כבר אינה חסומה מראש בגוף הפתק, ולכן הכלי מצהיר על תקרת
+        # התשובה ועומד בה בעצמו (``handlers._with_threads``).
+        meta=answer_size.declared_size_meta(),
     )
-    def get_note(ctx: Context, note_id: str) -> dict:
+    def get_note(
+        ctx: Context,
+        note_id: str,
+        part: Annotated[str, Field(description=_NOTE_PART_PARAM_DOC)] = "all",
+        thread_id: Annotated[str | None, Field(description=_GET_NOTE_THREAD_ID_PARAM_DOC)] = None,
+    ) -> dict:
         # זהות אחת לשער ולשאילתה: ``is_admin`` נגזר מאותו ``user_id`` שנשלח
         # ל-handler, ולא מקריאה שנייה ל-``current_user_id`` — אותה הכרעה
         # שמאחורי השימוש בערך ההחזרה של ``require_admin`` ב-``list_repo_notes``.
         user_id = current_user_id(ctx)
         return handlers.get_note(
-            backend, user_id, note_id=note_id, is_admin=is_admin_user(user_id)
+            backend, user_id, note_id=note_id, is_admin=is_admin_user(user_id),
+            part=part, thread_id=thread_id,
+        )
+
+    # **השער של הפתק הוא של ``codekeeper_get_note``, ומאותו קוד** (``handlers._readable_note``):
+    # פתק של משתמש אחר, ופתק ריפו למי שאינו אדמין, עונים ``not_found`` ושום דבר לא נכתב.
+    # לכן הכלי אינו ב-``_ADMIN_TOOLS``: משתמש רגיל מגיב על הפתקים שלו. שם הכותב מגיע
+    # מהחיבור (``connected_client_name``) ולא מפרמטר, כדי שסוכן לא יוכל להציג את עצמו כאחר.
+    @mcp.tool(
+        name="codekeeper_comment_note",
+        description=(
+            "Comment on a sticky note, in a thread under it — how the user and agents discuss a "
+            "note without editing it. Without thread_id: start a new thread (body required). With "
+            "thread_id: answer in that thread; answering a resolved thread reopens it unless "
+            "reopen=false. thread_id + resolve=true: close the thread, with an optional closing "
+            "summary in body. working_on is required on every comment — the task you are on now. "
+            "Your name is not a parameter: it comes from your connection. Read the threads with "
+            'codekeeper_get_note (part="threads" for every thread in full). A note you cannot '
+            "read answers not_found and nothing is written. A thread holds up to "
+            f"{note_threads.MAX_COMMENTS_PER_THREAD} comments (then thread_full) and a bounded "
+            "total size (then thread_too_long): continue in a new thread. Requires write "
+            "permission. The answer is read back from the database: comment.body_sha256 is the "
+            "SHA-256 hex of the stored body's UTF-8 bytes (null when it could not be read back)."
+        ),
+        annotations=_WRITE_TOOL,
+    )
+    def comment_note(
+        ctx: Context,
+        note_id: str,
+        working_on: Annotated[str, Field(description=_WORKING_ON_PARAM_DOC)],
+        body: Annotated[str | None, Field(description=_COMMENT_BODY_PARAM_DOC)] = None,
+        thread_id: Annotated[str | None, Field(description=_COMMENT_THREAD_ID_PARAM_DOC)] = None,
+        resolve: Annotated[bool, Field(description=_RESOLVE_PARAM_DOC)] = False,
+        reopen: Annotated[bool, Field(description=_REOPEN_PARAM_DOC)] = True,
+    ) -> dict:
+        require_write(ctx)
+        user_id = current_user_id(ctx)
+        return handlers.comment_note(
+            backend,
+            user_id,
+            note_id=note_id,
+            working_on=working_on,
+            body=body,
+            thread_id=thread_id,
+            resolve=resolve,
+            reopen=reopen,
+            client=connected_client_name(ctx),
+            is_admin=is_admin_user(user_id),
         )
 
     # החיפוש **אינו** אדמין: הוא ``user_id``-scoped ולכן יכול להחזיר רק

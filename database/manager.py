@@ -157,6 +157,8 @@ from file_deletion import (
     RECYCLE_BIN_TTL_PARTIAL_FILTER,
 )
 from mcp_uploads import MCP_UPLOADS_COLLECTION, mcp_uploads_indexes
+# שרשורי התגובות על פתקים — המפרט במודול השורש הטהור שגם הכותבים משתמשים בו.
+from note_threads import NOTE_THREADS_COLLECTION, note_threads_indexes
 from drive_owner import WEBAPP as DRIVE_OWNER_WEBAPP, drive_fields
 try:
     # Structured logging events
@@ -2392,6 +2394,32 @@ class DatabaseManager:
         """הכניסה מבחוץ לאותה פונקציה — שער המוכנות של שירות ה-MCP קורא לה."""
         return DatabaseManager._create_mcp_uploads_indexes(self, self.safe_create_index)
 
+    def _create_note_threads_indexes(self, safe_create_index) -> Dict[str, bool]:
+        """האינדקסים של ``note_threads`` — שרשורי התגובות על פתקים.
+
+        את האוסף כותבים שני שירותים (שירות ה-MCP והוובאפ), ושניהם עוברים כאן בעלייה, ולכן
+        ההצהרה כאן ולא אצל אחד מהם — אותו נימוק של ``push_events``. המפרט יושב ב-
+        ``note_threads.py``, המודול שגם הכותבים משתמשים בו.
+
+        אינדקסי ביצועים בלבד (בלי ``unique``, TTL או פילטר חלקי): כשל הוא איטיות ולא
+        שינוי התנהגות, ולכן ``safe_create_index`` שאינו זורק מספיק כאן, והתוצאה חוזרת
+        לטסטים ולא מפעילה אירוע.
+
+        Returns:
+            ``{שם אינדקס: האם הוא במצב המבוקש בסוף הקריאה}``.
+        """
+        results: Dict[str, bool] = {}
+        for spec in note_threads_indexes():
+            results[spec["name"]] = bool(
+                safe_create_index(
+                    NOTE_THREADS_COLLECTION,
+                    list(spec["keys"]),
+                    name=spec["name"],
+                    background=True,
+                )
+            )
+        return results
+
     def _create_indexes(self):
         """צור *רק* את האינדקסים הקריטיים (ברקע) למניעת COLLSCAN.
 
@@ -2489,6 +2517,10 @@ class DatabaseManager:
         # mcp_uploads - העלאות ממתינות של שירות ה-MCP. כמו push_events, את האוסף
         # כותב שירות ה-MCP, ולכן ההצהרה כאן, במסלול שכל שירות עובר בעלייה.
         DatabaseManager._create_mcp_uploads_indexes(self, safe_create_index)
+
+        # note_threads - שרשורי התגובות על פתקים. שני כותבים (שירות ה-MCP והוובאפ),
+        # ולכן ההצהרה כאן ולא אצל אחד מהם.
+        DatabaseManager._create_note_threads_indexes(self, safe_create_index)
 
         # service_metrics
         DatabaseManager._create_metrics_indexes(self, safe_create_index)

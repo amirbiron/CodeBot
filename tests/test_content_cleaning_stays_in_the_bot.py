@@ -26,8 +26,12 @@ from typing import Iterable, List, Tuple
 ROOT = Path(__file__).resolve().parents[1]
 GUARDED_DIRS = ("database", "webapp", "mcp_server")
 
-#: מודולים בשורש שמסלולי הכתיבה והקריאה של פתקים עוברים בהם, מהוובאפ ומה-MCP.
-GUARDED_ROOT_MODULES = ("sticky_notes_target.py", "sticky_notes_scope.py", "sticky_notes_tasks.py", "note_boards.py")
+#: מודולים בשורש שמסלולי הכתיבה והקריאה של פתקים עוברים בהם, מהוובאפ ומה-MCP —
+#: וגם שרשורי התגובות עליהם (``note_threads.py``), שגוף תגובה נשמר בהם כמו שנשלח.
+GUARDED_ROOT_MODULES = (
+    "sticky_notes_target.py", "sticky_notes_scope.py", "sticky_notes_tasks.py", "note_boards.py",
+    "note_threads.py",
+)
 
 #: הפונקציה של היום, והשמות שנמחקו איתה — כדי שלא יחזרו בשם הישן. ``unescape`` הוא
 #: מה שפתקים עברו עד אוקטובר 2026, ו-``_sanitize_note_text`` הפונקציה שהריצה אותו ב-MCP.

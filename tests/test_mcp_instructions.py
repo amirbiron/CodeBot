@@ -245,8 +245,13 @@ async def test_a_block_over_the_cap_warns_with_the_tool_names_it_loses(monkeypat
     ריפואים סינתטיים בשמות ארוכים מאריכים את שורת התיעוד עד שקבוצת האדמין, האחרונה
     בבלוק, נדחקת מעבר לתקרה. ``caplog`` כאן בודק **תוכן** של שורה, לא את השאלה אם
     לוגים נראים בכלל — זו ``tests/test_mcp_logging_visible.py``.
+
+    **מספר הריפואים נגזר מהתקרה ולא מוקלד:** כל שם ארוך מ-40 תווים, ולכן ``תקרה // 40``
+    שמות לבדם ארוכים מהתקרה כולה. שנים-עשר שמות קבועים הספיקו כשהתקרה הייתה 2,048,
+    והפסיקו להספיק כשהיא עלתה ל-4,096 — הטסט נכשל אז על ``assert lost`` ולא על באג.
     """
-    long_names = [f"synthetic-docs-repository-{i:02d}-with-a-long-name" for i in range(12)]
+    count = srv.CLIENT_INSTRUCTIONS_MAX_CHARS // 40 + 1
+    long_names = [f"synthetic-docs-repository-{i:03d}-with-a-long-name" for i in range(count)]
     for name in long_names:
         monkeypatch.setitem(docs_handlers._DOCS_PATH_POLICY_TABLE, name,
                             docs_handlers._DocsPathPolicy(root="", suffix=".md"))
