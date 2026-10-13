@@ -285,8 +285,13 @@ def _repo_api(route) -> None:
 
 
 @contextlib.contextmanager
-def opened(surface: str, server, executable, wired_mongo=None):
-    """העמוד של המשטח, אחרי שכל הבלוקים נצבעו — **המקום היחיד שמרים דפדפן כאן**."""
+def opened(surface: str, server, executable, wired_mongo=None, init_script: str = ""):
+    """העמוד של המשטח, אחרי שכל הבלוקים קיבלו כפתור העתקה — **המקום היחיד שמרים דפדפן כאן**.
+
+    מחזיר ``(page, root, console)``: ``console`` הוא כל הודעות הקונסול של הטעינה שבה
+    הרינדור רץ. ``init_script`` רץ לפני כל סקריפט של העמוד.
+    """
+    console: list[str] = []
     with sync_playwright() as pw:
         try:
             browser = pw.chromium.launch(
@@ -305,7 +310,10 @@ def opened(surface: str, server, executable, wired_mongo=None):
                     "try{localStorage.setItem('welcomeModalSeen','1');localStorage.setItem('onboarding_completed','1');"
                     "localStorage.setItem('repo-browser-markdown-preview','true');}catch(e){}"
                 )
+                if init_script:
+                    context.add_init_script(init_script)
                 page = context.new_page()
+                page.on("console", lambda msg: console.append(msg.text))
                 blocked = "/static/js/live-preview.js" if surface == "repo_fallback" else None
                 page.route("**/*", lambda route: route.abort()
                            if blocked and urlsplit(route.request.url).path == blocked else _repo_api(route))
@@ -319,6 +327,14 @@ def opened(surface: str, server, executable, wired_mongo=None):
                 file_id = _insert(wired_mongo)
                 path = f"/md/{file_id}" if surface == "md_preview" else f"/edit/{file_id}"
                 page, _touch = open_admin_page(browser, server, path, viewport=TABLET)
+                page.on("console", lambda msg: console.append(msg.text))
+                if init_script:
+                    # ``open_admin_page`` כבר טען את העמוד, וסקריפט פתיחה חל רק מהטעינה הבאה
+                    # — כמו ב-``tests/test_card_preview_copy_browser.py``.
+                    page.add_init_script(init_script)
+                    page.reload(wait_until="load")
+                    page.evaluate("document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
+                                  " #welcomeModal').forEach(e => e.remove())")
                 if surface == "live_preview":
                     page.click('[data-action="toggle-live-preview"]')
                     poll(page, "() => !!document.querySelector('[data-preview-status][data-state=\"ready\"]')",
@@ -333,7 +349,7 @@ def opened(surface: str, server, executable, wired_mongo=None):
                 assert page.evaluate("() => typeof window.MarkdownLiveRenderer") == "undefined", (
                     "repo_fallback: MarkdownLiveRenderer נטען — המסלול שנבדק אינו enhanceMarkdownFallback"
                 )
-            yield page, ROOTS[surface]
+            yield page, ROOTS[surface], console
         finally:
             browser.close()
 
@@ -346,7 +362,7 @@ def surface(request, admin_live_server, chromium_executable):
     """העמוד של כל משטח. רק שניים מהם צריכים מסד, ולכן ``wired_mongo`` נשלף רק להם —
     דפדפן הריפו רץ גם בלי ``NOTE_FONTS_TEST_MONGO_URI``."""
     mongo = request.getfixturevalue("wired_mongo") if request.param in ("md_preview", "live_preview") else None
-    with opened(request.param, admin_live_server, chromium_executable, mongo) as (page, root):
+    with opened(request.param, admin_live_server, chromium_executable, mongo) as (page, root, _console):
         yield request.param, page, root
 
 
@@ -470,3 +486,47 @@ CLIPBOARD_IS_JS = """async (expected) => {
   const text = await navigator.clipboard.readText();
   return text === expected ? true : {ok: false, text};
 }"""
+
+
+#: ``wrapInnerFences`` שזורקת. ``rtl-code.js`` מציב ``window.RtlCode = {...}``, והמציב
+#: כאן מחליף בו את הפונקציה לפני שאיש קרא לה.
+THROWING_WRAP_JS = """(() => {
+  let real;
+  Object.defineProperty(window, 'RtlCode', {
+    configurable: true,
+    get() { return real; },
+    set(value) { value.wrapInnerFences = () => { throw new Error('wrap-probe'); }; real = value; },
+  });
+})();"""
+
+#: התווית שכל צרכן רושם כשהעטיפה נכשלת, והתווית של ה-catch שמתחתיה — זו שחריגה
+#: מהעטיפה הייתה מקבלת בלי ה-try שלה.
+WRAP_FAILURE_LABELS = {
+    "md_preview": ("md_preview: wrapInnerFences failed", "Markdown preview failed"),
+    "live_preview": ("wrapInnerFences failed", "hljs highlight failed"),
+    "repo_browser": ("wrapInnerFences failed", "hljs highlight failed"),
+    "repo_fallback": ("wrapInnerFences failed", "enhance failed"),
+}
+
+
+@pytest.mark.parametrize("name", SURFACES)
+def test_a_failing_wrap_leaves_the_page_rendered(name, request, admin_live_server, chromium_executable):
+    """חריגה בעטיפה היא באג, ולכן כל צרכן תופס אותה ברוחב — אבל רק בגבול של בלוק אחד.
+
+    הבלוק נשאר כמו לפני התיקון, כפתור ההעתקה שלו קיים (``opened`` מחכה לכפתור ליד כל
+    בלוק), שאר העמוד מרונדר, והחריגה נרשמת בתווית של העטיפה — לא בתווית של ה-catch
+    שמתחתיה. ב-``md_preview.html`` ה-catch ההוא מחליף את כל המסמך בהודעת שגיאה.
+    """
+    mongo = request.getfixturevalue("wired_mongo") if name in ("md_preview", "live_preview") else None
+    own, outer = WRAP_FAILURE_LABELS[name]
+    with opened(name, admin_live_server, chromium_executable, mongo, THROWING_WRAP_JS) as (page, root, console):
+        # בקרה: העטיפה באמת נכשלה — אחרת הבדיקה עוברת על המסלול הרגיל.
+        assert page.evaluate(PARTS_JS, [root, "print("])["parts"] == [], f"{name}: העטיפה לא נכשלה"
+        assert any(text.startswith(own) and "wrap-probe" in text for text in console), (
+            f"{name}: לא נרשם {own!r}: {console}"
+        )
+        assert not any(text.startswith(outer) for text in console), f"{name}: החריגה הגיעה ל-{outer!r}"
+        if name == "md_preview":
+            assert page.evaluate("() => !document.querySelector('#md-content .alert-error')"), (
+                "md_preview: המסמך הוחלף בהודעת שגיאה"
+            )

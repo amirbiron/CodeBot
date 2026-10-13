@@ -411,6 +411,9 @@ function enhanceMarkdownFallback(root) {
             }
             // קוד בתוך בלוק עברי משמאל לימין — *אחרי* ההדגשה, כמו ב-
             // highlightBlocks של live-preview.js, שהוא המסלול הרגיל כאן.
+            // try משלו, ורחב בכוונה, מאותה סיבה כמו שם: חריגה היא באג, והיא
+            // נרשמת במלואה. בלעדיו היא הייתה נתפסת למטה בתווית "enhance
+            // failed", ומבטלת את כפתור ההעתקה של הבלוק.
             if (window.RtlCode) {
                 try {
                     window.RtlCode.wrapInnerFences(block);
