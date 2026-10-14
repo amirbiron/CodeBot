@@ -196,6 +196,8 @@ from http_sync import request as http_request  # noqa: E402
 # תקרת אורך פתק, לשימוש בתבניות. כמו כל ייבוא ממודול שבשורש הריפו, לא עולה מעל בלוק השם
 # שבראש הקובץ — tests/test_webapp_import_paths.py נופל אם כן.
 from sticky_notes_target import MAX_NOTE_CHARS as MAX_NOTE_CHARS_FOR_TEMPLATES  # noqa: E402
+# ותקרת אורך תגובה בשרשור על פתק — מאותה סיבה, למונה התווים של החלונית.
+from note_threads import MAX_COMMENT_CHARS as MAX_THREAD_COMMENT_CHARS_FOR_TEMPLATES  # noqa: E402
 from note_reminder_state import active_reminder_filter  # noqa: E402
 
 from utils import TimeUtils, detect_language_from_filename  # noqa: E402
@@ -2434,6 +2436,9 @@ def inject_globals():
         # תקרת אורך פתק — מגיעה ל-JS מכאן ולא מוקלדת שם. בלי זה היו שני
         # מספרים שמסונכרנים בתקווה, ופער ביניהם נראה למשתמש כחיתוך בלי הסבר.
         'max_note_chars': MAX_NOTE_CHARS_FOR_TEMPLATES,
+        # תקרת תגובה בשרשור על פתק (``note_threads.MAX_COMMENT_CHARS``) — מונה התווים
+        # בחלונית קורא אותה מכאן, באותו נימוק כמו ``max_note_chars`` שמעל.
+        'max_thread_comment_chars': MAX_THREAD_COMMENT_CHARS_FOR_TEMPLATES,
         # ימי השהות בסל — מאותה סיבה בדיוק: המודאל בעמוד הקובץ הבטיח "30
         # יום" כמספר מוקלד, ולכן שינוי בקונפיג לא היה מגיע אליו.
         'recycle_ttl_days': RECYCLE_TTL_DAYS,

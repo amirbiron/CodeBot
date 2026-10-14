@@ -186,6 +186,54 @@ check('הצורה #note=ID בהאש נתמכת גם היא', async () => {
   eq(m.read(), NOTE_ID, 'נלכד מה-hash');
 });
 
+// -- שרשור מהקישור (``?thread=``, מלחיצה על התראת תגובה) --
+//
+// נצרך באותה נקודת התאמה כמו ``?note=``. הסטאב דורס גם את ``_openThread`` —
+// הפתיחה עצמה (חלונית, טעינה) נבדקת בדפדפן, ב-``test_note_threads_browser.py``.
+
+const THREAD_ID = '64b7f1d2e3a4b5c6d7e8f901';
+const HREF_THREAD = `https://x.test/repo/?repo=amir-bug-patterns&note=${NOTE_ID}&thread=${THREAD_ID}#file=INTEGRATION.md`;
+const settle = async () => { for (let i = 0; i < 6; i += 1) await tick(); };
+
+check('שרשור מהקישור נפתח פעם אחת, על הפתק שנמצא', async () => {
+  const sb = makeSandbox(HREF_THREAD);
+  const notes = withNote();
+  const first = stubManager(sb, notes);
+  first.opened = [];
+  first._openThread = (el, threadId) => { first.opened.push([el, threadId]); };
+  first.run();
+  await settle();
+  eq(first.opened.length, 1, 'נפתח שרשור אחד');
+  eq(first.opened[0][0], notes.get(NOTE_ID).el, 'על הפתק מהקישור');
+  eq(first.opened[0][1], THREAD_ID, 'והשרשור מהקישור');
+
+  const second = stubManager(sb, withNote());
+  second.opened = [];
+  second._openThread = (el, threadId) => { second.opened.push([el, threadId]); };
+  second.run();
+  await settle();
+  eq(second.opened.length, 0, 'והכוונה נצרכה — מנהל נוסף אינו פותח שוב');
+});
+
+check('כשל בפתיחת השרשור אינו גולל שוב לפתק, ונרשם', async () => {
+  // הניסיון החוזר נועד לפתק שעוד לא נטען. חריגה מפתיחת השרשור, אחרי שהפתק כבר
+  // נמצא, הייתה נבלעת ב-``catch`` של הניסיון ומפעילה ניסיון נוסף — קריאה שנייה
+  // ל-``scrollToNote``, ובלי שום עקבה למה השרשור לא נפתח.
+  //
+  // נופל אם ``_openThread`` אינה עטופה ב-``try`` משלה בתוך ``_maybeScrollToNoteFromUrl``.
+  const sb = makeSandbox(HREF_THREAD);
+  const warns = [];
+  sb.console.warn = (...args) => { warns.push(args); };
+  const m = stubManager(sb, withNote());
+  m._openThread = () => { throw new Error('boom'); };
+  m.run();
+  await settle();
+  eq(m.scrolled.length, 1, 'הגלילה לפתק קרתה פעם אחת');
+  eq(warns.length, 1, 'והכשל נרשם');
+  eq(warns[0][0], 'sticky note: opening the linked thread failed', 'בהודעה שמזהה אותו');
+  eq(warns[0][1], THREAD_ID, 'עם מזהה השרשור');
+});
+
 await Promise.all(pending);
 console.log(`${passed} עברו, ${failed} נכשלו`);
 process.exit(failed === 0 ? 0 : 1);

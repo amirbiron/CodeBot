@@ -1014,7 +1014,9 @@ async function applyInitialNavigationFromUrl() {
 /**
  * מסיר מה-URL את פרמטרי הכוונה החד-פעמיים, ומשאיר את ה-hash כמו שהוא.
  *
- * ``repo``, ``note`` ו-``no_cache`` אומרים "פתח את X" — הוראה לטעינה אחת.
+ * ``repo``, ``note``, ``thread`` ו-``no_cache`` אומרים "פתח את X" — הוראה לטעינה אחת
+ * (``thread`` — שרשור לפתוח בפתק, מהתראת תגובה של סוכן; ``sticky-notes.js`` לוכד אותו
+ * בטעינת הסקריפט, לפני הניקוי, בדיוק כמו את ``note``).
  * הם אינם מתארים את מצב העמוד, ולכן אסור להם לשרוד אותה. כל עוד הם
  * נשארים, ``get_current_repo_name`` בשרת נותנת ל-``repo`` עדיפות **מעל
  * ה-session**, וכל ריענון מחזיר את המשתמש לריפו של הקישור המקורי — גם
@@ -1026,7 +1028,7 @@ async function applyInitialNavigationFromUrl() {
 function consumeOneShotUrlParams() {
     try {
         const url = new URL(window.location.href);
-        const oneShot = ['repo', 'note', 'note_id', 'no_cache', 'nc'];
+        const oneShot = ['repo', 'note', 'note_id', 'thread', 'no_cache', 'nc'];
         let touched = false;
         for (const key of oneShot) {
             if (url.searchParams.has(key)) {

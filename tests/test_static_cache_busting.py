@@ -65,6 +65,11 @@ GUARDED = (
     "js/utils/safe-highlight.js",
     "js/utils/rtl-code.js",
     "js/admonition-icons.js",
+    # הזמן היחסי עבר למודול משותף (``utils/relative-time.js``), ו-``repo-history.js``
+    # — אחד מצרכניו — נטען ב-``repo/base_repo.html`` בכתובת קבועה: התגית היחידה של
+    # קובץ מקומי בעמוד בלי מזהה. בלי התיקון, השינוי בו לא היה מגיע לדפדפן עד שנה.
+    "js/utils/relative-time.js",
+    "js/repo-history.js",
 )
 
 

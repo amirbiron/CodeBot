@@ -1002,11 +1002,17 @@
   border-radius: 5px;
 }
 
-/* **בזמן חיפוש הפתק אינו חותך.** התיבה והחיישן שלה יושבים מעל הפתק,
-   מחוץ לגבולותיו, ו-``overflow: hidden`` של הפתק היה חותך את שניהם. בחיישן
-   זה גם תנאי למדידה: ``IntersectionObserver`` סופר חיתוך של כל אב, והפתק
-   הוא אב שלו — בלי הכלל הזה החיישן היה נמדד "חתוך" תמיד. */
-.sticky-note.is-searching { overflow: visible; }
+/* **פתק שיש לו ילדים מחוץ לגבולותיו אינו חותך** (``.is-unclipped``) — תיבת
+   החיפוש והחיישן שלה, ובועות השרשורים, החיישן שלהן, החלונית ורשימת "+N". כולם
+   יושבים מחוץ לפתק, ו-``overflow: hidden`` של הפתק היה חותך אותם. בחיישנים זה
+   גם תנאי למדידה: ``IntersectionObserver`` סופר חיתוך של כל אב, והפתק הוא אב
+   שלהם — בלי הכלל הזה הם היו נמדדים "חתוכים" תמיד.
+
+   **ההכרעה אם להדליק את המצב — במקום אחד**, ``_syncNoteClipping`` ב-JS: החיפוש
+   והשרשורים שואלים שם, ולא מדליקים ומכבים כל אחד לבד, כדי שסגירת החיפוש לא
+   תחזיר את החיתוך מעל בועות שעדיין שם. המנגנון נכתב בשביל החיפוש (ראו
+   ``docs/dev/sticky_notes_extending.rst``, "התיבה: ילד של הפתק") והורחב. */
+.sticky-note.is-unclipped { overflow: visible; }
 
 /* **ומה שהחיתוך הסתיר קודם — נחתך עכשיו על ידי הילדים עצמם.** נמדד
    בכרומיום, פיקסל מול פיקסל, שלושה דברים שבלי החיתוך של הפתק יצאו החוצה:
@@ -1015,28 +1021,33 @@
    בפינות העליונות המעוגלות, והקצה המרובע של פס הגלילה (משמאל, ב-RTL)
    בפינה התחתונה — גם בתצוגה וגם ב-textarea.
 
-   **כלל אחד לכל הילדים, ולא רשימה.** כל ילד ישיר של הפתק — חוץ מהתיבה
-   ומהחיישן, שקיימים כדי לצאת ממנו — נחתך לתיבה של עצמו. ילד שיתווסף
-   לפתק בעתיד מכוסה מאליו. ‏``:where`` מאפס את הספציפיות של הכלל, כדי
-   שהכללים המעוגלים שמתחתיו יגברו עליו בלי מלחמת בוררים.
+   **כלל אחד לכל הילדים, ולא רשימה.** כל ילד ישיר של הפתק — חוץ ממי שמסומן
+   ``sticky-note-outside``, כלומר קיים כדי לצאת ממנו — נחתך לתיבה של עצמו. ילד
+   שיתווסף לפתק בעתיד מכוסה מאליו, וילד חדש שיוצא מהפתק מקבל את הסימון.
+   ‏``:where`` מאפס את הספציפיות של הכלל, כדי שהכללים המעוגלים שמתחתיו יגברו
+   עליו בלי מלחמת בוררים.
 
    **``clip-path`` ולא ``overflow`` או ``border-radius``, וגם זה נמדד.**
    רדיוס על מכל גלילה **אינו** חותך את פס הגלילה שלו — הפיקסל הפינתי נשאר
    בצבע המסילה עם רדיוס ובלעדיו — ו-``clip-path`` כן. הוא חותך גם את טבעת
-   הפוקוס שמחוץ לתיבה, ולכן לתצוגה יש בזמן חיפוש טבעת פנימית. הרדיוס של
+   הפוקוס שמחוץ לתיבה, ולכן לתצוגה יש במצב הזה טבעת פנימית. הרדיוס של
    הפינות הוא הפנימי של הפתק: ``--note-radius`` פחות הגבול. */
-.sticky-note.is-searching > :where(:not(.sticky-note-search, .sticky-note-search-room)) {
+.sticky-note.is-unclipped > :where(:not(.sticky-note-outside)) {
   clip-path: inset(0);
 }
-.sticky-note.is-searching .sticky-note-tasks,
-.sticky-note.is-searching .sticky-note-content,
-.sticky-note.is-searching .sticky-note-warn {
+.sticky-note.is-unclipped .sticky-note-tasks,
+.sticky-note.is-unclipped .sticky-note-content,
+.sticky-note.is-unclipped .sticky-note-warn {
   clip-path: inset(0 round 0 0 calc(var(--note-radius) - 1px) calc(var(--note-radius) - 1px));
 }
+/* הכותרת חותכת את הפינות העליונות כשהן מעוגלות — כלומר בכל מצב חוץ מתיבת חיפוש
+   שיושבת מעל הפתק (אז הפינות ישרות, ראו למטה). בלי זה רקע הכותרת בלט בפינות
+   כשמעל הפתק יש רק בועות. */
+.sticky-note.is-unclipped:not(.is-searching) .sticky-note-header,
 .sticky-note.is-search-inside .sticky-note-header {
   clip-path: inset(0 round calc(var(--note-radius) - 1px) calc(var(--note-radius) - 1px) 0 0);
 }
-.sticky-note.is-searching .sticky-note-tasks:focus-visible {
+.sticky-note.is-unclipped .sticky-note-tasks:focus-visible {
   outline: 2px solid #1d4ed8;
   outline-offset: -2px;
 }
@@ -1182,4 +1193,667 @@
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* ===== שרשורי תגובות ==================================================
+ *
+ * בועה לכל שרשור מעל הפתק, וחלונית לשרשור אחד (``sticky-notes.js``, הסעיף
+ * "שרשורי תגובות"). **הערכים מהעיצוב** (``NoteThreads.html``, "לוח ערכים למפתח"),
+ * והם ליטרליים: החלונית היא חלק מ"נייר" הפתק, שאינו משתנה עם הערכה — אותה
+ * הכרעה כמו בדיו של הפתק ובתיבת החיפוש (``docs/webapp/theming_and_css``,
+ * "Sticky Notes ... נשארים Hardcoded"). החריג היחיד: מה שיושב **מחוץ** לפתק
+ * ונוגע ברקע הלוח (טבעת הנקודה "מחכה לך", רקע הבועה החדשה) — שם ``--bg-primary``,
+ * כי זה הרקע שמסביב.
+ *
+ * **וסטייה אחת מכוונת מהעיצוב: טקסט עמום שלא עמד ב-4.5:1** (WCAG 1.4.3, אותו סף שתיבת
+ * החיפוש בפתק נמדדה מולו). ``#6f7a92`` של הזמן, המונה ו"N תגובות" נמדד 3.7–3.9 על כרטיסי
+ * התגובות ו-4.16 על נייר החלונית, וה-placeholder ``#8b95aa`` — 3.01 על השדה הלבן. במקומם
+ * הגוון העמום השני של העיצוב, ``#5b6885`` (4.8 ומעלה על כל רקע), וה-placeholder של תיבת
+ * החיפוש, ``--note-ink-muted`` (4.68 על לבן). ``test_text_in_the_panel_is_readable`` מודד
+ * את זה בדפדפן. החץ ▼/▲ נשאר ``#6f7a92``: הוא סימן ולא טקסט, והסף שלו 3:1 (1.4.11).
+ */
+
+/* **המידות במקום אחד.** ``--thread-slot`` ו-``--thread-row-inset`` נקראים גם ב-JS
+   (``_threadRowCapacity``: כמה בועות נכנסות בשורה), ולכן הם ליטרלים ב-px — מאפיין
+   מותאם שאינו רשום נשאר מחרוזת, ו-``calc`` בתוכו לא היה מחושב בקריאה.
+   - תא = שטח הלחיצה של בועה: 44 (העיצוב: בועה 36 וריווח 8 — וזה גם המינימום למגע).
+   - הבועה הראשונה 14px מקצה הפתק, ושטח הלחיצה שלה מתחיל 4px לפניה: 10.
+   - ``--thread-zone`` — הגובה שהבועות תופסות מעל הפתק, כולל שטח הלחיצה: 44
+     (העיצוב: "פחות מ-44px מהקצה העליון — הבועות עוברות לתחתית"). */
+.sticky-note {
+  --thread-slot: 44px;
+  --thread-row-inset: 10px;
+  --thread-zone: 44px;
+  --thread-pill-w: 36px;
+  --thread-pill-h: 26px;
+  --thread-stick-h: 10px;
+  --thread-anchor: 7px;
+}
+
+/* החיישן: תמיד מעל הפתק, בגובה אזור הבועות, ובלתי נראה (``_observeThreadRoom``). */
+.sticky-threads-room {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: var(--thread-zone);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.sticky-threads {
+  position: absolute;
+  bottom: 100%;
+  inset-inline-start: var(--thread-row-inset);
+  display: flex;
+  align-items: flex-end;
+  /* רק הכפתורים מקבלים לחיצה; התאים והשורה שקופים לה. */
+  pointer-events: none;
+}
+
+/* תא: הבועה, המקל ונקודת העיגון. הגוון מהמספר: ``data-tone`` = (N − 1) % 3. */
+.sticky-thread-slot {
+  --thread-hue: 200;
+  width: var(--thread-slot);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.sticky-thread-slot[data-tone="1"] { --thread-hue: 70; }
+.sticky-thread-slot[data-tone="2"] { --thread-hue: 300; }
+
+.sticky-thread-bubble {
+  position: relative;
+  width: var(--thread-pill-w);
+  height: var(--thread-pill-h);
+  border: 0;
+  border-radius: calc(var(--thread-pill-h) / 2);
+  padding: 0;
+  background: oklch(0.80 0.10 var(--thread-hue));
+  color: #1d2740;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .3);
+  cursor: pointer;
+  pointer-events: auto;
+}
+/* **שטח הלחיצה: 44×44, בלי לחפוף את השכנה.** הכפתור הוא הבועה עצמה (36×26), ו-``::after``
+   מרחיב אותו: 4px לכל צד (36 + 8 = התא), ולגובה — מעל הבועה עד ראש אזור הבועות, ומתחתיה
+   עד קו הפתק (המקל ועוד חצי נקודת העיגון). התאים צמודים, ולכן השטחים נוגעים ואינם חופפים.
+   הכפתור עצמו נשאר בגודל הבועה בכוונה: ערכת הניגודיות הגבוהה כופה על כל ``button`` רקע
+   שחור וגבול לבן, וכך היא מציירת בועה שחורה — לא קופסה של 44×44. */
+.sticky-thread-bubble::after {
+  content: '';
+  position: absolute;
+  --thread-below-pill: calc(var(--thread-stick-h) + var(--thread-anchor) / 2);
+  inset-block-start: calc(-1 * (var(--thread-zone) - var(--thread-pill-h) - var(--thread-below-pill)));
+  inset-block-end: calc(-1 * var(--thread-below-pill));
+  inset-inline: calc((var(--thread-pill-w) - var(--thread-slot)) / 2);
+}
+.sticky-thread-bubble:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+/* בועה פעילה (החלונית שלה פתוחה): טבעת של 2px בצבע החלונית. */
+.sticky-thread-bubble.is-active {
+  box-shadow: 0 0 0 2px #fcfbf8, 0 2px 6px rgba(0, 0, 0, .3);
+}
+.sticky-thread-stick {
+  width: 2px;
+  height: var(--thread-stick-h);
+  background: oklch(0.80 0.10 var(--thread-hue));
+}
+.sticky-thread-anchor {
+  width: var(--thread-anchor);
+  height: var(--thread-anchor);
+  border-radius: 50%;
+  background: oklch(0.80 0.10 var(--thread-hue));
+  /* מרכז הנקודה על קו הפתק */
+  margin-bottom: calc(var(--thread-anchor) / -2);
+}
+
+/* "מחכה לך": 10px, עם מסגרת של 2px בצבע הרקע שמסביב (העיצוב: "בצבע הלוח"). ``content-box``
+   כמו בעיצוב — ה-``*`` של ``base.html`` הוא ``border-box``, והנקודה הייתה מתכווצת ל-6px. */
+.sticky-thread-waiting {
+  position: absolute;
+  top: -4px;
+  inset-inline-end: -4px;
+  box-sizing: content-box;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff5d4f;
+  border: 2px solid var(--bg-primary, #2f3742);
+}
+
+/* שרשור שנפתר: אותו גוון בכרומה 0.03, שקיפות .6, ומקל מנוקד. */
+.sticky-thread-slot.is-resolved { opacity: .6; }
+.sticky-thread-slot.is-resolved .sticky-thread-bubble {
+  background: oklch(0.80 0.03 var(--thread-hue));
+  box-shadow: none;
+}
+.sticky-thread-slot.is-resolved .sticky-thread-bubble.is-active { box-shadow: 0 0 0 2px #fcfbf8; }
+.sticky-thread-slot.is-resolved .sticky-thread-stick {
+  width: 0;
+  background: none;
+  border-inline-start: 2px dotted oklch(0.80 0.03 var(--thread-hue));
+}
+.sticky-thread-slot.is-resolved .sticky-thread-anchor { background: oklch(0.80 0.03 var(--thread-hue)); }
+
+/* שרשור חדש: קו מקווקו ו-"+" בגוון הבא בתור, על רקע מה שמסביב. */
+.sticky-thread-slot.is-new .sticky-thread-bubble {
+  background: var(--bg-primary, #2f3742);
+  border: 2px dashed oklch(0.80 0.10 var(--thread-hue));
+  color: oklch(0.80 0.10 var(--thread-hue));
+  font-size: 15px;
+  box-shadow: 0 0 0 2px #fcfbf8;
+}
+.sticky-thread-slot.is-new .sticky-thread-stick {
+  width: 0;
+  background: none;
+  border-inline-start: 2px dashed oklch(0.80 0.10 var(--thread-hue));
+}
+
+/* "+N": רקע בהיר, בלי מקל ונקודה — אבל הם שם, בלתי נראים, כדי שהבועה תשב בגובה של שכנותיה. */
+.sticky-thread-more {
+  background: #e6e9ef;
+  font-size: 12.5px;
+}
+.sticky-thread-slot.is-chip .sticky-thread-stick,
+.sticky-thread-slot.is-chip .sticky-thread-anchor { visibility: hidden; }
+
+/* **פתק בקצה העליון** (``.is-threads-below``): הבועות עוברות לקצה התחתון, הפוכות — נקודה,
+   מקל, בועה — ושטח הלחיצה מתהפך איתן. החלונית נפתחת כלפי מעלה (בהמשך). */
+.sticky-note.is-threads-below .sticky-threads {
+  bottom: auto;
+  top: 100%;
+  align-items: flex-start;
+}
+.sticky-note.is-threads-below .sticky-thread-slot { flex-direction: column-reverse; }
+.sticky-note.is-threads-below .sticky-thread-anchor {
+  margin-bottom: 0;
+  margin-top: calc(var(--thread-anchor) / -2);
+}
+.sticky-note.is-threads-below .sticky-thread-bubble::after {
+  inset-block-start: calc(-1 * var(--thread-below-pill));
+  inset-block-end: calc(-1 * (var(--thread-zone) - var(--thread-pill-h) - var(--thread-below-pill)));
+}
+
+/* **בזמן חיפוש ובפתק ממוזער אין בועות.** החיפוש יושב באותו מקום מעל הפתק; ממוזער — אין
+   תצוגה. (ה-JS גם סוגר את החלונית ואת הרשימה בשני המצבים.) */
+.sticky-note.is-searching .sticky-threads,
+.sticky-note.is-minimized .sticky-threads { display: none; }
+
+/* כפתור 💬 בשורת הפעולות: לחוץ בזמן שרשור חדש (העיצוב, מצב 8: רקע .12 ורדיוס 7), ומסומן
+   כשהשרשורים לא נטענו. הגודל נשאר של שאר כפתורי השורה — לא ה-26×26 של העיצוב. */
+.sticky-note-threads-btn[aria-pressed="true"] {
+  background: rgba(43, 63, 106, .12);
+  border-radius: 7px;
+}
+.sticky-note-threads-btn.is-unavailable {
+  outline: 1.5px dashed #b45309;
+  outline-offset: -2px;
+  border-radius: 5px;
+}
+
+/* ----- החלונית ----- */
+
+/* ``--thread-panel-width`` ו-``--thread-panel-inset`` נקראים ב-JS כדי להחליט מתי הפתק "צר"
+   (רוחב החלונית ועוד השוליים משני צדיה — העיצוב: "בפתק צר מ-376px: 280px"). הרוחב הצר
+   במשתנה נפרד: אילו ``.is-narrow`` היה משנה את המשתנה שה-JS קורא, ההחלטה הייתה מתהפכת. */
+.sticky-thread-panel {
+  --thread-hue: 200;
+  --thread-panel-width: 360px;
+  --thread-panel-narrow-width: 280px;
+  --thread-panel-inset: 8px;
+  position: absolute;
+  top: 10px;
+  inset-inline-start: var(--thread-panel-inset);
+  z-index: 5;
+  width: var(--thread-panel-width);
+  /* ``--thread-popup-room`` — כמה מקום יש עד קצה המסך (``_layoutThreadPopup``). */
+  max-height: var(--thread-popup-room, none);
+  display: flex;
+  flex-direction: column;
+  background: #fcfbf8;
+  color: #24314f;
+  border-radius: 12px;
+  box-shadow: 0 14px 36px rgba(10, 14, 22, .45), 0 0 0 1px rgba(43, 63, 106, .10);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: start;
+  cursor: default;
+}
+.sticky-thread-panel:focus { outline: none; }
+.sticky-thread-panel.is-narrow { width: var(--thread-panel-narrow-width); }
+.sticky-thread-panel[data-tone="1"] { --thread-hue: 70; }
+.sticky-thread-panel[data-tone="2"] { --thread-hue: 300; }
+
+/* החץ: מעל מרכז הבועה. ה-``left`` נקבע ב-JS ממלבנים שנמדדו, ולכן אין כאן צד אופקי
+   (``inset-inline-start`` היה מתנגש איתו ב-RTL, והדפדפן היה מתעלם מ-``left``). */
+.sticky-thread-arrow {
+  position: absolute;
+  top: -6px;
+  width: 12px;
+  height: 12px;
+  background: #fcfbf8;
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+.sticky-thread-arrow[hidden] { display: none; }
+
+.sticky-thread-head {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(43, 63, 106, .10);
+}
+.sticky-thread-panel.is-narrow .sticky-thread-head { padding: 11px 12px; }
+.sticky-thread-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: oklch(0.80 0.10 var(--thread-hue));
+}
+.sticky-thread-title { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.sticky-thread-meta { font-size: 13px; color: #5b6885; white-space: nowrap; }
+.sticky-thread-close {
+  margin-inline-start: auto;
+  min-width: 28px;
+  min-height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #5b6885;
+  font-family: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.sticky-thread-close:hover { background: rgba(43, 63, 106, .06); }
+.sticky-thread-close:focus-visible,
+.sticky-thread-btn:focus-visible,
+.sticky-thread-resolved-row:focus-visible,
+.sticky-thread-more-text:focus-visible,
+.sticky-thread-menu-item:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 1px;
+}
+/* שרשור שנפתר: נקודה בכרומה 0.03 ושם בגוון עמום. שרשור חדש: נקודה מקווקווה. */
+.sticky-thread-panel[data-state="resolved"] .sticky-thread-dot { background: oklch(0.80 0.03 var(--thread-hue)); }
+.sticky-thread-panel[data-state="resolved"] .sticky-thread-title { color: #5b6885; }
+.sticky-thread-panel[data-state="new"] .sticky-thread-dot {
+  box-sizing: border-box;
+  background: transparent;
+  border: 2px dashed oklch(0.62 0.10 var(--thread-hue));
+}
+
+/* הגוף נגלל: רשימת התגובות עד 420px (בחלונית צרה 400) — העיצוב. */
+.sticky-thread-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+.sticky-note:not(.is-threads-below) .sticky-thread-body { max-height: 420px; }
+.sticky-note:not(.is-threads-below) .sticky-thread-panel.is-narrow .sticky-thread-body { max-height: 400px; }
+.sticky-thread-panel.is-narrow .sticky-thread-body { padding: 8px; }
+.sticky-thread-panel[data-state="new"] .sticky-thread-body { padding: 12px 12px 8px; }
+
+.sticky-thread-comments { display: flex; flex-direction: column; gap: 8px; }
+/* רקע ועיגול לפי הכותב — ``data-author-tone`` מהשרת (``_author_tone``). ברירת המחדל היא סוכן
+   שאין לו גוון בעיצוב: אפור ניטרלי (כרומה 0), באותה בהירות כמו השאר. */
+.sticky-thread-comment {
+  --thread-avatar: oklch(0.50 0 0);
+  background: oklch(0.95 0 0);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sticky-thread-panel.is-narrow .sticky-thread-comment { padding: 9px 10px; }
+.sticky-thread-comment[data-author-tone="user"] { background: oklch(0.965 0.035 85); --thread-avatar: oklch(0.55 0.11 60); }
+.sticky-thread-comment[data-author-tone="cc"] { background: oklch(0.95 0.03 245); --thread-avatar: oklch(0.50 0.10 245); }
+.sticky-thread-comment[data-author-tone="claude"] { background: oklch(0.95 0.03 265); --thread-avatar: oklch(0.50 0.10 265); }
+.sticky-thread-comment[data-author-tone="gemini"] { background: oklch(0.95 0.03 225); --thread-avatar: oklch(0.50 0.10 225); }
+.sticky-thread-comment-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.sticky-thread-panel.is-narrow .sticky-thread-comment-head { gap: 6px; }
+.sticky-thread-avatar {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--thread-avatar);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.sticky-thread-author { flex: none; font-size: 13.5px; font-weight: 700; white-space: nowrap; }
+.sticky-thread-working-on {
+  min-width: 0;
+  font-size: 12.5px;
+  color: #5b6885;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sticky-thread-time {
+  flex: none;
+  margin-inline-start: auto;
+  font-size: 12px;
+  color: #5b6885;
+  white-space: nowrap;
+}
+.sticky-thread-comment-body {
+  font-size: 14.5px;
+  line-height: 1.55;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+/* תגובה ארוכה: חתוכה ב-``--thread-clamp`` שורות (6, ובשרשור שנפתר 3), עם "הצגת הכול". */
+.sticky-thread-comment-body.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--thread-clamp, 6);
+  overflow: hidden;
+}
+.sticky-thread-more-text {
+  align-self: flex-start;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #2b5fb8;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sticky-thread-status { padding: 4px 2px; color: #5b6885; font-size: 13.5px; }
+.sticky-thread-status.is-error { color: #9b1c1c; }
+.sticky-thread-hint { padding: 0 2px; color: #5b6885; font-size: 13.5px; }
+
+/* שרשור שנפתר: שורה מקופלת, ופתיחתה מציגה את התגובות (עמומות) ואת "פתיחה מחדש". */
+.sticky-thread-resolved { display: flex; flex-direction: column; gap: 8px; }
+.sticky-thread-resolved-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(43, 63, 106, .06);
+  color: #24314f;
+  font-family: inherit;
+  font-size: 14px;
+  text-align: start;
+  cursor: pointer;
+}
+.sticky-thread-resolved-check { flex: none; color: #3d8a5a; font-weight: 700; }
+.sticky-thread-resolved-label {
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sticky-thread-resolved-count {
+  flex: none;
+  margin-inline-start: auto;
+  color: #5b6885;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.sticky-thread-chevron { flex: none; color: #6f7a92; font-size: 11px; }
+.sticky-thread-resolved-past { display: flex; flex-direction: column; gap: 8px; opacity: .75; }
+
+/* שגיאה של פעולה: מעל תיבת הכתיבה, והטקסט נשאר בתיבה. */
+.sticky-thread-error {
+  flex: none;
+  margin: 0 10px 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fde8e8;
+  color: #9b1c1c;
+  font-size: 13px;
+}
+.sticky-thread-error[hidden] { display: none; }
+
+/* ----- תיבת הכתיבה ----- */
+.sticky-thread-composer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 10px 12px;
+}
+.sticky-thread-composer[hidden] { display: none; }
+.sticky-thread-panel.is-narrow .sticky-thread-composer { padding: 0 8px 10px; }
+
+/* **השדה מקבל כל ערך שכלל ערכה נוגע בו**, כמו שדה החיפוש: ``[data-theme="dark"] textarea``
+   צובע רקע, טקסט וגבול, וב-``:focus`` גם גבול ומתאר. (0,2,0) גובר על (0,1,1), ו-``:focus`` שלנו
+   (0,3,0) על (0,2,1) — **ולכן ה-``outline`` חייב לשבת ב-``:focus`` שלנו, ולא רק בכלל הבסיס:**
+   (0,2,0) מפסיד ל-(0,2,1), ובערכה הכהה נוסף מתאר סגול מעל הטבעת של העיצוב (נמדד, נתפס בטסט).
+   ‏Rose Pine Dawn מחריג את השדה בכלל שלו ב-``base.html``, כמו את ``.sticky-note-content``.
+   ובערכת הניגודיות הגבוהה הכלל שם ``!important`` — ושם הוא מנצח במכוון, והחלונית מצטרפת
+   לערכה (בסוף הסעיף). */
+.sticky-note .sticky-thread-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  margin: 0;
+  border: 1px solid rgba(43, 63, 106, .20);
+  border-radius: 10px;
+  background: #fff;
+  padding: 9px 11px;
+  color: #24314f;
+  font-family: inherit;
+  font-size: 14.5px;
+  line-height: 1.5;
+  outline: none;
+}
+.sticky-note .sticky-thread-panel.is-narrow .sticky-thread-input { min-height: 56px; padding: 8px 10px; }
+.sticky-note .sticky-thread-panel[data-state="new"] .sticky-thread-input { min-height: 80px; }
+.sticky-note .sticky-thread-input::placeholder { color: var(--note-ink-muted, #66739A); opacity: 1; }
+.sticky-note .sticky-thread-input:focus {
+  border: 1.5px solid #2b3f6a;
+  box-shadow: 0 0 0 3px rgba(43, 63, 106, .12);
+  outline: none;
+}
+.sticky-note .sticky-thread-input[readonly] { opacity: .7; }
+
+.sticky-thread-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sticky-thread-panel.is-narrow .sticky-thread-actions { gap: 6px; }
+.sticky-thread-counter {
+  margin-inline-end: auto;
+  color: #5b6885;
+  font-size: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sticky-thread-counter.is-over { color: #b91c1c; font-weight: 700; }
+
+.sticky-thread-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sticky-thread-btn.is-outline {
+  border: 1px solid rgba(43, 63, 106, .25);
+  background: transparent;
+  color: #24314f;
+}
+.sticky-thread-btn.is-primary {
+  padding: 0 16px;
+  border: 0;
+  background: #2b3f6a;
+  color: #fff;
+}
+.sticky-thread-btn.is-ghost {
+  border: 0;
+  background: transparent;
+  color: #5b6885;
+}
+.sticky-thread-panel.is-narrow .sticky-thread-btn.is-outline { padding: 0 10px; }
+.sticky-thread-panel.is-narrow .sticky-thread-btn.is-primary,
+.sticky-thread-panel[data-state="resolved"] .sticky-thread-btn.is-primary { padding: 0 14px; }
+.sticky-thread-btn:disabled { opacity: .4; cursor: not-allowed; }
+/* "פתיחה מחדש" ו"נסו שוב" — כפתור מתאר קטן (העיצוב, מצב 5). */
+.sticky-thread-body .sticky-thread-btn {
+  align-self: flex-start;
+  height: 30px;
+  border: 1px solid rgba(43, 63, 106, .25);
+  background: transparent;
+  color: #24314f;
+  font-size: 13px;
+}
+
+/* **פתק בקצה העליון: החלונית נפתחת כלפי מעלה** (העיצוב, מצב 10) — ``bottom: 10px``, ולכל
+   היותר גובה הפתק פחות 20px, או מה שיש עד קצה המסך; רשימת התגובות נגללת. */
+.sticky-note.is-threads-below .sticky-thread-panel {
+  top: auto;
+  bottom: 10px;
+  max-height: min(calc(100% - 20px), var(--thread-popup-room, 100vh));
+}
+.sticky-note.is-threads-below .sticky-thread-panel .sticky-thread-arrow { top: auto; bottom: -6px; }
+/* ותיבת הכתיבה מצומצמת לשורה אחת כל עוד היא ריקה ואין בה פוקוס — הגובה שם צר (העיצוב: שדה
+   של 36px ו"✓ נפתר" לצידו). **הפוקוס של השדה עצמו, ולא ``:focus-within`` של החלונית:** פתיחת
+   שרשור ממקדת את החלונית, ולכן ``:focus-within`` היה מבטל את הצמצום מיד (נמדד). ``:has`` —
+   דפדפן שאינו מכיר אותו מדלג על הכלל ומציג את התיבה המלאה. */
+.sticky-note.is-threads-below .sticky-thread-panel[data-state="open"] .sticky-thread-composer:has(.sticky-thread-input:placeholder-shown:not(:focus)) {
+  flex-direction: row;
+  align-items: center;
+}
+.sticky-note.is-threads-below .sticky-thread-panel[data-state="open"] .sticky-thread-composer:has(.sticky-thread-input:placeholder-shown:not(:focus)) .sticky-thread-input {
+  flex: 1 1 auto;
+  min-height: 36px;
+  height: 36px;
+  padding-block: 6px;
+  resize: none;
+}
+.sticky-note.is-threads-below .sticky-thread-panel[data-state="open"] .sticky-thread-composer:has(.sticky-thread-input:placeholder-shown:not(:focus)) :is(.sticky-thread-counter, .is-primary) {
+  display: none;
+}
+
+/* ----- רשימת "+N" ----- */
+/* מיושרת ל-"+N" (``_layoutThreadPopup`` מזיז אותה), ונפתחת כלפי מטה לתוך הפתק — או כלפי
+   מעלה כשהבועות בתחתית. */
+.sticky-thread-menu {
+  position: absolute;
+  top: 10px;
+  inset-inline-start: 0;
+  z-index: 6;
+  width: 200px;
+  background: #fcfbf8;
+  color: #24314f;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(10, 14, 22, .45), 0 0 0 1px rgba(43, 63, 106, .10);
+  font-family: inherit;
+}
+/* הגלילה כאן ולא על הרשימה: ``overflow`` על הרשימה היה חותך את החץ שמעליה. */
+.sticky-thread-menu-list {
+  max-height: var(--thread-popup-room, none);
+  overflow: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: inherit;
+}
+.sticky-note.is-threads-below .sticky-thread-menu { top: auto; bottom: 10px; }
+.sticky-thread-menu .sticky-thread-arrow { pointer-events: none; }
+.sticky-note.is-threads-below .sticky-thread-menu .sticky-thread-arrow { top: auto; bottom: -6px; }
+.sticky-thread-menu-item {
+  --thread-hue: 200;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: start;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sticky-thread-menu-item[data-tone="1"] { --thread-hue: 70; }
+.sticky-thread-menu-item[data-tone="2"] { --thread-hue: 300; }
+.sticky-thread-menu-item:hover { background: rgba(43, 63, 106, .06); }
+.sticky-thread-menu-item .sticky-thread-dot { width: 10px; height: 10px; }
+.sticky-thread-menu-name { font-size: 14px; font-weight: 600; }
+.sticky-thread-menu-meta { font-size: 12.5px; color: #5b6885; }
+.sticky-thread-menu-item.is-resolved { opacity: .6; }
+.sticky-thread-menu-item.is-resolved .sticky-thread-dot { background: oklch(0.80 0.03 var(--thread-hue)); }
+.sticky-thread-menu-item.is-resolved .sticky-thread-menu-meta { color: #3d8a5a; font-weight: 700; }
+.sticky-thread-menu-waiting {
+  margin-inline-start: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff5d4f;
+}
+
+/* **ערכת הניגודיות הגבוהה: החלונית והרשימה מצטרפות לערכה**, כמו תיבת החיפוש — שחור,
+   טקסט לבן, גבול לבן. הערכה כופה ממילא ב-``!important`` על כל ``button`` ו-``textarea`` רקע
+   שחור וגבול לבן, ועל נייר בהיר זה היה נראה כטלאים. הבועות עצמן הן כפתורים, ולכן שם הן
+   בועות שחורות עם גבול לבן — מספר או ✓ מבדילים ביניהן, לא הגוון. */
+[data-theme="high-contrast"] .sticky-note .sticky-thread-panel,
+[data-theme="high-contrast"] .sticky-note .sticky-thread-menu {
+  background: #000;
+  color: #fff;
+  border: 2px solid #fff;
+  box-shadow: none;
+}
+[data-theme="high-contrast"] .sticky-note .sticky-thread-arrow {
+  background: #000;
+  border: 2px solid #fff;
+}
+[data-theme="high-contrast"] .sticky-note .sticky-thread-head { border-bottom-color: #fff; }
+[data-theme="high-contrast"] .sticky-note .sticky-thread-comment {
+  background: #000;
+  border: 1px solid #fff;
+}
+[data-theme="high-contrast"] .sticky-note :is(.sticky-thread-meta, .sticky-thread-working-on, .sticky-thread-time,
+  .sticky-thread-counter, .sticky-thread-hint, .sticky-thread-status, .sticky-thread-resolved-count,
+  .sticky-thread-chevron, .sticky-thread-menu-meta) { color: #fff; }
+[data-theme="high-contrast"] .sticky-note .sticky-thread-panel[data-state="resolved"] .sticky-thread-title { color: #fff; }
+[data-theme="high-contrast"] .sticky-note .sticky-thread-more-text { color: #ffff00; }
+[data-theme="high-contrast"] .sticky-note .sticky-thread-input::placeholder { color: #d0d0d0; }
+[data-theme="high-contrast"] .sticky-note .sticky-thread-error {
+  background: #000;
+  color: #ffff00;
+  border: 1px solid #ffff00;
 }

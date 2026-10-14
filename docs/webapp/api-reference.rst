@@ -129,6 +129,42 @@ Endpoints
      - ✅
      - ``{"minutes": 60}`` — מספר שלם בין 1 ל‑1440, ברירת מחדל 60; טיפוס אחר ← ``400 Invalid minutes``, גוף שאינו אובייקט ← ``400 invalid_payload``
      - ``{"ok": true, "remind_at": "..."}``
+   * - ``/api/sticky-notes/note/<note_id>/threads``
+     - GET
+     - תקצירי שרשורי התגובות של הפתק, בלי התגובות — לבועות. פתק שאינו של המשתמש ← ``404 note_not_found`` (:ref:`sticky-notes-threads-ui`)
+     - ✅
+     - -
+     - ``{"ok": true, "threads": [{"id": "...", "number": 1, "status": "open", "comment_count": 2, "awaits_user": true}]}``
+   * - ``/api/sticky-notes/note/<note_id>/threads/<thread_id>``
+     - GET
+     - שרשור אחד עם כל התגובות שלו, ותקצירי כל השרשורים של הפתק
+     - ✅
+     - -
+     - ``{"ok": true, "thread": {..., "resolved_by_label": "", "resolved_at": null, "comments": [{"id", "author_kind", "author_label", "author_initials", "author_tone", "working_on", "body", "created_at"}]}, "threads": [...]}``
+   * - ``/api/sticky-notes/note/<note_id>/threads``
+     - POST
+     - שרשור חדש עם התגובה הראשונה שלו (``201``)
+     - ✅
+     - ``{"body": "..."}`` — עד ``MAX_COMMENT_CHARS`` תווים; ריק ← ``400 empty_body``, ארוך ← ``400 body_too_long``
+     - ``{"ok": true, "action": "created", "thread_id": "...", "thread": {...}, "comment": {...}, "threads": [...]}`` — נקרא מהמסד אחרי הכתיבה; ``thread``/``threads`` הם ``null`` כשהקריאה החוזרת נכשלה
+   * - ``/api/sticky-notes/note/<note_id>/threads/<thread_id>/comments``
+     - POST
+     - תשובה בשרשור. ``reopen`` (ברירת מחדל ``true``) פותח שרשור שנפתר באותה כתיבה; ``false`` משאיר אותו נפתר
+     - ✅
+     - ``{"body": "...", "reopen": true}`` — ``reopen`` שאינו בוליאני ← ``400 invalid_reopen``; שרשור מלא ← ``409 thread_full`` / ``409 thread_too_long``
+     - כמו ביצירה, עם ``"action": "replied"``
+   * - ``/api/sticky-notes/note/<note_id>/threads/<thread_id>/resolve``
+     - POST
+     - סגירת שרשור, עם משפט סיכום אופציונלי שנשמר כתגובה אחרונה באותה כתיבה
+     - ✅
+     - ``{}`` או ``{"body": "..."}`` — שרשור שכבר נפתר ← ``409 already_resolved``, ושום דבר לא נכתב
+     - כמו ביצירה, עם ``"action": "resolved"``
+   * - ``/api/sticky-notes/note/<note_id>/threads/<thread_id>/reopen``
+     - POST
+     - פתיחה מחדש של שרשור שנפתר, בלי תגובה
+     - ✅
+     - אין גוף. שרשור פתוח ← ``409 not_resolved``
+     - כמו ביצירה, עם ``"action": "reopened"``
    * - ``/api/welcome/ack``
      - POST
      - סימון הדגל ``has_seen_welcome_modal`` והסתרת מודאל ה־Welcome לצמיתות

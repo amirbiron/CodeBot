@@ -39,7 +39,6 @@ KNOWN_MISSING = {
     ("files.html", "js/multi-select.js"),
     ("files.html", "js/bulk-actions.js"),
     ("reader_mode.html", "css/reader.css"),
-    ("repo/base_repo.html", "js/repo-history.js"),
 }
 
 
