@@ -4174,7 +4174,8 @@ check('לחיצה ממושכת: קבוע אחד לכותרת ולתצוגה', ()
 
 // ---------- העתקת מזהה הפתק ----------
 //
-// 🆔 מעתיק את מזהה הפתק — מה ש-``codekeeper_get_note`` מקבל. הקליפבורד
+// כפתור המזהה (``.sticky-note-copy-id``) מעתיק את מזהה הפתק — מה
+// ש-``codekeeper_get_note`` מקבל. הקליפבורד
 // עצמו, והחיווי כפי שהוא נראה, נבדקים בדפדפן ב-
 // ``tests/test_sticky_note_copy_id_browser.py``; כאן ננעל מה נשלח להעתקה ומתי.
 
@@ -4213,10 +4214,10 @@ function renderForCopyId(mgr, id) {
   return { el, btn, copied, flashes, click };
 }
 
-check('מזהה: 🆔 בשורת השם מיד אחרי החיפוש, ומעתיק בדיוק את המזהה', async () => {
+check('מזהה: הכפתור בשורת השם מיד אחרי החיפוש, ומעתיק בדיוק את המזהה', async () => {
   // **בשורת השם ולא בשורת הפעולות — הכרעה של המשתמש.** שורת הפעולות אינה
-  // נשברת, וכפתור נוסף בה היה דוחף כפתורים אל מחוץ לכל פתק צר מ-308 (נמדד
-  // בכרומיום; הפירוט ב-``docs/dev/sticky_notes_extending.rst``).
+  // נשברת, וכפתור נוסף בה היה דוחף כפתורים אל מחוץ לפתק צר (נמדד בכרומיום;
+  // המספרים ב-``docs/dev/sticky_notes_extending.rst``).
   const sb = fakeDomSandbox();
   const m = new sb.window.StickyNotesManager('copy-id-file');
   const { el, btn, copied, flashes, click } = renderForCopyId(m, SAVED_ID);
@@ -4231,7 +4232,7 @@ check('מזהה: 🆔 בשורת השם מיד אחרי החיפוש, ומעתי
   eq(copied[0], SAVED_ID, 'בדיוק המזהה, בלי שום תוספת');
   eq(flashes.length, 1, 'חיווי אחד');
   eq(flashes[0].ok, true, 'הצלחה');
-  eq(flashes[0].target, btn, 'החיווי על 🆔 עצמו, ולא על ⧉');
+  eq(flashes[0].target, btn, 'החיווי על כפתור המזהה עצמו, ולא על ⧉');
 });
 
 check('מזהה: נקרא ברגע הלחיצה, ולא כשהכפתור נבנה', async () => {
@@ -4259,7 +4260,7 @@ check('מזהה: מזהה שהשרת לא נתן אינו מועתק — "הפת
   eq(copied.length, 0, 'אף אחד מהם לא הועתק');
   eq(flashes.length, notSaved.length, 'חיווי על כל לחיצה');
   eq(flashes.every((f) => f.ok === false && f.failTitle === 'הפתק עוד לא נשמר' && f.target === btn), true,
-     'כשל, עם ההסבר, על 🆔');
+     'כשל, עם ההסבר, על כפתור המזהה');
   // אותיות גדולות — ``ObjectId`` מקבל גם אותן, ולכן גם הכפתור.
   el.dataset.noteId = SAVED_ID.toUpperCase();
   await click();
@@ -4278,6 +4279,23 @@ check('מזהה: הכלל זהה לזה של ``card-preview.js`` — שני עו
   const notes = literal('sticky-notes.js', 'SAVED_NOTE_ID_RE');
   eq(notes !== null, true, 'בקרה: הכלל נמצא ב-sticky-notes.js');
   eq(notes, literal('card-preview.js', 'OBJECT_ID_RE'), 'אותו ביטוי, אותם דגלים');
+});
+
+check('תיעוד: עמוד המשתמש מציג את האייקון שכפתור המזהה נבנה איתו', () => {
+  // אותו נימוק כמו בבדיקות התיעוד על סוגי האלרט: האייקון בעמוד המשתמש אינו
+  // נגזר מהקוד, כי משתמש צריך לזהות את הכפתור בעין — ולכן רק שם הוא יכול
+  // להיסחף. כשהאייקון מתחלף (🆔 ← #, 16.10.2026), הבדיקה הזו היא מה שמפיל
+  // עמוד שלא עודכן. האייקון נקרא מהכפתור שרונדר, ולא מהמקור כמחרוזת.
+  const doc = fs.readFileSync(
+    path.join(__dirname, '..', 'docs', 'user', 'sticky_notes.rst'), 'utf8');
+  const line = doc.split('\n').find((l) => l.startsWith('**העתקת המזהה**'));
+  eq(!!line, true, 'נמצאה פסקת העתקת המזהה בעמוד המשתמש');
+  const m = /^\*\*העתקת המזהה\*\* \(``([^`]+)``\)/.exec(line);
+  eq(!!m, true, 'האייקון כתוב בפסקה בסוגריים, מיד אחרי השם');
+  const sb = fakeDomSandbox();
+  const mgr = new sb.window.StickyNotesManager('copy-id-file');
+  const { btn } = renderForCopyId(mgr, SAVED_ID);
+  eq(m[1], btn.textContent, 'האייקון בתיעוד זהה לזה שהכפתור נבנה איתו');
 });
 
 check('חיווי ההעתקה: לחיצה שנייה בזמן החיווי אינה נועלת את הודעת הכשל', () => {
