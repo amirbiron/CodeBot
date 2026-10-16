@@ -1,10 +1,12 @@
 """בדיקות יחידה למנגנון פתקים דביקים"""
 
+import re
 import sys
 from pathlib import Path
 import unittest
 from unittest.mock import MagicMock
 import base64
+from bson import ObjectId
 from flask import Flask
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,6 +40,53 @@ class TestNoteResponse(unittest.TestCase):
         self.assertEqual(note['content'], '&quot;שלום&quot; &amp; ?a=1&copy=2')
         self.assertEqual(note['size']['width'], 300)
         self.assertEqual(note['size']['height'], 200)
+
+
+class TestSavedNoteIdRule(unittest.TestCase):
+    """הכפתור 🆔 מעתיק רק מזהה ש-``SAVED_NOTE_ID_RE`` שב-``sticky-notes.js`` מקבל.
+
+    הכלל שם הוא עותק, בצד הלקוח, של שתי עובדות על השרת: מה ש-``_as_note_response``
+    שולח (``str`` של ה-``_id``), ומה ש-``codekeeper_get_note`` מפענח (``ObjectId(str(note_id))``
+    ב-``get_note`` של ``mcp_server/backend.py``). שני העותקים נכונים היום, ואין ביניהם שום
+    קשר בקוד. הבדיקה קוראת את הכלל מקובץ ה-JS ומשווה אותו לשתי העובדות, כדי שסחיפה
+    תיפול כאן — ולא תתגלה כ"הפתק עוד לא נשמר" על כל פתק, או כמזהה שהסוכן לא מצליח לקרוא.
+    """
+
+    @staticmethod
+    def _client_rule():
+        js = (ROOT / 'webapp' / 'static' / 'js' / 'sticky-notes.js').read_text(encoding='utf-8')
+        m = re.search(r"const SAVED_NOTE_ID_RE = /\^(.+)\$/([a-z]*);", js)
+        assert m, 'SAVED_NOTE_ID_RE לא נמצא, או שאינו מעוגן בשני הקצוות — צריך לעדכן את התרגום כאן'
+        assert set(m.group(2)) <= {'i'}, f'דגל שהבדיקה אינה יודעת לתרגם לפייתון: {m.group(2)!r}'
+        # ``\Z`` ולא ``$``: בפייתון ``$`` מתאים גם לפני ``\n`` שבסוף, וב-JS (בלי ``m``) לא.
+        # ``re.ASCII``: ב-JS ``\d`` הוא רק 0-9, ובפייתון בלי הדגל הוא גם ספרות בכתבים אחרים.
+        return re.compile(r'\A' + m.group(1) + r'\Z', re.ASCII | (re.IGNORECASE if 'i' in m.group(2) else 0))
+
+    def test_every_id_the_server_sends_is_copied(self):
+        rule = self._client_rule()
+        for target in ({'file_id': 'f'}, {'board_id': 'b'}, {'repo_name': 'r', 'repo_path': 'a.py'}):
+            for _ in range(50):
+                sent = _as_note_response({'_id': ObjectId(), **target})['id']
+                self.assertTrue(rule.search(sent), f'הלקוח היה עונה "הפתק עוד לא נשמר" על {sent!r}')
+
+    def test_every_id_the_client_copies_is_read_by_get_note_as_the_same_note(self):
+        """מה שהכלל מקבל — ``ObjectId`` מקבל, ומפענח לאותו מזהה.
+
+        ההשוואה היא על הסבב המלא ולא רק על "לא נזרקה חריגה": ``bytes.fromhex`` מדלג על
+        רווחים בין זוגות ספרות, ולכן מחרוזת של 24 תווים עם שני רווחים בתוכה עוברת את
+        ``ObjectId`` — ומפוענחת למזהה אחר, של 22 ספרות.
+        """
+        rule = self._client_rule()
+        hexid = str(ObjectId())
+        candidates = [
+            hexid, hexid.upper(), hexid[:12].upper() + hexid[12:],
+            hexid[:-1], hexid + '0', ' ' + hexid[1:], hexid[:-1] + ' ', hexid + '\n',
+            hexid[:10] + '  ' + hexid[10:22], hexid[:-1] + 'g', '٣' + hexid[1:],
+        ]
+        accepted = [c for c in candidates if rule.search(c)]
+        self.assertIn(hexid.upper(), accepted, 'בקרה: הכלל מקבל אותיות גדולות, כמו ש-ObjectId מקבל')
+        for copied in accepted:
+            self.assertEqual(str(ObjectId(copied)), copied.lower(), f'{copied!r} מפוענח למזהה אחר')
 
 
 class TestStickyScope(unittest.TestCase):

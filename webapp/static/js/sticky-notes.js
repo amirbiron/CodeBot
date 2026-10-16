@@ -352,6 +352,8 @@
   // ב-``bson/objectid.py``, pymongo 4.15.3). ``i`` כי גם אותיות גדולות עוברות שם.
   // אותו כלל, למזהה של קובץ, יושב גם ב-``OBJECT_ID_RE`` של ``card-preview.js``,
   // ובדיקה ב-``tests/sticky-notes-target.test.js`` דורשת ששניהם יישארו זהים.
+  // ``TestSavedNoteIdRule`` ב-``tests/test_sticky_notes_api.py`` קורא את הביטוי
+  // מכאן ומשווה אותו לשרת: למה ש-``_as_note_response`` שולח, ולמה ש-``ObjectId`` מפענח.
   const SAVED_NOTE_ID_RE = /^[a-f0-9]{24}$/i;
 
   /** ``true`` רק למזהה שהשרת נתן — כל השאר "הפתק עוד לא נשמר". */
