@@ -2687,6 +2687,26 @@ async def test_max_depth_is_applied_before_the_cap_and_the_byte_budget(monkeypat
     assert len(limited["toc"]) + sum(_hidden(limited).values()) == limited["section_count"]
 
 
+async def test_a_limited_map_that_is_still_too_long_is_cut_and_flagged(monkeypatch):
+    """ההגבלה לבדה משאירה את ``toc_truncated`` כבוי — אבל מפה מוגבלת שעדיין ארוכה נחתכת, והוא נדלק.
+
+    450 פרקים עם תת-סעיף אחד כל אחד: ב-``max_depth=2`` נשארות 451 כותרות, יותר מ-``_TOC_MAX``.
+    המפה נחתכת בתקרה כמו כל מפה, ``toc_truncated`` דלוק, ו-``section_count`` נשאר מספר הכותרות
+    כולן. זה מה שהתיאור מבטיח כשהוא אומר שהדגל "turns on only when the limited map is itself
+    cut" — ניסוח שהיה אומר שהדגל "נשאר כבוי" תמיד היה שגוי בדיוק כאן.
+
+    מוטציה שמפילה: לכבות את ``toc_truncated`` תמיד כשנשלח ``max_depth``.
+    """
+    text = "# שורש\n\n" + "".join(f"## פרק {i}\n\n### סעיף\n\nגוף.\n\n" for i in range(450))
+
+    from_file, from_docs = await _both_tools(monkeypatch, text, max_depth=2)
+
+    assert from_file == from_docs
+    assert from_file["toc_truncated"] is True
+    assert len(from_file["toc"]) == docs_handlers._TOC_MAX
+    assert from_file["section_count"] == 901 and from_file["max_depth"] == 2
+
+
 @pytest.mark.parametrize(
     ("sent", "enforced"),
     [(0, docs_handlers.MAX_DEPTH_MIN), (-3, docs_handlers.MAX_DEPTH_MIN),
@@ -2788,18 +2808,23 @@ def test_the_max_depth_doc_opens_with_when_to_use_and_says_how_to_read_a_limited
     """התיאור נפתח במתי להשתמש, ואומר את מה שאינו נראה מהמפה: שהיא מוגבלת בכוונה ואיפה הסימן.
 
     **בתוך 120 התווים הראשונים** — ``max_depth=2`` ולמה: לקוח שמקצר תיאור פרמטר רואה רק
-    את ההתחלה (ההערה ליד ``_SECTION_PARAM_DOC``). אחר כך: ``toc_truncated`` אינו אומר שהמפה
-    מוגבלת, ``hidden_subsections`` כן — ולא על השורש; העומק לאורך ה-breadcrumb; ההגבלה היא
-    של המפה בלבד. ובכלי הקבצים — הסירוב בשמו. ושרשרת הגילוי: התיאור של ``toc`` ותיאור כלי
-    התיעוד מפנים לפרמטר.
+    את ההתחלה (ההערה ליד ``_SECTION_PARAM_DOC``). אחר כך, בניסוח חיובי: ההגבלה לבדה משאירה
+    את ``toc_truncated`` כבוי, ו-``hidden_subsections`` יושב על הכותרות **שבגבול העומק** —
+    כולל מתי הוא אינו מופיע, כדי שסוכן לא יסיק מהיעדרו שמשהו השתבש. **ובלי "not on the
+    root"**: ב-``max_depth=1`` השורש הוא הגבול ונושא את השדה. העומק לאורך ה-breadcrumb;
+    ההגבלה היא של המפה בלבד. ובכלי הקבצים — הסירוב בשמו. ושרשרת הגילוי: התיאור של ``toc``
+    ותיאור כלי התיעוד מפנים לפרמטר.
     """
     from mcp_server import server as srv
 
     for doc in (srv._DOCS_MAX_DEPTH_DOC, srv._FILE_MAX_DEPTH_DOC):
         assert "max_depth=2" in doc[:120]
-        for marker in ("hidden_subsections", "toc_truncated", "not on the root", "breadcrumb",
+        for marker in ("hidden_subsections", "leaves toc_truncated off", "at the depth limit",
+                       "with nothing hidden under it does not carry the field", "breadcrumb",
                        "section_count", "skipped level", "never limited"):
             assert marker in doc, marker
+        for wrong in ("not on the root", "does not say so"):
+            assert wrong not in doc, wrong
     assert "max_depth_without_toc" in srv._FILE_MAX_DEPTH_DOC
     assert "max_depth_without_toc" not in srv._DOCS_MAX_DEPTH_DOC
     assert "max_depth" in srv._FILE_TOC_DOC
@@ -2813,9 +2838,12 @@ async def test_the_docs_tool_description_points_at_max_depth(monkeypatch):
 
 
 def test_the_max_depth_bounds_in_the_doc_come_from_the_constants(monkeypatch):
-    """הגבולות נשתלים מ-``docs_handlers`` ולא נכתבים כטקסט — הבנייה מחדש עם קבועים אחרים מזיזה אותם.
+    """המספרים נשתלים מהקבועים ולא נכתבים כטקסט — הבנייה מחדש עם קבועים אחרים מזיזה אותם.
 
-    מוטציה שמפילה: לכתוב ``1-50000`` כטקסט ב-``_build_max_depth_doc``.
+    גבולות ההצמדה, וגם שתי הסיבות שבהן ``toc_truncated`` נדלק על מפה מוגבלת — ``_TOC_MAX``
+    והתקציב.
+
+    מוטציה שמפילה: לכתוב ``1-50000``, ``400`` או ``256000`` כטקסט ב-``_build_max_depth_doc``.
     """
     from mcp_server import server as srv
 
@@ -2823,7 +2851,11 @@ def test_the_max_depth_bounds_in_the_doc_come_from_the_constants(monkeypatch):
             in srv._DOCS_MAX_DEPTH_DOC)
     monkeypatch.setattr(docs_handlers, "MAX_DEPTH_MIN", 3)
     monkeypatch.setattr(docs_handlers, "MAX_DEPTH_MAX", 77)
-    assert "clamped to 3-77" in srv._build_max_depth_doc("(here)")
+    monkeypatch.setattr(docs_handlers, "_TOC_MAX", 56)
+    monkeypatch.setattr(answer_size, "OUTPUT_BYTE_BUDGET", 1234)
+    rebuilt = srv._build_max_depth_doc("(here)")
+    assert "clamped to 3-77" in rebuilt
+    assert "at 56 headings or to fit 1234 bytes" in rebuilt
 
 
 def test_the_upper_bound_is_the_section_ceiling_so_it_never_hides_a_heading():

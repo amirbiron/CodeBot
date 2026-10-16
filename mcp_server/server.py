@@ -1093,10 +1093,13 @@ _FILE_TOC_DOC, _FILE_SECTION_DOC = _build_file_sections_docs()
 # **נפתח במתי להשתמש**, ולא במה הפרמטר עושה: לקוח שמקצר תיאור פרמטר לכ-120 תווים (ההערה
 # ליד ``_SECTION_PARAM_DOC``) רואה רק את ההתחלה, ומה שסוכן צריך לדעת שם הוא שיש דרך לקבל
 # מפה של פרקים בלבד. אחר כך שלושה דברים שאינם נראים מהמפה עצמה: שהעומק נספר לאורך
-# ה-breadcrumb ולא לפי ``level``; ש**מפה מוגבלת אינה מסומנת ב-``toc_truncated``**, ולכן
-# הסימן הוא ``hidden_subsections`` — על הכותרות שבגבול, לא על השורש; ושההגבלה היא של
-# המפה בלבד. **גוף אחד ושני הקשרים**: מה שמשתנה בין הכלים הוא איפה יש מפה, והסירוב שיש
-# רק בכלי הקבצים. הגבולות נשתלים מ-``docs_handlers`` ולא מוקלדים.
+# ה-breadcrumb ולא לפי ``level``; ש**ההגבלה לבדה משאירה את ``toc_truncated`` כבוי** — הוא
+# נדלק רק כשהמפה המוגבלת עצמה נחתכת — והסימן להגבלה הוא ``hidden_subsections`` על
+# הכותרות שבגבול העומק, כולל מתי הוא **אינו** מופיע, כדי שסוכן לא יסיק מהיעדרו שמשהו
+# השתבש; ושההגבלה היא של המפה בלבד. **בכותרות שבגבול, ולא "לא על השורש"**: ב-
+# ``max_depth=1`` השורש הוא הגבול ונושא את השדה. ובלי ``…`` — בתיאור פרמטר הן נקראות
+# כטקסט שנחתך. **גוף אחד ושני הקשרים**: מה שמשתנה בין הכלים הוא איפה יש מפה, והסירוב
+# שיש רק בכלי הקבצים. המספרים נשתלים מהקבועים ולא מוקלדים.
 def _build_max_depth_doc(where: str, refusal: str = "") -> str:
     return (
         "For a file whose chapters repeat the same subheadings: pass max_depth=2 "
@@ -1104,11 +1107,13 @@ def _build_max_depth_doc(where: str, refusal: str = "") -> str:
         f"it as a section. Limits the heading map {where} to headings at most "
         "max_depth deep, counted along the breadcrumb — the root heading is depth "
         "1 — and not by level, so a heading under a skipped level (# then ###) "
-        "still shows. When sent, the map is limited on purpose and toc_truncated "
-        "does not say so: every heading at the limit whose subheadings were "
-        "hidden carries hidden_subsections, how many headings were hidden under "
-        "it — look for it on the deepest headings shown, not on the root. "
-        "section_count still counts every heading. The reply echoes max_depth as "
+        "still shows. The map is limited on purpose, and that alone leaves "
+        "toc_truncated off: it turns on only when the limited map is itself cut, "
+        f"at {docs_handlers._TOC_MAX} headings or to fit "
+        f"{answer_size.OUTPUT_BYTE_BUDGET} bytes. A heading at the depth limit "
+        "carries hidden_subsections with the number of headings hidden under it; "
+        "a heading at the limit with nothing hidden under it does not carry the "
+        "field. section_count still counts every heading. The reply echoes max_depth as "
         f"enforced — clamped to {docs_handlers.MAX_DEPTH_MIN}-"
         f"{docs_handlers.MAX_DEPTH_MAX}, not refused — and a value deeper than "
         "the file hides nothing. Only the map is limited: a heading asked for by "
