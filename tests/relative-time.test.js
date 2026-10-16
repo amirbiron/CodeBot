@@ -8,14 +8,11 @@
  * הקובץ הנבדק נטען כמו בדפדפן — script קלאסי שמגדיר ``window.RelativeTime`` — כמו
  * ``size-format.test.js``.
  *
- * **המחרוזות כאן נמדדו, ולא נכתבו מהזיכרון:** אותן תוצאות בכרומיום 141 ובנוד 22
- * (ICU 77.1, ‏CLDR 47), אוקטובר 2026. הן תלויות בנתוני ה-CLDR של סביבת הריצה, ולכן
- * טסט שנופל אחרי שדרוג נוד בלי שום שינוי קוד אומר ש-CLDR שינה ניסוח — והבחירה
- * באפשרויות (``numeric``, ``style`` לכל יחידה) צריכה להימדד מחדש, לא הטסט להשתתק.
- *
- * **הצורה המקוצרת אינה מקובעת במחרוזת**, ובכוונה: היא נבדלת בין המנועים כבר היום —
- * שעה אחת היא "שעה" בכרומיום 141 ו-"1 שעה" בנוד 22. מה שנבדק בה הוא החיווט: דקות
- * ושעות עוברות דרך יחידה בלי "לפני", ויום ומעלה זהים לצורה הרגילה.
+ * **המחרוזות כתובות במודול, ולכן הטסט זהה בכל גרסת נוד.** עד אוקטובר 2026 המודול
+ * לקח את הניסוח מ-``Intl.RelativeTimeFormat``, והטסט עבר בנוד 22 (CLDR 47) ונפל
+ * ב-CI על נוד 24 (CLDR 48): "לפני שע׳ (1)" במקום "לפני שעה", "לפני יום אחד (1)"
+ * במקום "אתמול". אותו פער היה מגיע למשתמשים, לפי גרסת הדפדפן. הבדיקה "בלי ``Intl``,
+ * ועם ``Intl`` שמחזיר זבל" למטה נועלת את זה: התוצאה אינה תלויה בנתוני המנוע.
  */
 
 import fs from 'fs';
@@ -27,8 +24,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const MODULE_PATH = path.join(ROOT, 'webapp', 'static', 'js', 'utils', 'relative-time.js');
 
-function loadRelativeTime() {
-  const sandbox = { window: {} };
+/** ``extra`` — גלובלים נוספים ל-sandbox, למשל ``Intl`` חלופי. */
+function loadRelativeTime(extra) {
+  const sandbox = Object.assign({ window: {} }, extra || {});
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(MODULE_PATH, 'utf8'), sandbox);
   return sandbox.window.RelativeTime;
@@ -68,15 +66,24 @@ const fmt = (ago, opts) => RelativeTime.format(before(ago), Object.assign({ now:
   [8 * DAY, 'לפני שבוע', 'שבוע אחד בסגנון הארוך'],
   [40 * DAY, 'לפני חודש', 'חודש אחד'],
   [400 * DAY, 'לפני שנה', 'שנה אחת'],
+  // זוגי בכל יחידה, חוץ מדקות — שם "2 דק׳", כמו רבים.
+  [2 * MIN, 'לפני 2 דק׳', 'שתי דקות'],
+  [15 * DAY, 'לפני שבועיים', 'שבועיים'],
+  [61 * DAY, 'לפני חודשיים', 'חודשיים'],
+  [731 * DAY, 'לפני שנתיים', 'שנתיים'],
+  // ורבים, עם המספר.
+  [3 * DAY, 'לפני 3 ימים', '3 ימים'],
+  [22 * DAY, 'לפני 3 שבועות', '3 שבועות'],
+  [95 * DAY, 'לפני 3 חודשים', '3 חודשים'],
+  [5 * 365 * DAY, 'לפני 5 שנים', '5 שנים'],
 ].forEach(([ago, expected, what]) => {
   check(`${what} (${ago}ms)`, () => eq(fmt(ago), expected, what));
 });
 
 // ── הספים: אותם ספים כמו ב-``repo-history.js`` לפני האיחוד ────────────────────
 check('פחות מדקה — "עכשיו", ולא "לפני 30 שנ׳"', () => {
-  const nowWord = new Intl.RelativeTimeFormat('he', { numeric: 'auto' }).format(0, 'second');
-  eq(fmt(30 * SEC), nowWord);
-  eq(fmt(0), nowWord);
+  eq(fmt(30 * SEC), 'עכשיו');
+  eq(fmt(0), 'עכשיו');
 });
 check('בדיוק דקה — כבר דקות', () => eq(fmt(MIN), 'לפני דקה'));
 check('59 דקות — עדיין דקות; 60 — כבר שעה', () => {
@@ -126,11 +133,12 @@ check('בלי now — נמדד מול השעון עכשיו', () => {
 });
 
 // ── הצורה המקוצרת (חלונית צרה) ────────────────────────────────────────────────
-check('דקות ושעות — יחידה בלי "לפני"', () => {
-  const unit = (u, n) => new Intl.NumberFormat('he', { style: 'unit', unit: u, unitDisplay: 'short' }).format(n);
-  eq(fmt(20 * MIN, { compact: true }), unit('minute', 20));
-  eq(fmt(3 * HOUR, { compact: true }), unit('hour', 3));
-  ok(!fmt(20 * MIN, { compact: true }).includes('לפני'), 'הצורה המקוצרת אינה אומרת "לפני"');
+check('דקות ושעות — אותו טקסט בלי "לפני"', () => {
+  eq(fmt(20 * MIN, { compact: true }), '20 דק׳');
+  eq(fmt(MIN, { compact: true }), 'דקה');
+  eq(fmt(61 * MIN, { compact: true }), 'שעה');
+  eq(fmt(2 * HOUR, { compact: true }), 'שעתיים');
+  eq(fmt(3 * HOUR, { compact: true }), '3 שע׳');
 });
 check('יום ומעלה — זהה לצורה הרגילה', () => {
   eq(fmt(30 * HOUR, { compact: true }), fmt(30 * HOUR));
@@ -142,6 +150,27 @@ check('פחות מדקה — "עכשיו" גם בצורה המקוצרת', () =>
 // ── הממשק ─────────────────────────────────────────────────────────────────────
 check('האובייקט המיוצא מוקפא — אי אפשר להחליף את format מבחוץ', () => {
   ok(Object.isFrozen(RelativeTime), 'RelativeTime אינו מוקפא');
+});
+
+// ── הטקסט אינו תלוי בנתוני השפה של המנוע ─────────────────────────────────────
+check('בלי Intl, ועם Intl שמחזיר זבל — אותו טקסט בדיוק', () => {
+  // כך נראה CLDR 48 (נוד 24) מול המודול הקודם, שלקח את הניסוח מ-``Intl``: "(1)"
+  // אחרי היחיד. דפדפן חדש או ישן אינו אמור לשנות מילה במה שמוצג.
+  const garbage = function () { return { format: (n) => `זבל (${Math.abs(Number(n)) || 0})` }; };
+  const hostileIntl = { RelativeTimeFormat: garbage, NumberFormat: garbage, PluralRules: garbage };
+  const variants = [
+    ['Intl שמחזיר זבל', loadRelativeTime({ Intl: hostileIntl })],
+    ['בלי Intl', loadRelativeTime({ Intl: undefined })],
+  ];
+  const samples = [10 * SEC, MIN, 20 * MIN, 61 * MIN, 2 * HOUR, 30 * HOUR, 2 * DAY + HOUR, 8 * DAY, 40 * DAY, 400 * DAY];
+  for (const [label, other] of variants) {
+    for (const ago of samples) {
+      for (const compact of [false, true]) {
+        const opts = { now: NOW, compact };
+        eq(other.format(before(ago), opts), RelativeTime.format(before(ago), opts), `${label}, ${ago}ms, compact=${compact}`);
+      }
+    }
+  }
 });
 
 // ── R6: אין עותק שני ────────────────────────────────────────────────────────────

@@ -7,27 +7,21 @@
  * נעצר בימים ("לפני 400 ימים"), ושניהם אמרו "לפני 1 שעות" — כי עברית אינה
  * מוסיפה "1" ליחיד, ואף אחד מהם לא ידע את זה (R6).
  *
- * **המילים מגיעות מהדפדפן, לא מכאן.** ``Intl.RelativeTimeFormat`` יודע יחיד, זוגי
- * ורבים בעברית ("לפני שעה", "לפני שעתיים", "לפני 3 שע׳"), ואין בקובץ אף מילה
- * עברית מוקלדת שאפשר לשכוח לעדכן. מקור: MDN, ‏``Intl.RelativeTimeFormat()``
- * constructor — האפשרויות ``numeric`` (``always`` / ``auto``) ו-``style``.
+ * **המילים כתובות כאן, ולא מגיעות מ-``Intl.RelativeTimeFormat``.** הניסוח של
+ * ``Intl`` הוא נתוני ה-CLDR של המנוע, והם משתנים בין גרסאות. נמדד באוקטובר 2026:
+ * בנוד 22 (ICU 77.1, ‏CLDR 47) ובכרומיום 141 שעה אחת היא "לפני שעה", אבל בנוד 24
+ * (ICU 78.3, ‏CLDR 48) היא "לפני שע׳ (1)", יום אחד הוא "לפני יום אחד (1)" במקום
+ * "אתמול", ושעתיים הן "לפני שעתיים (2)". כלומר אותו קוד היה מציג משהו אחר בכל
+ * דפדפן, לפי הגרסה שלו — ואף טסט על מנוע אחד לא היה תופס את זה. כאן כל מנוע מציג
+ * בדיוק אותו טקסט, וזה גם מה שהעיצוב מראה.
  *
- * **הבחירות כאן נמדדו בכרומיום 141 (אוקטובר 2026), ולא הונחו:**
+ * הצורות הן אלה ש-CLDR 47 נתן, כי הן מה שהעיצוב מציג: דקות ושעות בקיצור ("דק׳",
+ * "שע׳"), ימים, שבועות, חודשים ושנים במילה המלאה; יחיד בלי המספר ("לפני שעה"),
+ * וזוגי בצורת הזוגי ("לפני שעתיים") — חוץ מדקות, שם "לפני 2 דק׳".
  *
- * - ``numeric: 'always'`` ולא ``'auto'``. עם ``auto`` שלפני יומיים יוצא
- *   "שלשום", ושבוע אחד יוצא "השבוע שעבר" — כלומר שבוע **בלוח השנה**, ולא "לפני
- *   שבעה ימים". ``always`` נותן "לפני יומיים" (מה שהעיצוב מראה), ועדיין "אתמול"
- *   ליום אחד.
- * - ``style: 'short'`` לשניות, דקות, שעות וימים — "לפני 20 דק׳", כמו בעיצוב.
- *   **אבל ``long`` לשבועות, חודשים ושנים:** בקצר שבוע אחד יוצא "לפני שב׳", ובארוך
- *   "לפני שבוע". (וביום ההפך: בארוך יום אחד יוצא "לפני יום 1", ובקצר "אתמול".)
- * - פחות מדקה הוא ``'עכשיו'`` — ``format(0, 'second')`` של ``numeric: 'auto'``.
- *   ב-``always`` אפס יוצא "בעוד 0 שנ׳".
- *
- * **הצורה המקוצרת** (``compact``) היא של חלונית צרה בפתק צר: "20 דק׳" בלי
- * "לפני". היא חלה רק על דקות ושעות, מ-``Intl.NumberFormat`` עם ``style: 'unit'``.
- * מיום ומעלה היא זהה לרגילה: יחידת "יום" לבדה יוצאת "יום" (בלי "לפני" זו כבר
- * אינה שעה שעברה), ושבוע אחד יוצא "שבוע 1".
+ * **הצורה המקוצרת** (``compact``) היא של חלונית צרה בפתק צר: אותו טקסט בלי
+ * "לפני" ("20 דק׳", "שעה"). היא חלה רק על דקות ושעות; מיום ומעלה היא זהה לרגילה,
+ * כי "יום" או "שבוע" לבד כבר אינם זמן שעבר.
  *
  * נטען גלובלית מ-``base.html``, ליד ``utils/size-format.js``.
  */
@@ -46,50 +40,31 @@
   var MONTH = 30 * DAY;
   var YEAR = 365 * DAY;
 
-  /** הסולם: עד איזה מרחק כל יחידה חלה, ובאיזה סגנון היא נכתבת (ראו למעלה). */
-  var SCALE = Object.freeze([
-    Object.freeze({ below: HOUR, unit: 'minute', size: MINUTE, style: 'short' }),
-    Object.freeze({ below: DAY, unit: 'hour', size: HOUR, style: 'short' }),
-    Object.freeze({ below: WEEK, unit: 'day', size: DAY, style: 'short' }),
-    Object.freeze({ below: MONTH, unit: 'week', size: WEEK, style: 'long' }),
-    Object.freeze({ below: YEAR, unit: 'month', size: MONTH, style: 'long' }),
-    Object.freeze({ below: Infinity, unit: 'year', size: YEAR, style: 'long' }),
-  ]);
-
-  // **היעדר יכולת, ולא כשל.** דפדפן שאין לו ``Intl.RelativeTimeFormat`` אינו
-  // "נכשל לפעמים" — אין לו את זה לכל חיי העמוד. שם מוצג התאריך עצמו
-  // (``toLocaleString``). הבדיקה כאן היא על הקיום בלבד, והבנייה עם הלוקאל
-  // והאפשרויות הקבועים שלמטה נמדדה בכרומיום.
-  var HAS_RELATIVE = typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function';
-
-  var NOW_WORD = HAS_RELATIVE
-    ? new Intl.RelativeTimeFormat('he', { numeric: 'auto' }).format(0, 'second')
-    : '';
-  var BY_STYLE = HAS_RELATIVE ? {
-    short: new Intl.RelativeTimeFormat('he', { numeric: 'always', style: 'short' }),
-    long: new Intl.RelativeTimeFormat('he', { numeric: 'always', style: 'long' }),
-  } : null;
+  var NOW_WORD = 'עכשיו';
+  var BEFORE = 'לפני ';
+  // יום אחד הוא "אתמול" ולא "לפני יום".
+  var YESTERDAY = 'אתמול';
 
   /**
-   * יחידה בלי "לפני" ("20 דק׳"), לצורה המקוצרת — או ``null`` כשאין יכולת.
-   *
-   * ``style: 'unit'`` נוסף ל-``Intl.NumberFormat`` מאוחר יותר מ-``RelativeTimeFormat``,
-   * ומנוע שאינו מכיר אותו **זורק** ``RangeError`` כבר בבנייה — ערך לא תקף לאפשרות
-   * שמקבלת רשימה סגורה (MDN, ‏``Intl.NumberFormat()`` constructor, "Exceptions"). זו
-   * בדיקת יכולת חד-פעמית בטעינה, ולכן אין לוג: בלי היכולת הצורה המקוצרת פשוט זהה
-   * לרגילה.
+   * הסולם: עד איזה מרחק כל יחידה חלה, והמילים שלה — יחיד, זוגי (``null``: אין
+   * צורת זוגי, ושתיים נכתבות כמו רבים) ורבים, שאחריהם המספר. ``compact`` — האם
+   * הצורה המקוצרת חלה עליה.
    */
-  function unitFormatter(unit) {
-    try {
-      return new Intl.NumberFormat('he', { style: 'unit', unit: unit, unitDisplay: 'short' });
-    } catch (_) {
-      return null;
-    }
+  var SCALE = Object.freeze([
+    Object.freeze({ below: HOUR, size: MINUTE, one: 'דקה', two: null, many: 'דק׳', compact: true }),
+    Object.freeze({ below: DAY, size: HOUR, one: 'שעה', two: 'שעתיים', many: 'שע׳', compact: true }),
+    Object.freeze({ below: WEEK, size: DAY, one: 'יום', two: 'יומיים', many: 'ימים', compact: false }),
+    Object.freeze({ below: MONTH, size: WEEK, one: 'שבוע', two: 'שבועיים', many: 'שבועות', compact: false }),
+    Object.freeze({ below: YEAR, size: MONTH, one: 'חודש', two: 'חודשיים', many: 'חודשים', compact: false }),
+    Object.freeze({ below: Infinity, size: YEAR, one: 'שנה', two: 'שנתיים', many: 'שנים', compact: false }),
+  ]);
+
+  /** כמות ביחידה ← המילים בלי "לפני" ("שעה", "שעתיים", "3 שע׳"). */
+  function amountPhrase(step, amount) {
+    if (amount === 1) return step.one;
+    if (amount === 2 && step.two) return step.two;
+    return amount + ' ' + step.many;
   }
-  var COMPACT = {
-    minute: unitFormatter('minute'),
-    hour: unitFormatter('hour'),
-  };
 
   /**
    * ``Date`` או מחרוזת ISO ← אלפיות שנייה, או ``NaN``. כל ערך אחר אינו זמן.
@@ -121,16 +96,16 @@
     if (!isFinite(when)) return '';
     var now = (opts && typeof opts.now === 'number' && isFinite(opts.now)) ? opts.now : Date.now();
     var elapsed = now - when;
-    if (!HAS_RELATIVE) return new Date(when).toLocaleString('he-IL');
     // גם זמן בעתיד (``elapsed`` שלילי) נופל כאן — ראו למעלה.
     if (elapsed < MINUTE) return NOW_WORD;
     for (var i = 0; i < SCALE.length; i++) {
       var step = SCALE[i];
       if (elapsed >= step.below) continue;
       var amount = Math.floor(elapsed / step.size);
-      var compact = opts && opts.compact ? COMPACT[step.unit] : null;
-      if (compact) return compact.format(amount);
-      return BY_STYLE[step.style].format(-amount, step.unit);
+      var phrase = amountPhrase(step, amount);
+      if (opts && opts.compact && step.compact) return phrase;
+      if (step.size === DAY && amount === 1) return YESTERDAY;
+      return BEFORE + phrase;
     }
     // לא מגיעים לכאן: הדרגה האחרונה היא ``Infinity``.
     return '';

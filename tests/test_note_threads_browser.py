@@ -1125,6 +1125,46 @@ def test_nothing_the_note_clipped_leaks_out_once_it_has_bubbles(
     assert leaks == [], f"{len(leaks)} פיקסלים השתנו מחוץ לפתק, למשל {leaks[:10]}"
 
 
+#: הפוקוס על החלונית: האם היא האלמנט הפעיל, ואיזו טבעת מצוירת סביבה.
+PANEL_FOCUS_JS = """(nid) => {
+  const p = document.querySelector(`.sticky-note[data-note-id="${nid}"] > [data-testid="thread-panel"]`);
+  if (!p) return null;
+  const cs = getComputedStyle(p);
+  return {active: document.activeElement === p, visible: p.matches(':focus-visible'),
+          style: cs.outlineStyle, color: cs.outlineColor, width: cs.outlineWidth};
+}"""
+
+
+def test_the_panel_shows_keyboard_focus_but_not_mouse_focus(wired_mongo, admin_live_server, chromium_executable):
+    """החלונית מקבלת את הפוקוס כשהיא נפתחת. **במקלדת היא מסמנת אותו** — כמו כל כפתור בה — ובעכבר
+    לא: פוקוס מסקריפט אחרי לחיצה אינו ``:focus-visible``. עד התיקון ``outline: none`` הסתיר אותו
+    גם ממי שפתח את השרשור ב-Enter."""
+    db = wired_mongo.get_db()
+    with threads_page(admin_live_server, chromium_executable, db) as tp:
+        board = _board(tp)
+        nid = _board_note(tp, board, x=200, y=260, w=420, h=260)
+        tid = _thread(db, nid, (USER, "שאלה", 40))
+        tp.goto(f"/boards/{board}")
+        tp.wait_bubbles(nid, 1)
+
+        tp.bubble(nid, tid).click()
+        tp.wait_panel(nid, "open", 1)
+        mouse = tp.page.evaluate(PANEL_FOCUS_JS, nid)
+        assert mouse["active"] and not mouse["visible"] and mouse["style"] == "none", mouse
+
+        tp.page.keyboard.press("Escape")                   # סוגר, והפוקוס חוזר לבועה
+        poll(tp.page, "([nid, tid]) => document.activeElement === document.querySelector("
+                      "`.sticky-note[data-note-id=\"${nid}\"] .sticky-threads [data-thread-id=\"${tid}\"]`)",
+             "הפוקוס חזר לבועה", [nid, tid])
+        tp.page.keyboard.press("Enter")
+        tp.wait_panel(nid, "open", 1)
+        keyboard = tp.page.evaluate(PANEL_FOCUS_JS, nid)
+        assert keyboard["active"] and keyboard["visible"], keyboard
+        ring = (keyboard["style"], keyboard["color"], keyboard["width"])
+        assert ring == ("solid", "rgb(29, 78, 216)", "2px"), keyboard
+        _assert_clean(tp)
+
+
 @pytest.mark.parametrize("theme", ["dark", "rose-pine-dawn", "high-contrast"])
 def test_the_panel_in_other_themes(theme, wired_mongo, admin_live_server, chromium_executable):
     """החלונית היא חלק מ"נייר" הפתק: בערכה כהה וב-Rose Pine Dawn היא נשארת כמו בעיצוב, וכללי

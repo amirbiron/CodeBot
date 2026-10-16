@@ -153,6 +153,17 @@ def test_a_secret_in_the_comment_is_redacted_before_it_is_cut(sender, db):
     assert "REDACTED" in payload["notification"]["body"]
 
 
+def test_a_secret_in_an_unknown_client_name_is_redacted_from_the_title(sender, db):
+    """K13: לקוח שאינו מוכר מוצג בשם שהוא עצמו מסר בחיבור (``nt.author_label``), והשם הזה
+    נכנס לכותרת שבמסך הנעילה — ולכן הוא עובר את אותו ניקוי כמו שם הפתק והתגובה."""
+    token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0" * 2
+    _comment_event(db, body="x", author=_agent(f"agent {token}"))
+    [payload] = sender.run()
+    for title in (payload["notification"]["title"], payload["data"]["title"]):
+        assert "ghp_" not in title
+        assert "REDACTED" in title
+
+
 @pytest.mark.parametrize("what", ["note_deleted", "thread_deleted", "not_an_agent", "other_note"])
 def test_nothing_to_open_is_closed_without_sending(sender, db, what):
     note, thread_id, _ = _comment_event(db, author=nt.user_author() if what == "not_an_agent" else None)

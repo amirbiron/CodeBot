@@ -1303,8 +1303,9 @@ def _build_note_comment_payload(
 ) -> dict | None:
     """בונה גוף התראה לאירוע ``note_comment`` — תגובה של סוכן על פתק.
 
-    האירוע נושא מזהים בלבד (``nt.note_comment_push_event``); שם הפתק והתגובה עצמה נקראו
-    **טריים**, למנה כולה, ב-:func:`_note_comment_builder`, ומגיעים לכאן כמילונים.
+    האירוע אינו נושא את הטקסט — רק מזהים, את היעד של הפתק ואת הכותב (``nt.note_comment_push_event``);
+    שם הפתק והתגובה עצמה נקראו **טריים**, למנה כולה, ב-:func:`_note_comment_builder`, ומגיעים
+    לכאן כמילונים.
 
     ``None`` — ואז האירוע נסגר כ-``incomplete_event`` ולא נשלח — כשאין מה לפתוח: מזהה פגום,
     פתק שנמחק (או שאינו של המשתמש), תגובה שאינה בשרשור או ששייכת לפתק אחר, או תגובה
@@ -1331,7 +1332,9 @@ def _build_note_comment_payload(
     body = comment.get("body")
     if not isinstance(body, str):
         return None
-    label = nt.author_label(author, user_name="")
+    # גם השם של הכותב עובר ניקוי: לקוח שאינו ב-``nt.AGENT_CLIENT_LABELS`` מוצג בשם שהלקוח עצמו
+    # מסר בחיבור (``nt.author_label``), והוא חלק מהכותרת שבמסך הנעילה בדיוק כמו שם הפתק.
+    label = " ".join(redact_secrets(nt.author_label(author, user_name="")).split())
     note_title = _cut_for_display(" ".join(redact_secrets(note_titles[note_id]).split()), _PUSH_NOTE_TITLE_MAX_CHARS)
     title_text = f'💬 {label} הגיב על "{note_title}"' if note_title else f"💬 {label} הגיב על פתק"
     body_text = _cut_for_display(" ".join(redact_secrets(body).split()), _PUSH_COMMENT_PREVIEW_MAX_CHARS)
