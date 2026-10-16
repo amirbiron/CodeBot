@@ -1375,3 +1375,41 @@ def test_the_two_section_ceilings_are_the_same_number():
 
     assert rst_parser.MAX_SECTIONS is md_parser.MAX_SECTIONS is doc_sections.MAX_SECTIONS
     assert _ceiling.MAX_SYMBOLS == doc_sections.MAX_SECTIONS
+
+
+def test_max_depth_on_a_real_rst_page_keeps_exactly_the_top_levels():
+    """``max_depth`` על עמוד RST אמיתי: בדיוק הכותרות שה-breadcrumb שלהן עד העומק, בסדר המסמך.
+
+    **הטסט הזה אינו מבחין בין ``level`` לעומק, ואינו יכול:** ``rst_parser`` דוחה כותרת
+    שמדלגת רמה (השומר של ``check_subsection`` ב-docutils), ולכן ב-RST השניים שווים תמיד —
+    מוטציה שמסננת לפי ``level`` שורדת כאן, ונמדד. ההבחנה נבדקת על Markdown, ב-
+    ``test_depth_is_counted_along_the_breadcrumb_not_by_heading_level``
+    (``tests/test_mcp_file_sections.py``). מה שנבדק כאן הוא הספירה על עמוד אמיתי.
+    הציפייה נגזרת מהמפה המלאה של אותה קריאה ולא מהפונקציה שמסננת:
+    המפה המוגבלת היא הרשומות של המלאה שעומקן עד 2 (בלי השדה החדש), ו-``hidden_subsections``
+    של כותרת בגבול הוא מספר הכותרות העמוקות שהכותרת שלהן יושבת **בתוך טווח השורות שלה** —
+    גזירה מהטווחים שהפרסר מחשב, ולא מהסדר שהקוד מסתמך עליו. וסכום כל ``hidden_subsections``
+    ועוד המפה הוא ``section_count``.
+
+    מוטציות שמפילות (הורצו על עותק): לא לחשב את ``hidden_subsections``; לספור כל כותרת
+    מוסתרת על הכותרת הגלויה הראשונה במפה במקום על האב שלה.
+    """
+    full = docs_handlers.docs_get_section(_FsBackend(), path="mcp-server")
+    limited = docs_handlers.docs_get_section(_FsBackend(), path="mcp-server", max_depth=2)
+
+    assert full["toc_truncated"] is False and limited["toc_truncated"] is False
+    shown = [t for t in full["toc"] if len(t["breadcrumb"]) <= 2]
+    assert [{k: v for k, v in t.items() if k != "hidden_subsections"} for t in limited["toc"]] == shown
+
+    deep = [t for t in full["toc"] if len(t["breadcrumb"]) > 2]
+    hidden = {}
+    for boundary in (t for t in shown if len(t["breadcrumb"]) == 2):
+        start, end = boundary["line_range"]
+        inside = sum(1 for t in deep if start < t["line_range"][0] <= end)
+        if inside:
+            hidden[start] = inside
+    assert {t["line_range"][0]: t["hidden_subsections"]
+            for t in limited["toc"] if "hidden_subsections" in t} == hidden
+    assert hidden, "העמוד צריך כותרות בעומק 3, אחרת הבדיקה אינה בודקת דבר"
+    assert len(limited["toc"]) + sum(hidden.values()) == limited["section_count"] == full["section_count"]
+    assert limited["max_depth"] == 2 and "max_depth" not in full

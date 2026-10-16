@@ -125,6 +125,17 @@ _TOC_MAX = 400  # תקרת פריטי TOC בתשובה (הגנת גודל)
 #: והטסט שומר שלא יוקלד מחדש. אישו #3426.
 _CANDIDATES_MAX = doc_sections.MAX_IDENTIFIER_SUGGESTIONS
 
+#: הגבולות של ``max_depth`` — כמה רמות של עץ הכותרות המפה מראה (:func:`_limit_depth`).
+#: ``max_depth`` שנשלח **נצמד** לטווח ב-``_clamp`` ואינו נדחה, כמו ``max_chars``
+#: (:func:`_depth_limit`), ותשובה שנושאת מפה מהדהדת את הערך שנאכף.
+#:
+#: **התקרה העליונה נגזרת ולא נבחרה:** כל רמה בעץ היא כותרת, ולכן עומק אינו יכול לעבור
+#: את מספר הכותרות — ומספר הכותרות חסום ב-``doc_sections.MAX_SECTIONS``, שמעליו הפרסור
+#: מסרב (``too_many_sections``). ערך גבוה ממנה אינו מסתיר כלום בשום קובץ שנפרסר, ולכן
+#: ההצמדה אליה אינה משנה מה חוזר במפה — רק את המספר שהתשובה מהדהדת.
+MAX_DEPTH_MIN = 1
+MAX_DEPTH_MAX = doc_sections.MAX_SECTIONS
+
 #: קוד הסירוב כשגם עמוד **ריק** של סעיף אינו נכנס בתקציב הבתים (ראו
 #: :func:`_fit_page`): הכותרות שהתשובה נושאת — הסעיף עצמו, ה-breadcrumb, עד
 #: :data:`_TOC_MAX` תת-סעיפים והשכנים — גדולות ממנו לבדן, כלומר כותרות באורך
@@ -458,8 +469,56 @@ def _capped(items: list, limit: int) -> tuple[list, bool]:
     return items, False
 
 
-def _toc(doc: doc_sections.Document) -> tuple[list, bool]:
-    return _capped(doc_sections.build_toc(doc), _TOC_MAX)
+def _toc(doc: doc_sections.Document, max_depth: int | None = None) -> tuple[list, bool]:
+    """המפה של התשובה, ו-``toc_truncated``. **קודם העומק, אחר כך התקרה** — ``_TOC_MAX``
+    חל על מה שנשאר אחרי ``max_depth``, ולכן מפה שהוגבלה לרמות העליונות אינה נחתכת
+    בגלל כותרות שממילא אינן בה. מקום אחד לשתי התשובות שנושאות מפה: ``mode: toc`` ו-
+    ``section_not_found``."""
+    return _capped(_limit_depth(doc_sections.build_toc(doc), max_depth), _TOC_MAX)
+
+
+def _limit_depth(toc: list[dict], max_depth: int | None) -> list[dict]:
+    """המפה עד עומק ``max_depth``, ועל כל כותרת בגבול — כמה צאצאים הוסתרו תחתיה.
+
+    ``None`` — "לא נשלח" — מחזיר את המפה **כמו שהיא, אותו אובייקט**: בלי הפרמטר
+    התשובה זהה בית-בית למה שחזר לפני שנוסף.
+
+    **העומק הוא אורך ה-breadcrumb, ולא ``level``.** ``level`` הוא הרמה שהכותרת נכתבה
+    בה, ובמארקדאון מותר לדלג רמה: ``#`` ואחריו ``###`` הוא ילד ישיר — ``_finalize`` ב-
+    ``services/doc_sections.py`` שם אותו מתחת לכותרת שלפניו, וה-breadcrumb שלו באורך 2.
+    סינון לפי ``level <= 2`` היה מעלים אותו, ואת כל מה שתחתיו, בלי שום סימן. **ב-RST
+    השניים שווים תמיד**: ``rst_parser`` דוחה כותרת שמדלגת רמה (``lvl <= current_level + 1``,
+    השומר של ``check_subsection`` ב-docutils), ולכן שם ``level`` הוא העומק. ה-breadcrumb
+    נכון לשני הפרסרים, ו-``level`` רק לאחד.
+
+    **``hidden_subsections`` יושב רק על כותרת שבגבול** (עומק == ``max_depth``), ומונה
+    את **כל** הצאצאים שלה — כולם מוסתרים, כי כולם עמוקים ממנה. כותרת רדודה יותר אינה
+    נושאת אותו, גם כשמתחתיה הוסתרו כותרות: הספירה שלהן כבר יושבת על הכותרת שבגבול,
+    ושדה גם על האבות היה סופר כל כותרת מוסתרת פעם לכל רמה. כך סכום כל
+    ``hidden_subsections`` ועוד אורך המפה הוא בדיוק ``section_count`` (לפני ``_TOC_MAX``
+    והתקציב). השדה מופיע רק כשהוא גדול מאפס — כותרת בגבול שאין לה ילדים אינה נושאת
+    אותו — באותה מוסכמה כמו ``title_truncated``.
+
+    **מעבר אחד, בסדר המסמך, ובלי לחפש אבות: האב בגבול של כותרת מוסתרת הוא הכותרת
+    הגלויה האחרונה לפניה.** לכותרת מוסתרת תמיד יש אב בעומק ``max_depth`` — עומק גדול
+    ממנו פירושו אב בכל עומק שמעליה — והצאצאים של כותרת הם רצף שמתחיל מיד אחריה
+    (``_finalize``: הסעיף נמשך עד הכותרת הבאה שאינה עמוקה ממנו). לכן כל מה שבין האב
+    לבין הכותרת המוסתרת הוא צאצא שלו, עמוק מהגבול, ומוסתר גם הוא — והאב הוא האחרון ב-
+    ``shown``. מכאן גם ש-``shown`` אינו ריק כשמגיעים לענף הזה.
+
+    הרשומות הן אלה ש-``doc_sections.build_toc`` בנה זה עתה לקריאה הזו, ולכן השדה נכתב
+    עליהן ישירות.
+    """
+    if max_depth is None:
+        return toc
+    shown: list[dict] = []
+    for entry in toc:
+        if len(entry["breadcrumb"]) <= max_depth:
+            shown.append(entry)
+        else:
+            parent = shown[-1]
+            parent["hidden_subsections"] = parent.get("hidden_subsections", 0) + 1
+    return shown
 
 
 def _line_of(exc: BaseException) -> dict:
@@ -781,6 +840,24 @@ def _paging(max_chars: Any, offset: Any) -> tuple[int, int]:
             _clamp(offset, 0, 10 ** 9, 0))
 
 
+def _depth_limit(max_depth: Any) -> int | None:
+    """``max_depth`` אחרי ההידוק — אותם שני קוראים כמו :func:`_paging`.
+
+    **``None`` נשאר ``None``**: "לא נשלח" פירושו מפה בלי הגבלה, ולא מספר. הצמדה שלו
+    לברירת מחדל הייתה מוחקת את ההבחנה, וזו ההבחנה שמשאירה את התשובה בלי הפרמטר זהה
+    למה שחזרה לפני שנוסף — בלי ``max_depth`` מהודהד ובלי סינון.
+
+    ערך שנשלח נצמד ל-:data:`MAX_DEPTH_MIN`..:data:`MAX_DEPTH_MAX` ואינו נדחה, כמו
+    ``max_chars``: ``0`` או מספר שלילי הם 1. ומה שאינו מספר שלם אינו מגיע לכאן דרך
+    הסכימה (``StrictInt`` בשני הכלים); לקורא שעוקף אותה ``_clamp`` מחזיר את ברירת
+    המחדל שלו — כאן :data:`MAX_DEPTH_MAX`, הערך שמשמעותו "בלי הגבלה", כמו "לא נשלח" —
+    ותשובה שנושאת מפה מהדהדת אותו, כך שהקורא רואה שמה ששלח לא נקרא כעומק.
+    """
+    if max_depth is None:
+        return None
+    return _clamp(max_depth, MAX_DEPTH_MIN, MAX_DEPTH_MAX, MAX_DEPTH_MAX)
+
+
 def answer_section(
     loaded: LoadedDocument,
     *,
@@ -788,6 +865,7 @@ def answer_section(
     include_subsections: bool = True,
     max_chars: int = MAX_CHARS_DEFAULT,
     offset: int = 0,
+    max_depth: int | None = None,
     reserve_bytes: int = 0,
     refusal_cuts: tuple[Cut, ...] = (),
     refusal_notes: Mapping[str, str] | None = None,
@@ -819,11 +897,16 @@ def answer_section(
     — תשובה מוצלחת נושאת את ההקשר כמו שהוא — וב-``section_not_found`` וב-
     ``ambiguous_section`` הן **הראשונות** שמוותרים עליהן, לפני המפה, ההצעות
     והמועמדים: מטא-דאטה שווה פחות מהתשובה עצמה.
+
+    ``max_depth`` — מגביל את המפה (:func:`_limit_depth`), ונצמד כאן (:func:`_depth_limit`).
+    ``codekeeper_get_file`` מעביר אותו; פריט סעיף ב-``codekeeper_read_batch`` אינו נושא
+    אותו, ולכן מקבל את ברירת המחדל — ``None``, מפה בלי הגבלה — כמו הכלי הבודד בלעדיו.
     """
     max_chars, offset = _paging(max_chars, offset)
     return _answer_from_document(loaded.doc, context=loaded.context, section=section,
                                  include_subsections=include_subsections,
                                  max_chars=max_chars, offset=offset,
+                                 max_depth=_depth_limit(max_depth),
                                  reserve_bytes=reserve_bytes, refusal_cuts=refusal_cuts,
                                  refusal_notes=refusal_notes)
 
@@ -836,24 +919,27 @@ def docs_get_section(
     include_subsections: bool = True,
     max_chars: int = MAX_CHARS_DEFAULT,
     offset: int = 0,
+    max_depth: int | None = None,
     repo: str | None = None,
     ref: str | None = None,
 ) -> dict[str, Any]:
     """``codekeeper_docs_get_section``: שער, הידוק, קריאה ופרסור, ואז תשובה.
 
     הסדר הוא הסדר שהיה כאן לפני שהפונקציה פוצלה ל-:func:`resolve_docs_target`,
-    :func:`load_document` ו-:func:`answer_section`, כולל ההידוק **לפני** הקריאה.
+    :func:`load_document` ו-:func:`answer_section`, כולל ההידוק **לפני** הקריאה —
+    גם של ``max_depth`` (:func:`_depth_limit`).
     """
     target = resolve_docs_target(path=path, repo=repo)
     if isinstance(target, dict):
         return target
     max_chars, offset = _paging(max_chars, offset)
+    depth = _depth_limit(max_depth)
     loaded = load_document(backend, target, ref=ref)
     if isinstance(loaded, dict):
         return loaded
     return _answer_from_document(loaded.doc, context=loaded.context, section=section,
                                  include_subsections=include_subsections,
-                                 max_chars=max_chars, offset=offset)
+                                 max_chars=max_chars, offset=offset, max_depth=depth)
 
 
 def _answer_from_document(
@@ -864,6 +950,7 @@ def _answer_from_document(
     include_subsections: bool,
     max_chars: int,
     offset: int,
+    max_depth: int | None = None,
     reserve_bytes: int = 0,
     refusal_cuts: tuple[Cut, ...] = (),
     refusal_notes: Mapping[str, str] | None = None,
@@ -906,6 +993,13 @@ def _answer_from_document(
 
     תשובה שאינה נכנסת גם כשכל הרשימות שלה ריקות — ``answer_too_large``; ועמוד
     שאינו נכנס גם בלי תוכן — :data:`SECTION_TOO_LARGE`.
+
+    **``max_depth`` (כבר מהודק) חל על המפה בלבד** — ``mode: toc`` והמפה שב-
+    ``section_not_found`` — ושם הוא גם מהודהד. ``section_count`` — רק בתשובת המפה
+    (``mode: toc``), לא ב-``section_not_found`` — נשאר מספר הכותרות כולן. **לא** על ההתאמה: ``find_sections`` רץ על המסמך כולו, ולכן כותרת
+    שהתבקשה בשמה נמצאת בכל עומק, ``ambiguous_section`` מונה את כל המועמדים, ו-
+    ``suggest`` מציע מכל המסמך. ובשתי הצורות שאין בהן מפה הוא אינו מהודהד — אין שם
+    רשימה שהוא הגביל. ``None`` — בלי סינון ובלי הד, כלומר התשובה של לפני הפרמטר.
     """
     # ``includes`` הוא שדה של פארסר: ``rst_parser`` ממלא אותו מיעדי
     # ``.. include::``, ול-Markdown אין צורה כזאת ולכן הוא **תמיד ריק**.
@@ -924,15 +1018,18 @@ def _answer_from_document(
                      "max_chars": MAX_SECTION_CHARS, "actual_chars": len(section)})
         return fit_refusal(base, refusal_cuts, refusal_notes)
 
-    toc_items, toc_truncated = _toc(doc)
+    toc_items, toc_truncated = _toc(doc, max_depth)
+    # ההד של ``max_depth``, לצד כל מפה בתשובה — ורק כשנשלח (``{}`` בלעדיו: אפס-דיף).
+    depth_echo = {} if max_depth is None else {"max_depth": max_depth}
 
     # בלי section → עץ כותרות (הכלי משמש גם לניווט)
     if not (section or "").strip():
         # ``section_count`` נשאר מספר הכותרות כולן גם כשהמפה נחתכת — כך הקורא יודע
-        # כמה חסר. **בלי ``refusal_cuts`` ב-``cuts``:** זו תשובה מוצלחת, והיא נושאת
-        # את ההקשר כמו שהוא; רק ``answer_too_large`` שבמקומה מוותר עליהן.
+        # כמה חסר — וגם כש-``max_depth`` הסתיר רמות. **בלי ``refusal_cuts`` ב-``cuts``:**
+        # זו תשובה מוצלחת, והיא נושאת את ההקשר כמו שהוא; רק ``answer_too_large``
+        # שבמקומה מוותר עליהן.
         base.update({"mode": "toc", "toc": toc_items, "toc_truncated": toc_truncated,
-                     "section_count": len(doc.sections)})
+                     "section_count": len(doc.sections), **depth_echo})
         return _fit_or_refuse(base, cuts=(("toc", "toc_truncated"),), **fitting)
 
     matches = doc_sections.find_sections(doc, section)
@@ -956,7 +1053,7 @@ def _answer_from_document(
             # ``.titles`` ולא האובייקט: ``suggest`` מחזיר ``NamedTuple`` בן שני
             # שדות, ומי שישכח את זה ישלח לקורא ``[[...], false]`` בלי שום שגיאה.
             "suggestions": list(suggestions.titles),
-            "toc": toc_items, "toc_truncated": toc_truncated,
+            "toc": toc_items, "toc_truncated": toc_truncated, **depth_echo,
         })
         if suggestions.truncated:
             # רק כשנחתכה, ולא שדה שקיים תמיד — ``remaining_chars`` ו-``next_offset``

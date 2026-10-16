@@ -573,7 +573,13 @@ def _fit_with_file_meta(
 
 
 def _apply_sections_to_file(
-    out: dict[str, Any], *, section: str | None, max_chars: Any, offset: Any, note: str | None = None
+    out: dict[str, Any],
+    *,
+    section: str | None,
+    max_chars: Any,
+    offset: Any,
+    max_depth: Any = None,
+    note: str | None = None,
 ) -> dict[str, Any]:
     """מפת הכותרות (``section is None``) או סעיף אחד, במקום תוכן הקובץ.
 
@@ -661,6 +667,8 @@ def _apply_sections_to_file(
     answer = docs_handlers.answer_section(
         docs_handlers.LoadedDocument(parsed, context),
         section=section,
+        # ``None`` — "לא נשלח" — הוא גם ברירת המחדל שם, ולכן עובר כמו שהוא; ההצמדה שם.
+        max_depth=max_depth,
         reserve_bytes=reserve,
         refusal_cuts=_FILE_REFUSAL_CUTS,
         refusal_notes=_FILE_REFUSAL_NOTES,
@@ -1284,6 +1292,7 @@ class ProductionBackend:
         toc: bool = False,
         max_chars: Any = None,
         offset: Any = None,
+        max_depth: Any = None,
     ) -> dict[str, Any] | None:
         # ארבעה מצבי קריאה שאינם מצטברים, וכולם נבדקים **לפני** הקריאה למסד:
         # בקשה פסולה לא צריכה לשלם טעינת מסמך שלם רק כדי להיפסל בסוף. זו
@@ -1299,6 +1308,7 @@ class ProductionBackend:
             toc=toc,
             max_chars=max_chars,
             offset=offset,
+            max_depth=max_depth,
         )
         if request_error:
             return file_read_refusal(request_error)
@@ -1331,7 +1341,8 @@ class ProductionBackend:
         # ו-``file_id`` בוחרים איזו גרסה, והמצב אומר מה להחזיר ממנה.
         if toc or section is not None:
             return _fit_with_file_meta(out, lambda doc, note: _apply_sections_to_file(
-                doc, section=section, max_chars=max_chars, offset=offset, note=note))
+                doc, section=section, max_chars=max_chars, offset=offset,
+                max_depth=max_depth, note=note))
         if lines is None:
             return out
         return _apply_range_to_file(out, lines)

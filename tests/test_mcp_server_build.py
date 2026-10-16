@@ -890,6 +890,29 @@ async def test_no_tool_description_exceeds_the_truncation_budget():
     )
 
 
+def test_no_tool_or_parameter_description_carries_an_ellipsis():
+    """אין ``…`` בשום תיאור ב-``tools/list`` — לא של כלי ולא של פרמטר.
+
+    **בתיאור, שלוש נקודות נקראות כטקסט שנחתך** — וזה בדיוק מה שסוכן לא אמור לחשוב על
+    תיאור שהוא קורא במלואו: לקוח שכן מקצר תיאורים (ההערה ליד ``_TOOL_DESCRIPTION_MAX_CHARS``)
+    מסמן את החיתוך בעצמו, ותיאור שנושא את הסימן הזה מבפנים אינו ניתן להבחנה ממנו. ההערה
+    עלתה בריוויו על ``max_depth`` (PR #3567), על ציטוט שקוצר בשלוש נקודות; בתיאורים עצמם יש
+    אפס היום, והטסט שומר שזה יישאר כך. ``_tool_manager.list_tools()`` — כל הכלים, גם של
+    אדמין, מאותה סיבה כמו בטסט שמעל.
+    """
+    mcp = build_mcp(_FakeBackend(), repo_backend=_FakeRepoBackend())
+
+    found = []
+    for tool in mcp._tool_manager.list_tools():
+        if "…" in (tool.description or ""):
+            found.append(tool.name)
+        for name, spec in (tool.parameters.get("properties") or {}).items():
+            if "…" in (spec.get("description") or ""):
+                found.append(f"{tool.name}.{name}")
+
+    assert not found, f"שלוש נקודות בתיאור — נקראות כטקסט שנחתך: {found}"
+
+
 #: שלושת המספרים שההנמקה מעל :data:`_TOOL_DESCRIPTION_MAX_CHARS` נוקבת
 #: בהם, בסדר שבו הם מופיעים שם: כמה כלים, מי הארוך ביותר, וכמה תווים יש בו.
 _CEILING_RATIONALE_RE = re.compile(

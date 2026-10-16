@@ -515,7 +515,8 @@ _SECTION_PARAM_DOC = (
     "suggestions_truncated says so when it was cut). So an identifier query "
     "can come back with a heading rather than with identifiers — do not read "
     "the field as always being identifiers. A miss also carries the heading "
-    "map (toc). Every list in a reply — toc, suggestions, candidates — is cut "
+    "map (toc), limited by max_depth when that is sent. Every list in a reply — "
+    "toc, suggestions, candidates — is cut "
     f"from the end so the reply fits {answer_size.OUTPUT_BYTE_BUDGET} bytes "
     "as sent; a miss gives up the map before the suggestions. So "
     "toc_truncated, suggestions_truncated and candidates_truncated each have "
@@ -1041,7 +1042,8 @@ def _build_file_sections_docs() -> tuple[str, str]:
         "hold any heading's text, for lines= to read from there. A map "
         "that does not fit even empty is answer_too_large, with bytes (what "
         "the reply needed with the map empty) and max "
-        f"({answer_size.OUTPUT_BYTE_BUDGET}). Then read one "
+        f"({answer_size.OUTPUT_BYTE_BUDGET}). max_depth limits the map to its "
+        "top levels — see that parameter. Then read one "
         'section with section="<its title>". toc is a mode of its own: with '
         "section, query or lines it is refused as toc_and_section, "
         "toc_and_query or toc_and_lines." + refusals
@@ -1084,6 +1086,49 @@ def _build_file_sections_docs() -> tuple[str, str]:
 
 
 _FILE_TOC_DOC, _FILE_SECTION_DOC = _build_file_sections_docs()
+
+
+# תיאור הפרמטר ``max_depth`` — ב-``codekeeper_docs_get_section`` וב-``codekeeper_get_file``.
+#
+# **נפתח במתי להשתמש**, ולא במה הפרמטר עושה: לקוח שמקצר תיאור פרמטר לכ-120 תווים (ההערה
+# ליד ``_SECTION_PARAM_DOC``) רואה רק את ההתחלה, ומה שסוכן צריך לדעת שם הוא שיש דרך לקבל
+# מפה של פרקים בלבד. אחר כך שלושה דברים שאינם נראים מהמפה עצמה: שהעומק נספר לאורך
+# ה-breadcrumb ולא לפי ``level``; ש**ההגבלה לבדה משאירה את ``toc_truncated`` כבוי** — הוא
+# נדלק רק כשהמפה המוגבלת עצמה נחתכת — והסימן להגבלה הוא ``hidden_subsections`` על
+# הכותרות שבגבול העומק, כולל מתי הוא **אינו** מופיע, כדי שסוכן לא יסיק מהיעדרו שמשהו
+# השתבש; ושההגבלה היא של המפה בלבד. **בכותרות שבגבול, ולא "לא על השורש"**: ב-
+# ``max_depth=1`` השורש הוא הגבול ונושא את השדה. ובלי ``…`` — בתיאור פרמטר הן נקראות
+# כטקסט שנחתך. **גוף אחד ושני הקשרים**: מה שמשתנה בין הכלים הוא איפה יש מפה, והסירוב
+# שיש רק בכלי הקבצים. המספרים נשתלים מהקבועים ולא מוקלדים.
+def _build_max_depth_doc(where: str, refusal: str = "") -> str:
+    return (
+        "For a file whose chapters repeat the same subheadings: pass max_depth=2 "
+        "to get the root heading and its chapters only, pick a chapter, then read "
+        f"it as a section. Limits the heading map {where} to headings at most "
+        "max_depth deep, counted along the breadcrumb — the root heading is depth "
+        "1 — and not by level, so a heading under a skipped level (# then ###) "
+        "still shows. The map is limited on purpose, and that alone leaves "
+        "toc_truncated off: it turns on only when the limited map is itself cut, "
+        f"at {docs_handlers._TOC_MAX} headings or to fit "
+        f"{answer_size.OUTPUT_BYTE_BUDGET} bytes. A heading at the depth limit "
+        "carries hidden_subsections with the number of headings hidden under it; "
+        "a heading at the limit with nothing hidden under it does not carry the "
+        "field. In the map reply (mode: toc), section_count still counts every "
+        "heading. Every reply that carries a map echoes max_depth as "
+        f"enforced — clamped to {docs_handlers.MAX_DEPTH_MIN}-"
+        f"{docs_handlers.MAX_DEPTH_MAX}, not refused — and a value deeper than "
+        "the file hides nothing. Only the map is limited: a heading asked for by "
+        "name is found at any depth, and suggestions and ambiguous_section "
+        "candidates are never limited."
+        + refusal
+    )
+
+
+_DOCS_MAX_DEPTH_DOC = _build_max_depth_doc(
+    "(the reply with no section, and the map a section_not_found carries)")
+_FILE_MAX_DEPTH_DOC = _build_max_depth_doc(
+    "(toc=true, and the map a section_not_found carries)",
+    " Without toc or section it is refused as max_depth_without_toc.")
 
 
 # תיאור הכלי ``codekeeper_read_batch`` ותיאור הפרמטר ``items`` שלו.
@@ -2895,6 +2940,10 @@ def build_mcp(
         # "לא נשלח" נושא משמעות: ``max_chars`` בלי ``section`` נדחה.
         max_chars: int | None = None,
         offset: int | None = None,
+        # ``StrictInt`` ולא ``int``, בניגוד ל-``max_chars``: עומק נקרא כמספר שלם ותו לא,
+        # ו-``"2"`` או ``true`` שהיו מומרים בשקט הם בדיוק הקריאה השגויה שמעל ``StrictInt``
+        # ב-``handlers.py``. ``None`` — "לא נשלח" — כמו ``max_chars``: בלעדיו אין סירוב.
+        max_depth: Annotated[StrictInt | None, Field(description=_FILE_MAX_DEPTH_DOC)] = None,
     ) -> dict:
         doc = handlers.get_file(
             backend,
@@ -2910,6 +2959,7 @@ def build_mcp(
             toc=toc,
             max_chars=max_chars,
             offset=offset,
+            max_depth=max_depth,
         )
         if doc is None:
             return {"found": False}
@@ -3964,7 +4014,8 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
             "codekeeper_get_repo_file for docs: it returns a single section with "
             "navigation (breadcrumb, direct subsections, prev/next siblings) rather "
             "than a 77KB file. Call with NO `section` to get the page's table of "
-            "contents (heading tree) and pick one. To read a whole document, pass its "
+            "contents (heading tree; `max_depth` keeps only its top levels) and pick "
+            "one. To read a whole document, pass its "
             "title (the first TOC entry) as section: you get that heading's subtree, "
             "paged like any section — while truncated is true, continue from "
             "next_offset — or (admin) read it with codekeeper_get_repo_file. Which repo "
@@ -3990,6 +4041,8 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
         offset: int = 0,
         repo: str | None = None,
         ref: Annotated[str | None, Field(description=_REF_PARAM_DOC)] = None,
+        # ``StrictInt`` — אותה צורה בדיוק כמו ``max_depth`` של ``codekeeper_get_file``.
+        max_depth: Annotated[StrictInt | None, Field(description=_DOCS_MAX_DEPTH_DOC)] = None,
     ) -> dict:
         current_user_id(ctx)  # מזהה בלבד — public, בלי require_admin
         return docs_handlers.docs_get_section(
@@ -3999,6 +4052,7 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
             include_subsections=include_subsections,
             max_chars=max_chars,
             offset=offset,
+            max_depth=max_depth,
             repo=repo,
             ref=ref,
         )
