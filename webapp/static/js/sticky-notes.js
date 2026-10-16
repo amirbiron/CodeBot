@@ -316,7 +316,24 @@
   // מה שפתק מקבל כשאין לו שום מקור גודל — לא המינימום. הבחנה בין
   // "קטן ככל שמותר" ל"הגודל הרגיל" שנעדרה, ולכן פתק בלי כוונה
   // ובלי ``note.size`` התכווץ ל-120×80 במקום להיפתח כרגיל.
-  const NOTE_DEFAULT_W = 260, NOTE_DEFAULT_H = 200;
+  //
+  // **וגם לא הגודל של פתק חדש** — זה ``NEW_NOTE_*`` שלמטה. עד אוקטובר 2026
+  // שני המספרים היו זהים, וזה הסתיר שיש כאן שתי שאלות: פתק חדש קיבל
+  // 260×200 ממספרים מוקלדים ב-``createNote``, לא מכאן. הגיבוי נשאר
+  // 260×200 בהחלטה, כדי שפתק בלי גודל שמור לא יגדל עם ברירת המחדל החדשה.
+  const NOTE_FALLBACK_W = 260, NOTE_FALLBACK_H = 200;
+  // **הגודל של פתק חדש — מה ש-``createNote`` שולח לשרת, ומשם הוא הכוונה
+  // שלו.** במסך רחב: הגודל שהמשתמש בחר בעין, בגרירה של פתק — 503×373,
+  // כפי שנקרא מהמסד ב-16.10.2026 — מותאם ליחס 13:10 של הגודל הקודם
+  // (260×200), באותו שטח: 494×380 הוא בדיוק פי 1.9 מהקודם. בטלפון הגודל
+  // לא השתנה, בהחלטה.
+  //
+  // ``NEW_NOTE_PHONE_MAX_VW`` הוא הרוחב שעד אליו המסך נחשב טלפון — שאלה
+  // של המסך, ולא של הפתק. לכפתור הצף יש שאילתת מדיה משלו ב-
+  // ``sticky-notes.css``, וזו החלטה אחרת שאינה תלויה בזו.
+  const NEW_NOTE_W = 494, NEW_NOTE_H = 380;
+  const NEW_NOTE_PHONE_W = 200, NEW_NOTE_PHONE_H = 160;
+  const NEW_NOTE_PHONE_MAX_VW = 480;
   // המרווח בין הפתק לקצה אזור התצוגה. משותף לכל המסלולים שמודדים מול
   // אזור התצוגה, כדי ששינוי מדיניות שוליים לא ייפרד בין מצב למצב.
   const NOTE_EDGE_GAP = 12, NOTE_TOP_GAP = 60, NOTE_BOTTOM_GAP = 20;
@@ -326,6 +343,20 @@
     if (raw === undefined || raw === null || raw === '') return null;
     const n = Number(raw);
     return Number.isFinite(n) ? n : null;
+  }
+
+  // **מזהה שהשרת נתן לפתק.** השרת שולח ``str`` של ה-``ObjectId`` — 24 תווים
+  // הקסדצימליים (``_as_note_response`` ומסלולי היצירה ב-``webapp/sticky_notes_api.py``)
+  // — ו-``codekeeper_get_note`` מפענח אותו ב-``ObjectId(str(note_id))``, שמקבל
+  // מחרוזת רק באורך 24 שעוברת ``bytes.fromhex`` (``ObjectId.__validate``
+  // ב-``bson/objectid.py``, pymongo 4.15.3). ``i`` כי גם אותיות גדולות עוברות שם.
+  // אותו כלל, למזהה של קובץ, יושב גם ב-``OBJECT_ID_RE`` של ``card-preview.js``,
+  // ובדיקה ב-``tests/sticky-notes-target.test.js`` דורשת ששניהם יישארו זהים.
+  const SAVED_NOTE_ID_RE = /^[a-f0-9]{24}$/i;
+
+  /** ``true`` רק למזהה שהשרת נתן — כל השאר "הפתק עוד לא נשמר". */
+  function isSavedNoteId(id){
+    return typeof id === 'string' && SAVED_NOTE_ID_RE.test(id);
   }
 
   function getScrollOffsets(){
@@ -611,6 +642,8 @@
           : `/api/sticky-notes/${encodeURIComponent(this.fileId)}`);
 
       this.notes = new Map();
+      // חיווי ההעתקה שמוצג עכשיו, לכל כפתור — ראו ``_flashCopyResult``.
+      this._copyFlashes = new WeakMap();
       this._saveDebounced = debounce(this._performSaveBatch.bind(this), AUTO_SAVE_DEBOUNCE_MS);
       this._pending = new Map();
       this._inFlight = new Map();
@@ -886,11 +919,13 @@
 
     async createNote(){
       try {
-        const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
+        const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia(`(max-width: ${NEW_NOTE_PHONE_MAX_VW}px)`).matches) || (window.innerWidth <= NEW_NOTE_PHONE_MAX_VW));
         // המרחק מהפינה של מה שרואים. הנחתה קלה למובייל כדי למנוע קפיצה עם
         // הופעת מקלדת.
         const inset = isMobile ? 80 : 120;
-        const size = { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 };
+        const size = isMobile
+          ? { width: NEW_NOTE_PHONE_W, height: NEW_NOTE_PHONE_H }
+          : { width: NEW_NOTE_W, height: NEW_NOTE_H };
 
         const payload = this._surfaceTarget ? {
           content: '',
@@ -976,8 +1011,8 @@
       if (typeof note.position.x !== 'number') note.position.x = initialX;
       if (typeof note.position.y !== 'number') note.position.y = initialY;
       note.size = note.size && typeof note.size === 'object' ? note.size : {};
-      if (typeof note.size.width !== 'number') note.size.width = note.width ?? 260;
-      if (typeof note.size.height !== 'number') note.size.height = note.height ?? 200;
+      if (typeof note.size.width !== 'number') note.size.width = note.width ?? NOTE_FALLBACK_W;
+      if (typeof note.size.height !== 'number') note.size.height = note.height ?? NOTE_FALLBACK_H;
       el.style.left = note.position.x + 'px';
       el.style.top = note.position.y + 'px';
       el.style.width = note.size.width + 'px';
@@ -1055,8 +1090,19 @@
         type: 'button', title: 'חיפוש בפתק', 'aria-label': 'חיפוש בתוך הפתק', 'aria-pressed': 'false'
       });
       searchBtn.appendChild(buildStrokeIcon(SEARCH_ICON_SHAPES));
+      // מזהה הפתק — מה שסוכן קורא בו את הפתק (``codekeeper_get_note``). **בשורת
+      // השם, ליד החיפוש, ומאותה סיבה** — הכרעה של המשתמש: שורת הפעולות אינה
+      // נשברת, וכפתור תשיעי בה היה מעלה את הרוחב שבו היא נכנסת מ-272 ל-308
+      // (נמדד בכרומיום ב-16.10.2026), ובפתק ברוחב 260 — ברירת המחדל עד אז — גם
+      // המזעור היה נחתך ולא רק המחיקה. כאן הוא גלוי בכל פתק, גם צר וגם בטלפון.
+      // המזהה **אינו** נלכד בבנייה: ``_copyNoteId`` קורא אותו ברגע הלחיצה.
+      const copyIdBtn = createEl('button', 'sticky-note-btn sticky-note-copy-id', {
+        type: 'button', title: 'העתק את מזהה הפתק', 'aria-label': 'העתקת מזהה הפתק'
+      });
+      copyIdBtn.textContent = '🆔';
       drag.appendChild(editBtn);
       drag.appendChild(searchBtn);
+      drag.appendChild(copyIdBtn);
       drag.appendChild(titleInput);
       header.appendChild(actions); header.appendChild(drag);
 
@@ -1120,6 +1166,11 @@
       copyBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
         this._copyNoteContent(el);
+      });
+      copyIdBtn.addEventListener('click', (ev) => {
+        // בלי ``try``, כמו בכפתור החיפוש: שתי הקריאות אינן זורקות.
+        ev.stopPropagation(); ev.preventDefault();
+        this._copyNoteId(el, copyIdBtn);
       });
       colorBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
@@ -1838,7 +1889,7 @@
           if (fromEl !== null) return fromEl;
           return dflt;
         };
-        return { width: pick('width', NOTE_DEFAULT_W), height: pick('height', NOTE_DEFAULT_H) };
+        return { width: pick('width', NOTE_FALLBACK_W), height: pick('height', NOTE_FALLBACK_H) };
       }
 
       /** גבולות אזור התצוגה, כפי שכל מסלול הצפה מודד אותם. */
@@ -1884,8 +1935,8 @@
         try {
           const box = this._viewportBox();
           const r = el.getBoundingClientRect();
-          const w = Math.round(r.width) || NOTE_DEFAULT_W;
-          const h = Math.round(r.height) || NOTE_DEFAULT_H;
+          const w = Math.round(r.width) || NOTE_FALLBACK_W;
+          const h = Math.round(r.height) || NOTE_FALLBACK_H;
           return {
             x: clamp(Math.round(x), NOTE_EDGE_GAP,
                      Math.max(NOTE_EDGE_GAP, box.width - w - NOTE_EDGE_GAP)),
@@ -5388,6 +5439,35 @@
         this._flashCopyResult(el, await this._copyText(text));
       }
 
+      /**
+       * מעתיק את מזהה הפתק — 24 התווים ש-``codekeeper_get_note`` מקבל, ותו לא.
+       *
+       * **המזהה נקרא כאן, ברגע הלחיצה, מהאלמנט** — ולא נלכד בכפתור כשהוא
+       * נבנה. ``el.dataset.noteId`` הוא הזהות שכל המנהל שואל עליה
+       * (``_getEntry``), ולכן מה שמועתק הוא מה שהפתק נושא ברגע הזה.
+       *
+       * מזהה שהשרת לא נתן (``isSavedNoteId``) אינו מועתק, כי ``codekeeper_get_note``
+       * דוחה אותו ב-``invalid_note_id`` — סוכן שקיבל אותו לא יכול לעשות בו דבר.
+       * במקומו מוצג אותו חיווי כשל של ההעתקה, עם ההסבר "הפתק עוד לא נשמר".
+       * בלי כפתור מושבת, ובלי מסלול שמדליק אותו אחרי השמירה: הבדיקה רצה בכל
+       * לחיצה מחדש.
+       *
+       * **היום הענף הזה אינו נפתח מהממשק.** פתק מוצג רק אחרי שהשרת החזיר לו
+       * מזהה — ``createNote`` מרנדר אחרי התשובה, ו-``loadNotes`` והקאש
+       * מרנדרים את מה שהשרת שלח — ולכן מזהה כזה מגיע רק מתשובה בלי מזהה או
+       * מקאש פגום ב-``localStorage``. מי שיוסיף יצירה אופטימית, עם מזהה זמני
+       * עד שהשרת עונה, מקבל את ההתנהגות הנכונה בלי לגעת כאן — בתנאי שהמזהה
+       * הקבוע נכתב ל-``el.dataset.noteId`` כשהוא מגיע.
+       */
+      async _copyNoteId(el, btn){
+        const id = el && el.dataset ? el.dataset.noteId : '';
+        if (!isSavedNoteId(id)) {
+          this._flashCopyResult(el, false, btn, 'הפתק עוד לא נשמר');
+          return;
+        }
+        this._flashCopyResult(el, await this._copyText(id), btn);
+      }
+
       _copyViaFallback(text){
         try {
           const tmp = document.createElement('textarea');
@@ -5410,31 +5490,42 @@
        * בלי זה, לחיצה על כפתור של בלוק קוד הייתה מהבהבת את כפתור הפתק
        * — חיווי שמופיע במקום הלא נכון גרוע מחיווי שלא מופיע, כי הוא
        * אומר למשתמש שקרה משהו אחר.
+       *
+       * ``failTitle`` הוא ההסבר בכשל שהדפדפן אינו הסיבה שלו — "הפתק עוד לא
+       * נשמר" של ``_copyNoteId``. בלעדיו ההסבר הוא הקליפבורד החסום.
        */
-      _flashCopyResult(el, ok, explicitTarget){
+      _flashCopyResult(el, ok, explicitTarget, failTitle){
         try {
           // מחלקה יציבה ולא ה-title, שאותו הפונקציה הזו עצמה משנה
           // ``el &&`` אינו קישוט: אתר הקריאה של בלוק הקוד מעביר ``null``
           // כ-``el`` ואת הכפתור כיעד מפורש. בלי השמירה, שינוי עתידי
-          // שיפיל את היעד המפורש היה זורק — ונבלע ב-try/catch שסביב,
-          // כלומר חיווי שנעלם בלי שאיש ידע.
+          // שיפיל את היעד המפורש היה זורק — והחיווי היה נעלם, עם שורה
+          // בקונסול בלבד.
           const target = explicitTarget || (el && el.querySelector('.sticky-note-copy')) || el;
-          const cls = ok ? 'is-copy-done' : 'is-copy-fail';
           // **ה-title המקורי נשמר ומשוחזר, ולא מוקלד מחדש.** הגרסה
           // הקודמת שחזרה ל-``'העתק את תוכן הפתק'`` בקבוע — נכון כשהיה
           // כפתור אחד, ומרגע שיש גם כפתור לבלוק קוד זו הייתה כתובת
           // שקרית: כשל בהעתקת קוד היה משנה את ההסבר של הכפתור לצמיתות
           // ל"תוכן הפתק".
-          const prevTitle = target.title;
-          target.classList.add(cls);
-          if (!ok) target.title = 'ההעתקה נחסמה בדפדפן — סמנו והעתיקו ידנית';
-          setTimeout(() => {
-            try {
-              target.classList.remove(cls);
-              if (!ok) target.title = prevTitle;
-            } catch(_) {}
+          //
+          // **ונלכד פעם אחת לכל חיווי, ולא בכל לחיצה.** לחיצה בזמן שהחיווי
+          // של הקודמת עוד מוצג מבטלת את הטיימר שלה, וה-title שתשחזר הוא זה
+          // שנלכד לפני הראשונה. עד אוקטובר 2026 כל לחיצה לכדה את ה-title של
+          // אותו רגע — אחרי כשל, את הודעת הכשל עצמה — ושתי העתקות שנכשלו
+          // ברצף השאירו את הכפתור עם ההודעה לתמיד. נמדד בכרומיום לפני התיקון.
+          const live = this._copyFlashes.get(target);
+          if (live) clearTimeout(live.timer);
+          const title = live ? live.title : target.title;
+          target.classList.remove('is-copy-done', 'is-copy-fail');
+          target.classList.add(ok ? 'is-copy-done' : 'is-copy-fail');
+          target.title = ok ? title : (failTitle || 'ההעתקה נחסמה בדפדפן — סמנו והעתיקו ידנית');
+          const timer = setTimeout(() => {
+            target.classList.remove('is-copy-done', 'is-copy-fail');
+            target.title = title;
+            this._copyFlashes.delete(target);
           }, 1800);
-        } catch(_) {}
+          this._copyFlashes.set(target, { timer, title });
+        } catch(e) { console.warn('sticky note: copy feedback failed', e); }
       }
 
       // חיווי אורך. השרת דוחה תוכן שחורג מהתקרה ב-``content_too_long``,

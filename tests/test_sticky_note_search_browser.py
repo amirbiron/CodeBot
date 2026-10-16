@@ -147,9 +147,15 @@ def browser(playwright_instance, chromium_executable):
 
 
 class NotePage:
-    """עמוד עם פתקים, ועזרים קטנים שמדברים בשפת הממשק."""
+    """עמוד עם פתקים, ועזרים קטנים שמדברים בשפת הממשק.
 
-    def __init__(self, browser, notes, *, viewport=(900, 700), context_opts=None, **page_opts):
+    ``origin`` — הכתובת שהעמוד מוגש ממנה. כל בקשה נענית מ-``_serve`` בלי
+    לצאת לרשת, ולכן הכתובת קובעת רק מה הדפדפן חושב על העמוד: ב-``localhost``
+    הוא בהקשר מאובטח, ושם ``navigator.clipboard`` קיים, כמו בייצור (https).
+    """
+
+    def __init__(self, browser, notes, *, viewport=(900, 700), context_opts=None,
+                 origin="http://notes.test", **page_opts):
         self.html = build_page(notes, **page_opts)
         self.ctx = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]},
                                        **(context_opts or {}))
@@ -159,7 +165,7 @@ class NotePage:
         self.page.on("pageerror", lambda e: self.errors.append(str(e)))
         self.page.on("console", lambda m: self.warnings.append(m.text) if m.type == "warning" else None)
         self.page.route("**/*", self._serve)
-        self.page.goto("http://notes.test/page.html")
+        self.page.goto(f"{origin}/page.html")
         for n in notes:
             self.wait_settled(n["id"])
 
