@@ -34,11 +34,9 @@
 from __future__ import annotations
 
 import functools
-import logging
 import math
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlsplit
 
 import anyio
 from starlette.requests import ClientDisconnect, Request
@@ -51,8 +49,6 @@ from .auth import authenticate_bearer, unauthorized
 from .handlers import max_code_size
 from .limits import BODY_READ_TIMEOUT, DEFAULT_BODY_READ_SECONDS, ToolRateLimiter
 
-logger = logging.getLogger(__name__)
-
 UPLOAD_PATH = "/api/agent/upload"
 
 UPLOAD_STORAGE_UNAVAILABLE = "upload_storage_unavailable"
@@ -62,61 +58,7 @@ INVALID_UTF8 = "invalid_utf8"
 #: אותה מילה של ``codekeeper_save_file``, כי זו אותה תקרה (``max_code_size()``).
 CODE_TOO_LARGE = "code_too_large"
 
-#: ה-host בפקודה שבתיאורי הכלים, כשכתובת השירות אינה ידועה.
-PLACEHOLDER_HOST = "<mcp-host>"
-
 _CLOSE = {"connection": "close"}
-
-
-def _why_not_usable(public_url: str) -> str | None:
-    """למה הכתובת לא תיכנס לפקודה — או ``None`` כשהיא תקינה.
-
-    הסיבה, ולא הערך: היא זו שנרשמת בלוג, ומה שנדחה עלול להיות בדיוק סיסמה
-    בכתובת (K13). ``port`` נקרא כאן כדי שפורט שבור ייפול כאן, ולא בפקודה שהסוכן
-    מריץ — ``SplitResult.port`` זורק ``ValueError`` על פורט שאינו מספר או שמחוץ
-    לטווח (``urllib/parse.py``, ``_NetlocResultMixinBase.port``).
-    """
-    try:
-        parts = urlsplit(public_url)
-        hostname = parts.hostname
-        _ = parts.port
-    except ValueError:
-        return "not a valid URL"
-    if parts.scheme not in {"http", "https"}:
-        return "scheme is not http or https"
-    if not hostname:
-        return "no host"
-    if "@" in parts.netloc:
-        return "carries a user name or password"
-    if parts.query or parts.fragment:
-        return "carries a query or a fragment"
-    return None
-
-
-def upload_url_for(public_url: str | None) -> str:
-    """כתובת ההעלאה לפקודה שבתיאורי הכלים — מ-``MCP_SERVER_URL`` כשהיא ידועה.
-
-    הערך מגיע מהסביבה (U3), והוא נכנס לתיאור שכל לקוח מקבל ב-``tools/list``.
-    לכן רק ``http``/``https`` עם host ופורט תקין, **בלי** שם משתמש או סיסמה
-    בכתובת (K13), ובלי query או fragment. כל צורה אחרת — ה-host המדומה, ולא ניחוש.
-
-    **כתובת שלא הוגדרה וכתובת שנדחתה אינן אותו מצב.** בלי ``MCP_SERVER_URL`` (מצב
-    PAT מקומי) הכתובת פשוט לא ידועה — מצב סטטי ומוכר, בלי לוג. כתובת שהוגדרה
-    ונדחתה היא תצורה שגויה, והפקודה בתיאור נשארת בלי host שאפשר להריץ; בלי WARNING
-    היא הייתה נראית בדיוק כמו "לא הוגדר".
-    """
-    placeholder = f"https://{PLACEHOLDER_HOST}{UPLOAD_PATH}"
-    if not isinstance(public_url, str) or not public_url:
-        return placeholder
-    reason = _why_not_usable(public_url)
-    if reason is not None:
-        logger.warning(
-            "MCP_SERVER_URL not used for the upload command: %s — tool descriptions show %s instead",
-            reason, PLACEHOLDER_HOST,
-        )
-        return placeholder
-    # אותה הרכבה של ``consent_url`` ב-``mcp_server/app.py``: הבסיס, ואחריו הנתיב.
-    return f"{public_url.rstrip('/')}{UPLOAD_PATH}"
 
 
 def _refuse(status: int, body: dict[str, Any]) -> JSONResponse:

@@ -33,7 +33,6 @@ import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import sys
 import textwrap
@@ -51,7 +50,7 @@ from starlette.applications import Starlette  # noqa: E402
 from starlette.testclient import TestClient  # noqa: E402
 
 # ‏``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _mcp_apps import PatTokens, app_in_mode  # noqa: E402
+from _mcp_apps import SERVICE_LOGGING, PatTokens, Served, app_in_mode, curl_path, tool_call_over_http  # noqa: E402
 from _save_layer_harness import clear_local_cache, install_fake_collections, load_production_config  # noqa: E402
 from _uploads_harness import IndexedCollection, UploadsDbm, install_upload_storage, upload_storage  # noqa: E402
 
@@ -60,7 +59,9 @@ from database.manager import DatabaseManager  # noqa: E402
 from mcp_server import handlers  # noqa: E402
 from mcp_server.backend import ProductionBackend  # noqa: E402
 from mcp_server.limits import MIN_MAX_REQUEST_BYTES, BodySizeLimitMiddleware, ToolRateLimiter  # noqa: E402
-from mcp_server.uploads import UPLOAD_PATH, agent_upload_route, upload_url_for  # noqa: E402
+from mcp_server.downloads import DOWNLOAD_PATH  # noqa: E402
+from mcp_server.public_url import public_base_for  # noqa: E402
+from mcp_server.uploads import UPLOAD_PATH, agent_upload_route  # noqa: E402
 from mcp_uploads import UploadStorageUnavailable  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -129,17 +130,8 @@ def _closes(response) -> bool:
 
 
 def _call_over_http(client, token: str, name: str = "codekeeper_get_file", arguments=None) -> dict:
-    """``tools/call`` דרך ``POST /mcp`` כמו שלקוח שולח — ומה שבבלוק הטקסט של התשובה."""
-    response = client.post(
-        "/mcp",
-        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-              "params": {"name": name, "arguments": arguments or {"file_name": "x.md"}}},
-        headers={"authorization": f"Bearer {token}", "accept": "application/json, text/event-stream"},
-    )
-    assert response.status_code == 200, response.text
-    data = next(line[len("data: "):] for line in response.text.splitlines() if line.startswith("data: "))
-    result = json.loads(data)["result"]
-    return {"is_error": result.get("isError"), "text": result["content"][0]["text"]}
+    """``tools/call`` דרך ``POST /mcp`` (``tool_call_over_http``); בלי ארגומנטים — קריאה שנספרת."""
+    return tool_call_over_http(client, token, name, arguments or {"file_name": "x.md"})
 
 
 def _ceiling(monkeypatch, value: int) -> None:
@@ -692,7 +684,7 @@ PUBLIC = {
 
 @pytest.mark.parametrize("mode", MODES)
 def test_every_route_answers_401_without_a_token_except_a_closed_list(mode):
-    """זה הראוט השני שמאמת בגוף שלו, אחרי הפריימר; הטסט מונע מהשלישי לשכוח.
+    """ההעלאה וההורדה מאמתות בגוף שלהן, כמו הפריימר; הטסט מונע מהראוט הבא לשכוח.
 
     בשני הכיוונים: ראוט חדש שעונה בלי טוקן מפיל אותו, וגם רשומה ברשימה שכבר
     אינה ציבורית — רשימה שמתיישנת בשקט אינה שומרת על כלום.
@@ -707,7 +699,7 @@ def test_every_route_answers_401_without_a_token_except_a_closed_list(mode):
             statuses = {client.request(method, route.path).status_code for method in methods}
             (protected if statuses == {401} else answered).add(route.path)
     assert answered == PUBLIC[mode]
-    assert {"/mcp", "/api/agent/primer", UPLOAD_PATH} <= protected
+    assert {"/mcp", "/api/agent/primer", UPLOAD_PATH, DOWNLOAD_PATH} <= protected
 
 
 # ---------------------------------------------------------------------------
@@ -715,35 +707,9 @@ def test_every_route_answers_401_without_a_token_except_a_closed_list(mode):
 # ---------------------------------------------------------------------------
 
 
-class _Served:
-    """האפליקציה על uvicorn אמיתי, ב-127.0.0.1 ובפורט שמערכת ההפעלה בוחרת."""
-
-    def __init__(self, app):
-        import uvicorn
-
-        self.server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning"))
-        self.thread = threading.Thread(target=self.server.run, daemon=True)
-
-    def __enter__(self):
-        self.thread.start()
-        deadline = time.monotonic() + 20
-        while not self.server.started:
-            assert self.thread.is_alive(), "uvicorn did not start"
-            assert time.monotonic() < deadline, "uvicorn did not start in time"
-            time.sleep(0.02)
-        self.port = self.server.servers[0].sockets[0].getsockname()[1]
-        return self
-
-    def __exit__(self, *exc):
-        self.server.should_exit = True
-        self.thread.join(timeout=20)
-
-
-def _curl() -> str:
-    path = shutil.which("curl")
-    # בקול, לא בדילוג: בלי curl הטסט הזה אינו בודק את מה שהסוכן מריץ.
-    assert path, "curl is required: this test runs the command the tool description gives"
-    return path
+# ``Served`` ו-``curl_path`` חיים ב-``tests/_mcp_apps.py``, משותפים עם טסטי ההורדה.
+_Served = Served
+_curl = curl_path
 
 
 @pytest.mark.parametrize("expect", ["Expect: 100-continue", "Expect:"])
@@ -799,23 +765,27 @@ def test_a_refusal_over_the_wire_says_connection_close(tmp_path):
 
 
 @pytest.mark.parametrize("public_url, expected", [
-    (None, "https://<mcp-host>/api/agent/upload"),
-    ("", "https://<mcp-host>/api/agent/upload"),
-    ("https://mcp.example.com", "https://mcp.example.com/api/agent/upload"),
-    ("https://mcp.example.com/", "https://mcp.example.com/api/agent/upload"),
-    ("http://127.0.0.1:8000", "http://127.0.0.1:8000/api/agent/upload"),
-    ("https://user:hunter2@mcp.example.com", "https://<mcp-host>/api/agent/upload"),
-    ("https://mcp.example.com?token=hunter2", "https://<mcp-host>/api/agent/upload"),
-    ("ftp://mcp.example.com", "https://<mcp-host>/api/agent/upload"),
-    ("https://[::1", "https://<mcp-host>/api/agent/upload"),
-    ("mcp.example.com", "https://<mcp-host>/api/agent/upload"),
-    ("https://mcp.example.com:8443", "https://mcp.example.com:8443/api/agent/upload"),
-    ("https://mcp.example.com:abc", "https://<mcp-host>/api/agent/upload"),
-    ("https://mcp.example.com:99999", "https://<mcp-host>/api/agent/upload"),
+    (None, "https://<mcp-host>"),
+    ("", "https://<mcp-host>"),
+    ("https://mcp.example.com", "https://mcp.example.com"),
+    ("https://mcp.example.com/", "https://mcp.example.com"),
+    ("http://127.0.0.1:8000", "http://127.0.0.1:8000"),
+    ("https://user:hunter2@mcp.example.com", "https://<mcp-host>"),
+    ("https://mcp.example.com?token=hunter2", "https://<mcp-host>"),
+    ("ftp://mcp.example.com", "https://<mcp-host>"),
+    ("https://[::1", "https://<mcp-host>"),
+    ("mcp.example.com", "https://<mcp-host>"),
+    ("https://mcp.example.com:8443", "https://mcp.example.com:8443"),
+    ("https://mcp.example.com:abc", "https://<mcp-host>"),
+    ("https://mcp.example.com:99999", "https://<mcp-host>"),
 ])
-def test_the_upload_url_in_the_descriptions_is_the_configured_host_or_a_placeholder(public_url, expected):
-    """‏``MCP_SERVER_URL`` נכנס לתיאור שכל לקוח מקבל — בלי סיסמה ובלי query (K13)."""
-    assert upload_url_for(public_url) == expected
+def test_the_base_of_the_commands_in_the_descriptions_is_the_configured_host_or_a_placeholder(public_url, expected):
+    """‏``MCP_SERVER_URL`` נכנס לתיאור שכל לקוח מקבל — בלי סיסמה ובלי query (K13).
+
+    הבסיס משותף לפקודת ההעלאה ולפקודת ההורדה (``mcp_server/public_url.py``); כל ראוט
+    מצרף אליו את הנתיב שלו.
+    """
+    assert public_base_for(public_url) == expected
 
 
 def test_the_descriptions_carry_the_rule_first_the_minutes_and_the_ceiling(monkeypatch):
@@ -1573,14 +1543,7 @@ def test_every_upload_is_checked_as_it_is_read_and_consumed_at_one_gate():
 #: הלוגר בברירת המחדל של פייתון, שמדפיסה WARNING ומעלה גם בלי שום הגדרה, וטסט
 #: של שורת WARNING היה עובר בלי לבדוק את מה שרץ בייצור. הסביבה שהייבוא צריך
 #: (``BOT_TOKEN``, ``MONGODB_URL``) עוברת לתהליך מ-``tests/conftest.py``.
-_SERVICE_LOGGING = """
-import os, sys
-sys.path.insert(0, {repo!r})
-sys.path.insert(0, {tests!r})
-os.environ["MCP_PUSH_NOTIFICATIONS_ENABLED"] = "false"
-import mcp_server.app  # noqa: F401
-print("SERVICE-LOGGING-READY", flush=True)
-"""
+_SERVICE_LOGGING = SERVICE_LOGGING
 
 _LOG_PROBE = _SERVICE_LOGGING + """
 from _uploads_harness import UploadsDbm, upload_storage
@@ -1668,10 +1631,10 @@ def test_a_corrupted_upload_leaves_one_error_line_and_no_consumed_line(tmp_path)
 
 
 _URL_PROBE = _SERVICE_LOGGING + """
-from mcp_server.uploads import upload_url_for
+from mcp_server.public_url import public_base_for
 
 for public_url in (None, "https://mcp.example.com", {rejected!r}):
-    print("URL", upload_url_for(public_url), flush=True)
+    print("URL", public_base_for(public_url), flush=True)
 print("PROBE-DONE", flush=True)
 """
 
@@ -1696,11 +1659,7 @@ def test_a_configured_url_that_is_rejected_leaves_one_warning_without_the_url(tm
         f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
     )
     urls = [line.split(" ", 1)[1] for line in proc.stdout.splitlines() if line.startswith("URL ")]
-    assert urls == [
-        "https://<mcp-host>/api/agent/upload",
-        "https://mcp.example.com/api/agent/upload",
-        "https://<mcp-host>/api/agent/upload",
-    ]
+    assert urls == ["https://<mcp-host>", "https://mcp.example.com", "https://<mcp-host>"]
 
     log = proc.stderr + proc.stdout
     warnings = [line for line in log.splitlines() if "MCP_SERVER_URL not used" in line]

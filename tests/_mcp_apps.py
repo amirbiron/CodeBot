@@ -13,6 +13,10 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import threading
+import time
 from typing import Any
 
 from _fake_mongo import FakeDB
@@ -76,3 +80,66 @@ def app_in_mode(mode: str, backend: Any, *, tokens: PatTokens, **kwargs: Any) ->
     if mode == "pat":
         return pat_app(backend, tokens=tokens, **kwargs)
     raise ValueError(mode)
+
+
+def tool_call_over_http(client: Any, token: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """``tools/call`` דרך ``POST /mcp`` כמו שלקוח שולח — ומה שבבלוק הטקסט של התשובה.
+
+    ``is_error`` הוא ``isError`` של התוצאה, ו-``text`` הוא הטקסט כמו שהוא; מי שקורא
+    לכלי שמחזיר JSON מפענח אותו בעצמו.
+    """
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+              "params": {"name": name, "arguments": arguments}},
+        headers={"authorization": f"Bearer {token}", "accept": "application/json, text/event-stream"},
+    )
+    assert response.status_code == 200, response.text
+    data = next(line[len("data: "):] for line in response.text.splitlines() if line.startswith("data: "))
+    result = json.loads(data)["result"]
+    return {"is_error": result.get("isError"), "text": result["content"][0]["text"]}
+
+
+class Served:
+    """האפליקציה על uvicorn אמיתי, ב-127.0.0.1 ובפורט שמערכת ההפעלה בוחרת."""
+
+    def __init__(self, app: Any) -> None:
+        import uvicorn
+
+        self.server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning"))
+        self.thread = threading.Thread(target=self.server.run, daemon=True)
+
+    def __enter__(self) -> "Served":
+        self.thread.start()
+        deadline = time.monotonic() + 20
+        while not self.server.started:
+            assert self.thread.is_alive(), "uvicorn did not start"
+            assert time.monotonic() < deadline, "uvicorn did not start in time"
+            time.sleep(0.02)
+        self.port = self.server.servers[0].sockets[0].getsockname()[1]
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.server.should_exit = True
+        self.thread.join(timeout=20)
+
+
+def curl_path() -> str:
+    """הנתיב ל-``curl`` — ובקול, לא בדילוג, כשהוא חסר: טסט שמריץ את הפקודה שבתיאור כלי
+    אינו בודק את מה שהסוכן מריץ בלעדיו."""
+    path = shutil.which("curl")
+    assert path, "curl is required: this test runs the command the tool description gives"
+    return path
+
+
+#: תחילית לסקריפט שרץ בתהליך נקי (``python -B -c``): מייבאת את ``mcp_server.app``, ולכן
+#: הלוגים מוגדרים בדיוק כמו בשירות. השורות שהתהליך מדפיס הן הנראות היחידה בייצור, ולכן
+#: הן נבדקות שם ולא ב-``caplog``. ``repo`` ו-``tests`` ממולאים ב-``str.format``.
+SERVICE_LOGGING = """
+import os, sys
+sys.path.insert(0, {repo!r})
+sys.path.insert(0, {tests!r})
+os.environ["MCP_PUSH_NOTIFICATIONS_ENABLED"] = "false"
+import mcp_server.app  # noqa: F401
+print("SERVICE-LOGGING-READY", flush=True)
+"""
