@@ -66,6 +66,17 @@ class _Recorder:
         )
         return self.returns.get("repo_path_orphaned", False)
 
+    # שרשורי התגובות של ``get_note`` — נקראים אחרי הפתק, ולכן גם הם נרשמים ב-``calls``:
+    # הטסטים שסופרים קריאות רואים את הסדר. ברירת המחדל: פתק בלי שרשורים.
+    def note_threads(self, user_id, *, note_id):
+        self.calls.append(("note_threads", user_id, {"note_id": note_id}))
+        return self.returns.get("note_threads", [])
+
+    def note_thread_comments(self, user_id, *, note_id, thread_ids, tail):
+        self.calls.append(("note_thread_comments", user_id,
+                           {"note_id": note_id, "thread_ids": list(thread_ids), "tail": tail}))
+        return self.returns.get("note_thread_comments", {})
+
     @property
     def last(self):
         return self.calls[-1][2]
@@ -625,8 +636,9 @@ def test_a_repo_note_is_readable_by_the_admin_with_its_target_and_orphan_state()
     assert (res["target"], res["repo_name"], res["repo_path"]) == ("repo", "CodeBot", "a.py")
     assert res["version"] == 3
     assert res["orphaned"] is True
-    # והיתמות נשאלת על אותו זוג בדיוק.
-    assert b.calls[-1] == (
+    # והיתמות נשאלת על אותו זוג בדיוק — אחרי הקריאה של הפתק, ולפני השרשורים.
+    assert [c[0] for c in b.calls] == ["get_note", "repo_path_orphaned", "note_threads"]
+    assert b.calls[1] == (
         "repo_path_orphaned", None, {"repo_name": "CodeBot", "repo_path": "a.py"},
     )
 
@@ -650,7 +662,8 @@ def test_a_board_note_needs_no_admin_and_asks_no_orphan_question():
     assert (res["target"], res["board_id"]) == ("board", _BOARD)
     assert res["version"] == 1
     assert "orphaned" not in res
-    assert [c[0] for c in b.calls] == ["get_note"]
+    # השרשורים נקראים **אחרי** הקריאה התחומה ומחוץ לה — לא בתוך הלולאה החוזרת שלה.
+    assert [c[0] for c in b.calls] == ["get_note", "note_threads"]
     assert b.calls[0][2] == {"note_id": _OID, "with_version": True}
 
 

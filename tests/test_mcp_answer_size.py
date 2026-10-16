@@ -53,7 +53,9 @@ _CODE_REPO = "CodeBot"
 #: הכלים שמצהירים על תקרת תשובה — ההחלטה של #3460, לא רשימה שהקוד קורא ממנה. הקוד
 #: קורא את ההצהרה מהרישום של כל כלי; הרשימה כאן מקבעת **אילו** כלים הוחלט שיצהירו.
 #: ``codekeeper_list_repo_notes`` אינו ביניהם בכוונה: 20 פתקים של 20,000 תווים הם
-#: לפחות 400,000 בתים, ואין לו מצב רזה.
+#: לפחות 400,000 בתים, ואין לו מצב רזה. ``codekeeper_get_note`` הצטרף עם שרשורי התגובות:
+#: עד אז התשובה שלו הייתה חסומה מראש בגוף פתק אחד, והשרשורים שברו את זה
+#: (``handlers._with_threads`` מתאים אותה לתקציב).
 DECLARING = frozenset({
     "codekeeper_get_file",
     "codekeeper_get_repo_file",
@@ -61,6 +63,7 @@ DECLARING = frozenset({
     "codekeeper_list_repo_tree",
     "codekeeper_list_notes",
     "codekeeper_list_board_notes",
+    "codekeeper_get_note",
     "codekeeper_docs_get_section",
     "codekeeper_read_batch",
 })
@@ -1069,10 +1072,18 @@ def _notes(count: int, chars: int, *, title: str = "") -> list[dict[str, Any]]:
              "color": "yellow", "created_at": when, "updated_at": when} for i in range(count)]
 
 
+class _NoThreads:
+    """אוסף ``note_threads`` ריק — המסלול הרזה סופר בו את ``open_threads`` בשאילתה אחת."""
+
+    def aggregate(self, pipeline: list[dict[str, Any]]):
+        return iter(())
+
+
 def _board(monkeypatch: Any, docs: list[dict[str, Any]]) -> tuple[Any, _Notes]:
     mcp, backend = _saved(monkeypatch, _Dbm(code=""))
     notes = _Notes(docs)
     monkeypatch.setattr(backend, "_notes_coll", lambda: notes)
+    monkeypatch.setattr(backend, "_threads_coll", lambda: _NoThreads())
     monkeypatch.setattr(backend, "_owned_board", lambda user_id, board_id: {"_id": "b" * 24, "name": "לוח"})
     monkeypatch.setattr(backend, "_canonical_board_id", lambda board: "b" * 24)
     monkeypatch.setattr(backend, "_related_file_ids", lambda user_id, file_name: [])

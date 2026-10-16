@@ -42,6 +42,21 @@
     } catch(_) { return ''; }
   })();
 
+  // **ושרשור לפתוח בפתק הזה (``?thread=``) — נלכד באותו רגע, מאותה סיבה בדיוק.**
+  // הוא מגיע מלחיצה על התראת תגובה של סוכן (``sw.js``, דרך הקישור הקבוע
+  // ``/note/<id>?thread=``), ותמיד יחד עם ``?note=``. דפדפן הריפו מנקה את שניהם
+  // מה-URL לפני שמנהל הפתקים נבנה. הצורה אינה נבדקת כאן: השרת עונה 400/404 על
+  // מזהה שאינו של שרשור בפתק, והחלונית מציגה את זה — עותק שני של הכלל היה
+  // נסחף ממנו. **נצרך כשהפתק נמצא**, כמו ``?note=`` — ראו ``_maybeScrollToNoteFromUrl``.
+  let pendingThreadIdFromUrl = (function(){
+    try {
+      return (new URL(window.location.href).searchParams.get('thread') || '').trim();
+    } catch(_) {
+      // כתובת שאי אפשר לפענח — אין כוונה לממש, ו-``?note=`` שמעל נכשל באותה צורה.
+      return '';
+    }
+  })();
+
   function encodeUtf8ToB64(input){
     const s = String(input == null ? '' : input);
     if (!s) return '';
@@ -395,6 +410,32 @@
   const NOTE_SEARCH_HIT_CLASS = 'sticky-note-search-hit';
   //: טקסט שהמנוע מייצר ואינו כתוב בפתק — ראו ``_markGenerated``.
   const GENERATED_TEXT_CLASS = 'sticky-md-generated';
+  //: ----- שרשורי תגובות -----
+  //: מספר הגוונים של בועות השרשורים: שרשור N מקבל ``data-tone`` של ``(N - 1) % 3`` —
+  //: העיצוב ("index % 3"). הצבעים עצמם ב-``sticky-notes.css``, לפי ``data-tone``.
+  const THREAD_TONE_COUNT = 3;
+  //: תקרת זמן לכל בקשה של השרשורים, טעינה או כתיבה. **של הלקוח, כי בשרת אין:**
+  //: worker של gevent מודד את שתיקת ה-worker ולא את אורך הבקשה, וחיבור half-open
+  //: אינו מחזיר דבר. בזמן ההמתנה כפתורי השליחה מושבתים, ולכן בלי תקרה בקשה תקועה
+  //: אחת הייתה נועלת אותם לתמיד (``wait-without-own-deadline``). אותו מספר ואותו
+  //: נימוק כמו ``FETCH_TIMEOUT_MS`` של דגימת התזכורות ב-``base.html``.
+  const THREAD_FETCH_TIMEOUT_MS = 15 * 1000;
+
+  /**
+   * אורך טקסט כפי שהשרת סופר אותו — ב-code points, כמו ``len()`` של פייתון.
+   *
+   * ``String.length`` סופר יחידות UTF-16: אימוג'י הוא יחידה אחת בפייתון ושתיים ב-JS,
+   * ולכן 10,001 אימוג'ים קיבלו אזהרת חריגה על פתק שהשרת מקבל בלי בעיה — פי שניים.
+   * הפירוק למערך מפצל לפי code points, וזו בדיוק הספירה של פייתון. משותף לאזהרת
+   * האורך של הפתק (``_checkContentLength``) ולמונה התווים בחלונית השרשור.
+   */
+  function codePointLength(text){ return [...String(text == null ? '' : text)].length; }
+
+  /** מספר לתצוגה עם מפריד אלפים ("4,000"), כמו בעיצוב. */
+  function formatCount(n){ return Number(n).toLocaleString('he-IL'); }
+
+  /** "3 תגובות", וביחיד "1 תגובה" — הניסוח שבעיצוב. */
+  function commentCountLabel(n){ return n === 1 ? '1 תגובה' : `${formatCount(n)} תגובות`; }
   const TASK_LINE_RE = /^([ \t]*[-*][ \t]\[)([ xX])(\].*)$/;
   //: מארקדאון קליל בפתקים. תת-קבוצה מוצהרת ומצומצמת — ראו
   //: docs/user/sticky_notes.rst. כל דפוס נבחר כי הוא נכנס בפתק קטן
@@ -733,6 +774,23 @@
           this._on(this.container, 'scroll', () => this._updatePinnedForScroll(),
                    { capture: true, passive: true });
         }
+        // **שרשורי תגובות.** לחיצה מחוץ לרשימת "+N" סוגרת אותה (בשלב הלכידה, לפני
+        // שמאזין אחר יבלע את האירוע). וחלונית פתוחה נמדדת מול המסך (``_layoutThreadUi``),
+        // ולכן ממוקמת שוב בכל גלילה — של כל גולל, ולכן ``document`` בשלב הלכידה, כמו
+        // ``scroll`` של דפדפן הריפו שמעל — ובשינוי גודל החלון. פריים אחד לכל היותר.
+        this._on(document, 'pointerdown', (ev) => this._onDocumentPointerDownForThreads(ev), { capture: true });
+        const relayoutThreads = () => {
+          // סביבה בלי ``requestAnimationFrame`` (בדיקות ב-node) — ממקמים מיד, כמו
+          // ``_updateSurfaceExtent``.
+          if (typeof requestAnimationFrame !== 'function') { this._relayoutOpenThreadUi(); return; }
+          if (this._threadLayoutFrame) return;
+          this._threadLayoutFrame = requestAnimationFrame(() => {
+            this._threadLayoutFrame = 0;
+            this._relayoutOpenThreadUi();
+          });
+        };
+        this._on(document, 'scroll', relayoutThreads, { capture: true, passive: true });
+        this._on(window, 'resize', relayoutThreads);
         this._setupLifecycleGuards();
         this._setupDomObservers();
         // אם התבצע ניווט עמוק לפתק מסוים – גלול אליו כעת
@@ -757,6 +815,9 @@
         const fresh = Array.isArray(data.notes) ? data.notes : [];
         this._clearAllNotes();
         fresh.forEach(n => this._renderNote(n));
+        // השרת לא הצליח לקרוא את תקצירי השרשורים: הפתקים כאן, אבל "אין בועות" אינו
+        // "אין שרשורים". 💬 אומר את זה, ולחיצה עליו מנסה שוב.
+        if (data.threads_unavailable === true) this._markThreadsUnavailable();
         this._saveCache(fresh);
       } catch(e){ console.error('loadNotes error', e); }
     }
@@ -963,7 +1024,14 @@
         type: 'button', title: 'צבע הפתק', 'aria-label': 'בחירת צבע לפתק', 'aria-haspopup': 'dialog'
       });
       colorBtn.textContent = '🎨';
-      actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(undoBtn);
+      // שרשורי תגובות. **בשורת הפעולות, בין 🔔 ל-↶ — כמו בעיצוב.** שורת הפעולות אינה
+      // נשברת, ולכן בפתק צר כפתור המחיקה נחתך (#3478); המיקום הזה הוא הכרעה של המשתמש,
+      // שהעדיף את העיצוב על פני שורת השם שבה יושב החיפוש. המצב — ``_syncThreadsButton``.
+      const threadsBtn = createEl('button', 'sticky-note-btn sticky-note-threads-btn', {
+        type: 'button', title: 'שרשור חדש', 'aria-label': 'שרשור תגובות חדש על הפתק', 'aria-pressed': 'false'
+      });
+      threadsBtn.textContent = '💬';
+      actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(threadsBtn); actions.appendChild(undoBtn);
       actions.appendChild(copyBtn); actions.appendChild(colorBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
       // **השם יושב בתוך ידית הגרירה, ולא לצידה.**
       //
@@ -1060,6 +1128,11 @@
       pinBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
         this._toggleAnchor(el);
+      });
+      threadsBtn.addEventListener('click', (ev) => {
+        // בלי ``try``: שתי הקריאות אינן זורקות (DOM Standard), כמו בכפתור החיפוש.
+        ev.stopPropagation(); ev.preventDefault();
+        this._onThreadsButton(el);
       });
 
       const textarea = createEl('textarea', 'sticky-note-content');
@@ -1158,6 +1231,11 @@
         // (כולל הבלוקים שהוא פתח) והכפתור מושבת עד שהפתק נפתח.
         if (nowMin) this._closeNoteSearch(el);
         this._syncSearchButton(el);
+        // ומאותה סיבה גם השרשורים: החלונית והרשימה נסגרות (הטיוטה נשמרת), הבועות
+        // יורדות, ו-💬 מושבת עד שהפתק נפתח.
+        if (nowMin) this._closeThreadUi(el);
+        this._renderThreadRow(el);
+        this._syncThreadsButton(el);
         this._queueSave(el, { is_minimized: nowMin });
         this._flushFor(el);
       });
@@ -1173,6 +1251,11 @@
       if (focus) try { textarea.focus(); } catch(_) {}
       if (note.updated_at) { try { el.dataset.updatedAt = String(note.updated_at); } catch(_) {} }
       this.notes.set(note.id, { el, data: note });
+      this._initNoteThreads(el, note);
+      // הפתק נכנס באנימציית קנה מידה (``noteAppear``), ובזמנה המלבנים שלו קטנים
+      // מהאמיתיים. חלונית שנפתחה בזמן הזה — קישור ישיר לשרשור — נמדדה מולם, ולכן
+      // ממוקמת שוב כשהאנימציה נגמרת.
+      el.addEventListener('animationend', () => this._layoutThreadUi(el));
       // תצוגת המשימות נבנית מהתוכן שנטען. אם אין צ'קבוקסים היא נשארת מוסתרת
       // וה-textarea מוצג כרגיל — כלומר פתק רגיל אינו משתנה כלל.
       this._syncTaskView(el);
@@ -3394,6 +3477,9 @@
         const textarea = el.querySelector('.sticky-note-content');
         if (!entry || !view || !textarea) return;
         if (this._searchUnavailableReason(el)) return;
+        // **התיבה והבועות חולקות את אותו מקום מעל הפתק**, ולכן בזמן חיפוש הבועות
+        // מוסתרות (CSS), וחלונית שרשור פתוחה נסגרת — היא מצביעה על בועה שכבר אינה שם.
+        this._closeThreadUi(el);
         if (!entry.search) {
           entry.search = {
             open: true, term: '', active: -1, count: 0,
@@ -3406,6 +3492,7 @@
             ui: null,
           };
           el.classList.add('is-searching');
+          this._syncNoteClipping(el);
           entry.search.ui = this._buildSearchBar(el, entry.search);
         }
         this._syncSearchButton(el);
@@ -3441,6 +3528,8 @@
         this._teardownSearchUi(s);
         el.classList.remove('is-searching');
         el.classList.remove('is-search-inside');
+        // הפתק עדיין לא חותך אם יש לו בועות שרשורים מעליו — ההכרעה במקום אחד.
+        this._syncNoteClipping(el);
         this._syncSearchButton(el);
         if (opts && opts.returnFocus) {
           const btn = el.querySelector('.sticky-note-search-btn');
@@ -3487,7 +3576,9 @@
        * — אחרת הפתק עצמו היה חותך את התיבה שיושבת מחוץ לגבולותיו.
        */
       _buildSearchBar(el, s){
-        const bar = createEl('div', 'sticky-note-search', { role: 'search' });
+        // ``sticky-note-outside``: ילד שקיים כדי לצאת מגבולות הפתק — ולכן הוא היחיד שאינו
+        // חותך את עצמו כשהפתק מפסיק לחתוך (``.is-unclipped``, ``_syncNoteClipping``).
+        const bar = createEl('div', 'sticky-note-search sticky-note-outside', { role: 'search' });
         const input = createEl('input', 'sticky-note-search-input', {
           type: 'text', placeholder: 'חפש בפתק...', 'aria-label': 'חיפוש בתוך הפתק',
           autocomplete: 'off', spellcheck: 'false'
@@ -3504,7 +3595,7 @@
         close.textContent = '✕';
         bar.appendChild(input); bar.appendChild(count);
         bar.appendChild(prev); bar.appendChild(next); bar.appendChild(close);
-        const room = createEl('div', 'sticky-note-search-room', { 'aria-hidden': 'true' });
+        const room = createEl('div', 'sticky-note-search-room sticky-note-outside', { 'aria-hidden': 'true' });
 
         // **מיד אחרי הכותרת**, ולא בסוף הפתק: כשאין מקום מעל הפתק התיבה
         // עוברת לזרימה (``.is-search-inside``), והפתק הוא עמודת flex — כלומר
@@ -3827,6 +3918,1233 @@
         view.addEventListener('selectstart', (ev) => { if (active && touchLike) ev.preventDefault(); });
       }
 
+      // ===== שרשורי תגובות ===================================================
+      //
+      // שיחה קצרה על פתק, בין המשתמש לסוכנים שעובדים דרך ה-MCP. המודל וכל הכתיבה
+      // בשרת (``note_threads.py``, דרך ``/api/sticky-notes/note/<id>/threads``), וכאן
+      // רק התצוגה: בועה לכל שרשור מעל הפתק, וחלונית לשרשור אחד. ההתנהגות הנראית —
+      // ``docs/user/sticky_notes.rst``; הנימוק — ``docs/dev/sticky_notes_extending.rst``,
+      // בסעיף על שרשורי התגובות.
+      //
+      // **המצב חי ב-``entry.threads``**, לצד ``entry.search``: התקצירים כפי שהשרת
+      // החזיר, טיוטות שטרם נשלחו, והחלונית הפתוחה. האלמנטים הם ילדים של הפתק — זזים
+      // איתו ונמחקים איתו, כמו תיבת החיפוש — וממוקמים ``absolute``, ולכן אינם משנים
+      // את המלבן שלו (``_notePayloadFromEl`` קורא ממנו את המיקום).
+      //
+      // **חלונית אחת לכל המנהל.** פתיחת שרשור בפתק אחד סוגרת את החלונית שבפתק אחר:
+      // שתי חלוניות פתוחות מכסות זו את זו, והטיוטה נשמרת ממילא.
+
+      /** מצב השרשורים של פתק שזה עתה רונדר, מתוך התקצירים שהגיעו איתו. */
+      _initNoteThreads(el, note){
+        const entry = this._getEntry(el);
+        if (!entry) return;
+        const list = this._threadsFromServer(note.threads);
+        // **מכאן והלאה המקור הוא ``entry.threads``.** העותק שעל אובייקט הפתק היה מתיישן
+        // בכתיבה הראשונה, ומי שהיה קורא ממנו היה מקבל מצב שכבר אינו קיים. (הקאש המקומי אינו
+        // שומר תקצירים בכלל — זה של ``_saveCache``, בנקודת הכתיבה.)
+        delete note.threads;
+        entry.threads = {
+          list: list || [],
+          unavailable: false,
+          drafts: new Map(),   // 'new' או מזהה שרשור ← טקסט שטרם נשלח
+          open: null,          // החלונית הפתוחה — ראו ``_openThread``
+          menuOpen: false,     // רשימת "+N"
+          hidden: [],          // השרשורים שבתוך "+N", מהפריסה האחרונה
+          row: null,           // שורת הבועות והחיישן שמעליה
+          panel: null,         // רכיבי החלונית — ראו ``_ensureThreadPanel``
+          menu: null,          // אלמנט רשימת "+N"
+          refreshing: false,
+        };
+        this._renderThreadRow(el);
+        this._syncThreadsButton(el);
+      }
+
+      /**
+       * תקצירי שרשורים מהשרת ← רשימה בצורה שהממשק סומך עליה, או ``null``.
+       *
+       * הערכים הגיעו מחוץ לתהליך (U3): כל שדה נבדק בטיפוס שלו, ושורה בלי מזהה או בלי
+       * מספר נזרקת — בועה בלי מזהה אי אפשר לפתוח, ובלי מספר אין לה שם ואין לה גוון.
+       * ``null`` כשהערך אינו רשימה כלל: "לא ידוע", ולא "אין שרשורים".
+       */
+      _threadsFromServer(raw){
+        if (!Array.isArray(raw)) return null;
+        const out = [];
+        for (const row of raw) {
+          if (!row || typeof row !== 'object') continue;
+          const id = typeof row.id === 'string' ? row.id : '';
+          const number = (Number.isInteger(row.number) && row.number > 0) ? row.number : 0;
+          if (!id || !number) continue;
+          out.push({
+            id,
+            number,
+            resolved: row.status === 'resolved',
+            count: (Number.isInteger(row.comment_count) && row.comment_count >= 0) ? row.comment_count : 0,
+            awaitsUser: row.awaits_user === true,
+          });
+        }
+        return out;
+      }
+
+      /** תגובה מהשרת (``_comment_out``) ← צורה בטוחה לתצוגה, או ``null``. */
+      _commentFromServer(raw){
+        if (!raw || typeof raw !== 'object') return null;
+        const str = (v) => (typeof v === 'string' ? v : '');
+        return {
+          id: str(raw.id),
+          label: str(raw.author_label),
+          initials: str(raw.author_initials),
+          // הגוון נקבע בשרת (``_author_tone``), ולכן אין כאן רשימה שנייה שלו: ערך שאין
+          // לו כלל ב-CSS מקבל את הגוון הניטרלי של "סוכן אחר".
+          tone: str(raw.author_tone),
+          workingOn: str(raw.working_on),
+          body: str(raw.body),
+          createdAt: str(raw.created_at),
+        };
+      }
+
+      /**
+       * מצב שרשור מהשרת (``_thread_state_out``, ועם ``comments`` בקריאת שרשור) ← צורה
+       * בטוחה, או ``null``. ``comments`` הוא ``null`` כשהתשובה לא נשאה תגובות (כתיבה).
+       */
+      _threadStateFromServer(raw){
+        const rows = this._threadsFromServer([raw]);
+        if (!rows || !rows.length) return null;
+        const t = rows[0];
+        t.resolvedBy = typeof raw.resolved_by_label === 'string' ? raw.resolved_by_label : '';
+        t.resolvedAt = typeof raw.resolved_at === 'string' ? raw.resolved_at : '';
+        t.comments = Array.isArray(raw.comments)
+          ? raw.comments.map((c) => this._commentFromServer(c)).filter(Boolean)
+          : null;
+        return t;
+      }
+
+      /** רשימת הפתקים חזרה בלי תקצירים (``threads_unavailable``): לא "אין", אלא "לא נטענו". */
+      _markThreadsUnavailable(){
+        for (const entry of this.notes.values()) {
+          if (!entry || !entry.threads) continue;
+          entry.threads.unavailable = true;
+          this._syncThreadsButton(entry.el);
+        }
+      }
+
+      /** כפתור 💬: זמין, מושבת (פתק ממוזער), "לא נטענו", או לחוץ בזמן שרשור חדש. */
+      _syncThreadsButton(el){
+        const btn = (el && el.querySelector) ? el.querySelector('.sticky-note-threads-btn') : null;
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        if (!btn || !st) return;
+        const minimized = el.classList.contains('is-minimized');
+        const composing = !!(st.open && st.open.isNew);
+        btn.disabled = minimized;
+        btn.classList.toggle('is-unavailable', st.unavailable && !minimized);
+        btn.setAttribute('aria-pressed', composing ? 'true' : 'false');
+        btn.title = minimized ? 'הפתק ממוזער — פתחו אותו כדי לנהל שרשורים'
+          : (st.unavailable ? 'השרשורים לא נטענו — לחיצה תנסה שוב'
+            : (composing ? 'ביטול השרשור החדש' : 'שרשור חדש'));
+      }
+
+      /** לחיצה על 💬: ניסיון חוזר כשהתקצירים לא נטענו, ואחרת שרשור חדש (או ביטולו). */
+      _onThreadsButton(el){
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        if (!st || el.classList.contains('is-minimized')) return;
+        if (st.unavailable) { this._refreshThreadSummaries(el); return; }
+        if (st.open && st.open.isNew) this._closeThreadPanel(el, { returnFocus: true });
+        else this._openNewThread(el);
+      }
+
+      /**
+       * **הפתק מפסיק לחתוך כשיש לו ילדים מחוץ לגבולותיו** — תיבת החיפוש, בועות
+       * השרשורים, החלונית. זה המנגנון של החיפוש (``docs/dev/sticky_notes_extending.rst``,
+       * "התיבה: ילד של הפתק"), מוכלל: ``overflow: visible`` על הפתק, וכל ילד אחר חותך
+       * את עצמו — ``.is-unclipped`` ב-CSS. מקום אחד מחליט, כדי ששני הפיצ'רים לא יכבו
+       * זה לזה את המצב.
+       */
+      _syncNoteClipping(el){
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        const threadsOutside = !!(st && (st.row || st.panel || st.menu));
+        el.classList.toggle('is-unclipped', this._isNoteSearching(el) || threadsOutside);
+      }
+
+      /**
+       * כמה תאים נכנסים בשורת הבועות — ``floor((W − 2·inset) / slot)``, הנוסחה מהעיצוב
+       * ("floor((רוחב הפתק − 20) / 44)").
+       *
+       * **המספרים נקראים מה-CSS** (``--thread-slot`` ו-``--thread-row-inset`` על השורה)
+       * ולא מוקלדים כאן שוב: הם קובעים גם את הפריסה עצמה, ושני עותקים של אותו מימד
+       * נסחפים (H7, סעיף 4). ``offsetWidth`` ולא המלבן: הפתק נכנס באנימציית קנה מידה
+       * (``noteAppear``), והמלבן קטן ממנו בזמנה. ``Infinity`` כשה-CSS לא נטען — אז אין
+       * פריסה בכלל, וכל הבועות מוצגות.
+       */
+      _threadRowCapacity(el, row){
+        const cs = getComputedStyle(row);
+        const slot = parseFloat(cs.getPropertyValue('--thread-slot'));
+        const inset = parseFloat(cs.getPropertyValue('--thread-row-inset'));
+        if (!(slot > 0) || !Number.isFinite(inset)) return Infinity;
+        return Math.max(1, Math.floor((el.offsetWidth - 2 * inset) / slot));
+      }
+
+      /**
+       * אילו בועות מוצגות, ומה נכנס ל-"+N". טהור — בלי DOM — ולכן נבדק ישירות.
+       *
+       * כשהכול נכנס בשורה — הכול מוצג, ואין "+N". אחרת ``capacity − 1`` תאים לבועות,
+       * והאחרון ל-"+N" (העיצוב: "floor(...) − 1. האחרונה מתחלפת ב-'+N'"). **בועת השרשור
+       * החדש תמיד מוצגת** — החלונית שלה מצביעה עליה — ותופסת את התא שלפני "+N".
+       */
+      _threadRowLayout(threads, capacity, composingNew){
+        const total = threads.length + (composingNew ? 1 : 0);
+        if (total <= capacity) return { shown: threads.slice(), hidden: [], chip: false };
+        const slots = Math.max(0, capacity - 1 - (composingNew ? 1 : 0));
+        return { shown: threads.slice(0, slots), hidden: threads.slice(slots), chip: true };
+      }
+
+      /**
+       * בונה מחדש את שורת הבועות של הפתק — או מסיר אותה כשאין מה להציג.
+       *
+       * הבועות נבנות מאפס בכל קריאה (המצב חי ב-``entry.threads``, לא ב-DOM), ולכן
+       * הפוקוס עובר לבועה החדשה שמחליפה את זו שהייתה בפוקוס — אחרת מקלדת הייתה
+       * מאבדת את מקומה בכל רענון.
+       */
+      _renderThreadRow(el){
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        if (!st) return;
+        const composingNew = !!(st.open && st.open.isNew);
+        const show = !el.classList.contains('is-minimized') && (st.list.length > 0 || composingNew);
+        if (!show) {
+          this._removeThreadRow(st);
+          this._syncNoteClipping(el);
+          return;
+        }
+        if (!st.row) st.row = this._buildThreadRow(el);
+        const row = st.row.row;
+        const focused = (document.activeElement && row.contains(document.activeElement))
+          ? document.activeElement.getAttribute('data-thread-id') : null;
+        row.textContent = '';
+        const layout = this._threadRowLayout(st.list, this._threadRowCapacity(el, row), composingNew);
+        const activeId = (st.open && !st.open.isNew) ? st.open.id : null;
+        layout.shown.forEach((t) => row.appendChild(this._buildThreadBubble(el, t, t.id === activeId)));
+        if (composingNew) row.appendChild(this._buildNewThreadBubble(el, st.list.length + 1));
+        st.hidden = layout.hidden;
+        if (layout.chip) {
+          const activeHidden = !!activeId && layout.hidden.some((t) => t.id === activeId);
+          row.appendChild(this._buildThreadChip(el, layout.hidden, activeHidden || st.menuOpen));
+        } else {
+          // הכול נכנס עכשיו בשורה (הפתק הורחב, או שהרשימה התקצרה) — אין מה לפרוש.
+          this._dropThreadMenu(st);
+        }
+        if (st.menuOpen) this._renderThreadMenu(el);
+        if (focused) {
+          const again = row.querySelector(`[data-thread-id="${CSS.escape(focused)}"]`);
+          if (again) again.focus({ preventScroll: true });
+        }
+        this._syncNoteClipping(el);
+      }
+
+      /**
+       * השורה והחיישן שמעליה, מיד אחרי הכותרת — בדיוק כמו תיבת החיפוש.
+       *
+       * **החיישן מכריע אם יש מקום מעל הפתק**, כמו ``_watchSearchRoom``: אלמנט בלתי נראה
+       * בגובה אזור הבועות (העיצוב: 44px), שיושב תמיד מעל הפתק. כשהוא חתוך — הפתק בקצה
+       * העליון של המסך, של הלוח או של מכל הריפו — הבועות עוברות לתחתית והחלונית נפתחת
+       * כלפי מעלה (``.is-threads-below``). ההכרעה על חיישן ולא על הבועות עצמן, כי ברגע
+       * שהבועות עוברות למטה הן גלויות, וההכרעה הייתה מתהפכת בחזרה בלי סוף.
+       */
+      _buildThreadRow(el){
+        const room = createEl('div', 'sticky-threads-room sticky-note-outside', { 'aria-hidden': 'true' });
+        const row = createEl('div', 'sticky-threads sticky-note-outside', { role: 'group', 'aria-label': 'שרשורי תגובות' });
+        const header = el.querySelector('.sticky-note-header');
+        const anchor = header ? header.nextSibling : el.firstChild;
+        el.insertBefore(room, anchor);
+        el.insertBefore(row, anchor);
+        this._observeThreadRoom(el, room);
+        this._observeThreadNoteSize(el);
+        return { row, room };
+      }
+
+      /** מסיר את השורה ואת החיישן, ומפסיק לעקוב אחריהם. */
+      _removeThreadRow(st){
+        if (!st.row) return;
+        if (this._threadRoomObserver) this._threadRoomObserver.unobserve(st.row.room);
+        const note = st.row.row.parentElement;
+        st.row.row.remove();
+        st.row.room.remove();
+        st.row = null;
+        st.hidden = [];
+        this._dropThreadMenu(st);
+        this._unobserveThreadNoteIfIdle(note, st);
+      }
+
+      /** מעקב הגודל נחוץ רק כשיש מעל הפתק משהו שתלוי ברוחבו — שורה או חלונית. */
+      _unobserveThreadNoteIfIdle(note, st){
+        if (!note || st.row || st.panel || !this._threadSizeObserver) return;
+        this._threadSizeObserver.unobserve(note);
+      }
+
+      /**
+       * משקיף אחד לכל החיישנים של המנהל. ``threshold: [1]`` — כל חיתוך של החיישן מוריד
+       * את הבועות; ``observe`` מוסר הודעה ראשונה מיד (``previousThresholdIndex = -1``,
+       * W3C Intersection Observer), כמו ב-``_watchSearchRoom``.
+       */
+      _observeThreadRoom(el, room){
+        if (typeof IntersectionObserver !== 'function') return;
+        if (!this._threadRoomObserver) {
+          this._threadRoomObserver = new IntersectionObserver((records) => {
+            for (const rec of records) {
+              const note = rec.target.parentElement;
+              if (!note) continue;
+              const below = !(rec.intersectionRatio >= 1);
+              if (note.classList.contains('is-threads-below') === below) continue;
+              note.classList.toggle('is-threads-below', below);
+              this._layoutThreadUi(note);
+            }
+          }, { threshold: [1] });
+        }
+        this._threadRoomObserver.observe(room);
+      }
+
+      /**
+       * מעקב אחר רוחב הפתק — שינוי גודל ביד, צמצום למסך, סיבוב מכשיר — כדי שמספר הבועות
+       * וחלונית פתוחה יתאימו לרוחב החדש. משקיף אחד לכל המנהל; ``unobserve`` בפירוק.
+       */
+      _observeThreadNoteSize(el){
+        if (typeof ResizeObserver !== 'function') return;
+        if (!this._threadSizeObserver) {
+          this._threadSizeObserver = new ResizeObserver((records) => {
+            for (const rec of records) {
+              const note = rec.target;
+              if (!note.isConnected) continue;
+              this._renderThreadRow(note);
+              this._layoutThreadUi(note);
+            }
+          });
+        }
+        this._threadSizeObserver.observe(el);
+      }
+
+      /** תווית נגישה לבועה: מספר, כמה תגובות, ומה המצב. */
+      _threadBubbleLabel(t){
+        const parts = [`שרשור ${t.number}`, commentCountLabel(t.count)];
+        if (t.resolved) parts.push('נפתר');
+        if (t.awaitsUser) parts.push('מחכה לך');
+        return parts.join(' · ');
+      }
+
+      /**
+       * תא בשורה: הבועה (כפתור), המקל ונקודת העיגון על קו הפתק.
+       *
+       * **הכפתור הוא הבועה עצמה, ושטח הלחיצה מורחב ב-``::after``** ל-44×44 בלי לחפוף את
+       * השכנה (ראו ב-CSS). כך ערכת הניגודיות הגבוהה — שכופה על כל ``button`` רקע שחור
+       * וגבול לבן — מציירת בועה שחורה, ולא קופסה של 44×44 סביבה.
+       */
+      _buildThreadBubble(el, t, active){
+        const slot = createEl('div', 'sticky-thread-slot');
+        slot.dataset.tone = String((t.number - 1) % THREAD_TONE_COUNT);
+        if (t.resolved) slot.classList.add('is-resolved');
+        const btn = createEl('button', 'sticky-thread-bubble', {
+          type: 'button',
+          'aria-label': this._threadBubbleLabel(t),
+          'aria-expanded': active ? 'true' : 'false',
+          'data-thread-id': t.id,
+        });
+        if (active) btn.classList.add('is-active');
+        btn.textContent = t.resolved ? '✓' : formatCount(t.count);
+        if (t.awaitsUser) btn.appendChild(createEl('span', 'sticky-thread-waiting', { 'aria-hidden': 'true' }));
+        btn.addEventListener('click', (ev) => { ev.stopPropagation(); this._toggleThread(el, t.id); });
+        slot.appendChild(btn);
+        slot.appendChild(createEl('span', 'sticky-thread-stick', { 'aria-hidden': 'true' }));
+        slot.appendChild(createEl('span', 'sticky-thread-anchor', { 'aria-hidden': 'true' }));
+        return slot;
+      }
+
+      /** בועת השרשור החדש: קו מקווקו ו-"+", בגוון הבא בתור (העיצוב, מצב 8). */
+      _buildNewThreadBubble(el, number){
+        const slot = createEl('div', 'sticky-thread-slot is-new');
+        slot.dataset.tone = String((number - 1) % THREAD_TONE_COUNT);
+        const btn = createEl('button', 'sticky-thread-bubble is-active', {
+          type: 'button',
+          'aria-label': `שרשור ${number} — חדש, יישמר עם התגובה הראשונה`,
+          'aria-expanded': 'true',
+          'data-thread-id': 'new',
+        });
+        btn.textContent = '+';
+        btn.addEventListener('click', (ev) => { ev.stopPropagation(); this._closeThreadPanel(el, { returnFocus: true }); });
+        slot.appendChild(btn);
+        slot.appendChild(createEl('span', 'sticky-thread-stick', { 'aria-hidden': 'true' }));
+        slot.appendChild(createEl('span', 'sticky-thread-anchor', { 'aria-hidden': 'true' }));
+        return slot;
+      }
+
+      /**
+       * "+N" — השרשורים שלא נכנסו בשורה. נקודת "מחכה לך" אם אחד מהם מחכה (העיצוב).
+       *
+       * המקל והעיגון קיימים גם כאן, בלתי נראים, כדי שהבועה תשב בגובה של שכנותיה
+       * בלי מספר משלה.
+       */
+      _buildThreadChip(el, hidden, active){
+        const slot = createEl('div', 'sticky-thread-slot is-chip');
+        const btn = createEl('button', 'sticky-thread-bubble sticky-thread-more', {
+          type: 'button',
+          'aria-label': `עוד ${formatCount(hidden.length)} שרשורים`,
+          'aria-haspopup': 'true',
+          'aria-expanded': this._getEntry(el).threads.menuOpen ? 'true' : 'false',
+          'data-thread-id': 'more',
+          'data-testid': 'thread-overflow-chip',
+        });
+        if (active) btn.classList.add('is-active');
+        btn.textContent = '+' + formatCount(hidden.length);
+        if (hidden.some((t) => t.awaitsUser)) {
+          btn.appendChild(createEl('span', 'sticky-thread-waiting', { 'aria-hidden': 'true' }));
+        }
+        btn.addEventListener('click', (ev) => { ev.stopPropagation(); this._toggleThreadMenu(el); });
+        slot.appendChild(btn);
+        slot.appendChild(createEl('span', 'sticky-thread-stick', { 'aria-hidden': 'true' }));
+        slot.appendChild(createEl('span', 'sticky-thread-anchor', { 'aria-hidden': 'true' }));
+        return slot;
+      }
+
+      /** פותח או סוגר את רשימת "+N". */
+      _toggleThreadMenu(el){
+        const st = this._getEntry(el).threads;
+        if (st.menuOpen) { this._closeThreadMenu(el, { returnFocus: true }); return; }
+        st.menuOpen = true;
+        this._raiseToFront(el);
+        this._renderThreadRow(el);
+        const first = st.menu ? st.menu.querySelector('button') : null;
+        if (first) first.focus({ preventScroll: true });
+      }
+
+      /** רשימת "+N": שורה לכל שרשור מוסתר — גוון, שם, ומספר תגובות או "✓ נפתר". */
+      _renderThreadMenu(el){
+        const st = this._getEntry(el).threads;
+        if (!st.menu) {
+          st.menu = createEl('div', 'sticky-thread-menu sticky-note-outside', { role: 'menu', 'aria-label': 'שרשורים נוספים' });
+          st.menu.addEventListener('keydown', (ev) => {
+            ev.stopPropagation();
+            if (ev.key === 'Escape') { ev.preventDefault(); this._closeThreadMenu(el, { returnFocus: true }); }
+          });
+          st.menu.addEventListener('keyup', (ev) => ev.stopPropagation());
+          el.appendChild(st.menu);
+        }
+        st.menu.textContent = '';
+        st.menu.appendChild(createEl('span', 'sticky-thread-arrow', { 'aria-hidden': 'true' }));
+        // **הגלילה ברשימה הפנימית, ולא ברשימה עצמה:** ``overflow`` על הרשימה היה חותך את
+        // החץ, שיושב מחוץ לה (נמדד: החץ לא צויר).
+        const items = createEl('div', 'sticky-thread-menu-list');
+        st.menu.appendChild(items);
+        for (const t of st.hidden) {
+          const item = createEl('button', 'sticky-thread-menu-item', {
+            type: 'button', role: 'menuitem', 'aria-label': this._threadBubbleLabel(t), 'data-thread-id': t.id,
+          });
+          item.dataset.tone = String((t.number - 1) % THREAD_TONE_COUNT);
+          if (t.resolved) item.classList.add('is-resolved');
+          item.appendChild(createEl('span', 'sticky-thread-dot', { 'aria-hidden': 'true' }));
+          const name = createEl('span', 'sticky-thread-menu-name');
+          name.textContent = `שרשור ${t.number}`;
+          item.appendChild(name);
+          const meta = createEl('span', 'sticky-thread-menu-meta');
+          meta.textContent = t.resolved ? '✓ נפתר' : commentCountLabel(t.count);
+          item.appendChild(meta);
+          if (t.awaitsUser) item.appendChild(createEl('span', 'sticky-thread-menu-waiting', { 'aria-hidden': 'true' }));
+          item.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            this._closeThreadMenu(el);
+            this._openThread(el, t.id);
+          });
+          items.appendChild(item);
+        }
+        this._layoutThreadUi(el);
+        this._syncNoteClipping(el);
+      }
+
+      /** מסיר את רשימת "+N" בלי לגעת בשורה — למי שבונה את השורה בעצמו. */
+      _dropThreadMenu(st){
+        st.menuOpen = false;
+        if (st.menu) { st.menu.remove(); st.menu = null; }
+      }
+
+      /** סוגר את רשימת "+N". ``returnFocus`` מחזיר את הפוקוס ל-"+N" (מקלדת). */
+      _closeThreadMenu(el, opts){
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        if (!st || !st.menuOpen) return;
+        this._dropThreadMenu(st);
+        this._renderThreadRow(el);
+        if (opts && opts.returnFocus && st.row) {
+          const chip = st.row.row.querySelector('[data-thread-id="more"]');
+          if (chip) chip.focus({ preventScroll: true });
+        }
+      }
+
+      /** לחיצה מחוץ לרשימת "+N" סוגרת אותה — רשימה צפה, כמו כל תפריט. */
+      _onDocumentPointerDownForThreads(ev){
+        const target = ev.target;
+        for (const entry of this.notes.values()) {
+          const st = entry && entry.threads;
+          if (!st || !st.menuOpen) continue;
+          if (target && target.closest && (target.closest('.sticky-thread-menu') || target.closest('.sticky-thread-more'))
+              && entry.el.contains(target)) continue;
+          this._closeThreadMenu(entry.el);
+        }
+      }
+
+      /** לחיצה על בועה: פותחת את השרשור, או סוגרת אותו כשהוא כבר פתוח. */
+      _toggleThread(el, threadId){
+        const st = this._getEntry(el).threads;
+        if (st.open && !st.open.isNew && st.open.id === threadId) this._closeThreadPanel(el, { returnFocus: true });
+        else this._openThread(el, threadId);
+      }
+
+      /** סוגר חלונית ורשימה פתוחות בכל פתק אחר של המנהל — חלונית אחת בכל פעם. */
+      _closeThreadUiElsewhere(el){
+        for (const entry of this.notes.values()) {
+          if (!entry || entry.el === el || !entry.threads) continue;
+          if (entry.threads.menuOpen) this._closeThreadMenu(entry.el);
+          if (entry.threads.open) this._closeThreadPanel(entry.el);
+        }
+      }
+
+      /**
+       * פותח שרשור קיים: החלונית נפתחת מיד במצב טעינה, והתגובות נשלפות — שרשור אחד
+       * בכל פעם, כי שרשור יכול להגיע ל-``MAX_THREAD_BODY_BYTES`` של השרת.
+       *
+       * **הפתק עולה לקדמת הערימה** (``_raiseToFront``): החלונית רחבה מהפתק ויוצאת ממנו,
+       * ופתק שכן שמצויר אחריו היה מכסה אותה — ה-``z-index`` שלה כלוא בתוך הפתק.
+       */
+      _openThread(el, threadId){
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        if (!st || el.classList.contains('is-minimized')) return;
+        this._closeThreadUiElsewhere(el);
+        if (this._isNoteSearching(el)) this._closeNoteSearch(el);
+        if (st.menuOpen) this._closeThreadMenu(el);
+        this._abortThreadRequest(st);
+        st.open = {
+          id: String(threadId), isNew: false, phase: 'loading', thread: null,
+          error: '', busy: false, request: null, expanded: new Set(), resolvedOpen: false,
+        };
+        this._raiseToFront(el);
+        this._renderThreadRow(el);
+        this._ensureThreadPanel(el);
+        // הטיוטה של **השרשור הזה** — גם כשהחלונית כבר הייתה פתוחה על שרשור אחר.
+        st.panel.input.value = st.drafts.get(st.open.id) || '';
+        this._renderThreadPanel(el);
+        // ``preventScroll``: מיקוד רגיל גולל כל אב כדי לחשוף את החלונית (MDN,
+        // ``HTMLElement.focus()``), כלומר מזיז את הלוח או את המסמך שמתחת לפתק.
+        st.panel.panel.focus({ preventScroll: true });
+        this._syncThreadsButton(el);
+        this._loadThread(el, st.open.id);
+      }
+
+      /** פותח את החלונית לשרשור חדש: שום דבר לא נשמר עד התגובה הראשונה (העיצוב, מצב 8). */
+      _openNewThread(el){
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        if (!st || el.classList.contains('is-minimized')) return;
+        this._closeThreadUiElsewhere(el);
+        if (this._isNoteSearching(el)) this._closeNoteSearch(el);
+        if (st.menuOpen) this._closeThreadMenu(el);
+        this._abortThreadRequest(st);
+        st.open = {
+          id: null, isNew: true, phase: 'ready', thread: null,
+          error: '', busy: false, request: null, expanded: new Set(), resolvedOpen: false,
+        };
+        this._raiseToFront(el);
+        this._renderThreadRow(el);
+        this._ensureThreadPanel(el);
+        st.panel.input.value = st.drafts.get('new') || '';
+        this._renderThreadPanel(el);
+        st.panel.input.focus({ preventScroll: true });
+        this._syncThreadsButton(el);
+      }
+
+      /**
+       * סוגר את החלונית. **הטיוטה נשארת** (``drafts``) ותחזור בפתיחה הבאה; טעינה שבאוויר
+       * מבוטלת, אבל כתיבה שבאוויר **לא** — היא כבר נשלחה, ותשובתה עדיין תעדכן את הבועות.
+       * ``returnFocus`` מחזיר את הפוקוס לבועה (או ל-💬, לשרשור חדש) — למקלדת.
+       */
+      _closeThreadPanel(el, opts){
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        if (!st || !st.open) return;
+        const wasNew = st.open.isNew;
+        const wasId = st.open.id;
+        this._abortThreadRequest(st);
+        st.open = null;
+        if (st.panel) {
+          if (this._threadPanelSizeObserver) this._threadPanelSizeObserver.unobserve(st.panel.panel);
+          st.panel.panel.remove();
+          st.panel = null;
+        }
+        this._renderThreadRow(el);
+        this._unobserveThreadNoteIfIdle(el, st);
+        this._syncThreadsButton(el);
+        this._syncNoteClipping(el);
+        if (opts && opts.returnFocus) {
+          const target = wasNew
+            ? el.querySelector('.sticky-note-threads-btn')
+            : (st.row ? st.row.row.querySelector(`[data-thread-id="${CSS.escape(wasId)}"]`) : null);
+          if (target) target.focus({ preventScroll: true });
+        }
+      }
+
+      /** סוגר את כל מה שפתוח מעל הפתק — רשימה וחלונית. למזעור, לחיפוש ולמחיקה. */
+      _closeThreadUi(el){
+        this._closeThreadMenu(el);
+        this._closeThreadPanel(el);
+      }
+
+      /** מבטל טעינה שבאוויר. כתיבות אינן נרשמות כאן — ראו ``_closeThreadPanel``. */
+      _abortThreadRequest(st){
+        const open = st && st.open;
+        if (!open || !open.request) return;
+        open.request.abort();
+        open.request = null;
+      }
+
+      /**
+       * בקשה לראוטי השרשורים — **עם תקרת זמן משלה, ובלי לזרוק לעולם.**
+       *
+       * מחזיר ``{ result, abort }``: ``result`` נפתר תמיד ל-``{ ok, status, data }``
+       * (‏``status: 0`` בכשל רשת, בביטול ובחריגת זמן), ו-``abort`` מבטל — לסגירת חלונית.
+       * ``ok`` הוא ``true`` רק כשהתשובה היא 2xx **וגם** ``{ok: true}``: ``fetch`` אינו
+       * נכשל על 4xx/5xx, ותשובה שאינה JSON (דף שגיאה של שרת ביניים) אינה הצלחה (K11).
+       *
+       * התקרה היא ``AbortController`` עם טיימר, ולא ``AbortSignal.timeout``, כי אותו
+       * בקר משמש גם לביטול. ובדפדפן שאין בו ``AbortController`` — מרוץ מול הטיימר:
+       * הבקשה עצמה ממשיכה ברקע, אבל הממשק משתחרר בזמן (היעדר יכולת, ולא כשל).
+       */
+      _threadFetch(url, init){
+        const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+        const opts = Object.assign({ cache: 'no-store', credentials: 'same-origin' }, init || {});
+        if (ctrl) opts.signal = ctrl.signal;
+        let timer = null;
+        const deadline = new Promise((resolve) => {
+          timer = setTimeout(() => {
+            if (ctrl) ctrl.abort();
+            resolve({ ok: false, status: 0, data: null });
+          }, THREAD_FETCH_TIMEOUT_MS);
+        });
+        const request = (async () => {
+          const resp = await fetch(url, opts);
+          let data = null;
+          try {
+            data = await resp.json();
+          } catch (_) {
+            // גוף שאינו JSON — דף שגיאה של שרת ביניים, או חיבור שנחתך. ``data`` נשאר
+            // ``null``, והקורא רואה כשל עם ה-``status`` האמיתי.
+          }
+          const obj = (data && typeof data === 'object' && !Array.isArray(data)) ? data : null;
+          return { ok: resp.ok && !!obj && obj.ok === true, status: resp.status, data: obj };
+        })().catch(() => ({ ok: false, status: 0, data: null }));
+        const result = Promise.race([request, deadline]).then((res) => { clearTimeout(timer); return res; });
+        return { result, abort: () => { if (ctrl) ctrl.abort(); } };
+      }
+
+      /**
+       * הודעה למשתמש על בקשה שנכשלה — בעברית, בלי פרטים טכניים (H5). קודי השרת הם
+       * של ``note_threads.py`` (דרך ``_THREAD_ERROR_STATUS``), ו-``max`` מגיע מהתשובה.
+       */
+      _threadErrorMessage(res, sending){
+        const data = (res && res.data) || {};
+        const code = typeof data.error === 'string' ? data.error : '';
+        const max = Number.isInteger(data.max) ? formatCount(data.max) : '';
+        switch (code) {
+          case 'empty_body': return 'אי אפשר לשלוח תגובה ריקה.';
+          case 'body_too_long': return max ? `התגובה ארוכה מ-${max} תווים.` : 'התגובה ארוכה מהמותר.';
+          case 'thread_full': return 'השרשור הגיע למספר התגובות המרבי — אפשר לפתוח שרשור חדש.';
+          case 'thread_too_long': return 'השרשור ארוך מדי — אפשר לפתוח שרשור חדש.';
+          case 'already_resolved': return 'השרשור כבר נסגר בינתיים.';
+          case 'not_resolved': return 'השרשור כבר פתוח.';
+          case 'conflict': return 'השרשור השתנה בזמן השליחה — נסו שוב.';
+          case 'thread_not_found': case 'invalid_thread_id': return 'השרשור הזה כבר לא קיים.';
+          case 'note_not_found': case 'invalid_note_id': return 'הפתק כבר לא קיים.';
+          default: break;
+        }
+        if (res && res.status === 401) return 'החיבור פג — יש לרענן את העמוד ולהתחבר שוב.';
+        if (res && res.status === 429) return 'יותר מדי פעולות ברצף — נסו שוב בעוד רגע.';
+        if (res && res.status === 0) {
+          return sending ? 'השליחה לא הגיעה לשרת — הטקסט נשאר בתיבה, נסו שוב.' : 'לא הצלחנו להגיע לשרת.';
+        }
+        return sending ? 'השליחה נכשלה — הטקסט נשאר בתיבה, נסו שוב.' : 'משהו השתבש בטעינה.';
+      }
+
+      /** הכתובת של שרשורי הפתק, או של שרשור אחד בו. */
+      _threadUrl(el, threadId, action){
+        let url = `/api/sticky-notes/note/${encodeURIComponent(el.dataset.noteId)}/threads`;
+        if (threadId) url += `/${encodeURIComponent(threadId)}`;
+        if (action) url += `/${action}`;
+        return url;
+      }
+
+      /** טוען שרשור אחד עם התגובות שלו, ומציג אותו בחלונית — אם היא עדיין שלו. */
+      async _loadThread(el, threadId){
+        const st = this._getEntry(el).threads;
+        const open = st.open;
+        open.phase = 'loading';
+        open.error = '';
+        this._renderThreadPanel(el);
+        const req = this._threadFetch(this._threadUrl(el, threadId));
+        open.request = req;
+        const res = await req.result;
+        // נסגרה, הוחלפה, או שהמנהל פורק בזמן ההמתנה — התשובה כבר אינה של אף אחד.
+        if (this._destroyed || st.open !== open || open.request !== req) return;
+        open.request = null;
+        const thread = res.ok ? this._threadStateFromServer(res.data.thread) : null;
+        if (thread && thread.comments) {
+          open.thread = thread;
+          open.phase = 'ready';
+          const list = this._threadsFromServer(res.data.threads);
+          if (list) st.list = list;
+        } else {
+          open.phase = 'error';
+          open.error = res.ok ? 'משהו השתבש בטעינה.' : this._threadErrorMessage(res, false);
+          if (res.status === 404) this._refreshThreadSummaries(el);
+        }
+        this._renderThreadRow(el);
+        this._renderThreadPanel(el);
+      }
+
+      /**
+       * שולח פעולה: ``create`` (שרשור חדש עם התגובה הראשונה), ``reply`` (עם ``reopen``),
+       * ``resolve`` (עם הטקסט שבתיבה כמשפט סיכום, אם יש — באותה כתיבה, כמו ב-MCP) או
+       * ``reopen``.
+       *
+       * **מה שמוצג אחרי ההצלחה הוא מה שהשרת החזיר** — מצב השרשור אחרי הכתיבה, התגובה כפי
+       * שנשמרה, והתקצירים שנקראו אחריה — ולא מה ששלחנו (K11: קרא את המצב, אל תהדהד את
+       * הבקשה). כשמספר התגובות שהשרת מדווח אינו מה שמוצג — סוכן כתב בינתיים — השרשור
+       * נטען מחדש. ובכשל: הטקסט נשאר בתיבה, וההודעה מוצגת בחלונית.
+       *
+       * **``busy`` נכבה ב-``finally``** — בקשה שנכשלה או נתקעה אינה משאירה את הכפתורים
+       * נעולים (``wait-without-own-deadline``), והתקרה שלה ב-``_threadFetch``.
+       */
+      async _sendThreadAction(el, kind, opts){
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        const open = st && st.open;
+        const ui = st && st.panel;
+        if (!open || !ui || open.busy) return;
+        const text = kind === 'reopen' ? '' : ui.input.value;
+        const draftKey = open.isNew ? 'new' : open.id;
+        let url;
+        let body;
+        if (kind === 'create') { url = this._threadUrl(el); body = { body: text }; }
+        else if (kind === 'reply') { url = this._threadUrl(el, open.id, 'comments'); body = { body: text, reopen: !!(opts && opts.reopen) }; }
+        else if (kind === 'resolve') { url = this._threadUrl(el, open.id, 'resolve'); body = text.trim() ? { body: text } : {}; }
+        else { url = this._threadUrl(el, open.id, 'reopen'); body = {}; }
+        const sentBody = kind !== 'reopen' && !!body.body;
+        open.busy = true;
+        open.error = '';
+        this._renderThreadPanel(el);
+        let res;
+        try {
+          res = await this._threadFetch(url, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+          }).result;
+        } finally {
+          open.busy = false;
+        }
+        if (this._destroyed || !this._getEntry(el)) return;
+        if (!res.ok) {
+          // ממשיכים להציג את מה שידוע; הודעה בחלונית, אם היא עדיין שלנו.
+          if (st.open === open) {
+            open.error = this._threadErrorMessage(res, sentBody);
+            this._renderThreadPanel(el);
+          }
+          const code = res.data && typeof res.data.error === 'string' ? res.data.error : '';
+          if (['already_resolved', 'not_resolved', 'conflict', 'thread_full', 'thread_too_long'].includes(code)
+              && st.open === open && !open.isNew) {
+            this._reloadThreadKeepingError(el, open);
+          }
+          if (code === 'thread_not_found' || res.status === 404) this._refreshThreadSummaries(el);
+          return;
+        }
+        // **הצלחה.** הטיוטה נמחקה — היא כבר בשרת.
+        if (sentBody) st.drafts.delete(draftKey);
+        const list = this._threadsFromServer(res.data.threads);
+        if (list) st.list = list;
+        else this._refreshThreadSummaries(el);
+        if (st.open === open) {
+          if (sentBody) ui.input.value = '';
+          const state = this._threadStateFromServer(res.data.thread);
+          const comment = this._commentFromServer(res.data.comment);
+          const threadId = typeof res.data.thread_id === 'string' ? res.data.thread_id : open.id;
+          if (open.isNew) { open.isNew = false; open.id = threadId; }
+          const before = (open.thread && open.thread.comments) || (kind === 'create' ? [] : null);
+          const after = before ? (comment ? before.concat([comment]) : before) : null;
+          if (state && after && state.count === after.length) {
+            state.comments = after;
+            open.thread = state;
+            open.phase = 'ready';
+            this._renderThreadRow(el);
+            this._renderThreadPanel(el);
+          } else {
+            // מצב שאינו תואם למה שמוצג (סוכן כתב בינתיים), או שהקריאה החוזרת בשרת נכשלה
+            // (``thread: null``) — הכתיבה הצליחה, ומה שמוצג נטען מהמסד.
+            this._renderThreadRow(el);
+            this._loadThread(el, open.id);
+          }
+        } else {
+          this._renderThreadRow(el);
+        }
+        this._syncThreadsButton(el);
+      }
+
+      /** טוען מחדש אחרי סירוב (השרשור השתנה), ומשאיר את הודעת הסירוב גלויה. */
+      async _reloadThreadKeepingError(el, open){
+        const message = open.error;
+        await this._loadThread(el, open.id);
+        const st = this._getEntry(el) && this._getEntry(el).threads;
+        if (st && st.open === open && open.phase === 'ready') {
+          open.error = message;
+          this._renderThreadPanel(el);
+        }
+      }
+
+      /**
+       * מרענן את תקצירי השרשורים של הפתק (הבועות). רץ כשהתקצירים לא נטענו, ואחרי כתיבה
+       * שבה הקריאה החוזרת בשרת נכשלה (``threads: null`` — "לא ידוע, קרא שוב").
+       */
+      async _refreshThreadSummaries(el){
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        if (!st || st.refreshing) return;
+        st.refreshing = true;
+        let res;
+        try {
+          res = await this._threadFetch(this._threadUrl(el)).result;
+        } finally {
+          st.refreshing = false;
+        }
+        if (this._destroyed || this._getEntry(el) !== entry) return;
+        const list = res.ok ? this._threadsFromServer(res.data.threads) : null;
+        if (list) {
+          st.list = list;
+          st.unavailable = false;
+        } else {
+          st.unavailable = true;
+        }
+        this._renderThreadRow(el);
+        this._syncThreadsButton(el);
+      }
+
+      /**
+       * שלד החלונית — נבנה פעם אחת לכל פתיחה, ו-``_renderThreadPanel`` ממלא אותו.
+       *
+       * **תיבת הכתיבה נבנית פעם אחת ונשארת** בין רינדורים: בנייה מחדש הייתה מאבדת את
+       * הפוקוס, את מיקום הסמן ואת מצב ההרכבה של מקלדת IME באמצע הקלדה.
+       *
+       * **מקשים בחלונית אינם מבעבעים** — יש מאזינים ברמת העמוד (בדפדפן הריפו Escape סוגר
+       * חלוניות), בדיוק כמו בתיבת החיפוש. ובזמן הרכבה ב-IME ה-Enter שייך להרכבה
+       * (``isComposing``/229, MDN ``Element: keydown event``).
+       */
+      _ensureThreadPanel(el){
+        const st = this._getEntry(el).threads;
+        if (st.panel) return st.panel;
+        const panel = createEl('div', 'sticky-thread-panel sticky-note-outside', {
+          role: 'dialog', tabindex: '-1', 'data-testid': 'thread-panel',
+        });
+        const arrow = createEl('span', 'sticky-thread-arrow', { 'aria-hidden': 'true' });
+        const head = createEl('div', 'sticky-thread-head');
+        const dot = createEl('span', 'sticky-thread-dot', { 'aria-hidden': 'true' });
+        const titleId = `sticky-thread-title-${el.dataset.noteId}`;
+        const title = createEl('span', 'sticky-thread-title', { id: titleId });
+        const meta = createEl('span', 'sticky-thread-meta');
+        const close = createEl('button', 'sticky-thread-close', { type: 'button', 'aria-label': 'סגירת השרשור' });
+        close.textContent = '✕';
+        head.appendChild(dot); head.appendChild(title); head.appendChild(meta); head.appendChild(close);
+        const body = createEl('div', 'sticky-thread-body');
+        const error = createEl('div', 'sticky-thread-error', { role: 'alert', 'data-testid': 'thread-error' });
+        const composer = createEl('div', 'sticky-thread-composer');
+        const input = createEl('textarea', 'sticky-thread-input', { rows: '2', 'aria-label': 'תגובה בשרשור' });
+        const actions = createEl('div', 'sticky-thread-actions');
+        const counter = createEl('span', 'sticky-thread-counter', { 'aria-live': 'polite' });
+        composer.appendChild(input); composer.appendChild(actions);
+        panel.appendChild(arrow); panel.appendChild(head); panel.appendChild(body);
+        panel.appendChild(error); panel.appendChild(composer);
+        panel.setAttribute('aria-labelledby', titleId);
+        el.appendChild(panel);
+
+        close.addEventListener('click', (ev) => { ev.stopPropagation(); this._closeThreadPanel(el, { returnFocus: true }); });
+        input.addEventListener('input', () => {
+          const open = st.open;
+          if (!open) return;
+          st.drafts.set(open.isNew ? 'new' : open.id, input.value);
+          this._syncThreadComposer(el);
+        });
+        panel.addEventListener('keydown', (ev) => {
+          ev.stopPropagation();
+          if (ev.isComposing || ev.keyCode === 229) return;
+          if (ev.key === 'Escape') {
+            ev.preventDefault();
+            this._closeThreadPanel(el, { returnFocus: true });
+          } else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey) && ev.target === input) {
+            ev.preventDefault();
+            this._threadPrimaryAction(el);
+          }
+        });
+        panel.addEventListener('keyup', (ev) => { ev.stopPropagation(); });
+        panel.addEventListener('keypress', (ev) => { ev.stopPropagation(); });
+        if (typeof ResizeObserver === 'function') {
+          if (!this._threadPanelSizeObserver) {
+            this._threadPanelSizeObserver = new ResizeObserver((records) => {
+              for (const rec of records) {
+                const note = rec.target.parentElement;
+                if (note && note.isConnected) this._layoutThreadUi(note);
+              }
+            });
+          }
+          this._threadPanelSizeObserver.observe(panel);
+        }
+        st.panel = { panel, arrow, head, dot, title, meta, body, error, composer, input, actions, counter };
+        this._observeThreadNoteSize(el);
+        this._syncNoteClipping(el);
+        return st.panel;
+      }
+
+      /** מספר השרשור שהחלונית מציגה — מהשרשור שנטען, מהתקציר, או הבא בתור לחדש. */
+      _openThreadNumber(st){
+        const open = st.open;
+        if (open.isNew) return st.list.length + 1;
+        if (open.thread) return open.thread.number;
+        const row = st.list.find((t) => t.id === open.id);
+        return row ? row.number : 0;
+      }
+
+      /**
+       * ממלא את החלונית לפי המצב: טעינה, שגיאת טעינה, שרשור פתוח, שרשור שנפתר, או חדש.
+       * ``data-state`` על החלונית אומר איזה מהם — לבדיקות ול-CSS.
+       */
+      _renderThreadPanel(el){
+        const st = this._getEntry(el).threads;
+        const open = st.open;
+        const ui = st.panel;
+        if (!open || !ui) return;
+        const thread = open.thread;
+        const resolved = !open.isNew && !!thread && thread.resolved;
+        const state = open.isNew ? 'new' : (open.phase !== 'ready' ? open.phase : (resolved ? 'resolved' : 'open'));
+        ui.panel.dataset.state = state;
+        ui.panel.classList.toggle('is-busy', open.busy);
+        const number = this._openThreadNumber(st);
+        ui.panel.dataset.tone = String(((number || 1) - 1) % THREAD_TONE_COUNT);
+
+        // הכותרת: "שרשור N", ו"· K תגובות" או "· חדש". בשרשור שנפתר — בלי מספר.
+        ui.title.textContent = number ? `שרשור ${number}` : 'שרשור';
+        ui.meta.textContent = open.isNew ? '· חדש'
+          : (state === 'open' ? `· ${commentCountLabel(thread.count)}` : '');
+
+        // הגוף.
+        ui.body.textContent = '';
+        if (state === 'loading') {
+          const status = createEl('div', 'sticky-thread-status');
+          status.textContent = 'טוען את השרשור…';
+          ui.body.appendChild(status);
+        } else if (state === 'error') {
+          const retry = createEl('button', 'sticky-thread-btn', { type: 'button' });
+          retry.textContent = 'נסו שוב';
+          retry.addEventListener('click', (ev) => { ev.stopPropagation(); this._loadThread(el, open.id); });
+          ui.body.appendChild(retry);
+        } else if (state === 'new') {
+          const hint = createEl('div', 'sticky-thread-hint');
+          hint.textContent = 'השרשור נשמר עם שליחת התגובה הראשונה. סגירה בלי שליחה מבטלת אותו.';
+          ui.body.appendChild(hint);
+        } else if (state === 'open') {
+          ui.body.appendChild(this._buildThreadComments(el, thread.comments, { clampLines: 6 }));
+        } else {
+          ui.body.appendChild(this._buildResolvedSummary(el, thread));
+        }
+
+        // שגיאה של פעולה — מוצגת מעל תיבת הכתיבה, והטקסט נשאר בתיבה.
+        ui.error.textContent = open.error || '';
+        ui.error.hidden = !open.error || state === 'error';
+        if (state === 'error') {
+          const msg = createEl('div', 'sticky-thread-status is-error');
+          msg.textContent = open.error;
+          ui.body.insertBefore(msg, ui.body.firstChild);
+        }
+
+        // תיבת הכתיבה: בכל מצב חוץ מטעינה ושגיאת טעינה (אז לא ידוע אם השרשור פתוח).
+        // הטקסט שבה אינו נכתב כאן — הוא של המשתמש, ונשמר ב-``drafts`` בכל הקלדה.
+        ui.composer.hidden = (state === 'loading' || state === 'error');
+        ui.input.placeholder = open.isNew ? 'על מה השרשור?' : 'כתיבת תשובה…';
+        ui.input.readOnly = open.busy;
+        this._syncThreadComposer(el);
+        this._layoutThreadUi(el);
+      }
+
+      /**
+       * רשימת תגובות. תגובה ארוכה נחתכת ב-``clampLines`` שורות עם "הצגת הכול · N תווים"
+       * (העיצוב: 6 שורות; 3 בשרשור שנפתר). **החיתוך נמדד ולא מונח**: אחרי שהתגובה
+       * בעמוד, ``scrollHeight`` מול ``clientHeight`` אומר אם היא באמת ארוכה מהחלון —
+       * מספר תווים לא היה אומר את זה, כי רוחב החלונית ושבירת השורות קובעים.
+       */
+      _buildThreadComments(el, comments, opts){
+        const st = this._getEntry(el).threads;
+        const open = st.open;
+        const list = createEl('div', 'sticky-thread-comments');
+        const narrow = !!(st.panel && st.panel.panel.classList.contains('is-narrow'));
+        const pending = [];
+        for (const c of comments) {
+          const card = createEl('div', 'sticky-thread-comment');
+          if (c.tone) card.dataset.authorTone = c.tone;
+          const head = createEl('div', 'sticky-thread-comment-head');
+          const avatar = createEl('span', 'sticky-thread-avatar', { 'aria-hidden': 'true' });
+          avatar.textContent = c.initials;
+          const name = createEl('span', 'sticky-thread-author');
+          name.textContent = c.label;
+          head.appendChild(avatar); head.appendChild(name);
+          if (c.workingOn) {
+            const work = createEl('span', 'sticky-thread-working-on');
+            work.textContent = `· ${c.workingOn}`;
+            work.title = c.workingOn;
+            head.appendChild(work);
+          }
+          const when = createEl('span', 'sticky-thread-time');
+          when.textContent = window.RelativeTime ? window.RelativeTime.format(c.createdAt, { compact: narrow }) : '';
+          head.appendChild(when);
+          const text = createEl('div', 'sticky-thread-comment-body');
+          text.textContent = c.body;
+          card.appendChild(head); card.appendChild(text);
+          const key = c.id || '';
+          if (opts && opts.clampLines && !(key && open.expanded.has(key))) {
+            text.classList.add('is-clamped');
+            text.style.setProperty('--thread-clamp', String(opts.clampLines));
+            pending.push({ card, text, key, length: codePointLength(c.body) });
+          } else if (key && open.expanded.has(key)) {
+            pending.push({ card, text, key, length: codePointLength(c.body), expanded: true });
+          }
+          list.appendChild(card);
+        }
+        // המדידה דורשת פריסה, ולכן היא רצה אחרי שהרשימה נכנסה לחלונית — בפריים הבא.
+        // (בלי ``requestAnimationFrame`` — בדיקות ב-node — אין פריסה למדוד, ושום תגובה
+        // אינה נחשבת ארוכה.)
+        const measure = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (fn) => fn();
+        measure(() => {
+          for (const p of pending) {
+            if (!p.card.isConnected) continue;
+            if (!p.expanded && p.text.scrollHeight <= p.text.clientHeight + 1) continue;
+            const more = createEl('button', 'sticky-thread-more-text', { type: 'button' });
+            more.textContent = p.expanded ? 'הצגת פחות' : `הצגת הכול · ${formatCount(p.length)} תווים`;
+            more.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              if (p.expanded) open.expanded.delete(p.key);
+              else if (p.key) open.expanded.add(p.key);
+              this._renderThreadPanel(el);
+            });
+            p.card.appendChild(more);
+          }
+        });
+        return list;
+      }
+
+      /**
+       * שרשור שנפתר (העיצוב, מצבים 5 ו-9): שורה מקופלת "✓ נפתר ע״י X, <מתי>", ופתיחתה
+       * מציגה את התגובות — חתוכות ב-3 שורות, עם "הצגת הכול" — ואת "פתיחה מחדש".
+       */
+      _buildResolvedSummary(el, thread){
+        const st = this._getEntry(el).threads;
+        const open = st.open;
+        const wrap = createEl('div', 'sticky-thread-resolved');
+        const toggle = createEl('button', 'sticky-thread-resolved-row', {
+          type: 'button', 'aria-expanded': open.resolvedOpen ? 'true' : 'false',
+        });
+        const check = createEl('span', 'sticky-thread-resolved-check', { 'aria-hidden': 'true' });
+        check.textContent = '✓';
+        const label = createEl('span', 'sticky-thread-resolved-label');
+        const when = (window.RelativeTime && thread.resolvedAt) ? window.RelativeTime.format(thread.resolvedAt) : '';
+        const who = thread.resolvedBy ? `נפתר ע״י ${thread.resolvedBy}` : 'נפתר';
+        label.textContent = when ? `${who}, ${when}` : who;
+        const count = createEl('span', 'sticky-thread-resolved-count');
+        count.textContent = commentCountLabel(thread.count);
+        const chevron = createEl('span', 'sticky-thread-chevron', { 'aria-hidden': 'true' });
+        chevron.textContent = open.resolvedOpen ? '▲' : '▼';
+        toggle.appendChild(check); toggle.appendChild(label); toggle.appendChild(count); toggle.appendChild(chevron);
+        toggle.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          open.resolvedOpen = !open.resolvedOpen;
+          this._renderThreadPanel(el);
+        });
+        wrap.appendChild(toggle);
+        if (open.resolvedOpen) {
+          const past = createEl('div', 'sticky-thread-resolved-past');
+          past.appendChild(this._buildThreadComments(el, thread.comments, { clampLines: 3 }));
+          const reopen = createEl('button', 'sticky-thread-btn sticky-thread-reopen', { type: 'button' });
+          reopen.textContent = 'פתיחה מחדש';
+          reopen.disabled = open.busy;
+          reopen.addEventListener('click', (ev) => { ev.stopPropagation(); this._sendThreadAction(el, 'reopen'); });
+          past.appendChild(reopen);
+          wrap.appendChild(past);
+        }
+        return wrap;
+      }
+
+      /**
+       * המונה והכפתורים של תיבת הכתיבה, לפי הטקסט ולפי מצב השרשור.
+       *
+       * **המונה סופר code points** (``codePointLength``), כמו השרת, ומעל התקרה הוא אדום
+       * והשליחה מושבתת. התקרה מגיעה מהשרת (``window.NOTE_THREAD_MAX_CHARS``, מ-
+       * ``note_threads.MAX_COMMENT_CHARS``) — בלעדיה המונה סופר בלי "/ N", והשרת הוא שיסרב.
+       * ‏``maxlength`` של ה-``textarea`` אינו התשובה: הוא סופר יחידות UTF-16, ולכן היה עוצר
+       * תגובת אימוג'ים באמצע — הפער שכבר נשך את אזהרת האורך של הפתק.
+       */
+      _syncThreadComposer(el){
+        const st = this._getEntry(el).threads;
+        const open = st.open;
+        const ui = st.panel;
+        if (!open || !ui) return;
+        const cap = Number(window.NOTE_THREAD_MAX_CHARS);
+        const hasCap = Number.isInteger(cap) && cap > 0;
+        const value = ui.input.value;
+        const length = codePointLength(value);
+        const over = hasCap && length > cap;
+        const empty = !value.trim();
+        ui.counter.textContent = hasCap ? `${formatCount(length)} / ${formatCount(cap)}` : formatCount(length);
+        ui.counter.classList.toggle('is-over', over);
+        const resolved = !open.isNew && !!open.thread && open.thread.resolved;
+        const buttons = [];
+        const make = (label, cls, onClick, disabled) => {
+          const b = createEl('button', `sticky-thread-btn ${cls}`, { type: 'button' });
+          b.textContent = label;
+          b.disabled = disabled;
+          b.addEventListener('click', (ev) => { ev.stopPropagation(); onClick(); });
+          buttons.push(b);
+          return b;
+        };
+        const blocked = open.busy || over;
+        if (open.isNew) {
+          make('ביטול', 'is-ghost', () => this._closeThreadPanel(el, { returnFocus: true }), open.busy);
+          make('שליחה', 'is-primary', () => this._sendThreadAction(el, 'create'), blocked || empty);
+        } else if (resolved) {
+          // "שליחה בלי פתיחה" לצד "שליחה" — ההחלטה בפתק על האפיון (``reopen=False``).
+          make('שליחה בלי פתיחה', 'is-outline', () => this._sendThreadAction(el, 'reply', { reopen: false }), blocked || empty);
+          make('שליחה ופתיחה מחדש', 'is-primary', () => this._sendThreadAction(el, 'reply', { reopen: true }), blocked || empty);
+        } else {
+          // "✓ נפתר" עם טקסט בתיבה שולח אותו כמשפט סיכום וסוגר באותה כתיבה — הכרעת המשתמש,
+          // כמו ``resolve`` עם ``body`` ב-MCP.
+          make('✓ נפתר', 'is-outline', () => this._sendThreadAction(el, 'resolve'), blocked);
+          make('שליחה', 'is-primary', () => this._sendThreadAction(el, 'reply', { reopen: true }), blocked || empty);
+        }
+        ui.actions.textContent = '';
+        ui.actions.appendChild(ui.counter);
+        buttons.forEach((b) => ui.actions.appendChild(b));
+      }
+
+      /** Ctrl/Cmd+Enter: הפעולה הראשית של המצב, אם היא זמינה. */
+      _threadPrimaryAction(el){
+        const ui = this._getEntry(el).threads.panel;
+        const primary = ui ? ui.actions.querySelector('.is-primary') : null;
+        if (primary && !primary.disabled) primary.click();
+      }
+
+      /**
+       * מיקום החלונית ורשימת "+N" מול המסך — **מצמצמים גודל לפני שמזיזים** (H7).
+       *
+       * החלונית רחבה מהפתק ויוצאת ממנו (360px, ובפתק צר מ-376px: 280px — העיצוב). ליד
+       * קצה המסך, או במסך צר, היא הייתה נחתכת — ובפתק צף אין גלילה שתחשוף אותה. לכן:
+       * (1) רוחב לכל היותר המסך פחות שוליים; (2) הזזה אופקית אל תוך המסך; (3) גובה לכל
+       * היותר עד קצה המסך, והרשימה שבתוכה נגללת. החצים (``.sticky-thread-arrow``) נשארים
+       * מעל הבועה. החשבון במלבנים שנמדדו (``getBoundingClientRect``), ולכן ההזזה נכונה
+       * ב-RTL וב-LTR כאחד — הסימן נגזר מהמדידה ולא מהנחה על הכיוון.
+       */
+      _layoutThreadUi(el){
+        const entry = this._getEntry(el);
+        const st = entry && entry.threads;
+        if (!st) return;
+        if (st.panel) this._layoutThreadPopup(el, st.panel.panel, st.panel.arrow, this._activeThreadAnchor(el), false);
+        if (st.menu) {
+          const chip = st.row ? st.row.row.querySelector('[data-thread-id="more"]') : null;
+          this._layoutThreadPopup(el, st.menu, st.menu.querySelector('.sticky-thread-arrow'), chip, true);
+        }
+      }
+
+      /** הבועה שהחלונית מצביעה עליה: הבועה הפעילה, "+N" כשהיא בתוכו, או הבועה החדשה. */
+      _activeThreadAnchor(el){
+        const st = this._getEntry(el).threads;
+        if (!st.row || !st.open) return null;
+        const key = st.open.isNew ? 'new' : st.open.id;
+        return st.row.row.querySelector(`[data-thread-id="${CSS.escape(key)}"]`)
+          || st.row.row.querySelector('[data-thread-id="more"]');
+      }
+
+      /**
+       * ``alignToAnchor`` — לרשימת "+N": הקצה שבו מתחילה השורה (ימין ב-RTL) מיושר לקצה
+       * המקביל של "+N" (העיצוב, מצב 7). הכיוון נקרא מהפריסה (``direction``), ולא מונח.
+       */
+      _layoutThreadPopup(el, popup, arrow, anchor, alignToAnchor){
+        if (!popup || !popup.isConnected) return;
+        // החלונית צרה בפתק צר מרוחבה ועוד השוליים משני צדיה — המספרים מה-CSS, כמו בשורה.
+        if (popup.classList.contains('sticky-thread-panel')) {
+          const cs = getComputedStyle(popup);
+          const wide = parseFloat(cs.getPropertyValue('--thread-panel-width'));
+          const inset = parseFloat(cs.getPropertyValue('--thread-panel-inset'));
+          const narrow = Number.isFinite(wide) && Number.isFinite(inset) && el.offsetWidth < wide + 2 * inset;
+          popup.classList.toggle('is-narrow', narrow);
+        }
+        popup.style.width = '';
+        popup.style.transform = '';
+        popup.style.removeProperty('--thread-popup-room');
+        const box = this._viewportBox();
+        const gap = NOTE_EDGE_GAP;
+        let rect = popup.getBoundingClientRect();
+        // (1) הגודל קודם: רוחב לכל היותר המסך פחות שוליים.
+        const maxWidth = box.width - 2 * gap;
+        if (rect.width > maxWidth) {
+          popup.style.width = Math.max(0, maxWidth) + 'px';
+          rect = popup.getBoundingClientRect();
+        }
+        // (2) ואז המיקום: יישור ל-"+N" (לרשימה), ואחריו הזזה אופקית אל תוך המסך.
+        let dx = 0;
+        if (alignToAnchor && anchor) {
+          const a = anchor.getBoundingClientRect();
+          dx = getComputedStyle(el).direction === 'rtl' ? (a.right - rect.right) : (a.left - rect.left);
+        }
+        const left = rect.left + dx;
+        const right = rect.right + dx;
+        if (left < gap) dx += gap - left;
+        else if (right > box.width - gap) dx += (box.width - gap) - right;
+        if (dx) popup.style.transform = `translateX(${Math.round(dx)}px)`;
+        // (3) והגובה: עד קצה המסך, בכיוון שהחלונית נפתחת אליו. ה-CSS לוקח את המינימום בין
+        // זה לבין התקרה שלו (``--thread-popup-room``), והרשימה שבתוכה נגללת.
+        const below = el.classList.contains('is-threads-below');
+        const room = below ? (rect.bottom - gap) : (box.height - gap - rect.top);
+        if (room > 0) popup.style.setProperty('--thread-popup-room', Math.floor(room) + 'px');
+        // החץ מעל מרכז הבועה, בתוך גבולות החלונית.
+        if (arrow && anchor) {
+          const a = anchor.getBoundingClientRect();
+          const p = popup.getBoundingClientRect();
+          const half = arrow.offsetWidth / 2;
+          const x = (a.left + a.width / 2) - p.left - half;
+          arrow.style.left = Math.round(Math.min(Math.max(x, 10), p.width - 10 - 2 * half)) + 'px';
+          arrow.hidden = false;
+        } else if (arrow) {
+          arrow.hidden = true;
+        }
+      }
+
+      /** חלונית או רשימה פתוחות בפתק כלשהו — ממקמים מחדש (גלילה, שינוי גודל חלון). */
+      _relayoutOpenThreadUi(){
+        for (const entry of this.notes.values()) {
+          const st = entry && entry.threads;
+          if (st && (st.panel || st.menu)) this._layoutThreadUi(entry.el);
+        }
+      }
+
+      /** לפתק שיורד מה-DOM (מחיקה, טעינה מחדש, פירוק המנהל): מנתק את הכול. */
+      _teardownThreadsOf(entry){
+        const st = entry && entry.threads;
+        if (!st) return;
+        this._abortThreadRequest(st);
+        if (st.row && this._threadRoomObserver) this._threadRoomObserver.unobserve(st.row.room);
+        if (st.panel && this._threadPanelSizeObserver) this._threadPanelSizeObserver.unobserve(st.panel.panel);
+        if (this._threadSizeObserver && entry.el) this._threadSizeObserver.unobserve(entry.el);
+        st.open = null;
+        st.row = null;
+        st.panel = null;
+        st.menu = null;
+        st.menuOpen = false;
+      }
+
       // שם תפוס — מסומן על השדה עצמו, לפי **קוד השגיאה מהשרת** בלבד.
       //
       // הגרסה הראשונה הסיקה את זה מ-``has-save-error``, שהוא סימון גנרי:
@@ -4125,11 +5443,8 @@
       _checkContentLength(el, text){
         try {
           const cap = maxNoteChars();
-          // ``String.length`` סופר יחידות UTF-16, והשרת סופר תווי Unicode.
-          // אימוג'י הוא יחידה אחת בפייתון ושתיים ב-JS, ולכן 10,001 אימוג'ים
-          // קיבלו אזהרת חריגה על תוכן שהשרת מקבל בלי בעיה — פי שניים.
-          // ``Array.from`` מפצל לקוד-פוינטים, וזו בדיוק הספירה של פייתון.
-          const len = Array.from(String(text == null ? '' : text)).length;
+          // בקוד-פוינטים, כמו השרת — ראו ``codePointLength``.
+          const len = codePointLength(text);
           let warn = el.querySelector('.sticky-note-warn');
           if (!cap || len <= cap) {
             if (warn && warn.remove) warn.remove();
@@ -5239,6 +6554,8 @@
       this._clearUndoTimer(el);
       // ומאותה סיבה המשקיפים של תיבת החיפוש, אם היא פתוחה.
       this._teardownNoteSearchOf(this._getEntry(el));
+      // וגם של השרשורים — החיישן, מעקב הגודל, וטעינה שבאוויר.
+      this._teardownThreadsOf(this._getEntry(el));
       try { el.remove(); } catch(_) {}
       this.notes.delete(id);
       // אורך המשטח נגזר מהפתקים שעליו. בלי הקריאה הזו מחיקת הפתק התחתון
@@ -5520,6 +6837,23 @@
             // מונעת גלילה חוזרת במנהל הבא.
             if (pendingNoteIdFromUrl === id) pendingNoteIdFromUrl = '';
             this.scrollToNote(id);
+            // **ושרשור, אם הקישור ביקש אחד** (לחיצה על התראת תגובה) — נצרך באותה נקודת
+            // התאמה, ורק בה. ``scrollToNote`` כבר פתח פתק ממוזער, ולכן החלונית יכולה להיפתח.
+            //
+            // **ב-``try`` משלו, ועם לוג.** חריגה מכאן הייתה נבלעת ב-``catch`` שבסוף הניסיון,
+            // מדלגת על ה-``return`` ומפעילה ניסיון נוסף — כלומר קריאה שנייה ל-``scrollToNote``
+            // על פתק שכבר נמצא, בדיוק החזרה שההערה למטה מסבירה למה אסור. הניסיון החוזר
+            // נועד לפתק שעוד לא נטען, וכשל בפתיחת החלונית אינו כזה: הפתק כבר מוצג, ורק
+            // השרשור לא נפתח — ולכן הגלילה ממשיכה, והכשל נרשם.
+            if (pendingThreadIdFromUrl) {
+              const threadId = pendingThreadIdFromUrl;
+              pendingThreadIdFromUrl = '';
+              try {
+                this._openThread(entry.el, threadId);
+              } catch (err) {
+                console.warn('sticky note: opening the linked thread failed', threadId, err);
+              }
+            }
             // **הפעולה פעם אחת, והאימות בנפרד.**
             //
             // "קראנו ל-``scrollToNote``" אינו "הגענו לפתק": המשטח גדל
@@ -5562,6 +6896,10 @@
         // אותו מסלול שבו הכפתור בכותרת שומר, ולכן גם ``entry.data``
         // מתעדכן דרך ``_syncEntryFromFragment``.
         this._queueSave(entry.el, { is_minimized: false });
+        // **השמירה קודם, ורק אחריה הבועות.** כל הפונקציה בתוך ``try`` שבולע, וכשל
+        // בתצוגה שקדם לשמירה היה מוחק אותה בשקט — פתק שנפתח וחוזר להיות ממוזער.
+        this._renderThreadRow(entry.el);
+        this._syncThreadsButton(entry.el);
       } catch(_) {}
     }
 
@@ -5738,6 +7076,8 @@
         if (this._extentFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this._extentFrame);
       } catch(_) {}
       this._extentFrame = null;
+      if (this._threadLayoutFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this._threadLayoutFrame);
+      this._threadLayoutFrame = 0;
       try { this._saveDebounced && this._saveDebounced.cancel && this._saveDebounced.cancel(); } catch(_) {}
       // 3) להסיר כל מאזין שנרשם דרך ``_on``, ולנתק observers — אחרת כל
       //    החלפת קובץ הייתה מותירה מנהל מת שממשיך להאזין ל-scroll/resize.
@@ -5747,6 +7087,11 @@
       }
       try { this._domObserver && this._domObserver.disconnect(); this._domObserver = null; } catch(_) {}
       try { this._resizeObserver && this._resizeObserver.disconnect(); this._resizeObserver = null; } catch(_) {}
+      // המשקיפים של השרשורים — חיישני המקום, רוחב הפתקים וגודל החלונית. ``disconnect``
+      // אינו זורק (DOM Standard), ולכן בלי ``try``.
+      if (this._threadRoomObserver) { this._threadRoomObserver.disconnect(); this._threadRoomObserver = null; }
+      if (this._threadSizeObserver) { this._threadSizeObserver.disconnect(); this._threadSizeObserver = null; }
+      if (this._threadPanelSizeObserver) { this._threadPanelSizeObserver.disconnect(); this._threadPanelSizeObserver = null; }
       // 4) להסיר את הפתקים ואת ה-FAB.
       this._clearAllNotes();
       try {
@@ -5764,6 +7109,7 @@
           // ל-``entry``, והוא ימשיך לרוץ אחרי שהאלמנט ירד מה-DOM.
           try { if (entry && entry.el) this._clearUndoTimer(entry.el); } catch(_) {}
           this._teardownNoteSearchOf(entry);
+          this._teardownThreadsOf(entry);
           try { entry && entry.el && entry.el.remove && entry.el.remove(); } catch(_) {}
         }
       } catch(_) {}
@@ -5786,7 +7132,16 @@
 
     _saveCache(notesArray){
       try {
-        const payload = { ts: Date.now(), notes: Array.isArray(notesArray) ? notesArray : [] };
+        // **הקאש אינו שומר שרשורים.** הוא מוצג לפני שהרשימה הטרייה מגיעה, ובועה ישנה
+        // הייתה מציגה "מחכה לך" על שרשור שכבר נענה — מצב שאינו קיים. בלי שרשורים בקאש,
+        // הבועות מופיעות רק מהשרת.
+        const notes = (Array.isArray(notesArray) ? notesArray : []).map((n) => {
+          if (!n || typeof n !== 'object' || !('threads' in n)) return n;
+          const copy = Object.assign({}, n);
+          delete copy.threads;
+          return copy;
+        });
+        const payload = { ts: Date.now(), notes };
         localStorage.setItem(this._cacheKey, JSON.stringify(payload));
       } catch(_) {}
     }

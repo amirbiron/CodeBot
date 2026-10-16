@@ -396,18 +396,40 @@ def frame_state(page) -> dict:
     }""")
 
 
+#: כמה רחוק מכפתור נקודת הגרירה צריכה להיות. נגיעה אינה נבדקת כמו נקודה: Chromium
+#: שולח אותה לכפתור קרוב גם כש-``elementFromPoint`` מחזיר במקום את הכותרת. נמדד
+#: בכרומיום 141 מתחת לכפתור המחיקה: ``touchstart`` במרחק 0.5–8.5px ממנו הגיע לכפתור —
+#: גם עם ``radiusX``/``radiusY`` של 0.1 — ובמרחק 10.5px ומעלה הגיע לכותרת.
+DRAG_POINT_BUTTON_CLEARANCE_PX = 12
+
+
 def header_point(page, nid):
-    """נקודה בכותרת הפתק שאינה כפתור — שם הגרירה מתחילה."""
-    point = page.evaluate("""(nid) => {
+    """נקודה בכותרת הפתק שאינה כפתור — שם הגרירה מתחילה.
+
+    **בידית הגרירה (``.sticky-note-drag``), ורחוקה מכל כפתור.** בפתק צר הכותרת נשברת
+    לשתי שורות (``flex-wrap``) — הפעולות מעל, והידית עם השם מתחתיה — ואמצע הכותרת
+    נופל בדיוק על הגבול ביניהן, חצי פיקסל מתחת לשורת הכפתורים. שם ``elementFromPoint``
+    מחזיר את הכותרת, אבל הנגיעה הגיעה לכפתור (``DRAG_POINT_BUTTON_CLEARANCE_PX``).
+    נגיעה על כפתור אינה מתחילה גרירה (``_isDragExempt``), וההחלקה נמשכה כמחווה של
+    הדף: הדף ניווט אחורה, ל-``about:blank``. זה נחשף כש-💬 הצטרף לשורת הפעולות ודחף
+    את כפתור המחיקה אל קצה הכותרת — אל מעל הנקודה שנבחרה עד אז.
+    """
+    point = page.evaluate("""([nid, clearance]) => {
       const h = document.querySelector(`.sticky-note[data-note-id="${nid}"] .sticky-note-header`);
-      const b = h.getBoundingClientRect();
-      for (let x = b.left + 4; x < b.right - 4; x += 6) {
-        const e = document.elementFromPoint(x, b.top + b.height / 2);
-        if (e && e.closest('.sticky-note-header') === h && !e.closest('.sticky-note-btn')) return [x, b.top + b.height / 2];
+      const r = h.querySelector('.sticky-note-drag').getBoundingClientRect();
+      const buttons = Array.from(h.querySelectorAll('.sticky-note-btn')).map((b) => b.getBoundingClientRect());
+      const y = r.top + r.height / 2;
+      const gap = (x) => Math.min(...buttons.map((b) => Math.hypot(
+        Math.max(b.left - x, 0, x - b.right), Math.max(b.top - y, 0, y - b.bottom))));
+      for (let x = r.left + 4; x < r.right - 4; x += 6) {
+        const e = document.elementFromPoint(x, y);
+        if (e && e.closest('.sticky-note-header') === h && !e.closest('.sticky-note-btn') && gap(x) >= clearance) {
+          return [x, y];
+        }
       }
       return null;
-    }""", nid)
-    assert point, "בקרה: אין בכותרת הפתק נקודה שאינה כפתור"
+    }""", [nid, DRAG_POINT_BUTTON_CLEARANCE_PX])
+    assert point, f"בקרה: אין בידית הגרירה נקודה שרחוקה {DRAG_POINT_BUTTON_CLEARANCE_PX}px מכל כפתור"
     return point
 
 

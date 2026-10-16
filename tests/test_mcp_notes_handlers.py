@@ -1837,6 +1837,21 @@ class _BoardColl:
         return dict(self.board) if ok else None
 
 
+class _NoThreadsColl:
+    """``note_threads`` ריק: פתק בלי שרשורי תגובות. ``get_note`` קורא בו אחרי הפתק, והרשימה
+    הרזה סופרת בו ``open_threads`` — שני המסלולים רואים כאן "אין שרשורים"."""
+
+    class _Cursor(list):
+        def sort(self, *args, **kwargs):
+            return self
+
+    def find(self, query, projection=None):
+        return self._Cursor()
+
+    def aggregate(self, pipeline):
+        return iter(())
+
+
 class _NoteDb:
     """ידית מסד מזויפת לכל האוספים שמסלול הפתק הבודד נוגע בהם."""
 
@@ -1845,6 +1860,7 @@ class _NoteDb:
         self.versions = versions if versions is not None else _VersionsColl()
         self.snippets = _SnippetColl(snippets)
         self.boards = _BoardColl(board) if board is not None else None
+        self.threads = _NoThreadsColl()
 
     def __getitem__(self, name):
         return {
@@ -1852,6 +1868,7 @@ class _NoteDb:
             "sticky_note_versions": self.versions,
             "code_snippets": self.snippets,
             "note_boards": self.boards,
+            "note_threads": self.threads,
         }[name]
 
 
@@ -1897,13 +1914,18 @@ def test_as_note_summary_carries_identity_colour_size_and_time_only():
         "position_x": 120,
     })
 
-    assert set(out) == {"id", "title", "color", "color_id", "content_bytes", "updated_at"}
+    assert set(out) == {
+        "id", "title", "color", "color_id", "content_bytes", "updated_at", "open_threads",
+    }
     # השמות והסדר — ``LEAN_NOTE_FIELDS``, המקור שתיאורי הכלים נגזרים ממנו:
     # שדה שיתווסף לשורה בלי להתווסף לרשימה נופל כאן, ולא מגיע לסוכן חסר.
     from mcp_server.backend import LEAN_NOTE_FIELDS
 
     assert tuple(out) == LEAN_NOTE_FIELDS
     assert out["content_bytes"] == 8
+    # ``open_threads`` מוצמד לשורה בשאילתה אחת לכל הרשימה, ולא נספר כאן; שורה בלעדיו
+    # היא "לא ידוע" — ``None``, ולא אפס.
+    assert out["open_threads"] is None
     assert out["title"] is None
     assert (out["color"], out["color_id"]) == ("#ffffcc", "yellow")
     assert out["updated_at"].startswith("2026-01-02")
@@ -1997,6 +2019,9 @@ def test_a_lean_board_listing_runs_the_lean_pipeline_and_drops_the_bodies():
     assert [n["id"] for n in lean["notes"]] == [n["id"] for n in full["notes"]]
     # המסלול המלא לא נגע ב-``aggregate``; הרזה שלח בדיוק את הצינור הרזה.
     assert coll.pipelines == [_lean_notes_pipeline(board_notes_filter(7, _VALID_BOARD))]
+    # ואין שרשורים על הפתקים — אפס ידוע, ולא ``None``; רק הרזה נושא את השדה.
+    assert [n["open_threads"] for n in lean["notes"]] == [0, 0]
+    assert all("open_threads" not in n for n in full["notes"])
 
 
 def test_a_lean_file_listing_runs_the_lean_pipeline_and_drops_the_bodies():

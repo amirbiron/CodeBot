@@ -35,7 +35,7 @@ import anyio
 from starlette.responses import PlainTextResponse, Response
 from starlette.routing import Route
 
-from .auth import authenticate_bearer, unauthorized
+from .auth import authenticate_bearer, is_admin_user, unauthorized
 
 # מיוצא מחדש בשם המקורי כדי ש-``from mcp_server.primer import redact_secrets``
 # ימשיך לעבוד: זה מה שהטסטים ושאר הקוד קוראים לו.
@@ -63,6 +63,19 @@ MAX_CACHE_ENTRIES = 512
 #: תקרת גודל לשורת המצב. שמות הקבצים הם קלט משתמש, ובלי תקרה שלושה שמות ארוכים
 #: היו יכולים לדחוף את הגוף כולו מעל ``MAX_BYTES``.
 MAX_STATUS_BYTES = 512
+
+#: כמה פתקים שממתינה בהם תגובה לסוכן מופיעים בשורת התגובות; השאר — "ועוד N".
+PENDING_THREADS_COUNT = 3
+
+#: תקרת גודל לשורת התגובות — **תקציב משלה**, באותה שיטה של שורת הקבצים ולא מתוך
+#: :data:`MAX_STATUS_BYTES`: כותרות פתקים ושמות לוחות הם קלט משתמש, ושלושה ארוכים היו
+#: דוחפים את שורת הקבצים החוצה.
+MAX_PENDING_STATUS_BYTES = 512
+
+#: אורך מקסימלי, בתווים, לכל שם בשורת התגובות — כותרת הפתק (או תחילת הגוף כשאין כותרת),
+#: שם הלוח או הקובץ. מקוצר עם "…": זו תווית לזיהוי, ולא התוכן — ה-``note_id`` שלידה הוא
+#: מה שהסוכן ממשיך איתו. גם התקרה הזו היא מה שמבטיח שפריט אחד תמיד נכנס בתקציב השורה.
+PENDING_LABEL_CHARS = 40
 
 #: סף האזהרה שה-UI בוובאפ מציג. חי כאן כי ``MAX_BYTES`` הוא מקור האמת שלו —
 #: ``webapp.routes.settings_routes`` משכפל את שניהם (שני שירותים נפרדים, בלי
@@ -149,17 +162,95 @@ def build_status_line(files: list[dict[str, Any]], *, now: datetime | None = Non
     return "קבצים אחרונים שנשמרו ב-CodeKeeper: " + ", ".join(parts)
 
 
+_PENDING_PREFIX = "תגובות שממתינות לסוכן: "
+
+
+def _label(text: Any) -> str:
+    """שם לשורת התגובות: שורה אחת, מסונן מסודות, עד :data:`PENDING_LABEL_CHARS` תווים.
+
+    **הסינון לפני הקיצוץ, ולא אחריו.** קיצוץ קודם היה יכול לחתוך טוקן באמצעו — ``ghp_``
+    ועוד ארבעה-עשר תווים כבר אינו מזוהה כסוד, ותחילתו של טוקן אמיתי הייתה יוצאת לפריימר.
+    הקיצוץ בתווים (נקודות קוד) ולא בבתים, כך שתו עברי אינו נחתך באמצע (H6).
+    """
+    from sticky_notes_target import canonical_title_text
+
+    one_line = redact_secrets(canonical_title_text(text))
+    if len(one_line) > PENDING_LABEL_CHARS:
+        one_line = one_line[: PENDING_LABEL_CHARS - 1].rstrip() + "…"
+    return one_line
+
+
+def _pending_item(item: dict[str, Any]) -> str:
+    """פריט אחד: ``"כותרת" <איפה הפתק> (note_id …)`` — הצורה שבאפיון."""
+    title = _label(item.get("title")) or _label(item.get("preview")) or "פתק"
+    target = item.get("target")
+    if target == "board":
+        where = " בלוח " + (_label(item.get("board_name")) or "")
+    elif target == "file":
+        where = " בקובץ " + (_label(item.get("file_name")) or "")
+    elif target == "repo":
+        where = f" בקובץ {_label(item.get('repo_path'))} בריפו {_label(item.get('repo_name'))}"
+    else:
+        where = ""
+    return f'"{title}"{where.rstrip()} (note_id {item.get("note_id")})'
+
+
+def build_pending_threads_line(pending: dict[str, Any] | None, *, max_bytes: int) -> str:
+    """שורת המצב השנייה: הפתקים שמחכה בהם תגובה לסוכן — בתוך ``max_bytes`` בתים.
+
+    ``pending`` הוא מה ש-``ProductionBackend.pending_note_threads`` החזיר: ``total`` (כמה
+    פתקים בסך הכול) ו-``items`` (הראשונים, החדש ביותר קודם). השורה נבנית **פריט אחרי
+    פריט**: כל פריט שלם נכנס, או לא נכנס — כך ש-``note_id`` לעולם אינו נחתך באמצע, ו"ועוד N"
+    סופר בדיוק את מה שלא הוצג. כל שם עובר :func:`_label`, והשורה כולה עוברת
+    ``redact_secrets`` לפני שהיא נמדדת.
+
+    מחרוזת ריקה כשאין מה לדווח — או כשהשורה לא נכנסת אפילו כספירה בלבד.
+    """
+    if not isinstance(pending, dict):
+        return ""
+    items = [i for i in (pending.get("items") or []) if isinstance(i, dict) and i.get("note_id")]
+    total = pending.get("total")
+    total = total if isinstance(total, int) and total >= len(items) else len(items)
+    if total <= 0:
+        return ""
+
+    def compose(shown: list[str]) -> str:
+        rest = total - len(shown)
+        if not shown:
+            return f"{_PENDING_PREFIX}{total} פתקים"
+        return _PENDING_PREFIX + ", ".join(shown) + (f", ועוד {rest}" if rest > 0 else "")
+
+    def fits(line: str) -> bool:
+        return len(line.encode("utf-8")) <= max_bytes
+
+    shown: list[str] = []
+    line = redact_secrets(compose(shown))
+    for item in items:
+        candidate = redact_secrets(compose(shown + [_pending_item(item)]))
+        if not fits(candidate):
+            break
+        shown.append(_pending_item(item))
+        line = candidate
+    return line if fits(line) else ""
+
+
 def build_primer(
     instructions: str,
     files: list[dict[str, Any]] | None = None,
     *,
     now: datetime | None = None,
     max_bytes: int = MAX_BYTES,
+    pending: dict[str, Any] | None = None,
 ) -> str:
     """מרכיב את גוף הפריימר המלא, מסונן וחתוך לפי הצורך.
 
     מחזיר מחרוזת ריקה כשאין הוראות — הקורא הופך את זה ל-204. הפריימר קיים כדי
-    לשאת את ההוראות; שמות קבצים בלי מסגור הם רעש, לא פריימר.
+    לשאת את ההוראות; שמות קבצים בלי מסגור הם רעש, לא פריימר — וכך גם שורת התגובות:
+    בלי הוראות אין פריימר, ולכן גם אין שורת תגובות.
+
+    ``pending`` הם הפתקים שמחכה בהם תגובה לסוכן (:func:`build_pending_threads_line`): שורת
+    מצב שנייה, אחרי שורת הקבצים, עם **תקציב משלה** (:data:`MAX_PENDING_STATUS_BYTES`) ובאותה
+    שיטה — מקום שמור לפני ההוראות.
     """
     # מסננים לפני המדידה: הצנזור משנה אורך, ומדידה על טקסט לא-מסונן הייתה
     # מוציאה גוף שחורג מהתקרה אחרי הסינון.
@@ -176,7 +267,12 @@ def build_primer(
     # ישאיר את רוב המקום להוראות.
     status_budget = min(MAX_STATUS_BYTES, max(max_bytes // 4, 0))
     status, _ = _truncate_to_bytes(status, status_budget)
-    suffix = f"{_SEPARATOR}{status}\n" if status else "\n"
+    # שורת התגובות — תקציב משלה באותה שיטה, ובנייה פריט-פריט שאינה חותכת note_id.
+    pending_line = build_pending_threads_line(
+        pending, max_bytes=min(MAX_PENDING_STATUS_BYTES, max(max_bytes // 4, 0))
+    )
+    lines = [line for line in (status, pending_line) if line]
+    suffix = f"{_SEPARATOR}" + "\n".join(lines) + "\n" if lines else "\n"
 
     # שורת המצב מקבלת מקום שמור: היא נבנית ראשונה ונחסרת מהתקציב, כדי שהוראות
     # ארוכות לא ידחפו אותה החוצה מהגוף.
@@ -268,7 +364,28 @@ def _load_primer_sync(backend: Any, user_id: int) -> str:
         # שורת המצב היא תוספת. אם היא נכשלה — עדיין מגישים את ההוראות.
         logger.warning("primer: failed to read recent files", exc_info=True)
         files = []
-    return build_primer(instructions, files)
+    # שורת התגובות היא תוספת, כמו שורת הקבצים: כשל בה אינו מפיל את ההוראות. שני סוגי
+    # הכשל נפרדים בכוונה (R10). שגיאת מסד נתפסת בתוך ``pending_note_threads`` ונרשמת שם
+    # ב-WARNING: בקריאה העיקרית (השרשורים והפתקים) הוא מחזיר ``None`` ("לא ידוע") והשורה
+    # אינה מוצגת, ובקישוטים (שמות לוחות וקבצים) השורה מוצגת בלעדיהם — ולכן ה-``except`` כאן
+    # אינו רואה אותה. כל חריגה אחרת היא באג במסלול החדש, ולכן היא נרשמת כאן ב-ERROR עם
+    # traceback מלא — לא בתווית של כשל המסד — וההוראות מוגשות בלי השורה. בלי זה הראוט היה
+    # מחזיר 500, וההוראות היו הולכות לאיבוד לכל משתמש. פתקי ריפו נספרים רק לאדמין: אותו
+    # שער של ``codekeeper_get_note``, כדי שהשורה לא תפנה לפתק שהסוכן לא יוכל לקרוא.
+    try:
+        pending = backend.pending_note_threads(
+            int(user_id),
+            limit=PENDING_THREADS_COUNT,
+            include_repo_notes=is_admin_user(int(user_id)),
+            preview_chars=PENDING_LABEL_CHARS,
+        )
+    except Exception:
+        logger.exception(
+            "primer: reading the notes that wait for an agent failed unexpectedly; "
+            "serving the instructions without the pending-comments line"
+        )
+        pending = None
+    return build_primer(instructions, files, pending=pending)
 
 
 def agent_primer_route(

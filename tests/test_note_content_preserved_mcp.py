@@ -224,6 +224,17 @@ def admin_mcp(monkeypatch, store):
     return server
 
 
+#: כלי כתיבה שיש בשמם ``note`` ואינם כותבים **גוף של פתק** — שם ← הנימוק. מי שמוסיף כאן
+#: שם כותב לידו למה, ומצביע על הטסט שמכסה את הכלל שלו במקום הטסט הזה.
+_NOT_A_NOTE_BODY = {
+    "codekeeper_comment_note": (
+        "כותב תגובה לאוסף note_threads ואינו נוגע בגוף הפתק. לגוף התגובה כלל משלו, באותה "
+        "צורה (בלי ניקוי, ריקנות על עותק בלי רווחים, סירוב ולא חיתוך) ובתקרה אחרת — "
+        "note_threads.comment_body_error; ראו test_the_comment_tool_checks_its_body_in_comment_body_error"
+    ),
+}
+
+
 def _note_write_tools(server) -> set:
     """כל כלי פתק שאינו ``readOnlyHint`` — נגזר מהשרת, כדי שכלי כתיבה חדש לא יחמוק מהטסט."""
     names = set()
@@ -255,7 +266,7 @@ def test_every_note_write_tool_checks_the_body_in_note_content_error(monkeypatch
         "codekeeper_update_note": {"note_id": note_id, "content": "body"},
         "codekeeper_note_str_replace": {"note_id": note_id, "old_string": "MARK", "new_string": "body"},
     }
-    assert set(sent) == _note_write_tools(admin_mcp)
+    assert set(sent) == _note_write_tools(admin_mcp) - set(_NOT_A_NOTE_BODY)
 
     checked = []
 
@@ -270,4 +281,37 @@ def test_every_note_write_tool_checks_the_body_in_note_content_error(monkeypatch
         assert _call(admin_mcp, tool, **args) == {"ok": False, "error": "refused_by_the_shared_check"}, tool
     assert checked == ["body"] * len(sent)
     assert store.raw["sticky_notes"].count_documents({}) == notes_before
+    assert _stored(store, note_id) == "MARK"
+
+
+def test_the_comment_tool_checks_its_body_in_comment_body_error(monkeypatch, admin_mcp, store):
+    """המקביל של הטסט שמעל, לגוף **תגובה**: כל מסלול של ``codekeeper_comment_note`` שכותב גוף
+    — שרשור חדש, תשובה, וסגירה עם סיכום — עובר בבדיקה המשותפת ``comment_body_error``,
+    והסירוב שלה חוזר לפני שנכתב דבר (לפני השער של הפתק ולפני המסד).
+
+    התוכן עצמו — שגוף נשמר בדיוק כפי שנשלח — נבדק מול מונגו אמיתי ב-
+    ``tests/test_note_threads_mcp.py``: הדמה המשותפת אינה מפרשת ``find_one_and_update``
+    עם ``$push`` ו-``$slice``.
+    """
+    from mcp_server import handlers
+
+    board = _board(admin_mcp)
+    note_id = _call(admin_mcp, "codekeeper_create_board_note", board_id=board, content="MARK")["note"]["id"]
+    checked = []
+
+    def refuse(body):
+        checked.append(body)
+        return {"ok": False, "error": "refused_by_the_shared_check"}
+
+    monkeypatch.setattr(handlers, "comment_body_error", refuse)
+    paths = (
+        {"body": "body"},
+        {"body": "body", "thread_id": "a" * 24},
+        {"body": "body", "thread_id": "a" * 24, "resolve": True},
+    )
+    for args in paths:
+        res = _call(admin_mcp, "codekeeper_comment_note", note_id=note_id, working_on="task", **args)
+        assert res == {"ok": False, "error": "refused_by_the_shared_check"}, args
+    assert checked == ["body"] * len(paths)
+    assert store.raw["note_threads"].count_documents({}) == 0
     assert _stored(store, note_id) == "MARK"

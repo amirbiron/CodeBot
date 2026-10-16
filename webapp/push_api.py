@@ -3,7 +3,7 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request, session
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple
 from datetime import datetime, timezone, timedelta
 import os
 import hashlib
@@ -13,6 +13,22 @@ import re
 # מה נחשב תזכורת פעילה — הגדרה אחת לשלושת הצרכנים. השולח כבר סינן
 # ``ack_at`` נכון; הייבוא כאן הוא כדי שלא יהיה עותק שיסטה בפעם הבאה.
 from note_reminder_state import active_reminder_filter
+# שרשורי תגובות: סוג האירוע, שם הכותב והקריאה של התגובות — מהמודול המשותף.
+import note_threads as nt
+# רשימת דפוסי הסודות האחת (``mcp_server/redaction.py``, מודול טהור). גוף התראה
+# מוצג גם במסך הנעילה, ותגובה של סוכן היא טקסט חופשי.
+from mcp_server.redaction import redact_secrets
+
+# כשל מסד בהכנת בונה של סוג אירוע — הסיכון היחיד שמסלול "נשאר לסבב הבא" הוצהר בשבילו.
+# ייבוא עמיד, כמו ב-``sticky_notes_api``: בסביבות stub אין pymongo, ומחלקה מקומית שלא
+# תיזרק לעולם עדיפה על ייבוא שמפיל את המודול.
+try:  # type: ignore
+    from pymongo.errors import PyMongoError  # type: ignore
+except Exception:  # pragma: no cover
+    class PyMongoError(Exception):  # type: ignore
+        pass
+
+logger = logging.getLogger(__name__)
 
 
 def get_db():
@@ -1128,6 +1144,17 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
 #: נשאר בסדר גודל אחד מתחת לתקרה.
 _PUSH_EVENT_NAME_MAX_CHARS = 120
 
+#: קיצור התצוגה של **תגובה** בגוף התראת ``note_comment``, בתווים. מספר נפרד מ-
+#: :data:`_PUSH_EVENT_NAME_MAX_CHARS` אף שהוא שווה לו היום: זה שם קובץ וזה משפט
+#: מתוך תגובה, ומספר משותף לשניהם היה משתנה בשביל האחד ושובר את השני. אותו
+#: נימוק של גודל: 120 תווים הם לכל היותר כ-480 בייטים מול תקרת 4096 של RFC 8030.
+_PUSH_COMMENT_PREVIEW_MAX_CHARS = 120
+
+#: קיצור שם הפתק בכותרת התראת ``note_comment``, בתווים. שם פתק כבר חסום
+#: (``sticky_notes_target.MAX_NOTE_TITLE``), אבל כותרת התראה היא שורה אחת שמתחילה
+#: בשם הסוכן, ולכן היא מקצרת עוד.
+_PUSH_NOTE_TITLE_MAX_CHARS = 60
+
 #: כמה ניסיונות מסירה כושלים לפני שאירוע נפסל.
 #:
 #: בלי תקרה, אירוע שמסירתו נכשלת שוב ושוב נשאר ``needs_push=True`` לנצח.
@@ -1199,6 +1226,14 @@ def _claim_push_event(db, event_doc: dict, ttl_seconds: int | None = None) -> st
         return None
 
 
+def _cut_for_display(text: str, max_chars: int) -> str:
+    """קיצור לתצוגה בהתראה — **בתווים ולא בבייטים** (H6), עם "…" כשנחתך.
+
+    קיטום מוצהר לתצוגה בלבד: המקור נשמר במלואו, וההתראה מובילה אליו.
+    """
+    return text if len(text) <= max_chars else text[:max_chars] + "…"
+
+
 def _build_file_saved_payload(event_doc: dict) -> dict | None:
     """בונה גוף התראה לאירוע ``file_saved``.
 
@@ -1213,8 +1248,7 @@ def _build_file_saved_payload(event_doc: dict) -> dict | None:
         return None
     # השם המלא, לפני הקיצור לתצוגה, הוא מה שמזהה את הקובץ לצורך ה-tag.
     full_name = name
-    if len(name) > _PUSH_EVENT_NAME_MAX_CHARS:
-        name = name[:_PUSH_EVENT_NAME_MAX_CHARS] + "…"
+    name = _cut_for_display(name, _PUSH_EVENT_NAME_MAX_CHARS)
 
     file_id_str = str(event_doc.get("file_id") or "")
     created = bool(event_doc.get("created"))
@@ -1261,12 +1295,163 @@ def _build_file_saved_payload(event_doc: dict) -> dict | None:
     }
 
 
+def _build_note_comment_payload(
+    event_doc: dict,
+    *,
+    note_titles: Dict[str, str],
+    comments: Dict[Tuple[str, str], dict],
+) -> dict | None:
+    """בונה גוף התראה לאירוע ``note_comment`` — תגובה של סוכן על פתק.
+
+    האירוע אינו נושא את הטקסט — רק מזהים, את היעד של הפתק ואת הכותב (``nt.note_comment_push_event``);
+    שם הפתק והתגובה עצמה נקראו **טריים**, למנה כולה, ב-:func:`_note_comment_builder`, ומגיעים
+    לכאן כמילונים.
+
+    ``None`` — ואז האירוע נסגר כ-``incomplete_event`` ולא נשלח — כשאין מה לפתוח: מזהה פגום,
+    פתק שנמחק (או שאינו של המשתמש), תגובה שאינה בשרשור או ששייכת לפתק אחר, או תגובה
+    שאינה של סוכן (רק תגובת סוכן מתריעה; ה-MCP אוכף את זה ברישום, וכאן זה נבדק שוב מול
+    מה שבמסד).
+
+    **הטקסט עובר ניקוי סודות לפני הקיצור** (K13): ההתראה מוצגת גם במסך הנעילה, וה-Service
+    Worker מדווח את תחילת הגוף הגולמי ל-``/api/push/sw-report``. ניקוי אחרי קיצור היה מפספס
+    טוקן שנחתך באמצע, כי הדפוסים דורשים אורך מינימלי.
+    """
+    note_id = event_doc.get("note_id")
+    thread_id = nt.parse_thread_id(event_doc.get("thread_id"))
+    comment_id = event_doc.get("comment_id")
+    if not nt.is_canonical_note_id(note_id) or thread_id is None or not isinstance(comment_id, str):
+        return None
+    if note_id not in note_titles:
+        return None
+    comment = comments.get((thread_id, comment_id))
+    if not isinstance(comment, dict) or comment.get("note_id") != note_id:
+        return None
+    author = comment.get("author")
+    if not isinstance(author, dict) or author.get("kind") != nt.AUTHOR_AGENT:
+        return None
+    body = comment.get("body")
+    if not isinstance(body, str):
+        return None
+    # גם השם של הכותב עובר ניקוי: לקוח שאינו ב-``nt.AGENT_CLIENT_LABELS`` מוצג בשם שהלקוח עצמו
+    # מסר בחיבור (``nt.author_label``), והוא חלק מהכותרת שבמסך הנעילה בדיוק כמו שם הפתק.
+    label = " ".join(redact_secrets(nt.author_label(author, user_name="")).split())
+    note_title = _cut_for_display(" ".join(redact_secrets(note_titles[note_id]).split()), _PUSH_NOTE_TITLE_MAX_CHARS)
+    title_text = f'💬 {label} הגיב על "{note_title}"' if note_title else f"💬 {label} הגיב על פתק"
+    body_text = _cut_for_display(" ".join(redact_secrets(body).split()), _PUSH_COMMENT_PREVIEW_MAX_CHARS)
+    return {
+        "notification": {
+            "title": title_text,
+            "body": body_text,
+            "icon": "/static/icons/app-icon-512.png",
+            "badge": "/static/icons/app-icon-512.png",
+            # התראה אחת לכל שרשור: תגובה חדשה באותו שרשור מחליפה את הקודמת במגש, ולא
+            # נערמת לידה — אותו היגיון של ה-tag של ``file_saved``.
+            "tag": "note-thread-" + thread_id,
+            "silent": False,
+            "requireInteraction": False,
+            # בלי כפתורים, מאותו נימוק של ``file_saved``: ברירת המחדל של ה-SW היא כפתורי
+            # תזכורת ("דחה 10 דק׳"), ותגובה אינה תזכורת שאפשר לדחות.
+            "actions": [],
+        },
+        "data": {
+            # ה-SW מבדיל לפי ``type``: לחיצה על התראת תגובה **אינה** מאשרת תזכורת של הפתק,
+            # ופותחת את השרשור (``/note/<id>?thread=<id>``).
+            "type": nt.NOTE_COMMENT_PUSH_KIND,
+            "note_id": note_id,
+            "thread_id": thread_id,
+            "file_id": "",
+            "board_id": "",
+            "title": title_text,
+            "body": body_text,
+        },
+    }
+
+
+def _note_comment_builder(db, user_id: Any, events: list[dict]) -> Callable[[dict], Optional[dict]]:
+    """מכין את מה שבוני ``note_comment`` של המנה צריכים — **שתי שאילתות למנה כולה**, ולא
+    קריאה לכל אירוע (N+1): שמות הפתקים (``sticky_notes``, רק ``title``) והתגובות עצמן
+    (``nt.comments_by_ref``, שמסנן במסד ומחזיר רק את התגובות שנשאלו). שתיהן תחומות ל-
+    ``user_id`` של המנה. כשל של המסד עולה ל-:func:`_send_events_for_user`, שמשאיר את
+    האירועים לסבב הבא.
+    """
+    from bson import ObjectId  # type: ignore
+
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        # אירועי ``note_comment`` נרשמים עם ``int(user_id)`` (``nt.note_comment_push_event``);
+        # מזהה אחר אינו יכול להיות של אירוע כזה, ואין לו פתקים לקרוא.
+        return lambda _ev: None
+    note_oids = []
+    refs = []
+    for ev in events:
+        note_id = ev.get("note_id")
+        if nt.is_canonical_note_id(note_id):
+            note_oids.append(ObjectId(note_id))
+        refs.append((ev.get("thread_id"), ev.get("comment_id")))
+    note_titles: Dict[str, str] = {}
+    if note_oids:
+        for doc in db.sticky_notes.find({"_id": {"$in": note_oids}, "user_id": uid}, {"title": 1}):
+            title = doc.get("title")
+            note_titles[str(doc["_id"])] = title if isinstance(title, str) else ""
+    comments = nt.comments_by_ref(db[nt.NOTE_THREADS_COLLECTION], user_id=uid, refs=refs)
+    return lambda ev: _build_note_comment_payload(ev, note_titles=note_titles, comments=comments)
+
+
+class _EventKind(NamedTuple):
+    """סוג אירוע ש-``push_events`` יודע לשלוח."""
+
+    #: שדות האירוע שהבונה קורא. **ההיטלה של :func:`_send_due_events_once` נגזרת מהם**
+    #: (:func:`_event_projection`), ולכן סוג חדש אינו יכול "לשכוח" להוסיף את שדותיו להיטלה.
+    fields: Tuple[str, ...]
+    #: ``(db, user_id, events) -> build``: קורא פעם אחת לכל מנה של משתמש את מה שהבונה צריך
+    #: מהמסד, ומחזיר את הבונה של אירוע בודד. ``build`` מחזיר גוף התראה, או ``None`` כשאין מה
+    #: לשלוח.
+    make_builder: Callable[[Any, Any, list], Callable[[dict], Optional[dict]]]
+
+
+def _static_builder(build: Callable[[dict], Optional[dict]]):
+    """``make_builder`` לסוג שאינו קורא מהמסד: אותו בונה לכל מנה."""
+    return lambda _db, _user_id, _events: build
+
+
 #: בורר לפי ``kind``. אירוע שסוגו אינו כאן אינו נשלח — ראו
 #: :func:`_send_events_for_user` לטיפול בו. הבורר קיים כדי שגרסת WebApp
 #: שרצה לצד שירות MCP חדש יותר לא תשלח התראה שאינה יודעת לבנות.
-_EVENT_PAYLOAD_BUILDERS = {
-    "file_saved": _build_file_saved_payload,
+_EVENT_KINDS: Dict[str, _EventKind] = {
+    "file_saved": _EventKind(
+        fields=("file_name", "file_id", "created"),
+        make_builder=_static_builder(_build_file_saved_payload),
+    ),
+    nt.NOTE_COMMENT_PUSH_KIND: _EventKind(
+        fields=("note_id", "thread_id", "comment_id"),
+        make_builder=_note_comment_builder,
+    ),
 }
+
+#: השדות שהשולח עצמו קורא בכל אירוע, בלי קשר לסוג.
+_EVENT_BASE_FIELDS = (
+    "_id",
+    "user_id",
+    "kind",
+    "created_at",
+    # בלי זה ``_record_delivery_failure`` קורא ``None`` בכל סבב, מתחיל לספור מאחת,
+    # ולעולם אינו מגיע לתקרה — כלומר התקרה קיימת בקוד ואינה קיימת בפועל.
+    "attempts",
+)
+
+
+def _event_projection() -> Dict[str, int]:
+    """ההיטלה של שליפת האירועים: :data:`_EVENT_BASE_FIELDS` ועוד השדות שכל סוג הצהיר עליהם.
+
+    **נגזרת ולא מוקלדת — זה תיקון השורש של מלכודת ההיטלה הקבועה.** עד ``note_comment``
+    ההיטלה הייתה רשימה מוקלדת של שדות ``file_saved``, וסוג חדש היה מגיע לבונה שלו בלי
+    המזהים שלו: הבונה מחזיר ``None``, והאירוע נסגר כ-``incomplete_event`` — בשקט.
+    """
+    fields = set(_EVENT_BASE_FIELDS)
+    for spec in _EVENT_KINDS.values():
+        fields.update(spec.fields)
+    return {name: 1 for name in sorted(fields)}
 
 
 def _resolve_push_event(
@@ -1399,10 +1584,15 @@ def _send_events_for_user(user_id: int | str, events: list[dict]) -> None:
         return
     db = ctx.db
 
+    # הבונה של כל סוג מוכן פעם אחת למנה, בפעם הראשונה שהסוג מופיע בה — עם כל אירועי
+    # הסוג במנה, כדי שהקריאות מהמסד יהיו לפי סוג ולא לפי אירוע. סוג שההכנה שלו נכשלה
+    # בשגיאת מסד נשאר כאן ``None``: האירועים שלו נשארים דלוקים לסבב הבא, כי כשל קריאה
+    # חולף אינו סיבה לסגור אותם (``_resolve_push_event`` הוא מצב סופי).
+    builders: Dict[str, Optional[Callable[[dict], Optional[dict]]]] = {}
     for ev in events:
         kind = str(ev.get("kind") or "")
-        builder = _EVENT_PAYLOAD_BUILDERS.get(kind)
-        if builder is None:
+        spec = _EVENT_KINDS.get(kind)
+        if spec is None:
             # סוג שאינו מוכר לגרסה הזו. מכבים אותו במקום להשאירו דלוק,
             # אחרת הוא ייבחר בכל סבב מכאן והלאה בלי שיישלח לעולם.
             _resolve_push_event(db, ev, sent=False, reason="unknown_kind")
@@ -1417,6 +1607,17 @@ def _send_events_for_user(user_id: int | str, events: list[dict]) -> None:
                 )
             except Exception:
                 pass
+            continue
+        if kind not in builders:
+            try:
+                builders[kind] = spec.make_builder(
+                    db, user_id, [e for e in events if str(e.get("kind") or "") == kind]
+                )
+            except PyMongoError:
+                logger.warning("push: preparing %s events failed; they stay pending", kind, exc_info=True)
+                builders[kind] = None
+        builder = builders[kind]
+        if builder is None:
             continue
         payload = builder(ev)
         if payload is None:
@@ -1462,23 +1663,10 @@ def _send_due_events_once(max_users: int = 100, max_per_user: int = 10) -> None:
     """
     db = get_db()
     total_needed = max_users * max_per_user
-    projection = {
-        "_id": 1,
-        "user_id": 1,
-        "kind": 1,
-        "file_name": 1,
-        "file_id": 1,
-        "created": 1,
-        "created_at": 1,
-        # בלי זה ``_record_delivery_failure`` קורא ``None`` בכל סבב, מתחיל
-        # לספור מאחת, ולעולם אינו מגיע לתקרה — כלומר התקרה קיימת בקוד ואינה
-        # קיימת בפועל.
-        "attempts": 1,
-    }
     try:
         raw = list(
             db.push_events
-            .find({"needs_push": True}, projection)
+            .find({"needs_push": True}, _event_projection())
             .sort("created_at", 1)
             .limit(total_needed)
         )

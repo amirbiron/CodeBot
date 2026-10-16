@@ -220,7 +220,9 @@ async def test_get_note_derives_the_admin_flag_from_the_identity_it_queries_with
     mcp = build_mcp(_FakeBackend())
     await mcp.call_tool("codekeeper_get_note", {"note_id": "a" * 24})
 
-    assert seen == {"user_id": 4242, "note_id": "a" * 24, "is_admin": admin}
+    # ``part`` ו-``thread_id`` (שרשורי התגובות) עוברים ל-handler בברירת המחדל שלהם.
+    assert seen == {"user_id": 4242, "note_id": "a" * 24, "is_admin": admin,
+                    "part": "all", "thread_id": None}
     assert asked == [4242]
 
 
@@ -823,7 +825,7 @@ async def test_the_tool_description_points_at_the_parameters_that_carry_the_deta
 #: לסוכן חתוך באמצע המשפט על RST ועל ``symbol=`` — שני פיצ'רים שעבדו ואף
 #: לקוח לא קרא עליהם.
 #:
-#: הבחירה ב-1,400: הכלי הארוך ביותר מבין 33 הכלים הוא
+#: הבחירה ב-1,400: הכלי הארוך ביותר מבין 34 הכלים הוא
 #: ``codekeeper_get_file`` ב-1,354 תווים. כלומר המספר נותן מרווח
 #: למשפט קצר של גדילה, ונשאר הרבה מתחת לאזור שבו החיתוך נצפה
 #: בפועל. (עד מצבי ``toc``/``section`` של ``codekeeper_get_file`` הארוך ביותר

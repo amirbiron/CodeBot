@@ -33,6 +33,21 @@ from mcp_uploads import UPLOAD_TTL_SECONDS, UploadStorageUnavailable, is_upload_
 # בלי לגרור את חבילת המסד — ולכן ``codekeeper_save_file`` לא אכף אותו כלל.
 from file_description import description_length_error
 
+# שרשורי התגובות על פתקים — המודל והכללים, מודול שורש טהור שמשותף עם הוובאפ.
+from note_threads import (
+    AUTHOR_AGENT,
+    MAX_CLIENT_NAME_CHARS,
+    MAX_COMMENT_CHARS,
+    MAX_COMMENTS_PER_THREAD,
+    MAX_WORKING_ON_CHARS,
+    STATUS_OPEN,
+    STATUS_RESOLVED,
+    agent_author,
+    comment_body_error,
+    parse_thread_id,
+    working_on_or_error,
+)
+
 MAX_PER_PAGE = 200
 MAX_SEARCH_LIMIT = 100
 MAX_COLLECTIONS_LIMIT = 500
@@ -2246,7 +2261,56 @@ def note_str_replace(
     return out
 
 
-def get_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dict[str, Any]:
+def is_repo_note(target: Any, fields: Any) -> bool:
+    """האם פתק יושב על קובץ בריפו משוקף — **ההגדרה היחידה**, לשער ולכל מי שמסנן לפיו.
+
+    ``target`` הוא היעד מ-``note_target_ref``, ו-``fields`` הוא הפתק (המסמך עצמו, או
+    הסריאליזציה שלו — באותם שמות שדות). **כל** שדה ריפו הופך את הפתק לפתק ריפו, גם כשהיעד
+    השלם אינו חוקי (``target: "unknown"``): השער נסגר על חצי יעד, ולא נפתח בגללו.
+    """
+    fields = fields if isinstance(fields, dict) else {}
+    return target == "repo" or bool(fields.get("repo_name")) or bool(fields.get("repo_path"))
+
+
+def _readable_note(
+    backend: Any, user_id: int, *, note_id: str, is_admin: bool, with_version: bool
+) -> dict[str, Any]:
+    """**השער של פתק בודד** — מה ש-``backend.get_note`` החזיר, או הסירוב.
+
+    קוד אחד לשני הכלים: ``codekeeper_get_note`` קורא דרכו, ו-``codekeeper_comment_note``
+    עובר בו **לפני כל כתיבה**. כך "ההרשאה של תגובה זהה לזו של קריאה" נכון מבנית ולא
+    מתוך תיאום (האפיון: "ההרשאה זהה לזו של get_note, ומאותו קוד").
+
+    - הבעלות יושבת במסנן של ``backend.get_note`` — פתק של משתמש אחר הוא ``not_found``.
+    - פתק ריפו (:func:`is_repo_note`) פתוח לאדמין בלבד; לכל אחר ``not_found`` — אותה
+      תשובה כמו לפתק של מישהו אחר ולמזהה שאינו קיים, כך שהסירוב אינו מגלה שהמזהה קיים.
+    - ``is_admin`` הוא **חובה ובלי ברירת מחדל** (K12 §3), ורק ``True`` ממש פותח.
+
+    ``note_id`` הוא המזהה הקנוני (:func:`_clean_note_id`). התשובה היא ``backend.get_note``
+    כמו שהוא — ``ok``, ``note``, שדות היעד, ``version`` כשביקשו — או מילון סירוב.
+    """
+    current = backend.get_note(user_id, note_id=note_id, with_version=with_version)
+    if not isinstance(current, dict) or not current.get("ok"):
+        refused: dict[str, Any] = {
+            "ok": False, "error": str((current or {}).get("error") or "not_found"),
+        }
+        if isinstance(current, dict) and current.get("hint"):
+            refused["hint"] = str(current["hint"])
+        return refused
+    if is_repo_note(current.get("target"), current.get("note")) and is_admin is not True:
+        return {"ok": False, "error": "not_found"}
+    return current
+
+
+def get_note(
+    backend: Any,
+    user_id: int,
+    *,
+    note_id: str,
+    is_admin: bool,
+    part: Any = "all",
+    thread_id: Any = None,
+) -> dict[str, Any]:
     """Read ONE sticky note by id — the current body, where it sits, and its version.
 
     **אותה קריאה-לפי-מזהה של** ``note_str_replace`` (``backend.get_note``),
@@ -2275,38 +2339,348 @@ def get_note(backend: Any, user_id: int, *, note_id: str, is_admin: bool) -> dic
     אינו תואם. גוף ריק נושא ``version: null``: ההיסטוריה אינה מצלמת אותו,
     ולכן אין מספר שיחזיר אותו. פתק ריפו נושא ``orphaned: true`` כשהנתיב
     כבר אינו בעץ המשוקף, באותו כלל של ``list_repo_notes``.
+
+    **שרשורי התגובות** (``note_threads``) באים אחרי הפתק, ב-``threads``, ונקראים **אחרי**
+    הקריאה העקבית ומחוץ לה: אין קשר של גרסה בין גוף הפתק לשרשור, והלולאה החוזרת של
+    ``backend.get_note`` אינה צריכה לשאת אותם. ``part`` בוחר מה חוזר
+    (:data:`NOTE_PARTS`): ``"all"`` — הפתק, ואחריו השרשורים הפתוחים עם התגובות האחרונות
+    שלהם והשרשורים שנפתרו כשורה מקופלת; ``"threads"`` — בלי גוף הפתק, כל השרשורים במלואם,
+    ועם ``thread_id`` שרשור אחד. הבנייה, התקציב והסימנים — :func:`_with_threads`.
     """
     nid = _clean_note_id(note_id)
     if nid is None:
         return {"ok": False, "error": "invalid_note_id"}
+    if part not in NOTE_PARTS:
+        return {"ok": False, "error": "invalid_part", "allowed": list(NOTE_PARTS)}
+    tid: str | None = None
+    if thread_id is not None:
+        tid = parse_thread_id(thread_id)
+        if tid is None:
+            return {"ok": False, "error": "invalid_thread_id"}
+        if part != "threads":
+            return {"ok": False, "error": "thread_id_needs_part_threads",
+                    "hint": 'pass part="threads" together with thread_id'}
 
-    current = backend.get_note(user_id, note_id=nid, with_version=True)
-    if not isinstance(current, dict) or not current.get("ok"):
-        refused: dict[str, Any] = {
-            "ok": False, "error": str((current or {}).get("error") or "not_found"),
-        }
-        if isinstance(current, dict) and current.get("hint"):
-            refused["hint"] = str(current["hint"])
-        return refused
+    # הגרסה מתארת את הגוף, ולכן היא נקראת רק כשהגוף חוזר.
+    current = _readable_note(
+        backend, user_id, note_id=nid, is_admin=is_admin, with_version=part == "all"
+    )
+    if not current.get("ok"):
+        return current
 
     note = dict(current.get("note") or {})
-    is_repo_note = (
-        current.get("target") == "repo"
-        or bool(note.get("repo_name"))
-        or bool(note.get("repo_path"))
-    )
-    if is_repo_note and is_admin is not True:
-        return {"ok": False, "error": "not_found"}
+    repo = is_repo_note(current.get("target"), note)
+    if part == "all":
+        out: dict[str, Any] = {"ok": True, "note": note}
+        # היעד, בדיוק בארגומנטים שכלי הרשימה המתאים דורש — כמו פגיעת חיפוש;
+        # ו-``version`` שנקרא באותה קריאה תחומה כמו הגוף.
+        out.update({k: v for k, v in current.items() if k not in ("ok", "note")})
+        if repo and backend.repo_path_orphaned(
+            repo_name=str(note.get("repo_name") or ""), repo_path=str(note.get("repo_path") or "")
+        ):
+            out["orphaned"] = True
+    else:
+        # בלי הגוף: מזהה, שם, והיעד — כדי שהקורא יידע על איזה פתק מדובר.
+        out = {"ok": True, "note_id": nid, "title": note.get("title")}
+        out.update({k: v for k, v in current.items() if k not in ("ok", "note", "version")})
+    return _with_threads(backend, user_id, out, note_id=nid, part=part, thread_id=tid)
 
-    out: dict[str, Any] = {"ok": True, "note": note}
-    # היעד, בדיוק בארגומנטים שכלי הרשימה המתאים דורש — כמו פגיעת חיפוש;
-    # ו-``version`` שנקרא באותה קריאה תחומה כמו הגוף.
-    out.update({k: v for k, v in current.items() if k not in ("ok", "note")})
-    if is_repo_note and backend.repo_path_orphaned(
-        repo_name=str(note.get("repo_name") or ""), repo_path=str(note.get("repo_path") or "")
-    ):
-        out["orphaned"] = True
-    return out
+
+# -- שרשורי תגובות על פתקים ----------------------------------------------------
+#
+# המודל והכללים יושבים ב-``note_threads`` (מודול שורש טהור, משותף עם הוובאפ); כאן
+# החיווט של ה-MCP: הקלט מהסוכן, השער, והתשובה בתוך ``OUTPUT_BYTE_BUDGET``.
+
+#: הערכים של ``part`` ב-``codekeeper_get_note``. הראשון הוא ברירת המחדל.
+NOTE_PARTS = ("all", "threads")
+
+#: כמה תגובות אחרונות מוצגות לכל שרשור פתוח בקריאת ברירת המחדל (``part="all"``).
+#: שרשור טיפוסי הוא שניים-שלושה סבבים (האפיון), ולכן הוא מוצג במלואו; שרשור ארוך מזה
+#: מציג את האחרונות ואת ``earlier_comments``, ו-``part="threads"`` קורא אותו שלם.
+NOTE_THREAD_DEFAULT_TAIL = 10
+
+_THREADS_HINT_ALL = (
+    'Resolved threads are collapsed, and earlier_comments counts comments not shown. Read a '
+    'thread in full with part="threads" and thread_id; part="threads" alone lists every thread '
+    "without the note body."
+)
+_THREADS_HINT_PART = (
+    'A thread without "comments" did not fit this reply: read it with thread_id.'
+)
+_THREADS_UNAVAILABLE_HINT = "the comment threads could not be read right now — try again"
+
+
+@functools.cache
+def _thread_cost_bounds() -> tuple[int, int, int, int]:
+    """חסמים עליונים על מה ששורת שרשור מוסיפה לרשימה ``threads`` — כפי שהיא נשלחת.
+
+    ``(שורה מקופלת, בסיס של שורה עם תגובות, תוספת לכל תגובה בלי גוף, גוף תגובה)``.
+    נמדדים על שורה ותגובה **במקרה הגרוע** — הנפתר (``resolved_by`` מלא), עם שם לקוח
+    ו-``working_on`` בתקרה ובתווי בקרה (שש בתים כל אחד ב-JSON) — דרך אותו
+    ``list_item_cost`` שבו כל רשימה בשרת נמדדת, ולא נספרים ביד. גוף התגובה נספר בנפרד,
+    מ-``body_bytes`` השמור, ולכן כאן התגובה נמדדת עם גוף ריק.
+    """
+    from .answer_size import list_item_cost
+
+    when = "2026-10-13T18:37:37.076000+00:00"
+    who = {
+        "kind": AUTHOR_AGENT,
+        "client": "\x00" * MAX_CLIENT_NAME_CHARS,
+        "working_on": "\x00" * MAX_WORKING_ON_CHARS,
+    }
+    row = {
+        "id": "f" * 24, "number": 10**9, "status": STATUS_RESOLVED,
+        "comment_count": MAX_COMMENTS_PER_THREAD, "last_author_kind": AUTHOR_AGENT,
+        "last_at": when, "created_at": when, "resolved_by": who, "resolved_at": when,
+        "earlier_comments": MAX_COMMENTS_PER_THREAD,
+    }
+    comment = {"id": "f" * 24, "author": who, "body": "", "created_at": when}
+    collapsed = list_item_cost(row, depth=0)
+    one = list_item_cost({**row, "comments": [comment]}, depth=0)
+    two = list_item_cost({**row, "comments": [comment, comment]}, depth=0)
+    step = two - one
+    body_max = MAX_COMMENT_CHARS * len("\\u0000") + len('""')
+    return collapsed, one - step, step, body_max
+
+
+def _thread_row(meta: dict[str, Any], *, comments: list | None = None, earlier: int = 0) -> dict[str, Any]:
+    """שורת שרשור בתשובה. ``comments`` חסר — השורה מקופלת (אין מפתח ``comments`` בכלל)."""
+    row: dict[str, Any] = {
+        "id": meta.get("id"),
+        "number": meta.get("number"),
+        "status": meta.get("status"),
+        "comment_count": meta.get("comment_count"),
+        "last_author_kind": meta.get("last_author_kind"),
+        "last_at": meta.get("last_at"),
+        "created_at": meta.get("created_at"),
+    }
+    if meta.get("status") == STATUS_RESOLVED:
+        row["resolved_by"] = meta.get("resolved_by")
+        row["resolved_at"] = meta.get("resolved_at")
+    if comments is not None:
+        if earlier:
+            row["earlier_comments"] = earlier
+        row["comments"] = comments
+    return row
+
+
+def _plan_threads(
+    meta_rows: list[dict[str, Any]], *, part: str, room: int
+) -> tuple[list[tuple[dict[str, Any], int]], int, int]:
+    """אילו שרשורים יוצגו עם תגובות ואילו מקופלים — **לפני** שתגובה כלשהי נקראת מהמסד.
+
+    לכל שרשור, בסדר התצוגה: כמה תגובות הוא מבקש (``part="all"``: הפתוח — עד
+    :data:`NOTE_THREAD_DEFAULT_TAIL` האחרונות, הנפתר — אף אחת; ``part="threads"`` — כולן),
+    והאם החסם העליון שלו נכנס במקום שנשאר (:func:`_thread_cost_bounds`, וגופי התגובות
+    מהמונה ``body_bytes`` השמור). שרשור שאינו נכנס עם תגובותיו מוצג מקופל; וכשגם שורה
+    מקופלת אינה נכנסת, הוא — וכל מה שאחריו — יורד מהרשימה.
+
+    כך מה שנקרא מהמסד הוא מה שנשלח (``work-disproportionate-to-answer``): שרשור שלא
+    ייכנס אינו נשלף, גם כשיש עשרות כאלה.
+
+    :returns: ``([(meta, כמה תגובות לטעון — 0 למקופל), ...], withheld, dropped)`` —
+        כמה שרשורים הוצגו בלי התגובות שביקשו בגלל התקציב, וכמה ירדו מהרשימה.
+    """
+    collapsed, base, step, body_max = _thread_cost_bounds()
+    plan: list[tuple[dict[str, Any], int]] = []
+    withheld = 0
+    used = 0
+    for index, meta in enumerate(meta_rows):
+        count = meta.get("comment_count") if isinstance(meta.get("comment_count"), int) else 0
+        if part == "threads":
+            want = count
+        else:
+            want = min(count, NOTE_THREAD_DEFAULT_TAIL) if meta.get("status") == STATUS_OPEN else 0
+        if want > 0:
+            stored = meta.get("body_bytes")
+            bodies = want * body_max
+            if isinstance(stored, int) and stored >= 0:
+                bodies = min(bodies, stored)
+            cost = base + want * step + bodies
+            if used + cost <= room:
+                plan.append((meta, want))
+                used += cost
+                continue
+            withheld += 1
+        if used + collapsed > room:
+            return plan, withheld, len(meta_rows) - index
+        plan.append((meta, 0))
+        used += collapsed
+    return plan, withheld, 0
+
+
+def _with_threads(
+    backend: Any, user_id: int, out: dict[str, Any], *, note_id: str, part: str, thread_id: str | None
+) -> dict[str, Any]:
+    """``out`` ועוד ``threads`` — בתוך ``OUTPUT_BYTE_BUDGET``, עם סימן על כל מה שלא הוצג.
+
+    התשובה של ``get_note`` הייתה חסומה מראש (גוף פתק עד ``MAX_NOTE_CHARS``), והשרשורים
+    שוברים את זה — לכן הם נבנים כאן מול התקציב, **כפי שהתשובה נשלחת**:
+
+    - :func:`_plan_threads` מחליט מה מוצג, מהמונים השמורים; רק אחר כך התגובות נקראות
+      (``backend.note_thread_comments``), ורק לשרשורים שיוצגו איתן.
+    - שרשור שהוצג בלי (כל) התגובות שביקש נושא ``earlier_comments``; תשובה שבה שרשור
+      הוצג מקופל **בגלל התקציב** נושאת ``comments_truncated``, ותשובה שבה שרשורים ירדו
+      מהרשימה — ``threads_truncated``. כל חיתוך כזה נרשם (``answer_fit.cut``), כמו כל
+      חיתוך בשרת (``tests/conftest.py``, ``answer_fits_match_what_was_sent``).
+    - ``threads_hint`` כשמשהו לא הוצג במלואו — איך לקרוא אותו.
+    - ``fit_lists`` בסוף הוא רשת: החסמים עליונים, ולכן היא אינה אמורה לחתוך.
+
+    שרשור יחיד (``thread_id``) תמיד נכנס: ``MAX_THREAD_BODY_BYTES`` נבחר בדיוק כך
+    (``tests/test_note_threads_mcp.py`` בונה את השרשור הגרוע ביותר ומודד).
+
+    כשל בקריאת השרשורים: ב-``part="all"`` הפתק חוזר עם ``threads: null`` ו-
+    ``threads_error`` — "לא ידוע", ולא "אין שרשורים"; ב-``part="threads"`` — סירוב.
+    """
+    from .answer_fit import cut, fit_lists, too_large
+    from .answer_size import NONEMPTY_LIST_BYTES, OUTPUT_BYTE_BUDGET, wire_json
+
+    meta_rows = backend.note_threads(user_id, note_id=note_id)
+    if meta_rows is None:
+        if part == "threads":
+            return {"ok": False, "error": "threads_unavailable", "hint": _THREADS_UNAVAILABLE_HINT}
+        return {**out, "threads": None, "threads_error": "threads_unavailable"}
+
+    if thread_id is not None:
+        meta_rows = [meta for meta in meta_rows if meta.get("id") == thread_id]
+        if not meta_rows:
+            return {"ok": False, "error": "thread_not_found",
+                    "hint": 'list this note\'s threads with part="threads"'}
+
+    hint = _THREADS_HINT_ALL if part == "all" else _THREADS_HINT_PART
+    worst_head = {**out, "threads": [], "threads_truncated": True, "comments_truncated": True,
+                  "threads_hint": hint}
+    room = OUTPUT_BYTE_BUDGET - len(wire_json(worst_head)) - NONEMPTY_LIST_BYTES
+    plan, withheld, dropped = _plan_threads(meta_rows, part=part, room=room)
+
+    full = [str(meta["id"]) for meta, want in plan if want and want >= int(meta.get("comment_count") or 0)]
+    tails = [str(meta["id"]) for meta, want in plan if want and want < int(meta.get("comment_count") or 0)]
+    comments: dict[str, list] = {}
+    for ids, tail in ((full, None), (tails, NOTE_THREAD_DEFAULT_TAIL)):
+        if not ids:
+            continue
+        loaded = backend.note_thread_comments(user_id, note_id=note_id, thread_ids=ids, tail=tail)
+        if loaded is None:
+            if part == "threads":
+                return {"ok": False, "error": "threads_unavailable", "hint": _THREADS_UNAVAILABLE_HINT}
+            return {**out, "threads": None, "threads_error": "threads_unavailable"}
+        comments.update(loaded)
+
+    rows: list[dict[str, Any]] = []
+    partial = False
+    for meta, want in plan:
+        count = int(meta.get("comment_count") or 0)
+        if not want:
+            rows.append(_thread_row(meta))
+            # שורה מקופלת היא "לא הכול" — חוץ משרשור ריק (שאין לו מה להציג).
+            partial = partial or count > 0
+            continue
+        shown = list(comments.get(str(meta["id"])) or [])
+        earlier = max(count - len(shown), 0)
+        partial = partial or earlier > 0
+        rows.append(_thread_row(meta, comments=shown, earlier=earlier))
+
+    answer = {**out, "threads": rows}
+    if withheld:
+        answer["comments_truncated"] = True
+        cut(withheld=withheld, of=len(meta_rows))
+    if dropped:
+        answer["threads_truncated"] = True
+        cut(returned=len(rows), of=len(meta_rows))
+    if partial or withheld or dropped:
+        answer["threads_hint"] = hint
+    fitted, size = fit_lists(answer, cuts=(("threads", "threads_truncated"),),
+                             budget=OUTPUT_BYTE_BUDGET, record=True)
+    if fitted is None:
+        return {"ok": False, **too_large(size),
+                "hint": 'read the threads without the note body: part="threads"'}
+    return fitted
+
+
+#: ההפניה לכל סירוב של :func:`comment_note` שיש לו המשך — קוד ← משפט.
+_COMMENT_HINTS = {
+    "thread_full": "this thread is full — start a new thread on the note (omit thread_id)",
+    "thread_too_long": "this thread is too long — start a new thread on the note (omit thread_id)",
+    "thread_not_found": 'list this note\'s threads with codekeeper_get_note part="threads"',
+    "already_resolved": "the thread is already resolved — reply with thread_id to reopen it",
+    "conflict": "the thread kept changing while this was written — read it and try again",
+}
+
+
+def comment_note(
+    backend: Any,
+    user_id: int,
+    *,
+    note_id: Any,
+    working_on: Any,
+    body: Any = None,
+    thread_id: Any = None,
+    resolve: Any = False,
+    reopen: Any = True,
+    client: Any,
+    is_admin: bool,
+) -> dict[str, Any]:
+    """תגובה על פתק: שרשור חדש, תשובה בשרשור, או סגירה — הכלי ``codekeeper_comment_note``.
+
+    | ארגומנטים | מה קורה |
+    | ``body`` בלי ``thread_id`` | שרשור חדש על הפתק |
+    | ``body`` + ``thread_id`` | תשובה. שרשור שנפתר נפתח מחדש — אלא אם ``reopen=False`` |
+    | ``thread_id`` + ``resolve=True`` | סגירה; ``body`` אופציונלי, כמשפט סיכום |
+
+    **הסדר הוא החוזה.** קודם הקלט (``note_id``, ``working_on``, הגוף, ``thread_id``) — בלי
+    לגעת במסד; אחר כך **השער של הפתק** (:func:`_readable_note`, אותו קוד של
+    ``codekeeper_get_note``): פתק של משתמש אחר, ופתק ריפו למי שאינו אדמין, עונים
+    ``not_found`` ושום דבר לא נכתב. השער נבדק על הפתק **לפני כל כתיבה**, ולא נגזר מקיום
+    ``thread_id`` — ``thread_id`` של משתמש אחר הוא בדיוק IDOR (הלקח של 4.13). ורק אחרי
+    השער — הכתיבה עצמה, שגם היא תחומה ל-``(user_id, note_id)``, כך ש-``thread_id`` של פתק
+    אחר עונה ``thread_not_found``.
+
+    ``client`` הוא שם הלקוח **מהחיבור** (``client_identity.connected_client_name``), ולעולם
+    לא פרמטר של הכלי; ``working_on`` הוא מה שהסוכן אומר על עצמו, ולכן הוא נבדק כאן.
+    ``resolve`` נדלק רק ב-``True`` ממש, ו-``reopen`` נכבה רק ב-``False`` ממש — ערך שאינו
+    בוליאני אינו משנה את ברירת המחדל.
+    """
+    nid = _clean_note_id(note_id)
+    if nid is None:
+        return {"ok": False, "error": "invalid_note_id"}
+    doing = working_on_or_error(working_on)
+    if isinstance(doing, dict):
+        return doing
+    resolving = resolve is True
+    tid: str | None = None
+    if thread_id is not None:
+        tid = parse_thread_id(thread_id)
+        if tid is None:
+            return {"ok": False, "error": "invalid_thread_id"}
+    elif resolving:
+        return {"ok": False, "error": "resolve_needs_thread_id",
+                "hint": "resolve closes an existing thread: pass its thread_id"}
+    if body is None and not resolving:
+        return {"ok": False, "error": "body_required"}
+    if body is not None:
+        refused = comment_body_error(body)
+        if refused:
+            return refused
+
+    current = _readable_note(backend, user_id, note_id=nid, is_admin=is_admin, with_version=False)
+    if not current.get("ok"):
+        return current
+
+    target_ref = {key: current.get(key) for key in ("target", "file_name", "file_id", "board_id",
+                                                     "repo_name", "repo_path") if current.get(key)}
+    result = backend.comment_note(
+        user_id,
+        note_id=nid,
+        thread_id=tid,
+        author=agent_author(client=client, working_on=doing),
+        body=body,
+        resolve=resolving,
+        reopen=reopen is not False,
+        target_ref=target_ref,
+    )
+    if not result.get("ok") and result.get("error") in _COMMENT_HINTS and "hint" not in result:
+        return {**result, "hint": _COMMENT_HINTS[str(result["error"])]}
+    return result
 
 
 def list_note_versions(backend: Any, user_id: int, *, note_id: str) -> dict[str, Any]:

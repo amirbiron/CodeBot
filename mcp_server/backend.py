@@ -77,6 +77,9 @@ from mcp_uploads import (
 # גיל התיאור — אותו סוג מודול שורש טהור בדיוק, ולכן אותו ייבוא ישיר.
 from file_description import DESCRIPTION_SET_AT_VERSION_FIELD, description_age_field
 
+# שרשורי התגובות על פתקים — המודל והכללים, אותו סוג מודול שורש טהור (משותף עם הוובאפ).
+import note_threads
+
 # ``DuplicateKeyError`` נדרש כדי להבחין בין "שם תפוס" לבין תקלה אמיתית.
 # אותה תבנית ייבוא עמיד שבה משתמש ``webapp/sticky_notes_api``: בסביבות
 # בדיקה בלי pymongo, מחלקה מקומית שלא תיזרק לעולם עדיפה על ייבוא שמפיל
@@ -1075,7 +1078,7 @@ def _lean_notes_pipeline(query: dict[str, Any]) -> list[dict[str, Any]]:
 #: משווה את המפתחות שלה לכאן; תיאורי הכלים ב-``mcp_server/server.py`` נגזרים
 #: מכאן ולא מקלידים את הרשימה, כך ששדה שיתווסף מופיע אצל הסוכן מאליו.
 LEAN_NOTE_FIELDS: tuple[str, ...] = (
-    "id", "title", "color", "color_id", "content_bytes", "updated_at"
+    "id", "title", "color", "color_id", "content_bytes", "updated_at", "open_threads"
 )
 
 
@@ -1094,6 +1097,10 @@ def _as_note_summary(doc: dict[str, Any] | None) -> dict[str, Any]:
     פתק. שורה בלי השדה (מי שהעביר לכאן מסמך מלא בטעות) מדווחת ``None`` —
     "לא ידוע" — ולא מודדת בעצמה: מדידה שנייה בפייתון הייתה עותק שני של
     אותו כלל, שנסחף ביום שבו אחד מהם ישתנה.
+
+    ``open_threads`` — כמה שרשורי תגובות פתוחים יש על הפתק — **גם הוא אינו מחושב כאן.**
+    :meth:`ProductionBackend._with_open_threads` מצמיד אותו לשורות בשאילתה אחת לכל הרשימה;
+    שורה בלעדיו, או כשהספירה נכשלה, מדווחת ``None`` — "לא ידוע", ולא אפס.
     """
     from sticky_notes_target import note_color_hex, note_color_id
 
@@ -1107,6 +1114,7 @@ def _as_note_summary(doc: dict[str, Any] | None) -> dict[str, Any]:
         "color_id": note_color_id(raw_color),
         "content_bytes": _json_safe(doc.get("content_bytes")),
         "updated_at": _json_safe(doc.get("updated_at")),
+        "open_threads": _json_safe(doc.get("open_threads")),
     }
 
 
@@ -1601,34 +1609,45 @@ class ProductionBackend:
 
         כשל ברישום **אינו מפיל את השמירה**: הקובץ כבר נשמר, וההתראה היא תוצר
         לוואי שלה. אבל הוא גם אינו שקט — בלי שורת הלוג, תור שהפסיק להתמלא
-        נראה בדיוק כמו סוכן שלא כתב כלום.
+        נראה בדיוק כמו סוכן שלא כתב כלום. (הרישום עצמו — :meth:`_insert_push_event`.)
+        """
+        self._insert_push_event(
+            {
+                "user_id": int(user_id),
+                "kind": "file_saved",
+                "file_name": file_name,
+                # ‏``file_id`` הוא בדיוק המזהה שה-insert כתב
+                # (``save_code_snippet_returning_id``), ולכן הוא מצביע על
+                # הגרסה של הכותב הזה גם כששני כותבים שומרים את אותו שם.
+                #
+                # ‏``created`` עדיין נגזר מקריאה **לפי שם** לפני השמירה: בשתי
+                # שמירות מקבילות לאותו שם שתיהן יכולות לראות "אין קובץ"
+                # ולדווח "חדש". שתיהן גרסאות של אותו קובץ ושל אותו משתמש,
+                # ולכן הקישור בהתראה נוחת במקום הנכון והנזק הוא בכותרת.
+                # ‏``save_file`` מחזיר את אותו ``created`` ללקוח ה-MCP עם
+                # אותה חשיפה בדיוק — ההתראה אינה מוסיפה אותה.
+                "file_id": file_id,
+                "created": bool(created),
+                "created_at": _dt.datetime.now(_dt.timezone.utc),
+                "needs_push": True,
+            }
+        )
+
+    def _insert_push_event(self, event: dict[str, Any]) -> None:
+        """רושם בקשת התראה אחת לאוסף ``push_events`` — **הדרך היחידה** שבה השירות כותב לתור.
+
+        שני הסוגים — ``file_saved`` (:meth:`_emit_push_event`) ו-``note_comment``
+        (:meth:`comment_note`) — עוברים כאן, ולכן שניהם כפופים לאותו דגל
+        (:func:`_push_events_enabled`, שנקרא בצד הכותב) ולאותו טיפול בכשל: רישום שנכשל אינו
+        מפיל את הכתיבה שכבר קרתה, אבל נרשם ללוג, כדי שתור שהפסיק להתמלא לא ייראה כמו שקט.
+        הקוראים מגיעים לכאן רק אחרי כתיבה שהצליחה.
         """
         if not _push_events_enabled():
             return
         try:
-            self._raw_mongo()["push_events"].insert_one(
-                {
-                    "user_id": int(user_id),
-                    "kind": "file_saved",
-                    "file_name": file_name,
-                    # ‏``file_id`` הוא בדיוק המזהה שה-insert כתב
-                    # (``save_code_snippet_returning_id``), ולכן הוא מצביע על
-                    # הגרסה של הכותב הזה גם כששני כותבים שומרים את אותו שם.
-                    #
-                    # ‏``created`` עדיין נגזר מקריאה **לפי שם** לפני השמירה: בשתי
-                    # שמירות מקבילות לאותו שם שתיהן יכולות לראות "אין קובץ"
-                    # ולדווח "חדש". שתיהן גרסאות של אותו קובץ ושל אותו משתמש,
-                    # ולכן הקישור בהתראה נוחת במקום הנכון והנזק הוא בכותרת.
-                    # ‏``save_file`` מחזיר את אותו ``created`` ללקוח ה-MCP עם
-                    # אותה חשיפה בדיוק — ההתראה אינה מוסיפה אותה.
-                    "file_id": file_id,
-                    "created": bool(created),
-                    "created_at": _dt.datetime.now(_dt.timezone.utc),
-                    "needs_push": True,
-                }
-            )
+            self._raw_mongo()["push_events"].insert_one(event)
         except Exception:
-            logger.warning("push event insert failed", exc_info=True)
+            logger.warning("push event insert failed (kind=%s)", event.get("kind"), exc_info=True)
 
     # -- collections -------------------------------------------------------
     def list_collections(self, user_id: int, *, limit: int = 100) -> dict[str, Any]:
@@ -2152,10 +2171,11 @@ class ProductionBackend:
         related = self._related_file_ids(user_id, file_name)
         query = _notes_scope_filter(user_id, scope_id, related)
         return self._notes_answer(
-            {"ok": True, "file_name": file_name}, query, include_content=include_content)
+            {"ok": True, "file_name": file_name}, query, include_content=include_content,
+            user_id=int(user_id))
 
     def _notes_answer(
-        self, head: dict[str, Any], query: dict[str, Any], *, include_content: bool
+        self, head: dict[str, Any], query: dict[str, Any], *, include_content: bool, user_id: int
     ) -> dict[str, Any]:
         """תשובת כלי רשימת פתקים (``list_notes`` / ``list_board_notes``), בתוך התקציב.
 
@@ -2178,7 +2198,8 @@ class ProductionBackend:
         """
         worst = {**head, "count": NOTES_LIST_LIMIT, "notes": []}
         room = OUTPUT_BYTE_BUDGET - len(wire_json(worst)) - NONEMPTY_LIST_BYTES
-        notes = self._list_note_rows(query, include_content=include_content, byte_budget=room)
+        notes = self._list_note_rows(
+            query, include_content=include_content, byte_budget=room, user_id=user_id)
         if isinstance(notes, int):
             return {
                 "ok": False, **too_large(notes + len(wire_json(worst)) + NONEMPTY_LIST_BYTES),
@@ -2188,7 +2209,12 @@ class ProductionBackend:
         return {**head, "count": len(notes), "notes": notes}
 
     def _list_note_rows(
-        self, query: dict[str, Any], *, include_content: bool, byte_budget: int | None = None
+        self,
+        query: dict[str, Any],
+        *,
+        include_content: bool,
+        byte_budget: int | None = None,
+        user_id: int | None = None,
     ) -> list[dict[str, Any]] | int:
         """שורות רשימת פתקים, מסודרות לפי יצירה, עד :data:`NOTES_LIST_LIMIT`.
 
@@ -2201,13 +2227,20 @@ class ProductionBackend:
         שהיא נשלחת (``list_item_cost``), והקריאה מהסמן **נעצרת** בשורה שעוברת אותו:
         אז חוזר מספר הבתים שנצברו עד שם (``int``) במקום הרשימה. ראו
         :meth:`_notes_answer`.
+
+        **במסלול הרזה השורות נאספות לפני המדידה**, כי ``open_threads`` נספר בשאילתה
+        אחת על כל המזהים (:meth:`_with_open_threads`) — לא קריאה לכל פתק. השורות שם
+        קטנות (בלי גוף, עד :data:`NOTES_LIST_LIMIT`), ולכן העצירה המוקדמת, שנועדה לא
+        למשוך גופים שלא יישלחו, אינה חוסכת שם דבר. ``user_id`` נדרש במסלול הזה.
         """
         coll = self._notes_coll()
         if include_content:
-            rows = coll.find(query).sort("created_at", 1).limit(NOTES_LIST_LIMIT)
+            rows: Any = coll.find(query).sort("created_at", 1).limit(NOTES_LIST_LIMIT)
             serialize = _as_note
         else:
-            rows = coll.aggregate(_lean_notes_pipeline(query))
+            if user_id is None:
+                raise ValueError("the lean notes listing needs user_id for open_threads")
+            rows = self._with_open_threads(int(user_id), list(coll.aggregate(_lean_notes_pipeline(query))))
             serialize = _as_note_summary
         notes: list[dict[str, Any]] = []
         used = 0
@@ -2386,7 +2419,7 @@ class ProductionBackend:
         query = board_notes_filter(int(user_id), canonical)
         return self._notes_answer(
             {"ok": True, "board_id": canonical, "board_name": str(board.get("name") or "")},
-            query, include_content=include_content)
+            query, include_content=include_content, user_id=int(user_id))
 
     def create_board_note(
         self,
@@ -2721,6 +2754,253 @@ class ProductionBackend:
         if with_version:
             out["version"] = version
         return out
+
+    # -- שרשורי תגובות על פתקים -------------------------------------------------
+    #
+    # הכללים והפעולות יושבים ב-``note_threads`` (מודול שורש טהור, משותף עם הוובאפ);
+    # כאן רק החיווט למסד ולתשובות של ה-MCP. **השער של הפתק אינו כאן** — הוא ב-
+    # ``handlers._readable_note``, ורץ לפני כל קריאה למתודות האלה.
+
+    def _threads_coll(self) -> Any:
+        return self._raw_mongo()[note_threads.NOTE_THREADS_COLLECTION]
+
+    @staticmethod
+    def _as_thread_meta(doc: dict[str, Any]) -> dict[str, Any]:
+        """שורת שרשור **בלי התגובות**, בצורה שאפשר לשלוח (תאריכים ב-ISO עם אזור זמן)."""
+        out: dict[str, Any] = {"id": str(doc.get("_id") or "")}
+        for key in ("number", "status", "comment_count", "body_bytes", "last_author_kind",
+                    "last_at", "created_at", "resolved_by", "resolved_at"):
+            if key in doc:
+                out[key] = _json_safe(doc.get(key))
+        return out
+
+    @staticmethod
+    def _as_comment(comment: Any) -> dict[str, Any]:
+        """תגובה כפי שהיא נשמרה — מזהה, כותב, גוף ומועד. הגוף חוזר בדיוק כפי שנשמר."""
+        comment = comment if isinstance(comment, dict) else {}
+        return {key: _json_safe(comment.get(key)) for key in ("id", "author", "body", "created_at")}
+
+    def note_threads(self, user_id: int, *, note_id: str) -> list[dict[str, Any]] | None:
+        """השרשורים של פתק, **בלי התגובות**, בסדר התצוגה — או ``None`` כשהמסד לא ענה.
+
+        ממוספרים לפי יצירה (``note_threads.list_threads``) ומסודרים לתצוגה — הפתוחים קודם
+        (``note_threads.display_order``). ``body_bytes`` נשאר בשורה: ממנו מתוכנן התקציב לפני
+        שתגובה נקראת. ``None`` הוא "לא ידוע" ולא "אין שרשורים"; שגיאת מסד בלבד נתפסת —
+        באג עולה הלאה.
+        """
+        try:
+            rows = note_threads.list_threads(self._threads_coll(), user_id=int(user_id), note_id=note_id)
+        except _PyMongoError:
+            logger.warning("note threads: reading the threads of a note failed", exc_info=True)
+            return None
+        return [self._as_thread_meta(row) for row in note_threads.display_order(rows)]
+
+    def note_thread_comments(
+        self, user_id: int, *, note_id: str, thread_ids: list[str], tail: int | None
+    ) -> dict[str, list[dict[str, Any]]] | None:
+        """התגובות של השרשורים המבוקשים — כולן, או ``tail`` האחרונות (נחתך במסד)."""
+        try:
+            loaded = note_threads.load_comments(
+                self._threads_coll(), user_id=int(user_id), note_id=note_id,
+                thread_ids=thread_ids, tail=tail)
+        except _PyMongoError:
+            logger.warning("note threads: reading comments failed (%d threads)", len(thread_ids),
+                           exc_info=True)
+            return None
+        return {tid: [self._as_comment(c) for c in comments] for tid, comments in loaded.items()}
+
+    def _with_open_threads(self, user_id: int, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """מצמיד לכל שורה רזה את ``open_threads`` — **שאילתה אחת לכל הרשימה**.
+
+        לא ``$lookup`` בתוך :func:`_lean_notes_pipeline`: ``note_threads.note_id`` הוא מחרוזת
+        מול ``_id`` שהוא ``ObjectId``, צורת הצינור מעוגנת בטסט, ובעיקר — כשל של הספירה
+        כאן משאיר את הרשימה עם ``open_threads: null`` ("לא ידוע"), במקום להפיל אותה כולה.
+        אותו כלל של ``note_count`` ב-:meth:`list_boards`: ``None`` אינו אפס.
+        """
+        from bson import ObjectId  # lazy heavy import
+
+        ids = [str(row["_id"]) for row in rows if isinstance(row.get("_id"), ObjectId)]
+        try:
+            counts: dict[str, int] | None = note_threads.open_thread_counts(
+                self._threads_coll(), user_id=int(user_id), note_ids=ids)
+        except _PyMongoError:
+            logger.warning("note threads: counting open threads for a notes list failed (%d notes)",
+                           len(ids), exc_info=True)
+            counts = None
+        for row in rows:
+            row["open_threads"] = None if counts is None else counts.get(str(row.get("_id")), 0)
+        return rows
+
+    def comment_note(
+        self,
+        user_id: int,
+        *,
+        note_id: str,
+        thread_id: str | None,
+        author: dict[str, Any],
+        body: str | None,
+        resolve: bool,
+        reopen: bool,
+        target_ref: dict[str, Any],
+    ) -> dict[str, Any]:
+        """הכתיבה של ``codekeeper_comment_note`` — **אחרי** שהשער של הפתק עבר (``handlers``).
+
+        הפעולה עצמה היא אחת מארבע הפעולות של ``note_threads`` (שרשור חדש, תשובה, סגירה),
+        ותשובת הכלי נבנית ממה שהמסד החזיר אחריה — לא ממה שביקשו לכתוב: ``comment`` נושא
+        את ``body_sha256`` של הגוף **השמור** (אותה הגדרה של ``content_sha256``), ו-``null``
+        כשאי אפשר היה לקרוא אותו בחזרה.
+
+        **אירוע התראה נרשם רק אחרי כתיבה מוצלחת, ורק כשנכתבה תגובה של סוכן** — סגירה בלי
+        סיכום אינה תגובה. כשל ברישום אינו מפיל את התגובה (:meth:`_insert_push_event`).
+        """
+        coll = self._threads_coll()
+        common = {"user_id": int(user_id), "note_id": note_id, "author": author}
+        if thread_id is None:
+            result = note_threads.create_thread(coll, body=body, **common)
+        elif resolve:
+            result = note_threads.resolve_thread(coll, thread_id=thread_id, body=body, **common)
+        else:
+            result = note_threads.add_comment(coll, thread_id=thread_id, body=body, reopen=reopen,
+                                              **common)
+        if not result.get("ok"):
+            return result
+
+        stored = note_threads.stored_comment(result)
+        comment_id = result.get("comment_id")
+        if comment_id and author.get("kind") == note_threads.AUTHOR_AGENT:
+            self._insert_push_event(note_threads.note_comment_push_event(
+                user_id=int(user_id), note_id=note_id, thread_id=str(result["thread_id"]),
+                comment_id=str(comment_id), author=author, target_ref=target_ref))
+
+        thread = result.get("thread")
+        out: dict[str, Any] = {
+            "ok": True,
+            "action": result.get("action"),
+            "note_id": note_id,
+            "thread": (self._public_thread(thread) if isinstance(thread, dict)
+                       else {"id": str(result.get("thread_id"))}),
+        }
+        if comment_id is None:
+            out["comment"] = None
+        elif stored is None:
+            out["comment"] = {"id": str(comment_id), "body_sha256": None}
+        else:
+            body_text = stored.get("body")
+            out["comment"] = {
+                "id": str(stored.get("id")),
+                "author": _json_safe(stored.get("author")),
+                "created_at": _json_safe(stored.get("created_at")),
+                "body_sha256": _content_sha256(body_text) if isinstance(body_text, str) else None,
+            }
+        return out
+
+    @classmethod
+    def _public_thread(cls, doc: dict[str, Any]) -> dict[str, Any]:
+        """מצב השרשור אחרי כתיבה, לתשובת הכלי — בלי התגובות ובלי המונה הפנימי ``body_bytes``."""
+        meta = cls._as_thread_meta(doc)
+        meta.pop("body_bytes", None)
+        if meta.get("status") != note_threads.STATUS_RESOLVED:
+            meta.pop("resolved_by", None)
+            meta.pop("resolved_at", None)
+        return meta
+
+    def pending_note_threads(
+        self, user_id: int, *, limit: int, include_repo_notes: bool, preview_chars: int
+    ) -> dict[str, Any] | None:
+        """הפתקים שמחכה עליהם תגובה לסוכן — לשורת הפריימר. ``None`` כשהמסד לא ענה.
+
+        שרשור "ממתין" הוא פתוח, והתגובה האחרונה בו של המשתמש
+        (``note_threads.pending_for_agent``). הפריטים הם **פתקים** ולא שרשורים — פתק עם שני
+        שרשורים ממתינים מופיע פעם אחת — לפי השרשור הממתין החדש ביותר שלהם.
+
+        **רק פתקים ש-``codekeeper_get_note`` היה מחזיר לקורא הזה:** פתק שנמחק (שרשור יתום)
+        אינו נספר, ופתק ריפו נספר רק כש-``include_repo_notes`` — אותו שער של
+        ``handlers.is_repo_note``. ``total`` הוא מספר הפתקים האלה במדויק, כדי ש"ועוד N"
+        יהיה נכון; ``items`` הם ה-``limit`` הראשונים, כל אחד עם מה שהשורה צריכה: ``note_id``,
+        ``title``, ``preview`` (תחילת הגוף, ``$substrCP`` במסד — הגוף עצמו אינו נשלף), ומיקום.
+
+        כל השאילתות קטנות ונושאות היטלה: השרשורים הממתינים (``note_id`` ו-``last_at``),
+        הפתקים שלהם (בלי גוף), ושמות הלוחות של הפריטים המוצגים.
+        """
+        from bson import ObjectId  # lazy heavy import
+        from bson.errors import InvalidId
+        from sticky_notes_target import note_target_ref
+
+        from .handlers import is_repo_note
+
+        uid = int(user_id)
+        try:
+            order: list[str] = []
+            for row in note_threads.pending_for_agent(self._threads_coll(), user_id=uid):
+                nid = row.get("note_id")
+                if note_threads.is_canonical_note_id(nid) and nid not in order:
+                    order.append(nid)
+            if not order:
+                return {"total": 0, "items": []}
+            found = self._notes_coll().aggregate([
+                {"$match": {"_id": {"$in": [ObjectId(nid) for nid in order]}, "user_id": uid}},
+                {"$project": {
+                    "title": 1, "file_name": 1, "file_id": 1, "board_id": 1,
+                    "repo_name": 1, "repo_path": 1,
+                    "preview": {"$cond": [
+                        {"$eq": [{"$type": "$content"}, "string"]},
+                        {"$substrCP": ["$content", 0, int(preview_chars)]},
+                        None,
+                    ]},
+                }},
+            ])
+            notes = {str(doc["_id"]): doc for doc in found}
+        except _PyMongoError:
+            logger.warning("primer: reading the notes that wait for an agent failed", exc_info=True)
+            return None
+
+        visible: list[dict[str, Any]] = []
+        for nid in order:
+            doc = notes.get(nid)
+            if doc is None:
+                continue  # שרשור יתום — הפתק נמחק
+            ref = note_target_ref(doc)
+            if is_repo_note(ref.get("target"), doc) and include_repo_notes is not True:
+                continue
+            visible.append({"note_id": nid, "doc": doc, "ref": ref})
+
+        shown = visible[: max(int(limit), 0)]
+        board_names: dict[str, str] = {}
+        board_oids = []
+        for item in shown:
+            board_id = item["ref"].get("board_id")
+            if item["ref"].get("target") == "board" and board_id:
+                try:
+                    board_oids.append(ObjectId(str(board_id)))
+                except InvalidId:
+                    # מחרוזת שאינה ObjectId — זה הדבר היחיד ש-ObjectId(str) זורק (pymongo 4.15.3,
+                    # ``bson/objectid.py``, ``__validate``). הפריט יוצג בלי שם לוח; באג אחר עולה הלאה.
+                    continue
+        if board_oids:
+            try:
+                for board in self._boards_coll().find(
+                    {"_id": {"$in": board_oids}, "user_id": uid}, {"name": 1}
+                ):
+                    board_names[str(board.get("_id"))] = str(board.get("name") or "")
+            except _PyMongoError:
+                # שם הלוח הוא קישוט של השורה; בלעדיו הפריט עדיין נושא את ה-note_id.
+                logger.warning("primer: reading board names failed", exc_info=True)
+        self._backfill_file_names(uid, [item["doc"] for item in shown])
+
+        items = []
+        for item in shown:
+            doc, ref = item["doc"], item["ref"]
+            items.append({
+                "note_id": item["note_id"],
+                "title": doc.get("title") if isinstance(doc.get("title"), str) else "",
+                "preview": doc.get("preview") if isinstance(doc.get("preview"), str) else "",
+                "target": ref.get("target"),
+                "board_name": board_names.get(str(ref.get("board_id") or "")),
+                "file_name": doc.get("file_name") if isinstance(doc.get("file_name"), str) else None,
+                "repo_name": ref.get("repo_name"),
+                "repo_path": ref.get("repo_path"),
+            })
+        return {"total": len(visible), "items": items}
 
     @staticmethod
     def _snapshot_worthy(content: Any) -> bool:
