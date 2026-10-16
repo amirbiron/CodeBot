@@ -266,7 +266,9 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
        של ``codekeeper_search_repo`` — ראו :ref:`mcp-file-query`. ובקובץ
        Markdown: ``toc=true`` מחזיר את מפת הכותרות, ו-``section="..."`` סעיף
        אחד עם ניווט — אותן פונקציות של ``codekeeper_docs_get_section``, ראו
-       :ref:`mcp-file-sections`
+       :ref:`mcp-file-sections`. את הבתים עצמם, לדיסק של הסוכן בלי לעבור
+       בהקשר — ``GET /api/agent/download`` לפי ``file_id``; הפקודה בתיאור
+       הפרמטר, ראו :ref:`mcp-downloads`
    * - ``codekeeper_save_file``
      - **כתיבה:** יצירת קובץ **חדש**. שם שכבר תפוס נדחה ב-``file_exists``,
        ולעדכון קובץ קיים יש ``codekeeper_edit_file``, ``codekeeper_multi_edit_file``
@@ -296,7 +298,8 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
      - היסטוריית גרסאות של קובץ. ``version_created_at`` הוא מתי כל גרסה
        **נשמרה**, ולא ``updated_at`` — זה שדה של הקובץ ובר-שינוי, ולכן
        שורת היסטוריה שנשענת עליו יכולה לתאר רגע מאוחר יותר. ראו
-       ``docs/database/detailed-schema.rst``
+       ``docs/database/detailed-schema.rst``. ה-``id`` של כל גרסה הוא ה-``file_id``
+       של פקודת ההורדה שבתיאור הכלי — ראו :ref:`mcp-downloads`
    * - ``codekeeper_list_notes``
      - פתקים דביקים של קובץ (לפי ``file_name``) — אותם פתקים שמוצגים
        ב-UI של הוובאפ. ``include_content=false`` מחזיר את השורות בלי הגוף,
@@ -711,12 +714,13 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
   כתיבה. כך "מי שאינו יכול לקרוא פתק אינו יכול להגיב עליו" נכון מבנית. ראו
   :ref:`mcp-note-threads`.
 
-**שני ראוטים מאמתים בעצמם.** במצב OAuth ה-SDK עוטף רק את ה-mount של ``/mcp``, וראוט שנרשם ידנית מוגש בלי אימות — ולכן כל ראוט כזה קורא ל-``authenticate_bearer`` בגוף שלו, עם אותו מאמת של הטרנספורט:
+**ראוטים שמאמתים בעצמם.** במצב OAuth ה-SDK עוטף רק את ה-mount של ``/mcp``, וראוט שנרשם ידנית מוגש בלי אימות — ולכן כל ראוט כזה קורא ל-``authenticate_bearer`` בגוף שלו, עם אותו מאמת של הטרנספורט:
 
 - ``GET /api/agent/primer`` — טוקן תקין, בכל scope. במצב PAT ``PATAuthMiddleware`` עונה לפניו. ראו :ref:`agent-primer`.
 - ``PUT /api/agent/upload`` — טוקן תקין, **ולא** ``write``: הראוט רק מחזיק טקסט לזמן קצוב, והכתיבה לקובץ נשארת קריאת כלי שדורשת ``write`` (הנימוק ב-:ref:`mcp-uploads`). במצב PAT הנתיב פטור מ-``PATAuthMiddleware``, כדי שה-401 יהיה של הראוט — עם ``Connection: close`` — בשני המצבים.
+- ``GET /api/agent/download`` — טוקן תקין, בכל scope: הורדה היא קריאה. במצב PAT הנתיב פטור מ-``PATAuthMiddleware``, מאותה סיבה של ההעלאה. ראו :ref:`mcp-downloads`.
 
-``tests/test_mcp_uploads.py`` מחזיק כל ראוט רשום ל-401 בלי טוקן, בשני המצבים, חוץ מרשימה סגורה ומפורשת: ``/healthz``, נקודות ה-OAuth של ה-SDK ועמוד ההסכמה. ראוט שלישי ששוכח לאמת מפיל אותו.
+``tests/test_mcp_uploads.py`` מחזיק כל ראוט רשום ל-401 בלי טוקן, בשני המצבים, חוץ מרשימה סגורה ומפורשת: ``/healthz``, נקודות ה-OAuth של ה-SDK ועמוד ההסכמה. ראוט חדש ששוכח לאמת מפיל אותו.
 
 .. _mcp-answer-size:
 
@@ -1737,6 +1741,72 @@ true`` ומאפסת את החותמת (הפסקה הבאה). "אותו טקסט"
 - **החסם על אחסון של משתמש אחד:** ``MAX_PENDING_UPLOADS`` העלאות, כל אחת עד ``max_code_size()`` תווים — ובמקרה הגרוע תו הוא ארבעה בתים. הספירה וההכנסה אינן אטומיות: שתי העלאות מקבילות של אותו משתמש יכולות לעבור את החסם באחת. זה מעקה ולא נעילה, כמו ``file_exists``, וכל העלאה פוקעת בכל מקרה.
 
 **מה נרשם בלוג.** שורת ``INFO`` אחת על העלאה שנשמרה (``mcp upload: stored ... bytes, ... chars for user ...``) ואחת על צריכה (``mcp upload: consumed by <tool> ...``), בלי המזהה ובלי התוכן; ``ERROR`` אחת על העלאה משובשת (``mcp upload: <tool> refused a corrupted upload (<reason>; ...) ... — deleted: ...``), גם היא בלי המזהה ובלי התוכן — הסיבות הן של ``_upload_integrity_problem`` ב-``handlers.py``, ו-``deleted`` אומר מה המחיקה עשתה, כולל ``unknown`` כשהאחסון לא ענה (``discard_upload`` ב-``backend.py``). העלאה משובשת אינה רושמת ``consumed``: היא לא נצרכה לשמירה; ``ERROR`` בעלייה כשאינדקס התנהגות לא נבנה, ו-``ERROR`` מהשער כשה-TTL לא אומת; ה-WARNING של מגבלת הקצב מגיע מ-``admit``, אחד לזהות לחלון. **סירובים של הראוט אינם נרשמים**, ו-PostHog אינו רואה ראוטים: הכשל נראה למי שצריך לראות אותו — הסוכן, בקוד ה-HTTP ובגוף. שורת הגבולות בעלייה (``mcp request limits: ...``) נוקבת גם במכסת הממתינות ובמשך החיים.
+
+.. _mcp-downloads:
+
+הורדת קובץ לדיסק בלי לעבור דרך המודל
+-------------------------------------
+
+**הבעיה.** סוכן שצריך להריץ בקונטיינר שלו סקריפט ששמור ב-CodeKeeper קורא אותו ב-``codekeeper_get_file``, ואז מעתיק את כל התוכן לכלי הכתיבה שלו: משלם פעמיים על אותם בתים, וההעתקה עצמה היא מקום לטעות שרק השוואת hash תופסת. זה המראה של :ref:`mcp-uploads`: שם הבתים עולים בלי לעבור בהקשר, וכאן הם יורדים.
+
+**הזרימה — קריאת ``curl`` אחת**, עם אותו ``CODEKEEPER_PAT`` של הפריימר ושל ההעלאה::
+
+    curl -fsS -H "Authorization: Bearer $CODEKEEPER_PAT" -o script.py "https://<MCP-HOST>/api/agent/download?file_id=<id>" && sha256sum script.py
+
+``file_id`` הוא מזהה של גרסה — ``file.id`` מכל תשובה שמתארת קובץ, או ``id`` מ-``codekeeper_list_versions``. ה-hash ש-``sha256sum`` מדפיס שווה ל-``file.content_sha256`` של אותה גרסה (:ref:`mcp-content-sha256`), וגם ל-``X-Content-SHA256`` שבתשובה.
+
+**למה ``-f``.** בלעדיו ``curl -sS`` כותב את גוף ה-404 או ה-401 (``{"error":"not_found"}``) לתוך קובץ היעד ויוצא בקוד 0; ה-``&&`` ממשיך, ו-``sha256sum`` מחשב טביעת אצבע של הודעת השגיאה — וסוכן שלא משווה בקפידה היה מריץ JSON כאילו היה סקריפט. עם ``-f`` curl יוצא בקוד 22, קובץ היעד אינו נוצר ו-``sha256sum`` אינו רץ. נמדד ב-16.10.2026, ב-curl 8.5.0 מול uvicorn 0.38.0, גם על 401: האזהרה ב-man של curl ש-401 יכול לחמוק עוסקת באימות של curl עצמו, ולא בכותרת ``Authorization`` שנשלחת כאן.
+
+**הורדה לפי שם — רק בצורה המקודדת.** שמות קבצים כוללים עברית ורווחים, ו-``?file_name=...`` שמוקלד ישירות בכתובת נשבר. תיאורי הכלים מפנים ל-``file_id``; כשבכל זאת מורידים לפי שם — הגרסה האחרונה, או ``version`` לגרסה מסוימת::
+
+    curl -fsS -G -H "Authorization: Bearer $CODEKEEPER_PAT" --data-urlencode "file_name=<שם>" -o out.md "https://<MCP-HOST>/api/agent/download"
+
+**למה לא קישור חתום.** מאותו נימוק של ההעלאה: ה-PAT מאמת את הבקשה עצמה, ולכן אין מה להטביע, אין סוד בכתובת ואין אחסון זמני. וכאן גם ה-scope אינו שאלה — הורדה היא קריאה, וטוקן ``read`` מספיק.
+
+**מתי לא.** בלי bash, בלי רשת או בלי ``CODEKEEPER_PAT`` — Claude.ai, למשל — קוראים ב-``codekeeper_get_file`` כרגיל. הפקודה מופיעה בתיאור הפרמטר ``file_id`` של ``codekeeper_get_file`` ובתיאור ``codekeeper_list_versions``, עם ה-host מ-``MCP_SERVER_URL`` (או ``<mcp-host>``, באותה בדיקה של פקודת ההעלאה — ``public_base_for`` ב-``mcp_server/public_url.py``). בתיאור ``codekeeper_get_file`` עצמו יש רק הפניה לפרמטר: הוא קרוב לתקרת תיאור כלי, והפקודה אינה נכנסת בה (``_DOWNLOAD_TOOL_DOC`` ו-``_download_command`` ב-``mcp_server/server.py``).
+
+הראוט — ``GET /api/agent/download``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+ב-``mcp_server/downloads.py``, התאום של הפריימר ושל ההעלאה. **הסדר:** אימות ← מגבלת הקצב ← צורת הבקשה ← השליפה ← התשובה. אין גוף בבקשה, ולכן אין דדליין לגוף.
+
+- **הזיהוי הוא של ``codekeeper_get_file``, דרך אותה שליפה** (``handlers.get_file``): ``file_id``, או ``file_name`` ו-``version`` אופציונלי, לפי ה-``user_id`` של הטוקן. השליפה רצה ב-``asyncio.to_thread``, כמו גוף הכלי — במאגר הקריאה שגודלו נגזר ממכסת הזיכרון, ולא במאגר של anyio.
+- **הגוף הוא ``code.encode("utf-8")`` ותו לא:** BOM, ‏CRLF וירידת שורה בסוף נשארים. הכותרות: ``Content-Type: text/plain; charset=utf-8``, ``Content-Length``, ``X-Content-SHA256`` (מ-``_full`` ב-``mcp_server/backend.py`` — אותו ערך של ``file.content_sha256``) ו-``X-File-Version``. שם הקובץ אינו בכותרת: הסוכן בוחר את שם היעד ב-``-o``.
+- **אין תקרה חדשה:** קובץ שמור חסום ב-``max_code_size()`` כבר בשמירה, ומוחזר שלם. ``large_files`` מחוץ להישג, כמו בכל ה-MCP, וקבצים מהמראות אינם בראוט הזה.
+- **``HEAD``** — Starlette מוסיף אותה לכל ראוט ``GET``: היא עוברת את כל הראוט ונספרת במכסה, ו-uvicorn שולח לה את הכותרות בלי הגוף.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - תשובה
+     - מתי
+   * - ``200``
+     - הבתים, עם הכותרות שלמעלה
+   * - ``401`` ``invalid_token``
+     - בלי טוקן, או טוקן פסול. בשני מצבי האימות זה ה-401 של הראוט עצמו: במצב PAT הנתיב פטור מ-``PATAuthMiddleware``
+   * - ``429`` ``rate_limited``
+     - המכסה של הזהות נגמרה. **אותה מכסה של קריאות הכלים ושל ההעלאה** — המגביל נבנה פעם אחת ב-``build_app`` — והורדה היא קריאה אחת מתוכה. נושא ``limit_per_minute`` ו-``retry_after_seconds``
+   * - ``404`` ``not_found``
+     - אין קובץ כזה **שלך**: מזהה של משתמש אחר, מזהה שאינו קיים, מזהה פגום, או שם שאין לך — תשובה אחת, בלי לגלות איזו, כמו ``found: false`` של הכלי
+   * - ``400`` ``missing_target``
+     - לא נשלח ``file_id`` ולא ``file_name``
+   * - ``400`` ``unknown_parameter``
+     - פרמטר שאינו ``file_id``, ``file_name`` או ``version``. ``allowed`` מונה את המותרים, והשם שנשלח אינו מוחזר. **סירוב ולא התעלמות:** ``verison=3`` שהיה נבלע היה מחזיר בשקט את הגרסה האחרונה, עם ``200``
+   * - ``400`` ``repeated_parameter``
+     - אותו פרמטר פעמיים, עם ``parameter``
+   * - ``400`` ``empty_parameter``
+     - פרמטר עם ערך ריק, עם ``parameter``
+   * - ``400`` ``ambiguous_target``
+     - ``file_id`` לצד ``file_name`` או ``version``. הכלי מתעלם מ-``version`` לצד ``file_id``; הראוט מסרב, כי מי ששלח את שניהם התכוון למשהו
+   * - ``400`` ``invalid_version``
+     - ``version`` שאינו ספרות ASCII, או ארוך ממה ש-``_VERSION`` ב-``mcp_server/downloads.py`` מתיר
+
+**כל סירוב נושא ``Connection: close``**, כמו בהעלאה — כאן אין גוף שהשרת היה ממשיך לקרוא, וזה חוזה אחד לכל סירוב של ראוט. **כל תשובה שהראוט עצמו מחזיר נושאת ``Cache-Control: no-store``,** גם הצלחה וגם סירוב: זה תוכן פרטי שעבר אימות, ואין סיבה שמטמון בדרך ישמור אותו. מה שהראוט אינו בונה — ``405`` על מתודה אחרת מ-Starlette, או ``500`` מחריגה שלא נתפסה, שגופו אינו נושא תוכן — יוצא בלעדיה.
+
+**מה נרשם בלוג.** שורת ``INFO`` אחת על כל הורדה (``mcp download: <bytes> bytes of file <id> (version <n>) for user <user_id>``), בלי התוכן ובלי שם הקובץ. סירובים אינם נרשמים, ו-PostHog אינו רואה ראוטים. שורת הגבולות בעלייה (``mcp request limits: ...``) נוקבת גם בהורדה.
+
+**ידוע, ואינו מתוקן כאן.** הראוט יורש מהכלי שלוש התנהגויות של השליפה, והן אותו דבר בדיוק ב-``codekeeper_get_file``: מזהה פגום נרשם כאירוע שגיאה (``db_get_file_by_id_error``), כשל של המסד נענה כ-``404`` ולא כשגיאה, ו-``get_version`` בוחר בלי מיון כששני מסמכים חולקים מספר גרסה.
 
 הפעלה — צעד אחר צעד
 --------------------
@@ -3734,13 +3804,21 @@ commit אחד לכל ריפו
        — ``db_mcp_uploads_index_missing`` בעלייה, או שורת ``uploads_expire_on_time
        index not confirmed``. השער מנסה לבנות שוב אחרי השהיה; עד אז שלחו את
        התוכן inline
-   * - הפקודה בתיאור ``upload_id`` מציגה ``<mcp-host>``
+   * - הפקודה בתיאור ``upload_id``, בתיאור ``file_id`` או בתיאור
+       ``codekeeper_list_versions`` מציגה ``<mcp-host>``
      - השירות לא יודע את הכתובת הציבורית שלו: ``MCP_SERVER_URL`` לא הוגדר (מצב
        PAT מקומי), או שהוגדר ונדחה כי אינו כתובת ``http``/``https`` נקייה
-       (``upload_url_for`` ב-``mcp_server/uploads.py``). במקרה השני בלוג העלייה
-       שורת WARNING ``MCP_SERVER_URL not used for the upload command`` עם הסיבה,
-       בלי הכתובת עצמה — מה שנדחה עלול להיות סיסמה בכתובת. הראוט עצמו עובד:
-       החליפו את ``<mcp-host>`` בכתובת השירות
+       (``public_base_for`` ב-``mcp_server/public_url.py``, בדיקה אחת לשתי
+       הפקודות). במקרה השני בלוג העלייה שורת WARNING אחת, ``MCP_SERVER_URL not
+       used for the commands in the tool descriptions``, עם הסיבה ובלי הכתובת
+       עצמה — מה שנדחה עלול להיות סיסמה בכתובת. הראוטים עצמם עובדים: החליפו את
+       ``<mcp-host>`` בכתובת השירות
+   * - ``curl: (22) The requested URL returned error: 404`` בפקודת ההורדה
+     - אין גרסה כזו **שלך**: המזהה שגוי, של משתמש אחר, או שהשם לא קיים. מזהים
+       תקינים — ``id`` ב-``codekeeper_list_versions`` או ``file.id`` ב-
+       ``codekeeper_get_file``. ``400`` אומר שהבקשה עצמה לא בצורה הנכונה, והקוד
+       בגוף נוקב בסיבה (ראו :ref:`mcp-downloads`); כדי לראות אותו, הריצו שוב בלי
+       ``-f`` ובלי ``-o``
    * - ``admin_only`` בכלי ריפו
      - ה-user_id אינו ב-``ADMIN_USER_IDS`` בשירות ה-MCP. חל גם על
        ``codekeeper_list_repo_notes`` / ``codekeeper_create_repo_note``

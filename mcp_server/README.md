@@ -148,10 +148,11 @@ merge ל-main → GitHub webhook → הוובאפ מסנכרן את הדיסק �
 > ל‑`app.router.routes` (כמו `/healthz`) מוגש **בלי אימות**. כל ראוט חדש שאסור שיהיה
 > ציבורי חייב לקרוא ל‑`authenticate_bearer` בגוף שלו. ראו `auth.py` ו‑`primer.py`.
 
-**שני ראוטים מאמתים בעצמם, עם אותו מאמת של `/mcp`:**
+**ראוטים שמאמתים בעצמם, עם אותו מאמת של `/mcp`:**
 
 - `GET /api/agent/primer` — טוקן תקין, בכל scope (במצב PAT המידלוור עונה לפניו).
 - `PUT /api/agent/upload` — טוקן תקין, **ולא** `write`: הראוט רק מחזיק טקסט לעשר דקות, והכתיבה לקובץ נשארת קריאת כלי שדורשת `write`. במצב PAT הנתיב פטור מ‑`PATAuthMiddleware`, כדי שה‑401 יהיה של הראוט — עם `Connection: close` — בשני המצבים. ראו "העלאת תוכן" למטה.
+- `GET /api/agent/download` — טוקן תקין, בכל scope: הורדה היא קריאה. במצב PAT הנתיב פטור מ‑`PATAuthMiddleware`, מאותה סיבה. ראו "הורדת קובץ" למטה.
 
 `tests/test_mcp_uploads.py` מחזיק כל ראוט רשום ל‑401 בלי טוקן, חוץ מרשימה סגורה (`/healthz`, נקודות ה‑OAuth ועמוד ההסכמה).
 
@@ -249,6 +250,27 @@ curl -sS -T report.md -H "Authorization: Bearer $CODEKEEPER_PAT" \
 - בלי bash, בלי רשת או בלי `CODEKEEPER_PAT` (Claude.ai) — `code` כרגיל.
 
 הקוד ב‑`uploads.py` (הראוט) וב‑`mcp_uploads.py` בשורש (האוסף, הקבועים והאינדקסים). הפירוט המלא — הסדר בראוט, "המחיקה היא השער", שער המוכנות על ה‑TTL ואוצר המילים — ב‑`docs/mcp-server.rst`, "העלאת תוכן בלי לעבור דרך המודל".
+
+---
+
+## הורדת קובץ לדיסק בלי לעבור דרך המודל — `GET /api/agent/download`
+
+המראה של ההעלאה: קובץ שמור (סקריפט שהסוכן צריך להריץ, למשל) יורד בקריאת `curl` אחת ישר לקובץ בסביבת הסוכן, בלי לקרוא אותו להקשר ולהעתיק אותו לכלי הכתיבה:
+
+```bash
+curl -fsS -H "Authorization: Bearer $CODEKEEPER_PAT" -o script.py \
+  "https://<MCP-HOST>/api/agent/download?file_id=<id>" && sha256sum script.py
+```
+
+- **`file_id`** — מזהה של גרסה: `file.id` מתשובה של `codekeeper_get_file`, או `id` מ‑`codekeeper_list_versions`. לפי שם (`file_name`, ו‑`version` אופציונלי) — רק מקודד, ב‑`-G --data-urlencode`.
+- **הגוף הוא `code.encode("utf-8")` ותו לא**, ו‑`X-Content-SHA256` הוא `file.content_sha256` של אותה גרסה — ה‑hash ש‑`sha256sum` מדפיס. גם `X-File-Version`.
+- **`-f` חובה:** בלעדיו גוף ה‑404 נכתב לקובץ היעד, curl יוצא ב‑0, ו‑`sha256sum` מחשב טביעת אצבע של הודעת השגיאה.
+- **אותה מכסת קצב של קריאות הכלים:** הורדה היא קריאה אחת. מזהה של אחר, מזהה שאינו קיים ומזהה פגום — `404` אחד. פרמטר לא מוכר, כפול או ריק, ו‑`version` לצד `file_id` — `400` עם קוד משלו.
+- **כל סירוב של הראוט נושא `Connection: close`, וכל תשובה שהוא בונה — `Cache-Control: no-store`.**
+- הפקודה רצה בכלי ה‑Bash של הסוכן, עם אישור הרשאה רגיל — `Bash(curl:*)` נשאר לא מוגדר, כמו בהעלאה.
+- בלי bash, בלי רשת או בלי `CODEKEEPER_PAT` (Claude.ai) — `codekeeper_get_file` כרגיל.
+
+הקוד ב‑`downloads.py`. הפקודה בתיאורי הכלים נבנית ב‑`server.py` (`_download_command`), וה‑host שלה מ‑`MCP_SERVER_URL` דרך `public_url.py` — אותה בדיקה של פקודת ההעלאה. הפירוט המלא — הסדר, הכותרות, טבלת התשובות ולמה לא קישור חתום — ב‑`docs/mcp-server.rst`, "הורדת קובץ לדיסק בלי לעבור דרך המודל".
 
 ---
 
@@ -364,6 +386,8 @@ Claude.ai → /authorize → provider יוצר txn → הפניה ל-webapp /oau
 | `oauth_routes.py` | מסך ה‑consent + הנפקת code |
 | `primer.py` | `GET /api/agent/primer` — פריימר טקסט לסוכן (24KB, cache 60ש׳, סינון סודות) |
 | `uploads.py` | `PUT /api/agent/upload` — העלאת תוכן שנשמר אחר כך לפי `upload_id`. המפרט של האוסף ב‑`mcp_uploads.py` בשורש |
+| `downloads.py` | `GET /api/agent/download` — הבתים של קובץ שמור, ישר לדיסק של הסוכן |
+| `public_url.py` | הבסיס (מ‑`MCP_SERVER_URL`) של פקודות ההעלאה וההורדה בתיאורי הכלים — בדיקה אחת לשתיהן |
 | `server.py` | חיווט FastMCP: כלים + OAuth + ASGI |
 | `analytics.py` | PostHog MCP analytics + שער הפרטיות (`before_send` עם רשימת היתר) |
 | `app.py` | נקודת כניסה: בוחר PAT/OAuth לפי ENV |

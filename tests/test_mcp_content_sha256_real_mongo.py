@@ -21,6 +21,12 @@ hash-ים — של הבתים, של תשובת ההעלאה ושל הקובץ �
 אמיתי, ``delete_one`` אמיתי כשער החד-פעמיות, והעלאה שהשתנתה באוסף האמיתי — הטקסט
 או ה-hash שנשמר איתה — שנענית ``upload_corrupted``.
 
+**ואותה מטריצה סוגרת לולאה דרך ההורדה** — העלאה ← ``codekeeper_save_file`` עם ``upload_id``
+← ``GET /api/agent/download``, לפי ``file_id`` (``ObjectId`` אמיתי, דרך ``get_file_by_id``)
+ולפי שם (המסלול עם המיון במסד): הבתים שירדו הם הבתים שהועלו, ו-``X-Content-SHA256`` שווה
+לשלושת ה-hash-ים האחרים. המקרים עצמם ב-``tests/_hard_text_cases.py``, משותפים עם
+``tests/test_mcp_downloads.py``.
+
 **בלי ``NOTE_FONTS_TEST_MONGO_URI`` הקובץ מדולג** (``wired_mongo`` ב-``tests/conftest.py``),
 וב-CI הוא מדולג. הפלט של ההרצה המקומית בגוף ה-PR.
 
@@ -46,26 +52,12 @@ from types import SimpleNamespace
 import pytest
 
 # ‏``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
+from _hard_text_cases import CASES
 from _save_layer_harness import clear_local_cache, load_production_config
 
 pytest.importorskip("mcp")
 
 USER = 7272
-
-CASES = {
-    "bom_crlf": "\ufeffline one\r\nline two\r\n",
-    "lone_cr": "a\rb\n",
-    "rlm_lrm": "גרסה\u200f 2.0\u200e\n",
-    "rlo_trojan": "x = '\u202eabc\u202c'\n",
-    "zwj_family": "\U0001F468\u200d\U0001F469\u200d\U0001F467\n",
-    "line_sep": "a\u2028b\u2029c\n",
-    "nel_del": "a\u0085b\x7fc\n",
-    "nul": "a\x00b\n",
-    "trailing_newlines": "x = 1\n\n\n",
-    "no_trailing_newline": "x = 1",
-    "escape_text": 'RLM = "\\u200f"\n',
-    "hebrew_4byte_mix": "שלום \U0001F600 \U00010348 world\n",
-}
 
 
 class _ManagerOnCollection:
@@ -288,6 +280,38 @@ def test_an_upload_through_bson_is_saved_as_the_bytes_that_were_sent(mcp, mongo_
     assert stored == sent and read["code"] == sent
     assert uploaded["content_sha256"] == saved["file"]["content_sha256"] == read["content_sha256"] == local
     assert mongo_db.mcp_uploads.count_documents({}) == 0
+
+
+def _download(mongo_db, **params):
+    """הבתים דרך ראוט ההורדה האמיתי, על האפליקציה המלאה במצב PAT, מול אותו מסד."""
+    from starlette.testclient import TestClient
+
+    from _mcp_apps import PatTokens, app_in_mode
+
+    tokens = PatTokens({"ckmcp_rt": {"user_id": USER, "scopes": ["read"]}})
+    with TestClient(app_in_mode("pat", _backend(mongo_db), tokens=tokens)) as client:
+        return client.get("/api/agent/download", params=params, headers={"authorization": "Bearer ckmcp_rt"})
+
+
+@pytest.mark.parametrize("case", sorted(CASES))
+def test_upload_save_and_download_through_bson_return_the_bytes_that_were_uploaded(mcp, mongo_db, case):
+    """הלולאה הסגורה מול ``mongod`` אמיתי: הטקסט עובר שלוש פעמים דרך BSON — אוסף ההעלאות,
+    אוסף הקבצים, והקריאה של ההורדה — והבתים שירדו, לפי מזהה ולפי שם, הם הבתים שהועלו."""
+    raw = CASES[case].encode("utf-8")
+    uploaded = _upload(mongo_db, raw)
+    file_name = f"loop_{case}.txt"
+    saved = _call(mcp, "codekeeper_save_file", file_name=file_name, upload_id=uploaded["upload_id"])
+    assert saved["ok"] is True and saved["content_changed"] is False, saved
+
+    by_id = _download(mongo_db, file_id=saved["file"]["id"])
+    by_name = _download(mongo_db, file_name=file_name)
+    local = hashlib.sha256(raw).hexdigest()
+    for response in (by_id, by_name):
+        assert response.status_code == 200, response.text
+        assert response.content == raw
+        assert (response.headers["x-content-sha256"] == uploaded["content_sha256"]
+                == saved["file"]["content_sha256"] == local)
+        assert response.headers["x-file-version"] == "1"
 
 
 @pytest.mark.parametrize("case", sorted(CASES))

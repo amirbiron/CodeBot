@@ -83,8 +83,10 @@ from .auth import (
     require_write,
 )
 from .client_identity import connected_client_name
+from .downloads import DOWNLOAD_PATH, agent_download_route
 from .primer import agent_primer_route
-from .uploads import UPLOAD_PATH, agent_upload_route, upload_url_for
+from .public_url import public_base_for
+from .uploads import UPLOAD_PATH, agent_upload_route
 from mcp_uploads import MAX_PENDING_UPLOADS, UPLOAD_TTL_SECONDS
 # המודול ולא השם: התקרה נקראת ב-``build_mcp``, ברישום (``description_limit``), מאותו
 # מקום שהאכיפה קוראת אותה בזמן הקריאה — ``description_length_error`` באותו מודול.
@@ -680,8 +682,8 @@ _UPLOAD_HASH_AFTER_APPEND = (
 def _upload_id_param_doc(instead_of: str, upload_url: str, hash_after_write: str) -> str:
     """תיאור ``upload_id``. נבנה ברישום: הדקות מ-``UPLOAD_TTL_SECONDS``, ה-host מהתצורה.
 
-    ``upload_url`` — מ-:func:`mcp_server.uploads.upload_url_for`: הכתובת של השירות
-    כשהיא ידועה, ו-``<mcp-host>`` כשלא.
+    ``upload_url`` — :func:`mcp_server.public_url.public_base_for` ואחריו ``UPLOAD_PATH``:
+    הכתובת של השירות כשהיא ידועה, ו-``<mcp-host>`` כשלא.
 
     **בלי רשימת הסירובים, בכוונה.** התיאור נקרא בכל שיחה שבה הכלים נטענים — גם
     ב-Claude.ai, שאינו יכול להעלות בכלל — והסירובים רלוונטיים רק אחרי כשל. ואז כל
@@ -706,6 +708,63 @@ def _upload_id_param_doc(instead_of: str, upload_url: str, hash_after_write: str
         f"minutes, {hash_after_write} "
         "Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), use the "
         f"{instead_of} parameter as usual."
+    )
+
+
+# הורדה במקום קריאה להקשר (``GET /api/agent/download``, ``mcp_server/downloads.py``) — **אותו
+# מבנה של ההעלאה שמעל, עם הבדל אחד:** בתיאור ``codekeeper_get_file`` רק ההפניה, כי הוא
+# קרוב לתקרת תיאור כלי (``_TOOL_DESCRIPTION_MAX_CHARS`` ב-``tests/test_mcp_server_build.py``)
+# והפקודה אינה נכנסת בה. הפקודה עצמה בתיאור ``file_id`` — שם יושב המזהה שהיא צריכה — ובתיאור
+# ``codekeeper_list_versions``, המקור השני של המזהים, שיש בו מקום.
+_DOWNLOAD_TOOL_DOC = " To save its bytes to disk, see file_id."
+
+
+def _download_command(download_url: str, out: str) -> str:
+    """פקודת ההורדה, **נוסח אחד לשני התיאורים** — רק שם קובץ היעד משתנה.
+
+    ``-f`` חובה: בלעדיו ``curl -sS`` כותב את גוף ה-404 או ה-401
+    (``{"error":"not_found"}``) לתוך קובץ היעד ויוצא בקוד 0, ה-``&&`` ממשיך, ו-``sha256sum``
+    מחשב טביעת אצבע של הודעת השגיאה — סוכן שלא משווה בקפידה היה מריץ JSON כאילו היה
+    סקריפט. הכתובת במירכאות: ``?`` בלעדיהן הוא תבנית של ה-shell. ``file_id`` ולא
+    ``file_name``: שם בעברית או עם רווח נשבר כשהוא מוקלד ישירות בכתובת, ו-``file_id``
+    ממילא מגיע מ-``codekeeper_get_file`` או מ-``codekeeper_list_versions``.
+    """
+    return (
+        f'curl -fsS -H "Authorization: Bearer $CODEKEEPER_PAT" -o {out} '
+        f'"{download_url}?file_id=<id>" && sha256sum {out}'
+    )
+
+
+def _file_id_param_doc(download_url: str) -> str:
+    """תיאור ``file_id`` של ``codekeeper_get_file``. נבנה ברישום — ה-host מהתצורה.
+
+    המשפט הראשון אומר מה הפרמטר, כי לקוח שמקצר תיאור פרמטר לכ-120 תווים רואה רק אותו;
+    ההפניה מתיאור הכלי (:data:`_DOWNLOAD_TOOL_DOC`) היא שמביאה את הסוכן לקרוא את השאר.
+    """
+    return (
+        "The id of one version: file.id from a reply, or an id from codekeeper_list_versions. "
+        "That version's exact bytes can go straight to a file in your environment, without "
+        f"passing through your context: {_download_command(download_url, 'script.py')} — the "
+        "hash is the version's file.content_sha256. Without bash, network access or "
+        "CODEKEEPER_PAT (Claude.ai, for one), read it here as usual."
+    )
+
+
+def _list_versions_doc(download_url: str) -> str:
+    """תיאור ``codekeeper_list_versions``. נבנה ברישום — ה-host מהתצורה.
+
+    בלי hash לכל גרסה: רשימה מחזירה מטא-דאטה בלבד, ו-hash היה מחייב את התוכן של כל
+    הגרסאות. ההפניה אומרת לסוכן איך מקבלים hash של גרסה אחת בזול — וזה גם ה-hash
+    שהפקודה שבמשפט האחרון משווה אליו.
+    """
+    return (
+        "List all saved versions of a file by file_name (metadata only). No content hash "
+        "here: for one version's hash, call codekeeper_get_file with version=N and "
+        "lines=[1, 1] — file.content_sha256 covers the whole version while one line comes "
+        "back. To save one version's exact bytes to a file in your environment without "
+        f"reading them into your context: {_download_command(download_url, 'out.txt')} — the "
+        "same hash as that version's file.content_sha256. Without bash or CODEKEEPER_PAT, "
+        "read it with codekeeper_get_file."
     )
 
 
@@ -2692,10 +2751,10 @@ def build_mcp(
     """``rate_limit_per_minute`` או ``tool_rate_limiter`` — אחד מהשניים, לא שניהם.
 
     ``tool_rate_limiter`` הוא הדרך של ``build_app``: הוא בונה מופע אחד ומעביר אותו
-    גם לכאן וגם לראוט ההעלאה, כדי שהעלאה ושמירה יהיו שתי קריאות מאותה מכסה.
+    לכאן, לראוט ההעלאה ולראוט ההורדה, כדי שהעלאה, שמירה והורדה יהיו קריאות מאותה מכסה.
     שניהם יחד הם ``TypeError`` ולא העדפה שקטה של אחד — מספר שנשלח ונבלע היה
     נראה כמו מגבלה שחלה. בלי אף אחד — ``DEFAULT_RATE_LIMIT_PER_MINUTE``, כמו עד
-    היום. ``public_url`` — ``MCP_SERVER_URL``, ל-host שבפקודת ההעלאה בתיאורים.
+    היום. ``public_url`` — ``MCP_SERVER_URL``, ל-host שבפקודות ההעלאה וההורדה בתיאורים.
     """
     if tool_rate_limiter is not None and rate_limit_per_minute is not None:
         raise TypeError("pass rate_limit_per_minute or tool_rate_limiter, not both")
@@ -2715,7 +2774,11 @@ def build_mcp(
     mcp: FastMCP = AdminAwareFastMCP(name, tool_rate_limiter=tool_rate_limiter, **kwargs)
     # נבנים ברישום ולא בייבוא: התקרה היא זו שהשירות רץ איתה, וה-host מהתצורה.
     code_limit = handlers.max_code_size()
-    upload_url = upload_url_for(public_url)
+    # בסיס אחד לשתי הפקודות: הבדיקה של ``MCP_SERVER_URL`` רצה פעם אחת, וכתובת שנדחתה
+    # כותבת WARNING אחד בעלייה ולא אחד לכל ראוט.
+    commands_base = public_base_for(public_url)
+    upload_url = f"{commands_base}{UPLOAD_PATH}"
+    download_url = f"{commands_base}{DOWNLOAD_PATH}"
     # תקרת התיאור — קבוע בקוד ולא תצורה, ובכל זאת נקראת כאן, מהמודול ולא משם
     # שיובא בייבוא: כך התיאורים נבנים מאותו ערך שהאכיפה קוראת באותו רגע.
     description_limit = file_description.FILE_DESCRIPTION_MAX_CHARS
@@ -2788,12 +2851,14 @@ def build_mcp(
             + " The query parameter, and the toc and section parameters, say"
             " how each mode works."
             + _GET_FILE_SHA256_DOC
+            + _DOWNLOAD_TOOL_DOC
             + _DESCRIPTION_AGE_DOC
         ),
         annotations=_READ_ONLY_TOOL,
         # תקרת התשובה, מוצהרת ב-``tools/list`` ואכופה בכלי עצמו (``answer_size``).
         meta=answer_size.declared_size_meta(),
     )
+    @_described_at_registration(file_id=_file_id_param_doc(download_url))
     def get_file(
         ctx: Context,
         file_name: str | None = None,
@@ -3063,14 +3128,8 @@ def build_mcp(
 
     @mcp.tool(
         name="codekeeper_list_versions",
-        # בלי hash לכל גרסה: רשימה מחזירה מטא-דאטה בלבד, ו-hash היה מחייב את התוכן
-        # של כל הגרסאות. ההפניה אומרת לסוכן איך מקבלים hash של גרסה אחת בזול.
-        description=(
-            "List all saved versions of a file by file_name (metadata only). No "
-            "content hash here: for one version's hash, call codekeeper_get_file "
-            "with version=N and lines=[1, 1] — file.content_sha256 covers the "
-            "whole version while one line comes back."
-        ),
+        # נבנה ברישום, כי פקודת ההורדה נושאת את ה-host מהתצורה — ראו ``_list_versions_doc``.
+        description=_list_versions_doc(download_url),
         annotations=_READ_ONLY_TOOL,
     )
     def list_versions(ctx: Context, file_name: str) -> dict:
@@ -3954,13 +4013,14 @@ def build_app(
     - PAT-only (fallback): the custom ``PATAuthMiddleware`` guards the app.
 
     ``public_url`` — the service's public base (``MCP_SERVER_URL``), for the host
-    in the upload command that the tool descriptions show.
+    in the upload and download commands that the tool descriptions show.
     """
     oauth = auth_provider is not None and auth_settings is not None
-    # **One limiter for the service.** Built here, once, and handed both to the
-    # MCP transport (``call_tool``) and to ``PUT /api/agent/upload``: an upload and
-    # the save that consumes it are two calls from the same per-identity quota. A
-    # second instance for the route would have doubled what one identity may send.
+    # **One limiter for the service.** Built here, once, and handed to the MCP
+    # transport (``call_tool``), to ``PUT /api/agent/upload`` and to
+    # ``GET /api/agent/download``: an upload and the save that consumes it are two
+    # calls from the same per-identity quota, and a download is one more. A second
+    # instance for a route would have multiplied what one identity may send.
     rate_limiter = ToolRateLimiter(rate_limit_per_minute)
     mcp = build_mcp(
         backend,
@@ -4014,6 +4074,18 @@ def build_app(
             rate_limiter=rate_limiter,
         )
     )
+    # GET /api/agent/download — the upload's mirror (``mcp_server/downloads.py``): the same
+    # in-handler authentication with the same verifier, a valid token in any scope (a
+    # download is a read), the same rate limiter, and in PAT mode the same exemption from
+    # ``PATAuthMiddleware`` below, so a 401 there is the route's own in both modes.
+    app.router.routes.append(
+        agent_download_route(
+            backend,
+            token_store=token_store,
+            auth_provider=auth_provider if oauth else None,
+            rate_limiter=rate_limiter,
+        )
+    )
     # Request-body cap for every route, in both auth modes (#3431). Added
     # before ``PATAuthMiddleware`` on purpose: ``add_middleware`` inserts at the
     # front of the stack (``starlette/applications.py``, Starlette 1.6.0), so the
@@ -4034,12 +4106,14 @@ def build_app(
             app.router.routes.append(route)
     else:
         app.add_middleware(
-            PATAuthMiddleware, token_store=token_store, exempt_paths=EXEMPT_PATHS | {UPLOAD_PATH}
+            PATAuthMiddleware,
+            token_store=token_store,
+            exempt_paths=EXEMPT_PATHS | {UPLOAD_PATH, DOWNLOAD_PATH},
         )
     logger.info(
         "mcp request limits: body <= %d bytes (413 %s), tool calls <= %s per identity "
         "per minute (%s); /healthz sits outside both; uploads (%s) count against the same "
-        "quota, <= %d pending per identity, each kept %ds",
+        "quota, <= %d pending per identity, each kept %ds; downloads (%s) count against it too",
         max_request_bytes,
         BODY_TOO_LARGE,
         rate_limit_per_minute if rate_limit_per_minute > 0 else "unlimited",
@@ -4047,5 +4121,6 @@ def build_app(
         UPLOAD_PATH,
         MAX_PENDING_UPLOADS,
         UPLOAD_TTL_SECONDS,
+        DOWNLOAD_PATH,
     )
     return app
