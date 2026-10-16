@@ -59,7 +59,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | חיתוך או מדידת אורך של טקסט (`$substrBytes`, `$strLenBytes`, `encode()[a:b]`, תקרת אורך שנשלחת החוצה) | `BY-STACK/hebrew-source.md` H6 |
 | קבצי `docs/**/*.rst` | `bugbot-rules/line-number-coupling.md` |
 | טסטים עם סטאבים ידניים | `TESTING-PATTERNS.md` + `bugbot-rules/widened-exception-scope.md` |
-| `pytest.skip(` / `skipif(` / `pytestmark` שנשען על בדיקת חיבור (`ping`, `connect`, `server_info`, פונקציה שמחזירה bool על חיבור) — ובמיוחד כשסביבה `except Exception` | `TESTING-PATTERNS.md`, "דילוג שמסתיר שגיאת תצורה" — דילוג רק על "אין שירות" |
+| `pytest.skip(` / `skipif(` / `pytestmark` שנשען על בדיקת חיבור (`ping`, `connect`, `server_info`, פונקציה שמחזירה bool על חיבור) — ובמיוחד כשסביבה `except Exception` | `TESTING-PATTERNS.md` T4 (דילוג שמסתיר שגיאת תצורה) — דילוג רק על "אין שירות" |
 | הרכבת URL/מחרוזת שמכילה סוד, הודעות חריגה, ניקוי לוגים/Sentry | `CRITICAL-PATTERNS.md` K13 + `bugbot-rules/secret-in-derived-text.md` |
 | מפתח/טוקן שמועבר כפרמטר URL (`params={"key": ...}`), או שינוי ברשימת דפוסי הניקוי | `CRITICAL-PATTERNS.md` K14 + `bugbot-rules/secret-in-url-query.md` |
 | מסיר שורת לוג, או עוטף אותה ב-guard שמונע הערכת ארגומנטים (הטריגר הנפוץ: תיקון PII) | `bugbot-rules/side-effect-riding-on-log-line.md` |
@@ -70,9 +70,9 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | מופע של ספרייה חיצונית שנבנה **ברמת המודול** ומשותף לחוטים — ובמיוחד כשהבנייה כוללת קריאות תצורה (`use`, `enable`, `disable`, `register`, `add_*`, `before`) | `CRITICAL-PATTERNS.md` K15 + `bugbot-rules/lazy-init-guard-publish-order.md` — מתי אובייקט נחשב מוכן, וכשהתצורה קורית בתוכו. ואם אותו מופע גם נבנה מ-`os.environ` או מפעיל משהו — ראה גם את השורה על ברמה העליונה של מודול |
 | `getattr(x, "y", None)` או `except` שאחריו **מסלול חלופי בגלל כשל** — לא ערך ברירת מחדל, ולא זיהוי יכולת סטטי | `bugbot-rules/silent-fallback-to-worse-path.md` |
 | CSP, כותרות תגובה, או עמוד שנגיש בלי התחברות | `BY-STACK/browser-policy.md` |
-| `create_index` — ובמיוחד `partialFilterExpression` או `sparse=True` | `BY-STACK/mongodb.md` דפוס 1 + `bugbot-rules/mongo-index-and-operator-traps.md` — אופרטורים שהפילטר החלקי לא מקבל, ואתחול שבולע את השגיאה |
-| `expireAfterSeconds` / `expire_after_seconds` / `unique=True` בהגדרת אינדקס, ‏`drop_index` / `drop_indexes`, ‏`create_index` בקובץ תחת `scripts/` או בפקודת אדמין, דיף שמוחק שורה מרשימת אינדקסים — או כתיבה של שדה תפוגה (`expires_at`, `expire_at`, `deleted_expires_at`) | `BY-STACK/mongodb.md` דפוס 9 + `bugbot-rules/mongo-index-and-operator-traps.md` §10 — מי מצהיר על האינדקס, ומי כותב |
-| צינור `aggregate` — `$project`, `$addFields` / `$set`, `$sort`, `$group` — או `find_one` בתוך לולאה | `RECURRING-PATTERNS.md`, "עבודה ומטען שאינם פרופורציונליים לתשובה" + `bugbot-rules/work-disproportionate-to-answer.md` + `BY-STACK/mongodb.md`, "השדות הכבדים נגררים דרך המיון" |
+| `create_index` — ובמיוחד `partialFilterExpression` או `sparse=True` | `BY-STACK/mongodb.md`, "דפוס 1 — `$ne` / `$not` / `$nin` בתוך `partialFilterExpression`" + `bugbot-rules/mongo-index-and-operator-traps.md` — אופרטורים שהפילטר החלקי לא מקבל, ואתחול שבולע את השגיאה |
+| `expireAfterSeconds` / `expire_after_seconds` / `unique=True` בהגדרת אינדקס, ‏`drop_index` / `drop_indexes`, ‏`create_index` בקובץ תחת `scripts/` או בפקודת אדמין, דיף שמוחק שורה מרשימת אינדקסים — או כתיבה של שדה תפוגה (`expires_at`, `expire_at`, `deleted_expires_at`) | `BY-STACK/mongodb.md`, "דפוס 9 — אינדקס שמוצהר במקום שהכותב אינו עובר בו" + `bugbot-rules/mongo-index-and-operator-traps.md` §10 — מי מצהיר על האינדקס, ומי כותב |
+| צינור `aggregate` — `$project`, `$addFields` / `$set`, `$sort`, `$group` — או `find_one` בתוך לולאה | `RECURRING-PATTERNS.md` R8 (עבודה ומטען שאינם פרופורציונליים לתשובה) + `bugbot-rules/work-disproportionate-to-answer.md` + `BY-STACK/mongodb.md`, "דפוס 5 — השדות הכבדים נגררים דרך המיון (ו-`allowDiskUse` אינו התשובה)" |
 | `startswith` / `endswith` על נתיב, URL או דומיין | `CRITICAL-PATTERNS.md` K16 |
 | `replace(tzinfo=` · `datetime.now()` **בלי** אזור זמן · כל `date.today()` · הצגת תאריך למשתמש | `RECURRING-PATTERNS.md` R7 |
 | **ברמה העליונה של מודול** (מחוץ לכל פונקציה): `Thread(`, `.start()`, `scheduler`, `asyncio.create_task`, לקוח או חיבור שנבנה מ-`os.environ`, או קריאת רשת, מסד או קובץ | `bugbot-rules/import-time-side-effects.md` — מה רץ בזמן ייבוא. ואם מה שנבנה שם הוא מופע של ספרייה חיצונית שמשותף לחוטים — ראה גם את השורה על מופע של ספרייה חיצונית |
@@ -84,7 +84,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | שליחה לספק עם תקרת קלט (טוקנים, אורך שדה), או `value[:LIMIT]` לפני שמירה | `bugbot-rules/silent-truncation-at-sink.md` |
 | `clientX` בחיסור, `left`/`right`, גרירה, שינוי גודל, או הצמדה ל-viewport | `BY-STACK/hebrew-source.md` H7 + `bugbot-rules/rtl-geometry-and-clamp.md` |
 | `EWMA` / `_ewma`, `anomaly_detected`, `cooldown`, `first_ts`, `adaptive_*_threshold_*` | `RECURRING-PATTERNS.md` R9 + `BY-STACK/observability.md` |
-| הרצה ראשונה של ג'וב סנכרון: `baseline`, `last_*_check_time`, `if not last_seen` | `BY-STACK/cron-jobs.md` דפוס 10 — מה ההרצה הראשונה שולחת |
+| הרצה ראשונה של ג'וב סנכרון: `baseline`, `last_*_check_time`, `if not last_seen` | `BY-STACK/cron-jobs.md`, "דפוס 10 — הרצה ראשונה בלי baseline שולחת את כל הבקלוג" — מה ההרצה הראשונה שולחת |
 | תגית `<script>` / `<link>` חדשה בתבנית, או כתיבת `Cache-Control` | `BY-STACK/browser-policy.md` B4–B5 + `bugbot-rules/stale-asset-cache-policy.md` |
 | כותב ל-`session[...]` ערך שבקשה אחרת חייבת למצוא — state של OAuth, `code_verifier`, nonce, יעד חזרה, דגל "פעם אחת" — או צורך ערך כזה ב-`session.pop(` או ב-`session.clear(` | `bugbot-rules/cookie-session-last-write-wins.md` — כל תשובה מקבילה מחזירה את ה-cookie שלפני הכתיבה, והאחרונה מנצחת |
 | **לפני כתיבת פונקציה חדשה** שמפרמטת, מסננת, מחשבת או ממפה — גודל, תאריך, אייקון, שם שפה, רשימת ערכים, שאילתה | `RECURRING-PATTERNS.md` R6: `grep` על שם התופעה לפני שכותבים. יש עותק — מאחדים |
@@ -95,7 +95,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 | מידלוור ASGI/Starlette עם `await receive()` בתוך `__call__`, ‏`await request.body()` ב-`BaseHTTPMiddleware`, או `app.add_middleware(` של מידלוור שקורא, מפענח או מפרסר גוף בקשה | `bugbot-rules/body-read-outside-cheap-reject.md` — מי דוחה בזול לפניו, והאם הוא באמת לפניו |
 | לולאה או שרשרת שמחכה לצד השני — `await receive()`, `reader.read()`, שרשרת דגימה (`setTimeout` / `setInterval` עם `fetch`) — ובמיוחד כשמשהו מוחזק בזמן ההמתנה: דגל `inFlight`, חיץ, נעילה | `bugbot-rules/wait-without-own-deadline.md` — מי מגביל את ההמתנה הזו |
 | כותב ב-docstring, בהערה, בעמוד תיעוד, בתיאור ה-PR או בשם של טסט **ערך או התנהגות שמוגדרים במקום אחר** — ברירת מחדל, קבוע עם המספר שלו, ספירה, קוד שגיאה, מה רכיב אחר עושה — או **משנה** ערך או התנהגות כאלה | `bugbot-rules/prose-restates-code-fact.md` — עותק של עובדה בתוך פרוזה |
-| ג'וב או לולאה שיוצרים עותק ממקור אמת "אם חסר" — `if not ...exists(` ואחריו clone / create / `upsert` / אינדוקס — או שלב שמוחק מה שהמקור כבר לא מכיר (`prune`, `orphan`, `janitor`, `reconcile`) | `BY-STACK/cron-jobs.md`, "סנכרון חד-כיווני" + `bugbot-rules/one-way-sync-orphans.md` — מי מוחק את העותק כשהמקור מפסיק לרשום אותו, ומה עוצר מחיקה של הכול |
+| ג'וב או לולאה שיוצרים עותק ממקור אמת "אם חסר" — `if not ...exists(` ואחריו clone / create / `upsert` / אינדוקס — או שלב שמוחק מה שהמקור כבר לא מכיר (`prune`, `orphan`, `janitor`, `reconcile`) | `BY-STACK/cron-jobs.md`, "דפוס 11 — סנכרון חד-כיווני: עותק שהמקור כבר לא מכיר נשאר" + `bugbot-rules/one-way-sync-orphans.md` — מי מוחק את העותק כשהמקור מפסיק לרשום אותו, ומה עוצר מחיקה של הכול |
 
 
 ### תמיד, בלי קשר לטבלה
@@ -105,7 +105,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 והמימוש הנכון, להעתיק ממנו: `mcp_server/backend.py:save_file` מחזיר `{"ok": False, "error": "save_failed"}` **כשמסלול השמירה מחזיר `None`** (`save_code_snippet_returning_id` רושם חריגת מסד כאירוע ומחזיר `None`), ובהצלחה קורא את המסמך מחדש מהמסד — לפי ה-`_id` שה-insert החזיר — במקום להחזיר את מה שביקשנו לכתוב, ומשווה בין השניים (`content_sha256`, `content_changed`). הלקח הוא *קרא את המצב, אל תהדהד את הבקשה* — ולא שזה אטומי: מספר הגרסה נבחר ב-read-then-write, ואין אינדקס ייחודי על `(user_id, file_name, version)`, ולכן שתי שמירות מקבילות לאותו שם יכולות לקבל אותו מספר גרסה.
 - **`except` שבולע — `pass`, ערך falsy, או המשך כאילו הצליח** → לוג, או הערה שאומרת למה הכשל הזה אינו מעניין. בלעדיהם זה ממצא, גם כשאין ✅ למשתמש במסלול. (`raise` מחדש אינו בליעה, וגם לא ערך כשל שהקורא בודק.) זה הצד ההפוך של K11: שם ערך כשל לא נבדק, כאן חריגה נתפסה ולא נרשמה. בסריקת ההיסטוריה של הריפו הזה — תשע בליעות, **ארבע מהן מחוץ למסלול של הודעת הצלחה** (PR #3229, #3349, #3358, #3357).
 - **לפני כתיבת טסט חדש** → `claude-md-snippets/testing.md`. בפרט: טסט שנוסח עם תיקון חייב להיכשל בלי התיקון — הרץ אותו על הקוד הישן וּודא שהוא נופל.
-- אחרי שטסט נופל על חריגה → `bugbot-rules/widened-exception-scope.md` (אל תרחיב except); או כותב `except` רחב חדש — `Exception`, `BaseException`, חשוף — או ענף ברירת מחדל של מסווג חריגות, שמובילים למצב שהוצהר לסיכון אחד (`None`/`null`, retry, דילוג), גם כשיש לוג → אותו קובץ, הסעיף על תפיסה גורפת לתוך מצב מוצהר
+- אחרי שטסט נופל על חריגה → `bugbot-rules/widened-exception-scope.md` (אל תרחיב except); או כותב `except` רחב חדש — `Exception`, `BaseException`, חשוף — או ענף ברירת מחדל של מסווג חריגות, שמובילים למצב שהוצהר לסיכון אחד (`None`/`null`, retry, דילוג), גם כשיש לוג → אותו קובץ, §5 (תפיסה גורפת לתוך מצב מוצהר), והכלל המלא ב-`RECURRING-PATTERNS.md` R10 (תפיסה גורפת לתוך מצב שהוצהר עבור סיכון אחד)
 
 ---
 ---
