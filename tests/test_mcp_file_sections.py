@@ -2608,6 +2608,8 @@ async def test_a_miss_carries_the_limited_map_and_the_full_suggestions(monkeypat
         [_RECURRING_ROOT] + [chapter for chapter, _ in _RECURRING_CHAPTERS])
     assert limited["max_depth"] == 2 and "max_depth" not in full
     assert len(full["toc"]) == 66
+    # ``section_count`` שייך לתשובת המפה (``mode: toc``) בלבד — התיאור והעמוד אומרים זאת.
+    assert "section_count" not in limited and "section_count" not in full
 
 
 async def test_a_heading_asked_by_name_is_found_at_any_depth_and_candidates_are_whole(
@@ -2821,9 +2823,12 @@ def test_the_max_depth_doc_opens_with_when_to_use_and_says_how_to_read_a_limited
         assert "max_depth=2" in doc[:120]
         for marker in ("hidden_subsections", "leaves toc_truncated off", "at the depth limit",
                        "with nothing hidden under it does not carry the field", "breadcrumb",
-                       "section_count", "skipped level", "never limited"):
+                       "In the map reply (mode: toc), section_count",
+                       "Every reply that carries a map echoes max_depth", "skipped level",
+                       "never limited"):
             assert marker in doc, marker
-        for wrong in ("not on the root", "does not say so"):
+        # "The reply echoes" — ההד הוא רק בתשובה שנושאת מפה (ריוויו על #3567).
+        for wrong in ("not on the root", "does not say so", "The reply echoes"):
             assert wrong not in doc, wrong
     assert "max_depth_without_toc" in srv._FILE_MAX_DEPTH_DOC
     assert "max_depth_without_toc" not in srv._DOCS_MAX_DEPTH_DOC
