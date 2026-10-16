@@ -46,7 +46,7 @@ from urllib.parse import unquote, urlsplit
 import pytest
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _browser_harness import WAIT_S, Touch, poll
+from _browser_harness import WAIT_S, Touch, poll, tap_on
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
@@ -592,3 +592,30 @@ def test_the_board_surface_still_grows_with_its_notes(admin_live_server, chromiu
             assert surface["height"] >= 2600 + 200, f"המשטח קצר מהפתק העמוק שעליו: {surface}"
         finally:
             browser.close()
+
+
+# -------------------------------------------------------------------------
+# 🆔 — העתקת מזהה הפתק, בפתק ריפו
+# -------------------------------------------------------------------------
+
+
+def test_the_id_button_copies_the_id_of_a_repo_note(admin_live_server, chromium_executable):
+    """בעמוד ``/repo/`` האמיתי ובנגיעה: 🆔 מעתיק את מזהה הפתק, ורק אותו.
+
+    אותו כפתור של הלוח והקובץ (``tests/test_sticky_note_copy_id_browser.py``), כאן במשטח של
+    דפדפן הריפו — ``127.0.0.1`` הוא הקשר מאובטח, ולכן ההעתקה עוברת ב-``navigator.clipboard``,
+    והבדיקה קוראת אותו בחזרה. המזהה בצורה שהשרת שולח (``str`` של ``ObjectId``); המזהים
+    ש-``FakeRepoApi`` נותן לפתק חדש (``new1``) אינם בצורה הזו, והכפתור היה עונה עליהם
+    "הפתק עוד לא נשמר".
+    """
+    nid = "6ad28b63a89ec90949f8f09e"
+    api = FakeRepoApi(CODE_PATH, code_file(200), [repo_note(nid, y=100)])
+    with repo_page(admin_live_server, chromium_executable, api, LANDSCAPE) as (page, touch):
+        page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=admin_live_server.base_url)
+        assert page.evaluate("() => window.isSecureContext"), "בקרה: העמוד אינו בהקשר מאובטח"
+        page.evaluate("() => navigator.clipboard.writeText('לפני הנגיעה')")
+        settle(page)
+        tap_on(page, touch, f'.sticky-note[data-note-id="{nid}"] .sticky-note-copy-id')
+        poll(page, f"""() => document.querySelector('.sticky-note[data-note-id="{nid}"] .sticky-note-copy-id')
+                                 .classList.contains('is-copy-done')""", "חיווי ההצלחה על 🆔")
+        assert page.evaluate("() => navigator.clipboard.readText()") == nid

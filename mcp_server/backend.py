@@ -2084,7 +2084,10 @@ class ProductionBackend:
             **target,
             "content": content,
             **({"title": title} if title else {}),
-            # ברירות מחדל בפריטת הקליינט — פתק מה-MCP נראה כמו פתק שנוצר ביד
+            # מיקום וגודל. עד אוקטובר 2026 אלה היו ברירות המחדל של הוובאפ, ופתק מה-MCP
+            # נראה כמו פתק שנוצר ביד. מאז פתק חדש בוובאפ במסך רחב נפתח גדול יותר
+            # (``NEW_NOTE_W``/``NEW_NOTE_H`` ב-``webapp/static/js/sticky-notes.js``), וכאן
+            # הגודל נשאר כמו שהיה: סוכן אינו יודע באיזה מסך הפתק יוצג.
             "position_x": 120,
             "position_y": 120,
             "width": 260,
@@ -2311,7 +2314,8 @@ class ProductionBackend:
             "user_id": int(user_id),
             "file_id": str(doc.get("_id") or ""),
             "content": content,
-            # ברירות מחדל בפריטת הקליינט — פתק מה-MCP נראה כמו פתק שנוצר ביד
+            # מיקום וגודל — כמו ב-``_new_note_doc``, ומאותה סיבה: הם כבר אינם הגודל
+            # של פתק חדש בוובאפ במסך רחב (``NEW_NOTE_W``/``NEW_NOTE_H``).
             "position_x": 120,
             "position_y": 120,
             "width": 260,

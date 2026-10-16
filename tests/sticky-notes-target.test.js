@@ -284,7 +284,10 @@ class FakeEl {
     this.hidden = false; this._text = ''; this._attrs = {}; this._classes = new Set();
     this.classList = {
       add: (...c) => c.forEach((x) => this._classes.add(x)),
-      remove: (c) => this._classes.delete(c),
+      // כמה מחלקות בקריאה אחת, כמו ``add`` וכמו ``DOMTokenList.remove`` בדפדפן.
+      // בלי זה ``remove('a', 'b')`` מסיר כאן את הראשונה בלבד, ובדיקה שמצפה
+      // שהשתיים ירדו נכשלת על קוד תקין.
+      remove: (...c) => c.forEach((x) => this._classes.delete(x)),
       contains: (c) => this._classes.has(c),
       toggle: (c, on) => { if (on) this._classes.add(c); else this._classes.delete(c); },
     };
@@ -3641,15 +3644,20 @@ check('ריפו: פתק חדש נשמר בתוך מה שהגולל מראה עכ
 
 check('ריפו: בחלונית צרה, מה שנשלח הוא המיקום שיוצג אחרי ההצמדה', async () => {
   // הפינה הנראית ועוד ``inset`` יוצאת כאן מחוץ לטווח: המסגרת והגולל ברוחב
-  // 300 בלי עודף, והפתק ברוחב 260 — כלומר ``x`` המקסימלי הוא 40.
-  // ``_applyPositionMode`` יצמיד ל-40 ברינדור; אילו נשלח 120, השרת היה
-  // שומר מיקום שאינו המוצג. נופל בלי ההצמדה ב-``_newNotePosition``.
+  // ``FRAME`` בלי עודף, ולכן ``x`` המקסימלי הוא ``FRAME`` פחות רוחב הפתק.
+  // ``_applyPositionMode`` יצמיד לשם ברינדור; אילו נשלח ``inset``, השרת
+  // היה שומר מיקום שאינו המוצג. נופל בלי ההצמדה ב-``_newNotePosition``.
+  //
+  // **הציפייה נגזרת מהרוחב שנשלח, ולא מוקלדת.** עד אוקטובר 2026 עמד כאן
+  // ``300 - 260`` — הרוחב של פתק חדש באותו זמן — והבדיקה נפלה כשהגודל של
+  // פתק חדש השתנה, אף שההצמדה עצמה לא השתנתה.
+  const FRAME = 600, INSET = 120;
   const sb = makeSandbox();
   const container = makeWideRepoContainer({ scrollTop: 800 });
-  Object.assign(container, { clientWidth: 300,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 300, height: 680, bottom: 680 }) });
-  Object.assign(container.__scroller, { clientWidth: 300, scrollWidth: 300,
-    getBoundingClientRect: () => ({ left: 0, top: 40, width: 300, height: 600, bottom: 640 }) });
+  Object.assign(container, { clientWidth: FRAME,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: FRAME, height: 680, bottom: 680 }) });
+  Object.assign(container.__scroller, { clientWidth: FRAME, scrollWidth: FRAME,
+    getBoundingClientRect: () => ({ left: 0, top: 40, width: FRAME, height: 600, bottom: 640 }) });
   const m = new sb.window.StickyNotesManager({ repo: 'CodeBot', path: 'a.py', container,
                                                scroller: () => container.__scroller });
   m._renderNote = () => {};
@@ -3659,8 +3667,12 @@ check('ריפו: בחלונית צרה, מה שנשלח הוא המיקום שי
     return { json: async () => ({ ok: true, id: 'n1' }) };
   };
   await m.createNote();
-  eq(sent && sent.position.x, 300 - 260, 'x — מוצמד למסגרת');
-  eq(sent && sent.position.y, 800 + 120, 'y');
+  const room = FRAME - (sent ? sent.size.width : 0);
+  // בקרה: בלי מקום בין 0 ל-``INSET`` ההצמדה אינה נבדקת כאן — או שאינה
+  // נכנסת לפעולה, או שהיא נצמדת ל-0 ואינה מבדילה בין "רוחב המסגרת" ל"אפס".
+  eq(room > 0 && room < INSET, true, `בקרה: מקום של ${room} פיקסלים — שנו את FRAME`);
+  eq(sent && sent.position.x, room, 'x — מוצמד למסגרת');
+  eq(sent && sent.position.y, 800 + INSET, 'y');
 });
 
 check('ריפו: הקונטיינר אינו "גדל" עם הפתקים — לא נכתב עליו min-height', () => {
@@ -4158,6 +4170,189 @@ check('לחיצה ממושכת: קבוע אחד לכותרת ולתצוגה', ()
   eq((src.match(/^\s*const LONG_PRESS_MS = \d+;/mg) || []).length, 1, 'מוגדר פעם אחת');
   eq((src.match(/^\s*const LONG_PRESS_SLOP_PX = \d+;/mg) || []).length, 1, 'והסף — פעם אחת');
   eq(/Math\.abs\([^)]*\) > 6\b/.test(src), false, 'אין עוד 6 מוקלד בבדיקת התזוזה');
+});
+
+// ---------- העתקת מזהה הפתק ----------
+//
+// 🆔 מעתיק את מזהה הפתק — מה ש-``codekeeper_get_note`` מקבל. הקליפבורד
+// עצמו, והחיווי כפי שהוא נראה, נבדקים בדפדפן ב-
+// ``tests/test_sticky_note_copy_id_browser.py``; כאן ננעל מה נשלח להעתקה ומתי.
+
+/** מזהה בצורה שהשרת שולח: ``str`` של ``ObjectId``. */
+const SAVED_ID = '6ad28b63a89ec90949f8f09e';
+
+/**
+ * סנדבוקס משלו, עם ה-DOM המדומה של ``FakeEl``. משלו ולא ``fileMgr`` המשותף:
+ * הבדיקות כאן אסינכרוניות ומחליפות מתודות על המופע, ושתיים שרצות במקביל על
+ * אותו מופע היו מחליפות זו לזו את הרשמים.
+ */
+function fakeDomSandbox() {
+  const sb = makeSandbox();
+  sb.document.createElement = (tag) => new FakeEl(tag);
+  sb.document.createElementNS = (_ns, tag) => new FakeEl(tag);
+  sb.document.createTextNode = sandbox.document.createTextNode;
+  return sb;
+}
+
+/** פתק שרונדר ב-``_renderNote``, עם רשמים במקום הקליפבורד ובמקום החיווי. */
+function renderForCopyId(mgr, id) {
+  mgr._renderNote({ id, content: 'תוכן', position: { x: 0, y: 0 } });
+  const el = mgr.notes.get(id).el;
+  const btn = el.querySelector('.sticky-note-copy-id');
+  const copied = [];
+  const flashes = [];
+  mgr._copyText = async (t) => { copied.push(t); return true; };
+  mgr._flashCopyResult = (_el, ok, target, failTitle) => { flashes.push({ ok, target, failTitle }); };
+  // המאזין אינו מחזיר את ההבטחה של ההעתקה (כמו בדפדפן, שבו איש אינו
+  // ממתין לו), ולכן ממתינים לסיבוב הבא של לולאת האירועים: ``_copyText``
+  // המדומה נפתר מיד, וכל המשך ההעתקה רץ לפני הסיבוב הזה.
+  const click = async () => {
+    btn._listeners.click({ stopPropagation() {}, preventDefault() {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  return { el, btn, copied, flashes, click };
+}
+
+check('מזהה: 🆔 בשורת השם מיד אחרי החיפוש, ומעתיק בדיוק את המזהה', async () => {
+  // **בשורת השם ולא בשורת הפעולות — הכרעה של המשתמש.** שורת הפעולות אינה
+  // נשברת, וכפתור נוסף בה היה דוחף כפתורים אל מחוץ לכל פתק צר מ-308 (נמדד
+  // בכרומיום; הפירוט ב-``docs/dev/sticky_notes_extending.rst``).
+  const sb = fakeDomSandbox();
+  const m = new sb.window.StickyNotesManager('copy-id-file');
+  const { el, btn, copied, flashes, click } = renderForCopyId(m, SAVED_ID);
+  const nameRow = el.querySelector('.sticky-note-drag').children.map((c) => c.className);
+  const after = nameRow.findIndex((c) => c.includes('sticky-note-search-btn')) + 1;
+  eq(nameRow[after], 'sticky-note-btn sticky-note-copy-id', `מיד אחרי החיפוש — ${nameRow.join(' | ')}`);
+  eq(el.querySelector('.sticky-note-actions').querySelector('.sticky-note-copy-id'), null,
+     'ולא בשורת הפעולות');
+  eq(btn.getAttribute('type'), 'button', 'type=button');
+  await click();
+  eq(copied.length, 1, 'העתקה אחת');
+  eq(copied[0], SAVED_ID, 'בדיוק המזהה, בלי שום תוספת');
+  eq(flashes.length, 1, 'חיווי אחד');
+  eq(flashes[0].ok, true, 'הצלחה');
+  eq(flashes[0].target, btn, 'החיווי על 🆔 עצמו, ולא על ⧉');
+});
+
+check('מזהה: נקרא ברגע הלחיצה, ולא כשהכפתור נבנה', async () => {
+  // נופל אם המזהה נלכד בבנייה (``note.id`` בסגור של המאזין): אז מועתק
+  // המזהה שהפתק נשא כשרונדר, ולא זה שהוא נושא עכשיו.
+  const sb = fakeDomSandbox();
+  const m = new sb.window.StickyNotesManager('copy-id-file');
+  const { el, copied, click } = renderForCopyId(m, SAVED_ID);
+  const later = '6ad29310a89ec90949f8f13f';
+  el.dataset.noteId = later;
+  await click();
+  eq(copied[0], later, 'המזהה שהפתק נושא ברגע הלחיצה');
+});
+
+check('מזהה: מזהה שהשרת לא נתן אינו מועתק — "הפתק עוד לא נשמר"', async () => {
+  const sb = fakeDomSandbox();
+  const m = new sb.window.StickyNotesManager('copy-id-file');
+  const { el, btn, copied, flashes, click } = renderForCopyId(m, SAVED_ID);
+  const notSaved = ['', 'undefined', 'tmp-1', SAVED_ID.slice(1), `${SAVED_ID}a`,
+                    `g${SAVED_ID.slice(1)}`, ` ${SAVED_ID.slice(1)}`, `${SAVED_ID.slice(0, 12)} ${SAVED_ID.slice(13)}`];
+  for (const id of notSaved) {
+    el.dataset.noteId = id;
+    await click();
+  }
+  eq(copied.length, 0, 'אף אחד מהם לא הועתק');
+  eq(flashes.length, notSaved.length, 'חיווי על כל לחיצה');
+  eq(flashes.every((f) => f.ok === false && f.failTitle === 'הפתק עוד לא נשמר' && f.target === btn), true,
+     'כשל, עם ההסבר, על 🆔');
+  // אותיות גדולות — ``ObjectId`` מקבל גם אותן, ולכן גם הכפתור.
+  el.dataset.noteId = SAVED_ID.toUpperCase();
+  await click();
+  eq(copied[0], SAVED_ID.toUpperCase(), 'אותיות גדולות מועתקות');
+});
+
+check('מזהה: הכלל זהה לזה של ``card-preview.js`` — שני עותקים, ובדיקה אחת שמצליבה', () => {
+  // ``isSavedNoteId`` ו-``OBJECT_ID_RE`` עונים על אותה שאלה — "האם זה מזהה
+  // מונגו כפי שהשרת שולח" — בשני מודולים שאינם חולקים קוד. עותק שני מותר
+  // רק כשיש מה שיצעק כשהם נפרדים (amir-bug-patterns, R6).
+  const literal = (file, name) => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', file), 'utf8');
+    const m = src.match(new RegExp(`const ${name} = (/[^\\n]+/[a-z]*);`));
+    return m ? m[1] : null;
+  };
+  const notes = literal('sticky-notes.js', 'SAVED_NOTE_ID_RE');
+  eq(notes !== null, true, 'בקרה: הכלל נמצא ב-sticky-notes.js');
+  eq(notes, literal('card-preview.js', 'OBJECT_ID_RE'), 'אותו ביטוי, אותם דגלים');
+});
+
+check('חיווי ההעתקה: לחיצה שנייה בזמן החיווי אינה נועלת את הודעת הכשל', () => {
+  // נופל על הגרסה הקודמת: כל לחיצה לכדה את ה-``title`` של אותו רגע — אחרי
+  // כשל, את הודעת הכשל עצמה — והטיימר של הלחיצה השנייה שחזר אותה. הטיימרים
+  // מזויפים כאן, כדי שהבדיקה לא תחכה 1.8 שניות אמיתיות.
+  const sb = makeSandbox();
+  const m = new sb.window.StickyNotesManager('flash-file');
+  const timers = [];
+  sb.setTimeout = (fn) => { timers.push({ fn, cleared: false }); return timers.length; };
+  sb.clearTimeout = (id) => { if (timers[id - 1]) timers[id - 1].cleared = true; };
+  const btn = new FakeEl('button');
+  btn.title = 'העתק את מזהה הפתק';
+  m._flashCopyResult(null, false, btn, 'הפתק עוד לא נשמר');
+  m._flashCopyResult(null, false, btn);
+  eq(btn.title, 'ההעתקה נחסמה בדפדפן — סמנו והעתיקו ידנית', 'ההסבר של הלחיצה האחרונה');
+  eq(btn.classList.contains('is-copy-fail'), true, 'מסומן ככשל');
+  timers.filter((t) => !t.cleared).forEach((t) => t.fn());
+  eq(btn.title, 'העתק את מזהה הפתק', 'ה-title המקורי חזר');
+  eq(btn.classList.contains('is-copy-fail'), false, 'וחיווי הכשל ירד');
+
+  // הצלחה אחרי כשל, בזמן החיווי: ההסבר של הכשל יורד מיד, והמחלקה מתחלפת.
+  m._flashCopyResult(null, false, btn, 'הפתק עוד לא נשמר');
+  m._flashCopyResult(null, true, btn);
+  eq(btn.title, 'העתק את מזהה הפתק', 'בהצלחה — ה-title המקורי');
+  eq(btn.classList.contains('is-copy-fail'), false, 'בלי חיווי הכשל שקדם לה');
+  eq(btn.classList.contains('is-copy-done'), true, 'עם חיווי ההצלחה');
+});
+
+// ---------- גודל של פתק חדש ----------
+
+/** ``createNote`` בסנדבוקס, עם מסך שנקבע מראש; מחזיר את מה שנשלח לשרת. */
+async function newNoteSize({ innerWidth, matchMedia }) {
+  const sb = makeSandbox();
+  sb.window.innerWidth = innerWidth;
+  sb.window.matchMedia = matchMedia;
+  const m = new sb.window.StickyNotesManager({ board: 'new-note-size' });
+  m._renderNote = () => {};   // נבדק כאן מה **נשלח**; הפריסה נמדדת בדפדפן
+  let sent = null;
+  sb.fetch = async (_url, opts) => {
+    sent = JSON.parse(opts.body);
+    return { json: async () => ({ ok: true, id: SAVED_ID }) };
+  };
+  await m.createNote();
+  return sent && sent.size;
+}
+
+check('פתק חדש: במסך רחב גדול יותר וביחס של היום; בטלפון — הגודל לא השתנה', async () => {
+  const queries = [];
+  const media = (matches) => (q) => { queries.push(q); return { matches }; };
+  const wide = await newNoteSize({ innerWidth: 1024, matchMedia: media(false) });
+  const phone = await newNoteSize({ innerWidth: 1024, matchMedia: media(true) });
+  eq(queries[0], '(max-width: 480px)', 'השאילתה שמכריעה "טלפון"');
+  // הגודל בטלפון נשאר בהחלטה (תגובת המשתמש על הפתק, 16.10.2026).
+  eq(`${phone.width}×${phone.height}`, '200×160', 'טלפון — כמו קודם');
+  // היחס של הגודל הקודם, 260×200, נשמר בהחלטה; הגודל עצמו — מה שנבחר בעין.
+  eq(wide.width * 200, wide.height * 260, `היחס 13:10 — ${wide.width}×${wide.height}`);
+  eq(wide.width > 260, true, 'גדול מהקודם');
+});
+
+check('פתק חדש: בלי matchMedia מכריע רוחב החלון, ו-480 עצמו הוא טלפון', async () => {
+  const atEdge = await newNoteSize({ innerWidth: 480, matchMedia: undefined });
+  const past = await newNoteSize({ innerWidth: 481, matchMedia: undefined });
+  eq(`${atEdge.width}×${atEdge.height}`, '200×160', '480 — טלפון');
+  eq(past.width > 260, true, '481 — מסך רחב');
+});
+
+check('פתק בלי גודל שמור נפתח בגודל של היום — לא בגודל של פתק חדש', () => {
+  // ההחלטה מהפתק: פתק שאין לו ``size`` אינו גדל עם ברירת המחדל החדשה. הגיבוי
+  // בלקוח הוא ``NOTE_FALLBACK_*``, ולא ``NEW_NOTE_*``.
+  const sb = fakeDomSandbox();
+  const m = new sb.window.StickyNotesManager('no-size-file');
+  m._renderNote({ id: 'no-size', content: '', position: { x: 0, y: 0 } });
+  const intent = m._getSizeIntent(m.notes.get('no-size').el);
+  eq(`${intent.width}×${intent.height}`, '260×200', 'הכוונה שנקבעה ברינדור');
 });
 
 (async () => {
