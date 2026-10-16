@@ -58,18 +58,13 @@ const RepoHistory = (function() {
         return text.substring(0, maxLength) + '...';
     }
 
+    // זמן יחסי מ-``utils/relative-time.js`` (נטען ב-``base.html``) — המקור היחיד בצד
+    // הלקוח. כאן היה עותק שני, באותם ספים, שאמר "לפני 1 שעות".
+    // ``timestamp`` הוא שניות מאז 1970, ו-0 פירושו "לא ידוע" (``git_mirror_service``
+    // מציב 0 כשהפענוח נכשל) — ולכן ריק, ולא "לפני 56 שנים".
     function formatRelativeDate(timestamp) {
-        if (!timestamp) return '';
-        const now = Date.now() / 1000;
-        const diff = now - timestamp;
-
-        if (diff < 60) return 'הרגע';
-        if (diff < 3600) return `לפני ${Math.floor(diff / 60)} דקות`;
-        if (diff < 86400) return `לפני ${Math.floor(diff / 3600)} שעות`;
-        if (diff < 604800) return `לפני ${Math.floor(diff / 86400)} ימים`;
-        if (diff < 2592000) return `לפני ${Math.floor(diff / 604800)} שבועות`;
-        if (diff < 31536000) return `לפני ${Math.floor(diff / 2592000)} חודשים`;
-        return `לפני ${Math.floor(diff / 31536000)} שנים`;
+        if (typeof timestamp !== 'number' || !timestamp) return '';
+        return window.RelativeTime.format(new Date(timestamp * 1000));
     }
 
     function formatFullDate(timestamp) {

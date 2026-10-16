@@ -391,7 +391,7 @@
 </script>
 
 <!-- Custom Scripts -->
-<script src="{{ url_for('static', filename='js/repo-history.js') }}"></script>
+<script src="{{ url_for('static', filename='js/repo-history.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
@@ -401,6 +401,8 @@
 <script src="{{ url_for('static', filename='js/live-preview.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/markdown-deps.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/repo-browser.js') }}?v={{ static_version }}"></script>
+<!-- תקרת תגובה בשרשור על פתק, מהשרת — לפני sticky-notes.js, כמו בשני המשטחים האחרים. -->
+<script>window.NOTE_THREAD_MAX_CHARS = {{ max_thread_comment_chars | tojson }};</script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/repo-notes.js') }}?v={{ static_version }}"></script>
 {% endblock %}

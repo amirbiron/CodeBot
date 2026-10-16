@@ -444,7 +444,7 @@
             background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23f2e9e1" fill-opacity="0.4" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
         }
         :root[data-theme="rose-pine-dawn"] input:not([type="checkbox"]):not([type="radio"]),
-        :root[data-theme="rose-pine-dawn"] textarea:not(.sticky-note-content),
+        :root[data-theme="rose-pine-dawn"] textarea:not(.sticky-note-content):not(.sticky-thread-input),
         :root[data-theme="rose-pine-dawn"] select {
             background: color-mix(in srgb, var(--bg-secondary) 80%, #ffffff 20%);
             border: 1px solid var(--glass-border);
@@ -2784,20 +2784,11 @@
             return div.innerHTML;
         }
 
+        // זמן יחסי ("לפני 20 דק׳") מ-``utils/relative-time.js`` — המקור היחיד בצד
+        // הלקוח. כאן היה עותק שני שנעצר בימים ("לפני 400 ימים") ואמר "לפני 1 שעות".
+        // המודול נטען בהמשך העמוד בלי defer, והפונקציה נקראת רק בפתיחת המודאל.
         function formatDate(dateString) {
-            try {
-                if (!dateString) return '';
-                const date = new Date(dateString);
-                const now = new Date();
-                const diff = now - date;
-                const minutes = Math.floor(diff / 60000);
-                const hours = Math.floor(diff / 3600000);
-                const days = Math.floor(diff / 86400000);
-                if (minutes < 1) return 'כרגע';
-                if (minutes < 60) return `לפני ${minutes} דקות`;
-                if (hours < 24) return `לפני ${hours} שעות`;
-                return `לפני ${days} ימים`;
-            } catch (e) { return ''; }
+            return window.RelativeTime.format(dateString);
         }
 
         // פוקוס אוטומטי על חיפוש גלובלי אם הגיעו עם פרמטר מתאים
@@ -3032,6 +3023,9 @@
        הוא ללא תלויות, והוא יושב כאן לפני ``block extra_js`` שבו יושבים כל
        הצרכנים. אותו שיקול בדיוק חל על ``utils/rtl-code.js`` ב-repo/base_repo.html. #}
     <script src="{{ url_for('static', filename='js/utils/size-format.js') }}?v={{ static_version }}"></script>
+    {# זמן יחסי — אותו שיקול כמו ``size-format.js`` שמעליו: בלי defer, ולפני
+       ``block extra_js`` שבו יושבים הצרכנים (``sticky-notes.js``, ``repo-history.js``). #}
+    <script src="{{ url_for('static', filename='js/utils/relative-time.js') }}?v={{ static_version }}"></script>
     <script src="{{ url_for('static', filename='js/utils/animations.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/dark-mode.js') }}?v={{ static_version }}" defer></script>

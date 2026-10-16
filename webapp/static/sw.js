@@ -1,5 +1,5 @@
 // SW Version for cache busting
-const SW_VERSION = '2.1.0';
+const SW_VERSION = '2.2.0';
 
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing version:', SW_VERSION);
@@ -329,6 +329,12 @@ self.addEventListener('notificationclick', (event) => {
     const noteId = (d && d.note_id != null) ? String(d.note_id) : '';
     const remindAt = (d && d.remind_at != null) ? String(d.remind_at) : '';
     const action = (event && event.action) ? String(event.action) : '';
+    // התראה על תגובה של סוכן בשרשור (``note_comment`` ב-``push_api.py``) — **לא תזכורת**.
+    // היא נושאת ``note_id`` כדי לפתוח את הפתק, ולכן בלי הבידול הזה הלחיצה עליה הייתה
+    // שולחת אישור תזכורת (ראו ``!isComment`` למטה) וסוגרת בשקט תזכורת פעילה על אותו
+    // פתק. ‏``thread_id`` פותח את השרשור עצמו.
+    const isComment = !!(d && d.type === 'note_comment');
+    const threadId = (isComment && d.thread_id != null) ? String(d.thread_id) : '';
 
     // Report click (no PII: only presence + action)
     try {
@@ -399,6 +405,11 @@ self.addEventListener('notificationclick', (event) => {
     try {
       if (noteId) {
         urlToOpen = `/note/${encodeURIComponent(noteId)}`;
+        // ``thread`` הוא פרמטר חד-פעמי: הקישור הקבוע מעביר אותו הלאה, והעמוד פותח את
+        // השרשור ומסיר אותו מהכתובת — כמו ``note``.
+        if (threadId) {
+          urlToOpen += `?thread=${encodeURIComponent(threadId)}`;
+        }
       } else if (fileId) {
         // פולבק להתראות ישנות שכבר בתור ואין בהן note_id
         urlToOpen = `/md/${encodeURIComponent(fileId)}`;
@@ -417,7 +428,12 @@ self.addEventListener('notificationclick', (event) => {
     // הדחייה שזה עתה נקבעה, כך שהתזכורת לא חזרה לעולם. שתי הפעולות
     // סותרות: דחייה אומרת "תחזור אליי", אישור אומר "ראיתי, די".
     // הדחייה גוברת.
-    if (noteId && !isSnooze) {
+    //
+    // ‏`!isComment` מאותה משפחה: התראת תגובה נושאת `note_id` רק כדי לפתוח את הפתק. בלי
+    // `remind_at` האישור **אינו קשור למועד**, ולכן לחיצה עליה הייתה סוגרת כל תזכורת פעילה
+    // של הפתק. מכשיר שעדיין מריץ SW ישן (לפני 2.2.0) עדיין שולח כאן אישור עד שהדפדפן מעדכן
+    // אותו — חלון מעבר מתועד, ב-``docs/deployment/workers.rst``.
+    if (noteId && !isSnooze && !isComment) {
       // המועד שההתראה נשאה חוזר לשרת, והאישור נקשר אליו: התראה שישבה במגש
       // מאתמול לא סוגרת תזכורת שנקבעה מחדש מאז. התראה בלי מועד (הוצגה לפני
       // שהשדה נוסף) מאשרת בלי קשירה, כמו קודם.

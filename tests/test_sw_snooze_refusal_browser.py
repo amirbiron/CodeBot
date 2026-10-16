@@ -1,10 +1,14 @@
-"""ה-Service Worker: דחייה שהשרת סירב לה אינה נראית כמו דחייה שהתקבלה.
+"""ה-Service Worker: מה לחיצה על התראה עושה — דחייה, אישור תזכורת, והתראת תגובה.
 
 ``sw.js`` נטען כמו שהוא לתוך עמוד ב-Chromium עם דמה של ``registration``,
 ``clients`` ו-``fetch``, ואירוע ``notificationclick`` סינתטי מופעל — כלומר
 ה-handler האמיתי רץ. לפני התיקון 404 לדחייה (תזכורת שכבר אושרה) נבלע:
 ``.catch`` אינו רואה תשובה שנפתרה, שום דיווח לא יצא, ולמשתמש לא היה
 סימן שהדחייה לא התקבלה — וההתראה שנשאה את הכפתור כבר נסגרה.
+
+**והתראת תגובה של סוכן אינה תזכורת** (בסוף הקובץ): היא נושאת ``note_id`` כדי
+לפתוח את הפתק, ובלי הבידול לפי ``type`` הלחיצה עליה הייתה שולחת אישור תזכורת —
+בלי ``remind_at``, כלומר אישור שסוגר כל תזכורת פעילה של הפתק.
 """
 
 from __future__ import annotations
@@ -56,11 +60,13 @@ window.fetch = async (url, opts) => {
 };
 """
 
+#: ``__action`` שלא הועבר ← ``snooze_60``; ``__action=""`` ← לחיצה על גוף ההתראה, בלי כפתור
+#: (כך נלחצת התראה שאין לה כפתורים, כמו התראת תגובה).
 CLICK = """
 () => {
   const ev = new Event('notificationclick');
   ev.notification = { data: window.__notifData || { note_id: 'n1', file_id: 'f1' }, close: () => {} };
-  ev.action = window.__action || 'snooze_60';
+  ev.action = ('__action' in window) ? window.__action : 'snooze_60';
   ev.waitUntil = (p) => { window.__done = Promise.resolve(p).catch(() => {}); };
   window.dispatchEvent(ev);
   return window.__done;
@@ -167,3 +173,48 @@ def test_ignoring_the_response_breaks_the_test(chromium_executable):
         out = _click(page)
     assert [r["status"] for r in out["reports"]] == ["success"], out["reports"]
     assert out["shown"] == []
+
+
+# -- התראת תגובה של סוכן (``note_comment``) -----------------------------------------------
+
+#: הבידול שמונע את האישור; המוטציה מוחקת אותו.
+COMMENT_IS_NOT_A_REMINDER = "if (noteId && !isSnooze && !isComment) {"
+
+#: ההתראה כפי ש-``push_api._build_note_comment_payload`` בונה אותה (``data``), בלי כפתורים.
+COMMENT_DATA = {
+    "type": "note_comment", "note_id": "n1", "thread_id": "64b7f1d2e3a4b5c6d7e8f901",
+    "file_id": "", "board_id": "", "title": "💬 CC הגיב על פתק", "body": "מצאתי את המקור",
+}
+
+
+def test_clicking_a_comment_notification_does_not_ack_a_reminder(chromium_executable):
+    """לחיצה על התראת תגובה פותחת את השרשור — ואינה שולחת אישור תזכורת לפתק."""
+    with _worker(chromium_executable, _sw_source(), __action="", __notifData=COMMENT_DATA) as page:
+        page.evaluate(CLICK)
+        page.wait_for_timeout(200)
+        bodies = _ack_bodies(page)
+        opened = page.evaluate("window.__opened")
+    assert bodies == [], bodies
+    assert opened is not None and opened.endswith("/note/n1?thread=64b7f1d2e3a4b5c6d7e8f901"), opened
+
+
+def test_a_reminder_body_click_still_acks(chromium_executable):
+    """שומר: התראת תזכורת (בלי ``type``) שנלחצה בגוף — עדיין מאשרת, ואינה מוסיפה ``thread``."""
+    data = {"note_id": "n1", "file_id": "f1", "remind_at": OCCURRENCE, "thread_id": "64b7f1d2e3a4b5c6d7e8f901"}
+    with _worker(chromium_executable, _sw_source(), __action="", __notifData=data) as page:
+        page.evaluate(CLICK)
+        page.wait_for_timeout(200)
+        bodies = _ack_bodies(page)
+        opened = page.evaluate("window.__opened")
+    assert bodies == [{"note_id": "n1", "remind_at": OCCURRENCE}], bodies
+    assert opened is not None and opened.endswith("/note/n1"), opened
+
+
+def test_without_the_type_check_a_comment_click_acks_the_reminder(chromium_executable):
+    """ריצת בקרה: בלי הבידול לפי ``type`` — הלחיצה על התראת התגובה שולחת אישור תזכורת."""
+    source = _mutate(_sw_source(), COMMENT_IS_NOT_A_REMINDER, "if (noteId && !isSnooze) {")
+    with _worker(chromium_executable, source, __action="", __notifData=COMMENT_DATA) as page:
+        page.evaluate(CLICK)
+        page.wait_for_timeout(200)
+        bodies = _ack_bodies(page)
+    assert bodies == [{"note_id": "n1"}], bodies

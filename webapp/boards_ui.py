@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from flask import Blueprint, redirect, render_template, session
+from flask import Blueprint, redirect, render_template, request, session
 
 try:  # type: ignore
     from bson import ObjectId  # type: ignore
@@ -77,13 +77,23 @@ def note_permalink(note_id: str):
         # פתק שנמחק, או מזהה פגום. הלוחות הם היעד הבטוח.
         return redirect('/boards')
 
+    # ``thread`` — שרשור לפתוח בפתק (התראת תגובה של סוכן, ``sw.js``). פרמטר חד-פעמי כמו
+    # ``note``: הוא עובר הלאה ליעד, ו-``sticky-notes.js`` פותח את השרשור כשהפתק נמצא. ובדפדפן
+    # הריפו הוא גם יורד מהכתובת יחד עם ``note`` (``consumeOneShotUrlParams``). **מאומת כאן
+    # לצורת מזהה** (``note_threads.parse_thread_id``) ולא רק מקודד — ערך אחר נזרק בשקט, כי
+    # בלעדיו הפתק עדיין נפתח, וזה כל מה שהקישור הבטיח.
+    import note_threads
+
+    thread_id = note_threads.parse_thread_id(request.args.get('thread'))
+    thread_param = f'&thread={thread_id}' if thread_id else ''
+
     board_id = str(note.get('board_id') or '')
     if board_id:
-        return redirect(f'/boards/{board_id}?note={note_id}')
+        return redirect(f'/boards/{board_id}?note={note_id}{thread_param}')
 
     file_id = str(note.get('file_id') or '')
     if file_id:
-        return redirect(f'/md/{file_id}?note={note_id}')
+        return redirect(f'/md/{file_id}?note={note_id}{thread_param}')
 
     # פתק על קובץ בריפו ממורר. **זה היה חסר** — הפונקציה הכירה שני סוגי
     # יעד בלבד, ולכן פתק ריפו נפל אל ``/boards`` הכללי: לחיצה על תזכורת
@@ -125,7 +135,7 @@ def note_permalink(note_id: str):
     # לא היה שובר את ה-URL, אבל אימות שמקבל ערך שהוא עצמו פוסל אינו אימות.
     if repo_name and repo_path and GitMirrorService.REPO_NAME_PATTERN.fullmatch(repo_name):
         return redirect(
-            f'/repo/?repo={quote(repo_name, safe="")}&note={note_id}'
+            f'/repo/?repo={quote(repo_name, safe="")}&note={note_id}{thread_param}'
             f'#file={quote(repo_path, safe="/")}'
         )
 

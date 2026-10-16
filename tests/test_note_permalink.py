@@ -111,6 +111,34 @@ def test_deleted_note_falls_back_to_boards(client):
     assert res.headers['Location'] == '/boards'
 
 
+#: מזהה שרשור בצורת ``str(ObjectId)`` — באותיות גדולות בכוונה: הוא מועבר הלאה בצורה הקנונית.
+THREAD = "64B7F1D2E3A4B5C6D7E8F901"
+
+
+@pytest.mark.parametrize("note_id, expected", [
+    ("1", f"/md/file-abc?note=1&thread={THREAD.lower()}"),
+    ("2", f"/boards/board-xyz?note=2&thread={THREAD.lower()}"),
+    ("5", f"/repo/?repo=CodeBot&note=5&thread={THREAD.lower()}#file=webapp/app.py"),
+])
+def test_the_thread_is_forwarded_to_where_the_note_lives(client, note_id, expected):
+    """התראת תגובה פותחת ``/note/<id>?thread=<id>`` — והשרשור צריך להגיע לעמוד שבו הפתק יושב."""
+    res = client.get(f'/note/{note_id}?thread={THREAD}')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == expected
+
+
+@pytest.mark.parametrize("value", ["", "xyz", THREAD[:-1], THREAD + "0", "../../x", "a&note=4"])
+def test_a_malformed_thread_is_dropped_and_the_note_still_opens(client, value):
+    """ערך שאינו מזהה נזרק, והפתק עדיין נפתח — זה כל מה שהקישור הבטיח."""
+    from urllib.parse import quote
+
+    res = client.get(f'/note/2?thread={quote(value, safe="")}')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/boards/board-xyz?note=2'
+
+
 def test_guest_keeps_the_note_in_next():
     """סשן שפג מחזיר את המשתמש לפתק אחרי ההתחברות, ולא לשורש."""
     from webapp.app import app

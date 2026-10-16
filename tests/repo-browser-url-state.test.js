@@ -183,6 +183,22 @@ check('הריפו מה-query מוסר מה-URL אחרי שנצרך', async () =>
   eq(q(sb.__location).get('note'), null, 'note הוסר מה-query');
 });
 
+check('גם השרשור מהקישור מוסר מה-URL — הוא חלק מאותה כוונה', async () => {
+  // ``?thread=`` מגיע מלחיצה על התראת תגובה, תמיד יחד עם ``?note=``. נופל על הקוד
+  // שלפני השרשורים: ``thread`` לא היה ברשימת הפרמטרים החד-פעמיים, ולכן נשאר בכתובת
+  // אחרי ש-``note`` נוקה — שארית של כוונה שכבר מומשה, ששורדת כל ריענון ושיתוף.
+  const sb = makeSandbox(
+    'https://x.test/repo/?repo=amir-bug-patterns&note=abc123&thread=64b7f1d2e3a4b5c6d7e8f901#file=INTEGRATION.md',
+    { serverRepo: 'CodeBot', serverSource: 'user' });
+  sb.__exec("repoMetadataByName = { 'amir-bug-patterns': { repo_name: 'amir-bug-patterns' }, 'CodeBot': { repo_name: 'CodeBot' } }");
+  sb.__exec("currentRepo = 'CodeBot'");
+
+  await sb.applyInitialNavigationFromUrl();
+
+  eq(q(sb.__location).get('thread'), null, 'thread הוסר מה-query');
+  eq(sb.__location.hash, '#file=INTEGRATION.md', 'וה-hash שלם');
+});
+
 check('ה-hash שורד את הניקוי במלואו', async () => {
   // הניקוי חייב לגעת ב-query בלבד. ה-hash הוא מצב לגיטימי ומתמשך —
   // הוא זה שאומר איזה קובץ פתוח, ומחיקתו הייתה מאבדת את הקובץ.
