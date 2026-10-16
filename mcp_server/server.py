@@ -36,6 +36,7 @@ import logging
 import os
 import pathlib
 import re
+import shlex
 import time
 from concurrent.futures import ThreadPoolExecutor
 from types import NoneType, UnionType
@@ -704,7 +705,7 @@ def _upload_id_param_doc(instead_of: str, upload_url: str, hash_after_write: str
         f"Instead of {instead_of}, for text already in a file in your environment: "
         "single-use, and the size ceiling still applies. Upload the file "
         'first: curl -sS -T report.md -H "Authorization: Bearer $CODEKEEPER_PAT" '
-        f"{upload_url} — the reply carries upload_id, valid for {UPLOAD_TTL_SECONDS // 60} "
+        f"{_shell_word(upload_url)} — the reply carries upload_id, valid for {UPLOAD_TTL_SECONDS // 60} "
         f"minutes, {hash_after_write} "
         "Without bash, network access or CODEKEEPER_PAT (Claude.ai, for one), use the "
         f"{instead_of} parameter as usual."
@@ -719,19 +720,35 @@ def _upload_id_param_doc(instead_of: str, upload_url: str, hash_after_write: str
 _DOWNLOAD_TOOL_DOC = " To save its bytes to disk, see file_id."
 
 
+def _shell_word(value: str) -> str:
+    """ערך שנכנס לפקודת shell שבתיאור כלי — מצוטט כך ש-bash קורא אותו כמילה אחת, מילולית.
+
+    **הציטוט בנקודת ההרכבה, ולא ולידציה של הכתובת.** הכתובת בפקודות נגזרת מ-``MCP_SERVER_URL``,
+    ו-``public_base_for`` (``mcp_server/public_url.py``) בודק שהיא שמישה ושאין בה סוד — לא
+    שהיא בטוחה ל-shell, ונתיב כמו ``/$(id)`` עובר אותו. ב-shell יש הפרדה אמיתית בין נתונים
+    לקוד — ציטוט — ורשימת תווים אסורים לעולם אינה שלמה (U3 סעיף 8 ב-amir-bug-patterns).
+    ``shlex.quote`` עוטף בגרשיים בודדים כל ערך שיש בו תו שאינו בטוח, ומחליף גרש בודד ב-
+    ``'"'"'`` (``Lib/shlex.py``); ערך שכולו תווים בטוחים — כתובת רגילה — חוזר כמו שהוא.
+    **גרשיים כפולים אינם מספיקים:** בתוכם bash עדיין מרחיב ``$(...)``, backticks ו-``$``,
+    ו-``"`` בכתובת סוגר אותם.
+    """
+    return shlex.quote(value)
+
+
 def _download_command(download_url: str, out: str) -> str:
     """פקודת ההורדה, **נוסח אחד לשני התיאורים** — רק שם קובץ היעד משתנה.
 
     ``-f`` חובה: בלעדיו ``curl -sS`` כותב את גוף ה-404 או ה-401
     (``{"error":"not_found"}``) לתוך קובץ היעד ויוצא בקוד 0, ה-``&&`` ממשיך, ו-``sha256sum``
     מחשב טביעת אצבע של הודעת השגיאה — סוכן שלא משווה בקפידה היה מריץ JSON כאילו היה
-    סקריפט. הכתובת במירכאות: ``?`` בלעדיהן הוא תבנית של ה-shell. ``file_id`` ולא
-    ``file_name``: שם בעברית או עם רווח נשבר כשהוא מוקלד ישירות בכתובת, ו-``file_id``
+    סקריפט. הכתובת עוברת :func:`_shell_word`, כולל ה-``?`` שבה, שבלי ציטוט הוא תבנית של
+    ה-shell; ``<id>`` נשאר בתוך הגרשיים, והסוכן מחליף אותו במזהה (ספרות הקס). ``file_id``
+    ולא ``file_name``: שם בעברית או עם רווח נשבר כשהוא מוקלד ישירות בכתובת, ו-``file_id``
     ממילא מגיע מ-``codekeeper_get_file`` או מ-``codekeeper_list_versions``.
     """
     return (
         f'curl -fsS -H "Authorization: Bearer $CODEKEEPER_PAT" -o {out} '
-        f'"{download_url}?file_id=<id>" && sha256sum {out}'
+        f"{_shell_word(f'{download_url}?file_id=<id>')} && sha256sum {out}"
     )
 
 

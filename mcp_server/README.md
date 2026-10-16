@@ -259,12 +259,13 @@ curl -sS -T report.md -H "Authorization: Bearer $CODEKEEPER_PAT" \
 
 ```bash
 curl -fsS -H "Authorization: Bearer $CODEKEEPER_PAT" -o script.py \
-  "https://<MCP-HOST>/api/agent/download?file_id=<id>" && sha256sum script.py
+  'https://<MCP-HOST>/api/agent/download?file_id=<id>' && sha256sum script.py
 ```
 
 - **`file_id`** — מזהה של גרסה: `file.id` מתשובה של `codekeeper_get_file`, או `id` מ‑`codekeeper_list_versions`. לפי שם (`file_name`, ו‑`version` אופציונלי) — רק מקודד, ב‑`-G --data-urlencode`.
 - **הגוף הוא `code.encode("utf-8")` ותו לא**, ו‑`X-Content-SHA256` הוא `file.content_sha256` של אותה גרסה — ה‑hash ש‑`sha256sum` מדפיס. גם `X-File-Version`.
 - **`-f` חובה:** בלעדיו גוף ה‑404 נכתב לקובץ היעד, curl יוצא ב‑0, ו‑`sha256sum` מחשב טביעת אצבע של הודעת השגיאה.
+- **הכתובת מצוטטת ל‑shell** (`_shell_word` ב‑`server.py`, מעל `shlex.quote` — גם בפקודת ההעלאה): בתוך גרשיים כפולים `$(...)` ו‑backticks עדיין רצים, ו‑`"` בכתובת סוגר אותם.
 - **אותה מכסת קצב של קריאות הכלים:** הורדה היא קריאה אחת. מזהה של אחר, מזהה שאינו קיים ומזהה פגום — `404` אחד. פרמטר לא מוכר, כפול או ריק, ו‑`version` לצד `file_id` — `400` עם קוד משלו.
 - **כל סירוב של הראוט נושא `Connection: close`, וכל תשובה שהוא בונה — `Cache-Control: no-store`.**
 - הפקודה רצה בכלי ה‑Bash של הסוכן, עם אישור הרשאה רגיל — `Bash(curl:*)` נשאר לא מוגדר, כמו בהעלאה.

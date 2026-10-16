@@ -27,6 +27,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -399,13 +400,59 @@ def test_head_runs_the_whole_route_and_counts_against_the_quota(backend):
 
 
 def _command(tool, base: str, *, param: str | None) -> str:
-    """פקודת ההורדה מתוך תיאור הכלי — או מתיאור הפרמטר ``param`` שלו."""
+    """פקודת ההורדה מתוך תיאור הכלי — או מתיאור הפרמטר ``param`` שלו.
+
+    הכתובת נקראת כמו ש-bash קורא אותה (``shlex.split``), ולא בהתאמת מחרוזת: היא מצוטטת
+    ב-``shlex.quote``, והצורה שלה בטקסט תלויה בתווים שבה.
+    """
     doc = tool.parameters["properties"][param]["description"] if param else tool.description
-    match = re.search(r'curl -fsS -H "Authorization: Bearer \$CODEKEEPER_PAT" -o (\S+) "(\S+)" && sha256sum (\S+)', doc)
+    match = re.search(r'curl -fsS -H "Authorization: Bearer \$CODEKEEPER_PAT" -o (\S+) (.+?) && sha256sum (\S+)', doc)
     assert match, doc
     assert match.group(1) == match.group(3)
-    assert match.group(2) == f"{base}{DOWNLOAD_PATH}?file_id=<id>"
+    assert shlex.split(match.group(2)) == [f"{base}{DOWNLOAD_PATH}?file_id=<id>"]
     return match.group(0)
+
+
+#: ``MCP_SERVER_URL`` עם תחביר של shell בנתיב — כל אחד עובר את ``public_base_for`` (אין בו
+#: סיסמה, query או fragment), ולכן מגיע לפקודות שבתיאורים כמו שהוא.
+HOSTILE_BASES = [
+    "https://mcp.example.com/$(touch pwned)",
+    "https://mcp.example.com/`touch pwned`",
+    'https://mcp.example.com/x";touch pwned;"',
+    "https://mcp.example.com/x';touch pwned;'",
+    "https://mcp.example.com/x;touch pwned;",
+]
+
+
+@pytest.mark.parametrize("public_url", HOSTILE_BASES)
+def test_shell_syntax_in_the_configured_url_stays_literal_in_every_command(tmp_path, backend, public_url):
+    """הפקודות שבתיאורים רצות ב-bash של הסוכן כמו שהן; תחביר של shell ב-``MCP_SERVER_URL``
+    נשאר חלק מהכתובת ואינו מריץ דבר — בהורדה (``file_id``, ``codekeeper_list_versions``)
+    ובהעלאה (``upload_id``) כאחד.
+
+    ``curl`` מוחלף ב-``true``: ההרחבה של ה-shell קורית לפני שהפקודה רצה, ולכן אין צורך
+    ברשת כדי לראות אם ``touch pwned`` רץ. ארבעה מהמטענים נכשלו על הקוד שלפני ``_shell_word``:
+    בגרשיים כפולים ``$(...)``, backticks ו-``"`` הריצו את ``touch``, ופקודת ההעלאה לא צוטטה
+    בכלל, ולכן גם ``;``. המטען עם ``'`` עבר גם שם (בתוך גרשיים כפולים הוא מילולי), והוא
+    כאן כדי לנעול שהציטוט מטפל בגרש בודד: עטיפה בגרשיים בודדים בלי ``'"'"'`` הייתה נשברת עליו.
+    """
+    import mcp_server.server as srv
+
+    tools = srv.build_mcp(backend, public_url=public_url)._tool_manager
+    docs = {
+        "file_id": tools.get_tool("codekeeper_get_file").parameters["properties"]["file_id"]["description"],
+        "list_versions": tools.get_tool("codekeeper_list_versions").description,
+        "upload_id": tools.get_tool("codekeeper_save_file").parameters["properties"]["upload_id"]["description"],
+    }
+    for name, doc in docs.items():
+        match = (re.search(r"curl -fsS .*? && sha256sum \S+", doc)
+                 or re.search(r"curl -sS -T report\.md .*?(?= — the reply)", doc))
+        assert match, (name, doc)
+        command = match.group(0).replace("curl ", "true ", 1)
+        subprocess.run(["bash", "-c", command], cwd=tmp_path, capture_output=True, timeout=30,
+                       env={"PATH": os.environ["PATH"]})
+        assert not (tmp_path / "pwned").exists(), (name, command)
+        assert not (tmp_path / "pwned;").exists(), (name, command)
 
 
 def _run(command: str, cwd: pathlib.Path, token: str | None) -> subprocess.CompletedProcess:
@@ -519,6 +566,8 @@ def test_the_descriptions_name_the_route_with_the_configured_host_and_point_from
     _command(get_file, base, param="file_id")
     _command(tools.get_tool("codekeeper_list_versions"), base, param=None)
     file_id_doc = get_file.parameters["properties"]["file_id"]["description"]
+    # הכתובת בגרשיים בודדים תמיד: ה-``?`` שבה אינו תו בטוח ל-``shlex.quote``.
+    assert f"'{base}{DOWNLOAD_PATH}?file_id=<id>'" in file_id_doc
     # הכלל במשפט הראשון, בתוך 120 תווים: לקוח שמקצר תיאור פרמטר רואה רק אותו.
     first = file_id_doc.split(". ")[0]
     assert len(first) <= 120 and "codekeeper_list_versions" in first

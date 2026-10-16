@@ -1751,7 +1751,7 @@ true`` ומאפסת את החותמת (הפסקה הבאה). "אותו טקסט"
 
 **הזרימה — קריאת ``curl`` אחת**, עם אותו ``CODEKEEPER_PAT`` של הפריימר ושל ההעלאה::
 
-    curl -fsS -H "Authorization: Bearer $CODEKEEPER_PAT" -o script.py "https://<MCP-HOST>/api/agent/download?file_id=<id>" && sha256sum script.py
+    curl -fsS -H "Authorization: Bearer $CODEKEEPER_PAT" -o script.py 'https://<MCP-HOST>/api/agent/download?file_id=<id>' && sha256sum script.py
 
 ``file_id`` הוא מזהה של גרסה — ``file.id`` מכל תשובה שמתארת קובץ, או ``id`` מ-``codekeeper_list_versions``. ה-hash ש-``sha256sum`` מדפיס שווה ל-``file.content_sha256`` של אותה גרסה (:ref:`mcp-content-sha256`), וגם ל-``X-Content-SHA256`` שבתשובה.
 
@@ -1759,11 +1759,13 @@ true`` ומאפסת את החותמת (הפסקה הבאה). "אותו טקסט"
 
 **הורדה לפי שם — רק בצורה המקודדת.** שמות קבצים כוללים עברית ורווחים, ו-``?file_name=...`` שמוקלד ישירות בכתובת נשבר. תיאורי הכלים מפנים ל-``file_id``; כשבכל זאת מורידים לפי שם — הגרסה האחרונה, או ``version`` לגרסה מסוימת::
 
-    curl -fsS -G -H "Authorization: Bearer $CODEKEEPER_PAT" --data-urlencode "file_name=<שם>" -o out.md "https://<MCP-HOST>/api/agent/download"
+    curl -fsS -G -H "Authorization: Bearer $CODEKEEPER_PAT" --data-urlencode 'file_name=<שם>' -o out.md 'https://<MCP-HOST>/api/agent/download'
 
 **למה לא קישור חתום.** מאותו נימוק של ההעלאה: ה-PAT מאמת את הבקשה עצמה, ולכן אין מה להטביע, אין סוד בכתובת ואין אחסון זמני. וכאן גם ה-scope אינו שאלה — הורדה היא קריאה, וטוקן ``read`` מספיק.
 
 **מתי לא.** בלי bash, בלי רשת או בלי ``CODEKEEPER_PAT`` — Claude.ai, למשל — קוראים ב-``codekeeper_get_file`` כרגיל. הפקודה מופיעה בתיאור הפרמטר ``file_id`` של ``codekeeper_get_file`` ובתיאור ``codekeeper_list_versions``, עם ה-host מ-``MCP_SERVER_URL`` (או ``<mcp-host>``, באותה בדיקה של פקודת ההעלאה — ``public_base_for`` ב-``mcp_server/public_url.py``). בתיאור ``codekeeper_get_file`` עצמו יש רק הפניה לפרמטר: הוא קרוב לתקרת תיאור כלי, והפקודה אינה נכנסת בה (``_DOWNLOAD_TOOL_DOC`` ו-``_download_command`` ב-``mcp_server/server.py``).
+
+**הכתובת בפקודה מצוטטת ל-shell.** הסוכן מריץ את הפקודה מהתיאור כמו שהיא, והכתובת נגזרת מ-``MCP_SERVER_URL``. ``public_base_for`` בודק שהיא שמישה ושאין בה סוד — לא שהיא בטוחה ל-shell, ונתיב כמו ``/$(id)`` עובר אותו. לכן שתי הפקודות, ההורדה וההעלאה, מצטטות את הכתובת בנקודת ההרכבה (``_shell_word``, מעל ``shlex.quote``): גרשיים בודדים, כי בתוך גרשיים כפולים bash עדיין מרחיב ``$(...)``, backticks ו-``$``, ו-``"`` בכתובת סוגר אותם. כתובת רגילה בפקודת ההעלאה נשארת בלי גרשיים — ``shlex.quote`` מחזיר ערך שכולו תווים בטוחים כמו שהוא — והכתובת בפקודת ההורדה תמיד מצוטטת, בגלל ה-``?`` שבה. עד התיקון הזה פקודת ההעלאה הכניסה את הכתובת בלי ציטוט בכלל.
 
 הראוט — ``GET /api/agent/download``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
