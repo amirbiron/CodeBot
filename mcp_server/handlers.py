@@ -177,6 +177,10 @@ _EXCLUSIVE_READ_MODES = tuple(
 # התעלמות שקטה. שני קודים ולא אחד, כדי שהקורא ידע איזה מהשניים נדחה.
 MAX_CHARS_WITHOUT_SECTION = "max_chars_without_section"
 OFFSET_WITHOUT_SECTION = "offset_without_section"
+# ``max_depth`` מגביל **מפה**, ובכלי הזה מפה יש רק במצב ``toc`` — או בתוך תשובת
+# ``section_not_found`` של ``section``. בלי שניהם הוא פרמטר שהיה נזרק, ולכן סירוב
+# ולא התעלמות — אותה הכרעה כמו ``MAX_CHARS_WITHOUT_SECTION``.
+MAX_DEPTH_WITHOUT_TOC = "max_depth_without_toc"
 
 # ``section`` שאינו מחרוזת — רשת מאחורי הסכימה, כמו ``QUERY_INVALID``. ו-``section``
 # ריק או רווחים בלבד **אינו** "בלי ``section``": ב-``codekeeper_docs_get_section``
@@ -413,6 +417,7 @@ def file_read_request_error(
     toc: Any = False,
     max_chars: Any = None,
     offset: Any = None,
+    max_depth: Any = None,
 ) -> str | None:
     """קוד השגיאה של **צורת הבקשה** של ``codekeeper_get_file``, או ``None`` אם היא תקינה.
 
@@ -470,6 +475,10 @@ def file_read_request_error(
             return MAX_CHARS_WITHOUT_SECTION
         if offset is not None:
             return OFFSET_WITHOUT_SECTION
+        # **אחרי שני אלה, ולכן אף בקשה שאינה נושאת ``max_depth`` אינה מקבלת תשובה
+        # אחרת.** ``toc`` כבר ``bool`` כאן (נבדק בראש הפונקציה).
+        if max_depth is not None and not toc:
+            return MAX_DEPTH_WITHOUT_TOC
 
     if query is not None:
         return file_query_error(query)
@@ -640,6 +649,7 @@ def get_file(
     toc: Any = False,
     max_chars: Any = None,
     offset: Any = None,
+    max_depth: Any = None,
 ) -> dict[str, Any] | None:
     # **צורת הבקשה נבדקת לפני השאלה איזה קובץ התבקש.** ראו
     # :func:`file_read_request_error` — שם גם הנימוק, וגם מה שאינו שם.
@@ -655,6 +665,7 @@ def get_file(
         toc=toc,
         max_chars=max_chars,
         offset=offset,
+        max_depth=max_depth,
     )
     if request_error:
         return file_read_refusal(request_error)
@@ -685,11 +696,13 @@ def get_file(
         # ``max_chars`` ו-``offset`` עוברים **כמות שהם**, ובלי הצמדה כאן. הם נצמדים
         # בפונקציה שעונה על הסעיף — ``docs_handlers.answer_section``, אותה אחת ש-
         # ``codekeeper_docs_get_section`` עובר בה — והצמדה שנייה כאן הייתה עותק של
-        # אותם גבולות. ``None`` נשמר מאותה סיבה כמו ``context_lines``.
+        # אותם גבולות. ``None`` נשמר מאותה סיבה כמו ``context_lines``. וכך גם
+        # ``max_depth`` (``docs_handlers._depth_limit``).
         section=section,
         toc=toc,
         max_chars=max_chars,
         offset=offset,
+        max_depth=max_depth,
     )
 
 

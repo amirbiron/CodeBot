@@ -1326,7 +1326,7 @@ def test_a_section_item_uses_the_single_tools_defaults():
     """``answer_section`` נושא את ברירות המחדל של ``docs_get_section`` — ושתי החתימות לא נפרדו."""
     batch = inspect.signature(docs_handlers.answer_section).parameters
     single = inspect.signature(docs_handlers.docs_get_section).parameters
-    for name in ("section", "include_subsections", "max_chars", "offset"):
+    for name in ("section", "include_subsections", "max_chars", "offset", "max_depth"):
         assert batch[name].default == single[name].default, name
 
 

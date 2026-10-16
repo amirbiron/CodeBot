@@ -5,7 +5,7 @@
 רשתות הוולידציה שמאחורי הסכימה, והתווית של האנליטיקס — כי שם מה שנבדק הוא
 פונקציה ולא זרימה.
 
-חמש קבוצות:
+שש קבוצות:
 
 1. **התנהגות** — מפה, סעיף, מזהה, עימוד, גרסה ומזהה קובץ.
 2. **סירובים** — כל זוג מצבים בקוד משלו, פרמטר בלי המצב שלו, קובץ שאינו
@@ -13,6 +13,8 @@
 3. **שימוש חוזר** — שני הכלים עוברים באותן פונקציות בדיוק, ולא בעותק.
 4. **תוספתיות** — קריאה בלי הפרמטרים החדשים מחזירה בדיוק את מה שחזר קודם.
 5. **אכיפה** — התווית באנליטיקס, והתיאורים שהסוכן קורא.
+6. **``max_depth``** — מפה של הרמות העליונות, בשני הכלים: העומק, ``hidden_subsections``,
+   מה שאינו מוגבל, ההצמדה, הסכימה והסירוב.
 
 כל בדיקה כאן הורצה על הקוד **שלפני** התוספת (T2), וגם תחת מוטציה נקודתית
 שמבטלת בדיוק את מה שהיא בודקת; המוטציה כתובה בגוף כל בדיקה.
@@ -2468,3 +2470,366 @@ def test_the_byte_budget_has_one_measure_and_one_word():
     assert read_batch.answer_size.wire_json is answer_size.wire_json
     assert docs_handlers.wire_json is answer_size.wire_json
     assert answer_size.BYTE_BUDGET_REASON == "byte_budget"
+
+
+# ---------------------------------------------------------------------------
+# 6. ``max_depth`` — מפה של הרמות העליונות בלבד
+# ---------------------------------------------------------------------------
+
+#: תת-הכותרות של פרק ב-RECURRING-PATTERNS של amir-bug-patterns, **כמו שהן בקובץ**: לשלושה
+#: פרקים יש גם "False positives", ולשבעה אין. ``_RECURRING_CHAPTERS`` משכפל את מפת הקובץ
+#: (``codekeeper_docs_get_section`` בלי ``section``, ב-2026-10-16): שורש, עשרה דפוסים ופרק
+#: "ראה גם" בלי תת-כותרות — 65 כותרות. זה הקובץ שבגללו הפרמטר נוסף: אותן תת-כותרות תחת כל
+#: פרק, ומפה שכולה חזרות כשמחפשים פרק.
+_WITH_FP = ("איך זה נראה", "דוגמאות אמיתיות", "כלל לזיהוי", "False positives", "מצב מומלץ", "ראה גם")
+_WITHOUT_FP = tuple(sub for sub in _WITH_FP if sub != "False positives")
+_RECURRING_ROOT = "דפוסים חוזרים (RECURRING)"
+_RECURRING_CHAPTERS = (
+    ("R1. lifecycle של AsyncSession ב-SQLAlchemy", _WITH_FP),
+    ("R2. דפדוף בלי tiebreaker משני", _WITH_FP),
+    ("R3. quirks של Browser API / DOM", _WITHOUT_FP),
+    ("R4. שלמות exception של External SDK", _WITHOUT_FP),
+    ("R5. שגיאות scope של filter", _WITHOUT_FP),
+    ("R6. עותק שני של כלל — והם נסחפים", _WITHOUT_FP),
+    ("R7. זמן נקרא בלי אזור זמן, או מתויג בלי להמיר", _WITHOUT_FP),
+    ("R8. עבודה ומטען שאינם פרופורציונליים לתשובה", _WITHOUT_FP),
+    ("R9. מדד שמערבב מקורות — ומניע פעולה אוטומטית", _WITHOUT_FP),
+    ("R10. תפיסה גורפת לתוך מצב שהוצהר עבור סיכון אחד", _WITH_FP),
+    ("ראה גם (cross-tier)", ()),
+)
+
+
+def _recurring_md() -> str:
+    lines = [f"# {_RECURRING_ROOT}", "", "פתיחה.", ""]
+    for chapter, subs in _RECURRING_CHAPTERS:
+        lines += [f"## {chapter}", "", "גוף.", ""]
+        for sub in subs:
+            lines += [f"### {sub}", "", "פסקה.", ""]
+    return "\n".join(lines)
+
+
+#: שדות ההקשר — שונים בין שני הכלים בכוונה (``file`` מול ``repo``/``path``), וכל השאר זהה.
+_CONTEXT_KEYS = {"found", "status", "file", "repo", "path", "ref", "resolved_commit"}
+
+
+async def _both_tools(monkeypatch, code: str, **arguments) -> tuple[dict, dict]:
+    """אותה שאלה לשני הכלים שבונים את המפה באותה פונקציה — ותשובת כל אחד בלי ההקשר שלו.
+
+    ``codekeeper_get_file`` על קובץ שמור (``toc=true`` כשאין ``section``), ו-
+    ``codekeeper_docs_get_section`` על אותו טקסט כעמוד Markdown במראה. שני הכלים נקראים
+    דרך ``mcp.call_tool``, כמו שהסוכן קורא להם — כולל ולידציית הסכימה.
+    """
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    mcp = _build(monkeypatch, _Dbm(code), repo_backend=_RepoText(code))
+    mode = {} if "section" in arguments else {"toc": True}
+    from_file = await _call(mcp, file_name=_MD_NAME, **mode, **arguments)
+    from_docs = _payload(await mcp.call_tool(
+        "codekeeper_docs_get_section", {"path": "x.md", "repo": "amir-bug-patterns", **arguments}))
+    strip = lambda answer: {k: v for k, v in answer.items() if k not in _CONTEXT_KEYS}  # noqa: E731
+    return strip(from_file), strip(from_docs)
+
+
+def _hidden(answer: dict) -> dict[str, int]:
+    """כותרת ← ``hidden_subsections``, רק לכותרות שנושאות את השדה."""
+    return {t["title"]: t["hidden_subsections"] for t in answer["toc"] if "hidden_subsections" in t}
+
+
+async def test_max_depth_two_keeps_the_root_and_its_chapters_on_a_recurring_patterns_file(
+        monkeypatch):
+    """``max_depth=2`` על קובץ בצורת RECURRING-PATTERNS: השורש והפרקים בלבד, וכמה הוסתר תחת כל פרק.
+
+    ``hidden_subsections`` יושב על כל פרק שהוסתרו תחתיו כותרות, ומונה אותן — 6 או 5, לפי
+    הפרק. הפרק "ראה גם" אינו נושא אותו: אין תחתיו כלום. **והשורש אינו נושא אותו**, אף
+    שתחתיו הוסתרו כולן — הספירה יושבת על הכותרות שבגבול, ולכן מפה ועוד כל
+    ``hidden_subsections`` היא בדיוק ``section_count``. ``section_count`` נשאר 65, ו-
+    ``toc_truncated`` כבוי: הגבלה בכוונה אינה חיתוך. שני הכלים עונים אותו דבר.
+
+    נופלת על הקוד שלפני התוספת: המפה מלאה (65 כותרות), ואין ``max_depth`` בתשובה.
+
+    מוטציות שמפילות (הורצו על עותק): לא לחשב את ``hidden_subsections`` ב-``_limit_depth``;
+    ``section_count`` שסופר את המפה המסוננת במקום את ``doc.sections``.
+    """
+    from_file, from_docs = await _both_tools(monkeypatch, _recurring_md(), max_depth=2)
+
+    assert from_file == from_docs
+    out = from_file
+    assert out["ok"] is True and out["mode"] == "toc"
+    assert [t["title"] for t in out["toc"]] == (
+        [_RECURRING_ROOT] + [chapter for chapter, _ in _RECURRING_CHAPTERS])
+    assert _hidden(out) == {chapter: len(subs) for chapter, subs in _RECURRING_CHAPTERS if subs}
+    assert out["section_count"] == 65
+    assert len(out["toc"]) + sum(_hidden(out).values()) == out["section_count"]
+    assert out["toc_truncated"] is False
+    assert out["max_depth"] == 2
+
+
+async def test_depth_is_counted_along_the_breadcrumb_not_by_heading_level(monkeypatch):
+    """מארקדאון שמדלג רמה: ``#`` ואחריו ``###`` — ה-``###`` הוא ילד ישיר, ו-``max_depth=2`` משאיר אותו.
+
+    ``level`` של ``תת`` הוא 3, אבל ה-breadcrumb שלו באורך 2 — ``_finalize`` שם אותו
+    מתחת לשורש. סינון לפי ``level`` היה מעלים אותו ואת כל מה שתחתיו, בלי סימן: מפה עם
+    שורש בלבד ו-``hidden_subsections`` על אף כותרת.
+
+    מוטציה שמפילה (הורצה על עותק): ``entry["level"] <= max_depth`` במקום אורך ה-breadcrumb
+    ב-``_limit_depth``.
+    """
+    text = "# שורש\n\n### תת\n\nגוף.\n\n#### נכד\n\nגוף.\n\n## פרק\n\n### סעיף\n\nגוף.\n"
+
+    from_file, from_docs = await _both_tools(monkeypatch, text, max_depth=2)
+
+    assert from_file == from_docs
+    assert [(t["title"], t["level"]) for t in from_file["toc"]] == [
+        ("שורש", 1), ("תת", 3), ("פרק", 2)]
+    assert _hidden(from_file) == {"תת": 1, "פרק": 1}
+    assert from_file["section_count"] == 5
+
+
+async def test_a_miss_carries_the_limited_map_and_the_full_suggestions(monkeypatch):
+    """``section_not_found`` עם ``max_depth``: המפה מוגבלת ומהדהדת אותו, וההצעות — מכל המסמך.
+
+    השאילתה קרובה לכותרת בעומק 3, שהמפה המוגבלת אינה מראה — וההצעה עליה מגיעה בכל זאת,
+    כי ``suggest`` רץ על המסמך ולא על המפה. ההצעות זהות לאלה של אותה שאלה בלי הפרמטר.
+
+    נופלת על הקוד שלפני התוספת: המפה מלאה.
+
+    מוטציה שמפילה: להעביר ל-``suggest`` רק את הכותרות שבמפה המוגבלת — ההצעה נעלמת.
+    """
+    text = _recurring_md() + "\n### כותרת עמוקה ויחידה\n\nגוף.\n"
+    query = "כותרת עמוקה ויחיד"
+
+    limited, limited_docs = await _both_tools(monkeypatch, text, section=query, max_depth=2)
+    full, _ = await _both_tools(monkeypatch, text, section=query)
+
+    assert limited == limited_docs
+    assert limited["error"] == full["error"] == "section_not_found"
+    assert "כותרת עמוקה ויחידה" in limited["suggestions"]
+    assert limited["suggestions"] == full["suggestions"]
+    assert [t["title"] for t in limited["toc"]] == (
+        [_RECURRING_ROOT] + [chapter for chapter, _ in _RECURRING_CHAPTERS])
+    assert limited["max_depth"] == 2 and "max_depth" not in full
+    assert len(full["toc"]) == 66
+
+
+async def test_a_heading_asked_by_name_is_found_at_any_depth_and_candidates_are_whole(
+        monkeypatch):
+    """ההגבלה היא של המפה בלבד: התאמה ומועמדים אינם מושפעים, וגם אינם מהדהדים אותה.
+
+    "כלל לזיהוי" חוזר תחת כל אחד מעשרת הדפוסים, בעומק 3: גם עם ``max_depth=1`` התשובה היא
+    ``ambiguous_section`` עם עשרה מועמדים — **זהה בית-בית** לתשובה בלי הפרמטר. וכותרת
+    יחידה בעומק 3 נמצאת בשמה עם ``max_depth=1``, ושוב זהה לתשובה בלעדיו: ``max_depth``
+    אינו נכנס לתשובה שאין בה מפה.
+
+    נופלת אם ההתאמה עוברת על המפה המוגבלת: הכותרת אינה נמצאת, והמועמדים נעלמים.
+    """
+    text = _recurring_md() + "\n### כותרת עמוקה ויחידה\n\nגוף.\n"
+
+    for section in ("כלל לזיהוי", "כותרת עמוקה ויחידה"):
+        limited, limited_docs = await _both_tools(monkeypatch, text, section=section, max_depth=1)
+        full, full_docs = await _both_tools(monkeypatch, text, section=section)
+        assert limited == full, section
+        assert limited_docs == full_docs, section
+
+    ambiguous, _ = await _both_tools(monkeypatch, text, section="כלל לזיהוי", max_depth=1)
+    assert ambiguous["error"] == "ambiguous_section"
+    assert len(ambiguous["candidates"]) == 10
+    assert {len(c["breadcrumb"]) for c in ambiguous["candidates"]} == {3}
+    found, _ = await _both_tools(monkeypatch, text, section="כותרת עמוקה ויחידה", max_depth=1)
+    assert found["mode"] == "section" and len(found["breadcrumb"]) == 3
+
+
+async def test_a_max_depth_deeper_than_the_file_changes_nothing_but_the_echo(monkeypatch):
+    """``max_depth`` שגדול מהעומק של הקובץ — אותה תשובה בדיוק כמו בלי הפרמטר, חוץ מההד.
+
+    במפה וב-``section_not_found``, בשני הכלים: אף כותרת לא חסרה, ואף ``hidden_subsections``
+    אינו מופיע. ההבדל היחיד הוא ``max_depth`` עצמו, שחוזר כערך שנאכף.
+
+    מוטציה שמפילה (הורצה על עותק): לכתוב ``hidden_subsections: 0`` על כל רשומה שנשארת במפה,
+    במקום רק על כותרת שהוסתר תחתיה משהו.
+    """
+    for arguments in ({}, {"section": "כותרת שאינה קיימת"}):
+        deep_file, deep_docs = await _both_tools(monkeypatch, _MD, max_depth=7, **arguments)
+        plain_file, plain_docs = await _both_tools(monkeypatch, _MD, **arguments)
+        for deep, plain in ((deep_file, plain_file), (deep_docs, plain_docs)):
+            assert deep.pop("max_depth") == 7
+            assert deep == plain
+            assert not any("hidden_subsections" in t for t in deep["toc"])
+
+
+async def test_max_depth_is_applied_before_the_cap_and_the_byte_budget(monkeypatch):
+    """הסינון קודם לתקרה ולתקציב: מפה שהייתה נחתכת מגיעה שלמה ברמות העליונות.
+
+    שני קבצים. (א) 50 פרקים עם עשרה תת-סעיפים כל אחד — 551 כותרות, מעל ``_TOC_MAX``: בלי
+    הפרמטר המפה נחתכת בתקרה, ועם ``max_depth=2`` כל 50 הפרקים בה, כולל האחרון, בלי
+    ``toc_truncated``. (ב) הקובץ של בדיקת התקציב (``_deep_hebrew_map``): בלי הפרמטר המפה
+    נחתכת בבתים, ועם ``max_depth=1`` היא נכנסת שלמה.
+
+    מוטציה שמפילה (הורצה על עותק): ``_capped`` לפני ``_limit_depth`` ב-``_toc`` — הפרקים
+    שאחרי הכותרת ה-400 חסרים.
+    """
+    chapters = "".join(f"## פרק {i}\n\n" + "".join(f"### סעיף {j}\n\nגוף.\n\n" for j in range(10))
+                       for i in range(50))
+    text = "# שורש\n\n" + chapters
+
+    plain, _ = await _both_tools(monkeypatch, text)
+    limited, limited_docs = await _both_tools(monkeypatch, text, max_depth=2)
+
+    assert plain["toc_truncated"] is True and len(plain["toc"]) == docs_handlers._TOC_MAX
+    assert limited == limited_docs
+    assert [t["title"] for t in limited["toc"]] == ["שורש"] + [f"פרק {i}" for i in range(50)]
+    assert set(_hidden(limited).values()) == {10}
+    assert limited["toc_truncated"] is False and limited["section_count"] == 551
+
+    deep = _deep_hebrew_map()
+    plain, _ = await _both_tools(monkeypatch, deep)
+    limited, _ = await _both_tools(monkeypatch, deep, max_depth=1)
+    assert plain["toc_truncated"] is True
+    assert limited["toc_truncated"] is False
+    assert len(limited["toc"]) + sum(_hidden(limited).values()) == limited["section_count"]
+
+
+@pytest.mark.parametrize(
+    ("sent", "enforced"),
+    [(0, docs_handlers.MAX_DEPTH_MIN), (-3, docs_handlers.MAX_DEPTH_MIN),
+     (10 ** 12, docs_handlers.MAX_DEPTH_MAX), (1, 1)],
+)
+async def test_max_depth_is_clamped_not_refused_and_echoed_as_enforced(monkeypatch, sent, enforced):
+    """ערך מחוץ לטווח נצמד ואינו נדחה, כמו ``max_chars`` — והתשובה מהדהדת את מה שנאכף.
+
+    ``0`` ושלילי הם 1: השורש בלבד, עם ``hidden_subsections`` של כל השאר. ערך עצום הוא
+    ``MAX_DEPTH_MAX``, והמפה מלאה.
+    """
+    from_file, from_docs = await _both_tools(monkeypatch, _MD, max_depth=sent)
+
+    assert from_file == from_docs
+    assert from_file["max_depth"] == enforced
+    if enforced == 1:
+        assert [t["title"] for t in from_file["toc"]] == ["מדריך"]
+        assert _hidden(from_file) == {"מדריך": 4}
+    else:
+        assert len(from_file["toc"]) == from_file["section_count"] == 5
+
+
+@pytest.mark.parametrize("sent", ["2", True, 2.0, 2.5, [2]])
+async def test_a_max_depth_that_is_not_an_integer_is_refused_by_the_schema(monkeypatch, sent):
+    """``StrictInt`` בשני הכלים: מחרוזת, בוליאני ומספר עשרוני נדחים בסכימה ואינם מומרים.
+
+    ``"2"`` הוא הקריאה השגויה שהטיפוס הזה קיים בשבילה (ההערה מעל ``StrictInt`` ב-
+    ``handlers.py``): בלעדיו pydantic היה ממיר אותו ל-2 בשקט, ו-``true`` ל-1. ``ToolError``
+    עם ``validation error`` — ולא ``Exception``: מה שנבדק הוא ולידציית הסכימה.
+
+    מוטציה שמפילה: ``int | None`` במקום ``StrictInt | None`` ב-``server.py``.
+    """
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    monkeypatch.setenv("MCP_DOCS_REPO", "CodeBot,amir-bug-patterns")
+    mcp = _build(monkeypatch, _Dbm(), repo_backend=_RepoText(_MD))
+    with pytest.raises(ToolError, match="validation error"):
+        await _call(mcp, file_name=_MD_NAME, toc=True, max_depth=sent)
+    with pytest.raises(ToolError, match="validation error"):
+        await mcp.call_tool("codekeeper_docs_get_section",
+                            {"path": "x.md", "repo": "amir-bug-patterns", "max_depth": sent})
+
+
+@pytest.mark.parametrize(
+    ("arguments", "code"),
+    [
+        ({"max_depth": 2}, handlers.MAX_DEPTH_WITHOUT_TOC),
+        ({"toc": False, "max_depth": 2}, handlers.MAX_DEPTH_WITHOUT_TOC),
+        ({"lines": [1, 2], "max_depth": 2}, handlers.MAX_DEPTH_WITHOUT_TOC),
+        ({"query": "K11", "max_depth": 2}, handlers.MAX_DEPTH_WITHOUT_TOC),
+        # ``max_chars`` ו-``offset`` נבדקים קודם — בקשה שנושאת גם אותם מקבלת את מה שקיבלה.
+        ({"max_chars": 600, "max_depth": 2}, handlers.MAX_CHARS_WITHOUT_SECTION),
+    ],
+)
+async def test_max_depth_without_toc_or_section_is_refused_before_the_db(
+        monkeypatch, arguments, code):
+    """``max_depth`` בלי ``toc`` ובלי ``section`` נדחה ב-``max_depth_without_toc`` — לא נבלע.
+
+    בלי שני אלה אין מפה בתשובה, ולכן הפרמטר היה נזרק בשקט: קריאה מלאה, טווח או מופעים
+    היו חוזרים כאילו לא נשלח. הסירוב קורה לפני המסד (``calls`` ריק), כמו
+    ``max_chars_without_section``.
+
+    נופלת על הקוד שלפני התוספת: הקובץ המלא חוזר.
+
+    מוטציה שמפילה: להסיר את הבדיקה ב-``file_read_request_error``.
+    """
+    dbm = _Dbm()
+    mcp = _build(monkeypatch, dbm)
+
+    assert await _call(mcp, file_name=_MD_NAME, **arguments) == {"ok": False, "error": code}
+    assert dbm.calls == []
+
+
+async def test_max_depth_with_section_is_a_section_read_and_not_a_refusal(monkeypatch):
+    """עם ``section`` הפרמטר תקף — הוא מגביל את המפה שב-``section_not_found`` — ולכן אינו נדחה."""
+    mcp = _build(monkeypatch)
+
+    out = await _call(mcp, file_name=_MD_NAME, section="K11", max_depth=1)
+
+    assert out["status"] == "section" and out["section"] == "K11. חריגה נבלעת"
+    assert "max_depth" not in out
+
+
+async def test_max_depth_is_optional_and_shaped_alike_in_both_tools(monkeypatch):
+    """הסכימה שהלקוח רואה: אופציונלי, מספר או ``null`` עם ``null`` כברירת מחדל — זהה בשני הכלים."""
+    mcp = _build(monkeypatch)
+    tools = {tool.name: (tool.inputSchema or {}) for tool in await mcp.list_tools()}
+
+    def shape(name):
+        prop = tools[name]["properties"]["max_depth"]
+        return {k: v for k, v in prop.items() if k not in ("title", "description")}
+
+    for name in ("codekeeper_get_file", "codekeeper_docs_get_section"):
+        assert "max_depth" not in (tools[name].get("required") or ()), name
+        assert shape(name) == {"anyOf": [{"type": "integer"}, {"type": "null"}], "default": None}
+
+
+def test_the_max_depth_doc_opens_with_when_to_use_and_says_how_to_read_a_limited_map():
+    """התיאור נפתח במתי להשתמש, ואומר את מה שאינו נראה מהמפה: שהיא מוגבלת בכוונה ואיפה הסימן.
+
+    **בתוך 120 התווים הראשונים** — ``max_depth=2`` ולמה: לקוח שמקצר תיאור פרמטר רואה רק
+    את ההתחלה (ההערה ליד ``_SECTION_PARAM_DOC``). אחר כך: ``toc_truncated`` אינו אומר שהמפה
+    מוגבלת, ``hidden_subsections`` כן — ולא על השורש; העומק לאורך ה-breadcrumb; ההגבלה היא
+    של המפה בלבד. ובכלי הקבצים — הסירוב בשמו. ושרשרת הגילוי: התיאור של ``toc`` ותיאור כלי
+    התיעוד מפנים לפרמטר.
+    """
+    from mcp_server import server as srv
+
+    for doc in (srv._DOCS_MAX_DEPTH_DOC, srv._FILE_MAX_DEPTH_DOC):
+        assert "max_depth=2" in doc[:120]
+        for marker in ("hidden_subsections", "toc_truncated", "not on the root", "breadcrumb",
+                       "section_count", "skipped level", "never limited"):
+            assert marker in doc, marker
+    assert "max_depth_without_toc" in srv._FILE_MAX_DEPTH_DOC
+    assert "max_depth_without_toc" not in srv._DOCS_MAX_DEPTH_DOC
+    assert "max_depth" in srv._FILE_TOC_DOC
+    assert "limited by max_depth" in srv._SECTION_PARAM_DOC
+
+
+async def test_the_docs_tool_description_points_at_max_depth(monkeypatch):
+    mcp = _build(monkeypatch)
+    tool = mcp._tool_manager.get_tool(docs_handlers.SECTION_TOOL_NAME)
+    assert "`max_depth`" in tool.description
+
+
+def test_the_max_depth_bounds_in_the_doc_come_from_the_constants(monkeypatch):
+    """הגבולות נשתלים מ-``docs_handlers`` ולא נכתבים כטקסט — הבנייה מחדש עם קבועים אחרים מזיזה אותם.
+
+    מוטציה שמפילה: לכתוב ``1-50000`` כטקסט ב-``_build_max_depth_doc``.
+    """
+    from mcp_server import server as srv
+
+    assert (f"clamped to {docs_handlers.MAX_DEPTH_MIN}-{docs_handlers.MAX_DEPTH_MAX}"
+            in srv._DOCS_MAX_DEPTH_DOC)
+    monkeypatch.setattr(docs_handlers, "MAX_DEPTH_MIN", 3)
+    monkeypatch.setattr(docs_handlers, "MAX_DEPTH_MAX", 77)
+    assert "clamped to 3-77" in srv._build_max_depth_doc("(here)")
+
+
+def test_the_upper_bound_is_the_section_ceiling_so_it_never_hides_a_heading():
+    """``MAX_DEPTH_MAX`` הוא ``doc_sections.MAX_SECTIONS``: עומק אינו יכול לעבור את מספר הכותרות.
+
+    לכן ההצמדה מלמעלה אינה מסתירה דבר בשום קובץ שהפרסר מקבל — היא רק קובעת את ההד.
+    """
+    assert docs_handlers.MAX_DEPTH_MAX == doc_sections.MAX_SECTIONS
+    assert docs_handlers.MAX_DEPTH_MIN == 1
