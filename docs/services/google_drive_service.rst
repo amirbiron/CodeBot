@@ -74,7 +74,7 @@ Google Drive Service
 
 חריגה שאינה של google-auth עולה הלאה ולא מסווגת. בהצלחה הטוקן החדש נשמר, ו-``get_drive_service`` שאחרי הבדיקה בונה שירות מטוקן טרי.
 
-**מה הוובאפ עושה עם התשובה.** ב-``CONNECTION_AUTH_REQUIRED`` נכתב ``auth_required_at`` בהעדפות של הוובאפ, ו-``/api/drive/status`` מחזיר ``needs_reconnect`` — מסך ההגדרות מציג אז "החיבור ל-Google Drive פג" עם כפתור חיבור מחדש במקום "מחובר". בגיבוי מתוזמן גם ``schedule_next_at`` מתרוקן, והסורק מדלג על המשתמש (``_pause_drive_schedule``), במקום לנסות שוב בכל סריקה. חיבור מחדש (``/api/drive/callback``) מוחק את הסימון ומחזיר את התזמון לפעולה (``resume_drive_schedule_after_reconnect``), וגם בדיקה שעברה מוחקת אותו. האירועים: ``webapp_drive_backup_failed`` ב-:ref:`drive-events`.
+**מה הוובאפ עושה עם התשובה.** ב-``CONNECTION_AUTH_REQUIRED`` נכתב ``auth_required_at`` בהעדפות של הוובאפ, ו-``/api/drive/status`` מחזיר ``needs_reconnect`` — מסך ההגדרות מציג אז "החיבור ל-Google Drive פג" עם כפתור חיבור מחדש במקום "מחובר". בגיבוי מתוזמן גם ``schedule_next_at`` מתרוקן, והסורק מדלג על המשתמש (``_pause_drive_schedule``), במקום לנסות שוב בכל סריקה. ההשהיה כותבת את הסימון באותה כתיבה (או דורשת שהוא כבר שם), ולכן אין תזמון מושהה ש-``needs_reconnect`` שלו כבוי. חיבור מחדש (``/api/drive/callback``) מוחק את הסימון ומחזיר את התזמון לפעולה (``resume_drive_schedule_after_reconnect``), וגם בדיקה שעברה מוחקת אותו. האירועים: ``webapp_drive_backup_failed`` ב-:ref:`drive-events`.
 
 כשלים שמוחזרים כ-``None``
 --------------------------

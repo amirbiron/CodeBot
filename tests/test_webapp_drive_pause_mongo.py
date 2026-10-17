@@ -149,6 +149,33 @@ def test_the_first_rejection_keeps_its_time(flow):
     assert f.prefs()["auth_required_at"] == first
 
 
+def test_the_pause_writes_the_reconnect_mark_itself(flow, monkeypatch):
+    """הכתיבה הנפרדת של הסימון יכולה להיכשל (היא רק נרשמת). ההשהיה כותבת אותו בעצמה — כאן מול מונגו אמיתי, כש-``{field: None}`` צריך לתפוס שדה שחסר לגמרי."""
+    f = flow
+    f.db.users.insert_one({"user_id": USER_ID, PREFS: {"schedule_key": "weekly", "schedule_next_at": f.due}})
+    monkeypatch.setattr(f.bs, "_record_drive_auth_required", lambda db, uid: None)
+    f.answer["check"] = f.gds.ConnectionCheck(f.gds.CONNECTION_AUTH_REQUIRED, "invalid_grant")
+
+    f.scan()
+
+    prefs = f.prefs()
+    assert prefs["schedule_next_at"] is None
+    assert isinstance(prefs.get("auth_required_at"), str) and prefs["auth_required_at"]
+
+
+def test_the_pause_keeps_the_time_of_the_first_rejection(flow):
+    f = flow
+    first = "2026-10-12T12:37:45+00:00"
+    f.db.users.insert_one({"user_id": USER_ID, PREFS: {"schedule_key": "weekly", "schedule_next_at": f.due, "auth_required_at": first}})
+    f.answer["check"] = f.gds.ConnectionCheck(f.gds.CONNECTION_AUTH_REQUIRED, "invalid_grant")
+
+    f.scan()
+
+    prefs = f.prefs()
+    assert prefs["schedule_next_at"] is None
+    assert prefs["auth_required_at"] == first
+
+
 def test_reconnecting_resumes_only_a_paused_schedule(flow):
     f = flow
     marked = "2026-10-12T12:37:45+00:00"

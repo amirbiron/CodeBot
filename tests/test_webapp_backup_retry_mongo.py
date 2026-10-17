@@ -122,3 +122,5 @@ def test_a_success_keeps_a_schedule_the_user_changed_during_the_backup(disk):
     assert prefs["schedule_next_at"] == user_choice
     # הגיבוי עצמו קרה, ולכן last_backup_at נכתב גם כשהתזמון לא נדרס
     assert prefs["last_backup_at"] == T0.isoformat()
+    # וגם המונה מתאפס: הגיבוי הצליח, והכשלים שלפניו כבר אינם רצופים (_record_success)
+    assert prefs["consecutive_failures"] == 0

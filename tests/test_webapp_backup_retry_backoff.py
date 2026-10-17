@@ -170,28 +170,75 @@ def test_a_schedule_the_user_changed_during_the_backup_is_not_overwritten(env, m
 
     prefs = read()
     assert prefs["schedule_next_at"] == user_choice
-    assert "consecutive_failures" not in prefs
+    if outcome == "success":
+        # הגיבוי הצליח: המונה מתאפס גם כשהמועד נשאר של המשתמש (_record_success)
+        assert prefs["consecutive_failures"] == 0
+    else:
+        # כשל על תזמון שהמשתמש כתב מחדש אינו נספר: התזמון החדש מתחיל לספור מאפס
+        assert "consecutive_failures" not in prefs
 
 
-def test_a_disk_backup_whose_reschedule_fails_is_logged_not_swallowed(env, monkeypatch, caplog):
-    """עד כאן ``except Exception: pass``: כשל בכתיבת המועד הבא השאיר את הסנטינל בלי שום שורה בלוג."""
+def _fail_once(monkeypatch, collection, should_fail):
+    """הכתיבה הראשונה ל-``users`` ש-``should_fail(filter, update)`` מתאים לה נכשלת בשגיאת מסד; כל השאר עוברות לדמות כרגיל."""
+    from pymongo.errors import AutoReconnect
+
+    real_update_one = collection.update_one
+    state = {"failed": False}
+
+    def _update_one(q, u, *args, **kwargs):
+        if not state["failed"] and should_fail(q, u):
+            state["failed"] = True
+            raise AutoReconnect("primary stepped down")
+        return real_update_one(q, u, *args, **kwargs)
+
+    monkeypatch.setattr(collection, "update_one", _update_one)
+    return state
+
+
+def _holds_a_sentinel(q, prefs_key):
+    return f"{prefs_key}.schedule_next_at" in q
+
+
+@pytest.mark.parametrize("target", ["drive", "disk"])
+def test_a_backup_that_succeeded_is_not_counted_as_a_failure_when_its_schedule_write_fails(env, monkeypatch, caplog, target):
+    """עד כאן כשל בכתיבת המועד שאחרי גיבוי מוצלח נפל ל-``except`` של הסורק, שקרא ל-``_record_failed_attempt``: הגיבוי שהצליח נספר ככשל, ועם מונה מלא — נשלח ``webapp_backup_retries_exhausted``. עכשיו הכשל נרשם, והסנטינל נשאר עד שהוא פג."""
     e = env
-    e.db.users.insert_one({"user_id": USER_ID, "disk_backup_prefs": {"schedule_key": "weekly", "schedule_next_at": (T0 - timedelta(minutes=1)).isoformat()}})
-
-    def _boom(uid):
-        raise RuntimeError("disk is full")
-
-    def _db_down(*_a, **_k):
-        from pymongo.errors import AutoReconnect
-
-        raise AutoReconnect("primary stepped down")
-
-    monkeypatch.setattr(e.bs, "_perform_disk_backup", _boom)
-    monkeypatch.setattr(e.db.users, "update_one", _db_down)
+    prefs_key, read = ("webapp_drive_prefs", e.drive_prefs) if target == "drive" else ("disk_backup_prefs", e.disk_prefs)
+    e.db.users.insert_one({"user_id": USER_ID, prefs_key: {"schedule_key": "weekly", "schedule_next_at": (T0 - timedelta(minutes=1)).isoformat(), "consecutive_failures": e.bs.RETRY_MAX_ATTEMPTS}})
+    e.answer["check"] = e.gds.ConnectionCheck(e.gds.CONNECTION_OK)
+    e.answer["disk_ok"] = True
+    failed = _fail_once(monkeypatch, e.db.users, lambda q, u: _holds_a_sentinel(q, prefs_key))
 
     with caplog.at_level(logging.ERROR, logger="webapp.backup_scheduler"):
-        e.bs._scan_disk_backups(SimpleNamespace(db=e.db), T0.isoformat())
+        e.scan_at(T0)
 
-    messages = [r.getMessage() for r in caplog.records]
-    assert f"Error processing Disk schedule for user {USER_ID}" in messages
-    assert f"Failed to reschedule Disk backup for user {USER_ID}" in messages
+    assert failed["failed"], "הכתיבה המותנית לא נוסתה בכלל"
+    assert _exhausted(e.events) == []
+    prefs = read()
+    assert prefs["consecutive_failures"] == e.bs.RETRY_MAX_ATTEMPTS
+    assert _parse(prefs["schedule_next_at"]) >= T0 + timedelta(seconds=e.bs.SENTINEL_TTL_SECONDS - 60), "הסנטינל הוחלף"
+    label = "Drive" if target == "drive" else "Disk"
+    assert any(r.getMessage().startswith(f"Failed to write the {label} schedule of user {USER_ID}") for r in caplog.records)
+
+
+@pytest.mark.parametrize("target", ["drive", "disk"])
+def test_a_success_resets_the_count_even_when_the_schedule_changed_during_the_backup(env, monkeypatch, target):
+    """הכתיבה המותנית בסנטינל לא תואמת כשהמועד השתנה בזמן הגיבוי, והמועד החדש נשאר. עד כאן גם המונה נשאר — והכשל הבא המשיך לספור מ-3, אחרי גיבוי שהצליח."""
+    e = env
+    prefs_key, read = ("webapp_drive_prefs", e.drive_prefs) if target == "drive" else ("disk_backup_prefs", e.disk_prefs)
+    e.db.users.insert_one({"user_id": USER_ID, prefs_key: {"schedule_key": "weekly", "schedule_next_at": (T0 - timedelta(minutes=1)).isoformat(), "consecutive_failures": 3}})
+    elsewhere = "2099-01-01T00:00:00+00:00"
+
+    def _the_schedule_moves():
+        e.db.users.update_one({"user_id": USER_ID}, {"$set": {f"{prefs_key}.schedule_next_at": elsewhere}})
+
+    if target == "drive":
+        e.answer["check"] = lambda uid: _the_schedule_moves() or e.gds.ConnectionCheck(e.gds.CONNECTION_OK)
+    else:
+        monkeypatch.setattr(e.bs, "_perform_disk_backup", lambda uid: _the_schedule_moves() or True)
+
+    e.scan_at(T0)
+
+    prefs = read()
+    assert prefs["schedule_next_at"] == elsewhere
+    assert prefs["consecutive_failures"] == 0

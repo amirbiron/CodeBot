@@ -286,6 +286,91 @@ def test_the_first_rejection_keeps_its_time(scheduler, dbm):
     assert dbm.web_prefs()["auth_required_at"] == first
 
 
+def _fail_writes(dbm, monkeypatch, should_fail):
+    """כתיבה ל-``users`` שנכשלת בשגיאת מסד כש-``should_fail(filter, update)`` — כל השאר עובר לדמות כרגיל."""
+    from pymongo.errors import AutoReconnect
+
+    real_update_one = dbm.db.users.update_one
+
+    def _update_one(q, u, *args, **kwargs):
+        if should_fail(q, u):
+            raise AutoReconnect("primary stepped down")
+        return real_update_one(q, u, *args, **kwargs)
+
+    monkeypatch.setattr(dbm.db.users, "update_one", _update_one)
+
+
+MARK = "webapp_drive_prefs.auth_required_at"
+NEXT_AT = "webapp_drive_prefs.schedule_next_at"
+
+
+def test_a_pause_is_never_written_without_the_reconnect_mark(scheduler, dbm, monkeypatch):
+    """הסימון נכתב קודם בכתיבה משלו (``_record_drive_auth_required``), שכשל בה רק נרשם. עד כאן ההשהיה נכתבה בכל זאת: התזמון נעצר, ``needs_reconnect`` נשאר כבוי, והמסך הציג "מחובר" על גיבוי שלא ירוץ עד חיבור מחדש שאיש לא ידע שצריך."""
+    s = scheduler
+    _fail_writes(dbm, monkeypatch, lambda q, u: set(u.get("$set", {})) == {MARK})
+    s.answer["check"] = s.gds.ConnectionCheck(s.gds.CONNECTION_AUTH_REQUIRED, "invalid_grant")
+    s.due()
+
+    s.scan()
+
+    prefs = dbm.web_prefs()
+    assert prefs["schedule_next_at"] is None
+    assert prefs.get("auth_required_at"), "התזמון הושהה בלי הסימון שהממשק קורא"
+
+
+def test_a_pause_keeps_the_time_of_the_first_rejection(scheduler, dbm):
+    s = scheduler
+    first = "2026-10-12T12:37:45+00:00"
+    s.due(auth_required_at=first)
+    s.answer["check"] = s.gds.ConnectionCheck(s.gds.CONNECTION_AUTH_REQUIRED, "invalid_grant")
+
+    s.scan()
+
+    prefs = dbm.web_prefs()
+    assert prefs["schedule_next_at"] is None
+    assert prefs["auth_required_at"] == first
+
+
+def test_a_reconnect_between_the_two_pause_writes_does_not_leave_a_silent_pause(scheduler, dbm, monkeypatch):
+    """ההשהיה היא שתי כתיבות מותנות: בלי סימון — משהה ומסמנת; עם סימון — משהה ודורשת שהוא עדיין שם. כאן הסימון קיים בכתיבה הראשונה, וחיבור מחדש מוחק אותו לפני השנייה. השנייה לא תואמת, והתזמון לא מושהה: הסנטינל נשאר עד שהוא פג, והבדיקה הבאה רואה חיבור חי. השהיה כאן הייתה תזמון עצור בלי ``needs_reconnect`` — ואחרי חיבור מחדש שכבר קרה, שום דבר לא היה מחזיר אותו."""
+    s = scheduler
+    s.due(auth_required_at="2026-10-12T12:37:45+00:00")
+    s.answer["check"] = s.gds.ConnectionCheck(s.gds.CONNECTION_AUTH_REQUIRED, "invalid_grant")
+    real_update_one = dbm.db.users.update_one
+
+    def _update_one(q, u, *args, **kwargs):
+        res = real_update_one(q, u, *args, **kwargs)
+        if MARK in q and q[MARK] is None and NEXT_AT in q:
+            # החיבור מחדש של המשתמש נוחת בדיוק כאן, אחרי הכתיבה הראשונה של ההשהיה
+            real_update_one({"user_id": USER_ID}, {"$set": {MARK: None}})
+        return res
+
+    monkeypatch.setattr(dbm.db.users, "update_one", _update_one)
+
+    s.scan()
+
+    prefs = dbm.web_prefs()
+    assert not (prefs["schedule_next_at"] is None and not prefs.get("auth_required_at")), "תזמון מושהה בלי סימון"
+    assert prefs["schedule_next_at"] is not None
+
+
+def test_a_pause_that_fails_to_write_leaves_the_claim_to_expire(scheduler, dbm, monkeypatch):
+    """כשל בכתיבת ההשהיה אינו כשל של הגיבוי. עד כאן הוא נפל ל-``except`` הכללי של הסורק, שתזמן ניסיון חוזר בעוד ``SCAN_INTERVAL_SECONDS`` — עוד בדיקת חיבור מול גוגל ועוד אירוע כשל, על חיבור שכבר ידוע שמת. עכשיו הסנטינל נשאר עד שהוא פג (``SENTINEL_TTL_SECONDS``)."""
+    s = scheduler
+    _fail_writes(dbm, monkeypatch, lambda q, u: u.get("$set", {}).get(NEXT_AT, "x") is None)
+    s.answer["check"] = s.gds.ConnectionCheck(s.gds.CONNECTION_AUTH_REQUIRED, "invalid_grant")
+    s.due()
+    before = datetime.now(timezone.utc)
+
+    s.scan()
+
+    held_until = datetime.fromisoformat(dbm.web_prefs()["schedule_next_at"])
+    assert held_until >= before + timedelta(seconds=s.bs.SENTINEL_TTL_SECONDS - 60), "הסנטינל הוחלף בניסיון חוזר"
+    s.scan()
+    assert len(s.calls.checks) == 1
+    assert [event for event, _ in s.calls.events] == ["webapp_drive_backup_failed"]
+
+
 # --- מה שהממשק רואה: הסטטוס, "גבה עכשיו", וחיבור מחדש ---
 
 
@@ -406,6 +491,27 @@ def test_disconnecting_clears_the_mark(webapp, dbm):
     assert webapp.post("/api/drive/disconnect").get_json() == {"ok": True}
 
     assert dbm.web_prefs()["auth_required_at"] is None
+
+
+@pytest.mark.parametrize(
+    "prefs_key, write",
+    [
+        ("webapp_drive_prefs", lambda c: c.post("/api/drive/schedule", json={"schedule": "off"})),
+        ("webapp_drive_prefs", lambda c: c.post("/api/drive/schedule", json={"schedule": "daily"})),
+        ("webapp_drive_prefs", lambda c: c.post("/api/drive/disconnect")),
+        ("disk_backup_prefs", lambda c: c.post("/api/disk-backup/schedule", json={"schedule": "off"})),
+        ("disk_backup_prefs", lambda c: c.post("/api/disk-backup/schedule", json={"schedule": "daily"})),
+    ],
+    ids=["drive-off", "drive-on", "disconnect", "disk-off", "disk-on"],
+)
+def test_writing_a_schedule_starts_the_failure_count_from_zero(webapp, dbm, prefs_key, write):
+    """המונה סופר כשלים רצופים של התזמון הנוכחי. עד כאן כיבוי, שינוי או ניתוק השאירו אותו, ואחרי הפעלה מחדש הכשלים הישנים נספרו — והגיבוי ויתר אחרי פחות מ-``RETRY_MAX_ATTEMPTS`` ניסיונות."""
+    dbm.db.users.update_one({"user_id": USER_ID}, {"$set": {f"{prefs_key}.consecutive_failures": 4}})
+
+    assert write(webapp).get_json()["ok"] is True
+
+    doc = dbm.db.users.find_one({"user_id": USER_ID}) or {}
+    assert (doc.get(prefs_key) or {}).get("consecutive_failures") == 0
 
 
 # --- שומר טקסטואלי על מסך ההגדרות ---
