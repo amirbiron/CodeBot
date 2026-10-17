@@ -52,6 +52,22 @@ Google Drive Service
 
 כל דחייה בחזרה מגוגל נרשמת באירוע ``webapp_drive_callback_rejected`` עם הסיבה — ראו :ref:`drive-events`.
 
+.. _drive-privacy-page:
+
+עמוד מדיניות הפרטיות (``/privacy``)
+-------------------------------------
+עמוד ציבורי באנגלית בוובאפ (``privacy_policy`` ב-``webapp/app.py``, התבנית ``webapp/templates/privacy.html``), שמתאר מה CodeKeeper עושה עם Google Drive. הכתובת שלו רשומה כקישור למדיניות הפרטיות בפרויקט ה-Google Cloud של חיבור ה-Drive. מדיניות הנתונים של גוגל דורשת את זה: *"You must list the privacy policy URL in your OAuth client configuration"* (`Google API Services User Data Policy <https://developers.google.com/terms/api-services-user-data-policy>`_). הקישור נקבע פעם אחת לפרויקט, ולכן העמוד מכסה גם את החיבור של הבוט. עמוד הבית ועמוד ההתחברות מקשרים אליו מהתחתית (``webapp/templates/_legal_footer.html``).
+
+**מה אסור לשבור.** הנתיב רשום אצל גוגל, ולכן הוא לא משתנה. הוא חייב לענות בלי התחברות, כי גוגל ניגש אליו בלי סשן. הוא רשום ב-``webapp/app.py`` ולא ב-Blueprint: הרישום של ה-Blueprints עטוף ב-``except Exception: pass``, וכשל בייבוא היה מעלים את העמוד בשקט.
+
+**כל משפט בעמוד הוא עובדה על הקוד.** אלה העובדות שהוא נשען עליהן, ומי מצמיד כל אחת (``tests/test_privacy_page.py``, אלא אם נכתב אחרת):
+
+- **ה-scope.** העמוד נוקב ב-``drive.file`` ומסביר מה הוא מתיר. ``test_the_scope_the_page_names_is_the_one_both_connections_request`` משווה אותו לברירת המחדל בכל מקום בקוד שקובע את ה-scope, וקורא אותה מקוד המקור, כי חלק מהמקומות נקראים מ-``GOOGLE_OAUTH_SCOPES`` ב-ENV. ערך שהוגדר ב-ENV של הפרודקשן אינו נבדק שם. ב-17.10.2026 נבדק במסד של הפרודקשן ששני החיבורים השמורים קיבלו מגוגל רק ``drive.file``. הבדיקה נעשתה על השדה ``scope`` שנשמר עם הטוקנים, בלי לקרוא את הטוקנים עצמם.
+- **אין הורדה מ-Drive.** העמוד אומר ש-CodeKeeper לא מוריד ולא קורא תוכן של קובץ ב-Drive. היום הקוד רק יוצר תיקיות ומעלה קבצים (``files().create``), וקורא מטא-דאטה של מה שהוא יצר (``files().list``, ‏``files().get``). ‏``test_no_code_downloads_file_content_from_drive`` נכשל על קוד שמוסיף הורדה, למשל ``get_media``.
+- **ניתוק.** הניתוק מוחק את הטוקנים של אותו שירות. זה נבדק ב-``tests/test_drive_connection_separation.py`` וב-``tests/test_webapp_drive_auth_required.py``. בבוט התזמון נשאר בהעדפות, אבל בלי טוקנים ``get_drive_service`` מחזיר ``None`` ושום העלאה לא מתחילה. לכן העמוד אומר שהעלאות חדשות לא יתחילו, ו"מכבה את הגיבוי המתוזמן" נאמר רק על הוובאפ. הניתוק לא מבטל את ההרשאה אצל גוגל, כי אין בקוד קריאת revoke, והעמוד מפנה לדף ההרשאות של חשבון Google.
+- **הצפנה.** העמוד לא אומר שהטוקנים מוצפנים. בלי ``TOKEN_ENC_KEY`` תקין, ``encrypt_secret`` (``secret_manager.py``) מחזיר ``None``, ו-``Repository.save_drive_tokens`` שומר אז את הטוקן כמו שהוא. המשתנה אינו חובה (:doc:`/environment-variables`). ‏``test_the_page_does_not_claim_encryption_while_tokens_can_be_saved_unencrypted`` נכשל אם העמוד יטען להצפנה כל עוד זה המצב. כשהשמירה תסרב לשמור בלי מפתח, הבדיקה הראשונה בטסט תיכשל, ואז אפשר להוסיף לעמוד את ההצהרה.
+- **כתובת המייל.** אחרי החיבור הוובאפ מבקש מגוגל את כתובת החשבון, לתצוגה (``_fetch_google_email`` ב-``webapp/drive_auth.py``). עם ``drive.file`` בלבד גוגל עונה 401, כך שכתובת לא נשמרת. זה נמדד בשורת ``webapp_drive_userinfo_failed`` בלוג של Render, ב-17.10.2026. העמוד אומר רק שהאפליקציה לא מבקשת גישה לכתובת ולפרופיל, וזה נכון לפי ה-scope.
+
 הערות OAuth
 ------------
 - שימור refresh_token: בשמירה מתמזג עם הטוקנים הקיימים של אותו שירות (``owner``), כדי לא למחוק refresh token שלא הוחזר ברענון.

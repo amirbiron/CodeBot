@@ -1,0 +1,24 @@
+{#
+  קישור למדיניות הפרטיות בתחתית עמוד הבית ועמוד ההתחברות — תבנית אחת שנכללת משניהם, כדי שלא יהיו שני עותקים שנסחפים.
+
+  גוגל בודק שעמוד הבית של האפליקציה מקשר למדיניות הפרטיות שרשומה בפרויקט ה-Google Cloud של חיבור ה-Drive, ולכן הקישור כאן ולא רק בתפריט. הטקסט באנגלית, כמו העמוד שהוא מוביל אליו.
+
+  בלי צבעים: הקישור מקבל ``color: inherit``, כמו הקישורים בעמוד עצמו — הנימוק וההתנהגות בכל ערכה כתובים בראש ``privacy.html``.
+#}
+<footer class="legal-footer">
+    <a href="{{ url_for('privacy_policy') }}" lang="en">Privacy Policy</a>
+</footer>
+
+<style>
+.legal-footer {
+    margin: 2rem 0 1rem;
+    text-align: center;
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+
+.legal-footer a {
+    color: inherit;
+    text-decoration: underline;
+}
+</style>

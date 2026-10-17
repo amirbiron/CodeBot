@@ -2314,11 +2314,11 @@
      - ``support@example.com``
      - Bot/WebApp
    * - ``TOKEN_ENC_KEY``
-     - מפתח Fernet (Base64) להצפנת טוקנים רגישים במסד (ראה ``docs/SECURITY_TOKENS``).
+     - מפתח Fernet (Base64) להצפנת טוקנים רגישים במסד (ראה ``docs/SECURITY_TOKENS``). גם הוובאפ מצפין בו: הטוקנים של חיבור ה-Drive שלו נשמרים דרך ``encrypt_secret``, ובלי מפתח הם נשמרים בלי הצפנה.
      - לא
      - "" (ריק)
      - ``Cr4ZEXxx...``
-     - Bot
+     - Bot/WebApp
    * - ``PUSH_CLAIM_TTL_SECONDS``
      - משך הזמן שבו claim של תזכורת push נחשב בתוקף לפני שמשחררים אותו.
      - לא
