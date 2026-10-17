@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{#
+  מדיניות הפרטיות — עמוד ציבורי (``/privacy``, ``privacy_policy`` ב-``webapp/app.py``).
+
+  הכתובת רשומה כקישור למדיניות הפרטיות בפרויקט ה-Google Cloud של חיבור ה-Drive, ולכן הנתיב לא משתנה והעמוד לא דורש התחברות.
+
+  כל משפט כאן הוא עובדה על הקוד, ולכן ``tests/test_privacy_page.py`` מצמיד את העובדות שהעמוד נשען עליהן: ה-scope שהוא נוקב בו מול כל מקום בקוד שמגדיר אותו, ושאין בקוד הורדה מ-Drive. מי שמשנה אחת מהן מפיל את הטסט, ומשם מגיע לכאן. הרקע: הסעיף ``drive-privacy-page`` ב-``docs/services/google_drive_service.rst``.
+
+  העמוד באנגלית בתוך אתר בעברית: ``lang``/``dir`` על ה-``article`` בלבד. הצבעים לא נקבעים כאן — הכרטיס (``glass-card``) והטקסט יורשים מערכת הנושא, וקישור מקבל ``color: inherit`` — צבע הטקסט שסביבו. בלעדיו, ב-Classic וב-Rose Pine Dawn הוא כחול-דפדפן (``rgb(0, 0, 238)``), כי שם אין כלל שצובע קישורים. ב-High Contrast הצהוב של ``high-contrast.css`` גובר, כי הוא ``!important``. שלושתם נמדדו ב-Chromium. כך אין כאן צבע שצריך override באף ערכה. הרוחב והמרכוז על עוטף ולא על הכרטיס, כמו ב-``login.html``: ``.main-content .glass-card`` ב-``base.html`` קובע לכרטיס שוליים ורוחב, והוא ספציפי יותר ממחלקה אחת.
+#}
+
+{% block title %}Privacy Policy - CodeKeeper{% endblock %}
+
+{% block content %}
+<div class="privacy-policy-container">
+<article class="glass-card privacy-policy" lang="en" dir="ltr">
+    <h1 class="page-title">Privacy Policy — CodeKeeper</h1>
+    <p class="privacy-policy__updated">Last updated: October 17, 2026</p>
+
+    <section>
+        <h2>Who we are</h2>
+        <p>CodeKeeper is a code and document manager, available as a Telegram bot and as a web app. It is operated by Amir Biron. Contact: <a href="mailto:amirbiron@gmail.com">amirbiron@gmail.com</a></p>
+    </section>
+
+    <section>
+        <h2>Google user data we access</h2>
+        <p>Connecting Google Drive is optional. You connect it separately in the bot and in the web app.</p>
+        <p>CodeKeeper requests only one permission: <code>https://www.googleapis.com/auth/drive.file</code>. It lets CodeKeeper create files and folders in your Drive, and access only the files and folders that CodeKeeper itself created. CodeKeeper cannot see, read or change any other file in your Drive. It does not request access to your email address or to your Google profile.</p>
+    </section>
+
+    <section>
+        <h2>How we use it</h2>
+        <p>We use this access only to upload backup ZIP files of your own CodeKeeper content to a folder that CodeKeeper creates in your Drive, when you ask for a backup or on a schedule you choose. A backup contains your saved files; a backup from the web app also contains your collections, bookmarks, notes and settings.</p>
+        <p>To find its backup folder and to avoid uploading the same backup twice, CodeKeeper reads the names and basic details (such as checksums) of the files and folders it created. CodeKeeper never downloads or reads the content of any file in your Drive.</p>
+    </section>
+
+    <section>
+        <h2>What we store</h2>
+        <ul>
+            <li>The OAuth access token and refresh token that Google issues for the connection, with their type, expiry time and the permission that was granted.</li>
+            <li>Your backup preferences and status: the schedule you chose, the ID of the backup folder, and the time and result of the last backup.</li>
+        </ul>
+        <p>We do not store copies of your Drive files. This data is kept in CodeKeeper's database, hosted on MongoDB Atlas; the bot and the web app run on servers hosted by Render.</p>
+    </section>
+
+    <section>
+        <h2>Sharing</h2>
+        <p>We do not sell, share or transfer your Google user data to third parties, other than the hosting providers named above, which store it for us. We do not use it for advertising, and we do not use it to train AI or machine learning models.</p>
+    </section>
+
+    <section>
+        <h2>Disconnecting and deletion</h2>
+        <p>When you disconnect Google Drive in the bot or in the web app, CodeKeeper deletes the stored tokens of that connection right away, and from then on it cannot start new uploads to your Drive. In the web app, disconnecting also turns off scheduled backups. Backups that were already uploaded stay in your Drive until you delete them.</p>
+        <p>Disconnecting does not remove CodeKeeper's access on Google's side. To remove it there as well, visit <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">https://myaccount.google.com/permissions</a>.</p>
+    </section>
+
+    <section>
+        <h2>Limited Use</h2>
+        <p>CodeKeeper's use and transfer of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the <a href="https://developers.google.com/terms/api-services-user-data-policy#additional_requirements_for_specific_api_scopes" target="_blank" rel="noopener">Limited Use requirements</a>.</p>
+    </section>
+
+    <section>
+        <h2>Changes</h2>
+        <p>If this policy changes, we will update this page and the date at the top.</p>
+    </section>
+</article>
+</div>
+
+<style>
+.privacy-policy-container {
+    max-width: 760px;
+    margin: 2rem auto;
+}
+
+.privacy-policy {
+    line-height: 1.7;
+    text-align: start;
+}
+
+.privacy-policy__updated {
+    margin-top: -1.25rem;
+    margin-bottom: 2rem;
+    opacity: 0.8;
+}
+
+.privacy-policy section + section {
+    margin-top: 1.75rem;
+}
+
+.privacy-policy h2 {
+    font-size: 1.35rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.privacy-policy p + p {
+    margin-top: 0.75rem;
+}
+
+.privacy-policy ul {
+    padding-inline-start: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.privacy-policy li + li {
+    margin-top: 0.4rem;
+}
+
+.privacy-policy a {
+    color: inherit;
+    text-decoration: underline;
+    overflow-wrap: anywhere;
+}
+
+.privacy-policy code {
+    overflow-wrap: anywhere;
+}
+</style>
+{% endblock %}

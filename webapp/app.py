@@ -11580,6 +11580,15 @@ def index():
         uptime=uptime_summary,
     )
 
+
+@app.route('/privacy', methods=['GET'])
+def privacy_policy():
+    """מדיניות הפרטיות — עמוד ציבורי, בלי התחברות.
+
+    הכתובת רשומה כקישור למדיניות הפרטיות בפרויקט ה-Google Cloud של חיבור ה-Drive (הבוט והוובאפ), ולכן הנתיב לא משתנה. הוא רשום כאן ולא ב-Blueprint: הרישום של ה-Blueprints עטוף ב-``except Exception: pass``, וכשל בייבוא היה מעלים את העמוד בשקט. העובדות שהעמוד מצהיר עליהן מוצמדות ב-``tests/test_privacy_page.py``; הרקע ב-``docs/services/google_drive_service.rst`` (``drive-privacy-page``).
+    """
+    return render_template('privacy.html')
+
 # NOTE: Route migrated to auth_bp (webapp/routes/auth_routes.py)
 # @app.route('/login')
 def _legacy_login():
