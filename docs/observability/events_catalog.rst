@@ -169,7 +169,7 @@ Google Drive
   - ``upload_failed`` — ההעלאה לא החזירה מזהה קובץ. הסיבה בשורת הלוג ``drive_call_failed`` של ``services/google_drive_service.py``.
   - ``exception`` — חריגה לא צפויה, עם ``error_type``.
 
-  ברמת ``warn``: כל כשל שאינו ``auth_required`` מנוסה שוב בסריקה הבאה (``_retry_next_at``).
+  ברמת ``warn``: בגיבוי מתוזמן, כשל שאינו ``auth_required`` מנוסה שוב בסריקה הבאה (``_retry_next_at``). ב"גבה עכשיו" אין ניסיון חוזר: התוצאה מוצגת למשתמש (``manual_backup_error`` ב-``/api/drive/backup-status``).
 
 התפריט והגיבוי המתוזמן בבוט (``handlers/drive/menu.py``, ‏``main.py``). ה-jobs של הגיבוי המתוזמן נוצרים בזיכרון בלבד, ו-``drive_reschedule`` ב-``main.py`` בונה מחדש מהתזמון השמור במסד כל job שחסר — בכל עלייה, כשכולם חסרים, ושוב בכל סבב שלו:
 
