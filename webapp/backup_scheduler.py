@@ -131,14 +131,16 @@ def _finish_claim(db, user_id: int, prefs_field: str, held_sentinel: str, values
     return bool(res.matched_count)
 
 
-def _record_success(db, user_id: int, prefs_field: str, held_sentinel: str, schedule_key: str) -> None:
+def _record_success(db, user_id: int, prefs_field: str, held_sentinel: str, schedule_key: str, previous_failures: int) -> None:
     """גיבוי מתוזמן שהצליח: המועד הרגיל הבא והמונה מתאפס, בכתיבה מותנית בסנטינל (``_finish_claim``).
 
-    כשהכתיבה המותנית לא תואמת — המשתמש קבע מועד בזמן שהגיבוי רץ, או שהתפיסה פגה ונתפסה שוב — המועד שבמסמך נשאר, אבל **המונה מתאפס בכל זאת**, בכתיבה לפי ``user_id`` בלבד: הגיבוי הצליח, ולכן הכשלים שלפניו כבר אינם רצופים. בלי זה הכשל הבא היה ממשיך לספור ממקום שכבר לא נכון, ועלול למצות את ``RETRY_MAX_ATTEMPTS`` מיד. הכתיבה אינה תלויה בשום ערך שנקרא, ולכן אין בה חלון בין קריאה לכתיבה. שגיאת מסד עולה כ-``PyMongoError``.
+    כשהכתיבה המותנית לא תואמת — המשתמש קבע מועד בזמן שהגיבוי רץ, או שהתפיסה פגה ונתפסה שוב — המועד שבמסמך נשאר, אבל **הכשלים שהתפיסה הזו ספרה מתאפסים בכל זאת**: הגיבוי הצליח, ולכן הם כבר אינם רצופים. בלי זה הכשל הבא היה ממשיך לספור ממקום שכבר לא נכון, ועלול למצות את ``RETRY_MAX_ATTEMPTS`` מיד. האיפוס מותנה בכך שהמונה עדיין ``previous_failures`` — הערך שהתפיסה קראה: אם תפיסה חדשה יותר כבר רשמה כשל משלה (worker אחר, אחרי שהסנטינל פג), הספירה שלה נשארת. שגיאת מסד עולה כ-``PyMongoError``.
     """
     if _finish_claim(db, user_id, prefs_field, held_sentinel, {"schedule_next_at": _compute_next_at(schedule_key), _FAILURES_KEY: 0}):
         return
-    db.db.users.update_one({"user_id": int(user_id)}, {"$set": {f"{prefs_field}.{_FAILURES_KEY}": 0}})
+    if previous_failures:
+        failures_field = f"{prefs_field}.{_FAILURES_KEY}"
+        db.db.users.update_one({"user_id": int(user_id), failures_field: previous_failures}, {"$set": {failures_field: 0}})
 
 
 def _record_failed_attempt(db, user_id: int, prefs_field: str, held_sentinel: str, schedule_key: str, previous_failures: int, *, target: str) -> None:
@@ -494,7 +496,7 @@ def _scan_drive_backups(db, now_iso: str):
                     logger.info("Drive schedule of user %s changed during the backup; left as the user set it", uid)
                 continue
             if outcome.ok:
-                _record_success(db, uid, prefs_field, sentinel, schedule_key)
+                _record_success(db, uid, prefs_field, sentinel, schedule_key, failures)
             else:
                 _record_failed_attempt(db, uid, prefs_field, sentinel, schedule_key, failures, target="drive")
         except PyMongoError:
@@ -541,7 +543,7 @@ def _scan_disk_backups(db, now_iso: str):
                     db.db.users.update_one({"user_id": uid}, {"$set": {"disk_backup_prefs.last_backup_at": _now_utc().isoformat()}})
                 except PyMongoError:
                     logger.warning("Failed to update Disk last_backup_at for user %s", uid, exc_info=True)
-                _record_success(db, uid, "disk_backup_prefs", sentinel, schedule_key)
+                _record_success(db, uid, "disk_backup_prefs", sentinel, schedule_key, failures)
             else:
                 _record_failed_attempt(db, uid, "disk_backup_prefs", sentinel, schedule_key, failures, target="disk")
         except PyMongoError:
