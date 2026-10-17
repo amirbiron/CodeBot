@@ -12,6 +12,7 @@ from bson import ObjectId
 try:
     from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
     from pymongo import monitoring as _pymongo_monitoring
+    from pymongo.errors import ConnectionFailure
     _PYMONGO_AVAILABLE = True
 except Exception:  # ModuleNotFoundError או כל שגיאה בזמן import
     _PYMONGO_AVAILABLE = False
@@ -19,6 +20,9 @@ except Exception:  # ModuleNotFoundError או כל שגיאה בזמן import
     class MongoClient:  # runtime stub לשימוש במצבים ללא pymongo
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
+
+    class ConnectionFailure(Exception):  # type: ignore[no-redef]  # runtime stub: בלי pymongo אין מסד, ו-_require_real_database עדיין זורק
+        pass
 
         def __getitem__(self, name: str) -> Any:
             return SimpleNamespace()
@@ -3073,6 +3077,14 @@ class DatabaseManager:
         return self._get_repo().get_latest_versions_by_names(
             user_id, file_names, projection=projection, chunk_size=chunk_size)
 
+    def _require_real_database(self, operation: str) -> None:
+        """זורק ``ConnectionFailure`` כשאין מסד אמיתי (``has_real_database``), לפני קריאה שמצהירה על שלמות.
+
+        במצב NoOp — המסד נוטרל, או שהחיבור נכשל בעלייה ועדיין לא חזר — כל קולקציה "מצליחה" ומחזירה ריק (``NoOpCollection``). לרוב הקוראים זה מקובל, אבל ל"כל הקבצים של המשתמש" ריק הוא שקר: ייצוא בלי קבצים נראה בדיוק כמו גיבוי של משתמש שאין לו קבצים, והורדת הגיבוי ו"גבה עכשיו" לדיסק היו מקבלים ZIP ריק כהצלחה (K11). הגיבויים המתוזמנים לא מגיעים לכאן במצב הזה: התפיסה שלהם (``find_one_and_update``) מחזירה ``None``, ובדיקת החיבור של Drive לא מוצאת טוקנים. ``ConnectionFailure`` ולא שגיאה משלנו: "connection to the database cannot be made" הוא המצב עצמו, והקוראים שתופסים ``PyMongoError`` מטפלים בו כמו בכל כשל מסד.
+        """
+        if not self.has_real_database:
+            raise ConnectionFailure(f"{operation}: no real database (NoOp mode)")
+
     def iter_latest_active_snippets(
         self,
         user_id: int,
@@ -3080,6 +3092,8 @@ class DatabaseManager:
         projection: Dict[str, Any],
         chunk_size: int = 250,
     ) -> Iterator[Dict]:
+        """``Repository.iter_latest_active_snippets`` — וזורק ``ConnectionFailure`` כשאין מסד אמיתי (``_require_real_database``), כבר בקריאה ולא באיטרציה."""
+        self._require_real_database("iter_latest_active_snippets")
         return self._get_repo().iter_latest_active_snippets(user_id, projection=projection, chunk_size=chunk_size)
 
     def iter_latest_active_large_files(
@@ -3089,6 +3103,8 @@ class DatabaseManager:
         projection: Dict[str, Any],
         chunk_size: int = 250,
     ) -> Iterator[Dict]:
+        """``Repository.iter_latest_active_large_files`` — וזורק ``ConnectionFailure`` כשאין מסד אמיתי (``_require_real_database``), כבר בקריאה ולא באיטרציה."""
+        self._require_real_database("iter_latest_active_large_files")
         return self._get_repo().iter_latest_active_large_files(user_id, projection=projection, chunk_size=chunk_size)
 
     def get_user_file_names(self, user_id: int, limit: int = 1000) -> List[str]:

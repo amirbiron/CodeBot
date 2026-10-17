@@ -155,6 +155,47 @@ def _large(name, content):
     }
 
 
+class TestExportWithoutARealDatabase:
+    """במצב NoOp כל קולקציה "מצליחה" ומחזירה ריק. ייצוא שקורא משם מחזיר גיבוי בלי קבצים, שנראה בדיוק כמו גיבוי של משתמש שאין לו קבצים — ועד כאן ההורדה ו"גבה עכשיו" לדיסק קיבלו אותו כהצלחה. ``DatabaseManager`` אמיתי בניטרול מכוון (``DISABLE_DB``), כמו ב-``tests/test_database_noop.py``."""
+
+    @pytest.fixture
+    def noop_manager(self, monkeypatch):
+        monkeypatch.setenv("DISABLE_DB", "1")
+        monkeypatch.setenv("BOT_TOKEN", "dummy")
+        monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017")
+        import database.manager as dm
+
+        mgr = dm.DatabaseManager()
+        assert mgr.has_real_database is False
+        return mgr
+
+    def test_the_export_fails_instead_of_returning_an_empty_backup(self, noop_manager):
+        from pymongo.errors import ConnectionFailure
+        from services.personal_backup_service import PersonalBackupService
+
+        with pytest.raises(ConnectionFailure):
+            PersonalBackupService(noop_manager).export_user_data(12345)
+
+    @pytest.mark.parametrize("reader", ["iter_latest_active_snippets", "iter_latest_active_large_files"])
+    def test_each_export_reader_refuses_without_a_real_database(self, noop_manager, reader):
+        """כל אחד בנפרד: הייצוא קורא קודם קבצים רגילים, ולכן טסט על הייצוא כולו לא היה רואה שהבדיקה חסרה בשני."""
+        from pymongo.errors import ConnectionFailure
+
+        with pytest.raises(ConnectionFailure):
+            getattr(noop_manager, reader)(12345, projection={"_id": 0})
+
+    def test_a_disk_backup_now_reports_a_failure_and_writes_nothing(self, noop_manager, monkeypatch, tmp_path):
+        import sys
+
+        import webapp.backup_scheduler as bs
+
+        monkeypatch.setattr(bs, "DISK_BACKUP_DIR", str(tmp_path))
+        monkeypatch.setitem(sys.modules, "database", SimpleNamespace(db=noop_manager))
+
+        assert bs.trigger_disk_backup_now(12345) == {"ok": False}
+        assert list(tmp_path.iterdir()) == []
+
+
 class TestExport:
     def test_export_creates_valid_zip(self, backup_service):
         """בדיקה שה-export מייצר ZIP תקין עם backup_info.json."""

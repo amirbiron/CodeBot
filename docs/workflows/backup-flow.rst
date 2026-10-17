@@ -158,7 +158,7 @@
 **בוובאפ** (עם ``drive_owner.WEBAPP``):
 
 - **התחברות** — בהפניה לגוגל (``webapp/drive_auth.py``), ראו :ref:`drive-webapp-connect`.
-- **מה עולה** — הגיבוי האישי המלא (``PersonalBackupService.export_user_data``), כ-ZIP אחד לתיקיית היעד (``upload_bytes`` בלי תת-תיקייה), ב-``_perform_drive_backup`` שב-``webapp/backup_scheduler.py``. מכל קובץ נשמרת הגרסה שרשימת הקבצים בוובאפ מציגה: אותו כלל, ``LATEST_VERSION_SORT_BY`` שב-``file_versions.py``. הקבצים נקראים מהמסד ונכתבים ל-ZIP אחד-אחד (``iter_latest_active_snippets`` ו-``iter_latest_active_large_files`` ב-``Repository``), בלי מיון במסד ובלי תקרת כמות. כשל בשליפה מכשיל את כל הגיבוי, וגיבוי חלקי לא עולה כהצלחה.
+- **מה עולה** — הגיבוי האישי המלא (``PersonalBackupService.export_user_data``), כ-ZIP אחד לתיקיית היעד (``upload_bytes`` בלי תת-תיקייה), ב-``_perform_drive_backup`` שב-``webapp/backup_scheduler.py``. מכל קובץ נשמרת הגרסה שרשימת הקבצים בוובאפ מציגה: אותו כלל, ``LATEST_VERSION_SORT_BY`` שב-``file_versions.py``. הקבצים נקראים מהמסד ונכתבים ל-ZIP אחד-אחד (``iter_latest_active_snippets`` ו-``iter_latest_active_large_files`` ב-``Repository``), בלי מיון במסד ובלי תקרת כמות. כשל בשליפה מכשיל את כל הגיבוי, וגיבוי חלקי לא עולה כהצלחה — וגם כשאין מסד אמיתי (מצב NoOp), במקום ZIP ריק.
 - **"גבה עכשיו"** — ``POST /api/drive/backup-now`` מסמן ``manual_backup_status`` כ-``running``, רק במסמך של משתמש מחובר, ומריץ את הגיבוי ברקע. הדף קורא את המצב מ-``GET /api/drive/backup-status``.
 - **תזמון** — ``POST /api/drive/schedule`` שומר ``schedule_key`` ו-``schedule_next_at``. ה-thread של ``webapp/backup_scheduler.py`` סורק כל ``SCAN_INTERVAL_SECONDS``, תופס אטומית משתמש שהגיע זמנו (``_drive_claim_filter``, עם אינדקס משלו) ומריץ את הגיבוי.
 

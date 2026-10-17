@@ -91,15 +91,19 @@ class _Manager:
         self.db = db
         self.collection = db.code_snippets
         self.large_files_collection = db.large_files
+        # מחובר למסד אמיתי — ``has_real_database`` של DatabaseManager רץ מעל זה כמו שהוא
+        self._db_connected = True
         self._repo = Repository(self)
 
     def _get_repo(self):
         return self._repo
 
     def __getattr__(self, name):
-        method = getattr(DatabaseManager, name, None)
-        if callable(method):
-            return types.MethodType(method, self)
+        attr = getattr(DatabaseManager, name, None)
+        if isinstance(attr, property):
+            return attr.fget(self)
+        if callable(attr):
+            return types.MethodType(attr, self)
         return getattr(self._repo, name)
 
 
