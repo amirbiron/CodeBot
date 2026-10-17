@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from pymongo.errors import PyMongoError
 
@@ -73,6 +73,89 @@ def _retry_next_at() -> str:
     return (_now_utc() + timedelta(seconds=SCAN_INTERVAL_SECONDS)).isoformat()
 
 
+#: כמה כשלים רצופים מנוסים שוב לפני שמוותרים על המועד הנוכחי. ההמתנה לפני כל ניסיון גדלה (``_retry_delay_seconds``), ואחרי הניסיון האחרון הגיבוי עובר למועד הרגיל הבא של התזמון (``_compute_next_at``) והמונה מתאפס — מצב סופי לכשל שאינו חולף, במקום ניסיון כל ``SCAN_INTERVAL_SECONDS`` בלי סוף.
+RETRY_MAX_ATTEMPTS = 6
+
+#: מונה הכשלים הרצופים, בהעדפות של כל תזמון (``webapp_drive_prefs``, ``disk_backup_prefs``). מתאפס בהצלחה (``_record_success``), בהשהיה (``_pause_drive_schedule``), בוויתור, ובכל כתיבה של התזמון על ידי המשתמש (``user_schedule_values``).
+_FAILURES_KEY = "consecutive_failures"
+
+
+def user_schedule_values(schedule_key: str) -> Dict[str, Any]:
+    """מה שכתיבה של תזמון על ידי המשתמש כותבת להעדפות — הפעלה, שינוי, כיבוי (``"off"``) וניתוק: התזמון, המועד הבא (``None`` כשהוא כבוי), ומונה כשלים שמתאפס.
+
+    המונה סופר כשלים **רצופים של התזמון הנוכחי**. תזמון שהמשתמש כתב מחדש מתחיל לספור מאפס: בלי האיפוס, כשלים מלפני כיבוי היו נספרים אחרי הפעלה מחדש, והגיבוי היה מוותר אחרי פחות מ-``RETRY_MAX_ATTEMPTS`` ניסיונות. הכותבים: ``/api/drive/schedule`` ו-``/api/disk-backup/schedule`` ב-``webapp/drive_backup_api.py``, והניתוק ב-``webapp/drive_auth.py`` — כל אחד בנתיב ההעדפות שלו.
+    """
+    return {
+        "schedule_key": schedule_key,
+        "schedule_next_at": _compute_next_at(schedule_key) if schedule_key in SCHEDULE_INTERVALS else None,
+        _FAILURES_KEY: 0,
+    }
+
+
+def _retry_delay_seconds(attempt: int) -> int:
+    """ההמתנה לפני ניסיון חוזר מספר ``attempt`` (מ-1): ``SCAN_INTERVAL_SECONDS``, ומשם כפול 2 בכל ניסיון."""
+    return SCAN_INTERVAL_SECONDS * (2 ** (attempt - 1))
+
+
+def _stored_failures(prefs: Any) -> int:
+    """מונה הכשלים כפי שנקרא מהמסמך שהתפיסה (``find_one_and_update``) החזירה — קריאה טרייה מהמסד, לא מקאש.
+
+    ההעדפות יכולות להגיע גם מגיבוי אישי ששוחזר (``PersonalBackupService._restore_drive_prefs`` כותב אותן כמו שהן), ולכן ערך שאינו מספר שלם אי-שלילי — חסר, ``bool`` (שהוא ``int`` בפייתון), מחרוזת — נקרא כאפס.
+    """
+    value = prefs.get(_FAILURES_KEY) if isinstance(prefs, dict) else None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
+    return value
+
+
+def _after_failure(schedule_key: str, previous_failures: int) -> Tuple[Dict[str, Any], bool]:
+    """מצב התזמון אחרי כשל: ``schedule_next_at`` והמונה, ו-``True`` כשהניסיונות מוצו (``RETRY_MAX_ATTEMPTS``) והגיבוי עבר למועד הרגיל הבא."""
+    attempt = previous_failures + 1
+    if attempt > RETRY_MAX_ATTEMPTS:
+        return {"schedule_next_at": _compute_next_at(schedule_key), _FAILURES_KEY: 0}, True
+    next_at = (_now_utc() + timedelta(seconds=_retry_delay_seconds(attempt))).isoformat()
+    return {"schedule_next_at": next_at, _FAILURES_KEY: attempt}, False
+
+
+def _finish_claim(db, user_id: int, prefs_field: str, held_sentinel: str, values: Dict[str, Any]) -> bool:
+    """כותב את מצב התזמון אחרי הגיבוי (``values``, מפתחות בתוך ``prefs_field``) — רק אם הסריקה עדיין מחזיקה בו, כלומר ``schedule_next_at`` הוא עדיין הסנטינל שהיא כתבה בתפיסה.
+
+    המשתמש יכול לשנות תזמון בזמן שגיבוי רץ (``/api/drive/schedule``, ``/api/disk-backup/schedule``). כתיבה לפי ``user_id`` בלבד דרסה את הבחירה שלו במועד שהסריקה חישבה; כאן הבחירה שלו נשארת, והגיבוי ירוץ במועד שהוא קבע. מחזיר ``True`` כשהמצב נכתב; שגיאת מסד עולה כ-``PyMongoError``.
+    """
+    res = db.db.users.update_one(
+        {"user_id": int(user_id), f"{prefs_field}.schedule_next_at": held_sentinel},
+        {"$set": {f"{prefs_field}.{key}": value for key, value in values.items()}},
+    )
+    if not res.matched_count:
+        logger.info("Backup schedule %s of user %s changed during the backup; left as the user set it", prefs_field, user_id)
+    return bool(res.matched_count)
+
+
+def _record_success(db, user_id: int, prefs_field: str, held_sentinel: str, schedule_key: str, previous_failures: int) -> None:
+    """גיבוי מתוזמן שהצליח: המועד הרגיל הבא והמונה מתאפס, בכתיבה מותנית בסנטינל (``_finish_claim``).
+
+    כשהכתיבה המותנית לא תואמת — המשתמש קבע מועד בזמן שהגיבוי רץ, או שהתפיסה פגה ונתפסה שוב — המועד שבמסמך נשאר, אבל **הכשלים שהתפיסה הזו ספרה מתאפסים בכל זאת**: הגיבוי הצליח, ולכן הם כבר אינם רצופים. בלי זה הכשל הבא היה ממשיך לספור ממקום שכבר לא נכון, ועלול למצות את ``RETRY_MAX_ATTEMPTS`` מיד. האיפוס מותנה בכך שהמונה עדיין ``previous_failures`` — הערך שהתפיסה קראה: אם תפיסה חדשה יותר כבר רשמה כשל משלה (worker אחר, אחרי שהסנטינל פג), הספירה שלה נשארת. שגיאת מסד עולה כ-``PyMongoError``.
+    """
+    if _finish_claim(db, user_id, prefs_field, held_sentinel, {"schedule_next_at": _compute_next_at(schedule_key), _FAILURES_KEY: 0}):
+        return
+    if previous_failures:
+        failures_field = f"{prefs_field}.{_FAILURES_KEY}"
+        db.db.users.update_one({"user_id": int(user_id), failures_field: previous_failures}, {"$set": {failures_field: 0}})
+
+
+def _record_failed_attempt(db, user_id: int, prefs_field: str, held_sentinel: str, schedule_key: str, previous_failures: int, *, target: str) -> None:
+    """כשל של גיבוי מתוזמן: קובע את הניסיון הבא אחרי המתנה שגדלה (``_after_failure``), ואחרי ``RETRY_MAX_ATTEMPTS`` עובר למועד הרגיל ושולח ``webapp_backup_retries_exhausted`` (``target``: ``drive`` או ``disk``). הכתיבה מותנית בסנטינל (``_finish_claim``)."""
+    values, exhausted = _after_failure(schedule_key, previous_failures)
+    if _finish_claim(db, user_id, prefs_field, held_sentinel, values) and exhausted:
+        emit_event(
+            "webapp_backup_retries_exhausted",
+            severity="warn",
+            user_id=int(user_id),
+            target=target,
+            attempts=RETRY_MAX_ATTEMPTS,
+        )
+
+
 #: סיבות הכישלון של ``_perform_drive_backup``. הן גם ה-``reason`` של ``webapp_drive_backup_failed``.
 FAILURE_AUTH_REQUIRED = "auth_required"
 FAILURE_CONNECTION = "connection_failed"
@@ -102,7 +185,7 @@ def _emit_drive_backup_failed(
 ) -> None:
     """אירוע ``webapp_drive_backup_failed`` — גיבוי Drive של הוובאפ (מתוזמן או "גבה עכשיו") שלא הועלה.
 
-    ``reason`` הוא אחד מ-``FAILURE_*``: ``FAILURE_AUTH_REQUIRED`` כשגוגל דחה את החיבור (``oauth_error``), ``FAILURE_CONNECTION`` כשבדיקת החיבור לא עברה מסיבה אחרת (``connection_status`` מ-``check_connection``, ו-``oauth_error`` כשיש), ``FAILURE_UPLOAD`` כשההעלאה החזירה ``None`` (הסיבה בשורת ``drive_call_failed`` של ``services/google_drive_service.py``), או ``FAILURE_EXCEPTION`` עם ``error_type``. רמת ``warn`` ולא ``error``: כשל מתוזמן שאינו חיבור שמת מנוסה שוב בסריקה הבאה (``_retry_next_at``).
+    ``reason`` הוא אחד מ-``FAILURE_*``: ``FAILURE_AUTH_REQUIRED`` כשגוגל דחה את החיבור (``oauth_error``), ``FAILURE_CONNECTION`` כשבדיקת החיבור לא עברה מסיבה אחרת (``connection_status`` מ-``check_connection``, ו-``oauth_error`` כשיש), ``FAILURE_UPLOAD`` כשההעלאה החזירה ``None`` (הסיבה בשורת ``drive_call_failed`` של ``services/google_drive_service.py``), או ``FAILURE_EXCEPTION`` עם ``error_type``. רמת ``warn`` ולא ``error``: כשל מתוזמן שאינו חיבור שמת מנוסה שוב אחרי המתנה שגדלה (``_record_failed_attempt``).
 
     המטען נבנה כאן עם מפתחות קבועים — ``tests/test_event_alert_dispatch.py`` אוסר להעביר ל-``emit_event`` ב-``**`` מטען שאי אפשר לקרוא את המפתחות שלו בנקודת הקריאה. שדה בלי ערך לא נכנס לאירוע.
     """
@@ -186,16 +269,18 @@ def _pause_drive_schedule(db, user_id: int, held_sentinel: str, held_tokens_obta
     fields = drive_fields(DRIVE_OWNER)
     next_at_field = f"{fields.prefs}.schedule_next_at"
     marker_field = _auth_required_field()
+    # המונה מתאפס: אחרי חיבור מחדש מתחילים לספור כשלים מאפס
+    paused = {next_at_field: None, f"{fields.prefs}.{_FAILURES_KEY}": 0}
     held = {"user_id": int(user_id), next_at_field: held_sentinel, f"{fields.tokens}.obtained_at": held_tokens_obtained_at}
     unmarked = db.db.users.update_one(
         {**held, marker_field: None},
-        {"$set": {next_at_field: None, marker_field: _now_utc().isoformat()}},
+        {"$set": {**paused, marker_field: _now_utc().isoformat()}},
     )
     if unmarked.matched_count:
         return True
     marked = db.db.users.update_one(
         {**held, marker_field: {"$ne": None}},
-        {"$set": {next_at_field: None}},
+        {"$set": paused},
     )
     return bool(marked.matched_count)
 
@@ -378,7 +463,7 @@ def _scan_drive_backups(db, now_iso: str):
     processed = 0
     while processed < MAX_BACKUPS_PER_SCAN:
         # תפוס אטומית משתמש שהגיע זמנו — מזיז schedule_next_at קדימה
-        # כך ש-worker אחר לא יתפוס אותו. הסנטינל נשמר: ההשהיה (_pause_drive_schedule) כותבת רק אם הוא עדיין שם
+        # כך ש-worker אחר לא יתפוס אותו. הסנטינל נשמר: הכתיבה שבסוף (_finish_claim, _pause_drive_schedule) נכתבת רק אם הוא עדיין שם
         sentinel = _sentinel_value()
         claimed = db.db.users.find_one_and_update(
             _drive_claim_filter(now_iso),
@@ -399,6 +484,7 @@ def _scan_drive_backups(db, now_iso: str):
             _reset_drive_schedule(db, claimed)
             continue
 
+        failures = _stored_failures(prefs)
         logger.info("Running scheduled Drive backup for user %s", uid)
         # הגבול של הגיבוי עצמו: _perform_drive_backup אינו זורק, וכל כשל בו חוזר כ-outcome.failure
         outcome = _perform_drive_backup(uid)
@@ -410,16 +496,11 @@ def _scan_drive_backups(db, now_iso: str):
                     logger.info("Drive schedule of user %s changed during the backup; left as the user set it", uid)
                 continue
             if outcome.ok:
-                new_next = _compute_next_at(schedule_key)
+                _record_success(db, uid, prefs_field, sentinel, schedule_key, failures)
             else:
-                # דחייה קדימה — retry בסריקה הבאה, לא בלולאה הנוכחית
-                new_next = _retry_next_at()
-            db.db.users.update_one(
-                {"user_id": uid},
-                {"$set": {next_at_field: new_next}},
-            )
+                _record_failed_attempt(db, uid, prefs_field, sentinel, schedule_key, failures, target="drive")
         except PyMongoError:
-            # כשל בכתיבת התזמון אינו כשל של הגיבוי: לא מתזמנים ניסיון חוזר (עוד בדיקת חיבור ועוד אירוע כשל),
+            # כשל בכתיבת התזמון אינו כשל של הגיבוי: לא סופרים ניסיון ולא מתזמנים ניסיון חוזר (עוד בדיקת חיבור ועוד אירוע כשל),
             # והסנטינל נשאר עד שהוא פג (SENTINEL_TTL_SECONDS) — ואז הסריקה תופסת את המשתמש שוב
             logger.exception("Failed to write the Drive schedule of user %s after the backup; the claim expires and is taken again", uid)
 
@@ -429,12 +510,14 @@ def _scan_disk_backups(db, now_iso: str):
     valid_keys = list(SCHEDULE_INTERVALS.keys())
     processed = 0
     while processed < MAX_BACKUPS_PER_SCAN:
+        # הסנטינל נשמר: הכתיבה שבסוף הגיבוי (_finish_claim) נכתבת רק אם הוא עדיין שם
+        sentinel = _sentinel_value()
         claimed = db.db.users.find_one_and_update(
             {
                 "disk_backup_prefs.schedule_key": {"$in": valid_keys},
                 "disk_backup_prefs.schedule_next_at": {"$lte": now_iso, "$ne": None},
             },
-            {"$set": {"disk_backup_prefs.schedule_next_at": _sentinel_value()}},
+            {"$set": {"disk_backup_prefs.schedule_next_at": sentinel}},
             projection={"user_id": 1, "disk_backup_prefs": 1},
         )
         if not claimed:
@@ -449,29 +532,24 @@ def _scan_disk_backups(db, now_iso: str):
             _reset_disk_schedule(db, claimed)
             continue
 
+        failures = _stored_failures(disk_prefs)
+        logger.info("Running scheduled Disk backup for user %s", uid)
+        # הגבול של הגיבוי עצמו: _perform_disk_backup אינו זורק, וכל כשל בו חוזר כ-False
+        ok = _perform_disk_backup(uid)
         try:
-            logger.info("Running scheduled Disk backup for user %s", uid)
-            ok = _perform_disk_backup(uid)
             if ok:
-                update = {
-                    "disk_backup_prefs.last_backup_at": _now_utc().isoformat(),
-                    "disk_backup_prefs.schedule_next_at": _compute_next_at(schedule_key),
-                }
+                # last_backup_at מתאר את הגיבוי שנכתב לדיסק, ולכן הוא נכתב קודם ובנפרד מהתזמון: גם כשהמשתמש שינה את התזמון בינתיים, וגם כשכתיבת התזמון נכשלת
+                try:
+                    db.db.users.update_one({"user_id": uid}, {"$set": {"disk_backup_prefs.last_backup_at": _now_utc().isoformat()}})
+                except PyMongoError:
+                    logger.warning("Failed to update Disk last_backup_at for user %s", uid, exc_info=True)
+                _record_success(db, uid, "disk_backup_prefs", sentinel, schedule_key, failures)
             else:
-                # דחייה קדימה — retry בסריקה הבאה, לא בלולאה הנוכחית
-                update = {
-                    "disk_backup_prefs.schedule_next_at": _retry_next_at(),
-                }
-            db.db.users.update_one({"user_id": uid}, {"$set": update})
-        except Exception:
-            logger.exception("Error processing Disk schedule for user %s", uid)
-            try:
-                db.db.users.update_one(
-                    {"user_id": uid},
-                    {"$set": {"disk_backup_prefs.schedule_next_at": _retry_next_at()}},
-                )
-            except Exception:
-                pass
+                _record_failed_attempt(db, uid, "disk_backup_prefs", sentinel, schedule_key, failures, target="disk")
+        except PyMongoError:
+            # כשל בכתיבת התזמון אינו כשל של הגיבוי: גיבוי שנכתב לדיסק לא נספר ככשל ולא מוביל ל-webapp_backup_retries_exhausted.
+            # הסנטינל נשאר עד שהוא פג (SENTINEL_TTL_SECONDS), ואז הסריקה תופסת את המשתמש שוב
+            logger.exception("Failed to write the Disk schedule of user %s after the backup; the claim expires and is taken again", uid)
 
 
 def _reset_drive_schedule(db, claimed: dict):

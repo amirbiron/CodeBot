@@ -340,11 +340,14 @@ def drive_disconnect():
 
     # הטוקנים נמחקים והתזמון כבה באותה כתיבה (``prefs`` של delete_drive_tokens), כך שכשל לא יכול להשאיר
     # "תזמון בלי חיבור" שהמתזמן ינסה להריץ שוב ושוב. גם הסימון auth_required_at נמחק: הוא מתאר את החיבור שנמחק.
+    # התזמון הכבוי נכתב דרך user_schedule_values, כמו כל כתיבה של תזמון על ידי המשתמש — ולכן גם מונה הכשלים מתאפס.
     # delete_drive_tokens אינו זורק בכשל מסד — הוא מחזיר False, ולכן נבדק הערך
+    from webapp.backup_scheduler import user_schedule_values
+
     disconnected = db.delete_drive_tokens(
         user_id,
         owner=DRIVE_OWNER,
-        prefs={"schedule_key": "off", "schedule_next_at": None, "drive_email": None, "auth_required_at": None},
+        prefs={**user_schedule_values("off"), "drive_email": None, "auth_required_at": None},
     )
     if not disconnected:
         return jsonify({"ok": False, "error": "שגיאה בניתוק Drive"}), 500

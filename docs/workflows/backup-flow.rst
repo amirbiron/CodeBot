@@ -158,7 +158,7 @@
 **בוובאפ** (עם ``drive_owner.WEBAPP``):
 
 - **התחברות** — בהפניה לגוגל (``webapp/drive_auth.py``), ראו :ref:`drive-webapp-connect`.
-- **מה עולה** — הגיבוי האישי המלא (``PersonalBackupService.export_user_data``), כ-ZIP אחד לתיקיית היעד (``upload_bytes`` בלי תת-תיקייה), ב-``_perform_drive_backup`` שב-``webapp/backup_scheduler.py``.
+- **מה עולה** — הגיבוי האישי המלא (``PersonalBackupService.export_user_data``), כ-ZIP אחד לתיקיית היעד (``upload_bytes`` בלי תת-תיקייה), ב-``_perform_drive_backup`` שב-``webapp/backup_scheduler.py``. מכל קובץ נשמרת הגרסה שרשימת הקבצים בוובאפ מציגה: אותו כלל, ``LATEST_VERSION_SORT_BY`` שב-``file_versions.py``. הקבצים נקראים מהמסד ונכתבים ל-ZIP אחד-אחד (``iter_latest_active_snippets`` ו-``iter_latest_active_large_files`` ב-``Repository``), בלי מיון במסד ובלי תקרת כמות. כשל בשליפה מכשיל את כל הגיבוי, וגיבוי חלקי לא עולה כהצלחה — וגם כשאין מסד אמיתי (מצב NoOp), במקום ZIP ריק.
 - **"גבה עכשיו"** — ``POST /api/drive/backup-now`` מסמן ``manual_backup_status`` כ-``running``, רק במסמך של משתמש מחובר, ומריץ את הגיבוי ברקע. הדף קורא את המצב מ-``GET /api/drive/backup-status``.
 - **תזמון** — ``POST /api/drive/schedule`` שומר ``schedule_key`` ו-``schedule_next_at``. ה-thread של ``webapp/backup_scheduler.py`` סורק כל ``SCAN_INTERVAL_SECONDS``, תופס אטומית משתמש שהגיע זמנו (``_drive_claim_filter``, עם אינדקס משלו) ומריץ את הגיבוי.
 
@@ -278,7 +278,7 @@ Edge Cases
 - אין שמירה מקומית כגיבוי חלופי. בקטגוריות שבונות את ה-ZIP בזיכרון (``all``, ‏``by_repo``, ‏``large``, ‏``other``, וגם הגיבוי של הוובאפ) מה שלא עלה לא נשמר במקום אחר. בקטגוריה ``zip`` (קבצי גיבוי) מועלים ZIPים שכבר שמורים בבוט (``backup_manager``), והם נשארים במקומם. ב-``uploaded_backup_ids`` נרשם ZIP שעלה, וגם ZIP שלא הועלה כי קובץ עם אותו תוכן (לפי md5) כבר נמצא בתיקיית ה-``zip`` ב-Drive (``_upload_all_saved_zip_backups_detailed``). ZIP שההעלאה שלו נכשלה לא נרשם, ולכן בפעם הבאה שהקטגוריה מועלית — ידנית או בתזמון — הוא מועלה שוב, אלא אם נמצא בתיקייה קובץ עם אותו תוכן.
 - בבוט, בגיבוי ידני: המשתמש מקבל הודעת כשל, ואין ניסיון חוזר.
 - בבוט, בגיבוי מתוזמן: נשלח ``drive_scheduled_backup_result`` עם ``ok`` שקר. כשאי אפשר לבנות שירות Drive מהטוקנים השמורים, המשתמש מקבל בקשה להתחבר מחדש (``drive_scheduled_backup_auth_required``). ההרצה הבאה היא במועד הבא של התזמון.
-- בוובאפ: החיבור נבדק מול גוגל לפני שה-ZIP נבנה (:ref:`drive-check-connection`), וכל כשל נשלח כ-``webapp_drive_backup_failed`` עם הסיבה. כשגוגל דחה את החיבור (``auth_required``), מסך ההגדרות מבקש להתחבר מחדש, "גבה עכשיו" אומר זאת, וגיבוי מתוזמן מושהה עד החיבור מחדש — במקום לבנות ZIP ולנסות שוב בכל סריקה. בכל כשל אחר, ב"גבה עכשיו" המצב הופך ל-``error``, וגיבוי מתוזמן מנוסה שוב בסריקה הבאה (``_retry_next_at``).
+- בוובאפ: החיבור נבדק מול גוגל לפני שה-ZIP נבנה (:ref:`drive-check-connection`), וכל כשל נשלח כ-``webapp_drive_backup_failed`` עם הסיבה. כשגוגל דחה את החיבור (``auth_required``), מסך ההגדרות מבקש להתחבר מחדש, "גבה עכשיו" אומר זאת, וגיבוי מתוזמן מושהה עד החיבור מחדש — במקום לבנות ZIP ולנסות שוב בכל סריקה. בכל כשל אחר, ב"גבה עכשיו" המצב הופך ל-``error``, וגיבוי מתוזמן מנוסה שוב אחרי המתנה שגדלה בכל ניסיון (``_retry_delay_seconds``). אחרי ``RETRY_MAX_ATTEMPTS`` ניסיונות הוא עובר למועד הרגיל הבא של התזמון, ונשלח ``webapp_backup_retries_exhausted``. כך גם בגיבוי לדיסק. בסוף כל גיבוי מתוזמן המועד הבא נכתב רק אם המשתמש לא שינה את התזמון בזמן שהגיבוי רץ (``_finish_claim``).
 - העלאה שנכשלה נרשמת בלוג בשורת ``drive_call_failed`` (``_log_drive_call_failed`` ב-``services/google_drive_service.py``), עם הפעולה שנכשלה וסטטוס ה-HTTP.
 
 **גיבוי פגום:**
