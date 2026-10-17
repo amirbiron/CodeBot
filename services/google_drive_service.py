@@ -18,8 +18,19 @@ try:
     from googleapiclient.http import MediaIoBaseUpload, MediaFileUpload  # type: ignore
     from google.oauth2.credentials import Credentials  # type: ignore
     from google.auth.transport.requests import Request  # type: ignore
+    from google.auth.exceptions import RefreshError, TransportError  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
     build = None  # type: ignore[assignment]
+
+    class RefreshError(Exception):  # type: ignore[no-redef]
+        """תחליף כשאין google-auth: לא נזרק לעולם, ולכן ``except RefreshError`` פשוט אינו תופס."""
+
+        @property
+        def retryable(self) -> bool:
+            return False
+
+    class TransportError(Exception):  # type: ignore[no-redef]
+        """תחליף כשאין google-auth: לא נזרק לעולם."""
 
     class _HttpErrorStub(Exception):
         """Fallback HttpError replacement when googleapiclient is unavailable."""
@@ -63,11 +74,43 @@ def _now_utc() -> datetime:
 # קוד שגיאה של Drive בגוף התשובה (``errors[0].reason`` או ``error.status``) הוא מילה אחת — ``storageQuotaExceeded``, ``PERMISSION_DENIED``. טקסט חופשי (``error.message``) לא נרשם.
 _DRIVE_ERROR_CODE_RE = re.compile(r"[A-Za-z_]{1,64}")
 
+# קוד שגיאה של OAuth לפי RFC 6749 (סעיפים 4.1.2.1 ו-5.2) הוא מילה באותיות קטנות עם קו תחתון.
+# הארוך שמוגדר שם, ``unsupported_response_type``, באורך 25 תווים; התקרה היא פי 2 ממנו.
+_OAUTH_ERROR_CODE_RE = re.compile(r"[a-z_]{1,50}")
+
+
+def oauth_error_code(value: Any) -> Optional[str]:
+    """קוד שגיאה שהגיע מגוגל, מוכן לרישום: הקוד עצמו אם הוא בצורה של קוד OAuth, ``"unrecognized"`` אחרת.
+
+    הערך הגיע מבחוץ, ולכן הוא לא נרשם כמו שהוא אם הוא ארוך, מכיל תווים אחרים או אינו מחרוזת — הוא מסורב, לא מקוצץ ולא מנוקה (בניגוד ל-``resilience.sanitize_label``, שמנקה ערך שאנחנו יצרנו). משותף לחזרה מגוגל בחיבור (``webapp/drive_auth.py``) ולחידוש הטוקן (``check_connection``, ``_log_drive_call_failed``).
+    """
+    if value is None:
+        return None
+    if isinstance(value, str) and _OAUTH_ERROR_CODE_RE.fullmatch(value):
+        return value
+    return "unrecognized"
+
+
+def _refresh_error_code(error: Optional[BaseException]) -> Optional[str]:
+    """קוד השגיאה של OAuth שבתוך ``RefreshError`` של שרת הטוקנים — ``invalid_grant`` וכדומה — או ``None`` כשאין כזה.
+
+    שרת הטוקנים מחזיר שגיאה כגוף JSON, ו-google-auth זורק אותה כ-``RefreshError(error_details, response_data, retryable=...)``, כלומר הגוף הוא הארגומנט השני (``google/oauth2/_client.py``, ``_handle_error_response``, google-auth 2.41.1). כשהגוף אינו JSON הוא נזרק כמחרוזת לבדה, ו-``RefreshError`` שנוצר בתוך הספרייה (שדות חסרים, ``refresh_handler``) הוא מחרוזת בלבד — בשניהם אין קוד, ומוחזר ``None``. הקוד עובר ``oauth_error_code`` לפני שהוא נרשם או מסווג.
+    """
+    if not isinstance(error, RefreshError):
+        return None
+    args = error.args
+    payload = args[1] if len(args) >= 2 else None
+    if not isinstance(payload, dict):
+        return None
+    return oauth_error_code(payload.get("error"))
+
 
 def _log_drive_call_failed(op: str, user_id: int, *, owner: str, error: Optional[Exception] = None) -> None:
     """רושם פעולת Drive שנכשלה ומחזירה ``None`` בלי לזרוק, כדי שהסיבה לא תיעלם יחד עם החריגה שנבלעה.
 
-    נרשמים שם הפעולה, השירות, המשתמש, סוג החריגה, סטטוס ה-HTTP וקוד השגיאה של גוגל — ולא הטקסט של החריגה: הטקסט של ``HttpError`` הוא כתובת הבקשה והודעת השגיאה של גוגל כמו שהיא (``HttpError.__repr__``, google-api-python-client 2.185.0). קוד שגיאה שאינו מילה אחת נרשם כ-``unrecognized``.
+    נרשמים שם הפעולה, השירות, המשתמש, סוג החריגה, סטטוס ה-HTTP, קוד השגיאה של Drive וקוד השגיאה של OAuth — ולא הטקסט של החריגה: הטקסט של ``HttpError`` הוא כתובת הבקשה והודעת השגיאה של גוגל כמו שהיא (``HttpError.__repr__``, google-api-python-client 2.185.0). קוד שגיאה של Drive שאינו מילה אחת נרשם כ-``unrecognized``.
+
+    ``oauth_error`` הוא הקוד שבתוך ``RefreshError`` (``_refresh_error_code``) — מה שמבדיל בין ``invalid_grant``, חיבור שמת ושצריך להתחבר מחדש, לבין ``invalid_client``, תקלת הגדרות שחיבור מחדש לא יתקן. בלעדיו השורה אמרה רק ``error_type=RefreshError``, ושני המקרים נראו זהים.
     """
     status: Optional[int] = None
     reason: Optional[str] = None
@@ -76,13 +119,14 @@ def _log_drive_call_failed(op: str, user_id: int, *, owner: str, error: Optional
         if raw_reason is not None:
             reason = raw_reason if _DRIVE_ERROR_CODE_RE.fullmatch(raw_reason) else "unrecognized"
     logging.getLogger(__name__).warning(
-        "drive_call_failed op=%s owner=%s user_id=%s error_type=%s http_status=%s drive_reason=%s",
+        "drive_call_failed op=%s owner=%s user_id=%s error_type=%s http_status=%s drive_reason=%s oauth_error=%s",
         op,
         owner,
         user_id,
         type(error).__name__ if error is not None else None,
         status,
         reason,
+        _refresh_error_code(error),
     )
 
 
@@ -302,6 +346,63 @@ def _ensure_valid_credentials(user_id: int, *, owner: str) -> Optional[Credentia
             logging.getLogger(__name__).exception("Drive token refresh failed after retries")
             return None
     return creds
+
+
+#: התשובות של ``check_connection``.
+CONNECTION_OK = "ok"
+CONNECTION_AUTH_REQUIRED = "auth_required"
+CONNECTION_TRANSIENT = "transient"
+CONNECTION_UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class ConnectionCheck:
+    """התשובה של ``check_connection``: ``status`` הוא אחד מ-``CONNECTION_*``, ו-``oauth_error`` הוא קוד השגיאה שגוגל החזיר בחידוש, כשיש כזה (``_refresh_error_code``)."""
+
+    status: str
+    oauth_error: Optional[str] = None
+
+
+def check_connection(user_id: int, *, owner: str) -> ConnectionCheck:
+    """בודק מול גוגל שהחיבור של ``owner`` עדיין חי: מחדש את הטוקן במפורש, ושומר את הטוקן שהתקבל.
+
+    **למה במפורש.** ``_credentials_from_tokens`` אינו מעביר ``expiry``, ובלי ``expiry`` הנכס ``expired`` מחזיר תמיד ``False`` (``google/auth/credentials.py``, google-auth 2.41.1). לכן ``_ensure_valid_credentials`` לא מחדש לעולם, ``get_drive_service`` בונה שירות גם מטוקנים שגוגל כבר דחה, והכשל מתגלה רק באמצע העבודה, כ-``RefreshError`` מתוך ``AuthorizedHttp`` (ראו :ref:`drive-check-connection`). כאן החידוש נעשה לפני העבודה, ותוצאתו מסווגת:
+
+    - ``CONNECTION_AUTH_REQUIRED`` — גוגל החזיר ``invalid_grant``: הטוקן *"invalid, expired, revoked"* (RFC 6749, סעיף 5.2), וניסיון חוזר עם אותו טוקן יחזיר אותה תשובה. גם חיבור שמור בלי refresh token כאן — אין איך לחדש אותו.
+    - ``CONNECTION_TRANSIENT`` — ``TransportError`` (תקלת רשת, ``google/auth/transport/requests.py``), או ``RefreshError`` ש-google-auth סימן ``retryable``: סטטוס מ-``DEFAULT_RETRYABLE_STATUS_CODES`` או קוד כמו ``temporarily_unavailable`` (``_can_retry`` ב-``google/oauth2/_client.py``).
+    - ``CONNECTION_UNKNOWN`` — כל ``RefreshError`` אחר, למשל ``invalid_client`` (תקלת הגדרות, שחיבור מחדש של המשתמש לא יתקן), וגם אין טוקנים כלל: ``get_drive_tokens`` מחזיר ``None`` גם בלי חיבור וגם בכשל מסד (``db_get_drive_tokens_error``), ותקלת מסד חולפת אסור שתבקש מהמשתמש להתחבר מחדש.
+
+    חריגה שאינה של google-auth אינה מסווגת ועולה הלאה: זה באג, לא מצב של החיבור. כל כשל נרשם בשורת ``drive_call_failed`` עם ``oauth_error``.
+
+    בהצלחה הטוקן החדש נשמר (``_save_refreshed_credentials``), כך ש-``get_drive_service`` שאחרי הבדיקה בונה שירות מטוקן טרי. שמירה שנכשלה אינה משנה את התשובה — החיבור חי — והיא נרשמת שם בשורת ``drive_refresh_not_saved``.
+    """
+    if Credentials is None or Request is None:
+        _log_drive_call_failed("check_connection.unavailable", user_id, owner=owner)
+        return ConnectionCheck(CONNECTION_UNKNOWN)
+    tokens = _load_tokens(user_id, owner=owner)
+    if not tokens:
+        _log_drive_call_failed("check_connection.no_tokens", user_id, owner=owner)
+        return ConnectionCheck(CONNECTION_UNKNOWN)
+    if not tokens.get("refresh_token"):
+        _log_drive_call_failed("check_connection.no_refresh_token", user_id, owner=owner)
+        return ConnectionCheck(CONNECTION_AUTH_REQUIRED)
+    creds = _credentials_from_tokens(tokens)
+    try:
+        creds.refresh(Request())  # type: ignore[misc]
+    except RefreshError as e:
+        _log_drive_call_failed("check_connection.refresh", user_id, owner=owner, error=e)
+        code = _refresh_error_code(e)
+        if code == "invalid_grant":
+            return ConnectionCheck(CONNECTION_AUTH_REQUIRED, code)
+        if e.retryable:
+            return ConnectionCheck(CONNECTION_TRANSIENT, code)
+        return ConnectionCheck(CONNECTION_UNKNOWN, code)
+    except TransportError as e:
+        _log_drive_call_failed("check_connection.refresh", user_id, owner=owner, error=e)
+        return ConnectionCheck(CONNECTION_TRANSIENT)
+    # הערך אינו נבדק כאן בכוונה: הוא אומר אם הטוקן נשמר, לא אם החיבור חי — והכשל כבר נרשם בפנים
+    _save_refreshed_credentials(user_id, creds, owner=owner)
+    return ConnectionCheck(CONNECTION_OK)
 
 
 # המפתח הוא (שירות, משתמש): לכל שירות חיבור משלו, ושירות Drive שנבנה מהטוקנים של אחד אסור שיוחזר לשני.

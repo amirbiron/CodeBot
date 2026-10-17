@@ -148,5 +148,5 @@ def test_a_refresh_whose_service_cannot_be_built_does_not_ask_for_a_retry(refres
         assert gds._force_refresh_credentials(7, owner="webapp") is False
 
     assert [r.getMessage() for r in caplog.records if r.name == LOGGER] == [
-        "drive_call_failed op=build_service owner=webapp user_id=7 error_type=ValueError http_status=None drive_reason=None"
+        "drive_call_failed op=build_service owner=webapp user_id=7 error_type=ValueError http_status=None drive_reason=None oauth_error=None"
     ]

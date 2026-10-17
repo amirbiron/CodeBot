@@ -12,9 +12,12 @@ import logging
 import os
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
+
+from pymongo.errors import PyMongoError
 
 from drive_owner import WEBAPP as DRIVE_OWNER, drive_fields
 
@@ -70,23 +73,142 @@ def _retry_next_at() -> str:
     return (_now_utc() + timedelta(seconds=SCAN_INTERVAL_SECONDS)).isoformat()
 
 
-def _emit_drive_backup_failed(user_id: int, *, reason: str, error_type: Optional[str] = None) -> None:
+#: סיבות הכישלון של ``_perform_drive_backup``. הן גם ה-``reason`` של ``webapp_drive_backup_failed``.
+FAILURE_AUTH_REQUIRED = "auth_required"
+FAILURE_CONNECTION = "connection_failed"
+FAILURE_UPLOAD = "upload_failed"
+FAILURE_EXCEPTION = "exception"
+
+
+@dataclass(frozen=True)
+class DriveBackupOutcome:
+    """התוצאה של ``_perform_drive_backup``: ``failure`` הוא ``None`` בהצלחה, ואחרת אחד מ-``FAILURE_*`` — כדי שהקורא יבדיל בין חיבור שמת (``FAILURE_AUTH_REQUIRED``, שבו התזמון מושהה) לבין כשל שכדאי לנסות שוב."""
+
+    ok: bool
+    failure: Optional[str] = None
+
+
+#: הסימון בהעדפות של הוובאפ שגוגל דחה את החיבור — זמן הדחייה הראשונה, או ``None``. הממשק קורא אותו כ-``needs_reconnect`` (``/api/drive/status``).
+_AUTH_REQUIRED_KEY = "auth_required_at"
+
+
+def _emit_drive_backup_failed(
+    user_id: int,
+    *,
+    reason: str,
+    error_type: Optional[str] = None,
+    connection_status: Optional[str] = None,
+    oauth_error: Optional[str] = None,
+) -> None:
     """אירוע ``webapp_drive_backup_failed`` — גיבוי Drive של הוובאפ (מתוזמן או "גבה עכשיו") שלא הועלה.
 
-    ``reason``: ``upload_failed`` כשההעלאה החזירה ``None`` (הסיבה בשורת ``drive_call_failed`` של ``services/google_drive_service.py``), או ``exception`` עם ``error_type``. רמת ``warn`` ולא ``error``: גיבוי מתוזמן שנכשל מנוסה שוב בסריקה הבאה (``_retry_next_at``), ולכן חיבור שבוטל היה ממלא את רשימת השגיאות באירוע כל כמה דקות.
+    ``reason`` הוא אחד מ-``FAILURE_*``: ``FAILURE_AUTH_REQUIRED`` כשגוגל דחה את החיבור (``oauth_error``), ``FAILURE_CONNECTION`` כשבדיקת החיבור לא עברה מסיבה אחרת (``connection_status`` מ-``check_connection``, ו-``oauth_error`` כשיש), ``FAILURE_UPLOAD`` כשההעלאה החזירה ``None`` (הסיבה בשורת ``drive_call_failed`` של ``services/google_drive_service.py``), או ``FAILURE_EXCEPTION`` עם ``error_type``. רמת ``warn`` ולא ``error``: כשל מתוזמן שאינו חיבור שמת מנוסה שוב בסריקה הבאה (``_retry_next_at``).
+
+    המטען נבנה כאן עם מפתחות קבועים — ``tests/test_event_alert_dispatch.py`` אוסר להעביר ל-``emit_event`` ב-``**`` מטען שאי אפשר לקרוא את המפתחות שלו בנקודת הקריאה. שדה בלי ערך לא נכנס לאירוע.
     """
-    if error_type is None:
-        emit_event("webapp_drive_backup_failed", severity="warn", user_id=int(user_id), reason=reason)
-    else:
-        emit_event("webapp_drive_backup_failed", severity="warn", user_id=int(user_id), reason=reason, error_type=error_type)
+    payload: Dict[str, Any] = {"user_id": int(user_id), "reason": reason}
+    if error_type is not None:
+        payload["error_type"] = error_type
+    if connection_status is not None:
+        payload["connection_status"] = connection_status
+    if oauth_error is not None:
+        payload["oauth_error"] = oauth_error
+    emit_event("webapp_drive_backup_failed", severity="warn", **payload)
 
 
-def _perform_drive_backup(user_id: int) -> bool:
-    """מבצע גיבוי מלא אישי ל-Drive (קבצים, אוספים, סימניות, הגדרות). כל כשל נשלח גם כאירוע (``_emit_drive_backup_failed``)."""
+def _auth_required_field() -> str:
+    return f"{drive_fields(DRIVE_OWNER).prefs}.{_AUTH_REQUIRED_KEY}"
+
+
+def _record_drive_auth_required(db, user_id: int) -> None:
+    """רושם בהעדפות של הוובאפ שגוגל דחה את החיבור (``_AUTH_REQUIRED_KEY``), כדי שהממשק יבקש להתחבר מחדש.
+
+    נכתב רק כשאין כבר סימון — ``None`` בפילטר של מונגו תואם גם שדה חסר — ולכן הזמן הוא של הדחייה הראשונה. כשל מסד נרשם ולא עולה: הגיבוי כבר נכשל, ובלי הסימון הממשק ממשיך להציג "מחובר", כמו לפני שהסימון היה קיים.
+    """
+    field = _auth_required_field()
+    try:
+        db.db.users.update_one(
+            {"user_id": int(user_id), field: None},
+            {"$set": {field: _now_utc().isoformat()}},
+        )
+    except PyMongoError:
+        logger.exception("Failed to record Drive auth_required for user %s", user_id)
+
+
+def clear_drive_auth_required(db, user_id: int) -> None:
+    """מוחק את הסימון ``_AUTH_REQUIRED_KEY`` כשהחיבור הוכח כחי: בדיקת חיבור שעברה (``_perform_drive_backup``), או חיבור מחדש (``resume_drive_schedule_after_reconnect``).
+
+    הסימון מתאר את מה שגוגל ענה, ולכן הוא נמחק רק כשגוגל ענה אחרת, ולא בכל כתיבה של העדפות. כשל מסד נרשם ולא עולה: גיבוי שהחיבור שלו עבר אינו נכשל בגלל סימון תצוגה שלא נמחק.
+    """
+    field = _auth_required_field()
+    try:
+        db.db.users.update_one(
+            {"user_id": int(user_id), field: {"$ne": None}},
+            {"$set": {field: None}},
+        )
+    except PyMongoError:
+        logger.exception("Failed to clear Drive auth_required for user %s", user_id)
+
+
+def resume_drive_schedule_after_reconnect(db, user_id: int) -> None:
+    """אחרי חיבור מחדש בוובאפ (``webapp/drive_auth.py``): מחזיר לפעולה תזמון שהושהה, ומוחק את הסימון.
+
+    תזמון מושהה (``_pause_drive_schedule``) הוא ``schedule_key`` תקף עם ``schedule_next_at`` ריק — צירוף שרק ההשהיה כותבת: ``/api/drive/schedule`` כותב מועד לכל תזמון תקף, וניתוק וכיבוי כותבים ``off``. המועד החדש הוא עכשיו, כי הגיבוי שלא רץ כבר באיחור, והוא רץ בסריקה הבאה. תזמון שסריקה מחזיקה ברגע זה נושא סנטינל ולא ``None``, ולכן אינו נדרס. כשל מסד נרשם ולא עולה: החיבור עצמו כבר נשמר.
+    """
+    prefs_field = drive_fields(DRIVE_OWNER).prefs
+    try:
+        db.db.users.update_one(
+            {
+                "user_id": int(user_id),
+                f"{prefs_field}.schedule_key": {"$in": list(SCHEDULE_INTERVALS.keys())},
+                f"{prefs_field}.schedule_next_at": None,
+            },
+            {"$set": {f"{prefs_field}.schedule_next_at": _now_utc().isoformat()}},
+        )
+    except PyMongoError:
+        logger.exception("Failed to resume Drive schedule after reconnect for user %s", user_id)
+    clear_drive_auth_required(db, user_id)
+
+
+def _pause_drive_schedule(db, user_id: int, held_sentinel: str) -> bool:
+    """משהה את התזמון של משתמש שגוגל דחה את החיבור שלו: ``schedule_next_at`` ריק, ולכן מסנן התפיסה (``_drive_claim_filter``, ``$ne: None``) מדלג עליו עד ש-``resume_drive_schedule_after_reconnect`` מחזיר אותו.
+
+    זה המצב הסופי שחסר עד כאן: גיבוי כזה נוסה שוב בכל סריקה, בלי סוף, וכל ניסיון בנה ZIP מלא. הכתיבה מותנית בסנטינל שהסריקה הזו כתבה בתפיסה (``held_sentinel``) — אם המשתמש שינה את התזמון בזמן שהבדיקה רצה, הערך שלו נשאר, והוא ייבדק במועד שלו בקריאה אחת לגוגל, בלי ZIP. מחזיר ``True`` כשההשהיה נכתבה; שגיאת מסד עולה כ-``PyMongoError``.
+    """
+    next_at_field = f"{drive_fields(DRIVE_OWNER).prefs}.schedule_next_at"
+    res = db.db.users.update_one(
+        {"user_id": int(user_id), next_at_field: held_sentinel},
+        {"$set": {next_at_field: None}},
+    )
+    return bool(res.matched_count)
+
+
+def _perform_drive_backup(user_id: int) -> DriveBackupOutcome:
+    """מבצע גיבוי מלא אישי ל-Drive (קבצים, אוספים, סימניות, הגדרות). כל כשל נשלח גם כאירוע (``_emit_drive_backup_failed``).
+
+    **קודם החיבור, אחר כך ה-ZIP.** ``check_connection`` מחדש את הטוקן מול גוגל לפני שנבנה משהו, כך שחיבור שמת עולה קריאה אחת לשרת הטוקנים ולא ייצוא מלא שנזרק אחרי שההעלאה נכשלה. כשגוגל דוחה את החיבור נכתב הסימון לממשק (``_record_drive_auth_required``) ומוחזר ``FAILURE_AUTH_REQUIRED``; כשהבדיקה עוברת, סימון ישן נמחק (``clear_drive_auth_required``).
+
+    החריגה הכללית בסוף היא גבול של ג'וב: היא נרשמת עם traceback ומובילה ל-``FAILURE_EXCEPTION``, מצב משלה, ולא לאחד ממצבי החיבור.
+    """
     try:
         from services.personal_backup_service import PersonalBackupService
-        from services.google_drive_service import upload_bytes
+        from services.google_drive_service import CONNECTION_AUTH_REQUIRED, CONNECTION_OK, check_connection, upload_bytes
         from database import db
+
+        check = check_connection(int(user_id), owner=DRIVE_OWNER)
+        if check.status == CONNECTION_AUTH_REQUIRED:
+            _record_drive_auth_required(db, int(user_id))
+            _emit_drive_backup_failed(user_id, reason=FAILURE_AUTH_REQUIRED, oauth_error=check.oauth_error)
+            return DriveBackupOutcome(False, FAILURE_AUTH_REQUIRED)
+        if check.status != CONNECTION_OK:
+            _emit_drive_backup_failed(
+                user_id,
+                reason=FAILURE_CONNECTION,
+                connection_status=check.status,
+                oauth_error=check.oauth_error,
+            )
+            return DriveBackupOutcome(False, FAILURE_CONNECTION)
+        clear_drive_auth_required(db, int(user_id))
 
         service = PersonalBackupService(db)
         buffer = service.export_user_data(int(user_id))
@@ -106,15 +228,15 @@ def _perform_drive_backup(user_id: int) -> bool:
                 )
             except Exception:
                 logger.warning("Failed to update Drive last_backup_at for user %s", user_id, exc_info=True)
-            return True
+            return DriveBackupOutcome(True)
         else:
             logger.warning("Drive full backup upload failed for user %s", user_id)
-            _emit_drive_backup_failed(user_id, reason="upload_failed")
-            return False
+            _emit_drive_backup_failed(user_id, reason=FAILURE_UPLOAD)
+            return DriveBackupOutcome(False, FAILURE_UPLOAD)
     except Exception as e:
         logger.exception("Drive backup error for user %s", user_id)
-        _emit_drive_backup_failed(user_id, reason="exception", error_type=type(e).__name__)
-        return False
+        _emit_drive_backup_failed(user_id, reason=FAILURE_EXCEPTION, error_type=type(e).__name__)
+        return DriveBackupOutcome(False, FAILURE_EXCEPTION)
 
 
 def _perform_disk_backup(user_id: int) -> bool:
@@ -238,11 +360,12 @@ def _scan_drive_backups(db, now_iso: str):
     processed = 0
     while processed < MAX_BACKUPS_PER_SCAN:
         # תפוס אטומית משתמש שהגיע זמנו — מזיז schedule_next_at קדימה
-        # כך ש-worker אחר לא יתפוס אותו
+        # כך ש-worker אחר לא יתפוס אותו. הסנטינל נשמר: ההשהיה (_pause_drive_schedule) כותבת רק אם הוא עדיין שם
+        sentinel = _sentinel_value()
         claimed = db.db.users.find_one_and_update(
             _drive_claim_filter(now_iso),
             # מזיז את next_at קדימה כ-placeholder עד שנחשב את הזמן האמיתי
-            {"$set": {next_at_field: _sentinel_value()}},
+            {"$set": {next_at_field: sentinel}},
             projection={"user_id": 1, prefs_field: 1},
         )
         if not claimed:
@@ -259,8 +382,13 @@ def _scan_drive_backups(db, now_iso: str):
 
         try:
             logger.info("Running scheduled Drive backup for user %s", uid)
-            ok = _perform_drive_backup(uid)
-            if ok:
+            outcome = _perform_drive_backup(uid)
+            if outcome.failure == FAILURE_AUTH_REQUIRED:
+                # מצב סופי: לא מנסים שוב עם חיבור שגוגל דחה — ממתינים לחיבור מחדש
+                if not _pause_drive_schedule(db, uid, sentinel):
+                    logger.info("Drive schedule of user %s changed during the backup; left as the user set it", uid)
+                continue
+            if outcome.ok:
                 new_next = _compute_next_at(schedule_key)
             else:
                 # דחייה קדימה — retry בסריקה הבאה, לא בלולאה הנוכחית
@@ -384,13 +512,13 @@ def start_backup_scheduler():
 # --- פונקציות עזר לגיבוי מיידי (נקראות מה-API) ---
 
 def trigger_drive_backup_now(user_id: int) -> dict:
-    """מבצע גיבוי מיידי ל-Drive.
+    """מבצע גיבוי מיידי ל-Drive, ומחזיר ``{"ok": ..., "failure": ...}`` — ``failure`` הוא ``None`` או אחד מ-``FAILURE_*``, כדי ש"גבה עכשיו" יבקש להתחבר מחדש כשזו הסיבה.
 
     הערה: ``_perform_drive_backup`` כבר מעדכן את last_backup_at של הוובאפ אחרי העלאה מוצלחת,
-    אז לא מעדכנים שוב כאן.
+    אז לא מעדכנים שוב כאן. גם כשהחיבור נדחה, התזמון אינו מושהה מכאן: אין כאן תפיסה של הסורק, והגיבוי המתוזמן הבא יגלה את הדחייה בעצמו, בקריאה אחת לגוגל, וישהה את עצמו.
     """
-    ok = _perform_drive_backup(user_id)
-    return {"ok": ok}
+    outcome = _perform_drive_backup(user_id)
+    return {"ok": outcome.ok, "failure": outcome.failure}
 
 
 def trigger_disk_backup_now(user_id: int) -> dict:

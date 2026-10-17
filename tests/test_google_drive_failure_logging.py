@@ -66,7 +66,7 @@ def test_a_failed_upload_logs_the_status_and_the_drive_reason_and_not_the_error_
         assert _upload_with_failing_chunk(monkeypatch, error) is None
 
     assert _drive_logs(caplog) == [
-        "drive_call_failed op=upload_bytes.chunk owner=webapp user_id=7 error_type=HttpError http_status=403 drive_reason=storageQuotaExceeded"
+        "drive_call_failed op=upload_bytes.chunk owner=webapp user_id=7 error_type=HttpError http_status=403 drive_reason=storageQuotaExceeded oauth_error=None"
     ]
     everything = "\n".join(_drive_logs(caplog))
     assert UPLOAD_URI not in everything and QUOTA_MESSAGE not in everything
@@ -81,7 +81,7 @@ def test_a_drive_error_without_a_code_logs_no_reason_and_never_the_message(monke
         assert _upload_with_failing_chunk(monkeypatch, error) is None
 
     (line,) = _drive_logs(caplog)
-    assert line.endswith("http_status=400 drive_reason=None")
+    assert line.endswith("http_status=400 drive_reason=None oauth_error=None")
     assert message not in line
 
 
@@ -92,7 +92,7 @@ def test_a_drive_code_that_is_not_one_word_is_logged_as_unrecognized(monkeypatch
         assert _upload_with_failing_chunk(monkeypatch, error) is None
 
     (line,) = _drive_logs(caplog)
-    assert line.endswith("http_status=400 drive_reason=unrecognized")
+    assert line.endswith("http_status=400 drive_reason=unrecognized oauth_error=None")
     assert "someone@example.com" not in line
 
 
@@ -104,7 +104,7 @@ def test_an_upload_without_a_drive_service_says_so(monkeypatch, caplog):
         assert gds.upload_bytes(7, "image.png", b"\x89PNG", sub_path="code_images", owner="bot") is None
 
     assert _drive_logs(caplog) == [
-        "drive_call_failed op=upload_bytes.no_service owner=bot user_id=7 error_type=None http_status=None drive_reason=None"
+        "drive_call_failed op=upload_bytes.no_service owner=bot user_id=7 error_type=None http_status=None drive_reason=None oauth_error=None"
     ]
 
 
@@ -122,14 +122,42 @@ def test_a_drive_service_that_cannot_be_built_says_why(monkeypatch, caplog):
         assert gds.get_drive_service(7, owner="bot") is None
 
     assert _drive_logs(caplog) == [
-        "drive_call_failed op=build_service owner=bot user_id=7 error_type=ValueError http_status=None drive_reason=None"
+        "drive_call_failed op=build_service owner=bot user_id=7 error_type=ValueError http_status=None drive_reason=None oauth_error=None"
     ]
 
 
-@pytest.mark.parametrize("failure", ["http", "other"])
-def test_a_folder_that_cannot_be_created_says_why(monkeypatch, caplog, failure):
+#: מה ש-google-auth זורק כשגוגל דוחה את ה-refresh token: ``RefreshError(error_details, response_data, retryable=...)`` (``google/oauth2/_client.py``, ``_handle_error_response``, google-auth 2.41.1). ``AuthorizedHttp`` זורק אותה מתוך ``files().list()`` — כך נראה הכשל בפרודקשן (op=ensure_folder, error_type=RefreshError).
+_EXPIRED_GRANT = {"error": "invalid_grant", "error_description": "Token has been expired or revoked."}
+
+
+def _folder_failure(failure):
+    from google.auth.exceptions import RefreshError
+
+    if failure == "http":
+        return _http_error(404, b'{"error": {"errors": [{"reason": "notFound"}]}}')
+    if failure == "refresh":
+        return RefreshError("invalid_grant: Token has been expired or revoked.", dict(_EXPIRED_GRANT), retryable=False)
+    if failure == "refresh_without_body":
+        return RefreshError("The credentials do not contain the necessary fields need to refresh the access token.")
+    if failure == "refresh_unrecognized_code":
+        return RefreshError("x", {"error": "Not A Code <someone@example.com>"}, retryable=False)
+    return ConnectionResetError()
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_tail"),
+    [
+        ("http", "error_type=HttpError http_status=404 drive_reason=notFound oauth_error=None"),
+        ("other", "error_type=ConnectionResetError http_status=None drive_reason=None oauth_error=None"),
+        # הקוד של גוגל הוא מה שמבדיל בין חיבור שמת (invalid_grant) לבין תקלת הגדרות — בלעדיו שני המקרים נראו זהים
+        ("refresh", "error_type=RefreshError http_status=None drive_reason=None oauth_error=invalid_grant"),
+        ("refresh_without_body", "error_type=RefreshError http_status=None drive_reason=None oauth_error=None"),
+        ("refresh_unrecognized_code", "error_type=RefreshError http_status=None drive_reason=None oauth_error=unrecognized"),
+    ],
+)
+def test_a_folder_that_cannot_be_created_says_why(monkeypatch, caplog, failure, expected_tail):
     gds = _gds()
-    error = _http_error(404, b'{"error": {"errors": [{"reason": "notFound"}]}}') if failure == "http" else ConnectionResetError()
+    error = _folder_failure(failure)
 
     class _Files:
         def list(self, **_k):
@@ -140,5 +168,5 @@ def test_a_folder_that_cannot_be_created_says_why(monkeypatch, caplog, failure):
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         assert gds.ensure_folder(7, "zip", "root-1", owner="bot") is None
 
-    expected_tail = "error_type=HttpError http_status=404 drive_reason=notFound" if failure == "http" else "error_type=ConnectionResetError http_status=None drive_reason=None"
     assert _drive_logs(caplog) == [f"drive_call_failed op=ensure_folder owner=bot user_id=7 {expected_tail}"]
+    assert "someone@example.com" not in "\n".join(_drive_logs(caplog))

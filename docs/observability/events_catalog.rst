@@ -162,7 +162,14 @@ Google Drive
 
 גיבוי בוובאפ (``webapp/backup_scheduler.py``):
 
-- ``webapp_drive_backup_failed`` — גיבוי Drive של הוובאפ, מתוזמן או "גבה עכשיו", לא הועלה. ``reason``: ``upload_failed`` כשההעלאה לא החזירה מזהה קובץ — הסיבה בשורת הלוג ``drive_call_failed`` של ``services/google_drive_service.py`` — או ``exception``, עם ``error_type``. ברמת ``warn``: גיבוי מתוזמן שנכשל מנוסה שוב בסריקה הבאה (``_retry_next_at``), ואירוע ``error`` היה חוזר כל כמה דקות על חיבור שבוטל.
+- ``webapp_drive_backup_failed`` — גיבוי Drive של הוובאפ, מתוזמן או "גבה עכשיו", לא הועלה. ``reason`` הוא אחד מ-``FAILURE_*`` ב-``webapp/backup_scheduler.py``:
+
+  - ``auth_required`` — גוגל דחה את החיבור (``invalid_grant``, או חיבור בלי refresh token), עם ``oauth_error``. זה מצב סופי: מסך ההגדרות מבקש להתחבר מחדש, והתזמון מושהה עד שמתחברים (:ref:`drive-check-connection`).
+  - ``connection_failed`` — בדיקת החיבור לא עברה מסיבה אחרת: ``connection_status`` הוא ``transient`` (תקלת רשת או תשובה שגוגל סימן לניסיון חוזר) או ``unknown`` (למשל ``invalid_client``, תקלת הגדרות), ו-``oauth_error`` כשיש.
+  - ``upload_failed`` — ההעלאה לא החזירה מזהה קובץ. הסיבה בשורת הלוג ``drive_call_failed`` של ``services/google_drive_service.py``.
+  - ``exception`` — חריגה לא צפויה, עם ``error_type``.
+
+  ברמת ``warn``: כל כשל שאינו ``auth_required`` מנוסה שוב בסריקה הבאה (``_retry_next_at``).
 
 התפריט והגיבוי המתוזמן בבוט (``handlers/drive/menu.py``, ‏``main.py``). ה-jobs של הגיבוי המתוזמן נוצרים בזיכרון בלבד, ו-``drive_reschedule`` ב-``main.py`` בונה מחדש מהתזמון השמור במסד כל job שחסר — בכל עלייה, כשכולם חסרים, ושוב בכל סבב שלו:
 

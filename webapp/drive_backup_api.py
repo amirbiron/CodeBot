@@ -113,11 +113,16 @@ def set_drive_schedule():
 
 
 def _run_drive_backup_bg(user_id: int):
-    """רץ ב-thread — מבצע גיבוי Drive ומעדכן סטטוס ב-DB."""
+    """רץ ב-thread — מבצע גיבוי Drive ומעדכן סטטוס ב-DB.
+
+    לצד ``manual_backup_status`` נכתב ``manual_backup_error``: סיבת הכישלון מ-``trigger_drive_backup_now`` (אחת מ-``FAILURE_*`` ב-``webapp/backup_scheduler.py``), או ``None`` בהצלחה. כך "גבה עכשיו" אומר "נדרש להתחבר מחדש" כשגוגל דחה את החיבור, במקום "הגיבוי נכשל".
+    """
+    failure = None
     try:
         from webapp.backup_scheduler import trigger_drive_backup_now
         result = trigger_drive_backup_now(user_id)
-        ok = result.get("ok", False) if isinstance(result, dict) else False
+        ok = bool(result.get("ok", False)) if isinstance(result, dict) else False
+        failure = result.get("failure") if isinstance(result, dict) else None
     except Exception:
         logger.exception("Background Drive backup error for user %s", user_id)
         ok = False
@@ -129,6 +134,7 @@ def _run_drive_backup_bg(user_id: int):
             {"user_id": user_id},
             {"$set": {
                 f"{_DRIVE_FIELDS.prefs}.manual_backup_status": "done" if ok else "error",
+                f"{_DRIVE_FIELDS.prefs}.manual_backup_error": None if ok else failure,
                 f"{_DRIVE_FIELDS.prefs}.manual_backup_finished_at": datetime.now(timezone.utc).isoformat(),
             }},
         )
@@ -150,6 +156,7 @@ def drive_backup_now():
             _connected_user_filter(user_id),
             {"$set": {
                 f"{_DRIVE_FIELDS.prefs}.manual_backup_status": "running",
+                f"{_DRIVE_FIELDS.prefs}.manual_backup_error": None,
                 f"{_DRIVE_FIELDS.prefs}.manual_backup_finished_at": None,
             }},
         )
@@ -180,6 +187,7 @@ def drive_backup_status():
         "last_full_backup_at": prefs.get("last_full_backup_at"),
         "schedule_next_at": prefs.get("schedule_next_at"),
         "manual_backup_status": prefs.get("manual_backup_status"),
+        "manual_backup_error": prefs.get("manual_backup_error"),
     })
 
 
