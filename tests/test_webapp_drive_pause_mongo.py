@@ -41,6 +41,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 USER_ID = 7070
+TOKENS = "webapp_drive_tokens"
 PREFS = drive_owner.drive_fields(drive_owner.WEBAPP).prefs
 
 
@@ -174,6 +175,37 @@ def test_the_pause_keeps_the_time_of_the_first_rejection(flow):
     prefs = f.prefs()
     assert prefs["schedule_next_at"] is None
     assert prefs["auth_required_at"] == first
+
+
+def test_the_pause_matches_the_tokens_the_claim_saw(flow):
+    """ההשהיה מותנית ב-``obtained_at`` של הטוקנים, שהתפיסה מביאה בהיטלה עם נקודה. כאן מול מונגו אמיתי: בלי חיבור מחדש, הערך שהתפיסה ראתה תואם, וההשהיה נכתבת."""
+    f = flow
+    f.db.users.insert_one({"user_id": USER_ID, PREFS: {"schedule_key": "weekly", "schedule_next_at": f.due}, TOKENS: {"obtained_at": "2026-10-17T01:00:00+00:00"}})
+    f.answer["check"] = f.gds.ConnectionCheck(f.gds.CONNECTION_AUTH_REQUIRED, "invalid_grant")
+
+    f.scan()
+
+    assert f.prefs()["schedule_next_at"] is None
+
+
+def test_a_reconnect_during_the_check_is_not_paused(flow, monkeypatch):
+    f = flow
+    f.db.users.insert_one({"user_id": USER_ID, PREFS: {"schedule_key": "weekly", "schedule_next_at": f.due}, TOKENS: {"obtained_at": "2026-10-17T01:00:00+00:00"}})
+    f.answer["check"] = f.gds.ConnectionCheck(f.gds.CONNECTION_AUTH_REQUIRED, "invalid_grant")
+    real_record = f.bs._record_drive_auth_required
+
+    def _record_then_the_user_reconnects(db, uid):
+        real_record(db, uid)
+        f.db.users.update_one({"user_id": uid}, {"$set": {f"{TOKENS}.obtained_at": "2026-10-17T01:00:05+00:00"}})
+        f.bs.resume_drive_schedule_after_reconnect(db, uid)
+
+    monkeypatch.setattr(f.bs, "_record_drive_auth_required", _record_then_the_user_reconnects)
+
+    f.scan()
+
+    prefs = f.prefs()
+    assert prefs["schedule_next_at"] is not None
+    assert not prefs.get("auth_required_at")
 
 
 def test_reconnecting_resumes_only_a_paused_schedule(flow):

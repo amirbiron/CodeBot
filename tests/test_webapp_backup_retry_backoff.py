@@ -171,8 +171,8 @@ def test_a_schedule_the_user_changed_during_the_backup_is_not_overwritten(env, m
     prefs = read()
     assert prefs["schedule_next_at"] == user_choice
     if outcome == "success":
-        # הגיבוי הצליח: המונה מתאפס גם כשהמועד נשאר של המשתמש (_record_success)
-        assert prefs["consecutive_failures"] == 0
+        # הגיבוי הצליח, והתפיסה לא ספרה כשלים: אין מה לאפס, והמונה נקרא כאפס (_record_success)
+        assert prefs.get("consecutive_failures", 0) == 0
     else:
         # כשל על תזמון שהמשתמש כתב מחדש אינו נספר: התזמון החדש מתחיל לספור מאפס
         assert "consecutive_failures" not in prefs
@@ -219,6 +219,29 @@ def test_a_backup_that_succeeded_is_not_counted_as_a_failure_when_its_schedule_w
     assert _parse(prefs["schedule_next_at"]) >= T0 + timedelta(seconds=e.bs.SENTINEL_TTL_SECONDS - 60), "הסנטינל הוחלף"
     label = "Drive" if target == "drive" else "Disk"
     assert any(r.getMessage().startswith(f"Failed to write the {label} schedule of user {USER_ID}") for r in caplog.records)
+
+
+@pytest.mark.parametrize("target", ["drive", "disk"])
+def test_a_success_that_lost_its_claim_keeps_failures_a_newer_claim_recorded(env, monkeypatch, target):
+    """גיבוי ארוך: הסנטינל שלו פג, worker אחר תפס את התזמון, נכשל ורשם כשל משלו (המונה עבר מ-3 ל-1 על המועד החדש). כשהגיבוי הישן מצליח אחר כך, הוא מאפס רק את הכשלים שהוא עצמו ראה — כאן אין כאלה, והספירה של התפיסה החדשה נשארת."""
+    e = env
+    prefs_key, read = ("webapp_drive_prefs", e.drive_prefs) if target == "drive" else ("disk_backup_prefs", e.disk_prefs)
+    e.db.users.insert_one({"user_id": USER_ID, prefs_key: {"schedule_key": "weekly", "schedule_next_at": (T0 - timedelta(minutes=1)).isoformat(), "consecutive_failures": 3}})
+    newer = "2099-01-01T00:00:00+00:00"
+
+    def _a_newer_claim_fails_meanwhile():
+        e.db.users.update_one({"user_id": USER_ID}, {"$set": {f"{prefs_key}.schedule_next_at": newer, f"{prefs_key}.consecutive_failures": 1}})
+
+    if target == "drive":
+        e.answer["check"] = lambda uid: _a_newer_claim_fails_meanwhile() or e.gds.ConnectionCheck(e.gds.CONNECTION_OK)
+    else:
+        monkeypatch.setattr(e.bs, "_perform_disk_backup", lambda uid: _a_newer_claim_fails_meanwhile() or True)
+
+    e.scan_at(T0)
+
+    prefs = read()
+    assert prefs["schedule_next_at"] == newer
+    assert prefs["consecutive_failures"] == 1
 
 
 @pytest.mark.parametrize("target", ["drive", "disk"])
