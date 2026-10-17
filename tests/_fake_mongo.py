@@ -121,6 +121,20 @@ UPDATE_OPERATORS = frozenset({"$set", "$unset", "$push", "$setOnInsert"})
 PUSH_MODIFIERS = frozenset({"$each", "$slice"})
 
 
+def _include_paths(doc, paths):
+    """הכללה כמו במונגו, כולל נתיב עם נקודה: ``{"a.b": 1}`` מחזיר ``{"a": {"b": ...}}`` ולא את כל ``a`` — ולא כלום, כמו שהדמות עשתה עד כאן."""
+    out = {}
+    for path in paths:
+        head, _, rest = path.partition(".")
+        if head not in doc:
+            continue
+        if not rest:
+            out[head] = doc[head]
+        elif isinstance(doc[head], dict):
+            out.setdefault(head, {}).update(_include_paths(doc[head], {rest}))
+    return out
+
+
 def _unsupported(kind: str, names) -> NotImplementedError:
     return NotImplementedError(
         f"tests/_fake_mongo.py does not implement the {kind} {sorted(names)}; "
@@ -210,7 +224,7 @@ class FakeCollection:
             keep = {str(f) for f, on in projection.items() if on}
             if keep:
                 keep.add("_id")
-                docs = [{f: v for f, v in d.items() if f in keep} for d in docs]
+                docs = [_include_paths(d, keep) for d in docs]
         return docs
 
     def find(self, q, projection=None, *a, **k):

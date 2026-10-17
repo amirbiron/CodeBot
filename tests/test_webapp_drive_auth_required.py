@@ -354,6 +354,41 @@ def test_a_reconnect_between_the_two_pause_writes_does_not_leave_a_silent_pause(
     assert prefs["schedule_next_at"] is not None
 
 
+def test_a_reconnect_during_the_check_is_not_paused(scheduler, dbm, monkeypatch):
+    """המשתמש מתחבר מחדש בזמן שהסורק בודק את הטוקנים הישנים: ה-callback שומר טוקנים חדשים, ``resume_drive_schedule_after_reconnect`` לא מוצא תזמון מושהה (הסנטינל עוד שם) ומוחק את הסימון. עד כאן ההשהיה נכתבה אחריו, עם סימון חדש — תזמון עצור ובקשה להתחבר שוב, על חיבור שכבר חי. עכשיו ההשהיה מותנית ב-``obtained_at`` של הטוקנים שהסריקה תפסה."""
+    s = scheduler
+    s.answer["check"] = s.gds.ConnectionCheck(s.gds.CONNECTION_AUTH_REQUIRED, "invalid_grant")
+    s.due()
+    real_record = s.bs._record_drive_auth_required
+
+    def _record_then_the_user_reconnects(db, uid):
+        real_record(db, uid)
+        assert dbm.save_drive_tokens(uid, {"access_token": "ya29.reconnected", "refresh_token": "1//new-refresh", "expires_in": 3599}, owner=drive_owner.WEBAPP)
+        s.bs.resume_drive_schedule_after_reconnect(db, uid)
+
+    monkeypatch.setattr(s.bs, "_record_drive_auth_required", _record_then_the_user_reconnects)
+
+    s.scan()
+
+    prefs = dbm.web_prefs()
+    assert prefs["schedule_next_at"] is not None, "חיבור שכבר חודש הושהה"
+    assert not prefs.get("auth_required_at"), "המשתמש מתבקש להתחבר שוב אחרי שהתחבר"
+
+
+def test_a_resume_that_fails_to_write_keeps_the_reconnect_mark(scheduler, dbm, monkeypatch):
+    """אם החזרת התזמון אחרי חיבור מחדש נכשלת והסימון נמחק בכל זאת, התזמון נשאר מושהה, המסך מציג "מחובר", ושום דבר לא מחזיר אותו. הסימון נשאר, והמסך ממשיך לבקש חיבור מחדש."""
+    s = scheduler
+    marked = "2026-10-12T12:37:45+00:00"
+    assert dbm.save_drive_prefs(USER_ID, {"schedule_key": "weekly", "schedule_next_at": None, "auth_required_at": marked}, owner=drive_owner.WEBAPP)
+    _fail_writes(dbm, monkeypatch, lambda q, u: NEXT_AT in q and q[NEXT_AT] is None and "webapp_drive_prefs.schedule_key" in q)
+
+    s.bs.resume_drive_schedule_after_reconnect(dbm, USER_ID)
+
+    prefs = dbm.web_prefs()
+    assert prefs["schedule_next_at"] is None
+    assert prefs["auth_required_at"] == marked
+
+
 def test_a_pause_that_fails_to_write_leaves_the_claim_to_expire(scheduler, dbm, monkeypatch):
     """כשל בכתיבת ההשהיה אינו כשל של הגיבוי. עד כאן הוא נפל ל-``except`` הכללי של הסורק, שתזמן ניסיון חוזר בעוד ``SCAN_INTERVAL_SECONDS`` — עוד בדיקת חיבור מול גוגל ועוד אירוע כשל, על חיבור שכבר ידוע שמת. עכשיו הסנטינל נשאר עד שהוא פג (``SENTINEL_TTL_SECONDS``)."""
     s = scheduler
