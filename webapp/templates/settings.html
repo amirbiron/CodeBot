@@ -239,9 +239,19 @@
   </div>
 
   <div id="drive-connected" style="display: none">
-    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; color: #4ade80">
+    <div id="drive-connected-ok" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; color: #4ade80">
       <i class="fas fa-check-circle"></i>
       <span id="drive-email-display">מחובר ל-Drive</span>
+    </div>
+
+    {# גוגל דחה את החיבור השמור (needs_reconnect ב-/api/drive/status): הגיבויים מושהים עד חיבור מחדש #}
+    <div id="drive-reconnect-warning" class="drive-reconnect-warning" role="alert" style="display: none">
+      <i class="fas fa-exclamation-triangle"></i>
+      <span>החיבור ל-Google Drive פג, והגיבויים האוטומטיים מושהים עד שתתחבר מחדש.</span>
+      <button class="btn btn-primary" onclick="window.location.href='/api/drive/auth'">
+        <i class="fab fa-google-drive"></i>
+        חבר מחדש
+      </button>
     </div>
 
     <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end">
@@ -1886,6 +1896,22 @@
       text-align: center;
       padding: 1.5rem;
       opacity: 0.7;
+    }
+    /* "החיבור ל-Drive פג" — טוקני הסכנה של base.html, בלי צבע קשיח (docs/webapp/theming_and_css.rst) */
+    .drive-reconnect-warning {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      padding: 0.75rem 1rem;
+      background: var(--danger-bg);
+      border: 1px solid var(--danger-border);
+      border-radius: 10px;
+      color: var(--text-primary);
+    }
+    .drive-reconnect-warning > i {
+      color: var(--danger);
     }
   </style>
 
@@ -3622,6 +3648,12 @@ async function loadDriveStatus() {
       const emailEl = document.getElementById('drive-email-display');
       if (emailEl && data.email) emailEl.textContent = `מחובר: ${data.email}`;
 
+      // חיבור שגוגל דחה: "מחובר" בירוק היה מטעה — מציגים את הבקשה להתחבר מחדש במקומו
+      const okLine = document.getElementById('drive-connected-ok');
+      const reconnectWarning = document.getElementById('drive-reconnect-warning');
+      if (okLine) okLine.style.display = data.needs_reconnect ? 'none' : 'flex';
+      if (reconnectWarning) reconnectWarning.style.display = data.needs_reconnect ? 'flex' : 'none';
+
       const select = document.getElementById('drive-schedule-select');
       if (select && data.schedule) select.value = data.schedule;
 
@@ -3709,10 +3741,15 @@ async function driveBackupNow() {
           return;
         }
         if (statusData.manual_backup_status === 'error') {
+          const needsReconnect = statusData.manual_backup_error === 'auth_required';
           if (msg) {
             msg.style.display = 'block';
-            msg.innerHTML = '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> הגיבוי נכשל</span>';
+            msg.innerHTML = needsReconnect
+              ? '<span style="color: var(--danger)"><i class="fas fa-exclamation-circle"></i> נדרש להתחבר מחדש ל-Google Drive</span>'
+              : '<span style="color: #f87171"><i class="fas fa-exclamation-circle"></i> הגיבוי נכשל</span>';
           }
+          // הסימון "נדרש להתחבר מחדש" נכתב בשרת — טוענים את הסטטוס כדי שהאזהרה והכפתור יופיעו
+          if (needsReconnect) loadDriveStatus();
           btn.disabled = false;
           btn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> גבה עכשיו ל-Drive';
           return;

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -55,10 +54,6 @@ _OAUTH_STATE_TTL = timedelta(minutes=10)
 # docs:drive-oauth-state:end
 
 _REJECTED_EVENT = "webapp_drive_callback_rejected"
-
-# קוד שגיאה של OAuth לפי RFC 6749 (סעיפים 4.1.2.1 ו-5.2) הוא מילה באותיות קטנות עם קו תחתון.
-# הארוך שמוגדר שם, ``unsupported_response_type``, באורך 25 תווים; התקרה היא פי 2 ממנו.
-_OAUTH_ERROR_CODE_RE = re.compile(r"[a-z_]{1,50}")
 
 
 def _require_auth(f):
@@ -124,18 +119,6 @@ def _consume_oauth_state(db, user_id: int, state: str) -> bool:
     return doc is not None
 
 
-def _oauth_error_code(value: Any) -> Optional[str]:
-    """קוד שגיאה שהגיע מגוגל, מוכן לרישום: הקוד עצמו אם הוא בצורה של קוד OAuth, ``"unrecognized"`` אחרת.
-
-    הערך הגיע מבחוץ, ולכן הוא לא נרשם כמו שהוא אם הוא ארוך, מכיל תווים אחרים או אינו מחרוזת — הוא מסורב, לא מקוצץ ולא מנוקה (בניגוד ל-``resilience.sanitize_label``, שמנקה ערך שאנחנו יצרנו).
-    """
-    if value is None:
-        return None
-    if isinstance(value, str) and _OAUTH_ERROR_CODE_RE.fullmatch(value):
-        return value
-    return "unrecognized"
-
-
 def _reject(
     reason: str,
     *,
@@ -146,7 +129,7 @@ def _reject(
 ) -> None:
     """רושם דחייה של חזרה מגוגל.
 
-    רשימת השדות סגורה בכוונה, ורק עם מה שבטוח לרישום: מזהה המשתמש, קוד שגיאה של גוגל אחרי ``_oauth_error_code``, סטטוס HTTP ושם של סוג חריגה. אין פרמטר שדרכו אפשר להעביר state, code, טוקן או גוף תשובה. שדה בלי ערך לא נכנס לאירוע.
+    רשימת השדות סגורה בכוונה, ורק עם מה שבטוח לרישום: מזהה המשתמש, קוד שגיאה של גוגל אחרי ``oauth_error_code`` (``services/google_drive_service.py``), סטטוס HTTP ושם של סוג חריגה. אין פרמטר שדרכו אפשר להעביר state, code, טוקן או גוף תשובה. שדה בלי ערך לא נכנס לאירוע.
 
     המטען נבנה כאן עם מפתחות קבועים, כי ``emit_event`` מקבל גם פרמטרים משלו (``event``, ``severity``) — ``tests/test_event_alert_dispatch.py`` אוסר להעביר אליו ב-``**`` מטען שאי אפשר לקרוא את המפתחות שלו בנקודת הקריאה.
     """
@@ -230,6 +213,7 @@ def drive_callback():
     user_id = int(session["user_id"])
 
     import requests as req
+    from services.google_drive_service import oauth_error_code, save_tokens
 
     # CSRF check — מול ה-state ששמור בשרת, לשימוש אחד
     state = request.args.get("state", "")
@@ -249,7 +233,7 @@ def drive_callback():
 
     error = request.args.get("error")
     if error:
-        _reject("google_error", user_id=user_id, google_error=_oauth_error_code(error))
+        _reject("google_error", user_id=user_id, google_error=oauth_error_code(error))
         return _settings_redirect(f"drive_error={_url_encode(error)}")
 
     code = request.args.get("code")
@@ -273,7 +257,7 @@ def drive_callback():
         tokens = resp.json()
     except req.exceptions.JSONDecodeError:
         tokens = None
-    google_error = _oauth_error_code(tokens.get("error")) if isinstance(tokens, dict) else None
+    google_error = oauth_error_code(tokens.get("error")) if isinstance(tokens, dict) else None
     if resp.status_code >= 400:
         _reject("token_exchange_failed", user_id=user_id, http_status=resp.status_code, google_error=google_error)
         return _settings_redirect(f"drive_error={_url_encode('token_exchange')}")
@@ -293,11 +277,14 @@ def drive_callback():
         "expires_in": tokens.get("expires_in", 3600),
         "scope": tokens.get("scope", GOOGLE_OAUTH_SCOPES),
     }
-    from services.google_drive_service import save_tokens
     # save_tokens אינו זורק בכשל מסד — הוא מחזיר False (Repository.save_drive_tokens), ולכן נבדק הערך
     if not save_tokens(user_id, token_data, owner=DRIVE_OWNER):
         _reject("save_failed", user_id=user_id)
         return _settings_redirect(f"drive_error={_url_encode('save_failed')}")
+
+    # חיבור חדש מבטל את "נדרש להתחבר מחדש" ומחזיר לפעולה תזמון שהושהה בגללו
+    from webapp.backup_scheduler import resume_drive_schedule_after_reconnect
+    resume_drive_schedule_after_reconnect(db, user_id)
 
     # Get user email for display
     email = _fetch_google_email(req, access_token)
@@ -319,7 +306,10 @@ def drive_callback():
 @drive_auth_bp.route("/api/drive/status")
 @_require_auth
 def drive_status():
-    """מחזיר סטטוס חיבור Drive — של הוובאפ בלבד."""
+    """מחזיר סטטוס חיבור Drive — של הוובאפ בלבד.
+
+    ``needs_reconnect`` אומר שגוגל דחה את החיבור השמור (הסימון ``auth_required_at``, שכותב ``webapp/backup_scheduler.py``): הטוקנים עדיין במסד, ולכן ``connected`` אמת, אבל הגיבויים לא יעלו עד שמתחברים מחדש. הוא נבדק רק כשיש חיבור.
+    """
     user_id = int(session["user_id"])
     db = _get_db()
 
@@ -333,6 +323,7 @@ def drive_status():
     return jsonify({
         "ok": True,
         "connected": connected,
+        "needs_reconnect": bool(connected and prefs.get("auth_required_at")),
         "email": prefs.get("drive_email"),
         "schedule": prefs.get("schedule_key"),
         "last_backup_at": prefs.get("last_backup_at"),
@@ -348,12 +339,15 @@ def drive_disconnect():
     db = _get_db()
 
     # הטוקנים נמחקים והתזמון כבה באותה כתיבה (``prefs`` של delete_drive_tokens), כך שכשל לא יכול להשאיר
-    # "תזמון בלי חיבור" שהמתזמן ינסה להריץ שוב ושוב.
+    # "תזמון בלי חיבור" שהמתזמן ינסה להריץ שוב ושוב. גם הסימון auth_required_at נמחק: הוא מתאר את החיבור שנמחק.
+    # התזמון הכבוי נכתב דרך user_schedule_values, כמו כל כתיבה של תזמון על ידי המשתמש — ולכן גם מונה הכשלים מתאפס.
     # delete_drive_tokens אינו זורק בכשל מסד — הוא מחזיר False, ולכן נבדק הערך
+    from webapp.backup_scheduler import user_schedule_values
+
     disconnected = db.delete_drive_tokens(
         user_id,
         owner=DRIVE_OWNER,
-        prefs={"schedule_key": "off", "schedule_next_at": None, "drive_email": None},
+        prefs={**user_schedule_values("off"), "drive_email": None, "auth_required_at": None},
     )
     if not disconnected:
         return jsonify({"ok": False, "error": "שגיאה בניתוק Drive"}), 500

@@ -565,8 +565,32 @@ _DRIVE_EVENT_SOURCES = (
 )
 
 
-def _reason_constants(call):
-    return {kw.value.value for kw in call.keywords if kw.arg == "reason" and isinstance(kw.value, ast.Constant)}
+def _module_str_constants(path):
+    """``NAME = "..."`` ברמת המודול — כדי שסיבה שמועברת כקבוע (``reason=FAILURE_UPLOAD``) תיקרא כמו מחרוזת שנכתבה במקום."""
+    tree = ast.parse((REPO_ROOT / path).read_text(encoding="utf-8"))
+    out = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            out[node.targets[0].id] = node.value.value
+    return out
+
+
+def _reason_constants(call, constants):
+    out = set()
+    for kw in call.keywords:
+        if kw.arg != "reason":
+            continue
+        if isinstance(kw.value, ast.Constant):
+            out.add(kw.value.value)
+        elif isinstance(kw.value, ast.Name) and kw.value.id in constants:
+            out.add(constants[kw.value.id])
+    return out
 
 
 def test_the_events_catalog_lists_every_drive_event_the_code_emits():
@@ -575,16 +599,17 @@ def test_the_events_catalog_lists_every_drive_event_the_code_emits():
     names = {da._REJECTED_EVENT}
     reasons = set()
     for path in _DRIVE_EVENT_SOURCES:
+        constants = _module_str_constants(path)
         for call in _calls(path, "emit_event"):
             name = _first_str_arg(call)
             if name and "drive" in name:
                 names.add(name)
-                reasons |= _reason_constants(call)
+                reasons |= _reason_constants(call, constants)
         # עוטף שמקבל את הסיבה ומעביר אותה ל-emit_event
         for call in _calls(path, "_emit_drive_backup_failed"):
-            reasons |= _reason_constants(call)
+            reasons |= _reason_constants(call, constants)
     assert {"drive_handler_ready", "webapp_drive_backup_failed"} <= names, "לא נמצאו אירועי Drive של הבוט ושל הוובאפ — הסריקה התיישנה"
-    assert {"upload_failed", "exception"} <= reasons, "הסיבות של webapp_drive_backup_failed לא נמצאו — הסריקה התיישנה"
+    assert {"upload_failed", "exception", "auth_required", "connection_failed"} <= reasons, "הסיבות של webapp_drive_backup_failed לא נמצאו — הסריקה התיישנה"
 
     catalog = _catalog()
     missing = sorted(n for n in names | reasons if f"``{n}``" not in catalog)

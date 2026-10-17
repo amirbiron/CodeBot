@@ -414,7 +414,7 @@ def test_the_webapp_scheduler_runs_only_webapp_schedules(dbm, monkeypatch):
     bot_before = _bot_snapshot(dbm)
 
     ran = []
-    monkeypatch.setattr(bs, "_perform_drive_backup", lambda uid: ran.append(uid) or True)
+    monkeypatch.setattr(bs, "_perform_drive_backup", lambda uid: ran.append(uid) or bs.DriveBackupOutcome(True))
 
     bs._scan_drive_backups(dbm, datetime.now(timezone.utc).isoformat())
 
@@ -432,10 +432,14 @@ def test_a_scheduled_webapp_backup_uploads_with_the_webapp_connection(dbm, monke
     uploads = []
     monkeypatch.setattr(pbs.PersonalBackupService, "export_user_data", lambda self, uid: io.BytesIO(b"PK-zip"))
     monkeypatch.setattr(gds, "upload_bytes", lambda uid, filename, data, folder_id=None, sub_path=None, *, owner: uploads.append(owner) or "fid")
+    checked = []
+    monkeypatch.setattr(gds, "check_connection", lambda uid, *, owner: checked.append(owner) or gds.ConnectionCheck(gds.CONNECTION_OK))
     monkeypatch.setitem(__import__("sys").modules, "database", SimpleNamespace(db=dbm))
     bot_before = _bot_snapshot(dbm)
 
-    assert bs._perform_drive_backup(USER_ID) is True
+    assert bs._perform_drive_backup(USER_ID) == bs.DriveBackupOutcome(True)
+
+    assert checked == [drive_owner.WEBAPP]
 
     assert uploads == [drive_owner.WEBAPP]
     assert dbm.get_drive_prefs(USER_ID, owner=drive_owner.WEBAPP)["last_backup_at"]
@@ -452,6 +456,7 @@ def test_a_webapp_drive_backup_that_was_not_uploaded_is_sent_as_an_event(dbm, mo
     events = []
     monkeypatch.setattr(bs, "emit_event", lambda event, severity="info", **fields: events.append((event, severity, fields)))
     monkeypatch.setattr(pbs.PersonalBackupService, "export_user_data", lambda self, uid: io.BytesIO(b"PK-zip"))
+    monkeypatch.setattr(gds, "check_connection", lambda uid, *, owner: gds.ConnectionCheck(gds.CONNECTION_OK))
     monkeypatch.setitem(__import__("sys").modules, "database", SimpleNamespace(db=dbm))
     if failure == "upload_failed":
         monkeypatch.setattr(gds, "upload_bytes", lambda uid, filename, data, folder_id=None, sub_path=None, *, owner: None)
@@ -463,7 +468,7 @@ def test_a_webapp_drive_backup_that_was_not_uploaded_is_sent_as_an_event(dbm, mo
         monkeypatch.setattr(gds, "upload_bytes", _network_down)
         expected = {"user_id": USER_ID, "reason": "exception", "error_type": "ConnectionError"}
 
-    assert bs._perform_drive_backup(USER_ID) is False
+    assert bs._perform_drive_backup(USER_ID) == bs.DriveBackupOutcome(False, failure)
 
     assert events == [("webapp_drive_backup_failed", "warn", expected)]
 
