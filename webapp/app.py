@@ -220,6 +220,8 @@ from file_dates import (  # noqa: E402
     file_was_edited,
     version_created_at,
 )
+# הגרסה האחרונה של קובץ — מודול שורש טהור, אותו כלל שהגיבוי האישי בוחר בו. ראו file_versions.py
+from file_versions import LATEST_VERSION_SORT_BY  # noqa: E402
 # גיל התיאור — מודול שורש טהור, אותו כלל בדיוק שמסלול השמירה של הבוט
 # ושל ה-MCP מריץ. ראו file_description.py, ובפרט למה הוא כאן ולא ב-
 # ``database.repository``: ייבוא משם ברמת המודול מפיל את ``import
@@ -479,7 +481,7 @@ def _latest_version_per_file_stages(
     stages.append({'$project': dict(LIST_EXCLUDE_HEAVY_PROJECTION)})
     group: Dict[str, Any] = {
         '_id': '$file_name',
-        'latest': {'$top': {'sortBy': {'version': -1, '_id': -1}, 'output': '$$ROOT'}},
+        'latest': {'$top': {'sortBy': dict(LATEST_VERSION_SORT_BY), 'output': '$$ROOT'}},
     }
     if favorites_only:
         # ``$max`` מתעלם מ-null כל עוד יש ערך אחר, ובוליאני משווה לפי סדר

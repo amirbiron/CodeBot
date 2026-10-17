@@ -136,8 +136,13 @@ class PersonalBackupService:
         return buffer
 
     def _export_regular_files(self, zf: zipfile.ZipFile, user_id: int) -> List[Dict]:
-        """מייצא את כל קבצי הקוד הרגילים — תוכן + מטאדאטה."""
-        meta_list = []
+        """מייצא את כל קבצי הקוד — הגרסה האחרונה של כל קובץ, תוכן + מטאדאטה.
+
+        המסמכים מגיעים מ-``iter_latest_active_snippets`` אחד-אחד, וכל קובץ נכתב ל-ZIP לפני שהבא נקרא: בזיכרון נשאר ה-ZIP הדחוס ורשימת המטא-דאטה, ולא כל הקוד של המשתמש בבת אחת. בלי מיון במסד ובלי תקרת כמות — ראו שם.
+
+        **ערוץ הכשל: זריקה.** כשל בשליפה או בכתיבה ל-ZIP עולה ל-``export_user_data`` ומשם לקורא, שמדווח כשל: ההורדה מחזירה שגיאה, והגיבוי המתוזמן נרשם כנכשל. עד כאן כשל בשליפה החזיר רשימה ריקה, וגיבוי בלי אף קובץ הועלה ל-Drive כהצלחה.
+        """
+        meta_list: List[Dict[str, Any]] = []
         projection = {
             "_id": 0,
             "file_name": 1,
@@ -152,82 +157,10 @@ class PersonalBackupService:
             "created_at": 1,
             "updated_at": 1,
         }
-        try:
-            # קריטי לביצועים + נכונות:
-            # - במקום N+1 (get_user_files ואז get_file לכל קובץ)
-            # - וגם כדי לא להסתמך על cache (get_user_files cached ל-120s)
-            # נבצע aggregate ישירות על הקולקשן כדי לקבל את הגרסה האחרונה לכל file_name *כולל code* בשאילתה אחת.
-            files = None
-            try:
-                collection = getattr(self.db, "collection", None)
-            except Exception:
-                collection = None
-
-            # הגנה מול MagicMock בטסטים: getattr על MagicMock "ממציא" attributes,
-            # ולכן נוודא שהשדה collection באמת הוגדר על האובייקט (ולא נוצר דינמית).
-            has_explicit_collection_attr = False
-            try:
-                db_dict = getattr(self.db, "__dict__", None)
-                has_explicit_collection_attr = isinstance(db_dict, dict) and ("collection" in db_dict)
-            except Exception:
-                has_explicit_collection_attr = False
-
-            if has_explicit_collection_attr and collection is not None and hasattr(collection, "aggregate"):
-                pipeline = [
-                    {"$match": {"user_id": int(user_id), "is_active": True}},
-                    {"$sort": {"file_name": 1, "version": -1}},
-                    {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-                    {"$replaceRoot": {"newRoot": "$latest"}},
-                    # סדר יציב לדטרמיניזם (לא חובה, אבל נוח לדיבאג)
-                    {"$sort": {"file_name": 1}},
-                    {"$project": dict(projection)},
-                    {"$limit": 10000},
-                ]
-                try:
-                    files = list(collection.aggregate(pipeline, allowDiskUse=True))
-                except TypeError:
-                    # תאימות למוקים/סטאבים שלא תומכים ב-allowDiskUse
-                    files = list(collection.aggregate(pipeline))
-
-            if files is None:
-                # fallback למצב שבו אין גישה ישירה לקולקשן (למשל בטסטים עם MagicMock)
-                files = self.db.get_user_files(user_id, limit=10000, projection=projection)
-        except Exception as e:
-            logger.error(f"שגיאה בשליפת קבצים לייצוא: {e}")
-            return meta_list
-
-        for file_doc in files:
-            file_name = file_doc.get("file_name", "")
-            if not file_name:
-                continue
-
-            # תוכן מלא (מגיע כבר מה-query המרוכז); fallback למקרי קצה/סטאבים.
-            code = file_doc.get("code", "")
-            if not isinstance(code, str):
-                try:
-                    code = str(code or "")
-                except Exception:
-                    code = ""
-            if "code" not in file_doc:
-                try:
-                    full_doc = self.db.get_file(user_id, file_name)
-                    if full_doc and isinstance(full_doc, dict):
-                        fallback_code = full_doc.get("code", "")
-                        if isinstance(fallback_code, str):
-                            code = fallback_code
-                except Exception:
-                    pass
-
-            # כתיבת התוכן ל-ZIP
-            safe_name = _safe_zip_path(f"files/{file_name}")
-            try:
-                zf.writestr(safe_name, code)
-            except Exception as e:
-                logger.warning(f"לא ניתן לכתוב {file_name} ל-ZIP: {e}")
-                continue
-
-            # מטאדאטה (ללא התוכן עצמו)
-            meta = {
+        for file_doc in self.db.iter_latest_active_snippets(int(user_id), projection=projection):
+            file_name = file_doc["file_name"]
+            zf.writestr(_safe_zip_path(f"files/{file_name}"), _text_field(file_doc, "code", file_name))
+            meta_list.append({
                 "file_name": file_name,
                 "programming_language": file_doc.get("programming_language", ""),
                 "description": file_doc.get("description", ""),
@@ -238,43 +171,34 @@ class PersonalBackupService:
                 "version": file_doc.get("version", 1),
                 "created_at": _dt_to_str(file_doc.get("created_at")),
                 "updated_at": _dt_to_str(file_doc.get("updated_at")),
-            }
-            meta_list.append(meta)
+            })
 
+        # המסד אינו ממיין (מיון של המסמכים המלאים חוסם בזיכרון); את המטא-דאטה, בלי התוכן, ממיינים כאן.
+        meta_list.sort(key=lambda meta: meta["file_name"])
         return meta_list
 
     def _export_large_files(self, zf: zipfile.ZipFile, user_id: int) -> List[Dict]:
-        """מייצא את כל הקבצים הגדולים — תוכן + מטאדאטה."""
-        meta_list = []
-        try:
-            large_files, _ = self.db.get_user_large_files(user_id, page=1, per_page=10000)
-        except Exception as e:
-            logger.error(f"שגיאה בשליפת קבצים גדולים לייצוא: {e}")
-            return meta_list
+        """מייצא את כל הקבצים הגדולים — תוכן + מטאדאטה, באותה זרימה ובאותו ערוץ כשל כמו ``_export_regular_files``.
 
-        for file_doc in large_files:
-            file_name = file_doc.get("file_name", "")
-            if not file_name:
-                continue
-
-            # שליפת תוכן מלא
-            try:
-                full_doc = self.db.get_large_file(user_id, file_name)
-            except Exception:
-                full_doc = None
-
-            content = ""
-            if full_doc and isinstance(full_doc, dict):
-                content = full_doc.get("content", "") or ""
-
-            safe_name = _safe_zip_path(f"large_files/{file_name}")
-            try:
-                zf.writestr(safe_name, content)
-            except Exception as e:
-                logger.warning(f"לא ניתן לכתוב {file_name} ל-ZIP: {e}")
-                continue
-
-            meta = {
+        עד כאן כל קובץ נשלף בשאילתה נפרדת (``get_large_file``), ושליפה שנכשלה החזירה ``None`` — והקובץ נכתב לגיבוי **בלי תוכן**, בגיבוי שדווח כהצלחה.
+        """
+        meta_list: List[Dict[str, Any]] = []
+        projection = {
+            "_id": 0,
+            "file_name": 1,
+            "content": 1,
+            "programming_language": 1,
+            "description": 1,
+            "tags": 1,
+            "file_size": 1,
+            "lines_count": 1,
+            "created_at": 1,
+            "updated_at": 1,
+        }
+        for file_doc in self.db.iter_latest_active_large_files(int(user_id), projection=projection):
+            file_name = file_doc["file_name"]
+            zf.writestr(_safe_zip_path(f"large_files/{file_name}"), _text_field(file_doc, "content", file_name))
+            meta_list.append({
                 "file_name": file_name,
                 "programming_language": file_doc.get("programming_language", ""),
                 "description": file_doc.get("description", ""),
@@ -283,9 +207,9 @@ class PersonalBackupService:
                 "lines_count": file_doc.get("lines_count", 0),
                 "created_at": _dt_to_str(file_doc.get("created_at")),
                 "updated_at": _dt_to_str(file_doc.get("updated_at")),
-            }
-            meta_list.append(meta)
+            })
 
+        meta_list.sort(key=lambda meta: meta["file_name"])
         return meta_list
 
     def _export_collections(self, user_id: int) -> Dict[str, Any]:
@@ -1669,6 +1593,17 @@ def _str_to_dt(value) -> Optional[datetime]:
     except ValueError:
         return None
     return as_utc(parsed)
+
+
+def _text_field(doc: Dict[str, Any], field: str, file_name: str) -> str:
+    """תוכן הקובץ לכתיבה ל-ZIP: מחרוזת, או ריק כשהשדה חסר. כל טיפוס אחר זורק.
+
+    אותה מדיניות של ``_to_json``: רשימה סגורה, כדי לזהות נתון פגום בזמן הייצוא ולא לייצר גיבוי שקט אבל שבור. עד כאן ערך שאינו מחרוזת עבר ``str()``, וקובץ שנשמר כ-``bytes`` היה נכתב לגיבוי כטקסט ``b'...'``. ב-17.10.2026 כל ``code`` פעיל ב-``code_snippets`` וכל ``content`` פעיל ב-``large_files`` היו מחרוזות, כך שזו רשת ביטחון ולא מקרה חי.
+    """
+    value = doc.get(field, "")
+    if not isinstance(value, str):
+        raise TypeError(f"{field} of {file_name!r} is {type(value).__name__}, not str")
+    return value
 
 
 def _safe_zip_path(path: str) -> str:
