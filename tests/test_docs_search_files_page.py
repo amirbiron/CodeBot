@@ -30,6 +30,7 @@ DOCS_ASSETS = (
     "js/utils/safe-highlight.js",
     "js/md-anchors.js",
     "js/md-mark-plugin.js",
+    "js/md-math-plugin.js",
     "js/live-preview.js",
     "js/markdown-deps.js",
     "css/markdown-preview.css",
