@@ -3,7 +3,7 @@ import hashlib
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Protocol, runtime_checkable, Callable, TypeVar, cast
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, Protocol, runtime_checkable, Callable, TypeVar, cast
 
 # יצירת טיפוס ObjectId שמתאים גם לריצה ללא חבילת bson
 try:
@@ -55,6 +55,8 @@ from .manager import (
 )
 # תאריכי קובץ — מודול שורש טהור, ראו file_dates.py
 from file_dates import VERSION_CREATED_AT_FIELD, inherited_created_at
+# הגרסה האחרונה של קובץ — מודול שורש טהור, אותו כלל שרשימת הקבצים בוובאפ בוחרת בו. ראו file_versions.py
+from file_versions import LATEST_VERSION_SORT_BY
 # גיל התיאור ותקרת האורך שלו — מודול שורש טהור, ראו file_description.py
 from file_description import (
     DESCRIPTION_SET_AT_VERSION_FIELD,
@@ -1579,6 +1581,95 @@ class Repository:
                     if name:
                         out[name] = doc
         return out
+
+    def iter_latest_active_snippets(
+        self,
+        user_id: int,
+        *,
+        projection: Dict[str, Any],
+        chunk_size: int = 250,
+    ) -> Iterator[Dict]:
+        """הגרסה האחרונה של כל קובץ קוד של המשתמש, **עם התוכן**, מסמך אחר מסמך — לייצוא (הגיבוי האישי).
+
+        "האחרונה" לפי ``LATEST_VERSION_SORT_BY`` (``file_versions.py``), הכלל של רשימת הקבצים בוובאפ: הגיבוי שומר את הגרסה שהמשתמש רואה. שובר השוויון אינו תיאורטי — ב-17.10.2026 היה בפרודקשן קובץ עם חמש גרסאות פעילות באותו ``version``. הצינור הקודם של הגיבוי לקח ``$first`` אחרי מיון לפי ``version`` בלבד, ובקובץ כזה יכול היה לגבות גרסה אחרת מזו שברשימה.
+
+        **שני שלבים, ובכוונה** — ראו ``_iter_latest_by_name``.
+
+        **מה זה מחליף.** הצינור הקודם מיין בסופו את המסמכים **המלאים**, עם הקוד, לפי ``file_name``. מיון כזה חוסם בזיכרון, ובאשכול Flex תקרת המיון היא 33,554,432 בתים ו-``allowDiskUse`` לא חל (ראו ``_latest_version_per_file_stages`` ב-``webapp/app.py``, ו-``BY-STACK/mongodb.md`` דפוס 5 ב-amir-bug-patterns). נמדד ב-``explain`` על האשכול, ב-17.10.2026: 20,885,063 בתים במיון למשתמש הראשי (``totalDataSizeSortedBytesEstimate``), כ-62% מהתקרה. מעבר לה הצינור נכשל בשגיאה 292, והגיבוי היה חוזר ריק.
+        """
+        return self._iter_latest_by_name(
+            self.manager.collection,
+            user_id,
+            sort_by=LATEST_VERSION_SORT_BY,
+            projection=projection,
+            chunk_size=chunk_size,
+        )
+
+    def iter_latest_active_large_files(
+        self,
+        user_id: int,
+        *,
+        projection: Dict[str, Any],
+        chunk_size: int = 250,
+    ) -> Iterator[Dict]:
+        """כל קובץ גדול פעיל של המשתמש, **עם התוכן**, מסמך אחר מסמך — לייצוא (הגיבוי האישי).
+
+        ב-``large_files`` אין גרסאות: ``save_large_file`` מכבה את המסמך הקודם ואז מכניס חדש. אבל זה קורה בקוד ולא במסד — אין אינדקס ייחודי שמונע שני מסמכים פעילים באותו שם, ושתי שמירות מקבילות יכולות להשאיר שניים (``bugbot-rules/single-active-invariant-in-code.md``). לכן גם כאן בוחרים אחד לכל שם, במפורש: ה-``_id`` הגבוה, כלומר ההכנסה האחרונה. ב-17.10.2026 לא היה בפרודקשן אף שם עם שני מסמכים פעילים.
+
+        **מה זה מחליף.** ``get_user_large_files`` ואחריו ``get_large_file`` לכל קובץ: שאילתה לכל קובץ, ושתי הפונקציות מחזירות ריק בכשל — כך שקובץ שהשליפה שלו נכשלה נכתב לגיבוי בלי תוכן, והגיבוי דווח כהצלחה.
+        """
+        return self._iter_latest_by_name(
+            self.manager.large_files_collection,
+            user_id,
+            sort_by={"_id": -1},
+            projection=projection,
+            chunk_size=chunk_size,
+        )
+
+    @staticmethod
+    def _iter_latest_by_name(
+        collection: Any,
+        user_id: int,
+        *,
+        sort_by: Dict[str, int],
+        projection: Dict[str, Any],
+        chunk_size: int,
+    ) -> Iterator[Dict]:
+        """מסמך פעיל אחד לכל ``file_name`` — הראשון לפי ``sort_by`` — עם ``projection``, בלי להחזיק את כולם בזיכרון.
+
+        **שלב א — מי.** צינור שבוחר לכל ``file_name`` את ה-``_id`` של המסמך הראשון לפי ``sort_by``. ההיטלה צמודה ל-``$match`` ומשאירה רק את ``file_name`` ואת שדות ``sort_by``, ו-``$top`` שומר לכל שם מזהה אחד בלבד. ``$group`` הוא שלב חוסם עם תקרה של 100MB (תיעוד ``$group``, סעיף Memory Restrictions), אבל מה שהוא מחזיק כאן הוא שם ומזהה לכל קובץ, ולא תוכן. נמדד ב-``explain`` על האשכול, ב-17.10.2026, למשתמש הראשי: 836 קבצים מתוך 1,325 גרסאות פעילות, 19ms, בלי ``usedDisk``. המחיר: השרת קורא את **כל** הגרסאות הפעילות (``docBytesRead`` 66,994,668), כי ``_id`` אינו באינדקס — אותו מחיר שצינור רשימת הקבצים בוובאפ (``_latest_version_per_file_stages``) משלם. הצינור הקודם קרא דרך ``DISTINCT_SCAN`` רק את הגרסה האחרונה של כל קובץ (20,644,101 בתים), אבל ``$first`` אחרי מיון לפי ``version`` לבד אינו יכול לשבור שוויון לפי ``_id``: הוספת ``_id`` למיון מבטלת את הקיפול, כי הוא אינו באינדקס, ומחזירה מיון חוסם על המסמכים המלאים.
+
+        **שלב ב — מה.** המסמכים עצמם, ב-``find`` לפי ``_id`` במנות של ``chunk_size``, ומוחזרים אחד-אחד. הזיכרון בצד שלנו חסום בגודל מנת הסמן — עד 101 מסמכים במנה הראשונה, ו-16MiB לכל מנה (תיעוד MongoDB, Cursor Batches) — ולא בגודל כל הקוד של המשתמש. ``chunk_size`` מגביל רק את אורך רשימת ה-``$in``, כמו ב-``get_latest_versions_by_names``.
+
+        ``user_id`` ו-``is_active`` נבדקים שוב בשלב ב: מזהה מהשלב הראשון לא יחזיר מסמך של משתמש אחר, ומסמך שנמחק בין השלבים פשוט לא יחזור. גרסה שנשמרה בין השלבים לא תיכנס — התמונה היא של רגע שלב א. מסמך בלי ``file_name`` (מחרוזת לא ריקה) אינו מוחזר: אין שם לשחזר אותו אליו, וגם הייצוא הקודם דילג עליו. הסדר: לפי ``file_name`` בין המנות; בתוך מנה הוא אינו מובטח.
+
+        **ערוץ הכשל: זריקה, בזמן האיטרציה.** זו פונקציית generator, ולכן שום שאילתה לא רצה עד הבקשה הראשונה, וחריגת מסד עולה מתוך הלולאה של הקורא. ייצוא שנכשל באמצע אסור שיחזור כרשימה קצרה — גיבוי חסר שנראה שלם הוא בדיוק מה שהייצוא הקודם החזיר כשהשאילתה שלו נכשלה.
+        """
+        keep: Dict[str, int] = {"file_name": 1}
+        keep.update({field: 1 for field in sort_by if field != "_id"})
+        heads = collection.aggregate(
+            [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$project": keep},
+                {"$group": {
+                    "_id": "$file_name",
+                    "latest_id": {"$top": {"sortBy": dict(sort_by), "output": "$_id"}},
+                }},
+            ],
+            allowDiskUse=True,
+        )
+        latest = sorted(
+            (head["_id"], head["latest_id"])
+            for head in heads
+            if isinstance(head.get("_id"), str) and head["_id"] and head.get("latest_id") is not None
+        )
+        ids = [doc_id for _name, doc_id in latest]
+        step = max(1, int(chunk_size))
+        for start in range(0, len(ids), step):
+            yield from collection.find(
+                {"_id": {"$in": ids[start:start + step]}, "user_id": user_id, "is_active": True},
+                dict(projection),
+            )
 
     def search_code(self, user_id: int, query: str, programming_language: Optional[str] = None, tags: Optional[List[str]] = None, limit: int = 20) -> List[Dict]:
         """חיפוש בקבצים השמורים. מחזיר ``[]`` בכשל, כמו תמיד.

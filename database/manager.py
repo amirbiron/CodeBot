@@ -5,7 +5,7 @@ import threading
 import time
 from types import SimpleNamespace
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple, Protocol
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Protocol
 
 from bson import ObjectId
 
@@ -3072,6 +3072,24 @@ class DatabaseManager:
     ) -> Dict[str, Dict]:
         return self._get_repo().get_latest_versions_by_names(
             user_id, file_names, projection=projection, chunk_size=chunk_size)
+
+    def iter_latest_active_snippets(
+        self,
+        user_id: int,
+        *,
+        projection: Dict[str, Any],
+        chunk_size: int = 250,
+    ) -> Iterator[Dict]:
+        return self._get_repo().iter_latest_active_snippets(user_id, projection=projection, chunk_size=chunk_size)
+
+    def iter_latest_active_large_files(
+        self,
+        user_id: int,
+        *,
+        projection: Dict[str, Any],
+        chunk_size: int = 250,
+    ) -> Iterator[Dict]:
+        return self._get_repo().iter_latest_active_large_files(user_id, projection=projection, chunk_size=chunk_size)
 
     def get_user_file_names(self, user_id: int, limit: int = 1000) -> List[str]:
         """עטיפה נוחה לשמות הקבצים הייחודיים של המשתמש (גרסה אחרונה לכל קובץ).

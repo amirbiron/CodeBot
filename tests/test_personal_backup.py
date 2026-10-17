@@ -80,40 +80,47 @@ class _BoardsColl:
         return [str(d.get("name") or "") for d in self.inserted]
 
 
+def _serve_export(db, files=(), large_files=()):
+    """מה שהייצוא קורא מהמסד: ``iter_latest_active_snippets`` ו-``iter_latest_active_large_files``.
+
+    ``side_effect`` ולא ``return_value``: כל קריאה מקבלת איטרטור חדש, כמו ה-generator האמיתי. ובלי ההגדרה הזו ``MagicMock`` מחזיר אובייקט שהאיטרציה עליו ריקה — גיבוי בלי אף קובץ, שעובר בשקט.
+    """
+    db.iter_latest_active_snippets.side_effect = lambda user_id, **_kw: iter([dict(d) for d in files])
+    db.iter_latest_active_large_files.side_effect = lambda user_id, **_kw: iter([dict(d) for d in large_files])
+
+
+HELLO_PY = {
+    "file_name": "hello.py",
+    "code": "print('hello')",
+    "programming_language": "python",
+    "description": "Hello world",
+    "tags": ["python", "demo"],
+    "is_favorite": True,
+    "is_pinned": False,
+    "pin_order": 0,
+    "version": 1,
+    "created_at": None,
+    "updated_at": None,
+}
+
+
 @pytest.fixture
 def mock_db():
     """יוצר DatabaseManager מדומה עם נתוני דוגמה."""
     db = MagicMock()
 
-    # קבצים רגילים
-    db.get_user_files.return_value = [
-        {
-            "file_name": "hello.py",
-            "code": "print('hello')",
-            "programming_language": "python",
-            "description": "Hello world",
-            "tags": ["python", "demo"],
-            "is_favorite": True,
-            "is_pinned": False,
-            "pin_order": 0,
-            "version": 1,
-            "created_at": None,
-            "updated_at": None,
-        }
-    ]
+    # מה שהייצוא קורא: קובץ רגיל אחד, בלי קבצים גדולים
+    _serve_export(db, files=[HELLO_PY])
     db.get_file.return_value = {
         "_id": "abc123",
         "code": "print('hello')",
         "file_name": "hello.py",
     }
 
-    # קבצים גדולים
-    db.get_user_large_files.return_value = ([], 0)
-
     # Drive prefs
     db.get_drive_prefs.return_value = {}
 
-    # Large file
+    # השחזור שואל אם הקובץ הגדול כבר קיים
     db.get_large_file.return_value = None
 
     # DB object (for direct collection access)
@@ -138,6 +145,14 @@ def backup_service(mock_db):
     from services.personal_backup_service import PersonalBackupService
 
     return PersonalBackupService(mock_db)
+
+
+def _large(name, content):
+    return {
+        "file_name": name, "content": content, "programming_language": "text",
+        "description": "", "tags": [], "file_size": len(content), "lines_count": 1,
+        "created_at": None, "updated_at": None,
+    }
 
 
 class TestExport:
@@ -175,43 +190,87 @@ class TestExport:
             assert regular[0]["file_name"] == "hello.py"
             assert regular[0]["is_favorite"] is True
 
-    def test_export_does_not_call_get_file_per_file(self, backup_service, mock_db):
-        """ביצועים: export לא אמור לעשות N+1 (get_file לכל קובץ)."""
-        _ = backup_service.export_user_data(user_id=12345)
+    def test_export_does_not_fetch_file_by_file(self, backup_service, mock_db):
+        """ביצועים: אין שליפה לכל קובץ (N+1) — לא לקבצים רגילים ולא לקבצים גדולים."""
+        _serve_export(mock_db, files=[HELLO_PY], large_files=[_large("big.txt", "x")])
+        backup_service.export_user_data(user_id=12345)
         assert mock_db.get_file.call_count == 0
+        assert mock_db.get_large_file.call_count == 0
 
-    def test_export_prefers_uncached_collection_aggregate_over_get_user_files(self, mock_db):
-        """נכונות: ייצוא גיבוי צריך לעקוף cache של get_user_files ולהשתמש ב-aggregate ישיר כשאפשר."""
-        from services.personal_backup_service import PersonalBackupService
+    def test_export_reads_through_the_streaming_readers_and_not_the_cached_lists(self, backup_service, mock_db):
+        """נכונות: ``get_user_files`` עובר דרך קאש של 120 שניות ונחתך ב-``limit``; ``get_user_large_files`` מחזיר ריק בכשל. הייצוא לא נוגע באף אחד מהם."""
+        backup_service.export_user_data(user_id=12345)
+        assert mock_db.get_user_files.call_count == 0
+        assert mock_db.get_user_large_files.call_count == 0
+        assert mock_db.iter_latest_active_snippets.call_args.args == (12345,)
+        assert mock_db.iter_latest_active_large_files.call_args.args == (12345,)
 
-        # Arrange: emulate DatabaseManager.collection.aggregate path
-        mock_db.collection = MagicMock()
-        mock_db.collection.aggregate.return_value = [
-            {
-                "file_name": "hello.py",
-                "code": "print('fresh')",
-                "programming_language": "python",
-                "description": "Hello world",
-                "tags": ["python", "demo"],
-                "is_favorite": True,
-                "is_pinned": False,
-                "pin_order": 0,
-                "version": 1,
-                "created_at": None,
-                "updated_at": None,
-            }
+    def test_each_file_is_written_before_the_next_one_is_read(self, backup_service, mock_db, monkeypatch):
+        """הזרימה עצמה: הקורא לא מחזיק את כל הקוד ברשימה. ייצוא שקורא את הכול ואז כותב ייתן כאן ``read, read, read, write, write, write``."""
+        events = []
+
+        def _files():
+            for name in ("a.py", "b.py", "c.py"):
+                events.append(("read", name))
+                yield dict(HELLO_PY, file_name=name)
+
+        mock_db.iter_latest_active_snippets.side_effect = lambda user_id, **_kw: _files()
+        real_writestr = zipfile.ZipFile.writestr
+
+        def _writestr(zf, name, data, *args, **kwargs):
+            if str(name).startswith("files/"):
+                events.append(("write", str(name)[len("files/"):]))
+            return real_writestr(zf, name, data, *args, **kwargs)
+
+        monkeypatch.setattr(zipfile.ZipFile, "writestr", _writestr)
+        backup_service.export_user_data(user_id=12345)
+
+        assert events == [
+            ("read", "a.py"), ("write", "a.py"),
+            ("read", "b.py"), ("write", "b.py"),
+            ("read", "c.py"), ("write", "c.py"),
         ]
 
-        svc = PersonalBackupService(mock_db)
-
-        # Act
-        buffer = svc.export_user_data(user_id=12345)
-
-        # Assert: we didn't call cached get_user_files at all
-        assert mock_db.get_user_files.call_count == 0
+    def test_the_metadata_is_sorted_by_file_name(self, backup_service, mock_db):
+        """המסד כבר לא ממיין (מיון של המסמכים המלאים חוסם בזיכרון), ולכן הסדר נקבע כאן."""
+        _serve_export(
+            mock_db,
+            files=[dict(HELLO_PY, file_name=n) for n in ("c.py", "a.py", "b.py")],
+            large_files=[_large(n, "x") for n in ("z.txt", "y.txt")],
+        )
+        buffer = backup_service.export_user_data(user_id=12345)
         with zipfile.ZipFile(buffer, "r") as zf:
-            content = zf.read("files/hello.py").decode("utf-8")
-            assert content == "print('fresh')"
+            meta = json.loads(zf.read("metadata/files.json"))
+        assert [m["file_name"] for m in meta["regular_files"]] == ["a.py", "b.py", "c.py"]
+        assert [m["file_name"] for m in meta["large_files"]] == ["y.txt", "z.txt"]
+
+    @pytest.mark.parametrize("reader", ["iter_latest_active_snippets", "iter_latest_active_large_files"])
+    def test_a_database_failure_mid_export_fails_the_whole_export(self, backup_service, mock_db, reader):
+        """עד כאן כשל בשליפה החזיר רשימה ריקה, וגיבוי בלי הקבצים הועלה ל-Drive כהצלחה. כאן הכשל קורה **אחרי** קובץ ראשון — ייצוא שבולע אותו היה מחזיר ZIP חלקי."""
+        from pymongo.errors import AutoReconnect
+
+        def _breaks_after_one(user_id, **_kw):
+            yield dict(HELLO_PY) if reader == "iter_latest_active_snippets" else _large("big.txt", "x")
+            raise AutoReconnect("primary stepped down")
+
+        getattr(mock_db, reader).side_effect = _breaks_after_one
+        with pytest.raises(AutoReconnect):
+            backup_service.export_user_data(user_id=12345)
+
+    @pytest.mark.parametrize("value", [None, b"print('hello')", 7])
+    def test_content_that_is_not_text_fails_the_export(self, backup_service, mock_db, value):
+        """עד כאן ערך שאינו מחרוזת עבר ``str()``: ``bytes`` נכתב לגיבוי כטקסט ``b'...'``, ו-``None`` כקובץ ריק."""
+        _serve_export(mock_db, files=[dict(HELLO_PY, code=value)])
+        with pytest.raises(TypeError):
+            backup_service.export_user_data(user_id=12345)
+
+    def test_a_missing_content_field_is_an_empty_file(self, backup_service, mock_db):
+        doc = dict(HELLO_PY)
+        del doc["code"]
+        _serve_export(mock_db, files=[doc])
+        buffer = backup_service.export_user_data(user_id=12345)
+        with zipfile.ZipFile(buffer, "r") as zf:
+            assert zf.read("files/hello.py") == b""
 
     def test_export_includes_anchor_bookmark_fields(self, backup_service, mock_db):
         """ייצוא סימניות צריך לכלול שדות anchor_* ו-line_text_preview."""
@@ -850,19 +909,21 @@ class TestExportRestoreRoundTrip:
     @pytest.fixture
     def seeded_db(self, mock_db):
         """מזין למסד המדומה נתונים עם תאריכים היסטוריים, לכל ארבע הישויות."""
-        mock_db.get_user_files.return_value = [{
-            "file_name": "hello.py", "code": "print('hello')",
-            "programming_language": "python", "description": "", "tags": [],
-            "is_favorite": False, "is_pinned": False, "pin_order": 0, "version": 3,
-            "created_at": RT_CREATED, "updated_at": RT_UPDATED,
-        }]
-        mock_db.get_user_large_files.return_value = ([{
-            "file_name": "big.txt", "content": "x\n" * 10,
-            "programming_language": "text", "description": "", "tags": [],
-            "file_size": 20, "lines_count": 10,
-            "created_at": RT_CREATED, "updated_at": RT_UPDATED,
-        }], 1)
-        mock_db.get_large_file.return_value = {"file_name": "big.txt", "content": "x\n" * 10}
+        _serve_export(
+            mock_db,
+            files=[{
+                "file_name": "hello.py", "code": "print('hello')",
+                "programming_language": "python", "description": "", "tags": [],
+                "is_favorite": False, "is_pinned": False, "pin_order": 0, "version": 3,
+                "created_at": RT_CREATED, "updated_at": RT_UPDATED,
+            }],
+            large_files=[{
+                "file_name": "big.txt", "content": "x\n" * 10,
+                "programming_language": "text", "description": "", "tags": [],
+                "file_size": 20, "lines_count": 10,
+                "created_at": RT_CREATED, "updated_at": RT_UPDATED,
+            }],
+        )
         mock_db.db.file_bookmarks.find.return_value = [{
             "user_id": 12345, "file_name": "hello.py", "file_path": "hello.py",
             "line_number": 1, "line_text_preview": "print('hello')", "note": "",
