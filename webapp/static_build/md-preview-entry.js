@@ -8,8 +8,8 @@ import markdownItTocDoneRight from 'markdown-it-toc-done-right';
 import markdownItContainer from 'markdown-it-container';
 import markdownItAdmonition from 'markdown-it-admonition';
 import hljs from 'highlight.js/lib/common';
-// KaTeX: load JS and CSS; CSS will be bundled separately
-import renderMathInElement from 'katex/contrib/auto-render';
+// KaTeX: md-math-plugin.js calls katex.renderToString while markdown-it renders; CSS is bundled separately
+import katex from 'katex';
 // Mermaid
 import mermaid from 'mermaid';
 
@@ -24,6 +24,6 @@ if (typeof window !== 'undefined') {
   window.markdownitContainer = markdownItContainer;
   window.markdownitAdmonition = markdownItAdmonition;
   window.hljs = hljs;
-  window.renderMathInElement = renderMathInElement;
+  window.katex = katex;
   window.mermaid = mermaid;
 }
