@@ -72,7 +72,7 @@ Google Drive Service
 - ``CONNECTION_TRANSIENT`` — ``TransportError`` (תקלת רשת), או ``RefreshError`` ש-google-auth סימן ``retryable``.
 - ``CONNECTION_UNKNOWN`` — כל ``RefreshError`` אחר, למשל ``invalid_client`` (תקלת הגדרות, שחיבור מחדש לא יתקן), וגם אין טוקנים כלל: ``get_drive_tokens`` מחזיר ``None`` גם בלי חיבור וגם בכשל מסד, ותקלת מסד חולפת אסור שתבקש מהמשתמש להתחבר מחדש.
 
-חריגה שאינה של google-auth עולה הלאה ולא מסווגת. בהצלחה הטוקן החדש נשמר, ו-``get_drive_service`` שאחרי הבדיקה בונה שירות מטוקן טרי.
+חריגה שאינה של google-auth עולה הלאה ולא מסווגת. בהצלחה הטוקן החדש נשמר (``_save_refreshed_credentials``), ו-``get_drive_service`` שאחרי הבדיקה בונה שירות מטוקן טרי. אבל השמירה יכולה להיכשל: ``save_tokens`` מחזיר ``False`` ולא זורק, והכשל רק נרשם בשורת ``drive_refresh_not_saved``. הבדיקה עדיין מחזירה ``CONNECTION_OK``, כי החיבור חי, ו-``get_drive_service`` טוען אז מהמסד את הטוקן שהיה שם לפני הבדיקה, ולא את הטוקן הטרי.
 
 **מה הוובאפ עושה עם התשובה.** ב-``CONNECTION_AUTH_REQUIRED`` נכתב ``auth_required_at`` בהעדפות של הוובאפ, ו-``/api/drive/status`` מחזיר ``needs_reconnect`` — מסך ההגדרות מציג אז "החיבור ל-Google Drive פג" עם כפתור חיבור מחדש במקום "מחובר". בגיבוי מתוזמן גם ``schedule_next_at`` מתרוקן, והסורק מדלג על המשתמש (``_pause_drive_schedule``), במקום לנסות שוב בכל סריקה. ההשהיה כותבת את הסימון באותה כתיבה (או דורשת שהוא כבר שם), ולכן אין תזמון מושהה ש-``needs_reconnect`` שלו כבוי. חיבור מחדש (``/api/drive/callback``) מוחק את הסימון ומחזיר את התזמון לפעולה (``resume_drive_schedule_after_reconnect``), וגם בדיקה שעברה מוחקת אותו. האירועים: ``webapp_drive_backup_failed`` ב-:ref:`drive-events`.
 

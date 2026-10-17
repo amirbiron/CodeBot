@@ -234,7 +234,7 @@ def clear_drive_auth_required(db, user_id: int) -> None:
 def resume_drive_schedule_after_reconnect(db, user_id: int) -> None:
     """אחרי חיבור מחדש בוובאפ (``webapp/drive_auth.py``): מחזיר לפעולה תזמון שהושהה, ומוחק את הסימון.
 
-    תזמון מושהה (``_pause_drive_schedule``) הוא ``schedule_key`` תקף עם ``schedule_next_at`` ריק — צירוף שרק ההשהיה כותבת: ``/api/drive/schedule`` כותב מועד לכל תזמון תקף, וניתוק וכיבוי כותבים ``off``. המועד החדש הוא עכשיו, כי הגיבוי שלא רץ כבר באיחור, והוא רץ בסריקה הבאה. תזמון שסריקה מחזיקה ברגע זה נושא סנטינל ולא ``None``, ולכן אינו נדרס. כשל מסד נרשם ולא עולה: החיבור עצמו כבר נשמר.
+    תזמון מושהה (``_pause_drive_schedule``) הוא ``schedule_key`` תקף עם ``schedule_next_at`` ריק — צירוף שרק ההשהיה כותבת: ``/api/drive/schedule`` כותב מועד לכל תזמון תקף, וניתוק וכיבוי כותבים ``off``. המועד החדש הוא עכשיו, כי הגיבוי שלא רץ כבר באיחור, והוא רץ בסריקה הבאה. תזמון שסריקה מחזיקה ברגע זה נושא סנטינל ולא ``None``, ולכן אינו נדרס — וגם לא יושהה אחרי החיבור הזה: ההשהיה מותנית בטוקנים שהסריקה תפסה (``_pause_drive_schedule``). כשל מסד נרשם ולא עולה, כי החיבור עצמו כבר נשמר; אז גם הסימון לא נמחק, כדי שתזמון שנשאר מושהה לא ייראה "מחובר".
     """
     prefs_field = drive_fields(DRIVE_OWNER).prefs
     try:
@@ -247,25 +247,29 @@ def resume_drive_schedule_after_reconnect(db, user_id: int) -> None:
             {"$set": {f"{prefs_field}.schedule_next_at": _now_utc().isoformat()}},
         )
     except PyMongoError:
+        # הסימון נשאר: בלעדיו תזמון שנשאר מושהה היה נראה "מחובר", ושום דבר לא היה מחזיר אותו. כך המסך ממשיך לבקש חיבור מחדש
         logger.exception("Failed to resume Drive schedule after reconnect for user %s", user_id)
+        return
     clear_drive_auth_required(db, user_id)
 
 
-def _pause_drive_schedule(db, user_id: int, held_sentinel: str) -> bool:
+def _pause_drive_schedule(db, user_id: int, held_sentinel: str, held_tokens_obtained_at: Optional[str]) -> bool:
     """משהה את התזמון של משתמש שגוגל דחה את החיבור שלו: ``schedule_next_at`` ריק, ולכן מסנן התפיסה (``_drive_claim_filter``, ``$ne: None``) מדלג עליו עד ש-``resume_drive_schedule_after_reconnect`` מחזיר אותו.
 
     זה המצב הסופי שחסר עד כאן: גיבוי כזה נוסה שוב בכל סריקה, בלי סוף, וכל ניסיון בנה ZIP מלא. הכתיבה מותנית בסנטינל שהסריקה הזו כתבה בתפיסה (``held_sentinel``) — אם המשתמש שינה את התזמון בזמן שהבדיקה רצה, הערך שלו נשאר, והוא ייבדק במועד שלו בקריאה אחת לגוגל, בלי ZIP.
 
     **אין השהיה בלי סימון.** תזמון מושהה רץ שוב רק אחרי חיבור מחדש, והמשתמש יודע שצריך להתחבר מחדש רק מהסימון (``_AUTH_REQUIRED_KEY``, שהממשק קורא כ-``needs_reconnect``). לכן כל כתיבה של השהיה גם כותבת את הסימון, או דורשת בפילטר שהוא כבר שם — בלי להישען על ``_record_drive_auth_required``, שכשל בו רק נרשם. הכתיבה הראשונה משהה ומסמנת כשאין סימון; השנייה, כשיש, משהה ומשאירה את זמן הדחייה הראשונה. כל אחת מהן אטומית עם התנאי שלה, ולכן גם חיבור מחדש שמוחק את הסימון בין שתיהן לא משאיר השהיה בלי סימון: אז שתיהן לא תואמות, הסנטינל נשאר עד שהוא פג (``SENTINEL_TTL_SECONDS``), והבדיקה הבאה רואה חיבור חי.
 
+    **ההשהיה היא על הטוקנים שנדחו.** שתי הכתיבות מותנות גם ב-``obtained_at`` של הטוקנים, כפי שהסריקה ראתה אותו בתפיסה (``held_tokens_obtained_at``) — ``save_drive_tokens`` כותב ערך חדש בכל שמירה. חיבור מחדש בזמן הבדיקה שומר טוקנים חדשים, ``resume_drive_schedule_after_reconnect`` לא מוצא תזמון מושהה (הסנטינל עוד שם) ומוחק את הסימון; בלי התנאי הזה ההשהיה הייתה נכתבת אחריו, עם סימון חדש, על חיבור שכבר חי — והמשתמש היה מתבקש להתחבר שוב. עם התנאי שתי הכתיבות לא תואמות, הסנטינל פג, והבדיקה הבאה רצה עם הטוקנים החדשים.
+
     מחזיר ``True`` כשההשהיה נכתבה; שגיאת מסד עולה כ-``PyMongoError``.
     """
-    prefs_field = drive_fields(DRIVE_OWNER).prefs
-    next_at_field = f"{prefs_field}.schedule_next_at"
+    fields = drive_fields(DRIVE_OWNER)
+    next_at_field = f"{fields.prefs}.schedule_next_at"
     marker_field = _auth_required_field()
     # המונה מתאפס: אחרי חיבור מחדש מתחילים לספור כשלים מאפס
-    paused = {next_at_field: None, f"{prefs_field}.{_FAILURES_KEY}": 0}
-    held = {"user_id": int(user_id), next_at_field: held_sentinel}
+    paused = {next_at_field: None, f"{fields.prefs}.{_FAILURES_KEY}": 0}
+    held = {"user_id": int(user_id), next_at_field: held_sentinel, f"{fields.tokens}.obtained_at": held_tokens_obtained_at}
     unmarked = db.db.users.update_one(
         {**held, marker_field: None},
         {"$set": {**paused, marker_field: _now_utc().isoformat()}},
@@ -452,6 +456,7 @@ def _scan_drive_backups(db, now_iso: str):
     הוובאפ כותב את התזמון שלו כ-``schedule_key`` (``/api/drive/schedule``) ומחזיר אותו מאותו שדה (``/api/drive/status``), ולכן התפיסה מסננת עליו בלבד, כמו בגיבויי הדיסק. הצורות האחרות (``schedule``, ``schedule.key`` וכו') הן של הבוט — הבוט כותב ``schedule`` (``handlers/drive/menu.py``) ומריץ את התזמון שלו בעצמו — וסריקה שתפסה גם אותן היא שגרמה לשני המתזמנים להריץ את אותו תזמון. העדפות ששוחזרו מגיבוי אישי (``PersonalBackupService._restore_drive_prefs``) נכתבות כמו שהן; תזמון שנשמר שם בצורה של הבוט לא ירוץ כאן, וגם ``/api/drive/status`` לא יחזיר אותו.
     """
     prefs_field = drive_fields(DRIVE_OWNER).prefs
+    tokens_field = drive_fields(DRIVE_OWNER).tokens
     next_at_field = f"{prefs_field}.schedule_next_at"
     processed = 0
     while processed < MAX_BACKUPS_PER_SCAN:
@@ -462,7 +467,8 @@ def _scan_drive_backups(db, now_iso: str):
             _drive_claim_filter(now_iso),
             # מזיז את next_at קדימה כ-placeholder עד שנחשב את הזמן האמיתי
             {"$set": {next_at_field: sentinel}},
-            projection={"user_id": 1, prefs_field: 1},
+            # obtained_at של הטוקנים (לא הטוקנים עצמם): ההשהיה מותנית בו, כדי שחיבור מחדש בזמן הבדיקה לא יושהה
+            projection={"user_id": 1, prefs_field: 1, f"{tokens_field}.obtained_at": 1},
         )
         if not claimed:
             break  # אין עוד משתמשים שצריכים גיבוי Drive
@@ -483,7 +489,8 @@ def _scan_drive_backups(db, now_iso: str):
         try:
             if outcome.failure == FAILURE_AUTH_REQUIRED:
                 # מצב סופי: לא מנסים שוב עם חיבור שגוגל דחה — ממתינים לחיבור מחדש
-                if not _pause_drive_schedule(db, uid, sentinel):
+                tokens_obtained_at = (claimed.get(tokens_field) or {}).get("obtained_at")
+                if not _pause_drive_schedule(db, uid, sentinel, tokens_obtained_at):
                     logger.info("Drive schedule of user %s changed during the backup; left as the user set it", uid)
                 continue
             if outcome.ok:
