@@ -595,12 +595,12 @@ def test_the_board_surface_still_grows_with_its_notes(admin_live_server, chromiu
 
 
 # -------------------------------------------------------------------------
-# 🆔 — העתקת מזהה הפתק, בפתק ריפו
+# כפתור המזהה — העתקת מזהה הפתק, בפתק ריפו
 # -------------------------------------------------------------------------
 
 
 def test_the_id_button_copies_the_id_of_a_repo_note(admin_live_server, chromium_executable):
-    """בעמוד ``/repo/`` האמיתי ובנגיעה: 🆔 מעתיק את מזהה הפתק, ורק אותו.
+    """בעמוד ``/repo/`` האמיתי ובנגיעה: כפתור המזהה מעתיק את מזהה הפתק, ורק אותו.
 
     אותו כפתור של הלוח והקובץ (``tests/test_sticky_note_copy_id_browser.py``), כאן במשטח של
     דפדפן הריפו — ``127.0.0.1`` הוא הקשר מאובטח, ולכן ההעתקה עוברת ב-``navigator.clipboard``,
@@ -617,5 +617,5 @@ def test_the_id_button_copies_the_id_of_a_repo_note(admin_live_server, chromium_
         settle(page)
         tap_on(page, touch, f'.sticky-note[data-note-id="{nid}"] .sticky-note-copy-id')
         poll(page, f"""() => document.querySelector('.sticky-note[data-note-id="{nid}"] .sticky-note-copy-id')
-                                 .classList.contains('is-copy-done')""", "חיווי ההצלחה על 🆔")
+                                 .classList.contains('is-copy-done')""", "חיווי ההצלחה על כפתור המזהה")
         assert page.evaluate("() => navigator.clipboard.readText()") == nid

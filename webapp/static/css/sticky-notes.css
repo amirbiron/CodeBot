@@ -549,7 +549,7 @@
 .sticky-note-btn[disabled] { color: var(--note-ink-muted); cursor: default; }
 
 /* חיווי העתקה. כשל חייב להיראות, לא רק הצלחה. אותו חיווי לשני כפתורי
-   ההעתקה — התוכן (⧉, בשורת הפעולות) ומזהה הפתק (🆔, בשורת השם) — כי שניהם
+   ההעתקה — התוכן (⧉, בשורת הפעולות) ומזהה הפתק (בשורת השם) — כי שניהם
    עוברים ב-``_flashCopyResult``. */
 .sticky-note-copy.is-copy-done,
 .sticky-note-copy-id.is-copy-done { background: #d1fae5; color: #065f46; border-radius: 6px; }
@@ -1010,7 +1010,7 @@
   border-radius: 5px;
 }
 
-/* מזהה הפתק (🆔) — בשורת השם, ליד החיפוש, ובאותו גודל. החיווי של ההעתקה
+/* מזהה הפתק — בשורת השם, ליד החיפוש, ובאותו גודל. החיווי של ההעתקה
    במלוא העוצמה, ולא בשקיפות של השורה. */
 .sticky-note-copy-id { font-size: 13px; min-width: 18px; padding: 0 2px; opacity: .75; }
 .sticky-note-copy-id:hover,

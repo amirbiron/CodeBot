@@ -43,7 +43,7 @@ class TestNoteResponse(unittest.TestCase):
 
 
 class TestSavedNoteIdRule(unittest.TestCase):
-    """הכפתור 🆔 מעתיק רק מזהה ש-``SAVED_NOTE_ID_RE`` שב-``sticky-notes.js`` מקבל.
+    """כפתור המזהה מעתיק רק מזהה ש-``SAVED_NOTE_ID_RE`` שב-``sticky-notes.js`` מקבל.
 
     הכלל שם הוא עותק, בצד הלקוח, של שתי עובדות על השרת: מה ש-``_as_note_response``
     שולח (``str`` של ה-``_id``), ומה ש-``codekeeper_get_note`` מפענח (``ObjectId(str(note_id))``
