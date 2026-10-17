@@ -323,7 +323,7 @@ import markdownItTocDoneRight from 'markdown-it-toc-done-right';
 import markdownItContainer from 'markdown-it-container';
 import markdownItAdmonition from 'markdown-it-admonition';
 import hljs from 'highlight.js/lib/common';
-import renderMathInElement from 'katex/contrib/auto-render';
+import katex from 'katex';   // ← הנוסחאות: md-math-plugin.js מרנדר איתו בתוך markdown-it
 import mermaid from 'mermaid';
 
 if (typeof window !== 'undefined') {
@@ -336,7 +336,7 @@ if (typeof window !== 'undefined') {
   window.markdownitContainer = markdownItContainer;
   window.markdownitAdmonition = markdownItAdmonition;
   window.hljs = hljs;
-  window.renderMathInElement = renderMathInElement;
+  window.katex = katex;
   window.mermaid = mermaid;
 }
 ```

@@ -158,6 +158,10 @@
       // חוזר null עוד קודם אם ``window.markdownit`` אינו פונקציה, ולכן ``md`` כאן הוא
       // תמיד מופע אמיתי של markdown-it ולא אובייקט גיבוי.
       if (window.MdMarkPlugin) md.use(window.MdMarkPlugin);
+      // נוסחאות: ``$...$`` ו-``$$...$$`` מזוהות בתוך הפענוח ומרונדרות ב-KaTeX (מהבאנדל) משם.
+      // התוסף חי ב-webapp/static/js/md-math-plugin.js, ומשותף עם md_preview.html. קודם
+      // ``renderMathInElement`` רץ ב-``enhance`` על ה-HTML המוכן — ראו את ההסבר בראש התוסף.
+      if (window.MdMathPlugin) md.use(window.MdMathPlugin, { katex: window.katex });
       if (window.markdownitEmoji) {
         md.use(window.markdownitEmoji);
       }
@@ -332,22 +336,6 @@
       });
     }
 
-    function renderMath(root) {
-      if (!root || typeof window === 'undefined' || typeof window.renderMathInElement !== 'function') {
-        return;
-      }
-      try {
-        window.renderMathInElement(root, {
-          delimiters: [
-            { left: '$$', right: '$$', display: true },
-            { left: '$', right: '$', display: false },
-          ],
-        });
-      } catch (err) {
-        console.warn('katex render failed', err);
-      }
-    }
-
     async function renderMermaid(root) {
       if (!root || typeof window === 'undefined' || typeof window.mermaid === 'undefined') {
         return;
@@ -409,7 +397,6 @@
       highlightBlocks(root);
       enhanceTaskLists(root);
       lazyLoadImages(root);
-      renderMath(root);
       await renderMermaid(root);
     }
 

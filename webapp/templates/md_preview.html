@@ -2137,6 +2137,7 @@ input.md-task-checkbox {
 <script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/md-math-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}?v={{ static_version }}"></script>
@@ -2237,8 +2238,6 @@ const CDN = {
   hljs: null,
   hljsCss: BUNDLE.css,
   katexCss: BUNDLE.css,
-  katexJs: null,
-  katexAuto: null,
   mermaid: null
 };
 
@@ -2412,8 +2411,6 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     try { await loadScript(CDN.hljs); } catch(_){}
     // ודא שה-patch של diff נשמר אחרי טעינת hljs
     if (window.SafeHighlight) window.SafeHighlight.patchHighlightAuto();
-    try { await loadScript(CDN.katexJs); } catch(_){}
-    try { await loadScript(CDN.katexAuto); } catch(_){}
     try { await loadScript(CDN.mermaid); } catch(_){}
 
     const md = (window.markdownit ? window.markdownit : (()=>({render:(s)=>s})))({
@@ -2432,6 +2429,10 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     // מגיע מקובץ נפרד שכן נטען, ולכן הצירוף הזה אפשרי, ובלי הבדיקה הוא היה זורק
     // ומחליף תצוגת טקסט גולמי קריא בהודעת שגיאה.
     if (window.MdMarkPlugin && typeof md.use === 'function') md.use(window.MdMarkPlugin);
+    // נוסחאות: ``$...$`` ו-``$$...$$`` מזוהות בתוך הפענוח ומרונדרות ב-KaTeX (מהבאנדל) משם.
+    // התוסף חי ב-webapp/static/js/md-math-plugin.js, ומשותף עם live-preview.js. הבדיקה על
+    // ``md.use`` מאותה סיבה כמו במארקר שמעל.
+    if (window.MdMathPlugin && typeof md.use === 'function') md.use(window.MdMathPlugin, { katex: window.katex });
     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
     // עוגני כותרות – הגדרה יציבה למניעת רגרסיות בין גרסאות התוסף
@@ -2539,6 +2540,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         'fence',
         'code_block',
         'hr',
+        'math_block',
       ];
 
       BLOCK_OPEN_TYPES.forEach(function(type) {
@@ -2986,9 +2988,6 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
 
     // Lazy loading לתמונות
     container.querySelectorAll('img').forEach(img => { img.loading = 'lazy'; });
-
-    // KaTeX אוטו-רנדר (בבטחה; אין html גולמי)
-    try { if (window.renderMathInElement) window.renderMathInElement(container, { delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}] }); } catch(_){ }
 
     // Mermaid: רנדר דיאגרמות בקוד fence ```mermaid
     try {

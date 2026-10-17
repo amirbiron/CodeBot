@@ -62,6 +62,7 @@ GUARDED = (
     "js/live-preview.js",
     "js/md-anchors.js",
     "js/md-mark-plugin.js",
+    "js/md-math-plugin.js",
     "js/utils/safe-highlight.js",
     "js/utils/rtl-code.js",
     "js/admonition-icons.js",

@@ -30390,7 +30390,7 @@
     const {
       DocumentFragment: DocumentFragment2,
       HTMLTemplateElement,
-      Node: Node3,
+      Node: Node2,
       Element: Element3,
       NodeFilter,
       NamedNodeMap = window3.NamedNodeMap || window3.MozNamedAttrMap,
@@ -30791,7 +30791,7 @@
       return element3 instanceof HTMLFormElement && (typeof element3.nodeName !== "string" || typeof element3.textContent !== "string" || typeof element3.removeChild !== "function" || !(element3.attributes instanceof NamedNodeMap) || typeof element3.removeAttribute !== "function" || typeof element3.setAttribute !== "function" || typeof element3.namespaceURI !== "string" || typeof element3.insertBefore !== "function" || typeof element3.hasChildNodes !== "function");
     };
     const _isNode = function _isNode2(value2) {
-      return typeof Node3 === "function" && value2 instanceof Node3;
+      return typeof Node2 === "function" && value2 instanceof Node2;
     };
     function _executeHooks(hooks2, currentNode, data5) {
       arrayForEach(hooks2, (hook2) => {
@@ -31050,7 +31050,7 @@
             throw typeErrorCreate("root node is forbidden and cannot be sanitized in-place");
           }
         }
-      } else if (dirty instanceof Node3) {
+      } else if (dirty instanceof Node2) {
         body = _initDocument("<!---->");
         importedNode = body.ownerDocument.importNode(dirty, true);
         if (importedNode.nodeType === NODE_TYPE.element && importedNode.nodeName === "BODY") {
@@ -38512,12 +38512,12 @@
     } else if (children2 === void 0) {
       children2 = objectChildren;
     }
-    var root3 = new Node2(data5), node2, nodes5 = [root3], child, childs, i4, n4;
+    var root3 = new Node(data5), node2, nodes5 = [root3], child, childs, i4, n4;
     while (node2 = nodes5.pop()) {
       if ((childs = children2(node2.data)) && (n4 = (childs = Array.from(childs)).length)) {
         node2.children = childs;
         for (i4 = n4 - 1; i4 >= 0; --i4) {
-          nodes5.push(child = childs[i4] = new Node2(childs[i4]));
+          nodes5.push(child = childs[i4] = new Node(childs[i4]));
           child.parent = node2;
           child.depth = node2.depth + 1;
         }
@@ -38544,7 +38544,7 @@
       node2.height = height2;
     while ((node2 = node2.parent) && node2.height < ++height2);
   }
-  function Node2(data5) {
+  function Node(data5) {
     this.data = data5;
     this.depth = this.height = 0;
     this.parent = null;
@@ -38564,8 +38564,8 @@
       init_leaves();
       init_links();
       init_iterator2();
-      Node2.prototype = hierarchy.prototype = {
-        constructor: Node2,
+      Node.prototype = hierarchy.prototype = {
+        constructor: Node,
         count: count_default,
         each: each_default2,
         eachAfter: eachAfter_default,
@@ -169284,196 +169284,8 @@ ${prefix}${Math.round(value2 * 100) / 100}${suffix}`;
   var import_common = __toESM(require_common(), 1);
   var common_default = import_common.default;
 
-  // node_modules/katex/dist/contrib/auto-render.mjs
+  // webapp/static_build/md-preview-entry.js
   init_katex();
-  var findEndOfMath = function findEndOfMath2(delimiter4, text5, startIndex) {
-    var index = startIndex;
-    var braceLevel = 0;
-    var delimLength = delimiter4.length;
-    while (index < text5.length) {
-      var character2 = text5[index];
-      if (braceLevel <= 0 && text5.slice(index, index + delimLength) === delimiter4) {
-        return index;
-      } else if (character2 === "\\") {
-        index++;
-      } else if (character2 === "{") {
-        braceLevel++;
-      } else if (character2 === "}") {
-        braceLevel--;
-      }
-      index++;
-    }
-    return -1;
-  };
-  var escapeRegex = function escapeRegex2(string3) {
-    return string3.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-  };
-  var amsRegex = /^\\begin{/;
-  var splitAtDelimiters = function splitAtDelimiters2(text5, delimiters2) {
-    var index;
-    var data5 = [];
-    var regexLeft = new RegExp("(" + delimiters2.map((x6) => escapeRegex(x6.left)).join("|") + ")");
-    while (true) {
-      index = text5.search(regexLeft);
-      if (index === -1) {
-        break;
-      }
-      if (index > 0) {
-        data5.push({
-          type: "text",
-          data: text5.slice(0, index)
-        });
-        text5 = text5.slice(index);
-      }
-      var i4 = delimiters2.findIndex((delim) => text5.startsWith(delim.left));
-      index = findEndOfMath(delimiters2[i4].right, text5, delimiters2[i4].left.length);
-      if (index === -1) {
-        break;
-      }
-      var rawData = text5.slice(0, index + delimiters2[i4].right.length);
-      var math2 = amsRegex.test(rawData) ? rawData : text5.slice(delimiters2[i4].left.length, index);
-      data5.push({
-        type: "math",
-        data: math2,
-        rawData,
-        display: delimiters2[i4].display
-      });
-      text5 = text5.slice(index + delimiters2[i4].right.length);
-    }
-    if (text5 !== "") {
-      data5.push({
-        type: "text",
-        data: text5
-      });
-    }
-    return data5;
-  };
-  var renderMathInText = function renderMathInText2(text5, optionsCopy) {
-    var data5 = splitAtDelimiters(text5, optionsCopy.delimiters);
-    if (data5.length === 1 && data5[0].type === "text") {
-      return null;
-    }
-    var fragment = document.createDocumentFragment();
-    for (var i4 = 0; i4 < data5.length; i4++) {
-      if (data5[i4].type === "text") {
-        fragment.appendChild(document.createTextNode(data5[i4].data));
-      } else {
-        var span = document.createElement("span");
-        var math2 = data5[i4].data;
-        optionsCopy.displayMode = data5[i4].display;
-        try {
-          if (optionsCopy.preProcess) {
-            math2 = optionsCopy.preProcess(math2);
-          }
-          katex.render(math2, span, optionsCopy);
-        } catch (e4) {
-          if (!(e4 instanceof katex.ParseError)) {
-            throw e4;
-          }
-          optionsCopy.errorCallback("KaTeX auto-render: Failed to parse `" + data5[i4].data + "` with ", e4);
-          fragment.appendChild(document.createTextNode(data5[i4].rawData));
-          continue;
-        }
-        fragment.appendChild(span);
-      }
-    }
-    return fragment;
-  };
-  var renderElem = function renderElem2(elem, optionsCopy) {
-    for (var i4 = 0; i4 < elem.childNodes.length; i4++) {
-      var childNode = elem.childNodes[i4];
-      if (childNode.nodeType === 3) {
-        var textContentConcat = childNode.textContent;
-        var sibling = childNode.nextSibling;
-        var nSiblings = 0;
-        while (sibling && sibling.nodeType === Node.TEXT_NODE) {
-          textContentConcat += sibling.textContent;
-          sibling = sibling.nextSibling;
-          nSiblings++;
-        }
-        var frag = renderMathInText(textContentConcat, optionsCopy);
-        if (frag) {
-          for (var j3 = 0; j3 < nSiblings; j3++) {
-            childNode.nextSibling.remove();
-          }
-          i4 += frag.childNodes.length - 1;
-          elem.replaceChild(frag, childNode);
-        } else {
-          i4 += nSiblings;
-        }
-      } else if (childNode.nodeType === 1) {
-        (function() {
-          var className = " " + childNode.className + " ";
-          var shouldRender = optionsCopy.ignoredTags.indexOf(childNode.nodeName.toLowerCase()) === -1 && optionsCopy.ignoredClasses.every((x6) => className.indexOf(" " + x6 + " ") === -1);
-          if (shouldRender) {
-            renderElem2(childNode, optionsCopy);
-          }
-        })();
-      }
-    }
-  };
-  var renderMathInElement = function renderMathInElement2(elem, options2) {
-    if (!elem) {
-      throw new Error("No element provided to render");
-    }
-    var optionsCopy = {};
-    for (var option2 in options2) {
-      if (options2.hasOwnProperty(option2)) {
-        optionsCopy[option2] = options2[option2];
-      }
-    }
-    optionsCopy.delimiters = optionsCopy.delimiters || [
-      {
-        left: "$$",
-        right: "$$",
-        display: true
-      },
-      {
-        left: "\\(",
-        right: "\\)",
-        display: false
-      },
-      // LaTeX uses $…$, but it ruins the display of normal `$` in text:
-      // {left: "$", right: "$", display: false},
-      // $ must come after $$
-      // Render AMS environments even if outside $$…$$ delimiters.
-      {
-        left: "\\begin{equation}",
-        right: "\\end{equation}",
-        display: true
-      },
-      {
-        left: "\\begin{align}",
-        right: "\\end{align}",
-        display: true
-      },
-      {
-        left: "\\begin{alignat}",
-        right: "\\end{alignat}",
-        display: true
-      },
-      {
-        left: "\\begin{gather}",
-        right: "\\end{gather}",
-        display: true
-      },
-      {
-        left: "\\begin{CD}",
-        right: "\\end{CD}",
-        display: true
-      },
-      {
-        left: "\\[",
-        right: "\\]",
-        display: true
-      }
-    ];
-    optionsCopy.ignoredTags = optionsCopy.ignoredTags || ["script", "noscript", "style", "textarea", "pre", "code", "option"];
-    optionsCopy.ignoredClasses = optionsCopy.ignoredClasses || [];
-    optionsCopy.errorCallback = optionsCopy.errorCallback || console.error;
-    optionsCopy.macros = optionsCopy.macros || {};
-    renderElem(elem, optionsCopy);
-  };
 
   // node_modules/mermaid/dist/mermaid.core.mjs
   init_chunk_KS23V3DP();
@@ -171078,7 +170890,7 @@ ${config6.themeCSS}`;
     window.markdownitContainer = container_plugin;
     window.markdownitAdmonition = import_markdown_it_admonition.default;
     window.hljs = common_default;
-    window.renderMathInElement = renderMathInElement;
+    window.katex = katex;
     window.mermaid = mermaid_default;
   }
 })();
