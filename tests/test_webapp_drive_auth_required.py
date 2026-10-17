@@ -493,6 +493,27 @@ def test_disconnecting_clears_the_mark(webapp, dbm):
     assert dbm.web_prefs()["auth_required_at"] is None
 
 
+@pytest.mark.parametrize(
+    "prefs_key, write",
+    [
+        ("webapp_drive_prefs", lambda c: c.post("/api/drive/schedule", json={"schedule": "off"})),
+        ("webapp_drive_prefs", lambda c: c.post("/api/drive/schedule", json={"schedule": "daily"})),
+        ("webapp_drive_prefs", lambda c: c.post("/api/drive/disconnect")),
+        ("disk_backup_prefs", lambda c: c.post("/api/disk-backup/schedule", json={"schedule": "off"})),
+        ("disk_backup_prefs", lambda c: c.post("/api/disk-backup/schedule", json={"schedule": "daily"})),
+    ],
+    ids=["drive-off", "drive-on", "disconnect", "disk-off", "disk-on"],
+)
+def test_writing_a_schedule_starts_the_failure_count_from_zero(webapp, dbm, prefs_key, write):
+    """המונה סופר כשלים רצופים של התזמון הנוכחי. עד כאן כיבוי, שינוי או ניתוק השאירו אותו, ואחרי הפעלה מחדש הכשלים הישנים נספרו — והגיבוי ויתר אחרי פחות מ-``RETRY_MAX_ATTEMPTS`` ניסיונות."""
+    dbm.db.users.update_one({"user_id": USER_ID}, {"$set": {f"{prefs_key}.consecutive_failures": 4}})
+
+    assert write(webapp).get_json()["ok"] is True
+
+    doc = dbm.db.users.find_one({"user_id": USER_ID}) or {}
+    assert (doc.get(prefs_key) or {}).get("consecutive_failures") == 0
+
+
 # --- שומר טקסטואלי על מסך ההגדרות ---
 #
 # ההתנהגות בדפדפן נמדדה ב-Playwright מול הוובאפ האמיתי ומונגו מקומי (תיאור ה-PR): האזהרה מוצגת והשורה הירוקה

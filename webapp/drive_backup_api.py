@@ -88,18 +88,14 @@ def set_drive_schedule():
     if not isinstance(schedule, str) or schedule not in VALID_SCHEDULES:
         return jsonify({"ok": False, "error": "תדירות לא חוקית"}), 400
 
-    from webapp.backup_scheduler import _compute_next_at
-    next_at = _compute_next_at(schedule) if schedule != "off" else None
+    from webapp.backup_scheduler import user_schedule_values
     # הפעלת תזמון דורשת חיבור, ולכן היא נכתבת רק למסמך של משתמש מחובר; כיבוי נכתב תמיד
     query = _connected_user_filter(user_id) if schedule != "off" else {"user_id": user_id}
     try:
-        # $set ישיר על שדות ספציפיים — לא read-modify-write שיכול לדרוס sentinel
+        # $set ישיר על שדות ספציפיים — לא read-modify-write שיכול לדרוס sentinel. מונה הכשלים מתאפס: תזמון חדש מתחיל לספור מאפס
         res = db.db.users.update_one(
             query,
-            {"$set": {
-                f"{_DRIVE_FIELDS.prefs}.schedule_key": schedule,
-                f"{_DRIVE_FIELDS.prefs}.schedule_next_at": next_at,
-            }},
+            {"$set": {f"{_DRIVE_FIELDS.prefs}.{key}": value for key, value in user_schedule_values(schedule).items()}},
         )
     except PyMongoError:
         logger.exception("Error setting Drive schedule")
@@ -206,18 +202,11 @@ def set_disk_schedule():
         return jsonify({"ok": False, "error": "תדירות לא חוקית"}), 400
 
     try:
-        from webapp.backup_scheduler import _compute_next_at
-        update = {
-            "disk_backup_prefs.schedule_key": schedule,
-        }
-        if schedule != "off":
-            update["disk_backup_prefs.schedule_next_at"] = _compute_next_at(schedule)
-        else:
-            update["disk_backup_prefs.schedule_next_at"] = None
-
+        from webapp.backup_scheduler import user_schedule_values
+        # מונה הכשלים מתאפס: תזמון חדש מתחיל לספור מאפס
         db.db.users.update_one(
             {"user_id": int(user_id)},
-            {"$set": update},
+            {"$set": {f"disk_backup_prefs.{key}": value for key, value in user_schedule_values(schedule).items()}},
         )
         emit_event("webapp_disk_schedule_set", user_id=int(user_id), schedule=schedule)
         return jsonify({"ok": True, "schedule": schedule})
