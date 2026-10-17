@@ -169,7 +169,7 @@ Google Drive
   - ``upload_failed`` — ההעלאה לא החזירה מזהה קובץ. הסיבה בשורת הלוג ``drive_call_failed`` של ``services/google_drive_service.py``.
   - ``exception`` — חריגה לא צפויה, עם ``error_type``.
 
-  ברמת ``warn``: כל כשל שאינו ``auth_required`` מנוסה שוב אחרי המתנה שגדלה (``_record_failed_attempt``), עד ``RETRY_MAX_ATTEMPTS`` ניסיונות.
+  ברמת ``warn``: בגיבוי מתוזמן, כשל שאינו ``auth_required`` מנוסה שוב אחרי המתנה שגדלה (``_record_failed_attempt``), עד ``RETRY_MAX_ATTEMPTS`` ניסיונות. ב"גבה עכשיו" אין ניסיון חוזר: התוצאה מוצגת למשתמש (``manual_backup_error`` ב-``/api/drive/backup-status``).
 
 - ``webapp_backup_retries_exhausted`` — גיבוי מתוזמן של הוובאפ נכשל ``attempts`` פעמים ברצף (``RETRY_MAX_ATTEMPTS``), ועבר למועד הרגיל הבא של התזמון במקום לנסות שוב. ``target`` הוא ``drive`` או ``disk``. נשלח פעם אחת לכל רצף כשלים, כשהמונה (``consecutive_failures``) מתאפס.
 
