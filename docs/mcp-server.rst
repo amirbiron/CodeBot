@@ -11,6 +11,8 @@ OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
 **קוד:** ``mcp_server/`` · **תכנון מלא:**
 ``FEATURE_SUGGESTIONS/FEATURE_MCP_CLAUDE_INTEGRATION.md``
 
+**התיעוד של השרת מחולק לשלושה עמודים.** העמוד הזה הוא השער. מה שקורה לקובץ ולפתק במסד נמצא ב-:doc:`עמוד הקבצים והפתקים <mcp-server-state>`, והקריאה, הפרסור והחיפוש בתוכן — ב-:doc:`עמוד הקריאה והחיפוש <mcp-server-retrieval>`. הגעתם לכאן מכתובת ישנה של סעיף שעבר? הוא רשום ב-:ref:`mcp-server-moved-sections`, עם קישור למקום החדש.
+
 מה זה נותן
 -----------
 
@@ -1953,6 +1955,37 @@ Claude Desktop
      - ``edits`` היא רשימה ריקה. אין מה לערוך, ולכן זה סירוב ולא עריכה שהצליחה
    * - ``too_many_edits`` ב-``codekeeper_multi_edit_file``
      - יותר זוגות ממה שקריאה אחת נושאת; ``max`` בתשובה הוא ``MAX_EDIT_PAIRS``. הבאץ' **נדחה ולא נחתך**, ושום זוג לא הוחל. פצלו לכמה קריאות — כל אחת תהיה גרסה משלה
+
+.. _mcp-server-moved-sections:
+
+סעיפים שעברו לעמודים אחרים
+--------------------------
+
+העמוד הזה פוצל לשלושה (:doc:`whats-new`), וחלק מהסעיפים שלו עברו, עם התוויות שלהם, ל-:doc:`עמוד הקבצים והפתקים <mcp-server-state>` ול-:doc:`עמוד הקריאה והחיפוש <mcp-server-retrieval>`. ``:ref:`` לתווית כזו ממשיך להגיע לסעיף שלה, אבל כתובת ישנה מהצורה ``mcp-server.html#<תווית>`` נפתחת עכשיו בראש העמוד הזה, כי התווית כבר אינה בו. אלה כל התוויות שעברו, בסדר אלפביתי, וכל אחת היא קישור למקום שבו היא נמצאת היום. כתובת שבסופה מספר רץ, כמו ``#id12``, אינה תווית, ולכן אינה ברשימה.
+
+- :ref:`mcp-content-sha256 <mcp-content-sha256>`
+- :ref:`mcp-description-age <mcp-description-age>`
+- :ref:`mcp-description-saved <mcp-description-saved>`
+- :ref:`mcp-docs-path-policy <mcp-docs-path-policy>`
+- :ref:`mcp-docs-section <mcp-docs-section>`
+- :ref:`mcp-expected-content-sha256 <mcp-expected-content-sha256>`
+- :ref:`mcp-file-query <mcp-file-query>`
+- :ref:`mcp-file-sections <mcp-file-sections>`
+- :ref:`mcp-file-sections-dialect <mcp-file-sections-dialect>`
+- :ref:`mcp-get-note <mcp-get-note>`
+- :ref:`mcp-line-range <mcp-line-range>`
+- :ref:`mcp-md-known-divergences <mcp-md-known-divergences>`
+- :ref:`mcp-multi-edit <mcp-multi-edit>`
+- :ref:`mcp-note-content-sha256 <mcp-note-content-sha256>`
+- :ref:`mcp-note-threads <mcp-note-threads>`
+- :ref:`mcp-outline <mcp-outline>`
+- :ref:`mcp-push-notifications <mcp-push-notifications>`
+- :ref:`mcp-read-batch <mcp-read-batch>`
+- :ref:`mcp-repo-read-misses <mcp-repo-read-misses>`
+- :ref:`mcp-search-file-pattern <mcp-search-file-pattern>`
+- :ref:`mcp-search-total <mcp-search-total>`
+- :ref:`mcp-tree-stats <mcp-tree-stats>`
+- :ref:`mcp-update-description <mcp-update-description>`
 
 .. _mcp-server-see-also:
 
