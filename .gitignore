@@ -52,6 +52,8 @@ tmp/
 .cursor/
 # Sphinx build output
 docs/_build/
+# Sphinx compiles docs/locales/**/*.po into .mo next to the source on every build
+docs/locales/**/*.mo
 
 # Node (Worker only)
 worker/node_modules/

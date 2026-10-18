@@ -1,0 +1,53 @@
+# תרגום לעברית של המחרוזות של sphinx_rtd_theme שמופיעות באתר.
+# לערכה אין קטלוג עברי, והקטלוג העברי של Sphinx עצמו לא מכיל את המחרוזות שלה.
+# Sphinx טוען את locale_dirs של הפרויקט (ברירת המחדל: locales) לפני הקטלוג שלו,
+# ומקמפל את הקובץ הזה ל-sphinx.mo לידו בכל בנייה (ה-.mo ב-.gitignore).
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: he\n"
+
+msgid "Page navigation"
+msgstr "ניווט בדף"
+
+msgid "Edit on GitHub"
+msgstr "עריכה ב-GitHub"
+
+msgid "View page source"
+msgstr "הצגת מקור הדף"
+
+msgid "Sequential page navigation"
+msgstr "מעבר בין דפים"
+
+msgid "Previous"
+msgstr "הקודם"
+
+msgid "Next"
+msgstr "הבא"
+
+msgid "Footer"
+msgstr "כותרת תחתונה"
+
+msgid "Built with %(sphinx_web)s using a"
+msgstr "נבנה עם %(sphinx_web)s, עם"
+
+msgid "theme"
+msgstr "ערכת עיצוב"
+
+msgid "provided by %(readthedocs_web)s"
+msgstr "של %(readthedocs_web)s"
+
+msgid "Navigation menu"
+msgstr "תפריט ניווט"
+
+msgid "Mobile navigation menu"
+msgstr "תפריט ניווט לנייד"
+
+msgid "Please activate JavaScript to enable the search functionality."
+msgstr "כדי להשתמש בחיפוש יש להפעיל JavaScript."
+
+msgid "Search docs"
+msgstr "חיפוש בתיעוד"
+
+msgid "Logo"
+msgstr "לוגו"
