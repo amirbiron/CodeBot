@@ -1966,7 +1966,7 @@ def test_a_jinja_block_closed_over_by_an_ancestor_is_reported_and_not_dropped():
     למחסנית ה-HTML מהיום הראשון — הוא מדווח את מי שהיה פתוח בפנים עד
     שורת הסגירה — ובמחסנית ה-Jinja זה פשוט היה חסר.
 
-    זה גם סתר את ``docs/mcp-server.rst``, שמבטיח שתגית שלא נסגרה מדווחת
+    זה גם סתר את ``docs/mcp-server-retrieval.rst``, שמבטיח שתגית שלא נסגרה מדווחת
     עד סוף הקובץ. הבטחה שמתקיימת כשאין ``{% endif %}`` כלל, ולא התקיימה
     כשיש.
 
@@ -4295,7 +4295,7 @@ class TestRstLabelTargets:
             assert mapped == expected, f"{path.name}: {mapped} מול {expected}"
 
             # **ושני חצאי ההבחנה, לא רק אחד.** ה-``.. warning::`` ב-
-            # ``docs/mcp-server.rst`` מלמד סוכן לזהות תווית בכך ש-``start``
+            # ``docs/mcp-server-retrieval.rst`` מלמד סוכן לזהות תווית בכך ש-``start``
             # שווה ל-``end`` ושלכותרת יש טווח. החצי הראשון נבדק כאן מאז
             # ומתמיד; החצי השני — שאף כותרת אינה ``start == end`` — הוא מה
             # שהופך את זה למבחן הבחנה, ובלעדיו ההבטחה אינה מוגנת. נמדד על
@@ -4517,48 +4517,41 @@ class TestRstThroughTheToolItself:
         assert out["total"] == 0
         assert out["symbols"] == []
 
-    def test_every_real_file_pages_through_the_tool_within_the_byte_budget(self):
-        """כל קובץ RST בריפו: המפה כולה בתוך התקציב, ומה שחוצה עמוד — עובר בעימוד.
+    def test_the_densest_real_file_fits_the_first_page_and_the_byte_budget(self):
+        """אף קובץ RST בריפו אינו חוצה את עמוד ברירת המחדל של המפה, והמפה כולה בתוך התקציב.
 
-        **עד ``PUT /api/agent/upload`` הטענה כאן הייתה שאף קובץ אינו חוצה את עמוד
-        ברירת המחדל**, כלומר שמסלול העימוד אינו נגיש ב-RST, ושזו התנהגות שצריכה
-        להיות ידועה מראש — עם המדידה "הצפוף בקורפוס הוא 38 סימבולים". המדידה
-        התיישנה בלי שאיש ידע: ``docs/mcp-server.rst`` עמד על 99 לפני שהסעיף על
-        ההעלאות העביר אותו את ``OUTLINE_PER_PAGE_DEFAULT``. ההחלטה, ביודעין: המסלול
-        נגיש, ולכן הוא מה שנבדק — דרך הכלי עצמו. כל עמוד עד ``total`` חוזר מלא ובתוך
-        ``OUTPUT_BYTE_BUDGET``, והעמודים יחד הם המפה כולה, בסדר.
+        **הטענה היא שמסלול העימוד אינו נגיש ב-RST** — וזו התנהגות שצריכה להיות ידועה
+        מראש. יש לה היסטוריה, וההיסטוריה היא הסיבה שהיא חזרה לכאן:
 
-        והבדיקה אינה ריקה: אם אף קובץ לא יחצה עוד את העמוד, הטסט נופל ומבקש
-        להחזיר את הטענה הקודמת, במקום לעבור על מסלול שלא הגיעו אליו.
+        - **#3373:** הטענה נכתבה, עם המדידה "הצפוף בקורפוס הוא 38 סימבולים".
+        - **#3502:** המדידה התיישנה בלי שאיש ידע — ``docs/mcp-server.rst`` עמד כבר על 99,
+          והסעיף על ההעלאות העביר אותו את ``OUTLINE_PER_PAGE_DEFAULT`` (104). הטענה
+          הוחלפה בבדיקה של העימוד עצמו דרך הכלי, על הקובץ שחצה, והעמוד המשיך לגדול
+          עד 118.
+        - **הפיצול של העמוד (2026-10-18):** ``docs/mcp-server.rst`` נעשה שער, ולצידו
+          ``docs/mcp-server-state.rst`` ו-``docs/mcp-server-retrieval.rst``. אף קובץ RST
+          כבר אינו חוצה את העמוד — נמדד באותו יום: הצפוף הוא
+          ``docs/dev/sticky_notes_extending.rst``, עם 70 סימבולים. בדיקת העימוד נשארה
+          בלי קובץ שמגיע אליה, ונפלה כמו שנכתבה ליפול: בהודעה שמבקשת להחזיר את
+          הטענה. וזה מה שנעשה כאן.
+
+        **העימוד עצמו נשאר בדוק**, על קלט שמגיע אליו בכל ריצה: פייתון סינתטי ב-
+        ``test_paging_walks_forward_without_gaps_or_repeats``, וקובץ CSS אמיתי ב-
+        ``test_a_real_css_file_goes_through_the_tool_paginated_and_within_budget``.
+        קובץ RST שיחצה שוב את העמוד מפיל את הטסט הזה בשמו, וההחלטה חוזרת לשולחן:
+        לפצל את הקובץ, או להחזיר לכאן את בדיקת העימוד דרך הכלי.
         """
         import json
 
-        crossed = []
+        worst = 0
         for path in _rst_files():
-            text = path.read_text(encoding="utf-8", errors="replace")
-            whole = _rst(text)
-            size = len(json.dumps(whole["symbols"], ensure_ascii=False).encode())
-            assert size < answer_size.OUTPUT_BYTE_BUDGET, (path.name, size)
-            if whole["total"] <= repo_handlers.OUTLINE_PER_PAGE_DEFAULT:
-                continue
+            out = _rst(path.read_text(encoding="utf-8", errors="replace"))
 
-            crossed.append(path.name)
-            backend = _backend(text)
-            names: list[str] = []
-            page = 1
-            while len(names) < whole["total"]:
-                out = repo_handlers.get_repo_file(
-                    backend, repo="r", path="page.rst", outline=True, page=page
-                )
-                assert out["status"] == "outline" and out["total"] == whole["total"], out
-                assert out["symbols"], f"{path.name}: עמוד {page} ריק לפני סוף המפה"
-                sent = len(json.dumps(out, ensure_ascii=False).encode())
-                assert sent < answer_size.OUTPUT_BYTE_BUDGET, (path.name, page, sent)
-                names += [symbol["name"] for symbol in out["symbols"]]
-                page += 1
-            assert names == [symbol["name"] for symbol in whole["symbols"]], path.name
+            assert out["total"] <= repo_handlers.OUTLINE_PER_PAGE_DEFAULT, (
+                f"{path.name} חוצה את עמוד ברירת המחדל ({out['total']} סימבולים) — "
+                "העימוד נעשה נגיש ב-RST: פצלו את הקובץ, או החזירו לכאן את בדיקת "
+                "העימוד דרך הכלי"
+            )
+            worst = max(worst, len(json.dumps(out["symbols"], ensure_ascii=False).encode()))
 
-        assert crossed, (
-            "אף קובץ RST כבר אינו חוצה את עמוד ברירת המחדל — החזירו את הטענה שהעימוד "
-            "אינו נגיש ב-RST, במקום לבדוק מסלול שלא מגיעים אליו"
-        )
+        assert worst < answer_size.OUTPUT_BYTE_BUDGET, worst

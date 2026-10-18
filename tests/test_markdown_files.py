@@ -76,7 +76,7 @@ def test_the_webapp_holds_no_second_copy_of_the_lists():
 
 
 def test_the_lists_are_the_ones_the_docs_state():
-    """‏``docs/mcp-server.rst`` נוקב בשני השדות, ולכן הערכים מעוגנים כאן.
+    """‏``docs/mcp-server-retrieval.rst`` נוקב בשני השדות, ולכן הערכים מעוגנים כאן.
 
     שינוי מכוון של הכלל (``.mdx``, למשל) נוגע בשלושה מקומות בכוונה: המודול,
     הטסט הזה והתיעוד — כי הוא משנה גם מה הוובאפ מציג וגם אילו קבצים סוכן

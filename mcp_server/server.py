@@ -296,7 +296,7 @@ _RANGE_DOC = (
 #    אאוטליין נפרד, שם הטקסט חוזר להיות תיאור כלי.
 #
 # הסיומות נקובות במפורש ולא רק "Python only": סוכן ששואל אם ``.pyi`` נתמך
-# לא יכול היה לענות מהתיאור, בזמן ש-``docs/mcp-server.rst`` כן מפרט אותן.
+# לא יכול היה לענות מהתיאור, בזמן ש-``docs/mcp-server-retrieval.rst`` כן מפרט אותן.
 # הרשימה נאכפת מול ``outline._SCANNERS`` בטסט, כדי ששפה שתתווסף לטבלה בלי
 # שהתיאור יעודכן לא תהפוך לפיצ'ר שאף לקוח קורא לו.
 #
@@ -566,7 +566,7 @@ _DESCRIPTION_AGE_DOC = (
 # **ב-get_file המשפט קצר במכוון**, כי כל תו בתיאור הכלי מתחרה על התקרה ש-
 # ``_TOOL_DESCRIPTION_MAX_CHARS`` אוכף (``tests/test_mcp_server_build.py``). מה שנשאר
 # הוא מה שסוכן חייב כדי להשוות נכון: מה מגובב (בתים מדויקים, הגרסה כולה), שזה
-# נכון בכל מצב ולא רק לחלק שחזר, ואיך לחשב. ההסבר המלא ב-``docs/mcp-server.rst``
+# נכון בכל מצב ולא רק לחלק שחזר, ואיך לחשב. ההסבר המלא ב-``docs/mcp-server-state.rst``
 # (``mcp-content-sha256``).
 _CONTENT_SHA256_CHECK = 'hashlib.sha256(text.encode("utf-8")).hexdigest()'
 
@@ -596,7 +596,7 @@ _WRITE_SHA256_DOC = (
 # אותו חוזה בכלי הפתקים (``_note_write_answer`` ב-``backend.py``): משפט אחד לכל כלי
 # שכותב גוף של פתק, ומשפט אחד ל-``codekeeper_get_note``. ה-hash הוא של מה שנשמר:
 # בעדכון — מהמסמך שהכתיבה עצמה החזירה; ביצירה — מקריאה חוזרת לפי ה-``_id``, ולכן
-# רק שם יש ``null``. ההסבר המלא ב-``docs/mcp-server.rst`` (``mcp-content-sha256``).
+# רק שם יש ``null``. ההסבר המלא ב-``docs/mcp-server-state.rst`` (``mcp-content-sha256``).
 _NOTE_WRITE_SHA256_DOC = (
     " note.content_sha256 is the SHA-256 hex of the exact UTF-8 bytes of the body as "
     "stored: " + _CONTENT_SHA256_CHECK + ". When the call wrote a body, content_changed "
@@ -860,7 +860,7 @@ def _update_description_param_doc(limit: int) -> str:
     """תיאור ``description`` של ``codekeeper_update_file_description``.
 
     החריג ("accepted at any length") נושא את **הסיבה**, באותן מילים של תיאור הכלי ("says
-    it still fits") ושל ``docs/mcp-server.rst`` ("אישור שהוא עדיין מתאים"): בלעדיה, מי
+    it still fits") ושל ``docs/mcp-server-state.rst`` ("אישור שהוא עדיין מתאים"): בלעדיה, מי
     שקורא רק את הפרמטר רואה כלל וחריג, ומי שקורא רק את הכלי רואה סימון "נבדק" — ורק
     מי שקורא את שניהם מבין שזה אותו מנגנון. "only" לא נכתב כאן בכוונה: שליחה חוזרת
     חותמת גם ``updated_at`` (``update_file_metadata_in``), ולכן היא לא "רק" סימון.
@@ -2619,7 +2619,7 @@ class AdminAwareFastMCP(FastMCP):
         case is rare — the review round that created the tool fits well inside
         both the byte budget and the deadline, measured in production and by
         ``scripts/measure_read_batch.py``; the numbers live in
-        ``docs/mcp-server.rst`` (``codekeeper_read_batch``) — and a refund would
+        ``docs/mcp-server-retrieval.rst`` (``codekeeper_read_batch``) — and a refund would
         be a second mechanism with nothing today to justify it.
 
         **Whatever the body returns passes :meth:`_within_declared_size` last**, on
@@ -3150,7 +3150,7 @@ def build_mcp(
         #
         # מה שנשאר הוא מה שמשנה **בזמן הבחירה**: מה הכלי עושה, מתי לבחור
         # בו על פני האחרים, ומה בלתי הפיך. הפירוט המלא חי ב-
-        # ``docs/mcp-server.rst`` (``mcp-update-description``) — שם יש מקום,
+        # ``docs/mcp-server-state.rst`` (``mcp-update-description``) — שם יש מקום,
         # וכאן כל משפט מתחרה על תשומת הלב של הסוכן.
         #
         # **והתקרה חזרה לכאן, בכוונה (#3489).** בקיצור הקודם גם המשפט על תיאור
@@ -3615,7 +3615,8 @@ def build_mcp(
     # **השער של הפתק הוא של ``codekeeper_get_note``, ומאותו קוד** (``handlers._readable_note``):
     # פתק של משתמש אחר, ופתק ריפו למי שאינו אדמין, עונים ``not_found`` ושום דבר לא נכתב.
     # לכן הכלי אינו ב-``_ADMIN_TOOLS``: משתמש רגיל מגיב על הפתקים שלו. שם הכותב מגיע
-    # מהחיבור (``connected_client_name``) ולא מפרמטר, כדי שסוכן לא יוכל להציג את עצמו כאחר.
+    # מהחיבור (``connected_client_name``) ולא מפרמטר, כדי שהמודל לא יכתוב אותו בקריאה —
+    # וזו עדיין הצהרה של הלקוח, ולא זיהוי מאומת (ה-docstring של ``client_identity``).
     @mcp.tool(
         name="codekeeper_comment_note",
         description=(

@@ -1958,7 +1958,7 @@ async def test_the_ceiling_applies_to_breadcrumb_copies_not_only_the_heading(mon
 
 async def test_two_headings_sharing_a_prefix_over_the_ceiling_are_ambiguous(monkeypatch):
     """כשכמה כותרות חולקות קידומת ארוכה מהתקרה, בקשה לפי הקידומת מחזירה מועמדים —
-    התנהגות חדשה שנולדת מהתקרה עצמה, לא מקלט המשתמש (מתועדת ב-mcp-server.rst).
+    התנהגות חדשה שנולדת מהתקרה עצמה, לא מקלט המשתמש (מתועדת ב-mcp-server-retrieval.rst).
     שני המועמדים נושאים ``line_range`` כדי לקרוא אותם בפועל.
     """
     shared = "ת" * (_CEIL + 200)
@@ -2326,7 +2326,7 @@ def test_both_mode_docs_open_with_the_instruction_to_pin_the_version():
     for doc in (srv._FILE_TOC_DOC, srv._FILE_SECTION_DOC):
         assert doc.startswith(srv._FILE_ID_FOLLOW_UP)
         assert doc.index(instruction) + len(instruction) <= 120
-    page = (Path(__file__).resolve().parent.parent / "docs" / "mcp-server.rst").read_text(
+    page = (Path(__file__).resolve().parent.parent / "docs" / "mcp-server-retrieval.rst").read_text(
         encoding="utf-8")
     assert "``file_id=file.id``" in page
 
@@ -2427,7 +2427,7 @@ _REPEATED_NAME_SURFACES = (
     ("_FILE_SECTION_DOC", "repeated names", "a line_range is read with lines="),
     ("_FILE_TOC_DOC", "when no other heading has that name",
      "lines= reads the line_range each candidate carries"),
-    ("docs/mcp-server.rst", "לעולם אינה נענית בשמה", "שמחזיר בדיוק את טקסט הסעיף"),
+    ("docs/mcp-server-retrieval.rst", "לעולם אינה נענית בשמה", "שמחזיר בדיוק את טקסט הסעיף"),
 )
 
 
@@ -2448,8 +2448,9 @@ def test_every_surface_says_a_repeated_name_never_reaches_its_heading():
         "_SECTION_PARAM_DOC": srv._SECTION_PARAM_DOC,
         "_FILE_SECTION_DOC": srv._FILE_SECTION_DOC,
         "_FILE_TOC_DOC": srv._FILE_TOC_DOC,
-        "docs/mcp-server.rst": (Path(__file__).resolve().parent.parent / "docs" / "mcp-server.rst")
-        .read_text(encoding="utf-8"),
+        "docs/mcp-server-retrieval.rst": (
+            Path(__file__).resolve().parent.parent / "docs" / "mcp-server-retrieval.rst"
+        ).read_text(encoding="utf-8"),
     }
     for name, rule, way in _REPEATED_NAME_SURFACES:
         assert rule in texts[name], f"{name}: חסר הכלל"

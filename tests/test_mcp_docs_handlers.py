@@ -957,8 +957,10 @@ def test_a_section_longer_than_the_ceiling_is_refused_by_name_before_any_matchin
 
 
 def test_the_docs_page_states_the_section_ceiling_the_code_enforces():
-    """המספר ש-``docs/mcp-server.rst`` נוקב בו לתקרה נגזר מהקבוע — בטבלה ובפרוזה.
+    """המספר שהתיעוד נוקב בו לתקרה נגזר מהקבוע — בטבלה ובפרוזה.
 
+    הטבלה היא טבלת הקבועים ב-``docs/mcp-server.rst``, והפרוזה יושבת ב-
+    ``docs/mcp-server-retrieval.rst``.
     קובץ RST אינו יכול לגזור דבר (``prose-restates-code-fact``), ולכן הערך המצופה
     מחושב כאן, באותה צורה שהעמוד כותב (פסיקים באלפים) — כמו בטסטים המקבילים על
     ``MAX_LINES`` ועל ``MAX_BATCH_ITEMS``. הפרוזה נבדקת בכל מקום שבו היא אומרת
@@ -974,7 +976,8 @@ def test_the_docs_page_states_the_section_ceiling_the_code_enforces():
 
     row = lines.index("   * - ``MAX_SECTION_CHARS``")
     assert lines[row + 1].strip() == f"- {expected}"
-    stated = re.findall(r"``section`` ארוך מ-([\d,]+) תווים", page)
+    retrieval = (_ROOT / "docs" / "mcp-server-retrieval.rst").read_text(encoding="utf-8")
+    stated = re.findall(r"``section`` ארוך מ-([\d,]+) תווים", retrieval)
     assert stated, "העמוד אינו נוקב עוד בתקרה בצורה שהטסט קורא"
     assert set(stated) == {expected}
 
@@ -1178,7 +1181,7 @@ def test_the_page_states_the_validation_order_the_code_actually_runs():
     ``_SUGGESTION_RULE_SURFACES`` ב-``tests/test_mcp_server_build.py``,
     ומאותה סיבה.
     """
-    page = (_ROOT / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
+    page = (_ROOT / "docs" / "mcp-server-retrieval.rst").read_text(encoding="utf-8")
     assert "עגינה, אחריה נרמול" in page, (
         "העמוד אינו אומר עוד שהנרמול בא אחרי העגינה ולפני הגבול")
 
