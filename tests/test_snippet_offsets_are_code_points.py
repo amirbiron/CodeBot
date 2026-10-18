@@ -5,21 +5,21 @@ point index, מפורש בתיעוד של מונגו), והקוד הזין או�
 ל**בייטים**. באנגלית שתי היחידות זהות ולכן זה עבר סקירה; בעברית כל אות היא שני
 בייטים, גבול החיתוך נוחת באמצע תו, ומונגו זורקת ומפילה את כל האגרגציה. בחיפוש
 זה הוריד את המערכת לסריקה מלאה בלי אינדקס, ובשיתוף זה החזיר 404 "קובץ לא נמצא"
-על קובץ שקיים.
+על קובץ שקיים. (השיתוף כבר אינו חותך snippet ואינו מריץ אגרגציה — ראו ההערה
+במקום שבו היה המקטע שלו למטה.)
 
 **מה הקובץ הזה בודק, ומה לא.** הוא מקליט את הצינור ש**נשלח בפועל** ל-``aggregate``
-משני אתרי הקריאה, ובודק עליו תכונת יחידות. הוא אינו מריץ את הצינור, ולכן אינו
-יכול להוכיח שמונגו מקבלת אותו ואינו תופס שגיאת off-by-one — לשם כך יש את
-``tests/test_snippet_hebrew_offsets_mongo.py``, שמדלג כשאין מונגו זמין.
+מהחיפוש — בהרצה הראשונה ובפולבאק שלה — ובודק עליו תכונת יחידות. הוא אינו מריץ
+את הצינור, ולכן אינו יכול להוכיח שמונגו מקבלת אותו ואינו תופס שגיאת off-by-one —
+לשם כך יש את ``tests/test_snippet_hebrew_offsets_mongo.py``, שמדלג כשאין מונגו זמין.
 
 מה כן: הקלטה של האובייקט האמיתי שנמסר לדרייבר תופסת תיקון שהוחל על helper שאינו
-מחווט, או רק על אחד משני האתרים — שתי אפשרויות שקריאת קוד המקור הייתה "מאמתת".
+מחווט, או רק על אחת משתי ההרצות — שתי אפשרויות שקריאת קוד המקור הייתה "מאמתת".
 """
 
 from __future__ import annotations
 
 import pytest
-from bson import ObjectId
 
 BYTE_OPS = {"$strLenBytes", "$substrBytes", "$indexOfBytes"}
 CP_OPS = {"$strLenCP", "$substrCP", "$indexOfCP"}
@@ -173,76 +173,9 @@ def test_the_regex_fallback_sends_the_same_corrected_stages(monkeypatch):
         check_pipeline(pipeline)
 
 
-# --------------------------------------------------------------------------
-# מסלול השיתוף
-# --------------------------------------------------------------------------
-
-FILE_ID = "0123456789abcdef01234567"
-USER_ID = 4242
-
-
-class _ShareCodeSnippets:
-    def __init__(self):
-        self.pipelines: list = []
-
-    def find_one(self, *_a, **_k):
-        return {
-            "_id": ObjectId(FILE_ID),
-            "user_id": USER_ID,
-            "file_name": "demo.py",
-            "programming_language": "python",
-            "description": "",
-            "code": "print(1)",
-        }
-
-    def aggregate(self, pipeline):
-        self.pipelines.append(list(pipeline or []))
-        return [{
-            "file_name": "demo.py",
-            "programming_language": "python",
-            "description": "",
-            "file_size": 8,
-            "lines_count": 1,
-            "snippet_preview": "print(1)",
-        }]
-
-
-class _InternalShares:
-    def __init__(self):
-        self.docs: list = []
-
-    def create_index(self, *_a, **_k):
-        return "idx"
-
-    def insert_one(self, doc):
-        self.docs.append(dict(doc))
-        return type("_R", (), {"inserted_id": 1})()
-
-
-class _ShareDB:
-    def __init__(self, snippets):
-        self.code_snippets = snippets
-        self.internal_shares = _InternalShares()
-
-
-def test_the_share_preview_pipeline_measures_text_in_code_points(monkeypatch):
-    import webapp.app as wa
-
-    snippets = _ShareCodeSnippets()
-    monkeypatch.setattr(wa, "get_db", lambda: _ShareDB(snippets), raising=True)
-
-    client = wa.app.test_client()
-    with client.session_transaction() as sess:
-        sess["user_id"] = USER_ID
-        sess["user_data"] = {"id": USER_ID, "first_name": "Test"}
-    resp = client.post(f"/api/share/{FILE_ID}", json={})
-
-    # הראוט כולו עטוף ב-try/except → 500. סטטוס מפורש כדי שסטאב חסר יהיה
-    # רועש ולא ייראה כמו ההתנהגות הנבדקת.
-    assert resp.status_code == 200, resp.get_data(as_text=True)
-    assert snippets.pipelines, "לא נלכד אף צינור בשיתוף"
-    for pipeline in snippets.pipelines:
-        check_pipeline(pipeline)
+# מסלול השיתוף, שהיה כאן אתר קריאה שני, אינו מריץ עוד אגרגציה: מאז התיקון של
+# הקטיעה בשיתוף הוא שומר את הקובץ המלא ולא חותך snippet. הבדיקות שלו —
+# ``tests/test_public_share_full_content.py``.
 
 
 # --------------------------------------------------------------------------

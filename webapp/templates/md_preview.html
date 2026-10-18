@@ -2041,11 +2041,11 @@ input.md-task-checkbox {
   <div id="shareLinkModalMd" class="share-link-modal" role="dialog" aria-modal="true" aria-labelledby="shareLinkMdTitle" hidden>
     <div class="share-link-modal__content" role="document">
       <h3 id="shareLinkMdTitle" class="share-link-modal__title">בחרו סוג קישור</h3>
-      <p class="share-link-modal__subtitle">אפשר ליצור קישור זמני (פג תוקף אוטומטית) או קישור קבוע ללא תפוגה.</p>
+      <p class="share-link-modal__subtitle">אפשר ליצור קישור זמני ({% if public_share_ttl_label %}פג תוקף אחרי {{ public_share_ttl_label }}{% else %}פג תוקף אוטומטית{% endif %}) או קישור קבוע ללא תפוגה.</p>
       <div class="share-link-modal__actions">
-        <button type="button" class="btn btn-primary" onclick="copyShareLinkMd(false)">
+        <button type="button" class="btn btn-primary" onclick="copyShareLinkMd(false)" data-testid="share-link-temporary">
           <i class="fas fa-clock"></i>
-          קישור זמני
+          קישור זמני{% if public_share_ttl_label %} ({{ public_share_ttl_label }}){% endif %}
         </button>
         <button type="button" class="btn btn-secondary" onclick="copyShareLinkMd(true)">
           <i class="fas fa-infinity"></i>

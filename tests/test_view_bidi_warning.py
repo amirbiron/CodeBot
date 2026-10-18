@@ -39,12 +39,13 @@ def db(monkeypatch):
 
 
 def _share(db, share_id: str, code: str, file_name: str = "shared.py") -> None:
+    # הצורה ש-``create_public_share`` כותב: התוכן המלא ב-``code``.
     db["internal_shares"].insert_one({
         "share_id": share_id,
         "file_name": file_name,
         "language": "python",
         "description": "",
-        "snippet_preview": code,
+        "code": code,
         "mode": "preview",
     })
 
