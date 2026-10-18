@@ -2066,6 +2066,19 @@ try:
 except Exception:
     PUBLIC_SHARE_TTL_DAYS = 7
 
+
+def _hebrew_day_count(days: int) -> str:
+    """מספר ימים בעברית תקנית: "יום אחד", "יומיים", "7 ימים".
+
+    משמש את התווית של הקישור הזמני במודאל השיתוף (``public_share_ttl_label``
+    ב-``inject_globals``), שנגזרת מ-``PUBLIC_SHARE_TTL_DAYS`` ואינה מוקלדת בתבנית.
+    """
+    if days == 1:
+        return 'יום אחד'
+    if days == 2:
+        return 'יומיים'
+    return f'{days} ימים'
+
 # ימי השהות בסל המחזור — ערך אחד לכל מסלולי המחיקה, בבוט ובווב.
 #
 # היו כאן שניים: עמוד הקובץ הבטיח 30 יום ומחיקה מרובה נתנה 7, כי כל אחד
@@ -2378,6 +2391,9 @@ def inject_globals():
         # ימי השהות בסל — מאותה סיבה בדיוק: המודאל בעמוד הקובץ הבטיח "30
         # יום" כמספר מוקלד, ולכן שינוי בקונפיג לא היה מגיע אליו.
         'recycle_ttl_days': RECYCLE_TTL_DAYS,
+        # תוקף הקישור הזמני במודאל השיתוף, מאותה סיבה: המודאל אמר רק "זמני",
+        # ומספר מוקלד לידו היה נשאר מאחור ברגע ש-``PUBLIC_SHARE_TTL_DAYS`` משתנה.
+        'public_share_ttl_label': _hebrew_day_count(PUBLIC_SHARE_TTL_DAYS),
         # External uptime config for templates (non-sensitive only)
         'uptime_provider': UPTIME_PROVIDER,
         'uptime_status_url': UPTIME_STATUS_URL,
@@ -3977,39 +3993,22 @@ def _get_builtin_share_doc(share_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def get_internal_share(share_id: str, *, include_code: bool = True) -> Optional[Dict[str, Any]]:
-    """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף.
+def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
+    """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף — המסמך המלא, כולל ``code``.
 
-    - include_code=False: מיועד לתצוגה מקדימה (preview) כדי לא למשוך תוכן מלא.
-    - include_code=True: מיועד להורדה/שמירה, כשבאמת חייבים את התוכן המלא.
+    **שיתוף הוא תצוגה של קובץ בודד, ולכן התוכן המלא נמשך תמיד.** זה המקרה
+    שכלל ה-Smart Projection ב-CLAUDE.md מחריג במפורש ("משיכת תוכן מלא ...
+    עבור צפייה או עריכה של קובץ בודד"). מ-#2235 ועד התיקון הזה העמוד הציבורי
+    קרא את המסמך בלי ``code`` והציג רק את תחילת הקובץ, ושיתוף שנוצר בבוט —
+    שנשמר בלי תצוגה מקדימה — הוצג ריק.
     """
     builtin_doc = _get_builtin_share_doc(share_id)
     if builtin_doc:
-        if not include_code:
-            # תצוגה מקדימה: אל תדחוף קוד מלא לזיכרון אם לא צריך.
-            try:
-                code = str(builtin_doc.get('code') or '')
-                builtin_doc = dict(builtin_doc)
-                builtin_doc['snippet_preview'] = code[:2000]
-                builtin_doc['file_size'] = int(len(code.encode('utf-8', errors='ignore'))) if code else 0
-                builtin_doc['lines_count'] = int(len(code.split('\n'))) if code else 0
-                builtin_doc.pop('code', None)
-                builtin_doc['mode'] = builtin_doc.get('mode') or 'preview'
-            except Exception:
-                pass
         return builtin_doc
     try:
         db = get_db()
         coll = db.internal_shares
-        projection = None
-        if not include_code:
-            # Preview: אל תחזיר את שדה code אם הוא קיים (יכול להיות כבד מאוד).
-            projection = {"code": 0}
-        try:
-            doc = coll.find_one({"share_id": share_id}, projection=projection)
-        except TypeError:
-            # תאימות לסטאבים/מימושים ללא projection=
-            doc = coll.find_one({"share_id": share_id})
+        doc = coll.find_one({"share_id": share_id})
         if not doc:
             return None
         # TTL אמור לטפל במחיקה, אבל אם עדיין לא נמחק — נבדוק תוקף ידנית באופן חסין tz
@@ -4035,6 +4034,28 @@ def get_internal_share(share_id: str, *, include_code: bool = True) -> Optional[
     except Exception as e:
         logger.exception("Error fetching internal share")
         return None
+
+
+def _shared_code_or_none(doc: Dict[str, Any]) -> Optional[str]:
+    """התוכן שעמוד שיתוף ציבורי מציג, או ``None`` כשאין בשיתוף תוכן להציג.
+
+    ``None`` מוביל ל-404 אצל הקוראים (``public_share``, ``public_reader_mode``),
+    ולא לעמוד ריק: עמוד ריק עם 200 נראה בדיוק כמו קובץ ריק, וזה מה שהסתיר את
+    שיתופי הבוט שהוצגו ריקים מ-#2235. המקרה הצפוי היחיד הוא שיתוף שנוצר לפני
+    שהשיתוף התחיל לשמור את התוכן המלא, ולכן הוא נספר באירוע
+    ``share_without_content`` — בלי ``share_id``, שהוא הטוקן שפותח את הקישור.
+    קובץ ריק (``""``) הוא תוכן תקין ומוצג כמו שהוא.
+    """
+    code = doc.get('code')
+    if isinstance(code, str):
+        return code
+    emit_event(
+        'share_without_content',
+        severity='warn',
+        code_type=type(code).__name__,
+        has_source_file=bool(doc.get('source_file_id')),
+    )
+    return None
 
 # Telegram Login Widget Verification
 def verify_telegram_auth(auth_data: Dict[str, Any]) -> bool:
@@ -17367,9 +17388,8 @@ def create_public_share(file_id):
         except Exception:
             share_type = ''
 
-        # מצב שיתוף:
-        # - preview: תצוגה מקדימה בלבד (לא שומרים/לא מושכים code מלא)
-        # - download: מיועד להורדה/גיבוי (שומרים תוכן מלא)
+        # מצב שיתוף — קובע רק אם ``/share/<id>/download`` מגיש קובץ להורדה.
+        # התוכן המלא נשמר בשני המצבים: העמוד הציבורי מציג את כל הקובץ.
         share_mode = 'download' if share_type in {'download', 'full', 'raw'} else 'preview'
 
         permanent_flag = False
@@ -17401,77 +17421,37 @@ def create_public_share(file_id):
             'source_file_id': ObjectId(file_id),
             'source_user_id': int(user_id),
         }
-        if share_mode == 'preview':
-            # אל תביא code מלא לפייתון. חתוך snippet + מטא-דאטה ב-DB.
-            try:
-                agg = list(db.code_snippets.aggregate([
-                    {'$match': {'_id': ObjectId(file_id), 'user_id': user_id}},
-                    {'$addFields': {
-                        # ⚠️ file_size נשאר בבייטים במכוון — גודל אחסון.
-                        'file_size': {'$ifNull': ['$file_size', {'$strLenBytes': '$code'}]},
-                        'lines_count': {'$ifNull': ['$lines_count', {'$size': {'$split': ['$code', '\n']}}]},
-                        # $substrCP: התקרה היא 2000 **תווים**, כמו במסלול
-                        # ה-download שחותך code[:2000] בפייתון. עם $substrBytes
-                        # קובץ עברי חזר בשני שלישים מאורכו, וכשגבול 2000
-                        # הבייטים נחת באמצע אות — נזרקה חריגה (#3353).
-                        'snippet_preview': {'$substrCP': ['$code', 0, 2000]},
-                    }},
-                    {'$project': {
-                        'file_name': 1,
-                        'programming_language': 1,
-                        'description': 1,
-                        'file_size': 1,
-                        'lines_count': 1,
-                        'snippet_preview': 1,
-                    }},
-                    {'$limit': 1},
-                ]))
-                meta = agg[0] if agg and isinstance(agg[0], dict) else {}
-            except Exception:
-                # ⚠️ הכשל הזה נרשם, ולא נבלע.
-                #
-                # meta = {} מוביל ישירות ל-404 "קובץ לא נמצא" שתי שורות
-                # מכאן — תשובה שנראית בדיוק כמו קובץ שאינו קיים, בזמן
-                # שהקובץ קיים והשאילתה היא שנשברה. בלי השורה הזו אין שום
-                # דרך להבחין בין השניים, וזה מה שהחזיק את #3353 מוסתר.
-                logger.warning(
-                    "share preview: metadata aggregation failed, returning 404",
-                    exc_info=True,
-                    extra={"event": "share_preview_pipeline_failed", "file_id": str(file_id)},
-                )
-                meta = {}
-            if not meta:
-                return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
-            doc.update({
-                'file_name': meta.get('file_name') or 'snippet.txt',
-                'language': (meta.get('programming_language') or 'text'),
-                'description': meta.get('description') or '',
-                'file_size': int(meta.get('file_size') or 0),
-                'lines_count': int(meta.get('lines_count') or 0),
-                'snippet_preview': str(meta.get('snippet_preview') or ''),
-            })
-        else:
-            # download/full: חייבים תוכן מלא
-            code = file.get('code') or ''
-            if not isinstance(code, str):
-                code = str(code or '')
-            try:
-                size_bytes = int(file.get('file_size') or len(code.encode('utf-8', errors='ignore')))
-            except Exception:
-                size_bytes = 0
-            try:
-                lines_count = int(file.get('lines_count') or (len(code.split('\n')) if code else 0))
-            except Exception:
-                lines_count = 0
-            doc.update({
-                'file_name': file.get('file_name') or 'snippet.txt',
-                'code': code,
-                'language': (file.get('programming_language') or 'text'),
-                'description': file.get('description') or '',
-                'file_size': size_bytes,
-                'lines_count': lines_count,
-                'snippet_preview': code[:2000],
-            })
+        # **השיתוף הוא צילום של הגרסה הזו בדיוק, עם התוכן המלא.** ה-``_id``
+        # שהגיע מהממשק הוא מסמך גרסה, והוא נבחר במכוון: ``/md/<id>`` של
+        # גרסה ישנה משתף את מה שהמשתמש רואה, ועריכה או מחיקה של הקובץ אחר
+        # כך אינן משנות את הקישור. כך גם השיתוף שנוצר בבוט
+        # (``integrations.CodeSharingService._create_internal_share``), ולכן
+        # העמוד הציבורי קורא את שני הסוגים באותו מסלול.
+        #
+        # ``file`` כבר נשלף מלא בתחילת הפונקציה — שאילתה נוספת לא הייתה
+        # חוסכת דבר. עד התיקון הזה נשמרו כאן רק 2000 התווים הראשונים, והקישור
+        # הציבורי הציג קובץ קטוע (#2235).
+        code = file.get('code') or ''
+        if not isinstance(code, str):
+            code = str(code or '')
+        # מטא-דאטה שאינו מספר נשמר כ-0, כלומר "לא ידוע": ``public_share``
+        # מחשב אז את הגודל ואת מספר השורות מהתוכן עצמו, שנשמר כאן במלואו.
+        try:
+            size_bytes = int(file.get('file_size') or len(code.encode('utf-8', errors='ignore')))
+        except Exception:
+            size_bytes = 0
+        try:
+            lines_count = int(file.get('lines_count') or (len(code.split('\n')) if code else 0))
+        except Exception:
+            lines_count = 0
+        doc.update({
+            'file_name': file.get('file_name') or 'snippet.txt',
+            'code': code,
+            'language': (file.get('programming_language') or 'text'),
+            'description': file.get('description') or '',
+            'file_size': size_bytes,
+            'lines_count': lines_count,
+        })
         if not permanent_flag and expires_at is not None:
             doc['expires_at'] = expires_at
 
@@ -17517,8 +17497,6 @@ def api_save_shared_file():
         if not share_id:
             return jsonify({'ok': False, 'error': 'share_id נדרש'}), 400
 
-        # שמירה דורשת תוכן מלא (לא preview)
-        # חשוב: לא להעביר kwargs כאן כדי לא לשבור טסטים שעושים monkeypatch לפונקציה.
         share_doc = get_internal_share(share_id)
         if not share_doc:
             return jsonify({'ok': False, 'error': 'השיתוף לא נמצא'}), 404
@@ -21293,13 +21271,13 @@ def public_share(share_id):
 
     תומך בפרמטר view=md כדי להציג קבצי Markdown בעמוד התצוגה הייעודי (עם כפתורי שיתוף).
     """
-    # תצוגה מקדימה: אל תמשוך code מלא אלא אם באמת צריך
-    doc = get_internal_share(share_id, include_code=False)
+    doc = get_internal_share(share_id)
     if not doc:
         return render_template('404.html'), 404
 
-    # תצוגה ציבורית: ברירת מחדל היא snippet (או code מלא אם זה שיתוף ישן/מלא)
-    code = doc.get('snippet_preview') or doc.get('code') or ''
+    code = _shared_code_or_none(doc)
+    if code is None:
+        return render_template('404.html'), 404
     file_name = doc.get('file_name', 'snippet.txt')
     language = resolve_file_language(doc.get('language'), file_name)
     description = doc.get('description', '')
@@ -21343,7 +21321,7 @@ def public_share(share_id):
     highlighted_code = highlight(code, lexer, formatter)
     css = formatter.get_style_defs('.source')
 
-    # מטא-דאטה: נעדיף מהמסמך (preview), אחרת נחשב מה-snippet (best-effort)
+    # מטא-דאטה: נעדיף את מה שנשמר בשיתוף, ואחרת (שיתוף מהבוט) נחשב מהתוכן
     try:
         size_bytes = int(doc.get('file_size') or 0)
     except Exception:
@@ -21394,11 +21372,13 @@ def public_share(share_id):
 @app.route('/read/share/<share_id>')
 def public_reader_mode(share_id):
     """Reader mode for public shared markdown files."""
-    doc = get_internal_share(share_id, include_code=True)
+    doc = get_internal_share(share_id)
     if not doc:
         return render_template('404.html'), 404
 
-    code = doc.get('snippet_preview') or doc.get('code') or ''
+    code = _shared_code_or_none(doc)
+    if code is None:
+        return render_template('404.html'), 404
     file_name = str(doc.get('file_name') or 'snippet.md').strip() or 'snippet.md'
     language = resolve_file_language(doc.get('language'), file_name)
     if not _is_markdown_file(language, file_name):
@@ -21424,7 +21404,7 @@ def public_reader_mode(share_id):
 @app.route('/share/<share_id>/download')
 def public_share_download(share_id: str):
     """הורדה ציבורית של שיתוף פנימי (רק לשיתופי download/full)."""
-    doc = get_internal_share(share_id, include_code=True)
+    doc = get_internal_share(share_id)
     if not doc:
         return render_template('404.html'), 404
     if str(doc.get('mode') or '').lower() != 'download':

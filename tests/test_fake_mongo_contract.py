@@ -92,6 +92,44 @@ def test_find_one_takes_projection_and_sort_like_pymongo(coll):
     assert coll.find_one({"a": 99}, {"version": 1}, sort=[("version", -1)]) is None
 
 
+def test_an_exclusion_projection_drops_the_field_like_mongo():
+    """``{"code": 0}`` מחזיר הכול חוץ מ-``code`` — כמו במונגו, ולא את המסמך המלא.
+
+    עד כאן הדמה התעלמה מהחרגה, ולכן קוד שקורא שדה שהוא עצמו החריג עבר כאן
+    ונשבר בפרודקשן: עמוד השיתוף הציבורי קרא בלי ``code``, ושיתוף שנוצר בבוט
+    הוצג ריק (#2235). הערכים כאן נמדדו מול ``mongod`` 7.0.14.
+    """
+    c = FakeCollection()
+    c.insert_one({"_id": 1, "a": 1, "b": {"x": 1, "y": 2}, "code": "big"})
+
+    assert c.find_one({}, {"code": 0}) == {"_id": 1, "a": 1, "b": {"x": 1, "y": 2}}
+    assert c.find_one({}, {"b.y": 0}) == {"_id": 1, "a": 1, "b": {"x": 1}, "code": "big"}
+    assert c.find_one({}, {"_id": 0, "code": 0}) == {"a": 1, "b": {"x": 1, "y": 2}}
+    assert list(c.find({}, {"code": False})) == [{"_id": 1, "a": 1, "b": {"x": 1, "y": 2}}]
+    # ההחרגה חלה על העותק שחוזר, לא על המסמך השמור
+    assert c.find_one({})["code"] == "big"
+
+
+def test_an_inclusion_projection_drops_id_only_when_asked():
+    c = FakeCollection()
+    c.insert_one({"_id": 1, "a": 1, "code": "big"})
+
+    assert c.find_one({}, {"a": 1}) == {"_id": 1, "a": 1}
+    assert c.find_one({}, {"a": 1, "_id": 0}) == {"a": 1}
+
+
+def test_mixing_inclusion_and_exclusion_is_rejected_like_mongo():
+    """מונגו דוחה ``{"a": 1, "code": 0}`` (31254); דמה שמחזירה משהו הייתה מכשירה קוד שנשבר במסד."""
+    from pymongo.errors import OperationFailure
+
+    c = FakeCollection()
+    c.insert_one({"_id": 1, "a": 1, "code": "big"})
+
+    with pytest.raises(OperationFailure, match="Cannot do exclusion on field code") as info:
+        c.find_one({}, {"a": 1, "code": 0})
+    assert info.value.code == 31254
+
+
 def test_find_one_still_refuses_an_unimplemented_operator(coll):
     with pytest.raises(NotImplementedError, match="does not implement"):
         coll.find_one({"a": {"$regex": "^1"}}, {"a": 1}, sort=[("a", -1)])

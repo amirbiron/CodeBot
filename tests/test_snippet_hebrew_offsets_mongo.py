@@ -136,39 +136,66 @@ def test_a_hebrew_match_on_an_odd_boundary_does_not_crash_the_pipeline(
 # --------------------------------------------------------------------------
 
 
+#
+# עד התיקון של הקטיעה בשיתוף, ``POST /api/share/<id>`` חתך את הקובץ באגרגציה
+# (``$substrBytes`` ואחר כך ``$substrCP``) ושמר רק את התחלתו. היום השיתוף שומר
+# את התוכן המלא ואין בו אגרגציה בכלל — אבל שני הסימפטומים של #3353 נשארים
+# שווים בדיקה מול המסד, כי שניהם היו שקטים: קובץ עברי שחוזר חלקי, ו-404 על
+# קובץ שקיים. ולצידם הסימפטום של הקטיעה עצמה: עמוד ציבורי שמציג רק את תחילת
+# הקובץ, ושיתוף מהבוט שמוצג ריק — זה האחרון נראה מלא מול דמת המונגו כל עוד
+# היא התעלמה מהיטלת החרגה, ולכן הוא נבדק כאן מול מסד אמיתי. הגרסה שרצה ב-CI:
+# ``tests/test_public_share_full_content.py``.
+
+
 def _share(wa, file_id):
     client = wa.app.test_client()
     with client.session_transaction() as sess:
         sess["user_id"] = USER_ID
         sess["user_data"] = {"id": USER_ID, "first_name": "Test"}
-    return client.post(f"/api/share/{file_id}", json={})
+    return client.post(f"/api/share/{file_id}", json={"type": "temporary", "permanent": False})
 
 
-def test_a_hebrew_file_is_previewed_at_its_full_length(wired_mongo):
-    """כשל שקט בשיתוף: ה-preview חוזר בשני שלישים מאורכו.
+def _md_text(html: str):
+    import json
+    import re
 
-    נמדד: ``$substrBytes(code, 0, 2000)`` על 1500 אותיות עבריות (3000 בייטים)
-    מחזיר **1000** תווים. בייט 2000 הוא תחילת תו, ולכן אין חריגה — רק חצי
-    תוכן.
+    match = re.search(r'<script type="application/json" id="mdText">(.*?)</script>', html, re.S)
+    assert match, "העמוד לא נשא את בלוק ה-mdText"
+    return json.loads(match.group(1))
+
+
+def test_a_hebrew_file_is_shared_at_its_full_length(wired_mongo):
+    """הקישור מציג את כל הקובץ, ולא את 2000 התווים הראשונים שנשמרו בו עד התיקון.
+
+    5000 אותיות עבריות — יותר מפי שניים מהתקרה הישנה, בתווים וגם בבייטים —
+    כך שכל חיתוך שיחזור, באיזו יחידה שתהיה, ייראה כאן.
     """
     wa = wired_mongo
     db = wa.get_db()
-    code = "ש" * 1500
-    inserted = db.code_snippets.insert_one(_doc("hebrew_preview.txt", code))
+    code = "ש" * 5000
+    doc = _doc("hebrew_share.md", code)
+    doc["programming_language"] = "markdown"
+    inserted = db.code_snippets.insert_one(doc)
 
     resp = _share(wa, str(inserted.inserted_id))
     assert resp.status_code == 200, resp.get_data(as_text=True)
+    share_id = resp.get_json()["share_id"]
 
-    share = db.internal_shares.find_one({"share_id": resp.get_json()["share_id"]})
+    share = db.internal_shares.find_one({"share_id": share_id})
     assert share is not None, "השיתוף לא נשמר"
-    assert len(share["snippet_preview"]) == 1500
-    assert share["file_size"] == len(code.encode("utf-8")) == 3000
+    assert share["code"] == code
+    # נעילת היקף: גודל קובץ הוא באמת בייטים
+    assert share["file_size"] == len(code.encode("utf-8")) == 10000
+
+    page = wa.app.test_client().get(f"/share/{share_id}?view=md")
+    assert page.status_code == 200
+    assert _md_text(page.get_data(as_text=True)) == code
 
 
 def test_a_hebrew_file_is_not_reported_as_missing(wired_mongo):
     """**404 שקרי על קובץ שקיים** — הסימפטום הגרוע ביותר ב-#3353.
 
-    נמדד: בייט 2000 של ``"x" + "ש"*1500`` נופל באמצע תו, ומונגו מחזירה
+    נמדד אז: בייט 2000 של ``"x" + "ש"*1500`` נופל באמצע תו, ומונגו מחזירה
     ``ending index is in the middle of a UTF-8 character`` — בדיוק נוסח
     השגיאה שהופיע בלוג הפרודקשן. ה-``except`` בלע אותה והתשובה הייתה 404.
     """
@@ -183,4 +210,38 @@ def test_a_hebrew_file_is_not_reported_as_missing(wired_mongo):
         "קובץ קיים דווח כלא נמצא: " + resp.get_data(as_text=True)
     )
     share = db.internal_shares.find_one({"share_id": resp.get_json()["share_id"]})
-    assert len(share["snippet_preview"]) == 1501
+    assert share["code"] == code
+
+
+def test_a_share_made_by_the_bot_is_not_an_empty_page(wired_mongo, monkeypatch):
+    """הבוט שומר ``code`` מלא בלי תצוגה מקדימה, והעמוד קרא את המסמך בלי ``code``.
+
+    מול מונגו אמיתי זה החזיר עמוד ריק עם 200 — ומול הדמה, שהתעלמה מהיטלת
+    החרגה, את הקובץ המלא. השיתוף נוצר דרך הכותב של הבוט עצמו.
+    """
+    import types
+    from urllib.parse import urlparse
+
+    import database
+    import integrations
+
+    wa = wired_mongo
+    db = wa.get_db()
+    # הצורה של ``DatabaseManager``: גם ``internal_shares_collection`` וגם ``db``.
+    # מול מונגו אמיתי ``internal_shares_collection or ...`` בכותב זורק (pymongo
+    # אוסר בדיקת אמת על ``Collection``), והכותב נופל ל-``_db.db.internal_shares``
+    # — כך זה עובד גם בפרודקשן.
+    monkeypatch.setattr(
+        database, "db",
+        types.SimpleNamespace(internal_shares_collection=db.internal_shares, db=db),
+        raising=False,
+    )
+    code = "".join(f"## כותרת {i}\nשורה {i}\n\n" for i in range(300))
+    result = integrations.CodeSharingService()._create_internal_share(
+        "bot_share.md", code, "markdown", "שיתוף פנימי של bot_share.md",
+    )
+
+    page = wa.app.test_client().get(urlparse(result["url"]).path + "?view=md")
+
+    assert page.status_code == 200
+    assert _md_text(page.get_data(as_text=True)) == code
