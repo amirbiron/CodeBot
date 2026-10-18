@@ -1355,14 +1355,15 @@ def test_the_documented_numbers_are_the_code_numbers():
     נשען עליו** נבדק מאז #3391 ב-``tests/test_md_parse_worst_case_claims.py``,
     יחד עם הקבוע שהוא נגזר ממנו — זמן המעבד של הפרסור הגרוע.
 
-    **והאחוזים של הסבב בפרודקשן.** הבתים והאלפיות נמדדו ונושאים תאריך, אבל
-    "39% מהתקציב" ו-"2.7% מהדדליין" נגזרים מהם ומ-``OUTPUT_BYTE_BUDGET`` ומ-
-    ``DEADLINE_SECONDS`` — ולכן מחושבים כאן, ולא מוקלדים.
+    **והאחוזים של הסבב בפרודקשן.** הם בסעיף על הכלי, ב-``docs/mcp-server-retrieval.rst``.
+    הבתים והאלפיות נמדדו ונושאים תאריך, אבל "39% מהתקציב" ו-"2.7% מהדדליין" נגזרים
+    מהם ומ-``OUTPUT_BYTE_BUDGET`` ומ-``DEADLINE_SECONDS`` — ולכן מחושבים כאן, ולא מוקלדים.
     """
     import re
     from pathlib import Path
 
-    page = (Path(__file__).resolve().parent.parent / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
+    docs = Path(__file__).resolve().parent.parent / "docs"
+    page = (docs / "mcp-server.rst").read_text(encoding="utf-8")
     lines = page.splitlines()
 
     def table_value(name: str) -> str:
@@ -1380,7 +1381,7 @@ def test_the_documented_numbers_are_the_code_numbers():
     measured = re.search(
         r"בפרודקשן הסבב האמיתי היה ([\d,]+) בתים בצורה שנשלחת — (\d+)% מהתקציב"
         r" — ו-(\d+) אלפיות שנייה, ([\d.]+)% מהדדליין",
-        page,
+        (docs / "mcp-server-retrieval.rst").read_text(encoding="utf-8"),
     )
     assert measured, "המשפט על הסבב בפרודקשן אינו בצורה שהטסט קורא"
     sent, of_budget, took_ms, of_deadline = measured.groups()

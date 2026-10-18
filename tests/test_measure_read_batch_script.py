@@ -1,6 +1,6 @@
 """``scripts/measure_read_batch.py`` — נבדק, ולא רק נכתב.
 
-הסקריפט הוא המקור של המספרים ש-``docs/mcp-server.rst`` מצטט על
+הסקריפט הוא המקור של המספרים ש-``docs/mcp-server-retrieval.rst`` מצטט על
 ``codekeeper_read_batch``: כמה מהתקציב ומהדדליין הסבב האמיתי תופס, ושבאץ'
 אינו מחזיק יותר מהמסמך היקר שבו. באג במדידה — בתים שנספרים בנוסחה אחרת מזו
 שהכלי שולח, או פריט שנענה ב-``not_found`` ונמדד כאילו נקרא — היה מדפיס מספר
@@ -243,7 +243,7 @@ def test_a_missing_mirror_is_refused_by_name_before_anything_runs(tmp_path, caps
 def test_the_documented_gap_to_production_is_the_ref_label():
     """התיעוד מסביר את הפער בין הסבב בפרודקשן לסבב של הסקריפט ב-``ref`` בלבד.
 
-    ``docs/mcp-server.rst`` מצטט שני מספרים לאותו סבב — מה שהפרודקשן שלח ומה
+    ``docs/mcp-server-retrieval.rst`` מצטט שני מספרים לאותו סבב — מה שהפרודקשן שלח ומה
     שהסקריפט מודד — ואומר שההפרש הוא שם הענף שכל פריט שנקרא נושא: ``HEAD``
     בלי מונגו, ו-``refs/heads/main`` בפרודקשן. כאן ההפרש לפריט נגזר מ-
     ``RepoBackend._default_ref`` עצמו, ומספר הפריטים מ-``REVIEW_ROUND``. מי
@@ -259,7 +259,7 @@ def test_the_documented_gap_to_production_is_the_ref_label():
             return {"default_branch": "main"}
 
     script = _load_script()
-    page = (_REPO / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
+    page = (_REPO / "docs" / "mcp-server-retrieval.rst").read_text(encoding="utf-8")
 
     def number(pattern: str) -> int:
         found = re.search(pattern, page)

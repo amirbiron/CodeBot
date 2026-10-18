@@ -532,7 +532,7 @@ async def test_the_tool_description_stays_short_enough_to_be_read():
     assert len(description) <= 600, (
         f"התיאור תפח ל-{len(description)} תווים. הוא נכנס אצל הלקוח, אבל כל "
         "משפט בו מתחרה על תשומת הלב של הסוכן — הפירוט שייך ל-"
-        "docs/mcp-server.rst, לא לכאן."
+        "docs/mcp-server-state.rst, לא לכאן."
     )
 
 

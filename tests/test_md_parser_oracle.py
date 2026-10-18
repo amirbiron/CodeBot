@@ -38,7 +38,7 @@
 ``_KNOWN_DIVERGENCES``. כל שורה שם היא **סיבה** ולא רשימת מופעים, ולצידה
 המשפחה שנמדדה עליה. הצורות החולקות **אינן** עוברות ב-``_compare`` — הן עוברות
 בטסט שמאשר את הפער המדוד, צורה-צורה. לכל שורה בטבלה: הסיבה, צורה לדוגמה ומה
-כל צד מחזיר עליה, על מה ומתי נמדדה, וקישור ל-upstream כשיש. ``docs/mcp-server.rst``
+כל צד מחזיר עליה, על מה ומתי נמדדה, וקישור ל-upstream כשיש. ``docs/mcp-server-retrieval.rst``
 מעתיק ממנה, ו-``test_the_documentation_table_is_this_table`` משווה בכל שורה את
 הסיבה, את "N מתוך M", את הגרסאות והתאריך ואת הקישור — **לא** את מה שכל צד
 מחזיר; את זה בודקות הדוגמאות עצמן, מול שני הפארסרים.
@@ -530,7 +530,7 @@ def test_a_heading_inside_a_container_is_seen_by_cmark_and_excluded_by_us(text):
 # הפערים הידועים מ-GitHub — משפחה לכל שורה, טבלה אחת (``_KNOWN_DIVERGENCES``)
 # ════════════════════════════════════════════════════════════════════
 #
-# כל פער ידוע יושב בשורה אחת בטבלה שלמטה, והיא המקור: ``docs/mcp-server.rst``
+# כל פער ידוע יושב בשורה אחת בטבלה שלמטה, והיא המקור: ``docs/mcp-server-retrieval.rst``
 # (:ref:`mcp-md-known-divergences`) מעתיק ממנה, וטסט משווה ביניהן. מעל הטבלה —
 # משפחת הצורות של כל שורה, כלומר מה שבאמת נמדד.
 #
@@ -1754,7 +1754,7 @@ def test_a_page_that_is_not_utf8_fails_the_scan_by_name(tmp_path):
 
 
 def test_the_documentation_table_is_this_table():
-    """הסעיף ב-``docs/mcp-server.rst`` מעתיק מהטבלה — וזה נבדק, לא מקווה.
+    """הסעיף ב-``docs/mcp-server-retrieval.rst`` מעתיק מהטבלה — וזה נבדק, לא מקווה.
 
     **בכל שורה בנפרד:** הסיבה, "N מתוך M צורות שנמדדו", על מה ומתי נמדד, והקישור
     ל-upstream כשיש. כל עובדה נחפשת **בתוך השורה שלה** בטבלה שבעמוד, ולא בכל הסעיף,
@@ -1767,7 +1767,7 @@ def test_the_documentation_table_is_this_table():
     של הטבלה לדוגמה שלה, שלושת הסוגים של הגדרות הקישור, ומספר התווים והתגיות של
     השורה החמישית. ``unreachable`` של כל שורה שיש לה מועתק כלשונו לפסקה שלה.
     """
-    rst = (_REPO / "docs" / "mcp-server.rst").read_text(encoding="utf-8")
+    rst = (_REPO / "docs" / "mcp-server-retrieval.rst").read_text(encoding="utf-8")
     start = rst.index(".. _mcp-md-known-divergences:")
     section = rst[start:rst.index("\n.. _", start + 1)]
     table_rows = [chunk.split("\n\n", 1)[0] for chunk in section.split("\n   * - ")[1:]]

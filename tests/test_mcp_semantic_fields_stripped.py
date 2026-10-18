@@ -84,7 +84,7 @@ def test_the_payload_actually_shrinks():
 def test_the_fields_the_reader_came_for_are_untouched():
     """החרגה גורפת מדי גרועה בדיוק כמו דליפה.
 
-    ``lines_count`` מתועד ב-``docs/mcp-server.rst``, ו-``code`` הוא כל העניין.
+    ``lines_count`` מתועד ב-``docs/mcp-server-retrieval.rst``, ו-``code`` הוא כל העניין.
     """
     out = be._full(_doc())
 

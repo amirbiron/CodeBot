@@ -975,7 +975,7 @@ async def test_get_file_description_points_at_the_query_parameter():
     עבר ל-``Field`` של ``query``, בדיוק כמו ב-``codekeeper_get_repo_file``.
 
     ‏``_RANGE_DOC`` **נשאר בתיאור הכלי ולא זז**, כי הוא משותף ל-
-    ``codekeeper_get_repo_file`` ו-``docs/mcp-server.rst`` מחייב שהשניים
+    ``codekeeper_get_repo_file`` ו-``docs/mcp-server-retrieval.rst`` מחייב שהשניים
     יתארו את ``lines=`` באותן מילים בדיוק.
 
     שני הקצוות נאכפים כאן, כמו בכלי האח: שהכלי מפנה ל-``query``, ושהפרמטר
@@ -1174,7 +1174,7 @@ async def test_the_section_param_doc_covers_markdown_inline_markup_too():
 #: כלומר האסרשן לא היה מסוגל ליפול, וזה אותו כשל שהוא נועד לתפוס.
 _SUGGESTION_RULE_SURFACES = (
     ("תיאור הפרמטר section", "ONLY when nothing is close", "K11 never returns K11.1"),
-    ("docs/mcp-server.rst", "ורק כשאין אף כותרת קרובה",
+    ("docs/mcp-server-retrieval.rst", "ורק כשאין אף כותרת קרובה",
      "נקודה שפותחת תת-מספור אינה גבול"),
     ("docs/whats-new.rst", "ורק כשאין אף כותרת קרובה",
      "אינו מחזיר את ``K11.1``"),
@@ -1188,9 +1188,10 @@ def _suggestion_rule_texts() -> dict[str, str]:
     from mcp_server.server import _SECTION_PARAM_DOC
 
     docs = Path(__file__).resolve().parent.parent / "docs"
+    retrieval = (docs / "mcp-server-retrieval.rst").read_text(encoding="utf-8")
     texts = {
         "תיאור הפרמטר section": _SECTION_PARAM_DOC,
-        "docs/mcp-server.rst": (docs / "mcp-server.rst").read_text(encoding="utf-8"),
+        "docs/mcp-server-retrieval.rst": retrieval,
         "docs/whats-new.rst": (docs / "whats-new.rst").read_text(encoding="utf-8"),
     }
     # משטח שנקרא ריק אינו "עובר" — הוא אומר שהטסט איבד את מה שהוא מודד.
@@ -1241,7 +1242,7 @@ def test_the_suggestion_rule_says_the_same_thing_in_the_code_and_in_all_three_su
     count = doc_sections.MAX_IDENTIFIER_SUGGESTIONS
     numbers = {
         "תיאור הפרמטר section": f"at most {count};",
-        "docs/mcp-server.rst": f"**והכמות: עד {count} הצעות.**",
+        "docs/mcp-server-retrieval.rst": f"**והכמות: עד {count} הצעות.**",
         "docs/whats-new.rst": f"המזהים שכן קיימים — עד {count},",
     }
     stale = [f"{name}: חסר {marker!r}" for name, marker in numbers.items()
