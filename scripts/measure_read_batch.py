@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """כמה עולה ``codekeeper_read_batch`` — בתים, זמן קיר וזיכרון — מעל מראה אמיתית.
 
-``docs/mcp-server.rst`` (הסעיף על ``codekeeper_read_batch``) מצטט את המספרים
+``docs/mcp-server-retrieval.rst`` (הסעיף על ``codekeeper_read_batch``) מצטט את המספרים
 שהסקריפט הזה מדפיס, ושלוש החלטות של הכלי נשענות עליהם:
 
 - **כמה מהתקציב ומהדדליין סבב ריוויו אמיתי תופס.** זה הנימוק לכך שפריטים
@@ -25,7 +25,7 @@
   (``read_batch.read_batch`` או ``docs_get_section``), בתהליך שאינו מריץ
   ``tracemalloc`` (שמאט כל הקצאה). זה קטע קצר יותר מ-``$mcp_duration_ms``
   שהפרודקשן רושם ב-PostHog, שעוטף את ``ToolManager.call_tool`` כולו — ולכן
-  שני המספרים אינם אותה מדידה (``docs/mcp-server.rst``, בסעיף על
+  שני המספרים אינם אותה מדידה (``docs/mcp-server-retrieval.rst``, בסעיף על
   ``codekeeper_read_batch``).
 - **זיכרון** — שיא ההקצאות של פייתון (``tracemalloc``), בתהליך נקי משלו לכל
   מדידה, כדי ששיא של מדידה אחת לא יסתיר שיא של אחרת. זו אינה היחידה שמאגר
