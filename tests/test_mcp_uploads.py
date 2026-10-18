@@ -60,7 +60,7 @@ from mcp_server import handlers  # noqa: E402
 from mcp_server.backend import ProductionBackend  # noqa: E402
 from mcp_server.limits import MIN_MAX_REQUEST_BYTES, BodySizeLimitMiddleware, ToolRateLimiter  # noqa: E402
 from mcp_server.downloads import DOWNLOAD_PATH  # noqa: E402
-from mcp_server.public_url import public_base_for  # noqa: E402
+from mcp_server.public_url import MCP_ENDPOINT_PATH, public_base_for  # noqa: E402
 from mcp_server.uploads import UPLOAD_PATH, agent_upload_route  # noqa: E402
 from mcp_uploads import UploadStorageUnavailable  # noqa: E402
 
@@ -699,7 +699,9 @@ def test_every_route_answers_401_without_a_token_except_a_closed_list(mode):
             statuses = {client.request(method, route.path).status_code for method in methods}
             (protected if statuses == {401} else answered).add(route.path)
     assert answered == PUBLIC[mode]
-    assert {"/mcp", "/api/agent/primer", UPLOAD_PATH, DOWNLOAD_PATH} <= protected
+    # ``MCP_ENDPOINT_PATH`` ולא ``"/mcp"``: עמוד ההגדרות בוובאפ מציג את הקבוע הזה בכתובת
+    # שמדביקים בלקוח, ולכן האפליקציה האמיתית חייבת להגיש בדיוק אותו.
+    assert {MCP_ENDPOINT_PATH, "/api/agent/primer", UPLOAD_PATH, DOWNLOAD_PATH} <= protected
 
 
 # ---------------------------------------------------------------------------

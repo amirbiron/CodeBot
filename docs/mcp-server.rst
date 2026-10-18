@@ -1297,6 +1297,8 @@ WARNING אחד לזהות לחלון, כדי שסוכן שממשיך לדפוק 
 חיבור לקוחות
 -------------
 
+**למשתמש, ההוראות נמצאות גם בוובאפ:** בהגדרות, בסעיף "חיבור סוכן AI" (העוגן ``/settings#ai-connect``), עם לשונית ל-Claude.ai, ל-Gemini (בגרסת הרשת בלבד) ול-Claude Code / Desktop, וכפתור שמעתיק את הכתובת. הכתובת שם היא ``MCP_SERVER_URL`` של הוובאפ ואחריו ``MCP_ENDPOINT_PATH`` (``_mcp_connect_url`` ב-``webapp/routes/settings_routes.py``); כשהמשתנה חסר או נדחה, הסעיף מוצג בלי שורת הכתובת.
+
 Claude.ai (Custom Connector)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

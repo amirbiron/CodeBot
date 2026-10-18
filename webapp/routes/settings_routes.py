@@ -58,6 +58,30 @@ def _get_app_helpers():
     )
 
 
+def _mcp_connect_url() -> str | None:
+    """הכתובת שמדביקים בלקוח בסעיף "חיבור סוכן AI" — או ``None``, ואז שורת הכתובת לא מוצגת.
+
+    המקור הוא ``MCP_SERVER_URL``, אותו משתנה שהוובאפ כבר קורא בשער של ``/oauth/identify``
+    (``webapp/routes/auth_routes.py``), ובאותה קריאה: ``strip``, ובלי ``/`` בסוף. אחריו
+    ``MCP_ENDPOINT_PATH``, הנתיב ששירות ה-MCP מגיש.
+
+    הכתובת מוצגת לכל משתמש מחובר, ולכן היא עוברת את הבדיקה של הפקודות בתיאורי הכלים
+    (``why_not_usable`` ב-``mcp_server/public_url.py``): ``http``/``https`` עם host, בלי
+    שם משתמש או סיסמה ובלי query או fragment (K13). **ערך שלא הוגדר וערך שנדחה אינם אותו מצב**: בשניהם
+    השורה לא מוצגת, אבל רק הנדחה נרשם כ-WARNING — עם הסיבה ולא עם הערך, שעלול להיות סוד.
+    """
+    from mcp_server.public_url import MCP_ENDPOINT_PATH, why_not_usable
+
+    raw = (os.getenv("MCP_SERVER_URL", "") or "").strip()
+    if not raw:
+        return None
+    reason = why_not_usable(raw)
+    if reason is not None:
+        logger.warning("MCP_SERVER_URL not shown in the AI-connect section of /settings: %s", reason)
+        return None
+    return raw.rstrip("/") + MCP_ENDPOINT_PATH
+
+
 @settings_bp.route("/settings")
 def settings():
     """Main settings page - optimized with legacy session support."""
@@ -113,6 +137,7 @@ def settings():
         persistent_login_enabled=has_persistent,
         persistent_days=helpers.PERSISTENT_LOGIN_DAYS,
         push_enabled=push_enabled,
+        mcp_connect_url=_mcp_connect_url(),
     )
 
 
