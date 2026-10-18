@@ -55,6 +55,7 @@ Web/Share
 
 - ``share_view_error`` — שגיאה בטעינת עמוד שיתוף.
 - ``share_view_not_found`` — שיתוף לא נמצא.
+- ``share_without_content`` — מסמך שיתוף בלי ``code``, ולכן ``/share/<share_id>`` ו-``/read/share/<share_id>`` מחזירים 404 ולא עמוד ריק. המקרה הצפוי היחיד: שיתוף שנוצר בוובאפ לפני שהשיתוף התחיל לשמור את התוכן המלא. נשלח מ-``_shared_code_or_none`` ב-``webapp/app.py``, עם ``code_type`` ו-``has_source_file`` — ובלי ``share_id``, שהוא הטוקן שפותח את הקישור.
 - ``internal_web_started`` — שירות פנימי הועלה.
 
 .. code-block:: json

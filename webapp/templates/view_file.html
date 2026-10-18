@@ -1121,11 +1121,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 <div id="shareLinkModal" class="share-link-modal" role="dialog" aria-modal="true" aria-labelledby="shareLinkTitle" hidden>
     <div class="share-link-modal__content" role="document">
         <h3 id="shareLinkTitle" class="share-link-modal__title">בחרו סוג קישור</h3>
-        <p class="share-link-modal__subtitle">אפשר ליצור קישור זמני (פג תוקף אוטומטית) או קישור קבוע ללא תפוגה.</p>
+        <p class="share-link-modal__subtitle">אפשר ליצור קישור זמני ({% if public_share_ttl_label %}פג תוקף אחרי {{ public_share_ttl_label }}{% else %}פג תוקף אוטומטית{% endif %}) או קישור קבוע ללא תפוגה.</p>
         <div class="share-link-modal__actions">
-            <button type="button" class="btn btn-primary" onclick="copyShareLink(false)">
+            <button type="button" class="btn btn-primary" onclick="copyShareLink(false)" data-testid="share-link-temporary">
                 <i class="fas fa-clock"></i>
-                קישור זמני
+                קישור זמני{% if public_share_ttl_label %} ({{ public_share_ttl_label }}){% endif %}
             </button>
             <button type="button" class="btn btn-secondary" onclick="copyShareLink(true)">
                 <i class="fas fa-infinity"></i>

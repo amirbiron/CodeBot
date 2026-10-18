@@ -3,7 +3,7 @@
 Repo convention is hand-rolled fakes (no mongomock). Several suites need the
 same duck-typed stand-in, so the collection semantics — filter matching
 (``$ne``, ``$in``, ``$nin``, ``$exists`` and the range operators), inclusion
-projections, ``find_one`` with pymongo's positional projection and ``sort``,
+and exclusion projections, ``find_one`` with pymongo's positional projection and ``sort``,
 upsert with ``$setOnInsert``, ``$push`` with ``$each``/``$slice``, ``$unset``,
 ``update_many``, ``delete_many``, ``bulk_write`` of ``ReplaceOne``, counting, and
 the matched/modified/upserted/deleted counts and ``inserted_id`` the callers
@@ -135,6 +135,17 @@ def _include_paths(doc, paths):
     return out
 
 
+def _exclude_paths(doc, paths):
+    """החרגה כמו במונגו, כולל נתיב עם נקודה: ``{"b.y": 0}`` מסיר רק את ``y`` מתוך ``b``.
+
+    עותק ולא שינוי במקום: ``find_one_and_update`` מעביר לכאן את המסמך השמור עצמו.
+    """
+    out = copy.deepcopy(doc)
+    for path in paths:
+        _unset_path(out, path)
+    return out
+
+
 def _unsupported(kind: str, names) -> NotImplementedError:
     return NotImplementedError(
         f"tests/_fake_mongo.py does not implement the {kind} {sorted(names)}; "
@@ -216,16 +227,40 @@ class FakeCollection:
 
     @staticmethod
     def _project(docs, projection):
-        if projection:
-            # Inclusion projections only — that is all this repo's queries use.
-            # Honouring it matters: a caller that reads a field it did not ask
-            # for passes against a fake that ignores projection and fails for
-            # real.
-            keep = {str(f) for f, on in projection.items() if on}
-            if keep:
+        """Mongo's two projection shapes: inclusion (``{"a": 1}``) and exclusion (``{"code": 0}``).
+
+        Honouring both matters: a caller that reads a field it did not ask for —
+        or a field it asked away — passes against a fake that ignores the
+        projection and fails for real. Until this was added the fake ignored
+        exclusion, so ``{"code": 0}`` still returned ``code``: the public share
+        page read its document without ``code`` and showed shares made by the
+        bot as an empty page in production (#2235), while every test of it
+        against this fake saw the full content.
+
+        Measured against ``mongod`` 7.0.14 locally, and the same ``$project``
+        against the production cluster (8.0): ``_id`` comes back unless it is
+        asked away (``{"a": 1, "_id": 0}`` → ``{"a": 1}``), and mixing an
+        inclusion with an exclusion of any other field is rejected —
+        ``OperationFailure`` 31254, "Cannot do exclusion on field code in
+        inclusion projection".
+        """
+        if not projection:
+            return docs
+        keep = {str(f) for f, on in projection.items() if on}
+        drop = {str(f) for f, on in projection.items() if not on}
+        if keep:
+            mixed = sorted(drop - {"_id"})
+            if mixed:
+                from pymongo.errors import OperationFailure
+
+                raise OperationFailure(
+                    f"Cannot do exclusion on field {mixed[0]} in inclusion projection",
+                    code=31254,
+                )
+            if "_id" not in drop:
                 keep.add("_id")
-                docs = [_include_paths(d, keep) for d in docs]
-        return docs
+            return [_include_paths(d, keep) for d in docs]
+        return [_exclude_paths(d, drop) for d in docs]
 
     def find(self, q, projection=None, *a, **k):
         docs = [copy.deepcopy(d) for d in self.docs if self._match(d, q)]
