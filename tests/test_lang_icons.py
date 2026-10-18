@@ -392,6 +392,19 @@ def test_all_sizes_are_sane():
         assert f'width="{px}"' in str(lang_icon("python", px))
 
 
+LANG_ICONS_DOC = Path(__file__).resolve().parent.parent / "docs" / "webapp" / "language-icons.rst"
+
+
+def test_sizes_table_in_docs_matches_the_code():
+    """טבלת הגדלים ב-``language-icons.rst`` היא עותק של ``LANG_ICON_SIZES``, ולכן נגזרת ממנו ומושווית.
+
+    בלי ההשוואה, גודל שמשתנה או נוסף בקוד משאיר את הטבלה מאחור, והיא ממשיכה להיראות סמכותית.
+    """
+    rows = re.findall(r"^   \* - ``([a-z_]+)``\n     - (\d+)px$", LANG_ICONS_DOC.read_text(encoding="utf-8"), re.M)
+    assert len(rows) == len(LANG_ICON_SIZES), rows
+    assert dict((name, int(px)) for name, px in rows) == LANG_ICON_SIZES
+
+
 # ---------------------------------------------------------------- טיימליין הפעילות
 
 def test_both_timeline_paths_build_file_icons_identically():

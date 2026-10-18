@@ -11322,6 +11322,7 @@ LANG_ICON_SIZES = {
     'timeline': 28,   # אירועי קבצים בטיימליין הפעילות
     'search': 28,     # תוצאות החיפוש הגלובלי
     'compact': 22,    # ספריית הסניפטים
+    'feature_card': 48,  # כרטיסי היכולות בעמוד הבית
 }
 
 # שמות נרדפים שחולקים אייקון עם שפה אחרת — חוסך ציור אייקון כפול
@@ -11557,7 +11558,7 @@ def index_head():
     """בדיקת דופק קלה ל-HEAD / בלי IO/Template.
 
     חשוב: Flask ממפה HEAD אוטומטית ל-GET ולכן בלי מסלול ייעודי היינו מריצים
-    את `index()` (כולל קריאת uptime חיצונית) גם עבור בדיקות דופק/Health.
+    את `index()` (כולל רינדור התבנית) גם עבור בדיקות דופק/Health.
     """
     return Response(status=200)
 
@@ -11566,18 +11567,11 @@ def index_head():
 @_limiter_exempt()
 def index():
     """דף הבית"""
-    # Try resolve external uptime (non-blocking semantics: short timeout + cache inside helper)
-    uptime_summary: Optional[Dict[str, Any]] = None
-    try:
-        uptime_summary = fetch_external_uptime()
-    except Exception:
-        uptime_summary = None
     return render_template(
         'index.html',
         bot_username=BOT_USERNAME_CLEAN,
         logged_in=('user_id' in session),
         user=session.get('user_data', {}),
-        uptime=uptime_summary,
     )
 
 
