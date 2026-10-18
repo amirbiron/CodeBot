@@ -46,7 +46,7 @@ from urllib.parse import unquote, urlsplit
 import pytest
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _browser_harness import WAIT_S, Touch, poll, tap_on
+from _browser_harness import WAIT_S, Touch, poll, tap_on, top_note_in_overlap
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
@@ -619,3 +619,79 @@ def test_the_id_button_copies_the_id_of_a_repo_note(admin_live_server, chromium_
         poll(page, f"""() => document.querySelector('.sticky-note[data-note-id="{nid}"] .sticky-note-copy-id')
                                  .classList.contains('is-copy-done')""", "חיווי ההצלחה על כפתור המזהה")
         assert page.evaluate("() => navigator.clipboard.readText()") == nid
+
+
+# -------------------------------------------------------------------------
+# קדמת הערימה: נגיעה בפתק מעלה אותו מעל שכניו
+# -------------------------------------------------------------------------
+#
+# A מכסה חלק מ-B: הוא מגיע אחריו ברשימה, ולכן מצויר אחריו. נגיעה בחלק הגלוי של B — בתוכן,
+# או בכותרת בתחילת גרירה — מעלה אותו מעל A (``_raiseToFront``). "מעל" נמדד במה שהדפדפן מוצא
+# באמצע החפיפה (``top_note_in_overlap``), ולא ב-``z-index``.
+#
+# **כל נגיעה נבדקת במגע ובעכבר.** ההעלאה מאזינה ל-``pointerdown``, שהוא אחד לשניהם, אבל
+# הגרירה מאזינה ל-``touchstart`` ול-``mousedown`` וקוראת ל-``preventDefault`` על שניהם —
+# והטענה שההעלאה עוברת בשניהם היא טענה על שני מקרים, ולכן נבדקת בשניהם. עכבר בהקשר של
+# טאבלט אינו מלאכותי: גם לטאבלט מחברים משטח מגע.
+
+
+def covered_pair():
+    """B, ומעליו A — שני פתקים שהחפיפה ביניהם משאירה מ-B את הצד השמאלי גלוי."""
+    return FakeRepoApi(CODE_PATH, code_file(200), [repo_note("b", x=40, y=100), repo_note("a", x=200, y=160)])
+
+
+@pytest.mark.parametrize("pointer", ["touch", "mouse"])
+def test_pressing_the_visible_content_of_a_covered_note_raises_it(admin_live_server, chromium_executable, pointer):
+    """לחיצה על החלק הגלוי של התוכן של B מעלה אותו מעל A — והלחיצה ממשיכה לעריכה: המאזין שמעלה
+    שקט, ואינו עוצר אותה. לפני התיקון לחיצה לא העלתה פתק, ו-A נשאר מעל B."""
+    with repo_page(admin_live_server, chromium_executable, covered_pair(), LANDSCAPE) as (page, touch):
+        page.wait_for_selector('.sticky-note[data-note-id="a"]', state="visible", timeout=20000)
+        settle(page)
+        assert top_note_in_overlap(page, "a", "b")["top"] == "a", "בקרה: A, שנטען אחרי B, אינו מעליו"
+
+        content = '.sticky-note[data-note-id="b"] .sticky-note-content'
+        if pointer == "touch":
+            tap_on(page, touch, content)
+        else:
+            page.locator(content).click()
+
+        res = top_note_in_overlap(page, "a", "b")
+        assert res["top"] == "b", f"{pointer}: B לא עלה מעל A אחרי לחיצה על התוכן שלו — {res}"
+        assert page.evaluate(f"() => document.activeElement === document.querySelector('{content}')"), (
+            f"{pointer}: הלחיצה לא נכנסה לעריכה של B")
+
+
+@pytest.mark.parametrize("pointer", ["touch", "mouse"])
+def test_starting_to_drag_a_covered_note_raises_it(admin_live_server, chromium_executable, pointer):
+    """כבר בתחילת הגרירה של B, כשהאצבע או כפתור העכבר עוד לחוצים, B מעל A — כלומר רואים את מה
+    שגוררים. והגרירה עצמה ממשיכה: אחרי השחרור B זז בדיוק כמו המצביע. לפני התיקון B נגרר מתחת ל-A."""
+    with repo_page(admin_live_server, chromium_executable, covered_pair(), LANDSCAPE) as (page, touch):
+        page.wait_for_selector('.sticky-note[data-note-id="a"]', state="visible", timeout=20000)
+        settle(page)
+        assert top_note_in_overlap(page, "a", "b")["top"] == "a", "בקרה: A, שנטען אחרי B, אינו מעליו"
+
+        x, y = header_point(page, "b")
+        before = note_box(page, "b")
+        # ארבעה צעדים של 10px: הראשון כבר עובר את ``LONG_PRESS_SLOP_PX``, ולכן זו גרירה ולא
+        # לחיצה ממושכת (שהייתה מחליפה את מצב הנעיצה).
+        steps = [(x, y + 10 * i) for i in range(1, 5)]
+        if pointer == "touch":
+            touch.start(x, y)
+            for px, py in steps:
+                touch.move(px, py)
+        else:
+            page.mouse.move(x, y)
+            page.mouse.down()
+            for px, py in steps:
+                page.mouse.move(px, py)
+        during = top_note_in_overlap(page, "a", "b")
+        if pointer == "touch":
+            touch.end()
+        else:
+            page.mouse.up()
+        settle(page)
+
+        assert during["top"] == "b", f"{pointer}: B נגרר מתחת ל-A — {during}"
+        after = note_box(page, "b")
+        assert abs(after["top"] - before["top"] - 40) <= 1, (
+            f"{pointer}: הגרירה עצמה לא הזיזה את B כמו האצבע: {before['top']} ← {after['top']}")

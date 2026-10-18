@@ -37,7 +37,7 @@ import pytest
 from bson import ObjectId
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _browser_harness import WAIT_S, poll
+from _browser_harness import WAIT_S, poll, top_note_in_overlap
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
@@ -1297,6 +1297,42 @@ def test_text_in_the_panel_is_readable(wired_mongo, admin_live_server, chromium_
         assert expected in names, (expected, sorted(names))
     low = [(name, value) for name, value in measured if value < 4.5]
     assert low == [], f"טקסט מתחת ל-4.5:1: {low}"
+
+
+# --- קדמת הערימה ----------------------------------------------------------------------
+
+
+def test_a_new_note_opens_above_a_note_with_an_open_thread(wired_mongo, admin_live_server, chromium_executable):
+    """פתיחת שרשור מעלה את הפתק שלו לקדמת הערימה (``_openThread``), ופתק שנוצר אחרי זה נפתח
+    **מעליו**: הוא הפתק האחרון שנוצר. לפני התיקון ``createNote`` לא העלה את הפתק החדש — הוא נכנס
+    אחרון ל-DOM, וזה מספיק רק מול פתקים שלא הועלו — ולכן נפתח מתחת לפתק שהשרשור שלו פתוח.
+
+    "מעליו" נמדד במה שהדפדפן מוצא באמצע החפיפה (``top_note_in_overlap``), ולא ב-``z-index``.
+    החלונית נשארת פתוחה בכוונה, כי זה התרחיש. היא ילד של A, ולכן כשהיא מה שמצויר באמצע החפיפה,
+    ``top_note_in_overlap`` מחזיר את A — וזה בדיוק מה שנמדד לפני התיקון."""
+    db = wired_mongo.get_db()
+    with threads_page(admin_live_server, chromium_executable, db) as tp:
+        board = _board(tp)
+        # פתק חדש נולד במרחק קבוע מהפינה הנראית של הלוח (``_newNotePosition``). A יושב כך שהחדש,
+        # בגודל של פתק חדש במסך רחב, יחפוף אותו — והבקרה שבתוך ``top_note_in_overlap`` מוודאת.
+        a = _board_note(tp, board, x=300, y=260, w=420, h=260, content="פתק A")
+        tid = _thread(db, a, (USER, "שאלה", 10), (CC, "תשובה", 5))
+        tp.goto(f"/boards/{board}")
+        tp.wait_bubbles(a, 1)
+        tp.bubble(a, tid).click()
+        tp.wait_panel(a, "open", 2)
+        tp.page.locator(".sticky-note-fab").click()
+        b = poll(tp.page, """(a) => {
+              const ids = [...document.querySelectorAll('.sticky-note')].map((n) => n.dataset.noteId);
+              const fresh = ids.filter((id) => id !== a);
+              return fresh.length === 1 ? {ok: true, id: fresh[0]} : {ok: false, ids};
+            }""", "הפתק החדש נוצר", a)["id"]
+        tp.settle()
+
+        assert tp.panel(a)["open"], "בקרה: החלונית של A נסגרה, והתרחיש כבר אינו של שרשור פתוח"
+        res = top_note_in_overlap(tp.page, a, b)
+        assert res["top"] == b, f"הפתק החדש נפתח מתחת ל-A: {res}"
+        _assert_clean(tp)
 
 
 # --- קישור ישיר ושלושת המשטחים ------------------------------------------------------------
