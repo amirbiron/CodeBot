@@ -765,6 +765,15 @@ def favicon():
     return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/x-icon", max_age=31536000)
 
 
+@app.get("/google7bb000f75b7bf329.html")
+def google_site_verification():
+    """קובץ אימות הבעלות על האתר ב-Google Search Console (שיטת "HTML file upload") — ציבורי, בלי התחברות.
+
+    גוגל מוריד את הקובץ בלי סשן ובלי לעקוב אחרי הפניות, ודורש שהתוכן לא ישתנה. הוא גם חוזר לבדוק מדי פעם, ומחיקה של הנתיב מבטלת את האימות. מקור: https://support.google.com/webmasters/answer/9008080 (נקרא באוקטובר 2026). הנתיב והתוכן מוצמדים ב-``tests/test_google_site_verification.py``.
+    """
+    return Response("google-site-verification: google7bb000f75b7bf329.html", mimetype="text/html")
+
+
 # OpenTelemetry (best-effort, fail-open)
 try:
     from observability_otel import setup_telemetry as _setup_otel  # type: ignore
