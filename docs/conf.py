@@ -123,7 +123,11 @@ html_theme = 'sphinx_rtd_theme'
 html_theme_options = {
     'navigation_depth': 4,
     'collapse_navigation': False,
-    'sticky_navigation': True,
+    # כבוי: כשהוא דלוק, הערכה גוללת את התפריט באותו מרחק שהעמוד זז, בלי קשר לסעיפים
+    # (onScroll ב-theme.js של הגרסה הנעולה ב-docs/requirements.txt), ובעמוד ארוך התפריט
+    # מגיע לעמודים אחרים לגמרי. במקומו docs/_static/nav-follow.js גולל אותו אל הסעיף
+    # שקוראים בו, ושני המנגנונים היו מזיזים את אותו תפריט.
+    'sticky_navigation': False,
     'includehidden': True,
     'titles_only': False,
     'prev_next_buttons_location': 'both',
@@ -191,4 +195,6 @@ def setup(app):
     # חשוב: אסור להוסיף query strings ב-add_js_file (Sphinx 7+ יזרוק ThemeError).
     # Sphinx עצמו מטפל ב-cache busting לקבצים מקומיים באמצעות checksum בזמן יצירת ה-HTML.
     app.add_js_file('copy-page.js')
+    # התפריט עוקב אחרי הסעיף שקוראים בו (ראו docs/_static/nav-follow.js)
+    app.add_js_file('nav-follow.js')
 
