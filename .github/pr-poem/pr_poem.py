@@ -32,6 +32,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -97,6 +98,8 @@ _SOURCERY_RE = re.compile(r"^##[ \t]+Summary by Sourcery\b", re.MULTILINE)
 #: גדר קוד שפותחת או סוגרת בלוק (``` או ```text).
 _FENCE_RE = re.compile(r"`{3,}[\w-]*")
 _REPO_RE = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
+#: מחלקות ה-bidi של אות מימין לשמאל (עברית, ערבית) לפי ``unicodedata.bidirectional``. אות משמאל לימין היא ``L``.
+_RTL_BIDI_CLASSES = frozenset({"R", "AL"})
 
 
 class PoemError(Exception):
@@ -225,14 +228,38 @@ def tidy_poem(text: str) -> List[str]:
     return lines
 
 
+def _reads_left_to_right(line: str) -> bool:
+    """שורה שיש בה אות משמאל לימין ואין בה אף אות מימין לשמאל, כמו ``CodeKeeper forever 💫``.
+
+    בתוך ``<div dir="rtl">`` תו ניטרלי בקצה שורה כזו — אימוג'י או סימן פיסוק — מקבל את הכיוון של
+    הבלוק, ולכן ה-💫 של החתימה מוצג משמאל לטקסט ולא אחריו. שורה שיש בה עברית נשארת בכיוון של
+    הבלוק, גם כשהיא מתחילה באנגלית (``Claude Code מקבל הוראות חיבור משלו.``).
+    """
+    classes = {unicodedata.bidirectional(char) for char in line}
+    return "L" in classes and not classes & _RTL_BIDI_CLASSES
+
+
+def _line_html(line: str) -> str:
+    """שורה אחת של הפואמה, כ-HTML. שורה משמאל לימין נעטפת ב-``<span dir="ltr">``.
+
+    ``span`` ולא ``<bdi>``: ``<bdi>`` אינו ברשימת התגיות ש-sanitizer של GitHub משאיר (``html-pipeline``,
+    ``sanitization_filter.rb``), ו-``span`` ותכונת ``dir`` כן. ``dir`` עושה את ה-``span`` ל-isolate
+    (תקן HTML, "Rendering" ← "Bidirectional text": ``[dir=ltr i] { unicode-bidi: isolate; }``), ולכן
+    האימוג'י נשאר בכיוון של השורה. ולא תו שליטה בלתי נראה כמו LRM, שהיה נכנס לטקסט של התגובה
+    (``H1`` ב-amir-bug-patterns).
+    """
+    escaped = html.escape(line, quote=False)
+    return f'<span dir="ltr">{escaped}</span>' if _reads_left_to_right(line) else escaped
+
+
 def format_comment(lines: List[str]) -> str:
     """גוף התגובה: הסימון, ובלוק ``<div dir="rtl">`` שבו כל שורה נשברת ב-``<br>``.
 
     ב-Markdown של GitHub מעבר שורה רגיל אינו שובר שורה, ובלי ``dir="rtl"`` שורה שמתחילה באנגלית
     מוצגת משמאל לימין. הטקסט עובר ``html.escape``, כי בתוך בלוק HTML הוא מוצג כמו שהוא נכתב, ו-``<``
-    מהמודל היה נקרא כתגית.
+    מהמודל היה נקרא כתגית. שורה בלי עברית בכלל מקבלת כיוון משלה (``_line_html``).
     """
-    body = "<br>\n".join(html.escape(line, quote=False) for line in lines)
+    body = "<br>\n".join(_line_html(line) for line in lines)
     return f'{MARKER}\n<div dir="rtl">\n{body}\n</div>\n'
 
 

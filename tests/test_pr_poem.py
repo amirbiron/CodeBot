@@ -1,8 +1,7 @@
 """הסוכן שכותב פואמה על כל PR — ``.github/pr-poem/pr_poem.py``.
 
-הסקריפט רץ ב-GitHub Actions ואינו חבילה (בשם התיקייה יש מקף), ולכן הוא נטען כאן לפי נתיב. הוא נרשם
-ב-``sys.modules`` לפני ההרצה, כמו ש-``import`` רגיל עושה, דרך ``monkeypatch`` שמסיר אותו בסוף כל טסט
-(``load-by-path-without-import-bookkeeping`` ב-amir-bug-patterns).
+הסקריפט אינו חבילה, ולכן הוא נטען לפי נתיב, ב-``tests/_pr_poem_loader.py`` — אותו טוען שמשמש את
+``tests/test_pr_poem_rtl_browser.py``, שבודק בכרומיום את כיוון השורות.
 
 אין כאן רשת. כל קריאה בסקריפט עוברת ב-``http_json``, והטסטים של ההרצה המלאה מחליפים אותו ב-``FakeHttp``:
 דמה שעונה לפי השיטה והכתובת המלאה, ונכשלת על כל קריאה שלא ציפתה לה. כך טסט שאמור לוודא ש"לא נשלח
@@ -11,20 +10,20 @@
 
 from __future__ import annotations
 
-import importlib.util
 import io
 import json
-import sys
 import urllib.error
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
 import cmarkgfm
 import pytest
+import yaml
 from cmarkgfm.cmark import Options
 
-ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / ".github" / "pr-poem" / "pr_poem.py"
+# ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
+from _pr_poem_loader import ROOT, load_pr_poem
+
+WORKFLOW = ROOT / ".github" / "workflows" / "pr-poem.yml"
 
 REPO = "owner/repo"
 PR = 7
@@ -130,12 +129,7 @@ POEM = "כתובת MCP מצטרפת לנתיב /mcp.\nClaude Code מקבל הו�
 @pytest.fixture
 def poem(monkeypatch):
     """הסקריפט, טעון מחדש לכל טסט."""
-    spec = importlib.util.spec_from_file_location("_pr_poem_under_test", SCRIPT)
-    assert spec and spec.loader, f"לא נמצא {SCRIPT}"
-    module = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, spec.name, module)
-    spec.loader.exec_module(module)
-    return module
+    return load_pr_poem(monkeypatch)
 
 
 class FakeHttp:
@@ -361,6 +355,29 @@ def test_the_comment_has_the_marker_an_rtl_block_and_an_explicit_break_per_line(
     assert comment.splitlines()[1] == '<div dir="rtl">'
     assert "\n\n" not in comment, "שורה ריקה סוגרת את בלוק ה-HTML ב-GitHub"
     assert comment.count("<br>") == len(lines) - 1
+    assert '<span dir="ltr">CodeKeeper forever 💫</span>' in comment
+    assert comment.count("<span") == 1, "שורה שיש בה עברית קיבלה כיוון משלה"
+
+
+@pytest.mark.parametrize(
+    "line, own_direction",
+    [
+        ("CodeKeeper forever 💫", True),
+        ("Cache hit.", True),
+        ("Claude Code מקבל הוראות חיבור משלו.", False),
+        ("והקוד נשאר LTR ✨", False),
+        ("„ידע שנשאר גם אחרי שהחיבור נגמר\" — CodeKeeper", False),
+        ("مرحبا world", False),
+        ("2026 💫", False),
+    ],
+    ids=["signature", "english", "starts-english", "ends-english", "quote-signature", "arabic", "no-letters"],
+)
+def test_only_a_line_without_right_to_left_letters_gets_its_own_direction(poem, line, own_direction):
+    """שורה בלי אף אות מימין לשמאל, ועם אות משמאל לימין, נעטפת ב-``<span dir="ltr">``. כל השאר לא.
+
+    שורה בלי אותיות בכלל (מספרים ואימוג'י) נשארת בכיוון של הבלוק: אין בה כיוון משלה לשמור עליו.
+    """
+    assert (poem.format_comment([line]).count('<span dir="ltr">') == 1) is own_direction
 
 
 def test_github_s_parser_renders_the_comment_as_one_rtl_block_of_plain_lines(poem):
@@ -378,9 +395,34 @@ def test_github_s_parser_renders_the_comment_as_one_rtl_block_of_plain_lines(poe
         '<div dir="rtl">\n'
         "Claude Code מקבל הוראות חיבור משלו.<br>\n"
         "שורה עם &lt;b&gt; &amp; *כוכבית*<br>\n"
-        "CodeKeeper forever 💫\n"
+        '<span dir="ltr">CodeKeeper forever 💫</span>\n'
         "</div>\n"
     )
+
+
+# --------------------------------------------------------------------------
+# ה-workflow
+# --------------------------------------------------------------------------
+
+
+def test_the_code_that_gets_the_key_comes_from_the_default_branch():
+    """הקוד שמקבל את ``ANTHROPIC_API_KEY`` הוא תמיד הקוד של ענף ברירת המחדל, ולא של ה-PR.
+
+    את ``pr_poem.py``, את ההנחיה ואת הדוגמאות אפשר לשנות בכל PR, גם בלי ההרשאה Workflows ש-GitHub
+    דורשים לשינוי של קובץ workflow. אילו ה-checkout היה מביא את ה-PR, שינוי שלהם היה רץ עם המפתח.
+    וגם לא ``pull_request_target``: ב-fork הוא מעביר secrets וטוקן עם הרשאת כתיבה.
+    """
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    # PyYAML מממש YAML 1.1, ושם המפתח ``on`` נקרא כ-``True``.
+    triggers = workflow[True]
+    assert set(triggers) == {"pull_request", "workflow_dispatch"}
+
+    steps = workflow["jobs"]["poem"]["steps"]
+    checkouts = [i for i, step in enumerate(steps) if str(step.get("uses", "")).split("@")[0] == "actions/checkout"]
+    with_key = [i for i, step in enumerate(steps) if "ANTHROPIC_API_KEY" in (step.get("env") or {})]
+    assert len(checkouts) == 1 and len(with_key) == 1
+    assert steps[checkouts[0]]["with"]["ref"] == "${{ github.event.repository.default_branch }}"
+    assert checkouts[0] < with_key[0]
 
 
 # --------------------------------------------------------------------------

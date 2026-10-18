@@ -35,9 +35,16 @@ jobs:
       group: pr-poem-${{ github.event.pull_request.number || inputs.pr_number }}
       cancel-in-progress: false
     steps:
-      - name: Checkout
+      # הקוד שרץ כאן מקבל את ANTHROPIC_API_KEY, ולכן הוא תמיד מענף ברירת המחדל ולא מה-PR. קובץ workflow
+      # אפשר לשנות רק עם ההרשאה Workflows, אבל את pr_poem.py, prompt.md ו-examples.md משנים בכל PR
+      # עם הרשאת Contents בלבד — גם בוט או טוקן שאין להם גישה ל-workflows. מכאן ששינוי בהם חל רק
+      # אחרי המיזוג. ובכל זאת pull_request ולא pull_request_target: ב-fork הוא לא מעביר secrets ונותן
+      # טוקן לקריאה בלבד, ו-GitHub ממליצים להימנע מ-pull_request_target כשאין בו צורך (תיעוד GitHub,
+      # "Secure use reference").
+      - name: Checkout (default branch)
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
       - name: Set up Python

@@ -63,13 +63,13 @@ CI/CD Guide
 - **מה צריך להגדיר:** ה-secret ``ANTHROPIC_API_KEY``, ב-Settings ← Secrets and variables ← Actions ← Secrets. בלעדיו ההרצה מסתיימת בהצלחה עם אזהרה, ובלי פואמה. כך זה גם ב-PR של Dependabot, כי GitHub מתייחסים ל-workflow ש-Dependabot הפעיל כמו לזה של fork, ולא מעבירים לו secrets (תיעוד GitHub, "Events that trigger workflows").
 - **המודל** הוא ``DEFAULT_MODEL`` ב-``.github/pr-poem/pr_poem.py``. כדי להחליף אותו בלי לשנות קוד, מגדירים repository variable בשם ``POEM_MODEL``, באותו מסך בלשונית Variables.
 - **הרצה ידנית על PR קיים:** Actions ← PR Poem ← Run workflow, עם מספר ה-PR. הכפתור זמין רק כשה-workflow נמצא בענף ברירת המחדל (תיעוד GitHub, "Manually running a workflow"), כלומר אחרי המיזוג.
-- **ההנחיה והדוגמאות** הן ``.github/pr-poem/prompt.md`` ו-``.github/pr-poem/examples.md``, ושתיהן נשלחות למודל כמו שהן, כ-system. בתוך PR שמשנה אותן, הפואמה של אותו PR כבר נכתבת לפי הגרסה החדשה, כי ``pull_request`` מריץ את הקבצים מה-PR. כדי לראות את הבקשה שתישלח, בלי המפתח, בלי לקרוא ל-Anthropic ובלי לפרסם:
+- **ההנחיה והדוגמאות** הן ``.github/pr-poem/prompt.md`` ו-``.github/pr-poem/examples.md``, ושתיהן נשלחות למודל כמו שהן, כ-system. הן והסקריפט נלקחים תמיד מענף ברירת המחדל, ולא מה-PR (ה-``ref`` של ה-checkout ב-``pr-poem.yml``), כי הקוד שרץ שם מקבל את המפתח, ואת הקבצים האלה אפשר לשנות בכל PR — גם בלי ההרשאה ש-GitHub דורשים לשינוי של workflow. לכן PR שמשנה אותם מקבל פואמה לפי הגרסה שבענף ברירת המחדל, והשינוי חל רק אחרי המיזוג. כדי לראות את הבקשה שתישלח, בלי המפתח, בלי לקרוא ל-Anthropic ובלי לפרסם:
 
   .. code-block:: bash
 
      python .github/pr-poem/pr_poem.py --pr 3583 --repo amirbiron/CodeBot --dry-run
 
-- **הטסטים:** ``tests/test_pr_poem.py``, בלי רשת. ההרצה המלאה שם עוברת דרך דמה של ``http_json``, שנכשלת על כל קריאה שהטסט לא ציפה לה.
+- **הטסטים:** ``tests/test_pr_poem.py``, בלי רשת. ההרצה המלאה שם עוברת דרך דמה של ``http_json``, שנכשלת על כל קריאה שהטסט לא ציפה לה. כיוון השורות בתגובה נמדד בכרומיום ב-``tests/test_pr_poem_rtl_browser.py``, שמדולג כשאין Chromium, ולכן גם ב-CI.
 
 בדיקות מומלצות
 ---------------
