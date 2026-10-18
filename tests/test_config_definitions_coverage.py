@@ -44,6 +44,9 @@ ALLOWED_UNDECLARED = {
     "USERPROFILE": "משתנה מערכת של Windows, נקרא רק כ-fallback לנתיב",
     # בניית התיעוד
     "SPHINX_LANGUAGE": "נקרא ב-docs/conf.py בזמן בניית התיעוד",
+    # הסוכן שכותב פואמה על PR: רץ ב-GitHub Actions (.github/workflows/pr-poem.yml), לא בשירות Render
+    "POEM_MODEL": "repository variable של GitHub Actions, נקרא ב-.github/pr-poem/pr_poem.py",
+    "GITHUB_REPOSITORY": "משתנה ברירת מחדל של GitHub Actions, נקרא ב-.github/pr-poem/pr_poem.py",
 }
 
 
