@@ -113,7 +113,9 @@ exclude_patterns = [
 ]
 
 # The language for content
-# שפת תוכן ברירת מחדל. RTD לעיתים מגדיר EN מחוץ ל-conf; לא נכשל אם יש שונות.
+# Read the Docs מריץ את Sphinx עם -D language=<השפה שמוגדרת בדשבורד>, וזה גובר על הערך
+# כאן (readthedocs.org, readthedocs/doc_builder/backends/sphinx.py, קומיט 2b993d65), ולכן
+# שם SPHINX_LANGUAGE לא משפיע. כיוון העמוד נגזר מהשפה בפועל, ב-_set_text_direction.
 language = os.environ.get('SPHINX_LANGUAGE', 'he')
 
 # -- Options for HTML output -------------------------------------------------
@@ -163,7 +165,25 @@ latex_elements = {
 }
 
 # -- Extension configuration -------------------------------------------------
+def _set_text_direction(app, config):
+    """קובע את ``dir`` של העמוד (``text_direction`` ב-``docs/_templates/layout.html``).
+
+    רץ ב-``config-inited``, אחרי ש-Sphinx החיל את ``-D language=``, ולכן הכיוון נגזר
+    מהשפה שהבנייה רצה בה בפועל ולא מהערך שכתוב למעלה. Babel יודע לכל שפה אם היא
+    נכתבת מימין לשמאל, והוא תלות של Sphinx עצמו (``babel>=2.13`` ב-Sphinx 8.2.3),
+    כך שאין תלות חדשה. שפה שהוא לא מכיר מפילה את הבנייה (``UnknownLocaleError``).
+    מילון חדש ולא שינוי במקום, כדי לא לשנות אובייקט שמוחזק גם מחוץ ל-config.
+    """
+    from babel import Locale
+
+    config.html_context = {
+        **config.html_context,
+        'text_direction': Locale.parse(config.language).text_direction,
+    }
+
+
 def setup(app):
+    app.connect('config-inited', _set_text_direction)
     app.add_css_file('custom.css')
     # כפתור העתקת דף מלא (ראו docs/_static/copy-page.js)
     app.add_js_file('vendor/turndown.umd.js')

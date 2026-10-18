@@ -1,28 +1,56 @@
 /* Custom CSS for Code Keeper Bot Documentation */
 
-/* RTL Support for Hebrew */
-.wy-nav-content {
-    direction: rtl;
+/* כיוון האתר: dir על התגית html (docs/_templates/layout.html, לפי _set_text_direction
+   ב-docs/conf.py). הכללים כאן מתרגמים את הצדדים הקבועים של הערכה למאפיינים לוגיים,
+   כך שהם מתהפכים יחד עם העמוד ונכונים גם כשהבנייה באנגלית. מאפיין פיזי מופיע כאן רק
+   כדי לבטל את הכלל של הערכה (left: auto, margin-left: 0), ולפני המאפיין הלוגי: כששניהם
+   ממופים לאותו צד, האחרון מנצח.
+   הערכים (300px, 85%, 768px וההזחות של התפריט) הועתקו מ-theme.css של
+   sphinx-rtd-theme==3.0.2. בשדרוג הערכה מודדים אותם מחדש; tests/test_docs_rtl_layer.py
+   נכשל עד שהגרסה כאן, ב-layout.html וב-docs/requirements.txt זהה. */
+
+/* שלד: תפריט הצד ואזור התוכן */
+.wy-nav-side { left: auto; inset-inline-start: 0; }
+.wy-nav-content-wrap { margin-left: 0; margin-inline-start: 300px; }
+.rst-versions { left: auto; inset-inline-start: 0; }
+.wy-nav-top i { float: inline-start; }
+
+@media screen and (max-width: 768px) {
+    .wy-nav-side { inset-inline-start: -300px; }
+    .wy-nav-side.shift { left: auto; inset-inline-start: 0; }
+    .wy-nav-content-wrap { margin-inline-start: 0; }
+    .wy-nav-content-wrap.shift { left: auto; inset-inline-start: 85%; }
 }
 
-.rst-content {
-    direction: rtl;
-    unicode-bidi: plaintext;
-    text-align: right;
+/* בהדפסה הערכה מאפסת margin-left; בלי זה נשארים שוליים ריקים ברוחב התפריט */
+@media print {
+    .wy-nav-content-wrap { margin-inline-start: 0; }
 }
 
-.rst-content .hebrew,
-.rst-content .bidi-rtl {
-    direction: rtl;
-    unicode-bidi: plaintext;
-    text-align: right;
-}
+/* תפריט הצד (העומק עד toctree-l4 תואם ל-navigation_depth ב-conf.py) */
+.wy-menu-vertical li.current a { border-right: 0; border-inline-end: 1px solid #c9c9c9; }
+.wy-menu-vertical li.current > a, .wy-menu-vertical li.on a { border: none; }
+.wy-menu-vertical li button.toctree-expand { float: inline-start; margin-left: 0; margin-inline-start: -1.2em; }
+.wy-menu-vertical li.toctree-l2.current li.toctree-l3 > a { padding-inline-end: 1.618em; padding-inline-start: 4.045em; }
+.wy-menu-vertical li.toctree-l3.current li.toctree-l4 > a { padding-inline-end: 1.618em; padding-inline-start: 5.663em; }
 
-.rst-content .bidi-ltr {
-    direction: ltr;
-    unicode-bidi: embed;
-    text-align: left;
-}
+/* שורת המיקום וכפתורי הקודם/הבא */
+.wy-breadcrumbs > li.wy-breadcrumbs-aside { float: inline-end; }
+.rst-breadcrumbs-buttons .float-left, .rst-footer-buttons .float-left { float: inline-start; }
+.rst-breadcrumbs-buttons .float-right, .rst-footer-buttons .float-right { float: inline-end; }
+/* לחץ אין גרסה לוגית, ולכן הופכים אותו רק בעמוד מימין לשמאל.
+   transform לא חל על אלמנט inline, ולכן inline-block */
+[dir="rtl"] .rst-breadcrumbs-buttons .fa, [dir="rtl"] .rst-footer-buttons .fa { display: inline-block; transform: scaleX(-1); }
+
+/* תוכן */
+.rst-content section ul li, .rst-content section ol li,
+.rst-content .toctree-wrapper ul li, .rst-content .toctree-wrapper ol li { margin-left: 0; margin-inline-start: 24px; }
+.rst-content dl dd { margin-left: 0; margin-inline-start: 24px; }
+.rst-content blockquote { margin-left: 0; margin-inline-start: 24px; }
+.rst-content table.docutils thead th { text-align: start; }
+.rst-content .admonition-title:before { margin-right: 0; margin-inline-end: 4px; }
+.rst-content h1 .headerlink, .rst-content h2 .headerlink, .rst-content h3 .headerlink,
+.rst-content h4 .headerlink, .rst-content dl dt .headerlink { margin-left: 0; margin-inline-start: .5em; }
 
 /* Code blocks styling */
 .highlight {
@@ -98,17 +126,17 @@ table.docutils td {
 
 .admonition.note {
     background: #d1ecf1;
-    border-left: 4px solid #bee5eb;
+    border-inline-start: 4px solid #bee5eb;
 }
 
 .admonition.warning {
     background: #fff3cd;
-    border-left: 4px solid #ffeeba;
+    border-inline-start: 4px solid #ffeeba;
 }
 
 .admonition.danger {
     background: #f8d7da;
-    border-left: 4px solid #f5c6cb;
+    border-inline-start: 4px solid #f5c6cb;
 }
 
 /* Improve readability */
@@ -215,15 +243,4 @@ table.docutils td {
 #search-results .context {
     color: #666;
     font-size: 0.9em;
-}
-
-/* Mobile responsive */
-@media screen and (max-width: 768px) {
-    .wy-nav-content-wrap {
-        margin-left: 0;
-    }
-    
-    .wy-nav-side {
-        left: -300px;
-    }
 }
