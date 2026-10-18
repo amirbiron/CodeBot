@@ -1,0 +1,80 @@
+name: PR Poem
+
+# פואמה קצרה בעברית על כל PR חדש, כתגובה אחת על ה-PR. בלי ביקורת קוד.
+# הסקריפט, ההנחיה והדוגמאות ב-.github/pr-poem/, וההסבר ב-docs/ci-cd.rst (הסעיף "פואמה על PR").
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+  # הרצה ידנית על PR קיים, או הרצה חוזרת. אם כבר יש על ה-PR פואמה שלנו, ההרצה לא עושה כלום.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "מספר ה-PR"
+        required: true
+        type: number
+
+jobs:
+  poem:
+    name: "📝 PR Poem"
+    # draft מדולג: הוא יקבל פואמה ב-ready_for_review. fork מדולג: אין לו גישה ל-secrets, וגם לא
+    # מריצים כאן קוד שלו. בהרצה ידנית הסקריפט עצמו בודק fork, לפי ה-PR שהוא קורא מה-API.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # קריאת ה-PR, הקבצים והתגובות, ופרסום תגובה: "Pull requests" מספיק לכל ארבעתם (תיעוד GitHub,
+    # "Permissions required for GitHub Apps"). contents: read הוא בשביל ה-checkout.
+    permissions:
+      contents: read
+      pull-requests: write
+    # ריצה אחת בכל רגע לכל PR, כך ש-opened, ready_for_review והרצה ידנית לא יבדקו "אין פואמה"
+    # במקביל ויפרסמו שתיים. הריצה שממתינה רואה את הסימון של הקודמת ויוצאת.
+    concurrency:
+      group: pr-poem-${{ github.event.pull_request.number || inputs.pr_number }}
+      cancel-in-progress: false
+    # האם ה-GitHub App שמפרסם את התגובה מוגדר. secrets אינו זמין ב-if של צעד, ו-env כן (תיעוד GitHub,
+    # "Contexts", טבלת "Context availability"), ולכן התנאי מחושב כאן — כדגל, בלי לחשוף את הערכים עצמם
+    # לשאר הצעדים.
+    env:
+      POEM_APP_CONFIGURED: ${{ secrets.POEM_APP_ID != '' && secrets.POEM_APP_PRIVATE_KEY != '' }}
+    steps:
+      # הקוד שרץ כאן מקבל את ANTHROPIC_API_KEY, ולכן הוא תמיד מענף ברירת המחדל ולא מה-PR. קובץ workflow
+      # אפשר לשנות רק עם ההרשאה Workflows, אבל את pr_poem.py, prompt.md ו-examples.md משנים בכל PR
+      # עם הרשאת Contents בלבד — גם בוט או טוקן שאין להם גישה ל-workflows. מכאן ששינוי בהם חל רק
+      # אחרי המיזוג. ובכל זאת pull_request ולא pull_request_target: ב-fork הוא לא מעביר secrets ונותן
+      # טוקן לקריאה בלבד, ו-GitHub ממליצים להימנע מ-pull_request_target כשאין בו צורך (תיעוד GitHub,
+      # "Secure use reference").
+      - name: Checkout (default branch)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # טוקן התקנה של ה-App, כדי שהתגובה תתפרסם בשמו ולא בשם github-actions. בלי owner ו-repositories
+      # הטוקן מוגבל לריפו הזה. app-id ולא client-id, כי זה ה-secret שמוגדר; ב-v3 הוא מתקבל ומסומן
+      # deprecated (README של actions/create-github-app-token, "Inputs"). כשל כאן מכשיל את הג'וב — אין
+      # נפילה ל-GITHUB_TOKEN על כשל, רק על App שלא הוגדר.
+      - name: Create GitHub App token
+        id: app-token
+        if: env.POEM_APP_CONFIGURED == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.POEM_APP_ID }}
+          private-key: ${{ secrets.POEM_APP_PRIVATE_KEY }}
+
+      - name: Write the poem
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # ריק כשהצעד הקודם דולג; אז הסקריפט מזהיר ומפרסם עם GITHUB_TOKEN.
+          POEM_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          POEM_MODEL: ${{ vars.POEM_MODEL }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        run: python .github/pr-poem/pr_poem.py --pr "$PR_NUMBER"
