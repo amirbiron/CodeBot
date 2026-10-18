@@ -1,5 +1,7 @@
 import types
 
+import pytest
+
 
 class FakeUsersCollection:
     def __init__(self):
@@ -33,7 +35,8 @@ class FakeUsersCollection:
             _set_dotted(doc, key, value)
         return types.SimpleNamespace(acknowledged=True)
 
-    def find_one(self, query):
+    def find_one(self, query, projection=None, *args, **kwargs):
+        """חתימה כמו של ``Collection.find_one`` ב-pymongo, כדי שקורא שמעביר היטלה לא ייפול כאן."""
         return self.docs.get(query.get('user_id'))
 
 
@@ -73,28 +76,39 @@ def _stub_cache():
     return _Cache()
 
 
-def test_welcome_ack_sets_flag(monkeypatch):
+def test_a_new_users_page_carries_no_onboarding_layer(monkeypatch):
+    """משתמש חדש מקבל עמוד בלי מודאל פתיחה, בלי אשף ערכות ובלי Driver.js.
+
+    המשתמש כאן הוא בדיוק מה ש-``save_user`` יצר עד הסרת ה-Onboarding: מסמך עם
+    ``has_seen_welcome_modal: False``. על הקוד הקודם כל עמוד שיורש מ-``base.html``
+    נשא את שלוש השכבות, והמודאל חסם קליקים עד שנסגר.
+
+    הטסט רץ בשרת ולא בדפדפן בכוונה: ב-CI לא מותקן דפדפן (ראו
+    ``chromium_executable`` ב-``tests/conftest.py``), ולכן טסטי הדפדפן מדולגים שם
+    ולא היו תופסים חזרה של אחת השכבות.
+    """
     import webapp.app as app_mod
 
     fake_users = FakeUsersCollection()
+    fake_users.docs[42] = {'user_id': 42, 'has_seen_welcome_modal': False}
     fake_db = types.SimpleNamespace(users=fake_users)
 
     monkeypatch.setattr(app_mod, 'get_db', lambda: fake_db)
-    monkeypatch.setattr(app_mod, 'cache', _stub_cache())
 
     app_mod.app.testing = True
     with app_mod.app.test_client() as client:
         with client.session_transaction() as sess:
-            sess['user_id'] = 123
-            sess['user_data'] = {}
-        resp = client.post('/api/welcome/ack')
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data and data['ok'] is True
-        stored = fake_users.docs[123]
-        assert stored['has_seen_welcome_modal'] is True
-        with client.session_transaction() as sess:
-            assert sess['user_data']['has_seen_welcome_modal'] is True
+            sess['user_id'] = 42
+            sess['user_data'] = {'id': 42}
+        resp = client.get('/privacy')
+
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    # בקרה: העמוד נבנה למשתמש מחובר, כלומר המסלול שבו המודאל הופיע.
+    assert 'href="/files"' in html
+    markers = ('id="welcomeModal"', '/api/welcome/ack', 'id="themeWizard"', 'driver.js', 'codekeeper_walkthrough_v1')
+    for marker in markers:
+        assert marker not in html, f"שכבת Onboarding חזרה לעמוד: {marker}"
 
 
 def test_save_shared_file_creates_snippet(monkeypatch):
@@ -165,7 +179,21 @@ def test_builtin_welcome_share_uses_user_guide(monkeypatch, tmp_path):
         app_mod._load_user_guide_markdown.cache_clear()
 
 
-def test_ui_prefs_onboarding_flags(monkeypatch):
+@pytest.mark.parametrize(
+    'onboarding',
+    [
+        {'walkthrough_v1_seen': True, 'theme_wizard_seen': True},
+        'not-an-object',
+    ],
+    ids=['flags', 'malformed'],
+)
+def test_ui_prefs_ignores_the_removed_onboarding_key(monkeypatch, onboarding):
+    """טאב שנטען לפני הסרת ה-Onboarding עדיין שולח ``onboarding`` ל-``/api/ui_prefs``.
+
+    הוא מקבל 200 בלי שגיאה, ושום דבר לא נכתב — לפי הכלל שב-docstring של
+    ``api_ui_prefs``: מפתח שאינו מטופל שם במפורש אינו נשמר. על הקוד הקודם
+    הדגלים נכתבו ל-``ui_prefs.onboarding``, וערך שאינו אובייקט קיבל 400.
+    """
     import webapp.app as app_mod
 
     fake_users = FakeUsersCollection()
@@ -179,16 +207,10 @@ def test_ui_prefs_onboarding_flags(monkeypatch):
             sess['user_id'] = 55
             sess['user_data'] = {}
 
-        resp = client.post(
-            '/api/ui_prefs',
-            json={'onboarding': {'walkthrough_v1_seen': True, 'theme_wizard_seen': True}},
-        )
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data and data['ok'] is True
-        assert data['onboarding']['walkthrough_v1_seen'] is True
-        assert data['onboarding']['theme_wizard_seen'] is True
+        resp = client.post('/api/ui_prefs', json={'onboarding': onboarding})
 
-        stored = fake_users.docs[55]
-        assert stored['ui_prefs']['onboarding']['walkthrough_v1_seen'] is True
-        assert stored['ui_prefs']['onboarding']['theme_wizard_seen'] is True
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data and data['ok'] is True
+    assert 'onboarding' not in data
+    assert 55 not in fake_users.docs, f"נכתב מסמך משתמש: {fake_users.docs.get(55)!r}"

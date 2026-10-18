@@ -118,7 +118,6 @@
 - `docs/webapp/code-browser.rst` — **דפדפן קוד (Code Browser)**: ייבוא ריפו מ-GitHub לדפדפן הקוד וסנכרון אוטומטי שלו דרך webhook, תצוגת ה-Markdown של קבצים — הספריות שלה והעיצוב המשותף עם כרטיסי החיפוש בתיעוד — ולמה הקובץ מוצג בדיוק כמו בריפו, ומי רשאי לראות אותו.
 - `docs/webapp/user-interfaces.rst` — **ממשקי משתמשים (Web)**: אוסף המסכים והתהליכים האינטראקטיביים ב-WebApp, איפה כל אחד נמצא, ומה הוא עושה.
 - `docs/webapp/snippet-library.rst` — **ספריית סניפטים (Web)**: גלריית קטעי קוד קצרים עם הדגשת תחביר, מאפייני ה-UI, והפעולות שאפשר לבצע עליה.
-- `docs/webapp/onboarding.md` — **🧭 WebApp Onboarding – Welcome Modal, Interactive Tour & Theme Wizard**: תהליך ה-Onboarding ב-WebApp: Welcome Modal, סיור אינטראקטיבי מבוסס Driver.js, ואשף בחירת ערכת הנושא — כולל מנגנוני האיפוס והנקודות למפתחים.
 - `docs/webapp/caching.rst` — **Caching & HTTP Validators (ETag / Last-Modified / 304)**: להקטין רוחב‑פס וזמני תגובה: אם התוכן לא השתנה, נחזיר 304 Not Modified במקום גוף מלא. כך דפדפנים ולקוחות יכולים להשתמש במטמון מקומי בצורה בטוחה ויעילה.
 - `docs/webapp/advanced-caching.md` — **מערכת Caching מתקדמת עם TTL דינמי**: מסמך זה מרכז את ההמלצות והדוגמאות להטמעת מערכת caching חכמה עם TTL דינמי, כפי שגובש ב-Feature Suggestion. המטרה: שיפור מהיר של זמני תגובה, הורדת עומסים על DB, ושימור עקביות בין שרתים.
 - `docs/webapp/cache-inspector.rst` — **Cache Inspector (לוח בקרה של Redis)**: כלי אדמין לצפייה ולניהול של ה-Redis cache: סטטיסטיקות כלליות, חיפוש מפתחות, הצגת TTL וסטטוס, ומחיקה בטוחה של מפתחות.
@@ -196,4 +195,4 @@
 
 ---
 
-עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 232.
+עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 231.

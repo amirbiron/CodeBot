@@ -7252,7 +7252,6 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                                     "last_name": user_doc.get("last_name", "") if isinstance(user_doc, dict) else "",
                                     "username": user_doc.get("username", "") if isinstance(user_doc, dict) else "",
                                     "photo_url": user_doc.get("photo_url", "") if isinstance(user_doc, dict) else "",
-                                    "has_seen_welcome_modal": bool((user_doc or {}).get("has_seen_welcome_modal", False)) if isinstance(user_doc, dict) else False,
                                 }
 
                                 # רינדור בתוך request context כדי שה-endpoint יפעל כמו בייצור
@@ -7310,7 +7309,6 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                                     "last_name": user_doc.get("last_name", "") if isinstance(user_doc, dict) else "",
                                     "username": user_doc.get("username", "") if isinstance(user_doc, dict) else "",
                                     "photo_url": user_doc.get("photo_url", "") if isinstance(user_doc, dict) else "",
-                                    "has_seen_welcome_modal": bool((user_doc or {}).get("has_seen_welcome_modal", False)) if isinstance(user_doc, dict) else False,
                                 }
 
                                 # 1) /api/collections?limit=100&skip=0 (משמש ב-base.html לניווט לשולחן עבודה)

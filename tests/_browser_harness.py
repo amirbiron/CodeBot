@@ -137,11 +137,6 @@ def top_note_in_overlap(page, a: str, b: str) -> dict:
     return res
 
 
-#: מה שכל עמוד צריך לפני הטעינה: מודאל הפתיחה וסיור ההיכרות לא קופצים, כמו אצל
-#: משתמש שכבר ראה אותם.
-_SEEN_ONBOARDING = {"welcomeModalSeen": "1", "onboarding_completed": "1"}
-
-
 def open_admin_page(browser, server, path: str, *, viewport: dict, local_storage: dict | None = None):
     """עמוד אמיתי של אדמין במגע של טאבלט, בדפדפן ש**כבר** הורם. מחזיר ``(page, Touch)``.
 
@@ -158,17 +153,13 @@ def open_admin_page(browser, server, path: str, *, viewport: dict, local_storage
         "domain": "127.0.0.1", "path": "/",
     }])
     page = context.new_page()
-    seed = {**_SEEN_ONBOARDING, **(local_storage or {})}
-    page.add_init_script(
-        "try{" + "".join(f"localStorage.setItem({json.dumps(k)},{json.dumps(v)});" for k, v in seed.items())
-        + "}catch(e){}"
-    )
+    if local_storage:
+        page.add_init_script(
+            "try{"
+            + "".join(f"localStorage.setItem({json.dumps(k)},{json.dumps(v)});" for k, v in local_storage.items())
+            + "}catch(e){}"
+        )
     page.route("**/*", lambda route: route.abort()
                if urlsplit(route.request.url).hostname != "127.0.0.1" else route.continue_())
     page.goto(f"{server.base_url}{path}", wait_until="load")
-    # מודאל הפתיחה מכסה את העמוד ובולע נגיעות.
-    page.evaluate(
-        "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
-        " #welcomeModal').forEach(e => e.remove())"
-    )
     return page, Touch(context.new_cdp_session(page))

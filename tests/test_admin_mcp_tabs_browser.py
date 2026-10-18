@@ -349,11 +349,7 @@ def _browser_page(live_server, local_storage=None, viewport=None, query="", init
             "domain": "127.0.0.1", "path": "/",
         }])
         page = context.new_page()
-        # מודאל ה-onboarding של הוובאפ נפתח למשתמש חדש וחוסם קליקים
-        setup = (
-            "try{localStorage.setItem('welcomeModalSeen','1');"
-            "localStorage.setItem('onboarding_completed','1');"
-        )
+        setup = "try{"
         if local_storage is not None:
             setup += f"localStorage.setItem('mcpFailuresLastSeenAt','{local_storage}');"
         else:
@@ -364,10 +360,6 @@ def _browser_page(live_server, local_storage=None, viewport=None, query="", init
             page.add_init_script(init_script)
         page.goto(f"{base_url}/admin/mcp{query}", wait_until="domcontentloaded")
         page.wait_for_timeout(400)
-        page.evaluate(
-            "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
-            ".forEach(e => e.remove())"
-        )
         yield page
     finally:
         if browser is not None:
@@ -523,19 +515,11 @@ def test_an_intent_that_looks_like_markup_is_never_a_live_element(live_server):
             "domain": "127.0.0.1", "path": "/",
         }])
         p = context.new_page()
-        p.add_init_script(
-            "try{localStorage.setItem('welcomeModalSeen','1');"
-            "localStorage.setItem('onboarding_completed','1');}catch(e){}"
-        )
         # ``_hostile_intent`` מחליף את הכוונה בשרת לפני הרינדור, ולכן מה
         # שנבדק הוא הפלט האמיתי של Jinja ולא ערך שהטסט שתל ב-DOM אחרי כן.
         with _hostile_intent(hostile):
             p.goto(f"{base_url}/admin/mcp", wait_until="domcontentloaded")
         p.wait_for_timeout(400)
-        p.evaluate(
-            "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
-            ".forEach(e => e.remove())"
-        )
         try:
             p.click('button.mcp-tab[data-panel="navigation"]')
             p.wait_for_timeout(150)

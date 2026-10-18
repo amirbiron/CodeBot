@@ -165,12 +165,6 @@ Endpoints
      - ✅
      - אין גוף. שרשור פתוח ← ``409 not_resolved``
      - כמו ביצירה, עם ``"action": "reopened"``
-   * - ``/api/welcome/ack``
-     - POST
-     - סימון הדגל ``has_seen_welcome_modal`` והסתרת מודאל ה־Welcome לצמיתות
-     - ✅
-     - -
-     - ``{"ok": true}``
    * - ``/api/shared/save``
      - POST
      - שמירת שיתוף פנימי כקובץ Markdown תחת חשבון המשתמש

@@ -102,10 +102,6 @@ def dashboard(admin_live_server, chromium_executable, stub_profiler_api):
                 "name": "session", "value": session_cookie, "domain": "127.0.0.1", "path": "/",
             }])
             page = context.new_page()
-            page.add_init_script(
-                "try{localStorage.setItem('welcomeModalSeen','1');"
-                "localStorage.setItem('onboarding_completed','1');}catch(e){}"
-            )
             # היירוט הכללי **ראשון**; הראוטים הספציפיים שאחריו מנצחים אותו
             # (playwright מכניס כל ראוט חדש לראש הרשימה).
             stub_profiler_api(page)
@@ -125,10 +121,6 @@ def dashboard(admin_live_server, chromium_executable, stub_profiler_api):
             page.route("**/api/profiler/recommendations", _capture)
             page.goto(f"{base_url}/admin/profiler", wait_until="domcontentloaded")
             page.wait_for_selector("#slow-queries-table tbody tr", timeout=10000)
-            page.evaluate(
-                "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
-                ".forEach(e => e.remove())"
-            )
             yield page, sent
 
 

@@ -87,10 +87,6 @@ def _open_dashboard(admin_live_server, chromium_executable, stub_profiler_api, s
                 "domain": "127.0.0.1", "path": "/",
             }])
             page = context.new_page()
-            page.add_init_script(
-                "try{localStorage.setItem('welcomeModalSeen','1');"
-                "localStorage.setItem('onboarding_completed','1');}catch(e){}"
-            )
             stub_profiler_api(page)
 
             page.route("**/api/profiler/summary*", lambda r: r.fulfill(
@@ -101,10 +97,6 @@ def _open_dashboard(admin_live_server, chromium_executable, stub_profiler_api, s
 
             page.goto(f"{admin_live_server.base_url}/admin/profiler", wait_until="domcontentloaded")
             page.wait_for_selector("#slow-queries-table tbody tr", timeout=10000)
-            page.evaluate(
-                "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
-                ".forEach(e => e.remove())"
-            )
             yield page
 
 

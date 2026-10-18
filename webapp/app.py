@@ -1204,9 +1204,9 @@ MARKDOWN_IMAGE_LIMIT = _env_int('MARKDOWN_IMAGE_LIMIT', 6)
 MARKDOWN_IMAGE_MAX_BYTES = _env_int('MARKDOWN_IMAGE_MAX_BYTES', 2 * 1024 * 1024)
 ALLOWED_MARKDOWN_IMAGE_TYPES = {'image/png', 'image/jpeg', 'image/webp', 'image/gif'}
 
-# מזהי המדריכים המשותפים לזרימת ה-Onboarding בווב
-# הערכים ההיסטוריים נשמרים כאליאסים כדי שקישורים ישנים ימשיכו לעבוד – בפועל נטען את המדריך
-# המעודכן מקובץ USER_GUIDE.md בכל בקשה.
+# מזהי השיתוף של מדריך המשתמש (``/share/welcome``). פעם מודאל הפתיחה קישר אליהם,
+# וקישורים שכבר נשלחו ממשיכים להפנות לכאן. הערכים ההיסטוריים נשמרים כאליאסים מאותה
+# סיבה – בפועל נטען את המדריך המעודכן מקובץ USER_GUIDE.md בכל בקשה.
 WELCOME_GUIDE_PRIMARY_SHARE_ID = "welcome"
 WELCOME_GUIDE_SECONDARY_SHARE_ID = "welcome-quickstart"
 WELCOME_GUIDE_SHARE_ALIASES = {
@@ -2168,11 +2168,9 @@ def inject_globals():
     except Exception:
         theme = "classic"
     theme_scope = _normalize_theme_scope(request.cookies.get('ui_theme_scope'))
-    cookie_theme = ''
     use_cookie_theme = False
     theme_raw = ''
     try:
-        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
         theme_raw, theme_scope, use_cookie_theme, _ = _resolve_theme_raw_token(
             user_id,
             user_doc=user_doc,
@@ -2292,45 +2290,6 @@ def inject_globals():
         theme = 'classic'
         theme_type = "builtin"
 
-    show_welcome_modal = False
-    if user_id:
-        # אם אין user_doc (למשל כשל זמני ב-DB) נ fallback לסשן כדי לא לחסום משתמשים חדשים
-        if user_doc:
-            show_welcome_modal = not bool(user_doc.get('has_seen_welcome_modal'))
-        else:
-            try:
-                show_welcome_modal = not bool(session.get('user_data', {}).get('has_seen_welcome_modal', False))
-            except Exception:
-                show_welcome_modal = False
-
-    # Onboarding flags (persisted in DB under ui_prefs.onboarding.*)
-    ui_prefs = (user_doc.get('ui_prefs') or {}) if isinstance(user_doc, dict) else {}
-    ui_theme_pref_set = False
-    try:
-        ui_theme_pref_set = bool((ui_prefs.get('theme') or '').strip())
-    except Exception:
-        ui_theme_pref_set = False
-    if not ui_theme_pref_set and theme_scope == THEME_SCOPE_DEVICE:
-        try:
-            ui_theme_pref_set = bool((cookie_theme or '').strip())
-        except Exception:
-            ui_theme_pref_set = False
-
-    onboarding = ui_prefs.get('onboarding') if isinstance(ui_prefs, dict) else None
-    if not isinstance(onboarding, dict):
-        onboarding = {}
-
-    onboarding_walkthrough_v1_seen = False
-    onboarding_theme_wizard_seen = False
-    try:
-        onboarding_walkthrough_v1_seen = bool(onboarding.get('walkthrough_v1_seen', False))
-    except Exception:
-        onboarding_walkthrough_v1_seen = False
-    try:
-        onboarding_theme_wizard_seen = bool(onboarding.get('theme_wizard_seen', False))
-    except Exception:
-        onboarding_theme_wizard_seen = False
-
     # SRI map (optional): only set if provided via env to avoid mismatches
     sri_map = {}
     try:
@@ -2338,13 +2297,6 @@ def inject_globals():
             sri_map['fa'] = FA_SRI_HASH
     except Exception:
         sri_map = {}
-
-    try:
-        primary_guide_url = url_for('public_share', share_id=WELCOME_GUIDE_PRIMARY_SHARE_ID, view='md')
-        secondary_guide_url = url_for('public_share', share_id=WELCOME_GUIDE_SECONDARY_SHARE_ID, view='md')
-    except Exception:
-        primary_guide_url = f"/share/{WELCOME_GUIDE_PRIMARY_SHARE_ID}?view=md"
-        secondary_guide_url = f"/share/{WELCOME_GUIDE_SECONDARY_SHARE_ID}?view=md"
 
     # Bust static cache optionally per-request (for debugging/force-refresh)
     try:
@@ -2424,14 +2376,6 @@ def inject_globals():
         'uptime_widget_id': UPTIME_WIDGET_ID,
         # SRI hashes for CDN assets (optional; provided via env)
         'cdn_sri': sri_map if sri_map else None,
-        # Welcome modal config
-        'show_welcome_modal': show_welcome_modal,
-        'welcome_primary_guide_url': primary_guide_url,
-        'welcome_secondary_guide_url': secondary_guide_url,
-        # Onboarding (server persisted)
-        'ui_theme_pref_set': ui_theme_pref_set,
-        'onboarding_walkthrough_v1_seen': onboarding_walkthrough_v1_seen,
-        'onboarding_theme_wizard_seen': onboarding_theme_wizard_seen,
     }
 
     
@@ -4412,7 +4356,6 @@ def try_persistent_login():
             'last_name': user.get('last_name', ''),
             'username': user.get('username', ''),
             'photo_url': '',
-            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False)),
             'is_admin': is_admin(user_id),
             'is_premium': is_premium(user_id),
         }
@@ -11699,17 +11642,12 @@ def _legacy_telegram_auth():
     
     # שמירת נתוני המשתמש בסשן
     user_id = int(auth_data['id'])
-    user_doc: Dict[str, Any] = {}
     try:
         db = get_db()
     except Exception:
         db = None
     now_utc = datetime.now(timezone.utc)
     if db is not None:
-        try:
-            user_doc = db.users.find_one({'user_id': user_id}) or {}
-        except Exception:
-            user_doc = {}
         try:
             db.users.update_one(
                 {'user_id': user_id},
@@ -11724,7 +11662,6 @@ def _legacy_telegram_auth():
                     },
                     '$setOnInsert': {
                         'created_at': now_utc,
-                        'has_seen_welcome_modal': False,
                     },
                 },
                 upsert=True,
@@ -11743,7 +11680,6 @@ def _legacy_telegram_auth():
         'last_name': auth_data.get('last_name', ''),
         'username': auth_data.get('username', ''),
         'photo_url': auth_data.get('photo_url', ''),
-        'has_seen_welcome_modal': bool((user_doc or {}).get('has_seen_welcome_modal', False)),
         'is_admin': is_admin(user_id),
         'is_premium': is_premium(user_id),
     }
@@ -11806,7 +11742,6 @@ def _legacy_token_auth():
                     },
                     '$setOnInsert': {
                         'created_at': now_utc,
-                        'has_seen_welcome_modal': False,
                     },
                 },
                 upsert=True,
@@ -11828,7 +11763,6 @@ def _legacy_token_auth():
             'last_name': user.get('last_name', token_doc.get('last_name', '')),
             'username': token_doc.get('username', ''),
             'photo_url': user.get('photo_url', ''),
-            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False)),
             'is_admin': is_admin(user_id_int),
             'is_premium': is_premium(user_id_int),
         }
@@ -19711,7 +19645,6 @@ def api_ui_prefs():
     - editor: "simple" | "codemirror" (אופציונלי)
     - files_compact_view: bool — תצוגה מצומצמת בעמוד הקבצים (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
-    - onboarding: אובייקט flags (walkthrough_v1_seen, theme_wizard_seen)
 
     **מפתח שאינו מטופל כאן במפורש מוחזר 200 ואינו נשמר.** זה אינו רעיוני:
     ``smooth_scroll`` נשלח מהלקוח עד היום ומעולם לא הגיע למסד, כמתועד ב-
@@ -19950,33 +19883,6 @@ def api_ui_prefs():
                     resp_payload['work_state'] = safe_ws
             except Exception:
                 pass
-
-        # Onboarding flags (persisted; boolean only)
-        if 'onboarding' in payload:
-            try:
-                ob = payload.get('onboarding') or {}
-                if not isinstance(ob, dict):
-                    return jsonify({'ok': False, 'error': 'onboarding must be an object'}), 400
-
-                onboarding_resp: Dict[str, Any] = {}
-                if 'walkthrough_v1_seen' in ob:
-                    v = ob.get('walkthrough_v1_seen')
-                    if not isinstance(v, bool):
-                        return jsonify({'ok': False, 'error': 'onboarding.walkthrough_v1_seen must be boolean'}), 400
-                    update_fields['ui_prefs.onboarding.walkthrough_v1_seen'] = v
-                    onboarding_resp['walkthrough_v1_seen'] = v
-
-                if 'theme_wizard_seen' in ob:
-                    v = ob.get('theme_wizard_seen')
-                    if not isinstance(v, bool):
-                        return jsonify({'ok': False, 'error': 'onboarding.theme_wizard_seen must be boolean'}), 400
-                    update_fields['ui_prefs.onboarding.theme_wizard_seen'] = v
-                    onboarding_resp['theme_wizard_seen'] = v
-
-                if onboarding_resp:
-                    resp_payload['onboarding'] = onboarding_resp
-            except Exception:
-                return jsonify({'ok': False, 'error': 'invalid_onboarding'}), 400
 
         needs_db_update = len(update_fields) > 1  # יותר מ-updated_at
         # **כל ערך cookie חדש חייב להיכנס לרשימה הזו.** היא השומר שמחליט
@@ -21061,30 +20967,6 @@ def api_observability_story_save_markdown_file():
     except Exception:
         logger.exception("story_markdown_save_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
-
-
-@app.route('/api/welcome/ack', methods=['POST'])
-@login_required
-def api_welcome_ack():
-    try:
-        db = get_db()
-        user_id = session['user_id']
-        now_utc = datetime.now(timezone.utc)
-        db.users.update_one(
-            {'user_id': user_id},
-            {'$set': {'has_seen_welcome_modal': True, 'updated_at': now_utc}, '$setOnInsert': {'created_at': now_utc}},
-            upsert=True,
-        )
-        try:
-            user_data = dict(session.get('user_data') or {})
-            user_data['has_seen_welcome_modal'] = True
-            session['user_data'] = user_data
-            session.modified = True
-        except Exception:
-            pass
-        return jsonify({'ok': True})
-    except Exception:
-        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 
 # --- User preferences (generic) ---

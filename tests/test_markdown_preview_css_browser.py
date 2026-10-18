@@ -306,8 +306,7 @@ def _open_preview(browser, server, *, swapped: bool):
         "domain": "127.0.0.1", "path": "/",
     }])
     context.add_init_script(
-        "try{localStorage.setItem('welcomeModalSeen','1');localStorage.setItem('onboarding_completed','1');"
-        "localStorage.setItem('repo-browser-markdown-preview','true');}catch(e){}"
+        "try{localStorage.setItem('repo-browser-markdown-preview','true');}catch(e){}"
     )
     page = context.new_page()
     page.route("**/*", lambda route: _api(route, swapped=swapped))

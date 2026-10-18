@@ -97,8 +97,6 @@ def files_page(server, executable, *, init_script: str = ""):
                 # ``open_admin_page`` כבר טען את העמוד, וסקריפט פתיחה חל רק מהטעינה הבאה.
                 page.add_init_script(init_script)
                 page.reload(wait_until="load")
-                page.evaluate("document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
-                              " #welcomeModal').forEach(e => e.remove())")
             yield page, touch, alerts
         finally:
             browser.close()

@@ -307,8 +307,7 @@ def opened(surface: str, server, executable, wired_mongo=None, init_script: str 
                     "name": "session", "value": server.session_cookie, "domain": "127.0.0.1", "path": "/",
                 }])
                 context.add_init_script(
-                    "try{localStorage.setItem('welcomeModalSeen','1');localStorage.setItem('onboarding_completed','1');"
-                    "localStorage.setItem('repo-browser-markdown-preview','true');}catch(e){}"
+                    "try{localStorage.setItem('repo-browser-markdown-preview','true');}catch(e){}"
                 )
                 if init_script:
                     context.add_init_script(init_script)
@@ -318,11 +317,6 @@ def opened(surface: str, server, executable, wired_mongo=None, init_script: str 
                 page.route("**/*", lambda route: route.abort()
                            if blocked and urlsplit(route.request.url).path == blocked else _repo_api(route))
                 page.goto(f"{server.base_url}/repo/#file={REPO_MD_PATH}", wait_until="load")
-                # מודאל הפתיחה מכסה את העמוד ובולע לחיצות — כמו ב-``open_admin_page``.
-                page.evaluate(
-                    "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
-                    " #welcomeModal').forEach(e => e.remove())"
-                )
             else:
                 file_id = _insert(wired_mongo)
                 path = f"/md/{file_id}" if surface == "md_preview" else f"/edit/{file_id}"
@@ -333,8 +327,6 @@ def opened(surface: str, server, executable, wired_mongo=None, init_script: str 
                     # — כמו ב-``tests/test_card_preview_copy_browser.py``.
                     page.add_init_script(init_script)
                     page.reload(wait_until="load")
-                    page.evaluate("document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
-                                  " #welcomeModal').forEach(e => e.remove())")
                 if surface == "live_preview":
                     page.click('[data-action="toggle-live-preview"]')
                     poll(page, "() => !!document.querySelector('[data-preview-status][data-state=\"ready\"]')",
