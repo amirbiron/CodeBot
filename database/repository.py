@@ -2710,7 +2710,6 @@ class Repository:
             set_on_insert = {
                 "user_id": user_id,
                 "created_at": now_utc,
-                "has_seen_welcome_modal": False,
             }
             update_set = {"last_activity": now_utc}
             # חשוב: לא לשמור username אם הוא None/ריק כדי לא להיתקע על unique index של null/"".

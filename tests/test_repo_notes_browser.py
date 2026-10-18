@@ -161,18 +161,12 @@ def repo_page(server, executable, api: FakeRepoApi, viewport: dict, *, md_previe
                 "domain": "127.0.0.1", "path": "/",
             }])
             seed = f"localStorage.setItem('repo-notes:{REPO}:{api.path}','1');"
-            seed += "localStorage.setItem('welcomeModalSeen','1');localStorage.setItem('onboarding_completed','1');"
             if md_preview:
                 seed += "localStorage.setItem('repo-browser-markdown-preview','true');"
             context.add_init_script("try{" + seed + "}catch(e){}")
             page = context.new_page()
             page.route("**/*", api.handle)
             page.goto(f"{server.base_url}/repo/#file={api.path}", wait_until="load")
-            # מודאל הפתיחה מכסה את העמוד ובולע נגיעות; הוא מרונדר גם כשה-localStorage זרוע
-            page.evaluate(
-                "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
-                ".forEach(e => e.remove())"
-            )
             if md_preview:
                 page.wait_for_selector("#markdown-preview-container .markdown-preview-content > *", timeout=20000)
             else:

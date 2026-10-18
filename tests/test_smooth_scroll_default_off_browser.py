@@ -61,18 +61,10 @@ def open_page(browser, admin_live_server):
             "domain": "127.0.0.1", "path": "/",
         }])
         page = context.new_page()
-        page.add_init_script(
-            "try{localStorage.setItem('welcomeModalSeen','1');"
-            "localStorage.setItem('onboarding_completed','1');}catch(e){}"
-        )
         if init_script:
             page.add_init_script(init_script)
         response = page.goto(f"{base_url}{path}", wait_until="domcontentloaded")
         page.wait_for_timeout(300)
-        page.evaluate(
-            "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
-            ".forEach(e => e.remove())"
-        )
         return page, response
 
     yield _open

@@ -53,11 +53,6 @@ NOTE_JS = """(rendered) => {
 }"""
 
 
-def _drop_welcome(page) -> None:
-    page.evaluate("document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
-                  " #welcomeModal').forEach(e => e.remove())")
-
-
 def _post(page, base: str, path: str, body: dict) -> dict:
     res = page.request.post(base + path, data=json.dumps(body), headers={"Content-Type": "application/json"})
     assert res.ok, (path, res.status, res.text())
@@ -88,7 +83,6 @@ def _board_page(server, executable):
             board = _post(page, server.base_url, "/api/note-boards", {"name": "ישויות"})["board"]["id"]
             created = _post(page, server.base_url, f"/api/sticky-notes/board/{board}", {"content_b64": ""})
             page.goto(f"{server.base_url}/boards/{board}", wait_until="load")
-            _drop_welcome(page)
             yield page, created["id"]
         finally:
             browser.close()
@@ -113,7 +107,6 @@ def test_entities_typed_in_a_board_note_survive_save_and_reload(
         assert stored == TYPED, f"נשמר {stored!r} ({len(stored.encode())} בתים), הוקלד {len(TYPED.encode())}"
 
         page.reload(wait_until="load")
-        _drop_welcome(page)
         after = poll(page, NOTE_JS, "הפתק נטען מחדש עם התצוגה", True)
         assert after["view"].count(ENTITIES) == 3, after
         assert ENTITIES in after["codes"], after

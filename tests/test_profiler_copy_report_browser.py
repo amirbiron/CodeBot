@@ -197,17 +197,8 @@ def page(admin_live_server, chromium_executable, stub_profiler_api):
             # ``DOMContentLoaded`` יורה summary ו-slow-queries, ובלעדיו הם
             # יוצאים לשרת האמיתי ומגיעים למסד הנתונים.
             stub_profiler_api(p)
-            # מודאל ה-onboarding נפתח למשתמש חדש וחוסם קליקים בעמוד.
-            p.add_init_script(
-                "try{localStorage.setItem('welcomeModalSeen','1');"
-                "localStorage.setItem('onboarding_completed','1');}catch(e){}"
-            )
             p.goto(f"{base_url}/admin/profiler", wait_until="domcontentloaded")
             p.wait_for_timeout(300)
-            p.evaluate(
-                "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop, #welcomeModal')"
-                ".forEach(e => e.remove())"
-            )
             yield p
 
 

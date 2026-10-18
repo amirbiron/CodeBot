@@ -267,11 +267,11 @@ class ThreadsPage:
         self.context = browser.new_context(viewport=viewport, device_scale_factor=DPR, locale="he-IL")
         self.context.add_cookies([{"name": "session", "value": server.session_cookie,
                                    "domain": "127.0.0.1", "path": "/"}])
-        seed = {"welcomeModalSeen": "1", "onboarding_completed": "1", **(local_storage or {})}
-        self.context.add_init_script(
-            "try{" + "".join(f"localStorage.setItem({json.dumps(k)},{json.dumps(v)});" for k, v in seed.items())
-            + "}catch(e){}"
-        )
+        if local_storage:
+            seed = "".join(
+                f"localStorage.setItem({json.dumps(k)},{json.dumps(v)});" for k, v in local_storage.items()
+            )
+            self.context.add_init_script("try{" + seed + "}catch(e){}")
         self.page = self.context.new_page()
         self._errors: list[str] = []
         self.page.on("pageerror", lambda e: self._errors.append(f"pageerror: {e}"))
@@ -320,9 +320,6 @@ class ThreadsPage:
 
     def goto(self, path):
         self.page.goto(self.server.base_url + path, wait_until="load")
-        # מודאל הפתיחה מכסה את העמוד ובולע לחיצות — כמו ב-``open_admin_page``.
-        self.page.evaluate("document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
-                           " #welcomeModal').forEach(e => e.remove())")
 
     def settle(self):
         poll(self.page, SETTLED_JS, "אין אנימציה שרצה")

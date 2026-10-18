@@ -24,19 +24,6 @@ USER_ID = 1
 FILE_NAME = "history.py"
 
 
-def _dismiss_welcome(p):
-    """מודאל הפתיחה מכסה את העמוד וחוסם קליקים.
-
-    ``add_init_script`` לבדו אינו מספיק: הוא מריץ localStorage בכל ניווט,
-    אבל המודאל מרונדר ומקבל ``active`` גם כך, ולכן הוא מוסר מה-DOM אחרי
-    כל מעבר עמוד — לא רק בטעינה הראשונה.
-    """
-    p.evaluate(
-        "document.querySelectorAll('.welcome-modal, .welcome-modal__backdrop,"
-        " #welcomeModal').forEach(e => e.remove())"
-    )
-
-
 @pytest.fixture
 def seeded(wired_mongo):
     db = wired_mongo.get_db()
@@ -74,13 +61,8 @@ def page(seeded, admin_live_server, chromium_executable):
                 "domain": "127.0.0.1", "path": "/",
             }])
             p = context.new_page()
-            p.add_init_script(
-                "try{localStorage.setItem('welcomeModalSeen','1');"
-                "localStorage.setItem('onboarding_completed','1');}catch(e){}"
-            )
             p.goto(f"{admin_live_server.base_url}/file/{seeded[3]}",
                    wait_until="domcontentloaded")
-            _dismiss_welcome(p)
             # המודאל נפתח דרך תפריט ה"עוד", ו-``openHistoryModal`` הוא
             # הגלובל שהתפריט קורא לו.
             p.evaluate("window.openHistoryModal && window.openHistoryModal()")
@@ -140,7 +122,6 @@ def test_restoring_from_the_banner_creates_a_new_version(page, seeded, wired_mon
     """
     page.click(".history-modal__item:last-child .history-modal__title a")
     page.wait_for_selector("#versionBannerRestore", timeout=10000)
-    _dismiss_welcome(page)
     page.click("#versionBannerRestore")
     # ``wait_for_url`` ולא ``wait_for_function``: ה-CSP של העמוד אינו
     # מתיר ``unsafe-eval``, ולכן הערכת מחרוזת כ-JavaScript נחסמת — וטוב
@@ -167,7 +148,6 @@ def test_a_missing_restore_script_says_so_instead_of_doing_nothing(page, seeded)
     """
     page.click(".history-modal__item:last-child .history-modal__title a")
     page.wait_for_selector("#versionBannerRestore", timeout=10000)
-    _dismiss_welcome(page)
     page.evaluate("delete window.restoreFileVersion")
 
     page.click("#versionBannerRestore")

@@ -138,7 +138,6 @@ def telegram_auth():
         user_id = int(auth_data.get("id"))  # type: ignore[arg-type]
     except Exception:
         return jsonify({"error": "Invalid authentication"}), 401
-    user_doc: Dict[str, Any] = {}
 
     try:
         db = _get_db_for_auth()
@@ -147,11 +146,6 @@ def telegram_auth():
 
     now_utc = datetime.now(timezone.utc)
     if db is not None:
-        try:
-            users_coll = db.users if hasattr(db, "users") else db["users"]
-            user_doc = users_coll.find_one({"user_id": user_id}) or {}
-        except Exception:
-            user_doc = {}
         try:
             users_coll = db.users if hasattr(db, "users") else db["users"]
             users_coll.update_one(
@@ -167,7 +161,6 @@ def telegram_auth():
                     },
                     "$setOnInsert": {
                         "created_at": now_utc,
-                        "has_seen_welcome_modal": False,
                     },
                 },
                 upsert=True,
@@ -189,7 +182,6 @@ def telegram_auth():
         "last_name": auth_data.get("last_name", ""),
         "username": auth_data.get("username", ""),
         "photo_url": auth_data.get("photo_url", ""),
-        "has_seen_welcome_modal": bool((user_doc or {}).get("has_seen_welcome_modal", False)),
         "is_admin": helpers.is_admin(user_id),
         "is_premium": helpers.is_premium(user_id),
     }
@@ -262,7 +254,6 @@ def token_auth():
                     },
                     "$setOnInsert": {
                         "created_at": now_utc,
-                        "has_seen_welcome_modal": False,
                     },
                 },
                 upsert=True,
@@ -287,7 +278,6 @@ def token_auth():
             "last_name": user.get("last_name", token_doc.get("last_name", "")),
             "username": token_doc.get("username", user.get("username", "")),
             "photo_url": user.get("photo_url", ""),
-            "has_seen_welcome_modal": bool(user.get("has_seen_welcome_modal", False)),
             "is_admin": helpers.is_admin(user_id_int),
             "is_premium": helpers.is_premium(user_id_int),
         }
