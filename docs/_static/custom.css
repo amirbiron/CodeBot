@@ -33,6 +33,20 @@
 .wy-menu-vertical li button.toctree-expand { float: inline-start; margin-left: 0; margin-inline-start: -1.2em; }
 .wy-menu-vertical li.toctree-l2.current li.toctree-l3 > a { padding-inline-end: 1.618em; padding-inline-start: 4.045em; }
 .wy-menu-vertical li.toctree-l3.current li.toctree-l4 > a { padding-inline-end: 1.618em; padding-inline-start: 5.663em; }
+/* הפריט של הסעיף שקוראים בו (docs/_static/nav-follow.js): פס דק בצד שבו הטקסט מתחיל,
+   כמו בתוכן העניינים הצף ב-WebApp, בכחול של הקישורים בערכה. לא רקע: אחרי לחיצה על
+   פריט, הערכה צובעת אותו ואת הפריטים שתחתיו בגוון כהה שגובר על רקע של סימון
+   (li.toctree-l2.current ב-theme.css, בגרסה שבראש הקובץ), וגוון בהיר הוא הצבע של hover
+   (li.current a:hover). ולא הדגשה: טקסט מודגש רחב יותר, ושורה שנשברת הייתה מזיזה את כל
+   מה שמתחתיה בכל פעם שהסימון עובר. */
+.wy-menu-vertical a.doc-nav-active::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 3px;
+    background: #2980b9;
+}
 
 /* שורת המיקום וכפתורי הקודם/הבא */
 .wy-breadcrumbs > li.wy-breadcrumbs-aside { float: inline-end; }
