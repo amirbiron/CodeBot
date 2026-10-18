@@ -5,6 +5,7 @@ Code Keeper Bot - Web Application
 """
 
 import os
+import copy
 import logging
 import hashlib
 import hmac
@@ -2181,42 +2182,14 @@ def inject_globals():
 
     theme_type, theme_id, theme = _parse_theme_token(theme_raw)
 
-    # Shared Theme (ui_prefs.theme = "shared:<slug>")
+    # Shared Theme — מהעדפת המשתמש, מה-cookie, או מ-``DEFAULT_UI_THEME``.
+    # ערכה ציבורית היא מידע ציבורי, ולכן הטעינה שלה אינה תלויה בהתחברות.
     shared_theme = None
     if theme_type == "shared":
-        if theme_id and db_ref is not None:
-            try:
-                doc = db_ref.shared_themes.find_one({"_id": theme_id, "is_active": True})
-                if isinstance(doc, dict) and doc.get("_id"):
-                    colors = doc.get("colors", {})
-                    if not isinstance(colors, dict):
-                        colors = {}
-                    syntax_css = doc.get("syntax_css", "")
-                    if not isinstance(syntax_css, str):
-                        syntax_css = ""
-                    syntax_colors = doc.get("syntax_colors", {})
-                    if not isinstance(syntax_colors, dict):
-                        syntax_colors = {}
-                    shared_theme = {
-                        "id": doc.get("_id"),
-                        "name": doc.get("name"),
-                        "description": doc.get("description", ""),
-                        "colors": colors,
-                        "syntax_css": syntax_css,
-                        "syntax_colors": syntax_colors,
-                        "is_featured": bool(doc.get("is_featured", False)),
-                    }
-                else:
-                    theme = "classic"
-                    theme_type = "builtin"
-            except Exception:
-                theme = "classic"
-                theme_type = "builtin"
-                shared_theme = None
-        else:
+        shared_theme = _load_shared_theme_for_request(theme_id, user_id=user_id, db_ref=db_ref)
+        if shared_theme is None:
             theme = "classic"
             theme_type = "builtin"
-            shared_theme = None
 
     # ערכת נושא מותאמת (אם קיימת) — מועברת לתבניות כדי לאפשר injection ב-base.html
     # תומך גם במבנה חדש (custom_themes[]) וגם בישן (custom_theme).
@@ -2791,6 +2764,132 @@ def _resolve_theme_raw_token(
     if not theme_raw:
         theme_raw = get_default_ui_theme_raw()
     return theme_raw, theme_scope, use_cookie_theme, user_doc
+
+
+# ─── ערכה ציבורית (shared:<slug>) לרינדור ───────────────────────────────
+
+#: כמה זמן מבקר שאינו מחובר מקבל ערכה ציבורית מהזיכרון בלי לפנות למסד. זה
+#: גם הגבול לכמה זמן מבקר עוד רואה ערכה אחרי שאדמין ערך או כיבה אותה: אין
+#: ניקוי בזמן כתיבה, ומה שמגביל את ההתיישנות הוא הערך הזה.
+_SHARED_THEME_CACHE_TTL_SECONDS = 60.0
+#: ``theme_id`` ← (מועד תפוגה לפי ``_time.monotonic()``, הערכה המנורמלת)
+_SHARED_THEME_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_SHARED_THEME_CACHE_LOCK = threading.Lock()
+
+
+def _shared_theme_from_doc(doc: Any) -> Optional[Dict[str, Any]]:
+    """ממיר מסמך מ-``shared_themes`` למבנה ``shared_theme`` שהתבניות קוראות.
+
+    ``None`` כשאין מסמך תקין. כל שדה נבדק בטיפוס שלו: הוא מגיע מהמסד,
+    ומסמך שנערך ביד יכול לשאת שם כל דבר.
+    """
+    if not isinstance(doc, dict) or not doc.get("_id"):
+        return None
+    colors = doc.get("colors", {})
+    if not isinstance(colors, dict):
+        colors = {}
+    syntax_css = doc.get("syntax_css", "")
+    if not isinstance(syntax_css, str):
+        syntax_css = ""
+    syntax_colors = doc.get("syntax_colors", {})
+    if not isinstance(syntax_colors, dict):
+        syntax_colors = {}
+    return {
+        "id": doc.get("_id"),
+        "name": doc.get("name"),
+        "description": doc.get("description", ""),
+        "colors": colors,
+        "syntax_css": syntax_css,
+        "syntax_colors": syntax_colors,
+        "is_featured": bool(doc.get("is_featured", False)),
+    }
+
+
+def _fetch_shared_theme(db_ref, theme_id: str) -> Optional[Dict[str, Any]]:
+    """שליפה טרייה של ערכה ציבורית פעילה.
+
+    ``None`` — אין ערכה פעילה בשם הזה (לא קיימת, או ש-``is_active`` כבוי).
+    כשל במסד **זורק** ואינו מתורגם ל-``None``, כדי ש"לא נמצא" ו"נשבר" לא
+    ייראו אותו דבר.
+    """
+    doc = db_ref.shared_themes.find_one({"_id": theme_id, "is_active": True})
+    return _shared_theme_from_doc(doc)
+
+
+def _get_shared_theme_cached(theme_id: str) -> Optional[Dict[str, Any]]:
+    """ערכה ציבורית למבקר שאינו מחובר, דרך קאש בזיכרון של התהליך.
+
+    החוזה הוא של ``_fetch_shared_theme``: ערכה, או ``None`` כשאין ערכה
+    פעילה, וכשל במסד זורק. יוצא אחד: ``get_db()`` מחזיר ``None`` בחלון
+    הצינון שאחרי כשל התחברות (ה-docstring שלו), וזה חוזר מכאן כ-``None``.
+    הכשל עצמו כבר נרשם ב-``get_db`` ברגע שקרה, ורישום שלו שוב בכל בקשה
+    בתוך החלון היה רק רעש.
+
+    **נשמרת רק ערכה שנמצאה.** ``theme_id`` יכול להגיע מ-cookie שהלקוח שולט
+    בו, וקאש של "לא נמצא" היה גדל לפי מה שנשלח אליו. כך מספר הרשומות חסום
+    במספר הערכות הפעילות בספרייה, וכשל אף פעם אינו נזכר כ"לא קיים".
+
+    **ולמה רק למבקר.** עמודי הקובץ, ה-md וה-reader מחשבים ETag מ-``updated_at``
+    טרי (``_get_theme_etag_key``). גוף שנבנה מהקאש תחת ETag טרי היה נשמר
+    בדפדפן, ובבקשה הבאה הוא היה מקבל 304 על הצבעים הישנים, גם אחרי שהקאש
+    פג. העמודים האלה דורשים התחברות, ולכן מבקר אינו מגיע אליהם.
+    """
+    now = _time.monotonic()
+    with _SHARED_THEME_CACHE_LOCK:
+        hit = _SHARED_THEME_CACHE.get(theme_id)
+    if hit is not None and hit[0] > now:
+        # עותק: מי שמשנה את מה שקיבל לא ישנה את מה שהבקשה הבאה תקבל
+        return copy.deepcopy(hit[1])
+
+    db_ref = get_db()
+    if db_ref is None:
+        return None
+    theme = _fetch_shared_theme(db_ref, theme_id)
+    with _SHARED_THEME_CACHE_LOCK:
+        if theme is None:
+            # הערכה נמחקה או כובתה מאז שנשמרה — לא משאירים רשומה שפגה
+            _SHARED_THEME_CACHE.pop(theme_id, None)
+        else:
+            _SHARED_THEME_CACHE[theme_id] = (
+                _time.monotonic() + _SHARED_THEME_CACHE_TTL_SECONDS,
+                theme,
+            )
+    return copy.deepcopy(theme) if theme is not None else None
+
+
+def _load_shared_theme_for_request(
+    theme_id: str,
+    *,
+    user_id: Optional[int],
+    db_ref,
+) -> Optional[Dict[str, Any]]:
+    """הערכה הציבורית לרינדור הבקשה הנוכחית, או ``None`` ← ``classic``.
+
+    אינו זורק: ``inject_globals`` רץ בכל רינדור, וחריגה כאן הייתה מפילה כל
+    עמוד באתר. משתמש מחובר נקרא טרי דרך ``db_ref`` שכבר נפתח לבקשה, ומבקר
+    דרך ``_get_shared_theme_cached`` (שם גם הנימוק לחלוקה).
+    """
+    if not theme_id:
+        return None
+    try:
+        if user_id:
+            if db_ref is None:
+                # המסד כבר נכשל בבקשה הזו, בשליפת המשתמש בראש
+                # ``inject_globals``. ניסיון נוסף כאן היה רק עוד המתנה.
+                return None
+            return _fetch_shared_theme(db_ref, theme_id)
+        return _get_shared_theme_cached(theme_id)
+    except PyMongoError as exc:
+        logger.warning(
+            "shared theme %r: DB read failed (%s); rendering classic",
+            theme_id,
+            type(exc).__name__,
+        )
+    except Exception:
+        # לא תקלת מסד אלא באג או תצורה (למשל ``MONGODB_URL`` חסר) — נרשם
+        # עם traceback ובתווית משלו, כדי שלא ייספר כתקלת מסד.
+        logger.exception("shared theme %r: unexpected error; rendering classic", theme_id)
+    return None
 
 
 # NOTE:
