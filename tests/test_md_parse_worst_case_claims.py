@@ -11,8 +11,8 @@
 
 עד #3391 שתי הטענות נשענו על מדידה אחת שהוקלדה בכמה מקומות, והיא התיישנה: הקלט הגרוע
 של אז לא היה חסום בכלל. כאן כל אחת נגזרת מהקבועים, והחשבון שהתיעוד מציג
-(``docs/mcp-server.rst``) נבדק מול אותם קבועים — כך ששינוי במדידה, במגבלה, בדדליין או
-ברוחב המאגר בלי לעדכן את השאר מפיל את הקובץ הזה.
+(``docs/mcp-server.rst`` ו-``docs/mcp-server-retrieval.rst``) נבדק מול אותם קבועים —
+כך ששינוי במדידה, במגבלה, בדדליין או ברוחב המאגר בלי לעדכן את השאר מפיל את הקובץ הזה.
 
 **מה שאינו בקוד, ולכן כתוב כאן פעם אחת עם המקור שלו:** מכסת המעבד ומגבלת הזיכרון של
 הפריסה (השירות קורא אותן מ-cgroup בזמן ריצה), והזמן שהלקוח ממתין (הלקוח קובע אותו).
@@ -113,8 +113,10 @@ def test_the_limits_table_carries_the_values_the_code_enforces():
 
 
 def test_the_documented_arithmetic_is_the_constants_arithmetic():
-    """``docs/mcp-server.rst`` מציג את שני החשבונות במספרים — והם מחושבים כאן מהקבועים.
+    """התיעוד מציג את שני החשבונות במספרים — והם מחושבים כאן מהקבועים.
 
+    החשבון של מגבלת הקצב יושב ב"גבולות הבקשה" ב-``docs/mcp-server.rst``, והחשבון של
+    הדדליין בסעיף על ``codekeeper_read_batch`` ב-``docs/mcp-server-retrieval.rst``.
     קובץ RST אינו יכול לגזור דבר (``prose-restates-code-fact``), ולכן המחרוזת המצופה
     **מחושבת**: מי שמשנה את המדידה, את המגבלה, את הדדליין או את רוחב המאגר בלי
     לעדכן את החשבון בתיעוד מפיל את הטסט, וכך גם מי שמשנה את התיעוד בלי הקוד.
@@ -132,4 +134,5 @@ def test_the_documented_arithmetic_is_the_constants_arithmetic():
     deadline = read_batch.DEADLINE_SECONDS
     wall = _wall_seconds_of_the_worst_parse()
     deadline_line = f"**{deadline:g} + {wall:g} = {deadline + wall:g}, מתחת ל-{_CLIENT_SECONDS}**"
-    assert deadline_line in page, f"החשבון של הדדליין אינו בתיעוד בצורה: {deadline_line}"
+    retrieval = (_REPO / "docs" / "mcp-server-retrieval.rst").read_text(encoding="utf-8")
+    assert deadline_line in retrieval, f"החשבון של הדדליין אינו בתיעוד בצורה: {deadline_line}"
