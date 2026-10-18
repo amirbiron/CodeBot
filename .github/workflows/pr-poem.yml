@@ -34,6 +34,11 @@ jobs:
     concurrency:
       group: pr-poem-${{ github.event.pull_request.number || inputs.pr_number }}
       cancel-in-progress: false
+    # האם ה-GitHub App שמפרסם את התגובה מוגדר. secrets אינו זמין ב-if של צעד, ו-env כן (תיעוד GitHub,
+    # "Contexts", טבלת "Context availability"), ולכן התנאי מחושב כאן — כדגל, בלי לחשוף את הערכים עצמם
+    # לשאר הצעדים.
+    env:
+      POEM_APP_CONFIGURED: ${{ secrets.POEM_APP_ID != '' && secrets.POEM_APP_PRIVATE_KEY != '' }}
     steps:
       # הקוד שרץ כאן מקבל את ANTHROPIC_API_KEY, ולכן הוא תמיד מענף ברירת המחדל ולא מה-PR. קובץ workflow
       # אפשר לשנות רק עם ההרשאה Workflows, אבל את pr_poem.py, prompt.md ו-examples.md משנים בכל PR
@@ -52,9 +57,23 @@ jobs:
         with:
           python-version: "3.12"
 
+      # טוקן התקנה של ה-App, כדי שהתגובה תתפרסם בשמו ולא בשם github-actions. בלי owner ו-repositories
+      # הטוקן מוגבל לריפו הזה. app-id ולא client-id, כי זה ה-secret שמוגדר; ב-v3 הוא מתקבל ומסומן
+      # deprecated (README של actions/create-github-app-token, "Inputs"). כשל כאן מכשיל את הג'וב — אין
+      # נפילה ל-GITHUB_TOKEN על כשל, רק על App שלא הוגדר.
+      - name: Create GitHub App token
+        id: app-token
+        if: env.POEM_APP_CONFIGURED == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.POEM_APP_ID }}
+          private-key: ${{ secrets.POEM_APP_PRIVATE_KEY }}
+
       - name: Write the poem
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # ריק כשהצעד הקודם דולג; אז הסקריפט מזהיר ומפרסם עם GITHUB_TOKEN.
+          POEM_APP_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           POEM_MODEL: ${{ vars.POEM_MODEL }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}

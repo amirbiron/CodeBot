@@ -229,14 +229,14 @@ def tidy_poem(text: str) -> List[str]:
 
 
 def _reads_left_to_right(line: str) -> bool:
-    """שורה שיש בה אות משמאל לימין ואין בה אף אות מימין לשמאל, כמו ``CodeKeeper forever 💫``.
+    """שורה שאין בה אף אות מימין לשמאל, כמו ``CodeKeeper forever 💫`` או ``2026 💫``.
 
     בתוך ``<div dir="rtl">`` תו ניטרלי בקצה שורה כזו — אימוג'י או סימן פיסוק — מקבל את הכיוון של
     הבלוק, ולכן ה-💫 של החתימה מוצג משמאל לטקסט ולא אחריו. שורה שיש בה עברית נשארת בכיוון של
-    הבלוק, גם כשהיא מתחילה באנגלית (``Claude Code מקבל הוראות חיבור משלו.``).
+    הבלוק, גם כשהיא מתחילה באנגלית (``PR נפתח...``) — ולכן לא ``dir="auto"`` ולא ``<bdi>``, שקובעים
+    את הכיוון לפי האות החזקה הראשונה והיו הופכים שורה כזו.
     """
-    classes = {unicodedata.bidirectional(char) for char in line}
-    return "L" in classes and not classes & _RTL_BIDI_CLASSES
+    return not {unicodedata.bidirectional(char) for char in line} & _RTL_BIDI_CLASSES
 
 
 def _line_html(line: str) -> str:
@@ -435,7 +435,9 @@ def run(argv: Optional[List[str]] = None) -> int:
     # ``vars.POEM_MODEL`` שלא הוגדר מגיע ל-env כמחרוזת ריקה, ולכן ריק ולא רק חסר נופל לברירת המחדל.
     model = (os.environ.get("POEM_MODEL") or "").strip() or DEFAULT_MODEL
     api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
-    token = (os.environ.get("GITHUB_TOKEN") or "").strip()
+    # טוקן ההתקנה של ה-GitHub App, כדי שהתגובה תתפרסם בשמו. ריק כשה-App לא הוגדר — ראו ``pr-poem.yml``.
+    app_token = (os.environ.get("POEM_APP_TOKEN") or "").strip()
+    token = app_token or (os.environ.get("GITHUB_TOKEN") or "").strip()
 
     if not args.dry_run:
         if not api_key:
@@ -446,6 +448,11 @@ def run(argv: Optional[List[str]] = None) -> int:
                 "ולכן לא נכתבה פואמה.",
             )
             return 0
+        if not app_token:
+            _annotate(
+                "warning",
+                "POEM_APP_ID או POEM_APP_PRIVATE_KEY לא מוגדרים ב-secrets, ולכן הפואמה תתפרסם בשם github-actions.",
+            )
         if not token:
             raise PoemError("GITHUB_TOKEN חסר, ובלעדיו אי אפשר לפרסם תגובה")
 

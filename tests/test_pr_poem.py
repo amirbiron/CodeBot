@@ -31,6 +31,7 @@ GITHUB = f"https://api.github.com/repos/{REPO}"
 ANTHROPIC = "https://api.anthropic.com/v1/messages"
 API_KEY = "sk-ant-test-0123456789abcdef"
 TOKEN = "ghs_test_token_0123456789"
+APP_TOKEN = "ghs_app_installation_token_9876543210"
 
 #: הקטע האחרון של תיאור PR #3579 בריפו, כפי שה-API החזיר אותו: סוף התבנית שהמחבר מילא, ואחריו
 #: הבלוק של cubic ואז הסיכום של Sourcery. הסעיף של בדיקות החובה לא נכלל, כי שמות הסטטוסים בו היו
@@ -194,6 +195,7 @@ def _responses(*, pull=None, comments=None, files=None, answer=None, post: Calla
 def env(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", API_KEY)
     monkeypatch.setenv("GITHUB_TOKEN", TOKEN)
+    monkeypatch.setenv("POEM_APP_TOKEN", APP_TOKEN)
     monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
     monkeypatch.delenv("POEM_MODEL", raising=False)
 
@@ -365,17 +367,27 @@ def test_the_comment_has_the_marker_an_rtl_block_and_an_explicit_break_per_line(
         ("CodeKeeper forever 💫", True),
         ("Cache hit.", True),
         ("Claude Code מקבל הוראות חיבור משלו.", False),
+        ("PR נפתח, ופואמה אחת נכתבת בתגובה.", False),
         ("והקוד נשאר LTR ✨", False),
-        ("„ידע שנשאר גם אחרי שהחיבור נגמר\" — CodeKeeper", False),
+        ('„ידע שנשאר גם אחרי שהחיבור נגמר" — CodeKeeper', False),
         ("مرحبا world", False),
-        ("2026 💫", False),
+        ("2026 💫", True),
     ],
-    ids=["signature", "english", "starts-english", "ends-english", "quote-signature", "arabic", "no-letters"],
+    ids=[
+        "signature",
+        "english",
+        "starts-english",
+        "starts-with-PR",
+        "ends-english",
+        "quote-signature",
+        "arabic",
+        "no-letters",
+    ],
 )
 def test_only_a_line_without_right_to_left_letters_gets_its_own_direction(poem, line, own_direction):
-    """שורה בלי אף אות מימין לשמאל, ועם אות משמאל לימין, נעטפת ב-``<span dir="ltr">``. כל השאר לא.
+    """שורה בלי אף אות מימין לשמאל נעטפת ב-``<span dir="ltr">``, וכל שורה שיש בה עברית לא.
 
-    שורה בלי אותיות בכלל (מספרים ואימוג'י) נשארת בכיוון של הבלוק: אין בה כיוון משלה לשמור עליו.
+    גם שורה בלי אותיות בכלל (מספרים ואימוג'י) נעטפת, כדי שהאימוג'י בסופה יישאר אחרי המספר.
     """
     assert (poem.format_comment([line]).count('<span dir="ltr">') == 1) is own_direction
 
@@ -425,6 +437,24 @@ def test_the_code_that_gets_the_key_comes_from_the_default_branch():
     assert checkouts[0] < with_key[0]
 
 
+def test_the_app_token_step_runs_only_when_the_app_is_configured():
+    """הצעד שמנפיק את טוקן ה-App מותנה בדגל שמחושב מה-secrets, והטוקן שלו מגיע לסקריפט.
+
+    ``secrets`` אינו זמין ב-``if`` של צעד, ולכן הדגל ב-``env`` של הג'וב. בלי התנאי, App שלא הוגדר
+    היה מכשיל כל הרצה במקום ליפול ל-``GITHUB_TOKEN`` עם אזהרה.
+    """
+    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["poem"]
+    flag = job["env"]["POEM_APP_CONFIGURED"]
+    assert "secrets.POEM_APP_ID" in flag and "secrets.POEM_APP_PRIVATE_KEY" in flag
+
+    steps = {step.get("id") or step.get("name"): step for step in job["steps"]}
+    token_step = steps["app-token"]
+    assert token_step["uses"].split("@")[0] == "actions/create-github-app-token"
+    assert token_step["if"] == "env.POEM_APP_CONFIGURED == 'true'"
+    assert "continue-on-error" not in token_step, "כשל בהנפקת הטוקן חייב להכשיל, לא ליפול בשקט ל-GITHUB_TOKEN"
+    assert steps["Write the poem"]["env"]["POEM_APP_TOKEN"] == "${{ steps.app-token.outputs.token }}"
+
+
 # --------------------------------------------------------------------------
 # ההרצה המלאה
 # --------------------------------------------------------------------------
@@ -444,7 +474,37 @@ def test_a_poem_is_written_and_posted_once(poem, env, monkeypatch, capsys):
     assert anthropic_call["payload"]["model"] == poem.DEFAULT_MODEL
     posted = fake.calls[-1]["payload"]["body"]
     assert posted == poem.format_comment(POEM.splitlines())
-    assert "הפואמה פורסמה:" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "הפואמה פורסמה:" in out
+    assert "::warning::" not in out
+
+
+def test_the_comment_is_posted_with_the_app_token_when_there_is_one(poem, env, monkeypatch):
+    """עם טוקן של ה-App, כל הקריאות ל-GitHub — גם הפרסום — יוצאות בשמו, ולא בשם github-actions."""
+    fake = FakeHttp(_responses())
+    monkeypatch.setattr(poem, "http_json", fake)
+
+    assert poem.main(["--pr", str(PR)]) == 0
+
+    github_calls = [call for call in fake.calls if call["url"].startswith(f"{GITHUB}/")]
+    assert github_calls and all(call["headers"]["Authorization"] == f"Bearer {APP_TOKEN}" for call in github_calls)
+
+
+@pytest.mark.parametrize("value", [None, ""], ids=["unset", "empty-output-of-a-skipped-step"])
+def test_without_the_app_the_comment_is_posted_with_github_token_and_a_warning(poem, env, monkeypatch, capsys, value):
+    """App שלא הוגדר: אזהרה גלויה, והפרסום עם ``GITHUB_TOKEN`` כמו קודם. צעד שדולג מוסר פלט ריק."""
+    if value is None:
+        monkeypatch.delenv("POEM_APP_TOKEN")
+    else:
+        monkeypatch.setenv("POEM_APP_TOKEN", value)
+    fake = FakeHttp(_responses())
+    monkeypatch.setattr(poem, "http_json", fake)
+
+    assert poem.main(["--pr", str(PR)]) == 0
+
+    assert fake.calls[-1]["url"] == f"{GITHUB}/issues/{PR}/comments"
+    assert fake.calls[-1]["headers"]["Authorization"] == f"Bearer {TOKEN}"
+    assert capsys.readouterr().out.startswith("::warning::POEM_APP_ID")
 
 
 def test_an_empty_poem_model_variable_falls_back_to_the_default(poem, env, monkeypatch):
@@ -549,7 +609,7 @@ def test_dry_run_prints_the_request_without_the_key_and_sends_nothing(poem, env,
 
     out, err = capsys.readouterr()
     assert fake.urls("POST") == []
-    assert API_KEY not in out + err and TOKEN not in out + err
+    assert API_KEY not in out + err and TOKEN not in out + err and APP_TOKEN not in out + err
     assert "x-api-key" not in out
     request = json.loads(out[out.index('{\n  "model"') :])
     assert request["system"][0]["text"] == poem.PROMPT_PATH.read_text(encoding="utf-8")
