@@ -322,8 +322,12 @@ class FakeEl {
   // המלכודת של ``remove``/``blur``/``createTextNode`` בסבבים קודמים:
   // הכפתור נבנה, המאזין "נרשם", ובדיקה שמנסה ללחוץ עליו לא יכולה
   // אפילו להיכשל — אין על מה ללחוץ. כאן הם נשמרים לפי סוג אירוע,
-  // והאחרון גובר, כמו שקורא בודד בדפדפן.
-  addEventListener(type, fn) { (this._listeners || (this._listeners = {}))[type] = fn; }
+  // והאחרון גובר, כמו שקורא בודד בדפדפן. ה-``opts`` נשמרים לצידם, כדי
+  // שבדיקה תוכל לשאול גם **איך** מאזין נרשם — למשל בשלב הלכידה.
+  addEventListener(type, fn, opts) {
+    (this._listeners || (this._listeners = {}))[type] = fn;
+    (this._listenerOpts || (this._listenerOpts = {}))[type] = opts;
+  }
   focus() { FakeEl.focused = this; sandbox.__focused = this; }
   blur() {
     if (FakeEl.focused === this) FakeEl.focused = null;
@@ -4371,6 +4375,123 @@ check('פתק בלי גודל שמור נפתח בגודל של היום — ל�
   m._renderNote({ id: 'no-size', content: '', position: { x: 0, y: 0 } });
   const intent = m._getSizeIntent(m.notes.get('no-size').el);
   eq(`${intent.width}×${intent.height}`, '260×200', 'הכוונה שנקבעה ברינדור');
+});
+
+// ---------- קדמת הערימה ----------
+//
+// הכלל: הפתק שהמשתמש יצר או נגע בו אחרון יושב מעל כל השאר (``_raiseToFront``).
+// כאן ננעלים ההיגיון והחיווט — באיזה ערך פתק עולה, ומי מעלה אותו. מה מצויר מעל
+// מה בנקודת החפיפה נמדד בכרומיום: פתק חדש ב-``tests/test_note_threads_browser.py``,
+// ולחיצה וגרירה ב-``tests/test_repo_notes_browser.py``. שניהם אינם רצים ב-CI.
+
+/** ה-``z-index`` שהכלל ``.sticky-note`` ב-``sticky-notes.css`` נותן לכל הפתקים. */
+function cssNoteZ() {
+  const css = fs.readFileSync(
+    path.join(__dirname, '..', 'webapp', 'static', 'css', 'sticky-notes.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const found = [];
+  for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (rule[1].trim() !== '.sticky-note') continue;
+    const z = rule[2].match(/(?:^|;)\s*z-index\s*:\s*(\d+)/);
+    if (z) found.push(Number(z[1]));
+  }
+  eq(found.length, 1, 'כללי z-index על .sticky-note ב-sticky-notes.css');
+  return found[0];
+}
+
+/**
+ * מנהל לוח בסנדבוקס עם DOM מדומה, ופתקים שרונדרו ב-``_renderNote``.
+ *
+ * **מחכים ל-``_init`` לפני הרינדור.** הוא טוען את הפתקים מהשרת ומנקה קודם את
+ * המשטח (``_clearAllNotes``), ובבדיקה שממתינה למשהו הניקוי הזה היה נוחת באמצעה
+ * ומוחק את הפתקים שלה.
+ */
+async function stackOf(...ids) {
+  const sb = fakeDomSandbox();
+  const m = new sb.window.StickyNotesManager({ board: 'stack' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const els = ids.map((id) => {
+    m._renderNote({ id, content: '', position: { x: 0, y: 0 } });
+    return m.notes.get(id).el;
+  });
+  return { sb, m, els };
+}
+
+const zOf = (el) => Number(el.style.zIndex);
+
+check('קדמת הערימה: הפתק הראשון שמועלה מקבל את ה-z-index של .sticky-note ועוד אחד', async () => {
+  // נופל כשהבסיס ב-JS (``NOTE_BASE_Z``) נסחף מה-CSS: בסיס נמוך ממנו היה מוריד פתק
+  // שהועלה אל מתחת לפתקים שלא נגעו בהם.
+  const { m, els: [a, b] } = await stackOf('a', 'b');
+  m._raiseToFront(a);
+  eq(a.style.zIndex, String(cssNoteZ() + 1), 'הפתק שהועלה');
+  eq(b.style.zIndex, undefined, 'ופתק שלא נגעו בו נשאר עם הערך של ה-CSS');
+});
+
+check('קדמת הערימה: הסדר הוא סדר הנגיעות', async () => {
+  // נבדק אחרי כל נגיעה ולא רק בסוף: ברצף A, B, A בלבד, תור שמכניס את הנגיעה
+  // החדשה לתחתיתו היה עובר — A כבר למעלה בנגיעה השלישית, ולא זז.
+  const { m, els: [a, b] } = await stackOf('a', 'b');
+  m._raiseToFront(a);
+  m._raiseToFront(b);
+  eq(zOf(b) > zOf(a), true, `B נגעו בו אחרון — ${zOf(b)} מול ${zOf(a)}`);
+  eq(zOf(a) > cssNoteZ(), true, 'וגם A, שנגעו בו קודם, מעל פתק שלא נגעו בו');
+  m._raiseToFront(a);
+  eq(zOf(a) > zOf(b), true, `ועכשיו A — ${zOf(a)} מול ${zOf(b)}`);
+});
+
+check('קדמת הערימה: נגיעה בפתק שכבר למעלה אינה משנה דבר', async () => {
+  const { m, els: [a, b] } = await stackOf('a', 'b');
+  m._raiseToFront(a);
+  m._raiseToFront(b);
+  const before = [a.style.zIndex, b.style.zIndex];
+  for (let i = 0; i < 5; i += 1) m._raiseToFront(b);
+  eq([a.style.zIndex, b.style.zIndex].join(), before.join(), 'הערכים');
+});
+
+check('קדמת הערימה: הערך העליון הוא הבסיס ועוד מספר הפתקים שהועלו — לא מספר הנגיעות', async () => {
+  // נופל על הצורה הקודמת של ``_raiseToFront``: מונה שעולה באחד בכל העלאה עבר בתוך
+  // כמה עשרות נגיעות את ה-``z-index`` של ``.sticky-note-fab``, והפתק כיסה את הכפתור.
+  const { m, els } = await stackOf('a', 'b', 'c');
+  for (let i = 0; i < 100; i += 1) m._raiseToFront(els[i % els.length]);
+  const zs = els.map(zOf);
+  eq(Math.max(...zs), cssNoteZ() + els.length, `הערך העליון — ${zs.join(', ')}`);
+  eq(new Set(zs).size, els.length, 'ולכל פתק ערך משלו');
+});
+
+check('קדמת הערימה: פתק שנמחק יוצא מהתור', async () => {
+  const { m, els: [a, b, c] } = await stackOf('a', 'b', 'c');
+  m._raiseToFront(a);
+  m._raiseToFront(b);
+  m._raiseToFront(c);
+  await m._deleteNoteEl(b);
+  m._raiseToFront(a);
+  eq(`${zOf(c)},${zOf(a)}`, `${cssNoteZ() + 1},${cssNoteZ() + 2}`, 'C ואחריו A — בלי מקום שמור ל-B');
+});
+
+check('קדמת הערימה: pointerdown על הפתק מעלה אותו, בשלב הלכידה ובלי לעצור את האירוע', async () => {
+  const { m, els: [a, b] } = await stackOf('a', 'b');
+  m._raiseToFront(a);
+  const stopped = [];
+  b._listeners.pointerdown({
+    stopPropagation() { stopped.push('stopPropagation'); },
+    stopImmediatePropagation() { stopped.push('stopImmediatePropagation'); },
+    preventDefault() { stopped.push('preventDefault'); },
+  });
+  eq(zOf(b) > zOf(a), true, `B עלה מעל A — ${zOf(b)} מול ${zOf(a)}`);
+  eq(b._listenerOpts.pointerdown && b._listenerOpts.pointerdown.capture, true, 'נרשם בשלב הלכידה');
+  eq(stopped.join(), '', 'המאזין לא עצר את האירוע ולא ביטל אותו');
+});
+
+check('קדמת הערימה: פתק חדש נפתח מעל פתק שהועלה', async () => {
+  // A הועלה כמו בפתיחת שרשור. החדש נכנס אחרון ל-DOM, אבל זה לא מספיק מולו.
+  const { sb, m, els: [a] } = await stackOf('a');
+  m._raiseToFront(a);
+  sb.fetch = async () => ({ json: async () => ({ ok: true, id: 'fresh' }) });
+  await m.createNote();
+  const fresh = m.notes.get('fresh');
+  eq(!!fresh, true, 'בקרה: הפתק החדש רונדר');
+  eq(zOf(fresh.el) > zOf(a), true, `החדש מעל A — ${zOf(fresh.el)} מול ${zOf(a)}`);
 });
 
 (async () => {

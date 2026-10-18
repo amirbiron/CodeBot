@@ -48,16 +48,27 @@ class Touch:
     def __init__(self, cdp):
         self.cdp = cdp
 
-    def swipe(self, x, y, dx, dy, steps=8):
+    # **שלושת השלבים של נגיעה, כל אחד לחוד** — למי שבודק מה קורה באמצעה, כשהאצבע
+    # עוד על המסך (למשל: פתק שנגרר כבר עלה מעל שכניו). ``swipe`` ו-``tap`` בנויים מהם.
+
+    def start(self, x, y):
         self.cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
-        for i in range(1, steps + 1):
-            self.cdp.send("Input.dispatchTouchEvent", {
-                "type": "touchMove", "touchPoints": [{"x": x + dx * i / steps, "y": y + dy * i / steps}]})
+
+    def move(self, x, y):
+        self.cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x, "y": y}]})
+
+    def end(self):
         self.cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
 
+    def swipe(self, x, y, dx, dy, steps=8):
+        self.start(x, y)
+        for i in range(1, steps + 1):
+            self.move(x + dx * i / steps, y + dy * i / steps)
+        self.end()
+
     def tap(self, x, y):
-        self.cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
-        self.cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        self.start(x, y)
+        self.end()
 
 
 #: מרכז האלמנט, ומה הדפדפן מוצא בנקודה הזו. ``ok`` רק כשאף אנימציה אינה מזיזה
@@ -92,6 +103,38 @@ def tap_on(page, touch, sel: str, index: int = 0) -> None:
     c = poll(page, CENTER_JS, f"{sel}[{index}] הפסיק לזוז", [sel, index])
     assert c["onScreen"] and c["hitsIt"], f"{sel}[{index}] אינו על המסך במקום שאפשר לגעת בו: {c}"
     touch.tap(c["x"], c["y"])
+
+
+#: איזה פתק מצויר למעלה באמצע החפיפה של שני פתקים — מה שהמשתמש רואה שם ונוגע בו.
+#:
+#: **לא ``z-index``:** הוא פרט מימוש, והשאלה היא מה הדפדפן מוצא בנקודה (``elementFromPoint``).
+#: החלונית, הבועות והכותרת הם ילדים של הפתק, ולכן ``closest`` מחזיר את הפתק בכל אחד מהם.
+#: ``ok: false`` כשהמלבנים אינם חופפים: נקודה מחוץ לחפיפה הייתה עונה בלי לבדוק את הסדר.
+TOP_NOTE_IN_OVERLAP_JS = """([a, b]) => {
+  const box = (id) => {
+    const r = document.querySelector(`.sticky-note[data-note-id="${id}"]`).getBoundingClientRect();
+    return {left: r.left, right: r.right, top: r.top, bottom: r.bottom};
+  };
+  const ra = box(a), rb = box(b);
+  const left = Math.max(ra.left, rb.left), right = Math.min(ra.right, rb.right);
+  const top = Math.max(ra.top, rb.top), bottom = Math.min(ra.bottom, rb.bottom);
+  if (left >= right || top >= bottom) return {ok: false, why: 'הפתקים אינם חופפים', a: ra, b: rb};
+  const x = (left + right) / 2, y = (top + bottom) / 2;
+  const hit = document.elementFromPoint(x, y);
+  const note = hit && hit.closest('.sticky-note');
+  return {ok: true, x, y, top: note ? note.dataset.noteId : null,
+          hit: hit ? (hit.className || hit.tagName) : null};
+}"""
+
+
+def top_note_in_overlap(page, a: str, b: str) -> dict:
+    """מה מצויר באמצע החפיפה של הפתקים ``a`` ו-``b``: ``top`` הוא מזהה הפתק שלמעלה.
+
+    פתקים שאינם חופפים הם כישלון של הבדיקה ולא תשובה — ראו ``TOP_NOTE_IN_OVERLAP_JS``.
+    """
+    res = page.evaluate(TOP_NOTE_IN_OVERLAP_JS, [a, b])
+    assert res["ok"], f"בקרה: {res}"
+    return res
 
 
 #: מה שכל עמוד צריך לפני הטעינה: מודאל הפתיחה וסיור ההיכרות לא קופצים, כמו אצל
