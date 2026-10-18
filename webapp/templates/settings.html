@@ -386,6 +386,174 @@
    המשתמש, הרבה אחרי ש-defer סיים לרוץ. #}
 <script defer src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
 
+{# חיבור סוכן AI — ההוראות לחיבור לקוח לשרת ה-MCP. זה סעיף קבוע ולא חלון למשתמש
+   חדש: גם משתמש ותיק מגיע לכאן כשהוא מחבר מכשיר או לקוח חדש.
+   - העוגן ``ai-connect`` הוא חוזה: כרטיס הטיפים בעמוד הבית מקשר אליו, ולכן לא משנים אותו.
+   - ``mcp_connect_url`` מגיע מ-``_mcp_connect_url`` ב-``webapp/routes/settings_routes.py``.
+     כשהוא ``None`` שורת הכתובת פשוט לא מוצגת — בלי שגיאה ובלי טקסט חלופי.
+   - הלשונית של Claude Code מתארת את ``connect_claude_command`` ב-``main.py``. שינוי של
+     שם הפקודה או של הארגומנט ``write`` שם מחייב עדכון כאן. #}
+{% macro ai_connect_url_row(key) %}
+  <div class="ai-connect__url">
+    <code class="ai-connect__code" dir="ltr" id="ai-connect-url-{{ key }}">{{ mcp_connect_url }}</code>
+    <button type="button" class="btn btn-secondary btn-icon ai-connect__copy" data-copy-target="ai-connect-url-{{ key }}">
+      <i class="fas fa-copy" aria-hidden="true"></i>
+      העתקה
+    </button>
+    <span class="ai-connect__copy-status" role="status" aria-live="polite"></span>
+  </div>
+{% endmacro %}
+<div class="glass-card ai-connect" id="ai-connect">
+  <h2 class="section-title">
+    <i class="fas fa-plug"></i>
+    חיבור סוכן AI
+  </h2>
+  <p class="ai-connect__lead">
+    חברו סוכן AI לקבצים שלכם ב-CodeKeeper, כדי שיוכל לחפש ולקרוא בהם בזמן העבודה.
+    בחרו את הלקוח שאתם עובדים איתו:
+  </p>
+
+  <div class="ai-connect__tabs" role="tablist" aria-label="הלקוח שמתחברים ממנו">
+    <button type="button" class="ai-connect__tab" role="tab" id="ai-connect-tab-claude-web" aria-controls="ai-connect-panel-claude-web" aria-selected="true">Claude.ai</button>
+    <button type="button" class="ai-connect__tab" role="tab" id="ai-connect-tab-gemini" aria-controls="ai-connect-panel-gemini" aria-selected="false" tabindex="-1">Gemini</button>
+    <button type="button" class="ai-connect__tab" role="tab" id="ai-connect-tab-claude-code" aria-controls="ai-connect-panel-claude-code" aria-selected="false" tabindex="-1">Claude Code / Desktop</button>
+  </div>
+
+  <div class="ai-connect__panel" role="tabpanel" id="ai-connect-panel-claude-web" aria-labelledby="ai-connect-tab-claude-web" tabindex="0">
+    <p class="ai-connect__note">
+      <i class="fas fa-check-circle" aria-hidden="true"></i>
+      לא צריך טוקן. ההתחברות עוברת דרך הטלגרם.
+    </p>
+    {# כל שם תפריט באנגלית מבודד ב-``<bdi>``, כדי שהחצים יישארו בזרימה העברית:
+       בלי הבידוד, שלוש המילים והחצים שביניהן הופכים לרצף אחד משמאל לימין,
+       והחצים מצביעים אחורה. #}
+    <ol class="ai-connect__steps">
+      <li>ב-Claude.ai פותחים <bdi>Settings</bdi> ← <bdi>Connectors</bdi> ← <bdi>Add custom connector</bdi>.</li>
+      <li>
+        מדביקים את כתובת השרת{% if mcp_connect_url %}:{{ ai_connect_url_row('claude-web') }}{% else %}.{% endif %}
+      </li>
+      <li>Claude מעביר אתכם להתחברות עם הטלגרם, ואחריה למסך שבו מאשרים את הגישה.</li>
+    </ol>
+  </div>
+
+  <div class="ai-connect__panel" role="tabpanel" id="ai-connect-panel-gemini" aria-labelledby="ai-connect-tab-gemini" tabindex="0" hidden>
+    <p class="ai-connect__note">
+      <i class="fas fa-info-circle" aria-hidden="true"></i>
+      האפשרות קיימת רק בגרסת הרשת של Gemini, ולא באפליקציה.
+    </p>
+    <ol class="ai-connect__steps">
+      <li>ב-Gemini פותחים הגדרות ← AI מותאם אישית ← אפליקציות מקושרות.</li>
+      <li>למעלה לוחצים "בהתאמה אישית".</li>
+      <li>
+        בחלון שנפתח מדביקים בתיבת ההקלדה את כתובת השרת{% if mcp_connect_url %}:{{ ai_connect_url_row('gemini') }}{% else %}.{% endif %}
+      </li>
+    </ol>
+  </div>
+
+  <div class="ai-connect__panel" role="tabpanel" id="ai-connect-panel-claude-code" aria-labelledby="ai-connect-tab-claude-code" tabindex="0" hidden>
+    <p class="ai-connect__note">
+      <i class="fas fa-key" aria-hidden="true"></i>
+      כאן צריך טוקן אישי, ומקבלים אותו מהבוט בטלגרם.
+    </p>
+    <ol class="ai-connect__steps">
+      <li>
+        שולחים לבוט, בצ'אט פרטי, את הפקודה <code dir="ltr">/connect_claude</code>.
+        {% if bot_username %}
+        <div class="ai-connect__bot">
+          <a class="btn btn-secondary btn-icon" href="https://t.me/{{ bot_username }}" target="_blank" rel="noopener">
+            <i class="fab fa-telegram-plane" aria-hidden="true"></i>
+            פתיחת הבוט בטלגרם
+          </a>
+        </div>
+        {% endif %}
+      </li>
+      <li>הבוט מחזיר טוקן אישי ופקודת חיבור מוכנה להעתקה. הטוקן מוצג פעם אחת בלבד, אז כדאי לשמור אותו.</li>
+    </ol>
+    <h3 class="ai-connect__subtitle">קריאה בלבד, או גם כתיבה?</h3>
+    <ul class="ai-connect__access">
+      <li><strong>קריאה בלבד</strong> (<code dir="ltr">/connect_claude</code>): הסוכן יכול לחפש ולקרוא את הקבצים שלכם, אבל לא לשנות אותם.</li>
+      <li><strong>קריאה וכתיבה</strong> (<code dir="ltr">/connect_claude write</code>): הסוכן יכול גם לשנות, למשל ליצור קבצים ולעדכן אותם.</li>
+    </ul>
+    <p class="ai-connect__hint">אל תשתפו את הטוקן: מי שמחזיק אותו מקבל את אותה גישה לקבצים שלכם.</p>
+  </div>
+</div>
+
+<script>
+  // הלשוניות של "חיבור סוכן AI", לפי דפוס ה-tabs של WAI-ARIA: לחיצה בוחרת לשונית,
+  // והחצים, Home ו-End עוברים ביניהן. כיוון החצים נגזר מה-direction של הרשימה בפועל,
+  // ולא מהנחה שהעמוד RTL: ב-RTL הלשונית הבאה יושבת משמאל.
+  (function () {
+    var root = document.getElementById('ai-connect');
+    if (!root) return;
+    var list = root.querySelector('[role="tablist"]');
+    var tabs = Array.prototype.slice.call(root.querySelectorAll('[role="tab"]'));
+
+    function select(tab, focus) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        var panel = document.getElementById(t.getAttribute('aria-controls'));
+        if (panel) panel.hidden = !on;
+      });
+      if (focus) tab.focus();
+    }
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () { select(tab, false); });
+    });
+
+    list.addEventListener('keydown', function (e) {
+      var i = tabs.indexOf(document.activeElement);
+      if (i < 0) return;
+      var rtl = getComputedStyle(list).direction === 'rtl';
+      var next;
+      if (e.key === 'ArrowLeft') next = rtl ? i + 1 : i - 1;
+      else if (e.key === 'ArrowRight') next = rtl ? i - 1 : i + 1;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = tabs.length - 1;
+      else return;
+      e.preventDefault();
+      select(tabs[(next + tabs.length) % tabs.length], true);
+    });
+
+    function selectText(el) {
+      var range = document.createRange();
+      range.selectNodeContents(el);
+      var selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    root.querySelectorAll('.ai-connect__copy').forEach(function (btn) {
+      var source = document.getElementById(btn.getAttribute('data-copy-target'));
+      var status = btn.parentNode.querySelector('.ai-connect__copy-status');
+      var clearTimer = null;
+      btn.addEventListener('click', async function () {
+        if (!source || !status) return;
+        var copied = false;
+        try {
+          // ``writeText`` מחזיר Promise שנדחה בכשל — בלי הרשאה, או בהקשר שאינו מאובטח,
+          // שם ``navigator.clipboard`` עצמו חסר. "הועתק" מוצג רק אחרי שהוא התממש.
+          await navigator.clipboard.writeText(source.textContent);
+          copied = true;
+        } catch (err) {
+          // הכשל לא נבלע: הוא מוצג למשתמש בשורה למטה. ואין כאן מסלול חלופי שמעתיק
+          // בשקט — הכתובת מסומנת, כדי שאפשר יהיה להעתיק אותה ביד.
+          selectText(source);
+        }
+        clearTimeout(clearTimer);
+        if (copied) {
+          status.textContent = 'הועתק';
+          clearTimer = setTimeout(function () { status.textContent = ''; }, 2500);
+        } else {
+          status.textContent = 'לא הצלחנו להעתיק. הכתובת מסומנת, אפשר להעתיק אותה ביד.';
+        }
+      });
+    });
+  })();
+</script>
+
 {# הוראות לסוכן — הטקסט שנטען לכל סשן של סוכן AI דרך GET /api/agent/primer #}
 <div class="glass-card" id="agent-instructions-section">
   <h2 class="section-title">
@@ -1337,6 +1505,12 @@
   </div>
   {% endif %}
 
+  {# קישור עזרה קבוע בתחתית העמוד, לכל משתמש — לא רק בכרטיס הפרימיום שלמעלה. #}
+  <p class="settings-help-link">
+    <i class="fas fa-life-ring" aria-hidden="true"></i>
+    <a href="https://t.me/moominAmir" target="_blank" rel="noopener">עזרה ודיווח על תקלות</a>
+  </p>
+
   <style>
     .badge {
       display: inline-flex;
@@ -1912,6 +2086,106 @@
     }
     .drive-reconnect-warning > i {
       color: var(--danger);
+    }
+
+    /* "חיבור סוכן AI" — טוקנים של base.html בלבד, בלי צבע קשיח (docs/webapp/theming_and_css.rst).
+       ב-High Contrast כל כפתור מקבל רקע שחור ומסגרת לבנה ב-!important (high-contrast.css),
+       ולכן הלשונית הנבחרת מסומנת גם בקו פנימי ב-currentColor ובמשקל, ולא ברקע בלבד.
+       אין כאן transition: הוא נדרס בערכות הכהות (dark-mode.css, [data-theme] *). */
+    .ai-connect__lead {
+      opacity: 0.85;
+      line-height: 1.6;
+      margin-bottom: 1rem;
+    }
+    .ai-connect__tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .ai-connect__tab {
+      padding: 0.5rem 1rem;
+      border-radius: 999px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass);
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+    .ai-connect__tab[aria-selected="true"] {
+      background: var(--glass-hover);
+      box-shadow: inset 0 -3px 0 currentColor;
+      font-weight: 700;
+    }
+    .ai-connect__tab:focus-visible,
+    .ai-connect__panel:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
+    }
+    .ai-connect__panel {
+      line-height: 1.7;
+    }
+    .ai-connect__note {
+      opacity: 0.9;
+      margin-bottom: 0.75rem;
+    }
+    .ai-connect__steps,
+    .ai-connect__access {
+      display: grid;
+      gap: 0.6rem;
+      padding-inline-start: 1.5rem;
+    }
+    .ai-connect__subtitle {
+      font-size: 1rem;
+      margin: 1.25rem 0 0.5rem;
+    }
+    .ai-connect__hint {
+      opacity: 0.8;
+      font-size: 0.9rem;
+      margin-top: 0.75rem;
+    }
+    /* פקודה קצרה ושם תפריט לא נשברים באמצע — בטלפון "/connect_claude write" נחצה
+       לשתי שורות. רק הכתובת, שיכולה להיות ארוכה מהמסך, נשברת (למטה). */
+    .ai-connect code,
+    .ai-connect bdi {
+      white-space: nowrap;
+    }
+    .ai-connect code {
+      font-family: "Fira Code", "JetBrains Mono", monospace;
+      font-size: 0.9em;
+      background: var(--code-bg, var(--glass));
+      color: var(--code-text, inherit);
+      border: 1px solid var(--code-border, var(--glass-border));
+      border-radius: 6px;
+      padding: 0.1rem 0.4rem;
+    }
+    /* הכתובת: נשברת בכל תו כשאין מקום (overflow-wrap: anywhere), כדי שלא תדחוף את
+       הכרטיס לרוחב בטלפון; ונגיעה אחת מסמנת את כולה, למקרה שההעתקה נכשלה. */
+    .ai-connect__url,
+    .ai-connect__bot {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .ai-connect .ai-connect__code {
+      flex: 1 1 16rem;
+      min-width: 0;
+      padding: 0.5rem 0.75rem;
+      text-align: start;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      user-select: all;
+    }
+    .ai-connect__copy-status {
+      font-size: 0.9rem;
+      opacity: 0.9;
+    }
+    .settings-help-link {
+      text-align: center;
+      opacity: 0.85;
+      margin: 2rem 0 1rem;
     }
   </style>
 

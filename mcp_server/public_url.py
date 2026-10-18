@@ -8,6 +8,11 @@
 לראוט השני היה נסחף מהראשון (R6), וגם היה כותב שתי שורות WARNING בעלייה על אותה
 תצורה שגויה. ``build_mcp`` קורא ל-:func:`public_base_for` פעם אחת, ומצרף לבסיס את
 הנתיב של כל ראוט.
+
+צרכן שלישי, מחוץ לשירות: עמוד ההגדרות בוובאפ מציג את הכתובת שמדביקים בלקוח —
+הבסיס ואחריו :data:`MCP_ENDPOINT_PATH` (``_mcp_connect_url`` ב-
+``webapp/routes/settings_routes.py``). הוא עובר באותה בדיקה, :func:`why_not_usable`,
+כי גם שם הכתובת מגיעה לכל משתמש.
 """
 
 from __future__ import annotations
@@ -20,9 +25,17 @@ logger = logging.getLogger(__name__)
 #: ה-host בפקודות שבתיאורי הכלים, כשכתובת השירות אינה ידועה.
 PLACEHOLDER_HOST = "<mcp-host>"
 
+#: הנתיב שבו השירות מקבל את בקשות ה-MCP — מה שבא אחרי הבסיס בכתובת שמדביקים בלקוח.
+#: הוא אינו נקבע כאן אלא ב-``mcp.streamable_http_app()`` (``build_app`` ב-
+#: ``mcp_server/server.py``), והקבוע הוא עותק שלו. הטסט
+#: ``test_every_route_answers_401_without_a_token_except_a_closed_list`` ב-
+#: ``tests/test_mcp_uploads.py`` מוודא שהאפליקציה האמיתית מגישה אותו, ולכן שינוי
+#: הנתיב מפיל טסט ולא את הכתובת שהמשתמש מעתיק.
+MCP_ENDPOINT_PATH = "/mcp"
 
-def _why_not_usable(public_url: str) -> str | None:
-    """למה הכתובת לא תיכנס לפקודה — או ``None`` כשהיא תקינה.
+
+def why_not_usable(public_url: str) -> str | None:
+    """למה הכתובת לא תיכנס לפקודה או לעמוד — או ``None`` כשהיא תקינה.
 
     הסיבה, ולא הערך: היא זו שנרשמת בלוג, ומה שנדחה עלול להיות בדיוק סיסמה
     בכתובת (K13). ``port`` נקרא כאן כדי שפורט שבור ייפול כאן, ולא בפקודה שהסוכן
@@ -67,7 +80,7 @@ def public_base_for(public_url: str | None) -> str:
     placeholder = f"https://{PLACEHOLDER_HOST}"
     if not isinstance(public_url, str) or not public_url:
         return placeholder
-    reason = _why_not_usable(public_url)
+    reason = why_not_usable(public_url)
     if reason is not None:
         logger.warning(
             "MCP_SERVER_URL not used for the commands in the tool descriptions: %s — they show %s instead",
