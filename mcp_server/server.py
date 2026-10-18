@@ -3615,7 +3615,8 @@ def build_mcp(
     # **השער של הפתק הוא של ``codekeeper_get_note``, ומאותו קוד** (``handlers._readable_note``):
     # פתק של משתמש אחר, ופתק ריפו למי שאינו אדמין, עונים ``not_found`` ושום דבר לא נכתב.
     # לכן הכלי אינו ב-``_ADMIN_TOOLS``: משתמש רגיל מגיב על הפתקים שלו. שם הכותב מגיע
-    # מהחיבור (``connected_client_name``) ולא מפרמטר, כדי שסוכן לא יוכל להציג את עצמו כאחר.
+    # מהחיבור (``connected_client_name``) ולא מפרמטר, כדי שהמודל לא יכתוב אותו בקריאה —
+    # וזו עדיין הצהרה של הלקוח, ולא זיהוי מאומת (ה-docstring של ``client_identity``).
     @mcp.tool(
         name="codekeeper_comment_note",
         description=(
