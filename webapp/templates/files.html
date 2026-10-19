@@ -148,6 +148,17 @@
   </div>
 </div>
 
+{# אייקון הפתק — דף עם פינה מקופלת. משותף לשני הכפתורים שמובילים ללוחות הפתקים:
+   "סטיקי נוטס" בשורת הקטגוריות, והכפתור בשורת הכלים שמתחת לחיפוש. מקור אחד, כדי
+   ששני כפתורים עם אותו יעד לא יתפצלו לשני ציורים. אייקון החיפוש בפתקים מצייר את
+   אותו דף עם חיתוך, ונשאר בכתב יד ליד הכפתור שלו — ההסבר שם. #}
+{% macro note_sheet_icon() -%}
+<svg viewBox="3 3 18 18" width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false">
+    <path d="M6 3h12a3 3 0 0 1 3 3v8.5h-4a2.5 2.5 0 0 0-2.5 2.5v4H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z"/>
+    <path d="M17.2 15.7H21l-5.3 5.3v-3.8a1.5 1.5 0 0 1 1.5-1.5z"/>
+</svg>
+{%- endmacro %}
+
 <!-- כפתורי קטגוריות -->
 <div class="categories-section" style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
     <a href="/files" class="btn {% if not category_filter %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
@@ -158,13 +169,15 @@
         <i class="fas fa-history"></i>
         נפתחו לאחרונה
     </a>
-    <a href="/files?category=repo" class="btn {% if category_filter == 'repo' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
-        <i class="fab fa-github"></i>
-        לפי ריפו
-    </a>
+    {# אין כאן כפתור לקטגוריית הריפו: הקטגוריה עצמה (``category=repo``) נשארת בראוט ועובדת בכתובת ישירה. #}
     <a href="/files?category=favorites" class="btn {% if category_filter == 'favorites' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-star"></i>
         מועדפים
+    </a>
+    {# קישור לעמוד אחר ולא קטגוריה של העמוד הזה, ולכן אף פעם אינו מסומן כפעיל. #}
+    <a href="/boards" class="btn btn-secondary btn-icon">
+        {{ note_sheet_icon() }}
+        סטיקי נוטס
     </a>
       <a href="#" onclick="navigateToWorkspace(); return false;" class="btn btn-secondary btn-icon workspace-btn">
           <i class="fas fa-desktop"></i>
@@ -262,8 +275,9 @@
             </a>
             {# חיפוש בפתקים ולוחות הפתקים. העמוד RTL, ולכן כל אח הבא ב-DOM
                נוחת **משמאל** לקודמו: הוספה ← חיפוש ← לוחות.
-               שני הכפתורים מציירים את אותו דף בדיוק, ובחיפוש הזכוכית
-               המגדלת **נחתכת** מתוכו. החיתוך הוא ``mask`` של בהירות: לבן
+               שני הכפתורים מציירים את אותו דף בדיוק — הלוחות דרך ``note_sheet_icon``,
+               והחיפוש בעותק שלו כאן, כי הזכוכית המגדלת **נחתכת** מתוכו.
+               ``tests/test_files_notes_buttons.py`` משווה בין שני הציורים. החיתוך הוא ``mask`` של בהירות: לבן
                משאיר את הדף, שחור מחורר אותו (``mask-type`` מתחיל ב-``luminance``,
                ותוכן ה-``mask`` בקואורדינטות של ה-SVG עצמו —
                https://www.w3.org/TR/css-masking-1/#MaskElement). ``white``/``black`` כאן אינם
@@ -295,10 +309,7 @@
                title="לוחות פתקים"
                aria-label="לוחות פתקים"
                style="padding: 0.5rem 0.85rem;">
-                <svg viewBox="3 3 18 18" width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false">
-                    <path d="M6 3h12a3 3 0 0 1 3 3v8.5h-4a2.5 2.5 0 0 0-2.5 2.5v4H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z"/>
-                    <path d="M17.2 15.7H21l-5.3 5.3v-3.8a1.5 1.5 0 0 1 1.5-1.5z"/>
-                </svg>
+                {{ note_sheet_icon() }}
             </a>
             <a href="/tools/json"
                class="btn btn-secondary btn-icon"
