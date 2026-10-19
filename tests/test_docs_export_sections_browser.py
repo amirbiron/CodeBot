@@ -96,16 +96,16 @@ _INDEX_BODY = """<section id="guide">
 </dl>
 <p>עוד בסעיף <a class="reference internal" href="#deep">לעומק</a>.</p>
 <section id="deep">
-<h3>עמוק<a class="headerlink" href="#deep" title="Link to this heading">¶</a></h3>
+<h3><a class="toc-backref" href="#id9" role="doc-backlink">עמוק</a><a class="headerlink" href="#deep" title="Link to this heading">¶</a></h3>
 <p>תוכן עמוק</p>
 </section>
 </section>
 </section>"""
 
 _OTHER_BODY = """<section id="other">
-<h1>עמוד נוסף<a class="headerlink" href="#other" title="Link to this heading">¶</a></h1>
+<h1>עמוד <a class="reference internal" href="../index.html#guide"><span>נוסף</span></a><a class="headerlink" href="#other" title="Link to this heading">¶</a></h1>
 <section id="target">
-<h2>היעד<a class="headerlink" href="#target" title="Link to this heading">¶</a></h2>
+<h2>היעד <code class="docutils literal notranslate"><span class="pre">x_y</span></code><a class="headerlink" href="#target" title="Link to this heading">¶</a></h2>
 <p>חזרה <a class="reference internal" href="../index.html#guide">למדריך</a>.</p>
 </section>
 </section>"""
@@ -120,6 +120,13 @@ def _page(depth: int, body: str, *, with_copy_page: bool = True) -> str:
     static = "/".join([".."] * depth + ["_static"])
     scripts = _SCRIPTS.format(static=static) if with_copy_page else ""
     return _PAGE.format(scripts=scripts, body=body)
+
+
+def _record_dependencies(site: Path, recorded: dict) -> None:
+    """מה שההרחבה (``setup`` בסקריפט) כותבת בסוף בניית האתר, מתוך מה ש-Sphinx רשם — כאן במקום Sphinx."""
+    path = site / export.DEPENDENCIES_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(export.dependency_map(recorded, site.parent / "repo" / "docs")), encoding="utf-8")
 
 
 def _site(tmp_path: Path) -> Path:
@@ -137,6 +144,11 @@ def _site(tmp_path: Path) -> Path:
     _write(site / "api" / "module.html", _page(1, '<section id="api"><h1>api</h1></section>'))
     _write(site / "genindex.html", _page(0, '<section id="index"><h1>אינדקס</h1></section>'))
     _write(site / "_modules" / "mod.html", "<html><body>source</body></html>")
+    # נתיבים כמו שבנייה אמיתית רשמה: קוד מ-``literalinclude``, תמונה, ומודול של פייתון שמחוץ לריפו.
+    _record_dependencies(site, {
+        "index": ["../handlers/save_flow.py", "_static/flow.svg", "../../../usr/lib/python3.13/typing.py"],
+        "api/module": ["../api_module.py"],
+    })
     return site
 
 
@@ -164,7 +176,7 @@ def test_every_content_section_is_exported_on_its_own(chromium_executable, tmp_p
     assert commit_copy.read_bytes() == (site / export.EXPORT_PATH).read_bytes()
     assert commit_copy.stat().st_mode & 0o777 == 0o644
     assert sorted(path.name for path in commit_copy.parent.iterdir()) == sorted(
-        ["sections.json", f"sections-{COMMIT}.json"]
+        ["sections.json", f"sections-{COMMIT}.json", export.DEPENDENCIES_PATH.name]
     )
     assert stored["schema_version"] == export.SCHEMA_VERSION
     assert stored["source_commit"] == COMMIT
@@ -177,6 +189,9 @@ def test_every_content_section_is_exported_on_its_own(chromium_executable, tmp_p
     assert pages["index.html"]["source_path"] == "docs/index.rst"
     assert pages["guide/other.html"]["source_path"] == "docs/guide/other.md"
     assert pages["index.html"]["title"] == "מדריך"
+    # הקבצים שהעמוד נבנה מהם, בנתיב שלהם בריפו; מה שמחוץ לריפו לא נכנס, ועמוד שלא נרשם לו כלום — ריק.
+    assert pages["index.html"]["dependencies"] == ["docs/_static/flow.svg", "handlers/save_flow.py"]
+    assert pages["guide/other.html"]["dependencies"] == []
 
     sections = {section["anchor"]: section for section in pages["index.html"]["sections"]}
     assert list(sections) == ["guide", "id1", "deep"]
@@ -203,6 +218,14 @@ def test_every_content_section_is_exported_on_its_own(chromium_executable, tmp_p
 
     back = pages["guide/other.html"]["sections"][1]["markdown"]
     assert f"[למדריך]({SITE_URL}index.html#guide)" in back
+
+    # הכותרת כמארקדאון: קוד נשאר קוד, קישור מוביל לאתר כמו קישור בגוף, וכותרת שעטופה בקישור חזרה
+    # לתוכן העניינים המקומי (``toc-backref``) לא מתרוקנת.
+    assert [(s["title"], s["title_markdown"]) for s in pages["guide/other.html"]["sections"]] == [
+        ("עמוד נוסף", f"עמוד [נוסף]({SITE_URL}index.html#guide)"),
+        ("היעד x_y", "היעד `x_y`"),
+    ]
+    assert [s["title_markdown"] for s in sections.values()] == ["מדריך", "סעיף ראשון", "עמוק"]
 
 
 def test_to_markdown_is_what_the_copy_button_copies(chromium_executable, tmp_path):
@@ -257,7 +280,8 @@ def test_a_broken_page_fails_the_whole_export_and_leaves_no_file(chromium_execut
         _export(site, chromium_executable)
 
     assert not stale.exists()
-    assert not list(stale.parent.iterdir())
+    # נשאר רק הקובץ שהבנייה כתבה: הוא קלט של הייצוא, לא תוצר שלו.
+    assert [path.name for path in stale.parent.iterdir()] == [export.DEPENDENCIES_PATH.name]
 
 
 def test_the_cli_runs_the_export_end_to_end(chromium_executable, tmp_path, capsys):
@@ -380,6 +404,7 @@ def test_an_update_headline_is_the_text_on_the_page_and_its_link_jumps_to_it(chr
         shutil.copyfile(STATIC / name, target)
     _write(site / "whats-new.html", _page(0, _update_log_body()))
     _write(site / "_sources" / "whats-new.rst.txt", "What's New\n==========\n")
+    _record_dependencies(site, {})
 
     exported = _export(site, chromium_executable)
     records, _chunks = index.build_records(parse_export(json.dumps(exported).encode("utf-8")))

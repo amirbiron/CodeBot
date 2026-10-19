@@ -8,8 +8,16 @@ import re
 import sys
 from datetime import datetime
 
+# הנתיבים נגזרים מהמיקום של הקובץ הזה (Sphinx מכניס את __file__ למה שהוא מריץ, eval_config_file
+# ב-sphinx/config.py), ולא מהתיקייה הנוכחית: כך הם נכונים גם כשהקונפיגורציה הזו רצה מתוך תיקייה אחרת,
+# כמו ב-tests/test_docs_nav_follow_browser.py.
+_DOCS_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Add the project root to the path
-sys.path.insert(0, os.path.abspath('..'))
+sys.path.insert(0, os.path.dirname(_DOCS_DIR))
+# תיקיית הסקריפטים, בסוף ולא בהתחלה: כדי לטעון ממנה את docs_export_sections כהרחבה (ב-extensions
+# למטה) בלי ששם של סקריפט אחר יסתיר מודול באותו שם.
+sys.path.append(os.path.join(os.path.dirname(_DOCS_DIR), 'scripts'))
 
 # Ensure safe environment defaults for docs builds (RTD / local)
 os.environ.setdefault('DISABLE_DB', 'true')
@@ -38,6 +46,10 @@ extensions = [
     'sphinxcontrib.mermaid',
     # אפשר תמיכה ב-Markdown דרך MyST עבור פרקי ChatOps
     'myst_parser',
+    # סקריפט הייצוא כהרחבה: בסוף הבנייה הוא כותב את הקבצים שכל עמוד נבנה מהם (ראו setup
+    # ב-scripts/docs_export_sections.py). התיקייה נטענת לפי השם ולא כ-scripts.docs_export_sections,
+    # כי scripts הוא namespace package, וחבילה רגילה בשם הזה ב-site-packages הייתה גוברת עליו.
+    'docs_export_sections',
 ]
 
 # הגדרות בסיסיות עבור MyST (להימנע מאזהרות וקישורים נוחים בין עמודים)

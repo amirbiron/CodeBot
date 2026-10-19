@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import httpx
 
@@ -40,22 +40,30 @@ LATER = "2026-10-07T13:00:00+00:00"
 # ---------------------------------------------------------------------------
 
 
-def section(anchor: str, *breadcrumb: str, markdown: str = "טקסט של הסעיף.") -> Dict[str, Any]:
-    """סעיף בצורה שסקריפט הייצוא כותב: הכותרת היא סוף השביל, והרמה היא אורכו."""
+def section(
+    anchor: str, *breadcrumb: str, markdown: str = "טקסט של הסעיף.", title_markdown: Optional[str] = None
+) -> Dict[str, Any]:
+    """סעיף בצורה שסקריפט הייצוא כותב: הכותרת היא סוף השביל, והרמה היא אורכו. ``title_markdown`` —
+    הכותרת כמארקדאון; בלעדיו, אותו טקסט כמו הכותרת."""
     return {
         "anchor": anchor,
         "title": breadcrumb[-1],
+        "title_markdown": breadcrumb[-1] if title_markdown is None else title_markdown,
         "breadcrumb": list(breadcrumb),
         "level": len(breadcrumb),
         "markdown": markdown,
     }
 
 
-def page(path: str, source_path: str, *sections: Dict[str, Any]) -> Dict[str, Any]:
+def page(
+    path: str, source_path: str, *sections: Dict[str, Any], dependencies: Sequence[str] = ()
+) -> Dict[str, Any]:
+    """עמוד בצורה שסקריפט הייצוא כותב. ``dependencies`` — הקבצים האחרים בריפו שהעמוד נבנה מהם."""
     return {
         "path": path,
         "source_path": source_path,
         "title": sections[0]["breadcrumb"][0],
+        "dependencies": list(dependencies),
         "sections": list(sections),
     }
 

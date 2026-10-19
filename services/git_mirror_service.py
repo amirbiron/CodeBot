@@ -1358,6 +1358,48 @@ class GitMirrorService:
 
         return None
 
+    def get_blob_ids(self, repo_name: str, ref: str, file_paths: List[str]) -> Optional[Dict[str, str]]:
+        """ה-sha של התוכן (ה-blob) של כל אחד מ-``file_paths`` ב-``ref``, בפקודת git אחת, בלי לקרוא קבצים.
+
+        שני blobs עם אותו sha הם אותו תוכן בדיוק, ולכן כך משווים קבצים בין שני קומיטים — קומיט שלא נגע
+        בקובץ נותן את אותו blob. קובץ שאינו ב-``ref`` (נמחק, או עוד לא נוצר) פשוט חסר במילון: ``ls-tree``
+        מדלג עליו ומסתיים בהצלחה. ``None`` כשאין תשובה בכלל — שם ריפו, ref או נתיב שנדחו בוולידציה (אותה
+        ולידציה של :meth:`get_file_content`), או פקודה שנכשלה, למשל ref שאינו במראה.
+        """
+        repo_name = str(repo_name or "").strip()
+        if not self._validate_repo_name(repo_name):
+            logger.warning("Rejected invalid repo name: %r", repo_name)
+            return None
+        ref = ref.strip() if isinstance(ref, str) else ""
+        if not ref or not self._validate_repo_ref(ref):
+            logger.warning("Rejected invalid repo ref: %r", ref)
+            return None
+        safe_paths: List[str] = []
+        for file_path in file_paths:
+            safe_file_path = self._get_safe_file_path(file_path.strip() if isinstance(file_path, str) else "")
+            if not safe_file_path:
+                logger.warning("Rejected invalid repo file path: %r", file_path)
+                return None
+            safe_paths.append(safe_file_path)
+        if not safe_paths:
+            return {}
+
+        # ``-z``: רשומה לכל קובץ, ``<mode> <type> <sha>\t<path>``, מופרדות ב-NUL ובלי ציטוט של הנתיב.
+        result = self._run_git_command(
+            ["git", "ls-tree", "-z", ref, "--", *safe_paths], cwd=self._get_repo_path(repo_name), timeout=10
+        )
+        if not result.success:
+            return None
+        wanted = set(safe_paths)
+        blobs: Dict[str, str] = {}
+        for entry in result.stdout.split("\0"):
+            meta, separator, path = entry.partition("\t")
+            fields = meta.split(" ")
+            # נתיב של תיקייה מחזיר את מה שבתוכה, ולכן נשארים רק blobs בנתיב שהתבקש בדיוק.
+            if separator and len(fields) == 3 and fields[1] == "blob" and path in wanted and _looks_like_git_sha(fields[2]):
+                blobs[path] = fields[2]
+        return blobs
+
     def list_all_files_with_sizes(
         self, repo_name: str, ref: str = "HEAD"
     ) -> Optional[List[Dict[str, Any]]]:

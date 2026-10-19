@@ -59,8 +59,22 @@ MAX_PATH_BYTES = 4 * 49
 #: כותרת של עמוד או של סעיף. המדידה: 99.
 MAX_TITLE_BYTES = 4 * 99
 
+#: כותרת של סעיף כמארקדאון (``title_markdown``). המדידה: 100, על האתר החי ב-19.10.2026 (קומיט
+#: ``1edfede``), בהמרה של כל כותרת בכפתור ההעתקה — לפני שהשדה נכנס לקובץ. מעכשיו
+#: ``scripts/measure_docs_export.py`` מודד אותו מהקובץ, כמו את שאר השדות.
+MAX_TITLE_MARKDOWN_BYTES = 4 * 100
+
 #: עוגן. המדידה: 61.
 MAX_ANCHOR_BYTES = 4 * 61
+
+#: קובץ שעמוד נבנה ממנו (``dependencies``). המדידה: 50 (``src/infrastructure/composition/webapp_container.py``),
+#: בבנייה מקומית של הקומיט ``a3c2d5f`` ב-19.10.2026 (Sphinx 8.2.3), מהתלויות ש-Sphinx רשם לכל עמוד — לפני
+#: שהשדה נכנס לקובץ. מעכשיו ``scripts/measure_docs_export.py`` מודד אותו מהקובץ, כמו את שאר השדות.
+MAX_DEPENDENCY_PATH_BYTES = 4 * 50
+
+#: כמה קבצים עמוד אחד נבנה מהם, מלבד קובץ המקור שלו. המדידה: 17 (``docs/modules/index.rst``, ש-autodoc
+#: מתעד בו מודולים), באותה בנייה.
+MAX_PAGE_DEPENDENCIES = 4 * 17
 
 #: שביל הכותרות, כפי שהוא מחובר לטקסט שמוטמע (``" › "`` בין הכותרות). המדידה: 262. התקרה
 #: היא גם מה שמבטיח שנשאר מקום לגוף בנתח של 2,000 בתים.
@@ -117,6 +131,8 @@ class ExportFetchError(Exception):
 class DocSection:
     anchor: str
     title: str
+    #: אותה כותרת בהמרה של כפתור ההעתקה, שורה אחת: קוד והדגשה בתוכה נשארים.
+    title_markdown: str
     breadcrumb: Tuple[str, ...]
     level: int
     markdown: str
@@ -128,6 +144,9 @@ class DocPage:
     source_path: str
     title: str
     sections: Tuple[DocSection, ...]
+    #: הקבצים האחרים בריפו שהעמוד נבנה מהם, יחסית לשורש הריפו, כמו ש-Sphinx רשם אותם בבנייה (ההסבר
+    #: ב-``scripts/docs_export_sections.py``). ריק כשהעמוד נבנה מקובץ המקור שלו בלבד.
+    dependencies: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -307,6 +326,10 @@ def parse_export(data: bytes) -> ExportDocument:
     paths = [page.path for page in pages]
     if len(set(paths)) != len(paths):
         _invalid("a page path appears twice")
+    # קובץ המקור הוא המפתח של העמוד המורכב באינדקס, ולכן גם הוא ייחודי.
+    sources = [page.source_path for page in pages]
+    if len(set(sources)) != len(sources):
+        _invalid("a source path appears twice")
     page_count = raw.get("page_count")
     section_count = raw.get("section_count")
     actual_sections = sum(len(page.sections) for page in pages)
@@ -344,7 +367,25 @@ def _page(item: Any, index: int) -> DocPage:
     anchors = [section.anchor for section in sections]
     if len(set(anchors)) != len(anchors):
         _invalid(f"{where} ({path}) has an anchor twice")
-    return DocPage(path=path, source_path=source_path, title=title, sections=sections)
+    dependencies = _dependencies(item.get("dependencies"), f"{where}.dependencies")
+    return DocPage(path=path, source_path=source_path, title=title, sections=sections, dependencies=dependencies)
+
+
+def _dependencies(value: Any, where: str) -> Tuple[str, ...]:
+    """הקבצים שעמוד נבנה מהם: רשימה (גם ריקה) של נתיבים שונים בריפו, עד :data:`MAX_PAGE_DEPENDENCIES`."""
+    if not isinstance(value, list):
+        _invalid(f"{where} is not a list")
+    if len(value) > MAX_PAGE_DEPENDENCIES:
+        _invalid(f"{where} has {len(value)} files, max {MAX_PAGE_DEPENDENCIES}")
+    paths = tuple(
+        _bounded_text(entry, f"{where}[{position}]", MAX_DEPENDENCY_PATH_BYTES) for position, entry in enumerate(value)
+    )
+    for path in paths:
+        if not contract.is_dependency_path(path):
+            _invalid(f"{where} has a path that is not a repo file: {path!r}")
+    if len(set(paths)) != len(paths):
+        _invalid(f"{where} has a file twice")
+    return paths
 
 
 def _section(item: Any, where: str) -> DocSection:
@@ -354,6 +395,10 @@ def _section(item: Any, where: str) -> DocSection:
     if not contract.ANCHOR_RE.fullmatch(anchor):
         _invalid(f"{where}.anchor is not an anchor: {anchor!r}")
     title = _bounded_text(item.get("title"), f"{where}.title", MAX_TITLE_BYTES)
+    title_markdown = _bounded_text(item.get("title_markdown"), f"{where}.title_markdown", MAX_TITLE_MARKDOWN_BYTES)
+    # שורה אחת, כמו שסקריפט הייצוא מבטיח: שבירת שורה הייתה מסיימת את הכותרת באמצע בעמוד המורכב.
+    if "\n" in title_markdown or "\r" in title_markdown:
+        _invalid(f"{where}.title_markdown spans more than one line")
     crumbs = item.get("breadcrumb")
     if not isinstance(crumbs, list) or not crumbs:
         _invalid(f"{where}.breadcrumb is not a non-empty list")
@@ -374,7 +419,12 @@ def _section(item: Any, where: str) -> DocSection:
         _invalid(f"{where}.markdown is not text")
     _utf8_size(markdown, f"{where}.markdown")
     return DocSection(
-        anchor=anchor, title=title, breadcrumb=breadcrumb, level=level, markdown=markdown
+        anchor=anchor,
+        title=title,
+        title_markdown=title_markdown,
+        breadcrumb=breadcrumb,
+        level=level,
+        markdown=markdown,
     )
 
 

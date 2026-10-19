@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
@@ -62,6 +62,35 @@ def test_the_measuring_script_joins_the_breadcrumb_like_the_webapp():
     assert measure.BREADCRUMB_SEPARATOR == client.BREADCRUMB_SEPARATOR
 
 
+def _measured_file(schema_version: int, *, title_markdown: bool = True, dependencies: bool = True) -> bytes:
+    section = {"anchor": "a", "title": "כותרת", "breadcrumb": ["כותרת"], "level": 1, "markdown": "x"}
+    if title_markdown:
+        section["title_markdown"] = "`כותרת`"
+    page = {"path": "a.html", "source_path": "docs/a.rst", "title": "כותרת", "sections": [section]}
+    if dependencies:
+        page["dependencies"] = ["handlers/save_flow.py", "main.py"]
+    return json.dumps({"schema_version": schema_version, "pages": [page]}, ensure_ascii=False).encode("utf-8")
+
+
+def test_the_measuring_script_measures_the_fields_of_the_second_schema():
+    measured = measure.measure(_measured_file(2))
+    assert (measured["section_title_markdown"], measured["dependency_path"], measured["page_dependencies"]) == (
+        len("`כותרת`".encode("utf-8")), len(b"handlers/save_flow.py"), 2,
+    )
+
+
+@pytest.mark.parametrize("missing", ["title_markdown", "dependencies"])
+def test_a_second_schema_file_without_its_fields_fails_the_measuring(missing):
+    """מדידה קטנה מהאמת הייתה נראית כמו מרווח בטוח מהתקרה; שדה חסר בקובץ מגרסה 2 הוא קובץ שבור."""
+    with pytest.raises(KeyError):
+        measure.measure(_measured_file(2, **{missing: False}))
+
+
+def test_a_first_schema_file_measures_the_new_fields_as_zero():
+    measured = measure.measure(_measured_file(1, title_markdown=False, dependencies=False))
+    assert (measured["section_title_markdown"], measured["dependency_path"], measured["page_dependencies"]) == (0, 0, 0)
+
+
 # ---------------------------------------------------------------------------
 # מסמך שהיצרן בונה עובר בקורא של הוובאפ
 # ---------------------------------------------------------------------------
@@ -71,13 +100,14 @@ def _producer_section(anchor: str, breadcrumb: list[str], markdown: str = "תו�
     return {
         "anchor": anchor,
         "title": breadcrumb[-1],
+        "title_markdown": f"`{breadcrumb[-1]}`",
         "breadcrumb": breadcrumb,
         "level": len(breadcrumb),
         "markdown": markdown,
     }
 
 
-def test_a_document_built_by_the_export_reads_back_in_the_webapp():
+def test_a_document_built_by_the_export_reads_back_in_the_webapp(tmp_path):
     raw_sections = [
         _producer_section("guide", ["מדריך"], ""),
         _producer_section("id1", ["מדריך", "סעיף ראשון"], "::: warning\nזהירות\n:::"),
@@ -85,11 +115,26 @@ def test_a_document_built_by_the_export_reads_back_in_the_webapp():
     ]
     # אותה בדיקה שהיצרן מריץ על מה שהדפדפן החזיר, ואז אותו מסמך שהוא כותב לקובץ.
     sections = producer._validated_sections({"sections": raw_sections}, "index.html")
+    # מה ש-Sphinx רושם (``env.dependencies``), בצורה שבנייה אמיתית רשמה: ``literalinclude`` יחסית לתיקיית
+    # המקור, ומודול של הספרייה הסטנדרטית ש-autodoc קרא — מחוץ לריפו. ההרחבה כותבת, והייצוא קורא.
+    srcdir = tmp_path / "repo" / "docs"
+    html_dir = tmp_path / "html"
+    recorded = producer.dependency_map(
+        {"index": ["../handlers/save_flow.py", "_static/x.svg", "../../../usr/lib/python3.13/typing.py"]}, srcdir
+    )
+    (html_dir / producer.DEPENDENCIES_PATH).parent.mkdir(parents=True)
+    (html_dir / producer.DEPENDENCIES_PATH).write_text(json.dumps(recorded), encoding="utf-8")
+    pages = ["index.html", "webapp/global-search.html"]
+    dependencies = producer.page_dependencies(html_dir, pages, PurePosixPath("docs"))
     exported = [
-        {"path": "index.html", "source_path": "docs/index.rst", "sections": sections},
+        {
+            "path": "index.html", "source_path": "docs/index.rst", "dependencies": dependencies["index.html"],
+            "sections": sections,
+        },
         {
             "path": "webapp/global-search.html",
             "source_path": "docs/webapp/global-search.rst",
+            "dependencies": dependencies["webapp/global-search.html"],
             "sections": producer._validated_sections(
                 {"sections": [_producer_section("webapp-global-search", ["חיפוש גלובלי"])]},
                 "webapp/global-search.html",
@@ -109,6 +154,9 @@ def test_a_document_built_by_the_export_reads_back_in_the_webapp():
     assert parsed.section_count == 4
     deep = parsed.pages[0].sections[2]
     assert (deep.anchor, deep.level, deep.breadcrumb) == ("deep", 3, ("מדריך", "סעיף ראשון", "עמוק"))
+    assert deep.title_markdown == "`עמוק`"
+    assert parsed.pages[0].dependencies == ("docs/_static/x.svg", "handlers/save_flow.py")
+    assert parsed.pages[1].dependencies == ()
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +239,20 @@ def test_source_paths_in_the_grammar(path):
 @pytest.mark.parametrize("path", ["docs/index.html", "/docs/x.rst", "../x.rst", "docs/x.txt"])
 def test_source_paths_outside_the_grammar(path):
     assert not contract.SOURCE_PATH_RE.fullmatch(path)
+
+
+@pytest.mark.parametrize(
+    "path", ["main.py", "handlers/save_flow.py", "docs/_static/x.svg", "GUIDES/Debugging Guide.md", "docs/תמונה.png"]
+)
+def test_dependency_paths_in_the_grammar(path):
+    assert contract.is_dependency_path(path)
+
+
+@pytest.mark.parametrize(
+    "path", ["", "/etc/passwd", "../x.py", "a/../../x.py", "a//b.py", "a/./b.py", "a/", "a\tb.py", "a\x00b", None, 7]
+)
+def test_dependency_paths_outside_the_grammar(path):
+    assert not contract.is_dependency_path(path)
 
 
 def test_the_vector_index_definition_follows_the_active_dimensions():

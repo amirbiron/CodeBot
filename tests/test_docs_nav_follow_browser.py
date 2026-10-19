@@ -51,10 +51,12 @@ _TABLET = {
 #: ``docs/conf.py`` עצמו, עם שני שינויים בלבד. הנתיבים: Sphinx פותר נתיבים יחסיים מתיקיית
 #: הקונפיגורציה, והיא כאן תיקייה זמנית. ובלי ``intersphinx_mapping``: ההרחבה מורידה מלאי
 #: מאתרים חיצוניים, ולעמודים כאן אין קישורים אליהם. ``exec`` הוא מה ש-Sphinx עצמו עושה
-#: לקובץ הקונפיגורציה.
+#: לקובץ הקונפיגורציה, ו-``__file__`` הוא מה שהוא מכניס לפני כן (``eval_config_file``): הקובץ
+#: שרץ, וממנו ``docs/conf.py`` גוזר את הנתיבים שלו.
 _CONF = """\
 import pathlib
 _REAL = pathlib.Path({real!r})
+__file__ = str(_REAL)
 exec(compile(_REAL.read_text(encoding="utf-8"), str(_REAL), "exec"))
 templates_path = [str(_REAL.parent / "_templates")]
 html_static_path = [str(_REAL.parent / "_static")]

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -110,6 +111,7 @@ def _section(**overrides):
     section = {
         "anchor": "id3",
         "title": "סעיף",
+        "title_markdown": "סעיף",
         "breadcrumb": ["עמוד", "סעיף"],
         "level": 2,
         "markdown": "תוכן\n",
@@ -119,7 +121,7 @@ def _section(**overrides):
 
 
 def test_valid_sections_pass_through_unchanged():
-    top = _section(anchor="top", title="עמוד", breadcrumb=["עמוד"], level=1)
+    top = _section(anchor="top", title="עמוד", title_markdown="עמוד", breadcrumb=["עמוד"], level=1)
     raw = {"sections": [top, _section()]}
 
     assert export._validated_sections(raw, "page.html") == raw["sections"]
@@ -136,6 +138,10 @@ def test_valid_sections_pass_through_unchanged():
         {"sections": [_section(anchor="")]},
         {"sections": [_section(), _section()]},
         {"sections": [_section(title="")]},
+        {"sections": [_section(title_markdown=None)]},
+        {"sections": [_section(title_markdown="  ")]},
+        {"sections": [_section(title_markdown="סעיף\nשני")]},
+        {"sections": [_section(title_markdown="סעיף\rשני")]},
         {"sections": [_section(breadcrumb="עמוד › סעיף")]},
         {"sections": [_section(breadcrumb=["עמוד", "אחר"])]},
         {"sections": [_section(breadcrumb=["", "סעיף"])]},
@@ -153,6 +159,10 @@ def test_valid_sections_pass_through_unchanged():
         "empty-anchor",
         "duplicate-anchor",
         "empty-title",
+        "title-markdown-missing",
+        "title-markdown-blank",
+        "title-markdown-spans-lines",
+        "title-markdown-has-a-carriage-return",
         "breadcrumb-not-a-list",
         "breadcrumb-does-not-end-with-title",
         "empty-crumb",
@@ -220,15 +230,15 @@ def test_a_failed_export_removes_the_files_of_a_previous_run(tmp_path, capsys):
     _touch(stale, '{"schema_version": 1}')
     for sha in (COMMIT, "f" * 40):
         _touch(export_dir / f"sections-{sha}.json", '{"schema_version": 1}')
-    for unrelated in ("notes.txt", "sections-abc.json", f"sections-{'A' * 40}.json"):
+    # הקובץ שהבנייה עצמה כתבה (:data:`DEPENDENCIES_PATH`) הוא קלט של הייצוא, לא תוצר שלו, ולכן נשאר.
+    unrelated_names = ("notes.txt", "sections-abc.json", f"sections-{'A' * 40}.json", export.DEPENDENCIES_PATH.name)
+    for unrelated in unrelated_names:
         _touch(export_dir / unrelated)
 
     assert export.main(_args(tmp_path)) == 1
 
     assert not stale.exists()
-    assert sorted(path.name for path in export_dir.iterdir()) == sorted(
-        ["notes.txt", "sections-abc.json", f"sections-{'A' * 40}.json"]
-    )
+    assert sorted(path.name for path in export_dir.iterdir()) == sorted(unrelated_names)
     assert "no content pages" in capsys.readouterr().err
 
 
@@ -245,6 +255,132 @@ def test_the_commit_copy_refuses_anything_but_a_full_sha(value):
     """ה-sha נכנס לשם קובץ ולכתובת באתר, ולכן כל ערך אחר נדחה."""
     with pytest.raises(ValueError):
         export.export_path_for_commit(value)
+
+
+# ---------------------------------------------------------------------------
+# הקבצים שעמוד נבנה מהם: ההרחבה כותבת, הייצוא קורא
+# ---------------------------------------------------------------------------
+
+
+class _Builder:
+    def __init__(self, format_: str) -> None:
+        self.format = format_
+
+
+class _Env:
+    def __init__(self, dependencies: dict) -> None:
+        self.dependencies = dependencies
+
+
+class _App:
+    """מה שההרחבה נוגעת בו ב-``Sphinx``: ``connect``, ‏``builder.format``, ``env.dependencies``, ``srcdir``,
+    ``outdir`` — השמות כמו ב-Sphinx 8.2.3 (``sphinx/application.py``, ``sphinx/builders/__init__.py``).
+    בנייה אמיתית עם ההרחבה רצה ב-workflow של התיעוד, וכל עמוד בלי הקובץ מכשיל שם את הייצוא."""
+
+    def __init__(self, tmp_path: Path, dependencies: dict, format_: str = "html") -> None:
+        self.srcdir = tmp_path / "repo" / "docs"
+        self.outdir = tmp_path / "html"
+        self.builder = _Builder(format_)
+        self.env = _Env(dependencies)
+        self.handlers: dict = {}
+
+    def connect(self, event: str, callback) -> None:
+        self.handlers[event] = callback
+
+
+def test_the_extension_writes_what_sphinx_recorded_after_an_html_build(tmp_path):
+    app = _App(tmp_path, {
+        "conversation-handlers": {"../main.py", "../handlers/save_flow.py", "../main.py"},
+        "user/sticky_notes": {"_static/badge.svg"},
+    })
+    metadata = export.setup(app)
+    assert metadata["parallel_read_safe"] and metadata["parallel_write_safe"]
+
+    app.handlers["build-finished"](app, None)
+
+    written = app.outdir / export.DEPENDENCIES_PATH
+    assert json.loads(written.read_text(encoding="utf-8")) == {
+        "conversation-handlers": ["../handlers/save_flow.py", "../main.py"],
+        "user/sticky_notes": ["_static/badge.svg"],
+    }
+    # חלק מהאתר שמוגש לכולם, כמו שאר הקבצים בו (``_write_atomically``).
+    assert written.stat().st_mode & 0o777 == 0o644
+
+
+@pytest.mark.parametrize(
+    "format_,exception", [("html", RuntimeError("the build failed")), ("latex", None)], ids=["failed", "not html"]
+)
+def test_the_extension_writes_nothing_for_a_failed_or_non_html_build(tmp_path, format_, exception):
+    app = _App(tmp_path, {"index": {"../main.py"}}, format_=format_)
+    export.setup(app)
+    app.handlers["build-finished"](app, exception)
+    assert not (app.outdir / export.DEPENDENCIES_PATH).exists()
+
+
+def test_a_dependency_is_written_relative_to_the_source_folder_even_when_sphinx_kept_it_absolute(tmp_path):
+    srcdir = tmp_path / "repo" / "docs"
+    recorded = {"index": [str(tmp_path / "repo" / "main.py"), "../main.py", "images/a.png"]}
+    assert export.dependency_map(recorded, srcdir) == {"index": ["../main.py", "images/a.png"]}
+
+
+def _dependencies_file(html_dir: Path, recorded) -> None:
+    path = html_dir / export.DEPENDENCIES_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(recorded), encoding="utf-8")
+
+
+def test_the_export_keeps_the_files_in_the_repo_relative_to_its_root(tmp_path):
+    """מה ש-Sphinx רשם יחסית לתיקיית המקור עובר לנתיב בריפו. מודול מחוץ לריפו (נתיבים כמו שבנייה אמיתית רשמה
+    ל-autodoc) לא נכנס, ועמוד שלא נרשם לו כלום נבנה מהמקור בלבד."""
+    _dependencies_file(tmp_path, {
+        "conversation-handlers": ["../handlers/save_flow.py", "../main.py"],
+        "modules/index": ["../../../../usr/lib/python3.13/typing.py", "../../venv/lib/site.py", "../utils.py"],
+        "user/sticky_notes": ["_static/badge.svg"],
+    })
+    pages = ["conversation-handlers.html", "modules/index.html", "user/sticky_notes.html", "index.html"]
+
+    assert export.page_dependencies(tmp_path, pages, PurePosixPath("docs")) == {
+        "conversation-handlers.html": ["handlers/save_flow.py", "main.py"],
+        "modules/index.html": ["utils.py"],
+        "user/sticky_notes.html": ["docs/_static/badge.svg"],
+        "index.html": [],
+    }
+
+
+def test_the_export_fails_without_the_file_the_build_writes(tmp_path):
+    """בלי הקובץ כל עמוד היה נראה כאילו נבנה מהמקור שלו בלבד, ודפדפן הריפו היה אומר שעמוד ישן עדכני."""
+    with pytest.raises(export.ExportError, match="docs/conf.py"):
+        export.page_dependencies(tmp_path, ["index.html"], PurePosixPath("docs"))
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["not json", "[]", '{"index": "../main.py"}', '{"index": [7]}', '{"index": null}'],
+    ids=["not json", "list", "text", "number", "null"],
+)
+def test_the_export_refuses_a_file_it_did_not_write(tmp_path, content):
+    path = tmp_path / export.DEPENDENCIES_PATH
+    path.parent.mkdir(parents=True)
+    path.write_text(content, encoding="utf-8")
+    with pytest.raises(export.ExportError):
+        export.page_dependencies(tmp_path, ["index.html"], PurePosixPath("docs"))
+
+
+def test_the_docs_build_loads_the_script_as_its_extension():
+    """``docs/conf.py`` כמו ש-Sphinx מריץ אותו — מתוך תיקיית התיעוד (``chdir`` ב-``eval_config_file``,
+    ``sphinx/config.py``) — ואז טעינת ההרחבה בשם שלה, כמו ``Sphinx.setup_extension``. בלעדיה הייצוא נכשל."""
+    probe = (
+        "import importlib, os, runpy\n"
+        f"os.chdir({str(ROOT / 'docs')!r})\n"
+        "namespace = runpy.run_path('conf.py')\n"
+        "assert 'docs_export_sections' in namespace['extensions'], namespace['extensions']\n"
+        "module = importlib.import_module('docs_export_sections')\n"
+        "print(module.__file__, callable(module.setup))\n"
+    )
+    finished = subprocess.run(
+        [sys.executable, "-B", "-I", "-c", probe], capture_output=True, text=True, timeout=60, check=True
+    )
+    assert finished.stdout.strip() == f"{ROOT / 'scripts' / 'docs_export_sections.py'} True"
 
 
 def test_importing_the_script_does_not_import_playwright():

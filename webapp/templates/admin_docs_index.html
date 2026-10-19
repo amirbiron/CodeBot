@@ -338,7 +338,7 @@
       ['הקובץ שנקרא לאחרונה', mono(shortSha((state.export || {}).source_commit), (state.export || {}).source_commit || '')],
       ['ה-HEAD של המראה', mono(shortSha((state.mirror || {}).head), (state.mirror || {}).head || '')],
       ['סונכרן', formatTime((state.mirror || {}).synced_at)],
-      ['נתחים / סעיפים במסד', formatNumber(counts.chunks) + ' / ' + formatNumber(counts.sections)],
+      ['נתחים / סעיפים / עמודים במסד', formatNumber(counts.chunks) + ' / ' + formatNumber(counts.sections) + ' / ' + formatNumber(counts.pages)],
       ['המודל באינדקס', mono(indexed.model_key || '—')],
       ['המודל בהגדרות', mono((state.settings || {}).model_key || '—')],
       ['עודכן', formatTime(indexed.at)],
@@ -361,7 +361,7 @@
       ['סעיפים לעדכון', formatNumber(plan.sections_to_upsert)],
       ['נתחים / סעיפים למחיקה', formatNumber(plan.chunks_to_delete) + ' / ' + formatNumber(plan.sections_to_delete)],
       ['מחיקות שנחסכו', formatNumber(plan.deletions_spared)],
-      ['אחרי המעבר', formatNumber(plan.desired_chunks) + ' נתחים, ' + formatNumber(plan.desired_sections) + ' סעיפים'],
+      ['אחרי המעבר', formatNumber(plan.desired_chunks) + ' נתחים, ' + formatNumber(plan.desired_sections) + ' סעיפים, ' + formatNumber(plan.desired_pages) + ' עמודים'],
     ];
     if (reason) rows.unshift(['למה מחכה לאישור', badge(REASON_LABELS[reason] || reason, '', 'approval-' + reason)]);
     fillFacts(facts, rows);

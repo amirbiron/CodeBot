@@ -2705,6 +2705,19 @@ html[dir="rtl"] .diff-view-toggle {
 
 /* תצוגת ה-Markdown (.markdown-preview-container, .markdown-preview-content) עברה ל-markdown-preview.css */
 
+/* ההודעה מעל עמוד מאתר התיעוד (setPreviewNote ב-repo-browser.js), רק בדפדפן הריפו ולכן כאן ולא
+   בקובץ המשותף. היא מוסתרת ב-hidden, ולכן אין כאן display שהיה גובר עליו. אותו רוחב כמו התוכן. */
+.markdown-preview-note {
+    max-width: 900px;
+    margin: 0 auto 16px;
+    padding: 8px 12px;
+    border-inline-start: 3px solid var(--accent-yellow);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
 /* מעבר חלק בין תצוגות */
 .code-editor-wrapper,
 .markdown-preview-container {

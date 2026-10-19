@@ -1,7 +1,7 @@
 """אינדקס התיעוד לחיפוש בוובאפ: סעיפים ונתחים מקובץ הייצוא, ומעבר שמיישר את המסד אליהם.
 
 **מאיפה.** קובץ הייצוא של אתר התיעוד (``services/docs_export_client.py``) — כל סעיף בכל עמוד,
-כמארקדאון, מאותה בנייה שנפרסת. מהקובץ נבנים כאן שני סוגי רשומות:
+כמארקדאון, מאותה בנייה שנפרסת. מהקובץ נבנות כאן הרשומות האלה:
 
 * **סעיף** (:data:`~services.docs_search_contract.SECTIONS_COLLECTION`) — מה שכרטיס בחיפוש מציג:
   העמוד, העוגן, שביל הכותרות והמארקדאון.
@@ -9,6 +9,11 @@
   שלו: שביל הכותרות, שורה ריקה, והגוף (או חלק ממנו) — עד ``CHUNK_MAX_BYTES`` של
   ``services/chunking_service.py``, אותו תקציב בתים של הסניפטים ומאותה סיבה (Gemini חותך בשקט
   מעבר לתקרת הטוקנים).
+* **עמוד** (:data:`~services.docs_search_contract.PAGES_COLLECTION`) — עמוד rst שלם, מורכב מכל
+  הסעיפים שלו לפי הסדר בקובץ (:func:`page_markdown`), למסך התצוגה המרונדרת בדפדפן הריפו. לא מסעיפי
+  החיפוש: אלה מדלגים על סעיף בלי טקסט או של קישורים בלבד, וביומן עדכונים הם עדכונים ולא סעיפים.
+  עמוד לא מוטמע, ולכן הוא אינו עולה דבר ואינו משפיע על האישור. עם העמוד נשמרים הקבצים האחרים שהוא
+  נבנה מהם (``dependencies`` בקובץ הייצוא), כדי שדפדפן הריפו יידע מתי העמוד ישן מהם.
 
 **המפתחות יציבים** ואינם כוללים את העוגן: סעיף מזוהה לפי קובץ המקור, שביל הכותרות ומספר סידורי
 לשביל שחוזר באותו עמוד, ונתח לפי הסעיף ומספר החלק. עוגן שזז (מספר רץ של Sphinx) מעדכן את רשומת
@@ -23,8 +28,8 @@
 **המעבר** (:func:`run_pass`) משווה את הרצוי (מהקובץ) לקיים (מהמסד, מה-primary, בלי הווקטורים),
 ומיישר: מטמיע רק מה שחדש או השתנה, ומוחק מה שהקובץ כבר לא מכיר. מחיקה נעשית רק כשהקובץ מכיר
 לפחות רשומה אחת מהקיימות (``one-way-sync-orphans`` ב-amir-bug-patterns: בדיקת חפיפה, בלי סף
-"פער גדול"). שני האוספים ייעודיים, והמעבר הוא הכותב היחיד שלהם, ולכן כל מה שבהם הוא דבר שהמעבר
-יצר ומותר לו למחוק. קובץ שנבנה **לפני** הקובץ שכבר הוחל אינו מוחל (:data:`CODE_OLDER_EXPORT`):
+"פער גדול"). כל אוספי הרשומות ייעודיים, והמעבר הוא הכותב היחיד שלהם, ולכן כל מה שבהם הוא דבר
+שהמעבר יצר ומותר לו למחוק. קובץ שנבנה **לפני** הקובץ שכבר הוחל אינו מוחל (:data:`CODE_OLDER_EXPORT`):
 עותק ישן ממטמון האתר, או webhook של פריסה קודמת שהגיע באיחור, לא מחזירים את האינדקס אחורה.
 
 **ריצה.** מעבר רץ ב-thread ברקע, אחד בכל פעם, תחת lease במסמך המצב. בקשה שמגיעה בזמן שמעבר
@@ -55,6 +60,7 @@ import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import PurePosixPath
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, TypeGuard
 
 from markdown_it import MarkdownIt
@@ -109,8 +115,13 @@ UPDATE_LOG_SOURCES = frozenset({"docs/whats-new.rst"})
 #: הגרסה של הכללים שהופכים את הקובץ לרשומות (:func:`build_records`). עולה בכל שינוי שגורם לאותו קובץ
 #: לתת רשומות או נתחים אחרים. היא נשמרת במסמך המצב כשמעבר מסתיים (``indexed_records_version``), ו-
 #: :func:`is_index_complete` דורש אותה — ולכן אחרי פריסה של כללים חדשים מעבר אוטומטי אינו נעצר על
-#: "הקובץ לא השתנה" (304), אלא בונה את התוכנית מחדש. 2 — רשומה לכל עדכון ביומן עדכונים.
-RECORDS_VERSION = 2
+#: "הקובץ לא השתנה" (304), אלא בונה את התוכנית מחדש. 2 — רשומה לכל עדכון ביומן עדכונים. 3 — עמודים
+#: מורכבים (:data:`~services.docs_search_contract.PAGES_COLLECTION`).
+RECORDS_VERSION = 3
+
+#: הרמה העמוקה ביותר שיש לה כותרת במארקדאון, ושיש לה תגית ב-HTML. סעיף עמוק יותר מקבל באתר ``h6``
+#: (``section_title_tags`` ב-``docutils/writers/_html_base.py``, docutils 0.21.2), ולכן גם בעמוד המורכב.
+MAX_HEADING_LEVEL = 6
 
 #: תקרה למעבר כולו. נבדקת לפני כל אצווה, ומועברת ללקוח ההטמעות כדדליין של כל בקשה.
 PASS_DEADLINE_SECONDS = 20 * 60
@@ -250,6 +261,41 @@ class ChunkRecord:
     content_sha: str
 
 
+@dataclass(frozen=True)
+class PageRecord:
+    """עמוד rst שלם, כמו שהתצוגה המרונדרת בדפדפן הריפו מציגה אותו. המפתח הוא קובץ המקור, כי זה מה
+    שהדפדפן יודע: הנתיב של הקובץ בריפו."""
+
+    source_path: str
+    page_path: str
+    title: str
+    markdown: str
+    #: הקבצים האחרים בריפו שהעמוד נבנה מהם, כמו שהם בקובץ הייצוא (:attr:`~services.docs_export_client.DocPage.dependencies`).
+    dependencies: Tuple[str, ...] = ()
+
+    @property
+    def id(self) -> str:
+        return self.source_path
+
+    def content(self) -> Dict[str, Any]:
+        """השדות של העמוד. רשימה אחת, שממנה נבנים גם המסמך וגם :attr:`record_sha`, כמו ב-
+        :meth:`SectionRecord.content`."""
+        return {
+            "source_path": self.source_path,
+            "page_path": self.page_path,
+            "title": self.title,
+            "markdown": self.markdown,
+            "dependencies": list(self.dependencies),
+        }
+
+    @property
+    def record_sha(self) -> str:
+        return compute_content_hash(_canonical_json(self.content()))
+
+    def document(self) -> Dict[str, Any]:
+        return {"_id": self.id, **self.content(), "record_sha": self.record_sha}
+
+
 _MD_LINK = r"!?\[[^\]\n]*\]\([^)\s]+\)"
 _LINK_RE = re.compile(rf"{_MD_LINK}|https?://\S+")
 _LIST_MARKER_RE = re.compile(r"^(?:[-*+]|\d+[.)])\s+")
@@ -348,6 +394,41 @@ def build_records(document: ExportDocument) -> Tuple[List[SectionRecord], List[C
                 )
             )
     return sections, chunks
+
+
+def page_markdown(page: DocPage) -> str:
+    """העמוד כולו כמארקדאון: כל סעיף לפי הסדר בקובץ, הכותרת שלו ברמה שלו, ואחריה הגוף שלו.
+
+    כל הסעיפים נכנסים — גם כותרת שאין תחתיה טקסט משלה אלא רק תתי-סעיפים, וגם "ראו גם", ששניהם לא
+    נכנסים לחיפוש. הסדר הוא הסדר בקובץ, שהוא הסדר בעמוד (``querySelectorAll`` בסקריפט הייצוא). הגוף
+    של סעיף אינו כולל את תתי-הסעיפים שלו, וב-docutils הגוף של סעיף בא תמיד לפני תתי-הסעיפים שלו (מודל
+    התוכן של ``section``), ולכן הצירוף נותן את העמוד כמו שהוא. הכותרת היא ``title_markdown``, כך שקוד
+    והדגשה בתוכה נשארים. רמה עמוקה מ-
+    :data:`MAX_HEADING_LEVEL` נכתבת ברמה הזו, כמו שהאתר מציג אותה.
+    """
+    parts: List[str] = []
+    for section in page.sections:
+        parts.append("#" * min(section.level, MAX_HEADING_LEVEL) + " " + section.title_markdown)
+        body = section.markdown.strip("\n")
+        if body:
+            parts.append(body)
+    return "\n\n".join(parts) + "\n"
+
+
+def build_pages(document: ExportDocument) -> List[PageRecord]:
+    """העמודים הרצויים, לפי סדר הקובץ: עמוד לכל קובץ מקור ב-
+    :data:`~services.docs_search_contract.PAGE_SOURCE_SUFFIXES`."""
+    return [
+        PageRecord(
+            source_path=page.source_path,
+            page_path=page.path,
+            title=page.title,
+            markdown=page_markdown(page),
+            dependencies=page.dependencies,
+        )
+        for page in document.pages
+        if PurePosixPath(page.source_path).suffix in contract.PAGE_SOURCE_SUFFIXES
+    ]
 
 
 @dataclass(frozen=True)
@@ -634,13 +715,16 @@ class IndexPlan:
     source_commit: str
     built_at: datetime
     model_key: str
-    #: כל הסעיפים והנתחים הרצויים — מה שהאימות בסוף המעבר משווה אליו.
+    #: כל הסעיפים, הנתחים והעמודים הרצויים — מה שהאימות בסוף המעבר משווה אליו.
     sections: Tuple[SectionRecord, ...]
     chunks: Tuple[ChunkRecord, ...]
+    pages: Tuple[PageRecord, ...]
     chunks_to_embed: Tuple[ChunkRecord, ...]
     sections_to_upsert: Tuple[SectionRecord, ...]
+    pages_to_upsert: Tuple[PageRecord, ...]
     chunk_ids_to_delete: Tuple[str, ...]
     section_ids_to_delete: Tuple[str, ...]
+    page_ids_to_delete: Tuple[str, ...]
     #: כמה מחיקות נחסכו כי הקובץ לא מכיר אף רשומה קיימת (בדיקת החפיפה).
     deletions_spared: int
     existing_with_model: int
@@ -651,8 +735,10 @@ class IndexPlan:
         return bool(
             self.chunks_to_embed
             or self.sections_to_upsert
+            or self.pages_to_upsert
             or self.chunk_ids_to_delete
             or self.section_ids_to_delete
+            or self.page_ids_to_delete
         )
 
     @property
@@ -676,11 +762,14 @@ class IndexPlan:
             "embed_requests": math.ceil(len(self.chunks_to_embed) / GEMINI_MAX_BATCH_REQUESTS),
             "embed_bytes": sum(len(chunk.text.encode("utf-8")) for chunk in self.chunks_to_embed),
             "sections_to_upsert": len(self.sections_to_upsert),
+            "pages_to_upsert": len(self.pages_to_upsert),
             "chunks_to_delete": len(self.chunk_ids_to_delete),
             "sections_to_delete": len(self.section_ids_to_delete),
+            "pages_to_delete": len(self.page_ids_to_delete),
             "deletions_spared": self.deletions_spared,
             "desired_chunks": len(self.chunks),
             "desired_sections": len(self.sections),
+            "desired_pages": len(self.pages),
             "approval_reason": self.approval_reason,
             "fingerprint": self.fingerprint,
         }
@@ -692,8 +781,10 @@ def compute_plan(db: Any, document: ExportDocument, *, model_key: str) -> IndexP
     כשל קריאה עולה (``PyMongoError``): הוא אינו "אין רשומות", ותוכנית שנבנתה עליו הייתה מוחקת.
     """
     sections, chunks = build_records(document)
+    pages = build_pages(document)
     existing_chunks = _existing(db, contract.CHUNKS_COLLECTION, {"content_sha": 1, contract.MODEL_KEY_FIELD: 1})
     existing_sections = _existing(db, contract.SECTIONS_COLLECTION, {"record_sha": 1})
+    existing_pages = _existing(db, contract.PAGES_COLLECTION, {"record_sha": 1})
 
     chunks_to_embed = tuple(
         chunk
@@ -708,20 +799,30 @@ def compute_plan(db: Any, document: ExportDocument, *, model_key: str) -> IndexP
         if existing_sections.get(section.id) is None
         or existing_sections[section.id].get("record_sha") != section.record_sha
     )
+    pages_to_upsert = tuple(
+        page
+        for page in pages
+        if existing_pages.get(page.id) is None or existing_pages[page.id].get("record_sha") != page.record_sha
+    )
     desired_chunk_ids = {chunk.id for chunk in chunks}
     desired_section_ids = {section.id for section in sections}
+    desired_page_ids = {page.id for page in pages}
     stale_chunks = sorted(set(existing_chunks) - desired_chunk_ids)
     stale_sections = sorted(set(existing_sections) - desired_section_ids)
+    stale_pages = sorted(set(existing_pages) - desired_page_ids)
 
     # בדיקת החפיפה: קובץ שלא מכיר אף רשומה קיימת אינו ראיה שכל הקיים התיישן. מוחקים רק כשהוא
-    # מכיר לפחות סעיף או נתח אחד מהמסד; אחרת לא מוחקים כלום, ונרשם כמה מחיקות נחסכו.
-    known = bool(desired_section_ids & set(existing_sections)) or bool(
-        desired_chunk_ids & set(existing_chunks)
+    # מכיר לפחות סעיף, נתח או עמוד אחד מהמסד; אחרת לא מוחקים כלום, ונרשם כמה מחיקות נחסכו. בדיקה אחת
+    # לשלושת האוספים, כי הם עותק אחד של אותו קובץ.
+    known = (
+        bool(desired_section_ids & set(existing_sections))
+        or bool(desired_chunk_ids & set(existing_chunks))
+        or bool(desired_page_ids & set(existing_pages))
     )
     spared = 0
-    if (existing_chunks or existing_sections) and not known:
-        spared = len(stale_chunks) + len(stale_sections)
-        stale_chunks, stale_sections = [], []
+    if (existing_chunks or existing_sections or existing_pages) and not known:
+        spared = len(stale_chunks) + len(stale_sections) + len(stale_pages)
+        stale_chunks, stale_sections, stale_pages = [], [], []
 
     existing_with_model = sum(
         1 for row in existing_chunks.values() if row.get(contract.MODEL_KEY_FIELD) == model_key
@@ -731,8 +832,10 @@ def compute_plan(db: Any, document: ExportDocument, *, model_key: str) -> IndexP
         model_key=model_key,
         embed=[[chunk.id, chunk.content_sha] for chunk in chunks_to_embed],
         upsert=[[section.id, section.record_sha] for section in sections_to_upsert],
+        upsert_pages=[[page.id, page.record_sha] for page in pages_to_upsert],
         delete_chunks=stale_chunks,
         delete_sections=stale_sections,
+        delete_pages=stale_pages,
     )
     return IndexPlan(
         source_commit=document.source_commit,
@@ -740,10 +843,13 @@ def compute_plan(db: Any, document: ExportDocument, *, model_key: str) -> IndexP
         model_key=model_key,
         sections=tuple(sections),
         chunks=tuple(chunks),
+        pages=tuple(pages),
         chunks_to_embed=chunks_to_embed,
         sections_to_upsert=sections_to_upsert,
+        pages_to_upsert=pages_to_upsert,
         chunk_ids_to_delete=tuple(stale_chunks),
         section_ids_to_delete=tuple(stale_sections),
+        page_ids_to_delete=tuple(stale_pages),
         deletions_spared=spared,
         existing_with_model=existing_with_model,
         fingerprint=fingerprint,
@@ -1235,15 +1341,17 @@ def _run_steps(
                 db, holder,
                 {"indexed_source_commit": None, "applied_built_at": plan.built_at, "approval": None},
             )
-            _write_sections(db, plan.sections_to_upsert, checkpoint)
+            _write_records(db, contract.SECTIONS_COLLECTION, plan.sections_to_upsert, "sections", checkpoint)
+            _write_records(db, contract.PAGES_COLLECTION, plan.pages_to_upsert, "pages", checkpoint)
             if embedder is not None:
                 run["progress"] = {"embedded": 0, "to_embed": len(plan.chunks_to_embed)}
                 _embed_all(db, checkpoint, deadline, run, plan, settings, dimensions, embedder)
         # הספירה מתעדכנת אחרי כל אצווה, כך שמעבר שנעצר באמצע מדווח כמה כבר נמחק.
-        deleted = run["deleted"] = {"chunks": 0, "sections": 0}
+        deleted = run["deleted"] = {"chunks": 0, "sections": 0, "pages": 0}
         for key, name, ids in (
             ("chunks", contract.CHUNKS_COLLECTION, plan.chunk_ids_to_delete),
             ("sections", contract.SECTIONS_COLLECTION, plan.section_ids_to_delete),
+            ("pages", contract.PAGES_COLLECTION, plan.page_ids_to_delete),
         ):
             for count in _delete_ids(db, name, ids, checkpoint):
                 deleted[key] += count
@@ -1257,8 +1365,9 @@ def _run_steps(
         return _outcome(
             STATUS_FAILED,
             CODE_VERIFY_MISMATCH,
-            f"{verified['chunks_matching']} of {verified['chunks_desired']} chunks and "
-            f"{verified['sections_matching']} of {verified['sections_desired']} sections match the export",
+            f"{verified['chunks_matching']} of {verified['chunks_desired']} chunks, "
+            f"{verified['sections_matching']} of {verified['sections_desired']} sections and "
+            f"{verified['pages_matching']} of {verified['pages_desired']} pages match the export",
         )
     _record_state(
         db,
@@ -1331,16 +1440,23 @@ def _await_approval(db: Any, holder: str, plan: IndexPlan, reason: str, *, by_co
     )
 
 
-def _write_sections(db: Any, sections: Sequence[SectionRecord], checkpoint: Callable[[], None]) -> None:
+def _write_records(
+    db: Any,
+    name: str,
+    records: Sequence[Any],
+    what: str,
+    checkpoint: Callable[[], None],
+) -> None:
+    """כותב רשומות שלמות — סעיפים או עמודים, כל אחת עם ``id`` ו-``document()`` — באצוות."""
     now = _now()
-    for batch in _batches(sections, DB_BATCH_SIZE):
+    for batch in _batches(records, DB_BATCH_SIZE):
         checkpoint()
         operations = [
-            ReplaceOne({"_id": section.id}, dict(section.document(), updated_at=now), upsert=True)
-            for section in batch
+            ReplaceOne({"_id": record.id}, dict(record.document(), updated_at=now), upsert=True)
+            for record in batch
         ]
-        result = db[contract.SECTIONS_COLLECTION].bulk_write(operations, ordered=False)
-        _check_written(result, len(operations), "sections")
+        result = db[name].bulk_write(operations, ordered=False)
+        _check_written(result, len(operations), what)
 
 
 def _embed_all(
@@ -1450,12 +1566,26 @@ def _verify(db: Any, plan: IndexPlan) -> Dict[str, Any]:
         {"record_sha": 1},
         lambda row: row.get("record_sha") == section_shas.get(row["_id"]),
     )
+    page_shas = {page.id: page.record_sha for page in plan.pages}
+    pages_matching = _count_matching(
+        db,
+        contract.PAGES_COLLECTION,
+        page_shas,
+        {"record_sha": 1},
+        lambda row: row.get("record_sha") == page_shas.get(row["_id"]),
+    )
     return {
         "chunks_desired": len(chunk_shas),
         "chunks_matching": chunks_matching,
         "sections_desired": len(section_shas),
         "sections_matching": sections_matching,
-        "complete": chunks_matching == len(chunk_shas) and sections_matching == len(section_shas),
+        "pages_desired": len(page_shas),
+        "pages_matching": pages_matching,
+        "complete": (
+            chunks_matching == len(chunk_shas)
+            and sections_matching == len(section_shas)
+            and pages_matching == len(page_shas)
+        ),
     }
 
 
@@ -1481,11 +1611,12 @@ def _totals(db: Any) -> Dict[str, Any]:
         return {
             "chunk_count": _primary(db, contract.CHUNKS_COLLECTION).count_documents({}),
             "section_count": _primary(db, contract.SECTIONS_COLLECTION).count_documents({}),
+            "page_count": _primary(db, contract.PAGES_COLLECTION).count_documents({}),
         }
     except PyMongoError:
         # הספירה היא תצוגה בלבד; המצב נכתב בלעדיה, והעמוד מציג "לא ידוע".
         logger.exception("docs index: could not count the collections")
-        return {"chunk_count": None, "section_count": None}
+        return {"chunk_count": None, "section_count": None, "page_count": None}
 
 
 def _emit_outcome(run: Dict[str, Any], totals: Dict[str, Any]) -> None:
@@ -1501,6 +1632,7 @@ def _emit_outcome(run: Dict[str, Any], totals: Dict[str, Any]) -> None:
         "embedded": (run.get("progress") or {}).get("embedded"),
         "deleted_chunks": (run.get("deleted") or {}).get("chunks"),
         "deleted_sections": (run.get("deleted") or {}).get("sections"),
+        "deleted_pages": (run.get("deleted") or {}).get("pages"),
         "deletions_spared": (run.get("plan") or {}).get("deletions_spared"),
         "chunk_count": totals.get("chunk_count"),
     }
@@ -1638,7 +1770,11 @@ def status_for_admin(db: Any) -> Dict[str, Any]:
             "at": state.get("indexed_at"),
         },
         "export": {"source_commit": state.get("export_commit"), "built_at": state.get("export_built_at")},
-        "counts": {"chunks": state.get("chunk_count"), "sections": state.get("section_count")},
+        "counts": {
+            "chunks": state.get("chunk_count"),
+            "sections": state.get("section_count"),
+            "pages": state.get("page_count"),
+        },
         "settings": {
             "model_key": make_embedding_key(
                 api_version=settings.api_version, model=settings.model, dimensions=dimensions

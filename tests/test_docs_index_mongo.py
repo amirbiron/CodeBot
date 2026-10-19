@@ -33,6 +33,7 @@ from _docs_index_harness import SHA_A, fill, make_world, run_request  # noqa: E4
 from pymongo.errors import ServerSelectionTimeoutError  # noqa: E402
 
 from services import docs_index_service as svc  # noqa: E402
+from services import docs_page_view  # noqa: E402
 from services import docs_search_contract as contract  # noqa: E402
 
 #: תחילית מסדי הבדיקה. ה-teardown מוחק **רק** מסד שמתחיל בה.
@@ -180,4 +181,9 @@ def test_a_full_pass_writes_what_it_verified(world):
     assert state["indexed_at"].tzinfo is not None
     chunks = list(world.db[contract.CHUNKS_COLLECTION].find({}, {contract.VECTOR_FIELD: 1}))
     assert len(chunks) == 4 and all(len(c[contract.VECTOR_FIELD]) == 4 for c in chunks)
+    # העמודים המורכבים, ודרך אותה קריאה שדפדפן הקוד עושה (``services/docs_page_view.py``).
+    assert state["page_count"] == 2
+    page = docs_page_view.read_docs_page(world.db, "docs/webapp/global-search.rst")
+    assert page["markdown"].startswith("# חיפוש גלובלי\n\nהחיפוש בעמוד הקבצים.\n\n## סוגי החיפוש\n")
+    assert page["indexed_commit"] == SHA_A
     assert run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_A)["status"] == svc.STATUS_UNCHANGED
