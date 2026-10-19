@@ -59,8 +59,12 @@ function el(id) {
 /**
  * ``highlighter`` — ``null`` מדמה מודול שלא נטען. אחרת ``hits`` הוא מספר העטיפות ש-``highlightWithin``
  * מחזיר, וכל קריאה למודול נרשמת ב-``calls``.
+ *
+ * ``realRender`` — מסלול הרינדור האמיתי של ``renderPreview`` ו-``renderMarkdownPreview``, כשרק
+ * ``MarkdownLiveRenderer`` מוחלף: כל ``renderWithAnchors`` ממתין עד שהבדיקה משחררת אותו
+ * (``__renders[i].resolve``), כדי שאפשר יהיה לסיים רינדורים בסדר הפוך.
  */
-function makeSandbox({ highlighter = true, hits = 3 } = {}) {
+function makeSandbox({ highlighter = true, hits = 3, realRender = false } = {}) {
   const nodes = new Map();
   const byId = (id) => {
     if (!nodes.has(id)) nodes.set(id, el(id));
@@ -112,7 +116,18 @@ function makeSandbox({ highlighter = true, hits = 3 } = {}) {
 
   // הרינדור והעורך אינם הנושא כאן. מה שנשאר מהם: התצוגה המרונדרת "מוצגת" אחרי ``enableMarkdownPreview``,
   // ותצוגת הקוד אחרי ``disableMarkdownPreview`` — הדגל ``state.markdownPreviewEnabled`` הוא האמיתי.
-  sandbox.renderPreview = async () => {};
+  if (realRender) {
+    sandbox.__renders = [];
+    sandbox.MarkdownLiveRenderer = {
+      isSupported: () => true,
+      renderWithAnchors: (content) => new Promise((resolve) => sandbox.__renders.push({ content, resolve })),
+      enhance: async () => {},
+    };
+    for (const name of ['ensureHighlightJsLoaded', 'loadMarkdownDependencies']) sandbox[name] = async () => {};
+    for (const name of ['applySyntaxHighlighting', 'setupMarkdownAnchorScrolling']) sandbox[name] = () => {};
+  } else {
+    sandbox.renderPreview = async () => {};
+  }
   sandbox.ensureCodeViewerInitialized = async () => {};
   sandbox.emitRepoViewChanged = () => {};
   sandbox.__calls = calls;
@@ -133,6 +148,12 @@ async function openWithSearch(sb, { rendered, term = 'alpha' }) {
 }
 
 const count = (sb) => sb.__byId('in-file-search-count').textContent;
+
+/** מחכה עד ש-``n`` רינדורים התחילו — כל אחד עובר כמה ``await`` לפני ``renderWithAnchors``. */
+async function waitForRender(sb, n) {
+  for (let i = 0; i < 50 && sb.__renders.length < n; i += 1) await new Promise((r) => setTimeout(r, 0));
+  eq(sb.__renders.length, n, 'מספר הרינדורים שהתחילו');
+}
 const activeOf = (hits) => hits.map((h, i) => (h.classList.contains('is-active') ? i : -1)).filter((i) => i >= 0);
 
 check('בתצוגה המרונדרת: מדגישים את מיכל התצוגה, סופרים את העטיפות, והראשונה פעילה', async () => {
@@ -219,6 +240,27 @@ check('גרסה מההיסטוריה עם חיפוש פתוח מחפשת מחד�
   eq(count(sb), '1 / 3', 'בגרסה הנוכחית');
   await sb.window.RepoState.setFileContent('alpha only once');
   eq(count(sb), '1 / 1', 'בגרסה מההיסטוריה');
+});
+
+check('שתי גרסאות מההיסטוריה ברצף: רינדור איטי של הראשונה לא נכתב מעל השנייה', async () => {
+  // הבחירה (``fileSelectionSeq``) זהה בשתי הגרסאות, ולכן רק ``previewRenderSeq`` מבחין ביניהן. בלעדיו
+  // ה-HTML של הגרסה הראשונה היה נכתב אחרון, והחיפוש הפתוח היה רץ עליו.
+  const sb = makeSandbox({ realRender: true });
+  await sb.window.RepoState.setFileContent('# נוכחי');
+  const enabling = sb.enableMarkdownPreview();
+  await waitForRender(sb, 1);
+  sb.__renders[0].resolve({ html: '<h1>נוכחי</h1>', anchors: [] });
+  await enabling;
+
+  const older = sb.window.RepoState.setFileContent('# ישן', { ref: 'b'.repeat(40) });
+  const newer = sb.window.RepoState.setFileContent('# חדש', { ref: 'c'.repeat(40) });
+  await waitForRender(sb, 3);
+  eq(sb.__renders[1].content, '# ישן', 'הרינדור של הראשונה');
+  sb.__renders[2].resolve({ html: '<h1>חדש</h1>', anchors: [] });
+  await newer;
+  sb.__renders[1].resolve({ html: '<h1>ישן</h1>', anchors: [] });
+  await older;
+  eq(sb.__byId('markdown-preview-content').innerHTML, '<h1>חדש</h1>', 'התצוגה של הגרסה שנבחרה אחרונה');
 });
 
 check('בלי המודול: התצוגה המרונדרת אומרת שהחיפוש אינו זמין, ואינה סופרת את המקור', async () => {

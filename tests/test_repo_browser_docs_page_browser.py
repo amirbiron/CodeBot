@@ -5,7 +5,7 @@
 באמת מרונדר, מימין לשמאל ועם קוד משמאל לימין (עיצוב ``markdown-preview.css`` על הרינדור של
 ``MarkdownLiveRenderer``), שההודעה מוצגת כשהקובץ השתנה, ושקובץ בלי עמוד נשאר קוד — בלי שגיאות JS.
 
-השרת, המסד, המראה והדפדפן — ``_repo_browser_harness.py``.
+השרת, המסד, המראה והעמוד — ``_repo_browser_harness.py``. הדפדפן מורם כאן, בפיקסצ'ר ``browser``.
 
 מדולג כשאין Chromium (וב-CI אין: ראו ``docs/testing.rst``), וכשאין git.
 """
@@ -25,6 +25,9 @@ from _repo_browser_harness import REPO, mirror_world, open_file, repo_page
 from services import docs_search_contract as contract
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
+
+from playwright.sync_api import Error as PlaywrightError  # noqa: E402
+from playwright.sync_api import sync_playwright  # noqa: E402
 
 pytestmark = pytest.mark.skipif(GIT is None, reason="git is not installed")
 
@@ -57,6 +60,21 @@ def world(tmp_path, monkeypatch):
     )
 
 
+@pytest.fixture(scope="module")
+def browser(chromium_executable):
+    """הדפדפן של הקובץ — **המקום היחיד שמרים דפדפן כאן**. ההרמה נשארת בקובצי ``*_browser.py``
+    (``tests/test_browser_suite_is_gated_once.py``), ו-``repo_page`` מקימה בו context לכל בדיקה."""
+    with sync_playwright() as pw:
+        try:
+            launched = pw.chromium.launch(executable_path=chromium_executable)
+        except PlaywrightError as exc:  # pragma: no cover - תלוי בסביבה
+            pytest.skip(f"אין Chromium זמין: {exc}")
+        try:
+            yield launched
+        finally:
+            launched.close()
+
+
 def _sync_rst(world, sha) -> None:
     """סנכרון של המראה לקומיט ששינה את קובץ ה-rst: ``last_synced_sha`` מתקדם, וגם ``commit_sha`` של הקובץ —
     כמו ``_sync_repo_logic`` ב-``services/repo_sync_service.py`` לקובץ שהשתנה."""
@@ -83,9 +101,9 @@ _RENDERED = "() => !!document.querySelector('#markdown-preview-content h1')"
 
 
 def test_an_rst_page_is_rendered_right_to_left_with_its_code_left_to_right(
-    world, admin_live_server, chromium_executable
+    world, admin_live_server, browser
 ):
-    with repo_page(admin_live_server, chromium_executable) as (tab, errors):
+    with repo_page(browser, admin_live_server) as (tab, errors):
         open_file(tab, admin_live_server, RST)
         poll(tab, _RENDERED, "העמוד מאתר התיעוד רונדר")
 
@@ -106,11 +124,11 @@ def test_an_rst_page_is_rendered_right_to_left_with_its_code_left_to_right(
     assert errors == [], "\n".join(errors)
 
 
-def test_a_file_that_changed_after_the_build_shows_the_note(world, admin_live_server, chromium_executable):
+def test_a_file_that_changed_after_the_build_shows_the_note(world, admin_live_server, browser):
     later = world.repo.commit({RST: "דפדפן קוד\n=========\n\nפסקה חדשה.\n"})
     _sync_rst(world, later)
 
-    with repo_page(admin_live_server, chromium_executable) as (tab, errors):
+    with repo_page(browser, admin_live_server) as (tab, errors):
         open_file(tab, admin_live_server, RST)
         poll(tab, _RENDERED, "העמוד מאתר התיעוד רונדר")
 
@@ -130,7 +148,7 @@ _NOTE = (
 )
 
 
-def test_a_version_viewed_from_the_history_is_compared_by_its_own_commit(world, admin_live_server, chromium_executable):
+def test_a_version_viewed_from_the_history_is_compared_by_its_own_commit(world, admin_live_server, browser):
     """דרך הממשק: "צפה" על הקומיט שהאתר נבנה ממנו, בפאנל ההיסטוריה. ``viewFileAtCommit`` מעביר את הקומיט
     הלאה, והעמוד מושווה אליו — ולכן ההודעה שהייתה על הגרסה הנוכחית יורדת. נופל כש-``repo-history.js`` לא
     מעביר את הקומיט: העמוד מושווה אז לגרסה הנוכחית, וההודעה נשארת."""
@@ -138,7 +156,7 @@ def test_a_version_viewed_from_the_history_is_compared_by_its_own_commit(world, 
     later = world.repo.commit({RST: "דפדפן קוד\n=========\n\nפסקה חדשה.\n"})
     _sync_rst(world, later)
 
-    with repo_page(admin_live_server, chromium_executable) as (tab, errors):
+    with repo_page(browser, admin_live_server) as (tab, errors):
         page_requests = []
         tab.on("request", lambda request: page_requests.append(request.url) if "/repo/api/docs-page/" in request.url else None)
         open_file(tab, admin_live_server, RST)
@@ -157,8 +175,8 @@ def test_a_version_viewed_from_the_history_is_compared_by_its_own_commit(world, 
     assert errors == [], "\n".join(errors)
 
 
-def test_an_rst_file_without_a_page_stays_code(world, admin_live_server, chromium_executable):
-    with repo_page(admin_live_server, chromium_executable) as (tab, errors):
+def test_an_rst_file_without_a_page_stays_code(world, admin_live_server, browser):
+    with repo_page(browser, admin_live_server) as (tab, errors):
         open_file(tab, admin_live_server, API_RST)
         poll(tab, "() => document.getElementById('code-header').style.display === 'flex'", "הקובץ נטען")
 

@@ -9,7 +9,7 @@
 (``elementFromPoint`` במרכז שלה). כל פעולה עוברת דרך הממשק: הקלדה בתיבה, הכפתורים שבסרגל, המקשים,
 וכפתור התצוגה.
 
-השרת, המסד, המראה והדפדפן — ``_repo_browser_harness.py``.
+השרת, המסד, המראה והעמוד — ``_repo_browser_harness.py``. הדפדפן מורם כאן, בפיקסצ'ר ``browser``.
 
 מדולג כשאין Chromium (וב-CI אין: ראו ``docs/testing.rst``), וכשאין git.
 """
@@ -25,6 +25,9 @@ from _git_mirror_harness import GIT
 from _repo_browser_harness import REPO, mirror_world, open_file, repo_page
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
+
+from playwright.sync_api import Error as PlaywrightError  # noqa: E402
+from playwright.sync_api import sync_playwright  # noqa: E402
 
 pytestmark = pytest.mark.skipif(GIT is None, reason="git is not installed")
 
@@ -71,6 +74,21 @@ def world(tmp_path, monkeypatch):
     return mirror_world(tmp_path, monkeypatch, {MD: MD_TEXT, RST: RST_SOURCE}, _pages())
 
 
+@pytest.fixture(scope="module")
+def browser(chromium_executable):
+    """הדפדפן של הקובץ — **המקום היחיד שמרים דפדפן כאן**. ההרמה נשארת בקובצי ``*_browser.py``
+    (``tests/test_browser_suite_is_gated_once.py``), ו-``repo_page`` מקימה בו context לכל בדיקה."""
+    with sync_playwright() as pw:
+        try:
+            launched = pw.chromium.launch(executable_path=chromium_executable)
+        except PlaywrightError as exc:  # pragma: no cover - תלוי בסביבה
+            pytest.skip(f"אין Chromium זמין: {exc}")
+        try:
+            yield launched
+        finally:
+            launched.close()
+
+
 _RENDERED = "() => !!document.querySelector('#markdown-preview-content h1')"
 
 #: מה שהחיפוש מציג עכשיו: המונה, ההתאמות בתצוגה המרונדרת, ואיזו מהן פעילה.
@@ -111,17 +129,50 @@ _ACTIVE_ON_SCREEN = """
 """
 
 
-#: הצבעים, כפי שהדפדפן מחשב אותם מ-``repo-browser.css``: כל ההתאמות בצהוב, והפעילה בכתום.
+#: הצבעים, כפי שהדפדפן מחשב אותם מ-``repo-browser.css``: כל ההתאמות בצהוב, והפעילה בכתום עם טבעת שחורה
+#: והילה לבנה.
 _COLORS = """
 () => {
   const bg = (h) => getComputedStyle(h).backgroundColor;
   const hits = Array.from(document.querySelectorAll('#markdown-preview-content .in-file-search-hit'));
   const others = Array.from(new Set(hits.filter((h) => !h.classList.contains('is-active')).map(bg)));
-  const active = hits.filter((h) => h.classList.contains('is-active')).map(bg);
+  const active = hits.filter((h) => h.classList.contains('is-active'));
+  const cs = active.length === 1 ? getComputedStyle(active[0]) : null;
   return {
-    ok: others.length === 1 && others[0] === 'rgb(255, 235, 59)'
-        && active.length === 1 && active[0] === 'rgb(255, 150, 50)',
-    others, active,
+    ok: others.length === 1 && others[0] === 'rgb(255, 235, 59)' && !!cs
+        && cs.backgroundColor === 'rgb(255, 150, 50)' && cs.outlineColor === 'rgb(0, 0, 0)'
+        && cs.boxShadow.startsWith('rgb(255, 255, 255)'),
+    others, active: cs && [cs.backgroundColor, cs.outlineColor, cs.boxShadow],
+  };
+}
+"""
+
+#: ערכות הנושא של הוובאפ — ``allowed`` ב-``webapp/templates/base.html``, בלי ``custom`` (שאין לה צבעים קבועים).
+THEMES = ("classic", "ocean", "rose-pine-dawn", "dark", "dim", "nebula", "high-contrast")
+
+#: ניגודיות WCAG בין כל אחד משני צבעי הטבעת לבין הרקע שמאחורי ההתאמה הפעילה — הרקע האטום הראשון בשרשרת
+#: האבות, כי רקע התצוגה בחלק מהערכות שקוף ונלקח מהמכל שמעליו.
+_RING_CONTRAST = """
+() => {
+  const rgb = (c) => (c.match(/[\\d.]+/g) || []).map(Number);
+  const lum = ([r, g, b]) => {
+    const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const hit = document.querySelector('#markdown-preview-content .in-file-search-hit.is-active');
+  let bg = null;
+  for (let n = hit.parentElement; n && !bg; n = n.parentElement) {
+    const c = rgb(getComputedStyle(n).backgroundColor);
+    if (c.length === 3 || (c.length === 4 && c[3] === 1)) bg = c.slice(0, 3);
+  }
+  const cs = getComputedStyle(hit);
+  // רק צבעים שבאמת מוגדרים: ``box-shadow: none`` אינו צבע, וחישוב עליו היה ``NaN`` שעובר כל השוואה בשקט.
+  const colors = [cs.outlineColor, cs.boxShadow].map((c) => rgb(c).slice(0, 3)).filter((c) => c.length === 3);
+  return {
+    theme: document.documentElement.getAttribute('data-theme'),
+    colors: colors.length,
+    best: colors.length ? +Math.max(...colors.map((c) => ratio(c, bg))).toFixed(2) : null,
   };
 }
 """
@@ -140,9 +191,9 @@ def _count_is(tab, text, what) -> None:
 
 
 def test_rendered_markdown_counts_highlights_and_navigates_what_is_shown(
-    world, admin_live_server, chromium_executable
+    world, admin_live_server, browser
 ):
-    with repo_page(admin_live_server, chromium_executable) as (tab, errors):
+    with repo_page(browser, admin_live_server) as (tab, errors):
         open_file(tab, admin_live_server, MD)
         poll(tab, _RENDERED, "הקובץ רונדר")
         _search(tab, TERM)
@@ -189,8 +240,31 @@ def test_rendered_markdown_counts_highlights_and_navigates_what_is_shown(
     assert errors == [], "\n".join(errors)
 
 
-def test_switching_views_with_the_search_open_searches_the_new_view(world, admin_live_server, chromium_executable):
-    with repo_page(admin_live_server, chromium_executable) as (tab, errors):
+def test_the_active_ring_stands_out_in_every_theme(world, admin_live_server, browser):
+    """הטבעת של ההתאמה הפעילה נראית על הרקע של התצוגה בכל ערכה — לפחות אחד משני צבעיה ביחס 3:1 מולו
+    (WCAG 2.1, 1.4.11). טבעת בצבע אחד נכשלה כאן: ``--accent-blue`` מול הרקע של rose-pine-dawn יצא 1.58."""
+    with repo_page(browser, admin_live_server) as (tab, errors):
+        open_file(tab, admin_live_server, MD)
+        poll(tab, _RENDERED, "הקובץ רונדר")
+        _search(tab, TERM)
+        _count_is(tab, f"1 / {SHOWN}", "החיפוש רץ")
+        measured = []
+        for theme in THEMES:
+            tab.evaluate("(t) => document.documentElement.setAttribute('data-theme', t)", theme)
+            # ``dark-mode.css`` מעביר צבעים במעבר של 0.3 שניות בערכות הכהות, ולכן דוגמים עד שהערך נעמד.
+            poll(tab, "(t) => document.documentElement.getAttribute('data-theme') === t", "הערכה הוחלפה", theme)
+            tab.wait_for_timeout(400)
+            measured.append(tab.evaluate(_RING_CONTRAST))
+
+    # ``>= 3`` ולא ``< 3``: ערך שאינו מספר נכשל כאן, ולא עובר.
+    weak = [m for m in measured if not (isinstance(m["best"], (int, float)) and m["best"] >= 3)]
+    assert [m["theme"] for m in measured] == list(THEMES)
+    assert weak == [], measured
+    assert errors == [], "\n".join(errors)
+
+
+def test_switching_views_with_the_search_open_searches_the_new_view(world, admin_live_server, browser):
+    with repo_page(browser, admin_live_server) as (tab, errors):
         open_file(tab, admin_live_server, MD)
         poll(tab, _RENDERED, "הקובץ רונדר")
         _search(tab, TERM)
@@ -212,8 +286,8 @@ def test_switching_views_with_the_search_open_searches_the_new_view(world, admin
     assert errors == [], "\n".join(errors)
 
 
-def test_closing_the_search_removes_every_highlight(world, admin_live_server, chromium_executable):
-    with repo_page(admin_live_server, chromium_executable) as (tab, errors):
+def test_closing_the_search_removes_every_highlight(world, admin_live_server, browser):
+    with repo_page(browser, admin_live_server) as (tab, errors):
         open_file(tab, admin_live_server, MD)
         poll(tab, _RENDERED, "הקובץ רונדר")
         before = tab.evaluate("() => document.getElementById('markdown-preview-content').innerHTML")
@@ -239,9 +313,26 @@ def test_closing_the_search_removes_every_highlight(world, admin_live_server, ch
     assert errors == [], "\n".join(errors)
 
 
-def test_a_rendered_rst_page_is_searched_as_shown(world, admin_live_server, chromium_executable):
+def test_closing_right_after_typing_leaves_no_highlights(world, admin_live_server, browser):
+    """הקלדה ואחריה ``Escape`` בתוך ההשהיה של התיבה: החיפוש שהקלדה תזמנה לא רץ אחרי הסגירה. ההמתנה
+    כאן ארוכה מההשהיה, ולכן חיפוש שהיה רץ אחרי הסגירה היה משאיר הדגשות בתצוגה."""
+    with repo_page(browser, admin_live_server) as (tab, errors):
+        open_file(tab, admin_live_server, MD)
+        poll(tab, _RENDERED, "הקובץ רונדר")
+        _search(tab, TERM)
+        tab.press("#in-file-search-input", "Escape")
+        tab.wait_for_timeout(600)
+        state = tab.evaluate(_STATE)
+        bar = tab.evaluate("() => document.getElementById('in-file-search').style.display")
+
+    assert bar == "none"
+    assert state == {"count": "", "hits": 0, "active": []}
+    assert errors == [], "\n".join(errors)
+
+
+def test_a_rendered_rst_page_is_searched_as_shown(world, admin_live_server, browser):
     """במקור של קובץ ה-rst אין ``initial_import`` בכלל, והעמוד מאתר התיעוד מציג אותו פעמיים."""
-    with repo_page(admin_live_server, chromium_executable) as (tab, errors):
+    with repo_page(browser, admin_live_server) as (tab, errors):
         open_file(tab, admin_live_server, RST)
         poll(tab, _RENDERED, "העמוד מאתר התיעוד רונדר")
         _search(tab, "initial_import")
@@ -256,13 +347,13 @@ def test_a_rendered_rst_page_is_searched_as_shown(world, admin_live_server, chro
     assert errors == [], "\n".join(errors)
 
 
-def test_a_version_from_the_history_is_searched_again(world, admin_live_server, chromium_executable):
+def test_a_version_from_the_history_is_searched_again(world, admin_live_server, browser):
     """"צפה" בפאנל ההיסטוריה מחליף את התוכן המוצג (``RepoState.setFileContent``), והחיפוש הפתוח רץ שוב עליו."""
     later = world.repo.commit({MD: MD_TEXT + "\nפסקה שנוספה אחרי הבנייה, עם lantern.\n"})
     # כמו סנכרון של קובץ שהשתנה: הקובץ מוצג מה-``commit_sha`` שלו (``_shown_ref`` ב-``webapp/routes/repo_browser.py``).
     world.db.repo_files.update_one({"repo_name": REPO, "path": MD}, {"$set": {"commit_sha": later}})
 
-    with repo_page(admin_live_server, chromium_executable) as (tab, errors):
+    with repo_page(browser, admin_live_server) as (tab, errors):
         open_file(tab, admin_live_server, MD)
         poll(tab, _RENDERED, "הקובץ רונדר")
         _search(tab, TERM)

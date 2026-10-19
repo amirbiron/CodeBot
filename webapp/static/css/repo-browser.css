@@ -40,6 +40,8 @@
     --in-file-search-hit-bg: #ffeb3b;
     --in-file-search-hit-active-bg: #ff9632;
     --in-file-search-hit-text: #000;
+    /* ההילה הבהירה של הטבעת סביב ההתאמה הפעילה — ראו ``.in-file-search-hit.is-active``. */
+    --in-file-search-hit-halo: #fff;
 }
 
 /* Light theme override */
@@ -776,18 +778,24 @@
 
 /* התאמה של החיפוש בתוך הקובץ בתצוגה המרונדרת (``performInFileSearch`` ב-repo-browser.js).
    **בלי ``padding`` ובלי שינוי משקל**, כמו ``.sticky-note-search-hit``: מילה שמשנה רוחב שוברת
-   את השורות מחדש בכל הקלדה, ובבלוק קוד היא מזיזה את מה שאחריה. ה-``outline`` של הפעילה אינו
-   תופס מקום. **``span`` ולא ``mark``**: ``==סימון==`` של המשתמש הוא ``mark`` בעצמו. */
+   את השורות מחדש בכל הקלדה, ובבלוק קוד היא מזיזה את מה שאחריה. הטבעת של הפעילה (``outline``
+   ו-``box-shadow``) אינה תופסת מקום. **``span`` ולא ``mark``**: ``==סימון==`` של המשתמש הוא ``mark`` בעצמו. */
 .in-file-search-hit {
     background: var(--in-file-search-hit-bg);
     color: var(--in-file-search-hit-text);
     border-radius: 2px;
 }
 
+/* **הטבעת של הפעילה בשני צבעים, ולא בצבע אחד:** שחורה צמודה להתאמה (``outline``) ולבנה סביבה
+   (``box-shadow``, שה-``outline`` מצויר מעליו). אין צבע אחד שבולט על הרקע של התצוגה בכל הערכות —
+   נמדד בכרומיום ב-19.10.2026 מול הרקע בפועל: ``--accent-blue`` יצא 1.58:1 ב-rose-pine-dawn ו-2.05:1
+   ב-classic, ושחור 1.12:1 ב-high-contrast — ולכל רקע, אחד משני הצבעים עומד ביחס 3:1 לפחות, גם בערכה
+   מיובאת. ``test_the_active_ring_stands_out_in_every_theme`` מודד את זה בכל ערכה. */
 .in-file-search-hit.is-active {
     background: var(--in-file-search-hit-active-bg);
-    outline: 2px solid var(--accent-blue);
-    outline-offset: 1px;
+    outline: 2px solid var(--in-file-search-hit-text);
+    outline-offset: 0;
+    box-shadow: 0 0 0 4px var(--in-file-search-hit-halo);
 }
 
 /* Code Editor Wrapper */

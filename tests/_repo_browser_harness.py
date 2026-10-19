@@ -1,8 +1,12 @@
 """דפדפן הריפו בכרומיום אמיתי, מול הוובאפ האמיתי — העולם והדפדפן של בדיקות הדפדפן של דפדפן הריפו.
 
 פונקציות ולא fixtures (T3), כמו ``_docs_index_harness.py``. משמש את
-``test_repo_browser_docs_page_browser.py`` ואת ``test_repo_browser_in_file_search_browser.py``, כדי שהרמת
-העולם והדפדפן תיכתב פעם אחת.
+``test_repo_browser_docs_page_browser.py`` ואת ``test_repo_browser_in_file_search_browser.py``, כדי שהעולם
+והעמוד ייבנו פעם אחת.
+
+**ומה אין כאן, בכוונה: הרמת הדפדפן**, מאותה סיבה כמו ב-``_browser_harness.py``. היא נשארת בקובצי
+``*_browser.py``, כי ``tests/test_browser_suite_is_gated_once.py`` מוודא שרק שם, ובשער שב-``tests/conftest.py``,
+מרימים דפדפן. ``repo_page`` מקבלת דפדפן שכבר הורם, ומקימה בו רק את העמוד.
 
 השרת הוא הוובאפ האמיתי (``admin_live_server``). ``/repo/api/file`` ו-``/repo/api/docs-page`` מגיעים
 אליו: המסד הוא הדמה של מונגו, שהמעבר האמיתי מילא (``_docs_index_harness``), והמראה היא מראה git
@@ -16,8 +20,6 @@ import contextlib
 import json
 from typing import Dict, List
 from urllib.parse import unquote, urlsplit
-
-import pytest
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
 from _docs_index_harness import fill, make_world
@@ -95,37 +97,25 @@ KNOWN_LOAD_ERRORS = ("Failed to load resource", "Refused to load the script 'htt
 
 
 @contextlib.contextmanager
-def repo_page(server, executable, *, rendered: bool = True, viewport: dict = TABLET):
-    """דפדפן הריפו. ``rendered`` — העדפה לתצוגה מרונדרת, כמו אצל מי שבחר בה. מחזיר ``(page, errors)``:
-    שגיאות JS שלא נתפסו, ושגיאות קונסול שאינן טעינה של משאב חיצוני שהבדיקה חסמה. **המקום היחיד שמרים
-    דפדפן לבדיקות דפדפן הריפו.**"""
-    # בלי ``try`` סביב היבוא: מודול שמשתמש בפונקציה הזו מדלג קודם, ב-``pytest.importorskip("playwright")``.
-    from playwright.sync_api import Error as PlaywrightError
-    from playwright.sync_api import sync_playwright
-
-    with sync_playwright() as pw:
-        try:
-            browser = pw.chromium.launch(executable_path=executable)
-        except PlaywrightError as exc:  # pragma: no cover - תלוי בסביבה
-            pytest.skip(f"אין Chromium זמין: {exc}")
-        try:
-            context = browser.new_context(viewport=viewport, locale="he-IL")
-            context.add_cookies([{
-                "name": "session", "value": server.session_cookie, "domain": "127.0.0.1", "path": "/",
-            }])
-            preference = "true" if rendered else "false"
-            context.add_init_script(
-                f"try{{localStorage.setItem('repo-browser-markdown-preview','{preference}');}}catch(e){{}}"
-            )
-            tab = context.new_page()
-            errors = []
-            tab.on("pageerror", lambda exc: errors.append(str(exc)))
-            tab.on("console", lambda msg: errors.append(msg.text)
-                   if msg.type == "error" and not msg.text.startswith(KNOWN_LOAD_ERRORS) else None)
-            tab.route("**/*", page_api)
-            yield tab, errors
-        finally:
-            browser.close()
+def repo_page(browser, server):
+    """דפדפן הריפו, בדפדפן ש**כבר** הורם, עם העדפה לתצוגה מרונדרת כמו אצל מי שבחר בה. מחזיר
+    ``(page, errors)``: שגיאות JS שלא נתפסו, ושגיאות קונסול שאינן טעינה של משאב חיצוני שהבדיקה חסמה.
+    כל קריאה מקבלת context משלה — עוגיות, ``localStorage`` ומטמון נפרדים — והוא נסגר ביציאה."""
+    context = browser.new_context(viewport=TABLET, locale="he-IL")
+    try:
+        context.add_cookies([{
+            "name": "session", "value": server.session_cookie, "domain": "127.0.0.1", "path": "/",
+        }])
+        context.add_init_script("try{localStorage.setItem('repo-browser-markdown-preview','true');}catch(e){}")
+        tab = context.new_page()
+        errors = []
+        tab.on("pageerror", lambda exc: errors.append(str(exc)))
+        tab.on("console", lambda msg: errors.append(msg.text)
+               if msg.type == "error" and not msg.text.startswith(KNOWN_LOAD_ERRORS) else None)
+        tab.route("**/*", page_api)
+        yield tab, errors
+    finally:
+        context.close()
 
 
 def open_file(tab, server, path) -> None:

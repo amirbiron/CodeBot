@@ -216,11 +216,20 @@ function errorMessageHtml(text) {
 }
 
 /**
- * מונה של טעינות העמוד מאתר התיעוד. הבחירה (``fileSelectionSeq``) לא
- * משתנה כשעוברים בין גרסאות של אותו קובץ בהיסטוריה, ולכן טעינה איטית של
- * גרסה קודמת הייתה דורסת את ההודעה של הגרסה שנבחרה אחריה.
+ * מונה של רינדורי התצוגה המרונדרת: כל ``renderPreview`` מקדם אותו, וכל כתיבה
+ * לתצוגה בודקת שהיא עדיין של הרינדור האחרון (``previewIsCurrent``).
+ *
+ * הבחירה (``fileSelectionSeq``) לא משתנה כשעוברים בין גרסאות של אותו קובץ
+ * בהיסטוריה, או כשמחליפים תצוגה הלוך ושוב. בלי המונה, רינדור איטי של גרסה
+ * קודמת — עמוד מאתר התיעוד, וגם קובץ Markdown — היה נכתב מעל הגרסה שנבחרה
+ * אחריו, יחד עם ההודעה שלו; והחיפוש הפתוח היה רץ שוב על התוכן הישן.
  */
-let docsPageSeq = 0;
+let previewRenderSeq = 0;
+
+/** האם רינדור של התצוגה עדיין רשאי לכתוב אליה: אותה בחירה, והרינדור האחרון. */
+function previewIsCurrent(seq, renderSeq) {
+    return selectionIsCurrent(seq) && renderSeq === previewRenderSeq;
+}
 
 /**
  * האם לקובץ יש תצוגה מרונדרת: קובץ Markdown, או קובץ rst שיש לו עמוד
@@ -314,20 +323,20 @@ async function renderPreview(seq) {
     // **קריאה בלי ``seq`` שייכת לבחירה שמוצגת עכשיו** — מתג התצוגה, וגרסה
     // מההיסטוריה (``RepoState.setFileContent``). ``selectionIsCurrent`` מאשר
     // ``undefined`` תמיד, ולכן בלי הקיבוע הזה עמוד שנטען לקובץ הקודם, ונחת
-    // אחרי שנבחר קובץ אחר, היה נכתב מעליו. ``docsPageSeq`` לא שומר מזה: הוא
-    // מתקדם רק בעמודים מאתר התיעוד, ובחירה של קובץ Markdown לא מקדמת אותו.
+    // אחרי שנבחר קובץ אחר, היה נכתב מעליו. ``previewRenderSeq`` לא שומר מזה
+    // לבדו: בחירה חדשה שעוד לא הגיעה לרינדור (הקובץ שלה בטעינה) לא קידמה אותו.
     if (seq === undefined || seq === null) seq = fileSelectionSeq;
+    const renderSeq = ++previewRenderSeq;
     if (!state.currentFileHasDocsPage) {
         setPreviewNote(null);
-        await renderMarkdownPreview(state.currentFileContent, seq);
+        await renderMarkdownPreview(state.currentFileContent, seq, renderSeq);
         return;
     }
-    const mySeq = ++docsPageSeq;
     let page;
     try {
         page = await fetchDocsPage(state.currentFile, state.currentFileRef);
     } catch (error) {
-        if (!selectionIsCurrent(seq) || mySeq !== docsPageSeq) return;
+        if (!previewIsCurrent(seq, renderSeq)) return;
         console.warn('Docs page failed to load', error);
         setPreviewNote(null);
         const previewContent = document.getElementById('markdown-preview-content');
@@ -338,9 +347,9 @@ async function renderPreview(seq) {
         }
         return;
     }
-    if (!selectionIsCurrent(seq) || mySeq !== docsPageSeq) return;
+    if (!previewIsCurrent(seq, renderSeq)) return;
     setPreviewNote(page);
-    await renderMarkdownPreview(page.markdown, seq);
+    await renderMarkdownPreview(page.markdown, seq, renderSeq);
 }
 
 /**
@@ -444,9 +453,10 @@ async function ensureCodeViewerInitialized() {
 }
 
 /**
- * רינדור תוכן Markdown
+ * רינדור תוכן Markdown. ``seq`` ו-``renderSeq`` הם הבחירה והרינדור שהוא שייך
+ * אליהם (``renderPreview``), וכל כתיבה לתצוגה בודקת את שניהם.
  */
-async function renderMarkdownPreview(content, seq) {
+async function renderMarkdownPreview(content, seq, renderSeq) {
     const previewContent = document.getElementById('markdown-preview-content');
     if (!previewContent || content === null || content === undefined) return;
 
@@ -472,8 +482,9 @@ async function renderMarkdownPreview(content, seq) {
             // ה-renderer רץ עם html:false, ראו webapp/static/js/md-anchors.js)
             const rendered = await MarkdownLiveRenderer.renderWithAnchors(content);
             // אותו נימוק כמו ב-``initCodeViewer``: הרינדור ארוך, ובזמנו
-            // בחירה חדשה יכולה להסתיים. כתיבה כאן הייתה דורסת אותה.
-            if (!selectionIsCurrent(seq)) return;
+            // בחירה חדשה — או רינדור חדש של אותה בחירה, כמו גרסה אחרת
+            // מההיסטוריה — יכולים להסתיים. כתיבה כאן הייתה דורסת אותם.
+            if (!previewIsCurrent(seq, renderSeq)) return;
             previewContent.innerHTML = rendered.html;
 
             // שיפורים: syntax highlighting, math, mermaid + החלת העוגנים המפורשים
@@ -487,7 +498,7 @@ async function renderMarkdownPreview(content, seq) {
             // כבר החליפה את התוכן, והעיטור היה חל על ה-DOM שלה עם הנתונים
             // של הקובץ הישן. (נמצא בביקורת שיטתית של כל ההמתנות במסלול,
             // לא בדיווח — אותה מחלקה בדיוק.)
-            if (!selectionIsCurrent(seq)) return;
+            if (!previewIsCurrent(seq, renderSeq)) return;
             applySyntaxHighlighting(previewContent);
             // הוספת גלילה חלקה לאנקורים בתפריט התוכן
             setupMarkdownAnchorScrolling(previewContent);
@@ -502,7 +513,7 @@ async function renderMarkdownPreview(content, seq) {
     // כבר יכולה להיות מוצגת. כתיבה כאן — בין אם ה-HTML הישן ובין אם הודעת
     // שגיאה — הייתה דורסת אותה. אין ``await`` בין הבדיקה לשתי הכתיבות,
     // ולכן בדיקה אחת כאן מכסה את שתיהן.
-    if (!selectionIsCurrent(seq)) return;
+    if (!previewIsCurrent(seq, renderSeq)) return;
 
     try {
         // Fallback: רינדור בסיסי עם markdown-it
@@ -2693,11 +2704,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('in-file-search-input');
     if (searchInput) {
         let debounceTimer;
-        searchInput.addEventListener('input', (e) => {
+        searchInput.addEventListener('input', () => {
             clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                performInFileSearch(e.target.value);
-            }, 200);
+            // דרך ``refreshInFileSearch`` ולא ישירות: הקלדה ואחריה ``Escape`` בתוך ההשהיה סוגרות
+            // את החיפוש לפני שהטיימר רץ, וחיפוש ישיר היה מדגיש מחדש בתצוגה אחרי הסגירה.
+            debounceTimer = setTimeout(refreshInFileSearch, 200);
         });
         
         searchInput.addEventListener('keydown', (e) => {

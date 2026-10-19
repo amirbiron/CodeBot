@@ -38,8 +38,17 @@
    * ולמה SVG בכלל: עטיפת HTML בתוך ``<text>`` של SVG אינה מצוירת, ולכן
    * ההתאמה הייתה נעלמת מהדיאגרמה במקום להידלק, וב-``<style>`` שבתוך SVG
    * היא הייתה מפרקת את ה-CSS באמצע מילה.
+   *
+   * **וכל ילד של ``<semantics>`` שאינו הראשון — כלומר ``<annotation>``.**
+   * בנוסחה מוצג רק הילד הראשון, וכל השאר מקבלים ``display: none``; זה
+   * בדיוק הכלל ``semantics > :not(:first-child)`` שבגיליון ברירת המחדל
+   * (MDN, ‏``<semantics>``). KaTeX שומר שם את מקור ה-TeX (``<annotation
+   * encoding="application/x-tex">``), ולכן בלי הדילוג חיפוש מילה מתוך
+   * נוסחה ספר התאמה שאף אחד לא רואה, והניווט אליה לא הראה כלום. החריג
+   * ש-MDN מתאר — דפדפנים ישנים שמציגים הערה כשאין לפניה MathML להצגה —
+   * אינו חל על פלט של KaTeX, שתמיד פותח ב-MathML להצגה.
    */
-  var DEFAULT_SKIP = 'script, style, noscript, svg';
+  var DEFAULT_SKIP = 'script, style, noscript, svg, semantics > :not(:first-child)';
 
   /** שם מחלקה שאפשר לשים בסלקטור כמו שהוא, בלי בריחה. */
   var CLASS_NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;

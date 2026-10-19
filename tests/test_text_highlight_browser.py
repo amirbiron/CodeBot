@@ -263,6 +263,38 @@ def test_scroll_into_view_within_scrolls_only_up_to_the_root(page):
     assert result["control"][1] > 0 or result["control"][2] > 0, f"הבקרה לא גללה מעל root: {result}"
 
 
+def test_the_tex_source_inside_a_formula_is_not_scanned(page):
+    """בנוסחה מוצג רק הילד הראשון של ``<semantics>``; מקור ה-TeX שב-``<annotation>`` אינו מוצג, ולכן גם
+    אינו נספר.
+
+    **הנוסחה היא פלט אמיתי של KaTeX** (``katex.renderToString`` מהבאנדל של התצוגה), ולא סימון שנכתב
+    ביד — המבנה הוא מה שהספרייה מייצרת. ``display`` של ה-``annotation`` נמדד כאן, כדי שהבדיקה תיפול אם
+    הנחת היסוד (שהיא אינה מוצגת) תשתנה. ``\\text{alpha}`` מוצג פעמיים בעמוד בלי ה-CSS של KaTeX — בעותק
+    המעוצב ובעותק של MathML — ולכן שתי התאמות, ולא שלוש.
+    """
+    _reset(page)
+    if page.evaluate("typeof window.katex") != "object":
+        page.add_script_tag(url="/js/md_preview.bundle.js")
+    result = page.evaluate(
+        """() => {
+          const root = document.getElementById('root');
+          root.innerHTML = katex.renderToString('\\\\text{alpha} + x', { throwOnError: false });
+          const annotation = root.querySelector('semantics > annotation');
+          const wraps = TextHighlight.highlightWithin(root, 'alpha', { className: 'hit' });
+          return {
+            annotationDisplay: annotation ? getComputedStyle(annotation).display : null,
+            annotationText: annotation ? annotation.textContent : null,
+            count: wraps.length,
+            inAnnotation: wraps.filter((w) => w.closest('annotation')).length,
+          };
+        }"""
+    )
+    assert result["annotationText"] == "\\text{alpha} + x", result
+    assert result["annotationDisplay"] == "none", result
+    assert result["inAnnotation"] == 0, result
+    assert result["count"] == 2, result
+
+
 def test_invalid_skip_selector_is_loud(page):
     """סלקטור שגוי הוא שגיאת קורא, ו-``matches`` זורק ``SyntaxError`` — לא בולעים."""
     _reset(page)
