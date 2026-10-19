@@ -393,11 +393,14 @@ def test_show_again_after_finishing_keeps_the_whole_card_until_it_is_hidden(
           const hint = document.getElementById(btn.getAttribute('aria-describedby'));
           const card = document.getElementById('firstSteps').getBoundingClientRect();
           const b = btn.getBoundingClientRect(), h = hint.getBoundingClientRect();
+          // "מתחת לכפתור" גם לרוחב: השורה והכפתור חופפים בציר האופקי. בלי זה שורה שזזה הצידה,
+          // ועדיין בתוך הכרטיס, עוברת (נמדד: margin שלילי מימין הזיז אותה 270px בטאבלט).
           return {text: hint.textContent.trim(), visible: hint.checkVisibility(), below: h.top >= b.bottom - 1,
+                  underButton: h.left < b.right && h.right > b.left,
                   inside: h.left >= card.left && h.right <= card.right && h.bottom <= card.bottom};
         }""")
         assert hint == {"text": "אפשר להחזיר את הכרטיס מתחתית עמוד ההגדרות", "visible": True,
-                        "below": True, "inside": True}, hint
+                        "below": True, "underButton": True, "inside": True}, hint
 
         # נשאר אחרי ריענון ואחרי החלפת ערכה, והנעילה לא נכתבת.
         page.reload(wait_until="load")
