@@ -392,7 +392,13 @@
    - ``mcp_connect_url`` מגיע מ-``_mcp_connect_url`` ב-``webapp/routes/settings_routes.py``.
      כשהוא ``None`` שורת הכתובת פשוט לא מוצגת — בלי שגיאה ובלי טקסט חלופי.
    - הלשונית של Claude Code מתארת את ``connect_claude_command`` ב-``main.py``. שינוי של
-     שם הפקודה או של הארגומנט ``write`` שם מחייב עדכון כאן. #}
+     שם הפקודה או של הארגומנט ``write`` שם מחייב עדכון כאן.
+   - הלשונית הזו היא ל-Claude Code **בטרמינל** בלבד. Claude Code בווב מקבל את המחברים של
+     Claude.ai, ולכן מתואר בלשונית של Claude.ai. התעבורה של מחבר בסשן ענן עוברת דרך Anthropic
+     ולא דרך הרשת של הסשן (code.claude.com/docs/en/cloud-environments, הסעיף Network access;
+     נקרא ב-19.10.2026). שמחבר נקרא בפתיחת הסשן — מההנחיות של סביבת הענן עצמה ("connectors
+     are read when a session starts"), ונצפה באותו יום בסשן ענן שבו כלי CodeKeeper היו זמינים
+     בלי טוקן. #}
 {% macro ai_connect_url_row(key) %}
   <div class="ai-connect__url">
     <code class="ai-connect__code" dir="ltr" id="ai-connect-url-{{ key }}">{{ mcp_connect_url }}</code>
@@ -416,7 +422,7 @@
   <div class="ai-connect__tabs" role="tablist" aria-label="הלקוח שמתחברים ממנו">
     <button type="button" class="ai-connect__tab" role="tab" id="ai-connect-tab-claude-web" aria-controls="ai-connect-panel-claude-web" aria-selected="true">Claude.ai</button>
     <button type="button" class="ai-connect__tab" role="tab" id="ai-connect-tab-gemini" aria-controls="ai-connect-panel-gemini" aria-selected="false" tabindex="-1">Gemini</button>
-    <button type="button" class="ai-connect__tab" role="tab" id="ai-connect-tab-claude-code" aria-controls="ai-connect-panel-claude-code" aria-selected="false" tabindex="-1">Claude Code / Desktop</button>
+    <button type="button" class="ai-connect__tab" role="tab" id="ai-connect-tab-claude-code" aria-controls="ai-connect-panel-claude-code" aria-selected="false" tabindex="-1">Claude Code בטרמינל</button>
   </div>
 
   <div class="ai-connect__panel" role="tabpanel" id="ai-connect-panel-claude-web" aria-labelledby="ai-connect-tab-claude-web" tabindex="0">
@@ -434,6 +440,10 @@
       </li>
       <li>Claude מעביר אתכם להתחברות עם הטלגרם, ואחריה למסך שבו מאשרים את הגישה.</li>
     </ol>
+    <p class="ai-connect__hint">
+      אותו מחבר עובד גם ב-Claude Code בווב (<code dir="ltr">claude.ai/code</code>), בלי טוקן ובלי שום הגדרה נוספת:
+      כל סשן שנפתח אחרי שהוספתם את המחבר רואה אותו.
+    </p>
   </div>
 
   <div class="ai-connect__panel" role="tabpanel" id="ai-connect-panel-gemini" aria-labelledby="ai-connect-tab-gemini" tabindex="0" hidden>
@@ -570,17 +580,62 @@
   })();
 </script>
 
-{# הוראות לסוכן — הטקסט שנטען לכל סשן של סוכן AI דרך GET /api/agent/primer #}
+{# הוראות לסוכן — הטקסט ש-GET /api/agent/primer מגיש (``mcp_server/primer.py``). מי שקורא את
+   הנתיב הזה הוא ההוק של Claude Code, ``.claude/hooks/codekeeper-primer.sh``. אין כלי MCP שמחזיר
+   את הטקסט, ולכן סוכן שמחובר דרך מחבר בלבד (Claude.ai, Gemini) לא מקבל אותו.
+   - "איך מחברים את זה ל-Claude Code?" מתאר את ההוק. שם המשתנה והשרת שבהסבר הם של ההוק
+     (הכותרת ``Authorization`` וברירת המחדל של ``PRIMER_URL`` בסקריפט), ו-
+     ``test_the_primer_setup_names_the_variable_and_the_host_the_hook_uses`` ב-
+     ``tests/test_settings_ai_connect.py`` גוזר אותם משם ומשווה. הפקודה ``/connect_claude``
+     היא ``connect_claude_command`` ב-``main.py``.
+   - משתני הסביבה ורשימת הדומיינים של סביבת הענן: code.claude.com/docs/en/cloud-environments,
+     הסעיפים Set environment variables ו-Network access (נקרא ב-19.10.2026). בהגדרת ברירת
+     המחדל, Trusted, השרת של ההוק אינו ברשימה, ולכן הצעד של הרשת אינו אופציונלי. #}
 <div class="glass-card" id="agent-instructions-section">
   <h2 class="section-title">
     <i class="fas fa-robot"></i>
     הוראות לסוכן
   </h2>
   <p style="opacity: 0.8; margin-bottom: 1rem; line-height: 1.6">
-    טקסט חופשי שנטען אוטומטית בפתיחת כל סשן של סוכן AI שמחובר ל-CodeKeeper.
-    כתוב כאן איך אתה רוצה שהוא יעבוד — העדפות סגנון, כללים קבועים, הקשר על
-    הפרויקטים שלך. הסוכן קורא את זה כמו שהוא, לפני שהוא מתחיל לעבוד.
+    טקסט חופשי שנטען אוטומטית בפתיחת סשן של Claude Code שמוגדר עם ההוק של CodeKeeper
+    (ההסבר למטה). כתוב כאן איך אתה רוצה שהסוכן יעבוד — העדפות סגנון, כללים קבועים,
+    הקשר על הפרויקטים שלך. הסוכן קורא את זה כמו שהוא, לפני שהוא מתחיל לעבוד.
+    סוכנים שמחוברים רק דרך מחבר, כמו Claude.ai ו-Gemini, לא מקבלים את הטקסט הזה.
   </p>
+
+  <details class="agent-primer-setup" id="agent-primer-setup">
+    <summary>
+      <i class="fas fa-circle-question" aria-hidden="true"></i>
+      איך מחברים את זה ל-Claude Code?
+      <i class="fas fa-chevron-down agent-primer-setup__chevron" aria-hidden="true"></i>
+    </summary>
+    <ol class="agent-primer-setup__steps">
+      <li>
+        מעתיקים מהריפו של CodeKeeper,
+        <a href="https://github.com/amirbiron/CodeBot" target="_blank" rel="noopener" dir="ltr">github.com/amirbiron/CodeBot</a>,
+        את התיקייה <code dir="ltr">.claude</code> במלואה אל הריפו שלכם בגיטהאב, זה שבו אתם רוצים ש-Claude Code
+        יקבל את ההוראות האלה. בכל סשן שנפתח על הריפו הזה, ההוק שבתיקייה מושך את ההוראות ומעביר אותן לסוכן.
+        אם כבר יש אצלכם קובץ <code dir="ltr">.claude/settings.json</code>, לא דורסים אותו: מעתיקים את התיקייה
+        <code dir="ltr">.claude/hooks</code>, ומוסיפים לקובץ הקיים את ההוק <code dir="ltr">SessionStart</code> מהקובץ שלנו.
+      </li>
+      <li>
+        שולחים לבוט{% if bot_username %}
+        <a href="https://t.me/{{ bot_username }}" target="_blank" rel="noopener" dir="ltr">@{{ bot_username }}</a>{% endif %},
+        בצ'אט פרטי, את הפקודה <code dir="ltr">/connect_claude</code>. את הטוקן שהבוט מחזיר שמים
+        ב-<bdi>Environment variables</bdi> של סביבת Claude Code, בשורה אחת: <code dir="ltr">CODEKEEPER_PAT=</code>
+        ומיד אחריו הטוקן, בלי רווחים. זה טוקן של קריאה בלבד, וזה מספיק כאן. אל תשימו שם טוקן של כתיבה:
+        כל מה שרץ בסשן יכול לקרוא את משתני הסביבה.
+      </li>
+      <li>
+        באותה סביבה, תחת <bdi>Network access</bdi>, מוסיפים את <code dir="ltr">codekeepermcp.onrender.com</code>
+        לרשימת <bdi>Allowed domains</bdi>, ומשאירים מסומנת את האפשרות לכלול גם את רשימת ברירת המחדל של מנהלי
+        החבילות. בלי זה ההוק לא מגיע לשרת: בהגדרת ברירת המחדל מותרים רק מאגרי חבילות, GitHub ושירותי ענן מוכרים.
+      </li>
+      <li>
+        מוודאים שהסשנים על הריפו הזה רצים באותה סביבה, ופותחים סשן חדש. סשן שכבר היה פתוח לא רואה את הטוקן מיד.
+      </li>
+    </ol>
+  </details>
 
   <label for="agentInstructions" style="position: absolute; left: -9999px">
     הוראות לסוכן
@@ -2153,7 +2208,16 @@
     /* "חיבור סוכן AI" — טוקנים של base.html בלבד, בלי צבע קשיח (docs/webapp/theming_and_css.rst).
        ב-High Contrast כל כפתור מקבל רקע שחור ומסגרת לבנה ב-!important (high-contrast.css),
        ולכן הלשונית הנבחרת מסומנת גם בקו פנימי ב-currentColor ובמשקל, ולא ברקע בלבד.
-       אין כאן transition: הוא נדרס בערכות הכהות (dark-mode.css, [data-theme] *). */
+       אין כאן transition: הוא נדרס בערכות הכהות (dark-mode.css, [data-theme] *).
+       ההסבר המתקפל בכרטיס "הוראות לסוכן" (.agent-primer-setup) חולק עם הסעיף את הרשימה ואת
+       תצוגת הקוד, ועם "מה אפשר לבקש מהסוכן" את השורה המתקפלת והחץ — באותם כללים ולא בעותק שלהם. */
+    .agent-primer-setup {
+      line-height: 1.7;
+      margin-bottom: 1rem;
+    }
+    .agent-primer-setup__steps {
+      margin-top: 0.75rem;
+    }
     .ai-connect__lead {
       opacity: 0.85;
       line-height: 1.6;
@@ -2192,7 +2256,8 @@
       margin-bottom: 0.75rem;
     }
     .ai-connect__steps,
-    .ai-connect__access {
+    .ai-connect__access,
+    .agent-primer-setup__steps {
       display: grid;
       gap: 0.6rem;
       padding-inline-start: 1.5rem;
@@ -2209,10 +2274,13 @@
     /* פקודה קצרה ושם תפריט לא נשברים באמצע — בטלפון "/connect_claude write" נחצה
        לשתי שורות. רק הכתובת, שיכולה להיות ארוכה מהמסך, נשברת (למטה). */
     .ai-connect code,
-    .ai-connect bdi {
+    .ai-connect bdi,
+    .agent-primer-setup code,
+    .agent-primer-setup bdi {
       white-space: nowrap;
     }
-    .ai-connect code {
+    .ai-connect code,
+    .agent-primer-setup code {
       font-family: "Fira Code", "JetBrains Mono", monospace;
       font-size: 0.9em;
       background: var(--code-bg, var(--glass));
@@ -2249,29 +2317,35 @@
       opacity: 0.85;
       margin: 2rem 0 1rem;
     }
-    /* "מה אפשר לבקש מהסוכן" בתוך "חיבור סוכן AI". */
+    /* "מה אפשר לבקש מהסוכן" בתוך "חיבור סוכן AI". השורה המתקפלת והחץ משותפים גם ל"איך מחברים
+       את זה ל-Claude Code?" בכרטיס "הוראות לסוכן" (.agent-primer-setup), כדי ששני הבלוקים
+       בעמוד ייראו ויתנהגו אותו דבר. */
     .ai-connect__examples {
       margin-top: 1.25rem;
       border-top: 1px solid var(--glass-border);
       padding-top: 1rem;
     }
-    .ai-connect__examples summary {
+    .ai-connect__examples summary,
+    .agent-primer-setup > summary {
       cursor: pointer;
       font-weight: 600;
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
     }
-    .ai-connect__examples summary:focus-visible {
+    .ai-connect__examples summary:focus-visible,
+    .agent-primer-setup > summary:focus-visible {
       outline: 2px solid currentColor;
       outline-offset: 2px;
     }
     /* ``display: inline-flex`` מעלים את המשולש של ``<summary>``, ולכן החץ מראה שהשורה נפתחת. */
-    .ai-connect__examples-chevron {
+    .ai-connect__examples-chevron,
+    .agent-primer-setup__chevron {
       font-size: 0.8em;
       opacity: 0.8;
     }
-    .ai-connect__examples[open] .ai-connect__examples-chevron {
+    .ai-connect__examples[open] .ai-connect__examples-chevron,
+    .agent-primer-setup[open] .agent-primer-setup__chevron {
       transform: rotate(180deg);
     }
     .ai-connect__examples ul {

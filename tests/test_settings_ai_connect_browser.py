@@ -285,6 +285,40 @@ def test_the_anchor_scrolls_to_the_section(browser, admin_live_server, monkeypat
     assert errors.relevant() == []
 
 
+#: מדידת הפריסה בטלפון של אלמנט אחד בעמוד (לפי ``id``) — הסעיף "חיבור סוכן AI", וההסבר
+#: המתקפל בכרטיס "הוראות לסוכן", שחולק איתו את תצוגת הקוד.
+_PHONE_LAYOUT_REPORT = """(rootId) => {
+    const vw = document.documentElement.clientWidth;
+    const root = document.getElementById(rootId);
+    const outside = Array.from(root.querySelectorAll('*'))
+        .filter(el => el.getClientRects().length)
+        .map(el => ({el, r: el.getBoundingClientRect()}))
+        .filter(({r}) => r.left < -0.5 || r.right > vw + 0.5)
+        .map(({el, r}) => `${el.tagName}.${el.className} ${Math.round(r.left)}..${Math.round(r.right)}`);
+    const codes = Array.from(root.querySelectorAll('code')).filter(c => c.getClientRects().length);
+    return {
+        vw,
+        docOverflow: document.documentElement.scrollWidth - vw,
+        outside,
+        clipped: codes.filter(c => c.scrollWidth > c.clientWidth + 1).map(c => c.textContent),
+        notLtr: codes.filter(c => getComputedStyle(c).direction !== 'ltr').map(c => c.textContent),
+        codes: codes.map(c => c.textContent),
+        // פקודה קצרה או שם תפריט שנחצו לשתי שורות — רק הכתובת רשאית להישבר.
+        split: Array.from(root.querySelectorAll('code:not(.ai-connect__code), bdi'))
+            .filter(el => el.getClientRects().length > 1).map(el => el.textContent),
+    };
+}"""
+
+
+def _assert_fits_a_phone(report, where):
+    assert report["docOverflow"] <= 0, (where, report)
+    assert report["outside"] == [], (where, report)
+    assert report["clipped"] == [], (where, report)
+    assert report["notLtr"] == [], (where, report)
+    assert report["split"] == [], (where, report)
+    assert report["codes"], (where, report)
+
+
 @pytest.mark.parametrize("width", [320, 360, 390])
 def test_at_phone_width_nothing_overflows_and_the_url_reads_left_to_right(browser, admin_live_server, monkeypatch, width):
     # כתובת ארוכה בכוונה: היא מה שיכול לדחוף את הכרטיס לרוחב.
@@ -294,33 +328,24 @@ def test_at_phone_width_nothing_overflows_and_the_url_reads_left_to_right(browse
     try:
         for key in PANELS:
             page.click(f"#ai-connect-tab-{key}")
-            report = page.evaluate("""() => {
-                const vw = document.documentElement.clientWidth;
-                const root = document.getElementById('ai-connect');
-                const outside = Array.from(root.querySelectorAll('*'))
-                    .filter(el => el.getClientRects().length)
-                    .map(el => ({el, r: el.getBoundingClientRect()}))
-                    .filter(({r}) => r.left < -0.5 || r.right > vw + 0.5)
-                    .map(({el, r}) => `${el.tagName}.${el.className} ${Math.round(r.left)}..${Math.round(r.right)}`);
-                const codes = Array.from(root.querySelectorAll('code')).filter(c => c.getClientRects().length);
-                return {
-                    vw,
-                    docOverflow: document.documentElement.scrollWidth - vw,
-                    outside,
-                    clipped: codes.filter(c => c.scrollWidth > c.clientWidth + 1).map(c => c.textContent),
-                    notLtr: codes.filter(c => getComputedStyle(c).direction !== 'ltr').map(c => c.textContent),
-                    codes: codes.map(c => c.textContent),
-                    // פקודה קצרה או שם תפריט שנחצו לשתי שורות — רק הכתובת רשאית להישבר.
-                    split: Array.from(root.querySelectorAll('code:not(.ai-connect__code), bdi'))
-                        .filter(el => el.getClientRects().length > 1).map(el => el.textContent),
-                };
-            }""")
-            assert report["docOverflow"] <= 0, (key, report)
-            assert report["outside"] == [], (key, report)
-            assert report["clipped"] == [], (key, report)
-            assert report["notLtr"] == [], (key, report)
-            assert report["split"] == [], (key, report)
-            assert report["codes"], (key, report)
+            _assert_fits_a_phone(page.evaluate(_PHONE_LAYOUT_REPORT, "ai-connect"), key)
+    finally:
+        context.close()
+    assert errors.relevant() == []
+
+
+@pytest.mark.parametrize("width", [320, 360, 390])
+def test_the_primer_setup_opens_from_its_summary_and_fits_a_phone(browser, admin_live_server, monkeypatch, width):
+    """ההסבר "איך מחברים את זה ל-Claude Code?" בכרטיס "הוראות לסוכן": סגור בטעינה, נפתח בלחיצה על
+    השורה הגלויה, ופתוח — שום דבר בו לא גולש, ושום פקודה או שם תפריט לא נחצים לשתי שורות."""
+    monkeypatch.setenv("MCP_SERVER_URL", MCP_BASE)
+    context, page, errors = _open(browser, admin_live_server, width=width, height=760, fragment="")
+    try:
+        is_open = "() => document.getElementById('agent-primer-setup').open"
+        assert page.evaluate(is_open) is False
+        page.click("#agent-primer-setup > summary")
+        assert page.evaluate(is_open) is True
+        _assert_fits_a_phone(page.evaluate(_PHONE_LAYOUT_REPORT, "agent-primer-setup"), "agent-primer-setup")
     finally:
         context.close()
     assert errors.relevant() == []
