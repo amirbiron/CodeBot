@@ -62,9 +62,9 @@ def world(tmp_path, monkeypatch):
     })
     world = make_world(monkeypatch, FakeDB())
     fill(world, pages=_site_pages(), commit=built)
-    for path in (RST, API_RST, "README.md"):
+    for path in (RST, API_RST, "README.md", INCLUDED):
         world.db.repo_files.insert_one({"repo_name": REPO, "path": path, "commit_sha": built, "language": "text"})
-    world.db.repo_metadata.insert_one({"repo_name": REPO, "default_branch": "main"})
+    world.db.repo_metadata.insert_one({"repo_name": REPO, "default_branch": "main", "last_synced_sha": built})
 
     mirror_service = GitMirrorService(base_path=str(repo.mirrors))
     monkeypatch.setattr(repo_browser, "get_mirror_service", lambda: mirror_service)
@@ -97,9 +97,19 @@ def _docs_page(world, path=RST, **params):
     return world.client.get(f"/repo/api/docs-page/{path}?{query}")
 
 
-def _show(world, sha, path=RST):
-    """הדפדפן מציג את הקובץ מהקומיט שבו הוא אונדקס אחרון — כמו שהסנכרון של המראה כותב אותו."""
-    world.db.repo_files.update_one({"repo_name": REPO, "path": path}, {"$set": {"commit_sha": sha}})
+def _sync(world, sha, *changed, removed=()):
+    """סנכרון של המראה ל-``sha``, כמו ``_sync_repo_logic`` ב-``services/repo_sync_service.py``: ``last_synced_sha``
+    מתקדם, אבל ``commit_sha`` ב-``repo_files`` מתעדכן רק לקבצים שהשתנו, וקובץ שנמחק יוצא מהאינדקס. קובץ שלא
+    השתנה נשאר על הקומיט הקודם שלו — וזה בדיוק מה שהדפדפן מציג ממנו."""
+    world.db.repo_metadata.update_one({"repo_name": REPO}, {"$set": {"last_synced_sha": sha}})
+    for path in changed:
+        world.db.repo_files.update_one({"repo_name": REPO, "path": path}, {"$set": {"commit_sha": sha}})
+    for path in removed:
+        world.db.repo_files.delete_one({"repo_name": REPO, "path": path})
+
+
+def _file_commit(world, path=RST):
+    return world.db.repo_files.find_one({"repo_name": REPO, "path": path})["commit_sha"]
 
 
 # ---------------------------------------------------------------------------
@@ -177,14 +187,14 @@ def test_the_page_is_the_assembled_page_built_from_the_file_shown(world):
 
 def test_a_commit_that_did_not_touch_the_file_is_not_a_change(world):
     later = world.repo.commit({"README.md": "# קרא אותי, בגרסה חדשה\n"})
-    _show(world, later)
+    _sync(world, later, "README.md")
 
     assert _docs_page(world).get_json()["freshness"] == docs_page_view.FRESHNESS_CURRENT
 
 
 def test_a_file_that_changed_after_the_build_is_marked_changed(world):
     later = world.repo.commit({RST: "דפדפן קוד\n=========\n\nפסקה חדשה.\n"})
-    _show(world, later)
+    _sync(world, later, RST)
 
     body = _docs_page(world).get_json()
 
@@ -195,16 +205,19 @@ def test_a_file_that_changed_after_the_build_is_marked_changed(world):
 
 def test_a_version_from_the_history_is_compared_by_its_own_commit(world):
     later = world.repo.commit({RST: "דפדפן קוד\n=========\n\nפסקה חדשה.\n"})
-    _show(world, later)
+    _sync(world, later, RST)
 
     assert _docs_page(world, ref=world.built).get_json()["freshness"] == docs_page_view.FRESHNESS_CURRENT
     assert _docs_page(world, ref=later).get_json()["freshness"] == docs_page_view.FRESHNESS_CHANGED
 
 
 def test_a_change_in_code_the_page_includes_is_named(world):
-    """הקובץ לא השתנה, אבל הקוד שהעמוד מציג ממנו כן — העמוד ישן מהקוד, וההודעה אומרת איזה קובץ."""
+    """הקובץ לא השתנה, אבל הקוד שהעמוד מציג ממנו כן — העמוד ישן מהקוד, וההודעה אומרת איזה קובץ. הקובץ נשאר
+    ב-``repo_files`` על הקומיט הישן שלו, כמו אחרי סנכרון אמיתי, ולכן ההשוואה היא מול הקומיט האחרון שסונכרן
+    ולא מול הקומיט של הקובץ — שם הקוד עוד לא השתנה."""
     later = world.repo.commit({INCLUDED: "def save():\n    return 1\n"})
-    _show(world, later)
+    _sync(world, later, INCLUDED)
+    assert _file_commit(world) == world.built
 
     body = _docs_page(world).get_json()
 
@@ -213,7 +226,7 @@ def test_a_change_in_code_the_page_includes_is_named(world):
 
 def test_code_the_page_includes_that_was_deleted_is_a_change(world):
     later = world.repo.commit({INCLUDED: None})
-    _show(world, later)
+    _sync(world, later, removed=[INCLUDED])
 
     body = _docs_page(world).get_json()
 
@@ -223,7 +236,7 @@ def test_code_the_page_includes_that_was_deleted_is_a_change(world):
 def test_a_change_in_the_file_itself_is_named_first(world):
     """כשגם הקובץ השתנה, ההודעה היא על הקובץ שמוצג — זה מה שהמשתמש קורא."""
     later = world.repo.commit({RST: "דפדפן קוד\n=========\n\nפסקה חדשה.\n", INCLUDED: "def save():\n    return 1\n"})
-    _show(world, later)
+    _sync(world, later, RST, INCLUDED)
 
     body = _docs_page(world).get_json()
 
@@ -232,10 +245,31 @@ def test_a_change_in_the_file_itself_is_named_first(world):
 
 def test_a_version_from_the_history_compares_the_included_code_of_that_version(world):
     later = world.repo.commit({INCLUDED: "def save():\n    return 1\n"})
-    _show(world, later)
+    _sync(world, later, INCLUDED)
 
     assert _docs_page(world, ref=world.built).get_json()["freshness"] == docs_page_view.FRESHNESS_CURRENT
     assert _docs_page(world, ref=later).get_json()["freshness"] == docs_page_view.FRESHNESS_DEPENDENCY_CHANGED
+
+
+def test_a_page_rebuilt_after_the_included_code_changed_is_current(world):
+    """אחרי שהאתר נבנה מחדש מהקומיט החדש, העמוד עדכני — גם כשהקובץ עצמו עדיין על הקומיט הישן שלו ב-
+    ``repo_files``. השוואה לקומיט של הקובץ הייתה מוצאת את הקוד הישן שם, ומסמנת את העמוד כישן עד שהקובץ
+    עצמו ישתנה."""
+    later = world.repo.commit({INCLUDED: "def save():\n    return 1\n"})
+    _sync(world, later, INCLUDED)
+    _set_state(world, indexed_source_commit=later)
+    assert _file_commit(world) == world.built
+
+    assert _docs_page(world).get_json()["freshness"] == docs_page_view.FRESHNESS_CURRENT
+
+
+@pytest.mark.parametrize("synced", [None, "main", "origin/main"], ids=["missing", "branch name", "remote branch"])
+def test_without_a_synced_commit_the_page_cannot_be_compared(world, synced):
+    """בלי הקומיט האחרון שסונכרן אין "עכשיו" להשוות אליו. ``origin/<branch>`` לא נפתר במראה שנבנתה ב-
+    ``git clone --mirror`` (שם הענפים תחת ``refs/heads``), ולכן גם הוא אינו תחליף."""
+    world.db.repo_metadata.update_one({"repo_name": REPO}, {"$set": {"last_synced_sha": synced}})
+
+    assert _docs_page(world).get_json()["freshness"] == docs_page_view.FRESHNESS_UNKNOWN
 
 
 def _set_page(world, **fields):

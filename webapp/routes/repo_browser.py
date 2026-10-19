@@ -349,8 +349,9 @@ def api_get_docs_page(file_path: str):
     """העמוד המרונדר של קובץ rst מאתר התיעוד, ואם הוא נבנה מהתוכן שמוצג (``services/docs_page_view.py``):
     ``freshness``, ו-``changed_dependencies`` — הקבצים האחרים שהעמוד נבנה מהם ושהשתנו מאז.
 
-    ``ref`` (אופציונלי) — הגרסה שהדפדפן מציג, כשהיא אינה הנוכחית: גרסה מההיסטוריה. בלעדיו, אותו ref
-    שממנו ``/api/file`` קורא את הקובץ.
+    ``ref`` (אופציונלי) — הגרסה שהדפדפן מציג, כשהיא אינה הנוכחית: גרסה מההיסטוריה. בלעדיו, הקומיט האחרון
+    שהמראה סונכרנה אליו (``docs_page_view.synced_commit``) — ולא ``_shown_ref`` של ``/api/file``, שנגזר
+    מ-``commit_sha`` של הקובץ עצמו ולכן לא זז כשרק קובץ שהעמוד נבנה ממנו משתנה.
     """
     db = get_db()
     repo_name = get_current_repo_name()
@@ -361,9 +362,7 @@ def api_get_docs_page(file_path: str):
         page = docs_page_view.read_docs_page(db, file_path)
         if page is None:
             return jsonify({"error": "no_docs_page"}), 404
-        shown_ref = requested_ref or _shown_ref(
-            db, repo_name, db.repo_files.find_one({"repo_name": repo_name, "path": file_path}, {"commit_sha": 1})
-        )
+        shown_ref = requested_ref or docs_page_view.synced_commit(db, repo_name)
     except PyMongoError:
         logger.warning("repo browser: could not read the docs page of %s", file_path, exc_info=True)
         return jsonify({"error": "docs_page_unavailable"}), 503

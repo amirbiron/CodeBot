@@ -7,9 +7,12 @@
 
 **מתי העמוד ישן מהקובץ.** האתר נבנה ונפרס אחרי מיזוג, והאינדקס מתעדכן אחרי הפריסה; בינתיים המראה
 כבר מציגה את הקובץ החדש. לכן התשובה אומרת אם העמוד נבנה מאותו תוכן בדיוק (:func:`freshness`):
-הקומיט שהאינדקס נכון אליו (``indexed_source_commit``) מול ה-ref שהדפדפן מציג, בהשוואה של ה-blob בשניהם
+הקומיט שהאינדקס נכון אליו (``indexed_source_commit``) מול המצב הנוכחי של הריפו, בהשוואה של ה-blob בשניהם
 — של הקובץ, ושל כל קובץ אחר שהעמוד נבנה ממנו (``dependencies``: קוד ש-``literalinclude`` מציג, מודול
-ש-autodoc מתעד). קומיט שלא נגע בהם נותן אותם blobs, ולכן הוא לא נחשב שינוי. מה שלא נמדד: שינוי בממיר
+ש-autodoc מתעד). קומיט שלא נגע בהם נותן אותם blobs, ולכן הוא לא נחשב שינוי. המצב הנוכחי הוא הקומיט
+האחרון שהמראה סונכרנה אליו (:func:`synced_commit`), ולא ``commit_sha`` של הקובץ ב-``repo_files``: הסנכרון
+מעדכן אותו רק לקבצים שהשתנו (``_sync_repo_logic`` ב-``services/repo_sync_service.py``), ולכן אחרי קומיט
+שמשנה רק קוד שהעמוד מציג, הקובץ עדיין מצביע על קומיט ישן — והשוואה אליו לא הייתה רואה את השינוי. מה שלא נמדד: שינוי בממיר
 או בתצורה של האתר עצמו (``docs/_static/copy-page.js``, ``docs/conf.py``), שחל על כל העמודים ואינו קלט
 של עמוד אחד — גם Sphinx אינו רושם אותו כתלות של עמוד.
 
@@ -60,6 +63,15 @@ def has_docs_page(db: Any, file_path: str) -> bool:
     return db[contract.PAGES_COLLECTION].find_one({"_id": file_path}, {"_id": 1}) is not None
 
 
+def synced_commit(db: Any, repo_name: str) -> Optional[str]:
+    """הקומיט האחרון שהמראה של הריפו סונכרנה אליו (``last_synced_sha`` ב-``repo_metadata``), או ``None``
+    כשאין כזה — ריפו שעוד לא יובא, או ערך שאינו sha. ``repo_name`` הוא המפתח של המסמך (אינדקס ``unique``,
+    ``scripts/create_repo_indexes.py`` ו-``mcp_server/repo_backend.py``)."""
+    metadata = db.repo_metadata.find_one({"repo_name": repo_name}, {"_id": 0, "last_synced_sha": 1}) or {}
+    commit = metadata.get("last_synced_sha")
+    return commit if contract.is_commit_sha(commit) else None
+
+
 def read_docs_page(db: Any, file_path: str) -> Optional[Dict[str, Any]]:
     """העמוד של הקובץ עם הקומיט שהוא נבנה ממנו, או ``None`` כשאין לקובץ עמוד.
 
@@ -104,20 +116,21 @@ def freshness(
     git_service: Any,
     repo_name: str,
     file_path: str,
-    shown_ref: str,
+    shown_ref: Optional[str],
     indexed_commit: Optional[str],
     dependencies: Optional[Tuple[str, ...]],
 ) -> Freshness:
     """האם העמוד נבנה מהתוכן שמוצג: :class:`Freshness` עם אחד מ-``FRESHNESS_*``.
 
-    משווים את ה-blobs של הקובץ ושל כל קובץ ב-``dependencies``, בקומיט שהעמוד נבנה ממנו מול ה-ref
-    שהדפדפן מציג — פקודת git אחת לכל צד (``get_blob_ids``). שינוי בקובץ עצמו קובע
+    משווים את ה-blobs של הקובץ ושל כל קובץ ב-``dependencies``, בקומיט שהעמוד נבנה ממנו מול ``shown_ref`` —
+    הקומיט האחרון שסונכרן (:func:`synced_commit`), או גרסה מההיסטוריה — פקודת git אחת לכל צד
+    (``get_blob_ids``). שינוי בקובץ עצמו קובע
     :data:`FRESHNESS_CHANGED`; אחרת שינוי בקובץ אחר קובע :data:`FRESHNESS_DEPENDENCY_CHANGED`, וקובץ
     אחר שנמחק מאז הוא שינוי כזה. "אי אפשר לבדוק" (:data:`FRESHNESS_UNKNOWN`) ולא "השתנה": כשאין
-    קומיט או רשימת קבצים, כש-``get_blob_ids`` לא ענה (ref שאינו במראה), או כשקובץ חסר בקומיט שהעמוד
+    אחד משני הקומיטים או רשימת קבצים, כש-``get_blob_ids`` לא ענה (ref שאינו במראה), או כשקובץ חסר בקומיט שהעמוד
     נבנה ממנו — שם הוא היה חייב להיות.
     """
-    if indexed_commit is None or dependencies is None:
+    if indexed_commit is None or shown_ref is None or dependencies is None:
         return Freshness(FRESHNESS_UNKNOWN)
     paths = [file_path, *dependencies]
     built = git_service.get_blob_ids(repo_name, indexed_commit, paths)

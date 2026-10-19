@@ -72,7 +72,7 @@ def world(tmp_path, monkeypatch):
     fill(world, pages=_pages(), commit=built)
     for path in (RST, API_RST):
         world.db.repo_files.insert_one({"repo_name": REPO, "path": path, "commit_sha": built, "language": "text"})
-    world.db.repo_metadata.insert_one({"repo_name": REPO, "default_branch": "main"})
+    world.db.repo_metadata.insert_one({"repo_name": REPO, "default_branch": "main", "last_synced_sha": built})
     mirror_service = GitMirrorService(base_path=str(repo.mirrors))
     monkeypatch.setattr(repo_browser, "get_mirror_service", lambda: mirror_service)
     # ההיסטוריה עוברת ב-``get_git_service``, ששומר את השירות על האפליקציה (``app.extensions``) בקריאה
@@ -82,6 +82,13 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(repo_browser, "get_db", lambda: world.db)
     world.repo = repo
     return world
+
+
+def _sync_rst(world, sha) -> None:
+    """סנכרון של המראה לקומיט ששינה את קובץ ה-rst: ``last_synced_sha`` מתקדם, וגם ``commit_sha`` של הקובץ —
+    כמו ``_sync_repo_logic`` ב-``services/repo_sync_service.py`` לקובץ שהשתנה."""
+    world.db.repo_metadata.update_one({"repo_name": REPO}, {"$set": {"last_synced_sha": sha}})
+    world.db.repo_files.update_one({"repo_name": REPO, "path": RST}, {"$set": {"commit_sha": sha}})
 
 
 def _page_api(route) -> None:
@@ -193,7 +200,7 @@ def test_an_rst_page_is_rendered_right_to_left_with_its_code_left_to_right(
 
 def test_a_file_that_changed_after_the_build_shows_the_note(world, admin_live_server, chromium_executable):
     later = world.repo.commit({RST: "דפדפן קוד\n=========\n\nפסקה חדשה.\n"})
-    world.db.repo_files.update_one({"repo_name": REPO, "path": RST}, {"$set": {"commit_sha": later}})
+    _sync_rst(world, later)
 
     with repo_page(admin_live_server, chromium_executable) as (tab, errors):
         _open(tab, admin_live_server, RST)
@@ -221,7 +228,7 @@ def test_a_version_viewed_from_the_history_is_compared_by_its_own_commit(world, 
     מעביר את הקומיט: העמוד מושווה אז לגרסה הנוכחית, וההודעה נשארת."""
     built = world.db[contract.STATE_COLLECTION].find_one({})["indexed_source_commit"]
     later = world.repo.commit({RST: "דפדפן קוד\n=========\n\nפסקה חדשה.\n"})
-    world.db.repo_files.update_one({"repo_name": REPO, "path": RST}, {"$set": {"commit_sha": later}})
+    _sync_rst(world, later)
 
     with repo_page(admin_live_server, chromium_executable) as (tab, errors):
         page_requests = []
