@@ -170,12 +170,12 @@ def _one(anchors, **attrs):
     return found[0]
 
 
-def test_the_categories_row_has_sticky_notes_instead_of_the_repo_button(files_page):
+def test_the_categories_row_has_sticky_notes_and_no_repo_or_other_buttons(files_page):
     """השורה, לפי סדר ה-DOM — כלומר מימין ← לשמאל, כי העמוד RTL.
 
-    "לפי ריפו" יצא מהשורה, "מועדפים" עבר למקום שלו, ו"סטיקי נוטס" נכנס
-    למקום של "מועדפים". הכתובת של "סטיקי נוטס" נגזרת מהראוט הרשום של
-    עמוד הלוחות, ולא מוקלדת כאן.
+    "לפי ריפו" ו"שאר קבצים" יצאו מהשורה, "מועדפים" עבר למקום של "לפי ריפו",
+    ו"סטיקי נוטס" נכנס למקום של "מועדפים". הכתובת של "סטיקי נוטס" נגזרת
+    מהראוט הרשום של עמוד הלוחות, ולא מוקלדת כאן.
     """
     render, boards_url = files_page
     _html, anchors = render()
@@ -188,7 +188,6 @@ def test_the_categories_row_has_sticky_notes_instead_of_the_repo_button(files_pa
         (boards_url, "סטיקי נוטס"),
         ("#", "שולחן עבודה"),
         ("/files?category=large", "קבצים גדולים"),
-        ("/files?category=other", "שאר קבצים"),
     ]
 
 
@@ -218,10 +217,17 @@ def test_the_notes_search_icon_cuts_the_same_sheet(files_page):
     assert search["paths"] and search["paths"] == toolbar["paths"]
 
 
-def test_the_repo_category_still_works_by_direct_url(files_page):
-    """רק הכפתור הוסר: ``/files?category=repo`` עדיין מוגש, ושורת המידע אומרת באיזו קטגוריה מדובר."""
+@pytest.mark.parametrize(
+    "category, label",
+    [("repo", "קטגוריה: לפי ריפו"), ("other", "קטגוריה: שאר הקבצים")],
+    ids=["repo", "other"],
+)
+def test_a_category_without_a_button_still_works_by_direct_url(files_page, category, label):
+    """רק הכפתור הוסר: הקטגוריה עדיין מוגשת, ושורת המידע אומרת באיזו קטגוריה מדובר."""
     render, _boards_url = files_page
-    html, anchors = render("/files?category=repo")
+    html, anchors = render(f"/files?category={category}")
 
-    assert "קטגוריה: לפי ריפו" in html
-    assert not [a for a in anchors if a["in_categories"] and "category=repo" in (a["attrs"].get("href") or "")]
+    assert label in html
+    assert not [
+        a for a in anchors if a["in_categories"] and f"category={category}" in (a["attrs"].get("href") or "")
+    ]
