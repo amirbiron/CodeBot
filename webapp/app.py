@@ -1022,8 +1022,25 @@ except Exception:
 # `from webapp.app import get_db`, סקריפטים, ותהליכי הטסטים. אחרת קם עותק נוסף
 # בשירות שאין לו את המשאבים: למתזמן חסר ה-persistent disk (PermissionError על
 # /var/data), ולשולח חסרים מפתחות ה-VAPID.
+
+#: שמות ה-console script של שרתי WSGI/ASGI שטוענים את ``webapp.app:app``, כפי שהם רשומים
+#: ב-``entry_points.txt`` של כל חבילה (gunicorn 23.0.0, uvicorn 0.38.0, flask 3.1.2,
+#: hypercorn 0.18.0, waitress 3.0.2). ``scripts/start_webapp.sh`` מריץ את gunicorn.
+_WEBAPP_SERVER_SCRIPTS = frozenset({"gunicorn", "uvicorn", "hypercorn", "waitress-serve", "flask"})
+#: אותם שרתים כשהם מורצים ב-``python -m <חבילה>``: אז ``sys.argv[0]`` הוא הנתיב המלא
+#: ל-``<חבילה>/__main__.py``, ולכל החמש יש קובץ כזה.
+_WEBAPP_SERVER_PACKAGES = frozenset({"gunicorn", "uvicorn", "hypercorn", "waitress", "flask"})
+
+
 def _is_webapp_runtime() -> bool:
     """האם התהליך הזה הוא שרת הוובאפ — לפי ``sys.argv[0]`` בלבד.
+
+    **ההשוואה היא לשם קובץ ההרצה, לא לתווים בנתיב.** עד התיקון הזה נבדק אם
+    אחת המילים "gunicorn", "flask" וכו' מופיעה **איפשהו** ב-``sys.argv[0]``,
+    כך שסקריפט כמו ``/srv/flask-migrations/reindex.py`` היה נחשב לשרת ומרים את
+    מתזמן הגיבויים ואת שולח הפושים. עכשיו נבדק רק שם הקובץ עצמו מול
+    ``_WEBAPP_SERVER_SCRIPTS``, או — כשהוא ``__main__.py`` של ``python -m`` —
+    שם החבילה שהוא יושב בה, מול ``_WEBAPP_SERVER_PACKAGES``.
 
     בכוונה בלי דגלי override: כל צרכן מחליט בעצמו אם לאפשר עקיפה, ובשם
     משלו. ``FORCE_BACKUP_SCHEDULER`` היה כאן, וכך היה מפעיל בשקט גם את שולח
@@ -1039,11 +1056,11 @@ def _is_webapp_runtime() -> bool:
     except Exception:
         pass
     # שרת WSGI/ASGI שטוען את webapp.app:app
-    entry_lower = entry.lower().replace("\\", "/")
-    webapp_markers = ("gunicorn", "uvicorn", "hypercorn", "waitress", "flask")
-    if any(m in entry_lower for m in webapp_markers):
-        return True
-    return False
+    entry_path = entry.lower().replace("\\", "/")
+    name = os.path.basename(entry_path)
+    if name == "__main__.py":
+        return os.path.basename(os.path.dirname(entry_path)) in _WEBAPP_SERVER_PACKAGES
+    return name in _WEBAPP_SERVER_SCRIPTS
 
 try:
     if str(os.getenv("DISABLE_BACKUP_SCHEDULER", "")).lower() not in {"1", "true", "yes"}:
@@ -1621,7 +1638,8 @@ try:
             )
     except Exception:
         # עליית האפליקציה אינה נופלת על שולח הפושים — אבל הכשל נרשם, כי בלעדיו
-        # אין שום סימן לכך שתזכורות הפסיקו להישלח.
+        # אין שום סימן לכך שתזכורות הפסיקו להישלח. ``start_sender_if_enabled``
+        # מעלה לכאן כשל בהרמת ה-thread, ולא בולע אותו בעצמו.
         logger.warning("Failed to start push sender", exc_info=True)
 except Exception:
     # סביבת דוקס/CI ללא תלויות לא צריכה להיכשל על ייבוא זה
