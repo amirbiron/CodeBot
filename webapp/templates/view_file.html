@@ -347,6 +347,13 @@
     min-width: 0;
 }
 
+/* עמוד שיתוף ציבורי: אין בו תפריט ⋮ שאליו עוברים כפתורים שלא נכנסים בשורה,
+   ולכן הם נשברים לשורה נוספת במקום להיחתך (למשל בהגדלת גופן). */
+.file-actions--public .file-actions__list {
+    flex-wrap: wrap;
+    overflow: visible;
+}
+
 .file-actions__menu {
     position: relative;
     flex: 0 0 auto;
@@ -826,9 +833,15 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         {% endif %}
     </div>
 
-    <div class="file-actions" data-file-actions>
+    {# ``is_public`` — עמוד שיתוף ציבורי (``/share/<share_id>``, ``public_share``).
+       ``file.id`` שם הוא מזהה השיתוף ולא מזהה קובץ, ולכן כל פעולה שבנויה על
+       נתיב של בעלים (``/edit/``, ``/md/``, ``/download/``, ``/api/...``) מגיעה
+       לשם לנתיב שלא קיים. במצב הזה נשארות רק הפעולות שיש להן נתיב ציבורי, וכל
+       כפתור חדש כאן צריך להחליט לאיזה צד הוא שייך:
+       ``tests/test_public_share_page_actions.py`` נופל על פעולה שלא הוחלט עליה. #}
+    <div class="file-actions{% if is_public %} file-actions--public{% endif %}" data-file-actions>
         <div class="file-actions__list" data-actions-list>
-            {% if not file.is_large and not is_read_only_version and file.is_favorite is not none %}
+            {% if not is_public and not file.is_large and not is_read_only_version and file.is_favorite is not none %}
             <button id="favoriteBtn"
                     class="btn btn-secondary btn-icon"
                     data-overflow-id="favorite"
@@ -842,7 +855,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
             </button>
             {% endif %}
-            {% if not is_read_only_version %}
+            {% if not is_public and not is_read_only_version %}
             <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon file-primary-action"
                data-overflow-id="edit"
                data-overflow-priority="2"
@@ -859,6 +872,28 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 העתק קוד
                 <div class="copy-feedback" id="copyFeedback">הועתק!</div>
             </button>
+            {% if is_public %}
+            {# ``share_is_markdown`` מגיע מאותו ``_is_markdown_file`` שלפיו ``public_share``
+               מחליט אם ``?view=md`` מציג תצוגת Markdown — כך הכפתור מופיע בדיוק כשהנתיב שלו
+               עובד, ו-``/read/share/<id>`` מפנה חזרה לתצוגת הקוד כשהקובץ אינו Markdown. #}
+            {% if share_is_markdown %}
+            <a href="{{ url_for('public_share', share_id=file.id, view='md') }}" class="btn btn-secondary btn-icon"
+               data-overflow-id="markdown"
+               data-overflow-priority="5"
+               data-menu-label="🌐 תצוגת Markdown">
+                🌐 תצוגת Markdown
+            </a>
+            <a href="{{ url_for('public_reader_mode', share_id=file.id) }}" class="btn btn-secondary btn-icon"
+               target="_blank"
+               rel="noopener noreferrer"
+               title="פתח במצב קריאה"
+               data-overflow-id="reader"
+               data-overflow-priority="5"
+               data-menu-label="📖 מצב קריאה">
+                📖 מצב קריאה
+            </a>
+            {% endif %}
+            {% else %}
             {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
             <a href="/html/{{ file.id }}" class="btn btn-secondary btn-icon"
                data-overflow-id="html"
@@ -875,7 +910,8 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 🌐 תצוגת Markdown
             </a>
             {% endif %}
-            {% if (file.file_name|trim|lower).endswith('.svg') %}
+            {% endif %}
+            {% if not is_public and (file.file_name|trim|lower).endswith('.svg') %}
             <a href="/svg/{{ file.id }}" class="btn btn-secondary btn-icon"
                data-overflow-id="svg"
                data-overflow-priority="5"
@@ -883,7 +919,8 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 🌐 תצוגת SVG
             </a>
             {% endif %}
-            {% if ((user_is_admin|default(false)) or (is_premium|default(false))) and (file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md')) %}
+            {# ``user_is_admin`` מגיע מ-``inject_globals`` לכל עמוד, גם לעמוד הציבורי כשאדמין צופה בו #}
+            {% if not is_public and ((user_is_admin|default(false)) or (is_premium|default(false))) and (file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md')) %}
             <button type="button"
                     class="btn btn-secondary btn-icon"
                     data-overflow-id="export-styled"
@@ -895,13 +932,14 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <span class="btn-text">HTML מעוצב</span>
             </button>
             {% endif %}
-            <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon"
+            <a href="{{ url_for('public_share_download', share_id=file.id) if is_public else '/download/' ~ file.id }}" class="btn btn-secondary btn-icon"
                data-overflow-id="download"
                data-overflow-priority="6"
                data-menu-label="⬇️ הורד">
                 <i class="fas fa-download" aria-hidden="true"></i>
                 <span class="btn-text">הורד</span>
             </a>
+            {% if not is_public %}
             <button class="btn btn-secondary btn-icon"
                     data-overflow-id="collection"
                     data-overflow-priority="7"
@@ -916,7 +954,12 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <i class="fas fa-arrow-right" aria-hidden="true"></i>
                 <span class="btn-text">חזור</span>
             </a>
+            {% endif %}
         </div>
+        {# בעמוד הציבורי אין תפריט ⋮: כל הפריטים הקבועים בו הם פעולות בעלים, ובמסך
+           צר (מתחת ל-769px) ההעברה אליו ממילא כבויה — כלומר הוא היה נפתח ריק.
+           ``initFileActionsOverflow`` יוצא מיד כשאין כפתור תפריט. #}
+        {% if not is_public %}
         <div class="file-actions__menu">
             <button type="button"
                     id="fileActionsMenuButton"
@@ -978,6 +1021,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <div class="file-actions__menu-section" data-dynamic-actions></div>
             </div>
         </div>
+        {% endif %}
     </div>
 </div>
 
@@ -1088,12 +1132,18 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         <div id="codeMirrorContainer" class="codemirror-container cm-autoheight" hidden aria-label="תצוגת קוד מתקדמת"></div>
     </div>
     {% if raw_code is defined %}
-    <textarea id="rawCode" style="position: absolute; left: -9999px; height: 0; opacity: 0;">{{ raw_code }}</textarea>
+    {# השורה החדשה אחרי תגית הפתיחה מכוונת: הדפדפן בולע שורה חדשה אחת שצמודה ל-``<textarea>``
+       (HTML Living Standard, ה-"in body" insertion mode, תגית הפתיחה של textarea). בלעדיה הוא
+       בלע את השורה הריקה הראשונה של קובץ שמתחיל בה, ו"העתק קוד" והתצוגה המתקדמת קיבלו קובץ
+       בלי השורה הזו. #}
+    <textarea id="rawCode" style="position: absolute; left: -9999px; height: 0; opacity: 0;">
+{{ raw_code }}</textarea>
     {% endif %}
 </div>
 
-{# Bookmarks snippet: כפתור ופאנל סימניות #}
-{% include 'bookmarks_snippet.html' %}
+{# Bookmarks snippet: כפתור ופאנל סימניות. הסימניות שייכות לקובץ של הבעלים
+   (``/api/bookmarks/<file_id>``), ובעמוד הציבורי היו נטענות לפי מזהה השיתוף. #}
+{% if not is_public %}{% include 'bookmarks_snippet.html' %}{% endif %}
 
 <div class="markdown-image-overlay" id="markdownImageOverlay" aria-hidden="true">
     <button type="button" id="markdownImageOverlayClose">✕ סגירה</button>
@@ -1101,6 +1151,9 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     <div class="markdown-image-overlay-caption" id="markdownImageOverlayCaption"></div>
 </div>
 
+{# אזור השיתוף והמודאלים שאחריו (קישור שיתוף, תיאור, היסטוריה, סל) הם פעולות
+   של בעלי הקובץ, דרך ``/api/share/<file_id>`` ו-``/api/file/<file_id>/...``. #}
+{% if not is_public %}
 <div class="glass-card" style="margin-top: 2rem;">
     <h2 class="section-title">
         <i class="fas fa-share-alt"></i>
@@ -1181,6 +1234,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         </div>
     </div>
 </div>
+{% endif %}
 
 <style>
 .share-link-modal {
@@ -1862,7 +1916,8 @@ document.addEventListener('keydown', function(e) {
         e.preventDefault();
         copyCode();
     }
-    // Escape: אם במסך מלא – לצאת ממנו; אחרת – חזרה לרשימה
+    // Escape: אם במסך מלא – לצאת ממנו; אחרת – חזרה לרשימה. בעמוד שיתוף ציבורי
+    // אין "רשימה": אורח שפתח את הקישור ישירות היה מגיע ל-/files, כלומר להתחברות.
     if (e.key === 'Escape') {
         const codeCard = document.getElementById('codeCard');
         if (document.fullscreenElement && document.fullscreenElement === codeCard) {
@@ -1870,7 +1925,7 @@ document.addEventListener('keydown', function(e) {
             try { document.exitFullscreen(); } catch (err) { /* ignore */ }
             return;
         }
-        goBack();
+        {% if not is_public %}goBack();{% endif %}
     }
 });
 
@@ -2948,7 +3003,7 @@ function goBack(ev){
     window.openTrashConfirmModal = openTrashConfirmModal;
 })();
 </script>
-{% if ((user_is_admin|default(false)) or (is_premium|default(false))) and (file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md')) %}
+{% if not is_public and ((user_is_admin|default(false)) or (is_premium|default(false))) and (file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md')) %}
 {% include 'export/export_modal.html' %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/export-modal.css') }}?v={{ static_version }}">
 <script src="{{ url_for('static', filename='js/export-modal.js') }}?v={{ static_version }}" defer></script>

@@ -552,6 +552,15 @@ _legacy_scan_cached_at_ts: float = 0.0
 
 
 def start_sender_if_enabled() -> None:
+    """מרים את ``push-sender`` — thread אחד לתהליך, ורק לתהליך שהשיג את נעילת השולח.
+
+    **כשל בהרמת ה-thread עולה לקורא** (``webapp/app.py``, שרושם אותו). עד התיקון
+    הזה הוא נבלע כאן ב-``except: pass``, והאזהרה בקורא לא רצה לעולם: שולח שלא קם
+    נראה בדיוק כמו עלייה תקינה. מאותה סיבה גם סוף הלולאה נרשם — ``_runner`` תופס
+    כל חריגה כדי לא להפיל את התהליך, אבל אחריה לא יוצאת אף תזכורת עד ריסטארט.
+    עלייה מוצלחת נרשמת ב-``Push sender thread started``, כדי שאפשר יהיה לראות בלוג
+    איזה תהליך שולח.
+    """
     global _sender_started
     if _sender_started:
         return
@@ -573,21 +582,19 @@ def start_sender_if_enabled() -> None:
     except Exception:
         # Fail-open: if locking isn't available, fall back to per-process behavior.
         pass
-    try:
-        import threading
+    import threading
 
-        def _runner():
-            try:
-                _loop_send_due_reminders()
-            except Exception:
-                # Never crash main thread due to background errors
-                pass
+    def _runner():
+        try:
+            _loop_send_due_reminders()
+        except Exception:
+            # לא מפילים את התהליך בגלל ה-thread — אבל מכאן אין שולח, ולכן זה נרשם.
+            logger.exception("push sender loop stopped; no reminders are sent until restart")
 
-        t = threading.Thread(target=_runner, name="push-sender", daemon=True)
-        t.start()
-        _sender_started = True
-    except Exception:
-        pass
+    t = threading.Thread(target=_runner, name="push-sender", daemon=True)
+    t.start()
+    _sender_started = True
+    logger.info("Push sender thread started (pid=%s)", os.getpid())
 
 
 def _loop_send_due_reminders() -> None:
