@@ -3,7 +3,8 @@
 טסטי הדפדפן של הסעיף (``tests/test_settings_ai_connect_browser.py``) מדולגים ב-CI, שאין
 בו Chromium. הקובץ הזה רץ שם, ומקבע את מה שנקבע בצד השרת: הכתובת שנבנית מ-``MCP_SERVER_URL``
 (``_mcp_connect_url`` ב-``webapp/routes/settings_routes.py``), מה קורה כשהוא חסר או נדחה,
-הקישור לבוט, העוגן וקישור העזרה.
+הקישור לבוט, העוגן וקישור העזרה. ובאותו עמוד גם ההסבר המתקפל "איך מחברים את זה ל-Claude Code?"
+בכרטיס "הוראות לסוכן", שמתאר את ההוק ב-``.claude/hooks/codekeeper-primer.sh``.
 
 ``get_db`` מוחלף ב-``None`` — החוזה הקיים של "אין מסד" — כדי שהעמוד לא ינסה להתחבר.
 """
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 
 import pytest
 
@@ -21,6 +23,7 @@ from webapp import app as webapp_app
 BASE = "https://mcp.example.test"
 ROUTE_LOGGER = "webapp.routes.settings_routes"
 URL_ROW = re.compile(r'<code class="ai-connect__code" dir="ltr" id="ai-connect-url-([^"]+)">([^<]*)</code>')
+PRIMER_HOOK = Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "codekeeper-primer.sh"
 
 
 class _CacheDisabled:
@@ -99,3 +102,34 @@ def test_the_anchor_and_the_help_link_are_rendered_once(monkeypatch):
     assert html.count('id="ai-connect"') == 1
     help_links = re.findall(r'<p class="settings-help-link">.*?<a href="([^"]+)"', html, flags=re.S)
     assert help_links == ["https://t.me/moominAmir"]
+
+
+def _primer_setup(html: str) -> str:
+    """הבלוק המתקפל "איך מחברים את זה ל-Claude Code?" בכרטיס "הוראות לסוכן"."""
+    assert html.count('id="agent-primer-setup"') == 1
+    return html.split('id="agent-primer-setup"', 1)[1].split("</details>", 1)[0]
+
+
+def test_the_primer_setup_names_the_variable_and_the_host_the_hook_uses(monkeypatch):
+    """ההסבר חוזר על שתי עובדות שהבעלים שלהן הוא ההוק: שם המשתנה שהוא שולח כטוקן, והשרת
+    שהוא פונה אליו כשלא הוגדר ``CODEKEEPER_PRIMER_URL``. שתיהן נגזרות כאן מהסקריפט עצמו, כך
+    ששינוי שם או כתובת שם מפיל את הטסט, ולא משאיר בעמוד הסבר שמוביל להוק שלא מגיע לשרת."""
+    script = PRIMER_HOOK.read_text(encoding="utf-8")
+    variable = re.search(r'"Authorization: Bearer \$\{(\w+)\}"', script)
+    host = re.search(r'^PRIMER_URL="\$\{CODEKEEPER_PRIMER_URL:-https://([^/"]+)/', script, flags=re.M)
+    assert variable and host, "הצורה של הכותרת או של PRIMER_URL השתנתה בסקריפט — עדכנו את הגזירה כאן"
+
+    block = _primer_setup(_render(monkeypatch, BASE))
+    assert f'<code dir="ltr">{variable.group(1)}=</code>' in block
+    assert f'<code dir="ltr">{host.group(1)}</code>' in block
+
+
+@pytest.mark.parametrize("username", ["some_test_bot", ""])
+def test_the_primer_setup_links_the_configured_bot(monkeypatch, username):
+    """כמו בלשונית של Claude Code בטרמינל: הקישור נבנה מ-``BOT_USERNAME``, ובלעדיו אין קישור שבור."""
+    monkeypatch.setattr(webapp_app, "BOT_USERNAME_CLEAN", username, raising=True)
+    block = _primer_setup(_render(monkeypatch, BASE))
+    links = re.findall(r'href="(https://t\.me/[^"]*)"', block)
+    assert links == ([f"https://t.me/{username}"] if username else [])
+    assert (f">@{username}</a>" in block) == bool(username)
+    assert '<code dir="ltr">/connect_claude</code>' in block
