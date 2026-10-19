@@ -296,7 +296,7 @@ class PageRecord:
         return {"_id": self.id, **self.content(), "record_sha": self.record_sha}
 
 
-_MD_LINK =r"!?\[[^\]\n]*\]\([^)\s]+\)"
+_MD_LINK = r"!?\[[^\]\n]*\]\([^)\s]+\)"
 _LINK_RE = re.compile(rf"{_MD_LINK}|https?://\S+")
 _LIST_MARKER_RE = re.compile(r"^(?:[-*+]|\d+[.)])\s+")
 #: פתיחה או סגירה של בלוק הערה (``::: warning`` / ``:::``), כמו שכפתור ההעתקה מייצא אותו.

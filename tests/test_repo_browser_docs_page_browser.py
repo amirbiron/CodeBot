@@ -163,12 +163,17 @@ _DIRECTIONS = """
 _RENDERED = "() => !!document.querySelector('#markdown-preview-content h1')"
 
 
-def test_an_rst_page_is_rendered_right_to_left_with_its_code_left_to_right(world, admin_live_server, chromium_executable):
+def test_an_rst_page_is_rendered_right_to_left_with_its_code_left_to_right(
+    world, admin_live_server, chromium_executable
+):
     with repo_page(admin_live_server, chromium_executable) as (tab, errors):
         _open(tab, admin_live_server, RST)
         poll(tab, _RENDERED, "העמוד מאתר התיעוד רונדר")
 
-        heading = tab.evaluate("() => document.querySelector('#markdown-preview-content h1').textContent.replace('¶', '').trim()")
+        # הרינדור מוסיף לכל כותרת סימן עוגן (``¶``), כמו בתצוגת ה-Markdown של כל קובץ.
+        heading = tab.evaluate(
+            "() => document.querySelector('#markdown-preview-content h1').textContent.replace('¶', '').trim()"
+        )
         assert heading == "דפדפן קוד"
         directions = tab.evaluate(_DIRECTIONS)
         assert directions["container"] == directions["heading"] == directions["paragraph"] == "rtl", directions

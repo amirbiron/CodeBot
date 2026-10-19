@@ -2,8 +2,8 @@
 """מודד את קובץ הייצוא של אתר התיעוד: הגודל, והערך הארוך ביותר בכל שדה.
 
 התקרות ב-``services/docs_export_client.py`` (``EXPORT_MAX_BYTES``, ``MAX_PATH_BYTES``,
-``MAX_TITLE_BYTES``, ``MAX_TITLE_MARKDOWN_BYTES``, ``MAX_ANCHOR_BYTES``, ``MAX_BREADCRUMB_BYTES``) כתובות ככפולה של מדידה, והסקריפט
-הזה הוא מה שמייצר את המדידה. הוא קורא את הקובץ כמו שהוא, בלי הבדיקות של הוובאפ, כדי שאפשר
+``MAX_TITLE_BYTES``, ``MAX_TITLE_MARKDOWN_BYTES``, ``MAX_ANCHOR_BYTES``, ``MAX_BREADCRUMB_BYTES``) כתובות ככפולה
+של מדידה, והסקריפט הזה הוא מה שמייצר את המדידה. הוא קורא את הקובץ כמו שהוא, בלי הבדיקות של הוובאפ, כדי שאפשר
 יהיה למדוד גם קובץ שחורג מהתקרות הנוכחיות — זה בדיוק המקרה שבו צריך מדידה חדשה.
 
 שימוש — מהאתר החי, או מקובץ מקומי (למשל ``docs/_build/html/_export/sections.json``)::
