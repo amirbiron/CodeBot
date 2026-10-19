@@ -69,6 +69,24 @@ os.environ['AIOHTTP_TIMEOUT_TOTAL'] = '6'
 os.environ['EMBEDDING_MIN_INTERVAL_SECONDS'] = '0'
 os.environ['EMBEDDING_RATE_LIMIT_COOLDOWN_SECONDS'] = '0'
 
+# ‏``freeze_time`` מקפיא את ``time.monotonic`` **לכל התהליכונים בתהליך**, לא רק לטסט
+# שביקש: ב-freezegun 1.5.5 ``time.monotonic`` מוחלף ב-``fake_monotonic``, שמחזיר את
+# התאריך המוקפא בשניות (``_get_fake_monotonic`` ב-``freezegun/api.py``), כ-1.79 מיליארד.
+# תהליכון רקע שנכנס בחלון הזה לחיפוש שרת של pymongo מחשב לו מועד אחרון מהשעון המזויף,
+# ואחרי שההקפאה נגמרת השעון האמיתי (זמן מאז עליית המכונה) לעולם לא מגיע אליו: החיפוש
+# לא מוותר, וכל מה שהתהליכון מחזיק נשאר תפוס. כך נתקעו ב-CI של #3585 טסטים שחיכו ל-
+# ``_DB_INIT_LOCK``. ‏``pymongo`` ברשימת ההתעלמות של freezegun רואה תמיד שעון אמיתי —
+# לאף טסט אין סיבה להקפיא את הזמן של הדרייבר. שוחזר: חיפוש שהתחיל בתוך ``freeze_time``
+# מול מארח שאינו נפתר עם תקרה של 0.5 שניות עדיין רץ אחרי 6 שניות, ועם ההתעלמות הוא
+# מוותר אחרי 0.5 כמו בלי הקפאה (``tests/test_freezegun_leaves_the_mongo_driver_clock_alone.py``).
+try:
+    import freezegun
+except ModuleNotFoundError:  # pragma: no cover
+    # סביבה בלי freezegun היא גם סביבה שאין בה ``freeze_time``, ואין מה להגדיר.
+    freezegun = None  # type: ignore[assignment]
+else:
+    freezegun.configure(extend_ignore_list=["pymongo"])
+
 # Import stubs so any import of `telegram` succeeds in tests
 try:
     import tests._telegram_stubs  # noqa: F401
