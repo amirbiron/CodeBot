@@ -208,6 +208,8 @@ Google Drive
 - ``docs_index_failed`` — מעבר נכשל, ברמת ``error``. ``code`` הוא הסיבה ו-``detail`` הפירוט. שני מקרים נשלחים עם שדות אחרים: ``lease_lost`` — ה-lease עבר למריץ אחר, והמעבר עצר בלי לכתוב עוד; ברמת ``warning``, ועם ``run_id`` בלבד. ``unexpected_error`` — חריגה שהמעבר לא צפה; ``detail`` הוא שם המחלקה בלבד, וההודעה וה-traceback בלוג.
 - ``docs_index_admin_action`` — פעולה בעמוד האדמין: ``action`` הוא הכפתור, ``result`` מה שחזר, ו-``user_id`` מי לחץ.
 
+התראה לבוט, ``docs_index_approval_needed`` (``ALERT_APPROVAL_NEEDED``): נשלחת דרך ``emit_internal_alert`` כשהאינדקס *נכנס* להמתנה לאישור — במסמך המצב לא הייתה ``approval`` לפני הכתיבה של המעבר — ולא בכל מעבר שעוצר, כמו ``docs_index_awaiting_approval``. השדות שלה: ``reason`` (ה-``code`` של המעבר), ``chunks_to_embed``, ``approval_threshold``, ``source_commit`` של הקובץ שנבדק, ו-``indexed_commit`` — הקומיט שהאינדקס נכון אליו, כשיש כזה. ``alert_type`` הוא אותו שם, וה-runbook באותו שם ב-``config/observability_runbooks.yml`` נותן לה שורת Quick Fix לעמוד האדמין.
+
 .. code-block:: json
 
    {"event":"docs_index_pass","severity":"info","run_id":"5f0c1d2e","trigger":"deploy","status":"complete","code":null,"source_commit":"990a666a91fd2c821c6718f8f655e245eb80fc90","embedded":12,"deleted_chunks":1,"deleted_sections":1,"deleted_pages":0,"deletions_spared":0,"chunk_count":2310}

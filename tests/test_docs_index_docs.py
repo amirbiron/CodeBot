@@ -39,6 +39,7 @@ def _section(path: Path, label: str) -> str:
         ("services.docs_index_service", "UPDATE_LOG_SOURCES"),
         ("services.docs_index_service", "RECORDS_VERSION"),
         ("services.docs_index_service", "is_index_complete"),
+        ("services.docs_index_service", "ALERT_APPROVAL_NEEDED"),
         ("services.docs_export_client", "MAX_TITLE_BYTES"),
         ("services.docs_export_client", "MAX_BREADCRUMB_BYTES"),
         ("services.docs_search_contract", "text_fragment"),
@@ -110,3 +111,10 @@ def test_the_catalog_lists_exactly_the_events_that_are_emitted():
 
     assert emitted, "לא נמצא אף אירוע בקוד — הביטוי לא תופס יותר את הקריאות"
     assert listed == emitted
+
+
+def test_the_catalog_spells_out_the_name_of_the_alert_that_is_sent():
+    """בטלגרם מופיע שם ההתראה ולא שם הקבוע, ולכן הקטלוג כותב את שניהם — וכאן נבדק שהם עדיין אותו דבר."""
+    from services import docs_index_service as svc
+
+    assert f"``{svc.ALERT_APPROVAL_NEEDED}``" in _section(EVENTS_CATALOG, "docs-index-events")

@@ -371,6 +371,20 @@ runbooks:
       - id: rollback_if_needed
         title: "אם יש פגיעה בפרודקשן – rollback"
         description: "בצע rollback דרך CI/CD או החזרת image/tag קודם. הימנע מפקודות git הרסניות על שרת פרודקשן."
+  # ההתראה ש-services/docs_index_service.py שולח כשמעבר של אינדקס התיעוד נכנס להמתנה לאישור (ALERT_APPROVAL_NEEDED שם).
+  # הצעד הראשון הוא שורת ה-Quick Fix בהודעה בבוט.
+  docs_index_approval_needed:
+    title: "אינדקס התיעוד מחכה לאישור"
+    description: "מעבר של אינדקס התיעוד עצר לפני ההטמעה, כי התוכנית שלו דורשת אישור: מילוי ראשון או החלפת מודל, יותר נתחים להטמעה מהתקרה, או תוכנית שהשתנתה מאז שאושרה. מיזוג שבא אחריו מחשב את הפער המצטבר מחדש, ולכן בדרך כלל עוצר גם הוא."
+    steps:
+      - id: review_and_approve
+        title: "בדוק את התוכנית ואשר"
+        description: "בעמוד האדמין של האינדקס מופיעים מספר הנתחים שיישלחו להטמעה, הקומיט שנבדק והקומיט שהאינדקס נכון אליו. האישור מריץ את התוכנית שמוצגת שם."
+        action:
+          label: "📚 אשר בעמוד אינדקס התיעוד"
+          type: link
+          href: "/admin/docs-index"
+          safety: safe
   generic_incident_flow:
     title: "פלייבוק כללי להתראות"
     description: "Fallback בסיסי המתאים לכל alert_type ללא Runbook ייעודי."

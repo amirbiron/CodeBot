@@ -227,7 +227,7 @@ def _details_preview(details: Dict[str, Any]) -> str | None:
 
 
 def _build_forward_payload(name: str, severity: str, summary: str, details: Dict[str, Any]) -> Dict[str, Any]:
-    alert = {
+    alert: Dict[str, Any] = {
         "status": "firing",
         "labels": {"alertname": str(name or "InternalAlert"), "severity": str(severity or "warn")},
         "annotations": {"summary": str(summary or "")},
@@ -338,7 +338,28 @@ def _build_forward_payload(name: str, severity: str, summary: str, details: Dict
     if preview:
         alert["annotations"]["details_preview"] = preview
 
+    quick_fix = _quick_fix_line(name, severity, summary, details)
+    if quick_fix:
+        alert["annotations"]["quick_fix"] = quick_fix
+
     return alert
+
+
+def _quick_fix_line(name: str, severity: str, summary: str, details: Dict[str, Any]) -> str | None:
+    """שורת ה-Quick Fix של התראה שאינה קריטית, רק כשה-``alert_type`` שלה מוביל ל-runbook משלו
+    (``quick_fix_line_for_bot_alert`` ב-``services/observability_dashboard.py``). ``alert_forwarder`` מציג אותה.
+
+    השורה היא תוספת להודעה, ולכן כשל בה לא עוצר את ההתראה: היא יוצאת בלי השורה, והכשל נרשם.
+    """
+    try:
+        from services.observability_dashboard import quick_fix_line_for_bot_alert
+
+        return quick_fix_line_for_bot_alert(
+            name=name, severity=severity, summary=summary, details=details, dedicated_runbook_only=True
+        )
+    except Exception:
+        logger.warning("quick fix line failed for alert %s", name, exc_info=True)
+        return None
 
 
 def _severity_rank(value: str | None) -> int:

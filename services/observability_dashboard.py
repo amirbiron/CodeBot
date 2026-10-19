@@ -1441,6 +1441,53 @@ def get_quick_fix_actions(alert: Dict[str, Any], *, ui_context: Optional[str] = 
         return []
 
 
+def quick_fix_line_for_bot_alert(
+    *,
+    name: str,
+    severity: str,
+    summary: str,
+    details: Dict[str, Any],
+    dedicated_runbook_only: bool = False,
+) -> Optional[str]:
+    """שורת ה-Quick Fix בהודעה של התראה בבוט: ``Quick Fix: <label> → <payload או href>``.
+
+    השורה נבנית מהפעולה הראשונה של :func:`get_quick_fix_actions` (``ui_context="bot_alert"``), כלומר מה-runbook
+    שה-``alert_type`` של ההתראה מוביל אליו. ``None`` — אין פעולה עם תווית. שני המסלולים של הודעות ההתראה קוראים
+    לכאן: ``_format_text`` ב-``alert_manager.py`` (התראות קריטיות) ו-``_build_forward_payload`` ב-``internal_alerts.py``
+    (כל השאר, דרך ``alert_forwarder``).
+
+    ``dedicated_runbook_only`` — השורה נבנית רק כשה-``alert_type`` מוביל ל-runbook משלו, ולא ל-runbook ברירת המחדל
+    (``default`` ב-``config/observability_runbooks.yml``). המסלול של ההתראות שאינן קריטיות משתמש בזה, כדי שהשורה
+    תתווסף רק להתראה שהוגדר לה מה לעשות, ולא כשורה כללית בכל הודעה.
+    """
+    payload = details if isinstance(details, dict) else {}
+    snapshot = {
+        "name": str(name or ""),
+        "severity": str(severity or "").lower(),
+        "summary": str(summary or ""),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "alert_type": str(payload.get("alert_type") or ""),
+        "metadata": payload,
+    }
+    if dedicated_runbook_only and _resolve_runbook_key(
+        _effective_alert_type_from_snapshot(snapshot), allow_default=False
+    ) is None:
+        return None
+    actions = get_quick_fix_actions(snapshot, ui_context="bot_alert")
+    top = actions[0] if actions and isinstance(actions[0], dict) else None
+    if top is None:
+        return None
+    label = str(top.get("label") or "").strip()
+    if not label:
+        return None
+    hint = ""
+    if str(top.get("type") or "").lower() == "copy" and top.get("payload"):
+        hint = f" → {top.get('payload')}"
+    elif top.get("href"):
+        hint = f" → {top.get('href')}"
+    return f"Quick Fix: {label}{hint}"
+
+
 def _load_graph_sources_config() -> Dict[str, Any]:
     global _GRAPH_SOURCES_CACHE, _GRAPH_SOURCES_MTIME, _EXTERNAL_ALLOWED_METRICS
     path = _ALERT_GRAPH_SOURCES_PATH

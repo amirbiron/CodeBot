@@ -182,10 +182,11 @@ class FakeEmbedder:
 
 
 def make_world(monkeypatch, db: Any) -> SimpleNamespace:
-    """מסד עם הגדרות ההטמעה, אתר, מטמיע ואירועים — ומעבר שרץ באותו thread.
+    """מסד עם הגדרות ההטמעה, אתר, מטמיע, אירועים והתראות — ומעבר שרץ באותו thread.
 
     ``_runner_factory`` מריץ את המעבר מיד, כך ש-``request_pass`` חוזר אחרי שהוא הסתיים. טסט
-    שבודק את התור מחליף אותו שוב.
+    שבודק את התור מחליף אותו שוב. ``world.alerts`` — הקריאות ל-``emit_internal_alert``, בחתימה שלו, בלי
+    לשלוח לטלגרם ובלי לכתוב למסד ההתראות; המסלול מההתראה אל הטקסט בטלגרם נבדק בנפרד, עם הפונקציה האמיתית.
     """
     db["system_config"].insert_one(
         {"_id": "semantic_embedding", "model": MODEL, "api_version": "v1beta", "dimensions": DIMENSIONS}
@@ -199,6 +200,7 @@ def make_world(monkeypatch, db: Any) -> SimpleNamespace:
         on_embed={},
         clock=[0.0],
         events=[],
+        alerts=[],
     )
     world.context = svc.PassContext(
         http_client_factory=world.site.client,
@@ -209,6 +211,13 @@ def make_world(monkeypatch, db: Any) -> SimpleNamespace:
     monkeypatch.setattr(svc, "_runner_factory", lambda target: target())
     monkeypatch.setattr(
         svc, "emit_event", lambda name, severity="info", **fields: world.events.append((name, severity, fields))
+    )
+    monkeypatch.setattr(
+        svc,
+        "emit_internal_alert",
+        lambda name, severity="info", summary="", **details: world.alerts.append(
+            {"name": name, "severity": severity, "summary": summary, **details}
+        ),
     )
     return world
 

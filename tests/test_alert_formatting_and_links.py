@@ -300,6 +300,76 @@ def test_internal_alerts_details_preview_skips_raw_noisy_fields(monkeypatch):
     assert "slow_endpoints=[" not in preview
 
 
+def _fresh_runbooks(monkeypatch):
+    """ה-runbooks מתוך ``config/observability_runbooks.yml`` של הריפו, בלי מה שטסט אחר השאיר בקאש."""
+    from pathlib import Path
+
+    from services import observability_dashboard as obs
+
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", Path("config/observability_runbooks.yml"))
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    monkeypatch.setattr(obs, "_RUNBOOK_RESOLVED_PATH", None)
+
+
+def _forwarded(monkeypatch, **alert):
+    """מריץ את ``emit_internal_alert`` האמיתי, ומחזיר את ההתראה כפי שהגיעה ל-``alert_forwarder``."""
+    import internal_alerts as ia
+
+    captured = []
+    monkeypatch.setattr(ia, "forward_alerts", captured.extend)
+    ia.emit_internal_alert(**alert)
+    [forwarded] = captured
+    return forwarded
+
+
+def test_a_non_critical_alert_with_its_own_runbook_carries_the_quick_fix_line(monkeypatch):
+    _clear_sentry_env(monkeypatch)
+    _fresh_runbooks(monkeypatch)
+    import alert_forwarder as af
+
+    forwarded = _forwarded(
+        monkeypatch,
+        name="docs_index_approval_needed",
+        severity="warn",
+        summary="waiting",
+        details={"alert_type": "docs_index_approval_needed"},
+    )
+
+    assert forwarded["annotations"]["quick_fix"].endswith(" → /admin/docs-index")
+    text = af._format_alert_text(forwarded, include_dashboard_link=False)  # noqa: SLF001
+    assert forwarded["annotations"]["quick_fix"] in text.splitlines()
+
+
+def test_a_non_critical_alert_without_its_own_runbook_gets_no_quick_fix_line(monkeypatch):
+    """בלי runbook משלה ההתראה לא מקבלת את השורה של runbook ברירת המחדל — היא הייתה נכנסת לכל הודעה."""
+    _clear_sentry_env(monkeypatch)
+    _fresh_runbooks(monkeypatch)
+    import alert_forwarder as af
+
+    untyped = _forwarded(monkeypatch, name="disk_low_space", severity="warn", summary="low", free_mb=10)
+    unknown = _forwarded(
+        monkeypatch, name="x", severity="warn", summary="y", details={"alert_type": "no_runbook_for_this"}
+    )
+
+    for forwarded in (untyped, unknown):
+        assert "quick_fix" not in forwarded["annotations"]
+        assert "Quick Fix:" not in af._format_alert_text(forwarded)  # noqa: SLF001
+
+
+def test_a_critical_alert_without_its_own_runbook_still_gets_the_default_quick_fix_line(monkeypatch):
+    """המסלול הקריטי לא השתנה: runbook ברירת המחדל עדיין נותן לו שורה."""
+    _clear_sentry_env(monkeypatch)
+    _fresh_runbooks(monkeypatch)
+    import alert_manager as am
+
+    text = am._format_text(name="High Latency", severity="CRITICAL", summary="lat>thr", details={})  # noqa: SLF001
+
+    [quick_fix] = [line for line in text.splitlines() if line.startswith("Quick Fix: ")]
+    assert " → /admin/observability?focus_ts=" in quick_fix
+
+
 def test_internal_alerts_respect_min_severity_for_direct_telegram(monkeypatch):
     monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "error")
     monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "token")

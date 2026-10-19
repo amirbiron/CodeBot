@@ -641,6 +641,12 @@ def _format_alert_text(alert: Dict[str, Any], *, include_dashboard_link: bool = 
     if sentry_link:
         parts.append(f"Sentry: {sentry_link}")
 
+    # שורת ה-Quick Fix, כפי ש-``internal_alerts`` בנה אותה (``_quick_fix_line``). התראה שמגיעה ישר מ-Alertmanager
+    # יכולה לשאת אותה כ-annotation משלה, ולכן הטיפוס נבדק.
+    quick_fix = annotations.get("quick_fix")
+    if isinstance(quick_fix, str) and quick_fix.strip():
+        parts.append(quick_fix.strip())
+
     # Always prefer a stable public dashboard link over alertmanager's generatorURL
     if include_dashboard_link:
         parts.append(dashboard_line)
