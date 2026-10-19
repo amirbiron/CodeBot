@@ -39,6 +39,7 @@ from note_boards import (
     normalize_board_name,
     reattach_orphan_notes,
 )
+from sticky_notes_target import any_board_note_filter
 
 note_boards_bp = Blueprint("note_boards", __name__, url_prefix="/api/note-boards")
 
@@ -142,7 +143,7 @@ def list_user_boards():
             counts = {
                 str(row.get('_id') or ''): int(row.get('n') or 0)
                 for row in db.sticky_notes.aggregate([
-                    {'$match': {'user_id': user_id, 'board_id': {'$nin': [None, '']}}},
+                    {'$match': any_board_note_filter(user_id)},
                     {'$group': {'_id': '$board_id', 'n': {'$sum': 1}}},
                 ])
             }

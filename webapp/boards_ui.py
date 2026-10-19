@@ -7,6 +7,7 @@ Note Boards UI routes (server-rendered pages).
 """
 from __future__ import annotations
 
+import logging
 from urllib.parse import quote
 
 from flask import Blueprint, redirect, render_template, request, session
@@ -20,6 +21,8 @@ except Exception:  # pragma: no cover
             raise ValueError("malformed ObjectId")
         return s
 
+logger = logging.getLogger(__name__)
+
 boards_ui = Blueprint('boards_ui', __name__)
 
 
@@ -29,6 +32,42 @@ def boards_page():
     if 'user_id' not in session:
         return redirect('/login?next=/boards')
     return render_template('note_boards.html')
+
+
+@boards_ui.route('/boards/default')
+def default_board_page():
+    """הפניה ללוח ברירת המחדל ("לוח עבודה") — היעד של צעד הפתקים בצ'קליסט "צעדים ראשונים".
+
+    ללוח ברירת המחדל אין מזהה עד שהוא נוצר, וזה קורה בכניסה הראשונה לרשימת הלוחות
+    (``list_user_boards`` ב-``webapp/note_boards_api.py``). לכן אי אפשר לקשר אליו מראש:
+    הראוט יוצר אותו אם עוד אין, באותה ``ensure_default_board`` שהרשימה קוראת לה, ומפנה אל
+    ``/boards/<id>``. כשהמסד לא ענה, או כשהלוח לא אומת אחרי היצירה (``ensure_default_board``
+    מחזירה ``None``) — אל ``/boards``, שהעמוד שלו מנסה שוב בעצמו.
+
+    **הראוט הזה גובר על ``/boards/<board_id>``** בלי קשר לסדר הרישום: ב-Werkzeug 3.1.9
+    (``werkzeug/routing/matcher.py``, ``StateMachineMatcher.match``) קטע סטטי נבדק לפני קטע עם
+    משתנה. ``test_the_default_board_link_routes_to_its_own_view`` ב-``tests/test_first_steps.py``
+    מקבע את זה. ומזהה לוח הוא ``ObjectId``, כך
+    ש-``default`` אינו יכול להיות מזהה של לוח.
+    """
+    if 'user_id' not in session:
+        return redirect('/login?next=/boards/default')
+
+    from note_boards import ensure_default_board
+    from webapp.app import get_db
+    from webapp.first_steps import DB_UNAVAILABLE_ERRORS
+    from webapp.note_boards_api import _ensure_board_indexes
+
+    # האינדקס הייחודי-החלקי שסוגר את המרוץ ביצירת לוח ברירת מחדל — אותה סיבה כמו ברשימה.
+    _ensure_board_indexes()
+    try:
+        board_id = ensure_default_board(get_db(), int(session['user_id']))
+    except DB_UNAVAILABLE_ERRORS:
+        logger.warning("default board redirect: the database did not answer", exc_info=True)
+        board_id = None
+    if not board_id:
+        return redirect('/boards')
+    return redirect(f'/boards/{quote(board_id, safe="")}')
 
 
 @boards_ui.route('/boards/<board_id>')

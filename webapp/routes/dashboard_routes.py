@@ -28,6 +28,7 @@ from utils import TimeUtils
 
 # ייבוא ישיר ולא דרך _get_app_helpers: המודול עצמאי ואינו יוצר תלות מעגלית
 from webapp.admin_repos import load_admin_repos
+from webapp import first_steps
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,10 @@ def _get_app_helpers():
         _build_files_need_attention,
         _build_notes_snapshot,
         _build_push_card,
+        _device_scoped_theme_cookie,
         _finalize_events,
+        _request_user_doc,
+        _stored_theme_pref,
         _timeline_latest_files_page,
         _timeline_more_files,
         _timeline_recent_files_count,
@@ -79,6 +83,9 @@ def _get_app_helpers():
         _build_activity_timeline=_build_activity_timeline,
         _build_push_card=_build_push_card,
         _build_notes_snapshot=_build_notes_snapshot,
+        _request_user_doc=_request_user_doc,
+        _stored_theme_pref=_stored_theme_pref,
+        _device_scoped_theme_cookie=_device_scoped_theme_cookie,
         _load_whats_new=_load_whats_new,
         _get_active_dismissals=_get_active_dismissals,
         _build_files_need_attention=_build_files_need_attention,
@@ -278,9 +285,21 @@ def dashboard():
             dismissed_ids=dismissed_ids,
         )
 
+        # הצ'קליסט "צעדים ראשונים". הדגלים (נעילה, הסתרה) נקראים ממסמך המשתמש של הבקשה, אותה
+        # שליפה ש-``inject_globals`` קורא ממנה, ורק כשאין דגל רצות הבדיקות. ``None`` = אין כרטיס.
+        user_doc = helpers._request_user_doc(user_id)
+        first_steps_card = first_steps.build_card(
+            db,
+            user_id,
+            user_doc,
+            stored_theme=helpers._stored_theme_pref(user_doc),
+            device_theme=helpers._device_scoped_theme_cookie(),
+        )
+
         return render_template(
             "dashboard.html",
             user=session["user_data"],
+            first_steps=first_steps_card,
             stats=stats,
             activity_timeline=activity_timeline,
             push_card=push_card,
@@ -347,6 +366,8 @@ def dashboard():
             whats_new={"features": [], "has_features": False, "total": 0},
             admin_repos=[],
             files_need_attention=fallback_attention,
+            # בדף השגיאה אין כרטיס: הבדיקות שלו הן שאילתות, ובדיוק הן נכשלו כאן.
+            first_steps=None,
             error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
             bot_username=helpers.BOT_USERNAME_CLEAN,
             user_is_admin=False,

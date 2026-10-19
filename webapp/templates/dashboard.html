@@ -43,7 +43,67 @@
     </div>
 </div>
 
-<div class="dashboard-grid {{ 'has-last-commit' if user_is_admin and last_commit else 'no-last-commit' }}{{ '' if user_is_admin else ' no-mid-widget' }}">
+<div class="dashboard-grid {{ 'has-last-commit' if user_is_admin and last_commit else 'no-last-commit' }}{{ '' if user_is_admin else ' no-mid-widget' }}{{ ' has-first-steps' if first_steps else '' }}">
+    {# === הצ'קליסט "צעדים ראשונים" (webapp/first_steps.py). הצעדים, הסדר והמונה מגיעים משם;
+       ``first_steps`` הוא None כשהכרטיס ננעל, הוסתר, או שמסמך המשתמש לא נטען. #}
+    {% if first_steps %}
+    <section class="glass-card first-steps-card widget-first-steps" id="firstSteps" aria-labelledby="firstStepsTitle">
+        <header class="first-steps-header">
+            <h2 id="firstStepsTitle" class="first-steps-heading">🚀 ברוכים הבאים! בואו נתחיל</h2>
+            <p class="first-steps-sub">השלם את הצעדים הבאים כדי להוציא את המקסימום מ-CodeKeeper.</p>
+            <div class="first-steps-progress">
+                <div class="first-steps-bar" role="progressbar" aria-label="הצעדים שהושלמו"
+                     aria-valuemin="0" aria-valuemax="{{ first_steps.total }}" aria-valuenow="{{ first_steps.done_count }}">
+                    <div class="first-steps-bar-fill" style="width: {{ (100 * first_steps.done_count // first_steps.total) if first_steps.total else 0 }}%;"></div>
+                </div>
+                <span class="first-steps-count" data-testid="first-steps-count">{{ first_steps.done_count }} מתוך {{ first_steps.total }}</span>
+            </div>
+        </header>
+        <ol class="first-steps-list">
+            {% for step in first_steps.steps %}
+            {% set state_name = 'done' if step.state is sameas true else ('unknown' if step.state is none else 'todo') %}
+            <li class="first-steps-item is-{{ state_name }}{{ ' is-next' if step.is_next else '' }}"
+                id="first-step-{{ step.key }}" data-testid="first-step-{{ state_name }}">
+                <details>
+                    <summary>
+                        {% if state_name == 'done' %}
+                        <i class="fa-solid fa-circle-check first-steps-check" aria-hidden="true"></i>
+                        {% elif state_name == 'unknown' %}
+                        <i class="fa-solid fa-circle-question first-steps-check" aria-hidden="true"></i>
+                        {% else %}
+                        <i class="fa-regular fa-circle first-steps-check" aria-hidden="true"></i>
+                        {% endif %}
+                        <span class="first-steps-title">{{ step.icon }} {{ step.title }}</span>
+                        {% if state_name == 'unknown' %}
+                        <span class="first-steps-unknown">לא ידוע כרגע</span>
+                        {% else %}
+                        <span class="sr-only">{{ '(בוצע)' if state_name == 'done' else '(עוד לא בוצע)' }}</span>
+                        {% endif %}
+                        <i class="fa-solid fa-chevron-down first-steps-chevron" aria-hidden="true"></i>
+                    </summary>
+                    <div class="first-steps-body">
+                        {% for line in step.lines %}
+                        <p>{{ line }}</p>
+                        {% endfor %}
+                        {% if step.how %}
+                        <p><strong>{{ step.how_label }}</strong> {{ step.how }}</p>
+                        {% endif %}
+                        <a class="btn {{ 'btn-primary' if step.is_next else 'btn-secondary' }} first-steps-action" href="{{ step.action_href }}">{{ step.action_label }}</a>
+                        {% if step.tip %}
+                        <p class="first-steps-tip"><strong>טיפ:</strong> {{ step.tip }}</p>
+                        {% endif %}
+                    </div>
+                </details>
+            </li>
+            {% endfor %}
+        </ol>
+        <footer class="first-steps-footer">
+            <p class="first-steps-tagline"><em>CodeKeeper: ידע שנשמר גם אחרי שהחיבור נגמר</em> 💫</p>
+            <button type="button" class="btn btn-secondary first-steps-hide" id="firstStepsHide">הבנתי, להסתיר</button>
+        </footer>
+        <p class="first-steps-error" id="firstStepsError" role="alert" hidden>לא הצלחנו להסתיר את הצעדים כרגע. נסה שוב בעוד רגע.</p>
+    </section>
+    {% endif %}
     {% if pinned_files %}
     <section class="pinned-section glass-card widget-pinned" id="pinnedFiles">
         <div class="pinned-header">
@@ -1687,6 +1747,251 @@
     }
 }
 
+/* === הצ'קליסט "צעדים ראשונים" (webapp/first_steps.py) ===
+   בשורות שלו טקסט ארוך, ולכן הוא לא נכנס לעמודה אחת כמו שאר הכרטיסים: כשהוא מוצג הגריד
+   עובר מאזורים קבועים לזרימה, והכרטיס פורש על שתי עמודות — במסך של שלוש עמודות לידו נכנס
+   עוד כרטיס אחד, ובמסך של שתיים הוא תופס את כל השורה. אחריו הכרטיסים זורמים לפי סדר ה-DOM,
+   ולכן גם אין משבצת ריקה של "נעוצים" כשאין קבצים נעוצים. הכללים כאן חייבים לבוא אחרי
+   כללי הגריד שמעל: אותה ספציפיות, והאחרון קובע. */
+.dashboard-grid.has-first-steps {
+    grid-template-areas: none;
+}
+
+.dashboard-grid.has-first-steps > * {
+    grid-area: auto;
+}
+
+@media (min-width: 769px) and (max-width: 1199px) {
+    .dashboard-grid.has-first-steps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-areas: none;
+    }
+
+    .dashboard-grid.has-first-steps .widget-first-steps {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (min-width: 1200px) {
+    .dashboard-grid.has-first-steps {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-areas: none;
+    }
+
+    .dashboard-grid.has-first-steps .widget-first-steps {
+        grid-column: span 2;
+    }
+}
+
+/* טוקנים של הכרטיס, מטוקני base.html. ב-High Contrast אין ל-base.html טוקנים בכלל, ולכן
+   יש לו בלוק משלו למטה (docs/webapp/theming_and_css.rst, "מפת ערכות הנושא"). */
+:root {
+    --first-steps-done: var(--success);
+    --first-steps-track: var(--glass-hover);
+    --first-steps-item-bg: var(--glass);
+    --first-steps-item-border: var(--glass-border);
+    --first-steps-muted-opacity: 0.75;
+}
+
+.first-steps-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.first-steps-heading {
+    margin: 0 0 0.35rem;
+    font-size: 1.35rem;
+}
+
+.first-steps-sub {
+    margin: 0 0 0.9rem;
+    opacity: var(--first-steps-muted-opacity);
+    line-height: 1.6;
+}
+
+.first-steps-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.first-steps-bar {
+    flex: 1;
+    height: 0.6rem;
+    border-radius: 999px;
+    background: var(--first-steps-track);
+    overflow: hidden;
+}
+
+.first-steps-bar-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--first-steps-done);
+}
+
+.first-steps-count {
+    white-space: nowrap;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.first-steps-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.first-steps-item {
+    position: relative;
+    border: 1px solid var(--first-steps-item-border);
+    border-radius: 12px;
+    background: var(--first-steps-item-bg);
+    overflow: hidden;
+}
+
+/* הצעד הבא שעוד לא בוצע: פס בצד שבו השורה מתחילה — בעברית מימין — ומסגרת בגוון שלו. */
+.first-steps-item.is-next {
+    border-color: color-mix(in srgb, var(--first-steps-done) 55%, var(--first-steps-item-border));
+}
+
+.first-steps-item.is-next::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    inline-size: 4px;
+    background: var(--first-steps-done);
+}
+
+.first-steps-item summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    cursor: pointer;
+    list-style: none;
+}
+
+.first-steps-item summary::-webkit-details-marker {
+    display: none;
+}
+
+.first-steps-item summary:focus-visible {
+    outline: 2px solid var(--first-steps-done);
+    outline-offset: -2px;
+    border-radius: 12px;
+}
+
+.first-steps-check {
+    flex: 0 0 auto;
+    font-size: 1.2rem;
+    opacity: var(--first-steps-muted-opacity);
+}
+
+.first-steps-item.is-done .first-steps-check {
+    color: var(--first-steps-done);
+    opacity: 1;
+}
+
+.first-steps-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+}
+
+.first-steps-item.is-done .first-steps-title {
+    text-decoration: line-through;
+    opacity: var(--first-steps-muted-opacity);
+}
+
+.first-steps-unknown {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    opacity: var(--first-steps-muted-opacity);
+}
+
+/* בלי transition: בערכות הכהות dark-mode.css דורס אותו ממילא ([data-theme] *). */
+.first-steps-chevron {
+    flex: 0 0 auto;
+    opacity: var(--first-steps-muted-opacity);
+}
+
+.first-steps-item details[open] .first-steps-chevron {
+    transform: rotate(180deg);
+}
+
+.first-steps-body {
+    padding: 0 1rem 1rem;
+    padding-inline-start: 2.95rem;
+    line-height: 1.65;
+}
+
+.first-steps-body p {
+    margin: 0 0 0.6rem;
+}
+
+.first-steps-action {
+    margin-top: 0.25rem;
+    white-space: normal;
+}
+
+/* ``.first-steps-body`` בסלקטור כדי לגבור על ``.first-steps-body p``, שמאפס את השוליים העליונים. */
+.first-steps-body .first-steps-tip {
+    margin-top: 0.85rem;
+    font-size: 0.9rem;
+    opacity: var(--first-steps-muted-opacity);
+}
+
+.first-steps-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+}
+
+.first-steps-tagline {
+    margin: 0;
+    font-size: 0.9rem;
+    opacity: var(--first-steps-muted-opacity);
+}
+
+.first-steps-error {
+    margin: 0;
+    color: var(--danger);
+}
+
+@media (max-width: 480px) {
+    .first-steps-body {
+        padding-inline-start: 1rem;
+    }
+}
+
+/* High Contrast: שחור, לבן וצהוב בלבד, ובלי שקיפות שמחלישה ניגודיות. */
+:root[data-theme="high-contrast"] {
+    --first-steps-done: #ffff00;
+    --first-steps-track: #000000;
+    --first-steps-item-bg: #000000;
+    --first-steps-item-border: #ffffff;
+    --first-steps-muted-opacity: 1;
+}
+
+:root[data-theme="high-contrast"] .first-steps-bar {
+    border: 1px solid #ffffff;
+}
+
+:root[data-theme="high-contrast"] .first-steps-item.is-next {
+    border-color: #ffff00;
+}
+
+:root[data-theme="high-contrast"] .first-steps-error {
+    color: #ffff00;
+}
+
 /* Rose Pine Dawn Overrides for Dashboard Visibility */
 :root[data-theme="rose-pine-dawn"] .timeline-badge-code {
     background: rgba(144, 122, 169, 0.15);
@@ -2126,6 +2431,41 @@
 </style>
 
 <script>
+// "הבנתי, להסתיר" בצ'קליסט "צעדים ראשונים". ההסתרה נשמרת בשרת (``first_steps_hidden`` דרך
+// /api/ui_prefs, webapp/first_steps.py), ולכן היא חלה בכל המכשירים. הכרטיס יורד רק אחרי שהשרת
+// אישר את השמירה; בכשל הכרטיס נשאר, ומוצגת הודעה.
+(function () {
+    const card = document.getElementById('firstSteps');
+    const hideBtn = document.getElementById('firstStepsHide');
+    const errorBox = document.getElementById('firstStepsError');
+    if (!card || !hideBtn) return;
+    hideBtn.addEventListener('click', async () => {
+        hideBtn.disabled = true;
+        if (errorBox) errorBox.hidden = true;
+        let saved = false;
+        try {
+            const resp = await fetch('/api/ui_prefs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ first_steps_hidden: true }),
+            });
+            const data = await resp.json().catch(() => null);
+            saved = resp.ok && !!data && data.ok === true;
+        } catch (err) {
+            console.warn('first steps: hiding failed', err);
+        }
+        if (saved) {
+            // בלי הכרטיס הגריד חוזר לפריסה הרגילה שלו (הכללים של has-first-steps ב-CSS).
+            const grid = card.closest('.dashboard-grid');
+            card.remove();
+            if (grid) grid.classList.remove('has-first-steps');
+            return;
+        }
+        hideBtn.disabled = false;
+        if (errorBox) errorBox.hidden = false;
+    });
+})();
+
 async function unpinFile(fileId) {
     try {
         const resp = await fetch(`/api/pin/toggle/${fileId}`, {

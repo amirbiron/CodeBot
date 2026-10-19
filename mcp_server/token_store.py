@@ -48,6 +48,16 @@ def _iso(dt: Any) -> str | None:
     return aware.isoformat() if aware else None
 
 
+def _is_expired(expires_at: Any, now: datetime) -> bool:
+    """The expiry half of the validity rule — shared by :meth:`MCPTokenStore.verify`
+    and :func:`user_has_live_token`, so there is one rule and not two.
+
+    A token without ``expires_at`` never expires (``issue`` without ``ttl_days``).
+    """
+    aware = _as_aware(expires_at)
+    return aware is not None and aware < now
+
+
 def hash_token(raw_token: str) -> str:
     """Return the stable lookup hash for a raw token."""
     return hashlib.sha256((raw_token or "").encode("utf-8")).hexdigest()
@@ -122,8 +132,7 @@ class MCPTokenStore:
         doc = self._coll.find_one({"token_hash": hash_token(raw_token), "revoked": {"$ne": True}})
         if not doc:
             return None
-        expires_at = _as_aware(doc.get("expires_at"))
-        if expires_at is not None and expires_at < _now():
+        if _is_expired(doc.get("expires_at"), _now()):
             return None
         try:  # best-effort "last used" touch; never block auth on it
             self._coll.update_one({"_id": doc["_id"]}, {"$set": {"last_used_at": _now()}})
@@ -151,3 +160,22 @@ class MCPTokenStore:
                 }
             )
         return out
+
+
+def user_has_live_token(db: Any, user_id: int, *, collection_name: str = COLLECTION_NAME) -> bool:
+    """Whether ``user_id`` holds at least one PAT that :meth:`MCPTokenStore.verify` would accept.
+
+    Same rule as ``verify`` — not revoked, and not past ``expires_at`` (``_is_expired``) — so a
+    token that opens the server and a token that counts here cannot disagree.
+
+    A function over the collection and not a method, on purpose: the store's constructor runs
+    ``create_index`` on every instantiation, and this question is asked while a page renders
+    (the "first steps" checklist on the webapp dashboard). ``any`` stops at the first live
+    token instead of reading them all.
+    """
+    now = _now()
+    cursor = db[collection_name].find(
+        {"user_id": int(user_id), "revoked": {"$ne": True}},
+        {"expires_at": 1},
+    )
+    return any(not _is_expired(doc.get("expires_at"), now) for doc in cursor)

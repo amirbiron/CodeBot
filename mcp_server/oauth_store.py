@@ -33,6 +33,10 @@ ACCESS_TTL_SECONDS = 3600  # 1 hour
 REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 TXN_TTL_SECONDS = 600  # 10 min
 
+#: The collection that holds issued access + refresh tokens — read by the store and by
+#: :func:`subject_has_live_token`, so the name is written once.
+TOKENS_COLLECTION = "mcp_oauth_tokens"
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -58,7 +62,7 @@ class OAuthStore:
         self._clients = db["mcp_oauth_clients"]
         self._txns = db["mcp_oauth_txns"]
         self._codes = db["mcp_oauth_codes"]
-        self._tokens = db["mcp_oauth_tokens"]
+        self._tokens = db[TOKENS_COLLECTION]
         self._ensure_indexes()
 
     def _ensure_indexes(self) -> None:
@@ -174,3 +178,30 @@ class OAuthStore:
             return bool(getattr(res, "modified_count", 0))
         except Exception:
             return False
+
+
+def subject_has_live_token(db: Any, subject: str) -> bool:
+    """Whether ``subject`` (a CodeKeeper ``user_id`` as str) holds an OAuth token that still works.
+
+    A token works when :meth:`OAuthStore.get_token` would hand it back: not revoked, and
+    ``_expired`` says no. Access and refresh tokens both count — a client whose access
+    token was revoked but whose refresh token lives can still mint a new one. Claude.ai and
+    Gemini connect through this server with no PAT, so this is their only trace.
+
+    ``expires_at >= now`` in the query is a pre-filter, and the rule stays ``_expired``:
+    revoked refresh tokens are kept until their own ``expires_at`` (30 days), so one
+    connected client piles up hundreds of rows under its subject, and on the production
+    cluster (``explain``, 19.10.2026) the planner answered this query from the
+    ``expires_at_1`` TTL index after 2 keys instead. ``>=`` and not ``>`` so the two halves
+    agree on the instant itself.
+
+    A function over the database and not a method, on purpose: ``OAuthStore()`` runs its
+    ``create_index`` calls on every instantiation, and this is asked while a page renders
+    (the "first steps" checklist on the webapp dashboard).
+    """
+    now = _now()
+    cursor = db[TOKENS_COLLECTION].find(
+        {"subject": str(subject), "revoked": {"$ne": True}, "expires_at": {"$gte": now}},
+        {"expires_at": 1},
+    )
+    return any(not _expired(doc.get("expires_at")) for doc in cursor)

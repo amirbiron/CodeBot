@@ -256,6 +256,9 @@ from user_stats import user_stats  # noqa: E402
 from webapp.size_format import format_file_size as _format_file_size_shared
 from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
+# הצ'קליסט "צעדים ראשונים" בדשבורד: שמות הדגלים ב-``ui_prefs`` ש-``/api/ui_prefs`` כותב,
+# והרישום של בחירת ערכה "רק במכשיר הזה".
+from webapp import first_steps  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
 from services.db_health_service import (  # noqa: E402
@@ -2186,6 +2189,49 @@ def _sample_critical_index_count(db_ref) -> tuple[int, float]:
     return (total_indexes, duration)
 
 
+#: התכונה על ``g`` שמחזיקה את מסמך המשתמש של הבקשה — ``(user_id, doc)``, ראו ``_request_user_doc``.
+_REQUEST_USER_DOC_ATTR = '_request_user_doc'
+
+
+def _request_user_doc(user_id: Any) -> Optional[Dict[str, Any]]:
+    """מסמך המשתמש של הבקשה — נשלף פעם אחת, וכל מי שצריך אותו באותה בקשה קורא מכאן.
+
+    ``inject_globals`` צריך אותו בכל דף, אבל הוא רץ רק בזמן הרינדור, **אחרי** שגוף הראוט כבר
+    רץ. ראוט שצריך את אותו מסמך לפני כן — הדשבורד, שקורא ממנו את הדגלים של הצ'קליסט "צעדים
+    ראשונים" (``webapp/first_steps.py``) — היה שולף אותו פעם שנייה. כאן השניים חולקים שליפה
+    אחת, שנזכרת על ``g`` יחד עם ה-``user_id`` שלה.
+
+    מחזיר את המסמך (מילון ריק כשאין למשתמש מסמך), או ``None`` כשהשליפה לא הצליחה: ``get_db``
+    החזיר ``None`` (חלון הצינון שלו), או שהמסד לא ענה (``first_steps.DB_UNAVAILABLE_ERRORS``).
+    **``None`` אינו "אין העדפות"** — קורא שמחליט לפי דגל, כמו הסתרת הצ'קליסט, צריך להבחין בין
+    השניים. גם הכשל נזכר עד סוף הבקשה: ניסיון אחד לבקשה. חריגה מסוג אחר לא נתפסת כאן ועולה לקורא.
+
+    מחוץ להקשר בקשה אין ``g``, והפונקציה פשוט אינה זוכרת — כמו ``_resolve_files_compact_view``.
+    """
+    try:
+        cached = getattr(g, _REQUEST_USER_DOC_ATTR)
+    except (RuntimeError, AttributeError):
+        # ``RuntimeError`` — אין הקשר בקשה; ``AttributeError`` — יש, וטרם נשלף.
+        cached = None
+    if cached is not None and cached[0] == user_id:
+        return cached[1]
+
+    doc: Optional[Dict[str, Any]] = None
+    try:
+        db_ref = get_db()
+        if db_ref is not None:
+            doc = db_ref.users.find_one({'user_id': user_id}) or {}
+    except first_steps.DB_UNAVAILABLE_ERRORS:
+        logger.warning("user document fetch failed", exc_info=True)
+        doc = None
+
+    try:
+        setattr(g, _REQUEST_USER_DOC_ATTR, (user_id, doc))
+    except RuntimeError:
+        pass  # מחוץ להקשר בקשה — אין מה לזכור
+    return doc
+
+
 @app.context_processor
 def inject_globals():
     """הזרקת משתנים גלובליים לכל התבניות"""
@@ -2195,8 +2241,10 @@ def inject_globals():
     if user_id:
         try:
             db_ref = get_db()
-            user_doc = db_ref.users.find_one({'user_id': user_id}) or {}
+            user_doc = _request_user_doc(user_id) or {}
         except Exception:
+            # fail-soft כמו כל בלוק כאן: דף בלי העדפות המשתמש עדיף על 500.
+            logger.warning("inject_globals: user document unavailable", exc_info=True)
             user_doc = {}
 
     # קביעת גודל גופן מהעדפות משתמש/קוקי
@@ -2465,6 +2513,36 @@ from webapp.ui_theme_defaults import get_default_ui_theme_parts, get_default_ui_
 def _normalize_theme_scope(value: Optional[str]) -> str:
     v = str(value or "").strip().lower()
     return v if v in _THEME_SCOPE_VALUES else THEME_SCOPE_GLOBAL
+
+
+def _device_scoped_theme_cookie() -> str:
+    """הערכה שנבחרה "רק במכשיר הזה" במכשיר של הבקשה, מנורמלת — או ``''`` כשאין כזו.
+
+    ערכה במצב ``device`` אינה נכתבת למסד: היא ה-cookie ``ui_theme`` לצד ``ui_theme_scope``
+    ששווה ל-``THEME_SCOPE_DEVICE``. זה הכלל לשאלה "האם ה-cookie מכריע את הערכה", ומי שצריך
+    אותו קורא כאן ולא את שני ה-cookies בעצמו: ``_resolve_theme_raw_token``,
+    ``_etag_needs_user_doc``, והדשבורד, שמעביר את התשובה לצעד הערכה של הצ'קליסט "צעדים
+    ראשונים" (``webapp/routes/dashboard_routes.py``).
+    """
+    if _normalize_theme_scope(request.cookies.get('ui_theme_scope')) != THEME_SCOPE_DEVICE:
+        return ''
+    return (request.cookies.get('ui_theme') or '').strip().lower()
+
+
+def _stored_theme_pref(user_doc: Any) -> str:
+    """הערכה ששמורה במסמך המשתמש (``ui_prefs.theme``), מנורמלת — או ``''`` כשאין.
+
+    זו הבחירה "לכל המכשירים". ``_resolve_theme_raw_token`` קורא כאן, וגם הדשבורד, שמעביר את
+    התשובה לצעד הערכה של הצ'קליסט "צעדים ראשונים" — כדי ששניהם יסכימו מה נחשב ערכה שמורה.
+    השדות נבדקים בטיפוס שלהם: המסמך מגיע מהמסד, ומסמך שנערך ביד יכול לשאת בהם כל דבר.
+    """
+    if not isinstance(user_doc, dict):
+        return ''
+    prefs = user_doc.get('ui_prefs')
+    if not isinstance(prefs, dict):
+        return ''
+    theme = prefs.get('theme')
+    return theme.strip().lower() if isinstance(theme, str) else ''
 
 
 # ─── גופן הפתקים, לפי משטח ──────────────────────────────────────────────
@@ -2745,7 +2823,7 @@ def _resolve_theme_raw_token(
     """מחזיר theme_raw לפי cookie/DB, כולל scope ומסמך משתמש (אם נשלף)."""
     theme_scope = _normalize_theme_scope(request.cookies.get('ui_theme_scope'))
     cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-    use_cookie_theme = bool(cookie_theme) and theme_scope == THEME_SCOPE_DEVICE
+    use_cookie_theme = bool(_device_scoped_theme_cookie())
     theme_raw = cookie_theme or ''
 
     if user_id and not use_cookie_theme:
@@ -2763,10 +2841,9 @@ def _resolve_theme_raw_token(
                 ) or {}
             except Exception:
                 user_doc = None
-        if isinstance(user_doc, dict):
-            pref = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
-            if pref:
-                theme_raw = pref
+        pref = _stored_theme_pref(user_doc)
+        if pref:
+            theme_raw = pref
 
     if not theme_raw:
         theme_raw = get_default_ui_theme_raw()
@@ -3414,10 +3491,7 @@ def _etag_needs_user_doc() -> bool:
     כששניהם מוכרעים מה-cookie — אין למסד מה לתרום, והשליפה המשותפת
     היא עלות מיותרת על המסלול החם ביותר.
     """
-    theme_decided = (
-        _normalize_theme_scope(request.cookies.get('ui_theme_scope')) == THEME_SCOPE_DEVICE
-        and bool((request.cookies.get('ui_theme') or '').strip())
-    )
+    theme_decided = bool(_device_scoped_theme_cookie())
     fonts_decided = (
         _normalize_theme_scope(request.cookies.get('ui_note_fonts_scope')) == THEME_SCOPE_DEVICE
         and _decode_note_fonts(request.cookies.get('ui_note_fonts')) is not None
@@ -19668,6 +19742,8 @@ def api_ui_prefs():
     - theme: אחד מ-{"classic","ocean","high-contrast","dark","dim","rose-pine-dawn","nebula","custom"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     - files_compact_view: bool — תצוגה מצומצמת בעמוד הקבצים (אופציונלי)
+    - first_steps_hidden: bool — ``True`` מסתיר את הצ'קליסט "צעדים ראשונים" בדשבורד; ``False``
+      הוא "הצג שוב", ומוחק גם את ההסתרה וגם את הנעילה (``webapp/first_steps.py``) (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
 
     **מפתח שאינו מטופל כאן במפורש מוחזר 200 ואינו נשמר.** זה אינו רעיוני:
@@ -19682,7 +19758,11 @@ def api_ui_prefs():
         now_utc = datetime.now(timezone.utc)
 
         update_fields: Dict[str, Any] = {'updated_at': now_utc}
+        # שדות למחיקה (``$unset``). היום רק "הצג שוב" של הצ'קליסט "צעדים ראשונים".
+        unset_fields: Dict[str, str] = {}
         resp_payload: Dict[str, Any] = {'ok': True}
+        # ערכה שהוחלה במצב ``device``: נרשמת במסמך המשתמש רק אחרי שכל הקלט עבר (למטה).
+        device_theme_applied = False
         # נשמור ערכים בטוחים בלבד עבור קובצי cookie
         font_scale_cookie_value: Optional[str] = None
         theme_cookie_value: Optional[str] = None
@@ -19733,6 +19813,8 @@ def api_ui_prefs():
                 )
                 if resolved_scope != THEME_SCOPE_DEVICE:
                     update_fields['ui_prefs.theme'] = theme
+                else:
+                    device_theme_applied = True
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
                 theme_scope_cookie_value = resolved_scope
@@ -19882,6 +19964,23 @@ def api_ui_prefs():
             update_fields[f'ui_prefs.{FILES_COMPACT_VIEW_PREF}'] = compact_value
             resp_payload[FILES_COMPACT_VIEW_PREF] = compact_value
 
+        # הצ'קליסט "צעדים ראשונים" בדשבורד: "הבנתי, להסתיר" שולח ``True``, ו"הצג שוב" בהגדרות
+        # שולח ``False``. "הצג שוב" מוחק את **שני** הדגלים, ההסתרה והנעילה, ולכן הבדיקות רצות
+        # שוב בטעינה הבאה של הדשבורד. ערך שאינו בוליאני נדחה, מאותה סיבה כמו התצוגה המצומצמת.
+        if first_steps.HIDDEN_PREF in payload:
+            hidden_value = payload.get(first_steps.HIDDEN_PREF)
+            if not isinstance(hidden_value, bool):
+                return jsonify({
+                    'ok': False,
+                    'error': f'{first_steps.HIDDEN_PREF} must be a boolean',
+                }), 400
+            if hidden_value:
+                update_fields[f'ui_prefs.{first_steps.HIDDEN_PREF}'] = True
+            else:
+                unset_fields[f'ui_prefs.{first_steps.HIDDEN_PREF}'] = ''
+                unset_fields[f'ui_prefs.{first_steps.DONE_PREF}'] = ''
+            resp_payload[first_steps.HIDDEN_PREF] = hidden_value
+
         # עדכון work_state (שחזור מצב עבודה חוצה סשנים)
         if 'work_state' in payload:
             try:
@@ -19908,7 +20007,7 @@ def api_ui_prefs():
             except Exception:
                 pass
 
-        needs_db_update = len(update_fields) > 1  # יותר מ-updated_at
+        needs_db_update = len(update_fields) > 1 or bool(unset_fields)  # יותר מ-updated_at, או מחיקה
         # **כל ערך cookie חדש חייב להיכנס לרשימה הזו.** היא השומר שמחליט
         # אם בכלל נבנית תגובה עם קוקיז; ערך שנשכח כאן נכתב, עובר ולידציה,
         # ואז נזרק בשקט בחזרה המוקדמת שלמטה — התגובה 200 והקוקי לא נשלח.
@@ -19932,11 +20031,17 @@ def api_ui_prefs():
             return jsonify({'ok': True})
 
         if needs_db_update:
-            db.users.update_one(
-                {'user_id': user_id},
-                {'$set': update_fields, '$setOnInsert': {'created_at': datetime.now(timezone.utc)}},
-                upsert=True,
-            )
+            update_doc: Dict[str, Any] = {
+                '$set': update_fields,
+                '$setOnInsert': {'created_at': datetime.now(timezone.utc)},
+            }
+            if unset_fields:
+                update_doc['$unset'] = unset_fields
+            db.users.update_one({'user_id': user_id}, update_doc, upsert=True)
+
+        if device_theme_applied:
+            # בחירה "רק במכשיר הזה" לא נכתבת למסד, אבל לצ'קליסט היא בחירה לכל המכשירים.
+            first_steps.record_device_theme_choice(db, user_id)
 
         # עדכון קוקיז רק עבור שדות שסופקו
         resp = jsonify(resp_payload)
