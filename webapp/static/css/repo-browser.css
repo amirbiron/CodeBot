@@ -34,7 +34,9 @@
 
     /* התאמה של החיפוש בתוך הקובץ בתצוגה המרונדרת (``.in-file-search-hit``). אותו צהוב חזק
        וטקסט שחור כמו שאר הדגשות החיפוש בדפדפן הריפו, בכל הערכות; הפעילה כתומה, כמו בחיפוש
-       המובנה של הדפדפן, כדי שתבלוט בעמוד מלא בהתאמות. */
+       המובנה של הדפדפן, כדי שתבלוט בעמוד מלא בהתאמות. מקור הכתום: Chromium,
+       ‏PlatformTextSearchHighlightColor ב-third_party/blink/renderer/core/layout/layout_theme.cc,
+       ‏Color(255, 150, 50) להתאמה הפעילה. */
     --in-file-search-hit-bg: #ffeb3b;
     --in-file-search-hit-active-bg: #ff9632;
     --in-file-search-hit-text: #000;
