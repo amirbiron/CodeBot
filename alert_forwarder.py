@@ -142,16 +142,24 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(default)
 
 
-def _build_public_dashboard_url() -> str:
-    """Build a public URL to the observability dashboard (never internal generatorURL)."""
+def public_webapp_base_url() -> str:
+    """הכתובת הציבורית של הוובאפ, בלי לוכסן בסוף: ``PUBLIC_URL``, או ``_PUBLIC_WEBAPP_URL_DEFAULT`` כשהוא ריק.
+
+    ממנה נבנים גם הכפתור "Open Dashboard" (:func:`_build_public_dashboard_url`) וגם קישור יחסי בשורת ה-Quick Fix
+    (``quick_fix_line_for_bot_alert`` ב-``services/observability_dashboard.py``), כך ששניהם מובילים לאותו שרת.
+    """
     try:
         public_url = str(os.getenv("PUBLIC_URL", _PUBLIC_WEBAPP_URL_DEFAULT) or "").strip()
     except Exception:
         public_url = ""
     if not public_url:
         public_url = _PUBLIC_WEBAPP_URL_DEFAULT
-    public_url = public_url.rstrip("/")
-    return f"{public_url}{_DASHBOARD_PATH}"
+    return public_url.rstrip("/")
+
+
+def _build_public_dashboard_url() -> str:
+    """Build a public URL to the observability dashboard (never internal generatorURL)."""
+    return f"{public_webapp_base_url()}{_DASHBOARD_PATH}"
 
 
 def _fmt_minutes(window_seconds: Any) -> str:
@@ -537,11 +545,19 @@ def _format_alert_text(alert: Dict[str, Any], *, include_dashboard_link: bool = 
     # Short summary/description
     summary = annotations.get("summary") or annotations.get("description") or ""
     dashboard_line = f"📊 Dashboard: {_build_public_dashboard_url()}"
+    # שורת ה-Quick Fix, כפי ש-``internal_alerts`` בנה אותה (``_quick_fix_line``). התראה שמגיעה ישר מ-Alertmanager
+    # יכולה לשאת אותה כ-annotation משלה, ולכן הטיפוס נבדק.
+    raw_quick_fix = annotations.get("quick_fix")
+    quick_fix = raw_quick_fix.strip() if isinstance(raw_quick_fix, str) else ""
 
-    def _with_dashboard(text: str) -> str:
+    def _finish(text: str) -> str:
+        """הסוף המשותף לכל מסלולי העיצוב: שורת ה-Quick Fix, ואז שורת הדשבורד."""
+        lines = [text]
+        if quick_fix:
+            lines.append(quick_fix)
         if include_dashboard_link:
-            return f"{text}\n{dashboard_line}"
-        return text
+            lines.append(dashboard_line)
+        return "\n".join(lines)
 
     # Useful context (allowlist of common labels)
     def _first(keys: List[str]) -> Optional[str]:
@@ -584,7 +600,7 @@ def _format_alert_text(alert: Dict[str, Any], *, include_dashboard_link: bool = 
             )
             if sentry_link:
                 msg += f"\nSentry: {sentry_link}"
-            return _with_dashboard(msg)
+            return _finish(msg)
 
         if str(name or "").strip().lower() == "anomaly_detected":
             avg, thr = _parse_avg_threshold_from_summary(str(summary or ""))
@@ -597,7 +613,7 @@ def _format_alert_text(alert: Dict[str, Any], *, include_dashboard_link: bool = 
                 memory_mb=_first(["avg_memory_usage_mb"]),
                 recent_errors_5m=_first(["recent_errors_5m"]),
             )
-            return _with_dashboard(msg)
+            return _finish(msg)
 
         # Only treat as a Sentry-origin alert when the alert itself is named as such.
         # Regular alerts may still include a Sentry permalink for convenience.
@@ -612,7 +628,7 @@ def _format_alert_text(alert: Dict[str, Any], *, include_dashboard_link: bool = 
                     error_signature=_first(["error_signature", "signature"]),
                 ),
             )
-            return _with_dashboard(msg)
+            return _finish(msg)
     except Exception:
         # If specialized formatting fails, fall back to generic.
         pass
@@ -641,17 +657,8 @@ def _format_alert_text(alert: Dict[str, Any], *, include_dashboard_link: bool = 
     if sentry_link:
         parts.append(f"Sentry: {sentry_link}")
 
-    # שורת ה-Quick Fix, כפי ש-``internal_alerts`` בנה אותה (``_quick_fix_line``). התראה שמגיעה ישר מ-Alertmanager
-    # יכולה לשאת אותה כ-annotation משלה, ולכן הטיפוס נבדק.
-    quick_fix = annotations.get("quick_fix")
-    if isinstance(quick_fix, str) and quick_fix.strip():
-        parts.append(quick_fix.strip())
-
     # Always prefer a stable public dashboard link over alertmanager's generatorURL
-    if include_dashboard_link:
-        parts.append(dashboard_line)
-
-    return "\n".join(parts)
+    return _finish("\n".join(parts))
 
 
 def _build_sentry_link(

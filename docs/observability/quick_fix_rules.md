@@ -15,7 +15,7 @@ summary: המטרה של Quick Fix היא לתת המלצה קצרה, בטוחה
 
 - **WebApp**: עמודת **Quick Fix** בהיסטוריית התראות בלוח Observability (`/admin/observability`).
 - **Incident Replay**: בפאנל Runbook (רק כפתורי פעולה שמוגדרים ב־Runbook).
-- **Telegram**: שורת “Quick Fix” בתוך הודעת ההתראה (best‑effort), מהפעולה הראשונה של ה־Runbook (`quick_fix_line_for_bot_alert` ב־`services/observability_dashboard.py`). בהתראה קריטית היא נבנית תמיד, גם מ־Runbook ברירת המחדל. בהתראה שאינה קריטית — רק כשה־`alert_type` שלה מוביל ל־Runbook משלו, כדי שלא תיכנס שורה כללית לכל הודעה. כדי שהתראה שאינה קריטית תקבל שורה כזו: `alert_type` במטען שלה, ו־Runbook באותו שם (או עם השם ב־`aliases`).
+- **Telegram**: שורת “Quick Fix” בתוך הודעת ההתראה (best‑effort), מהפעולה הראשונה ש־`get_quick_fix_actions` מחזיר — לפי הסדר של "האלגוריתם בפועל" למטה, כלומר בהתראת Latency עם מספיק אותות זו הפעולה הדינמית, ואחרת הפעולה הראשונה של ה־Runbook (`quick_fix_line_for_bot_alert` ב־`services/observability_dashboard.py`). בהתראה קריטית היא נבנית תמיד, גם מ־Runbook ברירת המחדל. בהתראה שאינה קריטית — רק כשה־`alert_type` שלה מוביל ל־Runbook משלו, כדי שלא תיכנס שורה כללית לכל הודעה. כדי שהתראה שאינה קריטית תקבל שורה כזו: `alert_type` במטען שלה, ו־Runbook באותו שם (או עם השם ב־`aliases`). נתיב יחסי (`/admin/...`) מגיע לטלגרם כקישור מלא, מאותה כתובת של הכפתור "Open Dashboard" (`public_webapp_base_url` ב־`alert_forwarder.py`).
 
 ## מקור אמת: איפה החוקים חיים
 

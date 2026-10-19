@@ -337,9 +337,77 @@ def test_a_non_critical_alert_with_its_own_runbook_carries_the_quick_fix_line(mo
         details={"alert_type": "docs_index_approval_needed"},
     )
 
-    assert forwarded["annotations"]["quick_fix"].endswith(" → /admin/docs-index")
+    link = forwarded["annotations"]["quick_fix"].rsplit(" → ", 1)[1]
+    assert link.startswith(("http://", "https://")) and link.endswith("/admin/docs-index")
     text = af._format_alert_text(forwarded, include_dashboard_link=False)  # noqa: SLF001
     assert forwarded["annotations"]["quick_fix"] in text.splitlines()
+
+
+def test_a_relative_quick_fix_link_points_to_the_same_server_as_the_dashboard_button(monkeypatch):
+    """בטלגרם נתיב יחסי אינו קישור. הבסיס הוא ``PUBLIC_URL`` — אותו שרת של הכפתור "Open Dashboard"."""
+    _clear_sentry_env(monkeypatch)
+    _fresh_runbooks(monkeypatch)
+    monkeypatch.setenv("PUBLIC_URL", "https://public.example/")
+    import alert_forwarder as af
+
+    forwarded = _forwarded(
+        monkeypatch,
+        name="docs_index_approval_needed",
+        severity="warn",
+        summary="waiting",
+        details={"alert_type": "docs_index_approval_needed"},
+    )
+
+    assert forwarded["annotations"]["quick_fix"].endswith(" → https://public.example/admin/docs-index")
+    assert af._build_public_dashboard_url() == "https://public.example/admin/observability"  # noqa: SLF001
+
+
+def test_the_quick_fix_line_survives_a_specialized_message_format(monkeypatch):
+    """תבנית ייעודית (כאן ``anomaly_detected``) חוזרת מוקדם, ובכל זאת השורה נכנסת — לפני שורת הדשבורד."""
+    _clear_sentry_env(monkeypatch)
+    import alert_forwarder as af
+
+    alert = {
+        "status": "firing",
+        "labels": {"alertname": "anomaly_detected", "severity": "anomaly"},
+        "annotations": {"summary": "avg_rt=3.1s (threshold 3.0s)", "quick_fix": "Quick Fix: x → https://h/p"},
+    }
+
+    lines = af._format_alert_text(alert, include_dashboard_link=True).splitlines()  # noqa: SLF001
+
+    dashboard = f"📊 Dashboard: {af._build_public_dashboard_url()}"  # noqa: SLF001
+    assert lines[0] == "🐢 System Anomaly Detected"
+    assert lines[-2:] == ["Quick Fix: x → https://h/p", dashboard]
+
+
+def test_the_direct_telegram_fallback_carries_the_quick_fix_line_too(monkeypatch):
+    """כש-``alert_forwarder`` אינו זמין ההודעה יוצאת ישר לטלגרם (``_format_text``), ועם אותה שורה."""
+    _clear_sentry_env(monkeypatch)
+    _fresh_runbooks(monkeypatch)
+    monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "warn")
+    monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "chat")
+    import internal_alerts as ia
+
+    calls = []
+
+    def _fake_request(method, url, json=None, timeout=5):  # noqa: ARG001
+        calls.append(json)
+        return None
+
+    monkeypatch.setattr(ia, "request", _fake_request)
+    monkeypatch.setattr(ia, "forward_alerts", None)
+
+    ia.emit_internal_alert(
+        name="docs_index_approval_needed",
+        severity="warn",
+        summary="waiting",
+        details={"alert_type": "docs_index_approval_needed"},
+    )
+
+    [payload] = calls
+    [quick_fix] = [line for line in payload["text"].splitlines() if line.startswith("Quick Fix: ")]
+    assert quick_fix.endswith("/admin/docs-index")
 
 
 def test_a_non_critical_alert_without_its_own_runbook_gets_no_quick_fix_line(monkeypatch):
@@ -367,7 +435,8 @@ def test_a_critical_alert_without_its_own_runbook_still_gets_the_default_quick_f
     text = am._format_text(name="High Latency", severity="CRITICAL", summary="lat>thr", details={})  # noqa: SLF001
 
     [quick_fix] = [line for line in text.splitlines() if line.startswith("Quick Fix: ")]
-    assert " → /admin/observability?focus_ts=" in quick_fix
+    link = quick_fix.rsplit(" → ", 1)[1]
+    assert link.startswith(("http://", "https://")) and "/admin/observability?focus_ts=" in link
 
 
 def test_internal_alerts_respect_min_severity_for_direct_telegram(monkeypatch):

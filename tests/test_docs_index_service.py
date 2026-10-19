@@ -872,6 +872,28 @@ def test_after_a_pass_that_succeeded_the_next_wait_alerts_again(world, monkeypat
     assert world.alerts[1]["details"]["indexed_commit"] == SHA_B
 
 
+def test_after_an_approved_pass_that_paused_midway_the_next_wait_alerts_again(world, monkeypatch):
+    """ההמתנה נגמרת כשמעבר מתחיל לכתוב, ולא רק כשהוא מצליח: מעבר מאושר שנעצר במכסה, ואחריו מעבר שעוצר
+    שוב על מה שנשאר, הוא בקשה חדשה לאישור — ולכן התראה חדשה."""
+    fill(world)
+    world.alerts.clear()
+    monkeypatch.setattr(svc, "APPROVAL_THRESHOLD_CHUNKS", 1)
+    _publish_changes(world, SHA_B, "שינוי ראשון.", "שינוי שני.")
+    run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+    world.embed_failures[len(world.embed_calls)] = (429, "http 429: RESOURCE_EXHAUSTED: quota")
+    paused = run_request(
+        world, svc.TRIGGER_APPROVED, approved_fingerprint=_state(world)["approval"]["fingerprint"]
+    )
+    assert paused["status"] == svc.STATUS_PAUSED_QUOTA
+    assert len(world.alerts) == 1
+
+    again = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+
+    assert (again["status"], again["code"]) == (svc.STATUS_AWAITING_APPROVAL, svc.APPROVAL_OVER_THRESHOLD)
+    assert len(world.alerts) == 2
+    assert "indexed_commit" not in world.alerts[1]["details"]
+
+
 def test_the_alert_reaches_telegram_with_a_quick_fix_line_to_the_admin_page(world, monkeypatch):
     """מקצה לקצה, דרך מה שנשלח לטלגרם: ``emit_internal_alert`` האמיתי, ``alert_forwarder`` ו-runbook מתוך
     ``config/observability_runbooks.yml``. הסף של הטלגרם הוא ``warn``, כמו בייצור."""
@@ -898,7 +920,8 @@ def test_the_alert_reaches_telegram_with_a_quick_fix_line_to_the_admin_page(worl
     lines = payload["text"].splitlines()
     assert lines[0] == f"🔔 {svc.ALERT_APPROVAL_NEEDED} (WARN)"
     [quick_fix] = [line for line in lines if line.startswith("Quick Fix: ")]
-    assert quick_fix.endswith(" → /admin/docs-index")
+    link = quick_fix.rsplit(" → ", 1)[1]
+    assert link.startswith(("http://", "https://")) and link.endswith("/admin/docs-index")
 
 
 # ---------------------------------------------------------------------------
