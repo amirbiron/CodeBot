@@ -284,7 +284,7 @@ def test_a_collection_and_a_board_note_check_their_steps_after_a_refresh(
 # --- נעילה -------------------------------------------------------------------------------------------
 
 
-def test_completing_every_step_locks_the_card_and_it_never_comes_back(
+def test_completing_every_step_locks_the_card_and_deleting_a_collection_does_not_bring_it_back(
         wired_mongo, admin_live_server, chromium_executable):
     with _browser_pages(admin_live_server, chromium_executable) as pages:
         page = pages.device()
