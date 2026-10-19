@@ -32,6 +32,7 @@ from pymongo.errors import (
     NetworkTimeout,
     NotPrimaryError,
     OperationFailure,
+    PyMongoError,
     ServerSelectionTimeoutError,
 )
 
@@ -53,6 +54,13 @@ USER_ID = 7
 
 #: האוספים שהבדיקות של הצ'קליסט קוראות. מונה הקריאות סופר רק אותם.
 CHECKLIST_COLLECTIONS = {"user_collections", "sticky_notes", "mcp_tokens", oauth_store.TOKENS_COLLECTION}
+
+#: שגיאות המסד שמסמך המשתמש ושתי כתיבות העזר צריכים לבלוע. ``OperationFailure`` הוא המקרה מהשטח
+#: (הרשאה שגויה), ו-``PyMongoError`` עצמו הוא העד לטענה "כל כשל של המסד": רק ``except PyMongoError``
+#: תופס מופע של הבסיס, ולכן תפיסה צרה יותר — גם כזו שמוסיפה ``OperationFailure`` לניתוק — נופלת עליו.
+AUXILIARY_DB_ERRORS = pytest.mark.parametrize(
+    "db_error", [OperationFailure, PyMongoError], ids=["OperationFailure", "PyMongoError"],
+)
 
 
 class _Collection(FakeCollection):
@@ -415,6 +423,25 @@ def test_finishing_every_step_saves_the_lock_and_hides_the_card(db):
     assert _user_doc(db)["ui_prefs"][first_steps.DONE_PREF] is True
 
 
+@AUXILIARY_DB_ERRORS
+def test_a_database_error_while_saving_the_lock_does_not_stop_the_page(db, caplog, db_error):
+    """הנעילה היא עזר: כל כשל של המסד בה נרשם, הכרטיס לא מוצג (כל הצעדים בוצעו), ובטעינה הבאה ינסו שוב."""
+    _complete_every_step(db)
+    _failing(db, "users", "update_one", db_error("the database failed"))
+
+    with caplog.at_level(logging.WARNING, logger="webapp.first_steps"):
+        assert _card(db) is None
+    assert first_steps.DONE_PREF not in _user_doc(db)["ui_prefs"]
+    assert [r for r in caplog.records if "lock was not saved" in r.getMessage() and r.exc_info]
+
+
+def test_a_bug_while_saving_the_lock_surfaces(db):
+    _complete_every_step(db)
+    _failing(db, "users", "update_one", TypeError("a bug"))
+    with pytest.raises(TypeError):
+        _card(db)
+
+
 def test_after_the_lock_the_dashboard_runs_no_checklist_query(dashboard, db):
     """"בטעינה הבאה של הדשבורד לא רצה אף שאילתה של הצ'קליסט" — ומחיקת האוספים לא מחזירה אותו."""
     _complete_every_step(db)
@@ -563,13 +590,41 @@ def test_when_the_user_document_did_not_load_there_is_no_card_and_no_check(dashb
     assert [r for r in caplog.records if r.getMessage() == "user document fetch failed" and r.exc_info]
 
 
-def test_a_user_document_error_that_is_not_an_outage_is_not_none(client, db):
+@AUXILIARY_DB_ERRORS
+def test_any_database_error_on_the_user_document_gives_none(client, db, caplog, db_error):
+    """לא רק ניתוק: גם הרשאה שגויה נותנת ``None``. כל הקוראים מתייחסים ל-``None`` כברירות מחדל
+    בטוחות, ולפני הצ'קליסט ``inject_globals`` בלע את אותה שגיאה בכל דף."""
     import webapp.app as app_mod
 
-    _failing(db, "users", "find_one", OperationFailure("not authorized"))
+    _failing(db, "users", "find_one", db_error("the database failed"))
+    with app_mod.app.test_request_context("/dashboard"), caplog.at_level(logging.WARNING, logger="webapp.app"):
+        assert app_mod._request_user_doc(USER_ID) is None
+    assert [r for r in caplog.records if r.getMessage() == "user document fetch failed" and r.exc_info]
+
+
+def test_a_bug_while_fetching_the_user_document_surfaces(client, db):
+    """חריגה שאינה של המסד היא באג, ולא "המסמך לא נטען" (R10)."""
+    import webapp.app as app_mod
+
+    _failing(db, "users", "find_one", TypeError("a bug"))
     with app_mod.app.test_request_context("/dashboard"):
-        with pytest.raises(OperationFailure):
+        with pytest.raises(TypeError):
             app_mod._request_user_doc(USER_ID)
+
+
+def test_a_database_error_on_the_user_document_does_not_take_down_the_pages(client, dashboard, db):
+    """הכרטיס והקישור "הצג שוב" הם תוספות. כשמסמך המשתמש לא נטען, ההגדרות והדשבורד נטענים בלעדיהם —
+    כמו לפני שנוספו — ולא נופלים לדף שגיאה. הפיקסצ'ר ``dashboard`` בודק שהדשבורד לא עבר לדף השגיאה שלו."""
+    _raw(db, "users").update_one(
+        {"user_id": USER_ID}, {"$set": {f"ui_prefs.{first_steps.HIDDEN_PREF}": True}}, upsert=True,
+    )
+    _failing(db, "users", "find_one", OperationFailure("not authorized"))
+
+    resp = client.get("/settings")
+    assert resp.status_code == 200
+    assert 'id="firstStepsShowAgain"' not in resp.get_data(as_text=True)
+
+    assert 'id="firstSteps"' not in dashboard()
 
 
 # --- מה הדשבורד מרנדר -----------------------------------------------------------------------------
@@ -692,30 +747,22 @@ def _device_choice_recorded(db, user_id=USER_ID):
     return prefs.get(first_steps.DEVICE_THEME_CHOSEN_PREF) is True
 
 
-def test_ui_prefs_records_a_device_theme_choice(client, db):
-    resp = _post_prefs(client, {"theme": "ocean", "theme_scope": "device"})
-    assert resp.status_code == 200
-    cookies = " ".join(resp.headers.getlist("Set-Cookie"))
-    assert "ui_theme=ocean" in cookies and "ui_theme_scope=device" in cookies
-    assert _device_choice_recorded(db)
+#: הכותבים שמחילים ערכה במצב ``device``, והפונקציה של כל אחד. ``test_every_writer_of_the_theme_cookie_records_a_device_choice``
+#: מוודא שאלה בדיוק הכותבים שבקוד, ולכן כותב חדש נכנס גם לכאן — ומקבל את הבדיקות ההתנהגותיות.
+DEVICE_THEME_WRITERS = {
+    "ui_prefs": "webapp/app.py:api_ui_prefs",
+    "shared_apply": "webapp/themes_api.py:apply_shared_theme",
+    "activate": "webapp/themes_api.py:activate_theme_endpoint",
+}
 
 
-def test_ui_prefs_does_not_record_a_rejected_device_theme_request(client, db):
-    """בקשה שנדחתה (400) לא החילה ערכה, ולכן גם לא נרשמת בחירה."""
-    resp = _post_prefs(client, {"theme": "ocean", "theme_scope": "device", first_steps.HIDDEN_PREF: "no"})
-    assert resp.status_code == 400
-    assert not _device_choice_recorded(db)
-
-
-def test_applying_a_shared_theme_on_this_device_records_the_choice(client, db):
-    _raw(db, "shared_themes").insert_one({"_id": "cyber", "name": "Cyber", "is_active": True, "colors": {}})
-    resp = client.post("/api/themes/shared/cyber/apply", json={"theme_scope": "device"})
-    assert resp.status_code == 200 and resp.get_json()["ok"] is True
-    assert "theme" not in (_user_doc(db).get("ui_prefs") or {})
-    assert _device_choice_recorded(db)
-
-
-def test_activating_a_custom_theme_on_this_device_records_the_choice(client, db):
+def _apply_device_theme(client, db, writer):
+    """מחיל ערכה "רק במכשיר הזה" דרך הכותב ``writer`` (מפתח ב-:data:`DEVICE_THEME_WRITERS`), ומחזיר את התשובה."""
+    if writer == "ui_prefs":
+        return _post_prefs(client, {"theme": "ocean", "theme_scope": "device"})
+    if writer == "shared_apply":
+        _raw(db, "shared_themes").insert_one({"_id": "cyber", "name": "Cyber", "is_active": True, "colors": {}})
+        return client.post("/api/themes/shared/cyber/apply", json={"theme_scope": "device"})
     users = _raw(db, "users")
     original_find_one = users.find_one
 
@@ -726,9 +773,55 @@ def test_activating_a_custom_theme_on_this_device_records_the_choice(client, db)
         return original_find_one(query, projection, *a, **k)
 
     users.find_one = _find_one
-    resp = client.post("/api/themes/t1/activate", json={"theme_scope": "device"})
+    return client.post("/api/themes/t1/activate", json={"theme_scope": "device"})
+
+
+def _failing_device_record(db, exc):
+    """רק הכתיבה של ``record_device_theme_choice`` נכשלת; שאר הכתיבות למסמך המשתמש עוברות."""
+    users = _raw(db, "users")
+    original_update_one = users.update_one
+
+    def _update_one(query, update, *a, **k):
+        if f"ui_prefs.{first_steps.DEVICE_THEME_CHOSEN_PREF}" in (update.get("$set") or {}):
+            raise exc
+        return original_update_one(query, update, *a, **k)
+
+    users.update_one = _update_one
+
+
+@pytest.mark.parametrize("writer", list(DEVICE_THEME_WRITERS))
+def test_each_device_theme_writer_records_the_choice(client, db, writer):
+    resp = _apply_device_theme(client, db, writer)
     assert resp.status_code == 200 and resp.get_json()["ok"] is True
+    assert "ui_theme_scope=device" in " ".join(resp.headers.getlist("Set-Cookie"))
+    assert "theme" not in (_user_doc(db).get("ui_prefs") or {}), "במצב device הערכה עצמה לא נכתבת למסד"
     assert _device_choice_recorded(db)
+
+
+@AUXILIARY_DB_ERRORS
+@pytest.mark.parametrize("writer", list(DEVICE_THEME_WRITERS))
+def test_a_database_error_while_recording_does_not_undo_the_theme(client, db, writer, caplog, db_error):
+    """הרישום משרת רק את הצ'קליסט: כשהמסד נכשל בו, הערכה עדיין מוחלת — 200, וה-cookie בתשובה."""
+    _failing_device_record(db, db_error("the database failed"))
+    with caplog.at_level(logging.WARNING, logger="webapp.first_steps"):
+        resp = _apply_device_theme(client, db, writer)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert "ui_theme_scope=device" in " ".join(resp.headers.getlist("Set-Cookie"))
+    assert not _device_choice_recorded(db)
+    assert [r for r in caplog.records if "device theme choice not recorded" in r.getMessage() and r.exc_info]
+
+
+def test_a_bug_while_recording_a_device_choice_surfaces(db):
+    _failing(db, "users", "update_one", TypeError("a bug"))
+    with pytest.raises(TypeError):
+        first_steps.record_device_theme_choice(db, USER_ID)
+
+
+def test_ui_prefs_does_not_record_a_rejected_device_theme_request(client, db):
+    """בקשה שנדחתה (400) לא החילה ערכה, ולכן גם לא נרשמת בחירה."""
+    resp = _post_prefs(client, {"theme": "ocean", "theme_scope": "device", first_steps.HIDDEN_PREF: "no"})
+    assert resp.status_code == 400
+    assert not _device_choice_recorded(db)
 
 
 def _calls_named(func_node, name):
@@ -761,9 +854,10 @@ def test_every_writer_of_the_theme_cookie_records_a_device_choice():
     """כל פונקציה ב-``webapp/`` שכותבת את ה-cookie של הערכה — ישירות, או דרך
     ``_set_theme_scope_cookies`` — קוראת ל-``record_device_theme_choice``.
 
-    הסריקה עוברת על כל קבצי ``webapp/``, ולא על רשימת כותבים ידועה: כותב רביעי שיתווסף
-    בלי הרישום ייפול כאן. מה שהיא **לא** בודקת הוא שהקריאה באמת רצה בענף של ``device`` —
-    את זה בודקות הבדיקות ההתנהגותיות שלמעלה, אחת לכל כותב, מול המסד.
+    הסריקה עוברת על כל קבצי ``webapp/``, ולא על רשימת כותבים ידועה: כותב חדש בלי הרישום ייפול
+    כאן, וכותב חדש שלא נכנס ל-:data:`DEVICE_THEME_WRITERS` ייפול גם הוא. מה שהסריקה **לא** בודקת
+    הוא שהקריאה באמת רצה בענף של ``device`` — את זה בודקות הבדיקות ההתנהגותיות שלמעלה, שרצות
+    על כל כותב ב-:data:`DEVICE_THEME_WRITERS`, מול המסד.
     """
     helper = "_set_theme_scope_cookies"
     writers, missing = [], []
@@ -777,8 +871,10 @@ def test_every_writer_of_the_theme_cookie_records_a_device_choice():
                 writers.append(where)
                 if not _calls_named(node, "record_device_theme_choice"):
                     missing.append(where)
-    assert {"webapp/app.py:api_ui_prefs", "webapp/themes_api.py:apply_shared_theme",
-            "webapp/themes_api.py:activate_theme_endpoint"} <= set(writers), writers
+    assert sorted(writers) == sorted(DEVICE_THEME_WRITERS.values()), (
+        "כותב חדש של ה-cookie של הערכה צריך להיכנס ל-DEVICE_THEME_WRITERS, כדי שיקבל את הבדיקות ההתנהגותיות",
+        writers,
+    )
     assert missing == [], f"כותבים של ה-cookie של הערכה שלא רושמים בחירה במכשיר: {missing}"
 
 

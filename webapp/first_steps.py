@@ -16,8 +16,13 @@
 
 **צעד שהבדיקה שלו נכשלה במסד אינו "לא בוצע".** הוא "לא ידוע כרגע" (``None``), כמו
 ``pending_count`` ש-``_build_push_card`` מחזיר ``None`` כשהספירה נכשלה. הוא לא נספר, והנעילה
-לא נכתבת, כי נעילה על סמך בדיקה שלא רצה הייתה רושמת מצב שאיש לא ראה. רק
+לא נכתבת, כי נעילה על סמך בדיקה שלא רצה הייתה רושמת מצב שאיש לא ראה. בבדיקות רק
 :data:`DB_UNAVAILABLE_ERRORS` נתפס; כל שגיאה אחרת עולה הלאה.
+
+**הכתיבות כאן הן עזר** — :func:`_write_lock` ו-:func:`record_device_theme_choice`. הנעילה היא
+קיצור דרך לטעינות הבאות, והרישום של ערכה במכשיר משרת רק את הצ'קליסט; אף אחת מהן אינה מה
+שהמשתמש ביקש. לכן כל כשל של המסד בהן (``PyMongoError``) נרשם כ-WARNING והבקשה ממשיכה; באג,
+כלומר חריגה שאינה של המסד, עולה.
 
 התיעוד: ``docs/webapp/user-interfaces.rst``, סעיף ``webapp-first-steps``.
 """
@@ -28,7 +33,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
-from pymongo.errors import ConnectionFailure, ExecutionTimeout
+from pymongo.errors import ConnectionFailure, ExecutionTimeout, PyMongoError
 
 # אין כאן ייבוא מחבילת ``database`` ברמת המודול, בכוונה: ``webapp/app.py`` מייבא את המודול
 # הזה ברמת המודול, ו-``database`` בונה ``DatabaseManager`` בזמן ייבוא, כך שייבוא ממנה כאן היה
@@ -40,13 +45,15 @@ from sticky_notes_target import any_board_note_filter
 
 logger = logging.getLogger(__name__)
 
-#: "המסד לא ענה עכשיו" — אחרי החריגות האלה צעד מוצג "לא ידוע כרגע", מסמך המשתמש של הבקשה הוא
-#: ``None`` (``_request_user_doc`` ב-``webapp/app.py``), ושום דבר לא ננעל. תת-העץ של
+#: "המסד לא ענה עכשיו" — אחרי החריגות האלה צעד מוצג "לא ידוע כרגע", ושום דבר לא ננעל. תת-העץ של
 #: ``ConnectionFailure`` (חיבור שנפל, אין שרת זמין, החלפת primary) ו-``ExecutionTimeout`` (מגבלת
 #: הזמן של השרת), כפי שנבדק ב-``__mro__`` של pymongo 4.15.3 — אותו זוג כמו
 #: ``_OUTCOME_UNKNOWN_ERRORS`` ב-``monitoring/metrics_storage.py``. שאר ``PyMongoError`` — הרשאה
 #: שגויה, שאילתה פגומה — הם תצורה או באג, ולכן הם עולים ולא מתויגים "לא ידוע" (R10 ב-
-#: amir-bug-patterns). ``tests/test_first_steps.py`` מקבע את החלוקה.
+#: amir-bug-patterns). ``tests/test_first_steps.py`` מקבע את החלוקה. את הטיפוס הזה תופסים רק מי
+#: שהמצב שלהם הוצהר לתקלה חולפת: הבדיקות כאן, ו-``default_board_page`` ב-``webapp/boards_ui.py``,
+#: שמפנה ל-``/boards`` כדי שהעמוד ינסה שוב. בכתיבות העזר (:func:`_write_lock`,
+#: :func:`record_device_theme_choice`) המצב הוצהר לכל כשל של המסד, ולכן שם נתפס ``PyMongoError``.
 DB_UNAVAILABLE_ERRORS = (ConnectionFailure, ExecutionTimeout)
 
 #: נעילה: כל הצעדים הושלמו, והכרטיס לא חוזר. נכתב ב-:func:`_write_lock`.
@@ -216,8 +223,8 @@ def _step_states(db: Any, user_id: int, user_doc: Any, *, stored_theme: str, dev
 
 
 def _write_lock(db: Any, user_id: Any) -> None:
-    """שומר את :data:`DONE_PREF`. כשל נרשם ולא עוצר את הדף: הכרטיס כבר לא מוצג, כי כל הצעדים
-    באמת בוצעו, ובטעינה הבאה הבדיקות ירוצו שוב וינסו לנעול שוב."""
+    """שומר את :data:`DONE_PREF`. כשל של המסד נרשם ולא עוצר את הדף: הכרטיס כבר לא מוצג, כי כל
+    הצעדים באמת בוצעו, ובטעינה הבאה הבדיקות ירוצו שוב וינסו לנעול שוב."""
     now = datetime.now(timezone.utc)
     try:
         db.users.update_one(
@@ -225,7 +232,9 @@ def _write_lock(db: Any, user_id: Any) -> None:
             {"$set": {f"ui_prefs.{DONE_PREF}": True, "updated_at": now}, "$setOnInsert": {"created_at": now}},
             upsert=True,
         )
-    except DB_UNAVAILABLE_ERRORS:
+    # כל כשל של המסד ולא רק ניתוק: הנעילה היא עזר, והמצב "לא נשמר, ינסו שוב" נכון לכל כשל
+    # בכתיבה — גם להרשאה. בלי זה, כתיבת עזר שנכשלה הייתה מעבירה את כל הדשבורד לדף השגיאה שלו.
+    except PyMongoError:
         logger.warning("first steps: the lock was not saved; the checks will run again next time", exc_info=True)
 
 
@@ -275,9 +284,12 @@ def record_device_theme_choice(db: Any, user_id: Any) -> None:
     """רושם במסמך המשתמש שנבחרה ערכה "רק במכשיר הזה" — את הבחירה, ולא את הערכה.
 
     נקרא מכל מסלול שמחיל ערכה במצב ``device``, אחרי שההחלה הצליחה, כדי שצעד הערכה ייחשב בכל
-    המכשירים. **כשל כאן לא מכשיל את ההחלה:** הערכה כבר הוחלה במכשיר (ה-cookie), והרישום משרת
-    רק את הצ'קליסט. לכן הכשל נרשם כ-WARNING והבקשה ממשיכה — במכשיר הזה הצעד עדיין מסומן לפי
-    ה-cookie, ובמכשיר אחר הוא יסומן בבחירה הבאה.
+    המכשירים. **כשל של המסד כאן לא מכשיל את ההחלה** — כל ``PyMongoError``, ולא רק ניתוק: הערכה
+    כבר הוחלה במכשיר (ה-cookie), והרישום משרת רק את הצ'קליסט. לכן הכשל נרשם כ-WARNING והבקשה
+    ממשיכה — במכשיר הזה הצעד עדיין מסומן לפי ה-cookie, ובמכשיר אחר הוא יסומן בבחירה הבאה. הכותבים
+    (``api_ui_prefs``, ``apply_shared_theme``, ``activate_theme_endpoint``) קוראים לה בתוך ה-``try``
+    של הראוט, שמחזיר 500 על כל חריגה, ולכן חריגה שעולה מכאן זורקת את התשובה עם ה-cookie. באג,
+    כלומר חריגה שאינה של המסד, עולה בכל זאת.
     """
     if db is None:
         logger.warning("first steps: device theme choice not recorded; no database connection")
@@ -292,5 +304,5 @@ def record_device_theme_choice(db: Any, user_id: Any) -> None:
             },
             upsert=True,
         )
-    except DB_UNAVAILABLE_ERRORS:
+    except PyMongoError:
         logger.warning("first steps: device theme choice not recorded", exc_info=True)

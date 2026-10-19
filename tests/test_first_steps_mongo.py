@@ -7,6 +7,10 @@
 **תנאי השאילתה של הטוקן האישי.** ``_not_expired_condition`` הוא ``_is_expired`` כתוב כשאילתה, וכאן
 הוא נבדק במונגו עצמו: ``$not`` תופס גם שדה חסר, ודמה רק מחקה את זה.
 
+**פתק על לוח.** פתק קובץ ופתק ריפו נכתבים בלי ``board_id`` בכלל, ו-``any_board_note_filter`` מוציא
+אותם רק כי ``$nin`` שכולל ``null`` מוציא גם שדה חסר. זה הפוך ממה שמשתמע מהתיעוד של ``$nin``
+(ההסבר ב-``docs/testing.rst``), ולכן זה נבדק כאן מול השרת, על פתקים שבונה הכותב האמיתי.
+
 מדולג בלי מונגו (``wired_mongo``). ב-CI הכתובת שמוגדרת אינה נגישה, ולכן הבדיקות האלה מדלגות שם —
 ראו את ההערה ב-``.github/workflows/ci.yml`` ואת ``docs/testing.rst``. בדיקות ה-CI של אותן פונקציות,
 על דמה: ``tests/test_first_steps.py``.
@@ -22,6 +26,7 @@ from _mongo_profiler import profiled
 import mcp_server.oauth_store as oauth_store
 import mcp_server.token_store as token_store
 from mcp_server.oauth_store import ACCESS_PREFIX, REFRESH_PREFIX, OAuthStore, new_secret
+from sticky_notes_target import any_board_note_filter, build_note_target
 
 SUBJECT = "7"
 
@@ -72,3 +77,19 @@ def test_the_personal_token_condition_is_the_rule_on_mongod(wired_mongo):
     matched = {doc["case"] for doc in probe.find({"expires_at": token_store._not_expired_condition(now)})}
     live = {doc["case"] for doc in probe.find({}) if not token_store._is_expired(doc.get("expires_at"), now)}
     assert matched == live == {"missing", "none", "this_instant", "future"}
+
+
+def test_the_board_note_filter_skips_file_and_repo_notes_on_mongod(wired_mongo):
+    targets = {
+        "file": build_note_target(file_id="f1"),
+        "repo": build_note_target(repo_name="amirbiron/CodeBot", repo_path="README.md"),
+        "board": build_note_target(board_id="b1"),
+    }
+    assert [kind for kind, target in targets.items() if "board_id" in target] == ["board"], (
+        "פתק קובץ ופתק ריפו נכתבים בלי board_id — זה המקרה שהטסט בודק"
+    )
+    notes = wired_mongo.get_db()["sticky_notes"]
+    notes.insert_many([{"user_id": 7, "kind": kind, **target} for kind, target in targets.items()])
+    notes.insert_one({"user_id": 8, "kind": "board", **build_note_target(board_id="b2")})
+
+    assert [doc["kind"] for doc in notes.find(any_board_note_filter(7))] == ["board"]
