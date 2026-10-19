@@ -263,6 +263,43 @@ def test_scroll_into_view_within_scrolls_only_up_to_the_root(page):
     assert result["control"][1] > 0 or result["control"][2] > 0, f"הבקרה לא גללה מעל root: {result}"
 
 
+def test_a_hit_that_is_not_rendered_scrolls_to_its_nearest_rendered_ancestor(page):
+    """התאמה בתוך ``<details>`` סגור מביאה אל העין את הבלוק עצמו, והתאמה מתחת ל-``display: none`` בלי
+    אב מצויר עד ``root`` אינה גוללת דבר.
+
+    המלבן של התאמה שאינה מצוירת אינו מתאר שום דבר על המסך: תחת ``display: none`` הוא אפס, והגלילה
+    לפיו קפצה (נמדד בכרומיום: מ-300 ל-192) למקום שאין בו כלום.
+    """
+    _reset(page)
+    result = page.evaluate(
+        """() => {
+          const root = document.getElementById('root');
+          root.innerHTML = '<div id="box" style="height:200px;overflow:auto">' +
+            '<div style="height:600px"></div>' +
+            '<details id="closed"><summary>s</summary><p><span id="inside">alpha</span></p></details>' +
+            '<div style="height:600px"></div>' +
+            '<p style="display:none"><span id="none">alpha</span></p></div>';
+          const box = document.getElementById('box');
+          const closed = document.getElementById('closed');
+          const shown = (el) => {
+            const r = el.getBoundingClientRect(), b = box.getBoundingClientRect();
+            return r.height > 0 && r.top >= b.top && r.bottom <= b.bottom;
+          };
+          box.scrollTop = 0;
+          const closedBefore = shown(closed);
+          TextHighlight.scrollIntoViewWithin(box, document.getElementById('inside'));
+          const closedAfter = shown(closed);
+          box.scrollTop = 300;
+          TextHighlight.scrollIntoViewWithin(box, document.getElementById('none'));
+          return { closedBefore, closedAfter, noneScroll: box.scrollTop, stillClosed: !closed.open };
+        }"""
+    )
+    assert result["closedBefore"] is False, result
+    assert result["closedAfter"] is True, "הבלוק הסגור עצמו נגלל אל העין"
+    assert result["stillClosed"] is True, "הגלילה אינה פותחת את הבלוק"
+    assert result["noneScroll"] == 300, "התאמה בלי אב מצויר עד root אינה גוללת"
+
+
 def test_the_tex_source_inside_a_formula_is_not_scanned(page):
     """בנוסחה מוצג רק הילד הראשון של ``<semantics>``; מקור ה-TeX שב-``<annotation>`` אינו מוצג, ולכן גם
     אינו נספר.

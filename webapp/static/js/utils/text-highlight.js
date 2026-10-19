@@ -248,15 +248,25 @@
    * דבר, וגם ``root`` עצמו (``contains`` כולל את הצומת עצמו — MDN,
    * ‏Node.contains()). בלי הבדיקה הזו ההליכה הייתה ממשיכה עד ראש המסמך,
    * וגוללת בדיוק את מה שהפונקציה קיימת כדי לא לגלול.
+   *
+   * **התאמה שאינה מצוירת** — בתוך ``<details>`` סגור, או מתחת ל-``display:
+   * none`` — מקבלת במקומה את האב הקרוב שכן מצויר, למשל את הבלוק הסגור עצמו,
+   * שהכותרת שלו גלויה. המלבן שלה לא מתאר שום דבר על המסך: נמדד בכרומיום —
+   * תחת ``display: none`` הוא אפס, והגלילה קפצה למקום שאין בו כלום; ובתוך
+   * ``<details>`` סגור הוא המקום שבו התוכן **היה** מוצג. אם אין אב כזה עד
+   * ``root`` — אין לאן לגלול.
    */
   function scrollIntoViewWithin(root, hit) {
     if (hit === root || !root.contains(hit)) return;
-    for (var box = hit.parentElement; box; box = box.parentElement) {
+    var target = hit;
+    while (target !== root && !isRendered(target)) target = target.parentElement;
+    if (target === root) return;
+    for (var box = target.parentElement; box; box = box.parentElement) {
       var cs = window.getComputedStyle(box);
       var canY = (cs.overflowY === 'auto' || cs.overflowY === 'scroll') && box.scrollHeight > box.clientHeight;
       var canX = (cs.overflowX === 'auto' || cs.overflowX === 'scroll') && box.scrollWidth > box.clientWidth;
       if (canY || canX) {
-        var h = hit.getBoundingClientRect();
+        var h = target.getBoundingClientRect();
         var b = box.getBoundingClientRect();
         var top = b.top + box.clientTop;
         var left = b.left + box.clientLeft;
@@ -269,6 +279,18 @@
       }
       if (box === root) break;
     }
+  }
+
+  /**
+   * האם לאלמנט יש קופסה מצוירת. ``checkVisibility`` מחזיר ``false`` כשאין
+   * קופסה (``display: none``) וכשהוא או אב שלו ``content-visibility: hidden``
+   * — כך מוסתר התוכן של ``<details>`` סגור בכרומיום (MDN,
+   * ‏Element.checkVisibility(), זמין בכל הדפדפנים ממרץ 2024). דפדפן ישן
+   * בלעדיו נבדק לפי ``getClientRects``, שתופס לפחות את ``display: none``.
+   */
+  function isRendered(el) {
+    if (typeof el.checkVisibility === 'function') return el.checkVisibility();
+    return el.getClientRects().length > 0;
   }
 
   if (typeof window !== 'undefined') {
