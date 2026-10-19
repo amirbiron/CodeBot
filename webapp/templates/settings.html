@@ -486,6 +486,22 @@
     </ul>
     <p class="ai-connect__hint">אל תשתפו את הטוקן: מי שמחזיק אותו מקבל את אותה גישה לקבצים שלכם.</p>
   </div>
+
+  {# רעיונות למי שחיבר עכשיו בפעם הראשונה, כדי שלא יישאר מול חלון צ'אט ריק. סגור כברירת
+     מחדל; ``<details>`` נפתח ונסגר במגע ובמקלדת בלי JS. #}
+  <details class="ai-connect__examples">
+    <summary>
+      <i class="fas fa-lightbulb" aria-hidden="true"></i>
+      מה אפשר לבקש מהסוכן
+      <i class="fas fa-chevron-down ai-connect__examples-chevron" aria-hidden="true"></i>
+    </summary>
+    <ul>
+      <li>"תיצור פתק בלוח שלי עם המשימות שסיכמנו"</li>
+      <li>"תמצא את הקובץ שבו טיפלנו בבאג של התאריכים"</li>
+      <li>"תסכם את ה-Roadmap שבאוסף שלי ותגיד מה עוד פתוח"</li>
+      <li>"תשמור את הסקריפט הזה כקובץ חדש, עם תיאור"</li>
+    </ul>
+  </details>
 </div>
 
 <script>
@@ -588,7 +604,11 @@
   </p>
 
   <details class="agent-primer-setup" id="agent-primer-setup">
-    <summary>איך מחברים את זה ל-Claude Code?</summary>
+    <summary>
+      <i class="fas fa-circle-question" aria-hidden="true"></i>
+      איך מחברים את זה ל-Claude Code?
+      <i class="fas fa-chevron-down agent-primer-setup__chevron" aria-hidden="true"></i>
+    </summary>
     <ol class="agent-primer-setup__steps">
       <li>
         מעתיקים מהריפו של CodeKeeper,
@@ -1287,8 +1307,11 @@
     עמוד הקבצים.
   </p>
 
+  {# ``id="appearance"`` — היעד של "לבחירת ערכה" בצ'קליסט "צעדים ראשונים" (webapp/first_steps.py)
+     ושל "הגדרות מתקדמות" בבורר הערכות שבסרגל (base.html). #}
   <div
     class="glass-card"
+    id="appearance"
     style="background: rgba(255, 255, 255, 0.05); margin-top: 1rem"
   >
     <div
@@ -1554,6 +1577,49 @@
       </div>
     </div>
   </div>
+  {% endif %}
+
+  {# "הצג שוב" של הצ'קליסט "צעדים ראשונים" בדשבורד (webapp/first_steps.py). מוצג רק כשהצ'קליסט
+     מוסתר או נעול. הלחיצה שולחת ``first_steps_hidden: false`` ל-/api/ui_prefs, ששומר את הבקשה
+     ומוחק את הנעילה, ורק אחרי שהשרת אישר — עוברת לדשבורד. משם הכרטיס מוצג עד שמסתירים אותו שוב.
+     הסקריפט כאן ולא ב-``extra_js``, שמרונדר בעמוד הזה פעמיים.
+     **המקום הזה מתואר בכרטיס עצמו:** השורה מתחת ל"הבנתי, להסתיר" (``#firstStepsHideHint`` ב-
+     ``dashboard.html``) אומרת שהכפתור בתחתית העמוד, אחרי כל הכרטיסים ולפני קישור העזרה. מי שמזיז
+     אותו משנה גם את השורה; ``test_show_again_sits_at_the_bottom_of_settings`` מקבע את המיקום. #}
+  {% if first_steps_dismissed %}
+  <p class="first-steps-reset">
+    <button type="button" class="first-steps-reset__btn" id="firstStepsShowAgain">הצג שוב את הצעדים הראשונים</button>
+    <span class="first-steps-reset__status" id="firstStepsShowAgainStatus" role="status" aria-live="polite"></span>
+  </p>
+  <script>
+    (function () {
+      var btn = document.getElementById('firstStepsShowAgain');
+      var status = document.getElementById('firstStepsShowAgainStatus');
+      if (!btn) return;
+      btn.addEventListener('click', async function () {
+        btn.disabled = true;
+        if (status) status.textContent = '';
+        var saved = false;
+        try {
+          var resp = await fetch('/api/ui_prefs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ first_steps_hidden: false })
+          });
+          var data = await resp.json().catch(function () { return null; });
+          saved = resp.ok && !!data && data.ok === true;
+        } catch (err) {
+          console.warn('first steps: show again failed', err);
+        }
+        if (saved) {
+          window.location.href = '/dashboard';
+          return;
+        }
+        btn.disabled = false;
+        if (status) status.textContent = 'לא הצלחנו להחזיר את הצעדים כרגע. נסה שוב בעוד רגע.';
+      });
+    })();
+  </script>
   {% endif %}
 
   {# קישור עזרה קבוע בתחתית העמוד, לכל משתמש — לא רק בכרטיס הפרימיום שלמעלה. #}
@@ -2143,15 +2209,11 @@
        ב-High Contrast כל כפתור מקבל רקע שחור ומסגרת לבנה ב-!important (high-contrast.css),
        ולכן הלשונית הנבחרת מסומנת גם בקו פנימי ב-currentColor ובמשקל, ולא ברקע בלבד.
        אין כאן transition: הוא נדרס בערכות הכהות (dark-mode.css, [data-theme] *).
-       ההסבר המתקפל בכרטיס "הוראות לסוכן" (.agent-primer-setup) חולק עם הסעיף את הרשימה,
-       את תצוגת הקוד ואת הפוקוס, באותם כללים ולא בעותק שלהם. */
+       ההסבר המתקפל בכרטיס "הוראות לסוכן" (.agent-primer-setup) חולק עם הסעיף את הרשימה ואת
+       תצוגת הקוד, ועם "מה אפשר לבקש מהסוכן" את השורה המתקפלת והחץ — באותם כללים ולא בעותק שלהם. */
     .agent-primer-setup {
       line-height: 1.7;
       margin-bottom: 1rem;
-    }
-    .agent-primer-setup > summary {
-      cursor: pointer;
-      font-weight: 600;
     }
     .agent-primer-setup__steps {
       margin-top: 0.75rem;
@@ -2182,8 +2244,7 @@
       font-weight: 700;
     }
     .ai-connect__tab:focus-visible,
-    .ai-connect__panel:focus-visible,
-    .agent-primer-setup > summary:focus-visible {
+    .ai-connect__panel:focus-visible {
       outline: 2px solid currentColor;
       outline-offset: 2px;
     }
@@ -2255,6 +2316,72 @@
       text-align: center;
       opacity: 0.85;
       margin: 2rem 0 1rem;
+    }
+    /* "מה אפשר לבקש מהסוכן" בתוך "חיבור סוכן AI". השורה המתקפלת והחץ משותפים גם ל"איך מחברים
+       את זה ל-Claude Code?" בכרטיס "הוראות לסוכן" (.agent-primer-setup), כדי ששני הבלוקים
+       בעמוד ייראו ויתנהגו אותו דבר. */
+    .ai-connect__examples {
+      margin-top: 1.25rem;
+      border-top: 1px solid var(--glass-border);
+      padding-top: 1rem;
+    }
+    .ai-connect__examples summary,
+    .agent-primer-setup > summary {
+      cursor: pointer;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .ai-connect__examples summary:focus-visible,
+    .agent-primer-setup > summary:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
+    }
+    /* ``display: inline-flex`` מעלים את המשולש של ``<summary>``, ולכן החץ מראה שהשורה נפתחת. */
+    .ai-connect__examples-chevron,
+    .agent-primer-setup__chevron {
+      font-size: 0.8em;
+      opacity: 0.8;
+    }
+    .ai-connect__examples[open] .ai-connect__examples-chevron,
+    .agent-primer-setup[open] .agent-primer-setup__chevron {
+      transform: rotate(180deg);
+    }
+    .ai-connect__examples ul {
+      display: grid;
+      gap: 0.5rem;
+      margin: 0.75rem 0 0;
+      padding-inline-start: 1.5rem;
+      line-height: 1.6;
+    }
+    /* "הצג שוב את הצעדים הראשונים": כפתור שנראה כקישור קטן, כי הוא פעולה ולא ניווט. */
+    .first-steps-reset {
+      text-align: center;
+      margin: 2rem 0 0;
+      font-size: 0.9rem;
+    }
+    .first-steps-reset__btn {
+      background: none;
+      border: none;
+      padding: 0;
+      color: inherit;
+      font: inherit;
+      text-decoration: underline;
+      cursor: pointer;
+      opacity: 0.85;
+    }
+    .first-steps-reset__btn:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
+    }
+    .first-steps-reset__status {
+      display: block;
+      margin-top: 0.35rem;
+      color: var(--danger);
+    }
+    :root[data-theme="high-contrast"] .first-steps-reset__status {
+      color: #ffff00;
     }
   </style>
 

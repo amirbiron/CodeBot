@@ -16,6 +16,7 @@ from typing import Dict, Optional
 
 from flask import Blueprint, Response, jsonify, request, session
 
+from webapp.first_steps import record_device_theme_choice
 from webapp.ui_theme_defaults import get_default_ui_theme_raw
 
 from services.theme_parser_service import (
@@ -412,6 +413,8 @@ def apply_shared_theme(theme_id: str):
                 }
             )
             _set_theme_scope_cookies(resp, theme_cookie_value, theme_scope)
+            # הערכה עצמה לא נכתבת למסד במצב הזה; לצ'קליסט "צעדים ראשונים" היא בחירה לכל המכשירים.
+            record_device_theme_choice(get_db(), int(user_id))
             return resp
 
         db_ref = get_db()
@@ -849,6 +852,8 @@ def activate_theme_endpoint(theme_id: str):
         if theme_scope == THEME_SCOPE_DEVICE:
             resp = jsonify({"ok": True, "message": "הערכה הוחלה למכשיר הנוכחי", "active_theme_id": theme_id, "scope": theme_scope})
             _set_theme_scope_cookies(resp, theme_cookie_value, theme_scope)
+            # הערכה עצמה לא נכתבת למסד במצב הזה; לצ'קליסט "צעדים ראשונים" היא בחירה לכל המכשירים.
+            record_device_theme_choice(db_ref, user_id)
             return resp
 
         success = _activate_theme_simple(db_ref, user_id, theme_id)

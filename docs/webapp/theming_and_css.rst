@@ -148,6 +148,10 @@
      - Level 3
      - ההתאמות של החיפוש בתוך קובץ בתצוגה המרונדרת של דפדפן הריפו (:ref:`code-browser-rendered-search`): צהוב וטקסט שחור כמו שאר הדגשות החיפוש בדפדפן הריפו, והפעילה כתומה. אותו ערך בכל הערכות, ולכן **לא** ברשימה הלבנה. **הטבעת של הפעילה בשני צבעים בכוונה** — שחורה (``-text``) צמודה ולבנה (``-halo``) סביבה: אין צבע אחד שבולט על הרקע של התצוגה בכל ערכה (``--accent-blue`` נמדד 1.58:1 ב-rose-pine-dawn, ושחור 1.12:1 ב-high-contrast), ולכל רקע אחד משני הצבעים עומד ב-3:1 לפחות. ``test_the_active_ring_stands_out_in_every_theme`` מודד את זה בכל ערכה
      - ``webapp/static/css/repo-browser.css`` (הפלטה שב-``:root``)
+   * - ``--first-steps-done`` / ``--first-steps-track`` / ``--first-steps-item-bg`` / ``--first-steps-item-border`` / ``--first-steps-muted-opacity``
+     - Level 3
+     - הצ'קליסט "צעדים ראשונים" בדשבורד (:ref:`webapp-first-steps`): הוי, מילוי פס ההתקדמות והפס של הצעד הבא, המסלול של הפס, והרקע והמסגרת של כל צעד. נגזרים מ-``--success``, ``--glass-hover``, ``--glass`` ו-``--glass-border`` של הערכה, ולכן **לא** ברשימה הלבנה. ל-High Contrast בלוק משלו: צהוב, שחור ולבן, ובלי שקיפות
+     - ``webapp/templates/dashboard.html`` (בלוק ה-``<style>`` של הדשבורד: ``:root`` ו-``:root[data-theme="high-contrast"]``)
    * - ``--repo-md-code-block-bg-override`` / ``--repo-md-code-block-border-override``
      - Level 3
      - הרקע והגבול של בלוקי הקוד בתצוגת ה-Markdown של דפדפן הריפו. אותו מבנה: ברשימה הלבנה, ובכוונה **ללא** ערך ברירת מחדל

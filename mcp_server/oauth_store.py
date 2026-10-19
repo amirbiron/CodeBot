@@ -33,6 +33,10 @@ ACCESS_TTL_SECONDS = 3600  # 1 hour
 REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 TXN_TTL_SECONDS = 600  # 10 min
 
+#: The collection that holds issued access + refresh tokens — read by the store and by
+#: :func:`subject_has_live_token`, so the name is written once.
+TOKENS_COLLECTION = "mcp_oauth_tokens"
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -58,7 +62,7 @@ class OAuthStore:
         self._clients = db["mcp_oauth_clients"]
         self._txns = db["mcp_oauth_txns"]
         self._codes = db["mcp_oauth_codes"]
-        self._tokens = db["mcp_oauth_tokens"]
+        self._tokens = db[TOKENS_COLLECTION]
         self._ensure_indexes()
 
     def _ensure_indexes(self) -> None:
@@ -174,3 +178,37 @@ class OAuthStore:
             return bool(getattr(res, "modified_count", 0))
         except Exception:
             return False
+
+
+def subject_has_live_token(db: Any, subject: str) -> bool:
+    """Whether ``subject`` (a CodeKeeper ``user_id`` as str) holds an OAuth token that still works.
+
+    A token works when :meth:`OAuthStore.get_token` would hand it back: not revoked, and
+    ``_expired`` says no. Access and refresh tokens both count — a client whose access
+    token was revoked but whose refresh token lives can still mint a new one. Claude.ai and
+    Gemini connect through this server with no PAT, so this is their only trace.
+
+    **One document comes back: the non-revoked token that expires last.** If it still works,
+    the subject has a live token; if it does not, none of the others does either, since none
+    of them expires after it. So ``_expired`` on that one document is the whole answer, and
+    the rule stays ``_expired``. ``expires_at >= now`` in the query only bounds the scan: it
+    drops nothing ``_expired`` would keep, because :meth:`OAuthStore.save_token` gives every
+    row a date, and it is ``>=`` and not ``>`` so the two agree on the instant itself.
+
+    Why one document: refresh rotation revokes the token it was handed
+    (``exchange_refresh_token`` in ``mcp_server/oauth_provider.py``), and a revoked row stays
+    until its own ``expires_at`` (``REFRESH_TTL_SECONDS``), so a client that stays connected
+    keeps adding rows under its subject. Pulling them to test here would make the server fill
+    a whole first batch before anything came back — reading past every revoked row when few
+    are live. ``tests/test_first_steps_mongo.py`` measures what the server reads.
+
+    A function over the database and not a method, on purpose: ``OAuthStore()`` runs its
+    ``create_index`` calls on every instantiation, and this is asked while a page renders
+    (the "first steps" checklist on the webapp dashboard).
+    """
+    newest = db[TOKENS_COLLECTION].find_one(
+        {"subject": str(subject), "revoked": {"$ne": True}, "expires_at": {"$gte": _now()}},
+        {"expires_at": 1},
+        sort=[("expires_at", -1)],
+    )
+    return newest is not None and not _expired(newest.get("expires_at"))

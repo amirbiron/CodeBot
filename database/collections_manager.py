@@ -145,6 +145,12 @@ RESERVED_FOLDER_NAMES: set = {"reorder"}
 WORKSPACE_STATES: Tuple[str, ...] = ("todo", "in_progress", "done")
 DEFAULT_WORKSPACE_STATE: str = WORKSPACE_STATES[0]
 
+#: שם האוסף ש-``ensure_default_collections`` יוצר לכל משתמש. לאוסף הזה אין דגל
+#: מערכת, ולכן **הזיהוי שלו הוא השוואת השם הזה**. בתוך המודול ובבדיקה
+#: :func:`user_has_own_collection` הקבוע הוא המקור; העותקים שעוד מוקלדים מחוץ
+#: למודול, וההצעה לדגל אמיתי כמו ``is_default`` של הלוחות — Issue #3594.
+WORKSPACE_COLLECTION_NAME: str = "שולחן עבודה"
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -159,6 +165,29 @@ def _slugify(name: str) -> str:
     if not s:
         s = "collection"
     return s[:80].lower()
+
+
+def user_has_own_collection(db: Any, user_id: int) -> bool:
+    """האם המשתמש יצר לפחות אוסף אחד משלו: פעיל, גם בארכיון, ולא שולחן העבודה.
+
+    אוסף מחוק (``is_active: False``) אינו נספר, ואוסף בארכיון כן — הוא עדיין קיים.
+    שולחן העבודה מזוהה לפי השם (:data:`WORKSPACE_COLLECTION_NAME`), כמו בכל המודול,
+    ולכן אוסף שהמשתמש יצר בעצמו בדיוק בשם הזה אינו נבדל ממנו.
+
+    פונקציה על האוסף ולא מתודה, בכוונה: הבנאי של :class:`CollectionsManager` מריץ
+    ``create_indexes`` בכל יצירה, והשאלה הזו נשאלת בטעינת עמוד (הצ'קליסט "צעדים
+    ראשונים" בדשבורד). ``find_one`` ולא ספירה — רק "יש לפחות אחד". נמדד ב-``explain``
+    מול הפרודקשן (19.10.2026): האינדקס ``user_active_name``, מפתח אחד ומסמך אחד.
+    """
+    found = db.user_collections.find_one(
+        {
+            "user_id": int(user_id),
+            "is_active": True,
+            "name": {"$ne": WORKSPACE_COLLECTION_NAME},
+        },
+        {"_id": 1},
+    )
+    return found is not None
 
 
 @dataclass
@@ -264,7 +293,7 @@ class CollectionsManager:
         try:
             existing = self.collections.find_one({
                 "user_id": uid,
-                "name": "שולחן עבודה",
+                "name": WORKSPACE_COLLECTION_NAME,
             })
         except Exception:
             existing = None
@@ -276,7 +305,7 @@ class CollectionsManager:
         try:
             result = self.create_collection(
                 user_id=uid,
-                name="שולחן עבודה",
+                name=WORKSPACE_COLLECTION_NAME,
                 description="קבצים שאני עובד עליהם כרגע",
                 mode="manual",
                 icon="🖥️",
@@ -1668,7 +1697,7 @@ class CollectionsManager:
             workspace_doc = self.collections.find_one({
                 "_id": collection_id,
                 "user_id": uid,
-                "name": "שולחן עבודה",
+                "name": WORKSPACE_COLLECTION_NAME,
                 "is_active": True,
             })
         except Exception:
