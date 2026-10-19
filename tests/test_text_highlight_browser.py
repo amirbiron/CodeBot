@@ -201,6 +201,68 @@ def test_clear_restores_the_original_tree(page):
     assert result["nodesAfter"] == result["nodesBefore"], "אותו מספר צמתי טקסט כמו בהתחלה"
 
 
+def test_scroll_into_view_within_scrolls_only_up_to_the_root(page):
+    """``scrollIntoViewWithin`` גולל את המכלים שבין ההתאמה ל-``root`` בלבד, ורק כשצריך.
+
+    הבקרה היא ``scrollIntoView`` על אותה התאמה, באותו עץ: הוא כן גולל גם את המכל החיצוני או את החלון —
+    כלומר יש כאן אבות נגללים מעל ``root``, והבדיקה לא עוברת רק כי לא היה מה לגלול.
+    """
+    _reset(page)
+    result = page.evaluate(
+        """() => {
+          const root = document.getElementById('root');
+          root.innerHTML =
+            '<div id="outer" style="height:300px;overflow:auto">' +
+              '<div style="height:150px"></div>' +
+              '<div id="box" style="height:100px;overflow:auto">' +
+                '<div style="height:400px"></div><span id="far">far</span><div style="height:50px"></div>' +
+              '</div>' +
+              // מחוץ ל-``box`` אבל בתוך מכל נגלל: בלי הבדיקה שההתאמה בתוך ``root``, ההליכה ממנה
+              // הייתה גוללת את ``outer``.
+              '<div style="height:600px"></div><span id="elsewhere">elsewhere</span>' +
+            '</div>' +
+            '<div style="height:2000px"></div>';
+          const outer = document.getElementById('outer');
+          const box = document.getElementById('box');
+          const far = document.getElementById('far');
+          const scrolls = () => [box.scrollTop, outer.scrollTop, window.scrollY];
+          const visible = () => {
+            const h = far.getBoundingClientRect(), b = box.getBoundingClientRect();
+            return h.top >= b.top && h.bottom <= b.bottom;
+          };
+          const before = scrolls();
+          TextHighlight.scrollIntoViewWithin(box, far);
+          const after = scrolls();
+          const shown = visible();
+          TextHighlight.scrollIntoViewWithin(box, far);
+          const again = scrolls();
+          TextHighlight.scrollIntoViewWithin(box, document.getElementById('elsewhere'));
+          const outside = scrolls();
+          // ``root`` עצמו, כשהוא מחוץ לחלון של ``outer``: ``contains`` כולל את הצומת עצמו, ובלי הבדיקה
+          // על ``hit === root`` ההליכה הייתה מתחילה מעליו וגוללת את ``outer``.
+          outer.scrollTop = 500;
+          const hidden = scrolls();
+          TextHighlight.scrollIntoViewWithin(box, box);
+          const itself = scrolls();
+          outer.scrollTop = 0;
+          box.scrollTop = 0;
+          far.scrollIntoView({ block: 'center' });
+          const control = scrolls();
+          outer.scrollTop = 0;
+          window.scrollTo(0, 0);
+          return { before, after, shown, again, outside, hidden, itself, control };
+        }"""
+    )
+    assert result["before"] == [0, 0, 0]
+    box_top, outer_top, window_y = result["after"]
+    assert box_top > 0 and outer_top == 0 and window_y == 0, result
+    assert result["shown"], "ההתאמה בתוך החלון של המכל"
+    assert result["again"] == result["after"], "התאמה שכבר גלויה אינה גוללת שוב"
+    assert result["outside"] == result["after"], "התאמה מחוץ ל-root אינה גוללת דבר"
+    assert result["hidden"][1] == 500 and result["itself"] == result["hidden"], "root עצמו אינו גולל דבר"
+    assert result["control"][1] > 0 or result["control"][2] > 0, f"הבקרה לא גללה מעל root: {result}"
+
+
 def test_invalid_skip_selector_is_loud(page):
     """סלקטור שגוי הוא שגיאת קורא, ו-``matches`` זורק ``SyntaxError`` — לא בולעים."""
     _reset(page)

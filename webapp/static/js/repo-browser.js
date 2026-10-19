@@ -404,6 +404,8 @@ async function toggleMarkdownPreview() {
     } else {
         await enableMarkdownPreview();
     }
+    // חיפוש שפתוח בזמן המעבר עובר לתצוגה החדשה, עם המונה שלה.
+    refreshInFileSearch();
 
     // שמירת העדפה ב-localStorage
     localStorage.setItem('repo-browser-markdown-preview', state.markdownPreviewEnabled);
@@ -1846,6 +1848,10 @@ async function selectFile(path, element) {
         // הרינדור היה אסינכרוני — בדיקה חוזרת לפני שאר ההתחייבויות.
         if (mySeq !== fileSelectionSeq) return;
 
+        // החיפוש נסגר בתחילת הבחירה, אבל אפשר לפתוח אותו שוב בזמן הטעינה — ואז הוא רץ על
+        // מה שהוצג לפני שהקובץ הגיע.
+        refreshInFileSearch();
+
         // Save to recent files
         addToRecentFiles(path);
 
@@ -2442,12 +2448,16 @@ function focusSearch() {
     }
 }
 
-// In-file search state
-let searchState = {
-    matches: [],
-    currentIndex: -1,
-    query: ''
-};
+// In-file search state.
+// ``view`` היא התצוגה שהחיפוש רץ עליה: ``'code'`` — ההתאמות הן היסטים בטקסט שבעורך;
+// ``'rendered'`` — ההתאמות הן העטיפות ש-``TextHighlight`` יצר בתצוגה המרונדרת.
+function emptySearchState() {
+    return { matches: [], currentIndex: -1, query: '', view: 'code' };
+}
+let searchState = emptySearchState();
+
+/** המחלקה של התאמה בתצוגה המרונדרת. משלה, כדי שהניקוי כאן לא יסיר הדגשה של רכיב אחר. */
+const IN_FILE_SEARCH_HIT_CLASS = 'in-file-search-hit';
 
 // Recalculate and apply editor height based on available viewport space
 function recalculateEditorHeight() {
@@ -2520,40 +2530,72 @@ function closeInFileSearch() {
     // Remove search-active class
     if (wrapper) wrapper.classList.remove('search-active');
     clearSearchHighlights();
-    searchState = { matches: [], currentIndex: -1, query: '' };
+    searchState = emptySearchState();
     document.getElementById('in-file-search-count').textContent = '';
     // Recalculate height after search bar closes
     setTimeout(recalculateEditorHeight, 50);
 }
 
+/**
+ * השורש שהחיפוש בתוך הקובץ עובר עליו כשהתצוגה המרונדרת מוצגת (קובץ Markdown, או עמוד rst
+ * מאתר התיעוד — אותו מיכל בשניהם), או ``null`` בתצוגת הקוד.
+ */
+function renderedSearchRoot() {
+    if (!state.markdownPreviewEnabled) return null;
+    return document.getElementById('markdown-preview-content');
+}
+
+/**
+ * מחפש את ``query`` במה שמוצג עכשיו.
+ *
+ * **בתצוגה המרונדרת החיפוש עובר על ה-DOM שלה, ולא על המקור.** המקור אינו מה שמוצג: סימני
+ * Markdown נעלמים ברינדור, ובעמוד rst המקור הוא rst והתצוגה היא העמוד מאתר התיעוד — כך שגם
+ * הספירה לא הייתה נכונה. וההדגשה והגלילה של העורך אינן נראות, כי העורך מוסתר. לכן ההתאמות שם
+ * הן העטיפות של ``TextHighlight``, אותה הדגשה כמו בחיפוש במסמך ובחיפוש בתוך פתק. בתצוגת הקוד
+ * החיפוש נשאר על הטקסט שבעורך, כמו שהיה.
+ */
 function performInFileSearch(query) {
+    // ההדגשות של חיפוש קודם יושבות ב-DOM של התצוגה המרונדרת, גם אחרי מעבר לתצוגת הקוד.
+    clearSearchHighlights();
+    const countEl = document.getElementById('in-file-search-count');
     if (!query || query.length < 1) {
-        clearSearchHighlights();
-        searchState = { matches: [], currentIndex: -1, query: '' };
-        document.getElementById('in-file-search-count').textContent = '';
+        searchState = emptySearchState();
+        countEl.textContent = '';
         return;
     }
-    
+
+    searchState = emptySearchState();
     searchState.query = query;
-    searchState.matches = [];
-    searchState.currentIndex = -1;
-    
-    const content = getCurrentFileContentForActions();
-    
-    if (content === null || content === undefined) return;
-    
-    // Find all matches (case insensitive)
-    const regex = new RegExp(escapeRegex(query), 'gi');
-    let match;
-    while ((match = regex.exec(content)) !== null) {
-        searchState.matches.push({
-            index: match.index,
-            length: match[0].length
-        });
+
+    const renderedRoot = renderedSearchRoot();
+    if (renderedRoot) {
+        searchState.view = 'rendered';
+        // היעדר המודול הוא היעדר יכולת קבוע (הסקריפט לא נטען, והאזהרה נרשמה בטעינת העמוד).
+        // אומרים את זה, ולא מחפשים במקור במקום: זה בדיוק החיפוש שאינו מתאים למה שמוצג.
+        if (!window.TextHighlight) {
+            countEl.textContent = 'Unavailable';
+            return;
+        }
+        searchState.matches = window.TextHighlight.highlightWithin(
+            renderedRoot, query, { className: IN_FILE_SEARCH_HIT_CLASS }
+        );
+    } else {
+        const content = getCurrentFileContentForActions();
+
+        if (content === null || content === undefined) return;
+
+        // Find all matches (case insensitive)
+        const regex = new RegExp(escapeRegex(query), 'gi');
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+            searchState.matches.push({
+                index: match.index,
+                length: match[0].length
+            });
+        }
     }
-    
+
     // Update count display
-    const countEl = document.getElementById('in-file-search-count');
     if (searchState.matches.length > 0) {
         countEl.textContent = `${searchState.matches.length} found`;
         findNextMatch();
@@ -2585,7 +2627,16 @@ function goToMatch(index) {
     // Update count display
     const countEl = document.getElementById('in-file-search-count');
     countEl.textContent = `${index + 1} / ${searchState.matches.length}`;
-    
+
+    if (searchState.view === 'rendered') {
+        // הפעילה בולטת, וכל השאר נשארות מודגשות. הגלילה היא של התצוגה בלבד: ``scrollIntoView``
+        // היה גולל גם את העמוד (ראו ``scrollIntoViewWithin``). המודול טעון — ההתאמות הן עטיפות שהוא יצר.
+        searchState.matches.forEach((hit, i) => hit.classList.toggle('is-active', i === index));
+        const container = document.getElementById('markdown-preview-container');
+        if (container) window.TextHighlight.scrollIntoViewWithin(container, match);
+        return;
+    }
+
     // Navigate to match in editor
     if (state.editor) {
         const doc = state.editor.getDoc();
@@ -2606,8 +2657,26 @@ function goToMatch(index) {
     }
 }
 
+/**
+ * מסיר את ההדגשות מהתצוגה המרונדרת. בתצוגת הקוד אין מה להסיר: שם ההתאמה היא בחירה בעורך.
+ */
 function clearSearchHighlights() {
-    // Clear any search highlights if needed
+    const root = document.getElementById('markdown-preview-content');
+    // בלי המודול לא נוצרה אף הדגשה, ולכן אין מה לנקות.
+    if (!root || !window.TextHighlight) return;
+    window.TextHighlight.clearHighlights(root, IN_FILE_SEARCH_HIT_CLASS);
+}
+
+/**
+ * מריץ שוב חיפוש פתוח על מה שמוצג עכשיו. נקרא אחרי כל החלפה של התוכן המוצג — מעבר בין
+ * התצוגות, גרסה מההיסטוריה, וסוף טעינה של קובץ — כי ההתאמות שנמצאו שייכות למה שהוצג קודם:
+ * היסטים בטקסט אחר, או עטיפות ב-DOM שכבר הוחלף.
+ */
+function refreshInFileSearch() {
+    const searchBar = document.getElementById('in-file-search');
+    const input = document.getElementById('in-file-search-input');
+    if (!searchBar || !input || searchBar.style.display === 'none') return;
+    performInFileSearch(input.value);
 }
 
 function escapeRegex(string) {
@@ -2616,6 +2685,11 @@ function escapeRegex(string) {
 
 // Initialize in-file search input listener
 document.addEventListener('DOMContentLoaded', () => {
+    // היעדר המודול הוא היעדר יכולת קבוע לכל חיי העמוד, ולכן נרשם פעם אחת כאן — כמו בחיפוש
+    // במסמך (``md_preview.html``). בתצוגת הקוד החיפוש עובד גם בלעדיו.
+    if (!window.TextHighlight) {
+        console.warn('repo-browser: utils/text-highlight.js did not load; in-file search in the rendered view is disabled');
+    }
     const searchInput = document.getElementById('in-file-search-input');
     if (searchInput) {
         let debounceTimer;
@@ -2697,6 +2771,7 @@ window.RepoState = {
         if (state.markdownPreviewEnabled) {
             await renderPreview();
         }
+        refreshInFileSearch();
     }
 };
 

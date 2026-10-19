@@ -2,8 +2,9 @@
  * הדגשת התאמות חיפוש — תשובה אחת לשאלה "איך מדגישים התאמה".
  *
  * משותף לכל מי שמדגיש התאמות חיפוש בעמוד — למשל החיפוש במסמך
- * (``md_preview.html``), עמוד חיפוש הפתקים (``notes_search.js``) והחיפוש
- * בתוך פתק דביק (``sticky-notes.js``). הרשימה המלאה אינה כתובה כאן: בדיקת
+ * (``md_preview.html``), עמוד חיפוש הפתקים (``notes_search.js``), החיפוש
+ * בתוך פתק דביק (``sticky-notes.js``) והחיפוש בתוך קובץ בתצוגה המרונדרת
+ * של דפדפן הריפו (``repo-browser.js``). הרשימה המלאה אינה כתובה כאן: בדיקת
  * החיווט ב-``tests/text-highlight.test.js`` גוזרת אותה מהקוד. החיפוש בקוד
  * ב-``view_file.html`` עדיין **אינו** משתמש בו, ויש לו ממצאים משלו — #3477.
  * לפני הקובץ הזה היו שני מימושים נפרדים — ``highlightTerm`` במסמך
@@ -215,6 +216,52 @@
     return wrappers;
   }
 
+  /**
+   * מביא את ``hit`` אל העין בגלילה של המכלים שבינו לבין ``root`` בלבד (כולל
+   * ``root`` עצמו), ולא של העמוד.
+   *
+   * ‏``scrollIntoView`` גולל כל אב נגלל. בפתק מעוגן הוא היה מזיז את המסמך
+   * שמתחת לפתק, ובפתק על משטח את המשטח. ובדפדפן הריפו הוא גולל גם את
+   * ``body``, שגבוה מהמסך: נמדד בכרומיום ב-19.10.2026, בחלון 1280×800 הדף
+   * כולו זז 76px למעלה — ``tests/test_repo_browser_in_file_search_browser.py``
+   * נכשל עליו. כאן נגללים רק האבות שבין ההתאמה לבין ``root``: המכל עצמו,
+   * ועטיפה נגללת בתוכו, כמו טבלה רחבה או בלוק קוד. מכל שהוא
+   * ``overflow: hidden`` אינו נגלל, אחרת תוכן היה נעלם בלי שהמשתמש יוכל
+   * לגלול חזרה.
+   *
+   * גוללים רק כשההתאמה אינה גלויה במלואה, ואז ממרכזים אותה. החשבון הוא
+   * הפרש בין מלבנים, ו-``scrollLeft += הפרש`` נכון ב-RTL וב-LTR כאחד:
+   * ב-RTL ‏``scrollLeft`` מתחיל ב-0 בקצה הימני ושלילי לשמאל, ובשני
+   * הכיוונים הגדלתו מזיזה את החלון ימינה. מקור: MDN, ‏Element.scrollLeft.
+   * ‏``clientLeft`` כולל את פס הגלילה כשהוא בצד שמאל, כמו ב-RTL.
+   *
+   * התאמה שאינה בתוך ``root`` — למשל עטיפה מתצוגה שכבר הוחלפה — אינה גוללת
+   * דבר, וגם ``root`` עצמו (``contains`` כולל את הצומת עצמו — MDN,
+   * ‏Node.contains()). בלי הבדיקה הזו ההליכה הייתה ממשיכה עד ראש המסמך,
+   * וגוללת בדיוק את מה שהפונקציה קיימת כדי לא לגלול.
+   */
+  function scrollIntoViewWithin(root, hit) {
+    if (hit === root || !root.contains(hit)) return;
+    for (var box = hit.parentElement; box; box = box.parentElement) {
+      var cs = window.getComputedStyle(box);
+      var canY = (cs.overflowY === 'auto' || cs.overflowY === 'scroll') && box.scrollHeight > box.clientHeight;
+      var canX = (cs.overflowX === 'auto' || cs.overflowX === 'scroll') && box.scrollWidth > box.clientWidth;
+      if (canY || canX) {
+        var h = hit.getBoundingClientRect();
+        var b = box.getBoundingClientRect();
+        var top = b.top + box.clientTop;
+        var left = b.left + box.clientLeft;
+        if (canY && (h.top < top || h.bottom > top + box.clientHeight)) {
+          box.scrollTop += (h.top + h.height / 2) - (top + box.clientHeight / 2);
+        }
+        if (canX && (h.left < left || h.right > left + box.clientWidth)) {
+          box.scrollLeft += (h.left + h.width / 2) - (left + box.clientWidth / 2);
+        }
+      }
+      if (box === root) break;
+    }
+  }
+
   if (typeof window !== 'undefined') {
     window.TextHighlight = Object.freeze({
       DEFAULT_SKIP: DEFAULT_SKIP,
@@ -223,6 +270,7 @@
       appendHighlighted: appendHighlighted,
       highlightWithin: highlightWithin,
       clearHighlights: clearHighlights,
+      scrollIntoViewWithin: scrollIntoViewWithin,
     });
   }
 })();

@@ -3881,43 +3881,9 @@
             if (i >= 0) s.openedDetails.add(i);
           }
         }
-        this._scrollHitIntoView(view, hit);
-      }
-
-      /**
-       * גלילה אל ההתאמה **בתוך הפתק בלבד**.
-       *
-       * ‏``scrollIntoView`` גולל כל אב נגלל, ולכן בפתק מעוגן הוא היה מזיז את
-       * המסמך שמתחת לפתק, ובפתק על משטח — את המשטח. כאן נגללים רק
-       * האבות שבין ההתאמה לבין התצוגה (כולל): התצוגה עצמה, ועטיפה של טבלה
-       * רחבה. מכל שהוא ``overflow: hidden`` אינו נגלל — אחרת תוכן היה נעלם
-       * בלי שהמשתמש יוכל לגלול חזרה.
-       *
-       * גוללים רק כשההתאמה אינה גלויה במלואה, ואז ממרכזים אותה. החשבון הוא
-       * הפרש בין מלבנים, ו-``scrollLeft += הפרש`` נכון ב-RTL וב-LTR כאחד:
-       * ב-RTL ‏``scrollLeft`` מתחיל ב-0 בקצה הימני ושלילי לשמאל, ובשני
-       * הכיוונים הגדלתו מזיזה את החלון ימינה. מקור: MDN, ‏Element.scrollLeft.
-       * ‏``clientLeft`` כולל את פס הגלילה כשהוא בצד שמאל, כמו ב-RTL.
-       */
-      _scrollHitIntoView(view, hit){
-        for (let box = hit.parentElement; box; box = box.parentElement) {
-          const cs = getComputedStyle(box);
-          const canY = (cs.overflowY === 'auto' || cs.overflowY === 'scroll') && box.scrollHeight > box.clientHeight;
-          const canX = (cs.overflowX === 'auto' || cs.overflowX === 'scroll') && box.scrollWidth > box.clientWidth;
-          if (canY || canX) {
-            const h = hit.getBoundingClientRect();
-            const b = box.getBoundingClientRect();
-            const top = b.top + box.clientTop;
-            const left = b.left + box.clientLeft;
-            if (canY && (h.top < top || h.bottom > top + box.clientHeight)) {
-              box.scrollTop += (h.top + h.height / 2) - (top + box.clientHeight / 2);
-            }
-            if (canX && (h.left < left || h.right > left + box.clientWidth)) {
-              box.scrollLeft += (h.left + h.width / 2) - (left + box.clientWidth / 2);
-            }
-          }
-          if (box === view) break;
-        }
+        // גלילה בתוך הפתק בלבד, ולא של המסמך שמתחתיו — ראו ``scrollIntoViewWithin``
+        // ב-``utils/text-highlight.js``. ההתאמה היא עטיפה שהמודול יצר, ולכן הוא טעון.
+        window.TextHighlight.scrollIntoViewWithin(view, hit);
       }
 
       /**

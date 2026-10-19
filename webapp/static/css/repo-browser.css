@@ -31,6 +31,13 @@
     --border-color: #313244;
     --scrollbar-thumb: #45475a;
     --scrollbar-track: #1e1e2e;
+
+    /* התאמה של החיפוש בתוך הקובץ בתצוגה המרונדרת (``.in-file-search-hit``). אותו צהוב חזק
+       וטקסט שחור כמו שאר הדגשות החיפוש בדפדפן הריפו, בכל הערכות; הפעילה כתומה, כמו בחיפוש
+       המובנה של הדפדפן, כדי שתבלוט בעמוד מלא בהתאמות. */
+    --in-file-search-hit-bg: #ffeb3b;
+    --in-file-search-hit-active-bg: #ff9632;
+    --in-file-search-hit-text: #000;
 }
 
 /* Light theme override */
@@ -763,6 +770,22 @@
     color: var(--text-muted);
     min-width: 60px;
     text-align: center;
+}
+
+/* התאמה של החיפוש בתוך הקובץ בתצוגה המרונדרת (``performInFileSearch`` ב-repo-browser.js).
+   **בלי ``padding`` ובלי שינוי משקל**, כמו ``.sticky-note-search-hit``: מילה שמשנה רוחב שוברת
+   את השורות מחדש בכל הקלדה, ובבלוק קוד היא מזיזה את מה שאחריה. ה-``outline`` של הפעילה אינו
+   תופס מקום. **``span`` ולא ``mark``**: ``==סימון==`` של המשתמש הוא ``mark`` בעצמו. */
+.in-file-search-hit {
+    background: var(--in-file-search-hit-bg);
+    color: var(--in-file-search-hit-text);
+    border-radius: 2px;
+}
+
+.in-file-search-hit.is-active {
+    background: var(--in-file-search-hit-active-bg);
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 1px;
 }
 
 /* Code Editor Wrapper */
