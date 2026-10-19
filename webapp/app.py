@@ -17426,10 +17426,10 @@ def create_public_share(file_id):
         except Exception:
             share_type = ''
 
-        # מצב שיתוף — קובע רק אם ``/share/<id>/download`` מגיש קובץ להורדה.
-        # התוכן המלא נשמר בשני המצבים: העמוד הציבורי מציג את כל הקובץ.
-        share_mode = 'download' if share_type in {'download', 'full', 'raw'} else 'preview'
-
+        # אין יותר "מצב" שיתוף: עד התיקון הזה נשמר כאן ``mode`` (``download`` או
+        # ``preview``), וקבע רק אם ``/share/<id>/download`` מגיש קובץ. מאז שכל
+        # שיתוף שומר את התוכן המלא ההורדה פתוחה לכולם, ושדה שנשמר בלי שאיש קורא
+        # אותו היה מתאר הרשאה שאינה קיימת. שיתופים ישנים עדיין נושאים אותו.
         permanent_flag = False
         if share_type in {'permanent', 'forever'}:
             permanent_flag = True
@@ -17455,7 +17455,6 @@ def create_public_share(file_id):
             'created_at': now,
             'views': 0,
             'is_permanent': permanent_flag,
-            'mode': share_mode,
             'source_file_id': ObjectId(file_id),
             'source_user_id': int(user_id),
         }
@@ -21398,12 +21397,20 @@ def public_share(share_id):
         'version': 1,
         'can_pin': False,
     }
+    # ``view_file.html`` היא תבנית עמוד הקובץ של הבעלים, ו-``file.id`` כאן הוא
+    # מזהה השיתוף. ``is_public`` משאיר בה רק פעולות שיש להן נתיב ציבורי — העתקה
+    # (מ-``raw_code``, כמו בעמוד הבעלים), תצוגת Markdown, מצב קריאה והורדה. עד
+    # התיקון הזה הכפתורים הובילו ל-``/edit/<share_id>``, ``/md/<share_id>`` ו-
+    # ``/download/<share_id>``: אורח הופנה להתחברות, ומשתמש מחובר קיבל 404.
     return render_template(
         'view_file.html',
         file=file_data,
         highlighted_code=highlighted_code,
         syntax_css=css,
         bidi_warning=_bidi_warning_for_highlighted_code(code, lexer),
+        raw_code=code,
+        is_public=True,
+        share_is_markdown=is_markdown,
     )
 
 
@@ -21441,14 +21448,18 @@ def public_reader_mode(share_id):
 
 @app.route('/share/<share_id>/download')
 def public_share_download(share_id: str):
-    """הורדה ציבורית של שיתוף פנימי (רק לשיתופי download/full)."""
+    """הורדה ציבורית של שיתוף פנימי — לכל שיתוף שיש בו תוכן.
+
+    עד התיקון הזה ההורדה נפתחה רק לשיתוף ששדה ה-``mode`` שלו ``download``, כי
+    שיתוף "תצוגה מקדימה" שמר מאז #2235 רק את תחילת הקובץ. מאז שכל שיתוף שומר
+    את התוכן המלא, ההורדה מגישה בדיוק את מה שהעמוד מציג וכפתור "העתק קוד"
+    מעתיק. קובץ ריק יורד כקובץ ריק, כמו שהעמוד מציג אותו.
+    """
     doc = get_internal_share(share_id)
     if not doc:
         return render_template('404.html'), 404
-    if str(doc.get('mode') or '').lower() != 'download':
-        return render_template('404.html'), 404
-    code = doc.get('code') or ''
-    if not isinstance(code, str) or not code:
+    code = _shared_code_or_none(doc)
+    if code is None:
         return render_template('404.html'), 404
     file_name = str(doc.get('file_name') or 'shared.txt').strip() or 'shared.txt'
     safe = file_name.replace('..', '_').replace('/', '_').replace('\\', '_')
