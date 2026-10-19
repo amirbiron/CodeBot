@@ -1016,15 +1016,36 @@ try:
 except Exception:
     pass
 
-# --- Backup Scheduler (auto-backup to Drive & Disk) ---
-# חשוב: ה-scheduler חייב לרוץ רק בתוך תהליך ה-webapp עצמו (gunicorn/flask),
-# ולא כש-module זה מיובא מתהליך אחר (למשל הבוט ב-main.py שעושה
-# `from webapp.app import get_db`). אחרת יקום scheduler נוסף בשירות שאין לו
-# גישה ל-persistent disk ויזרוק PermissionError על /var/data.
+# --- תהליכוני רקע: רק בתהליך השרת של הוובאפ ---
+# חשוב: מתזמן הגיבויים ושולח הפושים חייבים לרוץ רק בתוך תהליך ה-webapp עצמו
+# (gunicorn/flask), ולא כש-module זה מיובא מתהליך אחר — הבוט ב-main.py שעושה
+# `from webapp.app import get_db`, סקריפטים, ותהליכי הטסטים. אחרת קם עותק נוסף
+# בשירות שאין לו את המשאבים: למתזמן חסר ה-persistent disk (PermissionError על
+# /var/data), ולשולח חסרים מפתחות ה-VAPID.
+
+#: שמות ה-console script של שרתי WSGI/ASGI שטוענים את ``webapp.app:app``, כפי שהם רשומים
+#: ב-``entry_points.txt`` של כל חבילה (gunicorn 23.0.0, uvicorn 0.38.0, flask 3.1.2,
+#: hypercorn 0.18.0, waitress 3.0.2). ``scripts/start_webapp.sh`` מריץ את gunicorn.
+_WEBAPP_SERVER_SCRIPTS = frozenset({"gunicorn", "uvicorn", "hypercorn", "waitress-serve", "flask"})
+#: אותם שרתים כשהם מורצים ב-``python -m <חבילה>``: אז ``sys.argv[0]`` הוא הנתיב המלא
+#: ל-``<חבילה>/__main__.py``, ולכל החמש יש קובץ כזה.
+_WEBAPP_SERVER_PACKAGES = frozenset({"gunicorn", "uvicorn", "hypercorn", "waitress", "flask"})
+
+
 def _is_webapp_runtime() -> bool:
-    # override מפורש לכל מקרה (סביבות לא סטנדרטיות / טסטים)
-    if str(os.getenv("FORCE_BACKUP_SCHEDULER", "")).lower() in {"1", "true", "yes"}:
-        return True
+    """האם התהליך הזה הוא שרת הוובאפ — לפי ``sys.argv[0]`` בלבד.
+
+    **ההשוואה היא לשם קובץ ההרצה, לא לתווים בנתיב.** עד התיקון הזה נבדק אם
+    אחת המילים "gunicorn", "flask" וכו' מופיעה **איפשהו** ב-``sys.argv[0]``,
+    כך שסקריפט כמו ``/srv/flask-migrations/reindex.py`` היה נחשב לשרת ומרים את
+    מתזמן הגיבויים ואת שולח הפושים. עכשיו נבדק רק שם הקובץ עצמו מול
+    ``_WEBAPP_SERVER_SCRIPTS``, או — כשהוא ``__main__.py`` של ``python -m`` —
+    שם החבילה שהוא יושב בה, מול ``_WEBAPP_SERVER_PACKAGES``.
+
+    בכוונה בלי דגלי override: כל צרכן מחליט בעצמו אם לאפשר עקיפה, ובשם
+    משלו. ``FORCE_BACKUP_SCHEDULER`` היה כאן, וכך היה מפעיל בשקט גם את שולח
+    הפושים, בעוד שהתיעוד שלו מבטיח רק את מתזמן הגיבויים.
+    """
     entry = (sys.argv[0] or "") if sys.argv else ""
     if not entry:
         return False
@@ -1035,15 +1056,17 @@ def _is_webapp_runtime() -> bool:
     except Exception:
         pass
     # שרת WSGI/ASGI שטוען את webapp.app:app
-    entry_lower = entry.lower().replace("\\", "/")
-    webapp_markers = ("gunicorn", "uvicorn", "hypercorn", "waitress", "flask")
-    if any(m in entry_lower for m in webapp_markers):
-        return True
-    return False
+    entry_path = entry.lower().replace("\\", "/")
+    name = os.path.basename(entry_path)
+    if name == "__main__.py":
+        return os.path.basename(os.path.dirname(entry_path)) in _WEBAPP_SERVER_PACKAGES
+    return name in _WEBAPP_SERVER_SCRIPTS
 
 try:
     if str(os.getenv("DISABLE_BACKUP_SCHEDULER", "")).lower() not in {"1", "true", "yes"}:
-        if _is_webapp_runtime():
+        # FORCE_BACKUP_SCHEDULER: override מפורש לסביבות לא סטנדרטיות, שבהן הזיהוי נכשל
+        _force_backup = str(os.getenv("FORCE_BACKUP_SCHEDULER", "")).lower() in {"1", "true", "yes"}
+        if _force_backup or _is_webapp_runtime():
             from webapp.backup_scheduler import start_backup_scheduler  # noqa: E402
             start_backup_scheduler()
         else:
@@ -1598,11 +1621,26 @@ except Exception as _e:
 try:
     from webapp.push_api import push_bp, start_sender_if_enabled  # noqa: E402
     app.register_blueprint(push_bp)
-    # הפעלת שולח פושים ברקע (רק אם מאופשר בקונפיג)
+    # הפעלת שולח פושים ברקע — רק בתהליך השרת של הוובאפ, באותו שומר כמו מתזמן
+    # הגיבויים (``_is_webapp_runtime``), ורק אם מאופשר בקונפיג. עד כאן הוא קם
+    # בכל ייבוא: בבוט (ג'וב חימום הקאש ב-main.py) הוא רץ כל דקה ונכשל על מפתח
+    # VAPID חסר (``push_send_missing_vapid_private`` בלוג של שירות הבוט), ובתהליכי
+    # הטסטים הוא החזיק את ``_DB_INIT_LOCK`` בזמן חיפוש שרת מונגו — ונתקע לתמיד
+    # כשהחיפוש התחיל בתוך ``freeze_time``, ואיתו כל טסט שחיכה לנעילה (CI של
+    # #3585). ההחלטה מי שולח: ``docs/deployment/workers.rst``.
     try:
-        start_sender_if_enabled()
+        if _is_webapp_runtime():
+            start_sender_if_enabled()
+        else:
+            logger.info(
+                "Skipping push sender: webapp.app imported from non-webapp process (argv0=%s)",
+                (sys.argv[0] if sys.argv else "<empty>"),
+            )
     except Exception:
-        pass
+        # עליית האפליקציה אינה נופלת על שולח הפושים — אבל הכשל נרשם, כי בלעדיו
+        # אין שום סימן לכך שתזכורות הפסיקו להישלח. ``start_sender_if_enabled``
+        # מעלה לכאן כשל בהרמת ה-thread, ולא בולע אותו בעצמו.
+        logger.warning("Failed to start push sender", exc_info=True)
 except Exception:
     # סביבת דוקס/CI ללא תלויות לא צריכה להיכשל על ייבוא זה
     pass
