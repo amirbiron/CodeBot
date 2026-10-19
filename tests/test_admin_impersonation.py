@@ -38,11 +38,31 @@ class _FakeRepoMetadataCollection:
         return None
 
 
+class _FakeEmptyCollection:
+    """אוסף בלי מסמכים: ``find_one`` מחזיר ``None`` ו-``find`` לא מחזיר כלום, כמו ב-pymongo."""
+
+    def find_one(self, *args, **kwargs):
+        return None
+
+    def find(self, *args, **kwargs):
+        return _FakeCursor([])
+
+
 class _FakeDB:
     def __init__(self):
         self.users = _FakeUsersCollection()
         self.code_snippets = _FakeCodeSnippetsCollection()
         self.repo_metadata = _FakeRepoMetadataCollection()
+        # מה שהצ'קליסט "צעדים ראשונים" בדשבורד בודק (``webapp/first_steps.py``). בלעדיהם
+        # הדשבורד נופל לדף השגיאה שלו, והטסט עדיין עובר — כי הכפתור שנבדק כאן הוא ב-base.html.
+        self.user_collections = _FakeEmptyCollection()
+        self.sticky_notes = _FakeEmptyCollection()
+        self.mcp_tokens = _FakeEmptyCollection()
+        self.mcp_oauth_tokens = _FakeEmptyCollection()
+
+    def __getitem__(self, name):
+        # ``Database`` של pymongo מגיש אוסף גם כ-``db[name]``, ומאגרי הטוקנים קוראים כך.
+        return getattr(self, name)
 
 
 class _FakeMirrorService:
@@ -193,7 +213,7 @@ class TestAdminImpersonation:
             # user_data לא אמור להשתנות - רק הדגל הנפרד
             assert current_user_data.get('is_admin') == original_user_data.get('is_admin')
     
-    def test_context_processor_calculates_effective_status(self, client, admin_user_session):
+    def test_context_processor_calculates_effective_status(self, client, admin_user_session, caplog):
         """בדיקה שה-Context Processor מחשב נכון את הסטטוס האפקטיבי."""
         # לפני Impersonation
         response = client.get('/settings')
@@ -205,3 +225,5 @@ class TestAdminImpersonation:
         response = client.get('/dashboard')
         # בדוק שכפתור היציאה קיים ב-UI
         assert b'btn-stop-impersonation' in response.data
+        # והדשבורד עצמו לא נפל לדף השגיאה שלו: הכפתור מגיע מ-base.html, ולכן הוא מופיע גם שם.
+        assert not [r for r in caplog.records if r.getMessage() == 'Error in dashboard']

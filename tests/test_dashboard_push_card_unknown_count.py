@@ -57,6 +57,10 @@ class _FakeDB:
     def __getattr__(self, _name):
         return _Quiet()
 
+    def __getitem__(self, name):
+        # ``Database`` של pymongo מגיש אוסף גם כ-``db[name]``, ומאגרי הטוקנים קוראים כך.
+        return getattr(self, name)
+
 
 def test_a_failed_count_is_unknown_not_zero(caplog):
     import webapp.app as app_mod

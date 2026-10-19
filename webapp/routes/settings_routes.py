@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 
+from webapp import first_steps
+
 logger = logging.getLogger(__name__)
 
 settings_bp = Blueprint("settings", __name__)
@@ -32,10 +34,12 @@ def _get_app_helpers():
     """
     Lazy import of helper functions from app.py.
     Returns a namespace with: is_admin, is_premium, is_impersonating_safe,
-    _check_persistent_login_cached, login_required, get_db, PERSISTENT_LOGIN_DAYS, _STATIC_VERSION
+    _check_persistent_login_cached, login_required, get_db, PERSISTENT_LOGIN_DAYS, _STATIC_VERSION,
+    _request_user_doc
     """
     from webapp.app import (
         _check_persistent_login_cached,
+        _request_user_doc,
         _STATIC_VERSION,
         get_db,
         is_admin,
@@ -51,6 +55,7 @@ def _get_app_helpers():
         is_premium=is_premium,
         is_impersonating_safe=is_impersonating_safe,
         _check_persistent_login_cached=_check_persistent_login_cached,
+        _request_user_doc=_request_user_doc,
         login_required=login_required,
         get_db=get_db,
         PERSISTENT_LOGIN_DAYS=PERSISTENT_LOGIN_DAYS,
@@ -129,6 +134,10 @@ def settings():
         "on",
     }
 
+    # "הצג שוב את הצעדים הראשונים" מוצג רק כשהצ'קליסט בדשבורד מוסתר או נעול. מסמך המשתמש הוא
+    # זה של הבקשה (``inject_globals`` קורא מאותה שליפה); כשהוא לא נטען, הקישור לא מוצג.
+    first_steps_dismissed = first_steps.is_dismissed(helpers._request_user_doc(user_id))
+
     return render_template(
         "settings.html",
         user=user_data,
@@ -138,6 +147,7 @@ def settings():
         persistent_days=helpers.PERSISTENT_LOGIN_DAYS,
         push_enabled=push_enabled,
         mcp_connect_url=_mcp_connect_url(),
+        first_steps_dismissed=first_steps_dismissed,
     )
 
 

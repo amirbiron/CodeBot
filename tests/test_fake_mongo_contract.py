@@ -36,6 +36,19 @@ def test_an_unimplemented_query_operator_raises_instead_of_matching_everything(c
         list(coll.find(query))
 
 
+def test_not_over_an_operator_matches_a_missing_field_like_mongo(coll):
+    """``$not`` כמו במונגו: שדה שאינו עונה לאופרטור — וגם שדה חסר, שגם הוא אינו עונה לו."""
+    coll.insert_one({"tags": ["z"]})
+    assert sorted(doc.get("a", 0) for doc in coll.find({"a": {"$not": {"$lt": 2}}})) == [0, 2]
+
+
+@pytest.mark.parametrize("inner", ["^1", 1, {}])
+def test_not_over_anything_but_operators_raises(coll, inner):
+    """``$not`` עם ביטוי רגולרי או עם ערך הוא צורה אחרת, שהדמה אינה מממשת."""
+    with pytest.raises(NotImplementedError, match="does not implement"):
+        list(coll.find({"a": {"$not": inner}}))
+
+
 @pytest.mark.parametrize(
     "update",
     [

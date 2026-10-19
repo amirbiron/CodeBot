@@ -2,7 +2,7 @@
 
 Repo convention is hand-rolled fakes (no mongomock). Several suites need the
 same duck-typed stand-in, so the collection semantics — filter matching
-(``$ne``, ``$in``, ``$nin``, ``$exists`` and the range operators), inclusion
+(``$ne``, ``$in``, ``$nin``, ``$exists``, the range operators, and ``$not`` over them), inclusion
 and exclusion projections, ``find_one`` with pymongo's positional projection and ``sort``,
 upsert with ``$setOnInsert``, ``$push`` with ``$each``/``$slice``, ``$unset``,
 ``update_many``, ``delete_many``, ``bulk_write`` of ``ReplaceOne``, counting, and
@@ -116,7 +116,7 @@ class _BulkRes:
 #: What the matcher and the writer implement. Anything else raises instead of
 #: silently matching everything (or silently doing nothing): a test that reaches
 #: the fake with ``$regex`` must fail loudly, not pass for the wrong reason.
-QUERY_OPERATORS = frozenset({"$ne", "$in", "$nin", "$exists", "$lt", "$lte", "$gt", "$gte"})
+QUERY_OPERATORS = frozenset({"$ne", "$in", "$nin", "$exists", "$lt", "$lte", "$gt", "$gte", "$not"})
 UPDATE_OPERATORS = frozenset({"$set", "$unset", "$push", "$setOnInsert"})
 PUSH_MODIFIERS = frozenset({"$each", "$slice"})
 
@@ -215,6 +215,16 @@ class FakeCollection:
                     return False
                 if "$gt" in v and not (actual is not None and actual > v["$gt"]):
                     return False
+                # ``$not`` over operators of the set above, like Mongo: the field must not match
+                # them, and a missing field does not match them — so it matches ``$not``
+                # (``tests/test_first_steps_mongo.py`` checks ``$not: {$lt: ...}`` on a real
+                # mongod). A regex or a bare value under ``$not`` is another form, and it raises.
+                if "$not" in v:
+                    inner = v["$not"]
+                    if not (isinstance(inner, dict) and inner and all(str(op).startswith("$") for op in inner)):
+                        raise _unsupported("$not form(s)", [repr(inner)])
+                    if FakeCollection._match(doc, {k: inner}):
+                        return False
             elif actual != v:
                 return False
         return True

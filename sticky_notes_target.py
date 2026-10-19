@@ -596,6 +596,20 @@ def board_notes_filter(user_id: int, board_id: Any) -> Dict[str, Any]:
     return {"user_id": int(user_id), "board_id": _clean(board_id)}
 
 
+def any_board_note_filter(user_id: int) -> Dict[str, Any]:
+    """שאילתת "פתק על לוח כלשהו" של המשתמש — לשאלה "יש לפחות אחד".
+
+    פתק לוח הוא מה ש-:func:`_target_kind` מזהה כ-``board``: ``board_id`` לא ריק.
+    ``$nin: [null, ""]`` מוציא בדיוק את מה שאינו כזה — שדה חסר (פתק קובץ או
+    ריפו), ``null`` ומחרוזת ריקה — כי השוואה ל-``null`` תופסת גם שדה חסר
+    (נמדד על הייצור, ראו ``docs/testing.rst``). ב-``user_board_idx`` אלה גבולות
+    הדוקים: נמדד ב-``explain`` מול ``mongod`` 8.0.4 מקומי (19.10.2026), עם אלף
+    פתקי קבצים ובלי פתק לוח — 2 מפתחות ואפס מסמכים; וכשיש פתק לוח, גם על
+    הייצור (8.0.34) — מפתח אחד ומסמך אחד.
+    """
+    return {"user_id": int(user_id), "board_id": {"$nin": [None, ""]}}
+
+
 def repo_notes_filter(user_id: int, repo_name: Any, repo_path: Any) -> Dict[str, Any]:
     """שאילתת פתקים של קובץ בריפו — לפי הזוג ``(repo_name, repo_path)``.
 

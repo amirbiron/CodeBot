@@ -48,6 +48,29 @@ def _iso(dt: Any) -> str | None:
     return aware.isoformat() if aware else None
 
 
+def _is_expired(expires_at: Any, now: datetime) -> bool:
+    """The expiry half of the validity rule, as :meth:`MCPTokenStore.verify` applies it.
+
+    A token without ``expires_at`` never expires (``issue`` without ``ttl_days``).
+    :func:`_not_expired_condition` is the same rule written as a query — change both together.
+    """
+    aware = _as_aware(expires_at)
+    return aware is not None and aware < now
+
+
+def _not_expired_condition(now: datetime) -> dict[str, Any]:
+    """:func:`_is_expired`, negated, as a query condition on ``expires_at``.
+
+    For a question the server answers with one document (:func:`user_has_live_token`).
+    ``$not`` matches a missing field and ``None`` too — a token that never expires — and
+    ``expires_at == now`` is not expired in either form. They agree to the millisecond,
+    the precision BSON stores. Python and a query are two languages, so this second copy of
+    the rule is on purpose: ``test_the_personal_token_rule_agrees_with_verify`` holds the two
+    to one answer, and ``tests/test_first_steps_mongo.py`` checks the condition on a real mongod.
+    """
+    return {"$not": {"$lt": now}}
+
+
 def hash_token(raw_token: str) -> str:
     """Return the stable lookup hash for a raw token."""
     return hashlib.sha256((raw_token or "").encode("utf-8")).hexdigest()
@@ -122,8 +145,7 @@ class MCPTokenStore:
         doc = self._coll.find_one({"token_hash": hash_token(raw_token), "revoked": {"$ne": True}})
         if not doc:
             return None
-        expires_at = _as_aware(doc.get("expires_at"))
-        if expires_at is not None and expires_at < _now():
+        if _is_expired(doc.get("expires_at"), _now()):
             return None
         try:  # best-effort "last used" touch; never block auth on it
             self._coll.update_one({"_id": doc["_id"]}, {"$set": {"last_used_at": _now()}})
@@ -151,3 +173,25 @@ class MCPTokenStore:
                 }
             )
         return out
+
+
+def user_has_live_token(db: Any, user_id: int, *, collection_name: str = COLLECTION_NAME) -> bool:
+    """Whether ``user_id`` holds at least one PAT that :meth:`MCPTokenStore.verify` would accept.
+
+    Same rule as ``verify`` — not revoked, and not past ``expires_at`` — so a token that opens
+    the server and a token that counts here cannot disagree. The server is asked for one
+    document, with the expiry half as a query condition (:func:`_not_expired_condition`), so
+    it stops at the first live token it reaches; every row the query matches is live, so
+    which one comes back does not matter. Pulling the user's tokens to test them here would
+    make the server fill a whole first batch before anything came back — reading past every
+    revoked row (they stay in the collection) when few are live.
+
+    A function over the collection and not a method, on purpose: the store's constructor runs
+    ``create_index`` on every instantiation, and this question is asked while a page renders
+    (the "first steps" checklist on the webapp dashboard).
+    """
+    found = db[collection_name].find_one(
+        {"user_id": int(user_id), "revoked": {"$ne": True}, "expires_at": _not_expired_condition(_now())},
+        {"_id": 1},
+    )
+    return found is not None
