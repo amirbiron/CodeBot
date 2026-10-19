@@ -470,6 +470,32 @@ def test_the_lock_is_not_saved_while_a_step_is_still_open(db):
     assert first_steps.DONE_PREF not in _user_doc(db)["ui_prefs"]
 
 
+def test_the_lock_is_not_written_over_a_show_again(db, caplog):
+    """"הצג שוב" שנוחת בין שליפת מסמך המשתמש לכתיבת הנעילה מנצח, כי התנאי יושב בכתיבה עצמה.
+
+    הקריאה הישירה ל-``_write_lock`` היא המרוץ עצמו: ההחלטה לנעול כבר התקבלה על מסמך ישן, ובמסד
+    המשתמש כבר ביקש לראות את הכרטיס. וגם לא נוצר מסמך שני למשתמש, כמו ש-``upsert`` היה יוצר כאן.
+    """
+    _raw(db, "users").insert_one({"user_id": USER_ID, "ui_prefs": {first_steps.HIDDEN_PREF: False}})
+
+    with caplog.at_level(logging.INFO, logger="webapp.first_steps"):
+        first_steps._write_lock(db, USER_ID)
+
+    docs = list(_raw(db, "users").find({"user_id": USER_ID}))
+    assert len(docs) == 1, docs
+    assert first_steps.DONE_PREF not in docs[0]["ui_prefs"], docs[0]
+    assert [r for r in caplog.records if r.getMessage().startswith("first steps: the lock was not written")]
+
+
+def test_without_a_user_document_the_lock_creates_nothing(db, caplog):
+    """בלי ``upsert``: הנעילה לא יוצרת מסמך משתמש (את זה עושה הכניסה), והבדיקות ירוצו שוב בטעינה הבאה."""
+    with caplog.at_level(logging.INFO, logger="webapp.first_steps"):
+        first_steps._write_lock(db, USER_ID)
+
+    assert _raw(db, "users").find_one({"user_id": USER_ID}) is None
+    assert [r for r in caplog.records if r.getMessage().startswith("first steps: the lock was not written")]
+
+
 # --- כשל במסד: "לא ידוע כרגע" ולא "לא בוצע" ----------------------------------------------------
 
 
@@ -545,7 +571,7 @@ def test_hiding_is_saved_on_the_server_and_stops_the_checks(client, dashboard, d
     assert db.checklist_calls() == []
 
 
-def test_show_again_clears_both_flags_and_the_checks_run_again(client, dashboard, db):
+def test_show_again_saves_the_request_lifts_the_lock_and_the_checks_run_again(client, dashboard, db):
     _raw(db, "users").update_one(
         {"user_id": USER_ID},
         {"$set": {f"ui_prefs.{first_steps.HIDDEN_PREF}": True, f"ui_prefs.{first_steps.DONE_PREF}": True}},
@@ -556,11 +582,59 @@ def test_show_again_clears_both_flags_and_the_checks_run_again(client, dashboard
     resp = _post_prefs(client, {first_steps.HIDDEN_PREF: False})
     assert resp.status_code == 200 and resp.get_json()["ok"] is True
     prefs = _user_doc(db).get("ui_prefs") or {}
-    assert first_steps.HIDDEN_PREF not in prefs and first_steps.DONE_PREF not in prefs, prefs
+    # ``False`` נשמר כמו שנשלח, כי הוא הבקשה לראות את הכרטיס; הנעילה נמחקת.
+    assert prefs.get(first_steps.HIDDEN_PREF) is False and first_steps.DONE_PREF not in prefs, prefs
 
     db.calls.clear()
     assert 'id="firstSteps"' in dashboard()
     assert db.checklist_calls(), "אחרי \"הצג שוב\" הבדיקות רצות שוב"
+
+
+def test_after_show_again_a_finished_user_sees_the_whole_card_on_every_load(client, dashboard, db):
+    """מי שסיים הכל ולחץ "הצג שוב" רואה את הכרטיס מלא, וגם בטעינה הבאה: הנעילה לא נכתבת עליו."""
+    _complete_every_step(db)
+    assert 'id="firstSteps"' not in dashboard(), "בלי \"הצג שוב\" הכרטיס ננעל, כמו קודם"
+    assert _user_doc(db)["ui_prefs"][first_steps.DONE_PREF] is True
+
+    assert _post_prefs(client, {first_steps.HIDDEN_PREF: False}).get_json()["ok"] is True
+
+    total = len(first_steps.STEPS)
+    for _ in range(2):
+        html = dashboard()
+        assert re.search(rf'data-testid="first-steps-count">\s*{total} מתוך {total}\s*<', html)
+        assert html.count('data-testid="first-step-done"') == total
+        assert 'id="firstStepsHide"' in html
+    prefs = _user_doc(db)["ui_prefs"]
+    assert first_steps.DONE_PREF not in prefs and prefs[first_steps.HIDDEN_PREF] is False, prefs
+
+
+def test_hiding_again_after_show_again_stops_every_check(client, dashboard, db):
+    _complete_every_step(db)
+    _raw(db, "users").update_one({"user_id": USER_ID}, {"$set": {f"ui_prefs.{first_steps.HIDDEN_PREF}": False}})
+    assert 'id="firstSteps"' in dashboard()
+
+    assert _post_prefs(client, {first_steps.HIDDEN_PREF: True}).get_json()["ok"] is True
+    db.calls.clear()
+    assert 'id="firstSteps"' not in dashboard()
+    assert db.checklist_calls() == []
+
+
+@pytest.mark.parametrize(
+    "prefs",
+    [{}, {first_steps.HIDDEN_PREF: None}, {first_steps.HIDDEN_PREF: True}, {first_steps.HIDDEN_PREF: False},
+     {first_steps.HIDDEN_PREF: "false"}, {first_steps.HIDDEN_PREF: ""}],
+    ids=["missing", "none", "true", "false", "string_false", "empty_string"],
+)
+def test_asking_to_see_again_and_its_query_condition_agree(db, prefs):
+    """``asked_to_see_again`` ו-``_NOT_ASKED_TO_SEE_AGAIN`` הם אותו כלל, בפייתון וכתנאי שאילתה.
+
+    כאן על הדמה. ``0`` ומערכים נבדקים מול mongod ב-``tests/test_first_steps_mongo.py``: הדמה משווה
+    בפייתון, שבו ``0 == False``.
+    """
+    doc = {"user_id": USER_ID, "ui_prefs": prefs}
+    _raw(db, "users").insert_one(dict(doc))
+    lockable = _raw(db, "users").find_one({"user_id": USER_ID, **first_steps._NOT_ASKED_TO_SEE_AGAIN}) is not None
+    assert lockable is not first_steps.asked_to_see_again(doc)
 
 
 @pytest.mark.parametrize("value", ["false", 0, 1, None, "true"])
@@ -647,6 +721,13 @@ def test_the_card_renders_the_steps_closed_with_their_texts_and_targets(dashboar
     assert 'id="firstStepsHide"' in html
 
 
+def test_the_hint_under_the_hide_button_says_where_the_card_comes_back(dashboard, db):
+    html = dashboard()
+    hint = re.search(r'<p class="first-steps-hide-hint" id="(?P<id>[^"]+)">(?P<text>[^<]*)</p>', html)
+    assert hint and hint["text"] == "אפשר להחזיר את הכרטיס מתחתית עמוד ההגדרות", hint
+    assert re.search(rf'id="firstStepsHide"[^>]*aria-describedby="{hint["id"]}"', html), "הכפתור מקושר לשורה"
+
+
 def test_the_counter_comes_from_the_same_states_as_the_checks(dashboard, db):
     CollectionsManager(db).create_collection(user_id=USER_ID, name="Roadmap")
     _raw(db, "sticky_notes").insert_one({"user_id": USER_ID, "content": "y", **build_note_target(board_id="b1")})
@@ -677,6 +758,24 @@ def test_settings_shows_show_again_only_when_the_checklist_is_dismissed(client, 
     html = client.get("/settings").get_data(as_text=True)
     assert 'id="firstStepsShowAgain"' in html
     assert "הצג שוב את הצעדים הראשונים" in html
+
+    # אחרי "הצג שוב" הכרטיס מוצג בדשבורד, ולכן כאן אין מה להחזיר.
+    _raw(db, "users").update_one({"user_id": USER_ID}, {"$set": {f"ui_prefs.{first_steps.HIDDEN_PREF}": False}})
+    html = client.get("/settings").get_data(as_text=True)
+    assert 'id="firstStepsShowAgain"' not in html
+
+
+def test_show_again_sits_at_the_bottom_of_settings(client, db):
+    """השורה בכרטיס, "אפשר להחזיר את הכרטיס מתחתית עמוד ההגדרות", מתארת את המקום הזה: אחרי כל
+    כרטיסי ההגדרות ולפני קישור העזרה. מי שמזיז את הכפתור נופל כאן, ומשנה גם את השורה."""
+    _raw(db, "users").update_one(
+        {"user_id": USER_ID}, {"$set": {f"ui_prefs.{first_steps.HIDDEN_PREF}": True}}, upsert=True,
+    )
+    html = client.get("/settings").get_data(as_text=True)
+    button = html.index('id="firstStepsShowAgain"')
+    help_link = html.index('class="settings-help-link"')
+    cards = [m.start() for m in re.finditer(r'class="[^"]*\bglass-card\b', html[:help_link])]
+    assert cards and cards[-1] < button < help_link, (cards[-1:], button, help_link)
 
 
 def test_settings_has_the_theme_anchor_and_the_closed_agent_examples(client, db):

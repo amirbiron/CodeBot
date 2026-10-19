@@ -14,8 +14,9 @@
 **שגיאות קונסול:** כל ``pageerror`` נכשל, וכל שגיאת קונסול שמקורה ב-``127.0.0.1``. שגיאה על
 משאב ממארח אחר היא הבקשה שנקטעה כאן, ולא תקלה בעמוד.
 
-**"הצג שוב"** מוחק גם את הנעילה, ולכן אחריו הבדיקות רצות שוב — וכשכל הצעדים עדיין בוצעו, הנעילה
-נכתבת מחדש באותה טעינה. הבדיקה כאן היא על משתמש שהסתיר לפני שסיים.
+**"הצג שוב"** נשמר כבקשה לראות את הכרטיס (``first_steps_hidden: false``) ומוחק את הנעילה, ולכן
+אחריו הבדיקות רצות שוב. ומי שסיים הכל רואה את הכרטיס מלא עד שהוא מסתיר אותו שוב — גם אחרי ריענון
+והחלפת ערכה. נבדקים כאן גם משתמש שהסתיר לפני שסיים וגם משתמש שסיים.
 
 מדולג כשאין Chromium (וב-CI אין: ראו ``docs/testing.rst``), וכשאין מונגו (``wired_mongo``).
 """
@@ -343,7 +344,80 @@ def test_hiding_holds_after_refresh_and_on_another_device_and_show_again_returns
         assert state["present"] and state["count"] == "0 מתוך 4", state
         assert _checklist_queries(entries), "אחרי \"הצג שוב\" הבדיקות רצות שוב"
         prefs = _ui_prefs(wired_mongo)
-        assert "first_steps_hidden" not in prefs and "first_steps_done" not in prefs, prefs
+        assert prefs.get("first_steps_hidden") is False and "first_steps_done" not in prefs, prefs
+
+
+def test_show_again_after_finishing_keeps_the_whole_card_until_it_is_hidden(
+        wired_mongo, admin_live_server, chromium_executable):
+    from webapp.first_steps import STEPS
+
+    total = len(STEPS)
+    with _browser_pages(admin_live_server, chromium_executable) as pages:
+        page = pages.device()
+        pages.goto(page, "/dashboard")
+        _complete_every_step(page, wired_mongo)
+        page.reload(wait_until="load")
+        assert _card_state(page) == {"present": False}
+        assert _ui_prefs(wired_mongo).get("first_steps_done") is True
+
+        # הכפתור בתחתית ההגדרות, כמו שהשורה בכרטיס אומרת: מתחת לכל כרטיס, ומעל קישור העזרה.
+        pages.goto(page, "/settings")
+        place = page.evaluate("""() => {
+          const btn = document.getElementById('firstStepsShowAgain');
+          const top = btn.getBoundingClientRect().top + scrollY;
+          const cards = Array.from(btn.closest('.first-steps-reset').parentElement.querySelectorAll('.glass-card'))
+            .filter(c => c.checkVisibility());
+          const help = document.querySelector('.settings-help-link');
+          return {cards: cards.length, visible: btn.checkVisibility(),
+                  belowEveryCard: cards.every(c => c.getBoundingClientRect().bottom + scrollY <= top),
+                  aboveHelp: !!help && help.getBoundingClientRect().top + scrollY > top};
+        }""")
+        assert place["cards"] > 0 and place["visible"] and place["belowEveryCard"] and place["aboveHelp"], place
+        with page.expect_navigation(url=f"{admin_live_server.base_url}/dashboard", wait_until="load"):
+            page.click("#firstStepsShowAgain")
+
+        state = _card_state(page)
+        assert state["present"] and state["count"] == f"{total} מתוך {total}", state
+        assert {(s["state"], s["open"]) for s in state["steps"]} == {("first-step-done", False)}, state
+        hrefs = page.evaluate("""() => Object.fromEntries(Array.from(
+          document.querySelectorAll('#firstSteps .first-steps-item'),
+          li => [li.id, li.querySelector('.first-steps-action').getAttribute('href')]))""")
+        assert hrefs == {f"first-step-{step['key']}": step["action_href"] for step in STEPS}, hrefs
+        for key in STEP_KEYS:
+            page.click(f"#first-step-{key} summary")
+            step = _steps_by_id(_card_state(page))[key]
+            assert step["open"] and step["bodyVisible"], step
+
+        hint = page.evaluate("""() => {
+          const btn = document.getElementById('firstStepsHide');
+          const hint = document.getElementById(btn.getAttribute('aria-describedby'));
+          const card = document.getElementById('firstSteps').getBoundingClientRect();
+          const b = btn.getBoundingClientRect(), h = hint.getBoundingClientRect();
+          return {text: hint.textContent.trim(), visible: hint.checkVisibility(), below: h.top >= b.bottom - 1,
+                  inside: h.left >= card.left && h.right <= card.right && h.bottom <= card.bottom};
+        }""")
+        assert hint == {"text": "אפשר להחזיר את הכרטיס מתחתית עמוד ההגדרות", "visible": True,
+                        "below": True, "inside": True}, hint
+
+        # נשאר אחרי ריענון ואחרי החלפת ערכה, והנעילה לא נכתבת.
+        page.reload(wait_until="load")
+        assert _card_state(page)["count"] == f"{total} מתוך {total}"
+        changed = _api(page, "POST", "/api/ui_prefs", {"theme": "ocean"})
+        assert changed["status"] == 200 and changed["data"]["ok"], changed
+        page.reload(wait_until="load")
+        assert page.evaluate("() => document.documentElement.getAttribute('data-theme')") == "ocean"
+        assert _card_state(page)["count"] == f"{total} מתוך {total}"
+        prefs = _ui_prefs(wired_mongo)
+        assert prefs.get("first_steps_hidden") is False and "first_steps_done" not in prefs, prefs
+
+        with page.expect_response(lambda r: urlsplit(r.url).path == "/api/ui_prefs"
+                                  and r.request.method == "POST") as hid:
+            page.click("#firstStepsHide")
+        assert hid.value.ok
+        poll(page, "() => !document.getElementById('firstSteps')", "הכרטיס ירד אחרי שהשרת אישר")
+        assert _ui_prefs(wired_mongo).get("first_steps_hidden") is True
+        pages.goto(page, "/settings")
+        assert page.is_visible("#firstStepsShowAgain")
 
 
 # --- ערכה "רק במכשיר הזה" ------------------------------------------------------------------------
@@ -405,3 +479,4 @@ def test_phone_widths_have_no_horizontal_scroll(viewport, wired_mongo, admin_liv
         assert layout["overflow"] == 0, layout
         assert layout["cardLeft"] >= 0 and layout["cardRight"] <= layout["width"], layout
         assert layout["escaped"] == [], layout
+        assert page.is_visible("#firstStepsHideHint"), "השורה מתחת ל\"הבנתי, להסתיר\" מוצגת גם בטלפון"

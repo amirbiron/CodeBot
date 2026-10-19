@@ -12,7 +12,9 @@
   כך לא מחזירה את הכרטיס.
 - :data:`HIDDEN_PREF` — **הסתרה ידנית** ("הבנתי, להסתיר"). נכתב דרך ``/api/ui_prefs``.
 
-כשאחד מהם קיים, אף שאילתה של הצ'קליסט לא רצה. "הצג שוב" בהגדרות מוחק את שניהם.
+כשאחד מהם ``True``, אף שאילתה של הצ'קליסט לא רצה. "הצג שוב" בהגדרות שומר את :data:`HIDDEN_PREF`
+כ-``False`` ומוחק את הנעילה: מי שביקש לראות את הכרטיס רואה אותו עד שהוא מסתיר אותו שוב, גם כשכל
+הצעדים בוצעו (:func:`asked_to_see_again`). הנעילה האוטומטית היא רק למי שלא ביקש.
 
 **צעד שהבדיקה שלו נכשלה במסד אינו "לא בוצע".** הוא "לא ידוע כרגע" (``None``), כמו
 ``pending_count`` ש-``_build_push_card`` מחזיר ``None`` כשהספירה נכשלה. הוא לא נספר, והנעילה
@@ -56,9 +58,10 @@ logger = logging.getLogger(__name__)
 #: :func:`record_device_theme_choice`) המצב הוצהר לכל כשל של המסד, ולכן שם נתפס ``PyMongoError``.
 DB_UNAVAILABLE_ERRORS = (ConnectionFailure, ExecutionTimeout)
 
-#: נעילה: כל הצעדים הושלמו, והכרטיס לא חוזר. נכתב ב-:func:`_write_lock`.
+#: נעילה: כל הצעדים הושלמו, והכרטיס לא חוזר עד "הצג שוב", שמוחק אותה. נכתב ב-:func:`_write_lock`.
 DONE_PREF = "first_steps_done"
-#: הסתרה ידנית של הכרטיס. נכתב ונמחק ב-``api_ui_prefs`` (``webapp/app.py``).
+#: הסתרה ידנית של הכרטיס. נכתב ב-``api_ui_prefs`` (``webapp/app.py``): ``True`` הוא "הבנתי, להסתיר",
+#: ו-``False`` הוא "הצג שוב" — המשתמש ביקש לראות את הכרטיס (:func:`asked_to_see_again`).
 HIDDEN_PREF = "first_steps_hidden"
 #: נבחרה ערכה "רק במכשיר הזה" (באחד המכשירים). נכתב ב-:func:`record_device_theme_choice`.
 DEVICE_THEME_CHOSEN_PREF = "device_theme_chosen"
@@ -152,11 +155,32 @@ def _ui_prefs(user_doc: Any) -> Mapping[str, Any]:
 def is_dismissed(user_doc: Any) -> bool:
     """האם הכרטיס ננעל או הוסתר — ואז אין לו מה להציג, ואין מה לבדוק.
 
-    ``is True`` ולא אמת כלשהי: הכותבים כותבים רק ``True``, וערך אחר שהגיע למסמך
-    (מחרוזת ``"false"``, למשל) לא יסתיר את הכרטיס בשקט.
+    ``is True`` ולא אמת כלשהי: ``False`` ב-:data:`HIDDEN_PREF` הוא "הצג שוב", כלומר ההפך מהסתרה,
+    וערך אחר שהגיע למסמך (מחרוזת ``"false"``, למשל) לא יסתיר את הכרטיס בשקט.
     """
     prefs = _ui_prefs(user_doc)
     return prefs.get(DONE_PREF) is True or prefs.get(HIDDEN_PREF) is True
+
+
+def asked_to_see_again(user_doc: Any) -> bool:
+    """האם המשתמש לחץ "הצג שוב" — :data:`HIDDEN_PREF` הוא ``False``, ולא חסר.
+
+    מי שביקש לראות את הכרטיס רואה אותו עד שהוא מסתיר אותו שוב, גם כשכל הצעדים בוצעו: את
+    הנעילה האוטומטית מקבל רק מי שלא ביקש. ``is False`` ולא שקר כלשהו: שדה חסר (מעולם לא לחץ),
+    ``None`` או ``0`` אינם בקשה. :data:`_NOT_ASKED_TO_SEE_AGAIN` הוא אותו כלל כתנאי שאילתה, הפוך —
+    משנים את שניהם יחד.
+    """
+    return _ui_prefs(user_doc).get(HIDDEN_PREF) is False
+
+
+#: :func:`asked_to_see_again` כתנאי שאילתה, הפוך: מסמך שבו המשתמש **לא** ביקש לראות את הכרטיס, ולכן
+#: מותר לנעול אותו. ``$ne`` תופס גם מסמך שאין בו את השדה (התיעוד של ``$ne`` ב-MongoDB 8.0), כלומר
+#: מי שמעולם לא לחץ. שני הכללים עונים אותו דבר כל עוד אין מערך בדרך, לא בערך עצמו ולא ב-``ui_prefs``:
+#: מול מערך ``$ne`` בודק אם ``False`` הוא אחד האיברים, ולכן מערך שמכיל ``False`` חוסם את הנעילה
+#: אף ש-:func:`asked_to_see_again` עונה עליו "לא ביקש". ``api_ui_prefs``, הכותב היחיד, כותב רק
+#: ``True`` או ``False`` ודוחה כל ערך אחר. ``tests/test_first_steps.py`` ו-
+#: ``tests/test_first_steps_mongo.py`` בודקים את שניהם יחד, ובמונגו האמיתי גם את המקרים החלוקים.
+_NOT_ASKED_TO_SEE_AGAIN: Dict[str, Any] = {f"ui_prefs.{HIDDEN_PREF}": {"$ne": False}}
 
 
 def theme_step_done(user_doc: Any, *, stored_theme: str, device_theme: str) -> bool:
@@ -223,19 +247,31 @@ def _step_states(db: Any, user_id: int, user_doc: Any, *, stored_theme: str, dev
 
 
 def _write_lock(db: Any, user_id: Any) -> None:
-    """שומר את :data:`DONE_PREF`. כשל של המסד נרשם ולא עוצר את הדף: הכרטיס כבר לא מוצג, כי כל
-    הצעדים באמת בוצעו, ובטעינה הבאה הבדיקות ירוצו שוב וינסו לנעול שוב."""
-    now = datetime.now(timezone.utc)
+    """שומר את :data:`DONE_PREF`, ורק במסמך שבו המשתמש לא ביקש לראות את הכרטיס.
+
+    התנאי (:data:`_NOT_ASKED_TO_SEE_AGAIN`) יושב בכתיבה עצמה ולא רק בהחלטה שלפניה, כי ההחלטה
+    נשענת על מסמך המשתמש שנשלף בתחילת הבקשה. כך "הצג שוב" שנוחת באמצע הטעינה מנצח, והנעילה לא
+    נכתבת עליו (U1 ב-amir-bug-patterns). **בלי** ``upsert``: כשהתנאי לא מתקיים, ``upsert`` מנסה
+    ליצור מסמך נוסף לאותו משתמש. נמדד מול mongod 8.0.4 ו-pymongo 4.15.3: עם האינדקס הייחודי על
+    ``user_id`` זה ``DuplicateKeyError``, ובלעדיו נוצר מסמך כפול. כשאין למשתמש מסמך בכלל (הכניסה
+    יוצרת אותו) הנעילה לא נכתבת, והבדיקות ירוצו שוב בטעינה הבאה.
+
+    כשל של המסד נרשם ולא עוצר את הדף: הכרטיס כבר לא מוצג, כי כל הצעדים באמת בוצעו, ובטעינה הבאה
+    הבדיקות ירוצו שוב וינסו לנעול שוב.
+    """
     try:
-        db.users.update_one(
-            {"user_id": user_id},
-            {"$set": {f"ui_prefs.{DONE_PREF}": True, "updated_at": now}, "$setOnInsert": {"created_at": now}},
-            upsert=True,
+        result = db.users.update_one(
+            {"user_id": user_id, **_NOT_ASKED_TO_SEE_AGAIN},
+            {"$set": {f"ui_prefs.{DONE_PREF}": True, "updated_at": datetime.now(timezone.utc)}},
         )
     # כל כשל של המסד ולא רק ניתוק: הנעילה היא עזר, והמצב "לא נשמר, ינסו שוב" נכון לכל כשל
     # בכתיבה — גם להרשאה. בלי זה, כתיבת עזר שנכשלה הייתה מעבירה את כל הדשבורד לדף השגיאה שלו.
     except PyMongoError:
         logger.warning("first steps: the lock was not saved; the checks will run again next time", exc_info=True)
+        return
+    # ``update_one`` לא זורק כשהתנאי לא תפס אף מסמך — הוא מחזיר ``matched_count`` של 0.
+    if not result.matched_count:
+        logger.info("first steps: the lock was not written; no user document, or the user asked to see the card again")
 
 
 def build_card(
@@ -253,7 +289,9 @@ def build_card(
     1. ``user_doc`` הוא ``None`` — מסמך המשתמש לא נטען (המסד נכשל), ולכן אי אפשר לדעת אם
        הכרטיס הוסתר. אין כרטיס, ואין שאילתות: משתמש שהסתיר לא יראה אותו חוזר בגלל תקלה.
     2. הכרטיס ננעל או הוסתר (:func:`is_dismissed`) — אין כרטיס, ואין שאילתות.
-    3. אחרת רצות הבדיקות. כשכל הצעדים בוצעו נכתבת הנעילה, והכרטיס לא מוצג.
+    3. אחרת רצות הבדיקות. כשכל הצעדים בוצעו נכתבת הנעילה, והכרטיס לא מוצג — אלא אם המשתמש לחץ
+       "הצג שוב" (:func:`asked_to_see_again`). אז הכרטיס מוצג מלא, כשכל הצעדים מסומנים, בלי
+       נעילה, עד שהוא מסתיר אותו.
 
     ``user_id`` הוא הערך מה-session, כמו שהוא — באותה צורה שבה ``inject_globals`` ו-
     ``/api/ui_prefs`` שולפים וכותבים את מסמך המשתמש.
@@ -262,7 +300,7 @@ def build_card(
         return None
 
     states = _step_states(db, user_id, user_doc, stored_theme=stored_theme, device_theme=device_theme)
-    if all(state is True for state in states.values()):
+    if all(state is True for state in states.values()) and not asked_to_see_again(user_doc):
         _write_lock(db, user_id)
         return None
 

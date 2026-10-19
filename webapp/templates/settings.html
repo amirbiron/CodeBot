@@ -1525,9 +1525,12 @@
   {% endif %}
 
   {# "הצג שוב" של הצ'קליסט "צעדים ראשונים" בדשבורד (webapp/first_steps.py). מוצג רק כשהצ'קליסט
-     מוסתר או נעול. הלחיצה שולחת ``first_steps_hidden: false`` ל-/api/ui_prefs, שמוחק את שני
-     הדגלים, ורק אחרי שהשרת אישר — עוברת לדשבורד. הסקריפט כאן ולא ב-``extra_js``, שמרונדר
-     בעמוד הזה פעמיים. #}
+     מוסתר או נעול. הלחיצה שולחת ``first_steps_hidden: false`` ל-/api/ui_prefs, ששומר את הבקשה
+     ומוחק את הנעילה, ורק אחרי שהשרת אישר — עוברת לדשבורד. משם הכרטיס מוצג עד שמסתירים אותו שוב.
+     הסקריפט כאן ולא ב-``extra_js``, שמרונדר בעמוד הזה פעמיים.
+     **המקום הזה מתואר בכרטיס עצמו:** השורה מתחת ל"הבנתי, להסתיר" (``#firstStepsHideHint`` ב-
+     ``dashboard.html``) אומרת שהכפתור בתחתית העמוד, אחרי כל הכרטיסים ולפני קישור העזרה. מי שמזיז
+     אותו משנה גם את השורה; ``test_show_again_sits_at_the_bottom_of_settings`` מקבע את המיקום. #}
   {% if first_steps_dismissed %}
   <p class="first-steps-reset">
     <button type="button" class="first-steps-reset__btn" id="firstStepsShowAgain">הצג שוב את הצעדים הראשונים</button>

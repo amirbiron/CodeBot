@@ -99,7 +99,13 @@
         </ol>
         <footer class="first-steps-footer">
             <p class="first-steps-tagline"><em>CodeKeeper: ידע שנשמר גם אחרי שהחיבור נגמר</em> 💫</p>
-            <button type="button" class="btn btn-secondary first-steps-hide" id="firstStepsHide">הבנתי, להסתיר</button>
+            <div class="first-steps-hide-group">
+                <button type="button" class="btn btn-secondary first-steps-hide" id="firstStepsHide" aria-describedby="firstStepsHideHint">הבנתי, להסתיר</button>
+                {# המקום שהשורה מתארת: ``#firstStepsShowAgain`` ב-``settings.html``, אחרי כל הכרטיסים ולפני
+                   קישור העזרה. ``test_show_again_sits_at_the_bottom_of_settings`` ב-``tests/test_first_steps.py``
+                   מקבע אותו, ומי שמזיז את הכפתור משנה גם את השורה. #}
+                <p class="first-steps-hide-hint" id="firstStepsHideHint">אפשר להחזיר את הכרטיס מתחתית עמוד ההגדרות</p>
+            </div>
         </footer>
         <p class="first-steps-error" id="firstStepsError" role="alert" hidden>לא הצלחנו להסתיר את הצעדים כרגע. נסה שוב בעוד רגע.</p>
     </section>
@@ -1957,6 +1963,21 @@
 .first-steps-tagline {
     margin: 0;
     font-size: 0.9rem;
+    opacity: var(--first-steps-muted-opacity);
+}
+
+/* "הבנתי, להסתיר" והשורה מתחתיו, שאומרת איפה מחזירים את הכרטיס. */
+.first-steps-hide-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.first-steps-hide-hint {
+    margin: 0;
+    font-size: 0.8rem;
+    text-align: center;
     opacity: var(--first-steps-muted-opacity);
 }
 

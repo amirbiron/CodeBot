@@ -19746,8 +19746,9 @@ def api_ui_prefs():
     - theme: אחד מ-{"classic","ocean","high-contrast","dark","dim","rose-pine-dawn","nebula","custom"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     - files_compact_view: bool — תצוגה מצומצמת בעמוד הקבצים (אופציונלי)
-    - first_steps_hidden: bool — ``True`` מסתיר את הצ'קליסט "צעדים ראשונים" בדשבורד; ``False``
-      הוא "הצג שוב", ומוחק גם את ההסתרה וגם את הנעילה (``webapp/first_steps.py``) (אופציונלי)
+    - first_steps_hidden: bool — נשמר כמו שנשלח. ``True`` מסתיר את הצ'קליסט "צעדים ראשונים"
+      בדשבורד; ``False`` הוא "הצג שוב": הוא מוחק גם את הנעילה, והכרטיס מוצג עד שמסתירים אותו
+      שוב, גם כשכל הצעדים בוצעו (``asked_to_see_again`` ב-``webapp/first_steps.py``) (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
 
     **מפתח שאינו מטופל כאן במפורש מוחזר 200 ואינו נשמר.** זה אינו רעיוני:
@@ -19762,7 +19763,7 @@ def api_ui_prefs():
         now_utc = datetime.now(timezone.utc)
 
         update_fields: Dict[str, Any] = {'updated_at': now_utc}
-        # שדות למחיקה (``$unset``). היום רק "הצג שוב" של הצ'קליסט "צעדים ראשונים".
+        # שדות למחיקה (``$unset``). היום רק הנעילה של הצ'קליסט "צעדים ראשונים", ש"הצג שוב" מוחק.
         unset_fields: Dict[str, str] = {}
         resp_payload: Dict[str, Any] = {'ok': True}
         # ערכה שהוחלה במצב ``device``: נרשמת במסמך המשתמש רק אחרי שכל הקלט עבר (למטה).
@@ -19969,8 +19970,10 @@ def api_ui_prefs():
             resp_payload[FILES_COMPACT_VIEW_PREF] = compact_value
 
         # הצ'קליסט "צעדים ראשונים" בדשבורד: "הבנתי, להסתיר" שולח ``True``, ו"הצג שוב" בהגדרות
-        # שולח ``False``. "הצג שוב" מוחק את **שני** הדגלים, ההסתרה והנעילה, ולכן הבדיקות רצות
-        # שוב בטעינה הבאה של הדשבורד. ערך שאינו בוליאני נדחה, מאותה סיבה כמו התצוגה המצומצמת.
+        # שולח ``False``. הערך נשמר כמו שנשלח, כי ``False`` הוא הבקשה עצמה: המשתמש ביקש לראות את
+        # הכרטיס, ולכן הוא מוצג עד שמסתירים אותו שוב, גם כשכל הצעדים בוצעו
+        # (``first_steps.asked_to_see_again``). "הצג שוב" מוחק גם את הנעילה, ולכן הבדיקות רצות שוב
+        # בטעינה הבאה של הדשבורד. ערך שאינו בוליאני נדחה, מאותה סיבה כמו התצוגה המצומצמת.
         if first_steps.HIDDEN_PREF in payload:
             hidden_value = payload.get(first_steps.HIDDEN_PREF)
             if not isinstance(hidden_value, bool):
@@ -19978,10 +19981,8 @@ def api_ui_prefs():
                     'ok': False,
                     'error': f'{first_steps.HIDDEN_PREF} must be a boolean',
                 }), 400
-            if hidden_value:
-                update_fields[f'ui_prefs.{first_steps.HIDDEN_PREF}'] = True
-            else:
-                unset_fields[f'ui_prefs.{first_steps.HIDDEN_PREF}'] = ''
+            update_fields[f'ui_prefs.{first_steps.HIDDEN_PREF}'] = hidden_value
+            if not hidden_value:
                 unset_fields[f'ui_prefs.{first_steps.DONE_PREF}'] = ''
             resp_payload[first_steps.HIDDEN_PREF] = hidden_value
 
