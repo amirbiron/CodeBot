@@ -24,11 +24,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Deque, Dict, List, Tuple, Optional
 import asyncio
+import logging
 import math
 import os
 import threading
 import time
 import uuid
+
+logger = logging.getLogger(__name__)
 
 try:
     from http_sync import request  # type: ignore
@@ -1467,32 +1470,17 @@ def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]
     if link:
         parts.append(f"Sentry: {link}")
 
-    # Best-effort: include Quick Fix suggestion (derived from runbooks + dynamic rules).
+    # שורת ה-Quick Fix (``quick_fix_line_for_bot_alert``). היא תוספת להודעה, ולכן כשל בה לא עוצר התראה קריטית:
+    # ההודעה יוצאת בלי השורה, והכשל נרשם.
     try:
-        from services.observability_dashboard import get_quick_fix_actions  # type: ignore
+        from services.observability_dashboard import quick_fix_line_for_bot_alert  # type: ignore
 
-        snapshot = {
-            "name": str(name or ""),
-            "severity": str(severity or "").lower(),
-            "summary": str(summary or ""),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "alert_type": str(details.get("alert_type") or ""),
-            "metadata": details if isinstance(details, dict) else {},
-        }
-        actions = get_quick_fix_actions(snapshot, ui_context="bot_alert")
-        if actions:
-            top = actions[0] if isinstance(actions[0], dict) else None
-            if top:
-                label = str(top.get("label") or "").strip()
-                hint = ""
-                if str(top.get("type") or "").lower() == "copy" and top.get("payload"):
-                    hint = f" → {top.get('payload')}"
-                elif top.get("href"):
-                    hint = f" → {top.get('href')}"
-                if label:
-                    parts.append(f"Quick Fix: {label}{hint}")
+        quick_fix = quick_fix_line_for_bot_alert(name=name, severity=severity, summary=summary, details=details)
     except Exception:
-        pass
+        logger.warning("quick fix line failed for alert %s", name, exc_info=True)
+        quick_fix = None
+    if quick_fix:
+        parts.append(quick_fix)
 
     return "\n".join([p for p in parts if p])
 

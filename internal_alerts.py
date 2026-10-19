@@ -227,7 +227,7 @@ def _details_preview(details: Dict[str, Any]) -> str | None:
 
 
 def _build_forward_payload(name: str, severity: str, summary: str, details: Dict[str, Any]) -> Dict[str, Any]:
-    alert = {
+    alert: Dict[str, Any] = {
         "status": "firing",
         "labels": {"alertname": str(name or "InternalAlert"), "severity": str(severity or "warn")},
         "annotations": {"summary": str(summary or "")},
@@ -338,7 +338,26 @@ def _build_forward_payload(name: str, severity: str, summary: str, details: Dict
     if preview:
         alert["annotations"]["details_preview"] = preview
 
+    quick_fix = _quick_fix_line(name, severity, summary, details)
+    if quick_fix:
+        alert["annotations"]["quick_fix"] = quick_fix
+
     return alert
+
+
+def _quick_fix_line(name: str, severity: str, summary: str, details: Dict[str, Any]) -> str | None:
+    """שורת ה-Quick Fix של ההתראה (``quick_fix_line_for_bot_alert`` ב-``services/observability_dashboard.py``, שם
+    הכלל אילו התראות מקבלות אותה). ``alert_forwarder`` מציג אותה מה-payload, ו-:func:`_format_text` במסלול הגיבוי.
+
+    השורה היא תוספת להודעה, ולכן כשל בה לא עוצר את ההתראה: היא יוצאת בלי השורה, והכשל נרשם.
+    """
+    try:
+        from services.observability_dashboard import quick_fix_line_for_bot_alert
+
+        return quick_fix_line_for_bot_alert(name=name, severity=severity, summary=summary, details=details)
+    except Exception:
+        logger.warning("quick fix line failed for alert %s", name, exc_info=True)
+        return None
 
 
 def _severity_rank(value: str | None) -> int:
@@ -380,6 +399,11 @@ def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]
         safe = {k: v for k, v in details.items() if k.lower() not in {"token", "password", "secret", "authorization"}}
         if safe:
             parts.append("details=" + ", ".join(f"{k}={v}" for k, v in list(safe.items())[:6]))
+
+    # אותה שורת Quick Fix של המסלול הרגיל, גם כשההודעה יוצאת ישר לטלגרם בלי ``alert_forwarder``.
+    quick_fix = _quick_fix_line(name, severity, summary, details) if isinstance(details, dict) else None
+    if quick_fix:
+        parts.append(quick_fix)
 
     # Add Sentry Link if configured
     sentry_url = os.getenv("SENTRY_DASHBOARD_URL")

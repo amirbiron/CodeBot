@@ -38,7 +38,8 @@
 
 **שומר עלות.** מעבר אוטומטי שיש לו יותר מ-:data:`APPROVAL_THRESHOLD_CHUNKS` נתחים להטמעה — או
 מילוי ראשון, או החלפת מודל — לא משנה כלום ועובר ל-``awaiting_approval`` עם תוכנית וטביעת אצבע.
-מעבר מאושר רץ רק אם התוכנית זהה לזו שאושרה.
+מעבר מאושר רץ רק אם התוכנית זהה לזו שאושרה. כשהאינדקס *נכנס* להמתנה נשלחת התראה לבוט
+(:data:`ALERT_APPROVAL_NEEDED`); מעבר שעוצר שוב בזמן שהוא כבר מחכה אינו שולח עוד אחת.
 
 **מה נכתב למסמך המצב** (:data:`STATE_ID` ב-:data:`~services.docs_search_contract.STATE_COLLECTION`)
 נגזר מקריאה חוזרת של המסד ולא ממה שהמעבר ביקש לכתוב: ``indexed_source_commit`` מתאפס לפני הכתיבה
@@ -67,6 +68,7 @@ from markdown_it import MarkdownIt
 from pymongo import ReadPreference, ReplaceOne, ReturnDocument
 from pymongo.errors import OperationFailure, PyMongoError
 
+from internal_alerts import emit_internal_alert
 from observability import emit_event
 from services import docs_search_contract as contract
 from services.chunking_service import CHUNK_MAX_BYTES, split_code_to_chunks
@@ -155,6 +157,11 @@ STATUS_STOPPED = "stopped"
 # למה מעבר מחכה לאישור.
 APPROVAL_FIRST_FILL = "first_fill_or_model_change"
 APPROVAL_OVER_THRESHOLD = "over_threshold"
+
+#: שם ההתראה לבוט (וה-``alert_type`` שלה) כשמעבר נכנס להמתנה לאישור (:func:`_alert_approval_needed`). שונה
+#: בכוונה מהאירוע ``docs_index_awaiting_approval``: האירוע נשלח בכל מעבר שעוצר, וההתראה רק בכניסה להמתנה.
+#: ה-runbook שלה ב-``config/observability_runbooks.yml`` נושא את אותו שם.
+ALERT_APPROVAL_NEEDED = "docs_index_approval_needed"
 
 # קודי המעבר עצמו (קודי הקובץ הם ``EXPORT_*`` של ``services/docs_export_client.py``).
 CODE_INVALID_REQUEST = "invalid_request"
@@ -1422,21 +1429,71 @@ def _heartbeat(
 
 
 def _await_approval(db: Any, holder: str, plan: IndexPlan, reason: str, *, by_commit: bool) -> None:
-    """רושם את התוכנית שמחכה לאישור. ``by_commit`` — האם היא חושבה מהעותק לפי הקומיט, ואז המעבר
-    המאושר קורא שוב את העותק הזה; אחרת הוא קורא שוב את הקובץ הראשי."""
-    _record_state(
-        db,
-        holder,
-        {
-            "approval": {
-                "source_commit": plan.source_commit,
-                "by_commit": by_commit,
-                "fingerprint": plan.fingerprint,
-                "plan": plan.summary(),
-                "reason": reason,
-                "created_at": _now(),
+    """רושם את התוכנית שמחכה לאישור, ומתריע כשהאינדקס *נכנס* עכשיו להמתנה (:func:`_alert_approval_needed`).
+    ``by_commit`` — האם התוכנית חושבה מהעותק לפי הקומיט, ואז המעבר המאושר קורא שוב את העותק הזה; אחרת
+    הוא קורא שוב את הקובץ הראשי.
+
+    "נכנס" — במסמך המצב לא הייתה ``approval`` לפני הכתיבה הזו. ההחלטה נגזרת מהמסמך שהכתיבה עצמה מחזירה
+    (``ReturnDocument.BEFORE``), ולא מ-``state`` שנקרא בתחילת המעבר. ``approval`` מתאפס כשמעבר מתחיל
+    לכתוב (וכשהוא מסתיים), ולכן מעבר שעוצר שוב על אותו פער מצטבר אינו מתריע, ואחרי מעבר שהתחיל לכתוב —
+    הצליח, או נעצר באמצע כמו ב-``paused_quota`` — הכניסה הבאה מתריעה.
+    """
+    before = _state(db).find_one_and_update(
+        {"_id": STATE_ID, "lease_holder": holder},
+        {"$set": _stamped(
+            {
+                "approval": {
+                    "source_commit": plan.source_commit,
+                    "by_commit": by_commit,
+                    "fingerprint": plan.fingerprint,
+                    "plan": plan.summary(),
+                    "reason": reason,
+                    "created_at": _now(),
+                }
             }
-        },
+        )},
+        projection={"approval": 1, "indexed_source_commit": 1},
+        return_document=ReturnDocument.BEFORE,
+    )
+    if before is None:
+        raise _LeaseLost()
+    if not isinstance(before.get("approval"), dict):
+        _alert_approval_needed(plan, reason, before.get("indexed_source_commit"))
+
+
+def _alert_approval_needed(plan: IndexPlan, reason: str, indexed_commit: Any) -> None:
+    """התראה לבוט (:data:`ALERT_APPROVAL_NEEDED`): כמה נתחים להטמעה מול :data:`APPROVAL_THRESHOLD_CHUNKS`, והקומיט
+    שנבדק מול הקומיט שהאינדקס נכון אליו. ``emit_internal_alert`` אינו זורק, ולכן אין סביבו ``try``.
+
+    ``alert_type`` הוא אותו שם, וה-runbook שלו ב-``config/observability_runbooks.yml`` נותן את שורת ה-Quick Fix
+    (``quick_fix_line_for_bot_alert`` ב-``services/observability_dashboard.py``).
+    """
+    to_embed = len(plan.chunks_to_embed)
+    if reason == APPROVAL_FIRST_FILL:
+        why = f"מילוי ראשון או החלפת מודל, {to_embed} נתחים להטמעה"
+    elif reason == APPROVAL_OVER_THRESHOLD:
+        why = f"{to_embed} נתחים להטמעה, מעל התקרה ({APPROVAL_THRESHOLD_CHUNKS})"
+    else:
+        why = f"התוכנית השתנתה מאז שאושרה, {to_embed} נתחים להטמעה (התקרה {APPROVAL_THRESHOLD_CHUNKS})"
+    details: Dict[str, Any] = {
+        "alert_type": ALERT_APPROVAL_NEEDED,
+        "reason": reason,
+        "chunks_to_embed": to_embed,
+        "approval_threshold": APPROVAL_THRESHOLD_CHUNKS,
+        "source_commit": plan.source_commit,
+    }
+    # ``indexed_source_commit`` ריק כשהאינדקס חלקי (מעבר נעצר באמצע) או עוד לא מולא.
+    indexed = indexed_commit if contract.is_commit_sha(indexed_commit) else None
+    if indexed:
+        details["indexed_commit"] = indexed
+    emit_internal_alert(
+        ALERT_APPROVAL_NEEDED,
+        severity="warn",
+        summary=(
+            f"אינדקס התיעוד עצר ומחכה לאישור: {why}. "
+            f"נבדק {plan.source_commit[:7]} · באינדקס {indexed[:7] if indexed else 'אין (חלקי או ריק)'}"
+        ),
+        details=details,
     )
 
 

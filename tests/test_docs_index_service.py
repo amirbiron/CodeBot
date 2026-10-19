@@ -13,6 +13,7 @@ import hashlib
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from pymongo.errors import ServerSelectionTimeoutError
@@ -791,6 +792,136 @@ def test_a_model_change_waits_for_approval_and_then_reembeds_everything(world):
     assert {len(c[contract.VECTOR_FIELD]) for c in _chunks(world)} == {8}
     assert {c[contract.MODEL_KEY_FIELD] for c in _chunks(world)} == {f"{MODEL}/8"}
     assert _state(world)["indexed_model_key"] == f"{MODEL}/8"
+
+
+# ---------------------------------------------------------------------------
+# ההתראה לבוט כשהאינדקס נכנס להמתנה
+# ---------------------------------------------------------------------------
+
+
+def _publish_changes(world, commit, *texts):
+    """פרסום של ``commit`` שבו הסעיפים הראשונים בכל עמוד מקבלים את ``texts`` — נתח להטמעה לכל טקסט."""
+    pages = site_pages()
+    for page_index, text in enumerate(texts):
+        pages[page_index]["sections"][0]["markdown"] = text
+    world.site.publish(commit, pages)
+
+
+def test_a_first_fill_alerts_that_the_index_waits(world):
+    world.site.publish(SHA_A, site_pages())
+    run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_A)
+
+    [alert] = world.alerts
+    assert (alert["name"], alert["severity"]) == (svc.ALERT_APPROVAL_NEEDED, "warn")
+    assert alert["details"] == {
+        "alert_type": svc.ALERT_APPROVAL_NEEDED,
+        "reason": svc.APPROVAL_FIRST_FILL,
+        "chunks_to_embed": 4,
+        "approval_threshold": svc.APPROVAL_THRESHOLD_CHUNKS,
+        "source_commit": SHA_A,
+    }
+    assert "4 נתחים להטמעה" in alert["summary"] and SHA_A[:7] in alert["summary"]
+
+
+def test_entering_the_wait_alerts_once_and_another_stop_on_the_same_gap_does_not(world, monkeypatch):
+    """כל מיזוג אחרי הכניסה מחשב מחדש את הפער המצטבר ועוצר שוב — בלי עוד התראה."""
+    fill(world)
+    world.alerts.clear()
+    monkeypatch.setattr(svc, "APPROVAL_THRESHOLD_CHUNKS", 1)
+    _publish_changes(world, SHA_B, "שינוי ראשון.", "שינוי שני.")
+
+    run = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+
+    assert (run["status"], run["code"]) == (svc.STATUS_AWAITING_APPROVAL, svc.APPROVAL_OVER_THRESHOLD)
+    [alert] = world.alerts
+    assert alert["details"] == {
+        "alert_type": svc.ALERT_APPROVAL_NEEDED,
+        "reason": svc.APPROVAL_OVER_THRESHOLD,
+        "chunks_to_embed": 2,
+        "approval_threshold": 1,
+        "source_commit": SHA_B,
+        "indexed_commit": SHA_A,
+    }
+    assert "2 נתחים להטמעה, מעל התקרה (1)" in alert["summary"]
+    assert SHA_B[:7] in alert["summary"] and SHA_A[:7] in alert["summary"]
+
+    _publish_changes(world, SHA_C, "שינוי ראשון.", "שינוי שני, מאוחר יותר.")
+    again = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_C)
+
+    assert (again["status"], again["code"]) == (svc.STATUS_AWAITING_APPROVAL, svc.APPROVAL_OVER_THRESHOLD)
+    assert _state(world)["approval"]["source_commit"] == SHA_C
+    assert len(world.alerts) == 1
+
+
+def test_after_a_pass_that_succeeded_the_next_wait_alerts_again(world, monkeypatch):
+    fill(world)
+    world.alerts.clear()
+    monkeypatch.setattr(svc, "APPROVAL_THRESHOLD_CHUNKS", 1)
+    _publish_changes(world, SHA_B, "שינוי ראשון.", "שינוי שני.")
+    run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+    approved = run_request(
+        world, svc.TRIGGER_APPROVED, approved_fingerprint=_state(world)["approval"]["fingerprint"]
+    )
+    assert approved["status"] == svc.STATUS_COMPLETE
+    assert len(world.alerts) == 1
+
+    _publish_changes(world, SHA_C, "שינוי שלישי.", "שינוי רביעי.")
+    run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_C)
+
+    assert [alert["details"]["source_commit"] for alert in world.alerts] == [SHA_B, SHA_C]
+    assert world.alerts[1]["details"]["indexed_commit"] == SHA_B
+
+
+def test_after_an_approved_pass_that_paused_midway_the_next_wait_alerts_again(world, monkeypatch):
+    """ההמתנה נגמרת כשמעבר מתחיל לכתוב, ולא רק כשהוא מצליח: מעבר מאושר שנעצר במכסה, ואחריו מעבר שעוצר
+    שוב על מה שנשאר, הוא בקשה חדשה לאישור — ולכן התראה חדשה."""
+    fill(world)
+    world.alerts.clear()
+    monkeypatch.setattr(svc, "APPROVAL_THRESHOLD_CHUNKS", 1)
+    _publish_changes(world, SHA_B, "שינוי ראשון.", "שינוי שני.")
+    run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+    world.embed_failures[len(world.embed_calls)] = (429, "http 429: RESOURCE_EXHAUSTED: quota")
+    paused = run_request(
+        world, svc.TRIGGER_APPROVED, approved_fingerprint=_state(world)["approval"]["fingerprint"]
+    )
+    assert paused["status"] == svc.STATUS_PAUSED_QUOTA
+    assert len(world.alerts) == 1
+
+    again = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+
+    assert (again["status"], again["code"]) == (svc.STATUS_AWAITING_APPROVAL, svc.APPROVAL_OVER_THRESHOLD)
+    assert len(world.alerts) == 2
+    assert "indexed_commit" not in world.alerts[1]["details"]
+
+
+def test_the_alert_reaches_telegram_with_a_quick_fix_line_to_the_admin_page(world, monkeypatch):
+    """מקצה לקצה, דרך מה שנשלח לטלגרם: ``emit_internal_alert`` האמיתי, ``alert_forwarder`` ו-runbook מתוך
+    ``config/observability_runbooks.yml``. הסף של הטלגרם הוא ``warn``, כמו בייצור."""
+    import alert_forwarder
+    import internal_alerts
+
+    monkeypatch.setattr(svc, "emit_internal_alert", internal_alerts.emit_internal_alert)
+    monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "chat")
+    monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "warn")
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    sent = []
+
+    def telegram(method, url, json=None, timeout=5):  # noqa: ARG001 — החתימה של http_sync.request
+        sent.append(json)
+        return SimpleNamespace(status_code=200, json=lambda: {"ok": True})
+
+    monkeypatch.setattr(alert_forwarder, "_pooled_request", telegram)
+    world.site.publish(SHA_A, site_pages())
+
+    run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_A)
+
+    [payload] = sent
+    lines = payload["text"].splitlines()
+    assert lines[0] == f"🔔 {svc.ALERT_APPROVAL_NEEDED} (WARN)"
+    [quick_fix] = [line for line in lines if line.startswith("Quick Fix: ")]
+    link = quick_fix.rsplit(" → ", 1)[1]
+    assert link.startswith(("http://", "https://")) and link.endswith("/admin/docs-index")
 
 
 # ---------------------------------------------------------------------------
