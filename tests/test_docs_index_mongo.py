@@ -29,7 +29,7 @@ import pytest
 
 pymongo = pytest.importorskip("pymongo")
 
-from _docs_index_harness import SHA_A, fill, make_world, run_request  # noqa: E402
+from _docs_index_harness import SHA_A, fill, make_world, run_request, site_pages  # noqa: E402
 from pymongo.errors import ServerSelectionTimeoutError  # noqa: E402
 
 from services import docs_index_service as svc  # noqa: E402
@@ -187,3 +187,16 @@ def test_a_full_pass_writes_what_it_verified(world):
     assert page["markdown"].startswith("# חיפוש גלובלי\n\nהחיפוש בעמוד הקבצים.\n\n## סוגי החיפוש\n")
     assert page["indexed_commit"] == SHA_A
     assert run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_A)["status"] == svc.STATUS_UNCHANGED
+
+
+def test_only_entering_the_wait_alerts(world):
+    """ההחלטה נגזרת מהמסמך ש-``find_one_and_update`` מחזיר עם ``ReturnDocument.BEFORE`` והיטלה, ולכן היא
+    נבדקת גם מול שרת: הכניסה הראשונה מתריעה, ומעבר שעוצר שוב מוצא את ה-``approval`` שהקודם כתב."""
+    world.site.publish(SHA_A, site_pages())
+
+    first = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_A)
+    second = run_request(world, svc.TRIGGER_MANUAL_CHECK)
+
+    assert first["status"] == second["status"] == svc.STATUS_AWAITING_APPROVAL
+    [alert] = world.alerts
+    assert alert["details"]["source_commit"] == SHA_A and "indexed_commit" not in alert["details"]

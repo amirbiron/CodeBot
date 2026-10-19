@@ -12,7 +12,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, urlsplit
 
 import requests
 try:
@@ -1439,6 +1439,62 @@ def get_quick_fix_actions(alert: Dict[str, Any], *, ui_context: Optional[str] = 
         return _filter_quick_fix_actions(combined, ui_context=ui_context)
     except Exception:
         return []
+
+
+def quick_fix_line_for_bot_alert(*, name: str, severity: str, summary: str, details: Dict[str, Any]) -> Optional[str]:
+    """שורת ה-Quick Fix בהודעה של התראה בבוט: ``Quick Fix: <label> → <payload או href>``.
+
+    השורה נבנית מהפעולה הראשונה ש-:func:`get_quick_fix_actions` מחזיר (``ui_context="bot_alert"``): הפעולה הדינמית
+    של Latency כשיש לה מספיק אותות, ואחריה פעולות ה-runbook שה-``alert_type`` מוביל אליו. ``None`` — אין פעולה עם
+    תווית. כל מסלולי ההודעות קוראים לכאן: ``_format_text`` ב-``alert_manager.py`` (התראות קריטיות),
+    ``_build_forward_payload`` ב-``internal_alerts.py`` (כל השאר, דרך ``alert_forwarder``) ו-``_format_text`` שם
+    (מסלול הגיבוי הישיר לטלגרם).
+
+    התראה קריטית מקבלת שורה גם מ-runbook ברירת המחדל (``default`` ב-``config/observability_runbooks.yml``). כל
+    התראה אחרת — רק כשה-``alert_type`` שלה מוביל ל-runbook משלו, כדי שלא תיכנס שורה כללית לכל הודעה. "קריטית"
+    באותה בדיקה ש-``emit_internal_alert`` מנתב לפיה למסלול הקריטי. נתיב יחסי בוובאפ הופך לקישור מלא
+    (:func:`_absolute_for_chat`).
+    """
+    payload = details if isinstance(details, dict) else {}
+    snapshot = {
+        "name": str(name or ""),
+        "severity": str(severity or "").lower(),
+        "summary": str(summary or ""),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "alert_type": str(payload.get("alert_type") or ""),
+        "metadata": payload,
+    }
+    if snapshot["severity"] != "critical" and _resolve_runbook_key(
+        _effective_alert_type_from_snapshot(snapshot), allow_default=False
+    ) is None:
+        return None
+    actions = get_quick_fix_actions(snapshot, ui_context="bot_alert")
+    top = actions[0] if actions and isinstance(actions[0], dict) else None
+    if top is None:
+        return None
+    label = str(top.get("label") or "").strip()
+    if not label:
+        return None
+    hint = ""
+    if str(top.get("type") or "").lower() == "copy" and top.get("payload"):
+        hint = f" → {top.get('payload')}"
+    elif top.get("href"):
+        hint = f" → {_absolute_for_chat(str(top.get('href')))}"
+    return f"Quick Fix: {label}{hint}"
+
+
+def _absolute_for_chat(href: str) -> str:
+    """נתיב יחסי בוובאפ (``/admin/...``) כקישור מלא, כי בהודעה בטלגרם נתיב יחסי הוא טקסט שאי אפשר ללחוץ עליו.
+
+    הבסיס הוא ``public_webapp_base_url`` של ``alert_forwarder`` — אותו שרת של הכפתור "Open Dashboard" באותה הודעה.
+    כתובת שיש לה scheme או מארח (כולל ``//host/...``) נשארת כמו שהיא, וכך גם ערך שאינו נתיב.
+    """
+    parts = urlsplit(href)
+    if parts.scheme or parts.netloc or not parts.path.startswith("/"):
+        return href
+    from alert_forwarder import public_webapp_base_url
+
+    return f"{public_webapp_base_url()}{href}"
 
 
 def _load_graph_sources_config() -> Dict[str, Any]:
