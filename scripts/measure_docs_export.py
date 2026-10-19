@@ -2,9 +2,10 @@
 """מודד את קובץ הייצוא של אתר התיעוד: הגודל, והערך הארוך ביותר בכל שדה.
 
 התקרות ב-``services/docs_export_client.py`` (``EXPORT_MAX_BYTES``, ``MAX_PATH_BYTES``,
-``MAX_TITLE_BYTES``, ``MAX_TITLE_MARKDOWN_BYTES``, ``MAX_ANCHOR_BYTES``, ``MAX_BREADCRUMB_BYTES``) כתובות ככפולה
-של מדידה, והסקריפט הזה הוא מה שמייצר את המדידה. הוא קורא את הקובץ כמו שהוא, בלי הבדיקות של הוובאפ, כדי שאפשר
-יהיה למדוד גם קובץ שחורג מהתקרות הנוכחיות — זה בדיוק המקרה שבו צריך מדידה חדשה.
+``MAX_TITLE_BYTES``, ``MAX_TITLE_MARKDOWN_BYTES``, ``MAX_ANCHOR_BYTES``, ``MAX_BREADCRUMB_BYTES``,
+``MAX_DEPENDENCY_PATH_BYTES``, ``MAX_PAGE_DEPENDENCIES``) כתובות ככפולה של מדידה, והסקריפט הזה
+הוא מה שמייצר את המדידה. הוא קורא את הקובץ כמו שהוא, בלי הבדיקות של הוובאפ, כדי שאפשר יהיה
+למדוד גם קובץ שחורג מהתקרות הנוכחיות — זה בדיוק המקרה שבו צריך מדידה חדשה.
 
 שימוש — מהאתר החי, או מקובץ מקומי (למשל ``docs/_build/html/_export/sections.json``)::
 
@@ -39,6 +40,9 @@ def measure(data: bytes) -> dict:
     def longest(values) -> int:
         return max((len(value.encode("utf-8")) for value in values), default=0)
 
+    # השדות של גרסה 2 של המבנה: בקובץ מגרסה 1 הם לא קיימים, והמדידה שלהם 0. מגרסה 2 הם נקראים בלי
+    # ברירת מחדל, כך שקובץ שחסר בו שדה נופל ב-``KeyError`` ולא מראה מדידה קטנה מהאמת.
+    v2 = document["schema_version"] >= 2
     return {
         "source_commit": document.get("source_commit"),
         "bytes": len(data),
@@ -48,10 +52,9 @@ def measure(data: bytes) -> dict:
         "source_path": longest(page["source_path"] for page in pages),
         "page_title": longest(page["title"] for page in pages),
         "section_title": longest(section["title"] for section in sections),
-        # קובץ מגרסה 1 של המבנה אין בו את השדה; אז המדידה היא 0.
-        "section_title_markdown": longest(
-            section["title_markdown"] for section in sections if "title_markdown" in section
-        ),
+        "section_title_markdown": longest(section["title_markdown"] for section in sections) if v2 else 0,
+        "dependency_path": longest(path for page in pages for path in page["dependencies"]) if v2 else 0,
+        "page_dependencies": max((len(page["dependencies"]) for page in pages), default=0) if v2 else 0,
         "anchor": longest(section["anchor"] for section in sections),
         "breadcrumb": longest(BREADCRUMB_SEPARATOR.join(section["breadcrumb"]) for section in sections),
         "markdown": longest(section["markdown"] for section in sections),

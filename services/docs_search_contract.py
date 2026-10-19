@@ -89,6 +89,28 @@ PAGE_PATH_RE = re.compile(rf"(?:{_SEGMENT}/)*{_SEGMENT}\.html")
 #: קובץ המקור של עמוד, יחסית לשורש הריפו (למשל ``docs/webapp/global-search.rst``).
 SOURCE_PATH_RE = re.compile(rf"(?:{_SEGMENT}/)*{_SEGMENT}\.(?:rst|md)")
 
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def is_dependency_path(value: object) -> TypeGuard[str]:
+    """האם הערך הוא קובץ בריפו שעמוד נבנה ממנו מלבד קובץ המקור שלו (``dependencies`` בקובץ הייצוא):
+    קוד ש-``literalinclude`` מציג, קובץ ש-``include`` משלב, תמונה, או מודול ש-autodoc מתעד.
+
+    נתיב יחסי לשורש הריפו בצורה מנורמלת: בלי ``/`` בהתחלה, בלי מקטע ריק, ``.`` או ``..``, ובלי תווי
+    בקרה. **התווים עצמם חופשיים**, בניגוד ל-:data:`SOURCE_PATH_RE`: הנתיב לא נכנס לכתובת, ובריפו יש
+    קבצים עם רווח בשם. בדקדוק צר, שם אחד כזה היה מכשיל את קובץ הייצוא כולו; כך הוא מגיע ל-
+    ``get_blob_ids`` במראה, שדוחה אותו, והתצוגה של העמוד ההוא בלבד אומרת שאי אפשר לבדוק.
+    """
+    if not isinstance(value, str) or not value or _CONTROL_RE.search(value):
+        return False
+    return all(part not in ("", ".", "..") for part in value.split("/"))
+
+
+#: קבצי המקור שהמעבר שומר להם עמוד מורכב (:data:`PAGES_COLLECTION`), לפי הסיומת: rst בלבד. עמוד md
+#: מוצג בדפדפן הריפו מהמקור עצמו, בתצוגת ה-Markdown הקיימת. כאן ולא במעבר, כי גם דפדפן הריפו שואל את
+#: זה, בלי לייבא את המעבר (``services/docs_page_view.py``).
+PAGE_SOURCE_SUFFIXES = frozenset({".rst"})
+
 
 def text_fragment(text: object) -> str:
     """החלק בכתובת שמקפיץ את הדף אל טקסט בתוכו: ``:~:text=`` והטקסט, מקודד.

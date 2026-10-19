@@ -67,6 +67,15 @@ MAX_TITLE_MARKDOWN_BYTES = 4 * 100
 #: עוגן. המדידה: 61.
 MAX_ANCHOR_BYTES = 4 * 61
 
+#: קובץ שעמוד נבנה ממנו (``dependencies``). המדידה: 50 (``src/infrastructure/composition/webapp_container.py``),
+#: בבנייה מקומית של הקומיט ``a3c2d5f`` ב-19.10.2026 (Sphinx 8.2.3), מהתלויות ש-Sphinx רשם לכל עמוד — לפני
+#: שהשדה נכנס לקובץ. מעכשיו ``scripts/measure_docs_export.py`` מודד אותו מהקובץ, כמו את שאר השדות.
+MAX_DEPENDENCY_PATH_BYTES = 4 * 50
+
+#: כמה קבצים עמוד אחד נבנה מהם, מלבד קובץ המקור שלו. המדידה: 17 (``docs/modules/index.rst``, ש-autodoc
+#: מתעד בו מודולים), באותה בנייה.
+MAX_PAGE_DEPENDENCIES = 4 * 17
+
 #: שביל הכותרות, כפי שהוא מחובר לטקסט שמוטמע (``" › "`` בין הכותרות). המדידה: 262. התקרה
 #: היא גם מה שמבטיח שנשאר מקום לגוף בנתח של 2,000 בתים.
 MAX_BREADCRUMB_BYTES = 4 * 262
@@ -135,6 +144,9 @@ class DocPage:
     source_path: str
     title: str
     sections: Tuple[DocSection, ...]
+    #: הקבצים האחרים בריפו שהעמוד נבנה מהם, יחסית לשורש הריפו, כמו ש-Sphinx רשם אותם בבנייה (ההסבר
+    #: ב-``scripts/docs_export_sections.py``). ריק כשהעמוד נבנה מקובץ המקור שלו בלבד.
+    dependencies: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -355,7 +367,25 @@ def _page(item: Any, index: int) -> DocPage:
     anchors = [section.anchor for section in sections]
     if len(set(anchors)) != len(anchors):
         _invalid(f"{where} ({path}) has an anchor twice")
-    return DocPage(path=path, source_path=source_path, title=title, sections=sections)
+    dependencies = _dependencies(item.get("dependencies"), f"{where}.dependencies")
+    return DocPage(path=path, source_path=source_path, title=title, sections=sections, dependencies=dependencies)
+
+
+def _dependencies(value: Any, where: str) -> Tuple[str, ...]:
+    """הקבצים שעמוד נבנה מהם: רשימה (גם ריקה) של נתיבים שונים בריפו, עד :data:`MAX_PAGE_DEPENDENCIES`."""
+    if not isinstance(value, list):
+        _invalid(f"{where} is not a list")
+    if len(value) > MAX_PAGE_DEPENDENCIES:
+        _invalid(f"{where} has {len(value)} files, max {MAX_PAGE_DEPENDENCIES}")
+    paths = tuple(
+        _bounded_text(entry, f"{where}[{position}]", MAX_DEPENDENCY_PATH_BYTES) for position, entry in enumerate(value)
+    )
+    for path in paths:
+        if not contract.is_dependency_path(path):
+            _invalid(f"{where} has a path that is not a repo file: {path!r}")
+    if len(set(paths)) != len(paths):
+        _invalid(f"{where} has a file twice")
+    return paths
 
 
 def _section(item: Any, where: str) -> DocSection:

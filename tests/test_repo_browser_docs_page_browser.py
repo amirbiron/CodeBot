@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import json
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 
@@ -75,20 +75,24 @@ def world(tmp_path, monkeypatch):
     world.db.repo_metadata.insert_one({"repo_name": REPO, "default_branch": "main"})
     mirror_service = GitMirrorService(base_path=str(repo.mirrors))
     monkeypatch.setattr(repo_browser, "get_mirror_service", lambda: mirror_service)
+    # ההיסטוריה עוברת ב-``get_git_service``, ששומר את השירות על האפליקציה (``app.extensions``) בקריאה
+    # הראשונה. השרת משותף לטסטים, ולכן בלי זה ההיסטוריה הייתה רצה מול מראה של טסט קודם (נמדד: הטסט של
+    # ההיסטוריה נכשל רק כשרץ אחרי טסטים אחרים של דפדפן הריפו).
+    monkeypatch.setattr(repo_browser, "get_git_service", lambda: mirror_service)
     monkeypatch.setattr(repo_browser, "get_db", lambda: world.db)
     world.repo = repo
     return world
 
 
 def _page_api(route) -> None:
-    """הקובץ והעמוד — לשרת. העץ, רשימת הריפואים והפתקים — מכאן. מארח אחר — נחסם."""
+    """הקובץ, העמוד וההיסטוריה של הקובץ — לשרת. העץ, רשימת הריפואים והפתקים — מכאן. מארח אחר — נחסם."""
     url = urlsplit(route.request.url)
     if url.hostname != "127.0.0.1":
         route.abort()
         return
     path = unquote(url.path)
     body = None
-    if path.startswith(("/repo/api/file/", "/repo/api/docs-page/")):
+    if path.startswith(("/repo/api/file/", "/repo/api/docs-page/", "/repo/api/history", "/repo/api/file-at-commit/")):
         route.continue_()
         return
     if path == "/repo/api/tree":
@@ -202,6 +206,39 @@ def test_a_file_that_changed_after_the_build_shows_the_note(world, admin_live_se
     assert note == {
         "hidden": False, "shown": True, "text": "התצוגה מהבנייה האחרונה של אתר התיעוד; הקובץ השתנה מאז",
     }
+    assert errors == [], "\n".join(errors)
+
+
+_NOTE = (
+    "() => { const n = document.getElementById('markdown-preview-note');"
+    " return {hidden: n.hidden, text: n.textContent}; }"
+)
+
+
+def test_a_version_viewed_from_the_history_is_compared_by_its_own_commit(world, admin_live_server, chromium_executable):
+    """דרך הממשק: "צפה" על הקומיט שהאתר נבנה ממנו, בפאנל ההיסטוריה. ``viewFileAtCommit`` מעביר את הקומיט
+    הלאה, והעמוד מושווה אליו — ולכן ההודעה שהייתה על הגרסה הנוכחית יורדת. נופל כש-``repo-history.js`` לא
+    מעביר את הקומיט: העמוד מושווה אז לגרסה הנוכחית, וההודעה נשארת."""
+    built = world.db[contract.STATE_COLLECTION].find_one({})["indexed_source_commit"]
+    later = world.repo.commit({RST: "דפדפן קוד\n=========\n\nפסקה חדשה.\n"})
+    world.db.repo_files.update_one({"repo_name": REPO, "path": RST}, {"$set": {"commit_sha": later}})
+
+    with repo_page(admin_live_server, chromium_executable) as (tab, errors):
+        page_requests = []
+        tab.on("request", lambda request: page_requests.append(request.url) if "/repo/api/docs-page/" in request.url else None)
+        _open(tab, admin_live_server, RST)
+        poll(tab, _RENDERED, "העמוד מאתר התיעוד רונדר")
+        assert tab.evaluate(_NOTE)["hidden"] is False
+
+        tab.click(".file-history-btn")
+        view = f'.history-commit[data-hash="{built}"] .view-btn'
+        poll(tab, f"() => !!document.querySelector('{view}')", "הקומיט של הבנייה בפאנל ההיסטוריה")
+        tab.click(view)
+        poll(tab, "() => document.getElementById('markdown-preview-note').hidden", "ההודעה ירדה")
+
+        note = tab.evaluate(_NOTE)
+    assert parse_qs(urlsplit(page_requests[-1]).query).get("ref") == [built]
+    assert note == {"hidden": True, "text": ""}
     assert errors == [], "\n".join(errors)
 
 

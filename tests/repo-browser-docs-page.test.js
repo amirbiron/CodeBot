@@ -47,14 +47,28 @@ async function waitFor(condition, what) {
  * ``{gate: true}`` (הבדיקה פותחת את התשובה בעצמה, ב-``__open``).
  */
 function makeSandbox(responses = {}, storage = {}) {
-  const el = () => ({
-    style: {}, dataset: {}, innerHTML: '', textContent: '', hidden: false, title: '',
-    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    appendChild() {}, addEventListener() {}, removeEventListener() {},
-    querySelector: () => null, querySelectorAll: () => [],
-    setAttribute() {}, getAttribute: () => null, remove() {}, click() {}, focus() {}, blur() {},
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
-  });
+  const el = () => {
+    const node = {
+      style: {}, dataset: {}, innerHTML: '', hidden: false, title: '', dir: '', children: [], _text: '',
+      classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+      appendChild() {}, addEventListener() {}, removeEventListener() {},
+      querySelector: () => null, querySelectorAll: () => [],
+      setAttribute() {}, getAttribute: () => null, remove() {}, click() {}, focus() {}, blur() {},
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
+      // כמו ב-DOM: ``append`` מוסיף טקסט או אלמנט, ו-``textContent`` מחליף את כל מה שבפנים.
+      append(...nodes) {
+        for (const item of nodes) {
+          if (typeof item === 'string') this._text += item;
+          else { this.children.push(item); this._text += item.textContent; }
+        }
+      },
+    };
+    Object.defineProperty(node, 'textContent', {
+      get() { return this._text; },
+      set(value) { this._text = String(value); this.children = []; },
+    });
+    return node;
+  };
   const repoHolder = el();
   repoHolder.dataset.repo = 'CodeBot';
   const cache = new Map([['current-repo-name', repoHolder]]);
@@ -196,6 +210,101 @@ check('ערך שהדפדפן לא מכיר מוצג כ"אי אפשר לבדוק"
   const note = sb.document.getElementById('markdown-preview-note');
   eq(note.hidden, false, 'ההודעה מוצגת');
   eq(note.textContent, 'התצוגה מהבנייה האחרונה של אתר התיעוד; כרגע אי אפשר לבדוק אם הקובץ השתנה מאז', 'בנוסח של "אי אפשר לבדוק"');
+});
+
+check('כשקוד שהעמוד מציג מקובץ אחר השתנה, ההודעה נוקבת בקבצים, כל אחד משמאל לימין', async () => {
+  // נופל אם ההודעה תתעלם מ-``changed_dependencies``, או תכתוב את הנתיבים כטקסט רגיל בתוך השורה העברית.
+  const sb = makeSandbox({
+    [FILE_URL]: { content: 'x\n', language: 'text', has_docs_page: true },
+    [PAGE_URL]: { ...PAGE, freshness: 'dependency_changed', changed_dependencies: ['handlers/save_flow.py', 'main.py'] },
+  }, PREFERS_PREVIEW);
+
+  await sb.selectFile(RST, null);
+
+  const note = sb.document.getElementById('markdown-preview-note');
+  eq(note.hidden, false, 'ההודעה מוצגת');
+  eq(note.textContent,
+    'התצוגה מהבנייה האחרונה של אתר התיעוד; קובץ שהעמוד נבנה ממנו השתנה מאז: handlers/save_flow.py, main.py',
+    'בנוסח שלה, עם הקבצים');
+  eq(note.children.map((code) => `${code.dir}:${code.textContent}`).join(' '),
+    'ltr:handlers/save_flow.py ltr:main.py', 'כל קובץ באלמנט משלו, משמאל לימין');
+});
+
+check('"קובץ אחר השתנה" בלי רשימת קבצים מוצג כ"אי אפשר לבדוק"', async () => {
+  const sb = makeSandbox({
+    [FILE_URL]: { content: 'x\n', language: 'text', has_docs_page: true },
+    [PAGE_URL]: { ...PAGE, freshness: 'dependency_changed' },
+  }, PREFERS_PREVIEW);
+
+  await sb.selectFile(RST, null);
+
+  eq(sb.document.getElementById('markdown-preview-note').textContent,
+    'התצוגה מהבנייה האחרונה של אתר התיעוד; כרגע אי אפשר לבדוק אם הקובץ השתנה מאז', 'בנוסח של "אי אפשר לבדוק"');
+});
+
+check('עמוד שלא נטען מוצג כהודעת שגיאה, והטקסט שלה מוצג כטקסט', async () => {
+  const sb = makeSandbox({
+    [FILE_URL]: { content: 'x\n', language: 'text', has_docs_page: true },
+    [PAGE_URL]: { gate: true },
+  }, PREFERS_PREVIEW);
+  const opening = sb.selectFile(RST, null);
+  await waitFor(() => sb.__gates.length === 1, 'הבקשה לעמוד');
+  sb.__open(0, { error: '<b>docs_page_unavailable</b>' });
+  await opening;
+
+  const shown = sb.document.getElementById('markdown-preview-content').innerHTML;
+  eq(shown.includes('class="error-message"'), true, 'הודעת שגיאה');
+  eq(shown.includes('העמוד מאתר התיעוד לא נטען: &lt;b&gt;docs_page_unavailable&lt;/b&gt;'), true, 'עם הסיבה, כטקסט');
+  eq(sb.__rendered.length, 0, 'ובלי רינדור');
+});
+
+// -- טעינה שנחתה אחרי שעברו לקובץ אחר --
+
+const README_URL = `/repo/api/file/${encodeURIComponent('README.md')}`;
+
+check('עמוד שנטען מהמתג, ונחת אחרי שנבחר קובץ אחר, לא נכתב מעליו', async () => {
+  // נופל בלי הקיבוע של ``seq`` בתחילת ``renderPreview``: המתג קורא לו בלי ``seq``,
+  // ו-``selectionIsCurrent(undefined)`` מאשר תמיד.
+  const sb = makeSandbox({
+    [FILE_URL]: { content: 'דפדפן קוד\n', language: 'text', has_docs_page: true },
+    [PAGE_URL]: { gate: true },
+    [README_URL]: { content: '# קרא אותי\n', language: 'markdown' },
+  });
+  // כמו בתבנית (``repo/index.html``): ההודעה מתחילה מוסתרת, ובתצוגת קוד אף אחד לא נוגע בה.
+  sb.document.getElementById('markdown-preview-note').hidden = true;
+  await sb.selectFile(RST, null);
+  const toggling = sb.toggleMarkdownPreview();
+  await waitFor(() => sb.__gates.length === 1, 'הבקשה לעמוד מהמתג');
+
+  await sb.selectFile('README.md', null);
+  sb.__open(0, { ...PAGE, freshness: 'changed' });
+  await toggling;
+
+  eq(sb.__rendered.includes(PAGE.markdown), false, 'העמוד של ה-rst לא רונדר');
+  const note = sb.document.getElementById('markdown-preview-note');
+  eq(`${note.hidden}|${note.textContent}`, 'true|', 'וגם ההודעה שלו לא נכתבה');
+});
+
+check('עמוד של גרסה מההיסטוריה, שנחת אחרי שנבחר קובץ md, לא נכתב מעליו', async () => {
+  // התרחיש מהסקירה: ``docsPageSeq`` לא זז כשנבחר קובץ md, ולכן רק הקיבוע לבחירה שומר כאן.
+  const sb = makeSandbox({
+    [FILE_URL]: { content: 'דפדפן קוד\n', language: 'text', has_docs_page: true },
+    [PAGE_URL]: { gate: true },
+    [README_URL]: { content: '# קרא אותי\n', language: 'markdown' },
+  }, PREFERS_PREVIEW);
+  const opening = sb.selectFile(RST, null);
+  await waitFor(() => sb.__gates.length === 1, 'הבקשה לעמוד בפתיחה');
+  sb.__open(0, PAGE);
+  await opening;
+  const fromHistory = sb.window.RepoState.setFileContent('ישן\n', { ref: 'b'.repeat(40) });
+  await waitFor(() => sb.__gates.length === 2, 'הבקשה של ההיסטוריה');
+
+  await sb.selectFile('README.md', null);
+  sb.__open(1, { ...PAGE, markdown: '# ישן\n', freshness: 'changed' });
+  await fromHistory;
+
+  eq(sb.__rendered[sb.__rendered.length - 1], '# קרא אותי\n', 'התצוגה היא של ה-README');
+  eq(sb.document.getElementById('markdown-preview-note').hidden, true, 'בלי ההודעה של העמוד');
 });
 
 // -- היסטוריה --

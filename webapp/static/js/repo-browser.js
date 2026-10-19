@@ -197,8 +197,23 @@ let state = {
  */
 const DOCS_PAGE_NOTES = {
     changed: 'התצוגה מהבנייה האחרונה של אתר התיעוד; הקובץ השתנה מאז',
+    // ואחריו הקבצים עצמם (``changed_dependencies``) — ``setPreviewNote``.
+    dependency_changed: 'התצוגה מהבנייה האחרונה של אתר התיעוד; קובץ שהעמוד נבנה ממנו השתנה מאז:',
     unknown: 'התצוגה מהבנייה האחרונה של אתר התיעוד; כרגע אי אפשר לבדוק אם הקובץ השתנה מאז'
 };
+
+/**
+ * הודעת שגיאה בתוך אזור התצוגה (העורך או התצוגה המרונדרת): אייקון וטקסט
+ * באדום. מחרוזת HTML ל-``innerHTML``; הטקסט עובר ``escapeHtml``.
+ */
+function errorMessageHtml(text) {
+    return `
+        <div class="error-message" style="padding: 20px; color: var(--accent-red);">
+            <i class="bi bi-exclamation-triangle"></i>
+            <span>${escapeHtml(text)}</span>
+        </div>
+    `;
+}
 
 /**
  * מונה של טעינות העמוד מאתר התיעוד. הבחירה (``fileSelectionSeq``) לא
@@ -236,17 +251,34 @@ function updateMarkdownToggleVisibility(path, language) {
 }
 
 /**
- * ההודעה מעל התצוגה: ``null`` מסתיר אותה (קובץ Markdown). ערך שאינו
- * מוכר מוצג כ"אי אפשר לבדוק", ולא כעמוד עדכני.
+ * ההודעה מעל התצוגה, לפי העמוד שהשרת החזיר: ``null`` מסתיר אותה (קובץ
+ * Markdown), וכך גם עמוד שנבנה מהתוכן שמוצג. ``freshness`` שאינו מוכר מוצג
+ * כ"אי אפשר לבדוק", ולא כעמוד עדכני. כשקובץ אחר שהעמוד נבנה ממנו השתנה,
+ * הקבצים מוצגים אחרי ההודעה, כל אחד משמאל לימין בתוך השורה העברית.
  */
-function setPreviewNote(freshness) {
+function setPreviewNote(page) {
     const note = document.getElementById('markdown-preview-note');
     if (!note) return;
-    const text = freshness === null || freshness === 'current'
-        ? ''
-        : (DOCS_PAGE_NOTES[freshness] || DOCS_PAGE_NOTES.unknown);
-    note.textContent = text;
-    note.hidden = !text;
+    note.textContent = '';
+    const freshness = page ? page.freshness : null;
+    if (freshness === null || freshness === 'current') {
+        note.hidden = true;
+        return;
+    }
+    const changed = freshness === 'dependency_changed' && Array.isArray(page.changed_dependencies)
+        ? page.changed_dependencies.filter((path) => typeof path === 'string' && path)
+        : [];
+    // בלי רשימת קבצים אין מה להראות אחרי הנקודתיים, ולכן גם זה "אי אפשר לבדוק".
+    const key = freshness === 'dependency_changed' && !changed.length ? 'unknown' : freshness;
+    note.append(DOCS_PAGE_NOTES[key] || DOCS_PAGE_NOTES.unknown);
+    changed.forEach((path, index) => {
+        note.append(index ? ', ' : ' ');
+        const code = document.createElement('code');
+        code.dir = 'ltr';
+        code.textContent = path;
+        note.append(code);
+    });
+    note.hidden = false;
 }
 
 /**
@@ -279,6 +311,12 @@ async function fetchDocsPage(path, ref) {
  * הרינדור עצמו הוא אותו ``renderMarkdownPreview`` בשני המקרים.
  */
 async function renderPreview(seq) {
+    // **קריאה בלי ``seq`` שייכת לבחירה שמוצגת עכשיו** — מתג התצוגה, וגרסה
+    // מההיסטוריה (``RepoState.setFileContent``). ``selectionIsCurrent`` מאשר
+    // ``undefined`` תמיד, ולכן בלי הקיבוע הזה עמוד שנטען לקובץ הקודם, ונחת
+    // אחרי שנבחר קובץ אחר, היה נכתב מעליו. ``docsPageSeq`` לא שומר מזה: הוא
+    // מתקדם רק בעמודים מאתר התיעוד, ובחירה של קובץ Markdown לא מקדמת אותו.
+    if (seq === undefined || seq === null) seq = fileSelectionSeq;
     if (!state.currentFileHasDocsPage) {
         setPreviewNote(null);
         await renderMarkdownPreview(state.currentFileContent, seq);
@@ -294,17 +332,14 @@ async function renderPreview(seq) {
         setPreviewNote(null);
         const previewContent = document.getElementById('markdown-preview-content');
         if (previewContent) {
-            previewContent.innerHTML = `
-                <div class="error-message" style="padding: 20px; color: var(--accent-red);">
-                    <i class="bi bi-exclamation-triangle"></i>
-                    <span>העמוד מאתר התיעוד לא נטען: ${escapeHtml(error && error.message ? error.message : String(error))}</span>
-                </div>
-            `;
+            previewContent.innerHTML = errorMessageHtml(
+                `העמוד מאתר התיעוד לא נטען: ${error && error.message ? error.message : String(error)}`
+            );
         }
         return;
     }
     if (!selectionIsCurrent(seq) || mySeq !== docsPageSeq) return;
-    setPreviewNote(page.freshness);
+    setPreviewNote(page);
     await renderMarkdownPreview(page.markdown, seq);
 }
 
@@ -477,12 +512,7 @@ async function renderMarkdownPreview(content, seq) {
         setupMarkdownAnchorScrolling(previewContent);
     } catch (error) {
         console.error('Failed to render markdown:', error);
-        previewContent.innerHTML = `
-            <div class="error-message" style="padding: 20px; color: var(--accent-red);">
-                <i class="bi bi-exclamation-triangle"></i>
-                <span>שגיאה ברינדור Markdown: ${escapeHtml(error.message)}</span>
-            </div>
-        `;
+        previewContent.innerHTML = errorMessageHtml(`שגיאה ברינדור Markdown: ${error.message || ''}`);
     }
 }
 
@@ -1833,12 +1863,9 @@ async function selectFile(path, element) {
         // הניקוי בתחילת הבחירה כבר רץ.
         if (mySeq !== fileSelectionSeq) return;
         emitRepoFileEvent(null, repoAtStart);
-        wrapper.innerHTML = `
-            <div class="error-message" style="padding: 20px; color: var(--accent-red);">
-                <i class="bi bi-exclamation-triangle"></i>
-                <span>Failed to load file: ${escapeHtml(error && error.message ? error.message : String(error))}</span>
-            </div>
-        `;
+        wrapper.innerHTML = errorMessageHtml(
+            `Failed to load file: ${error && error.message ? error.message : String(error)}`
+        );
     }
 }
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 GIT = shutil.which("git")
 
@@ -36,9 +36,13 @@ class RepoWithMirror:
         self.mirror = self.mirrors / f"{name}.git"
         git("init", "-q", "-b", "main", ".", cwd=self.work)
 
-    def commit(self, files: Dict[str, str]) -> str:
+    def commit(self, files: Dict[str, Optional[str]]) -> str:
+        """קומיט עם הקבצים שב-``files`` (``None`` — מוחק את הקובץ), ומשיכה שלו למראה."""
         for name, text in files.items():
             target = self.work / name
+            if text is None:
+                target.unlink()
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             # בתים ולא ``write_text``: במצב טקסט כל ``\n`` נכתב כ-``os.linesep``.
             target.write_bytes(text.encode("utf-8"))

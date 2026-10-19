@@ -557,9 +557,18 @@ def test_an_update_log_page_keeps_its_days_whole():
 def test_the_page_sha_covers_every_field_it_stores():
     [record] = _pages_of(site_pages()[:1])
     for field in record.content():
-        changed = dataclasses.replace(record, **{field: getattr(record, field) + "x"})
+        value = getattr(record, field)
+        changed = dataclasses.replace(record, **{field: value + ("x",) if isinstance(value, tuple) else value + "x"})
         assert changed.record_sha != record.record_sha, field
     assert record.document() == {"_id": record.source_path, **record.content(), "record_sha": record.record_sha}
+
+
+def test_a_page_keeps_the_files_it_was_built_from():
+    """דפדפן הריפו משווה אותם כדי לדעת אם העמוד ישן מהקוד שהוא מציג (``services/docs_page_view.py``)."""
+    built_from = ["handlers/save_flow.py", "main.py"]
+    [record] = _pages_of([page("a.html", "docs/a.rst", section("a", "א"), dependencies=built_from)])
+    assert record.dependencies == ("handlers/save_flow.py", "main.py")
+    assert record.document()["dependencies"] == built_from
 
 
 # ---------------------------------------------------------------------------
@@ -875,6 +884,24 @@ def test_a_page_that_changed_is_rewritten_and_one_that_left_the_export_is_delete
     assert stored["_id"] == "docs/webapp/global-search.rst"
     assert "[אחר](https://amirbiron.github.io/CodeBot/other.html)" in stored["markdown"]
     assert _state(world)["indexed_source_commit"] == SHA_B
+
+
+def test_a_change_in_the_files_a_page_was_built_from_rewrites_the_page_only(world):
+    """רשימת הקבצים היא חלק מהעמוד ששמור: שינוי בה מגיע למסד, בלי לגעת בחיפוש ובלי הטמעה."""
+    fill(world)
+    pages = site_pages()
+    pages[0]["dependencies"] = ["handlers/save_flow.py"]
+    world.site.publish(SHA_B, pages)
+    world.embed_calls.clear()
+
+    run = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+
+    assert run["status"] == svc.STATUS_COMPLETE, run
+    assert world.embed_calls == []
+    assert (run["plan"]["pages_to_upsert"], run["plan"]["pages_to_delete"]) == (1, 0)
+    stored = {p["_id"]: p for p in _pages(world)}
+    assert stored["docs/webapp/global-search.rst"]["dependencies"] == ["handlers/save_flow.py"]
+    assert stored["docs/observability/events_catalog.rst"]["dependencies"] == []
 
 
 def test_an_anchor_change_updates_the_card_without_embedding(world):

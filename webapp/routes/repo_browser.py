@@ -346,7 +346,8 @@ def api_get_file(file_path: str):
 
 @repo_bp.route('/api/docs-page/<path:file_path>')
 def api_get_docs_page(file_path: str):
-    """העמוד המרונדר של קובץ rst מאתר התיעוד, ואם הוא נבנה מהתוכן שמוצג (``services/docs_page_view.py``).
+    """העמוד המרונדר של קובץ rst מאתר התיעוד, ואם הוא נבנה מהתוכן שמוצג (``services/docs_page_view.py``):
+    ``freshness``, ו-``changed_dependencies`` — הקבצים האחרים שהעמוד נבנה מהם ושהשתנו מאז.
 
     ``ref`` (אופציונלי) — הגרסה שהדפדפן מציג, כשהיא אינה הנוכחית: גרסה מההיסטוריה. בלעדיו, אותו ref
     שממנו ``/api/file`` קורא את הקובץ.
@@ -366,14 +367,15 @@ def api_get_docs_page(file_path: str):
     except PyMongoError:
         logger.warning("repo browser: could not read the docs page of %s", file_path, exc_info=True)
         return jsonify({"error": "docs_page_unavailable"}), 503
-    state = docs_page_view.freshness(
-        get_mirror_service(), repo_name, file_path, shown_ref, page["indexed_commit"]
+    result = docs_page_view.freshness(
+        get_mirror_service(), repo_name, file_path, shown_ref, page["indexed_commit"], page["dependencies"]
     )
     return jsonify({
         "path": file_path,
         "markdown": page["markdown"],
         "page_path": page["page_path"],
-        "freshness": state,
+        "freshness": result.state,
+        "changed_dependencies": list(result.changed_dependencies),
     })
 
 

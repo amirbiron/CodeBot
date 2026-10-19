@@ -3,7 +3,8 @@
 
 **מה יוצא.** הקובץ ``_export/sections.json`` בתוך תיקיית האתר שנבנתה (:data:`EXPORT_PATH`),
 ועותק זהה שלו בשם שתלוי בקומיט (:func:`export_path_for_commit`).
-לכל עמוד תוכן: הנתיב שלו באתר, קובץ המקור שלו והכותרת. לכל סעיף בעמוד: המזהה שלו
+לכל עמוד תוכן: הנתיב שלו באתר, קובץ המקור שלו, הכותרת, והקבצים האחרים בריפו שהוא נבנה מהם.
+לכל סעיף בעמוד: המזהה שלו
 (העוגן בכתובת), הכותרת כטקסט וכמארקדאון, שביל הכותרות מראש העמוד, הרמה, והתוכן של הסעיף
 עצמו כמארקדאון — בלי תתי-הסעיפים שלו, שיוצאים כסעיפים נפרדים. הסעיפים של עמוד יוצאים בסדר
 שבו הם מופיעים בו, ולכן אפשר להרכיב מהם את העמוד כולו. הקובץ נועד לוובאפ — לחיפוש בתיעוד
@@ -13,6 +14,15 @@
 **הכותרת פעמיים.** ``title`` הוא הטקסט שלה, וממנו שביל הכותרות ומה שמוטמע לחיפוש.
 ``title_markdown`` היא אותה כותרת בהמרה של הכפתור, ולכן קוד או הדגשה בתוכה נשארים; ממנה
 העמוד המורכב מציג את הכותרת.
+
+**הקבצים שעמוד נבנה מהם** (``dependencies``). עמוד יכול להציג תוכן מקבצים אחרים בריפו: קוד
+ש-``literalinclude`` מציג, קובץ ש-``include`` משלב, תמונה, ומודול ש-autodoc מתעד. Sphinx רושם
+אותם בעצמו, לכל מסמך, כדי לדעת איזה עמוד לבנות מחדש (``env.dependencies``; ``note_dependency``
+ב-``sphinx/environment/__init__.py`` ו-``DependenciesCollector``, Sphinx 8.2.3). הסקריפט הוא לכן גם
+הרחבה של Sphinx (:func:`setup`, ב-``extensions`` של ``docs/conf.py``): בסוף הבנייה הוא כותב את
+הרשימה הזו ל-:data:`DEPENDENCIES_PATH`, והייצוא מצרף לכל עמוד את מה שבתוך הריפו
+(:func:`page_dependencies`). כך שם הקובץ והמבנה שלו מוגדרים במקום אחד. דפדפן הריפו משווה אותם
+כדי לדעת אם העמוד ישן מהקוד שהוא מציג (``services/docs_page_view.py``).
 
 **למה עותק בשם של הקומיט.** האתר מוגש מאחורי מטמון (CDN) ששומר כל קובץ עד עשר דקות
 (``cache-control: max-age=600``), ומפתח המטמון שלו אינו כולל את ה-query. נמדד מול הקובץ
@@ -65,21 +75,27 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import posixpath
 import re
 import sys
 import tempfile
 import time
 from datetime import datetime, timezone
+from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
 
 #: גרסת המבנה של הקובץ. עולה בכל שינוי במבנה, כדי שקורא שלא מכיר את הגרסה יוכל לסרב לה.
-#: 2 — ``title_markdown`` לכל סעיף.
+#: 2 — ``title_markdown`` לכל סעיף, ו-``dependencies`` לכל עמוד.
 SCHEMA_VERSION = 2
 
 #: מיקום הקובץ, יחסית לתיקיית האתר שנבנתה.
 EXPORT_PATH = PurePosixPath("_export/sections.json")
+
+#: מה ש-Sphinx רשם בבנייה כקבצים שכל מסמך נבנה מהם, יחסית לתיקיית האתר שנבנתה. ההרחבה (:func:`setup`)
+#: כותבת אותו בסוף הבנייה, והייצוא קורא אותו (:func:`page_dependencies`).
+DEPENDENCIES_PATH = PurePosixPath("_export/dependencies.json")
 
 #: עמודים בשורש האתר שאינם תוכן: Sphinx מייצר אותם בעצמו.
 EXCLUDED_PAGES = frozenset({"genindex.html", "search.html", "py-modindex.html"})
@@ -231,6 +247,74 @@ def source_path(html_dir: Path, page: str, source_root: PurePosixPath) -> str:
     return (source_root / found[0]).as_posix()
 
 
+def page_dependencies(html_dir: Path, pages: list[str], source_root: PurePosixPath) -> dict[str, list[str]]:
+    """הקבצים בריפו שכל עמוד נבנה מהם מלבד קובץ המקור שלו, יחסית לשורש הריפו וממוינים.
+
+    הנתונים מ-:data:`DEPENDENCIES_PATH`, שההרחבה כתבה באותה בנייה. Sphinx רושם את הנתיבים יחסית לתיקיית
+    המקור (``docs``), ו-``source_root`` היא המיקום שלה בריפו. קובץ שנמצא מחוץ לריפו — מודול של פייתון
+    או של חבילה מותקנת, ש-autodoc קרא כשתיעד מחלקה שיורשת ממנו — לא נכנס: אין לו גרסה בריפו, ולכן אין
+    לדפדפן הריפו מה להשוות. עמוד ש-Sphinx לא רשם לו כלום נבנה מקובץ המקור שלו בלבד. קובץ חסר, או
+    שאינו בצורה שההרחבה כותבת, מכשיל את הייצוא: בלעדיו כל עמוד היה נראה כאילו לא נבנה משום קובץ אחר.
+    """
+    path = html_dir / DEPENDENCIES_PATH
+    try:
+        raw = json.loads(path.read_bytes())
+    except FileNotFoundError as error:
+        raise ExportError(
+            f"{DEPENDENCIES_PATH} is missing: the build did not load this script as a Sphinx extension (docs/conf.py)"
+        ) from error
+    except ValueError as error:  # כולל ``UnicodeDecodeError``
+        raise ExportError(f"{DEPENDENCIES_PATH} is not JSON: {error}") from error
+    if not isinstance(raw, dict) or not all(
+        isinstance(docname, str) and isinstance(files, list) and all(isinstance(file, str) for file in files)
+        for docname, files in raw.items()
+    ):
+        raise ExportError(f"{DEPENDENCIES_PATH} is not a map of document names to lists of files")
+    result = {}
+    for page in pages:
+        in_repo = set()
+        for file in raw.get(page[: -len(".html")], []):
+            repo_path = posixpath.normpath(posixpath.join(source_root.as_posix(), file))
+            if posixpath.isabs(repo_path) or repo_path == ".." or repo_path.startswith("../"):
+                continue
+            in_repo.add(repo_path)
+        result[page] = sorted(in_repo)
+    return result
+
+
+def dependency_map(dependencies: Mapping[str, Iterable[Any]], srcdir: Path) -> dict[str, list[str]]:
+    """``env.dependencies`` של Sphinx בצורה ש-:data:`DEPENDENCIES_PATH` שומר: לכל מסמך, הנתיבים יחסית
+    לתיקיית המקור, בכתיב posix, ממוינים ובלי כפילויות.
+
+    Sphinx שומר נתיב יחסית לתיקיית המקור (``literalinclude`` ותמונות דרך ``relfn2path``, ‏``include``
+    ו-autodoc דרך ``DependenciesCollector``), או מוחלט כשאין נתיב יחסי (כונן אחר ב-Windows). ``relpath``
+    מחזיר את שניהם לאותה צורה.
+    """
+    return {
+        docname: sorted({Path(os.path.relpath(srcdir / file, srcdir)).as_posix() for file in files})
+        for docname, files in dependencies.items()
+    }
+
+
+def setup(app: Any) -> dict[str, Any]:
+    """הסקריפט כהרחבה של Sphinx (``extensions`` ב-``docs/conf.py``): בסוף בנייה של HTML הוא כותב את
+    :data:`DEPENDENCIES_PATH` מתוך ``env.dependencies``. ההסבר בראש הקובץ ("הקבצים שעמוד נבנה מהם")."""
+    app.connect("build-finished", _write_dependencies)
+    return {"version": str(SCHEMA_VERSION), "parallel_read_safe": True, "parallel_write_safe": True}
+
+
+def _write_dependencies(app: Any, exception: BaseException | None) -> None:
+    """``build-finished``: רק בבנייה שהצליחה, ורק של HTML (``builder.format``) — הייצוא רץ על האתר."""
+    if exception is not None or app.builder.format != "html":
+        return
+    data = json.dumps(
+        dependency_map(app.env.dependencies, Path(app.srcdir)), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    path = Path(app.outdir) / DEPENDENCIES_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_atomically(path, data)
+
+
 def _validated_sections(raw: Any, page: str) -> list[dict[str, Any]]:
     """הסעיפים שהעמוד החזיר, אחרי בדיקה של כל שדה.
 
@@ -314,6 +398,7 @@ def export_sections(
     if not pages:
         raise ExportError(f"no content pages under {html_dir}")
     sources = {page: source_path(html_dir, page, source_root) for page in pages}
+    dependencies = page_dependencies(html_dir, pages, source_root)
 
     # הייבוא כאן ולא בראש הקובץ: את הפונקציות האחרות אפשר לייבא ולבדוק גם בלי Playwright.
     from playwright.sync_api import Error as PlaywrightError
@@ -350,6 +435,7 @@ def export_sections(
                     {
                         "path": page,
                         "source_path": sources[page],
+                        "dependencies": dependencies[page],
                         "sections": _validated_sections(raw, page),
                     }
                 )
@@ -379,7 +465,7 @@ def export_sections(
 def build_document(
     exported_pages: list[dict[str, Any]], *, site_url: str, source_commit: str
 ) -> dict[str, Any]:
-    """המסמך שנכתב לקובץ, מהעמודים שיוצאו (כל אחד עם ``path``, ``source_path`` ו-``sections``).
+    """המסמך שנכתב לקובץ, מהעמודים שיוצאו (כל אחד עם ``path``, ``source_path``, ``dependencies`` ו-``sections``).
 
     פונקציה נפרדת ולא חלק מ-:func:`export_sections`, כדי שאפשר יהיה להריץ אותה בלי דפדפן:
     ``tests/test_docs_search_contract.py`` מעביר את מה שהיא בונה דרך הקורא של הוובאפ
@@ -399,6 +485,7 @@ def build_document(
                 "source_path": entry["source_path"],
                 # הכותרת של העמוד היא הכותרת של הסעיף הראשון בו, כמו ש-Sphinx קובע כותרת למסמך.
                 "title": entry["sections"][0]["breadcrumb"][0],
+                "dependencies": entry["dependencies"],
                 "sections": entry["sections"],
             }
             for entry in exported_pages

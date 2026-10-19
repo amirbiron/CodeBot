@@ -1,7 +1,7 @@
 """אינדקס התיעוד לחיפוש בוובאפ: סעיפים ונתחים מקובץ הייצוא, ומעבר שמיישר את המסד אליהם.
 
 **מאיפה.** קובץ הייצוא של אתר התיעוד (``services/docs_export_client.py``) — כל סעיף בכל עמוד,
-כמארקדאון, מאותה בנייה שנפרסת. מהקובץ נבנים כאן שני סוגי רשומות:
+כמארקדאון, מאותה בנייה שנפרסת. מהקובץ נבנות כאן הרשומות האלה:
 
 * **סעיף** (:data:`~services.docs_search_contract.SECTIONS_COLLECTION`) — מה שכרטיס בחיפוש מציג:
   העמוד, העוגן, שביל הכותרות והמארקדאון.
@@ -12,7 +12,8 @@
 * **עמוד** (:data:`~services.docs_search_contract.PAGES_COLLECTION`) — עמוד rst שלם, מורכב מכל
   הסעיפים שלו לפי הסדר בקובץ (:func:`page_markdown`), למסך התצוגה המרונדרת בדפדפן הריפו. לא מסעיפי
   החיפוש: אלה מדלגים על סעיף בלי טקסט או של קישורים בלבד, וביומן עדכונים הם עדכונים ולא סעיפים.
-  עמוד לא מוטמע, ולכן הוא אינו עולה דבר ואינו משפיע על האישור.
+  עמוד לא מוטמע, ולכן הוא אינו עולה דבר ואינו משפיע על האישור. עם העמוד נשמרים הקבצים האחרים שהוא
+  נבנה מהם (``dependencies`` בקובץ הייצוא), כדי שדפדפן הריפו יידע מתי העמוד ישן מהם.
 
 **המפתחות יציבים** ואינם כוללים את העוגן: סעיף מזוהה לפי קובץ המקור, שביל הכותרות ומספר סידורי
 לשביל שחוזר באותו עמוד, ונתח לפי הסעיף ומספר החלק. עוגן שזז (מספר רץ של Sphinx) מעדכן את רשומת
@@ -27,8 +28,8 @@
 **המעבר** (:func:`run_pass`) משווה את הרצוי (מהקובץ) לקיים (מהמסד, מה-primary, בלי הווקטורים),
 ומיישר: מטמיע רק מה שחדש או השתנה, ומוחק מה שהקובץ כבר לא מכיר. מחיקה נעשית רק כשהקובץ מכיר
 לפחות רשומה אחת מהקיימות (``one-way-sync-orphans`` ב-amir-bug-patterns: בדיקת חפיפה, בלי סף
-"פער גדול"). שני האוספים ייעודיים, והמעבר הוא הכותב היחיד שלהם, ולכן כל מה שבהם הוא דבר שהמעבר
-יצר ומותר לו למחוק. קובץ שנבנה **לפני** הקובץ שכבר הוחל אינו מוחל (:data:`CODE_OLDER_EXPORT`):
+"פער גדול"). כל אוספי הרשומות ייעודיים, והמעבר הוא הכותב היחיד שלהם, ולכן כל מה שבהם הוא דבר
+שהמעבר יצר ומותר לו למחוק. קובץ שנבנה **לפני** הקובץ שכבר הוחל אינו מוחל (:data:`CODE_OLDER_EXPORT`):
 עותק ישן ממטמון האתר, או webhook של פריסה קודמת שהגיע באיחור, לא מחזירים את האינדקס אחורה.
 
 **ריצה.** מעבר רץ ב-thread ברקע, אחד בכל פעם, תחת lease במסמך המצב. בקשה שמגיעה בזמן שמעבר
@@ -117,10 +118,6 @@ UPDATE_LOG_SOURCES = frozenset({"docs/whats-new.rst"})
 #: "הקובץ לא השתנה" (304), אלא בונה את התוכנית מחדש. 2 — רשומה לכל עדכון ביומן עדכונים. 3 — עמודים
 #: מורכבים (:data:`~services.docs_search_contract.PAGES_COLLECTION`).
 RECORDS_VERSION = 3
-
-#: עמודים שנשמרים כעמוד מורכב, לפי הסיומת של קובץ המקור: rst בלבד. עמוד md מוצג בדפדפן הריפו מהמקור
-#: עצמו, בתצוגת ה-Markdown הקיימת.
-PAGE_SOURCE_SUFFIXES = frozenset({".rst"})
 
 #: הרמה העמוקה ביותר שיש לה כותרת במארקדאון, ושיש לה תגית ב-HTML. סעיף עמוק יותר מקבל באתר ``h6``
 #: (``section_title_tags`` ב-``docutils/writers/_html_base.py``, docutils 0.21.2), ולכן גם בעמוד המורכב.
@@ -273,6 +270,8 @@ class PageRecord:
     page_path: str
     title: str
     markdown: str
+    #: הקבצים האחרים בריפו שהעמוד נבנה מהם, כמו שהם בקובץ הייצוא (:attr:`~services.docs_export_client.DocPage.dependencies`).
+    dependencies: Tuple[str, ...] = ()
 
     @property
     def id(self) -> str:
@@ -286,6 +285,7 @@ class PageRecord:
             "page_path": self.page_path,
             "title": self.title,
             "markdown": self.markdown,
+            "dependencies": list(self.dependencies),
         }
 
     @property
@@ -416,16 +416,18 @@ def page_markdown(page: DocPage) -> str:
 
 
 def build_pages(document: ExportDocument) -> List[PageRecord]:
-    """העמודים הרצויים, לפי סדר הקובץ: עמוד לכל קובץ מקור ב-:data:`PAGE_SOURCE_SUFFIXES`."""
+    """העמודים הרצויים, לפי סדר הקובץ: עמוד לכל קובץ מקור ב-
+    :data:`~services.docs_search_contract.PAGE_SOURCE_SUFFIXES`."""
     return [
         PageRecord(
             source_path=page.source_path,
             page_path=page.path,
             title=page.title,
             markdown=page_markdown(page),
+            dependencies=page.dependencies,
         )
         for page in document.pages
-        if PurePosixPath(page.source_path).suffix in PAGE_SOURCE_SUFFIXES
+        if PurePosixPath(page.source_path).suffix in contract.PAGE_SOURCE_SUFFIXES
     ]
 
 

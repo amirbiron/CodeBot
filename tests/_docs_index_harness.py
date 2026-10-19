@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import httpx
 
@@ -55,11 +55,15 @@ def section(
     }
 
 
-def page(path: str, source_path: str, *sections: Dict[str, Any]) -> Dict[str, Any]:
+def page(
+    path: str, source_path: str, *sections: Dict[str, Any], dependencies: Sequence[str] = ()
+) -> Dict[str, Any]:
+    """עמוד בצורה שסקריפט הייצוא כותב. ``dependencies`` — הקבצים האחרים בריפו שהעמוד נבנה מהם."""
     return {
         "path": path,
         "source_path": source_path,
         "title": sections[0]["breadcrumb"][0],
+        "dependencies": list(dependencies),
         "sections": list(sections),
     }
 

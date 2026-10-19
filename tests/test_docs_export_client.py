@@ -35,6 +35,8 @@ def _document(**overrides) -> dict:
                 "path": "webapp/global-search.html",
                 "source_path": "docs/webapp/global-search.rst",
                 "title": "חיפוש גלובלי",
+                # בשם עם רווח בכוונה: הנתיב לא נכנס לכתובת, ובריפו יש קבצים כאלה.
+                "dependencies": ["handlers/save_flow.py", "GUIDES/Debugging Guide.md"],
                 "sections": [
                     {
                         "anchor": "webapp-global-search",
@@ -85,6 +87,25 @@ def test_a_valid_file_becomes_a_document():
     assert page.sections[1].breadcrumb == ("חיפוש גלובלי", "סוגי החיפוש")
     assert page.sections[1].title_markdown == "סוגי `החיפוש`"
     assert page.sections[0].markdown == ""
+    assert page.dependencies == ("handlers/save_flow.py", "GUIDES/Debugging Guide.md")
+
+
+def test_a_page_built_from_its_source_alone_has_no_dependencies():
+    parsed = client.parse_export(_bytes(_broken(lambda d: d["pages"][0].update(dependencies=[]))))
+    assert parsed.pages[0].dependencies == ()
+
+
+def test_dependencies_at_the_ceilings_are_accepted():
+    """התקרות כוללות את הערך שלהן: נתיב באורך התקרה בדיוק, וכמה קבצים כמו התקרה בדיוק."""
+    longest = "a" * (client.MAX_DEPENDENCY_PATH_BYTES - 3) + ".py"
+    many = [longest] + [f"m{i}.py" for i in range(client.MAX_PAGE_DEPENDENCIES - 1)]
+    parsed = client.parse_export(_bytes(_broken(lambda d: d["pages"][0].update(dependencies=many))))
+    assert len(parsed.pages[0].dependencies) == client.MAX_PAGE_DEPENDENCIES
+    assert len(parsed.pages[0].dependencies[0].encode("utf-8")) == client.MAX_DEPENDENCY_PATH_BYTES
+
+
+def _dependencies(document) -> list:
+    return document["pages"][0]["dependencies"]
 
 
 def _broken(mutate):
@@ -151,6 +172,25 @@ BROKEN = {
     "level is a bool": _broken(lambda d: _section(d, 0).update(level=True)),
     "level does not match": _broken(lambda d: _section(d).update(level=3)),
     "markdown is missing": _broken(lambda d: _section(d).pop("markdown")),
+    # בלי הרשימה אין דרך לדעת שהעמוד מציג קוד מקובץ אחר, ודפדפן הריפו היה אומר שהוא עדכני.
+    "dependencies is missing": _broken(lambda d: d["pages"][0].pop("dependencies")),
+    "dependencies is text": _broken(lambda d: d["pages"][0].update(dependencies="handlers/save_flow.py")),
+    "dependency is a number": _broken(lambda d: _dependencies(d).append(7)),
+    "dependency is blank": _broken(lambda d: _dependencies(d).append(" ")),
+    "dependency climbs up": _broken(lambda d: _dependencies(d).append("../outside.py")),
+    "dependency climbs up inside": _broken(lambda d: _dependencies(d).append("docs/../../outside.py")),
+    "dependency is absolute": _broken(lambda d: _dependencies(d).append("/etc/passwd")),
+    "dependency has an empty segment": _broken(lambda d: _dependencies(d).append("handlers//states.py")),
+    "dependency has a dot segment": _broken(lambda d: _dependencies(d).append("handlers/./states.py")),
+    "dependency ends with a slash": _broken(lambda d: _dependencies(d).append("handlers/")),
+    "dependency has a control character": _broken(lambda d: _dependencies(d).append("handlers/a\tb.py")),
+    "dependency twice": _broken(lambda d: _dependencies(d).append("handlers/save_flow.py")),
+    "dependency is too long": _broken(
+        lambda d: _dependencies(d).append("a" * (client.MAX_DEPENDENCY_PATH_BYTES - 2) + ".py")
+    ),
+    "too many dependencies": _broken(
+        lambda d: d["pages"][0].update(dependencies=[f"m{i}.py" for i in range(client.MAX_PAGE_DEPENDENCIES + 1)])
+    ),
 }
 
 
@@ -167,8 +207,9 @@ def test_a_malformed_file_is_refused_with_a_reason(name):
         lambda d: _section(d).update(markdown="תוכן \ud800 נוסף"),
         lambda d: _section(d).update(title="\ud800", breadcrumb=["חיפוש גלובלי", "\ud800"]),
         lambda d: d["pages"][0].update(title="\udfff"),
+        lambda d: _dependencies(d).append("\udfff.py"),
     ],
-    ids=["markdown", "section title", "page title"],
+    ids=["markdown", "section title", "page title", "dependency"],
 )
 def test_a_lone_surrogate_is_an_invalid_file_and_not_a_crash(mutate):
     """``\\ud800`` ב-JSON הוא UTF-8 תקין ומפוענח ל-surrogate בודד, ו-``encode`` עליו זורק

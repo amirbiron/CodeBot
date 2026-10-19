@@ -3,12 +3,15 @@
 הטסטים עוברים בממשק שהצרכן משתמש בו — ``/repo/api/file/<path>`` ו-``/repo/api/docs-page/<path>``,
 שמהם ``repo-browser.js`` טוען — ובשרשרת האמיתית: האינדקס נבנה במעבר האמיתי (``_docs_index_harness``,
 מול דמה של מונגו), והמראה היא מראה git אמיתית תחת ``tmp_path``. הקומיט של "בניית האתר" הוא קומיט
-אמיתי במראה, ולכן השוואת התוכן (``git rev-parse``) רצה כמו בייצור.
+אמיתי במראה, ולכן השוואת התוכן (``get_blob_ids``, ‏``git ls-tree``) רצה כמו בייצור.
 """
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+from pathlib import Path
 from types import ModuleType
 
 import pytest
@@ -33,6 +36,8 @@ _ADMIN_ID = 999
 REPO = contract.SOURCE_REPO_NAME
 RST = "docs/webapp/code-browser.rst"
 API_RST = "docs/api/handlers.rst"
+#: קוד שהעמוד מציג מקובץ אחר (``literalinclude``) — קובץ שהעמוד נבנה ממנו.
+INCLUDED = "handlers/save_flow.py"
 
 
 def _site_pages():
@@ -42,6 +47,7 @@ def _site_pages():
             section("code-browser", "דפדפן קוד", markdown=""),
             section("import", "דפדפן קוד", "ייבוא ריפו חדש", title_markdown="ייבוא `ריפו` חדש",
                     markdown="להריץ את הפקודה."),
+            dependencies=[INCLUDED],
         ),
     ]
 
@@ -50,7 +56,10 @@ def _site_pages():
 def world(tmp_path, monkeypatch):
     """אינדקס שנבנה מבנייה של הקומיט ``built``, ודפדפן הריפו מול המראה ומול אותו מסד."""
     repo = RepoWithMirror(tmp_path, REPO)
-    built = repo.commit({RST: "דפדפן קוד\n=========\n", API_RST: "api\n===\n", "README.md": "# קרא אותי\n"})
+    built = repo.commit({
+        RST: "דפדפן קוד\n=========\n", API_RST: "api\n===\n", "README.md": "# קרא אותי\n",
+        INCLUDED: "def save():\n    pass\n",
+    })
     world = make_world(monkeypatch, FakeDB())
     fill(world, pages=_site_pages(), commit=built)
     for path in (RST, API_RST, "README.md"):
@@ -162,6 +171,7 @@ def test_the_page_is_the_assembled_page_built_from_the_file_shown(world):
         "markdown": "# דפדפן קוד\n\n## ייבוא `ריפו` חדש\n\nלהריץ את הפקודה.\n",
         "page_path": "webapp/code-browser.html",
         "freshness": docs_page_view.FRESHNESS_CURRENT,
+        "changed_dependencies": [],
     }
 
 
@@ -189,6 +199,62 @@ def test_a_version_from_the_history_is_compared_by_its_own_commit(world):
 
     assert _docs_page(world, ref=world.built).get_json()["freshness"] == docs_page_view.FRESHNESS_CURRENT
     assert _docs_page(world, ref=later).get_json()["freshness"] == docs_page_view.FRESHNESS_CHANGED
+
+
+def test_a_change_in_code_the_page_includes_is_named(world):
+    """הקובץ לא השתנה, אבל הקוד שהעמוד מציג ממנו כן — העמוד ישן מהקוד, וההודעה אומרת איזה קובץ."""
+    later = world.repo.commit({INCLUDED: "def save():\n    return 1\n"})
+    _show(world, later)
+
+    body = _docs_page(world).get_json()
+
+    assert (body["freshness"], body["changed_dependencies"]) == (docs_page_view.FRESHNESS_DEPENDENCY_CHANGED, [INCLUDED])
+
+
+def test_code_the_page_includes_that_was_deleted_is_a_change(world):
+    later = world.repo.commit({INCLUDED: None})
+    _show(world, later)
+
+    body = _docs_page(world).get_json()
+
+    assert (body["freshness"], body["changed_dependencies"]) == (docs_page_view.FRESHNESS_DEPENDENCY_CHANGED, [INCLUDED])
+
+
+def test_a_change_in_the_file_itself_is_named_first(world):
+    """כשגם הקובץ השתנה, ההודעה היא על הקובץ שמוצג — זה מה שהמשתמש קורא."""
+    later = world.repo.commit({RST: "דפדפן קוד\n=========\n\nפסקה חדשה.\n", INCLUDED: "def save():\n    return 1\n"})
+    _show(world, later)
+
+    body = _docs_page(world).get_json()
+
+    assert (body["freshness"], body["changed_dependencies"]) == (docs_page_view.FRESHNESS_CHANGED, [])
+
+
+def test_a_version_from_the_history_compares_the_included_code_of_that_version(world):
+    later = world.repo.commit({INCLUDED: "def save():\n    return 1\n"})
+    _show(world, later)
+
+    assert _docs_page(world, ref=world.built).get_json()["freshness"] == docs_page_view.FRESHNESS_CURRENT
+    assert _docs_page(world, ref=later).get_json()["freshness"] == docs_page_view.FRESHNESS_DEPENDENCY_CHANGED
+
+
+def _set_page(world, **fields):
+    world.db[contract.PAGES_COLLECTION].update_one({"_id": RST}, {"$set": fields})
+
+
+def test_an_included_file_missing_from_the_build_commit_cannot_be_compared(world):
+    """הבנייה רשמה קובץ שאינו בקומיט שלה — הנתונים לא עקביים, וזה "אי אפשר לבדוק" ולא "עדכני"."""
+    _set_page(world, dependencies=[INCLUDED, "handlers/missing.py"])
+
+    assert _docs_page(world).get_json()["freshness"] == docs_page_view.FRESHNESS_UNKNOWN
+
+
+@pytest.mark.parametrize("stored", [None, "handlers/save_flow.py", [7]], ids=["missing", "text", "number"])
+def test_a_page_without_a_list_of_files_cannot_be_compared(world, stored):
+    """בלי הרשימה אין דרך לדעת שהעמוד מציג קוד מקובץ אחר, ולכן גם לא שהוא עדכני."""
+    _set_page(world, dependencies=stored)
+
+    assert _docs_page(world).get_json()["freshness"] == docs_page_view.FRESHNESS_UNKNOWN
 
 
 def _set_state(world, **fields):
@@ -219,7 +285,7 @@ def test_a_pass_that_ran_between_reading_the_state_and_the_page_cannot_be_compar
     """מעבר שהסתיים בין שתי הקריאות היה יכול לכתוב עמוד מבנייה אחרת מזו שבמסמך המצב שנקרא קודם."""
     states = iter([{"indexed_source_commit": world.built, "indexed_records_version": svc.RECORDS_VERSION},
                    {"indexed_source_commit": "e" * 40, "indexed_records_version": svc.RECORDS_VERSION}])
-    monkeypatch.setattr(docs_page_view, "read_state", lambda db: next(states))
+    monkeypatch.setattr(svc, "read_state", lambda db: next(states))
 
     assert docs_page_view.read_docs_page(world.db, RST)["indexed_commit"] is None
 
@@ -233,3 +299,75 @@ def test_a_database_error_while_reading_the_page_is_named(world, monkeypatch):
     response = _docs_page(world)
 
     assert (response.status_code, response.get_json()) == (503, {"error": "docs_page_unavailable"})
+
+
+# ---------------------------------------------------------------------------
+# ``get_blob_ids`` — ההשוואה במראה
+# ---------------------------------------------------------------------------
+
+
+def _mirror(world) -> GitMirrorService:
+    return GitMirrorService(base_path=str(world.repo.mirrors))
+
+
+def test_blob_ids_come_in_one_answer_for_every_file_asked(world):
+    """קובץ שאינו בקומיט חסר בתשובה, ותיקייה אינה קובץ — רק blobs בנתיב שהתבקש בדיוק."""
+    blobs = _mirror(world).get_blob_ids(REPO, world.built, [RST, INCLUDED, "handlers/missing.py", "handlers"])
+
+    assert sorted(blobs) == [RST, INCLUDED]
+    assert all(len(sha) == 40 for sha in blobs.values())
+
+
+def test_blob_ids_of_a_file_that_did_not_change_are_the_same(world):
+    later = world.repo.commit({"README.md": "# אחר\n"})
+    mirror = _mirror(world)
+
+    assert mirror.get_blob_ids(REPO, world.built, [INCLUDED]) == mirror.get_blob_ids(REPO, later, [INCLUDED])
+
+
+@pytest.mark.parametrize(
+    "repo,ref,paths",
+    [
+        ("../" + REPO, None, [RST]),
+        (REPO + "/..", None, [RST]),
+        (REPO, "--output=x", [RST]),
+        (REPO, None, ["../outside.py"]),
+        (REPO, None, [RST, "-x"]),
+    ],
+    ids=["repo climbs up", "repo ends up", "ref is a flag", "path climbs up", "path is a flag"],
+)
+def test_a_rejected_name_runs_no_git_command(world, monkeypatch, repo, ref, paths):
+    """שם הריפו בונה את התיקייה שבה git רץ (``_get_repo_path``), ולכן הוא נבדק כמו הנתיב וה-ref."""
+    mirror = _mirror(world)
+    monkeypatch.setattr(mirror, "_run_git_command", lambda *a, **k: pytest.fail("git ran on a rejected name"))
+
+    assert mirror.get_blob_ids(repo, ref or world.built, paths) is None
+
+
+def test_a_commit_the_mirror_does_not_have_has_no_answer(world):
+    assert _mirror(world).get_blob_ids(REPO, "d" * 40, [RST]) is None
+
+
+# ---------------------------------------------------------------------------
+# דפדפן הריפו אינו תלוי במעבר האינדוקס בזמן שהוא נטען
+# ---------------------------------------------------------------------------
+
+
+def test_the_repo_browser_loads_even_when_the_index_cannot_be_imported():
+    """``webapp/app.py`` מדלג בשקט על blueprint שהייבוא שלו נכשל, ולכן כשל במעבר (כאן: ערך ENV ש-
+    ``services/embedding_service.py`` מפרסר בזמן ייבוא) לא יכול להעלים את דפדפן הריפו כולו. נמדד על
+    הקוד שלפני ההפרדה: ``ValueError`` בייבוא של ``webapp.routes.repo_browser``."""
+    root = Path(__file__).resolve().parent.parent
+    probe = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(root)!r})\n"
+        "import webapp.routes.repo_browser\n"
+        "print('index imported:', 'services.docs_index_service' in sys.modules)\n"
+    )
+    env = {**os.environ, "EMBEDDING_MAX_INPUT_BYTES": "not-a-number"}
+    finished = subprocess.run(
+        [sys.executable, "-B", "-I", "-c", probe], capture_output=True, text=True, timeout=120, env=env, cwd=root
+    )
+    assert finished.returncode == 0, finished.stderr[-2000:]
+    # הייבוא כותב שורות לוג ל-stdout; התשובה היא השורה עם התחילית.
+    assert "index imported: False" in finished.stdout.splitlines()
