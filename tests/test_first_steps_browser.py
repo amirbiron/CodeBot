@@ -7,7 +7,7 @@
 וה-JS מהדיסק. בקשות לכל מארח אחר נקטעות, ולכן גם Font Awesome אינו נטען.
 
 **"בטעינה הבאה לא רצה אף שאילתה של הצ'קליסט" נמדד כאן מול המסד עצמו:** ה-profiler של mongod
-רושם כל פקודה, ו-``_checklist_queries`` מזהה את השאילתות של הצ'קליסט לפי הצורה שלהן — ולא לפי
+(``tests/_mongo_profiler.py``) רושם כל פקודה, ו-``_checklist_queries`` מזהה את השאילתות של הצ'קליסט לפי הצורה שלהן — ולא לפי
 האוסף בלבד, כי גם כרטיס "פתקים אחרונים" קורא מ-``sticky_notes`` באותה טעינה. הצד של CI לאותה
 טענה, עם מונה קריאות על דמה, ב-``tests/test_first_steps.py``.
 
@@ -29,6 +29,7 @@ import pytest
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
 from _browser_harness import Touch, poll, tap_on
+from _mongo_profiler import profiled
 
 pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
@@ -108,20 +109,6 @@ def _browser_pages(server, executable):
         finally:
             pages.close()
             browser.close()
-
-
-@contextlib.contextmanager
-def _profiled(db):
-    """ה-profiler של mongod על מסד הבדיקה, מאופס. ביציאה הרשימה מתמלאת במה שנרשם בזמן הבלוק."""
-    db.command("profile", 0)
-    db["system.profile"].drop()
-    db.command("profile", 2)
-    entries: list[dict] = []
-    try:
-        yield entries
-    finally:
-        db.command("profile", 0)
-        entries.extend(db["system.profile"].find({}, {"ns": 1, "op": 1, "command": 1}))
 
 
 def _checklist_queries(entries):
@@ -308,7 +295,7 @@ def test_completing_every_step_locks_the_card_and_it_never_comes_back(
         assert _ui_prefs(wired_mongo).get("first_steps_done") is True
 
         db = wired_mongo.get_db()
-        with _profiled(db) as entries:
+        with profiled(db) as entries:
             page.reload(wait_until="load")
             assert _card_state(page) == {"present": False}
         assert entries, "ה-profiler לא רשם כלום — המדידה עצמה לא עבדה"
@@ -316,7 +303,7 @@ def test_completing_every_step_locks_the_card_and_it_never_comes_back(
 
         deleted = _api(page, "DELETE", f"/api/collections/{collection_id}")
         assert deleted["status"] == 200 and deleted["data"]["ok"], deleted
-        with _profiled(db) as entries:
+        with profiled(db) as entries:
             page.reload(wait_until="load")
             assert _card_state(page) == {"present": False}
         assert _checklist_queries(entries) == []
@@ -338,7 +325,7 @@ def test_hiding_holds_after_refresh_and_on_another_device_and_show_again_returns
         poll(page, "() => !document.getElementById('firstSteps')", "הכרטיס ירד אחרי שהשרת אישר")
         assert _ui_prefs(wired_mongo).get("first_steps_hidden") is True
 
-        with _profiled(db) as entries:
+        with profiled(db) as entries:
             page.reload(wait_until="load")
             assert _card_state(page) == {"present": False}
         assert entries and _checklist_queries(entries) == []
@@ -349,7 +336,7 @@ def test_hiding_holds_after_refresh_and_on_another_device_and_show_again_returns
 
         pages.goto(other, "/settings")
         assert other.is_visible("#firstStepsShowAgain")
-        with _profiled(db) as entries:
+        with profiled(db) as entries:
             with other.expect_navigation(url=f"{admin_live_server.base_url}/dashboard", wait_until="load"):
                 other.click("#firstStepsShowAgain")
             state = _card_state(other)

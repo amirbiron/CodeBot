@@ -304,21 +304,30 @@ def test_an_expired_token_does_not_count(db, monkeypatch):
 # --- הכלל של "חיבור פעיל" הוא הכלל של השרת עצמו -----------------------------------------------
 
 
-@pytest.mark.parametrize("case", ["no_expiry", "future_expiry", "expired", "revoked"])
+@pytest.mark.parametrize("case", ["no_expiry", "future_expiry", "expired", "expires_this_instant", "revoked"])
 def test_the_personal_token_rule_agrees_with_verify(case, monkeypatch):
-    """טוקן שמכניס לשרת הוא טוקן שנספר, ולהפך — ``user_has_live_token`` מול ``verify``."""
+    """טוקן שמכניס לשרת הוא טוקן שנספר, ולהפך — ``user_has_live_token`` מול ``verify``.
+
+    ``verify`` מחיל את ``_is_expired`` בפייתון, ו-``user_has_live_token`` שואל את השרת עם
+    ``_not_expired_condition`` — אותו כלל בשתי שפות, והטסט מחזיק אותם לתשובה אחת. הרגע עצמו של
+    ``expires_at`` עוד אינו "פג" בשניהם: ``$lte`` בתנאי היה מפיל את הטוקן כאן ולא ב-``verify``.
+    """
+    frozen = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(token_store, "_now", lambda: frozen)
     db = FakeDB()
     store = MCPTokenStore(db)
     raw = store.issue(USER_ID, ttl_days=None if case == "no_expiry" else 1)
+    doc = _raw(db, "mcp_tokens").docs[0]
     if case == "expired":
-        later = datetime.now(UTC) + timedelta(days=2)
-        monkeypatch.setattr(token_store, "_now", lambda: later)
-    if case == "revoked":
-        assert store.revoke(USER_ID, _raw(db, "mcp_tokens").docs[0]["_id"]) is True
+        doc["expires_at"] = frozen - timedelta(seconds=1)
+    elif case == "expires_this_instant":
+        doc["expires_at"] = frozen
+    elif case == "revoked":
+        assert store.revoke(USER_ID, doc["_id"]) is True
 
     accepted = store.verify(raw) is not None
     assert token_store.user_has_live_token(db, USER_ID) is accepted
-    assert accepted is (case in {"no_expiry", "future_expiry"})
+    assert accepted is (case in {"no_expiry", "future_expiry", "expires_this_instant"})
 
 
 @pytest.mark.parametrize("kind", ["access", "refresh"])
@@ -346,6 +355,46 @@ def test_the_oauth_rule_agrees_with_get_token(kind, case, monkeypatch):
     works = store.get_token(raw, kind=kind) is not None
     assert oauth_store.subject_has_live_token(db, str(USER_ID)) is works
     assert works is (case in {"live", "expires_this_instant"})
+
+
+def test_the_oauth_answer_is_the_token_that_expires_last(monkeypatch):
+    """מהשרת חוזר מסמך אחד — הטוקן שתוקפו נגמר אחרון — ו-``_expired`` מכריע עליו.
+
+    השעון זז בין השאילתה (``expires_at >= now``) לבין ``_expired``, כמו בשרת אמיתי. טוקן A עובר את
+    השאילתה ופג לפני ש-``_expired`` רץ, וטוקן B חי. בלי המיון חוזר A, שנכתב ראשון, והתשובה "אין
+    חיבור" שגויה; עם המיון חוזר B. ואם גם B היה פג — פגו כולם, כי אף אחד לא פג אחריו.
+    """
+    t0 = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(oauth_store, "_now", lambda: t0)
+    db = FakeDB()
+    store = OAuthStore(db)
+    for _ in range(2):
+        store.save_token(new_secret(ACCESS_PREFIX), kind="access", data={"client_id": "c1", "subject": str(USER_ID)})
+    first, second = _raw(db, oauth_store.TOKENS_COLLECTION).docs
+    first["expires_at"] = t0 + timedelta(milliseconds=500)
+
+    def moving_clock():
+        ticks = [t0, t0 + timedelta(seconds=1)]
+        return lambda: ticks.pop(0) if len(ticks) > 1 else ticks[0]
+
+    monkeypatch.setattr(oauth_store, "_now", moving_clock())
+    assert oauth_store.subject_has_live_token(db, str(USER_ID)) is True
+
+    second["expires_at"] = t0 + timedelta(milliseconds=600)
+    monkeypatch.setattr(oauth_store, "_now", moving_clock())
+    assert oauth_store.subject_has_live_token(db, str(USER_ID)) is False
+
+
+def test_each_connection_check_asks_the_server_for_one_document(db):
+    """"יש לפחות אחד" — מסמך אחד מהשרת, ולא מעבר בקוד על כל הטוקנים של המשתמש.
+
+    דמה לא מראה כמה מסמכים השרת קורא, ולכן כאן נבדק שכל אוסף נשאל ב-``find_one`` בלבד. המדידה
+    עצמה, מול mongod אמיתי, ב-``tests/test_first_steps_mongo.py``.
+    """
+    assert _states(_card(db))[first_steps.STEP_AI] is False
+    for name in ("mcp_tokens", oauth_store.TOKENS_COLLECTION):
+        methods = {method for collection, method in db.checklist_calls() if collection == name}
+        assert methods == {"find_one"}, (name, methods)
 
 
 # --- נעילה ---------------------------------------------------------------------------------------
@@ -427,12 +476,12 @@ def test_a_database_error_that_is_not_an_outage_surfaces(db):
 
 def test_a_live_oauth_connection_answers_even_when_the_token_check_failed(db):
     OAuthStore(db).save_token(new_secret(ACCESS_PREFIX), kind="access", data={"subject": str(USER_ID)})
-    _failing(db, "mcp_tokens", "find", AutoReconnect("connection reset"))
+    _failing(db, "mcp_tokens", "find_one", AutoReconnect("connection reset"))
     assert _states(_card(db))[first_steps.STEP_AI] is True
 
 
 def test_no_ai_connection_found_and_one_check_failed_is_unknown(db):
-    _failing(db, "mcp_tokens", "find", AutoReconnect("connection reset"))
+    _failing(db, "mcp_tokens", "find_one", AutoReconnect("connection reset"))
     assert _states(_card(db))[first_steps.STEP_AI] is None
 
 

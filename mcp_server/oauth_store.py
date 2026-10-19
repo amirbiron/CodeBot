@@ -188,20 +188,27 @@ def subject_has_live_token(db: Any, subject: str) -> bool:
     token was revoked but whose refresh token lives can still mint a new one. Claude.ai and
     Gemini connect through this server with no PAT, so this is their only trace.
 
-    ``expires_at >= now`` in the query is a pre-filter, and the rule stays ``_expired``:
-    revoked refresh tokens are kept until their own ``expires_at`` (30 days), so one
-    connected client piles up hundreds of rows under its subject, and on the production
-    cluster (``explain``, 19.10.2026) the planner answered this query from the
-    ``expires_at_1`` TTL index after 2 keys instead. ``>=`` and not ``>`` so the two halves
-    agree on the instant itself.
+    **One document comes back: the non-revoked token that expires last.** If it still works,
+    the subject has a live token; if it does not, none of the others does either, since none
+    of them expires after it. So ``_expired`` on that one document is the whole answer, and
+    the rule stays ``_expired``. ``expires_at >= now`` in the query only bounds the scan: it
+    drops nothing ``_expired`` would keep, because :meth:`OAuthStore.save_token` gives every
+    row a date, and it is ``>=`` and not ``>`` so the two agree on the instant itself.
+
+    Why one document: refresh rotation revokes the token it was handed
+    (``exchange_refresh_token`` in ``mcp_server/oauth_provider.py``), and a revoked row stays
+    until its own ``expires_at`` (``REFRESH_TTL_SECONDS``), so a client that stays connected
+    keeps adding rows under its subject. Pulling them to test here would make the server fill
+    a whole first batch before anything came back — reading past every revoked row when few
+    are live. ``tests/test_first_steps_mongo.py`` measures what the server reads.
 
     A function over the database and not a method, on purpose: ``OAuthStore()`` runs its
     ``create_index`` calls on every instantiation, and this is asked while a page renders
     (the "first steps" checklist on the webapp dashboard).
     """
-    now = _now()
-    cursor = db[TOKENS_COLLECTION].find(
-        {"subject": str(subject), "revoked": {"$ne": True}, "expires_at": {"$gte": now}},
+    newest = db[TOKENS_COLLECTION].find_one(
+        {"subject": str(subject), "revoked": {"$ne": True}, "expires_at": {"$gte": _now()}},
         {"expires_at": 1},
+        sort=[("expires_at", -1)],
     )
-    return any(not _expired(doc.get("expires_at")) for doc in cursor)
+    return newest is not None and not _expired(newest.get("expires_at"))
