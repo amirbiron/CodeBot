@@ -286,7 +286,8 @@ check('עמוד שנטען מהמתג, ונחת אחרי שנבחר קובץ א�
 });
 
 check('עמוד של גרסה מההיסטוריה, שנחת אחרי שנבחר קובץ md, לא נכתב מעליו', async () => {
-  // התרחיש מהסקירה: ``docsPageSeq`` לא זז כשנבחר קובץ md, ולכן רק הקיבוע לבחירה שומר כאן.
+  // התרחיש מהסקירה: עמוד מההיסטוריה שנחת אחרי שנבחר קובץ md. שני שומרים חוסמים אותו — הקיבוע
+  // לבחירה, ו-``previewRenderSeq``, שהרינדור של ה-md קידם.
   const sb = makeSandbox({
     [FILE_URL]: { content: 'דפדפן קוד\n', language: 'text', has_docs_page: true },
     [PAGE_URL]: { gate: true },
@@ -327,7 +328,7 @@ check('גרסה מההיסטוריה נשלחת לשרת, כדי שהעמוד י
 
 check('טעינה איטית של גרסה קודמת לא דורסת את ההודעה של הגרסה שנבחרה אחריה', async () => {
   // הבחירה (``fileSelectionSeq``) לא משתנה בין גרסאות של אותו קובץ. נופל אם ``renderPreview``
-  // יפסיק לבדוק את ``docsPageSeq``.
+  // יפסיק לבדוק את ``previewRenderSeq``.
   const sb = makeSandbox({
     [FILE_URL]: { content: 'נוכחי\n', language: 'text', has_docs_page: true },
     [PAGE_URL]: { gate: true },

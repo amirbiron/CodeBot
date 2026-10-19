@@ -2,8 +2,9 @@
  * הדגשת התאמות חיפוש — תשובה אחת לשאלה "איך מדגישים התאמה".
  *
  * משותף לכל מי שמדגיש התאמות חיפוש בעמוד — למשל החיפוש במסמך
- * (``md_preview.html``), עמוד חיפוש הפתקים (``notes_search.js``) והחיפוש
- * בתוך פתק דביק (``sticky-notes.js``). הרשימה המלאה אינה כתובה כאן: בדיקת
+ * (``md_preview.html``), עמוד חיפוש הפתקים (``notes_search.js``), החיפוש
+ * בתוך פתק דביק (``sticky-notes.js``) והחיפוש בתוך קובץ בתצוגה המרונדרת
+ * של דפדפן הריפו (``repo-browser.js``). הרשימה המלאה אינה כתובה כאן: בדיקת
  * החיווט ב-``tests/text-highlight.test.js`` גוזרת אותה מהקוד. החיפוש בקוד
  * ב-``view_file.html`` עדיין **אינו** משתמש בו, ויש לו ממצאים משלו — #3477.
  * לפני הקובץ הזה היו שני מימושים נפרדים — ``highlightTerm`` במסמך
@@ -37,8 +38,17 @@
    * ולמה SVG בכלל: עטיפת HTML בתוך ``<text>`` של SVG אינה מצוירת, ולכן
    * ההתאמה הייתה נעלמת מהדיאגרמה במקום להידלק, וב-``<style>`` שבתוך SVG
    * היא הייתה מפרקת את ה-CSS באמצע מילה.
+   *
+   * **וכל ילד של ``<semantics>`` שאינו הראשון — כלומר ``<annotation>``.**
+   * בנוסחה מוצג רק הילד הראשון, וכל השאר מקבלים ``display: none``; זה
+   * בדיוק הכלל ``semantics > :not(:first-child)`` שבגיליון ברירת המחדל
+   * (MDN, ‏``<semantics>``). KaTeX שומר שם את מקור ה-TeX (``<annotation
+   * encoding="application/x-tex">``), ולכן בלי הדילוג חיפוש מילה מתוך
+   * נוסחה ספר התאמה שאף אחד לא רואה, והניווט אליה לא הראה כלום. החריג
+   * ש-MDN מתאר — דפדפנים ישנים שמציגים הערה כשאין לפניה MathML להצגה —
+   * אינו חל על פלט של KaTeX, שתמיד פותח ב-MathML להצגה.
    */
-  var DEFAULT_SKIP = 'script, style, noscript, svg';
+  var DEFAULT_SKIP = 'script, style, noscript, svg, semantics > :not(:first-child)';
 
   /** שם מחלקה שאפשר לשים בסלקטור כמו שהוא, בלי בריחה. */
   var CLASS_NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;
@@ -215,6 +225,74 @@
     return wrappers;
   }
 
+  /**
+   * מביא את ``hit`` אל העין בגלילה של המכלים שבינו לבין ``root`` בלבד (כולל
+   * ``root`` עצמו), ולא של העמוד.
+   *
+   * ‏``scrollIntoView`` גולל כל אב נגלל. בפתק מעוגן הוא היה מזיז את המסמך
+   * שמתחת לפתק, ובפתק על משטח את המשטח. ובדפדפן הריפו הוא גולל גם את
+   * ``body``, שגבוה מהמסך: נמדד בכרומיום ב-19.10.2026, בחלון 1280×800 הדף
+   * כולו זז 76px למעלה — ``tests/test_repo_browser_in_file_search_browser.py``
+   * נכשל עליו. כאן נגללים רק האבות שבין ההתאמה לבין ``root``: המכל עצמו,
+   * ועטיפה נגללת בתוכו, כמו טבלה רחבה או בלוק קוד. מכל שהוא
+   * ``overflow: hidden`` אינו נגלל, אחרת תוכן היה נעלם בלי שהמשתמש יוכל
+   * לגלול חזרה.
+   *
+   * גוללים רק כשההתאמה אינה גלויה במלואה, ואז ממרכזים אותה. החשבון הוא
+   * הפרש בין מלבנים, ו-``scrollLeft += הפרש`` נכון ב-RTL וב-LTR כאחד:
+   * ב-RTL ‏``scrollLeft`` מתחיל ב-0 בקצה הימני ושלילי לשמאל, ובשני
+   * הכיוונים הגדלתו מזיזה את החלון ימינה. מקור: MDN, ‏Element.scrollLeft.
+   * ‏``clientLeft`` כולל את פס הגלילה כשהוא בצד שמאל, כמו ב-RTL.
+   *
+   * התאמה שאינה בתוך ``root`` — למשל עטיפה מתצוגה שכבר הוחלפה — אינה גוללת
+   * דבר, וגם ``root`` עצמו (``contains`` כולל את הצומת עצמו — MDN,
+   * ‏Node.contains()). בלי הבדיקה הזו ההליכה הייתה ממשיכה עד ראש המסמך,
+   * וגוללת בדיוק את מה שהפונקציה קיימת כדי לא לגלול.
+   *
+   * **התאמה שאינה מצוירת** — בתוך ``<details>`` סגור, או מתחת ל-``display:
+   * none`` — מקבלת במקומה את האב הקרוב שכן מצויר, למשל את הבלוק הסגור עצמו,
+   * שהכותרת שלו גלויה. המלבן שלה לא מתאר שום דבר על המסך: נמדד בכרומיום —
+   * תחת ``display: none`` הוא אפס, והגלילה קפצה למקום שאין בו כלום; ובתוך
+   * ``<details>`` סגור הוא המקום שבו התוכן **היה** מוצג. אם אין אב כזה עד
+   * ``root`` — אין לאן לגלול.
+   */
+  function scrollIntoViewWithin(root, hit) {
+    if (hit === root || !root.contains(hit)) return;
+    var target = hit;
+    while (target !== root && !isRendered(target)) target = target.parentElement;
+    if (target === root) return;
+    for (var box = target.parentElement; box; box = box.parentElement) {
+      var cs = window.getComputedStyle(box);
+      var canY = (cs.overflowY === 'auto' || cs.overflowY === 'scroll') && box.scrollHeight > box.clientHeight;
+      var canX = (cs.overflowX === 'auto' || cs.overflowX === 'scroll') && box.scrollWidth > box.clientWidth;
+      if (canY || canX) {
+        var h = target.getBoundingClientRect();
+        var b = box.getBoundingClientRect();
+        var top = b.top + box.clientTop;
+        var left = b.left + box.clientLeft;
+        if (canY && (h.top < top || h.bottom > top + box.clientHeight)) {
+          box.scrollTop += (h.top + h.height / 2) - (top + box.clientHeight / 2);
+        }
+        if (canX && (h.left < left || h.right > left + box.clientWidth)) {
+          box.scrollLeft += (h.left + h.width / 2) - (left + box.clientWidth / 2);
+        }
+      }
+      if (box === root) break;
+    }
+  }
+
+  /**
+   * האם לאלמנט יש קופסה מצוירת. ``checkVisibility`` מחזיר ``false`` כשאין
+   * קופסה (``display: none``) וכשהוא או אב שלו ``content-visibility: hidden``
+   * — כך מוסתר התוכן של ``<details>`` סגור בכרומיום (MDN,
+   * ‏Element.checkVisibility(), זמין בכל הדפדפנים ממרץ 2024). דפדפן ישן
+   * בלעדיו נבדק לפי ``getClientRects``, שתופס לפחות את ``display: none``.
+   */
+  function isRendered(el) {
+    if (typeof el.checkVisibility === 'function') return el.checkVisibility();
+    return el.getClientRects().length > 0;
+  }
+
   if (typeof window !== 'undefined') {
     window.TextHighlight = Object.freeze({
       DEFAULT_SKIP: DEFAULT_SKIP,
@@ -223,6 +301,7 @@
       appendHighlighted: appendHighlighted,
       highlightWithin: highlightWithin,
       clearHighlights: clearHighlights,
+      scrollIntoViewWithin: scrollIntoViewWithin,
     });
   }
 })();

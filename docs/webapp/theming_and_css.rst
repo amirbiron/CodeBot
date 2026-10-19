@@ -144,6 +144,10 @@
      - Level 3
      - הטקסט בהצעות ההשלמה של החיפוש הגלובלי. אותו מבנה בדיוק: ברשימה הלבנה, ובכוונה **ללא** ערך ברירת מחדל
      - ``webapp/static/css/global_search.css`` (וו דריסה לערכות מיובאות)
+   * - ``--in-file-search-hit-bg`` / ``--in-file-search-hit-active-bg`` / ``--in-file-search-hit-text`` / ``--in-file-search-hit-halo``
+     - Level 3
+     - ההתאמות של החיפוש בתוך קובץ בתצוגה המרונדרת של דפדפן הריפו (:ref:`code-browser-rendered-search`): צהוב וטקסט שחור כמו שאר הדגשות החיפוש בדפדפן הריפו, והפעילה כתומה. אותו ערך בכל הערכות, ולכן **לא** ברשימה הלבנה. **הטבעת של הפעילה בשני צבעים בכוונה** — שחורה (``-text``) צמודה ולבנה (``-halo``) סביבה: אין צבע אחד שבולט על הרקע של התצוגה בכל ערכה (``--accent-blue`` נמדד 1.58:1 ב-rose-pine-dawn, ושחור 1.12:1 ב-high-contrast), ולכל רקע אחד משני הצבעים עומד ב-3:1 לפחות. ``test_the_active_ring_stands_out_in_every_theme`` מודד את זה בכל ערכה
+     - ``webapp/static/css/repo-browser.css`` (הפלטה שב-``:root``)
    * - ``--repo-md-code-block-bg-override`` / ``--repo-md-code-block-border-override``
      - Level 3
      - הרקע והגבול של בלוקי הקוד בתצוגת ה-Markdown של דפדפן הריפו. אותו מבנה: ברשימה הלבנה, ובכוונה **ללא** ערך ברירת מחדל

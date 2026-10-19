@@ -201,6 +201,137 @@ def test_clear_restores_the_original_tree(page):
     assert result["nodesAfter"] == result["nodesBefore"], "אותו מספר צמתי טקסט כמו בהתחלה"
 
 
+def test_scroll_into_view_within_scrolls_only_up_to_the_root(page):
+    """``scrollIntoViewWithin`` גולל את המכלים שבין ההתאמה ל-``root`` בלבד, ורק כשצריך.
+
+    הבקרה היא ``scrollIntoView`` על אותה התאמה, באותו עץ: הוא כן גולל גם את המכל החיצוני או את החלון —
+    כלומר יש כאן אבות נגללים מעל ``root``, והבדיקה לא עוברת רק כי לא היה מה לגלול.
+    """
+    _reset(page)
+    result = page.evaluate(
+        """() => {
+          const root = document.getElementById('root');
+          root.innerHTML =
+            '<div id="outer" style="height:300px;overflow:auto">' +
+              '<div style="height:150px"></div>' +
+              '<div id="box" style="height:100px;overflow:auto">' +
+                '<div style="height:400px"></div><span id="far">far</span><div style="height:50px"></div>' +
+              '</div>' +
+              // מחוץ ל-``box`` אבל בתוך מכל נגלל: בלי הבדיקה שההתאמה בתוך ``root``, ההליכה ממנה
+              // הייתה גוללת את ``outer``.
+              '<div style="height:600px"></div><span id="elsewhere">elsewhere</span>' +
+            '</div>' +
+            '<div style="height:2000px"></div>';
+          const outer = document.getElementById('outer');
+          const box = document.getElementById('box');
+          const far = document.getElementById('far');
+          const scrolls = () => [box.scrollTop, outer.scrollTop, window.scrollY];
+          const visible = () => {
+            const h = far.getBoundingClientRect(), b = box.getBoundingClientRect();
+            return h.top >= b.top && h.bottom <= b.bottom;
+          };
+          const before = scrolls();
+          TextHighlight.scrollIntoViewWithin(box, far);
+          const after = scrolls();
+          const shown = visible();
+          TextHighlight.scrollIntoViewWithin(box, far);
+          const again = scrolls();
+          TextHighlight.scrollIntoViewWithin(box, document.getElementById('elsewhere'));
+          const outside = scrolls();
+          // ``root`` עצמו, כשהוא מחוץ לחלון של ``outer``: ``contains`` כולל את הצומת עצמו, ובלי הבדיקה
+          // על ``hit === root`` ההליכה הייתה מתחילה מעליו וגוללת את ``outer``.
+          outer.scrollTop = 500;
+          const hidden = scrolls();
+          TextHighlight.scrollIntoViewWithin(box, box);
+          const itself = scrolls();
+          outer.scrollTop = 0;
+          box.scrollTop = 0;
+          far.scrollIntoView({ block: 'center' });
+          const control = scrolls();
+          outer.scrollTop = 0;
+          window.scrollTo(0, 0);
+          return { before, after, shown, again, outside, hidden, itself, control };
+        }"""
+    )
+    assert result["before"] == [0, 0, 0]
+    box_top, outer_top, window_y = result["after"]
+    assert box_top > 0 and outer_top == 0 and window_y == 0, result
+    assert result["shown"], "ההתאמה בתוך החלון של המכל"
+    assert result["again"] == result["after"], "התאמה שכבר גלויה אינה גוללת שוב"
+    assert result["outside"] == result["after"], "התאמה מחוץ ל-root אינה גוללת דבר"
+    assert result["hidden"][1] == 500 and result["itself"] == result["hidden"], "root עצמו אינו גולל דבר"
+    assert result["control"][1] > 0 or result["control"][2] > 0, f"הבקרה לא גללה מעל root: {result}"
+
+
+def test_a_hit_that_is_not_rendered_scrolls_to_its_nearest_rendered_ancestor(page):
+    """התאמה בתוך ``<details>`` סגור מביאה אל העין את הבלוק עצמו, והתאמה מתחת ל-``display: none`` בלי
+    אב מצויר עד ``root`` אינה גוללת דבר.
+
+    המלבן של התאמה שאינה מצוירת אינו מתאר שום דבר על המסך: תחת ``display: none`` הוא אפס, והגלילה
+    לפיו קפצה (נמדד בכרומיום: מ-300 ל-192) למקום שאין בו כלום.
+    """
+    _reset(page)
+    result = page.evaluate(
+        """() => {
+          const root = document.getElementById('root');
+          root.innerHTML = '<div id="box" style="height:200px;overflow:auto">' +
+            '<div style="height:600px"></div>' +
+            '<details id="closed"><summary>s</summary><p><span id="inside">alpha</span></p></details>' +
+            '<div style="height:600px"></div>' +
+            '<p style="display:none"><span id="none">alpha</span></p></div>';
+          const box = document.getElementById('box');
+          const closed = document.getElementById('closed');
+          const shown = (el) => {
+            const r = el.getBoundingClientRect(), b = box.getBoundingClientRect();
+            return r.height > 0 && r.top >= b.top && r.bottom <= b.bottom;
+          };
+          box.scrollTop = 0;
+          const closedBefore = shown(closed);
+          TextHighlight.scrollIntoViewWithin(box, document.getElementById('inside'));
+          const closedAfter = shown(closed);
+          box.scrollTop = 300;
+          TextHighlight.scrollIntoViewWithin(box, document.getElementById('none'));
+          return { closedBefore, closedAfter, noneScroll: box.scrollTop, stillClosed: !closed.open };
+        }"""
+    )
+    assert result["closedBefore"] is False, result
+    assert result["closedAfter"] is True, "הבלוק הסגור עצמו נגלל אל העין"
+    assert result["stillClosed"] is True, "הגלילה אינה פותחת את הבלוק"
+    assert result["noneScroll"] == 300, "התאמה בלי אב מצויר עד root אינה גוללת"
+
+
+def test_the_tex_source_inside_a_formula_is_not_scanned(page):
+    """בנוסחה מוצג רק הילד הראשון של ``<semantics>``; מקור ה-TeX שב-``<annotation>`` אינו מוצג, ולכן גם
+    אינו נספר.
+
+    **הנוסחה היא פלט אמיתי של KaTeX** (``katex.renderToString`` מהבאנדל של התצוגה), ולא סימון שנכתב
+    ביד — המבנה הוא מה שהספרייה מייצרת. ``display`` של ה-``annotation`` נמדד כאן, כדי שהבדיקה תיפול אם
+    הנחת היסוד (שהיא אינה מוצגת) תשתנה. ``\\text{alpha}`` מוצג פעמיים בעמוד בלי ה-CSS של KaTeX — בעותק
+    המעוצב ובעותק של MathML — ולכן שתי התאמות, ולא שלוש.
+    """
+    _reset(page)
+    if page.evaluate("typeof window.katex") != "object":
+        page.add_script_tag(url="/js/md_preview.bundle.js")
+    result = page.evaluate(
+        """() => {
+          const root = document.getElementById('root');
+          root.innerHTML = katex.renderToString('\\\\text{alpha} + x', { throwOnError: false });
+          const annotation = root.querySelector('semantics > annotation');
+          const wraps = TextHighlight.highlightWithin(root, 'alpha', { className: 'hit' });
+          return {
+            annotationDisplay: annotation ? getComputedStyle(annotation).display : null,
+            annotationText: annotation ? annotation.textContent : null,
+            count: wraps.length,
+            inAnnotation: wraps.filter((w) => w.closest('annotation')).length,
+          };
+        }"""
+    )
+    assert result["annotationText"] == "\\text{alpha} + x", result
+    assert result["annotationDisplay"] == "none", result
+    assert result["inAnnotation"] == 0, result
+    assert result["count"] == 2, result
+
+
 def test_invalid_skip_selector_is_loud(page):
     """סלקטור שגוי הוא שגיאת קורא, ו-``matches`` זורק ``SyntaxError`` — לא בולעים."""
     _reset(page)
