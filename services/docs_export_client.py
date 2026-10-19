@@ -59,6 +59,11 @@ MAX_PATH_BYTES = 4 * 49
 #: כותרת של עמוד או של סעיף. המדידה: 99.
 MAX_TITLE_BYTES = 4 * 99
 
+#: כותרת של סעיף כמארקדאון (``title_markdown``). המדידה: 100, על האתר החי ב-19.10.2026 (קומיט
+#: ``1edfede``), בהמרה של כל כותרת בכפתור ההעתקה — לפני שהשדה נכנס לקובץ. מעכשיו
+#: ``scripts/measure_docs_export.py`` מודד אותו מהקובץ, כמו את שאר השדות.
+MAX_TITLE_MARKDOWN_BYTES = 4 * 100
+
 #: עוגן. המדידה: 61.
 MAX_ANCHOR_BYTES = 4 * 61
 
@@ -117,6 +122,8 @@ class ExportFetchError(Exception):
 class DocSection:
     anchor: str
     title: str
+    #: אותה כותרת בהמרה של כפתור ההעתקה, שורה אחת: קוד והדגשה בתוכה נשארים.
+    title_markdown: str
     breadcrumb: Tuple[str, ...]
     level: int
     markdown: str
@@ -307,6 +314,10 @@ def parse_export(data: bytes) -> ExportDocument:
     paths = [page.path for page in pages]
     if len(set(paths)) != len(paths):
         _invalid("a page path appears twice")
+    # קובץ המקור הוא המפתח של העמוד המורכב באינדקס, ולכן גם הוא ייחודי.
+    sources = [page.source_path for page in pages]
+    if len(set(sources)) != len(sources):
+        _invalid("a source path appears twice")
     page_count = raw.get("page_count")
     section_count = raw.get("section_count")
     actual_sections = sum(len(page.sections) for page in pages)
@@ -354,6 +365,10 @@ def _section(item: Any, where: str) -> DocSection:
     if not contract.ANCHOR_RE.fullmatch(anchor):
         _invalid(f"{where}.anchor is not an anchor: {anchor!r}")
     title = _bounded_text(item.get("title"), f"{where}.title", MAX_TITLE_BYTES)
+    title_markdown = _bounded_text(item.get("title_markdown"), f"{where}.title_markdown", MAX_TITLE_MARKDOWN_BYTES)
+    # שורה אחת, כמו שסקריפט הייצוא מבטיח: שבירת שורה הייתה מסיימת את הכותרת באמצע בעמוד המורכב.
+    if "\n" in title_markdown or "\r" in title_markdown:
+        _invalid(f"{where}.title_markdown spans more than one line")
     crumbs = item.get("breadcrumb")
     if not isinstance(crumbs, list) or not crumbs:
         _invalid(f"{where}.breadcrumb is not a non-empty list")
@@ -374,7 +389,12 @@ def _section(item: Any, where: str) -> DocSection:
         _invalid(f"{where}.markdown is not text")
     _utf8_size(markdown, f"{where}.markdown")
     return DocSection(
-        anchor=anchor, title=title, breadcrumb=breadcrumb, level=level, markdown=markdown
+        anchor=anchor,
+        title=title,
+        title_markdown=title_markdown,
+        breadcrumb=breadcrumb,
+        level=level,
+        markdown=markdown,
     )
 
 

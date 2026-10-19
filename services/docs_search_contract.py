@@ -43,8 +43,9 @@ SOURCE_REPO_FULL_NAME = f"{SOURCE_REPO_OWNER}/{SOURCE_REPO_NAME}"
 #: שם הסביבה של פריסת GitHub Pages, כפי שהוא מופיע ב-``deployment.environment`` של webhook.
 PAGES_ENVIRONMENT = "github-pages"
 
-#: גרסת המבנה של הקובץ שהוובאפ יודע לקרוא. עותק של ``SCHEMA_VERSION`` בסקריפט הייצוא.
-SCHEMA_VERSION = 1
+#: גרסת המבנה של הקובץ שהוובאפ יודע לקרוא. עותק של ``SCHEMA_VERSION`` בסקריפט הייצוא, שגם מתעד מה
+#: השתנה בכל גרסה.
+SCHEMA_VERSION = 2
 
 #: מיקום הקובץ הראשי, יחסית ל-:data:`SITE_URL`. עותק של ``EXPORT_PATH`` בסקריפט הייצוא.
 EXPORT_PATH = "_export/sections.json"
@@ -138,6 +139,10 @@ SECTIONS_COLLECTION = "docs_sections"
 
 #: נתח אחד במסמך: הטקסט שהוטמע והווקטור שלו.
 CHUNKS_COLLECTION = "docs_chunks"
+
+#: עמוד אחד במסמך, מורכב מכל הסעיפים שלו לפי הסדר — מה שהתצוגה המרונדרת בדפדפן הריפו מציגה.
+#: ה-``_id`` הוא קובץ המקור (``SOURCE_PATH_RE``).
+PAGES_COLLECTION = "docs_pages"
 
 #: מסמך המצב של האינדקס, וה-lease של המעבר.
 STATE_COLLECTION = "docs_index_state"

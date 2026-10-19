@@ -852,7 +852,7 @@ const RepoHistory = (function() {
 
             // עדכון תוכן הקובץ – דרך setFileContent שמעדכן state, editor, ו-Markdown preview
             if (window.RepoState && typeof window.RepoState.setFileContent === 'function') {
-                await window.RepoState.setFileContent(data.content);
+                await window.RepoState.setFileContent(data.content, { ref: commit });
             } else if (window.RepoState && window.RepoState.editor) {
                 // fallback ישן למקרה ש-setFileContent לא זמין
                 window.RepoState.editor.setValue(data.content);

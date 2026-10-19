@@ -200,7 +200,7 @@ Google Drive
 אינדקס התיעוד
 -------------
 
-מעבר האינדוקס של אתר התיעוד (``services/docs_index_service.py``, ראו :ref:`docs-index`) ועמוד האדמין שלו. השדות של מעבר הם של המעבר הזה בלבד, ולא מצטברים: ``run_id``; ‏``trigger`` — מי ביקש אותו (``TRIGGERS`` במודול); ‏``status`` ו-``code`` (``STATUS_*``, ומהקובץ ``EXPORT_*`` של ``services/docs_export_client.py``, או ``CODE_*`` של המעבר); ‏``source_commit`` של הקובץ שנקרא; ‏``embedded`` — כמה נתחים הוטמעו; ‏``deleted_chunks`` ו-``deleted_sections`` — כמה נמחקו, לפי קריאה חוזרת; ‏``deletions_spared`` — מחיקות שנחסכו כי הקובץ לא הכיר אף רשומה במסד; ‏``chunk_count`` — כמה נתחים במסד אחרי המעבר; ו-``user_id`` כשאדמין ביקש את המעבר.
+מעבר האינדוקס של אתר התיעוד (``services/docs_index_service.py``, ראו :ref:`docs-index`) ועמוד האדמין שלו. השדות של מעבר הם של המעבר הזה בלבד, ולא מצטברים: ``run_id``; ‏``trigger`` — מי ביקש אותו (``TRIGGERS`` במודול); ‏``status`` ו-``code`` (``STATUS_*``, ומהקובץ ``EXPORT_*`` של ``services/docs_export_client.py``, או ``CODE_*`` של המעבר); ‏``source_commit`` של הקובץ שנקרא; ‏``embedded`` — כמה נתחים הוטמעו; ‏``deleted_chunks``, ‏``deleted_sections`` ו-``deleted_pages`` — כמה נמחקו, לפי קריאה חוזרת; ‏``deletions_spared`` — מחיקות שנחסכו כי הקובץ לא הכיר אף רשומה במסד; ‏``chunk_count`` — כמה נתחים במסד אחרי המעבר; ו-``user_id`` כשאדמין ביקש את המעבר.
 
 - ``docs_index_pass`` — כל מעבר שהסתיים, בכל סטטוס.
 - ``docs_index_awaiting_approval`` — מעבר אוטומטי עצר לאישור: מילוי ראשון או החלפת מודל, יותר מ-``APPROVAL_THRESHOLD_CHUNKS`` נתחים להטמעה, או תוכנית שהשתנתה מאז שאושרה. ``code`` אומר איזה מהם.
@@ -210,7 +210,7 @@ Google Drive
 
 .. code-block:: json
 
-   {"event":"docs_index_pass","severity":"info","run_id":"5f0c1d2e","trigger":"deploy","status":"complete","code":null,"source_commit":"990a666a91fd2c821c6718f8f655e245eb80fc90","embedded":12,"deleted_chunks":1,"deleted_sections":1,"deletions_spared":0,"chunk_count":2310}
+   {"event":"docs_index_pass","severity":"info","run_id":"5f0c1d2e","trigger":"deploy","status":"complete","code":null,"source_commit":"990a666a91fd2c821c6718f8f655e245eb80fc90","embedded":12,"deleted_chunks":1,"deleted_sections":1,"deleted_pages":0,"deletions_spared":0,"chunk_count":2310}
 
 Repo Analyzer
 -------------

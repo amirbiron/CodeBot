@@ -179,12 +179,42 @@ let state = {
     markdownPreviewEnabled: false,
     currentFileContent: null,  // שמירת התוכן לשימוש חוזר
     currentFileLanguage: null,
-    editorFilePath: null
+    editorFilePath: null,
+    // לקובץ rst יש עמוד מרונדר מאתר התיעוד (``has_docs_page`` ב-``/api/file``).
+    currentFileHasDocsPage: false,
+    // הגרסה שמוצגת כשהיא אינה הנוכחית (גרסה מההיסטוריה), כדי שהעמוד יושווה אליה.
+    currentFileRef: null
 };
 
 // ========================================
 // Markdown Preview
 // ========================================
+
+/**
+ * ההודעה מעל עמוד מאתר התיעוד, לפי ``freshness`` שהשרת מחזיר
+ * (``services/docs_page_view.py``). עמוד שנבנה מהתוכן שמוצג (``current``)
+ * מוצג בלי הודעה.
+ */
+const DOCS_PAGE_NOTES = {
+    changed: 'התצוגה מהבנייה האחרונה של אתר התיעוד; הקובץ השתנה מאז',
+    unknown: 'התצוגה מהבנייה האחרונה של אתר התיעוד; כרגע אי אפשר לבדוק אם הקובץ השתנה מאז'
+};
+
+/**
+ * מונה של טעינות העמוד מאתר התיעוד. הבחירה (``fileSelectionSeq``) לא
+ * משתנה כשעוברים בין גרסאות של אותו קובץ בהיסטוריה, ולכן טעינה איטית של
+ * גרסה קודמת הייתה דורסת את ההודעה של הגרסה שנבחרה אחריה.
+ */
+let docsPageSeq = 0;
+
+/**
+ * האם לקובץ יש תצוגה מרונדרת: קובץ Markdown, או קובץ rst שיש לו עמוד
+ * מאתר התיעוד. שתיהן אותה תצוגה, ונבדלות רק במקור של המארקדאון
+ * (``renderPreview``).
+ */
+function hasRenderedView(path, language) {
+    return isMarkdownFile(path) || isMarkdownLanguage(language) || state.currentFileHasDocsPage;
+}
 
 /**
  * מציג/מסתיר את כפתור תצוגת Markdown
@@ -193,13 +223,89 @@ function updateMarkdownToggleVisibility(path, language) {
     const toggleBtn = document.getElementById('markdown-preview-toggle');
     if (!toggleBtn) return;
 
-    const isMarkdown = isMarkdownFile(path) || isMarkdownLanguage(language);
-    toggleBtn.style.display = isMarkdown ? 'flex' : 'none';
+    const rendered = hasRenderedView(path, language);
+    toggleBtn.style.display = rendered ? 'flex' : 'none';
+    toggleBtn.title = state.currentFileHasDocsPage
+        ? 'תצוגה מרונדרת מאתר התיעוד (Ctrl+Shift+M)'
+        : 'תצוגת Markdown (Ctrl+Shift+M)';
 
-    // אם עברנו לקובץ שאינו Markdown, כבה את התצוגה
-    if (!isMarkdown && state.markdownPreviewEnabled) {
+    // אם עברנו לקובץ שאין לו תצוגה מרונדרת, כבה את התצוגה
+    if (!rendered && state.markdownPreviewEnabled) {
         disableMarkdownPreview();
     }
+}
+
+/**
+ * ההודעה מעל התצוגה: ``null`` מסתיר אותה (קובץ Markdown). ערך שאינו
+ * מוכר מוצג כ"אי אפשר לבדוק", ולא כעמוד עדכני.
+ */
+function setPreviewNote(freshness) {
+    const note = document.getElementById('markdown-preview-note');
+    if (!note) return;
+    const text = freshness === null || freshness === 'current'
+        ? ''
+        : (DOCS_PAGE_NOTES[freshness] || DOCS_PAGE_NOTES.unknown);
+    note.textContent = text;
+    note.hidden = !text;
+}
+
+/**
+ * העמוד של קובץ rst מאתר התיעוד: המארקדאון ו-``freshness``.
+ * זורק כשהבקשה נכשלה או שהתשובה אינה עמוד.
+ */
+async function fetchDocsPage(path, ref) {
+    const params = new URLSearchParams({ repo: currentRepo });
+    if (ref) params.set('ref', ref);
+    const response = await fetch(
+        `${CONFIG.apiBase}/docs-page/${encodeURIComponent(path)}?${params}`,
+        { signal: withRequestDeadline() }
+    );
+    let data = null;
+    try {
+        data = await response.json();
+    } catch (_) {
+        // תשובה שאינה JSON (למשל דף שגיאה של שרת) נופלת בבדיקה שמתחת, עם הסטטוס שלה.
+        data = null;
+    }
+    if (!response.ok || !data || typeof data.markdown !== 'string') {
+        throw new Error((data && data.error) || `HTTP ${response.status}`);
+    }
+    return data;
+}
+
+/**
+ * מרנדר את התצוגה של הקובץ הנוכחי. קובץ Markdown — מהתוכן שלו; קובץ rst —
+ * מהעמוד שלו באתר התיעוד, עם ההודעה שאומרת אם הוא נבנה מהתוכן שמוצג.
+ * הרינדור עצמו הוא אותו ``renderMarkdownPreview`` בשני המקרים.
+ */
+async function renderPreview(seq) {
+    if (!state.currentFileHasDocsPage) {
+        setPreviewNote(null);
+        await renderMarkdownPreview(state.currentFileContent, seq);
+        return;
+    }
+    const mySeq = ++docsPageSeq;
+    let page;
+    try {
+        page = await fetchDocsPage(state.currentFile, state.currentFileRef);
+    } catch (error) {
+        if (!selectionIsCurrent(seq) || mySeq !== docsPageSeq) return;
+        console.warn('Docs page failed to load', error);
+        setPreviewNote(null);
+        const previewContent = document.getElementById('markdown-preview-content');
+        if (previewContent) {
+            previewContent.innerHTML = `
+                <div class="error-message" style="padding: 20px; color: var(--accent-red);">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <span>העמוד מאתר התיעוד לא נטען: ${escapeHtml(error && error.message ? error.message : String(error))}</span>
+                </div>
+            `;
+        }
+        return;
+    }
+    if (!selectionIsCurrent(seq) || mySeq !== docsPageSeq) return;
+    setPreviewNote(page.freshness);
+    await renderMarkdownPreview(page.markdown, seq);
 }
 
 /**
@@ -221,7 +327,7 @@ async function enableMarkdownPreview(seq) {
     toggleBtn?.classList.add('active');
 
     // רינדור התוכן
-    await renderMarkdownPreview(state.currentFileContent, seq);
+    await renderPreview(seq);
 
     emitRepoViewChanged();
 }
@@ -822,6 +928,8 @@ function showWelcomeScreen() {
     state.currentFileContent = null;
     state.currentFileLanguage = null;
     state.editorFilePath = null;
+    state.currentFileHasDocsPage = false;
+    state.currentFileRef = null;
     // מסך הפתיחה הוא בחירה בפני עצמה — "אין קובץ". בלי הקידום, טעינה
     // שעדיין באוויר הייתה מתייצבת אחריו ומרכיבה פתקים מעל מסך הפתיחה.
     fileSelectionSeq += 1;
@@ -1621,6 +1729,8 @@ async function selectFile(path, element) {
     state.currentFileContent = null;
     state.currentFileLanguage = null;
     state.editorFilePath = null;
+    state.currentFileHasDocsPage = false;
+    state.currentFileRef = null;
 
     // Update URL hash to persist state across refresh
     updateUrlHash(path);
@@ -1678,6 +1788,7 @@ async function selectFile(path, element) {
 
         const language = data.language || detectLanguage(path);
         state.currentFileLanguage = language;
+        state.currentFileHasDocsPage = data.has_docs_page === true;
 
         // Update breadcrumbs
         updateBreadcrumbs(path);
@@ -1690,10 +1801,10 @@ async function selectFile(path, element) {
         updateMarkdownToggleVisibility(path, language);
 
         // בדיקה אם להציג Markdown או קוד
-        const isMarkdown = isMarkdownFile(path) || isMarkdownLanguage(language);
+        const rendered = hasRenderedView(path, language);
         const savedPreference = localStorage.getItem('repo-browser-markdown-preview') === 'true';
 
-        if (isMarkdown && savedPreference) {
+        if (rendered && savedPreference) {
             // המשתמש העדיף תצוגת Markdown - הצג אותה
             await enableMarkdownPreview(mySeq);
         } else {
@@ -2537,9 +2648,12 @@ window.RepoState = {
     /**
      * עדכון תוכן הקובץ המוצג – מעדכן את ה-state, ה-editor, ותצוגת Markdown אם פעילה.
      * משמש את viewFileAtCommit כדי להבטיח שהתוכן מתעדכן בכל מצב תצוגה.
+     * ``options.ref`` — הקומיט של הגרסה שמוצגת, כשהיא מההיסטוריה: עמוד מאתר
+     * התיעוד מושווה אליה, ולא לגרסה הנוכחית.
      */
-    async setFileContent(content) {
+    async setFileContent(content, options = {}) {
         state.currentFileContent = content;
+        state.currentFileRef = options.ref || null;
 
         // עדכון ה-editor אם קיים
         if (state.editor && typeof state.editor.setValue === 'function') {
@@ -2554,7 +2668,7 @@ window.RepoState = {
 
         // אם תצוגת Markdown פעילה – עדכון הרינדור
         if (state.markdownPreviewEnabled) {
-            await renderMarkdownPreview(content);
+            await renderPreview();
         }
     }
 };

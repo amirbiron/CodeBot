@@ -57,6 +57,10 @@ def _sections(world):
     return list(world.db[contract.SECTIONS_COLLECTION].find({}))
 
 
+def _pages(world):
+    return list(world.db[contract.PAGES_COLLECTION].find({}))
+
+
 def _state(world):
     return svc.read_state(world.db)
 
@@ -484,6 +488,81 @@ def test_a_new_update_does_not_change_the_keys_of_the_others():
 
 
 # ---------------------------------------------------------------------------
+# עמודים מורכבים — מה שהתצוגה המרונדרת בדפדפן הריפו מציגה
+# ---------------------------------------------------------------------------
+
+
+def _pages_of(pages, commit=SHA_A):
+    return svc.build_pages(parse_export(export_bytes(commit, pages)))
+
+
+def _code_browser_page():
+    """עמוד עם כל סוגי הסעיפים: כותרת בלי גוף משלה, סעיף עם קוד, תת-סעיף שבכותרת שלו קוד, ו"ראו גם"."""
+    return page(
+        "webapp/code-browser.html", "docs/webapp/code-browser.rst",
+        section("code-browser", "דפדפן קוד", markdown=""),
+        section("import", "דפדפן קוד", "ייבוא ריפו חדש", markdown="להריץ:\n\n```python\nimport x\n```\n"),
+        section("webhook", "דפדפן קוד", "ייבוא ריפו חדש", "הגדרת Webhook",
+                title_markdown="הגדרת `Webhook`", markdown="1.  כנסו לריפו"),
+        section("see-also", "דפדפן קוד", "ראו גם",
+                markdown="-   [סקירה](https://amirbiron.github.io/CodeBot/webapp/overview.html)"),
+    )
+
+
+def test_a_page_is_every_section_in_order_each_heading_at_its_level():
+    """כותרת בלי גוף משלה ו"ראו גם" אינם בחיפוש, אבל הם חלק מהעמוד; והכותרת היא המארקדאון שלה."""
+    [record] = _pages_of([_code_browser_page()])
+
+    assert (record.id, record.page_path, record.title) == (
+        "docs/webapp/code-browser.rst", "webapp/code-browser.html", "דפדפן קוד"
+    )
+    assert record.markdown == (
+        "# דפדפן קוד\n\n"
+        "## ייבוא ריפו חדש\n\n"
+        "להריץ:\n\n```python\nimport x\n```\n\n"
+        "### הגדרת `Webhook`\n\n"
+        "1.  כנסו לריפו\n\n"
+        "## ראו גם\n\n"
+        "-   [סקירה](https://amirbiron.github.io/CodeBot/webapp/overview.html)\n"
+    )
+    # אותו עמוד בחיפוש: בלי הכותרת שאין לה גוף ובלי "ראו גם".
+    assert [s.title for s in _records([_code_browser_page()])[0]] == ["ייבוא ריפו חדש", "הגדרת Webhook"]
+
+
+def test_a_section_deeper_than_markdown_headings_is_written_at_the_deepest_level():
+    """docutils נותן לסעיף עמוק מ-6 את התגית ``h6``, ולכן גם העמוד המורכב. שבעה ``#`` אינם כותרת."""
+    crumbs = [f"רמה {n}" for n in range(1, 8)]
+    [record] = _pages_of([page("a.html", "docs/a.rst", *(section(f"l{n}", *crumbs[:n]) for n in range(1, 8)))])
+
+    headings = [line for line in record.markdown.splitlines() if line.startswith("#")]
+    assert headings[-2:] == ["###### רמה 6", "###### רמה 7"]
+
+
+def test_only_rst_pages_are_stored_as_pages():
+    """עמוד md מוצג בדפדפן הריפו מהמקור שלו, בתצוגת ה-Markdown הקיימת."""
+    records = _pages_of(
+        [page("a.html", "docs/a.rst", section("a", "א")), page("b.html", "docs/b.md", section("b", "ב"))]
+    )
+    assert [record.id for record in records] == ["docs/a.rst"]
+
+
+def test_an_update_log_page_keeps_its_days_whole():
+    """בחיפוש יומן עדכונים מתפרק לעדכונים; העמוד שלו הוא הימים כמו שהם, עם הרשימה שלהם."""
+    day = _updates("**fix: א.** טקסט.", "**feat: ב.** טקסט נוסף.")
+    [record] = _pages_of([_log_page(("id1", "2026-10-11", day))])
+
+    assert record.markdown == f"# {TOP}\n\n## 2026-10-11\n\n{day}\n"
+
+
+def test_the_page_sha_covers_every_field_it_stores():
+    [record] = _pages_of(site_pages()[:1])
+    for field in record.content():
+        changed = dataclasses.replace(record, **{field: getattr(record, field) + "x"})
+        assert changed.record_sha != record.record_sha, field
+    assert record.document() == {"_id": record.source_path, **record.content(), "record_sha": record.record_sha}
+
+
+# ---------------------------------------------------------------------------
 # מילוי ראשון ואישור
 # ---------------------------------------------------------------------------
 
@@ -727,7 +806,7 @@ def test_only_what_changed_is_embedded_and_what_was_removed_is_deleted(world):
     assert sorted(text.split("\n\n")[0] for text in call["texts"]) == [
         "חיפוש גלובלי › סוגי החיפוש", "קטלוג אירועים › אירוע חדש"
     ]
-    assert run["deleted"] == {"chunks": 1, "sections": 1}
+    assert run["deleted"] == {"chunks": 1, "sections": 1, "pages": 0}
     after = {c["_id"]: c for c in _chunks(world)}
     assert len(after) == 4 and len(set(before) & set(after)) == 3
     assert removed_title not in {s["title"] for s in _sections(world)}
@@ -762,6 +841,42 @@ def test_a_section_that_grows_leaves_the_chunks_a_fresh_fill_would_store(world, 
     assert incremental == _stored_chunks(fresh)
 
 
+def test_a_fill_stores_a_page_for_every_rst_source(world):
+    done = fill(world)
+
+    pages = {p["_id"]: p for p in _pages(world)}
+    assert sorted(pages) == ["docs/observability/events_catalog.rst", "docs/webapp/global-search.rst"]
+    search_page = pages["docs/webapp/global-search.rst"]
+    assert (search_page["page_path"], search_page["title"]) == ("webapp/global-search.html", "חיפוש גלובלי")
+    assert search_page["markdown"] == (
+        "# חיפוש גלובלי\n\nהחיפוש בעמוד הקבצים.\n\n"
+        "## סוגי החיפוש\n\n| סוג | מה |\n| --- | --- |\n| תוכן | טקסט |\n\n"
+        "## ראו גם\n\n- [אינדקסים](https://amirbiron.github.io/CodeBot/database/indexing.html)\n"
+    )
+    assert (done["verified"]["pages_desired"], done["verified"]["pages_matching"]) == (2, 2)
+    assert _state(world)["page_count"] == 2
+
+
+def test_a_page_that_changed_is_rewritten_and_one_that_left_the_export_is_deleted(world):
+    """שינוי ב"ראו גם" אינו נוגע בחיפוש ולא שולח כלום להטמעה, אבל הוא מגיע לעמוד."""
+    fill(world)
+    pages = site_pages()[:1]
+    pages[0]["sections"][2]["markdown"] = "- [אחר](https://amirbiron.github.io/CodeBot/other.html)"
+    world.site.publish(SHA_B, pages)
+    world.embed_calls.clear()
+
+    run = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
+
+    assert run["status"] == svc.STATUS_COMPLETE, run
+    assert world.embed_calls == []
+    assert (run["plan"]["pages_to_upsert"], run["plan"]["pages_to_delete"]) == (1, 1)
+    assert run["deleted"]["pages"] == 1
+    [stored] = _pages(world)
+    assert stored["_id"] == "docs/webapp/global-search.rst"
+    assert "[אחר](https://amirbiron.github.io/CodeBot/other.html)" in stored["markdown"]
+    assert _state(world)["indexed_source_commit"] == SHA_B
+
+
 def test_an_anchor_change_updates_the_card_without_embedding(world):
     fill(world)
     pages = site_pages()
@@ -786,10 +901,11 @@ def test_an_export_that_knows_nothing_indexed_deletes_nothing_and_warns(world, c
 
     run = run_request(world, svc.TRIGGER_DEPLOY, commit=SHA_B)
 
-    assert run["plan"]["deletions_spared"] == 8
-    assert run["deleted"] == {"chunks": 0, "sections": 0}
-    assert len(_chunks(world)) == 5 and len(_sections(world)) == 5
-    assert "spared 8 deletions" in caplog.text
+    # ארבעה נתחים, ארבעה סעיפים ושני עמודים של המילוי הראשון.
+    assert run["plan"]["deletions_spared"] == 10
+    assert run["deleted"] == {"chunks": 0, "sections": 0, "pages": 0}
+    assert len(_chunks(world)) == 5 and len(_sections(world)) == 5 and len(_pages(world)) == 3
+    assert "spared 10 deletions" in caplog.text
 
 
 def test_an_older_export_does_not_roll_the_index_back(world):
@@ -972,7 +1088,7 @@ def test_a_stop_between_deletions_stops_them_and_reports_what_was_deleted(world,
 
     assert (run["status"], run["code"]) == (svc.STATUS_STOPPED, None)
     assert (run["plan"]["chunks_to_delete"], run["plan"]["sections_to_delete"]) == (2, 2)
-    assert run["deleted"] == {"chunks": 1, "sections": 0}
+    assert run["deleted"] == {"chunks": 1, "sections": 0, "pages": 0}
     assert (len(_chunks(world)), len(_sections(world))) == (3, 4)
     assert _state(world)["indexed_source_commit"] is None
 
@@ -1082,7 +1198,7 @@ def test_a_verification_that_reads_back_less_fails_the_pass(world):
     run = _approved_pass(world)
 
     assert (run["status"], run["code"]) == (svc.STATUS_FAILED, svc.CODE_VERIFY_MISMATCH)
-    assert run["detail"] == "3 of 4 chunks and 4 of 4 sections match the export"
+    assert run["detail"] == "3 of 4 chunks, 4 of 4 sections and 2 of 2 pages match the export"
     assert _state(world)["indexed_source_commit"] is None
 
 
@@ -1093,7 +1209,18 @@ def test_a_section_missing_on_read_back_fails_the_pass_too(world):
     run = _approved_pass(world)
 
     assert (run["status"], run["code"]) == (svc.STATUS_FAILED, svc.CODE_VERIFY_MISMATCH)
-    assert run["detail"] == "4 of 4 chunks and 3 of 4 sections match the export"
+    assert run["detail"] == "4 of 4 chunks, 3 of 4 sections and 2 of 2 pages match the export"
+
+
+def test_a_page_missing_on_read_back_fails_the_pass_too(world):
+    """התצוגה המרונדרת נבנית מהעמוד, ולכן גם העמודים מאומתים לפני שהאינדקס נרשם כשלם."""
+    world.db.c[contract.PAGES_COLLECTION] = _LosesADocumentAfterWriting()
+
+    run = _approved_pass(world)
+
+    assert (run["status"], run["code"]) == (svc.STATUS_FAILED, svc.CODE_VERIFY_MISMATCH)
+    assert run["detail"] == "4 of 4 chunks, 4 of 4 sections and 1 of 2 pages match the export"
+    assert _state(world)["indexed_source_commit"] is None
 
 
 class _Unreachable(FakeCollection):

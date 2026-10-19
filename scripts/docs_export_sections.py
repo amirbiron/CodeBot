@@ -4,9 +4,15 @@
 **מה יוצא.** הקובץ ``_export/sections.json`` בתוך תיקיית האתר שנבנתה (:data:`EXPORT_PATH`),
 ועותק זהה שלו בשם שתלוי בקומיט (:func:`export_path_for_commit`).
 לכל עמוד תוכן: הנתיב שלו באתר, קובץ המקור שלו והכותרת. לכל סעיף בעמוד: המזהה שלו
-(העוגן בכתובת), הכותרת, שביל הכותרות מראש העמוד, הרמה, והתוכן של הסעיף עצמו כמארקדאון
-— בלי תתי-הסעיפים שלו, שיוצאים כסעיפים נפרדים. הקובץ נועד לחיפוש בתיעוד מתוך הוובאפ,
-ולכן הוא חוזה בין שני רכיבים: :data:`SCHEMA_VERSION` עולה בכל שינוי במבנה.
+(העוגן בכתובת), הכותרת כטקסט וכמארקדאון, שביל הכותרות מראש העמוד, הרמה, והתוכן של הסעיף
+עצמו כמארקדאון — בלי תתי-הסעיפים שלו, שיוצאים כסעיפים נפרדים. הסעיפים של עמוד יוצאים בסדר
+שבו הם מופיעים בו, ולכן אפשר להרכיב מהם את העמוד כולו. הקובץ נועד לוובאפ — לחיפוש בתיעוד
+ולתצוגה המרונדרת של עמוד בדפדפן הריפו — ולכן הוא חוזה בין שני רכיבים: :data:`SCHEMA_VERSION`
+עולה בכל שינוי במבנה.
+
+**הכותרת פעמיים.** ``title`` הוא הטקסט שלה, וממנו שביל הכותרות ומה שמוטמע לחיפוש.
+``title_markdown`` היא אותה כותרת בהמרה של הכפתור, ולכן קוד או הדגשה בתוכה נשארים; ממנה
+העמוד המורכב מציג את הכותרת.
 
 **למה עותק בשם של הקומיט.** האתר מוגש מאחורי מטמון (CDN) ששומר כל קובץ עד עשר דקות
 (``cache-control: max-age=600``), ומפתח המטמון שלו אינו כולל את ה-query. נמדד מול הקובץ
@@ -69,7 +75,8 @@ from typing import Any
 from urllib.parse import urlsplit
 
 #: גרסת המבנה של הקובץ. עולה בכל שינוי במבנה, כדי שקורא שלא מכיר את הגרסה יוכל לסרב לה.
-SCHEMA_VERSION = 1
+#: 2 — ``title_markdown`` לכל סעיף.
+SCHEMA_VERSION = 2
 
 #: מיקום הקובץ, יחסית לתיקיית האתר שנבנתה.
 EXPORT_PATH = PurePosixPath("_export/sections.json")
@@ -147,7 +154,6 @@ _EXTRACT_SECTIONS_JS = r"""
 
     const clone = section.cloneNode(true);
     clone.querySelectorAll('section').forEach((el) => el.remove());
-    headingOf(clone).remove();
     clone.querySelectorAll('dl.py').forEach((el) => el.remove());
     clone.querySelectorAll('a[href]').forEach((link) => {
       link.setAttribute('href', absolute(link.getAttribute('href')));
@@ -160,10 +166,16 @@ _EXTRACT_SECTIONS_JS = r"""
       link.textContent = `תמונה: ${label}`;
       img.replaceWith(link);
     });
+    // הכותרת יוצאת מהעותק אחרי שהקישורים והתמונות שבו הוסבו, כדי שקישור בכותרת יוביל לאתר כמו
+    // קישור בגוף.
+    const heading = headingOf(clone);
+    const titleMarkdown = api.toMarkdown(heading).trim();
+    heading.remove();
 
     sections.push({
       anchor: section.id,
       title: breadcrumb[breadcrumb.length - 1],
+      title_markdown: titleMarkdown,
       breadcrumb,
       level: breadcrumb.length,
       markdown: api.toMarkdown(clone),
@@ -237,6 +249,7 @@ def _validated_sections(raw: Any, page: str) -> list[dict[str, Any]]:
             raise ExportError(f"{where}: not an object")
         anchor = item.get("anchor")
         title = item.get("title")
+        title_markdown = item.get("title_markdown")
         breadcrumb = item.get("breadcrumb")
         level = item.get("level")
         markdown = item.get("markdown")
@@ -247,6 +260,12 @@ def _validated_sections(raw: Any, page: str) -> list[dict[str, Any]]:
         seen.add(anchor)
         if not isinstance(title, str) or not title:
             raise ExportError(f"{where} (#{anchor}): empty title")
+        # כותרת במארקדאון היא שורה אחת: שבירת שורה הייתה מסיימת אותה באמצע, ושאר הטקסט היה יוצא
+        # מתחתיה כפסקה.
+        if not isinstance(title_markdown, str) or not title_markdown.strip():
+            raise ExportError(f"{where} (#{anchor}): empty title_markdown")
+        if "\n" in title_markdown or "\r" in title_markdown:
+            raise ExportError(f"{where} (#{anchor}): title_markdown spans more than one line")
         if (
             not isinstance(breadcrumb, list)
             or not breadcrumb
@@ -263,6 +282,7 @@ def _validated_sections(raw: Any, page: str) -> list[dict[str, Any]]:
             {
                 "anchor": anchor,
                 "title": title,
+                "title_markdown": title_markdown,
                 "breadcrumb": breadcrumb,
                 "level": level,
                 "markdown": markdown,

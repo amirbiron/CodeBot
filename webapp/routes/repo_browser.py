@@ -8,7 +8,9 @@ import logging
 import re
 from flask import Blueprint, render_template, request, jsonify, abort, redirect, url_for, current_app, session
 from functools import lru_cache
+from pymongo.errors import PyMongoError
 
+from services import docs_page_view
 from services.git_mirror_service import get_mirror_service
 from services.repo_search_service import create_search_service
 from services.repo_sync_service import unmirror_repo
@@ -282,40 +284,96 @@ def api_tree():
     return jsonify(result)
 
 
+def _shown_ref(db, repo_name: str, metadata) -> str:
+    """ה-ref שממנו דפדפן הקוד מציג קובץ.
+
+    חשוב: ב-bare mirror לא מסתמכים על HEAD (יכול להצביע למשהו לא צפוי).
+    נעדיף commit_sha שאונדקס (עקביות מול תוצאות חיפוש), ואם חסר - origin/<default_branch>.
+    """
+    commit_sha = metadata.get("commit_sha") if metadata else None
+    if commit_sha:
+        return commit_sha
+    meta = db.repo_metadata.find_one({"repo_name": repo_name}) or {}
+    default_branch = str(meta.get("default_branch") or "").strip() or "main"
+    return f"origin/{default_branch}"
+
+
+def _has_docs_page(db, repo_name: str, file_path: str) -> bool:
+    """האם להציע לקובץ את התצוגה המרונדרת מאתר התיעוד (``services/docs_page_view.py``).
+
+    כשל מסד כאן אינו מפיל את הצגת הקובץ, שהיא העיקר: הקובץ מוצג כקוד, כמו קובץ שאין לו עמוד, והכשל
+    נרשם בלוג.
+    """
+    if not docs_page_view.offers_docs_page(repo_name, file_path):
+        return False
+    try:
+        return docs_page_view.has_docs_page(db, file_path)
+    except PyMongoError:
+        logger.warning("repo browser: could not look up the docs page of %s", file_path, exc_info=True)
+        return False
+
+
 @repo_bp.route('/api/file/<path:file_path>')
 def api_get_file(file_path: str):
     """API לקבלת תוכן קובץ"""
     db = get_db()
     git_service = get_mirror_service()
     repo_name = get_current_repo_name()
-    
+
     # Get metadata from MongoDB
     metadata = db.repo_files.find_one({
         "repo_name": repo_name,
         "path": file_path
     })
-    
+
     # Get content from git mirror
-    # חשוב: ב-bare mirror לא מסתמכים על HEAD (יכול להצביע למשהו לא צפוי).
-    # נעדיף commit_sha שאונדקס (עקביות מול תוצאות חיפוש), ואם חסר - origin/<default_branch>.
-    commit_sha = metadata.get("commit_sha") if metadata else None
-    ref = commit_sha
-    if not ref:
-        meta = db.repo_metadata.find_one({"repo_name": repo_name}) or {}
-        default_branch = str(meta.get("default_branch") or "").strip() or "main"
-        ref = f"origin/{default_branch}"
+    ref = _shown_ref(db, repo_name, metadata)
 
     content = git_service.get_file_content(repo_name, file_path, ref=ref)
-    
+
     if content is None:
         return jsonify({"error": "File not found"}), 404
-    
+
     return jsonify({
         "path": file_path,
         "content": content,
         "language": metadata.get("language", "text") if metadata else "text",
         "size": metadata.get("size", len(content)) if metadata else len(content),
-        "lines": metadata.get("lines", content.count("\n") + 1) if metadata else content.count("\n") + 1
+        "lines": metadata.get("lines", content.count("\n") + 1) if metadata else content.count("\n") + 1,
+        "has_docs_page": _has_docs_page(db, repo_name, file_path),
+    })
+
+
+@repo_bp.route('/api/docs-page/<path:file_path>')
+def api_get_docs_page(file_path: str):
+    """העמוד המרונדר של קובץ rst מאתר התיעוד, ואם הוא נבנה מהתוכן שמוצג (``services/docs_page_view.py``).
+
+    ``ref`` (אופציונלי) — הגרסה שהדפדפן מציג, כשהיא אינה הנוכחית: גרסה מההיסטוריה. בלעדיו, אותו ref
+    שממנו ``/api/file`` קורא את הקובץ.
+    """
+    db = get_db()
+    repo_name = get_current_repo_name()
+    if not docs_page_view.offers_docs_page(repo_name, file_path):
+        return jsonify({"error": "no_docs_page"}), 404
+    requested_ref = request.args.get('ref', '').strip()
+    try:
+        page = docs_page_view.read_docs_page(db, file_path)
+        if page is None:
+            return jsonify({"error": "no_docs_page"}), 404
+        shown_ref = requested_ref or _shown_ref(
+            db, repo_name, db.repo_files.find_one({"repo_name": repo_name, "path": file_path}, {"commit_sha": 1})
+        )
+    except PyMongoError:
+        logger.warning("repo browser: could not read the docs page of %s", file_path, exc_info=True)
+        return jsonify({"error": "docs_page_unavailable"}), 503
+    state = docs_page_view.freshness(
+        get_mirror_service(), repo_name, file_path, shown_ref, page["indexed_commit"]
+    )
+    return jsonify({
+        "path": file_path,
+        "markdown": page["markdown"],
+        "page_path": page["page_path"],
+        "freshness": state,
     })
 
 

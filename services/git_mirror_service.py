@@ -1331,6 +1331,42 @@ class GitMirrorService:
         Returns:
             תוכן הקובץ או None
         """
+        object_name = self._file_object_name(file_path, ref)
+        if object_name is None:
+            return None
+
+        repo_path = self._get_repo_path(repo_name)
+
+        # שימוש רק בערכים שעברו ולידציה בקומנד עצמו
+        result = self._run_git_command(["git", "show", object_name], cwd=repo_path, timeout=30)
+
+        if result.success:
+            return result.stdout
+
+        return None
+
+    def get_blob_id(self, repo_name: str, file_path: str, ref: str) -> Optional[str]:
+        """ה-sha של התוכן (ה-blob) של קובץ ב-``ref``, בלי לקרוא את הקובץ.
+
+        שני blobs עם אותו sha הם אותו תוכן בדיוק, ולכן כך משווים את הקובץ בין שני קומיטים — קומיט שלא
+        נגע בקובץ נותן את אותו blob. ``None`` כשאין תשובה: ref שאינו במראה (למשל קומיט שהמראה עוד לא
+        משך), קובץ שלא קיים בו, או קלט שנדחה — אותה ולידציה של :meth:`get_file_content`.
+        """
+        object_name = self._file_object_name(file_path, ref)
+        if object_name is None:
+            return None
+        result = self._run_git_command(
+            ["git", "rev-parse", "--verify", "--quiet", object_name],
+            cwd=self._get_repo_path(repo_name),
+            timeout=10,
+        )
+        if not result.success:
+            return None
+        blob = result.stdout.strip()
+        return blob if _looks_like_git_sha(blob) else None
+
+    def _file_object_name(self, file_path: str, ref: str) -> Optional[str]:
+        """``<ref>:<נתיב>`` לפקודת git, אחרי ולידציה של שניהם, או ``None`` כשאחד מהם נדחה."""
         # נרמול קלט: הוולידציה עושה strip מקומי, אבל אנחנו חייבים להשתמש בערכים הנקיים בפועל בפקודת git.
         file_path = file_path.strip() if isinstance(file_path, str) else ""
         ref = ref.strip() if isinstance(ref, str) else ""
@@ -1348,15 +1384,7 @@ class GitMirrorService:
             logger.warning("Rejected invalid repo ref: %r", ref)
             return None
 
-        repo_path = self._get_repo_path(repo_name)
-
-        # שימוש רק בערכים שעברו ולידציה בקומנד עצמו
-        result = self._run_git_command(["git", "show", f"{ref}:{safe_file_path}"], cwd=repo_path, timeout=30)
-
-        if result.success:
-            return result.stdout
-
-        return None
+        return f"{ref}:{safe_file_path}"
 
     def list_all_files_with_sizes(
         self, repo_name: str, ref: str = "HEAD"

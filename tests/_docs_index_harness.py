@@ -40,11 +40,15 @@ LATER = "2026-10-07T13:00:00+00:00"
 # ---------------------------------------------------------------------------
 
 
-def section(anchor: str, *breadcrumb: str, markdown: str = "טקסט של הסעיף.") -> Dict[str, Any]:
-    """סעיף בצורה שסקריפט הייצוא כותב: הכותרת היא סוף השביל, והרמה היא אורכו."""
+def section(
+    anchor: str, *breadcrumb: str, markdown: str = "טקסט של הסעיף.", title_markdown: Optional[str] = None
+) -> Dict[str, Any]:
+    """סעיף בצורה שסקריפט הייצוא כותב: הכותרת היא סוף השביל, והרמה היא אורכו. ``title_markdown`` —
+    הכותרת כמארקדאון; בלעדיו, אותו טקסט כמו הכותרת."""
     return {
         "anchor": anchor,
         "title": breadcrumb[-1],
+        "title_markdown": breadcrumb[-1] if title_markdown is None else title_markdown,
         "breadcrumb": list(breadcrumb),
         "level": len(breadcrumb),
         "markdown": markdown,

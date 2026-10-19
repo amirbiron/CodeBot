@@ -110,6 +110,7 @@ def _section(**overrides):
     section = {
         "anchor": "id3",
         "title": "סעיף",
+        "title_markdown": "סעיף",
         "breadcrumb": ["עמוד", "סעיף"],
         "level": 2,
         "markdown": "תוכן\n",
@@ -119,7 +120,7 @@ def _section(**overrides):
 
 
 def test_valid_sections_pass_through_unchanged():
-    top = _section(anchor="top", title="עמוד", breadcrumb=["עמוד"], level=1)
+    top = _section(anchor="top", title="עמוד", title_markdown="עמוד", breadcrumb=["עמוד"], level=1)
     raw = {"sections": [top, _section()]}
 
     assert export._validated_sections(raw, "page.html") == raw["sections"]
@@ -136,6 +137,10 @@ def test_valid_sections_pass_through_unchanged():
         {"sections": [_section(anchor="")]},
         {"sections": [_section(), _section()]},
         {"sections": [_section(title="")]},
+        {"sections": [_section(title_markdown=None)]},
+        {"sections": [_section(title_markdown="  ")]},
+        {"sections": [_section(title_markdown="סעיף\nשני")]},
+        {"sections": [_section(title_markdown="סעיף\rשני")]},
         {"sections": [_section(breadcrumb="עמוד › סעיף")]},
         {"sections": [_section(breadcrumb=["עמוד", "אחר"])]},
         {"sections": [_section(breadcrumb=["", "סעיף"])]},
@@ -153,6 +158,10 @@ def test_valid_sections_pass_through_unchanged():
         "empty-anchor",
         "duplicate-anchor",
         "empty-title",
+        "title-markdown-missing",
+        "title-markdown-blank",
+        "title-markdown-spans-lines",
+        "title-markdown-has-a-carriage-return",
         "breadcrumb-not-a-list",
         "breadcrumb-does-not-end-with-title",
         "empty-crumb",

@@ -19,9 +19,13 @@
     'script',
     'style',
     '.headerlink',
-    '.toc-backref',
     '.viewcode-block',
   ];
+  // אלמנטים שהעטיפה שלהם יוצאת והתוכן שלהם נשאר. בעמוד עם ``.. contents::``
+  // docutils עוטף את הטקסט של כל כותרת בקישור חזרה לתוכן העניינים
+  // (``<a class="toc-backref">``). מחיקה של הקישור מחקה איתו את הכותרת כולה,
+  // וההעתקה של עמוד כזה יצאה בלי הכותרות שלו (נמצא באתר החי, 19.10.2026).
+  const UNWRAP_SELECTORS = ['.toc-backref'];
   const MARKDOWN_NEWLINE_REGEX = /\n{3,}/g;
 
   // ── תרשימי Mermaid ─────────────────────────────────────────────────────────
@@ -592,6 +596,9 @@
   const cleanupArticleClone = (articleNode) => {
     CLEANUP_SELECTORS.forEach((selector) => {
       articleNode.querySelectorAll(selector).forEach((el) => el.remove());
+    });
+    UNWRAP_SELECTORS.forEach((selector) => {
+      articleNode.querySelectorAll(selector).forEach((el) => el.replaceWith(...el.childNodes));
     });
     return articleNode;
   };

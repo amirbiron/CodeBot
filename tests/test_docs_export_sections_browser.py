@@ -96,16 +96,16 @@ _INDEX_BODY = """<section id="guide">
 </dl>
 <p>עוד בסעיף <a class="reference internal" href="#deep">לעומק</a>.</p>
 <section id="deep">
-<h3>עמוק<a class="headerlink" href="#deep" title="Link to this heading">¶</a></h3>
+<h3><a class="toc-backref" href="#id9" role="doc-backlink">עמוק</a><a class="headerlink" href="#deep" title="Link to this heading">¶</a></h3>
 <p>תוכן עמוק</p>
 </section>
 </section>
 </section>"""
 
 _OTHER_BODY = """<section id="other">
-<h1>עמוד נוסף<a class="headerlink" href="#other" title="Link to this heading">¶</a></h1>
+<h1>עמוד <a class="reference internal" href="../index.html#guide"><span>נוסף</span></a><a class="headerlink" href="#other" title="Link to this heading">¶</a></h1>
 <section id="target">
-<h2>היעד<a class="headerlink" href="#target" title="Link to this heading">¶</a></h2>
+<h2>היעד <code class="docutils literal notranslate"><span class="pre">x_y</span></code><a class="headerlink" href="#target" title="Link to this heading">¶</a></h2>
 <p>חזרה <a class="reference internal" href="../index.html#guide">למדריך</a>.</p>
 </section>
 </section>"""
@@ -203,6 +203,14 @@ def test_every_content_section_is_exported_on_its_own(chromium_executable, tmp_p
 
     back = pages["guide/other.html"]["sections"][1]["markdown"]
     assert f"[למדריך]({SITE_URL}index.html#guide)" in back
+
+    # הכותרת כמארקדאון: קוד נשאר קוד, קישור מוביל לאתר כמו קישור בגוף, וכותרת שעטופה בקישור חזרה
+    # לתוכן העניינים המקומי (``toc-backref``) לא מתרוקנת.
+    assert [(s["title"], s["title_markdown"]) for s in pages["guide/other.html"]["sections"]] == [
+        ("עמוד נוסף", f"עמוד [נוסף]({SITE_URL}index.html#guide)"),
+        ("היעד x_y", "היעד `x_y`"),
+    ]
+    assert [s["title_markdown"] for s in sections.values()] == ["מדריך", "סעיף ראשון", "עמוק"]
 
 
 def test_to_markdown_is_what_the_copy_button_copies(chromium_executable, tmp_path):

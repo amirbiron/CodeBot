@@ -338,7 +338,7 @@ def test_check_then_start_runs_the_plan_the_admin_saw(admin_app):
     assert started.status_code == 202
     after = admin_app.client.get("/api/docs-index").get_json()
     assert after["indexed"]["source_commit"] == SHA_A
-    assert after["counts"] == {"chunks": 4, "sections": 4}
+    assert after["counts"] == {"chunks": 4, "sections": 4, "pages": 2}
     # ``emit_event`` של האפליקציה רושם גם אירועי בקשה (``access_logs`` ועוד); כאן רק אירועי הביקורת.
     actions = [fields for name, fields in admin_app.audits if name == "docs_index_admin_action"]
     assert [(fields["action"], fields["result"], fields["user_id"]) for fields in actions] == [

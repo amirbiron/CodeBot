@@ -39,6 +39,7 @@ def _document(**overrides) -> dict:
                     {
                         "anchor": "webapp-global-search",
                         "title": "חיפוש גלובלי",
+                        "title_markdown": "חיפוש גלובלי",
                         "breadcrumb": ["חיפוש גלובלי"],
                         "level": 1,
                         "markdown": "",
@@ -46,6 +47,7 @@ def _document(**overrides) -> dict:
                     {
                         "anchor": "global-search-types",
                         "title": "סוגי החיפוש",
+                        "title_markdown": "סוגי `החיפוש`",
                         "breadcrumb": ["חיפוש גלובלי", "סוגי החיפוש"],
                         "level": 2,
                         "markdown": "| תווית | ערך |\n| --- | --- |",
@@ -81,6 +83,7 @@ def test_a_valid_file_becomes_a_document():
         "webapp/global-search.html", "docs/webapp/global-search.rst", "חיפוש גלובלי",
     )
     assert page.sections[1].breadcrumb == ("חיפוש גלובלי", "סוגי החיפוש")
+    assert page.sections[1].title_markdown == "סוגי `החיפוש`"
     assert page.sections[0].markdown == ""
 
 
@@ -109,6 +112,14 @@ BROKEN = {
     "path is a url": _broken(lambda d: d["pages"][0].update(path="https://evil.example/x.html")),
     "path is too long": _broken(lambda d: d["pages"][0].update(path="a" * client.MAX_PATH_BYTES + ".html")),
     "source is not rst": _broken(lambda d: d["pages"][0].update(source_path="docs/x.html")),
+    # קובץ המקור הוא המפתח של העמוד המורכב באינדקס.
+    "source twice": _broken(
+        lambda d: d.update(
+            pages=[d["pages"][0], dict(copy.deepcopy(d["pages"][0]), path="webapp/other.html")],
+            page_count=2,
+            section_count=4,
+        )
+    ),
     "page title is empty": _broken(lambda d: d["pages"][0].update(title="  ")),
     "no sections": _broken(lambda d: d["pages"][0].update(sections=[])),
     "anchor twice": _broken(lambda d: _section(d).update(anchor="webapp-global-search")),
@@ -121,6 +132,13 @@ BROKEN = {
             title="ש" * client.MAX_TITLE_BYTES,
             breadcrumb=["חיפוש גלובלי", "ש" * client.MAX_TITLE_BYTES],
         )
+    ),
+    "title_markdown is missing": _broken(lambda d: _section(d).pop("title_markdown")),
+    "title_markdown is blank": _broken(lambda d: _section(d).update(title_markdown="  ")),
+    "title_markdown spans lines": _broken(lambda d: _section(d).update(title_markdown="סוגי\nהחיפוש")),
+    "title_markdown has a carriage return": _broken(lambda d: _section(d).update(title_markdown="סוגי\rהחיפוש")),
+    "title_markdown is too long": _broken(
+        lambda d: _section(d).update(title_markdown="ש" * (client.MAX_TITLE_MARKDOWN_BYTES // 2 + 1))
     ),
     "breadcrumb is text": _broken(lambda d: _section(d).update(breadcrumb="חיפוש גלובלי")),
     "breadcrumb ends elsewhere": _broken(lambda d: _section(d).update(breadcrumb=["חיפוש גלובלי", "אחר"])),

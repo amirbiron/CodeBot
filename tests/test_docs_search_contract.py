@@ -71,6 +71,7 @@ def _producer_section(anchor: str, breadcrumb: list[str], markdown: str = "תו�
     return {
         "anchor": anchor,
         "title": breadcrumb[-1],
+        "title_markdown": f"`{breadcrumb[-1]}`",
         "breadcrumb": breadcrumb,
         "level": len(breadcrumb),
         "markdown": markdown,
@@ -109,6 +110,7 @@ def test_a_document_built_by_the_export_reads_back_in_the_webapp():
     assert parsed.section_count == 4
     deep = parsed.pages[0].sections[2]
     assert (deep.anchor, deep.level, deep.breadcrumb) == ("deep", 3, ("מדריך", "סעיף ראשון", "עמוק"))
+    assert deep.title_markdown == "`עמוק`"
 
 
 # ---------------------------------------------------------------------------
