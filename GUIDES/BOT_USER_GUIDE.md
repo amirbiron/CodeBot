@@ -1764,7 +1764,7 @@ lang:python name:test tag:api
 
 ### האם יש API לגישה לבוט?
 כן, יש WebApp נפרד עם ממשק גרפי מלא.
-ראה [WebApp User Guide](../webapp/README.md).
+ראה [WebApp User Guide](../webapp/USER_GUIDE.md).
 
 ---
 
