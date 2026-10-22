@@ -95,8 +95,8 @@ Safety rules for tests:
 - `pre-commit run --all-files`
 
 ## Docs pointers
-- `README.md` (bot setup + deployment)
-- `webapp/README.md` (webapp setup)
+- `README.md` (project map: what CodeKeeper is and its main features)
+- `docs/quickstart.rst` and `docs/installation.rst` (local setup of the bot and the webapp)
 - `docs/testing.rst` (testing guide)
 - `docs/performance-tests.rst` (performance tests)
 
