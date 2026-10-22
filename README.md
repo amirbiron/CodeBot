@@ -1,3 +1,11 @@
+# CodeKeeper 💫
+
+**המקום לשמור את הקוד, את מסמכי התיעוד ואת הרעיונות שלך, ולתת לסוכן ה-AI שלך לעבוד איתם.**
+
+🌐 [לוובאפ](https://code-keeper-webapp.onrender.com) · 🤖 [לבוט בטלגרם](https://t.me/my_code_keeper_bot) · 📚 [לאתר התיעוד](https://amirbiron.github.io/CodeBot/)
+
+---
+
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://python.org)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://t.me/my_code_keeper_bot)
 [![WebApp](https://img.shields.io/badge/WebApp-Visit-blueviolet.svg)](https://code-keeper-webapp.onrender.com)
@@ -12,12 +20,6 @@
 [![Performance Tests](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml)
 
 [![Coverage](https://img.shields.io/codecov/c/github/amirbiron/CodeBot?branch=main)](https://app.codecov.io/gh/amirbiron/CodeBot/branch/main)
-
-# CodeKeeper 💫
-
-**המקום לשמור את הקוד, את מסמכי התיעוד ואת הרעיונות שלך, ולתת לסוכן ה-AI שלך לעבוד איתם.**
-
-🌐 [לוובאפ](https://code-keeper-webapp.onrender.com) · 🤖 [לבוט בטלגרם](https://t.me/my_code_keeper_bot) · 📚 [לאתר התיעוד](https://amirbiron.github.io/CodeBot/)
 
 ---
 
