@@ -436,7 +436,8 @@ def test_the_workflow_installs_the_playwright_that_base_txt_pins(tmp_path):
     assert finished.returncode == 0, finished.stdout + finished.stderr
     assert calls == [
         f"-m pip install {pinned[0]}",
-        "-m playwright install --with-deps --only-shell chromium",
+        # בלי --with-deps: הנימוק בהערה שמעל השורה ב-documentation.yml
+        "-m playwright install --only-shell chromium",
     ]
 
 
