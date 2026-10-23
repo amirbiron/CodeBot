@@ -15,7 +15,7 @@
 {% block title %}{{ gallery_title }}{% endblock %}
 
 {% block extra_head %}
-{# תגיות התצוגה המקדימה של קישור (https://ogp.me). וואטסאפ דורש כתובת מלאה ב-og:image, תמונה מתחת ל-600KB ותגיות בתוך 300KB הראשונים של ה-HTML (https://developers.facebook.com/documentation/business-messaging/whatsapp/link-previews/). התמונה היא JPEG של הצילום הראשון — העמוד ההוא לא מציין אם WebP נתמך. #}
+{# תגיות התצוגה המקדימה של קישור (https://ogp.me). וואטסאפ דורש כתובת מלאה ב-og:image, תמונה מתחת ל-600KB ותגיות בתוך 300KB הראשונים של ה-HTML (https://developers.facebook.com/documentation/business-messaging/whatsapp/link-previews/). התמונה היא ה-WebP של הצילום הראשון; העמוד ההוא לא מציין אילו פורמטים נתמכים, ולכן אם תצוגה מקדימה מופיעה בלי תמונה, זה המקום הראשון לבדוק. #}
 <meta name="description" content="{{ gallery_description }}">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="CodeKeeper">
@@ -23,8 +23,8 @@
 <meta property="og:title" content="{{ gallery_title }}">
 <meta property="og:description" content="{{ gallery_description }}">
 <meta property="og:url" content="{{ base_url }}{{ url_for('gallery') }}">
-<meta property="og:image" content="{{ base_url }}{{ url_for('static', filename='gallery/' ~ share_image) }}?v={{ static_version }}">
-<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image" content="{{ base_url }}{{ url_for('static', filename='gallery/' ~ slides[0].image) }}?v={{ static_version }}">
+<meta property="og:image:type" content="image/webp">
 <meta property="og:image:alt" content="{{ slides[0].alt }}">
 {% endblock %}
 

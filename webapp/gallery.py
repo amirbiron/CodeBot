@@ -2,15 +2,14 @@
 
 :data:`GALLERY_SLIDES` הוא המקום היחיד שקובע מה מוצג ובאיזה סדר — כל צילום הוא שורה אחת. ``image`` הוא שם קובץ תחת ``webapp/static/gallery/``, ואת הקבצים שם מייצר ``scripts/build_gallery_image.py`` מצילום המסך המקורי (צילומי המקור אינם נשמרים בענף הראשי). ``alt`` הוא תיאור של מה שרואים בתמונה, לקורא מסך ולמי שהתמונה לא נטענה אצלו — לא חזרה על הכותרת.
 
-הצילום הראשון ברשימה הוא גם תמונת התצוגה המקדימה של הקישור בוואטסאפ ובטלגרם (``og:image``), מקובץ ה-JPEG שלידו (:func:`share_image`). מי שמחליף את הצילום הראשון מריץ עליו את הסקריפט עם ``--share``; ``tests/test_gallery_page.py`` נופל כשהקובץ חסר.
+הצילום הראשון ברשימה הוא גם תמונת התצוגה המקדימה של הקישור בוואטסאפ ובטלגרם (``og:image``), מאותו קובץ WebP. ``tests/test_gallery_page.py`` בודק שהוא עומד בדרישות של וואטסאפ לתמונה כזו.
 
-התיעוד: ``docs/webapp/user-interfaces.rst``, סעיף ``webapp-gallery``.
+התיעוד: ``docs/webapp/gallery.rst``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import PurePosixPath
 
 
 @dataclass(frozen=True)
@@ -30,8 +29,3 @@ GALLERY_SLIDES: tuple[GallerySlide, ...] = (
     GallerySlide(image="markdown-toc.webp", title="תוכן עניינים צף", desc="במסמכי מארקדאון לניווט מהיר ונוח בתוך המסמך, ניתן להסתיר ולהחזיר בקלות.", alt="מסמך Markdown ובצידו חלונית 'תוכן עניינים' צפה עם רשימת הכותרות של המסמך, והכותרת שקוראים בה עכשיו מסומנת."),
     GallerySlide(image="agent-instructions.webp", title="בלוק ההנחיות לסוכן", desc="הנחיות שמנסחים כאן מגיעות ל-Claude Code בתחילת הסשן הבא, ובכל resume של הסשן.", alt="הכרטיס 'הוראות לסוכן' בעמוד ההגדרות: פסקת הסבר, תיבת טקסט עם הנחיות לסוכן, מונה בייטים וכפתור שמירה."),
 )
-
-
-def share_image(slide: GallerySlide) -> str:
-    """שם קובץ ה-JPEG לתצוגה המקדימה של הקישור: אותו שם כמו התמונה, עם ``.jpg``."""
-    return str(PurePosixPath(slide.image).with_suffix(".jpg"))
