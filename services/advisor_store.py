@@ -11,8 +11,8 @@
 עשרות שאלות בשעה בלי לגעת בה, וכל אחת היא קריאה בתשלום. לכן לכל גולש יש תקרה
 של ``DAILY_QUESTION_LIMIT`` שאלות ליום, לפי היום בשעון ישראל.
 
-**מחיקה:** המסמכים בשני האוספים נמחקים לבד באינדקס TTL (``advisor_indexes``), שנוצר בכל
-עליית שירות ב-``DatabaseManager._create_advisor_indexes``. לזיכרון השיחה זו
+**מחיקה:** המסמכים בשני האוספים נמחקים לבד באינדקס TTL (``advisor_indexes`` ב-``advisor_collections.py``,
+יחד עם שמות האוספים וחלון השמירה), שנוצר בכל עליית שירות ב-``DatabaseManager._create_advisor_indexes``. לזיכרון השיחה זו
 התנהגות שמובטחת לגולש בהודעת הפתיחה, ולא היגיינה: אף שורת קוד שלנו אינה מוחקת
 ממנו. ``get_history`` מסנן גם לפי גיל בעצמו, כי תהליך ה-TTL של מונגו אינו
 מיידי: *"The TTL index does not guarantee that expired data is deleted immediately
@@ -30,65 +30,20 @@ from typing import Any, Dict, List, Optional
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
+from advisor_collections import HISTORY_COLLECTION, HISTORY_RETENTION_DAYS, USAGE_COLLECTION
 from utils import TimeUtils
-
-HISTORY_COLLECTION = "advisor_history"
-USAGE_COLLECTION = "advisor_daily_usage"
-
-#: כמה ימים נשמר זיכרון השיחה. ``WELCOME_TEXT`` ב-``handlers/advisor.py`` מציג אותו לגולש.
-HISTORY_RETENTION_DAYS = 7
-
-#: כמה זוגות שאלה-תשובה אחרונים נכנסים לפרומפט.
-CONTEXT_EXCHANGES = 5
 
 #: כמה שאלות ליועץ מותרות לגולש ביום אחד (לפי שעון ישראל).
 DAILY_QUESTION_LIMIT = 30
-
-# מסמך המכסה של יום נמחק יומיים אחרי שנוצר — אחרי שהיום שלו הסתיים בוודאות.
-# הקריאה עצמה אינה נשענת על המחיקה: המפתח כולל את התאריך.
-_USAGE_TTL_SECONDS = 2 * 24 * 60 * 60
 
 
 class AdvisorStoreError(RuntimeError):
     """כשל של המסד בפעולה של היועץ. הסיבה המקורית ב-``__cause__``."""
 
 
-def advisor_indexes() -> List[Dict[str, Any]]:
-    """הגדרות האינדקסים, בצורה ש-``safe_create_index`` מקבלת, עם שם האוסף.
-
-    ``required`` מסמן אינדקס של **התנהגות** — כשל שלו יוצא כאירוע ברמת error
-    (``DatabaseManager._create_advisor_indexes``). אינדקס ביצועים אינו מסומן.
-    """
-    return [
-        {
-            "collection": HISTORY_COLLECTION,
-            "keys": [("created_at", 1)],
-            "name": "advisor_history_ttl",
-            "expire_after_seconds": HISTORY_RETENTION_DAYS * 24 * 60 * 60,
-            # אינדקס קיים בשם הזה באורך חלון אחר מתעדכן, ולא נשאר כמו שהוא
-            "enforce": True,
-            "required": True,
-        },
-        {
-            # השאילתה של get_history: שוויון על user_id, מיון וטווח על created_at,
-            # ו-_id כשובר שוויון למיון יציב
-            "collection": HISTORY_COLLECTION,
-            "keys": [("user_id", 1), ("created_at", -1), ("_id", -1)],
-            "name": "advisor_history_user_recent",
-        },
-        {
-            "collection": USAGE_COLLECTION,
-            "keys": [("created_at", 1)],
-            "name": "advisor_daily_usage_ttl",
-            "expire_after_seconds": _USAGE_TTL_SECONDS,
-            "enforce": True,
-            "required": True,
-        },
-    ]
-
-
 def _collection(name: str) -> Any:
-    # ייבוא מאוחר: database/manager.py מייבא את המודול הזה בשביל advisor_indexes
+    # ייבוא מאוחר: database/__init__.py יוצר DatabaseManager() שמתחבר כבר בבנאי,
+    # ובלי זה כל ייבוא של המודול הזה היה פותח חיבור למסד
     from database import db as _manager
 
     database = _manager.db
@@ -109,8 +64,11 @@ def israel_day(now: datetime) -> str:
     return TimeUtils.to_israel_time(now).date().isoformat()
 
 
-def get_history(user_id: int, now: Optional[datetime] = None) -> List[Dict[str, str]]:
-    """``CONTEXT_EXCHANGES`` הזוגות האחרונים, מהישן לחדש, בפורמט ההודעות של מודל השפה."""
+def get_history(user_id: int, limit: int, now: Optional[datetime] = None) -> List[Dict[str, str]]:
+    """``limit`` הזוגות האחרונים, מהישן לחדש, בפורמט ההודעות של מודל השפה.
+
+    ``limit`` מגיע מ-``ADVISOR_CONTEXT_EXCHANGES`` (``advisor_service.load_settings``), שמוודא שהוא חיובי.
+    """
     since = _now(now) - timedelta(days=HISTORY_RETENTION_DAYS)
     try:
         cursor = (
@@ -120,7 +78,7 @@ def get_history(user_id: int, now: Optional[datetime] = None) -> List[Dict[str, 
                 {"_id": 0, "question": 1, "answer": 1},
             )
             .sort([("created_at", -1), ("_id", -1)])
-            .limit(CONTEXT_EXCHANGES)
+            .limit(limit)
         )
         docs = list(cursor)
     except PyMongoError as exc:

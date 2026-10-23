@@ -164,8 +164,8 @@ from mcp_uploads import MCP_UPLOADS_COLLECTION, mcp_uploads_indexes
 # שרשורי התגובות על פתקים — המפרט במודול השורש הטהור שגם הכותבים משתמשים בו.
 from note_threads import NOTE_THREADS_COLLECTION, note_threads_indexes
 from drive_owner import WEBAPP as DRIVE_OWNER_WEBAPP, drive_fields
-# זיכרון השיחה והמכסה היומית של מצב היועץ — המפרט ליד הכותב היחיד.
-from services.advisor_store import advisor_indexes
+# זיכרון השיחה והמכסה היומית של מצב היועץ — המפרט במודול השורש הטהור שגם הכותב משתמש בו.
+from advisor_collections import advisor_indexes
 try:
     # Structured logging events
     from observability import emit_event
@@ -2406,7 +2406,7 @@ class DatabaseManager:
         את שני האוספים כותב רק הבוט, והוא עובר כאן בכל עלייה. שני ה-TTL הם
         אינדקסים של **התנהגות**: אף שורת קוד שלנו אינה מוחקת מהאוספים, ואת המחיקה
         של זיכרון השיחה מבטיחה הודעת הפתיחה של היועץ. לכן כשל של אינדקס
-        ``required`` יוצא כאירוע ברמת error. המפרט ב-``services/advisor_store.py``.
+        ``required`` יוצא כאירוע ברמת error. המפרט ב-``advisor_collections.py``.
 
         ``safe_create_index`` אינו זורק; כשל חוזר כ-``False`` (דפוס K11).
 

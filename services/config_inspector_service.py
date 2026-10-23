@@ -896,6 +896,18 @@ class ConfigService:
             description="קישור (https:// או tg://) לכפתור \"לדבר עם המפתח\" בתשובות היועץ. ריק = בלי הכפתור",
             category="ai",
         ),
+        # הדיפולט הוא עותק של DEFAULT_CONTEXT_EXCHANGES ב-services/advisor_service.py, וטסט
+        # (test_config_inspector_shows_the_real_context_exchanges_default) מצמיד את השניים.
+        "ADVISOR_CONTEXT_EXCHANGES": ConfigDefinition(
+            key="ADVISOR_CONTEXT_EXCHANGES",
+            services=("bot",),
+            default="5",
+            description=(
+                "כמה זוגות אחרונים של שאלה ותשובה מזיכרון השיחה נכנסים לכל שאלה ליועץ. מספר שלם, "
+                "עד MAX_CONTEXT_EXCHANGES (services/advisor_service.py). ערך לא תקין מכבה את היועץ, והסיבה נרשמת בלוג"
+            ),
+            category="ai",
+        ),
         "SEMANTIC_SEARCH_ENABLED": ConfigDefinition(
             key="SEMANTIC_SEARCH_ENABLED",
             services=("webapp", "bot"),

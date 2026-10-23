@@ -4,7 +4,7 @@
 
 **למה תת-תהליך.** ``tests/conftest.py`` מחליף את ``telegram`` ב-stubs בכל הסוויטה, ומה שנבדק כאן יושב
 בדיוק בקוד של PTB שאין ב-stubs: איזה handler בכל קבוצה תופס את העדכון, מה ``ApplicationHandlerStop``
-עוצר, ``ConversationHandler`` עם ``allow_reentry`` ו-``conversation_timeout``, ו-``create_task``. כמו
+עוצר, ``ConversationHandler`` עם ``allow_reentry``, ו-``create_task``. כמו
 ``tests/helpers/main_startup_probe.py``.
 
 **מה אמיתי ומה מדומה.**
@@ -18,7 +18,7 @@
 
 **הפלט** הוא קובץ JSON: לכל צעד, הקריאות ל-Bot API שהוא גרם, הקריאות למודל, וההודעות שהגיעו לשמירת קוד.
 
-שימוש: ``python -B advisor_routing_probe.py <result.json> <main|idle|disabled>``
+שימוש: ``python -B advisor_routing_probe.py <result.json> <main|disabled>``
 """
 
 from __future__ import annotations
@@ -181,7 +181,7 @@ async def _run(scenario: str, report: dict) -> None:
     sys.path.insert(0, REPO_ROOT)
     from telegram import Update
     from telegram.constants import CallbackQueryLimit
-    from telegram.ext import ApplicationBuilder
+    from telegram.ext import ApplicationBuilder, ConversationHandler
 
     base_url = _start_fake_bot_api()
     build = ApplicationBuilder.build
@@ -201,11 +201,13 @@ async def _run(scenario: str, report: dict) -> None:
     llm_calls: list[dict] = []
     text_handler_calls: list[dict] = []
     exchanges: dict[int, list[tuple[str, str]]] = {}
+    history_limits: list[int] = []
     limited_users = {1005}
 
-    def get_history(user_id, now=None):
+    def get_history(user_id, limit, now=None):
+        history_limits.append(limit)
         messages = []
-        for question, answer in exchanges.get(user_id, [])[-advisor_store.CONTEXT_EXCHANGES:]:
+        for question, answer in exchanges.get(user_id, [])[-limit:]:
             messages += [{"role": "user", "content": question}, {"role": "assistant", "content": answer}]
         return messages
 
@@ -229,18 +231,18 @@ async def _run(scenario: str, report: dict) -> None:
         text_handler_calls.append({"user": update.effective_user.id, "text": message.text if message else None})
 
     bot_main.CodeKeeperBot.handle_text_message = record_text_message
-    if scenario == "idle":
-        advisor.IDLE_TIMEOUT_SECONDS = 1
 
     app = bot_main.CodeKeeperBot().application
     report["application"] = f"{type(app).__module__}.{type(app).__qualname__}"
-    report["advisor_group_handlers"] = [
-        type(handler).__name__ for handler in app.handlers.get(advisor.ADVISOR_HANDLER_GROUP, [])
+    advisor_group = app.handlers.get(advisor.ADVISOR_HANDLER_GROUP, [])
+    report["advisor_group_handlers"] = [type(handler).__name__ for handler in advisor_group]
+    report["conversation_timeouts"] = [
+        handler.conversation_timeout for handler in advisor_group if isinstance(handler, ConversationHandler)
     ]
     report["known_users_before"] = sorted(int(k) for k in app.user_data)
     report["welcome_text"] = advisor.WELCOME_TEXT
     report["texts"] = {
-        "exit": advisor.EXIT_TEXT, "left": advisor.LEFT_TEXT, "idle": advisor.IDLE_EXIT_TEXT,
+        "exit": advisor.EXIT_TEXT, "left": advisor.LEFT_TEXT,
         "already_out": advisor.ALREADY_OUT_TEXT, "limit": advisor.LIMIT_TEXT,
         "unavailable": advisor.UNAVAILABLE_TEXT,
         # מה ש-/start הרגיל שולח לגולשים של הפרוב (start_command ב-conversation_handlers.py)
@@ -308,20 +310,13 @@ async def _run(scenario: str, report: dict) -> None:
             # כפתורים בהודעות שהיועץ שלח כשעוד היה פעיל (למשל לפני שכובה בהסרת ADVISOR_API_KEY)
             await step("u7_old_exit_button", updates.click(1007, 3, "advisor_exit"))
             await step("u7_old_follow_up_button", updates.click(1007, 4, "advisor_q:gone"))
-        else:
-            await step("u6_enter", updates.text(1006, "/advisor"))
-            # IDLE_TIMEOUT_SECONDS הוא שנייה בתרחיש הזה; הג'וב של ה-JobQueue צריך לרוץ בזמן הזה
-            await asyncio.sleep(2.5)
-            report["idle_calls"] = [
-                {"method": c["method"], "params": c["params"]} for c in _FakeBotApi.calls if c["method"] == "sendMessage"
-            ]
-            await step("u6_text_after_idle", updates.text(1006, "def g(): pass"))
     finally:
         await app.stop()
         await app.shutdown()
 
     report["steps"] = steps
     report["exchanges"] = {str(k): v for k, v in exchanges.items()}
+    report["history_limits"] = history_limits
 
 
 def main() -> int:

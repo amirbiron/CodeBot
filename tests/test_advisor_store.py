@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+import advisor_collections
 import database
 from database.manager import DatabaseManager, NoOpDB
 from services import advisor_store
@@ -52,25 +53,25 @@ def test_startup_requests_both_ttl_indexes_with_the_full_spec():
     ttl = {
         collection: (keys, kwargs)
         for collection, keys, kwargs in _requested_indexes()
-        if collection in (advisor_store.HISTORY_COLLECTION, advisor_store.USAGE_COLLECTION)
+        if collection in (advisor_collections.HISTORY_COLLECTION, advisor_collections.USAGE_COLLECTION)
         and kwargs.get("expire_after_seconds")
     }
-    assert set(ttl) == {advisor_store.HISTORY_COLLECTION, advisor_store.USAGE_COLLECTION}, (
+    assert set(ttl) == {advisor_collections.HISTORY_COLLECTION, advisor_collections.USAGE_COLLECTION}, (
         "מסלול העלייה לא מבקש TTL לאחד מאוספי היועץ — המסמכים שלו לא יימחקו לעולם"
     )
-    history_keys, history_kwargs = ttl[advisor_store.HISTORY_COLLECTION]
+    history_keys, history_kwargs = ttl[advisor_collections.HISTORY_COLLECTION]
     assert history_keys == [("created_at", 1)]
-    assert history_kwargs["expire_after_seconds"] == advisor_store.HISTORY_RETENTION_DAYS * 24 * 60 * 60
+    assert history_kwargs["expire_after_seconds"] == advisor_collections.HISTORY_RETENTION_DAYS * 24 * 60 * 60
     # בלי enforce, שינוי של HISTORY_RETENTION_DAYS היה נבלע כהתנגשות, והחלון הישן ממשיך
     assert history_kwargs["enforce"] is True
-    usage_keys, usage_kwargs = ttl[advisor_store.USAGE_COLLECTION]
+    usage_keys, usage_kwargs = ttl[advisor_collections.USAGE_COLLECTION]
     assert usage_keys == [("created_at", 1)]
     assert usage_kwargs["enforce"] is True
 
 
 def test_startup_requests_the_history_query_index():
     names = [kwargs["name"] for collection, _, kwargs in _requested_indexes()
-             if collection == advisor_store.HISTORY_COLLECTION]
+             if collection == advisor_collections.HISTORY_COLLECTION]
     assert "advisor_history_user_recent" in names
 
 
@@ -87,8 +88,8 @@ def test_a_failed_ttl_index_is_reported_as_an_error(monkeypatch):
                 if event == "db_advisor_index_missing" and severity == "error"}
     # שני ה-TTL מדווחים; אינדקס הביצועים אינו required
     assert reported == {
-        (advisor_store.HISTORY_COLLECTION, "advisor_history_ttl"),
-        (advisor_store.USAGE_COLLECTION, "advisor_daily_usage_ttl"),
+        (advisor_collections.HISTORY_COLLECTION, "advisor_history_ttl"),
+        (advisor_collections.USAGE_COLLECTION, "advisor_daily_usage_ttl"),
     }
 
 
@@ -98,7 +99,7 @@ def noop_db(monkeypatch):
 
 
 def test_noop_database_reads_no_history(noop_db):
-    assert advisor_store.get_history(1) == []
+    assert advisor_store.get_history(1, 5) == []
 
 
 def test_noop_database_does_not_report_a_saved_exchange(noop_db):

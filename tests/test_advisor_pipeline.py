@@ -55,11 +55,11 @@ class MemoryStore:
         self.write_error = False
         self._lock = threading.Lock()
 
-    def get_history(self, user_id, now=None):
+    def get_history(self, user_id, limit, now=None):
         if self.read_error:
             raise advisor_store.AdvisorStoreError("read failed")
         with self._lock:
-            pairs = list(self.exchanges.get(user_id, []))[-advisor_store.CONTEXT_EXCHANGES:]
+            pairs = list(self.exchanges.get(user_id, []))[-limit:]
         messages = []
         for question, answer in pairs:
             messages += [{"role": "user", "content": question}, {"role": "assistant", "content": answer}]
@@ -87,10 +87,15 @@ def store(monkeypatch):
 
 @pytest.fixture
 def settings(monkeypatch):
+    """יועץ מאותחל — ``current_settings`` ו-``context_exchanges`` האמיתיים קוראים ממנו.
+
+    בלי לקוח: ``generate_answer`` מוחלף בכל טסט שמגיע אליו.
+    """
     current = advisor_service.AdvisorSettings(
         api_key="k", base_url="https://llm.example.test/v1/", model="m", contact_url="https://t.me/someone"
     )
-    monkeypatch.setattr(advisor_service, "current_settings", lambda: current)
+    runtime = advisor_service._Runtime(settings=current, system_prompt="PROMPT", client=None)
+    monkeypatch.setattr(advisor_service, "_runtime", runtime)
     return current
 
 

@@ -109,6 +109,45 @@ def test_settings_errors_disable_the_advisor(override, expected_error):
     assert errors == [expected_error]
 
 
+def test_context_exchanges_default_and_override():
+    settings, _ = svc.load_settings(_VALID_ENV)
+    assert settings.context_exchanges == svc.DEFAULT_CONTEXT_EXCHANGES
+    # ערך ריק ברנדר הוא "לא הוגדר", לא שגיאה
+    settings, _ = svc.load_settings({**_VALID_ENV, "ADVISOR_CONTEXT_EXCHANGES": " "})
+    assert settings.context_exchanges == svc.DEFAULT_CONTEXT_EXCHANGES
+    for value in ("1", str(svc.MAX_CONTEXT_EXCHANGES), " 8 "):
+        settings, errors = svc.load_settings({**_VALID_ENV, "ADVISOR_CONTEXT_EXCHANGES": value})
+        assert errors == [] and settings.context_exchanges == int(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "0",
+        str(svc.MAX_CONTEXT_EXCHANGES + 1),
+        "-3",
+        "5.0",
+        "abc",
+        "1000",
+        # ספרות שאינן ASCII: ``"²".isdigit()`` נכון ו-``int()`` דוחה אותה, ו-``int("٣")`` מחזיר 3
+        "²",
+        "٣",
+    ],
+)
+def test_invalid_context_exchanges_disable_the_advisor(value):
+    settings, errors = svc.load_settings({**_VALID_ENV, "ADVISOR_CONTEXT_EXCHANGES": value})
+    assert settings is None
+    assert errors == [f"ADVISOR_CONTEXT_EXCHANGES חייב להיות מספר שלם בין 1 ל-{svc.MAX_CONTEXT_EXCHANGES}"]
+
+
+def test_config_inspector_shows_the_real_context_exchanges_default():
+    """ה-``default`` ב-Config Inspector הוא עותק של ``DEFAULT_CONTEXT_EXCHANGES``, ועותק שונה מציג "Modified" שקרי."""
+    from services.config_inspector_service import ConfigService
+
+    definition = ConfigService.CONFIG_DEFINITIONS["ADVISOR_CONTEXT_EXCHANGES"]
+    assert definition.default == str(svc.DEFAULT_CONTEXT_EXCHANGES)
+
+
 # ─── generate_answer מול כפיל של הלקוח ──────────────────────────────────────
 
 

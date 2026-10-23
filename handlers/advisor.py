@@ -4,9 +4,10 @@
 כבר תפוס: מחוץ ליועץ, כל הודעת טקסט שלא שייכת לזרימה אחרת היא קוד לשמירה
 (``handle_text_message`` ב-``main.py``). לכן היועץ הוא **מצב** — נכנסים אליו
 ב-``/advisor`` או בקישור ``t.me/<bot>?start=advisor``, ויוצאים בכפתור היציאה
-שמופיע בכל תשובה, ב-``/cancel``, או לבד אחרי ``IDLE_TIMEOUT_SECONDS`` בלי פעילות.
-כל עדכון אחר במצב היועץ — פקודה, כפתור של התפריט הראשי, קובץ, לחיצה על כפתור
-של תפריט אחר — מוציא מהמצב וממשיך לבוט הרגיל.
+שמופיע בכל תשובה או ב-``/cancel``. כל עדכון אחר במצב היועץ — פקודה, כפתור של
+התפריט הראשי, קובץ, לחיצה על כפתור של תפריט אחר — מוציא מהמצב וממשיך לבוט הרגיל.
+אין יציאה אוטומטית אחרי זמן בלי פעילות: גולש שחוזר אחרי שעה ממשיך את השיחה, והמחיר
+הוא שגולש ששכח שהוא ביועץ ושולח קוד יקבל תשובה מהמודל ולא שמירה.
 
 **הניתוב.** ``ConversationHandler`` בקבוצה ``ADVISOR_HANDLER_GROUP``: אחרי שער
 מגבלת הקצב (``-90``) ולפני כל handler טקסט אחר של הבוט (הנמוך שבהם ב-``-5``).
@@ -24,10 +25,10 @@ with handlers running non-blocking"*), וההודעה הייתה ממשיכה ג
 שאלה שנשלחת מיד אחרי הכניסה רואה את הפתיחה בזיכרון השיחה, ושתי שאלות מהירות
 נענות לפי הסדר.
 
-**מה לא שורד ריסטארט.** מצב השיחה וטיימר היציאה האוטומטית חיים בזיכרון, כמו
-בכל שאר הזרימות של הבוט (אין לו persistence, בכוונה — ראו ``main.py``). אחרי
-פריסה הגולש מחוץ ליועץ, וההודעה הבאה שלו מגיעה לבוט הרגיל. זיכרון השיחה
-והמכסה היומית במונגו (``services/advisor_store.py``) כן נשמרים.
+**מה לא שורד ריסטארט.** מצב השיחה חי בזיכרון, כמו בכל שאר הזרימות של הבוט (אין
+לו persistence, בכוונה — ראו ``main.py``). אחרי פריסה הגולש מחוץ ליועץ, וההודעה
+הבאה שלו מגיעה לבוט הרגיל. זיכרון השיחה והמכסה היומית במונגו
+(``services/advisor_store.py``) כן נשמרים.
 """
 
 from __future__ import annotations
@@ -50,10 +51,10 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
     MessageHandler,
-    TypeHandler,
     filters,
 )
 
+from advisor_collections import HISTORY_RETENTION_DAYS
 from handlers.advisor_text import html_to_plain, rtl_lines, sanitize_telegram_html, split_message
 from services import advisor_service, advisor_store
 from utils import TelegramUtils
@@ -65,10 +66,6 @@ ADVISOR_HANDLER_GROUP = -10
 
 #: המצב היחיד של השיחה.
 ADVISOR_CHAT = "advisor_chat"
-
-#: אחרי כמה זמן בלי פעילות היועץ יוצא לבד. בלי זה, גולש ששכח שהוא ביועץ ישלח
-#: קוד לשמירה — והקוד יגיע למודל השפה.
-IDLE_TIMEOUT_SECONDS = 30 * 60
 
 EXIT_CALLBACK = "advisor_exit"
 FOLLOW_UP_PREFIX = "advisor_q:"
@@ -88,15 +85,11 @@ WELCOME_TEXT = (
     "כדי שלא אשפוך עליך סתם מידע, בוא נתחיל מאיך אתה עובד היום:\n"
     "באילו סוכנים אתה משתמש (Claude Code, צ'אט בדפדפן)?\n"
     "והאם קורה לך הרבה שהם שוכחים החלטות ארכיטקטורה ישנות וחוזרים על טעויות?\n\n"
-    f"<i>כדי שאזכור את ההקשר, השיחה נשמרת אצלי {advisor_store.HISTORY_RETENTION_DAYS} ימים ואז נמחקת.</i>"
+    f"<i>כדי שאזכור את ההקשר, השיחה נשמרת אצלי {HISTORY_RETENTION_DAYS} ימים ואז נמחקת.</i>"
 )
 EXIT_TEXT = "יצאת ממצב היועץ 👋\nלתפריט הראשי של CodeKeeper: /start\nכדי לחזור ליועץ: /advisor"
 LEFT_TEXT = "יצאתי ממצב היועץ. כדי לחזור: /advisor"
-IDLE_EXIT_TEXT = (
-    f"יצאתי ממצב היועץ אחרי {IDLE_TIMEOUT_SECONDS // 60} דקות בלי פעילות, "
-    "כך שההודעות הבאות שלך יגיעו לבוט הרגיל.\nכדי לחזור ליועץ: /advisor"
-)
-ALREADY_OUT_TEXT = "כבר יצאת ממצב היועץ"
+ALREADY_OUT_TEXT = "כבר יצאת ממצב היועץ. לשיחה חדשה עם היועץ שלח /advisor"
 UNAVAILABLE_TEXT = "🤖 היועץ לא זמין כרגע. אפשר להמשיך להשתמש ב-CodeKeeper כרגיל."
 STORE_ERROR_TEXT = "מצטער, היועץ לא זמין כרגע. נסו שוב בעוד כמה דקות 🙏"
 LIMIT_TEXT = (
@@ -210,7 +203,9 @@ async def _answer_and_reply(context: ContextTypes.DEFAULT_TYPE, *, user_id: int,
         answer: Optional[advisor_service.Answer] = None
         async with _typing_indicator(context.bot, chat_id):
             try:
-                history = await asyncio.to_thread(advisor_store.get_history, user_id)
+                history = await asyncio.to_thread(
+                    advisor_store.get_history, user_id, advisor_service.context_exchanges()
+                )
                 allowed = await asyncio.to_thread(advisor_store.take_daily_question, user_id)
             except advisor_store.AdvisorStoreError:
                 logger.exception("Advisor storage unavailable for user %s", user_id)
@@ -333,15 +328,6 @@ async def _leave(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
-async def _on_idle_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.effective_chat.id
-    try:
-        await context.bot.send_message(chat_id=chat_id, text=IDLE_EXIT_TEXT, parse_mode=None)
-    except TelegramError as exc:
-        # למשל גולש שחסם את הבוט. אין למי לספר, והמצב נסגר בכל מקרה
-        logger.info("Advisor idle notice not delivered to chat %s: %s", chat_id, type(exc).__name__)
-
-
 async def _on_stale_exit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """כפתור יציאה בתשובה ישנה, כשהגולש כבר מחוץ ליועץ."""
     await update.callback_query.answer(ALREADY_OUT_TEXT)
@@ -390,14 +376,12 @@ def build_advisor_conversation() -> ConversationHandler:
                 CallbackQueryHandler(_exit, pattern=_EXIT_PATTERN),
                 MessageHandler(filters.UpdateType.EDITED_MESSAGE, _ignore_edit),
             ],
-            ConversationHandler.TIMEOUT: [TypeHandler(Update, _on_idle_timeout)],
         },
         fallbacks=[
             MessageHandler(filters.UpdateType.MESSAGE, _leave),
             CallbackQueryHandler(_leave),
         ],
         allow_reentry=True,
-        conversation_timeout=IDLE_TIMEOUT_SECONDS,
     )
 
 

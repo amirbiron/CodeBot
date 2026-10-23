@@ -1356,6 +1356,12 @@
      - ריק
      - ``https://t.me/moominAmir``
      - Bot
+   * - ``ADVISOR_CONTEXT_EXCHANGES``
+     - כמה זוגות אחרונים של שאלה ותשובה מזיכרון השיחה נכנסים לכל שאלה ליועץ. מספר שלם, עד ``MAX_CONTEXT_EXCHANGES`` (``services/advisor_service.py``). ערך לא תקין מכבה את היועץ, והסיבה נרשמת בלוג
+     - לא
+     - ``DEFAULT_CONTEXT_EXCHANGES`` (5)
+     - ``8``
+     - Bot
    * - ``SEMANTIC_SEARCH_ENABLED``
      - הפעלת החיפוש הסמנטי (embeddings). כבוי = חיפוש טקסטואלי בלבד
      - לא

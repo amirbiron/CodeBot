@@ -141,7 +141,6 @@ class ApplicationHandlerStop(Exception):
 class ConversationHandler:
     # Sentinel used across code/tests to signal conversation end
     END = object()
-    TIMEOUT = object()
 
     def __init__(self, *args, **kwargs):
         # Keep minimal shape; real behavior is monkeypatched in tests where needed

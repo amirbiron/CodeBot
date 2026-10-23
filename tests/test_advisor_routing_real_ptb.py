@@ -1,9 +1,8 @@
 """הניתוב של מצב היועץ באפליקציה האמיתית של הבוט, מול python-telegram-bot האמיתי.
 
 טקסט חופשי בבוט הוא קוד לשמירה, ולכן כל הנכונות של היועץ היא בשאלה איזה
-handler תופס כל עדכון: ``ApplicationHandlerStop`` בקבוצה של היועץ,
-``allow_reentry`` ו-``conversation_timeout`` של ``ConversationHandler``, והסדר
-מול השיחה הראשית של ``/start``. אף אחד מאלה אינו קיים ב-stubs של הסוויטה, ולכן
+handler תופס כל עדכון: ``ApplicationHandlerStop`` בקבוצה של היועץ, ``allow_reentry``
+של ``ConversationHandler``, והסדר מול השיחה הראשית של ``/start``. אף אחד מאלה אינו קיים ב-stubs של הסוויטה, ולכן
 הטסטים כאן מריצים את ``tests/helpers/advisor_routing_probe.py`` בתת-תהליך —
 שם מוסבר מה אמיתי ומה מדומה.
 """
@@ -26,6 +25,9 @@ PROBE = REPO_ROOT / "tests" / "helpers" / "advisor_routing_probe.py"
 #: תקרה לתת-התהליך. גבוהה מ-``DEADLINE_SECONDS`` של הפרוב, כדי שבדרך כלל הוא יספיק לכתוב דוח.
 PROBE_TIMEOUT_SECONDS = 100
 
+#: ``ADVISOR_CONTEXT_EXCHANGES`` של הפרוב — שונה מברירת המחדל, כדי שקוד שמתעלם מהמשתנה ייתפס.
+PROBE_CONTEXT_EXCHANGES = 3
+
 
 def _probe_env(tmp_path: Path) -> dict[str, str]:
     """הסביבה של תת-התהליך — מפורשת, ולא עותק של ``os.environ`` (ראו ``test_main_startup_with_real_ptb.py``)."""
@@ -46,6 +48,7 @@ def _probe_env(tmp_path: Path) -> dict[str, str]:
         "ADVISOR_API_KEY": "probe-key",
         "ADVISOR_BASE_URL": "http://127.0.0.1:9/v1/",
         "ADVISOR_MODEL": "probe-model",
+        "ADVISOR_CONTEXT_EXCHANGES": str(PROBE_CONTEXT_EXCHANGES),
     }
 
 
@@ -161,12 +164,14 @@ def test_over_the_daily_limit_the_model_is_not_called(main_report):
     assert reply["text"] == main_report["texts"]["limit"] and "advisor_exit" in _buttons(reply)
 
 
-def test_idle_timeout_exits_and_the_next_text_reaches_the_regular_bot(tmp_path):
-    report = _run_probe(tmp_path, "idle")
-    sent = [call["params"]["text"] for call in report["idle_calls"]]
-    assert sent == [report["welcome_text"], report["texts"]["idle"]]
-    after = _steps(report)["u6_text_after_idle"]
-    assert after["text_handler"] == [{"user": 1006, "text": "def g(): pass"}] and after["llm"] == []
+def test_the_advisor_has_no_idle_exit(main_report):
+    """אין יציאה אוטומטית אחרי זמן בלי פעילות — יוצאים בכפתור, ב-``/cancel`` או בכל פעולה אחרת."""
+    assert main_report["conversation_timeouts"] == [None]
+
+
+def test_the_history_limit_comes_from_the_environment(main_report):
+    """``ADVISOR_CONTEXT_EXCHANGES`` עובר מהסביבה, דרך הרישום האמיתי, עד השאילתה של זיכרון השיחה."""
+    assert main_report["history_limits"] and set(main_report["history_limits"]) == {PROBE_CONTEXT_EXCHANGES}
 
 
 def test_without_configuration_the_link_and_text_reach_the_regular_bot(disabled_report):

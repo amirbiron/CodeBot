@@ -9,9 +9,11 @@
 - **תקרת זמן אחת לקריאה כולה** (``ANSWER_DEADLINE_SECONDS``), כולל הניסיון
   החוזר של ה-SDK: מי שממתין לתשובה מחזיק את המנעול של הגולש.
 - **משתני סביבה עם קידומת משלהם** — ``ADVISOR_API_KEY``, ``ADVISOR_BASE_URL``,
-  ``ADVISOR_MODEL``, ``ADVISOR_CONTACT_URL`` — והמפתח והכתובת מועברים ללקוח
-  במפורש. בלי ``base_url`` מפורש ה-SDK קורא בעצמו את ``OPENAI_BASE_URL`` מהסביבה
-  (openai 3.36.1, ``openai/_client.py``, ``AsyncOpenAI.__init__``).
+  ``ADVISOR_MODEL``, ``ADVISOR_CONTACT_URL``, ``ADVISOR_CONTEXT_EXCHANGES`` — והמפתח
+  והכתובת מועברים ללקוח במפורש. בלי ``base_url`` מפורש ה-SDK קורא בעצמו את
+  ``OPENAI_BASE_URL`` מהסביבה (openai 3.36.1, ``openai/_client.py``, ``AsyncOpenAI.__init__``).
+- **אורך הזיכרון נספר בזוגות** (``ADVISOR_CONTEXT_EXCHANGES``) ולא בהודעות כמו
+  ``CONTEXT_WINDOW_SIZE`` בבוט הנפרד: כל מסמך בזיכרון השיחה הוא זוג שאלה-תשובה.
 - טמפרטורה ו-``reasoning_effort`` אינם ניתנים להגדרה, ושאלות ההמשך פועלות תמיד:
   בבוט הנפרד שני הראשונים נשארו ריקים, כלומר ברירת המחדל של המודל.
 """
@@ -47,6 +49,15 @@ ANSWER_DEADLINE_SECONDS = 60.0
 
 LLM_MAX_COMPLETION_TOKENS = 1500
 
+#: ברירת המחדל של ``ADVISOR_CONTEXT_EXCHANGES``: כמה זוגות שאלה-תשובה אחרונים נכנסים לפרומפט.
+#: אותו זיכרון כמו בבוט הנפרד, שם ``CONTEXT_WINDOW_SIZE=10`` ספר הודעות, כלומר 5 זוגות.
+DEFAULT_CONTEXT_EXCHANGES = 5
+
+#: התקרה של ``ADVISOR_CONTEXT_EXCHANGES``. כל זוג בזיכרון נשלח שוב בכל שאלה שאחריו, ותשובה
+#: יכולה להגיע עד ``LLM_MAX_COMPLETION_TOKENS``, כך שהזיכרון מייקר כל קריאה. התקרה היא
+#: החלטה ולא מדידה: היא חוסמת ערך שהוקלד בטעות (למשל 500), לא כיוונון.
+MAX_CONTEXT_EXCHANGES = 20
+
 
 @dataclass(frozen=True)
 class AdvisorSettings:
@@ -54,18 +65,21 @@ class AdvisorSettings:
     base_url: str
     model: str
     contact_url: str  # ריק = בלי כפתור יצירת קשר
+    context_exchanges: int = DEFAULT_CONTEXT_EXCHANGES
 
 
 def load_settings(environ: Mapping[str, str] = os.environ) -> Tuple[Optional[AdvisorSettings], List[str]]:
     """קריאת ההגדרות מהסביבה.
 
     ``(הגדרות, [])`` — תקין. ``(None, [])`` — היועץ לא הוגדר כלל. ``(None, שגיאות)``
-    — הוגדר חלקית או בערכים פגומים. ``ADVISOR_CONTACT_URL`` הוא היחיד שאינו חובה.
+    — הוגדר חלקית או בערכים פגומים. ``ADVISOR_CONTACT_URL`` ו-``ADVISOR_CONTEXT_EXCHANGES``
+    אינם חובה.
     """
     api_key = environ.get("ADVISOR_API_KEY", "").strip()
     base_url = environ.get("ADVISOR_BASE_URL", "").strip()
     model = environ.get("ADVISOR_MODEL", "").strip()
     contact_url = environ.get("ADVISOR_CONTACT_URL", "").strip()
+    raw_exchanges = environ.get("ADVISOR_CONTEXT_EXCHANGES", "").strip()
 
     if not (api_key or base_url or model):
         return None, []
@@ -82,6 +96,14 @@ def load_settings(environ: Mapping[str, str] = os.environ) -> Tuple[Optional[Adv
         errors.append("ADVISOR_BASE_URL חייב להיות כתובת מלאה שמתחילה ב-https://")
     if not model:
         errors.append("ADVISOR_MODEL לא מוגדר")
+    context_exchanges = DEFAULT_CONTEXT_EXCHANGES
+    if raw_exchanges:
+        # ספרות ASCII בלבד ובאורך חסום, לפני int(): ערך כמו "5.0", "²" או מחרוזת ארוכה
+        # הוא שגיאת הגדרה שנאמרת בלוג, ולא חריגה של int() שמפילה את הרישום
+        if re.fullmatch(r"[0-9]{1,3}", raw_exchanges) and 1 <= int(raw_exchanges) <= MAX_CONTEXT_EXCHANGES:
+            context_exchanges = int(raw_exchanges)
+        else:
+            errors.append(f"ADVISOR_CONTEXT_EXCHANGES חייב להיות מספר שלם בין 1 ל-{MAX_CONTEXT_EXCHANGES}")
     # Bot API מקבל בכפתור url רק "HTTP or tg:// URL" — כתובת אחרת הייתה נכשלת
     # בכל תשובה שמציגה את הכפתור, לא בעלייה.
     if contact_url:
@@ -90,7 +112,13 @@ def load_settings(environ: Mapping[str, str] = os.environ) -> Tuple[Optional[Adv
             errors.append("ADVISOR_CONTACT_URL חייב להתחיל ב-https:// או ב-tg://")
     if errors:
         return None, errors
-    return AdvisorSettings(api_key=api_key, base_url=base_url, model=model, contact_url=contact_url), []
+    return AdvisorSettings(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        contact_url=contact_url,
+        context_exchanges=context_exchanges,
+    ), []
 
 
 # טוקן שהמודל שם בתחילת התשובה כשאין לו תשובה במסמך או כשהגולש מבקש לדבר
@@ -212,13 +240,24 @@ def init_advisor(settings: AdvisorSettings) -> None:
         max_retries=LLM_MAX_RETRIES,
     )
     _runtime = _Runtime(settings=settings, system_prompt=build_system_prompt(knowledge), client=client)
-    logger.info("Advisor ready: model=%s knowledge_chars=%d", settings.model, len(knowledge))
+    logger.info(
+        "Advisor ready: model=%s knowledge_chars=%d context_exchanges=%d",
+        settings.model, len(knowledge), settings.context_exchanges,
+    )
 
 
 def current_settings() -> Optional[AdvisorSettings]:
     """ההגדרות שהיועץ אותחל איתן, או ``None`` כשהוא כבוי."""
     runtime = _runtime
     return runtime.settings if runtime is not None else None
+
+
+def context_exchanges() -> int:
+    """כמה זוגות אחרונים מזיכרון השיחה נכנסים לפרומפט, לפי ההגדרות שהיועץ אותחל איתן."""
+    runtime = _runtime
+    if runtime is None:
+        raise RuntimeError("init_advisor() was not called")
+    return runtime.settings.context_exchanges
 
 
 # ─── פענוח התשובה ────────────────────────────────────────────────────────────
