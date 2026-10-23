@@ -259,7 +259,7 @@ from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 # הצ'קליסט "צעדים ראשונים" בדשבורד: שמות הדגלים ב-``ui_prefs`` ש-``/api/ui_prefs`` כותב,
 # והרישום של בחירת ערכה "רק במכשיר הזה".
 from webapp import first_steps  # noqa: E402
-from webapp.gallery import GALLERY_SLIDES  # noqa: E402
+from webapp.gallery import GALLERY_SLIDES, share_image as gallery_share_image  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
 from services.db_health_service import (  # noqa: E402
@@ -11793,6 +11793,7 @@ def gallery():
     return render_template(
         'gallery.html',
         slides=GALLERY_SLIDES,
+        share_image=gallery_share_image(GALLERY_SLIDES[0]),
         base_url=_webapp_base_url(),
     )
 

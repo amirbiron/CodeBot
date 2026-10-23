@@ -49,7 +49,11 @@ def _script_constant(name: str) -> int:
     tree = ast.parse(BUILD_SCRIPT.read_text(encoding="utf-8"))
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == name for t in node.targets):
-            return ast.literal_eval(node.value)
+            value = node.value
+            # literal_eval לא מחשב ביטוי כמו ``300 * 1024``
+            if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Mult):
+                return ast.literal_eval(value.left) * ast.literal_eval(value.right)
+            return ast.literal_eval(value)
     raise AssertionError(f"{name} לא נמצא ב-{BUILD_SCRIPT}")
 
 
@@ -87,20 +91,21 @@ def test_every_image_url_carries_the_static_version():
     assert not missing, missing
 
 
-def test_page_points_only_to_webp_images():
-    """כל תמונה של הגלריה בעמוד — בסקריפט, ב-``<img>`` וב-``og:image`` — היא WebP. אין עותק בפורמט אחר."""
+def test_slides_are_webp_and_the_preview_is_jpeg():
+    """הצילומים בעמוד — בסקריפט וב-``<img>`` — הם WebP, ותמונת התצוגה המקדימה (``og:image``) היא ה-JPEG הנפרד."""
     html = _get_gallery().get_data(as_text=True)
     parser = _Meta()
     parser.feed(html)
 
-    urls = [s["src"] for s in _rendered_slides(html)] + parser.img_srcs + [parser.props["og:image"]]
-    not_webp = [u for u in urls if not u.split("?")[0].endswith(".webp")]
+    slide_urls = [s["src"] for s in _rendered_slides(html)] + parser.img_srcs
+    not_webp = [u for u in slide_urls if not u.split("?")[0].endswith(".webp")]
     assert not not_webp, not_webp
-    assert parser.props["og:image:type"] == "image/webp"
+    assert parser.props["og:image"].split("?")[0].endswith(".jpg"), parser.props["og:image"]
+    assert parser.props["og:image:type"] == "image/jpeg"
 
 
 def test_share_tags_point_to_absolute_urls_and_the_first_slide():
-    from webapp.gallery import GALLERY_SLIDES
+    from webapp.gallery import GALLERY_SLIDES, share_image
 
     parser = _Meta()
     parser.feed(_get_gallery().get_data(as_text=True))
@@ -111,7 +116,7 @@ def test_share_tags_point_to_absolute_urls_and_the_first_slide():
     # וואטסאפ דורש כתובת מלאה ב-og:image
     assert re.match(r"^https?://[^/]+/gallery$", props["og:url"]), props["og:url"]
     assert re.match(r"^https?://[^/]+/static/gallery/", props["og:image"]), props["og:image"]
-    assert props["og:image"].split("?")[0].endswith("/" + GALLERY_SLIDES[0].image)
+    assert props["og:image"].split("?")[0].endswith("/" + share_image(GALLERY_SLIDES[0]))
     assert props["og:image:alt"] == GALLERY_SLIDES[0].alt
 
 
@@ -135,15 +140,16 @@ def test_every_slide_file_exists_and_is_a_resized_webp():
             assert im.width <= max_width, (slide.image, im.width)
 
 
-def test_first_slide_fits_whatsapp_preview():
-    """הצילום הראשון הוא גם ``og:image``: מתחת ל-600KB, רוחב 300 לפחות ויחס של עד 4:1 — הדרישות בעמוד של וואטסאפ על תצוגה מקדימה."""
-    from webapp.gallery import GALLERY_SLIDES
+def test_share_image_of_the_first_slide_is_a_jpeg_of_the_declared_size():
+    """תמונת התצוגה המקדימה: JPEG ב-``SHARE_SIZE`` בדיוק, ולא מעל ``SHARE_MAX_BYTES`` — שניהם מהסקריפט שמייצר אותה."""
+    from webapp.gallery import GALLERY_SLIDES, share_image
 
-    path = GALLERY_DIR / GALLERY_SLIDES[0].image
-    assert path.stat().st_size < 600 * 1024
+    path = GALLERY_DIR / share_image(GALLERY_SLIDES[0])
+    assert path.is_file(), f"{path} חסר — הריצו את scripts/build_gallery_image.py עם --share על הצילום הראשון"
+    assert path.stat().st_size <= _script_constant("SHARE_MAX_BYTES")
     with Image.open(path) as im:
-        assert im.width >= 300
-        assert im.width / im.height <= 4
+        assert im.format == "JPEG"
+        assert im.size == _script_constant("SHARE_SIZE")
 
 
 def test_every_slide_has_hebrew_alt_text_that_is_not_the_title():
@@ -156,8 +162,8 @@ def test_every_slide_has_hebrew_alt_text_that_is_not_the_title():
 
 def test_no_stray_files_in_the_gallery_folder():
     """קובץ בתיקייה שאף צילום ברשימה לא מפנה אליו הוא שארית של החלפה — הוא מוגש לכל דורש ושוקל בריפו."""
-    from webapp.gallery import GALLERY_SLIDES
+    from webapp.gallery import GALLERY_SLIDES, share_image
 
-    expected = {s.image for s in GALLERY_SLIDES}
+    expected = {s.image for s in GALLERY_SLIDES} | {share_image(GALLERY_SLIDES[0])}
     actual = {p.name for p in GALLERY_DIR.iterdir() if p.is_file()}
     assert actual == expected, {"extra": sorted(actual - expected), "missing": sorted(expected - actual)}
