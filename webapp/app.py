@@ -19739,7 +19739,7 @@ def api_persistent_login():
 @_limiter_exempt()
 @login_required
 def api_ui_prefs():
-    """שמירת העדפות UI: תומך בעדכונים חלקיים (font_scale/theme/editor/work_state).
+    """שמירת העדפות UI: תומך בעדכונים חלקיים (font_scale/theme/editor ועוד).
 
     קלט JSON נתמך:
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
@@ -19749,7 +19749,6 @@ def api_ui_prefs():
     - first_steps_hidden: bool — נשמר כמו שנשלח. ``True`` מסתיר את הצ'קליסט "צעדים ראשונים"
       בדשבורד; ``False`` הוא "הצג שוב": הוא מוחק גם את הנעילה, והכרטיס מוצג עד שמסתירים אותו
       שוב, גם כשכל הצעדים בוצעו (``asked_to_see_again`` ב-``webapp/first_steps.py``) (אופציונלי)
-    - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
 
     **מפתח שאינו מטופל כאן במפורש מוחזר 200 ואינו נשמר.** זה אינו רעיוני:
     ``smooth_scroll`` נשלח מהלקוח עד היום ומעולם לא הגיע למסד, כמתועד ב-
@@ -19985,32 +19984,6 @@ def api_ui_prefs():
             if not hidden_value:
                 unset_fields[f'ui_prefs.{first_steps.DONE_PREF}'] = ''
             resp_payload[first_steps.HIDDEN_PREF] = hidden_value
-
-        # עדכון work_state (שחזור מצב עבודה חוצה סשנים)
-        if 'work_state' in payload:
-            try:
-                ws = payload.get('work_state') or {}
-                safe_ws: Dict[str, Any] = {}
-                lu = str(ws.get('last_url') or '').strip()
-                if lu.startswith('/') and len(lu) <= 512:
-                    safe_ws['last_url'] = lu
-                try:
-                    sy = float(ws.get('scroll_y'))
-                    if sy < 0:
-                        sy = 0.0
-                    if sy > 10_000_000:
-                        sy = 10_000_000.0
-                    safe_ws['scroll_y'] = int(sy)
-                except Exception:
-                    pass
-                ts = str(ws.get('timestamp') or '').strip()
-                if ts:
-                    safe_ws['timestamp'] = ts[:64]
-                if safe_ws:
-                    update_fields['ui_prefs.work_state'] = safe_ws
-                    resp_payload['work_state'] = safe_ws
-            except Exception:
-                pass
 
         needs_db_update = len(update_fields) > 1 or bool(unset_fields)  # יותר מ-updated_at, או מחיקה
         # **כל ערך cookie חדש חייב להיכנס לרשימה הזו.** היא השומר שמחליט
@@ -21387,7 +21360,6 @@ def api_me():
                 'font_scale': prefs.get('font_scale'),
                 'theme': prefs.get('theme'),
                 'editor': prefs.get('editor'),
-                'work_state': prefs.get('work_state'),
             }
         })
     except Exception:

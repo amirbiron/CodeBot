@@ -2,7 +2,7 @@
 
 **מה נשבר.** ה-state נשמר ב-session, וה-session הוא cookie. ב-session קבוע Flask שולח את ה-cookie מחדש בכל תשובה (``SessionInterface.should_set_cookie``, Flask 3.1.2), ולכן בקשה שיצאה במקביל ללחיצה על "חבר" — שמירת מצב העבודה ב-``beforeunload`` — החזירה את ה-cookie שלפני הלחיצה, אחרי ההפניה לגוגל. הדפדפן שומר את מה שהגיע אחרון, ה-state נמחק, והחזרה מגוגל נדחתה עם ``csrf`` בלי שורה אחת בלוג.
 
-**איך זה נבדק.** האפליקציה כאן היא Flask אמיתי עם ה-blueprint האמיתי (``webapp.drive_auth.drive_auth_bp``), **בתצורה שהייצור רץ בה**: ``session.permanent`` כמו בכל מסלולי ההתחברות של הוובאפ, ו-``SESSION_REFRESH_EACH_REQUEST`` בברירת המחדל. ``/api/ui_prefs`` כאן קורא את ה-session ולא כותב אליו, כמו ``work_state`` ב-``webapp/app.py``. ה-cookie מועבר ביד, כדי לקבוע באיזה סדר התשובות "הגיעו לדפדפן" — זה החלק שהדפדפן מחליט עליו, והבדיקה מקבעת את הסדר שנראה בלוגים של Render ב-4.10.2026, 21:47 UTC (``ui_prefs`` הסתיימה כ-100ms אחרי ``/api/drive/auth``).
+**איך זה נבדק.** האפליקציה כאן היא Flask אמיתי עם ה-blueprint האמיתי (``webapp.drive_auth.drive_auth_bp``), **בתצורה שהייצור רץ בה**: ``session.permanent`` כמו בכל מסלולי ההתחברות של הוובאפ, ו-``SESSION_REFRESH_EACH_REQUEST`` בברירת המחדל. ``/api/ui_prefs`` כאן קורא את ה-session ולא כותב אליו, כמו הבקשה ששמרה את מצב העבודה. שמירת מצב העבודה הוסרה מאז מ-``base.html``, והטסט נשאר: הוא בודק את התיקון בצד השרת — ה-state נשמר במסד ולא ב-session — ולא את הבקשה הזו דווקא, כי בתצורה הזו כל תשובה מחזירה את ה-cookie, כמו שמתואר למעלה. ה-cookie מועבר ביד, כדי לקבוע באיזה סדר התשובות "הגיעו לדפדפן" — זה החלק שהדפדפן מחליט עליו, והבדיקה מקבעת את הסדר שנראה בלוגים של Render ב-4.10.2026, 21:47 UTC (``ui_prefs`` הסתיימה כ-100ms אחרי ``/api/drive/auth``).
 
 המסד הוא ``Repository`` האמיתי מעל ``tests._fake_mongo``, ולכן מה שנבדק הוא גם מה שנכתב בפועל — לא רק מה שנענה. הקריאות לגוגל מוחלפות בדמויות.
 """
@@ -138,7 +138,7 @@ def harness(monkeypatch):
 
     @app.route("/api/ui_prefs", methods=["POST"])
     def _ui_prefs():
-        # כמו work_state ב-webapp/app.py: קורא את ה-session ולא כותב אליו
+        # כמו הבקשה ששמרה את מצב העבודה: קוראת את ה-session ולא כותבת אליו
         _ = session.get("user_id")
         return jsonify(ok=True)
 
