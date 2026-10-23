@@ -80,11 +80,7 @@ class _Pages:
             self.errors.append(f"console.error: {msg.text} @ {(msg.location or {}).get('url')}")
 
     def goto(self, page, path):
-        """ניווט פנימי: עם ``referer`` מאותו אתר, כמו לחיצה על קישור.
-
-        בלי זה ``base.html`` מזהה "כניסה מבחוץ" אל ``/dashboard`` ומשחזר את מצב העבודה —
-        כלומר מעביר לעמוד הקודם שנשמר ב-``localStorage`` (``workStatePersistence``).
-        """
+        """ניווט פנימי: עם ``referer`` מאותו אתר, כמו לחיצה על קישור."""
         response = page.goto(f"{self.server.base_url}{path}", wait_until="load",
                              referer=f"{self.server.base_url}/files")
         assert response is not None and response.status == 200, (path, response and response.status)

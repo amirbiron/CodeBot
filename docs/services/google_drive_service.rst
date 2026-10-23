@@ -48,7 +48,7 @@ Google Drive Service
 
 בחזרה מגוגל הבדיקה והמחיקה הן פעולה אחת (``find_one_and_update`` עם ``$unset``), ולכן כל state עובד פעם אחת בלבד, גם כששתי חזרות מגיעות יחד. ה-state נבדק מול המשתמש שב-session, ולכן state של משתמש אחד לא מחבר משתמש אחר.
 
-**למה לא ב-session.** ה-session של הוובאפ הוא cookie, וב-session קבוע Flask שולח אותו מחדש בכל תשובה (Flask 3.1.2, ``SessionInterface.should_set_cookie``). כשה-state נשמר שם, בקשה שיצאה ברקע ברגע הלחיצה על "חבר" — שמירת מצב העבודה ב-``beforeunload`` ב-``base.html`` — החזירה את ה-cookie שלפני הלחיצה אחרי ההפניה לגוגל. הדפדפן שמר את ה-cookie שהגיע אחרון, ה-state נמחק, והחזרה מגוגל נדחתה בלי שורה בלוג.
+**למה לא ב-session.** ה-session של הוובאפ הוא cookie, וב-session קבוע Flask שולח אותו מחדש בכל תשובה (Flask 3.1.2, ``SessionInterface.should_set_cookie``). כשה-state נשמר שם, בקשה שיצאה ברקע ברגע הלחיצה על "חבר" — שמירת מצב העבודה ב-``beforeunload`` ב-``base.html`` — החזירה את ה-cookie שלפני הלחיצה אחרי ההפניה לגוגל. הדפדפן שמר את ה-cookie שהגיע אחרון, ה-state נמחק, והחזרה מגוגל נדחתה בלי שורה בלוג. שמירת מצב העבודה הוסרה מאז מ-``base.html``, וההחלטה לשמור את ה-state בשרת נשארת: כל בקשה שתצא במקביל ללחיצה תחזיר את ה-cookie באותה צורה.
 
 כל דחייה בחזרה מגוגל נרשמת באירוע ``webapp_drive_callback_rejected`` עם הסיבה — ראו :ref:`drive-events`.
 
