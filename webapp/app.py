@@ -259,6 +259,7 @@ from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 # הצ'קליסט "צעדים ראשונים" בדשבורד: שמות הדגלים ב-``ui_prefs`` ש-``/api/ui_prefs`` כותב,
 # והרישום של בחירת ערכה "רק במכשיר הזה".
 from webapp import first_steps  # noqa: E402
+from webapp.gallery import GALLERY_SLIDES, share_image as gallery_share_image  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
 from services.db_health_service import (  # noqa: E402
@@ -2067,6 +2068,16 @@ DATABASE_NAME = _cfg_or_env('DATABASE_NAME', default='code_keeper_bot')
 BOT_TOKEN = _cfg_or_env('BOT_TOKEN')
 WEBAPP_URL = _cfg_or_env('WEBAPP_URL', default='https://code-keeper-webapp.onrender.com')
 PUBLIC_BASE_URL = _cfg_or_env('PUBLIC_BASE_URL', default='')
+
+
+def _webapp_base_url() -> str:
+    """כתובת הבסיס המלאה של הוובאפ, בלי לוכסן בסוף: ``WEBAPP_URL``, ואם הוא ריק — הכתובת שהבקשה הגיעה אליה.
+
+    למקום שצריך כתובת מלאה ולא נתיב: קישור שנשלח החוצה, ותגיות התצוגה המקדימה בעמוד ציבורי (``og:url``, ``og:image``), שוואטסאפ דורש בהן כתובת מלאה. דורש הקשר בקשה.
+    """
+    return (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
+
+
 _DOCS_URL_RAW = _cfg_or_env('DOCUMENTATION_URL', default='https://amirbiron.github.io/CodeBot/')
 DOCUMENTATION_URL = (_DOCS_URL_RAW.rstrip('/') + '/') if _DOCS_URL_RAW else 'https://amirbiron.github.io/CodeBot/'
 
@@ -11771,6 +11782,21 @@ def privacy_policy():
     """
     return render_template('privacy.html')
 
+
+@app.route('/gallery', methods=['GET'])
+@_limiter_exempt()
+def gallery():
+    """גלריית צילומי מסך — עמוד ציבורי, בלי התחברות, לקישור מפוסטים, מה-README ומהיועץ בבוט.
+
+    הצילומים והכיתובים ב-``GALLERY_SLIDES`` (``webapp/gallery.py``), והמעבר ביניהם בדפדפן, לפי ה-hash (``/gallery#3``). פטור ממגבלת הקצב הגורפת כמו ``/``: המפתח של המגביל הוא ה-IP, וקישור שמתפרסם בקבוצה מביא הרבה מבקרים, חלקם מאחורי אותה כתובת של ספק סלולר. התמונות עצמן מוגשות מ-``static``, ש-Flask-Limiter לא סופר בכלל (``__check_all_limits_exempt`` ב-``flask_limiter/_extension.py``, נקרא בגרסה 4.0.0). העובדות שהעמוד נשען עליהן מוצמדות ב-``tests/test_gallery_page.py``.
+    """
+    return render_template(
+        'gallery.html',
+        slides=GALLERY_SLIDES,
+        share_image=gallery_share_image(GALLERY_SLIDES[0]),
+        base_url=_webapp_base_url(),
+    )
+
 # NOTE: Route migrated to auth_bp (webapp/routes/auth_routes.py)
 # @app.route('/login')
 def _legacy_login():
@@ -17457,8 +17483,7 @@ def api_create_styled_share(file_id):
             'view_count': 0,
         })
 
-        base_url = (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
-        share_url = f"{base_url}/shared/styled/{token}"
+        share_url = f"{_webapp_base_url()}/shared/styled/{token}"
 
         return jsonify({
             'ok': True,
@@ -18884,8 +18909,7 @@ def api_files_create_share_link():
             'view_count': 0,
         })
 
-        base_url = (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
-        share_url = f"{base_url}/shared/{token}"
+        share_url = f"{_webapp_base_url()}/shared/{token}"
         return jsonify({'success': True, 'share_url': share_url, 'expires_at': expires_at.isoformat(), 'token': token})
     except Exception:
         return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500

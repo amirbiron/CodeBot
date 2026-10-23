@@ -1,0 +1,435 @@
+{% extends "base.html" %}
+
+{#
+  גלריית צילומי מסך — עמוד ציבורי (``/gallery``, ``gallery`` ב-``webapp/app.py``). הצילומים והכיתובים ב-``GALLERY_SLIDES`` (``webapp/gallery.py``); כאן רק התצוגה.
+
+  - **פריסה.** ה-``body`` הוא עמודת flex בגובה ``100dvh`` (עם ``100vh`` לדפדפן שאינו מכיר ``dvh``), ואזור התמונה מקבל את כל מה שנשאר אחרי הסרגל העליון והלוח שמתחתיו. הגובה נקבע רק כאן, ב-CSS, ולא מחושב ב-JS. בלי ``overflow: hidden``: במסך נמוך מדי לכל הרכיבים, ה-``body`` (שהוא שגולל באתר, ראו ``docs/webapp/theming_and_css.rst``) נגלל, והכפתורים נשארים נגישים.
+  - **צבעים.** הלוח הוא ``glass-card`` והכפתורים ``btn-primary`` / ``btn-secondary``, כמו בעמוד הבית; הטקסט ב-``--text-primary`` / ``--text-secondary`` עם ``currentColor`` כנפילה לערכה שאינה מגדירה אותם (High Contrast).
+  - **כיוון.** החלקה, חיצים במקלדת והחץ שעל הכפתורים נגזרים מהכיוון של הפריסה בפועל (``direction``) ולא מוקשחים: ב-RTL הצילום הבא יושב משמאל, ולכן חץ שמאלה וגרירה ימינה מביאים אותו (``bugbot-rules/rtl-geometry-and-clamp.md``).
+  - **כתובות התמונות** נושאות ``?v={{ static_version }}``, כי ``SEND_FILE_MAX_AGE_DEFAULT`` שומר סטטיקה בדפדפן לזמן ארוך, ובלי מזהה גרסה צילום שהוחלף באותו שם לא היה מגיע למבקרים.
+#}
+
+{% set gallery_title = 'CodeKeeper — גלריית צילומי מסך' %}
+{% set gallery_description = 'סיור קצר בוובאפ של CodeKeeper: צילום אחד בכל פעם, עם הסבר קצר על מה שרואים.' %}
+
+{% block title %}{{ gallery_title }}{% endblock %}
+
+{% block extra_head %}
+{# תגיות התצוגה המקדימה של קישור (https://ogp.me). וואטסאפ דורש כתובת מלאה ב-og:image, תמונה מתחת ל-600KB ותגיות בתוך 300KB הראשונים של ה-HTML (https://developers.facebook.com/documentation/business-messaging/whatsapp/link-previews/). התמונה היא JPEG של הצילום הראשון — העמוד ההוא לא מציין אם WebP נתמך. #}
+<meta name="description" content="{{ gallery_description }}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CodeKeeper">
+<meta property="og:locale" content="he_IL">
+<meta property="og:title" content="{{ gallery_title }}">
+<meta property="og:description" content="{{ gallery_description }}">
+<meta property="og:url" content="{{ base_url }}{{ url_for('gallery') }}">
+<meta property="og:image" content="{{ base_url }}{{ url_for('static', filename='gallery/' ~ share_image) }}?v={{ static_version }}">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:alt" content="{{ slides[0].alt }}">
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* min-height מאופס כי ב-base.html הוא 100vh, ובנייד vh הוא הגובה כששורת הכתובת מקופלת (ה-large viewport של CSS Values 4) — הוא היה גובר על height ומוריד את הכפתורים אל מתחת לשורה */
+body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+}
+
+/* בלי זה, החלקה לרוחב באזור התמונה מגיעה עד המסמך, וכרומיום מפרש אותה כמחוות "אחורה"/"קדימה" של הדפדפן — נמדד: החלקה ימינה יצאה מהעמוד.
+   על שניהם, כי ה-body הוא שגולל באתר. https://developer.chrome.com/blog/overscroll-behavior (overscroll-behavior-x: none חוסם את ניווט ההחלקה).
+   לא touch-action על אזור התמונה: הוא היה חוסם גם גלילה לרוחב בתוך תמונה מוגדלת. */
+html,
+body {
+    overscroll-behavior-x: none;
+}
+
+body > .navbar {
+    flex: none;
+}
+
+/* ‎.main-content ב-base.html נותן min-height ו-padding לעמודים רגילים; כאן הוא ממלא את מה שנשאר מתחת לסרגל */
+.main-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0.75rem 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.main-content > .container {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-width: none;
+    width: 100%;
+    padding: 0 0.75rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.gallery {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+/* אזור התמונה, וגם האזור שקולט את ההחלקה. min-height כדי שבמסך נמוך מאוד התמונה לא תתכווץ לאפס — העמוד נגלל במקום. */
+.gallery__stage {
+    flex: 1 1 0;
+    min-height: 10rem;
+    position: relative;
+}
+
+.gallery__link {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: zoom-in;
+}
+
+/* התמונה ממלאת את האזור ו-object-fit שומר על היחס בלי לחתוך. הצל ב-drop-shadow ולא ב-box-shadow, כי הוא עוקב אחרי מה שמצויר ולא אחרי הקופסה, שכוללת את השוליים השקופים. */
+.gallery__image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
+}
+
+/* המחלקה כפולה בכוונה: ‎[data-theme="dark"] * ב-dark-mode.css קובע transition באותה ספציפיות כמו מחלקה אחת, ונטען אחרי הבלוק הזה (docs/webapp/theming_and_css.rst, "מלכודת ספציפיות ב-transition"). */
+.gallery__image.gallery__image {
+    transition: opacity 0.2s ease;
+}
+
+.gallery.is-loading .gallery__image {
+    opacity: 0.45;
+}
+
+.gallery.is-pending .gallery__image,
+.gallery.is-pending .gallery__caption {
+    visibility: hidden;
+}
+
+.gallery__spinner {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    color: var(--text-primary, currentColor);
+    pointer-events: none;
+}
+
+.gallery.is-loading .gallery__spinner,
+.gallery.is-pending .gallery__spinner {
+    display: flex;
+}
+
+/* ‎.main-content .glass-card ב-base.html נותן לכרטיס שוליים ורוחב משלו; כאן הלוח ממורכז ברוחב מוגבל */
+.main-content .gallery__panel {
+    flex: none;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 48rem;
+    padding: 1rem 1.25rem;
+    border-radius: 16px;
+}
+
+.gallery__caption {
+    text-align: center;
+    margin-bottom: 0.75rem;
+}
+
+.gallery__title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.3;
+    margin: 0 0 0.25rem;
+    color: var(--text-primary, currentColor);
+}
+
+.gallery__desc {
+    font-size: 1rem;
+    line-height: 1.5;
+    margin: 0;
+    color: var(--text-secondary, currentColor);
+}
+
+.gallery__controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.gallery__nav {
+    padding: 0.6rem 1.25rem;
+}
+
+.gallery__nav:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.gallery__nav:disabled:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+/* האייקון מצויר לכיוון LTR (הקודם ←, הבא →), ומתהפך בפריסה מימין לשמאל */
+[dir="rtl"] .gallery__arrow {
+    transform: scaleX(-1);
+}
+
+.gallery__counter {
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--text-secondary, currentColor);
+}
+
+@media (min-width: 768px) {
+    .gallery__title {
+        font-size: 1.5rem;
+    }
+
+    .gallery__desc {
+        font-size: 1.0625rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% set ns = namespace(slides=[]) %}
+{% for slide in slides %}
+{% set ns.slides = ns.slides + [{
+    'src': url_for('static', filename='gallery/' ~ slide.image) ~ '?v=' ~ static_version,
+    'title': slide.title,
+    'desc': slide.desc,
+    'alt': slide.alt,
+}] %}
+{% endfor %}
+{% set first = ns.slides[0] %}
+
+<section class="gallery" id="gallery" aria-labelledby="galleryHeading" data-testid="gallery">
+    <h1 class="sr-only" id="galleryHeading">{{ gallery_title }}</h1>
+
+    <div class="gallery__stage" id="galleryStage">
+        <a class="gallery__link" id="galleryLink" href="{{ first.src }}" title="פתיחה בגודל מלא">
+            <img class="gallery__image" id="galleryImage" src="{{ first.src }}" alt="{{ first.alt }}">
+        </a>
+        <span class="gallery__spinner" aria-hidden="true"><i class="fas fa-circle-notch fa-spin"></i></span>
+    </div>
+
+    <div class="glass-card gallery__panel">
+        <div class="gallery__caption" aria-live="polite">
+            <h2 class="gallery__title" id="galleryTitle">{{ first.title }}</h2>
+            <p class="gallery__desc" id="galleryDesc">{{ first.desc }}</p>
+        </div>
+        <div class="gallery__controls">
+            <button type="button" class="btn btn-secondary btn-icon gallery__nav" id="galleryPrev" disabled>
+                <i class="fas fa-arrow-left gallery__arrow" aria-hidden="true"></i>
+                הקודם
+            </button>
+            <span class="gallery__counter" id="galleryCounter">1 מתוך {{ ns.slides | length }}</span>
+            <button type="button" class="btn btn-primary btn-icon gallery__nav" id="galleryNext"{% if ns.slides | length < 2 %} disabled{% endif %}>
+                הבא
+                <i class="fas fa-arrow-right gallery__arrow" aria-hidden="true"></i>
+            </button>
+        </div>
+    </div>
+</section>
+
+{# הסקריפט מיד אחרי הסימון ולא ב-extra_js: כניסה ישירה ל-/gallery#3 מסתירה את הצילום הראשון לפני שהוא מצויר, ולא אחרי שאר הסקריפטים של base.html. #}
+<script>
+(function () {
+    'use strict';
+
+    var slides = {{ ns.slides | tojson }};
+    var SWIPE_MIN_PX = 50;
+
+    var root = document.getElementById('gallery');
+    var stage = document.getElementById('galleryStage');
+    var link = document.getElementById('galleryLink');
+    var img = document.getElementById('galleryImage');
+    var titleEl = document.getElementById('galleryTitle');
+    var descEl = document.getElementById('galleryDesc');
+    var counterEl = document.getElementById('galleryCounter');
+    var btnPrev = document.getElementById('galleryPrev');
+    var btnNext = document.getElementById('galleryNext');
+
+    var current = 0;  // הצילום שמוצג
+    var wanted = 0;   // הצילום האחרון שביקשו. רק הוא מוצג כשהטעינה שלו נגמרת, ובקשה ישנה שמסיימת אחריו לא דורסת אותו
+    var decoding = {};
+    var spinnerTimer = 0;
+
+    function isRtl() {
+        return getComputedStyle(root).direction === 'rtl';
+    }
+
+    // מוריד ומפענח את הצילום. אותה הבטחה משמשת את הטעינה מראש ואת המעבר, כך שאין הורדה כפולה.
+    function load(i) {
+        if (!decoding[i]) {
+            var pre = new Image();
+            pre.src = slides[i].src;
+            decoding[i] = pre.decode().catch(function (err) {
+                // decode נדחה כשההורדה נכשלה או שהקובץ פגום. מוחקים את ההבטחה כדי שמעבר הבא ינסה שוב,
+                // והמעבר עצמו ממשיך: הדפדפן יציג את ה-alt, והגלריה לא נתקעת על צילום אחד.
+                delete decoding[i];
+                console.warn('gallery: image failed to load', slides[i].src, err);
+            });
+        }
+        return decoding[i];
+    }
+
+    function setHash(i) {
+        var hash = '#' + (i + 1);
+        if (location.hash !== hash) {
+            // replaceState ולא location.hash: לא נוצרת רשומה בהיסטוריה לכל צילום (ולכן "אחורה" יוצא מהגלריה),
+            // ו-hashchange לא נורה על שינוי שעשינו בעצמנו.
+            history.replaceState(history.state, '', hash);
+        }
+    }
+
+    function render(i) {
+        var s = slides[i];
+        img.src = s.src;
+        img.alt = s.alt;
+        link.href = s.src;
+        titleEl.textContent = s.title;
+        descEl.textContent = s.desc;
+        counterEl.textContent = (i + 1) + ' מתוך ' + slides.length;
+        btnPrev.disabled = i === 0;
+        btnNext.disabled = i === slides.length - 1;
+        current = i;
+        clearTimeout(spinnerTimer);
+        root.classList.remove('is-loading', 'is-pending');
+        stage.removeAttribute('aria-busy');
+        setHash(i);
+    }
+
+    function show(i) {
+        wanted = i;
+        clearTimeout(spinnerTimer);
+        // מחוון טעינה רק כשהמעבר לא מיידי, כדי שמעבר לצילום שכבר נטען מראש לא יהבהב
+        spinnerTimer = setTimeout(function () {
+            if (wanted !== current) {
+                root.classList.add('is-loading');
+                stage.setAttribute('aria-busy', 'true');
+            }
+        }, 150);
+        load(i).then(function () {
+            if (wanted !== i) {
+                return;
+            }
+            render(i);
+            if (i + 1 < slides.length) {
+                load(i + 1);
+            }
+            if (i > 0) {
+                load(i - 1);
+            }
+        });
+    }
+
+    function go(i) {
+        if (i < 0 || i >= slides.length || i === wanted) {
+            return;
+        }
+        show(i);
+    }
+
+    function step(delta) {
+        go(wanted + delta);
+    }
+
+    function indexFromHash() {
+        var m = /^#(\d+)$/.exec(location.hash);
+        if (!m) {
+            return -1;
+        }
+        var n = parseInt(m[1], 10);
+        return n >= 1 && n <= slides.length ? n - 1 : -1;
+    }
+
+    function isZoomed() {
+        return !!window.visualViewport && window.visualViewport.scale > 1.01;
+    }
+
+    btnPrev.addEventListener('click', function () { step(-1); });
+    btnNext.addEventListener('click', function () { step(1); });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) {
+            return;
+        }
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') {
+            return;
+        }
+        var t = e.target;
+        if (t && (t.isContentEditable || (t.closest && t.closest('input, textarea, select, [role="dialog"], .modal')))) {
+            return;
+        }
+        e.preventDefault();
+        // ב-RTL הצילום הבא משמאל, ולכן חץ שמאלה הוא "הבא"
+        step((e.key === 'ArrowLeft') === isRtl() ? 1 : -1);
+    });
+
+    // החלקה. רק באצבע אחת ורק כשהעמוד לא מוגדל: בזום, גרירה היא תזוזה בתוך התמונה, ושתי אצבעות הן הגדלה.
+    var touch = null;
+    stage.addEventListener('touchstart', function (e) {
+        if (e.touches.length > 1) {
+            touch = { multi: true };
+            return;
+        }
+        touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, multi: false, zoomed: isZoomed() };
+    }, { passive: true });
+
+    stage.addEventListener('touchend', function (e) {
+        if (!touch || e.touches.length > 0) {
+            return;
+        }
+        var t = touch;
+        touch = null;
+        if (t.multi || t.zoomed || isZoomed()) {
+            return;
+        }
+        var p = e.changedTouches[0];
+        var dx = p.clientX - t.x;
+        var dy = p.clientY - t.y;
+        if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.5) {
+            return;
+        }
+        // ב-RTL הצילום הבא יושב משמאל, וגרירה ימינה מושכת אותו פנימה
+        step((dx > 0) === isRtl() ? 1 : -1);
+    }, { passive: true });
+
+    stage.addEventListener('touchcancel', function () {
+        touch = null;
+    }, { passive: true });
+
+    window.addEventListener('hashchange', function () {
+        var i = indexFromHash();
+        if (i < 0) {
+            setHash(wanted);
+            return;
+        }
+        go(i);
+    });
+
+    var start = indexFromHash();
+    if (start > 0) {
+        // הצילום הראשון כבר בסימון; מסתירים אותו עד שהצילום שביקשו נטען, כדי שלא יהבהב לפניו
+        root.classList.add('is-pending');
+    }
+    show(start < 0 ? 0 : start);
+})();
+</script>
+{% endblock %}
