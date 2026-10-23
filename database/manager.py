@@ -164,6 +164,8 @@ from mcp_uploads import MCP_UPLOADS_COLLECTION, mcp_uploads_indexes
 # שרשורי התגובות על פתקים — המפרט במודול השורש הטהור שגם הכותבים משתמשים בו.
 from note_threads import NOTE_THREADS_COLLECTION, note_threads_indexes
 from drive_owner import WEBAPP as DRIVE_OWNER_WEBAPP, drive_fields
+# זיכרון השיחה והמכסה היומית של מצב היועץ — המפרט במודול השורש הטהור שגם הכותב משתמש בו.
+from advisor_collections import advisor_indexes
 try:
     # Structured logging events
     from observability import emit_event
@@ -2398,6 +2400,41 @@ class DatabaseManager:
         """הכניסה מבחוץ לאותה פונקציה — שער המוכנות של שירות ה-MCP קורא לה."""
         return DatabaseManager._create_mcp_uploads_indexes(self, self.safe_create_index)
 
+    def _create_advisor_indexes(self, safe_create_index) -> Dict[str, bool]:
+        """האינדקסים של מצב היועץ — זיכרון השיחה והמכסה היומית.
+
+        את שני האוספים כותב רק הבוט, והוא עובר כאן בכל עלייה. שני ה-TTL הם
+        אינדקסים של **התנהגות**: אף שורת קוד שלנו אינה מוחקת מהאוספים, ואת המחיקה
+        של זיכרון השיחה מבטיחה הודעת הפתיחה של היועץ. לכן כשל של אינדקס
+        ``required`` יוצא כאירוע ברמת error. המפרט ב-``advisor_collections.py``.
+
+        ``safe_create_index`` אינו זורק; כשל חוזר כ-``False`` (דפוס K11).
+
+        Returns:
+            ``{שם אינדקס: האם הוא במצב המבוקש בסוף הקריאה}``.
+        """
+        results: Dict[str, bool] = {}
+        for spec in advisor_indexes():
+            ok = bool(
+                safe_create_index(
+                    spec["collection"],
+                    list(spec["keys"]),
+                    name=spec["name"],
+                    background=True,
+                    enforce=bool(spec.get("enforce", False)),
+                    expire_after_seconds=spec.get("expire_after_seconds"),
+                )
+            )
+            if not ok and spec.get("required"):
+                emit_event(
+                    "db_advisor_index_missing",
+                    severity="error",
+                    collection=spec["collection"],
+                    index_name=spec["name"],
+                )
+            results[spec["name"]] = ok
+        return results
+
     def _create_note_threads_indexes(self, safe_create_index) -> Dict[str, bool]:
         """האינדקסים של ``note_threads`` — שרשורי התגובות על פתקים.
 
@@ -2521,6 +2558,9 @@ class DatabaseManager:
         # mcp_uploads - העלאות ממתינות של שירות ה-MCP. כמו push_events, את האוסף
         # כותב שירות ה-MCP, ולכן ההצהרה כאן, במסלול שכל שירות עובר בעלייה.
         DatabaseManager._create_mcp_uploads_indexes(self, safe_create_index)
+
+        # מצב היועץ — זיכרון השיחה והמכסה היומית. כותב אחד (הבוט), ושני TTL של התנהגות.
+        DatabaseManager._create_advisor_indexes(self, safe_create_index)
 
         # note_threads - שרשורי התגובות על פתקים. שני כותבים (שירות ה-MCP והוובאפ),
         # ולכן ההצהרה כאן ולא אצל אחד מהם.

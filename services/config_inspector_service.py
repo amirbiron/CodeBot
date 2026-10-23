@@ -865,6 +865,49 @@ class ConfigService:
         # --- חיפוש סמנטי ו-embeddings: config.py, services/embedding_service.py,
         # services/semantic_embedding_settings.py, services/semantic_embedding_health.py.
         # נטענים גם בבוט (services/embedding_worker.py נרשם מ-main.py) ולא רק בוובאפ. ---
+        # --- מצב היועץ בבוט: services/advisor_service.py. שלושת הראשונים יחד מפעילים
+        # אותו, וחסר באחד מהם מכבה את היועץ בלבד (load_settings). ---
+        "ADVISOR_API_KEY": ConfigDefinition(
+            key="ADVISOR_API_KEY",
+            services=("bot",),
+            default="",
+            description="מפתח ה-API של מודל השפה של היועץ (/advisor), למשל מפתח Gemini. בלעדיו היועץ כבוי",
+            category="ai",
+            sensitive=True,
+        ),
+        "ADVISOR_BASE_URL": ConfigDefinition(
+            key="ADVISOR_BASE_URL",
+            services=("bot",),
+            default="",
+            description="כתובת ה-API התואם OpenAI של מודל השפה של היועץ, כולל https://",
+            category="ai",
+        ),
+        "ADVISOR_MODEL": ConfigDefinition(
+            key="ADVISOR_MODEL",
+            services=("bot",),
+            default="",
+            description="שם המודל שהיועץ פונה אליו",
+            category="ai",
+        ),
+        "ADVISOR_CONTACT_URL": ConfigDefinition(
+            key="ADVISOR_CONTACT_URL",
+            services=("bot",),
+            default="",
+            description="קישור (https:// או tg://) לכפתור \"לדבר עם המפתח\" בתשובות היועץ. ריק = בלי הכפתור",
+            category="ai",
+        ),
+        # הדיפולט הוא עותק של DEFAULT_CONTEXT_EXCHANGES ב-services/advisor_service.py, וטסט
+        # (test_config_inspector_shows_the_real_context_exchanges_default) מצמיד את השניים.
+        "ADVISOR_CONTEXT_EXCHANGES": ConfigDefinition(
+            key="ADVISOR_CONTEXT_EXCHANGES",
+            services=("bot",),
+            default="5",
+            description=(
+                "כמה זוגות אחרונים של שאלה ותשובה מזיכרון השיחה נכנסים לכל שאלה ליועץ. מספר שלם, "
+                "עד MAX_CONTEXT_EXCHANGES (services/advisor_service.py). ערך לא תקין מכבה את היועץ, והסיבה נרשמת בלוג"
+            ),
+            category="ai",
+        ),
         "SEMANTIC_SEARCH_ENABLED": ConfigDefinition(
             key="SEMANTIC_SEARCH_ENABLED",
             services=("webapp", "bot"),

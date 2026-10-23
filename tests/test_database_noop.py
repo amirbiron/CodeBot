@@ -1,5 +1,44 @@
+import os
+import subprocess
 import sys
 import importlib
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_manager_imports_when_the_pymongo_import_fails(tmp_path):
+    """ה-``try`` סביב ``import pymongo`` ב-``database/manager.py`` מבטיח שהמודול עולה גם כשהייבוא נכשל, ונופל ל-``NoOpDB``.
+
+    הטסט שמעל רק מדליק את הדגל, ולכן הוא לא רואה ייבוא אחר ברמת המודול שגורר את pymongo ומפיל את ההבטחה הזו —
+    כמו מפרט אינדקסים שיושב במודול שמייבא pymongo. כאן הייבוא עצמו נכשל, בתת-תהליך, כי ``sys.modules`` של הסוויטה
+    כבר מחזיק את pymongo. ``bson`` נשאר זמין: ``manager.py`` מייבא אותו לפני ה-``try``, ולכן ה-fallback מכסה את
+    המצב שבו רק הייבוא של pymongo נכשל.
+    """
+    script = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(REPO_ROOT)!r})\n"
+        "for name in ('pymongo', 'pymongo.errors', 'pymongo.monitoring'):\n"
+        "    sys.modules[name] = None\n"
+        "import database.manager as dm\n"
+        "print('pymongo_available=%s' % dm._PYMONGO_AVAILABLE)\n"
+    )
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": str(home),
+        "TMPDIR": str(tmp_path),
+        "PYTHONIOENCODING": "utf-8",
+        "BOT_TOKEN": "dummy",
+        "MONGODB_URL": "mongodb://127.0.0.1:1/noop",
+        "DISABLE_DB": "1",
+    }
+    completed = subprocess.run(
+        [sys.executable, "-B", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120
+    )
+    assert completed.returncode == 0, completed.stderr[-3000:]
+    assert completed.stdout.strip().splitlines()[-1] == "pymongo_available=False"
 
 
 def test_noop_db_allows_attribute_and_item_access(monkeypatch):

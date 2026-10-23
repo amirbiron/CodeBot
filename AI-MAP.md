@@ -66,6 +66,7 @@
 - `docs/performance-tests.rst` — **בדיקות ביצועים (Performance Tests)**: להריץ בדיקות ביצועים בצורה בטוחה וגמישה: ברירת מחדל מריצים את כולן; ב‑PR Draft עם תווית מתאימה מריצים רק "קלים".
 - `docs/ci-cd.rst` — **CI/CD Guide**: מדריך ה-CI/CD: החוקים הקשיחים, הסטטוסים הנדרשים ב-PR, ריכוז ה-workflows, הפואמה שנכתבת על כל PR, הבדיקות המומלצות ובניית התיעוד.
 - `docs/conversation-handlers.rst` — **Conversation Handlers & States**: מסמך זה מרכז את הזרימות העיקריות של ה‑ConversationHandlers וה‑states.
+- `docs/advisor.rst` — **מצב היועץ (/advisor)**: שיחה עם מודל שפה שעונה אם CodeKeeper מתאים לאופן העבודה של הגולש: כניסה ויציאה, ניתוב שלא מגיע לשמירת קוד, זיכרון השיחה והמכסה היומית במונגו, וההגדרות.
 - `docs/troubleshooting.rst` — **Troubleshooting Guide**: מדריך פתרון תקלות: שגיאות ייבוא בזמן טסטים, שגיאות parse_mode, בעיות event loop של asyncio, וכלים לדיבוג מהיר כולל בדיקת חיבור ל-MongoDB.
 - `docs/development.rst` — **Development Workflow**: זרימת העבודה בפיתוח: הוספת handler חדש לבוט, הוספת endpoint ל-WebApp, ועדכון סכמה במסד הנתונים.
 - `docs/development/pre-commit.rst` — **Pre-commit Hooks**: להבטיח איכות קוד עקבית לפני קומיט/PR.
@@ -195,4 +196,4 @@
 
 ---
 
-עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 231.
+עמודי פיגום autodoc שסוננו: 92. עמודים שנסרקו: 232.

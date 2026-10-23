@@ -73,6 +73,8 @@ sys.modules['telegram'] = telegram
 # --- telegram.constants module stub ---
 tc = types.ModuleType('telegram.constants')
 tc.ParseMode = types.SimpleNamespace(MARKDOWN='MARKDOWN', HTML='HTML')
+tc.ChatAction = types.SimpleNamespace(TYPING='typing')
+tc.MessageLimit = types.SimpleNamespace(MAX_TEXT_LENGTH=4096)
 sys.modules['telegram.constants'] = tc
 
 # --- telegram.ext module stub ---
@@ -165,6 +167,15 @@ class _FiltersNS:
     TEXT = _Filter('TEXT')
     COMMAND = _Filter('COMMAND')
     ALL = _Filter('ALL')
+    ChatType = types.SimpleNamespace(PRIVATE=_Filter('CHAT_PRIVATE'))
+    UpdateType = types.SimpleNamespace(
+        MESSAGE=_Filter('UPDATE_MESSAGE'),
+        EDITED_MESSAGE=_Filter('UPDATE_EDITED_MESSAGE'),
+    )
+
+    @staticmethod
+    def Text(strings=None):
+        return _FiltersNS._Filter('TEXT_IN', strings)
 
     @staticmethod
     def Regex(pattern):
@@ -199,17 +210,21 @@ sys.modules['telegram.ext._application'] = te_app
 # --- telegram.error module stub ---
 terr = types.ModuleType('telegram.error')
 
-class BadRequest(Exception):
+class TelegramError(Exception):
     pass
 
-class RetryAfter(Exception):
+class BadRequest(TelegramError):
+    pass
+
+class RetryAfter(TelegramError):
     def __init__(self, retry_after=0):
         super().__init__('RetryAfter')
         self.retry_after = retry_after
 
-class Forbidden(Exception):
+class Forbidden(TelegramError):
     pass
 
+terr.TelegramError = TelegramError
 terr.BadRequest = BadRequest
 terr.RetryAfter = RetryAfter
 terr.Forbidden = Forbidden
