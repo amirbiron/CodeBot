@@ -62,6 +62,7 @@ Code Keeper Bot - תיעוד API
    performance-tests
    ci-cd
    conversation-handlers
+   advisor
    troubleshooting
    development
    development/pre-commit

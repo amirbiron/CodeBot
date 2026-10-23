@@ -3646,6 +3646,15 @@ class CodeKeeperBot:
         except Exception:
             pass
 
+        # מצב היועץ — בקבוצה משלו, לפני כל handler טקסט (handlers/advisor.py, "הניתוב").
+        # גבול עלייה: באג ברישום מכבה את היועץ בלבד, והבוט עולה בלעדיו.
+        try:
+            from handlers.advisor import register_advisor_handlers
+
+            register_advisor_handlers(self.application)
+        except Exception:
+            logger.exception("advisor_registration_failed")
+
         # Add conversation handler
         conversation_handler = get_save_conversation_handler(
             callback_query_handler_cls=CallbackQueryHandler,

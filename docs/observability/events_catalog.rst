@@ -29,6 +29,7 @@ DB
 - ``db_save_code_snippet_error`` — שגיאה בשמירת קטע קוד.
 - ``db_delete_file_error`` — שגיאה במחיקה.
 - ``db_mcp_uploads_index_missing`` — אינדקס של התנהגות על ``mcp_uploads`` — ה-TTL על ``expires_at`` או הייחודי על ``upload_id``, לפי ``index_name`` — אינו במצב המבוקש. בלי ה-TTL העלאות שלא נצרכו אינן נמחקות לעולם, ולכן שער המוכנות של שירות ה-MCP עונה ``503 upload_storage_unavailable`` על כל העלאה עד שהוא מאומת. נשלח מ-``DatabaseManager._create_mcp_uploads_indexes`` בכל עלייה ובכל ניסיון בנייה של השער; הסיבה הטכנית נרשמת לפניו באירוע של ``safe_create_index``. ראו :ref:`mcp-uploads`.
+- ``db_advisor_index_missing`` — אינדקס TTL של מצב היועץ אינו במצב המבוקש באוסף שב-``collection`` (``advisor_history`` או ``advisor_daily_usage``), לפי ``index_name``. בלי ה-TTL של ``advisor_history`` זיכרון השיחה לא נמחק, בניגוד למה שהפתיחה של היועץ מבטיחה לגולש. נשלח מ-``DatabaseManager._create_advisor_indexes`` בכל עלייה; הסיבה הטכנית נרשמת לפניו באירוע של ``safe_create_index``. ראו :ref:`advisor`.
 - ``db_recycle_bin_ttl_index_missing`` — אינדקס ה-TTL שמרוקן את סל המיחזור אינו במצב המבוקש בקולקציה שב-``collection``. בלעדיו פריטים בסל אינם נמחקים לעולם, והעמוד ``/trash`` ממשיך להציג "נמחק סופית ב-" על תאריכים שעברו. נשלח מ-``DatabaseManager._create_recycle_bin_ttl_indexes`` בכל עלייה ובפקודה ``/recycle_backfill``; הסיבה הטכנית נרשמת לפניו באירוע של ``safe_create_index``. המצב הנוכחי נראה בעמוד ``/admin/verify-indexes``, בסעיף ``recycle_bin_ttl``.
 
 .. code-block:: json

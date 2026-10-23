@@ -1332,6 +1332,30 @@
      - ``600``
      - ``60``
      - Bot
+   * - ``ADVISOR_API_KEY``
+     - מפתח ה-API של מודל השפה של היועץ (``/advisor``), למשל מפתח Gemini. שלושת משתני ``ADVISOR_`` הראשונים יחד מפעילים את היועץ, וחסר באחד מהם מכבה את היועץ בלבד. ראו :doc:`advisor`
+     - לא
+     - ריק
+     - ``AIza...``
+     - Bot
+   * - ``ADVISOR_BASE_URL``
+     - כתובת ה-API התואם OpenAI של מודל השפה, כולל ``https://``
+     - לא
+     - ריק
+     - ``https://generativelanguage.googleapis.com/v1beta/openai/``
+     - Bot
+   * - ``ADVISOR_MODEL``
+     - שם המודל שהיועץ פונה אליו
+     - לא
+     - ריק
+     - ``gemini-3.8-flash``
+     - Bot
+   * - ``ADVISOR_CONTACT_URL``
+     - קישור לכפתור "לדבר עם המפתח" בתשובות היועץ (``https://`` או ``tg://``). ריק = בלי הכפתור
+     - לא
+     - ריק
+     - ``https://t.me/moominAmir``
+     - Bot
    * - ``SEMANTIC_SEARCH_ENABLED``
      - הפעלת החיפוש הסמנטי (embeddings). כבוי = חיפוש טקסטואלי בלבד
      - לא

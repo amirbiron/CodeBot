@@ -865,6 +865,37 @@ class ConfigService:
         # --- חיפוש סמנטי ו-embeddings: config.py, services/embedding_service.py,
         # services/semantic_embedding_settings.py, services/semantic_embedding_health.py.
         # נטענים גם בבוט (services/embedding_worker.py נרשם מ-main.py) ולא רק בוובאפ. ---
+        # --- מצב היועץ בבוט: services/advisor_service.py. שלושת הראשונים יחד מפעילים
+        # אותו, וחסר באחד מהם מכבה את היועץ בלבד (load_settings). ---
+        "ADVISOR_API_KEY": ConfigDefinition(
+            key="ADVISOR_API_KEY",
+            services=("bot",),
+            default="",
+            description="מפתח ה-API של מודל השפה של היועץ (/advisor), למשל מפתח Gemini. בלעדיו היועץ כבוי",
+            category="ai",
+            sensitive=True,
+        ),
+        "ADVISOR_BASE_URL": ConfigDefinition(
+            key="ADVISOR_BASE_URL",
+            services=("bot",),
+            default="",
+            description="כתובת ה-API התואם OpenAI של מודל השפה של היועץ, כולל https://",
+            category="ai",
+        ),
+        "ADVISOR_MODEL": ConfigDefinition(
+            key="ADVISOR_MODEL",
+            services=("bot",),
+            default="",
+            description="שם המודל שהיועץ פונה אליו",
+            category="ai",
+        ),
+        "ADVISOR_CONTACT_URL": ConfigDefinition(
+            key="ADVISOR_CONTACT_URL",
+            services=("bot",),
+            default="",
+            description="קישור (https:// או tg://) לכפתור \"לדבר עם המפתח\" בתשובות היועץ. ריק = בלי הכפתור",
+            category="ai",
+        ),
         "SEMANTIC_SEARCH_ENABLED": ConfigDefinition(
             key="SEMANTIC_SEARCH_ENABLED",
             services=("webapp", "bot"),
