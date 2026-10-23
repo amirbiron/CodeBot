@@ -119,7 +119,11 @@ jobs:
           exit 1
         fi
         python -m pip install "${requirement}"
-        python -m playwright install --with-deps --only-shell chromium
+        # בלי --with-deps: הדגל מריץ apt-get גם על קבוצת tools, פונטים ו-xvfb (installDeps ו-nativeDeps.js ב-Playwright 1.49.0, הגרסה שהייתה נעולה כשזה נבדק).
+        # במכונת ubuntu-24.04 כל הספריות של chromium כבר מותקנות, והדגל הוסיף רק פונטים ועדכוני גרסה, ממראה שנתקע לפעמים עד שנגמר ה-timeout של הצעד (ריצה 39955365973, 23.10.2026).
+        # הייצוא לא צריך פונטים: toMarkdown ב-docs/_static/copy-page.js ממיר את ה-HTML עם turndown ולא מצייר טקסט.
+        # ספרייה שתחסר יום אחד מפילה את launch() עם "Host system is missing dependencies to run browsers" (browserType.js), וזה מגיע לאזהרה ולהתראה שבהמשך.
+        python -m playwright install --only-shell chromium
 
     - name: 🧭 Export doc sections
       id: export_sections
