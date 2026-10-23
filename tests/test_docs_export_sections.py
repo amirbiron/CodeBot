@@ -467,6 +467,33 @@ def test_a_failed_export_never_fails_the_docs_build():
     assert "steps.export_sections.outcome != 'success'" in alert["if"]
 
 
+def test_the_telegram_alert_can_be_tested_by_hand_through_the_same_path():
+    """ההתראה רצה רק כשהייצוא נכשל ב-``main``, ולכן ``telegram-alert-test`` שולח הודעת בדיקה בהרצה ידנית.
+
+    הבדיקה שווה משהו רק אם היא עוברת באותה דרך כמו ההתראה: אותה פעולה ואותם סודות. ובלי
+    ``continue-on-error``, כי כל הטעם הוא ששליחה שנכשלה תיראה באדום.
+    """
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    # PyYAML קורא את המפתח ``on`` כ-True (YAML 1.1)
+    triggers = workflow.get("on", workflow.get(True))
+    test_input = triggers["workflow_dispatch"]["inputs"]["telegram_test"]
+    assert test_input["type"] == "boolean"
+    assert test_input["default"] is False
+
+    job = workflow["jobs"]["telegram-alert-test"]
+    assert job["if"] == "${{ github.event_name == 'workflow_dispatch' && inputs.telegram_test }}"
+    assert "continue-on-error" not in job
+    checkout, send = job["steps"]
+    # פעולה מקומית (``./.github/...``) קיימת בג'וב רק אחרי checkout
+    assert checkout["uses"].startswith("actions/checkout@")
+
+    alert = _build_docs_step_named("📨 Alert Telegram about a failed sections export")
+    assert send["uses"] == alert["uses"]
+    assert send["with"]["bot-token"] == alert["with"]["bot-token"]
+    assert send["with"]["chat-id"] == alert["with"]["chat-id"]
+    assert "continue-on-error" not in send
+
+
 def test_the_export_reads_sources_from_the_folder_sphinx_builds():
     """``--source-root`` הוא התיקייה שבה Sphinx רץ (``cd docs``), אחרת נתיבי המקור בקובץ שגויים."""
     steps = _build_docs_steps()
