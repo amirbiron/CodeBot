@@ -131,6 +131,7 @@ codekeeper_search_repo(repo="amir-bug-patterns", query="<מונח>")
 - מניח מה רכיב אחר עושה (בוט ← שירות ← DB ← ווב) ← `architecture`, `document-flow`, `conversation-handlers`
 - שאילתת Mongo שמחזירה רשימה ← `database/indexing`, `cursor-pagination`, `performance-bible`
 - ⚠️ כותב או עורך עמוד תחת `docs/` ← `doc-authoring` **לפני** הכתיבה, לא אחרי. RTD רץ עם `fail_on_warning: true`, אז חריגה מהמוסכמות מפילה בילד ולא רק נראית שונה. בעריכת עמוד קיים גם `versioning-stable-anchors` — אילו עוגנים אסור לשבור
+- ⚠️ כותב או עורך את התיעוד של הפתקים הדביקים — `docs/user/sticky_notes.rst` או `docs/dev/sticky_notes_extending*.rst` ← **חובה** לקרוא קודם את כללי השיוך, שקובעים לאיזה עמוד נכנס כל נושא: עמוד המשתמש, או אחד מעמודי המפתחים (השרת, מנוע המארקדאון, הממשק). הכללים במסמך ב-Ck בשם `כללי-שיוך-תיעוד-הפתקים.md` — `codekeeper_get_file(file_name="כללי-שיוך-תיעוד-הפתקים.md")`. אם ה-MCP של Ck לא זמין בסשן, מבקשים את המסמך מהמשתמש לפני הכתיבה, ולא משייכים לפי ניחוש
 - ממציא מונח או שם בעברית שכבר קיים במקום אחר בתיעוד ← `style-glossary`
 - ⚠️ כותב טסט והטסט צריך לבודד משהו חיצוני — קבצים, טלגרם, HTTP, מונגו, קוד אסינכרוני ← `testing`
 - כותב או משנה CSS בוובאפ — צבע, מודאל, כרטיס, מצב hover, ערכת נושא ←  `theming_and_css` חובה ⚠️⚠️
