@@ -1125,7 +1125,7 @@ check('markdown-it: אותם קטעי קוד בכל השורות הקצרות', 
   // את קטעי הקוד בלבד ובסדרם, כי ה-HTML המלא אינו אמור להיות זהה: עיצוב
   // בתוך עיצוב אינו נתמך בפתק (ההערה מעל ``MD_CODE_TRIM_RE``). סוגריים
   // אינם כאן: אחרי ``[`` שלא נסגר, markdown-it מציג לפעמים גרשיים במקום
-  // קוד, וזה הבדל מתועד — ראו ``docs/dev/sticky_notes_extending.rst``, בסעיף
+  // קוד, וזה הבדל מתועד — ראו ``docs/dev/sticky_notes_extending_markdown.rst``, בסעיף
   // "קוד בשורה: יחידה אחת, שקודמת לכל מפריד".
   const alphabet = ['`', '*', '=', '~', 'a', ' '];
   const maxLength = 6;
@@ -4221,7 +4221,7 @@ function renderForCopyId(mgr, id) {
 check('מזהה: הכפתור בשורת השם מיד אחרי החיפוש, ומעתיק בדיוק את המזהה', async () => {
   // **בשורת השם ולא בשורת הפעולות — הכרעה של המשתמש.** שורת הפעולות אינה
   // נשברת, וכפתור נוסף בה היה דוחף כפתורים אל מחוץ לפתק צר (נמדד בכרומיום;
-  // המספרים ב-``docs/dev/sticky_notes_extending.rst``).
+  // המספרים ב-``docs/dev/sticky_notes_extending_ui.rst``).
   const sb = fakeDomSandbox();
   const m = new sb.window.StickyNotesManager('copy-id-file');
   const { el, btn, copied, flashes, click } = renderForCopyId(m, SAVED_ID);
