@@ -369,6 +369,63 @@ def test_keyboard_opens_moves_and_closes_and_keys_stay_in_the_menu(browser):  # 
         np.close()
 
 
+#: מה מוקד עכשיו, ובתוך מה: ``inModal`` — בתוך חלון התזכורת; ``preset`` — ה-``data-preset`` שלו;
+#: ``more`` — מזהה הפתק כשהמוקד הוא ⋮ שלו.
+WHERE_FOCUS_JS = """() => { const a = document.activeElement;
+  const note = a && a.closest ? a.closest('.sticky-note') : null;
+  return { tag: a ? a.tagName : null,
+           inModal: !!(a && a.closest && a.closest('.sticky-reminder-modal')),
+           preset: a && a.getAttribute ? a.getAttribute('data-preset') : null,
+           more: a && a.classList && a.classList.contains('sticky-note-more') && note ? note.dataset.noteId : null }; }"""
+
+
+@pytest.mark.parametrize("how", ["close-button", "backdrop"])
+def test_choosing_the_bell_moves_focus_into_the_reminder_window_and_back_to_more(browser, how):  # noqa: F811
+    """מהמקלדת: ⋮ ← Enter ← Enter על 🔔 — המיקוד עובר לכפתור הקיצור הראשון בחלון, ובסגירה חוזר ל-⋮.
+
+    הפריט שנלחץ יורד מה-DOM יחד עם התפריט, ולכן בלי מיקוד מפורש בחלון המיקוד נפל ל-``body`` —
+    משתמש מקלדת היה ממשיך מראש העמוד, מאחורי החלון. ובסגירה, כשהחלון יורד, אותו דבר.
+    """
+    np = NotePage(browser, [note("r", "תוכן", w=360, h=300, x=300, y=160)], viewport=DESKTOP)
+    try:
+        np.page.focus(np.sel("r", ".sticky-note-more"))
+        np.page.keyboard.press("Enter")
+        np.page.wait_for_selector(np.sel("r", ".sticky-note-menu"))
+        np.page.keyboard.press("Enter")
+        np.page.wait_for_selector(".sticky-reminder-modal")
+        f = np.page.evaluate(WHERE_FOCUS_JS)
+        assert f["inModal"] and f["preset"] == "1h", f"המיקוד אמור להיות על הקיצור הראשון בחלון: {f}"
+        if how == "close-button":
+            np.page.click(".sticky-reminder-close")
+        else:
+            np.page.mouse.click(5, 5)
+        assert np.page.evaluate("() => document.querySelector('.sticky-reminder-modal')") is None
+        f = np.page.evaluate(WHERE_FOCUS_JS)
+        assert f["more"] == "r", f"בסגירה המיקוד אמור לחזור ל-⋮ של הפתק: {f}"
+        assert np.errors == [], np.errors
+    finally:
+        np.close()
+
+
+def test_a_reminder_window_that_is_already_open_takes_the_focus(browser):  # noqa: F811
+    """חלון שכבר פתוח אינו נפתח שוב — והמיקוד עובר לכפתור הקיצור הראשון בו, ולא נשאר במקום אחר.
+
+    עד התיקון הענף הזה קרא ``focus`` על החלון עצמו, ``div`` בלי ``tabindex`` — והמיקוד לא זז.
+    """
+    np = NotePage(browser, [note("r", "תוכן", w=360, h=300, x=300, y=160)], viewport=DESKTOP)
+    try:
+        np.page.evaluate("() => window.__mgr._openReminderModal(document.querySelector('.sticky-note[data-note-id=\"r\"]'))")
+        np.page.wait_for_selector(".sticky-reminder-modal")
+        np.page.focus(".sr-save")
+        assert np.page.evaluate(WHERE_FOCUS_JS)["preset"] is None, "בקרה: המיקוד הוזז אל מחוץ לקיצורים"
+        np.page.evaluate("() => window.__mgr._openReminderModal(document.querySelector('.sticky-note[data-note-id=\"r\"]'))")
+        assert np.page.evaluate("() => document.querySelectorAll('.sticky-reminder-modal').length") == 1
+        f = np.page.evaluate(WHERE_FOCUS_JS)
+        assert f["inModal"] and f["preset"] == "1h", f"המיקוד אמור לעבור לקיצור הראשון בחלון הקיים: {f}"
+    finally:
+        np.close()
+
+
 def test_a_click_outside_closes_the_menu(browser):  # noqa: F811
     np = NotePage(browser, [note("o", "תוכן", w=360, h=300, x=300, y=160)], viewport=DESKTOP)
     try:

@@ -1758,10 +1758,20 @@
 
     _openReminderModal(el){
       try {
-        // Prevent duplicate stacked modals
+        // **המיקוד נכנס לחלון, על כפתור הקיצור הראשון** — כמו בבורר הצבע, שמתחיל בעיגול ולא
+        // ב-×. החלון נפתח מתפריט ⋮, והפריט שנלחץ כבר ירד מה-DOM יחד עם התפריט; בלי המיקוד
+        // כאן הוא נפל ל-body, ומשתמש מקלדת היה ממשיך מראש העמוד, מאחורי החלון.
+        const focusFirstChoice = (m) => {
+          const first = m.querySelector('.sr-btn');
+          if (first) first.focus();
+        };
+        // Prevent duplicate stacked modals. ``focus`` על החלון עצמו לא עשה כלום: לפי HTML Standard
+        // ("focusable area") אלמנט מתמקד כשיש לו ``tabindex`` או כשהדפדפן קובע שהוא כזה, ו-``div``
+        // פשוט אינו כזה — נמדד בכרומיום (``test_a_reminder_window_that_is_already_open_takes_the_focus``
+        // נכשל על הקריאה הישנה). לכן המיקוד עובר לכפתור בתוכו.
         const existing = document.querySelector('.sticky-reminder-modal');
         if (existing) {
-          try { existing.focus && existing.focus(); } catch(_) {}
+          focusFirstChoice(existing);
           return;
         }
         const id = el && el.dataset ? el.dataset.noteId : '';
@@ -1797,7 +1807,13 @@
           '  </div>'+
           '</div>'
         );
-        const close = () => { try { modal.remove(); } catch(_) {} };
+        // **בסגירה המיקוד חוזר ל-⋮ של הפתק** — הכפתור שהוביל לכאן, כי הפריט בתפריט כבר אינו
+        // קיים. אחרת סגירת החלון הייתה מפילה את המיקוד ל-body, בדיוק כמו בפתיחה.
+        const close = () => {
+          try { modal.remove(); } catch(_) {}
+          const back = el.querySelector('.sticky-note-more');
+          if (back && back.isConnected) back.focus({ preventScroll: true });
+        };
         modal.querySelector('.sticky-reminder-backdrop').addEventListener('click', close);
         modal.querySelector('.sticky-reminder-close').addEventListener('click', close);
         const tz = (Intl && Intl.DateTimeFormat && Intl.DateTimeFormat().resolvedOptions ? (Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jerusalem') : 'Asia/Jerusalem');
@@ -1822,6 +1838,7 @@
           }
         });
         document.body.appendChild(modal);
+        focusFirstChoice(modal);
       } catch(err){ console.warn('open reminder modal failed', err); }
     }
 
