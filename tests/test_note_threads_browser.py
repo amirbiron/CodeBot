@@ -521,11 +521,12 @@ def test_bubbles_sit_on_the_note_as_designed(wired_mongo, admin_live_server, chr
         assert tp.hit(centers[0] + PITCH / 2 + 1.5, mid) not in {s["id"] for s in slots}
         assert tp.hit(centers[-1] - PITCH / 2 - 1.5, mid) not in {s["id"] for s in slots}
 
-        # 💬 בשורת הפעולות, בין 🔔 ל-↶ (העיצוב; הכרעה 1-ב)
+        # 💬 בשורת הפעולות, אחרי 📌 ולפני ↶ (העיצוב; הכרעה 1-ב). 🔔, שישב לפניו בעיצוב, עבר
+        # לתפריט ⋮ שבסוף השורה.
         order = tp.page.evaluate("""(nid) => [...document.querySelector(`.sticky-note[data-note-id="${nid}"]`
             + ' .sticky-note-actions').children].map((b) => b.textContent.trim())""", nid)
         i = order.index("💬")
-        assert order[i - 1] == "🔔" and order[i + 1] == "↶", order
+        assert order[i - 1] == "📌" and order[i + 1] == "↶", order
 
         # לחיצה בשטח הלחיצה, מעל הבועה הגלויה — פותחת את השרשור שלה
         tp.page.mouse.click(centers[2] + 19, slots[2]["rect"]["top"] - 3)

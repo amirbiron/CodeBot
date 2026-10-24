@@ -338,6 +338,24 @@
   // אזור התצוגה, כדי ששינוי מדיניות שוליים לא ייפרד בין מצב למצב.
   const NOTE_EDGE_GAP = 12, NOTE_TOP_GAP = 60, NOTE_BOTTOM_GAP = 20;
 
+  /**
+   * **הפריטים של תפריט ⋮ — רשימה אחת, והתפריט נבנה ממנה.**
+   *
+   * לתפריט נכנסות הפעולות שהכי פחות שכיחות: שורת הפעולות אינה נשברת (#3478), ומה שאינו
+   * צריך מקום קבוע בה עובר לכאן. ⋮ יושב בסוף השורה בכוונה — הכרעה של המשתמש — ולכן בפתק
+   * צר הוא הראשון שנחתך: מה שבתוכו הוא בדיוק מה שאפשר לוותר עליו.
+   *
+   * פריט הוא אייקון בלי טקסט, כמו כל כפתור בשורה, ו-``label`` הוא השם הנגיש וה-``title``
+   * שלו. ``run`` מקבל את המנהל ואת הפתק — פונקציה ולא שם של מתודה במחרוזת: כך הקריאה
+   * למתודה כתובה כאן כמו כל קריאה אחרת בקוד, וחיפוש של שם המתודה, או שינוי שם שלה, מוצא גם
+   * אותה. פריט חדש נכנס כשורה כאן, בלי מנגנון נוסף.
+   */
+  const NOTE_MENU_ITEMS = Object.freeze([
+    Object.freeze({ id: 'reminder', icon: '🔔', label: 'קבע תזכורת', run: (mgr, el) => mgr._openReminderModal(el) }),
+  ]);
+  /** המרווח בין ⋮ לבין התפריט שנפתח ממנו, בפיקסלים. */
+  const NOTE_MENU_OFFSET = 4;
+
   /** מספר סופי מתוך ``dataset``, או ``null`` — ריק ופגום נחשבים "לא נאמר". */
   function finiteOrNull(raw){
     if (raw === undefined || raw === null || raw === '') return null;
@@ -814,18 +832,26 @@
         // ולכן ממוקמת שוב בכל גלילה — של כל גולל, ולכן ``document`` בשלב הלכידה, כמו
         // ``scroll`` של דפדפן הריפו שמעל — ובשינוי גודל החלון. פריים אחד לכל היותר.
         this._on(document, 'pointerdown', (ev) => this._onDocumentPointerDownForThreads(ev), { capture: true });
-        const relayoutThreads = () => {
+        // **ותפריט ⋮ — אותם שני מנגנונים.** לחיצה מחוץ לו סוגרת אותו, וגלילה או שינוי גודל
+        // ממקמים אותו מחדש מול המסך (``_layoutNoteMenu``), באותו פריים של השרשורים.
+        this._on(document, 'pointerdown', (ev) => this._onDocumentPointerDownForNoteMenu(ev), { capture: true });
+        const relayoutPopups = () => {
           // סביבה בלי ``requestAnimationFrame`` (בדיקות ב-node) — ממקמים מיד, כמו
           // ``_updateSurfaceExtent``.
-          if (typeof requestAnimationFrame !== 'function') { this._relayoutOpenThreadUi(); return; }
+          if (typeof requestAnimationFrame !== 'function') {
+            this._relayoutOpenThreadUi();
+            this._relayoutOpenNoteMenus();
+            return;
+          }
           if (this._threadLayoutFrame) return;
           this._threadLayoutFrame = requestAnimationFrame(() => {
             this._threadLayoutFrame = 0;
             this._relayoutOpenThreadUi();
+            this._relayoutOpenNoteMenus();
           });
         };
-        this._on(document, 'scroll', relayoutThreads, { capture: true, passive: true });
-        this._on(window, 'resize', relayoutThreads);
+        this._on(document, 'scroll', relayoutPopups, { capture: true, passive: true });
+        this._on(window, 'resize', relayoutPopups);
         this._setupLifecycleGuards();
         this._setupDomObservers();
         // אם התבצע ניווט עמוק לפתק מסוים – גלול אליו כעת
@@ -1048,8 +1074,17 @@
       const isPinnedInitial = note.anchor_id === PIN_SENTINEL;
       const pinBtn = createEl('button', 'sticky-note-btn sticky-note-pin', { title: 'הצמד/בטל נעיצה', 'aria-pressed': isPinnedInitial ? 'true' : 'false' }); pinBtn.textContent = '📌';
       const minimizeBtn = createEl('button', 'sticky-note-btn', { title: 'מזער' }); minimizeBtn.textContent = '—';
-      const remindBtn = createEl('button', 'sticky-note-btn', { title: 'קבע תזכורת' }); remindBtn.textContent = '🔔';
       const deleteBtn = createEl('button', 'sticky-note-btn', { title: 'מחיקה' }); deleteBtn.textContent = '×';
+      // תפריט ⋮ — הפעולות שאינן צריכות מקום קבוע בשורה (``NOTE_MENU_ITEMS``). **בסוף השורה**,
+      // הכרעה של המשתמש: בפתק צר הוא הראשון שנחתך, ומה שבתוכו הוא מה שאפשר לוותר עליו.
+      // ``aria-haspopup="menu"`` אומר לקורא מסך שהלחיצה פותחת תפריט, ו-``aria-expanded``
+      // מתעדכן ב-``_openNoteMenu``/``_closeNoteMenu``. האייקון הוא תו טקסט ולא אימוג'י, כמו ✎
+      // ו-#: הוא מקבל את ה-``color`` של הכפתור.
+      const moreBtn = createEl('button', 'sticky-note-btn sticky-note-more', {
+        type: 'button', title: 'עוד פעולות', 'aria-label': 'פעולות נוספות לפתק',
+        'aria-haspopup': 'menu', 'aria-expanded': 'false'
+      });
+      moreBtn.textContent = '⋮';
       // ביטול פעולה. אין לפתקים היסטוריית גרסאות, ולכן בחירת-הכל ואז הדבקה
       // בטעות מוחקת הכל בלי דרך חזרה. הכפתור מושבת כשאין מה לבטל — כפתור
       // שנראה זמין ולא עושה כלום הוא בדיוק סוג השקר שאנחנו נמנעים ממנו.
@@ -1064,15 +1099,17 @@
         type: 'button', title: 'צבע הפתק', 'aria-label': 'בחירת צבע לפתק', 'aria-haspopup': 'dialog'
       });
       colorBtn.textContent = '🎨';
-      // שרשורי תגובות. **בשורת הפעולות, בין 🔔 ל-↶ — כמו בעיצוב.** שורת הפעולות אינה
-      // נשברת, ולכן בפתק צר כפתור המחיקה נחתך (#3478); המיקום הזה הוא הכרעה של המשתמש,
-      // שהעדיף את העיצוב על פני שורת השם שבה יושב החיפוש. המצב — ``_syncThreadsButton``.
+      // שרשורי תגובות. **בשורת הפעולות, אחרי 📌 ולפני ↶ — המקום שלו בעיצוב.** בעיצוב ישב
+      // לפניו 🔔, שעבר לתפריט ⋮ (``NOTE_MENU_ITEMS``). שורת הפעולות אינה נשברת, ולכן בפתק צר
+      // הקצה שלה נחתך (#3478); המיקום הזה הוא הכרעה של המשתמש, שהעדיף את העיצוב על פני שורת
+      // השם שבה יושב החיפוש. המצב — ``_syncThreadsButton``.
       const threadsBtn = createEl('button', 'sticky-note-btn sticky-note-threads-btn', {
         type: 'button', title: 'שרשור חדש', 'aria-label': 'שרשור תגובות חדש על הפתק', 'aria-pressed': 'false'
       });
       threadsBtn.textContent = '💬';
-      actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(threadsBtn); actions.appendChild(undoBtn);
+      actions.appendChild(pinBtn); actions.appendChild(threadsBtn); actions.appendChild(undoBtn);
       actions.appendChild(copyBtn); actions.appendChild(colorBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
+      actions.appendChild(moreBtn);
       // **השם יושב בתוך ידית הגרירה, ולא לצידה.**
       //
       // נמדד לפני: שדה השם תפס 218px מהכותרת בפתק ברירת מחדל ו-635px
@@ -1319,9 +1356,10 @@
         if (!confirm('למחוק את הפתק?')) return;
         await this._deleteNoteEl(el);
       });
-      remindBtn.addEventListener('click', (ev) => {
-        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
-        this._openReminderModal(el);
+      moreBtn.addEventListener('click', (ev) => {
+        // בלי ``try``: שתי הקריאות אינן זורקות (DOM Standard), כמו בכפתור החיפוש.
+        ev.stopPropagation(); ev.preventDefault();
+        this._toggleNoteMenu(el);
       });
 
       if (focus) try { textarea.focus(); } catch(_) {}
@@ -1500,6 +1538,222 @@
       // ``_flushFor`` בלי ``await``, כמו במתג המיזעור: הכתיבה יוצאת מיד
       // ואינה ממתינה ל-``debounce``, אבל גם אינה עוצרת את הממשק.
       try { this._flushFor(el); } catch(_) {}
+    }
+
+    // ---------------------------------------------------------------- תפריט ⋮
+
+    /** לחיצה על ⋮: פותח את התפריט, או סוגר אותו כשהוא כבר פתוח. */
+    _toggleNoteMenu(el){
+      const entry = this._getEntry(el);
+      if (!entry) return;
+      if (entry.noteMenu) this._closeNoteMenu(el, { returnFocus: true });
+      else this._openNoteMenu(el);
+    }
+
+    /**
+     * פותח את תפריט ⋮: עמודה של כפתורי אייקון, אחד לכל פריט ב-``NOTE_MENU_ITEMS``.
+     *
+     * **ילד של הפתק, כמו רשימת "+N" של השרשורים** — זז איתו, נמחק איתו, וממוקם ``absolute``
+     * ולכן אינו משנה את המלבן ש-``_notePayloadFromEl`` קורא ממנו את המיקום. הוא נושא
+     * ``sticky-note-outside`` ומדליק את ``.is-unclipped`` (``_syncNoteClipping``), כי בפתק
+     * ממוזער הוא יוצא מתחת לכותרת. ופתיחתו מעלה את הפתק לקדמת הערימה (``_raiseToFront``):
+     * ה-``z-index`` של התפריט כלוא בתוך הפתק, ופתק שכן שמצויר אחריו היה מכסה אותו.
+     *
+     * **תפריט אחד לכל המנהל.** פתיחה כאן סוגרת תפריט פתוח בפתק אחר.
+     */
+    _openNoteMenu(el){
+      const entry = this._getEntry(el);
+      const button = el ? el.querySelector('.sticky-note-more') : null;
+      if (!entry || !button || entry.noteMenu) return;
+      this._closeNoteMenuElsewhere(el);
+      const menu = createEl('div', 'sticky-note-menu sticky-note-outside', {
+        role: 'menu', 'aria-label': 'פעולות נוספות לפתק'
+      });
+      NOTE_MENU_ITEMS.forEach((item) => {
+        const btn = createEl('button', 'sticky-note-menu-item', {
+          type: 'button', role: 'menuitem', title: item.label, 'aria-label': item.label,
+          'data-menu-item': item.id
+        });
+        btn.textContent = item.icon;
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation(); ev.preventDefault();
+          // **התפריט נסגר לפני הפעולה**, ובלי להחזיר פוקוס ל-⋮: הפעולה עשויה לפתוח משטח
+          // משלה (חלון התזכורת), והפוקוס שייך לשם.
+          this._closeNoteMenu(el);
+          item.run(this, el);
+        });
+        menu.appendChild(btn);
+      });
+      // **מקשים בתפריט אינם מבעבעים**, כמו בתיבת החיפוש וברשימת "+N": יש מאזינים ברמת העמוד
+      // (בדפדפן הריפו ``Escape`` סוגר חלוניות).
+      menu.addEventListener('keydown', (ev) => this._onNoteMenuKey(el, ev));
+      menu.addEventListener('keyup', (ev) => ev.stopPropagation());
+      menu.addEventListener('keypress', (ev) => ev.stopPropagation());
+      el.appendChild(menu);
+      entry.noteMenu = { menu, button };
+      button.setAttribute('aria-expanded', 'true');
+      this._raiseToFront(el);
+      this._syncNoteClipping(el);
+      this._layoutNoteMenu(el);
+      const first = menu.querySelector('.sticky-note-menu-item');
+      // ``preventScroll``: מיקוד רגיל גולל כל אב כדי לחשוף את הכפתור (MDN,
+      // ``HTMLElement.focus()``), כלומר מזיז את הלוח או את המסמך שמתחת לפתק.
+      if (first) first.focus({ preventScroll: true });
+    }
+
+    /** סוגר את תפריט ⋮. ``returnFocus`` מחזיר את הפוקוס ל-⋮ — למקלדת. */
+    _closeNoteMenu(el, opts){
+      const entry = this._getEntry(el);
+      const nm = entry && entry.noteMenu;
+      if (!nm) return;
+      entry.noteMenu = null;
+      nm.menu.remove();
+      nm.button.setAttribute('aria-expanded', 'false');
+      this._syncNoteClipping(el);
+      if (opts && opts.returnFocus) nm.button.focus({ preventScroll: true });
+    }
+
+    /** סוגר תפריט ⋮ פתוח בכל פתק אחר של המנהל — תפריט אחד בכל פעם. */
+    _closeNoteMenuElsewhere(el){
+      for (const entry of this.notes.values()) {
+        if (entry && entry.el !== el && entry.noteMenu) this._closeNoteMenu(entry.el);
+      }
+    }
+
+    /** לחיצה מחוץ לתפריט, ומחוץ ל-⋮ שפתח אותו, סוגרת אותו — כמו כל תפריט. */
+    _onDocumentPointerDownForNoteMenu(ev){
+      const target = ev.target;
+      for (const entry of this.notes.values()) {
+        const nm = entry && entry.noteMenu;
+        if (!nm) continue;
+        if (target && (nm.menu.contains(target) || nm.button.contains(target))) continue;
+        this._closeNoteMenu(entry.el);
+      }
+    }
+
+    /**
+     * המקלדת בתפריט: חיצים, ``Home`` ו-``End`` עוברים בין הפריטים; ``Escape`` סוגר ומחזיר
+     * את הפוקוס ל-⋮; ``Tab`` סוגר ומחזיר אותו לשם **בלי** לבטל את ברירת המחדל — כך ``Tab``
+     * ממשיך מ-⋮ לכפתור הבא, ולא מאלמנט שכבר ירד מה-DOM.
+     */
+    _onNoteMenuKey(el, ev){
+      ev.stopPropagation();
+      const entry = this._getEntry(el);
+      const nm = entry && entry.noteMenu;
+      if (!nm) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); this._closeNoteMenu(el, { returnFocus: true }); return; }
+      if (ev.key === 'Tab') { this._closeNoteMenu(el, { returnFocus: true }); return; }
+      const items = nm.menu.querySelectorAll('.sticky-note-menu-item');
+      const list = Array.prototype.slice.call(items);
+      if (!list.length) return;
+      const at = list.indexOf(document.activeElement);
+      let next = -1;
+      if (ev.key === 'ArrowDown') next = (at + 1) % list.length;
+      else if (ev.key === 'ArrowUp') next = at <= 0 ? list.length - 1 : at - 1;
+      else if (ev.key === 'Home') next = 0;
+      else if (ev.key === 'End') next = list.length - 1;
+      if (next < 0) return;
+      ev.preventDefault();
+      list[next].focus({ preventScroll: true });
+    }
+
+    /**
+     * **איפה התפריט יכול להיראות** — המלבן שהוא חייב להישאר בתוכו, בקואורדינטות החלון: אזור
+     * התצוגה (``_viewportBox``, כמו כל מסלול הצפה), חותך עם כל אב שבאמת חותך את הפתק.
+     *
+     * **מי חותך — לפי הכלל של CSS, ולא לפי הנחה על הקונטיינר.** ``overflow`` שאינו
+     * ``visible`` חותך את הצאצאים, חוץ מאלה שה-containing block שלהם הוא אב שלו או אזור
+     * התצוגה (CSS 2.1, סעיף 11.1.1, ‏``https://www.w3.org/TR/CSS2/visufx.html``). לכן: פתק
+     * ``fixed`` — מצב ``screen`` — נחתך רק במסך; ופתק ``absolute`` נחתך בידי ה-containing block
+     * שלו ובידי כל אב שלו שחותך. את ה-containing block מחזיר ``offsetParent``: האב הקרוב שהוא
+     * containing block לצאצאים ``absolute`` (CSSOM View, האלגוריתם של ``offsetParent``). והלולאה
+     * נעצרת ב-body, שגם ``offsetParent`` עוצר בו. ``position`` נקרא מהאלמנט, כי
+     * ``_applyPositionMode`` כותב אותו שם בעצמו.
+     *
+     * הגרסה הראשונה חתכה תמיד עם הקונטיינר, וזה נמדד כשגוי: על משטח שאינו חותך, תפריט של
+     * פתק ממוזער התהפך כלפי מעלה למרות שמתחתיו היה מקום במסך — בניגוד להכרעה שהוא מתהפך רק
+     * כשאין מקום. בלוח האמיתי המשטח כן חותך (``overflow: auto`` על ``.board-surface``), וכאן
+     * זה נגזר מה-CSS ולא נקבע מראש.
+     *
+     * **אין כאן את הגולל הפנימי של דפדפן הריפו**, בשונה מ-``_visibleTopLeft``: שם השאלה היא
+     * איפה המשתמש רואה את התוכן, וכאן — מה חותך את הפתק. הפתקים אינם צאצאים של הגולל.
+     */
+    _noteMenuBounds(el){
+      const vp = this._viewportBox();
+      const box = { left: 0, top: 0, right: vp.width, bottom: vp.height };
+      if (el.style.position === 'fixed') return box;
+      for (let node = el.offsetParent; node && node !== document.body && node !== document.documentElement;
+           node = node.parentElement) {
+        const cs = getComputedStyle(node);
+        if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+        const r = node.getBoundingClientRect();
+        const left = r.left + (node.clientLeft || 0);
+        const top = r.top + (node.clientTop || 0);
+        box.left = Math.max(box.left, left);
+        box.top = Math.max(box.top, top);
+        box.right = Math.min(box.right, left + node.clientWidth);
+        box.bottom = Math.min(box.bottom, top + node.clientHeight);
+      }
+      return box;
+    }
+
+    /**
+     * מיקום תפריט ⋮ — **נפתח כלפי מטה, אל תוך הפתק, ומתהפך כלפי מעלה רק כשאין מקום** (הכרעה
+     * של המשתמש). ובכל מקרה **מצמצמים גודל לפני שמזיזים** (H7), כמו ``_layoutThreadPopup``:
+     * (1) רוחב לכל היותר המלבן שמותר פחות השוליים; (2) כיוון — למטה, ולמעלה רק כשהתפריט אינו
+     * נכנס מתחת ל-⋮ ומעליו יש יותר מקום; (3) גובה לכל היותר המקום בכיוון שנבחר, והפריטים
+     * נגללים; (4) אופקית — ממורכז מתחת ל-⋮, ואז אל תוך המלבן.
+     *
+     * **החשבון הוא הפרש בין מלבנים שנמדדו** (``getBoundingClientRect``), ולכן נכון ב-RTL
+     * וב-LTR כאחד: ``left`` ו-``top`` נמדדים מקצה הריפוד של הפתק — משם ``absolute`` מתחיל —
+     * ושום דבר כאן אינו מניח באיזה צד מתחילה השורה. הגבולות: ``_noteMenuBounds``.
+     */
+    _layoutNoteMenu(el){
+      const entry = this._getEntry(el);
+      const nm = entry && entry.noteMenu;
+      if (!nm || !nm.menu.isConnected) return;
+      const { menu, button } = nm;
+      menu.style.width = '';
+      menu.style.maxHeight = '';
+      menu.style.top = '0px';
+      menu.style.left = '0px';
+      const bounds = this._noteMenuBounds(el);
+      const gap = NOTE_EDGE_GAP;
+      const b = button.getBoundingClientRect();
+      const n = el.getBoundingClientRect();
+      const originX = n.left + (el.clientLeft || 0);
+      const originY = n.top + (el.clientTop || 0);
+      let rect = menu.getBoundingClientRect();
+      // (1) הגודל קודם.
+      const maxWidth = bounds.right - bounds.left - 2 * gap;
+      if (rect.width > maxWidth) {
+        menu.style.width = Math.max(0, maxWidth) + 'px';
+        rect = menu.getBoundingClientRect();
+      }
+      // (2) הכיוון.
+      const roomBelow = (bounds.bottom - gap) - (b.bottom + NOTE_MENU_OFFSET);
+      const roomAbove = (b.top - NOTE_MENU_OFFSET) - (bounds.top + gap);
+      const up = rect.height > roomBelow && roomAbove > roomBelow;
+      // (3) הגובה, בכיוון שנבחר.
+      const room = up ? roomAbove : roomBelow;
+      if (rect.height > room) {
+        menu.style.maxHeight = Math.max(0, Math.floor(room)) + 'px';
+        rect = menu.getBoundingClientRect();
+      }
+      const top = up ? (b.top - NOTE_MENU_OFFSET - rect.height) : (b.bottom + NOTE_MENU_OFFSET);
+      // (4) ואופקית.
+      const centered = b.left + b.width / 2 - rect.width / 2;
+      const left = Math.min(Math.max(centered, bounds.left + gap), bounds.right - gap - rect.width);
+      menu.style.top = Math.round(top - originY) + 'px';
+      menu.style.left = Math.round(left - originX) + 'px';
+      menu.classList.toggle('is-above', up);
+    }
+
+    /** תפריט פתוח בפתק כלשהו — ממקמים מחדש (גלילה, שינוי גודל חלון). */
+    _relayoutOpenNoteMenus(){
+      for (const entry of this.notes.values()) {
+        if (entry && entry.noteMenu) this._layoutNoteMenu(entry.el);
+      }
     }
 
     _openReminderModal(el){
@@ -4097,16 +4351,18 @@
 
       /**
        * **הפתק מפסיק לחתוך כשיש לו ילדים מחוץ לגבולותיו** — תיבת החיפוש, בועות
-       * השרשורים, החלונית. זה המנגנון של החיפוש (``docs/dev/sticky_notes_extending_ui.rst``,
+       * השרשורים, החלונית, ותפריט ⋮. זה המנגנון של החיפוש (``docs/dev/sticky_notes_extending_ui.rst``,
        * "התיבה: ילד של הפתק"), מוכלל: ``overflow: visible`` על הפתק, וכל ילד אחר חותך
-       * את עצמו — ``.is-unclipped`` ב-CSS. מקום אחד מחליט, כדי ששני הפיצ'רים לא יכבו
+       * את עצמו — ``.is-unclipped`` ב-CSS. מקום אחד מחליט, כדי שהפיצ'רים לא יכבו
        * זה לזה את המצב.
        */
       _syncNoteClipping(el){
         const entry = this._getEntry(el);
         const st = entry && entry.threads;
         const threadsOutside = !!(st && (st.row || st.panel || st.menu));
-        el.classList.toggle('is-unclipped', this._isNoteSearching(el) || threadsOutside);
+        // תפריט ⋮ יוצא מהפתק כשהפתק נמוך ממנו — פתק ממוזער הוא שורת הכותרת בלבד.
+        const menuOutside = !!(entry && entry.noteMenu);
+        el.classList.toggle('is-unclipped', this._isNoteSearching(el) || threadsOutside || menuOutside);
       }
 
       /**

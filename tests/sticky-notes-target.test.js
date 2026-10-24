@@ -4494,6 +4494,142 @@ check('קדמת הערימה: פתק חדש נפתח מעל פתק שהועלה'
   eq(zOf(fresh.el) > zOf(a), true, `החדש מעל A — ${zOf(fresh.el)} מול ${zOf(a)}`);
 });
 
+// ---------- תפריט ⋮ ----------
+//
+// הכלל: הפעולות שהכי פחות שכיחות יושבות בתפריט ⋮, בסוף שורת הפעולות (``NOTE_MENU_ITEMS``).
+// כאן ננעלים המבנה והחיווט — איפה ⋮ יושב, מה בתפריט, מתי הוא נסגר ולאן הפוקוס חוזר.
+// הגאומטריה — כיוון הפתיחה, ההצמדה למסך, ומה מצויר מעל מה — רק בדפדפן:
+// ``tests/test_sticky_note_menu_browser.py``, שאינו רץ ב-CI.
+
+const keyEv = (key) => {
+  const ev = { key, stopped: false, prevented: false };
+  ev.stopPropagation = () => { ev.stopped = true; };
+  ev.preventDefault = () => { ev.prevented = true; };
+  return ev;
+};
+const clickEv = () => ({ stopPropagation() {}, preventDefault() {} });
+
+/** פתק לוח שרונדר ב-``_renderNote``, עם ⋮ שלו ו-``_openReminderModal`` שרושם במקום לפתוח חלון. */
+async function menuNote(...ids) {
+  const { sb, m, els } = await stackOf(...(ids.length ? ids : ['menu-note']));
+  const opened = [];
+  m._openReminderModal = (el) => { opened.push(el); };
+  const more = (el) => el.querySelector('.sticky-note-more');
+  const menuOf = (el) => el.querySelector('.sticky-note-menu');
+  return { sb, m, els, el: els[0], opened, more, menuOf };
+}
+
+check('תפריט ⋮: הכפתור האחרון בשורת הפעולות, ו-🔔 כבר אינו בשורה', async () => {
+  // **בסוף השורה — הכרעה של המשתמש**: בפתק צר הקצה של השורה נחתך (#3478), ומה שב-⋮ הוא
+  // מה שאפשר לוותר עליו. נופל על הצורה הקודמת, שבה 🔔 ישב בשורה בין 📌 ל-💬.
+  const { el, more } = await menuNote();
+  const row = el.querySelector('.sticky-note-actions').children.map((c) => c.textContent);
+  eq(row[row.length - 1], '⋮', `האחרון בשורה — ${row.join(' ')}`);
+  eq(row.includes('🔔'), false, `🔔 אינו בשורה — ${row.join(' ')}`);
+  eq(row.join(' '), '📌 💬 ↶ ⧉ 🎨 — × ⋮', 'סדר השורה');
+  const btn = more(el);
+  eq(btn.getAttribute('type'), 'button', 'type=button');
+  eq(btn.getAttribute('aria-haspopup'), 'menu', 'aria-haspopup=menu');
+  eq(btn.getAttribute('aria-expanded'), 'false', 'aria-expanded=false לפני פתיחה');
+  eq(!!btn.getAttribute('aria-label'), true, 'יש שם נגיש');
+});
+
+check('תפריט ⋮: נפתח כילד של הפתק, עם 🔔 כפריט, ו-🔔 פותח את חלון התזכורת', async () => {
+  const { el, opened, more, menuOf } = await menuNote();
+  eq(menuOf(el), null, 'בקרה: אין תפריט לפני הלחיצה');
+  more(el)._listeners.click(clickEv());
+  const menu = menuOf(el);
+  eq(!!menu, true, 'התפריט נפתח');
+  eq(menu.parentNode, el, 'ילד ישיר של הפתק');
+  eq(menu.classList.contains('sticky-note-outside'), true, 'מסומן sticky-note-outside — יוצא מהפתק הממוזער');
+  eq(el.classList.contains('is-unclipped'), true, 'והפתק מפסיק לחתוך');
+  eq(menu.getAttribute('role'), 'menu', 'role=menu');
+  eq(more(el).getAttribute('aria-expanded'), 'true', 'aria-expanded=true');
+  const items = menu.querySelectorAll('.sticky-note-menu-item');
+  eq(items.map((i) => i.textContent).join(' '), '🔔', 'הפריטים');
+  eq(items[0].getAttribute('role'), 'menuitem', 'role=menuitem');
+  eq(items[0].getAttribute('title'), 'קבע תזכורת', 'title');
+  eq(items[0].getAttribute('aria-label'), 'קבע תזכורת', 'aria-label');
+  eq(FakeEl.focused, items[0], 'הפוקוס על הפריט הראשון');
+  items[0]._listeners.click(clickEv());
+  eq(opened.length, 1, 'חלון התזכורת נפתח פעם אחת');
+  eq(opened[0], el, 'לפתק הזה');
+  eq(menuOf(el), null, 'והתפריט נסגר');
+  eq(more(el).getAttribute('aria-expanded'), 'false', 'aria-expanded חזר ל-false');
+  eq(el.classList.contains('is-unclipped'), false, 'והפתק חותך שוב');
+});
+
+check('תפריט ⋮: לחיצה שנייה על ⋮ סוגרת ומחזירה את הפוקוס אליו', async () => {
+  const { el, opened, more, menuOf } = await menuNote();
+  more(el)._listeners.click(clickEv());
+  more(el)._listeners.click(clickEv());
+  eq(menuOf(el), null, 'נסגר');
+  eq(FakeEl.focused, more(el), 'הפוקוס חזר ל-⋮');
+  eq(opened.length, 0, 'ושום פעולה לא רצה');
+});
+
+check('תפריט ⋮: Escape סוגר ומחזיר את הפוקוס; חיצים עוברים בין הפריטים; המקשים אינם מבעבעים', async () => {
+  const { el, more, menuOf } = await menuNote();
+  more(el)._listeners.click(clickEv());
+  const menu = menuOf(el);
+  const items = menu.querySelectorAll('.sticky-note-menu-item');
+  FakeEl.focused = null;
+  const down = keyEv('ArrowDown');
+  menu._listeners.keydown(down);
+  eq(FakeEl.focused, items[0], 'ArrowDown מפוקוס חיצוני — לפריט הראשון');
+  eq(down.prevented, true, 'ArrowDown מבוטל — לא גולל את העמוד');
+  eq(down.stopped, true, 'ואינו מבעבע');
+  const keyup = keyEv('Escape');
+  menu._listeners.keyup(keyup);
+  eq(keyup.stopped, true, 'keyup אינו מבעבע');
+  const other = keyEv('a');
+  menu._listeners.keydown(other);
+  eq(other.prevented, false, 'מקש אחר אינו מבוטל');
+  eq(menuOf(el), menu, 'ואינו סוגר');
+  const esc = keyEv('Escape');
+  menu._listeners.keydown(esc);
+  eq(esc.stopped, true, 'Escape אינו מבעבע — בדפדפן הריפו הוא סוגר חלוניות');
+  eq(menuOf(el), null, 'Escape סגר');
+  eq(FakeEl.focused, more(el), 'והפוקוס חזר ל-⋮');
+});
+
+check('תפריט ⋮: Tab סוגר ומחזיר את הפוקוס ל-⋮, בלי לבטל את המעבר', async () => {
+  const { el, more, menuOf } = await menuNote();
+  more(el)._listeners.click(clickEv());
+  const tab = keyEv('Tab');
+  menuOf(el)._listeners.keydown(tab);
+  eq(menuOf(el), null, 'נסגר');
+  eq(FakeEl.focused, more(el), 'הפוקוס ב-⋮, ומשם Tab ממשיך');
+  eq(tab.prevented, false, 'ברירת המחדל של Tab לא בוטלה');
+});
+
+check('תפריט ⋮: תפריט אחד לכל המנהל, ופתיחה מעלה את הפתק לקדמת הערימה', async () => {
+  const { els: [a, b], more, menuOf } = await menuNote('a', 'b');
+  more(a)._listeners.click(clickEv());
+  more(b)._listeners.click(clickEv());
+  eq(menuOf(a), null, 'התפריט של A נסגר');
+  eq(more(a).getAttribute('aria-expanded'), 'false', 'ו-⋮ שלו חזר ל-false');
+  eq(!!menuOf(b), true, 'התפריט של B פתוח');
+  eq(zOf(b) > zOf(a), true, `B מעל A — ${zOf(b)} מול ${zOf(a)}`);
+});
+
+check('תפריט ⋮: לחיצה מחוץ לתפריט סוגרת אותו, ולחיצה בתוכו או על ⋮ לא', async () => {
+  const { m, el, more, menuOf } = await menuNote();
+  more(el)._listeners.click(clickEv());
+  const menu = menuOf(el);
+  // ``contains`` אמיתי, כמו בדפדפן: ``FakeEl`` המשותף אינו מממש אותו, וכאן הוא נחוץ רק
+  // לשני האלמנטים שהמאזין שואל עליהם.
+  const within = (root) => (node) => { for (let n = node; n; n = n.parentNode) if (n === root) return true; return false; };
+  menu.contains = within(menu);
+  more(el).contains = within(more(el));
+  m._onDocumentPointerDownForNoteMenu({ target: menu.querySelector('.sticky-note-menu-item') });
+  eq(menuOf(el), menu, 'לחיצה על פריט אינה סוגרת לפני ה-click');
+  m._onDocumentPointerDownForNoteMenu({ target: more(el) });
+  eq(menuOf(el), menu, 'לחיצה על ⋮ נשארת לו — ה-click הוא שסוגר');
+  m._onDocumentPointerDownForNoteMenu({ target: el.querySelector('.sticky-note-header') });
+  eq(menuOf(el), null, 'לחיצה במקום אחר — בתוך הפתק עצמו — סוגרת');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log(`\n${passed} עברו, ${failed} נכשלו`);
