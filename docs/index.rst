@@ -23,6 +23,9 @@ Code Keeper Bot - תיעוד API
    whats-new
    architecture
    dev/sticky_notes_extending
+   dev/sticky_notes_extending_backend
+   dev/sticky_notes_extending_markdown
+   dev/sticky_notes_extending_ui
    contributing
    branch-protection-and-pr-rules
 

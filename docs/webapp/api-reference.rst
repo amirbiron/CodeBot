@@ -131,7 +131,7 @@ Endpoints
      - ``{"ok": true, "remind_at": "..."}``
    * - ``/api/sticky-notes/note/<note_id>/threads``
      - GET
-     - תקצירי שרשורי התגובות של הפתק, בלי התגובות — לבועות. פתק שאינו של המשתמש ← ``404 note_not_found`` (:ref:`sticky-notes-threads-ui`)
+     - תקצירי שרשורי התגובות של הפתק, בלי התגובות — לבועות. פתק שאינו של המשתמש ← ``404 note_not_found`` (:ref:`sticky-notes-threads-server`)
      - ✅
      - -
      - ``{"ok": true, "threads": [{"id": "...", "number": 1, "status": "open", "comment_count": 2, "awaits_user": true}]}``
