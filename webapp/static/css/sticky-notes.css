@@ -1062,6 +1062,13 @@
 .sticky-note.is-search-inside .sticky-note-header {
   clip-path: inset(0 round calc(var(--note-radius) - 1px) calc(var(--note-radius) - 1px) 0 0);
 }
+/* **בפתק ממוזער הכותרת היא כל הפתק, ולכן היא חותכת גם את הפינות התחתונות.** הצירוף הזה נולד עם
+   תפריט ⋮: החיפוש והשרשורים מושבתים בפתק ממוזער, ולכן פתק ממוזער לא הפסיק לחתוך אף פעם — ותפריט
+   ⋮ פתוח מפסיק. בלי הכלל הזה, הכלל שמעל עיגל רק את הפינות העליונות, ורקע הכותרת יצא מהקשת
+   בפינות התחתונות (נמדד בכרומיום, בהשוואת פיקסלים — ``tests/test_sticky_note_menu_browser.py``). */
+.sticky-note.is-minimized.is-unclipped:not(.is-searching) .sticky-note-header {
+  clip-path: inset(0 round calc(var(--note-radius) - 1px));
+}
 .sticky-note.is-unclipped .sticky-note-tasks:focus-visible {
   outline: 2px solid #1d4ed8;
   outline-offset: -2px;
@@ -1847,12 +1854,61 @@
   background: #ff5d4f;
 }
 
-/* **ערכת הניגודיות הגבוהה: החלונית והרשימה מצטרפות לערכה**, כמו תיבת החיפוש — שחור,
+/* ----- תפריט ⋮ ----- */
+/* עמודה של כפתורי אייקון, בלי טקסט — כמו כל כפתור בשורת הפעולות. הפריטים — ``NOTE_MENU_ITEMS``
+   ב-``sticky-notes.js``. נפתח כלפי מטה מתחת ל-⋮, אל תוך הפתק, ומתהפך כלפי מעלה רק כשאין מקום
+   (``_layoutNoteMenu``) — ולכן ``top`` ו-``left`` נכתבים שם, ממלבנים שנמדדו. **הצבעים ליטרליים**,
+   כמו ברשימת "+N" שהוא מעתיק ממנה את הנייר, הדיו והצל: הוא חלק מהפתק, והנייר של הפתק אינו
+   משתנה עם הערכה. הגלילה (``overflow: auto``) נכנסת לפעולה רק כש-``_layoutNoteMenu`` מגביל את
+   הגובה למקום שנשאר — אחרת הגובה הוא גובה הפריטים.
+
+   **``left`` פיזי, ולא ``inset-inline-start``, בכוונה.** הערך נכתב ב-JS כהפרש בין מלבנים
+   שנמדדו, כלומר בקואורדינטות פיזיות — ונכון כך בשני הכיוונים. ``inset-inline-start`` היה
+   מתורגם ב-RTL ל-``right``, ויחד עם ה-``left`` שה-JS כותב היו כאן שני קצוות שמושכים לשני
+   כיוונים. */
+.sticky-note-menu {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  overflow: auto;
+  background: #fcfbf8;
+  color: #24314f;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(10, 14, 22, .45), 0 0 0 1px rgba(43, 63, 106, .10);
+}
+/* **40×40 לכל פריט** — גדול מכפתורי השורה, כי בטאבלט ובטלפון לוחצים עליו באצבע. */
+.sticky-note-menu-item {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sticky-note-menu-item:hover { background: rgba(43, 63, 106, .06); }
+.sticky-note-menu-item:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: -2px;
+}
+
+/* **ערכת הניגודיות הגבוהה: החלונית, הרשימה ותפריט ⋮ מצטרפים לערכה**, כמו תיבת החיפוש — שחור,
    טקסט לבן, גבול לבן. הערכה כופה ממילא ב-``!important`` על כל ``button`` ו-``textarea`` רקע
    שחור וגבול לבן, ועל נייר בהיר זה היה נראה כטלאים. הבועות עצמן הן כפתורים, ולכן שם הן
    בועות שחורות עם גבול לבן — מספר או ✓ מבדילים ביניהן, לא הגוון. */
 [data-theme="high-contrast"] .sticky-note .sticky-thread-panel,
-[data-theme="high-contrast"] .sticky-note .sticky-thread-menu {
+[data-theme="high-contrast"] .sticky-note .sticky-thread-menu,
+[data-theme="high-contrast"] .sticky-note .sticky-note-menu {
   background: #000;
   color: #fff;
   border: 2px solid #fff;
