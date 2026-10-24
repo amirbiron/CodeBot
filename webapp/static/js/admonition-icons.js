@@ -10,7 +10,7 @@
  *
  * שלושה צרכנים: ``md_preview.html`` ו-``live-preview.js`` (שניהם מרכיבים
  * מחרוזת HTML עבור ``markdown-it-container``), ו-``sticky-notes.js`` (שבונה
- * צמתים ואינו יכול לגעת ב-HTML גולמי — ראו ``docs/dev/sticky_notes_extending.rst``).
+ * צמתים ואינו יכול לגעת ב-HTML גולמי — ראו ``docs/dev/sticky_notes_extending_markdown.rst``).
  *
  * ``ADMONITION_TITLES`` הוא גם **ההגדרה של "מהו סוג מוכר"** עבור הפתקים
  * הדביקים: מפתח שאינו כאן אינו אלרט, והשורה נשארת טקסט רגיל. זו בדיוק
