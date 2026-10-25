@@ -411,6 +411,39 @@ def test_the_search_words_are_literal_and_not_a_regex(wa):
     assert _shown_ids(response.get_data(as_text=True)) == []
 
 
+@pytest.mark.parametrize("category", ["", "other", "recent", "large"])
+def test_a_null_character_is_searched_like_any_other_character(wa, category):
+    """``$regex`` של מונגו דוחה ביטוי שיש בו NUL, ו-``re.escape`` משאיר אותו כמו שהוא — ``/files?q=%00`` החזיר 500.
+
+    השגיאה ("Regular expression cannot contain an embedded null byte", קוד 2) נמדדה מול MongoDB 8.0 מקומי, וגם ``note_search_needle_error`` ב-``sticky_notes_target.py`` מתעד אותה. הספירה בולעת אותה ומציגה אפס, אבל הרשימה שאחריה רצה בלי ``try`` — ולכן העמוד נפל. ב"נפתחו לאחרונה" הרשימה כן עטופה, ושם הכשל נראה כמו "לא נפתח כלום".
+    """
+    db = wa.get_db()
+    _with_production_text_index(wa)
+    expected = str(_seed(wa, "a\x00b.md", versions=1)[0])
+    _seed(wa, "ab.md", versions=1)
+    if category == "recent":
+        db.recent_opens.insert_many([
+            {"user_id": USER_ID, "file_name": name, "last_opened_at": CREATED + timedelta(days=1)}
+            for name in ("a\x00b.md", "ab.md")
+        ])
+    if category == "large":
+        db.large_files.delete_many({})
+        large_ids = {name: ObjectId() for name in ("a\x00b.txt", "ab.txt")}
+        for name, oid in large_ids.items():
+            db.large_files.insert_one({
+                "_id": oid, "user_id": USER_ID, "file_name": name, "content": "x\n",
+                "programming_language": "text", "description": "", "tags": [], "is_active": True,
+                "created_at": CREATED, "updated_at": CREATED,
+            })
+        expected = str(large_ids["a\x00b.txt"])
+    url = f"/files?category={category}&q=a%00b" if category else "/files?q=a%00b"
+
+    response = _get(wa, url)
+
+    assert response.status_code == 200, url
+    assert _shown_ids(response.get_data(as_text=True)) == [expected], url
+
+
 def _seed_needle_pair(wa, *, tags=(), favorite=()):
     """שני קבצים: אחד עם התגית ``needle``, ואחד שהמילה רק בקוד שלו. מחזיר את מזהה הגרסה האחרונה של הראשון."""
     tagged = _seed(wa, "tagged.md", versions=2, tags=tuple(tags) + ("needle",), favorite=favorite)

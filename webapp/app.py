@@ -535,17 +535,24 @@ def _files_search_file_match(search_query: str) -> Optional[Dict[str, Any]]:
     קורא בדיוק את המסמכים שפתיחת העמוד בלי חיפוש כבר קוראת (``totalDocsExamined``
     ב-``explain``, MongoDB 8.0 מקומי על נתונים סינתטיים, 25.10.2026).
 
-    המילים עוברות ``re.escape``: ``a.b`` מחפש נקודה, ולא "כל תו".
+    המילים עוברות ``re.escape``: ``a.b`` מחפש נקודה, ולא "כל תו". ``re.escape``
+    משאיר NUL כמו שהוא, ו-``$regex`` של מונגו דוחה ביטוי שיש בו NUL ("Regular
+    expression cannot contain an embedded null byte", קוד 2 — נמדד מול MongoDB
+    8.0 מקומי) — ``/files?q=%00`` הפיל את העמוד. לכן NUL נכתב ``\\x00``: אותו
+    תו, בכתיב ש-PCRE מכיר, בלי NUL במחרוזת עצמה.
     """
-    terms = [t.lstrip('#') for t in (search_query or '').split()]
+    patterns = [
+        re.escape(term).replace('\x00', r'\x00')
+        for term in (t.lstrip('#') for t in (search_query or '').split())
+        if term
+    ]
     clauses = [
         {'$or': [
-            {'file_name': {'$regex': re.escape(term), '$options': 'i'}},
-            {'description': {'$regex': re.escape(term), '$options': 'i'}},
-            {'tags': {'$regex': re.escape(term), '$options': 'i'}},
+            {'file_name': {'$regex': pattern, '$options': 'i'}},
+            {'description': {'$regex': pattern, '$options': 'i'}},
+            {'tags': {'$regex': pattern, '$options': 'i'}},
         ]}
-        for term in terms
-        if term
+        for pattern in patterns
     ]
     if not clauses:
         return None
