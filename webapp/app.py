@@ -477,11 +477,11 @@ def _latest_version_per_file_stages(
     לריפו לפי הגרסה האחרונה שלו. ב-
     ``match`` הם סיננו **גרסאות**, ו-``$top`` בחר את האחרונה **מבין המתאימות**:
     קובץ שעבר לריפו אחר הוצג גם בישן, בגרסה הישנה, וקובץ ידני שיובא אחר כך
-    מ-GitHub המשיך להופיע ב"שאר קבצים". לפני הקיבוץ נשארים רק התחום (משתמש,
-    גרסאות פעילות), ``$text`` — שמונגו מחייבת ב-``$match`` הראשון (תיעוד
-    MongoDB, עמוד ``$text``, סעיף Restrictions; ``test_search_still_reaches_the_latest_version``
-    מקבע את זה מול מונגו אמיתי) — וסינון הקבצים הריקים (``non_empty_only``,
-    וראו את ההערה מעל ``_recent_pipeline``).
+    מ-GitHub המשיך להופיע ב"שאר קבצים". מאותה סיבה יושב כאן גם החיפוש בשם,
+    בתיאור ובתגיות (``_files_search_file_match``), מאז שהוחלף בו ה-``$text``,
+    שמונגו מחייבת ב-``$match`` הראשון. לפני הקיבוץ נשארים רק התחום (משתמש,
+    גרסאות פעילות, שפה, ובנפתחו לאחרונה — השמות) וסינון הקבצים הריקים
+    (``non_empty_only``, וראו את ההערה ליד ``recent_stages`` ב-``files()``).
     """
     stages: List[Dict[str, Any]] = [{'$match': match}]
     if non_empty_only:
@@ -511,6 +511,53 @@ def _latest_version_per_file_stages(
     if file_match:
         stages.append({'$match': dict(file_match)})
     return stages
+
+
+def _files_search_file_match(search_query: str) -> Optional[Dict[str, Any]]:
+    """התיבה "חיפוש לפי שם, תיאור או תגית" בעמוד הקבצים — תנאי על **הקובץ**.
+
+    כל מילה בשאילתה (מופרדות ברווחים) חייבת להופיע באחד משלושה: שם הקובץ,
+    התיאור, או אחת התגיות — חלק ממילה מספיק, ובלי הבדל בין אותיות גדולות
+    לקטנות. ``#`` בתחילת מילה יורד, כדי ש-``#python`` ימצא את התגית ``python``.
+    ``None`` כשאין מילים — אין מה לסנן.
+
+    **תוכן הקובץ אינו נבדק, בכוונה.** עד אוקטובר 2026 התיבה הריצה ``$text`` על
+    ``search_text_idx``, שכולל גם את ``code`` — ולכן, בניגוד לטקסט שבתיבה, היא
+    מצאה קבצים שהמילה מופיעה רק בקוד שלהם, בלי להראות איפה, והקובץ שהמילה
+    בתגית שלו נקבר ביניהם. ``$text`` גם מתאים רק מילה שלמה: ``view`` לא מצא את
+    ``view_file.html``. חיפוש בתוכן הוא תפקיד התיבה הראשונה (החיפוש הגלובלי),
+    שמראה גם איפה המילה בקוד.
+
+    **התנאי נבדק על הגרסה שהשורה מציגה** — הוא נכנס ל-``file_match`` של
+    :func:`_latest_version_per_file_stages`, אחרי הקיבוץ. ב-``$match`` שלפני
+    הקיבוץ הוא היה מסנן **גרסאות**: קובץ שתגית הייתה רק בגרסה ישנה שלו נמצא,
+    ומוצגת הייתה דווקא הגרסה הישנה. אחרי הקיבוץ השדות הכבדים כבר בחוץ, והסינון
+    קורא בדיוק את המסמכים שפתיחת העמוד בלי חיפוש כבר קוראת (``totalDocsExamined``
+    ב-``explain``, MongoDB 8.0 מקומי על נתונים סינתטיים, 25.10.2026).
+
+    המילים עוברות ``re.escape``: ``a.b`` מחפש נקודה, ולא "כל תו".
+    """
+    terms = [t.lstrip('#') for t in (search_query or '').split()]
+    clauses = [
+        {'$or': [
+            {'file_name': {'$regex': re.escape(term), '$options': 'i'}},
+            {'description': {'$regex': re.escape(term), '$options': 'i'}},
+            {'tags': {'$regex': re.escape(term), '$options': 'i'}},
+        ]}
+        for term in terms
+        if term
+    ]
+    if not clauses:
+        return None
+    return clauses[0] if len(clauses) == 1 else {'$and': clauses}
+
+
+def _all_of(*conditions: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """תנאי אחד שכל התנאים שאינם ``None`` חייבים להתקיים בו — או ``None`` כשאין אף אחד."""
+    present = [c for c in conditions if c]
+    if not present:
+        return None
+    return present[0] if len(present) == 1 else {'$and': present}
 
 
 def _attach_file_size_and_lines(doc: Dict[str, Any], code_value: Any) -> None:
@@ -13314,43 +13361,11 @@ def files():
         '$and': [{'is_active': True}],
     }
 
-    # אם $text לא זמין (למשל אינדקס עדיין בבנייה / לא קיים), נרצה fallback בטוח ל-$regex
-    # כדי למנוע קריסה של הדף.
-    def _with_regex_fallback(curr_query: Dict[str, Any]) -> Dict[str, Any]:
-        try:
-            if not search_query:
-                return curr_query
-            if not isinstance(curr_query, dict):
-                return curr_query
-            if '$text' not in curr_query:
-                return curr_query
-
-            q2: Dict[str, Any] = dict(curr_query)
-            q2.pop('$text', None)
-
-            and_list = list(q2.get('$and') or [])
-
-            # חיפוש ליטרלי (לא Regex גולמי) למניעת דפוסים מסוכנים
-            needle = str(search_query).strip()
-            if not needle:
-                q2['$and'] = and_list
-                return q2
-            esc = re.escape(needle)
-
-            and_list.append({
-                '$or': [
-                    {'file_name': {'$regex': esc, '$options': 'i'}},
-                    {'description': {'$regex': esc, '$options': 'i'}},
-                    # Large files משתמשים בשדה content; ב-code_snippets זה פשוט לא ישפיע
-                    {'content': {'$regex': esc, '$options': 'i'}},
-                    # תאימות: tags יכולים להיות list; זהו fallback "טוב מספיק"
-                    {'tags': {'$in': [needle.lower()]}},
-                ]
-            })
-            q2['$and'] = and_list
-            return q2
-        except Exception:
-            return curr_query
+    # תיבת "חיפוש לפי שם, תיאור או תגית": תנאי על הקובץ, שנבדק על הגרסה שהשורה
+    # מציגה — ראו ``_files_search_file_match``. עד אוקטובר 2026 כאן רץ ``$text``
+    # (שכולל גם את הקוד), ואיתו נפילה שקטה ל-``$regex`` כשהאינדקס חסר — ובה תגית
+    # נמצאה רק בהתאמה מלאה ובאותיות קטנות.
+    search_file_match = _files_search_file_match(search_query)
 
     def _aggregate_code_snippets(curr_pipeline: List[Dict[str, Any]]):
         """ה-``aggregate`` של העמוד, דרך ``_aggregate_snippets``.
@@ -13366,10 +13381,6 @@ def files():
         עולה כשגיאה (``bugbot-rules/silent-fallback-to-worse-path.md``).
         """
         return _aggregate_snippets(db, curr_pipeline)
-    
-    if search_query:
-        # חיפוש טקסטואלי ב-UI: נעדיף $text במקום $regex כדי לאפשר שימוש באינדקס טקסט
-        query['$text'] = {'$search': search_query}
     
     if language_filter:
         query['programming_language'] = language_filter
@@ -13475,36 +13486,30 @@ def files():
         elif category_filter == 'large':
             # קבצים גדולים: יישור להגדרת הבוט — משתמשים באוסף large_files (לא לפי 100KB ב-code_snippets)
             large_coll = getattr(db, 'large_files', None)
+            # ב-``large_files`` אין גרסאות — מסמך הוא קובץ — ולכן תנאי החיפוש נכנס
+            # לשאילתה עצמה, ולא אחרי קיבוץ.
+            large_query = _all_of(query, search_file_match)
             if large_coll is not None:
                 sort_dir = -1 if sort_by.startswith('-') else 1
                 sort_field_local = sort_by.lstrip('-') or 'created_at'
                 try:
-                    total_count = int(large_coll.count_documents(query) or 0)
-                except Exception:
-                    # fallback אם $text נכשל (למשל אינדקס לא קיים/בבנייה)
-                    try:
-                        query = _with_regex_fallback(query)
-                        total_count = int(large_coll.count_documents(query) or 0)
-                    except Exception:
-                        total_count = 0
-                try:
-                    cursor = large_coll.find(query, LIST_EXCLUDE_HEAVY_PROJECTION)
-                    cursor = cursor.sort(sort_field_local, sort_dir)
-                    cursor = cursor.skip((page - 1) * per_page).limit(per_page)
-                    files_cursor = cursor
-                except Exception:
-                    try:
-                        query = _with_regex_fallback(query)
-                        cursor = large_coll.find(query, LIST_EXCLUDE_HEAVY_PROJECTION)
-                        cursor = cursor.sort(sort_field_local, sort_dir)
-                        cursor = cursor.skip((page - 1) * per_page).limit(per_page)
-                        files_cursor = cursor
-                    except Exception:
-                        files_cursor = []
+                    total_count = int(large_coll.count_documents(large_query) or 0)
+                except PyMongoError:
+                    # הרשימה שאחריה תרוץ ותיכשל בקול אם הבעיה במסד. ספירה שנכשלה
+                    # לבד מוצגת כאפס — ונרשמת, כדי שלא תיבלע.
+                    logger.warning(
+                        "files.large_count_failed request_id=%s",
+                        getattr(g, "request_id", None), exc_info=True,
+                    )
+                    total_count = 0
+                # ``find`` רק בונה סמן; הפנייה למסד קורית כשעוברים עליו, למטה.
+                cursor = large_coll.find(large_query, LIST_EXCLUDE_HEAVY_PROJECTION)
+                cursor = cursor.sort(sort_field_local, sort_dir)
+                files_cursor = cursor.skip((page - 1) * per_page).limit(per_page)
             else:
                 # fallback היסטורי: סינון לפי 100KB מתוך code_snippets
                 pipeline = [
-                    {'$match': query},
+                    {'$match': large_query},
                     _MONGO_ADD_SIZE_LINES_STAGE,
                     {'$match': {'file_size': {'$gte': 102400}}}  # 100KB
                 ]
@@ -13544,7 +13549,8 @@ def files():
     latest_opts: Dict[str, Any] = {
         'non_empty_only': category_filter in ('', 'other'),
         'favorites_only': category_filter == 'favorites',
-        'file_match': category_file_match,
+        # הקטגוריה והחיפוש — שניהם שאלות על הקובץ, ולכן שניהם אחרי הקיבוץ.
+        'file_match': _all_of(category_file_match, search_file_match),
     }
 
     # ספירת סך הכל. ``recent`` סופר בעצמו אחרי השליפה, ו-``large`` כבר ספר.
@@ -13553,21 +13559,14 @@ def files():
         try:
             count_result = list(_aggregate_code_snippets(
                 _latest_version_per_file_stages(query, **latest_opts) + count_tail))
-        except Exception:
-            # ``$text`` נכשל (אינדקס טקסט חסר או בבנייה) — חיפוש ליטרלי, וגם
-            # השליפה שאחרי תשתמש בו.
-            query = _with_regex_fallback(query)
-            try:
-                count_result = list(_aggregate_code_snippets(
-                    _latest_version_per_file_stages(query, **latest_opts) + count_tail))
-            except Exception:
-                # הרשימה עצמה עוד תרוץ ותיכשל בקול אם הבעיה במסד. ספירה
-                # שנכשלה לבד מוצגת כאפס — ונרשמת, כדי שלא תיבלע.
-                logger.warning(
-                    "files.count_failed category=%s request_id=%s",
-                    category_filter or 'all', getattr(g, "request_id", None), exc_info=True,
-                )
-                count_result = []
+        except PyMongoError:
+            # הרשימה עצמה עוד תרוץ ותיכשל בקול אם הבעיה במסד. ספירה
+            # שנכשלה לבד מוצגת כאפס — ונרשמת, כדי שלא תיבלע.
+            logger.warning(
+                "files.count_failed category=%s request_id=%s",
+                category_filter or 'all', getattr(g, "request_id", None), exc_info=True,
+            )
+            count_result = []
         total_count = count_result[0]['total'] if count_result else 0
 
     # קטגוריה מיוחדת: recent
@@ -13637,9 +13636,7 @@ def files():
             'user_id': user_id,
             '$and': [{'is_active': True}],
         }
-        # לשמור עקביות עם החיפוש/מסננים הכלליים
-        if search_query:
-            recent_query['$text'] = {'$search': search_query}
+        # החיפוש — אותו תנאי על הקובץ כמו בשאר הקטגוריות, אחרי הקיבוץ (למטה)
         if language_filter:
             recent_query['programming_language'] = language_filter
         # צמצום לשמות שנפתחו לאחרונה
@@ -13652,30 +13649,19 @@ def files():
         # סינון "לא ריק" חייב להתבצע לפני ה-group כדי לבחור את הגרסה האחרונה
         # *הלא-ריקה*, ולא לפסול קובץ רק בגלל שהגרסה האחרונה ריקה. הבנאי שומר
         # על הסדר הזה, ובנוסף מוריד את השדות הכבדים לפני המיון והקיבוץ.
-        def _recent_pipeline(match: Dict[str, Any]) -> List[Dict[str, Any]]:
-            # בונים מחדש עם ה-match החלופי במקום להחליף את השלב הראשון לפי
-            # אינדקס. הצבה ל-``pipeline[0]`` מניחה שהשלב הראשון הוא ``$match``
-            # — הנחה שנכונה היום ותישבר בשקט ברגע שהבנאי יוסיף שלב לפניו.
-            stages = _latest_version_per_file_stages(match)
-            # מיון: אם מיון לפי last_opened_at – נטפל בפייתון; אחרת נמיין ב-DB
-            if sort_field_local in {'file_name', 'created_at', 'updated_at'}:
-                stages.append({'$sort': {sort_field_local: sort_dir}})
-            return stages
+        recent_stages = _latest_version_per_file_stages(recent_query, file_match=search_file_match)
+        # מיון: אם מיון לפי last_opened_at – נטפל בפייתון; אחרת נמיין ב-DB
+        if sort_field_local in {'file_name', 'created_at', 'updated_at'}:
+            recent_stages.append({'$sort': {sort_field_local: sort_dir}})
 
         try:
-            latest_items = list(_aggregate_code_snippets(_recent_pipeline(recent_query)))
-        except Exception:
-            # fallback אם $text נכשל. כשל מסוג אחר יחזור גם בניסיון השני,
-            # ויירשם שם.
-            try:
-                recent_query_fallback = _with_regex_fallback(recent_query)
-                latest_items = list(_aggregate_code_snippets(_recent_pipeline(recent_query_fallback)))
-            except Exception:
-                # העמוד מציג רשימה ריקה, וזה נראה בדיוק כמו "לא נפתח כלום".
-                # עד 23.9.2026 השורה הזו לא השאירה עקבות: כשהצינור חרג
-                # מתקרת המיון, "נפתחו לאחרונה" פשוט התרוקן.
-                logger.exception("files.recent_list_failed request_id=%s", getattr(g, "request_id", None))
-                latest_items = []
+            latest_items = list(_aggregate_code_snippets(recent_stages))
+        except PyMongoError:
+            # העמוד מציג רשימה ריקה, וזה נראה בדיוק כמו "לא נפתח כלום".
+            # עד 23.9.2026 השורה הזו לא השאירה עקבות: כשהצינור חרג
+            # מתקרת המיון, "נפתחו לאחרונה" פשוט התרוקן.
+            logger.exception("files.recent_list_failed request_id=%s", getattr(g, "request_id", None))
+            latest_items = []
 
         # מיון לפי זמן פתיחה אחרון (במידה ונדרש)
         if sort_field_local not in {'file_name', 'created_at', 'updated_at'}:

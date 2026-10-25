@@ -296,14 +296,11 @@ def test_a_file_whose_repo_tag_was_removed_is_in_other_files_and_not_in_the_repo
 
 
 def test_search_still_reaches_the_latest_version(wa):
-    """``$text`` חייב לשבת ב-``$match`` הראשון של הצינור, והבנאי מוסיף ``$match`` משלו אחריו.
+    """החיפוש בשם מגיע לשורה של הגרסה האחרונה, גם יחד עם סינון קטגוריה.
 
-    מונגו מאחד את שניהם לשאילתה אחת (תיעוד ה-Aggregation Pipeline Optimization, "$match + $match Coalescence"). הבדיקה עוברת דרך אינדקס טקסט אמיתי, כי בלעדיו הראוט נופל לחיפוש ``$regex`` ולא בודק את הצירוף הזה בכלל.
+    החיפוש ומסנן הקטגוריה הם שניהם תנאים על הקובץ, ושניהם נבדקים אחרי הקיבוץ (``_all_of`` ב-``files()``). עד אוקטובר 2026 החיפוש היה ``$text`` ב-``$match`` הראשון, והבדיקה הזו קיבעה את הצירוף ההוא.
     """
-    db = wa.get_db()
-    db.code_snippets.create_index(
-        [("file_name", "text"), ("description", "text"), ("tags", "text")], name="text_file_desc_tags"
-    )
+    _with_production_text_index(wa)
     ids = _seed(wa, "zebra-notes.md")
     _seed(wa, "other.md")
 
@@ -311,6 +308,165 @@ def test_search_still_reaches_the_latest_version(wa):
         response = _get(wa, url)
         assert response.status_code == 200, url
         assert _shown_ids(response.get_data(as_text=True)) == [str(ids[-1])], url
+
+
+# ------------------------------------- החיפוש בשם, בתיאור ובתגיות (התיבה השנייה)
+
+
+def _with_production_text_index(wa):
+    """אינדקס הטקסט כמו בייצור — ``search_text_idx`` ב-``database/manager.py``, שכולל גם את ``code``.
+
+    התיבה כבר לא משתמשת בו. הוא כאן כדי שהקוד הקודם, שהריץ ``$text``, ירוץ במסלול שהריץ בייצור — בלי אינדקס הוא נפל לחיפוש ``$regex`` אחר — וכדי שהקוד הנוכחי ייבדק עם האינדקס קיים. לאוסף מותר אינדקס טקסט אחד, ולכן כל אינדקס טקסט אחר (למשל זה שהוובאפ יוצר בעלייה) יורד קודם.
+    """
+    coll = wa.get_db().code_snippets
+    for index in coll.list_indexes():
+        if "_fts" in dict(index["key"]):
+            coll.drop_index(index["name"])
+    coll.create_index(
+        [("file_name", "text"), ("description", "text"), ("tags", "text"), ("code", "text")],
+        name="search_text_idx",
+    )
+
+
+def _set_code(wa, file_name, code):
+    wa.get_db().code_snippets.update_many({"file_name": file_name}, {"$set": {"code": code}})
+
+
+def test_search_finds_a_tag_and_not_a_word_that_is_only_in_the_code(wa):
+    """התיבה כתובה "חיפוש לפי שם, תיאור או תגית", והיא מחפשת רק שם.
+
+    עד אוקטובר 2026 היא הריצה ``$text`` על אינדקס שכולל את הקוד, ולכן קובץ שהמילה רק בקוד שלו חזר — בלי שום סימן איפה — ולפי המיון אפילו לפני הקובץ עם התגית.
+    """
+    _with_production_text_index(wa)
+    tagged = _seed(wa, "tagged.md", tags=("Python",))
+    _seed(wa, "code-only.md")
+    _set_code(wa, "code-only.md", "print('python rocks')\n")
+
+    html = _get(wa, "/files?q=python").get_data(as_text=True)
+
+    assert _shown_ids(html) == [str(tagged[-1])]
+    assert _total(html) == 1
+
+
+def test_a_word_in_the_description_finds_the_file(wa):
+    _with_production_text_index(wa)
+    ids = _seed(wa, "plain.md", versions=1)
+    wa.get_db().code_snippets.update_many({"file_name": "plain.md"}, {"$set": {"description": "סקריפט גיבוי לילי"}})
+    _seed(wa, "other.md", versions=1)
+
+    assert _shown_ids(_get(wa, "/files?q=גיבוי").get_data(as_text=True)) == [str(ids[0])]
+
+
+def test_part_of_a_file_name_is_enough(wa):
+    """``$text`` מתאים מילה שלמה בלבד, ו-``view_file`` היא מילה אחת — ``view`` לא מצא את הקובץ."""
+    _with_production_text_index(wa)
+    ids = _seed(wa, "view_file.html", versions=1)
+    _seed(wa, "other.md", versions=1)
+
+    html = _get(wa, "/files?q=view").get_data(as_text=True)
+
+    assert _shown_ids(html) == [str(ids[0])]
+
+
+def test_a_tag_that_only_an_old_version_has_does_not_find_the_file(wa):
+    """החיפוש שואל על הקובץ כפי שהוא היום — הגרסה שהשורה מציגה.
+
+    לפני הקיבוץ הוא היה מסנן גרסאות: הגרסה הישנה, שעוד נושאת את התגית, התאימה — והשורה הציגה דווקא אותה.
+    """
+    _with_production_text_index(wa)
+    ids = _seed(wa, "retagged.md", versions=2, tags=("oldtag",))
+    _retag(wa, ids[-1], ("newtag",))
+
+    assert _shown_ids(_get(wa, "/files?q=oldtag").get_data(as_text=True)) == []
+    assert _shown_ids(_get(wa, "/files?q=newtag").get_data(as_text=True)) == [str(ids[-1])]
+
+
+def test_every_word_has_to_appear_in_one_of_the_fields(wa):
+    """כל מילה חייבת להופיע — כל אחת בשדה אחר מותר. ``$text`` חיבר את המילים ב"או"."""
+    _with_production_text_index(wa)
+    ids = _seed(wa, "utils.py", versions=1, tags=("python",))
+    _seed(wa, "python-only.md", versions=1)
+
+    assert _shown_ids(_get(wa, "/files?q=python+utils").get_data(as_text=True)) == [str(ids[0])]
+    assert _shown_ids(_get(wa, "/files?q=python+zzzmissing").get_data(as_text=True)) == []
+
+
+def test_a_hash_before_the_word_and_capital_letters_still_find_the_tag(wa):
+    _with_production_text_index(wa)
+    ids = _seed(wa, "notes.md", versions=1, tags=("python",))
+
+    for query in ("%23python", "PYTHON", "Pyth"):
+        assert _shown_ids(_get(wa, f"/files?q={query}").get_data(as_text=True)) == [str(ids[0])], query
+
+
+def test_the_search_words_are_literal_and_not_a_regex(wa):
+    """``a.b`` מחפש נקודה, ו-``(`` אינו מפיל את העמוד."""
+    _with_production_text_index(wa)
+    dotted = _seed(wa, "a.b.md", versions=1)
+    _seed(wa, "axb.md", versions=1)
+
+    assert _shown_ids(_get(wa, "/files?q=a.b").get_data(as_text=True)) == [str(dotted[0])]
+    response = _get(wa, "/files?q=%28")
+    assert response.status_code == 200
+    assert _shown_ids(response.get_data(as_text=True)) == []
+
+
+def _seed_needle_pair(wa, *, tags=(), favorite=()):
+    """שני קבצים: אחד עם התגית ``needle``, ואחד שהמילה רק בקוד שלו. מחזיר את מזהה הגרסה האחרונה של הראשון."""
+    tagged = _seed(wa, "tagged.md", versions=2, tags=tuple(tags) + ("needle",), favorite=favorite)
+    _seed(wa, "code-only.md", versions=2, tags=tags, favorite=favorite)
+    _set_code(wa, "code-only.md", "needle in the code\n")
+    return str(tagged[-1])
+
+
+@pytest.mark.parametrize(
+    "url, tags, favorite",
+    [
+        ("/files?category=other&q=needle", (), ()),
+        ("/files?category=favorites&q=needle", (), (1, 2)),
+        ("/files?category=repo&repo=amirbiron/demo&q=needle", (REPO_TAG,), ()),
+    ],
+)
+def test_every_category_searches_the_same_way(wa, url, tags, favorite):
+    _with_production_text_index(wa)
+    expected = _seed_needle_pair(wa, tags=tags, favorite=favorite)
+
+    html = _get(wa, url).get_data(as_text=True)
+
+    assert _shown_ids(html) == [expected], url
+
+
+def test_recently_opened_searches_the_same_way(wa):
+    _with_production_text_index(wa)
+    expected = _seed_needle_pair(wa)
+    wa.get_db().recent_opens.insert_many([
+        {"user_id": USER_ID, "file_name": name, "last_opened_at": CREATED + timedelta(days=1)}
+        for name in ("tagged.md", "code-only.md")
+    ])
+
+    html = _get(wa, "/files?category=recent&q=needle").get_data(as_text=True)
+
+    assert _shown_ids(html) == [expected]
+
+
+def test_large_files_are_searched_by_name_description_and_tags_too(wa):
+    """ב-``large_files`` אין גרסאות, ולכן התנאי נכנס לשאילתה עצמה — אבל הוא אותו תנאי."""
+    db = wa.get_db()
+    db.large_files.delete_many({})
+    tagged_id, other_id = ObjectId(), ObjectId()
+    for oid, name, tags, content in (
+        (tagged_id, "big-tagged.txt", ["needle"], "x\n"),
+        (other_id, "big-other.txt", [], "needle in the content\n"),
+    ):
+        db.large_files.insert_one({
+            "_id": oid, "user_id": USER_ID, "file_name": name, "content": content,
+            "programming_language": "text", "description": "", "tags": tags, "is_active": True,
+            "created_at": CREATED, "updated_at": CREATED,
+        })
+
+    html = _get(wa, "/files?category=large&q=needle").get_data(as_text=True)
+
+    assert _shown_ids(html) == [str(tagged_id)]
 
 
 # ------------------------------------------------ תקציב המיון של Atlas Flex
