@@ -1,0 +1,20 @@
+{#
+  העיצוב של רכיב ה-Split View והתצוגה החיה (Live Preview) — מקור אחד לכל עמוד שמארח אותם.
+
+  נכלל מ-``extra_css`` של ``edit_file.html`` ושל ``upload.html``, יחד עם
+  ``_live_preview_scripts.html`` ב-``extra_js``. **למה partial ולא רשימה בכל עמוד:** עד הקובץ הזה
+  כל עמוד החזיק עותק משלו של רשימת התלויות, ושני העותקים חסרו את אותם שלושה דברים — הדגשת
+  התחביר רצה רק אם ``window.SafeHighlight`` קיים, לכפתור ההעתקה שבונה ``highlightBlocks`` לא היה
+  עיצוב, והאייקון שבתוכו (``bi bi-clipboard``) לא נטען. תלות חדשה של התצוגה החיה נכנסת כאן,
+  ו-``tests/sticky-notes-target.test.js`` בודק שכל תבנית שטוענת את ``live-preview.js`` מספקת אותה.
+
+  - ``split-view.css`` — הרכיב עצמו, ושכבת התוכן של ה-Markdown בתצוגה החיה (כולל בלוקי קוד וכפתור
+    ההעתקה).
+  - ``md_preview.bundle.css`` — הצבעים של highlight.js מהבאנדל, ו-CSS של KaTeX. אותו קובץ שתצוגת
+    המסמך (``md_preview.html``) טוענת.
+  - האייקונים של Bootstrap — ``highlightBlocks`` ב-``live-preview.js`` מציב ``bi-clipboard`` בכפתור,
+    ואת ``bi-check2`` אחרי העתקה. אותה כתובת כמו ב-``files.html`` וב-``repo/base_repo.html``.
+#}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/split-view.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/md_preview.bundle.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">

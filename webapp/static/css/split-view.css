@@ -48,6 +48,15 @@
   --split-preview-blockquote-text: var(--split-preview-text);
   --split-preview-table-border: color-mix(in srgb, var(--split-preview-text) 30%, var(--split-preview-bg));
   --split-preview-table-header-bg: color-mix(in srgb, var(--split-preview-text) 8%, var(--split-preview-bg));
+  /* בלוק קוד (``pre``) וכפתור ההעתקה שבו — אותה גזירה, ולכן גם הם בלי override לכל ערכה.
+     צבעי התחביר עצמם אינם כאן: הם מ-``md_preview.bundle.css`` (או מה-``syntax_css`` של ערכה מיובאת). */
+  --split-preview-code-block-bg: color-mix(in srgb, var(--split-preview-text) 6%, var(--split-preview-bg));
+  --split-preview-code-block-border: color-mix(in srgb, var(--split-preview-text) 18%, var(--split-preview-bg));
+  --split-preview-code-copy-bg: color-mix(in srgb, var(--split-preview-text) 12%, var(--split-preview-bg));
+  --split-preview-code-copy-hover-bg: color-mix(in srgb, var(--split-preview-text) 22%, var(--split-preview-bg));
+  --split-preview-code-copy-border: color-mix(in srgb, var(--split-preview-text) 28%, var(--split-preview-bg));
+  --split-preview-code-copy-color: var(--split-preview-text);
+  --split-preview-code-copy-success: var(--success);
 
   /* Error */
   --split-error-bg: rgba(220, 38, 38, 0.1);
@@ -214,6 +223,7 @@
   /* קווים מלאים בצבע הטקסט: הגוון המעורבב של ברירת המחדל יוצא אפור כהה על שחור */
   --split-preview-blockquote-border: var(--split-preview-text);
   --split-preview-table-border: var(--split-preview-text);
+  --split-preview-code-block-border: var(--split-preview-text);
   --split-error-bg: #330000;
   --split-error-border: #ff0000;
   --split-error-text: #ff6666;
@@ -617,6 +627,87 @@ html[dir="rtl"] .split-preview-content pre.rtl-code code {
 
 :where(.split-preview-canvas[data-mode="markdown"]) blockquote > :last-child {
   margin-bottom: 0;
+}
+
+/* ----------------------------------------------
+   בלוק קוד (```) וכפתור ההעתקה שלו
+
+   ``highlightBlocks`` ב-live-preview.js מדגיש את ה-``code`` דרך ``window.SafeHighlight``
+   ומוסיף ``button.code-copy-btn`` בתוך ה-``pre``. בתצוגת המסמך הכפתור יושב בפס כותרת מעל
+   הקוד (``.md-code-header`` ב-md_preview.html); כאן אין פס כזה ב-DOM, ולכן ה-``pre`` שומר
+   לכפתור פס בראשו בריפוד העליון, והכפתור ממוקם בתוכו. הגובה של הפס נגזר משני משתנים מקומיים —
+   המרחק מהקצה וגודל הכפתור — כדי שהריפוד והמיקום לא יהיו שתי נוסחאות שנסחפות זו מזו.
+
+   הגלילה לרוחב היא של ה-``code`` ולא של ה-``pre``: כפתור ממוקם (absolute) בתוך קופסת גלילה
+   נגלל יחד עם התוכן ויוצא מהעין, וכאן הוא אח של ה-``code`` ונשאר במקומו. שורה ארוכה נגללת
+   בתוך הבלוק, ולא מרחיבה את כל התצוגה.
+   ---------------------------------------------- */
+:where(.split-preview-canvas[data-mode="markdown"]) pre {
+  --split-preview-code-copy-inset: 0.5rem;
+  --split-preview-code-copy-size: 1.75rem;
+  position: relative;
+  margin: 0.75rem 0;
+  padding: calc(var(--split-preview-code-copy-inset) * 2 + var(--split-preview-code-copy-size)) 1rem 1rem;
+  background: var(--split-preview-code-block-bg);
+  border: 1px solid var(--split-preview-code-block-border);
+  border-radius: 8px;
+  line-height: 1.5;
+}
+
+/* **שני הכללים האלה בכוונה מחוץ ל-:where(), והם החריג היחיד בשכבה הזו.** כאן היריבים אינם כללים ממוקדים
+   שצריכים לנצח, אלא כללים שחלים על ה-``code`` מבחוץ ובונים בלוק בתוך הבלוק: הצבעים של
+   highlight.js ב-``md_preview.bundle.css`` נותנים ל-``code.hljs`` רקע משלו ו-``padding: 1em``
+   (‏``pre code.hljs`` — 0,1,2), וערכה מיובאת מזריקה ``:root[data-theme-type="custom"] .hljs``
+   (0,3,0) עם רקע ב-``!important`` (``generate_hljs_css_from_tokens`` ב-
+   services/theme_parser_service.py). הבורר כאן הוא 0,2,2, ו-0,3,2 לרקע של ``code.hljs`` —
+   גבוה משניהם, בלי תלות בסדר הטעינה. תצוגת המסמך מנטרלת את אותם כללים באותה צורה
+   (``#md-content .hljs`` שם). צבע הטקסט של ערכה מיובאת לא נדרס, ולכן צבעי התחביר שלה חלים. */
+.split-preview-canvas[data-mode="markdown"] pre > code {
+  display: block;
+  overflow-x: auto;
+  padding: 0;
+  background: transparent;
+}
+
+.split-preview-canvas[data-mode="markdown"] pre > code.hljs {
+  background: transparent !important;
+}
+
+/* הכפתור בצד ימין גם בבלוק עברי (``pre.rtl-code``, שהכיוון שלו rtl), ולכן ``right`` פיזי ולא
+   ``inset-inline-end``: בתצוגת המסמך פס הכותרת יורש ``direction: ltr`` מ-``.code-block``, והכפתור
+   הוא הפריט האחרון בו — תמיד מימין. צד לוגי היה מעביר אותו לשמאל בכל בלוק עברי. */
+:where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn {
+  position: absolute;
+  top: var(--split-preview-code-copy-inset);
+  right: var(--split-preview-code-copy-inset);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--split-preview-code-copy-size);
+  min-width: var(--split-preview-code-copy-size);
+  padding: 0 0.45rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--split-preview-code-copy-color);
+  background: var(--split-preview-code-copy-bg);
+  border: 1px solid var(--split-preview-code-copy-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn:hover {
+  background: var(--split-preview-code-copy-hover-bg);
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+:where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn.copied {
+  color: var(--split-preview-code-copy-success);
+  background: color-mix(in srgb, var(--split-preview-code-copy-success) 18%, var(--split-preview-code-block-bg));
 }
 
 .split-preview-placeholder {

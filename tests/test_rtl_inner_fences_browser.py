@@ -143,11 +143,11 @@ READY_JS = """([root, count]) => {
           pres: pres.length, highlighted: highlighted.length, buttons: buttons.length, moving};
 }"""
 
-#: משטחים שצובעים את הקוד. בעמוד העריכה ``utils/safe-highlight.js`` אינו נטען
-#: (``extra_js`` ב-``edit_file.html``), ולכן התצוגה החיה שם אינה צובעת בכלל — נמדד:
-#: אפס בלוקים עם ``data-highlighted``. שם העטיפה רצה על טקסט בלי צביעה, והמסלול
-#: שבו טוקן צבוע חוצה את גבול הקטע נבדק בשני המשטחים האחרים.
-HIGHLIGHTING_SURFACES = {"md_preview", "repo_browser", "repo_fallback"}
+#: משטחים שצובעים את הקוד — כולם. עד שהתלויות של עמוד העריכה עברו ל-
+#: ``_live_preview_scripts.html``, ``utils/safe-highlight.js`` לא נטען שם, והתצוגה החיה
+#: לא צבעה בכלל (נמדד: אפס בלוקים עם ``data-highlighted``). מאז גם שם העטיפה רצה על HTML
+#: צבוע, ולכן גם שם נדרשת צביעה של כל הבלוקים.
+HIGHLIGHTING_SURFACES = {"md_preview", "live_preview", "repo_browser", "repo_fallback"}
 
 #: הטקסט של כל קטע ``.rtl-code-ltr`` בבלוק, וגם אם הבלוק בכלל עברי — בקרה: בלוק
 #: שלא התהפך היה נותן "אין קטעים" מהסיבה הלא נכונה.

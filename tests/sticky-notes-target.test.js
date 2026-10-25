@@ -3191,25 +3191,102 @@ function cacheBusted(src, asset){
   return tag.test(src);
 }
 
+const TEMPLATES_DIR = path.join(__dirname, '..', 'webapp', 'templates');
+const INCLUDE_TAG = /\{%-?\s*include\s+(['"])([^'"]+)\1[^%]*?-?%\}/g;
+
+/**
+ * תבנית כפי ש-Jinja מריצה אותה: בלי הערות ``{# ... #}``. הערה יכולה להכיל תגית שלא רצה —
+ * ``export/export_modal.html`` פותח בדוגמת שימוש ``{# Usage: {% include '...' %} #}`` שמפנה
+ * לעצמו, ופתרון שלא מדלג עליה נכנס ללולאה.
+ */
+function readTemplate(file){
+  return fs.readFileSync(file, 'utf8').replace(/\{#[\s\S]*?#\}/g, '');
+}
+
+/**
+ * העמודים שטוענים את ``live-preview.js``, כל אחד כפי שהוא מגיע לדפדפן: כל ``{% include %}``
+ * מוחלף בתוכן הקובץ שנכלל.
+ *
+ * **למה לא פשוט "כל קובץ שמכיל את התגית".** עמוד העריכה ועמוד ההעלאה מקבלים את התלויות של
+ * התצוגה החיה משני partials — ``_live_preview_styles.html`` ו-``_live_preview_scripts.html`` —
+ * ותלות יכולה לשבת בכל אחד מהם (האייקונים בראשון, ``live-preview.js`` בשני). בדיקה על קבצים
+ * בודדים הייתה בודקת את ה-partial ולא את העמוד, ונופלת על תלות שנמצאת בבן הזוג שלו. לכן קבצים
+ * שנכללים מעמוד אחר אינם עמודים בעצמם, ושאר הקבצים נבדקים אחרי פתרון ה-include.
+ */
+function templateFiles(){
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+  return walk(TEMPLATES_DIR).filter((f) => f.endsWith('.html'));
+}
+
+function liveLoaders(){
+  const files = templateFiles();
+  const included = new Set();
+  files.forEach((f) => {
+    for (const m of readTemplate(f).matchAll(INCLUDE_TAG)) {
+      included.add(path.join(TEMPLATES_DIR, m[2]));
+    }
+  });
+  const resolve = (src, depth) => {
+    if (depth > 5) throw new Error('include מקונן עמוק מדי — מעגל?');
+    return src.replace(INCLUDE_TAG, (_tag, _quote, name) =>
+      resolve(readTemplate(path.join(TEMPLATES_DIR, name)), depth + 1));
+  };
+  return files.filter((f) => !included.has(f))
+    .map((f) => ({ name: path.relative(TEMPLATES_DIR, f), src: resolve(readTemplate(f), 0) }))
+    .filter(({ src }) => src.includes("filename='js/live-preview.js'"));
+}
+
 check('חיווט: כל תבנית שטוענת live-preview.js טוענת גם את מפת האלרטים, ולפניה', () => {
   // **המשטח השני שקורא מהמפה, ואותה מלכודת בדיוק.** ``live-preview.js``
   // קורא את התוויות ואת תווית ברירת המחדל של ``details`` מ-``window``;
   // בעמוד שאינו טוען את הקובץ, ה-``summary`` היה נבנה **ריק** — בלי
   // שגיאה ובלי לוג. עד היום נבדק רק המשטח של הפתקים.
-  const dir = path.join(__dirname, '..', 'webapp', 'templates');
-  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
-  const loaders = walk(dir).filter((f) => f.endsWith('.html'))
-    .filter((f) => fs.readFileSync(f, 'utf8').includes("filename='js/live-preview.js'"));
-  eq(loaders.length >= 3, true, 'נמצאו התבניות שטוענות את התצוגה החיה (' + loaders.length + ')');
-  loaders.forEach((f) => {
-    const src = fs.readFileSync(f, 'utf8');
+  const loaders = liveLoaders();
+  eq(loaders.length >= 4, true, 'נמצאו התבניות שטוענות את התצוגה החיה (' + loaders.length + ')');
+  loaders.forEach(({ name, src }) => {
     const icons = src.indexOf("filename='js/admonition-icons.js'");
     const live = src.indexOf("filename='js/live-preview.js'");
-    eq(icons !== -1, true, path.basename(f) + ' טוען את מפת האלרטים');
-    eq(icons < live, true, path.basename(f) + ' טוען אותה לפני live-preview.js');
+    eq(icons !== -1, true, name + ' טוען את מפת האלרטים');
+    eq(icons < live, true, name + ' טוען אותה לפני live-preview.js');
     eq(cacheBusted(src, 'js/admonition-icons.js'), true,
-       path.basename(f) + ' טוען אותה עם ?v=static_version');
+       name + ' טוען אותה עם ?v=static_version');
+  });
+});
+
+check('חיווט: כל תבנית שטוענת live-preview.js מספקת גם את ההדגשה ואת האייקון של כפתור ההעתקה', () => {
+  // ``highlightBlocks`` ב-``live-preview.js`` מדגיש רק ``if (window.SafeHighlight)``, ומציב
+  // בכפתור ההעתקה ``<i class="bi bi-clipboard">``. בעמוד שלא טוען את ``safe-highlight.js`` אין
+  // הדגשה, ובעמוד שלא טוען את האייקונים של Bootstrap הכפתור ריק — בשני המקרים בלי שגיאה. כך
+  // היה בעמוד העריכה ובעמוד ההעלאה, עד שהתלויות שלהם עברו ל-partials.
+  const loaders = liveLoaders();
+  eq(loaders.length >= 4, true, 'נמצאו התבניות שטוענות את התצוגה החיה (' + loaders.length + ')');
+  loaders.forEach(({ name, src }) => {
+    const safe = src.indexOf("filename='js/utils/safe-highlight.js'");
+    const live = src.indexOf("filename='js/live-preview.js'");
+    eq(safe !== -1, true, name + ' טוען את safe-highlight.js');
+    eq(safe < live, true, name + ' טוען אותו לפני live-preview.js');
+    eq(cacheBusted(src, 'js/utils/safe-highlight.js'), true,
+       name + ' טוען אותו עם ?v=static_version');
+    eq(/<link\b[^>]*\bhref="[^"]*\/bootstrap-icons(?:\.min)?\.css"/.test(src), true,
+       name + ' טוען את האייקונים של Bootstrap');
+  });
+});
+
+check('חיווט: כל עמוד עם Split View מקבל את התלויות של התצוגה החיה מה-partials, ולא מרשימה משלו', () => {
+  // **זה מה שמונע מהעמוד השלישי לחזור לבור.** הבאג היה שתי רשימות שנכתבו ביד וחסרו את אותם
+  // דברים. עמוד חדש עם ``#livePreviewRoot`` שיכתוב רשימה משלו היה עובר את שתי הבדיקות שלמעלה
+  // ביום הכתיבה, וחסר את התלות הבאה שתתווסף ל-partial.
+  const pages = templateFiles()
+    .filter((f) => readTemplate(f).includes('id="livePreviewRoot"'))
+    .map((f) => path.relative(TEMPLATES_DIR, f));
+  eq(pages.sort().join(','), 'edit_file.html,upload.html', 'העמודים עם Split View');
+  pages.forEach((name) => {
+    const src = readTemplate(path.join(TEMPLATES_DIR, name));
+    const includes = [...src.matchAll(INCLUDE_TAG)].map((m) => m[2]);
+    eq(includes.includes('_live_preview_styles.html'), true, name + ' כולל את _live_preview_styles.html');
+    eq(includes.includes('_live_preview_scripts.html'), true, name + ' כולל את _live_preview_scripts.html');
+    eq(src.includes("filename='js/live-preview.js'"), false, name + ' אינו טוען את live-preview.js בעצמו');
   });
 });
 

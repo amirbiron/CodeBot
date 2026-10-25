@@ -1,0 +1,22 @@
+{#
+  הסקריפטים של התצוגה החיה (Live Preview) — מקור אחד לכל עמוד שמארח אותה.
+
+  נכלל מ-``extra_js`` של ``edit_file.html`` ושל ``upload.html``, אחרי הסקריפטים של העמוד עצמו,
+  ובן הזוג שלו הוא ``_live_preview_styles.html`` (ההסבר למה partial — שם). ``live-preview.js``
+  קורא את התלויות שלו מ-``window``, ועל רובן הוא מדלג בשקט כשהן חסרות (למשל
+  ``if (window.SafeHighlight)`` ב-``highlightBlocks``). לכן תלות שחסרה כאן לא זורקת שגיאה — היא
+  מכבה חלק מהתצוגה בלי סימן. כך נעלמה הדגשת התחביר: ``safe-highlight.js`` לא נטען, וזה המצב
+  ש-``tests/sticky-notes-target.test.js`` בודק עכשיו.
+
+  הסדר מחייב: כולם ``defer``, כלומר רצים לפי הסדר כאן, וכל אחד לפני ``live-preview.js``.
+  ``safe-highlight.js`` אחרי הבאנדל — אז ``window.hljs`` כבר קיים, וה-patch שלו על
+  ``highlightAuto`` חל מיד.
+#}
+<script src="{{ url_for('static', filename='js/md_preview.bundle.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/md-math-plugin.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/live-preview.js') }}?v={{ static_version }}" defer></script>
