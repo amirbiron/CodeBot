@@ -8,7 +8,8 @@ API מזויף היה בודק שהלקוח שולח את מה שהטסט ציפ
 
 **מה נמדד:** מרכוז הפתק הפתוח במסך, שהמיקום אינו נשמר והגודל כן, ``inert`` על הרשת, שהמיקוד
 חוזר לכרטיס, חיתוך השם לארבע שורות, הכיוון של רצף לטיני בשם עברי (מול בקרה בלי הבידוד), מצב
-השגיאה, הקישור העמוק, מסך של טלפון, וערכות כהה וניגודיות גבוהה (יחס ניגודיות מחושב).
+השגיאה, הקישור העמוק, מסך של טלפון, ערכות כהה וניגודיות גבוהה (יחס ניגודיות מחושב), כתב היד בשם
+הכרטיס מול הפתק הפתוח, בהגדרה כבויה ודלוקה, ו"כלול ארכיון" בעמוד החיפוש — במחשב ובטלפון.
 
 **מה לא נבדק כאן:** מכשיר אמיתי — זו אמולציה בכרומיום. האנימציה של החזרה לכרטיס נבדקת רק בכך
 שהפתק יורד והמיקוד חוזר, לא במסלול שלה.
@@ -355,6 +356,32 @@ def test_a_long_name_is_cut_after_four_lines_and_a_path_keeps_its_slash(admin_li
         assert order["control"] is False, "בקרה: בלי בידוד הלוכסן נודד — אחרת הבדיקה אינה מוכיחה דבר"
 
 
+@pytest.mark.parametrize("setting", [False, True], ids=["setting-off", "setting-on"])
+def test_card_names_are_handwritten_and_the_open_note_follows_the_setting(
+    setting, admin_live_server, chromium_executable, db,
+):
+    """שם הכרטיס בכתב יד **תמיד**; הפתק שנפתח מעליו — לפי ההגדרה של הלוחות
+    (``ui_prefs.note_fonts.board``, שעמוד הארכיון קורא דרך ``_note_fonts_head.html``).
+
+    **מה נבדק ומה לא:** הגופן נטען מ-Google Fonts, ובסביבה בלי רשת הוא לא יגיע. לכן נבדקים
+    ה-``font-family`` המחושב ושה-``<link>`` של הגופן קיים בעמוד, ולא שהגליפים צוירו בגופן."""
+    if setting:
+        db.users.insert_one({"user_id": USER, "ui_prefs": {"note_fonts": {"board": True}}})
+    note = archived(db, "רשימה ביד")
+
+    with opened(admin_live_server, chromium_executable, "/boards/archive") as page:
+        card(page, note).wait_for(state="visible", timeout=20000)
+        family = card(page, note).locator(".archive-card-title").evaluate("t => getComputedStyle(t).fontFamily")
+        assert family.startswith('"Gveret Levin"'), family
+        assert page.locator("link#hw-font").count() == 1, "הגופן נטען גם בהגדרה כבויה"
+        shot(page, f"8-handwriting-{'on' if setting else 'off'}")
+
+        content = open_note(page, note).locator(".sticky-note-content")
+        body = content.evaluate("e => getComputedStyle(e).fontFamily")
+        assert body.startswith('"Gveret Levin"') is setting, body
+        assert page.js_errors == []
+
+
 def test_on_a_phone_the_grid_has_two_columns_and_the_note_fits(admin_live_server, chromium_executable, db):
     notes = [archived(db, f"פתק {i}", minutes=i) for i in range(4)]
 
@@ -374,6 +401,68 @@ def test_on_a_phone_the_grid_has_two_columns_and_the_note_fits(admin_live_server
         shot(page, "6-phone-open")
         action(el, "—").tap()
         el.wait_for(state="detached", timeout=10000)
+
+
+# == החיפוש בפתקים ו"כלול ארכיון" ==========================================================
+
+
+def search_hits(page) -> dict[str, str]:
+    """מזהה הפתק ← התווית של המקום שלו, לכל תוצאה שמוצגת (``TARGET_LABELS`` ב-``notes_search.js``)."""
+    return page.locator(".notes-search-link").evaluate_all(
+        """links => Object.fromEntries(links.map(a => [a.getAttribute('href').split('/').pop(),
+                                                      a.querySelector('.notes-search-meta').textContent]))""")
+
+
+def wait_for_hits(page, count: int) -> None:
+    # ``expect`` ולא ``wait_for_function`` עם מחרוזת: ה-CSP של האתר אוסר ``unsafe-eval``.
+    from playwright.sync_api import expect
+
+    expect(page.locator(".notes-search-link")).to_have_count(count, timeout=10000)
+
+
+def test_the_notes_search_shows_the_archive_only_with_the_box_ticked(admin_live_server, chromium_executable, db):
+    """בלי התיבה — רק הפתק הפעיל. מסמנים — גם פתק הארכיון, עם התווית "ארכיון", והבחירה נכנסת
+    לכתובת: רענון שומר אותה, והסרת הסימון מוציאה אותה. הכול מול השרת והמסד האמיתיים."""
+    board = insert_board(db, USER)
+    live = insert_note(db, USER, board_id=board, title="רעיון פעיל")
+    gone = archived(db, "רעיון ישן")
+
+    with opened(admin_live_server, chromium_executable, "/notes/search?q=רעיון") as page:
+        wait_for_hits(page, 1)
+        box = page.locator("#noteSearchArchive")
+        assert box.is_checked() is False
+        assert search_hits(page) == {live: "לוח"}
+
+        box.check()
+        wait_for_hits(page, 2)
+        assert search_hits(page) == {live: "לוח", gone: "ארכיון"}
+        assert "include_archived=1" in page.url
+        shot(page, "9-search-with-archive")
+
+        page.reload(wait_until="load")
+        wait_for_hits(page, 2)
+        assert page.locator("#noteSearchArchive").is_checked() is True, "רענון שומר את הבחירה"
+
+        page.locator("#noteSearchArchive").uncheck()
+        wait_for_hits(page, 1)
+        assert "include_archived" not in page.url
+        assert page.js_errors == []
+
+
+def test_on_a_phone_the_archive_box_fits_and_its_label_is_tappable(admin_live_server, chromium_executable, db):
+    """בטלפון: בלי גלילה לרוחב, והתווית כולה לחיצה — נגיעה במילים מסמנת את התיבה."""
+    archived(db, "רעיון ישן")
+
+    with opened(admin_live_server, chromium_executable, "/notes/search?q=רעיון", PHONE, mobile=True) as page:
+        page.locator("#noteSearchMsg").wait_for(state="visible", timeout=10000)
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "בלי גלילה לרוחב"
+        label = page.locator(".notes-search-archive")
+        box = label.bounding_box()
+        assert box["x"] >= 0 and box["x"] + box["width"] <= PHONE["width"], box
+        page.get_by_text("כלול ארכיון").tap()
+        wait_for_hits(page, 1)
+        assert page.locator("#noteSearchArchive").is_checked() is True
+        shot(page, "10-phone-search-with-archive")
 
 
 #: הערכות המובנות — הרשימה ``allowed`` ב-``base.html``, בלי ``custom`` (תלוי במשתמש).

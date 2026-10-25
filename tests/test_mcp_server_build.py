@@ -276,6 +276,42 @@ async def test_the_note_tool_descriptions_close_the_read_edit_loop():
         assert "codekeeper_get_note" in prop["description"]
 
 
+@pytest.mark.parametrize(("sent", "expected"), [
+    ({}, False),
+    ({"include_archived": True}, True),
+    ({"include_archived": "false"}, False),
+], ids=["absent", "true", "string-false"])
+async def test_search_notes_takes_include_archived_through_the_real_tool(monkeypatch, sent, expected):
+    """דרך ``mcp.call_tool`` — המסלול שהלקוח מפעיל. בלי הפרמטר: ``False``, כלומר בלי הארכיון.
+    ומחרוזת ``"false"`` מגיעה ל-handler כ-``False``, ולא כ-``bool("false")``."""
+    import mcp_server.server as srv
+
+    seen: dict = {}
+    monkeypatch.setattr(srv, "current_user_id", lambda ctx=None: 4242)
+    monkeypatch.setattr(
+        srv.handlers, "search_notes",
+        lambda backend, user_id, **kw: seen.update(user_id=user_id, **kw) or {"ok": True},
+    )
+
+    mcp = build_mcp(_FakeBackend())
+    await mcp.call_tool("codekeeper_search_notes", {"query": "x", **sent})
+
+    assert seen["include_archived"] is expected
+
+
+async def test_the_search_notes_schema_and_description_name_the_archive():
+    """הפרמטר בסכימה, בוליאני וכבוי כברירת מחדל — וכך קריאה ישנה נשארת כמו שהייתה; והתיאור אומר
+    שהארכיון בחוץ בלעדיו, ושפגיעה מהארכיון נקראת לפי מזהה (אין לה כלי רשימה)."""
+    mcp = build_mcp(_FakeBackend())
+    tool = {t.name: t for t in mcp._tool_manager.list_tools()}["codekeeper_search_notes"]
+
+    prop = tool.parameters["properties"]["include_archived"]
+    assert prop["type"] == "boolean" and prop["default"] is False
+    assert "include_archived" not in tool.parameters.get("required", [])
+    assert "include_archived=true" in tool.description
+    assert "target=archive" in tool.description and "read it by id" in tool.description
+
+
 def test_build_app_exposes_healthz_route():
     app = build_app(_FakeBackend(), _FakeStore())
     paths = {getattr(r, "path", None) for r in app.routes}

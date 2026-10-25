@@ -41,6 +41,7 @@ from sticky_notes_target import (
     note_color_hex,
     note_color_id,
     note_search_needle_error,
+    TARGET_FIELDS,
 )
 # מצב התזכורת — אותה שכבה טהורה, ומאותה סיבה: שלושה מודולים שואלים "האם
 # התזכורת פעילה", והתשובה חייבת להיות אחת.
@@ -127,8 +128,9 @@ _INDEX_READY_LOCK = threading.Lock()
 #: ``v3`` חי היה מדלג על ``_ensure_indexes`` ליממה שלמה, והאינדקס החדש לא
 #: היה נבנה באף אחד מהם — כשל שקט שבדיוק כמוהו כבר קרה כאן.
 #:
-#: ``v5`` מלווה את ``user_archived_idx`` של הארכיון, מאותה סיבה.
-_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v5"
+#: ``v5`` מלווה את ``user_archived_idx`` של הארכיון, מאותה סיבה, ו-``v6`` את
+#: ``user_archived_updated_idx`` של החיפוש בלי הארכיון.
+_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v6"
 _INDEX_READY_CACHE_TTL_SECONDS = 24 * 3600
 _INDEX_CACHE_LAST_CHECK = 0.0
 _WARMUP_TRIGGERED = threading.Event()
@@ -289,6 +291,16 @@ _QUERY_INDEX_SPECS: Tuple[Tuple[str, List[Tuple[str, int]]], ...] = (
     # (``active_notes_filter``, ``archived_at: None``) היא ``COUNT_SCAN`` עליו,
     # בלי לקרוא מסמכים. נעול מול מונגו אמיתי ב-``tests/test_note_archive_mongo.py``.
     ("user_archived_idx", [("user_id", 1), ("archived_at", -1), ("_id", -1)]),
+    # **החיפוש בלי הארכיון — שוויון, שוויון, מיון.** ``note_search_filter`` מוסיף
+    # ``archived_at: None`` (``active_notes_filter``), ובלי האינדקס הזה המתכנן
+    # בחר בין ``user_updated_idx`` (מיון מוכן, ``archived_at`` כשארית) לבין
+    # ``user_archived_idx`` (גבולות הדוקים, ו-``SORT`` חוסם). לשאילתת מילה נדירה
+    # ניצח השני, והתוכנית נשמרה במטמון — ושאילתת מילה נפוצה שרצה אחריה השתמשה
+    # בה: נמדד בהרצה אמיתית עם הפרופיילר, 1000 מסמכים שנקראו במקום 22, בכל
+    # הרצה. כאן ``user_id`` ו-``archived_at`` הם שוויון ו-``updated_at`` הוא סדר
+    # המיון, ולכן התוכנית קוראת לפי הסדר ונעצרת בתקרה גם מתוך המטמון. נעול מול
+    # מונגו אמיתי ב-``tests/test_note_archive_mongo.py``.
+    ("user_archived_updated_idx", [("user_id", 1), ("archived_at", 1), ("updated_at", -1)]),
 )
 
 
@@ -3400,12 +3412,30 @@ def _search_limit(raw: Any) -> int:
     return min(want, NOTE_SEARCH_MAX_LIMIT)
 
 
+#: **מה ממשיך אחרי הדירוג — רשימה של מה שנשאר, ולא של מה שיורד.** השדות
+#: ש-:func:`_as_search_hit` קורא, שדות היעד ש-``note_target_ref`` מסווג לפיהם
+#: (כל :data:`~sticky_notes_target.TARGET_FIELDS`, כדי שיעד שיתווסף יגיע מאליו),
+#: והשדות שנגזרו ב-``$addFields``. ``_id`` נשאר תמיד. הכללה ולא החרגה, כי החרגה
+#: אחרי ``$addFields`` השאירה את הגוף בקלט של ``$sort`` (הנימוק המלא — שלב 3 ב-
+#: :func:`build_note_search_pipeline`), וגם כי שדה כבד חדש בפתק לא ייגרר לכאן
+#: בשקט.
+_SEARCH_HIT_PROJECTION: Dict[str, int] = {
+    field: 1
+    for field in (
+        "title", "color", "updated_at",
+        *(name for names in TARGET_FIELDS.values() for name in names),
+        "preview", "preview_truncated", "_title_hit",
+    )
+}
+
+
 def build_note_search_pipeline(
     user_id: int,
     needle: str,
     *,
     color_id: Optional[str],
     limit: int,
+    include_archived: bool = False,
 ) -> List[Dict[str, Any]]:
     """הצינור שמחפש פתקים — **בנוי כאן, ונבדק כפי שנשלח**.
 
@@ -3415,14 +3445,21 @@ def build_note_search_pipeline(
     1. ``$match`` — הפילטר המשותף עם ה-MCP
        (:func:`~sticky_notes_target.note_search_filter`). **אותה פונקציה
        ולא העתק**: שני חיפושי פתקים שמתאימים אחרת הם שני מוצרים שמתחזים
-       לאחד.
+       לאחד. גם הסתרת הארכיון (``include_archived``) קורית שם.
     2. ``$addFields`` — הדירוג והתצוגה המקדימה, שניהם **לפני** שהגוף יורד,
        כי שניהם נגזרים ממנו.
-    3. ``$project`` בהחרגה — הגוף יורד **לפני** ה-``$sort``. בסדר ההפוך
-       מונגו החזירה בפרודקשן שגיאה 292
-       (``QueryExceededMemoryLimitNoDiskUseAllowed``) והקוד נפל למסלול
-       איטי; ``allowDiskUse`` אינו מציל כי Atlas מתעלם ממנו ב-Flex. מתועד
-       ב-``tests/test_files_pipelines_drop_heavy_fields_early.py``.
+    3. ``$project`` **בהכללה** (:data:`_SEARCH_HIT_PROJECTION`) — רק מה
+       שהתשובה צריכה ממשיך ל-``$sort``. בסדר ההפוך — מיון ואז היטלה — מונגו
+       החזירה בפרודקשן שגיאה 292 (``QueryExceededMemoryLimitNoDiskUseAllowed``)
+       והקוד נפל למסלול איטי; ``allowDiskUse`` אינו מציל כי Atlas מתעלם ממנו
+       ב-Flex. מתועד ב-``tests/test_files_pipelines_drop_heavy_fields_early.py``.
+
+       **ולמה הכללה ולא ``{"content": 0}``, שהיה כאן עד אוקטובר 2026.**
+       החרגה שבאה אחרי ``$addFields`` לא הורידה את הגוף מהמיון: ``explain``
+       מול מונגו 8 הראה ``totalDataSizeSortedBytesEstimate`` של 1,792,484
+       בייטים על 200 פתקים ארוכים (תקרה 50), ו-57,260 עם הכללה — אותה
+       תוצאה. זה ``amir-bug-patterns``, ``BY-STACK/mongodb.md`` דפוס 5,
+       שנותן את הפונקציה הזו כדוגמה. נעול ב-``tests/test_note_archive_mongo.py``.
     4. ``$sort`` — כותרת לפני גוף, ובתוך כל קבוצה לפי עדכון אחרון.
        ‏``false < true`` בסדר ה-BSON, ולכן ``-1`` מעלה את פגיעות הכותרת.
     5. ``$limit`` עם **שורת סנטינל** (``limit + 1``), כמו ב-MCP: שורה
@@ -3450,6 +3487,7 @@ def build_note_search_pipeline(
             search_content=True,
             content_needle=needle,
             color_id=color_id,
+            include_archived=include_archived,
         )},
         {"$addFields": {
             "_title_hit": {"$regexMatch": {
@@ -3463,7 +3501,7 @@ def build_note_search_pipeline(
             "preview": {"$substrCP": [body, 0, NOTE_SEARCH_PREVIEW_CHARS]},
             "preview_truncated": {"$gt": [{"$strLenCP": body}, NOTE_SEARCH_PREVIEW_CHARS]},
         }},
-        {"$project": {"content": 0}},
+        {"$project": _SEARCH_HIT_PROJECTION},
         {"$sort": {"_title_hit": -1, "updated_at": -1}},
         {"$limit": int(limit) + 1},
         {"$unset": "_title_hit"},
@@ -3513,6 +3551,11 @@ def search_notes():
     ``list_repo_notes``/``create_repo_note`` בלבד). גם ``/api/sticky-notes/repo/…``
     בוובאפ נושא ``@require_auth`` בלבד, כלומר גייט אדמין כאן היה מסתיר
     מהמשתמש פתקים שהוא כבר מושך בקריאה אחרת — גייט שאינו מגן על דבר.
+
+    **פתקי הארכיון — רק כשביקשו.** ``include_archived=1`` מחזיר אותם, וזו
+    התיבה "כלול ארכיון" בעמוד; בלעדיו הם מוסתרים בפילטר המשותף, כמו ב-
+    ``codekeeper_search_notes`` בלי הפרמטר באותו שם. התשובה מחזירה את
+    ``include_archived`` שהוחל, כמו ``color_id``.
     """
     try:
         _ensure_indexes()
@@ -3553,9 +3596,25 @@ def search_notes():
         else:
             color_id = None
 
+        # **"כלול ארכיון" — ``1`` או כלום, וכל ערך אחר נדחה.** הערך מגיע מה-query,
+        # כלומר מחוץ לתהליך, ו-``bool()`` עליו היה הופך ``"false"`` ו-``"0"`` לאמת —
+        # חושף את הארכיון דווקא כשביקשו שלא. וסירוב ולא התעלמות, מאותה סיבה
+        # כמו ``invalid_color``: קורא שקיבל ``ok`` על מסנן שלא הוחל מדווח דבר
+        # לא נכון. העמוד שולח ``1`` רק כשהתיבה מסומנת.
+        raw_archived = str(request.args.get('include_archived', '') or '').strip()
+        if raw_archived not in ('', '0', '1'):
+            return jsonify({
+                'ok': False,
+                'error': 'invalid_include_archived',
+                'allowed': ['0', '1'],
+            }), 400
+        include_archived = raw_archived == '1'
+
         limit = _search_limit(request.args.get('limit'))
         db = get_db()
-        pipeline = build_note_search_pipeline(user_id, needle, color_id=color_id, limit=limit)
+        pipeline = build_note_search_pipeline(
+            user_id, needle, color_id=color_id, limit=limit, include_archived=include_archived,
+        )
         cursor = db.sticky_notes.aggregate(pipeline)
         rows = list(cursor) if cursor is not None else []
 
@@ -3567,6 +3626,7 @@ def search_notes():
             'ok': True,
             'query': needle,
             'color_id': color_id or '',
+            'include_archived': include_archived,
             'count': len(rows),
             'truncated': truncated,
             'results': [_as_search_hit(doc) for doc in rows if isinstance(doc, dict)],

@@ -40,10 +40,11 @@ class _Recorder:
     def list_repo_note_paths(self, user_id, *, repo_name):
         return self._record("list_repo_note_paths", user_id, {"repo_name": repo_name})
 
-    def search_notes(self, user_id, *, query, limit, search_content=False, content_query=None):
+    def search_notes(self, user_id, *, query, limit, search_content=False, content_query=None,
+                     include_archived=False):
         return self._record("search_notes", user_id, {
             "query": query, "limit": limit, "search_content": search_content,
-            "content_query": content_query,
+            "content_query": content_query, "include_archived": include_archived,
         })
 
     def get_note(self, user_id, *, note_id, with_version=False):

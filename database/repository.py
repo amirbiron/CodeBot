@@ -451,16 +451,7 @@ def _latest_version_projection_stage(projection: Optional[Dict[str, int]]) -> Di
         return {"$project": dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)}
 
     proj = dict(projection)
-    try:
-        is_include = any(
-            (k != "_id") and (int(v) == 1)
-            for k, v in proj.items()
-            if v in (0, 1)
-        )
-    except Exception:
-        is_include = False
-
-    if is_include:
+    if _is_include_projection(proj):
         proj.setdefault("file_name", 1)
     else:
         try:
@@ -468,6 +459,101 @@ def _latest_version_projection_stage(projection: Optional[Dict[str, int]]) -> Di
         except Exception:
             pass
     return {"$project": proj}
+
+
+def _is_include_projection(projection: Dict[str, Any]) -> bool:
+    """האם ההיטלה היא הכללה: שדה כלשהו מלבד ``_id`` שערכו 1.
+
+    ``_id`` מותר במונגו בשתי הצורות, ולכן אינו נספר. ערך שאינו 0 או 1 (ביטוי) אינו מכריע.
+    הבדיקה עברה לכאן מ-``_latest_version_projection_stage``, כדי שגם ``_keep_sort_keys`` ו-
+    ``_carries_heavy_fields`` יכריעו לפיה ולא לפי עותק שלה.
+
+    **חריגה בהשוואה נבלעת כ"לא הכללה", ובכוונה:** זה הצד הבטוח בכל הקוראים —
+    ``_latest_version_projection_stage`` ממזג אז את החרגת השדות הכבדים, ו-``_carries_heavy_fields``
+    עונה "לא" ולכן אין שלב שני. ההתנהגות הזו קיימת מאז שהבדיקה נכתבה.
+    """
+    try:
+        return any((k != "_id") and (int(v) == 1) for k, v in projection.items() if v in (0, 1))
+    except Exception:
+        return False
+
+
+def _carries_heavy_fields(projection: Dict[str, Any]) -> bool:
+    """האם ההיטלה מביאה שדה כבד (``_HEAVY_FIELDS_EXCLUDE_PROJECTION``). רק הכללה יכולה — להחרגה
+    ``_latest_version_projection_stage`` ממזג את כל הכבדים."""
+    return _is_include_projection(projection) and any(
+        projection.get(field) for field in _HEAVY_FIELDS_EXCLUDE_PROJECTION
+    )
+
+
+def _keep_sort_keys(projection: Dict[str, Any], sort: Dict[str, int]) -> Tuple[Dict[str, Any], List[str]]:
+    """``projection`` כמו שהיא, ובתוספת שדות ``sort`` שהיא הייתה מורידה — ומי מהם להוריד אחרי המיון.
+
+    ההיטלה עוברת אל **לפני** המיון (``_latest_per_file_page``), ושם היטלה שאינה מביאה את שדה
+    המיון הייתה ממיינת לפי שדה חסר — בלי חריגה, בסדר שרירותי, ועם ``$limit`` גם על קבוצה אחרת
+    של קבצים. בפועל זה קורה: ``batch_commands`` מבקש ``{"file_name": 1}`` בלבד, והגיבוי ל-Drive
+    וחיפוש הקבצים מבקשים רשימה בלי ``updated_at``. שדה שנוסף כאן יורד אחרי ה-``$limit``, ולכן
+    התשובה זהה למה שהייתה כשההיטלה ישבה אחרי המיון.
+    """
+    kept = dict(projection)
+    helpers: List[str] = []
+    include = _is_include_projection(kept)
+    for key in sort:
+        if key == "_id":
+            continue
+        if include and key not in kept:
+            kept[key] = 1
+            helpers.append(key)
+        elif not include and key in kept and not kept[key]:
+            del kept[key]
+            helpers.append(key)
+    return kept, helpers
+
+
+def _latest_per_file_page(
+    match: Dict[str, Any],
+    *,
+    sort: Dict[str, int],
+    limit: int,
+    skip: int = 0,
+    projection: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """צינור "הגרסה האחרונה לכל קובץ", ממוין ומעומד — **וההיטלה לפני המיון**.
+
+    ``$sort`` לפי ``file_name`` ו-``version`` יורד ואחריו ``$group`` עם ``$first`` בוחרים את הגרסה
+    הגבוהה של כל קובץ; כשה-``match`` הוא ``user_id`` ו-``is_active`` מונגו מקפלת אותם ל-
+    ``DISTINCT_SCAN`` על ``idx_snippets_latest_version``. **המיון השני** — לפי ``sort`` — חוסם
+    בזיכרון, ומונגו מאחדת לתוכו את ה-``$skip`` וה-``$limit`` שאחריו, כלומר הוא מחזיק
+    ``skip + limit`` מסמכים. כשההיטלה ישבה אחריו, אלה היו המסמכים המלאים עם הקוד: נמדד ב-
+    explain על האשכול ב-17.10.2026, למשתמש הראשי (836 קבצים) — ``get_user_file_names`` עם
+    ``limit=1000`` החזיק 20,106,444 בתים במיון (``totalDataSizeSortedBytesEstimate``), כ-60%
+    מתקרת המיון של האשכול, כדי להחזיר שמות; ועם ההיטלה לפניו — 153,253, אותה תוצאה, ו-
+    ``DISTINCT_SCAN`` נשמר. מעל התקרה מונגו מחזירה שגיאה 292 (``allowDiskUse`` לא חל ב-Flex),
+    והקוראים תופסים את החריגה ומחזירים ריק — "אין קבצים", בשקט. זה התיקון שכבר היה ב-
+    ``get_regular_files_paginated``; הצינור שלו נשאר משלו, כי יש בו ``$match`` על התגיות אחרי
+    הקיבוץ.
+
+    שדה מיון שההיטלה הייתה מורידה נשאר עד אחרי ה-``$limit`` ויורד ב-``$unset``
+    (``_keep_sort_keys``).
+
+    **לא לבד כשההיטלה מביאה שדה כבד**: אז המיון היה מחזיק אותו בכל מקרה. בשביל זה
+    ``Repository._latest_per_file_rows``.
+    """
+    kept, helpers = _keep_sort_keys(projection, sort)
+    stages: List[Dict[str, Any]] = [
+        {"$match": match},
+        {"$sort": {"file_name": 1, "version": -1}},
+        {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+        {"$replaceRoot": {"newRoot": "$latest"}},
+        {"$project": kept},
+        {"$sort": dict(sort)},
+    ]
+    if skip > 0:
+        stages.append({"$skip": int(skip)})
+    stages.append({"$limit": int(limit)})
+    if helpers:
+        stages.append({"$unset": helpers})
+    return stages
 
 # Optional performance instrumentation
 try:
@@ -1025,16 +1111,14 @@ class Repository:
             match: Dict[str, Any] = {"user_id": user_id, "is_favorite": True, "is_active": True}
             if language:
                 match["programming_language"] = language
-            pipeline = [
-                {"$match": match},
-                {"$sort": {"file_name": 1, "version": -1}},
-                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-                {"$replaceRoot": {"newRoot": "$latest"}},
-                {"$sort": {sort_key: sort_dir}},
-                {"$limit": max(1, int(limit or 50))},
-                {"$project": {"_id": "$_id", "file_name": 1, "programming_language": 1, "tags": 1, "description": 1, "favorited_at": 1, "updated_at": 1, "code": 1}},
-            ]
-            rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            # ``code`` הוא חלק מהתשובה — הייצוא של המועדפים בבוט שומר אותו — ולכן שני שלבים
+            # (``_latest_per_file_rows``): המיון מחזיק מזהה ושדה מיון, והקוד נשלף אחריו, רק לדף.
+            rows = self._latest_per_file_rows(
+                match,
+                sort={sort_key: sort_dir},
+                limit=max(1, int(limit or 50)),
+                projection={"_id": 1, "file_name": 1, "programming_language": 1, "tags": 1, "description": 1, "favorited_at": 1, "updated_at": 1, "code": 1},
+            )
             if rows:
                 return rows
             # Fallback לפייתון עבור סביבות סטאב/טסט
@@ -1474,23 +1558,17 @@ class Repository:
                 set_current_span_attributes(attrs)
             except Exception:
                 pass
-            pipeline: List[Dict[str, Any]] = [
-                {"$match": {"user_id": user_id, "is_active": True}},
-                {"$sort": {"file_name": 1, "version": -1}},
-                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-                {"$replaceRoot": {"newRoot": "$latest"}},
-                {"$sort": {"updated_at": -1}},
-            ]
             # הקרנה: ראו ``_latest_version_projection_stage`` — אותו היגיון
-            # משמש גם את ``get_latest_versions_by_names``.
-            pipeline.append(_latest_version_projection_stage(projection))
-            # עימוד: דילוג ואז הגבלה
-            if eff_skip > 0:
-                pipeline.append({"$skip": eff_skip})
-            pipeline.append({"$limit": eff_limit})
-
+            # משמש גם את ``get_latest_versions_by_names``. היא יושבת **לפני** המיון
+            # (``_latest_per_file_page``), והגיבוי ל-Drive, שמבקש ``code``, עובר בשני שלבים.
             with track_performance("db_get_user_files"):
-                rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+                rows = self._latest_per_file_rows(
+                    {"user_id": user_id, "is_active": True},
+                    sort={"updated_at": -1},
+                    limit=eff_limit,
+                    skip=eff_skip,
+                    projection=_latest_version_projection_stage(projection)["$project"],
+                )
             try:
                 set_current_span_attributes({"results_count": int(len(rows))})
             except Exception:
@@ -1501,6 +1579,45 @@ class Repository:
             if raise_on_error:
                 raise
             return []
+
+    def _latest_per_file_rows(
+        self,
+        match: Dict[str, Any],
+        *,
+        sort: Dict[str, int],
+        limit: int,
+        skip: int = 0,
+        projection: Dict[str, Any],
+    ) -> List[Dict]:
+        """הדף של "הגרסה האחרונה לכל קובץ", בלי שהמיון יחזיק שדה כבד — **גם כשהתשובה מביאה אותו**.
+
+        היטלה בלי שדה כבד: צינור אחד (``_latest_per_file_page``). היטלה שמביאה שדה כבד — הגיבוי
+        ל-Drive מבקש ``code`` לכל הקבצים, ו-``get_favorites`` מחזיר אותו — עוברת בשני שלבים, כמו
+        ``_iter_latest_by_name``: **מי** — אותו צינור, עם ``_id`` ושדות המיון בלבד; **מה** —
+        ``find`` לפי ``_id``, עם ההיטלה המלאה. כך המיון מחזיק מזהה ותאריך לכל קובץ, ולא את הקוד שלו.
+
+        הסדר הוא של שלב א: ``find`` עם ``$in`` אינו מבטיח סדר, ולכן התוצאות מסודרות לפי רשימת
+        המזהים. ``match`` חל שוב בשלב ב, ולכן מסמך שהפסיק להתאים בין השלבים — נמחק, או הוסר
+        מהמועדפים — פשוט לא יחזור.
+
+        **ערוץ הכשל: זריקה.** כל קורא עוטף כמו שעטף את הצינור שהיה לו.
+        """
+        coll = self.manager.collection
+        if not _carries_heavy_fields(projection):
+            return list(coll.aggregate(
+                _latest_per_file_page(match, sort=sort, limit=limit, skip=skip, projection=projection),
+                allowDiskUse=True,
+            ))
+        heads = coll.aggregate(
+            _latest_per_file_page(match, sort=sort, limit=limit, skip=skip,
+                                  projection={key: 1 for key in sort}),
+            allowDiskUse=True,
+        )
+        ids = [head["_id"] for head in heads if isinstance(head, dict) and head.get("_id") is not None]
+        if not ids:
+            return []
+        found = {doc.get("_id"): doc for doc in coll.find({**match, "_id": {"$in": ids}}, dict(projection))}
+        return [found[doc_id] for doc_id in ids if doc_id in found]
 
     @traced("db.get_latest_versions_by_names")
     @_instrument_db("db.get_latest_versions_by_names")
@@ -1729,35 +1846,32 @@ class Repository:
             search_filter["programming_language"] = programming_language
         if tags:
             search_filter["tags"] = {"$in": tags}
-        pipeline = [
-            {"$match": search_filter},
-            {"$sort": {"file_name": 1, "version": -1}},
-            {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-            {"$replaceRoot": {"newRoot": "$latest"}},
-            {"$sort": {"updated_at": -1}},
-            {"$limit": limit},
-            # תוצאות חיפוש הן רשימה — אין צורך להחזיר את שדה code המלא כאן.
-            #
-            # ``version`` והחותמת הם שני מספרים, והם כאן כדי ש-
-            # ``codekeeper_search_code`` יוכל לגזור מהם את גיל התיאור
-            # (``file_description.description_age_versions``). בלעדיהם
-            # הגיל היה ``null`` בכל תוצאת חיפוש — כלומר השדה קיים ואינו
-            # אומר דבר במסלול שהוא הכי נחוץ בו.
-            {"$project": {
-                "_id": 1,
-                "file_name": 1,
-                "programming_language": 1,
-                "updated_at": 1,
-                "description": 1,
-                "tags": 1,
-                "is_favorite": 1,
-                "favorited_at": 1,
-                "version": 1,
-                DESCRIPTION_SET_AT_VERSION_FIELD: 1,
-            }},
-        ]
+        # תוצאות חיפוש הן רשימה — אין צורך להחזיר את שדה code המלא כאן, וההיטלה
+        # יושבת לפני המיון לפי ``updated_at`` (``_latest_per_file_page``).
+        #
+        # ``version`` והחותמת הם שני מספרים, והם כאן כדי ש-
+        # ``codekeeper_search_code`` יוכל לגזור מהם את גיל התיאור
+        # (``file_description.description_age_versions``). בלעדיהם
+        # הגיל היה ``null`` בכל תוצאת חיפוש — כלומר השדה קיים ואינו
+        # אומר דבר במסלול שהוא הכי נחוץ בו.
         with track_performance("db_search_code"):
-            rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            rows = self._latest_per_file_rows(
+                search_filter,
+                sort={"updated_at": -1},
+                limit=limit,
+                projection={
+                    "_id": 1,
+                    "file_name": 1,
+                    "programming_language": 1,
+                    "updated_at": 1,
+                    "description": 1,
+                    "tags": 1,
+                    "is_favorite": 1,
+                    "favorited_at": 1,
+                    "version": 1,
+                    DESCRIPTION_SET_AT_VERSION_FIELD: 1,
+                },
+            )
         try:
             set_current_span_attributes({"results_count": int(len(rows))})
         except Exception:
@@ -1783,26 +1897,22 @@ class Repository:
                 pass
             match_stage = {"user_id": user_id, "tags": repo_tag, "is_active": True}
 
-            # שלוף פריטים בעמוד
-            items_pipeline = [
-                {"$match": match_stage},
-                {"$sort": {"file_name": 1, "version": -1}},
-                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-                {"$replaceRoot": {"newRoot": "$latest"}},
-                {"$sort": {"updated_at": -1}},
-                {"$project": {
-                    "_id": 1,
-                    "file_name": 1,
-                    "programming_language": 1,
-                    "updated_at": 1,
-                    "description": 1,
-                    "tags": 1,
-                }},
-                {"$skip": skip},
-                {"$limit": per_page},
-            ]
+            # שלוף פריטים בעמוד — ההיטלה לפני המיון (``_latest_per_file_page``)
             with track_performance("db_get_user_files_by_repo_items", labels={"repo": str(repo_tag)}):
-                items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
+                items = self._latest_per_file_rows(
+                    match_stage,
+                    sort={"updated_at": -1},
+                    limit=per_page,
+                    skip=skip,
+                    projection={
+                        "_id": 1,
+                        "file_name": 1,
+                        "programming_language": 1,
+                        "updated_at": 1,
+                        "description": 1,
+                        "tags": 1,
+                    },
+                )
 
             # ספירת סה"כ (distinct שמות קבצים)
             count_pipeline = [
@@ -2530,17 +2640,15 @@ class Repository:
     def get_user_file_names(self, user_id: int, limit: int = 1000) -> List[str]:
         """שמות קבצים אחרונים (distinct לפי file_name), ממוינים לפי updated_at של הגרסה האחרונה."""
         try:
-            pipeline = [
-                {"$match": {"user_id": user_id, "is_active": True}},
-                {"$sort": {"file_name": 1, "version": -1}},
-                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-                {"$replaceRoot": {"newRoot": "$latest"}},
-                {"$sort": {"updated_at": -1}},
-                {"$project": {"_id": 0, "file_name": 1}},
-                {"$limit": max(1, int(limit or 1000))},
-            ]
+            # ההיטלה לפני המיון (``_latest_per_file_page``) — כאן נמדדה הבעיה: 20MB במיון כדי
+            # להחזיר שמות.
             with track_performance("db_get_user_file_names"):
-                docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+                docs = self._latest_per_file_rows(
+                    {"user_id": user_id, "is_active": True},
+                    sort={"updated_at": -1},
+                    limit=max(1, int(limit or 1000)),
+                    projection={"_id": 0, "file_name": 1},
+                )
             return [d.get("file_name") for d in docs if isinstance(d, dict) and d.get("file_name")]
         except Exception as e:
             emit_event("db_get_user_file_names_error", severity="error", error=str(e))

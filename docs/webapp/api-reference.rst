@@ -147,6 +147,12 @@ Endpoints
      - ✅
      - -
      - ``{"ok": true, "note": {...}}``
+   * - ``/api/sticky-notes/search``
+     - GET
+     - חיפוש בפתקים של המשתמש, בשם ובגוף, בכל היעדים (:ref:`sticky-notes-search-regex`). ``q`` חובה: ריק ← ``400 empty_query``, ארוך מהתקרה ← ``400 query_too_long`` עם ``max``, ותו NUL ← ``400 invalid_query``. ``color`` מסנן לפי צבע (מזהה לא מוכר ← ``400 invalid_color`` עם ``allowed``). **פתקי הארכיון מוסתרים**, ו-``include_archived=1`` מוסיף אותם; כל ערך אחר מלבד ``0`` או כלום ← ``400 invalid_include_archived`` עם ``allowed``. ``limit`` לא מספרי או קטן מאחד ← ברירת המחדל, וגדול מהתקרה ← נחתך. כל פגיעה מחזירה תצוגה מקדימה, **ולא את גוף הפתק**
+     - ✅
+     - -
+     - ``{"ok": true, "query": "...", "color_id": "", "include_archived": false, "count": 1, "truncated": false, "results": [{"id": "...", "url": "/note/...", "title": "...", "preview": "...", "preview_truncated": false, "color": "#...", "color_id": "...", "updated_at": "...", "target": "board", "board_id": "..."}]}``
    * - ``/api/sticky-notes/note/<note_id>/threads``
      - GET
      - תקצירי שרשורי התגובות של הפתק, בלי התגובות — לבועות. פתק שאינו של המשתמש ← ``404 note_not_found`` (:ref:`sticky-notes-threads-server`)

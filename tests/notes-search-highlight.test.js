@@ -82,7 +82,7 @@ function loadHighlight({ withModule = true } = {}) {
   // בדיוק כפי שהוא — רק עטוף.
   const wrapped = SRC.replace(
     'if (!form || !input || !list) { return; }',
-    'if (!form || !input || !list) { __exported = { highlightInto: highlightInto }; return; }'
+    'if (!form || !input || !list) { __exported = { highlightInto: highlightInto, searchQuery: searchQuery }; return; }'
   );
   if (wrapped === SRC) { throw new Error('נקודת החילוץ לא נמצאה — הקובץ השתנה'); }
   vm.createContext(sandbox);
@@ -179,6 +179,19 @@ check('בלי המודול: הטקסט מוצג, והספירה "לא ידוע" 
   eq(box.children.map(c => c.tagName), ['#text'], 'בלי עטיפות');
   bare.__exported.highlightInto(new Node('SPAN'), 'עוד', 'עוד');
   eq(bare.__warnings.length, 1, 'אזהרה אחת לכל העמוד, ולא אחת לכל תוצאה');
+});
+
+// ---------------------------------------------------------------------------
+// מחרוזת ה-query — אחת לבקשה ולכתובת העמוד
+// ---------------------------------------------------------------------------
+
+check('"כלול ארכיון" נכנס ל-query רק כשהתיבה מסומנת, ורק כ-1', () => {
+  // השרת מקבל ``1`` או כלום, וכל ערך אחר נדחה ב-``invalid_include_archived``.
+  // ``searchQuery`` הוא המקור היחיד של הבקשה ושל הכתובת, ולכן רענון שומר את הבחירה.
+  const { searchQuery } = loaded.__exported;
+  eq(searchQuery('פתק', '', false), 'q=' + encodeURIComponent('פתק'), 'בלי תיבה ובלי צבע');
+  eq(searchQuery('פתק', '', true), 'q=' + encodeURIComponent('פתק') + '&include_archived=1', 'עם התיבה');
+  eq(searchQuery('a&b', 'blue_light', true), 'q=a%26b&color=blue_light&include_archived=1', 'עם צבע, והמחט מקודדת');
 });
 
 console.log(`${passed} עברו, ${failed} נכשלו`);

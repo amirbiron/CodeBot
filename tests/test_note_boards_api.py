@@ -1192,7 +1192,7 @@ def test_the_shared_cache_flag_also_confirms_the_title_index(monkeypatch):
 #: **רשימה מפורשת ולא ספירה**, כי היא גם המקום שבו מי שמוסיף אינדקס נתקל
 #: בשאלה "והעליתי את המפתח?". ספירה הייתה עונה על אותה שאלה בלי לומר
 #: **מה** השתנה.
-_INDEXES_ATTESTED_BY_V5 = {
+_INDEXES_ATTESTED_BY_V6 = {
     "user_file_idx",
     "user_file_created",
     "updated_desc",
@@ -1202,6 +1202,7 @@ _INDEXES_ATTESTED_BY_V5 = {
     "user_title_idx",
     "user_updated_idx",
     "user_archived_idx",
+    "user_archived_updated_idx",
 }
 
 
@@ -1211,7 +1212,8 @@ def test_the_cache_key_version_matches_the_set_of_indexes_it_attests_to():
     הדגל המשותף העיד תחילה רק על אינדקס הלוח, ובהוספת אינדקס הריפו משמעותו
     התרחבה לשני האינדקסים. תחת אותו מפתח, דגל v2 ישן היה מתפרש עכשיו
     כאימות של אינדקס הריפו שלא היה — למשך ה-TTL, ובכל התהליכים. לכן הועלה
-    ל-v3, וב-``user_updated_idx`` ל-v4, וב-``user_archived_idx`` של הארכיון ל-v5.
+    ל-v3, וב-``user_updated_idx`` ל-v4, וב-``user_archived_idx`` של הארכיון ל-v5, וב-``user_archived_updated_idx``
+    של החיפוש בלי הארכיון ל-v6.
 
     **ולמה הבדיקה נועלת שניים ולא רק את המספר.** גרסה קבועה לבדה נבדקת
     בכל הרצה ואינה נבדקת בכלל: מי שמוסיף אינדקס לרשימה בלי לקדם את המפתח
@@ -1221,8 +1223,8 @@ def test_the_cache_key_version_matches_the_set_of_indexes_it_attests_to():
     """
     from webapp import sticky_notes_api
 
-    assert sticky_notes_api._INDEX_READY_CACHE_KEY.endswith("_v5")
-    assert {name for name, _keys in sticky_notes_api._QUERY_INDEX_SPECS} == _INDEXES_ATTESTED_BY_V5, (
+    assert sticky_notes_api._INDEX_READY_CACHE_KEY.endswith("_v6")
+    assert {name for name, _keys in sticky_notes_api._QUERY_INDEX_SPECS} == _INDEXES_ATTESTED_BY_V6, (
         "רשימת האינדקסים השתנתה. אם זו הכוונה — לקדם את "
         "``_INDEX_READY_CACHE_KEY`` ולעדכן את הרשימה כאן יחד, אחרת תהליך "
         "שמחזיק דגל חי ידלג על בניית האינדקס החדש."

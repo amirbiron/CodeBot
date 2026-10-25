@@ -11,6 +11,10 @@
 החלטה. בין שתי הצהרות ``!important`` מאותו מקור מכריעה הספציפיות (CSS Cascade 5, §6.1), וסדר
 הטעינה אינו אמור להכריע — ולכן הניצחון נדרש **ממש**, לא בשוויון. המדידה בדפדפן, בכל ערכה:
 ``tests/test_note_archive_browser.py``.
+
+**ובסוף הקובץ — כתב היד בשם הכרטיס.** השם בכתב יד תמיד, ולא רק כשההגדרה של הלוחות דלוקה
+(הכרעת המשתמש), ולכן הגופן מוצהר בכלל אחד על ``.archive-card-title`` בלי ``.sticky-handwriting``
+מעליו. מה שהדפדפן עושה עם זה — בהגדרה כבויה ודלוקה — נמדד ב-``tests/test_note_archive_browser.py``.
 """
 
 from __future__ import annotations
@@ -106,3 +110,25 @@ def test_the_card_colour_beats_every_theme_rule_on_a_button():
         assert _beats(ours, _weight(rival_selector, rival_value)), (
             f"{name}: {rival_selector} {{ {rival_value} }} גובר על {selector}"
         )
+
+
+# ── כתב היד בשם הכרטיס ─────────────────────────────────────────────────────────────────
+
+#: שני הקבצים שעמוד הארכיון טוען ושמגדירים גופן לפתקים — שם יכול לשבת כלל שגובר על הכרטיס.
+NOTE_CSS = (CSS_DIR / "sticky-notes.css", BOARDS_CSS)
+
+
+def _title_fonts() -> list[tuple[str, str, str]]:
+    """``(קובץ, בורר, ערך)`` לכל כלל שמציב ``font-family`` על שם הכרטיס עצמו."""
+    return [
+        (path.name, selector, decls["font-family"])
+        for path in NOTE_CSS
+        for selector, decls in css_rules(path.read_text(encoding="utf-8"))
+        if "archive-card-title" in _classes(_subject(selector)) and "font-family" in decls
+    ]
+
+
+def test_the_card_name_is_handwritten_in_one_rule_without_a_condition():
+    """כלל אחד, בבורר של השם בלבד. ``.sticky-handwriting`` מעליו היה מחזיר את כתב היד להיות תלוי
+    בהגדרה — שם היה עד אוקטובר 2026 — וכלל שני על השם היה מתחרה בו בספציפיות."""
+    assert _title_fonts() == [("note-boards.css", ".archive-card-title", "'Gveret Levin', cursive")]

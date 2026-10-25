@@ -842,13 +842,15 @@ class _RepoNotesBackend:
         }))
         return {"ok": True, "note": {"id": "n1", "repo_name": repo_name, "repo_path": repo_path}}
 
-    def search_notes(self, user_id, *, query, limit, search_content=False, content_query=None):
+    def search_notes(self, user_id, *, query, limit, search_content=False, content_query=None,
+                     include_archived=False):
         # ה-fake מקליט **את כל** מה שה-backend האמיתי מקבל. השמטת ארגומנט
         # מההקלטה הופכת כל בדיקה עליו ל-KeyError, ומוטציה שמפסיקה להעביר
         # אותו ב-handler לבלתי-נתפסת.
         self.calls.append(("search", user_id, {
             "query": query, "limit": limit,
             "search_content": search_content, "content_query": content_query,
+            "include_archived": include_archived,
         }))
         return {"ok": True, "query": query, "count": 0, "truncated": False, "notes": []}
 
@@ -2730,3 +2732,33 @@ def test_the_notes_collection_builds_the_archive_list_index():
     built = _mcp_built_indexes()
 
     assert built["user_archived_idx"] == (("user_id", 1), ("archived_at", -1), ("_id", -1))
+
+
+@pytest.mark.parametrize(("given", "forwarded"), [
+    (True, True), (False, False), ("true", False), ("false", False), (1, False), (None, False),
+])
+def test_only_true_brings_the_archive_into_the_search(given, forwarded):
+    """ה-handler נקרא גם ישירות, בלי pydantic של הכלי באמצע, ולכן רק ``True`` עובר הלאה:
+    ``"false"`` הוא אמת לפי ``bool()``, והיה חושף את הארכיון דווקא כשביקשו שלא."""
+    b = _RepoNotesBackend()
+    handlers.search_notes(b, 7, query="x", include_archived=given)
+
+    assert b.last_kwargs["include_archived"] is forwarded
+
+
+def test_without_the_archive_flag_the_search_sends_what_it_sent_before():
+    """תוספתיות: קריאה בלי הפרמטר — ``include_archived`` כבוי, וכל השאר כמו קודם."""
+    b = _RepoNotesBackend()
+    handlers.search_notes(b, 7, query="x")
+
+    assert b.last_kwargs == {"query": "x", "limit": b.last_kwargs["limit"], "search_content": False,
+                             "content_query": None, "include_archived": False}
+
+
+def test_the_notes_collection_builds_the_index_of_the_search_without_the_archive():
+    """החיפוש בלי הארכיון (``archived_at: None``) ממוין ב-``updated_at`` יורד. בלי האינדקס הזה
+    תוכנית של מילה נדירה נשמרת במטמון ומשרתת גם מילה נפוצה, וקוראת את כל הפתקים הפעילים (נמדד
+    בפרופיילר: ``test_note_archive_mongo.py``). ה-MCP בונה אותו כי זה החיפוש שרץ בו."""
+    built = _mcp_built_indexes()
+
+    assert built["user_archived_updated_idx"] == (("user_id", 1), ("archived_at", 1), ("updated_at", -1))

@@ -874,12 +874,11 @@
    ``cursive`` כגיבוי הוא מה ש-Google Fonts ממליץ למשפחה הזו, והוא גם
    מה שיוצג אם הגופן לא נטען: כתב מחובר כלשהו, ולא קפיצה ל-Heebo.
 
-   השם בכרטיס של עמוד הארכיון (``.archive-card-title``, ב-``note-boards.css``) כאן ולא
-   בכלל משלו — אותה מחלקה, ואותו כלל. */
+   השם בכרטיס של עמוד הארכיון (``.archive-card-title``) **אינו כאן**: הוא בכתב יד תמיד,
+   בלי קשר להגדרה, ולכן הגופן בכלל שלו ב-``note-boards.css``. */
 .sticky-handwriting .sticky-note-content,
 .sticky-handwriting .sticky-note-tasks,
-.sticky-handwriting .sticky-note-title,
-.sticky-handwriting .archive-card-title {
+.sticky-handwriting .sticky-note-title {
   font-family: 'Gveret Levin', cursive;
 }
 

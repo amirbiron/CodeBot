@@ -1932,6 +1932,10 @@ class ProductionBackend:
                         # וגם כאן — כלומר בלי האינדקס, פריסה של ה-MCP בלי הוובאפ
                         # הייתה סופרת כל יצירת פתק בקריאת מסמכים.
                         ([("user_id", 1), ("archived_at", -1), ("_id", -1)], "user_archived_idx"),
+                        # החיפוש בלי הארכיון (``note_search_filter``): בלעדיו תוכנית
+                        # של מילה נדירה נשמרת במטמון ומשרתת גם מילה נפוצה — הנימוק
+                        # והמדידה ליד ``_QUERY_INDEX_SPECS`` בוובאפ.
+                        ([("user_id", 1), ("archived_at", 1), ("updated_at", -1)], "user_archived_updated_idx"),
                     ):
                         try:
                             coll.create_index(keys, name=name)
@@ -3369,8 +3373,9 @@ class ProductionBackend:
         limit: int,
         search_content: bool = False,
         content_query: str | None = None,
+        include_archived: bool = False,
     ) -> dict[str, Any]:
-        """חיפוש פתקים חוצה את שלושת היעדים — שם, ואופציונלית גם גוף.
+        """חיפוש פתקים חוצה את היעדים — שם, ואופציונלית גם גוף; הארכיון רק בבקשה.
 
         ``query`` הוא מחט **השם** (קנונית) ו-``content_query`` מחט
         **התוכן** (משמרת רווחים ושורות) — שתי מחטים כי שני היעדים נשמרו
@@ -3383,6 +3388,10 @@ class ProductionBackend:
         **התקרה נאכפת עם שורת סנטינל** — ``limit(want + 1)`` — כדי
         שה-``truncated`` יהיה עובדה ולא ניחוש: שורה נוספת שחזרה היא ראיה
         שיש עוד, ולא הערכה מתוך ספירה שווה לתקרה.
+
+        ``searched_archive`` בתשובה אומר אם פתקי הארכיון נכללו — כמו
+        ``searched_content`` לגוף — כדי שקורא שקיבל רשימה בלי פתק שהוא מכיר
+        ידע שהארכיון לא נבדק, ולא יסיק שהפתק אינו קיים.
         """
         from sticky_notes_target import note_search_filter
 
@@ -3396,6 +3405,7 @@ class ProductionBackend:
                     query,
                     search_content=bool(search_content),
                     content_needle=content_query,
+                    include_archived=include_archived is True,
                 ),
                 projection,
             )
@@ -3410,6 +3420,7 @@ class ProductionBackend:
             "ok": True,
             "query": str(query or ""),
             "searched_content": bool(search_content),
+            "searched_archive": include_archived is True,
             "count": len(rows),
             "truncated": truncated,
             "notes": [_as_note_ref(r) for r in rows],

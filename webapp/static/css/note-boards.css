@@ -507,13 +507,20 @@ a.board-tile:hover, button.board-tile:hover {
 }
 /* **השם נחתך אחרי ארבע שורות** (הכרעת המשתמש; בעיצוב היו שלוש), והשם המלא מוצג בפתק
    הפתוח וב-``title`` של הכרטיס. הגודל הוא גודל הטקסט של הפתקים (``--sticky-note-font``,
-   מ-``sticky-notes.css``), וכתב היד — מהכלל של ``.sticky-handwriting`` שם. */
+   מ-``sticky-notes.css``).
+
+   **כתב יד תמיד, ולא לפי ההגדרה** (הכרעת המשתמש). עד אוקטובר 2026 השם היה תחת
+   ``.sticky-handwriting``, ולכן כתב היד הופיע רק כשההגדרה הכללית של הלוחות דלוקה: המתג של כל
+   לוח אינו מגיע לכאן, כי הארכיון אינו לוח. הגופן נטען בלי תנאי ב-``note_archive.html``
+   (``ensureHandwritingFont``), ו-``cursive`` הוא מה שיוצג אם לא נטען. הפתק שנפתח מעל הכרטיסים
+   ממשיך לפי ההגדרה — הכלל של ``.sticky-handwriting`` ב-``sticky-notes.css``. */
 .archive-card-title {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
   overflow: hidden;
   inline-size: 100%;
+  font-family: 'Gveret Levin', cursive;
   font-size: var(--sticky-note-font, 18px);
   font-weight: 600;
   line-height: 1.35;

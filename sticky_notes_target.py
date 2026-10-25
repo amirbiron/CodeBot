@@ -755,8 +755,9 @@ def note_search_filter(
     search_content: bool = False,
     content_needle: Any = None,
     color_id: Any = None,
+    include_archived: bool = False,
 ) -> Dict[str, Any]:
-    """שאילתת חיפוש פתקים, חוצת שלושת היעדים.
+    """שאילתת חיפוש פתקים, חוצת היעדים — ובלי הארכיון, אלא אם התבקש.
 
     האח הרביעי של :func:`file_notes_filter`, :func:`board_notes_filter`
     ו-:func:`repo_notes_filter` — ומאותה סיבה שהם כאן: שאילתה שמורכבת
@@ -813,6 +814,21 @@ def note_search_filter(
     הקיימים אינם מושפעים; מזהה שאינו בפלטה מעלה ``ValueError``
     מ-:func:`note_color_query`.
 
+    **הארכיון מוסתר כאן, ולא אצל כל קורא.** פתק שעבר לארכיון עזב את המקום
+    שבו עבדו עליו, וחיפוש שמחזיר אותו לצד הפתקים הפעילים מחזיר רעש. ההסתרה
+    יושבת בפונקציה המשותפת כדי שהוובאפ וה-MCP יחזירו אותו דבר: הסתרה בצרכן
+    אחד בלבד הייתה בדיוק שני החיפושים שמתחזים לאחד שהפונקציה הזו נכתבה כדי
+    למנוע. התנאי הוא :func:`active_notes_filter` ולא עותק שלו — אותה הגדרה
+    של "לא בארכיון" שתקרת המשתמש נספרת לפיה. ``include_archived`` מחזיר את
+    פתקי הארכיון לתוצאה, ורק ``True`` עושה את זה: ``"false"`` שהגיע ממקור
+    חיצוני הוא אמת לפי ``bool``, והיה חושף את הארכיון דווקא כשביקשו שלא.
+
+    **ההסתרה משנה את התוכנית, ולכן יש לה אינדקס משלה.** בלי
+    ``user_archived_updated_idx`` המתכנן בחר ב-``user_archived_idx`` עם ``SORT``
+    לשאילתה של מילה נדירה, ושמר אותה במטמון התוכניות — ושאילתה של מילה נפוצה
+    רצה אחריה על אותה תוכנית וקראה את כל הפתקים הפעילים במקום עשרים ומשהו.
+    הנימוק המלא והמדידה — ליד האינדקס ב-``_QUERY_INDEX_SPECS``.
+
     .. note::
        התוכן נשמר בדיוק כמו שנשלח, והמחט מגיעה לכאן כמו שהוקלדה — ולכן
        ``&amp;`` מוצא פתק שבו הוקלד ``&amp;``, ולא פתק שבו הוקלד ``&``. עד
@@ -846,7 +862,9 @@ def note_search_filter(
     if not clauses:
         raise ValueError("note_search_filter: both needles are empty")
 
-    query: Dict[str, Any] = {"user_id": int(user_id)}
+    query: Dict[str, Any] = (
+        {"user_id": int(user_id)} if include_archived is True else active_notes_filter(user_id)
+    )
     if len(clauses) == 1:
         query.update(clauses[0])
     else:

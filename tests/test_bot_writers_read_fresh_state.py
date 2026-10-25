@@ -83,24 +83,30 @@ def _answer_the_listing(collection, pipeline):
 
     ``FakeCollection`` אינו מריץ ``aggregate``. צינור בצורה אחרת זורק ``NotImplementedError``, כמו אופרטור
     שהדמה אינה מכירה — כדי ששינוי בצינור יפיל את הטסט, ולא יקבל תשובה לשאלה שלא נשאלה.
+
+    הצורה היא של ``_latest_per_file_page``: ההיטלה **לפני** המיון לפי ``updated_at``, ואחריו ``$skip``,
+    ``$limit``, ו-``$unset`` של שדה מיון שהקורא לא ביקש.
     """
     shape = [next(iter(stage)) for stage in pipeline]
-    if shape[:5] != ["$match", "$sort", "$group", "$replaceRoot", "$sort"] or not set(shape[5:]) <= {"$project", "$skip", "$limit"}:
+    head = ["$match", "$sort", "$group", "$replaceRoot", "$project", "$sort"]
+    if shape[:6] != head or pipeline[5]["$sort"] != {"updated_at": -1} or not set(shape[6:]) <= {"$skip", "$limit", "$unset"}:
         raise NotImplementedError(f"aggregate pipeline {shape}")
     latest = {}
     for doc in collection.find(pipeline[0]["$match"]):
         name = doc["file_name"]
         if name not in latest or doc.get("version", 0) > latest[name].get("version", 0):
             latest[name] = doc
-    rows = sorted(latest.values(), key=lambda doc: doc["updated_at"], reverse=True)
-    for stage in pipeline[5:]:
+    rows = collection._project(list(latest.values()), pipeline[4]["$project"])
+    rows = sorted(rows, key=lambda doc: doc["updated_at"], reverse=True)
+    for stage in pipeline[6:]:
         ((op, arg),) = stage.items()
-        if op == "$project":
-            rows = collection._project(rows, arg)
-        elif op == "$skip":
+        if op == "$skip":
             rows = rows[arg:]
-        else:
+        elif op == "$limit":
             rows = rows[:arg]
+        else:
+            dropped = [arg] if isinstance(arg, str) else list(arg)
+            rows = [{k: v for k, v in row.items() if k not in dropped} for row in rows]
     return rows
 
 

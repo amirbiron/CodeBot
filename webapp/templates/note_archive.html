@@ -12,6 +12,10 @@
 {% block extra_head %}
 {% set note_font_surface = 'archive' %}
 {% include "_note_fonts_head.html" with context %}
+{# שמות הכרטיסים בכתב יד **תמיד** (``.archive-card-title`` ב-``note-boards.css``), ולכן הגופן
+   נטען כאן בלי תנאי. ``ensureHandwritingFont`` ולא ``applyStickyHandwriting``: השנייה מחילה גם
+   את המחלקה, וזו הייתה מעבירה לכתב יד גם את הפתק הפתוח — שממשיך לפי ההגדרה. #}
+<script>window.ensureHandwritingFont();</script>
 {% endblock %}
 
 {% block extra_css %}

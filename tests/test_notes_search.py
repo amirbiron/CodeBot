@@ -95,6 +95,11 @@ def _evaluate(expr, doc):
 
 
 def _value_matches(value, condition):
+    if condition is None:
+        # ``{field: null}`` במונגו תופס גם שדה חסר וגם ``null`` — וזו בדיוק הצורה של
+        # ``active_notes_filter`` (``archived_at: None``). השוואה רגילה הייתה מסננת
+        # כל פתק פעיל, שאין לו את השדה בכלל.
+        return value is _MISSING or value is None
     if isinstance(condition, re.Pattern):
         return isinstance(value, str) and condition.search(value) is not None
     if not isinstance(condition, dict) or not any(k.startswith("$") for k in condition):
@@ -146,9 +151,7 @@ def _run_pipeline(docs, pipeline):
                 for field, expr in spec.items():
                     row[field] = _evaluate(expr, row)
         elif name == "$project":
-            excluded = [k for k, v in spec.items() if not v]
-            assert excluded and len(excluded) == len(spec), "המפרש תומך רק ב-$project בהחרגה"
-            rows = [{k: v for k, v in d.items() if k not in excluded} for d in rows]
+            rows = [_project(d, spec) for d in rows]
         elif name == "$sort":
             for field, direction in reversed(list(spec.items())):
                 rows.sort(key=lambda d: _sort_key(d.get(field)), reverse=direction < 0)
@@ -160,6 +163,23 @@ def _run_pipeline(docs, pipeline):
         else:
             raise NotImplementedError(f"שלב שאינו נתמך במפרש: {name}")
     return rows
+
+
+def _project(doc, spec):
+    """``$project`` כמו במונגו: הכללה **או** החרגה, ו-``_id`` היחיד שמותר לערבב.
+
+    בהכללה ``_id`` נשאר אלא אם הוחרג במפורש, וכל שדה שלא נמנה יורד — כולל הגוף. ערבוב של
+    הכללה והחרגה בשדה אחר הוא שגיאה במונגו (``Cannot do exclusion on field … in inclusion
+    projection``), ולכן גם כאן.
+    """
+    others = {k: bool(v) for k, v in spec.items() if k != "_id"}
+    if len(set(others.values())) > 1:
+        raise _MongoLikeError("Cannot mix inclusion and exclusion in $project")
+    if any(others.values()):
+        keep = set(others) | ({"_id"} if spec.get("_id", 1) else set())
+        return {k: v for k, v in doc.items() if k in keep}
+    drop = set(others) | ({"_id"} if "_id" in spec and not spec["_id"] else set())
+    return {k: v for k, v in doc.items() if k not in drop}
 
 
 def _sort_key(value):
@@ -284,10 +304,15 @@ def test_within_the_same_group_the_newest_note_is_first(monkeypatch):
 def test_the_note_body_never_leaves_the_database(monkeypatch):
     """התשובה נושאת תצוגה מקדימה, **ולעולם לא את הגוף**.
 
-    שתי טענות, ושתיהן נחוצות: שהשדה הוחרג בגבול המסד (ולא נשמט בסריאלייזר),
+    שתי טענות, ושתיהן נחוצות: שהגוף נשאר בגבול המסד (ולא נשמט בסריאלייזר),
     ושהתוכן המלא אינו מופיע בשום מקום בתשובה.
 
-    נופלת אם ``$project`` יוסר מהצינור.
+    **ה-``$project`` בהכללה** — רשימה של מה שנשאר, בלי ``content`` — ולא ``{"content": 0}``
+    שהיה כאן עד אוקטובר 2026: החרגה אחרי ``$addFields`` השאירה את הגוף בקלט של המיון
+    (``mongodb.md`` דפוס 5; הנימוק בשלב 3 של ``build_note_search_pipeline``, והמדידה מול
+    מונגו אמיתי ב-``tests/test_note_archive_mongo.py``).
+
+    נופלת אם ``$project`` יוסר מהצינור, יחזור להחרגה, או יכלול את הגוף.
     """
     client = _make_client(monkeypatch, [_note(content=LONG_HEBREW)])
 
@@ -297,7 +322,8 @@ def test_the_note_body_never_leaves_the_database(monkeypatch):
     stages = [next(iter(s)) for s in client.db.sticky_notes.pipelines[0]]
     assert "$project" in stages
     projected = client.db.sticky_notes.pipelines[0][stages.index("$project")]["$project"]
-    assert projected == {"content": 0}
+    assert projected and all(v == 1 for v in projected.values()), projected
+    assert "content" not in projected
 
     assert "content" not in body["results"][0]
     assert LONG_HEBREW not in resp.get_data(as_text=True)
@@ -642,3 +668,81 @@ def test_a_legacy_colour_is_reported_as_itself_and_not_as_a_palette_id(monkeypat
 
     assert hit["color"] == "#aabbcc"
     assert hit["color_id"] == ""
+
+
+# --------------------------------------------------------------------------
+# הארכיון — מוסתר, אלא אם ביקשו
+# --------------------------------------------------------------------------
+
+def _archived_note(**over):
+    """פתק בארכיון בצורה שההעברה כותבת: ``archived_at`` ובלי שדות יעד אחרים."""
+    import datetime as _dt
+
+    doc = _note(**over)
+    doc.pop("board_id", None)
+    doc["archived_at"] = _dt.datetime(2026, 10, 25, tzinfo=_dt.timezone.utc)
+    return doc
+
+
+def test_an_archived_note_is_left_out_unless_asked(monkeypatch):
+    """בלי הפרמטר — רק הפתק הפעיל. עם ``include_archived=1`` — גם פתק הארכיון, עם ``target``
+    ``archive`` (התווית "ארכיון" בעמוד). והתשובה מחזירה את מה שהוחל."""
+    live, gone = "a" * 24, "b" * 24
+    client = _make_client(monkeypatch, [_note(_id=live, content="רעיון"),
+                                        _archived_note(_id=gone, content="רעיון")])
+
+    hidden = _search(client, q="רעיון").get_json()
+    assert [h["id"] for h in hidden["results"]] == [live]
+    assert hidden["include_archived"] is False
+
+    shown = _search(client, q="רעיון", include_archived="1").get_json()
+    assert {h["id"]: h["target"] for h in shown["results"]} == {live: "board", gone: "archive"}
+    assert shown["include_archived"] is True
+
+
+@pytest.mark.parametrize("raw", ["0", ""])
+def test_zero_or_nothing_leaves_the_archive_out(monkeypatch, raw):
+    client = _make_client(monkeypatch, [_archived_note(content="רעיון")])
+    body = _search(client, q="רעיון", include_archived=raw).get_json()
+    assert body["ok"] is True and body["results"] == [] and body["include_archived"] is False
+
+
+@pytest.mark.parametrize("raw", ["true", "false", "yes", "2", "on"])
+def test_any_other_include_archived_value_is_refused(monkeypatch, raw):
+    """``bool()`` על המחרוזת היה הופך ``"false"`` לאמת. סירוב, עם הערכים התקינים — כמו
+    ``invalid_color``, ולא התעלמות שמחזירה ``ok`` על מסנן שלא הוחל."""
+    client = _make_client(monkeypatch, [_archived_note(content="רעיון")])
+    resp = _search(client, q="רעיון", include_archived=raw)
+    assert resp.status_code == 400
+    assert resp.get_json() == {"ok": False, "error": "invalid_include_archived", "allowed": ["0", "1"]}
+    assert client.db.sticky_notes.pipelines == [], "שום שאילתה לא נשלחה"
+
+
+@pytest.mark.parametrize("where", [
+    {"file_id": "f1", "file_name": "notes.md", "scope_id": "s1"},
+    {"board_id": "b9"},
+    {"repo_name": "CodeBot", "repo_path": "webapp/app.py"},
+    "archive",
+], ids=["file", "board", "repo", "archive"])
+def test_the_projection_keeps_everything_the_hit_is_built_from(monkeypatch, where):
+    """ה-``$project`` מונה את מה שנשאר. שדה ש-``_as_search_hit`` או ``note_target_ref`` קוראים
+    ושלא נמנה היה יורד בשקט — פתק קובץ בלי ``file_name``, או כל פתק כ-``unknown``. לכן הפגיעה
+    מהצינור משווה לפגיעה שנבנית מ**המסמך המלא**, לכל סוג יעד."""
+    import datetime as _dt
+
+    from webapp.sticky_notes_api import _as_search_hit
+
+    # צבע שאינו ברירת המחדל ותאריך אמיתי — שדה שירד היה נראה אחרת בפגיעה, ולא זהה במקרה.
+    shown = {"title": "שם", "color": "blue_light",
+             "updated_at": _dt.datetime(2026, 10, 20, tzinfo=_dt.timezone.utc)}
+    if where == "archive":
+        doc = _archived_note(**shown)
+    else:
+        doc = _note(**shown, **where)
+        if "board_id" not in where:
+            doc.pop("board_id")
+    client = _make_client(monkeypatch, [doc])
+
+    [hit] = _search(client, q="שם", include_archived="1").get_json()["results"]
+    expected = _as_search_hit({**doc, "preview": doc["content"], "preview_truncated": False})
+    assert hit == expected
