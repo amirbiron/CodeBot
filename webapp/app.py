@@ -252,6 +252,9 @@ from file_deletion import (  # noqa: E402
 # ירושת סימון המועדף לגרסה חדשה — מודול שורש בלי חיבור משלו, אותו כלל
 # שמסלול השמירה של הבוט ושל ה-MCP מריץ. ראו file_favorite.py.
 from file_favorite import favorite_fields_for_new_version, file_is_favorite  # noqa: E402
+# חיתוך שורת תגיות ונרמול העדכון המהיר — מודול שורש טהור, החיתוך היחיד
+# לעריכה, להעלאה ול-quick-update. ראו file_tags.py.
+from file_tags import normalize_quick_update_tags, split_tags_text  # noqa: E402
 from user_stats import user_stats  # noqa: E402
 from webapp.size_format import format_file_size as _format_file_size_shared
 from webapp.activity_tracker import log_user_event  # noqa: E402
@@ -3623,6 +3626,18 @@ def _get_theme_etag_key(
     return base
 
 
+def _etag_tags(tags: Any) -> List[str]:
+    """התגיות כפי שהן נכנסות לוולידטור — רשימת מחרוזות שאפשר לסדר ב-JSON.
+
+    הרשימה כמו שהיא, כולל הסדר: העמוד מציג אותן בסדר הזה. ערך שאינו רשימה
+    (מסמך ישן, ``None``) נכנס כרשימה ריקה, ופריט שאינו מחרוזת — כמחרוזת,
+    כדי ש-``json.dumps`` לא ייפול ויגרור את ה-ETag ל-fallback מבוסס-זמן.
+    """
+    if not isinstance(tags, list):
+        return []
+    return [t if isinstance(t, str) else str(t) for t in tags]
+
+
 def _compute_file_etag(doc: Dict[str, Any], *, variant: str = '') -> str:
     """Compute a weak ETag for a file document based on updated_at and raw content.
 
@@ -3657,6 +3672,12 @@ def _compute_file_etag(doc: Dict[str, Any], *, variant: str = '') -> str:
             # נשען על מה שהעמוד באמת מציג.
             'f': '1' if doc.get('is_favorite') else '0',
             'p': '1' if doc.get('is_pinned') else '0',
+            # התגיות מרונדרות לתוך העמוד, ושינוי שלהן **בכוונה** אינו מזיז את
+            # ``updated_at`` — לא ב-``quick-update`` ולא בתיוג מרובה (תגיות הן
+            # מטא-דאטה, כמו מועדף ונעיצה). בלי השדה הזה ``If-None-Match`` קיבל
+            # 304 אחרי שינוי תגיות, והדפדפן הציג את התגיות הישנות — ומודאל
+            # התגיות נפתח איתן, כך ששמירה דרסה את החדשות.
+            't': _etag_tags(doc.get('tags')),
             # גרסת ה-deploy: בלעדיה קובץ שלא נערך מחזיר ETag זהה בין deploys,
             # והדפדפן מקבל 304 ומציג תבנית ישנה (בלי אלמנטים חדשים).
             'sv': _STATIC_VERSION,
@@ -15229,12 +15250,55 @@ def api_file_content(file_id):
     return resp
 
 
+def _read_back_file_tags(user_id: int, doc_id: Any) -> Optional[List[str]]:
+    """התגיות של המסמך כפי שהן שמורות **עכשיו**, בקריאה חוזרת מהמסד.
+
+    זה מה ש-``quick-update`` מחזיר בשדה ``tags``, ולא את מה שנשלח לכתיבה:
+    הלקוח מציג אותו במקום מה שהמשתמש הקליד, כי השרת מנרמל
+    (``file_tags.normalize_quick_update_tags``). קוראים את המצב ולא מהדהדים
+    את הבקשה — אותה תבנית כמו ``mcp_server/backend.py:save_file``.
+
+    ``None`` כשאי אפשר לקרוא: שגיאת מסד (נרשמת), מסמך שנעלם בין הכתיבה
+    לקריאה, או ``tags`` שאינו רשימת מחרוזות. הכתיבה עצמה כבר קרתה ונבדקה
+    (``ok``), ולכן זה אינו כשל של הבקשה — הלקוח שמקבל ``None`` טוען את העמוד
+    מחדש במקום להציג ניחוש.
+
+    **``PyMongoError`` ולא ``Exception``:** ``None`` הוא המצב של "המסד לא נתן
+    לקרוא". באג — מזהה פגום, חתימה שהשתנתה, דמה בלי ``find_one`` — אינו
+    המצב הזה, והוא עולה הלאה במקום לקבל את התווית שלו
+    (``RECURRING-PATTERNS.md`` R10).
+    """
+    try:
+        doc = get_db().code_snippets.find_one(
+            {'_id': ObjectId(str(doc_id)), 'user_id': user_id},
+            {'tags': 1},
+        )
+    except PyMongoError:
+        logger.warning("quick update: reading the stored tags back failed",
+                       extra={"file_id": str(doc_id)}, exc_info=True)
+        return None
+    if not isinstance(doc, dict):
+        return None
+    tags = doc.get('tags')
+    if tags is None:
+        return []
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        return None
+    return tags
+
+
 @app.route('/api/file/<file_id>/quick-update', methods=['POST'])
 @login_required
 def api_file_quick_update(file_id):
     """
     עדכון מהיר של תיאור ו/או תגיות לקובץ.
-    Body: { "description": "...", "tags": ["tag1", "tag2"] }
+    Body: { "description": "...", "tags": "tag1, #tag2" }
+
+    ``tags`` הוא שורת טקסט — כך שולחים אותו מודאל התגיות בעמוד הקובץ
+    והעריכה המהירה בדשבורד — או רשימת מחרוזות. החיתוך והנרמול:
+    ``file_tags.normalize_quick_update_tags``. כשהתגיות נכללו בעדכון, התשובה
+    נושאת ``tags`` — התגיות כפי שנשמרו, בקריאה חוזרת מהמסד
+    (``_read_back_file_tags``), או ``null`` כשהקריאה החוזרת נכשלה.
 
     ``updated_at`` נחתם **רק כשהתיאור נכלל בעדכון**. הוא מציין מתי התוכן,
     התיאור או השם השתנו, ותגיות הן מטא-דאטה — כמו מועדפים ונעיצה — ולכן
@@ -15277,6 +15341,10 @@ def api_file_quick_update(file_id):
         user_id = session['user_id']
 
         data = request.get_json() or {}
+        if not isinstance(data, dict):
+            # גוף JSON שאינו אובייקט (רשימה, מספר) — עד כאן ``data.get`` נפל
+            # עליו ב-500 (``bugbot-rules/external-input-isinstance.md``).
+            return jsonify({'ok': False, 'error': 'גוף הבקשה אינו תקין'}), 400
         # dict ולא שני משתנים עם סנטינל: שדה שלא נשלח פשוט אינו נמצא כאן,
         # וברירת המחדל של הפונקציה (``_UNSET``) נשארת בתוקף. כך גם אין
         # צורך לייבא שם פרטי ממודול אחר.
@@ -15288,16 +15356,12 @@ def api_file_quick_update(file_id):
             )
 
         if 'tags' in data:
-            raw_tags = data.get('tags') or []
-            if isinstance(raw_tags, str):
-                # תמיכה בקלט comma-separated
-                raw_tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
-            # ניקוי ונורמליזציה
-            clean_tags = []
-            for t in raw_tags[:20]:  # מקסימום 20 תגיות
-                tag = str(t).strip().lower()[:50]
-                if tag and tag not in clean_tags:
-                    clean_tags.append(tag)
+            # שורת טקסט (כמו שהמודאלים שולחים) או רשימת מחרוזות. החיתוך
+            # והנרמול ב-``file_tags.normalize_quick_update_tags``; ``None`` הוא
+            # ערוץ הכשל שלה — צורה לא תקינה נדחית, ואינה מומרת בשקט.
+            clean_tags = normalize_quick_update_tags(data.get('tags'))
+            if clean_tags is None:
+                return jsonify({'ok': False, 'error': 'תגיות לא תקינות'}), 400
             fields['tags'] = clean_tags
 
         # **הכתיבה כאן ממוענת למסמך, והמסך קורא את הישות.**
@@ -15338,10 +15402,13 @@ def api_file_quick_update(file_id):
         # **כל** מה ש-``$set`` נשא, כולל ``updated_at``. שמירה על הצורה
         # הזו היא החוזה כלפי לקוח קיים, גם אם ``updated_fields`` הוא השם
         # המדויק יותר למה שהמבקש ביקש.
-        return jsonify({
+        payload: Dict[str, Any] = {
             'ok': True,
             'updated_fields': result.get('set_fields') or []
-        })
+        }
+        if 'tags' in fields:
+            payload['tags'] = _read_back_file_tags(user_id, result.get('file_id'))
+        return jsonify(payload)
 
     except Exception as e:
         logger.exception(f"Error in quick update: {e}")
@@ -16093,7 +16160,7 @@ def edit_file_page(file_id):
             language = (request.form.get('language') or '').strip() or (file.get('programming_language') or 'text')
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
-            tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else list(file.get('tags') or [])
+            tags = split_tags_text(raw_tags) if raw_tags else list(file.get('tags') or [])
 
             raw_source_url = (request.form.get('source_url') or '').strip()
             source_url_state = (request.form.get('source_url_touched') or '').strip().lower()
@@ -16178,7 +16245,7 @@ def edit_file_page(file_id):
             language = (request.form.get('language') or '').strip() or (file.get('programming_language') or 'text')
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
-            tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else list(file.get('tags') or [])
+            tags = split_tags_text(raw_tags) if raw_tags else list(file.get('tags') or [])
             raw_source_url = request.form.get('source_url') or ''
             source_url_value = raw_source_url.strip()
             source_url_state = (request.form.get('source_url_touched') or '').strip().lower()
@@ -18124,7 +18191,7 @@ def upload_file_web():
             language = (request.form.get('language') or '').strip() or 'text'
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
-            tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else []
+            tags = split_tags_text(raw_tags) if raw_tags else []
             raw_source_url = request.form.get('source_url') or ''
             source_url_value = raw_source_url.strip()
             source_url_state = (request.form.get('source_url_touched') or '').strip().lower()

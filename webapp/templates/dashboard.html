@@ -2940,7 +2940,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         if (newTagsRaw !== originalTags) {
-            payload.tags = newTagsRaw ? newTagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+            // הטקסט כמו שהוא: השרת חותך ומנרמל (``file_tags.split_tags_text``),
+            // אותו חיתוך כמו בעמוד העריכה ובמודאל התגיות בעמוד הקובץ.
+            payload.tags = newTagsRaw;
         }
 
         // אם לא השתנה כלום, אין מה לשמור

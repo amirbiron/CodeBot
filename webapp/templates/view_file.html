@@ -328,6 +328,11 @@
     flex-wrap: wrap;
     margin: 0 0 0.75rem;
 }
+/* ``display: flex`` גובר על ``hidden`` של הדפדפן, ובלי השורה הזו מכל ריק
+   (קובץ בלי תגיות, או אחרי מחיקת כולן במודאל) נשאר בעמוד עם השוליים שלו. */
+.file-tags[hidden] {
+    display: none;
+}
 
 .file-actions {
     display: flex;
@@ -822,15 +827,22 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         {# התיאור תמיד קיים ב-DOM (מוסתר כשריק) כדי שנוכל לעדכנו חי אחרי שמירה #}
         <p class="file-description" id="fileDescriptionText"{% if not file.description %} hidden{% endif %}>{{ file.description }}</p>
 
-        {% if file.tags %}
-        <div class="file-tags">
-            {% for tag in file.tags %}
-            <span class="badge" style="background: rgba(102, 126, 234, 0.2); border-color: rgba(102, 126, 234, 0.4);">
-                #{{ tag }}
-            </span>
+        {# תגית אחת — המקום היחיד שמגדיר איך היא נראית. גם הרשימה כאן וגם
+           ``#fileTagTemplate`` (שממנו ``_renderFileTags`` בונה את הרשימה אחרי שמירה
+           במודאל) עוברים דרכו, כדי ש-JS לא יחזיק עותק של הסגנון. #}
+        {% macro file_tag_badge(tag=none) -%}
+        <span class="badge" style="background: rgba(102, 126, 234, 0.2); border-color: rgba(102, 126, 234, 0.4);">{% if tag is not none %}#{{ tag }}{% endif %}</span>
+        {%- endmacro %}
+        {# תמיד ב-DOM (מוסתר כשאין תגיות), כמו התיאור, כדי שמודאל התגיות יוכל
+           לעדכן אותו חי. ``data-tags`` הוא הרשימה שהמודאל נפתח איתה — JSON ולא
+           פירוק של הטקסט המוצג. ``forceescape`` כי ``tojson`` אינו מקודד ``"``,
+           וה-attribute במירכאות כפולות (jinja2/utils.py, ``htmlsafe_json_dumps``). #}
+        <div class="file-tags" id="fileTagsList" data-tags="{{ (file.tags or [])|tojson|forceescape }}"{% if not file.tags %} hidden{% endif %}>
+            {% for tag in file.tags or [] %}
+            {{ file_tag_badge(tag) }}
             {% endfor %}
         </div>
-        {% endif %}
+        {% if not is_public %}<template id="fileTagTemplate">{{ file_tag_badge() }}</template>{% endif %}
     </div>
 
     {# ``is_public`` — עמוד שיתוף ציבורי (``/share/<share_id>``, ``public_share``).
@@ -978,6 +990,16 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                             data-file-id="{{ file.id }}">
                         <span id="descMenuLabel">{{ '📝 ערוך תיאור' if file.description else '➕ הוסף תיאור' }}</span>
                     </button>
+                    {# לא בקובץ גדול: ``quick-update`` כותב רק ל-``code_snippets``, וקובץ
+                       גדול יושב ב-``large_files`` — השמירה הייתה מחזירה "הקובץ לא נמצא". #}
+                    {% if not file.is_large %}
+                    <button type="button"
+                            class="file-actions__menu-item"
+                            data-menu-action="tags"
+                            data-file-id="{{ file.id }}">
+                        <span>🏷️ עדכן תגיות</span>
+                    </button>
+                    {% endif %}
                     {% if file.can_pin %}
                     <button type="button"
                             class="file-actions__menu-item"
@@ -1209,6 +1231,25 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     </div>
 </div>
 
+{# מודאל התגיות — אותו מבנה ואותן מחלקות כמו מודאל התיאור. השדה הוא שורת טקסט
+   עם פסיקים, כמו בעריכה המהירה בדשבורד ובעמוד העריכה, והשרת הוא שחותך אותה
+   (``file_tags.split_tags_text``). #}
+<div id="editTagsModal" class="desc-modal" role="dialog" aria-modal="true" aria-labelledby="tagsModalTitle" hidden>
+    <div class="desc-modal__content" role="document">
+        <h3 id="tagsModalTitle" class="desc-modal__title">תגיות הקובץ</h3>
+        <p class="desc-modal__subtitle">הפרידו תגיות בפסיקים.</p>
+        <input type="text" id="tagsModalInput" class="desc-modal__input" autocomplete="off"
+               aria-labelledby="tagsModalTitle" placeholder="utils, helper, api">
+        <div class="desc-modal__actions">
+            <button type="button" class="btn btn-secondary" onclick="closeEditTagsModal()">ביטול</button>
+            <button type="button" class="btn btn-primary" id="tagsModalSave" onclick="saveTags()">שמירה</button>
+        </div>
+        <button type="button" class="desc-modal__close" onclick="closeEditTagsModal()" aria-label="סגור">
+            ✕
+        </button>
+    </div>
+</div>
+
 <div id="historyModal" class="glass-modal" role="dialog" aria-modal="true" aria-labelledby="historyModalTitle" hidden>
     <div class="glass-modal__surface">
         <div class="glass-modal__header">
@@ -1321,7 +1362,9 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     margin: 0 0 1rem;
     color: var(--text-secondary);
 }
-.desc-modal__textarea {
+/* שדה הטקסט של מודאל התיאור ושדה השורה של מודאל התגיות — אותם טוקנים, בכלל אחד */
+.desc-modal__textarea,
+.desc-modal__input {
     width: 100%;
     box-sizing: border-box;
     background: var(--bg-tertiary);
@@ -1331,10 +1374,17 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     padding: 0.75rem;
     font-size: 1rem;
     line-height: 1.5;
+}
+.desc-modal__textarea {
     resize: vertical;
     min-height: 96px;
 }
-.desc-modal__textarea:focus {
+/* במודאל התיאור המונה יושב בין השדה לכפתורים ונותן את הרווח; כאן אין מונה */
+.desc-modal__input {
+    margin-block-end: 1rem;
+}
+.desc-modal__textarea:focus,
+.desc-modal__input:focus {
     outline: none;
     border-color: var(--primary);
 }
@@ -1657,8 +1707,36 @@ function closeShareLinkModal() {
     }
 }
 
-// -- מודאל עריכת תיאור: קיצור דרך ל-quick-update בלי עריכת קובץ מלאה --
-let descModalKeyHandler = null;
+// -- מודאלים של עדכון מהיר (תיאור, תגיות): קיצור דרך ל-quick-update בלי עריכת קובץ מלאה --
+// הפתיחה והסגירה — רקע, Escape ופוקוס — משותפות לשני המודאלים. רק אחד מהם
+// פתוח בכל רגע (שניהם נפתחים מתפריט ⋮), ולכן מאזין Escape אחד מספיק.
+let quickModalKeyHandler = null;
+
+function _showQuickModal(modal, focusEl, close) {
+    modal.hidden = false;
+    if (!modal.dataset.boundBackdrop) {
+        modal.addEventListener('click', function(ev) {
+            if (ev.target === modal) { close(); }
+        });
+        modal.dataset.boundBackdrop = '1';
+    }
+    if (quickModalKeyHandler) {
+        try { document.removeEventListener('keydown', quickModalKeyHandler); } catch (_) {}
+    }
+    quickModalKeyHandler = function(ev) {
+        if (ev.key === 'Escape') { ev.preventDefault(); close(); }
+    };
+    document.addEventListener('keydown', quickModalKeyHandler);
+    setTimeout(() => { try { if (focusEl) { focusEl.focus(); } } catch (_) {} }, 0);
+}
+
+function _hideQuickModal(modal) {
+    modal.hidden = true;
+    if (quickModalKeyHandler) {
+        document.removeEventListener('keydown', quickModalKeyHandler);
+        quickModalKeyHandler = null;
+    }
+}
 
 function _descUpdateCount() {
     const ta = document.getElementById('descModalTextarea');
@@ -1680,31 +1758,13 @@ function openEditDescriptionModal() {
         }
     }
     _descUpdateCount();
-    modal.hidden = false;
-    if (!modal.dataset.boundBackdrop) {
-        modal.addEventListener('click', function(ev) {
-            if (ev.target === modal) { closeEditDescriptionModal(); }
-        });
-        modal.dataset.boundBackdrop = '1';
-    }
-    if (descModalKeyHandler) {
-        try { document.removeEventListener('keydown', descModalKeyHandler); } catch (_) {}
-    }
-    descModalKeyHandler = function(ev) {
-        if (ev.key === 'Escape') { ev.preventDefault(); closeEditDescriptionModal(); }
-    };
-    document.addEventListener('keydown', descModalKeyHandler);
-    setTimeout(() => { try { if (ta) { ta.focus(); } } catch (_) {} }, 0);
+    _showQuickModal(modal, ta, closeEditDescriptionModal);
 }
 
 function closeEditDescriptionModal() {
     const modal = document.getElementById('editDescriptionModal');
     if (!modal) { return; }
-    modal.hidden = true;
-    if (descModalKeyHandler) {
-        document.removeEventListener('keydown', descModalKeyHandler);
-        descModalKeyHandler = null;
-    }
+    _hideQuickModal(modal);
 }
 
 async function saveDescription() {
@@ -1729,6 +1789,107 @@ async function saveDescription() {
         closeEditDescriptionModal();
     } catch (e) {
         showToast((e && e.message) || 'שגיאה בשמירת התיאור', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; }
+    }
+}
+
+// -- מודאל התגיות --
+// הטקסט שהמודאל נפתח איתו. שמירה בלי שינוי אינה נשלחת — כמו בעריכה המהירה
+// בדשבורד — כי היא הייתה כותבת מחדש תגיות שלא נגעו בהן, אחרי הנרמול של השרת.
+let tagsModalOriginal = '';
+
+// רשימת התגיות מתוך ערך שהגיע מבחוץ (``data-tags``, או ``tags`` בתשובת השרת),
+// או ``null`` כשהצורה אינה רשימת מחרוזות.
+function _tagListOrNull(value) {
+    if (!Array.isArray(value)) { return null; }
+    return value.every((t) => typeof t === 'string') ? value : null;
+}
+
+function _currentFileTags() {
+    const box = document.getElementById('fileTagsList');
+    if (!box) { return null; }
+    try {
+        return _tagListOrNull(JSON.parse(box.dataset.tags || '[]'));
+    } catch (_) {
+        return null;
+    }
+}
+
+// בונה את רשימת התגיות שבראש העמוד מחדש, מהתבנית ``#fileTagTemplate`` —
+// אותו macro של Jinja שמרנדר את הרשימה בטעינה, כך שאין כאן עותק של הסגנון.
+// ``importNode`` ולא ``cloneNode``: MDN, HTMLTemplateElement.content — כך
+// התוכן נבנה בהקשר של המסמך הנוכחי.
+function _renderFileTags(tags) {
+    const box = document.getElementById('fileTagsList');
+    const tpl = document.getElementById('fileTagTemplate');
+    if (!box || !tpl) { return false; }
+    const badges = tags.map((tag) => {
+        const badge = document.importNode(tpl.content, true).firstElementChild;
+        badge.textContent = '#' + tag;
+        return badge;
+    });
+    box.replaceChildren(...badges);
+    box.hidden = tags.length === 0;
+    box.dataset.tags = JSON.stringify(tags);
+    return true;
+}
+
+function openEditTagsModal() {
+    const modal = document.getElementById('editTagsModal');
+    const input = document.getElementById('tagsModalInput');
+    if (!modal || !input) { return; }
+    const tags = _currentFileTags();
+    if (!tags) {
+        // בלי הרשימה הנוכחית המודאל היה נפתח ריק, ושמירה בו הייתה מחליפה את
+        // כל התגיות במה שהוקלד — במקום להוסיף להן.
+        showToast('לא ניתן לקרוא את התגיות הנוכחיות; רעננו את העמוד', 'error');
+        return;
+    }
+    tagsModalOriginal = tags.join(', ');
+    input.value = tagsModalOriginal;
+    _showQuickModal(modal, input, closeEditTagsModal);
+}
+
+function closeEditTagsModal() {
+    const modal = document.getElementById('editTagsModal');
+    if (!modal) { return; }
+    _hideQuickModal(modal);
+}
+
+async function saveTags() {
+    const input = document.getElementById('tagsModalInput');
+    const btn = document.getElementById('tagsModalSave');
+    const raw = (input ? input.value : '').trim();
+    if (raw === tagsModalOriginal) {
+        closeEditTagsModal();
+        showToast('לא בוצעו שינויים', 'info');
+        return;
+    }
+    if (btn) { btn.disabled = true; }
+    try {
+        // ``tags`` בלבד, בלי ``description``: כך ``updated_at`` אינו זז — תגיות
+        // הן מטא-דאטה (ה-docstring של ``api_file_quick_update``). הטקסט נשלח
+        // כמו שהוא, והשרת חותך ומנרמל (``file_tags.normalize_quick_update_tags``).
+        const res = await fetch('/api/file/{{ file.id }}/quick-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tags: raw })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data || !data.ok) { throw new Error((data && data.error) || 'שגיאה בשמירה'); }
+        // מוצג מה שהשרת שמר, לא מה שהוקלד: ``Python`` חוזר כ-``python``.
+        const stored = _tagListOrNull(data.tags);
+        if (!stored || !_renderFileTags(stored)) {
+            // התגיות נשמרו, אבל השרת לא הצליח לקרוא אותן בחזרה (``tags: null``).
+            // טעינה מחדש מציגה את מה שבאמת שמור, במקום ניחוש מתוך מה שהוקלד.
+            window.location.reload();
+            return;
+        }
+        showToast('התגיות נשמרו', 'success');
+        closeEditTagsModal();
+    } catch (e) {
+        showToast((e && e.message) || 'שגיאה בשמירת התגיות', 'error');
     } finally {
         if (btn) { btn.disabled = false; }
     }
@@ -1827,6 +1988,9 @@ async function shareToTelegram() {
 
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && overlay.classList.contains('is-open')) {
+            // המאזין הזה נרשם לפני קיצורי המקלדת של העמוד, ובזמן שהם רצים התמונה
+            // כבר סגורה — ``preventDefault`` הוא מה שאומר להם שה-Escape טופל.
+            event.preventDefault();
             closeOverlay();
         }
     });
@@ -1925,9 +2089,29 @@ document.addEventListener('keydown', function(e) {
             try { document.exitFullscreen(); } catch (err) { /* ignore */ }
             return;
         }
+        // Escape ששכבה פתוחה טיפלה בו אינו "חזרה". עד כאן סגירת מודאל ב-Escape
+        // גם עזבה את העמוד (נמדד ב-Chromium: מודאל התיאור נסגר וה-URL חזר אחורה).
+        if (_escapeIsTakenByOpenLayer(e)) { return; }
         {% if not is_public %}goBack();{% endif %}
     }
 });
+
+// האם Escape שייך לשכבה פתוחה ולא לעמוד. שני מקרים, כי סדר המאזינים קובע מי
+// רץ קודם: מאזין שנרשם **לפני** זה (התמונה המוגדלת) כבר סגר את השכבה וסימן
+// ``preventDefault``; ומאזין שנרשם **אחרי** — המודאלים, שמאזינים מרגע הפתיחה,
+// ותפריט ⋮ — עוד לא רץ, ולכן השכבה עדיין פתוחה. מודאל בלי Escape משלו
+// (היסטוריה, סל) נשאר פתוח, ולא נעלם יחד עם העמוד.
+//
+// "פתוחה" נבדק לפי מה שמצויר ולא לפי ``hidden``: כל שכבה מסתירה את עצמה אחרת —
+// מודאלי העמוד ב-``hidden``, בורר הערכות של base.html ב-``display: none`` עד
+// ``.is-open`` — ובדיקה של ``:not([hidden])`` מצאה אותו "פתוח" בכל טעינה, ו-Escape
+// הפסיק לחזור (נמדד). ל-``display: none`` אין תיבות, ו-``getClientRects`` מחזיר
+// עליו רשימה ריקה (MDN, Element.getClientRects).
+function _escapeIsTakenByOpenLayer(e) {
+    if (e.defaultPrevented) { return true; }
+    return Array.from(document.querySelectorAll('[role="dialog"], #fileActionsMenu'))
+        .some((layer) => layer.getClientRects().length > 0);
+}
 
 // מסך מלא עבור מיכל הקוד
 (function(){
@@ -2644,6 +2828,10 @@ function goBack(ev){
             closeMenu();
             if (action === 'description') {
                 openEditDescriptionModal();
+                return;
+            }
+            if (action === 'tags') {
+                openEditTagsModal();
                 return;
             }
             if (action === 'pin') {
