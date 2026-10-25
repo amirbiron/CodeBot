@@ -127,6 +127,17 @@ def test_the_archive_page_is_its_own_view_and_not_a_board(client):
     assert b'id="archiveGrid"' in res.data
 
 
+def test_the_archive_page_loads_the_handwriting_font_even_when_the_setting_is_off(client):
+    """שמות הכרטיסים בכתב יד תמיד (``.archive-card-title`` ב-``note-boards.css``), ולכן העמוד טוען
+    את הגופן גם כשההגדרה של הלוחות כבויה — בלי להחיל את המחלקה, שהייתה מעבירה גם את הפתק הפתוח
+    לכתב יד. הקריאה חייבת לבוא אחרי ההגדרה של הפונקציה ב-``_note_fonts_head.html``."""
+    html = client.get('/boards/archive').get_data(as_text=True)
+
+    assert 'window.STICKY_FONT_FROM_SETTINGS = false;' in html, "הבדיקה צריכה הגדרה כבויה"
+    defined = html.index('window.ensureHandwritingFont = function')
+    assert html.index('<script>window.ensureHandwritingFont();</script>') > defined
+
+
 def test_the_archive_page_sends_a_guest_to_login_and_back(client):
     with client.session_transaction() as sess:
         sess.clear()

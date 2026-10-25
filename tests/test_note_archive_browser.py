@@ -8,7 +8,8 @@ API מזויף היה בודק שהלקוח שולח את מה שהטסט ציפ
 
 **מה נמדד:** מרכוז הפתק הפתוח במסך, שהמיקום אינו נשמר והגודל כן, ``inert`` על הרשת, שהמיקוד
 חוזר לכרטיס, חיתוך השם לארבע שורות, הכיוון של רצף לטיני בשם עברי (מול בקרה בלי הבידוד), מצב
-השגיאה, הקישור העמוק, מסך של טלפון, וערכות כהה וניגודיות גבוהה (יחס ניגודיות מחושב).
+השגיאה, הקישור העמוק, מסך של טלפון, ערכות כהה וניגודיות גבוהה (יחס ניגודיות מחושב), וכתב היד בשם
+הכרטיס מול הפתק הפתוח, בהגדרה כבויה ודלוקה.
 
 **מה לא נבדק כאן:** מכשיר אמיתי — זו אמולציה בכרומיום. האנימציה של החזרה לכרטיס נבדקת רק בכך
 שהפתק יורד והמיקוד חוזר, לא במסלול שלה.
@@ -353,6 +354,32 @@ def test_a_long_name_is_cut_after_four_lines_and_a_path_keeps_its_slash(admin_li
         }""")
         assert order["isolated"] is True, "בכרטיס: הלוכסן משמאל ל-a"
         assert order["control"] is False, "בקרה: בלי בידוד הלוכסן נודד — אחרת הבדיקה אינה מוכיחה דבר"
+
+
+@pytest.mark.parametrize("setting", [False, True], ids=["setting-off", "setting-on"])
+def test_card_names_are_handwritten_and_the_open_note_follows_the_setting(
+    setting, admin_live_server, chromium_executable, db,
+):
+    """שם הכרטיס בכתב יד **תמיד**; הפתק שנפתח מעליו — לפי ההגדרה של הלוחות
+    (``ui_prefs.note_fonts.board``, שעמוד הארכיון קורא דרך ``_note_fonts_head.html``).
+
+    **מה נבדק ומה לא:** הגופן נטען מ-Google Fonts, ובסביבה בלי רשת הוא לא יגיע. לכן נבדקים
+    ה-``font-family`` המחושב ושה-``<link>`` של הגופן קיים בעמוד, ולא שהגליפים צוירו בגופן."""
+    if setting:
+        db.users.insert_one({"user_id": USER, "ui_prefs": {"note_fonts": {"board": True}}})
+    note = archived(db, "רשימה ביד")
+
+    with opened(admin_live_server, chromium_executable, "/boards/archive") as page:
+        card(page, note).wait_for(state="visible", timeout=20000)
+        family = card(page, note).locator(".archive-card-title").evaluate("t => getComputedStyle(t).fontFamily")
+        assert family.startswith('"Gveret Levin"'), family
+        assert page.locator("link#hw-font").count() == 1, "הגופן נטען גם בהגדרה כבויה"
+        shot(page, f"8-handwriting-{'on' if setting else 'off'}")
+
+        content = open_note(page, note).locator(".sticky-note-content")
+        body = content.evaluate("e => getComputedStyle(e).fontFamily")
+        assert body.startswith('"Gveret Levin"') is setting, body
+        assert page.js_errors == []
 
 
 def test_on_a_phone_the_grid_has_two_columns_and_the_note_fits(admin_live_server, chromium_executable, db):
