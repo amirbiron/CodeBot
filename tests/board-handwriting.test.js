@@ -65,7 +65,7 @@ function headScript(boardId, fromSettings = false, between = '') {
   // הזה בלבד — התבנית אינה אמורה להיכתב סביבה.
   const shared = inlineScript(SHARED_SRC, '_note_fonts_head.html')
     .replaceAll(
-      '{{ (note_fonts.get(note_font_surface) if note_fonts else False) | tojson }}',
+      '{{ (note_fonts.get(_handwriting_surface) if note_fonts else False) | tojson }}',
       JSON.stringify(fromSettings),
     )
     // גודל הטקסט שמגיע מעמוד ההגדרות מרונדר **ריק בלוחות** — התבנית

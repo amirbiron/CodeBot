@@ -10,7 +10,12 @@
 <div class="boards-page">
   <div class="boards-header">
     <h1>📌 לוחות פתקים</h1>
-    <button class="board-action" id="newBoardBtn">לוח חדש</button>
+    {# הארכיון הוא עמוד קבוע ולא לוח, ולכן הוא כאן ולא ברשת: הרשת נבנית מה-API, והקישור
+       אליו קיים גם כשטעינת הלוחות נכשלה. #}
+    <div class="boards-header-actions">
+      <a href="/boards/archive" class="board-action" id="archiveLink">🗃️ ארכיון</a>
+      <button class="board-action" id="newBoardBtn">לוח חדש</button>
+    </div>
   </div>
 
   <div class="board-msg is-error" id="boardsMsg" hidden></div>

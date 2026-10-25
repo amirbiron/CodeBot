@@ -422,6 +422,9 @@ def test_as_note_serialization():
         # שניהם עדכון פתק ריפו מדווח על פתק בלי שום יעד.
         "repo_name",
         "repo_path",
+        # יעד הארכיון: פתק בארכיון אינו נושא אף שדה יעד אחר, ובלעדיו הוא היה נראה
+        # כפתק שאינו יושב בשום מקום. ``None`` בכל פתק אחר.
+        "archived_at",
         "created_at",
         "updated_at",
     }
@@ -2600,3 +2603,130 @@ def test_the_expected_content_gate_compares_the_stored_body_only(monkeypatch):
     stored = b.update_note(7, note_id=_NOTE_OID, fields={"content": "x"}, expected_content="say &quot;hi&quot;")
     assert stored["ok"] is True and stored["content_changed"] is False, stored
     assert coll.inserted[0]["content"] == "x"
+
+
+# ---------- ארכיון ----------
+#
+# הארכיון הוא היעד הרביעי (``archived_at``, תאריך). מה שה-MCP חייב לדעת עליו: לומר על פתק
+# שהוא בארכיון — ב-``get_note``, בפגיעת חיפוש ובשורת הפריימר — ולא לספור פתקי ארכיון בתקרת
+# המשתמש כשהוא יוצר פתק. הספירה כאן מול דמה; מול מונגו אמיתי — ``test_note_archive_mongo.py``.
+
+import datetime as _dt  # noqa: E402
+
+_ARCHIVED_AT = _dt.datetime(2026, 10, 25, 9, 0, tzinfo=_dt.timezone.utc)
+
+
+def test_get_note_says_an_archived_note_is_in_the_archive():
+    """בלי ``archived_at`` בהכרעה, פתק ארכיון היה ``unknown`` — והסוכן לא היה יודע איפה הוא."""
+    coll = _NoteColl()
+    coll.inserted.append(_stored_note("x", title="שם", archived_at=_ARCHIVED_AT))
+    b = _note_backend(_NoteDb(coll))
+
+    res = b.get_note(7, note_id=_NOTE_OID)
+
+    assert res["target"] == "archive"
+    assert not ({"board_id", "file_name", "file_id", "repo_name", "repo_path"} & set(res))
+    assert res["note"]["archived_at"] == _ARCHIVED_AT.isoformat()
+
+
+def test_a_search_hit_on_an_archived_note_says_archive():
+    """פגיעת חיפוש נבנית מהיטלה צרה (``_NOTE_REF_FIELDS``); בלי ``archived_at`` שם — ``unknown``."""
+    from mcp_server.backend import _NOTE_REF_FIELDS, _as_note_ref
+
+    doc = {"_id": "OID", "title": "שם", "archived_at": _ARCHIVED_AT, "updated_at": _ARCHIVED_AT}
+    projected = {k: v for k, v in doc.items() if k == "_id" or k in _NOTE_REF_FIELDS}
+
+    assert _as_note_ref(projected)["target"] == "archive"
+
+
+def test_the_primer_says_a_pending_note_is_in_the_archive():
+    from mcp_server.primer import _pending_item
+
+    line = _pending_item({"target": "archive", "title": "שם", "note_id": "n1"})
+
+    assert line == '"שם" בארכיון (note_id n1)'
+
+
+class _ArchiveCountColl(_IndexSpyColl):
+    """``count_documents`` עם הסמנטיקה של מונגו לשני המסננים של הארכיון.
+
+    ``None`` = השדה חסר או ``null`` (MongoDB Manual, "Query for Null or Missing Fields"), ו-
+    ``{"$type": "date"}`` = תאריך. כל מפתח אחר — שוויון. כך הדמה עונה על השאלה "מה נספר",
+    ולא רק "מה נשאל".
+    """
+
+    def count_documents(self, query, *a, **k):
+        def match(doc):
+            for key, want in query.items():
+                have = doc.get(key)
+                if want is None:
+                    if have is not None:
+                        return False
+                elif isinstance(want, dict) and want == {"$type": "date"}:
+                    if not isinstance(have, _dt.datetime):
+                        return False
+                elif have != want:
+                    return False
+            return True
+
+        return sum(1 for doc in self.inserted if match(doc))
+
+
+def _full_of(kind):
+    from sticky_notes_target import MAX_NOTES_PER_USER
+
+    coll = _ArchiveCountColl()
+    for i in range(MAX_NOTES_PER_USER):
+        doc = {"_id": f"old{i}", "user_id": 7, "content": "x"}
+        doc.update({"archived_at": _ARCHIVED_AT} if kind == "archive" else {"board_id": "other"})
+        coll.inserted.append(doc)
+    return coll
+
+
+def _board_backend_on(coll, monkeypatch):
+    b = _backend_with(coll, monkeypatch, {"now": 0.0})
+    _verified(b, _EnforcedIndex.BOARD_TITLE)
+    monkeypatch.setattr(b, "_notes_coll", lambda: coll)
+    monkeypatch.setattr(b, "_canonical_board_id", lambda board: "b1", raising=False)
+    monkeypatch.setattr(b, "_owned_board", lambda uid, bid: {"_id": "b1"}, raising=False)
+    monkeypatch.setitem(__import__("sys").modules, "user_roles",
+                        type("M", (), {"is_admin": staticmethod(lambda uid: False)}))
+    return b
+
+
+def test_archived_notes_do_not_fill_the_per_user_cap_of_a_board_note(monkeypatch):
+    """1000 פתקים בארכיון, אפס פעילים — פתק לוח חדש נוצר. והבקרה: 1000 פעילים — נדחה.
+
+    בלי הבקרה, "נוצר" היה נכון גם לקוד שאינו סופר כלום.
+    """
+    archived = _full_of("archive")
+    res = _board_backend_on(archived, monkeypatch).create_board_note(
+        7, board_id="b1", content="חדש", color="#FFFFCC", mode="surface")
+    assert res.get("ok") is True, res
+
+    active = _full_of("board")
+    res = _board_backend_on(active, monkeypatch).create_board_note(
+        7, board_id="b1", content="חדש", color="#FFFFCC", mode="surface")
+    assert res["error"] == "too_many_notes"
+
+
+def test_archived_notes_do_not_fill_the_per_user_cap_of_a_repo_note(monkeypatch):
+    archived = _full_of("archive")
+    b = _repo_backend(_RepoDB(archived), monkeypatch)
+    res = b.create_repo_note(7, repo_name="CodeBot", repo_path="a.py",
+                             content="חדש", color="#FFFFCC", mode="surface")
+    assert res.get("ok") is True, res
+
+    active = _full_of("board")
+    b = _repo_backend(_RepoDB(active), monkeypatch)
+    res = b.create_repo_note(7, repo_name="CodeBot", repo_path="a.py",
+                             content="חדש", color="#FFFFCC", mode="surface")
+    assert res["error"] == "too_many_notes"
+
+
+def test_the_notes_collection_builds_the_archive_list_index():
+    """הרשימה של עמוד הארכיון ממוינת ב-``archived_at`` יורד ושובר שוויון ``_id`` — האינדקס
+    הזה עונה עליה בלי מיון בזיכרון (נמדד ב-explain: ``test_note_archive_mongo.py``)."""
+    built = _mcp_built_indexes()
+
+    assert built["user_archived_idx"] == (("user_id", 1), ("archived_at", -1), ("_id", -1))

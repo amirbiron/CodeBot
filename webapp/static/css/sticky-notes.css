@@ -872,10 +872,14 @@
    בשורש גם מכסה פתק במצב ``screen``, שיושב מחוץ למכל.
 
    ``cursive`` כגיבוי הוא מה ש-Google Fonts ממליץ למשפחה הזו, והוא גם
-   מה שיוצג אם הגופן לא נטען: כתב מחובר כלשהו, ולא קפיצה ל-Heebo. */
+   מה שיוצג אם הגופן לא נטען: כתב מחובר כלשהו, ולא קפיצה ל-Heebo.
+
+   השם בכרטיס של עמוד הארכיון (``.archive-card-title``, ב-``note-boards.css``) כאן ולא
+   בכלל משלו — אותה מחלקה, ואותו כלל. */
 .sticky-handwriting .sticky-note-content,
 .sticky-handwriting .sticky-note-tasks,
-.sticky-handwriting .sticky-note-title {
+.sticky-handwriting .sticky-note-title,
+.sticky-handwriting .archive-card-title {
   font-family: 'Gveret Levin', cursive;
 }
 
@@ -923,16 +927,21 @@
  *
  * מי שמוסיף כאן צבע מודד את שלושת המספרים האלה עבורו.
  */
-.sticky-color-modal{
+/* **חלון השם שלפני ההעברה לארכיון חולק את המעטפת** — אותו משטח קשיח, אותו רקע ואותה
+   דיו. הבוררים מקובצים ולא משוכפלים: שני עותקים של אותו כרטיס היו נסחפים בשינוי הבא. */
+.sticky-color-modal,
+.sticky-archive-modal{
   position: fixed; inset: 0; z-index: 99999;
   display: flex; align-items: center; justify-content: center;
 }
-.sticky-color-backdrop{
+.sticky-color-backdrop,
+.sticky-archive-backdrop{
   position: absolute; inset: 0;
   background: rgba(0,0,0,.5);
   backdrop-filter: blur(2px);
 }
-.sticky-color-card{
+.sticky-color-card,
+.sticky-archive-card{
   position: relative;
   background: #f4f5f7;
   color: #2b3f6a;
@@ -940,6 +949,55 @@
   box-shadow: 0 12px 32px rgba(0,0,0,.25);
   width: min(360px, 92vw);
   padding: 14px;
+}
+
+/* ===== חלון השם לפני העברה לארכיון =====
+ *
+ * הכותרת היא ה-``label`` של השדה, כך שקורא מסך מקריא את השאלה כשהמיקוד נכנס. הצבעים
+ * ליטרליים כמו בכרטיס (משטח קשיח): הדיו ``#2b3f6a`` על ``#f4f5f7``, וגבול השדה באותה דיו
+ * ב-``.7`` — הערך שנמדד לגבול ה-swatch מול אותו רקע (ראו למעלה). */
+.sticky-archive-label{
+  display: block;
+  font-weight: 600;
+  font-size: 1rem;
+  margin-block-end: 10px;
+}
+.sticky-archive-input{
+  display: block;
+  inline-size: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid rgba(43, 63, 106, .7);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #2b3f6a;
+  font: inherit;
+  font-size: 1rem;
+}
+.sticky-archive-input:focus-visible{
+  outline: 2px solid #1d4ed8;
+  outline-offset: 1px;
+}
+.sticky-archive-actions{
+  display: flex;
+  gap: 8px;
+  margin-block-start: 12px;
+}
+.sticky-archive-submit,
+.sticky-archive-cancel{
+  border-radius: 8px;
+  padding: 6px 14px;
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid #2b3f6a;
+}
+.sticky-archive-submit{ background: #2b3f6a; color: #ffffff; }
+.sticky-archive-cancel{ background: transparent; color: #2b3f6a; }
+.sticky-archive-submit:disabled{ opacity: .45; cursor: not-allowed; }
+.sticky-archive-submit:focus-visible,
+.sticky-archive-cancel:focus-visible{
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
 }
 .sticky-color-header{
   display: flex; align-items: center; justify-content: space-between;

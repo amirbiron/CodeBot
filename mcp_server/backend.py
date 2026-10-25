@@ -160,9 +160,12 @@ _SEMANTIC_FIELDS = (
 #: ``repo_name``/``repo_path`` נוספו מאותו טעם בדיוק שבגללו ``board_id``
 #: כאן: ``update_note`` מחזיר ``_as_note``, ובלי שני החצאים עדכון של פתק
 #: ריפו היה מדווח על פתק **בלי יעד** — כאילו אינו יושב בשום מקום.
+#: ``archived_at`` מאותו טעם: פתק בארכיון אינו נושא אף שדה יעד אחר, ובלעדיו
+#: הוא היה נראה בפלט כפתק שאינו יושב בשום מקום. אותו שדה בתשובת הוובאפ
+#: (``webapp/sticky_notes_api._as_note_response``).
 _NOTE_FIELDS = (
     "content", "color", "line_start", "anchor_text", "is_minimized",
-    "board_id", "mode", "title", "repo_name", "repo_path",
+    "board_id", "mode", "title", "repo_name", "repo_path", "archived_at",
 )
 
 class _EnforcedIndex(_enum.Enum):
@@ -209,8 +212,13 @@ class _IndexGate:
 
 #: שדות הזיהוי שפגיעת חיפוש מחזירה — **בלי תוכן ובלי תצוגה מקדימה**.
 #: ראו :func:`_as_note_ref`.
+#:
+#: **``archived_at`` כאן כי זה שדה הזיהוי של יעד הארכיון**, ו-``note_target_ref``
+#: קורא את המסמך שההיטלה הזו החזירה: בלעדיו פגיעה בפתק ארכיון הייתה יוצאת
+#: ``target: "unknown"``.
 _NOTE_REF_FIELDS = (
-    "title", "file_name", "file_id", "board_id", "repo_name", "repo_path", "updated_at",
+    "title", "file_name", "file_id", "board_id", "repo_name", "repo_path", "archived_at",
+    "updated_at",
 )
 
 
@@ -1920,6 +1928,10 @@ class ProductionBackend:
                         # רק בוובאפ, כי זה החיפוש שרץ, ופריסה של ה-MCP בלי
                         # הוובאפ הייתה משאירה אותו בסריקה החוצה.
                         ([("user_id", 1), ("updated_at", -1)], "user_updated_idx"),
+                        # הארכיון: תקרת המשתמש נספרת דרכו (``active_notes_filter``),
+                        # וגם כאן — כלומר בלי האינדקס, פריסה של ה-MCP בלי הוובאפ
+                        # הייתה סופרת כל יצירת פתק בקריאת מסמכים.
+                        ([("user_id", 1), ("archived_at", -1), ("_id", -1)], "user_archived_idx"),
                     ):
                         try:
                             coll.create_index(keys, name=name)
@@ -2456,6 +2468,7 @@ class ProductionBackend:
         from sticky_notes_target import (
             MAX_NOTES_PER_BOARD,
             MAX_NOTES_PER_USER,
+            active_notes_filter,
             board_notes_filter,
             build_note_target,
         )
@@ -2478,7 +2491,8 @@ class ProductionBackend:
         # לקובץ בריפו, שנאכפת על כולם.
         denied = self._enforce_note_quotas(coll, (
             (board_notes_filter(int(user_id), canonical), MAX_NOTES_PER_BOARD, is_admin_user),
-            ({"user_id": int(user_id)}, MAX_NOTES_PER_USER, is_admin_user),
+            # פתקי הארכיון אינם נספרים בתקרת המשתמש — ההגדרה ב-``active_notes_filter``.
+            (active_notes_filter(int(user_id)), MAX_NOTES_PER_USER, is_admin_user),
         ))
         if denied is not None:
             return denied
@@ -2578,6 +2592,7 @@ class ProductionBackend:
         from sticky_notes_target import (
             MAX_NOTES_PER_REPO_FILE,
             MAX_NOTES_PER_USER,
+            active_notes_filter,
             build_note_target,
             mirrored_repo_names,
             normalize_repo_path,
@@ -2615,7 +2630,7 @@ class ProductionBackend:
         # איש. זה ההבדל היחיד מהמסלול של הלוח.
         denied = self._enforce_note_quotas(coll, (
             (repo_notes_filter(int(user_id), clean_repo, clean_path), MAX_NOTES_PER_REPO_FILE, False),
-            ({"user_id": int(user_id)}, MAX_NOTES_PER_USER, is_admin_user),
+            (active_notes_filter(int(user_id)), MAX_NOTES_PER_USER, is_admin_user),
         ))
         if denied is not None:
             return denied
@@ -2955,8 +2970,10 @@ class ProductionBackend:
             found = self._notes_coll().aggregate([
                 {"$match": {"_id": {"$in": [ObjectId(nid) for nid in order]}, "user_id": uid}},
                 {"$project": {
+                    # שדות הזיהוי של כל ארבעת היעדים — ``note_target_ref`` קורא מכאן
+                    # איפה הפתק יושב, ובלי ``archived_at`` פתק בארכיון היה "unknown".
                     "title": 1, "file_name": 1, "file_id": 1, "board_id": 1,
-                    "repo_name": 1, "repo_path": 1,
+                    "repo_name": 1, "repo_path": 1, "archived_at": 1,
                     "preview": {"$cond": [
                         {"$eq": [{"$type": "$content"}, "string"]},
                         {"$substrCP": ["$content", 0, int(preview_chars)]},

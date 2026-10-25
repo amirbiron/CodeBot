@@ -27,7 +27,7 @@
 וכל מסמך שנכתב נושא אותו. כל מה שפועל על השרשורים של פתק אחד תחום ל-``user_id`` ול-``note_id``
 יחד (:func:`thread_scope`): :func:`create_thread` והקריאה החוזרת אחריה, :func:`add_comment`,
 :func:`resolve_thread` ו-:func:`reopen_thread` (כולל הקריאה שמסווגת למה העדכון לא תפס),
-:func:`list_threads`, :func:`load_comments` ו-:func:`delete_note_threads`. זה נכון גם כשיש
+:func:`resolve_open_threads`, :func:`list_threads`, :func:`load_comments` ו-:func:`delete_note_threads`. זה נכון גם כשיש
 ``_id`` של שרשור: מזהה שרשור של משתמש אחר, או של פתק אחר של אותו משתמש, הוא "לא נמצא".
 **ארבע קריאות עוברות על כמה פתקים, ולכן אינן תחומות לפתק אחד — בכוונה:**
 :func:`open_thread_counts` סופרת בשאילתה אחת את השרשורים הפתוחים בפתקים שהקורא העביר
@@ -102,6 +102,7 @@ __all__ = [
     "parse_thread_id",
     "pending_for_agent",
     "reopen_thread",
+    "resolve_open_threads",
     "resolve_thread",
     "stored_comment",
     "thread_scope",
@@ -561,6 +562,35 @@ def reopen_thread(coll: Any, *, user_id: int, note_id: str, thread_id: Any) -> d
     update = {"$set": {"status": STATUS_OPEN, "resolved_by": None, "resolved_at": None}}
     return _apply(coll, scope, oid, update, require_status=STATUS_RESOLVED, adds_bytes=None,
                   comment_id=None, action="reopened")
+
+
+def resolve_open_threads(
+    coll: Any, *, user_id: int, note_id: str, author: Any, now: datetime | None = None
+) -> int:
+    """סוגר כ"נפתר" את **כל** השרשורים הפתוחים של פתק אחד, ומחזיר כמה נסגרו.
+
+    הקורא היחיד הוא העברת פתק לארכיון בוובאפ (``webapp/sticky_notes_api.py:archive_note``),
+    **אחרי** שההעברה עצמה נכתבה: פתק בארכיון אינו ממתין לתגובה, ולכן השרשורים שלו יורדים
+    משורת הפריימר (:func:`pending_for_agent` מחזיר פתוחים בלבד). כמו :func:`resolve_thread`
+    בלי ``body``: נשמרים ``resolved_by`` ו-``resolved_at``, ואין תגובה חדשה — ולכן
+    ``last_author_kind`` / ``last_at`` אינם זזים.
+
+    ``update_many`` אחד, והפילטר דורש ``status`` פתוח: שרשור שנסגר או נפתח מחדש בינתיים
+    אינו נדרס, ושרשור שנפתר כבר אינו נספר. שרשור שסוכן או המשתמש יפתחו על הפתק **אחרי**
+    ההעברה נשאר פתוח — זו פעולה חדשה, ולא חלק מההעברה. כשל של המסד עולה לקורא.
+    """
+    scope = thread_scope(user_id, note_id)
+    author = _checked_author(author)
+    when = _now(now)
+    result = coll.update_many(
+        {**scope, "status": STATUS_OPEN},
+        {"$set": {
+            "status": STATUS_RESOLVED,
+            "resolved_by": {key: author[key] for key in _AUTHOR_FIELDS},
+            "resolved_at": when,
+        }},
+    )
+    return int(result.modified_count)
 
 
 def _apply(

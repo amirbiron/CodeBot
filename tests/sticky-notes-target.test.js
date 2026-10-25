@@ -4460,10 +4460,13 @@ check('קדמת הערימה: הערך העליון הוא הבסיס ועוד �
 });
 
 check('קדמת הערימה: פתק שנמחק יוצא מהתור', async () => {
-  const { m, els: [a, b, c] } = await stackOf('a', 'b', 'c');
+  const { sb, m, els: [a, b, c] } = await stackOf('a', 'b', 'c');
   m._raiseToFront(a);
   m._raiseToFront(b);
   m._raiseToFront(c);
+  // תשובה בצורה של ``Response`` אמיתי — ``ok`` ו-``status``. ``_deleteNoteEl`` מוריד פתק
+  // מהמסך רק כשהשרת אישר, והפייק ברירת המחדל של הסנדבוקס אינו נושא אותם.
+  sb.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) });
   await m._deleteNoteEl(b);
   m._raiseToFront(a);
   eq(`${zOf(c)},${zOf(a)}`, `${cssNoteZ() + 1},${cssNoteZ() + 2}`, 'C ואחריו A — בלי מקום שמור ל-B');
@@ -4534,7 +4537,7 @@ check('תפריט ⋮: הכפתור האחרון בשורת הפעולות, ו-�
   eq(!!btn.getAttribute('aria-label'), true, 'יש שם נגיש');
 });
 
-check('תפריט ⋮: נפתח כילד של הפתק, עם 🔔 כפריט, ו-🔔 פותח את חלון התזכורת', async () => {
+check('תפריט ⋮: נפתח כילד של הפתק, עם 🔔 ו-🗃️ כפריטים, ו-🔔 פותח את חלון התזכורת', async () => {
   const { el, opened, more, menuOf } = await menuNote();
   eq(menuOf(el), null, 'בקרה: אין תפריט לפני הלחיצה');
   more(el)._listeners.click(clickEv());
@@ -4546,7 +4549,8 @@ check('תפריט ⋮: נפתח כילד של הפתק, עם 🔔 כפריט, ו
   eq(menu.getAttribute('role'), 'menu', 'role=menu');
   eq(more(el).getAttribute('aria-expanded'), 'true', 'aria-expanded=true');
   const items = menu.querySelectorAll('.sticky-note-menu-item');
-  eq(items.map((i) => i.textContent).join(' '), '🔔', 'הפריטים');
+  eq(items.map((i) => i.textContent).join(' '), '🔔 🗃️', 'הפריטים');
+  eq(items[1].getAttribute('aria-label'), 'העבר לארכיון', 'השם הנגיש של 🗃️');
   eq(items[0].getAttribute('role'), 'menuitem', 'role=menuitem');
   eq(items[0].getAttribute('title'), 'קבע תזכורת', 'title');
   eq(items[0].getAttribute('aria-label'), 'קבע תזכורת', 'aria-label');
@@ -4628,6 +4632,327 @@ check('תפריט ⋮: לחיצה מחוץ לתפריט סוגרת אותו, ו�
   eq(menuOf(el), menu, 'לחיצה על ⋮ נשארת לו — ה-click הוא שסוגר');
   m._onDocumentPointerDownForNoteMenu({ target: el.querySelector('.sticky-note-header') });
   eq(menuOf(el), null, 'לחיצה במקום אחר — בתוך הפתק עצמו — סוגרת');
+});
+
+// ---------- ארכיון ----------
+//
+// הארכיון הוא היעד הרביעי של המנהל (``{archive: true}``): פתק אחד שנפתח מעל רשת הכרטיסים,
+// והעברה לשם מתפריט ⋮ של כל פתק אחר. כאן ננעלים החיווט וההכרעות; הזרימה המלאה — עמוד,
+// כרטיסים, גרירה, מסך צר — בדפדפן: ``tests/test_note_archive_browser.py``.
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const PY_SRC = fs.readFileSync(path.join(__dirname, '..', 'sticky_notes_target.py'), 'utf8');
+
+/**
+ * סנדבוקס עם ``body`` אמיתי (``FakeEl``), מאזיני מקשים של ``document`` שנרשמים לפי זהות,
+ * טוסט שרושם, ו-``fetch`` שעונה מתוך ``handler``. ``requests`` אוסף כל בקשה עם הגוף שלה.
+ */
+function archiveSandbox(handler) {
+  const sb = fakeDomSandbox();
+  sb.document.body = new FakeEl('body');
+  const docKeys = new Set();
+  sb.document.addEventListener = (type, fn, capture) => {
+    if (type === 'keydown' && capture === true) docKeys.add(fn);
+  };
+  sb.document.removeEventListener = (type, fn, capture) => {
+    if (type === 'keydown' && capture === true) docKeys.delete(fn);
+  };
+  const toasts = [];
+  sb.window.ckToast = (message, type, opts) => { toasts.push({ message, type, opts }); return true; };
+  sb.confirm = () => true;
+  const requests = [];
+  sb.fetch = async (url, init) => {
+    const req = { url: String(url), method: (init && init.method) || 'GET',
+                  body: init && init.body ? JSON.parse(init.body) : null };
+    requests.push(req);
+    const [status, body] = handler ? handler(req) : [200, { ok: true }];
+    return { ok: status >= 200 && status < 300, status, json: async () => body };
+  };
+  return { sb, docKeys, toasts, requests };
+}
+
+const archiveRequests = (requests) => requests.filter((r) => r.url.endsWith('/archive'));
+/** כפתור בשורת הפעולות לפי הסימן שלו — ל-"—" ול-× אין מחלקה משלהם. */
+const actionBtn = (el, text) => el.querySelector('.sticky-note-actions').children.find((c) => c.textContent === text);
+const modals = (sb) => sb.document.body.querySelectorAll('.sticky-archive-modal');
+const hang = (ms) => new Promise((resolve) => setTimeout(() => resolve('תלוי'), ms));
+
+/** פתק לוח שרונדר, ו-🗃️ מהתפריט שלו — דרך הממשק שהמשתמש לוחץ בו. */
+async function boardNoteFor(env, note) {
+  const m = new env.sb.window.StickyNotesManager({ board: 'arch' });
+  await tick();
+  m._renderNote(Object.assign({ position: { x: 0, y: 0 } }, note));
+  const el = m.notes.get(note.id).el;
+  const clickArchive = async () => {
+    el.querySelector('.sticky-note-more')._listeners.click(clickEv());
+    const item = el.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item')[1];
+    eq(item.getAttribute('aria-label'), 'העבר לארכיון', 'בקרה: הפריט השני הוא 🗃️');
+    item._listeners.click(clickEv());
+    await tick(); await tick();
+  };
+  return { m, el, clickArchive };
+}
+
+/** מנהל ארכיון עם פתק פתוח, וההודעות שהעמוד קיבל. */
+async function openArchive(env, note) {
+  const closed = [];
+  const deleted = [];
+  const m = new env.sb.window.StickyNotesManager({
+    archive: true, container: env.sb.document.body,
+    onArchivedNoteClosed: (s) => closed.push(s), onArchivedNoteDeleted: (id) => deleted.push(id),
+  });
+  await tick();
+  const el = m.openArchivedNote(Object.assign({ title: 'שם', color: 'yellow', size: { width: 300, height: 240 } }, note));
+  return { m, el, closed, deleted };
+}
+
+check('ארכיון: יעד רביעי — בלי קאש, עם כתובת משלו, ואינו מתיישב עם יעד אחר', () => {
+  const m = new StickyNotesManager({ archive: true });
+  eq(m.archiveMode, true, 'archiveMode');
+  eq(m._scopeUrl, '/api/sticky-notes/archive', 'scopeUrl');
+  eq(m._cacheKey, null, 'אין קאש — פתק אחד נשלף מהשרת בכל פתיחה');
+  let threw = false;
+  try { new StickyNotesManager({ archive: true, board: 'b1' }); } catch (_) { threw = true; }
+  eq(threw, true, 'ארכיון ולוח יחד — חריגה, כמו כל שני יעדים');
+  threw = false;
+  try { new StickyNotesManager({ archive: 'yes' }); } catch (_) { threw = true; }
+  eq(threw, true, 'רק true מפעיל ארכיון; ערך אחר הוא "אין יעד"');
+});
+
+check('ארכיון: הפתק הפתוח צמוד למסך תמיד — גם כשבמסמך כתוב אחרת', () => {
+  // ``line_start`` שסוכן כתב על פתק ארכיון היה מעביר אותו ל-anchored, מול עוגן שאינו קיים.
+  const m = new StickyNotesManager({ archive: true });
+  eq(m._resolveMode({ mode: 'surface' }), 'screen', 'surface');
+  eq(m._resolveMode({ mode: 'anchored', line_start: 12 }), 'screen', 'anchored');
+});
+
+check('ארכיון: הפתק נפתח במרכז המסך, כחלון, בלי 📌 ובלי 🗃️ בתפריט', async () => {
+  const env = archiveSandbox();
+  const { el } = await openArchive(env, { id: 'ar1', is_minimized: true, position: { x: 5, y: 5 } });
+  eq(el.getAttribute('role'), 'dialog', 'role=dialog');
+  eq(el.style.left, `${(1024 - 300) / 2}px`, 'אופקית במרכז — ולא במיקום שבמסמך');
+  eq(el.classList.contains('is-minimized'), false, 'מיזעור שנשמר לפני ההעברה אינו חל');
+  const row = el.querySelector('.sticky-note-actions').children.map((c) => c.textContent);
+  eq(row.includes('📌'), false, `אין 📌 — ${row.join(' ')}`);
+  el.querySelector('.sticky-note-more')._listeners.click(clickEv());
+  const items = el.querySelector('.sticky-note-menu').querySelectorAll('.sticky-note-menu-item');
+  eq(items.map((i) => i.textContent).join(' '), '🔔', 'בתפריט רק 🔔 — הפתק כבר בארכיון');
+});
+
+check('ארכיון: "—" סוגר ומוסר לעמוד את השם והצבע העדכניים', async () => {
+  const env = archiveSandbox();
+  const { m, el, closed } = await openArchive(env, { id: 'ar2', title: 'ישן', color: 'blue' });
+  m.notes.get('ar2').data.title = 'חדש';
+  actionBtn(el, '—')._listeners.click(clickEv());
+  await tick(); await tick();
+  eq(closed.length, 1, 'העמוד קיבל הודעה אחת');
+  eq(closed[0].id, 'ar2', 'id');
+  eq(closed[0].title, 'חדש', 'השם שבפתק עכשיו');
+  eq(/^#[0-9a-f]{6}$/i.test(closed[0].color), true, `צבע כ-hex — ${closed[0].color}`);
+  eq(m.notes.has('ar2'), false, 'הפתק ירד');
+  eq(env.requests.some((r) => r.body && 'is_minimized' in r.body), false, 'ומיזעור לא נכתב');
+});
+
+check('ארכיון: × מוחק, והעמוד מוריד את הכרטיס רק אחרי שהשרת אישר', async () => {
+  const env = archiveSandbox((req) => (req.method === 'DELETE' ? [200, { ok: true }] : [200, { ok: true }]));
+  const { m, el, deleted } = await openArchive(env, { id: 'ar3' });
+  await actionBtn(el, '×')._listeners.click(clickEv());
+  eq(deleted.join(), 'ar3', 'העמוד קיבל את המזהה');
+  eq(m.notes.has('ar3'), false, 'הפתק ירד');
+});
+
+check('מחיקה שנכשלה בשרת: הפתק נשאר, אומרים למשתמש, והעמוד לא מוריד כרטיס', async () => {
+  // נופל על הצורה הקודמת של ``_deleteNoteEl``: הפתק ירד מהמסך גם כשהשרת ענה 500.
+  const env = archiveSandbox((req) => (req.method === 'DELETE' ? [500, { ok: false }] : [200, { ok: true }]));
+  const { m, el, deleted } = await openArchive(env, { id: 'ar4' });
+  await actionBtn(el, '×')._listeners.click(clickEv());
+  eq(m.notes.has('ar4'), true, 'הפתק נשאר');
+  eq(deleted.length, 0, 'העמוד לא קיבל הודעת מחיקה');
+  eq(env.toasts.length, 1, 'הודעה אחת');
+  eq(env.toasts[0].type, 'error', 'הודעת שגיאה');
+});
+
+check('מחיקה של פתק שכבר אינו קיים (404): המסך מתיישר עם השרת', async () => {
+  const env = archiveSandbox((req) => (req.method === 'DELETE' ? [404, { ok: false }] : [200, { ok: true }]));
+  const { m, el, deleted } = await openArchive(env, { id: 'ar5' });
+  await actionBtn(el, '×')._listeners.click(clickEv());
+  eq(m.notes.has('ar5'), false, 'הפתק ירד');
+  eq(deleted.join(), 'ar5', 'והכרטיס יורד');
+});
+
+check('ארכיון: המיקום אינו נשמר, והגודל כן', async () => {
+  const env = archiveSandbox();
+  const { m, el } = await openArchive(env, { id: 'ar6' });
+  m._queueSave(el, { position: { x: 1, y: 2 }, size: { width: 320, height: 250 } });
+  const pending = m._pending.get('ar6');
+  eq('position' in pending, false, 'position הוסר');
+  eq(pending.size.width, 320, 'size נשאר');
+  m._pending.clear();
+  m._queueSave(el, { position: { x: 3, y: 4 } });
+  eq(m._pending.has('ar6'), false, 'מיקום לבדו — אין מה לשמור');
+  // בקרה: בלוח המיקום כן נשמר — אחרת "הוסר" היה נכון גם לקוד ששובר את שמירת המיקום בכלל.
+  const board = await boardNoteFor(archiveSandbox(), { id: 'bd6', content: '' });
+  board.m._queueSave(board.el, { position: { x: 1, y: 2 } });
+  eq(board.m._pending.get('bd6').position.x, 1, 'בלוח המיקום נשמר');
+});
+
+check('השם המוצע: כותרת ה-Markdown הראשונה, ואם אין — השורה הראשונה בלי סמן הבלוק', () => {
+  const m = new StickyNotesManager({ board: 'sg' });
+  eq(m._suggestNoteTitle('# כותרת ראשית\nגוף'), 'כותרת ראשית', 'כותרת');
+  eq(m._suggestNoteTitle('פתיחה\n## כותרת שנייה'), 'כותרת שנייה', 'כותרת גוברת גם כשאינה ראשונה');
+  eq(m._suggestNoteTitle('- [ ] לקנות   חלב\nעוד'), 'לקנות חלב', 'משימה, בלי הסמן, רווחים מכווצים');
+  eq(m._suggestNoteTitle('> ציטוט חשוב'), 'ציטוט חשוב', 'ציטוט, בלי הסמן');
+  eq(m._suggestNoteTitle('---\n\nשורה אמיתית'), 'שורה אמיתית', 'קו מפריד ושורה ריקה מדולגים');
+  eq(m._suggestNoteTitle('   \n'), '', 'פתק בלי טקסט — אין הצעה');
+});
+
+check('השם המוצע מקוצר לשישים נקודות קוד בגבול מילה — ולא חותך אימוג\'י לחצי', () => {
+  // ``slice(0, 60)`` היה נותן 30 אימוג'ים (60 יחידות UTF-16) — H6.
+  const m = new StickyNotesManager({ board: 'sg' });
+  const emoji = m._suggestNoteTitle('😀'.repeat(70));
+  eq(Array.from(emoji).length, 60, 'שישים נקודות קוד');
+  eq(emoji, '😀'.repeat(60), 'ואף אחת לא נחצתה');
+  const words = m._suggestNoteTitle('מילה '.repeat(20));
+  eq(words.split(' ').every((w) => w === 'מילה'), true, `אין מילה חתוכה — ${words}`);
+  eq(Array.from(words).length <= 60, true, 'בתוך התקרה');
+});
+
+check('תקרת השם בשדה זהה ל-MAX_NOTE_TITLE בפייתון', async () => {
+  // השדה סופר יחידות UTF-16 והשרת נקודות קוד — מחמיר, ולכן שם שעבר כאן אינו נדחה שם.
+  const py = Number(/^MAX_NOTE_TITLE\s*=\s*(\d+)/m.exec(PY_SRC)[1]);
+  const { el } = await boardNoteFor(archiveSandbox(), { id: 'cap', content: '' });
+  eq(el.querySelector('.sticky-note-title').getAttribute('maxlength'), String(py), 'maxlength');
+});
+
+check('🗃️ על פתק עם שם: בקשה אחת בלי שם, הפתק יורד, והודעה עם קישור לארכיון', async () => {
+  const env = archiveSandbox((req) => [200, { ok: true, already_archived: false, threads_resolved: 0 }]);
+  const { m, clickArchive } = await boardNoteFor(env, { id: 'n1', title: 'יש שם', content: 'גוף' });
+  await clickArchive();
+  const posts = archiveRequests(env.requests);
+  eq(posts.length, 1, 'בקשה אחת');
+  eq(posts[0].url, '/api/sticky-notes/note/n1/archive', 'הכתובת');
+  eq(JSON.stringify(posts[0].body), '{}', 'בלי שם — השרת שומר את הקיים');
+  eq(modals(env.sb).length, 0, 'בלי חלון שם');
+  eq(m.notes.has('n1'), false, 'הפתק ירד מהלוח');
+  eq(env.toasts[0].type, 'success', 'הודעת הצלחה');
+  eq(env.toasts[0].opts.link.href, '/boards/archive', 'עם קישור לעמוד הארכיון');
+});
+
+check('🗃️ על פתק בלי שם: חלון עם הצעה, והשם שאושר נשלח', async () => {
+  const env = archiveSandbox(() => [200, { ok: true, already_archived: false, threads_resolved: 0 }]);
+  const { m, clickArchive } = await boardNoteFor(env, { id: 'n2', content: '# רעיון לפיצ\'ר\nפרטים' });
+  await clickArchive();
+  eq(archiveRequests(env.requests).length, 0, 'אין בקשה לפני שם');
+  const [modal] = modals(env.sb);
+  eq(!!modal, true, 'החלון נפתח');
+  eq(modal.querySelector('.sticky-archive-label').textContent, 'תן שם לפתק, הוא ישמש לניווט בארכיון', 'הנוסח');
+  const input = modal.querySelector('.sticky-archive-input');
+  eq(input.value, 'רעיון לפיצ\'ר', 'ההצעה — הכותרת');
+  input.value = '  שם   שבחרתי ';
+  input._listeners.input({});
+  modal.querySelector('.sticky-archive-submit')._listeners.click(clickEv());
+  await tick(); await tick();
+  const posts = archiveRequests(env.requests);
+  eq(posts.length, 1, 'בקשה אחת');
+  eq(posts[0].body.title, 'שם שבחרתי', 'השם בצורה הקנונית');
+  eq(m.notes.has('n2'), false, 'הפתק ירד');
+});
+
+check('חלון השם: ריק — הכפתור כבוי ו-Enter אינו שולח; ביטול — אין בקשה והפתק נשאר', async () => {
+  const env = archiveSandbox(() => [200, { ok: true }]);
+  const { m, clickArchive } = await boardNoteFor(env, { id: 'n3', content: '' });
+  await clickArchive();
+  const [modal] = modals(env.sb);
+  const input = modal.querySelector('.sticky-archive-input');
+  eq(input.value, '', 'אין הצעה לפתק ריק');
+  eq(modal.querySelector('.sticky-archive-submit').disabled, true, 'הכפתור כבוי');
+  input._listeners.keydown(keyEv('Enter'));
+  await tick();
+  eq(modals(env.sb).length, 1, 'Enter בשדה ריק לא סגר');
+  modal.querySelector('.sticky-archive-cancel')._listeners.click(clickEv());
+  await tick(); await tick();
+  eq(modals(env.sb).length, 0, 'החלון נסגר');
+  eq(archiveRequests(env.requests).length, 0, 'אין בקשה');
+  eq(m.notes.has('n3'), true, 'הפתק נשאר');
+});
+
+check('חלון השם: Escape סוגר בלי לבעבע — בעמוד הארכיון הוא היה סוגר גם את הפתק הפתוח', async () => {
+  const env = archiveSandbox(() => [200, { ok: true }]);
+  const { clickArchive } = await boardNoteFor(env, { id: 'n4', content: 'x' });
+  const before = new Set(env.docKeys);
+  await clickArchive();
+  const mine = [...env.docKeys].filter((f) => !before.has(f));
+  eq(mine.length, 1, 'מאזין מקשים אחד בשלב הלכידה');
+  const esc = keyEv('Escape');
+  mine[0](esc);
+  await tick();
+  eq(esc.stopped, true, 'לא מבעבע');
+  eq(modals(env.sb).length, 0, 'נסגר');
+  eq([...env.docKeys].filter((f) => !before.has(f)).length, 0, 'והמאזין ירד');
+});
+
+check('חלון שם שני מבטל את הראשון: ההבטחה שלו נפתרת, והמאזין שלו יורד', async () => {
+  // נופל על הצורה הקודמת: הראשון הוסר מה-DOM בלי שההבטחה שלו נפתרה — ``entry.archiving``
+  // של הפתק ההוא נשאר דולק, ו-🗃️ שלו מת עד טעינה מחדש.
+  const env = archiveSandbox(() => [200, { ok: true }]);
+  const { m, el } = await boardNoteFor(env, { id: 'n5', content: 'x' });
+  const before = new Set(env.docKeys);
+  const first = m._openArchiveNameDialog(el, 'ראשון');
+  const second = m._openArchiveNameDialog(el, 'שני');
+  eq(await Promise.race([first, hang(50)]), null, 'הראשון בוטל ולא נתלה');
+  eq(modals(env.sb).length, 1, 'חלון אחד');
+  eq(modals(env.sb)[0].querySelector('.sticky-archive-input').value, 'שני', 'והוא השני');
+  const mine = [...env.docKeys].filter((f) => !before.has(f));
+  eq(mine.length, 1, 'מאזין מקשים אחד — של השני');
+  mine[0](keyEv('Escape'));
+  eq(await Promise.race([second, hang(50)]), null, 'והשני עדיין חי');
+});
+
+check('🗃️ פעמיים בזמן שהבקשה באוויר — בקשה אחת', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const env = archiveSandbox(() => [200, { ok: true, threads_resolved: 0 }]);
+  const realFetch = env.sb.fetch;
+  env.sb.fetch = async (...args) => { await gate; return realFetch(...args); };
+  const { m, el } = await boardNoteFor(env, { id: 'n6', title: 'שם', content: 'x' });
+  const a = m._archiveNote(el);
+  const b = m._archiveNote(el);
+  release();
+  await Promise.all([a, b]);
+  eq(archiveRequests(env.requests).length, 1, 'בקשה אחת');
+});
+
+check('השרת עונה title_required לפתק שנראה עם שם: החלון נפתח, ורק אז נשלח שוב', async () => {
+  const answers = [[400, { ok: false, error: 'title_required' }], [200, { ok: true, threads_resolved: 0 }]];
+  const env = archiveSandbox((req) => (req.url.endsWith('/archive') ? answers.shift() : [200, { ok: true }]));
+  const { m, clickArchive } = await boardNoteFor(env, { id: 'n7', title: 'שם שלא נשמר', content: 'גוף' });
+  await clickArchive();
+  const [modal] = modals(env.sb);
+  eq(!!modal, true, 'החלון נפתח אחרי הסירוב');
+  modal.querySelector('.sticky-archive-input').value = 'שם';
+  modal.querySelector('.sticky-archive-submit')._listeners.click(clickEv());
+  await tick(); await tick();
+  const posts = archiveRequests(env.requests);
+  eq(posts.length, 2, 'שתי בקשות');
+  eq(posts[1].body.title, 'שם', 'השנייה עם השם');
+  eq(m.notes.has('n7'), false, 'הפתק ירד');
+});
+
+check('סירוב (ארכיון מלא): הפתק נשאר, וההודעה אומרת למה', async () => {
+  const env = archiveSandbox(() => [409, { ok: false, error: 'archive_quota_exceeded', max: 500 }]);
+  const { m, clickArchive } = await boardNoteFor(env, { id: 'n8', title: 'שם', content: 'x' });
+  await clickArchive();
+  eq(m.notes.has('n8'), true, 'הפתק נשאר');
+  eq(env.toasts[0].type, 'error', 'שגיאה');
+  eq(env.toasts[0].message.includes('500'), true, `התקרה בהודעה — ${env.toasts[0].message}`);
+});
+
+check('השרשורים לא נסגרו (threads_resolved: null): ההעברה הצליחה, וההודעה אומרת את זה', async () => {
+  const env = archiveSandbox(() => [200, { ok: true, already_archived: false, threads_resolved: null }]);
+  const { m, clickArchive } = await boardNoteFor(env, { id: 'n9', title: 'שם', content: 'x' });
+  await clickArchive();
+  eq(m.notes.has('n9'), false, 'הפתק ירד');
+  eq(env.toasts[0].type, 'warning', 'אזהרה ולא הצלחה נקייה');
 });
 
 (async () => {

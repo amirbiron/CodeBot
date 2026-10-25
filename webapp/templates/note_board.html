@@ -57,6 +57,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/note-boards.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block content %}
@@ -211,6 +212,8 @@
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
 <!-- הדגשת התאמות לחיפוש בתוך פתק — אותו שיקול בדיוק: לפני sticky-notes.js, ובלי defer. -->
 <script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
+<!-- הטוסט המשותף — ההודעה אחרי העברת פתק לארכיון (``_notify`` ב-sticky-notes.js). -->
+<script src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script>
 (function () {

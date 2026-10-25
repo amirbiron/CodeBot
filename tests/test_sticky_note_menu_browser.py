@@ -93,7 +93,7 @@ def test_the_menu_opens_down_into_the_note(browser):  # noqa: F811
     np = NotePage(browser, [note("a", "שורה\n" * 12, w=360, h=320, x=200, y=160)], viewport=DESKTOP)
     try:
         m = open_menu(np, "a")
-        assert m["items"] == ["🔔"], m
+        assert m["items"] == ["🔔", "🗃️"], m
         assert m["expanded"] == "true" and m["unclipped"], m
         assert not m["above"] and m["menu"]["top"] >= m["more"]["bottom"], m
         assert centered_under_more(m) < 1, m

@@ -190,6 +190,10 @@ def _pending_item(item: dict[str, Any]) -> str:
         where = " בקובץ " + (_label(item.get("file_name")) or "")
     elif target == "repo":
         where = f" בקובץ {_label(item.get('repo_path'))} בריפו {_label(item.get('repo_name'))}"
+    elif target == "archive":
+        # ההעברה לארכיון סוגרת את השרשורים הפתוחים, ולכן פתק ארכיון מגיע לכאן רק אחרי
+        # שהמשתמש ענה בו שוב — וזה בדיוק המקרה שבו הסוכן צריך לדעת איפה לחפש.
+        where = " בארכיון"
     else:
         where = ""
     return f'"{title}"{where.rstrip()} (note_id {item.get("note_id")})'

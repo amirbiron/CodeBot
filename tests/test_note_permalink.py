@@ -9,6 +9,7 @@
 לדעת דבר על סוג הפתק.
 """
 
+import datetime as _dt
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ import pytest
 pytest.importorskip("flask")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+_ARCHIVED_AT = _dt.datetime(2026, 10, 25, tzinfo=_dt.timezone.utc)
 
 
 def _repo_file(rel: str) -> str:
@@ -56,6 +58,10 @@ def client(monkeypatch):
         {"_id": 9, "user_id": 7, "repo_name": "CodeBot", "repo_path": "../../etc/passwd"},
         {"_id": 10, "user_id": 7, "repo_name": "//evil.com", "repo_path": "a.py"},
         {"_id": 11, "user_id": 7, "repo_name": "CodeBot\n", "repo_path": "a.py"},
+        # פתק בארכיון — היעד הרביעי, ושדה הזיהוי שלו הוא תאריך
+        {"_id": 12, "user_id": 7, "archived_at": _ARCHIVED_AT},
+        # ``archived_at`` שאינו תאריך — נתון פגום; אינו "בארכיון" לפי ``note_target_kind``
+        {"_id": 13, "user_id": 7, "archived_at": "2026-10-25"},
     ])
     db = type("DB", (), {"sticky_notes": notes})()
 
@@ -84,6 +90,49 @@ def test_board_note_redirects_to_its_board(client):
 
     assert res.status_code == 302
     assert res.headers['Location'] == '/boards/board-xyz?note=2'
+
+
+def test_archived_note_redirects_to_the_archive_page(client):
+    """פתק בארכיון נפתח בעמוד הארכיון — התראת תזכורת, תוצאת חיפוש, קישור קבוע."""
+    res = client.get('/note/12')
+
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/boards/archive?note=12'
+
+
+def test_archived_note_keeps_the_thread_to_open(client):
+    """התראת תגובה על פתק בארכיון — השרשור עובר הלאה, כמו בכל יעד."""
+    thread = 'c' * 24
+    res = client.get(f'/note/12?thread={thread}')
+
+    assert res.headers['Location'] == f'/boards/archive?note=12&thread={thread}'
+
+
+def test_an_archive_stamp_that_is_not_a_date_is_not_sent_to_the_archive(client):
+    """עמוד הארכיון לא היה מציג פתק כזה (``archived_notes_filter`` מסנן ``$type: date``)."""
+    res = client.get('/note/13')
+
+    assert res.headers['Location'] == '/boards'
+
+
+def test_the_archive_page_is_its_own_view_and_not_a_board(client):
+    """``/boards/archive`` גובר על ``/boards/<board_id>`` — קטע סטטי נבדק קודם (Werkzeug)."""
+    from webapp.app import app
+
+    adapter = app.url_map.bind('localhost')
+    endpoint, _args = adapter.match('/boards/archive')
+    assert endpoint == 'boards_ui.archive_page'
+    res = client.get('/boards/archive')
+    assert res.status_code == 200
+    assert b'id="archiveGrid"' in res.data
+
+
+def test_the_archive_page_sends_a_guest_to_login_and_back(client):
+    with client.session_transaction() as sess:
+        sess.clear()
+    res = client.get('/boards/archive')
+    assert res.status_code == 302
+    assert res.headers['Location'] == '/login?next=/boards/archive'
 
 
 def test_note_without_target_falls_back_to_boards(client):

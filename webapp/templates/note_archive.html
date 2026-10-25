@@ -1,0 +1,63 @@
+{% extends "base_boards.html" %}
+
+{# עמוד הארכיון — רשת של כרטיסים, ופתק אחד שנפתח מעליהם.
+
+   **עמוד קבוע ולא לוח** (``webapp/boards_ui.archive_page``): הנתונים נשלפים מ-
+   ``/api/sticky-notes/archive`` בצד הלקוח, ב-``notes-archive.js``. הפתק הפתוח הוא אותו
+   רכיב פתק (``StickyNotesManager`` במצב ``archive``), ולכן העמוד טוען את כל מה ש-
+   ``sticky-notes.js`` צריך, בדיוק כמו ``note_board.html``. #}
+
+{% block title %}ארכיון - Code Keeper Bot{% endblock %}
+
+{% block extra_head %}
+{% set note_font_surface = 'archive' %}
+{% include "_note_fonts_head.html" with context %}
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/note-boards.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="boards-page archive-page" id="archiveMain">
+  <div class="boards-header">
+    <h1>🗃️ ארכיון <span class="archive-count" id="archiveCount"></span></h1>
+    <a href="/boards" class="board-action">כל הלוחות</a>
+  </div>
+
+  {# שלושה מצבים שהעמוד מבחין ביניהם, ולכל אחד ``data-testid`` לפי המצב שרונדר
+     (``docs/webapp/theming_and_css.rst``, "עוגנים לטסטי דפדפן"): טעינה שנכשלה אינה
+     "הארכיון ריק". #}
+  <div class="board-msg is-error archive-error" id="archiveError" data-testid="archive-state-error" hidden>
+    <span>לא הצלחתי לטעון את הארכיון.</span>
+    <button type="button" class="board-action" id="archiveRetry">נסו שוב</button>
+  </div>
+  <div class="archive-empty" id="archiveEmpty" data-testid="archive-state-empty" hidden>
+    <div>אין פתקים בארכיון.</div>
+    <div class="archive-empty-hint">פתק עובר לכאן מתפריט ⋮ שלו ← 🗃️.</div>
+  </div>
+
+  <div class="archive-grid" id="archiveGrid" aria-busy="true" aria-label="פתקים בארכיון"></div>
+</div>
+
+{# **השכבה של הפתק הפתוח — מחוץ ל-``#archiveMain``**, כדי שהעמוד יוכל לסמן את הרשת
+   ``inert`` בזמן שפתק פתוח בלי לנטרל גם את הפתק. הרקע הוא **אח** של הפתק ולא אב שלו:
+   ``backdrop-filter`` הופך אלמנט ל-containing block של צאצאים ``fixed``, ופתק במצב
+   ``screen`` היה נמדד מולו במקום מול המסך. #}
+<div class="archive-overlay" id="archiveOverlay" hidden>
+  <div class="archive-backdrop" id="archiveBackdrop"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>window.STICKY_NOTE_MAX_CHARS = {{ max_note_chars | tojson }}; window.NOTE_THREAD_MAX_CHARS = {{ max_thread_comment_chars | tojson }};</script>
+<!-- התלויות של sticky-notes.js — באותו סדר ובלי defer, כמו ב-note_board.html. -->
+<script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/notes-archive.js') }}?v={{ static_version }}"></script>
+{% endblock %}

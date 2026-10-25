@@ -130,6 +130,27 @@ html[dir="rtl"] .ck-toast {
   font-size: 14px;
 }
 
+/* קישור בסוף ההודעה (``options.link``). **בצבע הטקסט של הטוסט, ומודגש בקו** — הטוסט
+ * הוא משטח משלו, עם רקע שנבחר לניגודיות (``--ck-toast-bg``), ולכן צבע הקישור של
+ * הערכה, שכויל לרקע העמוד, אינו מתאים לו. ``.ck-toast`` לפני המחלקה מעלה את
+ * הספציפיות ל-(0,2,0), מעל ``[data-theme="…"] a`` (0,1,1) של ``dark-mode.css``. כללי
+ * ה-``!important`` של ``high-contrast.css`` עדיין גוברים, ושם זה רצוי: הם נבחרו בדיוק
+ * לרקע הכהה של הטוסט בערכה הזו. */
+.ck-toast .ck-toast__link {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ck-toast .ck-toast__link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 @media (max-width: 768px) {
   .ck-toast-container {
     left: 10px;

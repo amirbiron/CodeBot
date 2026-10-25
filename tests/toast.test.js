@@ -374,5 +374,42 @@ check('getComputedStyle שזורקת — נפילה לקבוע', () => {
   eq(h.container().children.length, 0, 'הוסר לפי הקבוע');
 });
 
+// ─── קישור בסוף ההודעה (``options.link``) ────────────────────────────────
+
+/** הקישור שבכרטיס, או ``null`` — הצאצא שאחרי ההודעה. */
+function linkOf(h) {
+  const card = h.container().children[0];
+  return card.children.find((c) => c.className === 'ck-toast__link') || null;
+}
+
+check('קישור לנתיב באתר נכנס אחרי ההודעה, עם href ותווית כטקסט', () => {
+  // "לארכיון" אחרי העברת פתק. התווית טקסט ולא HTML — אותו כלל של ההודעה.
+  const h = load();
+  h.toast('הפתק הועבר לארכיון.', 'success', { link: { href: '/boards/archive', label: '<b>לארכיון</b>' } });
+  const card = h.container().children[0];
+  const a = linkOf(h);
+  ok(a, 'יש קישור');
+  eq(card.children.indexOf(a), 2, 'אחרי האייקון וההודעה');
+  eq(a.attrs.href, '/boards/archive', 'href');
+  eq(a.textContent, '<b>לארכיון</b>', 'התווית כטקסט');
+  eq(a.children.length, 0, 'לא נוצרו צאצאים מהתווית');
+});
+
+check('כתובת שאינה נתיב באתר — הקישור אינו מוצג, וההודעה כן', () => {
+  // ``//host`` היא כתובת בלי סכמה, שהדפדפן מפנה לשרת אחר; ``javascript:`` מריץ קוד.
+  for (const href of ['//evil.example/x', 'https://evil.example', 'javascript:alert(1)', 'boards', '', null]) {
+    const h = load();
+    eq(h.toast('הודעה', 'info', { link: { href, label: 'קישור' } }), true, `הוצג (${href})`);
+    eq(linkOf(h), null, `אין קישור ל-${JSON.stringify(href)}`);
+    eq(h.container().children[0].children[1].textContent, 'הודעה', 'וההודעה במקומה');
+  }
+});
+
+check('קישור בלי תווית אינו מוצג — קישור ריק אינו נגיש', () => {
+  const h = load();
+  h.toast('הודעה', 'info', { link: { href: '/boards/archive', label: '' } });
+  eq(linkOf(h), null, 'אין קישור');
+});
+
 console.log(`${passed} עברו, ${failed} נכשלו`);
 process.exit(failed === 0 ? 0 : 1);

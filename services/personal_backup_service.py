@@ -427,7 +427,9 @@ class PersonalBackupService:
                 pass
             # המרת datetime ל-string
             for note in notes:
-                for key in ("created_at", "updated_at", "remind_at"):
+                # ``archived_at`` — הזמן שבו הפתק הועבר לארכיון, ושדה היעד שלו
+                # (``sticky_notes_target``). ``_restore_archive_note`` קורא אותו בחזרה.
+                for key in ("created_at", "updated_at", "remind_at", "archived_at"):
                     if key in note and isinstance(note[key], datetime):
                         note[key] = note[key].isoformat()
                 # ודא ש-file_name קיים — הוא הכרחי לשחזור
@@ -1304,12 +1306,15 @@ class PersonalBackupService:
             except Exception:
                 return None
 
+        from sticky_notes_target import active_notes_filter
+
         try:
             check_note_quota(
                 _count({"user_id": int(user_id), "board_id": str(target_board_id)}),
                 MAX_NOTES_PER_BOARD,
             )
-            check_note_quota(_count({"user_id": int(user_id)}), MAX_NOTES_PER_USER)
+            # פתקי הארכיון אינם נספרים בתקרת המשתמש — ההגדרה ב-``active_notes_filter``.
+            check_note_quota(_count(active_notes_filter(int(user_id))), MAX_NOTES_PER_USER)
         except NoteQuotaError as exc:
             raise ValueError(f"quota:{exc}") from exc
 
@@ -1331,6 +1336,64 @@ class PersonalBackupService:
         # שדות היעד דרך הבנאי, ולא ביד — כך המסמך אינו יכול לצאת עם שני
         # משטחים או בלי אף אחד.
         doc.update(build_note_target(board_id=target_board_id))
+        raw_db.sticky_notes.insert_one(doc)
+        return True
+
+    def _restore_archive_note(self, raw_db, user_id: int, note: Dict) -> bool:
+        """משחזר פתק ארכיון — **לארכיון**, עם השם שלו. מחזיר ``True`` אם נכתב.
+
+        פתק ארכיון אינו נושא לוח או קובץ (ההעברה מחקה אותם), ולכן עד היום הוא נפל
+        בשחזור על ה-``continue`` שדורש ``file_name`` — כלומר נעלם בלי סימן. השם עובר,
+        כי הארכיון מנווט לפי שם.
+
+        ``archived_at`` מהגיבוי הוא קלט חיצוני (``_str_to_dt``). ערך שאינו ניתן לפענוח
+        אינו מפיל את הפתק: הוא היה בארכיון, וזה מה שנשמר — והזמן הוא זמן השחזור, שקובע
+        רק את המקום שלו ברשימה. הכפילות נבדקת כמו בפתק לוח: אותו גוף בארכיון כבר קיים.
+        """
+        from sticky_notes_target import (
+            MAX_ARCHIVED_NOTES_PER_USER,
+            NoteQuotaError,
+            archived_notes_filter,
+            build_note_target,
+            check_note_quota,
+            normalize_note_title,
+            resolve_note_color,
+        )
+
+        content = note.get("content", "")
+        existing = raw_db.sticky_notes.find_one(
+            {**archived_notes_filter(int(user_id)), "content": content}, {"_id": 1}
+        )
+        if existing:
+            return False
+
+        try:
+            count: Optional[int] = int(raw_db.sticky_notes.count_documents(archived_notes_filter(int(user_id))))
+        except Exception:
+            # ``None`` = "לא ידוע", ו-check_note_quota דוחה עליו; הלוג מבדיל כשל מסד מתקרה מלאה.
+            logger.warning("restore: counting archived sticky notes failed", exc_info=True)
+            count = None
+        try:
+            check_note_quota(count, MAX_ARCHIVED_NOTES_PER_USER)
+        except NoteQuotaError as exc:
+            raise ValueError(f"quota:{exc}") from exc
+
+        # שעון אחד לרשומה — ראו ההערה ב-``_restore_bookmarks``.
+        now = datetime.now(timezone.utc)
+        title = normalize_note_title(note.get("title"))
+        doc = {
+            "user_id": int(user_id),
+            "content": content,
+            # ריק ← השדה כלל אינו נכתב, כמו בכל מסלול שכותב שם
+            **({"title": title} if title else {}),
+            "color": resolve_note_color(note.get("color")),
+            "width": note.get("width", 250),
+            "height": note.get("height", 200),
+            "is_minimized": False,
+            "created_at": _str_to_dt(note.get("created_at")) or now,
+            "updated_at": _str_to_dt(note.get("updated_at")) or now,
+        }
+        doc.update(build_note_target(archived_at=_str_to_dt(note.get("archived_at")) or now))
         raw_db.sticky_notes.insert_one(doc)
         return True
 
@@ -1357,6 +1420,19 @@ class PersonalBackupService:
                     # resolve file_id חדש לפי file_name
                     file_name = note.get("file_name", "")
                     new_file_id = None
+
+                    # פתק ארכיון: משוחזר לארכיון. **לפני** הענף של הלוח, כי פתק
+                    # ארכיון אינו נושא אף שדה יעד אחר — בלי הענף הזה הוא היה נופל
+                    # על ה-``continue`` שדורש ``file_name``, כמו שקרה עד היום.
+                    if note.get("archived_at"):
+                        try:
+                            restored = self._restore_archive_note(raw_db, user_id, note)
+                        except ValueError as quota_exc:
+                            errors.append(f"דילגתי על פתק ארכיון: חריגה ממכסה ({quota_exc})")
+                            continue
+                        if restored:
+                            count += 1
+                        continue
 
                     # פתק לוח: משוחזר לפי **שם** הלוח, ובהיעדר התאמה — ללוח
                     # ברירת המחדל, שתמיד קיים. עד היום הוא היה נופל כאן על

@@ -28,10 +28,13 @@
   var list = document.getElementById('noteSearchResults');
   if (!form || !input || !list) { return; }
 
+  // ``target`` הוא סוג היעד מ-``note_target_ref`` בשרת — ארבעת הסוגים ועוד ``unknown``.
+  // פתק בארכיון נפתח בעמוד הארכיון (``hit.url`` הוא הקישור הקבוע ``/note/<id>``).
   var TARGET_LABELS = {
     board: 'לוח',
     file: 'קובץ',
     repo: 'ריפו',
+    archive: 'ארכיון',
     unknown: 'לא ידוע'
   };
 
