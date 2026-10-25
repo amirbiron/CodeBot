@@ -178,7 +178,12 @@ class _RecordingCodeSnippets:
         self.pipelines.append(stages)
         for st in stages:
             if _stage_name(st) == "$count":
-                return [{next(iter(st["$count"]) if isinstance(st["$count"], dict) else [st["$count"]]): 1}]
+                # ``{"$count": "total"}`` מחזיר מסמך אחד שהמפתח שלו הוא המחרוזת — ``files()``
+                # קורא ``count_result[0]['total']``. עד אוקטובר 2026 כאן היה ``next()`` על
+                # רשימה, שזרק ``TypeError``; ה-``except Exception`` הרחב של הספירה בלע אותו
+                # והציג אפס, והבדיקה עברה בלי שהספירה נבדקה. משהתפיסה צומצמה ל-``PyMongoError``
+                # (``RECURRING-PATTERNS.md`` R10), הבאג של הדמה עלה כ-500.
+                return [{st["$count"]: 1}]
         return [dict(DOC)]
 
     def distinct(self, _field, _query=None):
