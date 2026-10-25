@@ -59,11 +59,13 @@ def db():
 
 
 class _RecordingDb:
-    """המסד האמיתי, ו-``find`` של ``sticky_notes`` נרשם — הפילטר, ההיטלה והמיון שהראוט שלח."""
+    """המסד האמיתי, ו-``find`` ו-``aggregate`` של ``sticky_notes`` נרשמים — הפילטר, ההיטלה והמיון,
+    או הצינור, שהראוט שלח."""
 
     def __init__(self, real: Any) -> None:
         self._real = real
         self.finds: list[dict] = []
+        self.aggregates: list[list] = []
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._real, name)
@@ -95,6 +97,10 @@ class _RecordingDb:
                 entry = {"filter": filter, "projection": projection, "sort": None}
                 recorder.finds.append(entry)
                 return _Cursor(real.find(filter, projection, *args, **kwargs), entry)
+
+            def aggregate(self, pipeline: Any, *args: Any, **kwargs: Any) -> Any:
+                recorder.aggregates.append(pipeline)
+                return real.aggregate(pipeline, *args, **kwargs)
 
         return _Coll()
 
@@ -439,3 +445,115 @@ def test_the_mcp_sees_an_archived_note_where_it_is(api, db, monkeypatch):
     text = TestClient(app).get("/api/agent/primer", headers={"Authorization": "Bearer good"}).text
 
     assert f'"רעיון" בארכיון (note_id {note})' in text
+
+
+
+# == החיפוש: הארכיון בחוץ, אלא אם ביקשו ======================================================
+
+
+def test_both_searches_leave_the_archive_out_unless_asked(api, db):
+    """אותה תשובה בוובאפ וב-MCP, כי ההסתרה בפילטר המשותף. פתק שהועבר בבקשה האמיתית — לא מסמך
+    שנכתב ביד בצורה שאולי אינה הצורה של ההעברה."""
+    from mcp_server.backend import ProductionBackend
+
+    board = insert_board(db, USER)
+    live = insert_note(db, USER, board_id=board, title="רעיון פעיל")
+    gone = insert_note(db, USER, board_id=board, title="רעיון ישן")
+    assert _archive(api.client(), gone).get_json()["ok"] is True
+    backend = ProductionBackend(mongo_db=db)
+    web = api.client()
+
+    hidden = backend.search_notes(USER, query="רעיון", limit=20)
+    assert [n["id"] for n in hidden["notes"]] == [live] and hidden["searched_archive"] is False
+    hidden = web.get("/api/sticky-notes/search?q=רעיון").get_json()
+    assert [h["id"] for h in hidden["results"]] == [live] and hidden["include_archived"] is False
+
+    both = {live: "board", gone: "archive"}
+    shown = backend.search_notes(USER, query="רעיון", limit=20, include_archived=True)
+    assert {n["id"]: n["target"] for n in shown["notes"]} == both and shown["searched_archive"] is True
+    shown = web.get("/api/sticky-notes/search?q=רעיון&include_archived=1").get_json()
+    assert {h["id"]: h["target"] for h in shown["results"]} == both
+
+
+def _seed_words(db) -> None:
+    """לכל אחד משני משתמשים: 1000 פתקים פעילים — מילה נדירה באחד מכל חמישים, מילה נפוצה בשאר —
+    ו-300 בארכיון. אותה צורה שבה נמדד מטמון התוכניות לפני שהאינדקס נוסף."""
+    now = datetime.now(timezone.utc)
+    docs = []
+    for user in (USER, OTHER):
+        docs += [{"user_id": user, "board_id": "b", "updated_at": now - timedelta(minutes=i),
+                  "content": ("מילה נדירה " if i % 50 == 0 else "תוכן רגיל ") * 20} for i in range(1000)]
+        docs += [{"user_id": user, "content": "ארכיון " * 20, "archived_at": now - timedelta(seconds=i),
+                  "updated_at": now - timedelta(minutes=2000 + i)} for i in range(300)]
+    db.sticky_notes.insert_many(docs)
+
+
+def test_a_common_word_after_a_rare_one_still_reads_in_order_and_stops_at_the_cap(api, db):
+    """**מטמון התוכניות.** מונגו שומרת את התוכנית שניצחה ומריצה אותה שוב לשאילתה באותה צורה. לפני
+    ``user_archived_updated_idx``, מילה נדירה ניצחה עם ``user_archived_idx`` ו-``SORT``, ומילה נפוצה
+    שבאה אחריה רצה על אותה תוכנית וקראה את כל אלף הפתקים הפעילים — בכל פעם (נמדד בפרופיילר).
+    האינדקס נותן את השוויון ואת סדר המיון יחד, ולכן גם מתוך המטמון הקריאה נעצרת בתקרה.
+
+    רץ על ``search_notes`` האמיתי של ה-MCP — ``find`` עם מיון ב-``updated_at`` ותקרה — ונמדד
+    בפרופיילר של המסד הזמני, על השאילתות שבאמת רצו. נופל על מסד בלי האינדקס."""
+    from mcp_server.backend import ProductionBackend
+
+    _seed_words(db)
+    backend = ProductionBackend(mongo_db=db)
+    backend.search_notes(USER, query="חימום", limit=20)  # בונה את האינדקסים לפני המדידה
+
+    db.command("profile", 2)
+    try:
+        for word in ("נדירה", "נדירה", "תוכן", "תוכן"):
+            out = backend.search_notes(USER, query=word, limit=20, search_content=True, content_query=word)
+            assert out["ok"] is True and out["count"] == 20
+        runs = list(db.system.profile.find(
+            {"op": "query", "ns": f"{db.name}.sticky_notes"},
+            {"planSummary": 1, "docsExamined": 1},
+        ).sort("ts", 1))
+    finally:
+        db.command("profile", 0)
+
+    assert len(runs) == 4, runs
+    for run in runs[2:]:
+        assert run["docsExamined"] <= 50, run  # 21 נדרשים (תקרה ושורת סנטינל); בלי האינדקס — 1000
+    # הפרופיילר מסכם תוכנית לפי מפתחות האינדקס ולא לפי שמו — ולכן התבנית נגזרת מהמפרט.
+    keys = dict(api.module._QUERY_INDEX_SPECS)["user_archived_updated_idx"]
+    expected_scan = "IXSCAN { " + ", ".join(f"{field}: {order}" for field, order in keys) + " }"
+    assert all(run["planSummary"] == expected_scan for run in runs[2:]), runs
+
+
+def _values_of(node: Any, key: str) -> list:
+    if isinstance(node, dict):
+        return [v for k, v in node.items() if k == key] + [x for v in node.values() for x in _values_of(v, key)]
+    if isinstance(node, list):
+        return [x for v in node for x in _values_of(v, key)]
+    return []
+
+
+def test_the_search_sorts_what_it_returns_and_not_the_note_bodies(api, db):
+    """``mongodb.md`` דפוס 5: ``$project`` בהחרגה אחרי ``$addFields`` לא הוריד את הגוף מהמיון.
+    נמדד על **הצינור שהראוט שלח**: ``totalDataSizeSortedBytesEstimate`` של 1,792,484 בייטים על
+    200 פתקים ארוכים בעברית בתקרה של 50 — כלומר 51 גופים שלמים — מול 57,260 בהכללה.
+
+    הגבול כאן הוא שלושה גופים: הקלט של המיון אינו אמור לגדול עם הגוף בכלל, ו-51 גופים חוצים אותו
+    בפער גדול. נופל על ``{"content": 0}``."""
+    note_body = ("מילה " * 4000)[:19000]
+    now = datetime.now(timezone.utc)
+    db.sticky_notes.insert_many([
+        {"user_id": USER, "board_id": "b", "title": f"כותרת {i}", "content": note_body,
+         "updated_at": now - timedelta(minutes=i)}
+        for i in range(200)
+    ])
+
+    res = api.client().get("/api/sticky-notes/search?q=מילה&limit=50").get_json()
+    assert res["ok"] is True and res["count"] == 50 and res["truncated"] is True
+
+    [pipeline] = api.recording.aggregates
+    explain = db.command(
+        "explain", {"aggregate": "sticky_notes", "pipeline": pipeline, "cursor": {}},
+        verbosity="executionStats", codec_options=_EXPLAIN_CODEC,
+    )
+    sorted_bytes = _values_of(explain, "totalDataSizeSortedBytesEstimate")
+    assert sorted_bytes, "אין שלב מיון בתוכנית — הבדיקה אינה מודדת דבר"
+    assert max(sorted_bytes) < 3 * len(note_body.encode("utf-8")), sorted_bytes

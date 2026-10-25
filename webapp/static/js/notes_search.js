@@ -24,6 +24,7 @@
   var form = document.getElementById('noteSearchForm');
   var input = document.getElementById('noteSearchInput');
   var colors = document.getElementById('noteSearchColors');
+  var archive = document.getElementById('noteSearchArchive');
   var msg = document.getElementById('noteSearchMsg');
   var list = document.getElementById('noteSearchResults');
   if (!form || !input || !list) { return; }
@@ -79,6 +80,24 @@
   function selectedColorId() {
     var pressed = colors && colors.querySelector('.notes-color-chip[aria-pressed="true"]');
     return pressed ? (pressed.getAttribute('data-color-id') || '') : '';
+  }
+
+  function includeArchived() {
+    return !!(archive && archive.checked);
+  }
+
+  /**
+   * מחרוזת ה-query של חיפוש — **אחת לשני היעדים**: הבקשה ל-API וכתובת העמוד.
+   * שתי הרכבות נפרדות היו נסחפות: פרמטר שנוסף לבקשה ולא לכתובת היה נעלם
+   * ברענון, ומשתמש היה רואה תוצאות אחרות מאותו קישור.
+   *
+   * ``include_archived=1`` רק כשהתיבה מסומנת, וכלום כשלא — השרת דוחה כל ערך אחר.
+   */
+  function searchQuery(needle, colorId, withArchive) {
+    var qs = 'q=' + encodeURIComponent(needle);
+    if (colorId) { qs += '&color=' + encodeURIComponent(colorId); }
+    if (withArchive) { qs += '&include_archived=1'; }
+    return qs;
   }
 
   function renderResult(hit, query) {
@@ -172,7 +191,7 @@
 
   var inFlight = null;
 
-  function runSearch(query, colorId, updateUrl) {
+  function runSearch(query, colorId, withArchive, updateUrl) {
     var needle = String(query || '').trim();
     if (!needle) {
       list.textContent = '';
@@ -180,14 +199,12 @@
       return;
     }
 
-    var url = '/api/sticky-notes/search?q=' + encodeURIComponent(needle);
-    if (colorId) { url += '&color=' + encodeURIComponent(colorId); }
+    var qs = searchQuery(needle, colorId, withArchive);
+    var url = '/api/sticky-notes/search?' + qs;
 
     if (updateUrl) {
       try {
-        var page = '/notes/search?q=' + encodeURIComponent(needle) +
-          (colorId ? ('&color=' + encodeURIComponent(colorId)) : '');
-        window.history.replaceState(null, '', page);
+        window.history.replaceState(null, '', '/notes/search?' + qs);
       } catch (e) { /* היסטוריה חסומה — החיפוש עצמו אינו תלוי בה */ }
     }
 
@@ -223,7 +240,7 @@
 
   form.addEventListener('submit', function (ev) {
     ev.preventDefault();
-    runSearch(input.value, selectedColorId(), true);
+    runSearch(input.value, selectedColorId(), includeArchived(), true);
   });
 
   if (colors) {
@@ -236,7 +253,16 @@
       }
       // שינוי מסנן מריץ מחדש רק כשכבר יש מה לסנן.
       if (input.value.trim()) {
-        runSearch(input.value, selectedColorId(), true);
+        runSearch(input.value, selectedColorId(), includeArchived(), true);
+      }
+    });
+  }
+
+  if (archive) {
+    // כמו הצבע: שינוי מריץ מחדש רק כשכבר יש מה לחפש.
+    archive.addEventListener('change', function () {
+      if (input.value.trim()) {
+        runSearch(input.value, selectedColorId(), includeArchived(), true);
       }
     });
   }
@@ -255,9 +281,11 @@
         }
       }
     }
+    // ``1`` בלבד מסמן — אותו ערך יחיד שהעמוד כותב ושהשרת מקבל כ"כן".
+    if (archive) { archive.checked = params.get('include_archived') === '1'; }
     if (q) {
       input.value = q;
-      runSearch(q, selectedColorId(), false);
+      runSearch(q, selectedColorId(), includeArchived(), false);
     }
   })();
 })();

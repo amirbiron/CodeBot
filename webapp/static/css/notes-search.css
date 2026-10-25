@@ -118,6 +118,27 @@
   outline-offset: 2px;
 }
 
+/* "כלול ארכיון" — תיבת סימון רגילה בשורה משלה, מתחת לצבעים. כל התווית לחיצה, ולכן
+   אזור המגע הוא התווית ולא רק הריבוע. ``accent-color`` מהטוקן, כדי שהסימון יהיה בצבע
+   של הערכה ולא בכחול של הדפדפן. */
+.notes-search-archive {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.8rem;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.notes-search-archive input {
+  inline-size: 18px;
+  block-size: 18px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
 .notes-search-msg {
   margin: 0 0 0.75rem;
   color: var(--text-muted);

@@ -2725,8 +2725,9 @@ def search_notes(
     query: str,
     limit: int | None = None,
     search_content: bool = False,
+    include_archived: bool = False,
 ) -> dict[str, Any]:
-    """Find sticky notes across all three targets (read-only).
+    """Find sticky notes across the targets (read-only) — the archive only on request.
 
     **שם כברירת מחדל; תוכן בבקשה מפורשת.** חיפוש השם נשען על
     ``user_title_idx``; הרחבתו לתוכן מוסיפה פרדיקט שאין עליו אינדקס —
@@ -2743,6 +2744,11 @@ def search_notes(
     פוסלת חיפושים לגיטימיים בגוף הפתק.
 
     ``limit`` **נחתך ולא נדחה**: מספר גדול מדי הוא בקשה לרוחב, לא שגיאה.
+
+    **הארכיון מוסתר בלי ``include_archived``** — בפילטר המשותף
+    (``note_search_filter``), כמו בחיפוש של הוובאפ בלי התיבה "כלול ארכיון".
+    רק ``True`` עובר הלאה: הכלי מקבל ``bool`` ו-pydantic מפענח אותו, אבל
+    ה-handler נקרא גם ישירות, ו-``"false"`` הוא אמת לפי ``bool()``.
     """
     from sticky_notes_target import MAX_NOTE_TITLE, canonical_title_text, note_search_needle_error
 
@@ -2789,6 +2795,7 @@ def search_notes(
         limit=_clamp(limit, 1, MAX_NOTE_SEARCH_RESULTS, DEFAULT_NOTE_SEARCH_RESULTS),
         search_content=bool(search_content),
         content_query=content_needle or None,
+        include_archived=include_archived is True,
     )
 
 

@@ -3665,14 +3665,16 @@ def build_mcp(
     @mcp.tool(
         name="codekeeper_search_notes",
         description=(
-            "Find your sticky notes across all three places a note can sit: a file, a "
-            "board, or a file in a mirrored repository. Matches part of the title, "
-            "case-insensitively. Set search_content=true to ALSO match the note body — "
-            "needed to find the many notes that carry no title at all, and slower because "
-            "no index covers the body. Each hit says where the note sits, with exactly the "
-            "arguments the matching list tool needs (file_name, board_id, or repo_name + "
-            "repo_path) and carries the note's id — read the note itself with "
-            "codekeeper_get_note; hits never carry content."
+            "Find your sticky notes across the places a note can sit: a file, a board, or a "
+            "file in a mirrored repository. Matches part of the title, case-insensitively. Set "
+            "search_content=true to ALSO match the note body — needed to find the many notes "
+            "that carry no title at all, and slower because no index covers the body. Notes the "
+            "user moved to the archive are left out unless include_archived=true. Each hit says "
+            "where the note sits, with exactly the arguments the matching list tool needs "
+            "(file_name, board_id, or repo_name + repo_path) and carries the note's id — read "
+            "the note itself with codekeeper_get_note; hits never carry content. An archived "
+            "hit says target=archive and has no list tool: it left its board or file, so read "
+            "it by id."
         ),
         annotations=_READ_ONLY_TOOL,
     )
@@ -3681,6 +3683,7 @@ def build_mcp(
         query: str,
         limit: int | None = None,
         search_content: bool = False,
+        include_archived: bool = False,
     ) -> dict:
         return handlers.search_notes(
             backend,
@@ -3688,6 +3691,7 @@ def build_mcp(
             query=query,
             limit=limit,
             search_content=search_content,
+            include_archived=include_archived,
         )
 
     if repo_backend is not None:

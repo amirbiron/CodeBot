@@ -53,6 +53,13 @@
               aria-pressed="false"></button>
       {% endfor %}
     </fieldset>
+
+    {# פתקי הארכיון מוסתרים בחיפוש כברירת מחדל (``note_search_filter``). התיבה
+       מחזירה אותם: ``include_archived=1`` ל-API ולכתובת העמוד, כמו הצבע. #}
+    <label class="notes-search-archive">
+      <input type="checkbox" id="noteSearchArchive">
+      כלול ארכיון
+    </label>
   </form>
 
   <p class="notes-search-msg" id="noteSearchMsg" role="status" aria-live="polite" hidden></p>

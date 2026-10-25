@@ -469,6 +469,29 @@ def test_title_search_filter_declares_that_a_nameless_note_is_not_a_candidate():
     assert title_search_filter(7, "x")["title"]["$exists"] is True
 
 
+# ---------- הארכיון בחיפוש ----------
+
+def test_the_search_leaves_the_archive_out_by_the_same_definition_as_the_user_cap():
+    """בלי ``include_archived`` הפילטר נושא את התנאי של :func:`active_notes_filter` — **אותו**
+    תנאי, ולא עותק שנכתב שוב. שני הענפים, שם ותוכן, מקבלים אותו, כי הוא יושב לצד ה-``$or``.
+
+    נופל אם ההסתרה תוסר, או תיכתב בצורה אחרת (``$exists: False``, ``$ne``)."""
+    from sticky_notes_target import active_notes_filter, note_search_filter
+
+    for flt in (note_search_filter(7, "x"), note_search_filter(7, "x", search_content=True)):
+        assert {k: flt[k] for k in active_notes_filter(7)} == active_notes_filter(7), flt
+
+
+def test_include_archived_brings_the_archive_back_and_only_true_does():
+    """``True`` — בלי תנאי על ``archived_at``. כל ערך אחר, גם אמת לפי ``bool`` (``"false"``, ``1``),
+    משאיר את ההסתרה: ``"false"`` שהגיע מבחוץ היה חושף את הארכיון דווקא כשביקשו שלא."""
+    from sticky_notes_target import note_search_filter
+
+    assert "archived_at" not in note_search_filter(7, "x", include_archived=True)
+    for value in ("false", "true", 1, "1", None, False):
+        assert note_search_filter(7, "x", include_archived=value)["archived_at"] is None, value
+
+
 # ---------- זהות היעד לצורך ניווט ----------
 
 def test_note_target_ref_names_each_of_the_three_targets():
