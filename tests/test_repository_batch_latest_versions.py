@@ -221,8 +221,25 @@ def test_a_failure_is_raised_and_not_swallowed(repo):
 
 
 class _ListCollection(_RecordingCollection):
-    """``get_user_files`` מוסיפה ``$skip``/``$limit``, ולכן ה-``$project``
-    אינו השלב האחרון. אין צורך בהתנהגות אחרת — רק בהקלטה."""
+    """``get_user_files`` מוסיפה ``$skip``/``$limit``, ולכן ה-``$project`` אינו השלב האחרון.
+
+    **ומאז שההיטלה עברה אל לפני המיון** (``_latest_per_file_page``), מה שחוזר לקורא הוא אחד
+    משניים: ה-``$project`` בלי שדות המיון שיורדים ב-``$unset`` אחריו, או — כשההיטלה מביאה שדה
+    כבד — ההיטלה של ה-``find`` בשלב השני (``Repository._latest_per_file_rows``). לכן הסטאב
+    מחזיר ראש אחד, כדי שהשלב השני ירוץ ויוקלט.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.finds: list[dict] = []
+
+    def aggregate(self, pipeline, **_kwargs):
+        self.pipelines.append(list(pipeline))
+        return [{"_id": 1, "updated_at": 0}]
+
+    def find(self, _filter, projection=None):
+        self.finds.append(projection)
+        return []
 
 
 def _project_of(pipeline):
@@ -230,6 +247,20 @@ def _project_of(pipeline):
         if "$project" in stage:
             return stage["$project"]
     return None
+
+
+def _effective_projection(collection: _ListCollection) -> dict:
+    """ההיטלה שהקורא מקבל בפועל — ראו ``_ListCollection``."""
+    if collection.finds:
+        return collection.finds[0]
+    pipeline = collection.pipelines[0]
+    proj = dict(_project_of(pipeline))
+    for stage in pipeline:
+        if "$unset" in stage:
+            dropped = stage["$unset"]
+            for key in [dropped] if isinstance(dropped, str) else dropped:
+                proj.pop(key, None)
+    return proj
 
 
 @pytest.mark.parametrize(
@@ -257,7 +288,7 @@ def test_get_user_files_projection_is_unchanged_by_the_shared_helper(projection,
     collection = _ListCollection()
     Repository(_FakeManager(collection)).get_user_files(7, 50, projection=projection)
 
-    proj = _project_of(collection.pipelines[0])
+    proj = _effective_projection(collection)
     if expected == "heavy":
         assert proj == dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
     elif expected == "heavy+description":
