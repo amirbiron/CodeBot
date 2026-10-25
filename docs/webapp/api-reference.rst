@@ -129,6 +129,24 @@ Endpoints
      - ✅
      - ``{"minutes": 60}`` — מספר שלם בין 1 ל‑1440, ברירת מחדל 60; טיפוס אחר ← ``400 Invalid minutes``, גוף שאינו אובייקט ← ``400 invalid_payload``
      - ``{"ok": true, "remind_at": "..."}``
+   * - ``/api/sticky-notes/note/<note_id>/archive``
+     - POST
+     - העברת פתק לארכיון, מכל יעד (:ref:`sticky-notes-archive`). פתק בלי שם דורש ``title`` (בלעדיו ← ``400 title_required``); שם ארוך מהתקרה נדחה ולא נחתך (``400 title_too_long`` עם ``max``). ארכיון מלא ← ``409 archive_quota_exceeded`` עם ``max``, וספירה שנכשלה ← ``409 note_quota_unknown``. פתק שאינו של המשתמש ← ``404 note_not_found``; פתק שכבר בארכיון ← ``200`` עם ``already_archived: true``, בלי כתיבה. השרשורים הפתוחים של הפתק נסגרים; ``threads_resolved: null`` אומר שהסגירה נכשלה, וההעברה עצמה נשארת
+     - ✅
+     - ``{"title": "..."}`` — אופציונלי; גוף שאינו אובייקט ← ``400 invalid_payload``
+     - ``{"ok": true, "already_archived": false, "note": {...}, "threads_resolved": 1}``
+   * - ``/api/sticky-notes/archive``
+     - GET
+     - כרטיסי עמוד הארכיון — מהחדש לישן לפי זמן ההעברה, **בלי גוף הפתקים**. ``max`` היא התקרה שחלה על המשתמש, או ``null`` לאדמין. שאילתה שנכשלה ← ``500``, ולא רשימה ריקה
+     - ✅
+     - -
+     - ``{"ok": true, "notes": [{"id": "...", "title": "...", "color": "#...", "color_id": "...", "archived_at": "..."}], "count": 1, "max": ...}``
+   * - ``/api/sticky-notes/archive/<note_id>``
+     - GET
+     - פתק אחד מהארכיון, מלא, עם תקצירי השרשורים שלו — כשפותחים כרטיס. פתק שאינו בארכיון או אינו של המשתמש ← ``404 note_not_found``; מזהה פגום ← ``400 invalid_note_id``. כשל בקריאת השרשורים אינו מפיל את התשובה: ``threads_unavailable: true``
+     - ✅
+     - -
+     - ``{"ok": true, "note": {...}}``
    * - ``/api/sticky-notes/note/<note_id>/threads``
      - GET
      - תקצירי שרשורי התגובות של הפתק, בלי התגובות — לבועות. פתק שאינו של המשתמש ← ``404 note_not_found`` (:ref:`sticky-notes-threads-server`)

@@ -28,6 +28,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-preview.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/toast.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block content %}
@@ -404,6 +405,8 @@
 <script src="{{ url_for('static', filename='js/repo-browser.js') }}?v={{ static_version }}"></script>
 <!-- תקרת תגובה בשרשור על פתק, מהשרת — לפני sticky-notes.js, כמו בשני המשטחים האחרים. -->
 <script>window.NOTE_THREAD_MAX_CHARS = {{ max_thread_comment_chars | tojson }};</script>
+<!-- הטוסט המשותף — ההודעה אחרי העברת פתק לארכיון (``_notify`` ב-sticky-notes.js). -->
+<script src="{{ url_for('static', filename='js/toast.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/repo-notes.js') }}?v={{ static_version }}"></script>
 {% endblock %}

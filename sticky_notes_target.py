@@ -1,8 +1,9 @@
 """
 Sticky Notes Target — לאיזה משטח הפתק שייך, ומי אוכף שהוא שייך לאחד בדיוק.
 
-פתק דביק שייך ל**יעד אחד בדיוק** — קובץ, לוח, או קובץ בריפו ממורר
-(``repo_name`` + ``repo_path`` יחד). לעולם לא לשניים ולעולם לא לאף אחד.
+פתק דביק שייך ל**יעד אחד בדיוק** — קובץ, לוח, קובץ בריפו ממורר
+(``repo_name`` + ``repo_path`` יחד), או הארכיון (``archived_at``). לעולם
+לא לשניים ולעולם לא לאף אחד.
 המודול הזה הוא המקום היחיד שיודע את הכלל הזה, והוא טהור בכוונה: בלי Flask,
 בלי pymongo, בלי ``get_db``. כך גם ``webapp``, גם ``mcp_server`` וגם
 ``services`` יכולים לייבא אותו — בדיוק כמו ``sticky_notes_scope`` שכבר מיובא
@@ -22,7 +23,8 @@ Sticky Notes Target — לאיזה משטח הפתק שייך, ומי אוכף �
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 
 #: ``IndexNotFound`` — מונגו מחזיר אותו כשמפילים אינדקס שכבר אינו שם.
@@ -101,6 +103,14 @@ MAX_NOTES_PER_REPO_FILE = 20
 #: תקרה שיושבת שם נאלצת להיות מוקלדת שוב בצד השני. שני מספרים שמסונכרנים
 #: בתקווה הם מספר אחד שגוי שמחכה.
 MAX_NOTES_PER_USER = 1000
+
+#: תקרת פתקי הארכיון למשתמש — **בנוסף** ל-:data:`MAX_NOTES_PER_USER`, ולא בתוכה.
+#:
+#: פתק בארכיון אינו נספר בתקרת המשתמש (:func:`active_notes_filter`), ולכן העברה
+#: לארכיון מפנה מקום. התקרה הזו עומדת לבדה, כי בלעדיה הארכיון היה הדרך לעקוף
+#: את התקרה הראשונה בלי גבול. היא הגנת-משאבים ולא צורת-תוכן, ולכן אדמין פטור
+#: ממנה כמו מתקרת המשתמש (ראו :func:`check_note_quota`).
+MAX_ARCHIVED_NOTES_PER_USER = 500
 
 #: אורך מרבי לשם פתק. שם הוא תווית קצרה בשורת הכפתורים, לא כותרת.
 MAX_NOTE_TITLE = 80
@@ -462,20 +472,56 @@ def normalize_repo_path(value: Any) -> str:
 #: צירופים: כל שדה יעד שאינו של הסוג שנבחר הוא זיהום, ונדחה. מי שמוסיף
 #: סוג רביעי בעתיד מוסיף שורה כאן, ולא צריך לזכור לעדכן רשימת "צירופים
 #: אסורים" בשום מקום אחר.
+#:
+#: **``archive`` הוא היעד הרביעי, ושדה אחד מתאר אותו: ``archived_at``** — מתי
+#: הפתק הועבר לארכיון. אין דגל ``is_archived`` לצד היעד הקודם: מצב הארכיון
+#: **הוא** סוג היעד, ולכן פתק אינו יכול להיות "בארכיון וגם בלוח". ההעברה
+#: מוחקת את שדות היעד הקודם (:func:`archive_note_update`) — וזה גם מה שמוציא
+#: את הפתק מאינדקסי השם הייחודיים, שהפילטר שלהם דורש ``board_id`` או את זוג
+#: הריפו, כך שהשם בלוח המקור מתפנה.
 TARGET_FIELDS: Dict[str, Tuple[str, ...]] = {
     "file": ("file_id", "scope_id", "file_name"),
     "board": ("board_id",),
     "repo": ("repo_name", "repo_path"),
+    "archive": ("archived_at",),
 }
 
-#: שדות הזיהוי שקובעים לאיזה סוג הפתק שייך. ``file``/``board`` נקבעים
-#: בשדה אחד; ``repo`` דורש את **שני** חצאיו יחד — ``repo_name`` בלי
+#: שדות הזיהוי שקובעים לאיזה סוג הפתק שייך. ``file``/``board``/``archive``
+#: נקבעים בשדה אחד; ``repo`` דורש את **שני** חצאיו יחד — ``repo_name`` בלי
 #: ``repo_path`` (או להפך) הוא יעד חצוי, לא יעד.
 _TARGET_IDENTITY: Dict[str, Tuple[str, ...]] = {
     "file": ("file_id",),
     "board": ("board_id",),
     "repo": ("repo_name", "repo_path"),
+    "archive": ("archived_at",),
 }
+
+
+def _is_archive_stamp(value: Any) -> bool:
+    """האם הערך הוא חותמת ארכיון — ``datetime``, ושום טיפוס אחר.
+
+    **אותה הגדרה כמו של השאילתות.** :func:`archived_notes_filter` מסנן
+    ``{"$type": "date"}``, כי רק הצורה הזו נותנת לאינדקס גבולות הדוקים. אילו
+    כאן כל ערך לא ריק היה נחשב, מחרוזת ב-``archived_at`` הייתה הופכת את הפתק
+    ל"פתק ארכיון" שאינו מופיע ברשימת הארכיון ואינו נספר בתקרה שלו — כלומר
+    פתק שאין דרך להגיע אליו. ככה שתי ההגדרות עונות אותו דבר על כל ערך.
+    """
+    return isinstance(value, datetime)
+
+
+#: שדות זיהוי שהנוכחות שלהם נבדקת בטיפוס ולא במחרוזת לא ריקה. כל שדה שאינו
+#: כאן נבדק ב-:func:`_clean`, כמו עד היום.
+_IDENTITY_PRESENT: Dict[str, Callable[[Any], bool]] = {
+    "archived_at": _is_archive_stamp,
+}
+
+
+def _identity_present(doc: Mapping[str, Any], field: str) -> bool:
+    """האם שדה הזיהוי ``field`` נוכח במסמך — לפי הבדיקה של השדה הזה."""
+    test = _IDENTITY_PRESENT.get(field)
+    if test is not None:
+        return test(doc.get(field))
+    return bool(_clean(doc.get(field)))
 
 
 def _target_kind(doc: Mapping[str, Any]) -> str:
@@ -491,7 +537,7 @@ def _target_kind(doc: Mapping[str, Any]) -> str:
 
     present = []
     for kind, identity in _TARGET_IDENTITY.items():
-        if all(_clean(doc.get(f)) for f in identity):
+        if all(_identity_present(doc, f) for f in identity):
             present.append(kind)
 
     if len(present) > 1:
@@ -517,6 +563,7 @@ def build_note_target(
     file_name: Optional[str] = None,
     repo_name: Any = None,
     repo_path: Any = None,
+    archived_at: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """שדות היעד למסמך פתק חדש — אחרי ולידציה, לא לפניה.
 
@@ -527,7 +574,13 @@ def build_note_target(
 
     ``repo_path`` עובר :func:`normalize_repo_path` **כאן, בכתיבה** — אותה
     פונקציה שרצה בקריאה, כך ששני הקצוות מתכנסים לאותה צורה.
+
+    ``archived_at`` בונה פתק שנולד בארכיון — היום רק שחזור מגיבוי. פתק קיים
+    עובר לארכיון בעדכון, דרך :func:`archive_note_update`. ערך שאינו ``datetime``
+    נדחה, כי :func:`_is_archive_stamp` לא היה מזהה אותו כיעד.
     """
+    if archived_at is not None and not _is_archive_stamp(archived_at):
+        raise NoteTargetError("archived_at_must_be_datetime")
     fid = _clean(file_id)
     bid = _clean(board_id)
     rname = _clean(repo_name)
@@ -548,6 +601,8 @@ def build_note_target(
         target["scope_id"] = scope_id
     if file_name:
         target["file_name"] = file_name
+    if archived_at is not None:
+        target["archived_at"] = archived_at
 
     # כלל הזיהום התכונתי: אחרי שידוע איזה סוג נבחר, כל שדה ב-``target``
     # שאינו ברשימת הסוג פוסל. ``target`` מורכב אך ורק משדות יעד (התוכן,
@@ -608,6 +663,44 @@ def any_board_note_filter(user_id: int) -> Dict[str, Any]:
     הייצור (8.0.34) — מפתח אחד ומסמך אחד.
     """
     return {"user_id": int(user_id), "board_id": {"$nin": [None, ""]}}
+
+
+def active_notes_filter(user_id: int) -> Dict[str, Any]:
+    """הפתקים שנספרים ב-:data:`MAX_NOTES_PER_USER` — כל פתק של המשתמש שאינו בארכיון.
+
+    **המקום היחיד שמגדיר את הספירה הזו.** עד הארכיון כל מסלול יצירה ספר
+    ``{"user_id": ...}`` בנוסח משלו, בששה מקומות; תקרה שנספרת אחרת בכל כותב
+    היא תקרה שכותב אחד יפר. עכשיו כולם קוראים לכאן, וגם ה-CAS של ההעברה
+    לארכיון ("עדיין לא בארכיון") נשען על אותו פילטר.
+
+    **``None`` ולא ``{"$exists": False}``, וזו מדידה ולא טעם.** השוואה ל-``None``
+    תופסת גם שדה חסר וגם ``null``, ושניהם נשמרים באינדקס כ-``null`` — ולכן
+    ``user_archived_idx`` עונה עליה ב-``COUNT_SCAN`` בלי לקרוא אף מסמך.
+    ``$exists: False`` נשען על אותו אינדקס אבל מוסיף ``FETCH`` לכל פתק פעיל,
+    כדי להבדיל בין חסר ל-``null``. נעול מול מונגו אמיתי ב-
+    ``tests/test_note_archive_mongo.py``. ``null`` מפורש אינו "בארכיון" גם לפי
+    :func:`_is_archive_stamp`, ולכן שתי ההגדרות מסכימות עליו.
+    """
+    return {"user_id": int(user_id), "archived_at": None}
+
+
+def archived_notes_filter(user_id: int) -> Dict[str, Any]:
+    """פתקי הארכיון של המשתמש — לרשימה ולתקרה :data:`MAX_ARCHIVED_NOTES_PER_USER`.
+
+    **``$type: "date"`` ולא ``$exists: True``.** ``date`` נותן לאינדקס
+    ``user_archived_idx`` גבולות הדוקים על ``archived_at``, ולכן הרשימה סורקת
+    בדיוק את פתקי הארכיון, והספירה היא ``COUNT_SCAN``. ``$exists: True`` כולל
+    את ``null``, ומי שנשמר באינדקס כ-``null`` הוא בדיוק כל פתק פעיל — ולכן
+    המתכנן קרא את כל הפתקים של המשתמש ומיין אותם בסינון. אותה בדיקה שבה
+    :func:`_is_archive_stamp` מזהה את היעד, ונעולה באותו קובץ בדיקות.
+    """
+    return {"user_id": int(user_id), "archived_at": {"$type": "date"}}
+
+
+#: סדר רשימת הארכיון — מהחדש לישן לפי זמן ההעברה, ו-``_id`` שובר שוויון כדי
+#: שהסדר יהיה יציב בין טעינות. **זהה לסדר המפתחות שאחרי ``user_id`` ב-
+#: ``user_archived_idx``**, ולכן המיון מגיע מהאינדקס ולא נעשה בזיכרון.
+ARCHIVE_LIST_SORT: Tuple[Tuple[str, int], ...] = (("archived_at", -1), ("_id", -1))
 
 
 def repo_notes_filter(user_id: int, repo_name: Any, repo_path: Any) -> Dict[str, Any]:
@@ -807,10 +900,14 @@ def repo_note_paths_pipeline(user_id: int, repo_name: Any) -> List[Dict[str, Any
 #: הטבלה נפרדת מ-:data:`TARGET_FIELDS` בכוונה. שם ``file`` כולל גם
 #: ``scope_id``, שהוא hash פנימי של שם קובץ — חסר תועלת לקורא, ואסור
 #: שיזלוג ככה כאילו הוא מזהה ניווט.
+#:
+#: לארכיון אין שדות: הוא משטח אחד לכל משתמש, ואין לו כלי רשימה שמקבל
+#: ארגומנט. ``{"target": "archive"}`` לבדו אומר איפה הפתק.
 NOTE_TARGET_REF_FIELDS: Dict[str, Tuple[str, ...]] = {
     "file": ("file_name", "file_id"),
     "board": ("board_id",),
     "repo": ("repo_name", "repo_path"),
+    "archive": (),
 }
 
 
@@ -835,6 +932,91 @@ def note_target_ref(doc: Mapping[str, Any]) -> Dict[str, Any]:
         if value:
             ref[field] = value
     return ref
+
+
+def note_target_kind(doc: Mapping[str, Any]) -> str:
+    """סוג היעד של פתק — ``file`` / ``board`` / ``repo`` / ``archive`` — או ``"unknown"``.
+
+    אותה הכרעה של :func:`note_target_ref`, בלי שדות הניווט, ולעולם אינה זורקת:
+    לקורא שצריך רק להסתעף לפי הסוג (``webapp/boards_ui.note_permalink``). מי
+    שמסתעף לפי נוכחות שדה בודד מחזיק עותק שני של הכלל, וסוג חדש — כמו
+    הארכיון — היה נופל אצלו לענף הלא נכון.
+    """
+    try:
+        return _target_kind(doc)
+    except NoteTargetError:
+        return "unknown"
+
+
+#: שדות שאינם שדות יעד, אבל מתארים **מיקום על היעד הקודם**: מצב ההצמדה של לוח
+#: וריפו, והעוגן לשורה או לכותרת של פתק קובץ. בארכיון אין להם משמעות, ולכן
+#: ההעברה מוחקת אותם יחד עם שדות היעד — אחרת ``codekeeper_get_note`` היה
+#: מחזיר על פתק ארכיון ``line_start: 12`` של קובץ שהוא כבר אינו יושב עליו.
+#: הגודל (``width``/``height``) נשאר: הוא של הפתק עצמו, והפתק נפתח בו גם
+#: בארכיון.
+ARCHIVE_DROPPED_PLACEMENT_FIELDS: Tuple[str, ...] = (
+    "mode", "anchor_id", "anchor_text", "line_start", "line_end",
+)
+
+
+def archive_note_update(*, archived_at: datetime, title: str) -> Dict[str, Any]:
+    """העדכון שמעביר פתק לארכיון — ``$set`` ו-``$unset`` לאותה ``update_one``.
+
+    **"ארכיון הוא יעד חדש", ולכן שדות היעד הקודם נמחקים.** הרשימה נגזרת
+    מ-:data:`TARGET_FIELDS` — כל שדה של כל סוג שאינו ``archive`` — ולא נמנית
+    כאן ביד: סוג יעד חמישי נמחק בהעברה בלי שמישהו יזכור לעדכן את הפונקציה.
+    בלי המחיקה הפתק היה נושא שני יעדים (:func:`_target_kind` עונה
+    ``note_target_ambiguous``), ו-``board_id`` שנשאר היה משאיר אותו באינדקס
+    השם הייחודי של הלוח — כלומר השם בלוח המקור היה נשאר תפוס.
+
+    ``title`` כבר עבר את :func:`resolve_archive_title`: הארכיון מנווט לפי
+    שם, ופתק בלי שם אינו עובר. שם ריק או שאינו קנוני כאן הוא באג של הקורא,
+    ולכן נדחה ולא נשלם בשקט.
+    """
+    if not _is_archive_stamp(archived_at):
+        raise NoteTargetError("archived_at_must_be_datetime")
+    if not isinstance(title, str) or not title or normalize_note_title(title) != title:
+        raise NoteTargetError("archive_title_required")
+    unset: Dict[str, str] = {}
+    for kind, fields in TARGET_FIELDS.items():
+        if kind == "archive":
+            continue
+        for field in fields:
+            unset[field] = ""
+    for field in ARCHIVE_DROPPED_PLACEMENT_FIELDS:
+        unset[field] = ""
+    return {
+        "$set": {"archived_at": archived_at, "title": title, "updated_at": archived_at},
+        "$unset": unset,
+    }
+
+
+def resolve_archive_title(requested: Any, current: Any, *, requested_given: bool) -> Tuple[str, Optional[str]]:
+    """השם שהפתק יישא בארכיון — או קוד שגיאה. מחזיר ``(שם, None)`` או ``("", קוד)``.
+
+    הארכיון מנווט לפי שם, ולכן **פתק בלי שם אינו עובר**:
+
+    - **הבקשה נשאה שם** (``requested_given``) — הוא קובע, גם כשלפתק כבר יש
+      שם: זה מה שהמשתמש אישר בחלון. ריק, או שאינו מחרוזת (ערך מגוף JSON
+      יכול להיות כל טיפוס), הוא ``title_required``. ארוך מ-:data:`MAX_NOTE_TITLE`
+      הוא ``title_too_long`` — **סירוב ולא חיתוך**: שם שנחתך בשקט אינו השם
+      שהמשתמש אישר. השדה בחלון מוגבל לאותו אורך, כך שזה קורה רק ללקוח אחר.
+    - **בלי שם בבקשה** — השם הקיים של הפתק, או ``title_required`` כשאין.
+
+    האורך נמדד על :func:`canonical_title_text`, כלומר בנקודות קוד ואחרי
+    כיווץ הרווחים — אותה צורה שנשמרת.
+    """
+    if requested_given:
+        text = canonical_title_text(requested)
+        if not text:
+            return "", "title_required"
+        if len(text) > MAX_NOTE_TITLE:
+            return "", "title_too_long"
+        return text, None
+    existing = normalize_note_title(current)
+    if not existing:
+        return "", "title_required"
+    return existing, None
 
 
 def mirrored_repo_names(db: Any) -> Optional[set]:

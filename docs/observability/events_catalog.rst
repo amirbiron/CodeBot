@@ -1,4 +1,4 @@
-:summary: הקטלוג הקנוני של שמות האירועים — GitHub, שיתוף ווב, התראות, Google Drive, Repo Analyzer ואירועי ביזנס — עם הכלל לשמות ב-snake_case ובלי PII.
+:summary: הקטלוג הקנוני של שמות האירועים — GitHub, שיתוף ווב, התראות, Google Drive, פתקים דביקים, Repo Analyzer ואירועי ביזנס — עם הכלל לשמות ב-snake_case ובלי PII.
 
 קטלוג אירועים קנוניים
 ======================
@@ -214,6 +214,21 @@ Google Drive
 .. code-block:: json
 
    {"event":"docs_index_pass","severity":"info","run_id":"5f0c1d2e","trigger":"deploy","status":"complete","code":null,"source_commit":"990a666a91fd2c821c6718f8f655e245eb80fc90","embedded":12,"deleted_chunks":1,"deleted_sections":1,"deleted_pages":0,"deletions_spared":0,"chunk_count":2310}
+
+.. _events-sticky-notes:
+
+פתקים דביקים
+-------------
+
+האירועים של ``webapp/sticky_notes_api.py``. כולם נושאים ``user_id``; תוכן הפתק ושמו אינם נכנסים לאף אירוע.
+
+- ``sticky_note_created`` — פתק נוצר. לצד ``user_id`` — המזהה של היעד: ``file_id``, ``board_id`` או ``repo_name``, לפי סוג הפתק.
+- ``sticky_note_updated`` — פתק עודכן (``note_id``).
+- ``sticky_note_deleted`` — פתק נמחק (``note_id``), ו-``threads_deleted``: כמה שרשורי תגובות נמחקו איתו.
+- ``sticky_note_archived`` — פתק הועבר לארכיון (``note_id``), ו-``threads_resolved``: כמה שרשורים פתוחים נסגרו, או ``null`` כשהסגירה נכשלה וההעברה עצמה נשארה (:ref:`sticky-notes-archive`).
+- ``note_reminder_set`` — נקבעה תזכורת לפתק (``note_id``).
+- ``sticky_note_task_not_applied`` (``error``) — סימון צ'קבוקס שהמסד לא החיל (``note_id``).
+- ``sticky_notes_<פעולה>_error`` (``anomaly``) — כשל בראוט, עם ``error``. הפעולה היא שם המסלול, למשל ``list``, ``create`` או ``search``.
 
 Repo Analyzer
 -------------

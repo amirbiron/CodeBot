@@ -96,6 +96,10 @@
    * ``options.duration`` — מילישניות עד ההיעלמות. ``0`` תקף ומכובד;
    *                        ברירת המחדל חלה רק כשהערך חסר או אינו
    *                        מספר סופי ואי-שלילי.
+   * ``options.link``     — ``{href, label}``: קישור בסוף ההודעה ("לארכיון"
+   *                        אחרי העברת פתק). ``href`` חייב להיות נתיב בתוך
+   *                        האתר (מתחיל ב-``/`` אחד) — קישור לא נכנס לטוסט
+   *                        מכתובת שרירותית; אחרת הקישור פשוט אינו מוצג.
    *
    * **ערוץ הכשל הוא ערך ההחזרה:** ``true`` אם הטוסט נכנס ל-DOM,
    * ``false`` אם לא היה ``document.body``. הקורא חייב לבדוק — טוסט הוא
@@ -126,6 +130,17 @@
 
     el.appendChild(icon);
     el.appendChild(msg);
+    var link = opts.link;
+    // **נתיב באתר בלבד**: מתחיל ב-``/`` ולא ב-``//`` (כתובת בלי סכמה, שהדפדפן מפנה לשרת
+    // אחר). הקוראים מעבירים קבוע, אבל זה רכיב משותף, וההגבלה עדיפה על הנחה על הקוראים.
+    if (link && typeof link.href === 'string' && /^\/(?!\/)/.test(link.href)
+        && typeof link.label === 'string' && link.label) {
+      var a = document.createElement('a');
+      a.className = 'ck-toast__link';
+      a.setAttribute('href', link.href);
+      a.textContent = link.label;
+      el.appendChild(a);
+    }
     container.appendChild(el);
 
     // קריאת מאפיין פריסה מכריחה את הדפדפן לחשב את הסגנון ההתחלתי

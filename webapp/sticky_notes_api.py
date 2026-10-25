@@ -22,7 +22,12 @@ import logging
 # tests/test_webapp_import_paths.py.
 from sticky_notes_target import (
     MAX_NOTE_CHARS, MAX_NOTE_TITLE, MAX_NOTES_PER_BOARD, MAX_NOTES_PER_USER,
-    MAX_NOTES_PER_REPO_FILE,
+    MAX_NOTES_PER_REPO_FILE, MAX_ARCHIVED_NOTES_PER_USER,
+    ARCHIVE_LIST_SORT,
+    active_notes_filter,
+    archived_notes_filter,
+    archive_note_update,
+    resolve_archive_title,
     normalize_note_title,
     normalize_repo_path,
     ensure_title_index,
@@ -121,7 +126,9 @@ _INDEX_READY_LOCK = threading.Lock()
 #: מלווה את הוספת ``user_updated_idx``: בלי ההעלאה, כל תהליך שקורא דגל
 #: ``v3`` חי היה מדלג על ``_ensure_indexes`` ליממה שלמה, והאינדקס החדש לא
 #: היה נבנה באף אחד מהם — כשל שקט שבדיוק כמוהו כבר קרה כאן.
-_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v4"
+#:
+#: ``v5`` מלווה את ``user_archived_idx`` של הארכיון, מאותה סיבה.
+_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v5"
 _INDEX_READY_CACHE_TTL_SECONDS = 24 * 3600
 _INDEX_CACHE_LAST_CHECK = 0.0
 _WARMUP_TRIGGERED = threading.Event()
@@ -243,7 +250,7 @@ def reset_index_state_for_tests() -> None:
         _WARMUP_TRIGGERED.clear()
 
 
-#: **מפרט שבעת אינדקסי השאילתה של** ``sticky_notes`` **— מקור אמת אחד.**
+#: **מפרט אינדקסי השאילתה של** ``sticky_notes`` **— מקור אמת אחד.**
 #:
 #: שלושת הצרכנים — המסלול המהיר (``create_indexes``), מסלול הגיבוי
 #: (``create_index`` אחד-אחד), והאימות בקריאה חוזרת — נגזרים כולם מכאן.
@@ -276,6 +283,12 @@ _QUERY_INDEX_SPECS: Tuple[Tuple[str, List[Tuple[str, int]]], ...] = (
     # האינדקס הזה הוא היחיד שנותן את שניהם: איתור ישיר של המשתמש, ובתוכו
     # סדר מוכן.
     ("user_updated_idx", [("user_id", 1), ("updated_at", -1)]),
+    # **הארכיון, ושתי שאלות על אותו אינדקס.** הרשימה — ``archived_notes_filter``
+    # ממוין ב-``ARCHIVE_LIST_SORT`` — סורקת אותו בגבולות הדוקים ובלי ``SORT``,
+    # כי המפתחות שאחרי ``user_id`` הם בדיוק סדר המיון; והספירה של תקרת המשתמש
+    # (``active_notes_filter``, ``archived_at: None``) היא ``COUNT_SCAN`` עליו,
+    # בלי לקרוא מסמכים. נעול מול מונגו אמיתי ב-``tests/test_note_archive_mongo.py``.
+    ("user_archived_idx", [("user_id", 1), ("archived_at", -1), ("_id", -1)]),
 )
 
 
@@ -450,7 +463,7 @@ def _ensure_indexes(generation: Optional[int] = None) -> None:
                         logger.warning(
                             "sticky notes index %s creation failed (non-fatal)", name, exc_info=True
                         )
-            # **אימות בקריאה חוזרת לשבעת אינדקסי השאילתה.**
+            # **אימות בקריאה חוזרת לכל אינדקסי השאילתה** (``_QUERY_INDEX_SPECS``).
             #
             # עד כאן שום דבר לא נבדק: ``create_indexes`` ו-``create_index``
             # מדווחים הצלחה בערך ההחזרה, וערך החזרה של כתיבה אינו אימות.
@@ -993,6 +1006,9 @@ def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
         # והמצב ממשיך להיגזר מ-``anchor_id`` כמו קודם.
         'board_id': str(doc.get('board_id', '') or ''),
         'mode': str(doc.get('mode', '') or ''),
+        # פתק בארכיון: מתי הועבר. ``None`` בכל פתק אחר — ולפי זה הלקוח יודע
+        # שהפתק כבר אינו על המשטח שהוא מציג. אותו שדה ב-``_as_note`` של ה-MCP.
+        'archived_at': _iso_utc(doc.get('archived_at')),
         'updated_at': (doc.get('updated_at').isoformat() if doc.get('updated_at') else None),
         'created_at': (doc.get('created_at').isoformat() if doc.get('created_at') else None),
     }
@@ -1598,7 +1614,7 @@ def create_note(file_id: str):
         # הייתה הופכת את התיעוד לנכון-למחצה.
         try:
             check_note_quota(
-                _count_or_none(db.sticky_notes, {'user_id': user_id}),
+                _count_or_none(db.sticky_notes, active_notes_filter(user_id)),
                 MAX_NOTES_PER_USER,
                 is_admin=_current_user_is_admin(),
             )
@@ -2053,6 +2069,216 @@ def batch_update_notes():
         return jsonify({'ok': False, 'error': 'Failed to process batch'}), 500
 
 
+# --- Archive ---
+#
+# הארכיון הוא **יעד רביעי** (``archived_at`` ב-``sticky_notes_target``), ולא דגל על פתק
+# שנשאר על הלוח: ההעברה מוחקת את שדות היעד הקודם, ולכן הפתק יוצא מכל רשימה של לוח,
+# קובץ או ריפו מעצמו, ושום ראוט קיים לא צריך סינון חדש. עריכה, מחיקה, תזכורות ושרשורים
+# מזהים פתק לפי ``_id + user_id`` בלבד, ולכן הם עובדים על פתק בארכיון כמו שהם.
+#
+# שלושה ראוטים: ההעברה, רשימת הכרטיסים לעמוד הארכיון, ופתק אחד מלא — כי הרשימה אינה
+# נושאת את גוף הפתקים (Smart Projection), והוא נשלף רק כשפותחים כרטיס.
+
+#: מה כרטיס בעמוד הארכיון צריך — ותו לא. ``content`` אינו כאן בכוונה: עד
+#: :data:`MAX_ARCHIVED_NOTES_PER_USER` פתקים, כל אחד עד :data:`MAX_NOTE_CHARS` תווים.
+_ARCHIVE_CARD_PROJECTION = {'title': 1, 'color': 1, 'archived_at': 1}
+
+
+def _as_archive_card(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """כרטיס אחד ברשת הארכיון. נבנה מרשימה מפורשת של שדות, לא מהמסמך כולו."""
+    return {
+        'id': str(doc.get('_id')),
+        'title': str(doc.get('title', '') or ''),
+        # אותו חוזה צבע כמו ``_as_note_response``: ``color`` תמיד ``hex`` חוקי.
+        'color': note_color_hex(doc.get('color')),
+        'color_id': note_color_id(doc.get('color')),
+        'archived_at': _iso_utc(doc.get('archived_at')),
+    }
+
+
+@sticky_notes_bp.route('/note/<note_id>/archive', methods=['POST'])
+@require_auth
+@notes_rate_limit('note_archive', 60)
+@traced('sticky_notes.archive')
+def archive_note(note_id: str):
+    """מעביר פתק לארכיון — מכל יעד, ובלי דרך חזרה ליעד הקודם.
+
+    גוף אופציונלי: ``{"title": "..."}`` — השם שהמשתמש אישר בחלון. בלעדיו נשאר השם הקיים,
+    ופתק בלי שם אינו עובר (``resolve_archive_title``): הארכיון מנווט לפי שם.
+
+    הסדר, וכל שלב בו מגן על משהו:
+
+    1. הפתק קיים ושייך למשתמש — אחרת ``404 note_not_found``.
+    2. **כבר בארכיון** ← ``200`` עם ``already_archived``, בלי כתיבה. לחיצה כפולה, או מכשיר
+       שני שעוד מציג את הפתק על הלוח, אינם שגיאה.
+    3. השם, ואחריו תקרת הארכיון (``MAX_ARCHIVED_NOTES_PER_USER``, אדמין פטור). ספירה שנכשלה
+       נדחית (``check_note_quota``), כמו בכל תקרה אחרת.
+    4. **כתיבה אחת מותנית (CAS):** ``find_one_and_update`` שהפילטר שלו דורש שהפתק עדיין
+       אינו בארכיון (``active_notes_filter``). שתי העברות מקבילות — רק אחת כותבת. ``None``
+       מהמסד אינו הצלחה (K11): קוראים שוב ומסווגים — נמחק בינתיים, או הועבר בבקשה המקבילה.
+    5. **השרשורים הפתוחים נסגרים רק אחרי שההעברה נכתבה** (``nt.resolve_open_threads``).
+       כשל שם אינו מבטל את ההעברה, שכבר קרתה: ``threads_resolved: null`` אומר ללקוח
+       שהשרשורים לא נסגרו, והכשל נרשם בלוג. התזכורת אינה נוגעת: היא נשארת פעילה.
+
+    התשובה נבנית מהמסמך שהכתיבה **הזו** השאירה (``ReturnDocument.AFTER``), לא ממה שביקשו.
+    """
+    try:
+        from pymongo import ReturnDocument
+        from sticky_notes_target import (
+            NoteQuotaExceeded,
+            NoteQuotaUnknown,
+            check_note_quota,
+            note_target_kind,
+        )
+
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        payload = _json_object()
+        if payload is None:
+            return _no_store(jsonify({'ok': False, 'error': 'invalid_payload'})), 400
+        try:
+            oid = ObjectId(str(note_id))
+        except InvalidId:
+            return _no_store(jsonify({'ok': False, 'error': 'invalid_note_id'})), 400
+
+        db = get_db()
+        note = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id}, {'title': 1, 'archived_at': 1})
+        if not note:
+            return _no_store(jsonify({'ok': False, 'error': 'note_not_found'})), 404
+        if note_target_kind(note) == 'archive':
+            return _no_store(jsonify({'ok': True, 'already_archived': True, 'threads_resolved': None}))
+
+        title, title_error = resolve_archive_title(
+            payload.get('title'), note.get('title'), requested_given='title' in payload
+        )
+        if title_error:
+            body: Dict[str, Any] = {'ok': False, 'error': title_error}
+            if title_error == 'title_too_long':
+                body['max'] = MAX_NOTE_TITLE
+            return _no_store(jsonify(body)), 400
+
+        try:
+            check_note_quota(
+                _count_or_none(db.sticky_notes, archived_notes_filter(user_id)),
+                MAX_ARCHIVED_NOTES_PER_USER,
+                is_admin=_current_user_is_admin(),
+            )
+        except NoteQuotaUnknown:
+            return _no_store(jsonify({'ok': False, 'error': 'note_quota_unknown'})), 409
+        except NoteQuotaExceeded:
+            return _no_store(jsonify({
+                'ok': False, 'error': 'archive_quota_exceeded', 'max': MAX_ARCHIVED_NOTES_PER_USER,
+            })), 409
+
+        now = datetime.now(timezone.utc)
+        stored = db.sticky_notes.find_one_and_update(
+            {'_id': oid, **active_notes_filter(user_id)},
+            archive_note_update(archived_at=now, title=title),
+            return_document=ReturnDocument.AFTER,
+        )
+        if stored is None:
+            current = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id}, {'archived_at': 1})
+            if current is None:
+                return _no_store(jsonify({'ok': False, 'error': 'note_not_found'})), 404
+            if note_target_kind(current) == 'archive':
+                return _no_store(jsonify({'ok': True, 'already_archived': True, 'threads_resolved': None}))
+            # הפילטר לא תפס, והפתק קיים ואינו בארכיון: ``archived_at`` שאינו ``null`` ואינו
+            # תאריך. אף כותב אינו מייצר ערך כזה, ולכן זה נתון פגום ולא מרוץ — והתשובה
+            # אומרת שההעברה לא נכתבה, במקום לדווח הצלחה.
+            logger.error("sticky notes: archiving %s matched nothing although the note exists", oid)
+            return _no_store(jsonify({'ok': False, 'error': 'archive_not_applied'})), 409
+
+        threads_resolved: Optional[int] = None
+        try:
+            threads_resolved = nt.resolve_open_threads(
+                db[nt.NOTE_THREADS_COLLECTION], user_id=user_id, note_id=str(oid),
+                author=nt.user_author(), now=now,
+            )
+        except PyMongoError:
+            logger.warning("sticky notes: resolving the open threads of archived note %s failed", oid, exc_info=True)
+        try:
+            emit_event(
+                "sticky_note_archived", severity="info", user_id=int(user_id), note_id=str(oid),
+                threads_resolved=threads_resolved,
+            )
+        except Exception:
+            # ההעברה כבר נכתבה: אירוע שלא יצא אינו הופך אותה ל-500, שהלקוח היה מציג ככישלון.
+            logger.warning("sticky notes: emitting sticky_note_archived for %s failed", oid, exc_info=True)
+        return _no_store(jsonify({
+            'ok': True,
+            'already_archived': False,
+            'note': _as_note_response(stored),
+            'threads_resolved': threads_resolved,
+        }))
+    except Exception:
+        return _failed('archive_note', 'Failed to archive note')
+
+
+@sticky_notes_bp.route('/archive', methods=['GET'])
+@require_auth
+@notes_rate_limit('archive_list', 180)
+@traced('sticky_notes.archive_list')
+def list_archived_notes():
+    """כרטיסי עמוד הארכיון — מהחדש לישן לפי זמן ההעברה, **בלי גוף הפתקים**.
+
+    ``max`` הוא התקרה שחלה על המשתמש, או ``null`` לאדמין, שפטור ממנה. שאילתה שנכשלה עונה
+    500 ולא רשימה ריקה: העמוד אומר "לא הצלחתי לטעון", ולא "הארכיון ריק".
+
+    **בלי ``limit``:** התשובה היא הרשת כולה, ו-``limit`` בלי דפדוף היה מסתיר מאדמין (שפטור
+    מהתקרה) את הפתקים הישנים בלי שום סימן. העבודה פרופורציונלית לתשובה בדרך אחרת: שלושה שדות
+    בלבד, בסדר של האינדקס ובלי מיון בזיכרון (נמדד ב-explain, ``tests/test_note_archive_mongo.py``),
+    ולמשתמש שאינו אדמין התקרה חוסמת את הרשימה — כמו ברשימות הלוח, שגם בהן אדמין פטור.
+
+    **לא ``GET /<file_id>``.** הקטע ``archive`` סטטי, ו-Werkzeug בודק קטע סטטי לפני קטע עם
+    משתנה — וממילא מזהה קובץ הוא ``ObjectId``, ולכן ``archive`` אינו יכול להיות אחד.
+    """
+    try:
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+        cursor = db.sticky_notes.find(
+            archived_notes_filter(user_id), _ARCHIVE_CARD_PROJECTION
+        ).sort(list(ARCHIVE_LIST_SORT))
+        cards = [_as_archive_card(doc) for doc in cursor if isinstance(doc, dict)]
+        return _no_store(jsonify({
+            'ok': True,
+            'notes': cards,
+            'count': len(cards),
+            'max': None if _current_user_is_admin() else MAX_ARCHIVED_NOTES_PER_USER,
+        }))
+    except Exception:
+        return _failed('list_archived_notes', 'Failed to list archived notes')
+
+
+@sticky_notes_bp.route('/archive/<note_id>', methods=['GET'])
+@require_auth
+@notes_rate_limit('archive_get', 180)
+@traced('sticky_notes.archive_get')
+def get_archived_note(note_id: str):
+    """פתק אחד מהארכיון, מלא, עם תקצירי השרשורים שלו — כשפותחים כרטיס.
+
+    רק פתק שבארכיון ושייך למשתמש; כל פתק אחר עונה ``404 note_not_found``. כשל בקריאת
+    השרשורים אינו מפיל את התשובה: ``threads_unavailable``, כמו ברשימות של שאר היעדים.
+    """
+    try:
+        user_id = int(session['user_id'])
+        try:
+            oid = ObjectId(str(note_id))
+        except InvalidId:
+            return _no_store(jsonify({'ok': False, 'error': 'invalid_note_id'})), 400
+        db = get_db()
+        doc = db.sticky_notes.find_one({'_id': oid, **archived_notes_filter(user_id)})
+        if not doc:
+            return _no_store(jsonify({'ok': False, 'error': 'note_not_found'})), 404
+        note = _as_note_response(doc)
+        payload: Dict[str, Any] = {'ok': True, 'note': note}
+        if not _with_thread_summaries(db, user_id, [note]):
+            payload['threads_unavailable'] = True
+        return _no_store(jsonify(payload))
+    except Exception:
+        return _failed('get_archived_note', 'Failed to load archived note')
+
+
 # --- Board notes ---
 #
 # ראוטים נפרדים לפתקי לוח, ולא הכללה של ``/<file_id>``. הכללה הייתה מכריחה
@@ -2195,7 +2421,7 @@ def create_board_note(board_id: str):
                 is_admin=is_admin_user,
             )
             check_note_quota(
-                _count_or_none(db.sticky_notes, {'user_id': user_id}),
+                _count_or_none(db.sticky_notes, active_notes_filter(user_id)),
                 MAX_NOTES_PER_USER,
                 is_admin=is_admin_user,
             )
@@ -2415,7 +2641,7 @@ def create_repo_note(repo_name: str, repo_path: str):
                 is_admin=False,
             )
             check_note_quota(
-                _count_or_none(db.sticky_notes, {'user_id': user_id}),
+                _count_or_none(db.sticky_notes, active_notes_filter(user_id)),
                 MAX_NOTES_PER_USER,
                 is_admin=is_admin_user,
             )

@@ -349,12 +349,75 @@
    * שלו. ``run`` מקבל את המנהל ואת הפתק — פונקציה ולא שם של מתודה במחרוזת: כך הקריאה
    * למתודה כתובה כאן כמו כל קריאה אחרת בקוד, וחיפוש של שם המתודה, או שינוי שם שלה, מוצא גם
    * אותה. פריט חדש נכנס כשורה כאן, בלי מנגנון נוסף.
+   *
+   * ``available`` (אופציונלי) מקבל את המנהל ומחליט אם הפריט מוצג בכלל. פריט בלי
+   * ``available`` מוצג תמיד. 🗃️ אינו מוצג בעמוד הארכיון: הפתק כבר שם, ואין לאן להעביר אותו.
    */
   const NOTE_MENU_ITEMS = Object.freeze([
     Object.freeze({ id: 'reminder', icon: '🔔', label: 'קבע תזכורת', run: (mgr, el) => mgr._openReminderModal(el) }),
+    Object.freeze({
+      id: 'archive', icon: '🗃️', label: 'העבר לארכיון',
+      available: (mgr) => !mgr.archiveMode,
+      run: (mgr, el) => mgr._archiveNote(el),
+    }),
   ]);
   /** המרווח בין ⋮ לבין התפריט שנפתח ממנו, בפיקסלים. */
   const NOTE_MENU_OFFSET = 4;
+
+  /**
+   * אורך מרבי לשם פתק — **עותק של ``sticky_notes_target.MAX_NOTE_TITLE``**, כי הדפדפן אינו
+   * טוען פייתון. ``tests/sticky-notes-target.test.js`` משווה ביניהם, כמו את הפלטה. השדה בכותרת
+   * ובחלון השם מוגבל לפיו ב-``maxlength``, שסופר יחידות UTF-16 — מחמיר מהשרת, שסופר נקודות
+   * קוד — ולכן שם שעבר כאן לעולם אינו נדחה שם בגלל אורך.
+   */
+  const MAX_NOTE_TITLE_CHARS = 80;
+  /**
+   * עד כמה נקודות קוד מקוצרת ההצעה לשם בחלון ההעברה. השם בכרטיס של הארכיון נחתך אחרי
+   * ארבע שורות; בכרטיס ברוחב המינימלי זה כשישים תווים, ולכן הצעה ארוכה יותר הייתה נחתכת
+   * בכרטיס עצמו. המשתמש יכול לערוך עד :js:data:`MAX_NOTE_TITLE_CHARS`.
+   */
+  const ARCHIVE_TITLE_SUGGEST_CHARS = 60;
+  /** עמוד הארכיון — הקישור בהודעה שאחרי ההעברה. ``webapp/boards_ui.archive_page``. */
+  const ARCHIVE_PAGE_URL = '/boards/archive';
+  /** משך ההתכווצות של פתק שנסגר בארכיון אל הכרטיס שלו, במילישניות. */
+  const ARCHIVE_CLOSE_MS = 220;
+  /**
+   * ביטול של חלון השם הפתוח, או ``null``. חלון חדש מבטל את הקודם **דרך הפונקציה הזו**, ולא
+   * בהסרת הצמתים שלו: הסרה בלבד השאירה את ההבטחה שלו תלויה — ``entry.archiving`` של הפתק
+   * ההוא היה נשאר דולק, ו-🗃️ שלו מת עד טעינה מחדש — ואת מאזין המקשים שלו מחובר. לשני חלונות
+   * מגיעים במקלדת: אין מלכודת מיקוד, ו-Tab יוצא מהחלון אל ⋮ של פתק אחר.
+   */
+  let cancelOpenArchiveDialog = null;
+
+  /**
+   * שם פתק בצורה הקנונית — מחרוזת, בלי רווחים בקצוות, ורווחים פנימיים מכווצים לאחד. אותה
+   * צורה ש-``canonical_title_text`` בשרת שומרת, וכאן רק כדי לשאול "יש שם?" ולהציע אחד;
+   * **השרת הוא שמכריע** (``resolve_archive_title``), ולכן פער בין השניים אינו שומר שם שגוי
+   * — לכל היותר מחזיר ``title_required``, ואז החלון נפתח.
+   */
+  function canonicalTitleText(value){
+    if (typeof value !== 'string') return '';
+    return value.trim().split(/\s+/).filter(Boolean).join(' ');
+  }
+
+  /**
+   * ההצעה לשם, מקוצרת ל-:js:data:`ARCHIVE_TITLE_SUGGEST_CHARS` נקודות קוד בגבול מילה.
+   * ``Array.from`` סופר נקודות קוד; ``slice`` על מחרוזת סופר יחידות UTF-16, וחותך אימוג'י
+   * לחצי זוג (H6). מילה אחת ארוכה מהתקרה נחתכת באמצע — עדיף על הצעה ריקה.
+   */
+  function clipTitleSuggestion(text){
+    const clean = canonicalTitleText(text);
+    const chars = Array.from(clean);
+    if (chars.length <= ARCHIVE_TITLE_SUGGEST_CHARS) return clean;
+    const cut = chars.slice(0, ARCHIVE_TITLE_SUGGEST_CHARS);
+    // הרווח האחרון שבתוך התקרה, אם הבא אחריו אינו רווח כבר עכשיו.
+    let end = cut.length;
+    if (chars[ARCHIVE_TITLE_SUGGEST_CHARS] !== ' ') {
+      const lastSpace = cut.lastIndexOf(' ');
+      if (lastSpace > 0) end = lastSpace;
+    }
+    return cut.slice(0, end).join('').trim();
+  }
 
   /** מספר סופי מתוך ``dataset``, או ``null`` — ריק ופגום נחשבים "לא נאמר". */
   function finiteOrNull(raw){
@@ -613,20 +676,30 @@
       const hasRepo = !!opts.repo;
       const hasPath = !!opts.path;
       const hasFile = opts.file != null && opts.file !== '';
+      const hasArchive = opts.archive === true;
       if (hasRepo !== hasPath) {
         throw new Error('StickyNotesManager: יעד ריפו חלקי — צריך repo ו-path יחד');
       }
-      const kinds = (hasBoard ? 1 : 0) + (hasRepo ? 1 : 0) + (hasFile ? 1 : 0);
+      const kinds = (hasBoard ? 1 : 0) + (hasRepo ? 1 : 0) + (hasFile ? 1 : 0) + (hasArchive ? 1 : 0);
       if (kinds > 1) {
-        throw new Error('StickyNotesManager: יותר מיעד אחד — file, board ו-repo סותרים');
+        throw new Error('StickyNotesManager: יותר מיעד אחד — file, board, repo ו-archive סותרים');
       }
       if (kinds === 0) {
-        throw new Error('StickyNotesManager: חסר יעד — file, board או repo+path');
+        throw new Error('StickyNotesManager: חסר יעד — file, board, repo+path או archive');
       }
 
       this.boardId = hasBoard ? String(opts.board) : null;
       this.repoTarget = hasRepo ? { repo: String(opts.repo), path: String(opts.path) } : null;
       this.fileId = hasFile ? opts.file : null;
+      // **הארכיון — היעד הרביעי, ומשטח מסוג אחר.** אין בו פתקים פזורים על משטח: עמוד
+      // הארכיון מציג רשת של כרטיסים, ופתק אחד נפתח מעליהם בכל פעם (``openArchivedNote``).
+      // לכן המנהל אינו טוען רשימה, אינו מציג FAB ואינו שומר קאש, והפתק הפתוח תמיד צמוד
+      // למסך (``_resolveMode``). ``onArchivedNoteClosed`` ו-``onArchivedNoteDeleted`` הם
+      // הדרך של העמוד לעדכן את הכרטיס.
+      this.archiveMode = hasArchive;
+      this._onArchivedNoteClosed = (typeof opts.onArchivedNoteClosed === 'function') ? opts.onArchivedNoteClosed : null;
+      this._onArchivedNoteDeleted = (typeof opts.onArchivedNoteDeleted === 'function') ? opts.onArchivedNoteDeleted : null;
+      this._openArchived = null;
 
       // **"יש משטח תחום, ואין שורות מקור".** נכון ללוח ולריפו כאחד, ולכן
       // כל מה שנגזר מזה — מצבי surface/screen, חסימה לגבולות המשטח,
@@ -654,7 +727,9 @@
         : (this._surfaceTarget ? null : document.getElementById('md-content'));
       // ``path`` אינו עובר ``encodeURIComponent``: הראוט הוא ``<path:...>``,
       // כלומר הלוכסנים הם חלק מהמבנה ולא תו לקידוד. כל רכיב מקודד לחוד.
-      this._scopeUrl = this.boardId
+      this._scopeUrl = this.archiveMode
+        ? '/api/sticky-notes/archive'
+        : this.boardId
         ? `/api/sticky-notes/board/${encodeURIComponent(this.boardId)}`
         : (this.repoTarget
           ? `/api/sticky-notes/repo/${encodeURIComponent(this.repoTarget.repo)}/`
@@ -672,7 +747,10 @@
       this._lineIndex = new Map(); // lineNumber -> pageY
       // מפתח נפרד ללוח: בלעדיו לוח וקובץ עם אותה מחרוזת מזהה היו חולקים
       // את אותו קאש ב-localStorage ומרנדרים זה את הפתקים של זה.
-      this._cacheKey = this.boardId
+      // לארכיון אין קאש: הוא אינו מרנדר רשימה, ופתק אחד נשלף מהשרת בכל פתיחה.
+      this._cacheKey = this.archiveMode
+        ? null
+        : this.boardId
         ? `sticky-notes:board:${this.boardId}`
         : (this.repoTarget
           ? `sticky-notes:repo:${this.repoTarget.repo}:${this.repoTarget.path}`
@@ -782,13 +860,17 @@
     async _init(){
       try {
         this._rebuildLineIndex();
-        this._loadCacheAndRender();
-        await this.loadNotes();
+        // **בארכיון אין רשימה לטעון ואין FAB.** הכרטיסים הם של העמוד, ופתק נכנס למנהל רק
+        // כשפותחים אותו (``openArchivedNote``); פתק חדש לא נוצר בארכיון — הוא מגיע אליו.
+        if (!this.archiveMode) {
+          this._loadCacheAndRender();
+          await this.loadNotes();
+        }
         // **בוטל תוך כדי טעינה.** ``loadNotes`` הוא async; אם המשתמש החליף
         // קובץ בזמן שהבקשה באוויר, ``destroy`` כבר רץ — ובלי הבדיקה הזו
         // המנהל המת היה מוסיף FAB ומאזינים לקונטיינר של הקובץ החדש.
         if (this._destroyed) return;
-        this._createFab();
+        if (!this.archiveMode) this._createFab();
         const onResize = () => {
           this._rebuildLineIndex();
           this._reflowWithinViewport();
@@ -854,8 +936,9 @@
         this._on(window, 'resize', relayoutPopups);
         this._setupLifecycleGuards();
         this._setupDomObservers();
-        // אם התבצע ניווט עמוק לפתק מסוים – גלול אליו כעת
-        this._maybeScrollToNoteFromUrl();
+        // אם התבצע ניווט עמוק לפתק מסוים – גלול אליו כעת. בארכיון הקישור נצרך בעמוד, שפותח
+        // את הפתק מעל הרשת (``consumeArchiveDeepLink``).
+        if (!this.archiveMode) this._maybeScrollToNoteFromUrl();
       } catch(e){ console.error('StickyNotes init failed', e); }
     }
 
@@ -1065,7 +1148,7 @@
       // בטעינה, כלומר נגיעה בשם עדיין פתחה מקלדת. המצב נקבע כאן, בבנייה,
       // ולא תלוי בסדר צירוף.
       const titleInput = createEl('input', 'sticky-note-title', {
-        type: 'text', placeholder: 'שם', 'aria-label': 'שם הפתק', maxlength: '80',
+        type: 'text', placeholder: 'שם', 'aria-label': 'שם הפתק', maxlength: String(MAX_NOTE_TITLE_CHARS),
         readonly: 'readonly', tabindex: '-1'
       });
       titleInput.value = String(note.title || '');
@@ -1107,7 +1190,10 @@
         type: 'button', title: 'שרשור חדש', 'aria-label': 'שרשור תגובות חדש על הפתק', 'aria-pressed': 'false'
       });
       threadsBtn.textContent = '💬';
-      actions.appendChild(pinBtn); actions.appendChild(threadsBtn); actions.appendChild(undoBtn);
+      // **בארכיון אין 📌**: הפתק הפתוח צמוד למסך תמיד (``_resolveMode``), ואין משטח להצמיד
+      // אליו — כפתור שנראה זמין ולא עושה כלום הוא בדיוק השקר שהכפתורים כאן נמנעים ממנו.
+      if (!this.archiveMode) actions.appendChild(pinBtn);
+      actions.appendChild(threadsBtn); actions.appendChild(undoBtn);
       actions.appendChild(copyBtn); actions.appendChild(colorBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
       actions.appendChild(moreBtn);
       // **השם יושב בתוך ידית הגרירה, ולא לצידה.**
@@ -1269,7 +1355,9 @@
       el.appendChild(resizer);
       this.container.appendChild(el);
 
-      if (note.is_minimized) el.classList.add('is-minimized');
+      // בארכיון הפתק נפתח כדי לקרוא אותו, ולכן תמיד פתוח: "—" שם סוגר אותו ומחזיר לכרטיס,
+      // ומיזעור שנשמר לפני ההעברה (או שסוכן כתב) אינו נוגע בו.
+      if (note.is_minimized && !this.archiveMode) el.classList.add('is-minimized');
       if (isPinnedInitial) el.classList.add('is-pinned');
 
       // interactions
@@ -1338,6 +1426,8 @@
 
       minimizeBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        // בארכיון "—" סוגר את הפתק — הוא חוזר לתא שלו ברשת — ואינו כותב מיזעור.
+        if (this.archiveMode) { this.closeArchivedNote(); return; }
         const nowMin = !el.classList.contains('is-minimized');
         el.classList.toggle('is-minimized');
         // פתק ממוזער מסתיר את התצוגה, ולכן אין במה לחפש: החיפוש נסגר
@@ -1354,7 +1444,9 @@
       });
       deleteBtn.addEventListener('click', async () => {
         if (!confirm('למחוק את הפתק?')) return;
-        await this._deleteNoteEl(el);
+        const id = el.dataset.noteId;
+        // בארכיון × מוחק — כמו בכל פתק — והעמוד מוריד את הכרטיס. רק אחרי שהשרת אישר.
+        if (await this._deleteNoteEl(el) && this.archiveMode) this._archivedNoteGone(id);
       });
       moreBtn.addEventListener('click', (ev) => {
         // בלי ``try``: שתי הקריאות אינן זורקות (DOM Standard), כמו בכפתור החיפוש.
@@ -1570,6 +1662,7 @@
         role: 'menu', 'aria-label': 'פעולות נוספות לפתק'
       });
       NOTE_MENU_ITEMS.forEach((item) => {
+        if (typeof item.available === 'function' && !item.available(this)) return;
         const btn = createEl('button', 'sticky-note-menu-item', {
           type: 'button', role: 'menuitem', title: item.label, 'aria-label': item.label,
           'data-menu-item': item.id
@@ -1854,6 +1947,323 @@
         return true;
       } catch(err){ console.warn('post reminder failed', err); }
       return false;
+    }
+
+    // ---------------------------------------------------------------- ארכיון
+
+    /**
+     * הודעה חולפת למשתמש — דרך הטוסט המשותף (``toast.js``), ואם הוא לא הוצג — ``alert``.
+     *
+     * ``ckToast`` מחזיר ``false`` כשלא הציג כלום (אין ``body``), וזה ערוץ הכשל שלו; כאן הוא
+     * נבדק, כי הודעה על פעולה שנכשלה היא בדיוק מה שאסור לאבד. העמודים שמארחים פתקים טוענים
+     * את ``toast.js``; ``alert`` מכסה עמוד ששכח, ולא הופך את ההודעה לשקטה.
+     */
+    _notify(message, type, link){
+      if (typeof window.ckToast === 'function'
+          && window.ckToast(message, type, { key: 'sticky-note-archive', link: link || null })) return;
+      try { window.alert(message); } catch(_) { /* אין גם alert — סביבת בדיקה */ }
+    }
+
+    /**
+     * ההצעה לשם בחלון ההעברה: **כותרת ה-Markdown הראשונה, ואם אין — השורה הראשונה**, מקוצרת.
+     *
+     * "כותרת" היא מה שמנוע הפתק עצמו מרנדר ככותרת (``_classifyLine``, ‏``#`` עד ``###``), ולא
+     * הגדרה שנייה: שורת ``####`` אינה כותרת בפתק, ולכן גם אינה מוצעת ככזו. שורה ראשונה היא
+     * הראשונה שיש בה טקסט, בלי סמן הבלוק שלה — ציטוט, רשימה, משימה — ובלי שורות מבנה
+     * (גדר קוד, מכולה, קו מפריד), שאין בהן שם.
+     *
+     * הרווחים מכווצים לרווח אחד, כמו שהשרת שומר שם (``canonical_title_text``), והקיצור הוא
+     * ל-:js:data:`ARCHIVE_TITLE_SUGGEST_CHARS` **נקודות קוד** בגבול מילה (``Array.from``, ולא
+     * ``slice`` שסופר יחידות UTF-16 וחוצה אימוג'י באמצע — H6).
+     */
+    _suggestNoteTitle(content){
+      const lines = String(content == null ? '' : content).split(/\r?\n/);
+      let firstLine = '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        if (MD_FENCE_RE.test(line) || MD_CONTAINER_OPEN_RE.test(line)
+            || MD_CONTAINER_CLOSE_RE.test(line) || MD_HR_RE.test(line)) continue;
+        const info = this._classifyLine(line);
+        if (info.kind === 'heading') return clipTitleSuggestion(info.content);
+        if (!firstLine) {
+          const task = TASK_LINE_RE.exec(line);
+          firstLine = task ? task[3].slice(1) : info.content;
+        }
+      }
+      return clipTitleSuggestion(firstLine);
+    }
+
+    /**
+     * חלון השם לפני ההעברה: "תן שם לפתק, הוא ישמש לניווט בארכיון". מחזיר ``Promise`` של השם
+     * שאושר, או ``null`` כשבוטל.
+     *
+     * **בלי שם אין העברה**: הכפתור כבוי כל עוד השדה ריק, ו-``Enter`` בשדה ריק אינו עושה
+     * כלום. הכול בצמתים, בלי ``innerHTML`` — כמו בורר הצבע, ומאותה סיבה: שלד שנבנה בצמתים
+     * נבדק בלי פרסר HTML. המיקוד נכנס לשדה (עם ההצעה מסומנת, כך שהקלדה מחליפה אותה), ובביטול
+     * חוזר ל-⋮ של הפתק — הפריט שנלחץ ירד עם התפריט.
+     */
+    _openArchiveNameDialog(el, suggestion){
+      if (cancelOpenArchiveDialog) cancelOpenArchiveDialog();
+      return new Promise((resolve) => {
+        const modal = createEl('div', 'sticky-archive-modal');
+        const backdrop = createEl('div', 'sticky-archive-backdrop');
+        const card = createEl('div', 'sticky-archive-card', {
+          role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'stickyArchiveNameLabel'
+        });
+        const label = createEl('label', 'sticky-archive-label', {
+          id: 'stickyArchiveNameLabel', for: 'stickyArchiveNameInput'
+        });
+        label.textContent = 'תן שם לפתק, הוא ישמש לניווט בארכיון';
+        const input = createEl('input', 'sticky-archive-input', {
+          id: 'stickyArchiveNameInput', type: 'text', dir: 'auto',
+          maxlength: String(MAX_NOTE_TITLE_CHARS), autocomplete: 'off'
+        });
+        input.value = suggestion || '';
+        const row = createEl('div', 'sticky-archive-actions');
+        const submit = createEl('button', 'sticky-archive-submit', { type: 'button' });
+        submit.textContent = 'העבר לארכיון';
+        const cancel = createEl('button', 'sticky-archive-cancel', { type: 'button' });
+        cancel.textContent = 'ביטול';
+        row.appendChild(submit); row.appendChild(cancel);
+        card.appendChild(label); card.appendChild(input); card.appendChild(row);
+        modal.appendChild(backdrop); modal.appendChild(card);
+
+        const sync = () => { submit.disabled = !canonicalTitleText(input.value); };
+        let done = false;
+        const finish = (value) => {
+          if (done) return;
+          done = true;
+          if (cancelOpenArchiveDialog === cancelThis) cancelOpenArchiveDialog = null;
+          document.removeEventListener('keydown', onKey, true);
+          modal.remove();
+          if (value === null) {
+            const back = el && el.querySelector ? el.querySelector('.sticky-note-more') : null;
+            if (back && back.isConnected) back.focus({ preventScroll: true });
+          }
+          resolve(value);
+        };
+        const cancelThis = () => finish(null);
+        const confirmName = () => {
+          const value = canonicalTitleText(input.value);
+          if (value) finish(value);
+        };
+        // ``Escape`` נתפס בשלב הלכידה על ``document``, כמו בבורר הצבע: כך הוא אינו מגיע
+        // למאזינים של העמוד — בעמוד הארכיון ``Escape`` סוגר את הפתק הפתוח.
+        const onKey = (ev) => {
+          if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(null); }
+        };
+        input.addEventListener('input', sync);
+        input.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') { ev.preventDefault(); confirmName(); }
+        });
+        submit.addEventListener('click', confirmName);
+        cancel.addEventListener('click', () => finish(null));
+        backdrop.addEventListener('click', () => finish(null));
+        document.addEventListener('keydown', onKey, true);
+        cancelOpenArchiveDialog = cancelThis;
+        sync();
+        document.body.appendChild(modal);
+        input.focus({ preventScroll: true });
+        try { input.select(); } catch(_) { /* שדה שאינו תומך בבחירה — אין מה לבחור */ }
+      });
+    }
+
+    /**
+     * 🗃️ — מעביר את הפתק לארכיון. הפריט בתפריט ⋮ קורא לכאן.
+     *
+     * 1. **``flush`` קודם** — עריכה שממתינה בתור נשלחת לפני ההעברה, ולא הולכת לאיבוד כשהפתק
+     *    יורד מהמשטח (``docs/dev/sticky_notes_extending_ui.rst``, "flush לפני כל פעולה הרסנית").
+     * 2. **שם** — לפתק בלי שם נפתח חלון השם, עם הצעה. ביטול עוצר את ההעברה. גם כשנראה
+     *    שיש שם, השרת הוא שמכריע: אם הוא עונה ``title_required`` (שם שלא נשמר) — החלון נפתח.
+     * 3. **הבקשה** — ורק כשהשרת ענה ``ok`` הפתק יורד מהמשטח. כל סירוב נאמר למשתמש בשמו.
+     */
+    async _archiveNote(el){
+      const id = el && el.dataset ? el.dataset.noteId : '';
+      if (!id) return;
+      const entry = this._getEntry(el);
+      if (!entry || entry.archiving) return;   // לחיצה כפולה בזמן שהבקשה באוויר
+      entry.archiving = true;
+      try {
+        try { await this._flushFor(el); } catch(_) { /* כשל נשמר בתור ומנסה שוב; ההעברה ממשיכה */ }
+        let title = null;
+        if (!canonicalTitleText(entry.data && entry.data.title)) {
+          title = await this._openArchiveNameDialog(el, this._suggestNoteTitle(entry.data && entry.data.content));
+          if (title === null) return;
+        }
+        let answer = await this._postArchive(id, title);
+        if (answer.error === 'title_required' && title === null) {
+          title = await this._openArchiveNameDialog(el, this._suggestNoteTitle(entry.data && entry.data.content));
+          if (title === null) return;
+          answer = await this._postArchive(id, title);
+        }
+        this._afterArchiveAnswer(el, answer);
+      } finally {
+        entry.archiving = false;
+      }
+    }
+
+    /**
+     * ``POST /note/<id>/archive``. מחזיר ``{ok, status, ...גוף}`` — לעולם לא זורק: כשל רשת
+     * הוא ``{ok: false, error: 'network'}``, וגוף שאינו JSON הוא ``{ok: false, error: 'bad_response'}``.
+     */
+    async _postArchive(id, title){
+      const body = title === null ? {} : { title };
+      let resp;
+      try {
+        resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}/archive`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+      } catch(err) {
+        console.warn('sticky note: archive request failed', id, err);
+        return { ok: false, error: 'network' };
+      }
+      let data = null;
+      try { data = await resp.json(); } catch(_) { data = null; }   // ההכרעה למטה, לפי הגוף
+      if (!data || typeof data !== 'object') return { ok: false, status: resp.status, error: 'bad_response' };
+      return Object.assign({ status: resp.status }, data, { ok: resp.ok && data.ok === true });
+    }
+
+    /** מה המשתמש רואה אחרי תשובת ההעברה — הצלחה, או הסיבה שלא. */
+    _afterArchiveAnswer(el, answer){
+      if (answer.ok) {
+        this._removeNoteLocally(el);
+        const link = { href: ARCHIVE_PAGE_URL, label: 'לארכיון' };
+        if (answer.threads_resolved === null && answer.already_archived !== true) {
+          this._notify('הפתק הועבר לארכיון, אבל השרשורים הפתוחים בו לא נסגרו.', 'warning', link);
+        } else {
+          this._notify('הפתק הועבר לארכיון.', 'success', link);
+        }
+        return;
+      }
+      if (answer.status === 404) {
+        // הפתק כבר אינו קיים (נמחק ממכשיר אחר) — המסך מתיישר עם המציאות, כמו במחיקה.
+        this._removeNoteLocally(el);
+        this._notify('הפתק כבר לא קיים.', 'info');
+        return;
+      }
+      const messages = {
+        archive_quota_exceeded: `הארכיון מלא (${Number(answer.max) || ''} פתקים). מחקו פתקים מהארכיון כדי לפנות מקום.`,
+        note_quota_unknown: 'לא הצלחתי לבדוק אם יש מקום בארכיון. נסו שוב.',
+        title_too_long: `השם ארוך מדי — עד ${Number(answer.max) || MAX_NOTE_TITLE_CHARS} תווים.`,
+        title_required: 'בלי שם הפתק לא עובר לארכיון.',
+      };
+      this._notify(messages[answer.error] || 'ההעברה לארכיון נכשלה. נסו שוב.', 'error');
+    }
+
+    /**
+     * פותח פתק מהארכיון מעל הרשת — **אותו רכיב פתק**, במרכז המסך. ``note`` הוא מה ש-
+     * ``GET /api/sticky-notes/archive/<id>`` החזיר. פתק אחד בכל פעם: פתיחה סוגרת את הקודם.
+     *
+     * הגודל הוא הגודל השמור, מצומצם למסך באותם גבולות שכל מסלול הצפה משתמש בהם
+     * (``_viewportFitBounds``), והמיקום — מרכז המסך, בכל פתיחה (הוא אינו נשמר: ``_queueSave``).
+     * הפתק מקבל ``role="dialog"`` והמיקוד: מעל הרשת הוא החלון היחיד, והעמוד מסמן את הרשת
+     * ``inert`` בזמן שהוא פתוח.
+     *
+     * ``opts.threadsUnavailable`` — השרת לא הצליח לקרוא את השרשורים (``threads_unavailable``):
+     * 💬 אומר "לא נטענו" ולא "אין". ``opts.threadId`` — שרשור לפתוח, מקישור עמוק (התראת
+     * תגובה); כשל בפתיחתו נרשם ואינו מבטל את פתיחת הפתק, כמו ב-``_maybeScrollToNoteFromUrl``.
+     */
+    openArchivedNote(note, opts){
+      if (!this.archiveMode || !note || !note.id) return null;
+      if (this._openArchived) this._dropOpenArchived();
+      const box = this._viewportBox();
+      const intent = {
+        width: finiteOrNull(note.size && note.size.width) || NOTE_FALLBACK_W,
+        height: finiteOrNull(note.size && note.size.height) || NOTE_FALLBACK_H,
+      };
+      const fitted = this._fitSizeToBounds(intent, this._viewportFitBounds());
+      const scroll = getScrollOffsets();
+      const left = Math.max(NOTE_EDGE_GAP, Math.round((box.width - fitted.width) / 2));
+      const top = Math.max(NOTE_TOP_GAP, Math.round((box.height - fitted.height) / 2));
+      const data = Object.assign({}, note, {
+        size: intent,
+        position: { x: left + scroll.x, y: top + scroll.y },
+        is_minimized: false,
+      });
+      const el = this._renderNote(data, false);
+      el.classList.add('is-archive-open');
+      el.setAttribute('role', 'dialog');
+      el.setAttribute('aria-modal', 'true');
+      el.setAttribute('aria-label', String(note.title || '') || 'פתק מהארכיון');
+      el.setAttribute('tabindex', '-1');
+      this._openArchived = { id: String(note.id) };
+      this._raiseToFront(el);
+      el.focus({ preventScroll: true });
+      if (opts && opts.threadsUnavailable === true) this._markThreadsUnavailable();
+      if (opts && opts.threadId) {
+        try { this._openThread(el, String(opts.threadId)); }
+        catch (err) { console.warn('sticky note: opening the linked thread failed', opts.threadId, err); }
+      }
+      return el;
+    }
+
+    /**
+     * סוגר את הפתק הפתוח — הוא חוזר לתא שלו ברשת. "—" בפתק, ``Escape`` ולחיצה על הרקע.
+     *
+     * **``flush`` לפני ההסרה**: עריכה שעוד בתור נשלחת, ורק אז הפתק יורד. העמוד מקבל את השם
+     * והצבע העדכניים (``onArchivedNoteClosed``) כדי לעדכן את הכרטיס, ו-``toRect`` — אם העמוד
+     * מסר את מלבן הכרטיס — מכווץ את הפתק אל הכרטיס לפני ההסרה.
+     */
+    async closeArchivedNote(opts){
+      const cur = this._openArchived;
+      if (!cur) return;
+      this._openArchived = null;
+      const entry = this.notes.get(cur.id);
+      if (!entry || !entry.el) {
+        if (this._onArchivedNoteClosed) this._onArchivedNoteClosed({ id: cur.id });
+        return;
+      }
+      try { await this._flushFor(entry.el); } catch(_) { /* נשאר בתור ומנסה שוב ברקע */ }
+      // ``color`` כ-``hex``: הרשומה מחזיקה מזהה מהפלטה אחרי בחירה בבורר, או ``hex`` כמו שהשרת
+      // שלח, ו-``noteColorHex`` היא התשובה היחידה לשתי הצורות — אותה שהפתק עצמו נצבע בה.
+      const summary = {
+        id: cur.id,
+        title: String((entry.data && entry.data.title) || ''),
+        color: noteColorHex(entry.data && entry.data.color),
+      };
+      const toRect = opts && typeof opts.toRect === 'function' ? opts.toRect(cur.id) : null;
+      await this._shrinkInto(entry.el, toRect);
+      this._removeNoteLocally(entry.el);
+      if (this._onArchivedNoteClosed) this._onArchivedNoteClosed(summary);
+    }
+
+    /**
+     * הפתק מתכווץ אל הכרטיס שלו — **הפרש בין שני מלבנים שנמדדו**, ולכן נכון ב-RTL וב-LTR
+     * (H7). בלי ``animate`` (סביבת בדיקה), בלי מלבן יעד, או כשהמשתמש ביקש פחות תנועה
+     * (``prefers-reduced-motion``) — אין אנימציה, והפתק פשוט יורד.
+     */
+    async _shrinkInto(el, toRect){
+      if (!toRect || typeof el.animate !== 'function') return;
+      try {
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      } catch(_) { /* אין matchMedia — אין העדפה לכבד */ }
+      const from = el.getBoundingClientRect();
+      if (!from.width || !from.height || !toRect.width || !toRect.height) return;
+      const dx = (toRect.left + toRect.width / 2) - (from.left + from.width / 2);
+      const dy = (toRect.top + toRect.height / 2) - (from.top + from.height / 2);
+      const sx = toRect.width / from.width;
+      const sy = toRect.height / from.height;
+      const anim = el.animate([
+        { transform: 'none', opacity: 1 },
+        { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 0.35 },
+      ], { duration: ARCHIVE_CLOSE_MS, easing: 'ease-in' });
+      try { await anim.finished; } catch(_) { /* האנימציה בוטלה — ממשיכים להסרה */ }
+    }
+
+    /** מוריד מיד את הפתק הפתוח, בלי אנימציה ובלי הודעה לעמוד — לפני פתיחת פתק אחר. */
+    _dropOpenArchived(){
+      const cur = this._openArchived;
+      this._openArchived = null;
+      const entry = cur ? this.notes.get(cur.id) : null;
+      if (!entry || !entry.el) return;
+      try { this._flushFor(entry.el); } catch(_) { /* נשאר בתור ומנסה שוב ברקע */ }
+      this._removeNoteLocally(entry.el);
+    }
+
+    /** הפתק הפתוח נמחק (×, אחרי שהשרת אישר) — העמוד מוריד את הכרטיס. */
+    _archivedNoteGone(id){
+      if (this._openArchived && this._openArchived.id === String(id)) this._openArchived = null;
+      if (this._onArchivedNoteDeleted) this._onArchivedNoteDeleted(String(id));
     }
 
       // הנקודה שממנה נמדדים ``position.x/y`` של פתק, בקואורדינטות של אזור
@@ -2188,6 +2598,19 @@
         return { width: pick('width', NOTE_FALLBACK_W), height: pick('height', NOTE_FALLBACK_H) };
       }
 
+      /**
+       * הגודל המרבי של פתק שצמוד למסך — אזור התצוגה פחות השוליים. **הנוסחה היחידה** לשאלה
+       * הזו: ``_fitAndClampToViewport`` מצמצם לפיה, ו-``openArchivedNote`` ממרכז לפיה. שתי
+       * נוסחאות לאותו מימד היו נסחפות, ופתק הארכיון היה מתמרכז לפי גודל אחד ומוצג באחר (H7).
+       */
+      _viewportFitBounds(box){
+        const b = box || this._viewportBox();
+        return {
+          width: b.width - (NOTE_EDGE_GAP * 2),
+          height: b.height - NOTE_TOP_GAP - NOTE_BOTTOM_GAP,
+        };
+      }
+
       /** גבולות אזור התצוגה, כפי שכל מסלול הצפה מודד אותם. */
       _viewportBox(){
         const vp = window.visualViewport;
@@ -2212,10 +2635,7 @@
        */
       _fitAndClampToViewport(el, note, x, y){
         const box = this._viewportBox();
-        const fitted = this._resolveDisplaySize(el, note, {
-          width: box.width - (NOTE_EDGE_GAP * 2),
-          height: box.height - NOTE_TOP_GAP - NOTE_BOTTOM_GAP,
-        }).fitted;
+        const fitted = this._resolveDisplaySize(el, note, this._viewportFitBounds(box)).fitted;
         const left = clamp(Math.round(x), NOTE_EDGE_GAP,
                            Math.max(NOTE_EDGE_GAP, box.width - fitted.width - NOTE_EDGE_GAP));
         const top = clamp(Math.round(y), NOTE_TOP_GAP,
@@ -5938,6 +6358,11 @@
       // מעוגן ל-null. פתק שנעלם.
       _resolveMode(note){
         if (!note) return 'screen';
+        // **בארכיון — תמיד צמוד למסך**, לפני כל שדה בפתק. הפתק הפתוח מוצג מעל רשת
+        // הכרטיסים, ואין משטח להיצמד אליו. ``line_start`` שסוכן כתב על פתק ארכיון
+        // (``codekeeper_update_note`` עם ``line``) היה מעביר אותו כאן ל-``anchored``, כלומר
+        // מיקום שמחושב מול עוגן שאינו קיים — פתק שנעלם.
+        if (this.archiveMode) return 'screen';
         if (note.mode === 'surface' || note.mode === 'screen' || note.mode === 'anchored') {
           // 'anchored' דורש מקור שורות; בלעדיו אין למה להיצמד.
           if (note.mode === 'anchored' && !this._hasAnchorHost) return 'surface';
@@ -6155,6 +6580,12 @@
       }
       if (Object.prototype.hasOwnProperty.call(fragment, 'is_minimized')) {
         entry.data.is_minimized = !!fragment.is_minimized;
+      }
+      // השם. עד הארכיון איש לא קרא אותו מהרשומה — השדה בכותרת הוא שהציג אותו — ולכן לא
+      // סונכרן. עכשיו ההעברה לארכיון שואלת "יש לפתק שם?" והכרטיס בעמוד הארכיון מתעדכן
+      // ממנו בסגירה, ושניהם קוראים מכאן, כמו הצבע.
+      if (Object.prototype.hasOwnProperty.call(fragment, 'title')) {
+        entry.data.title = fragment.title == null ? '' : String(fragment.title);
       }
       // **מקום אחד שיודע מה הצבע של הפתק.** הפיתוי הוא לשמור אותו גם על
       // ``el.dataset`` כי הבורר צריך לדעת מה לסמן — וזה היה יוצר שני
@@ -6440,6 +6871,15 @@
 
     _queueSave(el, fragment){
       const id = el.dataset.noteId;
+      // **בארכיון המיקום אינו נשמר**, והגודל כן. הפתק נפתח במרכז המסך בכל פעם
+      // (``openArchivedNote``), ולכן גרירה שם היא לרגע הזה בלבד; שמירה שלה הייתה דורסת את
+      // ``position_x``/``position_y`` בערך שאיש לא יקרא. המקום היחיד שכל מסלולי השמירה —
+      // גרירה, שינוי גודל, הצמדה — עוברים בו, ולכן הכלל כתוב פעם אחת.
+      if (this.archiveMode && fragment && 'position' in fragment) {
+        fragment = Object.assign({}, fragment);
+        delete fragment.position;
+        if (!Object.keys(fragment).length) return;
+      }
       const pending = Object.assign({}, this._pending.get(id) || {}, fragment || {});
       // צירוף חותמת זמן קודמת למניעת דריסת שינויים בין מכשירים
       try {
@@ -6901,9 +7341,40 @@
       }
     }
 
+    /**
+     * מוחק פתק בשרת, ו**רק אם השרת אישר** — מוריד אותו מהמסך. מחזיר אם הפתק נמחק.
+     *
+     * **עד היום הפתק ירד מהמסך בכל מקרה.** התשובה לא נקראה כלל: כשל רשת, 500 או כשל
+     * מסד הורידו את הפתק כאילו נמחק, והוא חזר בטעינה הבאה — אישור שקרי על פעולה שלא
+     * קרתה (``CRITICAL-PATTERNS`` K11). עכשיו מה שקובע הוא ``ok`` בתשובה; ו-404 נחשב
+     * הצלחה, כי הפתק כבר אינו קיים (נמחק ממכשיר אחר), והמסך מתיישר עם המציאות. כשל
+     * משאיר את הפתק ומודיע למשתמש.
+     */
     async _deleteNoteEl(el){
       const id = el.dataset.noteId;
-      try { await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch(e) { console.warn('delete failed', id, e); }
+      let gone = false;
+      try {
+        const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        let data = null;
+        try { data = await resp.json(); } catch(_) { data = null; }   // גוף שאינו JSON — ההכרעה לפי הסטטוס
+        gone = (resp.ok && !!data && data.ok === true) || resp.status === 404;
+      } catch(e) {
+        console.warn('delete failed', id, e);
+      }
+      if (!gone) {
+        this._notify('המחיקה נכשלה, והפתק נשאר. נסו שוב.', 'error');
+        return false;
+      }
+      this._removeNoteLocally(el);
+      return true;
+    }
+
+    /**
+     * מוריד פתק מהמנהל ומהמסך, **בלי לפנות לשרת** — אחרי מחיקה או העברה לארכיון שהשרת
+     * כבר אישר.
+     */
+    _removeNoteLocally(el){
+      const id = el.dataset.noteId;
       // טיימר ההתפרצות מחזיק הפניה ל-``el`` ול-``entry``. בלי הניקוי הזה
       // הוא ימשיך לרוץ אחרי שהפתק ירד מה-DOM.
       this._clearUndoTimer(el);
@@ -7508,6 +7979,7 @@
     }
 
     _loadCacheAndRender(){
+      if (!this._cacheKey) return;   // הארכיון — אין לו קאש
       try {
         const raw = localStorage.getItem(this._cacheKey);
         if (!raw) return;
@@ -7521,6 +7993,7 @@
     }
 
     _saveCache(notesArray){
+      if (!this._cacheKey) return;   // הארכיון — אין לו קאש
       try {
         // **הקאש אינו שומר שרשורים.** הוא מוצג לפני שהרשימה הטרייה מגיעה, ובועה ישנה
         // הייתה מציגה "מחכה לך" על שרשור שכבר נענה — מצב שאינו קיים. בלי שרשורים בקאש,

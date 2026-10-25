@@ -70,6 +70,22 @@ def default_board_page():
     return redirect(f'/boards/{quote(board_id, safe="")}')
 
 
+@boards_ui.route('/boards/archive')
+def archive_page():
+    """עמוד הארכיון — רשת של כרטיסים, ופתק שנפתח מעליהם.
+
+    **עמוד קבוע, ולא לוח.** אין לו מסמך ב-``note_boards`` ואין לו מזהה: הוא קיים לכל משתמש
+    מההתחלה, והפתקים שבו הם אלה ש-``archived_notes_filter`` מחזיר. כמו ``/boards``, הראוט
+    מגיש HTML בלבד, והנתונים נשלפים מ-``/api/sticky-notes/archive`` בצד הלקוח.
+
+    **גובר על ``/boards/<board_id>``** מאותה סיבה ש-``/boards/default`` גובר: ב-Werkzeug קטע
+    סטטי נבדק לפני קטע עם משתנה, ומזהה לוח הוא ``ObjectId`` — ``archive`` אינו יכול להיות אחד.
+    """
+    if 'user_id' not in session:
+        return redirect('/login?next=/boards/archive')
+    return render_template('note_archive.html')
+
+
 @boards_ui.route('/boards/<board_id>')
 def board_page(board_id: str):
     """משטח לוח יחיד.
@@ -93,7 +109,8 @@ def note_permalink(note_id: str):
     ההתראה נחתה בשורש האתר ולחיצה על הפעמון פשוט לא עשתה כלום.
 
     עכשיו יש בונה אחד, והוא כאן. הצרכנים פותחים ``/note/<id>`` ולא
-    צריכים לדעת דבר על סוג הפתק — כולל סוג שלישי שיתווסף בעתיד.
+    צריכים לדעת דבר על סוג הפתק — כולל הריפו והארכיון, שנוספו אחרי
+    הלוח, וכל סוג שיתווסף בעתיד.
 
     ``login_required`` אינו בשימוש כאן במכוון: הבדיקה הידנית מאפשרת
     לשמור ``next`` בדיוק כמו בשאר עמודי הלוחות, כך שסשן שפג מחזיר את
@@ -107,7 +124,7 @@ def note_permalink(note_id: str):
         db = get_db()
         note = db.sticky_notes.find_one(
             {'_id': ObjectId(str(note_id)), 'user_id': int(session['user_id'])},
-            {'file_id': 1, 'board_id': 1, 'repo_name': 1, 'repo_path': 1},
+            {'file_id': 1, 'board_id': 1, 'repo_name': 1, 'repo_path': 1, 'archived_at': 1},
         )
     except Exception:
         note = None
@@ -125,6 +142,16 @@ def note_permalink(note_id: str):
 
     thread_id = note_threads.parse_thread_id(request.args.get('thread'))
     thread_param = f'&thread={thread_id}' if thread_id else ''
+
+    # פתק בארכיון — עמוד הארכיון פותח אותו מעל הרשת. **הסוג נקבע ב-``note_target_kind``,
+    # לא בנוכחות של שדה בודד:** זו ההגדרה שהרשימה, התקרה וכל השאר עונים לפיה, וכך פתק
+    # עם ``archived_at`` שאינו תאריך (נתון פגום) אינו נשלח לעמוד שלא יציג אותו.
+    # ``note_id`` עבר ``ObjectId`` בשאילתה שמעל — ב-pymongo 4.15.3 הוא מקבל מחרוזת רק בת 24
+    # תווי hex (נבדק) — ולכן הוא hex ולא קלט חופשי.
+    from sticky_notes_target import note_target_kind
+
+    if note_target_kind(note) == 'archive':
+        return redirect(f'/boards/archive?note={note_id}{thread_param}')
 
     board_id = str(note.get('board_id') or '')
     if board_id:

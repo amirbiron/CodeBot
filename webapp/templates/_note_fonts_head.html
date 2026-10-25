@@ -2,7 +2,8 @@
   גופן הפתקים — טעינה והחלה בזמן פרסור ה-head.
 
   נכלל משלושת המשטחים שמארחים פתקים, כל אחד עם ``note_font_surface``
-  משלו (``repo`` / ``md`` / ``board``). ההעדפה מגיעה מ-``note_fonts``
+  משלו (``repo`` / ``md`` / ``board``), ומעמוד הארכיון (``archive``, שכתב
+  היד שלו הוא של הלוחות — ראו למטה). ההעדפה מגיעה מ-``note_fonts``
   שמזריק ``inject_globals``, אחרי הכרעת התחולה בשרת.
 
   **למה בשרת ולא ב-localStorage כמו שהיה:** ה-cookie של ההעדפה הוא
@@ -15,7 +16,13 @@
   הייתה זורקת. ``documentElement`` קיים, והסלקטור ``.sticky-handwriting
   .sticky-note-*`` מתאים ממנו בדיוק כפי שהתאים מ-``<body>``. זה גם
   מכסה פתק במצב ``screen``, שיושב מחוץ למכל הפתקים.
+
+  **עמוד הארכיון (``archive``) אינו משטח בהגדרות**, ולכן כתב היד שלו הוא של
+  הלוחות: הוא יושב תחת ``/boards``, ואין לו מתג משלו. גודל הטקסט — כן מההגדרות,
+  כי אין בו בורר לכל לוח (התנאי של ``STICKY_NOTE_FONT_SIZE`` בסקריפט). ההכרעה
+  כאן ולא בתוך הסקריפט: הוראות Jinja אינן חלק מה-JS.
 #}
+{%- set _handwriting_surface = 'board' if note_font_surface == 'archive' else note_font_surface %}
 <script>
 (function () {
   // אידמפוטנטי, כי קוראים לזה משני מקומות: מכאן בטעינת העמוד, ומהמתג
@@ -101,7 +108,9 @@
 
   // ההעדפה של **המשטח הזה** בלבד. משטח שלא הוגדר אינו טוען דבר —
   // במצב כבוי המחיר הוא אפס בקשות, לא בקשה שנזרקת.
-  window.STICKY_FONT_FROM_SETTINGS = {{ (note_fonts.get(note_font_surface) if note_fonts else False) | tojson }};
+  //
+  // עמוד הארכיון קורא כאן את ההעדפה של הלוחות — ``_handwriting_surface``, לפני הסקריפט.
+  window.STICKY_FONT_FROM_SETTINGS = {{ (note_fonts.get(_handwriting_surface) if note_fonts else False) | tojson }};
 
   if (window.STICKY_FONT_FROM_SETTINGS) window.applyStickyHandwriting(true);
 
