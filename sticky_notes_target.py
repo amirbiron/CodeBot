@@ -1169,10 +1169,12 @@ def check_note_quota(existing: Optional[int], cap: int, *, is_admin: bool = Fals
 #:
 #: הסדר כאן הוא סדר התצוגה בבורר — ``dict`` בפייתון שומר סדר הכנסה,
 #: ו-:data:`NOTE_COLOR_ORDER` נגזר ממנו כדי שלא תיווצר רשימה שנייה
-#: שיכולה להיסחף. הצהוב הקיים ראשון כי הוא ברירת המחדל.
+#: שיכולה להיסחף. הצהוב הקיים ראשון כי הוא ברירת המחדל, והשנהב מיד
+#: אחרי שני הצהובים, כדי שהגוונים הצהבהבים יישבו יחד בבורר.
 NOTE_COLORS: Dict[str, Dict[str, Any]] = {
     "yellow": {"hex": "#ffffcc", "label": "צהוב", "legacy": ()},
     "yellow_light": {"hex": "#ffffba", "label": "צהוב בהיר", "legacy": ()},
+    "ivory": {"hex": "#fffff0", "label": "שנהב", "legacy": ()},
     "green_light": {"hex": "#dbffe3", "label": "ירוק בהיר", "legacy": ()},
     "orange_light": {"hex": "#ffeddb", "label": "כתום בהיר", "legacy": ()},
     "blue_light": {"hex": "#f0f8ff", "label": "כחול בהיר", "legacy": ()},
@@ -1251,7 +1253,7 @@ def resolve_note_color(value: Any, *, default: Optional[str] = DEFAULT_NOTE_COLO
 
     1. מזהה שקיים בפלטה ← נשמר כמות שהוא.
     2. ``hex`` שמתנרמל לגוון של הפלטה (קנוני **או** ``legacy``) ← נשמר
-       כמזהה שלו. זה מה שהופך את ``#FFFFCC`` של פתק ישן ל-``yellow_light``
+       כמזהה שלו. זה מה שהופך את ``#FFFFCC`` של פתק ישן ל-``yellow``
        בלי סקריפט.
     3. ``hex`` אחר ← נשמר כמות שהוא, מנורמל. הוא ``legacy``, והוא לא
        נמחק ולא מוחלף בכוח.

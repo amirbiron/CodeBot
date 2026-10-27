@@ -155,6 +155,7 @@
   const NOTE_COLORS = {
     yellow:       { hex: '#ffffcc', label: 'צהוב', legacy: [] },
     yellow_light: { hex: '#ffffba', label: 'צהוב בהיר', legacy: [] },
+    ivory:        { hex: '#fffff0', label: 'שנהב', legacy: [] },
     green_light:  { hex: '#dbffe3', label: 'ירוק בהיר', legacy: [] },
     orange_light: { hex: '#ffeddb', label: 'כתום בהיר', legacy: [] },
     blue_light:   { hex: '#f0f8ff', label: 'כחול בהיר', legacy: [] },
@@ -1580,7 +1581,7 @@
           });
           if (active) swatch.classList.add('is-active');
           // הצבע יושב ב-``style`` ולא במחלקה: כלל CSS לכל גוון היה מקור
-          // שני לאותה שאלה, וצבע שביעי היה נוסף לפלטה ויוצא עיגול לבן.
+          // שני לאותה שאלה, וצבע חדש היה נוסף לפלטה ויוצא עיגול לבן.
           swatch.style.backgroundColor = spec.hex;
           const label = createEl('span', 'sticky-color-label');
           label.textContent = spec.label;
