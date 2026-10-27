@@ -3,6 +3,20 @@
 # Code Keeper Bot - Production Dockerfile (Debian slim)
 # ===================================
 
+# גרסאות מינימום למאגרי התעודות שהבנייה והתמונה סומכות עליהם (אירוע eMudhra/emSign,
+# אוקטובר 2026). ARG שמוצהר לפני ה-FROM הראשון אינו זמין בתוך שלב עד שמצהירים עליו
+# שם שוב, בלי ערך — ולכן כל שלב שמשתמש בהם מצהיר עליהם מחדש.
+#
+# PIP_MIN_VERSION: ב-pip 26.2.2 ההורדות נבדקות גם מול מאגר התעודות של מערכת ההפעלה
+# וגם מול certifi שה-pip מביא בתוכו (pip/_internal/cli/index_command.py), ו-26.2.2 מביא
+# certifi 2026.10.19. לכן כל שלב משדרג את pip לפני ה-pip install הראשון שלו.
+ARG PIP_MIN_VERSION=26.2.2
+# CA_CERTIFICATES_MIN_VERSION: חבילת ca-certificates של Debian, מאגר התעודות של מערכת
+# ההפעלה. 20250419+deb13u1 (trixie-security) מסירה את "emSign ECC Root CA - G3" ואת
+# "Comodo AAA Services root". כל שלב עוצר את הבנייה אם מותקנת גרסה ישנה ממנה, כי
+# apt-get upgrade לבדו לא מבטיח את זה כששכבת ה-apt נלקחת מ-cache.
+ARG CA_CERTIFICATES_MIN_VERSION=20250419+deb13u1
+
 ######################################
 # שלב 1: Build stage (pip wheels + cache)
 FROM python:3.11-slim AS builder
@@ -12,6 +26,9 @@ LABEL version="1.1.0"
 LABEL description="Advanced Telegram bot for managing code snippets"
 
 USER root
+
+ARG PIP_MIN_VERSION
+ARG CA_CERTIFICATES_MIN_VERSION
 
 # משתני סביבה לבילד
 ENV PYTHONUNBUFFERED=1 \
@@ -23,7 +40,8 @@ ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
     PATH="/root/.local/bin:$PATH"
 
-# כלים לבניית חבילות heavy (wheels)
+# כלים לבניית חבילות heavy (wheels), ו-ca-certificates — ה-pip של השלב הזה מוריד את כל
+# התלויות ובודק אותן גם מול מאגר התעודות של מערכת ההפעלה (ראו PIP_MIN_VERSION למעלה)
 RUN set -eux; \
     . /etc/os-release; \
     printf 'deb http://deb.debian.org/debian %s main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" > /etc/apt/sources.list.d/non-free.list; \
@@ -38,10 +56,17 @@ RUN set -eux; \
         libssl-dev \
         pkg-config \
         libjpeg-dev \
-        zlib1g-dev && \
-    rm -rf /var/lib/apt/lists/*
+        zlib1g-dev \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*; \
+    : "${CA_CERTIFICATES_MIN_VERSION:?CA_CERTIFICATES_MIN_VERSION build arg must be set}"; \
+    ca_version="$(dpkg-query -W -f='${Version}' ca-certificates)"; \
+    if ! dpkg --compare-versions "$ca_version" ge "$CA_CERTIFICATES_MIN_VERSION"; then \
+        echo "ca-certificates ${ca_version} is older than ${CA_CERTIFICATES_MIN_VERSION}" >&2; \
+        exit 1; \
+    fi
 
-RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
+RUN python -m pip install --upgrade --no-cache-dir "pip>=${PIP_MIN_VERSION}" 'setuptools>=78.1.1' 'wheel>=0.43.0'
 
 WORKDIR /app
 
@@ -61,8 +86,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # שלב 2: Production stage (Debian slim)
 FROM python:3.11-slim AS production
 
-ARG NODE_MAJOR=18
-ARG NODE_VERSION=18.20.5
+# Node משמש כאן את push_worker: npm install בבנייה, ובזמן ריצה מי שמפעיל אותו הוא
+# scripts/start_with_worker.sh. ‏22.23.4 היא גרסת אבטחה (nodejs.org/dist/index.json), ומאגר
+# השורשים המובנה בה כבר בלי "emSign ECC Root CA - G3" — נמדד ב-tls.rootCertificates, מול
+# 18.20.5 שעוד סמך עליו. לקו 18 שהיה כאן אין גרסה מתוקנת: סוף החיים שלו היה ב-30.4.2025.
+ARG NODE_MAJOR=22
+ARG NODE_VERSION=22.23.4
+ARG PIP_MIN_VERSION
+ARG CA_CERTIFICATES_MIN_VERSION
 
 USER root
 
@@ -118,13 +149,22 @@ RUN set -eux; \
         zlib1g \
         libjpeg62-turbo && \
     fc-cache -f -v && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/*; \
+    : "${CA_CERTIFICATES_MIN_VERSION:?CA_CERTIFICATES_MIN_VERSION build arg must be set}"; \
+    ca_version="$(dpkg-query -W -f='${Version}' ca-certificates)"; \
+    if ! dpkg --compare-versions "$ca_version" ge "$CA_CERTIFICATES_MIN_VERSION"; then \
+        echo "ca-certificates ${ca_version} is older than ${CA_CERTIFICATES_MIN_VERSION}" >&2; \
+        exit 1; \
+    fi
+
+# שדרוג pip לפני ה-pip install הראשון של השלב (ראו PIP_MIN_VERSION למעלה)
+RUN python -m pip install --upgrade --no-cache-dir "pip>=${PIP_MIN_VERSION}" 'setuptools>=78.1.1' 'wheel>=0.43.0'
 
 # התקנת תלותי Playwright (root) למנועי Chromium
 RUN python -m pip install --no-cache-dir 'playwright==1.49.0' && \
     (python -m playwright install-deps chromium || true)
 
-# התקנת Node 18.x דרך ארכיון רשמי (מביא npm תואם בלי תלות ב־apt)
+# התקנת Node בגרסה של NODE_VERSION דרך ארכיון רשמי (מביא npm תואם בלי תלות ב־apt)
 RUN set -eux; \
     : "${NODE_VERSION:?NODE_VERSION build arg must be set}"; \
     arch="$(dpkg --print-architecture)"; \
@@ -141,9 +181,6 @@ RUN set -eux; \
     rm -f /tmp/node.tar.xz; \
     npm --version; \
     node --version
-
-# שמירה על גרסאות pip/setuptools מעודכנות
-RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
 
 # יצירת משתמש לא-root (אידמפוטנטי גם כשהקבוצה/המשתמש כבר קיימים)
 RUN groupadd -o -f -g 1000 botuser && \

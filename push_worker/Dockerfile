@@ -1,5 +1,7 @@
 # Minimal Node image for push-delivery-worker
-FROM node:20-alpine
+# גרסה מדויקת ולא node:22-alpine, כמו NODE_VERSION ב-Dockerfile הראשי. לקו 20 שהיה כאן אין
+# גרסה שמתקנת את אירוע eMudhra (סוף החיים שלו היה ב-30.4.2026) — ראו ההערה שם.
+FROM node:22.23.4-alpine
 
 WORKDIR /app
 
