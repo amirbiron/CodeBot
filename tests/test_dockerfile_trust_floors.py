@@ -9,7 +9,8 @@ Playwright עם ה-pip של תמונת הבסיס, ורק כמה שכבות אח
 **שתי הבדיקות הראשונות הן בדיקות מקור, וזה מכוון.** בנייה של התמונה לא רצה
 כאן, ומה שצריך לתפוס הוא שלב חדש, או ``pip install`` חדש, שנכתב לפני השדרוג.
 הבדיקה השלישית מריצה את בדיקת הגרסה של ``ca-certificates`` כפי שהיא כתובה
-בקובץ, מול ``dpkg`` אמיתי.
+בקובץ, מול ``dpkg`` אמיתי. הרביעית שומרת שה-driver של Playwright רץ על ה-Node
+שהשלב מתקין, ולא על זה שבתוך החבילה.
 
 הערכים עצמם לא מועתקים לכאן: הבדיקות קוראות אותם מה-``ARG`` שבראש הקובץ.
 """
@@ -25,6 +26,8 @@ import pytest
 
 _DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
 _PIP_UPGRADE = '"pip>=${PIP_MIN_VERSION}"'
+# ה-pip של תמונת הבסיס מוריד את השדרוג, ולכן הוא חייב לבדוק מול מאגר מערכת ההפעלה.
+_OS_BUNDLE = "PIP_CERT=/etc/ssl/certs/ca-certificates.crt python -m pip install --upgrade"
 _CA_CHECK = 'dpkg --compare-versions "$ca_version" ge "$CA_CERTIFICATES_MIN_VERSION"'
 _CA_GUARD = ': "${CA_CERTIFICATES_MIN_VERSION'
 
@@ -89,6 +92,7 @@ def test_every_stage_upgrades_pip_to_the_floor_before_its_first_pip_install():
         first = pip_runs[0]
         upgrades = "--upgrade" in stage[first] and _PIP_UPGRADE in stage[first]
         assert upgrades, f"{header}: the first pip install must upgrade pip, got: {stage[first]}"
+        assert _OS_BUNDLE in stage[first], f"{header}: the pip upgrade must run with PIP_CERT"
         redeclared = _declared_before(stage, "PIP_MIN_VERSION", first)
         assert redeclared, f"{header}: ARG PIP_MIN_VERSION must be redeclared before it is used"
         checked.append(header)
@@ -103,8 +107,11 @@ def test_every_stage_that_installs_apt_packages_checks_the_ca_certificates_floor
         for index, instruction in enumerate(stage):
             if not _is_run(instruction, "apt-get install"):
                 continue
-            assert " ca-certificates " in instruction, f"{header}: install ca-certificates"
+            packages = instruction.split("apt-get install", 1)[1].split(";", 1)[0].split()
+            assert "ca-certificates" in packages, f"{header}: install ca-certificates"
             assert _CA_CHECK in instruction, f"{header}: check CA_CERTIFICATES_MIN_VERSION"
+            # תחת set -e, כישלון בתוך שרשרת && שאחריה באה בדיקת הגרסה אינו עוצר את ה-RUN.
+            assert "&&" not in instruction, f"{header}: no && chain before the version check"
             redeclared = _declared_before(stage, "CA_CERTIFICATES_MIN_VERSION", index)
             assert redeclared, f"{header}: ARG CA_CERTIFICATES_MIN_VERSION must be redeclared"
             checked.append(header)
@@ -143,3 +150,24 @@ def test_the_ca_certificates_check_lets_the_floor_through_and_stops_an_older_one
             assert result.returncode == expected, (installed, result.returncode, result.stderr)
             if expected:
                 assert "is older than" in result.stderr
+
+
+def test_playwright_runs_on_the_installed_node_and_only_after_it_is_installed():
+    _, stages = _global_args_and_stages()
+    checked = []
+    for header, stage in stages:
+        browsers = [i for i, ins in enumerate(stage) if _is_run(ins, "playwright install chromium")]
+        if not browsers:
+            continue
+        node = [i for i, ins in enumerate(stage) if _is_run(ins, "nodejs.org/dist")]
+        assert node, f"{header}: installs Chromium but not Node"
+        assert (
+            "-C /usr/local " in stage[node[0]]
+        ), f"{header}: Node must be unpacked into /usr/local"
+        env = [i for i, ins in enumerate(stage) if ins.startswith("ENV PLAYWRIGHT_NODEJS_PATH=")]
+        assert env, f"{header}: PLAYWRIGHT_NODEJS_PATH is not set"
+        assert stage[env[0]] == "ENV PLAYWRIGHT_NODEJS_PATH=/usr/local/bin/node"
+        # לפני התקנת Node הנתיב לא קיים, ו-install-deps (עם || true) היה מדלג בשקט.
+        assert node[0] < env[0] < browsers[0], f"{header}: set it after Node, before Chromium"
+        checked.append(header)
+    assert checked, "no stage installs Chromium; the check above looked at nothing"
