@@ -3882,7 +3882,7 @@ check('הפלטה זהה ב-JS ובפייתון — מזהים, גוונים, ת
   // נופל כשצבע נוסף, מוסר, משנה גוון או משנה מקום בצד אחד בלבד.
   const js = paletteFromJs();
   const py = paletteFromPython();
-  eq(js.length, 7, 'שבעה צבעים ב-JS');
+  eq(js.length, 8, 'שמונה צבעים ב-JS');
   eq(JSON.stringify(js), JSON.stringify(py), 'הפלטה ב-JS מול פייתון');
 });
 
@@ -4026,9 +4026,9 @@ check('הבורר מציג את כל הפלטה, מסמן את הנוכחי, ו�
   eq(!!modal.querySelector('.sticky-color-close'), true, 'יש כפתור סגירה');
 
   const swatches = modal.querySelectorAll('.sticky-color-swatch');
-  eq(swatches.length, 7, 'עיגול לכל צבע בפלטה');
+  eq(swatches.length, 8, 'עיגול לכל צבע בפלטה');
   eq(swatches.map(s => s.getAttribute('data-color-id')).join(','),
-     'yellow,yellow_light,green_light,orange_light,blue_light,purple_light,pink_light',
+     'yellow,yellow_light,ivory,green_light,orange_light,blue_light,purple_light,pink_light',
      'בסדר של הפלטה, והצהוב הקיים ראשון כי הוא ברירת המחדל');
   // הצבע יושב ב-style ולא במחלקה — כלל CSS לכל גוון היה מקור שני,
   // וצבע נוסף היה יוצא עיגול לבן.
@@ -4092,7 +4092,7 @@ check('פתק בצבע legacy פותח בורר בלי שום עיגול מסו�
   m._openColorModal(el);
 
   const swatches = sb.document.body.querySelectorAll('.sticky-color-swatch');
-  eq(swatches.length, 7, 'הפלטה עדיין מוצגת במלואה');
+  eq(swatches.length, 8, 'הפלטה עדיין מוצגת במלואה');
   eq(swatches.filter(s => s.getAttribute('aria-pressed') === 'true').length, 0,
      'אף עיגול אינו מסומן');
 });

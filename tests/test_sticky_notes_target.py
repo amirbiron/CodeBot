@@ -637,12 +637,13 @@ def test_the_palette_matches_the_colours_that_were_specified():
     from sticky_notes_target import NOTE_COLORS, NOTE_COLOR_ORDER
 
     assert NOTE_COLOR_ORDER == (
-        "yellow", "yellow_light", "green_light", "orange_light",
+        "yellow", "yellow_light", "ivory", "green_light", "orange_light",
         "blue_light", "purple_light", "pink_light",
     )
     assert {cid: spec["hex"] for cid, spec in NOTE_COLORS.items()} == {
         "yellow": "#ffffcc",
         "yellow_light": "#ffffba",
+        "ivory": "#fffff0",
         "green_light": "#dbffe3",
         "orange_light": "#ffeddb",
         "blue_light": "#f0f8ff",
