@@ -208,6 +208,11 @@ jobs:
         env:
           MONGO_INITDB_ROOT_USERNAME: test
           MONGO_INITDB_ROOT_PASSWORD: test123
+          # מוותר על המטמון לכל מעבד של TCMalloc, שבגללו mongod של 8.0 מסרבת
+          # לעלות על חלק מהקרנלים של ה-runners (SERVER-121912). ההסבר והמקורות
+          # ב-docs/testing.rst, בסעיף ``GLIBC_TUNABLES`` בשירותי המונגו, ו-
+          # tests/test_mongo_services_glibc_rseq.py דורש את זה בכל שירות mongo.
+          GLIBC_TUNABLES: glibc.pthread.rseq=1
         # Avoid host port binding to prevent conflicts; job connects via service hostname
         options: >-
           --health-cmd "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017/test --quiet"
