@@ -218,6 +218,21 @@ Mocking HTTP ב‑github_menu_handler
 .. warning::
    כל הקבצים האלה יוצרים מסד ייעודי משלהם ואינם נוגעים במסד ברירת המחדל: ``test_note_boards_mongo.py`` מגריל שם עם התחילית ``codebot_notes_it_``, ``test_profiler_projection_mongo.py`` עם התחילית ``codebot_profiler_it_``, ``test_recycle_bin_ttl_index_mongo.py`` עם התחילית ``codebot_recycle_ttl_it_``, ו-``wired_mongo`` בונה ``cktest_<שם קובץ הבדיקה>``. ה-teardown של כל קובץ שמגריל שם מוודא שהשם תואם לתחילית **לפני** ``drop_database``. עם זאת — אל תכוונו את אף אחד משני המשתנים למסד שיש בו נתונים אמיתיים.
 
+.. _testing-mongo-glibc-rseq:
+
+``GLIBC_TUNABLES`` בשירותי המונגו
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+כל שירות שמרים את התמונה ``mongo``, ב-workflows וב-compose, מגדיר ``GLIBC_TUNABLES: glibc.pthread.rseq=1``. בלי זה mongod של 8.0 מסרבת לעלות על חלק מהמחשבים, ובלוג של הקונטיינר מופיעה השורה ``MongoDB cannot start: Linux kernel versions 6.19 and newer has a known incompatibility with this version of MongoDB`` (``"id":12257600``). ב-CI זה נראה כמו ``Service container mongodb failed`` בצעד ``Initialize containers``, עוד לפני הצעד הראשון של הג'וב. ``tests/test_mongo_services_glibc_rseq.py`` נכשל על כל שירות ``mongo`` שאין בו את ההגדרה, גם בקובץ workflow או compose חדש.
+
+**מה מונגו בודקת.** ``validateRseqKernelCompat`` ב-``src/mongo/db/startup_check_rseq.cpp`` (נקרא בתג ``r8.0.34``, הגרסה ש-``mongo:8.0`` מביאה ב-28.10.2026) עוצרת את העלייה רק כששני תנאים מתקיימים יחד: ה-TCMalloc שבתוך mongod עובד עם מטמון לכל מעבד (per-CPU caches), וגרסת הקרנל ש-``uname`` מחזיר היא בין 6.19.0 ל-7.0.13. בקרנלים האלה המטמון לכל מעבד יכול להפיל את mongod (`Production Notes <https://www.mongodb.com/docs/manual/administration/production-notes/>`_, ‏SERVER-121912). את התנאי הראשון מדליקה התמונה הרשמית: ה-Dockerfile שלה (``8.0/Dockerfile`` בריפו ``docker-library/mongo``) מגדיר ``ENV GLIBC_TUNABLES glibc.pthread.rseq=0``, כדי ש-glibc לא תתפוס את rseq לפני TCMalloc.
+
+**למה זה נשבר בלי שום שינוי בריפו.** באוקטובר 2026 הקרנל בתמונה של ``ubuntu-24.04`` עבר מ-``6.17.0-1022-azure`` ל-``7.0.0-1017-azure`` (למשל בתמונה ``20261026.354``), והמעבר בין ה-runners הדרגתי. לפי GitHub, ‏``/proc/version_signature`` מזהה את הקרנל הזה כ-7.0.14, שבו התקלה כבר תוקנה, אבל מונגו קוראת את ``uname -r``, רואה 7.0.0 ומסרבת (`actions/runner-images#15005 <https://github.com/actions/runner-images/issues/15005>`_). בזמן המעבר ג'וב נכשל או עובר לפי ה-runner שהוא קיבל, ולכן זה נראה כמו כשל אקראי שעובר בהרצה חוזרת. GitHub כתבו שם שאינם מתכוונים לנעוץ את הקרנל. התיקון של מונגו לקרנלים של אובונטו (SERVER-131779) מתוכנן ל-8.0.35, שעוד לא פורסמה ב-28.10.2026. גם תווית ה-runner הנעוצה לא מגינה מזה — ראו :ref:`ci-runner-label`.
+
+**מה ההגדרה עושה.** עם ``glibc.pthread.rseq=1``, ‏glibc רושמת את rseq בעצמה — זו ברירת המחדל שלה (`GNU C Library manual, "POSIX Thread Tunables" <https://sourceware.org/glibc/manual/latest/html_node/POSIX-Thread-Tunables.html>`_) — ו-TCMalloc עובר למטמון לכל חוט: "Without rseq, TCMalloc uses per-thread caches, which are used by the legacy TCMalloc version" (`TCMalloc Performance Optimization <https://www.mongodb.com/docs/manual/administration/tcmalloc-performance/>`_). כך התנאי הראשון של הבדיקה לא מתקיים, והמסלול שהיא מגינה מפניו לא רץ בכלל. משתנה שמוגדר על השירות (``env`` ב-workflow, ``environment`` ב-compose) מגיע לקונטיינר כמו ``docker run --env``, וגובר על ה-``ENV`` של התמונה (`Dockerfile reference, "ENV" <https://docs.docker.com/reference/dockerfile/#env>`_). mongod מתריעה על זה בעלייה, באזהרה ``8718500`` שממליצה על ``glibc.pthread.rseq=0``, וזה צפוי.
+
+**זו לא הגדרה זמנית.** היא לא תלויה בגרסת הקרנל של המחשב ולא באופן שבו מונגו מפענחת אותה, ולכן היא נשארת נכונה גם אחרי 8.0.35. המחיר הוא מנגנון זיכרון פחות יעיל בבדיקות ובפיתוח, ולא מנוע אחר: השאילתות, ``explain`` ו-``queryShapeHash`` לא תלויים בו. הפרודקשן רץ על Atlas, וההגדרה הזו לא נוגעת בו. ``ubuntu-22.04``, הפתרון הזמני ש-GitHub מציעים, לא נבחר: הוא מעביר את כל הטסטים למערכת אחרת רק בשביל המונגו, והתמונה הזו עוד תצא משימוש (ראו :ref:`ci-runner-label`, "עד מתי תווית ישנה זמינה").
+
 .. _testing-mongo-expression-on-production:
 
 אימות ביטוי מול גרסת הייצור, בלי לכתוב

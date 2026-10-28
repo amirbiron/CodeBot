@@ -27,6 +27,11 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password123}
       MONGO_INITDB_DATABASE: ${DATABASE_NAME:-code_keeper_bot}
+      # מוותר על המטמון לכל מעבד של TCMalloc, שבגללו mongod של 8.0 מסרבת
+      # לעלות על חלק מהקרנלים של המחשב המארח (SERVER-121912). ההסבר והמקורות
+      # ב-docs/testing.rst, בסעיף ``GLIBC_TUNABLES`` בשירותי המונגו, ו-
+      # tests/test_mongo_services_glibc_rseq.py דורש את זה בכל שירות mongo.
+      GLIBC_TUNABLES: glibc.pthread.rseq=1
     ports:
       - "${MONGO_PORT:-27017}:27017"
     volumes:
