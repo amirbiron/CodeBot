@@ -581,13 +581,20 @@
 </script>
 
 {# הוראות לסוכן — הטקסט ש-GET /api/agent/primer מגיש (``mcp_server/primer.py``). מי שקורא את
-   הנתיב הזה הוא ההוק של Claude Code, ``.claude/hooks/codekeeper-primer.sh``. אין כלי MCP שמחזיר
+   הנתיב הזה הוא ההוק של Claude Code שבפלאגין codekeeper-memory —
+   ``codekeeper-memory/hooks/session_start.sh`` בריפו amirbiron/codekeeper-plugin. אין כלי MCP שמחזיר
    את הטקסט, ולכן סוכן שמחובר דרך מחבר בלבד (Claude.ai, Gemini) לא מקבל אותו.
    - "איך מחברים את זה ל-Claude Code?" מתאר את ההוק. שם המשתנה והשרת שבהסבר הם של ההוק
-     (הכותרת ``Authorization`` וברירת המחדל של ``PRIMER_URL`` בסקריפט), ו-
+     (הכותרת ``Authorization`` וברירת המחדל של ``PRIMER_URL`` בסקריפט שבפלאגין), ו-
      ``test_the_primer_setup_names_the_variable_and_the_host_the_hook_uses`` ב-
-     ``tests/test_settings_ai_connect.py`` גוזר אותם משם ומשווה. הפקודה ``/connect_claude``
-     היא ``connect_claude_command`` ב-``main.py``.
+     ``tests/test_settings_ai_connect.py`` מצמיד אותם לקבועים שמצטטים את הסקריפט: ה-CI של
+     הריפו הזה לא רואה את ריפו הפלאגין. הפקודה ``/connect_claude`` היא ``connect_claude_command``
+     ב-``main.py``.
+   - הדרך לפלאגין ב-claude.ai (Customize > Plugins > Add > Add marketplace):
+     claude.com/docs/plugins/overview, הסעיף Find and add a plugin (נקרא ב-28.10.2026). והתנאי
+     לטעינה בטרמינל — התחברות עם חשבון claude.ai, ולא ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN
+     או apiKeyHelper: code.claude.com/docs/en/plugins/loading, הסעיף Plugins synced from claude.ai
+     (נקרא ב-28.10.2026). הרשימה המלאה, עם הגרסה המינימלית, ב-README של הפלאגין ולא כאן.
    - משתני הסביבה ורשימת הדומיינים של סביבת הענן: code.claude.com/docs/en/cloud-environments,
      הסעיפים Set environment variables ו-Network access (נקרא ב-19.10.2026). בהגדרת ברירת
      המחדל, Trusted, השרת של ההוק אינו ברשימה, ולכן הצעד של הרשת אינו אופציונלי. #}
@@ -611,12 +618,14 @@
     </summary>
     <ol class="agent-primer-setup__steps">
       <li>
-        מעתיקים מהריפו של CodeKeeper,
-        <a href="https://github.com/amirbiron/CodeBot" target="_blank" rel="noopener" dir="ltr">github.com/amirbiron/CodeBot</a>,
-        את התיקייה <code dir="ltr">.claude</code> במלואה אל הריפו שלכם בגיטהאב, זה שבו אתם רוצים ש-Claude Code
-        יקבל את ההוראות האלה. בכל סשן שנפתח על הריפו הזה, ההוק שבתיקייה מושך את ההוראות ומעביר אותן לסוכן.
-        אם כבר יש אצלכם קובץ <code dir="ltr">.claude/settings.json</code>, לא דורסים אותו: מעתיקים את התיקייה
-        <code dir="ltr">.claude/hooks</code>, ומוסיפים לקובץ הקיים את ההוק <code dir="ltr">SessionStart</code> מהקובץ שלנו.
+        מוסיפים לחשבון ב-claude.ai את הפלאגין של CodeKeeper: ב-<bdi>Customize &gt; Plugins</bdi> בוחרים
+        <bdi>Add &gt; Add marketplace</bdi>, מזינים <code dir="ltr">amirbiron/codekeeper-plugin</code>, ומוסיפים ממנו את
+        <code dir="ltr">codekeeper-memory</code>. ההוק שבפלאגין מושך את ההוראות בכל סשן של Claude Code בענן, בכל ריפו.
+        בטרמינל במחשב שלכם הוא נטען רק כשמחוברים שם עם החשבון ב-claude.ai, ולא דרך טוקן או מפתח שמוגדרים
+        בסביבה, ו-<code dir="ltr">CODEKEEPER_PAT</code> צריך להיות גם בסביבה של הטרמינל.
+        רוצים את ההוראות רק בריפו אחד, בלי הפלאגין? מעתיקים את ההוק לריפו. הפרטים על שתי הדרכים
+        ב<a href="https://github.com/amirbiron/codekeeper-plugin" target="_blank" rel="noopener">ריפו של הפלאגין</a>.
+        רק אחת מהשתיים: עם שתיהן ההוראות נטענות פעמיים.
       </li>
       <li>
         שולחים לבוט{% if bot_username %}
@@ -632,7 +641,7 @@
         החבילות. בלי זה ההוק לא מגיע לשרת: בהגדרת ברירת המחדל מותרים רק מאגרי חבילות, GitHub ושירותי ענן מוכרים.
       </li>
       <li>
-        מוודאים שהסשנים על הריפו הזה רצים באותה סביבה, ופותחים סשן חדש. סשן שכבר היה פתוח לא רואה את הטוקן מיד.
+        מוודאים שהסשנים רצים באותה סביבה, ופותחים סשן חדש. סשן שכבר היה פתוח לא רואה את הטוקן מיד.
       </li>
     </ol>
   </details>

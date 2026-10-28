@@ -4,7 +4,7 @@
 בו Chromium. הקובץ הזה רץ שם, ומקבע את מה שנקבע בצד השרת: הכתובת שנבנית מ-``MCP_SERVER_URL``
 (``_mcp_connect_url`` ב-``webapp/routes/settings_routes.py``), מה קורה כשהוא חסר או נדחה,
 הקישור לבוט, העוגן וקישור העזרה. ובאותו עמוד גם ההסבר המתקפל "איך מחברים את זה ל-Claude Code?"
-בכרטיס "הוראות לסוכן", שמתאר את ההוק ב-``.claude/hooks/codekeeper-primer.sh``.
+בכרטיס "הוראות לסוכן", שמתאר את ההוק שבפלאגין ``codekeeper-memory``.
 
 ``get_db`` מוחלף ב-``None`` — החוזה הקיים של "אין מסד" — כדי שהעמוד לא ינסה להתחבר.
 """
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 
 import pytest
 
@@ -23,7 +22,15 @@ from webapp import app as webapp_app
 BASE = "https://mcp.example.test"
 ROUTE_LOGGER = "webapp.routes.settings_routes"
 URL_ROW = re.compile(r'<code class="ai-connect__code" dir="ltr" id="ai-connect-url-([^"]+)">([^<]*)</code>')
-PRIMER_HOOK = Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "codekeeper-primer.sh"
+
+#: שתי עובדות שהבעלים שלהן הוא ההוק שבפלאגין ``codekeeper-memory`` —
+#: ``codekeeper-memory/hooks/session_start.sh`` בריפו amirbiron/codekeeper-plugin, גרסה 0.2.0:
+#: המשתנה שהוא שולח כטוקן (``Authorization: Bearer ${CODEKEEPER_PAT}``), והשרת שבברירת המחדל
+#: של ``PRIMER_URL``. ה-CI של הריפו הזה לא רואה את ריפו הפלאגין, ולכן הן מוקלדות כאן ולא נגזרות:
+#: שינוי שם או כתובת בפלאגין לא יפיל את הטסט הזה, ומחייב לעדכן כאן ובכרטיס.
+PRIMER_HOOK_TOKEN_VARIABLE = "CODEKEEPER_PAT"
+PRIMER_HOOK_DEFAULT_HOST = "codekeepermcp.onrender.com"
+PLUGIN_REPO = "amirbiron/codekeeper-plugin"
 
 
 class _CacheDisabled:
@@ -111,17 +118,24 @@ def _primer_setup(html: str) -> str:
 
 
 def test_the_primer_setup_names_the_variable_and_the_host_the_hook_uses(monkeypatch):
-    """ההסבר חוזר על שתי עובדות שהבעלים שלהן הוא ההוק: שם המשתנה שהוא שולח כטוקן, והשרת
-    שהוא פונה אליו כשלא הוגדר ``CODEKEEPER_PRIMER_URL``. שתיהן נגזרות כאן מהסקריפט עצמו, כך
-    ששינוי שם או כתובת שם מפיל את הטסט, ולא משאיר בעמוד הסבר שמוביל להוק שלא מגיע לשרת."""
-    script = PRIMER_HOOK.read_text(encoding="utf-8")
-    variable = re.search(r'"Authorization: Bearer \$\{(\w+)\}"', script)
-    host = re.search(r'^PRIMER_URL="\$\{CODEKEEPER_PRIMER_URL:-https://([^/"]+)/', script, flags=re.M)
-    assert variable and host, "הצורה של הכותרת או של PRIMER_URL השתנתה בסקריפט — עדכנו את הגזירה כאן"
-
+    """ההסבר חוזר על שתי עובדות שהבעלים שלהן הוא ההוק שבפלאגין: שם המשתנה שהוא שולח כטוקן,
+    והשרת שהוא פונה אליו כשלא הוגדר ``CODEKEEPER_PRIMER_URL``. שתיהן מוצמדות לקבועים שבראש
+    הקובץ, שמצטטים את הסקריפט בפלאגין — ולא נגזרות ממנו, כי הוא בריפו אחר."""
     block = _primer_setup(_render(monkeypatch, BASE))
-    assert f'<code dir="ltr">{variable.group(1)}=</code>' in block
-    assert f'<code dir="ltr">{host.group(1)}</code>' in block
+    assert f'<code dir="ltr">{PRIMER_HOOK_TOKEN_VARIABLE}=</code>' in block
+    assert f'<code dir="ltr">{PRIMER_HOOK_DEFAULT_HOST}</code>' in block
+
+
+def test_the_primer_setup_sends_to_the_plugin_and_not_to_a_copy_of_this_repo(monkeypatch):
+    """ההוק עבר מ-``.claude/`` של הריפו הזה לפלאגין, וההסבר שולח אליו: הדרך המומלצת היא
+    להוסיף את הפלאגין לחשבון, ועותק בריפו נשאר רק למי שלא מתקין אותו. הפניה להעתיק את
+    ``.claude`` מהריפו הזה הייתה מובילה לתיקייה שכבר אינה קיימת."""
+    block = _primer_setup(_render(monkeypatch, BASE))
+    assert f'<code dir="ltr">{PLUGIN_REPO}</code>' in block
+    assert '<code dir="ltr">codekeeper-memory</code>' in block
+    assert f'href="https://github.com/{PLUGIN_REPO}"' in block
+    assert "github.com/amirbiron/CodeBot" not in block
+    assert ".claude" not in block
 
 
 @pytest.mark.parametrize("username", ["some_test_bot", ""])
