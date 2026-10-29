@@ -398,7 +398,20 @@
      ולא דרך הרשת של הסשן (code.claude.com/docs/en/cloud-environments, הסעיף Network access;
      נקרא ב-19.10.2026). שמחבר נקרא בפתיחת הסשן — מההנחיות של סביבת הענן עצמה ("connectors
      are read when a session starts"), ונצפה באותו יום בסשן ענן שבו כלי CodeKeeper היו זמינים
-     בלי טוקן. #}
+     בלי טוקן.
+   - מחבר שנוסף ב-Claude.ai שייך לחשבון. Claude Code בטרמינל טוען אותו רק כשהאימות הפעיל הוא
+     התחברות עם מנוי claude.ai — לא כש-ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN או apiKeyHelper
+     פעילים, לא מול ספק צד שלישי כמו Amazon Bedrock, לא כשפרופיל Anthropic או משתני federation
+     מספקים את ההרשאה, ולא עם CLAUDE_CODE_OAUTH_TOKEN של claude setup-token; ובתוכניות Team
+     ו-Enterprise רק אדמין מוסיף מחברים (code.claude.com/docs/en/mcp, הסעיף Use MCP servers from
+     claude.ai; נקרא ב-29.10.2026). הלשונית נוקבת בדוגמאות בלבד ("למשל"); הרשימה המלאה, כולל
+     הכיבוי המפורש של המחברים, בסעיף "Claude Code (טוקן)" ב-``docs/mcp-server.rst``. ההפניה
+     ל-/status כשהמחבר לא מופיע ב-/mcp — מאותו סעיף ("run /status to confirm which authentication
+     method is active"); disableClaudeAiConnectors — מהסעיף Disable claude.ai connectors, שחל על
+     המחברים ש-Claude Code מושך בעצמו, כלומר בטרמינל (נקרא ב-29.10.2026).
+   - אפליקציית Claude למחשב מעבירה את המחברים לצ'אט ולסשנים המקומיים וה-SSH של טאב ה-Code;
+     לסשנים של WSL עדיין לא (אותו עמוד, הסעיף How connectors reach Claude Code, ו-
+     support.claude.com, Get started with custom connectors using remote MCP; נקראו ב-29.10.2026). #}
 {% macro ai_connect_url_row(key) %}
   <div class="ai-connect__url">
     <code class="ai-connect__code" dir="ltr" id="ai-connect-url-{{ key }}">{{ mcp_connect_url }}</code>
@@ -444,6 +457,11 @@
       אותו מחבר עובד גם ב-Claude Code בווב (<code dir="ltr">claude.ai/code</code>), בלי טוקן ובלי שום הגדרה נוספת:
       כל סשן שנפתח אחרי שהוספתם את המחבר רואה אותו.
     </p>
+    <p class="ai-connect__hint">
+      המחבר שייך לחשבון, ולכן הוא מופיע לבד גם באפליקציית Claude במחשב: בצ'אט, ובטאב ה-Code בסשנים
+      המקומיים וב-SSH (לסשנים של WSL ב-Windows זה עוד לא הגיע). וגם ב-Claude Code בטרמינל, כשמחוברים
+      בו עם החשבון ב-claude.ai.
+    </p>
   </div>
 
   <div class="ai-connect__panel" role="tabpanel" id="ai-connect-panel-gemini" aria-labelledby="ai-connect-tab-gemini" tabindex="0" hidden>
@@ -462,8 +480,18 @@
 
   <div class="ai-connect__panel" role="tabpanel" id="ai-connect-panel-claude-code" aria-labelledby="ai-connect-tab-claude-code" tabindex="0" hidden>
     <p class="ai-connect__note">
+      <i class="fas fa-check-circle" aria-hidden="true"></i>
+      מחוברים ל-Claude Code עם החשבון ב-claude.ai? לא צריך טוקן: המחבר שהוספתם בלשונית Claude.ai מופיע
+      גם כאן. בודקים עם הפקודה <code dir="ltr">/mcp</code>, שמסמנת את המחברים שהגיעו מ-claude.ai.
+      לא מופיע שם? הפקודה <code dir="ltr">/status</code> מראה באיזו דרך Claude Code מחובר. אם זו לא ההתחברות
+      עם החשבון ב-claude.ai, או שהמחברים כובו (למשל בהגדרה <code dir="ltr">disableClaudeAiConnectors</code>),
+      מתקנים את זה, או עוברים לטוקן כמו שמוסבר למטה.
+    </p>
+    <p class="ai-connect__note">
       <i class="fas fa-key" aria-hidden="true"></i>
-      כאן צריך טוקן אישי, ומקבלים אותו מהבוט בטלגרם.
+      טוקן אישי צריך כש-Claude Code מחובר בדרך אחרת, למשל במפתח API, דרך ספק ענן כמו Amazon Bedrock, או
+      בטוקן של <code dir="ltr">claude setup-token</code>. וגם בתוכנית Team או Enterprise שבה האדמין לא הוסיף
+      את המחבר, כי שם רק אדמין מוסיף מחברים. את הטוקן מקבלים מהבוט בטלגרם:
     </p>
     <ol class="ai-connect__steps">
       <li>

@@ -122,11 +122,11 @@ import note_threads
 #: **הלקוח:** Claude Code. **המקור:** ה-changelog של Claude Code, גרסה 2.1.296 (2026-10-09):
 #: *"Changed the default limit on MCP tool descriptions sent up front and on MCP server
 #: instructions from 2,048 to 4,096 characters"* (``code.claude.com/docs/en/changelog``,
-#: נקרא ב-2026-10-13). עד הגרסה הזו התקרה הייתה 2,048 (``code.claude.com/docs/en/mcp``,
-#: הסעיף "For MCP server authors", נקרא ב-2026-09-29). **סתירה בין שני המקורות:** בקריאה
-#: ב-2026-10-13 העמוד ההוא עדיין אומר 2,048 — הוא לא עודכן אחרי ה-changelog, שהוא המקור
-#: המאוחר והתלוי-גרסה. המשתנה ``CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`` (מ-v2.1.280) משנה
-#: את התקרה בצד הלקוח, לכל השרתים בסשן. **לקוח ישן מ-2.1.296 עדיין חותך ב-2,048**, ובלוק
+#: נקרא ב-2026-10-13). עד הגרסה הזו התקרה הייתה 2,048. ``code.claude.com/docs/en/mcp``,
+#: הסעיף "Tool search for MCP server authors" (נקרא ב-2026-10-29), מתאים ל-changelog: 4,096
+#: ל-``instructions`` ולתיאור של כלי שנטען מראש, ו-16,384 לתיאור של כלי שנטען דרך tool
+#: search. המשתנה ``CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`` (מ-v2.1.280) קובע מספר אחד
+#: לשתי התקרות, לכל השרתים בסשן. **לקוח ישן מ-2.1.296 עדיין חותך ב-2,048**, ובלוק
 #: ארוך מזה מגיע אליו בלי סופו — ולכן הבלוק נשאר קצר ככל האפשר, והחלק האחרון בו הוא כלי
 #: הריפו של האדמין. **את הערך עצמו לא נמדד בלקוח**; הוא מהתיעוד. שורת הסיכום בלקוחות
 #: אחרים לא נבדקה, ו-claude.ai כנראה אינו מעביר את השדה כלל (``anthropics/claude-ai-mcp#93``,
