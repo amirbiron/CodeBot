@@ -1275,10 +1275,21 @@ def _answer_whole_document(loaded: LoadedText, *, max_chars: int, offset: int) -
     כן נושאת ותשובת סעיף לא: ``max_chars`` (מה שנאכף — מהודק), ו-``encoding``
     (ראו :class:`LoadedText`; ב-``latin-1`` זו אזהרה ולא תווית).
 
-    עמוד שגם תו אחד אינו נכנס בו — ``answer_too_large`` עם ההקשר, ``bytes`` (מה שהעמוד
-    הקטן ביותר שנושא תוכן היה צריך) ו-``max``. השדות הקבועים כאן קטנים, ולכן זה קורה
-    רק כשההקשר עצמו קרוב לתקציב (``ref`` שהקורא שלח ו-git פתר); עמוד ריק עם
-    ``next_offset`` שאינו זז היה לולאה אינסופית לקורא ממושמע, ולכן סירוב ולא עמוד.
+    **עמוד שגם תו אחד אינו נכנס בו — לא קורה דרך המראה, והענף נשאר בכל זאת.** מה
+    שיכול לתפוס מקום כאן הוא ההקשר, וכל שדה בו חסום לפני שמשהו נקרא: ``path`` ב-
+    :data:`MAX_PATH_CHARS`; ``ref`` ב-``BASIC_REF_PATTERN`` של ``services/git_mirror_service.py``
+    (``_validate_ref_with_git`` דוחה ``ref`` ארוך ממנו ב-``invalid_ref``, וההקשר נבנה רק
+    אחרי קריאה מוצלחת); ``repo`` ברשימת ההיתר; ו-``resolved_commit`` הוא SHA. עם
+    הגרועים שבהם — נתיב באורך המלא מתווים שתופסים שישה בתים ב-JSON, ו-``ref`` באורך
+    המלא — עמוד עם תוכן עדיין נכנס בשוליים רחבים
+    (``test_the_longest_context_the_mirror_accepts_still_carries_content``). הענף קיים כי
+    :func:`_text_page` יכול להחזיר ``None``, ועמוד ריק עם ``next_offset`` שאינו זז היה
+    לולאה אינסופית לקורא ממושמע: ``answer_too_large`` עם ההקשר, ``bytes`` (מה שהעמוד
+    הקטן ביותר שנושא תוכן היה צריך) ו-``max``. **ההקשר אינו מקוצר בסירוב**, כמו בכל
+    סירוב של הכלי — הוא הזהות שלו (ההערה על ``answer_too_large`` מתחת ל-
+    :data:`SECTION_TOO_LARGE`). לכן כשהעמוד אינו נכנס רק בגלל השדות של העימוד, הסירוב
+    נכנס; וכשההקשר לבדו גדול מהתקציב, גם הסירוב גדול ממנו, והרשת ב-
+    ``AdminAwareFastMCP.call_tool`` היא שעוצרת אותו — כמו :data:`SECTION_TOO_LARGE`.
     """
     head = {"ok": True, **loaded.context, "mode": "document", "encoding": loaded.encoding,
             "max_chars": max_chars}

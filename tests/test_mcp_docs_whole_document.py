@@ -383,9 +383,18 @@ async def test_a_file_the_parser_refuses_is_still_read_whole(world, path, refusa
 
 
 async def test_include_subsections_changes_nothing_in_a_document(world):
-    """``include_subsections`` אין לו משמעות במצב מסמך — ואי אפשר לדעת אם נשלח, ולכן אין סירוב."""
-    assert (await _document(world.mcp, path="PAGE", include_subsections=False)
-            == await _document(world.mcp, path="PAGE"))
+    """``include_subsections`` אין לו משמעות במצב מסמך — ואי אפשר לדעת אם נשלח, ולכן אין סירוב.
+
+    שתי התשובות הן **מסמך**, ושתיהן הקובץ כולו — לא רק שוות זו לזו: השוואה לבדה הייתה
+    עוברת גם כששתיהן חוזרות במצב אחר.
+
+    מוטציה שמפילה: ``whole_document`` שאינו מגיע מהכלי ל-handler — שתי התשובות מפה, ושוות.
+    """
+    without = await _document(world.mcp, path="PAGE")
+    with_flag = await _document(world.mcp, path="PAGE", include_subsections=False)
+
+    assert without["mode"] == "document" and without["content"] == _PAGE
+    assert with_flag == without
 
 
 # ---- השער: מה שנקרא היום, ורק הוא ----
@@ -453,51 +462,134 @@ async def test_the_flag_sent_as_a_string_is_read_as_the_caller_meant(world, sent
     assert out["mode"] == mode
 
 
+def _toc_titles(answer: dict) -> list[tuple[str, int | None]]:
+    """המפה של תשובה — כל כותרת, ו-``hidden_subsections`` שלה כשיש."""
+    return [(entry["title"], entry.get("hidden_subsections")) for entry in answer["toc"]]
+
+
 async def test_without_the_flag_every_answer_is_what_it_was(world):
-    """``whole_document=false`` שנשלח במפורש — אותה תשובה כמו בלי הפרמטר, בכל צורה.
+    """בלי הדגל — ועם ``whole_document=false`` במפורש — כל צורה היא התשובה של לפני הפרמטר.
 
-    ברירת המחדל היא התשובה של לפני הפרמטר; המפה, הסעיף, והסירוב של ``section_not_found``
-    לא זזים. (ההוכחה הרחבה — כל הטסטים הקיימים של הכלי עוברים בלי שינוי, ו-
-    ``scripts/docs_section_zero_diff.py`` על כל קורפוס ה-RST.)
+    **שני דברים נבדקים, ולא אחד.** קודם התשובה בלי הפרמטר היא בדיוק מה שהכלי החזיר עד
+    היום על ``PAGE.md`` — מפה, סעיף, ``section_not_found`` ומפה מוגבלת ב-``max_depth`` (נמדד
+    על הקוד שלפני הפרמטר) — ורק אחר כך ש-``false`` מפורש זהה לה. השוואה של השניים לבדה הייתה
+    עוברת גם כששניהם סוטים יחד. (ההוכחה הרחבה — כל הטסטים הקיימים של הכלי עוברים בלי
+    שינוי, ו-``scripts/docs_section_zero_diff.py`` על כל קורפוס ה-RST.)
+
+    מוטציה שמפילה: ``whole_document`` שנבדק ב-``is not None`` — ``false`` ובלי הפרמטר
+    שניהם מסמך, ושווים.
     """
-    for extra in ({}, {"section": "ראשונה"}, {"section": "אין כזה"}, {"max_depth": 1}):
+    every_heading = [("ראשונה", None), ("תת", None), ("שנייה", None)]
+    expected = [
+        ({}, lambda out: out["ok"] and out["mode"] == "toc" and out["section_count"] == 3
+         and _toc_titles(out) == every_heading and "content" not in out),
+        ({"section": "ראשונה"}, lambda out: out["mode"] == "section"
+         and out["content"] == _FIRST_SUBTREE),
+        ({"section": "אין כזה"}, lambda out: out["ok"] is False
+         and out["error"] == "section_not_found" and _toc_titles(out) == every_heading),
+        ({"max_depth": 1}, lambda out: out["mode"] == "toc" and out["max_depth"] == 1
+         and out["section_count"] == 3 and _toc_titles(out) == [("ראשונה", 1), ("שנייה", None)]),
+    ]
+    for extra, is_what_it_was in expected:
         arguments = {"repo": _MD, "path": "PAGE", **extra}
-        assert (await _call(world.mcp, _TOOL, {**arguments, "whole_document": False})
-                == await _call(world.mcp, _TOOL, arguments))
+        omitted = await _call(world.mcp, _TOOL, arguments)
+        assert is_what_it_was(omitted), (extra, omitted)
+        assert await _call(world.mcp, _TOOL, {**arguments, "whole_document": False}) == omitted
 
 
-# ---- סירוב תקציב שאינו נגיש ממראה אמיתית ----
+# ---- עמוד שאינו נושא אף תו: מה שהמראה מאפשרת, ומה קורה מעבר לה ----
 
 
-class _HugeRefBackend:
-    """``RepoBackend.get_file`` שמחזיר ``file.ref`` באורך שגדול מהתקציב לבדו.
+def _longest_ref(start: str) -> str:
+    """ה-``ref`` הארוך ביותר ש-``BASIC_REF_PATTERN`` מקבל, ושנפתר לאותו commit כמו ``start``.
 
-    ממראה אמיתית זה דורש ``ref`` שהקורא שלח ו-git פתר, בגודל של מאות KB — ולכן דמה.
-    הענף עצמו קיים בקוד, כי ``_fit_page`` מחזיר ``None`` כשגם תו אחד אינו נכנס.
+    נגזר מהתבנית עצמה ולא מאורך מוקלד: ``~0`` הוא אותו commit, ומוסיפים אותו כל עוד
+    התבנית מקבלת. קודם נבדק שהתבנית חוסמת אורך מתחת לתקציב — בלעדי זה הלולאה לא הייתה
+    נגמרת, וגם הטענה שהטסט בודק לא הייתה נכונה.
     """
+    assert not GitMirrorService.BASIC_REF_PATTERN.fullmatch("a" * OUTPUT_BYTE_BUDGET), (
+        "BASIC_REF_PATTERN אינה חוסמת אורך מתחת לתקציב")
+    ref = start
+    while GitMirrorService.BASIC_REF_PATTERN.fullmatch(ref + "~0"):
+        ref += "~0"
+    return ref
+
+
+async def test_the_longest_context_the_mirror_accepts_still_carries_content(world):
+    """עמוד עם תוכן נכנס גם בהקשר הגרוע ביותר שקריאה מוצלחת יכולה לשאת.
+
+    ``ref`` הוא השדה היחיד בהקשר שהקורא קובע בלי תקרה בכלי עצמו, וזה מה שהמראה עושה איתו:
+    ה-``ref`` הארוך ביותר ש-``BASIC_REF_PATTERN`` מקבל נקרא כרגיל, ותו אחד יותר נדחה ב-
+    ``invalid_ref`` לפני שמשהו נקרא — ולכן אין קריאה מוצלחת עם הקשר ארוך יותר. ואז, בלי
+    המראה, ההקשר הגרוע מכולם: ``ref`` באותו אורך, ונתיב באורך ``MAX_PATH_CHARS`` מתווים
+    שתופסים שישה בתים ב-JSON — וגם בו עמוד מלא בתווים רחבים נושא תוכן. כלומר הענף של
+    ``answer_too_large`` ב-``_answer_whole_document`` אינו נגיש מקורא אמיתי.
+
+    מוטציה שמפילה: ``_validate_ref_with_git`` שאינו בודק את ``BASIC_REF_PATTERN`` — ה-``ref``
+    הארוך מדי (``~00`` בסופו, שגם הוא אותו commit) נקרא.
+    """
+    longest = _longest_ref("feature")
+    assert not GitMirrorService.BASIC_REF_PATTERN.fullmatch(longest + "0"), "הנחת המקרה: בתקרה"
+
+    read = await _document(world.mcp, path="PAGE", ref=longest, user=_USER)
+    refused = await _document(world.mcp, path="PAGE", ref=longest + "0", user=_USER)
+
+    assert read["mode"] == "document" and read["ref"] == longest and read["content"]
+    assert refused["error"] == "invalid_ref" and "content" not in refused
+
+    worst = docs_handlers.LoadedText(
+        "中" * docs_handlers.MAX_CHARS_MAX,
+        {"repo": _MD, "path": "\x01" * docs_handlers.MAX_PATH_CHARS + ".md", "ref": longest,
+         "resolved_commit": "f" * 40},
+        "utf-8 (with replacements)")
+    page = docs_handlers._answer_whole_document(worst, max_chars=docs_handlers.MAX_CHARS_MAX, offset=0)
+    assert page["mode"] == "document" and page["content"]
+    assert len(wire_json(page)) <= OUTPUT_BYTE_BUDGET
+
+
+class _RefBackend:
+    """``RepoBackend.get_file`` שמחזיר ``file.ref`` באורך שנבחר — מצב שהמראה אינה מאפשרת."""
+
+    def __init__(self, ref_chars: int) -> None:
+        self._ref = "r" * ref_chars
 
     def get_file(self, *, repo, path, ref=None):
         return {"ok": True, "status": "ok",
-                "file": {"path": path, "ref": "r" * OUTPUT_BYTE_BUDGET, "resolved_commit": "c0ffee",
+                "file": {"path": path, "ref": self._ref, "resolved_commit": "c0ffee",
                          "encoding": "utf-8"},
                 "content": "# כותרת\n\nגוף\n"}
 
 
-def test_a_page_that_cannot_carry_one_character_is_answer_too_large_and_not_an_empty_page(monkeypatch):
-    """הקשר גדול מהתקציב — ``answer_too_large`` עם ``bytes > max``, ולא עמוד ריק.
+def test_a_page_that_cannot_carry_one_character_is_a_refusal_that_fits(monkeypatch):
+    """עמוד שגם תו אחד אינו נכנס בו — ``answer_too_large`` שנכנס בתקציב, ולא עמוד ריק.
 
-    עמוד ריק עם ``next_offset`` שאינו זז היה שולח קורא ממושמע ללולאה אינסופית. ``bytes``
-    הוא מה שהעמוד הקטן ביותר שנושא תוכן היה צריך, ו-``max`` הוא ``OUTPUT_BYTE_BUDGET``.
+    הקשר כזה אינו מגיע מהמראה (הטסט שמעל), ולכן דמה. נבדק ה-``ref`` הקצר ביותר שבו
+    העמוד כבר אינו נכנס: שם מה שלא נכנס הוא השדות של העימוד, והסירוב — שנושא את ההקשר
+    כולו, כי הוא הזהות שלו — קטן מהם ולכן נכנס. מעבר לטווח הזה ההקשר לבדו גדול מהתקציב,
+    והרשת ב-``call_tool`` היא שעוצרת את התשובה, כמו ב-``section_too_large``. עמוד ריק עם
+    ``next_offset`` שאינו זז היה שולח קורא ממושמע ללולאה אינסופית.
 
     מוטציה שמפילה: להחזיר את ``page`` בלי לבדוק ``None`` — ``None`` חוזר כתשובה.
     """
     monkeypatch.setenv("MCP_DOCS_REPO", _MD)
-    out = docs_handlers.docs_get_section(_HugeRefBackend(), path="x", whole_document=True)
 
-    assert out["ok"] is False and out["error"] == "answer_too_large"
+    def answer(ref_chars: int) -> dict:
+        return docs_handlers.docs_get_section(_RefBackend(ref_chars), path="x", whole_document=True)
+
+    fits, refused = 0, OUTPUT_BYTE_BUDGET
+    assert answer(fits)["ok"] is True and answer(refused)["ok"] is False, "הנחת המקרה"
+    while refused - fits > 1:
+        middle = (fits + refused) // 2
+        if answer(middle)["ok"]:
+            fits = middle
+        else:
+            refused = middle
+
+    out = answer(refused)
+    assert out["error"] == "answer_too_large" and "content" not in out
     assert out["max"] == OUTPUT_BYTE_BUDGET and out["bytes"] > out["max"]
-    assert (out["repo"], out["path"]) == (_MD, "x.md")
-    assert "content" not in out
+    assert (out["repo"], out["path"], len(out["ref"])) == (_MD, "x.md", refused)
+    assert len(wire_json(out)) <= OUTPUT_BYTE_BUDGET
 
 
 # ---- מה שהסוכן קורא ----
