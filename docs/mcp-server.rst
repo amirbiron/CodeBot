@@ -369,11 +369,11 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
      - סקשן בודד מקובץ תיעוד — RST או Markdown, לפי הריפו — במקום קובץ שלם.
        בלי ``section`` — עץ הכותרות של העמוד, ועם ``max_depth`` רק הרמות
        העליונות שלו (:ref:`mcp-docs-section`). מחזיר גם breadcrumb,
-       תת-סקשנים ושכנים לניווט. **קובץ שלם:** ``section`` עם הכותרת הראשונה
-       בעץ מחזיר את תת-העץ שלה (תת-הסקשנים כלולים כברירת מחדל) — כל הקובץ
-       כשהוא כולו תחת כותרת עליונה אחת, כמו קובצי ``bugbot-rules`` — מדופדף
-       כמו כל סעיף: כל עוד ``truncated`` הוא ``true`` ממשיכים מ-``next_offset``.
-       או, לאדמין, ``codekeeper_get_repo_file``. עדיף על
+       תת-סקשנים ושכנים לניווט. **קובץ שלם:** ``whole_document=true`` — הקובץ
+       כולו משורה 1, כולל front matter ומה שלפני הכותרת הראשונה, בלי פרסור
+       (ולכן גם קובץ שמפת הכותרות מסרבת לו), מדופדף כמו סעיף: כל עוד
+       ``truncated`` הוא ``true`` ממשיכים מ-``next_offset`` (:ref:`mcp-docs-path-policy`).
+       לאדמין גם ``codekeeper_read_batch`` ו-``codekeeper_get_repo_file``. עדיף על
        ``codekeeper_get_repo_file`` לקריאת תיעוד לפי סעיפים. איזה ריפו מגיש
        אילו נתיבים ובאיזה פורמט —
        ב-:ref:`mcp-docs-path-policy`; איך נמצאת כותרת, כולל קיצור המזהה
@@ -600,7 +600,9 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
 השדה — ``401`` על טוקן פסול, למשל, הוא ``{"error": "invalid_token"}``
 לבדו, עם הכותרת ``WWW-Authenticate``. ל-``status`` יש בתשובת
 כלי רשימה סגורה: ``ok``, ``outline``, ``query``, ``toc``, ``section``, ``binary``,
-``too_large`` ו-``no_outline``. ל-``error`` אין רשימה כזאת כאן **בכוונה** — הערכים
+``too_large`` ו-``no_outline``. גם ל-``mode`` בתשובה מוצלחת של ``codekeeper_docs_get_section``
+יש רשימה סגורה: ``toc``, ``section`` ו-``document`` (הקובץ כולו, ``whole_document=true``).
+ל-``error`` אין רשימה כזאת כאן **בכוונה** — הערכים
 נגזרים מהכלי שסירב (``path_denied``, ``outline_and_lines``,
 ``query_and_lines``, ``page_too_large``, ``range_out_of_bounds`` ועוד
 רבים), ורשימה חלקית שנראית סגורה גרועה מאין רשימה. ערך ``status`` חדש
@@ -610,8 +612,9 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
 מתאר סירוב, אלא **למה תשובה מוצלחת אינה שלמה** — ולכן הוא מופיע רק כאשר
 ``truncated`` הוא ``true``, ולעולם לא כ-``null`` בתשובה תקינה. הערכים:
 ``max_results`` (התוצאות נחתכו בתקרה שביקשו), ``byte_budget`` (העמוד לא
-נכנס בתקציב הבתים — בחיפוש, ובעמוד של סעיף ב-``codekeeper_docs_get_section``
-וב-``codekeeper_get_file``), ``count_ceiling`` ו-``count_output_limit`` (הספירה
+נכנס בתקציב הבתים — בחיפוש, בעמוד של סעיף ב-``codekeeper_docs_get_section``
+וב-``codekeeper_get_file``, ובעמוד של מסמך ב-``codekeeper_docs_get_section`` עם
+``whole_document=true``), ``count_ceiling`` ו-``count_output_limit`` (הספירה
 נעצרה בתקרה), ``count_failed`` (הספירה לא הסתיימה — קוד יציאה, או
 ``error:`` ב-stderr גם כשהקוד תקין), ``matches_per_file`` (התקרה של
 ההתאמות לכל קובץ), ``policy_filtered`` (שורה הוסרה במדיניות הסודות),
@@ -713,7 +716,7 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
    * - כלי ומצב
      - כשהתשובה אינה נכנסת
    * - ``codekeeper_get_file`` / ``codekeeper_get_repo_file``, קריאה מלאה
-     - ``answer_too_large`` עם ``bytes`` (התשובה שהייתה נשלחת, נמדדת), ``max``, ``file`` בלי התוכן, ו-``hint``: ``lines``; בקובץ Markdown שמור גם ``toc``/``section``; בריפו גם ``outline``, ו-``read_with``/``read_with_arguments`` כשכלי הסעיפים מגיש את הקובץ
+     - ``answer_too_large`` עם ``bytes`` (התשובה שהייתה נשלחת, נמדדת), ``max``, ``file`` בלי התוכן, ו-``hint``: ``lines``; בקובץ Markdown שמור גם ``toc``/``section``; בריפו גם ``outline``, ו-``read_with``/``read_with_arguments`` כשכלי התיעוד מגיש את הקובץ — עם ``whole_document: true``, כלומר הקובץ כולו שם, מדופדף (:ref:`mcp-docs-path-policy`)
    * - אותם שני כלים, ``lines``
      - הטווח נגמר מוקדם על גבול שורה, עם ``range.truncation_reason: "byte_budget"`` — ראו :ref:`mcp-line-range`
    * - ``codekeeper_get_file``, ``query``
@@ -739,7 +742,7 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
 
 **הרשת — ההגנה האחרונה, לא הפתרון.** ``AdminAwareFastMCP.call_tool`` מעביר כל תשובה של כלי דרך ``_within_declared_size``, בשני הענפים שלו (הרגיל, והענף של ``codekeeper_read_batch``). היא קוראת את התקרה מה-``meta`` של הכלי שנקרא, מודדת את **כל** מה שיוצא — כל בלוק תוכן ו-``structuredContent``, ולא רק הבלוק הראשון — ותשובה שעוברת את מה שהוצהר מוחלפת בסירוב: ``{"ok": false, "error": "answer_too_large", "bytes": ..., "max": ..., "hint": "..."}``, עם ``hint`` כללי שמבקש פחות. תשובה בצורה שאי אפשר למדוד — סירוב גם היא (fail-closed). כלי שאינו מצהיר אינו נמדד כאן. **כשהרשת תופסת משהו בפרודקשן, זה באג בכלי**, לא "המערכת עבדה": כל כלי שמצהיר מתאים את עצמו, עם הפניה שמתאימה לו, והרשת אינה יודעת לומר דבר מזה. כל תפיסה נרשמת בלוג כ-WARNING עם הסמן הקבוע ``answer_size_net``, שם הכלי והמספרים בלבד — בלי הארגומנטים ובלי התשובה. **ב-PostHog היא אינה נראית:** ``$mcp_tool_call`` נלכד מתחת לרשת (PostHog עוטף את ``ToolManager.call_tool``), ולכן הוא רושם את התשובה של הכלי ולא את הסירוב; הלוג הוא המקום לחפש.
 
-**וכל חיתוך או סירוב של תקציב — נרשם.** בלי זה לא היה אפשר לדעת אם ``OUTPUT_BYTE_BUDGET`` צר מדי לתהליך נפוץ, אלא מתלונות של סוכנים. ``call_tool`` פותח ``answer_fit.recording`` סביב גוף הכלי; ``answer_fit.too_large`` וכל חיתוך ב-``byte_budget`` (``answer_fit.cut`` — טווח, ``query``, חיפוש, עמוד סעיף, מפה, ``unread`` בבאץ') כותבים לתוכו, ובסוף הקריאה נכתבת שורת INFO אחת עם הסמן ``answer_size_fit``: שם הכלי, **שמות** הארגומנטים, והמספרים; למשל, בטווח שנגמר מוקדם: ``answer_size_fit: codekeeper_get_file args=[file_name, lines] byte_budget returned=<שורות שחזרו> of=<שורות שביקשו>``. לעולם לא ערך של ארגומנט ולא התשובה (K13): ערך יכול להיות שם קובץ, שאילתה או טקסט של פתק. תשובה שנכנסת אינה משאירה שורה. גוף של כלי קריאה רץ בחוט עובד, והפנקס מגיע אליו כי ``asyncio.to_thread`` מעתיק את ה-``Context`` — ``tests/test_mcp_logging_visible.py`` בודק את זה בתהליך נקי, דרך ``call_tool`` ובכלי שרץ בחוט עובד, ולא ב-``caplog`` (שמחבר handler משלו ועובר בלי קשר למה שהתהליך מדפיס). **נרשם רק מה שהלקוח קיבל** — הכלל כתוב ליד ``answer_fit.attempt``: מי שבונה תשובה שעוד עשויה להיזרק בונה אותה בניסיון משלו, שעובר לפנקס רק כשהיא יוצאת. לכן חיתוך או סירוב בתשובה שנזרקה — ניסיון ש-``_fit_with_file_meta`` זרק, פריט באץ' שהוחלף ב-``item_too_large`` או עבר ל-``unread``, תשובה שהרשת החליפה — אינו בשורה, והסירוב של הרשת כן, לצד ה-WARNING ``answer_size_net`` שלה. ``tests/conftest.py`` (``answer_fits_match_what_was_sent``) אוכף את זה על כל ``call_tool`` בטסטים: כל ``answer_too_large`` בפנקס הוא סירוב שנשלח, וכל חיתוך בפנקס נושא סימן בתשובה.
+**וכל חיתוך או סירוב של תקציב — נרשם.** בלי זה לא היה אפשר לדעת אם ``OUTPUT_BYTE_BUDGET`` צר מדי לתהליך נפוץ, אלא מתלונות של סוכנים. ``call_tool`` פותח ``answer_fit.recording`` סביב גוף הכלי; ``answer_fit.too_large`` וכל חיתוך ב-``byte_budget`` (``answer_fit.cut`` — טווח, ``query``, חיפוש, עמוד סעיף, עמוד מסמך, מפה, ``unread`` בבאץ') כותבים לתוכו, ובסוף הקריאה נכתבת שורת INFO אחת עם הסמן ``answer_size_fit``: שם הכלי, **שמות** הארגומנטים, והמספרים; למשל, בטווח שנגמר מוקדם: ``answer_size_fit: codekeeper_get_file args=[file_name, lines] byte_budget returned=<שורות שחזרו> of=<שורות שביקשו>``. לעולם לא ערך של ארגומנט ולא התשובה (K13): ערך יכול להיות שם קובץ, שאילתה או טקסט של פתק. תשובה שנכנסת אינה משאירה שורה. גוף של כלי קריאה רץ בחוט עובד, והפנקס מגיע אליו כי ``asyncio.to_thread`` מעתיק את ה-``Context`` — ``tests/test_mcp_logging_visible.py`` בודק את זה בתהליך נקי, דרך ``call_tool`` ובכלי שרץ בחוט עובד, ולא ב-``caplog`` (שמחבר handler משלו ועובר בלי קשר למה שהתהליך מדפיס). **נרשם רק מה שהלקוח קיבל** — הכלל כתוב ליד ``answer_fit.attempt``: מי שבונה תשובה שעוד עשויה להיזרק בונה אותה בניסיון משלו, שעובר לפנקס רק כשהיא יוצאת. לכן חיתוך או סירוב בתשובה שנזרקה — ניסיון ש-``_fit_with_file_meta`` זרק, פריט באץ' שהוחלף ב-``item_too_large`` או עבר ל-``unread``, תשובה שהרשת החליפה — אינו בשורה, והסירוב של הרשת כן, לצד ה-WARNING ``answer_size_net`` שלה. ``tests/conftest.py`` (``answer_fits_match_what_was_sent``) אוכף את זה על כל ``call_tool`` בטסטים: כל ``answer_too_large`` בפנקס הוא סירוב שנשלח, וכל חיתוך בפנקס נושא סימן בתשובה.
 
 **והערך המוצהר נבדק ברישום.** ``AdminAwareFastMCP.add_tool`` מסרב לרשום כלי שמצהיר על משהו שהלקוח לא יכבד — ערך שאינו מספר שלם, בוליאני, אפס או פחות, או מעל 500,000 (``CLIENT_CEILING_CHARS``) — ב-``TypeError`` שנוקב בשם הכלי, והשרת אינו עולה. כלי שנרשם בדרך שעוקפת את ``add_tool`` עדיין מוחזק לתקרה שלו, כי הרשת קוראת אותה בזמן הקריאה ולא בזמן הרישום.
 
@@ -1824,7 +1827,7 @@ Claude Desktop
    * - ``ambiguous_section`` גם כשביקשתם בשם הכותרת המלא
      - השם חוזר בקובץ, והכלי אינו מנחש. קראו לפי ``line_range`` של המועמד — ב-``codekeeper_get_file`` עם ``lines`` — או את ההורה מה-``breadcrumb`` בשמו. ראו :ref:`mcp-docs-section`
    * - ``answer_too_large``
-     - התשובה אינה נכנסת בתקציב, ואין בה מה לקצר בלי לאבד משהו בשקט. ה-``hint`` אומר מה לבקש במקום: בקריאה מלאה — ``lines`` (ובקובץ Markdown גם ``toc``/``section``, ובריפו גם ``outline`` ו-``read_with`` כשכלי הסעיפים מגיש את הקובץ); ברשימת פתקים — ``include_content=false`` ואז ``codekeeper_get_note``. במפה ובסעיף: גם בלי אף פריט ברשימות התשובה גדולה, ומה שנשאר בה הוא המטא-דאטה של הקובץ — תיאור ארוך או תגיות ענקיות — שנוסעת על **כל** תשובה על הקובץ. הסירוב עצמו מוותר על התגיות ועל התיאור כדי להיכנס (``file.tags_truncated``, ``file.description_bytes``). השורש — כותבים שאינם אוכפים תקרה — ב-#3489. ראו :ref:`mcp-answer-size`
+     - התשובה אינה נכנסת בתקציב, ואין בה מה לקצר בלי לאבד משהו בשקט. ה-``hint`` אומר מה לבקש במקום: בקריאה מלאה — ``lines`` (ובקובץ Markdown גם ``toc``/``section``, ובריפו גם ``outline``, ו-``read_with`` עם ``whole_document: true`` כשכלי התיעוד מגיש את הקובץ — הקובץ כולו שם, מדופדף); ברשימת פתקים — ``include_content=false`` ואז ``codekeeper_get_note``. במפה ובסעיף: גם בלי אף פריט ברשימות התשובה גדולה, ומה שנשאר בה הוא המטא-דאטה של הקובץ — תיאור ארוך או תגיות ענקיות — שנוסעת על **כל** תשובה על הקובץ. הסירוב עצמו מוותר על התגיות ועל התיאור כדי להיכנס (``file.tags_truncated``, ``file.description_bytes``). השורש — כותבים שאינם אוכפים תקרה — ב-#3489. ראו :ref:`mcp-answer-size`
    * - ``file.tags_truncated: true``
      - התשובה לא נכנסה בתקציב עם התגיות של הקובץ, ולכן ויתרה עליהן — בסירוב מהסוף, ובתשובה מוצלחת כולן. התגיות שמורות כמו שהן; רק התשובה הזו לא נשאה אותן. תשובה מוצלחת מוותרת עליהן רק כשהן מה שעומד בינה לבין התקציב, או כשהמטא-דאטה גדולה מכל שאר תשובה שנחתכה. ראו :ref:`mcp-answer-size`
    * - ``file.description_bytes``, ו-``file.description`` חסר

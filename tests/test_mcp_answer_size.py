@@ -827,12 +827,31 @@ async def test_a_stored_field_named_range_does_not_turn_a_full_read_into_a_range
 _BIG_MD = "# ראשי\n\n" + "\n".join(f"## סעיף {i}\n\n" + _HEBREW_LINE * 10 for i in range(120))
 
 
+async def _follow_to_the_end(mcp: Any, answer: dict[str, Any]) -> str:
+    """הולך אחרי ``read_with`` של הסירוב **כמו שהוא**, ומדפדף עד ש-``truncated`` כבה.
+
+    מחזיר את הטקסט שהצטבר. כל עמוד הוא תשובה מוצלחת של מצב מסמך, ונכנס בתקציב כפי שנשלח.
+    """
+    arguments = dict(answer["read_with_arguments"])
+    pieces = []
+    while True:
+        page, sent = await _call(mcp, answer["read_with"], arguments)
+        assert page["ok"] is True and page["mode"] == "document" and sent <= BUDGET
+        pieces.append(page["content"])
+        if not page["truncated"]:
+            return "".join(pieces)
+        arguments = {**answer["read_with_arguments"], "offset": page["next_offset"]}
+
+
 @requires_git
 async def test_a_whole_repo_file_over_the_budget_is_refused_with_its_ways_in(tmp_path, monkeypatch, net_log):
     """קריאה מלאה של קובץ במראה: על main ``docs/mcp-server.rst`` יצא 299,038 בתים.
 
     הסירוב נושא ``file`` (עם ``lines``), ו-``hint`` ל-``lines``/``outline``. קובץ שכלי
-    הסעיפים מגיש — גם ``read_with``/``read_with_arguments``, והארגומנטים עובדים.
+    התיעוד מגיש — גם ``read_with``/``read_with_arguments`` עם ``whole_document=true``, ומי
+    שהולך אחריהם כמו שהם ומדפדף עד הסוף מקבל את הקובץ כולו: מה שהקריאה המלאה ביקשה.
+
+    מוטציה שמפילה: הפניה בלי ``whole_document`` — היא מחזירה את מפת הכותרות, ולא את הקובץ.
     """
     code = "\n".join(f"def f{i}():\n    return '{_HEBREW_LINE}'" for i in range(1500))
     mcp, _ = _repos(tmp_path, monkeypatch, {_MD_REPO: {"big.md": _BIG_MD}, _CODE_REPO: {"app.py": code}})
@@ -845,8 +864,9 @@ async def test_a_whole_repo_file_over_the_budget_is_refused_with_its_ways_in(tmp
     answer, sent = await _call(mcp, "codekeeper_get_repo_file", {"repo": _MD_REPO, "path": "big.md"})
     assert answer["error"] == "answer_too_large" and sent <= BUDGET
     assert answer["read_with"] == docs_handlers.SECTION_TOOL_NAME
-    toc, _ = await _call(mcp, answer["read_with"], answer["read_with_arguments"])
-    assert toc["ok"] is True and toc["toc"]
+    assert answer["read_with_arguments"] == {"repo": _MD_REPO, "path": "big.md", "whole_document": True}
+    assert "whole file" in answer["hint"]
+    assert await _follow_to_the_end(mcp, answer) == _BIG_MD
     _assert_net_silent(net_log)
 
 
@@ -855,7 +875,8 @@ async def test_a_refusal_on_a_branch_points_the_section_tool_at_that_branch(tmp_
     """SUGG-005 (T2): ``ref`` עובר ל-``read_with_arguments``, מנוקה מרווחים.
 
     בלעדיו, מי שהולך אחרי ההפניה קורא את הענף הראשי, כלומר גרסה אחרת של הקובץ. הקובץ
-    הגדול קיים **רק** בענף ``feature``, ולכן ההפניה שעובדת מוכיחה שהיא קוראת אותו ענף.
+    הגדול קיים **רק** בענף ``feature``, ולכן ההפניה שמרכיבה אותו כולו מוכיחה שהיא קוראת
+    אותו ענף.
     """
     _repos(tmp_path, monkeypatch, {})  # סביבה, אדמין ומדיניות; המראה נבנית כאן, עם שני ענפים
     work = tmp_path / "work" / _MD_REPO
@@ -879,10 +900,74 @@ async def test_a_refusal_on_a_branch_points_the_section_tool_at_that_branch(tmp_
     answer, sent = await _call(mcp, "codekeeper_get_repo_file",
                                {"repo": _MD_REPO, "path": "big.md", "ref": "  feature "})
     assert answer["error"] == "answer_too_large" and sent <= BUDGET
-    assert answer["read_with_arguments"] == {"repo": _MD_REPO, "path": "big.md", "ref": "feature"}
-    toc, _ = await _call(mcp, answer["read_with"], answer["read_with_arguments"])
-    assert toc["ok"] is True and toc["toc"]
+    assert answer["read_with_arguments"] == {"repo": _MD_REPO, "path": "big.md", "ref": "feature",
+                                             "whole_document": True}
+    assert await _follow_to_the_end(mcp, answer) == _BIG_MD
     _assert_net_silent(net_log)
+
+
+#: גודל שגוף בקשה יכול לשאת (``DEFAULT_MAX_REQUEST_BYTES`` הוא 1MiB), וגדול מהתקציב לבדו.
+_HUGE_INPUT = "a" * 300_000
+
+#: שלושת כלי המראה שמקבלים ``ref``, והארגומנטים התקינים שכל פרמטר מוחלף בתוכם.
+_REF_TOOLS = {
+    docs_handlers.SECTION_TOOL_NAME: {"repo": _MD_REPO, "path": "small"},
+    "codekeeper_get_repo_file": {"repo": _MD_REPO, "path": "small.md"},
+    "codekeeper_list_repo_tree": {"repo": _MD_REPO},
+}
+
+#: פערים ידועים באינווריאנט — כל אחד מתועד ב-PR #3626, ותיקון שלו הוא תקרת אורך משלו.
+#: הטסט **מוודא שהם עדיין נופלים**: ביום שאחד מהם יתוקן, הטסט ייכשל ויחייב להוציא אותו
+#: מכאן — הרשימה אינה יכולה להישאר מאחור בשקט.
+_KNOWN_ECHO_GAPS = frozenset({
+    # ``repo_not_allowed`` מחזיר את ``requested_repo`` כמו שהוא (``resolve_docs_target``).
+    (docs_handlers.SECTION_TOOL_NAME, "repo"),
+})
+
+
+@requires_git
+async def test_no_refusal_of_the_ref_tools_trips_the_net_whatever_a_string_argument_carries(
+    tmp_path, monkeypatch, caplog,
+):
+    """שום תשובה של שלושת כלי ה-``ref`` אינה עוברת את התקציב, גם כשארגומנט מחרוזת ענק.
+
+    **זו הדרך שבה הממצא על ``ref`` היה אמור להיתפס מראש.** ``invalid_ref`` החזיר את
+    ה-``ref`` כמו שהוא, ו-``ref`` של 300,000 תווים — גוף בקשה יכול לשאת אותו — הוליד
+    סירוב גדול מהתקציב; הרשת ב-``call_tool`` (``answer_size_net``) החליפה אותו בסירוב
+    כללי, בלי ``repo``, בלי ``path`` ובלי הסיבה. כאן כל פרמטר מחרוזת של כל כלי —
+    **נגזר מהסכימה שלו**, ולכן פרמטר שיתווסף נבדק מעצמו — מקבל קלט כזה, כשכל השאר
+    תקין, והתשובה חייבת להיכנס בתקציב **בלי** שהרשת נדרשה. ``context`` אינו כאן: הוא
+    של האנליטיקס, ואינו מגיע לכלי.
+
+    מוטציה שמפילה: להסיר את ``_ref_too_long`` מאחד משני המקומות ב-``RepoBackend`` —
+    ה-``ref`` של אותו כלי מדליק את הרשת.
+    """
+    mcp, _ = _repos(tmp_path, monkeypatch, {_MD_REPO: {"small.md": "# קטן\n\nגוף.\n"}})
+    caplog.set_level(logging.WARNING, logger=srv.logger.name)
+
+    def net_fired() -> bool:
+        return any("answer_size_net" in record.getMessage() for record in caplog.records)
+
+    checked, tripped = [], set()
+    for name, base in _REF_TOOLS.items():
+        properties = mcp._tool_manager.get_tool(name).parameters["properties"]
+        for param, spec in properties.items():
+            kinds = {spec.get("type")} | {option.get("type") for option in spec.get("anyOf", [])}
+            if "string" not in kinds or param == "context":
+                continue
+            extra = {"outline": True} if param == "symbol" else {}
+            caplog.clear()
+            answer, sent = await _call(mcp, name, {**base, **extra, param: _HUGE_INPUT})
+            checked.append((name, param))
+            if net_fired():
+                tripped.add((name, param))
+            else:
+                assert sent <= BUDGET, (name, param, sent)
+
+    assert (docs_handlers.SECTION_TOOL_NAME, "ref") in checked, "הנחת המקרה: הסכימה נקראה"
+    assert tripped == _KNOWN_ECHO_GAPS, (
+        f"נדלקה הרשת על: {sorted(tripped - _KNOWN_ECHO_GAPS)}; "
+        f"פער ידוע שכבר נסגר: {sorted(_KNOWN_ECHO_GAPS - tripped)}")
 
 
 @requires_git
