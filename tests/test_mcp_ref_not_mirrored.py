@@ -554,7 +554,13 @@ async def test_a_redirect_appears_exactly_where_the_docs_tool_serves_the_same_fi
 
 
 def test_every_ref_parameter_carries_the_refresh_note():
-    """שלושת הכלים שמקבלים ``ref``, ורק הם — וכולם מאותו מקור."""
+    """שלושת הכלים שמקבלים ``ref``, ורק הם — וכולם מאותו מקור: משפט הרענון, ואחריו התקרה.
+
+    התקרה נשתלת מ-``docs_handlers.MAX_REF_CHARS`` ולא מוקלדת, כמו ``MAX_PATH_CHARS`` בתיאור
+    ה-``path`` של כלי התיעוד.
+    """
+    from mcp_server import docs_handlers
+
     mcp = srv.build_mcp(object(), repo_backend=RepoBackend(db=None))
     with_ref = {
         tool.name: tool.parameters["properties"]["ref"].get("description")
@@ -563,8 +569,11 @@ def test_every_ref_parameter_carries_the_refresh_note():
     }
     assert with_ref == dict.fromkeys(
         ("codekeeper_get_repo_file", "codekeeper_list_repo_tree", "codekeeper_docs_get_section"),
-        MIRROR_REFRESH_NOTE,
+        srv._REF_PARAM_DOC,
     )
+    assert srv._REF_PARAM_DOC.startswith(MIRROR_REFRESH_NOTE)
+    assert f"longer than {docs_handlers.MAX_REF_CHARS} characters is refused as ref_too_long" in (
+        srv._REF_PARAM_DOC)
     assert MIRROR_REFRESH_NOTE.startswith("The mirror is refreshed only when the repo's default branch changes.")
 
 
@@ -618,3 +627,93 @@ def test_the_refresh_note_matches_the_webhook_policy(monkeypatch):
 
     default = push("refs/heads/main")
     assert default.status_code == 202 and [q["repo_name"] for q in queued] == [_MD]
+
+
+# ===========================================================================
+# 8. ``ref`` ארוך מהתקרה — נדחה בשמו, לפני שמשהו נקרא, ובלי לחזור על עצמו
+# ===========================================================================
+
+#: שלושת הכלים שמקבלים ``ref``, עם הארגומנטים התקינים שאיתם נשלח ה-``ref``. מצב מסמך
+#: של כלי התיעוד נבדק בנפרד, כי הוא עובר בקריאה אחרת (``docs_handlers.load_text``).
+_REF_CALLS = [
+    ("codekeeper_docs_get_section", {"repo": _MD, "path": "CRITICAL-PATTERNS"}),
+    ("codekeeper_docs_get_section", {"repo": _MD, "path": "CRITICAL-PATTERNS", "whole_document": True}),
+    ("codekeeper_get_repo_file", {"repo": _MD, "path": "CRITICAL-PATTERNS.md"}),
+    ("codekeeper_list_repo_tree", {"repo": _MD}),
+]
+
+
+@requires_git
+@pytest.mark.parametrize("name, base", _REF_CALLS, ids=["section", "document", "repo-file", "tree"])
+async def test_a_ref_over_the_ceiling_is_refused_by_name_without_echoing_it(tmp_path, monkeypatch, name, base):
+    """``ref`` ארוך מ-``MAX_REF_CHARS`` ← ``ref_too_long`` עם ``max_chars`` ו-``actual_chars``.
+
+    **בלי ה-``ref`` בתשובה**: ``invalid_ref`` מחזיר אותו כמו שהוא, וכך ``ref`` של מאות
+    אלפי תווים הוליד סירוב גדול מהתקציב, שהרשת החליפה בסירוב כללי בלי הסיבה. כלי התיעוד
+    מוסיף ``repo`` ו-``path`` משלו, שכבר נבדקו; כלי האדמין — שום ערך של הקורא.
+
+    מוטציה שמפילה: להסיר את ``_ref_too_long`` מ-``get_file`` או מ-``list_tree``.
+    """
+    from mcp_server import docs_handlers
+
+    world = _world(tmp_path, monkeypatch)
+    ceiling = docs_handlers.MAX_REF_CHARS
+
+    answer = await _call(world.mcp, name, {**base, "ref": "a" * (ceiling + 1)})
+
+    expected = {"ok": False, "error": "ref_too_long", "max_chars": ceiling, "actual_chars": ceiling + 1}
+    if name == "codekeeper_docs_get_section":
+        expected.update(repo=_MD, path="CRITICAL-PATTERNS.md")
+    assert answer == expected
+
+
+@requires_git
+@pytest.mark.parametrize("name, base", _REF_CALLS, ids=["section", "document", "repo-file", "tree"])
+async def test_a_ref_at_the_ceiling_gets_the_answer_of_today(tmp_path, monkeypatch, name, base):
+    """``ref`` באורך ``MAX_REF_CHARS`` בדיוק — אותה תשובה כמו לפני התקרה: ``invalid_ref``, עם ה-``ref``.
+
+    התקרה היא משטח ולא תקן: הוולידציה נשארת ב-``BASIC_REF_PATTERN``, ו-``ref`` שאינו עובר
+    אותה וקצר מהתקרה נדחה שם, כמו תמיד — וחוזר בתשובה, כי עכשיו הוא חסום.
+
+    מוטציה שמפילה: ``>=`` במקום ``>`` בבדיקת התקרה.
+    """
+    from mcp_server import docs_handlers
+
+    world = _world(tmp_path, monkeypatch)
+    ref = "a" * docs_handlers.MAX_REF_CHARS
+
+    answer = await _call(world.mcp, name, {**base, "ref": ref})
+
+    assert answer["error"] == "invalid_ref" and answer["ref"] == ref and answer["repo"] == _MD
+
+
+@requires_git
+async def test_what_the_ref_ceiling_comes_after_and_what_it_overtakes(tmp_path, monkeypatch):
+    """הסדר: מה שנבדק לפני התקרה עונה כמו היום; מה שהמראה בודקת אחריה — מפסיד לה.
+
+    **ההבדל היחיד בתשובה עבור ``ref`` עד התקרה הוא אפס, ומעליה — שני מקרים, ושניהם כאן.**
+    לפני התקרה, בלי שינוי: מדיניות הנתיבים של כלי התיעוד (``path_outside_root``), מדיניות
+    הסודות (``path_denied``), ו-``outline`` יחד עם ``lines``. אחרי התקרה — כל מה שהמראה
+    בודקת: ריפו פגום עם ``ref`` ארוך ענה עד היום ``invalid_input``, ועכשיו ``ref_too_long``,
+    וכך גם ריפו שאין לו מראה. ``ref`` ארוך אינו יכול להיפתר בשום ריפו, ולכן זה הסירוב הנכון.
+
+    מוטציה שמפילה: להקדים את ``_ref_too_long`` אל לפני ``is_denied`` ב-``get_file``.
+    """
+    from mcp_server import docs_handlers
+
+    world = _world(tmp_path, monkeypatch)
+    long_ref = "a" * (docs_handlers.MAX_REF_CHARS + 1)
+
+    async def error(name: str, arguments: dict[str, Any]) -> str:
+        return (await _call(world.mcp, name, {**arguments, "ref": long_ref}))["error"]
+
+    assert await error("codekeeper_docs_get_section", {"repo": _MD, "path": "../outside"}) == "path_outside_root"
+    assert await error("codekeeper_get_repo_file", {"repo": _MD, "path": "secrets.md"}) == "path_denied"
+    assert await error("codekeeper_get_repo_file",
+                       {"repo": _MD, "path": "CRITICAL-PATTERNS.md", "outline": True, "lines": [1, 2]}
+                       ) == "outline_and_lines"
+    for name, arguments in (("codekeeper_get_repo_file", {"repo": "bad name!", "path": "x.md"}),
+                            ("codekeeper_get_repo_file", {"repo": "Ghost", "path": "x.md"}),
+                            ("codekeeper_list_repo_tree", {"repo": "bad name!"}),
+                            ("codekeeper_list_repo_tree", {"repo": "Ghost"})):
+        assert await error(name, arguments) == "ref_too_long", (name, arguments)

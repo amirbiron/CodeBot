@@ -384,8 +384,14 @@ _OUTLINE_PARAM_DOC = (
 #: הפרמטר ולא בתיאור הכלי, כי תיאור הכלי כבר נחתך פעם אצל הלקוח. **המשפט עצמו
 #: אינו כתוב כאן:** הוא ``repo_handlers.MIRROR_REFRESH_NOTE``, אותו מקור שממנו
 #: נבנית ההודעה של ``ref_not_mirrored`` — ושם כתוב גם איזה קוד מגדיר את
-#: המדיניות שהוא מתאר, ואילו טסטים מקבעים אותה.
-_REF_PARAM_DOC = repo_handlers.MIRROR_REFRESH_NOTE
+#: המדיניות שהוא מתאר, ואילו טסטים מקבעים אותה. ואחריו התקרה על האורך, מהקבוע
+#: (``docs_handlers.MAX_REF_CHARS``; הנימוק שם), כמו המשפט על ``path_too_long`` בתיאור
+#: ה-``path`` של כלי התיעוד.
+_REF_PARAM_DOC = (
+    repo_handlers.MIRROR_REFRESH_NOTE
+    + f" A ref longer than {docs_handlers.MAX_REF_CHARS} characters is refused as "
+    "ref_too_long, before anything is read."
+)
 
 # ``symbol=`` ישב בתוך המשפט של פייתון, ומיד אחריו בא המשפט שאומר ש-HTML
 # נותן שמות **שטוחים** — סוכן שקרא את זה קשר את הפילטר לשמות מנוקדים ולא

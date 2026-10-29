@@ -170,6 +170,30 @@ def _outline_response(
     return answer
 
 
+def _ref_too_long(ref: str | None) -> dict[str, Any] | None:
+    """``ref_too_long`` כש-``ref`` ארוך מ-``docs_handlers.MAX_REF_CHARS`` — או ``None``.
+
+    **לפני שה-``ref`` מגיע לאיזו תשובה**, כי ``invalid_ref`` (:meth:`RepoBackend._unresolved_ref`)
+    מחזיר אותו כמו שהוא, ו-``ref`` ענק הפך סירוב לגדול מהתקציב — והרשת החליפה אותו
+    בסירוב כללי, בלי הסיבה. הנימוק, המספר ולמה הבדיקה כאן ולא בשירות המראה — ליד הקבוע.
+
+    **הסירוב אינו נושא אף ערך של הקורא**, גם לא ``repo``: בכלי האדמין הריפו עוד לא נבדק
+    בשלב הזה (המראה בודקת אותו אחרי), ולכן הוא חסום רק בגוף הבקשה. כלי התיעוד מוסיף
+    ``repo`` ו-``path`` משלו, שכבר נבדקו (``docs_handlers.text_from_read``).
+
+    ה-import עצל, כמו ב-:func:`_with_section_redirect`: ``docs_handlers`` מושך את שני
+    הפארסרים, וקריאה בלי ``ref`` אינה צריכה אותם.
+    """
+    if ref is None:
+        return None
+    from . import docs_handlers
+
+    if len(ref) <= docs_handlers.MAX_REF_CHARS:
+        return None
+    return {"ok": False, "error": "ref_too_long",
+            "max_chars": docs_handlers.MAX_REF_CHARS, "actual_chars": len(ref)}
+
+
 def _with_section_redirect(
     answer: dict[str, Any], *, repo: str, path: str, ref: str | None
 ) -> dict[str, Any]:
@@ -552,6 +576,10 @@ class RepoBackend:
         byte_budget: int = OUTPUT_BYTE_BUDGET,
         include_stats: bool = False,
     ) -> dict[str, Any]:
+        # ראשון, כי שום בדיקה זולה אינה קודמת לו כאן — ראו :func:`_ref_too_long`.
+        too_long = _ref_too_long(ref)
+        if too_long is not None:
+            return too_long
         use_ref = ref or self._default_ref(repo)
         prefix = (path or "").strip().strip("/")
         sizes: dict[str, int | None] = {}
@@ -744,6 +772,12 @@ class RepoBackend:
             if isinstance(bounds, str):
                 return {"ok": False, "error": bounds}
 
+        # **אחרי הבדיקות שלמעלה, ולפני כל דבר שקורא את המראה.** כך בקשה שנכשלת באחת מהן
+        # מקבלת את התשובה של היום גם עם ``ref`` ארוך, ו-``ref`` ארוך גובר על כל מה שהמראה
+        # בודקת אחריו — ריפו או נתיב פגומים, ריפו בלי מראה, ``sync_in_progress``.
+        too_long = _ref_too_long(ref)
+        if too_long is not None:
+            return too_long
         use_ref = ref or (
             snapshot.default_ref(repo) if snapshot is not None else self._default_ref(repo)
         )

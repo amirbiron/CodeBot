@@ -78,6 +78,30 @@ MAX_CHARS_MIN = 500
 #: ולא את מספר הבקשות.
 MAX_PATH_CHARS = 4096
 
+#: תקרת אורך ל-``ref``, בתווים, **מאותו נימוק כמו** :data:`MAX_PATH_CHARS` **ולכן אותו
+#: מספר**: ``PATH_MAX`` של לינוקס — שם של ענף הוא קובץ תחת ``refs/``, כלומר גם הוא חי
+#: בתוך הגבול הזה. ``ref`` ארוך ממנה נדחה ב-``ref_too_long`` עם ``max_chars`` ו-
+#: ``actual_chars`` — אותם שדות כמו ``path_too_long`` — **ובלי להחזיר את ה-``ref``**.
+#:
+#: **מה זה סוגר — נמדד (2026-10-29), דרך ``call_tool`` על מראה אמיתית.** ``ref`` לא היה
+#: חסום בשום מקום לפני המראה, ו-``invalid_ref`` מחזיר אותו כמו שהוא
+#: (``RepoBackend._unresolved_ref``). ``ref`` של 300,000 תווים — גוף בקשה יכול לשאת
+#: אותו — הוליד סירוב גדול מ-``OUTPUT_BYTE_BUDGET``, והרשת ב-
+#: ``AdminAwareFastMCP.call_tool`` החליפה אותו ב-``answer_too_large`` כללי: בלי ``repo``,
+#: בלי ``path`` ובלי הסיבה. בשלושת הכלים שמקבלים ``ref``.
+#:
+#: **הבדיקה ב-``RepoBackend`` ולא כאן** (``get_file`` ו-``list_tree``, דרך
+#: ``repo_backend._ref_too_long``): שם עוברים שלושת הכלים, ושם ה-``ref`` נכנס לראשונה
+#: לתשובה. **ולא ב-``_validate_ref_with_git``:** השירות משרת גם את הוובאפ, ושם קוד חדש
+#: בלי שורה במפות של ``/repo/api/history`` ו-``/repo/api/file-at-commit`` הופך ל-500 —
+#: מי שיעביר את הבדיקה לשירות מעדכן את המפות, ו-``tests/test_repo_browser_ref_errors.py``
+#: שומר עליהן.
+#:
+#: **התקרה היא משטח, לא תקן.** הוולידציה של ``ref`` נשארת במקום אחד, ``BASIC_REF_PATTERN``
+#: ב-``services/git_mirror_service.py``, ו-``ref`` ארוך ממנה אבל קצר מהתקרה מקבל את
+#: התשובה של היום, ``invalid_ref``, עם ה-``ref`` — כי הוא חסום בתקרה.
+MAX_REF_CHARS = MAX_PATH_CHARS
+
 #: תקרת אורך ל-``section``, בתווים (``len`` של פייתון — נקודות קוד), כמו
 #: :data:`MAX_PATH_CHARS`. ארוך ממנה נדחה ב-``section_too_long`` עם
 #: ``max_chars`` ו-``actual_chars`` — אותם שמות שדות כמו ``path_too_long``.

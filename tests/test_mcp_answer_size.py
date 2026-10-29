@@ -906,6 +906,70 @@ async def test_a_refusal_on_a_branch_points_the_section_tool_at_that_branch(tmp_
     _assert_net_silent(net_log)
 
 
+#: גודל שגוף בקשה יכול לשאת (``DEFAULT_MAX_REQUEST_BYTES`` הוא 1MiB), וגדול מהתקציב לבדו.
+_HUGE_INPUT = "a" * 300_000
+
+#: שלושת כלי המראה שמקבלים ``ref``, והארגומנטים התקינים שכל פרמטר מוחלף בתוכם.
+_REF_TOOLS = {
+    docs_handlers.SECTION_TOOL_NAME: {"repo": _MD_REPO, "path": "small"},
+    "codekeeper_get_repo_file": {"repo": _MD_REPO, "path": "small.md"},
+    "codekeeper_list_repo_tree": {"repo": _MD_REPO},
+}
+
+#: פערים ידועים באינווריאנט — כל אחד מתועד ב-PR #3626, ותיקון שלו הוא תקרת אורך משלו.
+#: הטסט **מוודא שהם עדיין נופלים**: ביום שאחד מהם יתוקן, הטסט ייכשל ויחייב להוציא אותו
+#: מכאן — הרשימה אינה יכולה להישאר מאחור בשקט.
+_KNOWN_ECHO_GAPS = frozenset({
+    # ``repo_not_allowed`` מחזיר את ``requested_repo`` כמו שהוא (``resolve_docs_target``).
+    (docs_handlers.SECTION_TOOL_NAME, "repo"),
+})
+
+
+@requires_git
+async def test_no_refusal_of_the_ref_tools_trips_the_net_whatever_a_string_argument_carries(
+    tmp_path, monkeypatch, caplog,
+):
+    """שום תשובה של שלושת כלי ה-``ref`` אינה עוברת את התקציב, גם כשארגומנט מחרוזת ענק.
+
+    **זו הדרך שבה הממצא על ``ref`` היה אמור להיתפס מראש.** ``invalid_ref`` החזיר את
+    ה-``ref`` כמו שהוא, ו-``ref`` של 300,000 תווים — גוף בקשה יכול לשאת אותו — הוליד
+    סירוב גדול מהתקציב; הרשת ב-``call_tool`` (``answer_size_net``) החליפה אותו בסירוב
+    כללי, בלי ``repo``, בלי ``path`` ובלי הסיבה. כאן כל פרמטר מחרוזת של כל כלי —
+    **נגזר מהסכימה שלו**, ולכן פרמטר שיתווסף נבדק מעצמו — מקבל קלט כזה, כשכל השאר
+    תקין, והתשובה חייבת להיכנס בתקציב **בלי** שהרשת נדרשה. ``context`` אינו כאן: הוא
+    של האנליטיקס, ואינו מגיע לכלי.
+
+    מוטציה שמפילה: להסיר את ``_ref_too_long`` מאחד משני המקומות ב-``RepoBackend`` —
+    ה-``ref`` של אותו כלי מדליק את הרשת.
+    """
+    mcp, _ = _repos(tmp_path, monkeypatch, {_MD_REPO: {"small.md": "# קטן\n\nגוף.\n"}})
+    caplog.set_level(logging.WARNING, logger=srv.logger.name)
+
+    def net_fired() -> bool:
+        return any("answer_size_net" in record.getMessage() for record in caplog.records)
+
+    checked, tripped = [], set()
+    for name, base in _REF_TOOLS.items():
+        properties = mcp._tool_manager.get_tool(name).parameters["properties"]
+        for param, spec in properties.items():
+            kinds = {spec.get("type")} | {option.get("type") for option in spec.get("anyOf", [])}
+            if "string" not in kinds or param == "context":
+                continue
+            extra = {"outline": True} if param == "symbol" else {}
+            caplog.clear()
+            answer, sent = await _call(mcp, name, {**base, **extra, param: _HUGE_INPUT})
+            checked.append((name, param))
+            if net_fired():
+                tripped.add((name, param))
+            else:
+                assert sent <= BUDGET, (name, param, sent)
+
+    assert (docs_handlers.SECTION_TOOL_NAME, "ref") in checked, "הנחת המקרה: הסכימה נקראה"
+    assert tripped == _KNOWN_ECHO_GAPS, (
+        f"נדלקה הרשת על: {sorted(tripped - _KNOWN_ECHO_GAPS)}; "
+        f"פער ידוע שכבר נסגר: {sorted(_KNOWN_ECHO_GAPS - tripped)}")
+
+
 @requires_git
 async def test_a_repo_range_over_the_budget_ends_at_a_line_and_continuing_rebuilds_the_file(
     tmp_path, monkeypatch, net_log,
