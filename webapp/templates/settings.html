@@ -405,7 +405,10 @@
      מספקים את ההרשאה, ולא עם CLAUDE_CODE_OAUTH_TOKEN של claude setup-token; ובתוכניות Team
      ו-Enterprise רק אדמין מוסיף מחברים (code.claude.com/docs/en/mcp, הסעיף Use MCP servers from
      claude.ai; נקרא ב-29.10.2026). הלשונית נוקבת בדוגמאות בלבד ("למשל"); הרשימה המלאה, כולל
-     הכיבוי המפורש של המחברים, בסעיף "Claude Code (טוקן)" ב-``docs/mcp-server.rst``.
+     הכיבוי המפורש של המחברים, בסעיף "Claude Code (טוקן)" ב-``docs/mcp-server.rst``. ההפניה
+     ל-/status כשהמחבר לא מופיע ב-/mcp — מאותו סעיף ("run /status to confirm which authentication
+     method is active"); disableClaudeAiConnectors — מהסעיף Disable claude.ai connectors, שחל על
+     המחברים ש-Claude Code מושך בעצמו, כלומר בטרמינל (נקרא ב-29.10.2026).
    - אפליקציית Claude למחשב מעבירה את המחברים לצ'אט ולסשנים המקומיים וה-SSH של טאב ה-Code;
      לסשנים של WSL עדיין לא (אותו עמוד, הסעיף How connectors reach Claude Code, ו-
      support.claude.com, Get started with custom connectors using remote MCP; נקראו ב-29.10.2026). #}
@@ -480,6 +483,9 @@
       <i class="fas fa-check-circle" aria-hidden="true"></i>
       מחוברים ל-Claude Code עם החשבון ב-claude.ai? לא צריך טוקן: המחבר שהוספתם בלשונית Claude.ai מופיע
       גם כאן. בודקים עם הפקודה <code dir="ltr">/mcp</code>, שמסמנת את המחברים שהגיעו מ-claude.ai.
+      לא מופיע שם? הפקודה <code dir="ltr">/status</code> מראה באיזו דרך Claude Code מחובר. אם זו לא ההתחברות
+      עם החשבון ב-claude.ai, או שהמחברים כובו (למשל בהגדרה <code dir="ltr">disableClaudeAiConnectors</code>),
+      מתקנים את זה, או עוברים לטוקן כמו שמוסבר למטה.
     </p>
     <p class="ai-connect__note">
       <i class="fas fa-key" aria-hidden="true"></i>
