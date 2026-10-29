@@ -6,6 +6,11 @@
 
 ---
 
+<img width="1774" height="887" alt="CodeKeeper: לוחות פתקים, מסמכים חיים, שרת MCP ל-Claude ו-Gemini, בוט טלגרם לגיבוי ריפואים, ערכות נושא מ-VS Code" src="https://github.com/user-attachments/assets/bd90c9bd-e241-48fe-8336-0d8e549efa91" />
+
+
+---
+
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://python.org)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://t.me/my_code_keeper_bot)
 [![WebApp](https://img.shields.io/badge/WebApp-Visit-blueviolet.svg)](https://code-keeper-webapp.onrender.com)
