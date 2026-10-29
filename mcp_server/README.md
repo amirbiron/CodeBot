@@ -1,8 +1,7 @@
 # CodeKeeper MCP Server
 
 שרת [MCP](https://modelcontextprotocol.io) שחושף את **הקבצים והאוספים** השמורים של
-המשתמש ל‑Claude — גם **Claude.ai** (Custom Connector דרך OAuth) וגם **Claude Code /
-Claude Desktop** (טוקן אישי). קריאה זמינה תמיד; **כתיבה** (יצירה/עדכון קובץ) מאחורי
+המשתמש ל‑Claude — **Claude.ai** (Custom Connector דרך OAuth), שהמחבר שלו מגיע גם ל‑**Claude Desktop** ול‑**Claude Code** שמחובר עם החשבון, ו‑**Claude Code** שמחובר בדרך אחרת (טוקן אישי). קריאה זמינה תמיד; **כתיבה** (יצירה/עדכון קובץ) מאחורי
 הרשאת `write` מפורשת. אין מחיקה.
 
 > תכנון מלא: `FEATURE_SUGGESTIONS/FEATURE_MCP_CLAUDE_INTEGRATION.md`
@@ -241,13 +240,17 @@ curl -fsS -H "Authorization: Bearer $CODEKEEPER_PAT" -o script.py \
 לבד, יפנה אותך להתחברות טלגרם ולמסך אישור, ויתחבר. (אין צורך למלא OAuth Client
 ID/Secret.) דורש שמצב OAuth יהיה מוגדר בפריסה — ראו למטה.
 
+## חיבור מ‑Claude Desktop
+המחבר מהסעיף "חיבור מ‑Claude.ai" שייך לחשבון, ולכן הוא זמין לבד גם באפליקציית הדסקטופ, בלי JSON ובלי טוקן: בצ'אט, ובסשנים המקומיים וה‑SSH של טאב ה‑Code כשמחוברים בה עם חשבון Claude (לסשנים של WSL ב‑Windows המחברים עדיין בהטמעה). הקובץ `claude_desktop_config.json` מתועד לשרתים מקומיים, ולא נדרש כאן. מי שמעדיף רשומה ידנית: טאב ה‑Code קורא גם את `~/.claude.json`, והרשומה היא זו שבסעיף "חיבור מ‑Claude Code". (code.claude.com/docs/en/mcp, הסעיף How connectors reach Claude Code; code.claude.com/docs/en/desktop, הסעיף MCP servers from the Claude Desktop chat app; support.claude.com, Get started with custom connectors using remote MCP — נקראו ב‑2026-10-29.)
+
 ## חיבור מ‑Claude Code (PAT)
+**קודם — ייתכן שלא צריך טוקן.** כש‑Claude Code מחובר עם חשבון claude.ai, המחבר מהסעיף "חיבור מ‑Claude.ai" נטען בו לבד, ו‑`/mcp` מסמן אותו כמחבר מ‑claude.ai. טוקן צריך כשהאימות הפעיל הוא אחר (למשל מפתח API, ספק ענן כמו Amazon Bedrock, או `CLAUDE_CODE_OAUTH_TOKEN` של `claude setup-token`), כשהמחברים כובו, או בתוכנית Team/Enterprise שבה האדמין לא הוסיף את המחבר. הרשימה המלאה, עם המקור, ב‑`docs/mcp-server.rst`, הסעיף "Claude Code (טוקן)".
 ```bash
 claude mcp add --transport http codekeeper https://<mcp-host>/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
-## חיבור מ‑Claude Desktop (`claude_desktop_config.json`)
+**המקבילה הידנית בקובץ.** בלי `--scope` הפקודה שומרת ב‑scope ברירת המחדל, `local`: ב‑`~/.claude.json`, תחת הרשומה של הפרויקט שממנו הרצתם אותה (`projects` ← נתיב הפרויקט ← `mcpServers`), ולכן השרת זמין רק בפרויקט ההוא. רשומה ב‑`mcpServers` שבראש הקובץ שקולה ל‑`--scope user`, וזמינה בכל הפרויקטים. בקובץ יש עוד הגדרות רבות של Claude Code, אז מוסיפים את הרשומה ל‑`mcpServers` הקיים ולא מחליפים את הקובץ (code.claude.com/docs/en/mcp, ה‑Tips של `--scope`; נקרא ב‑2026-10-29):
 ```json
 {
   "mcpServers": {

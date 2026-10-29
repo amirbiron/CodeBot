@@ -1651,7 +1651,9 @@ CodeBot מתייחס לקבצי `.md` כאזרחים ממדרגה ראשונה: 
 | לקוח | שיטת חיבור |
 | --- | --- |
 | Claude.ai | Custom Connector דרך OAuth 2.1 (DCR + PKCE + מסך אישור) |
-| Claude Code / Claude Desktop | טוקן אישי (PAT) שמונפק מהבוט |
+| Claude Desktop | אותו מחבר של Claude.ai — שייך לחשבון, ומגיע לבד לצ'אט ולטאב ה-Code |
+| Claude Code שמחובר עם החשבון ב-claude.ai | אותו מחבר של Claude.ai, בלי טוקן |
+| Claude Code שמחובר בדרך אחרת (מפתח API, Bedrock, `claude setup-token`) | טוקן אישי (PAT) שמונפק מהבוט |
 | סוכנים אחרים | **אותו שרת, בלי שינוי** — הפרוטוקול סטנדרטי. נבדק בפועל גם מול Gemini Spark |
 
 > **הערה:** השרת אינו קשור לספק מסוים. כל סוכן שמדבר MCP over Streamable HTTP ותומך ב-OAuth 2.1 או ב-Bearer token מתחבר אליו כמו שהוא.

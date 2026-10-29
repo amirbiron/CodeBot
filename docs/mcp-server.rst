@@ -5,8 +5,7 @@
 
 שרת `MCP <https://modelcontextprotocol.io>`_ (Model Context Protocol) שחושף את
 CodeKeeper ל-Claude: הקבצים והאוספים האישיים של כל משתמש, ולאדמין — גם **דפדפן
-הריפו** מעל ה-Repo Sync Engine. עובד גם מול **Claude.ai** (Custom Connector דרך
-OAuth 2.1) וגם מול **Claude Code / Claude Desktop** (טוקן אישי).
+הריפו** מעל ה-Repo Sync Engine. עובד מול **Claude.ai** (Custom Connector דרך OAuth 2.1), שהמחבר שלו מגיע גם ל-**Claude Desktop** ול-**Claude Code** שמחובר עם החשבון, ומול **Claude Code** שמחובר בדרך אחרת (טוקן אישי). הפירוט ב-:ref:`mcp-clients`.
 
 **קוד:** ``mcp_server/`` · **תכנון מלא:**
 ``FEATURE_SUGGESTIONS/FEATURE_MCP_CLAUDE_INTEGRATION.md``
@@ -1246,7 +1245,9 @@ WARNING אחד לזהות לחלון, כדי שסוכן שממשיך לדפוק 
 חיבור לקוחות
 -------------
 
-**למשתמש, ההוראות נמצאות גם בוובאפ:** בהגדרות, בסעיף "חיבור סוכן AI" (העוגן ``/settings#ai-connect``), עם לשונית ל-Claude.ai (שם כתוב גם שאותו מחבר עובד ב-Claude Code בווב), ל-Gemini (בגרסת הרשת בלבד) ול-Claude Code בטרמינל, וכפתור שמעתיק את הכתובת. הכתובת שם היא ``MCP_SERVER_URL`` של הוובאפ ואחריו ``MCP_ENDPOINT_PATH`` (``_mcp_connect_url`` ב-``webapp/routes/settings_routes.py``); כשהמשתנה חסר או נדחה, הסעיף מוצג בלי שורת הכתובת. מתחת ללשוניות יש בלוק מתקפל, "מה אפשר לבקש מהסוכן", עם דוגמאות לבקשה ראשונה, כדי שמי שחיבר עכשיו לא יישאר מול חלון צ'אט ריק.
+**למשתמש, ההוראות נמצאות גם בוובאפ:** בהגדרות, בסעיף "חיבור סוכן AI" (העוגן ``/settings#ai-connect``), עם לשונית ל-Claude.ai (שם כתוב גם שאותו מחבר עובד ב-Claude Code בווב, באפליקציית הדסקטופ וב-Claude Code בטרמינל שמחובר עם החשבון), ל-Gemini (בגרסת הרשת בלבד) ול-Claude Code בטרמינל (שם כתוב מתי מספיק החשבון ומתי צריך טוקן), וכפתור שמעתיק את הכתובת. הכתובת שם היא ``MCP_SERVER_URL`` של הוובאפ ואחריו ``MCP_ENDPOINT_PATH`` (``_mcp_connect_url`` ב-``webapp/routes/settings_routes.py``); כשהמשתנה חסר או נדחה, הסעיף מוצג בלי שורת הכתובת. מתחת ללשוניות יש בלוק מתקפל, "מה אפשר לבקש מהסוכן", עם דוגמאות לבקשה ראשונה, כדי שמי שחיבר עכשיו לא יישאר מול חלון צ'אט ריק.
+
+.. _mcp-clients-claude-ai:
 
 Claude.ai (Custom Connector)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1259,8 +1260,12 @@ Settings → Connectors → **Add custom connector** → הזינו את הכת�
 ב-Client ID/Secret. כדי לקבל **write**, ה-connector צריך להירשם עם ההרשאה — אם
 כבר חיברתם לקריאה בלבד, הסירו והוסיפו מחדש ואשרו "קריאה וכתיבה".
 
+.. _mcp-clients-claude-code:
+
 Claude Code (טוקן)
 ~~~~~~~~~~~~~~~~~~~
+
+**קודם — ייתכן שלא צריך טוקן.** כש-Claude Code מחובר עם חשבון claude.ai, המחברים של החשבון נטענים בו לבד, ובהם זה של :ref:`mcp-clients-claude-ai`; ``/mcp`` מסמן אותם כמחברים מ-claude.ai. הם לא נטענים כשהאימות הפעיל הוא אחר: ``ANTHROPIC_API_KEY``, ``ANTHROPIC_AUTH_TOKEN`` או ``apiKeyHelper``; ספק צד שלישי כמו Amazon Bedrock; פרופיל Anthropic או משתני federation שמספקים את ההרשאה; או ``CLAUDE_CODE_OAUTH_TOKEN`` שנוצר ב-``claude setup-token``. הם גם לא נטענים כשהמחברים כובו במפורש, בהגדרה ``disableClaudeAiConnectors`` או ב-``ENABLE_CLAUDEAI_MCP_SERVERS=false``, ובתוכניות Team ו-Enterprise רק אדמין מוסיף מחבר. בכל המקרים האלה — הטוקן שבהמשך הסעיף. (``code.claude.com/docs/en/mcp``, הסעיפים "Use MCP servers from claude.ai" ו-"Disable claude.ai connectors", נקרא ב-2026-10-29. בוובאפ, הלשונית "Claude Code בטרמינל" נוקבת רק בחלק מהמקרים, כדוגמאות.)
 
 שלחו לבוט בצ'אט פרטי ``/connect_claude`` (או ``/connect_claude write``), ואז:
 
@@ -1269,12 +1274,7 @@ Claude Code (טוקן)
    claude mcp add --transport http codekeeper https://<mcp-host>/mcp \
      --header "Authorization: Bearer <token>"
 
-**כמה מהבלוק ומהתיאורים מגיע לסוכן.** Claude Code חותך את ה-``instructions`` של כל שרת, ואת התיאור של כל כלי, בתקרה קבועה כברירת מחדל: 4,096 תווים מגרסה 2.1.296, ו-2,048 בגרסאות שלפניה (ה-changelog של Claude Code, ``code.claude.com/docs/en/changelog``, הרשומה של 2026-10-09, נקרא ב-2026-10-13). **סתירה בין המקורות:** העמוד ``code.claude.com/docs/en/mcp`` (הסעיף "For MCP server authors") עדיין אומר 2,048 בקריאה באותו יום — הוא לא עודכן אחרי ה-changelog, שהוא המקור המאוחר והתלוי-גרסה. ``CLIENT_INSTRUCTIONS_MAX_CHARS`` עוקב אחרי התקרה החדשה, וההערה שלידו נוקבת בשני המקורות. **לקוח ישן מ-2.1.296 עדיין חותך ב-2,048**, ובלוק ארוך מזה מגיע אליו בלי סופו — ולכן החלק האחרון בבלוק הוא כלי הריפו של האדמין, ומה שנחתך שם חסר רק לאדמין שעובד מלקוח ישן. המשתנה ``CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`` בסביבה של Claude Code משנה את התקרה — במספר תווים, לכל שרתי ה-MCP בסשן יחד, ומגרסה v2.1.280 ומעלה. **השרת הזה אינו נשען עליו:** הבלוק נשמר בתוך ``CLIENT_INSTRUCTIONS_MAX_CHARS`` והתיאורים בתוך התקרה של ``tests/test_mcp_server_build.py`` (``_TOOL_DESCRIPTION_MAX_CHARS``), כך שבלקוח עדכני שום דבר אינו נחתך בברירת המחדל. להגדיל אותו כדאי רק אם שורת ה-WARNING של הבלוק מופיעה בעליית השרת (ראו :ref:`mcp-tools`), וגם אז זה פותר רק את הסביבה שבה הוגדר — סוכן בסביבה אחרת, או משתמש אחר, עדיין רואה את התקרה הרגילה. ב-claude.ai, לפי אישו פתוח (``anthropics/claude-ai-mcp#93``, לא תיעוד רשמי), שדה ה-``instructions`` כנראה אינו מגיע לסוכן כלל.
-
-Claude Desktop
-~~~~~~~~~~~~~~~
-
-ב-``claude_desktop_config.json``:
+**המקבילה הידנית בקובץ.** בלי ``--scope`` הפקודה שומרת ב-scope ברירת המחדל, ``local``: ב-``~/.claude.json``, תחת הרשומה של הפרויקט שממנו הרצתם אותה (``projects`` ← נתיב הפרויקט ← ``mcpServers``), ולכן השרת זמין רק בפרויקט ההוא. רשומה ב-``mcpServers`` שבראש הקובץ שקולה ל-``--scope user``, וזמינה בכל הפרויקטים. בקובץ יש עוד הגדרות רבות של Claude Code, אז מוסיפים את הרשומה ל-``mcpServers`` הקיים ולא מחליפים את הקובץ (``code.claude.com/docs/en/mcp``, ה-Tips של ``--scope`` והסעיף על local scope, נקרא ב-2026-10-29):
 
 .. code-block:: json
 
@@ -1287,6 +1287,13 @@ Claude Desktop
        }
      }
    }
+
+**כמה מהבלוק ומהתיאורים מגיע לסוכן.** Claude Code חותך את ה-``instructions`` של כל שרת, ואת התיאור של כל כלי, בתקרה קבועה כברירת מחדל: 4,096 תווים מגרסה 2.1.296, ו-2,048 בגרסאות שלפניה (ה-changelog של Claude Code, ``code.claude.com/docs/en/changelog``, הרשומה של 2026-10-09, נקרא ב-2026-10-13). **סתירה בין המקורות:** העמוד ``code.claude.com/docs/en/mcp`` (הסעיף "For MCP server authors") עדיין אומר 2,048 בקריאה באותו יום — הוא לא עודכן אחרי ה-changelog, שהוא המקור המאוחר והתלוי-גרסה. ``CLIENT_INSTRUCTIONS_MAX_CHARS`` עוקב אחרי התקרה החדשה, וההערה שלידו נוקבת בשני המקורות. **לקוח ישן מ-2.1.296 עדיין חותך ב-2,048**, ובלוק ארוך מזה מגיע אליו בלי סופו — ולכן החלק האחרון בבלוק הוא כלי הריפו של האדמין, ומה שנחתך שם חסר רק לאדמין שעובד מלקוח ישן. המשתנה ``CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`` בסביבה של Claude Code משנה את התקרה — במספר תווים, לכל שרתי ה-MCP בסשן יחד, ומגרסה v2.1.280 ומעלה. **השרת הזה אינו נשען עליו:** הבלוק נשמר בתוך ``CLIENT_INSTRUCTIONS_MAX_CHARS`` והתיאורים בתוך התקרה של ``tests/test_mcp_server_build.py`` (``_TOOL_DESCRIPTION_MAX_CHARS``), כך שבלקוח עדכני שום דבר אינו נחתך בברירת המחדל. להגדיל אותו כדאי רק אם שורת ה-WARNING של הבלוק מופיעה בעליית השרת (ראו :ref:`mcp-tools`), וגם אז זה פותר רק את הסביבה שבה הוגדר — סוכן בסביבה אחרת, או משתמש אחר, עדיין רואה את התקרה הרגילה. ב-claude.ai, לפי אישו פתוח (``anthropics/claude-ai-mcp#93``, לא תיעוד רשמי), שדה ה-``instructions`` כנראה אינו מגיע לסוכן כלל.
+
+Claude Desktop
+~~~~~~~~~~~~~~~
+
+המחבר מ-:ref:`mcp-clients-claude-ai` שייך לחשבון, ולכן הוא זמין לבד גם באפליקציית הדסקטופ, בלי JSON ובלי טוקן: בצ'אט, ובסשנים המקומיים וה-SSH של טאב ה-Code כשמחוברים בה עם חשבון Claude. לסשנים של WSL ב-Windows המחברים עדיין בהטמעה. הקובץ ``claude_desktop_config.json`` מתועד לשרתים מקומיים, ולא נדרש כאן. מי שמעדיף רשומה ידנית: טאב ה-Code קורא גם את ``~/.claude.json``, והרשומה היא זו שב-:ref:`mcp-clients-claude-code`. (נקראו ב-2026-10-29: ``code.claude.com/docs/en/mcp``, הסעיף "How connectors reach Claude Code"; ``code.claude.com/docs/en/desktop``, הסעיף "MCP servers from the Claude Desktop chat app"; ``support.claude.com``, "Get started with custom connectors using remote MCP".)
 
 .. _mcp-repo-browser:
 
