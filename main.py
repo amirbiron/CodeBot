@@ -850,8 +850,12 @@ async def connect_claude_command(update: Update, context: ContextTypes.DEFAULT_T
             return
 
         base = (os.getenv("MCP_SERVER_URL") or "https://YOUR-MCP-HOST").rstrip("/")
+        # ``--scope user``: הרשומה נכתבת ל-``mcpServers`` שבראש ``~/.claude.json`` וזמינה בכל
+        # הפרויקטים. בלי הדגל ``claude mcp add`` שומר ב-``local``, תחת הפרויקט שממנו הורץ בלבד
+        # (``code.claude.com/docs/en/mcp``, ה-Tips של ``--scope``; נקרא ונמדד ב-2026-10-29 ב-
+        # Claude Code 2.1.312). הטסט: ``tests/test_connect_claude_command.py``.
         add_cmd = (
-            f'claude mcp add --transport http codekeeper {base}/mcp '
+            f'claude mcp add --transport http codekeeper --scope user {base}/mcp '
             f'--header "Authorization: Bearer {raw}"'
         )
         if want_write:
@@ -862,18 +866,25 @@ async def connect_claude_command(update: Update, context: ContextTypes.DEFAULT_T
         else:
             access_line = (
                 "⚠️ אל תשתפו את הטוקן — הוא נותן גישת <b>קריאה בלבד</b> לקבצים שלכם.\n"
-                "✍️ לטוקן עם הרשאת כתיבה (יצירה/עדכון) שלחו <code>/connect_claude write</code>."
+                "✍️ לטוקן עם הרשאת כתיבה (יצירה/עדכון) שלחו <code>/connect_claude write</code>.\n"
+                "🧠 טוקן הקריאה הזה הוא גם מה ששמים ב‑<code>CODEKEEPER_PAT</code>, כדי שההוק יטען "
+                "את \"הוראות לסוכן\" בפתיחת סשן של Claude Code — גם כשהמחבר מגיע מהחשבון."
             )
+        # מחבר שנוסף ב-Claude.ai שייך לחשבון ומגיע לבד ל-Claude Desktop ול-Claude Code שמחובר
+        # עם החשבון; הטוקן נחוץ ל-MCP רק כש-Claude Code מחובר בדרך אחרת. המקורות והתנאים
+        # המלאים: ``docs/mcp-server.rst``, הסעיף ``mcp-clients-claude-code``.
         text = (
             "🔌 <b>חיבור הקבצים שלך ל‑Claude (MCP)</b>\n\n"
             "הטוקן האישי שלך (יוצג פעם אחת בלבד — שמור אותו):\n"
             f"<code>{raw}</code>\n\n"
-            "לחיבור מ‑Claude Code / Desktop (העתק‑הדבק):\n"
+            "ל‑Claude Code שלא מחובר עם החשבון ב‑claude.ai, למשל במפתח API "
+            "(העתק‑הדבק; CodeKeeper יהיה זמין בכל הפרויקטים):\n"
             f"<code>{add_cmd}</code>\n\n"
-            "💡 ל‑Claude.ai <b>אין צורך בטוקן</b>: ב‑Settings → Connectors → "
+            "💡 ל‑Claude.ai, ל‑Claude Desktop ול‑Claude Code שמחובר עם החשבון "
+            "<b>אין צורך בטוקן</b>: ב‑Settings → Connectors → "
             "Add custom connector הזינו את הכתובת\n"
             f"<code>{base}/mcp</code>\n"
-            "וההתחברות תתבצע אוטומטית (דרך התחברות טלגרם).\n\n"
+            "וההתחברות תתבצע אוטומטית (דרך התחברות טלגרם). המחבר שייך לחשבון, ומגיע לכל אלה לבד.\n\n"
             f"{access_line}"
         )
         try:

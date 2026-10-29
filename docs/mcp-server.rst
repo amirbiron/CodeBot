@@ -642,8 +642,8 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
 
 1. **OAuth 2.1** — עבור Claude.ai (Custom Connector). זרימה מלאה: רישום
    לקוח דינמי
-   (DCR) + PKCE + מסך אישור. הזהות נקבעת דרך התחברות הטלגרם בוובאפ.
-2. **טוקן אישי (PAT)** — עבור Claude Code / Desktop. מונפק מהבוט בפקודת
+   (DCR) + PKCE + מסך אישור. הזהות נקבעת דרך התחברות הטלגרם בוובאפ. המחבר שייך לחשבון, ולכן מגיע גם ל-Claude Desktop ול-Claude Code שמחובר עם החשבון (:ref:`mcp-clients`).
+2. **טוקן אישי (PAT)** — עבור Claude Code שלא מחובר עם החשבון ב-claude.ai (:ref:`mcp-clients-claude-code`), ועבור ההוק שטוען את :ref:`הפריימר <agent-primer>`. מונפק מהבוט בפקודת
    ``/connect_claude`` (או ``/connect_claude write`` לטוקן עם הרשאת כתיבה),
    נשמר כ-hash בלבד וניתן לביטול.
 
@@ -1182,7 +1182,7 @@ WARNING אחד לזהות לחלון, כדי שסוכן שממשיך לדפוק 
 שלב 2 — מצב בסיס (PAT בלבד)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-מספיק כדי לעבוד מול Claude Code / Desktop:
+מספיק כדי לעבוד מול Claude Code דרך טוקן אישי, וכדי להגיש את הפריימר. מחבר ב-Claude.ai, ואיתו Claude Desktop ו-Claude Code שמחובר עם החשבון, דורש גם את שלב 3:
 
 .. list-table::
    :header-rows: 1
@@ -1271,10 +1271,10 @@ Claude Code (טוקן)
 
 .. code-block:: bash
 
-   claude mcp add --transport http codekeeper https://<mcp-host>/mcp \
+   claude mcp add --transport http codekeeper --scope user https://<mcp-host>/mcp \
      --header "Authorization: Bearer <token>"
 
-**המקבילה הידנית בקובץ.** בלי ``--scope`` הפקודה שומרת ב-scope ברירת המחדל, ``local``: ב-``~/.claude.json``, תחת הרשומה של הפרויקט שממנו הרצתם אותה (``projects`` ← נתיב הפרויקט ← ``mcpServers``), ולכן השרת זמין רק בפרויקט ההוא. רשומה ב-``mcpServers`` שבראש הקובץ שקולה ל-``--scope user``, וזמינה בכל הפרויקטים. בקובץ יש עוד הגדרות רבות של Claude Code, אז מוסיפים את הרשומה ל-``mcpServers`` הקיים ולא מחליפים את הקובץ (``code.claude.com/docs/en/mcp``, ה-Tips של ``--scope`` והסעיף על local scope, נקרא ב-2026-10-29):
+**איפה הפקודה שומרת, והמקבילה הידנית.** הבוט מחזיר את הפקודה הזו (``connect_claude_command`` ב-``main.py``), ו-``tests/test_connect_claude_command.py`` מקבע שיש בה ``--scope user``. הדגל כותב את הרשומה ל-``mcpServers`` שבראש ``~/.claude.json``, ולכן CodeKeeper זמין בכל הפרויקטים. בלי הדגל, ``claude mcp add`` שומר ב-scope ברירת המחדל, ``local``: תחת הרשומה של הפרויקט שממנו הורצה הפקודה (``projects`` ← נתיב הפרויקט ← ``mcpServers``), ו-CodeKeeper היה זמין רק שם (``code.claude.com/docs/en/mcp``, ה-Tips של ``--scope``, נקרא ב-2026-10-29; ונמדד באותו יום ב-Claude Code 2.1.312, בתיקיית הגדרות מבודדת). מי שמעדיף לערוך את הקובץ ביד מוסיף את הרשומה הזו ל-``mcpServers`` הקיים, ולא מחליף את הקובץ, שיש בו עוד הגדרות רבות של Claude Code:
 
 .. code-block:: json
 
