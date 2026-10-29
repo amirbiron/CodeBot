@@ -2,21 +2,27 @@ import base64
 import hashlib
 import html as html_lib
 import re
+from pathlib import Path
 
 import pytest
 from bs4 import BeautifulSoup
+from flask import Flask
 
 from services.styled_export_service import (
     ADMONITION_TYPES,
     COPY_CODE_SCRIPT,
     COPY_CODE_SCRIPT_CSP_HASH,
     DETAILS_DEFAULT_TITLE,
+    EXPORT_PRESETS,
     MAX_CONTAINER_NESTING,
     generate_pygments_css,
     get_copy_script_csp_hash,
     get_export_theme,
     get_pygments_style_for_theme,
+    list_export_presets,
     markdown_to_html,
+    render_styled_html,
+    sanitize_css,
     HAS_PYGMENTS,
 )
 from services.theme_presets_service import list_presets
@@ -412,4 +418,102 @@ class TestCopyButtonCspHash:
         expected_script_block = "<script>" + COPY_CODE_SCRIPT + "</script>"
         assert expected_script_block in html
         assert _sha256_csp(COPY_CODE_SCRIPT) == COPY_CODE_SCRIPT_CSP_HASH
+
+
+TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "webapp" / "templates"
+
+
+def _render_export(theme: dict) -> BeautifulSoup:
+    """מרנדר דרך ``render_styled_html``, כמו הראוטים, את התבנית האמיתית."""
+    app = Flask(__name__, template_folder=str(TEMPLATES_DIR))
+    with app.app_context():
+        html = render_styled_html(
+            content_html="<p>טקסט עם <code>x</code></p><pre><code>y = 1</code></pre>",
+            title="t",
+            theme=theme,
+        )
+    return BeautifulSoup(html, "html.parser")
+
+
+def _strip_css_comments(css: str) -> str:
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+
+
+class TestExtraCssAndGitHitsDocsPreset:
+    """``extra_css`` — עיצוב ופריסה של ערכה — וערכת GitHits Docs שמשתמשת בו."""
+
+    def test_githits_docs_is_listed_as_a_dark_preset(self):
+        listed = {p["id"]: p for p in list_export_presets()}
+        assert "githits-docs" in listed
+        assert listed["githits-docs"]["name"] == "GitHits Docs"
+        assert listed["githits-docs"]["category"] == "dark"
+        assert listed["githits-docs"]["description"]
+
+    def test_get_export_theme_returns_name_variables_syntax_css_and_extra_css(self):
+        theme = get_export_theme("githits-docs")
+        assert theme["id"] == "githits-docs"
+        assert theme["name"] == "GitHits Docs"
+        assert theme["variables"]["--bg-primary"] == "#13161A"
+        assert theme["variables"]["--primary"] == "#E15B9F"
+        assert theme["variables"]["--code-bg"] == "#0B0C0E"
+        assert ".highlight .gh, .highlight .gu { color: #E15B9F;" in theme["syntax_css"]
+        assert "GitHits Docs - Layout" in theme["extra_css"]
+
+    def test_extra_css_is_the_last_style_block_wrapped_in_media_screen(self):
+        theme = get_export_theme("githits-docs")
+        styles = [s.string for s in _render_export(theme).find_all("style")]
+        assert len(styles) == 3  # בסיס, syntax_css, extra_css
+        assert "GitHits Docs - Syntax Highlighting" in styles[1]
+        # הבלוק האחרון הוא extra_css ותו לא, בתוך @media screen — כך שכללי
+        # ה-@media print של הבסיס ממשיכים לחול כשהערכה דורסת את pre ו-code
+        last = _strip_css_comments(styles[2]).strip()
+        assert last.startswith("@media screen {")
+        assert last.endswith("}")
+        inner = last[len("@media screen {"):-1].strip()
+        assert inner == _strip_css_comments(sanitize_css(theme["extra_css"])).strip()
+
+    @pytest.mark.parametrize("theme_id", ["tech-guide-dark", "clean-light", "minimal"])
+    def test_presets_without_extra_css_render_no_extra_block(self, theme_id):
+        theme = get_export_theme(theme_id)
+        assert not theme["extra_css"]
+        styles = [s.string for s in _render_export(theme).find_all("style")]
+        assert len(styles) == 2  # בסיס ו-syntax_css בלבד
+        assert all("@media screen" not in s for s in styles)
+
+    def test_extra_css_is_sanitized(self):
+        theme = dict(get_export_theme("minimal"))
+        theme["extra_css"] = "p { color: red; }</style><script>alert(1)</script>"
+        soup = _render_export(theme)
+        last = soup.find_all("style")[-1].string
+        assert "</style" not in last.lower()
+        assert "/* blocked */" in last
+        # הסקריפט היחיד בעמוד הוא סקריפט ההעתקה
+        assert [s.string for s in soup.find_all("script")] == [COPY_CODE_SCRIPT]
+
+    def test_extra_css_is_not_read_from_user_themes_or_vscode_json(self):
+        injected = "body { display: none; }"
+        user_theme = {"id": "mine", "name": "Mine", "variables": {"--bg-primary": "#000000"}, "extra_css": injected}
+        vscode_json = (
+            '{"name": "VS", "type": "dark", "colors": {"editor.background": "#101010"},'
+            ' "extra_css": "body { display: none; }"}'
+        )
+        for expected_id, theme in (
+            ("mine", get_export_theme("mine", user_themes=[user_theme])),
+            ("vscode-import", get_export_theme("vscode-import", vscode_json=vscode_json)),
+        ):
+            assert theme["id"] == expected_id  # המסלול הזה נבחר, ולא ה-fallback
+            assert "extra_css" not in theme
+            assert injected not in str(_render_export(theme))
+
+    def test_fallback_is_the_tech_guide_dark_preset(self):
+        assert get_export_theme("no-such-theme") == get_export_theme("tech-guide-dark")
+
+    @pytest.mark.parametrize("preset_id", [pid for pid, p in EXPORT_PRESETS.items() if p.get("extra_css")])
+    def test_preset_extra_css_braces_are_balanced(self, preset_id):
+        """סוגר עודף היה סוגר את ה-``@media screen`` של התבנית, והכללים שאחריו היו חלים גם בהדפסה."""
+        depth = 0
+        for ch in _strip_css_comments(EXPORT_PRESETS[preset_id]["extra_css"]):
+            depth += {"{": 1, "}": -1}.get(ch, 0)
+            assert depth >= 0
+        assert depth == 0
 

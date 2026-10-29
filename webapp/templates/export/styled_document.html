@@ -466,6 +466,16 @@
 {{ syntax_css | safe }}
     </style>
     {% endif %}
+    {#- ה-"-" מוריד את השורה הריקה שהבלוק היה משאיר, כך שבערכה בלי extra_css ה-HTML זהה לזה שלפני הבלוק -#}
+    {%- if extra_css %}
+    <style>
+        /* עיצוב ופריסה של הערכה (extra_css) — הבלוק האחרון, ולכן גובר על מה שלפניו.
+           עטוף ב-@media screen כדי שכללי ה-@media print שלמעלה יחולו גם כשהערכה דורסת את pre ו-code. */
+        @media screen {
+{{ extra_css | safe }}
+        }
+    </style>
+    {%- endif %}
 </head>
 <body>
     <header>
