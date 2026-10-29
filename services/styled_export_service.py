@@ -14,6 +14,7 @@ import hashlib
 import logging
 import re
 import xml.etree.ElementTree as etree
+from string import Template
 from typing import TYPE_CHECKING, NamedTuple, Optional
 
 import bleach
@@ -448,7 +449,41 @@ def markdown_to_html(text: str, include_toc: bool = False) -> tuple[str, str]:
 # Theme Resolution
 # ============================================
 
+#: צבעי VS Code Dark+ להדגשת תחביר של Pygments (``.highlight``), משותפים לכמה ערכות
+#: ייצוא. כל ערכה קובעת רק את השם שבהערה ואת צבע הכותרות (``.gh``, ``.gu``).
+#: ``string.Template`` ולא f-string, כי ב-CSS יש סוגריים מסולסלים ואין בו ``$``.
+#: שימו לב: מפתחות של JSON מקבלים ב-Pygments את אותו טוקן כמו תגית HTML (``.nt``),
+#: ולכן הם נצבעים בצבע של התגיות.
+_VSCODE_DARK_PLUS_SYNTAX_CSS = Template("""
+/* $theme_name - Syntax Highlighting */
+.highlight .c, .highlight .c1, .highlight .cm { color: #6a9955; font-style: italic; }  /* Comments */
+.highlight .k, .highlight .kd, .highlight .kn { color: #c586c0; }  /* Keywords */
+.highlight .s, .highlight .s1, .highlight .s2 { color: #ce9178; }  /* Strings */
+.highlight .m, .highlight .mi, .highlight .mf, .highlight .mh { color: #b5cea8; }  /* Numbers */
+.highlight .nb, .highlight .bp { color: #b5cea8; }  /* Built-ins / Constants */
+.highlight .n, .highlight .nv { color: #9cdcfe; }  /* Variables */
+.highlight .nf, .highlight .fm { color: #dcdcaa; }  /* Functions */
+.highlight .nc, .highlight .nn { color: #4ec9b0; }  /* Classes / Namespaces */
+.highlight .nt { color: #569cd6; }  /* HTML Tags */
+.highlight .na { color: #9cdcfe; }  /* Attributes */
+.highlight .o, .highlight .p { color: #d4d4d4; }  /* Operators / Punctuation */
+.highlight .sr { color: #d16969; }  /* Regex */
+.highlight .se { color: #d7ba7d; }  /* Escape */
+.highlight .gh, .highlight .gu { color: $heading_color; font-weight: bold; }  /* Headings */
+.highlight .ge { font-style: italic; }  /* Emphasis */
+.highlight .gs { font-weight: bold; }  /* Strong */
+.highlight .err { color: #f44747; text-decoration: underline; }  /* Errors */
+""")
+
 # Presets מיוחדים לייצוא (בנוסף לאלו שבגלריה)
+#
+# מפתחות אופציונליים של ערכה, מעבר למשתנים:
+# - ``syntax_css``: הדגשת תחביר בלבד (כללי ``.highlight``).
+# - ``extra_css``: עיצוב ופריסה שנטענים רק כשהערכה נבחרה — צורה שמשתנים לא מבטאים
+#   (רדיוס, משקל גופן, קו במקום underline). ``export/styled_document.html`` עוטפת אותו
+#   ב-``@media screen``, כך שכללי ה-``@media print`` שלה חלים גם על ערכה שדורסת את
+#   ``pre`` ו-``code``. כל כלל צריך selector שווה או חזק מזה שבתבנית. ``get_export_theme``
+#   קורא אותו רק מכאן: לא מערכות משתמש שב-DB ולא מ-JSON של VS Code.
 EXPORT_PRESETS = {
     "tech-guide-dark": {
         "id": "tech-guide-dark",
@@ -518,26 +553,9 @@ EXPORT_PRESETS = {
             "--copy-btn-success-bg": "#2ecc71",
         },
         # Syntax highlighting CSS (מבוסס על tokenColors מה-JSON)
-        "syntax_css": """
-/* Tech Guide Dark - Syntax Highlighting */
-.highlight .c, .highlight .c1, .highlight .cm { color: #6a9955; font-style: italic; }  /* Comments */
-.highlight .k, .highlight .kd, .highlight .kn { color: #c586c0; }  /* Keywords */
-.highlight .s, .highlight .s1, .highlight .s2 { color: #ce9178; }  /* Strings */
-.highlight .m, .highlight .mi, .highlight .mf, .highlight .mh { color: #b5cea8; }  /* Numbers */
-.highlight .nb, .highlight .bp { color: #b5cea8; }  /* Built-ins / Constants */
-.highlight .n, .highlight .nv { color: #9cdcfe; }  /* Variables */
-.highlight .nf, .highlight .fm { color: #dcdcaa; }  /* Functions */
-.highlight .nc, .highlight .nn { color: #4ec9b0; }  /* Classes / Namespaces */
-.highlight .nt { color: #569cd6; }  /* HTML Tags */
-.highlight .na { color: #9cdcfe; }  /* Attributes */
-.highlight .o, .highlight .p { color: #d4d4d4; }  /* Operators / Punctuation */
-.highlight .sr { color: #d16969; }  /* Regex */
-.highlight .se { color: #d7ba7d; }  /* Escape */
-.highlight .gh, .highlight .gu { color: #0088cc; font-weight: bold; }  /* Headings */
-.highlight .ge { font-style: italic; }  /* Emphasis */
-.highlight .gs { font-weight: bold; }  /* Strong */
-.highlight .err { color: #f44747; text-decoration: underline; }  /* Errors */
-""",
+        "syntax_css": _VSCODE_DARK_PLUS_SYNTAX_CSS.substitute(
+            theme_name="Tech Guide Dark", heading_color="#0088cc"
+        ),
     },
     "clean-light": {
         "id": "clean-light",
@@ -599,7 +617,246 @@ EXPORT_PRESETS = {
             "--card-border": "#e0e0e0",
         },
     },
+    "githits-docs": {
+        "id": "githits-docs",
+        "name": "GitHits Docs",
+        "description": "תיעוד כהה ושקט בסגנון GitHits, עם ורוד אחד להדגשות",
+        "category": "dark",
+        "variables": {
+            # רקעים — ה-tertiary זהה לראשי, כדי שהגרדיאנט של ה-body יהיה שטוח
+            "--bg-primary": "#13161A",
+            "--bg-secondary": "#1A1D22",
+            "--bg-tertiary": "#13161A",
+
+            # טקסט
+            "--text-primary": "#C4CAD3",
+            "--text-secondary": "#A4A0A2",
+            "--text-muted": "#757173",
+            "--text-heading": "#FFFFFF",
+
+            # צבע מותג — ורוד אחד
+            "--primary": "#E15B9F",
+            "--primary-hover": "#FF72BE",
+            "--primary-light": "#E15B9F1A",
+            "--secondary": "#E15B9F",
+
+            # גבולות וצללים
+            "--border-color": "#FFFFFF1A",
+            "--shadow-color": "transparent",
+
+            # סטטוסים
+            "--success": "#2AB673",
+            "--warning": "#FF872F",
+            "--error": "#FCA5A5",
+            "--danger-bg": "#FCA5A5",
+            "--danger-border": "#DC2626",
+
+            # קוד
+            "--code-bg": "#0B0C0E",
+            "--code-text": "#D4D4D4",
+            "--code-border": "#FFFFFF1A",
+
+            # קישורים
+            "--link-color": "#F8F4F6",
+
+            # כרטיסים
+            "--card-bg": "#FFFFFF0D",
+            "--card-border": "#FFFFFF1A",
+
+            # Alerts — גבול בצבע המצב, ורקע של אותו צבע ב-10%. מוגדרים כאן ולא
+            # נשענים על ברירות המחדל שב-styled_document.html, כי שם הרקע של
+            # alert-info כחול.
+            "--alert-info-border": "#E15B9F",
+            "--alert-info-bg": "#E15B9F1A",
+            "--alert-warning-border": "#FF872F",
+            "--alert-warning-bg": "#FF872F1A",
+            "--alert-success-border": "#2AB673",
+            "--alert-success-bg": "#2AB6731A",
+            "--alert-danger-border": "#FCA5A5",
+            "--alert-danger-bg": "#FCA5A51A",
+
+            # Copy Button
+            "--copy-btn-bg": "transparent",
+            "--copy-btn-hover-bg": "#E15B9F",
+            "--copy-btn-success-bg": "#2AB673",
+        },
+        "syntax_css": _VSCODE_DARK_PLUS_SYNTAX_CSS.substitute(
+            theme_name="GitHits Docs", heading_color="#E15B9F"
+        ),
+        # הצורה של אתר התיעוד. מה שהתבנית כבר צובעת דרך המשתנים שלמעלה לא נדרס כאן.
+        "extra_css": """
+/* GitHits Docs - Layout */
+header {
+    background: var(--bg-primary);
+    border-bottom: 1px solid #FF4FAE2E;
+    border-radius: 0;
+    box-shadow: none;
 }
+
+header h1 {
+    color: var(--text-heading);
+    font-weight: 500;
+    letter-spacing: -0.5px;
+    text-shadow: none;
+}
+
+body {
+    letter-spacing: -0.2px;
+}
+
+h2 {
+    color: var(--text-heading);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    border-bottom: 1px solid var(--border-color);
+}
+
+h3 {
+    color: var(--text-heading);
+    font-weight: 600;
+}
+
+p {
+    text-align: start;
+}
+
+a {
+    color: var(--link-color);
+    font-weight: 600;
+    text-decoration: none;
+    border-bottom: 1px solid #C03B83;
+}
+
+a:hover {
+    color: var(--primary);
+    text-decoration: none;
+    border-bottom-color: var(--primary);
+}
+
+code {
+    font-family: Consolas, "SF Mono", Menlo, Monaco, monospace;
+    letter-spacing: normal;
+}
+
+:not(pre) > code {
+    color: #FFB8DE;
+    background: #21262D;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-weight: 500;
+}
+
+pre {
+    border-radius: 16px;
+    padding: 14px 16px;
+    padding-top: 2.5rem; /* מקום לכפתור ההעתקה */
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+/* כלל ה-pre שלמעלה דורס גם את כלל ה-pre שב-@media (max-width: 768px) של התבנית, ולכן לערכה גרסת מובייל משלה */
+@media (max-width: 768px) {
+    pre {
+        padding: 12px 14px;
+        padding-top: 2.5rem;
+    }
+}
+
+/* גודל קבוע: ב-em הכפתור היה קטן יחד עם הקוד */
+.copy-btn {
+    border: none;
+    color: #FFFFFF66;
+    font-size: 12px;
+}
+
+table {
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+th {
+    background: transparent;
+    color: var(--text-heading);
+    font-weight: 600;
+    border-bottom: 1px solid #44404280;
+}
+
+td {
+    border-bottom: 1px solid #2B272980;
+}
+
+/* התבנית צובעת שורה במעבר עכבר דרך tr:hover td, ולכן מבטלים באותו selector */
+tr:hover td {
+    background: transparent;
+}
+
+details.markdown-details {
+    border-radius: 12px;
+    background: transparent;
+}
+
+/* הרדיוס הפנימי של המסגרת (12px פחות קו של 1px), כדי שהרקע במעבר עכבר לא יבלוט מהפינות */
+summary.markdown-summary {
+    font-size: 14px;
+    color: #D6D3D1;
+    border-radius: 11px;
+}
+
+details.markdown-details[open] > summary.markdown-summary {
+    border-radius: 11px 11px 0 0;
+}
+
+summary.markdown-summary:hover {
+    background: var(--card-bg);
+    color: #E7E5E4;
+}
+
+/* הפס בצד ימין מגיע מהתבנית; העיגול עובר לצד שמולו (inline-end, שמאל ב-RTL) */
+blockquote {
+    background: var(--card-bg);
+    font-style: normal;
+    border-radius: 0;
+    border-start-end-radius: 10px;
+    border-end-end-radius: 10px;
+}
+
+.toc {
+    border-radius: 12px;
+}
+
+.toc a {
+    border-bottom: none;
+}
+
+.toc a:hover {
+    color: var(--primary);
+}
+
+hr {
+    height: 1px;
+    background: var(--border-color);
+}
+""",
+    },
+}
+
+
+def _theme_from_export_preset(preset_id: str) -> dict:
+    """הערכה ש-``get_export_theme`` מחזיר עבור Export Preset.
+
+    בונה אחד גם לערכה שנבחרה וגם ל-fallback, כדי שמפתח שנוסף לערכות (כמו
+    ``extra_css``) לא ייכתב רק באחד מהם.
+    """
+    preset = EXPORT_PRESETS[preset_id]
+    return {
+        "id": preset_id,
+        "name": preset["name"],
+        "category": preset.get("category", "dark"),
+        "variables": preset["variables"],
+        "syntax_css": preset.get("syntax_css", ""),
+        "extra_css": preset.get("extra_css", ""),
+    }
 
 
 def get_export_theme(
@@ -623,7 +880,8 @@ def get_export_theme(
         vscode_json: תוכן JSON של ערכת VS Code (אופציונלי)
 
     Returns:
-        dict עם name, variables, ו-syntax_css (אופציונלי)
+        dict עם name, variables, ו-syntax_css (אופציונלי). ``extra_css`` מגיע
+        רק מ-Export Presets (ומה-fallback, שהוא אחד מהם).
     """
 
     # 1. VS Code JSON ישיר
@@ -644,14 +902,7 @@ def get_export_theme(
 
     # 2. Export Presets מיוחדים
     if theme_id in EXPORT_PRESETS:
-        preset = EXPORT_PRESETS[theme_id]
-        return {
-            "id": theme_id,
-            "name": preset["name"],
-            "category": preset.get("category", "dark"),
-            "variables": preset["variables"],
-            "syntax_css": preset.get("syntax_css", ""),
-        }
+        return _theme_from_export_preset(theme_id)
 
     # 3. Presets מהגלריה הכללית
     gallery_preset = get_preset_by_id(theme_id)
@@ -691,13 +942,7 @@ def get_export_theme(
 
     # 5. Fallback
     logger.info("Theme '%s' not found, using tech-guide-dark fallback", theme_id)
-    return {
-        "id": "tech-guide-dark",
-        "name": "Tech Guide Dark",
-        "category": "dark",
-        "variables": EXPORT_PRESETS["tech-guide-dark"]["variables"],
-        "syntax_css": EXPORT_PRESETS["tech-guide-dark"].get("syntax_css", ""),
-    }
+    return _theme_from_export_preset("tech-guide-dark")
 
 
 def list_export_presets() -> list[dict]:
@@ -1003,7 +1248,8 @@ def render_styled_html(
     Args:
         content_html: תוכן ה-HTML (אחרי המרה מ-Markdown)
         title: כותרת המסמך
-        theme: ערכת הנושא (name, variables, syntax_css, id, category)
+        theme: ערכת הנושא (name, variables, syntax_css, id, category, ו-extra_css
+            אופציונלי — ראו ``EXPORT_PRESETS``)
         toc_html: HTML של תוכן עניינים (אופציונלי)
         footer_text: טקסט בתחתית המסמך
 
@@ -1039,6 +1285,10 @@ def render_styled_html(
             generate_pygments_css(pygments_style, ".highlight", theme_category)
         )
 
+    # עיצוב ופריסה של הערכה. ``get_export_theme`` מחזיר אותו רק מ-EXPORT_PRESETS,
+    # ובכל זאת הוא עובר אותה סניטציה כמו syntax_css לפני שהוא נכנס לבלוק <style>
+    extra_css = sanitize_css(theme.get("extra_css", ""))
+
     # ייבוא מאוחר כדי לאפשר שימוש בפונקציות אחרות גם בלי Flask (למשל בטסטים)
     from flask import render_template
 
@@ -1048,6 +1298,7 @@ def render_styled_html(
         content=content_html,
         css_variables=css_variables,
         syntax_css=syntax_css,
+        extra_css=extra_css,
         theme_name=theme.get("name", "Custom"),
         toc_html=toc_html,
         footer_text=footer_text,
