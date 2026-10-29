@@ -11,8 +11,10 @@ authenticates via Telegram and bounces back to our ``/oauth/consent`` route with
 a signed ``user_id`` assertion; that route mints the authorization code.
 
 ``load_access_token`` is unified: it accepts both a Personal Access Token
-(``ckmcp_…`` — Claude Code/Desktop) and an OAuth access token (``ckoat_…`` —
-Claude.ai), so every tool call flows through one verification path.
+(``ckmcp_…`` — from the bot's ``/connect_claude``; for Claude Code when it is not
+signed in with a claude.ai account) and an OAuth access token (``ckoat_…`` — the
+Claude.ai connector, which also reaches Claude Desktop and Claude Code signed in
+with the same account), so every tool call flows through one verification path.
 """
 
 from __future__ import annotations

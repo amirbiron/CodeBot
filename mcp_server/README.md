@@ -134,8 +134,8 @@ merge ל-main → GitHub webhook → הוובאפ מסנכרן את הדיסק �
 
 1. **OAuth 2.1** — עבור **Claude.ai** (Custom Connector). זרימה מלאה: DCR + PKCE +
    authorize + consent + token. הזהות נקבעת דרך **התחברות טלגרם בוובאפ**.
-2. **Personal Access Token (PAT)** — עבור **Claude Code / Desktop**. `Authorization:
-   Bearer ckmcp_…`, נשמר כ‑hash בקולקשן `mcp_tokens`, ניתן לביטול.
+2. **Personal Access Token (PAT)** — עבור **Claude Code שלא מחובר עם החשבון ב‑claude.ai**, ועבור ההוק שטוען את הפריימר. `Authorization:
+   Bearer ckmcp_…`, נשמר כ‑hash בקולקשן `mcp_tokens`, ניתן לביטול. (המחבר של מסלול 1 מגיע לבד גם ל‑Claude Desktop ול‑Claude Code שמחובר עם החשבון — ראו "חיבור מ‑Claude Desktop" למטה.)
 
 ה‑`user_id` נגזר **תמיד** מהטוקן — לעולם לא מקלט הלקוח.
 
@@ -246,11 +246,11 @@ ID/Secret.) דורש שמצב OAuth יהיה מוגדר בפריסה — ראו 
 ## חיבור מ‑Claude Code (PAT)
 **קודם — ייתכן שלא צריך טוקן.** כש‑Claude Code מחובר עם חשבון claude.ai, המחבר מהסעיף "חיבור מ‑Claude.ai" נטען בו לבד, ו‑`/mcp` מסמן אותו כמחבר מ‑claude.ai. טוקן צריך כשהאימות הפעיל הוא אחר (למשל מפתח API, ספק ענן כמו Amazon Bedrock, או `CLAUDE_CODE_OAUTH_TOKEN` של `claude setup-token`), כשהמחברים כובו, או בתוכנית Team/Enterprise שבה האדמין לא הוסיף את המחבר. הרשימה המלאה, עם המקור, ב‑`docs/mcp-server.rst`, הסעיף "Claude Code (טוקן)".
 ```bash
-claude mcp add --transport http codekeeper https://<mcp-host>/mcp \
+claude mcp add --transport http codekeeper --scope user https://<mcp-host>/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
-**המקבילה הידנית בקובץ.** בלי `--scope` הפקודה שומרת ב‑scope ברירת המחדל, `local`: ב‑`~/.claude.json`, תחת הרשומה של הפרויקט שממנו הרצתם אותה (`projects` ← נתיב הפרויקט ← `mcpServers`), ולכן השרת זמין רק בפרויקט ההוא. רשומה ב‑`mcpServers` שבראש הקובץ שקולה ל‑`--scope user`, וזמינה בכל הפרויקטים. בקובץ יש עוד הגדרות רבות של Claude Code, אז מוסיפים את הרשומה ל‑`mcpServers` הקיים ולא מחליפים את הקובץ (code.claude.com/docs/en/mcp, ה‑Tips של `--scope`; נקרא ב‑2026-10-29):
+**איפה הפקודה שומרת, והמקבילה הידנית.** זו הפקודה שהבוט מחזיר (`connect_claude_command` ב‑`main.py`; הטסט: `tests/test_connect_claude_command.py`). `--scope user` כותב את הרשומה ל‑`mcpServers` שבראש `~/.claude.json`, ולכן CodeKeeper זמין בכל הפרויקטים. בלי הדגל, `claude mcp add` שומר ב‑`local`, תחת הפרויקט שממנו הורצה הפקודה בלבד (code.claude.com/docs/en/mcp, ה‑Tips של `--scope`; נקרא ונמדד ב‑2026-10-29 ב‑Claude Code 2.1.312). מי שמעדיף לערוך את הקובץ ביד מוסיף את הרשומה הזו ל‑`mcpServers` הקיים, ולא מחליף את הקובץ, שיש בו עוד הגדרות רבות של Claude Code:
 ```json
 {
   "mcpServers": {
@@ -296,7 +296,7 @@ Start command:  uvicorn mcp_server.app:app --host 0.0.0.0 --port $PORT
 Health check:   /healthz
 ```
 
-**מצב PAT‑only (Claude Code/Desktop בלבד) — מינימלי:**
+**מצב PAT‑only (Claude Code דרך טוקן, והפריימר; מחבר ב‑Claude.ai, ואיתו Claude Desktop, דורש את מצב OAuth) — מינימלי:**
 - `MONGODB_URL` + `DATABASE_NAME` — זהים לבוט/וובאפ (ברירת מחדל `code_keeper_bot`).
 - `BOT_TOKEN` — נדרש רק כדי שמודול ה‑`config` המשותף ייטען.
 - `MCP_SERVER_NAME` — אופציונלי.
