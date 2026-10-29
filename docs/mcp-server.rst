@@ -369,11 +369,11 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
      - סקשן בודד מקובץ תיעוד — RST או Markdown, לפי הריפו — במקום קובץ שלם.
        בלי ``section`` — עץ הכותרות של העמוד, ועם ``max_depth`` רק הרמות
        העליונות שלו (:ref:`mcp-docs-section`). מחזיר גם breadcrumb,
-       תת-סקשנים ושכנים לניווט. **קובץ שלם:** ``section`` עם הכותרת הראשונה
-       בעץ מחזיר את תת-העץ שלה (תת-הסקשנים כלולים כברירת מחדל) — כל הקובץ
-       כשהוא כולו תחת כותרת עליונה אחת, כמו קובצי ``bugbot-rules`` — מדופדף
-       כמו כל סעיף: כל עוד ``truncated`` הוא ``true`` ממשיכים מ-``next_offset``.
-       או, לאדמין, ``codekeeper_get_repo_file``. עדיף על
+       תת-סקשנים ושכנים לניווט. **קובץ שלם:** ``whole_document=true`` — הקובץ
+       כולו משורה 1, כולל front matter ומה שלפני הכותרת הראשונה, בלי פרסור
+       (ולכן גם קובץ שמפת הכותרות מסרבת לו), מדופדף כמו סעיף: כל עוד
+       ``truncated`` הוא ``true`` ממשיכים מ-``next_offset`` (:ref:`mcp-docs-path-policy`).
+       לאדמין גם ``codekeeper_read_batch`` ו-``codekeeper_get_repo_file``. עדיף על
        ``codekeeper_get_repo_file`` לקריאת תיעוד לפי סעיפים. איזה ריפו מגיש
        אילו נתיבים ובאיזה פורמט —
        ב-:ref:`mcp-docs-path-policy`; איך נמצאת כותרת, כולל קיצור המזהה
@@ -600,7 +600,9 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
 השדה — ``401`` על טוקן פסול, למשל, הוא ``{"error": "invalid_token"}``
 לבדו, עם הכותרת ``WWW-Authenticate``. ל-``status`` יש בתשובת
 כלי רשימה סגורה: ``ok``, ``outline``, ``query``, ``toc``, ``section``, ``binary``,
-``too_large`` ו-``no_outline``. ל-``error`` אין רשימה כזאת כאן **בכוונה** — הערכים
+``too_large`` ו-``no_outline``. גם ל-``mode`` בתשובה מוצלחת של ``codekeeper_docs_get_section``
+יש רשימה סגורה: ``toc``, ``section`` ו-``document`` (הקובץ כולו, ``whole_document=true``).
+ל-``error`` אין רשימה כזאת כאן **בכוונה** — הערכים
 נגזרים מהכלי שסירב (``path_denied``, ``outline_and_lines``,
 ``query_and_lines``, ``page_too_large``, ``range_out_of_bounds`` ועוד
 רבים), ורשימה חלקית שנראית סגורה גרועה מאין רשימה. ערך ``status`` חדש

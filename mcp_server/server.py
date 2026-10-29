@@ -164,8 +164,9 @@ def build_instructions(
         f" Missing a tool? Call {missing_capability_tool}." if missing_capability_tool else ""
     )
     docs = (
-        "Docs (all users): codekeeper_docs_get_section reads one section, not a page "
-        '(no section = headings; section="K11" works).'
+        "Docs (all users): codekeeper_docs_get_section reads one section "
+        '(no section = headings; section="K11" works), or with whole_document=true '
+        "the whole file, paged."
         + _serves_sentence(docs_repos)
         + "\n"
         "\n"
@@ -1129,6 +1130,38 @@ _DOCS_MAX_DEPTH_DOC = _build_max_depth_doc(
 _FILE_MAX_DEPTH_DOC = _build_max_depth_doc(
     "(toc=true, and the map a section_not_found carries)",
     " Without toc or section it is refused as max_depth_without_toc.")
+
+
+# תיאור הפרמטר ``whole_document`` של ``codekeeper_docs_get_section``.
+#
+# **נפתח במתי להשתמש** — כשהגעת עם נתיב ולא עם כותרת — ולא במה הפרמטר עושה, מאותו
+# נימוק שמעל ``_build_max_depth_doc``: לקוח שמקצר תיאור פרמטר לכ-120 תווים רואה רק את
+# ההתחלה. אחר כך מה שסוכן צריך כדי לסמוך על מה שקיבל: מה סעיף לעולם אינו מגיע אליו;
+# שאין פרסור, ולכן גם קובץ שהמפה מסרבת לו נקרא; שהטקסט הוא של ``codekeeper_get_repo_file``
+# ושהשער לא השתנה; ``encoding`` ומה ``latin-1`` אומר בו; העימוד; והסירובים. המספרים
+# והקודים נשתלים מהקבועים ולא מוקלדים.
+_WHOLE_DOCUMENT_DOC = (
+    "When you came with a path and not a heading — a file named in a trigger "
+    "table, say — pass whole_document=true for the whole file from line 1: front "
+    "matter and anything before the first heading included, which no section "
+    "reaches. The file is not parsed, so a file whose heading map is refused "
+    "(too_many_lines, too_many_tokens, inconsistent_line_endings, "
+    "too_many_sections) is still read whole. Which files can be read does not "
+    "change — the `path` parameter's rules and the secrets policy — and content "
+    "is the text codekeeper_get_repo_file returns for the same file and ref; a "
+    f"file over {MAX_FILE_SIZE_FOR_DISPLAY // 1024}KB is unreadable_too_large. The "
+    "reply is mode: document, with encoding, the mirror's decoding label: latin-1 "
+    "is a fallback that decodes any bytes, so read it as a warning, not as a "
+    "detection. It is paged like a section: max_chars "
+    f"(default {docs_handlers.MAX_CHARS_DEFAULT}, "
+    f"{docs_handlers.MAX_CHARS_MIN}-{docs_handlers.MAX_CHARS_MAX}) and offset — "
+    "while truncated is true, call again with offset=next_offset — and a page is "
+    f"also cut to fit {answer_size.OUTPUT_BYTE_BUDGET} bytes as sent, with "
+    'truncation_reason "byte_budget" and next_offset where it really ended. With '
+    f"section it is refused as {docs_handlers.SECTION_AND_WHOLE_DOCUMENT}, with "
+    f"max_depth as {docs_handlers.MAX_DEPTH_AND_WHOLE_DOCUMENT}; "
+    "include_subsections means nothing here."
+)
 
 
 # תיאור הכלי ``codekeeper_read_batch`` ותיאור הפרמטר ``items`` שלו.
@@ -4015,19 +4048,17 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
         name=docs_handlers.SECTION_TOOL_NAME,
         description=(
             "Read ONE section from a CodeKeeper documentation file — RST or "
-            "Markdown — instead of the whole file. Prefer this over "
-            "codekeeper_get_repo_file for docs: it returns a single section with "
-            "navigation (breadcrumb, direct subsections, prev/next siblings) rather "
-            "than a 77KB file. Call with NO `section` to get the page's table of "
-            "contents (heading tree; `max_depth` keeps only its top levels) and pick "
-            "one. To read a whole document, pass its "
-            "title (the first TOC entry) as section: you get that heading's subtree, "
-            "paged like any section — while truncated is true, continue from "
-            "next_offset — or (admin) read it with codekeeper_get_repo_file. Which repo "
-            "serves which paths, "
+            "Markdown — instead of the whole file. Prefer this for ONE section: it "
+            "comes with navigation (breadcrumb, direct subsections, prev/next "
+            "siblings). For a whole file: whole_document=true, paged; admins can also "
+            "batch files with codekeeper_read_batch or read one with "
+            "codekeeper_get_repo_file. Call with NO `section` to get the page's table "
+            "of contents (heading tree; `max_depth` keeps only its top levels) and "
+            "pick one. Which repo serves which paths, "
             "in which format, is per-repo — see the `path` parameter. `ref` is a git "
-            "ref (default: repo default branch). For large sections, page with "
-            "`offset`/`max_chars`. Never returns a bare 'not found': a missing "
+            "ref (default: repo default branch). Page a long section or file with "
+            "`offset`/`max_chars`: while truncated is true, continue from "
+            "next_offset. Never returns a bare 'not found': a missing "
             "section returns the TOC + suggestions; a duplicate heading returns "
             "candidates with breadcrumbs. See the `section` parameter for how a "
             "heading is matched — identifier shortcuts (K11, U3) and headings that "
@@ -4048,6 +4079,11 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
         ref: Annotated[str | None, Field(description=_REF_PARAM_DOC)] = None,
         # ``StrictInt`` — אותה צורה בדיוק כמו ``max_depth`` של ``codekeeper_get_file``.
         max_depth: Annotated[StrictInt | None, Field(description=_DOCS_MAX_DEPTH_DOC)] = None,
+        # ``bool`` רגיל ולא strict, כמו ``toc`` של ``codekeeper_get_file`` וכל דגל אחר כאן:
+        # ``"true"`` מומר ל-``True``, כי בדגל ההמרה קוראת את מה שהקורא התכוון אליו
+        # (ההערה מעל ``StrictInt`` ב-``handlers.py``). ברירת המחדל ``False`` היא התשובה
+        # של לפני הפרמטר.
+        whole_document: Annotated[bool, Field(description=_WHOLE_DOCUMENT_DOC)] = False,
     ) -> dict:
         current_user_id(ctx)  # מזהה בלבד — public, בלי require_admin
         return docs_handlers.docs_get_section(
@@ -4060,6 +4096,7 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
             max_depth=max_depth,
             repo=repo,
             ref=ref,
+            whole_document=whole_document,
         )
 
 

@@ -12,6 +12,10 @@
   :func:`parse_with_refusals` and :func:`answer_section` with a ``{"file": ...}``
   context instead of ``repo``/``path``/``ref``.
 
+``codekeeper_docs_get_section`` has one mode that does not parse at all:
+``whole_document=true`` (:func:`load_text`, :func:`_answer_whole_document`) returns the
+whole file, paged by the same function that pages a section (:func:`_text_page`).
+
 Same contract as ``repo_handlers.py``: plain functions, no MCP/Starlette imports,
 clamped inputs, ``{"ok": False, "error": "..."}`` rejections. **Not** admin-gated —
 the docs tool is public; its body deliberately omits ``require_admin``.
@@ -154,6 +158,21 @@ MAX_DEPTH_MAX = doc_sections.MAX_SECTIONS
 #: תיעוד, ומשתנה לפי המצב. ו-``bytes`` נמדד על צורה אחרת מזו שההחלטה מדדה, כך שבסף
 #: ההחלטה הוא יצא קטן מ-``max`` — ראו :func:`_fit_page`.
 SECTION_TOO_LARGE = "section_too_large"
+
+#: קודי הסירוב של ``whole_document=true`` יחד עם פרמטר שאין לו משמעות במצב מסמך.
+#: מצב מסמך מחזיר את הקובץ כולו, ולכן ``section`` (איזה סעיף) ו-``max_depth`` (כמה
+#: מהמפה) אינם חלים בו — ופרמטר שהתקבל ונזרק הוא התעלמות שקטה: הקורא טרח לשלוח
+#: אותו, קיבל תשובה תקינה, ואין שום סימן שמה שביקש לא קרה. אותה הכרעה כמו
+#: ``toc_and_section`` ו-``max_depth_without_toc`` של ``codekeeper_get_file``
+#: (``mcp_server/handlers.py``): **קוד לכל פרמטר**, כדי שהקורא ידע איזה מהם נדחה,
+#: ו-``section`` נבדק ראשון כשנשלחו שניהם. ``section`` "נשלח" כשאינו ``None``, גם
+#: ריק — ריק בלי הדגל הוא מפת הכותרות, וגם היא אינה מה שמצב מסמך מחזיר.
+#:
+#: **``include_subsections`` אינו כאן, ולא בהיסח הדעת:** הוא ``bool`` עם ברירת מחדל
+#: ``True``, ואין דרך לדעת אם נשלח. תיאור הפרמטר (``_WHOLE_DOCUMENT_DOC`` ב-
+#: ``server.py``) אומר שאין לו משמעות במצב הזה.
+SECTION_AND_WHOLE_DOCUMENT = "section_and_whole_document"
+MAX_DEPTH_AND_WHOLE_DOCUMENT = "max_depth_and_whole_document"
 
 #: קוד הסירוב כשתשובה שנושאת רשימות — מפת הכותרות, ``section_not_found``
 #: או ``ambiguous_section`` — אינה נכנסת בתקציב הבתים **גם כשכל הרשימות שלה
@@ -597,6 +616,26 @@ class LoadedDocument(NamedTuple):
     context: dict[str, Any]
 
 
+class LoadedText(NamedTuple):
+    """קובץ שנקרא מהמראה **ולא פורסר** — מה ש-:func:`document_from_read` מפרסר, ומצב מסמך מגיש.
+
+    ``content`` הוא ה-``content`` של ``RepoBackend.get_file`` כמו שהוא — אותו טקסט ש-
+    ``codekeeper_get_repo_file`` מחזיר על אותו קובץ ו-``ref``, אחרי הפענוח של המראה
+    (שמסיר BOM) — ו-``context`` הוא ``repo``/``path``/``ref``/``resolved_commit``, אותו
+    הקשר שכל תשובה על הקובץ נושאת.
+
+    ``encoding`` הוא ``file.encoding`` של הקריאה: התווית שהפענוח במראה נתן
+    (``_try_decode_content`` ב-``services/git_mirror_service.py``). **רק מצב מסמך מגיש
+    אותה.** ההקשר של תשובת סעיף אינו נושא אותה, וזה פער ידוע ופתוח — ולכן היא שדה
+    משלה ולא חלק מ-``context``: הוספה ל-``context`` הייתה משנה את כל תשובות הסעיף,
+    הסירובים והבאץ', בלי שאיש החליט על כך.
+    """
+
+    content: str
+    context: dict[str, Any]
+    encoding: str | None
+
+
 def resolve_docs_target(*, path: str, repo: str | None = None) -> DocsTarget | dict[str, Any]:
     """השער הטהור של ``codekeeper_docs_get_section``: ריפו, מדיניות ונתיב — בלי לקרוא דבר.
 
@@ -691,13 +730,33 @@ def load_document(
     ומועבר ל-``backend.get_file`` **רק כשהוא קיים** — כך שהכלי הבודד קורא
     ל-backend בדיוק באותם ארגומנטים כמו לפני שהפרמטר נוסף.
     """
+    return document_from_read(_read_file(backend, target, ref=ref, snapshot=snapshot), target)
+
+
+def load_text(backend: Any, target: DocsTarget, *, ref: str | None = None) -> LoadedText | dict[str, Any]:
+    """הקריאה של :func:`load_document`, **בלי הפרסור** — מה ש-``whole_document=true`` מגיש.
+
+    **אותה קריאה ואותו מיפוי סירובים, ולא נוסח שני:** :func:`_read_file` קורא, ו-
+    :func:`text_from_read` ממפה — שתי הפונקציות ש-:func:`load_document` עצמו עובר בהן.
+    לכן כל מה שעוצר קריאה של סעיף עוצר גם את זו, באותן תשובות: מדיניות הנתיבים
+    והסודות, המראה, ``ref``, ותקרת הגודל (``unreadable_too_large``). מה שאינו כאן הוא
+    רק מה שבא אחרי הקריאה — הפרסור וסירוביו.
+
+    בלי ``snapshot``: הקורא היחיד הוא הכלי הבודד, ופריטי ``codekeeper_read_batch`` אינם
+    נושאים את המצב הזה.
+    """
+    return text_from_read(_read_file(backend, target, ref=ref, snapshot=None), target)
+
+
+def _read_file(backend: Any, target: DocsTarget, *, ref: str | None, snapshot: Any) -> dict[str, Any]:
+    """הקריאה האחת מהמראה של כלי התיעוד — ל-:func:`load_document` ול-:func:`load_text`."""
     # קריאה — reuse מלא של RepoBackend.get_file (ref default, מדיניות סודות, sync_in_progress).
     # **בלי ``lines`` ובלי ``outline`` בכוונה:** כך ``wants_slice`` הוא False, לא מועבר
-    # ``max_size``, ותקרת 500KB של שירות המראה נשארת ההגנה היחידה על הפרסור.
+    # ``max_size``, ותקרת 500KB של שירות המראה נשארת ההגנה היחידה על הפרסור — ובמצב
+    # מסמך, על מה שנשלח.
     pinned = {"snapshot": snapshot} if snapshot is not None else {}
-    res = backend.get_file(repo=target.repo, path=target.path,
-                           ref=((ref or "").strip() or None), **pinned)
-    return document_from_read(res, target)
+    return backend.get_file(repo=target.repo, path=target.path,
+                            ref=((ref or "").strip() or None), **pinned)
 
 
 def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocument | dict[str, Any]:
@@ -706,6 +765,27 @@ def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocumen
     **נפרד מ-:func:`load_document` בשביל קריאה משותפת.** ``codekeeper_read_batch``
     קורא קובץ פעם אחת גם כשפריט קובץ ופריטי סעיף מבקשים אותו יחד, ואז מעביר
     לכאן את מה שכבר נקרא במקום לקרוא שוב.
+
+    הסירובים של הקריאה וההקשר נבנים ב-:func:`text_from_read`, וכאן נוסף רק הפרסור.
+    """
+    read = text_from_read(res, target)
+    if isinstance(read, dict):
+        return read
+
+    # ``target.suffix`` ולא גזירה שנייה מ-``target.path``: ראו :class:`_ResolvedPath`.
+    parser = _PARSERS[target.suffix]  # לעולם לא KeyError: ראו _validate_policy_tables
+
+    parsed = parse_with_refusals(parser, read.content, read.context)
+    if isinstance(parsed, dict):
+        return parsed
+    return LoadedDocument(parsed, read.context)
+
+
+def text_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedText | dict[str, Any]:
+    """תשובת ``backend.get_file`` ← סירוב בהקשר, או הטקסט וההקשר — מה שקודם לכל פרסור.
+
+    מקום אחד לשני המסלולים: :func:`document_from_read` מפרסר את מה שחוזר מכאן, ו-
+    :func:`load_text` מגיש אותו כמו שהוא.
 
     **מוטציה, ובכוונה:** בכשל ``res`` עצמו מקבל ``repo`` ו-``path`` ומוחזר — זו
     התשובה שהכלי מחזיר תמיד. מי שמחזיק את ``res`` גם לשימוש אחר מעביר לכאן
@@ -733,14 +813,7 @@ def document_from_read(res: dict[str, Any], target: DocsTarget) -> LoadedDocumen
         "ref": file_meta.get("ref"),
         "resolved_commit": file_meta.get("resolved_commit"),
     }
-
-    # ``target.suffix`` ולא גזירה שנייה מ-``target.path``: ראו :class:`_ResolvedPath`.
-    parser = _PARSERS[target.suffix]  # לעולם לא KeyError: ראו _validate_policy_tables
-
-    parsed = parse_with_refusals(parser, content, context)
-    if isinstance(parsed, dict):
-        return parsed
-    return LoadedDocument(parsed, context)
+    return LoadedText(content, context, file_meta.get("encoding"))
 
 
 def parse_with_refusals(
@@ -922,17 +995,38 @@ def docs_get_section(
     max_depth: int | None = None,
     repo: str | None = None,
     ref: str | None = None,
+    whole_document: bool = False,
 ) -> dict[str, Any]:
     """``codekeeper_docs_get_section``: שער, הידוק, קריאה ופרסור, ואז תשובה.
 
     הסדר הוא הסדר שהיה כאן לפני שהפונקציה פוצלה ל-:func:`resolve_docs_target`,
     :func:`load_document` ו-:func:`answer_section`, כולל ההידוק **לפני** הקריאה —
     גם של ``max_depth`` (:func:`_depth_limit`).
+
+    ``whole_document`` — מצב מסמך (:func:`_answer_whole_document`): אותו שער ואותה
+    קריאה, בלי פרסור. בלעדיו (``False``, ברירת המחדל) הפונקציה עושה בדיוק מה שעשתה
+    לפני שהפרמטר נוסף. **הדלת היחידה אליו היא הכלי ב-``server.py``**, שהסכימה שלו
+    מאמתת אותו כ-``bool`` (``"true"`` הוא ``True`` שם); פריטי ``codekeeper_read_batch``
+    אינם נושאים אותו.
     """
+    if whole_document:
+        # **לפני הריפו ולפני הנתיב**, מאותה סיבה שהזוגות של ``codekeeper_get_file`` נבדקים
+        # לפני שאלת הקובץ (``file_read_request_error`` ב-``handlers.py``): צירוף פסול של
+        # פרמטרים פסול בלי קשר לקובץ, ותשובה על הקובץ — ``not_found``, ``repo_not_allowed``
+        # — הייתה שולחת את הקורא לתקן קובץ במקום קריאה. הסירוב אינו אומר דבר על הריפו.
+        if section is not None:
+            return {"ok": False, "error": SECTION_AND_WHOLE_DOCUMENT}
+        if max_depth is not None:
+            return {"ok": False, "error": MAX_DEPTH_AND_WHOLE_DOCUMENT}
     target = resolve_docs_target(path=path, repo=repo)
     if isinstance(target, dict):
         return target
     max_chars, offset = _paging(max_chars, offset)
+    if whole_document:
+        text = load_text(backend, target, ref=ref)
+        if isinstance(text, dict):
+            return text
+        return _answer_whole_document(text, max_chars=max_chars, offset=offset)
     depth = _depth_limit(max_depth)
     loaded = load_document(backend, target, ref=ref)
     if isinstance(loaded, dict):
@@ -1098,9 +1192,6 @@ def _answer_from_document(
     # התאמה יחידה → הסקשן + ניווט (שכנים ותת-סקשנים)
     sec = matches[0]
     full = doc_sections.section_text(doc, sec, include_subsections)
-    total = len(full)
-    chunk = full[offset:offset + max_chars]
-    truncated = (offset + len(chunk)) < total
     prev, nxt = doc_sections.neighbors(doc, sec)
     # **תת-הסעיפים חסומים באותה תקרה של המפה** — הם שורות מאותה מפה, רק של ענף
     # אחד. בלעדיה זה היה השדה היחיד בתשובה בלי גבול, כמו ``candidates`` לפני
@@ -1108,35 +1199,33 @@ def _answer_from_document(
     subsections, subsections_truncated = _capped(
         doc_sections.direct_subsections(doc, sec), _TOC_MAX)
 
-    base.update({
+    head = {
+        **base,
         "mode": "section",
         "section": sec.title,
         "breadcrumb": list(sec.breadcrumb),
         "level": sec.level,
         "line_range": [sec.heading_line, sec.end_line],
         "include_subsections": bool(include_subsections),
-        "offset": offset,
-        "content": chunk,
-        "truncated": truncated,
+    }
+    tail: dict[str, Any] = {
         "subsections": [_section_ref(s) for s in subsections],
         "neighbors": {
             "prev": _section_ref(prev) if prev else None,
             "next": _section_ref(nxt) if nxt else None,
         },
-    })
+    }
     if subsections_truncated:
         # רק כשנחתכה — אותה מוסכמה של ``candidates_truncated`` ושל ``remaining_chars``.
-        base["subsections_truncated"] = True
+        tail["subsections_truncated"] = True
     # הכותרת עצמה נחתכה ל-``MAX_TITLE_CHARS`` (מקרה פתולוגי, לא בקורפוס). ``section``
     # כאן הוא כבר הצורה החתוכה, וזו גם הצורה שמתאימה בהתאמה — כך שהדבקתה חזרה מוצאת
     # את הסעיף. אותו ``_title_flag`` בדיוק כמו במועמדים, בתת-הסעיפים ובשכנים; מותנה,
     # ולכן אפס-דיף לכותרת אמיתית.
-    base.update(_title_flag(sec))
-    if truncated:
-        base["remaining_chars"] = total - (offset + len(chunk))
-        base["next_offset"] = offset + len(chunk)
+    tail.update(_title_flag(sec))
 
-    page, size = _fit_page(base, total=total, budget=budget)
+    page, size = _text_page(head, full, offset=offset, max_chars=max_chars,
+                            tail=tail, budget=budget)
     if page is None:
         # ``bytes`` הוא מה שהושווה לתקציב, ועוד המעטפת; ``max`` — התקציב המתועד. אותה
         # יחידה, ולכן ``bytes > max`` (ראו :data:`SECTION_TOO_LARGE`).
@@ -1148,10 +1237,84 @@ def _answer_from_document(
     return page
 
 
+def _answer_whole_document(loaded: LoadedText, *, max_chars: int, offset: int) -> dict[str, Any]:
+    """``whole_document=true``: הקובץ כולו משורה 1, מדופדף כמו סעיף — **בלי פרסור**.
+
+    **למה מצב משלו ולא "הכותרת הראשונה כ-``section``".** סעיף מתחיל בכותרת, ולכן מה
+    שלפני הכותרת הראשונה — front matter, הקדמה — אינו בשום סעיף, וקובץ עם כמה כותרות
+    עליונות אינו תת-עץ של אף אחת מהן. וקורא שהגיע עם נתיב (מטבלת טריגרים) אינו יודע
+    מה הכותרת הראשונה בלי קריאה נוספת למפה. כאן אין שאלה כזו: ``content`` הוא הטקסט
+    של :class:`LoadedText`, כלומר מה ש-``codekeeper_get_repo_file`` מחזיר על אותו קובץ.
+
+    **בלי פרסור, ולכן בלי סירובי הפרסר.** ``too_many_lines``, ``too_many_tokens``,
+    ``too_many_sections`` ו-``inconsistent_line_endings`` הם מדיניות על מה שמותר
+    **לפרסר** (התקרות נגזרו מעלות הפרסור — ליד ``MAX_LINES`` ב-``services/md_parser.py``),
+    ולא על מה שמותר לקרוא; קובץ שהפרסר מסרב לו נקרא כאן שלם. מה שנשאר בלי הפרסור הוא
+    הקריאה עצמה (שהמסלול של סעיף עושה גם הוא, לפני שהוא מפרסר), חיתוך, ומדידת העמוד
+    ב-:func:`_fit_page` על עד ``MAX_CHARS_MAX`` תווים — ולכן המחיר שמאגר הקריאות מקצה
+    לחוט, שנגזר מהפרסור (``_PARSE_COST_BYTES`` ב-``server.py``), מכסה גם את המצב הזה.
+
+    **העמוד הוא של :func:`_text_page`, אותה פונקציה שמעמדת סעיף** — ``max_chars`` ו-
+    ``offset`` כבר מהודקים (:func:`_paging`), ותקציב הבתים הוא ``OUTPUT_BYTE_BUDGET``
+    כולו: הכלי מחזיר את התשובה כמו שהיא, בלי מעטפת סביבה.
+
+    **מה התשובה אינה נושאת, ולמה:** ``breadcrumb``, ``subsections``, ``neighbors``,
+    ``includes`` ו-``section_count`` — כולם תוצרים של פרסור, ואין כאן פרסור. ומה שהיא
+    כן נושאת ותשובת סעיף לא: ``max_chars`` (מה שנאכף — מהודק), ו-``encoding``
+    (ראו :class:`LoadedText`; ב-``latin-1`` זו אזהרה ולא תווית).
+
+    עמוד שגם תו אחד אינו נכנס בו — ``answer_too_large`` עם ההקשר, ``bytes`` (מה שהעמוד
+    הקטן ביותר שנושא תוכן היה צריך) ו-``max``. השדות הקבועים כאן קטנים, ולכן זה קורה
+    רק כשההקשר עצמו קרוב לתקציב (``ref`` שהקורא שלח ו-git פתר); עמוד ריק עם
+    ``next_offset`` שאינו זז היה לולאה אינסופית לקורא ממושמע, ולכן סירוב ולא עמוד.
+    """
+    head = {"ok": True, **loaded.context, "mode": "document", "encoding": loaded.encoding,
+            "max_chars": max_chars}
+    page, size = _text_page(head, loaded.content, offset=offset, max_chars=max_chars,
+                            tail={}, budget=OUTPUT_BYTE_BUDGET)
+    if page is None:
+        return {"ok": False, **loaded.context, **too_large(size)}
+    return page
+
+
+def _text_page(
+    head: dict[str, Any],
+    text: str,
+    *,
+    offset: int,
+    max_chars: int,
+    tail: Mapping[str, Any],
+    budget: int,
+) -> tuple[dict[str, Any] | None, int]:
+    """עמוד אחד של ``text`` מ-``offset``, בתוך ``budget`` בתים כפי שהוא נשלח — וגודלו.
+
+    **העימוד היחיד של הכלי**, לשני המצבים שמחזירים טקסט: עמוד של סעיף (``text`` הוא
+    טקסט הסעיף, :func:`_answer_from_document`) ועמוד של מסמך (``text`` הוא הקובץ כולו,
+    :func:`_answer_whole_document`). שניהם מקבלים מכאן אותו חוזה: עד ``max_chars``
+    תווים מ-``offset``; ``truncated``; ``remaining_chars`` ו-``next_offset`` רק כשנשאר
+    עוד (אותה מוסכמה כמו ``suggestions_truncated``); ועמוד שנגמר מוקדם בתקציב הבתים
+    (:func:`_fit_page`). עימוד שני במצב מסמך היה נפרד מזה בתיקון הבא של אחד מהם.
+
+    ``head`` הם השדות שלפני העמוד ו-``tail`` אלה שאחריו, **בסדר שבו הם יוצאים** — סדר
+    המפתחות הוא סדר ה-JSON שנשלח, ולכן תשובת סעיף זהה בית-בית לזו שלפני שהעמוד עבר
+    לכאן. ``(None, size)`` — כמו ב-:func:`_fit_page`: גם עמוד של תו אחד אינו נכנס, וכל
+    מצב בונה את הסירוב שלו.
+    """
+    total = len(text)
+    chunk = text[offset:offset + max_chars]
+    end = offset + len(chunk)
+    truncated = end < total
+    page = {**head, "offset": offset, "content": chunk, "truncated": truncated, **tail}
+    if truncated:
+        page["remaining_chars"] = total - end
+        page["next_offset"] = end
+    return _fit_page(page, total=total, budget=budget)
+
+
 def _fit_page(
     page: dict[str, Any], *, total: int, budget: int
 ) -> tuple[dict[str, Any] | None, int]:
-    """עמוד הסעיף בתוך ``budget`` בתים **כפי שהוא נשלח** — וגודלו.
+    """עמוד — של סעיף או של מסמך (:func:`_text_page`) — בתוך ``budget`` בתים **כפי שהוא נשלח**, וגודלו.
 
     ``max_chars`` סופר תווים, והתקציב הוא בתים: תו עברי הוא שני בתים, תו CJK
     שלושה ואימוג'י ארבעה, וב-JSON שורה חדשה או מירכאה הן שני תווים. לכן עמוד
@@ -1184,8 +1347,8 @@ def _fit_page(
 
     ``(None, size)`` — כשאין עמוד **לא ריק** שנכנס: מה שנשאר בתשובה בלי שום
     תוכן, ועוד התו הראשון, גדול מהתקציב. עמוד ריק עם ``next_offset`` שלא זז היה
-    שולח קורא ממושמע ללולאה אינסופית, ולכן זה סירוב (:data:`SECTION_TOO_LARGE`)
-    ולא עמוד.
+    שולח קורא ממושמע ללולאה אינסופית, ולכן זה סירוב ולא עמוד — :data:`SECTION_TOO_LARGE`
+    בעמוד של סעיף, ו-``answer_too_large`` בעמוד של מסמך (:func:`_answer_whole_document`).
 
     **ו-``size`` שם הוא בדיוק מה שהושווה לתקציב** (#3472): העמוד בלי תוכן **במדידה
     של ההחלטה** — עם ``remaining_chars``/``next_offset`` בערך ``total`` — ועוד העלות
