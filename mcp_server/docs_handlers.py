@@ -46,10 +46,12 @@ from .answer_fit import Cut, cut, fit_lists, fit_refusal, too_large
 
 logger = logging.getLogger(__name__)
 
-#: שם הכלי שהמודול הזה משרת. מקום אחד לשלושה שמשתמשים בו: הרישום של הכלי
+#: שם הכלי שהמודול הזה משרת. מקום אחד לכל מי שמשתמש בו: הרישום של הכלי
 #: ב-``server.py``, ``read_with`` של ``item_too_large`` ב-``read_batch.py``,
-#: וההפניה מ-``outline`` ב-``RepoBackend.get_file`` (:func:`section_read_arguments`).
-#: הפניה עם שם שאינו רשום שולחת את הסוכן לכלי שאינו קיים.
+#: וההפניות של ``codekeeper_get_repo_file`` אליו (:func:`section_read_arguments`) —
+#: מ-``outline`` ב-``RepoBackend.get_file``, ומקריאה מלאה שאינה נכנסת ב-
+#: ``repo_handlers._whole_file_refusal``. הפניה עם שם שאינו רשום שולחת את הסוכן
+#: לכלי שאינו קיים.
 SECTION_TOOL_NAME = "codekeeper_docs_get_section"
 
 MAX_CHARS_DEFAULT = 12_000
@@ -686,12 +688,20 @@ def resolve_docs_target(*, path: str, repo: str | None = None) -> DocsTarget | d
     return DocsTarget(repo_name, resolved.path, resolved.suffix)
 
 
-def section_read_arguments(*, repo: str, path: str, ref: str | None = None) -> dict[str, Any] | None:
+def section_read_arguments(
+    *, repo: str, path: str, ref: str | None = None, whole_document: bool = False
+) -> dict[str, Any] | None:
     """הארגומנטים שבהם ``codekeeper_docs_get_section`` קורא **את אותו קובץ** — או ``None``.
 
-    הצרכן הוא ``outline`` של ``codekeeper_get_repo_file``: על קובץ שאין לו מפה
-    (``no_outline`` / ``unsupported_language``) התשובה מפנה לכלי הזה, שמחזיר את
-    עץ הכותרות של אותו קובץ — אבל רק כשהכלי הזה באמת מגיש אותו.
+    שני צרכנים, שניהם ב-``codekeeper_get_repo_file``, ושניהם מפנים לכלי הזה רק כשהוא
+    באמת מגיש את הקובץ:
+
+    * ``outline`` על קובץ שאין לו מפה (``no_outline`` / ``unsupported_language``) — עץ
+      הכותרות של אותו קובץ, ולכן **בלי** ``whole_document``: מי שביקש מפה מקבל מפה.
+    * קריאה מלאה שאינה נכנסת בתקציב (``answer_too_large``, ``repo_handlers._whole_file_refusal``)
+      — ``whole_document=True``: מי שביקש את הקובץ כולו מקבל אותו כאן כולו, מדופדף, ולא
+      מפה שממנה צריך עוד לבחור סעיפים. המפתח נכתב כאן ולא אצל הקורא, כי שמות הארגומנטים
+      של הכלי הזה שייכים למודול הזה.
 
     **נגזר מהשער של הכלי עצמו** (:func:`resolve_docs_target`), ולא מרשימה שנייה
     או מכלל כמו "כל ``.md``": ב-CodeBot הכלי מגיש רק ``docs/*.rst``, והפניה
@@ -714,6 +724,8 @@ def section_read_arguments(*, repo: str, path: str, ref: str | None = None) -> d
     arguments: dict[str, Any] = {"repo": target.repo, "path": target.path}
     if ref:
         arguments["ref"] = ref
+    if whole_document:
+        arguments["whole_document"] = True
     return arguments
 
 

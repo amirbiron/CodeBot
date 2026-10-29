@@ -715,7 +715,7 @@ Starlette עם ``lifespan=`` משלה, ולכן ``on_startup`` אינו רץ כ�
    * - כלי ומצב
      - כשהתשובה אינה נכנסת
    * - ``codekeeper_get_file`` / ``codekeeper_get_repo_file``, קריאה מלאה
-     - ``answer_too_large`` עם ``bytes`` (התשובה שהייתה נשלחת, נמדדת), ``max``, ``file`` בלי התוכן, ו-``hint``: ``lines``; בקובץ Markdown שמור גם ``toc``/``section``; בריפו גם ``outline``, ו-``read_with``/``read_with_arguments`` כשכלי הסעיפים מגיש את הקובץ
+     - ``answer_too_large`` עם ``bytes`` (התשובה שהייתה נשלחת, נמדדת), ``max``, ``file`` בלי התוכן, ו-``hint``: ``lines``; בקובץ Markdown שמור גם ``toc``/``section``; בריפו גם ``outline``, ו-``read_with``/``read_with_arguments`` כשכלי התיעוד מגיש את הקובץ — עם ``whole_document: true``, כלומר הקובץ כולו שם, מדופדף (:ref:`mcp-docs-path-policy`)
    * - אותם שני כלים, ``lines``
      - הטווח נגמר מוקדם על גבול שורה, עם ``range.truncation_reason: "byte_budget"`` — ראו :ref:`mcp-line-range`
    * - ``codekeeper_get_file``, ``query``
@@ -1826,7 +1826,7 @@ Claude Desktop
    * - ``ambiguous_section`` גם כשביקשתם בשם הכותרת המלא
      - השם חוזר בקובץ, והכלי אינו מנחש. קראו לפי ``line_range`` של המועמד — ב-``codekeeper_get_file`` עם ``lines`` — או את ההורה מה-``breadcrumb`` בשמו. ראו :ref:`mcp-docs-section`
    * - ``answer_too_large``
-     - התשובה אינה נכנסת בתקציב, ואין בה מה לקצר בלי לאבד משהו בשקט. ה-``hint`` אומר מה לבקש במקום: בקריאה מלאה — ``lines`` (ובקובץ Markdown גם ``toc``/``section``, ובריפו גם ``outline`` ו-``read_with`` כשכלי הסעיפים מגיש את הקובץ); ברשימת פתקים — ``include_content=false`` ואז ``codekeeper_get_note``. במפה ובסעיף: גם בלי אף פריט ברשימות התשובה גדולה, ומה שנשאר בה הוא המטא-דאטה של הקובץ — תיאור ארוך או תגיות ענקיות — שנוסעת על **כל** תשובה על הקובץ. הסירוב עצמו מוותר על התגיות ועל התיאור כדי להיכנס (``file.tags_truncated``, ``file.description_bytes``). השורש — כותבים שאינם אוכפים תקרה — ב-#3489. ראו :ref:`mcp-answer-size`
+     - התשובה אינה נכנסת בתקציב, ואין בה מה לקצר בלי לאבד משהו בשקט. ה-``hint`` אומר מה לבקש במקום: בקריאה מלאה — ``lines`` (ובקובץ Markdown גם ``toc``/``section``, ובריפו גם ``outline``, ו-``read_with`` עם ``whole_document: true`` כשכלי התיעוד מגיש את הקובץ — הקובץ כולו שם, מדופדף); ברשימת פתקים — ``include_content=false`` ואז ``codekeeper_get_note``. במפה ובסעיף: גם בלי אף פריט ברשימות התשובה גדולה, ומה שנשאר בה הוא המטא-דאטה של הקובץ — תיאור ארוך או תגיות ענקיות — שנוסעת על **כל** תשובה על הקובץ. הסירוב עצמו מוותר על התגיות ועל התיאור כדי להיכנס (``file.tags_truncated``, ``file.description_bytes``). השורש — כותבים שאינם אוכפים תקרה — ב-#3489. ראו :ref:`mcp-answer-size`
    * - ``file.tags_truncated: true``
      - התשובה לא נכנסה בתקציב עם התגיות של הקובץ, ולכן ויתרה עליהן — בסירוב מהסוף, ובתשובה מוצלחת כולן. התגיות שמורות כמו שהן; רק התשובה הזו לא נשאה אותן. תשובה מוצלחת מוותרת עליהן רק כשהן מה שעומד בינה לבין התקציב, או כשהמטא-דאטה גדולה מכל שאר תשובה שנחתכה. ראו :ref:`mcp-answer-size`
    * - ``file.description_bytes``, ו-``file.description`` חסר

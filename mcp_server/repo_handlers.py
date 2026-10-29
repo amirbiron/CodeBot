@@ -139,10 +139,13 @@ _WHOLE_FILE_HINT = (
     "(file.lines is how many lines it has), or pass outline=true for a map of its "
     "definitions with their line ranges."
 )
-#: קובץ שכלי הסעיפים מגיש: ההפניה אליו, עם הארגומנטים המדויקים ב-``read_with_arguments``.
-_WHOLE_FILE_SECTIONS_HINT = (
-    " It is also served by the section tool: read_with and read_with_arguments call it "
-    "for its heading map, then one section at a time."
+#: קובץ שכלי התיעוד מגיש: ההפניה אליו, עם הארגומנטים המדויקים ב-``read_with_arguments`` —
+#: ``whole_document=true``, כלומר הקובץ כולו שם, מדופדף. מי שביקש קריאה מלאה רצה את הקובץ
+#: כולו, ולא מפה שממנה צריך עוד לבחור סעיף אחרי סעיף.
+_WHOLE_FILE_DOCS_HINT = (
+    " It is also served by the docs tool: call read_with with read_with_arguments as given "
+    "for the whole file there, paged — while truncated is true, call again with "
+    "offset=next_offset."
 )
 #: שורה אחת שגם לבדה אינה נכנסת: אין טווח קטן יותר, אבל החיפוש מחזיר אותה כקטע חסום.
 _LINE_TOO_LARGE_HINT = (
@@ -172,8 +175,9 @@ def fit_file_answer(
       ``answer_too_large``.
     * **קריאה מלאה שאינה נכנסת** — ``answer_too_large`` עם ``bytes`` (התשובה שהייתה
       נשלחת, נמדדת), ``max``, ``file`` והפניה ל-``lines`` ול-``outline``. קובץ שכלי
-      הסעיפים מגיש מקבל גם ``read_with``/``read_with_arguments`` אליו — אותם שמות של
-      ``no_outline`` ושל ``item_too_large``, והארגומנטים נגזרים מהשער של אותו כלי
+      התיעוד מגיש מקבל גם ``read_with``/``read_with_arguments`` אליו, עם
+      ``whole_document=true`` — הקובץ כולו שם, מדופדף. אותם שמות של ``no_outline`` ושל
+      ``item_too_large``, והארגומנטים נגזרים מהשער של אותו כלי
       (``docs_handlers.section_read_arguments``).
 
     עד #3460 קריאה מלאה נחסמה רק ב-500KB של המראה, ו-``docs/mcp-server.rst`` בקריאה
@@ -199,7 +203,7 @@ def fit_file_answer(
 def _whole_file_refusal(
     read: dict[str, Any], size: int, *, repo: str, path: str, ref: str | None
 ) -> dict[str, Any]:
-    """הסירוב על קריאה מלאה של קובץ ממראה: ``lines``/``outline``, ולקובץ שכלי הסעיפים מגיש — גם אליו."""
+    """הסירוב על קריאה מלאה של קובץ ממראה: ``lines``/``outline``, ולקובץ שכלי התיעוד מגיש — גם אליו, לקובץ כולו."""
     refusal: dict[str, Any] = {"ok": False, **too_large(size), "file": read.get("file"),
                                "hint": _WHOLE_FILE_HINT}
     # עצל, כמו ב-``repo_backend._with_section_redirect``: ``docs_handlers`` מושך את
@@ -212,9 +216,9 @@ def _whole_file_refusal(
     if isinstance(target, dict):
         return refusal
     arguments = docs_handlers.section_read_arguments(
-        repo=target[0], path=target[1], ref=((ref or "").strip() or None))
+        repo=target[0], path=target[1], ref=((ref or "").strip() or None), whole_document=True)
     if arguments is not None:
-        refusal["hint"] += _WHOLE_FILE_SECTIONS_HINT
+        refusal["hint"] += _WHOLE_FILE_DOCS_HINT
         refusal["read_with"] = docs_handlers.SECTION_TOOL_NAME
         refusal["read_with_arguments"] = arguments
     return refusal

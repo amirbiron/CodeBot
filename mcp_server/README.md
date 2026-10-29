@@ -97,7 +97,7 @@ mirrors), ושלושה על פתקי ריפו שקוראים/כותבים ל‑`
 |-----|-------|
 | `codekeeper_list_repos` | רשימת הריפואים המשוקפים (מטא‑דאטה) |
 | `codekeeper_list_repo_tree` | נתיבי קבצים בריפו (עימוד, סינון תיקייה/ref; בלי תוכן). עמוד שאינו נכנס בתקציב — `page_too_large`, ולא עמוד חתוך (#3481) |
-| `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB לקובץ מלא, עד 10MB עם `lines`; בינארי ⇒ מטא‑דאטה בלבד). התשובה עצמה חסומה ב-`OUTPUT_BYTE_BUDGET`: קריאה מלאה גדולה ממנו — `answer_too_large` עם הפניה ל-`lines`/`outline`, וטווח גדול ממנו נגמר מוקדם על גבול שורה (`range.truncation_reason: "byte_budget"`) |
+| `codekeeper_get_repo_file` | תוכן קובץ בודד (עד 500KB לקובץ מלא, עד 10MB עם `lines`; בינארי ⇒ מטא‑דאטה בלבד). התשובה עצמה חסומה ב-`OUTPUT_BYTE_BUDGET`: קריאה מלאה גדולה ממנו — `answer_too_large` עם הפניה ל-`lines`/`outline`, ולקובץ שכלי התיעוד מגיש גם `read_with` ל-`codekeeper_docs_get_section` עם `whole_document=true` — הקובץ כולו שם, מדופדף; וטווח גדול ממנו נגמר מוקדם על גבול שורה (`range.truncation_reason: "byte_budget"`) |
 | `codekeeper_search_repo` | חיפוש טקסט בריפו (snippet קצר, עם תקרות) |
 | `codekeeper_list_repo_note_paths` | **מפת גילוי:** אילו קבצים בריפו נושאים פתקים, וכמה על כל אחד. בלעדיה `list_repo_notes` דורש לדעת את הנתיב מראש |
 | `codekeeper_list_repo_notes` | הפתקים שעל קובץ בודד בריפו משוקף (`repo_name` + `repo_path`) — אותם פתקים שמוצגים בדפדפן הריפו בוובאפ. מחזיר `orphaned: true` כשהנתיב כבר אינו בעץ, והפתקים חוזרים בכל מקרה |
