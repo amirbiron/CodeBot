@@ -2563,7 +2563,7 @@
      - ה-URL הציבורי (https) של שירות ה-MCP. בבוט: בניית פקודת ``/connect_claude``. בשירות ה-MCP: issuer של OAuth (מדליק מצב OAuth יחד עם ``WEBAPP_URL``), וה-host בפקודת ההעלאה שתיאורי הכלים מציגים (``PUT /api/agent/upload``; בלעדיו, או כשאינו כתובת ``http``/``https`` נקייה — ``<mcp-host>``, והמקרה השני עם WARNING בעלייה). בוובאפ: שער open-redirect ב-``/oauth/identify``, והכתובת שמוצגת בהגדרות בסעיף "חיבור סוכן AI" (``_mcp_connect_url`` ב-``webapp/routes/settings_routes.py``: הערך ואחריו ``MCP_ENDPOINT_PATH``; בלעדיו, או כשאינו כתובת ``http``/``https`` נקייה — הסעיף מוצג בלי שורת הכתובת, והמקרה השני עם WARNING בכל טעינה של העמוד).
      - לא
      - ``https://YOUR-MCP-HOST``
-     - ``https://code-keeper-mcp.onrender.com``
+     - ``https://codekeepermcp.onrender.com``
      - Bot/MCP/WebApp
    * - ``MCP_SERVER_NAME``
      - שם התצוגה של שרת ה-MCP (מוצג ללקוח כשם ה-Connector).
@@ -2581,7 +2581,7 @@
      - רשימת Host מותרים לשרת ה-MCP (CSV; תומך wildcard כמו ``*.onrender.com``). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).
      - לא
      - "" (כבוי)
-     - ``codekeeper-mcp.onrender.com``
+     - ``codekeepermcp.onrender.com``
      - MCP
    * - ``MCP_ALLOWED_ORIGINS``
      - רשימת Origin מותרים לשרת ה-MCP (CSV). רלוונטי רק כשמפעילים הגנה דרך ``MCP_ALLOWED_HOSTS``.

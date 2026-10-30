@@ -3,7 +3,7 @@ set -e
 
 # Defaults for Render if not provided (safe fallbacks)
 PORT="${PORT:-9090}"
-WEBAPP_HOST_DEFAULT="code-keeper-webapp.onrender.com"
+WEBAPP_HOST_DEFAULT="codekeeper-webapp.onrender.com"
 ALERTMANAGER_TARGET_DEFAULT="code-keeper-alertmanager.onrender.com:443"
 
 # Use provided env or fallbacks

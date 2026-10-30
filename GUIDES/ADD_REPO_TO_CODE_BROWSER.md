@@ -16,7 +16,7 @@
 
 ## דרישות מקדימות (חד-פעמי)
 
-- **דיסק ב-Render**: השירות `code-keeper-webapp` חייב דיסק מחובר (ברירת מחדל: `/var/data/repos`) – שם נשמרים ה-mirrors.
+- **דיסק ב-Render**: השירות `CodeKeeper-WebApp` חייב דיסק מחובר (ברירת מחדל: `/var/data/repos`) – שם נשמרים ה-mirrors.
 - **`GITHUB_WEBHOOK_SECRET`** מוגדר ב-Render Environment – ערך אקראי חזק, לדוגמה:
   ```bash
   python3 -c "import secrets; print(secrets.token_hex(32))"
@@ -41,7 +41,7 @@
 
 ## שלב 2 · הוספת הטוקן ל-Render
 
-ברנדר → שירות `code-keeper-webapp` → **Environment**.
+ברנדר → שירות `CodeKeeper-WebApp` → **Environment**.
 
 ### מקרה א: זה הריפו הראשון שלכם
 הגדר משתנה יחיד:
@@ -68,7 +68,7 @@ GITHUB_TOKENS={"Campaign-AI4U": "github_pat_AAA", "amirbiron": "github_pat_BBB"}
 
 ## שלב 3 · הרצת ייבוא ראשוני בשל של Render
 
-`Dashboard → code-keeper-webapp → Shell`:
+`Dashboard → CodeKeeper-WebApp → Shell`:
 
 ```bash
 cd ~/project/src
@@ -97,7 +97,7 @@ PY
 
 בעמוד הריפו ב-GitHub → **Settings → Webhooks → Add webhook**:
 
-- **Payload URL**: `https://code-keeper-webapp.onrender.com/api/webhooks/github`
+- **Payload URL**: `https://codekeeper-webapp.onrender.com/api/webhooks/github`
 - **Content type**: `application/json`
 - **Secret**: אותו ערך של `GITHUB_WEBHOOK_SECRET` ברנדר.
 - **SSL verification**: Enable.

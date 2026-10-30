@@ -12,7 +12,7 @@
    בחר את הבוט שלך
    Bot Settings
    Domain
-   הזן: code-keeper-webapp.onrender.com
+   הזן: codekeeper-webapp.onrender.com
    ```
 
 2. **ודא שה-BOT_USERNAME נכון:**
@@ -54,20 +54,20 @@ sudo ntpdate -s time.nist.gov
 # בבוט הראשי
 BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
 SECRET_KEY=your-secret-key-32-chars-minimum
-WEBAPP_URL=https://code-keeper-webapp.onrender.com
+WEBAPP_URL=https://codekeeper-webapp.onrender.com
 
 # ב-Web App
 BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz  # אותו טוקן!
 BOT_USERNAME=my_code_keeper_bot  # בלי @
 SECRET_KEY=your-secret-key-32-chars-minimum  # אותו מפתח!
 MONGODB_URL=mongodb+srv://...
-WEBAPP_URL=https://code-keeper-webapp.onrender.com
+WEBAPP_URL=https://codekeeper-webapp.onrender.com
 ```
 
 ### בדיקת תקינות
 
 1. **בדיקת Widget:**
-   - פתח את: `https://code-keeper-webapp.onrender.com/login`
+   - פתח את: `https://codekeeper-webapp.onrender.com/login`
    - אמור להופיע כפתור "Log in with Telegram"
    - אם לא - בדוק את הדומיין ב-BotFather
 
@@ -127,7 +127,7 @@ print(f"Data: {data_check_string}")
    ```
 
 3. **הגדר ב-BotFather:**
-   - Domain: `code-keeper-webapp.onrender.com`
+   - Domain: `codekeeper-webapp.onrender.com`
 
 4. **עדכן משתני סביבה ב-Render:**
    - וודא שכל המשתנים מוגדרים נכון
