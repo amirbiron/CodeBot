@@ -36,8 +36,9 @@ except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
         return None
 
+# מודול שורש טהור: כתובת ה-WebApp, בלי ברירת מחדל — ``None`` כשהמשתנה חסר או פגום.
+from webapp_url import webapp_base_url, webapp_link
 
-_PUBLIC_WEBAPP_URL_DEFAULT = "https://code-keeper-webapp.onrender.com"
 _DASHBOARD_PATH = "/admin/observability"
 _TELEGRAM_DASHBOARD_BUTTON_TEXT = "Open Dashboard"
 
@@ -142,24 +143,19 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(default)
 
 
-def public_webapp_base_url() -> str:
-    """הכתובת הציבורית של הוובאפ, בלי לוכסן בסוף: ``PUBLIC_URL``, או ``_PUBLIC_WEBAPP_URL_DEFAULT`` כשהוא ריק.
+def public_webapp_base_url() -> Optional[str]:
+    """הכתובת הציבורית של הוובאפ, בלי לוכסן בסוף, או ``None`` כשאין — :func:`webapp_url.webapp_base_url`.
 
     ממנה נבנים גם הכפתור "Open Dashboard" (:func:`_build_public_dashboard_url`) וגם קישור יחסי בשורת ה-Quick Fix
     (``quick_fix_line_for_bot_alert`` ב-``services/observability_dashboard.py``), כך ששניהם מובילים לאותו שרת.
+    עד אוקטובר 2026 היא נקראה ממשתנה נפרד, עם הכתובת של השירות באורגון כברירת מחדל.
     """
-    try:
-        public_url = str(os.getenv("PUBLIC_URL", _PUBLIC_WEBAPP_URL_DEFAULT) or "").strip()
-    except Exception:
-        public_url = ""
-    if not public_url:
-        public_url = _PUBLIC_WEBAPP_URL_DEFAULT
-    return public_url.rstrip("/")
+    return webapp_base_url()
 
 
-def _build_public_dashboard_url() -> str:
-    """Build a public URL to the observability dashboard (never internal generatorURL)."""
-    return f"{public_webapp_base_url()}{_DASHBOARD_PATH}"
+def _build_public_dashboard_url() -> Optional[str]:
+    """Build a public URL to the observability dashboard (never internal generatorURL), or ``None`` without a WebApp URL."""
+    return webapp_link(_DASHBOARD_PATH)
 
 
 def _fmt_minutes(window_seconds: Any) -> str:
@@ -544,7 +540,8 @@ def _format_alert_text(alert: Dict[str, Any], *, include_dashboard_link: bool = 
 
     # Short summary/description
     summary = annotations.get("summary") or annotations.get("description") or ""
-    dashboard_line = f"📊 Dashboard: {_build_public_dashboard_url()}"
+    dashboard_url = _build_public_dashboard_url()
+    dashboard_line = f"📊 Dashboard: {dashboard_url}" if dashboard_url else ""
     # שורת ה-Quick Fix, כפי ש-``internal_alerts`` בנה אותה (``_quick_fix_line``). התראה שמגיעה ישר מ-Alertmanager
     # יכולה לשאת אותה כ-annotation משלה, ולכן הטיפוס נבדק.
     raw_quick_fix = annotations.get("quick_fix")
@@ -555,7 +552,7 @@ def _format_alert_text(alert: Dict[str, Any], *, include_dashboard_link: bool = 
         lines = [text]
         if quick_fix:
             lines.append(quick_fix)
-        if include_dashboard_link:
+        if include_dashboard_link and dashboard_line:
             lines.append(dashboard_line)
         return "\n".join(lines)
 
@@ -891,10 +888,12 @@ def _post_to_telegram(text: str) -> None:
             "chat_id": chat_id,
             "text": text,
             "disable_web_page_preview": True,
-            "reply_markup": {
-                "inline_keyboard": [[{"text": _TELEGRAM_DASHBOARD_BUTTON_TEXT, "url": action_url}]],
-            },
         }
+        # בלי כתובת ל-WebApp אין כפתור: כפתור בלי url נדחה בטלגרם, וההתראה עצמה חשובה ממנו.
+        if action_url:
+            payload["reply_markup"] = {
+                "inline_keyboard": [[{"text": _TELEGRAM_DASHBOARD_BUTTON_TEXT, "url": action_url}]],
+            }
         prefer_pooled = _use_pooled_http()
         from telegram_api import parse_telegram_json_from_response, require_telegram_ok
 

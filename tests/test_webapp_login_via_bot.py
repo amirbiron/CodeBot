@@ -70,11 +70,13 @@ def _install_telegram_stubs():
     sys.modules['telegram.ext'] = ext
 
 
-def _prepare_env():
-    os.environ.setdefault('BOT_TOKEN', 'test-token')
-    os.environ.setdefault('MONGODB_URL', 'mongodb://localhost:27017')
-    os.environ.setdefault('DISABLE_DB', 'true')
-    os.environ.setdefault('WEBAPP_URL', 'https://example.com')
+def _prepare_env(monkeypatch):
+    # דרך monkeypatch ולא os.environ ישירות: הערכים חוזרים בסוף הטסט ולא דולפים לטסטים אחרים.
+    # WEBAPP_URL נקבע במפורש (ולא רק אם חסר): הקישור שנבדק כאן נבנה ממנו, ואין לו ברירת מחדל.
+    for key, value in (('BOT_TOKEN', 'test-token'), ('MONGODB_URL', 'mongodb://localhost:27017'), ('DISABLE_DB', 'true')):
+        if key not in os.environ:
+            monkeypatch.setenv(key, value)
+    monkeypatch.setenv('WEBAPP_URL', 'https://example.com')
 
 
 class _Msg:
@@ -99,7 +101,7 @@ class _Context:
 
 def test_start_command_webapp_login_sends_personal_link(monkeypatch):
     _install_telegram_stubs()
-    _prepare_env()
+    _prepare_env(monkeypatch)
 
     # Import after stubs and env are ready
     import conversation_handlers as ch
@@ -151,7 +153,7 @@ def test_start_command_webapp_login_sends_personal_link(monkeypatch):
 
 def test_start_command_webapp_login_handles_insert_exception(monkeypatch):
     _install_telegram_stubs()
-    _prepare_env()
+    _prepare_env(monkeypatch)
 
     import conversation_handlers as ch
     monkeypatch.setattr(ch, 'reporter', types.SimpleNamespace(report_activity=lambda uid: None), raising=True)

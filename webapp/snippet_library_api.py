@@ -7,7 +7,8 @@ import logging
 from cache_manager import dynamic_cache
 import datetime as _dt
 from services.snippet_library_service import list_public_snippets, submit_snippet as _svc_submit
-from config import config as _cfg
+# מודול שורש טהור: כתובת הוובאפ, בלי ברירת מחדל.
+from webapp_url import webapp_base_url
 import os as _os
 import threading as _threading
 
@@ -127,8 +128,9 @@ def _notify_admins_new_snippet(snippet_id: str, *, title: str, language: str, us
                 admin_ids = []
             if not admin_ids:
                 return
-            base = (base_url or getattr(_cfg, 'PUBLIC_BASE_URL', None) or getattr(_cfg, 'WEBAPP_URL', None) or '').rstrip('/')
-            view_url = f"{base}/admin/snippets/view?id={snippet_id}" if base else f"/admin/snippets/view?id={snippet_id}"
+            # הכתובת מ-WEBAPP_URL בלבד (הקורא מעביר את ``webapp_base_url()``), כי ההודעה הולכת לאדמינים ולא חוזרת
+            # למי ששלח את הבקשה. בלי כתובת — בלי כפתור הצפייה: טלגרם דוחה הודעה שיש בה כפתור עם כתובת יחסית.
+            base = (base_url or '').rstrip('/')
             # BYPASS: שליחה ישירה לטלגרם ללא מנוע כללים
             # סיבה: הודעת מוצר אינטראקטיבית לאדמינים (inline_keyboard עם callback_data) – ה-Rule Engine לא תומך בזה כרגע
             # TODO: להעביר למנוע כללים כאשר תהיה תמיכה ב-send_alert עם reply_markup/actions אינטראקטיביים
@@ -139,11 +141,12 @@ def _notify_admins_new_snippet(snippet_id: str, *, title: str, language: str, us
                         {"text": "✅ אישור", "callback_data": f"snippet_approve:{snippet_id}"},
                         {"text": "❌ דחייה", "callback_data": f"snippet_reject:{snippet_id}"},
                     ],
-                    [
-                        {"text": "👁️ הצג סניפט", "url": view_url},
-                    ],
                 ]
             }
+            if base:
+                kb["inline_keyboard"].append(
+                    [{"text": "👁️ הצג סניפט", "url": f"{base}/admin/snippets/view?id={snippet_id}"}]
+                )
             text = (
                 "🆕 הצעת סניפט חדשה\n\n"
                 f"כותרת: {title}\n"
@@ -206,10 +209,7 @@ def submit_snippet_api():
         return jsonify({"ok": False, "error": str(res.get('error') or 'submit_failed')}), 400
 
     # הצלחה – שליחת התראה למנהלים ברקע (best‑effort, non-blocking)
-    try:
-        base = (getattr(_cfg, 'PUBLIC_BASE_URL', None) or getattr(_cfg, 'WEBAPP_URL', None) or (request.url_root or '')).rstrip('/')
-    except Exception:
-        base = ''
+    base = webapp_base_url()
     _notify_admins_new_snippet(str(res.get('id') or ''), title=title, language=language, username=(user.get('username') or None), base_url=base)
 
     return jsonify({"ok": True, "id": res.get('id')})

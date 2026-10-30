@@ -23,15 +23,25 @@ except Exception:  # pragma: no cover
 
 
 class _FakeRepoMetadataCollection:
-    def __init__(self) -> None:
+    """רשומה אחת לכל ריפו, עם ``last_synced_sha`` בשליטת הבדיקה (``sha``).
+
+    ``update_one`` מחזיר תוצאה בצורה של pymongo (``acknowledged``, ``matched_count``) ומכבד פילטר על
+    ``last_synced_sha``: הסנכרון כותב רק אם ה-SHA עדיין הבסיס שהוא התחיל ממנו, ובודק את ``matched_count``.
+    """
+
+    def __init__(self, sha="o" * 40) -> None:
+        self.sha = sha
         self.last_update = None
 
     def update_one(self, filt, update, upsert=False):  # noqa: D401 - test stub
         self.last_update = {"filter": filt, "update": update, "upsert": upsert}
-        return None
+        matched = 1 if filt.get("last_synced_sha", self.sha) == self.sha else 0
+        from types import SimpleNamespace
+
+        return SimpleNamespace(acknowledged=True, matched_count=matched, modified_count=matched)
 
     def find_one(self, filt, projection=None):  # noqa: D401 - test stub
-        return {"repo_name": filt.get("repo_name"), "last_synced_sha": "o" * 40}
+        return {"repo_name": filt.get("repo_name"), "last_synced_sha": self.sha}
 
 
 class _FakeRepoFilesCollection:
@@ -266,6 +276,7 @@ def test_up_to_date_sync_still_refreshes_the_counter():
     db = _FakeDb()
     db.repo_files.count = 1530
 
+    db.repo_metadata.sha = "s" * 40  # "מעודכן" = ה-SHA שבאינדקס הוא ה-SHA החדש
     out = rss._run_sync_logic(_SyncGitService(), _StubIndexer(), db, "CodeBot", "s" * 40, "s" * 40)
 
     assert out["status"] == "up_to_date"
@@ -283,6 +294,7 @@ def test_up_to_date_sync_does_not_write_when_the_count_fails():
     db = _FakeDb()
     db.repo_files.count_fails = True
 
+    db.repo_metadata.sha = "s" * 40  # "מעודכן" = ה-SHA שבאינדקס הוא ה-SHA החדש
     out = rss._run_sync_logic(_SyncGitService(), _StubIndexer(), db, "CodeBot", "s" * 40, "s" * 40)
 
     assert out["status"] == "up_to_date"
@@ -376,6 +388,7 @@ def test_up_to_date_refresh_reports_when_no_metadata_matched(caplog):
     db.repo_files.count = 7
 
     with caplog.at_level(logging.WARNING):
+        db.repo_metadata.sha = "s" * 40
         out = rss._run_sync_logic(_SyncGitService(), _StubIndexer(), db, "CodeBot", "s" * 40, "s" * 40)
 
     assert out["status"] == "up_to_date"

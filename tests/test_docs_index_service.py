@@ -905,6 +905,8 @@ def test_the_alert_reaches_telegram_with_a_quick_fix_line_to_the_admin_page(worl
     monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "chat")
     monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "warn")
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    # הקישור המלא נבנה מ-WEBAPP_URL, שאין לו ברירת מחדל (webapp_url.py) — כמו בייצור, הוא מוגדר.
+    monkeypatch.setenv("WEBAPP_URL", "https://webapp.test")
     sent = []
 
     def telegram(method, url, json=None, timeout=5):  # noqa: ARG001 — החתימה של http_sync.request

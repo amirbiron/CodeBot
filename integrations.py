@@ -23,6 +23,8 @@ from github.GithubException import (
 )
 
 from config import config
+# מודול שורש טהור: כתובת ה-WebApp, בלי ברירת מחדל — ``None`` כשהמשתנה חסר או פגום.
+from webapp_url import webapp_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -536,13 +538,9 @@ class CodeSharingService:
                 "expires_at": expires_at.isoformat(),
             }
 
-        # בסיס URL: אם PUBLIC_BASE_URL לא קיים והוגדר WEBAPP_URL — השתמש בו.
-        # שים לב: אם base מגיע בלי scheme (למשל "example.com"), טלגרם עלול לפתוח לינק כ-blank page.
-        base = str((config.PUBLIC_BASE_URL or config.WEBAPP_URL or "") or "").strip()
-        if base.endswith("/"):
-            base = base[:-1]
-        if base and "://" not in base:
-            base = "https://" + base.lstrip("/")
+        # ה-WebApp מגיש את /share/<id> מאותו אוסף (internal_shares). בלי כתובת — נתיב יחסי, שהקורא
+        # (``bot_handlers``) לא מציג כקישור. הכתובת כבר נבדקה ל-https ובלי / בסוף (``webapp_url.py``).
+        base = webapp_base_url()
         internal_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
 
         result = {

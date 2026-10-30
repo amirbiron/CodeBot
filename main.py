@@ -145,6 +145,8 @@ from bot_handlers import AdvancedBotHandlers  # still used by legacy code
 from bot_handlers import set_activity_reporter as set_bh_activity_reporter
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from conversation_handlers import set_activity_reporter as set_ch_activity_reporter
+# מודול שורש טהור: כתובת ה-WebApp, בלי ברירת מחדל — ``None`` כשהמשתנה חסר או פגום.
+from webapp_url import log_webapp_url_status, webapp_base_url
 # ייבוא דחוי של ה-activity_reporter בתוך ה-run-time בלבד כדי למנוע יצירת חיבורים בזמן import
 from github_menu_handler import GitHubMenuHandler
 from backup_menu_handler import BackupMenuHandler
@@ -4251,7 +4253,11 @@ class CodeKeeperBot:
         
         # כפתור Web App
         async def show_webapp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            webapp_url = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
+            webapp_url = webapp_base_url()
+            if not webapp_url:
+                # אין ברירת מחדל: כתובת חסרה או פגומה נרשמת בעליית הבוט (``log_webapp_url_status`` ב-``main``).
+                await update.message.reply_text("🌐 ה-Web App לא זמין כרגע: חסרה הגדרת הכתובת שלו.")
+                return
             keyboard = [
                 [InlineKeyboardButton("🌐 פתח את ה-Web App", url=webapp_url)],
                 [InlineKeyboardButton("🔐 התחבר ל-Web App", url=f"{webapp_url}/login")]
@@ -5188,41 +5194,22 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
                 )
                 return
             elif context.args[0] == "webapp_login":
-                # יצירת קישור התחברות אישי
-                webapp_url = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
-                
-                # יצירת טוקן זמני לאימות (אפשר להשתמש ב-JWT או hash פשוט)
-                import hashlib
-                import time
-                timestamp = int(time.time())
-                secret = os.getenv('SECRET_KEY', 'dev-secret-key')
-                token_data = f"{user_id}:{timestamp}:{secret}"
-                auth_token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
-                
-                # שמירת הטוקן במסד נתונים עם תוקף של 5 דקות
-                db = db_manager.get_db()
-                db.webapp_tokens.insert_one({
-                    'token': auth_token,
-                    'user_id': user_id,
-                    'username': username,
-                    'created_at': datetime.now(timezone.utc),
-                    'expires_at': datetime.now(timezone.utc) + timedelta(minutes=5)
-                })
-                
-                # יצירת קישור התחברות
-                login_url = f"{webapp_url}/auth/token?token={auth_token}&user_id={user_id}"
-                
-                keyboard = [
-                    [InlineKeyboardButton("🔐 התחבר ל-Web App", url=login_url)],
-                    [InlineKeyboardButton("🌐 פתח את ה-Web App", url=webapp_url)]
-                ]
-                reply_markup_inline = InlineKeyboardMarkup(keyboard)
-                
+                # קישור התחברות אישי — אותו מימוש של ה-ConversationHandler של /start
+                # (``conversation_handlers.start_command``), ולא עותק שני של יצירת הטוקן ושל הכתובת.
+                from conversation_handlers import _build_webapp_login_markup, _build_webapp_login_payload
+
+                if not webapp_base_url():
+                    await update.message.reply_text("🌐 ה-Web App לא זמין כרגע: חסרה הגדרת הכתובת שלו.")
+                    return
+                payload = _build_webapp_login_payload(user_id, username)
+                if payload is None:
+                    await update.message.reply_text("❌ יצירת קישור ההתחברות נכשלה. נסו שוב בעוד רגע.")
+                    return
                 await update.message.reply_text(
                     "🔐 <b>קישור התחברות אישי ל-Web App</b>\n\n"
                     "לחץ על הכפתור למטה כדי להתחבר:\n\n"
                     "⚠️ <i>הקישור תקף ל-5 דקות בלבד מטעמי אבטחה</i>",
-                    reply_markup=reply_markup_inline,
+                    reply_markup=_build_webapp_login_markup(payload["webapp_url"], payload["login_url"]),
                     parse_mode=ParseMode.HTML
                 )
                 return
@@ -5288,6 +5275,8 @@ def main() -> None:
     """
     Initializes and runs the bot after acquiring a lock.
     """
+    # כתובת ה-WebApp: INFO כשהיא תקינה, ERROR כשהיא חסרה או פגומה — לבוט אין /health, ולכן זה הסימון שלו.
+    log_webapp_url_status(logger, service="bot")
     try:
         # Initialize database first
         global db
@@ -6149,9 +6138,12 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # Fail-open: אין להפיל את ה-setup אם שכבת observability לא זמינה
         pass
     
-    # הפעלת שרת קטן ל-/health ו-/share/<id> — כבוי כברירת מחדל
+    # הפעלת שרת קטן ל-/health ו-/share/<id> — כבוי כברירת מחדל.
+    # הדגל הוא המתג היחיד. עד אוקטובר 2026 השרת עלה רק אם גם ``PUBLIC_BASE_URL`` הוגדר, והמשתנה הזה
+    # בוטל (הכתובת לקישורים היא ``WEBAPP_URL``, ב-``webapp_url.py``) — כך שדגל דלוק בלי המשתנה, שהשאיר
+    # את השרת כבוי, מדליק אותו מעכשיו. השרת מאזין ל-0.0.0.0, ולכן הדגל נשאר כבוי עד שמחליטים להפעיל אותו.
     enable_internal_web = str(os.getenv('ENABLE_INTERNAL_SHARE_WEB', 'false')).lower() == 'true'
-    if enable_internal_web and config.PUBLIC_BASE_URL:
+    if enable_internal_web:
         try:
             from services.webserver import create_app
             aiohttp_app = create_app()
@@ -6207,7 +6199,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             except Exception:
                 pass
     else:
-        logger.info("ℹ️ Skipping internal web server (disabled or missing PUBLIC_BASE_URL)")
+        logger.info("ℹ️ Skipping internal web server (ENABLE_INTERNAL_SHARE_WEB is not true)")
 
     # Register reminders feature (handlers + scheduler)
     try:
@@ -6865,10 +6857,8 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 if str(os.getenv("PREDICTIVE_SAMPLER_ENABLED", "true")).lower() not in {"1", "true", "yes", "on"}:
                     tracker.skip_run(run.run_id, "disabled_by_env")
                     return
-                base = (os.getenv("PREDICTIVE_SAMPLER_METRICS_URL")
-                        or os.getenv("WEBAPP_URL")
-                        or os.getenv("PUBLIC_BASE_URL")
-                        or "").strip()
+                # עקיפה מפורשת קודם: כתובת שרת-מול-שרת, שיכולה להיות פנימית ולא הכתובת הציבורית.
+                base = (os.getenv("PREDICTIVE_SAMPLER_METRICS_URL") or "").strip() or (webapp_base_url() or "")
                 if not base:
                     tracker.skip_run(run.run_id, "missing_metrics_base_url")
                     return

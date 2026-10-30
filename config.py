@@ -316,13 +316,8 @@ class BotConfig(BaseSettings):
         default=30, ge=1, description="Days to keep items in recycle bin"
     )
 
-    # URL-ים
-    PUBLIC_BASE_URL: Optional[str] = Field(
-        default=None, description="Public base URL for sharing links"
-    )
-    WEBAPP_URL: Optional[str] = Field(
-        default=None, description="WebApp base URL (if different from public)"
-    )
+    # כתובת ה-WebApp אינה שדה כאן: הקורא היחיד של ``WEBAPP_URL`` הוא ``webapp_url.py``, כדי שלא יהיו שני מקורות
+    # (שדה בקונפיג מול משתנה הסביבה) שאחד מהם יקבל ערך והשני לא.
 
     # Remote Push Delivery (Worker)
     PUSH_REMOTE_DELIVERY_ENABLED: bool = Field(

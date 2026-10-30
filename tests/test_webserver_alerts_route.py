@@ -18,6 +18,7 @@ async def test_alerts_endpoint_forwards_and_responds(monkeypatch):
         forwarded["alerts"].extend(alerts)
     import services.webserver as sv
     monkeypatch.setitem(importlib.sys.modules, "alert_forwarder", types.SimpleNamespace(forward_alerts=_forward))
+    monkeypatch.setattr(sv, "DB_HEALTH_TOKEN", "test-token")  # /alerts ו-/incidents מוגנים בטוקן
 
     app = create_app()
     runner = web.AppRunner(app)
@@ -29,7 +30,7 @@ async def test_alerts_endpoint_forwards_and_responds(monkeypatch):
         import aiohttp
         async with aiohttp.ClientSession() as session:
             payload = {"alerts": [{"status": "firing", "labels": {"alertname": "Ping"}}]}
-            async with session.post(f"http://127.0.0.1:{port}/alerts", data=json.dumps(payload)) as resp:
+            async with session.post(f"http://127.0.0.1:{port}/alerts", data=json.dumps(payload), headers={"Authorization": "Bearer test-token"}) as resp:
                 assert resp.status == 200
                 data = await resp.json()
                 assert data.get("forwarded") == 1
@@ -42,6 +43,8 @@ async def test_alerts_endpoint_forwards_and_responds(monkeypatch):
 @pytest.mark.asyncio
 async def test_alerts_endpoint_handles_bad_json(monkeypatch):
     from aiohttp import web
+    import services.webserver as sv
+    monkeypatch.setattr(sv, "DB_HEALTH_TOKEN", "test-token")  # /alerts ו-/incidents מוגנים בטוקן
     app = create_app()
     runner = web.AppRunner(app)
     await runner.setup()
@@ -51,7 +54,7 @@ async def test_alerts_endpoint_handles_bad_json(monkeypatch):
         port = list(site._server.sockets)[0].getsockname()[1]
         import aiohttp
         async with aiohttp.ClientSession() as session:
-            async with session.post(f"http://127.0.0.1:{port}/alerts", data="{not-json}") as resp:
+            async with session.post(f"http://127.0.0.1:{port}/alerts", data="{not-json}", headers={"Authorization": "Bearer test-token"}) as resp:
                 assert resp.status == 400
     finally:
         await runner.cleanup()

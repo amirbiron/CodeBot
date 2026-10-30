@@ -10,7 +10,7 @@ def test_forward_alerts_sends_to_sinks_and_emits(monkeypatch):
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/abc")
     monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "tkn")
     monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "123")
-    monkeypatch.setenv("PUBLIC_URL", "https://public.example")
+    monkeypatch.setenv("WEBAPP_URL", "https://public.example")
 
     # Capture outgoing HTTP posts via pooled client
     calls = {"posts": []}

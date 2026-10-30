@@ -86,7 +86,10 @@ def prepare_drill_metadata(scenario_id: str, metadata: Dict[str, Any]) -> Dict[s
 
 
 def _base_url() -> str:
-    return str(os.getenv("PUBLIC_BASE_URL") or os.getenv("WEBAPP_URL") or "").strip().rstrip("/")
+    """כתובת ה-WebApp לקישור בהודעת התרגול, או מחרוזת ריקה כשאין (``webapp_url.py``) — ואז הקישור יחסי."""
+    from webapp_url import webapp_base_url
+
+    return webapp_base_url() or ""
 
 
 def _send_telegram_message(text: str) -> bool:

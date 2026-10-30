@@ -2,7 +2,7 @@
 
 > **מדריך מקיף לתפעול אפליקציית האינטרנט של Code Keeper Bot**
 
-> **💬 למעבר למדריך תפעול הבוט בטלגרם** [לחץ כאן](https://code-keeper-webapp.onrender.com/share/l3ITzqnafk2xPcYT?view=md)
+> **💬 למעבר למדריך תפעול הבוט בטלגרם** [לחץ כאן](/share/l3ITzqnafk2xPcYT?view=md)
 
 ---
 

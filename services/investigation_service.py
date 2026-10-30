@@ -9,7 +9,8 @@ Design:
 
 Env:
 - GRAFANA_URL: base URL of Grafana, e.g. https://grafana.example.com
-- PUBLIC_BASE_URL/WEBAPP_URL: used for building absolute links when relevant (optional)
+
+The absolute link to the full triage report is built by the caller (``bot_handlers``), from ``webapp_url.webapp_base_url``.
 """
 from __future__ import annotations
 
