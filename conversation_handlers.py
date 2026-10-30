@@ -46,15 +46,9 @@ from config import config
 # מודול שורש טהור (בלי חיבור משלו): איזה אוסף מחזיק פעיל אחד לכל שם.
 from file_deletion import SINGLE_ACTIVE_COLLECTIONS
 # מודול שורש טהור: כתובת ה-WebApp, בלי ברירת מחדל — ``None`` כשהמשתנה חסר או פגום.
-from webapp_url import webapp_base_url, webapp_link
+from webapp_url import approval_notice as _approval_notice, webapp_base_url, webapp_link
 # הכפתור "צפייה ב-WebApp" נבנה במקום אחד. ``handlers.file_view`` אינו מייבא את המודול הזה ברמת המודול, ולכן אין כאן מעגל.
 from handlers.file_view import _get_webapp_button_row
-
-
-def _approval_notice(headline: str, path: str) -> str:
-    """הודעת האישור למי שהגיש פריט לאוסף הקהילה או לספריית הסניפטים: הכותרת, ואחריה קישור לעמוד ב-WebApp כשיש כתובת."""
-    link = webapp_link(path)
-    return f"{headline}\nאפשר לצפות כאן: {link}" if link else headline
 
 
 def _get_files_facade_or_none():

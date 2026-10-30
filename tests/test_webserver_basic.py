@@ -92,6 +92,7 @@ async def test_alerts_parse_error_emits_event(monkeypatch):
         captured.append((event, severity, fields))
 
     monkeypatch.setattr(ws, "emit_event", fake_emit)
+    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-token")  # /alerts ו-/incidents מוגנים בטוקן
     app = ws.create_app()
 
     from aiohttp import web
@@ -104,7 +105,7 @@ async def test_alerts_parse_error_emits_event(monkeypatch):
         import aiohttp
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"http://127.0.0.1:{port}/alerts", data="{this is not json}"
+                f"http://127.0.0.1:{port}/alerts", data="{this is not json}", headers={"Authorization": "Bearer test-token"}
             ) as resp:
                 assert resp.status == 400
     finally:

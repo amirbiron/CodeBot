@@ -127,13 +127,21 @@ def _constant_time_compare(a: str, b: str) -> bool:
         return False
 
 
+#: נתיבים שאינם תחת ``/api/`` ושהטוקן מגן עליהם, בהשוואה מדויקת (לא קידומת). ``POST /alerts`` מעביר התראות
+#: לטלגרם, ו-``GET /alerts`` ו-``GET /incidents`` מחזירים את ההתראות והתקלות הפנימיות — בלי טוקן, כל מי שמגיע
+#: לשרת (הוא מאזין ל-``0.0.0.0``) היה שולח לאדמין התראות מזויפות וקורא את הפנימיות. אין להם צרכן HTTP בריפו:
+#: Alertmanager שולח ל-``/alertmanager/webhook`` של הוובאפ, ו-``/alerts`` ו-``/incidents`` בבוט הן פקודות טלגרם.
+_TOKEN_PROTECTED_PATHS = frozenset({"/alerts", "/incidents"})
+
+
 @web.middleware
 async def db_health_auth_middleware(request: web.Request, handler):
-    """Middleware להגנה על endpoints רגישים (DB + Jobs Monitor)."""
+    """Middleware להגנה על endpoints רגישים (DB, Jobs Monitor, ההתראות והתקלות)."""
     if (
         request.path.startswith("/api/db/")
         or request.path.startswith("/api/jobs")
         or request.path.startswith("/api/debug/")
+        or request.path in _TOKEN_PROTECTED_PATHS
     ):
         if not DB_HEALTH_TOKEN:
             # אם לא מוגדר token, חסום לגמרי

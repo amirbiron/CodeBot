@@ -26,6 +26,7 @@ __all__ = [
     "webapp_url_status",
     "webapp_base_url",
     "webapp_link",
+    "approval_notice",
     "webapp_base_url_for_request",
     "log_webapp_url_status",
 ]
@@ -107,8 +108,20 @@ def webapp_link(path: str) -> Optional[str]:
     return f"{base}{path}" if base else None
 
 
+def approval_notice(headline: str, path: str) -> str:
+    """הודעת האישור בטלגרם למי שהגיש פריט לאוסף הקהילה או לספריית הסניפטים: הכותרת, ואחריה קישור לעמוד ב-WebApp
+    כשיש כתובת. משותפת לבוט (``conversation_handlers``) ולוובאפ (``webapp/app.py``), שמאשרים באותה הודעה."""
+    link = webapp_link(path)
+    return f"{headline}\nאפשר לצפות כאן: {link}" if link else headline
+
+
 def webapp_base_url_for_request(request: Any) -> str:
     """בתוך בקשה ל-WebApp: הכתובת מ-``WEBAPP_URL``, ואם אין כתובת תקינה — הכתובת שהבקשה הגיעה אליה (``request.url_root``).
+
+    **רק לקישור שחוזר בתשובה לאותה בקשה** — קישור שיתוף שחוזר ליוצר, תגיות התצוגה המקדימה של עמוד, הפניה בדפדפן.
+    קישור שנשלח למישהו אחר — הודעת טלגרם, התראה ברקע — נבנה מ-:func:`webapp_base_url` או :func:`webapp_link`, ובלי
+    כתובת הוא לא נשלח: הכתובת שהבקשה הגיעה אליה נגזרת מכותרת ``Host`` של מי ששלח את הבקשה, והודעה לאדם אחר לא
+    נבנית ממנה.
 
     **זה המקום היחיד שמותר לו ליפול לכתובת אחרת, ורק בתוך ה-WebApp.** הכתובת שהבקשה הגיעה אליה היא של השירות עצמו, ולא כתובת ישנה, ולכן הנפילה הזו לא שולחת לשום מקום מת. היא עדיין לא שקטה: המשתנה החסר נרשם בעלייה ומוצג ב-``/health``. המחיר: האפליקציה רצה בלי ProxyFix, ולכן הכתובת מהבקשה יוצאת ``http://`` — וחיבור לגוגל דרייב, שדורש התאמה מדויקת של כתובת החזרה, ייכשל אצל גוגל במקום לעבוד חלקית.
 

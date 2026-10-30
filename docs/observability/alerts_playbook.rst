@@ -60,7 +60,7 @@ Playbook קצר להתראות
 
 קישורים בקוד
 ------------
-- נקודת קצה: ``POST /alerts`` ב-``services/webserver.py``.
+- נקודת קצה: ``POST /alerts`` ב-``services/webserver.py``. דורשת ``Authorization: Bearer`` עם ``DB_HEALTH_TOKEN``, ובלעדיו היא חסומה.
 - מעביר התראות: ``alert_forwarder.py``.
 
 דגשים

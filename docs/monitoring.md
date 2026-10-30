@@ -157,6 +157,7 @@ Samples (status, latency) → Adaptive Thresholds (mean+3σ)
 - `/alerts` (GET) – JSON של ההתראות האחרונות לצרכי ChatOps/דשבורד
 - `/incidents` (GET) – JSON של היסטוריית התקלות (Incident Memory)
 - `/alerts` (POST) – Webhook של Alertmanager (קיים)
+- `/alerts` (GET ו-POST) ו-`/incidents` דורשים `Authorization: Bearer` עם `DB_HEALTH_TOKEN`, ובלעדיו הם חסומים (403).
  - `/predict` (ChatOps) – סיכום תחזיות וטרנדים
 
 ## קישורים לתיעוד ChatOps
