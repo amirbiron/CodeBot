@@ -69,6 +69,7 @@ async def test_alerts_forward_failure_emits_anomaly_event(monkeypatch):
 
     monkeypatch.setattr(ws, "emit_event", fake_emit)
 
+    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-token")  # /alerts ו-/incidents מוגנים בטוקן
     app = ws.create_app()
 
     from aiohttp import web
@@ -83,7 +84,7 @@ async def test_alerts_forward_failure_emits_anomaly_event(monkeypatch):
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"http://127.0.0.1:{port}/alerts", json={"alerts": [{"labels": {}, "annotations": {}}]}
+                f"http://127.0.0.1:{port}/alerts", json={"alerts": [{"labels": {}, "annotations": {}}]}, headers={"Authorization": "Bearer test-token"}
             ) as resp:
                 assert resp.status == 200
                 data = await resp.json()
@@ -230,6 +231,7 @@ async def test_access_logs_includes_queue_delay_when_header_missing(monkeypatch)
     monkeypatch.setattr(ws, "emit_event", fake_emit)
     monkeypatch.setattr(ws.time, "time", lambda: 1700000000.0)
 
+    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-token")  # /alerts ו-/incidents מוגנים בטוקן
     app = ws.create_app()
 
     from aiohttp import web
@@ -243,7 +245,7 @@ async def test_access_logs_includes_queue_delay_when_header_missing(monkeypatch)
         import aiohttp
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"http://127.0.0.1:{port}/incidents") as resp:
+            async with session.get(f"http://127.0.0.1:{port}/incidents", headers={"Authorization": "Bearer test-token"}) as resp:
                 assert resp.status == 200
     finally:
         await runner.cleanup()
@@ -268,6 +270,7 @@ async def test_queue_delay_parses_x_request_start_and_emits_warning(monkeypatch)
     monkeypatch.setattr(ws, "emit_event", fake_emit)
     monkeypatch.setattr(ws.time, "time", lambda: 1700000000.0)
 
+    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-token")  # /alerts ו-/incidents מוגנים בטוקן
     app = ws.create_app()
 
     from aiohttp import web
@@ -283,7 +286,7 @@ async def test_queue_delay_parses_x_request_start_and_emits_warning(monkeypatch)
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"http://127.0.0.1:{port}/incidents",
-                headers={"X-Request-Start": "t=1699999999.4"},
+                headers={"X-Request-Start": "t=1699999999.4", "Authorization": "Bearer test-token"},
             ) as resp:
                 assert resp.status == 200
     finally:
@@ -317,6 +320,7 @@ async def test_queue_delay_prefers_x_queue_start_ms(monkeypatch):
     monkeypatch.setattr(ws, "emit_event", fake_emit)
     monkeypatch.setattr(ws.time, "time", lambda: 1700000000.0)
 
+    monkeypatch.setattr(ws, "DB_HEALTH_TOKEN", "test-token")  # /alerts ו-/incidents מוגנים בטוקן
     app = ws.create_app()
 
     from aiohttp import web
@@ -333,6 +337,7 @@ async def test_queue_delay_prefers_x_queue_start_ms(monkeypatch):
             async with session.get(
                 f"http://127.0.0.1:{port}/incidents",
                 headers={
+                    "Authorization": "Bearer test-token",
                     "X-Queue-Start": "1699999999400",
                     "X-Request-Start": "t=1699999990.0",
                 },
