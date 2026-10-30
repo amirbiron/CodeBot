@@ -138,7 +138,7 @@ Docker ל-``push_worker``. אפשר להעלות אותו כ-Blueprint, או ל�
 
    ``scripts/start_with_worker.sh`` מפעיל את ה-Worker רק כאשר
    ``PUSH_REMOTE_DELIVERY_ENABLED`` דלוק. שירות שרץ עם ``scripts/start_webapp.sh``
-   (למשל ``code-keeper-webapp`` ב-Render) **אינו** מריץ sidecar כלל, ולכן שם
+   (למשל ``CodeKeeper-WebApp`` ב-Render) **אינו** מריץ sidecar כלל, ולכן שם
    המסלול המקומי הוא היחיד שזמין.
 
 חיבור ל-WebApp (``webapp/push_api.py``)

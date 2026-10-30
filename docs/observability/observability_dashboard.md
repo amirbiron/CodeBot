@@ -84,7 +84,7 @@ summary: 'מסך ה-Admin ב-/admin/observability מרכז נתוני ניטור
 
 ```bash
 curl -H 'Accept: application/json' \
-  'https://code-keeper-webapp.onrender.com/api/observability/alerts?timerange=24h&severity=critical&page=1&per_page=25'
+  'https://codekeeper-webapp.onrender.com/api/observability/alerts?timerange=24h&severity=critical&page=1&per_page=25'
 ```
 
 דוגמת תגובה:
@@ -126,7 +126,7 @@ curl -H 'Accept: application/json' \
 
 ```bash
 curl -H 'Accept: application/json' \
-  'https://code-keeper-webapp.onrender.com/api/observability/aggregations?timerange=7d&limit=8'
+  'https://codekeeper-webapp.onrender.com/api/observability/aggregations?timerange=7d&limit=8'
 ```
 
 ```json
@@ -152,7 +152,7 @@ curl -H 'Accept: application/json' \
 
 ```bash
 curl -H 'Accept: application/json' \
-  'https://code-keeper-webapp.onrender.com/api/observability/timeseries?timerange=30d&granularity=6h&metric=error_rate'
+  'https://codekeeper-webapp.onrender.com/api/observability/timeseries?timerange=30d&granularity=6h&metric=error_rate'
 ```
 
 ```json
@@ -230,7 +230,7 @@ curl -H 'Accept: application/json' \
 ### Slack / On-call Bot
 
 - סקריפט cron יכול למשוך כל חמש דקות את `GET /api/observability/alerts?timerange=1h&severity=critical&per_page=10` ולהזרים הודעה ל־Slack כאשר `total` גדל.
-- הוסיפו קישור חזרה לדשבורד (`https://code-keeper-webapp.onrender.com/admin/observability`) כדי שמי שמקבל את ההתראה יוכל להעמיק בגרפים.
+- הוסיפו קישור חזרה לדשבורד (`https://codekeeper-webapp.onrender.com/admin/observability`) כדי שמי שמקבל את ההתראה יוכל להעמיק בגרפים.
 
 ### שילוב עם Config Radar
 

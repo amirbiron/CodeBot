@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -143,7 +144,8 @@ def test_declared_vars_appear_in_the_env_reference():
 _OLD_WEBAPP_HOST = "code-keeper-webapp" + ".onrender.com"
 
 #: הקבצים שהוובאפ והבוט טוענים בזמן ריצה ואינם פייתון: תבניות, JS, קובץ הידע של היועץ (נכנס לפרומפט), ומדריך
-#: המשתמש (מוגש כשיתוף מובנה). תיעוד, README ו-``render.yaml`` של שירותים מושהים אינם קוד שרץ.
+#: המשתמש (מוגש כשיתוף מובנה). שאר הריפו — תיעוד, README, ``render.yaml`` — נבדק ב-
+#: ``test_the_old_webapp_host_appears_only_in_the_changelog``.
 _RUNTIME_TEXT_GLOBS = (
     "webapp/templates/**/*.html",
     "webapp/static/**/*.js",
@@ -176,5 +178,32 @@ def test_the_old_webapp_host_is_not_in_code_that_runs():
         p.relative_to(REPO_ROOT).as_posix()
         for p in files
         if _OLD_WEBAPP_HOST in p.read_text(encoding="utf-8", errors="replace")
+    )
+    assert not offenders, offenders
+
+
+#: יומן השינויים מתאר את המעבר מהכתובת הישנה. רשומה היסטורית נכונה לתמיד, ולכן היא המקום היחיד שהכתובת נשארת בו.
+_OLD_WEBAPP_HOST_KEPT_IN = frozenset({"docs/whats-new.rst"})
+
+
+def test_the_old_webapp_host_appears_only_in_the_changelog():
+    """אחרי המעבר לפרנקפורט (אוקטובר 2026) הכתובת של אורגון לא מופיעה בשום קובץ בריפו, חוץ מיומן השינויים.
+
+    הטסט שלמעלה שומר על הקוד שרץ. כאן נבדק כל השאר: README, מדריכים, תיעוד, ``render.yaml`` וסקריפטים. מדריך
+    שמעתיקים ממנו כתובת של webhook, או ``WEBAPP_URL`` לדוגמה, היה שולח אותה לשירות שכבר לא מקבל אותם, בלי שום
+    שגיאה. הרשימה היא של מה שגיט עוקב אחריו (``git ls-files -z``: בלי ``-z`` גיט מצטט שמות בעברית, וקובץ כזה
+    היה מדלג על הבדיקה — ``tests/test_no_committed_pyc.py``). הקבצים נקראים כבתים, כדי שגם קובץ בינארי ייבדק.
+    """
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, check=True).stdout
+    tracked = [p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p]
+    assert "README.md" in tracked, "git ls-files לא החזיר את קבצי הריפו"
+
+    needle = _OLD_WEBAPP_HOST.encode("utf-8")
+    offenders = sorted(
+        rel
+        for rel in tracked
+        if rel not in _OLD_WEBAPP_HOST_KEPT_IN
+        and (REPO_ROOT / rel).is_file()
+        and needle in (REPO_ROOT / rel).read_bytes()
     )
     assert not offenders, offenders
