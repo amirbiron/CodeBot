@@ -33,10 +33,18 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import re
 import threading
 import time
 from typing import Any, Protocol
+
+from services.repo_mirror_fill import (
+    CLONE_CLONED,
+    CLONE_EXISTS,
+    CLONE_NO_URL,
+    clone_if_missing,
+    read_repo_records,
+)
+from services.repo_mirror_fill import redact as _redact
 
 logger = logging.getLogger(__name__)
 
@@ -63,25 +71,9 @@ class LocalMirrors(Protocol):
     def delete_mirror(self, repo_name: str) -> dict[str, Any]: ...
 
 
-# Log redaction (defense-in-depth): the engine already sanitizes its own git
-# stderr at the source (_run_git_command → _sanitize_output), but we log
-# ``message`` values from a duck-typed dependency — so scrub credential shapes
-# ourselves before anything reaches the logs (CLAUDE.md: no secrets in logs).
-_URL_CRED_RE = re.compile(r"(https?://)[^/@\s]+@")
-_GH_TOKEN_RE = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b")
-
-
-def _redact(text: Any) -> str:
-    """Strip URL userinfo credentials + GitHub-token shapes from log-bound text.
-
-    Fail-closed: on any internal error return a placeholder, never the raw text.
-    """
-    try:
-        s = str(text or "")
-        s = _URL_CRED_RE.sub(r"\1***@", s)
-        return _GH_TOKEN_RE.sub("***", s)
-    except Exception:
-        return "<redacted>"
+# Log redaction (``_redact``) and the record read and clone steps live in
+# ``services/repo_mirror_fill.py``: the webapp fills its own disk at startup
+# with the same steps (``fill_missing_mirrors`` in ``services/repo_sync_service.py``).
 
 
 DEFAULT_INTERVAL_SECONDS = 300
@@ -143,22 +135,7 @@ def refresh_once(db: Any, mirror: LocalMirrors) -> dict[str, int]:
     """
     stats = {"checked": 0, "cloned": 0, "fetched": 0, "skipped": 0, "pruned": 0, "errors": 0}
     try:
-        from pymongo import ReadPreference  # lazy, like Repository.find_version_by_id
-
-        repos = list(
-            db["repo_metadata"]
-            .with_options(read_preference=ReadPreference.PRIMARY)
-            .find(
-                {},
-                {
-                    "_id": 0,
-                    "repo_name": 1,
-                    "repo_url": 1,
-                    "default_branch": 1,
-                    "last_synced_sha": 1,
-                },
-            )
-        )
+        repos = read_repo_records(db)
     except Exception:
         logger.warning("repo autosync: repo_metadata query failed", exc_info=True)
         return stats
@@ -174,19 +151,15 @@ def refresh_once(db: Any, mirror: LocalMirrors) -> dict[str, int]:
         stats["checked"] += 1
         _mark(name, True)
         try:
-            if not mirror.mirror_exists(name):
-                url = str(meta.get("repo_url") or "").strip()
-                if not url:
-                    stats["skipped"] += 1
-                    continue
-                res = mirror.init_mirror(url, name) or {}
-                if res.get("success"):
+            outcome = clone_if_missing(name, str(meta.get("repo_url") or "").strip(), mirror)
+            if outcome.status != CLONE_EXISTS:
+                if outcome.status == CLONE_CLONED:
                     stats["cloned"] += 1
+                elif outcome.status == CLONE_NO_URL:
+                    stats["skipped"] += 1
                 else:
                     stats["errors"] += 1
-                    logger.warning(
-                        "repo autosync: clone failed for %s: %s", name, _redact(res.get("message"))
-                    )
+                    logger.warning("repo autosync: clone failed for %s: %s", name, outcome.message)
                 continue
 
             branch = str(meta.get("default_branch") or "main")

@@ -25,17 +25,21 @@ Repository Sync Service
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional, Tuple
 
 # חשוב! ReturnDocument הוא Enum, לא בוליאני
 from pymongo import ReturnDocument
 from pymongo.errors import (  # type: ignore
     AutoReconnect,
     ConnectionFailure,
+    DuplicateKeyError,
     NetworkTimeout,
     NotPrimaryError,
     PyMongoError,
@@ -55,14 +59,26 @@ from tenacity import (  # type: ignore
     wait_exponential_jitter,
 )
 
+from observability import emit_event
+
 from services.code_indexer import CodeIndexer
 from services.git_mirror_service import get_mirror_service
+from services.repo_mirror_fill import (
+    CLONE_CLONED,
+    CLONE_EXISTS,
+    CLONE_NO_URL,
+    clone_if_missing,
+    read_repo_record,
+    read_repo_records,
+    redact,
+)
 
 logger = logging.getLogger(__name__)
 
 # Flag לוודא worker אחד per process
 _worker_started = False
 _worker_lock = threading.Lock()
+SYNC_WORKER_THREAD_NAME = "repo-sync-worker"
 
 _RETRYABLE_MONGO_ERRORS = (
     ServerSelectionTimeoutError,
@@ -72,6 +88,85 @@ _RETRYABLE_MONGO_ERRORS = (
     ConnectionFailure,
     NetworkTimeout,
 )
+
+# ---- התוצאה של סנכרון, והסטטוס שהיא נותנת לג'וב ----------------------------
+#
+# **כל תוצאה של ``_run_sync_logic`` נושאת ``status`` מפורש**, וה-worker קובע את הסטטוס הסופי של הג'וב לפיו
+# (:func:`_job_status_for`). עד אוקטובר 2026 ארבעה מצבי כשל חזרו כ-``{"error": ...}`` בלי ``status``, וה-worker
+# סימן ``completed`` כל ג'וב שלא נזרקה בו חריגה: ג'וב שלא מצא mirror, שה-fetch שלו נכשל, שאין לו SHA קודם או
+# שלא קיבל את רשימת השינויים נראה בדיוק כמו ג'וב שהצליח (K11 — כשל שמדווח בערך ההחזרה ואיש לא בודק אותו).
+
+RESULT_SYNCED = "synced"
+RESULT_UP_TO_DATE = "up_to_date"
+RESULT_SKIPPED = "skipped"
+RESULT_FAILED = "failed"
+
+#: הסיבות של ``RESULT_FAILED``. הסיבה היא גם ה-``error`` שנכתב לג'וב, והתוצאה המלאה נשמרת ב-``result``.
+FAIL_MIRROR_MISSING = "mirror_missing"
+FAIL_FETCH = "fetch_failed"
+FAIL_NO_PREVIOUS_SHA = "no_previous_sha"
+FAIL_CHANGES_UNAVAILABLE = "changes_unavailable"
+FAIL_BASE_MOVED = "base_moved"
+#: ג'וב שה-worker שהריץ אותו הפסיק לסמן שהוא חי (:data:`SYNC_JOB_STALE_SECONDS` בלי דופק) — לרוב תהליך שמת באמצע,
+#: למשל בפריסה. הוא משוחרר כ-``failed`` כדי שהריפו לא יישאר נעול, ולא חוזר לתור: הסנכרון הבא משלים את מה שהוא פספס,
+#: כי הבסיס שלו הוא ``last_synced_sha`` מהמסד (:func:`_run_sync_logic`). נכתב רק על ידי :func:`_release_abandoned_jobs`.
+FAIL_ABANDONED = "abandoned"
+
+#: הסיבה של ``RESULT_SKIPPED``: push לריפו שאין לו רשומה ב-``repo_metadata`` — הוסר (``unmirror_repo``), וה-webhook
+#: שלו נשאר מוגדר ב-GitHub. אין כאן מה לסנכרן, וזה לא כשל — ``failed`` שמור לג'וב שהיה צריך לרוץ ולא רץ.
+SKIP_NOT_TRACKED = "not_tracked"
+
+#: הסטטוסים של ג'וב ב-``sync_jobs``: ``pending`` עד שה-worker תופס אותו, ``running`` בזמן הסנכרון, ואחד מהסופיים.
+#: הקורא היחיד של הסטטוס מחוץ לקובץ הזה הוא שירות ה-MCP, שמחפש ``running`` בלבד, כמחרוזת
+#: (``mcp_server/repo_backend.py``).
+JOB_PENDING = "pending"
+JOB_RUNNING = "running"
+JOB_COMPLETED = "completed"
+JOB_FAILED = "failed"
+JOB_SKIPPED = "skipped"
+
+# ---- ג'וב רץ אחד לכל ריפו, ושחרור של ג'וב שה-worker שלו מת ----------------
+#
+# **לכל ריפו יש לכל היותר ג'וב אחד ב-``running``, והמסד הוא שאוכף את זה** — אינדקס ייחודי חלקי על ``repo_name``,
+# רק על ג'ובים ב-``running`` (:data:`SYNC_JOBS_ONE_RUNNING_INDEX`). בלעדיו, שני workers (כמה תהליכי gunicorn, או שני
+# שירותים על אותו מסד בזמן מעבר) יכלו לסנכרן את אותו ריפו יחד, ו-``FAIL_BASE_MOVED`` רק גילה את זה בדיעבד. התפיסה
+# (:func:`_claim_next_job`) מדלגת על ריפו שיש לו ג'וב רץ, וממשיכה לג'וב של ריפו אחר; ושתי תפיסות באותו רגע נעצרות
+# באינדקס (``DuplicateKeyError``), לא בבדיקה בקוד שאפשר לעקוף (single-active-invariant-in-code).
+#
+# **מנעול כזה צריך דרך לשחרר את מי שמת.** ``worker`` שנהרג באמצע ג'וב (פריסה, SIGKILL) משאיר אותו ב-``running`` לתמיד,
+# ועם האינדקס זה היה נועל את הריפו לתמיד. לכן חוט קטן מסמן כל :data:`SYNC_JOB_HEARTBEAT_SECONDS` שהג'וב חי
+# (``heartbeat_at``), וג'וב שלא סומן :data:`SYNC_JOB_STALE_SECONDS` משוחרר כ-``FAIL_ABANDONED``. הדופק מוכיח שהתהליך חי,
+# לא שהג'וב מתקדם: ג'וב תקוע בתוך תהליך חי ממשיך להחזיק את הריפו.
+SYNC_JOB_HEARTBEAT_SECONDS = 60
+SYNC_JOB_STALE_SECONDS = 10 * 60
+#: כל כמה זמן ה-worker מחפש ג'ובים שה-worker שלהם מת.
+_SYNC_JOB_RELEASE_EVERY_SECONDS = 60
+SYNC_JOBS_CLAIM_INDEX = "sync_jobs_claim"
+SYNC_JOBS_TTL_INDEX = "sync_jobs_ttl"
+SYNC_JOBS_ONE_RUNNING_INDEX = "sync_jobs_one_running_per_repo"
+#: נשלח כשאינדקס של התנהגות על ``sync_jobs`` — ה-TTL או הייחודי — אינו במקום (:func:`ensure_sync_jobs_indexes`).
+EVENT_SYNC_JOBS_INDEX_MISSING = "db_sync_jobs_index_missing"
+
+
+def _sync_failure(reason: str, message: str, **extra: Any) -> Dict[str, Any]:
+    """תוצאת כשל: ``status`` ו-``reason`` למכונה, ``error`` לאדם, ופרטים נוספים כמו שהם."""
+    return {"status": RESULT_FAILED, "reason": reason, "error": message, **extra}
+
+
+def _job_status_for(result: Any) -> Tuple[str, Optional[str]]:
+    """הסטטוס הסופי של הג'וב וה-``error`` שלו, לפי התוצאה של ``_run_sync_logic``.
+
+    תוצאה שאינה מוכרת — לא מילון, או ``status`` שאינו אחד מ-``RESULT_*`` — היא ``failed``: באג שמחזיר צורה חדשה
+    לא יסומן שוב בשקט כהצלחה.
+    """
+    status = result.get("status") if isinstance(result, dict) else None
+    if status in (RESULT_SYNCED, RESULT_UP_TO_DATE):
+        return JOB_COMPLETED, None
+    if status == RESULT_SKIPPED:
+        return JOB_SKIPPED, None
+    if status == RESULT_FAILED:
+        return JOB_FAILED, str(result.get("reason") or "unknown")
+    return JOB_FAILED, "unrecognized_result"
 
 def _count_indexed_files(db: Any, repo_name: str) -> Optional[int]:
     """כמה קבצים של הריפו נמצאים באינדקס, או ``None`` אם הספירה נכשלה.
@@ -111,22 +206,197 @@ def _claim_next_job(db: Any) -> Optional[Dict[str, Any]]:
 
     כדי לצמצם את הסיכון ל-job "תקוע" במקרה של תשובה שאבדה, אנחנו כותבים claim_id
     ייחודי, ואם הייתה שגיאת תשתית ננסה לאתר את ה-job לפי claim_id (קריאה היא idempotent).
+
+    **ג'וב של ריפו שכבר יש לו ג'וב רץ לא נתפס**, ובמקומו נתפס הג'וב הוותיק של ריפו אחר; בתוך ריפו הסדר נשמר. הדילוג
+    בשאילתה חוסך את רוב ההתנגשויות, אבל מה שאוכף הוא האינדקס :data:`SYNC_JOBS_ONE_RUNNING_INDEX`: worker אחר יכול לתפוס
+    ג'וב לאותו ריפו בין הקריאה של הרשימה לתפיסה, ואז המסד דוחה (``DuplicateKeyError``, נמדד מול mongod 7.0.14), הג'וב
+    נשאר ``pending``, וה-worker מנסה בסבב הבא. ``heartbeat_at`` נכתב כבר בתפיסה, כדי שג'וב שנתפס ולא התחיל לא ייראה מת.
     """
     claim_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    # שעה מודעת-אזור (R7). במונגו היא נשמרת כאותו ערך UTC כמו ``utcnow()`` של שאר השדות בקובץ.
+    now = datetime.now(timezone.utc)
+    query: Dict[str, Any] = {"status": JOB_PENDING}
+    busy = _running_repos(db)
+    if busy:
+        query["repo_name"] = {"$nin": busy}
     try:
         return db.sync_jobs.find_one_and_update(
-            {"status": "pending"},
-            {"$set": {"status": "running", "started_at": now, "claim_id": claim_id}},
+            query,
+            {"$set": {"status": JOB_RUNNING, "started_at": now, "heartbeat_at": now, "claim_id": claim_id}},
             sort=[("created_at", 1)],  # FIFO - הישן קודם
             return_document=ReturnDocument.AFTER,  # מחזיר את המסמך אחרי העדכון
         )
+    except DuplicateKeyError:
+        logger.info("Sync claim lost to another worker that took a job for the same repo; trying again next poll")
+        return None
     except _RETRYABLE_MONGO_ERRORS:
         # ייתכן שהכתיבה הושלמה אבל לא קיבלנו תשובה; ננסה לשחזר לפי claim_id.
         try:
             return db.sync_jobs.find_one({"claim_id": claim_id, "status": "running"})
         except Exception:
             raise
+
+
+def _running_repos(db: Any) -> List[str]:
+    """הריפואים שיש להם עכשיו ג'וב ב-``running``."""
+    return sorted(str(name) for name in db.sync_jobs.distinct("repo_name", {"status": JOB_RUNNING}) if name)
+
+
+def _start_heartbeat(db: Any, job: Dict[str, Any]) -> threading.Event:
+    """מרים חוט שמסמן כל :data:`SYNC_JOB_HEARTBEAT_SECONDS` שהג'וב חי, ומחזיר ``Event`` שעוצר אותו.
+
+    הסימון מותנה בכך שהג'וב עדיין ``running`` תחת ה-``claim_id`` של התפיסה הזו. כשהוא כבר לא — שוחרר כ-
+    ``FAIL_ABANDONED``, או הסתיים — הדופק נעצר ורושם את זה, ולא מחייה ג'וב שמישהו אחר כבר סגר.
+    """
+    stop = threading.Event()
+    job_id, claim_id = job["_id"], job.get("claim_id")
+
+    def _beat() -> None:
+        while not stop.wait(SYNC_JOB_HEARTBEAT_SECONDS):
+            try:
+                res = db.sync_jobs.update_one(
+                    {"_id": job_id, "claim_id": claim_id, "status": JOB_RUNNING},
+                    {"$set": {"heartbeat_at": datetime.now(timezone.utc)}},
+                )
+            except _RETRYABLE_MONGO_ERRORS as exc:
+                # ההודעה של pymongo מונה את שרתי המסד, ולכן רק שם הטיפוס.
+                logger.warning("Sync job %s: heartbeat not written (%s); trying again", job_id, type(exc).__name__)
+                continue
+            except Exception:
+                # חוט שמת בלי שורה בלוג היה נראה כמו worker מת, והג'וב היה משתחרר בלי שאיש יידע למה.
+                logger.exception(
+                    "Sync job %s: the heartbeat stopped; the job is released as %s later", job_id, FAIL_ABANDONED
+                )
+                return
+            # ``matched_count`` זורק על כתיבה שלא אושרה (w=0), ולכן ``acknowledged`` נבדק ראשון (pymongo 4.15.3).
+            if not (getattr(res, "acknowledged", False) and getattr(res, "matched_count", 0) == 1):
+                logger.warning("Sync job %s is no longer running under this claim; its heartbeat stops", job_id)
+                return
+
+    threading.Thread(target=_beat, name="sync-job-heartbeat", daemon=True).start()
+    return stop
+
+
+def _release_abandoned_jobs(db: Any) -> int:
+    """משחרר כ-``FAIL_ABANDONED`` כל ג'וב ``running`` שלא סימן דופק :data:`SYNC_JOB_STALE_SECONDS`, ומחזיר כמה שוחררו.
+
+    ג'וב שנתפס לפני שהיה דופק, ואין לו ``heartbeat_at``, נמדד לפי ``started_at``. כל ג'וב משוחרר בעדכון מותנה באותו
+    תנאי, כך שג'וב שסימן דופק או הסתיים בין השליפה לעדכון לא נדרס, והספירה היא של מה שבאמת השתנה. ג'וב שבכל זאת
+    מסתיים אחרי השחרור כותב את התוצאה האמיתית שלו מעל הסימון (:func:`_finish_job`).
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=SYNC_JOB_STALE_SECONDS)
+    stale: Dict[str, Any] = {
+        "status": JOB_RUNNING,
+        "$or": [
+            {"heartbeat_at": {"$lt": cutoff}},
+            {"heartbeat_at": {"$exists": False}, "started_at": {"$lt": cutoff}},
+        ],
+    }
+    released = 0
+    for doc in list(db.sync_jobs.find(stale, {"repo_name": 1, "started_at": 1, "heartbeat_at": 1})):
+        res = db.sync_jobs.update_one(
+            {**stale, "_id": doc["_id"]},
+            {
+                "$set": {
+                    "status": JOB_FAILED,
+                    "error": FAIL_ABANDONED,
+                    "completed_at": now,
+                    "result": _sync_failure(
+                        FAIL_ABANDONED,
+                        f"No heartbeat for over {SYNC_JOB_STALE_SECONDS}s; the worker that ran it is presumed dead.",
+                    ),
+                }
+            },
+        )
+        if getattr(res, "acknowledged", False) and getattr(res, "modified_count", 0) == 1:
+            released += 1
+            logger.warning(
+                "Sync job %s for %s released as %s: no heartbeat since %s",
+                doc["_id"], doc.get("repo_name"), FAIL_ABANDONED, doc.get("heartbeat_at") or doc.get("started_at"),
+            )
+    return released
+
+
+def ensure_sync_jobs_indexes(db: Any) -> Dict[str, bool]:
+    """האינדקסים של ``sync_jobs``: לתפיסה, ה-TTL של ``expire_at``, ו"ג'וב רץ אחד לכל ריפו". ``{שם: האם במקום}``.
+
+    **הם מוצהרים כאן, במסלול של הכותב** — :func:`_sync_worker` קורא לכאן לפני התפיסה הראשונה — ולא רק בסקריפט ידני.
+    עד אוקטובר 2026 השניים הראשונים היו רק ב-``scripts/create_repo_indexes.py``, כך שבמסד שאיש לא הריץ עליו את
+    הסקריפט ג'ובים ישנים לא נמחקו ולתפיסה לא היה אינדקס (דפוס 9 ב-``BY-STACK/mongodb.md``). הסקריפט קורא לכאן.
+
+    - **ה-TTL** מוחק מיד כל ג'וב ש-``expire_at`` שלו עבר, אולי כל הג'ובים מאז ומעולם. ג'וב ישן הוא לוג, והמחיקה שלו
+      בטוחה; הכמות נרשמת לפני היצירה.
+    - **הייחודי** נכשל על כפילויות קיימות. לכן קודם משחררים ג'ובים שה-worker שלהם מת, ואז סופרים ריפואים עם יותר
+      מג'וב רץ אחד. כשיש כאלה, האינדקס לא נוצר: הדילוג שבתפיסה עדיין עובד, אבל רק מצמצם.
+    - ``safe_create_index`` אינו זורק ומחזיר ``False`` בכשל (K11), ולכן התוצאה של כל אחד נבדקת. ה-TTL והייחודי הם
+      אינדקסים של התנהגות, ואינדקס כזה שאינו במקום נשלח כאירוע :data:`EVENT_SYNC_JOBS_INDEX_MISSING` בחומרת
+      ``error``, כמו ``_create_recycle_bin_ttl_indexes`` ב-``database/manager.py`` (``docs/database/indexing.rst``,
+      ``db-behavior-indexes``). אינדקס התפיסה הוא מהירות בלבד, וכשל ביצירתו נרשם באירוע של ``safe_create_index`` עצמו.
+      אינדקס זהה שכבר קיים בשם אחר — למשל מהסקריפט, בשם ברירת המחדל — נחשב במקום (נמדד מול mongod 7.0.14).
+    """
+    from database.manager import DatabaseManager  # מודול כבד; נטען רק כשה-worker מגיע לכאן
+
+    target = SimpleNamespace(db=db)
+
+    def _create(keys: List[Tuple[str, int]], **kwargs: Any) -> bool:
+        return bool(DatabaseManager.safe_create_index(target, "sync_jobs", keys, **kwargs))
+
+    results: Dict[str, bool] = {}
+    results[SYNC_JOBS_CLAIM_INDEX] = _create([("status", 1), ("created_at", 1)], name=SYNC_JOBS_CLAIM_INDEX)
+
+    expired = db.sync_jobs.count_documents({"expire_at": {"$lt": datetime.now(timezone.utc)}})
+    if expired:
+        logger.info("sync_jobs: %d jobs are past expire_at; the TTL index deletes them", expired)
+    results[SYNC_JOBS_TTL_INDEX] = _create([("expire_at", 1)], name=SYNC_JOBS_TTL_INDEX, expire_after_seconds=0)
+
+    _release_abandoned_jobs(db)
+    doubled = [
+        row["_id"]
+        for row in db.sync_jobs.aggregate(
+            [
+                {"$match": {"status": JOB_RUNNING}},
+                {"$group": {"_id": "$repo_name", "count": {"$sum": 1}}},
+                {"$match": {"count": {"$gt": 1}}},
+            ]
+        )
+    ]
+    doubled_repos = sorted(str(name) for name in doubled)
+    if doubled_repos:
+        results[SYNC_JOBS_ONE_RUNNING_INDEX] = False
+    else:
+        results[SYNC_JOBS_ONE_RUNNING_INDEX] = _create(
+            [("repo_name", 1)],
+            name=SYNC_JOBS_ONE_RUNNING_INDEX,
+            unique=True,
+            # שוויון בלבד: ``$ne``/``$not``/``$nin`` אינם מותרים באינדקס חלקי (דפוס 1 ב-``BY-STACK/mongodb.md``).
+            partial_filter_expression={"status": JOB_RUNNING},
+        )
+
+    for name in (SYNC_JOBS_TTL_INDEX, SYNC_JOBS_ONE_RUNNING_INDEX):
+        if results[name]:
+            continue
+        if name == SYNC_JOBS_ONE_RUNNING_INDEX and doubled_repos:
+            details: Dict[str, Any] = {"reason": "running_duplicates", "repos": doubled_repos}
+        else:
+            details = {"reason": "create_failed"}
+        emit_event(EVENT_SYNC_JOBS_INDEX_MISSING, severity="error", collection="sync_jobs", index_name=name, **details)
+    return results
+
+
+def _prepare_sync_jobs(db: Any) -> bool:
+    """:func:`ensure_sync_jobs_indexes` בתחילת ה-worker. ``False`` — המסד לא ענה, ומנסים שוב בסבב הבא.
+
+    חריגה אחרת נרשמת עם traceback ולא מנוסה שוב בתהליך הזה: היא לא תחלוף (R10), וה-worker ממשיך בלי האינדקסים.
+    """
+    try:
+        ensure_sync_jobs_indexes(db)
+    except _RETRYABLE_MONGO_ERRORS as exc:
+        logger.warning("sync_jobs indexes: MongoDB did not answer (%s); trying again next poll", type(exc).__name__)
+        return False
+    except Exception:
+        logger.exception("sync_jobs indexes could not be prepared; the worker goes on without them")
+    return True
 
 
 @retry(
@@ -173,7 +443,7 @@ def trigger_sync(
         "new_sha": new_sha,
         "old_sha": old_sha,
         "trigger": trigger,
-        "status": "pending",
+        "status": JOB_PENDING,
         "created_at": datetime.utcnow(),
         "started_at": None,
         "completed_at": None,
@@ -189,7 +459,12 @@ def trigger_sync(
     logger.info(f"Sync job queued in MongoDB: {job_id}")
 
     # הפעלת worker (אם לא רץ)
-    _ensure_worker_started()
+    if not _ensure_worker_started():
+        logger.info(
+            "Sync job %s stays pending: the sync worker is off in this service (WEBAPP_SYNC_WORKER); "
+            "a service whose worker is on takes it",
+            job_id,
+        )
 
     return job_id
 
@@ -217,16 +492,430 @@ def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def _ensure_worker_started() -> None:
-    """הפעלת worker thread אם לא פעיל (per process)"""
+# ---- מילוי ה-mirrors החסרים בדיסק, בעלייה ----------------------------------
+#
+# **שירות וובאפ שעולה עם דיסק בלי mirrors משכפל לבד כל ריפו שיש לו רשומה ב-``repo_metadata``**, ולפני שה-worker
+# מתחיל לתפוס ג'ובים. בלי זה, אחרי מעבר לשירות חדש (או דיסק שנמחק), דפדפן הקוד לא מוצא אף ריפו, וכל ג'וב סנכרון
+# נכשל על ``FAIL_MIRROR_MISSING`` עד ייבוא ידני של כל ריפו מחדש. הייבוא הידני (``initial_import``) אינו הדרך:
+# הוא דורס את ``last_synced_sha``, את ``repo_url`` ואת ``default_branch`` מתוך ה-mirror, ומאנדקס הכול מחדש.
+#
+# המילוי רק משכפל: לא כותב למסד, לא מושך mirror שקיים (את זה עושה ה-worker, שגם מאנדקס), ולא מוחק mirror שאין לו
+# רשומה (את ההסרה עושה ``unmirror_repo``, באותו שירות). החלק שמשותף לשירות ה-MCP — הקריאה מה-primary והשכפול —
+# נמצא ב-``services/repo_mirror_fill.py``.
+#
+# **הוא עולה רק בשרת הוובאפ** (``webapp/app.py``, תחת ``_is_webapp_runtime``), כמו מתזמן הגיבויים ושולח הפושים:
+# הבוט מייבא את ``webapp.app``, ואין לו את הדיסק.
+
+#: ה-worker מחכה למילוי עד הזמן הזה, ואז מתחיל בכל מקרה (עם WARNING). ג'וב שמחכה לא מאבד כלום — הוא נשאר
+#: ``pending`` במונגו עד שה-worker תופס אותו. ג'וב שרץ לפני שה-mirror שלו קיים נכשל ב-``FAIL_MIRROR_MISSING``,
+#: והסנכרון המוצלח הבא משלים אותו. שכפול mirror של CodeBot (143MB) לקח 7 שניות בסביבת פיתוח (אוקטובר 2026, לא ב-Render),
+#: ולכל שכפול יש תקרה משלו ב-``init_mirror``. כך שהזמן הזה הוא מעקה לשכפול תקוע, לא הערכה של משך המילוי.
+MIRROR_FILL_WAIT_SECONDS = 30 * 60
+#: כמו ``_STARTUP_DELAY_SECONDS`` ב-``mcp_server/repo_autosync.py``: לתת לשרת לסיים לעלות לפני ה-clone הראשון.
+#: ``scripts/start_webapp.sh`` מתעד ש-Render רגיש לזיכרון בזמן העלייה, ו-``git clone`` הוא תהליך נוסף.
+_MIRROR_FILL_STARTUP_DELAY_SECONDS = 10
+_MIRROR_FILL_LOCK_POLL_SECONDS = 2.0
+#: נעילת ``flock`` שמבטיחה שרק תהליך אחד ממלא, כשיש כמה workers של gunicorn על אותו דיסק. הקרנל משחרר אותה כשהתהליך
+#: יוצא, כך שתהליך שמת לא משאיר נעילה תקועה. ``None``: הקובץ בתיקייה הזמנית, שנקבעת רק כשנועלים — ``gettempdir``
+#: כותב ומוחק קובץ בדיקה בקריאה הראשונה שלו (``tempfile._get_default_tempdir``, Python 3.11), ולא בזמן ייבוא.
+_MIRROR_FILL_LOCK_PATH: Optional[str] = None
+_MIRROR_FILL_LOCK_NAME = "codebot-repo-mirror-fill.lock"
+MIRROR_FILL_THREAD_NAME = "repo-mirror-fill"
+#: **ניסיונות חוזרים.** מעבר שנכשל על תקלה שעשויה לחלוף — המסד עוד לא זמין, או ששכפול נכשל (GitHub, רשת, DNS) —
+#: מנוסה שוב, עם המתנה שמוכפלת בכל פעם עד התקרה (``compute_backoff_delay`` ב-``resilience.py``). עד
+#: ``MIRROR_FILL_MAX_ATTEMPTS`` מעברים בסך הכול, כמו ``RETRY_MAX_ATTEMPTS`` במתזמן הגיבויים: מצב סופי לכשל שלא חולף
+#: (ריפו שנמחק ב-GitHub, טוקן שבוטל), במקום ניסיון בלי סוף. עם הערכים כאן ההמתנות הן דקה, 2, 4, 8, 16 ו-30 — בערך
+#: שעה. חריגה לא צפויה (באג, תיקייה שאי אפשר ליצור) לא מנוסה שוב: היא לא תחלוף, וניסיון חוזר היה מתייג אותה כתקלה
+#: זמנית (R10 ב-amir-bug-patterns).
+MIRROR_FILL_MAX_ATTEMPTS = 7
+_MIRROR_FILL_RETRY_BASE_SECONDS = 60.0
+_MIRROR_FILL_RETRY_CAP_SECONDS = 30 * 60.0
+#: פיזור קטן, כדי שכמה workers שנכשלו יחד לא ינסו שוב באותה שנייה.
+_MIRROR_FILL_RETRY_JITTER_SECONDS = 10.0
+#: כשהניסיון הזה נכשל יוצאת התראה לבוט (:data:`ALERT_MIRROR_FILL_FAILING`), פעם אחת. הראשון יכול להיכשל על מסד
+#: שעוד עולה; השני כבר בא אחרי המתנה.
+MIRROR_FILL_ALERT_ATTEMPT = 2
+ALERT_MIRROR_FILL_FAILING = "repo_mirror_fill_failing"
+#: מה שמעבר אחד מחזיר ל-:func:`_run_mirror_fill`: הסתיים בלי כשל שכדאי לנסות שוב, או נכשל על תקלה שעשויה לחלוף.
+_FILL_DONE = "done"
+_FILL_RETRY = "retry"
+
+_mirror_fill_start_lock = threading.Lock()
+#: ה-``Event`` של המילוי בתהליך הזה, או ``None`` כשלא הותחל מילוי — ואז ה-worker לא מחכה (בוט, סקריפטים, טסטים).
+#: נדלק בסוף המעבר הראשון, בכל דרך שבה הוא נגמר — ולא אחרי הניסיונות החוזרים.
+_mirror_fill_done: Optional[threading.Event] = None
+
+
+def _webapp_switch_enabled(name: str) -> bool:
+    """מתג כיבוי של הוובאפ: ``0``/``false``/``no``/``off`` מכבה, וכל ערך אחר (או היעדרו) משאיר פעיל.
+
+    הכלל של שני המתגים בקובץ — :func:`mirror_fill_enabled` ו-:func:`sync_worker_enabled` — כדי ששניהם יקראו ערך
+    באותה דרך. ``env_toggle_enabled`` ב-``services/job_registry.py`` שונה בכוונה: אצלו ערך לא מוכר מכבה.
+    """
+    return os.getenv(name, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def mirror_fill_enabled() -> bool:
+    """``WEBAPP_REPO_AUTOFILL`` (:func:`_webapp_switch_enabled`)."""
+    return _webapp_switch_enabled("WEBAPP_REPO_AUTOFILL")
+
+
+def sync_worker_enabled() -> bool:
+    """``WEBAPP_SYNC_WORKER`` (:func:`_webapp_switch_enabled`). כבוי — השירות הזה לא תופס ג'ובי סנכרון.
+
+    לזמן מעבר בין שני שירותים על אותו מסד: כל ג'וב מעדכן רק את הדיסק של השירות שתפס אותו, ולכן בשירות שיוצא כבים
+    את ה-worker, והג'ובים — גם אלה שהשירות הזה יוצר מה-webhook — נשארים ``pending`` עד שהשירות השני תופס אותם.
+    """
+    return _webapp_switch_enabled("WEBAPP_SYNC_WORKER")
+
+
+def fill_missing_mirrors(db: Any, mirror: Any) -> Dict[str, Any]:
+    """משכפל לדיסק כל ריפו שיש לו רשומה ב-``repo_metadata`` ואין לו mirror. לא כותב למסד.
+
+    **הרשומה נקראת שוב, מה-primary, לפני השכפול ואחריו.** הרשימה נקראת פעם אחת בתחילת המעבר, ושכפול לוקח זמן,
+    כך שריפו יכול להיות מוסר באמצע (``unmirror_repo``). הקריאה שלפני השכפול חוסכת שכפול של ריפו שכבר הוסר, ונותנת
+    את ה-``repo_url`` העדכני. הקריאה שאחריו היא מה שמונע עותק יתום: ``unmirror_repo`` מוחק קודם את ה-mirror ואז את
+    הרשומות, וכשהוא רץ בזמן השכפול הוא לא מוצא mirror למחוק — ואחר כך השכפול מסתיים. אין בוובאפ שלב שמוחק mirror
+    שאין לו רשומה, ולכן mirror כזה נמחק כאן, דרך ``delete_mirror``, ונספר רק אחרי ש-``mirror_exists`` מראה שהוא איננו.
+
+    כשל בקריאת הרשימה עולה לקורא. כשל בריפו אחד נספר ב-``errors``, נרשם, והמעבר ממשיך לבאים. ריפו שהכשל שלו עשוי
+    לחלוף — שכפול שנכשל, או המסד שלא ענה בקריאת הרשומה שלו — נכנס גם ל-``retry_repos``, ובגללו המעבר ינוסה שוב
+    (:func:`_run_mirror_fill`). חריגה אחרת היא באג או תקלת דיסק: היא נרשמת עם traceback, ולא גורמת לניסיון חוזר.
+    """
+    stats: Dict[str, Any] = {
+        "checked": 0, "existed": 0, "cloned": 0, "no_url": 0, "removed": 0, "discarded": 0, "errors": 0,
+        "retry_repos": [],
+    }
+    for meta in read_repo_records(db):
+        name = str(meta.get("repo_name") or "").strip()
+        if not name:
+            continue
+        stats["checked"] += 1
+        try:
+            if mirror.mirror_exists(name):
+                stats["existed"] += 1
+                continue
+            current = read_repo_record(db, name)
+            if current is None:
+                stats["removed"] += 1
+                continue
+            outcome = clone_if_missing(name, str(current.get("repo_url") or "").strip(), mirror)
+            if outcome.status == CLONE_EXISTS:
+                stats["existed"] += 1
+            elif outcome.status == CLONE_NO_URL:
+                stats["no_url"] += 1
+                logger.warning("repo mirror fill: %s has no repo_url in repo_metadata; not cloned", name)
+            elif outcome.status != CLONE_CLONED:
+                stats["errors"] += 1
+                stats["retry_repos"].append(name)
+                logger.warning("repo mirror fill: clone failed for %s: %s", name, outcome.message)
+            elif read_repo_record(db, name) is not None:
+                stats["cloned"] += 1
+            else:
+                _discard_clone_of_removed_repo(name, mirror, stats)
+        except _RETRYABLE_MONGO_ERRORS as exc:
+            # רק שם הטיפוס: ההודעה של pymongo מונה את שרתי המסד.
+            stats["errors"] += 1
+            stats["retry_repos"].append(name)
+            logger.warning("repo mirror fill: %s: MongoDB did not answer (%s)", name, type(exc).__name__)
+        except Exception:
+            stats["errors"] += 1
+            logger.warning("repo mirror fill: %s failed", name, exc_info=True)
+    return stats
+
+
+def _discard_clone_of_removed_repo(name: str, mirror: Any, stats: Dict[str, int]) -> None:
+    res = mirror.delete_mirror(name) or {}
+    # המצב, לא הדיווח: נספר כמחוק רק כשהתיקייה באמת איננה (K11).
+    if res.get("success") and not mirror.mirror_exists(name):
+        stats["discarded"] += 1
+        logger.info("repo mirror fill: %s was removed while it was being cloned; the clone was deleted", name)
+        return
+    stats["errors"] += 1
+    if res.get("success"):
+        logger.warning(
+            "repo mirror fill: %s was removed while it was being cloned; delete_mirror reported the clone deleted, "
+            "but it is still on disk",
+            name,
+        )
+        return
+    logger.warning(
+        "repo mirror fill: %s was removed while it was being cloned, and deleting the clone failed: %s",
+        name,
+        redact(res.get("message")),
+    )
+
+
+def _acquire_mirror_fill_lock(deadline: float) -> Tuple[bool, Any]:
+    """``(להמשיך?, הקובץ שמחזיק את הנעילה)``. הקורא סוגר את הקובץ — וזה מה שמשחרר את הנעילה.
+
+    תהליך שהנעילה תפוסה אצל תהליך אחר מחכה לו, ולא מדלג: ה-worker שלו מחכה ל-``Event`` של התהליך הזה, ו-``Event``
+    שנדלק לפני שהתהליך השני סיים היה משחרר אותו מוקדם מדי. אחרי שהנעילה מתקבלת המילוי רץ גם כאן, ומוצא את הכול
+    קיים. ההמתנה תחומה ב-``deadline``, ואחריו התהליך מוותר (``False``).
+
+    בלי ``fcntl`` (לא Unix), או כשאי אפשר לפתוח את קובץ הנעילה, ממשיכים בלי נעילה ורושמים את זה: עם worker אחד אין
+    לנעילה תפקיד, ועם כמה — השורה בלוג היא מה שמסביר שכפול כפול.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        logger.info("repo mirror fill: fcntl is not available; filling without the cross-process lock")
+        return True, None
+    path = _MIRROR_FILL_LOCK_PATH or os.path.join(tempfile.gettempdir(), _MIRROR_FILL_LOCK_NAME)
+    try:
+        fh = open(path, "a+")
+    except OSError:
+        logger.warning("repo mirror fill: cannot open %s; filling without the cross-process lock", path, exc_info=True)
+        return True, None
+    while True:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True, fh
+        except BlockingIOError:
+            # נעילה שתפוסה אצל אחר. נמדד ב-Python 3.11 וב-3.13 על Linux: ``BlockingIOError`` עם ``EAGAIN``.
+            # כל ``OSError`` אחר אינו "תפוס", ועולה לקורא.
+            if time.monotonic() >= deadline:
+                fh.close()
+                logger.warning(
+                    "repo mirror fill: another process has been filling for %ss; this process stops waiting for it",
+                    MIRROR_FILL_WAIT_SECONDS,
+                )
+                return False, None
+            time.sleep(_MIRROR_FILL_LOCK_POLL_SECONDS)
+        except BaseException:
+            fh.close()
+            raise
+
+
+def _mirror_fill_attempt() -> Tuple[str, Dict[str, Any]]:
+    """מעבר אחד, תחת הנעילה: ``(_FILL_DONE או _FILL_RETRY, מה שהמעבר ראה)``. חריגה לא צפויה עולה לקורא.
+
+    הנעילה משתחררת בסוף המעבר, ולא מוחזקת בזמן ההמתנה לניסיון הבא, כך שתהליך אחר שמחכה לה ממלא בינתיים.
+    """
+    proceed, lock_fh = _acquire_mirror_fill_lock(time.monotonic() + MIRROR_FILL_WAIT_SECONDS)
+    try:
+        if not proceed:
+            # תהליך אחר ממלא כבר יותר מ-``MIRROR_FILL_WAIT_SECONDS``. כשיסיים, המעבר הבא כאן ימצא את מה שהוא שכפל.
+            return _FILL_RETRY, {"reason": "lock_busy"}
+        from database.db_manager import get_db
+
+        db = get_db()
+        if db is None:
+            # ``get_db`` מחזיר ``None`` ולא זורק, בחלון ההמתנה שאחרי חיבור שנכשל (``webapp/app.py``). ערך הכשל נבדק
+            # כאן (K11), ולא נופל אחר כך כ-``TypeError`` בקריאת הרשומות.
+            logger.warning("repo mirror fill: MongoDB is not available yet")
+            return _FILL_RETRY, {"reason": "db_unavailable"}
+        mirror = get_mirror_service()
+        started = time.monotonic()
+        try:
+            stats = fill_missing_mirrors(db, mirror)
+        except _RETRYABLE_MONGO_ERRORS as exc:
+            logger.warning("repo mirror fill: reading repo_metadata failed (%s)", type(exc).__name__)
+            return _FILL_RETRY, {"reason": "read_failed"}
+        log = logger.warning if stats["errors"] else logger.info
+        log("repo mirror fill finished in %.1fs: %s", time.monotonic() - started, stats)
+        if stats["retry_repos"]:
+            return _FILL_RETRY, {"reason": "repos_failed", "repos": list(stats["retry_repos"])}
+        return _FILL_DONE, {}
+    finally:
+        if lock_fh is not None:
+            lock_fh.close()
+
+
+def _alert_mirror_fill_failing(attempt: int, seen: Dict[str, Any], next_delay: float) -> None:
+    """התראה לבוט (:data:`ALERT_MIRROR_FILL_FAILING`): המילוי נכשל ``attempt`` פעמים, וממשיך לנסות.
+
+    ``emit_internal_alert`` אינו זורק (הוא תופס הכול בעצמו). ה-``try`` כאן הוא על הייבוא ועל בניית ההודעה: התראה
+    שלא יצאה לא עוצרת את הניסיונות החוזרים, ונרשמת עם traceback.
+    """
+    try:
+        from internal_alerts import emit_internal_alert
+
+        reason = str(seen.get("reason") or "")
+        repos = [str(r) for r in (seen.get("repos") or [])]
+        if reason == "repos_failed":
+            shown = ", ".join(repos[:10]) + (f" ועוד {len(repos) - 10}" if len(repos) > 10 else "")
+            why = f"לא שוכפלו: {shown}"
+        else:
+            why = {
+                "db_unavailable": "המסד לא זמין",
+                "read_failed": "הקריאה של repo_metadata נכשלה",
+                "lock_busy": "תהליך אחר עדיין ממלא את הדיסק",
+            }.get(reason, reason)
+        emit_internal_alert(
+            ALERT_MIRROR_FILL_FAILING,
+            severity="error",
+            summary=(
+                f"מילוי ה-mirrors בעליית הוובאפ נכשל {attempt} פעמים ({why}). "
+                f"ניסיון {attempt + 1} מתוך {MIRROR_FILL_MAX_ATTEMPTS} בעוד {max(1, round(next_delay / 60))} דק'. "
+                f"עד שיצליח, ריפו שחסר בדיסק לא מופיע בדפדפן הקוד, וסנכרון שלו נכשל עם {FAIL_MIRROR_MISSING}."
+            ),
+            details={
+                "alert_type": ALERT_MIRROR_FILL_FAILING,
+                "reason": reason,
+                "repos": repos,
+                "attempt": attempt,
+                "max_attempts": MIRROR_FILL_MAX_ATTEMPTS,
+                "next_attempt_in_seconds": round(next_delay),
+                "pid": os.getpid(),
+            },
+        )
+    except Exception:
+        logger.exception("repo mirror fill: could not send the %s alert", ALERT_MIRROR_FILL_FAILING)
+
+
+def _run_mirror_fill(done: threading.Event) -> None:
+    """החוט של המילוי: מעבר, ואם הוא נכשל על תקלה שעשויה לחלוף — מעברים נוספים עם המתנה שגדלה, עד
+    :data:`MIRROR_FILL_MAX_ATTEMPTS`. בכשל של :data:`MIRROR_FILL_ALERT_ATTEMPT` יוצאת התראה לבוט.
+
+    ``done`` נדלק אחרי המעבר הראשון, בכל דרך שבה הוא נגמר: ה-worker של הסנכרון מחכה לו, ולא לניסיונות החוזרים.
+    חריגה לא צפויה עוצרת את המילוי בלי ניסיון חוזר, ונרשמת עם traceback.
+    """
+    try:
+        time.sleep(_MIRROR_FILL_STARTUP_DELAY_SECONDS)
+        from resilience import RetryPolicy, compute_backoff_delay
+
+        policy = RetryPolicy(
+            max_attempts=MIRROR_FILL_MAX_ATTEMPTS,
+            backoff_base=_MIRROR_FILL_RETRY_BASE_SECONDS,
+            backoff_cap=_MIRROR_FILL_RETRY_CAP_SECONDS,
+            jitter=_MIRROR_FILL_RETRY_JITTER_SECONDS,
+        )
+        attempt = 1
+        while True:
+            outcome, seen = _mirror_fill_attempt()
+            done.set()
+            if outcome == _FILL_DONE:
+                if attempt > 1:
+                    logger.info("repo mirror fill succeeded on attempt %d", attempt)
+                return
+            if attempt >= MIRROR_FILL_MAX_ATTEMPTS:
+                logger.error(
+                    "repo mirror fill gave up after %d attempts (%s); a mirror missing from this disk stays missing "
+                    "until the next restart, or until the repo is imported again",
+                    attempt,
+                    seen,
+                )
+                return
+            delay = compute_backoff_delay(attempt, policy)
+            if attempt == MIRROR_FILL_ALERT_ATTEMPT:
+                _alert_mirror_fill_failing(attempt, seen, delay)
+            logger.warning(
+                "repo mirror fill attempt %d of %d failed (%s); next attempt in %.0fs",
+                attempt,
+                MIRROR_FILL_MAX_ATTEMPTS,
+                seen,
+                delay,
+            )
+            time.sleep(delay)
+            attempt += 1
+    except Exception:
+        logger.exception(
+            "repo mirror fill failed and is not retried; a mirror missing from this disk stays missing until the "
+            "next restart, or until the repo is imported again"
+        )
+    finally:
+        done.set()
+
+
+def start_mirror_fill() -> bool:
+    """מרים את חוט המילוי (פעם אחת לתהליך). ``True`` כשהוא רץ או רץ קודם, ``False`` כשהוא כבוי.
+
+    ה-``Event`` מתפרסם **לפני** שהחוט עולה, כך ש-worker שמתחיל באותו רגע מחכה לו. כשהעלאת החוט נכשלת, ה-``Event``
+    נדלק (מי שכבר מחכה לו משתחרר), הפרסום מתבטל (קריאה הבאה תנסה שוב), והחריגה עולה לקורא, שרושם אותה.
+    """
+    global _mirror_fill_done
+    if not mirror_fill_enabled():
+        logger.info("repo mirror fill disabled via WEBAPP_REPO_AUTOFILL")
+        return False
+    with _mirror_fill_start_lock:
+        if _mirror_fill_done is not None:
+            return True
+        done = threading.Event()
+        _mirror_fill_done = done
+        try:
+            threading.Thread(target=_run_mirror_fill, args=(done,), name=MIRROR_FILL_THREAD_NAME, daemon=True).start()
+        except BaseException:
+            done.set()
+            _mirror_fill_done = None
+            raise
+    logger.info("repo mirror fill started (pid=%s)", os.getpid())
+    return True
+
+
+def _wait_for_mirror_fill() -> None:
+    """ה-worker לא תופס ג'וב לפני שהמעבר הראשון של המילוי בתהליך הזה הסתיים — עד ``MIRROR_FILL_WAIT_SECONDS``.
+
+    הוא לא מחכה לניסיונות החוזרים: ג'וב של ריפו שעוד חסר נכשל עם ``FAIL_MIRROR_MISSING``, והסנכרון המוצלח הבא משלים.
+    """
+    done = _mirror_fill_done
+    if done is None or done.is_set():
+        return
+    logger.info("Sync worker waits for the repo mirror fill (up to %ss) before claiming jobs", MIRROR_FILL_WAIT_SECONDS)
+    if done.wait(MIRROR_FILL_WAIT_SECONDS):
+        logger.info("Repo mirror fill finished its first pass; the sync worker starts claiming jobs")
+        return
+    logger.warning(
+        "Repo mirror fill is still running after %ss; the sync worker starts claiming jobs anyway, "
+        "and a job for a repo whose mirror is not on disk yet fails as %s",
+        MIRROR_FILL_WAIT_SECONDS,
+        FAIL_MIRROR_MISSING,
+    )
+
+
+def _ensure_worker_started() -> bool:
+    """הפעלת worker thread אם לא פעיל (per process).
+
+    ``False`` — ה-worker כבוי בשירות הזה (:func:`sync_worker_enabled`), ושום דבר לא הופעל.
+    """
     global _worker_started
 
+    if not sync_worker_enabled():
+        return False
     with _worker_lock:
         if not _worker_started:
-            worker = threading.Thread(target=_sync_worker, daemon=True)
+            worker = threading.Thread(target=_sync_worker, name=SYNC_WORKER_THREAD_NAME, daemon=True)
             worker.start()
             _worker_started = True
             logger.info("Sync worker thread started")
+    return True
+
+
+def start_sync_worker() -> bool:
+    """מרים את ה-worker בעליית הוובאפ (``webapp/app.py``). ``True`` כשהוא רץ או רץ קודם, ``False`` כשהוא כבוי.
+
+    בלי ההרמה הזו ה-worker עולה רק ב-:func:`trigger_sync`, כלומר בתהליך שקיבל webhook. ג'ובים שנשארו ``pending``
+    מלפני פריסה, ג'ובים שנוצרו בשירות שה-worker שלו כבוי (:func:`sync_worker_enabled`), ושחרור ג'ובים שה-worker שלהם
+    מת — כולם היו מחכים ל-webhook הבא שמגיע לשירות הזה. כשל בהרמת החוט עולה לקורא, והדגל לא מוצב, כך ש-webhook
+    שמגיע אחר כך מנסה שוב.
+    """
+    if not _ensure_worker_started():
+        logger.info("sync worker disabled via WEBAPP_SYNC_WORKER")
+        return False
+    return True
+
+
+def start_webapp_repo_threads() -> None:
+    """מה שעולה בעליית הוובאפ (``webapp/app.py``): המילוי (:func:`start_mirror_fill`), ואחריו ה-worker
+    (:func:`start_sync_worker`).
+
+    הסדר הוא החוזה: המילוי מפרסם את ה-``Event`` שלו לפני שהוא חוזר, וה-worker בודק אותו פעם אחת כשהוא מתחיל
+    (:func:`_wait_for_mirror_fill`). worker שהיה עולה קודם היה מחכה למילוי או לא, לפי תזמון החוטים. כל אחד בניסיון
+    משלו, כדי שכשל באחד לא ימנע את השני; והכשל נרשם, כי בלעדיו ריפו שחסר בדיסק, או ג'וב שממתין, נשארים כך בלי שום
+    סימן.
+    """
+    try:
+        start_mirror_fill()
+    except Exception:
+        logger.warning("Failed to start the repo mirror fill", exc_info=True)
+    try:
+        start_sync_worker()
+    except Exception:
+        logger.warning(
+            "Failed to start the repo sync worker at boot; pending sync jobs wait until a GitHub webhook reaches "
+            "this service",
+            exc_info=True,
+        )
 
 
 def _sync_worker() -> None:
@@ -236,14 +925,32 @@ def _sync_worker() -> None:
     Note: כל Gunicorn worker יריץ את ה-thread הזה.
     השימוש ב-findOneAndUpdate עם "$set": {"status": "running"}
     מבטיח שרק worker אחד יתפוס כל job (atomic operation).
+
+    לפני התפיסה הראשונה הוא מכין את האינדקסים של ``sync_jobs`` (:func:`ensure_sync_jobs_indexes`), וכל
+    ``_SYNC_JOB_RELEASE_EVERY_SECONDS`` משחרר ג'ובים שה-worker שלהם מת (:func:`_release_abandoned_jobs`). בזמן ג'וב רץ
+    חוט דופק (:func:`_start_heartbeat`).
     """
     from database.db_manager import get_db
 
+    _wait_for_mirror_fill()
     logger.info("Sync worker polling MongoDB...")
 
+    indexes_ready = False
+    next_release = 0.0
     while True:
         try:
             db = get_db()
+            if db is None:
+                # ``get_db`` מחזיר ``None`` ולא זורק, בחלון ההמתנה שאחרי חיבור שנכשל (``webapp/app.py``) — K11.
+                logger.warning("Sync worker: MongoDB is not available yet; trying again")
+                time.sleep(10)
+                continue
+            if not indexes_ready:
+                indexes_ready = _prepare_sync_jobs(db)
+            if time.monotonic() >= next_release:
+                # המועד הבא נקבע לפני השחרור, כדי ששחרור שנכשל לא יחזור בכל סבב.
+                next_release = time.monotonic() + _SYNC_JOB_RELEASE_EVERY_SECONDS
+                _release_abandoned_jobs(db)
 
             # Atomic: מצא job pending ותפוס אותו
             # חשוב: return_document הוא Enum ב-PyMongo, לא True/False!
@@ -257,19 +964,18 @@ def _sync_worker() -> None:
             job_id = job["_id"]
             logger.info(f"Processing sync job: {job_id}")
 
+            # הדופק נעצר **לפני** כתיבת הסטטוס הסופי: דופק שהיה מתעורר אחריה לא היה מוצא ג'וב ``running``, ורושם אזהרה
+            # על ג'וב שהסתיים כרגיל. ה-``finally`` מכסה את המקרה שבו ההרמה שלו עצמה נכשלה.
+            heartbeat: Optional[threading.Event] = None
             try:
+                heartbeat = _start_heartbeat(db, job)
                 result = _run_sync_from_doc(job, db)
-
-                # עדכון סטטוס - completed
-                _update_job_with_retry(
-                    db,
-                    job_id,
-                    {"$set": {"status": "completed", "completed_at": datetime.utcnow(), "result": result}},
-                )
-
-                logger.info(f"Job {job_id} completed successfully")
+                heartbeat.set()
+                _finish_job(db, job, result)
 
             except Exception as e:
+                if heartbeat is not None:
+                    heartbeat.set()
                 logger.exception(f"Sync job failed: {job_id}")
 
                 # עדכון סטטוס - failed
@@ -282,10 +988,36 @@ def _sync_worker() -> None:
                 except Exception:
                     # אם אפילו עדכון הסטטוס נכשל (למשל בזמן failover), אל תפיל את ה-thread
                     logger.exception("Failed to update failed status for job %s", job_id)
+            finally:
+                if heartbeat is not None:
+                    heartbeat.set()
 
         except Exception as e:
             logger.exception(f"Worker error: {e}")
             time.sleep(10)  # backoff on error
+
+
+def _finish_job(db: Any, job: Dict[str, Any], result: Dict[str, Any]) -> str:
+    """כותב לג'וב את הסטטוס הסופי שהתוצאה נותנת (:func:`_job_status_for`), ומחזיר אותו.
+
+    ``result`` נשמר תמיד, גם בכשל — שם ה-``error`` לאדם ופרטי ה-fetch. ``error`` של הג'וב הוא הסיבה הקצרה
+    (``FAIL_*``), כמו ש-``get_job_status`` מחזיר אותה. כשל שנזרק כחריגה עובר במסלול נפרד ב-``_sync_worker``.
+    """
+    job_id = job["_id"]
+    status, error = _job_status_for(result)
+    _update_job_with_retry(
+        db,
+        job_id,
+        # שעה מודעת-אזור (R7). במונגו היא נשמרת כאותו ערך UTC כמו ``utcnow()`` של שאר השדות בקובץ.
+        {"$set": {"status": status, "completed_at": datetime.now(timezone.utc), "result": result, "error": error}},
+    )
+    if status == JOB_FAILED:
+        logger.warning("Sync job %s for %s failed: %s", job_id, job.get("repo_name"), error)
+    elif status == JOB_SKIPPED:
+        logger.info("Sync job %s for %s skipped: %s", job_id, job.get("repo_name"), (result or {}).get("reason"))
+    else:
+        logger.info("Job %s completed successfully", job_id)
+    return status
 
 
 def _run_sync_from_doc(job_doc: Dict[str, Any], db: Any) -> Dict[str, Any]:
@@ -304,10 +1036,9 @@ def _run_sync_from_doc(job_doc: Dict[str, Any], db: Any) -> Dict[str, Any]:
 
     repo_name = job_doc["repo_name"]
     new_sha = job_doc["new_sha"]
-    old_sha = job_doc.get("old_sha")
+    webhook_before = job_doc.get("old_sha")
 
-    # המשך הלוגיקה כמו ב-_run_sync המקורי...
-    return _run_sync_logic(git_service, indexer, db, repo_name, new_sha, old_sha)
+    return _run_sync_logic(git_service, indexer, db, repo_name, new_sha, webhook_before)
 
 
 def _run_sync_logic(
@@ -316,26 +1047,51 @@ def _run_sync_logic(
     db: Any,
     repo_name: str,
     new_sha: str,
-    old_sha: Optional[str],
+    webhook_before: Optional[str],
 ) -> Dict[str, Any]:
-    """הלוגיקה של הסנכרון - מופרדת לשימוש חוזר"""
+    """הסנכרון של ריפו אחד ל-``new_sha``. מחזיר תוצאה עם ``status`` מפורש (``RESULT_*``), ולא זורק על כשל צפוי.
 
-    # וידוא שה-mirror קיים
+    **הבסיס של ההבדלים הוא ``last_synced_sha`` שבמסד, ולא ``before`` שב-webhook.** ``last_synced_sha`` הוא מה
+    שבאמת נכנס לאינדקס, ולכן סנכרון שמצליח משלים גם את מה שג'ובים שנכשלו לפניו פספסו. עד אוקטובר 2026 הבסיס היה
+    ``before``: push שהסנכרון שלו נכשל השאיר את השינויים שלו מחוץ לאינדקס לתמיד, כי ה-push הבא התחיל מה-SHA
+    שאחריו. וזה גם מה שמונע ניסיון חוזר מסוכן: ג'וב ישן שרץ אחרי חדש יותר מחשב הבדלים מהמצב שבמסד, והסנכרון הבא
+    מחזיר הכול למקום. ``webhook_before`` נשאר רק לשורת לוג, כשהוא שונה מהבסיס.
+
+    הכתיבה של ``last_synced_sha`` מותנית בכך שהוא עדיין הבסיס שהסנכרון התחיל ממנו (CAS). אם סנכרון אחר הזיז אותו
+    בינתיים, התוצאה היא ``FAIL_BASE_MOVED`` — המרוץ עצמו לא נפתר כאן, רק נעשה גלוי. **הכתיבות לאינדקס שהסנכרון
+    כבר עשה לפני ה-CAS נשארות** — אין להן החזרה לאחור. לכן אחרי ``FAIL_BASE_MOVED``, ועד הסנכרון המוצלח הבא, קבצים
+    מהטווח של הסנכרון הזה יכולים להופיע באינדקס בגרסה של ה-``new_sha`` שלו, בזמן ש-``last_synced_sha`` מצביע על ה-SHA
+    של הסנכרון האחר. את החפיפה עצמה מונעת התפיסה של ג'וב רץ אחד לכל ריפו (:data:`SYNC_JOBS_ONE_RUNNING_INDEX`), ומה
+    שנשאר ל-CAS הוא ג'וב ששוחרר כ-``FAIL_ABANDONED`` בזמן שה-worker שלו עוד חי, ומסתיים אחרי שג'וב חדש כבר התחיל.
+    """
+
+    # ``repo_name`` ייחודי ב-``repo_metadata``: האינדקס הייחודי נוצר בעליית שירות ה-MCP (``RepoBackend``, דרך
+    # ``safe_create_index``) וב-``scripts/create_repo_indexes.py``, ולכן ``find_one`` כאן הוא הרשומה ולא נציג.
+    metadata = db.repo_metadata.find_one({"repo_name": repo_name})
+    if metadata is None:
+        return {
+            "status": RESULT_SKIPPED,
+            "reason": SKIP_NOT_TRACKED,
+            "message": "No repo_metadata record; the repo is not tracked here (its GitHub webhook may still be set).",
+        }
+
     if not git_service.mirror_exists(repo_name):
-        return {"error": "Mirror not found. Run initial import first."}
+        return _sync_failure(FAIL_MIRROR_MISSING, "Mirror not found on this service's disk.")
 
-    # Fetch עדכונים
     fetch_result = git_service.fetch_updates(repo_name)
     if not fetch_result["success"]:
-        return {"error": "Fetch failed", "details": fetch_result}
+        return _sync_failure(FAIL_FETCH, "Fetch failed", details=fetch_result)
 
-    # אם אין old_sha, נשלוף מה-DB
-    if not old_sha:
-        metadata = db.repo_metadata.find_one({"repo_name": repo_name})
-        old_sha = metadata.get("last_synced_sha") if metadata else None
-
-    if not old_sha:
-        return {"error": "No previous SHA. Run initial import first."}
+    base_sha = metadata.get("last_synced_sha")
+    if not base_sha:
+        return _sync_failure(FAIL_NO_PREVIOUS_SHA, "No last_synced_sha in repo_metadata. Run initial import first.")
+    old_sha = base_sha
+    if webhook_before and webhook_before != base_sha:
+        # המצב שהבסיס מהמסד נועד לו: push קודם לא סונכרן (או שג'ובים רצו שלא לפי הסדר).
+        logger.info(
+            "Sync %s: the webhook's before (%s) is not the indexed SHA (%s); syncing from the indexed SHA",
+            repo_name, str(webhook_before)[:7], str(base_sha)[:7],
+        )
 
     # אם ה-SHA זהה, אין מה לעדכן
     if old_sha == new_sha:
@@ -364,13 +1120,13 @@ def _run_sync_logic(
         # ``total_files`` בלבד. ``/repo/api/repos`` מחזיר את **כל** מסמכי
         # ``repo_metadata`` בלי פילטר, כך שמסמך כזה היה מופיע כריפו רפאים
         # ברשימת הבחירה — בלי כתובת ובלי ענף.
-        return {"status": "up_to_date", "message": "No changes"}
+        return {"status": RESULT_UP_TO_DATE, "message": "No changes"}
 
     # קבלת רשימת שינויים
     changes = git_service.get_changed_files(repo_name, old_sha, new_sha)
 
     if changes is None:
-        return {"error": "Failed to get changed files"}
+        return _sync_failure(FAIL_CHANGES_UNAVAILABLE, "Failed to get changed files")
 
     stats = {"added": 0, "modified": 0, "removed": 0, "renamed": 0, "indexed": 0, "skipped": 0, "errors": 0}
 
@@ -446,16 +1202,28 @@ def _run_sync_logic(
     if total_files is not None:
         metadata_updates["total_files"] = total_files
 
-    # עדכון metadata
-    db.repo_metadata.update_one(
-        {"repo_name": repo_name},
+    # עדכון metadata — רק אם ``last_synced_sha`` עדיין הבסיס שהסנכרון התחיל ממנו (CAS), ובלי upsert: הרשומה קיימת
+    # (ממנה נקרא הבסיס), ו-upsert עם ``last_synced_sha`` בפילטר היה יוצר רשומה שנייה לאותו ריפו.
+    update = db.repo_metadata.update_one(
+        {"repo_name": repo_name, "last_synced_sha": old_sha},
         {"$set": metadata_updates},
-        upsert=True,
     )
+    # ``matched_count`` זורק על כתיבה שלא אושרה (w=0) — ולכן ``acknowledged`` נבדק ראשון (pymongo 4.15.3, results.py),
+    # כמו ב-``webapp/drive_auth.py``. ``update_one`` שלא תפס מסמך אינו זורק, ולכן התוצאה נבדקת (K11).
+    if not (getattr(update, "acknowledged", False) and getattr(update, "matched_count", 0) == 1):
+        logger.warning(
+            "Sync %s: last_synced_sha moved from %s while syncing to %s; not recording this sync",
+            repo_name, old_sha[:7], new_sha[:7],
+        )
+        return _sync_failure(
+            FAIL_BASE_MOVED,
+            "last_synced_sha changed during the sync (another sync ran at the same time).",
+            old_sha=old_sha[:7], new_sha=new_sha[:7], stats=stats,
+        )
 
     logger.info(f"Sync completed: {stats}")
 
-    return {"status": "synced", "old_sha": old_sha[:7], "new_sha": new_sha[:7], "stats": stats}
+    return {"status": RESULT_SYNCED, "old_sha": old_sha[:7], "new_sha": new_sha[:7], "stats": stats}
 
 
 def unmirror_repo(repo_name: str, db: Any) -> Dict[str, Any]:
