@@ -37,7 +37,7 @@
       "url": "/boards",
       "short_name": "לוחות פתקים",
       "icons": [
-        { "src": "/static/icons/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }
+        { "src": "/static/icons/shortcut-boards-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }
       ]
     },
     {
