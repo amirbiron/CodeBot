@@ -115,6 +115,8 @@ class _Markup:
 
 @pytest.mark.asyncio
 async def test_file_menu_includes_webapp_button(monkeypatch):
+    # הכפתור נבנה מ-WEBAPP_URL בלבד, בלי ברירת מחדל — הכתובת נקבעת במפורש.
+    monkeypatch.setenv("WEBAPP_URL", "https://webapp.test")
     fake_db_mod = types.SimpleNamespace(db=types.SimpleNamespace(is_favorite=lambda uid, name: False))
     monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
 
@@ -147,7 +149,7 @@ async def test_file_menu_includes_webapp_button(monkeypatch):
     web_row = rm.keyboard[2]
     web_btn = web_row[0]
     assert web_btn.text == "🌐 צפייה בWebApp"
-    assert web_btn.url == "https://code-keeper-webapp.onrender.com/file/OID42"
+    assert web_btn.url == "https://webapp.test/file/OID42"
     share_btn = web_row[1]
     assert share_btn.text == "🔗 שתף קוד"
     assert share_btn.callback_data == "share_menu_idx:0"
@@ -155,6 +157,8 @@ async def test_file_menu_includes_webapp_button(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_file_menu_webapp_button_search_fallback(monkeypatch):
+    # הכפתור נבנה מ-WEBAPP_URL בלבד, בלי ברירת מחדל — הכתובת נקבעת במפורש.
+    monkeypatch.setenv("WEBAPP_URL", "https://webapp.test")
     fake_db_mod = types.SimpleNamespace(db=types.SimpleNamespace(is_favorite=lambda uid, name: False))
     monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
 
@@ -186,7 +190,7 @@ async def test_file_menu_webapp_button_search_fallback(monkeypatch):
     web_row = rm.keyboard[2]
     web_btn = web_row[0]
     assert web_btn.text == "🌐 צפייה בWebApp"
-    assert web_btn.url == "https://code-keeper-webapp.onrender.com/files?q=noid.txt#results"
+    assert web_btn.url == "https://webapp.test/files?q=noid.txt#results"
     share_btn = web_row[1]
     assert share_btn.text == "🔗 שתף קוד"
     assert share_btn.callback_data == "share_menu_idx:0"

@@ -43,59 +43,18 @@ from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 from i18n.strings_he import BTN_BACKUP_ZIPS
 from handlers.pagination import build_pagination_row
 from config import config
-from urllib.parse import quote_plus
 # מודול שורש טהור (בלי חיבור משלו): איזה אוסף מחזיק פעיל אחד לכל שם.
 from file_deletion import SINGLE_ACTIVE_COLLECTIONS
-
-DEFAULT_WEBAPP_URL = "https://code-keeper-webapp.onrender.com"
-
-
-def _resolve_webapp_base_url() -> Optional[str]:
-    candidates = []
-    try:
-        candidates.append(getattr(config, "WEBAPP_URL", None))
-    except Exception:
-        candidates.append(None)
-    try:
-        candidates.append(os.getenv("WEBAPP_URL"))
-    except Exception:
-        candidates.append(None)
-    try:
-        candidates.append(getattr(config, "PUBLIC_BASE_URL", None))
-    except Exception:
-        candidates.append(None)
-    candidates.append(DEFAULT_WEBAPP_URL)
-
-    for candidate in candidates:
-        if not candidate:
-            continue
-        base = str(candidate).strip()
-        if base:
-            return base.rstrip('/')
-    return None
+# מודול שורש טהור: כתובת ה-WebApp, בלי ברירת מחדל — ``None`` כשהמשתנה חסר או פגום.
+from webapp_url import webapp_base_url, webapp_link
+# הכפתור "צפייה ב-WebApp" נבנה במקום אחד. ``handlers.file_view`` אינו מייבא את המודול הזה ברמת המודול, ולכן אין כאן מעגל.
+from handlers.file_view import _get_webapp_button_row
 
 
-def _get_webapp_button_row(file_id: Optional[str], file_name: Optional[str] = None) -> Optional[List[InlineKeyboardButton]]:
-    base_url = _resolve_webapp_base_url()
-    if not base_url:
-        return None
-    if file_id:
-        target = f"{base_url}/file/{file_id}"
-    elif file_name:
-        try:
-            query = quote_plus(str(file_name))
-        except Exception:
-            query = str(file_name)
-        target = f"{base_url}/files?q={query}#results"
-    else:
-        target = None
-    if not target:
-        return None
-    try:
-        return [InlineKeyboardButton("🌐 צפייה בWebApp", url=target)]
-    except TypeError:
-        # בסביבות בדיקה ייתכן ש-InlineKeyboardButton אינו תומך בפרמטר url
-        return None
+def _approval_notice(headline: str, path: str) -> str:
+    """הודעת האישור למי שהגיש פריט לאוסף הקהילה או לספריית הסניפטים: הכותרת, ואחריה קישור לעמוד ב-WebApp כשיש כתובת."""
+    link = webapp_link(path)
+    return f"{headline}\nאפשר לצפות כאן: {link}" if link else headline
 
 
 def _get_files_facade_or_none():
@@ -300,8 +259,13 @@ def _persist_webapp_login_token(token_doc: Dict[str, object]) -> None:
 
 
 def _build_webapp_login_payload(user_id: int, username: Optional[str]) -> Optional[Dict[str, str]]:
-    """יוצר טוקן וקישורי התחברות ל-Web App."""
-    base_url = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+    """יוצר טוקן וקישורי התחברות ל-Web App, או ``None`` כשאין כתובת ל-WebApp או כשיצירת הטוקן נכשלה.
+
+    בלי כתובת לא נוצר טוקן בכלל: קישור התחברות בלי כתובת אינו קישור, וטוקן שנשמר בשבילו רק מחכה לפקיעה.
+    """
+    base_url = webapp_base_url()
+    if not base_url:
+        return None
     secret_candidates = [
         os.getenv("WEBAPP_LOGIN_SECRET"),
         getattr(config, "WEBAPP_LOGIN_SECRET", None),
@@ -462,6 +426,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_stats.log_user(user_id, username)
     # אם המשתמש הגיע עם פרמטר webapp_login — צור ושלח קישור התחברות אישי ל-Web App
     if _is_webapp_login_requested(update, context):
+        if not webapp_base_url():
+            # בלי כתובת אין לאן לשלוח. אומרים את זה, במקום תפריט פתיחה שמשאיר את המשתמש לנחש למה הקישור לא הגיע.
+            await update.message.reply_text("🌐 ה-Web App לא זמין כרגע: חסרה הגדרת הכתובת שלו. נסו שוב מאוחר יותר.")
+            try:
+                reporter.report_activity(user_id)
+            except Exception:
+                pass
+            return ConversationHandler.END
         try:
             payload = _build_webapp_login_payload(user_id, username)
             if payload is not None:
@@ -499,7 +471,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def show_community_hub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """תפריט ראשי של אוסף הקהילה: ממשקי משתמשים/ספריית סניפטים."""
     user_id = update.effective_user.id
-    base_url = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
     keyboard = [
         [InlineKeyboardButton("📳 ממשקי משתמשים", callback_data="community_catalog_menu")],
         [InlineKeyboardButton("📃 ספריית סניפטים", callback_data="snippets_menu")],
@@ -520,12 +491,12 @@ async def community_catalog_menu(update: Update, context: ContextTypes.DEFAULT_T
     """תפריט משנה עבור 'ממשקי משתמשים' (אוסף קהילה קיים)."""
     query = update.callback_query
     await _maybe_await(_safe_answer(query))
-    web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/community-library"
-    keyboard = [
-        [InlineKeyboardButton("ממשקי משתמשים (🌐 web)", url=web_url)],
-        [InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")],
-    ]
+    web_url = webapp_link("/community-library")
+    keyboard = []
+    if web_url:
+        keyboard.append([InlineKeyboardButton("ממשקי משתמשים (🌐 web)", url=web_url)])
+    keyboard.append([InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")])
+    keyboard.append([InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")])
     await _maybe_await(_safe_edit_message_text(query, "📳 ממשקי משתמשים", InlineKeyboardMarkup(keyboard)))
     return ConversationHandler.END
 
@@ -534,13 +505,14 @@ async def snippets_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """תפריט משנה עבור 'ספריית סניפטים'."""
     query = update.callback_query
     await _maybe_await(_safe_answer(query))
-    base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
-    web_url = f"{base}/snippets"
-    keyboard = [
-        [InlineKeyboardButton("ספריית סניפטים (🌐 web)", url=web_url)],
-        [InlineKeyboardButton("➕ הוסף סניפט משלך", url=f"{base}/snippets/submit")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")],
-    ]
+    keyboard = []
+    web_url = webapp_link("/snippets")
+    submit_url = webapp_link("/snippets/submit")
+    if web_url:
+        keyboard.append([InlineKeyboardButton("ספריית סניפטים (🌐 web)", url=web_url)])
+    if submit_url:
+        keyboard.append([InlineKeyboardButton("➕ הוסף סניפט משלך", url=submit_url)])
+    keyboard.append([InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")])
     await _maybe_await(_safe_edit_message_text(query, "📃 ספריית סניפטים", InlineKeyboardMarkup(keyboard)))
     return ConversationHandler.END
 
@@ -596,6 +568,10 @@ async def submit_flows_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE
         return await community_hub_callback(update, context)
     except Exception:
         return ConversationHandler.END
+
+#: מקום שמור בעמוד העזרה של ה-WebApp לשורת הכתובת. העמודים נבנים בייבוא, והכתובת נקראת בזמן ההצגה
+#: (``_render_help_page``), כדי שהעמוד יציג את הכתובת שמוגדרת עכשיו — ובלעדיה לא יציג שורת כתובת בכלל.
+_HELP_WEBAPP_ADDRESS_SLOT = "{webapp_address}"
 
 HELP_PAGES = [
     (
@@ -756,8 +732,8 @@ HELP_PAGES = [
         "<b>איך מתחברים?</b>\n"
         "1. לחצו על 🌐 Web App בתפריט\n"
         "2. התחברו עם Telegram\n"
-        "3. זהו! כל הקבצים שלכם זמינים\n\n"
-        "🔗 כתובת: code-keeper-webapp.onrender.com"
+        "3. זהו! כל הקבצים שלכם זמינים"
+        f"{_HELP_WEBAPP_ADDRESS_SLOT}"
     ),
     (
         "🚀 <b>חדש ב-WebApp: מערכת סימניות חכמות</b>\n\n"
@@ -782,11 +758,19 @@ HELP_PAGES = [
     ),
 ]
 
+
+def _render_help_page(text: str) -> str:
+    """ממלא את שורת הכתובת של ה-WebApp (``_HELP_WEBAPP_ADDRESS_SLOT``): המארח בלי ``https://``, או כלום כשאין כתובת."""
+    base = webapp_base_url()
+    line = f"\n\n🔗 כתובת: {base.removeprefix('https://')}" if base else ""
+    return text.replace(_HELP_WEBAPP_ADDRESS_SLOT, line)
+
+
 async def show_help_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
     """מציג עמוד עזרה עם כפתורי ניווט"""
     total_pages = len(HELP_PAGES)
     page = max(1, min(page, total_pages))
-    text = HELP_PAGES[page - 1]
+    text = _render_help_page(HELP_PAGES[page - 1])
     nav = []
     if page > 1:
         nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"help_page:{page-1}"))
@@ -1350,11 +1334,7 @@ async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT
             uid = doc.get('user_id')
             if uid:
                 try:
-                    base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
-                    msg = (
-                        "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
-                        f"אפשר לצפות כאן: {base}/community-library"
-                    )
+                    msg = _approval_notice("🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.", "/community-library")
                     await context.bot.send_message(chat_id=int(uid), text=msg)
                 except Exception:
                     pass
@@ -1455,11 +1435,7 @@ async def community_approve_command(update: Update, context: ContextTypes.DEFAUL
                 uid = doc.get('user_id')
                 if uid:
                     try:
-                        base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
-                        msg = (
-                            "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
-                            f"אפשר לצפות כאן: {base}/community-library"
-                        )
+                        msg = _approval_notice("🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.", "/community-library")
                         await context.bot.send_message(chat_id=int(uid), text=msg)
                     except Exception:
                         pass
@@ -1683,11 +1659,14 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
     snippet_id = str(res.get('id') or '')
     if admins and snippet_id:
         try:
-            kb = InlineKeyboardMarkup([
+            rows = [
                 [InlineKeyboardButton("✅ אישור", callback_data=f"snippet_approve:{snippet_id}"),
                  InlineKeyboardButton("❌ דחייה", callback_data=f"snippet_reject:{snippet_id}")],
-                [InlineKeyboardButton("👁️ הצג סניפט", url=f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/admin/snippets/view?id={snippet_id}")]
-            ])
+            ]
+            view_url = webapp_link(f"/admin/snippets/view?id={snippet_id}")
+            if view_url:
+                rows.append([InlineKeyboardButton("👁️ הצג סניפט", url=view_url)])
+            kb = InlineKeyboardMarkup(rows)
             # BYPASS: שליחה ישירה לטלגרם ללא מנוע כללים
             # סיבה: הודעת מוצר אינטראקטיבית לאדמינים (callback_data / reply_markup) – ה-Rule Engine לא תומך בזה כרגע
             # TODO: להעביר למנוע כללים כאשר תהיה תמיכה ב-send_alert עם reply_markup/actions אינטראקטיביים
@@ -1735,11 +1714,7 @@ async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_T
                     uid = doc.get('user_id')
                     if uid:
                         try:
-                            base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
-                            msg = (
-                                "🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.\n"
-                                f"אפשר לצפות כאן: {base}/snippets"
-                            )
+                            msg = _approval_notice("🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.", "/snippets")
                             await context.bot.send_message(chat_id=int(uid), text=msg)
                         except Exception:
                             pass
@@ -1853,10 +1828,8 @@ async def snippet_approve_command(update: Update, context: ContextTypes.DEFAULT_
                 if isinstance(doc, dict):
                     uid = doc.get('user_id')
                     if uid:
-                        base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
-                        await context.bot.send_message(chat_id=int(uid), text=(
-                            "🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.\n"
-                            f"אפשר לצפות כאן: {base}/snippets"
+                        await context.bot.send_message(chat_id=int(uid), text=_approval_notice(
+                            "🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.", "/snippets"
                         ))
             except Exception:
                 pass
@@ -1900,10 +1873,12 @@ async def snippet_reject_command(update: Update, context: ContextTypes.DEFAULT_T
 
 @_admin_required
 async def whats_new_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    base_url = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
-    target = f"{base_url}/repo/?file=config/whats_new.yaml"
+    target = webapp_link("/repo/?file=config/whats_new.yaml")
     message = getattr(update, "message", None)
     if message is None or not hasattr(message, "reply_text"):
+        return
+    if not target:
+        await message.reply_text("🆕 אין קישור לקובץ מה חדש: WEBAPP_URL לא מוגדר או פגום (ראו את הלוג של עליית הבוט).")
         return
     await message.reply_text(f"🆕 קובץ מה חדש: {target}", disable_web_page_preview=True)
 

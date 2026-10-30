@@ -32,6 +32,8 @@ from file_description import (
 )
 # ירושת סימון המועדף — אותו כלל בכל מסלול שכותב גרסה. ראו file_favorite.py.
 from file_favorite import favorite_fields_for_new_version
+# מודול שורש טהור: כתובת הוובאפ, בלי ברירת מחדל — בתוך בקשה נופלת לכתובת שהבקשה הגיעה אליה.
+from webapp_url import webapp_base_url_for_request
 try:
     from config import config as _cfg  # type: ignore
 except Exception:  # pragma: no cover
@@ -204,19 +206,8 @@ def tags_rate_limit(key: str, max_per_minute: int):
 
 
 def _get_public_base_url() -> str:
-    """הפקת בסיס כתובת ציבורית לפעולות שיתוף (UI ו-API)."""
-    try:
-        configured_base = getattr(_cfg, 'PUBLIC_BASE_URL', None) if _cfg is not None else None
-        if configured_base:
-            return str(configured_base).rstrip('/')
-
-        host_base = str(getattr(request, 'host_url', '') or '').rstrip('/')
-        script_root = str(getattr(request, 'script_root', '') or '').strip()
-        if script_root:
-            script_root = '/' + script_root.strip('/') if script_root not in ('/', '') else ''
-        return f"{host_base}{script_root}".rstrip('/')
-    except Exception:
-        return ''
+    """הפקת בסיס כתובת ציבורית לפעולות שיתוף (UI ו-API) — :func:`webapp_url.webapp_base_url_for_request`."""
+    return webapp_base_url_for_request(request)
 
 
 def _build_app_url(path: str) -> str:

@@ -802,7 +802,7 @@ class ConfigService:
             key="PREDICTIVE_SAMPLER_METRICS_URL",
             services=("bot",),
             default="",
-            description="בסיס ה-URL שממנו הסמפלר מושך סטטיסטיקות. ריק = WEBAPP_URL ואז PUBLIC_BASE_URL; בלי אף אחד מהם ההרצה מדולגת",
+            description="בסיס ה-URL שממנו הסמפלר מושך סטטיסטיקות — עקיפה מפורשת, שיכולה להיות כתובת פנימית. ריק = WEBAPP_URL (webapp_url.py); בלי כתובת תקינה ההרצה מדולגת",
             category="predictive",
         ),
         "PREDICTIVE_SAMPLER_RUN_IN_TESTS": ConfigDefinition(
@@ -1853,26 +1853,18 @@ class ConfigService:
             description="מצב דיבאג (true/false)",
             category="webserver",
         ),
-        "PUBLIC_BASE_URL": ConfigDefinition(
-            key="PUBLIC_BASE_URL",
-            services=("webapp", "bot", "webserver"),
-            default="",
-            description="כתובת URL בסיסית לשיתוף קישורים",
-            category="webserver",
-        ),
-        "PUBLIC_URL": ConfigDefinition(
-            key="PUBLIC_URL",
-            services=("webapp", "bot", "mcp", "webserver"),
-            default="https://code-keeper-webapp.onrender.com",
-            description="כתובת בסיס ציבורית של ה-WebApp (משמשת ליצירת קישור ציבורי ל-Observability Dashboard בהתראות)",
-            category="webserver",
-        ),
         "WEBAPP_URL": ConfigDefinition(
             key="WEBAPP_URL",
             services=("webapp", "bot", "mcp", "webserver"),
             default="",
-            description="כתובת WebApp (אם שונה מ-public)",
+            description=(
+                "הכתובת הציבורית של ה-WebApp — המקור היחיד לכל קישור אליו (הקורא היחיד: webapp_url.py). "
+                "בלי ברירת מחדל: חסרה או פגומה — אין קישורים ל-WebApp, שורת ERROR בעלייה, וסימון ב-/health "
+                "(בשירות ה-MCP: מצב PAT בלבד, וסימון ב-/healthz). הפורמט: https://<host> בלי נתיב ובלי / בסוף. "
+                "בוובאפ, בלעדיה, קישורים נבנים מהכתובת שהבקשה הגיעה אליה."
+            ),
             category="webserver",
+            required=True,
         ),
 
         # --- MCP Server (Claude integration) ---
@@ -2101,12 +2093,6 @@ class ConfigService:
             key="WEBAPP_WARMUP_DELAY_SECONDS",
             default="2",
             description="השהיה בין ניסיונות ה-warmup הראשיים (שניות)",
-            category="warmup",
-        ),
-        "WEBAPP_WARMUP_BASE_URL": ConfigDefinition(
-            key="WEBAPP_WARMUP_BASE_URL",
-            default="http://127.0.0.1:$PORT",
-            description="בסיס ה-URL לבקשות ה-Frontend Warmup",
             category="warmup",
         ),
         "WEBAPP_WSGI_APP": ConfigDefinition(
@@ -3312,7 +3298,14 @@ class ConfigService:
             key="ENABLE_INTERNAL_SHARE_WEB",
             services=("bot",),
             default="false",
-            description="הפעלת שירות שיתוף פנימי",
+            description="שרת הווב הפנימי בתוך תהליך הבוט (services/webserver.py, מאזין ל-0.0.0.0). הדגל הוא המתג היחיד",
+            category="features",
+        ),
+        "ENABLE_INTERNAL_SHARE_LINKS": ConfigDefinition(
+            key="ENABLE_INTERNAL_SHARE_LINKS",
+            services=("bot",),
+            default="false",
+            description="הכפתור \"📱 קישור פנימי\" ב-/share: קישור ל-/share/<id> ב-WebApp. דורש גם WEBAPP_URL תקין",
             category="features",
         ),
         "HTTP_SAMPLE_RETENTION_SECONDS": ConfigDefinition(

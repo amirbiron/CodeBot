@@ -1487,14 +1487,16 @@ def _absolute_for_chat(href: str) -> str:
     """נתיב יחסי בוובאפ (``/admin/...``) כקישור מלא, כי בהודעה בטלגרם נתיב יחסי הוא טקסט שאי אפשר ללחוץ עליו.
 
     הבסיס הוא ``public_webapp_base_url`` של ``alert_forwarder`` — אותו שרת של הכפתור "Open Dashboard" באותה הודעה.
-    כתובת שיש לה scheme או מארח (כולל ``//host/...``) נשארת כמו שהיא, וכך גם ערך שאינו נתיב.
+    כתובת שיש לה scheme או מארח (כולל ``//host/...``) נשארת כמו שהיא, וכך גם ערך שאינו נתיב — וגם נתיב כשאין
+    כתובת ל-WebApp, כי אין ברירת מחדל (``webapp_url.py``): עדיף נתיב שאי אפשר ללחוץ עליו מקישור לשרת שלא קיים.
     """
     parts = urlsplit(href)
     if parts.scheme or parts.netloc or not parts.path.startswith("/"):
         return href
     from alert_forwarder import public_webapp_base_url
 
-    return f"{public_webapp_base_url()}{href}"
+    base = public_webapp_base_url()
+    return f"{base}{href}" if base else href
 
 
 def _load_graph_sources_config() -> Dict[str, Any]:

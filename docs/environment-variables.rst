@@ -234,11 +234,11 @@
      - ``CodeBot``
      - WebApp
    * - ``WEBAPP_URL``
-     - כתובת ה-WebApp. בשירות ה-MCP: משמש גם לגשר זהות OAuth (``/oauth/identify``) — מדליק מצב OAuth יחד עם ``MCP_SERVER_URL``.
-     - לא
+     - הכתובת הציבורית של ה-WebApp, והמקור היחיד לכל קישור אליו. הקורא היחיד שלו הוא ``webapp_url.py``, והפורמט וההתנהגות כשהוא חסר או פגום מוגדרים שם: אין ברירת מחדל, ובלי ערך תקין אין קישורים ל-WebApp, ונרשמת שורת ERROR בעלייה של כל שירות. ב-WebApp המצב מוצג ב-``/health``, ובשירות ה-MCP ב-``/healthz``. בשירות ה-MCP הוא משמש גם לגשר זהות OAuth (``/oauth/identify``), ומדליק מצב OAuth יחד עם ``MCP_SERVER_URL``. בתוך בקשה ל-WebApp, בלי ערך תקין, הקישורים נבנים מהכתובת שהבקשה הגיעה אליה. החליף את ``PUBLIC_BASE_URL`` ואת ``PUBLIC_URL`` (אוקטובר 2026).
+     - כן
      - -
      - ``https://my.app``
-     - WebApp/MCP
+     - Bot/WebApp/MCP
    * - ``BOT_JOBS_API_BASE_URL``
      - בסיס URL ל-API הפנימי של הבוט (aiohttp) עבור Trigger של Jobs ממסך המוניטור (``POST /api/jobs/<job_id>/trigger``). אם לא מוגדר, כפתור ההפעלה ידנית במוניטור יהיה לא זמין.
      - לא
@@ -274,12 +274,6 @@
      - לא
      - ``2``
      - ``5``
-     - WebApp
-   * - ``WEBAPP_WARMUP_BASE_URL``
-     - בסיס ה-URL לבקשות ה-Frontend Warmup
-     - לא
-     - ``http://127.0.0.1:$PORT``
-     - ``https://code-keeper-webapp.onrender.com``
      - WebApp
    * - ``WEBAPP_WSGI_APP``
      - היעד ש-Gunicorn טוען ב-``scripts/start_webapp.sh``, שמריץ אותו מתוך ``webapp/`` ועם ``--pythonpath`` לשורש הריפו. היעד חייב לטעון את ``webapp/app.py`` בשם ``webapp.app``, ויעד כמו ``app:app`` נעצר בעלייה בשגיאה: בשם אחר, כל ייבוא של ``webapp.app`` היה טוען את הקובץ פעם נוספת
@@ -377,12 +371,6 @@
      - ``false``
      - ``true``
      - WebApp/Observability
-   * - ``PUBLIC_BASE_URL``
-     - כתובת בסיס ציבורית ליצירת קישורי שיתוף
-     - לא
-     - "" (ריק)
-     - ``https://share.example.com``
-     - WebApp
    * - ``WEEKLY_TIP_ENABLED``
      - מתג כללי להצגת רכיב ההכרזות (on/off)
      - לא
@@ -1026,7 +1014,13 @@
      - ``srv-xxxx``
      - Reporter
    * - ``ENABLE_INTERNAL_SHARE_WEB``
-     - הפעלת שירות שיתוף פנימי בתוך תהליך הבוט (נקרא ב-main.py; היסטורי — ההרצה הפנימית בוטלה וה-webserver רץ כשירות נפרד)
+     - מעלה את שרת הווב הפנימי (``services/webserver.py``) בתוך תהליך הבוט, מ-``main.py``. השרת מאזין ל-``0.0.0.0``. הדגל הוא המתג היחיד: עד אוקטובר 2026 השרת דרש גם ``PUBLIC_BASE_URL``, ולכן דגל דלוק בלי המשתנה השאיר אותו כבוי. מאז שהמשתנה בוטל, ``true`` מעלה אותו.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``ENABLE_INTERNAL_SHARE_LINKS``
+     - הכפתור "📱 קישור פנימי" ב-``/share`` בבוט: קישור ל-``/share/<id>`` ב-WebApp, שמגיש את השיתוף מאותו אוסף (``internal_shares``). מוצג רק כשהדגל ``true`` **וגם** ``WEBAPP_URL`` תקין (``_internal_share_links_enabled`` ב-``bot_handlers.py``). עד אוקטובר 2026 המתג היה ``PUBLIC_BASE_URL``, שלא הוגדר באף שירות, כך שהכפתור לא הוצג. הדגל שומר על אותו מצב עד שמחליטים להדליק אותו.
      - לא
      - ``false``
      - ``true``
@@ -1483,12 +1477,6 @@
      - "" (ריק)
      - ``https://hooks.slack.com/services/...``
      - Bot
-   * - ``PUBLIC_URL``
-     - כתובת ציבורית בסיסית של ה-WebApp (משמשת ליצירת קישור יציב ל־Observability Dashboard בהודעות התראה).
-     - לא
-     - ``https://code-keeper-webapp.onrender.com``
-     - ``https://code-keeper-webapp.onrender.com``
-     - Bot/WebApp
    * - ``ALERT_TELEGRAM_BOT_TOKEN``
      - טוקן בוט ייעודי לשליחת התראות לטלגרם (נפרד מהבוט הראשי אם רוצים).
      - לא
@@ -2133,7 +2121,7 @@
      - ``false``
      - Bot
    * - ``PREDICTIVE_SAMPLER_METRICS_URL``
-     - בסיס ה-URL שממנו הסמפולר קורא סטטיסטיקות (ברירת מחדל: ``WEBAPP_URL``/``PUBLIC_BASE_URL``).
+     - בסיס ה-URL שממנו הסמפולר קורא סטטיסטיקות. עקיפה מפורשת, שיכולה להיות כתובת פנימית. ריק = ``WEBAPP_URL`` (``webapp_url.py``), ובלי כתובת תקינה ההרצה מדולגת.
      - לא
      - "" (auto)
      - ``https://internal-observability/api``

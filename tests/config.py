@@ -57,8 +57,7 @@ class _Cfg:
         self.MAINTENANCE_WARMUP_GRACE_SECS = _coerce_float(
             os.getenv("MAINTENANCE_WARMUP_GRACE_SECS"), 0.75
         )
-        self.PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL") or ""
-        self.WEBAPP_URL = os.getenv("WEBAPP_URL") or ""
+        # אין כאן WEBAPP_URL: כמו בקונפיג האמיתי, הקורא היחיד שלו הוא webapp_url.py, והטסטים מגדירים אותו בסביבה.
         # אימוג'י מותאם לאייקון ZIP — None כברירת מחדל (כמו בפרודקשן; הטסטים דורסים לפי צורך)
         self.CUSTOM_EMOJI_ZIP_ID = os.getenv("CUSTOM_EMOJI_ZIP_ID") or None
 

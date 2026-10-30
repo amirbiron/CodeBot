@@ -4,6 +4,12 @@ import pytest
 import conversation_handlers as ch
 
 
+@pytest.fixture(autouse=True)
+def _webapp_url(monkeypatch):
+    """כפתורי ה-web בתפריטים נבנים מ-WEBAPP_URL בלבד, בלי ברירת מחדל — הכתובת נקבעת כאן במפורש."""
+    monkeypatch.setenv("WEBAPP_URL", "https://webapp.test")
+
+
 class _Captured:
     def __init__(self):
         self.last_markup = None

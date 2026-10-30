@@ -4107,7 +4107,13 @@ def _register_docs_tools(mcp: FastMCP, repo_backend: Any) -> None:
 
 
 async def _healthz(_request):
-    return JSONResponse({"status": "ok", "service": "codekeeper-mcp"})
+    # ``webapp_url``: ``configured`` / ``missing`` / ``invalid`` — בלי הערך, כי הנתיב פטור מאימות. בלי כתובת
+    # תקינה השירות רץ במצב PAT בלבד (``create_app`` ב-``mcp_server/app.py``), וזה הסימון שזה קורה.
+    from webapp_url import webapp_url_status  # מודול שורש טהור, בייבוא עצל — כמו sticky_notes_target בקובץ הזה
+
+    return JSONResponse(
+        {"status": "ok", "service": "codekeeper-mcp", "webapp_url": webapp_url_status().state}
+    )
 
 
 def build_app(

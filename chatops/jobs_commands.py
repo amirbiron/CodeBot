@@ -42,10 +42,11 @@ def handle_jobs_command(args: str) -> str:
     registry = JobRegistry()
     tracker = get_job_tracker()
 
-    # URL בסיס למוניטור (ניתן לקנפג דרך ENV)
-    import os
+    # קישורי הלוגים מובילים למוניטור ב-WebApp. בלי כתובת (``webapp_url.py``) השורות יוצאות בלי קישור.
+    from webapp_url import webapp_link
 
-    monitor_base_url = os.getenv("WEBAPP_URL", "https://your-app.onrender.com")
+    def _logs_link(run_id: str = "") -> str | None:
+        return webapp_link(f"/jobs/monitor?run_id={run_id}" if run_id else "/jobs/monitor")
 
     # Active runs
     if args == "active":
@@ -57,12 +58,14 @@ def handle_jobs_command(args: str) -> str:
         for run in runs:
             status_icon = {"running": "🔄", "pending": "⏳"}.get(run.status.value, "❓")
             # 🔗 קישור ישיר ללוגים של ההרצה
-            logs_link = f"{monitor_base_url}/jobs/monitor?run_id={run.run_id}"
-            lines.append(
+            logs_link = _logs_link(run.run_id)
+            line = (
                 f"{status_icon} `{run.job_id}` - {run.progress}% "
-                f"({run.processed_items}/{run.total_items})\n"
-                f"   [📋 לוגים]({logs_link})"
+                f"({run.processed_items}/{run.total_items})"
             )
+            if logs_link:
+                line += f"\n   [📋 לוגים]({logs_link})"
+            lines.append(line)
         return "\n".join(lines)
 
     # Failed runs (recent)
@@ -93,11 +96,12 @@ def handle_jobs_command(args: str) -> str:
                 ts = started.strftime("%d/%m %H:%M") if started else ""
             except Exception:
                 ts = ""
-            logs_link = (
-                f"{monitor_base_url}/jobs/monitor?run_id={run_id}" if run_id else f"{monitor_base_url}/jobs/monitor"
-            )
+            logs_link = _logs_link(run_id)
             icon = _run_icon("failed", doc.get("failure_reason"))
-            lines.append(f"{icon} `{job_id}` {ts}\n   `{err}`\n   [📋 לוגים]({logs_link})")
+            line = f"{icon} `{job_id}` {ts}\n   `{err}`"
+            if logs_link:
+                line += f"\n   [📋 לוגים]({logs_link})"
+            lines.append(line)
 
         return "\n".join(lines)
 
@@ -150,8 +154,9 @@ def handle_jobs_command(args: str) -> str:
 
                 # 🔗 אם נכשל, הוסף קישור ללוגים
                 if run.status.value == "failed":
-                    logs_link = f"{monitor_base_url}/jobs/monitor?run_id={run.run_id}"
-                    line += f"\n     └─ [📋 ראה לוגים]({logs_link})"
+                    logs_link = _logs_link(run.run_id)
+                    if logs_link:
+                        line += f"\n     └─ [📋 ראה לוגים]({logs_link})"
 
                 lines.append(line)
 

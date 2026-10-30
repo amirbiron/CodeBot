@@ -35,8 +35,7 @@ async def test_internal_web_events_emitted(monkeypatch):
             return None
     monkeypatch.setattr(m, "web", types.SimpleNamespace(AppRunner=_Runner, TCPSite=_Site))
 
-    # Ensure PUBLIC_BASE_URL is truthy
-    monkeypatch.setattr(m, "config", types.SimpleNamespace(PUBLIC_BASE_URL="http://localhost"), raising=False)
+    # הדגל ENABLE_INTERNAL_SHARE_WEB הוא המתג היחיד — אין עוד תנאי על כתובת (PUBLIC_BASE_URL בוטל).
 
     # Rebind job_queue.run_once to run immediately
     class _JobQ:

@@ -27,6 +27,8 @@ from pymongo.errors import PyMongoError
 
 from drive_owner import WEBAPP as DRIVE_OWNER, drive_fields
 from mcp_server.token_store import hash_token
+# מודול שורש טהור: כתובת הוובאפ, בלי ברירת מחדל — בתוך בקשה נופלת לכתובת שהבקשה הגיעה אליה.
+from webapp_url import webapp_base_url_for_request
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +73,12 @@ def _get_db():
 
 
 def _get_redirect_uri():
-    """חישוב redirect URI דינמי."""
-    base = os.getenv("WEBAPP_URL", "").rstrip("/")
-    if not base:
-        base = request.url_root.rstrip("/")
-    return f"{base}/api/drive/callback"
+    """כתובת החזרה מגוגל: ``/api/drive/callback`` על בסיס :func:`webapp_url.webapp_base_url_for_request`.
+
+    גוגל דורש התאמה מדויקת לרשימה שבקונסול, כולל ``https``. בלי ``WEBAPP_URL`` תקין הבסיס הוא הכתובת שהבקשה הגיעה
+    אליה, ושם הוא יוצא ``http`` — והחיבור נכשל אצל גוגל ולא כאן.
+    """
+    return f"{webapp_base_url_for_request(request)}/api/drive/callback"
 
 
 def _store_oauth_state(db, user_id: int, state: str) -> bool:
@@ -365,7 +368,4 @@ def _url_encode(val: str) -> str:
 
 def _settings_redirect(query: str) -> Response:
     """Redirect back to settings page with query params."""
-    base = os.getenv("WEBAPP_URL", "").rstrip("/")
-    if not base:
-        base = request.url_root.rstrip("/")
-    return redirect(f"{base}/settings?{query}#backup-section")
+    return redirect(f"{webapp_base_url_for_request(request)}/settings?{query}#backup-section")

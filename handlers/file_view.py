@@ -12,7 +12,6 @@ File View Handler Module
 """
 
 import logging
-import os
 import re
 from io import BytesIO
 import inspect
@@ -22,8 +21,9 @@ import secrets
 from html import escape as html_escape
 from urllib.parse import quote_plus
 
-from config import config
 from utils import TelegramUtils, TextUtils, ValidationUtils
+# מודול שורש טהור: כתובת ה-WebApp, בלי ברירת מחדל — ``None`` כשהמשתנה חסר או פגום.
+from webapp_url import webapp_base_url
 
 
 async def _edit_message_text_unified(query, text: str, *, reply_markup=None, parse_mode=None):
@@ -55,8 +55,6 @@ logger = logging.getLogger(__name__)
 # Injection hook for tests: set to an instance providing the FilesFacade API
 FILES_FACADE = None
 
-
-DEFAULT_WEBAPP_URL = "https://code-keeper-webapp.onrender.com"
 
 def _sanitize_codeblock_language_tag(language: Optional[str]) -> str:
     """מחזיר תג שפה בטוח ל-```lang ב-MarkdownV2 (כדי לקבל תווית שפה + הדגשת תחביר בצד הלקוח)."""
@@ -100,35 +98,12 @@ def _sanitize_codeblock_content_for_markdown_v2(code: str) -> str:
         return text
 
 
-def _resolve_webapp_base_url() -> Optional[str]:
-    """החזרת בסיס ה-URL של ה-WebApp עם סדר עדיפויות ברור."""
-    candidates = []
-    try:
-        candidates.append(getattr(config, "WEBAPP_URL", None))
-    except Exception:
-        candidates.append(None)
-    try:
-        candidates.append(os.getenv("WEBAPP_URL"))
-    except Exception:
-        candidates.append(None)
-    try:
-        candidates.append(getattr(config, "PUBLIC_BASE_URL", None))
-    except Exception:
-        candidates.append(None)
-    candidates.append(DEFAULT_WEBAPP_URL)
-
-    for candidate in candidates:
-        if not candidate:
-            continue
-        base = str(candidate).strip()
-        if base:
-            return base.rstrip('/')
-    return None
-
-
 def _get_webapp_button_row(file_id: Optional[str], file_name: Optional[str] = None) -> Optional[List[InlineKeyboardButton]]:
-    """בונה שורת כפתור WebApp עבור מזהה קובץ או fallback לפי שם."""
-    base_url = _resolve_webapp_base_url()
+    """בונה שורת כפתור WebApp עבור מזהה קובץ או fallback לפי שם — או ``None`` כשאין כתובת ל-WebApp.
+
+    המימוש היחיד: ``conversation_handlers`` מייבא אותו מכאן.
+    """
+    base_url = webapp_base_url()
     if not base_url:
         return None
     target_url: Optional[str]

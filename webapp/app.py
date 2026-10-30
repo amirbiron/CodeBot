@@ -255,6 +255,8 @@ from file_favorite import favorite_fields_for_new_version, file_is_favorite  # n
 # חיתוך שורת תגיות ונרמול העדכון המהיר — מודול שורש טהור, החיתוך היחיד
 # לעריכה, להעלאה ול-quick-update. ראו file_tags.py.
 from file_tags import normalize_quick_update_tags, split_tags_text  # noqa: E402
+# כתובת הוובאפ — מודול שורש טהור, הקורא היחיד של ``WEBAPP_URL``, בלי ברירת מחדל. ראו webapp_url.py.
+from webapp_url import log_webapp_url_status, webapp_base_url_for_request, webapp_url_status  # noqa: E402
 from user_stats import user_stats  # noqa: E402
 from webapp.size_format import format_file_size as _format_file_size_shared
 from webapp.activity_tracker import log_user_event  # noqa: E402
@@ -1122,6 +1124,11 @@ def _is_webapp_runtime() -> bool:
     if name == "__main__.py":
         return os.path.basename(os.path.dirname(entry_path)) in _WEBAPP_SERVER_PACKAGES
     return name in _WEBAPP_SERVER_SCRIPTS
+
+# כתובת הוובאפ: INFO כשהיא תקינה, ERROR כשהיא חסרה או פגומה — רק בשרת הוובאפ, כי גם הבוט מייבא את
+# ``webapp.app`` (חימום הקאש), והוא כותב את השורה שלו בעצמו (``main()``). מוצג גם ב-``/health``.
+if _is_webapp_runtime():
+    log_webapp_url_status(logger, service="webapp")
 
 try:
     if str(os.getenv("DISABLE_BACKUP_SCHEDULER", "")).lower() not in {"1", "true", "yes"}:
@@ -2123,16 +2130,14 @@ if limiter is not None and _github_webhooks_bp is not None:
 MONGODB_URL = _cfg_or_env('MONGODB_URL')
 DATABASE_NAME = _cfg_or_env('DATABASE_NAME', default='code_keeper_bot')
 BOT_TOKEN = _cfg_or_env('BOT_TOKEN')
-WEBAPP_URL = _cfg_or_env('WEBAPP_URL', default='https://code-keeper-webapp.onrender.com')
-PUBLIC_BASE_URL = _cfg_or_env('PUBLIC_BASE_URL', default='')
 
 
 def _webapp_base_url() -> str:
-    """כתובת הבסיס המלאה של הוובאפ, בלי לוכסן בסוף: ``WEBAPP_URL``, ואם הוא ריק — הכתובת שהבקשה הגיעה אליה.
+    """כתובת הבסיס המלאה של הוובאפ, בלי לוכסן בסוף — :func:`webapp_url.webapp_base_url_for_request`: ``WEBAPP_URL``, ואם אין כתובת תקינה — הכתובת שהבקשה הגיעה אליה.
 
-    למקום שצריך כתובת מלאה ולא נתיב: קישור שנשלח החוצה, ותגיות התצוגה המקדימה בעמוד ציבורי (``og:url``, ``og:image``), שוואטסאפ דורש בהן כתובת מלאה. דורש הקשר בקשה.
+    למקום שצריך כתובת מלאה ולא נתיב: קישור שנשלח החוצה, ותגיות התצוגה המקדימה בעמוד ציבורי (``og:url``, ``og:image``), שוואטסאפ דורש בהן כתובת מלאה. דורש הקשר בקשה. מודולים של הוובאפ שאינם מייבאים את הקובץ הזה (``drive_auth``, ``collections_api``, ``snippet_library_api``) קוראים ישירות ל-``webapp_base_url_for_request``, כך שהנפילה לכתובת הבקשה נשארת במקום אחד.
     """
-    return (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
+    return webapp_base_url_for_request(request)
 
 
 _DOCS_URL_RAW = _cfg_or_env('DOCUMENTATION_URL', default='https://amirbiron.github.io/CodeBot/')
@@ -8235,7 +8240,7 @@ def admin_snippet_approve():
                 if uid > 0:
                     try:
                         # base URL להצגה למשתמש
-                        base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
+                        base = _webapp_base_url()
                         text = (
                             "🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.\n"
                             f"אפשר לצפות כאן: {base}/snippets"
@@ -8463,7 +8468,7 @@ def admin_community_approve():
                     post_doc = coll.find_one(q) if coll is not None else None
                     uid = int((post_doc or {}).get('user_id') or 0)
                 if uid > 0:
-                    base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
+                    base = _webapp_base_url()
                     text = (
                         "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
                         f"אפשר לצפות כאן: {base}/community-library"
@@ -17670,9 +17675,7 @@ def create_public_share(file_id):
         except Exception:
             return jsonify({'ok': False, 'error': 'שגיאה בשמירה'}), 500
 
-        # בסיס ליצירת URL ציבורי: קודם PUBLIC_BASE_URL, אחר כך WEBAPP_URL, ולבסוף host_url מהבקשה
-        base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
-        share_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
+        share_url = f"{_webapp_base_url()}/share/{share_id}"
 
         response_payload = {
             'ok': True,
@@ -19653,13 +19656,19 @@ def health():
     }
     
     # בדיקת משתני סביבה
+    _webapp_url_status = webapp_url_status()
     health_data['config'] = {
         'MONGODB_URL': 'configured' if MONGODB_URL else 'missing',
         'BOT_TOKEN': 'configured' if BOT_TOKEN else 'missing',
         'BOT_USERNAME': BOT_USERNAME or 'missing',
         'DATABASE_NAME': DATABASE_NAME,
-        'WEBAPP_URL': WEBAPP_URL
+        # הכתובת כמו שהשירות מבין אותה, ו-``configured`` / ``missing`` / ``invalid``. חסרה או פגומה — הוובאפ
+        # בונה קישורים מהכתובת שהבקשה הגיעה אליה (``webapp_base_url_for_request``), וזה הסימון שזה קורה.
+        'WEBAPP_URL': _webapp_url_status.url,
+        'WEBAPP_URL_STATUS': _webapp_url_status.state,
     }
+    if _webapp_url_status.problem:
+        health_data['config']['WEBAPP_URL_PROBLEM'] = _webapp_url_status.problem
     
     # בדיקת חיבור למסד נתונים
     try:
@@ -21901,7 +21910,7 @@ def run_dev_server() -> None:
     logger.info("Starting Code Keeper Web App...")
     logger.info("BOT_USERNAME: %s", BOT_USERNAME)
     logger.info("DATABASE_NAME: %s", DATABASE_NAME)
-    logger.info("WEBAPP_URL: %s", WEBAPP_URL)
+    log_webapp_url_status(logger, service="webapp")
 
     if check_configuration():
         logger.info("Configuration check passed")

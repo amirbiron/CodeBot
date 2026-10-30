@@ -154,8 +154,21 @@ def create_app():
 
         logging.getLogger(__name__).warning("repo autosync failed to start", exc_info=True)
 
+    import logging
+
+    from webapp_url import log_webapp_url_status
+
     mcp_base = (os.getenv("MCP_SERVER_URL") or "").rstrip("/")
-    webapp_base = (os.getenv("WEBAPP_URL") or "").rstrip("/")
+    # ``WEBAPP_URL`` נקרא רק דרך ``webapp_url.py`` — אותה בדיקת פורמט כמו בבוט ובוובאפ, ושורת לוג בעלייה.
+    webapp_status = log_webapp_url_status(logging.getLogger(__name__), service="mcp")
+    webapp_base = webapp_status.url or ""
+    if mcp_base and not webapp_base:
+        # המצב שעד היום עבר בשקט: חיבור חדש מ-Claude.ai לא יכול להתחבר, וחיבורים קיימים ממשיכים לעבוד.
+        logging.getLogger(__name__).error(
+            "MCP OAuth is disabled: MCP_SERVER_URL is set but WEBAPP_URL is %s; running PAT-only, "
+            "so new Claude.ai connectors cannot authorize",
+            webapp_status.state,
+        )
 
     if mcp_base and webapp_base:
         provider, settings, consent = _build_oauth(

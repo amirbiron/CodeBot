@@ -36,6 +36,18 @@ logger = logging.getLogger(__name__)
 #: מסמך הידע — נכנס כולו לפרומפט בכל שאלה, בלי RAG.
 KNOWLEDGE_FILE = Path(__file__).resolve().parent / "advisor_knowledge" / "codekeeper.md"
 
+#: הקטע במסמך הידע שתלוי בכתובת ה-WebApp (ההצעה לשלוח קישור לגלריה), בין שני הסימונים. הכתובת בתוכו
+#: כתובה כ-``WEBAPP_URL_TOKEN`` ומוחלפת בטעינה (:func:`render_knowledge`) — במסמך עצמו אין כתובת.
+WEBAPP_SECTION_START = "<!-- webapp-link:start -->"
+WEBAPP_SECTION_END = "<!-- webapp-link:end -->"
+WEBAPP_URL_TOKEN = "{webapp_url}"
+_WEBAPP_SECTION_RE = re.compile(
+    re.escape(WEBAPP_SECTION_START) + r".*?" + re.escape(WEBAPP_SECTION_END) + r"\n?", re.DOTALL
+)
+_WEBAPP_MARKER_RE = re.compile(
+    "(?:" + re.escape(WEBAPP_SECTION_START) + "|" + re.escape(WEBAPP_SECTION_END) + r")\n?"
+)
+
 #: תקרה לניסיון אחד מול הספק. ברירת המחדל של ה-SDK היא 600 שניות
 #: (openai 3.36.1, ``openai/_constants.py``, ``DEFAULT_TIMEOUT``).
 LLM_TIMEOUT_SECONDS = 45.0
@@ -224,6 +236,22 @@ class _Runtime:
 _runtime: Optional[_Runtime] = None
 
 
+def render_knowledge(knowledge: str, webapp_base: Optional[str]) -> str:
+    """מסמך הידע כפי שהוא נכנס לפרומפט: עם כתובת ל-WebApp — הסימונים יורדים והכתובת נכנסת במקום ``WEBAPP_URL_TOKEN``.
+    בלי כתובת — הקטע שבין הסימונים יורד כולו, כדי שהיועץ לא יציע קישור שאין לו.
+
+    ``WEBAPP_URL_TOKEN`` שנשאר אחרי זה פירושו שהכתובת נכתבה במסמך מחוץ לקטע המסומן, וזה באג בקובץ ולא מצב
+    ריצה: זורק ``RuntimeError``, כמו מסמך ריק, במקום להעביר למודל את הסימון כמו שהוא.
+    """
+    if webapp_base:
+        rendered = _WEBAPP_MARKER_RE.sub("", knowledge).replace(WEBAPP_URL_TOKEN, webapp_base)
+    else:
+        rendered = _WEBAPP_SECTION_RE.sub("", knowledge)
+    if WEBAPP_URL_TOKEN in rendered:
+        raise RuntimeError(f"{WEBAPP_URL_TOKEN} מחוץ לקטע המסומן ב-{KNOWLEDGE_FILE}")
+    return rendered
+
+
 def init_advisor(settings: AdvisorSettings) -> None:
     """טעינת מסמך הידע, בניית הפרומפט והלקוח — פעם אחת, בעליית הבוט.
 
@@ -235,6 +263,12 @@ def init_advisor(settings: AdvisorSettings) -> None:
     knowledge = KNOWLEDGE_FILE.read_text(encoding="utf-8").strip()
     if not knowledge:
         raise RuntimeError(f"קובץ הידע ריק: {KNOWLEDGE_FILE}")
+    from webapp_url import webapp_base_url
+
+    webapp_base = webapp_base_url()
+    if not webapp_base:
+        logger.warning("Advisor knowledge: the WebApp link section was left out (no valid WEBAPP_URL)")
+    knowledge = render_knowledge(knowledge, webapp_base)
     client = openai.AsyncOpenAI(
         api_key=settings.api_key,
         base_url=settings.base_url,

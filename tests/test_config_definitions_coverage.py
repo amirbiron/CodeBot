@@ -136,3 +136,45 @@ def test_declared_vars_appear_in_the_env_reference():
         f"משתנים מוצהרים שאין להם שורה ב-docs/environment-variables.rst "
         f"({len(missing)}): {missing}"
     )
+
+
+#: הכתובת של שירות ה-WebApp באורגון, שהייתה כתובה בקוד כברירת מחדל בשישה מקומות. מורכבת מחלקים כדי שהקובץ
+#: הזה עצמו לא יכיל אותה ברצף.
+_OLD_WEBAPP_HOST = "code-keeper-webapp" + ".onrender.com"
+
+#: הקבצים שהוובאפ והבוט טוענים בזמן ריצה ואינם פייתון: תבניות, JS, קובץ הידע של היועץ (נכנס לפרומפט), ומדריך
+#: המשתמש (מוגש כשיתוף מובנה). תיעוד, README ו-``render.yaml`` של שירותים מושהים אינם קוד שרץ.
+_RUNTIME_TEXT_GLOBS = (
+    "webapp/templates/**/*.html",
+    "webapp/static/**/*.js",
+    "services/advisor_knowledge/*.md",
+    "webapp/USER_GUIDE.md",
+)
+
+
+def test_webapp_url_has_one_reader():
+    """``WEBAPP_URL`` נקרא רק ב-``webapp_url.py``, והמשתנים שאוחדו לתוכו לא נקראים בכלל.
+
+    עד אוקטובר 2026 כתובת ה-WebApp חושבה בכעשרה מקומות, משלושה משתנים ובסדרי עדיפויות שונים. קורא שני — גם
+    שדה ב-``BotConfig`` — הוא בדיוק מה שמחזיר ברירת מחדל שקטה למקום אחד ולא לאחרים.
+    """
+    consumed = _load_audit_module().collect_consumed()
+
+    assert sorted(consumed["WEBAPP_URL"]["files"]) == ["webapp_url.py"], consumed["WEBAPP_URL"]
+    for retired in ("PUBLIC_URL", "PUBLIC_BASE_URL"):
+        assert retired not in consumed, (retired, consumed.get(retired))
+
+
+def test_the_old_webapp_host_is_not_in_code_that_runs():
+    """אין כתובת ברירת מחדל: הכתובת של השירות באורגון לא מופיעה בקוד הייצור ובקבצים שהוא טוען."""
+    audit = _load_audit_module()
+    files = list(audit.iter_python_files())
+    for pattern in _RUNTIME_TEXT_GLOBS:
+        files.extend(p for p in REPO_ROOT.glob(pattern) if ".bundle." not in p.name and ".min." not in p.name)
+
+    offenders = sorted(
+        p.relative_to(REPO_ROOT).as_posix()
+        for p in files
+        if _OLD_WEBAPP_HOST in p.read_text(encoding="utf-8", errors="replace")
+    )
+    assert not offenders, offenders

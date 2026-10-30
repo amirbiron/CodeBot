@@ -39,6 +39,8 @@ from config import config
 from runtime_settings import safe_mode_enabled
 from conversation_handlers import MAIN_KEYBOARD
 from pathlib import Path
+# מודול שורש טהור: כתובת ה-WebApp, בלי ברירת מחדל — ``None`` כשהמשתנה חסר או פגום.
+from webapp_url import webapp_base_url
 try:
     import yaml  # type: ignore
 except Exception:  # pragma: no cover
@@ -53,7 +55,18 @@ reporter = _NoopReporter()
 def set_activity_reporter(new_reporter):
     global reporter
     reporter = new_reporter or _NoopReporter()
-    
+
+
+def _internal_share_links_enabled() -> bool:
+    """הכפתור "📱 קישור פנימי" ב-``/share``: דלוק רק כש-``ENABLE_INTERNAL_SHARE_LINKS=true`` וגם יש כתובת ל-WebApp.
+
+    הקישור מוביל ל-``/share/<id>`` ב-WebApp, שמגיש את השיתוף מאותו אוסף (``internal_shares``). עד אוקטובר 2026 המתג
+    היה ``PUBLIC_BASE_URL``, שלא הוגדר באף שירות, ולכן הכפתור לא הוצג. המשתנה בוטל, והדגל שומר על אותו מצב עד
+    שמחליטים להדליק את הכפתור — במקום שהביטול ידליק אותו לכל המשתמשים רק מפני ש-``WEBAPP_URL`` מוגדר.
+    """
+    enabled = str(os.getenv("ENABLE_INTERNAL_SHARE_LINKS", "false")).strip().lower() == "true"
+    return enabled and bool(webapp_base_url())
+
 # ---- DB access via composition facade --------------------------------------
 
 def _get_files_facade_or_none():
@@ -3018,7 +3031,7 @@ class AdvancedBotHandlers:
             if share_url:
                 share_url_txt = str(share_url or "").strip()
                 # Telegram לא אוהב קישורים יחסיים/ללא scheme → יכול להיפתח כ-blank page.
-                # ננסה להפוך לאבסולוטי בעזרת PUBLIC_BASE_URL/WEBAPP_URL (וגם fallback ל-ENV).
+                # ננסה להפוך לאבסולוטי בעזרת כתובת ה-WebApp (``webapp_url.py``).
                 try:
                     from urllib.parse import urlparse
                     parsed = urlparse(share_url_txt)
@@ -3026,16 +3039,7 @@ class AdvancedBotHandlers:
                 except Exception:
                     is_abs = False
                 if not is_abs:
-                    base = (
-                        getattr(config, "PUBLIC_BASE_URL", None)
-                        or getattr(config, "WEBAPP_URL", None)
-                        or os.getenv("PUBLIC_BASE_URL")
-                        or os.getenv("WEBAPP_URL")
-                        or ""
-                    )
-                    base = str(base or "").strip().rstrip("/")
-                    if base and "://" not in base:
-                        base = "https://" + base.lstrip("/")
+                    base = webapp_base_url()
                     if base:
                         if share_url_txt.startswith("/"):
                             share_url_txt = f"{base}{share_url_txt}"
@@ -3050,7 +3054,7 @@ class AdvancedBotHandlers:
                     # חשוב: ההודעה נשלחת ב-Markdown, לכן צריך לאסקייפ "_" במחרוזת ההסבר
                     summary_lines.append(
                         TextUtils.escape_markdown(
-                            "(הערה: כדי שייפתח בקליק מהטלגרם צריך PUBLIC_BASE_URL/WEBAPP_URL)",
+                            "(הערה: כדי שייפתח בקליק מהטלגרם צריך WEBAPP_URL תקין)",
                             version=1,
                         )
                     )
@@ -3753,7 +3757,7 @@ class AdvancedBotHandlers:
                     InlineKeyboardButton("📋 Pastebin", callback_data=f"share_pastebin_{file_name}")
                 ]
             ]
-            if config.PUBLIC_BASE_URL:
+            if _internal_share_links_enabled():
                 keyboard.append([
                     InlineKeyboardButton("📱 קישור פנימי", callback_data=f"share_internal_{file_name}"),
                     InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
@@ -3787,7 +3791,7 @@ class AdvancedBotHandlers:
                     InlineKeyboardButton("🐙 GitHub Gist (מרובה)", callback_data=f"share_gist_multi:{share_id}")
                 ]
             ]
-            if config.PUBLIC_BASE_URL:
+            if _internal_share_links_enabled():
                 keyboard.append([
                     InlineKeyboardButton("📱 קישור פנימי (מרובה)", callback_data=f"share_internal_multi:{share_id}"),
                     InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
@@ -3809,7 +3813,7 @@ class AdvancedBotHandlers:
     async def share_help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הסבר קצר על פקודת /share"""
         reporter.report_activity(update.effective_user.id)
-        if config.PUBLIC_BASE_URL:
+        if _internal_share_links_enabled():
             help_text = (
                 "# 📤 פקודת /share – שיתוף קבצים בקלות\n\n"
                 "## מה זה עושה?\n"
@@ -5157,6 +5161,12 @@ class AdvancedBotHandlers:
     async def _share_internal(self, query, user_id: int, file_name: str):
         """יצירת קישור שיתוף פנימי"""
         from integrations import code_sharing
+        # לפני שנוצר שיתוף: לחיצה על כפתור מהודעה ישנה מגיעה לכאן גם כשהמתג כבוי, ושיתוף שלא יוצג לא צריך להישמר.
+        if not _internal_share_links_enabled():
+            await query.edit_message_text(
+                "ℹ️ קישור פנימי אינו זמין כרגע.\n"
+                "באפשרותך להשתמש ב-Gist/Pastebin במקום.")
+            return
         file_data = _call_files_api("get_latest_version", user_id, file_name)
         if not file_data:
             await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
@@ -5171,11 +5181,6 @@ class AdvancedBotHandlers:
             )
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
-                return
-            if not config.PUBLIC_BASE_URL:
-                await query.edit_message_text(
-                    "ℹ️ קישור פנימי אינו זמין כרגע (לא הוגדר PUBLIC_BASE_URL).\n"
-                    "באפשרותך להשתמש ב-Gist/Pastebin במקום.")
                 return
             # ניסוח תוקף קריא
             expires_iso = result.get('expires_at', '')
@@ -5263,6 +5268,11 @@ class AdvancedBotHandlers:
     async def _share_internal_multi(self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, share_id: str):
         """יצירת קישור פנימי למספר קבצים — מאחד לקובץ טקסט אחד"""
         from integrations import code_sharing
+        if not _internal_share_links_enabled():
+            await query.edit_message_text(
+                "ℹ️ קישור פנימי אינו זמין כרגע.\n"
+                "באפשרותך להשתמש ב-Gist במרובה קבצים.")
+            return
         names: List[str] = (context.user_data.get('multi_share', {}).get(share_id) or [])
         if not names:
             await query.edit_message_text("❌ לא נמצאה רשימת קבצים עבור השיתוף.")
@@ -5289,11 +5299,6 @@ class AdvancedBotHandlers:
             )
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
-                return
-            if not config.PUBLIC_BASE_URL:
-                await query.edit_message_text(
-                    "ℹ️ קישור פנימי אינו זמין כרגע (לא הוגדר PUBLIC_BASE_URL).\n"
-                    "באפשרותך להשתמש ב-Gist במרובה קבצים.")
                 return
             # ניסוח תוקף קריא
             expires_iso = result.get('expires_at', '')

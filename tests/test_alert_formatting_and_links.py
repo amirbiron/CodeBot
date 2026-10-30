@@ -1,6 +1,18 @@
 import importlib
 import os
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _webapp_url(monkeypatch):
+    """כמו בייצור, יש כתובת ל-WebApp — וממנה נבנים כפתור ה-Dashboard והקישור בשורת ה-Quick Fix.
+
+    אין לה ברירת מחדל (``webapp_url.py``), ולכן בלי השורה הזו ההתראות יוצאות בלי קישורים, וזה נבדק בנפרד
+    ב-``tests/test_webapp_url.py``.
+    """
+    monkeypatch.setenv("WEBAPP_URL", "https://webapp.test")
+
 
 def _clear_sentry_env(monkeypatch):
     monkeypatch.delenv("SENTRY_DSN", raising=False)
@@ -344,10 +356,10 @@ def test_a_non_critical_alert_with_its_own_runbook_carries_the_quick_fix_line(mo
 
 
 def test_a_relative_quick_fix_link_points_to_the_same_server_as_the_dashboard_button(monkeypatch):
-    """בטלגרם נתיב יחסי אינו קישור. הבסיס הוא ``PUBLIC_URL`` — אותו שרת של הכפתור "Open Dashboard"."""
+    """בטלגרם נתיב יחסי אינו קישור. הבסיס הוא ``WEBAPP_URL`` (``webapp_url.py``) — אותו שרת של הכפתור "Open Dashboard"."""
     _clear_sentry_env(monkeypatch)
     _fresh_runbooks(monkeypatch)
-    monkeypatch.setenv("PUBLIC_URL", "https://public.example/")
+    monkeypatch.setenv("WEBAPP_URL", "https://public.example")
     import alert_forwarder as af
 
     forwarded = _forwarded(

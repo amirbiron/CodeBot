@@ -134,3 +134,15 @@ def test_the_body_cap_follows_the_code_size_ceiling_the_service_runs_with():
 
     assert wired["caps"] == [{"max_bytes": limits.request_bytes_for(raised)}], wired
     assert wired["caps"][0]["max_bytes"] > limits.DEFAULT_MAX_REQUEST_BYTES
+
+
+@pytest.mark.parametrize("webapp_url", ["https://web.test/", "http://web.test"])
+def test_an_invalid_webapp_url_keeps_the_service_pat_only(webapp_url):
+    """``WEBAPP_URL`` עובר את אותה בדיקת פורמט כמו בבוט ובוובאפ (``webapp_url.py``): ערך פגום הוא כמו חסר.
+
+    הבקרה היא ``mode="oauth"`` בטסט הראשון בקובץ — אותו probe עם ``https://web.test`` תקין בונה אפליקציה בלי
+    ``PATAuthMiddleware``. כאן רק הערך משתנה, ולכן ההבדל הוא הבדיקה.
+    """
+    wired = _wiring("oauth", WEBAPP_URL=webapp_url)
+
+    assert "PATAuthMiddleware" in wired["middleware"], wired["middleware"]

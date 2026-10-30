@@ -13,6 +13,8 @@ class _Bot:
 
 @pytest.mark.asyncio
 async def test_admin_notification_includes_view_snippet_button(monkeypatch):
+    # כפתור "הצג סניפט" נבנה מ-WEBAPP_URL בלבד, בלי ברירת מחדל — הכתובת נקבעת במפורש.
+    monkeypatch.setenv("WEBAPP_URL", "https://webapp.test")
     # Stub submit_snippet to succeed with id
     import services.snippet_library_service as svc
     monkeypatch.setattr(svc, 'submit_snippet', lambda **k: {'ok': True, 'id': 'abc123'}, raising=True)

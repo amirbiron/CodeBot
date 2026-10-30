@@ -3,6 +3,15 @@ import types
 import pytest
 
 
+#: הכפתור "צפייה ב-WebApp" נבנה מ-WEBAPP_URL בלבד, ואין לו ברירת מחדל — לכן הכתובת נקבעת כאן במפורש.
+WEBAPP_TEST_URL = "https://webapp.test"
+
+
+@pytest.fixture(autouse=True)
+def _webapp_url(monkeypatch):
+    monkeypatch.setenv("WEBAPP_URL", WEBAPP_TEST_URL)
+
+
 class _Btn:
     def __init__(self, text, callback_data=None, url=None, **_):
         self.text = text
@@ -85,7 +94,7 @@ async def test_view_file_includes_favorites_button_with_id(monkeypatch):
     web_row = rm.keyboard[3]
     web_btn = web_row[0]
     assert web_btn.text == "🌐 צפייה בWebApp"
-    assert web_btn.url == "https://code-keeper-webapp.onrender.com/file/OID1"
+    assert web_btn.url == f"{WEBAPP_TEST_URL}/file/OID1"
     share_btn = web_row[1]
     assert share_btn.text == "🔗 שתף קוד"
     assert share_btn.callback_data == "share_menu_idx:0"
@@ -132,7 +141,7 @@ async def test_view_file_uses_token_when_no_id_and_maps_token(monkeypatch):
     web_row = rm.keyboard[3]
     web_btn = web_row[0]
     assert web_btn.text == "🌐 צפייה בWebApp"
-    assert web_btn.url == "https://code-keeper-webapp.onrender.com/files?q=t.py#results"
+    assert web_btn.url == f"{WEBAPP_TEST_URL}/files?q=t.py#results"
     share_btn = web_row[1]
     assert share_btn.text == "🔗 שתף קוד"
     assert share_btn.callback_data == "share_menu_idx:0"
@@ -178,7 +187,7 @@ async def test_view_direct_file_includes_favorites_button_with_id(monkeypatch):
     assert isinstance(rm, _Markup)
     web_btn = rm.keyboard[0][0]
     assert web_btn.text == "🌐 צפייה בWebApp"
-    assert web_btn.url == "https://code-keeper-webapp.onrender.com/file/ID789"
+    assert web_btn.url == f"{WEBAPP_TEST_URL}/file/ID789"
     flat = [(btn.text, btn.callback_data) for row in rm.keyboard for btn in row]
     # Should include remove-from-favorites label and id-based callback
     assert any(text.startswith('💔') for text, _ in flat)
@@ -223,7 +232,7 @@ async def test_view_direct_large_file_uses_search_fallback(monkeypatch):
     assert isinstance(rm, _Markup)
     web_btn = rm.keyboard[0][0]
     assert web_btn.text == "🌐 צפייה בWebApp"
-    assert web_btn.url == "https://code-keeper-webapp.onrender.com/files?q=big+data.csv#results"
+    assert web_btn.url == f"{WEBAPP_TEST_URL}/files?q=big+data.csv#results"
 
 
 @pytest.mark.asyncio
