@@ -20,104 +20,41 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
 
 # ``tests`` אינו חבילה — ראה את ה-docstring של ``tests/conftest.py``.
-from _css_rules import css_rules, specificity
+from _css_rules import (
+    beats,
+    classes_of,
+    css_rules,
+    specificity,
+    state_of,
+    subject_of,
+    theme_rules_on,
+    weight,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CSS_DIR = REPO_ROOT / "webapp/static/css"
 STICKY_CSS = CSS_DIR / "sticky-notes.css"
-#: הקבצים שמחזיקים את כללי הערכה הגורפים — אלה שחלים על כל העמוד, ולכן גם על הפתק. כלל של
-#: רכיב שמכוון ל-``a`` תחת מיכל משלו (``.markdown-preview-content a``) אינו מגיע לפתק.
-THEME_CSS = (CSS_DIR / "dark-mode.css", CSS_DIR / "high-contrast.css")
 
 #: הגוון נבחר בעין על הפתקים. הבדיקה מקבעת את ההחלטה, ולא תוצאה של חישוב ניגודיות.
 NOTE_LINK = "#777abc"
 
-#: פסאודו-מחלקות של מצב. כלל שנושא אחת מהן חל רק כשהקישור באותו מצב.
-_STATES = frozenset(
-    {"hover", "focus", "focus-visible", "focus-within", "active", "visited", "link", "any-link"}
-)
-_IMPORTANT = re.compile(r"!\s*important\s*$")
-
-
-def _compounds(selector: str) -> list[str]:
-    """הבורר מפוצל לבוררים מורכבים, לפי רווחים וצירופים שמחוץ לסוגריים."""
-    parts: list[str] = []
-    current: list[str] = []
-    depth = 0
-    for ch in selector:
-        if ch in "([":
-            depth += 1
-        elif ch in ")]":
-            depth -= 1
-        if depth == 0 and (ch.isspace() or ch in ">+~"):
-            if current:
-                parts.append("".join(current))
-                current = []
-            continue
-        current.append(ch)
-    if current:
-        parts.append("".join(current))
-    return parts
-
-
-def _subject(selector: str) -> str:
-    """הבורר המורכב האחרון — זה שמתאר את האלמנט שהכלל צובע."""
-    return _compounds(selector)[-1]
-
-
-def _bare(compound: str) -> str:
-    # ערך של מאפיין יכול להכיל ``.`` ו-``:`` שאינם מחלקה ואינם פסאודו-מחלקה.
-    return re.sub(r"\[[^\]]*\]", "", compound)
-
-
-def _state(compound: str) -> frozenset[str]:
-    return frozenset(n for n in re.findall(r"(?<!:):([\w-]+)", _bare(compound)) if n in _STATES)
-
-
-def _classes(compound: str) -> set[str]:
-    """המחלקות שהבורר המורכב דורש, כולל בתוך ``:where()``."""
-    return set(re.findall(r"\.([\w-]+)", _bare(compound)))
-
 
 def _theme_rules_on_the_link() -> list[tuple[str, str, dict[str, str]]]:
-    """כללי הערכה שהנושא שלהם ``a`` ושחלים גם על קישור בפתק.
-
-    כלל שדורש מחלקה שאין לקישור — כמו וו הכפתורים ``a:where(.btn-primary)`` — אינו חל עליו.
-    """
-    out = []
-    for path in THEME_CSS:
-        for selector, decls in css_rules(path.read_text(encoding="utf-8")):
-            subject = _subject(selector)
-            if not re.match(r"a(?![\w-])", subject) or _classes(subject) - {"sticky-md-link"}:
-                continue
-            out.append((path.name, selector, decls))
-    return out
+    """כללי הערכה שהנושא שלהם ``a`` ושחלים גם על קישור בפתק."""
+    return theme_rules_on("a", {"sticky-md-link"})
 
 
 def _note_rules_on_the_link() -> list[tuple[str, dict[str, str]]]:
     return [
         (selector, decls)
         for selector, decls in css_rules(STICKY_CSS.read_text(encoding="utf-8"))
-        if "sticky-md-link" in _classes(_subject(selector))
+        if "sticky-md-link" in classes_of(subject_of(selector))
     ]
-
-
-def _weight(selector: str, value: str) -> tuple[bool, tuple[int, int, int]]:
-    """מה שמכריע בין שתי הצהרות מאותו מקור ובלי שכבות: חשיבות, ואחריה ספציפיות."""
-    return (bool(_IMPORTANT.search(value)), specificity(selector))
-
-
-def _beats(ours, rival) -> bool:
-    """ניצחון **ממש**: בשוויון מכריע סדר הטעינה, והוא שונה בין המשטחים."""
-    if ours[0] != rival[0]:
-        return ours[0]
-    return ours[1] > rival[1]
 
 
 def test_the_note_declares_the_link_colour_once_on_the_note():
@@ -160,18 +97,18 @@ def test_no_theme_rule_on_a_reaches_the_note_link(prop):
     assert rivals, f"לא נמצא כלל ערכה על a שמצהיר {prop} — אם הוא הוסר, הכלל המקביל בפתק מיותר"
     if prop == "color":
         # בלי זה, פרסור ששכח את ``!important`` היה מעביר את הבדיקה מהסיבה הלא נכונה.
-        important = [sel for _, sel, decls in rivals if _weight(sel, decls[prop])[0]]
+        important = [sel for _, sel, decls in rivals if weight(sel, decls[prop])[0]]
         assert important, "אף כלל ערכה על a אינו !important — אולי ה-!important בפתק כבר מיותר"
     ours = _note_rules_on_the_link()
     offenders = []
     for name, selector, decls in rivals:
-        rival = _weight(selector, decls[prop])
-        state = _state(_subject(selector))
+        rival = weight(selector, decls[prop])
+        state = state_of(subject_of(selector))
         candidates = [
-            _weight(sel, d[prop]) for sel, d in ours if prop in d and _state(_subject(sel)) <= state
+            weight(sel, d[prop]) for sel, d in ours if prop in d and state_of(subject_of(sel)) <= state
         ]
         best = max(candidates) if candidates else None
-        if best is None or not _beats(best, rival):
+        if best is None or not beats(best, rival):
             offenders.append(f"{name}: {selector} {rival} מול {best or 'אין כלל של הפתק במצב הזה'}")
     assert not offenders, "\n".join(offenders)
 
@@ -198,13 +135,13 @@ def test_the_hover_underline_survives_the_high_contrast_shorthand():
     assert rivals, "לא נמצא כלל ערכה על a שמצהיר text-decoration"
     offenders = []
     for selector, decls in ours:
-        mine = _weight(selector, decls["text-decoration-thickness"])
-        state = _state(_subject(selector))
+        mine = weight(selector, decls["text-decoration-thickness"])
+        state = state_of(subject_of(selector))
         for name, rival_sel, rival_decls in rivals:
-            if not _state(_subject(rival_sel)) <= state:
+            if not state_of(subject_of(rival_sel)) <= state:
                 continue
             for prop in ("text-decoration", "text-decoration-thickness"):
-                if prop in rival_decls and not _beats(mine, _weight(rival_sel, rival_decls[prop])):
+                if prop in rival_decls and not beats(mine, weight(rival_sel, rival_decls[prop])):
                     offenders.append(
                         f"{name}: {rival_sel} {{{prop}: {rival_decls[prop]}}} מול {selector}"
                     )

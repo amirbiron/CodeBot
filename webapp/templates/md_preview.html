@@ -1249,16 +1249,21 @@ input.md-task-checkbox {
 }
 
 /* עיצוב משופר לקישורים */
+/* הצבע של הערכה: ``--link-color`` מוצהר בבלוק של כל ערכה מובנית (``base.html``, ו-High Contrast
+   ב-``high-contrast.css``), ובערכה מיובאת הוא ``textLink.foreground`` (``services/theme_parser_service.py``).
+   ``:root`` מצהיר עליו, ולכן ה-fallback ל-``--primary`` נכנס לפעולה רק אם ההצהרה שם תוסר. */
 #md-content a {
-  color: #0366d6;
+  color: var(--link-color, var(--primary));
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: all 0.2s ease;
   position: relative;
 }
 
+/* ``--primary-hover`` בערכה מיובאת הוא ``textLink.activeForeground``; בערכה שלא מצהירה עליו
+   הקישור שומר על צבעו, וקו ה-``::after`` שמתרחב הוא הסימן לריחוף. */
 #md-content a:hover {
-  color: #0256c7;
+  color: var(--primary-hover, var(--link-color, var(--primary)));
 }
 
 /* אפקט hover נוסף אופציונלי - קו תחתון מתרחב */
@@ -1269,13 +1274,24 @@ input.md-task-checkbox {
   left: 50%;
   width: 0;
   height: 1px;
-  background: #0366d6;
+  background: currentColor;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   transform: translateX(-50%);
 }
 
 #md-content a:hover::after {
   width: 100%;
+}
+
+/* High Contrast. ``[data-theme="high-contrast"] a`` ו-``a:hover``/``a:focus`` שב-``high-contrast.css``
+   צובעים כל קישור ב-``!important``, בצבע שנבחר לרקע השחור של הערכה. הרקע של ``#md-content``
+   (הכלל בראש הבלוק) לבן גם בערכה הזו, והכללים שלמעלה, שאינם ``!important``, הפסידו להם — כך
+   שהקישור כמעט לא נראה. בין שתי הצהרות ``!important`` מכריעה הספציפיות (MDN, "!important"), ובורר
+   המזהה גובר על שלושתם, גם בריחוף ובפוקוס, בלי בורר משלו. היריבים נגזרים מקבצי הערכות ב-
+   ``tests/test_md_preview_link_color.py``. */
+[data-theme="high-contrast"] #md-content a {
+  color: var(--link-color, var(--primary)) !important;
+  text-decoration: underline !important;
 }
 
 /* קישורים בכותרות - ללא קו תחתון */
