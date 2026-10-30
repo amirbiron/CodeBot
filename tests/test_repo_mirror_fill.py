@@ -30,9 +30,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 class _ReadOnlyRepoMetadata:
     """``repo_metadata`` לקריאה בלבד. ``find_one`` עונה לפי ``answers`` (רשימה לכל ריפו), כדי לדמות הסרה באמצע."""
 
-    def __init__(self, records, answers=None):
+    def __init__(self, records, answers=None, find_one_raises=None):
         self.records = [dict(r) for r in records]
         self.answers = {name: list(seq) for name, seq in (answers or {}).items()}
+        self.find_one_raises = dict(find_one_raises or {})
         self.asked = []
         self.fail_find = False
 
@@ -48,6 +49,8 @@ class _ReadOnlyRepoMetadata:
 
     def find_one(self, query, projection=None):
         name = query["repo_name"]
+        if name in self.find_one_raises:
+            raise self.find_one_raises[name]
         if name in self.answers:
             return self.answers[name].pop(0)
         return next((dict(r) for r in self.records if r["repo_name"] == name), None)
@@ -194,7 +197,7 @@ def test_a_failed_clone_is_counted_and_its_log_is_redacted(caplog):
     with caplog.at_level(logging.WARNING, logger="services.repo_sync_service"):
         stats = rss.fill_missing_mirrors(_Db(coll), _Disk(clone_fails={"beta"}))
 
-    assert stats["errors"] == 1
+    assert stats["errors"] == 1 and stats["retry_repos"] == ["beta"]
     assert "clone failed for beta" in caplog.text
     assert "ghp_" not in caplog.text and "x-access-token" not in caplog.text
 
@@ -220,6 +223,21 @@ def test_one_failing_repo_does_not_stop_the_others(caplog):
     assert (stats["errors"], stats["cloned"]) == (1, 1)
     assert disk.clones == [("https://github.com/o/beta", "beta")]
     assert "repo mirror fill: alpha failed" in caplog.text
+    # תקלת דיסק אינה תקלה שחולפת: היא לא מסמנת את הריפו לניסיון חוזר.
+    assert stats["retry_repos"] == []
+
+
+def test_a_repo_whose_record_the_database_did_not_answer_is_marked_for_retry_and_the_rest_go_on(caplog):
+    from pymongo.errors import AutoReconnect
+
+    coll = _ReadOnlyRepoMetadata([_rec("alpha"), _rec("beta")], find_one_raises={"alpha": AutoReconnect("x")})
+    disk = _Disk()
+
+    with caplog.at_level(logging.WARNING, logger="services.repo_sync_service"):
+        stats = rss.fill_missing_mirrors(_Db(coll), disk)
+
+    assert (stats["errors"], stats["cloned"], stats["retry_repos"]) == (1, 1, ["alpha"])
+    assert "alpha: MongoDB did not answer (AutoReconnect)" in caplog.text
 
 
 def test_a_failed_read_of_the_records_raises_to_the_caller():
@@ -393,8 +411,11 @@ def test_a_thread_that_cannot_start_releases_waiters_and_can_be_retried(fresh_fi
 def test_a_fill_that_fails_still_releases_the_worker_and_logs(fresh_fill, monkeypatch, caplog):
     import database.db_manager as dbm
 
+    calls = []
+
     def _boom(db, mirror):
-        raise RuntimeError("mongo is down")
+        calls.append(db)
+        raise RuntimeError("a bug, not an outage")
 
     monkeypatch.setattr(dbm, "get_db", lambda: object())
     monkeypatch.setattr(rss, "get_mirror_service", lambda: object())
@@ -405,7 +426,9 @@ def test_a_fill_that_fails_still_releases_the_worker_and_logs(fresh_fill, monkey
         rss._run_mirror_fill(done)
 
     assert done.is_set()
-    assert "repo mirror fill failed" in caplog.text
+    assert "repo mirror fill failed and is not retried" in caplog.text
+    # חריגה שאינה תקלה חולפת לא מנוסה שוב (R10): היא הייתה נכשלת באותה דרך.
+    assert len(calls) == 1
 
 
 def test_a_fill_with_errors_ends_with_a_warning(fresh_fill, monkeypatch, caplog):
@@ -413,7 +436,9 @@ def test_a_fill_with_errors_ends_with_a_warning(fresh_fill, monkeypatch, caplog)
 
     monkeypatch.setattr(dbm, "get_db", lambda: object())
     monkeypatch.setattr(rss, "get_mirror_service", lambda: object())
-    monkeypatch.setattr(rss, "fill_missing_mirrors", lambda db, mirror: {"cloned": 1, "errors": 1})
+    monkeypatch.setattr(
+        rss, "fill_missing_mirrors", lambda db, mirror: {"cloned": 1, "errors": 1, "retry_repos": []}
+    )
     done = threading.Event()
 
     with caplog.at_level(logging.INFO, logger="services.repo_sync_service"):
@@ -421,6 +446,211 @@ def test_a_fill_with_errors_ends_with_a_warning(fresh_fill, monkeypatch, caplog)
 
     finished = [r for r in caplog.records if "repo mirror fill finished" in r.getMessage()]
     assert done.is_set() and len(finished) == 1 and finished[0].levelno == logging.WARNING
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+# ---------------------------------------------------------------------------
+# ניסיונות חוזרים של המילוי, וההתראה לבוט
+# ---------------------------------------------------------------------------
+
+
+def _ok():
+    return {"cloned": 1, "errors": 0, "retry_repos": []}
+
+
+def _failed(*names):
+    return {"cloned": 0, "errors": len(names), "retry_repos": list(names)}
+
+
+@pytest.fixture
+def retrying(fresh_fill, monkeypatch):
+    """מילוי שלא ישן: ``time`` של המודול מוחלף ב-``sleep`` שרושם את ההמתנות, ובכל המתנה בודק שהנעילה פנויה.
+    התראות לבוט נרשמות במקום להישלח. ``fill`` מקבל תסריט: תוצאה או חריגה לכל מעבר, והאחרונה חוזרת על עצמה."""
+    import fcntl
+    import types
+
+    import database.db_manager as dbm
+    import internal_alerts
+
+    state = types.SimpleNamespace(calls=[], sleeps=[], lock_free=[], alerts=[], script=[_ok()], done_at_call=[])
+    done = threading.Event()
+
+    def _sleep(seconds):
+        state.sleeps.append(seconds)
+        with open(rss._MIRROR_FILL_LOCK_PATH, "a+") as fh:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                state.lock_free.append(True)
+            except BlockingIOError:
+                state.lock_free.append(False)
+
+    def _fill(db, mirror):
+        state.calls.append(db)
+        state.done_at_call.append(done.is_set())
+        result = state.script[min(len(state.calls), len(state.script)) - 1]
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    monkeypatch.setattr(rss, "time", types.SimpleNamespace(monotonic=time.monotonic, sleep=_sleep))
+    # ``raising=False``: על הקוד שלפני הניסיונות החוזרים הקבוע לא קיים, והטסט צריך ליפול על ההתנהגות ולא כאן.
+    monkeypatch.setattr(rss, "_MIRROR_FILL_RETRY_JITTER_SECONDS", 0.0, raising=False)
+    monkeypatch.setattr(dbm, "get_db", lambda: "db")
+    monkeypatch.setattr(rss, "get_mirror_service", lambda: object())
+    monkeypatch.setattr(rss, "fill_missing_mirrors", _fill)
+    state.real_emit = internal_alerts.emit_internal_alert
+    monkeypatch.setattr(
+        internal_alerts, "emit_internal_alert",
+        lambda name, severity="info", summary="", **kw: state.alerts.append((name, severity, summary, kw)),
+    )
+    state.done = done
+    return state
+
+
+def test_a_failed_clone_is_tried_again_and_the_fill_stops_once_it_succeeds(retrying, caplog):
+    retrying.script = [_failed("beta"), _ok()]
+
+    with caplog.at_level(logging.INFO, logger="services.repo_sync_service"):
+        rss._run_mirror_fill(retrying.done)
+
+    assert len(retrying.calls) == 2
+    assert retrying.sleeps == [0, rss._MIRROR_FILL_RETRY_BASE_SECONDS]
+    assert "succeeded on attempt 2" in caplog.text
+    # השני הצליח, ולכן אין התראה.
+    assert retrying.alerts == []
+
+
+def test_a_database_that_is_not_up_yet_is_waited_for_instead_of_failing_on_none(retrying, monkeypatch, caplog):
+    """``get_db`` מחזיר ``None`` בחלון ההמתנה שאחרי חיבור שנכשל. עד התיקון הוא נפל ב-``TypeError`` בקריאת הרשומות,
+    והמילוי לא ניסה שוב עד העלייה הבאה."""
+    import database.db_manager as dbm
+
+    handles = iter([None, "db"])
+    monkeypatch.setattr(dbm, "get_db", lambda: next(handles))
+
+    with caplog.at_level(logging.INFO, logger="services.repo_sync_service"):
+        rss._run_mirror_fill(retrying.done)
+
+    assert retrying.calls == ["db"]
+    assert "MongoDB is not available yet" in caplog.text
+    assert "not retried" not in caplog.text
+
+
+def test_a_read_the_database_did_not_answer_is_tried_again(retrying):
+    from pymongo.errors import ServerSelectionTimeoutError
+
+    retrying.script = [ServerSelectionTimeoutError("no primary"), _ok()]
+
+    rss._run_mirror_fill(retrying.done)
+
+    assert len(retrying.calls) == 2
+
+
+def test_a_database_error_that_is_not_an_outage_is_not_tried_again(retrying, caplog):
+    """הרשאה שגויה היא שגיאה של pymongo, אבל לא תקלה שחולפת: תת-העץ שנוסה שוב הוא החיבור, לא הבסיס (R10)."""
+    from pymongo.errors import OperationFailure
+
+    retrying.script = [OperationFailure("bad auth"), _ok()]
+
+    with caplog.at_level(logging.ERROR, logger="services.repo_sync_service"):
+        rss._run_mirror_fill(retrying.done)
+
+    assert len(retrying.calls) == 1
+    assert "not retried" in caplog.text
+
+
+def test_the_worker_is_released_after_the_first_attempt_not_after_the_retries(retrying):
+    retrying.script = [_failed("beta"), _failed("beta"), _ok()]
+
+    rss._run_mirror_fill(retrying.done)
+
+    assert retrying.done_at_call == [False, True, True]
+
+
+def test_the_waits_double_up_to_the_cap_and_the_fill_gives_up_with_an_error(retrying, caplog):
+    retrying.script = [_failed("beta")]
+
+    with caplog.at_level(logging.ERROR, logger="services.repo_sync_service"):
+        rss._run_mirror_fill(retrying.done)
+
+    attempts = rss.MIRROR_FILL_MAX_ATTEMPTS
+    base, cap = rss._MIRROR_FILL_RETRY_BASE_SECONDS, rss._MIRROR_FILL_RETRY_CAP_SECONDS
+    assert len(retrying.calls) == attempts
+    assert retrying.sleeps[1:] == [min(base * 2 ** (n - 1), cap) for n in range(1, attempts)]
+    assert retrying.sleeps[-1] == cap
+    assert f"gave up after {attempts} attempts" in caplog.text
+    assert retrying.done.is_set()
+
+
+def test_the_lock_is_free_while_the_fill_waits_for_its_next_attempt(retrying):
+    retrying.script = [_failed("beta"), _ok()]
+
+    rss._run_mirror_fill(retrying.done)
+
+    # ההמתנה הראשונה היא לפני העלייה, השנייה בין הניסיונות — ובשתיהן תהליך אחר יכול לנעול.
+    assert retrying.lock_free == [True, True]
+
+
+def test_the_second_failed_attempt_alerts_the_bot_once(retrying):
+    retrying.script = [_failed("beta")]
+
+    rss._run_mirror_fill(retrying.done)
+
+    assert len(retrying.alerts) == 1
+    name, severity, summary, kw = retrying.alerts[0]
+    details = kw["details"]
+    assert (name, severity) == (rss.ALERT_MIRROR_FILL_FAILING, "error")
+    assert details["alert_type"] == rss.ALERT_MIRROR_FILL_FAILING
+    assert (details["attempt"], details["reason"], details["repos"]) == (2, "repos_failed", ["beta"])
+    assert details["next_attempt_in_seconds"] == round(rss._MIRROR_FILL_RETRY_BASE_SECONDS * 2)
+    assert "beta" in summary and f"מתוך {rss.MIRROR_FILL_MAX_ATTEMPTS}" in summary
+
+
+def test_the_alert_reaches_telegram(retrying, monkeypatch):
+    """מקצה לקצה, דרך מה שנשלח לטלגרם: ``emit_internal_alert`` האמיתי ו-``alert_forwarder``, עם סף טלגרם ``warn``
+    כמו בייצור (כמו ``test_the_alert_reaches_telegram_with_a_quick_fix_line_to_the_admin_page`` בטסטים של אינדקס
+    התיעוד)."""
+    from types import SimpleNamespace
+
+    import alert_forwarder
+    import internal_alerts
+
+    monkeypatch.setattr(internal_alerts, "emit_internal_alert", retrying.real_emit)
+    monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "chat")
+    monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "warn")
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    monkeypatch.setenv("WEBAPP_URL", "https://webapp.test")
+    sent = []
+
+    def telegram(method, url, json=None, timeout=5):  # noqa: ARG001 — החתימה של http_sync.request
+        sent.append(json)
+        return SimpleNamespace(status_code=200, json=lambda: {"ok": True})
+
+    monkeypatch.setattr(alert_forwarder, "_pooled_request", telegram)
+    retrying.script = [_failed("beta"), _failed("beta"), _ok()]
+
+    rss._run_mirror_fill(retrying.done)
+
+    [payload] = sent
+    assert payload["text"].splitlines()[0] == f"🔔 {rss.ALERT_MIRROR_FILL_FAILING} (ERROR)"
+    assert "לא שוכפלו: beta" in payload["text"]
+
+
+def test_an_alert_that_cannot_be_sent_does_not_stop_the_retries(retrying, monkeypatch, caplog):
+    import internal_alerts
+
+    def _broken(*args, **kwargs):
+        raise RuntimeError("alert sink is broken")
+
+    monkeypatch.setattr(internal_alerts, "emit_internal_alert", _broken)
+    retrying.script = [_failed("beta"), _failed("beta"), _ok()]
+
+    with caplog.at_level(logging.ERROR, logger="services.repo_sync_service"):
+        rss._run_mirror_fill(retrying.done)
+
+    assert len(retrying.calls) == 3
+    assert f"could not send the {rss.ALERT_MIRROR_FILL_FAILING} alert" in caplog.text
 
 
 # ---------------------------------------------------------------------------

@@ -307,10 +307,28 @@ _MIRROR_FILL_LOCK_POLL_SECONDS = 2.0
 _MIRROR_FILL_LOCK_PATH: Optional[str] = None
 _MIRROR_FILL_LOCK_NAME = "codebot-repo-mirror-fill.lock"
 MIRROR_FILL_THREAD_NAME = "repo-mirror-fill"
+#: **ניסיונות חוזרים.** מעבר שנכשל על תקלה שעשויה לחלוף — המסד עוד לא זמין, או ששכפול נכשל (GitHub, רשת, DNS) —
+#: מנוסה שוב, עם המתנה שמוכפלת בכל פעם עד התקרה (``compute_backoff_delay`` ב-``resilience.py``). עד
+#: ``MIRROR_FILL_MAX_ATTEMPTS`` מעברים בסך הכול, כמו ``RETRY_MAX_ATTEMPTS`` במתזמן הגיבויים: מצב סופי לכשל שלא חולף
+#: (ריפו שנמחק ב-GitHub, טוקן שבוטל), במקום ניסיון בלי סוף. עם הערכים כאן ההמתנות הן דקה, 2, 4, 8, 16 ו-30 — בערך
+#: שעה. חריגה לא צפויה (באג, תיקייה שאי אפשר ליצור) לא מנוסה שוב: היא לא תחלוף, וניסיון חוזר היה מתייג אותה כתקלה
+#: זמנית (R10 ב-amir-bug-patterns).
+MIRROR_FILL_MAX_ATTEMPTS = 7
+_MIRROR_FILL_RETRY_BASE_SECONDS = 60.0
+_MIRROR_FILL_RETRY_CAP_SECONDS = 30 * 60.0
+#: פיזור קטן, כדי שכמה workers שנכשלו יחד לא ינסו שוב באותה שנייה.
+_MIRROR_FILL_RETRY_JITTER_SECONDS = 10.0
+#: כשהניסיון הזה נכשל יוצאת התראה לבוט (:data:`ALERT_MIRROR_FILL_FAILING`), פעם אחת. הראשון יכול להיכשל על מסד
+#: שעוד עולה; השני כבר בא אחרי המתנה.
+MIRROR_FILL_ALERT_ATTEMPT = 2
+ALERT_MIRROR_FILL_FAILING = "repo_mirror_fill_failing"
+#: מה שמעבר אחד מחזיר ל-:func:`_run_mirror_fill`: הסתיים בלי כשל שכדאי לנסות שוב, או נכשל על תקלה שעשויה לחלוף.
+_FILL_DONE = "done"
+_FILL_RETRY = "retry"
 
 _mirror_fill_start_lock = threading.Lock()
 #: ה-``Event`` של המילוי בתהליך הזה, או ``None`` כשלא הותחל מילוי — ואז ה-worker לא מחכה (בוט, סקריפטים, טסטים).
-#: נדלק בסוף המילוי, בכל דרך שבה הוא נגמר.
+#: נדלק בסוף המעבר הראשון, בכל דרך שבה הוא נגמר — ולא אחרי הניסיונות החוזרים.
 _mirror_fill_done: Optional[threading.Event] = None
 
 
@@ -319,7 +337,7 @@ def mirror_fill_enabled() -> bool:
     return os.getenv("WEBAPP_REPO_AUTOFILL", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
-def fill_missing_mirrors(db: Any, mirror: Any) -> Dict[str, int]:
+def fill_missing_mirrors(db: Any, mirror: Any) -> Dict[str, Any]:
     """משכפל לדיסק כל ריפו שיש לו רשומה ב-``repo_metadata`` ואין לו mirror. לא כותב למסד.
 
     **הרשומה נקראת שוב, מה-primary, לפני השכפול ואחריו.** הרשימה נקראת פעם אחת בתחילת המעבר, ושכפול לוקח זמן,
@@ -328,9 +346,14 @@ def fill_missing_mirrors(db: Any, mirror: Any) -> Dict[str, int]:
     הרשומות, וכשהוא רץ בזמן השכפול הוא לא מוצא mirror למחוק — ואחר כך השכפול מסתיים. אין בוובאפ שלב שמוחק mirror
     שאין לו רשומה, ולכן mirror כזה נמחק כאן, דרך ``delete_mirror``, ונספר רק אחרי ש-``mirror_exists`` מראה שהוא איננו.
 
-    כשל בקריאת הרשימה עולה לקורא. כשל בריפו אחד נספר ב-``errors``, נרשם, והמעבר ממשיך לבאים.
+    כשל בקריאת הרשימה עולה לקורא. כשל בריפו אחד נספר ב-``errors``, נרשם, והמעבר ממשיך לבאים. ריפו שהכשל שלו עשוי
+    לחלוף — שכפול שנכשל, או המסד שלא ענה בקריאת הרשומה שלו — נכנס גם ל-``retry_repos``, ובגללו המעבר ינוסה שוב
+    (:func:`_run_mirror_fill`). חריגה אחרת היא באג או תקלת דיסק: היא נרשמת עם traceback, ולא גורמת לניסיון חוזר.
     """
-    stats = {"checked": 0, "existed": 0, "cloned": 0, "no_url": 0, "removed": 0, "discarded": 0, "errors": 0}
+    stats: Dict[str, Any] = {
+        "checked": 0, "existed": 0, "cloned": 0, "no_url": 0, "removed": 0, "discarded": 0, "errors": 0,
+        "retry_repos": [],
+    }
     for meta in read_repo_records(db):
         name = str(meta.get("repo_name") or "").strip()
         if not name:
@@ -352,11 +375,17 @@ def fill_missing_mirrors(db: Any, mirror: Any) -> Dict[str, int]:
                 logger.warning("repo mirror fill: %s has no repo_url in repo_metadata; not cloned", name)
             elif outcome.status != CLONE_CLONED:
                 stats["errors"] += 1
+                stats["retry_repos"].append(name)
                 logger.warning("repo mirror fill: clone failed for %s: %s", name, outcome.message)
             elif read_repo_record(db, name) is not None:
                 stats["cloned"] += 1
             else:
                 _discard_clone_of_removed_repo(name, mirror, stats)
+        except _RETRYABLE_MONGO_ERRORS as exc:
+            # רק שם הטיפוס: ההודעה של pymongo מונה את שרתי המסד.
+            stats["errors"] += 1
+            stats["retry_repos"].append(name)
+            logger.warning("repo mirror fill: %s: MongoDB did not answer (%s)", name, type(exc).__name__)
         except Exception:
             stats["errors"] += 1
             logger.warning("repo mirror fill: %s failed", name, exc_info=True)
@@ -426,25 +455,132 @@ def _acquire_mirror_fill_lock(deadline: float) -> Tuple[bool, Any]:
             raise
 
 
+def _mirror_fill_attempt() -> Tuple[str, Dict[str, Any]]:
+    """מעבר אחד, תחת הנעילה: ``(_FILL_DONE או _FILL_RETRY, מה שהמעבר ראה)``. חריגה לא צפויה עולה לקורא.
+
+    הנעילה משתחררת בסוף המעבר, ולא מוחזקת בזמן ההמתנה לניסיון הבא, כך שתהליך אחר שמחכה לה ממלא בינתיים.
+    """
+    proceed, lock_fh = _acquire_mirror_fill_lock(time.monotonic() + MIRROR_FILL_WAIT_SECONDS)
+    try:
+        if not proceed:
+            # תהליך אחר ממלא כבר יותר מ-``MIRROR_FILL_WAIT_SECONDS``. כשיסיים, המעבר הבא כאן ימצא את מה שהוא שכפל.
+            return _FILL_RETRY, {"reason": "lock_busy"}
+        from database.db_manager import get_db
+
+        db = get_db()
+        if db is None:
+            # ``get_db`` מחזיר ``None`` ולא זורק, בחלון ההמתנה שאחרי חיבור שנכשל (``webapp/app.py``). ערך הכשל נבדק
+            # כאן (K11), ולא נופל אחר כך כ-``TypeError`` בקריאת הרשומות.
+            logger.warning("repo mirror fill: MongoDB is not available yet")
+            return _FILL_RETRY, {"reason": "db_unavailable"}
+        mirror = get_mirror_service()
+        started = time.monotonic()
+        try:
+            stats = fill_missing_mirrors(db, mirror)
+        except _RETRYABLE_MONGO_ERRORS as exc:
+            logger.warning("repo mirror fill: reading repo_metadata failed (%s)", type(exc).__name__)
+            return _FILL_RETRY, {"reason": "read_failed"}
+        log = logger.warning if stats["errors"] else logger.info
+        log("repo mirror fill finished in %.1fs: %s", time.monotonic() - started, stats)
+        if stats["retry_repos"]:
+            return _FILL_RETRY, {"reason": "repos_failed", "repos": list(stats["retry_repos"])}
+        return _FILL_DONE, {}
+    finally:
+        if lock_fh is not None:
+            lock_fh.close()
+
+
+def _alert_mirror_fill_failing(attempt: int, seen: Dict[str, Any], next_delay: float) -> None:
+    """התראה לבוט (:data:`ALERT_MIRROR_FILL_FAILING`): המילוי נכשל ``attempt`` פעמים, וממשיך לנסות.
+
+    ``emit_internal_alert`` אינו זורק (הוא תופס הכול בעצמו). ה-``try`` כאן הוא על הייבוא ועל בניית ההודעה: התראה
+    שלא יצאה לא עוצרת את הניסיונות החוזרים, ונרשמת עם traceback.
+    """
+    try:
+        from internal_alerts import emit_internal_alert
+
+        reason = str(seen.get("reason") or "")
+        repos = [str(r) for r in (seen.get("repos") or [])]
+        if reason == "repos_failed":
+            shown = ", ".join(repos[:10]) + (f" ועוד {len(repos) - 10}" if len(repos) > 10 else "")
+            why = f"לא שוכפלו: {shown}"
+        else:
+            why = {
+                "db_unavailable": "המסד לא זמין",
+                "read_failed": "הקריאה של repo_metadata נכשלה",
+                "lock_busy": "תהליך אחר עדיין ממלא את הדיסק",
+            }.get(reason, reason)
+        emit_internal_alert(
+            ALERT_MIRROR_FILL_FAILING,
+            severity="error",
+            summary=(
+                f"מילוי ה-mirrors בעליית הוובאפ נכשל {attempt} פעמים ({why}). "
+                f"ניסיון {attempt + 1} מתוך {MIRROR_FILL_MAX_ATTEMPTS} בעוד {max(1, round(next_delay / 60))} דק'. "
+                f"עד שיצליח, ריפו שחסר בדיסק לא מופיע בדפדפן הקוד, וסנכרון שלו נכשל עם {FAIL_MIRROR_MISSING}."
+            ),
+            details={
+                "alert_type": ALERT_MIRROR_FILL_FAILING,
+                "reason": reason,
+                "repos": repos,
+                "attempt": attempt,
+                "max_attempts": MIRROR_FILL_MAX_ATTEMPTS,
+                "next_attempt_in_seconds": round(next_delay),
+                "pid": os.getpid(),
+            },
+        )
+    except Exception:
+        logger.exception("repo mirror fill: could not send the %s alert", ALERT_MIRROR_FILL_FAILING)
+
+
 def _run_mirror_fill(done: threading.Event) -> None:
+    """החוט של המילוי: מעבר, ואם הוא נכשל על תקלה שעשויה לחלוף — מעברים נוספים עם המתנה שגדלה, עד
+    :data:`MIRROR_FILL_MAX_ATTEMPTS`. בכשל של :data:`MIRROR_FILL_ALERT_ATTEMPT` יוצאת התראה לבוט.
+
+    ``done`` נדלק אחרי המעבר הראשון, בכל דרך שבה הוא נגמר: ה-worker של הסנכרון מחכה לו, ולא לניסיונות החוזרים.
+    חריגה לא צפויה עוצרת את המילוי בלי ניסיון חוזר, ונרשמת עם traceback.
+    """
     try:
         time.sleep(_MIRROR_FILL_STARTUP_DELAY_SECONDS)
-        proceed, lock_fh = _acquire_mirror_fill_lock(time.monotonic() + MIRROR_FILL_WAIT_SECONDS)
-        try:
-            if proceed:
-                from database.db_manager import get_db
+        from resilience import RetryPolicy, compute_backoff_delay
 
-                started = time.monotonic()
-                stats = fill_missing_mirrors(get_db(), get_mirror_service())
-                log = logger.warning if stats["errors"] else logger.info
-                log("repo mirror fill finished in %.1fs: %s", time.monotonic() - started, stats)
-        finally:
-            if lock_fh is not None:
-                lock_fh.close()
+        policy = RetryPolicy(
+            max_attempts=MIRROR_FILL_MAX_ATTEMPTS,
+            backoff_base=_MIRROR_FILL_RETRY_BASE_SECONDS,
+            backoff_cap=_MIRROR_FILL_RETRY_CAP_SECONDS,
+            jitter=_MIRROR_FILL_RETRY_JITTER_SECONDS,
+        )
+        attempt = 1
+        while True:
+            outcome, seen = _mirror_fill_attempt()
+            done.set()
+            if outcome == _FILL_DONE:
+                if attempt > 1:
+                    logger.info("repo mirror fill succeeded on attempt %d", attempt)
+                return
+            if attempt >= MIRROR_FILL_MAX_ATTEMPTS:
+                logger.error(
+                    "repo mirror fill gave up after %d attempts (%s); a mirror missing from this disk stays missing "
+                    "until the next restart, or until the repo is imported again",
+                    attempt,
+                    seen,
+                )
+                return
+            delay = compute_backoff_delay(attempt, policy)
+            if attempt == MIRROR_FILL_ALERT_ATTEMPT:
+                _alert_mirror_fill_failing(attempt, seen, delay)
+            logger.warning(
+                "repo mirror fill attempt %d of %d failed (%s); next attempt in %.0fs",
+                attempt,
+                MIRROR_FILL_MAX_ATTEMPTS,
+                seen,
+                delay,
+            )
+            time.sleep(delay)
+            attempt += 1
     except Exception:
         logger.exception(
-            "repo mirror fill failed; a mirror missing from this disk stays missing until the next restart, "
-            "or until the repo is imported again"
+            "repo mirror fill failed and is not retried; a mirror missing from this disk stays missing until the "
+            "next restart, or until the repo is imported again"
         )
     finally:
         done.set()
@@ -476,13 +612,16 @@ def start_mirror_fill() -> bool:
 
 
 def _wait_for_mirror_fill() -> None:
-    """ה-worker לא תופס ג'וב לפני שהמילוי בתהליך הזה הסתיים — עד ``MIRROR_FILL_WAIT_SECONDS``."""
+    """ה-worker לא תופס ג'וב לפני שהמעבר הראשון של המילוי בתהליך הזה הסתיים — עד ``MIRROR_FILL_WAIT_SECONDS``.
+
+    הוא לא מחכה לניסיונות החוזרים: ג'וב של ריפו שעוד חסר נכשל עם ``FAIL_MIRROR_MISSING``, והסנכרון המוצלח הבא משלים.
+    """
     done = _mirror_fill_done
     if done is None or done.is_set():
         return
     logger.info("Sync worker waits for the repo mirror fill (up to %ss) before claiming jobs", MIRROR_FILL_WAIT_SECONDS)
     if done.wait(MIRROR_FILL_WAIT_SECONDS):
-        logger.info("Repo mirror fill is done; the sync worker starts claiming jobs")
+        logger.info("Repo mirror fill finished its first pass; the sync worker starts claiming jobs")
         return
     logger.warning(
         "Repo mirror fill is still running after %ss; the sync worker starts claiming jobs anyway, "

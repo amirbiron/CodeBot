@@ -126,6 +126,13 @@ Jobs
 
    {"event":"job_runs_reconciled","severity":"warn","count":3,"skipped":0,"truncated":false,"job_ids_sample":["cache_warming","drive_sync"]}
 
+.. _events-repo-mirror-fill:
+
+מילוי ה-mirrors בעליית הוובאפ
+-----------------------------
+
+התראה לבוט, ``repo_mirror_fill_failing`` (``ALERT_MIRROR_FILL_FAILING`` ב-``services/repo_sync_service.py``): נשלחת דרך ``emit_internal_alert`` ברמת ``error``, פעם אחת לכל תהליך, כשהניסיון ה-``MIRROR_FILL_ALERT_ATTEMPT`` של המילוי נכשל והמילוי ממשיך לנסות (:ref:`code-browser-mirror-fill`). השדות שלה: ``reason`` — ``db_unavailable`` (המסד לא זמין), ``read_failed`` (המסד לא ענה בקריאה של ``repo_metadata``), ``lock_busy`` (תהליך אחר עדיין ממלא) או ``repos_failed``; ‏``repos`` — הריפואים שהכשל שלהם ינוסה שוב, כש-``reason`` הוא ``repos_failed``; ‏``attempt`` ו-``max_attempts``; ‏``next_attempt_in_seconds``; ו-``pid``. ``alert_type`` הוא אותו שם, וה-runbook באותו שם ב-``config/observability_runbooks.yml`` מסביר מה לבדוק לכל ``reason``.
+
 .. _drive-events:
 
 Google Drive
