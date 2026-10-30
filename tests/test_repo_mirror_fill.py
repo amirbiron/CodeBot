@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import os
 import subprocess
@@ -317,6 +318,9 @@ def worker(monkeypatch):
         raise _Stop()
 
     monkeypatch.setattr(dbm, "get_db", lambda: object())
+    # הטסטים כאן הם על ההמתנה למילוי. ההכנה של ``sync_jobs`` לפני התפיסה נבדקת ב-``tests/test_repo_sync_claim.py``.
+    monkeypatch.setattr(rss, "_prepare_sync_jobs", lambda db: True)
+    monkeypatch.setattr(rss, "_release_abandoned_jobs", lambda db: 0)
     monkeypatch.setattr(rss, "_claim_next_job", _claim)
     return claims
 
@@ -710,22 +714,25 @@ def test_the_second_process_fills_after_the_first_releases(fresh_fill, monkeypat
 
 _GUNICORN = "/opt/render/project/.venv/bin/gunicorn"
 _PROBE = (
-    "import logging, sys, threading, time\n"
+    "import json, logging, sys, threading, time\n"
     "logging.basicConfig(level=logging.INFO, stream=sys.stderr)\n"
     "sys.argv[0] = {argv0!r}\n"
     "import webapp.app\n"
     "time.sleep(0.5)\n"
-    "names = sorted(t.name for t in threading.enumerate())\n"
-    "print('MIRROR_FILL_RUNNING=' + str({thread!r} in names))\n"
+    "print('THREADS=' + json.dumps(sorted(t.name for t in threading.enumerate())))\n"
 )
 
 
-def _fill_running_after_import_as(argv0, tmp_path, **env):
-    """טעינה בתת-תהליך נקי עם ``-B``, כמו ב-``tests/test_push_sender_runs_only_in_the_webapp.py``: השאלה היא מה
-    הייבוא עצמו מרים, ובתהליך הטסטים ``webapp.app`` כבר מיובא. החוט ישן ``_MIRROR_FILL_STARTUP_DELAY_SECONDS`` לפני
-    שהוא נוגע במסד או בדיסק, והתהליך יוצא לפני כן."""
+def _threads_after_import_as(argv0, tmp_path, **env):
+    """שמות החוטים שרצים אחרי טעינת ``webapp.app``, בתת-תהליך נקי עם ``-B``, כמו ב-
+    ``tests/test_push_sender_runs_only_in_the_webapp.py``: השאלה היא מה הייבוא עצמו מרים, ובתהליך הטסטים
+    ``webapp.app`` כבר מיובא.
+
+    אף חוט לא נוגע במסד או בדיסק לפני שהתהליך יוצא: המילוי ישן ``_MIRROR_FILL_STARTUP_DELAY_SECONDS`` לפני כן, וה-worker
+    מחכה למילוי. ה-worker כבוי כברירת מחדל כאן, כי בלי מילוי לחכות לו (``WEBAPP_REPO_AUTOFILL=0``) הוא היה ניגש למסד
+    מיד; טסט שבודק אותו מדליק אותו."""
     proc = subprocess.run(
-        [sys.executable, "-B", "-c", _PROBE.format(argv0=argv0, thread=rss.MIRROR_FILL_THREAD_NAME)],
+        [sys.executable, "-B", "-c", _PROBE.format(argv0=argv0)],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
@@ -736,28 +743,91 @@ def _fill_running_after_import_as(argv0, tmp_path, **env):
             "DISABLE_BACKUP_SCHEDULER": "1",
             "PUSH_NOTIFICATIONS_ENABLED": "false",
             "GEMINI_API_KEY": "",
+            "WEBAPP_SYNC_WORKER": "0",
             **env,
         },
     )
-    lines = [line for line in proc.stdout.splitlines() if line.startswith("MIRROR_FILL_RUNNING=")]
+    lines = [line for line in proc.stdout.splitlines() if line.startswith("THREADS=")]
     assert proc.returncode == 0 and len(lines) == 1, (proc.stdout + proc.stderr)[-3000:]
-    return lines[0].endswith("True"), proc.stderr
+    return set(json.loads(lines[0][len("THREADS="):])), proc.stderr
 
 
 @pytest.mark.parametrize("argv0", ["/srv/app/main.py", "/usr/bin/pytest"], ids=["bot", "pytest"])
 def test_importing_the_webapp_outside_the_server_starts_no_fill(tmp_path, argv0):
-    running, _ = _fill_running_after_import_as(argv0, tmp_path)
-    assert not running
+    threads, _ = _threads_after_import_as(argv0, tmp_path)
+    assert rss.MIRROR_FILL_THREAD_NAME not in threads
 
 
 def test_the_webapp_server_starts_the_fill(tmp_path):
     """ריצת הבקרה: בלעדיה, הבדיקה שלמעלה הייתה עוברת גם על חוט שלא קם אף פעם."""
-    running, stderr = _fill_running_after_import_as(_GUNICORN, tmp_path)
-    assert running
+    threads, stderr = _threads_after_import_as(_GUNICORN, tmp_path)
+    assert rss.MIRROR_FILL_THREAD_NAME in threads
     assert "repo mirror fill started" in stderr
 
 
 def test_the_kill_switch_holds_in_the_server(tmp_path):
-    running, stderr = _fill_running_after_import_as(_GUNICORN, tmp_path, WEBAPP_REPO_AUTOFILL="0")
-    assert not running
+    threads, stderr = _threads_after_import_as(_GUNICORN, tmp_path, WEBAPP_REPO_AUTOFILL="0")
+    assert rss.MIRROR_FILL_THREAD_NAME not in threads
     assert "repo mirror fill disabled via WEBAPP_REPO_AUTOFILL" in stderr
+
+
+@pytest.mark.parametrize("argv0", ["/srv/app/main.py", "/usr/bin/pytest"], ids=["bot", "pytest"])
+def test_importing_the_webapp_outside_the_server_starts_no_sync_worker(tmp_path, argv0):
+    threads, _ = _threads_after_import_as(argv0, tmp_path, WEBAPP_SYNC_WORKER="1")
+    assert rss.SYNC_WORKER_THREAD_NAME not in threads
+
+
+def test_the_webapp_server_starts_the_sync_worker_and_it_waits_for_the_fill(tmp_path):
+    """ה-worker עולה בעלייה, בלי webhook, ומחכה למילוי. זו לא ההוכחה לסדר: worker שהיה עולה ראשון יכול לקרוא את
+    ה-``Event`` רגע אחרי שהמילוי פרסם אותו, ולכתוב את אותה שורה. הסדר נבדק בלי חוטים, ב-
+    ``test_at_boot_the_fill_is_published_before_the_worker_starts``."""
+    threads, stderr = _threads_after_import_as(_GUNICORN, tmp_path, WEBAPP_SYNC_WORKER="1")
+    assert rss.SYNC_WORKER_THREAD_NAME in threads
+    assert "Sync worker waits for the repo mirror fill" in stderr
+
+
+def test_at_boot_the_fill_is_published_before_the_worker_starts(monkeypatch):
+    """נבדק ברגע שה-worker מתבקש לעלות, באותו חוט — ולא לפי מה שהחוט שלו הספיק לקרוא, שתלוי בתזמון."""
+    monkeypatch.delenv("WEBAPP_REPO_AUTOFILL", raising=False)
+    monkeypatch.setattr(rss, "_mirror_fill_done", None)
+    monkeypatch.setattr(rss, "_run_mirror_fill", lambda done: None)
+    published = []
+    monkeypatch.setattr(rss, "start_sync_worker", lambda: published.append(rss._mirror_fill_done is not None))
+
+    rss.start_webapp_repo_threads()
+
+    assert published == [True]
+
+
+def test_at_boot_a_fill_that_failed_to_start_does_not_keep_the_worker_down(monkeypatch, caplog):
+    def _fail():
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(rss, "start_mirror_fill", _fail)
+    started = []
+    monkeypatch.setattr(rss, "start_sync_worker", lambda: started.append(1))
+
+    with caplog.at_level(logging.WARNING, logger="services.repo_sync_service"):
+        rss.start_webapp_repo_threads()
+
+    assert started == [1]
+    assert "Failed to start the repo mirror fill" in caplog.text
+
+
+def test_at_boot_a_worker_that_failed_to_start_is_logged(monkeypatch, caplog):
+    def _fail():
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(rss, "start_mirror_fill", lambda: True)
+    monkeypatch.setattr(rss, "start_sync_worker", _fail)
+
+    with caplog.at_level(logging.WARNING, logger="services.repo_sync_service"):
+        rss.start_webapp_repo_threads()
+
+    assert "Failed to start the repo sync worker at boot" in caplog.text
+
+
+def test_the_sync_worker_switch_holds_in_the_server(tmp_path):
+    threads, stderr = _threads_after_import_as(_GUNICORN, tmp_path, WEBAPP_SYNC_WORKER="0")
+    assert rss.SYNC_WORKER_THREAD_NAME not in threads
+    assert "sync worker disabled via WEBAPP_SYNC_WORKER" in stderr

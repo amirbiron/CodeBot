@@ -31,13 +31,15 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional, Tuple
 
 # חשוב! ReturnDocument הוא Enum, לא בוליאני
 from pymongo import ReturnDocument
 from pymongo.errors import (  # type: ignore
     AutoReconnect,
     ConnectionFailure,
+    DuplicateKeyError,
     NetworkTimeout,
     NotPrimaryError,
     PyMongoError,
@@ -57,6 +59,8 @@ from tenacity import (  # type: ignore
     wait_exponential_jitter,
 )
 
+from observability import emit_event
+
 from services.code_indexer import CodeIndexer
 from services.git_mirror_service import get_mirror_service
 from services.repo_mirror_fill import (
@@ -74,6 +78,7 @@ logger = logging.getLogger(__name__)
 # Flag לוודא worker אחד per process
 _worker_started = False
 _worker_lock = threading.Lock()
+SYNC_WORKER_THREAD_NAME = "repo-sync-worker"
 
 _RETRYABLE_MONGO_ERRORS = (
     ServerSelectionTimeoutError,
@@ -102,16 +107,45 @@ FAIL_FETCH = "fetch_failed"
 FAIL_NO_PREVIOUS_SHA = "no_previous_sha"
 FAIL_CHANGES_UNAVAILABLE = "changes_unavailable"
 FAIL_BASE_MOVED = "base_moved"
+#: ג'וב שה-worker שהריץ אותו הפסיק לסמן שהוא חי (:data:`SYNC_JOB_STALE_SECONDS` בלי דופק) — לרוב תהליך שמת באמצע,
+#: למשל בפריסה. הוא משוחרר כ-``failed`` כדי שהריפו לא יישאר נעול, ולא חוזר לתור: הסנכרון הבא משלים את מה שהוא פספס,
+#: כי הבסיס שלו הוא ``last_synced_sha`` מהמסד (:func:`_run_sync_logic`). נכתב רק על ידי :func:`_release_abandoned_jobs`.
+FAIL_ABANDONED = "abandoned"
 
 #: הסיבה של ``RESULT_SKIPPED``: push לריפו שאין לו רשומה ב-``repo_metadata`` — הוסר (``unmirror_repo``), וה-webhook
 #: שלו נשאר מוגדר ב-GitHub. אין כאן מה לסנכרן, וזה לא כשל — ``failed`` שמור לג'וב שהיה צריך לרוץ ולא רץ.
 SKIP_NOT_TRACKED = "not_tracked"
 
-#: הסטטוסים הסופיים של ג'וב ב-``sync_jobs`` (לפניהם ``pending`` ו-``running``). הקורא היחיד של הסטטוס מחוץ לקובץ
-#: הזה הוא שירות ה-MCP, שמחפש ``running`` בלבד (``mcp_server/repo_backend.py``).
+#: הסטטוסים של ג'וב ב-``sync_jobs``: ``pending`` עד שה-worker תופס אותו, ``running`` בזמן הסנכרון, ואחד מהסופיים.
+#: הקורא היחיד של הסטטוס מחוץ לקובץ הזה הוא שירות ה-MCP, שמחפש ``running`` בלבד, כמחרוזת
+#: (``mcp_server/repo_backend.py``).
+JOB_PENDING = "pending"
+JOB_RUNNING = "running"
 JOB_COMPLETED = "completed"
 JOB_FAILED = "failed"
 JOB_SKIPPED = "skipped"
+
+# ---- ג'וב רץ אחד לכל ריפו, ושחרור של ג'וב שה-worker שלו מת ----------------
+#
+# **לכל ריפו יש לכל היותר ג'וב אחד ב-``running``, והמסד הוא שאוכף את זה** — אינדקס ייחודי חלקי על ``repo_name``,
+# רק על ג'ובים ב-``running`` (:data:`SYNC_JOBS_ONE_RUNNING_INDEX`). בלעדיו, שני workers (כמה תהליכי gunicorn, או שני
+# שירותים על אותו מסד בזמן מעבר) יכלו לסנכרן את אותו ריפו יחד, ו-``FAIL_BASE_MOVED`` רק גילה את זה בדיעבד. התפיסה
+# (:func:`_claim_next_job`) מדלגת על ריפו שיש לו ג'וב רץ, וממשיכה לג'וב של ריפו אחר; ושתי תפיסות באותו רגע נעצרות
+# באינדקס (``DuplicateKeyError``), לא בבדיקה בקוד שאפשר לעקוף (single-active-invariant-in-code).
+#
+# **מנעול כזה צריך דרך לשחרר את מי שמת.** ``worker`` שנהרג באמצע ג'וב (פריסה, SIGKILL) משאיר אותו ב-``running`` לתמיד,
+# ועם האינדקס זה היה נועל את הריפו לתמיד. לכן חוט קטן מסמן כל :data:`SYNC_JOB_HEARTBEAT_SECONDS` שהג'וב חי
+# (``heartbeat_at``), וג'וב שלא סומן :data:`SYNC_JOB_STALE_SECONDS` משוחרר כ-``FAIL_ABANDONED``. הדופק מוכיח שהתהליך חי,
+# לא שהג'וב מתקדם: ג'וב תקוע בתוך תהליך חי ממשיך להחזיק את הריפו.
+SYNC_JOB_HEARTBEAT_SECONDS = 60
+SYNC_JOB_STALE_SECONDS = 10 * 60
+#: כל כמה זמן ה-worker מחפש ג'ובים שה-worker שלהם מת.
+_SYNC_JOB_RELEASE_EVERY_SECONDS = 60
+SYNC_JOBS_CLAIM_INDEX = "sync_jobs_claim"
+SYNC_JOBS_TTL_INDEX = "sync_jobs_ttl"
+SYNC_JOBS_ONE_RUNNING_INDEX = "sync_jobs_one_running_per_repo"
+#: נשלח כשאינדקס של התנהגות על ``sync_jobs`` — ה-TTL או הייחודי — אינו במקום (:func:`ensure_sync_jobs_indexes`).
+EVENT_SYNC_JOBS_INDEX_MISSING = "db_sync_jobs_index_missing"
 
 
 def _sync_failure(reason: str, message: str, **extra: Any) -> Dict[str, Any]:
@@ -172,22 +206,197 @@ def _claim_next_job(db: Any) -> Optional[Dict[str, Any]]:
 
     כדי לצמצם את הסיכון ל-job "תקוע" במקרה של תשובה שאבדה, אנחנו כותבים claim_id
     ייחודי, ואם הייתה שגיאת תשתית ננסה לאתר את ה-job לפי claim_id (קריאה היא idempotent).
+
+    **ג'וב של ריפו שכבר יש לו ג'וב רץ לא נתפס**, ובמקומו נתפס הג'וב הוותיק של ריפו אחר; בתוך ריפו הסדר נשמר. הדילוג
+    בשאילתה חוסך את רוב ההתנגשויות, אבל מה שאוכף הוא האינדקס :data:`SYNC_JOBS_ONE_RUNNING_INDEX`: worker אחר יכול לתפוס
+    ג'וב לאותו ריפו בין הקריאה של הרשימה לתפיסה, ואז המסד דוחה (``DuplicateKeyError``, נמדד מול mongod 7.0.14), הג'וב
+    נשאר ``pending``, וה-worker מנסה בסבב הבא. ``heartbeat_at`` נכתב כבר בתפיסה, כדי שג'וב שנתפס ולא התחיל לא ייראה מת.
     """
     claim_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    # שעה מודעת-אזור (R7). במונגו היא נשמרת כאותו ערך UTC כמו ``utcnow()`` של שאר השדות בקובץ.
+    now = datetime.now(timezone.utc)
+    query: Dict[str, Any] = {"status": JOB_PENDING}
+    busy = _running_repos(db)
+    if busy:
+        query["repo_name"] = {"$nin": busy}
     try:
         return db.sync_jobs.find_one_and_update(
-            {"status": "pending"},
-            {"$set": {"status": "running", "started_at": now, "claim_id": claim_id}},
+            query,
+            {"$set": {"status": JOB_RUNNING, "started_at": now, "heartbeat_at": now, "claim_id": claim_id}},
             sort=[("created_at", 1)],  # FIFO - הישן קודם
             return_document=ReturnDocument.AFTER,  # מחזיר את המסמך אחרי העדכון
         )
+    except DuplicateKeyError:
+        logger.info("Sync claim lost to another worker that took a job for the same repo; trying again next poll")
+        return None
     except _RETRYABLE_MONGO_ERRORS:
         # ייתכן שהכתיבה הושלמה אבל לא קיבלנו תשובה; ננסה לשחזר לפי claim_id.
         try:
             return db.sync_jobs.find_one({"claim_id": claim_id, "status": "running"})
         except Exception:
             raise
+
+
+def _running_repos(db: Any) -> List[str]:
+    """הריפואים שיש להם עכשיו ג'וב ב-``running``."""
+    return sorted(str(name) for name in db.sync_jobs.distinct("repo_name", {"status": JOB_RUNNING}) if name)
+
+
+def _start_heartbeat(db: Any, job: Dict[str, Any]) -> threading.Event:
+    """מרים חוט שמסמן כל :data:`SYNC_JOB_HEARTBEAT_SECONDS` שהג'וב חי, ומחזיר ``Event`` שעוצר אותו.
+
+    הסימון מותנה בכך שהג'וב עדיין ``running`` תחת ה-``claim_id`` של התפיסה הזו. כשהוא כבר לא — שוחרר כ-
+    ``FAIL_ABANDONED``, או הסתיים — הדופק נעצר ורושם את זה, ולא מחייה ג'וב שמישהו אחר כבר סגר.
+    """
+    stop = threading.Event()
+    job_id, claim_id = job["_id"], job.get("claim_id")
+
+    def _beat() -> None:
+        while not stop.wait(SYNC_JOB_HEARTBEAT_SECONDS):
+            try:
+                res = db.sync_jobs.update_one(
+                    {"_id": job_id, "claim_id": claim_id, "status": JOB_RUNNING},
+                    {"$set": {"heartbeat_at": datetime.now(timezone.utc)}},
+                )
+            except _RETRYABLE_MONGO_ERRORS as exc:
+                # ההודעה של pymongo מונה את שרתי המסד, ולכן רק שם הטיפוס.
+                logger.warning("Sync job %s: heartbeat not written (%s); trying again", job_id, type(exc).__name__)
+                continue
+            except Exception:
+                # חוט שמת בלי שורה בלוג היה נראה כמו worker מת, והג'וב היה משתחרר בלי שאיש יידע למה.
+                logger.exception(
+                    "Sync job %s: the heartbeat stopped; the job is released as %s later", job_id, FAIL_ABANDONED
+                )
+                return
+            # ``matched_count`` זורק על כתיבה שלא אושרה (w=0), ולכן ``acknowledged`` נבדק ראשון (pymongo 4.15.3).
+            if not (getattr(res, "acknowledged", False) and getattr(res, "matched_count", 0) == 1):
+                logger.warning("Sync job %s is no longer running under this claim; its heartbeat stops", job_id)
+                return
+
+    threading.Thread(target=_beat, name="sync-job-heartbeat", daemon=True).start()
+    return stop
+
+
+def _release_abandoned_jobs(db: Any) -> int:
+    """משחרר כ-``FAIL_ABANDONED`` כל ג'וב ``running`` שלא סימן דופק :data:`SYNC_JOB_STALE_SECONDS`, ומחזיר כמה שוחררו.
+
+    ג'וב שנתפס לפני שהיה דופק, ואין לו ``heartbeat_at``, נמדד לפי ``started_at``. כל ג'וב משוחרר בעדכון מותנה באותו
+    תנאי, כך שג'וב שסימן דופק או הסתיים בין השליפה לעדכון לא נדרס, והספירה היא של מה שבאמת השתנה. ג'וב שבכל זאת
+    מסתיים אחרי השחרור כותב את התוצאה האמיתית שלו מעל הסימון (:func:`_finish_job`).
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=SYNC_JOB_STALE_SECONDS)
+    stale: Dict[str, Any] = {
+        "status": JOB_RUNNING,
+        "$or": [
+            {"heartbeat_at": {"$lt": cutoff}},
+            {"heartbeat_at": {"$exists": False}, "started_at": {"$lt": cutoff}},
+        ],
+    }
+    released = 0
+    for doc in list(db.sync_jobs.find(stale, {"repo_name": 1, "started_at": 1, "heartbeat_at": 1})):
+        res = db.sync_jobs.update_one(
+            {**stale, "_id": doc["_id"]},
+            {
+                "$set": {
+                    "status": JOB_FAILED,
+                    "error": FAIL_ABANDONED,
+                    "completed_at": now,
+                    "result": _sync_failure(
+                        FAIL_ABANDONED,
+                        f"No heartbeat for over {SYNC_JOB_STALE_SECONDS}s; the worker that ran it is presumed dead.",
+                    ),
+                }
+            },
+        )
+        if getattr(res, "acknowledged", False) and getattr(res, "modified_count", 0) == 1:
+            released += 1
+            logger.warning(
+                "Sync job %s for %s released as %s: no heartbeat since %s",
+                doc["_id"], doc.get("repo_name"), FAIL_ABANDONED, doc.get("heartbeat_at") or doc.get("started_at"),
+            )
+    return released
+
+
+def ensure_sync_jobs_indexes(db: Any) -> Dict[str, bool]:
+    """האינדקסים של ``sync_jobs``: לתפיסה, ה-TTL של ``expire_at``, ו"ג'וב רץ אחד לכל ריפו". ``{שם: האם במקום}``.
+
+    **הם מוצהרים כאן, במסלול של הכותב** — :func:`_sync_worker` קורא לכאן לפני התפיסה הראשונה — ולא רק בסקריפט ידני.
+    עד אוקטובר 2026 השניים הראשונים היו רק ב-``scripts/create_repo_indexes.py``, כך שבמסד שאיש לא הריץ עליו את
+    הסקריפט ג'ובים ישנים לא נמחקו ולתפיסה לא היה אינדקס (דפוס 9 ב-``BY-STACK/mongodb.md``). הסקריפט קורא לכאן.
+
+    - **ה-TTL** מוחק מיד כל ג'וב ש-``expire_at`` שלו עבר, אולי כל הג'ובים מאז ומעולם. ג'וב ישן הוא לוג, והמחיקה שלו
+      בטוחה; הכמות נרשמת לפני היצירה.
+    - **הייחודי** נכשל על כפילויות קיימות. לכן קודם משחררים ג'ובים שה-worker שלהם מת, ואז סופרים ריפואים עם יותר
+      מג'וב רץ אחד. כשיש כאלה, האינדקס לא נוצר: הדילוג שבתפיסה עדיין עובד, אבל רק מצמצם.
+    - ``safe_create_index`` אינו זורק ומחזיר ``False`` בכשל (K11), ולכן התוצאה של כל אחד נבדקת. ה-TTL והייחודי הם
+      אינדקסים של התנהגות, ואינדקס כזה שאינו במקום נשלח כאירוע :data:`EVENT_SYNC_JOBS_INDEX_MISSING` בחומרת
+      ``error``, כמו ``_create_recycle_bin_ttl_indexes`` ב-``database/manager.py`` (``docs/database/indexing.rst``,
+      ``db-behavior-indexes``). אינדקס התפיסה הוא מהירות בלבד, וכשל ביצירתו נרשם באירוע של ``safe_create_index`` עצמו.
+      אינדקס זהה שכבר קיים בשם אחר — למשל מהסקריפט, בשם ברירת המחדל — נחשב במקום (נמדד מול mongod 7.0.14).
+    """
+    from database.manager import DatabaseManager  # מודול כבד; נטען רק כשה-worker מגיע לכאן
+
+    target = SimpleNamespace(db=db)
+
+    def _create(keys: List[Tuple[str, int]], **kwargs: Any) -> bool:
+        return bool(DatabaseManager.safe_create_index(target, "sync_jobs", keys, **kwargs))
+
+    results: Dict[str, bool] = {}
+    results[SYNC_JOBS_CLAIM_INDEX] = _create([("status", 1), ("created_at", 1)], name=SYNC_JOBS_CLAIM_INDEX)
+
+    expired = db.sync_jobs.count_documents({"expire_at": {"$lt": datetime.now(timezone.utc)}})
+    if expired:
+        logger.info("sync_jobs: %d jobs are past expire_at; the TTL index deletes them", expired)
+    results[SYNC_JOBS_TTL_INDEX] = _create([("expire_at", 1)], name=SYNC_JOBS_TTL_INDEX, expire_after_seconds=0)
+
+    _release_abandoned_jobs(db)
+    doubled = [
+        row["_id"]
+        for row in db.sync_jobs.aggregate(
+            [
+                {"$match": {"status": JOB_RUNNING}},
+                {"$group": {"_id": "$repo_name", "count": {"$sum": 1}}},
+                {"$match": {"count": {"$gt": 1}}},
+            ]
+        )
+    ]
+    doubled_repos = sorted(str(name) for name in doubled)
+    if doubled_repos:
+        results[SYNC_JOBS_ONE_RUNNING_INDEX] = False
+    else:
+        results[SYNC_JOBS_ONE_RUNNING_INDEX] = _create(
+            [("repo_name", 1)],
+            name=SYNC_JOBS_ONE_RUNNING_INDEX,
+            unique=True,
+            # שוויון בלבד: ``$ne``/``$not``/``$nin`` אינם מותרים באינדקס חלקי (דפוס 1 ב-``BY-STACK/mongodb.md``).
+            partial_filter_expression={"status": JOB_RUNNING},
+        )
+
+    for name in (SYNC_JOBS_TTL_INDEX, SYNC_JOBS_ONE_RUNNING_INDEX):
+        if results[name]:
+            continue
+        if name == SYNC_JOBS_ONE_RUNNING_INDEX and doubled_repos:
+            details: Dict[str, Any] = {"reason": "running_duplicates", "repos": doubled_repos}
+        else:
+            details = {"reason": "create_failed"}
+        emit_event(EVENT_SYNC_JOBS_INDEX_MISSING, severity="error", collection="sync_jobs", index_name=name, **details)
+    return results
+
+
+def _prepare_sync_jobs(db: Any) -> bool:
+    """:func:`ensure_sync_jobs_indexes` בתחילת ה-worker. ``False`` — המסד לא ענה, ומנסים שוב בסבב הבא.
+
+    חריגה אחרת נרשמת עם traceback ולא מנוסה שוב בתהליך הזה: היא לא תחלוף (R10), וה-worker ממשיך בלי האינדקסים.
+    """
+    try:
+        ensure_sync_jobs_indexes(db)
+    except _RETRYABLE_MONGO_ERRORS as exc:
+        logger.warning("sync_jobs indexes: MongoDB did not answer (%s); trying again next poll", type(exc).__name__)
+        return False
+    except Exception:
+        logger.exception("sync_jobs indexes could not be prepared; the worker goes on without them")
+    return True
 
 
 @retry(
@@ -234,7 +443,7 @@ def trigger_sync(
         "new_sha": new_sha,
         "old_sha": old_sha,
         "trigger": trigger,
-        "status": "pending",
+        "status": JOB_PENDING,
         "created_at": datetime.utcnow(),
         "started_at": None,
         "completed_at": None,
@@ -250,7 +459,12 @@ def trigger_sync(
     logger.info(f"Sync job queued in MongoDB: {job_id}")
 
     # הפעלת worker (אם לא רץ)
-    _ensure_worker_started()
+    if not _ensure_worker_started():
+        logger.info(
+            "Sync job %s stays pending: the sync worker is off in this service (WEBAPP_SYNC_WORKER); "
+            "a service whose worker is on takes it",
+            job_id,
+        )
 
     return job_id
 
@@ -332,9 +546,27 @@ _mirror_fill_start_lock = threading.Lock()
 _mirror_fill_done: Optional[threading.Event] = None
 
 
+def _webapp_switch_enabled(name: str) -> bool:
+    """מתג כיבוי של הוובאפ: ``0``/``false``/``no``/``off`` מכבה, וכל ערך אחר (או היעדרו) משאיר פעיל.
+
+    הכלל של שני המתגים בקובץ — :func:`mirror_fill_enabled` ו-:func:`sync_worker_enabled` — כדי ששניהם יקראו ערך
+    באותה דרך. ``env_toggle_enabled`` ב-``services/job_registry.py`` שונה בכוונה: אצלו ערך לא מוכר מכבה.
+    """
+    return os.getenv(name, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
 def mirror_fill_enabled() -> bool:
-    """``WEBAPP_REPO_AUTOFILL``: ``0``/``false``/``no``/``off`` מכבה, וכל ערך אחר (או היעדרו) משאיר פעיל."""
-    return os.getenv("WEBAPP_REPO_AUTOFILL", "1").strip().lower() not in ("0", "false", "no", "off")
+    """``WEBAPP_REPO_AUTOFILL`` (:func:`_webapp_switch_enabled`)."""
+    return _webapp_switch_enabled("WEBAPP_REPO_AUTOFILL")
+
+
+def sync_worker_enabled() -> bool:
+    """``WEBAPP_SYNC_WORKER`` (:func:`_webapp_switch_enabled`). כבוי — השירות הזה לא תופס ג'ובי סנכרון.
+
+    לזמן מעבר בין שני שירותים על אותו מסד: כל ג'וב מעדכן רק את הדיסק של השירות שתפס אותו, ולכן בשירות שיוצא כבים
+    את ה-worker, והג'ובים — גם אלה שהשירות הזה יוצר מה-webhook — נשארים ``pending`` עד שהשירות השני תופס אותם.
+    """
+    return _webapp_switch_enabled("WEBAPP_SYNC_WORKER")
 
 
 def fill_missing_mirrors(db: Any, mirror: Any) -> Dict[str, Any]:
@@ -631,16 +863,59 @@ def _wait_for_mirror_fill() -> None:
     )
 
 
-def _ensure_worker_started() -> None:
-    """הפעלת worker thread אם לא פעיל (per process)"""
+def _ensure_worker_started() -> bool:
+    """הפעלת worker thread אם לא פעיל (per process).
+
+    ``False`` — ה-worker כבוי בשירות הזה (:func:`sync_worker_enabled`), ושום דבר לא הופעל.
+    """
     global _worker_started
 
+    if not sync_worker_enabled():
+        return False
     with _worker_lock:
         if not _worker_started:
-            worker = threading.Thread(target=_sync_worker, daemon=True)
+            worker = threading.Thread(target=_sync_worker, name=SYNC_WORKER_THREAD_NAME, daemon=True)
             worker.start()
             _worker_started = True
             logger.info("Sync worker thread started")
+    return True
+
+
+def start_sync_worker() -> bool:
+    """מרים את ה-worker בעליית הוובאפ (``webapp/app.py``). ``True`` כשהוא רץ או רץ קודם, ``False`` כשהוא כבוי.
+
+    בלי ההרמה הזו ה-worker עולה רק ב-:func:`trigger_sync`, כלומר בתהליך שקיבל webhook. ג'ובים שנשארו ``pending``
+    מלפני פריסה, ג'ובים שנוצרו בשירות שה-worker שלו כבוי (:func:`sync_worker_enabled`), ושחרור ג'ובים שה-worker שלהם
+    מת — כולם היו מחכים ל-webhook הבא שמגיע לשירות הזה. כשל בהרמת החוט עולה לקורא, והדגל לא מוצב, כך ש-webhook
+    שמגיע אחר כך מנסה שוב.
+    """
+    if not _ensure_worker_started():
+        logger.info("sync worker disabled via WEBAPP_SYNC_WORKER")
+        return False
+    return True
+
+
+def start_webapp_repo_threads() -> None:
+    """מה שעולה בעליית הוובאפ (``webapp/app.py``): המילוי (:func:`start_mirror_fill`), ואחריו ה-worker
+    (:func:`start_sync_worker`).
+
+    הסדר הוא החוזה: המילוי מפרסם את ה-``Event`` שלו לפני שהוא חוזר, וה-worker בודק אותו פעם אחת כשהוא מתחיל
+    (:func:`_wait_for_mirror_fill`). worker שהיה עולה קודם היה מחכה למילוי או לא, לפי תזמון החוטים. כל אחד בניסיון
+    משלו, כדי שכשל באחד לא ימנע את השני; והכשל נרשם, כי בלעדיו ריפו שחסר בדיסק, או ג'וב שממתין, נשארים כך בלי שום
+    סימן.
+    """
+    try:
+        start_mirror_fill()
+    except Exception:
+        logger.warning("Failed to start the repo mirror fill", exc_info=True)
+    try:
+        start_sync_worker()
+    except Exception:
+        logger.warning(
+            "Failed to start the repo sync worker at boot; pending sync jobs wait until a GitHub webhook reaches "
+            "this service",
+            exc_info=True,
+        )
 
 
 def _sync_worker() -> None:
@@ -650,15 +925,32 @@ def _sync_worker() -> None:
     Note: כל Gunicorn worker יריץ את ה-thread הזה.
     השימוש ב-findOneAndUpdate עם "$set": {"status": "running"}
     מבטיח שרק worker אחד יתפוס כל job (atomic operation).
+
+    לפני התפיסה הראשונה הוא מכין את האינדקסים של ``sync_jobs`` (:func:`ensure_sync_jobs_indexes`), וכל
+    ``_SYNC_JOB_RELEASE_EVERY_SECONDS`` משחרר ג'ובים שה-worker שלהם מת (:func:`_release_abandoned_jobs`). בזמן ג'וב רץ
+    חוט דופק (:func:`_start_heartbeat`).
     """
     from database.db_manager import get_db
 
     _wait_for_mirror_fill()
     logger.info("Sync worker polling MongoDB...")
 
+    indexes_ready = False
+    next_release = 0.0
     while True:
         try:
             db = get_db()
+            if db is None:
+                # ``get_db`` מחזיר ``None`` ולא זורק, בחלון ההמתנה שאחרי חיבור שנכשל (``webapp/app.py``) — K11.
+                logger.warning("Sync worker: MongoDB is not available yet; trying again")
+                time.sleep(10)
+                continue
+            if not indexes_ready:
+                indexes_ready = _prepare_sync_jobs(db)
+            if time.monotonic() >= next_release:
+                # המועד הבא נקבע לפני השחרור, כדי ששחרור שנכשל לא יחזור בכל סבב.
+                next_release = time.monotonic() + _SYNC_JOB_RELEASE_EVERY_SECONDS
+                _release_abandoned_jobs(db)
 
             # Atomic: מצא job pending ותפוס אותו
             # חשוב: return_document הוא Enum ב-PyMongo, לא True/False!
@@ -672,11 +964,18 @@ def _sync_worker() -> None:
             job_id = job["_id"]
             logger.info(f"Processing sync job: {job_id}")
 
+            # הדופק נעצר **לפני** כתיבת הסטטוס הסופי: דופק שהיה מתעורר אחריה לא היה מוצא ג'וב ``running``, ורושם אזהרה
+            # על ג'וב שהסתיים כרגיל. ה-``finally`` מכסה את המקרה שבו ההרמה שלו עצמה נכשלה.
+            heartbeat: Optional[threading.Event] = None
             try:
+                heartbeat = _start_heartbeat(db, job)
                 result = _run_sync_from_doc(job, db)
+                heartbeat.set()
                 _finish_job(db, job, result)
 
             except Exception as e:
+                if heartbeat is not None:
+                    heartbeat.set()
                 logger.exception(f"Sync job failed: {job_id}")
 
                 # עדכון סטטוס - failed
@@ -689,6 +988,9 @@ def _sync_worker() -> None:
                 except Exception:
                     # אם אפילו עדכון הסטטוס נכשל (למשל בזמן failover), אל תפיל את ה-thread
                     logger.exception("Failed to update failed status for job %s", job_id)
+            finally:
+                if heartbeat is not None:
+                    heartbeat.set()
 
         except Exception as e:
             logger.exception(f"Worker error: {e}")
@@ -759,7 +1061,8 @@ def _run_sync_logic(
     בינתיים, התוצאה היא ``FAIL_BASE_MOVED`` — המרוץ עצמו לא נפתר כאן, רק נעשה גלוי. **הכתיבות לאינדקס שהסנכרון
     כבר עשה לפני ה-CAS נשארות** — אין להן החזרה לאחור. לכן אחרי ``FAIL_BASE_MOVED``, ועד הסנכרון המוצלח הבא, קבצים
     מהטווח של הסנכרון הזה יכולים להופיע באינדקס בגרסה של ה-``new_sha`` שלו, בזמן ש-``last_synced_sha`` מצביע על ה-SHA
-    של הסנכרון האחר. את החפיפה עצמה תמנע רק תפיסת ג'וב בלעדית לכל ריפו.
+    של הסנכרון האחר. את החפיפה עצמה מונעת התפיסה של ג'וב רץ אחד לכל ריפו (:data:`SYNC_JOBS_ONE_RUNNING_INDEX`), ומה
+    שנשאר ל-CAS הוא ג'וב ששוחרר כ-``FAIL_ABANDONED`` בזמן שה-worker שלו עוד חי, ומסתיים אחרי שג'וב חדש כבר התחיל.
     """
 
     # ``repo_name`` ייחודי ב-``repo_metadata``: האינדקס הייחודי נוצר בעליית שירות ה-MCP (``RepoBackend``, דרך
