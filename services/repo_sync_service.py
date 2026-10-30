@@ -59,6 +59,8 @@ from tenacity import (  # type: ignore
     wait_exponential_jitter,
 )
 
+from observability import emit_event
+
 from services.code_indexer import CodeIndexer
 from services.git_mirror_service import get_mirror_service
 from services.repo_mirror_fill import (
@@ -142,6 +144,8 @@ _SYNC_JOB_RELEASE_EVERY_SECONDS = 60
 SYNC_JOBS_CLAIM_INDEX = "sync_jobs_claim"
 SYNC_JOBS_TTL_INDEX = "sync_jobs_ttl"
 SYNC_JOBS_ONE_RUNNING_INDEX = "sync_jobs_one_running_per_repo"
+#: נשלח כשאינדקס של התנהגות על ``sync_jobs`` — ה-TTL או הייחודי — אינו במקום (:func:`ensure_sync_jobs_indexes`).
+EVENT_SYNC_JOBS_INDEX_MISSING = "db_sync_jobs_index_missing"
 
 
 def _sync_failure(reason: str, message: str, **extra: Any) -> Dict[str, Any]:
@@ -324,9 +328,12 @@ def ensure_sync_jobs_indexes(db: Any) -> Dict[str, bool]:
     - **ה-TTL** מוחק מיד כל ג'וב ש-``expire_at`` שלו עבר, אולי כל הג'ובים מאז ומעולם. ג'וב ישן הוא לוג, והמחיקה שלו
       בטוחה; הכמות נרשמת לפני היצירה.
     - **הייחודי** נכשל על כפילויות קיימות. לכן קודם משחררים ג'ובים שה-worker שלהם מת, ואז סופרים ריפואים עם יותר
-      מג'וב רץ אחד. כשיש כאלה, האינדקס לא נוצר ונרשם ERROR: הדילוג שבתפיסה עדיין עובד, אבל רק מצמצם.
-    - ``safe_create_index`` אינו זורק ומחזיר ``False`` בכשל (K11), ולכן התוצאה של כל אחד נבדקת ונרשמת. אינדקס זהה
-      שכבר קיים בשם אחר — למשל מהסקריפט, בשם ברירת המחדל — נחשב במקום (נמדד מול mongod 7.0.14).
+      מג'וב רץ אחד. כשיש כאלה, האינדקס לא נוצר: הדילוג שבתפיסה עדיין עובד, אבל רק מצמצם.
+    - ``safe_create_index`` אינו זורק ומחזיר ``False`` בכשל (K11), ולכן התוצאה של כל אחד נבדקת. ה-TTL והייחודי הם
+      אינדקסים של התנהגות, ואינדקס כזה שאינו במקום נשלח כאירוע :data:`EVENT_SYNC_JOBS_INDEX_MISSING` בחומרת
+      ``error``, כמו ``_create_recycle_bin_ttl_indexes`` ב-``database/manager.py`` (``docs/database/indexing.rst``,
+      ``db-behavior-indexes``). אינדקס התפיסה הוא מהירות בלבד, וכשל ביצירתו נרשם באירוע של ``safe_create_index`` עצמו.
+      אינדקס זהה שכבר קיים בשם אחר — למשל מהסקריפט, בשם ברירת המחדל — נחשב במקום (נמדד מול mongod 7.0.14).
     """
     from database.manager import DatabaseManager  # מודול כבד; נטען רק כשה-worker מגיע לכאן
 
@@ -354,11 +361,8 @@ def ensure_sync_jobs_indexes(db: Any) -> Dict[str, bool]:
             ]
         )
     ]
-    if doubled:
-        logger.error(
-            "sync_jobs: more than one running job for %s; the one-running-job-per-repo index is not created",
-            sorted(str(name) for name in doubled),
-        )
+    doubled_repos = sorted(str(name) for name in doubled)
+    if doubled_repos:
         results[SYNC_JOBS_ONE_RUNNING_INDEX] = False
     else:
         results[SYNC_JOBS_ONE_RUNNING_INDEX] = _create(
@@ -369,9 +373,14 @@ def ensure_sync_jobs_indexes(db: Any) -> Dict[str, bool]:
             partial_filter_expression={"status": JOB_RUNNING},
         )
 
-    missing = sorted(name for name, ok in results.items() if not ok)
-    if missing:
-        logger.error("sync_jobs: these indexes are not in place: %s", missing)
+    for name in (SYNC_JOBS_TTL_INDEX, SYNC_JOBS_ONE_RUNNING_INDEX):
+        if results[name]:
+            continue
+        if name == SYNC_JOBS_ONE_RUNNING_INDEX and doubled_repos:
+            details: Dict[str, Any] = {"reason": "running_duplicates", "repos": doubled_repos}
+        else:
+            details = {"reason": "create_failed"}
+        emit_event(EVENT_SYNC_JOBS_INDEX_MISSING, severity="error", collection="sync_jobs", index_name=name, **details)
     return results
 
 

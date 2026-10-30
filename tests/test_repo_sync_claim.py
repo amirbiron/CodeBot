@@ -19,6 +19,7 @@ import threading
 import time
 import types
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -53,18 +54,31 @@ def indexed_db(jobs_db):
     return jobs_db
 
 
+@pytest.fixture
+def events(monkeypatch):
+    """האירועים ש-``ensure_sync_jobs_indexes`` שולח, כ-``(שם, חומרה, שדות)``."""
+    sent = []
+
+    def _emit(event, severity="info", **fields):
+        sent.append((event, severity, fields))
+
+    monkeypatch.setattr(rss, "emit_event", _emit)
+    return sent
+
+
 # ---------------------------------------------------------------------------
 # האינדקסים, כפי שהמסד מחזיר אותם
 # ---------------------------------------------------------------------------
 
 
-def test_the_worker_path_creates_the_three_indexes_with_their_full_spec(jobs_db):
+def test_the_worker_path_creates_the_three_indexes_with_their_full_spec(jobs_db, events):
     """דפוס 9: ההצהרה במסלול שהכותב עובר בו, והטסט מקבע את המפרט המלא — מפתח, TTL, ייחודי ופילטר חלקי."""
     results = rss.ensure_sync_jobs_indexes(jobs_db)
 
     assert results == {
         rss.SYNC_JOBS_CLAIM_INDEX: True, rss.SYNC_JOBS_TTL_INDEX: True, rss.SYNC_JOBS_ONE_RUNNING_INDEX: True,
     }
+    assert events == []
     by_name = {idx["name"]: idx for idx in jobs_db.sync_jobs.list_indexes()}
     assert list(by_name[rss.SYNC_JOBS_CLAIM_INDEX]["key"].items()) == [("status", 1), ("created_at", 1)]
     assert list(by_name[rss.SYNC_JOBS_TTL_INDEX]["key"].items()) == [("expire_at", 1)]
@@ -88,19 +102,51 @@ def test_indexes_the_manual_script_already_made_count_as_in_place(jobs_db):
     assert names == sorted(["_id_", "status_1_created_at_1", "expire_at_1", rss.SYNC_JOBS_ONE_RUNNING_INDEX])
 
 
-def test_two_live_running_jobs_for_one_repo_block_the_unique_index_and_say_so(jobs_db, caplog):
+def test_two_live_running_jobs_for_one_repo_block_the_unique_index_and_say_so(jobs_db, events):
     jobs_db.sync_jobs.insert_many([
         _job("a1", "A", rss.JOB_RUNNING, heartbeat_at=_now()),
         _job("a2", "A", rss.JOB_RUNNING, heartbeat_at=_now()),
     ])
 
-    with caplog.at_level(logging.ERROR, logger="services.repo_sync_service"):
-        results = rss.ensure_sync_jobs_indexes(jobs_db)
+    results = rss.ensure_sync_jobs_indexes(jobs_db)
 
     assert results[rss.SYNC_JOBS_ONE_RUNNING_INDEX] is False
     assert results[rss.SYNC_JOBS_CLAIM_INDEX] and results[rss.SYNC_JOBS_TTL_INDEX]
-    assert "more than one running job for ['A']" in caplog.text
+    assert events == [(rss.EVENT_SYNC_JOBS_INDEX_MISSING, "error", {
+        "collection": "sync_jobs", "index_name": rss.SYNC_JOBS_ONE_RUNNING_INDEX,
+        "reason": "running_duplicates", "repos": ["A"],
+    })]
     assert rss.SYNC_JOBS_ONE_RUNNING_INDEX not in {idx["name"] for idx in jobs_db.sync_jobs.list_indexes()}
+
+
+def test_behavior_indexes_that_were_not_created_are_reported_and_the_claim_index_is_not(jobs_db, events, monkeypatch):
+    """ה-TTL והייחודי הם התנהגות (``docs/database/indexing.rst``, ``db-behavior-indexes``): כשל ביצירתם הוא אירוע
+    ``error``. אינדקס התפיסה הוא מהירות, ו-``safe_create_index`` כבר מדווח עליו בעצמו."""
+    from database.manager import DatabaseManager
+
+    monkeypatch.setattr(DatabaseManager, "safe_create_index", lambda self, *a, **k: False)
+
+    results = rss.ensure_sync_jobs_indexes(jobs_db)
+
+    assert set(results.values()) == {False}
+    assert sorted((e, s, f["index_name"], f["reason"]) for e, s, f in events) == [
+        (rss.EVENT_SYNC_JOBS_INDEX_MISSING, "error", rss.SYNC_JOBS_ONE_RUNNING_INDEX, "create_failed"),
+        (rss.EVENT_SYNC_JOBS_INDEX_MISSING, "error", rss.SYNC_JOBS_TTL_INDEX, "create_failed"),
+    ]
+
+
+def test_the_events_catalog_describes_the_index_event_by_the_names_in_the_code():
+    """הרשומה בקטלוג נוקבת בשם האירוע ובשמות הקבועים שבקוד, כך ששינוי שם בקוד מפיל את הטסט במקום שהקטלוג יתיישן
+    בשקט (``prose-restates-code-fact`` ב-amir-bug-patterns). הסיבות עצמן מקובעות בטסטים של האירוע שלמעלה."""
+    catalog_path = Path(__file__).resolve().parents[1] / "docs/observability/events_catalog.rst"
+    catalog = catalog_path.read_text(encoding="utf-8")
+    entries = [line for line in catalog.splitlines() if line.startswith(f"- ``{rss.EVENT_SYNC_JOBS_INDEX_MISSING}``")]
+    assert len(entries) == 1, entries
+    for name in ("SYNC_JOBS_TTL_INDEX", "SYNC_JOBS_ONE_RUNNING_INDEX", "ensure_sync_jobs_indexes"):
+        assert hasattr(rss, name), name
+        assert f"``{name}``" in entries[0], name
+    for reason in ("running_duplicates", "create_failed"):
+        assert f"``{reason}``" in entries[0], reason
 
 
 def test_a_dead_duplicate_is_released_first_and_then_the_unique_index_is_created(jobs_db):
