@@ -315,6 +315,9 @@ def worker(monkeypatch):
         raise _Stop()
 
     monkeypatch.setattr(dbm, "get_db", lambda: object())
+    # הטסטים כאן הם על ההמתנה למילוי. ההכנה של ``sync_jobs`` לפני התפיסה נבדקת ב-``tests/test_repo_sync_claim.py``.
+    monkeypatch.setattr(rss, "_prepare_sync_jobs", lambda db: True)
+    monkeypatch.setattr(rss, "_release_abandoned_jobs", lambda db: 0)
     monkeypatch.setattr(rss, "_claim_next_job", _claim)
     return claims
 

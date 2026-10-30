@@ -2039,6 +2039,16 @@ class ConfigService:
             ),
             category="repo_sync",
         ),
+        "WEBAPP_SYNC_WORKER": ConfigDefinition(
+            key="WEBAPP_SYNC_WORKER",
+            services=("webapp",),
+            default="1",
+            description=(
+                "ה-worker שתופס ומריץ את ג'ובי הסנכרון של הריפואים בשירות הזה. 0 מכבה: הג'ובים נשארים pending עד "
+                "ששירות אחר על אותו מסד תופס אותם. לזמן מעבר בין שני שירותים, בשירות שיוצא."
+            ),
+            category="repo_sync",
+        ),
         "GITHUB_WEBHOOK_SECRET": ConfigDefinition(
             key="GITHUB_WEBHOOK_SECRET",
             services=("webapp", "bot"),
