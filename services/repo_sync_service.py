@@ -76,6 +76,7 @@ logger = logging.getLogger(__name__)
 # Flag לוודא worker אחד per process
 _worker_started = False
 _worker_lock = threading.Lock()
+SYNC_WORKER_THREAD_NAME = "repo-sync-worker"
 
 _RETRYABLE_MONGO_ERRORS = (
     ServerSelectionTimeoutError,
@@ -864,11 +865,48 @@ def _ensure_worker_started() -> bool:
         return False
     with _worker_lock:
         if not _worker_started:
-            worker = threading.Thread(target=_sync_worker, daemon=True)
+            worker = threading.Thread(target=_sync_worker, name=SYNC_WORKER_THREAD_NAME, daemon=True)
             worker.start()
             _worker_started = True
             logger.info("Sync worker thread started")
     return True
+
+
+def start_sync_worker() -> bool:
+    """מרים את ה-worker בעליית הוובאפ (``webapp/app.py``). ``True`` כשהוא רץ או רץ קודם, ``False`` כשהוא כבוי.
+
+    בלי ההרמה הזו ה-worker עולה רק ב-:func:`trigger_sync`, כלומר בתהליך שקיבל webhook. ג'ובים שנשארו ``pending``
+    מלפני פריסה, ג'ובים שנוצרו בשירות שה-worker שלו כבוי (:func:`sync_worker_enabled`), ושחרור ג'ובים שה-worker שלהם
+    מת — כולם היו מחכים ל-webhook הבא שמגיע לשירות הזה. כשל בהרמת החוט עולה לקורא, והדגל לא מוצב, כך ש-webhook
+    שמגיע אחר כך מנסה שוב.
+    """
+    if not _ensure_worker_started():
+        logger.info("sync worker disabled via WEBAPP_SYNC_WORKER")
+        return False
+    return True
+
+
+def start_webapp_repo_threads() -> None:
+    """מה שעולה בעליית הוובאפ (``webapp/app.py``): המילוי (:func:`start_mirror_fill`), ואחריו ה-worker
+    (:func:`start_sync_worker`).
+
+    הסדר הוא החוזה: המילוי מפרסם את ה-``Event`` שלו לפני שהוא חוזר, וה-worker בודק אותו פעם אחת כשהוא מתחיל
+    (:func:`_wait_for_mirror_fill`). worker שהיה עולה קודם היה מחכה למילוי או לא, לפי תזמון החוטים. כל אחד בניסיון
+    משלו, כדי שכשל באחד לא ימנע את השני; והכשל נרשם, כי בלעדיו ריפו שחסר בדיסק, או ג'וב שממתין, נשארים כך בלי שום
+    סימן.
+    """
+    try:
+        start_mirror_fill()
+    except Exception:
+        logger.warning("Failed to start the repo mirror fill", exc_info=True)
+    try:
+        start_sync_worker()
+    except Exception:
+        logger.warning(
+            "Failed to start the repo sync worker at boot; pending sync jobs wait until a GitHub webhook reaches "
+            "this service",
+            exc_info=True,
+        )
 
 
 def _sync_worker() -> None:

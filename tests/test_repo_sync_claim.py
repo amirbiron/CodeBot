@@ -327,6 +327,30 @@ def test_without_the_switch_the_worker_starts(monkeypatch):
     assert ran.wait(5) and rss._worker_started is True
 
 
+def test_a_worker_that_failed_to_start_at_boot_is_started_by_the_next_call(monkeypatch):
+    """הרמה שנכשלה בעלייה לא מציבה את הדגל — אחרת ה-webhook הבא היה מדלג עליה, והשירות נשאר בלי worker עד
+    הפעלה מחדש (K15 ב-amir-bug-patterns, סעיף 3)."""
+    monkeypatch.delenv("WEBAPP_SYNC_WORKER", raising=False)
+    monkeypatch.setattr(rss, "_worker_started", False)
+    ran = threading.Event()
+    monkeypatch.setattr(rss, "_sync_worker", ran.set)
+    real_start = threading.Thread.start
+
+    def _start(self):
+        if self.name == rss.SYNC_WORKER_THREAD_NAME:
+            raise RuntimeError("can't start new thread")
+        return real_start(self)
+
+    monkeypatch.setattr(threading.Thread, "start", _start)
+    with pytest.raises(RuntimeError):
+        rss.start_sync_worker()
+    assert rss._worker_started is False and not ran.is_set()
+
+    monkeypatch.setattr(threading.Thread, "start", real_start)
+    assert rss.start_sync_worker() is True
+    assert ran.wait(5) and rss._worker_started is True
+
+
 def test_preparing_the_jobs_is_tried_again_only_when_the_database_did_not_answer(monkeypatch, caplog):
     from pymongo.errors import AutoReconnect, OperationFailure
 
