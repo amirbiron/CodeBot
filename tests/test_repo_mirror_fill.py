@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 import subprocess
@@ -306,7 +307,8 @@ class _Stop(BaseException):
 
 @pytest.fixture
 def worker(monkeypatch):
-    import database.db_manager as dbm
+    # המודול ולא ``import database.db_manager``: לחבילה יש תכונה בשם הזה (``database/__init__.py``).
+    dbm = importlib.import_module("database.db_manager")
 
     claims = []
 
@@ -412,7 +414,8 @@ def test_a_thread_that_cannot_start_releases_waiters_and_can_be_retried(fresh_fi
 
 
 def test_a_fill_that_fails_still_releases_the_worker_and_logs(fresh_fill, monkeypatch, caplog):
-    import database.db_manager as dbm
+    # המודול ולא ``import database.db_manager``: לחבילה יש תכונה בשם הזה (``database/__init__.py``).
+    dbm = importlib.import_module("database.db_manager")
 
     calls = []
 
@@ -435,7 +438,8 @@ def test_a_fill_that_fails_still_releases_the_worker_and_logs(fresh_fill, monkey
 
 
 def test_a_fill_with_errors_ends_with_a_warning(fresh_fill, monkeypatch, caplog):
-    import database.db_manager as dbm
+    # המודול ולא ``import database.db_manager``: לחבילה יש תכונה בשם הזה (``database/__init__.py``).
+    dbm = importlib.import_module("database.db_manager")
 
     monkeypatch.setattr(dbm, "get_db", lambda: object())
     monkeypatch.setattr(rss, "get_mirror_service", lambda: object())
@@ -472,7 +476,8 @@ def retrying(fresh_fill, monkeypatch):
     import fcntl
     import types
 
-    import database.db_manager as dbm
+    # המודול ולא ``import database.db_manager``: לחבילה יש תכונה בשם הזה (``database/__init__.py``).
+    dbm = importlib.import_module("database.db_manager")
     import internal_alerts
 
     state = types.SimpleNamespace(calls=[], sleeps=[], lock_free=[], alerts=[], script=[_ok()], done_at_call=[])
@@ -526,7 +531,8 @@ def test_a_failed_clone_is_tried_again_and_the_fill_stops_once_it_succeeds(retry
 def test_a_database_that_is_not_up_yet_is_waited_for_instead_of_failing_on_none(retrying, monkeypatch, caplog):
     """``get_db`` מחזיר ``None`` בחלון ההמתנה שאחרי חיבור שנכשל. עד התיקון הוא נפל ב-``TypeError`` בקריאת הרשומות,
     והמילוי לא ניסה שוב עד העלייה הבאה."""
-    import database.db_manager as dbm
+    # המודול ולא ``import database.db_manager``: לחבילה יש תכונה בשם הזה (``database/__init__.py``).
+    dbm = importlib.import_module("database.db_manager")
 
     handles = iter([None, "db"])
     monkeypatch.setattr(dbm, "get_db", lambda: next(handles))
