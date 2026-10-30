@@ -256,7 +256,7 @@ from file_favorite import favorite_fields_for_new_version, file_is_favorite  # n
 # לעריכה, להעלאה ול-quick-update. ראו file_tags.py.
 from file_tags import normalize_quick_update_tags, split_tags_text  # noqa: E402
 # כתובת הוובאפ — מודול שורש טהור, הקורא היחיד של ``WEBAPP_URL``, בלי ברירת מחדל. ראו webapp_url.py.
-from webapp_url import log_webapp_url_status, webapp_base_url_for_request, webapp_url_status  # noqa: E402
+from webapp_url import approval_notice, log_webapp_url_status, webapp_base_url_for_request, webapp_url_status  # noqa: E402
 from user_stats import user_stats  # noqa: E402
 from webapp.size_format import format_file_size as _format_file_size_shared
 from webapp.activity_tracker import log_user_event  # noqa: E402
@@ -2146,7 +2146,7 @@ BOT_TOKEN = _cfg_or_env('BOT_TOKEN')
 def _webapp_base_url() -> str:
     """כתובת הבסיס המלאה של הוובאפ, בלי לוכסן בסוף — :func:`webapp_url.webapp_base_url_for_request`: ``WEBAPP_URL``, ואם אין כתובת תקינה — הכתובת שהבקשה הגיעה אליה.
 
-    למקום שצריך כתובת מלאה ולא נתיב: קישור שנשלח החוצה, ותגיות התצוגה המקדימה בעמוד ציבורי (``og:url``, ``og:image``), שוואטסאפ דורש בהן כתובת מלאה. דורש הקשר בקשה. מודולים של הוובאפ שאינם מייבאים את הקובץ הזה (``drive_auth``, ``collections_api``, ``snippet_library_api``) קוראים ישירות ל-``webapp_base_url_for_request``, כך שהנפילה לכתובת הבקשה נשארת במקום אחד.
+    למקום שצריך כתובת מלאה ולא נתיב, בתשובה לאותה בקשה: קישור שיתוף שחוזר ליוצר, ותגיות התצוגה המקדימה בעמוד ציבורי (``og:url``, ``og:image``), שוואטסאפ דורש בהן כתובת מלאה. דורש הקשר בקשה. מודולים של הוובאפ שאינם מייבאים את הקובץ הזה (``drive_auth``, ``collections_api``, ``snippet_library_api``) קוראים ישירות ל-``webapp_base_url_for_request``, כך שהנפילה לכתובת הבקשה נשארת במקום אחד.
     """
     return webapp_base_url_for_request(request)
 
@@ -8250,12 +8250,8 @@ def admin_snippet_approve():
                         uid = 0
                 if uid > 0:
                     try:
-                        # base URL להצגה למשתמש
-                        base = _webapp_base_url()
-                        text = (
-                            "🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.\n"
-                            f"אפשר לצפות כאן: {base}/snippets"
-                        )
+                        # הודעה למשתמש אחר (מי שהגיש) — הקישור מ-WEBAPP_URL בלבד, ובלעדיו ההודעה בלי קישור.
+                        text = approval_notice("🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.", "/snippets")
                         # BYPASS: שליחה ישירה לטלגרם ללא מנוע כללים
                         # סיבה: הודעת מוצר למשתמש (BOT_TOKEN, chat_id=user_id) ולא "התראת מערכת" שמנוהלת ע"י Rule Engine
                         # TODO: לשקול בעתיד שכבת Notification Service מאוחדת (user_notifications) אם ירצו ניהול כללי/השקטה גם להודעות מוצר
@@ -8479,11 +8475,8 @@ def admin_community_approve():
                     post_doc = coll.find_one(q) if coll is not None else None
                     uid = int((post_doc or {}).get('user_id') or 0)
                 if uid > 0:
-                    base = _webapp_base_url()
-                    text = (
-                        "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
-                        f"אפשר לצפות כאן: {base}/community-library"
-                    )
+                    # הודעה למשתמש אחר (מי שהגיש) — הקישור מ-WEBAPP_URL בלבד, ובלעדיו ההודעה בלי קישור.
+                    text = approval_notice("🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.", "/community-library")
                     bot_token = os.getenv('BOT_TOKEN', '')
                     if bot_token:
                         try:

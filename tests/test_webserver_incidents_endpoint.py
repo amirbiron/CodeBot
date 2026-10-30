@@ -15,6 +15,7 @@ async def test_webserver_incidents_endpoint(tmp_path, monkeypatch):
 
     from aiohttp import web
     import services.webserver as sv
+    monkeypatch.setattr(sv, "DB_HEALTH_TOKEN", "test-token")  # /alerts ו-/incidents מוגנים בטוקן
 
     app = sv.create_app()
     runner = web.AppRunner(app)
@@ -25,7 +26,7 @@ async def test_webserver_incidents_endpoint(tmp_path, monkeypatch):
         port = list(site._server.sockets)[0].getsockname()[1]
         import aiohttp
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"http://127.0.0.1:{port}/incidents?limit=1") as resp:
+            async with session.get(f"http://127.0.0.1:{port}/incidents?limit=1", headers={"Authorization": "Bearer test-token"}) as resp:
                 assert resp.status == 200
                 data = await resp.json()
                 assert isinstance(data.get('incidents'), list)

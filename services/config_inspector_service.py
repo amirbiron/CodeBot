@@ -242,7 +242,7 @@ class ConfigService:
             key="DB_HEALTH_TOKEN",
             services=("webapp", "bot", "webserver"),
             default="",
-            description="טוקן אימות לבדיקות בריאות DB",
+            description="טוקן Bearer לנתיבים הפנימיים בשרת ה-aiohttp: /api/db/*, /api/jobs/*, /api/debug/*, ו-/alerts ו-/incidents",
             category="database",
             sensitive=True,
         ),
@@ -3308,7 +3308,7 @@ class ConfigService:
             key="ENABLE_INTERNAL_SHARE_WEB",
             services=("bot",),
             default="false",
-            description="שרת הווב הפנימי בתוך תהליך הבוט (services/webserver.py, מאזין ל-0.0.0.0). הדגל הוא המתג היחיד",
+            description="שרת הווב הפנימי בתוך תהליך הבוט (services/webserver.py, מאזין ל-0.0.0.0). הדגל הוא המתג היחיד; /alerts ו-/incidents בו דורשים DB_HEALTH_TOKEN",
             category="features",
         ),
         "ENABLE_INTERNAL_SHARE_LINKS": ConfigDefinition(

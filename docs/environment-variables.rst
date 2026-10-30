@@ -450,7 +450,7 @@
      - ``123,456``
      - Bot
    * - ``DB_HEALTH_TOKEN``
-     - טוקן להגנה על נתיבים פנימיים רגישים בשרת ה-aiohttp: ``/api/db/*`` וגם ``/api/jobs/*`` (נשלח כ-``Authorization: Bearer <token>``). ללא טוקן ה-API חסום (403) והדשבורד ``/db-health`` יחזיר 403.
+     - טוקן להגנה על נתיבים פנימיים רגישים בשרת ה-aiohttp: ``/api/db/*`` וגם ``/api/jobs/*`` (נשלח כ-``Authorization: Bearer <token>``). ללא טוקן ה-API חסום (403) והדשבורד ``/db-health`` יחזיר 403. בשרת הפנימי של הבוט (``ENABLE_INTERNAL_SHARE_WEB``) הוא מגן גם על ``POST /alerts``, ``GET /alerts`` ו-``GET /incidents``.
      - כן (DB Health)
      - "" (ריק)
      - ``db_health_super_secret_token``
@@ -1020,7 +1020,7 @@
      - ``srv-xxxx``
      - Reporter
    * - ``ENABLE_INTERNAL_SHARE_WEB``
-     - מעלה את שרת הווב הפנימי (``services/webserver.py``) בתוך תהליך הבוט, מ-``main.py``. השרת מאזין ל-``0.0.0.0``. הדגל הוא המתג היחיד: עד אוקטובר 2026 השרת דרש גם ``PUBLIC_BASE_URL``, ולכן דגל דלוק בלי המשתנה השאיר אותו כבוי. מאז שהמשתנה בוטל, ``true`` מעלה אותו.
+     - מעלה את שרת הווב הפנימי (``services/webserver.py``) בתוך תהליך הבוט, מ-``main.py``. השרת מאזין ל-``0.0.0.0``. הדגל הוא המתג היחיד: עד אוקטובר 2026 השרת דרש גם ``PUBLIC_BASE_URL``, ולכן דגל דלוק בלי המשתנה השאיר אותו כבוי. מאז שהמשתנה בוטל, ``true`` מעלה אותו. ``POST /alerts``, ``GET /alerts`` ו-``GET /incidents`` בשרת הזה דורשים ``DB_HEALTH_TOKEN``, כמו ``/api/db/*``: בלעדיו הם חסומים (403).
      - לא
      - ``false``
      - ``true``
