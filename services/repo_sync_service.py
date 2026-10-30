@@ -28,8 +28,8 @@ import logging
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional, Tuple
 
 # חשוב! ReturnDocument הוא Enum, לא בוליאני
 from pymongo import ReturnDocument
@@ -72,6 +72,56 @@ _RETRYABLE_MONGO_ERRORS = (
     ConnectionFailure,
     NetworkTimeout,
 )
+
+# ---- התוצאה של סנכרון, והסטטוס שהיא נותנת לג'וב ----------------------------
+#
+# **כל תוצאה של ``_run_sync_logic`` נושאת ``status`` מפורש**, וה-worker קובע את הסטטוס הסופי של הג'וב לפיו
+# (:func:`_job_status_for`). עד אוקטובר 2026 ארבעה מצבי כשל חזרו כ-``{"error": ...}`` בלי ``status``, וה-worker
+# סימן ``completed`` כל ג'וב שלא נזרקה בו חריגה: ג'וב שלא מצא mirror, שה-fetch שלו נכשל, שאין לו SHA קודם או
+# שלא קיבל את רשימת השינויים נראה בדיוק כמו ג'וב שהצליח (K11 — כשל שמדווח בערך ההחזרה ואיש לא בודק אותו).
+
+RESULT_SYNCED = "synced"
+RESULT_UP_TO_DATE = "up_to_date"
+RESULT_SKIPPED = "skipped"
+RESULT_FAILED = "failed"
+
+#: הסיבות של ``RESULT_FAILED``. הסיבה היא גם ה-``error`` שנכתב לג'וב, והתוצאה המלאה נשמרת ב-``result``.
+FAIL_MIRROR_MISSING = "mirror_missing"
+FAIL_FETCH = "fetch_failed"
+FAIL_NO_PREVIOUS_SHA = "no_previous_sha"
+FAIL_CHANGES_UNAVAILABLE = "changes_unavailable"
+FAIL_BASE_MOVED = "base_moved"
+
+#: הסיבה של ``RESULT_SKIPPED``: push לריפו שאין לו רשומה ב-``repo_metadata`` — הוסר (``unmirror_repo``), וה-webhook
+#: שלו נשאר מוגדר ב-GitHub. אין כאן מה לסנכרן, וזה לא כשל — ``failed`` שמור לג'וב שהיה צריך לרוץ ולא רץ.
+SKIP_NOT_TRACKED = "not_tracked"
+
+#: הסטטוסים הסופיים של ג'וב ב-``sync_jobs`` (לפניהם ``pending`` ו-``running``). הקורא היחיד של הסטטוס מחוץ לקובץ
+#: הזה הוא שירות ה-MCP, שמחפש ``running`` בלבד (``mcp_server/repo_backend.py``).
+JOB_COMPLETED = "completed"
+JOB_FAILED = "failed"
+JOB_SKIPPED = "skipped"
+
+
+def _sync_failure(reason: str, message: str, **extra: Any) -> Dict[str, Any]:
+    """תוצאת כשל: ``status`` ו-``reason`` למכונה, ``error`` לאדם, ופרטים נוספים כמו שהם."""
+    return {"status": RESULT_FAILED, "reason": reason, "error": message, **extra}
+
+
+def _job_status_for(result: Any) -> Tuple[str, Optional[str]]:
+    """הסטטוס הסופי של הג'וב וה-``error`` שלו, לפי התוצאה של ``_run_sync_logic``.
+
+    תוצאה שאינה מוכרת — לא מילון, או ``status`` שאינו אחד מ-``RESULT_*`` — היא ``failed``: באג שמחזיר צורה חדשה
+    לא יסומן שוב בשקט כהצלחה.
+    """
+    status = result.get("status") if isinstance(result, dict) else None
+    if status in (RESULT_SYNCED, RESULT_UP_TO_DATE):
+        return JOB_COMPLETED, None
+    if status == RESULT_SKIPPED:
+        return JOB_SKIPPED, None
+    if status == RESULT_FAILED:
+        return JOB_FAILED, str(result.get("reason") or "unknown")
+    return JOB_FAILED, "unrecognized_result"
 
 def _count_indexed_files(db: Any, repo_name: str) -> Optional[int]:
     """כמה קבצים של הריפו נמצאים באינדקס, או ``None`` אם הספירה נכשלה.
@@ -259,15 +309,7 @@ def _sync_worker() -> None:
 
             try:
                 result = _run_sync_from_doc(job, db)
-
-                # עדכון סטטוס - completed
-                _update_job_with_retry(
-                    db,
-                    job_id,
-                    {"$set": {"status": "completed", "completed_at": datetime.utcnow(), "result": result}},
-                )
-
-                logger.info(f"Job {job_id} completed successfully")
+                _finish_job(db, job, result)
 
             except Exception as e:
                 logger.exception(f"Sync job failed: {job_id}")
@@ -288,6 +330,29 @@ def _sync_worker() -> None:
             time.sleep(10)  # backoff on error
 
 
+def _finish_job(db: Any, job: Dict[str, Any], result: Dict[str, Any]) -> str:
+    """כותב לג'וב את הסטטוס הסופי שהתוצאה נותנת (:func:`_job_status_for`), ומחזיר אותו.
+
+    ``result`` נשמר תמיד, גם בכשל — שם ה-``error`` לאדם ופרטי ה-fetch. ``error`` של הג'וב הוא הסיבה הקצרה
+    (``FAIL_*``), כמו ש-``get_job_status`` מחזיר אותה. כשל שנזרק כחריגה עובר במסלול נפרד ב-``_sync_worker``.
+    """
+    job_id = job["_id"]
+    status, error = _job_status_for(result)
+    _update_job_with_retry(
+        db,
+        job_id,
+        # שעה מודעת-אזור (R7). במונגו היא נשמרת כאותו ערך UTC כמו ``utcnow()`` של שאר השדות בקובץ.
+        {"$set": {"status": status, "completed_at": datetime.now(timezone.utc), "result": result, "error": error}},
+    )
+    if status == JOB_FAILED:
+        logger.warning("Sync job %s for %s failed: %s", job_id, job.get("repo_name"), error)
+    elif status == JOB_SKIPPED:
+        logger.info("Sync job %s for %s skipped: %s", job_id, job.get("repo_name"), (result or {}).get("reason"))
+    else:
+        logger.info("Job %s completed successfully", job_id)
+    return status
+
+
 def _run_sync_from_doc(job_doc: Dict[str, Any], db: Any) -> Dict[str, Any]:
     """
     הרצת סנכרון מ-document של MongoDB
@@ -304,10 +369,9 @@ def _run_sync_from_doc(job_doc: Dict[str, Any], db: Any) -> Dict[str, Any]:
 
     repo_name = job_doc["repo_name"]
     new_sha = job_doc["new_sha"]
-    old_sha = job_doc.get("old_sha")
+    webhook_before = job_doc.get("old_sha")
 
-    # המשך הלוגיקה כמו ב-_run_sync המקורי...
-    return _run_sync_logic(git_service, indexer, db, repo_name, new_sha, old_sha)
+    return _run_sync_logic(git_service, indexer, db, repo_name, new_sha, webhook_before)
 
 
 def _run_sync_logic(
@@ -316,26 +380,47 @@ def _run_sync_logic(
     db: Any,
     repo_name: str,
     new_sha: str,
-    old_sha: Optional[str],
+    webhook_before: Optional[str],
 ) -> Dict[str, Any]:
-    """הלוגיקה של הסנכרון - מופרדת לשימוש חוזר"""
+    """הסנכרון של ריפו אחד ל-``new_sha``. מחזיר תוצאה עם ``status`` מפורש (``RESULT_*``), ולא זורק על כשל צפוי.
 
-    # וידוא שה-mirror קיים
+    **הבסיס של ההבדלים הוא ``last_synced_sha`` שבמסד, ולא ``before`` שב-webhook.** ``last_synced_sha`` הוא מה
+    שבאמת נכנס לאינדקס, ולכן סנכרון שמצליח משלים גם את מה שג'ובים שנכשלו לפניו פספסו. עד אוקטובר 2026 הבסיס היה
+    ``before``: push שהסנכרון שלו נכשל השאיר את השינויים שלו מחוץ לאינדקס לתמיד, כי ה-push הבא התחיל מה-SHA
+    שאחריו. וזה גם מה שמונע ניסיון חוזר מסוכן: ג'וב ישן שרץ אחרי חדש יותר מחשב הבדלים מהמצב שבמסד, והסנכרון הבא
+    מחזיר הכול למקום. ``webhook_before`` נשאר רק לשורת לוג, כשהוא שונה מהבסיס.
+
+    הכתיבה של ``last_synced_sha`` מותנית בכך שהוא עדיין הבסיס שהסנכרון התחיל ממנו (CAS). אם סנכרון אחר הזיז אותו
+    בינתיים, התוצאה היא ``FAIL_BASE_MOVED`` — המרוץ עצמו לא נפתר כאן, רק נעשה גלוי.
+    """
+
+    # ``repo_name`` ייחודי ב-``repo_metadata``: האינדקס הייחודי נוצר בעליית שירות ה-MCP (``RepoBackend``, דרך
+    # ``safe_create_index``) וב-``scripts/create_repo_indexes.py``, ולכן ``find_one`` כאן הוא הרשומה ולא נציג.
+    metadata = db.repo_metadata.find_one({"repo_name": repo_name})
+    if metadata is None:
+        return {
+            "status": RESULT_SKIPPED,
+            "reason": SKIP_NOT_TRACKED,
+            "message": "No repo_metadata record; the repo is not tracked here (its GitHub webhook may still be set).",
+        }
+
     if not git_service.mirror_exists(repo_name):
-        return {"error": "Mirror not found. Run initial import first."}
+        return _sync_failure(FAIL_MIRROR_MISSING, "Mirror not found on this service's disk.")
 
-    # Fetch עדכונים
     fetch_result = git_service.fetch_updates(repo_name)
     if not fetch_result["success"]:
-        return {"error": "Fetch failed", "details": fetch_result}
+        return _sync_failure(FAIL_FETCH, "Fetch failed", details=fetch_result)
 
-    # אם אין old_sha, נשלוף מה-DB
-    if not old_sha:
-        metadata = db.repo_metadata.find_one({"repo_name": repo_name})
-        old_sha = metadata.get("last_synced_sha") if metadata else None
-
-    if not old_sha:
-        return {"error": "No previous SHA. Run initial import first."}
+    base_sha = metadata.get("last_synced_sha")
+    if not base_sha:
+        return _sync_failure(FAIL_NO_PREVIOUS_SHA, "No last_synced_sha in repo_metadata. Run initial import first.")
+    old_sha = base_sha
+    if webhook_before and webhook_before != base_sha:
+        # המצב שהבסיס מהמסד נועד לו: push קודם לא סונכרן (או שג'ובים רצו שלא לפי הסדר).
+        logger.info(
+            "Sync %s: the webhook's before (%s) is not the indexed SHA (%s); syncing from the indexed SHA",
+            repo_name, str(webhook_before)[:7], str(base_sha)[:7],
+        )
 
     # אם ה-SHA זהה, אין מה לעדכן
     if old_sha == new_sha:
@@ -364,13 +449,13 @@ def _run_sync_logic(
         # ``total_files`` בלבד. ``/repo/api/repos`` מחזיר את **כל** מסמכי
         # ``repo_metadata`` בלי פילטר, כך שמסמך כזה היה מופיע כריפו רפאים
         # ברשימת הבחירה — בלי כתובת ובלי ענף.
-        return {"status": "up_to_date", "message": "No changes"}
+        return {"status": RESULT_UP_TO_DATE, "message": "No changes"}
 
     # קבלת רשימת שינויים
     changes = git_service.get_changed_files(repo_name, old_sha, new_sha)
 
     if changes is None:
-        return {"error": "Failed to get changed files"}
+        return _sync_failure(FAIL_CHANGES_UNAVAILABLE, "Failed to get changed files")
 
     stats = {"added": 0, "modified": 0, "removed": 0, "renamed": 0, "indexed": 0, "skipped": 0, "errors": 0}
 
@@ -446,16 +531,28 @@ def _run_sync_logic(
     if total_files is not None:
         metadata_updates["total_files"] = total_files
 
-    # עדכון metadata
-    db.repo_metadata.update_one(
-        {"repo_name": repo_name},
+    # עדכון metadata — רק אם ``last_synced_sha`` עדיין הבסיס שהסנכרון התחיל ממנו (CAS), ובלי upsert: הרשומה קיימת
+    # (ממנה נקרא הבסיס), ו-upsert עם ``last_synced_sha`` בפילטר היה יוצר רשומה שנייה לאותו ריפו.
+    update = db.repo_metadata.update_one(
+        {"repo_name": repo_name, "last_synced_sha": old_sha},
         {"$set": metadata_updates},
-        upsert=True,
     )
+    # ``matched_count`` זורק על כתיבה שלא אושרה (w=0) — ולכן ``acknowledged`` נבדק ראשון (pymongo 4.15.3, results.py),
+    # כמו ב-``webapp/drive_auth.py``. ``update_one`` שלא תפס מסמך אינו זורק, ולכן התוצאה נבדקת (K11).
+    if not (getattr(update, "acknowledged", False) and getattr(update, "matched_count", 0) == 1):
+        logger.warning(
+            "Sync %s: last_synced_sha moved from %s while syncing to %s; not recording this sync",
+            repo_name, old_sha[:7], new_sha[:7],
+        )
+        return _sync_failure(
+            FAIL_BASE_MOVED,
+            "last_synced_sha changed during the sync (another sync ran at the same time).",
+            old_sha=old_sha[:7], new_sha=new_sha[:7], stats=stats,
+        )
 
     logger.info(f"Sync completed: {stats}")
 
-    return {"status": "synced", "old_sha": old_sha[:7], "new_sha": new_sha[:7], "stats": stats}
+    return {"status": RESULT_SYNCED, "old_sha": old_sha[:7], "new_sha": new_sha[:7], "stats": stats}
 
 
 def unmirror_repo(repo_name: str, db: Any) -> Dict[str, Any]:
