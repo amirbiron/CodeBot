@@ -25,6 +25,8 @@ Repository Sync Service
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import threading
 import time
 import uuid
@@ -57,6 +59,15 @@ from tenacity import (  # type: ignore
 
 from services.code_indexer import CodeIndexer
 from services.git_mirror_service import get_mirror_service
+from services.repo_mirror_fill import (
+    CLONE_CLONED,
+    CLONE_EXISTS,
+    CLONE_NO_URL,
+    clone_if_missing,
+    read_repo_record,
+    read_repo_records,
+    redact,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +278,220 @@ def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
+# ---- מילוי ה-mirrors החסרים בדיסק, בעלייה ----------------------------------
+#
+# **שירות וובאפ שעולה עם דיסק בלי mirrors משכפל לבד כל ריפו שיש לו רשומה ב-``repo_metadata``**, ולפני שה-worker
+# מתחיל לתפוס ג'ובים. בלי זה, אחרי מעבר לשירות חדש (או דיסק שנמחק), דפדפן הקוד לא מוצא אף ריפו, וכל ג'וב סנכרון
+# נכשל על ``FAIL_MIRROR_MISSING`` עד ייבוא ידני של כל ריפו מחדש. הייבוא הידני (``initial_import``) אינו הדרך:
+# הוא דורס את ``last_synced_sha``, את ``repo_url`` ואת ``default_branch`` מתוך ה-mirror, ומאנדקס הכול מחדש.
+#
+# המילוי רק משכפל: לא כותב למסד, לא מושך mirror שקיים (את זה עושה ה-worker, שגם מאנדקס), ולא מוחק mirror שאין לו
+# רשומה (את ההסרה עושה ``unmirror_repo``, באותו שירות). החלק שמשותף לשירות ה-MCP — הקריאה מה-primary והשכפול —
+# נמצא ב-``services/repo_mirror_fill.py``.
+#
+# **הוא עולה רק בשרת הוובאפ** (``webapp/app.py``, תחת ``_is_webapp_runtime``), כמו מתזמן הגיבויים ושולח הפושים:
+# הבוט מייבא את ``webapp.app``, ואין לו את הדיסק.
+
+#: ה-worker מחכה למילוי עד הזמן הזה, ואז מתחיל בכל מקרה (עם WARNING). ג'וב שמחכה לא מאבד כלום — הוא נשאר
+#: ``pending`` במונגו עד שה-worker תופס אותו. ג'וב שרץ לפני שה-mirror שלו קיים נכשל ב-``FAIL_MIRROR_MISSING``,
+#: והסנכרון המוצלח הבא משלים אותו. שכפול mirror של CodeBot (143MB) לקח 7 שניות בסביבת פיתוח (אוקטובר 2026, לא ב-Render),
+#: ולכל שכפול יש תקרה משלו ב-``init_mirror``. כך שהזמן הזה הוא מעקה לשכפול תקוע, לא הערכה של משך המילוי.
+MIRROR_FILL_WAIT_SECONDS = 30 * 60
+#: כמו ``_STARTUP_DELAY_SECONDS`` ב-``mcp_server/repo_autosync.py``: לתת לשרת לסיים לעלות לפני ה-clone הראשון.
+#: ``scripts/start_webapp.sh`` מתעד ש-Render רגיש לזיכרון בזמן העלייה, ו-``git clone`` הוא תהליך נוסף.
+_MIRROR_FILL_STARTUP_DELAY_SECONDS = 10
+_MIRROR_FILL_LOCK_POLL_SECONDS = 2.0
+#: נעילת ``flock`` שמבטיחה שרק תהליך אחד ממלא, כשיש כמה workers של gunicorn על אותו דיסק. הקרנל משחרר אותה כשהתהליך
+#: יוצא, כך שתהליך שמת לא משאיר נעילה תקועה. ``None``: הקובץ בתיקייה הזמנית, שנקבעת רק כשנועלים — ``gettempdir``
+#: כותב ומוחק קובץ בדיקה בקריאה הראשונה שלו (``tempfile._get_default_tempdir``, Python 3.11), ולא בזמן ייבוא.
+_MIRROR_FILL_LOCK_PATH: Optional[str] = None
+_MIRROR_FILL_LOCK_NAME = "codebot-repo-mirror-fill.lock"
+MIRROR_FILL_THREAD_NAME = "repo-mirror-fill"
+
+_mirror_fill_start_lock = threading.Lock()
+#: ה-``Event`` של המילוי בתהליך הזה, או ``None`` כשלא הותחל מילוי — ואז ה-worker לא מחכה (בוט, סקריפטים, טסטים).
+#: נדלק בסוף המילוי, בכל דרך שבה הוא נגמר.
+_mirror_fill_done: Optional[threading.Event] = None
+
+
+def mirror_fill_enabled() -> bool:
+    """``WEBAPP_REPO_AUTOFILL``: ``0``/``false``/``no``/``off`` מכבה, וכל ערך אחר (או היעדרו) משאיר פעיל."""
+    return os.getenv("WEBAPP_REPO_AUTOFILL", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def fill_missing_mirrors(db: Any, mirror: Any) -> Dict[str, int]:
+    """משכפל לדיסק כל ריפו שיש לו רשומה ב-``repo_metadata`` ואין לו mirror. לא כותב למסד.
+
+    **הרשומה נקראת שוב, מה-primary, לפני השכפול ואחריו.** הרשימה נקראת פעם אחת בתחילת המעבר, ושכפול לוקח זמן,
+    כך שריפו יכול להיות מוסר באמצע (``unmirror_repo``). הקריאה שלפני השכפול חוסכת שכפול של ריפו שכבר הוסר, ונותנת
+    את ה-``repo_url`` העדכני. הקריאה שאחריו היא מה שמונע עותק יתום: ``unmirror_repo`` מוחק קודם את ה-mirror ואז את
+    הרשומות, וכשהוא רץ בזמן השכפול הוא לא מוצא mirror למחוק — ואחר כך השכפול מסתיים. אין בוובאפ שלב שמוחק mirror
+    שאין לו רשומה, ולכן mirror כזה נמחק כאן, דרך ``delete_mirror``, ונספר רק אחרי ש-``mirror_exists`` מראה שהוא איננו.
+
+    כשל בקריאת הרשימה עולה לקורא. כשל בריפו אחד נספר ב-``errors``, נרשם, והמעבר ממשיך לבאים.
+    """
+    stats = {"checked": 0, "existed": 0, "cloned": 0, "no_url": 0, "removed": 0, "discarded": 0, "errors": 0}
+    for meta in read_repo_records(db):
+        name = str(meta.get("repo_name") or "").strip()
+        if not name:
+            continue
+        stats["checked"] += 1
+        try:
+            if mirror.mirror_exists(name):
+                stats["existed"] += 1
+                continue
+            current = read_repo_record(db, name)
+            if current is None:
+                stats["removed"] += 1
+                continue
+            outcome = clone_if_missing(name, str(current.get("repo_url") or "").strip(), mirror)
+            if outcome.status == CLONE_EXISTS:
+                stats["existed"] += 1
+            elif outcome.status == CLONE_NO_URL:
+                stats["no_url"] += 1
+                logger.warning("repo mirror fill: %s has no repo_url in repo_metadata; not cloned", name)
+            elif outcome.status != CLONE_CLONED:
+                stats["errors"] += 1
+                logger.warning("repo mirror fill: clone failed for %s: %s", name, outcome.message)
+            elif read_repo_record(db, name) is not None:
+                stats["cloned"] += 1
+            else:
+                _discard_clone_of_removed_repo(name, mirror, stats)
+        except Exception:
+            stats["errors"] += 1
+            logger.warning("repo mirror fill: %s failed", name, exc_info=True)
+    return stats
+
+
+def _discard_clone_of_removed_repo(name: str, mirror: Any, stats: Dict[str, int]) -> None:
+    res = mirror.delete_mirror(name) or {}
+    # המצב, לא הדיווח: נספר כמחוק רק כשהתיקייה באמת איננה (K11).
+    if res.get("success") and not mirror.mirror_exists(name):
+        stats["discarded"] += 1
+        logger.info("repo mirror fill: %s was removed while it was being cloned; the clone was deleted", name)
+        return
+    stats["errors"] += 1
+    if res.get("success"):
+        logger.warning(
+            "repo mirror fill: %s was removed while it was being cloned; delete_mirror reported the clone deleted, "
+            "but it is still on disk",
+            name,
+        )
+        return
+    logger.warning(
+        "repo mirror fill: %s was removed while it was being cloned, and deleting the clone failed: %s",
+        name,
+        redact(res.get("message")),
+    )
+
+
+def _acquire_mirror_fill_lock(deadline: float) -> Tuple[bool, Any]:
+    """``(להמשיך?, הקובץ שמחזיק את הנעילה)``. הקורא סוגר את הקובץ — וזה מה שמשחרר את הנעילה.
+
+    תהליך שהנעילה תפוסה אצל תהליך אחר מחכה לו, ולא מדלג: ה-worker שלו מחכה ל-``Event`` של התהליך הזה, ו-``Event``
+    שנדלק לפני שהתהליך השני סיים היה משחרר אותו מוקדם מדי. אחרי שהנעילה מתקבלת המילוי רץ גם כאן, ומוצא את הכול
+    קיים. ההמתנה תחומה ב-``deadline``, ואחריו התהליך מוותר (``False``).
+
+    בלי ``fcntl`` (לא Unix), או כשאי אפשר לפתוח את קובץ הנעילה, ממשיכים בלי נעילה ורושמים את זה: עם worker אחד אין
+    לנעילה תפקיד, ועם כמה — השורה בלוג היא מה שמסביר שכפול כפול.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        logger.info("repo mirror fill: fcntl is not available; filling without the cross-process lock")
+        return True, None
+    path = _MIRROR_FILL_LOCK_PATH or os.path.join(tempfile.gettempdir(), _MIRROR_FILL_LOCK_NAME)
+    try:
+        fh = open(path, "a+")
+    except OSError:
+        logger.warning("repo mirror fill: cannot open %s; filling without the cross-process lock", path, exc_info=True)
+        return True, None
+    while True:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True, fh
+        except BlockingIOError:
+            # נעילה שתפוסה אצל אחר. נמדד ב-Python 3.11 וב-3.13 על Linux: ``BlockingIOError`` עם ``EAGAIN``.
+            # כל ``OSError`` אחר אינו "תפוס", ועולה לקורא.
+            if time.monotonic() >= deadline:
+                fh.close()
+                logger.warning(
+                    "repo mirror fill: another process has been filling for %ss; this process stops waiting for it",
+                    MIRROR_FILL_WAIT_SECONDS,
+                )
+                return False, None
+            time.sleep(_MIRROR_FILL_LOCK_POLL_SECONDS)
+        except BaseException:
+            fh.close()
+            raise
+
+
+def _run_mirror_fill(done: threading.Event) -> None:
+    try:
+        time.sleep(_MIRROR_FILL_STARTUP_DELAY_SECONDS)
+        proceed, lock_fh = _acquire_mirror_fill_lock(time.monotonic() + MIRROR_FILL_WAIT_SECONDS)
+        try:
+            if proceed:
+                from database.db_manager import get_db
+
+                started = time.monotonic()
+                stats = fill_missing_mirrors(get_db(), get_mirror_service())
+                log = logger.warning if stats["errors"] else logger.info
+                log("repo mirror fill finished in %.1fs: %s", time.monotonic() - started, stats)
+        finally:
+            if lock_fh is not None:
+                lock_fh.close()
+    except Exception:
+        logger.exception(
+            "repo mirror fill failed; a mirror missing from this disk stays missing until the next restart, "
+            "or until the repo is imported again"
+        )
+    finally:
+        done.set()
+
+
+def start_mirror_fill() -> bool:
+    """מרים את חוט המילוי (פעם אחת לתהליך). ``True`` כשהוא רץ או רץ קודם, ``False`` כשהוא כבוי.
+
+    ה-``Event`` מתפרסם **לפני** שהחוט עולה, כך ש-worker שמתחיל באותו רגע מחכה לו. כשהעלאת החוט נכשלת, ה-``Event``
+    נדלק (מי שכבר מחכה לו משתחרר), הפרסום מתבטל (קריאה הבאה תנסה שוב), והחריגה עולה לקורא, שרושם אותה.
+    """
+    global _mirror_fill_done
+    if not mirror_fill_enabled():
+        logger.info("repo mirror fill disabled via WEBAPP_REPO_AUTOFILL")
+        return False
+    with _mirror_fill_start_lock:
+        if _mirror_fill_done is not None:
+            return True
+        done = threading.Event()
+        _mirror_fill_done = done
+        try:
+            threading.Thread(target=_run_mirror_fill, args=(done,), name=MIRROR_FILL_THREAD_NAME, daemon=True).start()
+        except BaseException:
+            done.set()
+            _mirror_fill_done = None
+            raise
+    logger.info("repo mirror fill started (pid=%s)", os.getpid())
+    return True
+
+
+def _wait_for_mirror_fill() -> None:
+    """ה-worker לא תופס ג'וב לפני שהמילוי בתהליך הזה הסתיים — עד ``MIRROR_FILL_WAIT_SECONDS``."""
+    done = _mirror_fill_done
+    if done is None or done.is_set():
+        return
+    logger.info("Sync worker waits for the repo mirror fill (up to %ss) before claiming jobs", MIRROR_FILL_WAIT_SECONDS)
+    if done.wait(MIRROR_FILL_WAIT_SECONDS):
+        logger.info("Repo mirror fill is done; the sync worker starts claiming jobs")
+        return
+    logger.warning(
+        "Repo mirror fill is still running after %ss; the sync worker starts claiming jobs anyway, "
+        "and a job for a repo whose mirror is not on disk yet fails as %s",
+        MIRROR_FILL_WAIT_SECONDS,
+        FAIL_MIRROR_MISSING,
+    )
+
+
 def _ensure_worker_started() -> None:
     """הפעלת worker thread אם לא פעיל (per process)"""
     global _worker_started
@@ -289,6 +514,7 @@ def _sync_worker() -> None:
     """
     from database.db_manager import get_db
 
+    _wait_for_mirror_fill()
     logger.info("Sync worker polling MongoDB...")
 
     while True:

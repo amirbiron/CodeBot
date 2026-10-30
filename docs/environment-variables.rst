@@ -227,6 +227,12 @@
      - ``/var/data/repos``
      - ``/var/data/repos``
      - MCP/WebApp
+   * - ``WEBAPP_REPO_AUTOFILL``
+     - מילוי ה-mirrors החסרים בדיסק של הוובאפ בעלייה: כל ריפו שיש לו רשומה ב-``repo_metadata`` ואין לו mirror משוכפל, בלי כתיבה למסד, וה-worker של הסנכרון מחכה למילוי לפני שהוא תופס ג'ובים (ראו :ref:`code-browser-mirror-fill`). ``0`` מכבה.
+     - לא
+     - ``1`` (פעיל)
+     - ``0``
+     - WebApp
    * - ``REPO_NAME``
      - שם ריפו לוגי לשימוש ב-Repo Sync (מפתח ל-mirror בדיסק ול-metadata ב-DB)
      - לא

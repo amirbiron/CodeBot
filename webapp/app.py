@@ -1145,6 +1145,17 @@ try:
 except Exception:
     pass
 
+# מילוי ה-mirrors החסרים בדיסק (``start_mirror_fill`` ב-``services/repo_sync_service.py``): רק בשרת הוובאפ, שהדיסק
+# שלו. ה-worker של הסנכרון מחכה לו לפני שהוא תופס ג'ובים. כשל בהרמה לא מפיל את העלייה, אבל נרשם — בלעדיו ריפו
+# שחסר בדיסק נשאר חסר בלי שום סימן.
+if _is_webapp_runtime():
+    try:
+        from services.repo_sync_service import start_mirror_fill  # noqa: E402
+
+        start_mirror_fill()
+    except Exception:
+        logger.warning("Failed to start the repo mirror fill", exc_info=True)
+
 
 # --- Observability: Alert Tags indexes warmup (best-effort) ---
 def start_background_alert_tags_indexes() -> None:

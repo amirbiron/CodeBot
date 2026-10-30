@@ -2029,6 +2029,16 @@ class ConfigService:
             description="נתיב בסיסי בדיסק לשמירת Bare Mirror של הריפו (Repo Sync Engine).",
             category="repo_sync",
         ),
+        "WEBAPP_REPO_AUTOFILL": ConfigDefinition(
+            key="WEBAPP_REPO_AUTOFILL",
+            services=("webapp",),
+            default="1",
+            description=(
+                "מילוי ה-mirrors החסרים בדיסק של הוובאפ בעלייה: משכפל כל ריפו שיש לו רשומה ב-repo_metadata ואין לו "
+                "mirror, בלי לכתוב למסד, וה-worker של הסנכרון מחכה לו לפני שהוא תופס ג'ובים. 0 מכבה."
+            ),
+            category="repo_sync",
+        ),
         "GITHUB_WEBHOOK_SECRET": ConfigDefinition(
             key="GITHUB_WEBHOOK_SECRET",
             services=("webapp", "bot"),
