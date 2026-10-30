@@ -7,6 +7,10 @@
 
 **ומה הוא לא עושה.** זה אינו פרסור CSS מלא. ``@media`` ודומיו נבלעים: הכלל הפנימי נמצא כמו כל
 כלל, בלי התנאי שלו. מי שההחלטה שלו תלויה בתנאי צריך לבדוק אותו בעצמו.
+
+**ובסוף הקובץ — כלל של רכיב מול כללי הערכה.** קבצי הערכות צובעים אלמנטים כאלמנט (``a``,
+``button``), וכמה שומרים מוודאים שהכלל של הרכיב גובר עליהם בחשיבות ובספציפיות. הפירוק של הבורר,
+השקילה ורשימת קבצי הערכות היו מועתקים בכל שומר כזה, ועותק שלישי היה נסחף מהשניים הראשונים.
 """
 from __future__ import annotations
 
@@ -88,3 +92,89 @@ def specificity(selector: str) -> tuple[int, int, int]:
     pseudo_classes = len(re.findall(r":[\w-]+", s))
     types = len(re.findall(r"(?:^|[\s>+~])[a-zA-Z][\w-]*", s))
     return (ids, classes + attributes + pseudo_classes, types + pseudo_elements)
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+_CSS_DIR = REPO_ROOT / "webapp/static/css"
+#: הקבצים שמחזיקים את כללי הערכה הגורפים — אלה שחלים על כל העמוד, ולכן על כל רכיב שמרונדר בו.
+#: כלל של רכיב שמכוון לאלמנט תחת מיכל משלו (``.markdown-preview-content a``) אינו בהם.
+THEME_CSS = (_CSS_DIR / "dark-mode.css", _CSS_DIR / "high-contrast.css")
+
+#: פסאודו-מחלקות של מצב. כלל שנושא אחת מהן חל רק כשהאלמנט באותו מצב.
+STATE_PSEUDO_CLASSES = frozenset(
+    {"hover", "focus", "focus-visible", "focus-within", "active", "visited", "link", "any-link"}
+)
+IMPORTANT = re.compile(r"!\s*important\s*$")
+
+
+def compounds(selector: str) -> list[str]:
+    """הבורר מפוצל לבוררים מורכבים, לפי רווחים וצירופים שמחוץ לסוגריים."""
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for ch in selector:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        if depth == 0 and (ch.isspace() or ch in ">+~"):
+            if current:
+                parts.append("".join(current))
+                current = []
+            continue
+        current.append(ch)
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
+def subject_of(selector: str) -> str:
+    """הבורר המורכב האחרון — זה שמתאר את האלמנט שהכלל צובע."""
+    return compounds(selector)[-1]
+
+
+def _bare(compound: str) -> str:
+    # ערך של מאפיין יכול להכיל ``.`` ו-``:`` שאינם מחלקה ואינם פסאודו-מחלקה.
+    return re.sub(r"\[[^\]]*\]", "", compound)
+
+
+def state_of(compound: str) -> frozenset[str]:
+    """פסאודו-מחלקות המצב שהבורר המורכב דורש."""
+    return frozenset(
+        n for n in re.findall(r"(?<!:):([\w-]+)", _bare(compound)) if n in STATE_PSEUDO_CLASSES
+    )
+
+
+def classes_of(compound: str) -> set[str]:
+    """המחלקות שהבורר המורכב דורש, כולל בתוך ``:where()``."""
+    return set(re.findall(r"\.([\w-]+)", _bare(compound)))
+
+
+def theme_rules_on(element: str, own_classes=frozenset()) -> list[tuple[str, str, dict[str, str]]]:
+    """``(קובץ, בורר, הצהרות)`` לכל כלל ב-``THEME_CSS`` שהנושא שלו ``element`` ושחל גם על אלמנט
+    שהמחלקות שלו הן ``own_classes``.
+
+    כלל שדורש מחלקה אחרת — כמו וו הכפתורים ``a:where(.btn-primary)`` — אינו חל עליו.
+    """
+    out = []
+    for path in THEME_CSS:
+        for selector, decls in css_rules(path.read_text(encoding="utf-8")):
+            subject = subject_of(selector)
+            if not re.match(rf"{re.escape(element)}(?![\w-])", subject):
+                continue
+            if classes_of(subject) - set(own_classes):
+                continue
+            out.append((path.name, selector, decls))
+    return out
+
+
+def weight(selector: str, value: str) -> tuple[bool, tuple[int, int, int]]:
+    """מה שמכריע בין שתי הצהרות מאותו מקור ובלי שכבות: חשיבות, ואחריה ספציפיות."""
+    return (bool(IMPORTANT.search(value)), specificity(selector))
+
+
+def beats(ours, rival) -> bool:
+    """ניצחון **ממש**: בשוויון מכריע סדר הטעינה, והוא שונה בין המשטחים."""
+    if ours[0] != rival[0]:
+        return ours[0]
+    return ours[1] > rival[1]
