@@ -2,7 +2,7 @@
 
 **המקום לשמור את הקוד, את מסמכי התיעוד ואת הרעיונות שלך, ולתת לסוכן ה-AI שלך לעבוד איתם.**
 
-🌐 [לוובאפ](https://code-keeper-webapp.onrender.com) · 🤖 [לבוט בטלגרם](https://t.me/my_code_keeper_bot) · 📚 [לאתר התיעוד](https://amirbiron.github.io/CodeBot/)
+🌐 [לוובאפ](https://codekeeper-webapp.onrender.com) · 🤖 [לבוט בטלגרם](https://t.me/my_code_keeper_bot) · 📚 [לאתר התיעוד](https://amirbiron.github.io/CodeBot/)
 
 ---
 
