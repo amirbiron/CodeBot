@@ -2581,7 +2581,7 @@
      - רשימת Host מותרים לשרת ה-MCP (CSV; תומך wildcard כמו ``*.onrender.com``). ריק = הגנת DNS-rebinding כבויה (מתאים לשרת ציבורי מוגן-טוקן).
      - לא
      - "" (כבוי)
-     - ``codekeeper-mcp.onrender.com``
+     - ``codekeepermcp.onrender.com``
      - MCP
    * - ``MCP_ALLOWED_ORIGINS``
      - רשימת Origin מותרים לשרת ה-MCP (CSV). רלוונטי רק כשמפעילים הגנה דרך ``MCP_ALLOWED_HOSTS``.

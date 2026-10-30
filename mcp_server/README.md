@@ -302,7 +302,7 @@ Health check:   /healthz
 - `MCP_SERVER_NAME` — אופציונלי.
 
 **מצב OAuth (מוסיף תמיכה ב‑Claude.ai)** — נדלק אוטומטית כשמוגדרים גם:
-- `MCP_SERVER_URL` = ה‑URL הציבורי (**https**) של שירות ה‑MCP (למשל `https://codekeeper-mcp.onrender.com`).
+- `MCP_SERVER_URL` = ה‑URL הציבורי (**https**) של שירות ה‑MCP (למשל `https://codekeepermcp.onrender.com`).
 - `WEBAPP_URL` = ה‑URL הציבורי של הוובאפ (למסך התחברות הטלגרם).
 - `SECRET_KEY` = **אותו ערך כמו הוובאפ** (חותם/מאמת את זהות המשתמש בין השירותים).
 
