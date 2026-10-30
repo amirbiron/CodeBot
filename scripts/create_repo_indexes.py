@@ -2,11 +2,11 @@ from database.db_manager import get_db
 
 db = get_db()
 
-# sync_jobs - לחיפוש pending jobs
-db.sync_jobs.create_index([("status", 1), ("created_at", 1)])
+# sync_jobs - התפיסה, ה-TTL של expire_at, וג'וב רץ אחד לכל ריפו. ההגדרות חיות ב-ensure_sync_jobs_indexes, שה-worker
+# של הסנכרון מריץ בעצמו לפני התפיסה הראשונה; כאן קוראים לאותה פונקציה, כדי שלא יהיו שתי הגדרות שנסחפות.
+from services.repo_sync_service import ensure_sync_jobs_indexes  # noqa: E402
 
-# sync_jobs - TTL index למחיקה אוטומטית
-db.sync_jobs.create_index("expire_at", expireAfterSeconds=0)
+print("sync_jobs indexes:", ensure_sync_jobs_indexes(db))
 
 # repo_files - לחיפוש לפי path
 db.repo_files.create_index([("repo_name", 1), ("path", 1)], unique=True)

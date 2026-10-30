@@ -1145,6 +1145,18 @@ try:
 except Exception:
     pass
 
+# החוטים של הריפואים (``start_webapp_repo_threads`` ב-``services/repo_sync_service.py``): מילוי ה-mirrors החסרים
+# בדיסק, ואחריו ה-worker של הסנכרון, שמחכה למילוי לפני שהוא תופס ג'ובים. רק בשרת הוובאפ, שהדיסק שלו. ה-worker עולה
+# כאן ולא רק כשמגיע webhook, כדי שג'ובים ממתינים ייתפסו גם בשירות שה-webhooks לא מגיעים אליו. כשל לא מפיל את
+# העלייה, אבל נרשם — בלעדיו ריפו שחסר בדיסק נשאר חסר בלי שום סימן.
+if _is_webapp_runtime():
+    try:
+        from services.repo_sync_service import start_webapp_repo_threads  # noqa: E402
+
+        start_webapp_repo_threads()
+    except Exception:
+        logger.warning("Failed to start the repo mirror fill and the sync worker", exc_info=True)
+
 
 # --- Observability: Alert Tags indexes warmup (best-effort) ---
 def start_background_alert_tags_indexes() -> None:

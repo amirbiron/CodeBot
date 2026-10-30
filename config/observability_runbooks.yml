@@ -385,6 +385,18 @@ runbooks:
           type: link
           href: "/admin/docs-index"
           safety: safe
+  # ההתראה ש-services/repo_sync_service.py שולח כשמילוי ה-mirrors בעליית הוובאפ נכשל בניסיון השני וממשיך לנסות
+  # (ALERT_MIRROR_FILL_FAILING ו-MIRROR_FILL_ALERT_ATTEMPT שם). אין לה פעולה בעמוד: הצעדים הם בדיקה לפי reason.
+  repo_mirror_fill_failing:
+    title: "מילוי ה-mirrors בוובאפ נכשל"
+    description: "הוובאפ עלה ובדיסק שלו חסרים mirrors, והמילוי נכשל פעמיים. הוא ממשיך לנסות לבד, עם המתנה שגדלה. עד שיצליח, ריפו שחסר לא מופיע בדפדפן הקוד, וסנכרון שלו נכשל עם mirror_missing."
+    steps:
+      - id: check_reason
+        title: "בדוק את ה-reason בהתראה"
+        description: "db_unavailable או read_failed: אין חיבור למונגו מהוובאפ. repos_failed: השכפול מ-GitHub נכשל, ובלוג של הוובאפ יש לכל ריפו שורת clone failed עם הסיבה; בדוק שהריפו קיים ושה-GITHUB_TOKEN או GITHUB_TOKENS של השירות בתוקף. lock_busy: תהליך אחר עדיין ממלא את הדיסק."
+      - id: after_last_attempt
+        title: "אם גם הניסיון האחרון נכשל"
+        description: "בלוג של הוובאפ תופיע השורה repo mirror fill gave up. ריפו שעדיין חסר יחזור בהפעלה מחדש של הוובאפ, או בייבוא מחדש שלו."
   generic_incident_flow:
     title: "פלייבוק כללי להתראות"
     description: "Fallback בסיסי המתאים לכל alert_type ללא Runbook ייעודי."
