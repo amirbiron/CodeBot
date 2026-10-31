@@ -77,10 +77,20 @@ check('waitFor מחזיר את הערך כשהוא מופיע', async () => {
   eq(calls, 3, 'מספר הבדיקות');
 });
 
-check('waitFor מחזיר null כשהזמן עבר, וחריגה נחשבת "עוד לא"', async () => {
+check('waitFor מחזיר null כשהזמן עבר', async () => {
   const { utils } = load();
-  const value = await utils.waitFor(() => { throw new Error('not yet'); }, { timeoutMs: 30, intervalMs: 5 });
+  const value = await utils.waitFor(() => undefined, { timeoutMs: 30, intervalMs: 5 });
   eq(value, null);
+});
+
+check('waitFor — חריגה מ-fn היא באג ועולה, ולא נבלעת כ"עוד לא"', async () => {
+  // R10: עד המעבר לקובץ המשותף היא נבלעה, ובאג ב-fn נראה כמו "לא נטען בזמן".
+  const { utils } = load();
+  let error = null;
+  try {
+    await utils.waitFor(() => { throw new TypeError('bug'); }, { timeoutMs: 30, intervalMs: 5 });
+  } catch (e) { error = e; }
+  ok(error && error.message === 'bug', 'החריגה לא עלתה');
 });
 
 check('debounce קורא פעם אחת, עם הארגומנטים האחרונים', async () => {
@@ -114,6 +124,18 @@ check('getEditorContent קורא מ-CodeMirror כשהוא קיים, ואחרת �
   eq(utils.getEditorContent(textarea), 'from-textarea');
   sandbox.window.editorManager = { cmInstance: { state: { doc: { toString: () => 'from-cm' } } }, textarea };
   eq(utils.getEditorContent(textarea), 'from-cm');
+});
+
+check('setEditorContent — כשל של CodeMirror עולה, וה-textarea לא משתנה לבד', () => {
+  // עד המעבר לכאן הכשל נבלע וה-textarea התעדכן, כלומר העורך והטיוטה הציגו טקסטים שונים.
+  const textarea = { value: 'old', dispatchEvent: () => {} };
+  const view = { state: { doc: { length: 3 } }, dispatch: () => { throw new Error('cm broke'); } };
+  const { utils, sandbox } = load();
+  sandbox.window.editorManager = { cmInstance: view, textarea };
+  let error = null;
+  try { utils.setEditorContent('new', textarea); } catch (e) { error = e; }
+  ok(error && error.message === 'cm broke', 'החריגה לא עלתה');
+  eq(textarea.value, 'old', 'ה-textarea');
 });
 
 check('setEditorContent מחליף את כל התוכן ומודיע ב-input', () => {

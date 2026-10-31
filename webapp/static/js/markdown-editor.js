@@ -48,21 +48,25 @@
     try {
       raw = localStorage.getItem(STORAGE_KEY);
     } catch (err) {
+      // כשל של האחסון עצמו (חסום, או נחסם אחרי הבדיקה בטעינה): אין ממה לשחזר.
       console.warn('[markdown-editor] failed to read the draft', err);
       return null;
     }
     if (!raw) return null;
+    let parsed = null;
     try {
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object' || typeof parsed.code !== 'string') {
-        console.warn('[markdown-editor] ignoring a draft in an unknown shape');
-        return null;
-      }
-      return { code: parsed.code };
+      parsed = JSON.parse(raw);
     } catch (err) {
+      // רק JSON פגום הוא "אין טיוטה". כל חריגה אחרת היא באג, ועולה.
+      if (!(err instanceof SyntaxError)) throw err;
       console.warn('[markdown-editor] ignoring an unreadable draft', err);
       return null;
     }
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.code !== 'string') {
+      console.warn('[markdown-editor] ignoring a draft in an unknown shape');
+      return null;
+    }
+    return { code: parsed.code };
   }
 
   // מה שמיוצג עכשיו באחסון: הטקסט של הטיוטה, או ההדגמה כשאין טיוטה.
@@ -72,22 +76,22 @@
     if (!canStore) return;
     const code = getEditorContent(textarea);
     if (code === persisted) return;
+    const savedAt = code === demoText ? null : Date.now();
+    // ה-try עוטף רק את הפעולה על האחסון: כשל שלה (בעיקר מכסה מלאה) הוא "השמירה נכשלה". הטקסט עדיין
+    // בעורך; רק השמירה לביקור הבא נכשלה.
     try {
-      if (code === demoText) {
+      if (savedAt === null) {
         localStorage.removeItem(STORAGE_KEY);
-        persisted = code;
-        setStatus('');
-        return;
+      } else {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ code, savedAt }));
       }
-      const savedAt = Date.now();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ code, savedAt }));
-      persisted = code;
-      setStatus(`הטיוטה נשמרה בדפדפן ב-${formatTime(savedAt)}`);
     } catch (err) {
-      // בעיקר מכסת אחסון מלאה. הטקסט עדיין בעורך; רק השמירה לביקור הבא נכשלה.
       console.warn('[markdown-editor] failed to save the draft', err);
       setStatus('לא הצלחתי לשמור את הטיוטה בדפדפן. כדי לא לאבד את הטקסט, הורידו אותו כקובץ.');
+      return;
     }
+    persisted = code;
+    setStatus(savedAt === null ? '' : `הטיוטה נשמרה בדפדפן ב-${formatTime(savedAt)}`);
   }
 
   // שחזור — עכשיו, לפני DOMContentLoaded (ראו בראש הקובץ).

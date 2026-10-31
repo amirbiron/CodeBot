@@ -18,18 +18,19 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  /** מחכה עד ש-``fn()`` מחזיר ערך אמיתי, ומחזיר אותו; ``null`` אם עבר ``timeoutMs``. */
+  /**
+   * מחכה עד ש-``fn()`` מחזיר ערך אמיתי, ומחזיר אותו; ``null`` אם עבר ``timeoutMs``.
+   *
+   * "עוד לא" הוא ערך ריק, לא חריגה. חריגה מ-``fn`` היא באג, והיא עולה הלאה: עד המעבר לכאן היא נבלעה,
+   * וכך באג ב-``fn`` נראה בדיוק כמו "לא נטען בזמן" — העורך פשוט לא עלה, בלי שום שגיאה
+   * (``RECURRING-PATTERNS.md`` R10 ב-amir-bug-patterns). הצרכנים מעבירים קריאה של שדה ב-``window``.
+   */
   async function waitFor(fn, { timeoutMs = 2500, intervalMs = 100 } = {}) {
     const started = Date.now();
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      try {
-        const value = fn();
-        if (value) return value;
-      } catch (_) {
-        // fn בודק אם משהו כבר נטען (למשל window.editorManager). חריגה כאן פירושה "עוד לא",
-        // בדיוק כמו ערך ריק, ולכן ממשיכים לחכות עד הזמן הקצוב.
-      }
+      const value = fn();
+      if (value) return value;
       if (Date.now() - started > timeoutMs) return null;
       // eslint-disable-next-line no-await-in-loop
       await sleep(intervalMs);
@@ -56,43 +57,46 @@
     }
   }
 
-  /** התוכן שבעורך: מ-CodeMirror אם הוא עלה, אחרת מה-textarea. */
+  /**
+   * התוכן שבעורך: מ-CodeMirror אם הוא עלה, אחרת מה-textarea. כשהעורך עובר לעורך הפשוט, ``EditorManager``
+   * מעתיק את התוכן ל-textarea ומאפס את ``cmInstance``, ולכן התנאי כאן מספיק ואין ``catch``: חריגה בקריאה
+   * היא באג, ולא סיבה לקרוא תוכן אחר בשקט.
+   */
   function getEditorContent(fallbackTextarea) {
-    try {
-      if (window.editorManager && window.editorManager.cmInstance && window.editorManager.cmInstance.state) {
-        return window.editorManager.cmInstance.state.doc.toString();
-      }
-    } catch (_) {
-      // מופע CodeMirror שנהרס באמצע: ה-textarea שלמטה מחזיק את אותו תוכן.
+    if (window.editorManager && window.editorManager.cmInstance && window.editorManager.cmInstance.state) {
+      return window.editorManager.cmInstance.state.doc.toString();
     }
     const target = (window.editorManager && window.editorManager.textarea) || fallbackTextarea;
     return (target && target.value) || '';
   }
 
-  /** מחליף את כל התוכן שבעורך, ומודיע עליו ב-``input`` כדי שהתצוגה החיה והטיוטה יתעדכנו. */
+  /**
+   * מחליף את כל התוכן שבעורך, ומודיע עליו ב-``input`` כדי שהתצוגה החיה והטיוטה יתעדכנו.
+   *
+   * בלי ``catch`` סביב CodeMirror: עד המעבר לכאן כשל שם נבלע, וה-textarea התעדכן לבד — כלומר העורך
+   * הציג טקסט אחד, ו-``getEditorContent`` (שקורא מ-CodeMirror) החזיר אותו טקסט ישן לטיוטה. עכשיו החריגה
+   * עולה לפני שמשהו השתנה.
+   */
   function setEditorContent(nextValue, fallbackTextarea) {
     const value = typeof nextValue === 'string' ? nextValue : '';
-    try {
-      if (window.editorManager && window.editorManager.cmInstance && window.editorManager.cmInstance.state) {
-        const view = window.editorManager.cmInstance;
-        const length = view.state.doc.length;
-        view.dispatch({ changes: { from: 0, to: length, insert: value } });
-      }
-    } catch (_) {
-      // אם CodeMirror לא קיבל את השינוי, ה-textarea שלמטה עדיין מתעדכן, וממנו התוכן נקרא.
+    if (window.editorManager && window.editorManager.cmInstance && window.editorManager.cmInstance.state) {
+      const view = window.editorManager.cmInstance;
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
     }
     const target = (window.editorManager && window.editorManager.textarea) || fallbackTextarea;
     if (target) {
       target.value = value;
-      try {
-        target.dispatchEvent(new Event('input', { bubbles: true }));
-      } catch (_) {
-        // דפדפן ישן בלי בנאי Event: התוכן כבר הוחלף, רק ההודעה למאזינים לא יצאה.
-      }
+      target.dispatchEvent(new Event('input', { bubbles: true }));
     }
   }
 
-  /** האם אפשר לכתוב ל-localStorage. בגלישה פרטית או כשהאתר חסום לאחסון, הכתיבה זורקת. */
+  /**
+   * האם אפשר לכתוב ל-localStorage.
+   *
+   * ה-``catch`` רחב בכוונה: המצב "אין אחסון" מוצהר לכל כשל של האחסון עצמו — חסימה, מכסה מלאה, או
+   * דפדפן שלא מספק אותו — והחריגה משתנה בין הסיבות. בתוך ה-``try`` אין דבר מלבד הפעולות על האחסון,
+   * ולכן באג אחר לא יכול לקבל כאן את התווית "אין אחסון".
+   */
   function storageAvailable() {
     try {
       const testKey = '__editorPageUtilsTest__';
