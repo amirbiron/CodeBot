@@ -22,7 +22,7 @@
     ??????????: --primary #667eea | --secondary #764ba2
   </text>
   <text x="40" y="140" fill="rgba(255,255,255,0.8)" font-size="16" font-family="Heebo, 'Segoe UI', sans-serif">
-    Markdown Preview ???? ??? ????? --md-surface #15141f
+    Markdown Preview + Live Preview: --md-paper-bg #ffffff
   </text>
 
   <g transform="translate(40,170)">

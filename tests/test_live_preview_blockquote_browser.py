@@ -80,10 +80,9 @@ THEMES = ["classic", "dark", "ocean", "forest", "rose-pine-dawn", "high-contrast
 #: כדי ש-``test_the_custom_page_runs_on_the_injected_theme`` יוכל להבחין בין
 #: ערכה שהוזרקה לבין נפילה לערכי ה-fallback.
 #:
-#: **ערכה כהה ולא בהירה, בכוונה.** בערכה בהירה מיובאת התצוגה החיה כולה אינה
-#: קריאה עוד לפני התיקון הזה: ``FALLBACK_LIGHT`` קובע ``--split-preview-bg`` כהה
-#: ("נשאר כהה גם בתמה בהירה"), ובלוק ה-custom ב-``split-view.css`` לוקח את
-#: הטקסט מ-``--text-primary`` הכהה של הערכה. זה פגם נפרד, מחוץ ל-PR הזה.
+#: ערכה מיובאת **בהירה** נבדקת ב-``tests/test_live_preview_paper_browser.py``, שמשווה את
+#: התצוגה החיה לתצוגת המסמך בכל ערכה. עד שהתצוגה החיה קיבלה את הנייר של המסמך, ערכה כזו
+#: לא הייתה קריאה בה: ``--split-preview-bg`` כהה מ-``FALLBACK_LIGHT`` מתחת לטקסט הכהה של הערכה.
 #:
 #: **ועם ``tokenColors``, בשביל בלוק הקוד.** מהם נבנה ה-``syntax_css`` של הערכה, ובו
 #: ``:root[data-theme-type="custom"] .hljs`` עם הרקע של העורך ב-``!important``. בלי
@@ -289,11 +288,16 @@ MEASURE_JS = """() => {
 }"""
 
 
-def _measure_pages(chromium_executable, pages: dict[str, str], markdown: str, measure_js: str) -> dict[str, dict]:
+def _measure_pages(
+    chromium_executable, pages: dict[str, str], markdown: str | None, measure_js: str
+) -> dict[str, dict]:
     """טוען כל עמוד, מקליד את ה-Markdown, מפעיל את התצוגה החיה בכפתור, ומחזיר מה שנמדד.
 
     ``pages`` ממפה שם לעמוד HTML; העמוד מוגש ב-``/page-<שם>.html``, וכל השאר מ-``STATIC_DIR``.
     כתובת מחוץ לו (האייקונים של Bootstrap מ-cdnjs) מקבלת 404 — הבדיקה לא תלויה ברשת.
+
+    ``markdown=None`` — העמוד אינו עמוד עריכה (למשל תצוגת המסמך ב-
+    ``tests/test_live_preview_paper_browser.py``): נטען ונמדד כמו שהוא, בלי הקלדה ובלי הכפתור.
     """
 
     def serve(route):
@@ -327,9 +331,10 @@ def _measure_pages(chromium_executable, pages: dict[str, str], markdown: str, me
                 page = browser.new_page(viewport={"width": 1400, "height": 900})
                 page.route("**/*", serve)
                 page.goto(f"http://codebot.test/page-{name}.html", wait_until="load")
-                page.fill('textarea[name="code"]', markdown)
-                page.click('[data-action="toggle-live-preview"]')
-                page.wait_for_selector('[data-preview-status][data-state="ready"]', timeout=15000)
+                if markdown is not None:
+                    page.fill('textarea[name="code"]', markdown)
+                    page.click('[data-action="toggle-live-preview"]')
+                    page.wait_for_selector('[data-preview-status][data-state="ready"]', timeout=15000)
                 results[name] = page.evaluate(measure_js)
                 page.close()
         finally:
@@ -446,8 +451,13 @@ def test_the_custom_page_runs_on_the_injected_theme(measured):
     m = measured["custom"]
     injected = m["injected"]
 
-    assert m["previewBg"] == _hex_to_rgb(injected["--split-preview-bg"]), m["previewBg"]
-    assert m["quoteColor"] == _hex_to_rgb(injected["--text-primary"]), m["quoteColor"]
+    # הרקע הוא הנייר של המסמך — ``--bg-primary`` של הערכה, ``editor.background`` בקובץ שלה — ולא
+    # ``--split-preview-bg``: המייבא שם בו ערך ברירת מחדל קבוע לכל ערכה, והוא חל עכשיו רק במצבי קוד
+    # ו-HTML. ראו ``.split-preview-content[data-mode="markdown"]`` ב-``split-view.css``.
+    assert m["previewBg"] == _hex_to_rgb(injected["--bg-primary"]), m["previewBg"]
+    # הציטוט בצבע של ציטוט במסמך: ``--md-blockquote-color`` בבלוק של ערכה מותאמת ב-
+    # ``md-content-colors.css`` קורא את ``--text-secondary`` של הערכה.
+    assert m["quoteColor"] == _hex_to_rgb(injected["--text-secondary"]), m["quoteColor"]
 
 
 def test_table_columns_line_up_between_header_and_body(measured):

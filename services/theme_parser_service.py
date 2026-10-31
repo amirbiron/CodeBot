@@ -222,6 +222,9 @@ FALLBACK_DARK = {
     "--glass-blur": "20px",
 
     # Split View (Level 2 subset for this guide)
+    # ``--split-preview-bg`` צובע את התצוגה החיה רק במצבי קוד ו-HTML. במצב Markdown היא על הנייר של
+    # המסמך (``--md-paper-bg`` ב-``webapp/static/css/md-content-colors.css``), שנגזר מ-``--bg-primary``
+    # — ``editor.background`` של הערכה — ולכן הערך הקבוע כאן לא חל עליה שם.
     "--split-preview-bg": "#1e1e1e",
     "--split-preview-meta": "#9d9d9d",
     "--split-preview-placeholder": "#6d6d6d",
@@ -274,7 +277,9 @@ FALLBACK_LIGHT = {
     "--btn-primary-hover-bg": "#005a9e",
     "--btn-primary-hover-color": "#ffffff",
 
-    # Markdown & Split View - נשאר כהה גם בתמה בהירה!
+    # Markdown & Split View — ערך כהה גם בתמה בהירה, ו-``editor.background`` / ``editor.foreground``
+    # דורסים אותו (``VSCODE_TO_CSS_MAP``). התצוגה החיה במצב Markdown אינה קוראת אותו: ראו ההערה על
+    # ``--split-preview-bg`` ב-``FALLBACK_DARK``.
     "--md-surface": "#1e1e1e",
     "--md-text": "#d4d4d4",
 

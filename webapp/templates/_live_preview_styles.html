@@ -12,9 +12,14 @@
     ההעתקה).
   - ``md_preview.bundle.css`` — הצבעים של highlight.js מהבאנדל, ו-CSS של KaTeX. אותו קובץ שתצוגת
     המסמך (``md_preview.html``) טוענת.
+  - ``md-content-colors.css`` — הצבעים של המסמך: הנייר, צבעי התחביר, קוד בשורה, ציטוט, טבלה, סימון
+    וקישורים. אותו קובץ שתצוגת המסמך טוענת, ולכן התצוגה החיה בצבעים של המסמך בכל ערכה. הסדר מול
+    הבאנדל אינו מכריע: הכללים שלו (``#md-content …``) גוברים על כללי הבאנדל בספציפיות, ובתצוגת
+    המסמך הבאנדל אף נטען אחריו.
   - האייקונים של Bootstrap — ``highlightBlocks`` ב-``live-preview.js`` מציב ``bi-clipboard`` בכפתור,
     ואת ``bi-check2`` אחרי העתקה. אותה כתובת כמו ב-``files.html`` וב-``repo/base_repo.html``.
 #}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/split-view.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/md_preview.bundle.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/md-content-colors.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">

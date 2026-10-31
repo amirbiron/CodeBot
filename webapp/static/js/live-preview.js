@@ -645,7 +645,6 @@
       const presentation = data.presentation || 'fragment';
       const mode = data.mode || 'code';
       this.setMarkdownContext(mode === 'markdown' && presentation !== 'iframe');
-      this.applyPreviewTheme(mode);
       if (presentation === 'iframe') {
         const iframe = document.createElement('iframe');
         iframe.setAttribute('sandbox', '');
@@ -680,7 +679,6 @@
       if (!trimmed) {
         this.setMarkdownContext(true);
         this.previewCanvas.innerHTML = '<p>אין תוכן להצגה.</p>';
-        this.applyPreviewTheme('markdown');
         this.updateMeta({ language: 'markdown', mode: 'markdown', bytes: 0, characters: 0, duration_ms: 0 });
         this.setStatus(STATUS.EMPTY, 'אין טקסט להצגה.');
         this.state.lastRenderedHash = payloadHash;
@@ -698,7 +696,6 @@
           this.styleEl.textContent = '';
         }
         await MarkdownLiveRenderer.enhance(this.previewCanvas, rendered.anchors);
-        this.applyPreviewTheme('markdown');
         const duration = typeof performance !== 'undefined' && typeof performance.now === 'function'
           ? Math.max(1, Math.round(performance.now() - started))
           : 0;
@@ -719,19 +716,12 @@
       }
     }
 
-    applyPreviewTheme(mode) {
-      if (!this.previewContent) {
-        return;
-      }
-      if (mode === 'markdown') {
-        const docTheme = (document.documentElement && document.documentElement.dataset && document.documentElement.dataset.theme) || '';
-        const prefersLight = docTheme && docTheme.toLowerCase().includes('dawn');
-        this.previewContent.dataset.theme = prefersLight ? 'light' : 'dark';
-      } else {
-        this.previewContent.dataset.theme = 'light';
-      }
-    }
-
+    // במצב Markdown ה-canvas מקבל את ``id="md-content"`` של תצוגת המסמך, ולכן הצבעים של המסמך
+    // (``md-content-colors.css``) חלים עליו כמו שהם; והמכל מקבל ``data-mode``, שבו ``split-view.css``
+    // צובע אותו בנייר של המסמך. **אין כאן ``data-theme`` על המכל, בכוונה.** עד אוקטובר 2026 הוצב שם
+    // ``data-theme="dark"``, וזה הכניס לתצוגה את כללי הטקסט של הערכות הכהות ב-``dark-mode.css``
+    // (כותרות, פסקאות, קישורים) עם צבעי הטקסט של העמוד: ב-Classic וב-Ocean — לבן. מזה נולד הרקע הכהה
+    // הקבוע של התצוגה החיה. בלי התווית, הטקסט בתצוגה יורש את צבע הנייר, כמו במסמך.
     setMarkdownContext(isMarkdown) {
       if (!this.previewCanvas) {
         return;
@@ -739,11 +729,17 @@
       if (isMarkdown) {
         this.previewCanvas.setAttribute('id', 'md-content');
         this.previewCanvas.dataset.mode = 'markdown';
+        if (this.previewContent) {
+          this.previewContent.dataset.mode = 'markdown';
+        }
       } else {
         if (this.previewCanvas.id === 'md-content') {
           this.previewCanvas.removeAttribute('id');
         }
         this.previewCanvas.removeAttribute('data-mode');
+        if (this.previewContent) {
+          this.previewContent.removeAttribute('data-mode');
+        }
       }
     }
 
@@ -914,9 +910,6 @@
         this.previewMeta.textContent = '';
       }
       this.setMarkdownContext(false);
-      if (this.previewContent) {
-        this.previewContent.removeAttribute('data-theme');
-      }
       if (this.styleEl) {
         this.styleEl.textContent = '';
       }
