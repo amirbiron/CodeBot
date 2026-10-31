@@ -428,9 +428,14 @@
   background: var(--glass, color-mix(in srgb, var(--text-primary, #fff) 10%, transparent));
   border-color: var(--glass-border, color-mix(in srgb, var(--text-primary, #fff) 20%, transparent));
 }
+/* הגבול שקוף עד הפוקוס (מהכלל הכללי של .md-search-capsule), ועל רקע בהיר גם הרקע לא נבדל מסרגל הכלים.
+   ערכה מיובאת בהירה מצהירה על --md-search-capsule-border-override, ושאר הערכות נופלות ל-transparent
+   כמו היום. כלל ה-:focus-within שאחריו ספציפי יותר וממשיך לגבור. ראו docs/webapp/custom_themes_guide.rst,
+   theme-variables-light-import-hooks. */
 :root[data-theme="custom"] .md-search-capsule,
 :root[data-theme^="shared:"] .md-search-capsule {
   background: color-mix(in srgb, var(--bg-primary, #000) 25%, transparent);
+  border-color: var(--md-search-capsule-border-override, transparent);
 }
 :root[data-theme="custom"] .md-search-capsule:focus-within,
 :root[data-theme^="shared:"] .md-search-capsule:focus-within {

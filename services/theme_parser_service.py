@@ -101,6 +101,24 @@ ALLOWED_VARIABLES_WHITELIST = frozenset([
     # בבלוק primary-btn-states-custom-type ב-webapp/templates/base.html, וב-
     # webapp/templates/view_file.html.
     "--btn-primary-text-override",
+
+    # Level 3 - ערכה מיובאת בהירה
+    # הרכיבים האלה צבועים בצבעים קבועים לרקע כהה (לבן שקוף, טקסט כמעט לבן), כמו כל ערכה
+    # מיובאת, ולערכה בהירה אין דרך לקבוע אותם. כל טוקן נקרא בכלל שצובע היום את הרכיב, עם
+    # fallback לערך שנצבע בו היום:
+    # - שדות טופס: .form-field ב-webapp/static/css/file-editor.css (עריכה והעלאה), וה-style
+    #   של שדות הסינון ב-webapp/templates/files.html.
+    # - הפיד והפוש בדשבורד: .timeline-item, .timeline-group, .timeline-badge-*, .status-*
+    #   ב-webapp/templates/dashboard.html.
+    # - שורת החיפוש בתצוגת ה-Markdown: .md-search-capsule ב-webapp/templates/md_preview.html.
+    "--form-field-border-override",
+    "--form-field-bg-override",
+    "--form-field-focus-border-override",
+    "--timeline-block-bg-override",
+    "--timeline-item-border-override",
+    "--timeline-badge-text-override",
+    "--status-pill-text-override",
+    "--md-search-capsule-border-override",
 ])
 
 

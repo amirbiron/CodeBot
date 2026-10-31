@@ -435,6 +435,46 @@
 
    ערכה שאינה מצהירה על הטוקן מרונדרת ללא שינוי, בכל מצב: כל כלל נופל לערך שהוא צבע עד היום — ``var(--primary)``, ובריחוף של קישור ``var(--primary-dark)``. בכללים הקיימים הטוקן נקרא בלי לשנות את הבורר. לקישורים נוספו ב-``dark-mode.css`` שני כללים, רגיל וריחוף, עם הבוררים של כללי הקישורים עצמם ועם ``:where(.btn-primary)``: ``:where()`` אינו מוסיף ספציפיות, והכללים כתובים מיד אחרי כללי הקישורים, ולכן הם חלים בדיוק במקום שבו כללי הקישורים צובעים היום. הבורר הוא ``[data-theme="custom"]`` ולא ``[data-theme-type="custom"]``, בכוונה: ``previewTheme`` ב-``base.html`` מחליף את ``data-theme`` לערכה מובנית ומשאיר את ``data-theme-type``, וכלל שנשען עליו היה משנה את התצוגה המקדימה. ``tests/services/test_theme_variables_btn_primary_text_hook.py`` נועל את החוזה, וגם כאן ערכה שכבר קיימת בחשבון מקבלת את הטוקן רק אחרי ייבוא מחדש.
 
+.. _theme-variables-light-import-hooks:
+
+ערכה מיובאת בהירה: שדות טופס, הפיד והפוש בדשבורד, ושורת החיפוש ב-Markdown
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+כל ערכה מיובאת מקבלת את העיצוב של הערכות הכהות, וזה נשאר כך בכוונה. כמה רכיבים צבועים שם בצבעים קבועים לרקע כהה — לבן שקוף לגבולות ולרקעים, וטקסט כמעט לבן בתגים — ולכן בערכה מיובאת בהירה הם לא נראים. לערכות המובנות הבהירות יש להם כללים משלהן, ולערכה מיובאת אין. ווים מאותו סוג נותנים לערכה בהירה לקבוע אותם לעצמה:
+
+- ``--form-field-border-override``, ``--form-field-bg-override`` ו-``--form-field-focus-border-override`` — הגבול, הרקע והגבול בפוקוס של השדות בעמודי העריכה וההעלאה (``.form-field`` ב-``webapp/static/css/file-editor.css``): שם הקובץ, השפה, התיאור, התגיות והקוד. שני הראשונים נקראים גם בשדות הסינון בעמוד הקבצים (החיפוש, השפה והמיון), שצבועים רק ב-``style`` שבתגית שלהם ב-``webapp/templates/files.html``.
+- ``--timeline-block-bg-override`` — הרקע של הבלוקים בפיד האחרון בדשבורד: הקבוצה (``.timeline-group``) והפריט שבתוכה (``.timeline-item``), שצבועים היום באותו ערך. ``--timeline-item-border-override`` — הפס בצד של כל פריט.
+- ``--timeline-badge-text-override`` — הטקסט של התג בפיד, בכל סוגי התג (``.timeline-badge-code``, ``-info``, ``-warning`` ו-``-neutral``). הרקע של כל סוג נשאר בגוון שלו.
+- ``--status-pill-text-override`` — הטקסט של הבאדג' בכרטיס הגדרות הפוש ("מופעל ב-X דפדפנים"), בכל סוגי הבאדג' (``.status-success``, ``-warning``, ``-danger`` ו-``-neutral``).
+- ``--md-search-capsule-border-override`` — הגבול של שורת החיפוש בתצוגת ה-Markdown (``.md-search-capsule`` ב-``webapp/templates/md_preview.html``), שהוא שקוף עד שמתחילים להקליד.
+
+.. code-block:: json
+
+   {
+     "name": "Pen Paper Coffee UI",
+     "type": "light",
+     "colors": {
+       "editor.background": "#f8f6f1",
+       "editor.foreground": "#2b3f6a",
+       "editorWidget.background": "#ebe8df"
+     },
+     "tokenColors": [],
+     "variables": {
+       "--form-field-border-override": "rgba(110, 78, 68, 0.35)",
+       "--form-field-bg-override": "rgba(255, 253, 249, 0.6)",
+       "--form-field-focus-border-override": "#6e4e44",
+       "--timeline-block-bg-override": "rgba(110, 78, 68, 0.06)",
+       "--timeline-item-border-override": "rgba(110, 78, 68, 0.35)",
+       "--timeline-badge-text-override": "#2b3f6a",
+       "--status-pill-text-override": "#2b3f6a",
+       "--md-search-capsule-border-override": "rgba(110, 78, 68, 0.3)"
+     }
+   }
+
+.. note::
+
+   ערכה שאינה מצהירה על הטוקנים מרונדרת ללא שינוי, וכך גם התצוגה המקדימה של ערכה מובנית מתוך אשף הערכות: כל טוקן נקרא בכלל שצובע היום את הרכיב, עם fallback לערך שנצבע בו, והבורר של הכלל לא השתנה. במקומות שבהם ל-Rose Pine Dawn יש כלל משלה — השדות בעמודי העריכה וההעלאה, הפיד והפוש ושורת החיפוש — הכלל שלה ספציפי יותר וממשיך לגבור. בשורת החיפוש ה-fallback הוא ``transparent``, הגבול של הכלל הכללי, וכלל ה-``:focus-within`` ספציפי יותר מהכלל שקורא את הווו, ולכן בזמן הקלדה הגבול נשאר שלו. ``tests/services/test_theme_variables_light_import_hooks.py`` נועל את החוזה, כולל הדוגמה שלמעלה, וגם כאן ערכה שכבר קיימת בחשבון מקבלת את הטוקנים רק אחרי ייבוא מחדש. **מה נמדד ב-31.10.2026**, על הדוגמה שלמעלה עם הרקע של Pen Paper Coffee, מול הפיקסל האמיתי שמאחורי כל רכיב: הטקסט בתגים ובבאדג' עלה מניגודיות של 1.18–1.35 ל-5.75–7.18, והגבול של השדות מ-1.06 ל-1.51. בערכות שאינן מצהירות — Classic, Dark, Rose Pine Dawn, High Contrast, ערכה מיובאת כהה וערכה מיובאת בהירה — הרכיבים זהים למה שהיו לפני הווים, גם בפוקוס ובתצוגה המקדימה.
+
 הדגשת תחביר (Syntax Highlighting)
 ----------------------------------
 
