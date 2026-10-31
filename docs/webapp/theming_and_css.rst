@@ -118,7 +118,7 @@
      - ``webapp/templates/base.html`` (ערך כהה ב‑``:root`` + Overrides ספציפיים ב‑Classic/Ocean)
    * - ``--md-paper-bg`` / ``--md-paper-text``
      - Level 3
-     - הנייר של מסמך Markdown: הרקע והטקסט של ``#md-content`` בתצוגת המסמך, ושל כל אזור התצוגה החיה במצב Markdown
+     - הנייר של מסמך Markdown: הרקע והטקסט של ``#md-content`` בתצוגת המסמך, ושל כל אזור התצוגה החיה במצב Markdown. בערכה מותאמת או משותפת הוא נגזר מ‑``--bg-primary`` ו‑``--text-primary`` (``editor.background`` / ``editor.foreground`` בקובץ VS Code), ולכן אינו ברשימה הלבנה (``ALLOWED_VARIABLES_WHITELIST``) בכוונה: הערכה כבר קובעת אותו דרכם
      - ``webapp/static/css/md-content-colors.css`` (``:root`` לבן, ובלוקים לערכות הכהות ולמותאמת/משותפת)
    * - ``--split-tabs-selected-color`` / ``--split-preview-*`` / ``--split-error-*``
      - Level 3
@@ -142,7 +142,7 @@
      - ``webapp/templates/base.html`` (``:root[data-theme]``) + קבצי Markdown (`markdown-enhanced.css`)
    * - ``--link-color``
      - Level 2
-     - צבע הקישורים במסמך Markdown (``#md-content a`` ב‑``md_preview.html``) ובתצוגה המקדימה של גלריית הערכות (``.preview-nav-links a``). בערכה מיובאת הוא ``textLink.foreground``. הריחוף במסמך קורא קודם ``--primary-hover`` (``textLink.activeForeground``), ובערכה שלא מצהירה עליו הקישור שומר על צבעו
+     - צבע הקישורים במסמך Markdown (``#md-content a`` ב‑``md-content-colors.css``, שחל גם בתצוגה החיה) ובתצוגה המקדימה של גלריית הערכות (``.preview-nav-links a``). בערכה מיובאת הוא ``textLink.foreground``. הריחוף במסמך קורא קודם ``--primary-hover`` (``textLink.activeForeground``), ובערכה שלא מצהירה עליו הקישור שומר על צבעו
      - ``webapp/templates/base.html`` (``:root`` + הבלוק של כל ערכה מובנית) + ``static/css/high-contrast.css``. ``tests/test_md_preview_link_color.py`` דורש הצהרה בכל ערכה שבוחר הערכות מציע
    * - ``--collections-link-override``
      - Level 3
