@@ -152,20 +152,26 @@ textarea[name="code"]::placeholder,
   text-align: left;
 }
 
-/* כיוון לכל שורה — EditorManager עם textDirection: 'auto' (העורך הציבורי, /markdown-editor).
-   העורך כולו מימין לשמאל, ומספרי השורות בצד ימין; כל שורה מקבלת dir="auto" מהתוסף perLineAutoDirection
-   שבחבילה, ו-text-align: start מיישר אותה לתחילת הכיוון שלה. הכללים שלמעלה, משמאל לימין, נשארים לכל
-   עורך אחר. ובעורך הפשוט, כש-CodeMirror לא עלה: unicode-bidi: plaintext קובע כיוון לכל שורה בנפרד. */
-.codemirror-container--dir-auto .cm-editor,
-.codemirror-container--dir-auto .cm-editor .cm-scroller,
-.codemirror-container--dir-auto .cm-editor .cm-content {
+/* עורך מימין לשמאל — EditorManager עם textDirection: 'rtl' (העורך הציבורי, /markdown-editor).
+   העורך כולו מימין לשמאל; רק השורות של בלוק קוד מקבלות dir="ltr" מהתוסף rtlExceptCodeBlocks שבחבילה, ו-text-align:
+   start מיישר כל שורה לתחילת הכיוון שלה. הכללים שלמעלה, משמאל לימין, נשארים לכל עורך אחר. ובעורך הפשוט, כש-
+   CodeMirror לא עלה, הכול מימין לשמאל: ב-textarea אין כיוון לשורה בודדת. */
+.codemirror-container--rtl .cm-editor,
+.codemirror-container--rtl .cm-editor .cm-scroller,
+.codemirror-container--rtl .cm-editor .cm-content {
   direction: rtl;
   text-align: start;
 }
 
-textarea[name="code"].editor-textarea--dir-auto {
+/* הריווח של שורה, לפי הכיוון שלה. ב-CodeMirror (``.cm-line`` בערכת הבסיס של @codemirror/view) הוא
+   ``0 2px 0 6px`` — צדדים פיזיים: 6px משמאל, שם מתחילה שורה משמאל לימין. בעורך מימין לשמאל ההתחלה היא דווקא
+   הצד עם 2px, והטקסט נצמד לגבול. כאן 6px בתחילת השורה ו-2px בסופה, בכל כיוון — גם לשורת קוד (dir="ltr"). */
+.codemirror-container--rtl .cm-editor .cm-line {
+  padding-inline: 6px 2px;
+}
+
+textarea[name="code"].editor-textarea--rtl {
   direction: rtl;
-  unicode-bidi: plaintext;
   text-align: start;
 }
 

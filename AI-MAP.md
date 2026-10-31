@@ -135,7 +135,7 @@
 - `docs/webapp/code-execution.rst` — **הרצת קוד (Code Execution Playground)**: ב‑WebApp יש כלי שמאפשר להריץ קוד Python מתוך הדפדפן, דרך API ייעודי.
 - `docs/webapp/api-reference.rst` — **WebApp API Reference**: רפרנס ה-API של ה-WebApp: ה-endpoints, זרימת האימות מול Telegram, מבנה התשובה, וקודי השגיאה הנפוצים.
 - `docs/webapp/bulk-actions.rst` — **Bulk actions (בחירה מרובה)**: דף זה מתאר את יכולות הבחירה המרובה והפעולות הקבוצתיות בממשק הווב.
-- `docs/webapp/editor.md` — **⌨️ עורך קוד (WebApp Editor)**: טעינת העורך ומנגנון הגיבוי ל-CDN, החבילה המקומית של CodeMirror — איך בונים אותה מחדש, והכיוון לכל שורה בעורך הציבורי — וניהול העדפות.
+- `docs/webapp/editor.md` — **⌨️ עורך קוד (WebApp Editor)**: טעינת העורך ומנגנון הגיבוי ל-CDN, החבילה המקומית של CodeMirror — איך בונים אותה מחדש, הכיוון בעורך הציבורי (מימין לשמאל חוץ מבלוקי קוד) ועורך בלי מספרי שורות — הדבקה שמחליפה את כל המסמך, וניהול העדפות.
 - `docs/webapp/markdown-folding.rst` — **Markdown – מצב מצומצם (קיפול כותרות ###) – אדמין בלבד**: מטרת הפיצ'ר: לאפשר לעורכים לקפל מקומית סעיפים לפי כותרות ### (H3) בתצוגת Markdown, בלי לשנות את קובץ ה־Markdown ובלי להשפיע על תצוגה ציבורית.
 - `docs/markdown_style_guide.rst` — **מדריך סגנונות וארכיטקטורת Markdown**: המסמך הזה הוא Source of Truth לעיצוב וארכיטקטורת Markdown בפרויקט. הוא מיועד למפתחים ול‑QA ויזואלי.
 - `docs/webapp/smooth-scrolling.rst` — **Smooth Scrolling (WebApp) — מדריך תמציתי לסוכני AI**: מנגנון הגלילה החלקה של ה‑WebApp כבוי כברירת מחדל ואינו מופיע בהגדרות; העמוד מסביר למה, מה נשאר פעיל דרך CSS נייטיבי, ואיך מדליקים אותו לניפוי בלבד.
