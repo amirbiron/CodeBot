@@ -3300,7 +3300,8 @@ check('חיווט: כל עמוד עם Split View מקבל את התלויות ש
   const pages = templateFiles()
     .filter((f) => readTemplate(f).includes('id="livePreviewRoot"'))
     .map((f) => path.relative(TEMPLATES_DIR, f));
-  eq(pages.sort().join(','), 'edit_file.html,upload.html', 'העמודים עם Split View');
+  // העמוד השלישי הוא העורך הציבורי (``markdown_editor.html``), והוא כולל את שני ה-partials כמו השניים.
+  eq(pages.sort().join(','), 'edit_file.html,markdown_editor.html,upload.html', 'העמודים עם Split View');
   pages.forEach((name) => {
     const src = readTemplate(path.join(TEMPLATES_DIR, name));
     const includes = [...src.matchAll(INCLUDE_TAG)].map((m) => m[2]);

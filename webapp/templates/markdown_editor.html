@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% from "components/editor_components.html" import markdown_toolbar %}
+
+{#
+  העורך הציבורי — עורך Markdown ותצוגה חיה, בלי התחברות (``/markdown-editor``, ``markdown_editor`` ב-``webapp/app.py``; הנתונים ב-``webapp/markdown_editor.py``). התיעוד: ``docs/webapp/markdown-editor.rst``.
+
+  - **אותם רכיבים כמו בעמוד העריכה.** העורך (``EditorManager``), התצוגה החיה (``LivePreviewController``) וסרגל ה-MD הם אותם קבצים, עם אפשרויות שרק העמוד הזה מפעיל: ``fixedEditor`` (תמיד CodeMirror, בלי מתג, בלי שמירת העדפה), ``data-preview-mode="markdown"`` / ``data-preview-autostart`` / ``data-preview-client-only`` על ``#livePreviewRoot``, ו-``markdown_toolbar(inline=True, markdown_only=True)``. כך תיקון באחד מהם מגיע לכאן ולעמוד העריכה יחד.
+  - **בלי שרת אחרי הטעינה.** הרינדור בדפדפן בלבד (``data-preview-client-only``), כי ``/api/preview/live`` דורש התחברות; הטיוטה ב-``localStorage`` (``markdown-editor.js``).
+  - **טקסט ההדגמה** מגיע מהראוט כמשתנה (``demo_text``), ו-Jinja מברח אותו לתוך ה-textarea. לא ``{% include %}``: בטקסט יש ``{{ __html: html }}``, ו-include היה מריץ אותו כתבנית. "טען דוגמה" קורא אותו בחזרה מ-``textarea.defaultValue``, שהוא התוכן שהשרת שלח ואינו משתנה כשכותבים בעורך.
+  - **הפריסה.** בעברית העורך מימין והתצוגה משמאל, מאותו ``split-view.css`` של עמוד העריכה.
+#}
+
+{% set editor_title = 'עורך Markdown אונליין עם תצוגה חיה — CodeKeeper' %}
+{% set editor_description = 'עורך Markdown חינמי בעברית, עם תצוגה חיה לצד הטקסט: טבלאות, התראות, נוסחאות, תרשימי Mermaid ורשימות משימות. בלי הרשמה, והטיוטה נשמרת בדפדפן.' %}
+{% set editor_url = base_url ~ url_for('markdown_editor') %}
+
+{% block title %}{{ editor_title }}{% endblock %}
+
+{% block extra_head %}
+<meta name="description" content="{{ editor_description }}">
+<link rel="canonical" href="{{ editor_url }}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CodeKeeper">
+<meta property="og:locale" content="he_IL">
+<meta property="og:title" content="{{ editor_title }}">
+<meta property="og:description" content="{{ editor_description }}">
+<meta property="og:url" content="{{ editor_url }}">
+{# נתונים מובנים (schema.org): ``WebApplication`` יורש מ-``SoftwareApplication`` את ``applicationCategory`` ואת ``operatingSystem``, ומ-``CreativeWork`` את ``inLanguage`` ואת ``isAccessibleForFree`` (https://schema.org/WebApplication). #}
+<script type="application/ld+json">
+{{ {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "עורך Markdown של CodeKeeper",
+    "url": editor_url,
+    "description": editor_description,
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Any",
+    "inLanguage": "he",
+    "isAccessibleForFree": true
+} | tojson }}
+</script>
+{% endblock %}
+
+{% block extra_css %}
+{% include "_live_preview_styles.html" %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/file-editor.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-toolbar.css') }}?v={{ static_version }}">
+<style>
+.md-editor-page__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+    margin-block-end: 1rem;
+}
+
+.md-editor-page__title {
+    margin: 0;
+}
+
+.md-editor-page__lead {
+    margin-block: 0.35rem 0;
+    color: var(--text-secondary, currentColor);
+}
+
+.md-editor-page__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.md-editor-page__status {
+    flex-basis: 100%;
+    margin: 0;
+    min-height: 1.25em;
+    font-size: 0.85rem;
+    color: var(--text-secondary, currentColor);
+}
+
+.md-editor-page__card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.md-editor-page__about {
+    margin-block-start: 2rem;
+    color: var(--text-primary, currentColor);
+}
+
+.md-editor-page__about h2 {
+    font-size: 1.35rem;
+    margin-block: 1.5rem 0.5rem;
+}
+
+.md-editor-page__about ul {
+    padding-inline-start: 1.5rem;
+    line-height: 1.8;
+}
+
+.md-editor-page__cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-block-start: 1rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="md-editor-page">
+  <header class="md-editor-page__header">
+    <div>
+      <h1 class="page-title md-editor-page__title">עורך Markdown עם תצוגה חיה</h1>
+      <p class="md-editor-page__lead">כותבים מימין, ורואים את התוצאה משמאל. בלי הרשמה, והטיוטה נשמרת בדפדפן שלך.</p>
+    </div>
+    <div class="md-editor-page__actions" role="group" aria-label="פעולות על הטקסט">
+      <button type="button" class="btn btn-secondary btn-icon" data-md-editor-action="download">
+        <i class="fas fa-download" aria-hidden="true"></i>
+        הורד ‎.md
+      </button>
+      <button type="button" class="btn btn-secondary btn-icon" data-md-editor-action="clear">
+        <i class="fas fa-eraser" aria-hidden="true"></i>
+        ניקוי
+      </button>
+      <button type="button" class="btn btn-secondary btn-icon" data-md-editor-action="load-demo">
+        <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
+        טען דוגמה
+      </button>
+    </div>
+    <p class="md-editor-page__status" data-md-editor-status aria-live="polite"></p>
+  </header>
+
+  <div class="glass-card md-editor-page__card">
+    {{ markdown_toolbar(inline=True, markdown_only=True) }}
+    <div id="livePreviewRoot" class="split-view" data-active-panel="editor" data-preview-mode="markdown" data-preview-autostart data-preview-client-only>
+      <div class="split-toolbar">
+        <div class="split-toolbar-controls">
+          <button
+            type="button"
+            class="split-toggle"
+            data-action="toggle-live-preview"
+            aria-pressed="false"
+          >
+            <i class="fas fa-columns"></i>
+            <span class="split-toggle__text">Live Preview</span>
+          </button>
+          <span class="split-toolbar-hint">Ctrl+Shift+Enter</span>
+        </div>
+        <div class="split-tabs" role="tablist" aria-label="חלונות תצוגה">
+          <button type="button" role="tab" aria-selected="true" data-panel-target="editor">עורך</button>
+          <button type="button" role="tab" aria-selected="false" data-panel-target="preview">תצוגה</button>
+        </div>
+      </div>
+      <div class="split-panels">
+        <section class="split-panel split-panel--editor" aria-label="אזור עריכה">
+          <div id="editorContainer">
+            <label for="codeTextarea">Markdown</label>
+            <textarea id="codeTextarea" name="code" rows="18" class="form-field code-field" spellcheck="false">{{ demo_text }}</textarea>
+          </div>
+        </section>
+        <div class="split-resizer" role="separator" aria-label="שנה את רוחב הפאנלים"></div>
+        <section class="split-panel split-panel--preview" aria-label="תצוגה חיה">
+          <div class="split-preview-content" data-preview-content aria-live="polite">
+            <div class="split-preview-canvas" data-preview-canvas>
+              <div class="split-preview-placeholder">
+                <p>תצוגה חיה תופיע כאן</p>
+                <small>הפעל את Live Preview כדי לרענן בזמן אמת</small>
+              </div>
+            </div>
+            <div class="split-preview-meta" data-preview-meta></div>
+            <p class="split-preview-status" data-preview-status>הפעל את Live Preview כדי לראות עדכון בזמן אמת.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <section class="md-editor-page__about" aria-labelledby="mdEditorAboutTitle">
+    <h2 id="mdEditorAboutTitle">מה אפשר לכתוב כאן</h2>
+    <ul>
+      <li><strong>הבסיס של Markdown:</strong> כותרות, הדגשה, רשימות, קישורים, תמונות, ציטוטים וקוד עם הדגשת תחביר.</li>
+      <li><strong>טבלאות ורשימות משימות</strong>, עם כפתור שמכניס תבנית מוכנה.</li>
+      <li><strong>התראות</strong> (note, tip, warning ועוד) ו<strong>קיפולים</strong> שנפתחים בלחיצה.</li>
+      <li><strong>נוסחאות</strong> ב-KaTeX ו<strong>תרשימים</strong> ב-Mermaid.</li>
+    </ul>
+
+    <h2>איפה הטקסט נשמר</h2>
+    <p>הטקסט נשמר רק בדפדפן הזה, ולא נשלח לשרת. הוא יחכה לך כשתחזור לעמוד, אבל לא יופיע במכשיר אחר. כדי לקחת אותו איתך, הורידו אותו כקובץ ‎.md.</p>
+
+    <h2>לשמור את המסמכים לאורך זמן</h2>
+    <p>ב-CodeKeeper אפשר לשמור מסמכי Markdown וקוד, לחפש בהם, לארגן אותם באוספים ולחבר אליהם את סוכני ה-AI שלך.</p>
+    <div class="md-editor-page__cta">
+      <a href="{{ url_for('auth.login') }}" class="btn btn-primary btn-icon">
+        <i class="fab fa-telegram" aria-hidden="true"></i>
+        התחבר עם Telegram
+      </a>
+      <a href="{{ url_for('index') }}" class="btn btn-secondary btn-icon">
+        <i class="fas fa-house" aria-hidden="true"></i>
+        מה זה CodeKeeper
+      </a>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/markdown-toolbar.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/utils/editor-page-utils.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/markdown-editor.js') }}?v={{ static_version }}" defer></script>
+{% include "_live_preview_scripts.html" %}
+{% endblock %}

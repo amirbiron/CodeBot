@@ -1,25 +1,6 @@
 (function () {
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  async function waitFor(fn, { timeoutMs = 3500, intervalMs = 100 } = {}) {
-    const started = Date.now();
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      try {
-        const value = fn();
-        if (value) {
-          return value;
-        }
-      } catch (_) {}
-      if (Date.now() - started > timeoutMs) {
-        return null;
-      }
-      // eslint-disable-next-line no-await-in-loop
-      await sleep(intervalMs);
-    }
-  }
+  // העזרים המשותפים: webapp/static/js/utils/editor-page-utils.js, שנטען לפני הקובץ הזה.
+  const { waitFor } = window.EditorPageUtils;
 
   function safeJsonParse(raw) {
     if (!raw || typeof raw !== 'string') {

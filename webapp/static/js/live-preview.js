@@ -492,6 +492,19 @@
       this.previewCanvas = root ? root.querySelector('[data-preview-canvas]') : null;
       this.previewMeta = root ? root.querySelector('[data-preview-meta]') : null;
       this.statusEl = root ? root.querySelector('[data-preview-status]') : null;
+      // אפשרויות לעמוד שאין בו שם קובץ ושפה, כמו העורך הציבורי (/markdown-editor). עמודי העריכה
+      // וההעלאה לא מציבים אף אחת מהן, ובהם הכול נשאר כמו שהיה.
+      // - data-preview-mode="markdown": התצוגה תמיד במצב Markdown. בלעדיה המצב נקבע לפי השפה
+      //   ושם הקובץ, ובעמוד בלי השדות האלה התצוגה לא הייתה זמינה בכלל.
+      // - data-preview-autostart: התצוגה דלוקה מההתחלה, בלי לחיצה על הכפתור.
+      // - data-preview-client-only: רינדור בדפדפן בלבד. בלעדיה, כשהרינדור בדפדפן נכשל, הבקר פונה
+      //   ל-/api/preview/live, שדורש התחברות; בעמוד ציבורי הפנייה הזו רק הייתה נכשלת.
+      const fixedMode = root ? root.getAttribute('data-preview-mode') : '';
+      this.options = {
+        fixedMode: fixedMode === 'markdown' ? 'markdown' : '',
+        autostart: !!(root && root.hasAttribute('data-preview-autostart')),
+        clientOnly: !!(root && root.hasAttribute('data-preview-client-only')),
+      };
       this.styleEl = null;
       this.abortController = null;
       this.state = {
@@ -551,6 +564,10 @@
       this.setupResizer();
       this.updatePreviewAvailability({ silentDisable: true });
       this.setStatus(STATUS.IDLE);
+      if (this.options.autostart && this.state.previewAllowed) {
+        this.enablePreview();
+        this.scheduleUpdate(true);
+      }
     }
 
     toggle() {
@@ -602,7 +619,7 @@
         language: this.languageSelect ? this.languageSelect.value : '',
         file_name: this.fileNameInput ? this.fileNameInput.value : '',
       };
-      payload.mode = resolvePreviewMode(payload.language, payload.file_name);
+      payload.mode = this.options.fixedMode || resolvePreviewMode(payload.language, payload.file_name);
       const payloadHash = JSON.stringify(payload);
       this.cancelPending();
       if (
@@ -617,8 +634,20 @@
           await this.renderClientMarkdown(payload, payloadHash);
           return;
         } catch (err) {
+          if (this.options.clientOnly) {
+            console.warn('Client Markdown preview failed (client-only page, no server fallback)', err);
+            this.setStatus(STATUS.ERROR, this.translateError('render_failed'));
+            return;
+          }
           console.warn('Falling back to server preview after client Markdown failure', err);
         }
+      }
+      if (this.options.clientOnly) {
+        // בלי שרת אין מי שירנדר: במצב Markdown הגענו לכאן כי ספריית ה-Markdown לא נטענה, ובכל
+        // מצב אחר אין רינדור בדפדפן בכלל. lastRenderedHash לא מתעדכן, ולכן ההקלדה הבאה תנסה שוב.
+        const reason = payload.mode === 'markdown' ? 'markdown_renderer_missing' : 'render_failed';
+        this.setStatus(STATUS.ERROR, this.translateError(reason));
+        return;
       }
       this.state.inflightHash = payloadHash;
       this.abortController = new AbortController();
@@ -862,6 +891,9 @@
     }
 
     isPreviewEligible() {
+      if (this.options.fixedMode) {
+        return true;
+      }
       const language = this.languageSelect ? this.languageSelect.value : '';
       const fileName = this.fileNameInput ? this.fileNameInput.value : '';
       return (

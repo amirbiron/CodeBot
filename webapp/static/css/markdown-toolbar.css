@@ -210,3 +210,122 @@
   }
 }
 
+
+/* ============================================
+   שורה פתוחה (inline) — העורך הציבורי, /markdown-editor
+   ============================================
+   המאקרו markdown_toolbar(inline=True) מרנדר את הכלים בלי כפתור "MD", ו-.md-toolbar-dropdown
+   הופך כאן לשורה גלויה. ההתראות נפתחות מ"התראות ▾" בלחיצה (is-open, ב-markdown-toolbar.js),
+   ולא במעבר עכבר או בפוקוס כמו בתפריט: בשורה, פוקוס על הכפתור היה משאיר את התפריט פתוח גם
+   אחרי לחיצה שנייה שאמורה לסגור אותו.
+   כל הבוררים כאן מתחילים ב-.md-toolbar-group.md-toolbar-group--inline, ולכן גוברים בספציפיות על
+   הכללים שלמעלה, כולל אלה שבתוך @media למובייל ו-:root[dir="rtl"], בלי תלות בסדר הקובץ. */
+.md-toolbar-group.md-toolbar-group--inline {
+  flex-wrap: wrap;
+  margin-inline-start: 0;
+  padding-inline-start: 0;
+  border-inline-start: none;
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-dropdown {
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  backdrop-filter: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: auto;
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-dropdown > .md-toolbar-item,
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-submenu-trigger > .md-toolbar-item {
+  width: auto;
+  gap: 0.35rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-dropdown > .md-toolbar-item:hover,
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-submenu-trigger > .md-toolbar-item:hover {
+  background: var(--glass-hover);
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-dropdown > .md-toolbar-item:focus-visible,
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-submenu-trigger > .md-toolbar-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-item .item-icon {
+  width: auto;
+  font-size: 1rem;
+}
+
+/* הקיצורים מופיעים בתפריט; בשורה הם היו מכפילים את רוחבה. הקיצורים עצמם עובדים גם כאן. */
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-dropdown > .md-toolbar-item .item-shortcut {
+  display: none;
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-divider {
+  width: 1px;
+  height: 1.4rem;
+  margin: 0 0.15rem;
+  background: var(--glass-border);
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-submenu-trigger {
+  display: inline-flex;
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-submenu-trigger::after {
+  content: none;
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-item .item-caret {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-submenu-trigger .md-toolbar-submenu {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  inset-inline-end: auto;
+  z-index: 1000;
+  min-width: 200px;
+  max-height: 400px;
+  margin: 0;
+  margin-block-start: 4px;
+  padding: 0.5rem 0;
+  overflow-y: auto;
+  background: rgba(30, 30, 40, 0.98);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+}
+
+.md-toolbar-group.md-toolbar-group--inline .md-toolbar-submenu-trigger.is-open .md-toolbar-submenu {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}

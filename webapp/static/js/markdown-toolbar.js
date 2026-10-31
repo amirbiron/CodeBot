@@ -115,8 +115,23 @@ const MarkdownToolbar = {
     }
   },
 
+  // ---------- אפשרויות הסרגל (מהמאקרו markdown_toolbar) ----------
+  // data-md-inline: שורה פתוחה, בלי כפתור "MD", והסרגל נשאר במקומו ולא עובר לשורת העורך.
+  // data-md-markdown-only: עמוד שכולו Markdown ואין בו שם קובץ ושפה; הסרגל והקיצורים פעילים תמיד.
+  // שתיהן לעורך הציבורי (/markdown-editor). עמודי העריכה וההעלאה לא מציבים אותן.
+  hasToolbarFlag(name) {
+    const toolbar = document.querySelector('.md-toolbar-group');
+    return !!(toolbar && toolbar.hasAttribute(name));
+  },
+
+  isInline() {
+    return this.hasToolbarFlag('data-md-inline');
+  },
+
   // ---------- בדיקה אם Markdown ----------
   isMarkdownContext() {
+    if (this.hasToolbarFlag('data-md-markdown-only')) return true;
+
     const filenameInput = document.getElementById('fileNameInput');
     const languageSelect = document.getElementById('languageSelect');
 
@@ -155,6 +170,7 @@ const MarkdownToolbar = {
 
   // ---------- העברת הסרגל לשורת העורך ----------
   moveToEditorRow() {
+    if (this.isInline()) return;
     const toolbar = document.querySelector('.md-toolbar-group');
     const editorActions = document.querySelector('.editor-switcher-actions');
 
@@ -206,6 +222,21 @@ const MarkdownToolbar = {
     if (trigger) {
       e.preventDefault();
       this.toggleDropdown();
+      return;
+    }
+
+    // "התראות ▾" בשורה הפתוחה: נפתח ונסגר בלחיצה. בתפריט של עמודי העריכה תפריט המשנה נפתח
+    // במעבר עכבר או בפוקוס (CSS), ושם לכפתור אין את ה-data-md-action הזה.
+    const submenuBtn = e.target.closest('[data-md-action="toggle-submenu"]');
+    if (submenuBtn) {
+      e.preventDefault();
+      const holder = submenuBtn.closest('.md-toolbar-submenu-trigger');
+      const willOpen = !!holder && !holder.classList.contains('is-open');
+      this.closeDropdown();
+      if (holder && willOpen) {
+        holder.classList.add('is-open');
+        submenuBtn.setAttribute('aria-expanded', 'true');
+      }
       return;
     }
 
@@ -320,6 +351,12 @@ const MarkdownToolbar = {
       dropdown.classList.remove('is-open');
       this._dropdownOpen = false;
     }
+    // תפריט ההתראות של השורה הפתוחה (ראו handleClick)
+    document.querySelectorAll('.md-toolbar-submenu-trigger.is-open').forEach((holder) => {
+      holder.classList.remove('is-open');
+      const btn = holder.querySelector('[data-md-action="toggle-submenu"]');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    });
     this.updateOverflowState(false);
 
     // עדכון נגישות (גם אם כבר סגור)

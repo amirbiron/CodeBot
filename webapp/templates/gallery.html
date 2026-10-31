@@ -194,6 +194,12 @@ body > .navbar {
     color: var(--text-secondary, currentColor);
 }
 
+.gallery__more {
+    margin: 0.6rem 0 0;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
 @media (min-width: 768px) {
     .gallery__title {
         font-size: 1.5rem;
@@ -244,6 +250,7 @@ body > .navbar {
                 <i class="fas fa-arrow-right gallery__arrow" aria-hidden="true"></i>
             </button>
         </div>
+        <p class="gallery__more"><a href="{{ url_for('markdown_editor') }}">לנסות את עורך ה-Markdown עם התצוגה החיה, בלי הרשמה</a></p>
     </div>
 </section>
 
