@@ -39,6 +39,9 @@ from _css_rules import (
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = REPO_ROOT / "webapp/templates/md_preview.html"
+#: הצבעים של המסמך — כולל כללי הקישורים — יושבים כאן, ו-``md_preview.html`` טוען את הקובץ בראש
+#: ``extra_css``. אותו קובץ נטען גם בתצוגה החיה, ושם הכללים חלים על ה-canvas (``id="md-content"``).
+DOCUMENT_COLORS_CSS = REPO_ROOT / "webapp/static/css/md-content-colors.css"
 BASE_TEMPLATE = REPO_ROOT / "webapp/templates/base.html"
 HIGH_CONTRAST_CSS = REPO_ROOT / "webapp/static/css/high-contrast.css"
 THEMING_DOC = REPO_ROOT / "docs/webapp/theming_and_css.rst"
@@ -50,9 +53,14 @@ _THEME_ATTRIBUTE = re.compile(r'\[data-theme\^?="[^"]*"\]')
 
 
 def _document_link_rules() -> list[tuple[str, dict[str, str]]]:
-    """כללי ``md_preview.html`` שהנושא שלהם קישור בתוך ``#md-content`` — בלי מחלקה, כמו קישור במסמך."""
+    """כללי המסמך שהנושא שלהם קישור בתוך ``#md-content`` — בלי מחלקה, כמו קישור במסמך.
+
+    נקראים משני המקורות של המסמך: ``md-content-colors.css``, שבו כללי הקישורים, וה-``<style>`` של
+    ``md_preview.html`` — כך שכלל קישור שיתווסף בתבנית עצמה ייבדק גם הוא.
+    """
     out = []
-    for selector, decls in css_rules(template_css(TEMPLATE)):
+    sources = DOCUMENT_COLORS_CSS.read_text(encoding="utf-8") + "\n" + template_css(TEMPLATE)
+    for selector, decls in css_rules(sources):
         parts = compounds(selector)
         subject = parts[-1]
         if not any(re.match(r"#md-content(?![\w-])", part) for part in parts[:-1]):
@@ -72,7 +80,7 @@ def _theme_of(selector: str) -> str | None:
 def test_no_link_rule_in_the_document_paints_a_fixed_colour():
     rules = _document_link_rules()
     # בלי כללים, הבדיקה הייתה עוברת בלי לבדוק דבר.
-    assert rules, "לא נמצא כלל של קישור תחת #md-content ב-md_preview.html"
+    assert rules, "לא נמצא כלל של קישור תחת #md-content ב-md-content-colors.css או ב-md_preview.html"
     fixed = [
         f"{selector} {{{prop}: {decls[prop]}}}"
         for selector, decls in rules

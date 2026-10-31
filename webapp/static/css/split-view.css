@@ -40,23 +40,10 @@
   --split-preview-loading-bg: rgba(27, 30, 36, 0.85);
   --split-preview-loading-text: #f0f0f0;
 
-  /* Blockquote (`>`) – נגזר מטוקני הרקע והטקסט של התצוגה, ולכן עובד בכל ערכה
-     (כולל מותאמת/משותפת) בלי override לכל אחת. ההפניות נפתרות על <html>,
-     שם כבר חל הבלוק של הערכה הפעילה. */
-  --split-preview-blockquote-bg: color-mix(in srgb, var(--split-preview-text) 8%, var(--split-preview-bg));
-  --split-preview-blockquote-border: color-mix(in srgb, var(--split-preview-text) 45%, var(--split-preview-bg));
-  --split-preview-blockquote-text: var(--split-preview-text);
-  --split-preview-table-border: color-mix(in srgb, var(--split-preview-text) 30%, var(--split-preview-bg));
-  --split-preview-table-header-bg: color-mix(in srgb, var(--split-preview-text) 8%, var(--split-preview-bg));
-  /* בלוק קוד (``pre``) וכפתור ההעתקה שבו — אותה גזירה, ולכן גם הם בלי override לכל ערכה.
-     צבעי התחביר עצמם אינם כאן: הם מ-``md_preview.bundle.css`` (או מה-``syntax_css`` של ערכה מיובאת). */
-  --split-preview-code-block-bg: color-mix(in srgb, var(--split-preview-text) 6%, var(--split-preview-bg));
-  --split-preview-code-block-border: color-mix(in srgb, var(--split-preview-text) 18%, var(--split-preview-bg));
-  --split-preview-code-copy-bg: color-mix(in srgb, var(--split-preview-text) 12%, var(--split-preview-bg));
-  --split-preview-code-copy-hover-bg: color-mix(in srgb, var(--split-preview-text) 22%, var(--split-preview-bg));
-  --split-preview-code-copy-border: color-mix(in srgb, var(--split-preview-text) 28%, var(--split-preview-bg));
-  --split-preview-code-copy-color: var(--split-preview-text);
-  --split-preview-code-copy-success: var(--success);
+  /* הצבעים של תוכן Markdown בתצוגה החיה — ציטוט, טבלה, בלוק קוד, צבעי התחביר וכפתור ההעתקה — אינם
+     כאן. הם הצבעים של המסמך עצמו, מ-``md-content-colors.css``, והנייר שלהם הוא המכל במצב Markdown
+     (הבלוק ``.split-preview-content[data-mode="markdown"]`` למטה). הטוקנים שכאן משמשים את המכל
+     במצבים האחרים — קוד ו-HTML — ואת שורות הסטטוס. */
 
   /* Error */
   --split-error-bg: rgba(220, 38, 38, 0.1);
@@ -220,10 +207,6 @@
   --split-preview-meta: #ffffff;
   --split-preview-loading-bg: #000000;
   --split-preview-loading-text: #ffffff;
-  /* קווים מלאים בצבע הטקסט: הגוון המעורבב של ברירת המחדל יוצא אפור כהה על שחור */
-  --split-preview-blockquote-border: var(--split-preview-text);
-  --split-preview-table-border: var(--split-preview-text);
-  --split-preview-code-block-border: var(--split-preview-text);
   --split-error-bg: #330000;
   --split-error-border: #ff0000;
   --split-error-text: #ff6666;
@@ -522,6 +505,18 @@
   position: relative;
 }
 
+/* במצב Markdown כל אזור התצוגה הוא הנייר של המסמך: אותו רקע ואותו צבע טקסט כמו ``#md-content`` בתצוגת
+   המסמך (``--md-paper-bg`` / ``--md-paper-text`` ב-``md-content-colors.css``). ``data-mode`` נקבע על
+   המכל ב-``setMarkdownContext`` שב-``live-preview.js``, לצד ה-``id="md-content"`` של ה-canvas.
+   ההצהרה כאן, על המכל עצמו, גוברת על ``--split-preview-bg`` שמוצהר על ``:root`` — גם כשערכה מיובאת
+   מזריקה אותו בבלוק ``user-custom-theme`` של ``base.html``. שורת המידע (שפה, גודל, זמן) מקבלת גוון חלש
+   של טקסט הנייר, כדי שתהיה קריאה על נייר בהיר ועל נייר כהה. */
+.split-preview-content[data-mode="markdown"] {
+  --split-preview-bg: var(--md-paper-bg);
+  --split-preview-text: var(--md-paper-text);
+  --split-preview-meta: color-mix(in srgb, var(--md-paper-text) 75%, var(--md-paper-bg));
+}
+
 .split-preview-content :not(pre) > code,
 .split-preview-content code.inline-code {
   display: inline-block;
@@ -558,9 +553,10 @@ html[dir="rtl"] .split-preview-content pre.rtl-code code {
 /* ==============================================
    תוכן Markdown בתצוגה החיה
    כלל האיפוס `*` שבבלוק ה-<style> של base.html מאפס margin ו-padding לכל
-   אלמנט, ועיצוב התוכן של md_preview.html יושב ב-<style> הפנימי שלו ואינו
-   נטען בעמודי העריכה. בלי הכללים כאן ציטוט נראה כמו פסקה, לרשימה אין
-   תבליטים (אין להם מקום), לטבלה אין קווים, ופסקאות נדבקות זו לזו.
+   אלמנט, והפריסה של התוכן ב-md_preview.html יושבת ב-<style> הפנימי שלו ואינה
+   נטענת בעמודי העריכה. בלי הכללים כאן ציטוט נראה כמו פסקה, לרשימה אין
+   תבליטים (אין להם מקום), ופסקאות נדבקות זו לזו. הכללים כאן הם פריסה בלבד:
+   הצבעים — של הציטוט, הטבלה, בלוק הקוד וכפתור ההעתקה — הם של המסמך, מ-md-content-colors.css.
 
    הסקופ הוא ה-canvas במצב markdown (data-mode נקבע ב-setMarkdownContext
    שב-live-preview.js), כדי לא לגעת בשורת הסטטוס ובמציין המקום.
@@ -604,20 +600,12 @@ html[dir="rtl"] .split-preview-content pre.rtl-code code {
 }
 
 :where(.split-preview-canvas[data-mode="markdown"]) :is(th, td) {
-  border: 1px solid var(--split-preview-table-border);
   padding: 0.4rem 0.75rem;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) thead {
-  background: var(--split-preview-table-header-bg);
 }
 
 :where(.split-preview-canvas[data-mode="markdown"]) blockquote {
   margin: 0.75rem 0;
   padding: 0.5rem 0.75rem;
-  background: var(--split-preview-blockquote-bg);
-  border-inline-start: 4px solid var(--split-preview-blockquote-border);
-  color: var(--split-preview-blockquote-text);
   overflow-wrap: anywhere;
 }
 
@@ -648,8 +636,6 @@ html[dir="rtl"] .split-preview-content pre.rtl-code code {
   position: relative;
   margin: 0.75rem 0;
   padding: calc(var(--split-preview-code-copy-inset) * 2 + var(--split-preview-code-copy-size)) 1rem 1rem;
-  background: var(--split-preview-code-block-bg);
-  border: 1px solid var(--split-preview-code-block-border);
   border-radius: 8px;
   line-height: 1.5;
 }
@@ -660,8 +646,9 @@ html[dir="rtl"] .split-preview-content pre.rtl-code code {
    (‏``pre code.hljs`` — 0,1,2), וערכה מיובאת מזריקה ``:root[data-theme-type="custom"] .hljs``
    (0,3,0) עם רקע ב-``!important`` (``generate_hljs_css_from_tokens`` ב-
    services/theme_parser_service.py). הבורר כאן הוא 0,2,2, ו-0,3,2 לרקע של ``code.hljs`` —
-   גבוה משניהם, בלי תלות בסדר הטעינה. תצוגת המסמך מנטרלת את אותם כללים באותה צורה
-   (``#md-content .hljs`` שם). צבע הטקסט של ערכה מיובאת לא נדרס, ולכן צבעי התחביר שלה חלים. */
+   גבוה משניהם, בלי תלות בסדר הטעינה. כללי הצבע של המסמך מנטרלים את אותם כללים באותה צורה
+   (``#md-content .hljs`` ב-md-content-colors.css, שחל גם כאן). צבע הטקסט של ערכה מיובאת לא נדרס,
+   ולכן צבעי התחביר שלה חלים. */
 .split-preview-canvas[data-mode="markdown"] pre > code {
   display: block;
   overflow-x: auto;
@@ -675,7 +662,12 @@ html[dir="rtl"] .split-preview-content pre.rtl-code code {
 
 /* הכפתור בצד ימין גם בבלוק עברי (``pre.rtl-code``, שהכיוון שלו rtl), ולכן ``right`` פיזי ולא
    ``inset-inline-end``: בתצוגת המסמך פס הכותרת יורש ``direction: ltr`` מ-``.code-block``, והכפתור
-   הוא הפריט האחרון בו — תמיד מימין. צד לוגי היה מעביר אותו לשמאל בכל בלוק עברי. */
+   הוא הפריט האחרון בו — תמיד מימין. צד לוגי היה מעביר אותו לשמאל בכל בלוק עברי.
+
+   הצבעים הם הטוקנים של כפתור ההעתקה בתצוגת המסמך (``--md-code-copy-*``, שמוצהרים על ``#md-content``
+   לכל ערכה ב-md-content-colors.css), באותם ביטויים כמו ``.md-copy-btn`` ב-md_preview.html. שני
+   הכפתורים הם רכיבים נפרדים — שם הכפתור בפס כותרת שרק תצוגת המסמך בונה, וכאן בתוך ה-``pre`` — ולכן
+   הכללים נפרדים, והטוקנים משותפים. */
 :where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn {
   position: absolute;
   top: var(--split-preview-code-copy-inset);
@@ -689,15 +681,15 @@ html[dir="rtl"] .split-preview-content pre.rtl-code code {
   padding: 0 0.45rem;
   font-size: 0.95rem;
   line-height: 1;
-  color: var(--split-preview-code-copy-color);
-  background: var(--split-preview-code-copy-bg);
-  border: 1px solid var(--split-preview-code-copy-border);
+  color: var(--md-code-copy-color);
+  background: var(--md-code-copy-bg);
+  border: 1px solid var(--md-code-copy-border, transparent);
   border-radius: 6px;
   cursor: pointer;
 }
 
 :where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn:hover {
-  background: var(--split-preview-code-copy-hover-bg);
+  background: var(--md-code-copy-hover-bg);
 }
 
 :where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn:focus-visible {
@@ -706,8 +698,8 @@ html[dir="rtl"] .split-preview-content pre.rtl-code code {
 }
 
 :where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn.copied {
-  color: var(--split-preview-code-copy-success);
-  background: color-mix(in srgb, var(--split-preview-code-copy-success) 18%, var(--split-preview-code-block-bg));
+  color: var(--md-code-copy-success-color);
+  background: color-mix(in srgb, var(--md-code-copy-success-color) 18%, transparent);
 }
 
 .split-preview-placeholder {

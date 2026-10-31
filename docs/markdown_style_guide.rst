@@ -120,7 +120,7 @@ Tables
    נכון לעכשיו אין Zebra Rows מובנה. אם צריך פסי זברה, יש להוסיף
    ב‑``reader.css`` (למשל ``tbody tr:nth-child(even)``).
 
-**CSS מקור:** ``webapp/templates/md_preview.html`` (חלק ה‑Table Styles)
+**CSS מקור:** הפריסה ב‑``webapp/templates/md_preview.html`` (חלק ה‑Table Styles); הצבעים — קווי התאים ורקע הכותרת — ב‑``webapp/static/css/md-content-colors.css``, המשותף לתצוגת המסמך ולתצוגה החיה.
 
 Task Lists
 ^^^^^^^^^^
@@ -250,7 +250,7 @@ Highlight (``==מארקר==``)
 -----------------------------------
 
 - **לא להשתמש ב‑Inline Styles בתוך Markdown.**
-- שינוי צבעים/רקעים נעשה ב‑``reader.css`` או ``markdown-enhanced.css`` בלבד.
+- שינוי צבעים/רקעים נעשה ב‑``reader.css`` (Reader Mode), ב‑``markdown-enhanced.css`` (אדמוניציות ובלוקים מתקפלים), או ב‑``md-content-colors.css`` — הצבעים של המסמך עצמו (``#md-content``): הנייר, קוד וצבעי התחביר, ציטוט, טבלה, סימון וקישורים, משותפים לתצוגת המסמך ולתצוגה החיה.
 - שמרו על התאמה בין Reader Mode ל‑Classic Theme כדי לשמר עקביות ויזואלית.
 
 .. note::
