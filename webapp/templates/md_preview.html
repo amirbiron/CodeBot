@@ -9,6 +9,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/md-content-colors.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/md-content-layout.css') }}?v={{ static_version }}">
 <style>
 /* אזור התצוגה והביצועים */
 #md-root {
@@ -17,8 +18,10 @@
   margin: 0 auto;
   padding: 0.5rem 0; /* את הריווח הצדדי ניתן דרך הכרטיס הפנימי */
 }
-/* הנייר, הטוקנים של כל ערכה, וצבעי הקוד, הציטוט, הטבלה, הסימון והקישורים — ב-md-content-colors.css,
-   שנטען בראש הבלוק הזה ומשותף לתצוגה החיה. כאן נשארים הפריסה ורכיבי תצוגת המסמך בלבד. */
+/* הנייר, הטוקנים של כל ערכה, וצבעי הקוד, הציטוט, הטבלה, הסימון והקישורים — ב-md-content-colors.css;
+   הפריסה של מה ש-markdown-it מייצר (בלוק קוד, קוד בשורה, טבלאות, כותרות, רשימות, ריווח) —
+   ב-md-content-layout.css. שניהם נטענים בראש הבלוק הזה ומשותפים לתצוגה החיה. כאן נשארים הכרטיס של
+   ``#md-content``, האנימציות, ורכיבים שרק תצוגת המסמך בונה. */
 #md-content {
   border-radius: 12px;
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
@@ -233,10 +236,6 @@
 /* במסך מלא – לאפשר גלילה בתוך הכרטיס עצמו (תמיכה גם ב-WebKit) */
 #mdCard:fullscreen { height: 100vh; overflow: auto; }
 #mdCard:-webkit-full-screen { height: 100vh; overflow: auto; }
-#md-content img {
-  max-width: 100%;
-  height: auto;
-}
 /* ==========================================================================
    MD Editor Toolbar - עיצוב חדש כמו view_file
    ========================================================================== */
@@ -499,30 +498,6 @@
   margin-right: 0.5rem !important;  /* שומרים על ימין קיים */
   width: calc(100% - 0.5rem) !important;
 }
-/* טבלאות בסגנון GitHub */
-#md-content table {
-  width: 100%;
-  border-collapse: collapse;
-  overflow: auto;
-  display: block;
-}
-#md-content table th, #md-content table td {
-  padding: 0.5rem 0.75rem;
-}
-/* קוד (fenced) */
-#md-content pre code,
-#md-content pre > code,
-#md-content code.hljs {
-  display: block;
-  padding: 0;
-  border-radius: 0;
-  font-family: 'Fira Code', 'Consolas', monospace;
-  font-size: 16px;
-  line-height: 1.5;
-  white-space: pre !important;
-  word-break: normal !important;
-  overflow-wrap: normal !important;
-}
 #md-content .md-highlight {
   background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);
   color: #000;
@@ -530,147 +505,9 @@
   border-radius: 3px;
   font-weight: 600;
 }
-#md-content pre {
-  overflow-x: auto;
-  max-width: 100%;
-  width: 100%;
-  margin: 1rem 0;
-  border-radius: 12px;
-  padding: 1.25rem clamp(1.5rem, 6vw, 2.25rem) 1.5rem;
-  box-sizing: border-box;
-}
-#md-content .code-block {
-  margin: 1.5rem 0;
-  border: 1px solid var(--md-code-border);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--md-code-shell-bg, var(--md-code-bg));
-  box-shadow: var(--md-code-shadow);
-  position: relative;
-  direction: ltr;
-  text-align: left;
-}
-/* בלוקי קוד עם תוכן בעברית – יישור לימין */
-#md-content pre.rtl-code {
-  direction: rtl;
-  text-align: right;
-}
-#md-content .code-block pre {
-  margin: 0;
-  border-radius: 0;
-  border: none;
-  border-top: 0;
-  box-shadow: none;
-}
-#md-content .hljs { overflow-x: auto; display: block; }
-#md-content .md-code-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  padding: 0.65rem 1.25rem;
-  background: var(--md-code-header-bg);
-  color: var(--md-code-header-text);
-  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
-  font-size: 0.82rem;
-  border-bottom: 1px solid var(--md-code-border);
-}
-#md-content .md-code-lang {
-  text-transform: capitalize;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--md-code-lang-text, var(--md-code-header-text));
-  background: var(--md-code-lang-bg, color-mix(in srgb, var(--md-code-header-text) 12%, transparent));
-  padding: 0.15rem 0.85rem;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  text-shadow: none;
-}
-#md-content .md-copy-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.75rem;
-  font-size: 0.9rem;
-  border-radius: 6px;
-  border: 1px solid var(--md-code-copy-border, transparent);
-  background: var(--md-code-copy-bg);
-  color: var(--md-code-copy-color);
-  cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
-  box-shadow: var(--md-code-copy-shadow, none);
-  opacity: 0.9;
-}
-#md-content .md-copy-btn svg {
-  width: 16px;
-  height: 16px;
-  stroke: currentColor;
-  fill: none;
-}
-#md-content .md-copy-btn .icon-check {
-  display: none;
-}
-#md-content .md-copy-btn:hover,
-#md-content .md-copy-btn:focus-visible {
-  background: var(--md-code-copy-hover-bg);
-  color: var(--md-code-copy-color);
-  transform: translateY(-1px);
-  outline: 2px solid var(--primary, #8b5cf6);
-  outline-offset: 2px;
-  opacity: 1;
-}
-#md-content .md-copy-btn.copied {
-  color: var(--md-code-copy-success-color);
-  background: color-mix(in srgb, var(--md-code-copy-success-color) 18%, transparent);
-  border-color: transparent;
-}
-#md-content .md-copy-btn.copied .icon-copy {
-  display: none;
-}
-#md-content .md-copy-btn.copied .icon-check {
-  display: inline-block;
-}
-#md-content .md-copy-btn.copy-error {
-  color: var(--md-code-copy-error-color);
-  background: color-mix(in srgb, var(--md-code-copy-error-color) 20%, transparent);
-  border-color: transparent;
-}
 #md-content {
   /* לא נחסום גלישה כדי שלא ייחתכו מספרים/תווים מחוץ לקופסה (למשל ברשימות) */
   overflow: visible;
-}
-/* מניעת גלישה אופקית של טקסט מחוץ לקוד/inline-code */
-#md-content p, #md-content li, #md-content blockquote {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-/* מרווח נעים בין פסקאות */
-#md-content p { margin: 0.75rem 0; }
-/* ריווח ברור סביב כותרות משנה כדי למנוע הדבקה לטקסט שלפניהן/אחריהן */
-#md-content h2, #md-content h3, #md-content h4 {
-  margin-top: 1.25rem;
-  margin-bottom: 0.75rem;
-}
-/* ברשימות ממוספרות/תבליטים ב-RTL המספר/סמל יישב בתוך הבלוק, לא מחוצה לו */
-#md-content ol, #md-content ul {
-  /* הצגת התבליט/מספור מחוץ לבלוק כדי ליצור הזחה טבעית */
-  list-style-position: outside;
-  /* ריווח תחתון כדי שלא יידבקו לכותרת/פסקה הבאה */
-  margin-block: 0 1rem;
-  /* הזחה בצד ההתחלה (RTL: ימין) */
-  padding-inline-start: 1.25rem;
-}
-/* רווח עדין בין פריטי רשימה */
-#md-content li { margin: 0.25rem 0; }
-/* רשימות מקוננות – מעט רווח מעל/מתחת */
-#md-content li > ul, #md-content li > ol { margin-block: 0.25rem 0.5rem; }
-#md-content code:not(pre code) {
-  padding: 0.2rem 0.4rem;
-  border-radius: 6px;
-  font-family: 'Fira Code', 'Consolas', monospace;
 }
 #md-content .md-color-token {
   display: inline-flex;
@@ -708,11 +545,6 @@
   outline: 2px solid #ffd700;
   outline-offset: 1px;
 }
-/* ציטוטים */
-#md-content blockquote {
-  margin: 0.75rem 0;
-  padding: 0.5rem 0.75rem;
-}
 /* שם קובץ ארוך – מניעת חריגה במסגרת הכותרת */
 #md-file-name-wrap { min-width: 0; }
 #md-file-name {
@@ -728,44 +560,6 @@
 input.md-task-checkbox {
   margin-inline-end: .5rem;
   transform: scale(1.1);
-}
-/* שיפורי כותרות עם גבולות תחתונים */
-#md-content h1 {
-  font-size: 2.2em;
-  margin-top: 1.5em;
-  margin-bottom: 0.5em;
-  font-weight: 700;
-  border-bottom: 3px solid #e1e4e8;
-  padding-bottom: 0.3em;
-}
-
-#md-content h2 {
-  font-size: 1.8em;
-  font-weight: 600;
-  border-bottom: 2px solid #e1e4e8;
-  padding-bottom: 0.3em;
-}
-
-#md-content h3 {
-  font-size: 1.4em;
-  font-weight: 600;
-}
-
-#md-content h4 {
-  font-size: 1.2em;
-  font-weight: 500;
-}
-
-/* שבירת שורות לכותרות ארוכות בתצוגת Markdown */
-#md-content h1,
-#md-content h2,
-#md-content h3,
-#md-content h4,
-#md-content h5,
-#md-content h6 {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 /* אנימציות כניסה עדינות */
@@ -802,18 +596,6 @@ input.md-task-checkbox {
 
 /* הקישורים — הצבע, הקו שמתרחב בריחוף, ו-High Contrast — ב-md-content-colors.css, משותפים לתצוגת המסמך ולתצוגה החיה. */
 
-/* קישורי עוגן (permalink) */
-#md-content .header-anchor {
-  opacity: 0;
-  transition: opacity 0.2s;
-  margin-left: 0.5em;
-}
-
-#md-content h1:hover .header-anchor,
-#md-content h2:hover .header-anchor,
-#md-content h3:hover .header-anchor {
-  opacity: 1;
-}
 
 /* כותרת או עוגן שגוללים אליהם (תוכן העניינים, קישור לכותרת, עוגן מפורש) נוחתים
    מתחת לסרגל העליון כשהוא צמוד — כלומר בזמן חיפוש, באותו תנאי של
@@ -1649,6 +1431,7 @@ input.md-task-checkbox {
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-math-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/md-code-blocks.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/safe-highlight.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/restore-version.js') }}?v={{ static_version }}"></script>
@@ -2557,129 +2340,17 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         setTimeout(() => { try { document.body.removeChild(announcement); } catch(_){} }, 1000);
       } catch(_) {}
     }
-    // כפתור העתקה משופר לכל בלוק קוד + נגישות מלאה
+    // בלוקי קוד: מסגרת, פס כותרת עם שם השפה וכפתור העתקה — webapp/static/js/md-code-blocks.js, המשותף לתצוגה
+    // החיה. אחרי ה-Mermaid שלמעלה, כך שבלוק ```mermaid כבר הוחלף בתרשים ולא נעטף.
     try {
-      const FALLBACK_LANG = (document.documentElement && document.documentElement.dir === 'rtl') ? 'טקסט' : 'Text';
-      function showCopySuccess(btn) {
-        try {
-          btn.classList.remove('copy-error');
-          btn.classList.add('copied');
-          setTimeout(() => btn.classList.remove('copied'), 1800);
-        } catch(_) {}
-      }
-      function showCopyError(btn) {
-        try {
-          btn.classList.remove('copied');
-          btn.classList.add('copy-error');
-          setTimeout(() => btn.classList.remove('copy-error'), 1800);
-        } catch(_) {}
-      }
-      function detectLanguage(pre) {
-        try {
-          const code = pre.querySelector('code');
-          let lang = null;
-          if (code) {
-            lang = code.getAttribute('data-language') || code.getAttribute('data-lang');
-            if (!lang && code.dataset) {
-              lang = code.dataset.language || code.dataset.lang || null;
-            }
-            if (!lang) {
-              const classes = (code.className || '').split(/\s+/);
-              for (const cls of classes) {
-                if (!cls) continue;
-                if (cls.startsWith('language-')) { lang = cls.replace(/^language-/, ''); break; }
-                if (cls.startsWith('lang-')) { lang = cls.replace(/^lang-/, ''); break; }
-              }
-            }
-          }
-          if (!lang && pre.className) {
-            const preClasses = pre.className.split(/\s+/);
-            for (const cls of preClasses) {
-              if (!cls) continue;
-              if (cls.startsWith('language-')) { lang = cls.replace(/^language-/, ''); break; }
-              if (cls.startsWith('lang-')) { lang = cls.replace(/^lang-/, ''); break; }
-            }
-          }
-          if (!lang) return FALLBACK_LANG;
-          lang = lang.replace(/[-_]+/g, ' ').trim();
-          if (!lang) return FALLBACK_LANG;
-          return lang.replace(/\b\w/g, (ch) => ch.toUpperCase());
-        } catch(_) {
-          return FALLBACK_LANG;
-        }
-      }
-      function addCopyButtons() {
-        const pres = document.querySelectorAll('#md-content pre');
-        pres.forEach(pre => {
-          let wrapper = pre.parentElement;
-          if (!wrapper || !wrapper.classList || !wrapper.classList.contains('code-block')) {
-            wrapper = document.createElement('div');
-            wrapper.className = 'code-block';
-            pre.replaceWith(wrapper);
-            wrapper.appendChild(pre);
-          }
-          let header = wrapper.querySelector('.md-code-header');
-          if (!header) {
-            header = document.createElement('div');
-            header.className = 'md-code-header';
-            wrapper.insertBefore(header, pre);
-          }
-          let langEl = header.querySelector('.md-code-lang');
-          if (!langEl) {
-            langEl = document.createElement('span');
-            langEl.className = 'md-code-lang';
-            header.insertBefore(langEl, header.firstChild || null);
-          }
-          langEl.textContent = detectLanguage(pre);
-          let btn = header.querySelector('.md-copy-btn');
-          if (!btn) {
-            btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'md-copy-btn';
-            btn.setAttribute('aria-label', 'העתק קוד');
-            btn.setAttribute('title', 'העתק קוד');
-            btn.innerHTML = `
-              <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-              </svg>
-              <svg class="icon-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              <span class="sr-only">העתק קוד</span>
-            `;
-            btn.addEventListener('click', async () => {
-              // textContent ולא innerText: innerText נגזר מהפריסה, ומוסיף ירידת
-              // שורה בכל גבול של אלמנט בלוק. בבלוק עברי עם קוד פנימי, העטיפה של
-              // wrapInnerFences היא אלמנט בלוק, ו-innerText הוסיף שורה ריקה לפני
-              // הקטע ואחריו (נמדד ב-Chromium 141). textContent הוא התווים עצמם.
-              const code = pre.querySelector('code')?.textContent || pre.textContent;
-              try {
-                await navigator.clipboard.writeText(code);
-                showCopySuccess(btn);
-                announceToScreenReader('הקוד הועתק ללוח');
-              } catch(_) {
-                if (fallbackCopy(code)) {
-                  showCopySuccess(btn);
-                  announceToScreenReader('הקוד הועתק ללוח');
-                } else {
-                  showCopyError(btn);
-                  announceToScreenReader('ההעתקה נכשלה');
-                }
-              }
-            });
-            btn.addEventListener('keydown', (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                btn.click();
-              }
-            });
-            header.appendChild(btn);
-          }
-        });
-      }
-      addCopyButtons();
-    } catch(_){ }
+      // ``fallbackCopy`` מוגדרת בסקריפט מאוחר יותר בעמוד, ולכן נקראת רק בזמן הלחיצה — כמו עד היום.
+      window.MdCodeBlocks.enhance(container, {
+        announce: announceToScreenReader,
+        fallbackCopy: (text) => fallbackCopy(text),
+      });
+    } catch (err) {
+      console.warn('md_preview: code blocks failed', err);
+    }
 
     // Permalinks נגישים: העתקת קישור כותרת בלחיצה ומשוב ידידותי
     try {

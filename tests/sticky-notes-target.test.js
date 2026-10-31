@@ -3254,11 +3254,15 @@ check('חיווט: כל תבנית שטוענת live-preview.js טוענת גם 
   });
 });
 
-check('חיווט: כל תבנית שטוענת live-preview.js מספקת גם את ההדגשה ואת האייקון של כפתור ההעתקה', () => {
-  // ``highlightBlocks`` ב-``live-preview.js`` מדגיש רק ``if (window.SafeHighlight)``, ומציב
-  // בכפתור ההעתקה ``<i class="bi bi-clipboard">``. בעמוד שלא טוען את ``safe-highlight.js`` אין
-  // הדגשה, ובעמוד שלא טוען את האייקונים של Bootstrap הכפתור ריק — בשני המקרים בלי שגיאה. כך
-  // היה בעמוד העריכה ובעמוד ההעלאה, עד שהתלויות שלהם עברו ל-partials.
+check('חיווט: כל תבנית שטוענת live-preview.js מספקת גם את ההדגשה ואת כפתור ההעתקה שהיא בונה', () => {
+  // ``highlightBlocks`` ב-``live-preview.js`` מדגיש רק ``if (window.SafeHighlight)``. בעמוד שלא טוען
+  // את ``safe-highlight.js`` אין הדגשה — בלי שגיאה. כך היה בעמוד העריכה ובעמוד ההעלאה, עד שהתלויות
+  // שלהם עברו ל-partials.
+  //
+  // **וכפתור ההעתקה תלוי בעמוד.** עמודי ה-Split View (``#livePreviewRoot``) בונים את בלוק הקוד של
+  // המסמך דרך ``md-code-blocks.js`` (``enhance`` עם ``documentCodeBlocks``) — בלעדיו הבלוק נשאר בלי
+  // מסגרת ובלי כפתור, והתצוגה רק מתריעה בקונסול. דפדפן הריפו וכרטיסי החיפוש בתיעוד שומרים על הכפתור
+  // הקטן, שמציב ``<i class="bi bi-clipboard">`` — ובלי האייקונים של Bootstrap הוא ריק.
   const loaders = liveLoaders();
   eq(loaders.length >= 4, true, 'נמצאו התבניות שטוענות את התצוגה החיה (' + loaders.length + ')');
   loaders.forEach(({ name, src }) => {
@@ -3268,9 +3272,25 @@ check('חיווט: כל תבנית שטוענת live-preview.js מספקת גם 
     eq(safe < live, true, name + ' טוען אותו לפני live-preview.js');
     eq(cacheBusted(src, 'js/utils/safe-highlight.js'), true,
        name + ' טוען אותו עם ?v=static_version');
-    eq(/<link\b[^>]*\bhref="[^"]*\/bootstrap-icons(?:\.min)?\.css"/.test(src), true,
-       name + ' טוען את האייקונים של Bootstrap');
+    if (src.includes('id="livePreviewRoot"')) {
+      const blocks = src.indexOf("filename='js/md-code-blocks.js'");
+      eq(blocks !== -1, true, name + ' טוען את md-code-blocks.js');
+      eq(blocks < live, true, name + ' טוען אותו לפני live-preview.js');
+      eq(cacheBusted(src, 'js/md-code-blocks.js'), true, name + ' טוען אותו עם ?v=static_version');
+    } else {
+      eq(/<link\b[^>]*\bhref="[^"]*\/bootstrap-icons(?:\.min)?\.css"/.test(src), true,
+         name + ' טוען את האייקונים של Bootstrap');
+    }
   });
+});
+
+check('חיווט: בלוק הקוד של תצוגת המסמך נבנה מ-md-code-blocks.js, ולא מעותק בתבנית', () => {
+  // **עותק אחד.** הבלוק נבנה פעם ב-``addCopyButtons`` בתוך ``md_preview.html``, והתצוגה החיה בנתה
+  // במקומו כפתור משלה — ושני העותקים נסחפו. עותק שיחזור לתבנית היה עובר כל בדיקה אחרת כאן.
+  const src = readTemplate(path.join(TEMPLATES_DIR, 'md_preview.html'));
+  eq(cacheBusted(src, 'js/md-code-blocks.js'), true, 'md_preview.html טוען את md-code-blocks.js עם ?v=static_version');
+  eq(src.includes('window.MdCodeBlocks.enhance('), true, 'md_preview.html קורא ל-MdCodeBlocks.enhance');
+  eq(/function\s+addCopyButtons\b/.test(src), false, 'md_preview.html אינו מגדיר addCopyButtons משלו');
 });
 
 check('חיווט: כל עמוד עם Split View מקבל את התלויות של התצוגה החיה מה-partials, ולא מרשימה משלו', () => {

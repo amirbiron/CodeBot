@@ -19,11 +19,16 @@ Markdown ישב ב-``<style>`` הפנימי של ``md_preview.html``, ועמוד
 בדיוק כמו משתמש.
 
 **הבאג השני שהקובץ שומר עליו: בלוק קוד (```).** ב-``live-preview.js``,
-``highlightBlocks`` מדגיש רק דרך ``window.SafeHighlight`` ומוסיף כפתור העתקה עם אייקון
-של Bootstrap. שני העמודים לא טענו את ``safe-highlight.js`` ולא את האייקונים, ולבלוק
-לא היה עיצוב: הקוד נראה כמו טקסט בגופן מונו, בלי צבעים, והכפתור יצא ריבוע ריק של 4×4
-פיקסלים מתחת לקוד (נמדד לפני התיקון). ``code_measured`` מודד בלוקים בשני העמודים ובכל
-ערכה — שורה ארוכה, בלוק עברי, ושפה ש-highlight.js לא מכיר.
+``highlightBlocks`` מדגיש רק דרך ``window.SafeHighlight``. שני העמודים לא טענו את
+``safe-highlight.js``, ולבלוק לא היה עיצוב: הקוד נראה כמו טקסט בגופן מונו, בלי צבעים (נמדד
+לפני התיקון). מאז הבלוק הוא הבלוק של תצוגת המסמך — מסגרת, פס כותרת עם שם השפה וכפתור העתקה,
+מ-``md-code-blocks.js`` ומ-``md-content-layout.css``. ``code_measured`` מודד בלוקים בשני העמודים
+ובכל ערכה — שורה ארוכה, בלוק עברי, ושפה ש-highlight.js לא מכיר.
+
+**ומה כבר לא נבדק כאן: שהפריסה של התצוגה החיה נכונה בפני עצמה.** הפריסה של התוכן היא של
+המסמך (``md-content-layout.css``), ו-``tests/test_live_preview_paper_browser.py`` משווה אותה,
+יחד עם הצבעים, לתצוגת המסמך. הבדיקות כאן שומרות על מה שהמשתמש רואה: ציטוט שנראה כציטוט,
+רשימה עם תבליטים, טבלה עם קווים, ובלוק קוד שאפשר לקרוא ולהעתיק.
 
 מדולג כשאין Chromium.
 """
@@ -251,7 +256,6 @@ MEASURE_JS = """() => {
     const paras = canvas.querySelectorAll(':scope > p');
     const li = canvas.querySelector('li');
     const td = canvas.querySelector('td');
-    const admonitionP = canvas.querySelector('.admonition-content > p');
     const status = document.querySelector('[data-preview-status]');
     const inner = quote.querySelector('p') || quote;
     // RTL: תחילת השורה היא הקצה הימני.
@@ -268,7 +272,6 @@ MEASURE_JS = """() => {
         listInset: li ? para.getBoundingClientRect().right - li.getBoundingClientRect().right : null,
         cellBorderWidth: td ? parseFloat(getComputedStyle(td).borderTopWidth) : null,
         cellBorderStyle: td ? getComputedStyle(td).borderTopStyle : null,
-        admonitionFirstMarginTop: admonitionP ? getComputedStyle(admonitionP).marginTop : null,
         statusMargin: getComputedStyle(status).margin,
         quoteColor: qs.color,
         tables: Array.from(canvas.querySelectorAll('table')).map((table) => ({
@@ -422,16 +425,6 @@ def test_table_cells_have_borders(measured, theme):
     )
 
 
-def test_admonitions_keep_their_own_spacing(measured):
-    """הכללים עטופים ב-``:where()`` כדי שלא ינצחו את ``markdown-enhanced.css``.
-
-    שם ``.admonition-content > *:first-child`` מאפס את השוליים העליונים של
-    הפסקה הראשונה. כלל ``p`` בספציפיות מלאה היה דורס אותו ומזיז את התוכן
-    של כל אדמוניציה — והאדמוניציות הן בדיוק מה שעבד לפני התיקון.
-    """
-    assert measured["dark"]["admonitionFirstMarginTop"] == "0px", measured["dark"]["admonitionFirstMarginTop"]
-
-
 def test_the_status_line_is_outside_the_markdown_scope(measured):
     """שורת הסטטוס היא ``<p>`` בתוך ``.split-preview-content`` אבל מחוץ ל-canvas."""
     assert measured["dark"]["statusMargin"] == "0px", measured["dark"]["statusMargin"]
@@ -509,8 +502,10 @@ CODE_MARKDOWN = (
     "פסקה אחרי הקוד.\n"
 )
 
-#: מודד כל ``pre`` בתצוגה. הגיאומטריה נמדדת אחרי ``scrollIntoView``, כדי ש-
-#: ``elementFromPoint`` יראה את הכפתור בתוך חלון הגלילה של ה-canvas.
+#: מודד כל ``pre`` בתצוגה, ואת הבלוק של תצוגת המסמך שעוטף אותו (``.code-block`` עם ``.md-code-header``,
+#: מ-``md-code-blocks.js``). הגיאומטריה נמדדת אחרי ``scrollIntoView``, כדי ש-``elementFromPoint`` יראה את
+#: הכפתור בתוך חלון הגלילה של ה-canvas. ``scroller`` — האלמנט שהשורה הארוכה נגללת בו: ה-``code`` כש-
+#: highlight.js עיצב אותו (``#md-content .hljs`` עם ``overflow-x``), אחרת ה-``pre``.
 MEASURE_CODE_JS = """() => {
     const canvas = document.querySelector('[data-preview-canvas]');
     const box = (el) => {
@@ -518,45 +513,49 @@ MEASURE_CODE_JS = """() => {
         return { top: r.top, right: r.right, bottom: r.bottom, left: r.left, width: r.width, height: r.height };
     };
     const blocks = Array.from(canvas.querySelectorAll('pre')).map((pre) => {
-        pre.scrollIntoView({ block: 'center' });
+        const shell = pre.closest('.code-block');
+        (shell || pre).scrollIntoView({ block: 'center' });
         const code = pre.querySelector('code');
-        const btn = pre.querySelector('.code-copy-btn');
+        const header = shell ? shell.querySelector('.md-code-header') : null;
+        const lang = header ? header.querySelector('.md-code-lang') : null;
+        const btn = header ? header.querySelector('.md-copy-btn') : null;
+        const ss = shell ? getComputedStyle(shell) : null;
         const ps = getComputedStyle(pre);
         const cs = getComputedStyle(code);
         const keyword = code.querySelector('.hljs-keyword');
+        const scroller = [code, pre].find((el) => el.scrollWidth > el.clientWidth) || null;
         const out = {
+            shell: !!shell,
+            legacyButton: !!pre.querySelector('.code-copy-btn'),
             preClass: pre.className,
             codeClass: code.className,
             direction: ps.direction,
-            bg: ps.backgroundColor,
-            borderWidth: parseFloat(ps.borderTopWidth),
-            borderStyle: ps.borderTopStyle,
-            radius: parseFloat(ps.borderTopLeftRadius),
+            bg: ss ? ss.backgroundColor : null,
+            borderWidth: ss ? parseFloat(ss.borderTopWidth) : 0,
+            borderStyle: ss ? ss.borderTopStyle : null,
+            radius: ss ? parseFloat(ss.borderTopLeftRadius) : 0,
+            margin: ss ? [parseFloat(ss.marginTop), parseFloat(ss.marginBottom)] : [0, 0],
             padding: [ps.paddingTop, ps.paddingRight, ps.paddingBottom, ps.paddingLeft].map(parseFloat),
-            margin: [parseFloat(ps.marginTop), parseFloat(ps.marginBottom)],
             codeBg: cs.backgroundColor,
             codePadding: [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map(parseFloat),
             spans: code.querySelectorAll('[class^="hljs-"], [class*=" hljs-"]').length,
             keywordColor: keyword ? getComputedStyle(keyword).color : null,
-            pre: box(pre),
+            lang: lang ? lang.textContent : null,
+            shellBox: shell ? box(shell) : null,
             code: box(code),
-            codeScrollWidth: code.scrollWidth,
-            codeClientWidth: code.clientWidth,
-            preScrollWidth: pre.scrollWidth,
-            preClientWidth: pre.clientWidth,
+            scroller: scroller ? (scroller === code ? 'code' : 'pre') : null,
             btn: null,
         };
         if (btn) {
             const b = box(btn);
             const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
-            out.btn = Object.assign(b, {
-                position: getComputedStyle(btn).position,
-                hittable: !!(hit && hit.closest('.code-copy-btn') === btn),
-            });
-            code.scrollLeft = 200;
-            out.scrolledBy = code.scrollLeft;
-            out.btnAfterScroll = box(btn);
-            code.scrollLeft = 0;
+            out.btn = Object.assign(b, { hittable: !!(hit && hit.closest('.md-copy-btn') === btn) });
+            if (scroller) {
+                scroller.scrollLeft = 200;
+                out.scrolledBy = scroller.scrollLeft;
+                out.btnAfterScroll = box(btn);
+                scroller.scrollLeft = 0;
+            }
         }
         return out;
     });
@@ -589,10 +588,13 @@ def _blocks(code_measured, case):
 
 @pytest.mark.parametrize("case", CODE_CASES)
 def test_code_block_is_a_visible_box(code_measured, case):
-    """רקע שנבדל מהתצוגה, מסגרת, פינות מעוגלות, ריפוד וריווח מסביב — בכל בלוק."""
+    """הבלוק של תצוגת המסמך (``.code-block``): רקע שנבדל מהתצוגה, מסגרת, פינות מעוגלות, ריפוד וריווח
+    מסביב — בכל בלוק. ובלי הכפתור הקטן של דפדפן הריפו בפינת ה-``pre``."""
     preview_bg = code_measured[case]["previewBg"]
     for i, b in enumerate(_blocks(code_measured, case)):
         where = f"{case}, בלוק {i}"
+        assert b["shell"], f"{where}: ה-pre לא עטוף ב-.code-block"
+        assert not b["legacyButton"], f"{where}: הכפתור הקטן (.code-copy-btn) עדיין בתוך ה-pre"
         assert _alpha(b["bg"]) > 0 and b["bg"] != preview_bg, f"{where}: אין רקע לבלוק ({b['bg']})"
         assert b["borderWidth"] >= 1 and b["borderStyle"] == "solid", f"{where}: אין מסגרת"
         assert b["radius"] >= 4, f"{where}: פינות ישרות ({b['radius']}px)"
@@ -629,37 +631,38 @@ def test_an_imported_theme_keeps_its_own_syntax_colors(code_measured, imported_t
 
 
 @pytest.mark.parametrize("case", CODE_CASES)
-def test_the_copy_button_sits_in_a_strip_at_the_top_right(code_measured, case):
-    """הכפתור בראש הבלוק מימין, מעל השורה הראשונה ולא עליה, ואפשר ללחוץ עליו.
+def test_the_copy_button_sits_in_the_header_strip_on_the_right(code_measured, case):
+    """הכפתור בפס הכותרת של הבלוק, מעל הקוד ולא עליו, בצד ימין, ואפשר ללחוץ עליו — ולידו שם השפה.
 
-    כולל הבלוק העברי, שהכיוון שלו rtl: שם הכפתור נשאר מימין, כמו בתצוגת המסמך.
+    כולל הבלוק העברי, שהכיוון שלו rtl: פס הכותרת יורש ``direction: ltr`` מ-``.code-block``, ולכן
+    הכפתור מימין גם שם, כמו בתצוגת המסמך.
     """
     blocks = _blocks(code_measured, case)
     assert any(b["direction"] == "rtl" for b in blocks), f"{case}: אין בלוק rtl — הפריסה השנייה לא נמדדת"
+    assert blocks[0]["lang"] == "Python", f"{case}: שם השפה של בלוק python הוא {blocks[0]['lang']!r}"
     for i, b in enumerate(blocks):
         where = f"{case}, בלוק {i} ({b['direction']})"
         btn = b["btn"]
-        assert btn, f"{where}: אין כפתור העתקה"
-        assert btn["position"] == "absolute", f"{where}: הכפתור לא ממוקם ({btn['position']})"
+        assert btn, f"{where}: אין כפתור העתקה בפס הכותרת"
+        assert b["lang"], f"{where}: אין שם שפה בפס הכותרת"
         assert btn["width"] >= 24 and btn["height"] >= 24, f"{where}: כפתור קטן ({btn['width']}×{btn['height']})"
-        assert 4 <= btn["top"] - b["pre"]["top"] <= 16, f"{where}: הכפתור לא בראש הבלוק"
-        assert 4 <= b["pre"]["right"] - btn["right"] <= 16, f"{where}: הכפתור לא בצד ימין"
+        assert btn["top"] - b["shellBox"]["top"] <= 24, f"{where}: הכפתור לא בראש הבלוק"
+        assert b["shellBox"]["right"] - btn["right"] <= 32, f"{where}: הכפתור לא בצד ימין"
         assert btn["bottom"] <= b["code"]["top"], f"{where}: הכפתור מכסה את הקוד"
         assert btn["hittable"], f"{where}: משהו מכסה את הכפתור"
 
 
 @pytest.mark.parametrize("case", CODE_CASES)
 def test_a_long_line_scrolls_inside_the_block(code_measured, case):
-    """השורה הארוכה נגללת בתוך ה-``code``, והכפתור לא נגלל איתה.
+    """השורה הארוכה נגללת בתוך הבלוק, והכפתור — בפס הכותרת — לא נגלל איתה.
 
     בלי גלילה משלו, הבלוק דחף את כל ה-canvas לגלילה אופקית (נמדד לפני התיקון).
     """
     m = code_measured[case]
     long = _blocks(code_measured, case)[1]
-    assert long["codeScrollWidth"] > long["codeClientWidth"], "השורה לא ארוכה מהבלוק — הבדיקה לא מודדת כלום"
-    assert long["preScrollWidth"] <= long["preClientWidth"], "ה-pre עצמו נגלל"
+    assert long["scroller"], "השורה לא ארוכה מהבלוק — הבדיקה לא מודדת כלום"
     assert m["canvasScrollWidth"] <= m["canvasClientWidth"], (
         f"ה-canvas נגלל אופקית ({m['canvasScrollWidth']} > {m['canvasClientWidth']})"
     )
-    assert long["scrolledBy"] > 0, "ה-code לא נגלל"
+    assert long["scrolledBy"] > 0, f"ה-{long['scroller']} לא נגלל"
     assert long["btnAfterScroll"]["left"] == long["btn"]["left"], "הכפתור זז עם הגלילה"

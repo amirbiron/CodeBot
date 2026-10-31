@@ -11,6 +11,10 @@
   הסדר מחייב: כולם ``defer``, כלומר רצים לפי הסדר כאן, וכל אחד לפני ``live-preview.js``.
   ``safe-highlight.js`` אחרי הבאנדל — אז ``window.hljs`` כבר קיים, וה-patch שלו על
   ``highlightAuto`` חל מיד.
+
+  ``md-code-blocks.js`` בונה את בלוק הקוד של המסמך — מסגרת, פס כותרת עם שם השפה וכפתור העתקה — אותו
+  קובץ ש-``md_preview.html`` טוען. ``live-preview.js`` קורא לו מ-``enhance`` עם
+  ``documentCodeBlocks: true``, ובלעדיו מתריע בקונסול.
 #}
 <script src="{{ url_for('static', filename='js/md_preview.bundle.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}" defer></script>
@@ -19,4 +23,5 @@
 <script src="{{ url_for('static', filename='js/md-anchors.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md-math-plugin.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/md-code-blocks.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/live-preview.js') }}?v={{ static_version }}" defer></script>

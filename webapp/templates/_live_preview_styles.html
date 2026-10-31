@@ -3,23 +3,24 @@
 
   נכלל מ-``extra_css`` של ``edit_file.html`` ושל ``upload.html``, יחד עם
   ``_live_preview_scripts.html`` ב-``extra_js``. **למה partial ולא רשימה בכל עמוד:** עד הקובץ הזה
-  כל עמוד החזיק עותק משלו של רשימת התלויות, ושני העותקים חסרו את אותם שלושה דברים — הדגשת
-  התחביר רצה רק אם ``window.SafeHighlight`` קיים, לכפתור ההעתקה שבונה ``highlightBlocks`` לא היה
-  עיצוב, והאייקון שבתוכו (``bi bi-clipboard``) לא נטען. תלות חדשה של התצוגה החיה נכנסת כאן,
-  ו-``tests/sticky-notes-target.test.js`` בודק שכל תבנית שטוענת את ``live-preview.js`` מספקת אותה.
+  כל עמוד החזיק עותק משלו של רשימת התלויות, ושני העותקים חסרו את אותם דברים — הדגשת התחביר רצה
+  רק אם ``window.SafeHighlight`` קיים, ולכפתור ההעתקה לא היה עיצוב. תלות חדשה של התצוגה החיה נכנסת
+  כאן, ו-``tests/sticky-notes-target.test.js`` בודק שכל תבנית שטוענת את ``live-preview.js`` מספקת אותה.
 
-  - ``split-view.css`` — הרכיב עצמו, ושכבת התוכן של ה-Markdown בתצוגה החיה (כולל בלוקי קוד וכפתור
-    ההעתקה).
+  - ``split-view.css`` — הרכיב עצמו: הפאנלים, הסרגל, המכל של התצוגה ושורות הסטטוס, ומצבי הקוד וה-HTML.
   - ``md_preview.bundle.css`` — הצבעים של highlight.js מהבאנדל, ו-CSS של KaTeX. אותו קובץ שתצוגת
     המסמך (``md_preview.html``) טוענת.
-  - ``md-content-colors.css`` — הצבעים של המסמך: הנייר, צבעי התחביר, קוד בשורה, ציטוט, טבלה, סימון
-    וקישורים. אותו קובץ שתצוגת המסמך טוענת, ולכן התצוגה החיה בצבעים של המסמך בכל ערכה. הסדר מול
-    הבאנדל אינו מכריע: הכללים שלו (``#md-content …``) גוברים על כללי הבאנדל בספציפיות, ובתצוגת
-    המסמך הבאנדל אף נטען אחריו.
-  - האייקונים של Bootstrap — ``highlightBlocks`` ב-``live-preview.js`` מציב ``bi-clipboard`` בכפתור,
-    ואת ``bi-check2`` אחרי העתקה. אותה כתובת כמו ב-``files.html`` וב-``repo/base_repo.html``.
+  - ``md-content-colors.css`` ו-``md-content-layout.css`` — הצבעים והפריסה של המסמך: הנייר, צבעי
+    התחביר, קוד בשורה, בלוק קוד עם פס הכותרת שלו, טבלאות, כותרות, רשימות, ציטוטים וקישורים. אותם
+    קבצים שתצוגת המסמך טוענת, ולכן התצוגה החיה נראית כמו המסמך בכל ערכה. הסדר מול הבאנדל אינו
+    מכריע: הכללים שלהם (``#md-content …``) גוברים על כללי הבאנדל בספציפיות, ובתצוגת המסמך הבאנדל
+    אף נטען אחריהם.
+
+  אין כאן את האייקונים של Bootstrap: הם שימשו רק את הכפתור הקטן בפינת ה-``pre``
+  (``bi-clipboard``), והתצוגה החיה בונה במקומו את בלוק הקוד של המסמך (``md-code-blocks.js``), שהאייקונים
+  שלו SVG בתוך הכפתור. דפדפן הריפו וכרטיסי החיפוש בתיעוד, שעוד משתמשים בכפתור הקטן, טוענים אותם בעצמם.
 #}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/split-view.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/md_preview.bundle.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/md-content-colors.css') }}?v={{ static_version }}">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/md-content-layout.css') }}?v={{ static_version }}">

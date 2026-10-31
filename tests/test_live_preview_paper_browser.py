@@ -1,4 +1,4 @@
-"""התצוגה החיה של Markdown מציגה את הצבעים של תצוגת המסמך — בכל ערכה.
+"""התצוגה החיה של Markdown נראית כמו תצוגת המסמך — בצבעים ובפריסה, בכל ערכה.
 
 **הבאג שהקובץ הזה נולד ממנו.** התצוגה החיה בעמודי העריכה וההעלאה הוצגה על רקע כהה קבוע בכל ערכה —
 גם בערכות הבהירות, ובערכה מיובאת ב-``#1e1e1e`` במקום הרקע של הערכה. שתי סיבות:
@@ -13,17 +13,25 @@
 במצב Markdown צובע את עצמו בנייר של המסמך (``.split-preview-content[data-mode="markdown"]`` ב-
 ``split-view.css``).
 
+**והבאג השני: הפריסה.** גם הפריסה של התצוגה החיה הייתה עותק משלה ב-``split-view.css``, והוא נסחף:
+קוד בשורה קיבל ``word-break: break-word``, ובטבלה עמודה עם קוד נשברה כל כמה אותיות (בטבלת הכלים —
+``codekeeper_list_repos`` בשלוש שורות), בזמן שבתצוגת המסמך אותו קוד נשאר בשורה אחת והטבלה נגללה; ובלוק
+קוד נבנה שם עם כפתור קטן בפינה, כמו בדפדפן הריפו. היום הפריסה של המסמך יושבת ב-``md-content-layout.css``,
+ובלוק הקוד — מסגרת, פס כותרת עם שם השפה וכפתור העתקה — נבנה ב-``md-code-blocks.js``, בשתי התצוגות.
+
 **מה נבדק.** לכל ערכה: הנייר — הרקע והטקסט של אזור התצוגה כולו שווים לאלה של ``#md-content``
-בתצוגת המסמך; הדיו — הצבעים של האלמנטים ש-markdown-it מייצר שווים בין שתי התצוגות; שאין תווית
-``data-theme`` על המכל; ושמה שקיים רק בתצוגה החיה — שורת המידע וכפתור ההעתקה — קריא.
+בתצוגת המסמך; הצבעים והפריסה של האלמנטים ש-markdown-it מייצר, ושל בלוק הקוד, שווים בין שתי התצוגות;
+קוד בשורה בתוך טבלה נשאר בשורה אחת; שאין תווית ``data-theme`` על המכל; ושמה שקיים רק בתצוגה החיה —
+שורת המידע — קריא, וגם כפתור ההעתקה.
 
 **איך נבנית תצוגת המסמך (T1).** מאותו מפל שהשרת מרכיב: ה-``<head>`` של ``base.html``, ובמקום
 ``extra_css`` הבלוק של ``md_preview.html`` (``build_head`` של ``test_live_preview_blockquote_browser``).
-התוכן של ``#md-content`` הוא ה-HTML שהתצוגה החיה רינדרה באותה ערכה, כך ששתי התצוגות נמדדות על אותו
-DOM. מה שתצוגת המסמך בונה בנוסף ב-JS שלה — פס הכותרת של בלוק קוד עם שם השפה וכפתור משלו — אינו כאן,
-וגם לא בתצוגה החיה.
+התוכן של ``#md-content`` הוא ה-HTML שהתצוגה החיה רינדרה באותה ערכה, כולל בלוק הקוד שבנה
+``md-code-blocks.js``, כך ששתי התצוגות נמדדות על אותו DOM. שתצוגת המסמך עצמה בונה את הבלוק מאותו
+מודול — ``tests/sticky-notes-target.test.js`` בודק שהיא טוענת אותו וקוראת לו, ואין לה עותק משלה.
 
-**לא נבדק כאן:** פריסה — גדלים, ריווח, הקו התחתון של כותרות — ובורר הרקע של תצוגת המסמך
+**לא נבדק כאן:** רוחבים וגבהים — חלון התצוגה החיה הוא חצי מסך, ולכן טבלה וטקסט נשברים בו אחרת גם
+כשהכללים זהים; אנימציית הכניסה, שקיימת בכוונה רק בתצוגת המסמך; ובורר הרקע של תצוגת המסמך
 (``bg-sepia`` ודומיו), שקיים רק שם.
 
 מדולג כשאין Chromium.
@@ -86,11 +94,20 @@ MARKDOWN = (
     "> ציטוט עם שורה.\n\n"
     "- פריט ראשון\n- פריט שני\n\n"
     "| עמודה | ב |\n|---|---|\n| 1 | 2 |\n\n"
-    "```python\ndef f(x):\n    s = 'מחרוזת'  # הערה\n    return x\n```\n"
+    "```python\ndef f(x):\n    s = 'מחרוזת'  # הערה\n    return x\n```\n\n"
+    "::: note\nפסקה בתוך אדמוניציה.\n:::\n\n"
+    # הטבלאות מהדיווח: קוד בשורה בעמודה צרה, ומחרוזת ארוכה בלי רווחים לידה.
+    "| כלי | תיאור |\n|---|---|\n"
+    "| `codekeeper_list_repos` | רשימת הריפואים המשוקפים (מטא-דאטה) |\n"
+    "| `codekeeper_list_repo_tree` | נתיבי קבצים בריפו, עם עימוד וסינון לפי תיקייה |\n\n"
+    "| כלי | ערך ארוך | תיאור |\n|---|---|---|\n"
+    "| טוקן לדוגמה | `"
+    + "a8f3e9c1b7d24f6a90e5c3b8d1f7a2e4" * 3
+    + "` | תיאור רגיל שאמור להתפרס על פני כמה שורות |\n"
 )
 
 #: האלמנטים שמושווים, יחסית לשורש — ה-canvas בתצוגה החיה, ``#md-content`` בתצוגת המסמך.
-INK_SELECTORS = [
+SELECTORS = [
     "h1",
     "h2",
     ":scope > p",
@@ -110,13 +127,38 @@ INK_SELECTORS = [
     ".hljs-keyword",
     ".hljs-string",
     ".hljs-comment",
+    ".code-block",
+    ".md-code-header",
+    ".md-code-lang",
+    ".md-copy-btn",
+    "td > code",
+    ".admonition-content > p",
 ]
-INK_PROPS = [
+#: צבע, ואחריו פריסה. רוחבים וגבהים — לא: ראו ה-docstring.
+PROPS = [
     "color",
     "background-color",
     "border-top-color",
     "border-inline-start-color",
     "text-decoration-color",
+    "font-size",
+    "font-family",
+    "font-weight",
+    "line-height",
+    "display",
+    "direction",
+    "text-align",
+    "white-space",
+    "word-break",
+    "overflow-wrap",
+    "margin-top",
+    "margin-bottom",
+    "padding-top",
+    "padding-inline-start",
+    "border-top-width",
+    "border-inline-start-width",
+    "border-top-left-radius",
+    "list-style-position",
 ]
 
 _STYLES_JS = """(root) => {
@@ -129,8 +171,8 @@ _STYLES_JS = """(root) => {
   }
   return out;
 }""" % (
-    repr([":scope", *INK_SELECTORS]).replace("'", '"'),
-    repr(INK_PROPS).replace("'", '"'),
+    repr([":scope", *SELECTORS]).replace("'", '"'),
+    repr(PROPS).replace("'", '"'),
 )
 
 LIVE_JS = (
@@ -139,7 +181,19 @@ LIVE_JS = (
   const box = document.querySelector('[data-preview-content]');
   const canvas = document.querySelector('[data-preview-canvas]');
   const s = getComputedStyle(box);
-  const btn = canvas.querySelector('.code-copy-btn');
+  const btn = canvas.querySelector('.md-copy-btn');
+  const header = btn ? btn.closest('.md-code-header') : null;
+  // קוד בשורה בתוך טבלה: כמה שורות הוא תופס — הגובה שלו מול הגובה של עותק עם תו אחד, באותו מקום
+  // ובאותם כללים. לא ``getClientRects``: לאלמנט ``inline-block`` (כך היה הקוד בתצוגה החיה) יש מלבן
+  // אחד גם כשהטקסט בתוכו נשבר לכמה שורות.
+  const cellCode = [...canvas.querySelectorAll('td > code')].map((c) => {
+    const one = c.cloneNode(false);
+    one.textContent = 'x';
+    c.after(one);
+    const lineHeight = one.getBoundingClientRect().height;
+    one.remove();
+    return { text: c.textContent, lines: Math.round(c.getBoundingClientRect().height / lineHeight) };
+  });
   return {
     stamp: box.getAttribute('data-theme'),
     mode: box.dataset.mode || null,
@@ -148,6 +202,9 @@ LIVE_JS = (
     metaColor: getComputedStyle(document.querySelector('[data-preview-meta]')).color,
     copyColor: btn ? getComputedStyle(btn).color : null,
     copyBg: btn ? getComputedStyle(btn).backgroundColor : null,
+    headerBg: header ? getComputedStyle(header).backgroundColor : null,
+    shellBg: header ? getComputedStyle(header.parentElement).backgroundColor : null,
+    cellCode: cellCode,
     html: canvas.innerHTML,
     ink: styles(canvas),
   };
@@ -246,19 +303,33 @@ def test_an_imported_theme_shows_its_own_background(measured, name):
 
 
 @pytest.mark.parametrize("name", list(THEMES))
-def test_the_ink_matches_the_document(measured, name):
-    """הצבעים של כל אלמנט שנמדד זהים בין התצוגה החיה לתצוגת המסמך."""
+def test_colors_and_layout_match_the_document(measured, name):
+    """הצבעים והפריסה של כל אלמנט שנמדד — כולל בלוק הקוד ופס הכותרת שלו — זהים בין התצוגה החיה לתצוגת
+    המסמך."""
     live, doc = measured[name]["live"]["ink"], measured[name]["doc"]
-    missing = [sel for sel in INK_SELECTORS if live.get(sel) is None or doc.get(sel) is None]
+    missing = [sel for sel in SELECTORS if live.get(sel) is None or doc.get(sel) is None]
     # אלמנט שלא רונדר היה עובר את ההשוואה בלי לבדוק דבר.
     assert not missing, f"{name}: לא נמצאו {missing}"
     offenders = [
         f"{sel} {prop}: חי {live[sel][prop]} מול מסמך {doc[sel][prop]}"
-        for sel in INK_SELECTORS
-        for prop in INK_PROPS
+        for sel in SELECTORS
+        for prop in PROPS
         if live[sel][prop] != doc[sel][prop]
     ]
     assert not offenders, f"{name}:\n" + "\n".join(offenders)
+
+
+@pytest.mark.parametrize("name", list(THEMES))
+def test_inline_code_in_a_table_stays_on_one_line(measured, name):
+    """קוד בשורה בתוך תא נשאר שלם, כמו בתצוגת המסמך: העמודה מתרחבת, והטבלה נגללת לצד.
+
+    עד שהפריסה של המסמך הפכה למשותפת, קוד בשורה בתצוגה החיה נשבר כל כמה אותיות
+    (``word-break: break-word`` ב-``split-view.css``).
+    """
+    cells = measured[name]["live"]["cellCode"]
+    assert len(cells) >= 3, f"{name}: לא נמצא קוד בתאי הטבלאות ({cells})"
+    broken = [c for c in cells if c["lines"] != 1]
+    assert not broken, f"{name}: קוד שנשבר בתוך תא: {broken}"
 
 
 @pytest.mark.parametrize("name", list(THEMES))
@@ -277,7 +348,9 @@ def test_what_only_the_preview_shows_is_readable(measured, name):
     meta = _contrast(_over(live["metaColor"], paper), paper)
     assert meta >= 4.5, f"{name}: שורת המידע בניגודיות {meta:.2f}"
 
-    pre = _over(live["ink"]["pre"]["background-color"], paper)
-    button = _over(live["copyBg"], pre)
+    # הכפתור בפס הכותרת: הרקע שלו מעל הפס, והפס מעל המסגרת של הבלוק.
+    shell = _over(live["shellBg"], paper)
+    header = _over(live["headerBg"], shell)
+    button = _over(live["copyBg"], header)
     icon = _contrast(_over(live["copyColor"], button), button)
     assert icon >= 3.0, f"{name}: אייקון ההעתקה בניגודיות {icon:.2f}"
