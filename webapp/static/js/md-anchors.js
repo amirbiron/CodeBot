@@ -23,8 +23,8 @@
   // <a id="x"></a> / <a name='x'></a> / <a id=x></a> — גם עם רווחים ותכונות בסדר הפוך
   var ANCHOR_RE = /<a\s+[^>]*?(?:id|name)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))[^>]*>\s*<\/a\s*>/gi;
 
-  // שורת כותרת ATX: עד 3 רווחי הזחה, 1-6 סולמיות, ואז רווח
-  var HEADING_RE = /^\s{0,3}#{1,6}\s/;
+  // שורת כותרת ATX: עד 3 רווחי הזחה, 1-6 סולמיות, ואז רווח. הקבוצה היא הסולמיות, כלומר רמת הכותרת.
+  var HEADING_RE = /^\s{0,3}(#{1,6})\s/;
 
   // גדר בלוק קוד: ``` או ~~~ (עם שפה אופציונלית)
   var FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/;
@@ -67,8 +67,12 @@
    * עיבוד מקדים של מקור ה-Markdown: שליפת עוגנים מפורשים והסרתם מהטקסט.
    *
    * @param {string} source מקור ה-Markdown הגולמי
-   * @param {{setext?: boolean}} [options] setext=false אם ה-renderer מנטרל כותרות Setext
+   * @param {{setext?: boolean, maxHeadingLevel?: number}} [options] setext=false אם ה-renderer מנטרל כותרות Setext
    *   (md.disable('lheading')). ברירת מחדל true — כמו ההתנהגות הרגילה של markdown-it.
+   *   maxHeadingLevel — הרמה העמוקה ביותר שה-renderer מרנדר ככותרת; כותרת ATX עמוקה ממנה היא שורה רגילה, ולא
+   *   נספרת. ברירת מחדל 6. התצוגה החיה מעבירה את ``maxHeadingLevel`` של הווריאנט שלה (``RENDERER_VARIANTS`` ב-
+   *   ``live-preview.js``), שבו H5 ו-H6 נשארות פסקאות — בלי זה הן היו נספרות, ועוגן של כותרת שאחריהן היה מוחל על
+   *   הכותרת שאחרי הכותרת שלו.
    * @returns {{source: string, anchors: Array<{headingIndex: number, ids: string[]}>, lineMap: (number[]|null)}}
    *   source — המקור אחרי ניקוי תגיות העוגן
    *   anchors — לכל כותרת (לפי סדר הופעתה, 0-based) רשימת המזהים שהוגדרו לה.
@@ -81,6 +85,7 @@
   function extractExplicitAnchors(source, options) {
     var text = (source == null) ? '' : String(source);
     var allowSetext = !(options && options.setext === false);
+    var maxHeadingLevel = (options && options.maxHeadingLevel) || 6;
     if (!text || text.indexOf('<a') === -1) {
       return { source: text, anchors: [], lineMap: null };
     }
@@ -123,7 +128,10 @@
       // כותרת ATX (`## כותרת`) או כותרת Setext (שורת טקסט שאחריה === / ---).
       // חובה לזהות גם Setext: markdown-it מייצר עבורה h1/h2, ואם לא נספור אותה
       // האינדקסים יזוזו והעוגן יוחל על הכותרת הלא נכונה.
-      var isHeading = HEADING_RE.test(line);
+      var atx = HEADING_RE.exec(line);
+      var isHeading = !!atx && atx[1].length <= maxHeadingLevel;
+      // כותרת ATX עמוקה מ-maxHeadingLevel היא שורה רגילה, ולא טקסט של כותרת Setext: markdown-it מפענח אותה ככותרת,
+      // וה-renderer הופך אותה לפסקה רק אחר כך — ולכן canBeSetextText ממשיך לפסול אותה.
       if (!isHeading && allowSetext && canBeSetextText(line)) {
         var nextLine = (i + 1 < lines.length) ? lines[i + 1] : null;
         if (nextLine !== null && SETEXT_UNDERLINE_RE.test(nextLine)) {

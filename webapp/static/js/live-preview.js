@@ -509,7 +509,7 @@
 
     // רינדור + שליפת העוגנים המפורשים. משמש גם את render() (שמחזיר HTML בלבד,
     // לשמירת תאימות עם קוראים קיימים) וגם את renderWithAnchors().
-    function renderMarkdownSource(text, variant) {
+    function renderMarkdownSource(text, variant = 'default') {
       const md = ensureRenderer(variant);
       if (!md) {
         throw new Error('markdown_renderer_missing');
@@ -519,7 +519,11 @@
       let sourceLineMap = null;
       try {
         if (typeof window !== 'undefined' && window.MdAnchors) {
-          const extracted = window.MdAnchors.extractExplicitAnchors(source);
+          // העוגנים משויכים לכותרת לפי המספר הסידורי שלה, ולכן החילוץ סופר כותרות בדיוק כמו ה-renderer: כותרת
+          // עמוקה מ-``maxHeadingLevel`` של הווריאנט היא פסקה (הכלל ``heading-max-level``), ואינה נספרת.
+          const extracted = window.MdAnchors.extractExplicitAnchors(source, {
+            maxHeadingLevel: RENDERER_VARIANTS[variant].maxHeadingLevel,
+          });
           source = extracted.source;
           anchors = extracted.anchors;
           sourceLineMap = extracted.lineMap || null;

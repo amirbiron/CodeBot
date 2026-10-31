@@ -833,3 +833,18 @@ def test_there_is_no_divider_and_a_swipe_does_not_resize_the_panels(browser):
         assert page.evaluate(width) == before
     finally:
         s.close()
+
+
+def test_an_anchor_after_an_h5_lands_on_its_own_heading(session):
+    """עוגן מפורש (``<a id>``) מוחל על הכותרת לפי המספר הסידורי שלה. בתצוגה החיה ``#####`` הוא פסקה, ולכן
+    החילוץ (``MdAnchors.extractExplicitAnchors``) חייב לספור כותרות כמו ה-renderer — אחרת העוגן של "יעד" הוחל
+    על הכותרת שאחריה."""
+    session.open()
+    page = session.page
+    _set_editor(page, '# ראשית\n\n##### עמוקה\n\n## יעד <a id="target"></a>\n\n## הבאה\n')
+    _wait_preview_text(page, "הבאה")
+    after = page.evaluate(
+        "() => { const a = document.getElementById('target');"
+        " return a && a.nextElementSibling ? a.nextElementSibling.textContent.trim() : null; }"
+    )
+    assert after == "יעד", after
