@@ -15,6 +15,7 @@
 | ``--glass*`` | ✔️ (הלוגיקה ב-`dark-mode.css`) | משתמש בברירת המחדל השקופה | Override חצי שקוף כחול | Override חצי שקוף ירוק | Override ורוד שקוף | לבן שקוף + גבול לבן |
 | ``--btn-primary-*`` | `color-mix` על סמך ``--bg-tertiary`` | טקסט כהה על לבן | טקסט כחול כהה על לבן | טקסט ירוק כהה על לבן | `color-mix` עם ורוד | שחור/לבן/צהוב בלבד |
 | ``--md-surface`` / ``--md-text`` | כהה אחיד | כהה מותאם (`#15141f`) | כהה כחול (`#1a365d`) | כהה ירוק (`#1a4731`) | נשאר כהה כדי להגן על Highlight | שחור/לבן בהתאם לחוקים |
+| ``--md-paper-bg`` / ``--md-paper-text`` | ``--bg-primary`` / ``--text-primary`` (בלוק ב-`md-content-colors.css`) | לבן (`:root`) | לבן (`:root`) | לבן (`:root`) | לבן (`:root`) | לבן (`:root`) |
 | ``--link-color`` | Nebula מגדירה בבלוק שלה; Dark ו-Dim יורשות מ-`:root` | מוגדר בבלוק (אותו ערך של `:root`) | יורש מ-`:root` | — | יורש מ-`:root` | מוגדר ב-`high-contrast.css`, ולקישורים במסמך כלל `!important` משלו ב-`md_preview.html` |
 | ``--split-preview-*`` | מוגדר בערכי ברירת מחדל ב-`split-view.css` | ✔️ | ✔️ (rgba בגוון כחול) | ✔️ (rgba ירוק) | ✔️ (rgba סגלגל) | ✔️ (שחור/לבן/צהוב) |
 | ``--ck-toast-*`` | Override כהה ב-`toast.css` | ברירת המחדל הבהירה | ברירת המחדל הבהירה | ברירת המחדל הבהירה | ברירת המחדל הבהירה | שחור/לבן ייעודי |
@@ -23,8 +24,8 @@
 ## בדיקות רגרסיה
 
 - **FOUC** – ודאו ש־`<html data-theme>` נקבע לפני טעינת CSS (ראו הסקריפט ב‑`base.html`).  
-- **Live Preview** – טוען `--md-*` + `--split-*` גם כאשר Theme בהיר.  
-- **Live Preview – תוכן Markdown** – `--split-preview-blockquote-*`, ‏`--split-preview-table-*`, ‏`--split-preview-code-block-*` ו‑`--split-preview-code-copy-*` (בלוק קוד וכפתור ההעתקה שלו) נגזרים מ‑`--split-preview-text`/`--split-preview-bg` ומוגדרים פעם אחת ב‑`:root` של `split-view.css` (High Contrast דורס רק את הקווים, לצבע הטקסט), ולכן אין להם תא לכל ערכה בטבלה שלמעלה. `tests/test_live_preview_blockquote_browser.py` מודד ציטוט, רשימה, טבלה ובלוק קוד בדפדפן בכל ערכה. ראו `docs/webapp/theming_and_css.rst`, סעיף "Markdown Viewer ו‑Split View".
+- **Live Preview** – במצב Markdown על הנייר של המסמך (`--md-paper-*`), ו‑`--split-*` למסגרת, לשורות הסטטוס ולמצבי קוד ו‑HTML.  
+- **Live Preview – תוכן Markdown** – הצבעים של ציטוט, טבלה, בלוק קוד, צבעי התחביר, קוד בשורה, סימון וקישורים הם של המסמך: `webapp/static/css/md-content-colors.css`, שתצוגת המסמך והתצוגה החיה טוענות שתיהן, והטוקנים שלו מוצהרים על `#md-content` לכל ערכה. כפתור ההעתקה של התצוגה החיה קורא את `--md-code-copy-*`. `tests/test_live_preview_paper_browser.py` משווה בדפדפן את התצוגה החיה לתצוגת המסמך בכל ערכה, כולל ערכה מיובאת כהה ובהירה, ו‑`tests/test_live_preview_blockquote_browser.py` מודד את הפריסה. ראו `docs/webapp/theming_and_css.rst`, סעיף "Markdown Viewer ו‑Split View".
 - **High Contrast** – אסור להשתמש ב־`rgba` מלבד הערכים המוגדרים בקובץ הייעודי.  
 - **Custom Theme** – ברגע שמזריקים ערכים ל‑``<style id="user-custom-theme">`` חובה לכסות את הטוקנים מהרשימה לעיל.
 - **משטח קשיח שמספק טוקנים לרכיב שבתוכו** – ``--details-*``/``--summary-*`` (בבעלות ``markdown-enhanced.css``) אינם בטבלה שלמעלה, ואין להם "כיסוי" לבדוק פר-ערכה. מה שכן צריך לוודא: ש-``sticky-notes.css`` ממשיך להצהיר עליהם על ``.sticky-note``. הפתק הוא נייר בהיר קבוע שאינו עוקב אחרי הערכה, ורכיב שמרונדר בתוכו וקורא טוקן ערכה מקבל ערך שנבחר לרקע אחר — נמדד 1.09:1 בגוף הבלוק בערכה מיובאת כהה. ``tests/sticky-notes-target.test.js`` אוכף את הכיסוי, וטוקן שביעי שיתווסף לרכיב מפיל אותו. ראו `docs/webapp/theming_and_css.rst` בסעיף החריגים.
