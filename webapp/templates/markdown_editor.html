@@ -5,7 +5,7 @@
 {#
   העורך הציבורי — עורך Markdown ותצוגה חיה, בלי התחברות (``/markdown-editor``, ``markdown_editor`` ב-``webapp/app.py``; הנתונים ב-``webapp/markdown_editor.py``). התיעוד: ``docs/webapp/markdown-editor.rst``.
 
-  - **אותם רכיבים כמו בעמוד העריכה.** העורך (``EditorManager``), התצוגה החיה (``LivePreviewController``) וסרגל ה-MD הם אותם קבצים, עם אפשרויות שרק העמוד הזה מפעיל: ``fixedEditor`` (תמיד CodeMirror, בלי מתג, בלי שמירת העדפה) ו-``textDirection: 'auto'`` (כיוון לכל שורה) ב-``markdown-editor.js``, ``data-preview-mode="markdown"`` / ``data-preview-autostart`` / ``data-preview-client-only`` על ``#livePreviewRoot``, ו-``markdown_toolbar(inline=True, markdown_only=True)``. כך תיקון באחד מהם מגיע לכאן ולעמוד העריכה יחד.
+  - **אותם רכיבים כמו בעמוד העריכה.** העורך (``EditorManager``), התצוגה החיה (``LivePreviewController``) וסרגל ה-MD הם אותם קבצים, עם אפשרויות שרק העמוד הזה מפעיל: ``fixedEditor`` (תמיד CodeMirror, בלי מתג, בלי שמירת העדפה), ``textDirection: 'rtl'`` (הכל מימין לשמאל חוץ מבלוקי קוד) ו-``gutters: false`` (בלי מספרי שורות וחיצי קיפול) ב-``markdown-editor.js``, ``data-preview-mode="markdown"`` / ``data-preview-autostart`` / ``data-preview-client-only`` על ``#livePreviewRoot``, ו-``markdown_toolbar(inline=True, markdown_only=True)``. כך תיקון באחד מהם מגיע לכאן ולעמוד העריכה יחד.
   - **בלי שרת אחרי הטעינה.** הרינדור בדפדפן בלבד (``data-preview-client-only``), כי ``/api/preview/live`` דורש התחברות; הטיוטה ב-``localStorage`` (``markdown-editor.js``).
   - **טקסט ההדגמה** מגיע מהראוט כמשתנה (``demo_text``), ו-Jinja מברח אותו לתוך ה-textarea. לא ``{% include %}``: בטקסט יש ``{{ __html: html }}``, ו-include היה מריץ אותו כתבנית. "טען דוגמה" קורא אותו בחזרה מ-``textarea.defaultValue``, שהוא התוכן שהשרת שלח ואינו משתנה כשכותבים בעורך.
   - **הפריסה.** בעברית העורך מימין והתצוגה משמאל, מאותו ``split-view.css`` של עמוד העריכה. בלי כרטיס עוטף: ה-Split View הוא המסגרת, שורת כלי ה-MD יושבת בראש שלו עם Live Preview בסופה, והתווית של העורך מוסתרת ויזואלית — כדי שכל הגובה ילך לכתיבה ולתצוגה.
@@ -102,6 +102,13 @@
     border-radius: 0;
 }
 
+/* הגלילה בעורך ובתצוגה לא עוברת לעמוד: בלי זה, גלילה שהגיעה לסוף המסמך המשיכה לגלול את העמוד עצמו, עד
+   לאזור שמתחת לעורך. */
+.md-editor-page .cm-scroller,
+.md-editor-page .split-preview-canvas {
+    overscroll-behavior: contain;
+}
+
 /* שורת המידע (שפה, גודל, זמן) וסטטוס "התצוגה מעודכנת" הם רעש בעמוד שכל מטרתו התצוגה. הסטטוס מוצג רק
    בשגיאה — למשל כשספריית ה-Markdown לא נטענה. מכל התצוגה כולו aria-live, ולכן גם הסטטוס שמופיע מוכרז. */
 .md-editor-page .split-preview-meta,
@@ -165,7 +172,10 @@
           type="button"
           class="split-toggle"
           data-action="toggle-live-preview"
-          aria-pressed="false"
+          data-label-inactive="Live Preview"
+          data-label-active="הסתר תצוגה"
+          data-icon-inactive="fa-columns"
+          data-icon-active="fa-eye-slash"
           title="Live Preview (Ctrl+Shift+Enter)"
         >
           <i class="fas fa-columns"></i>
@@ -184,7 +194,6 @@
           <textarea id="codeTextarea" name="code" rows="18" class="form-field code-field" spellcheck="false">{{ demo_text }}</textarea>
         </div>
       </section>
-      <div class="split-resizer" role="separator" aria-label="שנה את רוחב הפאנלים"></div>
       <section class="split-panel split-panel--preview" aria-label="תצוגה חיה">
         <div class="split-preview-content" data-preview-content aria-live="polite">
           <div class="split-preview-canvas" data-preview-canvas>
@@ -200,31 +209,36 @@
     </div>
   </div>
 
-  <section class="md-editor-page__about" aria-labelledby="mdEditorAboutTitle">
-    <h2 id="mdEditorAboutTitle">מה אפשר לכתוב כאן</h2>
-    <ul>
-      <li><strong>הבסיס של Markdown:</strong> כותרות, הדגשה, רשימות, קישורים, תמונות, ציטוטים וקוד עם הדגשת תחביר.</li>
-      <li><strong>טבלאות ורשימות משימות</strong>, עם כפתור שמכניס תבנית מוכנה.</li>
-      <li><strong>התראות</strong> (note, tip, warning ועוד) ו<strong>קיפולים</strong> שנפתחים בלחיצה.</li>
-      <li><strong>נוסחאות</strong> ב-KaTeX ו<strong>תרשימים</strong> ב-Mermaid.</li>
-    </ul>
+  {# מה שמתחת לעורך — בבלוק מתקפל, סגור כברירת מחדל, באותו עיצוב כמו "קיפול" במסמך (``markdown-details`` ב-
+     ``markdown-enhanced.css``): גלילה בעמוד לא מגיעה בטעות לטקסט ארוך מתחת למסמך. הטקסט עדיין בעמוד, וגוגל קורא אותו. #}
+  <details class="markdown-details md-editor-page__about">
+    <summary class="markdown-summary">עוד על העורך: מה אפשר לכתוב, ואיפה הטקסט נשמר</summary>
+    <div class="details-content">
+      <h2 id="mdEditorAboutTitle">מה אפשר לכתוב כאן</h2>
+      <ul>
+        <li><strong>הבסיס של Markdown:</strong> כותרות, הדגשה, רשימות, קישורים, תמונות, ציטוטים וקוד עם הדגשת תחביר.</li>
+        <li><strong>טבלאות ורשימות משימות</strong>, עם כפתור שמכניס תבנית מוכנה.</li>
+        <li><strong>התראות</strong> (note, tip, warning ועוד) ו<strong>קיפולים</strong> שנפתחים בלחיצה.</li>
+        <li><strong>נוסחאות</strong> ב-KaTeX ו<strong>תרשימים</strong> ב-Mermaid.</li>
+      </ul>
 
-    <h2>איפה הטקסט נשמר</h2>
-    <p>הטקסט נשמר רק בדפדפן הזה, ולא נשלח לשרת. הוא יחכה לך כשתחזור לעמוד, אבל לא יופיע במכשיר אחר. כדי לקחת אותו איתך, הורידו אותו כקובץ ‎.md.</p>
+      <h2>איפה הטקסט נשמר</h2>
+      <p>הטקסט נשמר רק בדפדפן הזה, ולא נשלח לשרת. הוא יחכה לך כשתחזור לעמוד, אבל לא יופיע במכשיר אחר. כדי לקחת אותו איתך, הורידו אותו כקובץ ‎.md.</p>
 
-    <h2>לשמור את המסמכים לאורך זמן</h2>
-    <p>ב-CodeKeeper אפשר לשמור מסמכי Markdown וקוד, לחפש בהם, לארגן אותם באוספים ולחבר אליהם את סוכני ה-AI שלך.</p>
-    <div class="md-editor-page__cta">
-      <a href="{{ url_for('auth.login') }}" class="btn btn-primary btn-icon">
-        <i class="fab fa-telegram" aria-hidden="true"></i>
-        התחבר עם Telegram
-      </a>
-      <a href="{{ url_for('index') }}" class="btn btn-secondary btn-icon">
-        <i class="fas fa-house" aria-hidden="true"></i>
-        מה זה CodeKeeper
-      </a>
+      <h2>לשמור את המסמכים לאורך זמן</h2>
+      <p>ב-CodeKeeper אפשר לשמור מסמכי Markdown וקוד, לחפש בהם, לארגן אותם באוספים ולחבר אליהם את סוכני ה-AI שלך.</p>
+      <div class="md-editor-page__cta">
+        <a href="{{ url_for('auth.login') }}" class="btn btn-primary btn-icon">
+          <i class="fab fa-telegram" aria-hidden="true"></i>
+          התחבר עם Telegram
+        </a>
+        <a href="{{ url_for('index') }}" class="btn btn-secondary btn-icon">
+          <i class="fas fa-house" aria-hidden="true"></i>
+          מה זה CodeKeeper
+        </a>
+      </div>
     </div>
-  </section>
+  </details>
 </div>
 {% endblock %}
 

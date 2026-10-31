@@ -494,6 +494,13 @@
   border: 1px solid var(--md-inline-code-border);
 }
 
+/* קו הפרדה (``---``). עד אוקטובר 2026 לא היה לו כלל, והדפדפן צייר את ברירת המחדל שלו: קו "בולט" אפור, שעל נייר
+   כהה נראה כמו פס לבן. עכשיו הוא קו דק בצבע הדיו של הנייר בשקיפות, כך שהוא עוקב אחרי כל ערכה בלי צבע משלו.
+   הגובה והמרווח — ב-``md-content-layout.css``. */
+#md-content hr {
+  background: color-mix(in srgb, var(--md-paper-text) 22%, transparent);
+}
+
 /* ציטוטים */
 #md-content blockquote {
   background: var(--md-blockquote-bg);

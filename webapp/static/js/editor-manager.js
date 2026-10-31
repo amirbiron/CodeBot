@@ -162,29 +162,36 @@
       // תמיד CodeMirror, בלי כפתור המתג, ובלי להתחשב בהעדפה או לשמור אותה: ההעדפה שייכת לעמודי
       // העריכה וההעלאה, ושמירתה נשלחת ל-API של משתמש מחובר. אם CodeMirror נכשל, העורך הפשוט
       // עולה כרגיל, כדי שאפשר יהיה להמשיך לכתוב, אבל ההעדפה לא נשמרת.
-      // textDirection: 'auto' — כיוון לכל שורה, לעורך של טקסט בעברית (העורך הציבורי). העורך כולו מימין
-      // לשמאל, וכל שורה מקבלת את הכיוון של האות החזקה הראשונה בה (perLineAutoDirection בחבילה של
-      // CodeMirror). בלי האפשרות — ברירת המחדל של עמודי העריכה וההעלאה — העורך משמאל לימין, כמו עורך קוד.
-      const { language = 'text', value = '', theme = 'dark', fixedEditor = false, textDirection = 'ltr' } = options;
+      // textDirection: 'rtl' — עורך של טקסט בעברית (העורך הציבורי): הכל מימין לשמאל, חוץ מבלוקי קוד
+      // (rtlExceptCodeBlocks בחבילה של CodeMirror). בלי האפשרות — ברירת המחדל של עמודי העריכה וההעלאה — העורך
+      // משמאל לימין, כמו עורך קוד.
+      // gutters: false — בלי העמודה שבצד הטקסט, כלומר בלי מספרי שורות ובלי חיצי קיפול (createBasicSetup).
+      const {
+        language = 'text', value = '', theme = 'dark', fixedEditor = false, textDirection = 'ltr', gutters = true,
+      } = options;
       this.fixedEditor = !!fixedEditor;
       if (this.fixedEditor) this.currentEditor = 'codemirror';
-      this.textDirection = textDirection === 'auto' ? 'auto' : 'ltr';
+      this.textDirection = textDirection === 'rtl' ? 'rtl' : 'ltr';
+      this.gutters = gutters !== false;
       try { console.log('[EditorManager] initEditor called with:', { language, theme, valueLength: (typeof value === 'string' ? value.length : 0) }); } catch(_) {}
       this.textarea = container.querySelector('textarea[name="code"]');
       if (!this.textarea) { try { console.warn('[EditorManager] Textarea not found in container'); } catch(_) {} return; }
       try { console.log('[EditorManager] Textarea found:', this.textarea); } catch(_) {}
       try {
         this.textarea.classList.add('editor-textarea');
-        if (this.textDirection === 'auto') {
-          // העורך הפשוט (כש-CodeMirror נכשל): כל שורה בכיוון שלה — editor-textarea--dir-auto ב-codemirror-custom.css
-          this.textarea.setAttribute('dir', 'auto');
-          this.textarea.classList.add('editor-textarea--dir-auto');
+        if (this.textDirection === 'rtl') {
+          // העורך הפשוט (כש-CodeMirror נכשל): כולו מימין לשמאל. ב-textarea אין כיוון לשורה בודדת, ולכן גם בלוק
+          // קוד מימין לשמאל — editor-textarea--rtl ב-codemirror-custom.css
+          this.textarea.setAttribute('dir', 'rtl');
+          this.textarea.classList.add('editor-textarea--rtl');
         } else {
           this.textarea.setAttribute('dir', 'ltr');
           this.textarea.style.direction = 'ltr';
           this.textarea.style.textAlign = 'left';
         }
       } catch(_) {}
+
+      this.watchTextareaFullPaste();
 
       let fallback = false;
       if (this.currentEditor === 'codemirror') {
@@ -288,7 +295,7 @@
 
           const directionExt = this.getTextDirectionExtension();
           if (directionExt.length) {
-            cmWrapper.classList.add('codemirror-container--dir-auto');
+            cmWrapper.classList.add('codemirror-container--rtl');
           }
 
           const debouncedSync = this.debounce((val) => {
@@ -299,12 +306,13 @@
           const state = EditorState.create({
             doc: (this.textarea.value || value || ''),
             extensions: [
-              ...basicSetup,
+              ...this.getBasicSetup(basicSetup),
               languageCompartment.of(langSupport || []),
               themeCompartment.of(themeExt || []),
               // 🎨 אם יש custom theme עם syntax highlighter, מוסיפים אותו כדי לדרוס את ה-classHighlighter שב-basicSetup
               ...(customSyntaxHighlighter ? [customSyntaxHighlighter] : []),
               ...directionExt,
+              ...this.getFullPasteExtension(EditorState, EditorView),
               EditorView.lineWrapping,
               EditorView.updateListener.of((update) => {
                 if (update.docChanged) {
@@ -342,18 +350,89 @@
     }
 
     /**
-     * התוסף של כיוון לכל שורה, כשביקשו textDirection: 'auto'; אחרת רשימה ריקה.
+     * התוסף של הכיוון, כשביקשו textDirection: 'rtl'; אחרת רשימה ריקה.
      * הוא קיים רק בחבילה המקומית (codemirror.local.js). כשהעורך נטען מה-CDN — הנפילה של loadCodeMirror
      * כשהחבילה המקומית לא עלתה — אין אותו, והעורך נשאר בכיוון אחד, משמאל לימין.
      */
     getTextDirectionExtension() {
-      if (this.textDirection !== 'auto') return [];
+      if (this.textDirection !== 'rtl') return [];
       const cm = window.CodeMirror6;
-      if (cm && typeof cm.perLineAutoDirection === 'function') {
-        return cm.perLineAutoDirection();
+      if (cm && typeof cm.rtlExceptCodeBlocks === 'function') {
+        return cm.rtlExceptCodeBlocks();
       }
-      console.warn('[EditorManager] perLineAutoDirection is missing from the loaded CodeMirror bundle; the editor stays left-to-right');
+      console.warn('[EditorManager] rtlExceptCodeBlocks is missing from the loaded CodeMirror bundle; the editor stays left-to-right');
       return [];
+    }
+
+    /** ``basicSetup``, או בלי העמודה שבצד הטקסט כשביקשו gutters: false (createBasicSetup — בחבילה המקומית
+     *  ובמסלול ה-CDN של loadCodeMirror). */
+    getBasicSetup(basicSetup) {
+      if (this.gutters) return basicSetup;
+      const cm = window.CodeMirror6;
+      if (cm && typeof cm.createBasicSetup === 'function') {
+        return cm.createBasicSetup({ gutters: false });
+      }
+      console.warn('[EditorManager] createBasicSetup is missing from the loaded CodeMirror bundle; the gutters stay');
+      return basicSetup;
+    }
+
+    /**
+     * הדבקה שמחליפה את כל המסמך — לתוך עורך ריק, או אחרי "בחר הכל" — משאירה את הסמן ואת העורך בתחילת המסמך,
+     * ומודיעה לתצוגה החיה לחזור גם היא להתחלה (``editor:document-replaced`` על ה-textarea). בלי זה CodeMirror
+     * גלל אל הסמן, שנשאר בסוף הטקסט שהודבק, בזמן שהתצוגה נשארה בראש המסמך. הדבקה לתוך טקסט קיים לא משתנה:
+     * שם הסמן אחרי מה שהודבק הוא המקום שבו ממשיכים לכתוב. ``input.paste`` הוא ה-userEvent של הדבקה ב-CodeMirror,
+     * וכפתור "הדבק" מסמן כך גם את ההדבקה שלו (``insertTextAtCursor``).
+     */
+    getFullPasteExtension(EditorState, EditorView) {
+      const replacesWholeDocument = (tr) => {
+        if (!tr.docChanged || !tr.isUserEvent('input.paste')) return false;
+        const oldLength = tr.startState.doc.length;
+        let whole = false;
+        tr.changes.iterChanges((fromA, toA) => {
+          if (fromA === 0 && toA === oldLength) whole = true;
+        });
+        return whole;
+      };
+      return [
+        EditorState.transactionFilter.of((tr) => (
+          replacesWholeDocument(tr)
+            ? [tr, { selection: { anchor: 0 }, scrollIntoView: true, sequential: true }]
+            : tr
+        )),
+        EditorView.updateListener.of((update) => {
+          if (update.transactions.some(replacesWholeDocument)) this.notifyDocumentReplaced();
+        }),
+      ];
+    }
+
+    notifyDocumentReplaced() {
+      if (!this.textarea) return;
+      this.textarea.dispatchEvent(new CustomEvent('editor:document-replaced', { bubbles: true }));
+    }
+
+    /** המקבילה של getFullPasteExtension בעורך הפשוט: הדבקה שמחליפה את כל הטקסט משאירה את הסמן בהתחלה. */
+    watchTextareaFullPaste() {
+      const ta = this.textarea;
+      if (!ta || ta._fullPasteWatched) return;
+      ta._fullPasteWatched = true;
+      let wholeBeforePaste = false;
+      ta.addEventListener('beforeinput', (event) => {
+        if (event.inputType !== 'insertFromPaste') return;
+        wholeBeforePaste = ta.selectionStart === 0 && ta.selectionEnd === ta.value.length;
+      });
+      ta.addEventListener('input', (event) => {
+        if (event.inputType !== 'insertFromPaste' || !wholeBeforePaste) return;
+        wholeBeforePaste = false;
+        this.resetTextareaToStart();
+      });
+    }
+
+    resetTextareaToStart() {
+      const ta = this.textarea;
+      if (!ta) return;
+      ta.setSelectionRange(0, 0);
+      ta.scrollTop = 0;
+      this.notifyDocumentReplaced();
     }
 
     addSwitcherButton(container) {
@@ -830,7 +909,9 @@
       } catch(_) {}
     }
 
-    insertTextAtCursor(nextText) {
+    // ``userEvent`` — התווית של הפעולה ב-CodeMirror. כפתור "הדבק" מעביר ``input.paste``, כמו הדבקה מהמקלדת, כדי
+    // שהדבקה שמחליפה את כל המסמך תתנהג אותו דבר בשתי הדרכים (getFullPasteExtension).
+    insertTextAtCursor(nextText, { userEvent } = {}) {
       const text = typeof nextText === 'string' ? nextText : '';
       if (!text) return false;
 
@@ -845,7 +926,8 @@
           view.dispatch({
             changes: { from, to, insert: text },
             selection: { anchor: from + text.length },
-            scrollIntoView: true
+            scrollIntoView: true,
+            ...(userEvent ? { userEvent } : {}),
           });
           return true;
         }
@@ -938,7 +1020,10 @@
         return;
       }
       // התנהגות רצויה: הדבקה במיקום הסמן בלבד (או החלפה אם מסומן טקסט)
-      const ok = this.insertTextAtCursor(text);
+      const ta = this.currentEditor === 'simple' ? this.textarea : null;
+      const wholeTextarea = !!ta && ta.selectionStart === 0 && ta.selectionEnd === ta.value.length;
+      const ok = this.insertTextAtCursor(text, { userEvent: 'input.paste' });
+      if (ok && wholeTextarea) this.resetTextareaToStart();
       if (!ok) {
         // fallback נדיר: אם לא הצלחנו לזהות סמן/בחירה, לא נחסום את המשתמש
         this.setEditorContent(text);
@@ -1171,12 +1256,14 @@
       // שמירת ה-CDN הנבחר לשימוש בהמשך (שפות/נושא)
       this._cdnUrl = chosen.url;
 
-      const basicSetup = [
-        (gutterMod && typeof gutterMod.lineNumbers === 'function') ? gutterMod.lineNumbers() : [],
-        (viewMod && typeof viewMod.highlightActiveLineGutter === 'function') ? viewMod.highlightActiveLineGutter() : [],
+      // אותה אפשרות כמו createBasicSetup בחבילה המקומית (codemirror.bundle.entry.mjs): gutters: false — בלי
+      // מספרי שורות ובלי חיצי קיפול
+      const createBasicSetup = ({ gutters = true } = {}) => [
+        (gutters && gutterMod && typeof gutterMod.lineNumbers === 'function') ? gutterMod.lineNumbers() : [],
+        (gutters && viewMod && typeof viewMod.highlightActiveLineGutter === 'function') ? viewMod.highlightActiveLineGutter() : [],
         (viewMod && typeof viewMod.highlightSpecialChars === 'function') ? viewMod.highlightSpecialChars() : [],
         (cmdMod && typeof cmdMod.history === 'function') ? cmdMod.history() : [],
-        (foldMod && typeof foldMod.foldGutter === 'function') ? foldMod.foldGutter() : (langMod && typeof langMod.foldGutter === 'function') ? langMod.foldGutter() : [],
+        !gutters ? [] : (foldMod && typeof foldMod.foldGutter === 'function') ? foldMod.foldGutter() : (langMod && typeof langMod.foldGutter === 'function') ? langMod.foldGutter() : [],
         (viewMod && typeof viewMod.drawSelection === 'function') ? viewMod.drawSelection() : [],
         (viewMod && typeof viewMod.dropCursor === 'function') ? viewMod.dropCursor() : [],
         stateMod.EditorState.allowMultipleSelections.of(true),
@@ -1196,12 +1283,14 @@
           ...(Array.isArray(acMod?.completionKeymap) ? acMod.completionKeymap : [])
         ]) : []
       ];
+      const basicSetup = createBasicSetup();
 
       try { console.log('[EditorManager] CodeMirror core modules loaded'); } catch(_) {}
       window.CodeMirror6 = {
         EditorState: stateMod.EditorState,
         EditorView: viewMod.EditorView,
         basicSetup,
+        createBasicSetup,
         keymap: viewMod.keymap,
         Compartment: stateMod.Compartment,
         languageCompartment: new stateMod.Compartment(),

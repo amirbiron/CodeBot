@@ -111,7 +111,18 @@
   }
 
   const MarkdownLiveRenderer = (() => {
-    let renderer = null;
+    // שני מופעים של markdown-it, באותם תוספים, ששונים בשני דברים בלבד:
+    // - ``default`` — דפדפן הריפו וכרטיסי החיפוש בתיעוד: קישור ``¶`` ליד כל כותרת, וכל שש רמות הכותרות.
+    // - ``livePreview`` — התצוגה החיה בעמודי העורך (``LivePreviewController``): בלי ``¶`` (אין לתצוגה כתובת
+    //   לשתף, והסמן הופיע בנגיעה), ובלי כותרות H5/H6. כותרת כזו נשארת כמו שנכתבה, ``##### טקסט``, כפסקה: גודל
+    //   הגופן של H5 ו-H6 קטן מטקסט רגיל, ואין לו מקום בין H4 לטקסט (החלטת המשתמש, אוקטובר 2026).
+    // כל מופע נבנה פעם אחת, בבקשה הראשונה שלו, ונשמר רק אחרי שכל התוספים הותקנו בו: תוסף שזורק באמצע לא
+    // משאיר מופע חלקי במטמון, והבקשה הבאה בונה אותו שוב.
+    const RENDERER_VARIANTS = {
+      default: { headingPermalinks: true, maxHeadingLevel: 6 },
+      livePreview: { headingPermalinks: false, maxHeadingLevel: 4 },
+    };
+    const renderers = new Map();
     const containerTypes = [
       'details',
       'note',
@@ -130,9 +141,14 @@
       'abstract',
     ];
 
-    function ensureRenderer() {
-      if (renderer) {
-        return renderer;
+    function ensureRenderer(variant = 'default') {
+      const config = RENDERER_VARIANTS[variant];
+      if (!config) {
+        throw new Error(`unknown_markdown_renderer_variant: ${variant}`);
+      }
+      const cached = renderers.get(variant);
+      if (cached) {
+        return cached;
       }
       if (typeof window === 'undefined' || typeof window.markdownit !== 'function') {
         return null;
@@ -199,8 +215,33 @@
           });
         });
       }
+      if (config.maxHeadingLevel < 6) {
+        // כותרת עמוקה מ-``maxHeadingLevel`` חוזרת להיות פסקה עם הטקסט כמו שנכתב (``##### טקסט``). הכלל רץ
+        // אחרי פענוח הבלוקים ולפני פענוח השורה, ולכן הטקסט עם הסולמיות מפוענח כטקסט רגיל, ותוספי הכותרות
+        // שרצים אחריו (העוגנים, תוכן העניינים) לא רואים אותה ככותרת. ``heading_open`` / ``inline`` /
+        // ``heading_close`` הם תמיד שלישייה רצופה בכלל ``heading`` של markdown-it (נבדק בגרסה 14.1.0).
+        md.core.ruler.after('block', 'heading-max-level', (state) => {
+          const tokens = state.tokens;
+          for (let i = 0; i + 2 < tokens.length; i += 1) {
+            const open = tokens[i];
+            if (open.type !== 'heading_open' || Number(open.tag.slice(1)) <= config.maxHeadingLevel) continue;
+            const inline = tokens[i + 1];
+            const close = tokens[i + 2];
+            if (inline.type !== 'inline' || close.type !== 'heading_close') continue;
+            inline.content = inline.content ? `${open.markup} ${inline.content}` : open.markup;
+            open.type = 'paragraph_open';
+            open.tag = 'p';
+            open.markup = '';
+            close.type = 'paragraph_close';
+            close.tag = 'p';
+            close.markup = '';
+          }
+        });
+      }
       if (window.markdownitAnchor) {
-        const anchorOptions = { permalink: true, permalinkSymbol: '¶', slugify: slugifyHeadingId };
+        const anchorOptions = config.headingPermalinks
+          ? { permalink: true, permalinkSymbol: '¶', slugify: slugifyHeadingId }
+          : { slugify: slugifyHeadingId };
         try {
           md.use(window.markdownitAnchor, anchorOptions);
         } catch (_) {
@@ -278,8 +319,8 @@
           console.warn('markdown-it-toc-done-right failed', err);
         }
       }
-      renderer = md;
-      return renderer;
+      renderers.set(variant, md);
+      return md;
     }
 
     // ``copyButtons: false`` — רק הדגשה. הכפתור הקטן בפינת ה-``pre`` (``.code-copy-btn``) הוא של דפדפן
@@ -468,8 +509,8 @@
 
     // רינדור + שליפת העוגנים המפורשים. משמש גם את render() (שמחזיר HTML בלבד,
     // לשמירת תאימות עם קוראים קיימים) וגם את renderWithAnchors().
-    function renderMarkdownSource(text) {
-      const md = ensureRenderer();
+    function renderMarkdownSource(text, variant = 'default') {
+      const md = ensureRenderer(variant);
       if (!md) {
         throw new Error('markdown_renderer_missing');
       }
@@ -478,7 +519,11 @@
       let sourceLineMap = null;
       try {
         if (typeof window !== 'undefined' && window.MdAnchors) {
-          const extracted = window.MdAnchors.extractExplicitAnchors(source);
+          // העוגנים משויכים לכותרת לפי המספר הסידורי שלה, ולכן החילוץ סופר כותרות בדיוק כמו ה-renderer: כותרת
+          // עמוקה מ-``maxHeadingLevel`` של הווריאנט היא פסקה (הכלל ``heading-max-level``), ואינה נספרת.
+          const extracted = window.MdAnchors.extractExplicitAnchors(source, {
+            maxHeadingLevel: RENDERER_VARIANTS[variant].maxHeadingLevel,
+          });
           source = extracted.source;
           anchors = extracted.anchors;
           sourceLineMap = extracted.lineMap || null;
@@ -504,9 +549,10 @@
       async render(text) {
         return renderMarkdownSource(text).html;
       },
-      // מחזיר { html, anchors } — העוגנים מועברים לאחר מכן ל-enhance(root, anchors)
-      async renderWithAnchors(text) {
-        return renderMarkdownSource(text);
+      // מחזיר { html, anchors } — העוגנים מועברים לאחר מכן ל-enhance(root, anchors). ``options.variant`` — אחד
+      // המפתחות של ``RENDERER_VARIANTS``; בלעדיו ``default``.
+      async renderWithAnchors(text, options) {
+        return renderMarkdownSource(text, (options && options.variant) || 'default');
       },
       enhance,
     };
@@ -561,12 +607,15 @@
         return;
       }
       this.root.classList.remove('is-active');
-      if (this.toggleBtn) {
-        this.toggleBtn.setAttribute('aria-pressed', 'false');
-      }
+      this.syncToggleButton(false);
 
       this.toggleBtn.addEventListener('click', () => this.toggle());
       this.previewCanvas.addEventListener('change', (event) => this.handleTaskToggle(event));
+      // הדבקה שהחליפה את כל המסמך (EditorManager.getFullPasteExtension): העורך חוזר להתחלה, וגם התצוגה. הרינדור
+      // הבא מחליף את התוכן ואינו נוגע בגלילה, ולכן התצוגה נשארת בראש המסמך החדש.
+      this.textarea.addEventListener('editor:document-replaced', () => {
+        this.previewCanvas.scrollTop = 0;
+      });
       document.addEventListener('keydown', (event) => {
         const key = (event.key || '').toLowerCase();
         if (key === 'enter' && event.shiftKey && (event.ctrlKey || event.metaKey)) {
@@ -600,7 +649,6 @@
         });
       }
       this.setupTabs();
-      this.setupResizer();
       this.updatePreviewAvailability({ silentDisable: true });
       this.setStatus(STATUS.IDLE);
       if (this.options.autostart && this.state.previewAllowed) {
@@ -774,7 +822,7 @@
       this.state.inflightHash = payloadHash;
       this.setStatus(STATUS.LOADING);
       try {
-        const rendered = await MarkdownLiveRenderer.renderWithAnchors(content);
+        const rendered = await MarkdownLiveRenderer.renderWithAnchors(content, { variant: 'livePreview' });
         const html = rendered.html;
         this.setMarkdownContext(true);
         this.previewCanvas.innerHTML = html || '<p>אין תוכן להצגה.</p>';
@@ -944,36 +992,6 @@
       });
     }
 
-    setupResizer() {
-      const resizer = this.root.querySelector('.split-resizer');
-      if (!resizer) return;
-      const panels = this.root.querySelector('.split-panels');
-      const onPointerMove = (event, rect) => {
-        const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-        let ratio = (event.clientX - rect.left) / rect.width;
-        if (document.documentElement.dir === 'rtl') {
-          ratio = 1 - ratio;
-        }
-        ratio = clamp(ratio, 0.25, 0.75);
-        this.root.style.setProperty('--split-editor-ratio', ratio.toFixed(2));
-      };
-      const startDrag = (event) => {
-        if (!panels) return;
-        event.preventDefault();
-        const rect = panels.getBoundingClientRect();
-        resizer.classList.add('is-dragging');
-        const moveHandler = (e) => onPointerMove(e, rect);
-        const upHandler = () => {
-          document.removeEventListener('pointermove', moveHandler);
-          document.removeEventListener('pointerup', upHandler);
-          resizer.classList.remove('is-dragging');
-        };
-        document.addEventListener('pointermove', moveHandler);
-        document.addEventListener('pointerup', upHandler, { once: true });
-      };
-      resizer.addEventListener('pointerdown', startDrag);
-    }
-
     isPreviewEligible() {
       if (this.options.fixedMode) {
         return true;
@@ -1007,10 +1025,32 @@
 
     enablePreview() {
       this.state.enabled = true;
-      if (this.toggleBtn) {
-        this.toggleBtn.setAttribute('aria-pressed', 'true');
-      }
+      this.syncToggleButton(true);
       this.root.classList.add('is-active');
+    }
+
+    // מצב הכפתור. ברירת המחדל: כיתוב קבוע ו-``aria-pressed``. כפתור עם ``data-label-active`` (העורך הציבורי)
+    // מחליף כיתוב ואייקון — ``data-label-inactive`` / ``data-label-active`` ו-``data-icon-inactive`` /
+    // ``data-icon-active`` — ובלי ``aria-pressed``: הכיתוב שלו אומר מה הלחיצה הבאה תעשה ("הסתר תצוגה"), וקורא מסך היה
+    // מקריא לצדו "לחוץ". המראה של מצב דלוק — ``.split-view.is-active .split-toggle`` ב-``split-view.css``.
+    syncToggleButton(active) {
+      const btn = this.toggleBtn;
+      if (!btn) return;
+      const activeLabel = btn.getAttribute('data-label-active');
+      if (!activeLabel) {
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        return;
+      }
+      btn.removeAttribute('aria-pressed');
+      const text = btn.querySelector('.split-toggle__text');
+      if (text) text.textContent = active ? activeLabel : (btn.getAttribute('data-label-inactive') || '');
+      const icon = btn.querySelector('i');
+      const iconActive = btn.getAttribute('data-icon-active');
+      const iconInactive = btn.getAttribute('data-icon-inactive');
+      if (icon && iconActive && iconInactive) {
+        icon.classList.toggle(iconActive, active);
+        icon.classList.toggle(iconInactive, !active);
+      }
     }
 
     disablePreview(message) {
@@ -1018,9 +1058,7 @@
       this.cancelPending();
       this.state.lastRenderedHash = null;
       this.state.inflightHash = null;
-      if (this.toggleBtn) {
-        this.toggleBtn.setAttribute('aria-pressed', 'false');
-      }
+      this.syncToggleButton(false);
       this.root.classList.remove('is-active');
       this.root.dataset.activePanel = 'editor';
       const tabs = this.root.querySelectorAll('[data-panel-target]');
@@ -1030,9 +1068,6 @@
           el.setAttribute('aria-selected', target === 'editor' ? 'true' : 'false');
         });
       }
-      try {
-        this.root.style.removeProperty('--split-editor-ratio');
-      } catch (_) {}
       this.setStatus(STATUS.IDLE, message || this.defaultMessage(STATUS.IDLE));
       if (this.previewCanvas) {
         this.previewCanvas.innerHTML = '<div class="split-preview-placeholder"><p>תצוגה חיה תופיע כאן</p><small>הפעל את Live Preview כדי לרענן בזמן אמת</small></div>';

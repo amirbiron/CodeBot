@@ -360,50 +360,71 @@ def test_on_a_phone_nothing_overflows_and_the_alerts_menu_stays_on_screen(browse
 
 
 # ---------------------------------------------------------------------------
-# הפריסה, הכיוון והצ'קליסט (נובמבר 2026 — התיקונים אחרי ההעלאה לאוויר)
+# הפריסה, הכיוון והצ'קליסט (אוקטובר 2026 — התיקונים אחרי ההעלאה לאוויר)
 # ---------------------------------------------------------------------------
 
-#: קטע בשורה של העורך (``.cm-line``): המיקום שלו על המסך, לפי Range על הטקסט עצמו.
-WORD_RECT = """([needle, word]) => {
-  const line = Array.from(document.querySelectorAll('.cm-line')).find((l) => l.textContent.includes(needle));
+DIRECTION_DOC = (
+    "# כותרת\n\n- [x] התקנת ספריות Markdown\n- [Task Lists](#task-lists)\n\n"
+    "| ימין | מרכז |\n|-----:|:----:|\n| טקסט | טקסט |\n\n"
+    "```python\ndef f(x):\n    return x\n```\n\n    indented code\n\nשורה אחרונה\n"
+)
+
+#: הכיוון של שורה בעורך, והמרחק של התו הראשון שלה מהקצה של אזור הטקסט שבו השורה מתחילה. השורה היא הראשונה
+#: שמתחילה ב-``prefix``; ``prefix`` שמסתיים ב-``$`` — השורה שזה כל הטקסט שלה.
+LINE_START = """(prefix) => {
+  const exact = prefix.endsWith('$') ? prefix.slice(0, -1) : null;
+  const line = Array.from(document.querySelectorAll('.cm-line'))
+    .find((l) => (exact !== null ? l.textContent === exact : l.textContent.startsWith(prefix)));
   if (!line) return null;
-  const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
-  let node;
-  while ((node = walker.nextNode())) {
-    const i = node.textContent.indexOf(word);
-    if (i >= 0) {
-      const range = document.createRange();
-      range.setStart(node, i);
-      range.setEnd(node, i + word.length);
-      const r = range.getBoundingClientRect();
-      return {left: r.left, top: r.top, direction: getComputedStyle(line).direction};
-    }
-  }
-  return null;
+  const node = document.createTreeWalker(line, NodeFilter.SHOW_TEXT).nextNode();
+  const range = document.createRange();
+  range.setStart(node, 0);
+  range.setEnd(node, 1);
+  const ch = range.getBoundingClientRect();
+  const content = document.querySelector('.cm-content').getBoundingClientRect();
+  const direction = getComputedStyle(line).direction;
+  return {direction, gap: direction === 'rtl' ? content.right - ch.right : ch.left - content.left};
 }"""
 
 
-def test_each_editor_line_takes_the_direction_of_its_text(session):
-    """שורה בעברית מימין לשמאל, ושורה באנגלית משמאל לימין. עד התיקון כל העורך היה משמאל לימין, ובשורה הראשונה
-    של ההדגמה "CodeKeeper" — המילה האחרונה במשפט — הוצגה בקצה הימני, כאילו היא פותחת אותו."""
+def _set_editor(page, text):
+    page.evaluate(
+        "(t) => { const v = window.editorManager.cmInstance;"
+        " v.dispatch({changes: {from: 0, to: v.state.doc.length, insert: t}}); }",
+        text,
+    )
+
+
+def test_the_editor_is_right_to_left_except_code_blocks(session):
+    """כל העורך מימין לשמאל, ורק בלוק קוד — עם הגדרות שלו, או מוזח — משמאל לימין. עד התיקון כל שורה קיבלה את
+    הכיוון של האות החזקה הראשונה בה, ולכן ``- [x] משימה`` (x היא אות לטינית), שורת היישור של טבלה (בלי אותיות
+    בכלל) וקישור באנגלית בתוכן העניינים יצאו משמאל לימין בתוך מסמך עברי."""
     session.open()
     page = session.page
+    _set_editor(page, DIRECTION_DOC)
+    page.wait_for_timeout(300)
 
-    first = page.evaluate(WORD_RECT, ["ברוך הבא", "ברוך"])
-    last = page.evaluate(WORD_RECT, ["ברוך הבא", "CodeKeeper"])
-    assert first and last
-    assert first["direction"] == "rtl"
-    # בסדר הקריאה, מילה מאוחרת יותר יושבת משמאל, או בשורה שמתחת
-    assert last["top"] > first["top"] + 1 or last["left"] < first["left"], (first, last)
+    for prefix in ("- [x] התקנת", "|-----:|", "- [Task Lists]", "| ימין", "שורה אחרונה"):
+        line = page.evaluate(LINE_START, prefix)
+        assert line and line["direction"] == "rtl", (prefix, line)
+    for prefix in ("```python", "def f(x):", "    return x", "```$", "    indented code"):
+        line = page.evaluate(LINE_START, prefix)
+        assert line and line["direction"] == "ltr", (prefix, line)
 
-    english = page.evaluate(WORD_RECT, ["[Task Lists]", "Task"])
-    assert english and english["direction"] == "ltr"
 
-    sides = page.evaluate(
-        "() => ({gutter: document.querySelector('.cm-gutters').getBoundingClientRect().left,"
-        " content: document.querySelector('.cm-content').getBoundingClientRect().left})"
-    )
-    assert sides["gutter"] > sides["content"], "מספרי השורות אמורים להיות בצד ימין"
+def test_the_editor_has_no_gutter_and_the_text_keeps_off_the_edge(session):
+    """בלי מספרי שורות ובלי חיצי קיפול. והטקסט מתחיל 6px מהקצה, בשני הכיוונים: הריווח של CodeMirror לשורה הוא
+    ``0 2px 0 6px`` — 6px משמאל — ובעורך מימין לשמאל ההתחלה היא דווקא הצד עם 2px, והטקסט נצמד לגבול.
+    """
+    session.open()
+    page = session.page
+    _set_editor(page, DIRECTION_DOC)
+    page.wait_for_timeout(300)
+
+    assert page.evaluate("() => document.querySelectorAll('.cm-gutters').length") == 0
+    for prefix in ("- [x] התקנת", "def f(x):"):
+        line = page.evaluate(LINE_START, prefix)
+        assert line and 5 <= line["gap"] <= 8, (prefix, line)
 
 
 def test_the_editor_and_preview_have_no_dead_rows(session):
@@ -475,41 +496,6 @@ def test_a_notice_in_the_editor_row_does_not_move_the_editor(session):
     )
     assert after["inRow"] and after["hintHidden"] and after["overlaps"], after
     assert after["row"] == before["row"] and after["cm"] == before["cm"], (before, after)
-
-
-def test_tapping_the_frame_does_not_put_the_caret_in_the_editor(browser):
-    """Chrome מציב את הסמן בטקסט הקרוב לנגיעה באזור בלי טקסט. כשהקרוב הוא העורך, הסמן נכנס אליו, ובנייד המקלדת
-    נפתחת — כך נגיעה במסגרת שמימין לעורך פתחה מקלדת. נבדק במגע, בגודל טאבלט."""
-    b, client = browser
-    s = Session(b, client, width=1000, height=620, mobile=True)
-    try:
-        s.open()
-        page = s.page
-        page.evaluate(
-            "() => document.getElementById('livePreviewRoot').scrollIntoView({block: 'start'})"
-        )
-        geo = page.evaluate(
-            """() => {
-          const q = (sel) => document.querySelector(sel).getBoundingClientRect();
-          return {root: q('#livePreviewRoot'), panel: q('.split-panel--editor'), cm: q('.codemirror-container')};
-        }"""
-        )
-        y = int(min(geo["cm"]["y"] + 120, 600))
-        points = {
-            "split-view border": int(geo["root"]["x"] + geo["root"]["width"] - 1),
-            "editor panel padding": int(geo["panel"]["x"] + geo["panel"]["width"] - 3),
-        }
-        for name, x in points.items():
-            page.evaluate("() => document.activeElement && document.activeElement.blur()")
-            page.touchscreen.tap(x, y)
-            page.wait_for_timeout(250)
-            editable = page.evaluate(
-                "() => { const a = document.activeElement;"
-                " return !!a && (a.isContentEditable || a.tagName === 'TEXTAREA'); }"
-            )
-            assert not editable, f"נגיעה ב-{name} ({x}, {y}) הכניסה את הסמן לעורך"
-    finally:
-        s.close()
 
 
 TASK_DOC = '# משימות\n\n<a id="top"></a>\n\n- [ ] ראשונה\n- [x] שנייה\n\n> - [ ] בציטוט\n\n1. [ ] ממוספרת\n'
@@ -618,3 +604,247 @@ def test_the_alerts_menu_is_not_clipped_by_the_split_view(browser):
         assert geo["visible"], "החלק התחתון של תפריט ההתראות נחתך"
     finally:
         s.close()
+
+
+# ---------------------------------------------------------------------------
+# סבב שלישי (אוקטובר 2026): התצוגה, הכפתור, הגובה, ההדבקה והקו בין הפאנלים
+# ---------------------------------------------------------------------------
+
+HEADINGS_DOC = "# ראשית\n\n## משנה\n\n#### רביעית\n\n##### חמישית\n\n###### שישית\n\nסוף\n"
+
+
+def _wait_preview_text(page, text):
+    page.wait_for_function(
+        "(t) => document.querySelector('[data-preview-canvas]').textContent.includes(t)",
+        arg=text,
+        timeout=10000,
+    )
+
+
+def test_the_preview_has_no_pilcrows_and_shows_h5_h6_as_written(session):
+    """בתצוגה החיה אין ``¶`` ליד כותרת, ו-H5 ו-H6 אינן כותרות: הן נשארות כמו שנכתבו, ``##### טקסט``, כפסקה —
+    הגופן שלהן היה קטן מטקסט רגיל. H1 עד H4 נשארות כותרות, עם מזהה שקישור בתוכן עניינים קופץ אליו.
+    """
+    session.open()
+    page = session.page
+    _set_editor(page, HEADINGS_DOC)
+    _wait_preview_text(page, "שישית")
+    state = page.evaluate(
+        """() => {
+      const c = document.querySelector('[data-preview-canvas]');
+      return {
+        pilcrows: c.querySelectorAll('.header-anchor').length,
+        h4: !!c.querySelector('h4'),
+        h5h6: c.querySelectorAll('h5, h6').length,
+        paragraphs: Array.from(c.querySelectorAll('p')).map((p) => p.textContent.trim()),
+        h1Id: c.querySelector('h1').id,
+      };
+    }"""
+    )
+    assert state["pilcrows"] == 0, state
+    assert state["h4"] and state["h5h6"] == 0, state
+    assert "##### חמישית" in state["paragraphs"] and "###### שישית" in state["paragraphs"], state
+    assert state["h1Id"], state
+
+
+def test_the_repo_browser_renderer_keeps_its_pilcrows_and_h5_h6(session):
+    """הבחירה של התצוגה החיה היא וריאנט משלה (``livePreview`` ב-``RENDERER_VARIANTS``): הרינדור שדפדפן הריפו
+    וכרטיסי החיפוש בתיעוד משתמשים בו — בלי ``variant`` — לא השתנה."""
+    session.open()
+    html = session.page.evaluate(
+        "async () => (await window.MarkdownLiveRenderer.renderWithAnchors('# א\\n\\n##### ה')).html"
+    )
+    assert "header-anchor" in html and "<h5" in html, html
+
+
+def _rgb(colour: str) -> list[float]:
+    """הערוצים של צבע מחושב — ``rgb(...)`` / ``rgba(...)``, או ``color(srgb r g b / a)`` (מה ש-color-mix מחזיר)."""
+    import re
+
+    numbers = [float(n) for n in re.findall(r"[\d.]+", colour)]
+    if colour.startswith("color(srgb"):
+        return [round(n * 255, 1) for n in numbers[:3]] + numbers[3:4]
+    return numbers
+
+
+def test_a_separator_is_a_thin_line_in_the_paper_ink_and_headings_have_no_underline(session):
+    """``---`` הוא קו של פיקסל אחד, בצבע הדיו של הנייר בשקיפות, עם מרווח. עד התיקון לא היה לו כלל, והדפדפן צייר
+    קו "בולט" אפור. ול-H1 ול-H2 אין קו תחתון — הוא היה בצבע אפור-בהיר קבוע, שלא עקב אחרי הערכה."""
+    session.open()
+    page = session.page
+    _set_editor(page, "# ראשית\n\n## משנה\n\nלפני\n\n---\n\nאחרי\n")
+    _wait_preview_text(page, "אחרי")
+    state = page.evaluate(
+        """() => {
+      const c = document.querySelector('[data-preview-canvas]');
+      const hr = getComputedStyle(c.querySelector('hr'));
+      return {
+        height: hr.height, borderTop: hr.borderTopWidth, borderBottom: hr.borderBottomWidth,
+        background: hr.backgroundColor, marginTop: parseFloat(hr.marginTop),
+        ink: getComputedStyle(c).color,
+        h1: getComputedStyle(c.querySelector('h1')).borderBottomWidth,
+        h2: getComputedStyle(c.querySelector('h2')).borderBottomWidth,
+      };
+    }"""
+    )
+    assert (
+        state["height"] == "1px" and state["borderTop"] == "0px" and state["borderBottom"] == "0px"
+    ), state
+    background, ink = _rgb(state["background"]), _rgb(state["ink"])
+    assert all(abs(a - b) <= 1 for a, b in zip(background[:3], ink[:3])), state
+    assert len(background) == 4 and 0.1 < background[3] < 0.4, state
+    assert state["marginTop"] > 8, state
+    assert state["h1"] == "0px" and state["h2"] == "0px", state
+
+
+def test_the_toggle_says_what_it_does(session):
+    """כשהתצוגה פתוחה הכפתור אומר "הסתר תצוגה", עם עין חצויה; כשהיא סגורה — "Live Preview". בלי ``aria-pressed``:
+    הכיתוב כבר אומר מה הלחיצה תעשה."""
+    session.open()
+    page = session.page
+    read = """() => { const b = document.querySelector('.split-toggle'); return {
+      text: b.querySelector('.split-toggle__text').textContent.trim(), icon: b.querySelector('i').className,
+      pressed: b.getAttribute('aria-pressed'),
+      active: document.getElementById('livePreviewRoot').classList.contains('is-active')}; }"""
+    on = page.evaluate(read)
+    assert on["active"] and on["text"] == "הסתר תצוגה" and "fa-eye-slash" in on["icon"], on
+    assert on["pressed"] is None, on
+    page.click('[data-action="toggle-live-preview"]')
+    off = page.evaluate(read)
+    assert not off["active"] and off["text"] == "Live Preview" and "fa-columns" in off["icon"], off
+    assert off["pressed"] is None, off
+
+
+def test_the_area_below_the_editor_is_folded_and_scrolling_stays_inside(session):
+    """מה שמתחת לעורך בבלוק מתקפל, סגור כברירת מחדל; והגלילה בעורך ובתצוגה לא עוברת לעמוד כשמגיעים לסוף."""
+    session.open()
+    state = session.page.evaluate(
+        """() => {
+      const d = document.querySelector('details.md-editor-page__about');
+      return {
+        open: d ? d.open : null,
+        inside: d ? !!d.querySelector('#mdEditorAboutTitle') : false,
+        editor: getComputedStyle(document.querySelector('.cm-scroller')).overscrollBehaviorY,
+        preview: getComputedStyle(document.querySelector('.split-preview-canvas')).overscrollBehaviorY,
+      };
+    }"""
+    )
+    assert state["open"] is False and state["inside"], state
+    assert state["editor"] == "contain" and state["preview"] == "contain", state
+
+
+PANEL_HEIGHTS = """() => {
+  const h = (s) => Math.round(document.querySelector(s).getBoundingClientRect().height);
+  return {panels: h('.split-panels'), editor: h('.codemirror-container'), preview: h('.split-preview-canvas')};
+}"""
+
+
+def test_an_empty_document_keeps_the_panels_full_height(session):
+    """אחרי "ניקוי" העורך והתצוגה נשארים בגובה שלהם. עד התיקון הגובה נקבע לפי אורך התוכן, ומסמך ריק כיווץ אותם
+    (נמדד: העורך מ-459px ל-179px)."""
+    session.open()
+    page = session.page
+    before = page.evaluate(PANEL_HEIGHTS)
+    page.once("dialog", lambda d: d.accept())
+    page.click('[data-md-editor-action="clear"]')
+    assert session.editor_text() == ""
+    page.wait_for_timeout(600)
+    assert page.evaluate(PANEL_HEIGHTS) == before, before
+
+
+LONG_DOC = "# התחלה\n\n" + "\n\n".join(f"פסקה {i}" for i in range(150)) + "\n\n# סוף\n"
+
+#: הדבקה כמו של הדפדפן: אירוע ``paste`` עם הטקסט בלוח, שה-handler של CodeMirror קורא.
+PASTE = """(text) => {
+  const dt = new DataTransfer();
+  dt.setData('text/plain', text);
+  document.querySelector('.cm-content').dispatchEvent(
+    new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));
+}"""
+
+SCROLL_STATE = """() => {
+  const v = window.editorManager.cmInstance;
+  const canvas = document.querySelector('.split-preview-canvas');
+  return {head: v.state.selection.main.head, editorTop: Math.round(document.querySelector('.cm-scroller').scrollTop),
+          previewTop: Math.round(canvas.scrollTop), previewScrolls: canvas.scrollHeight > canvas.clientHeight};
+}"""
+
+
+def test_pasting_over_the_whole_document_shows_its_start(session):
+    """הדבקה שמחליפה את כל המסמך משאירה את העורך ואת התצוגה בתחילת המסמך. עד התיקון הסמן נשאר בסוף מה שהודבק,
+    והעורך גלל אליו, בזמן שהתצוגה הייתה בראש המסמך. הדבקה לתוך טקסט קיים לא משתנה: הסמן אחרי מה שהודבק.
+    """
+    session.open()
+    page = session.page
+    page.evaluate("() => { document.querySelector('.split-preview-canvas').scrollTop = 200; }")
+    page.evaluate(
+        "() => { const v = window.editorManager.cmInstance; v.focus();"
+        " v.dispatch({selection: {anchor: 0, head: v.state.doc.length}}); }"
+    )
+    page.evaluate(PASTE, LONG_DOC)
+    _wait_preview_text(page, "פסקה 149")
+    state = page.evaluate(SCROLL_STATE)
+    assert state["previewScrolls"], "התנאי של הבדיקה: המסמך ארוך מהתצוגה"
+    assert state["head"] == 0 and state["editorTop"] == 0 and state["previewTop"] == 0, state
+
+    page.evaluate("() => window.editorManager.cmInstance.dispatch({selection: {anchor: 10}})")
+    page.evaluate(PASTE, "הודבק")
+    assert page.evaluate(SCROLL_STATE)["head"] == 10 + len("הודבק")
+
+
+def test_there_is_no_divider_and_a_swipe_does_not_resize_the_panels(browser):
+    """בין העורך לתצוגה אין יותר קו גרירה. עד התיקון, אחרי גרירה אחת במגע, הגרירה הסתיימה ב-``pointercancel``,
+    מאזין התזוזה נשאר רשום, וכל גלילה אחר כך שינתה את רוחב הפאנלים. הבדיקה עושה את מה שהמשתמש עשה, במגע אמיתי:
+    לחיצה ממושכת וגרירה על הגבול בין הפאנלים, ואחריה החלקה אנכית בתצוגה."""
+    b, client = browser
+    s = Session(b, client, width=1100, height=760, mobile=True)
+    try:
+        s.open()
+        page = s.page
+        page.evaluate(
+            "() => document.getElementById('livePreviewRoot').scrollIntoView({block: 'start'})"
+        )
+        assert not page.evaluate("() => !!document.querySelector('.split-resizer')")
+        width = "() => Math.round(document.querySelector('.split-panel--editor').getBoundingClientRect().width)"
+        geo = page.evaluate(
+            """() => { const e = document.querySelector('.split-panel--editor').getBoundingClientRect();
+          const p = document.querySelector('.split-panel--preview').getBoundingClientRect();
+          return {seam: (e.left + p.right) / 2, y: e.top + e.height / 2, previewX: p.left + p.width / 2}; }"""
+        )
+        before = page.evaluate(width)
+        cdp = s.ctx.new_cdp_session(page)
+
+        def touch(kind, x=0, y=0):
+            points = [] if kind == "touchEnd" else [{"x": x, "y": y, "id": 1}]
+            cdp.send("Input.dispatchTouchEvent", {"type": kind, "touchPoints": points})
+
+        x, y = geo["seam"], geo["y"]
+        touch("touchStart", x, y)
+        page.wait_for_timeout(600)
+        for i in range(1, 8):
+            touch("touchMove", x - 15 * i, y)
+        touch("touchEnd")
+        x = geo["previewX"]
+        touch("touchStart", x, y + 100)
+        for i in range(1, 10):
+            touch("touchMove", x + 4 * i, y + 100 - 30 * i)
+        touch("touchEnd")
+        page.wait_for_timeout(300)
+        assert page.evaluate(width) == before
+    finally:
+        s.close()
+
+
+def test_an_anchor_after_an_h5_lands_on_its_own_heading(session):
+    """עוגן מפורש (``<a id>``) מוחל על הכותרת לפי המספר הסידורי שלה. בתצוגה החיה ``#####`` הוא פסקה, ולכן
+    החילוץ (``MdAnchors.extractExplicitAnchors``) חייב לספור כותרות כמו ה-renderer — אחרת העוגן של "יעד" הוחל
+    על הכותרת שאחריה."""
+    session.open()
+    page = session.page
+    _set_editor(page, '# ראשית\n\n##### עמוקה\n\n## יעד <a id="target"></a>\n\n## הבאה\n')
+    _wait_preview_text(page, "הבאה")
+    after = page.evaluate(
+        "() => { const a = document.getElementById('target');"
+        " return a && a.nextElementSibling ? a.nextElementSibling.textContent.trim() : null; }"
+    )
+    assert after == "יעד", after

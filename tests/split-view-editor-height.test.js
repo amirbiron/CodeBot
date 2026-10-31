@@ -22,6 +22,15 @@
 // הוא שומר על ההחלטה של המדידה: שהתקרה הכפולה לא תחזור, ושהעורך
 // יישאר מסוגל להתכווץ בתוך ה-Split View במקום לגלוש ממנו.
 //
+// **ובאג שני, הפוך (אוקטובר 2026):** כש-Live Preview דלוק, הגובה של
+// ``.split-panels`` היה תקרה (``max-height``) ולא גובה, כלומר נקבע לפי אורך
+// התוכן. מסמך ריק — אחרי "ניקוי", או מחיקה של כל הטקסט — כיווץ את שני
+// הפאנלים ל-280px, והעורך ירד ל-89px (נמדד בעמוד העריכה, חלון 1100x760).
+// מאז הגובה כשהתצוגה דלוקה הוא ``height``, וזה הכלל היחיד שקובע את גובה
+// ``.split-panels``. ההתכווצות עצמה נבדקת בדפדפן
+// (``test_an_empty_document_keeps_the_panels_full_height`` ב-
+// ``tests/test_markdown_editor_browser.py`` וב-``tests/test_edit_page_frame_browser.py``).
+//
 // לכל טענה כאן יש מוטציה מובנית: הטסט מוודא שהוא מסוגל ליפול, על ידי
 // הרצת אותה בדיקה בדיוק על גרסת CSS שהתיקון הוסר ממנה.
 
@@ -57,14 +66,16 @@ function extractBlock(css, startIndex) {
   return '';
 }
 
-/** 1. כש-Live Preview כבוי אין תקרה על ‎.split-panels‎ — אין מה לבלוע. */
+/** 1. כש-Live Preview כבוי אין תקרה על ‎.split-panels‎ — אין מה לבלוע. כלל שקובע את הגובה שלו קיים רק
+ *  עם ``.is-active`` בבורר. */
 function assertNoCapWhenPreviewOff(css) {
-  const re = /\.split-view:not\(\.is-active\)\s+\.split-panels\s*\{([^}]*)\}/g;
-  const bodies = [...css.matchAll(re)].map((m) => m[1]);
-  ok(bodies.length > 0,
-    'אין כלל ל-".split-view:not(.is-active) .split-panels" — התקרה חזרה לחול גם כשה-Preview כבוי');
-  ok(bodies.some((b) => /max-height\s*:\s*none/.test(b)),
-    'הכלל קיים אבל בלי "max-height: none" — התקרה של calc(100vh - 200px) שוב תחתוך את העורך');
+  const offenders = parseRules(css).filter(
+    (r) => r.selectors.some((s) => s.endsWith('.split-panels') && !s.includes('.is-active'))
+      && /(?:^|[;\s])(?:max-)?height\s*:\s*(?!none\b)/.test(r.body),
+  );
+  ok(offenders.length === 0,
+    'יש כלל שקובע גובה ל-.split-panels גם כשה-Preview כבוי: ' +
+    offenders.map((r) => r.selectors.join(', ')).join(' | '));
 }
 
 /**
@@ -75,8 +86,10 @@ function assertNoCapWhenPreviewOff(css) {
 function parseRules(block) {
   const rules = [];
   const re = /([^{}]+)\{([^}]*)\}/g;
+  // הערות לפני הפירוק: הערה שמצטטת כלל (``.split-panels { max-height: ... }``) הייתה נקראת ככלל
+  const css = block.replace(/\/\*[\s\S]*?\*\//g, '');
   let m;
-  while ((m = re.exec(block)) !== null) {
+  while ((m = re.exec(css)) !== null) {
     rules.push({
       selectors: m[1].split(',').map((s) => s.trim()).filter(Boolean),
       body: m[2],
@@ -132,8 +145,18 @@ function assertShrinkChainIsDesktopOnly(css) {
     'יש flex: 1 על .cm-editor גם מחוץ ל-media query — הוא יחול גם במובייל');
 }
 
+/** 4. כש-Live Preview דלוק לפאנלים יש **גובה**, לא תקרה — אחרת מסמך ריק מכווץ אותם. */
+function assertDefiniteHeightWhenPreviewOn(css) {
+  const mqIdx = css.indexOf('@media (min-width: 768px)');
+  ok(mqIdx !== -1, 'אין @media (min-width: 768px)');
+  const rules = parseRules(extractBlock(css, mqIdx));
+  ok(ruleDeclares(rules, '.split-view.is-active .split-panels', /(?:^|[;\s])height\s*:/),
+    'ל-".split-view.is-active .split-panels" אין height — הגובה שוב נקבע לפי התוכן, ומסמך ריק מכווץ את הפאנלים');
+}
+
 const ASSERTIONS = [
   ['אין תקרת גובה על .split-panels כש-Live Preview כבוי', assertNoCapWhenPreviewOff],
+  ['כש-Live Preview דלוק לפאנלים יש גובה קבוע, לא תקרה', assertDefiniteHeightWhenPreviewOn],
   ['העורך מסוגל להתכווץ בתוך הפאנל כש-Live Preview דלוק', assertEditorCanShrinkWhenPreviewOn],
   ['שרשרת ההתכווצות מגודרת ל-768px ומעלה בלבד', assertShrinkChainIsDesktopOnly],
 ];
@@ -164,10 +187,17 @@ function expectFails(name, mutatedCss, fn) {
 console.log('מוטציות (הבדיקות חייבות ליפול על CSS פגום):');
 
 expectFails(
-  'ביטול "max-height: none" מפיל את בדיקת ה-Preview הכבוי',
-  mutate(CSS, '.split-view:not(.is-active) .split-panels {\n  max-height: none;\n}',
-              '.split-view:not(.is-active) .split-panels {\n  max-height: 60vh;\n}'),
+  'החזרת התקרה ל-.split-panels (בלי .is-active) מפילה את בדיקת ה-Preview הכבוי',
+  mutate(CSS, '.split-panels {\n  display: flex;\n  flex-direction: row;\n  min-height: 280px;\n}',
+              '.split-panels {\n  display: flex;\n  flex-direction: row;\n  min-height: 280px;\n  max-height: calc(100vh - 200px);\n}'),
   assertNoCapWhenPreviewOff,
+);
+
+expectFails(
+  'תקרה במקום גובה כשה-Preview דלוק מפילה את בדיקת הגובה הקבוע',
+  mutate(CSS, '  .split-view.is-active .split-panels {\n    height: calc(100vh - 200px);',
+              '  .split-view.is-active .split-panels {\n    max-height: calc(100vh - 200px);'),
+  assertDefiniteHeightWhenPreviewOn,
 );
 
 expectFails(

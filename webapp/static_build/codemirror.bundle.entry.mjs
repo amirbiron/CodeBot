@@ -1,7 +1,7 @@
 import { EditorState, Compartment, RangeSetBuilder } from '@codemirror/state';
 import { EditorView, keymap, drawSelection, dropCursor, highlightSpecialChars, highlightActiveLine, highlightActiveLineGutter, rectangularSelection, crosshairCursor, lineNumbers, Decoration, ViewPlugin } from '@codemirror/view';
 import { history, defaultKeymap, historyKeymap } from '@codemirror/commands';
-import { foldGutter, foldKeymap, bracketMatching, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { foldGutter, foldKeymap, bracketMatching, syntaxHighlighting, HighlightStyle, syntaxTree } from '@codemirror/language';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { MergeView } from '@codemirror/merge';
@@ -349,33 +349,38 @@ function getSyntaxHighlighter() {
   return syntaxHighlighting(classHighlighter);
 }
 
-const basicSetup = [
-  lineNumbers(),
-  highlightActiveLineGutter(),
-  highlightSpecialChars(),
-  history(),
-  foldGutter(),
-  drawSelection(),
-  dropCursor(),
-  EditorState.allowMultipleSelections.of(true),
-  bracketMatching(),
-  closeBrackets(),
-  autocompletion(),
-  rectangularSelection(),
-  crosshairCursor(),
-  highlightActiveLine(),
-  highlightSelectionMatches(),
-  // 🎨 classHighlighter כ-fallback - ערכות מותאמות משתמשות ב-dynamic HighlightStyle
-  syntaxHighlighting(classHighlighter),
-  keymap.of([
-    ...closeBracketsKeymap,
-    ...defaultKeymap,
-    ...searchKeymap,
-    ...historyKeymap,
-    ...foldKeymap,
-    ...completionKeymap
-  ])
-];
+// ``gutters: false`` — בלי העמודה שבצד הטקסט: בלי מספרי שורות ובלי חיצי קיפול (קיצורי הקיפול במקלדת נשארים).
+// העורך הציבורי (האפשרות gutters של EditorManager). ``basicSetup`` הוא ברירת המחדל, עם העמודה.
+function createBasicSetup({ gutters = true } = {}) {
+  return [
+    ...(gutters ? [lineNumbers(), highlightActiveLineGutter()] : []),
+    highlightSpecialChars(),
+    history(),
+    ...(gutters ? [foldGutter()] : []),
+    drawSelection(),
+    dropCursor(),
+    EditorState.allowMultipleSelections.of(true),
+    bracketMatching(),
+    closeBrackets(),
+    autocompletion(),
+    rectangularSelection(),
+    crosshairCursor(),
+    highlightActiveLine(),
+    highlightSelectionMatches(),
+    // 🎨 classHighlighter כ-fallback - ערכות מותאמות משתמשות ב-dynamic HighlightStyle
+    syntaxHighlighting(classHighlighter),
+    keymap.of([
+      ...closeBracketsKeymap,
+      ...defaultKeymap,
+      ...searchKeymap,
+      ...historyKeymap,
+      ...foldKeymap,
+      ...completionKeymap
+    ])
+  ];
+}
+
+const basicSetup = createBasicSetup();
 
 const languageCompartment = new Compartment();
 const themeCompartment = new Compartment();
@@ -398,40 +403,58 @@ function getLanguageSupport(name) {
   }
 }
 
-// 🧭 כיוון לכל שורה (perLineAutoDirection)
-// כל שורה מקבלת dir="auto": הדפדפן קובע את הכיוון שלה לפי האות החזקה הראשונה בה — שורה בעברית מימין
-// לשמאל, ושורת קוד או אנגלית משמאל לימין — ו-perLineTextDirection גורם ל-CodeMirror לקרוא את הכיוון של כל
-// שורה בנפרד (getComputedStyle של השורה), כך שהסמן, הבחירה ותזוזת החצים עוקבים אחריו. בלי זה, שורה
-// עברית בתוך עורך משמאל לימין נשברת בסדר הקריאה: מילה אנגלית בסוף המשפט מוצגת בקצה הימני של השורה.
-// משמש את העורך הציבורי (/markdown-editor, האפשרות textDirection של EditorManager).
-const autoDirLine = Decoration.line({ attributes: { dir: 'auto' } });
+// 🧭 כיוון: הכל מימין לשמאל, חוץ מבלוקי קוד (rtlExceptCodeBlocks)
+// העורך הציבורי (/markdown-editor, האפשרות textDirection: 'rtl' של EditorManager) כתוב בעברית: כל העורך מימין
+// לשמאל — ``codemirror-container--rtl`` ב-codemirror-custom.css — ורק השורות של בלוק קוד משמאל לימין. בלוק קוד הוא
+// הצומת ``FencedCode`` (בין ``` ``` ```, כולל שורות הגדר) או ``CodeBlock`` (שורות מוזחות) בעץ התחביר של
+// @lezer/markdown, כלומר מה שהמנתח של Markdown בעורך כבר זיהה, ולא ביטוי משלנו. perLineTextDirection גורם
+// ל-CodeMirror לקרוא את הכיוון של כל שורה בנפרד, כך שהסמן, הבחירה והחצים עוקבים אחריו.
+// עד אוקטובר 2026 כל שורה קיבלה dir="auto", כלומר כיוון לפי האות החזקה הראשונה בה — ושורות שמתחילות באות
+// לטינית או בלי אותיות בכלל (``- [x] משימה``, ``|---:|:---:|``, קישור באנגלית בתוכן עניינים) יצאו משמאל לימין
+// בתוך מסמך עברי.
+const LTR_CODE_LINE = Decoration.line({ attributes: { dir: 'ltr' } });
+const CODE_BLOCK_NODES = new Set(['FencedCode', 'CodeBlock']);
 
-function buildAutoDirDecorations(view) {
+function buildCodeBlockDirection(view) {
   const builder = new RangeSetBuilder();
+  const tree = syntaxTree(view.state);
+  const doc = view.state.doc;
+  let lastLine = 0;
   for (const { from, to } of view.visibleRanges) {
-    for (let pos = from; pos <= to;) {
-      const line = view.state.doc.lineAt(pos);
-      builder.add(line.from, line.from, autoDirLine);
-      pos = line.to + 1;
-    }
+    tree.iterate({
+      from,
+      to,
+      enter(node) {
+        if (!CODE_BLOCK_NODES.has(node.name)) return undefined;
+        const first = doc.lineAt(Math.max(node.from, from)).number;
+        const last = doc.lineAt(Math.min(node.to, to)).number;
+        for (let n = Math.max(first, lastLine + 1); n <= last; n += 1) {
+          const line = doc.line(n);
+          builder.add(line.from, line.from, LTR_CODE_LINE);
+          lastLine = n;
+        }
+        return false;
+      },
+    });
   }
   return builder.finish();
 }
 
-const autoDirPlugin = ViewPlugin.fromClass(class {
+const codeBlockDirectionPlugin = ViewPlugin.fromClass(class {
   constructor(view) {
-    this.decorations = buildAutoDirDecorations(view);
+    this.decorations = buildCodeBlockDirection(view);
   }
 
   update(update) {
-    if (update.docChanged || update.viewportChanged) {
-      this.decorations = buildAutoDirDecorations(update.view);
+    // גם כשהעץ התקדם בלי שינוי בטקסט: המנתח עובד ברקע, ובלוק שעוד לא פוענח מקבל את הכיוון שלו כשהוא מגיע
+    if (update.docChanged || update.viewportChanged || syntaxTree(update.startState) !== syntaxTree(update.state)) {
+      this.decorations = buildCodeBlockDirection(update.view);
     }
   }
 }, { decorations: (value) => value.decorations });
 
-function perLineAutoDirection() {
-  return [EditorView.perLineTextDirection.of(true), autoDirPlugin];
+function rtlExceptCodeBlocks() {
+  return [EditorView.perLineTextDirection.of(true), codeBlockDirectionPlugin];
 }
 
 function getTheme(name) {
@@ -461,6 +484,7 @@ const api = {
   EditorState,
   EditorView,
   basicSetup,
+  createBasicSetup,
   keymap,
   Compartment,
   languageCompartment,
@@ -468,7 +492,7 @@ const api = {
   getLanguageSupport,
   getTheme,
   getSyntaxHighlighter,
-  perLineAutoDirection,
+  rtlExceptCodeBlocks,
   createDynamicHighlightStyle,
   invalidateSyntaxHighlighterCache,  // 🆕 לאיפוס cache כש-theme משתנה
   MergeView,

@@ -222,5 +222,26 @@ console.log('מפת השורות — מהמקור אחרי הניקוי לשור
   check('מסמך בלי עוגנים — lineMap null (המספרים זהים)', extractExplicitAnchors('- [ ] א').lineMap === null);
 }
 
+console.log('maxHeadingLevel — כותרת עמוקה ממנה אינה נספרת (התצוגה החיה, שבה H5/H6 נשארות פסקאות)');
+{
+  // העוגנים מוחלים לפי המספר הסידורי של הכותרת ב-DOM. בתצוגה החיה ``#####`` הוא פסקה, ולכן אם החילוץ סופר
+  // אותו ככותרת, העוגן של "יעד" מוחל על הכותרת שאחריה.
+  const src = '# ראשית\n\n##### עמוקה\n\n## יעד <a id="target"></a>\n\n## הבאה';
+  const shallow = extractExplicitAnchors(src, { maxHeadingLevel: 4 });
+  check('עם maxHeadingLevel 4: "יעד" היא הכותרת השנייה (אינדקס 1)',
+    shallow.anchors.length === 1 && shallow.anchors[0].headingIndex === 1, shallow.anchors);
+  const all = extractExplicitAnchors(src);
+  check('בלי האפשרות: כל שש הרמות נספרות, "יעד" באינדקס 2',
+    all.anchors.length === 1 && all.anchors[0].headingIndex === 2, all.anchors);
+  check('השורה העמוקה נשארת בטקסט כמו שנכתבה', shallow.source.split('\n').includes('##### עמוקה'), shallow.source);
+  check('תגית העוגן הוסרה משורת הכותרת', shallow.source.indexOf('<a') === -1, shallow.source);
+}
+{
+  // כותרת עמוקה ואחריה "---": עדיין לא כותרת Setext (markdown-it מפענח את השורה ככותרת ATX)
+  const src = '##### עמוקה\n---\n\n## יעד <a id="t"></a>';
+  const r = extractExplicitAnchors(src, { maxHeadingLevel: 4 });
+  check('כותרת עמוקה מעל "---" אינה נספרת כ-Setext', r.anchors.length === 1 && r.anchors[0].headingIndex === 0, r.anchors);
+}
+
 console.log('\nסה"כ: ' + passed + ' עברו, ' + failed + ' נכשלו');
 process.exit(failed === 0 ? 0 : 1);

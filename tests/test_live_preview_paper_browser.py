@@ -92,6 +92,7 @@ MARKDOWN = (
     "## כותרת עם [קישור](https://example.com/h2)\n\n"
     "פסקה עם **הדגשה**, [קישור](https://example.com/a), `קוד בשורה` ו-==סימון==.\n\n"
     "> ציטוט עם שורה.\n\n"
+    "---\n\n"
     "- פריט ראשון\n- פריט שני\n\n"
     "| עמודה | ב |\n|---|---|\n| 1 | 2 |\n\n"
     "```python\ndef f(x):\n    s = 'מחרוזת'  # הערה\n    return x\n```\n\n"
@@ -113,7 +114,9 @@ SELECTORS = [
     ":scope > p",
     "p strong",
     "p > a",
-    "a.header-anchor",
+    # בלי ``a.header-anchor``: מאוקטובר 2026 התצוגה החיה לא מרנדרת ``¶`` ליד כותרת (``livePreview`` ב-
+    # ``RENDERER_VARIANTS``), ולכן אין לה מה להשוות. קו ההפרדה (``hr``) כן, באותו צבע ובאותו מרווח.
+    "hr",
     "p > code",
     "mark",
     "blockquote",
@@ -354,3 +357,40 @@ def test_what_only_the_preview_shows_is_readable(measured, name):
     button = _over(live["copyBg"], header)
     icon = _contrast(_over(live["copyColor"], button), button)
     assert icon >= 3.0, f"{name}: אייקון ההעתקה בניגודיות {icon:.2f}"
+
+
+#: קו הפרדה וכותרות בתצוגת המסמך — הכללים שלהם ב-``md-content-layout.css`` וב-``md-content-colors.css``,
+#: המשותפים לתצוגה החיה (שם הם נבדקים ב-``tests/test_markdown_editor_browser.py``).
+SEPARATOR_JS = """() => {
+  const c = document.getElementById('md-content');
+  const hr = getComputedStyle(c.querySelector('hr'));
+  return {height: hr.height, borderTop: hr.borderTopWidth, borderBottom: hr.borderBottomWidth,
+          background: hr.backgroundColor, ink: getComputedStyle(c).color, marginTop: parseFloat(hr.marginTop),
+          h1: getComputedStyle(c.querySelector('h1')).borderBottomWidth,
+          h2: getComputedStyle(c.querySelector('h2')).borderBottomWidth};
+}"""
+
+
+@pytest.fixture(scope="module")
+def separators(chromium_executable):
+    html = "<h1>ראשית</h1><h2>משנה</h2><p>לפני</p><hr><p>אחרי</p>"
+    return _measure_pages(
+        chromium_executable,
+        {name: _document_page(name, html) for name in THEMES},
+        None,
+        SEPARATOR_JS,
+    )
+
+
+@pytest.mark.parametrize("name", list(THEMES))
+def test_the_document_separator_is_a_thin_line_in_the_paper_ink(separators, name):
+    """``---`` בתצוגת המסמך: קו של פיקסל אחד בצבע הדיו של הנייר בשקיפות, עם מרווח — ולא הקו ה"בולט" האפור של
+    הדפדפן, שעל נייר כהה נראה כמו פס לבן. ול-H1 ול-H2 אין קו תחתון."""
+    m = separators[name]
+    assert m["height"] == "1px" and m["borderTop"] == "0px" and m["borderBottom"] == "0px", m
+    line, alpha = _rgba(m["background"])
+    ink, _ = _rgba(m["ink"])
+    assert all(abs(a - b) <= 1 / 255 for a, b in zip(line, ink)), m
+    assert 0.1 < alpha < 0.4, m
+    assert m["marginTop"] > 8, m
+    assert m["h1"] == "0px" and m["h2"] == "0px", m

@@ -32254,33 +32254,35 @@
     }
     return syntaxHighlighting(classHighlighter);
   }
-  var basicSetup = [
-    lineNumbers(),
-    highlightActiveLineGutter(),
-    highlightSpecialChars(),
-    history(),
-    foldGutter(),
-    drawSelection(),
-    dropCursor(),
-    EditorState.allowMultipleSelections.of(true),
-    bracketMatching(),
-    closeBrackets(),
-    autocompletion(),
-    rectangularSelection(),
-    crosshairCursor(),
-    highlightActiveLine(),
-    highlightSelectionMatches(),
-    // 🎨 classHighlighter כ-fallback - ערכות מותאמות משתמשות ב-dynamic HighlightStyle
-    syntaxHighlighting(classHighlighter),
-    keymap.of([
-      ...closeBracketsKeymap,
-      ...defaultKeymap,
-      ...searchKeymap,
-      ...historyKeymap,
-      ...foldKeymap,
-      ...completionKeymap
-    ])
-  ];
+  function createBasicSetup({ gutters: gutters2 = true } = {}) {
+    return [
+      ...gutters2 ? [lineNumbers(), highlightActiveLineGutter()] : [],
+      highlightSpecialChars(),
+      history(),
+      ...gutters2 ? [foldGutter()] : [],
+      drawSelection(),
+      dropCursor(),
+      EditorState.allowMultipleSelections.of(true),
+      bracketMatching(),
+      closeBrackets(),
+      autocompletion(),
+      rectangularSelection(),
+      crosshairCursor(),
+      highlightActiveLine(),
+      highlightSelectionMatches(),
+      // 🎨 classHighlighter כ-fallback - ערכות מותאמות משתמשות ב-dynamic HighlightStyle
+      syntaxHighlighting(classHighlighter),
+      keymap.of([
+        ...closeBracketsKeymap,
+        ...defaultKeymap,
+        ...searchKeymap,
+        ...historyKeymap,
+        ...foldKeymap,
+        ...completionKeymap
+      ])
+    ];
+  }
+  var basicSetup = createBasicSetup();
   var languageCompartment = new Compartment();
   var themeCompartment = new Compartment();
   function getLanguageSupport(name2) {
@@ -32309,30 +32311,44 @@
         return [];
     }
   }
-  var autoDirLine = Decoration.line({ attributes: { dir: "auto" } });
-  function buildAutoDirDecorations(view) {
+  var LTR_CODE_LINE = Decoration.line({ attributes: { dir: "ltr" } });
+  var CODE_BLOCK_NODES = /* @__PURE__ */ new Set(["FencedCode", "CodeBlock"]);
+  function buildCodeBlockDirection(view) {
     const builder = new RangeSetBuilder();
+    const tree = syntaxTree(view.state);
+    const doc2 = view.state.doc;
+    let lastLine = 0;
     for (const { from, to } of view.visibleRanges) {
-      for (let pos = from; pos <= to; ) {
-        const line = view.state.doc.lineAt(pos);
-        builder.add(line.from, line.from, autoDirLine);
-        pos = line.to + 1;
-      }
+      tree.iterate({
+        from,
+        to,
+        enter(node) {
+          if (!CODE_BLOCK_NODES.has(node.name)) return void 0;
+          const first = doc2.lineAt(Math.max(node.from, from)).number;
+          const last = doc2.lineAt(Math.min(node.to, to)).number;
+          for (let n = Math.max(first, lastLine + 1); n <= last; n += 1) {
+            const line = doc2.line(n);
+            builder.add(line.from, line.from, LTR_CODE_LINE);
+            lastLine = n;
+          }
+          return false;
+        }
+      });
     }
     return builder.finish();
   }
-  var autoDirPlugin = ViewPlugin.fromClass(class {
+  var codeBlockDirectionPlugin = ViewPlugin.fromClass(class {
     constructor(view) {
-      this.decorations = buildAutoDirDecorations(view);
+      this.decorations = buildCodeBlockDirection(view);
     }
     update(update) {
-      if (update.docChanged || update.viewportChanged) {
-        this.decorations = buildAutoDirDecorations(update.view);
+      if (update.docChanged || update.viewportChanged || syntaxTree(update.startState) !== syntaxTree(update.state)) {
+        this.decorations = buildCodeBlockDirection(update.view);
       }
     }
   }, { decorations: (value) => value.decorations });
-  function perLineAutoDirection() {
-    return [EditorView.perLineTextDirection.of(true), autoDirPlugin];
+  function rtlExceptCodeBlocks() {
+    return [EditorView.perLineTextDirection.of(true), codeBlockDirectionPlugin];
   }
   function getTheme(name2) {
     if (typeof document !== "undefined") {
@@ -32357,6 +32373,7 @@
     EditorState,
     EditorView,
     basicSetup,
+    createBasicSetup,
     keymap,
     Compartment,
     languageCompartment,
@@ -32364,7 +32381,7 @@
     getLanguageSupport,
     getTheme,
     getSyntaxHighlighter,
-    perLineAutoDirection,
+    rtlExceptCodeBlocks,
     createDynamicHighlightStyle,
     invalidateSyntaxHighlighterCache,
     // 🆕 לאיפוס cache כש-theme משתנה
