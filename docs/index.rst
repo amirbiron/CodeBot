@@ -128,6 +128,7 @@ Code Keeper Bot - תיעוד API
    webapp/code-browser
    webapp/user-interfaces
    webapp/gallery
+   webapp/markdown-editor
    webapp/snippet-library
    webapp/caching
    webapp/advanced-caching

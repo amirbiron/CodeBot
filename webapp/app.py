@@ -265,6 +265,7 @@ from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 # והרישום של בחירת ערכה "רק במכשיר הזה".
 from webapp import first_steps  # noqa: E402
 from webapp.gallery import GALLERY_SLIDES, share_image as gallery_share_image  # noqa: E402
+from webapp.markdown_editor import THEME_ID as MARKDOWN_EDITOR_THEME_ID, demo_text as markdown_editor_demo_text  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
 from services.db_health_service import (  # noqa: E402
@@ -11881,6 +11882,86 @@ def gallery():
         share_image=gallery_share_image(GALLERY_SLIDES[0]),
         base_url=_webapp_base_url(),
     )
+
+
+@app.route('/markdown-editor', methods=['GET'])
+@_limiter_exempt()
+def markdown_editor():
+    """עורך Markdown ותצוגה חיה — עמוד ציבורי, בלי התחברות, לגולשים שמגיעים מחיפוש.
+
+    הנתונים ב-``webapp/markdown_editor.py``; התיעוד ב-``docs/webapp/markdown-editor.rst``. פטור ממגבלת הקצב
+    הגורפת מאותה סיבה כמו ``/gallery``.
+
+    **הערכה.** העמוד מוצג בערכה הציבורית ``MARKDOWN_EDITOR_THEME_ID`` לכל גולש, גם מחובר. היא נטענת כמו
+    ערכה ציבורית של מבקר (``_load_shared_theme_for_request`` בלי משתמש — דרך הקאש, ובלי לזרוק), ומועברת
+    לתבנית במפורש: ערך שמועבר ל-``render_template`` גובר על מה ש-``inject_globals`` מחזיר
+    (``Flask.update_template_context``, נקרא ב-Flask 3.1.2). ``custom_theme`` מאופס, כי צבעי התחביר של ערכה
+    מותאמת של המשתמש כתובים על ``[data-theme-type="custom"]``, שחל גם על ערכה ציבורית. כשהערכה חסרה —
+    נמחקה, כובתה, או שהמסד לא זמין — העמוד עולה בערכה הרגילה של האתר, ונרשמת אזהרה.
+    """
+    theme_context = {}
+    shared_theme = _load_shared_theme_for_request(MARKDOWN_EDITOR_THEME_ID, user_id=None, db_ref=None)
+    if shared_theme is None:
+        logger.warning(
+            "markdown_editor: shared theme %r unavailable; rendering the site default theme",
+            MARKDOWN_EDITOR_THEME_ID,
+        )
+    else:
+        theme_context = {
+            'ui_theme': f'shared:{MARKDOWN_EDITOR_THEME_ID}',
+            'shared_theme': shared_theme,
+            'custom_theme': None,
+            'ui_theme_custom_id': '',
+        }
+    return render_template(
+        'markdown_editor.html',
+        demo_text=markdown_editor_demo_text(),
+        base_url=_webapp_base_url(),
+        **theme_context,
+    )
+
+
+#: הדפים הציבוריים שמופיעים ב-``sitemap.xml``, לפי שם ה-endpoint.
+SITEMAP_ENDPOINTS = ('index', 'markdown_editor', 'gallery')
+
+
+@app.route('/robots.txt', methods=['GET'])
+@_limiter_exempt()
+def robots_txt():
+    """``robots.txt`` לסורקים: הכול פתוח חוץ מ-``/api/``, והפניה ל-``sitemap.xml``.
+
+    הסטטיקה לא חסומה בכוונה — גוגל צריך את ה-CSS וה-JS כדי לרנדר עמוד (הדוגמה ב-robots-txt-spec של Google
+    Search Central). ``Sitemap:`` דורש כתובת מלאה (sitemaps.org, Google). פטור ממגבלת הקצב: סורק שולח הרבה
+    בקשות מכתובת אחת, ובלי הפטור היה מקבל 429.
+    """
+    sitemap_url = _webapp_base_url() + url_for('sitemap_xml')
+    body = f"User-agent: *\nDisallow: /api/\n\nSitemap: {sitemap_url}\n"
+    return Response(body, mimetype='text/plain')
+
+
+@app.route('/sitemap.xml', methods=['GET'])
+@_limiter_exempt()
+def sitemap_xml():
+    """``sitemap.xml`` של הדפים הציבוריים (:data:`SITEMAP_ENDPOINTS`), לפי פרוטוקול sitemaps.org.
+
+    כל ``<loc>`` הוא כתובת מלאה, עם escaping של ``& < > ' "`` כמו שהפרוטוקול דורש. פטור ממגבלת הקצב כמו
+    ``robots.txt``.
+    """
+    from xml.sax.saxutils import escape as xml_escape
+
+    base_url = _webapp_base_url()
+    entries = ''.join(
+        '<url><loc>{}</loc></url>'.format(
+            xml_escape(base_url + url_for(endpoint), {"'": '&apos;', '"': '&quot;'})
+        )
+        for endpoint in SITEMAP_ENDPOINTS
+    )
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        f'{entries}</urlset>\n'
+    )
+    return Response(body, mimetype='application/xml')
 
 # NOTE: Route migrated to auth_bp (webapp/routes/auth_routes.py)
 # @app.route('/login')

@@ -1,68 +1,8 @@
 (function () {
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  async function waitFor(fn, { timeoutMs = 2500, intervalMs = 100 } = {}) {
-    const started = Date.now();
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      try {
-        const value = fn();
-        if (value) return value;
-      } catch (_) {}
-      if (Date.now() - started > timeoutMs) return null;
-      // eslint-disable-next-line no-await-in-loop
-      await sleep(intervalMs);
-    }
-  }
-
-  function debounce(fn, wait) {
-    let timeout;
-    return (...args) => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => fn(...args), wait);
-    };
-  }
-
-  function formatTime(value) {
-    try {
-      return new Intl.DateTimeFormat('he-IL', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
-    } catch (_) {
-      const date = new Date(value);
-      const h = String(date.getHours()).padStart(2, '0');
-      const m = String(date.getMinutes()).padStart(2, '0');
-      return `${h}:${m}`;
-    }
-  }
-
-  function getEditorContent(fallbackTextarea) {
-    try {
-      if (window.editorManager && window.editorManager.cmInstance && window.editorManager.cmInstance.state) {
-        return window.editorManager.cmInstance.state.doc.toString();
-      }
-    } catch (_) {}
-    const target = (window.editorManager && window.editorManager.textarea) || fallbackTextarea;
-    return (target && target.value) || '';
-  }
-
-  function setEditorContent(nextValue, fallbackTextarea) {
-    const value = typeof nextValue === 'string' ? nextValue : '';
-    try {
-      if (window.editorManager && window.editorManager.cmInstance && window.editorManager.cmInstance.state) {
-        const view = window.editorManager.cmInstance;
-        const length = view.state.doc.length;
-        view.dispatch({ changes: { from: 0, to: length, insert: value } });
-      }
-    } catch (_) {}
-    const target = (window.editorManager && window.editorManager.textarea) || fallbackTextarea;
-    if (target) {
-      target.value = value;
-      try {
-        target.dispatchEvent(new Event('input', { bubbles: true }));
-      } catch (_) {}
-    }
-  }
+  // העזרים המשותפים: webapp/static/js/utils/editor-page-utils.js, שנטען לפני הקובץ הזה.
+  const {
+    waitFor, debounce, formatTime, getEditorContent, setEditorContent, storageAvailable,
+  } = window.EditorPageUtils;
 
   document.addEventListener('DOMContentLoaded', async () => {
     const form = document.getElementById('uploadForm');
@@ -83,16 +23,7 @@
     const clearBtn = document.getElementById('clearDraftBtn');
     const storageKey = 'uploadDraft.v1';
 
-    const supportsStorage = (() => {
-      try {
-        const testKey = '__uploadDraftTest__';
-        localStorage.setItem(testKey, 'ok');
-        localStorage.removeItem(testKey);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    })();
+    const supportsStorage = storageAvailable();
 
     if (!supportsStorage) {
       if (statusEl) statusEl.textContent = 'שמירה מקומית לא נתמכת בדפדפן';

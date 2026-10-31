@@ -97,9 +97,16 @@
 </div>
 {% endmacro %}
 
-{% macro markdown_toolbar() %}
-{# Markdown Toolbar - סרגל כלים מהיר להזרקת תבניות #}
-<div class="md-toolbar-group" data-component="markdown-toolbar">
+{% macro markdown_toolbar(inline=False, markdown_only=False) %}
+{# Markdown Toolbar - סרגל כלים מהיר להזרקת תבניות.
+   ברירת המחדל (עמודי העריכה וההעלאה): כפתור "MD" שפותח תפריט, והסרגל מוצג רק כשהקובץ Markdown.
+   inline: הכלים מוצגים כשורה פתוחה, בלי הכפתור, וההתראות נפתחות מ"התראות ▾" בלחיצה.
+   markdown_only: הסרגל מוצג תמיד, לעמוד שכולו Markdown ואין בו שם קובץ ושפה. הוא מרונדר כבר גלוי
+   (is-visible), כדי שהעמוד לא יזוז כשה-JS נטען.
+   שניהם לעורך הציבורי (/markdown-editor). #}
+{% set item_role = '' if inline else ' role="menuitem"' %}
+<div class="md-toolbar-group{% if inline %} md-toolbar-group--inline{% endif %}{% if markdown_only %} is-visible{% endif %}" data-component="markdown-toolbar"{% if inline %} data-md-inline{% endif %}{% if markdown_only %} data-md-markdown-only{% endif %}>
+  {% if not inline %}
   <button
     type="button"
     class="md-toolbar-trigger"
@@ -111,38 +118,39 @@
     <i class="fas fa-pen-fancy"></i>
     <span>MD</span>
   </button>
+  {% endif %}
 
-  <div class="md-toolbar-dropdown" role="menu" aria-label="כלי Markdown">
+  <div class="md-toolbar-dropdown" {% if inline %}role="toolbar"{% else %}role="menu"{% endif %} aria-label="כלי Markdown">
     {# טבלה #}
-    <button type="button" class="md-toolbar-item" data-md-insert="table" role="menuitem">
+    <button type="button" class="md-toolbar-item" data-md-insert="table"{{ item_role|safe }}>
       <span class="item-icon">📊</span>
       <span class="item-label">טבלה</span>
       <span class="item-shortcut">Ctrl+Shift+T</span>
     </button>
 
     {# קישור חכם #}
-    <button type="button" class="md-toolbar-item" data-md-action="smart-link" role="menuitem">
+    <button type="button" class="md-toolbar-item" data-md-action="smart-link"{{ item_role|safe }}>
       <span class="item-icon">🔗</span>
       <span class="item-label">קישור חכם</span>
       <span class="item-shortcut">Ctrl+K</span>
     </button>
 
     {# מארקר #}
-    <button type="button" class="md-toolbar-item" data-md-insert="highlight" role="menuitem">
+    <button type="button" class="md-toolbar-item" data-md-insert="highlight"{{ item_role|safe }}>
       <span class="item-icon">🎨</span>
       <span class="item-label">מארקר</span>
       <span class="item-shortcut">Ctrl+Shift+H</span>
     </button>
 
     {# קיפול #}
-    <button type="button" class="md-toolbar-item" data-md-insert="details" role="menuitem">
+    <button type="button" class="md-toolbar-item" data-md-insert="details"{{ item_role|safe }}>
       <span class="item-icon">📁</span>
       <span class="item-label">קיפול</span>
       <span class="item-shortcut">Ctrl+Shift+D</span>
     </button>
 
     {# רשימת משימות #}
-    <button type="button" class="md-toolbar-item" data-md-insert="taskList" role="menuitem">
+    <button type="button" class="md-toolbar-item" data-md-insert="taskList"{{ item_role|safe }}>
       <span class="item-icon">✅</span>
       <span class="item-label">רשימת משימות</span>
       <span class="item-shortcut">Ctrl+Shift+C</span>
@@ -152,9 +160,10 @@
 
     {# תפריט משנה - התראות #}
     <div class="md-toolbar-submenu-trigger">
-      <button type="button" class="md-toolbar-item" role="menuitem" aria-haspopup="true">
+      <button type="button" class="md-toolbar-item"{{ item_role|safe }} aria-haspopup="true"{% if inline %} data-md-action="toggle-submenu" aria-expanded="false"{% endif %}>
         <span class="item-icon">🔔</span>
-        <span class="item-label">התראות (Alerts)</span>
+        <span class="item-label">{% if inline %}התראות{% else %}התראות (Alerts){% endif %}</span>
+        {% if inline %}<span class="item-caret" aria-hidden="true">▾</span>{% endif %}
       </button>
       <div class="md-toolbar-submenu" role="menu" aria-label="סוגי התראות">
         <button type="button" class="md-toolbar-item" data-md-insert="alert:note" role="menuitem">

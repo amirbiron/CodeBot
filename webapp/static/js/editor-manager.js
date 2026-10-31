@@ -158,7 +158,13 @@
     }
 
     async initEditor(container, options = {}) {
-      const { language = 'text', value = '', theme = 'dark' } = options;
+      // fixedEditor: עורך קבוע, לעמוד שאין בו בחירה בין עורכים (העורך הציבורי, /markdown-editor).
+      // תמיד CodeMirror, בלי כפתור המתג, ובלי להתחשב בהעדפה או לשמור אותה: ההעדפה שייכת לעמודי
+      // העריכה וההעלאה, ושמירתה נשלחת ל-API של משתמש מחובר. אם CodeMirror נכשל, העורך הפשוט
+      // עולה כרגיל, כדי שאפשר יהיה להמשיך לכתוב, אבל ההעדפה לא נשמרת.
+      const { language = 'text', value = '', theme = 'dark', fixedEditor = false } = options;
+      this.fixedEditor = !!fixedEditor;
+      if (this.fixedEditor) this.currentEditor = 'codemirror';
       try { console.log('[EditorManager] initEditor called with:', { language, theme, valueLength: (typeof value === 'string' ? value.length : 0) }); } catch(_) {}
       this.textarea = container.querySelector('textarea[name="code"]');
       if (!this.textarea) { try { console.warn('[EditorManager] Textarea not found in container'); } catch(_) {} return; }
@@ -179,7 +185,7 @@
           // אם Codemirror נכשל – ניפול חזרה לפשוט ונשמור העדפה
           console.warn('Falling back to simple editor due to CM init error', e);
           this.currentEditor = 'simple';
-          this.savePreference('simple');
+          if (!this.fixedEditor) this.savePreference('simple');
           this.initSimpleEditor(container, { value });
           fallback = true;
         }
@@ -326,10 +332,10 @@
       switcher.innerHTML = `
         <div class="editor-switcher-row">
           <div class="editor-switcher-actions">
-            <button type="button" class="btn-switch-editor" title="החלף עורך">
+            ${this.fixedEditor ? '' : `<button type="button" class="btn-switch-editor" title="החלף עורך">
               <i class="fas fa-exchange-alt"></i>
               <span>${this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'}</span>
-            </button>
+            </button>`}
             <div class="editor-clipboard-actions" role="group" aria-label="פעולות עריכה">
               <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
                 <i class="fas fa-arrows-alt"></i>
@@ -355,7 +361,7 @@
       codeLabel.parentNode.insertBefore(switcher, codeLabel.nextSibling);
 
       const toggleBtn = switcher.querySelector('.btn-switch-editor');
-      toggleBtn.addEventListener('click', async () => {
+      if (toggleBtn) toggleBtn.addEventListener('click', async () => {
         // לפני החלפת עורך: נזכור את השורה האחרונה שהמשתמש "עומד עליה" (לפי גלילה/viewport)
         const lastLine = this.getCurrentVisibleLine() || 1;
         this._sharedLastLine = lastLine;
