@@ -32309,6 +32309,31 @@
         return [];
     }
   }
+  var autoDirLine = Decoration.line({ attributes: { dir: "auto" } });
+  function buildAutoDirDecorations(view) {
+    const builder = new RangeSetBuilder();
+    for (const { from, to } of view.visibleRanges) {
+      for (let pos = from; pos <= to; ) {
+        const line = view.state.doc.lineAt(pos);
+        builder.add(line.from, line.from, autoDirLine);
+        pos = line.to + 1;
+      }
+    }
+    return builder.finish();
+  }
+  var autoDirPlugin = ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.decorations = buildAutoDirDecorations(view);
+    }
+    update(update) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = buildAutoDirDecorations(update.view);
+      }
+    }
+  }, { decorations: (value) => value.decorations });
+  function perLineAutoDirection() {
+    return [EditorView.perLineTextDirection.of(true), autoDirPlugin];
+  }
   function getTheme(name2) {
     if (typeof document !== "undefined") {
       const htmlTheme = document.documentElement.getAttribute("data-theme");
@@ -32339,6 +32364,7 @@
     getLanguageSupport,
     getTheme,
     getSyntaxHighlighter,
+    perLineAutoDirection,
     createDynamicHighlightStyle,
     invalidateSyntaxHighlighterCache,
     // 🆕 לאיפוס cache כש-theme משתנה

@@ -1,5 +1,5 @@
 ---
-summary: תוכן זה מסביר את טעינת העורך, מנגנון הגיבוי, וניהול העדפות.
+summary: טעינת העורך ומנגנון הגיבוי ל-CDN, החבילה המקומית של CodeMirror — איך בונים אותה מחדש, והכיוון לכל שורה בעורך הציבורי — וניהול העדפות.
 ---
 
 # ⌨️ עורך קוד (WebApp Editor)
@@ -20,6 +20,20 @@ try {
   isLoading = false;
 }
 ```
+
+---
+
+## החבילה המקומית של CodeMirror, וכיוון לכל שורה
+- `EditorManager` (`webapp/static/js/editor-manager.js`) טוען קודם את `webapp/static/js/codemirror.local.js`, שמגדיר `window.CodeMirror6`. רק כשהיא לא עולה הוא בונה את `window.CodeMirror6` ממודולים ב-CDN, ובמסלול הזה אין את התוספים שהחבילה המקומית מוסיפה.
+- **החבילה נבנית מקובץ ה-entry** `webapp/static_build/codemirror.bundle.entry.mjs` עם `webapp/static_build/build-cm.mjs`, מהגרסאות שב-`package-lock.json`. הבנייה רצה מתוך `webapp/static_build`: esbuild כותב בחבילה הערות עם נתיבי המודולים יחסית לתיקייה שממנה רצים, ובנייה מתיקייה אחרת משנה את כל ההערות האלה. בנייה מתוך התיקייה, בלי שינוי ב-entry, מחזירה קובץ זהה בייט-בייט לזה שבריפו (נבדק באוקטובר 2026), ולכן הדיף של שינוי ב-entry הוא רק השינוי עצמו. הסקריפט `build-cm` שב-`package.json` מריץ את אותו קובץ מהשורש, ולכן הוא משנה את ההערות. מתקינים מהשורש ובונים מהתיקייה:
+
+```bash
+npm ci --ignore-scripts
+cd webapp/static_build && node build-cm.mjs
+```
+
+- **`perLineAutoDirection`** (ב-entry, ומיוצא ב-`window.CodeMirror6`): כל שורה מקבלת `dir="auto"`, והפאסט `EditorView.perLineTextDirection` גורם ל-CodeMirror לקרוא את הכיוון של כל שורה בנפרד — שורה בעברית מימין לשמאל, שורת קוד או אנגלית משמאל לימין, והסמן והחצים עוקבים אחריו. `initEditor` עם `textDirection: 'auto'` מוסיף אותו, ואת המחלקה `codemirror-container--dir-auto`, שב-`codemirror-custom.css` הופכת את העורך כולו לימין-לשמאל (מספרי השורות מימין). משתמש בו העורך הציבורי (`/markdown-editor`); עמודי העריכה וההעלאה נשארים משמאל לימין, כמו עורך קוד. כשהחבילה נטענה מה-CDN, האפשרות נרשמת כאזהרה בקונסול, והעורך נשאר משמאל לימין.
+- **ההודעה הזמנית** ("כל הקוד סומן", "הוזרק: טבלה") מוצגת במקום התווית "קיצורי מקלדת זמינים", באותו תא (`.editor-info-slot`), ולא בשורה משלה — כך שורת הכפתורים לא משנה גובה והעורך לא זז.
 
 ---
 

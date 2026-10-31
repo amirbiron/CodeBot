@@ -1,5 +1,5 @@
-import { EditorState, Compartment } from '@codemirror/state';
-import { EditorView, keymap, drawSelection, dropCursor, highlightSpecialChars, highlightActiveLine, highlightActiveLineGutter, rectangularSelection, crosshairCursor, lineNumbers } from '@codemirror/view';
+import { EditorState, Compartment, RangeSetBuilder } from '@codemirror/state';
+import { EditorView, keymap, drawSelection, dropCursor, highlightSpecialChars, highlightActiveLine, highlightActiveLineGutter, rectangularSelection, crosshairCursor, lineNumbers, Decoration, ViewPlugin } from '@codemirror/view';
 import { history, defaultKeymap, historyKeymap } from '@codemirror/commands';
 import { foldGutter, foldKeymap, bracketMatching, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
@@ -398,6 +398,42 @@ function getLanguageSupport(name) {
   }
 }
 
+// 🧭 כיוון לכל שורה (perLineAutoDirection)
+// כל שורה מקבלת dir="auto": הדפדפן קובע את הכיוון שלה לפי האות החזקה הראשונה בה — שורה בעברית מימין
+// לשמאל, ושורת קוד או אנגלית משמאל לימין — ו-perLineTextDirection גורם ל-CodeMirror לקרוא את הכיוון של כל
+// שורה בנפרד (getComputedStyle של השורה), כך שהסמן, הבחירה ותזוזת החצים עוקבים אחריו. בלי זה, שורה
+// עברית בתוך עורך משמאל לימין נשברת בסדר הקריאה: מילה אנגלית בסוף המשפט מוצגת בקצה הימני של השורה.
+// משמש את העורך הציבורי (/markdown-editor, האפשרות textDirection של EditorManager).
+const autoDirLine = Decoration.line({ attributes: { dir: 'auto' } });
+
+function buildAutoDirDecorations(view) {
+  const builder = new RangeSetBuilder();
+  for (const { from, to } of view.visibleRanges) {
+    for (let pos = from; pos <= to;) {
+      const line = view.state.doc.lineAt(pos);
+      builder.add(line.from, line.from, autoDirLine);
+      pos = line.to + 1;
+    }
+  }
+  return builder.finish();
+}
+
+const autoDirPlugin = ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.decorations = buildAutoDirDecorations(view);
+  }
+
+  update(update) {
+    if (update.docChanged || update.viewportChanged) {
+      this.decorations = buildAutoDirDecorations(update.view);
+    }
+  }
+}, { decorations: (value) => value.decorations });
+
+function perLineAutoDirection() {
+  return [EditorView.perLineTextDirection.of(true), autoDirPlugin];
+}
+
 function getTheme(name) {
   // 🎨 ערכה מותאמת אישית: לא טוענים oneDark כדי לתת ל-syntax_css לעבוד
   // ה-classHighlighter ב-basicSetup יוצר classes (tok-*) שה-CSS דורס
@@ -432,6 +468,7 @@ const api = {
   getLanguageSupport,
   getTheme,
   getSyntaxHighlighter,
+  perLineAutoDirection,
   createDynamicHighlightStyle,
   invalidateSyntaxHighlighterCache,  // 🆕 לאיפוס cache כש-theme משתנה
   MergeView,

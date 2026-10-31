@@ -236,6 +236,9 @@ const MarkdownToolbar = {
       if (holder && willOpen) {
         holder.classList.add('is-open');
         submenuBtn.setAttribute('aria-expanded', 'true');
+        // כשהשורה יושבת בתוך ה-Split View (העורך הציבורי), התפריט יוצא מתחתיו, ו-overflow: hidden שלו היה
+        // חותך אותו — אותו מנגנון שהתפריט של עמודי העריכה משתמש בו (toggleDropdown).
+        this.updateOverflowState(true);
       }
       return;
     }

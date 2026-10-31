@@ -410,7 +410,6 @@ const container = document.getElementById('md-content');
 const boxes = container.querySelectorAll('input[type="checkbox"]');
 let idx = 0;
 boxes.forEach(cb => {
-  cb.classList.add('md-task-checkbox');
   const key = 'i' + (idx++);                       // אינדקס סדרתי לכל צ'קבוקס במסמך
   if (Object.prototype.hasOwnProperty.call(taskState, key)) {
     cb.checked = !!taskState[key];                 // שחזור מצב מהאחסון
@@ -429,8 +428,10 @@ boxes.forEach(cb => {
 
 ### עיצוב
 
+ל-`markdown-it-task-lists` יש מחלקה משלו לצ'קבוקס, `task-list-item-checkbox`, ולכן לא מוסיפים מחלקה ב-JS. בפרויקט הכלל יושב ב-`webapp/static/css/md-content-layout.css`, שגם התצוגה החיה בעמודי העריכה טוענת.
+
 ```css
-input.md-task-checkbox {
+input.task-list-item-checkbox {
   margin-inline-end: .5rem;
   transform: scale(1.1);
 }
@@ -448,7 +449,7 @@ ul:has(> li.task-list-item) { padding-inline-start: 1.2em; }
 <title>MD Preview</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
-  input.md-task-checkbox { margin-inline-end: .5rem; transform: scale(1.1); }
+  input.task-list-item-checkbox { margin-inline-end: .5rem; transform: scale(1.1); }
   .task-list-item { list-style: none; }
   ul.contains-task-list { padding-inline-start: 1.2em; }
   pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; }
@@ -480,7 +481,6 @@ ul:has(> li.task-list-item) { padding-inline-start: 1.2em; }
   const state = loadState();
   let idx = 0;
   container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-    cb.classList.add('md-task-checkbox');
     const key = 'i' + (idx++);
     if (Object.prototype.hasOwnProperty.call(state, key)) cb.checked = !!state[key];
     cb.addEventListener('change', () => { state[key] = cb.checked; saveState(state); });

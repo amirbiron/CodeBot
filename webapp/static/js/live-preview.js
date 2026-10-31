@@ -74,6 +74,24 @@
     return ext === 'html' || ext === 'htm';
   };
 
+  // ``[ ]`` / ``[x]`` של פריט משימה בתחילת שורה — אחרי סימן רשימה (``-``, ``*``, ``+``, ``1.``, ``1)``), גם בתוך
+  // ציטוט. זו הצורה ש-markdown-it-task-lists מזהה: פריט רשימה שהטקסט שלו נפתח ב-``[ ] `` או ב-``[x] ``.
+  // לא לאחד עם ``TASK_LINE_RE`` ב-``sticky-notes.js``: שם הדקדוק המצומצם של הפתק (רק ``-`` / ``*``, בלי ציטוט
+  // ובלי רשימה ממוספרת), שחייב להיות זהה ל-``_TASK_RE`` ב-``sticky_notes_tasks.py``, שסופר לפיו את המשימות.
+  const TASK_MARKER_RE = /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)([ xX])\]/;
+
+  // המיקום (offset בטקסט) של התו שבתוך הסוגריים של פריט המשימה בשורה ``line`` (0-based), והאם הוא מסומן;
+  // ``null`` כשהשורה אינה פריט משימה.
+  function locateTaskMarker(content, line) {
+    const lines = String(content || '').split('\n');
+    if (!Number.isInteger(line) || line < 0 || line >= lines.length) return null;
+    const match = TASK_MARKER_RE.exec(lines[line]);
+    if (!match) return null;
+    let offset = 0;
+    for (let i = 0; i < line; i += 1) offset += lines[i].length + 1;
+    return { offset: offset + match[1].length, checked: match[2] !== ' ' };
+  }
+
   function resolvePreviewMode(language, fileName) {
     const lang = (language || '').trim().toLowerCase();
     if (lang === 'markdown' || lang === 'md') {
@@ -167,6 +185,19 @@
       }
       if (window.markdownitTaskLists) {
         md.use(window.markdownitTaskLists, { label: true, enabled: true });
+        // שורת המקור של כל פריט משימה, על ה-<li> (data-source-line). התצוגה החיה מתרגמת לפיה לחיצה על
+        // צ'קבוקס לשינוי של `[ ]` / `[x]` בעורך. ``map`` של markdown-it הוא שורות של הטקסט שפוענח, ובו
+        // שורות שכולן עוגנים כבר הוסרו (``MdAnchors.extractExplicitAnchors``) — ולכן התרגום חזרה לשורה
+        // בעורך עובר דרך ``env.sourceLineMap``, שמגיע מ-``renderMarkdownSource``.
+        md.core.ruler.after('github-task-lists', 'task-source-lines', (state) => {
+          const lineMap = state.env && Array.isArray(state.env.sourceLineMap) ? state.env.sourceLineMap : null;
+          state.tokens.forEach((token) => {
+            if (token.type !== 'list_item_open' || !token.map) return;
+            if (!/(^|\s)task-list-item(\s|$)/.test(token.attrGet('class') || '')) return;
+            const line = lineMap ? lineMap[token.map[0]] : token.map[0];
+            if (Number.isInteger(line)) token.attrSet('data-source-line', String(line));
+          });
+        });
       }
       if (window.markdownitAnchor) {
         const anchorOptions = { permalink: true, permalinkSymbol: '¶', slugify: slugifyHeadingId };
@@ -316,12 +347,15 @@
       });
     }
 
-    function enhanceTaskLists(root) {
+    // ``interactive`` — הצ'קבוקסים פעילים: רק בתצוגה החיה, שבה לחיצה משנה את הטקסט בעורך (ראו
+    // ``LivePreviewController.handleTaskToggle``). בדפדפן הריפו ובכרטיסי החיפוש בתיעוד אין טקסט לשנות, והם
+    // נשארים לקריאה בלבד.
+    function enhanceTaskLists(root, interactive) {
       if (!root) {
         return;
       }
       root.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-        input.setAttribute('disabled', 'true');
+        if (!interactive) input.setAttribute('disabled', 'true');
         input.setAttribute('role', 'checkbox');
       });
     }
@@ -403,7 +437,7 @@
       const documentCodeBlocks = !!(options && options.documentCodeBlocks);
       applyExplicitAnchors(root, anchors);
       highlightBlocks(root, { copyButtons: !documentCodeBlocks });
-      enhanceTaskLists(root);
+      enhanceTaskLists(root, !!(options && options.interactiveTasks));
       lazyLoadImages(root);
       await renderMermaid(root);
       if (documentCodeBlocks) {
@@ -441,16 +475,18 @@
       }
       let source = text || '';
       let anchors = [];
+      let sourceLineMap = null;
       try {
         if (typeof window !== 'undefined' && window.MdAnchors) {
           const extracted = window.MdAnchors.extractExplicitAnchors(source);
           source = extracted.source;
           anchors = extracted.anchors;
+          sourceLineMap = extracted.lineMap || null;
         }
       } catch (_) {
-        // אם השליפה נכשלה — ממשיכים עם המקור המקורי
+        // אם השליפה נכשלה — ממשיכים עם המקור המקורי, ושורות הפענוח הן שורות המקור
       }
-      return { html: md.render(source), anchors: anchors };
+      return { html: md.render(source, { sourceLineMap }), anchors: anchors };
     }
 
     return {
@@ -514,6 +550,8 @@
         lastRenderedHash: null,
         inflightHash: null,
         previewAllowed: false,
+        // הטקסט שממנו רונדרו הצ'קבוקסים שבתצוגה עכשיו — המיפוי שלהם לשורות (data-source-line) נכון רק לו.
+        taskSourceContent: null,
       };
       this.init();
     }
@@ -528,6 +566,7 @@
       }
 
       this.toggleBtn.addEventListener('click', () => this.toggle());
+      this.previewCanvas.addEventListener('change', (event) => this.handleTaskToggle(event));
       document.addEventListener('keydown', (event) => {
         const key = (event.key || '').toLowerCase();
         if (key === 'enter' && event.shiftKey && (event.ctrlKey || event.metaKey)) {
@@ -687,6 +726,8 @@
       }
       const html = data.html || '';
       const presentation = data.presentation || 'fragment';
+      // רינדור מהשרת: הצ'קבוקסים שלו אינם ממופים לשורות, ולחיצה עליהם לא כותבת לעורך.
+      this.state.taskSourceContent = null;
       const mode = data.mode || 'code';
       this.setMarkdownContext(mode === 'markdown' && presentation !== 'iframe');
       if (presentation === 'iframe') {
@@ -721,6 +762,7 @@
       const content = payload.content || '';
       const trimmed = content.trim();
       if (!trimmed) {
+        this.state.taskSourceContent = null;
         this.setMarkdownContext(true);
         this.previewCanvas.innerHTML = '<p>אין תוכן להצגה.</p>';
         this.updateMeta({ language: 'markdown', mode: 'markdown', bytes: 0, characters: 0, duration_ms: 0 });
@@ -739,7 +781,8 @@
         if (this.styleEl) {
           this.styleEl.textContent = '';
         }
-        await MarkdownLiveRenderer.enhance(this.previewCanvas, rendered.anchors, { documentCodeBlocks: true });
+        await MarkdownLiveRenderer.enhance(this.previewCanvas, rendered.anchors, { documentCodeBlocks: true, interactiveTasks: true });
+        this.state.taskSourceContent = content;
         const duration = typeof performance !== 'undefined' && typeof performance.now === 'function'
           ? Math.max(1, Math.round(performance.now() - started))
           : 0;
@@ -758,6 +801,47 @@
           this.state.inflightHash = null;
         }
       }
+    }
+
+    // לחיצה על צ'קבוקס של משימה בתצוגה משנה את ``[ ]`` / ``[x]`` בשורה שלה בעורך, והתצוגה מתרנדרת מהטקסט החדש —
+    // הטקסט הוא מקור האמת, ובלי זה הסימון היה נמחק ברינדור הבא. המיפוי לשורה (data-source-line) נכון רק לטקסט
+    // שממנו התצוגה רונדרה, ולכן לפני הכתיבה בודקים מול העורך עצמו, ברגע הלחיצה: הטקסט בו שווה לזה שרונדר,
+    // והשורה עדיין משימה, במצב שהצ'קבוקס הציג. אחרת לא כותבים: הצ'קבוקס חוזר למצבו, והתצוגה מתרנדרת מחדש.
+    // הכתיבה בלי פוקוס לעורך — בנייד, פוקוס היה פותח מקלדת.
+    handleTaskToggle(event) {
+      const input = event.target;
+      if (!input || typeof input.matches !== 'function' || !input.matches('input.task-list-item-checkbox')) {
+        return;
+      }
+      const item = input.closest('[data-source-line]');
+      const line = item ? Number(item.getAttribute('data-source-line')) : NaN;
+      const manager = window.editorManager;
+      const current = manager && typeof manager.getEditorContent === 'function'
+        ? manager.getEditorContent()
+        : (this.textarea.value || '');
+      const target = current === this.state.taskSourceContent ? locateTaskMarker(current, line) : null;
+      if (!target || target.checked === input.checked) {
+        input.checked = !input.checked;
+        this.scheduleUpdate(true);
+        return;
+      }
+      const mark = input.checked ? 'x' : ' ';
+      let written = false;
+      if (manager && typeof manager.insertTextAtRange === 'function') {
+        written = manager.insertTextAtRange(mark, target.offset, target.offset + 1, { focus: false });
+      } else {
+        this.textarea.setRangeText(mark, target.offset, target.offset + 1, 'preserve');
+        this.textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        written = true;
+      }
+      if (!written) {
+        console.warn('live-preview: the task checkbox could not be written to the editor');
+        input.checked = !input.checked;
+        return;
+      }
+      // השינוי הוא תו אחד בתוך השורה, ולכן המיפוי של כל הצ'קבוקסים נשאר נכון גם לטקסט החדש — ולחיצה נוספת
+      // לפני שהתצוגה מתרנדרת מחדש לא תיחסם.
+      this.state.taskSourceContent = current.slice(0, target.offset) + mark + current.slice(target.offset + 1);
     }
 
     // במצב Markdown ה-canvas מקבל את ``id="md-content"`` של תצוגת המסמך, ולכן הצבעים של המסמך

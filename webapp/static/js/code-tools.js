@@ -622,7 +622,7 @@ const CodeToolsIntegration = {
   },
 
   /**
-   * הודעת סטטוס קצרה באזור הסטטוס מתחת לעורך (כמו "כל הקוד סומן")
+   * הודעת סטטוס קצרה בשורת הכפתורים שמעל העורך, במקום התווית "קיצורי מקלדת זמינים" (כמו "כל הקוד סומן")
    */
   showInlineStatus(message, type) {
     const msg = typeof message === 'string' ? message : '';

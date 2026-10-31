@@ -357,3 +357,264 @@ def test_on_a_phone_nothing_overflows_and_the_alerts_menu_stays_on_screen(browse
         assert geo["left"] >= 0 and geo["right"] <= geo["vw"], geo
     finally:
         s.close()
+
+
+# ---------------------------------------------------------------------------
+# הפריסה, הכיוון והצ'קליסט (נובמבר 2026 — התיקונים אחרי ההעלאה לאוויר)
+# ---------------------------------------------------------------------------
+
+#: קטע בשורה של העורך (``.cm-line``): המיקום שלו על המסך, לפי Range על הטקסט עצמו.
+WORD_RECT = """([needle, word]) => {
+  const line = Array.from(document.querySelectorAll('.cm-line')).find((l) => l.textContent.includes(needle));
+  if (!line) return null;
+  const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    const i = node.textContent.indexOf(word);
+    if (i >= 0) {
+      const range = document.createRange();
+      range.setStart(node, i);
+      range.setEnd(node, i + word.length);
+      const r = range.getBoundingClientRect();
+      return {left: r.left, top: r.top, direction: getComputedStyle(line).direction};
+    }
+  }
+  return null;
+}"""
+
+
+def test_each_editor_line_takes_the_direction_of_its_text(session):
+    """שורה בעברית מימין לשמאל, ושורה באנגלית משמאל לימין. עד התיקון כל העורך היה משמאל לימין, ובשורה הראשונה
+    של ההדגמה "CodeKeeper" — המילה האחרונה במשפט — הוצגה בקצה הימני, כאילו היא פותחת אותו."""
+    session.open()
+    page = session.page
+
+    first = page.evaluate(WORD_RECT, ["ברוך הבא", "ברוך"])
+    last = page.evaluate(WORD_RECT, ["ברוך הבא", "CodeKeeper"])
+    assert first and last
+    assert first["direction"] == "rtl"
+    # בסדר הקריאה, מילה מאוחרת יותר יושבת משמאל, או בשורה שמתחת
+    assert last["top"] > first["top"] + 1 or last["left"] < first["left"], (first, last)
+
+    english = page.evaluate(WORD_RECT, ["[Task Lists]", "Task"])
+    assert english and english["direction"] == "ltr"
+
+    sides = page.evaluate(
+        "() => ({gutter: document.querySelector('.cm-gutters').getBoundingClientRect().left,"
+        " content: document.querySelector('.cm-content').getBoundingClientRect().left})"
+    )
+    assert sides["gutter"] > sides["content"], "מספרי השורות אמורים להיות בצד ימין"
+
+
+def test_the_editor_and_preview_have_no_dead_rows(session):
+    session.open()
+    state = session.page.evaluate(
+        """() => {
+      const box = (s) => { const e = document.querySelector(s); return e ? e.getBoundingClientRect() : null; };
+      const toggle = box('.split-toggle'), tools = box('.md-toolbar-group');
+      const canvas = box('.split-preview-canvas'), panel = box('.split-panel--preview');
+      const first = box('[data-preview-canvas] > :first-child');
+      const canvasEl = document.querySelector('.split-preview-canvas');
+      return {
+        toggleInToolbar: !!document.querySelector('.split-toolbar .split-toggle'),
+        toolsInToolbar: !!document.querySelector('.split-toolbar .md-toolbar-group'),
+        sameRow: Math.abs((toggle.top + toggle.height / 2) - (tools.top + tools.height / 2)) < 10,
+        toggleLeftOfTools: toggle.right <= tools.left,
+        labelWidth: box('#editorContainer > label').width,
+        separateStatusRow: !!document.querySelector('.editor-info'),
+        metaDisplay: getComputedStyle(document.querySelector('[data-preview-meta]')).display,
+        statusDisplay: getComputedStyle(document.querySelector('[data-preview-status]')).display,
+        // הפאנל נושא גבול של פיקסל אחד בצד שלו (border-inline-start), ולכן ההשוואה היא לרוחב שבתוך הגבול
+        canvasFillsPanel: Math.abs(canvas.left - panel.left) < 1
+          && Math.abs(canvas.width - document.querySelector('.split-panel--preview').clientWidth) < 1,
+        firstGap: first.top - canvas.top,
+        canvasPadTop: parseFloat(getComputedStyle(canvasEl).paddingTop),
+        card: !!document.querySelector('.md-editor-page__card'),
+      };
+    }"""
+    )
+
+    assert state["toggleInToolbar"] and state["toolsInToolbar"]
+    assert state["sameRow"], "Live Preview אמור לשבת בשורה של כלי ה-MD"
+    assert state["toggleLeftOfTools"], "Live Preview בקצה השמאלי של השורה"
+    assert state["labelWidth"] <= 1, "התווית של העורך מוסתרת ויזואלית"
+    assert not state["separateStatusRow"], "אין שורה נפרדת להודעה הזמנית"
+    assert state["metaDisplay"] == "none" and state["statusDisplay"] == "none"
+    # פס הגלילה של התצוגה על קצה הפאנל: מי שגולל הוא ה-canvas, והוא ממלא את הפאנל
+    assert state["canvasFillsPanel"], state
+    # בלי margin מעל האלמנט הראשון: הרווח הוא רק הריפוד של ה-canvas
+    assert abs(state["firstGap"] - state["canvasPadTop"]) < 1, state
+    assert not state["card"]
+
+
+def test_a_notice_in_the_editor_row_does_not_move_the_editor(session):
+    session.open()
+    page = session.page
+    before = page.evaluate(
+        "() => ({row: document.querySelector('.editor-switcher-row').getBoundingClientRect().height,"
+        " cm: document.querySelector('.codemirror-container').getBoundingClientRect().top})"
+    )
+    page.click(".btn-editor-select")
+    page.wait_for_function(
+        "document.querySelector('.editor-info-status').textContent.trim() !== ''"
+    )
+    after = page.evaluate(
+        """() => {
+      const status = document.querySelector('.editor-info-status').getBoundingClientRect();
+      const hint = document.querySelector('.editor-info-primary');
+      const h = hint.getBoundingClientRect();
+      return {
+        row: document.querySelector('.editor-switcher-row').getBoundingClientRect().height,
+        cm: document.querySelector('.codemirror-container').getBoundingClientRect().top,
+        inRow: !!document.querySelector('.editor-switcher-row .editor-info-status'),
+        hintHidden: getComputedStyle(hint).visibility === 'hidden',
+        // ההודעה יושבת במקום התווית "קיצורי מקלדת זמינים", לא לצידה ולא מתחתיה
+        overlaps: status.top < h.bottom && status.bottom > h.top && status.left < h.right && status.right > h.left,
+      };
+    }"""
+    )
+    assert after["inRow"] and after["hintHidden"] and after["overlaps"], after
+    assert after["row"] == before["row"] and after["cm"] == before["cm"], (before, after)
+
+
+def test_tapping_the_frame_does_not_put_the_caret_in_the_editor(browser):
+    """Chrome מציב את הסמן בטקסט הקרוב לנגיעה באזור בלי טקסט. כשהקרוב הוא העורך, הסמן נכנס אליו, ובנייד המקלדת
+    נפתחת — כך נגיעה במסגרת שמימין לעורך פתחה מקלדת. נבדק במגע, בגודל טאבלט."""
+    b, client = browser
+    s = Session(b, client, width=1000, height=620, mobile=True)
+    try:
+        s.open()
+        page = s.page
+        page.evaluate(
+            "() => document.getElementById('livePreviewRoot').scrollIntoView({block: 'start'})"
+        )
+        geo = page.evaluate(
+            """() => {
+          const q = (sel) => document.querySelector(sel).getBoundingClientRect();
+          return {root: q('#livePreviewRoot'), panel: q('.split-panel--editor'), cm: q('.codemirror-container')};
+        }"""
+        )
+        y = int(min(geo["cm"]["y"] + 120, 600))
+        points = {
+            "split-view border": int(geo["root"]["x"] + geo["root"]["width"] - 1),
+            "editor panel padding": int(geo["panel"]["x"] + geo["panel"]["width"] - 3),
+        }
+        for name, x in points.items():
+            page.evaluate("() => document.activeElement && document.activeElement.blur()")
+            page.touchscreen.tap(x, y)
+            page.wait_for_timeout(250)
+            editable = page.evaluate(
+                "() => { const a = document.activeElement;"
+                " return !!a && (a.isContentEditable || a.tagName === 'TEXTAREA'); }"
+            )
+            assert not editable, f"נגיעה ב-{name} ({x}, {y}) הכניסה את הסמן לעורך"
+    finally:
+        s.close()
+
+
+TASK_DOC = '# משימות\n\n<a id="top"></a>\n\n- [ ] ראשונה\n- [x] שנייה\n\n> - [ ] בציטוט\n\n1. [ ] ממוספרת\n'
+
+
+def test_clicking_a_task_in_the_preview_changes_its_line_in_the_editor(session):
+    """הטקסט הוא מקור האמת: לחיצה בתצוגה משנה את ``[ ]`` / ``[x]`` בשורה הנכונה בעורך. שורת העוגן שמעל
+    המשימות מוסרת לפני הפענוח, ולכן מספרי השורות של markdown-it זזים — והטסט מוודא שהשורה בעורך נכונה בכל זאת.
+    והפוקוס לא עובר לעורך (בנייד, הוא היה פותח מקלדת)."""
+    session.open()
+    page = session.page
+    page.evaluate("(t) => window.editorManager.setEditorContent(t)", TASK_DOC)
+    boxes = "#md-content input.task-list-item-checkbox"
+    page.wait_for_function(f"document.querySelectorAll('{boxes}').length === 4")
+    assert page.evaluate(
+        f"() => Array.from(document.querySelectorAll('{boxes}')).every((b) => !b.disabled)"
+    )
+
+    def lines():
+        return session.editor_text().split("\n")
+
+    page.locator(boxes).nth(0).click()
+    page.wait_for_function("() => window.editorManager.getEditorContent().includes('- [x] ראשונה')")
+    assert not page.evaluate("() => document.activeElement.isContentEditable")
+    # מחוץ לתצוגה החיה — דפדפן הריפו וכרטיסי החיפוש, שאין להם טקסט לשנות — הצ'קבוקס נשאר לקריאה בלבד
+    readonly = page.evaluate(
+        """async () => {
+      const div = document.createElement('div');
+      const rendered = await window.MarkdownLiveRenderer.renderWithAnchors('- [ ] a');
+      div.innerHTML = rendered.html;
+      await window.MarkdownLiveRenderer.enhance(div, rendered.anchors, {});
+      return div.querySelector('input').disabled;
+    }"""
+    )
+    assert readonly
+    page.locator(boxes).nth(1).click()
+    page.locator(boxes).nth(2).click()
+    page.locator(boxes).nth(3).click()
+    page.wait_for_function(
+        "() => window.editorManager.getEditorContent().includes('1. [x] ממוספרת')"
+    )
+    assert lines()[4:10] == [
+        "- [x] ראשונה",
+        "- [ ] שנייה",
+        "",
+        "> - [x] בציטוט",
+        "",
+        "1. [x] ממוספרת",
+    ]
+
+
+def test_a_task_click_on_a_stale_preview_does_not_write(session):
+    """המיפוי לשורות נכון רק לטקסט שממנו התצוגה רונדרה. כשהטקסט השתנה ועוד לא רונדר מחדש — כאן נוספה משימה
+    בראש המסמך — השורה שהצ'קבוקס של "ב" ממופה אליה היא עכשיו "א", ולחיצה הייתה מסמנת את "א". במקום זה היא לא
+    כותבת, והצ'קבוקס חוזר למצבו. ואחרי שהתצוגה מתרנדרת מהטקסט החדש, הלחיצה עובדת על השורה הנכונה."""
+    session.open()
+    page = session.page
+    page.evaluate("(t) => window.editorManager.setEditorContent(t)", "- [ ] א\n- [ ] ב\n")
+    boxes = "#md-content input.task-list-item-checkbox"
+    page.wait_for_function(f"document.querySelectorAll('{boxes}').length === 2")
+    page.wait_for_timeout(700)
+
+    page.evaluate(
+        "() => { const v = window.editorManager.cmInstance;"
+        " v.dispatch({changes: {from: 0, insert: '- [ ] חדש\\n'}});"
+        f" document.querySelectorAll('{boxes}')[1].click(); }}"
+    )
+    assert page.evaluate(f"() => document.querySelectorAll('{boxes}')[1].checked") is False
+    assert session.editor_text() == "- [ ] חדש\n- [ ] א\n- [ ] ב\n"
+
+    page.wait_for_function(f"document.querySelectorAll('{boxes}').length === 3")
+    page.locator(boxes).nth(2).click()
+    page.wait_for_function(
+        "() => window.editorManager.getEditorContent() === '- [ ] חדש\\n- [ ] א\\n- [x] ב\\n'"
+    )
+
+
+def test_the_alerts_menu_is_not_clipped_by_the_split_view(browser):
+    """שורת הכלים יושבת בראש ה-Split View, וה-Split View חותך את מה שיוצא ממנו (overflow: hidden). במסך נמוך
+    תפריט ההתראות ארוך מה-Split View כולו, ובלי ``md-toolbar-open`` החלק התחתון שלו היה נחתך."""
+    b, client = browser
+    s = Session(b, client, width=1100, height=460)
+    try:
+        s.open()
+        page = s.page
+        page.evaluate(
+            "() => document.getElementById('livePreviewRoot').scrollIntoView({block: 'start'})"
+        )
+        page.click('[data-md-action="toggle-submenu"]')
+        page.wait_for_function(
+            "getComputedStyle(document.querySelector('.md-toolbar-submenu')).visibility === 'visible'"
+        )
+        geo = page.evaluate(
+            """() => {
+          const menu = document.querySelector('.md-toolbar-submenu').getBoundingClientRect();
+          const root = document.getElementById('livePreviewRoot').getBoundingClientRect();
+          window.scrollBy(0, menu.bottom - window.innerHeight + 20);
+          const m = document.querySelector('.md-toolbar-submenu').getBoundingClientRect();
+          const hit = document.elementFromPoint(m.left + m.width / 2, m.bottom - 12);
+          const visible = !!(hit && hit.closest('.md-toolbar-submenu'));
+          return {menuBottom: menu.bottom, rootBottom: root.bottom, visible};
+        }"""
+        )
+        # התנאי של הבדיקה: התפריט באמת יוצא מה-Split View
+        assert geo["menuBottom"] > geo["rootBottom"], geo
+        assert geo["visible"], "החלק התחתון של תפריט ההתראות נחתך"
+    finally:
+        s.close()

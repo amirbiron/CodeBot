@@ -37,8 +37,16 @@
 .btn-editor-clip:disabled { opacity:.6; cursor:not-allowed; }
 .editor-info-primary { display:flex; align-items:center; gap:.4rem; font-size:.85rem; opacity:.9; margin-inline-start:auto; margin-inline-end:0; margin-left:auto; padding:.25rem .85rem; border-radius: 999px; background: rgba(255,255,255,0.04); white-space:nowrap; flex-shrink:0; }
 html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
-.editor-info { display:flex; flex-direction:column; gap:.15rem; font-size:.85rem; opacity:.85; min-width:0; width:100%; align-items:flex-start; text-align:start; }
-.editor-info-status { font-size:.8rem; color: var(--text-secondary, var(--primary, #8ec5ff)); min-height:1.1em; }
+/* הודעה זמנית ("כל הקוד סומן", "הוזרק: טבלה") — באותו תא של "קיצורי מקלדת זמינים" ובמקומה, ולא בשורה משלה.
+   עד אוקטובר 2026 היא ישבה בשורה נפרדת עם min-height, שנשארה ריקה כמעט כל הזמן ולקחה גובה מהעורך בכל עמודי
+   העורך. שני הילדים יושבים באותו תא של grid, והתווית רק נעלמת (visibility) בזמן ההודעה — כך השורה לא משנה
+   גובה כשההודעה מופיעה, והעורך לא קופץ. */
+.editor-info-slot { display:grid; align-items:center; margin-inline-start:auto; flex-shrink:0; }
+.editor-info-slot > .editor-info-status,
+.editor-info-slot > .editor-info-primary { grid-area: 1 / 1; }
+.editor-info-slot > .editor-info-status { justify-self:center; }
+.editor-info-slot:has(> .editor-info-status:not(:empty)) > .editor-info-primary { visibility:hidden; }
+.editor-info-status { font-size:.8rem; color: var(--text-secondary, var(--primary, #8ec5ff)); white-space:nowrap; }
 .editor-loading { position: relative; min-height: 48px; display:flex; align-items:center; gap:.5rem; color:#fff; }
 .editor-transitioning { opacity: .7; }
 /* בזמן טעינה – ננעל רק את אזור העורך, לא את כפתור ההחלפה */
@@ -68,6 +76,7 @@ body.telegram-mini-app #codeMirrorContainer .cm-editor {
   .editor-clipboard-actions { width: 100%; }
   .btn-editor-clip { flex: 1 1 auto; justify-content: center; }
   .editor-info-primary { margin-left: 0; width: 100%; justify-content: center; text-align: center; }
+  .editor-info-slot { width: 100%; }
 }
 
 /* Upload/Edit pages: Larger code editor on mobile */
@@ -141,6 +150,23 @@ textarea[name="code"]::placeholder,
 .cm-editor .cm-content {
   direction: ltr;
   text-align: left;
+}
+
+/* כיוון לכל שורה — EditorManager עם textDirection: 'auto' (העורך הציבורי, /markdown-editor).
+   העורך כולו מימין לשמאל, ומספרי השורות בצד ימין; כל שורה מקבלת dir="auto" מהתוסף perLineAutoDirection
+   שבחבילה, ו-text-align: start מיישר אותה לתחילת הכיוון שלה. הכללים שלמעלה, משמאל לימין, נשארים לכל
+   עורך אחר. ובעורך הפשוט, כש-CodeMirror לא עלה: unicode-bidi: plaintext קובע כיוון לכל שורה בנפרד. */
+.codemirror-container--dir-auto .cm-editor,
+.codemirror-container--dir-auto .cm-editor .cm-scroller,
+.codemirror-container--dir-auto .cm-editor .cm-content {
+  direction: rtl;
+  text-align: start;
+}
+
+textarea[name="code"].editor-textarea--dir-auto {
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 
 .cm-editor .cm-gutters {

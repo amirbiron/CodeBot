@@ -69,9 +69,12 @@
    * @param {string} source מקור ה-Markdown הגולמי
    * @param {{setext?: boolean}} [options] setext=false אם ה-renderer מנטרל כותרות Setext
    *   (md.disable('lheading')). ברירת מחדל true — כמו ההתנהגות הרגילה של markdown-it.
-   * @returns {{source: string, anchors: Array<{headingIndex: number, ids: string[]}>}}
+   * @returns {{source: string, anchors: Array<{headingIndex: number, ids: string[]}>, lineMap: (number[]|null)}}
    *   source — המקור אחרי ניקוי תגיות העוגן
    *   anchors — לכל כותרת (לפי סדר הופעתה, 0-based) רשימת המזהים שהוגדרו לה.
+   *   lineMap — לכל שורה ב-source (0-based), מספר השורה שלה במקור הגולמי. שורה שכולה עוגנים מוסרת, ולכן
+   *   מספרי השורות ש-markdown-it רואה זזים ממספרי השורות בעורך; מי שמתרגם שורת פענוח לשורה בעורך (צ'קבוקס
+   *   של משימה בתצוגה החיה) עובר דרך המפה. ``null`` כששום שורה לא הוסרה, כלומר המספרים זהים.
    *   חשוב: הספירה חייבת לכלול גם כותרות Setext, אחרת האינדקס לא יתאים לאלמנטי
    *   ה-h1..h6 בפועל והעוגן יוחל על הכותרת הלא נכונה.
    */
@@ -79,11 +82,12 @@
     var text = (source == null) ? '' : String(source);
     var allowSetext = !(options && options.setext === false);
     if (!text || text.indexOf('<a') === -1) {
-      return { source: text, anchors: [] };
+      return { source: text, anchors: [], lineMap: null };
     }
 
     var lines = text.split('\n');
     var outLines = [];
+    var lineMap = [];        // lineMap[i] — מספר השורה במקור של outLines[i]
     var anchors = [];
     var headingIndex = -1;   // אינדקס הכותרת האחרונה שראינו
     var pendingIds = [];     // עוגנים שהופיעו בשורה נפרדת וממתינים לכותרת הבאה
@@ -107,10 +111,12 @@
           fence = null;
         }
         outLines.push(line);
+        lineMap.push(i);
         continue;
       }
       if (fence !== null) {
         outLines.push(line);
+        lineMap.push(i);
         continue;
       }
 
@@ -139,6 +145,7 @@
           continue;
         }
         outLines.push(line);
+        lineMap.push(i);
         continue;
       }
 
@@ -157,6 +164,7 @@
       // ניקוי התגיות מטקסט הכותרת + צמצום רווחים כפולים שנוצרו
       var cleaned = line.replace(ANCHOR_RE, '').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/, '');
       outLines.push(cleaned);
+      lineMap.push(i);
 
       pushAnchors(headingIndex, idsForHeading);
     }
@@ -166,7 +174,7 @@
       pushAnchors(headingIndex, pendingIds);
     }
 
-    return { source: outLines.join('\n'), anchors: anchors };
+    return { source: outLines.join('\n'), anchors: anchors, lineMap: lineMap };
   }
 
   /**

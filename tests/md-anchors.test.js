@@ -200,5 +200,27 @@ console.log('applyExplicitAnchors — קלט ריק לא מפיל');
   check('רשימה ריקה', applyExplicitAnchors(makeFakeDom(1).container, []) === 0);
 }
 
+console.log('מפת השורות — מהמקור אחרי הניקוי לשורה בעורך');
+{
+  // שורה שכולה עוגנים מוסרת, ולכן השורות שאחריה זזות. התצוגה החיה מתרגמת דרך המפה לחיצה על צ'קבוקס
+  // לשורה בעורך — בלי המפה, הלחיצה הייתה מסמנת את המשימה שמעל.
+  const src = '# משימות\n\n<a id="top"></a>\n\n- [ ] ראשונה\n```\n<a id="in-code"></a>\n```\n- [x] שנייה';
+  const r = extractExplicitAnchors(src);
+  const out = r.source.split('\n');
+  const orig = src.split('\n');
+  check('שורת העוגן הוסרה', out.length === orig.length - 1, out);
+  check('אורך המפה כמספר השורות שנשארו', Array.isArray(r.lineMap) && r.lineMap.length === out.length, r.lineMap);
+  check('כל שורה שנשארה ממופה לשורה שלה במקור',
+    out.every((line, i) => orig[r.lineMap[i]] === line), r.lineMap);
+  check('השורה שאחרי העוגן ממופה לשורה המקורית',
+    r.lineMap[out.indexOf('- [ ] ראשונה')] === orig.indexOf('- [ ] ראשונה'), r.lineMap);
+}
+{
+  const src = '# כותרת <a id="x"></a>\n- [ ] א';
+  const r = extractExplicitAnchors(src);
+  check('כשלא הוסרה שורה — המפה היא הזהות', JSON.stringify(r.lineMap) === '[0,1]', r.lineMap);
+  check('מסמך בלי עוגנים — lineMap null (המספרים זהים)', extractExplicitAnchors('- [ ] א').lineMap === null);
+}
+
 console.log('\nסה"כ: ' + passed + ' עברו, ' + failed + ' נכשלו');
 process.exit(failed === 0 ? 0 : 1);
