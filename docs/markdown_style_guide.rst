@@ -120,7 +120,7 @@ Tables
    נכון לעכשיו אין Zebra Rows מובנה. אם צריך פסי זברה, יש להוסיף
    ב‑``reader.css`` (למשל ``tbody tr:nth-child(even)``).
 
-**CSS מקור:** הפריסה ב‑``webapp/templates/md_preview.html`` (חלק ה‑Table Styles); הצבעים — קווי התאים ורקע הכותרת — ב‑``webapp/static/css/md-content-colors.css``, המשותף לתצוגת המסמך ולתצוגה החיה.
+**CSS מקור:** הפריסה ב‑``webapp/static/css/md-content-layout.css``; הצבעים — קווי התאים ורקע הכותרת — ב‑``webapp/static/css/md-content-colors.css``. שני הקבצים משותפים לתצוגת המסמך ולתצוגה החיה.
 
 Task Lists
 ^^^^^^^^^^
@@ -180,6 +180,8 @@ Code Blocks
    ```
 
 **CSS מקור:** ``reader.css`` + ה‑CSS של Pygments (``friendly``).
+
+בתצוגת המסמך ובתצוגה החיה הבלוק — מסגרת, פס כותרת עם שם השפה וכפתור העתקה — נבנה ב‑``webapp/static/js/md-code-blocks.js``. הפריסה שלו ב‑``md-content-layout.css``, והצבעים, כולל צבעי התחביר, ב‑``md-content-colors.css``.
 
 Highlight (``==מארקר==``)
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -251,6 +253,7 @@ Highlight (``==מארקר==``)
 
 - **לא להשתמש ב‑Inline Styles בתוך Markdown.**
 - שינוי צבעים/רקעים נעשה ב‑``reader.css`` (Reader Mode), ב‑``markdown-enhanced.css`` (אדמוניציות ובלוקים מתקפלים), או ב‑``md-content-colors.css`` — הצבעים של המסמך עצמו (``#md-content``): הנייר, קוד וצבעי התחביר, ציטוט, טבלה, סימון וקישורים, משותפים לתצוגת המסמך ולתצוגה החיה.
+- שינוי פריסה של המסמך עצמו — ריווח, גדלים, שבירת שורות, בלוק הקוד ופס הכותרת שלו — נעשה ב‑``md-content-layout.css``, שגם הוא משותף לשתי התצוגות. כלל שנכתב רק ב‑``md_preview.html`` לא יגיע לתצוגה החיה.
 - שמרו על התאמה בין Reader Mode ל‑Classic Theme כדי לשמר עקביות ויזואלית.
 
 .. note::

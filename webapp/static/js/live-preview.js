@@ -251,10 +251,13 @@
       return renderer;
     }
 
-    function highlightBlocks(root) {
+    // ``copyButtons: false`` — רק הדגשה. הכפתור הקטן בפינת ה-``pre`` (``.code-copy-btn``) הוא של דפדפן
+    // הריפו ושל כרטיסי החיפוש בתיעוד; התצוגה החיה בונה במקומו את בלוק הקוד של המסמך (ראו ``enhance``).
+    function highlightBlocks(root, options) {
       if (!root || typeof window === 'undefined') {
         return;
       }
+      const copyButtons = !options || options.copyButtons !== false;
       root.querySelectorAll('pre code').forEach((block) => {
         try {
           const parent = block.closest('pre');
@@ -278,7 +281,7 @@
               console.warn('wrapInnerFences failed', err);
             }
           }
-          if (parent) {
+          if (parent && copyButtons) {
             parent.style.position = 'relative';
 
             // הוספת כפתור העתקה אם לא קיים
@@ -392,12 +395,24 @@
       }
     }
 
-    async function enhance(root, anchors) {
+    // ``options.documentCodeBlocks`` — בלוקי קוד של תצוגת המסמך (``md-code-blocks.js``): מסגרת, פס
+    // כותרת עם שם השפה וכפתור העתקה. התצוגה החיה מבקשת אותם; דפדפן הריפו וכרטיסי החיפוש בתיעוד לא,
+    // והעיצוב של הכפתור הקטן שלהם ב-``markdown-preview.css``. הבנייה אחרי ה-Mermaid, כמו בתצוגת המסמך:
+    // בלוק ```mermaid כבר הוחלף בתרשים ולא נעטף במסגרת.
+    async function enhance(root, anchors, options) {
+      const documentCodeBlocks = !!(options && options.documentCodeBlocks);
       applyExplicitAnchors(root, anchors);
-      highlightBlocks(root);
+      highlightBlocks(root, { copyButtons: !documentCodeBlocks });
       enhanceTaskLists(root);
       lazyLoadImages(root);
       await renderMermaid(root);
+      if (documentCodeBlocks) {
+        if (window.MdCodeBlocks) {
+          window.MdCodeBlocks.enhance(root);
+        } else {
+          console.warn('live-preview: md-code-blocks.js לא נטען — בלוקי הקוד בלי מסגרת וכפתור העתקה');
+        }
+      }
     }
 
     // החלת עוגני ה-HTML שנשלפו מהמקור (`## סעיף <a id="x"></a>`). ה-renderer רץ עם
@@ -695,7 +710,7 @@
         if (this.styleEl) {
           this.styleEl.textContent = '';
         }
-        await MarkdownLiveRenderer.enhance(this.previewCanvas, rendered.anchors);
+        await MarkdownLiveRenderer.enhance(this.previewCanvas, rendered.anchors, { documentCodeBlocks: true });
         const duration = typeof performance !== 'undefined' && typeof performance.now === 'function'
           ? Math.max(1, Math.round(performance.now() - started))
           : 0;

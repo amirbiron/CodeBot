@@ -33,8 +33,6 @@
   /* Preview content */
   --split-preview-bg: var(--md-surface, #1b1e24);
   --split-preview-text: var(--md-text, #f0f0f0);
-  --split-preview-code-bg: rgba(255, 255, 255, 0.06);
-  --split-preview-code-text: var(--md-text, #f0f0f0);
   --split-preview-placeholder: rgba(255, 255, 255, 0.6);
   --split-preview-meta: rgba(255, 255, 255, 0.55);
   --split-preview-loading-bg: rgba(27, 30, 36, 0.85);
@@ -77,8 +75,6 @@
   --split-resizer-dragging: rgba(100, 149, 237, 0.35);
   --split-preview-bg: var(--md-surface);
   --split-preview-text: var(--md-text);
-  --split-preview-code-bg: rgba(255, 255, 255, 0.08);
-  --split-preview-code-text: #f5f5f5;
   --split-preview-placeholder: rgba(255, 255, 255, 0.6);
   --split-preview-meta: rgba(255, 255, 255, 0.55);
   --split-preview-loading-bg: rgba(27, 30, 36, 0.85);
@@ -108,8 +104,6 @@
   --split-resizer-dragging: rgba(99, 179, 237, 0.4);
   --split-preview-bg: var(--md-surface);
   --split-preview-text: var(--md-text);
-  --split-preview-code-bg: rgba(255, 255, 255, 0.1);
-  --split-preview-code-text: #e2e8f0;
   --split-preview-placeholder: rgba(255, 255, 255, 0.65);
   --split-preview-meta: rgba(255, 255, 255, 0.55);
   --split-preview-loading-bg: rgba(26, 54, 93, 0.9);
@@ -138,8 +132,6 @@
   --split-resizer-dragging: rgba(104, 211, 145, 0.4);
   --split-preview-bg: var(--md-surface);
   --split-preview-text: var(--md-text);
-  --split-preview-code-bg: rgba(255, 255, 255, 0.1);
-  --split-preview-code-text: #e2e8f0;
   --split-preview-placeholder: rgba(255, 255, 255, 0.65);
   --split-preview-meta: rgba(255, 255, 255, 0.55);
   --split-preview-loading-bg: rgba(20, 83, 45, 0.9);
@@ -168,8 +160,6 @@
   --split-resizer-dragging: rgba(144, 122, 169, 0.35);
   --split-preview-bg: var(--md-surface);
   --split-preview-text: var(--md-text);
-  --split-preview-code-bg: rgba(255, 255, 255, 0.08);
-  --split-preview-code-text: var(--md-text);
   --split-preview-placeholder: rgba(255, 255, 255, 0.6);
   --split-preview-meta: rgba(255, 255, 255, 0.55);
   --split-preview-loading-bg: rgba(27, 30, 36, 0.85);
@@ -201,8 +191,6 @@
   --split-resizer-dragging: #ffff00;
   --split-preview-bg: var(--md-surface);
   --split-preview-text: var(--md-text);
-  --split-preview-code-bg: #1a1a1a;
-  --split-preview-code-text: #ffffff;
   --split-preview-placeholder: #ffffff;
   --split-preview-meta: #ffffff;
   --split-preview-loading-bg: #000000;
@@ -257,8 +245,6 @@
   --split-resizer-dragging: color-mix(in srgb, var(--primary, #6366f1) 40%, transparent);
   --split-preview-bg: var(--bg-primary, var(--md-surface, #1b1e24));
   --split-preview-text: var(--text-primary, var(--md-text, #f0f0f0));
-  --split-preview-code-bg: color-mix(in srgb, var(--bg-tertiary, #2a2d40) 80%, transparent);
-  --split-preview-code-text: var(--text-primary, #f0f0f0);
   --split-preview-placeholder: var(--text-muted, rgba(255, 255, 255, 0.6));
   --split-preview-meta: var(--text-secondary, rgba(255, 255, 255, 0.55));
   --split-preview-loading-bg: color-mix(in srgb, var(--bg-primary, #1b1e24) 85%, transparent);
@@ -517,190 +503,33 @@
   --split-preview-meta: color-mix(in srgb, var(--md-paper-text) 75%, var(--md-paper-bg));
 }
 
-.split-preview-content :not(pre) > code,
-.split-preview-content code.inline-code {
-  display: inline-block;
-  padding: 0.15em 0.35em;
-  border-radius: 6px;
-  font-size: 0.94em;
-  background: var(--split-preview-code-bg);
-  color: var(--split-preview-code-text);
-  word-break: break-word;
-}
-
-.split-preview-content pre,
-.split-preview-content code {
+/* בלוקי קוד במצב קוד (Pygments מהשרת): משמאל לימין, וגופן מונו. במצב Markdown הכיוון והגופן של המסמך —
+   ``.code-block`` ו-``pre.rtl-code`` ב-``md-content-layout.css``. */
+.split-preview-content:not([data-mode="markdown"]) pre,
+.split-preview-content:not([data-mode="markdown"]) code {
   direction: ltr;
   text-align: left;
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
 }
 
-html[dir="rtl"] .split-preview-content pre,
-html[dir="rtl"] .split-preview-content code {
+html[dir="rtl"] .split-preview-content:not([data-mode="markdown"]) pre,
+html[dir="rtl"] .split-preview-content:not([data-mode="markdown"]) code {
   direction: ltr;
   text-align: left;
 }
 
 /* בלוקי קוד עם תוכן בעברית – יישור לימין */
-.split-preview-content pre.rtl-code,
-.split-preview-content pre.rtl-code code,
-html[dir="rtl"] .split-preview-content pre.rtl-code,
-html[dir="rtl"] .split-preview-content pre.rtl-code code {
+.split-preview-content:not([data-mode="markdown"]) pre.rtl-code,
+.split-preview-content:not([data-mode="markdown"]) pre.rtl-code code,
+html[dir="rtl"] .split-preview-content:not([data-mode="markdown"]) pre.rtl-code,
+html[dir="rtl"] .split-preview-content:not([data-mode="markdown"]) pre.rtl-code code {
   direction: rtl;
   text-align: right;
 }
 
-/* ==============================================
-   תוכן Markdown בתצוגה החיה
-   כלל האיפוס `*` שבבלוק ה-<style> של base.html מאפס margin ו-padding לכל
-   אלמנט, והפריסה של התוכן ב-md_preview.html יושבת ב-<style> הפנימי שלו ואינה
-   נטענת בעמודי העריכה. בלי הכללים כאן ציטוט נראה כמו פסקה, לרשימה אין
-   תבליטים (אין להם מקום), ופסקאות נדבקות זו לזו. הכללים כאן הם פריסה בלבד:
-   הצבעים — של הציטוט, הטבלה, בלוק הקוד וכפתור ההעתקה — הם של המסמך, מ-md-content-colors.css.
-
-   הסקופ הוא ה-canvas במצב markdown (data-mode נקבע ב-setMarkdownContext
-   שב-live-preview.js), כדי לא לגעת בשורת הסטטוס ובמציין המקום.
-   הוא עטוף ב-:where() בכוונה: הספציפיות יורדת לזו של האלמנט לבדו, כך שהכללים
-   גוברים רק על האיפוס, וכל כלל ממוקד יותר — למשל של האדמוניציות
-   ב-markdown-enhanced.css — ממשיך לנצח כמו היום.
-   ============================================== */
-:where(.split-preview-canvas[data-mode="markdown"]) p {
-  margin: 0.75rem 0;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) :is(h1, h2, h3, h4, h5, h6) {
-  margin-top: 1.25rem;
-  margin-bottom: 0.75rem;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) > :first-child {
-  margin-top: 0;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) :is(ul, ol) {
-  margin-block: 0 1rem;
-  padding-inline-start: 1.25rem;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) li {
-  margin: 0.25rem 0;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) li > :is(ul, ol) {
-  margin-block: 0.25rem 0.5rem;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) table {
-  border-collapse: collapse;
-  margin: 0.75rem 0;
-  /* טבלה רחבה נגללת בתוך עצמה ולא מרחיבה את כל התצוגה */
-  display: block;
-  max-width: 100%;
-  overflow-x: auto;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) :is(th, td) {
-  padding: 0.4rem 0.75rem;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) blockquote {
-  margin: 0.75rem 0;
-  padding: 0.5rem 0.75rem;
-  overflow-wrap: anywhere;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) blockquote > :first-child {
-  margin-top: 0;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) blockquote > :last-child {
-  margin-bottom: 0;
-}
-
-/* ----------------------------------------------
-   בלוק קוד (```) וכפתור ההעתקה שלו
-
-   ``highlightBlocks`` ב-live-preview.js מדגיש את ה-``code`` דרך ``window.SafeHighlight``
-   ומוסיף ``button.code-copy-btn`` בתוך ה-``pre``. בתצוגת המסמך הכפתור יושב בפס כותרת מעל
-   הקוד (``.md-code-header`` ב-md_preview.html); כאן אין פס כזה ב-DOM, ולכן ה-``pre`` שומר
-   לכפתור פס בראשו בריפוד העליון, והכפתור ממוקם בתוכו. הגובה של הפס נגזר משני משתנים מקומיים —
-   המרחק מהקצה וגודל הכפתור — כדי שהריפוד והמיקום לא יהיו שתי נוסחאות שנסחפות זו מזו.
-
-   הגלילה לרוחב היא של ה-``code`` ולא של ה-``pre``: כפתור ממוקם (absolute) בתוך קופסת גלילה
-   נגלל יחד עם התוכן ויוצא מהעין, וכאן הוא אח של ה-``code`` ונשאר במקומו. שורה ארוכה נגללת
-   בתוך הבלוק, ולא מרחיבה את כל התצוגה.
-   ---------------------------------------------- */
-:where(.split-preview-canvas[data-mode="markdown"]) pre {
-  --split-preview-code-copy-inset: 0.5rem;
-  --split-preview-code-copy-size: 1.75rem;
-  position: relative;
-  margin: 0.75rem 0;
-  padding: calc(var(--split-preview-code-copy-inset) * 2 + var(--split-preview-code-copy-size)) 1rem 1rem;
-  border-radius: 8px;
-  line-height: 1.5;
-}
-
-/* **שני הכללים האלה בכוונה מחוץ ל-:where(), והם החריג היחיד בשכבה הזו.** כאן היריבים אינם כללים ממוקדים
-   שצריכים לנצח, אלא כללים שחלים על ה-``code`` מבחוץ ובונים בלוק בתוך הבלוק: הצבעים של
-   highlight.js ב-``md_preview.bundle.css`` נותנים ל-``code.hljs`` רקע משלו ו-``padding: 1em``
-   (‏``pre code.hljs`` — 0,1,2), וערכה מיובאת מזריקה ``:root[data-theme-type="custom"] .hljs``
-   (0,3,0) עם רקע ב-``!important`` (``generate_hljs_css_from_tokens`` ב-
-   services/theme_parser_service.py). הבורר כאן הוא 0,2,2, ו-0,3,2 לרקע של ``code.hljs`` —
-   גבוה משניהם, בלי תלות בסדר הטעינה. כללי הצבע של המסמך מנטרלים את אותם כללים באותה צורה
-   (``#md-content .hljs`` ב-md-content-colors.css, שחל גם כאן). צבע הטקסט של ערכה מיובאת לא נדרס,
-   ולכן צבעי התחביר שלה חלים. */
-.split-preview-canvas[data-mode="markdown"] pre > code {
-  display: block;
-  overflow-x: auto;
-  padding: 0;
-  background: transparent;
-}
-
-.split-preview-canvas[data-mode="markdown"] pre > code.hljs {
-  background: transparent !important;
-}
-
-/* הכפתור בצד ימין גם בבלוק עברי (``pre.rtl-code``, שהכיוון שלו rtl), ולכן ``right`` פיזי ולא
-   ``inset-inline-end``: בתצוגת המסמך פס הכותרת יורש ``direction: ltr`` מ-``.code-block``, והכפתור
-   הוא הפריט האחרון בו — תמיד מימין. צד לוגי היה מעביר אותו לשמאל בכל בלוק עברי.
-
-   הצבעים הם הטוקנים של כפתור ההעתקה בתצוגת המסמך (``--md-code-copy-*``, שמוצהרים על ``#md-content``
-   לכל ערכה ב-md-content-colors.css), באותם ביטויים כמו ``.md-copy-btn`` ב-md_preview.html. שני
-   הכפתורים הם רכיבים נפרדים — שם הכפתור בפס כותרת שרק תצוגת המסמך בונה, וכאן בתוך ה-``pre`` — ולכן
-   הכללים נפרדים, והטוקנים משותפים. */
-:where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn {
-  position: absolute;
-  top: var(--split-preview-code-copy-inset);
-  right: var(--split-preview-code-copy-inset);
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--split-preview-code-copy-size);
-  min-width: var(--split-preview-code-copy-size);
-  padding: 0 0.45rem;
-  font-size: 0.95rem;
-  line-height: 1;
-  color: var(--md-code-copy-color);
-  background: var(--md-code-copy-bg);
-  border: 1px solid var(--md-code-copy-border, transparent);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn:hover {
-  background: var(--md-code-copy-hover-bg);
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-
-:where(.split-preview-canvas[data-mode="markdown"]) .code-copy-btn.copied {
-  color: var(--md-code-copy-success-color);
-  background: color-mix(in srgb, var(--md-code-copy-success-color) 18%, transparent);
-}
+/* תוכן Markdown בתצוגה החיה — הפריסה והצבעים של המסמך עצמו: ``md-content-layout.css`` ו-``md-content-colors.css``,
+   שנטענים ב-``_live_preview_styles.html`` וחלים על ה-canvas דרך ``id="md-content"``. עד שהם נוצרו, כאן ישבה שכבת
+   תוכן נפרדת, והיא נסחפה מהמסמך: קוד בשורה נשבר כל כמה אותיות בטבלה, ובלוק קוד נראה כמו בדפדפן הריפו. */
 
 .split-preview-placeholder {
   text-align: center;
