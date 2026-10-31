@@ -199,6 +199,20 @@
   padding: 0.5rem 0.75rem;
 }
 
+/* האלמנט הראשון במסמך בלי margin עליון: המרווח העליון של כותרת (הכלל של ``h1`` למטה) נועד
+   להפריד אותה ממה שלפניה, ובראש המסמך אין לפניה כלום, אלא רק הריפוד של המכל. חל על תצוגת המסמך ועל התצוגה
+   החיה יחד, כמו כל הקובץ. */
+#md-content > :first-child {
+  margin-top: 0;
+}
+
+/* הצ'קבוקס של פריט משימה (``class="task-list-item-checkbox"`` מ-markdown-it-task-lists). עד אוקטובר 2026 העיצוב
+   ישב ב-``md_preview.html`` על מחלקה שרק תצוגת המסמך הוסיפה, ובתצוגה החיה הצ'קבוקס יצא בלי רווח ובגודל אחר. */
+#md-content .task-list-item-checkbox {
+  margin-inline-end: .5rem;
+  transform: scale(1.1);
+}
+
 /* שיפורי כותרות עם גבולות תחתונים */
 #md-content h1 {
   font-size: 2.2em;

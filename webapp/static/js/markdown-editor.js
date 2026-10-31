@@ -163,6 +163,7 @@
         value: textarea.value,
         theme: 'dark',
         fixedEditor: true,
+        textDirection: 'auto',
       });
     } catch (err) {
       console.error('[markdown-editor] initEditor failed', err);

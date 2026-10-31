@@ -5,10 +5,10 @@
 {#
   העורך הציבורי — עורך Markdown ותצוגה חיה, בלי התחברות (``/markdown-editor``, ``markdown_editor`` ב-``webapp/app.py``; הנתונים ב-``webapp/markdown_editor.py``). התיעוד: ``docs/webapp/markdown-editor.rst``.
 
-  - **אותם רכיבים כמו בעמוד העריכה.** העורך (``EditorManager``), התצוגה החיה (``LivePreviewController``) וסרגל ה-MD הם אותם קבצים, עם אפשרויות שרק העמוד הזה מפעיל: ``fixedEditor`` (תמיד CodeMirror, בלי מתג, בלי שמירת העדפה), ``data-preview-mode="markdown"`` / ``data-preview-autostart`` / ``data-preview-client-only`` על ``#livePreviewRoot``, ו-``markdown_toolbar(inline=True, markdown_only=True)``. כך תיקון באחד מהם מגיע לכאן ולעמוד העריכה יחד.
+  - **אותם רכיבים כמו בעמוד העריכה.** העורך (``EditorManager``), התצוגה החיה (``LivePreviewController``) וסרגל ה-MD הם אותם קבצים, עם אפשרויות שרק העמוד הזה מפעיל: ``fixedEditor`` (תמיד CodeMirror, בלי מתג, בלי שמירת העדפה) ו-``textDirection: 'auto'`` (כיוון לכל שורה) ב-``markdown-editor.js``, ``data-preview-mode="markdown"`` / ``data-preview-autostart`` / ``data-preview-client-only`` על ``#livePreviewRoot``, ו-``markdown_toolbar(inline=True, markdown_only=True)``. כך תיקון באחד מהם מגיע לכאן ולעמוד העריכה יחד.
   - **בלי שרת אחרי הטעינה.** הרינדור בדפדפן בלבד (``data-preview-client-only``), כי ``/api/preview/live`` דורש התחברות; הטיוטה ב-``localStorage`` (``markdown-editor.js``).
   - **טקסט ההדגמה** מגיע מהראוט כמשתנה (``demo_text``), ו-Jinja מברח אותו לתוך ה-textarea. לא ``{% include %}``: בטקסט יש ``{{ __html: html }}``, ו-include היה מריץ אותו כתבנית. "טען דוגמה" קורא אותו בחזרה מ-``textarea.defaultValue``, שהוא התוכן שהשרת שלח ואינו משתנה כשכותבים בעורך.
-  - **הפריסה.** בעברית העורך מימין והתצוגה משמאל, מאותו ``split-view.css`` של עמוד העריכה.
+  - **הפריסה.** בעברית העורך מימין והתצוגה משמאל, מאותו ``split-view.css`` של עמוד העריכה. בלי כרטיס עוטף: ה-Split View הוא המסגרת, שורת כלי ה-MD יושבת בראש שלו עם Live Preview בסופה, והתווית של העורך מוסתרת ויזואלית — כדי שכל הגובה ילך לכתיבה ולתצוגה.
 #}
 
 {% set editor_title = 'עורך Markdown אונליין עם תצוגה חיה — CodeKeeper' %}
@@ -79,10 +79,34 @@
     color: var(--text-secondary, currentColor);
 }
 
-.md-editor-page__card {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+/* העורך והתצוגה בלי כרטיס עוטף: ה-Split View הוא המסגרת היחידה, וכל השטח שבתוכה הולך לכתיבה ולתצוגה. */
+.md-editor-page .split-view {
+    margin-top: 0;
+}
+
+/* שורת הכלים של ה-Split View: כלי ה-MD בתחילת השורה, ו-Live Preview בסופה (משמאל). */
+.md-editor-page .split-toolbar .md-toolbar-group {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.md-editor-page .split-panel--editor {
+    padding: 0.5rem;
+}
+
+.md-editor-page .split-panel--preview {
+    padding: 0;
+}
+
+.md-editor-page .split-preview-content {
+    border-radius: 0;
+}
+
+/* שורת המידע (שפה, גודל, זמן) וסטטוס "התצוגה מעודכנת" הם רעש בעמוד שכל מטרתו התצוגה. הסטטוס מוצג רק
+   בשגיאה — למשל כשספריית ה-Markdown לא נטענה. מכל התצוגה כולו aria-live, ולכן גם הסטטוס שמופיע מוכרז. */
+.md-editor-page .split-preview-meta,
+.md-editor-page .split-preview-status:not([data-state="error"]) {
+    display: none;
 }
 
 .md-editor-page__about {
@@ -133,48 +157,46 @@
     <p class="md-editor-page__status" data-md-editor-status aria-live="polite"></p>
   </header>
 
-  <div class="glass-card md-editor-page__card">
-    {{ markdown_toolbar(inline=True, markdown_only=True) }}
-    <div id="livePreviewRoot" class="split-view" data-active-panel="editor" data-preview-mode="markdown" data-preview-autostart data-preview-client-only>
-      <div class="split-toolbar">
-        <div class="split-toolbar-controls">
-          <button
-            type="button"
-            class="split-toggle"
-            data-action="toggle-live-preview"
-            aria-pressed="false"
-          >
-            <i class="fas fa-columns"></i>
-            <span class="split-toggle__text">Live Preview</span>
-          </button>
-          <span class="split-toolbar-hint">Ctrl+Shift+Enter</span>
-        </div>
-        <div class="split-tabs" role="tablist" aria-label="חלונות תצוגה">
-          <button type="button" role="tab" aria-selected="true" data-panel-target="editor">עורך</button>
-          <button type="button" role="tab" aria-selected="false" data-panel-target="preview">תצוגה</button>
-        </div>
+  <div id="livePreviewRoot" class="split-view" data-active-panel="editor" data-preview-mode="markdown" data-preview-autostart data-preview-client-only>
+    <div class="split-toolbar">
+      {{ markdown_toolbar(inline=True, markdown_only=True) }}
+      <div class="split-toolbar-controls">
+        <button
+          type="button"
+          class="split-toggle"
+          data-action="toggle-live-preview"
+          aria-pressed="false"
+          title="Live Preview (Ctrl+Shift+Enter)"
+        >
+          <i class="fas fa-columns"></i>
+          <span class="split-toggle__text">Live Preview</span>
+        </button>
       </div>
-      <div class="split-panels">
-        <section class="split-panel split-panel--editor" aria-label="אזור עריכה">
-          <div id="editorContainer">
-            <label for="codeTextarea">Markdown</label>
-            <textarea id="codeTextarea" name="code" rows="18" class="form-field code-field" spellcheck="false">{{ demo_text }}</textarea>
-          </div>
-        </section>
-        <div class="split-resizer" role="separator" aria-label="שנה את רוחב הפאנלים"></div>
-        <section class="split-panel split-panel--preview" aria-label="תצוגה חיה">
-          <div class="split-preview-content" data-preview-content aria-live="polite">
-            <div class="split-preview-canvas" data-preview-canvas>
-              <div class="split-preview-placeholder">
-                <p>תצוגה חיה תופיע כאן</p>
-                <small>הפעל את Live Preview כדי לרענן בזמן אמת</small>
-              </div>
+      <div class="split-tabs" role="tablist" aria-label="חלונות תצוגה">
+        <button type="button" role="tab" aria-selected="true" data-panel-target="editor">עורך</button>
+        <button type="button" role="tab" aria-selected="false" data-panel-target="preview">תצוגה</button>
+      </div>
+    </div>
+    <div class="split-panels">
+      <section class="split-panel split-panel--editor" aria-label="אזור עריכה">
+        <div id="editorContainer">
+          <label for="codeTextarea" class="sr-only">Markdown</label>
+          <textarea id="codeTextarea" name="code" rows="18" class="form-field code-field" spellcheck="false">{{ demo_text }}</textarea>
+        </div>
+      </section>
+      <div class="split-resizer" role="separator" aria-label="שנה את רוחב הפאנלים"></div>
+      <section class="split-panel split-panel--preview" aria-label="תצוגה חיה">
+        <div class="split-preview-content" data-preview-content aria-live="polite">
+          <div class="split-preview-canvas" data-preview-canvas>
+            <div class="split-preview-placeholder">
+              <p>תצוגה חיה תופיע כאן</p>
+              <small>הפעל את Live Preview כדי לרענן בזמן אמת</small>
             </div>
-            <div class="split-preview-meta" data-preview-meta></div>
-            <p class="split-preview-status" data-preview-status>הפעל את Live Preview כדי לראות עדכון בזמן אמת.</p>
           </div>
-        </section>
-      </div>
+          <div class="split-preview-meta" data-preview-meta></div>
+          <p class="split-preview-status" data-preview-status>הפעל את Live Preview כדי לראות עדכון בזמן אמת.</p>
+        </div>
+      </section>
     </div>
   </div>
 

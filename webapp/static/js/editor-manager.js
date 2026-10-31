@@ -162,18 +162,28 @@
       // תמיד CodeMirror, בלי כפתור המתג, ובלי להתחשב בהעדפה או לשמור אותה: ההעדפה שייכת לעמודי
       // העריכה וההעלאה, ושמירתה נשלחת ל-API של משתמש מחובר. אם CodeMirror נכשל, העורך הפשוט
       // עולה כרגיל, כדי שאפשר יהיה להמשיך לכתוב, אבל ההעדפה לא נשמרת.
-      const { language = 'text', value = '', theme = 'dark', fixedEditor = false } = options;
+      // textDirection: 'auto' — כיוון לכל שורה, לעורך של טקסט בעברית (העורך הציבורי). העורך כולו מימין
+      // לשמאל, וכל שורה מקבלת את הכיוון של האות החזקה הראשונה בה (perLineAutoDirection בחבילה של
+      // CodeMirror). בלי האפשרות — ברירת המחדל של עמודי העריכה וההעלאה — העורך משמאל לימין, כמו עורך קוד.
+      const { language = 'text', value = '', theme = 'dark', fixedEditor = false, textDirection = 'ltr' } = options;
       this.fixedEditor = !!fixedEditor;
       if (this.fixedEditor) this.currentEditor = 'codemirror';
+      this.textDirection = textDirection === 'auto' ? 'auto' : 'ltr';
       try { console.log('[EditorManager] initEditor called with:', { language, theme, valueLength: (typeof value === 'string' ? value.length : 0) }); } catch(_) {}
       this.textarea = container.querySelector('textarea[name="code"]');
       if (!this.textarea) { try { console.warn('[EditorManager] Textarea not found in container'); } catch(_) {} return; }
       try { console.log('[EditorManager] Textarea found:', this.textarea); } catch(_) {}
       try {
         this.textarea.classList.add('editor-textarea');
-        this.textarea.setAttribute('dir', 'ltr');
-        this.textarea.style.direction = 'ltr';
-        this.textarea.style.textAlign = 'left';
+        if (this.textDirection === 'auto') {
+          // העורך הפשוט (כש-CodeMirror נכשל): כל שורה בכיוון שלה — editor-textarea--dir-auto ב-codemirror-custom.css
+          this.textarea.setAttribute('dir', 'auto');
+          this.textarea.classList.add('editor-textarea--dir-auto');
+        } else {
+          this.textarea.setAttribute('dir', 'ltr');
+          this.textarea.style.direction = 'ltr';
+          this.textarea.style.textAlign = 'left';
+        }
       } catch(_) {}
 
       let fallback = false;
@@ -276,6 +286,11 @@
             } catch(_) {}
           }
 
+          const directionExt = this.getTextDirectionExtension();
+          if (directionExt.length) {
+            cmWrapper.classList.add('codemirror-container--dir-auto');
+          }
+
           const debouncedSync = this.debounce((val) => {
             this.textarea.value = val;
             try { this.textarea.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
@@ -289,6 +304,7 @@
               themeCompartment.of(themeExt || []),
               // 🎨 אם יש custom theme עם syntax highlighter, מוסיפים אותו כדי לדרוס את ה-classHighlighter שב-basicSetup
               ...(customSyntaxHighlighter ? [customSyntaxHighlighter] : []),
+              ...directionExt,
               EditorView.lineWrapping,
               EditorView.updateListener.of((update) => {
                 if (update.docChanged) {
@@ -325,6 +341,21 @@
       return await this.loadingPromise;
     }
 
+    /**
+     * התוסף של כיוון לכל שורה, כשביקשו textDirection: 'auto'; אחרת רשימה ריקה.
+     * הוא קיים רק בחבילה המקומית (codemirror.local.js). כשהעורך נטען מה-CDN — הנפילה של loadCodeMirror
+     * כשהחבילה המקומית לא עלתה — אין אותו, והעורך נשאר בכיוון אחד, משמאל לימין.
+     */
+    getTextDirectionExtension() {
+      if (this.textDirection !== 'auto') return [];
+      const cm = window.CodeMirror6;
+      if (cm && typeof cm.perLineAutoDirection === 'function') {
+        return cm.perLineAutoDirection();
+      }
+      console.warn('[EditorManager] perLineAutoDirection is missing from the loaded CodeMirror bundle; the editor stays left-to-right');
+      return [];
+    }
+
     addSwitcherButton(container) {
       if (container.querySelector('.editor-switcher')) return;
       const switcher = document.createElement('div');
@@ -351,10 +382,10 @@
               </button>
             </div>
           </div>
-          <span class="editor-info-primary${this.currentEditor === 'codemirror' ? ' is-keyboard-hint' : ''}">${this.currentEditor === 'codemirror' ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים' : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי'}</span>
-        </div>
-        <div class="editor-info">
-          <span class="editor-info-status" aria-live="polite"></span>
+          <span class="editor-info-slot">
+            <span class="editor-info-status" aria-live="polite"></span>
+            <span class="editor-info-primary${this.currentEditor === 'codemirror' ? ' is-keyboard-hint' : ''}">${this.currentEditor === 'codemirror' ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים' : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי'}</span>
+          </span>
         </div>
       `;
       const codeLabel = container.querySelector('label') || container;
@@ -717,7 +748,9 @@
       return { from: 0, to: 0 };
     }
 
-    insertTextAtRange(nextText, from, to) {
+    // ``focus: false`` — בלי להעביר פוקוס לעורך, בלי להזיז את הסמן ובלי לגלול אליו: לשינוי שבא מבחוץ, כמו
+    // לחיצה על צ'קבוקס של משימה בתצוגה החיה (בנייד, פוקוס היה פותח מקלדת).
+    insertTextAtRange(nextText, from, to, { focus = true } = {}) {
       const text = typeof nextText === 'string' ? nextText : '';
       if (!text) return false;
       const fRaw = (typeof from === 'number' && Number.isFinite(from)) ? from : 0;
@@ -732,6 +765,10 @@
           const docLen = view.state.doc.length;
           const fromSafe = Math.max(0, Math.min(f, docLen));
           const toSafe = Math.max(0, Math.min(t, docLen));
+          if (!focus) {
+            view.dispatch({ changes: { from: fromSafe, to: toSafe, insert: text } });
+            return true;
+          }
           try { view.focus(); } catch(_) {}
           view.dispatch({
             changes: { from: fromSafe, to: toSafe, insert: text },
@@ -749,11 +786,14 @@
           const value = ta.value || '';
           const fromSafe = Math.max(0, Math.min(f, value.length));
           const toSafe = Math.max(0, Math.min(t, value.length));
-          try { ta.focus(); } catch(_) {}
+          if (focus) {
+            try { ta.focus(); } catch(_) {}
+          }
 
           if (typeof ta.setRangeText === 'function') {
-            ta.setRangeText(text, fromSafe, toSafe, 'end');
-          } else if (document.execCommand && typeof document.execCommand === 'function') {
+            ta.setRangeText(text, fromSafe, toSafe, focus ? 'end' : 'preserve');
+          } else if (focus && document.execCommand && typeof document.execCommand === 'function') {
+            // execCommand כותב במקום שבו הפוקוס נמצא, ולכן רק כשהעורך קיבל אותו
             try { ta.setSelectionRange(fromSafe, toSafe); } catch(_) {}
             document.execCommand('insertText', false, text);
           } else {

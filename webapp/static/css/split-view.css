@@ -272,6 +272,19 @@
   border: 1px solid var(--split-container-border);
   overflow: hidden;
   margin-top: 1rem;
+  /* המסגרת אינה טקסט. כשנוגעים באזור בלי טקסט, Chrome מציב את הסמן בטקסט הקרוב ביותר לנקודה — ואם הקרוב
+     הוא העורך, הסמן נכנס אליו, ובנייד המקלדת נפתחת. כך נגיעה בריפוד שמימין לעורך, או במסגרת עצמה, פתחה
+     מקלדת (נמדד באמולציית מגע, בעורך הציבורי ובעמוד העריכה). העורך והתצוגה מחזירים לעצמם את הבחירה
+     בכלל שלמטה. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.split-view .codemirror-container,
+.split-view textarea,
+.split-view .split-preview-canvas {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .split-view:not(.is-active) {
@@ -487,7 +500,11 @@
   background: var(--split-preview-bg);
   color: var(--split-preview-text);
   border-radius: 8px;
-  padding: 1.25rem;
+  /* הריפוד של הנייר יושב בתוך הגולל (ה-canvas) ובשורות שמתחתיו, ולא על המכל: כך פס הגלילה של התצוגה צמוד
+     לקצה הנייר, ולא צף בתוך שוליים. ``--split-preview-pad`` הוא הערך היחיד שלו, ו-``file-editor.css`` מקטין
+     אותו בנייד. */
+  --split-preview-pad: 1.25rem;
+  padding: 0;
   position: relative;
 }
 
@@ -568,6 +585,7 @@ html[dir="rtl"] .split-preview-content:not([data-mode="markdown"]) pre.rtl-code 
   /* ה-canvas הוא אזור התוכן/iframe – הוא צריך "לגדול" לגובה הפנוי */
   flex: 1 1 auto;
   min-height: 160px;
+  padding: var(--split-preview-pad);
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   /* חשוב: canvas משמש גם לרינדור HTML של Markdown.
@@ -585,8 +603,13 @@ html[dir="rtl"] .split-preview-content:not([data-mode="markdown"]) pre.rtl-code 
 
 .split-preview-meta {
   margin-top: 0.75rem;
+  padding-inline: var(--split-preview-pad);
   font-size: 0.75rem;
   color: var(--split-preview-meta);
+}
+
+.split-preview-status {
+  padding: 0 var(--split-preview-pad) var(--split-preview-pad);
 }
 
 .split-view[data-active-panel="preview"] .split-panel--editor {
