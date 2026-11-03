@@ -326,3 +326,54 @@ def test_the_sitemap_escapes_the_url(wa, monkeypatch):
     assert "a&amp;b" in body
     locs = [el.text for el in ET.fromstring(body).iter(f"{{{SITEMAP_NS}}}loc")]
     assert all(loc.startswith("https://example.test/a&b/") for loc in locs), locs
+
+
+# ---------------------------------------------------------------------------
+# סרגל ה-MD — אייקונים ושמות ההתראות בעורך הציבורי (נובמבר 2026)
+# ---------------------------------------------------------------------------
+
+#: כפתור בסרגל: המפתח (``data-md-insert`` / ``data-md-action``), האייקון והשם.
+TOOLBAR_ITEM = re.compile(
+    r'data-md-(?:insert|action)="([\w:-]+)"[^>]*>\s*<span class="item-icon">([^<]+)</span>\s*'
+    r'<span class="item-label">([^<]+)</span>'
+)
+
+
+def _toolbar_items(markup: str) -> dict[str, tuple[str, str]]:
+    return {key: (icon, label.strip()) for key, icon, label in TOOLBAR_ITEM.findall(markup)}
+
+
+def test_the_public_alert_menu_uses_the_document_titles(wa, theme_available):
+    """בעורך הציבורי שם כל התראה בתפריט הוא הכותרת שההתראה מקבלת במסמך — ``ADMONITION_TITLES`` ב-
+    ``admonition-icons.js``. השמות כתובים גם בתבנית (``alert_items`` במאקרו ``markdown_toolbar``), כי Jinja לא
+    קורא את קובץ ה-JS; הבדיקה הזו היא מה שמונע מהשניים להיפרד. ומארקר והתראות באייקונים 🟰 ו-ℹ️."""
+    from test_styled_export_containers_parity import _webapp_titles
+
+    items = _toolbar_items(_get(wa).get_data(as_text=True))
+    titles = _webapp_titles()
+    alerts = {
+        key.split(":", 1)[1]: label for key, (_, label) in items.items() if key.startswith("alert:")
+    }
+    assert alerts == titles, alerts
+    assert items["highlight"][0] == "🟰", items["highlight"]
+    assert items["toggle-submenu"][0] == "ℹ️", items["toggle-submenu"]
+
+
+def test_the_edit_page_menu_keeps_its_english_alerts_and_icons(wa):
+    """רק העורך הציבורי השתנה (בקשת המשתמש): בתפריט "MD" של עמודי העריכה וההעלאה השמות נשארו באנגלית,
+    והאייקונים 🎨 ו-🔔."""
+    template = (
+        '{% from "components/editor_components.html" import markdown_toolbar %}'
+        "{{ markdown_toolbar() }}"
+    )
+    with wa.app.test_request_context("/"):
+        markup = wa.app.jinja_env.from_string(template).render()
+    items = _toolbar_items(markup)
+    assert items["alert:note"][1] == "Note" and items["alert:abstract"][1] == "Abstract", items
+    assert items["highlight"][0] == "🎨", items["highlight"]
+    # לכפתור "התראות" בתפריט אין data-md-action (הוא נפתח בריחוף), ולכן הוא לא ב-_toolbar_items
+    alerts_icon = re.search(
+        r'<div class="md-toolbar-submenu-trigger">\s*<button[^>]*>\s*<span class="item-icon">([^<]+)</span>',
+        markup,
+    )
+    assert alerts_icon and alerts_icon.group(1) == "🔔", alerts_icon
