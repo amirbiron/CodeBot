@@ -598,7 +598,15 @@ const MarkdownToolbar = {
   },
 
   // ---------- תרגום מפתח לתווית ----------
+  // בעורך הציבורי (data-md-inline) שם ההתראה בעברית — הכותרת שההתראה מקבלת במסמך, מ-``ADMONITION_TITLES``
+  // (``admonition-icons.js``, שנטען ב-``_live_preview_scripts.html`` בכל עמוד שיש בו את הסרגל), כמו התפריט
+  // שלו. בעמודי העריכה וההעלאה האנגלית נשארת, לבקשת המשתמש.
   getTemplateLabel(key) {
+    if (this.isInline() && key.startsWith('alert:')) {
+      const title = (window.ADMONITION_TITLES || {})[key.slice('alert:'.length)];
+      if (title) return `התראה - ${title}`;
+      console.warn('[MarkdownToolbar] אין כותרת עברית להתראה (admonition-icons.js לא נטען?):', key);
+    }
     const labels = {
       table: 'טבלה',
       details: 'קיפול',

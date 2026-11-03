@@ -848,3 +848,22 @@ def test_an_anchor_after_an_h5_lands_on_its_own_heading(session):
         " return a && a.nextElementSibling ? a.nextElementSibling.textContent.trim() : null; }"
     )
     assert after == "יעד", after
+
+
+def test_inserting_an_alert_names_it_in_hebrew(session):
+    """אחרי הוספת התראה מהתפריט, ההודעה בשורת העורך קוראת לה בשם שלה במסמך ("הערה"), כמו התפריט —
+    ``getTemplateLabel`` ב-``markdown-toolbar.js`` לוקח אותו מ-``ADMONITION_TITLES``."""
+    session.open()
+    page = session.page
+    page.evaluate(
+        "() => { const v = window.editorManager.cmInstance;"
+        " v.dispatch({selection: {anchor: v.state.doc.length}}); v.focus(); }"
+    )
+    page.click('[data-md-action="toggle-submenu"]')
+    page.click('[data-md-insert="alert:note"]')
+    page.wait_for_function(
+        "document.querySelector('.editor-info-status').textContent.includes('הוזרק')", timeout=5000
+    )
+    status = page.evaluate("() => document.querySelector('.editor-info-status').textContent.trim()")
+    assert status == "הוזרק: התראה - הערה", status
+    assert "::: note" in session.editor_text()
