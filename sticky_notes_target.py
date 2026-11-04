@@ -167,14 +167,10 @@ def canonical_title_text(value: Any) -> str:
     return " ".join(text.split())
 
 
-#: כמה מילים מתחילת הפתק מוצגות במקומו של שם, כשאין לפתק שם (:func:`note_label`).
-NOTE_LABEL_WORDS = 6
-
-#: תקרת התווים של מה ש-:func:`note_label` מציגה במקום שם — **התקרה של שם**,
-#: :data:`MAX_NOTE_TITLE`. מה שעומד במקום השם מקבל את הגבול שלו. מילים לבדן אינן
-#: גבול: "מילה" היא כל רצף בלי רווח, ולכן קישור או מחרוזת ארוכה בתחילת הפתק היו
-#: מגיעים שלמים — עד :data:`MAX_NOTE_CHARS` — לגוף התראת הפוש, שבו שירות הפוש
-#: רשאי לדחות כל מה שמעבר ל-4096 בתים (RFC 8030 §7.2), ולשורה בחלונית הפעמון.
+#: תקרת התווים של מה ש-:func:`note_label` מציגה — **התקרה של שם**, :data:`MAX_NOTE_TITLE`:
+#: מה שעומד במקום השם מקבל את הגבול שלו. בלי תקרה, שורה ראשונה ארוכה — שורה אחת יכולה
+#: להחזיק את כל :data:`MAX_NOTE_CHARS` — הייתה מגיעה שלמה לגוף התראת הפוש, שבו שירות
+#: הפוש רשאי לדחות כל מה שמעבר ל-4096 בתים (RFC 8030 §7.2), לחלונית הפעמון ולדשבורד.
 #: החיתוך בתווים ולא בבתים (H6).
 NOTE_LABEL_MAX_CHARS = MAX_NOTE_TITLE
 
@@ -183,38 +179,38 @@ NOTE_LABEL_FIELDS: Dict[str, int] = {"title": 1, "content": 1, "anchor_text": 1}
 
 
 def note_label(note: Mapping[str, Any]) -> str:
-    """השם שבו פתק מוצג בשורה אחת קצרה — בהתראת הפוש של תזכורת ובחלונית הפעמון.
+    """השם שבו פתק מוצג בשורה אחת קצרה — בהתראת הפוש של תזכורת, בחלונית הפעמון ובדשבורד.
 
     **שם הפתק, אם יש לו** (אותה קנוניזציה של השמירה, ולכן ערך שאינו מחרוזת נחשב
-    "אין שם"). בלי שם — עד :data:`NOTE_LABEL_WORDS` מילים מתחילת התוכן, ובלי
-    תוכן (פתק שנוצר ונשאר ריק) — מטקסט העוגן, הכותרת בקובץ שהפתק נצמד אליה. בלי
-    כל אלה — מחרוזת ריקה, והצרכן מחליט מה להציג.
+    "אין שם"). בלי שם — **השורה הראשונה של התוכן** (הראשונה שיש בה טקסט), ובלי תוכן
+    (פתק שנוצר ונשאר ריק) — טקסט העוגן, הכותרת בקובץ שהפתק נצמד אליה. בלי כל אלה —
+    מחרוזת ריקה, והצרכן מחליט מה להציג.
 
-    **מקום אחד שמחליט.** עד נובמבר 2026 היו שני עותקים של "תחילת התוכן" —
-    ``push_api._coerce_preview`` ו-``reminders_list`` — ושניהם נכתבו לפני שלפתקים
-    היו שמות, ולכן אף אחד מהם לא הכיר אותם.
+    **מקום אחד שמחליט.** עד נובמבר 2026 היו שלושה עותקים: ``push_api._coerce_preview``
+    ו-``reminders_list`` לקחו שש מילים מתחילת התוכן, ו-``app._extract_note_preview``
+    בדשבורד לקח את השורה הראשונה. שלושתם נכתבו לפני שלפתקים היו שמות, ולכן אף אחד מהם
+    לא הכיר אותם.
 
-    "…" נוסף כשמשהו לא נכנס: יותר מילים, או יותר מ-:data:`NOTE_LABEL_MAX_CHARS`
-    תווים — **גם בשם.** השם נקרא ב-:func:`canonical_title_text`, בלי הקיצוץ של
-    :func:`normalize_note_title`: קיצוץ שקט היה מציג שם חתוך בלי שום סימן, והחלונית
-    כבר אינה מוסיפה "..." משלה לכל שורה.
+    מה שארוך מ-:data:`NOTE_LABEL_MAX_CHARS` תווים נחתך שם, ומקבל "…" — **גם שם.** השם
+    נקרא ב-:func:`canonical_title_text`, בלי הקיצוץ של :func:`normalize_note_title`:
+    קיצוץ שקט היה מציג שם חתוך בלי שום סימן.
     """
     title = canonical_title_text(note.get("title"))
     if title:
-        label, cut = title, False
+        label = title
     else:
-        # טקסט העוגן רק כשהתוכן ריק — כמו בשני העותקים שהפונקציה החליפה (``content or
+        # טקסט העוגן רק כשהתוכן ריק — כמו בעותקים שהפונקציה החליפה (``content or
         # anchor_text``). תוכן של רווחים בלבד אינו ריק, ולכן גם כאן הוא לא נופל לעוגן.
         content = note.get("content")
         source = content if isinstance(content, str) and content else note.get("anchor_text")
-        words: List[str] = source.split() if isinstance(source, str) else []
-        if not words:
+        text = source.strip() if isinstance(source, str) else ""
+        if not text:
             return ""
-        label, cut = " ".join(words[:NOTE_LABEL_WORDS]), len(words) > NOTE_LABEL_WORDS
+        # שורה אחת, ורווחים מכווצים — כמו בשם (``canonical_title_text``).
+        label = " ".join(text.splitlines()[0].split())
     if len(label) > NOTE_LABEL_MAX_CHARS:
-        label = label[:NOTE_LABEL_MAX_CHARS].rstrip()
-        cut = True
-    return label + "…" if cut else label
+        return label[:NOTE_LABEL_MAX_CHARS].rstrip() + "…"
+    return label
 
 
 #: מפרט האינדקס שאוכף "שם אחד לכל לוח" — **מקור האמת היחיד**.

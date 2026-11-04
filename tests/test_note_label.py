@@ -1,7 +1,8 @@
-"""``note_label`` — השם שבו פתק מוצג בהתראת התזכורת ובחלונית הפעמון.
+"""``note_label`` — השם שבו פתק מוצג בהתראת התזכורת, בחלונית הפעמון ובדשבורד.
 
-שם הפתק כשיש לו; בלעדיו — תחילת התוכן, כמו שהיה לפני שלפתקים היו שמות; ובלי תוכן — טקסט
-העוגן. אותה פונקציה מזינה את שני המקומות (``push_api._reminder_label`` ו-``reminders_list``).
+שם הפתק כשיש לו; בלעדיו — השורה הראשונה של התוכן, עד ``NOTE_LABEL_MAX_CHARS`` תווים; ובלי
+תוכן — טקסט העוגן. אותה פונקציה מזינה את כל המקומות (``push_api._reminder_label``,
+``reminders_list`` ו-``app._dashboard_note_title``).
 """
 from __future__ import annotations
 
@@ -11,25 +12,40 @@ from sticky_notes_target import (
     MAX_NOTE_TITLE,
     NOTE_LABEL_FIELDS,
     NOTE_LABEL_MAX_CHARS,
-    NOTE_LABEL_WORDS,
     note_label,
 )
 
-#: יותר מילים ממה שמוצג — כך שאפשר לראות גם את החיתוך וגם את "…".
-LONG_CONTENT = "אחת שתיים שלוש ארבע חמש שש שבע שמונה"
+#: פתק בלי שם, כמה שורות — כדי לראות שרק הראשונה מוצגת.
+CONTENT = "# שורה ראשונה של הפתק\nשורה שנייה\nשלישית"
 
 
 def test_the_name_wins_over_the_content():
-    assert note_label({"title": "שם הפתק", "content": LONG_CONTENT}) == "שם הפתק"
+    assert note_label({"title": "שם הפתק", "content": CONTENT}) == "שם הפתק"
 
 
-def test_without_a_name_the_start_of_the_content_is_shown():
-    words = LONG_CONTENT.split()
-    assert note_label({"content": LONG_CONTENT}) == " ".join(words[:NOTE_LABEL_WORDS]) + "…"
+def test_without_a_name_the_whole_first_line_is_shown():
+    """השורה הראשונה כולה — לא מספר מילים. עד נובמבר 2026 הפוש והפעמון הציגו שש מילים."""
+    content = "אחת שתיים שלוש ארבע חמש שש שבע שמונה תשע\nשורה שנייה"
+    assert note_label({"content": content}) == "אחת שתיים שלוש ארבע חמש שש שבע שמונה תשע"
 
 
-def test_a_short_content_is_shown_whole_without_an_ellipsis():
-    assert note_label({"content": "שלום עולם"}) == "שלום עולם"
+def test_the_first_line_is_the_first_one_with_text():
+    assert note_label({"content": "\n\n   \n  # כותרת  \nגוף"}) == "# כותרת"
+
+
+def test_the_first_line_is_one_line_with_single_spaces():
+    """כמו שם (``canonical_title_text``): טאבים ורווחים כפולים מתכווצים לרווח אחד."""
+    assert note_label({"content": "א\t\tב   ג\nד"}) == "א ב ג"
+
+
+def test_a_first_line_longer_than_the_ceiling_is_cut_with_an_ellipsis():
+    line = "ש" * (NOTE_LABEL_MAX_CHARS + 30)
+    assert note_label({"content": line + "\nשורה שנייה"}) == "ש" * NOTE_LABEL_MAX_CHARS + "…"
+
+
+def test_a_first_line_exactly_at_the_ceiling_is_shown_whole():
+    line = "ש" * NOTE_LABEL_MAX_CHARS
+    assert note_label({"content": line + "\nשורה שנייה"}) == line
 
 
 @pytest.mark.parametrize("title", ["", "   ", None, ["רשימה"], 7])
@@ -48,7 +64,7 @@ def test_a_note_with_content_never_shows_the_anchor_text():
 
 
 def test_whitespace_only_content_does_not_fall_back_to_the_anchor():
-    """כמו בשני העותקים שהפונקציה החליפה (``content or anchor_text``): רווחים אינם תוכן ריק."""
+    """כמו בעותקים שהפונקציה החליפה (``content or anchor_text``): רווחים אינם תוכן ריק."""
     assert note_label({"content": "   \n ", "anchor_text": "התקנה"}) == ""
 
 
@@ -56,16 +72,8 @@ def test_nothing_to_show_is_an_empty_string():
     assert note_label({}) == ""
 
 
-def test_one_long_word_is_cut_to_the_name_ceiling():
-    """"מילה" היא כל רצף בלי רווח — קישור, או מחרוזת ארוכה. בלי תקרה היא הייתה מגיעה שלמה
-    לגוף התראת הפוש. החיתוך בתווים, ולכן אות עברית אינה נחתכת באמצע."""
-    label = note_label({"content": "א" * (NOTE_LABEL_MAX_CHARS * 3)})
-    assert label == "א" * NOTE_LABEL_MAX_CHARS + "…"
-
-
 def test_a_name_longer_than_the_ceiling_is_cut_with_an_ellipsis():
-    """שם ארוך מהתקרה מקבל "…" כמו תוכן — ולא נחתך בשקט. החלונית כבר אינה מוסיפה "..." משלה,
-    ולכן בלי זה שם חתוך היה נראה שלם."""
+    """שם ארוך מהתקרה מקבל "…" כמו תוכן — ולא נחתך בשקט."""
     title = "ש" * (NOTE_LABEL_MAX_CHARS + 20)
     assert note_label({"title": title, "content": "x"}) == "ש" * NOTE_LABEL_MAX_CHARS + "…"
 

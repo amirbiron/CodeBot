@@ -101,7 +101,7 @@ Endpoints
      - ``{"ok": true, "has_due": true, "count_due": 3, "next_in_seconds": 300}``
    * - ``/api/sticky-notes/reminders/list``
      - GET
-     - רשימת פתקים ממתינים, כל אחד בשם שלו (``preview``: שם הפתק, ובלעדיו תחילתו — ``sticky_notes_target.note_label``) וקישור לעוגן
+     - רשימת פתקים ממתינים, כל אחד בשם שלו (``preview``: שם הפתק, ובלעדיו השורה הראשונה שלו — ``sticky_notes_target.note_label``) וקישור לעוגן
      - ✅
      - Query: ``?limit=20``
      - ``{"ok": true, "count": 3, "items": [{"note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro", "remind_at": "2026-09-20T09:00:00+00:00"}]}``
