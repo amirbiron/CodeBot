@@ -334,3 +334,76 @@ def test_history_derives_the_time_from_the_objectid_for_legacy_rows(monkeypatch)
     # ולא הערך הדרוס, שהוא מה שהוצג עד התיקון.
     clobbered_iso = webapp_app.safe_iso(clobbered, "updated_at")
     assert clobbered_iso not in got.values()
+
+
+# --- שתי שמירות עם אותו מספר גרסה --------------------------------------------
+#
+# אין אינדקס ייחודי על ``(user_id, file_name, version)``, ושתי שמירות מקבילות יכולות לקבל
+# אותו מספר. "הנוכחית" נבחרת ב-``_LATEST_VERSION_SORT`` (גם לפי ``updated_at``), וכל מי
+# ששואל "האם זו הנוכחית" משווה ``_id`` למסמך הנבחר — לא את המספר, שבתיקו מסמן את שניהם.
+
+
+def _tie():
+    """v1, ושני מסמכים פעילים של v2: ``older`` ו-``newer`` (``updated_at`` מאוחר יותר)."""
+    v1 = _version_doc(1)
+    older = _version_doc(2, updated_at=ORIGINAL + timedelta(days=5))
+    newer = _version_doc(2, updated_at=ORIGINAL + timedelta(days=5, minutes=1))
+    return v1, older, newer
+
+
+def test_history_marks_only_the_chosen_copy_as_current_in_a_tie(monkeypatch):
+    v1, older, newer = _tie()
+    snippets = FakeCollection([v1, older, newer])
+    monkeypatch.setattr(
+        webapp_app, "_get_user_file_by_id",
+        lambda db_ref, user_id, file_id: dict(newer),
+    )
+    client = _client(monkeypatch, FakeDB(snippets))
+
+    payload = client.get(f"/api/file/{newer['_id']}/history").get_json()
+
+    current = [v["id"] for v in payload["versions"] if v["is_current"]]
+    assert current == [str(newer["_id"])], payload["versions"]
+
+
+def test_the_copy_not_chosen_in_a_tie_is_a_read_only_duplicate():
+    """``duplicate`` — אמת, ולכן העמוד לקריאה בלבד, עם קישור לעותק הנוכחי."""
+    v1, older, newer = _tie()
+    db = FakeDB(FakeCollection([v1, older, newer]))
+
+    context = webapp_app._file_version_context(db, USER_ID, dict(older), "regular")
+
+    assert context == {
+        "state": "duplicate", "version": 2, "latest_version": 2, "latest_file_id": str(newer["_id"]),
+    }, context
+
+
+def test_the_chosen_copy_in_a_tie_carries_no_banner():
+    v1, older, newer = _tie()
+    db = FakeDB(FakeCollection([v1, older, newer]))
+
+    assert webapp_app._file_version_context(db, USER_ID, dict(newer), "regular") is None
+
+
+def test_an_older_version_is_still_old_and_not_a_duplicate():
+    v1, older, newer = _tie()
+    db = FakeDB(FakeCollection([v1, older, newer]))
+
+    context = webapp_app._file_version_context(db, USER_ID, dict(v1), "regular")
+
+    assert (context or {}).get("state") == "old", context
+    assert context["latest_file_id"] == str(newer["_id"]), context
+
+
+def test_the_duplicate_banner_links_back_without_compare_or_restore():
+    """"השווה" ו"שחזר" עובדים לפי מספר גרסה, ובתיקו המספר זהה לנוכחית — ולכן אינם מוצגים."""
+    latest_id = str(ObjectId())
+    context = {"state": "duplicate", "version": 2, "latest_version": 2, "latest_file_id": latest_id}
+    with webapp_app.app.test_request_context(f"/file/{ObjectId()}"):
+        html = webapp_app.app.jinja_env.get_template("_version_banner.html").render(
+            version_context=context, file={"id": "x"},
+        )
+
+    assert "זה עותק נוסף של גרסה 2" in html, html
+    assert f'href="/file/{latest_id}"' in html, html
+    assert "השווה לנוכחית" not in html and "versionBannerRestore" not in html, html

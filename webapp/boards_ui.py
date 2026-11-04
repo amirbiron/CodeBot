@@ -124,7 +124,7 @@ def note_permalink(note_id: str):
         db = get_db()
         note = db.sticky_notes.find_one(
             {'_id': ObjectId(str(note_id)), 'user_id': int(session['user_id'])},
-            {'file_id': 1, 'board_id': 1, 'repo_name': 1, 'repo_path': 1, 'archived_at': 1},
+            {'file_id': 1, 'file_name': 1, 'board_id': 1, 'repo_name': 1, 'repo_path': 1, 'archived_at': 1},
         )
     except Exception:
         note = None
@@ -157,8 +157,13 @@ def note_permalink(note_id: str):
     if board_id:
         return redirect(f'/boards/{board_id}?note={note_id}{thread_param}')
 
-    file_id = str(note.get('file_id') or '')
-    if file_id:
+    # פתק על קובץ — לגרסה הפעילה האחרונה של הקובץ, ולא לגרסה שעליה הפתק נוצר
+    # (``_note_file_target_id``). ``file_id`` הוא שדה הזיהוי של היעד הזה
+    # (``sticky_notes_target._TARGET_IDENTITY``), ולכן הוא שמחליט שזה הענף.
+    if note.get('file_id'):
+        from webapp.app import _note_file_target_id
+
+        file_id = _note_file_target_id(db, int(session['user_id']), note)
         return redirect(f'/md/{file_id}?note={note_id}{thread_param}')
 
     # פתק על קובץ בריפו ממורר. **זה היה חסר** — הפונקציה הכירה שני סוגי
