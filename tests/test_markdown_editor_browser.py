@@ -30,6 +30,8 @@ pytest.importorskip("playwright", reason="playwright אינו מותקן")
 
 from playwright.sync_api import sync_playwright  # noqa: E402
 
+import _scroll_sync_harness as sync  # noqa: E402
+
 HOST = "ck.test"
 URL = f"http://{HOST}/markdown-editor"
 DRAFT_KEY = "markdownEditorDraft.v1"
@@ -1090,3 +1092,133 @@ def test_on_a_phone_the_tabs_come_only_with_the_preview(browser):
         assert [t["shown"] for t in page.evaluate(PHONE_TABS)] == [False, False]
     finally:
         s.close()
+
+
+# --- גלילה מסונכרנת בין העורך לתצוגה (``live-preview-scroll-sync.js``) -----------------------------------------
+# המדידה ב-``tests/_scroll_sync_harness.py``. טקסט ההדגמה מתאים לבדיקה: יש בו טבלאות, בלוקי קוד, נוסחאות ותרשימי
+# Mermaid, ולכן היחס בין הגובה בעורך לגובה בתצוגה משתנה לאורכו — ובדיקה לפי אחוזים לא הייתה עוברת עליו
+# (``proportionalDelta``).
+
+#: הסטייה המותרת בפיקסלים בין שורה לנקודת הקריאה. נמדד על טקסט ההדגמה בחלון 1280x900: עד 1.5px.
+SYNC_TOLERANCE_PX = 3
+
+
+def test_scrolling_the_editor_brings_the_preview_to_the_same_heading(session):
+    """שורה של כותרת שמוצבת בנקודת הקריאה של העורך — הכותרת שלה בתצוגה נמצאת בנקודת הקריאה של התצוגה. נבדקת כל
+    כותרת שלישית לאורך כל ההדגמה, כולל אחרי בלוקי הקוד, הטבלאות והתרשימים."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    lines = sync.headings(page)[::3]
+    assert len(lines) >= 10, lines
+    sync.lead(page, ".cm-scroller")
+    results = {}
+    for line in lines:
+        sync.place_editor(page, line)
+        results[line] = sync.state(page, line)
+    off = {line: round(r["previewDelta"], 1) for line, r in results.items() if abs(r["previewDelta"]) > SYNC_TOLERANCE_PX}
+    assert off == {}, off
+    assert all(abs(r["editorDelta"]) <= SYNC_TOLERANCE_PX for r in results.values()), results
+    # התנאי של הבדיקה: בטקסט הזה גלילה לפי אחוזים הייתה מראה כותרת אחרת (נמדד: עד 704px, מול 1.5px של הסנכרון).
+    assert max(abs(r["proportionalDelta"]) for r in results.values()) > 60, results
+    assert session.errors == []
+
+
+def test_scrolling_the_preview_brings_the_editor_to_the_same_line(session):
+    """ההפך: כותרת שמוצבת בנקודת הקריאה של התצוגה — השורה שלה בעורך בנקודת הקריאה של העורך."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    lines = sync.headings(page)[1::3]
+    assert len(lines) >= 10, lines
+    sync.lead(page, ".split-preview-canvas")
+    results = {}
+    for line in lines:
+        sync.place_preview(page, line)
+        results[line] = sync.state(page, line)
+    off = {line: round(r["editorDelta"], 1) for line, r in results.items() if abs(r["editorDelta"]) > SYNC_TOLERANCE_PX}
+    assert off == {}, off
+    assert session.errors == []
+
+
+def test_the_editor_and_the_preview_start_and_end_together(session):
+    """בגלגלת אמיתית: כשהעורך מגיע לסוף, גם התצוגה בסוף; וכשהתצוגה חוזרת להתחלה, גם העורך בהתחלה. בהתאמה לפי
+    ראש החלון זה לא היה קורה — הסוף של אחד הצדדים לא היה נראה."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    ends = """() => { const sc = window.editorManager.cmInstance.scrollDOM, cv = document.querySelector('[data-preview-canvas]');
+      return {editorTop: sc.scrollTop, editorMax: sc.scrollHeight - sc.clientHeight,
+              previewTop: cv.scrollTop, previewMax: cv.scrollHeight - cv.clientHeight}; }"""
+    assert page.evaluate(ends)["previewTop"] == 0
+
+    sync.lead(page, ".cm-scroller")
+    for _ in range(40):
+        page.mouse.wheel(0, 1500)
+        page.wait_for_timeout(30)
+    sync.settle(page, 600)
+    s = page.evaluate(ends)
+    assert s["editorMax"] > 1000 and abs(s["editorTop"] - s["editorMax"]) <= 1, s
+    assert abs(s["previewTop"] - s["previewMax"]) <= 1, s
+
+    sync.lead(page, ".split-preview-canvas")
+    for _ in range(40):
+        page.mouse.wheel(0, -1500)
+        page.wait_for_timeout(30)
+    sync.settle(page, 600)
+    s = page.evaluate(ends)
+    assert s["previewTop"] == 0 and s["editorTop"] <= 1, s
+    assert session.errors == []
+
+
+def test_typing_at_the_end_brings_the_preview_to_what_was_written(session):
+    """כותבים בסוף המסמך: אחרי שהתצוגה מתרנדרת, היא בסוף, והטקסט החדש נראה בה. קודם התצוגה נשארה במקום שבו הייתה."""
+    session.open()
+    page = session.page
+    page.click(".cm-content")
+    page.keyboard.press("Control+End")
+    page.keyboard.type("\n\n## כותרת-בסוף-3f9e\n\nפסקה אחרונה\n")
+    _wait_preview_text(page, "כותרת-בסוף-3f9e")
+    sync.settle(page, 600)
+    s = page.evaluate(
+        """() => { const cv = document.querySelector('[data-preview-canvas]');
+      const h = Array.from(cv.querySelectorAll('h2')).find((e) => e.textContent.includes('כותרת-בסוף-3f9e'));
+      const r = h.getBoundingClientRect(), c = cv.getBoundingClientRect();
+      const sc = window.editorManager.cmInstance.scrollDOM;
+      return {previewTop: cv.scrollTop, previewMax: cv.scrollHeight - cv.clientHeight,
+              editorTop: sc.scrollTop, editorMax: sc.scrollHeight - sc.clientHeight,
+              visible: r.top >= c.top && r.bottom <= c.bottom}; }"""
+    )
+    assert s["visible"], s
+    # העורך עומד פיקסל מהסוף (CodeMirror גולל אל הסמן), והתצוגה בהתאמה — כמה פיקסלים מהסוף שלה (נמדד: 1 ו-4).
+    assert s["previewMax"] > 1000 and s["previewMax"] - s["previewTop"] <= 20, s
+
+
+def test_the_side_being_scrolled_is_not_pulled_back(session):
+    """הצד שהמשתמש גולל נשאר במקום שהוא שם אותו: הגלילה שהמנוע עושה בצד השני לא חוזרת אליו כהד. נמדד אחרי שהכול
+    נרגע, פעמיים, כדי לתפוס גם תנודה."""
+    session.open()
+    page = session.page
+    sync.install(page)
+    line = sync.headings(page)[12]
+
+    sync.lead(page, ".split-preview-canvas")
+    target = page.evaluate(
+        "(line) => { const p = window.__syncProbe, cv = p.canvas(); const t = Math.round(p.scrollForReading(cv, p.previewLineY(line)));"
+        " cv.scrollTop = t; return cv.scrollTop; }",
+        line,
+    )
+    sync.settle(page, 700)
+    first = page.evaluate("() => document.querySelector('[data-preview-canvas]').scrollTop")
+    sync.settle(page, 400)
+    second = page.evaluate("() => document.querySelector('[data-preview-canvas]').scrollTop")
+    assert first == target and second == target, (target, first, second)
+    assert page.evaluate("() => window.editorManager.cmInstance.scrollDOM.scrollTop") > 0, "התנאי: העורך זז אחרי התצוגה"
+
+    sync.lead(page, ".cm-scroller")
+    target = page.evaluate("() => { const sc = window.editorManager.cmInstance.scrollDOM; sc.scrollTop = 1500; return sc.scrollTop; }")
+    sync.settle(page, 700)
+    first = page.evaluate("() => window.editorManager.cmInstance.scrollDOM.scrollTop")
+    sync.settle(page, 400)
+    second = page.evaluate("() => window.editorManager.cmInstance.scrollDOM.scrollTop")
+    assert first == second and abs(first - target) <= 1, (target, first, second)

@@ -1432,6 +1432,7 @@
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-math-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-heading-level-plugin.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='js/md-source-lines-plugin.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/rtl-code.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/md-code-blocks.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='js/utils/text-highlight.js') }}?v={{ static_version }}"></script>
@@ -1819,89 +1820,16 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       }
     }
 
-    // ──── Source Mapping Plugin ────
-    // מוסיף data-source-line / data-source-line-end לכל אלמנט בלוק
-    // כדי לאפשר מיפוי מדויק מ-DOM חזרה לשורות מקור.
-    //
-    // הערה חשובה על טבלאות:
-    // ב-markdown-it (14.x), th_open / td_open מגיעים עם map = null.
-    // לכן תאי טבלה מקבלים טיפול מיוחד: הם יורשים את שורת ה-tr
-    // ומקבלים data-col (אינדקס עמודה) כדי לאפשר חילוץ תא בודד מהמקור.
-    (function sourceMapPlugin() {
-      // ── חלק א: tokens עם map מובנה ──
-      const BLOCK_OPEN_TYPES = [
-        'paragraph_open',
-        'heading_open',
-        'blockquote_open',
-        'bullet_list_open',
-        'ordered_list_open',
-        'list_item_open',
-        'table_open',
-        'thead_open',
-        'tbody_open',
-        'tr_open',
-        'fence',
-        'code_block',
-        'hr',
-        'math_block',
-      ];
-
-      BLOCK_OPEN_TYPES.forEach(function(type) {
-        const originalRule = md.renderer.rules[type];
-
-        md.renderer.rules[type] = function(tokens, idx, options, env, self) {
-          const token = tokens[idx];
-          if (token.map && token.map.length >= 2) {
-            token.attrSet('data-source-line', String(token.map[0]));
-            token.attrSet('data-source-line-end', String(token.map[1]));
-          }
-          if (originalRule) {
-            return originalRule(tokens, idx, options, env, self);
-          }
-          return self.renderToken(tokens, idx, options);
-        };
-      });
-
-      // ── חלק ב: טיפול מיוחד ב-th_open / td_open ──
-      // ל-tokens האלה אין map משלהם (map = null ב-markdown-it 14.x).
-      // אנחנו יורשים את שורת המקור מה-tr_open הקרוב למעלה,
-      // וסופרים את אינדקס העמודה (data-col) כדי שנוכל לחלץ תא ספציפי.
-      ['th_open', 'td_open'].forEach(function(type) {
-        const originalRule = md.renderer.rules[type];
-
-        md.renderer.rules[type] = function(tokens, idx, options, env, self) {
-          const token = tokens[idx];
-
-          // מצא את ה-tr_open הקרוב למעלה כדי לקבל את שורת המקור
-          var rowLine = null;
-          for (var i = idx - 1; i >= 0; i--) {
-            if (tokens[i].type === 'tr_open') {
-              if (tokens[i].map && tokens[i].map.length >= 2) {
-                rowLine = tokens[i].map[0];
-              }
-              break;
-            }
-          }
-
-          // ספור כמה th_open/td_open יש מאז ה-tr_open (= אינדקס עמודה)
-          var colIndex = 0;
-          for (var j = idx - 1; j >= 0; j--) {
-            if (tokens[j].type === 'tr_open') break;
-            if (tokens[j].type === type) colIndex++;
-          }
-
-          if (rowLine != null) {
-            token.attrSet('data-row-line', String(rowLine));
-          }
-          token.attrSet('data-col', String(colIndex));
-
-          if (originalRule) {
-            return originalRule(tokens, idx, options, env, self);
-          }
-          return self.renderToken(tokens, idx, options);
-        };
-      });
-    })();
+    // מיפוי למקור: כל בלוק מרונדר מסומן בשורות המקור שלו (``data-source-line`` / ``data-source-line-end``), ותא
+    // בטבלה בשורה ובעמודה שלו (``data-row-line`` / ``data-col``) — "העתק כמארקדאון" והעיגון של הפתקים נשענים עליהם.
+    // התוסף חי ב-webapp/static/js/md-source-lines-plugin.js, ומשותף עם live-preview.js. הוא עוטף כללי רינדור,
+    // ולכן מותקן אחרון: תוסף שיותקן אחריו ויחליף כלל של אחד מסוגי הבלוקים ידרוס את העטיפה. הבדיקה על ``md.use``
+    // מאותה סיבה כמו במארקר שלמעלה.
+    if (window.MdSourceLines && typeof md.use === 'function') {
+      md.use(window.MdSourceLines.plugin);
+    } else if (!window.MdSourceLines) {
+      console.warn('md-source-lines-plugin.js לא נטען: הבלוקים בתצוגה בלי שורות מקור (data-source-line)');
+    }
 
     // רינדור ראשוני.
     // עוגני HTML מפורשים בכותרות (למשל `## סעיף <a id="x"></a>`) נשלפים לפני הרינדור

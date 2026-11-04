@@ -111,17 +111,19 @@
   }
 
   const MarkdownLiveRenderer = (() => {
-    // שני מופעים של markdown-it, באותם תוספים, ששונים בשני דברים בלבד:
+    // שני מופעים של markdown-it, באותם תוספים, ששונים בשלושה דברים בלבד:
     // - ``default`` — דפדפן הריפו וכרטיסי החיפוש בתיעוד: קישור ``¶`` ליד כל כותרת, וכל שש רמות הכותרות.
     // - ``livePreview`` — התצוגה החיה בעמודי העורך (``LivePreviewController``): בלי ``¶`` (אין לתצוגה כתובת
     //   לשתף, והסמן הופיע בנגיעה), ועם רמות הכותרות של תצוגת המסמך — בלי H5/H6. כותרת כזו נשארת כמו שנכתבה,
     //   ``##### טקסט``, כפסקה. המגבלה והסיבה לה — ב-``md-heading-level-plugin.js`` (``DOCUMENT_MAX_LEVEL``), שגם
-    //   ``md_preview.html`` מתקין.
+    //   ``md_preview.html`` מתקין. ועם שורות המקור על כל בלוק (``md-source-lines-plugin.js``, שגם ``md_preview.html``
+    //   מתקין): לפיהן לחיצה על צ'קבוקס משנה את השורה שלו בעורך, והגלילה בעורך ובתצוגה מסונכרנת
+    //   (``live-preview-scroll-sync.js``).
     // כל מופע נבנה פעם אחת, בבקשה הראשונה שלו, ונשמר רק אחרי שכל התוספים הותקנו בו: תוסף שזורק באמצע לא
     // משאיר מופע חלקי במטמון, והבקשה הבאה בונה אותו שוב.
     const RENDERER_VARIANTS = {
-      default: { headingPermalinks: true, documentHeadingLevels: false },
-      livePreview: { headingPermalinks: false, documentHeadingLevels: true },
+      default: { headingPermalinks: true, documentHeadingLevels: false, sourceLines: false },
+      livePreview: { headingPermalinks: false, documentHeadingLevels: true, sourceLines: true },
     };
     const renderers = new Map();
     const containerTypes = [
@@ -202,19 +204,6 @@
       }
       if (window.markdownitTaskLists) {
         md.use(window.markdownitTaskLists, { label: true, enabled: true });
-        // שורת המקור של כל פריט משימה, על ה-<li> (data-source-line). התצוגה החיה מתרגמת לפיה לחיצה על
-        // צ'קבוקס לשינוי של `[ ]` / `[x]` בעורך. ``map`` של markdown-it הוא שורות של הטקסט שפוענח, ובו
-        // שורות שכולן עוגנים כבר הוסרו (``MdAnchors.extractExplicitAnchors``) — ולכן התרגום חזרה לשורה
-        // בעורך עובר דרך ``env.sourceLineMap``, שמגיע מ-``renderMarkdownSource``.
-        md.core.ruler.after('github-task-lists', 'task-source-lines', (state) => {
-          const lineMap = state.env && Array.isArray(state.env.sourceLineMap) ? state.env.sourceLineMap : null;
-          state.tokens.forEach((token) => {
-            if (token.type !== 'list_item_open' || !token.map) return;
-            if (!/(^|\s)task-list-item(\s|$)/.test(token.attrGet('class') || '')) return;
-            const line = lineMap ? lineMap[token.map[0]] : token.map[0];
-            if (Number.isInteger(line)) token.attrSet('data-source-line', String(line));
-          });
-        });
       }
       // הפסקה שכותרת כזו הופכת אליה מסומנת, ונשארת יעד לעוגן מפורש (``ANCHOR_TARGETS`` ב-``md-anchors.js``) — ולכן
       // החילוץ לא צריך לדעת אם התוסף הותקן.
@@ -304,6 +293,16 @@
           md.use(window.markdownitTocDoneRight, { slugify: slugifyHeadingId });
         } catch (err) {
           console.warn('markdown-it-toc-done-right failed', err);
+        }
+      }
+      // אחרון, כי התוסף עוטף כללי רינדור: תוסף שיותקן אחריו ויחליף כלל של אחד מסוגי הבלוקים ידרוס את העטיפה
+      // (ההסבר בראש ``md-source-lines-plugin.js``). השורות מתורגמות לשורות בעורך דרך ``env.sourceLineMap``, שמגיע
+      // מ-``renderMarkdownSource``.
+      if (config.sourceLines) {
+        if (window.MdSourceLines) {
+          md.use(window.MdSourceLines.plugin);
+        } else {
+          console.warn('md-source-lines-plugin.js לא נטען: בלי שורות מקור — לחיצה על צ\'קבוקס לא תשנה את העורך, ואין גלילה מסונכרנת');
         }
       }
       renderers.set(variant, md);
@@ -440,6 +439,11 @@
         const parent = block.closest('pre') || block.parentElement;
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-diagram';
+        // שורות המקור של הבלוק (``md-source-lines-plugin.js``, על ה-``<code>``) עוברות לתרשים שמחליף אותו — בלעדיהן
+        // לתרשים אין מקום בטבלת ההתאמה של הגלילה המסונכרנת.
+        ['data-source-line', 'data-source-line-end'].forEach((name) => {
+          if (block.hasAttribute(name)) wrapper.setAttribute(name, block.getAttribute(name));
+        });
         if (parent && parent.parentNode) {
           parent.parentNode.replaceChild(wrapper, parent);
         } else if (parent) {
@@ -572,6 +576,8 @@
       };
       this.styleEl = null;
       this.abortController = null;
+      // הגלילה המסונכרנת בין העורך לתצוגה (``live-preview-scroll-sync.js``) — נבנית ב-``init``.
+      this.scrollSync = null;
       this.state = {
         enabled: false,
         layoutPanel: 'editor',
@@ -631,6 +637,7 @@
           });
         });
       }
+      this.setupScrollSync();
       this.setupTabs();
       this.updatePreviewAvailability({ silentDisable: true });
       this.setStatus(STATUS.IDLE);
@@ -757,8 +764,10 @@
       }
       const html = data.html || '';
       const presentation = data.presentation || 'fragment';
-      // רינדור מהשרת: הצ'קבוקסים שלו אינם ממופים לשורות, ולחיצה עליהם לא כותבת לעורך.
+      // רינדור מהשרת: הצ'קבוקסים שלו אינם ממופים לשורות, ולחיצה עליהם לא כותבת לעורך — ומאותה סיבה אין בו גלילה
+      // מסונכרנת.
       this.state.taskSourceContent = null;
+      if (this.scrollSync) this.scrollSync.contentCleared();
       const mode = data.mode || 'code';
       this.setMarkdownContext(mode === 'markdown' && presentation !== 'iframe');
       if (presentation === 'iframe') {
@@ -794,6 +803,7 @@
       const trimmed = content.trim();
       if (!trimmed) {
         this.state.taskSourceContent = null;
+        if (this.scrollSync) this.scrollSync.contentCleared();
         this.setMarkdownContext(true);
         this.previewCanvas.innerHTML = '<p>אין תוכן להצגה.</p>';
         this.updateMeta({ language: 'markdown', mode: 'markdown', bytes: 0, characters: 0, duration_ms: 0 });
@@ -814,6 +824,8 @@
         }
         await MarkdownLiveRenderer.enhance(this.previewCanvas, rendered.anchors, { documentCodeBlocks: true, interactiveTasks: true });
         this.state.taskSourceContent = content;
+        // אחרי ``enhance``: התרשימים כבר במקומם, ולכן הגבהים שהגלילה המסונכרנת מודדת הם הסופיים.
+        if (this.scrollSync) this.scrollSync.contentRendered(content.split('\n').length);
         const duration = typeof performance !== 'undefined' && typeof performance.now === 'function'
           ? Math.max(1, Math.round(performance.now() - started))
           : 0;
@@ -960,6 +972,29 @@
       }
     }
 
+    // גלילה בעורך מזיזה את התצוגה לאותו מקום בטקסט, וגלילה בתצוגה מזיזה את העורך — ההסבר בראש
+    // ``live-preview-scroll-sync.js``. רק כש-CodeMirror הוא העורך הפעיל: בעורך הפשוט אין סנכרון (החלטת המשתמש).
+    // ``renderClientMarkdown`` מודיע על כל רינדור, וכל מסלול אחר — רינדור מהשרת, טקסט ריק, תצוגה כבויה — מודיע
+    // שבתצוגה אין תוכן מסומן.
+    setupScrollSync() {
+      const editorPanel = this.root.querySelector('.split-panel--editor');
+      const previewPanel = this.root.querySelector('.split-panel--preview');
+      if (!editorPanel || !previewPanel) return;
+      if (!window.LivePreviewScrollSync) {
+        console.warn('live-preview: live-preview-scroll-sync.js לא נטען — אין גלילה מסונכרנת בין העורך לתצוגה');
+        return;
+      }
+      this.scrollSync = window.LivePreviewScrollSync.attach({
+        editorPanel,
+        previewPanel,
+        canvas: this.previewCanvas,
+        getEditorView: () => {
+          const manager = window.editorManager;
+          return manager && manager.currentEditor === 'codemirror' && manager.cmInstance ? manager.cmInstance : null;
+        },
+      });
+    }
+
     setupTabs() {
       const tabs = Array.from(this.root.querySelectorAll('[data-panel-target]'));
       if (!tabs.length) return;
@@ -1041,6 +1076,7 @@
       this.cancelPending();
       this.state.lastRenderedHash = null;
       this.state.inflightHash = null;
+      if (this.scrollSync) this.scrollSync.contentCleared();
       this.syncToggleButton(false);
       this.root.classList.remove('is-active');
       this.root.dataset.activePanel = 'editor';

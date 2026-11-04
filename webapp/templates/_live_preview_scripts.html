@@ -15,6 +15,10 @@
   ``md-code-blocks.js`` בונה את בלוק הקוד של המסמך — מסגרת, פס כותרת עם שם השפה וכפתור העתקה — אותו
   קובץ ש-``md_preview.html`` טוען. ``live-preview.js`` קורא לו מ-``enhance`` עם
   ``documentCodeBlocks: true``, ובלעדיו מתריע בקונסול.
+
+  ``md-source-lines-plugin.js`` מסמן כל בלוק בתצוגה בשורות המקור שלו (גם הוא משותף עם ``md_preview.html``),
+  ו-``live-preview-scroll-sync.js`` מסנכרן לפיהן את הגלילה בין העורך לתצוגה. בלי הראשון לחיצה על צ'קבוקס לא
+  משנה את העורך ואין גלילה מסונכרנת; בלי השני אין גלילה מסונכרנת. בשני המקרים ``live-preview.js`` מתריע בקונסול.
 #}
 <script src="{{ url_for('static', filename='js/md_preview.bundle.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/admonition-icons.js') }}?v={{ static_version }}" defer></script>
@@ -24,5 +28,7 @@
 <script src="{{ url_for('static', filename='js/md-mark-plugin.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md-math-plugin.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md-heading-level-plugin.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/md-source-lines-plugin.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md-code-blocks.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/live-preview-scroll-sync.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/live-preview.js') }}?v={{ static_version }}" defer></script>
