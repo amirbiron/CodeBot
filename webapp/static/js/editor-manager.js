@@ -452,30 +452,34 @@
               <span>${this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'}</span>
             </button>`}
             <div class="editor-clipboard-actions" role="group" aria-label="פעולות עריכה">
-              <button type="button" class="btn-editor-clip btn-editor-history btn-editor-undo" title="בטל (Ctrl+Z)" aria-label="בטל" aria-keyshortcuts="Control+Z">
-                <i class="fas fa-arrow-rotate-left" aria-hidden="true"></i>
-              </button>
-              <button type="button" class="btn-editor-clip btn-editor-history btn-editor-redo" title="בצע שוב (Ctrl+Y)" aria-label="בצע שוב" aria-keyshortcuts="Control+Y">
-                <i class="fas fa-arrow-rotate-right" aria-hidden="true"></i>
-              </button>
-              <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
-                <i class="fas fa-arrows-alt"></i>
-                <span>בחר הכל</span>
-              </button>
-              <button type="button" class="btn-editor-clip btn-editor-copy" title="העתק את הקוד">
-                <i class="far fa-copy"></i>
-                <span>העתק</span>
-              </button>
-              <button type="button" class="btn-editor-clip btn-editor-paste" title="הדבק מהלוח">
-                <i class="fas fa-paste"></i>
-                <span>הדבק</span>
-              </button>
+              <span class="editor-clip-head">
+                <button type="button" class="btn-editor-clip btn-editor-history btn-editor-undo" title="בטל (Ctrl+Z)" aria-label="בטל" aria-keyshortcuts="Control+Z">
+                  <i class="fas fa-arrow-rotate-left" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="btn-editor-clip btn-editor-history btn-editor-redo" title="בצע שוב (Ctrl+Y)" aria-label="בצע שוב" aria-keyshortcuts="Control+Y">
+                  <i class="fas fa-arrow-rotate-right" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
+                  <i class="fas fa-arrows-alt"></i>
+                  <span>בחר הכל</span>
+                </button>
+                <button type="button" class="btn-editor-clip btn-editor-copy" title="העתק את הקוד">
+                  <i class="far fa-copy"></i>
+                  <span>העתק</span>
+                </button>
+              </span>
+              <span class="editor-clip-tail">
+                <button type="button" class="btn-editor-clip btn-editor-paste" title="הדבק מהלוח">
+                  <i class="fas fa-paste"></i>
+                  <span>הדבק</span>
+                </button>
+                <span class="editor-info-slot">
+                  <span class="editor-info-status" aria-live="polite"></span>
+                  <span class="editor-info-primary"></span>
+                </span>
+              </span>
             </div>
           </div>
-          <span class="editor-info-slot">
-            <span class="editor-info-status" aria-live="polite"></span>
-            <span class="editor-info-primary"></span>
-          </span>
         </div>
       `;
       const codeLabel = container.querySelector('label') || container;

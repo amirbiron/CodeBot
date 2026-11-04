@@ -26,12 +26,20 @@
 /* Modified: Default to row layout for tablets/desktop */
 .editor-switcher { display:flex; flex-direction:column; align-items: stretch; gap:.5rem; margin:.5rem 0; padding:.65rem; background: rgba(255,255,255,0.05); border-radius:8px; }
 .editor-switcher-row { display:flex; justify-content:flex-start; align-items:center; gap:clamp(.5rem,1.5vw,1.25rem); flex-wrap:nowrap; width:100%; min-height:48px; }
-.editor-switcher-actions { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; flex:0 1 auto; min-width:0; }
+.editor-switcher-actions { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; flex:1 1 auto; min-width:0; }
 .btn-switch-editor { padding:.5rem 1rem; background: rgba(100,100,255,0.2); border:1px solid rgba(100,100,255,0.5); border-radius:6px; color:#fff; cursor:pointer; }
 .btn-switch-editor i { margin-inline-end:.35rem; }
 .editor-switcher .btn-switch-editor { min-width: fit-content; }
 .btn-switch-editor:hover { background: rgba(100,100,255,0.3); }
-.editor-clipboard-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+/* קבוצת הכפתורים בנויה משתי יחידות (``addSwitcherButton`` ב-``editor-manager.js``). הראשונה — "בטל", "בצע שוב",
+   "בחר הכל" ו"העתק" — כולם באותו גובה: כפתור שיש בו רק אייקון נמתח לגובה של כפתור עם טקסט (``align-items``
+   נשאר ``stretch``). השנייה — "הדבק", התא של ההודעות וסרגל ה-MD — לא נשברת: כשהשורה צרה היא יורדת לשורה הבאה
+   כולה, ולכן MD תמיד באותה שורה עם "הדבק". היא ממלאת את מה שנשאר בשורה שלה, והתא שבתוכה את הרווח שבין "הדבק"
+   לסרגל. הסרגל לא באותה יחידה עם הכפתורים של הראשונה, כי הוא גבוה מהם בקצת (נמדד: 29.8 מול 28.2), ובאותה
+   יחידה היה מותח את כולם לגובה שלו. */
+.editor-clipboard-actions { --editor-clip-gap:.5rem; display:flex; align-items:center; gap:var(--editor-clip-gap); flex-wrap:wrap; flex:1 1 auto; min-width:0; }
+.editor-clip-head { display:flex; gap:var(--editor-clip-gap); flex-wrap:wrap; min-width:0; }
+.editor-clip-tail { display:flex; align-items:center; gap:var(--editor-clip-gap); flex:1 1 auto; min-width:max-content; align-self:stretch; }
 .btn-editor-clip { padding:.35rem .75rem; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; font-size:.85rem; display:flex; align-items:center; gap:.35rem; cursor:pointer; transition: background .2s ease, border-color .2s ease; }
 .btn-editor-clip:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
 .btn-editor-clip:disabled { opacity:.6; cursor:not-allowed; }
@@ -47,14 +55,17 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
    משנה גובה כשהיא מופיעה, והעורך לא קופץ. עד נובמבר 2026 היא ישבה באותו תא של grid עם התווית "קיצורי מקלדת
    זמינים", שהחזיקה לה את המקום; התווית הוסרה (``updateInfoBanner`` ב-``editor-manager.js``), ובלעדיה הודעה הזיזה
    את העורך — נמדד 17px בעורך הציבורי ברוחב 1024 ו-31px בעמוד העריכה ברוחב 820.
-   השורה (``.editor-switcher-row``) לא נשברת: הכפתורים (``.editor-switcher-actions``, בגודל התוכן שלהם), התא
-   (``.editor-info-slot``), וסרגל ה-MD של עמודי העריכה וההעלאה, אחרון בשורה (``moveToEditorRow`` ב-
-   ``markdown-toolbar.js``). התא ממלא את הרווח שבין הכפתורים לסרגל, וההודעה צפה בקצה שלו — ולכן היא לא מכסה את
-   כפתור ה-MD. כשאין רווח התא מתכווץ לאפס, ולא יורד לשורה משלו. בשורה צרה הרווח קטן מההודעה, והיא מכסה לכמה
-   שניות חלק מהכפתור שלפניה, ולכן יש לה רקע; ``pointer-events: none`` משאיר את הכפתור לחיץ. התווית "עורך טקסט
-   בסיסי" של העורך הפשוט נשארה, בקצה התא, ונעלמת (visibility) בזמן ההודעה. בטלפון (עד 768px) השורה היא עמודה,
-   וההודעה בתוכה, כמו קודם. */
-.editor-info-slot { position:relative; display:grid; align-items:center; justify-items:end; flex:1 1 0; min-width:0; align-self:stretch; }
+   התא (``.editor-info-slot``) יושב ביחידה האחרונה של קבוצת הכפתורים (``.editor-clip-tail``), אחרי "הדבק", וסרגל
+   ה-MD של עמודי העריכה וההעלאה אחריו, אחרון ביחידה (``moveToEditorRow`` ב-``markdown-toolbar.js``). התא ממלא את
+   הרווח שבין "הדבק" לסרגל, וההודעה צפה בקצה שלו — ולכן היא לא מכסה את כפתור ה-MD. כשאין רווח התא מתכווץ לאפס,
+   ובזכות השוליים השליליים (בגודל הרווח שלפניו) הוא גם לא מוסיף רווח. בשורה צרה הרווח קטן מההודעה, והיא מכסה
+   לכמה שניות חלק מהכפתורים שלפניה, ולכן יש לה רקע; ``pointer-events: none`` משאיר אותם לחיצים. כשהקבוצה נשברת
+   לשתי שורות (בטלפון, או כשהתצוגה החיה דלוקה והשורה בחצי של העורך), היחידה יורדת כולה, והסרגל נשאר עם "הדבק".
+   עד נובמבר 2026 התא והסרגל ישבו מחוץ לקבוצה, ובטלפון כל אחד מהם ירד לשורה משלו. התווית "עורך טקסט בסיסי" של
+   העורך הפשוט נשארה, בקצה התא: כשהיא מוצגת התא לפחות ברוחב שלה, ובלי שוליים שליליים, כדי שלא תיחתך ולא תיצמד
+   לכפתור; בזמן הודעה היא נעלמת (visibility). */
+.editor-info-slot { position:relative; display:grid; align-items:center; justify-items:end; flex:1 1 0; min-width:0; align-self:stretch; margin-inline-start:calc(-1 * var(--editor-clip-gap, .5rem)); }
+.editor-info-slot:has(> .editor-info-primary:not([hidden])) { min-width:max-content; margin-inline-start:0; }
 .editor-info-slot > .editor-info-status,
 .editor-info-slot > .editor-info-primary { grid-area: 1 / 1; }
 .editor-info-slot:has(> .editor-info-status:not(:empty)) > .editor-info-primary { visibility:hidden; }
@@ -86,12 +97,13 @@ body.telegram-mini-app #codeMirrorContainer .cm-editor {
   #codeMirrorContainer .cm-editor { font-size: 12px; }
   /* Mobile: Stack vertically */
   .editor-switcher-row { flex-direction: column; align-items: stretch; gap:.5rem; }
-  .editor-switcher-actions { width: 100%; flex-direction: column; }
+  /* בעמודה הגדילה (``flex-grow``) היא לגובה: בלי ``flex: 0 1 auto`` הקבוצה גדלה לגובה השורה (48px בעורך
+     הציבורי), והכפתורים ירדו 10px לאמצע שלה (נמדד). */
+  .editor-switcher-actions { width: 100%; flex-direction: column; flex: 0 1 auto; }
   .editor-clipboard-actions { width: 100%; }
-  .btn-editor-clip { flex: 1 1 auto; justify-content: center; }
-  .editor-info-primary { margin-left: 0; width: 100%; justify-content: center; text-align: center; }
-  .editor-info-slot { width: 100%; }
-  .editor-info-status { position: static; transform: none; justify-self: center; }
+  /* כל כפתור ברוחב הטקסט שלו. עד נובמבר 2026 הכפתורים התרחבו למלא את השורה, ו"הדבק", שירד לשורה השנייה לבד,
+     תפס את כולה — וסרגל ה-MD ירד לשורה שלישית. */
+  .btn-editor-clip { flex: 0 0 auto; justify-content: center; }
 }
 
 /* Upload/Edit pages: Larger code editor on mobile */

@@ -105,13 +105,13 @@
         </div>
         <div class="split-tabs" role="tablist" aria-label="חלונות תצוגה">
           <button type="button" role="tab" aria-selected="true" data-panel-target="editor">עורך</button>
-          <button type="button" role="tab" aria-selected="false" data-panel-target="preview">תצוגה</button>
+          <button type="button" role="tab" aria-selected="false" data-panel-target="preview">תצוגה חיה</button>
         </div>
       </div>
       <div class="split-panels">
         <section class="split-panel split-panel--editor" aria-label="אזור עריכה">
           <div id="editorContainer">
-            <label for="codeTextarea">קוד</label>
+            <label for="codeTextarea" class="sr-only">קוד</label>
             <textarea id="codeTextarea" name="code" rows="18" placeholder="# הדבק כאן את הקוד" class="form-field code-field">{{ code_value or '' }}</textarea>
           </div>
         </section>

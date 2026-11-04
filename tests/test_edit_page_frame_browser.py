@@ -421,8 +421,9 @@ HISTORY_BUTTONS = """() => {
   const group = document.querySelector('.editor-clipboard-actions');
   const undo = group.querySelector('.btn-editor-undo');
   const redo = group.querySelector('.btn-editor-redo');
+  const buttons = [...group.querySelectorAll('button')];
   return {
-    first: [...group.children].indexOf(undo) === 0 && [...group.children].indexOf(redo) === 1,
+    first: buttons.indexOf(undo) === 0 && buttons.indexOf(redo) === 1,
     shown: [undo, redo].map((b) => getComputedStyle(b).display !== 'none'),
     disabled: [undo.disabled, redo.disabled],
     icon: getComputedStyle(undo.querySelector('i')).transform,
@@ -481,4 +482,189 @@ def test_undo_and_redo_on_the_edit_page_and_none_in_the_simple_editor(edit_page)
         assert page.evaluate(label) is None
     finally:
         _forget_editor_choice(page)
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# סבב חמישי (נובמבר 2026): שורת הכפתורים בטלפון, התווית "קוד", והלשוניות "עורך" / "תצוגה חיה".
+# ---------------------------------------------------------------------------
+
+#: הכפתורים "הדבק" ו-MD, והשורה: באיזה גובה כל אחד, ומה הרוחב שלו מול רוחב השורה.
+PASTE_AND_MD = """() => {
+  const box = (s) => document.querySelector(s).getBoundingClientRect();
+  const paste = box('.btn-editor-paste'), md = box('.md-toolbar-trigger'), copy = box('.btn-editor-copy');
+  const row = box('.editor-switcher-row');
+  const label = document.querySelector('label[for="codeTextarea"]');
+  const l = label.getBoundingClientRect();
+  return {
+    pasteMiddle: Math.round(paste.top + paste.height / 2), mdMiddle: Math.round(md.top + md.height / 2),
+    copyMiddle: Math.round(copy.top + copy.height / 2),
+    pasteWidth: paste.width, rowWidth: row.width,
+    clipHeights: [...new Set([...document.querySelectorAll('.btn-editor-clip')].filter((b) => b.offsetParent)
+      .map((b) => b.getBoundingClientRect().height))],
+    labelSize: [l.width, l.height],
+    labelOf: document.getElementById('codeTextarea').labels[0].textContent.trim(),
+  };
+}"""
+
+
+def _phone_page(edit_page, width=390):
+    page = edit_page.context.new_page()
+    page.set_viewport_size({"width": width, "height": 844})
+    page.goto(f"{ORIGIN}/edit")
+    page.wait_for_selector(".cm-editor", timeout=30000)
+    return page
+
+
+def test_on_a_phone_paste_is_as_wide_as_its_text_and_md_sits_beside_it(edit_page):
+    """בטלפון "הדבק" ברוחב הטקסט שלו, וכפתור ה-MD באותה שורה איתו, בקצה. עד נובמבר 2026 הכפתורים התרחבו למלא את
+    השורה: "הדבק", שירד לשורה שנייה לבד, תפס את כולה, ו-MD ירד לשורה שלישית (צילום המסך של המשתמש). וברוחב שבו
+    "הדבק" נכנס לשורה הראשונה, MD ירד לשורה משלו (נמדד ב-390 וב-430). "הדבק", ההודעות ו-MD הם עכשיו יחידה אחת
+    שלא נשברת (``.editor-clip-tail``). כל הכפתורים באותו גובה, גם ברוחב של מחשב, כשכולם ו-MD בשורה אחת: MD גבוה
+    מהם בקצת, והוא לא מותח אותם (``.editor-clip-head``). ובאותו דף: התווית "קוד" שמעל העורך מוסתרת מהעין ונשארת
+    לקורא מסך."""
+    for width in (360, 390, 430, 1000):
+        page = _phone_page(edit_page, width)
+        try:
+            state = page.evaluate(PASTE_AND_MD)
+            assert state["pasteMiddle"] == state["mdMiddle"], (width, state)
+            assert len(state["clipHeights"]) == 1, (width, state)
+            # בטלפון "הדבק" ו-MD בשורה השנייה; במחשב הכול בשורה אחת
+            assert (state["pasteMiddle"] > state["copyMiddle"]) == (width < 768), (width, state)
+            assert state["pasteWidth"] < state["rowWidth"] / 3, (width, state)
+            assert page.evaluate(MD_AT_ROW_END), width
+            assert state["labelSize"] == [1, 1], (width, state)
+            assert state["labelOf"] == "קוד", (width, state)
+        finally:
+            page.close()
+
+
+#: ערכות מיובאות לדוגמה — המשתנים שהמפרסר מייצר, על ``:root`` (כמו הבלוק ``user-custom-theme`` של ``base.html``).
+LIGHT_IMPORTED = (
+    "--bg-primary:#f5efe6;--bg-secondary:#efe6d8;--bg-tertiary:#e8dcc8;--text-primary:#3b2f2a;"
+    "--text-secondary:#6b5a50;--primary:#8a5a44;--glass:rgba(0,0,0,.04);--glass-border:rgba(0,0,0,.12)"
+)
+DARK_IMPORTED = (
+    "--bg-primary:#1e1e1e;--bg-secondary:#252526;--bg-tertiary:#2d2d30;--text-primary:#d4d4d4;"
+    "--text-secondary:#a0a0a0;--primary:#569cd6;--glass:rgba(255,255,255,.04);--glass-border:rgba(255,255,255,.12)"
+)
+TAB_THEMES = [
+    ("classic", None),
+    ("dark", None),
+    ("forest", None),
+    ("rose-pine-dawn", None),
+    ("high-contrast", None),
+    ("custom", LIGHT_IMPORTED),
+    ("custom", DARK_IMPORTED),
+]
+
+TABS = """() => {
+  const list = document.querySelector('.split-tabs');
+  return [...list.querySelectorAll('[role=tab]')].map((t) => {
+    const s = getComputedStyle(t);
+    return {text: t.textContent.trim(), shown: !!t.offsetParent, selected: t.getAttribute('aria-selected') === 'true',
+            color: s.color, listColor: getComputedStyle(list).color, opacity: s.opacity, weight: s.fontWeight,
+            shadow: s.boxShadow, border: parseFloat(s.borderBottomWidth) || 0};
+  });
+}"""
+
+
+def _rgb(css: str) -> tuple[float, float, float]:
+    import re
+
+    nums = [float(v) for v in re.findall(r"[\d.]+", css)]
+    return tuple(nums[:3])
+
+
+def _contrast(a, b) -> float:
+    def lum(c):
+        def f(v):
+            v /= 255
+            return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+        return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2])
+
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _tab_pixels(page, border: float):
+    """הרקע של הלשונית הנבחרת והקו שבתחתיתה, כפי שהם בצילום: חציון של שורת פיקסלים ליד הקצה העליון (מעל הטקסט),
+    ושל שורה בתוך שלושת הפיקסלים התחתונים שמעל המסגרת — הקו (``box-shadow`` פנימי) מצויר בתוך המסגרת, ובניגודיות
+    גבוהה יש לכפתור מסגרת לבנה. לא מחשבים את הרקע מה-CSS: בערכה Classic יש מאחורי הלשוניות מעבר צבעים, ושכבות
+    שקופות מעליו."""
+    import io
+    import statistics
+
+    from PIL import Image
+
+    shot = Image.open(
+        io.BytesIO(page.locator('.split-tabs [aria-selected="true"]').screenshot())
+    ).convert("RGB")
+    w, h = shot.size
+    dpr = 2  # ה-``device_scale_factor`` של ההקשר ב-``edit_page``
+
+    def row(y):
+        px = [shot.getpixel((x, y)) for x in range(8 * dpr, w - 8 * dpr)]
+        return tuple(statistics.median(p[i] for p in px) for i in range(3))
+
+    return row(round((border + 3) * dpr)), row(round(h - (border + 1.5) * dpr))
+
+
+def test_on_a_phone_the_tabs_come_with_the_preview_and_the_selected_one_stands_out_in_every_theme(
+    edit_page,
+):
+    """הלשוניות מופיעות רק כשהתצוגה החיה דלוקה, והשנייה נקראת "תצוגה חיה". הנבחרת מסומנת בכל ערכה, גם מיובאת:
+    הטקסט בצבע של שורת הכלים, מודגש, וקו תחתון באותו צבע — ולכן הקו נראה בכל מקום שבו הטקסט נקרא. הלא נבחרת באותו
+    צבע, בלי קו ובלי דהייה. **הבאג:** הנבחרת קיבלה את צבע הטקסט של התצוגה החיה, כמעט לבן, ובערכה בהירה היא כמעט
+    נעלמה — ניגודיות 1.42 ב-Rose Pine Dawn (נמדד); ובניגודיות גבוהה שתי הלשוניות נראו אותו דבר. הלשוניות גם הוצגו
+    כשהתצוגה כבויה, ו"תצוגה חיה" פתחה פאנל ריק."""
+    page = _phone_page(edit_page)
+    try:
+        _set_preview(page, False)
+        assert [t["shown"] for t in page.evaluate(TABS)] == [False, False]
+        _set_preview(page, True)
+        tabs = page.evaluate(TABS)
+        assert [t["text"] for t in tabs] == ["עורך", "תצוגה חיה"], tabs
+        assert [t["shown"] for t in tabs] == [True, True], tabs
+
+        for theme, variables in TAB_THEMES:
+            page.evaluate(
+                """([t, v]) => { const r = document.documentElement; r.setAttribute('data-theme', t);
+                  if (t === 'custom') r.setAttribute('data-theme-type', 'custom');
+                  else r.removeAttribute('data-theme-type');
+                  r.style.cssText = v || ''; }""",
+                [theme, variables],
+            )
+            page.wait_for_timeout(250)  # ה-``transition`` של הרקע
+            selected, other = page.evaluate(TABS)
+            name = (
+                theme
+                if variables is None
+                else ("imported-light" if variables == LIGHT_IMPORTED else "imported-dark")
+            )
+            assert selected["selected"] and not other["selected"], name
+            assert (selected["weight"], other["weight"]) == ("700", "400"), (name, selected, other)
+            assert "inset" in selected["shadow"] and selected["shadow"].startswith(
+                selected["color"]
+            ), (name, selected)
+            assert other["shadow"] == "none" and other["opacity"] == "1", (name, other)
+            bg, line = _tab_pixels(page, selected["border"])
+            assert _contrast(line, bg) >= 3, (name, bg, line)
+            if theme == "high-contrast":
+                # הפוכה: לבן, ושחור עליו (``--split-tabs-selected-*`` של הערכה)
+                assert bg == (255, 255, 255) and _rgb(selected["color"]) == (0, 0, 0), (
+                    name,
+                    bg,
+                    selected,
+                )
+            else:
+                assert selected["color"] == selected["listColor"] == other["color"], (
+                    name,
+                    selected,
+                    other,
+                )
+            if theme == "rose-pine-dawn":
+                assert _contrast(_rgb(selected["color"]), bg) >= 4.5, (name, bg, selected)
+    finally:
         page.close()
