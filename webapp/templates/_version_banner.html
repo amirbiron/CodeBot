@@ -46,6 +46,16 @@
   <div class="version-banner__actions">
     <a href="{{ url_for('trash_page') }}" class="btn btn-secondary">פתח את סל המיחזור</a>
   </div>
+  {% elif version_context.state == 'duplicate' %}
+  {# שתי שמירות מקבילות קיבלו אותו מספר גרסה, והנוכחית היא העותק השני (``_file_version_context``).
+     בלי "השווה" ובלי "שחזר": שניהם עובדים לפי מספר גרסה, והמספר כאן זהה לנוכחית. #}
+  <div class="version-banner__text">
+    <div class="version-banner__title">🕐 זה עותק נוסף של גרסה {{ version_context.version }}</div>
+    <div class="version-banner__meta">שתי שמירות קיבלו את אותו מספר גרסה, והגרסה הנוכחית היא העותק האחר — ולכן פעולות העריכה מושבתות כאן</div>
+  </div>
+  <div class="version-banner__actions">
+    <a href="{{ url_for(request.endpoint, file_id=version_context.latest_file_id) }}" class="btn btn-primary">חזרה לגרסה הנוכחית</a>
+  </div>
   {% else %}
   <div class="version-banner__text">
     <div class="version-banner__title">🕐 אתה צופה בגרסה {{ version_context.version }} מתוך {{ version_context.latest_version }}</div>

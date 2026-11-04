@@ -14772,6 +14772,11 @@ def _file_version_context(
       הפעולה הנכונה היא שחזור הקובץ מהסל, ולא הוספת גרסה חדשה לקובץ
       שאמור להיות מחוק.
     * ``old`` — יש גרסה פעילה מאוחרת יותר. זה הבאנר המלא.
+    * ``duplicate`` — מסמך פעיל **נוסף** עם אותו מספר גרסה כמו הנוכחית: שתי שמירות מקבילות
+      קיבלו אותו מספר (אין אינדקס ייחודי עליו), ו-:data:`_LATEST_VERSION_SORT` בחר את השני.
+      ההכרעה היא לפי ``_id`` מול המסמך הנבחר — לא לפי המספר, שבתיקו היה מסמן את שניהם
+      כנוכחיים בזמן שהקישור הקבוע של פתק מפנה רק לאחד. אין כאן השוואה ושחזור: שניהם
+      עובדים לפי מספר גרסה, ובתיקו הוא אינו מבחין בין המסמכים.
     * ``unknown`` — השאילתה נכשלה. **לא נבלע ולא 500:** העמוד עצמו
       נשלף בהצלחה ואין סיבה להפיל אותו, אבל גם אין דרך לומר "זו הגרסה
       העדכנית". לכן הכשל הופך למצב מוצהר — הבאנר אומר שלא ניתן לוודא,
@@ -14807,8 +14812,17 @@ def _file_version_context(
         )
         return {'state': 'unknown', 'version': current}
     latest_version = normalized_version((latest or {}).get('version'))
-    if latest_version is None or latest_version <= current:
+    if latest_version is None or latest_version < current:
         return None
+    if latest_version == current:
+        if latest.get('_id') == doc.get('_id'):
+            return None
+        return {
+            'state': 'duplicate',
+            'version': current,
+            'latest_version': latest_version,
+            'latest_file_id': str(latest.get('_id')),
+        }
 
     return {
         'state': 'old',
@@ -15743,6 +15757,9 @@ def api_file_history(file_id):
     except Exception:
         latest_doc = None
     latest_version = normalized_version((latest_doc or {}).get('version')) or 0
+    # ``is_current`` לפי ``_id`` של המסמך שנבחר, ולא לפי המספר: שתי שמירות מקבילות יכולות
+    # לקבל אותו מספר גרסה, ואז השוואת מספרים סימנה את שתי השורות כנוכחיות.
+    latest_id = (latest_doc or {}).get('_id')
     for doc in docs:
         version_number = int(doc.get('version') or 0)
         try:
@@ -15756,7 +15773,7 @@ def api_file_history(file_id):
         versions.append({
             'id': str(doc.get('_id')),
             'version': version_number,
-            'is_current': version_number == latest_version,
+            'is_current': latest_id is not None and doc.get('_id') == latest_id,
             'created_at': format_datetime_display(doc.get('created_at')),
             'updated_at': format_datetime_display(doc.get('updated_at')),
             # ``version_created_at`` ולא ``updated_at``: השני הוא שדה של
