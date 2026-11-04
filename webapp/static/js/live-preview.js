@@ -216,14 +216,11 @@
           });
         });
       }
-      // הרמה העמוקה ביותר ש**הותקנה** במופע — ולא זו שהווריאנט מבקש. העוגנים נספרים לפיה
-      // (``renderMarkdownSource``), ולכן אם התוסף לא נטען, H5/H6 מרונדרות ככותרות ונספרות ככותרות, והעוגנים
-      // לא זזים לכותרת הלא נכונה.
-      let maxHeadingLevel = 6;
+      // הפסקה שכותרת כזו הופכת אליה מסומנת, ונשארת יעד לעוגן מפורש (``ANCHOR_TARGETS`` ב-``md-anchors.js``) — ולכן
+      // החילוץ לא צריך לדעת אם התוסף הותקן.
       if (config.documentHeadingLevels) {
         if (window.MdHeadingLevel) {
           md.use(window.MdHeadingLevel.plugin, { maxLevel: window.MdHeadingLevel.DOCUMENT_MAX_LEVEL });
-          maxHeadingLevel = window.MdHeadingLevel.DOCUMENT_MAX_LEVEL;
         } else {
           console.warn('md-heading-level-plugin.js לא נטען: H5/H6 מרונדרות ככותרות בתצוגה החיה');
         }
@@ -309,9 +306,8 @@
           console.warn('markdown-it-toc-done-right failed', err);
         }
       }
-      const renderer = { md, maxHeadingLevel };
-      renderers.set(variant, renderer);
-      return renderer;
+      renderers.set(variant, md);
+      return md;
     }
 
     // ``copyButtons: false`` — רק הדגשה. הכפתור הקטן בפינת ה-``pre`` (``.code-copy-btn``) הוא של דפדפן
@@ -501,21 +497,16 @@
     // רינדור + שליפת העוגנים המפורשים. משמש גם את render() (שמחזיר HTML בלבד,
     // לשמירת תאימות עם קוראים קיימים) וגם את renderWithAnchors().
     function renderMarkdownSource(text, variant = 'default') {
-      const renderer = ensureRenderer(variant);
-      if (!renderer) {
+      const md = ensureRenderer(variant);
+      if (!md) {
         throw new Error('markdown_renderer_missing');
       }
-      const { md } = renderer;
       let source = text || '';
       let anchors = [];
       let sourceLineMap = null;
       try {
         if (typeof window !== 'undefined' && window.MdAnchors) {
-          // העוגנים משויכים לכותרת לפי המספר הסידורי שלה, ולכן החילוץ סופר כותרות בדיוק כמו ה-renderer: כותרת
-          // עמוקה מהרמה שהותקנה במופע (``maxHeadingLevel`` של ``ensureRenderer``) היא פסקה, ואינה נספרת.
-          const extracted = window.MdAnchors.extractExplicitAnchors(source, {
-            maxHeadingLevel: renderer.maxHeadingLevel,
-          });
+          const extracted = window.MdAnchors.extractExplicitAnchors(source);
           source = extracted.source;
           anchors = extracted.anchors;
           sourceLineMap = extracted.lineMap || null;

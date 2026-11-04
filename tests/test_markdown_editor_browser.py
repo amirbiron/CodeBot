@@ -855,19 +855,36 @@ def test_there_is_no_divider_and_a_swipe_does_not_resize_the_panels(browser):
         s.close()
 
 
+#: עוגנים מפורשים סביב H5/H6, שהתצוגה מרנדרת כפסקה: בשורה שלפני ``#####``, בתוך שורת ``######``, ובכותרת שאחריהן.
+ANCHORS_AROUND_H5 = (
+    '# ראשית\n\n<a id="before5"></a>\n##### עמוקה\n\n###### שישית <a id="inline6"></a>\n\n'
+    '## יעד <a id="target"></a>\n\n## הבאה\n'
+)
+
+#: על מה נחת כל עוגן — הטקסט של האלמנט שאחרי יעד העוגן — והאם תגית ``<a`` נשארה כטקסט.
+ANCHOR_LANDING = """(root) => {
+  const land = (id) => { const a = document.getElementById(id);
+    return a && a.nextElementSibling ? a.nextElementSibling.textContent.replace('¶', '').trim() : null; };
+  return {before5: land('before5'), inline6: land('inline6'), target: land('target'),
+    tagAsText: document.querySelector(root).textContent.includes('<a ')};
+}"""
+
+
 def test_an_anchor_after_an_h5_lands_on_its_own_heading(session):
-    """עוגן מפורש (``<a id>``) מוחל על הכותרת לפי המספר הסידורי שלה. בתצוגה החיה ``#####`` הוא פסקה, ולכן
-    החילוץ (``MdAnchors.extractExplicitAnchors``) חייב לספור כותרות כמו ה-renderer — אחרת העוגן של "יעד" הוחל
-    על הכותרת שאחריה."""
+    """עוגן מפורש (``<a id>``) מוחל על היעד לפי המספר הסידורי שלו. בתצוגה החיה ``#####`` הוא פסקה, מסומנת ברמה
+    שבה נכתבה, ונשארת יעד (``ANCHOR_TARGETS`` ב-``md-anchors.js``): עוגן בשורה שלפניה או בתוכה נוחת עליה, והעוגן
+    של "יעד" נוחת על "יעד". שתי טעויות קודמות: כשהחילוץ ספר את ``#####`` ככותרת, העוגן של "יעד" הוחל על הכותרת
+    שאחריה; וכשדילג עליה, עוגן שלפניה עבר לכותרת הבאה ותגית בתוכה נשארה בטקסט."""
     session.open()
     page = session.page
-    _set_editor(page, '# ראשית\n\n##### עמוקה\n\n## יעד <a id="target"></a>\n\n## הבאה\n')
+    _set_editor(page, ANCHORS_AROUND_H5)
     _wait_preview_text(page, "הבאה")
-    after = page.evaluate(
-        "() => { const a = document.getElementById('target');"
-        " return a && a.nextElementSibling ? a.nextElementSibling.textContent.trim() : null; }"
-    )
-    assert after == "יעד", after
+    assert page.evaluate(ANCHOR_LANDING, "[data-preview-canvas]") == {
+        "before5": "##### עמוקה",
+        "inline6": "###### שישית",
+        "target": "יעד",
+        "tagAsText": False,
+    }
 
 
 def test_inserting_an_alert_names_it_in_hebrew(session):

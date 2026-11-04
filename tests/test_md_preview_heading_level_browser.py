@@ -5,9 +5,9 @@
 אותן ככותרות. היום הכלל יושב ב-``md-heading-level-plugin.js``, ושני הרנדררים מתקינים אותו.
 
 **מה נבדק:** שאין ``h5``/``h6`` במסמך, ושהשורות נשארו כפסקה עם הסולמיות ועם שורת המקור שלהן
-(``data-source-line``, שהפתקים הדביקים נעזרים בה); שעוגן מפורש של כותרת שאחרי ``#####`` נוחת על הכותרת שלו —
-העוגנים נספרים לפי המספר הסידורי של הכותרת, ולכן ``renderWithAnchors`` מקבל את הרמה שהותקנה; ושתוכן העניינים
-הצף בנוי מהכותרות שנשארו.
+(``data-source-line``, שהפתקים הדביקים נעזרים בה); שעוגן מפורש של כותרת שאחרי ``#####`` נוחת על הכותרת שלו, ועוגן
+של H5/H6 עצמה — בשורה שלפניה או בתוכה — נוחת על הפסקה שלה (העוגנים מוחלים לפי המספר הסידורי של היעד, והפסקה
+המסומנת היא יעד); ושתוכן העניינים הצף בנוי מהכותרות שנשארו.
 
 **איך העמוד מוגש.** ``md_preview.html`` מרונדר עם ``render_template`` ונתוני דוגמה, בלי מסד, כמו עמוד העריכה ב-
 ``tests/test_edit_page_frame_browser.py``; הסטטיקה מגיעה מ-``test_client`` של Flask, ובקשה לאתר חיצוני נחסמת.
@@ -33,7 +33,10 @@ MARKDOWN = (
     '## יעד <a id="target"></a>\n\n'
     "###### שישית\n\n"
     "## הבאה\n\n"
-    "#### רביעית\n"
+    "#### רביעית\n\n"
+    '<a id="before5"></a>\n'
+    "##### לפני חמישית\n\n"
+    '###### עם עוגן <a id="inline6"></a>\n'
 )
 
 
@@ -63,6 +66,11 @@ STATE = """() => {
     headings: [...c.querySelectorAll('h1, h2, h3, h4, h5, h6')].map((h) => h.tagName + ' ' + text(h)),
     paragraphs: [...c.querySelectorAll('p')].map((p) => [p.textContent.trim(), p.getAttribute('data-source-line')]),
     anchorLandsOn: target && target.nextElementSibling ? text(target.nextElementSibling) : null,
+    landing: ['before5', 'inline6'].map((id) => {
+      const a = document.getElementById(id);
+      return a && a.nextElementSibling ? text(a.nextElementSibling) : null;
+    }),
+    tagAsText: c.textContent.includes('<a '),
     toc: [...document.querySelectorAll('.md-toc-item')].map((i) => i.textContent.trim()),
   };
 }"""
@@ -122,13 +130,28 @@ def document(chromium_executable):
 def test_h5_and_h6_are_paragraphs_as_written(document):
     state, console = document
     assert state["headings"] == ["H1 ראשית", "H2 יעד", "H2 הבאה", "H4 רביעית"], state
-    assert state["paragraphs"] == [["##### חמישית", "2"], ["###### שישית", "6"]], state
+    # שורת העוגן שלפני "לפני חמישית" מוסרת לפני הפענוח, ולכן מספרי השורות שאחריה זזים באחת
+    assert state["paragraphs"] == [
+        ["##### חמישית", "2"],
+        ["###### שישית", "6"],
+        ["##### לפני חמישית", "12"],
+        ["###### עם עוגן", "14"],
+    ], state
     assert not [line for line in console if "md-heading-level-plugin" in line], console
 
 
 def test_an_anchor_after_an_h5_lands_on_its_own_heading(document):
     state, _console = document
     assert state["anchorLandsOn"] == "יעד", state
+
+
+def test_an_anchor_of_an_h5_or_h6_lands_on_its_paragraph(document):
+    """הפסקה ש-H5/H6 הופכת אליה מסומנת ונשארת יעד לעוגן (``ANCHOR_TARGETS`` ב-``md-anchors.js``). בלי זה עוגן
+    בשורה שלפניה עבר לכותרת הבאה, ועוגן בתוכה נעלם ונשאר בטקסט כתגית — נמדד בעמוד הזה לפני התיקון.
+    """
+    state, _console = document
+    assert state["landing"] == ["##### לפני חמישית", "###### עם עוגן"], state
+    assert not state["tagAsText"], state
 
 
 def test_the_table_of_contents_lists_only_the_headings_that_remain(document):

@@ -3298,17 +3298,15 @@ check('חיווט: בלוק הקוד של תצוגת המסמך נבנה מ-md-c
   eq(/function\s+addCopyButtons\b/.test(src), false, 'md_preview.html אינו מגדיר addCopyButtons משלו');
 });
 
-check('חיווט: תצוגת המסמך מגבילה את רמות הכותרות מאותו תוסף כמו התצוגה החיה, וסופרת עוגנים לפי מה שהותקן', () => {
+check('חיווט: תצוגת המסמך מגבילה את רמות הכותרות מאותו תוסף כמו התצוגה החיה', () => {
   // **עותק אחד.** הכלל שהופך H5/H6 לפסקה היה כתוב רק ב-``live-preview.js``, ולכן תצוגת המסמך המשיכה לרנדר אותן.
-  // והעוגנים המפורשים משויכים לכותרת לפי המספר הסידורי שלה: אם החילוץ לא יקבל את הרמה שהותקנה, עוגן של כותרת
-  // שאחרי ``#####`` יוחל על הכותרת שאחריה. ההתנהגות עצמה נבדקת בדפדפן (``test_md_preview_heading_level_browser.py``).
+  // העוגנים המפורשים לא צריכים כאן כלום: הפסקה מסומנת ונשארת יעד (``tests/md-heading-level-plugin.test.js``).
+  // ההתנהגות עצמה נבדקת בדפדפן (``test_md_preview_heading_level_browser.py``).
   const src = readTemplate(path.join(TEMPLATES_DIR, 'md_preview.html'));
   eq(cacheBusted(src, 'js/md-heading-level-plugin.js'), true,
      'md_preview.html טוען את md-heading-level-plugin.js עם ?v=static_version');
   eq(src.includes('md.use(window.MdHeadingLevel.plugin, { maxLevel: window.MdHeadingLevel.DOCUMENT_MAX_LEVEL })'), true,
      'md_preview.html מתקין את התוסף עם DOCUMENT_MAX_LEVEL');
-  eq(/renderWithAnchors\([^;]*maxHeadingLevel:\s*headingMaxLevel/.test(src), true,
-     'md_preview.html מעביר לעוגנים את הרמה שהותקנה');
   eq(/heading-max-level/.test(src), false, 'md_preview.html אינו מגדיר עותק משלו של הכלל');
   const live = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'static', 'js', 'live-preview.js'), 'utf8');
   eq(/heading-max-level/.test(live), false, 'live-preview.js אינו מגדיר עותק משלו של הכלל');

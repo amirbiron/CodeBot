@@ -17,8 +17,11 @@
  * (נבדק בגרסה 14.1.0). ה-``map`` של הטוקן נשאר, ולכן הפסקה מקבלת את שורת המקור שלה (``data-source-line``) כמו
  * כל פסקה.
  *
- * **מי שסופר כותרות צריך לדעת על המגבלה.** ``MdAnchors.extractExplicitAnchors`` משייך עוגן לכותרת לפי המספר
- * הסידורי שלה, ולכן מקבל את המגבלה שהותקנה בפועל (``maxHeadingLevel``). שני הרנדררים מעבירים לו אותה.
+ * **הפסקה נשארת יעד לעוגן.** היא מסומנת ברמה שבה נכתבה (``data-md-heading-level="5"``, ``MARKER_ATTRIBUTE``), ו-
+ * ``MdAnchors.applyExplicitAnchors`` מחפש יעדים בכותרות ובפסקאות המסומנות (``ANCHOR_TARGETS`` ב-``md-anchors.js``),
+ * לפי הסדר במסמך. כך עוגן מפורש של כותרת כזו — בשורה שלפניה (``<a id="x"></a>``) או בתוכה — נוחת על הפסקה שלה, וכל
+ * עוגן אחר נשאר על הכותרת שלו, בלי שהחילוץ צריך לדעת איזו רמה הותקנה. עד נובמבר 2026 החילוץ דילג על שורות כאלה,
+ * ולכן עוגן שלפניהן עבר לכותרת הבאה, ותגית בתוכן נשארה כטקסט.
  *
  * שימוש:
  *     md.use(window.MdHeadingLevel.plugin, { maxLevel: window.MdHeadingLevel.DOCUMENT_MAX_LEVEL }); // דפדפן
@@ -29,6 +32,8 @@
 
   /** הרמה העמוקה ביותר שתצוגת המסמך והתצוגה החיה מרנדרות ככותרת. */
   var DOCUMENT_MAX_LEVEL = 4;
+  /** הסימון על פסקה שהייתה כותרת, ובו הרמה שבה נכתבה. ``ANCHOR_TARGETS`` ב-``md-anchors.js`` מחפש אותו. */
+  var MARKER_ATTRIBUTE = 'data-md-heading-level';
 
   function headingLevelPlugin(md, options) {
     var maxLevel = options && options.maxLevel;
@@ -46,6 +51,7 @@
         var close = tokens[i + 2];
         if (inline.type !== 'inline' || close.type !== 'heading_close') continue;
         inline.content = inline.content ? open.markup + ' ' + inline.content : open.markup;
+        open.attrSet(MARKER_ATTRIBUTE, open.tag.slice(1));
         open.type = 'paragraph_open';
         open.tag = 'p';
         open.markup = '';
@@ -56,7 +62,7 @@
     });
   }
 
-  var api = { plugin: headingLevelPlugin, DOCUMENT_MAX_LEVEL: DOCUMENT_MAX_LEVEL };
+  var api = { plugin: headingLevelPlugin, DOCUMENT_MAX_LEVEL: DOCUMENT_MAX_LEVEL, MARKER_ATTRIBUTE: MARKER_ATTRIBUTE };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;   // לבדיקות מ-Node
