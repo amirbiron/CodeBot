@@ -937,16 +937,22 @@ def test_inserting_an_alert_names_it_in_hebrew(session):
     assert "::: note" in session.editor_text()
 
 
-#: הכפתורים "בטל" ו"בצע שוב" בשורת העורך — הסדר בקבוצה, המצב, השם, וכיוון האייקון.
+#: הכפתורים "בטל" ו"בצע שוב" בשורת העורך — הסדר בשורה (לפי המיקום על המסך, מימין לשמאל), אם יש קו הפרדה לפני
+#: הקבוצה שלהם, המצב, השם, וכיוון האייקון.
 HISTORY_BUTTONS = """() => {
-  const group = document.querySelector('.editor-clipboard-actions');
+  const row = document.querySelector('.editor-switcher-actions');
+  const group = row.querySelector('.editor-history-actions');
   const undo = group.querySelector('.btn-editor-undo');
   const redo = group.querySelector('.btn-editor-redo');
-  const kind = (b) => ['undo', 'redo', 'select'].find((k) => b.classList.contains('btn-editor-' + k)) || b.className;
+  const kind = (b) => ['select', 'copy', 'paste', 'undo', 'redo'].find((k) => b.classList.contains('btn-editor-' + k));
   const view = window.editorManager.cmInstance;
   const active = document.activeElement;
+  const style = getComputedStyle(group);
   return {
-    order: [...group.querySelectorAll('button')].slice(0, 3).map(kind),
+    order: [...row.querySelectorAll('.btn-editor-clip')].map((b) => [b, b.getBoundingClientRect()])
+      .sort(([, a], [, b]) => (a.top < b.bottom && a.bottom > b.top) ? b.right - a.right : a.top - b.top)
+      .map(([b]) => kind(b)),
+    divider: style.borderInlineStartStyle !== 'none' && parseFloat(style.borderInlineStartWidth) > 0,
     undoDisabled: undo.disabled, redoDisabled: redo.disabled,
     text: undo.textContent.trim() + redo.textContent.trim(),
     names: [undo.getAttribute('aria-label'), redo.getAttribute('aria-label')],
@@ -963,13 +969,14 @@ MIRRORED = "matrix(-1, 0, 0, 1, 0, 0)"
 
 
 def test_undo_and_redo_buttons_walk_the_editor_history(session):
-    """הכפתורים "בטל" ו"בצע שוב" — אייקון בלי טקסט, בתחילת השורה של "בחר הכל", והחצים בתמונת ראי: בעמוד מימין
-    לשמאל "אחורה" הוא ימינה. הם עובדים על ההיסטוריה של העורך עצמו, אותה ש-Ctrl+Z מפעיל: הכפתור מבטל הקלדה
-    מהמקלדת, ו-Ctrl+Z מבטל את מה שהכפתור ביצע שוב. וכל כפתור מושבת כשאין לו מה לעשות."""
+    """הכפתורים "בטל" ו"בצע שוב" — אייקון בלי טקסט, אחרי "בחר הכל / העתק / הדבק" ועם קו הפרדה לפניהם (נובמבר 2026;
+    עד אז הם ישבו לפני "בחר הכל"), והחצים בתמונת ראי: בעמוד מימין לשמאל "אחורה" הוא ימינה. הם עובדים על ההיסטוריה
+    של העורך עצמו, אותה ש-Ctrl+Z מפעיל: הכפתור מבטל הקלדה מהמקלדת, ו-Ctrl+Z מבטל את מה שהכפתור ביצע שוב. וכל כפתור
+    מושבת כשאין לו מה לעשות."""
     session.open()
     page = session.page
     state = page.evaluate(HISTORY_BUTTONS)
-    assert state["order"] == ["undo", "redo", "select"], state
+    assert state["order"] == ["select", "copy", "paste", "undo", "redo"] and state["divider"], state
     assert state["text"] == "" and state["names"] == ["בטל", "בצע שוב"], state
     assert state["titles"] == ["בטל (Ctrl+Z)", "בצע שוב (Ctrl+Y)"], state
     assert state["icons"] == [MIRRORED, MIRRORED] and state["undoIsRightOfRedo"], state
@@ -1036,10 +1043,9 @@ def test_the_editor_buttons_stay_on_one_line_on_a_tablet(browser):
     try:
         s.open()
         page = s.page
-        # לפי המרכז האנכי של הכפתורים, ולא לפי הילדים של הקבוצה: הכפתורים יושבים בשתי יחידות
-        # (``.editor-clip-head``, ``.editor-clip-tail``), והן מיושרות לאמצע השורה
+        # לפי המרכז האנכי של הכפתורים, ולא לפי הקבוצות: הכפתורים יושבים בשתי קבוצות, מיושרות לאמצע השורה
         lines = (
-            "() => new Set([...document.querySelectorAll('.editor-clipboard-actions button')]"
+            "() => new Set([...document.querySelectorAll('.editor-switcher-actions .btn-editor-clip')]"
             ".map((b) => { const r = b.getBoundingClientRect(); return Math.round(r.top + r.height / 2); })).size"
         )
         for width in (1024, 1180):
@@ -1059,9 +1065,10 @@ PHONE_TABS = """() => [...document.querySelectorAll('.split-tabs [role=tab]')].m
 
 
 def test_on_a_phone_the_tabs_come_only_with_the_preview(browser):
-    """בטלפון יש לשוניות "עורך" / "תצוגה חיה" (עד נובמבר 2026: "תצוגה"), והן מוצגות רק כשהתצוגה החיה דלוקה —
-    כשהיא כבויה יש רק עורך, ו"תצוגה" פתחה פאנל ריק. הנבחרת מודגשת, עם קו תחתון בצבע הטקסט שלה. הניגודיות בכל
-    ערכה נמדדת ב-``tests/test_edit_page_frame_browser.py``, שם אפשר להחליף ערכה; כאן העמוד בערכה הציבורית.
+    """בטלפון יש לשוניות "עורך" / "תצוגה מקדימה" (עד נובמבר 2026: "תצוגה", ואחר כך "תצוגה חיה"; בעמודי העריכה
+    וההעלאה "תצוגה חיה" נשארה לקובץ HTML), והן מוצגות רק כשהתצוגה החיה דלוקה — כשהיא כבויה יש רק עורך, ו"תצוגה"
+    פתחה פאנל ריק. הנבחרת מודגשת, עם קו תחתון בצבע הטקסט שלה. הניגודיות בכל ערכה נמדדת ב-
+    ``tests/test_edit_page_frame_browser.py``, שם אפשר להחליף ערכה; כאן העמוד בערכה הציבורית.
     """
     b, client = browser
     s = Session(b, client, width=390, height=844, mobile=True)
@@ -1069,7 +1076,7 @@ def test_on_a_phone_the_tabs_come_only_with_the_preview(browser):
         s.open()
         page = s.page
         tabs = page.evaluate(PHONE_TABS)
-        assert [t["text"] for t in tabs] == ["עורך", "תצוגה חיה"], tabs
+        assert [t["text"] for t in tabs] == ["עורך", "תצוגה מקדימה"], tabs
         assert [t["shown"] for t in tabs] == [True, True], tabs
         assert [(t["selected"], t["weight"], t["underline"]) for t in tabs] == [
             (True, "700", True),
@@ -1090,3 +1097,28 @@ def test_on_a_phone_the_tabs_come_only_with_the_preview(browser):
         assert [t["shown"] for t in page.evaluate(PHONE_TABS)] == [False, False]
     finally:
         s.close()
+
+
+def test_the_editor_row_is_copy_buttons_then_history_also_on_a_phone(browser):
+    """בעורך הציבורי (אין בו מתג עורך ואין MD בשורה): "בחר הכל, העתק, הדבק" | "בטל, בצע שוב", גם במחשב וגם בטלפון.
+    כשאין מקום לשתי הקבוצות בשורה אחת, "בטל / בצע שוב" יורדים לשורה שנייה, בלי קו בתחילתה. **הרוחב כאן אינו של
+    המכשיר:** בבדיקה גופן האייקונים (מ-CDN) לא נטען והכפתורים צרים יותר; עם האייקונים הם יורדים כבר ב-430 (נמדד).
+    """
+    b, client = browser
+    for width, mobile, expected in ((1280, False, 1), (320, True, 2)):
+        s = Session(b, client, width=width, height=844, mobile=mobile)
+        try:
+            s.open()
+            state = s.page.evaluate(HISTORY_BUTTONS)
+            assert state["order"] == ["select", "copy", "paste", "undo", "redo"], (width, state)
+            rows = s.page.evaluate(
+                """() => { const tops = (s) => [...document.querySelectorAll(s)].map((b) => b.getBoundingClientRect());
+                  const clip = tops('.editor-clipboard-actions .btn-editor-clip'), hist = tops('.btn-editor-history');
+                  return {rows: document.querySelector('.editor-switcher-actions').dataset.rows,
+                          below: hist.every((h) => clip.every((c) => h.top >= c.bottom))}; }"""
+            )
+            assert rows == {"rows": str(expected), "below": expected == 2}, (width, rows)
+            # קו לפני "בטל / בצע שוב" רק כשהם באותה שורה עם "הדבק"
+            assert state["divider"] == (expected == 1), (width, state)
+        finally:
+            s.close()

@@ -173,13 +173,65 @@ NOTICE_COVERS = """(selector) => {
 }"""
 
 
-#: כפתור ה-MD אחרון בשורה: הקצה שלו הוא הקצה של השורה, בצד שבו השורה נגמרת (בעמוד מימין לשמאל — השמאלי).
-MD_AT_ROW_END = """() => {
-  const row = document.querySelector('.editor-switcher-row');
-  const md = document.querySelector('.md-toolbar-trigger').getBoundingClientRect();
-  const r = row.getBoundingClientRect();
-  return getComputedStyle(row).direction === 'rtl' ? Math.abs(md.left - r.left) < 2 : Math.abs(md.right - r.right) < 2;
+#: שורת הכפתורים כפי שהיא על המסך: ``lines`` — השורות מלמעלה למטה, ובכל אחת הכפתורים לפי סדר הקריאה (בעמוד
+#: מימין לשמאל — מימין); ``groups`` — לכל פריט בשורה (המתג, הקבוצות, MD, כלי הקוד): השם, אם יש לפניו קו, ואם
+#: הוא הראשון בשורה שלו. ``heights`` — הגבהים השונים של כפתורי "בחר הכל" עד "בצע שוב". קו הפרדה הוא קו בתחילת
+#: הפריט ורווח לפניו (``.editor-switcher-actions`` ב-``codemirror-custom.css``) — ולא המסגרת של כפתור.
+ROW_LAYOUT = """() => {
+  const row = document.querySelector('.editor-switcher-actions');
+  const rtl = getComputedStyle(row).direction === 'rtl';
+  const nameOf = (e) => e.matches('.btn-switch-editor') ? 'switch' : e.matches('.md-toolbar-trigger') ? 'MD'
+    : e.closest('.code-tools-group') ? 'tools'
+    : (e.className.toString().match(/btn-editor-(select|copy|paste|undo|redo)/) || [])[1];
+  const selector = '.btn-switch-editor, .btn-editor-clip, .md-toolbar-trigger,'
+    + ' .code-tools-group > .btn, .code-tools-group > a';
+  const buttons = [...row.querySelectorAll(selector)]
+    .filter((e) => e.getClientRects().length).map((e) => ({n: nameOf(e), box: e.getBoundingClientRect()}));
+  const lines = [];
+  [...buttons].sort((a, b) => a.box.top - b.box.top).forEach((it) => {
+    const line = lines.find((l) => it.box.top < l.bottom && it.box.bottom > l.top);
+    if (line) { line.items.push(it); line.bottom = Math.max(line.bottom, it.box.bottom); }
+    else lines.push({top: it.box.top, bottom: it.box.bottom, items: [it]});
+  });
+  const order = (a, b) => rtl ? b.box.right - a.box.right : a.box.left - b.box.left;
+  lines.forEach((l) => l.items.sort(order));
+  const items = [...row.children].filter((c) => !c.matches('.editor-info-slot') && c.getClientRects().length);
+  const groups = items.map((c) => {
+    const s = getComputedStyle(c);
+    const box = c.getBoundingClientRect();
+    const sameLine = items.filter((o) => o !== c).map((o) => o.getBoundingClientRect())
+      .filter((o) => o.top < box.bottom && o.bottom > box.top);
+    const first = sameLine.every((o) => rtl ? o.right <= box.left + 1 : o.left >= box.right - 1);
+    const name = c.matches('.btn-switch-editor') ? 'switch' : c.matches('.editor-clipboard-actions') ? 'clipboard'
+      : c.matches('.editor-history-actions') ? 'history' : c.matches('.md-toolbar-group') ? 'MD' : 'tools';
+    // קו הפרדה = קו בתחילת הפריט ורווח לפניו. בלי הרווח זו המסגרת של הפריט עצמו (כמו של "עורך פשוט")
+    const divider = s.borderInlineStartStyle !== 'none' && parseFloat(s.borderInlineStartWidth) > 0
+      && parseFloat(s.marginInlineStart) > 0;
+    return {name, divider, first};
+  });
+  const heights = buttons.filter((b) => ['select', 'copy', 'paste', 'undo', 'redo'].includes(b.n))
+    .map((b) => b.box.height);
+  return {
+    lines: lines.map((l) => l.items.map((i) => i.n).filter((n, i, all) => n !== 'tools' || all[i - 1] !== 'tools')),
+    groups, heights: [...new Set(heights.map((h) => Math.round(h * 10) / 10))],
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  };
 }"""
+
+
+def _row(page) -> dict:
+    """השורה (``ROW_LAYOUT``), אחרי שבדקנו את הכלל של קווי ההפרדה: לכל פריט יש קו לפניו, חוץ מהראשון בכל שורה.
+
+    מחכים קודם שני פריימים: אחרי שינוי ברוחב (תצוגה חיה, חלון) ``watchSwitcherRow`` מסדר מחדש ב-
+    ``requestAnimationFrame`` — בכוונה, כי סידור בתוך ה-callback של ``ResizeObserver`` משנה את גובה השורה, שהוא
+    עצמו מאזין לה, והדפדפן מדווח על כך כשגיאת "ResizeObserver loop"."""
+    page.evaluate(
+        "() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))"
+    )
+    layout = page.evaluate(ROW_LAYOUT)
+    for group in layout["groups"]:
+        assert group["divider"] == (not group["first"]), layout
+    return layout
 
 
 def _set_preview(page, on: bool) -> None:
@@ -198,19 +250,20 @@ def _notice(page) -> None:
 
 
 def test_a_notice_does_not_move_the_editor(edit_page):
-    """ההודעה הזמנית צפה ברווח שבין הכפתורים לסרגל ה-MD, ולכן העורך לא זז והיא לא מכסה את כפתור ה-MD. עד התיקון
-    הראשון היא ישבה בשורה משלה, שגדלה כשהטקסט הופיע (נמדד כאן: כפיקסל אחד); אחריו — במקום התווית "קיצורי מקלדת
-    זמינים", שהוסרה בנובמבר 2026. בלי ההודעה הצפה, ברוחב 820 הודעה הורידה את העורך 31px; ובקצה השורה, היכן שהתווית
-    הייתה, היא כיסתה את כפתור ה-MD בכל רוחב (נמדד). כל מצב נקבע כאן במפורש: שורה רחבה (התצוגה החיה כבויה), שורה
-    צרה (התצוגה דלוקה, והשורה בחצי של העורך), ודף ברוחב 820. בשורה צרה ההודעה מכסה חלק מהכפתור שלפניה — זו
-    ההחלטה של המשתמש — אבל לא את כפתור ה-MD."""
+    """ההודעה הזמנית צפה ברווח שאחרי הכפתור האחרון בשורה — סרגל ה-MD — ולכן העורך לא זז והיא לא מכסה את כפתור
+    ה-MD. עד התיקון הראשון היא ישבה בשורה משלה, שגדלה כשהטקסט הופיע (נמדד כאן: כפיקסל אחד); אחריו — במקום התווית
+    "קיצורי מקלדת זמינים", שהוסרה בנובמבר 2026. בלי ההודעה הצפה, ברוחב 820 הודעה הורידה את העורך 31px; ובקצה
+    השורה, היכן שהתווית הייתה, היא כיסתה את כפתור ה-MD בכל רוחב (נמדד). כל מצב נקבע כאן במפורש: שורה רחבה
+    (התצוגה החיה כבויה), שורה צרה (התצוגה דלוקה, והשורה בחצי של העורך), ודף ברוחב 820. בשורה צרה ההודעה מכסה
+    חלק מהכפתור שלפניה — זו ההחלטה של המשתמש — אבל לא את כפתור ה-MD."""
     page = edit_page
     assert page.evaluate(
         "() => !document.querySelector('.editor-switcher').textContent.includes('קיצורי מקלדת')"
     ), 'התווית "קיצורי מקלדת זמינים" הוסרה'
     for preview_on, covered in ((False, ".editor-switcher button"), (True, ".md-toolbar-trigger")):
         _set_preview(page, preview_on)
-        assert page.evaluate(MD_AT_ROW_END), preview_on
+        # MD אחרון בשורה שלו — אחריו רק הרווח שבו ההודעה צפה
+        assert [line[-1] for line in _row(page)["lines"] if "MD" in line] == ["MD"], preview_on
         before = page.evaluate(ROW_AND_EDITOR)
         _notice(page)
         assert page.evaluate(ROW_AND_EDITOR) == before, preview_on
@@ -418,13 +471,13 @@ def test_a_swipe_after_dragging_the_seam_does_not_resize_the_panels(edit_page):
 
 #: הכפתורים "בטל" ו"בצע שוב": המקום בשורה, המצב, אם הם מוצגים, וכיוון האייקון.
 HISTORY_BUTTONS = """() => {
-  const group = document.querySelector('.editor-clipboard-actions');
+  const group = document.querySelector('.editor-history-actions');
   const undo = group.querySelector('.btn-editor-undo');
   const redo = group.querySelector('.btn-editor-redo');
   const buttons = [...group.querySelectorAll('button')];
   return {
     first: buttons.indexOf(undo) === 0 && buttons.indexOf(redo) === 1,
-    shown: [undo, redo].map((b) => getComputedStyle(b).display !== 'none'),
+    shown: [undo, redo].map((b) => b.getClientRects().length > 0),
     disabled: [undo.disabled, redo.disabled],
     icon: getComputedStyle(undo.querySelector('i')).transform,
   };
@@ -465,6 +518,11 @@ def test_undo_and_redo_on_the_edit_page_and_none_in_the_simple_editor(edit_page)
         page.click(".btn-switch-editor")
         page.wait_for_function("window.editorManager.currentEditor === 'simple'", timeout=10000)
         assert page.evaluate(HISTORY_BUTTONS)["shown"] == [False, False]
+        # הקבוצה כולה מוסתרת, ולכן גם הקו שלפניה; MD אחרי "הדבק", עם קו (``_row`` בודק את הקווים)
+        page.wait_for_function(
+            "() => !document.querySelector('.editor-history-actions').getClientRects().length"
+        )
+        assert _row(page)["lines"] == [["switch", "select", "copy", "paste", "MD"]]
         # התווית של העורך הפשוט נשארה; רק "קיצורי מקלדת זמינים" של העורך המתקדם הוסרה
         label = (
             "() => { const l = document.querySelector('.editor-info-primary');"
@@ -480,35 +538,25 @@ def test_undo_and_redo_on_the_edit_page_and_none_in_the_simple_editor(edit_page)
         state = page.evaluate(HISTORY_BUTTONS)
         assert state["shown"] == [True, True] and state["disabled"] == [True, True], state
         assert page.evaluate(label) is None
+        assert _row(page)["lines"] == [["switch", "select", "copy", "paste", "undo", "redo", "MD"]]
     finally:
         _forget_editor_choice(page)
         page.close()
 
 
 # ---------------------------------------------------------------------------
-# סבב חמישי (נובמבר 2026): שורת הכפתורים בטלפון, התווית "קוד", והלשוניות "עורך" / "תצוגה חיה".
+# סבב חמישי ושישי (נובמבר 2026): שורת הכפתורים — הסדר, קווי ההפרדה והסידור בשורות — התווית "קוד", והלשוניות
+# "עורך" / "תצוגה מקדימה".
 # ---------------------------------------------------------------------------
 
-#: הכפתורים "הדבק" ו-MD, והשורה: באיזה גובה כל אחד, ומה הרוחב שלו מול רוחב השורה.
-PASTE_AND_MD = """() => {
-  const box = (s) => document.querySelector(s).getBoundingClientRect();
-  const paste = box('.btn-editor-paste'), md = box('.md-toolbar-trigger'), copy = box('.btn-editor-copy');
-  const row = box('.editor-switcher-row');
-  const label = document.querySelector('label[for="codeTextarea"]');
-  const l = label.getBoundingClientRect();
-  return {
-    pasteMiddle: Math.round(paste.top + paste.height / 2), mdMiddle: Math.round(md.top + md.height / 2),
-    copyMiddle: Math.round(copy.top + copy.height / 2),
-    pasteWidth: paste.width, rowWidth: row.width,
-    clipHeights: [...new Set([...document.querySelectorAll('.btn-editor-clip')].filter((b) => b.offsetParent)
-      .map((b) => b.getBoundingClientRect().height))],
-    labelSize: [l.width, l.height],
-    labelOf: document.getElementById('codeTextarea').labels[0].textContent.trim(),
-  };
+#: התווית של שדה הקוד: הגודל שלה על המסך, ומה קורא מסך מקריא כשם השדה.
+CODE_LABEL = """() => {
+  const l = document.querySelector('label[for="codeTextarea"]').getBoundingClientRect();
+  return {size: [l.width, l.height], of: document.getElementById('codeTextarea').labels[0].textContent.trim()};
 }"""
 
 
-def _phone_page(edit_page, width=390):
+def _page_at(edit_page, width=390):
     page = edit_page.context.new_page()
     page.set_viewport_size({"width": width, "height": 844})
     page.goto(f"{ORIGIN}/edit")
@@ -516,27 +564,170 @@ def _phone_page(edit_page, width=390):
     return page
 
 
-def test_on_a_phone_paste_is_as_wide_as_its_text_and_md_sits_beside_it(edit_page):
-    """בטלפון "הדבק" ברוחב הטקסט שלו, וכפתור ה-MD באותה שורה איתו, בקצה. עד נובמבר 2026 הכפתורים התרחבו למלא את
-    השורה: "הדבק", שירד לשורה שנייה לבד, תפס את כולה, ו-MD ירד לשורה שלישית (צילום המסך של המשתמש). וברוחב שבו
-    "הדבק" נכנס לשורה הראשונה, MD ירד לשורה משלו (נמדד ב-390 וב-430). "הדבק", ההודעות ו-MD הם עכשיו יחידה אחת
-    שלא נשברת (``.editor-clip-tail``). כל הכפתורים באותו גובה, גם ברוחב של מחשב, כשכולם ו-MD בשורה אחת: MD גבוה
-    מהם בקצת, והוא לא מותח אותם (``.editor-clip-head``). ובאותו דף: התווית "קוד" שמעל העורך מוסתרת מהעין ונשארת
+def _set_language(page, language: str, file_name: str) -> None:
+    """מחליף שפה ושם קובץ בטופס, כמו משתמש — עם האירועים שהעמוד מאזין להם."""
+    page.evaluate(
+        """([language, fileName]) => {
+          const select = document.getElementById('languageSelect');
+          select.value = language;
+          select.dispatchEvent(new Event('change', {bubbles: true}));
+          const name = document.querySelector('input[name="file_name"]');
+          name.value = fileName;
+          name.dispatchEvent(new Event('input', {bubbles: true}));
+        }""",
+        [language, file_name],
+    )
+
+
+#: מספר השורות שבחר ``layoutSwitcherRow`` — נקבע אחרי ``requestAnimationFrame``, ולכן מחכים לו.
+ROWS = "() => document.querySelector('.editor-switcher-actions').dataset.rows"
+
+
+def test_on_a_computer_the_row_is_switch_copy_history_then_md(edit_page):
+    """במחשב, מימין לשמאל: "עורך פשוט" | "בחר הכל, העתק, הדבק" | "בטל, בצע שוב" | MD — כל הכפתורים צמודים, קו הפרדה
+    בין כל שני פריטים ולא לפני הראשון, וכולם באותו גובה. בקובץ שאינו Markdown אין MD, ובקובץ פייתון כלי הקוד
+    באים במקומו. עד נובמבר 2026 "בטל / בצע שוב" ישבו לפני "בחר הכל", בלי קווים, ו-MD בקצה השני של השורה. כשהשורה
+    צרה מכדי שהכול ייכנס בשורה אחת — התצוגה החיה דלוקה, או החלון הוקטן — אותו סידור כמו בטלפון: המתג, "בטל /
+    בצע שוב" ו-MD למעלה, "בחר הכל / העתק / הדבק" למטה. ``_row`` בודק שאין קו בתחילת שורה."""
+    page = _page_at(edit_page, 1000)
+    try:
+        # שגיאות בחלון לאורך כל השינויים בבדיקה — ובפרט "ResizeObserver loop", שסידור בתוך ה-callback גורם לה
+        page.evaluate(
+            "() => { window.__rowErrors = [];"
+            " window.addEventListener('error', (e) => window.__rowErrors.push(String(e.message))); }"
+        )
+        layout = _row(page)
+        assert layout["lines"] == [
+            ["switch", "select", "copy", "paste", "undo", "redo", "MD"]
+        ], layout
+        assert [g["name"] for g in layout["groups"]] == [
+            "switch",
+            "clipboard",
+            "history",
+            "MD",
+        ], layout
+        assert len(layout["heights"]) == 1, layout
+        # הראשון בשורה בלי קו — אבל המסגרת והריפוד שלו נשארים (נמדד בזמן הפיתוח: כלל שאיפס את הקו בתחילת שורה
+        # מחק ל"עורך פשוט" את הצד הימני של המסגרת ואת הריפוד שם)
+        switch = page.evaluate(
+            "() => { const s = getComputedStyle(document.querySelector('.btn-switch-editor'));"
+            " return [s.borderInlineStartWidth, s.borderInlineEndWidth, s.paddingInlineStart, s.paddingInlineEnd]; }"
+        )
+        assert switch[0] == switch[1] and switch[2] == switch[3], switch
+
+        space = (
+            "() => parseFloat(getComputedStyle(document.querySelector('.editor-history-actions'))"
+            ".marginInlineStart)"
+        )
+        wide_space = page.evaluate(space)
+        _set_preview(page, True)
+        page.wait_for_function(f"({ROWS})() !== '1'")
+        layout = _row(page)
+        assert layout["lines"][0][:3] == ["switch", "undo", "redo"], layout
+        assert layout["lines"][-1] == ["select", "copy", "paste"], layout
+        # בכמה שורות הרווח סביב הקו קטן יותר — כך MD נכנס לשורה הראשונה כבר ברוחב 390 (ההערה ב-
+        # ``codemirror-custom.css``; בבדיקה, בלי אייקונים, הכפתורים צרים מכדי שהרוחב יכריע)
+        assert 0 < page.evaluate(space) < wide_space
+        _set_preview(page, False)
+        page.wait_for_function(f"({ROWS})() === '1'")
+
+        # חלון שהוקטן: הסידור מתעדכן לבד (``ResizeObserver``)
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function(f"({ROWS})() !== '1'")
+        assert _row(page)["lines"][-1] == ["select", "copy", "paste"]
+        page.set_viewport_size({"width": 1366, "height": 844})
+        page.wait_for_function(f"({ROWS})() === '1'")
+
+        _set_language(page, "text", "notes.txt")
+        page.wait_for_function(
+            "() => !document.querySelector('.md-toolbar-group').getClientRects().length"
+        )
+        assert _row(page)["lines"] == [["switch", "select", "copy", "paste", "undo", "redo"]]
+
+        _set_language(page, "python", "tool.py")
+        page.wait_for_function(
+            "() => document.querySelector('.code-tools-group').getClientRects().length > 0"
+        )
+        layout = _row(page)
+        assert layout["lines"] == [
+            ["switch", "select", "copy", "paste", "undo", "redo", "tools"]
+        ], layout
+        assert [g["name"] for g in layout["groups"]] == [
+            "switch",
+            "clipboard",
+            "history",
+            "tools",
+        ], layout
+        assert page.evaluate("() => window.__rowErrors") == []
+    finally:
+        page.close()
+
+
+def test_on_a_phone_the_switch_and_history_come_first_and_the_copy_buttons_below(edit_page):
+    """בטלפון: בשורה הראשונה "עורך פשוט" | "בטל, בצע שוב" | MD, ובשנייה "בחר הכל, העתק, הדבק". ברוחב שבו MD לא
+    נכנס לשורה הראשונה הוא יורד לשורה משלו, בין השתיים (החלטת המשתמש). בלי קו בתחילת שורה, וכל הכפתורים באותו
+    גובה. **הרוחבים כאן אינם אלה של המכשיר:** בבדיקה גופן האייקונים (Font Awesome, מ-CDN) לא נטען, ולכן הכפתורים
+    צרים יותר; עם האייקונים MD יורד כבר ב-360 (נמדד). ובאותו דף: התווית "קוד" שמעל העורך מוסתרת מהעין ונשארת
     לקורא מסך."""
-    for width in (360, 390, 430, 1000):
-        page = _phone_page(edit_page, width)
+    cases = (
+        (390, [["switch", "undo", "redo", "MD"], ["select", "copy", "paste"]]),
+        (320, [["switch", "undo", "redo"], ["MD"], ["select", "copy", "paste"]]),
+    )
+    for width, expected in cases:
+        page = _page_at(edit_page, width)
         try:
-            state = page.evaluate(PASTE_AND_MD)
-            assert state["pasteMiddle"] == state["mdMiddle"], (width, state)
-            assert len(state["clipHeights"]) == 1, (width, state)
-            # בטלפון "הדבק" ו-MD בשורה השנייה; במחשב הכול בשורה אחת
-            assert (state["pasteMiddle"] > state["copyMiddle"]) == (width < 768), (width, state)
-            assert state["pasteWidth"] < state["rowWidth"] / 3, (width, state)
-            assert page.evaluate(MD_AT_ROW_END), width
-            assert state["labelSize"] == [1, 1], (width, state)
-            assert state["labelOf"] == "קוד", (width, state)
+            layout = _row(page)
+            assert layout["lines"] == expected, (width, layout)
+            assert len(layout["heights"]) == 1 and not layout["overflow"], (width, layout)
+            assert page.evaluate(CODE_LABEL) == {"size": [1, 1], "of": "קוד"}, width
         finally:
             page.close()
+
+
+DIVIDER = """(selector) => {
+  const g = document.querySelector(selector);
+  const box = g.getBoundingClientRect();
+  const s = getComputedStyle(g);
+  const rtl = getComputedStyle(g.parentElement).direction === 'rtl';
+  const w = parseFloat(s.borderInlineStartWidth) || 0;
+  return {x: rtl ? box.right - w / 2 : box.left + w / 2, outside: rtl ? 3 : -3,
+          top: box.top + 4, bottom: box.bottom - 4};
+}"""
+
+
+def test_the_dividers_show_also_in_a_light_theme(edit_page):
+    """קו ההפרדה בצבע הטקסט של השורה, בעוצמה נמוכה, ולכן הוא נראה בכל ערכה. עד נובמבר 2026 היה רק קו אחד, לפני
+    MD, לבן ב-15%: ב-Rose Pine Dawn ניגודיות 1.03 מול הרקע — לא נראה; עכשיו 1.69 (נמדד בדגימת פיקסלים, כמו
+    כאן)."""
+    import io
+    import statistics
+
+    from PIL import Image
+
+    page = _page_at(edit_page, 1100)
+    try:
+        page.evaluate("() => document.documentElement.setAttribute('data-theme', 'rose-pine-dawn')")
+        page.wait_for_timeout(250)
+        shot = Image.open(io.BytesIO(page.screenshot())).convert("RGB")
+        dpr = 2  # ה-``device_scale_factor`` של ההקשר ב-``edit_page``
+        for selector in (
+            ".editor-clipboard-actions",
+            ".editor-history-actions",
+            ".md-toolbar-group",
+        ):
+            d = page.evaluate(DIVIDER, selector)
+            ys = range(round(d["top"] * dpr), round(d["bottom"] * dpr))
+
+            def column(x, ys=ys):
+                return tuple(
+                    statistics.median(shot.getpixel((round(x * dpr), y))[i] for y in ys)
+                    for i in range(3)
+                )
+
+            line, beside = column(d["x"]), column(d["x"] + d["outside"])
+            assert _contrast(line, beside) >= 1.5, (selector, line, beside)
+    finally:
+        page.close()
 
 
 #: ערכות מיובאות לדוגמה — המשתנים שהמפרסר מייצר, על ``:root`` (כמו הבלוק ``user-custom-theme`` של ``base.html``).
@@ -614,19 +805,24 @@ def _tab_pixels(page, border: float):
 def test_on_a_phone_the_tabs_come_with_the_preview_and_the_selected_one_stands_out_in_every_theme(
     edit_page,
 ):
-    """הלשוניות מופיעות רק כשהתצוגה החיה דלוקה, והשנייה נקראת "תצוגה חיה". הנבחרת מסומנת בכל ערכה, גם מיובאת:
+    """הלשוניות מופיעות רק כשהתצוגה החיה דלוקה, והשנייה נקראת בקובץ Markdown "תצוגה מקדימה" ובקובץ HTML "תצוגה
+    חיה" (נובמבר 2026, החלטת המשתמש; הכיתוב מתעדכן כשמשנים שפה). הנבחרת מסומנת בכל ערכה, גם מיובאת:
     הטקסט בצבע של שורת הכלים, מודגש, וקו תחתון באותו צבע — ולכן הקו נראה בכל מקום שבו הטקסט נקרא. הלא נבחרת באותו
     צבע, בלי קו ובלי דהייה. **הבאג:** הנבחרת קיבלה את צבע הטקסט של התצוגה החיה, כמעט לבן, ובערכה בהירה היא כמעט
     נעלמה — ניגודיות 1.42 ב-Rose Pine Dawn (נמדד); ובניגודיות גבוהה שתי הלשוניות נראו אותו דבר. הלשוניות גם הוצגו
     כשהתצוגה כבויה, ו"תצוגה חיה" פתחה פאנל ריק."""
-    page = _phone_page(edit_page)
+    page = _page_at(edit_page)
     try:
         _set_preview(page, False)
         assert [t["shown"] for t in page.evaluate(TABS)] == [False, False]
         _set_preview(page, True)
         tabs = page.evaluate(TABS)
-        assert [t["text"] for t in tabs] == ["עורך", "תצוגה חיה"], tabs
+        assert [t["text"] for t in tabs] == ["עורך", "תצוגה מקדימה"], tabs
         assert [t["shown"] for t in tabs] == [True, True], tabs
+        _set_language(page, "html", "page.html")
+        assert [t["text"] for t in page.evaluate(TABS)] == ["עורך", "תצוגה חיה"]
+        _set_language(page, "markdown", "notes.md")
+        assert [t["text"] for t in page.evaluate(TABS)] == ["עורך", "תצוגה מקדימה"]
 
         for theme, variables in TAB_THEMES:
             page.evaluate(

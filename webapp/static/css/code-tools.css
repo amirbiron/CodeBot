@@ -11,10 +11,10 @@
   margin-bottom: 0.75rem;
 }
 
-/* כשמוזז לתוך editor-switcher-actions */
+/* כשמוזז לתוך editor-switcher-actions. המרווח וקו ההפרדה שלפניו הם של השורה (``.editor-switcher-actions`` ב-
+   ``codemirror-custom.css``), כמו לכל קבוצה בה. */
 .code-tools-group.code-tools-inline {
   margin-bottom: 0;
-  margin-inline-start: 1.5rem;  /* רווח מהכפתורים הקודמים */
 }
 
 .code-tools-group .btn {

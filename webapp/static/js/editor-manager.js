@@ -451,34 +451,32 @@
               <i class="fas fa-exchange-alt"></i>
               <span>${this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'}</span>
             </button>`}
-            <div class="editor-clipboard-actions" role="group" aria-label="פעולות עריכה">
-              <span class="editor-clip-head">
-                <button type="button" class="btn-editor-clip btn-editor-history btn-editor-undo" title="בטל (Ctrl+Z)" aria-label="בטל" aria-keyshortcuts="Control+Z">
-                  <i class="fas fa-arrow-rotate-left" aria-hidden="true"></i>
-                </button>
-                <button type="button" class="btn-editor-clip btn-editor-history btn-editor-redo" title="בצע שוב (Ctrl+Y)" aria-label="בצע שוב" aria-keyshortcuts="Control+Y">
-                  <i class="fas fa-arrow-rotate-right" aria-hidden="true"></i>
-                </button>
-                <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
-                  <i class="fas fa-arrows-alt"></i>
-                  <span>בחר הכל</span>
-                </button>
-                <button type="button" class="btn-editor-clip btn-editor-copy" title="העתק את הקוד">
-                  <i class="far fa-copy"></i>
-                  <span>העתק</span>
-                </button>
-              </span>
-              <span class="editor-clip-tail">
-                <button type="button" class="btn-editor-clip btn-editor-paste" title="הדבק מהלוח">
-                  <i class="fas fa-paste"></i>
-                  <span>הדבק</span>
-                </button>
-                <span class="editor-info-slot">
-                  <span class="editor-info-status" aria-live="polite"></span>
-                  <span class="editor-info-primary"></span>
-                </span>
-              </span>
+            <div class="editor-clipboard-actions" role="group" aria-label="העתקה והדבקה">
+              <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
+                <i class="fas fa-arrows-alt"></i>
+                <span>בחר הכל</span>
+              </button>
+              <button type="button" class="btn-editor-clip btn-editor-copy" title="העתק את הקוד">
+                <i class="far fa-copy"></i>
+                <span>העתק</span>
+              </button>
+              <button type="button" class="btn-editor-clip btn-editor-paste" title="הדבק מהלוח">
+                <i class="fas fa-paste"></i>
+                <span>הדבק</span>
+              </button>
             </div>
+            <div class="editor-history-actions" role="group" aria-label="ביטול וביצוע שוב">
+              <button type="button" class="btn-editor-clip btn-editor-history btn-editor-undo" title="בטל (Ctrl+Z)" aria-label="בטל" aria-keyshortcuts="Control+Z">
+                <i class="fas fa-arrow-rotate-left" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="btn-editor-clip btn-editor-history btn-editor-redo" title="בצע שוב (Ctrl+Y)" aria-label="בצע שוב" aria-keyshortcuts="Control+Y">
+                <i class="fas fa-arrow-rotate-right" aria-hidden="true"></i>
+              </button>
+            </div>
+            <span class="editor-info-slot">
+              <span class="editor-info-status" aria-live="polite"></span>
+              <span class="editor-info-primary"></span>
+            </span>
           </div>
         </div>
       `;
@@ -540,6 +538,102 @@
       if (redoBtn) redoBtn.addEventListener('click', () => this.runHistoryCommand('redo'));
       this._historySwitcher = switcher;
       this.syncHistoryButtons();
+      this.watchSwitcherRow(switcher);
+    }
+
+    /**
+     * מסדר את שורת הכפתורים בשורות, ומחליט לפני מי יש קו הפרדה (``codemirror-custom.css``, ההערה מעל
+     * ``.editor-switcher-actions``). מנסה סידורים לפי הסדר, ובוחר את הראשון שבו כל שורה נכנסת בשורה אחת על המסך:
+     * הכול בשורה אחת; אחרת "עורך פשוט / מתקדם", "בטל / בצע שוב" ו-MD (או כלי הקוד) בשורה הראשונה ו"בחר הכל / העתק /
+     * הדבק" בשנייה; ואחרת MD בשורה משלו, בין השתיים. בלי מתג עורך (העורך הציבורי) הסדר נשאר: "בחר הכל / העתק /
+     * הדבק" ראשונים. כשאף סידור לא נכנס — האחרון. הראשון בכל שורה מסומן ``data-line-start`` ולו אין קו, ולכן קו לא
+     * מופיע בתחילת שורה. ההחלטה לפי מה שבאמת נכנס ולא לפי רוחב מסך: כך היא נכונה גם בשורה צרה במחשב, כשהתצוגה
+     * החיה דלוקה, וגם כשהגופן במכשיר רחב מזה של מכונת הבדיקה. הבדיקה היא חפיפה בציר האנכי בלבד — הכיוון של
+     * הדף לא משנה אותה.
+     */
+    layoutSwitcherRow() {
+      const actions = this._switcherActions;
+      if (!actions || !actions.isConnected) return;
+      const children = Array.from(actions.children);
+      const items = children.filter((el) => !el.classList.contains('editor-info-slot') && el.getClientRects().length > 0);
+      const switchBtn = items.filter((el) => el.classList.contains('btn-switch-editor'));
+      const clip = items.filter((el) => el.classList.contains('editor-clipboard-actions'));
+      const history = items.filter((el) => el.classList.contains('editor-history-actions'));
+      const tools = items.filter((el) => !switchBtn.includes(el) && !clip.includes(el) && !history.includes(el));
+      const layouts = [[items]];
+      if (switchBtn.length) {
+        layouts.push([[...switchBtn, ...history, ...tools], clip]);
+        layouts.push([[...switchBtn, ...history], tools, clip]);
+      } else {
+        layouts.push([clip, [...history, ...tools]]);
+        layouts.push([clip, history, tools]);
+      }
+      for (const layout of layouts) {
+        const rows = layout.filter((row) => row.length);
+        children.forEach((el) => {
+          el.removeAttribute('data-row');
+          el.removeAttribute('data-line-start');
+        });
+        actions.dataset.rows = String(Math.max(rows.length, 1));
+        rows.forEach((row, index) => {
+          row.forEach((el, position) => {
+            if (rows.length > 1) el.dataset.row = String(index + 1);
+            if (position === 0) el.dataset.lineStart = '';
+          });
+        });
+        const fits = rows.every((row) => {
+          const first = row[0].getBoundingClientRect();
+          return row.every((el) => {
+            const box = el.getBoundingClientRect();
+            return box.top < first.bottom && box.bottom > first.top;
+          });
+        });
+        if (fits) return;
+      }
+    }
+
+    /**
+     * מסדר את השורה מחדש כשמשהו בה משתנה: כשמתווספים אליה סרגל ה-MD או כלי הקוד (``MutationObserver``), וכשרוחב
+     * השורה או הגודל של פריט בה משתנים — חלון, תצוגה חיה, החלפת עורך (הכיתוב של המתג, "בטל / בצע שוב" שמוסתרים),
+     * גופן שנטען, MD שמופיע לפי השפה (``ResizeObserver``). שינוי בגובה של השורה עצמה לא נחשב: הסידור עצמו משנה
+     * אותו. הסידור אחרי ``ResizeObserver`` נדחה ל-``requestAnimationFrame`` כדי לא לשנות פריסה בתוך ה-callback שלו.
+     */
+    watchSwitcherRow(switcher) {
+      const actions = switcher.querySelector('.editor-switcher-actions');
+      if (!actions) return;
+      this._switcherActions = actions;
+      this.layoutSwitcherRow();
+      let resizeObserver = null;
+      if (typeof ResizeObserver === 'function') {
+        const lastSize = new WeakMap();
+        let frame = 0;
+        resizeObserver = new ResizeObserver((entries) => {
+          let changed = false;
+          entries.forEach((entry) => {
+            const { width, height } = entry.contentRect;
+            const prev = lastSize.get(entry.target);
+            lastSize.set(entry.target, { width, height });
+            if (!prev || prev.width !== width || (entry.target !== actions && prev.height !== height)) changed = true;
+          });
+          if (!changed || frame) return;
+          frame = requestAnimationFrame(() => {
+            frame = 0;
+            this.layoutSwitcherRow();
+          });
+        });
+        resizeObserver.observe(actions);
+        Array.from(actions.children).forEach((el) => resizeObserver.observe(el));
+      }
+      if (typeof MutationObserver === 'function') {
+        new MutationObserver((records) => {
+          records.forEach((record) => {
+            record.addedNodes.forEach((node) => {
+              if (resizeObserver && node.nodeType === 1) resizeObserver.observe(node);
+            });
+          });
+          this.layoutSwitcherRow();
+        }).observe(actions, { childList: true });
+      }
     }
 
     /**
@@ -570,12 +664,13 @@
     syncHistoryButtons(state) {
       const switcher = this._historySwitcher;
       if (!switcher) return;
+      const group = switcher.querySelector('.editor-history-actions');
       const undoBtn = switcher.querySelector('.btn-editor-undo');
       const redoBtn = switcher.querySelector('.btn-editor-redo');
-      if (!undoBtn || !redoBtn) return;
+      if (!group || !undoBtn || !redoBtn) return;
       const simple = this.currentEditor === 'simple';
-      undoBtn.hidden = simple;
-      redoBtn.hidden = simple;
+      // הקבוצה כולה, ולא שני הכפתורים: כך גם קו ההפרדה שלפניה נעלם (``layoutSwitcherRow`` מסדר מחדש)
+      group.hidden = simple;
       if (simple) return;
       const editorState = state || (this.cmInstance && this.cmInstance.state);
       const cm = window.CodeMirror6;
