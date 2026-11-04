@@ -2,14 +2,13 @@
    סרגל כלים Markdown
    ============================================ */
 
-/* הסרגל הראשי */
+/* הסרגל הראשי. בעמודי העריכה וההעלאה הוא עובר לשורת הכפתורים של העורך (``moveToEditorRow`` ב-
+   ``markdown-toolbar.js``), והמרווח וקו ההפרדה שלפניו הם של השורה (``.editor-switcher-actions`` ב-
+   ``codemirror-custom.css``), כמו לכל קבוצה בה. עד נובמבר 2026 הקו היה כאן, לבן ב-15%. */
 .md-toolbar-group {
   display: none; /* מוסתר בברירת מחדל */
   align-items: center;
   gap: 0.25rem;
-  margin-inline-start: auto; /* דחיפה ימינה (RTL) */
-  padding-inline-start: 0.75rem;
-  border-inline-start: 1px solid rgba(255, 255, 255, 0.15);
   position: relative;
 }
 
@@ -222,9 +221,6 @@
    הכללים שלמעלה, כולל אלה שבתוך @media למובייל ו-:root[dir="rtl"], בלי תלות בסדר הקובץ. */
 .md-toolbar-group.md-toolbar-group--inline {
   flex-wrap: wrap;
-  margin-inline-start: 0;
-  padding-inline-start: 0;
-  border-inline-start: none;
 }
 
 .md-toolbar-group.md-toolbar-group--inline .md-toolbar-dropdown {

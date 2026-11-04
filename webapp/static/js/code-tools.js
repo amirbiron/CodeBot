@@ -47,13 +47,13 @@ const CodeToolsIntegration = {
       // בדוק אם כבר הועבר
       if (toolsGroup.parentElement === editorActions) return;
       
-      // הוסף רווח מפריד לפני כפתורי Code Tools
       toolsGroup.classList.add('code-tools-inline');
-      
-      // הכנס אחרי editor-clipboard-actions
-      const clipboardActions = editorActions.querySelector('.editor-clipboard-actions');
-      if (clipboardActions) {
-        clipboardActions.after(toolsGroup);
+
+      // אחרון בשורה, לפני התא של ההודעות (``.editor-info-slot``, תמיד אחרון): אחרי "בטל / בצע שוב", במקום שבו
+      // סרגל ה-MD יושב בקובץ Markdown. הסידור בשורות וקו ההפרדה — ``layoutSwitcherRow`` ב-``editor-manager.js``.
+      const infoSlot = editorActions.querySelector(':scope > .editor-info-slot');
+      if (infoSlot) {
+        infoSlot.before(toolsGroup);
       } else {
         editorActions.appendChild(toolsGroup);
       }
